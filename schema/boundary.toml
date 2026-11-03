@@ -149,8 +149,8 @@ params = [
 
 [[modules]]
 name = "drawing"
-description = "図面（DXF・DWG・SXF・JWW）と、図面のレビュー。土木の線形（J-LandXML）と、地理の地物（CityGML）。電子納品の成果品・工事写真・表・ボーリング交換用データ"
-formats = ["dxf", "dwg", "sxf", "jww", "landxml", "citygml", "las", "ply", "xyz", "e57"]
+description = "図面（DXF・DWG・SXF・JWW）と、図面のレビュー。土木の線形（J-LandXML）と、地理の地物（CityGML・基盤地図情報）。電子納品の成果品・工事写真・表・ボーリング交換用データ"
+formats = ["dxf", "dwg", "sxf", "jww", "landxml", "citygml", "fgd", "las", "ply", "xyz", "e57"]
 ops = [
     "capabilities", "open", "close", "describe", "drawing", "entities", "apply", "convert", "tables", "scene",
     "check", "review_carry", "review_adopt", "civil", "pointcloud", "deviation",
@@ -240,6 +240,12 @@ rules = [{ xml-root = "LandXML", namespace = "http://www.landxml.org/schema/Land
 format = "citygml"
 module = "drawing"
 rules = [{ xml-root = "CityModel", namespace = "http://www.opengis.net/citygml/2.0" }]
+
+# 基盤地図情報（GML）。根の Dataset と名前空間で見分ける（#378）
+[[detection]]
+format = "fgd"
+module = "drawing"
+rules = [{ xml-root = "Dataset", namespace = "http://fgd.gsi.go.jp/spec/2008/FGD_GMLSchema" }]
 
 # ZIP に入れた SXF（SFZ・P2Z）。ifcZIP より前に、書庫の項目の名前で分ける
 [[detection]]

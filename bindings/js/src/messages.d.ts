@@ -2949,11 +2949,11 @@ export interface DeliveryManaged {
   missing: string[];
 }
 
-/** open で開いた CityGML の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。図面のモジュールに置く。小版 52 から */
+/** open で開いた CityGML か基盤地図情報（GML）の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。図面のモジュールに置く。小版 52 から */
 export interface GeoRequest extends RequestCommon {
   /** op の名前 */
   op: "geo";
-  /** open で開いた CityGML の文書の名前 */
+  /** open で開いた CityGML か基盤地図情報（GML）の文書の名前 */
   doc: string;
   /** 中身を返す地物の ID */
   id?: string;

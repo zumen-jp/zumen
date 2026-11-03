@@ -36,8 +36,8 @@ export const WASM_EXPORTS = Object.freeze([
 /** wasm のモジュール。名前から、持つ形式と op を引く（決定 0013・0221） */
 export const MODULES = Object.freeze({
   drawing: Object.freeze({
-    description: "図面（DXF・DWG・SXF・JWW）と、図面のレビュー。土木の線形（J-LandXML）と、地理の地物（CityGML）。電子納品の成果品・工事写真・表・ボーリング交換用データ",
-    formats: Object.freeze(["dxf", "dwg", "sxf", "jww", "landxml", "citygml", "las", "ply", "xyz", "e57"]),
+    description: "図面（DXF・DWG・SXF・JWW）と、図面のレビュー。土木の線形（J-LandXML）と、地理の地物（CityGML・基盤地図情報）。電子納品の成果品・工事写真・表・ボーリング交換用データ",
+    formats: Object.freeze(["dxf", "dwg", "sxf", "jww", "landxml", "citygml", "fgd", "las", "ply", "xyz", "e57"]),
     ops: Object.freeze(["capabilities", "open", "close", "describe", "drawing", "entities", "apply", "convert", "tables", "scene", "check", "review_carry", "review_adopt", "civil", "pointcloud", "deviation", "civil_drawing", "geo", "delivery_check", "photo", "sheet", "boring", "lift"]),
   }),
   bim: Object.freeze({
@@ -130,6 +130,13 @@ export const DETECTION = Object.freeze([
     module: "drawing",
     rules: Object.freeze([
       Object.freeze({ kind: "xml_root", name: "CityModel", namespace: "http://www.opengis.net/citygml/2.0" }),
+    ]),
+  }),
+  Object.freeze({
+    format: "fgd",
+    module: "drawing",
+    rules: Object.freeze([
+      Object.freeze({ kind: "xml_root", name: "Dataset", namespace: "http://fgd.gsi.go.jp/spec/2008/FGD_GMLSchema" }),
     ]),
   }),
   Object.freeze({

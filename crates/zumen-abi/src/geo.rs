@@ -1,9 +1,11 @@
-//! 地理の領域モデル（決定 0233）の境界の処理。CityGML を読み、`geo` の op で要約と地物の中身を返す。
+//! 地理の領域モデル（決定 0233）の境界の処理。CityGML と基盤地図情報（GML）を読み、`geo` の op で要約と地物の
+//! 中身を返す。
 
 use std::collections::BTreeMap;
 
 use zumen_base::{Cx, Diagnostic, codes};
 use zumen_citygml::CityGml;
+use zumen_fgd::Fgd;
 use zumen_geo::{Feature, Form, GeoModel, Value};
 use zumen_geom3d::Shape;
 use zumen_sdk::{Codec, Lift};
@@ -13,17 +15,21 @@ use crate::messages::{
 };
 use crate::session::{Failed, fail};
 
-/// CityGML なら読み、地理の領域モデルに移す。ほかの形式なら `None`
-pub(crate) fn read(bytes: &[u8], cx: &mut Cx<'_>) -> Option<Result<GeoModel, Failed>> {
-    if !CityGml::SIGNATURES.iter().any(|rule| rule.matches(bytes)) {
-        return None;
-    }
+/// CityGML か基盤地図情報なら読み、地理の領域モデルに移す。形式の名前と一緒に返す。ほかの形式なら `None`
+pub(crate) fn read(
+    bytes: &[u8],
+    cx: &mut Cx<'_>,
+) -> Option<(&'static str, Result<GeoModel, Failed>)> {
     // 失敗の理由は、コーデックと移す処理が診断として足してある
-    Some(
-        CityGml::read(bytes, cx)
-            .and_then(|file| file.lift(cx))
-            .map_err(|_| Failed),
-    )
+    if CityGml::SIGNATURES.iter().any(|rule| rule.matches(bytes)) {
+        let model = CityGml::read(bytes, cx).and_then(|file| file.lift(cx));
+        return Some((CityGml::FORMAT, model.map_err(|_| Failed)));
+    }
+    if Fgd::SIGNATURES.iter().any(|rule| rule.matches(bytes)) {
+        let model = Fgd::read(bytes, cx).and_then(|file| file.lift(cx));
+        return Some((Fgd::FORMAT, model.map_err(|_| Failed)));
+    }
+    None
 }
 
 /// 地理の領域モデルの要約と、`id` で指した地物の中身
@@ -136,7 +142,7 @@ fn feature(model: &GeoModel, index: usize) -> Option<GeoFeature> {
     })
 }
 
-/// 面の集まりの点と面の数
+/// 面の集まりと三角形の集まりの点と面の数
 fn count(shape: &Shape) -> (usize, usize) {
     match shape {
         Shape::FaceSet { faces, .. } => (
@@ -146,6 +152,11 @@ fn count(shape: &Shape) -> (usize, usize) {
                 .sum(),
             faces.len(),
         ),
+        Shape::Triangles {
+            positions,
+            triangles,
+            ..
+        } => (positions.len(), triangles.len()),
         Shape::Mapped { shape, .. } => count(shape),
         _ => (0, 0),
     }

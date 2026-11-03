@@ -240,6 +240,16 @@
 - 確認日: 2026-11-02
 - 補足: 2025-04-01 に fgd.gsi.go.jp から service.gsi.go.jp/kiban へ移った。2025-07-31 からのデータが使う版で、座標参照系が JGD2011 から JGD2024 に変わる。GML のスキーマは Ver5.1（FGD\_GMLSchemaV5.1.zip）に対応する。service.gsi.go.jp はこの作業の環境に 403 を返すので、Internet Archive の 2025-08-14 の写しで確かめた。第 5.3 版もある
 
+### spec-fgd_dl_5_3
+
+- 名前: 基盤地図情報ダウンロードデータファイル仕様書
+- 公開元: 国土地理院
+- 版: 第 5.3 版（2026-07-31）
+- 入手の条件: 無償公開
+- 入手先: [基盤地図情報ダウンロードデータファイル仕様書](https://service.gsi.go.jp/kiban/app/help/)
+- 確認日: 2026-11-03
+- 補足: DEM 種別に 1m メッシュ（標高）を、DEM 構成点種別に海水底面・内水底面を足した版。GML のスキーマは Ver5.1（FGD\_GMLSchemaV5.1.zip）のまま。service.gsi.go.jp はこの作業の環境に 403 を返すので、Internet Archive の 2026-10-25 の写しで確かめた
+
 ### spec-ids_1_0
 
 - 名前: Information Delivery Specification（IDS）
@@ -558,13 +568,15 @@
 
 - 名前: 基盤地図情報（GML）
 - 権利の根拠: 国土地理院がファイル仕様書と GML のスキーマを無償で公開している。実装を制限する記述はない。基盤地図情報は測量成果で、データの複製と使用には測量法の承認（基盤地図情報は無償で承認する）が要る場合があるので、データは同梱せず利用者が渡す（決定 0019 のジオイド・モデルと同じ扱い）
-- 仕様: [fgd\_dl\_5\_2](#spec-fgd_dl_5_2)、[fgd\_dl\_4\_1](#spec-fgd_dl_4_1)
+- 仕様: [fgd\_dl\_5\_3](#spec-fgd_dl_5_3)、[fgd\_dl\_5\_2](#spec-fgd_dl_5_2)、[fgd\_dl\_4\_1](#spec-fgd_dl_4_1)
 - 実装の根拠: spec
 - 権利の根拠にした文書: [国土地理院「測量成果の複製・使用承認の Q&amp;A」](https://www.gsi.go.jp/LAW/2930-qa.html)（確認日: 2026-11-01）
 - 照合するソフト: 基盤地図情報ビューアー・QGIS
 - サンプルの出どころ（Git に入れない）: 利用者が国土地理院から入手したデータ。Git・パッケージ・試験に入れない。試験の中で小さな GML を作る
 - 記録: [決定 0019](../decisions/0019-coordinate-systems-and-gsi-data.md)
+- 記録: [決定 0233](../decisions/0233-geo-model-features.md)
 - issue: [zumen-jp/zumen#378](https://github.com/zumen-jp/zumen/issues/378)
+- 形式の文書: [docs/formats/fgd.md](../../docs/formats/fgd.md)
 
 ### format-ids
 

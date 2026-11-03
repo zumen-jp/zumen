@@ -354,6 +354,7 @@ dependencies = [
  "zumen-delivery",
  "zumen-drawing",
  "zumen-e57",
+ "zumen-fgd",
  "zumen-geo",
  "zumen-geology",
  "zumen-geom2d",
@@ -536,6 +537,18 @@ dependencies = [
  "zumen-crs",
  "zumen-pointcloud",
  "zumen-sdk",
+]
+
+[[package]]
+name = "zumen-fgd"
+version = "0.2.0"
+dependencies = [
+ "zumen-base",
+ "zumen-crs",
+ "zumen-geo",
+ "zumen-geom3d",
+ "zumen-sdk",
+ "zumen-xml",
 ]
 
 [[package]]

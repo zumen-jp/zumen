@@ -5234,7 +5234,7 @@ type DeliveryManaged struct {
 	Missing []string `json:"missing,omitempty"`
 }
 
-// GeoRequest: open で開いた CityGML の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。図面のモジュールに置く。小版 52 から
+// GeoRequest: open で開いた CityGML か基盤地図情報（GML）の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。図面のモジュールに置く。小版 52 から
 type GeoRequest struct {
 	// メッセージのスキーマの大版。今は 1
 	V *int64 `json:"v,omitempty"`
@@ -5254,7 +5254,7 @@ type GeoRequest struct {
 	// op の名前
 	Op string `json:"op,omitempty"`
 
-	// open で開いた CityGML の文書の名前
+	// open で開いた CityGML か基盤地図情報（GML）の文書の名前
 	Doc *string `json:"doc,omitempty"`
 
 	// 中身を返す地物の ID

@@ -1889,6 +1889,64 @@ pub const EXPRESS_VALUE_MISSING: Code = Code::new(
     &["kind", "position"],
 );
 
+/// 座標系（srsName）が扱わない座標系か、文書の座標系と違うので、その形を移さなかった
+///
+/// `fgd.crs.unsupported`（0.2.0 から）
+pub const FGD_CRS_UNSUPPORTED: Code = Code::new(
+    "fgd.crs.unsupported",
+    Severity::Warning,
+    None,
+    &[Param::new("name", ParamType::Text)],
+    &["name"],
+);
+
+/// 地理の領域モデルに移さない要素なので、読まなかった
+///
+/// `fgd.element.unsupported`（0.2.0 から）
+pub const FGD_ELEMENT_UNSUPPORTED: Code = Code::new(
+    "fgd.element.unsupported",
+    Severity::Warning,
+    None,
+    &[Param::new("element", ParamType::Text)],
+    &["element"],
+);
+
+/// DEM 区画の構成点の種別（地表面・表層面など）を点ごとには移さず、種別ごとの点の数だけを属性にした
+///
+/// `fgd.point-kind.dropped`（0.2.0 から）
+pub const FGD_POINT_KIND_DROPPED: Code = Code::new(
+    "fgd.point-kind.dropped",
+    Severity::Info,
+    Some(Fidelity::Dropped),
+    &[Param::new("element", ParamType::Text)],
+    &["element"],
+);
+
+/// 形の参照（xlink:href）が同じ文書の gml:id を指さないので、参照した形を移さなかった
+///
+/// `fgd.reference.unsupported`（0.2.0 から）
+pub const FGD_REFERENCE_UNSUPPORTED: Code = Code::new(
+    "fgd.reference.unsupported",
+    Severity::Warning,
+    None,
+    &[Param::new("href", ParamType::Text)],
+    &["href"],
+);
+
+/// 要素の値が読めないので、その値か形を地理の領域モデルに移さなかった
+///
+/// `fgd.value.invalid`（0.2.0 から）
+pub const FGD_VALUE_INVALID: Code = Code::new(
+    "fgd.value.invalid",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("element", ParamType::Text),
+        Param::new("field", ParamType::Text),
+    ],
+    &["element", "field"],
+);
+
 /// 禁じる仕様の、適用の条件に合う要素がある（指摘）
 ///
 /// `ids.applicability.exists`（0.2.0 から）
@@ -3927,6 +3985,11 @@ pub const ALL: &[Code] = &[
     EXPRESS_SCHEMA_MIXED,
     EXPRESS_VALUE_INVALID,
     EXPRESS_VALUE_MISSING,
+    FGD_CRS_UNSUPPORTED,
+    FGD_ELEMENT_UNSUPPORTED,
+    FGD_POINT_KIND_DROPPED,
+    FGD_REFERENCE_UNSUPPORTED,
+    FGD_VALUE_INVALID,
     IDS_APPLICABILITY_EXISTS,
     IDS_APPLICABILITY_MISSING,
     IDS_APPLICABILITY_UNSUPPORTED,

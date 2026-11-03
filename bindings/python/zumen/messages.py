@@ -5184,7 +5184,7 @@ class DeliveryManaged(_DeliveryManagedRequired, _DeliveryManagedOptional):
     "管理ファイルの要約"
 
 
-# open で開いた CityGML の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。図面のモジュールに置く。小版 52 から
+# open で開いた CityGML か基盤地図情報（GML）の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。図面のモジュールに置く。小版 52 から
 _GeoRequestRequired = TypedDict(
     "_GeoRequestRequired",
     {
@@ -5192,7 +5192,7 @@ _GeoRequestRequired = TypedDict(
         "v": int,
         # op の名前
         "op": Literal["geo"],
-        # open で開いた CityGML の文書の名前
+        # open で開いた CityGML か基盤地図情報（GML）の文書の名前
         "doc": str,
     },
 )
@@ -5215,7 +5215,7 @@ _GeoRequestOptional = TypedDict(
 
 
 class GeoRequest(_GeoRequestRequired, _GeoRequestOptional):
-    "open で開いた CityGML の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。図面のモジュールに置く。小版 52 から"
+    "open で開いた CityGML か基盤地図情報（GML）の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。図面のモジュールに置く。小版 52 から"
 
 
 # 地理の領域モデルの要約
