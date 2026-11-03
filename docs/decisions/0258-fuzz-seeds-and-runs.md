@@ -1,0 +1,52 @@
+# 0258: fuzz の種に公開サンプルと合成の入力を使い、crate を変えた PR で短く、毎晩長く流す
+
+| 項目 | 内容 |
+| --- | --- |
+| 日付 | 2026-11-03 |
+| 状態 | 採用 |
+
+## 背景
+
+[0010](0010-budget-by-work.md) の「fuzz」の節は、「PR ごとに短く、定期的に長く回す」「種には、テストキットで作る合成のファイルだけを使う」とする。#501 で、登録したすべての形式と L0 に fuzz の target を置き、CI で流す。種と、PR で流す条件を決める。
+
+- 0010 を決めたときは、公開サンプルを Git に入れる規則（[0171](0171-public-samples-in-git.md)）がなかった。合成のファイルだけとしたのは、受け取った図面を種にして、Git や CI に入れないためである。
+- テストキットには、形式ごとに合成のファイルを作る仕組みがない。合成の入力は、適合試験の組（`bindings/conformance/cases`）と、各 crate の試験の中にある。
+- fuzz の crate はワークスペースの外にあり、`cargo test --workspace` も `cargo clippy --workspace` も組み立てない。CI で組み立てて 28 の target を 20 秒ずつ流すと、6 分ほどかかる。
+
+## 選択肢
+
+### 種
+
+1. テストキットで作る合成のファイルだけにする（0010 のまま）。形式ごとの生成器ができるまで、種のない target が多い。
+2. 合成の入力に、公開サンプルを足す。
+3. 受け取った図面も種にする。
+
+### PR で流す条件
+
+1. どの PR でも流す。
+2. crate・fuzz の target・fuzz の workflow を変えた PR で流す。
+3. fuzz の target と workflow を変えた PR でだけ流す。
+
+## 決定
+
+種は選択肢 2、PR で流す条件も選択肢 2 にする。
+
+- `cargo xtask fuzz-seeds` が、次の 4 つを、どの target にも種として書く。
+  - `samples/ledger.toml` に載せた公開サンプル（0171）
+  - 適合試験の組の、`push` で入れる合成の入力
+  - L0 の攻撃の形（ZIP 爆弾・膨らむ deflate・書庫の入れ子・パスの走査・XML の外部実体と深い入れ子・ISO 10303-21 の深い入れ子）
+  - 合成の格子（ISG・TKY2JGD・PatchJGD の形）。国土地理院のデータは使わない（[0019](0019-coordinate-systems-and-gsi-data.md)）
+- 受け取った図面と、`ZUMEN_SAMPLES` のファイルは種にしない。種と見つけた入力は、Git に入れない。
+- `crates/**`・`Cargo.toml`・`Cargo.lock`・`fuzz/**`・`xtask/src/fuzz.rs`・`.github/workflows/fuzz.yml` を変えた PR で、target ごとに 20 秒流す。毎晩は target ごとに 180 秒流し、育てた種を次の夜に引き継ぐ。
+- fuzz の crate の依存は、ワークスペースの `Cargo.lock` の版から解く。
+
+## 影響
+
+- 公開サンプルは実際のファイルの構造を持つので、合成の入力だけより深い所に届く。公開サンプルはもう Git にあるので、種にしても外に出るものは増えない。
+- 文書だけの PR では流さない。crate を変えた PR は、ほかの試験と並べて 6 分ほど流す。
+- 0010 の「fuzz」の節の 2 つの項目を、この記録で改める。
+
+## 参照
+
+- #398・#501、[0010](0010-budget-by-work.md)・[0017](0017-format-rights-ledger-and-plugin-sdk.md)・[0019](0019-coordinate-systems-and-gsi-data.md)・[0171](0171-public-samples-in-git.md)
+- `fuzz/README.md`・`xtask/src/fuzz.rs`・`.github/workflows/fuzz.yml`
