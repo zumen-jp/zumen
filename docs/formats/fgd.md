@@ -93,7 +93,7 @@ DEM 区画の被覆（`coverage`、2.2.2 節の `CV_DiscreteGridPointCoverage` �
 | --- | --- | --- |
 | `fgd` | 読み | `synthetic` |
 
-段の意味は[決定 0254](../decisions/0254-parallel-agents-and-cross-review.md)に、根拠は[形式と権利の一覧](README.md#format-fgd)にあります。この文書の規則は、仕様と、試験の中で作ったファイルだけで確かめたものです。公開サンプル・受け取った図面・外部の実装・基準になるソフトとは、まだ照らしていません。実際のファイルでは、ここに書いた扱いと違うことがあります。
+段の意味は[決定 0254](../decisions/0254-parallel-agents-and-cross-review.md) に、根拠は[形式と権利の一覧](README.md#format-fgd)にあります。この文書の規則は、仕様と、試験の中で作ったファイルだけで確かめたものです。公開サンプル・受け取った図面・外部の実装・基準になるソフトとは、まだ照らしていません。実際のファイルでは、ここに書いた扱いと違うことがあります。
 
 - 試験は、試験の中で作った小さな GML と書庫（`crates/zumen-fgd/tests/lift.rs`・`archive.rs`）と、適合試験の組（`bindings/conformance/cases/fgd.json`・`fgd_zip.json`）。国土地理院のデータは、Git・パッケージ・試験に入れない。
 - 基盤地図情報ビューアーと QGIS で開いたデータとの照合は、まだしていない（#504）。

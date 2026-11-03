@@ -87,7 +87,8 @@ struct Verification {
     /// 読んだ公開サンプルか受け取った図面に添えられていて、読んだ値と照らした値。読みだけ
     #[serde(default)]
     attached_values: Vec<String>,
-    /// 読んだ値を照らした外部の実装。書きでは、書いたファイルを読み、読んだ値が書いた値と合った実装
+    /// 自前で作っていないファイルを読み、読んだ値を照らした外部の実装。書きでは、書いたファイルを読み、読んだ値が
+    /// 書いた値と合った実装。読んだファイルの出どころは確かめられないので、scope に書く
     #[serde(default)]
     implementations: Vec<Tool>,
     /// 開いて確かめた、その形式の基準になるソフト
@@ -497,9 +498,16 @@ fn check_sections(ledger: &Ledger, root: &Path) -> Vec<String> {
     }
     let mut errors = Vec::new();
     for (doc, rows) in expected {
-        // 文書がないことは、docs の検査が報告する
-        let Ok(text) = fs::read_to_string(root.join(doc)) else {
-            continue;
+        let text = match fs::read_to_string(root.join(doc)) {
+            Ok(text) => text,
+            // 文書がないことは、docs の検査が報告する
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(e) => {
+                errors.push(format!(
+                    "{doc}: 確かめた度合いの節を照らす文書を読めない: {e}"
+                ));
+                continue;
+            }
         };
         let Some((found, malformed)) = section_rows(&text) else {
             if !rows.is_empty() {

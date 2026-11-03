@@ -299,7 +299,7 @@ ZUMEN_SAMPLES=/path/to/samples cargo test -q -p zumen-acad --test samples
 | `dwg` | 読み | `application` |
 | `dwg` | 書き | `application` |
 
-段の意味は[決定 0254](../decisions/0254-parallel-agents-and-cross-review.md)に、根拠は[形式と権利の一覧](README.md#format-dwg)にあります。段は確かめた方法のうちもっとも強いものを示します。AutoCAD で確かめたのは、次の範囲だけです。
+段の意味は[決定 0254](../decisions/0254-parallel-agents-and-cross-review.md) に、根拠は[形式と権利の一覧](README.md#format-dwg)にあります。段は確かめた方法のうちもっとも強いものを示します。AutoCAD で確かめたのは、次の範囲だけです。
 
 - 読み: AutoCAD 2027 で作った R2000・R2004・R2013・R2018 の DWG（`samples/dwg`）を、AutoCAD が同じ図面から書いた DXF と、試験（`crates/zumen-acad/tests/samples.rs` など）で比べる。「実際の図面で確かめた扱い」には、`samples/` にない図面で確かめたものもある。
 - 書き: AutoCAD で作った R2000・R2004・R2010・R2018 の DWG に、引出線の置き換え・変換・追加を当てて書き戻し、AutoCAD 2027 で開いた。監査の誤りは 0 で、形・矢印・注記が当てた値と合った。R2004 から後は、組み直した入れ物も開けた（#345）。

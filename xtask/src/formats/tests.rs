@@ -561,6 +561,13 @@ write = { level = "synthetic", scope = "範囲", checked = "2026-11-03" }
             .iter()
             .any(|e| e.contains("`dxf` の読みの `synthetic` が台帳と合わない"))
     );
+    // あるのに読めない文書は、黙って飛ばさない
+    std::fs::write(dir.0.join("docs/formats/dxf.md"), [0xff, 0xfe]).unwrap();
+    assert!(
+        check(&ledger, &dir.0, &decisions)
+            .iter()
+            .any(|e| e.contains("dxf.md: 確かめた度合いの節を照らす文書を読めない"))
+    );
 }
 
 #[test]

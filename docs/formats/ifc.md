@@ -41,8 +41,8 @@ IFC-SPF と ifcZIP を、スキーマを知らないインスタンスのグラ�
 | `ifc` | 読み | `synthetic` |
 | `ifc` | 書き | `external` |
 
-段の意味は[決定 0254](../decisions/0254-parallel-agents-and-cross-review.md)に、根拠は[形式と権利の一覧](README.md#format-ifc)にあります。
+段の意味は[決定 0254](../decisions/0254-parallel-agents-and-cross-review.md) に、根拠は[形式と権利の一覧](README.md#format-ifc)にあります。
 
 - 読み: 仕様と、試験の中で作った IFC-SPF と ifcZIP（`crates/zumen-ifc/tests`）だけで確かめた。日本の BIM ソフトが書き出した公開サンプルは #412 で探している。
-- 書き: `building_apply` でプロパティ・名前・説明を変えて書いた IFC4 と IFC2X3 を、毎晩の CI で IfcOpenShell 0.9.0.post1 で開く。変更が見え、スキーマと EXPRESS の規則の検査の誤りが増えないことを確かめる（`crates/zumen-ifc/tests/ifcopenshell/check.py`、#482）。BIM ソフトでは開いていない。
+- 書き: `building_apply` でプロパティ・名前・説明を変えて書いた IFC4 と IFC2X3 を、毎晩の CI で IfcOpenShell 0.9.0.post1 で開く。変更が見え、スキーマと EXPRESS の規則の検査の誤りが増えないことを確かめる（`crates/zumen-ifc/tests/ifcopenshell/check.py`、#482）。BIM ソフトでは開いていない。BIM ソフトで開く確認は #526 で行う。
 - 判定・インスタンスのグラフ・壊れた所の扱いは、読みと同じく `synthetic` の段。

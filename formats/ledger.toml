@@ -541,7 +541,7 @@ checked = "2026-11-03"
 
 [formats.ifc.write]
 level = "external"
-scope = "building_apply でプロパティ・名前・説明を変えて書いた IFC4 と IFC2X3 を IfcOpenShell で開き、変更が見え、スキーマと EXPRESS の規則の検査の誤りが増えないことを、毎晩の CI で確かめる（#482、決定 0244）。書いたファイルを BIM ソフトで開いてはいない"
+scope = "building_apply でプロパティ・名前・説明を変えて書いた IFC4 と IFC2X3 を IfcOpenShell で開き、変更が見え、スキーマと EXPRESS の規則の検査の誤りが増えないことを、毎晩の CI で確かめる（#482、決定 0244）。書いたファイルを BIM ソフトで開いてはいない（#526）"
 implementations = [{ name = "IfcOpenShell", version = "0.9.0.post1" }]
 checked = "2026-11-02"
 
