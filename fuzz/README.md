@@ -84,31 +84,53 @@ cargo "+$NIGHTLY" fuzz run -O --debug-assertions zip
 
 ## 落ちたとき
 
-fuzz の job は、main の必須の検査ではありません。CI を軽く保つためです（決定 0261）。PR で流れたら、結果も通ってからマージします。見つけた入力のある失敗は、流し直して通っても、通ったとしません。
+fuzz の job は、main の必須の検査ではありません。CI を軽く保つためです（決定 0261）。PR で流れたら、結果も通ってからマージします。見つけた入力のある失敗は、その入力を PR の最新の head の target に流して落ちないと確かめるか、関係のない失敗と確かめるまで、通ったとしません。流し直しや、新しい commit の実行が通っても、同じです。入力のない一時の失敗（runner が取れないなど）は、流し直します。
 
-fuzz の失敗のうち、PR の変更と関係のないもの（main の上でも同じように落ちるもの）では、マージを止めません。関係がないかは、次のように確かめます。
+### 見つけた入力を流す
 
-- 見つけた入力があれば、artifact の `fuzz-artifacts` を取り出し、その入力を main の target に流します。main を取り出した作業場所で、上の「動かし方」と同じく、Linux・macOS か WSL で動かします。main でも落ちれば、関係のない失敗です。main で落ちなければ、PR の変更で落ちたので、直してからマージします。
-- 入力がなければ（組み立てや道具の失敗）、main の最新の毎晩の実行か、main で手で流した実行（`workflow_dispatch`）が、同じ所で落ちるかを見ます。
+見つけた入力は、落ちた実行の artifact `fuzz-artifacts` のうち、落ちた target のフォルダーにある `crash-*`・`timeout-*`・`oom-*`・`leak-*` です。artifact には、通った実行でも、1 秒以上かかった入力（`slow-unit-*`）が入ります。取り出すと、`<置き場所>/<target>/crash-…` のように並びます。PR の実行は、PR のブランチの名前で引けます。
+
+```bash
+gh run list --workflow fuzz.yml --branch <PR のブランチ> --limit 5
+```
 
 ```bash
 gh run download <実行の ID> --name fuzz-artifacts --dir <置き場所>
 ```
 
+入力は、CI と同じ条件（`-timeout=30 -rss_limit_mb=3072`）で流します。上の「動かし方」と同じく、Linux・macOS か WSL で動かします。main を取り出した作業場所で流せば main の target を、PR の head を取り出した作業場所で流せば PR の target を試せます。最小にするときは、`cargo fuzz tmin` を使います。
+
 ```bash
-cargo "+$NIGHTLY" fuzz run -O --debug-assertions <target> <入力のファイル>
+cargo "+$NIGHTLY" fuzz run -O --debug-assertions <target> <置き場所>/<target>/<入力> -- -timeout=30 -rss_limit_mb=3072
 ```
+
+```bash
+cargo "+$NIGHTLY" fuzz tmin -O --debug-assertions <target> <置き場所>/<target>/<入力> -- -timeout=30 -rss_limit_mb=3072
+```
+
+### 関係がないかを確かめる
+
+fuzz の失敗のうち、PR の変更と関係のないもの（main の上でも同じように落ちるもの）では、マージを止めません。関係がないかは、次のように確かめます。
+
+- 見つけた入力があれば、main の target でも同じ誤り（誤りの種類と、パニックならその場所と文）で落ちるかを見ます。落ちれば、関係がありません。落ちなければ、PR の変更で落ちたので、直してからマージします。時間切れは機械の速さで変わるので、PR の target と main の target の両方で流して比べます。
+- PR で足した種（`samples/`・`bindings/conformance/cases/` から作るもの）そのものが落ちるなら、main の target でも落ちても、関係があります。マージすると、その後の実行が、その種で落ち続けるからです。
+- 入力がなければ（組み立てや道具の失敗）、main の最新の毎晩の実行か、main で手で流した実行が、同じ手順で、同じ誤り（落ちた target と誤りの文）で落ちるかを見ます。PR の実行の log に、main の実行の log にない誤りがあれば、関係があります。
 
 ```bash
 gh run list --workflow fuzz.yml --branch main --limit 5
 ```
 
-関係のない失敗なら、次のようにします。
+```bash
+gh workflow run fuzz.yml --ref main -f seconds=20
+```
 
-- マージの前に issue にし（同じ失敗の issue があれば、それを使います）、PR の本文にその issue を書きます。
+### 関係のない失敗の issue
+
+- マージの前に issue にし、PR の本文にその issue を書きます。同じ失敗の issue があれば、それを使います。同じ失敗かは、落ちた target と誤りの文で見分けます。
+- issue には、落ちた target か手順、誤りの文、実行の ID を書きます。見つけた入力があれば、最小にし、元の公開サンプルの出所とライセンスを添えて貼ります（上の「動かし方」）。artifact は 14 日で消えるので、直すときに再現できるようにするためです。
 - issue は、いちばん前の開いた段階の issue の子にし、開いた子 issue のいちばん上に並べます。早めに直すためです。
-- 入力を貼るなら、上の「動かし方」のとおり最小にし、元の公開サンプルの出所とライセンスを添えます。artifact は 14 日で消えます。
-- 版を出したあとに、落ちる入力を公開の issue に書くかは、#557 で決めます（`SECURITY.md`）。
+- main の組み立てか道具が落ちている間は、PR の fuzz は何も確かめないので、パニックを足す変更も止まりません。早めに直します。
+- 版を出したあとに、落ちる入力を公開の issue に貼るかは、#557 で決めます（`SECURITY.md`）。
 
 毎晩の実行で見つけた失敗も、同じく issue にして早めに直します。エージェントは、作業を選ぶ前に、main の最新の毎晩の実行を見ます（`docs/work.md` の「選び方」）。
 
