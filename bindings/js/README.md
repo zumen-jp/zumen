@@ -43,12 +43,12 @@ try {
 
 ### trap のあと
 
-wasm の中のパニックとメモリ不足は trap になり、そのインスタンスはもう使えません（[決定 0010](../../docs/decisions/0010-budget-by-work.md)）。包みは、trap が起きた呼び出しと、それからの呼び出しを、状態が `panicked` の `ZumenError` にし、元の例外（`WebAssembly.RuntimeError` など）を `cause` に入れます。`Zumen.broken` が `true` になったら、モジュールを読み込み直します。`Session.close` と `cancel` は、使えなくなったインスタンスでは何もせず、`finally` の中で呼んでも先に出た例外を隠しません。
+wasm の中のパニックとメモリ不足は trap になり、そのインスタンスはもう使えません（[決定 0010](../../docs/decisions/0010-budget-by-work.md)）。包みは、trap が起きた呼び出しと、それからの呼び出しを、状態が `panicked` の `ZumenError` にし、元の例外（`WebAssembly.RuntimeError` など）を `cause` に入れます。`Zumen.broken` が `true` になったら、モジュールを読み込み直します。`loadModules` の `Modules` は、使えなくなったインスタンスを捨て、次の `get`・`open`・`forOp` で読み込み直します。`Session.close` と `cancel` は、使えなくなったインスタンスでは何もせず、`finally` の中で呼んでも先に出た例外を隠しません。
 
 ### Next.js などのサーバー
 
-- Node.js のランタイムで使います。Edge のランタイムは、Next.js でも Vercel でも非推奨です。
-- Turbopack（Next.js 16 の既定）で組むときは、設定は要りません。webpack（`next build --webpack`）で組むときは、`next.config` の `serverExternalPackages` に `"@zumen-jp/zumen"` を入れます。webpack は包みの wasm を、ブラウザー向けの URL に書き換えるためです。どちらも、`output: "standalone"` の配備に wasm が入ります。
+- Node.js のランタイムで使います。Next.js の文書は、Edge のランタイムを Proxy で使うものとしています。Vercel では、Next.js 16.3 から route と page の `runtime = 'edge'` が使えず、Node.js で動きます。
+- Turbopack（Next.js 16 の既定）で組むときは、設定は要りません。webpack（`next build --webpack`）で組むときは、`next.config` の `serverExternalPackages` に `"@zumen-jp/zumen"` を入れます。webpack は包みの wasm を、ブラウザー向けの URL に書き換えるためです。どちらも、`output: "standalone"` で組んだ出力に wasm が入ります。
 - 要求ごとに `loadBundled` で新しいインスタンスを使います。壊れたファイルで起きた trap がほかの要求に及ばず、wasm のメモリも要求が終われば回収されます。wasm のメモリは縮まないので、1 つのインスタンスを使い回すと、いちばん大きな入力を読んだときの大きさのままになります。
 - 受け取ったファイルを読むときは、要求の `budget` で量に上限を付けます（[決定 0010](../../docs/decisions/0010-budget-by-work.md)）。
 - 呼び出しは同期で、動いている間は Node.js のイベントループが止まります。大きな図面を受けるサーバーでは、`worker_threads` で動かします。

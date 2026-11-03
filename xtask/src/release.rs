@@ -1,8 +1,8 @@
 //! リリースのワークフローが crates.io に出す crate の一覧を検査する（決定 0205・0259）。
 //!
-//! `.github/workflows/release.yml` の `CRATES` に、crates.io に出すワークスペースの crate がすべてあり、どの crate も
-//! ワークスペースの中の依存より後ろに並ぶことを確かめる。crate を足したときに一覧へ足し忘れると、`cargo publish` が
-//! 一覧にない crate を crates.io で探して失敗する。
+//! `.github/workflows/release.yml` の `CRATES` に、crates.io に出すワークスペースの crate がすべてあることを確かめる。
+//! crate を足したときに一覧へ足し忘れると、`cargo publish` が一覧にない crate を crates.io で探して失敗する。並びは
+//! 確かめない。Cargo 1.90 から、複数の crate を渡した `cargo publish` は、渡した順によらず依存される側から出す。
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -200,9 +200,9 @@ fn listed_crates(workflow: &str) -> Result<Vec<String>, String> {
 
 fn check_list(listed: &[String], crates: &BTreeMap<String, Crate>) -> Vec<String> {
     let mut errors = Vec::new();
-    let mut position = BTreeMap::new();
-    for (index, name) in listed.iter().enumerate() {
-        if position.insert(name.as_str(), index).is_some() {
+    let mut seen = BTreeSet::new();
+    for name in listed {
+        if !seen.insert(name.as_str()) {
             errors.push(format!("{name} が 2 回ある"));
         }
         match crates.get(name) {
@@ -216,23 +216,19 @@ fn check_list(listed: &[String], crates: &BTreeMap<String, Crate>) -> Vec<String
         }
     }
     for (name, found) in crates {
-        if found.publish && !position.contains_key(name.as_str()) {
+        if found.publish && !seen.contains(name.as_str()) {
             errors.push(format!("{name} を足す（publish = true の crate）"));
         }
     }
-    for (index, name) in listed.iter().enumerate() {
+    for name in listed {
         let Some(found) = crates.get(name) else {
             continue;
         };
         for dependency in &found.dependencies {
-            match (crates.get(dependency), position.get(dependency.as_str())) {
-                (Some(target), _) if !target.publish => errors.push(format!(
+            if crates.get(dependency).is_some_and(|target| !target.publish) {
+                errors.push(format!(
                     "{name} が、crates.io に出さない {dependency} に依存している"
-                )),
-                (_, Some(&at)) if at > index => {
-                    errors.push(format!("{name} を、依存する {dependency} より後ろに置く"));
-                }
-                _ => {}
+                ));
             }
         }
     }
@@ -278,13 +274,14 @@ mod tests {
     }
 
     #[test]
-    fn accepts_a_complete_list_in_dependency_order() {
+    fn accepts_a_complete_list_in_any_order() {
         let crates = crates(&[("a", true, &[]), ("b", true, &["a"]), ("t", false, &["a"])]);
         assert!(check_list(&list(&["a", "b"]), &crates).is_empty());
+        assert!(check_list(&list(&["b", "a"]), &crates).is_empty());
     }
 
     #[test]
-    fn finds_missing_unknown_unpublished_and_misordered_crates() {
+    fn finds_missing_unknown_and_unpublished_crates() {
         let crates = crates(&[
             ("a", true, &[]),
             ("b", true, &["a", "t"]),
@@ -299,7 +296,6 @@ mod tests {
                 "t は publish = false で、crates.io に出さない",
                 "a が 2 回ある",
                 "c を足す（publish = true の crate）",
-                "b を、依存する a より後ろに置く",
                 "b が、crates.io に出さない t に依存している",
             ]
         );

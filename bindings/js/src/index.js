@@ -75,16 +75,16 @@ class Core {
     if (missing.length > 0 || tagOf(exports.memory) !== "WebAssembly.Memory") {
       throw new Error(`zumen の wasm のモジュールでない（ない関数: ${missing.join(", ") || "memory"}）`);
     }
-    const version = exports.zm_abi_version();
-    if (version !== ABI_VERSION) {
-      throw new Error(`ABI の大版が ${version}（この包みは ${ABI_VERSION}）`);
-    }
     this.e = exports;
     // wasm の中から出た例外。出たら、インスタンスはもう使えない
     this.failure = null;
+    const version = this.invoke("zm_abi_version");
+    if (version !== ABI_VERSION) {
+      throw new Error(`ABI の大版が ${version}（この包みは ${ABI_VERSION}）`);
+    }
     // プラグインを束ねたモジュール（決定 0243）は、使う前にプラグインを登録する
     if (typeof exports.zm_plugin_init === "function") {
-      exports.zm_plugin_init();
+      this.invoke("zm_plugin_init");
     }
   }
 

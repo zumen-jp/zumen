@@ -97,10 +97,13 @@ export interface PluginModule {
   load: () => Parameters<typeof load>[0];
 }
 
-/** 分けた wasm のモジュールを、要るときに 1 度だけ読み込む */
+/** 分けた wasm のモジュールを、要るときに読み込んで使い回す。trap で使えなくなったら、読み込み直す */
 export declare class Modules {
   private constructor();
-  /** 名前のモジュールを読み込む。プラグインのモジュールは、その名前で引く */
+  /**
+   * 名前のモジュールを読み込む。プラグインのモジュールは、その名前で引く。読み込んだインスタンスは使い回し、trap で
+   * 使えなくなったら（`Zumen.broken`）、捨てて読み込み直す
+   */
   get(name: ModuleName | string): Promise<Zumen>;
   /** 入力の形式を判定する。コアの形式でなければ、プラグインの規則で試す。どの形式でもなければ undefined */
   detect(bytes: Bytes): { format: string; module: string; rules: Detection["rules"] } | undefined;

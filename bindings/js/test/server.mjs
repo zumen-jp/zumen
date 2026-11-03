@@ -4,9 +4,11 @@
 //
 // - 包みを一時のフォルダーに写して wasm を置き、Node.js の入口（src/node.js）で読み込んで図面を開く。wasm がなくて
 //   失敗したあとも、置けば読み込める
-// - 別の realm（node:vm）で作った WebAssembly.Module と ArrayBuffer を、load・loadSync で読み込む
+// - 別の realm（node:vm）で作った WebAssembly.Module と ArrayBuffer と、別の realm の Response と同じ形のものを、
+//   load・loadSync・Zumen.open・Session.push・readScene に渡す
 // - wasm の中で trap が起きたら、その呼び出しと、それからの呼び出しが panicked の ZumenError になり、close は投げない。
-//   failed の応答では、インスタンスは使えるまま。読み込み直したインスタンスでは続けられる
+//   読み込むときの trap も panicked になる。failed の応答では、インスタンスは使えるまま。読み込み直したインスタンスで
+//   は続けられ、分けたモジュールの Modules は、使えなくなったインスタンスを読み込み直す
 
 import assert from "node:assert/strict";
 import { copyFileSync, cpSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -15,7 +17,8 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import vm from "node:vm";
 
-import { Zumen, ZumenError, load, loadSync } from "../src/index.js";
+import { Zumen, ZumenError, load, loadSync, readScene } from "../src/index.js";
+import { Modules } from "../src/modules.js";
 
 const [wasmPath] = process.argv.slice(2);
 if (!wasmPath) {
@@ -70,9 +73,38 @@ function isPanicked(operation) {
   assert.equal(module instanceof WebAssembly.Module, false, "試験の前提: 別の realm のモジュール");
   assert.equal(openSample(await load(module)), "dxf");
   assert.equal(openSample(loadSync(module)), "dxf");
-  const buffer = vm.runInContext("new Uint8Array(bytes).buffer", context);
+
+  /** バイト列を、別の realm の ArrayBuffer に写す */
+  const foreign = vm.runInContext("(data) => new Uint8Array(data).buffer", context);
+  const buffer = foreign(bytes);
   assert.equal(buffer instanceof ArrayBuffer, false, "試験の前提: 別の realm の ArrayBuffer");
   assert.equal(openSample(await load(buffer)), "dxf");
+  assert.equal(openSample(loadSync(buffer)), "dxf");
+
+  // node:vm の realm には Response がないので、別の realm の Response と同じく、instanceof が偽で、型の名前が
+  // Response のものを作る
+  const response = vm.runInContext(
+    "(data) => ({ [Symbol.toStringTag]: 'Response', ok: true, status: 200, arrayBuffer: async () => new Uint8Array(data).buffer })",
+    context,
+  )(bytes);
+  assert.equal(response instanceof Response, false, "試験の前提: 別の realm の Response");
+  assert.equal(openSample(await load(response)), "dxf");
+
+  // セッションの設定・入力・シーンの blob
+  const zumen = loadSync(module);
+  // 設定の ArrayBuffer を値と取り違えると、JSON の {} になり、v がないので invalid になる
+  assert.throws(() => zumen.open({}), (error) => error instanceof ZumenError && error.status === "invalid");
+  const session = zumen.open(foreign(new TextEncoder().encode(JSON.stringify({ v: 1 }))));
+  try {
+    session.push("a.dxf", foreign(sample));
+    assert.equal(session.call({ v: 1, op: "open", input: "a.dxf" }).result.format, "dxf");
+    const { result, blobs } = session.call({ v: 1, op: "scene", doc: "a.dxf", from: "space/0" });
+    const scene = readScene(foreign(session.take(blobs.find((blob) => blob.kind === "scene").id)));
+    assert.equal(scene.chunks, result.counts.chunks);
+    assert.equal(scene.rows("text_xy"), result.counts.texts);
+  } finally {
+    session.close();
+  }
 }
 
 // failed の応答では、インスタンスは使えるまま
@@ -91,13 +123,13 @@ function isPanicked(operation) {
 // trap
 {
   const module = new WebAssembly.Module(bytes);
-  /** zm_call の中で trap を起こすインスタンス。2 GiB 以上の確保は Vec の容量があふれてパニックし、wasm では trap になる */
-  function trapping() {
+  /** name の関数で trap を起こすインスタンス。2 GiB 以上の確保は Vec の容量があふれてパニックし、wasm では trap になる */
+  function trapping(name = "zm_call") {
     const instance = new WebAssembly.Instance(module, {});
-    return new Zumen({ exports: { ...instance.exports, zm_call: () => instance.exports.zm_alloc(0x80000000) } });
+    return { exports: { ...instance.exports, [name]: () => instance.exports.zm_alloc(0x80000000) } };
   }
 
-  const zumen = trapping();
+  const zumen = new Zumen(trapping());
   assert.equal(zumen.broken, false);
   const session = zumen.open();
   session.push("a.dxf", sample);
@@ -113,7 +145,7 @@ function isPanicked(operation) {
   assert.equal(session.closed, true);
 
   // finally の close が、先に出た例外を隠さない
-  const other = trapping().open();
+  const other = new Zumen(trapping()).open();
   assert.throws(() => {
     try {
       other.call({ v: 1, op: "capabilities" });
@@ -122,8 +154,25 @@ function isPanicked(operation) {
     }
   }, isPanicked("zm_call"));
 
+  // 読み込むときの trap も panicked になる
+  assert.throws(() => new Zumen(trapping("zm_abi_version")), isPanicked("zm_abi_version"));
+
+  // 分けたモジュールの Modules は、使えなくなったインスタンスを捨てて、読み込み直す
+  let loads = 0;
+  const modules = new Modules({ drawing: () => module }, async () => {
+    loads += 1;
+    return new Zumen(trapping());
+  });
+  const first = await modules.get("drawing");
+  assert.equal(await modules.get("drawing"), first, "使えるうちは同じインスタンスを返す");
+  assert.throws(() => openSample(first), isPanicked("zm_call"));
+  const second = await modules.get("drawing");
+  assert.notEqual(second, first);
+  assert.equal(second.broken, false);
+  assert.equal(loads, 2);
+
   // 読み込み直せば続けられる
   assert.equal(openSample(await load(module)), "dxf");
 }
 
-console.log("Node.js の入口・別の realm のモジュール・trap のあとの扱いを確かめた");
+console.log("Node.js の入口・別の realm の値・trap のあとの扱いを確かめた");
