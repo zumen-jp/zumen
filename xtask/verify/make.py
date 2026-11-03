@@ -32,6 +32,39 @@ REPOSITORY = ("MIT OR Apache-2.0", "zumen-jp（このリポジトリ）。本文
 SUFFIXES = {".dxf": "dxf", ".dwg": "dwg", ".jww": "jww", ".sfc": "sfc", ".p21": "p21"}
 # 適合試験の中で作った図面（cases の push）。Jw_cad・SXF の公開サンプルがまだないので、これを入力にする
 CASES = [("open_jww.json", "a.jww"), ("open_sxf.json", "a.sfc"), ("open_sxf.json", "c.p21")]
+# ezsxf がフィーチャを型で読む SFC（印が `/*SXF` で、FILE_NAME がある）。適合試験の SFC は印が `/*SXF3` で、
+# ezsxf はそのフィーチャの値を読まないので、外部の実装と照らすために作る
+SFC = r"""ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION(('SCADEC level2 feature_mode'),'2;1');
+FILE_NAME('made-features.sfc','2026-11-03T00:00:00',(''),(''),'zumen$$3.1','zumen','');
+FILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));
+ENDSEC;
+DATA;
+/*SXF
+#10 = layer_feature(\'L\','1')
+SXF*/
+/*SXF
+#20 = pre_defined_font_feature(\'continuous\')
+SXF*/
+/*SXF
+#30 = pre_defined_colour_feature(\'black\')
+SXF*/
+/*SXF
+#40 = width_feature('0.13')
+SXF*/
+/*SXF
+#50 = line_feature('1','1','1','1','0.0','0.0','100.0','50.0')
+SXF*/
+/*SXF
+#60 = circle_feature('1','1','1','1','50.0','25.0','10.0')
+SXF*/
+/*SXF
+#90 = drawing_sheet_feature(\'S\','3','1','420','297')
+SXF*/
+ENDSEC;
+END-ISO-10303-21;
+"""
 
 
 class Zumen:
@@ -280,7 +313,40 @@ RECIPES = [
 ]
 
 
-def run_recipe(z, out, entry, data, recipe):
+def dropped_dxf():
+    """zumen が要素にしない図形（3DFACE）を 20 持つ DXF。黙って捨てない照合で、診断が図形のレコードを指すことを
+    確かめる（20 は、既定の場所の数 16 を超える）。図形はハンドルを持ち、ezdxf の図形と zumen の要素を結べる"""
+
+    def tags(*pairs):
+        return "".join(f"{code}\n{value}\n" for code, value in pairs)
+
+    out = tags((0, "SECTION"), (2, "TABLES"), (0, "TABLE"), (2, "LAYER"), (70, 1))
+    out += tags((0, "LAYER"), (2, "0"), (70, 0), (62, 7), (6, "CONTINUOUS"), (0, "ENDTAB"), (0, "ENDSEC"))
+    out += tags((0, "SECTION"), (2, "ENTITIES"))
+    out += tags((0, "LINE"), (5, "100"), (8, "0"), (10, 0.0), (20, 0.0), (30, 0.0), (11, 100.0), (21, 50.0), (31, 0.0))
+    for i in range(20):
+        pairs = [(0, "3DFACE"), (5, f"{0x101 + i:X}"), (8, "0")]
+        for k, (x, y) in enumerate([(0, 0), (5, 0), (5, 5), (0, 5)]):
+            pairs += [(10 + k, float(i * 10 + x)), (20 + k, float(y)), (30 + k, 0.0)]
+        out += tags(*pairs)
+    return out + tags((0, "ENDSEC"), (0, "EOF"))
+
+
+def codes(*lists):
+    return {d["code"] for diagnostics in lists for d in diagnostics}
+
+
+def reopen(z, out, record, data, baseline):
+    """書いたファイルを zumen で読み直して読みを置く。baseline（入力の診断の code）にない診断が出たら、reread に残す"""
+    record["open"] = open_file(z, record["path"] + ".reopened", data)
+    reading = read(z, record["path"] + ".reopened")
+    save_reading(out, record["path"], reading)
+    new = sorted(codes(record["open"], reading["diagnostics"]) - baseline)
+    if new:
+        record["reread"] = new
+
+
+def run_recipe(z, out, entry, data, recipe, baseline):
     """入力に変更の段を順に当て、最後に書いたファイルを置く。どれかの段が当たらなければ、その診断を残す"""
     name, issue, _, steps = recipe
     stem, suffix = Path(entry["path"]).stem, Path(entry["path"]).suffix
@@ -313,12 +379,11 @@ def run_recipe(z, out, entry, data, recipe):
     (out / doc).parent.mkdir(parents=True, exist_ok=True)
     (out / doc).write_bytes(current)
     record["status"] = "ok"
-    record["open"] = open_file(z, doc + ".reopened", current)
-    save_reading(out, doc, read(z, doc + ".reopened"))
+    reopen(z, out, record, current, baseline)
     return record
 
 
-def run_convert(z, out, entry, data):
+def run_convert(z, out, entry, data, baseline):
     """図面モデルを経て DXF に変換する（決定 0206）"""
     source = f"convert/{Path(entry['path']).name}"
     target = source + ".dxf"
@@ -332,8 +397,8 @@ def run_convert(z, out, entry, data):
     data = z.take(response["blobs"][0]["id"])
     (out / target).parent.mkdir(parents=True, exist_ok=True)
     (out / target).write_bytes(data)
-    record["open"] = open_file(z, target + ".reopened", data)
-    save_reading(out, target, read(z, target + ".reopened"))
+    # 入力が持つ値の欠け（例: 単位のない DXF）は、変換した DXF にも残るので、入力の診断と比べる
+    reopen(z, out, record, data, baseline)
     return record
 
 
@@ -612,6 +677,8 @@ def inputs(extra):
         push = next(s["push"] for s in steps if s.get("push", {}).get("name") == name)
         data = bytes.fromhex(push["hex"]) if "hex" in push else push["text"].encode("utf-8")
         found.append((f"input/conformance-{Path(case).stem}-{name}", data, f"bindings/conformance/cases/{case}", *REPOSITORY))
+    found.append(("input/made-features.sfc", SFC.encode("ascii"), "xtask/verify/make.py", *REPOSITORY))
+    found.append(("input/made-dropped.dxf", dropped_dxf().encode("ascii"), "xtask/verify/make.py", *REPOSITORY))
     if extra:
         # 受け取った図面の束は配らないので、ライセンスを書かない
         for path in sorted(Path(extra).rglob("*")):
@@ -647,12 +714,14 @@ def main():
         entry = {"path": path, "role": "input", "format": fmt, "source": source, "open": open_file(z, path, data)}
         if terms:
             entry["license"], entry["attribution"] = terms, attribution
-        save_reading(out, path, read(z, path))
+        reading = read(z, path)
+        save_reading(out, path, reading)
         files.append(entry)
+        baseline = codes(entry["open"], reading["diagnostics"])
         for recipe in RECIPES:
             if recipe[2](Path(path).name, fmt):
-                files.append(run_recipe(z, out, entry, data, recipe))
-        files.append(run_convert(z, out, entry, data))
+                files.append(run_recipe(z, out, entry, data, recipe, baseline))
+        files.append(run_convert(z, out, entry, data, baseline))
         # 文字を UTF-8 で書けるのは 2007 からの DXF
         if fmt == "dxf" and "-arcdim-r2018" in path:
             files += dimension_experiments(out, entry, data)
@@ -670,8 +739,11 @@ def main():
     failed = [f for f in files if f.get("status") not in (None, "ok")]
     for f in failed:
         print(f"{f['path']}: {f.get('status')} {[d['code'] for s in f.get('steps', []) for d in s.get('diagnostics', [])] or f.get('diagnostics')}", file=sys.stderr)
-    print(f"{len(files)} のファイル（当たらなかった組 {len(failed)}）を {out} に置いた")
-    return 1 if failed else 0
+    reread = [f for f in files if f.get("reread")]
+    for f in reread:
+        print(f"{f['path']}: zumen が読み直すと、入力にない診断が出た: {f['reread']}", file=sys.stderr)
+    print(f"{len(files)} のファイル（当たらなかった組 {len(failed)}、読み直すと診断が増えた組 {len(reread)}）を {out} に置いた")
+    return 1 if failed or reread else 0
 
 
 if __name__ == "__main__":
