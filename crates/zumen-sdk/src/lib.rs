@@ -160,6 +160,15 @@ pub enum Signature {
         /// 名前の終わり
         suffixes: &'static [&'static [u8]],
     },
+    /// ZIP の書庫で、ディレクトリでない項目の、フォルダーを除いた名前のどれかが、ASCII の大文字と小文字を区別せずに
+    /// `prefixes` のどれかで始まり、`suffixes` のどれかで終わる。中央ディレクトリを読むので、入力の全体を渡す。
+    /// 終わりだけでは見分けられない書庫（中の `.xml` の名前の規則で見分ける基盤地図情報など）に使う
+    ZipName {
+        /// フォルダーを除いた名前の始まり
+        prefixes: &'static [&'static [u8]],
+        /// 名前の終わり
+        suffixes: &'static [&'static [u8]],
+    },
 }
 
 impl Signature {
@@ -188,16 +197,31 @@ impl Signature {
                     .is_some_and(|start| start.eq_ignore_ascii_case(prefix))
             }),
             Signature::ZipEntry { suffixes } => zip::any_name(head, |name| {
-                !name.ends_with(b"/")
-                    && suffixes.iter().any(|suffix| {
-                        name.len() >= suffix.len()
-                            && name
-                                .get(name.len() - suffix.len()..)
-                                .is_some_and(|end| end.eq_ignore_ascii_case(suffix))
+                !name.ends_with(b"/") && suffixes.iter().any(|suffix| ends_with(name, suffix))
+            }),
+            Signature::ZipName { prefixes, suffixes } => zip::any_name(head, |name| {
+                let base = name
+                    .iter()
+                    .rposition(|&b| b == b'/')
+                    .and_then(|at| name.get(at + 1..))
+                    .unwrap_or(name);
+                !base.is_empty()
+                    && prefixes.iter().any(|prefix| {
+                        base.get(..prefix.len())
+                            .is_some_and(|start| start.eq_ignore_ascii_case(prefix))
                     })
+                    && suffixes.iter().any(|suffix| ends_with(base, suffix))
             }),
         }
     }
+}
+
+/// `name` が、ASCII の大文字と小文字を区別せずに `suffix` で終わるか
+fn ends_with(name: &[u8], suffix: &[u8]) -> bool {
+    name.len() >= suffix.len()
+        && name
+            .get(name.len() - suffix.len()..)
+            .is_some_and(|end| end.eq_ignore_ascii_case(suffix))
 }
 
 #[cfg(test)]
@@ -239,6 +263,17 @@ mod tests {
         };
         assert!(!dir.matches(&zip));
         assert!(!sxf.matches(&zip[..zip.len() - 1]));
+        // 名前の始まりは、フォルダーを除いた名前で比べる
+        let named = Signature::ZipName {
+            prefixes: &[b"D0PL"],
+            suffixes: &[b".SFC"],
+        };
+        assert!(named.matches(&zip));
+        let other = Signature::ZipName {
+            prefixes: &[b"B"],
+            suffixes: &[b".sfc"],
+        };
+        assert!(!other.matches(&zip));
     }
 
     #[test]

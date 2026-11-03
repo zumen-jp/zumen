@@ -57,6 +57,8 @@ pub struct Rule {
     pub namespace: Option<String>,
     /// ZIP の書庫の項目の名前の終わり
     pub zip_entry: Option<Vec<String>>,
+    /// `zip-entry` の項目の、フォルダーを除いた名前の始まり。書けば、始まりと終わりの両方で比べる
+    pub zip_prefix: Option<Vec<String>>,
 }
 
 /// 判定の規則の形
@@ -72,6 +74,10 @@ pub enum RuleKind<'a> {
         namespace: Option<&'a str>,
     },
     ZipEntry(&'a [String]),
+    ZipName {
+        prefixes: &'a [String],
+        suffixes: &'a [String],
+    },
 }
 
 impl Rule {
@@ -84,8 +90,20 @@ impl Rule {
                 || self.step_schema.is_some()
                 || self.xml_root.is_some()
                 || self.namespace.is_some();
-            return (!others && !suffixes.is_empty() && suffixes.iter().all(|s| !s.is_empty()))
-                .then_some(RuleKind::ZipEntry(suffixes));
+            let filled =
+                |values: &[String]| !values.is_empty() && values.iter().all(|s| !s.is_empty());
+            if others || !filled(suffixes) {
+                return None;
+            }
+            return match &self.zip_prefix {
+                None => Some(RuleKind::ZipEntry(suffixes)),
+                Some(prefixes) => {
+                    filled(prefixes).then_some(RuleKind::ZipName { prefixes, suffixes })
+                }
+            };
+        }
+        if self.zip_prefix.is_some() {
+            return None;
         }
         if let Some(name) = &self.xml_root {
             let others = self.offset.is_some()
@@ -313,7 +331,7 @@ pub fn check(boundary: &Boundary) -> Vec<String> {
         }
         if detection.rules.is_empty() || detection.rules.iter().any(|rule| rule.kind().is_none()) {
             errors.push(format!(
-                "形式の判定 `{format}`: 規則は offset と bytes・lines・step-schema・xml-root（と namespace）・zip-entry のどれか 1 つにする"
+                "形式の判定 `{format}`: 規則は offset と bytes・lines・step-schema・xml-root（と namespace）・zip-entry（と zip-prefix）のどれか 1 つにする"
             ));
         }
     }
@@ -721,6 +739,21 @@ pub fn render_rust(boundary: &Boundary) -> String {
                             out,
                             "        zumen_sdk::Signature::ZipEntry {{ suffixes: &[{}] }},",
                             suffixes.join(", ")
+                        );
+                    }
+                    Some(RuleKind::ZipName { prefixes, suffixes }) => {
+                        let literals = |values: &[String]| {
+                            values
+                                .iter()
+                                .map(|value| byte_literal(value.as_bytes()))
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        };
+                        let _ = writeln!(
+                            out,
+                            "        zumen_sdk::Signature::ZipName {{ prefixes: &[{}], suffixes: &[{}] }},",
+                            literals(prefixes),
+                            literals(suffixes)
                         );
                     }
                     None => {}

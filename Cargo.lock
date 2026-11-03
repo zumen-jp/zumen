@@ -564,6 +564,7 @@ dependencies = [
  "zumen-geom3d",
  "zumen-sdk",
  "zumen-xml",
+ "zumen-zip",
 ]
 
 [[package]]

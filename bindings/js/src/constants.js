@@ -154,6 +154,13 @@ export const DETECTION = Object.freeze([
     ]),
   }),
   Object.freeze({
+    format: "fgd",
+    module: "drawing",
+    rules: Object.freeze([
+      Object.freeze({ kind: "zip_name", prefixes: Object.freeze(["FG-GML-"]), suffixes: Object.freeze([".xml", ".zip"]) }),
+    ]),
+  }),
+  Object.freeze({
     format: "ifc",
     module: "bim",
     rules: Object.freeze([

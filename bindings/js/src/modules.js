@@ -366,6 +366,15 @@ function matches(head, rule) {
     }
     case "zip_entry":
       return anyZipName(head, (name) => name[name.length - 1] !== 0x2f && rule.suffixes.some((suffix) => endsWithIgnoreCase(name, suffix)));
+    case "zip_name":
+      return anyZipName(head, (name) => {
+        const base = name.subarray(name.lastIndexOf(0x2f) + 1);
+        return (
+          base.length > 0 &&
+          rule.prefixes.some((prefix) => base.length >= prefix.length && equalsIgnoreCase(base, 0, prefix.length, prefix)) &&
+          rule.suffixes.some((suffix) => endsWithIgnoreCase(base, suffix))
+        );
+      });
     default:
       return false;
   }

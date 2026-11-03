@@ -6,13 +6,14 @@
 
 - 基本項目（測量の基準点・標高点・等高線・行政区画・水系・構造物など）と、数値標高モデル（DEM 区画）の GML。どちらも JPGIS 2014 の符号化規則（4.2.2 節）で、GML 3.2 の名前空間を使う。
 - 文字コードは UTF-8（4.2.2 節）。Shift_JIS の古いデータも `zumen-xml` で読む。
-- 配布の書庫（ZIP、4.1 節）は、まだ開かない。中の `.xml` を 1 つずつ開く。
+- 配布の書庫（ZIP、4.1 節）も開く（下の「書庫」）。
 - ジオイド・モデル（DGHM 区画）と基準面補正パラメータ（HRCV 区画）は、地物と属性だけを移し、被覆は移さない（下の「被覆」）。
 - 書き戻しはしない。書き出すと、読んだバイト列をそのまま書く。
 
 ## 判定
 
 - 最初の要素が基盤地図情報の名前空間（`http://fgd.gsi.go.jp/spec/2008/FGD_GMLSchema`、4.2.4 節の表 4-2）の `Dataset` なら、基盤地図情報とする（`Signature::XmlRoot`）。
+- ZIP の書庫で、フォルダーを除いた名前が `FG-GML-` で始まり `.xml` か `.zip` で終わる項目を持てば、基盤地図情報の書庫とする（`Signature::ZipName`、[決定 0251](../decisions/0251-fgd-archives.md)）。open は、SFZ・P2Z の後、ifcZIP の前に試す。
 
 ## 座標系
 
@@ -72,11 +73,21 @@ DEM 区画の被覆（`coverage`、2.2.2 節の `CV_DiscreteGridPointCoverage` �
 - 並びの規則が `+x -y` の `Linear` でなければ `fgd.element.unsupported` を、範囲・格子・値の列が読めないか、値が格子より多ければ `fgd.value.invalid` を返す。
 - DGHM 区画・HRCV 区画の被覆は、値が標高でないので `fgd.element.unsupported` を返して移さない。ジオイド・モデルは、利用者が `zumen-crs` に渡して使う（[決定 0019](../decisions/0019-coordinate-systems-and-gsi-data.md)）。
 
+## 書庫
+
+配布の書庫（[決定 0251](../decisions/0251-fgd-archives.md)、`crates/zumen-fgd/src/archive.rs`）の中の GML を、1 つの地理の領域モデルにまとめる。名前の規則は「基盤地図情報データのファイル名について」（2025-07-31）による。
+
+- `FG-GML-` で始まる `.xml` の項目を、書庫の順に GML として読む。`FG-GML-` で始まる `.zip` の項目（全項目の書庫の中の、提供クラスごとの書庫）は、1 段だけ開く。全項目の書庫が中に書庫を入れるかは確かめていない（推定）。ほかの項目は `fgd.entry.unsupported` を返す。
+- 地物の ID は、項目の名前と `#` と、GML を 1 つで開いたときの ID（`FG-GML-533945-RdEdg-20250801-0001.xml#K1_1`）。入れ子の書庫の項目は、外の項目の名前と `/` でつなぐ。
+- 出所のバイトの範囲は、項目を展開したバイト列の中の範囲。
+- 文書の座標系と高さの基準は、初めの形を持つ項目のもの。違うものの項目は `fgd.crs.unsupported`（値は項目の名前）を返し、その項目の形を移さない。
+- 読めない GML の項目は、XML の読み取りの診断を返し、ほかの項目を読み進める。展開の大きさと入れ子の深さは `zumen-zip` の予算で止める。
+
 ## 上限
 
 - 要素の数は、地物と形の要素ごとに予算（`Elements`）で数え、座標の点の数と DEM 区画のセルの数は `Segments` で数える。
 
 ## 検証
 
-- 試験は、試験の中で作った小さな GML（`crates/zumen-fgd/tests/lift.rs`）と、適合試験の組（`bindings/conformance/cases/fgd.json`）。国土地理院のデータは、Git・パッケージ・試験に入れない。
+- 試験は、試験の中で作った小さな GML と書庫（`crates/zumen-fgd/tests/lift.rs`・`archive.rs`）と、適合試験の組（`bindings/conformance/cases/fgd.json`・`fgd_zip.json`）。国土地理院のデータは、Git・パッケージ・試験に入れない。
 - 基盤地図情報ビューアーと QGIS で開いたデータとの照合は、まだしていない。

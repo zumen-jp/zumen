@@ -30,6 +30,11 @@ pub(crate) fn read(
         let model = Fgd::read(bytes, cx).and_then(|file| file.lift(cx));
         return Some((Fgd::FORMAT, model.map_err(|_| Failed)));
     }
+    // 基盤地図情報の配布の書庫（決定 0251）
+    if zumen_fgd::ARCHIVE.iter().any(|rule| rule.matches(bytes)) {
+        let model = zumen_fgd::lift_archive(bytes, cx);
+        return Some((Fgd::FORMAT, model.map_err(|_| Failed)));
+    }
     None
 }
 

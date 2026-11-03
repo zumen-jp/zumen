@@ -4,12 +4,15 @@
 //! L1 は XML の要素のグラフ（`zumen-xml`）のまま持ち、要素をレコードとする。スキーマは同梱せず、地物と属性は
 //! ファイル仕様書の応用スキーマ（2.2 節）と符号化のタグ名（4.2.6 節）から読む（`docs/formats/fgd.md`）。
 
+mod archive;
 mod lift;
 
 use zumen_base::{ByteRange, Kind};
 use zumen_geo::GeoModel;
 use zumen_sdk::{Codec, Cx, Error, FileModel, Lift, RecordInfo, Signature};
 use zumen_xml::Document;
+
+pub use archive::{ARCHIVE, lift_archive};
 
 /// 基盤地図情報の名前空間（ファイル仕様書 4.2.4 節の表 4-2）
 pub const NAMESPACE: &str = "http://fgd.gsi.go.jp/spec/2008/FGD_GMLSchema";

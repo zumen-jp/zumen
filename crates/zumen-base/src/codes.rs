@@ -1983,6 +1983,17 @@ pub const FGD_ELEMENT_UNSUPPORTED: Code = Code::new(
     &["element"],
 );
 
+/// 基盤地図情報の配布の書庫の、FG-GML- で始まる .xml・.zip でない項目なので、読まなかった（決定 0251）
+///
+/// `fgd.entry.unsupported`（0.2.0 から）
+pub const FGD_ENTRY_UNSUPPORTED: Code = Code::new(
+    "fgd.entry.unsupported",
+    Severity::Warning,
+    None,
+    &[Param::new("name", ParamType::Text)],
+    &["name"],
+);
+
 /// DEM 区画の構成点の種別（地表面・表層面など）を点ごとには移さず、種別ごとの点の数だけを属性にした
 ///
 /// `fgd.point-kind.dropped`（0.2.0 から）
@@ -4112,6 +4123,7 @@ pub const ALL: &[Code] = &[
     EXTDM_VERSION_UNSUPPORTED,
     FGD_CRS_UNSUPPORTED,
     FGD_ELEMENT_UNSUPPORTED,
+    FGD_ENTRY_UNSUPPORTED,
     FGD_POINT_KIND_DROPPED,
     FGD_REFERENCE_UNSUPPORTED,
     FGD_VALUE_INVALID,
