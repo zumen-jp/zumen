@@ -17,6 +17,7 @@ mod java;
 mod javascript;
 mod profiles;
 mod python;
+mod release;
 mod samples;
 mod scene;
 mod schema;
@@ -161,6 +162,7 @@ fn codegen(mode: Mode) -> Result<(), String> {
     let profiles = profiles::generate(&root)?;
     let drawing = drawing::generate(&root)?;
     samples::check(&root)?;
+    release::check(&root)?;
     check_package_version(JS_PACKAGE, &read(JS_PACKAGE)?)?;
     check_pyproject_version(PY_PROJECT, &read(PY_PROJECT)?)?;
     check_csproj_version(CS_PROJECT, &read(CS_PROJECT)?, boundary.versions.abi)?;

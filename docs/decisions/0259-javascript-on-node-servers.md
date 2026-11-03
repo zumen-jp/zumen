@@ -22,6 +22,7 @@
 - wasm では、パニックとメモリ不足が trap になり、ホストがインスタンスを作り直す（[0010](0010-budget-by-work.md)、`crates/zumen-abi/src/ffi.rs`）。包みにはその扱いがなく、trap のあとも同じインスタンスを呼べた。
 - wasm のメモリは縮まない。300 MB の入力を渡すと 602 MiB になり、セッションを閉じても戻らなかった。手元の Node.js では、コンパイルしたモジュールからインスタンスを作るのは 1 回 0.6 ms ほどだった。
 - [0014](0014-platforms-signing-and-distribution.md) は、どの成果物にも依存のライセンスの文（`THIRD_PARTY_LICENSES`、cargo-about）を入れると決めたが、リリースのワークフローは作っていなかった。npm の包みには、MIT と Apache-2.0 の本文もなかった。wasm には、14 の第三者の crate が入る。
+- リリースのワークフローを手で試運転すると、`cargo publish --dry-run` が失敗した。crates.io に出す一覧（`CRATES`）に、後から足した `zumen-extdm`・`zumen-fgd` がなく、`zumen-sxf` が依存する `zumen-xml` より前にあった。
 
 ## 選択肢
 
@@ -52,6 +53,7 @@
 - ライセンスの文:
   - リポジトリの直下の `about.toml` と `about.hbs` から、cargo-about 0.9.2 で `THIRD_PARTY_LICENSES` を作る。対象は `zumen-abi` の wasm32 の依存で、build と dev の依存と、このリポジトリの crate は載せない。許すライセンスは `deny.toml` と合わせる。
   - リリースのワークフローは、npm の包みに `zumen_abi1.wasm`・`THIRD_PARTY_LICENSES`・`LICENSE-MIT`・`LICENSE-APACHE` を入れ、GitHub の Release にも `THIRD_PARTY_LICENSES` を置く。
+- crates.io に出す一覧: `cargo xtask codegen --check` で、`CRATES` に `publish = true` のワークスペースの crate がすべてあり、どれもワークスペースの中の依存より後ろに並ぶことを確かめる（[0205](0205-release-and-publishing.md) の順）。
 - 試験:
   - PR ごとに、Node.js の入口・別の realm のモジュール・trap のあとを、`bindings/js/test/server.mjs` で確かめる。
   - 毎晩、`bindings/js/test/nextjs` で、`npm pack` した包みを Next.js の Turbopack（設定なし）と webpack（`serverExternalPackages`）で standalone に組み、組んだサーバーの API ルートで図面を開く。Next.js・React の版は、その `package.json` で固定する。
