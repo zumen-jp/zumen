@@ -7,8 +7,9 @@ JWW のファイルごとに、次を確かめる。
 - ezjww が読める。ezjww の監査（ezjww.audit）と読みの診断で、書き戻したファイルに入力にない項目が出ない。
 - 図形の一覧の図形は、どれも zumen の要素になるか、移さなかったことを言う zumen の診断（compare.py の
   LIFTED_AWAY）がそのレコードを指す（黙って捨てない）。zumen のレコードの番号は、見出しを 0 とし、図形の
-  一覧の i 番目（0 から）を i + 1 とする（決定 0133）。束の JWW には zumen が移さない図形がないので、診断と
-  結ぶ枝は、受け取った図面でだけ働く。
+  一覧の i 番目（0 から）を i + 1 とする（決定 0133）。zumen が描かずに拡張に持つ文字（(0, -1000) の設定と、
+  `^@BM` でない `^@` で始まる文字。docs/formats/jww.md）は数えない。束の JWW には zumen が移さない図形がないので、
+  診断と結ぶ枝は、受け取った図面でだけ働く。
 - zumen の要素の出所の図形の種類・レイヤと、線と点では形の値が同じ。形の欄は両向きに比べ、線と点の要素は形を
   持つ。ezjww の座標は用紙の mm なので、図形のレイヤグループの縮尺の分母を掛けて、zumen の実寸の座標と比べる
   （docs/formats/jww.md）。
@@ -16,6 +17,7 @@ JWW のファイルごとに、次を確かめる。
   同じ。
 """
 
+import re
 import sys
 from collections import Counter
 from importlib.metadata import version
@@ -40,6 +42,21 @@ TYPES = {
 KNOWN = []
 # 記号の点の線種（docs/formats/jww.md）
 MARKER_PEN = 100
+# 設定を書いた文字の位置と、`名前 = 値` の名前（ASCII の英字の後に英数字か _。crates/zumen-jww/src/drawing.rs の
+# setting）
+SETTING_AT = (0.0, -1000.0)
+SETTING = re.compile(r"[A-Za-z][A-Za-z0-9_]* = ")
+
+
+def undrawn(e):
+    """zumen が描かずに拡張に持つ文字か。(0, -1000) の `名前 = 値` は設定（jww.setting）、`^@BM` でない `^@` で
+    始まる文字は制御（jww.control）とする（docs/formats/jww.md）"""
+    if e["type"] != "TEXT":
+        return False
+    content = e["content"]
+    if (e["start_x"], e["start_y"]) == SETTING_AT and SETTING.match(content):
+        return True
+    return content.startswith("^@") and not content.startswith("^@BM")
 
 
 def scale(header, group):
@@ -130,9 +147,9 @@ def check_file(folder, entry, reading, baseline, counts):
                 failures.append(f"{where}（{e['type']} のレコード {record}）{d}")
 
     # 黙って捨てない: 移さなかったことを言う診断が、そのレコードを指す。kind はクラスの名前で、ezjww の種類の名前と
-    # 違うので、レコードだけで結ぶ
+    # 違うので、レコードだけで結ぶ。描かずに拡張に持つ文字は数えない
     told = {record for _, record in lifted_away_records(entry, reading)}
-    dropped = Counter(e["type"] for i, e in enumerate(entities) if i + 1 not in seen and i + 1 not in told)
+    dropped = Counter(e["type"] for i, e in enumerate(entities) if i + 1 not in seen and i + 1 not in told and not undrawn(e))
     if dropped:
         failures.append(f"要素にならず、移さなかったことを言う診断もない図形: {dict(dropped)}")
 

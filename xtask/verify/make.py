@@ -404,11 +404,13 @@ def points_steps(fmt):
             point = {"shape": "point", "position": [3000, 2000], "rotation": 30, "marker": {"namespace": "jww.point", "code": "3", "scale": 2}}
             edits.append(add("space/0", point, layer=layer, color=color))
         else:
-            # SXF はレイヤに従う色を持たないので、色の番号を書く（2 は赤）。レイヤを取る要素がなければ、当てる候補のない
-            # 段にする
-            if not reading["entities"]:
+            # SXF はレイヤに従う色を持たないので、色の番号を書く（2 は赤）。レイヤは、表で定義したレイヤ（defined）に
+            # ある最初の要素のものか、表の最初のもの。表にないレイヤ（レイヤのコードが 0 のフィーチャなど）に足すと、
+            # zumen は断る（change.edit.unsupported）。定義したレイヤがなければ、当てる候補のない段にする
+            defined = [t["name"] for t in reading.get("tables", {}).get("layers", []) if t.get("defined")]
+            layer = next((e["layer"] for e in reading["entities"] if e.get("layer") in defined), next(iter(defined), None))
+            if layer is None:
                 return edits
-            layer = reading["entities"][0]["layer"]
             marker = {"namespace": "sxf.marker", "code": "1", "scale": 1}
             color = {"sxf": 2}
             edits.append(add("sheet/0", {"shape": "point", "position": [50, 60], "rotation": 30, "marker": marker}, layer=layer, color=color))

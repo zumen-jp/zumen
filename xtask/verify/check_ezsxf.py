@@ -17,12 +17,14 @@
   だけを比べ、結果の notes に書く。ezsxf が複合曲線を読めなかったか飛ばした SFC と、ハッチングの指す複合曲線が
   ないと言った SFC は、用紙の中にあることを比べず、notes に書く。make.py が作った SFC（made-features・
   made-structure）とその書き戻しを ezsxf が型で読まなければ、失敗にする。
-- P21: 要素の出所のインスタンス（複合のインスタンスを含む）があり、レイヤ（PRESENTATION_LAYER_ASSIGNMENT）が同じ。
-  複合曲線の曲線の要素は、複合曲線を指す曲線の表記の実体のレイヤと比べる。用紙の要素は、用紙（番号がもっとも小さい
-  DRAWING_SHEET_REVISION）の並びか、そこに置いた作図グループと表示する複合曲線の中にある。同じ番号の 2 つ目の
-  インスタンスは使わない（zumen と同じ）。画像の範囲の要素は、画像の作図グループの中の 4 点以上の折れ線から作る。
-  参照をたどって、点の位置・回転・倍率と、線分の端点（点か媒介変数のトリム）を比べる。端を点にできない線分は、形を
-  比べず notes に書く。印の種類と色、寸法と引出線のレイヤは比べない。
+- P21: 要素の出所のインスタンス（複合のインスタンスを含む）があり、レイヤ（PRESENTATION_LAYER_ASSIGNMENT。2 つの
+  レイヤに入れた要素は先のもの）が同じ。複合曲線の曲線の要素は、複合曲線を指す曲線の表記の実体のレイヤと比べる。
+  用紙の要素は、用紙（番号がもっとも小さい DRAWING_SHEET_REVISION）の並びか、そこに置いた作図グループと表示する
+  複合曲線の中にある。同じ番号の 2 つ目のインスタンスは使わない（zumen と同じ）。画像の範囲の要素は、画像の作図
+  グループの中の 4 点以上の折れ線から作る。レイヤと作図グループの名前は、ファイルのバイトから zumen と同じく戻す
+  （ezsxf は P21 の文字列のエスケープを戻さず、8 ビットのバイトを置き換える）。参照をたどって、点の位置・回転・倍率と、
+  線分の端点（点か媒介変数のトリム）を比べる。端を点にできない線分は、形を比べず notes に書く。印の種類と色、寸法と
+  引出線のレイヤは比べない。
 - 黙って捨てない: 置く所（用紙と部分図）のフィーチャ（SFC）と、用紙の並びの要素（P21）は、どれも zumen の要素になる
   か、移さなかったことを言う zumen の診断（compare.py の LIFTED_AWAY）がそのレコードを指す。SFC は、診断の kind が
   フィーチャの名前と同じことも確かめる。置く所は、決定 0121・0129・0130 と docs/formats/sxf.md の「P21 の組み直し」の
@@ -131,12 +133,21 @@ MADE = {"input/made-features.sfc", "input/made-structure.sfc"}
 KNOWN = []
 
 
-def records(text, skipped):
+def string_end(text, i):
+    """text[i] の ' で始まる ISO 10303-21 の文字列の、閉じの ' の位置。'' は ' を 1 つ書いたもの。閉じがなければ text の長さ"""
+    i += 1
+    while i < len(text) and (text[i] != "'" or text.startswith("''", i)):
+        i += 2 if text.startswith("''", i) else 1
+    return i
+
+
+def records(text, skipped, statements=None):
     """インスタンスの番号 → zumen のレコードの番号。docs/formats/sxf.md の「レコードの区切り」のとおり、`;` で終わる文と、
     データの節の `/*SXF` から閉じまでを、ファイルの初めから 0 で数える。間のコメントは数えない。FILE_DESCRIPTION の最初の
     文字列に AP202 とあれば（大文字と小文字を問わない）、データの節のフィーチャの印も、ただのコメントとする（「判定」）。
     skipped は、zumen が読めないと言った範囲 (始め, 終わり) の一覧で、そこから始まる文とコメントは数えず、範囲の終わりから
-    読む（「壊れた所」）。P21 の同じ番号の 2 つ目の文は、番号を数えない（zumen は 2 つ目を使わない）"""
+    読む（「壊れた所」）。P21 の同じ番号の 2 つ目の文もレコードとして数え、インスタンスの番号には 1 つ目の文のレコードの
+    番号を使う（zumen は 2 つ目を使わない）。statements を渡せば、P21 のインスタンスの番号 → 1 つ目の文を入れる"""
     found, n, i, data, description = {}, 0, 0, False, ""
     end = len(text)
 
@@ -165,10 +176,8 @@ def records(text, skipped):
             continue
         while i < end and text[i] != ";":
             if text[i] == "'":
-                # 文字列の中の ; は区切りでない。'' は ' を 1 つ書いたもの（ISO 10303-21 の文字列）
-                i += 1
-                while i < end and (text[i] != "'" or text.startswith("''", i)):
-                    i += 2 if text.startswith("''", i) else 1
+                # 文字列の中の ; は区切りでない
+                i = string_end(text, i)
             elif text.startswith("/*", i):
                 close = text.find("*/", i + 2)
                 i = end if close < 0 else close + 2
@@ -182,6 +191,8 @@ def records(text, skipped):
         m = re.match(r"#(\d+)\s*=", statement)
         if m:
             found.setdefault(int(m.group(1)), n)
+            if statements is not None:
+                statements.setdefault(int(m.group(1)), statement)
         elif re.match(r"DATA\b", statement):
             data = True
         elif re.match(r"ENDSEC\b", statement):
@@ -194,6 +205,128 @@ def records(text, skipped):
             break
         n += 1
     return found
+
+
+def first_text(statement, keyword):
+    """P21 の文（ファイルのバイトを latin-1 で読んだもの）の、型 keyword の部分の最初の引数の文字列を、zumen と同じく戻す
+    （p21_text）。最初の引数が型付きの値なら、その最初の引数（crates/zumen-sxf/src/p21.rs の text）。文字列でなければ None"""
+    # 文字列とコメントの中を伏せてから、型の名前を探す
+    masked, i = list(statement), 0
+    while i < len(statement):
+        if statement[i] == "'":
+            close = string_end(statement, i)
+            masked[i + 1 : close] = "x" * (close - i - 1)
+            i = close + 1
+        elif statement.startswith("/*", i):
+            close = statement.find("*/", i + 2)
+            close = len(statement) if close < 0 else close + 2
+            masked[i:close] = " " * (close - i)
+            i = close
+        else:
+            i += 1
+    masked = "".join(masked)
+    m = re.search(rf"(?<![A-Za-z0-9_]){keyword}\s*\(", masked)
+    if m is None:
+        return None
+    i = m.end()
+    while typed := re.match(r"\s*[A-Za-z_][A-Za-z0-9_]*\s*\(", masked[i:]):
+        i += typed.end()
+    quote = re.match(r"\s*'", masked[i:])
+    if quote is None:
+        return None
+    start = i + quote.end()
+    return p21_text(statement[start : string_end(statement, start - 1)])
+
+
+HEX = frozenset(b"0123456789ABCDEFabcdef")
+
+
+def shift_jis(data):
+    """Shift_JIS のバイトを、zumen（encoding_rs の Shift_JIS。WHATWG の Encoding Standard）と同じく読む。読める文字は
+    cp932 と同じ。読めない 2 バイトは 1 つの置き換えにし、2 バイト目が ASCII なら、それを読み直す"""
+    out, i = [], 0
+    while i < len(data):
+        b = data[i]
+        if b <= 0x80:
+            out.append(chr(b))
+            i += 1
+        elif 0xA1 <= b <= 0xDF:
+            out.append(chr(0xFF61 + b - 0xA1))
+            i += 1
+        elif (0x81 <= b <= 0x9F or 0xE0 <= b <= 0xFC) and i + 1 < len(data):
+            trail, char = data[i + 1], None
+            if 0x40 <= trail <= 0x7E or 0x80 <= trail <= 0xFC:
+                try:
+                    char = data[i : i + 2].decode("cp932")
+                except UnicodeDecodeError:
+                    char = None
+            out.append(char or "�")
+            i += 2 if char or trail >= 0x80 else 1
+        else:
+            out.append("�")
+            i += 1
+    return "".join(out)
+
+
+def p21_text(raw):
+    """P21 の文字列の中身（ファイルのバイトを latin-1 で読んだもの）を、zumen と同じく戻す。ISO 10303-21 のエスケープ
+    （''・\\X2\\…\\X0\\・\\X4\\…\\X0\\・\\X\\hh・\\S\\c・\\P?\\・\\\\）を戻し、規格の外の 8 ビットのバイトは Shift_JIS として
+    読む（docs/formats/sxf.md。crates/zumen-step/src/text.rs と crates/zumen-sxf/src/p21.rs の decode）"""
+    data, out, i = raw.encode("latin-1"), [], 0
+
+    def run(opening, width):
+        # opening で始まり \X0\ で閉じる、width 桁ずつの 16 進の値と、閉じの後の位置
+        if not data.startswith(opening, i):
+            return None
+        start = end = i + len(opening)
+        while end < len(data) and data[end] in HEX:
+            end += 1
+        if (end - start) % width or not data.startswith(b"\\X0\\", end):
+            return None
+        return [int(data[k : k + width], 16) for k in range(start, end, width)], end + 4
+
+    while i < len(data):
+        if data.startswith(b"''", i):
+            out.append("'")
+            i += 2
+            continue
+        if data[i] == 0x5C:
+            if found := run(b"\\X2\\", 4):
+                # 16 ビットの単位。サロゲートの対は最後に組む
+                out += map(chr, found[0])
+                i = found[1]
+                continue
+            if found := run(b"\\X4\\", 8):
+                out += (chr(v) if v <= 0x10FFFF and not 0xD800 <= v <= 0xDFFF else "�" for v in found[0])
+                i = found[1]
+                continue
+            if data.startswith(b"\\X\\", i) and len(data) >= i + 5 and all(b in HEX for b in data[i + 3 : i + 5]):
+                out.append(chr(int(data[i + 3 : i + 5], 16)))
+                i += 5
+                continue
+            if data.startswith(b"\\S\\", i) and len(data) > i + 3:
+                out.append(chr((data[i + 3] + 128) & 0xFF))
+                i += 4
+                continue
+            if re.fullmatch(rb"\\P[A-I]\\", data[i : i + 4]):
+                i += 4
+                continue
+            if data.startswith(b"\\\\", i):
+                out.append("\\")
+                i += 2
+                continue
+        if data[i] >= 0x80:
+            # 2 バイトの文字の 2 バイト目は 0x40〜0x7E のこともあるので、1 バイト目の次も含める
+            end = i
+            while end < len(data) and data[end] >= 0x80:
+                end += 2 if 0x81 <= data[end] <= 0x9F or 0xE0 <= data[end] <= 0xFC else 1
+            out.append(shift_jis(data[i:end]))
+            i = min(end, len(data))
+            continue
+        out.append(chr(data[i]))
+        i += 1
+    # 対にならないサロゲートは、読めない文字にする（zumen の String::from_utf16_lossy と同じ）
+    return "".join(out).encode("utf-16-le", "surrogatepass").decode("utf-16-le", "replace")
 
 
 def skipped_ranges(entry, reading):
@@ -457,9 +590,11 @@ def check_sfc(parsed, entry, reading, counts, notes, at):
 
 class Step:
     """P21 のインスタンスの参照をたどる。複合のインスタンス（`#n=(A(…) B(…));`）は、部分の名前ごとに引数を持つ。
-    引数の位置は、ISO 10303-42（幾何）・-46（表示）・-101（製図）の実体の定義の属性の順（下の各所に書く）"""
+    引数の位置は、ISO 10303-42（幾何）・-46（表示）・-101（製図）の実体の定義の属性の順（下の各所に書く）。statements は、
+    インスタンスの番号 → ファイルの文（records）"""
 
-    def __init__(self, parsed):
+    def __init__(self, parsed, statements):
+        self.statements = statements
         self.parts = {}
         for e in parsed["entities"]:
             if e.get("body_type") == "simple":
@@ -528,15 +663,26 @@ class Step:
         args = self.get(value, "CARTESIAN_POINT")
         return [float(c) for c in args[1]] if args else None
 
+    def text(self, instance, keyword):
+        """インスタンスの、型 keyword の部分の最初の引数の文字列。ezsxf は P21 の文字列のエスケープを戻さず、8 ビットの
+        バイトを UTF-8 として読むので、ファイルの文から zumen と同じく戻す（first_text）。文字列でなければ空"""
+        statement = self.statements.get(instance)
+        if statement is None:
+            args = self.part(instance, keyword)
+            return str(args[0]) if args else ""
+        return first_text(statement, keyword) or ""
+
     def layers(self):
         """インスタンスの番号 → レイヤの名前。presentation_layer_assignment (name, description, assigned_items)
-        （ISO 10303-46）。名前が $$SXF_dummy で始まるものは、複合図形の仮のレイヤでレイヤにしない（docs/formats/sxf.md）"""
+        （ISO 10303-46）。名前が $$SXF_dummy で始まるものは、複合図形の仮のレイヤでレイヤにしない（docs/formats/sxf.md）。
+        2 つのレイヤに入れた要素は、先のレイヤにする（zumen と同じ。crates/zumen-sxf/src/p21.rs）"""
         out = {}
         for i in self.order:
             args = self.part(i, "PRESENTATION_LAYER_ASSIGNMENT")
-            if args and not str(args[0]).startswith("$$SXF_dummy"):
+            name = self.text(i, "PRESENTATION_LAYER_ASSIGNMENT") if args else ""
+            if args and not name.startswith("$$SXF_dummy"):
                 for instance in self.refs(args[2]):
-                    out[instance] = args[0]
+                    out.setdefault(instance, name)
         return out
 
     def sheet(self):
@@ -546,9 +692,9 @@ class Step:
         return self.refs(self.part(first, "DRAWING_SHEET_REVISION")[1]) if first is not None else []
 
     def subfigure(self, item):
-        """複合図形の配置の、定義の番号と区分。mapped_item (name, mapping_source, mapping_target)・
-        symbol_representation_map (mapping_origin, mapped_representation)・symbol_target (name, placement, x_scale,
-        y_scale)（ISO 10303-43・-46）。どれかがなければ None"""
+        """複合図形の配置の、定義の番号と区分と名前（区分の接頭語を除く）。mapped_item (name, mapping_source,
+        mapping_target)・symbol_representation_map (mapping_origin, mapped_representation)・symbol_target (name,
+        placement, x_scale, y_scale)（ISO 10303-43・-46）。どれかがなければ None"""
         mapped = self.get(item, "MAPPED_ITEM")
         if mapped is None:
             return None
@@ -558,12 +704,11 @@ class Step:
         if source is None or target is None or self.get(target[1], "AXIS2_PLACEMENT_2D") is None:
             return None
         definition = self.ref(source[1])
-        args = self.part(definition, "DRAUGHTING_SUBFIGURE_REPRESENTATION")
-        if args is None:
+        if not self.has(definition, "DRAUGHTING_SUBFIGURE_REPRESENTATION"):
             return None
-        name = str(args[0])
-        flag = next((flag for prefix, flag in SUBFIGURES if name.startswith(prefix)), 3)
-        return definition, flag
+        name = self.text(definition, "DRAUGHTING_SUBFIGURE_REPRESENTATION")
+        prefix, flag = next(((prefix, flag) for prefix, flag in SUBFIGURES if name.startswith(prefix)), ("", 3))
+        return definition, flag, name[len(prefix) :]
 
     def visible(self, composite):
         """複合曲線を表示するか。複合曲線を指す最初の曲線の表記の実体が非表示になければ表示し、指す表記の実体が
@@ -685,11 +830,11 @@ def p21_placed(step):
                     # 作図部品の配置と、読めない配置・輪になる配置（診断）
                     placed.append((i, step.type(i)))
                 elif found[0] not in done:
-                    definition, flag = found
+                    definition, flag, name = found
                     if flag in (1, 2):
                         done.add(definition)
-                    name, members = step.part(definition, "DRAUGHTING_SUBFIGURE_REPRESENTATION")[:2]
-                    if flag == 3 and raster(str(name)):
+                    members = step.part(definition, "DRAUGHTING_SUBFIGURE_REPRESENTATION")[1]
+                    if flag == 3 and raster(name):
                         rasters.update(step.refs(members))
                     items(step.refs(members), on_sheet and flag == 3, stack + [definition])
             elif step.has(i, "ANNOTATION_FILL_AREA_OCCURRENCE"):
@@ -715,14 +860,18 @@ def p21_placed(step):
 
 
 def raster(name):
-    """画像の作図グループの名前か。名前の `$$RASTER$$` か、属性の `$$ATRU$$番号$$名称$$画像$$`（docs/formats/sxf.md、
-    決定 0125）"""
+    """画像の作図グループの名前なら、画像のファイルの名前。なければ空。属性の `$$ATRU$$番号$$名称$$画像$$` か、名前の
+    `$$RASTER$$` の後をファイルの名前とする（docs/formats/sxf.md、決定 0125。zumen の raster_path と同じく、ATRU が
+    あれば RASTER を見ない）"""
     parts = name.split("$$")
-    return "RASTER" in parts or ("ATRU" in parts and "画像" in parts)
+    if "ATRU" in parts:
+        at = parts.index("ATRU")
+        return "$$".join(parts[at + 4 :]) if parts[at + 3 : at + 4] == ["画像"] else ""
+    return "$$".join(parts[parts.index("RASTER") + 1 :]) if "RASTER" in parts else ""
 
 
-def check_p21(parsed, entry, reading, counts, notes, at):
-    step = Step(parsed)
+def check_p21(parsed, entry, reading, counts, notes, at, statements):
+    step = Step(parsed, statements)
     layers = step.layers()
     placed, sheet, curves, rasters = p21_placed(step)
     failures, matched = [], {}
@@ -750,7 +899,7 @@ def check_p21(parsed, entry, reading, counts, notes, at):
         # 複合曲線の曲線の要素のレイヤは、複合曲線を指す曲線の表記の実体のもの（docs/formats/sxf.md の「P21 の組み直し」）
         layer = layers.get(step.styling.get(curves[instance]) if instance in curves else instance)
         if layer is not None and element.get("layer") != layer:
-            failures.append(f"{where}: レイヤが {element.get('layer')!r}、ezsxf は {layer!r}")
+            failures.append(f"{where}: レイヤが {element.get('layer')!r}、PRESENTATION_LAYER_ASSIGNMENT は {layer!r}")
         if where.startswith("sheet/") and instance not in sheet:
             failures.append(f"{where}: #{instance} が用紙（DRAWING_SHEET_REVISION）の中にない")
         got = step.shape(instance)
@@ -794,10 +943,13 @@ def check_file(folder, entry, reading, baseline, counts):
         return failures, audit
     # 区切りの文字は ASCII なので、バイトをそのまま文字にして数える（Shift_JIS の 2 バイト目は ' と ; にならない）。
     # 文字の位置は、zumen の診断のバイトの位置と同じになる
-    at = records(path.read_bytes().decode("latin-1"), skipped_ranges(entry, reading))
+    statements = {}
+    at = records(path.read_bytes().decode("latin-1"), skipped_ranges(entry, reading), statements)
     failures += check_records(reading, at)
-    check = check_sfc if entry["format"] == "sfc" else check_p21
-    found_failures, matched = check(parsed, entry, reading, counts, notes, at)
+    if entry["format"] == "sfc":
+        found_failures, matched = check_sfc(parsed, entry, reading, counts, notes, at)
+    else:
+        found_failures, matched = check_p21(parsed, entry, reading, counts, notes, at, statements)
     failures += found_failures
     # make.py の SFC は、ezsxf が型で読むように作った。読まなくなったら、SFC の形を照らせなくなる
     if matched is None and MADE & {entry["path"], entry.get("from")}:
