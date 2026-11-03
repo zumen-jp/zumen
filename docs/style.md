@@ -89,7 +89,6 @@ Markdown の誤りの多くは、`npm run fix:text` で直せます。
 | 予算 | 処理量の上限 | 利用者向けの文では「上限」と書く（[決定 0010](decisions/0010-budget-by-work.md)） |
 | 診断 | 警告・エラーの知らせ | code・場所・値で返す知らせ（[決定 0009](decisions/0009-diagnostics-and-catalog.md)） |
 | 忠実度 | 再現の度合い | 変換で意味を保てたかの段（[決定 0009](decisions/0009-diagnostics-and-catalog.md)） |
-| 確かめた度合い | 検証レベル | 形式の読みと書きを、どこまで確かめたかの段。`spec`・`samples`・`verified`（[決定 0253](decisions/0253-parallel-agents-and-cross-review.md)） |
 | 台帳 | 一覧・レジストリ | 診断の code などを決める表（`catalog/codes.toml`） |
 | 出所 | トレーサビリティ | 表示した要素から、ファイルのレコードまでたどる情報 |
 | 鏡のリポジトリ | ミラー | 配る仕組みのために中身を写したリポジトリ（[決定 0004](decisions/0004-repositories.md)） |

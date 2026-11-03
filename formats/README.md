@@ -1,6 +1,6 @@
 # 形式の権利の台帳
 
-形式ごとの仕様の入手先・権利・実装の根拠と、コアの実装を確かめた度合いを、`ledger.toml` に置きます（[決定 0017](../docs/decisions/0017-format-rights-ledger-and-plugin-sdk.md)・[決定 0253](../docs/decisions/0253-parallel-agents-and-cross-review.md)）。公開に第三者の許諾が要る形式と、権利が分からない形式は、このリポジトリのコアに入れず、外部のプラグインにします。
+形式ごとの仕様の入手先・権利・実装の根拠と、コアの実装を確かめた度合いを、`ledger.toml` に置きます（[決定 0017](../docs/decisions/0017-format-rights-ledger-and-plugin-sdk.md)・[決定 0254](../docs/decisions/0254-parallel-agents-and-cross-review.md)）。公開に第三者の許諾が要る形式と、権利が分からない形式は、このリポジトリのコアに入れず、外部のプラグインにします。
 
 ## 形式を足す
 
@@ -42,8 +42,8 @@ ID は英小文字・数字・`_` にし、版を含めます（`sxf_3_1` など
 | `repository` | `plugin` なら要る | プラグインのリポジトリ |
 | `basis` | `none` でなければ要る | 実装の根拠: `spec`（仕様）・`inferred`（推定）・`reference`（参照した実装） |
 | `references` | `reference` なら要る | 参照した実装（`name`・`license`・`url`）。GPL などの実装のソースは読まない |
-| `verify` | | 照合に使うソフト |
-| `samples` | | サンプルの出どころ。サンプルは Git に入れない |
+| `verify` | | 照合に使う候補の、外部の実装と基準になるソフト。段の根拠にはしない。照らしたら、[確かめた度合い](#確かめた度合い)の `implementations`・`software` に版と一緒に書く（[決定 0255](../docs/decisions/0255-verification-levels-in-the-ledger.md)） |
+| `samples` | | サンプルの出どころ。再配布を認める公開サンプルは `samples/` に入れ、[公開サンプルの台帳](../samples/ledger.toml)に書く（[決定 0171](../docs/decisions/0171-public-samples-in-git.md)）。受け取った図面は Git に入れない |
 | `known-crates` | | crates.io にある、この形式を読み書きする crate。権利が `public` でない形式のものは、`deny.toml` で禁じる |
 | `decisions`・`legacy-decisions` | | 関わる決定の番号の配列。`["0008"]` のように 4 桁の文字列にする |
 | `issues` | | 関わる issue（`zumen-jp/zumen-legacy#140` の形） |
@@ -53,34 +53,35 @@ ID は英小文字・数字・`_` にし、版を含めます（`sxf_3_1` など
 
 ## 確かめた度合い
 
-コアの実装を、読みと書きに分けて、どこまで確かめたかを `[formats.<キー>.read]`・`[formats.<キー>.write]` に書きます（[決定 0253](../docs/decisions/0253-parallel-agents-and-cross-review.md)・[決定 0254](../docs/decisions/0254-verification-levels-in-the-ledger.md)）。境界の `capabilities` には出しません。
+コアの実装を、読みと書きに分けて、どこまで確かめたかを `[formats.<キー>.read]`・`[formats.<キー>.write]` に書きます（[決定 0254](../docs/decisions/0254-parallel-agents-and-cross-review.md)・[決定 0255](../docs/decisions/0255-verification-levels-in-the-ledger.md)）。境界の `capabilities` には出しません。
 
-| 段 | 意味 | 要る根拠 |
+| 段 | 読む向き | 書く向き |
 | --- | --- | --- |
-| `spec` | 仕様と、試験の中で作ったファイルだけで確かめた | なし |
-| `samples` | 公開の試料か、外部の実装との照合で確かめた | `public-samples` か `implementations` |
-| `verified` | その形式の基準になるソフト（作るソフトか、受け取る側のソフト）で開いて確かめた。書くなら、書いたファイルも開いた | `software` |
+| `synthetic` | 仕様と、試験の中で作ったファイルだけで確かめた。根拠は要らない | 書いたファイルを、自前の読み取りだけで確かめた。根拠は要らない |
+| `external` | 公開サンプル・受け取った図面・外部の実装との照合で確かめた。`public-samples`・`received`・`implementations` のどれかが要る | 書いたファイルを、外部の実装が誤りなく読めた。`implementations` が要る |
+| `application` | その形式の基準になるソフト（作るソフトか、受け取る側のソフト）で開いた結果と照らした。`software` が要る | 書いたファイルを、基準になるソフトで開いて確かめた。`software` が要る |
 
-段は、根拠のうちもっとも強い種類で決まります。その方法で確かめたのが一部の規則だけでも、その段にし、確かめた範囲を `scope` と形式の文書に書きます。手元の図面のように出所を記録していないファイルと、依存の crate が読むことは、根拠に数えません。
+段は、根拠のうちもっとも強い種類で決まります。その方法で確かめたのが一部の規則だけでも、その段にし、確かめた範囲を `scope` と形式の文書に書きます。台帳の `verify` に載っていることと、依存の crate が読むことは、根拠に数えません。
 
 | キー | 要るか | 中身 |
 | --- | --- | --- |
-| `level` | 要る | `spec`・`samples`・`verified` |
+| `level` | 要る | `synthetic`・`external`・`application` |
 | `scope` | 要る | 確かめた範囲と方法。確かめていない所と、段を上げる issue も書く |
 | `checked` | 要る | 確かめた日。文字列の `YYYY-MM-DD` にする |
-| `public-samples` | | 読んだか書き戻した公開の試料。`samples/` の中の道筋（`samples/dwg/` のように `/` で終われば、そのフォルダー）は、[公開サンプルの台帳](../samples/ledger.toml)にあるもの。Git にない試料は URL で書く |
-| `implementations` | | 結果を照らした外部の実装（`name`・`version`）。成果物に入れず、試験で別のプログラムとして動かすもの |
+| `public-samples` | | 読みだけ。読んだ公開サンプル。`samples/` の中の道筋（`samples/dwg/` のように `/` で終われば、そのフォルダー）は、[公開サンプルの台帳](../samples/ledger.toml)にあるもの。Git にない公開サンプルは URL で書く |
+| `received` | | 読みだけ。読んだ受け取った図面の種類と件数（`kind`・`count`）。ファイル名・顧客の名前・中身は書かない |
+| `implementations` | | 結果を照らした外部の実装（`name`・`version`）。書きでは、書いたファイルを読ませた実装。成果物に入れず、試験で別のプログラムとして動かすもの |
 | `software` | | 開いて確かめた、その形式の基準になるソフト（`name`・`version`） |
 
-形式の文書の「確かめた度合い」の節には、次の形の表を置きます。文書を `docs` に持つ形式の、段を持つ向きを過不足なく並べ、段は台帳と同じにします。表の後に、確かめた範囲と、まだ確かめていないことを書きます。`spec` の段の規則は、検証済みと取られないように書きます。
+形式の文書の「確かめた度合い」の節には、次の形の表を置きます。文書を `docs` に持つ形式の、段を持つ向きを過不足なく並べ、段は台帳と同じにします。表の後に、確かめた範囲と、まだ確かめていないことを書きます。`synthetic` の段の規則は、確かめ済みと取られないように書きます。
 
 ```markdown
 ## 確かめた度合い
 
 | 形式 | 向き | 段 |
 | --- | --- | --- |
-| `dxf` | 読み | `verified` |
-| `dxf` | 書き | `verified` |
+| `jww` | 読み | `external` |
+| `jww` | 書き | `synthetic` |
 ```
 
 ## 権利
@@ -105,7 +106,7 @@ formats = ["dxf", "dwg"]
 - 要る項目・値の語・キー・空欄・重複、仕様の参照、HTTP または HTTPS の入手先、実在する日付。
 - `core` の権利が `public` であること、`plugin` のリポジトリ、実装の根拠に必要な仕様や参照した実装。
 - 決定の記録と形式の文書があること。旧版の決定は番号の形、issue は `所有者/リポジトリ#番号` の形を確かめる。
-- 確かめた度合いの段が根拠の種類と合うこと、`public-samples` が公開サンプルの台帳にあること、確かめた度合いを持つ形式の文書に節があり、その表が台帳と合うこと。
+- 確かめた度合いの段が向きと根拠の種類に合うこと、`public-samples` が公開サンプルの台帳にあること、確かめた度合いを持つ形式の文書に節があり、その表が台帳と合うこと。
 - `cargo metadata --format-version 1 --all-features --locked` に含まれる全パッケージの名乗り。台帳にない形式、`public` の `core` でない形式、確かめた度合いのない形式、不正な名乗りを拒む。通常・build・dev・間接の依存を含み、環境で絞らない。
 - 権利が `public` でない形式の既知の crate に、例外・版の制限のない禁止があること。`"stb-parser"` または `{ crate = "stb-parser", reason = "理由" }` の形を使う。古い `name` の形も読めるが、`wrappers` による例外や、複数の版だけを禁じる指定では代わりにならない。既知の crate が Cargo の依存に現れた場合も拒む。
 

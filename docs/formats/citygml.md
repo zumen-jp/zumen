@@ -62,9 +62,9 @@ CityGML 2.0（台帳の `citygml_2_0`）の 3D 都市モデル（PLATEAU の製�
 
 | 形式 | 向き | 段 |
 | --- | --- | --- |
-| `citygml` | 読み | `spec` |
+| `citygml` | 読み | `synthetic` |
 
-段の意味は[決定 0253](../decisions/0253-parallel-agents-and-cross-review.md)に、根拠は[形式と権利の一覧](README.md#format-citygml)にあります。この文書の規則は、仕様と、試験の中で作ったファイルだけで確かめたものです。公開の試料・外部の実装・実際のソフトとは、まだ照らしていません。実際のファイルでは、ここに書いた扱いと違うことがあります。
+段の意味は[決定 0254](../decisions/0254-parallel-agents-and-cross-review.md)に、根拠は[形式と権利の一覧](README.md#format-citygml)にあります。この文書の規則は、仕様と、試験の中で作ったファイルだけで確かめたものです。公開サンプル・受け取った図面・外部の実装・基準になるソフトとは、まだ照らしていません。実際のファイルでは、ここに書いた扱いと違うことがあります。
 
 - PLATEAU のデータは大きいので Git に入れず、`ZUMEN_SAMPLES` で渡す。再配布できる 5 MB 未満の公式の試料は、見つかっていない。
 - PLATEAU のデータと、PLATEAU VIEW・QGIS での照合は #379・#504 で行う。

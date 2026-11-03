@@ -80,7 +80,7 @@ fn read(root: &Path) -> Result<Ledger, String> {
     toml::from_str(&text).map_err(|e| format!("{LEDGER}: {e}"))
 }
 
-/// 台帳にあるサンプルの、`samples/` からの道筋。形式の台帳の確かめた度合いが指す（決定 0253）
+/// 台帳にあるサンプルの、`samples/` からの道筋。形式の台帳の確かめた度合いが指す（決定 0254）
 pub(crate) fn paths(root: &Path) -> Result<BTreeSet<String>, String> {
     Ok(read(root)?.samples.into_iter().map(|s| s.path).collect())
 }

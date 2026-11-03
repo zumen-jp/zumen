@@ -63,13 +63,13 @@ struct Format {
     #[serde(default)]
     docs: Vec<String>,
     notes: Option<String>,
-    /// 読みの確かめた度合い（決定 0253）。読まない形式は持たない
+    /// 読みの確かめた度合い（決定 0254・0255）。読まない形式は持たない
     read: Option<Verification>,
     /// 書きの確かめた度合い。書かない形式は持たない
     write: Option<Verification>,
 }
 
-/// 読みか書きの確かめた度合いと、その根拠（決定 0253）
+/// 読みか書きの確かめた度合いと、その根拠（決定 0254・0255）
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "kebab-case")]
 struct Verification {
@@ -78,10 +78,13 @@ struct Verification {
     /// 確かめた範囲と方法
     scope: String,
     checked: String,
-    /// 読んだか書き戻した公開の試料。`samples/` の中の道筋（`/` で終われば、そのフォルダー）か URL
+    /// 読んだ公開サンプル。`samples/` の中の道筋（`/` で終われば、そのフォルダー）か URL。読みだけ
     #[serde(default)]
     public_samples: Vec<String>,
-    /// 結果を照らした外部の実装
+    /// 読んだ受け取った図面の種類と件数。読みだけ
+    #[serde(default)]
+    received: Vec<Received>,
+    /// 結果を照らした外部の実装。書きでは、書いたファイルを読ませた実装
     #[serde(default)]
     implementations: Vec<Tool>,
     /// 開いて確かめた、その形式の基準になるソフト
@@ -97,8 +100,16 @@ struct Tool {
     version: String,
 }
 
-/// 確かめた度合いの段（決定 0253）。弱いものから並べる
-const LEVELS: &[&str] = &["spec", "samples", "verified"];
+/// 受け取った図面。ファイル名・顧客の名前・中身は書かず、種類と件数だけを書く（決定 0254）
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Received {
+    kind: String,
+    count: u64,
+}
+
+/// 確かめた度合いの段（決定 0254）。弱いものから並べる
+const LEVELS: &[&str] = &["synthetic", "external", "application"];
 
 /// 形式の文書の、確かめた度合いの節の見出し
 const SECTION: &str = "## 確かめた度合い";
@@ -369,7 +380,7 @@ fn check(
             if format.place != "core" {
                 errors.push(format!("{at}: 確かめた度合いは core の形式にだけ書く"));
             }
-            verification(&mut errors, &at, found, samples);
+            verification(&mut errors, &at, direction == "write", found, samples);
         }
         if (format.read.is_some() || format.write.is_some()) && format.docs.is_empty() {
             errors.push(format!(
@@ -381,14 +392,28 @@ fn check(
     errors
 }
 
-/// 確かめた度合いの段と根拠。段は、根拠のうちもっとも強い種類で決まる（決定 0253）
+/// 確かめた度合いの段と根拠。段は、根拠のうちもっとも強い種類で決まる（決定 0254・0255）。書きの根拠は、
+/// 書いたファイルを読ませた外部の実装か、開いたソフトだけ
 fn verification(
     errors: &mut Vec<String>,
     at: &str,
+    write: bool,
     found: &Verification,
     samples: &BTreeSet<String>,
 ) {
     choice(errors, at, "level", &found.level, LEVELS);
+    if write && !(found.public_samples.is_empty() && found.received.is_empty()) {
+        errors.push(format!(
+            "{at}: public-samples と received は読みの根拠。書きには、書いたファイルを読ませた implementations か、開いた software を書く"
+        ));
+    }
+    for (i, received) in found.received.iter().enumerate() {
+        let at = format!("{at}.received[{i}]");
+        nonempty(errors, &at, "kind", &received.kind);
+        if received.count == 0 {
+            errors.push(format!("{at}: count は 1 以上にする"));
+        }
+    }
     nonempty(errors, at, "scope", &found.scope);
     if !is_date(&found.checked) {
         errors.push(format!("{at}: checked は実在する日付 YYYY-MM-DD にする"));
@@ -430,15 +455,17 @@ fn verification(
         }
     }
     let expected = if !found.software.is_empty() {
-        "verified"
-    } else if !found.public_samples.is_empty() || !found.implementations.is_empty() {
-        "samples"
+        "application"
+    } else if !found.implementations.is_empty()
+        || (!write && !(found.public_samples.is_empty() && found.received.is_empty()))
+    {
+        "external"
     } else {
-        "spec"
+        "synthetic"
     };
     if LEVELS.contains(&found.level.as_str()) && found.level != expected {
         errors.push(format!(
-            "{at}: level の `{}` が根拠と合わない。software があれば verified、public-samples か implementations があれば samples、どれもなければ spec にする",
+            "{at}: level の `{}` が根拠と合わない。software があれば application、implementations（読みでは public-samples・received も）があれば external、どれもなければ synthetic にする",
             found.level
         ));
     }
@@ -843,7 +870,7 @@ fn check_packages(ledger: &Ledger, metadata: &Value) -> Vec<String> {
                 }
                 Some(format) if format.read.is_none() && format.write.is_none() => {
                     errors.push(format!(
-                        "crate `{name}`: 実装する形式 `{id}` に、台帳の read か write の確かめた度合いがない（決定 0253）"
+                        "crate `{name}`: 実装する形式 `{id}` に、台帳の read か write の確かめた度合いがない（決定 0254）"
                     ));
                 }
                 _ => {}

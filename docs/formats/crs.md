@@ -82,9 +82,9 @@ SXF の測地座標系の部分図（X が北、Y が東）は、図面モデル
 
 | 形式 | 向き | 段 |
 | --- | --- | --- |
-| `isg` | 読み | `spec` |
+| `isg` | 読み | `synthetic` |
 
-段の意味は[決定 0253](../decisions/0253-parallel-agents-and-cross-review.md)に、根拠は[形式と権利の一覧](README.md#format-isg)にあります。台帳の形式は、ジオイドの格子（ISG 形式）だけです。
+段の意味は[決定 0254](../decisions/0254-parallel-agents-and-cross-review.md)に、根拠は[形式と権利の一覧](README.md#format-isg)にあります。台帳の形式は、ジオイドの格子（ISG 形式）だけです。
 
-- ジオイドの格子: ISG format 2.0 の例と同じ形の合成の格子（`crates/zumen-crs/tests/grid.rs`）だけで確かめた `spec` の段。国土地理院のジオイド・モデルで、内挿計算プログラムと比べる照合は #438 で行う。
+- ジオイドの格子: ISG format 2.0 の例と同じ形の合成の格子（`crates/zumen-crs/tests/grid.rs`）だけで確かめた `synthetic` の段。国土地理院のジオイド・モデルで、内挿計算プログラムと比べる照合は #438 で行う。
 - 経緯度と平面直角座標の換算は形式ではないので、段を持たない。測量計算サイトと比べた記録は「照合の記録」にある。

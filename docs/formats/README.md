@@ -6,44 +6,44 @@
 
 - 権利: `public` は実装の公開に第三者の許諾が不要、`permission` は契約・会員・許諾が必要、`unknown` は条件が未確認です。
 - 置き場所: `core` はコア、`plugin` は外部のプラグイン、`none` は実装しない方針です。
-- 読み・書き: コアの実装を確かめた度合い（[決定 0253](../decisions/0253-parallel-agents-and-cross-review.md)・[決定 0254](../decisions/0254-verification-levels-in-the-ledger.md)）です。`spec` は仕様と試験の中で作ったファイルだけ、`samples` は公開の試料か外部の実装との照合、`verified` はその形式の基準になるソフトで開いて確かめたものです。確かめた方法のうちもっとも強いものを示すので、その方法で確かめたのは一部の規則だけのことがあります。範囲は形式ごとの記録と、形式の文書の「確かめた度合い」の節にあります。空欄は、その向きをコアで実装していないことを示します。
+- 読み・書き: コアの実装を確かめた度合い（[決定 0254](../decisions/0254-parallel-agents-and-cross-review.md)・[決定 0255](../decisions/0255-verification-levels-in-the-ledger.md)）です。`synthetic` は仕様と試験の中で作ったファイル（書きは自前の読み取り）だけ、`external` は公開サンプル・受け取った図面・外部の実装（書きは、書いたファイルを外部の実装が読めた）、`application` はその形式の基準になるソフトで開いて確かめたものです。確かめた方法のうちもっとも強いものを示すので、その方法で確かめたのは一部の規則だけのことがあります。範囲は形式ごとの記録と、形式の文書の「確かめた度合い」の節にあります。空欄は、その向きをコアで実装していないことを示します。
 - 台帳は判断した時点の記録です。URL の到達や権利の変更は、生成時に再確認していません。
 
 ## 一覧
 
 | キー | 名前 | 系統 | 領域 | 権利 | 置き場所 | 読み | 書き |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| [bcf](#format-bcf) | BCF | bcf | review | `public` | `core` | `spec` | `spec` |
+| [bcf](#format-bcf) | BCF | bcf | review | `public` | `core` | `synthetic` | `synthetic` |
 | [bebridge](#format-bebridge) | BE-Bridge | bebridge | building | `unknown` | `none` |  |  |
-| [boring](#format-boring) | ボーリング交換用データ（BED） | boring | delivery | `public` | `core` | `spec` |  |
+| [boring](#format-boring) | ボーリング交換用データ（BED） | boring | delivery | `public` | `core` | `synthetic` |  |
 | [cedxm](#format-cedxm) | CEDXM | cedxm | building | `permission` | `none` |  |  |
-| [citygml](#format-citygml) | CityGML（PLATEAU の 3D 都市モデルと i-UR を含む） | citygml | geo | `public` | `core` | `spec` |  |
-| [csv](#format-csv) | CSV | csv | delivery | `public` | `core` | `spec` |  |
-| [delivery](#format-delivery) | 電子納品の管理ファイル（INDEX\_C.XML・PHOTO.XML など） | delivery | delivery | `public` | `core` | `spec` |  |
-| [dwg](#format-dwg) | DWG | acad | drawing | `public` | `core` | `verified` | `verified` |
-| [dxf](#format-dxf) | DXF | acad | drawing | `public` | `core` | `verified` | `verified` |
-| [e57](#format-e57) | E57（ASTM E2807） | e57 | pointcloud | `public` | `core` | `spec` |  |
-| [extdm](#format-extdm) | 拡張 DM（公共測量標準図式数値地形図データファイル） | extdm | geo | `public` | `core` | `spec` |  |
-| [fgd](#format-fgd) | 基盤地図情報（GML） | fgd | geo | `public` | `core` | `spec` |  |
-| [ids](#format-ids) | IDS（Information Delivery Specification） | ids | building | `public` | `core` | `spec` |  |
-| [ifc](#format-ifc) | IFC | ifc | building・civil | `public` | `core` | `spec` | `samples` |
-| [isg](#format-isg) | ISG 形式（ジオイド高と基準面補正量の格子） | isg | geo | `public` | `core` | `spec` |  |
-| [jpeg](#format-jpeg) | 工事写真（JPEG と Exif・XMP） | jpeg | delivery | `public` | `core` | `spec` |  |
+| [citygml](#format-citygml) | CityGML（PLATEAU の 3D 都市モデルと i-UR を含む） | citygml | geo | `public` | `core` | `synthetic` |  |
+| [csv](#format-csv) | CSV | csv | delivery | `public` | `core` | `synthetic` |  |
+| [delivery](#format-delivery) | 電子納品の管理ファイル（INDEX\_C.XML・PHOTO.XML など） | delivery | delivery | `public` | `core` | `synthetic` |  |
+| [dwg](#format-dwg) | DWG | acad | drawing | `public` | `core` | `application` | `application` |
+| [dxf](#format-dxf) | DXF | acad | drawing | `public` | `core` | `application` | `application` |
+| [e57](#format-e57) | E57（ASTM E2807） | e57 | pointcloud | `public` | `core` | `synthetic` |  |
+| [extdm](#format-extdm) | 拡張 DM（公共測量標準図式数値地形図データファイル） | extdm | geo | `public` | `core` | `synthetic` |  |
+| [fgd](#format-fgd) | 基盤地図情報（GML） | fgd | geo | `public` | `core` | `synthetic` |  |
+| [ids](#format-ids) | IDS（Information Delivery Specification） | ids | building | `public` | `core` | `synthetic` |  |
+| [ifc](#format-ifc) | IFC | ifc | building・civil | `public` | `core` | `synthetic` | `external` |
+| [isg](#format-isg) | ISG 形式（ジオイド高と基準面補正量の格子） | isg | geo | `public` | `core` | `synthetic` |  |
+| [jpeg](#format-jpeg) | 工事写真（JPEG と Exif・XMP） | jpeg | delivery | `public` | `core` | `synthetic` |  |
 | [jwc](#format-jwc) | JWC（Jw\_cad for DOS の図面） | jwcad | drawing | `public` | `core` |  |  |
 | [jws](#format-jws) | JWS（Jw\_cad の図形） | jwcad | drawing | `public` | `core` |  |  |
-| [jww](#format-jww) | JWW（Jw\_cad for Windows の図面） | jwcad | drawing | `public` | `core` | `spec` | `spec` |
+| [jww](#format-jww) | JWW（Jw\_cad for Windows の図面） | jwcad | drawing | `public` | `core` | `external` | `synthetic` |
 | [kokuban](#format-kokuban) | 電子小黒板の情報と信憑性確認（改ざん検知） | jpeg | delivery | `permission` | `none` |  |  |
-| [landxml](#format-landxml) | J-LandXML（LandXML 1.2 に準じた 3 次元設計データ交換標準） | landxml | civil | `public` | `core` | `spec` |  |
-| [las](#format-las) | LAS・LAZ | las | pointcloud | `public` | `core` | `spec` |  |
+| [landxml](#format-landxml) | J-LandXML（LandXML 1.2 に準じた 3 次元設計データ交換標準） | landxml | civil | `public` | `core` | `synthetic` |  |
+| [las](#format-las) | LAS・LAZ | las | pointcloud | `public` | `core` | `synthetic` |  |
 | [pdf](#format-pdf) | PDF | pdf | drawing | `public` | `core` |  |  |
-| [ply](#format-ply) | PLY（点群） | ply | pointcloud | `public` | `core` | `spec` |  |
-| [saf](#format-saf) | SXF の属性ファイル（SAF） | sxf | drawing・delivery | `public` | `core` | `spec` |  |
+| [ply](#format-ply) | PLY（点群） | ply | pointcloud | `public` | `core` | `synthetic` |  |
+| [saf](#format-saf) | SXF の属性ファイル（SAF） | sxf | drawing・delivery | `public` | `core` | `synthetic` |  |
 | [sima](#format-sima) | SIMA 共通フォーマット | sima | civil | `unknown` | `none` |  |  |
 | [stbridge](#format-stbridge) | ST-Bridge | stbridge | building | `permission` | `plugin` |  |  |
 | [stem](#format-stem) | Stem（設備機器ライブラリデータ交換仕様） | stem | building | `unknown` | `none` |  |  |
-| [sxf](#format-sxf) | SXF（SFC・P21 と、それを ZIP に入れた SFZ・P2Z） | sxf | drawing | `public` | `core` | `spec` | `spec` |
-| [xlsx](#format-xlsx) | Excel の表（xlsx） | xlsx | delivery | `public` | `core` | `spec` |  |
-| [xyz](#format-xyz) | XYZ（座標を並べた点群のテキスト） | xyz | pointcloud | `public` | `core` | `spec` |  |
+| [sxf](#format-sxf) | SXF（SFC・P21 と、それを ZIP に入れた SFZ・P2Z） | sxf | drawing | `public` | `core` | `external` | `synthetic` |
+| [xlsx](#format-xlsx) | Excel の表（xlsx） | xlsx | delivery | `public` | `core` | `synthetic` |  |
+| [xyz](#format-xyz) | XYZ（座標を並べた点群のテキスト） | xyz | pointcloud | `public` | `core` | `synthetic` |  |
 
 ## 仕様の入手先
 
@@ -444,9 +444,9 @@
 - 仕様: [bcf\_xml\_2\_1](#spec-bcf_xml_2_1)、[bcf\_xml\_3\_0](#spec-bcf_xml_3_0)、[bcf\_api\_3\_0](#spec-bcf_api_3_0)
 - 実装の根拠: spec
 - 権利の根拠にした文書: [IFC4 ADD2 TC1 の文書の著作権の注記（商標の注記を含む）](https://standards.buildingsmart.org/IFC/RELEASE/IFC4/ADD2_TC1/HTML/copyright.htm)（確認日: 2026-10-31）
-- 読みの確かめた度合い: `spec`（確認日: 2026-11-03）
-- 読みの確かめた範囲: BCF-XML 2.1・3.0 の文書と、試験の中で作った bcfzip（crates/zumen-bcf/tests）で確かめた。公開の試料と、BCF を読むソフトでの照合はまだ
-- 書きの確かめた度合い: `spec`（確認日: 2026-11-03）
+- 読みの確かめた度合い: `synthetic`（確認日: 2026-11-03）
+- 読みの確かめた範囲: BCF-XML 2.1・3.0 の文書と、試験の中で作った bcfzip（crates/zumen-bcf/tests）で確かめた。公開サンプルと、BCF を読むソフトでの照合はまだ
+- 書きの確かめた度合い: `synthetic`（確認日: 2026-11-03）
 - 書きの確かめた範囲: 書いた bcfzip を読み直して確かめた。書いたファイルを BCF を読むソフトで開いてはいない
 - 記録: [決定 0214](../decisions/0214-review-model-and-bcf.md)
 - 記録: [決定 0220](../decisions/0220-bcf-3-0.md)
@@ -471,8 +471,8 @@
 - 仕様: [ed\_boring\_r8\_2](#spec-ed_boring_r8_2)
 - 実装の根拠: spec
 - 権利の根拠にした文書: [KuniJiban の利用規約](https://www.kunijiban.pwri.go.jp/jp/terms.html)（確認日: 2026-11-01）
-- サンプルの出どころ（Git に入れない）: 国土地盤情報検索サイト KuniJiban の柱状図（規約は複製と頒布を認め、出典の表示を求める）。XML で取れるかと個人情報の有無を #390 で確かめる
-- 読みの確かめた度合い: `spec`（確認日: 2026-11-03）
+- サンプルの出どころ: 国土地盤情報検索サイト KuniJiban の柱状図（規約は複製と頒布を認め、出典の表示を求める）。XML で取れるかと個人情報の有無を #390 で確かめる
+- 読みの確かめた度合い: `synthetic`（確認日: 2026-11-03）
 - 読みの確かめた範囲: 要領と、試験の中で作ったボーリング交換用データ（crates/zumen-geology/tests）で確かめた。DTD での検証と、KuniJiban の柱状図との照合はまだ（#390・#505）
 - issue: [zumen-jp/zumen#390](https://github.com/zumen-jp/zumen/issues/390)
 - 形式の文書: [docs/formats/boring.md](../../docs/formats/boring.md)
@@ -493,9 +493,9 @@
 - 仕様: [citygml\_2\_0](#spec-citygml_2_0)、[citygml\_3\_0\_gml](#spec-citygml_3_0_gml)、[plateau\_5\_1](#spec-plateau_5_1)
 - 実装の根拠: spec
 - 権利の根拠にした文書: [PLATEAU のサイトポリシー](https://www.mlit.go.jp/plateau/site-policy/)（確認日: 2026-11-01）
-- 照合するソフト: PLATEAU VIEW・QGIS
-- サンプルの出どころ（Git に入れない）: PLATEAU のデータ（G 空間情報センター。多くは政府標準利用規約 2.0）。大きいので ZUMEN\_SAMPLES に置く。再配布できる 5 MB 未満の公式の試料は見つかっていない
-- 読みの確かめた度合い: `spec`（確認日: 2026-11-03）
+- 照合に使う候補: PLATEAU VIEW・QGIS
+- サンプルの出どころ: PLATEAU のデータ（G 空間情報センター。多くは政府標準利用規約 2.0）。大きいので ZUMEN\_SAMPLES に置く。再配布できる 5 MB 未満の公式の試料は見つかっていない
+- 読みの確かめた度合い: `synthetic`（確認日: 2026-11-03）
 - 読みの確かめた範囲: CityGML 2.0 と PLATEAU の製品仕様書と、試験の中で作った CityGML（crates/zumen-citygml/tests）で確かめた。PLATEAU のデータでの照合はまだ（#379・#504）
 - 既知の crate: nusamai-citygml・ecitygml-io
 - issue: [zumen-jp/zumen#379](https://github.com/zumen-jp/zumen/issues/379)
@@ -507,8 +507,8 @@
 - 権利の根拠: IETF の RFC で、誰でも読める。実装を制限する記述はない
 - 仕様: [rfc\_4180](#spec-rfc_4180)
 - 実装の根拠: spec
-- サンプルの出どころ（Git に入れない）: 試験の中で作る
-- 読みの確かめた度合い: `spec`（確認日: 2026-11-03）
+- サンプルの出どころ: 試験の中で作る
+- 読みの確かめた度合い: `synthetic`（確認日: 2026-11-03）
 - 読みの確かめた範囲: RFC 4180 と、試験の中で作った CSV（crates/zumen-sheet/tests）で確かめた。表計算のソフトが書いた CSV との照合はまだ（#505）
 - issue: [zumen-jp/zumen#391](https://github.com/zumen-jp/zumen/issues/391)
 - 形式の文書: [docs/formats/sheet.md](../../docs/formats/sheet.md)
@@ -520,10 +520,10 @@
 - 仕様: [ed\_const\_r8\_2](#spec-ed_const_r8_2)、[ed\_design\_r8\_2](#spec-ed_design_r8_2)、[ed\_eizen\_r3](#spec-ed_eizen_r3)、[ed\_photo\_r5\_3](#spec-ed_photo_r5_3)
 - 実装の根拠: spec
 - 権利の根拠にした文書: [国土交通省 電子納品に関する要領・基準の「リンク・著作権」](https://www.cals-ed.go.jp/copyright/)（確認日: 2026-11-01）
-- 照合するソフト: 国土交通省の電子納品チェックシステム（手元でだけ使う）
-- サンプルの出どころ（Git に入れない）: 再配布を認める公開の試料は見つかっていない。国土交通省の作成例は転載が禁じられているので、試験の中で作る
-- 読みの確かめた度合い: `spec`（確認日: 2026-11-03）
-- 読みの確かめた範囲: 要領・基準と、試験の中で作った成果品と管理ファイル（crates/zumen-delivery/tests）で確かめた。DTD での検証と、公開の試料との照合はまだ（#505）
+- 照合に使う候補: 国土交通省の電子納品チェックシステム（手元でだけ使う）
+- サンプルの出どころ: 再配布を認める公開の試料は見つかっていない。国土交通省の作成例は転載が禁じられているので、試験の中で作る
+- 読みの確かめた度合い: `synthetic`（確認日: 2026-11-03）
+- 読みの確かめた範囲: 要領・基準と、試験の中で作った成果品と管理ファイル（crates/zumen-delivery/tests）で確かめた。DTD での検証と、公開サンプルとの照合はまだ（#505）
 - issue: [zumen-jp/zumen#383](https://github.com/zumen-jp/zumen/issues/383)
 - issue: [zumen-jp/zumen#384](https://github.com/zumen-jp/zumen/issues/384)
 - issue: [zumen-jp/zumen#388](https://github.com/zumen-jp/zumen/issues/388)
@@ -537,13 +537,13 @@
 - 実装の根拠: spec・inferred・reference
 - 参照した実装: [ACadSharp](https://github.com/DomCR/ACadSharp)（MIT）
 - 参照した実装: [ezdwg](https://github.com/monozukuri-ai/ezdwg)（MIT）
-- 照合するソフト: ODA File Converter・DWG TrueView
-- サンプルの出どころ（Git に入れない）: ACadSharp の試験の図面（MIT）。同じ図面を DXF にしたものと比べる・ezdwg の試験の図面（MIT）
-- 読みの確かめた度合い: `verified`（確認日: 2026-11-02）
+- 照合に使う候補: ODA File Converter・DWG TrueView
+- サンプルの出どころ: ACadSharp の試験の図面（MIT）。同じ図面を DXF にしたものと比べる・ezdwg の試験の図面（MIT）
+- 読みの確かめた度合い: `application`（確認日: 2026-11-02）
 - 読みの確かめた範囲: AutoCAD 2027 で作った R2000・R2004・R2013・R2018 の DWG（samples/dwg）を、AutoCAD が同じ図面から書いた DXF と比べ、オブジェクトの種類・所有者・値が合うことを試験で確かめる。ほかの図面で確かめた所と、確かめていない所は docs/formats/dwg.md にある
-- 読みで使った公開の試料: [samples/dwg/](../../samples/dwg/)
+- 読みで使った公開サンプル: [samples/dwg/](../../samples/dwg/)
 - 読みで開いたソフト: AutoCAD 2027
-- 書きの確かめた度合い: `verified`（確認日: 2026-11-02）
+- 書きの確かめた度合い: `application`（確認日: 2026-11-02）
 - 書きの確かめた範囲: AutoCAD 2027（accoreconsole）で、AutoCAD で作った R2000・R2004・R2010・R2018 の DWG に、引出線の置き換え・変換・追加を当てて書き戻したものを開き、監査の誤りが 0 で、形・矢印・注記が当てた値と合うことを確かめた。R2004 から後は、組み直した入れ物も開けた（#345）。点・寸法・表を書き戻したファイルは開いていない（#342・#314）
 - 書きで開いたソフト: AutoCAD 2027
 - 記録: [決定 0008](../decisions/0008-model-layers-and-codecs.md)
@@ -557,13 +557,13 @@
 - 仕様: [dxf\_2026](#spec-dxf_2026)
 - 実装の根拠: spec・inferred・reference
 - 参照した実装: [ezdxf](https://ezdxf.mozman.at/)（MIT）
-- 照合するソフト: ezdxf・ODA File Converter・DWG TrueView
-- サンプルの出どころ（Git に入れない）: ACadSharp の試験の図面（MIT）・ezdwg の試験の図面（MIT）・自治体などが公開する図面。再配布できるかは確かめていない
-- 読みの確かめた度合い: `verified`（確認日: 2026-11-02）
+- 照合に使う候補: ezdxf・ODA File Converter・DWG TrueView
+- サンプルの出どころ: ACadSharp の試験の図面（MIT）・ezdwg の試験の図面（MIT）・自治体などが公開する図面。再配布できるかは確かめていない
+- 読みの確かめた度合い: `application`（確認日: 2026-11-02）
 - 読みの確かめた範囲: AutoCAD 2027 で作った R2000〜R2018 の DXF（samples/dwg）で、レイアウトの用紙・弧長寸法・反転した切り抜きを、AutoCAD が書いた値と比べた（決定 0208・0228・0229）。TEXT の高さと位置合わせは、AutoCAD 2027 が計算した置く点と比べた（決定 0246）。ezdxf の例の DXF（samples/dxf）は、適合試験で要素の数を確かめる。ほかの規則は、この方法で確かめていない（docs/formats/dxf.md）
-- 読みで使った公開の試料: [samples/dxf/text\_alignments.dxf](../../samples/dxf/text_alignments.dxf)・[samples/dwg/](../../samples/dwg/)
+- 読みで使った公開サンプル: [samples/dxf/text\_alignments.dxf](../../samples/dxf/text_alignments.dxf)・[samples/dwg/](../../samples/dwg/)
 - 読みで開いたソフト: AutoCAD 2027
-- 書きの確かめた度合い: `verified`（確認日: 2026-11-02）
+- 書きの確かめた度合い: `application`（確認日: 2026-11-02）
 - 書きの確かめた範囲: AutoCAD 2027（accoreconsole）で、AutoCAD で作った R2000・R2004・R2010・R2018 の DXF に、引出線の置き換え・変換・追加と MULTILEADER の線の置き換えを当てて書き戻したものを開き、監査の誤りが 0 で、形・矢印・注記が当てた値と合うことを確かめた（#345）。点・寸法・表を書き戻したファイルは開いていない（#342・#314）
 - 書きで開いたソフト: AutoCAD 2027
 - 記録: [決定 0008](../decisions/0008-model-layers-and-codecs.md)
@@ -578,10 +578,10 @@
 - 権利の根拠にした文書: [libE57Format-test-data の README（ライセンス）](https://github.com/asmaloney/libE57Format-test-data)（確認日: 2026-11-01）
 - 参照した実装: [libE57Format](https://github.com/asmaloney/libE57Format)（BSL-1.0）
 - 参照した実装: [e57（Rust）](https://github.com/cry-inc/e57)（MIT）
-- 照合するソフト: CloudCompare
-- サンプルの出どころ（Git に入れない）: libE57Format-test-data（reference は libe57 の Test Data License、ほかは CC0 1.0）
-- 読みの確かめた度合い: `spec`（確認日: 2026-11-03）
-- 読みの確かめた範囲: 公開の実装の記述と、試験の中で作った E57（crates/zumen-e57/tests）で確かめた。ページ・XML・点の圧縮の読み取りは e57 の crate に任せる。公開の試料と CloudCompare での照合はまだ（#504）
+- 照合に使う候補: CloudCompare
+- サンプルの出どころ: libE57Format-test-data（reference は libe57 の Test Data License、ほかは CC0 1.0）
+- 読みの確かめた度合い: `synthetic`（確認日: 2026-11-03）
+- 読みの確かめた範囲: 公開の実装の記述と、試験の中で作った E57（crates/zumen-e57/tests）で確かめた。ページ・XML・点の圧縮の読み取りは e57 の crate に任せる。公開サンプルと CloudCompare での照合はまだ（#504）
 - 既知の crate: e57
 - issue: [zumen-jp/zumen#373](https://github.com/zumen-jp/zumen/issues/373)
 - 形式の文書: [docs/formats/e57.md](../../docs/formats/e57.md)
@@ -593,10 +593,10 @@
 - 仕様: [extdm\_furoku7](#spec-extdm_furoku7)、[extdm\_a1\_291](#spec-extdm_a1_291)
 - 実装の根拠: spec
 - 権利の根拠にした文書: [国土地理院の技術資料の利用規約](https://www.gsi.go.jp/REPORT/TECHNICAL/riyoukiyaku_gijutsushiryou.html)（確認日: 2026-11-01）
-- 照合するソフト: 基盤地図情報ビューアー（拡張 DM で書き出せる。手元でだけ使う）
-- サンプルの出どころ（Git に入れない）: 再配布を認める公開の試料は見つかっていない。試験の中で作る
-- 読みの確かめた度合い: `spec`（確認日: 2026-11-03）
-- 読みの確かめた範囲: 実装規約と、試験の中で組み立てたレコード（crates/zumen-extdm/tests）で確かめた。再配布できる公開の試料は見つかっていない。基盤地図情報ビューアーが書き出した拡張 DM との照合はまだ（#504）
+- 照合に使う候補: 基盤地図情報ビューアー（拡張 DM で書き出せる。手元でだけ使う）
+- サンプルの出どころ: 再配布を認める公開の試料は見つかっていない。試験の中で作る
+- 読みの確かめた度合い: `synthetic`（確認日: 2026-11-03）
+- 読みの確かめた範囲: 実装規約と、試験の中で組み立てたレコード（crates/zumen-extdm/tests）で確かめた。再配布できる公開サンプルは見つかっていない。基盤地図情報ビューアーが書き出した拡張 DM との照合はまだ（#504）
 - 記録: [決定 0233](../decisions/0233-geo-model-features.md)
 - issue: [zumen-jp/zumen#378](https://github.com/zumen-jp/zumen/issues/378)
 - 形式の文書: [docs/formats/extdm.md](../../docs/formats/extdm.md)
@@ -608,9 +608,9 @@
 - 仕様: [fgd\_dl\_5\_3](#spec-fgd_dl_5_3)、[fgd\_dl\_5\_2](#spec-fgd_dl_5_2)、[fgd\_dl\_4\_1](#spec-fgd_dl_4_1)
 - 実装の根拠: spec
 - 権利の根拠にした文書: [国土地理院「測量成果の複製・使用承認の Q&amp;A」](https://www.gsi.go.jp/LAW/2930-qa.html)（確認日: 2026-11-01）
-- 照合するソフト: 基盤地図情報ビューアー・QGIS
-- サンプルの出どころ（Git に入れない）: 利用者が国土地理院から入手したデータ。Git・パッケージ・試験に入れない。試験の中で小さな GML を作る
-- 読みの確かめた度合い: `spec`（確認日: 2026-11-03）
+- 照合に使う候補: 基盤地図情報ビューアー・QGIS
+- サンプルの出どころ: 利用者が国土地理院から入手したデータ。Git・パッケージ・試験に入れない。試験の中で小さな GML を作る
+- 読みの確かめた度合い: `synthetic`（確認日: 2026-11-03）
 - 読みの確かめた範囲: ファイル仕様書と、試験の中で作った小さな GML と書庫（crates/zumen-fgd/tests）で確かめた。データは Git に入れない。基盤地図情報ビューアーと QGIS での照合はまだ（#504）
 - 記録: [決定 0019](../decisions/0019-coordinate-systems-and-gsi-data.md)
 - 記録: [決定 0233](../decisions/0233-geo-model-features.md)
@@ -625,8 +625,8 @@
 - 仕様: [ids\_1\_0](#spec-ids_1_0)
 - 実装の根拠: spec
 - 権利の根拠にした文書: [IDS のリポジトリのライセンス（LICENSE）](https://github.com/buildingSMART/IDS/blob/development/LICENSE)（確認日: 2026-10-31）
-- 読みの確かめた度合い: `spec`（確認日: 2026-11-03）
-- 読みの確かめた範囲: IDS 1.0 の文書と、試験の中で作った IDS（crates/zumen-ids/tests・crates/zumen-ifc/tests/ids.rs）で確かめた。公開の試料と外部の実装との照合はまだ
+- 読みの確かめた度合い: `synthetic`（確認日: 2026-11-03）
+- 読みの確かめた範囲: IDS 1.0 の文書と、試験の中で作った IDS（crates/zumen-ids/tests・crates/zumen-ifc/tests/ids.rs）で確かめた。公開サンプルと外部の実装との照合はまだ
 - 記録: [決定 0207](../decisions/0207-building-model-components.md)
 - 記録: [決定 0217](../decisions/0217-ids-check.md)
 - issue: [zumen-jp/zumen#411](https://github.com/zumen-jp/zumen/issues/411)
@@ -644,11 +644,11 @@
 - 権利の根拠にした文書: [buildingSMART International の Intellectual Property Policy（2021-06）](https://www.buildingsmart.org/wp-content/uploads/2021/06/bSI-Intellectual-Property-Policy.pdf)（確認日: 2026-10-31）
 - 文書の補足: 実装の許諾の記述はない。Internet Archive の 2022-03-02 の写しで確かめた
 - 権利の根拠にした文書: [buildingSMART International の検証の道具（validate）](https://github.com/buildingSMART/validate)（確認日: 2026-10-24）
-- 照合するソフト: IfcOpenShell（手元でだけ使う）
-- サンプルの出どころ（Git に入れない）: 日本で使う BIM ソフトの書き出し（zumen-jp/zumen-legacy#128）
-- 読みの確かめた度合い: `spec`（確認日: 2026-11-03）
-- 読みの確かめた範囲: 仕様と、試験の中で作った IFC-SPF と ifcZIP（crates/zumen-ifc/tests）で確かめた。日本の BIM ソフトが書き出した公開の試料は探している（#412）
-- 書きの確かめた度合い: `samples`（確認日: 2026-11-02）
+- 照合に使う候補: IfcOpenShell（手元でだけ使う）
+- サンプルの出どころ: 日本で使う BIM ソフトの書き出し（zumen-jp/zumen-legacy#128）
+- 読みの確かめた度合い: `synthetic`（確認日: 2026-11-03）
+- 読みの確かめた範囲: 仕様と、試験の中で作った IFC-SPF と ifcZIP（crates/zumen-ifc/tests）で確かめた。日本の BIM ソフトが書き出した公開サンプルは探している（#412）
+- 書きの確かめた度合い: `external`（確認日: 2026-11-02）
 - 書きの確かめた範囲: building\_apply でプロパティ・名前・説明を変えて書いた IFC4 と IFC2X3 を IfcOpenShell で開き、変更が見え、スキーマと EXPRESS の規則の検査の誤りが増えないことを、毎晩の CI で確かめる（#482、決定 0244）。書いたファイルを BIM ソフトで開いてはいない
 - 書きで照らした外部の実装: IfcOpenShell 0.9.0.post1
 - 記録: [決定 0008](../decisions/0008-model-layers-and-codecs.md)
@@ -665,9 +665,9 @@
 - 仕様: [isg\_2\_0](#spec-isg_2_0)
 - 実装の根拠: spec
 - 権利の根拠にした文書: [「ジオイド2024日本とその周辺」と「基準面補正パラメータ」の説明書（2026 年 4 月）](https://www.gsi.go.jp/common/000277542.pdf)（確認日: 2026-10-31）
-- 照合するソフト: 国土地理院の内挿計算プログラム（geoidcalc）
-- サンプルの出どころ（Git に入れない）: 利用者が国土地理院から入手したジオイド・モデル。Git・パッケージ・試験に入れない
-- 読みの確かめた度合い: `spec`（確認日: 2026-11-03）
+- 照合に使う候補: 国土地理院の内挿計算プログラム（geoidcalc）
+- サンプルの出どころ: 利用者が国土地理院から入手したジオイド・モデル。Git・パッケージ・試験に入れない
+- 読みの確かめた度合い: `synthetic`（確認日: 2026-11-03）
 - 読みの確かめた範囲: ISG format 2.0 の例と同じ形の合成の格子（crates/zumen-crs/tests/grid.rs）で確かめた。国土地理院のジオイド・モデルで、内挿計算プログラムと比べる照合は #438 で行う
 - 記録: [決定 0019](../decisions/0019-coordinate-systems-and-gsi-data.md)
 - 形式の文書: [docs/formats/crs.md](../../docs/formats/crs.md)
@@ -678,9 +678,9 @@
 - 権利の根拠: Exif は CIPA が、XMP は Adobe が無償で公開している。JPEG の ITU-T T.81 は有償だが実装の制限はなく、画素の展開は許容のライセンスの crate に任せ、zumen は Exif と XMP の区画だけを読む
 - 仕様: [jpeg\_t81](#spec-jpeg_t81)、[exif\_3\_1](#spec-exif_3_1)、[xmp\_2012](#spec-xmp_2012)
 - 実装の根拠: spec
-- サンプルの出どころ（Git に入れない）: 個人情報（位置・機種の番号など）を含まないよう、試験の中で作るか、zumen-jp が作った写真を CC0 で入れる
-- 読みの確かめた度合い: `spec`（確認日: 2026-11-03）
-- 読みの確かめた範囲: Exif 3.1・XMP の仕様と、試験の中で作った JPEG（crates/zumen-photo/tests）で確かめた。外部の実装と公開の試料との照合はまだ（#505）
+- サンプルの出どころ: 個人情報（位置・機種の番号など）を含まないよう、試験の中で作るか、zumen-jp が作った写真を CC0 で入れる
+- 読みの確かめた度合い: `synthetic`（確認日: 2026-11-03）
+- 読みの確かめた範囲: Exif 3.1・XMP の仕様と、試験の中で作った JPEG（crates/zumen-photo/tests）で確かめた。外部の実装と公開サンプルとの照合はまだ（#505）
 - issue: [zumen-jp/zumen#387](https://github.com/zumen-jp/zumen/issues/387)
 - 形式の文書: [docs/formats/jpeg.md](../../docs/formats/jpeg.md)
 
@@ -691,8 +691,8 @@
 - 仕様: 登録なし
 - 実装の根拠: inferred・reference
 - 参照した実装: [ezjww](https://github.com/monozukuri-ai/ezjww)（MIT）
-- 照合するソフト: Jw\_cad
-- サンプルの出どころ（Git に入れない）: Jw\_cad 10 で保存したファイル
+- 照合に使う候補: Jw\_cad
+- サンプルの出どころ: Jw\_cad 10 で保存したファイル
 - 記録: [決定 0008](../decisions/0008-model-layers-and-codecs.md)
 
 ### format-jws
@@ -702,8 +702,8 @@
 - 仕様: 登録なし
 - 実装の根拠: inferred・reference
 - 参照した実装: [ezjww](https://github.com/monozukuri-ai/ezjww)（MIT）
-- 照合するソフト: Jw\_cad
-- サンプルの出どころ（Git に入れない）: Jw\_cad 10 で登録した図形
+- 照合に使う候補: Jw\_cad
+- サンプルの出どころ: Jw\_cad 10 で登録した図形
 - 記録: [決定 0008](../decisions/0008-model-layers-and-codecs.md)
 - 補足: 掲示板の説明: https://www.jwcad.net/log/consult2/consult2-0610-12/thread17752.htm
 
@@ -714,12 +714,13 @@
 - 仕様: [jww\_7\_02](#spec-jww_7_02)
 - 実装の根拠: spec・reference
 - 参照した実装: [ezjww](https://github.com/monozukuri-ai/ezjww)（MIT）
-- 照合するソフト: Jw\_cad
-- サンプルの出どころ（Git に入れない）: Jw\_cad に付くサンプル・ezjww のリポジトリにある図面
-- 読みの確かめた度合い: `spec`（確認日: 2026-11-03）
-- 読みの確かめた範囲: Jw\_cad のデータ形式の説明と、試験の中で作った JWW（crates/zumen-jww/tests）で確かめた。手元の図面でも読んだが、出所を記録していないので段に数えない。公開の試料と Jw\_cad での照合はまだ（#503）
-- 書きの確かめた度合い: `spec`（確認日: 2026-11-03）
-- 書きの確かめた範囲: 書き戻した JWW を読み直し、変えた要素が求めた値になることを試験で確かめた。書いたファイルを Jw\_cad で開いてはいない（#342・#503）
+- 照合に使う候補: Jw\_cad
+- サンプルの出どころ: Jw\_cad に付くサンプル・ezjww のリポジトリにある図面
+- 読みの確かめた度合い: `external`（確認日: 2026-10-30）
+- 読みの確かめた範囲: 受け取った図面（JWW 10 件）を読んで図面モデルに移し、書き戻して読み直せることを試験（crates/zumen-jww/tests/samples.rs）で確かめた（#289）。読んだ値を Jw\_cad の表示と照らしてはいない。ほかの規則は、Jw\_cad のデータ形式の説明と、試験の中で作った JWW で確かめた。公開サンプルと Jw\_cad での照合はまだ（#503）
+- 読みで使った受け取った図面: JWW 10 件
+- 書きの確かめた度合い: `synthetic`（確認日: 2026-11-03）
+- 書きの確かめた範囲: 試験の中で作った JWW と受け取った図面に書き戻し、自前の読み取りで読み直して、変えた要素が求めた値になることを確かめた。書いたファイルを Jw\_cad で開いてはいない（#342・#503）
 - 記録: [決定 0008](../decisions/0008-model-layers-and-codecs.md)
 - 記録: [決定 0133](../decisions/0133-jww-l1-records.md)
 - 記録: [決定 0134](../decisions/0134-jww-lift-to-drawing.md)
@@ -734,7 +735,7 @@
 - 仕様: [kokuban\_jcomsia](#spec-kokuban_jcomsia)
 - 権利の根拠にした文書: [J-COMSIA の合格ソフトの一覧（信憑性確認の Ver.1 と Ver.1.1）](https://www.jcomsia.org/kokuban/software/?v=2)（確認日: 2026-11-01）
 - 権利の根拠にした文書: [J-COMSIA の入会の案内](https://www.jcomsia.org/nyukai/)（確認日: 2026-11-01）
-- 照合するソフト: J-COMSIA の信憑性チェックツール（利用の登録が要る）
+- 照合に使う候補: J-COMSIA の信憑性チェックツール（利用の登録が要る）
 - issue: [zumen-jp/zumen#389](https://github.com/zumen-jp/zumen/issues/389)
 
 ### format-landxml
@@ -743,10 +744,10 @@
 - 権利の根拠: OCF と国土交通省が仕様の PDF を誰でも無償で入手できる形で公開している。実装を制限する記述はない。元の LandXML 1.2 のスキーマは同梱しない
 - 仕様: [jlandxml\_1\_8](#spec-jlandxml_1_8)
 - 実装の根拠: spec
-- 照合するソフト: 国土交通省の基準に対応した 3 次元設計データの閲覧ソフト（iLEX など。手元でだけ使う）
-- サンプルの出どころ（Git に入れない）: 再配布を認める公開の試料は見つかっていない。試験の中で小さな J-LandXML を作る
-- 読みの確かめた度合い: `spec`（確認日: 2026-11-03）
-- 読みの確かめた範囲: J-LandXML Ver.1.8 の文書と、試験の中で作った J-LandXML（crates/zumen-landxml/tests）で確かめた。再配布できる公開の試料は見つかっていない（#368・#504）
+- 照合に使う候補: 国土交通省の基準に対応した 3 次元設計データの閲覧ソフト（iLEX など。手元でだけ使う）
+- サンプルの出どころ: 再配布を認める公開の試料は見つかっていない。試験の中で小さな J-LandXML を作る
+- 読みの確かめた度合い: `synthetic`（確認日: 2026-11-03）
+- 読みの確かめた範囲: J-LandXML Ver.1.8 の文書と、試験の中で作った J-LandXML（crates/zumen-landxml/tests）で確かめた。再配布できる公開サンプルは見つかっていない（#368・#504）
 - issue: [zumen-jp/zumen#366](https://github.com/zumen-jp/zumen/issues/366)
 - issue: [zumen-jp/zumen#368](https://github.com/zumen-jp/zumen/issues/368)
 - 形式の文書: [docs/formats/landxml.md](../../docs/formats/landxml.md)
@@ -760,10 +761,10 @@
 - 権利の根拠にした文書: [OGC の LAZ 1.4 コミュニティ標準の公表](https://www.ogc.org/announcement/ogc-announces-publication-of-the-laz-1-4-community-standard/)（確認日: 2026-11-01）
 - 権利の根拠にした文書: [LASzip のリポジトリ（ライセンス）](https://github.com/LASzip/LASzip)（確認日: 2026-11-01）
 - 文書の補足: GitHub のライセンスの判定は Apache-2.0
-- 照合するソフト: CloudCompare・PDAL・LAStools の lasinfo
-- サンプルの出どころ（Git に入れない）: laz-rs の tests/data（Apache-2.0。数十 KB から数百 KB）
-- 読みの確かめた度合い: `spec`（確認日: 2026-11-03）
-- 読みの確かめた範囲: LAS 1.4 R15・LAZ 1.4 の仕様と、試験の中で作った LAS・LAZ（crates/zumen-las/tests）で確かめた。LAZ の展開は laz の crate に任せる。公開の試料と外部の実装との照合はまだ（#371・#504）
+- 照合に使う候補: CloudCompare・PDAL・LAStools の lasinfo
+- サンプルの出どころ: laz-rs の tests/data（Apache-2.0。数十 KB から数百 KB）
+- 読みの確かめた度合い: `synthetic`（確認日: 2026-11-03）
+- 読みの確かめた範囲: LAS 1.4 R15・LAZ 1.4 の仕様と、試験の中で作った LAS・LAZ（crates/zumen-las/tests）で確かめた。LAZ の展開は laz の crate に任せる。公開サンプルと外部の実装との照合はまだ（#371・#504）
 - 既知の crate: las・laz
 - issue: [zumen-jp/zumen#371](https://github.com/zumen-jp/zumen/issues/371)
 - 形式の文書: [docs/formats/las.md](../../docs/formats/las.md)
@@ -774,8 +775,8 @@
 - 権利の根拠: ISO の規格で、PDF Association が無償で配っている。実装を制限する記述はない
 - 仕様: [iso\_32000\_2\_2020](#spec-iso_32000_2_2020)
 - 実装の根拠: spec
-- 照合するソフト: pdf.js
-- サンプルの出どころ（Git に入れない）: CAD が出力した図面の PDF（手元で作る）
+- 照合に使う候補: pdf.js
+- サンプルの出どころ: CAD が出力した図面の PDF（手元で作る）
 - 記録: [決定 0013](../decisions/0013-boundary-in-four-forms.md)
 - 旧版の記録: 旧版の決定 0020、旧版の決定 0030（[旧版の決定の一覧](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/README.md)）
 - 補足: ページの解釈は hayro-interpret（Apache-2.0 OR MIT）を使う予定（旧版の決定 0020）
@@ -787,9 +788,9 @@
 - 仕様: 登録なし
 - 実装の根拠: inferred
 - 権利の根拠にした文書: [Paul Bourke「PLY - Polygon File Format」](https://paulbourke.net/dataformats/ply/)（確認日: 2026-11-01）
-- 照合するソフト: CloudCompare・MeshLab
-- サンプルの出どころ（Git に入れない）: 試験の中で作る
-- 読みの確かめた度合い: `spec`（確認日: 2026-11-03）
+- 照合に使う候補: CloudCompare・MeshLab
+- サンプルの出どころ: 試験の中で作る
+- 読みの確かめた度合い: `synthetic`（確認日: 2026-11-03）
 - 読みの確かめた範囲: 公開の解説と、試験の中で作った PLY（crates/zumen-ply/tests）で確かめた。CloudCompare・MeshLab が書いた PLY との照合はまだ（#504）
 - issue: [zumen-jp/zumen#373](https://github.com/zumen-jp/zumen/issues/373)
 - 形式の文書: [docs/formats/ply.md](../../docs/formats/ply.md)
@@ -800,8 +801,8 @@
 - 権利の根拠: SXF Ver.3.1 仕様書の附属書（属性付加機構）に含まれ、SXF と同じ扱い。実装を制限する記述はない。附属書の名前は解説の記事で確かめた
 - 仕様: [sxf\_3\_1](#spec-sxf_3_1)
 - 実装の根拠: spec
-- 照合するソフト: SXF ブラウザ
-- 読みの確かめた度合い: `spec`（確認日: 2026-11-03）
+- 照合に使う候補: SXF ブラウザ
+- 読みの確かめた度合い: `synthetic`（確認日: 2026-11-03）
 - 読みの確かめた範囲: 属性付加機構編と、試験の中で作った SAF と書庫（crates/zumen-sxf/tests/saf.rs）で確かめた。SXF ブラウザでの照合は #494 で行う
 - 記録: [決定 0249](../decisions/0249-sxf-attribute-files.md)
 - issue: [zumen-jp/zumen#386](https://github.com/zumen-jp/zumen/issues/386)
@@ -850,12 +851,13 @@
 - 権利の根拠にした文書: [国土交通省 電子納品に関する要領・基準の「リンク・著作権」](https://www.cals-ed.go.jp/copyright/)（確認日: 2026-10-24）
 - 文書の補足: サイトにつながらず、Internet Archive の 2026-05-13 の写しで確かめた
 - 参照した実装: [ezsxf](https://github.com/monozukuri-ai/ezsxf)（MIT）
-- 照合するソフト: Jw\_cad・SXF ブラウザ
-- サンプルの出どころ（Git に入れない）: ezsxf のリポジトリにある公開の図面
-- 読みの確かめた度合い: `spec`（確認日: 2026-11-03）
-- 読みの確かめた範囲: 仕様と、試験の中で作った SFC・P21 と、それを入れた書庫（crates/zumen-sxf/tests）で確かめた。手元の図面でも読んだが、出所を記録していないので段に数えない。公開の試料と SXF ブラウザでの照合はまだ（#503）
-- 書きの確かめた度合い: `spec`（確認日: 2026-11-03）
-- 書きの確かめた範囲: 書き戻した SFC・P21 を読み直し、変えた要素が求めた値になることを試験で確かめた。書いたファイルを SXF ブラウザなどで開いてはいない（#342・#503）
+- 照合に使う候補: Jw\_cad・SXF ブラウザ
+- サンプルの出どころ: ezsxf のリポジトリにある公開の図面
+- 読みの確かめた度合い: `external`（確認日: 2026-10-30）
+- 読みの確かめた範囲: 受け取った図面（SFC 1 件・P21 1 件）を読み、要素の ID がインスタンスの番号で重ならないことと、書き戻して読み直せることを試験（crates/zumen-sxf/tests/samples.rs）で確かめた（#288・#290）。読んだ値を SXF ブラウザの表示と照らしてはいない。ほかの規則は、仕様と、試験の中で作った SFC・P21 と書庫で確かめた。公開サンプルと SXF ブラウザでの照合はまだ（#503）
+- 読みで使った受け取った図面: SFC 1 件・P21 1 件
+- 書きの確かめた度合い: `synthetic`（確認日: 2026-11-03）
+- 書きの確かめた範囲: 試験の中で作った SFC・P21 と受け取った図面に書き戻し、自前の読み取りで読み直して、変えた要素が求めた値になることを確かめた。書いたファイルを SXF ブラウザなどで開いてはいない（#342・#503）
 - 記録: [決定 0008](../decisions/0008-model-layers-and-codecs.md)
 - 記録: [決定 0120](../decisions/0120-sxf-l1-exchange-structure.md)
 - 記録: [決定 0121](../decisions/0121-sxf-sfc-lift-to-drawing.md)
@@ -880,8 +882,8 @@
 - 権利の根拠: Ecma International が ECMA-376 を無償で公開している。実装を制限する記述はない
 - 仕様: [ecma\_376\_5](#spec-ecma_376_5)
 - 実装の根拠: spec
-- サンプルの出どころ（Git に入れない）: 試験の中で作る
-- 読みの確かめた度合い: `spec`（確認日: 2026-11-03）
+- サンプルの出どころ: 試験の中で作る
+- 読みの確かめた度合い: `synthetic`（確認日: 2026-11-03）
 - 読みの確かめた範囲: ECMA-376 と、試験の中で作った xlsx（crates/zumen-sheet/tests）で確かめた。表計算のソフトが書いた xlsx と、外部の実装との照合はまだ（#505）
 - issue: [zumen-jp/zumen#391](https://github.com/zumen-jp/zumen/issues/391)
 - 形式の文書: [docs/formats/sheet.md](../../docs/formats/sheet.md)
@@ -892,9 +894,9 @@
 - 権利の根拠: 決まった仕様も持ち主もない。座標と属性を区切って並べたテキストを、推定で読む
 - 仕様: 登録なし
 - 実装の根拠: inferred
-- 照合するソフト: CloudCompare
-- サンプルの出どころ（Git に入れない）: 試験の中で作る
-- 読みの確かめた度合い: `spec`（確認日: 2026-11-03）
+- 照合に使う候補: CloudCompare
+- サンプルの出どころ: 試験の中で作る
+- 読みの確かめた度合い: `synthetic`（確認日: 2026-11-03）
 - 読みの確かめた範囲: 試験の中で作った XYZ（crates/zumen-xyz/tests）で確かめた。決まった仕様はなく、列の読み方は推定。CloudCompare が書いた XYZ との照合はまだ（#504）
 - issue: [zumen-jp/zumen#373](https://github.com/zumen-jp/zumen/issues/373)
 - 形式の文書: [docs/formats/xyz.md](../../docs/formats/xyz.md)

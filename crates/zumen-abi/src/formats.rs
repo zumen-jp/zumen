@@ -45,7 +45,7 @@ mod tests {
             .and_then(|rest| rest.strip_suffix('"'))
     }
 
-    /// 台帳に、読みか書きの確かめた度合いの表 `[formats.<key>.<direction>]` があるか（決定 0253）
+    /// 台帳に、読みか書きの確かめた度合いの表 `[formats.<key>.<direction>]` があるか（決定 0254）
     fn verified(key: &str, direction: &str) -> bool {
         let header = format!("[formats.{key}.{direction}]");
         LEDGER.lines().any(|line| line.trim() == header)
