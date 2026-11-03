@@ -61,7 +61,7 @@ cargo build -q --release --bin compare --target wasm32-wasip1
 
 ## 公開サンプルの IFC で測る
 
-[#5](https://github.com/zumen-jp/zumen/issues/5) で、`samples/ifc` の公開サンプル 12 件（[#412](https://github.com/zumen-jp/zumen/issues/412)）を、候補ごとに測りました。国内のソフトの書き出し 9 件（[#513](https://github.com/zumen-jp/zumen/issues/513) の B01〜B09）は、公開の許諾がないので Git に入れず、手元で同じ手順で測った件数と種類だけを書きます。ファイルは配りません。
+[#5](https://github.com/zumen-jp/zumen/issues/5) で、`samples/ifc` の公開サンプル 12 件（[#412](https://github.com/zumen-jp/zumen/issues/412)）を、候補ごとに測りました。国内のソフトの書き出し 9 件（[#513](https://github.com/zumen-jp/zumen/issues/513) の B01〜B09）は、公開の許諾がないので Git に入れず、手元で同じ手順で測った件数（大きさ・時間・メモリを含む）と種類（実体・属性の有無・書き方・値が 0 か）と、#513 に書いた書き出したソフトの名前と版だけを書きます。ファイルは配りません。
 
 - `samples [候補 | lift] <IFC>...` は、IFC を `zumen-ifc` で読み、建物モデルに写し（lift）、要素ごとの形状表現 `Body` を `zumen_geom3d::Shape` に写して（`src/ifc.rs`）、候補で評価する。開口（`IfcRelVoidsElement`）は、開口の `Body` を、なければ `Reference` を、母体の配置に対する相対の配置で写し、母体から引く。母体が部品の組（層ごとの壁など）なら、部品ごとに引く。
 - 許容差は、弦の誤差を 1 mm、同じ点とみなす距離（格子の間隔）を、要素の `Body` の文脈が書いた精度（`IfcGeometricRepresentationContext` の `Precision`）にする。精度を書いていなければ 1e-9 m にする（決定 0018）。どれもファイルの長さの単位に換算する。
@@ -104,7 +104,7 @@ uv pip install --python <仮想環境> ifcopenshell==0.9.0.post1
 3. GNI の Archicad 28 の試料（公開元が保存し直したもの）は、開口の形を `Body` でなく `Reference` に書く。`Body` がなければ `Reference` を使う。
 4. 層ごとの壁など、閉じた部品の組の母体は、部品ごとに開口を引く。組を 1 つのメッシュにして引くと、閉じた形にならない。
 5. ブーリアンの前に、点を `Tolerance::length` の格子にそろえる（`src/kernels.rs`）。BIM Whale の TallBuilding の壁（インスタンス `#2401`）は、面が開口の面から 1.6e-13 mm ずれていて、3 つの開口を順に引くと、manifold-rust が 1 つの開口のうち 915 × 200 × 305 mm を引かなかった。逆の順に引く・先に開口の和を取る・格子にそろえる、のどれでも正しい体積になる。1e-9 m の格子にそろえると、csgrs のパニックも 104 から 5 に減った。格子の間隔は、文書の精度（なければ 1e-9 m）にする（決定 0018）。1e-9 m の格子と比べると、manifold-rust の状態はすべて同じで、体積が変わったのは 47 要素（GNI の model_125 の 46・林野庁の 1）、相対の差は 7.6e-6 以下だった。格子は、要素の局所の座標で作る。
-6. manifold-rust のブーリアンは、`_with_engine` で `Exact` のエンジンを明示する。既定のエンジンはプロセス全体の設定で、ほかから変えられる。半空間で切る `trim_by_plane` はエンジンを渡せないので、既定が `Exact` であることを確かめてから呼ぶ。`trim_by_plane` は std の `powi` も通るので、#420 では使わず、ほかの候補と同じく大きな箱とのブーリアンにする（決定 0260 の 2 の条件 6）。
+6. manifold-rust のブーリアンは、`_with_engine` で `Exact` のエンジンを明示する。既定のエンジンはプロセス全体の設定で、ほかから変えられる。半空間で切る `trim_by_plane` はエンジンを渡せないので、既定が `Exact` であることを確かめてから呼ぶ。`trim_by_plane` は std の `powi` も通るので、#420 では使わず、`Booleans::clip` の既定（csgrs が使う）と同じく大きな箱とのブーリアンにする（決定 0260 の 2 の条件 6）。
 
 ### 結果（2026-11-03）
 
