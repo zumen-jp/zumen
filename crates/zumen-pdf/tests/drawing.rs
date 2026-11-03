@@ -387,6 +387,11 @@ fn cid_document(base_font: &str, encoding: &str) -> Vec<u8> {
 
 /// [`cid_document`] のフォントで、`content` を描く
 fn cid_with(base_font: &str, encoding: &str, content: &str) -> Vec<u8> {
+    cid_font_with(base_font, encoding, "", content)
+}
+
+/// [`cid_document`] のフォントの子孫のフォントに `descendant` を足し、`content` を描く
+fn cid_font_with(base_font: &str, encoding: &str, descendant: &str, content: &str) -> Vec<u8> {
     let cmap = "/CIDInit /ProcSet findresource begin 12 dict begin begincmap \
         /CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def \
         /CMapName /Adobe-Identity-UCS def /CMapType 2 def \
@@ -399,7 +404,7 @@ fn cid_with(base_font: &str, encoding: &str, content: &str) -> Vec<u8> {
          /CIDSystemInfo << /Registry (Adobe) /Ordering (Japan1) /Supplement 6 >> \
          /FontDescriptor << /Type /FontDescriptor /FontName /{base_font} /Flags 4 \
          /FontBBox [0 -141 1000 859] /ItalicAngle 0 /Ascent 859 /Descent -141 /CapHeight 700 \
-         /StemV 80 >> /DW 1000 >>] /ToUnicode 4 0 R >>"
+         /StemV 80 >> /DW 1000 {descendant} >>] /ToUnicode 4 0 R >>"
     );
     let mut document = Document::new(vec![Page::new(content).resources("/Font << /F2 3 0 R >>")]);
     document.objects = vec![font.into_bytes(), common::stream("", cmap)];
@@ -895,7 +900,7 @@ fn reads_missing_and_unreadable_fonts_with_helvetica() {
         named(&diag),
         [
             ("pdf.font-name.dropped", String::new(), 4),
-            ("pdf.font.missing", String::new(), 1),
+            ("pdf.font.assumed", String::new(), 1),
             ("pdf.font.missing", "F9".to_owned(), 1),
             ("pdf.font.unsupported", "Broken".to_owned(), 1),
             ("pdf.text.dropped", String::new(), 3),
@@ -1118,6 +1123,31 @@ fn counts_nested_forms_before_interpreting() {
     // 予算に収まる深さは、呼んだ数の要素を移す
     let (drawing, _) = lift(&doubling_forms(4, "0 0 m 1 1 l S"));
     assert_eq!(elements(&drawing).len(), 16);
+    // フォームの呼び出しは、hayro-interpret の手間に合わせて、簡単な演算子の 50 倍に数える
+    let file = testkit::read::<Pdf>(&doubling_forms(10, "")).0.unwrap();
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    assert!(
+        file.lift(&mut Cx::new(&mut budget, &mut diag, &cancel))
+            .is_ok()
+    );
+    let calls = (1 << 11) - 1;
+    assert!(
+        budget.used(Kind::Work) >= 50 * calls,
+        "{}",
+        budget.used(Kind::Work)
+    );
+    // 既定の `Work` の上限でも、2 の 29 乗回の呼び出しは、解釈する前に止める
+    let file = testkit::read::<Pdf>(&doubling_forms(28, "")).0.unwrap();
+    let mut budget = Budget::new(Limits::default().with(Kind::DecodedBytes, Limit::Unlimited));
+    let mut diag = Diagnostics::new();
+    let result = file.lift(&mut Cx::new(&mut budget, &mut diag, &cancel));
+    assert!(matches!(result, Err(Error::Stopped(_))), "{result:?}");
+    assert_eq!(
+        diag.iter().next().unwrap().code(),
+        codes::BUDGET_WORK_EXCEEDED
+    );
 }
 
 #[test]
@@ -1126,13 +1156,14 @@ fn splits_text_at_large_gaps() {
         Page::new(
             "BT /F1 12 Tf 72 700 Td [(A) -5000 (B) -9000 (C)] TJ ET \
              BT /F1 12 Tf 72 600 Td [(A) -100 (B)] TJ ET \
-             BT /F1 12 Tf 72 500 Td [(A) -20 (B)] TJ ET",
+             BT /F1 12 Tf 72 500 Td [(A) -20 (B)] TJ ET \
+             BT /F1 12 Tf 72 400 Td [(A) 600 (BCDE)] TJ ET",
         )
         .resources(HELVETICA),
     );
     let (drawing, diag) = lift(&src);
-    // 大きな隙間で分け、小さなずれは 1 つの文字にする
-    assert_eq!(contents(&drawing), ["A", "B", "C", "AB", "AB"]);
+    // 大きな隙間で分け、小さなずれは 1 つの文字にする。詰めた所が 1 つあっても、ほかの字形の間は分けない
+    assert_eq!(contents(&drawing), ["A", "B", "C", "AB", "AB", "A", "BCDE"]);
     // B は、A の送り（Helvetica の 667）と、TJ の 5,000 の後ろ
     let Shape::Text(text) = &elements(&drawing)[1].shape else {
         panic!("文字でない");
@@ -1147,7 +1178,7 @@ fn splits_text_at_large_gaps() {
     assert_eq!(
         found,
         [
-            (codes::PDF_FONT_NAME_DROPPED.name(), 5),
+            (codes::PDF_FONT_NAME_DROPPED.name(), 7),
             (codes::PDF_GLYPH_POSITION_APPROXIMATED.name(), 1),
         ]
     );
@@ -1198,4 +1229,288 @@ fn stops_at_the_same_place_every_time() {
         );
         assert_eq!(first, run(), "{kind:?} {limit}");
     }
+}
+
+#[test]
+fn reads_flate_without_checksums_and_with_predictors() {
+    let content = b"0 0 m 72 0 l S";
+    // Adler-32 が違う zlib と、Adler-32 のない zlib は、deflate を終わりまで読めるので、壊れていない
+    let mut wrong = common::zlib(content);
+    if let Some(last) = wrong.last_mut() {
+        *last ^= 0xff;
+    }
+    let mut missing = common::zlib(content);
+    missing.truncate(missing.len() - 4);
+    // 配列の DecodeParms の予測子（7.4.4.4）。行ごとに、予測なし（0）の印を頭に付ける
+    let mut predicted = vec![0u8];
+    predicted.extend(content);
+    for (dict, data) in [
+        ("/Filter /FlateDecode", wrong),
+        ("/Filter /FlateDecode", missing),
+        (
+            "/Filter [/FlateDecode] /DecodeParms [<< /Predictor 12 /Columns 14 >>]",
+            common::zlib(&predicted),
+        ),
+    ] {
+        let mut document = Document::new(vec![Page::new("").contents("3 0 R")]);
+        document.objects = vec![common::stream(dict, data)];
+        let (drawing, diag) = lift(&document.bytes());
+        assert_eq!(elements(&drawing).len(), 1, "{dict}");
+        assert!(diag.is_empty(), "{dict}: {diag:?}");
+    }
+}
+
+/// 段ごとに次の段のフォームを 1 回呼ぶ、`levels` 段のフォームの鎖。最後の段は線を描く
+fn nested_forms(levels: usize) -> Vec<u8> {
+    let mut document = Document::new(vec![
+        Page::new("/X Do").resources("/XObject << /X 3 0 R >>"),
+    ]);
+    document.objects = (1..=levels)
+        .map(|level| {
+            if level == levels {
+                common::stream(
+                    "/Type /XObject /Subtype /Form /BBox [0 0 100 100]",
+                    "0 0 m 10 10 l S",
+                )
+            } else {
+                let dict = format!(
+                    "/Type /XObject /Subtype /Form /BBox [0 0 100 100] \
+                     /Resources << /XObject << /X {} 0 R >> >>",
+                    3 + level
+                );
+                common::stream(&dict, "/X Do")
+            }
+        })
+        .collect();
+    document.bytes()
+}
+
+#[test]
+fn reports_forms_nested_too_deep() {
+    // hayro-interpret は、50 段までのフォームを解釈する
+    let (drawing, diag) = lift(&nested_forms(50));
+    assert_eq!(elements(&drawing).len(), 1);
+    assert!(diag.is_empty(), "{diag:?}");
+    let (drawing, diag) = lift(&nested_forms(51));
+    assert!(elements(&drawing).is_empty());
+    assert_eq!(codes_of(&diag), [(codes::PDF_NESTING_DROPPED.name(), 1)]);
+}
+
+#[test]
+fn follows_marked_content_across_forms() {
+    // 閉じない BDC を持つフォームの後ろは、hayro-interpret と同じく隠れる。同じフォームの 2 回目も、たどり直す。
+    // BBox のないフォーム（/Bad）は、見えるときだけ診断するので、走査の見え方を確かめられる
+    let mut document = Document::new(vec![
+        Page::new("/Open Do /Bad Do EMC /Bad Do /Line Do /Open Do /Bad Do /Line Do").resources(
+            "/XObject << /Open 4 0 R /Line 5 0 R /Bad 6 0 R >> /Properties << /oc 3 0 R >>",
+        ),
+    ]);
+    document.objects = vec![
+        b"<< /Type /OCG /Name (Hidden) >>".to_vec(),
+        common::stream(
+            "/Type /XObject /Subtype /Form /BBox [0 0 100 100] \
+             /Resources << /Properties << /oc 3 0 R >> >>",
+            "/OC /oc BDC",
+        ),
+        common::stream(
+            "/Type /XObject /Subtype /Form /BBox [0 0 100 100]",
+            "0 0 m 20 20 l S",
+        ),
+        common::stream("/Type /XObject /Subtype /Form", "0 0 m 30 30 l S"),
+    ];
+    document.catalog = "/OCProperties << /OCGs [3 0 R] /D << /OFF [3 0 R] >> >>";
+    let (drawing, diag) = lift(&document.bytes());
+    // 見えるのは、EMC の後ろの /Bad と、1 回目の /Line だけ
+    assert_eq!(elements(&drawing).len(), 1);
+    let invalid: Vec<_> = codes_of(&diag)
+        .into_iter()
+        .filter(|(code, _)| *code == codes::PDF_CONTENT_INVALID.name())
+        .collect();
+    assert_eq!(invalid, [(codes::PDF_CONTENT_INVALID.name(), 1)]);
+}
+
+#[test]
+fn reports_round_caps_and_joins() {
+    for (content, approximated) in [
+        ("0 0 m 72 0 l S", false),
+        ("1 J 0 0 m 72 0 l S", true),
+        ("2 J 0 0 m 72 0 l S", true),
+        // 線分が 1 つなら、つなぎはない
+        ("1 j 0 0 m 72 0 l S", false),
+        ("1 j 0 0 m 72 0 l 72 72 l S", true),
+        ("2 j 0 0 72 72 re S", true),
+        // 閉じた部分経路には、端がない
+        ("1 J 0 0 72 72 re S", false),
+    ] {
+        let (drawing, diag) = lift(&one_page(Page::new(content)));
+        assert_eq!(elements(&drawing).len(), 1, "{content}");
+        let found = codes_of(&diag);
+        let expected: &[(&str, u64)] = if approximated {
+            &[("pdf.stroke.approximated", 1)]
+        } else {
+            &[]
+        };
+        assert_eq!(found, expected, "{content}");
+    }
+}
+
+#[test]
+fn counts_functions_made_for_each_operator() {
+    use zumen_base::{Kind, Limit, Limits};
+    // 1 万バイトの Type 4 の関数（3 番）。hayro-interpret は、使う演算子ごとに作り直して展開する
+    let mut program = String::from("{ ");
+    program.push_str(&" ".repeat(10_000));
+    program.push('}');
+    let function = common::stream("/FunctionType 4 /Domain [0 1] /Range [0 1]", program);
+    let image = common::stream(
+        "/Type /XObject /Subtype /Image /Width 1 /Height 1 /BitsPerComponent 8 \
+         /ColorSpace [/Separation /Spot /DeviceGray 3 0 R]",
+        [0u8],
+    );
+    let states = "/T gs ".repeat(100);
+    let shadings = "/Sh sh ".repeat(100);
+    let images = "q 10 0 0 10 0 0 cm /Im Do Q ".repeat(100);
+    for (content, resources) in [
+        (states.as_str(), "/ExtGState << /T << /TR 3 0 R >> >>"),
+        (
+            shadings.as_str(),
+            "/Shading << /Sh << /ShadingType 2 /ColorSpace /DeviceGray /Coords [0 0 1 0] \
+             /Function 3 0 R >> >>",
+        ),
+        (images.as_str(), "/XObject << /Im 4 0 R >>"),
+    ] {
+        let mut document = Document::new(vec![Page::new(content).resources(resources)]);
+        document.objects = vec![function.clone(), image.clone()];
+        let src = document.bytes();
+        // 100 回で 1 MB を超えるので、上限 500,000 バイトで止まる
+        let file = testkit::read::<Pdf>(&src).0.unwrap();
+        let limits = Limits::default().with(Kind::DecodedBytes, Limit::Finite(500_000));
+        let mut budget = Budget::new(limits);
+        let mut diag = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let result = file.lift(&mut Cx::new(&mut budget, &mut diag, &cancel));
+        assert!(
+            matches!(result, Err(Error::Stopped(_))),
+            "{resources}: {result:?}"
+        );
+        assert!(
+            diag.iter()
+                .any(|d| d.code() == codes::BUDGET_DECODED_BYTES_EXCEEDED),
+            "{resources}"
+        );
+        // 既定の上限なら移せる
+        let (_, diag) = lift(&src);
+        assert!(
+            !diag
+                .iter()
+                .any(|d| d.code() == codes::BUDGET_DECODED_BYTES_EXCEEDED),
+            "{resources}"
+        );
+    }
+}
+
+#[test]
+fn reports_missing_x_objects() {
+    // 資源にない名前と、自分を呼ぶフォーム（hayro-syntax は、循環する参照を引かない）
+    let mut document = Document::new(vec![
+        Page::new("/Nope Do /Me Do").resources("/XObject << /Me 3 0 R >>"),
+    ]);
+    document.objects = vec![common::stream(
+        "/Type /XObject /Subtype /Form /BBox [0 0 100 100] \
+         /Resources << /XObject << /Me 3 0 R >> >>",
+        "0 0 m 10 10 l S /Me Do",
+    )];
+    let (drawing, diag) = lift(&document.bytes());
+    assert_eq!(elements(&drawing).len(), 1);
+    assert_eq!(
+        named(&diag),
+        [
+            ("pdf.xobject.missing", "Me".to_owned(), 1),
+            ("pdf.xobject.missing", "Nope".to_owned(), 1),
+        ]
+    );
+}
+
+#[test]
+fn counts_diagnostics_in_each_call_of_a_form() {
+    // 2 回呼ぶフォームの中の、BBox のないフォーム。走査は 1 度だけたどるが、件数は 2
+    let mut document = Document::new(vec![
+        Page::new("/A Do /A Do").resources("/XObject << /A 3 0 R >>"),
+    ]);
+    document.objects = vec![
+        common::stream(
+            "/Type /XObject /Subtype /Form /BBox [0 0 100 100] \
+             /Resources << /XObject << /Bad 4 0 R >> >>",
+            "/Bad Do",
+        ),
+        common::stream("/Type /XObject /Subtype /Form", "0 0 m 10 10 l S"),
+    ];
+    let (drawing, diag) = lift(&document.bytes());
+    assert!(elements(&drawing).is_empty());
+    assert_eq!(codes_of(&diag), [(codes::PDF_CONTENT_INVALID.name(), 2)]);
+    // 入れ子の中でも、呼んだ回数を掛ける（2 回 × 2 回）
+    let mut document = Document::new(vec![
+        Page::new("/A Do /A Do").resources("/XObject << /A 3 0 R >>"),
+    ]);
+    document.objects = vec![
+        common::stream(
+            "/Type /XObject /Subtype /Form /BBox [0 0 100 100] \
+             /Resources << /XObject << /B 4 0 R >> >>",
+            "/B Do /B Do",
+        ),
+        common::stream(
+            "/Type /XObject /Subtype /Form /BBox [0 0 100 100] \
+             /Resources << /XObject << /Bad 5 0 R >> >>",
+            "/Bad Do",
+        ),
+        common::stream("/Type /XObject /Subtype /Form", "0 0 m 10 10 l S"),
+    ];
+    let (_, diag) = lift(&document.bytes());
+    assert_eq!(codes_of(&diag), [(codes::PDF_CONTENT_INVALID.name(), 4)]);
+}
+
+#[test]
+fn reports_vertical_fonts_with_other_origins() {
+    let content = "BT /F2 10 Tf 100 100 Td <00010002> Tj ET";
+    // 字形の幅が 1,000 で、DW2 が既定なら、診断しない
+    for descendant in ["", "/W [1 [1000 1000] 3 4 1000]"] {
+        let (_, diag) = lift(&cid_font_with(
+            "MS-Gothic",
+            "Identity-V",
+            descendant,
+            content,
+        ));
+        assert!(diag.is_empty(), "{descendant}: {diag:?}");
+    }
+    for descendant in [
+        "/W2 [1 [-1000 500 880]]",
+        "/DW2 [900 -1000]",
+        "/W [1 [500 1000]]",
+        "/W [1 2 500]",
+    ] {
+        let (_, diag) = lift(&cid_font_with(
+            "MS-Gothic",
+            "Identity-V",
+            descendant,
+            content,
+        ));
+        assert_eq!(
+            named(&diag),
+            [(
+                "pdf.vertical-origin.approximated",
+                "MS-Gothic".to_owned(),
+                1
+            )],
+            "{descendant}"
+        );
+    }
+    // 横書きは、原点を動かさない
+    let src = cid_font_with(
+        "MS-Gothic",
+        "Identity-H",
+        "/W2 [1 [-1000 500 880]]",
+        content,
+    );
+    let (_, diag) = lift(&src);
+    assert!(diag.is_empty(), "{diag:?}");
 }

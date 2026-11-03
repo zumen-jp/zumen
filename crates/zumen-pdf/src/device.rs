@@ -397,8 +397,9 @@ fn median(mut values: Vec<f64>) -> Option<f64> {
 ///
 /// 横書きの送りの向きの長さは、hayro-interpret が字形の幅を合わせる伸縮に依らないよう、em の高さを単位にして
 /// 比べる。フォントの幅の 1 em あたりの長さ（水平の伸縮 `Tz` と、文字の行列の縦横の比）は、分けるときは、最初の
-/// 字形の x 軸と、いちばん狭い送りの小さいほうとし、ずれを見るときは、分けた範囲の送りの中央の値（字形の間が 1 つ
-/// なら、最初の字形の x 軸）とする。縦書きは、縦の送りを 1 em（`DW2` の既定）とみなし、送りの向きだけを比べる
+/// 字形の x 軸と、送りの中央の値の小さいほうとし（隙間の多い並びでも、最初の字形の x 軸で分ける）、ずれを見る
+/// ときは、分けた範囲の送りの中央の値（字形の間が 1 つなら、最初の字形の x 軸）とする。縦書きは、縦の送りを
+/// 1 em（`DW2` の既定）とみなし、送りの向きだけを比べる
 fn split(
     glyphs: &[PositionedGlyph<'_>],
     device: Affine,
@@ -446,8 +447,8 @@ fn split(
     let ratio = |&(length, _, advance): &(f64, f64, f64)| {
         (advance > 0.0 && length > 0.0).then(|| length / advance)
     };
-    let narrowest = steps.iter().filter_map(ratio).fold(f64::INFINITY, f64::min);
-    let scale = (frame.width / height).min(narrowest);
+    let typical = median(steps.iter().filter_map(ratio).collect()).unwrap_or(f64::INFINITY);
+    let scale = (frame.width / height).min(typical);
     let splits: Vec<f64> = steps
         .iter()
         .map(|&(length, across, advance)| (length - advance * scale).abs().max(across.abs()))

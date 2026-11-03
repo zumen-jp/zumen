@@ -177,7 +177,7 @@ impl Lifter<'_, '_> {
                 let mut context = Context::new(device, bbox, &cache, xref, settings.clone());
                 let mut collector = Collector::new(
                     cx,
-                    content,
+                    content.clone(),
                     sheet,
                     paper,
                     &ocgs,
@@ -189,7 +189,11 @@ impl Lifter<'_, '_> {
                 if let Some(stop) = collector.stopped {
                     return Err(Error::Stopped(stop));
                 }
-                collector.elements
+                let elements = collector.elements;
+                // 解釈の間に届いた中断の合図は、hayro-interpret が描かない間は見られないので、解釈の後に見る
+                cx.check(Kind::Work, 0)
+                    .map_err(|stop| stopped(cx, stop, &content))?;
+                elements
             };
             self.unread(page, &source, cx)?;
             let order = (0..elements.len()).map(SheetItem::Element).collect();

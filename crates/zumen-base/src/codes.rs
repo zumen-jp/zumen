@@ -2735,7 +2735,18 @@ pub const PDF_FONT_NAME_DROPPED: Code = Code::new(
     &[],
 );
 
-/// 資源にないフォントを選んだか、フォントを選ばずに描いた文字を、hayro-interpret が Helvetica で読んだ。ページとフォントの名前ごとに 1 件。name は資源の名前（フォントを選ばなかったなら空）
+/// フォントを選ばずに（Tf の前に）Tj か TJ で描いた文字を、hayro-interpret が Helvetica で読んだ。ページごとに 1 件
+///
+/// `pdf.font.assumed`（0.2.0 から）
+pub const PDF_FONT_ASSUMED: Code = Code::new(
+    "pdf.font.assumed",
+    Severity::Warning,
+    Some(Fidelity::Approximated),
+    &[],
+    &[],
+);
+
+/// 資源にないフォントを選んだ文字を、hayro-interpret が Helvetica で読んだ。ページとフォントの名前ごとに 1 件。name は資源の名前
 ///
 /// `pdf.font.missing`（0.2.0 から）
 pub const PDF_FONT_MISSING: Code = Code::new(
@@ -2817,6 +2828,17 @@ pub const PDF_MEASURE_UNSUPPORTED: Code = Code::new(
 /// `pdf.membership.dropped`（0.2.0 から）
 pub const PDF_MEMBERSHIP_DROPPED: Code = Code::new(
     "pdf.membership.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[],
+    &[],
+);
+
+/// フォームの XObject の入れ子が、hayro-interpret の上限（50 段）より深いので、その中身を移さなかった
+///
+/// `pdf.nesting.dropped`（0.2.0 から）
+pub const PDF_NESTING_DROPPED: Code = Code::new(
+    "pdf.nesting.dropped",
     Severity::Warning,
     Some(Fidelity::Dropped),
     &[],
@@ -2906,7 +2928,7 @@ pub const PDF_TRANSFER_DROPPED: Code = Code::new(
     &[],
 );
 
-/// ソフトマスクと、通常でない合成の方法を移さなかった
+/// ソフトマスク・画像のマスク（Mask・SMaskInData）と、通常でない合成の方法を移さなかった
 ///
 /// `pdf.transparency.approximated`（0.2.0 から）
 pub const PDF_TRANSPARENCY_APPROXIMATED: Code = Code::new(
@@ -2926,6 +2948,28 @@ pub const PDF_TYPE3_APPROXIMATED: Code = Code::new(
     Some(Fidelity::Approximated),
     &[],
     &[],
+);
+
+/// 縦書きのフォントの原点の移動（字形の幅・DW2・W2）が既定と違いうるので、文字の基点を、既定の原点の移動で近似した。ページとフォントのオブジェクトごとに 1 件。name はフォントの名前（BaseFont）
+///
+/// `pdf.vertical-origin.approximated`（0.2.0 から）
+pub const PDF_VERTICAL_ORIGIN_APPROXIMATED: Code = Code::new(
+    "pdf.vertical-origin.approximated",
+    Severity::Warning,
+    Some(Fidelity::Approximated),
+    &[Param::new("name", ParamType::Text)],
+    &["name"],
+);
+
+/// 資源にない XObject を描いた（Do）。hayro-interpret は描かないので、移さなかった。循環する参照で引けない XObject を含む。ページと名前ごとに 1 件。name は資源の名前
+///
+/// `pdf.xobject.missing`（0.2.0 から）
+pub const PDF_XOBJECT_MISSING: Code = Code::new(
+    "pdf.xobject.missing",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("name", ParamType::Text)],
+    &["name"],
 );
 
 /// PLY は座標系を書かないので、座標系を不明にした
@@ -4511,6 +4555,7 @@ pub const ALL: &[Code] = &[
     PDF_FILE_INVALID,
     PDF_FILL_RULE_APPROXIMATED,
     PDF_FONT_NAME_DROPPED,
+    PDF_FONT_ASSUMED,
     PDF_FONT_MISSING,
     PDF_FONT_UNSUPPORTED,
     PDF_GEOMETRY_DROPPED,
@@ -4519,6 +4564,7 @@ pub const ALL: &[Code] = &[
     PDF_IMAGE_MASK_APPROXIMATED,
     PDF_MEASURE_UNSUPPORTED,
     PDF_MEMBERSHIP_DROPPED,
+    PDF_NESTING_DROPPED,
     PDF_OBJECT_REPAIRED,
     PDF_OPTIONAL_CONTENT_APPROXIMATED,
     PDF_OPTIONAL_CONTENT_DROPPED,
@@ -4529,6 +4575,8 @@ pub const ALL: &[Code] = &[
     PDF_TRANSFER_DROPPED,
     PDF_TRANSPARENCY_APPROXIMATED,
     PDF_TYPE3_APPROXIMATED,
+    PDF_VERTICAL_ORIGIN_APPROXIMATED,
+    PDF_XOBJECT_MISSING,
     PLY_CRS_MISSING,
     PLY_ELEMENT_DROPPED,
     PLY_FILE_INVALID,

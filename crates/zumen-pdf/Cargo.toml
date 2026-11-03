@@ -26,6 +26,13 @@ kurbo = { version = "=0.13.1", default-features = false, optional = true }
 # 壊れた Flate のストリームを見つける。hayro-syntax は展開できない所から後ろを黙って捨てるので、hayro-syntax と同じ
 # crate と backend で厳しく展開し直す
 flate2 = { version = "=1.1.10", default-features = false, features = ["zlib-rs"], optional = true }
+# コードからは使わない。hayro-interpret は ICC のプロファイルを moxcms で読み、読めなければ代わりの色空間
+# （Alternate）にするので、色空間の系統と色の診断が版で変わりうる。そのため版を固定する
+moxcms = { version = "=0.8.1", default-features = false, optional = true }
+# コードからは使わない。hayro-font はフォントのプログラムを skrifa（と read-fonts）で読み、Widths のない
+# TrueType の送りを決めるので、文字の分け方と ID が版で変わりうる。そのため版を固定する
+skrifa = { version = "=0.49.0", default-features = false, optional = true }
+read-fonts = { version = "=0.46.0", default-features = false, optional = true }
 # 文字の向きと斜体の角度。std の三角関数は環境で値が違いうる（決定 0007）
 libm = { version = "0.2.16", default-features = false, optional = true }
 
@@ -40,6 +47,9 @@ drawing = [
     "dep:hayro-cmap",
     "dep:kurbo",
     "dep:flate2",
+    "dep:moxcms",
+    "dep:skrifa",
+    "dep:read-fonts",
     "dep:libm",
 ]
 
