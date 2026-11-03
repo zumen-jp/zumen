@@ -1,5 +1,6 @@
-//! PDF の読み取りと、図面モデルへの移しの fuzz の target（#506）。小さい予算の中で止まり、2 回読んで同じ結果に
-//! なることと、2 回図面モデルに移して同じ結果（図面か止まった理由と、診断）になることを確かめる。2 回の結果は、
+//! PDF の fuzz の target（#398・#501・#506）。読んで図面モデルに移すまでが、小さい予算の中で止まり、2 回で同じ
+//! 結果になることを確かめる。ほかの図面の target と違い、移した図面（図面か止まった理由と、診断）も 2 回で同じに
+//! なることを確かめる。ページは hayro-interpret が解釈するので、その中の順に頼らないことも見るため。2 回の結果は、
 //! Debug の表記で比べる（浮動小数の NaN は、自分と等しくないので `==` では比べられない）。
 
 #![no_main]
@@ -10,7 +11,7 @@ use zumen_drawing::Drawing2D;
 use zumen_pdf::Pdf;
 use zumen_sdk::{Codec, Error, Lift};
 
-/// 移しの上限。テストキットの `survives` と同じく、どの入力でもすぐに止まるようにする
+/// 移しの上限。テストキットの fuzz の関数と同じく、どの入力でもすぐに止まるようにする
 fn limits() -> Limits {
     Limits::default()
         .with(Kind::DecodedBytes, Limit::Finite(64 << 20))
@@ -32,10 +33,10 @@ fn lifted(data: &[u8]) -> Option<(Result<Drawing2D, Error>, Vec<Diagnostic>)> {
 }
 
 fuzz_target!(|data: &[u8]| {
-    if let Err(message) = zumen_sdk::testkit::survives::<Pdf>(data) {
+    if let Err(message) = zumen_sdk::testkit::survives_lift::<Pdf, Drawing2D>(data) {
         panic!("{message}");
     }
     if format!("{:?}", lifted(data)) != format!("{:?}", lifted(data)) {
-        panic!("同じバイト列を 2 回図面モデルに移すと、結果が違う");
+        panic!("同じバイト列を 2 回図面モデルに移すと、移した図面が違う");
     }
 });

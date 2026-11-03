@@ -711,8 +711,11 @@ dependencies = [
  "serde",
  "syn 3.0.9",
  "toml",
+ "zumen-base",
+ "zumen-crs",
  "zumen-json",
  "zumen-profile",
+ "zumen-zip",
 ]
 
 [[package]]

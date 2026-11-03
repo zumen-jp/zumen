@@ -141,7 +141,7 @@ PDF を、ファイルモデル（L1）として読み書きし、図面モデ�
 | 読む | `synthetic` | 仕様と、試験の中で作ったファイルだけで確かめた（`crates/zumen-pdf/tests/pdf.rs`・`drawing.rs`）。シーンへの移しは、図面モデルから `zumen-scene` で作れることだけを確かめた |
 | 書く | `synthetic` | 読んだバイト列をそのまま書けることを、自前の読み取りだけで確かめた |
 
-- 予算と ID の契約は、テストキットの `stops_at_same_place`・`survives`（どちらも L1 の読み）・`ids_match`（`crates/zumen-pdf/tests/ids/pdf.txt`）と、図面モデルへの移しが同じ所で止まることの試験（`crates/zumen-pdf/tests/drawing.rs`）で確かめる。fuzz の対象は `fuzz/fuzz_targets/pdf.rs` で、2 回移した結果を Debug の表記で比べる。
+- 予算と ID の契約は、テストキットの `stops_at_same_place`・`survives`（どちらも L1 の読み）・`ids_match`（`crates/zumen-pdf/tests/ids/pdf.txt`）と、図面モデルへの移しが同じ所で止まることの試験（`crates/zumen-pdf/tests/drawing.rs`）で確かめる。fuzz の対象は `fuzz/fuzz_targets/pdf.rs` で、読んで移すまでをテストキットの `survives_lift` で確かめ、2 回移した図面を Debug の表記で比べる。
 - 外部の実装（pdf.js）との照合は、まだしていない（#519）。
 
 ### 公開サンプル
