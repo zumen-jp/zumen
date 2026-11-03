@@ -2746,7 +2746,8 @@ fn repaired_document(content: &str, later: Vec<u8>, extra: &[Vec<u8>]) -> Vec<u8
     let xref = src.len();
     src.extend(format!("xref\n0 {size}\n0000000000 65535 f \n").as_bytes());
     for number in 1..size as u32 {
-        let offset = offsets[&if number == 5 { 4 } else { number }];
+        let first = if number == 5 { 4 } else { number };
+        let offset = offsets.get(&first).copied().unwrap_or_default();
         src.extend(format!("{offset:010} 00000 n \n").as_bytes());
     }
     src.extend(
