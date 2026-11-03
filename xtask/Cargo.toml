@@ -14,6 +14,8 @@ syn = { version = "3.0.9", default-features = false, features = ["full", "parsin
 toml = "1.1.8"
 zumen-json = { path = "../crates/zumen-json" }
 zumen-profile = { path = "../crates/zumen-profile" }
+# fuzz の種の ZIP を書く（#501）
+zumen-zip = { path = "../crates/zumen-zip" }
 
 [lints.rust]
 unsafe_code = "forbid"

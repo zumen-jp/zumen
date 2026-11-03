@@ -325,6 +325,7 @@ dependencies = [
  "toml",
  "zumen-json",
  "zumen-profile",
+ "zumen-zip",
 ]
 
 [[package]]

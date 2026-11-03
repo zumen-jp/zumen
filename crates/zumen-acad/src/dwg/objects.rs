@@ -3340,10 +3340,14 @@ fn layout(bits: &mut Bits, release: Release, handles: &mut Vec<i16>) -> Option<V
     values.extend(point3(bits, 14)?);
     values.extend(point3(bits, 15)?);
     if r2004 {
-        // ビューポートの数。ODS は RL とするが、試料の図面では BL だった。ビューポートのハンドルは置かない
-        for _ in 0..bits.bl()? {
-            handles.push(0);
+        // ビューポートの数。ODS は RL とするが、試料の図面では BL だった。ビューポートのハンドルは置かない。
+        // ハンドルは 1 つで 1 バイト以上なので、データのバイト数を超える数は壊れている（#501。数だけ仮の値を
+        // 積むと、数 GB を取った）。負の数は、今までどおりビューポートがないとする
+        let count = usize::try_from(bits.bl()?).unwrap_or(0);
+        if count > bits.size() {
+            return None;
         }
+        handles.extend(std::iter::repeat_n(0, count));
     }
     Some(values)
 }
@@ -4452,5 +4456,66 @@ fn real(code: i16, value: f64) -> Value {
     Value {
         code,
         data: Data::Real(value),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::dwg::bits::BitWriter;
+
+    /// R2004 の LAYOUT の欄。文字は空、数は 0 にし、終わりにビューポートの数を置く。並びは [`layout`] の読む順
+    fn layout_fields(viewports: i32) -> Vec<u8> {
+        let mut w = BitWriter::default();
+        // 印刷の設定: 名前（1）・プリンター（2）・旗（70）・余白と紙（40〜45）・紙の名前（4）・原点（46・47）・
+        // 72〜74・窓（48・49・140・141）・尺度（142・143）・スタイルの表（7）・75・147〜149・陰影（76〜78）
+        w.text(b"").unwrap();
+        w.text(b"").unwrap();
+        w.bs(0);
+        (0..6).for_each(|_| w.bd(0.0));
+        w.text(b"").unwrap();
+        (0..2).for_each(|_| w.bd(0.0));
+        (0..3).for_each(|_| w.bs(0));
+        (0..6).for_each(|_| w.bd(0.0));
+        w.text(b"").unwrap();
+        w.bs(0);
+        (0..3).for_each(|_| w.bd(0.0));
+        (0..3).for_each(|_| w.bs(0));
+        // レイアウト: 名前（1）・タブ（71）・旗（70）・13・10・11・12・16・17・146・76・14・15
+        w.text(b"").unwrap();
+        w.bs(0);
+        w.bs(0);
+        (0..3).for_each(|_| w.bd(0.0));
+        (0..4).for_each(|_| w.rd(0.0));
+        (0..10).for_each(|_| w.bd(0.0));
+        w.bs(0);
+        (0..6).for_each(|_| w.bd(0.0));
+        w.bl(viewports);
+        w.into_bytes()
+    }
+
+    fn read_layout(src: &[u8]) -> (Option<Vec<Value>>, Vec<i16>) {
+        let mut handles = Vec::new();
+        let values = layout(
+            &mut Bits::with_release(src, Release::R2004),
+            Release::R2004,
+            &mut handles,
+        );
+        (values, handles)
+    }
+
+    /// fuzz で見つけた形（#501）。データにないビューポートの数だけ仮の値を積むと、数 GB を取った
+    #[test]
+    fn layout_viewports_beyond_the_data_are_invalid() {
+        let (values, handles) = read_layout(&layout_fields(i32::MAX));
+        assert_eq!(values, None);
+        assert_eq!(handles, [0, 330, 331, 346, 345]);
+        // データに収まる数なら、その数の仮の値を置く。負の数は、ビューポートがないとする
+        let (values, handles) = read_layout(&layout_fields(3));
+        assert!(values.is_some());
+        assert_eq!(handles, [0, 330, 331, 346, 345, 0, 0, 0]);
+        let (values, handles) = read_layout(&layout_fields(-1));
+        assert!(values.is_some());
+        assert_eq!(handles, [0, 330, 331, 346, 345]);
     }
 }
