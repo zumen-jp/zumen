@@ -80,7 +80,41 @@ cargo "+$NIGHTLY" fuzz run -O --debug-assertions zip
 - 見つけた入力と、1 秒以上かかった入力のうち target ごとにそれまでの最長を超えたものを、artifact の `fuzz-artifacts` に 14 日残します。公開サンプルの出所とライセンス（`samples/README.md`・`samples/ledger.toml`・`licenses/`）と、種を作ったコミット（`NOTICE.txt`）を添えます。
 - 公開サンプルを台帳から外すと、台帳のハッシュが変わるので、外したサンプルとそれを変えた入力を含む前の種は戻りません。前の種のキャッシュを早く消す手順は、[`samples/README.md`](../samples/README.md) の「外し方」にあります。
 - crate・種の元（`samples/`・`bindings/conformance/cases/`）・fuzz の target・この workflow を変えた PR では、1 つ 20 秒ずつ流します。fuzz の crate はワークスペースの外にあるので、ここで組み立てを確かめます。台帳が同じなら main の育てた種も戻すので、20 秒のうち新しい入力を試す時間が減ります。種を流すのに 20 秒より長くかかる target は、その分長くかかります。
-- fuzz の job は、main の必須の検査ではありません。CI を軽く保つためです（決定 0261）。PR で流れたら、通ったことを確かめてからマージします。PR の変更と関係のない失敗（同じ入力が main でも落ちるもの）では、マージを止めませんが、見つけた入力を最小にして issue にし、早めに直します。毎晩の実行で見つけた失敗も、同じです。
+- 落ちたときの扱いは、下の「落ちたとき」にあります（決定 0261）。
+
+## 落ちたとき
+
+fuzz の job は、main の必須の検査ではありません。CI を軽く保つためです（決定 0261）。PR で流れたら、結果も通ってからマージします。見つけた入力のある失敗は、流し直して通っても、通ったとしません。
+
+fuzz の失敗のうち、PR の変更と関係のないもの（main の上でも同じように落ちるもの）では、マージを止めません。関係がないかは、次のように確かめます。
+
+- 見つけた入力があれば、artifact の `fuzz-artifacts` を取り出し、その入力を main の target に流します。main を取り出した作業場所で、上の「動かし方」と同じく、Linux・macOS か WSL で動かします。main でも落ちれば、関係のない失敗です。main で落ちなければ、PR の変更で落ちたので、直してからマージします。
+- 入力がなければ（組み立てや道具の失敗）、main の最新の毎晩の実行か、main で手で流した実行（`workflow_dispatch`）が、同じ所で落ちるかを見ます。
+
+```bash
+gh run download <実行の ID> --name fuzz-artifacts --dir <置き場所>
+```
+
+```bash
+cargo "+$NIGHTLY" fuzz run -O --debug-assertions <target> <入力のファイル>
+```
+
+```bash
+gh run list --workflow fuzz.yml --branch main --limit 5
+```
+
+関係のない失敗なら、次のようにします。
+
+- マージの前に issue にし（同じ失敗の issue があれば、それを使います）、PR の本文にその issue を書きます。
+- issue は、いちばん前の開いた段階の issue の子にし、開いた子 issue のいちばん上に並べます。早めに直すためです。
+- 入力を貼るなら、上の「動かし方」のとおり最小にし、元の公開サンプルの出所とライセンスを添えます。artifact は 14 日で消えます。
+- 版を出したあとに、落ちる入力を公開の issue に書くかは、#557 で決めます（`SECURITY.md`）。
+
+毎晩の実行で見つけた失敗も、同じく issue にして早めに直します。エージェントは、作業を選ぶ前に、main の最新の毎晩の実行を見ます（`docs/work.md` の「選び方」）。
+
+```bash
+gh run list --workflow fuzz.yml --branch main --event schedule --limit 1
+```
 
 ## ライセンス
 
