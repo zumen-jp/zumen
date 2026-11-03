@@ -74,7 +74,7 @@
   - 境界の crate を変えたときは、wasm32 の検査も通す: `cargo clippy -p zumen-abi --target wasm32-unknown-unknown -- -D warnings` と、wasm32 の適合試験（`bindings/conformance/README.md`、Node.js 22 以降）。
   - 文書・コメント・カタログ・スキーマの説明を変えたときは、表記の検査も通す: `npm ci` と `npm run lint:text`（Node.js 22 以降）。
 - 互いに確かめ（上の「並行して進める」）、最新の `origin/main` の上で CI が通ったら squash merge し、ブランチを消す。人を待つものを含む PR は、利用者が会話で認めてから、認めた会話のエージェントか利用者がマージする。利用者にレビューで止めるよう頼まれた場合は、そこで止める。
-  - PR で fuzz（`.github/workflows/fuzz.yml`）が流れたら、その結果も通ってからマージする。見つけた入力のある失敗は、その入力が PR の最新の head で落ちないと確かめるまで、流し直しや新しい commit の実行が通っても、通ったとしない。fuzz の job は main の必須の検査にしない。fuzz の失敗のうち、PR の変更と関係のないもの（main の上でも同じように落ちるもの）では、マージを止めない。マージの前に issue にし（見つけた入力は最小にして貼る）、PR の本文に書き、早めに直す（[決定 0261](docs/decisions/0261-fuzz-outside-required-checks.md)、確かめ方は `fuzz/README.md` の「落ちたとき」）。
+  - PR で fuzz（`.github/workflows/fuzz.yml`）が流れたら、その結果も通ってからマージする。見つけた入力のある失敗は、直すか、関係のない失敗と確かめるまで、流し直しや新しいコミットの実行が通っても、手元で落ちなくても、通ったとしない。fuzz の job は main の必須の検査にしない。fuzz の失敗のうち、PR の変更と関係のないもの（main の上でも同じように落ちるもの）では、マージを止めない。マージの前に issue にし（見つけた入力は最小にして貼る）、PR の本文に書き、早めに直す（[決定 0261](docs/decisions/0261-fuzz-outside-required-checks.md)、確かめ方は `fuzz/README.md` の「落ちたとき」）。
 - Rust の版は `rust-toolchain.toml` で固定する。上げるときは、CI の cargo-deny の版も合わせる。
 - 診断の code を足すときは、`catalog/` の台帳と日本語・英語の文を直し、`cargo xtask codegen` で生成したファイルも一緒にコミットする（`catalog/README.md`）。
 - 境界の関数・op・欄を変えるときは、`schema/` を直し、`cargo xtask codegen` で生成したファイルも一緒にコミットする（`schema/README.md`）。メッセージの JSON は `zumen-json` で読み書きし、規則は [決定 0016](docs/decisions/0016-boundary-message-details.md) にある。
