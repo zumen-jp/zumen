@@ -329,7 +329,7 @@ type OpenRequest struct {
 	// 入力の全体の大きさ（バイト）。渡した入力より大きければ、入力を全体の初めの部分とみなし、足りない範囲を needs で求める。範囲で読める形式（LAS・LAZ）だけが使う（決定 0232）。小版 48 から
 	Size *int64 `json:"size,omitempty"`
 
-	// 見分ける印のない形式（xyz）を名指して読む。書かなければ、入力から判定する（決定 0232）。小版 49 から
+	// 見分ける印のない形式（xyz・extdm）を名指して読む。書かなければ、入力から判定する（決定 0232）。小版 49 から。extdm は小版 62 から
 	Format *string `json:"format,omitempty"`
 }
 
@@ -5234,7 +5234,7 @@ type DeliveryManaged struct {
 	Missing []string `json:"missing,omitempty"`
 }
 
-// GeoRequest: open で開いた CityGML か基盤地図情報（GML）の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。図面のモジュールに置く。小版 52 から
+// GeoRequest: open で開いた CityGML・基盤地図情報（GML）・拡張 DM の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。図面のモジュールに置く。小版 52 から
 type GeoRequest struct {
 	// メッセージのスキーマの大版。今は 1
 	V *int64 `json:"v,omitempty"`
@@ -5254,7 +5254,7 @@ type GeoRequest struct {
 	// op の名前
 	Op string `json:"op,omitempty"`
 
-	// open で開いた CityGML か基盤地図情報（GML）の文書の名前
+	// open で開いた CityGML・基盤地図情報（GML）・拡張 DM の文書の名前
 	Doc *string `json:"doc,omitempty"`
 
 	// 中身を返す地物の ID

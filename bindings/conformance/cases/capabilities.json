@@ -17,6 +17,7 @@
           { "id": "landxml", "family": "landxml", "read": true, "write": false, "id_rules": 1 },
           { "id": "citygml", "family": "citygml", "read": true, "write": false, "id_rules": 1 },
           { "id": "fgd", "family": "fgd", "read": true, "write": false, "id_rules": 1 },
+          { "id": "extdm", "family": "extdm", "read": true, "write": false, "id_rules": 1 },
           { "id": "las", "family": "las", "read": true, "write": false, "id_rules": 1 },
           { "id": "ply", "family": "ply", "read": true, "write": false, "id_rules": 1 },
           { "id": "xyz", "family": "xyz", "read": true, "write": false, "id_rules": 1 },

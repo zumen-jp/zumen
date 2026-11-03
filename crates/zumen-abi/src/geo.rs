@@ -1,10 +1,11 @@
-//! 地理の領域モデル（決定 0233）の境界の処理。CityGML と基盤地図情報（GML）を読み、`geo` の op で要約と地物の
-//! 中身を返す。
+//! 地理の領域モデル（決定 0233）の境界の処理。CityGML・基盤地図情報（GML）・拡張 DM を読み、`geo` の op で要約と
+//! 地物の中身を返す。
 
 use std::collections::BTreeMap;
 
 use zumen_base::{Cx, Diagnostic, codes};
 use zumen_citygml::CityGml;
+use zumen_extdm::ExtDm;
 use zumen_fgd::Fgd;
 use zumen_geo::{Feature, Form, GeoModel, Value};
 use zumen_geom3d::Shape;
@@ -30,6 +31,14 @@ pub(crate) fn read(
         return Some((Fgd::FORMAT, model.map_err(|_| Failed)));
     }
     None
+}
+
+/// 名指した拡張 DM を読み、地理の領域モデルに移す。拡張 DM は見分ける印がないので、判定しない
+pub(crate) fn read_extdm(bytes: &[u8], cx: &mut Cx<'_>) -> Result<GeoModel, Failed> {
+    // 失敗の理由は、コーデックと移す処理が診断として足してある
+    ExtDm::read(bytes, cx)
+        .and_then(|file| file.lift(cx))
+        .map_err(|_| Failed)
 }
 
 /// 地理の領域モデルの要約と、`id` で指した地物の中身

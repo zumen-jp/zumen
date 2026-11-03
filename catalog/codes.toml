@@ -2270,6 +2270,54 @@ group-by = ["element"]
 since = "0.2.0"
 status = "active"
 
+# 拡張 DM（決定 0233、#378）
+
+[codes."extdm.record.unsupported"]
+description = "見出しのない実データのレコードか、知らないレコードタイプのレコードなので、読まなかった。kind はレコードの初めの 2 文字"
+severity = "warning"
+params = { kind = "text" }
+group-by = ["kind"]
+since = "0.2.0"
+status = "active"
+
+[codes."extdm.record.invalid"]
+description = "レコードの欄が読めないか足りないので、その値か形を地理の領域モデルに移さなかった。kind はレコードタイプ、field は欄の名前"
+severity = "warning"
+params = { kind = "text", field = "text" }
+group-by = ["kind", "field"]
+since = "0.2.0"
+status = "active"
+
+[codes."extdm.crs.unsupported"]
+description = "インデックスレコードの座標系がないか、図郭の座標系が文書の座標系と違うので、図郭の形を移さなかった。sheet は図郭識別番号"
+severity = "warning"
+params = { sheet = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."extdm.datum.assumed"]
+description = "図郭の測地成果識別コードが世界測地系か、書いていないので、JGD2011（JGD2024）の平面直角座標系と仮定した。JGD2000 とは区別できない。sheet は図郭識別番号"
+severity = "info"
+params = { sheet = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."extdm.curve.approximated"]
+description = "円データ・円弧データを、座標値の単位の許容差の折れ線にした。kind はレコードタイプ（E3・E4）、tolerance は m"
+severity = "info"
+fidelity = "approximated"
+params = { kind = "text", tolerance = "float" }
+group-by = ["kind"]
+since = "0.2.0"
+status = "active"
+
+[codes."extdm.version.unsupported"]
+description = "インデックスレコードのバージョンが本仕様の 2 でない（旧 DM は 0）。同じ書式として読んだ"
+severity = "warning"
+params = { version = "uint" }
+since = "0.2.0"
+status = "active"
+
 # J-LandXML（決定 0230、#368）
 
 [codes."landxml.element.unsupported"]

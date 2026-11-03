@@ -515,7 +515,7 @@ public struct OpenRequest: Message {
         set { writeField("size", newValue) }
     }
 
-    /// 見分ける印のない形式（xyz）を名指して読む。書かなければ、入力から判定する（決定 0232）。小版 49 から
+    /// 見分ける印のない形式（xyz・extdm）を名指して読む。書かなければ、入力から判定する（決定 0232）。小版 49 から。extdm は小版 62 から
     public var format: String? {
         get { readField("format") }
         set { writeField("format", newValue) }
@@ -9899,7 +9899,7 @@ public struct DeliveryManaged: Message {
     }
 }
 
-/// open で開いた CityGML か基盤地図情報（GML）の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。図面のモジュールに置く。小版 52 から
+/// open で開いた CityGML・基盤地図情報（GML）・拡張 DM の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。図面のモジュールに置く。小版 52 から
 public struct GeoRequest: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -9950,7 +9950,7 @@ public struct GeoRequest: Message {
         set { writeField("op", newValue) }
     }
 
-    /// open で開いた CityGML か基盤地図情報（GML）の文書の名前
+    /// open で開いた CityGML・基盤地図情報（GML）・拡張 DM の文書の名前
     public var doc: String? {
         get { readField("doc") }
         set { writeField("doc", newValue) }

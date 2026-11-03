@@ -670,6 +670,8 @@ place = "core"
 basis = ["spec"]
 verify = ["基盤地図情報ビューアー（拡張 DM で書き出せる。手元でだけ使う）"]
 samples = ["再配布を認める公開の試料は見つかっていない。試験の中で作る"]
+decisions = ["0233"]
+docs = ["docs/formats/extdm.md"]
 issues = ["zumen-jp/zumen#378"]
 
 [[formats.extdm.evidence]]

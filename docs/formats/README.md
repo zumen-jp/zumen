@@ -562,7 +562,9 @@
 - 権利の根拠にした文書: [国土地理院の技術資料の利用規約](https://www.gsi.go.jp/REPORT/TECHNICAL/riyoukiyaku_gijutsushiryou.html)（確認日: 2026-11-01）
 - 照合するソフト: 基盤地図情報ビューアー（拡張 DM で書き出せる。手元でだけ使う）
 - サンプルの出どころ（Git に入れない）: 再配布を認める公開の試料は見つかっていない。試験の中で作る
+- 記録: [決定 0233](../decisions/0233-geo-model-features.md)
 - issue: [zumen-jp/zumen#378](https://github.com/zumen-jp/zumen/issues/378)
+- 形式の文書: [docs/formats/extdm.md](../../docs/formats/extdm.md)
 
 ### format-fgd
 
