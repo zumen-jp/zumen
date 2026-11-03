@@ -84,7 +84,9 @@ cargo "+$NIGHTLY" fuzz run -O --debug-assertions zip
 
 ## 落ちたとき
 
-fuzz の job は、main の必須の検査ではありません。CI を軽く保つためです（決定 0261）。PR で流れたら、結果も通ってからマージします。見つけた入力のある失敗は、直すか、関係のない失敗と確かめるまで、通ったとしません。流し直しや、新しいコミットの実行が通っても、手元で流して落ちなくても、同じです。直したら、その入力を最小にして合成の試験に移し、必須の検査で確かめます。入力のない一時の失敗（runner が取れないなど）は、流し直します。
+fuzz の job は、main の必須の検査ではありません。CI を軽く保つためです（決定 0261）。PR で流れたら、結果も通ってからマージします。見つけた入力のある失敗は、直すまで、通ったとしません。流し直しや、新しいコミットの実行が通っても、手元で流して落ちなくても、同じです。直したら、その入力を最小にして合成の試験に移し、必須の検査で確かめます。入力のない一時の失敗（runner が取れないなど）は、流し直します。
+
+ただし、PR の変更と関係のない失敗では、マージを止めません。関係がないとするのは、main の上でも同じように落ちると確かめたものだけです。確かめられない失敗は、直すか、利用者に確かめてからマージします。
 
 ### 見つけた入力を流す
 
@@ -98,7 +100,12 @@ gh run list --workflow fuzz.yml --branch <PR のブランチ> --limit 5
 gh run download <実行の ID> --name fuzz-artifacts --dir <置き場所>
 ```
 
-入力は、CI と同じ条件（`-timeout=30 -rss_limit_mb=3072`）で流します。上の「動かし方」と同じく、Linux・macOS か WSL で動かします。main を取り出した作業場所で流せば main の target を、PR の head を取り出した作業場所で流せば PR の target を試せます。最小にするときは、`cargo fuzz tmin` を使います。手元で流すのは、調べる・比べる・最小にするためで、落ちなくても、通ったとはしません。
+PR の実行は、PR の head と main を合わせた一時のコミットで流れます。そのコミットは、log の checkout と `NOTICE.txt` に出ます。手元の target は、次のコミットで作ります。
+
+- PR の target: そのコミットか、そのコミットの main を取り込んだ PR の head
+- main の target: そのコミットの main か、それより新しい main
+
+入力は、CI と同じ条件（`-timeout=30 -rss_limit_mb=3072`）で流します。上の「動かし方」と同じく、Linux・macOS か WSL で動かします。最小にするときは、`cargo fuzz tmin` を使います。手元で流すのは、調べる・比べる・最小にするためで、落ちなくても、通ったとはしません。
 
 ```bash
 cargo "+$NIGHTLY" fuzz run -O --debug-assertions <target> <置き場所>/<target>/<入力> -- -timeout=30 -rss_limit_mb=3072
@@ -110,12 +117,10 @@ cargo "+$NIGHTLY" fuzz tmin -O --debug-assertions <target> <置き場所>/<targe
 
 ### 関係がないかを確かめる
 
-fuzz の失敗のうち、PR の変更と関係のないもの（main の上でも同じように落ちるもの）では、マージを止めません。関係がないかは、次のように確かめます。
-
-- 見つけた入力があれば、main の target でも同じ誤りで落ちるかを見ます。誤りは、種類と、パニックならその関数と文で比べます。行の番号は、PR の変更でずれるので比べません。落ちれば、関係がありません。落ちなければ、PR の変更で落ちたので、直してからマージします。
-- 時間切れは機械の速さで変わるので、同じ機械で、PR の target と main の target の時間を比べます。PR の target が遅くなっていなければ、関係がありません。
-- PR で足した種（`cargo xtask fuzz-seeds` が書く種）そのものが落ちるなら、main の target でも落ちても、関係があります。マージすると、その後の実行が、その種で落ち続けるからです。種のファイルの名前は、中身の SHA-256 です。空の `fuzz/corpus` で、PR の head と main のそれぞれで `cargo xtask fuzz-seeds` を流し、見つけた入力の SHA-256 の名前の種が、PR の側にだけあるかを見ます。
-- 入力がなければ（組み立てや道具の失敗）、main の実行が、同じ手順で、同じ誤り（落ちた target と誤りの文）で落ちるかを見ます。PR の実行の log に、main の実行の log にない誤りがあれば、関係があります。比べる相手は、まず main の最新の毎晩の実行にし、手で流すのは、それで比べられないときだけにします。手で流した実行と毎晩の実行は同じ組（concurrency）で、後から始まったほうが前のほうを取り消します。走っている実行がないことを確かめ、毎晩の実行（日本時間 4:00 から）の前後を避けて流します。
+- 見つけた入力があれば、main の target でも同じ誤りで落ちるかを見ます。誤りは、種類と、パニックならその関数と文で比べます。行の番号は、PR の変更でずれるので比べません。
+- PR で足した種（`cargo xtask fuzz-seeds` が書く種）そのものが落ちるなら、main の target でも落ちても、関係があります。マージすると、その後の実行が、その種で落ち続けるからです。種のファイルの名前は、中身の SHA-256 です。空の `fuzz/corpus` で、PR の側と main の側のそれぞれで `cargo xtask fuzz-seeds` を流し、見つけた入力の SHA-256 の名前の種が、PR の側にだけあるかを見ます。macOS では、`sha256sum` の代わりに `shasum -a 256` を使います。
+- 入力がなければ（組み立てや道具の失敗）、main の実行が、同じ手順で、同じ誤り（落ちた target と誤りの文）で落ちるかを見ます。PR の実行の log に、main の実行の log にない誤りがあれば、関係があります。比べる main の実行は、PR の実行が合わせた main のコミットか、それより新しいものにします。main の最新の毎晩の実行がそれより古いときだけ、手で流します。
+- 確かめられない失敗は、関係のない失敗としません。直すか、利用者に確かめてからマージします。たとえば、手元ではどちらの target でも落ちない入力や、main の target では 30 秒に収まる時間切れです。時間切れは、機械の速さで変わります。メモリの使い過ぎは、それまでに流した入力で積もったメモリも数えるので、入力を 1 つだけ流しても再現しないことがあります。
 
 ```bash
 sha256sum <置き場所>/<target>/<入力>
@@ -125,6 +130,8 @@ sha256sum <置き場所>/<target>/<入力>
 gh run list --workflow fuzz.yml --branch main --limit 5
 ```
 
+main の fuzz を手で流すときと流し直すときは、走っている実行がないことを確かめ、毎晩の実行（日本時間 4:00 から）の前後を避けます。手で流した実行と毎晩の実行は同じ組（concurrency）で、後から始まったほうが、前のほうを取り消すからです。
+
 ```bash
 gh run list --workflow fuzz.yml --branch main --status in_progress
 ```
@@ -132,8 +139,6 @@ gh run list --workflow fuzz.yml --branch main --status in_progress
 ```bash
 gh workflow run fuzz.yml --ref main -f seconds=20
 ```
-
-macOS では、`sha256sum` の代わりに `shasum -a 256` を使います。
 
 ### 関係のない失敗の issue
 
@@ -143,14 +148,20 @@ macOS では、`sha256sum` の代わりに `shasum -a 256` を使います。
 - main の組み立てか道具が落ちている間は、PR の fuzz は何も確かめないので、パニックを足す変更も止まりません。早めに直します。
 - 版を出したあとに、落ちる入力を公開の issue に貼るかは、#557 で決めます（`SECURITY.md`）。
 
-毎晩の実行で見つけた失敗も、同じく issue にして早めに直します。fuzz は入力を乱数で作るので、ある夜に落ちても、次の夜は通ることがあります。エージェントは、作業を選ぶ前に、main の毎晩の fuzz で落ちた実行を引き、その実行の ID を書いた issue がなければ、issue にします（`docs/work.md` の「選び方」）。毎晩の実行は 1 日 1 回なので、落ちた実行を新しいほうから 14 回分見れば、artifact が残る 14 日の分はすべて入ります。
+### 毎晩の実行
+
+毎晩の実行で見つけた失敗も、同じく issue にして早めに直します。fuzz は入力を乱数で作るので、ある夜に落ちても、次の夜は通ることがあります。エージェントは、作業を選ぶ前に、main の毎晩の fuzz で通らなかった実行（結論が `success` でないもの）を引き、その実行の ID を書いた issue がなければ、issue にします（`docs/work.md` の「選び方」）。入力のない一時の失敗（runner が取れない、ほかの実行に取り消された、など）は、流し直して通れば、issue にしません。毎晩の実行は 1 日 1 回なので、新しいほうから 14 回分見れば、artifact が残る 14 日の分はすべて入ります。
 
 ```bash
-gh run list --workflow fuzz.yml --branch main --event schedule --status failure --limit 14
+gh run list --workflow fuzz.yml --branch main --event schedule --limit 14
 ```
 
 ```bash
 gh issue list --state all --search "<実行の ID>"
+```
+
+```bash
+gh run rerun <実行の ID>
 ```
 
 ## ライセンス
