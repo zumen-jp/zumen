@@ -6,24 +6,14 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use zumen_base::{Budget, CancelToken, Cx, Diagnostic, Diagnostics, Kind, Limit, Limits};
+use zumen_base::{Budget, CancelToken, Cx, Diagnostic, Diagnostics};
 use zumen_drawing::Drawing2D;
 use zumen_pdf::Pdf;
 use zumen_sdk::{Codec, Error, Lift};
 
-/// 移しの上限。テストキットの fuzz の関数と同じく、どの入力でもすぐに止まるようにする
-fn limits() -> Limits {
-    Limits::default()
-        .with(Kind::DecodedBytes, Limit::Finite(64 << 20))
-        .with(Kind::Records, Limit::Finite(1 << 20))
-        .with(Kind::Elements, Limit::Finite(1 << 20))
-        .with(Kind::Segments, Limit::Finite(1 << 20))
-        .with(Kind::Work, Limit::Finite(1 << 24))
-}
-
 /// 読んで図面モデルに移した結果と診断。読めなければ `None`
 fn lifted(data: &[u8]) -> Option<(Result<Drawing2D, Error>, Vec<Diagnostic>)> {
-    let mut budget = Budget::new(limits());
+    let mut budget = Budget::new(zumen_sdk::testkit::fuzz_limits());
     let mut diag = Diagnostics::new();
     let cancel = CancelToken::new();
     let mut cx = Cx::new(&mut budget, &mut diag, &cancel);

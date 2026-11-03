@@ -3,10 +3,13 @@
 //! hayro-interpret の解釈は、予算でも中断の合図でも止まらない。フォームの XObject が次の段のフォームを 2 回ずつ
 //! 呼ぶと、解釈する演算子の数は段の数の冪で増える。そこで、ページを渡す前に、内容のストリームを hayro-interpret と
 //! 同じ読み手（hayro-syntax の `TypedIter`）でたどり、hayro-interpret が解釈する手間を `Work` に、展開する
-//! バイト数を `DecodedBytes` に、先に数える。同じフォームを同じ文脈で呼ぶ所は、1 度だけたどる。
+//! バイト数を `DecodedBytes` に、先に数える。同じフォームを同じ文脈で呼ぶ所は、1 度だけたどる。hayro-interpret が
+//! 作るものの大きさ（写すグラフィックス状態・メッシュ・関数の標本・CID フォントの幅の表）も、メモリの代わりに
+//! `DecodedBytes` に数え、メッシュを作る手間と、色を RGB にするときに関数を当てる手間も `Work` に数える。
 //!
 //! hayro-interpret がスタックかメモリを使い切るおそれのあるページ（入れ子の深すぎる関数と色空間、範囲の広すぎる
-//! CID フォントの幅）は、解釈しない。
+//! CID フォントの幅、行の頂点の数が 0 の格子のメッシュ）と、パニックするおそれのあるページ（大きさの大きすぎる
+//! Type 0 の関数）は、解釈しない。
 //!
 //! あわせて、hayro-interpret が知らせずに捨てるものを診断にする: 展開できないか途中から読めない内容のストリームと、
 //! 壊れた XObject、資源にない XObject、入れ子の深すぎるフォーム、資源にないフォントと読めないフォント、代わりの
@@ -54,6 +57,21 @@ const SHADING_WORK: u64 = 16;
 const LOOKUP_BYTES: u64 = 4;
 /// CID フォントの幅（`W`・`W2`、9.7.4.3）の 1 項目を表に入れる手間。hayro-font は、範囲の CID を 1 つずつ入れる
 const WIDTH_WORK: u64 = 2;
+/// 内容の印（`BDC`、14.6）を始める手間。hayro-interpret は、見えるかの重なりを積み、装置に印と性質の辞書を渡す
+const MARKED_WORK: u64 = 4;
+/// 切り抜きにする文字（描画モード 4〜7、9.3.6）の 1 字の輪郭を写す手間。hayro-interpret は、輪郭を `ET` まで
+/// 貯め、グラフィックス状態を写すたびに一緒に写す
+const CLIP_COPY_WORK: u64 = 16;
+/// 経路を塗るか線を描く手間（`f`・`S`・`B` など、8.5.3）。hayro-interpret が経路を装置に渡し、装置が色を RGB に
+/// し（DeviceCMYK と ICC の色は、hayro-interpret が moxcms で換算する）、経路を mm に写して要素にする。装置が
+/// 経路の要素ごとに数える手間に足す（`0 0 0 1 k 0 0 10 10 re f` で、合わせておよそ 33 倍）
+const PAINT_WORK: u64 = 6;
+/// メッシュのシェーディングの頂点（型 4・5）かパッチ（型 6・7）の 1 つを読んで、三角形かパッチを作る手間（型 5 の
+/// 頂点と、型 6・7 のパッチで、およそ 4〜8 倍）
+const MESH_WORK: u64 = 4;
+/// Type 0 の関数（7.10.2）の標本の、この数を読む手間を 1 と数える。hayro-interpret は、関数を作るたびに、標本を
+/// すべて読んで f32 にする（1 ビットの標本の 100 万個で、およそ 12 ms）
+const SAMPLES_PER_WORK: u64 = 8;
 
 /// 展開し直すときに、1 度に書き出すバイト数
 const INFLATE_CHUNK: usize = 8192;
@@ -68,9 +86,32 @@ const PROCEDURE_DEPTH: u32 = 64;
 /// CID フォントの幅の項目の数の上限。これより多い項目（範囲の CID の数）を持つフォントを使うページは解釈しない。
 /// 2 バイトの符号で選ぶ CID は 65,536 個までなので、その 4 倍とする
 const MAX_WIDTHS: u64 = 1 << 18;
-/// メッシュのシェーディング（型 4〜7、8.7.4.5.5〜8.7.4.5.8）の展開したバイト数に掛ける数。hayro-interpret は、
-/// 使うたびに三角形とパッチをすべて作り、展開したバイト数のおよそ 90〜120 倍のメモリを使う
-const MESH_FACTOR: u64 = 128;
+/// Type 0 の関数（7.10.2）の大きさ（`Size`）の上限。hayro-interpret は標本の位置を f32 で求めるので、これより
+/// 大きい大きさでは、丸めた位置が標本の外を指してパニックする（`Type0::eval`）。これより大きい大きさの関数を使う
+/// ページは解釈しない
+const MAX_SAMPLE_SIZE: u32 = 1 << 24;
+
+// hayro-interpret が作るもののメモリ（`DecodedBytes` に数えるバイト数）。hayro-interpret 0.9.0 の型の大きさか、
+// 測ったメモリを、配列を伸ばすときの余りを含めて倍にする（決定 0256）
+/// Type 0 の関数の標本の 1 つ。hayro-interpret は、関数を作るたびに、標本をすべて f32 にして持つ。数の分からない
+/// 並びから集めるので、配列を伸ばす余りで倍まで使う
+const SAMPLE_BYTES: u64 = 8;
+/// 破線の配列の 1 項目（f32。測ったメモリは、写した 1 項目でおよそ 5 バイト）
+const DASH_BYTES: u64 = 8;
+/// 切り抜きにする文字の 1 字の輪郭（Helvetica の 1 字で、およそ 1.5 KB）
+const CLIP_GLYPH_BYTES: u64 = 3072;
+/// CID フォントの幅の表の 1 項目。走査と hayro-interpret が、文書の間、それぞれ表を持つ（`W2` の 1 項目で、2 つの
+/// 表を合わせておよそ 76 バイト）
+const WIDTH_BYTES: u64 = 160;
+/// メッシュのシェーディング（型 4・5）の三角形の 1 つ（216 バイト）
+const TRIANGLE_BYTES: u64 = 512;
+/// 格子のメッシュ（型 5）の頂点の 1 つ（48 バイト）
+const VERTEX_BYTES: u64 = 96;
+/// パッチのメッシュ（型 6・7）のパッチの 1 つ（352 バイトまで）
+const PATCH_BYTES: u64 = 1024;
+/// 色の表（Separation・1 成分の DeviceN・Indexed の色空間と、転送関数）の項目の数。hayro-interpret は、はじめて
+/// 使うときに、0〜255 の値のそれぞれに関数を当てて表を作る
+const TABLE: u64 = 256;
 
 /// 内容のストリームの後ろに足す、終わりの印の演算子
 const END: &[u8] = b"zumen-end";
@@ -80,8 +121,10 @@ const END: &[u8] = b"zumen-end";
 pub(crate) struct Survey {
     /// 転送関数（10.4）を持つ拡張グラフィックス状態を使う
     pub(crate) transfer: bool,
-    /// hayro-interpret がスタックかメモリを使い切るおそれがあるので、ページを解釈しない。値は、理由の
-    /// オブジェクト（入れ子の深すぎる関数か色空間、範囲の広すぎる幅を持つフォント）の場所
+    /// hayro-interpret がスタックかメモリを使い切るか、パニックするおそれがあるので、ページを解釈しない。値は、理由の
+    /// オブジェクト（入れ子の深すぎる関数か色空間、範囲の広すぎる幅を持つフォント、大きさの大きすぎる Type 0 の
+    /// 関数、行の頂点の数が 0 の格子のメッシュ）の場所。直接書いたオブジェクトは、それを含む間接オブジェクトの場所（hayro-syntax の `obj_id`）。色空間の
+    /// 入れ子は、ページの内容のストリーム
     pub(crate) refused: Option<Ref>,
 }
 
@@ -123,6 +166,8 @@ enum Selected {
     Loaded,
     /// 読めるフォントのうち、原点の移動が既定と違いうる縦書きのフォント（間接オブジェクト）
     Shifted((u32, i32)),
+    /// 読める Type 3 のフォント（9.6.4）。hayro-interpret は、字形ごとにグラフィックス状態を写す
+    Type3,
 }
 
 /// 走査が追う、グラフィックス状態の一部（`q`・`Q` で保存する、8.4.2）。hayro-interpret の手間を変える
@@ -133,6 +178,12 @@ struct Graphics {
     dash: u64,
     /// 文字を切り抜きにする（描画モード 4〜7、9.3.6）
     clip: bool,
+    /// 切り抜きに貯めた文字のバイト数（`ET` で空にする）
+    clipped: u64,
+    /// 塗りの色を 1 度 RGB にする手間（[`Conversion::each`]）。装置は、塗るたびに色を RGB にする
+    fill: u64,
+    /// 線の色を 1 度 RGB にする手間
+    stroke: u64,
 }
 
 impl Default for Graphics {
@@ -141,8 +192,20 @@ impl Default for Graphics {
             font: Selected::Nothing,
             dash: 0,
             clip: false,
+            clipped: 0,
+            fill: 0,
+            stroke: 0,
         }
     }
+}
+
+/// 色空間で色を RGB にする手間（`Work`）
+#[derive(Clone, Copy, Debug, Default)]
+struct Conversion {
+    /// はじめて色を RGB にするときに作る表（[`TABLE`]）の手間
+    table: u64,
+    /// 色を 1 つ RGB にするたびの手間（多成分の DeviceN の色変換の関数）
+    each: u64,
 }
 
 /// 展開したフォーム
@@ -361,8 +424,52 @@ fn dash_length(array: &Array<'_>) -> u64 {
     array.raw_iter().count() as u64
 }
 
-/// Type 4 の関数の手続き（`{` `}`、7.10.5.2）の入れ子が、[`PROCEDURE_DEPTH`] 段に収まるか。注釈（`%` から行の
-/// 終わりまで）の中の括弧は、hayro-interpret と同じく数えない
+/// グラフィックス状態を 1 度写す手間（`Work`）とメモリ（バイト数）。hayro-interpret は、`q` の後で状態を変える
+/// とき・フォームを呼ぶとき（8.10.1）・Type 3 の字形ごと（9.6.4）に状態を写す。大きさが決まっていないのは、破線の
+/// 配列と、切り抜きに貯めた文字の輪郭。`q` は、後で状態を変えるかによらず数える
+fn copy(state: Graphics) -> (u64, u64) {
+    let work = state
+        .dash
+        .saturating_add(state.clipped.saturating_mul(CLIP_COPY_WORK));
+    let bytes = state
+        .dash
+        .saturating_mul(DASH_BYTES)
+        .saturating_add(state.clipped.saturating_mul(CLIP_GLYPH_BYTES));
+    (work, bytes)
+}
+
+/// メッシュのシェーディング（型 4〜7、8.7.4.5.5〜8.7.4.5.8）で、hayro-interpret が三角形とパッチを作る手間
+/// （[`MESH_WORK`]）とメモリ（バイト数）の上限。`size` は、展開したバイト数。hayro-interpret は、使うたびに、
+/// 型 4・5 では頂点をバイトの境から読んで三角形をすべて作り（型 4 は頂点ごとに 1 つ、型 5 は 2 つまで）、型 6・7
+/// ではパッチをすべて作る（前のパッチと辺を分けるものは、点を 8 つか 12 と、色を 2 つ読む）。頂点とパッチの数の
+/// 上限は、色の成分を 1 つとした最小のビット数で求める
+fn mesh_cost(dict: &Dict<'_>, kind: u8, size: u64) -> Cost {
+    let bits = |key: &[u8]| u64::from(dict.get::<u8>(key).unwrap_or(0));
+    let coordinate = bits(b"BitsPerCoordinate");
+    let component = bits(b"BitsPerComponent");
+    let flag = bits(b"BitsPerFlag");
+    let (unit, memory) = match kind {
+        4 => (
+            (flag + 2 * coordinate + component).div_ceil(8) * 8,
+            TRIANGLE_BYTES,
+        ),
+        5 => (
+            (2 * coordinate + component).div_ceil(8) * 8,
+            2 * TRIANGLE_BYTES + VERTEX_BYTES,
+        ),
+        6 => (flag + 16 * coordinate + 2 * component, PATCH_BYTES),
+        7 => (flag + 24 * coordinate + 2 * component, PATCH_BYTES),
+        _ => return Cost::default(),
+    };
+    let count = size.saturating_mul(8) / unit.max(1);
+    Cost {
+        ops: count.saturating_mul(MESH_WORK),
+        bytes: count.saturating_mul(memory),
+    }
+}
+
+/// Type 4 の関数の手続き（`{` `}`、7.10.5.2）の入れ子が、[`PROCEDURE_DEPTH`] 段に収まるか。コメント（`%` から
+/// 行の終わりまで、7.2.4）の中の括弧は、hayro-interpret と同じく数えない
 fn procedure_fits(data: &[u8]) -> bool {
     let mut depth = 0u32;
     let mut comment = false;
@@ -480,16 +587,21 @@ pub(crate) struct Walker<'a, 'o> {
     place: Ref,
     /// フォームの呼ばれ方 → hayro-interpret がする作業と、走査が返した診断（ページごと）
     calls: BTreeMap<Call, Known>,
-    /// 拡張グラフィックス状態・シェーディング・画像 → hayro-interpret が使うたびにする作業（ページごと）
+    /// 拡張グラフィックス状態・シェーディング・画像 → hayro-interpret が使うたびにする作業（ページごと）。間接
+    /// オブジェクトだけを覚える。hayro-syntax の `obj_id` は、直接書いた辞書には、それを含む間接オブジェクトの番号を
+    /// 返すので、鍵には、資源の辞書の項目が指す参照か、ストリームの番号を使う
     costs: BTreeMap<(Role, (u32, i32)), Cost>,
-    /// 縦書きのフォント → 原点の移動が既定と違いうるか（ページごと）
+    /// 縦書きのフォント（間接オブジェクト）→ 原点の移動が既定と違いうるか（ページごと）
     vertical: BTreeMap<(u32, i32), bool>,
     /// 原点の移動が既定と違いうる縦書きのフォント → 診断の名前（`BaseFont`）と場所（ページごと）
     origins: BTreeMap<(u32, i32), (String, Ref)>,
-    /// CID フォント → 幅の項目の数（ページごと）
+    /// CID フォント（間接オブジェクト）→ 幅の項目の数（ページごと）
     widths: BTreeMap<(u32, i32), u64>,
-    /// 作る手間を数えた、名前で引く色空間（ページごと）
-    spaces: BTreeSet<Space>,
+    /// 幅の表のメモリを数えた CID フォントの辞書のバイト列（文書ごと）。走査と hayro-interpret は、フォントを
+    /// 辞書のバイト列で見分け、文書の中で 1 度だけ読む
+    tables: BTreeSet<Vec<u8>>,
+    /// 作る手間を数えた、名前で引く色空間 → 色を 1 つ RGB にするたびの手間（ページごと）
+    spaces: BTreeMap<Space, u64>,
     /// ページを解釈しない理由のオブジェクトの場所（[`Survey::refused`]）
     refused: Option<Ref>,
     /// 呼ばれ方を覚えるフォームの中で返した診断。たどっているフォームごとに 1 つ
@@ -528,7 +640,8 @@ impl<'a, 'o> Walker<'a, 'o> {
             vertical: BTreeMap::new(),
             origins: BTreeMap::new(),
             widths: BTreeMap::new(),
-            spaces: BTreeSet::new(),
+            tables: BTreeSet::new(),
+            spaces: BTreeMap::new(),
             refused: None,
             recording: Vec::new(),
             forms: BTreeMap::new(),
@@ -703,7 +816,11 @@ impl<'a, 'o> Walker<'a, 'o> {
             spend(&mut cost, 1, 0, cx)?;
             let current = states.last().copied().unwrap_or_default();
             match op {
-                TypedInstruction::SaveState(_) => states.push(current),
+                TypedInstruction::SaveState(_) => {
+                    let (work, bytes) = copy(current);
+                    spend(&mut cost, work, bytes, cx)?;
+                    states.push(current);
+                }
                 TypedInstruction::RestoreState(_) => {
                     if states.len() > 1 {
                         states.pop();
@@ -721,10 +838,23 @@ impl<'a, 'o> Walker<'a, 'o> {
                         last.clip = (4.0..=7.0).contains(&mode.0.as_f64());
                     }
                 }
+                // hayro-interpret は、切り抜きに貯めた輪郭を写して切り抜きにし、空にする
+                TypedInstruction::EndText(_) => {
+                    spend(
+                        &mut cost,
+                        current.clipped.saturating_mul(CLIP_COPY_WORK),
+                        current.clipped.saturating_mul(CLIP_GLYPH_BYTES),
+                        cx,
+                    )?;
+                    if let Some(last) = states.last_mut() {
+                        last.clipped = 0;
+                    }
+                }
                 TypedInstruction::SetGraphicsState(name) => {
                     spend(&mut cost, STATE_WORK, 0, cx)?;
                     if let Some(state) = resources.get_ext_g_state(name.0) {
-                        let extra = self.state(&state, cx)?;
+                        let reference = resources.ext_g_states.get_ref(name.0.as_ref()).map(key);
+                        let extra = self.state(&state, reference, cx)?;
                         spend(
                             &mut cost,
                             lookup_work(state.data()).saturating_add(extra.ops),
@@ -761,14 +891,45 @@ impl<'a, 'o> Walker<'a, 'o> {
                     let strings = [text.2.as_bytes()];
                     self.show(&mut states, false, &strings, &mut cost, place, cx)?;
                 }
-                // hayro-interpret は、線を描くたびに破線の配列を写す
-                TypedInstruction::StrokePath(_)
-                | TypedInstruction::CloseAndStrokePath(_)
-                | TypedInstruction::FillAndStrokeNonZero(_)
+                // 装置は、塗るたびに塗りの色を RGB にする
+                TypedInstruction::FillPathNonZero(_)
+                | TypedInstruction::FillPathNonZeroCompatibility(_)
+                | TypedInstruction::FillPathEvenOdd(_) => {
+                    spend(&mut cost, PAINT_WORK.saturating_add(current.fill), 0, cx)?;
+                }
+                // hayro-interpret は、線を描くたびに破線の配列を写し、装置は、線の色を RGB にする
+                TypedInstruction::StrokePath(_) | TypedInstruction::CloseAndStrokePath(_) => {
+                    let work = PAINT_WORK
+                        .saturating_add(current.dash)
+                        .saturating_add(current.stroke);
+                    spend(&mut cost, work, 0, cx)?;
+                }
+                TypedInstruction::FillAndStrokeNonZero(_)
                 | TypedInstruction::FillAndStrokeEvenOdd(_)
                 | TypedInstruction::CloseFillAndStrokeNonZero(_)
                 | TypedInstruction::CloseFillAndStrokeEvenOdd(_) => {
-                    spend(&mut cost, current.dash, 0, cx)?;
+                    // 塗りと線を、別に装置に渡す
+                    let work = PAINT_WORK
+                        .saturating_mul(2)
+                        .saturating_add(current.dash)
+                        .saturating_add(current.fill)
+                        .saturating_add(current.stroke);
+                    spend(&mut cost, work, 0, cx)?;
+                }
+                // 装置の色空間の色は、関数を当てずに RGB にする
+                TypedInstruction::NonStrokeColorDeviceGray(_)
+                | TypedInstruction::NonStrokeColorDeviceRgb(_)
+                | TypedInstruction::NonStrokeColorCmyk(_) => {
+                    if let Some(last) = states.last_mut() {
+                        last.fill = 0;
+                    }
+                }
+                TypedInstruction::StrokeColorDeviceGray(_)
+                | TypedInstruction::StrokeColorDeviceRgb(_)
+                | TypedInstruction::StrokeColorCmyk(_) => {
+                    if let Some(last) = states.last_mut() {
+                        last.stroke = 0;
+                    }
                 }
                 TypedInstruction::BeginMarkedContentWithProperties(marked) => {
                     self.begin_marked(resources, marked.1, &mut cost, place, cx)?;
@@ -812,9 +973,10 @@ impl<'a, 'o> Walker<'a, 'o> {
                         spend(&mut cost, extra.ops, extra.bytes, cx)?;
                     }
                 }
-                TypedInstruction::Shading(shading) => {
-                    if let Some(shading) = resources.get_shading(shading.0) {
-                        let extra = self.shading(&shading, cx)?;
+                TypedInstruction::Shading(name) => {
+                    if let Some(shading) = resources.get_shading(name.0) {
+                        let reference = resources.shadings.get_ref(name.0.as_ref()).map(key);
+                        let extra = self.shading(&shading, reference, cx)?;
                         spend(
                             &mut cost,
                             SHADING_WORK
@@ -838,12 +1000,18 @@ impl<'a, 'o> Walker<'a, 'o> {
                     }
                 }
                 TypedInstruction::ColorSpaceStroke(space) => {
-                    let extra = self.named_space(resources, owner, space.0, cx)?;
+                    let (extra, each) = self.named_space(resources, owner, space.0, cx)?;
                     spend(&mut cost, extra.ops, extra.bytes, cx)?;
+                    if let Some(last) = states.last_mut() {
+                        last.stroke = each;
+                    }
                 }
                 TypedInstruction::ColorSpaceNonStroke(space) => {
-                    let extra = self.named_space(resources, owner, space.0, cx)?;
+                    let (extra, each) = self.named_space(resources, owner, space.0, cx)?;
                     spend(&mut cost, extra.ops, extra.bytes, cx)?;
+                    if let Some(last) = states.last_mut() {
+                        last.fill = each;
+                    }
                 }
                 _ => {}
             }
@@ -878,16 +1046,22 @@ impl<'a, 'o> Walker<'a, 'o> {
                 last.dash = length;
             }
         }
-        let font = state
-            .get::<Array<'_>>(b"Font")
+        let entry = state.get::<Array<'_>>(b"Font");
+        let font = entry
+            .as_ref()
             .and_then(|font| font.iter::<Object<'_>>().next())
             .and_then(|font| font.into_dict());
         if let Some(font) = font {
+            let reference = entry
+                .as_ref()
+                .and_then(|entry| entry.raw_iter().next())
+                .and_then(|item| item.as_obj_ref())
+                .map(key);
             let base = font
                 .get::<Name<'_>>(b"BaseFont")
                 .map(|base| name_text(base.as_ref()))
                 .unwrap_or_default();
-            let selected = self.font_dict(&font, base, cost, cx)?;
+            let selected = self.font_dict(&font, reference, base, cost, cx)?;
             if let Some(last) = states.last_mut() {
                 last.font = selected;
             }
@@ -897,11 +1071,16 @@ impl<'a, 'o> Walker<'a, 'o> {
 
     /// 拡張グラフィックス状態（8.4.5）を当てる手間。転送関数を見つける。hayro-interpret は、状態を当てるたびに、
     /// 転送関数（`TR`・`TR2`、10.4）を作り、ソフトマスク（11.6.5.2）のグループを展開し、その色空間と転送関数を作る。
-    /// 転送関数は、`TR` と `TR2` の鍵のそれぞれで作り直す
-    fn state(&mut self, state: &Dict<'a>, cx: &mut Cx<'_>) -> Result<Cost, Stop> {
+    /// 転送関数は、`TR` と `TR2` の鍵のそれぞれで作り直し、はじめて塗るときに [`TABLE`] 個の値に当てて表を作る。
+    /// `reference` は、資源の辞書の項目が指す参照（直接書いた状態なら `None` で、手間を覚えない）
+    fn state(
+        &mut self,
+        state: &Dict<'a>,
+        reference: Option<(u32, i32)>,
+        cx: &mut Cx<'_>,
+    ) -> Result<Cost, Stop> {
         self.transfer |= transfer(state);
-        let id = state.obj_id().map(key);
-        if let Some(cost) = id.and_then(|id| self.costs.get(&(Role::State, id))) {
+        if let Some(cost) = reference.and_then(|id| self.costs.get(&(Role::State, id))) {
             return Ok(*cost);
         }
         let mut cost = Cost::default();
@@ -909,7 +1088,8 @@ impl<'a, 'o> Walker<'a, 'o> {
             .get::<Object<'_>>(b"TR2")
             .or_else(|| state.get::<Object<'_>>(b"TR"));
         if let Some(function) = function {
-            let made = self.function(&function, 0, cx)?;
+            let (mut made, eval) = self.function(&function, 0, cx)?;
+            made.ops = made.ops.saturating_add(TABLE.saturating_mul(eval));
             for key in [b"TR".as_slice(), b"TR2"] {
                 if state.contains_key(key) {
                     cost.add(made);
@@ -917,21 +1097,23 @@ impl<'a, 'o> Walker<'a, 'o> {
             }
         }
         if let Some(mask) = state.get::<Dict<'_>>(b"SMask") {
+            cost.ops = cost.ops.saturating_add(lookup_work(mask.data()));
             if let Some(group) = mask.get::<Stream<'_>>(b"G") {
+                cost.ops = cost.ops.saturating_add(lookup_work(group.dict().data()));
                 cost.bytes = cost.bytes.saturating_add(self.size(&group, cx)?);
                 let space = group
                     .dict()
                     .get::<Dict<'_>>(b"Group")
                     .and_then(|group| group.get::<Object<'_>>(b"CS"));
                 if let Some(space) = space {
-                    cost.add(self.color_space(&space, 0, cx)?);
+                    cost.add(self.color_space(&space, 0, cx)?.0);
                 }
             }
             if let Some(function) = mask.get::<Object<'_>>(b"TR") {
-                cost.add(self.function(&function, 0, cx)?);
+                cost.add(self.function(&function, 0, cx)?.0);
             }
         }
-        if let Some(id) = id {
+        if let Some(id) = reference {
             self.costs.insert((Role::State, id), cost);
         }
         Ok(cost)
@@ -956,40 +1138,51 @@ impl<'a, 'o> Walker<'a, 'o> {
             && let Some(shading) = pattern.get::<Object<'_>>(b"Shading")
         {
             cost.ops = cost.ops.saturating_add(lookup_work(object_data(&shading)));
-            cost.add(self.shading(&shading, cx)?);
+            let reference = pattern.get_ref(b"Shading").map(key);
+            cost.add(self.shading(&shading, reference, cx)?);
         }
         Ok(cost)
     }
 
     /// シェーディング（8.7.4.3）を作る手間。hayro-interpret は、使うたびに作り直し、ストリームと関数を展開し、
-    /// 色空間を作る。メッシュ（型 4〜7）は、三角形とパッチをすべて作るので、展開したバイト数の [`MESH_FACTOR`] 倍を
-    /// 数える
-    fn shading(&mut self, shading: &Object<'_>, cx: &mut Cx<'_>) -> Result<Cost, Stop> {
+    /// 色空間を作る。メッシュ（型 4〜7）は、三角形とパッチをすべて作るので、その手間とメモリ（[`mesh_cost`]）も
+    /// 数える。`reference` は、資源の辞書かパターンの項目が指す参照（直接書いた辞書なら `None` で、手間を覚えない）
+    fn shading(
+        &mut self,
+        shading: &Object<'_>,
+        reference: Option<(u32, i32)>,
+        cx: &mut Cx<'_>,
+    ) -> Result<Cost, Stop> {
         let Some((dict, stream)) = dict_or_stream(shading) else {
             return Ok(Cost::default());
         };
-        let id = dict.obj_id().map(key);
+        let id = match stream {
+            Some(stream) => Some(key(stream.obj_id())),
+            None => reference,
+        };
         if let Some(cost) = id.and_then(|id| self.costs.get(&(Role::Shading, id))) {
             return Ok(*cost);
         }
         let mut cost = Cost::default();
         if let Some(stream) = stream {
             let size = self.size(stream, cx)?;
-            let mesh = dict
-                .get::<u8>(b"ShadingType")
-                .is_some_and(|kind| (4..=7).contains(&kind));
-            let size = if mesh {
-                size.saturating_mul(MESH_FACTOR)
-            } else {
-                size
-            };
             cost.bytes = cost.bytes.saturating_add(size);
+            let kind = dict.get::<u8>(b"ShadingType");
+            if let Some(kind) = kind {
+                cost.add(mesh_cost(dict, kind, size));
+            }
+            // hayro-interpret は、格子のメッシュ（型 5、8.7.4.5.6）の行の頂点の数が 0 だと、頂点を読まずに行を足し
+            // 続け、メモリを使い切る（`read_lattice_triangles`）。大きさは hayro-interpret と同じく u32 で読む
+            if kind == Some(5) && dict.get::<u32>(b"VerticesPerRow") == Some(0) {
+                let place = self.record(Some(stream.obj_id()));
+                self.refuse(place);
+            }
         }
         if let Some(function) = dict.get::<Object<'_>>(b"Function") {
-            cost.add(self.function(&function, 0, cx)?);
+            cost.add(self.function(&function, 0, cx)?.0);
         }
         if let Some(space) = dict.get::<Object<'_>>(b"ColorSpace") {
-            cost.add(self.color_space(&space, 0, cx)?);
+            cost.add(self.color_space(&space, 0, cx)?.0);
         }
         if let Some(id) = id {
             self.costs.insert((Role::Shading, id), cost);
@@ -1010,14 +1203,15 @@ impl<'a, 'o> Walker<'a, 'o> {
             .get::<Object<'_>>(b"CS")
             .or_else(|| dict.get::<Object<'_>>(b"ColorSpace"));
         if let Some(Object::Name(name)) = &space {
-            return self.named_space(resources, owner, name, cx);
+            return Ok(self.named_space(resources, owner, name, cx)?.0);
         }
+        // 画像の XObject はストリームなので、辞書の番号は、そのストリームの番号
         let id = dict.obj_id().map(key);
         if let Some(cost) = id.and_then(|id| self.costs.get(&(Role::Image, id))) {
             return Ok(*cost);
         }
         let cost = match space {
-            Some(space) => self.color_space(&space, 0, cx)?,
+            Some(space) => self.color_space(&space, 0, cx)?.0,
             None => Cost::default(),
         };
         if let Some(id) = id {
@@ -1035,23 +1229,24 @@ impl<'a, 'o> Walker<'a, 'o> {
         cx: &mut Cx<'_>,
     ) -> Result<Cost, Stop> {
         match space {
-            Object::Name(name) => self.named_space(resources, owner, name, cx),
-            _ => self.color_space(space, 0, cx),
+            Object::Name(name) => Ok(self.named_space(resources, owner, name, cx)?.0),
+            _ => Ok(self.color_space(space, 0, cx)?.0),
         }
     }
 
-    /// 名前で引く色空間（`cs`・`CS`・画像の名前の色空間、8.6.3）を使う手間。hayro-interpret は、使うたびに資源を
-    /// 引いて読み直し、そのバイト列から表の鍵を作る。色空間そのものは、文書の中で 1 度だけ作るので、作る手間は
-    /// ページで 1 度だけ数える（使う手間には入れない）。資源にない名前（装置の色空間など）は、何もしない
+    /// 名前で引く色空間（`cs`・`CS`・画像の名前の色空間、8.6.3）を使う手間と、その色空間で色を 1 つ RGB にするたびの
+    /// 手間（[`Conversion::each`]）。hayro-interpret は、使うたびに資源を引いて読み直し、そのバイト列から表の鍵を
+    /// 作る。色空間そのものと色の表（[`Conversion::table`]）は、文書の中で 1 度だけ作るので、作る手間はページで
+    /// 1 度だけ数える（使う手間には入れない）。資源にない名前（装置の色空間など）は、何もしない
     fn named_space(
         &mut self,
         resources: &Resources<'a>,
         owner: Owner,
         name: &Name<'_>,
         cx: &mut Cx<'_>,
-    ) -> Result<Cost, Stop> {
+    ) -> Result<(Cost, u64), Stop> {
         let Some(space) = resources.get_color_space(name) else {
-            return Ok(Cost::default());
+            return Ok((Cost::default(), 0));
         };
         let cost = Cost {
             ops: lookup_work(object_data(&space)),
@@ -1062,31 +1257,35 @@ impl<'a, 'o> Walker<'a, 'o> {
             None if owner != Owner::Direct => Some(Space::Entry(owner, name.as_ref().to_vec())),
             None => None,
         };
-        if entry
-            .as_ref()
-            .is_none_or(|entry| !self.spaces.contains(entry))
-        {
-            let made = self.color_space(&space, 0, cx)?;
-            cx.check(Kind::Work, made.ops)?;
-            cx.check(Kind::DecodedBytes, made.bytes)?;
-            if let Some(entry) = entry {
-                self.spaces.insert(entry);
-            }
+        if let Some(each) = entry.as_ref().and_then(|entry| self.spaces.get(entry)) {
+            return Ok((cost, *each));
         }
-        Ok(cost)
+        let (made, conversion) = self.color_space(&space, 0, cx)?;
+        cx.check(Kind::Work, made.ops.saturating_add(conversion.table))?;
+        cx.check(Kind::DecodedBytes, made.bytes)?;
+        if let Some(entry) = entry {
+            self.spaces.insert(entry, conversion.each);
+        }
+        Ok((cost, conversion.each))
     }
 
-    /// 関数（7.10）を作る手間。hayro-interpret は、関数を使う演算子ごとに関数を作り直し、ストリームの関数（Type 0・
-    /// Type 4）を展開する。つなぐ関数（Type 3）の `Functions` と、関数の配列の中もたどる。[`NESTED_DEPTH`] より深い
-    /// 入れ子は、ページを解釈しないことにする
+    /// 関数（7.10）を作る手間と、1 度当てる手間（`Work`）。hayro-interpret は、関数を使う演算子ごとに関数を作り直し、
+    /// 辞書を読み直し、ストリームの関数（Type 0・Type 4）を展開する。つなぐ関数（Type 3）の `Functions` は、辞書でも
+    /// ストリームでもたどる（hayro-interpret は `dict_or_stream` で読む）。関数の配列の中もたどる。[`NESTED_DEPTH`]
+    /// より深い入れ子は、ページを解釈しないことにする。当てる手間は、hayro-interpret 0.9.0 の当て方に合わせて
+    /// 多めに見積もる: Type 0 は 2 の（大きさが 1 より大きい入力の数）乗の端の標本を足し（`Type0::eval`）、Type 2 は
+    /// 出力ごとに冪を求め、Type 3 は区間を探して 1 つの関数を当て、Type 4 は手続きを読む（繰り返しはない、7.10.5）
     fn function(
         &mut self,
         function: &Object<'_>,
         depth: u32,
         cx: &mut Cx<'_>,
-    ) -> Result<Cost, Stop> {
+    ) -> Result<(Cost, u64), Stop> {
         cx.check(Kind::Work, 1)?;
-        let mut cost = Cost { ops: 1, bytes: 0 };
+        let mut cost = Cost {
+            ops: 1u64.saturating_add(lookup_work(object_data(function))),
+            bytes: 0,
+        };
         if depth > NESTED_DEPTH {
             let id = match function {
                 Object::Dict(dict) => dict.obj_id(),
@@ -1095,61 +1294,161 @@ impl<'a, 'o> Walker<'a, 'o> {
             };
             let place = self.record(id);
             self.refuse(place);
-            return Ok(cost);
+            return Ok((cost, 1));
         }
-        let functions = match function {
-            Object::Stream(stream) => {
-                cost.bytes = self.size(stream, cx)?;
-                return Ok(cost);
+        let (dict, stream) = match function {
+            // 出力が 1 つずつの関数の配列。当てる手間は、それぞれの和
+            Object::Array(functions) => {
+                let mut eval = 0u64;
+                for function in functions.iter::<Object<'_>>() {
+                    let (made, each) = self.function(&function, depth + 1, cx)?;
+                    cost.add(made);
+                    eval = eval.saturating_add(each);
+                }
+                return Ok((cost, eval));
             }
-            Object::Dict(dict) => dict.get::<Array<'_>>(b"Functions"),
-            Object::Array(functions) => Some(functions.clone()),
-            _ => None,
+            other => match dict_or_stream(other) {
+                Some(pair) => pair,
+                None => return Ok((cost, 1)),
+            },
         };
-        for function in functions
-            .iter()
-            .flat_map(|functions| functions.iter::<Object<'_>>())
-        {
-            cost.add(self.function(&function, depth + 1, cx)?);
+        let mut eval = 1u64;
+        if let Some(stream) = stream {
+            let size = self.size(stream, cx)?;
+            cost.bytes = size;
+            match dict.get::<u8>(b"FunctionType") {
+                Some(0) => {
+                    let (made, each) = self.sampled(dict, stream, size, cx)?;
+                    cost.add(made);
+                    eval = each;
+                }
+                // hayro-interpret は、作るたびに手続きを読む。引いたオブジェクトと同じく、4 バイトを 1 と数える
+                Some(4) => {
+                    cost.ops = cost.ops.saturating_add(size.div_ceil(LOOKUP_BYTES));
+                    eval = size.max(1);
+                }
+                _ => {}
+            }
+        } else if dict.get::<u8>(b"FunctionType") == Some(2) {
+            let outputs = dict
+                .get::<Array<'_>>(b"C0")
+                .map_or(1, |values| values.raw_iter().count() as u64);
+            eval = outputs.saturating_add(1);
         }
-        Ok(cost)
+        if let Some(functions) = dict.get::<Array<'_>>(b"Functions") {
+            let count = functions.raw_iter().count() as u64;
+            let mut inner = 0u64;
+            for function in functions.iter::<Object<'_>>() {
+                let (made, each) = self.function(&function, depth + 1, cx)?;
+                cost.add(made);
+                inner = inner.max(each);
+            }
+            eval = eval.saturating_add(count).saturating_add(inner);
+        }
+        Ok((cost, eval))
+    }
+
+    /// Type 0 の関数（7.10.2）の標本を読む手間（[`SAMPLES_PER_WORK`]）とメモリ（バイト数）と、1 度当てる手間。
+    /// `size` は、展開したバイト数。hayro-interpret は、関数を作るたびに、標本（出力の数 × 大きさの積。展開した
+    /// バイト列に収まる分まで）を読んで f32 にして持つ。大きさのどれかが [`MAX_SAMPLE_SIZE`] を超える関数は、ページを
+    /// 解釈しないことにする
+    fn sampled(
+        &mut self,
+        dict: &Dict<'_>,
+        stream: &Stream<'_>,
+        size: u64,
+        cx: &mut Cx<'_>,
+    ) -> Result<(Cost, u64), Stop> {
+        // hayro-interpret と同じく、大きさは u32 で読む
+        let sizes: Vec<u32> = dict
+            .get::<Array<'_>>(b"Size")
+            .map(|sizes| sizes.iter::<u32>().collect())
+            .unwrap_or_default();
+        cx.check(Kind::Work, sizes.len() as u64)?;
+        if sizes.iter().any(|&size| size > MAX_SAMPLE_SIZE) {
+            let place = self.record(Some(stream.obj_id()));
+            self.refuse(place);
+        }
+        let outputs = dict
+            .get::<Array<'_>>(b"Range")
+            .map_or(0, |range| range.raw_iter().count() / 2) as u64;
+        let wanted = sizes.iter().fold(outputs, |count, &size| {
+            count.saturating_mul(u64::from(size))
+        });
+        let bits = u64::from(dict.get::<u8>(b"BitsPerSample").unwrap_or(0)).max(1);
+        let samples = wanted.min(size.saturating_mul(8) / bits);
+        let inputs = sizes.iter().filter(|&&size| size > 1).count() as u32;
+        let corners = 1u64.checked_shl(inputs).unwrap_or(u64::MAX);
+        let made = Cost {
+            ops: samples.div_ceil(SAMPLES_PER_WORK),
+            bytes: samples.saturating_mul(SAMPLE_BYTES),
+        };
+        Ok((made, corners.saturating_mul(outputs.max(1))))
     }
 
     /// 直接書いた色空間（8.6）を作る手間。hayro-interpret は、配列の色空間を使うたびに作り直す。分版（Separation・
     /// DeviceN、8.6.6.4・8.6.6.5）の代わりの色空間と色変換の関数、Indexed の基の色空間と表（8.6.6.3）、パターンの
     /// 基の色空間（8.6.6.2）、ICCBased の代わりの色空間（`Alternate`、8.6.5.5）をたどる。[`NESTED_DEPTH`] より深い
-    /// 入れ子は、ページを解釈しないことにする
+    /// 入れ子は、ページを解釈しないことにする。2 つ目は、この色空間で色を RGB にする手間。hayro-interpret は、
+    /// Separation・1 成分の DeviceN・Indexed では、はじめて色を RGB にするときに [`TABLE`] 色の表を作り、多成分の
+    /// DeviceN では、色を RGB にするたびに色変換の関数を当てる。ICCBased は、プロファイルを読めなければ代わりの
+    /// 色空間で RGB にするので、代わりの色空間の手間とする
     fn color_space(
         &mut self,
         space: &Object<'_>,
         depth: u32,
         cx: &mut Cx<'_>,
-    ) -> Result<Cost, Stop> {
+    ) -> Result<(Cost, Conversion), Stop> {
         cx.check(Kind::Work, 1)?;
-        let mut cost = Cost { ops: 1, bytes: 0 };
+        // hayro-interpret は、色空間を作るたびに配列を読み直す（入れ子の配列の中の参照の先も）
+        let mut cost = Cost {
+            ops: 1u64.saturating_add(lookup_work(object_data(space))),
+            bytes: 0,
+        };
+        let mut conversion = Conversion::default();
         let Object::Array(items) = space else {
-            return Ok(cost);
+            return Ok((cost, conversion));
         };
         if depth > NESTED_DEPTH {
             let place = self.place.clone();
             self.refuse(place);
-            return Ok(cost);
+            return Ok((cost, conversion));
         }
         let mut items = items.iter::<Object<'_>>();
         let family = items.next().and_then(|family| family.into_name());
         match family.as_deref() {
             Some(b"Separation" | b"DeviceN") => {
-                let _names = items.next();
-                if let Some(alternate) = items.next() {
-                    cost.add(self.color_space(&alternate, depth + 1, cx)?);
+                let separation = family.as_deref() == Some(b"Separation".as_slice());
+                // DeviceN の成分の数（色材の名前の数）。Separation は 1 つ
+                let components = items
+                    .next()
+                    .and_then(|names| names.into_array())
+                    .map_or(1, |names| names.raw_iter().count());
+                let mut alternate = Conversion::default();
+                if let Some(space) = items.next() {
+                    let (made, inner) = self.color_space(&space, depth + 1, cx)?;
+                    cost.add(made);
+                    alternate = inner;
                 }
-                if let Some(tint) = items.next() {
-                    cost.add(self.function(&tint, depth + 1, cx)?);
+                let mut tint = 1;
+                if let Some(function) = items.next() {
+                    let (made, eval) = self.function(&function, depth + 1, cx)?;
+                    cost.add(made);
+                    tint = eval;
+                }
+                let each = tint.saturating_add(alternate.each);
+                conversion.table = alternate.table;
+                if separation || components == 1 {
+                    conversion.table = conversion.table.saturating_add(TABLE.saturating_mul(each));
+                } else {
+                    conversion.each = each;
                 }
             }
             Some(b"Indexed" | b"I") => {
                 if let Some(base) = items.next() {
-                    cost.add(self.color_space(&base, depth + 1, cx)?);
+                    let (made, inner) = self.color_space(&base, depth + 1, cx)?;
+                    cost.add(made);
+                    conversion.table = TABLE.saturating_mul(inner.each).saturating_add(inner.table);
                 }
                 let _high = items.next();
                 if let Some(Object::Stream(table)) = items.next() {
@@ -1158,21 +1457,27 @@ impl<'a, 'o> Walker<'a, 'o> {
             }
             Some(b"Pattern") => {
                 if let Some(base) = items.next() {
-                    cost.add(self.color_space(&base, depth + 1, cx)?);
+                    let (made, inner) = self.color_space(&base, depth + 1, cx)?;
+                    cost.add(made);
+                    conversion = inner;
                 }
             }
             Some(b"ICCBased") => {
-                let alternate = items
-                    .next()
-                    .and_then(|profile| profile.into_stream())
-                    .and_then(|profile| profile.dict().get::<Object<'_>>(b"Alternate"));
+                let profile = items.next().and_then(|profile| profile.into_stream());
+                if let Some(profile) = &profile {
+                    cost.ops = cost.ops.saturating_add(lookup_work(profile.dict().data()));
+                }
+                let alternate =
+                    profile.and_then(|profile| profile.dict().get::<Object<'_>>(b"Alternate"));
                 if let Some(alternate) = alternate {
-                    cost.add(self.color_space(&alternate, depth + 1, cx)?);
+                    let (made, inner) = self.color_space(&alternate, depth + 1, cx)?;
+                    cost.add(made);
+                    conversion = inner;
                 }
             }
             _ => {}
         }
-        Ok(cost)
+        Ok((cost, conversion))
     }
 
     /// ストリームを展開したバイト数。ページの中では 1 度だけ展開する。hayro-interpret と同じく、画像のフィルター
@@ -1200,7 +1505,8 @@ impl<'a, 'o> Walker<'a, 'o> {
     /// 文字を描く（`Tj`・`TJ`・`'`・`"`、9.4.2）。フォントを選ばずに描く文字を、hayro-interpret は `Tj`・`TJ` なら
     /// Helvetica で読み、`'`・`"` なら描かない。Helvetica で読む文字列は、ASCII のバイトだけのものしか描かない。
     /// `fallback` は、フォントを選んでいなければ Helvetica を選ぶ演算子か。フォントの診断は、見える所で文字を
-    /// 描くときに返す
+    /// 描くときに返す。装置は、文字列ごとに塗りと線の色を RGB にする。Type 3 のフォントでは、hayro-interpret が字形
+    /// ごとにグラフィックス状態を写し（[`copy`]）、切り抜きにする文字では、輪郭を `ET` まで貯める
     fn show(
         &mut self,
         states: &mut [Graphics],
@@ -1214,6 +1520,22 @@ impl<'a, 'o> Walker<'a, 'o> {
             return Ok(());
         };
         spend(cost, glyph_work(strings, *state), 0, cx)?;
+        let colors = (strings.len() as u64).saturating_mul(state.fill.saturating_add(state.stroke));
+        spend(cost, colors, 0, cx)?;
+        let bytes = strings.iter().map(|bytes| bytes.len() as u64).sum::<u64>();
+        if state.font == Selected::Type3 {
+            let (work, copied) = copy(*state);
+            spend(
+                cost,
+                work.saturating_mul(bytes),
+                copied.saturating_mul(bytes),
+                cx,
+            )?;
+        }
+        if state.clip {
+            spend(cost, 0, bytes.saturating_mul(CLIP_GLYPH_BYTES), cx)?;
+            state.clipped = state.clipped.saturating_add(bytes);
+        }
         // hayro-interpret は、見えるかによらず Helvetica を選ぶ
         if state.font == Selected::Nothing && fallback {
             state.font = Selected::Assumed;
@@ -1242,7 +1564,7 @@ impl<'a, 'o> Walker<'a, 'o> {
             _ => {}
         }
         let dropped = match font {
-            Selected::Loaded | Selected::Shifted(_) => 0,
+            Selected::Loaded | Selected::Shifted(_) | Selected::Type3 => 0,
             Selected::Assumed | Selected::Fallback => {
                 strings.iter().filter(|bytes| !bytes.is_ascii()).count()
             }
@@ -1276,14 +1598,17 @@ impl<'a, 'o> Walker<'a, 'o> {
         let base = dict
             .get::<Name<'_>>(b"BaseFont")
             .map_or_else(|| name_text(name.as_ref()), |base| name_text(base.as_ref()));
-        self.font_dict(&dict, base, cost, cx)
+        let reference = resources.fonts.get_ref(name.as_ref()).map(key);
+        self.font_dict(&dict, reference, base, cost, cx)
     }
 
     /// フォントの辞書（`Tf` で選ぶものと、拡張グラフィックス状態の `Font`）を選ぶ。hayro-interpret は、選ぶたびに
-    /// 辞書のバイト列から表の鍵を作り、文書の中で 1 度だけフォントを読む。`base` は、診断の名前
+    /// 辞書のバイト列から表の鍵を作り、文書の中で 1 度だけフォントを読む。`reference` は、フォントの辞書を指す参照
+    /// （直接書いた辞書なら `None`）。`base` は、診断の名前
     fn font_dict(
         &mut self,
         dict: &Dict<'a>,
+        reference: Option<(u32, i32)>,
         base: String,
         cost: &mut Cost,
         cx: &mut Cx<'_>,
@@ -1291,7 +1616,7 @@ impl<'a, 'o> Walker<'a, 'o> {
         spend(cost, lookup_work(dict.data()), 0, cx)?;
         let id = dict.obj_id();
         // 幅の項目の多すぎるフォントは、読む前に、ページを解釈しないことにする
-        if !self.widths_fit(dict, cx)? {
+        if !self.widths_fit(dict, reference, cx)? {
             let place = self.record(id);
             self.refuse(place);
             return Ok(Selected::Fallback);
@@ -1300,9 +1625,9 @@ impl<'a, 'o> Walker<'a, 'o> {
         let font = self
             .fonts
             .font(dict, &settings.font_resolver, &settings.cmap_resolver);
-        let value = id.map_or_else(
+        let value = reference.map_or_else(
             || base.clone(),
-            |id| format!("{} {}", id.obj_number, id.gen_number),
+            |(number, generation)| format!("{number} {generation}"),
         );
         let Some(font) = font else {
             let place = self.record(id);
@@ -1315,14 +1640,17 @@ impl<'a, 'o> Walker<'a, 'o> {
             );
             return Ok(Selected::Fallback);
         };
-        if font.is_horizontal() || !self.shifted(dict, cx)? {
+        if dict.get::<Name<'_>>(b"Subtype").as_deref() == Some(b"Type3".as_slice()) {
+            return Ok(Selected::Type3);
+        }
+        if font.is_horizontal() || !self.shifted(dict, reference, cx)? {
             return Ok(Selected::Loaded);
         }
         let place = self.record(id);
-        match id {
-            Some(id) => {
-                self.origins.insert(key(id), (base, place));
-                Ok(Selected::Shifted(key(id)))
+        match reference {
+            Some(reference) => {
+                self.origins.insert(reference, (base, place));
+                Ok(Selected::Shifted(reference))
             }
             // 間接オブジェクトでないフォントは、選ぶ所で診断する
             None => {
@@ -1341,13 +1669,18 @@ impl<'a, 'o> Walker<'a, 'o> {
     }
 
     /// CID フォント（9.7）の幅（`W`・`W2`、9.7.4.3）の項目が [`MAX_WIDTHS`] に収まるか。hayro-font が範囲の CID を
-    /// 1 つずつ表に入れる手間を数える（ページの中で 1 度だけ）
-    fn widths_fit(&mut self, font: &Dict<'_>, cx: &mut Cx<'_>) -> Result<bool, Stop> {
+    /// 1 つずつ表に入れる手間を数える（間接オブジェクトのフォントは、ページの中で 1 度だけ）。収まれば、表のメモリを
+    /// 文書の中で 1 度だけ数える
+    fn widths_fit(
+        &mut self,
+        font: &Dict<'_>,
+        reference: Option<(u32, i32)>,
+        cx: &mut Cx<'_>,
+    ) -> Result<bool, Stop> {
         if font.get::<Name<'_>>(b"Subtype").as_deref() != Some(b"Type0".as_slice()) {
             return Ok(true);
         }
-        let id = font.obj_id().map(key);
-        if let Some(count) = id.and_then(|id| self.widths.get(&id)) {
+        if let Some(count) = reference.and_then(|id| self.widths.get(&id)) {
             return Ok(*count <= MAX_WIDTHS);
         }
         let descendant = font
@@ -1361,17 +1694,26 @@ impl<'a, 'o> Walker<'a, 'o> {
             }
         }
         cx.check(Kind::Work, count.min(MAX_WIDTHS).saturating_mul(WIDTH_WORK))?;
-        if let Some(id) = id {
+        if let Some(id) = reference {
             self.widths.insert(id, count);
         }
-        Ok(count <= MAX_WIDTHS)
+        let fits = count <= MAX_WIDTHS;
+        if fits && self.tables.insert(font.data().to_vec()) {
+            cx.check(Kind::DecodedBytes, count.saturating_mul(WIDTH_BYTES))?;
+        }
+        Ok(fits)
     }
 
     /// 縦書きのフォントの原点の移動（9.7.4.3）が、図面モデルに移すときに仮定する既定（字形の幅 1,000、位置の
-    /// ベクトル `(500, 880)`）と違いうるか。子孫のフォントの `DW`・`W`・`DW2`・`W2` を見る（ページの中で 1 度だけ）
-    fn shifted(&mut self, font: &Dict<'_>, cx: &mut Cx<'_>) -> Result<bool, Stop> {
-        let id = font.obj_id().map(key);
-        if let Some(shifted) = id.and_then(|id| self.vertical.get(&id)) {
+    /// ベクトル `(500, 880)`）と違いうるか。子孫のフォントの `DW`・`W`・`DW2`・`W2` を見る（間接オブジェクトの
+    /// フォントは、ページの中で 1 度だけ）
+    fn shifted(
+        &mut self,
+        font: &Dict<'_>,
+        reference: Option<(u32, i32)>,
+        cx: &mut Cx<'_>,
+    ) -> Result<bool, Stop> {
+        if let Some(shifted) = reference.and_then(|id| self.vertical.get(&id)) {
             return Ok(*shifted);
         }
         let descendant = font
@@ -1395,7 +1737,7 @@ impl<'a, 'o> Walker<'a, 'o> {
                 shifted = !default_widths(&widths, values, cx)?;
             }
         }
-        if let Some(id) = id {
+        if let Some(id) = reference {
             self.vertical.insert(id, shifted);
         }
         Ok(shifted)
@@ -1412,6 +1754,13 @@ impl<'a, 'o> Walker<'a, 'o> {
         place: &Ref,
         cx: &mut Cx<'_>,
     ) -> Result<(), Stop> {
+        spend(cost, MARKED_WORK, 0, cx)?;
+        // hayro-interpret は、名前の性質の辞書を、印の種類によらず読み直す
+        if let Some(name) = properties.clone().into_name()
+            && let Some(dict) = resources.properties.get::<Dict<'_>>(name.as_ref())
+        {
+            spend(cost, lookup_work(dict.data()), 0, cx)?;
+        }
         let named = properties.clone().into_name().and_then(|name| {
             let reference = resources.properties.get_ref(name.as_ref())?;
             let dict = resources
@@ -1429,8 +1778,17 @@ impl<'a, 'o> Walker<'a, 'o> {
         let parent = self.is_visible();
         let visible = match membership {
             Some((dict, reference)) => {
-                // hayro-interpret は、内容の印のたびに表示グループの辞書を引き直す
-                spend(cost, lookup_work(dict.data()), 0, cx)?;
+                // hayro-interpret は、内容の印のたびに表示グループか表示の規則の辞書を引き直す。表示の規則の辞書なら、
+                // hayro-interpret・走査・装置が、それぞれ `OCGs` の配列を読む
+                let groups = dict
+                    .get::<Array<'_>>(b"OCGs")
+                    .map_or(0, |groups| lookup_work(groups.data()));
+                spend(
+                    cost,
+                    lookup_work(dict.data()).saturating_add(groups.saturating_mul(3)),
+                    0,
+                    cx,
+                )?;
                 let (shown, ocmd) = self.membership(&dict, reference);
                 if parent && ocmd {
                     self.membership_report(shown, place, cx);
@@ -1518,6 +1876,19 @@ impl<'a, 'o> Walker<'a, 'o> {
         let visible = self.is_visible();
         let mut cost = Cost::default();
         spend(&mut cost, lookup_work(dict.data()), 0, cx)?;
+        // hayro-interpret は、描くたびに表示グループ（`OC`、8.11.3.3）の辞書と、表示の規則の辞書の `OCGs` を読み直す。
+        // 走査も、見えるかを決めるために読む
+        if let Some(group) = dict.get::<Dict<'_>>(b"OC") {
+            let groups = group
+                .get::<Array<'_>>(b"OCGs")
+                .map_or(0, |groups| lookup_work(groups.data()));
+            spend(
+                &mut cost,
+                lookup_work(group.data()).saturating_add(groups.saturating_mul(2)),
+                0,
+                cx,
+            )?;
+        }
         match dict.get::<Name<'_>>(b"Subtype").as_deref() {
             Some(b"Form") => {
                 let called = self.form(stream, id, &place, resources, owner, depth, state, cx)?;
@@ -1575,6 +1946,9 @@ impl<'a, 'o> Walker<'a, 'o> {
         let reread = reread.saturating_add(own.as_ref().map_or(0, resources_work));
         let mut cost = Cost::default();
         spend(&mut cost, FORM_WORK.saturating_add(reread), bytes, cx)?;
+        // hayro-interpret は、フォームを呼ぶたびにグラフィックス状態を積み、中で変えるときに写す
+        let (work, copied) = copy(state);
+        spend(&mut cost, work, copied, cx)?;
         let visible = self.is_visible();
         let Some(Form { data, lenient }) = data.filter(|_| dict.get::<[f32; 4]>(b"BBox").is_some())
         else {

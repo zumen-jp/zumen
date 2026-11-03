@@ -260,7 +260,7 @@
     "pdf.object.repaired": "終わり（endobj）のない間接オブジェクトを、次のオブジェクトの前までとして読みました（{count} 件）。",
     "pdf.optional-content.approximated": "表示の規則の辞書や XObject の表示グループを、レイヤに分けずに移しました（{count} 件）。",
     "pdf.optional-content.dropped": "既定で隠れる表示グループ「{name}」の内容を、移しませんでした。",
-    "pdf.page.dropped": "読むとスタックかメモリを使い切るおそれのある入れ子か範囲を持つページの中身を、移しませんでした（{count} 件）。",
+    "pdf.page.dropped": "読むとスタックかメモリを使い切るか、パニックするおそれのあるページの中身を、移しませんでした（{count} 件）。",
     "pdf.pattern.dropped": "タイルのパターンで塗った形を、移しませんでした（{count} 件）。",
     "pdf.shading.dropped": "シェーディングで塗った形を、移しませんでした（{count} 件）。",
     "pdf.stroke.approximated": "線の端とつなぎの形を、移しませんでした（{count} 件）。",
