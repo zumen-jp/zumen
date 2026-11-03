@@ -110,7 +110,7 @@ manifold-rust を選ぶ。
 ### 3. `level`・`zone`・`classification`
 
 - `level` は、階（`IfcBuildingStorey`）の名前と `Elevation` から作る。階は、中野区の 5 件を除く 16 件にあった。床でない基準（`設計GL`・`GL`・`最高高さ`・`基礎`・`PIT`・`PHR`・`屋根`）も、階として書かれていた。建築の書き出しの階の名前は、`1FL`〜`5FL`・`RFL`・`設計GL`・`GL`・`最高高さ`・`基礎`（林野庁の Revit 2024 日本語版・ARCHICAD 20）、`1階`〜`3階`・`屋根`（CADEWA Real2011・ARCHICAD 20）、`1F`〜`3F`・`RF`・`PHF`・`PHR`・`PIT`（GLOOBE 2024・ArchiCAD 15）だった。種類（GL・FL など）を示すプロパティはなかった。種類は、階の名前をプロファイル（決定 0138）の語彙に当てて決め、当たらない名前の `level` は種類を持たない。名前から推定した種類は、出所に推定と残す。
-- `level` の高さは、階の `Elevation`（建物の ±0 からの高さ）にする。高さの基準は、建物の `ElevationOfRefHeight`（±0 の標高）を書いていれば持ち、書いていなければ持たない。敷地の `RefElevation` と建物の `ElevationOfTerrain` は、`spatial` の成分に残し（決定 0207）、`level` を作らない。21 件では、これらの標高は書いてあっても多くが 0 で、0 でないのは GLOOBE 2024 の建物（基準の高さ 100 mm・地盤 −40 mm）だけだった。地盤の高さの `level`（GL）は、階として書かれたものを使う。
+- `level` の高さは、階の `Elevation`（建物の ±0 からの高さ）にする。高さの基準は、建物の `ElevationOfRefHeight`（±0 の標高。今の lift は `spatial` に写している）を書いていれば持ち、書いていなければ持たない。敷地の `RefElevation` は、今のとおり `spatial` に持ち、`level` を作らない。建物の `ElevationOfTerrain`（地盤の標高）は写さず、地盤の高さの `level`（GL）は、階として書かれたものを使う。21 件では、これらの標高は書いてあっても多くが 0 で、0 でないのは GLOOBE 2024 の建物（基準の高さ 100 mm・地盤 −40 mm）だけだった。
 - `zone` は、`IfcZone`・`IfcSpatialZone` から作る（決定 0207）。21 件のどれにもなかったので、プロパティからは作らず、種類の語彙は IFC データ作成基準を待つ。
 - `classification` は、`IfcRelAssociatesClassification` と `IfcClassificationReference` から作る（決定 0207）。体系は、Uniformat（Revit）・Archicad Classification（GNI）・Uniclass と OmniClass（Text2BIM）で、国内のソフトの書き出しには分類がなかった。日本の分類の扱いは、使う書き出しを得てから決める。
 
