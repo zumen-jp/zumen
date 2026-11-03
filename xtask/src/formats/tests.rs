@@ -55,6 +55,7 @@ decisions = ["0008"]
 legacy-decisions = ["0003"]
 issues = ["zumen-jp/zumen-legacy#140"]
 docs = ["docs/formats/dxf.md"]
+read = { level = "spec", scope = "試験の中で作ったファイル", checked = "2026-11-03" }
 
 [formats.restricted]
 name = "制限のある形式"
@@ -67,12 +68,30 @@ place = "none"
 known-crates = ["restricted-reader"]
 "#;
 
+/// 形式の文書。確かめた度合いの節の表に `rows` を並べる
+fn document(rows: &str) -> String {
+    format!(
+        "# 試験用の文書\n\n## 確かめた度合い\n\n| 形式 | 向き | 段 |\n| --- | --- | --- |\n{rows}\n## 次の節\n\n| `dxf` | 書き | `spec` |\n"
+    )
+}
+
 fn fixture() -> (TempDir, Ledger, Decisions) {
     let dir = TempDir::new();
     dir.write("docs/decisions/0008-model.md", "# 試験用の決定\n");
-    dir.write("docs/formats/dxf.md", "# 試験用の文書\n");
+    dir.write(
+        "docs/formats/dxf.md",
+        &document("| `dxf` | 読み | `spec` |\n"),
+    );
     let decisions = decision_files(&dir.0).unwrap();
     (dir, toml::from_str(LEDGER).unwrap(), decisions)
+}
+
+/// 公開サンプルの台帳にあるとする道筋で検査する
+fn check(ledger: &Ledger, root: &Path, decisions: &Decisions) -> Vec<String> {
+    let samples = ["dwg/a.dwg", "dwg/a_ascii.dxf", "dxf/b.dxf"]
+        .map(String::from)
+        .into();
+    super::check(ledger, root, decisions, &samples)
 }
 
 #[test]
@@ -162,6 +181,28 @@ fn rejects_invalid_values_and_inconsistent_references() {
         ("zumen-jp/zumen-legacy#140", "zumen-legacy#140", "issue"),
         ("docs/formats/dxf.md", "docs/formats/missing.md", "実在する"),
         ("restricted-reader", "restricted-reader@1.0", "crate の名前"),
+        (
+            "level = \"spec\"",
+            "level = \"tested\"",
+            "level の `tested`",
+        ),
+        ("level = \"spec\"", "level = \"verified\"", "根拠と合わない"),
+        (
+            "scope = \"試験の中で作ったファイル\"",
+            "scope = \" \"",
+            "scope が空",
+        ),
+        (
+            "checked = \"2026-11-03\"",
+            "checked = \"2026-11-31\"",
+            "dxf.read: checked",
+        ),
+        ("docs = [\"docs/formats/dxf.md\"]", "", "節を置く docs"),
+        (
+            "known-crates = [\"restricted-reader\"]",
+            "known-crates = [\"restricted-reader\"]\nwrite = { level = \"spec\", scope = \"範囲\", checked = \"2026-11-03\" }",
+            "core の形式にだけ",
+        ),
     ] {
         let ledger: Ledger = toml::from_str(&LEDGER.replace(from, to)).unwrap();
         let errors = check(&ledger, &dir.0, &decisions);
@@ -177,6 +218,7 @@ fn checks_evidence_and_implementation_sources() {
     let (dir, mut ledger, decisions) = fixture();
     let f = ledger.formats.get_mut("dxf").unwrap();
     f.place = "plugin".into();
+    f.read = None;
     f.repository = Some("example/plugin".into());
     f.basis = vec!["reference".into()];
     f.references.push(Reference {
@@ -200,6 +242,202 @@ fn checks_evidence_and_implementation_sources() {
     for key in ["license", "checked", "url", "repository"] {
         assert!(errors.iter().any(|e| e.contains(key)), "{errors:?}");
     }
+}
+
+#[test]
+fn derives_the_level_from_the_strongest_evidence() {
+    let (dir, mut ledger, decisions) = fixture();
+    let tool = |name: &str| Tool {
+        name: name.into(),
+        version: "1.0".into(),
+    };
+    let set = |ledger: &mut Ledger, level: &str, samples: &[&str], tools: Vec<Tool>, software| {
+        let found = ledger
+            .formats
+            .get_mut("dxf")
+            .unwrap()
+            .read
+            .as_mut()
+            .unwrap();
+        found.level = level.into();
+        found.public_samples = samples.iter().map(|s| s.to_string()).collect();
+        found.implementations = tools;
+        found.software = software;
+    };
+    let ok = |ledger: &Ledger| {
+        dir.write(
+            "docs/formats/dxf.md",
+            &document(&format!(
+                "| `dxf` | 読み | `{}` |\n",
+                ledger.formats["dxf"].read.as_ref().unwrap().level
+            )),
+        );
+        check(ledger, &dir.0, &decisions)
+    };
+    set(
+        &mut ledger,
+        "samples",
+        &["samples/dxf/b.dxf"],
+        vec![],
+        vec![],
+    );
+    assert_eq!(ok(&ledger), Vec::<String>::new());
+    set(&mut ledger, "samples", &[], vec![tool("ezdxf")], vec![]);
+    assert_eq!(ok(&ledger), Vec::<String>::new());
+    // フォルダーと URL の試料
+    set(
+        &mut ledger,
+        "verified",
+        &["samples/dwg/", "https://example.com/sample.dxf"],
+        vec![],
+        vec![tool("AutoCAD")],
+    );
+    assert_eq!(ok(&ledger), Vec::<String>::new());
+    for (level, samples, tools, software) in [
+        ("spec", &["samples/dxf/b.dxf"][..], vec![], vec![]),
+        ("spec", &[][..], vec![tool("ezdxf")], vec![]),
+        ("samples", &[][..], vec![], vec![]),
+        (
+            "samples",
+            &["samples/dxf/b.dxf"][..],
+            vec![],
+            vec![tool("AutoCAD")],
+        ),
+        (
+            "verified",
+            &["samples/dxf/b.dxf"][..],
+            vec![tool("ezdxf")],
+            vec![],
+        ),
+    ] {
+        set(&mut ledger, level, samples, tools, software);
+        let errors = ok(&ledger);
+        assert!(
+            errors.iter().any(|e| e.contains("根拠と合わない")),
+            "{level} {samples:?}: {errors:?}"
+        );
+    }
+    for (sample, expected) in [
+        ("samples/dxf/missing.dxf", "ledger.toml にない"),
+        ("samples/dw/", "ledger.toml にない"),
+        ("samples/dxf", "ledger.toml にない"),
+        ("samples//", "ledger.toml にない"),
+        ("dxf/b.dxf", "URL にする"),
+        ("file:///b.dxf", "URL にする"),
+    ] {
+        set(&mut ledger, "samples", &[sample], vec![], vec![]);
+        let errors = ok(&ledger);
+        assert!(
+            errors.iter().any(|e| e.contains(expected)),
+            "{sample}: {errors:?}"
+        );
+    }
+    set(
+        &mut ledger,
+        "samples",
+        &["samples/dxf/b.dxf", "samples/dxf/b.dxf"],
+        vec![],
+        vec![],
+    );
+    assert!(ok(&ledger).iter().any(|e| e.contains("重なって")));
+    set(
+        &mut ledger,
+        "verified",
+        &[],
+        vec![tool(" ")],
+        vec![Tool {
+            name: "AutoCAD".into(),
+            version: String::new(),
+        }],
+    );
+    let errors = ok(&ledger);
+    for expected in ["implementations[0]: name", "software[0]: version"] {
+        assert!(errors.iter().any(|e| e.contains(expected)), "{errors:?}");
+    }
+}
+
+#[test]
+fn checks_the_section_of_each_document_against_the_ledger() {
+    let (dir, mut ledger, decisions) = fixture();
+    let errors = |dir: &TempDir, ledger: &Ledger, text: &str| {
+        dir.write("docs/formats/dxf.md", text);
+        check(ledger, &dir.0, &decisions)
+    };
+    assert!(
+        errors(&dir, &ledger, "# 文書\n\n## 確かめた度合いの考え方\n")
+            .iter()
+            .any(|e| e.contains("節（`## 確かめた度合い`）がない"))
+    );
+    for (rows, expected) in [
+        ("", "`dxf` の読みの `spec` がない"),
+        ("| `dxf` | 読み | `samples` |\n", "が台帳と合わない"),
+        (
+            "| `dxf` | 読み | `spec` |\n| `dxf` | 書き | `spec` |\n",
+            "`dxf` の書きの `spec` が台帳と合わない",
+        ),
+        (
+            "| `dxf` | 読み | `spec` |\n| `dwg` | 読み | `spec` |\n",
+            "`dwg` の読み",
+        ),
+        ("| dxf | 読み | spec |\n", "`dxf` の読みの `spec` がない"),
+    ] {
+        let found = errors(&dir, &ledger, &document(rows));
+        assert!(
+            found.iter().any(|e| e.contains(expected)),
+            "{rows}: {found:?}"
+        );
+    }
+    // 2 つの形式が同じ文書を持てば、表に両方を並べる
+    let mut other: Format = toml::from_str(
+        r#"
+name = "DWG"
+family = "acad"
+domains = ["drawing"]
+specs = []
+rights = "public"
+rights-note = "試験用の根拠"
+place = "core"
+basis = ["inferred"]
+docs = ["docs/formats/dxf.md"]
+write = { level = "spec", scope = "範囲", checked = "2026-11-03" }
+"#,
+    )
+    .unwrap();
+    ledger.formats.insert("dwg".into(), other);
+    assert!(
+        errors(&dir, &ledger, &document("| `dxf` | 読み | `spec` |\n"))
+            .iter()
+            .any(|e| e.contains("`dwg` の書きの `spec` がない"))
+    );
+    assert_eq!(
+        errors(
+            &dir,
+            &ledger,
+            &document("| `dxf` | 読み | `spec` |\n| `dwg` | 書き | `spec` |\n")
+        ),
+        Vec::<String>::new()
+    );
+    // 段を持たない形式の文書には、節が要らない
+    other = ledger.formats.remove("dwg").unwrap();
+    other.write = None;
+    other.docs = vec![];
+    ledger.formats.insert("dwg".into(), other);
+    ledger.formats.get_mut("dxf").unwrap().read = None;
+    assert_eq!(errors(&dir, &ledger, "# 文書\n"), Vec::<String>::new());
+}
+
+#[test]
+fn reads_rows_only_from_the_section() {
+    let rows = section_rows(&document(
+        "| `dxf` | 読み | `spec` |\n| 形式 | 向き | 段 |\n",
+    ))
+    .unwrap();
+    assert_eq!(
+        rows.into_iter().collect::<Vec<_>>(),
+        vec![("dxf".to_string(), "読み".to_string(), "spec".to_string())]
+    );
+    assert!(section_rows("## 確かめた度合い\n").unwrap().is_empty());
+    assert!(section_rows("### 確かめた度合い\n| `dxf` | 読み | `spec` |\n").is_none());
 }
 
 #[test]
@@ -305,6 +543,17 @@ fn checks_all_packages_and_rejects_malformed_declarations() {
         .is_empty()
     );
     assert!(!check_packages(&ledger, &packages(r#"{}"#)).is_empty());
+    // 実装する形式は、確かめた度合いを持つ（決定 0253）
+    let mut ledger = ledger;
+    ledger.formats.get_mut("dxf").unwrap().read = None;
+    let errors = check_packages(
+        &ledger,
+        &packages(r#"{"packages":[{"name":"app","metadata":{"zumen":{"formats":["dxf"]}}}]}"#),
+    );
+    assert!(
+        errors.iter().any(|e| e.contains("確かめた度合いがない")),
+        "{errors:?}"
+    );
 }
 
 #[test]
@@ -341,12 +590,51 @@ fn renders_records_in_key_order_with_working_links() {
         "../../docs/formats/dxf.md",
         "試験用の根拠",
         "2024-02-29",
-        "`unknown` | `none`",
+        "`unknown` | `none` |  |  |",
         "読み書きできる形式の一覧ではありません",
+        "| 読み | 書き |",
+        "`public` | `core` | `spec` |  |",
+        "- 読みの確かめた度合い: `spec`（確認日: 2026-11-03）",
+        "- 読みの確かめた範囲: 試験の中で作ったファイル",
     ] {
         assert!(output.contains(expected), "{expected}");
     }
     assert_eq!(output, render::render(&ledger, &decisions));
+}
+
+#[test]
+fn renders_the_evidence_of_each_direction() {
+    let (_, mut ledger, decisions) = fixture();
+    let f = ledger.formats.get_mut("dxf").unwrap();
+    f.write = Some(Verification {
+        level: "verified".into(),
+        scope: "書き戻して開いた".into(),
+        checked: "2026-11-02".into(),
+        public_samples: vec!["samples/dwg/".into(), "https://example.com/a.dxf".into()],
+        implementations: vec![Tool {
+            name: "ezdxf".into(),
+            version: "1.4.2".into(),
+        }],
+        software: vec![Tool {
+            name: "AutoCAD".into(),
+            version: "2027".into(),
+        }],
+    });
+    let output = render::render(&ledger, &decisions);
+    for expected in [
+        "`public` | `core` | `spec` | `verified` |",
+        "- 書きの確かめた度合い: `verified`（確認日: 2026-11-02）",
+        "- 書きの確かめた範囲: 書き戻して開いた",
+        "- 書きで使った公開の試料: [samples/dwg/](../../samples/dwg/)・[https://example.com/a.dxf](https://example.com/a.dxf)",
+        "- 書きで照らした外部の実装: ezdxf 1.4.2",
+        "- 書きで開いたソフト: AutoCAD 2027",
+    ] {
+        assert!(output.contains(expected), "{expected}\n{output}");
+    }
+    assert!(
+        output.find("- 読みの確かめた度合い").unwrap()
+            < output.find("- 書きの確かめた度合い").unwrap()
+    );
 }
 
 #[test]

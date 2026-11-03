@@ -45,6 +45,12 @@ mod tests {
             .and_then(|rest| rest.strip_suffix('"'))
     }
 
+    /// 台帳に、読みか書きの確かめた度合いの表 `[formats.<key>.<direction>]` があるか（決定 0253）
+    fn verified(key: &str, direction: &str) -> bool {
+        let header = format!("[formats.{key}.{direction}]");
+        LEDGER.lines().any(|line| line.trim() == header)
+    }
+
     #[test]
     fn registrations_match_the_ledger() {
         for registration in DRAWING.iter().chain(READ_ONLY) {
@@ -55,6 +61,9 @@ mod tests {
                 "{format}"
             );
             assert_eq!(field(format, "place"), Some("core"), "{format}");
+            // capabilities の read・write と同じ向きに、確かめた度合いがある
+            assert!(verified(format, "read"), "{format}");
+            assert_eq!(verified(format, "write"), registration.write, "{format}");
         }
     }
 }

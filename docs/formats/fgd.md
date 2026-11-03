@@ -87,7 +87,13 @@ DEM 区画の被覆（`coverage`、2.2.2 節の `CV_DiscreteGridPointCoverage` �
 
 - 要素の数は、地物と形の要素ごとに予算（`Elements`）で数え、座標の点の数と DEM 区画のセルの数は `Segments` で数える。
 
-## 検証
+## 確かめた度合い
+
+| 形式 | 向き | 段 |
+| --- | --- | --- |
+| `fgd` | 読み | `spec` |
+
+段の意味は[決定 0253](../decisions/0253-parallel-agents-and-cross-review.md)に、根拠は[形式と権利の一覧](README.md#format-fgd)にあります。この文書の規則は、仕様と、試験の中で作ったファイルだけで確かめたものです。公開の試料・外部の実装・実際のソフトとは、まだ照らしていません。実際のファイルでは、ここに書いた扱いと違うことがあります。
 
 - 試験は、試験の中で作った小さな GML と書庫（`crates/zumen-fgd/tests/lift.rs`・`archive.rs`）と、適合試験の組（`bindings/conformance/cases/fgd.json`・`fgd_zip.json`）。国土地理院のデータは、Git・パッケージ・試験に入れない。
-- 基盤地図情報ビューアーと QGIS で開いたデータとの照合は、まだしていない。
+- 基盤地図情報ビューアーと QGIS で開いたデータとの照合は、まだしていない（#504）。

@@ -33,3 +33,16 @@ IFC-SPF と ifcZIP を、スキーマを知らないインスタンスのグラ�
 
 - 始まりの行・`DATA` の節・`END-ISO-10303-21;` のどれかがなければ、`ifc.file.invalid` で読まない。形の読めない文は次の `;` まで飛ばし、`ifc.record.invalid` にその範囲を付ける。
 - 入力のバイト数、レコードの数、値の数と参照の数（`work`）、並びの入れ子の深さ（`depth`）を予算で数える。ifcZIP は、展開した大きさを `decoded-bytes` で、展開する前に数える。
+
+## 確かめた度合い
+
+| 形式 | 向き | 段 |
+| --- | --- | --- |
+| `ifc` | 読み | `spec` |
+| `ifc` | 書き | `samples` |
+
+段の意味は[決定 0253](../decisions/0253-parallel-agents-and-cross-review.md)に、根拠は[形式と権利の一覧](README.md#format-ifc)にあります。
+
+- 読み: 仕様と、試験の中で作った IFC-SPF と ifcZIP（`crates/zumen-ifc/tests`）だけで確かめた。日本の BIM ソフトが書き出した公開の試料は #412 で探している。
+- 書き: `building_apply` でプロパティ・名前・説明を変えて書いた IFC4 と IFC2X3 を、毎晩の CI で IfcOpenShell 0.9.0.post1 で開く。変更が見え、スキーマと EXPRESS の規則の検査の誤りが増えないことを確かめる（`crates/zumen-ifc/tests/ifcopenshell/check.py`、#482）。BIM ソフトでは開いていない。
+- 判定・インスタンスのグラフ・壊れた所の扱いは、読みと同じく `spec` の段。
