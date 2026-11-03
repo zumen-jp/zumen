@@ -144,7 +144,7 @@
 
 ## 影響
 
-- 新しい形式を足す PR は、台帳の項目と形式の文書を一緒に入れる。判断を伴うなら、決定の記録も書く。
+- 新しい形式を足す PR は、台帳の項目と形式の文書を一緒に入れる。判断を伴うなら、決定の記録も書く。後に[決定 0254](0254-parallel-agents-and-cross-review.md) で、新しく `public` として足す PR は確かめる側を 2 つにし、持ち主が仕様を公開していない形式と持ち主の分からない形式は、利用者の判断を待つことにした。
 - 台帳の検査と文書の生成は、xtask に入れる。xtask は境界の crate の PR（[#23](https://github.com/zumen-jp/zumen/pull/23)）が変えているので、#23 のあとの PR で入れる。それまでは、レビューで台帳を確かめる。`deny.toml` の禁止は、この記録と同じ PR で入れる。
 - `zumen-sdk` は、AutoCAD の系統の試作（[#3](https://github.com/zumen-jp/zumen/issues/3)）で、コアのコーデックと一緒に作る。素案の trait の形（[0008](0008-model-layers-and-codecs.md)）も、そこで決まる。
 - 旧版の `docs/formats/` を移すときに、台帳の各形式に文書のパスを足す。
