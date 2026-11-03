@@ -1,0 +1,4 @@
+node_modules/
+.next/
+# run.mjs が組み方ごとに書く
+next.config.mjs
