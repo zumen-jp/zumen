@@ -58,3 +58,19 @@
 `dwg/zumen-*` は、zumen-jp が AutoCAD 2027 で作った図面です（#316）。ライセンスは CC0 1.0 です。主題ごとに 1 つの図面を作り、版ごとに DWG と、同じ図面の DXF（`_ascii.dxf`）を対で置きます。試験は、この対の表と図面モデルを比べます。
 
 作り直すときは、`xtask/autocad/make.sh` を使います。SSH でつなぐ Windows の AutoCAD の accoreconsole で `xtask/autocad/samples.lsp` を流し、できた図面を `dwg/` に置きます。そのあと、台帳のハッシュとバイト数を直します。AutoCAD は保存のたびに、Windows のログイン名を図面の DWGPROPS に書きます。
+
+## IFC
+
+`ifc/` は、再配布を認める公開の IFC です（#412）。出所・ライセンス・表示の文・変えた内容は、台帳にあります。
+
+| フォルダー | 公開した者 | ライセンス | 書き出したソフト | 版 |
+| --- | --- | --- | --- | --- |
+| `rinya/` | 林野庁 | 公共データ利用規約（第 1.0 版） | Autodesk Revit 2024 日本語版（公開元が IfcOpenShell で保存） | IFC4X3 |
+| `nakano/` | 中野区 | CC BY 4.0 | Autodesk Civil 3D 2024 日本語版 | IFC2X3 |
+| `gni/` | Technical University of Munich, Georg Nemetschek Institute（GNI BIM Dataset） | CC BY 4.0 | Autodesk Revit 2024・2025、Archicad 28 | IFC2X3・IFC4 |
+| `bim-whale/` | André Wisén（BIM Whale） | MIT | Autodesk Revit 2021 | IFC2X3 |
+| `text2bim/` | dcy0577（Text2BIM） | MIT | Vectorworks Architect 2024 | IFC2X3 |
+
+- 見出しに、作った人の名前や手元のフォルダーの道筋があるものは、その値だけを置き換えました。データの節は、取得したままのバイト列です。取得したファイルの大きさと SHA-256 は、台帳の `changes` にあります。
+- `nakano/` の形は点群から作った Brep で、要素はすべて `IfcBuildingElementProxy` です。`rinya/` と `gni/` は、公開元が書き出した後に保存し直しています。どちらも、書き出したソフトがそのまま書いたファイルとしては扱いません。
+- `crates/zumen-ifc/tests/samples.rs` が、すべてを読み、建物モデルに写した要約を `samples.txt` と比べます。毎晩の CI は、写した値を IfcOpenShell で読んだ値と照らします（`crates/zumen-ifc/tests/ifcopenshell/samples.py`）。
