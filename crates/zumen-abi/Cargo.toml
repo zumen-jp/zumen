@@ -15,9 +15,12 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 # wasm のモジュール（決定 0013・0221）。名前は schema/boundary.toml の modules と同じ。ネイティブのライブラリと CLI は、
 # すべてを入れる
 [features]
-default = ["drawing", "bim"]
+default = ["drawing", "bim", "civil", "pointcloud"]
 drawing = []
 bim = []
+# 土木・地理と点群のモジュール（決定 0253）
+civil = []
+pointcloud = []
 # プラグインのモジュールの土台（決定 0247）。プラグインの形式だけを読み、lift で図面モデルのバイナリにする
 plugin = []
 
