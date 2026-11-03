@@ -108,7 +108,7 @@ jobs:
           cp target/wasm32-unknown-unknown/release/zumen_abi1.wasm out/
       - name: 分けた wasm のモジュールも作る（決定 0221）
         run: |
-          for module in drawing bim; do
+          for module in drawing bim civil pointcloud; do
             cargo build --release --locked --target wasm32-unknown-unknown -p zumen-abi --no-default-features --features $module
             cp target/wasm32-unknown-unknown/release/zumen_abi1.wasm out/zumen_abi1_$module.wasm
           done

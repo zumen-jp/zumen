@@ -5182,7 +5182,7 @@ abstract final class Engine {
   static const wasm = 'wasm';
 }
 
-/// 線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。線形は、要求に書く（alignment）か、open で開いた J-LandXML の文書（doc）の線形を id で指す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。doc を渡せば、文書の線形と地表面の要約も返す。図面のモジュールに置く。小版 46 から（doc と id は小版 47 から）
+/// 線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。線形は、要求に書く（alignment）か、open で開いた J-LandXML の文書（doc）の線形を id で指す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。doc を渡せば、文書の線形と地表面の要約も返す。図面・BIM・土木地理・点群のモジュールに置く（決定 0253）。小版 46 から（doc と id は小版 47 から）
 class CivilRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
   CivilRequest.fromJson(super.json);
@@ -5550,7 +5550,7 @@ class CivilPosition extends Message {
   set gradient(double? value) => writeField('gradient', value);
 }
 
-/// open で開いた点群（LAS・LAZ）の要約と、条件に合う点を返す。点は八分木の浅い段の節から順に選ぶ（決定 0232）。図面のモジュールに置く。小版 48 から
+/// open で開いた点群（LAS・LAZ）の要約と、条件に合う点を返す。点は八分木の浅い段の節から順に選ぶ（決定 0232）。点群のモジュールに置く（決定 0253）。小版 48 から
 class PointcloudRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
   PointcloudRequest.fromJson(super.json);
@@ -6437,7 +6437,7 @@ class DeliveryManaged extends Message {
   set missing(List<String>? value) => writeField('missing', value);
 }
 
-/// open で開いた CityGML・基盤地図情報（GML）・拡張 DM の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。図面のモジュールに置く。小版 52 から
+/// open で開いた CityGML・基盤地図情報（GML）・拡張 DM の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。土木・地理のモジュールに置く（決定 0253）。小版 52 から
 class GeoRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
   GeoRequest.fromJson(super.json);
@@ -6777,7 +6777,7 @@ class CivilDrawingOptions extends Message {
   set stationPitch(double? value) => writeField('station_pitch', value);
 }
 
-/// 開いた点群と、土木の文書の TIN の標高の差を求め、プロファイルの surface-elevation の規則の区分ごとに集計して、規格値と比べる（決定 0234）。図面のモジュールに置く。小版 50 から
+/// 開いた点群と、土木の文書の TIN の標高の差を求め、プロファイルの surface-elevation の規則の区分ごとに集計して、規格値と比べる（決定 0234）。点群のモジュールに置く（決定 0253）。小版 50 から
 class DeviationRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
   DeviationRequest.fromJson(super.json);

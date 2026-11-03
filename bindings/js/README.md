@@ -40,7 +40,7 @@ try {
 
 ### 分けたモジュール
 
-図面と BIM を分けたモジュール（`zumen_abi1_drawing.wasm`・`zumen_abi1_bim.wasm`）もあります（[決定 0221](../../docs/decisions/0221-wasm-modules.md)）。`loadModules` は、要るモジュールだけを、初めて要るときに読み込みます。入っていない op は `call.op.unsupported` の診断で返ります。
+図面・BIM・土木地理・点群を分けたモジュール（`zumen_abi1_drawing.wasm`・`zumen_abi1_bim.wasm`・`zumen_abi1_civil.wasm`・`zumen_abi1_pointcloud.wasm`）もあります（[決定 0221](../../docs/decisions/0221-wasm-modules.md)・[決定 0253](../../docs/decisions/0253-wasm-civil-and-pointcloud-modules.md)）。`loadModules` は、要るモジュールだけを、初めて要るときに読み込みます。入っていない op は `call.op.unsupported` の診断で返ります。
 
 ```js
 import { detect, loadModules } from "./src/index.js";
@@ -48,6 +48,8 @@ import { detect, loadModules } from "./src/index.js";
 const modules = loadModules({
   drawing: () => fetch("/zumen_abi1_drawing.wasm"),
   bim: () => fetch("/zumen_abi1_bim.wasm"),
+  civil: () => fetch("/zumen_abi1_civil.wasm"),
+  pointcloud: () => fetch("/zumen_abi1_pointcloud.wasm"),
 });
 const zumen = await modules.forInput(bytes); // 形式を判定し（detect）、それを開けるモジュールを返す。判定できなければ undefined
 const viewer = await modules.forOp("scene"); // op を持つモジュール
@@ -86,5 +88,5 @@ node bindings/js/test/browser/run.mjs chromium target/wasm32-unknown-unknown/rel
 分けたモジュールでは、`test/modules.mjs` が、モジュールごとの op と、`detect` が `open` と同じ形式を選ぶことを確かめ、組ごとに合うモジュールで適合試験を流します。`test/browser/run.mjs` に分けたモジュールを渡すと、ブラウザーの中でも同じことをします。
 
 ```bash
-node bindings/js/test/modules.mjs zumen_abi1.wasm zumen_abi1_drawing.wasm zumen_abi1_bim.wasm zumen_abi1_plugin.wasm
+node bindings/js/test/modules.mjs zumen_abi1.wasm zumen_abi1_drawing.wasm zumen_abi1_bim.wasm zumen_abi1_civil.wasm zumen_abi1_pointcloud.wasm zumen_abi1_plugin.wasm
 ```
