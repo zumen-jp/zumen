@@ -4106,7 +4106,7 @@
       "additionalProperties": false
     },
     "geo_request": {
-      "description": "open で開いた CityGML の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。図面のモジュールに置く。小版 52 から",
+      "description": "open で開いた CityGML か基盤地図情報（GML）の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。図面のモジュールに置く。小版 52 から",
       "type": "object",
       "allOf": [
         { "$ref": "#/$defs/request_common" }
@@ -4117,7 +4117,7 @@
           "const": "geo"
         },
         "doc": {
-          "description": "open で開いた CityGML の文書の名前",
+          "description": "open で開いた CityGML か基盤地図情報（GML）の文書の名前",
           "type": "string"
         },
         "id": {

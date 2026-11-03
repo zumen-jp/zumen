@@ -19,6 +19,7 @@ pub(crate) const DRAWING: &[Registration] = &[
 pub(crate) const READ_ONLY: &[Registration] = &[
     Registration::of::<zumen_landxml::LandXml>(Rights::Public, "landxml", false, 1),
     Registration::of::<zumen_citygml::CityGml>(Rights::Public, "citygml", false, 1),
+    Registration::of::<zumen_fgd::Fgd>(Rights::Public, "fgd", false, 1),
     Registration::of::<zumen_las::Las>(Rights::Public, "las", false, 1),
     Registration::of::<zumen_ply::Ply>(Rights::Public, "ply", false, 1),
     Registration::of::<zumen_xyz::Xyz>(Rights::Public, "xyz", false, 1),

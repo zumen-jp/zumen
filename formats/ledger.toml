@@ -188,6 +188,15 @@ url = "https://service.gsi.go.jp/kiban/app/help/"
 checked = "2026-11-02"
 note = "2025-04-01 に fgd.gsi.go.jp から service.gsi.go.jp/kiban へ移った。2025-07-31 からのデータが使う版で、座標参照系が JGD2011 から JGD2024 に変わる。GML のスキーマは Ver5.1（FGD_GMLSchemaV5.1.zip）に対応する。service.gsi.go.jp はこの作業の環境に 403 を返すので、Internet Archive の 2025-08-14 の写しで確かめた。第 5.3 版もある"
 
+[specs.fgd_dl_5_3]
+title = "基盤地図情報ダウンロードデータファイル仕様書"
+publisher = "国土地理院"
+version = "第 5.3 版（2026-07-31）"
+access = "public"
+url = "https://service.gsi.go.jp/kiban/app/help/"
+checked = "2026-11-03"
+note = "DEM 種別に 1m メッシュ（標高）を、DEM 構成点種別に海水底面・内水底面を足した版。GML のスキーマは Ver5.1（FGD_GMLSchemaV5.1.zip）のまま。service.gsi.go.jp はこの作業の環境に 403 を返すので、Internet Archive の 2026-10-25 の写しで確かめた"
+
 [specs.extdm_furoku7]
 title = "作業規程の準則の付録 7「公共測量標準図式」（数値地形図データファイル仕様を含む）"
 publisher = "国土地理院"
@@ -672,14 +681,15 @@ checked = "2026-11-01"
 name = "基盤地図情報（GML）"
 family = "fgd"
 domains = ["geo"]
-specs = ["fgd_dl_5_2", "fgd_dl_4_1"]
+specs = ["fgd_dl_5_3", "fgd_dl_5_2", "fgd_dl_4_1"]
 rights = "public"
 rights-note = "国土地理院がファイル仕様書と GML のスキーマを無償で公開している。実装を制限する記述はない。基盤地図情報は測量成果で、データの複製と使用には測量法の承認（基盤地図情報は無償で承認する）が要る場合があるので、データは同梱せず利用者が渡す（決定 0019 のジオイド・モデルと同じ扱い）"
 place = "core"
 basis = ["spec"]
 verify = ["基盤地図情報ビューアー", "QGIS"]
 samples = ["利用者が国土地理院から入手したデータ。Git・パッケージ・試験に入れない。試験の中で小さな GML を作る"]
-decisions = ["0019"]
+decisions = ["0019", "0233"]
+docs = ["docs/formats/fgd.md"]
 issues = ["zumen-jp/zumen#378"]
 
 [[formats.fgd.evidence]]

@@ -97,11 +97,11 @@ pub struct Module {
 
 /// wasm のモジュール
 pub const MODULES: &[Module] = &[
-    // 図面（DXF・DWG・SXF・JWW）と、図面のレビュー。土木の線形（J-LandXML）と、地理の地物（CityGML）。電子納品の成果品・工事写真・表・ボーリング交換用データ
+    // 図面（DXF・DWG・SXF・JWW）と、図面のレビュー。土木の線形（J-LandXML）と、地理の地物（CityGML・基盤地図情報）。電子納品の成果品・工事写真・表・ボーリング交換用データ
     Module {
         name: "drawing",
         formats: &[
-            "dxf", "dwg", "sxf", "jww", "landxml", "citygml", "las", "ply", "xyz", "e57",
+            "dxf", "dwg", "sxf", "jww", "landxml", "citygml", "fgd", "las", "ply", "xyz", "e57",
         ],
         ops: &[
             "capabilities",
@@ -325,6 +325,14 @@ pub const DETECTION: &[Detection] = &[
         rules: &[zumen_sdk::Signature::XmlRoot {
             name: b"CityModel",
             namespace: Some(b"http://www.opengis.net/citygml/2.0"),
+        }],
+    },
+    Detection {
+        format: "fgd",
+        module: "drawing",
+        rules: &[zumen_sdk::Signature::XmlRoot {
+            name: b"Dataset",
+            namespace: Some(b"http://fgd.gsi.go.jp/spec/2008/FGD_GMLSchema"),
         }],
     },
     Detection {

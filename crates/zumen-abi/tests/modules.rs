@@ -9,6 +9,7 @@ use zumen_acad::{Dwg, Dxf};
 use zumen_base::CancelToken;
 use zumen_citygml::CityGml;
 use zumen_e57::E57;
+use zumen_fgd::Fgd;
 use zumen_ifc::{Ifc, IfcZip};
 use zumen_jww::Jww;
 use zumen_landxml::LandXml;
@@ -43,6 +44,7 @@ fn detection_follows_the_codecs_in_the_order_open_tries() {
         ("jww", Jww::SIGNATURES),
         ("landxml", LandXml::SIGNATURES),
         ("citygml", CityGml::SIGNATURES),
+        ("fgd", Fgd::SIGNATURES),
         // ZIP に入れた SXF（src/packed.rs の読み取りと同じ名前の終わり）
         (
             "sxf",
