@@ -1,0 +1,29 @@
+[package]
+name = "zumen-extdm"
+description = "zumen の拡張 DM（公共測量標準図式の数値地形図データ）の読み取りと、地理の領域モデルへの移し（#378）"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = true
+
+[package.metadata.zumen]
+formats = ["extdm"]
+
+[dependencies]
+# Shift_JIS の古いファイルの文字（JIS 第一・第二水準）を読む
+encoding_rs = "0.8.35"
+# 円と円弧を許容差つきで折れ線にする
+libm = { version = "0.2.16", default-features = false }
+zumen-base = { version = "0.2.0", path = "../zumen-base" }
+zumen-crs = { version = "0.2.0", path = "../zumen-crs" }
+zumen-geo = { version = "0.2.0", path = "../zumen-geo" }
+zumen-geom2d = { version = "0.2.0", path = "../zumen-geom2d" }
+zumen-geom3d = { version = "0.2.0", path = "../zumen-geom3d" }
+zumen-sdk = { version = "0.2.0", path = "../zumen-sdk" }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+zumen-base = { path = "../zumen-base" }

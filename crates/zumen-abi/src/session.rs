@@ -576,11 +576,26 @@ impl Session {
         if let Some(model) = building::read_spf(bytes, cx) {
             return self.open_model(name.clone(), model?, cx);
         }
-        // 名指せる形式は xyz だけ。ほかの形式は入力から判定する
+        // 名指せる形式は、見分ける印のない xyz と extdm だけ。ほかの形式は入力から判定する
         if request.format.as_deref().is_some_and(|format| {
-            format != zumen_xyz::Xyz::FORMAT || cfg!(not(feature = "drawing"))
+            (format != zumen_xyz::Xyz::FORMAT && format != zumen_extdm::ExtDm::FORMAT)
+                || cfg!(not(feature = "drawing"))
         }) {
             return Err(fail(cx, invalid_value("/format")));
+        }
+        // 名指した拡張 DM（#378）
+        #[cfg(feature = "drawing")]
+        if request.format.as_deref() == Some(zumen_extdm::ExtDm::FORMAT) {
+            let model = geo::read_extdm(bytes, cx)?;
+            self.geos.insert(name.clone(), model);
+            return Ok(OpenResult {
+                doc: name.clone(),
+                format: zumen_extdm::ExtDm::FORMAT.to_string(),
+                needs: None,
+                done: None,
+
+                entries: None,
+            });
         }
         // LAS・LAZ は範囲で読む（決定 0232）
         #[cfg(feature = "drawing")]
@@ -2619,7 +2634,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":61}},"ops":["capabilities","open","close","describe","drawing","entities","apply","convert","tables","scene","check","validate","review_carry","review_adopt","building","building_elements","ids_check","review_adopt_ids","bcf_read","bcf_write","civil","pointcloud","deviation","civil_drawing","geo","delivery_check","photo","sheet","boring","building_apply","lift"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}},{{"id":"landxml","family":"landxml","read":true,"write":false,"id_rules":1}},{{"id":"citygml","family":"citygml","read":true,"write":false,"id_rules":1}},{{"id":"fgd","family":"fgd","read":true,"write":false,"id_rules":1}},{{"id":"las","family":"las","read":true,"write":false,"id_rules":1}},{{"id":"ply","family":"ply","read":true,"write":false,"id_rules":1}},{{"id":"xyz","family":"xyz","read":true,"write":false,"id_rules":1}},{{"id":"e57","family":"e57","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":62}},"ops":["capabilities","open","close","describe","drawing","entities","apply","convert","tables","scene","check","validate","review_carry","review_adopt","building","building_elements","ids_check","review_adopt_ids","bcf_read","bcf_write","civil","pointcloud","deviation","civil_drawing","geo","delivery_check","photo","sheet","boring","building_apply","lift"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}},{{"id":"landxml","family":"landxml","read":true,"write":false,"id_rules":1}},{{"id":"citygml","family":"citygml","read":true,"write":false,"id_rules":1}},{{"id":"fgd","family":"fgd","read":true,"write":false,"id_rules":1}},{{"id":"extdm","family":"extdm","read":true,"write":false,"id_rules":1}},{{"id":"las","family":"las","read":true,"write":false,"id_rules":1}},{{"id":"ply","family":"ply","read":true,"write":false,"id_rules":1}},{{"id":"xyz","family":"xyz","read":true,"write":false,"id_rules":1}},{{"id":"e57","family":"e57","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);

@@ -129,7 +129,7 @@ export interface OpenRequest extends RequestCommon {
   doc?: string;
   /** 入力の全体の大きさ（バイト）。渡した入力より大きければ、入力を全体の初めの部分とみなし、足りない範囲を needs で求める。範囲で読める形式（LAS・LAZ）だけが使う（決定 0232）。小版 48 から */
   size?: number;
-  /** 見分ける印のない形式（xyz）を名指して読む。書かなければ、入力から判定する（決定 0232）。小版 49 から */
+  /** 見分ける印のない形式（xyz・extdm）を名指して読む。書かなければ、入力から判定する（決定 0232）。小版 49 から。extdm は小版 62 から */
   format?: string;
 }
 
@@ -2949,11 +2949,11 @@ export interface DeliveryManaged {
   missing: string[];
 }
 
-/** open で開いた CityGML か基盤地図情報（GML）の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。図面のモジュールに置く。小版 52 から */
+/** open で開いた CityGML・基盤地図情報（GML）・拡張 DM の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。図面のモジュールに置く。小版 52 から */
 export interface GeoRequest extends RequestCommon {
   /** op の名前 */
   op: "geo";
-  /** open で開いた CityGML か基盤地図情報（GML）の文書の名前 */
+  /** open で開いた CityGML・基盤地図情報（GML）・拡張 DM の文書の名前 */
   doc: string;
   /** 中身を返す地物の ID */
   id?: string;

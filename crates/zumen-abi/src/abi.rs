@@ -8,7 +8,7 @@ pub const ABI_VERSION: u32 = 1;
 /// メッセージのスキーマの大版。要求と応答の `v`
 pub const SCHEMA_MAJOR: u64 = 1;
 /// メッセージのスキーマの小版。`capabilities` が返す
-pub const SCHEMA_MINOR: u64 = 61;
+pub const SCHEMA_MINOR: u64 = 62;
 
 /// 状態コード。理由は応答の診断で返す
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -97,11 +97,12 @@ pub struct Module {
 
 /// wasm のモジュール
 pub const MODULES: &[Module] = &[
-    // 図面（DXF・DWG・SXF・JWW）と、図面のレビュー。土木の線形（J-LandXML）と、地理の地物（CityGML・基盤地図情報）。電子納品の成果品・工事写真・表・ボーリング交換用データ
+    // 図面（DXF・DWG・SXF・JWW）と、図面のレビュー。土木の線形（J-LandXML）と、地理の地物（CityGML・基盤地図情報・拡張 DM）。電子納品の成果品・工事写真・表・ボーリング交換用データ
     Module {
         name: "drawing",
         formats: &[
-            "dxf", "dwg", "sxf", "jww", "landxml", "citygml", "fgd", "las", "ply", "xyz", "e57",
+            "dxf", "dwg", "sxf", "jww", "landxml", "citygml", "fgd", "extdm", "las", "ply", "xyz",
+            "e57",
         ],
         ops: &[
             "capabilities",

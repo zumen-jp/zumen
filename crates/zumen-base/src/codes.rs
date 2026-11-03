@@ -1889,6 +1889,78 @@ pub const EXPRESS_VALUE_MISSING: Code = Code::new(
     &["kind", "position"],
 );
 
+/// インデックスレコードの座標系がないか、図郭の座標系が文書の座標系と違うので、図郭の形を移さなかった。sheet は図郭識別番号
+///
+/// `extdm.crs.unsupported`（0.2.0 から）
+pub const EXTDM_CRS_UNSUPPORTED: Code = Code::new(
+    "extdm.crs.unsupported",
+    Severity::Warning,
+    None,
+    &[Param::new("sheet", ParamType::Text)],
+    &[],
+);
+
+/// 円データ・円弧データを、座標値の単位の許容差の折れ線にした。kind はレコードタイプ（E3・E4）、tolerance は m
+///
+/// `extdm.curve.approximated`（0.2.0 から）
+pub const EXTDM_CURVE_APPROXIMATED: Code = Code::new(
+    "extdm.curve.approximated",
+    Severity::Info,
+    Some(Fidelity::Approximated),
+    &[
+        Param::new("kind", ParamType::Text),
+        Param::new("tolerance", ParamType::Float),
+    ],
+    &["kind"],
+);
+
+/// 図郭の測地成果識別コードが世界測地系か、書いていないので、JGD2011（JGD2024）の平面直角座標系と仮定した。JGD2000 とは区別できない。sheet は図郭識別番号
+///
+/// `extdm.datum.assumed`（0.2.0 から）
+pub const EXTDM_DATUM_ASSUMED: Code = Code::new(
+    "extdm.datum.assumed",
+    Severity::Info,
+    None,
+    &[Param::new("sheet", ParamType::Text)],
+    &[],
+);
+
+/// レコードの欄が読めないか足りないので、その値か形を地理の領域モデルに移さなかった。kind はレコードタイプ、field は欄の名前
+///
+/// `extdm.record.invalid`（0.2.0 から）
+pub const EXTDM_RECORD_INVALID: Code = Code::new(
+    "extdm.record.invalid",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("field", ParamType::Text),
+        Param::new("kind", ParamType::Text),
+    ],
+    &["kind", "field"],
+);
+
+/// 見出しのない実データのレコードか、知らないレコードタイプのレコードなので、読まなかった。kind はレコードの初めの 2 文字
+///
+/// `extdm.record.unsupported`（0.2.0 から）
+pub const EXTDM_RECORD_UNSUPPORTED: Code = Code::new(
+    "extdm.record.unsupported",
+    Severity::Warning,
+    None,
+    &[Param::new("kind", ParamType::Text)],
+    &["kind"],
+);
+
+/// インデックスレコードのバージョンが本仕様の 2 でない（旧 DM は 0）。同じ書式として読んだ
+///
+/// `extdm.version.unsupported`（0.2.0 から）
+pub const EXTDM_VERSION_UNSUPPORTED: Code = Code::new(
+    "extdm.version.unsupported",
+    Severity::Warning,
+    None,
+    &[Param::new("version", ParamType::UInt)],
+    &[],
+);
+
 /// 座標系（srsName）が扱わない座標系か、文書の座標系と違うので、その形を移さなかった
 ///
 /// `fgd.crs.unsupported`（0.2.0 から）
@@ -3985,6 +4057,12 @@ pub const ALL: &[Code] = &[
     EXPRESS_SCHEMA_MIXED,
     EXPRESS_VALUE_INVALID,
     EXPRESS_VALUE_MISSING,
+    EXTDM_CRS_UNSUPPORTED,
+    EXTDM_CURVE_APPROXIMATED,
+    EXTDM_DATUM_ASSUMED,
+    EXTDM_RECORD_INVALID,
+    EXTDM_RECORD_UNSUPPORTED,
+    EXTDM_VERSION_UNSUPPORTED,
     FGD_CRS_UNSUPPORTED,
     FGD_ELEMENT_UNSUPPORTED,
     FGD_POINT_KIND_DROPPED,

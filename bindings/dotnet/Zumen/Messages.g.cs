@@ -363,7 +363,7 @@ namespace Zumen.Messages
         public ulong? Size { get; init; }
 
         /// <summary>
-        /// 見分ける印のない形式（xyz）を名指して読む。書かなければ、入力から判定する（決定 0232）。小版 49 から
+        /// 見分ける印のない形式（xyz・extdm）を名指して読む。書かなければ、入力から判定する（決定 0232）。小版 49 から。extdm は小版 62 から
         /// </summary>
         [JsonPropertyName("format")]
         public string? Format { get; init; }
@@ -8129,7 +8129,7 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// open で開いた CityGML か基盤地図情報（GML）の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。図面のモジュールに置く。小版 52 から
+    /// open で開いた CityGML・基盤地図情報（GML）・拡張 DM の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。図面のモジュールに置く。小版 52 から
     /// </summary>
     public sealed record GeoRequest
     {
@@ -8170,7 +8170,7 @@ namespace Zumen.Messages
         public string Op { get; init; } = "geo";
 
         /// <summary>
-        /// open で開いた CityGML か基盤地図情報（GML）の文書の名前
+        /// open で開いた CityGML・基盤地図情報（GML）・拡張 DM の文書の名前
         /// </summary>
         [JsonPropertyName("doc")]
         public string Doc { get; init; } = default!;
