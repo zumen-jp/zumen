@@ -1049,15 +1049,20 @@ impl Lists<'_> {
                 }
             }
         }
-        // 画像の一覧と、読めなかった残りは写す
-        let rest = records
-            .get(at..)
-            .and_then(|rest| rest.first())
-            .map_or(self.src.len(), |record| record.span().start);
-        let end = records
-            .get(at.wrapping_sub(1))
-            .map_or(header_end, |record| record.span().end);
-        if end > rest {
+        // 画像の一覧と、読めなかった残りは写す。定義がなければ、元のファイルの定義の件数の後から写す
+        let next = records.get(at);
+        let rest = next.map_or(self.src.len(), |record| record.span().start);
+        let end = if blocks == 0 {
+            r.pos
+        } else {
+            records
+                .get(at.wrapping_sub(1))
+                .map_or(header_end, |record| record.span().end)
+        };
+        // 残りのレコード（版 700 より前の図面の終わりと、読めない残り）は、最後のレコードの後から始まるので、定義が
+        // なければ定義の件数を含む。件数は書いたので、その後から写す
+        let trailer = next.is_some_and(|record| record.kind() == RecordKind::Trailer);
+        if end > rest && !trailer {
             return Ok(None);
         }
         self.out

@@ -348,3 +348,155 @@ retrieved = "2026-10-31"
 license = "CC0-1.0"
 license-url = "https://creativecommons.org/publicdomain/zero/1.0/legalcode.ja"
 attribution = "zumen-jp が AutoCAD 2027 で xtask/autocad/samples.lsp から作った図面。CC0 1.0 で、表示は求めない"
+
+[[samples]]
+path = "ifc/rinya/wood-office-architecture.ifc"
+sha256 = "dd46b3b181d8fb9957e1c750c85cfb13d481857913dad1e9972e58cd538e36ec"
+bytes = 1847319
+title = "木造BIMサンプルIFCデータ（意匠）。木造 3 階建ての事務所（bim-3.zip の 07_サンプルIFCデータ_意匠.ifc）"
+publisher = "林野庁"
+url = "https://www.rinya.maff.go.jp/j/mokusan/attach/other/bim-3.zip"
+retrieved = "2026-11-03"
+license = "公共データ利用規約（第 1.0 版）"
+license-url = "https://www.digital.go.jp/resources/open_data/public_data_license_v1.0"
+attribution = "出典: 林野庁ウェブサイト「木造BIMサンプルIFCデータ（意匠）」（https://www.rinya.maff.go.jp/j/mokusan/bim.html）。利用の条件は農林水産省の「リンクについて・著作権」（https://www.maff.go.jp/j/use/link.html）による。Autodesk Revit 2024 日本語版の IFC を、公開元が IfcOpenShell 0.8.0（Bonsai 0.8.0）で保存したもの"
+
+[[samples]]
+path = "ifc/text2bim/sample_model.ifc"
+sha256 = "f3e6b444dfc08bea7b1a8c74746ce4ad4752951fd2912df067f1bf65dff72797"
+bytes = 258353
+title = "Text2BIM の sample_model.ifc（Vectorworks Architect 2024 で作った 2 階建ての例）"
+publisher = "dcy0577（Text2BIM）"
+url = "https://raw.githubusercontent.com/dcy0577/Text2BIM/b71b83d0d6640e7dfe7af3fda17b40fb3cfd70dc/tool_agent/Ifc_test_data/sample_model.ifc"
+retrieved = "2026-11-03"
+license = "MIT"
+license-url = "https://github.com/dcy0577/Text2BIM/blob/b71b83d0d6640e7dfe7af3fda17b40fb3cfd70dc/LICENSE"
+attribution = "Copyright (c) 2024 dcy0577. Text2BIM のリポジトリの tool_agent/Ifc_test_data にある IFC。MIT License の本文は licenses/text2bim-MIT.txt"
+changes = "見出しの FILE_NAME の 1 つ目の値（作った人の手元のフォルダーの道筋）を `sample_model.ifc` にした。取得したファイルは 258,439 バイト、SHA-256 は 09fa612a78c35c5801ed1df9cb8a5b060654adc6b722a3afd681656ebffc91c4。データの節は変えていない"
+
+[[samples]]
+path = "ifc/nakano/nakano_Outside.ifc"
+sha256 = "e97a61fd95e0a00291bb138f888e3eb2ff63be490d560649a0d65e33246ddadd"
+bytes = 94524
+title = "中野サンプラザ 3D モデルデータの外観（3Dmodel.zip の 02_BIM／CIMモデルデータ/05_外観データ/nakano_Outside.ifc）"
+publisher = "中野区"
+url = "https://data.storage.data.metro.tokyo.lg.jp/nakano/3Dmodel.zip"
+retrieved = "2026-11-03"
+license = "CC-BY-4.0"
+license-url = "https://creativecommons.org/licenses/by/4.0/legalcode.ja"
+attribution = "中野区「中野サンプラザ3Dデータ」（https://www.city.tokyo-nakano.lg.jp/kanko/city-promotion/Sunplaza_3D.html）、CC BY 4.0。Autodesk Civil 3D 2024 日本語版の書き出し。zumen-jp が見出しを改変した"
+changes = "見出しのコメントの Host と Database（作った人の手元の機械の名前とフォルダー）を `[redacted]` にし、FILE_NAME の作った人の名前を空にした。取得したファイルは 94,600 バイト、SHA-256 は d0be72aebd29a860b8446cc432a304a7fcc9ccf84b5bc5c71101b5e180c7ff2a。データの節は変えていない"
+
+[[samples]]
+path = "ifc/nakano/nakano_ConcertHall.ifc"
+sha256 = "1c113dfb9681b2b9c972964f391e54f02eedb82eeb7ab5a51cd57076a81f6f2d"
+bytes = 128848
+title = "中野サンプラザ 3D モデルデータの大ホール（3Dmodel.zip の 02_BIM／CIMモデルデータ/02_大ホール/nakano_ConcertHall.ifc）"
+publisher = "中野区"
+url = "https://data.storage.data.metro.tokyo.lg.jp/nakano/3Dmodel.zip"
+retrieved = "2026-11-03"
+license = "CC-BY-4.0"
+license-url = "https://creativecommons.org/licenses/by/4.0/legalcode.ja"
+attribution = "中野区「中野サンプラザ3Dデータ」（https://www.city.tokyo-nakano.lg.jp/kanko/city-promotion/Sunplaza_3D.html）、CC BY 4.0。Autodesk Civil 3D 2024 日本語版の書き出し。zumen-jp が見出しを改変した"
+changes = "見出しのコメントの Host と Database（作った人の手元の機械の名前とフォルダー）を `[redacted]` にし、FILE_NAME の作った人の名前を空にした。取得したファイルは 128,924 バイト、SHA-256 は 35e390f0425ae5da3e9d6f7036539d9004f989aa2a77beaa1518e1ff96dc483c。データの節は変えていない"
+
+[[samples]]
+path = "ifc/nakano/nakano_6F_chapel.ifc"
+sha256 = "713e4b7d05203684a6dbb425a7398179451df8e2888470f38935e2c61b926900"
+bytes = 349768
+title = "中野サンプラザ 3D モデルデータの 6 階のチャペル（3Dmodel.zip の 02_BIM／CIMモデルデータ/03_チャペル/nakano_6F_chapel.ifc）"
+publisher = "中野区"
+url = "https://data.storage.data.metro.tokyo.lg.jp/nakano/3Dmodel.zip"
+retrieved = "2026-11-03"
+license = "CC-BY-4.0"
+license-url = "https://creativecommons.org/licenses/by/4.0/legalcode.ja"
+attribution = "中野区「中野サンプラザ3Dデータ」（https://www.city.tokyo-nakano.lg.jp/kanko/city-promotion/Sunplaza_3D.html）、CC BY 4.0。Autodesk Civil 3D 2024 日本語版の書き出し。zumen-jp が見出しを改変した"
+changes = "見出しのコメントの Host と Database（作った人の手元の機械の名前とフォルダー）を `[redacted]` にし、FILE_NAME の作った人の名前を空にした。取得したファイルは 349,844 バイト、SHA-256 は 793cd412c3295d773bf0c9bc32445ecf90a965da0065d6c4d3f504d0a6d3da00。データの節は変えていない"
+
+[[samples]]
+path = "ifc/nakano/nakano_20F_Restaurant.ifc"
+sha256 = "69b5f89da0524ff8fe6aba91f1dff32e013d4d9df826d29492e964a280c439e3"
+bytes = 407149
+title = "中野サンプラザ 3D モデルデータの 20 階のレストラン（3Dmodel.zip の 02_BIM／CIMモデルデータ/04_レストラン/nakano_20F_Restaurant.ifc）"
+publisher = "中野区"
+url = "https://data.storage.data.metro.tokyo.lg.jp/nakano/3Dmodel.zip"
+retrieved = "2026-11-03"
+license = "CC-BY-4.0"
+license-url = "https://creativecommons.org/licenses/by/4.0/legalcode.ja"
+attribution = "中野区「中野サンプラザ3Dデータ」（https://www.city.tokyo-nakano.lg.jp/kanko/city-promotion/Sunplaza_3D.html）、CC BY 4.0。Autodesk Civil 3D 2024 日本語版の書き出し。zumen-jp が見出しを改変した"
+changes = "見出しのコメントの Host と Database（作った人の手元の機械の名前とフォルダー）を `[redacted]` にし、FILE_NAME の作った人の名前を空にした。取得したファイルは 407,225 バイト、SHA-256 は 635ab8335aec139cc22cfdf74cb3bca70ed1cbe672f3179ff75bf27b40ede5af。データの節は変えていない"
+
+[[samples]]
+path = "ifc/nakano/nakano_entrance.ifc"
+sha256 = "167c63c7be450378fa1cd010068b2d8cc97f7d988bcae81efee3fed95ad87a9f"
+bytes = 584460
+title = "中野サンプラザ 3D モデルデータのエントランス（3Dmodel.zip の 02_BIM／CIMモデルデータ/01_エントランス/nakano_entrance.ifc）"
+publisher = "中野区"
+url = "https://data.storage.data.metro.tokyo.lg.jp/nakano/3Dmodel.zip"
+retrieved = "2026-11-03"
+license = "CC-BY-4.0"
+license-url = "https://creativecommons.org/licenses/by/4.0/legalcode.ja"
+attribution = "中野区「中野サンプラザ3Dデータ」（https://www.city.tokyo-nakano.lg.jp/kanko/city-promotion/Sunplaza_3D.html）、CC BY 4.0。Autodesk Civil 3D 2024 日本語版の書き出し。zumen-jp が見出しを改変した"
+changes = "見出しのコメントの Host と Database（作った人の手元の機械の名前とフォルダー）を `[redacted]` にし、FILE_NAME の作った人の名前を空にした。取得したファイルは 584,536 バイト、SHA-256 は 3a51b53f0be56fbfd8caa1fe4c49009ecc5bc35fd70ec1eadc05e35924a95964。データの節は変えていない"
+
+[[samples]]
+path = "ifc/gni/model_9.ifc"
+sha256 = "957dc5a48c0d531471afd228ff4e2c47a6861ab8cf374150e1c5980b8c304015"
+bytes = 601356
+title = "GNI BIM Dataset の 2025_BIMfundamentals/model_9.ifc（Autodesk Revit 2025（英語版）の IFC4）"
+publisher = "Zijian Wang・Stefan Fuchs・Jiabin Wu・Sebastian Esser・Tamira Wrabel・André Borrmann（Technical University of Munich, Georg Nemetschek Institute）"
+url = "https://zenodo.org/records/19722012/files/2025_BIMfundamentals.zip?download=1"
+retrieved = "2026-11-03"
+license = "CC-BY-4.0"
+license-url = "https://creativecommons.org/licenses/by/4.0/legalcode.ja"
+attribution = "Copyright (c) 2026 Zijian Wang, Stefan Fuchs, Jiabin Wu, Sebastian Esser, Tamira Wrabel, André Borrmann (Technical University of Munich, Georg Nemetschek Institute). Wang, Z., Fuchs, S., Wu, J., Esser, S., Wrabel, T., Borrmann, A.「GNI BIM Dataset」1.0.0（Technical University of Munich, Georg Nemetschek Institute、https://doi.org/10.5281/zenodo.19722012）、CC BY 4.0。公開元が、作った人・組織・住所などの識別の情報を除いた版"
+
+[[samples]]
+path = "ifc/gni/model_18.ifc"
+sha256 = "096eb462ed00f89231a304a75235675556c3731d15870bd2611a02d8721115c0"
+bytes = 1707831
+title = "GNI BIM Dataset の 2025_BIMfundamentals/model_18.ifc（Autodesk Revit 2024（英語版）の IFC2X3）"
+publisher = "Zijian Wang・Stefan Fuchs・Jiabin Wu・Sebastian Esser・Tamira Wrabel・André Borrmann（Technical University of Munich, Georg Nemetschek Institute）"
+url = "https://zenodo.org/records/19722012/files/2025_BIMfundamentals.zip?download=1"
+retrieved = "2026-11-03"
+license = "CC-BY-4.0"
+license-url = "https://creativecommons.org/licenses/by/4.0/legalcode.ja"
+attribution = "Copyright (c) 2026 Zijian Wang, Stefan Fuchs, Jiabin Wu, Sebastian Esser, Tamira Wrabel, André Borrmann (Technical University of Munich, Georg Nemetschek Institute). Wang, Z., Fuchs, S., Wu, J., Esser, S., Wrabel, T., Borrmann, A.「GNI BIM Dataset」1.0.0（Technical University of Munich, Georg Nemetschek Institute、https://doi.org/10.5281/zenodo.19722012）、CC BY 4.0。公開元が、作った人・組織・住所などの識別の情報を除いた版"
+
+[[samples]]
+path = "ifc/gni/model_125.ifc"
+sha256 = "089ac7e57e563f0f9752ce1b8a6d3ee31e81e654cadaec9e0f842f62f2075999"
+bytes = 3480656
+title = "GNI BIM Dataset の 2025_BIMfundamentals/model_125.ifc（Archicad 28（INT 版）の IFC4）"
+publisher = "Zijian Wang・Stefan Fuchs・Jiabin Wu・Sebastian Esser・Tamira Wrabel・André Borrmann（Technical University of Munich, Georg Nemetschek Institute）"
+url = "https://zenodo.org/records/19722012/files/2025_BIMfundamentals.zip?download=1"
+retrieved = "2026-11-03"
+license = "CC-BY-4.0"
+license-url = "https://creativecommons.org/licenses/by/4.0/legalcode.ja"
+attribution = "Copyright (c) 2026 Zijian Wang, Stefan Fuchs, Jiabin Wu, Sebastian Esser, Tamira Wrabel, André Borrmann (Technical University of Munich, Georg Nemetschek Institute). Wang, Z., Fuchs, S., Wu, J., Esser, S., Wrabel, T., Borrmann, A.「GNI BIM Dataset」1.0.0（Technical University of Munich, Georg Nemetschek Institute、https://doi.org/10.5281/zenodo.19722012）、CC BY 4.0。公開元が、作った人・組織・住所などの識別の情報を除いた版"
+
+[[samples]]
+path = "ifc/bim-whale/TallBuilding.ifc"
+sha256 = "3b14c6fbabedd967123660c58411bf685125149f091352ed6b6470ffeb83d409"
+bytes = 616411
+title = "BIM Whale のサンプルの TallBuilding.ifc（Autodesk Revit 2021 の書き出し。ダミーの建物）"
+publisher = "André Wisén（BIM Whale）"
+url = "https://raw.githubusercontent.com/andrewisen/bim-whale-ifc-samples/595fa90e3af7120d004fcb37a79d8657f1d1c9c2/TallBuilding/IFC/TallBuilding.ifc"
+retrieved = "2026-11-03"
+license = "MIT"
+license-url = "https://github.com/andrewisen/bim-whale-ifc-samples/blob/595fa90e3af7120d004fcb37a79d8657f1d1c9c2/LICENSE"
+attribution = "Copyright (c) 2020 André \"MG\" Wisén. bim-whale-ifc-samples の IFC。MIT License の本文は licenses/bim-whale-MIT.txt"
+changes = "見出しのコメントの Host と Database（作った人の手元の機械の名前とフォルダー）を `[redacted]` にした。取得したファイルは 616,509 バイト、SHA-256 は 9f180a7148bb7bcf43dd80800068553f1c8b189ebe0dc84b6c498061832960d1。データの節は変えていない"
+
+[[samples]]
+path = "ifc/bim-whale/LargeBuilding.ifc"
+sha256 = "7af82f596c80780005396419a27ca44f810a98a57004b51cc70509b49a5fbb6a"
+bytes = 1292497
+title = "BIM Whale のサンプルの LargeBuilding.ifc（Autodesk Revit 2021 の書き出し。ダミーの建物）"
+publisher = "André Wisén（BIM Whale）"
+url = "https://raw.githubusercontent.com/andrewisen/bim-whale-ifc-samples/595fa90e3af7120d004fcb37a79d8657f1d1c9c2/LargeBuilding/IFC/LargeBuilding.ifc"
+retrieved = "2026-11-03"
+license = "MIT"
+license-url = "https://github.com/andrewisen/bim-whale-ifc-samples/blob/595fa90e3af7120d004fcb37a79d8657f1d1c9c2/LICENSE"
+attribution = "Copyright (c) 2020 André \"MG\" Wisén. bim-whale-ifc-samples の IFC。MIT License の本文は licenses/bim-whale-MIT.txt"
+changes = "見出しのコメントの Host と Database（作った人の手元の機械の名前とフォルダー）を `[redacted]` にした。取得したファイルは 1,292,595 バイト、SHA-256 は 102f8123f85eae5e237d7f6a9dcbc364bd5f1c0cfb94b40a7eeb2d7eac9bb725。データの節は変えていない"
