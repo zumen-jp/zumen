@@ -32,6 +32,8 @@ civil = ["building", "dep:zumen-civil", "dep:zumen-crs"]
 workspace = true
 
 [dev-dependencies]
+# 公開サンプルの要素の値を、IfcOpenShell と照らす JSON に書く
+zumen-json = { path = "../zumen-json" }
 # SXF のコーデックが IFC を読まないことを確かめる
 zumen-sxf = { path = "../zumen-sxf" }
 # IFC4.3 の線形が、同じ線形の J-LandXML と同じ土木の領域モデルになることを確かめる

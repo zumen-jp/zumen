@@ -74,8 +74,9 @@ jobs:
         run: node bindings/conformance/cli.mjs wasi target/wasm32-wasip1/release/zumen.wasm
 
   ifcopenshell:
-    name: building_apply で書いた IFC を IfcOpenShell で開く
-    # 書いたファイルを、zumen でない IFC を読むソフトで確かめる（決定 0244、#482）。IfcOpenShell は試験の道具で、依存にしない
+    name: IFC を IfcOpenShell で開いて照らす
+    # 書いたファイルと、公開サンプルの建物モデルへの写し方を、zumen でない IFC を読むソフトで確かめる
+    # （決定 0244、#482・#412）。IfcOpenShell は試験の道具で、依存にしない
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -90,6 +91,10 @@ jobs:
         run: ZUMEN_IFC_EDITED="$RUNNER_TEMP/edited" cargo test --locked -p zumen-ifc --all-features --test edit writes_the_edited_files_for_other_readers
       - name: IfcOpenShell で開き、変更が見え、検査の誤りが増えないことを確かめる
         run: python -I crates/zumen-ifc/tests/ifcopenshell/check.py "$RUNNER_TEMP/edited"
+      - name: 公開サンプルの IFC を建物モデルに写し、要素の値を書く
+        run: ZUMEN_IFC_SAMPLES_OUT="$RUNNER_TEMP/samples" cargo test --locked -p zumen-ifc --all-features --test samples writes_the_sample_models_for_other_readers
+      - name: 同じ IFC を IfcOpenShell で読み、写した値が同じことを確かめる
+        run: python -I crates/zumen-ifc/tests/ifcopenshell/samples.py samples "$RUNNER_TEMP/samples"
 
   external:
     name: 書き戻し・変換した図面を外部の実装と照らし、確認の束を作る
