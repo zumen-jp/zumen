@@ -53,6 +53,19 @@
 4. ライセンスが本文や著作権表示の同梱を求める場合は、その条件を満たすように本文を `licenses/` に置き、台帳の表示の文から参照します。
 5. PR に、ライセンスの本文の URL と、再配布を認める箇所を書きます。
 
+## 外し方
+
+ライセンスに疑いが出たときなどに、サンプルを外す手順です。
+
+1. ファイルと、`ledger.toml` のその `[[samples]]` を消します。台帳から参照しなくなった `licenses/` の本文も消します。
+2. fuzz が育てた種（actions/cache のうち、キーが `fuzz-corpus-` で始まるもの）を、すべて消します。消さないと、外したサンプルとそれを変えた入力が種に残り、後の fuzz の artifact に出ます（[決定 0258](../docs/decisions/0258-fuzz-seeds-and-runs.md)・[`fuzz/README.md`](../fuzz/README.md)）。種は実行ごとに別のキーで残り、毎晩の fuzz はいちばん新しいものを戻します。1 つだけ消しても、前のものが戻ります。
+
+   ```bash
+   for id in $(gh cache list --key fuzz-corpus- --limit 100 --json id --jq '.[].id'); do gh cache delete "$id"; done
+   ```
+
+3. PR に、外した理由を書きます。
+
 ## AutoCAD で作った図面
 
 `dwg/zumen-*` は、zumen-jp が AutoCAD 2027 で作った図面です（#316）。ライセンスは CC0 1.0 です。主題ごとに 1 つの図面を作り、版ごとに DWG と、同じ図面の DXF（`_ascii.dxf`）を対で置きます。試験は、この対の表と図面モデルを比べます。
