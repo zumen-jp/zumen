@@ -72,7 +72,7 @@ fn same(a: &[(i16, Data)], b: &[(i16, Data)]) -> bool {
         })
 }
 
-/// サンプルを作る台本（xtask/autocad/samples.lsp）の 6 つの弧長寸法を、DWG からも DXF と同じ値で読む。共通のフィールドの
+/// サンプルを作るスクリプト（xtask/autocad/samples.lsp）の 6 つの弧長寸法を、DWG からも DXF と同じ値で読む。共通のフィールドの
 /// 70・71 は、弧長寸法のフィールドより先に読む。DWG の値は 100 のセクションを持たない
 #[test]
 fn autocad_arc_dimension_values_match_between_dwg_and_dxf() {
@@ -134,7 +134,7 @@ fn autocad_arc_dimensions_lift_to_arc_lengths() {
                 })
                 .collect();
             assert_eq!(dimensions.len(), 6, "{at}");
-            // 台本の円弧の中心・半径・角度（度）と、寸法値の上書き
+            // スクリプトの円弧の中心・半径・角度（度）と、寸法値の上書き
             for (dimension, (cx0, cy0, r, a1, a2, label)) in dimensions.iter().zip([
                 (0.0, 0.0, 50.0, 30.0, 120.0, None),
                 (150.0, 0.0, 50.0, 30.0, 120.0, None),

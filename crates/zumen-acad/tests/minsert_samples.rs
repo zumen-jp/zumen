@@ -43,7 +43,7 @@ fn value(object: &Object, code: i16) -> Option<&Data> {
         .map(|value| &value.data)
 }
 
-/// サンプルを作る台本（xtask/autocad/samples.lsp）の数と間隔、属性を DWG・DXF から読む。
+/// サンプルを作るスクリプト（xtask/autocad/samples.lsp）の数と間隔、属性を DWG・DXF から読む。
 #[test]
 fn autocad_minsert_values_and_owned_attributes_are_read() {
     for path in samples() {

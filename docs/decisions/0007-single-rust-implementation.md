@@ -7,7 +7,7 @@
 
 ## 背景
 
-- 旧版は、JWW・SXF・DXF を TypeScript で書いてから Rust へ移した。TypeScript の読み取り器は、テストの正解を書く参照実装として残した（[旧版の構成](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/architecture.en.md#keeping-the-two-implementations-equal)）。2 つを値の単位で一致させるために、次のものが要った。
+- 旧版は、JWW・SXF・DXF を TypeScript で書いてから Rust へ移した。TypeScript のリーダーは、テストの正解を書く参照実装として残した（[旧版の構成](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/architecture.en.md#keeping-the-two-implementations-equal)）。2 つを値の単位で一致させるために、次のものが要った。
   - `zumen_core::js`（601 行）: `toFixed`・`Number(string)`・`Intl.NumberFormat("ja-JP")` など、JavaScript の数値の扱いの再現
   - `zumen_core::sort`（594 行）: V8 の `Array.prototype.sort`（TimSort）の移植
   - JavaScript のオブジェクトのキーの順と、UTF-16 単位での文字の処理の再現
@@ -85,7 +85,7 @@
 
 ## 影響
 
-- 旧版の TypeScript の読み取り器、`zumen_core::js`・`zumen_core::sort`、TypeScript で正解を書く仕組みは移さない。形式の知見と、合成のテストファイルの作り方は移す（[0001](0001-rebuild-in-zumen-jp.md)）。
+- 旧版の TypeScript のリーダー、`zumen_core::js`・`zumen_core::sort`、TypeScript で正解を書く仕組みは移さない。形式の知見と、合成のテストファイルの作り方は移す（[0001](0001-rebuild-in-zumen-jp.md)）。
 - ブラウザーでは、どの形式も WebAssembly で読む。モジュールの分け方と大きさは [#14](https://github.com/zumen-jp/zumen/issues/14) で決める。
 - 参照実装がない分、外部のソフトとの照合が、正しさの大きな根拠になる。Windows の実機での検証は、[0004](0004-repositories.md) の案の `verify` で行う。
 - 決定性の規則は、依存の選び方を狭める。

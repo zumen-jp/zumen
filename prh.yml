@@ -331,6 +331,8 @@ rules:
     pattern: 挿す単位
   - expected: リーダー
     pattern: /(?<=(?:シーンの|blob の|DWG の|C\+\+ の))読み手/
+  - expected: リーダー
+    pattern: 読み取り器
   - expected: ビュー
     pattern: /(?<=(?:型付きの|包む))見方/
   - expected: キー
@@ -355,6 +357,10 @@ rules:
         to: テストの中で作るテストファイル
   - expected: ツール
     pattern: 道具
+  - expected: スクリプト
+    pattern: 台本
+  - expected: 検証キット
+    pattern: 確認の束
   - expected: 貢献
     pattern: 寄稿
   - expected: 日本語を正とする

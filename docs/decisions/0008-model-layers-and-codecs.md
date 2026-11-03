@@ -154,7 +154,7 @@ pub trait Lower<M>: FileModel + Sized {
 ## 影響
 
 - 旧版の `Scene` と `DxfDocument` は、形式に依存しないモデルとしては移さない。旧版の `zumen-convert` の変換は、系統ごとの lift・lower に置き換わる。
-- 形式を 1 つ足すには、L1 のモデルとコーデック、領域ごとの lift・lower・apply が要る。旧版の「読み取り器から `Scene` へ」より部品は多いが、表示と解析は L2・L3 に 1 度だけ書けばよい。
+- 形式を 1 つ足すには、L1 のモデルとコーデック、領域ごとの lift・lower・apply が要る。旧版の「リーダーから `Scene` へ」より部品は多いが、表示と解析は L2・L3 に 1 度だけ書けばよい。
 - L1 が全レコードを持つので、旧版よりメモリを使う。大きなファイルで測り、性能の予算を CI に置く（[#1](https://github.com/zumen-jp/zumen/issues/1) の「8. 検証」）。
 - 決めることが、ほかの issue に分かれる。
   - L2 の中身: 図面は [#4](https://github.com/zumen-jp/zumen/issues/4)、建物は [#5](https://github.com/zumen-jp/zumen/issues/5)。形式に固有の情報を L2 にどう残すか（型付きの拡張など）も、そこで決める

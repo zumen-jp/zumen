@@ -1,8 +1,8 @@
-"""確認の束の DXF を ezdxf で読み、zumen が読んだ値と照らす（#503、決定 0254）。
+"""検証キットの DXF を ezdxf で読み、zumen が読んだ値と照らす（#503、決定 0254）。
 
-使い方: python check_ezdxf.py <束のフォルダー>
+使い方: python check_ezdxf.py <キットのフォルダー>
 
-束は make.py が作る。DXF のファイルごとに、次を確かめる。
+キットは make.py が作る。DXF のファイルごとに、次を確かめる。
 
 - ezdxf が読める（ezdxf.recover）。読む中で流れる ezdxf の監査で、書き戻したファイルの誤りと直した誤りが、code
   ごとに入力より増えず、変換したファイルには誤りも直した誤りもない。
@@ -342,7 +342,7 @@ def check_file(folder, entry, reading, baseline, counts):
 
 def main():
     if len(sys.argv) != 2:
-        print("使い方: python check_ezdxf.py <束のフォルダー>", file=sys.stderr)
+        print("使い方: python check_ezdxf.py <キットのフォルダー>", file=sys.stderr)
         return 2
     folder = Path(sys.argv[1])
     manifest = json.loads((folder / "manifest.json").read_text(encoding="utf-8"))

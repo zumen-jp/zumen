@@ -1,15 +1,15 @@
-"""確認の束を作る（#503、決定 0254）。
+"""検証キットを作る（#503、決定 0254）。
 
 zumen の CLI（`zumen serve --stdio`）で、公開サンプル（samples/）と適合テストの中で作った図面を開き、書き戻し
-（apply）と変換（convert）を当てて、書いたファイルを束のフォルダーに置く。zumen が読んだ値（drawing・tables・
+（apply）と変換（convert）を当てて、書いたファイルをキットのフォルダーに置く。zumen が読んだ値（drawing・tables・
 entities の応答）を、入力と書いたファイルのそれぞれについて置き、ファイルごとの出所・ライセンス・変更・期待する
 値を manifest.json に書く。外部の実装（check_ezdxf.py など）と、AutoCAD・Jw_cad・SXF のビューアーで開く人が、
 これを照らす。手順と期待する結果は README.md に書く。
 
-使い方: python make.py <zumen の実行ファイル> <束のフォルダー> [--inputs フォルダー]
+使い方: python make.py <zumen の実行ファイル> <キットのフォルダー> [--inputs フォルダー]
 
-束のフォルダーがあれば、前の束（manifest.json がある）か空のときだけ消して作り直す。--inputs のフォルダーの
-図面も入力にする（受け取った図面を使うとき）。その束は、リポジトリの外に作り、Git にも CI の成果物にも入れない。
+キットのフォルダーがあれば、前のキット（manifest.json がある）か空のときだけ消して作り直す。--inputs のフォルダーの
+図面も入力にする（受け取った図面を使うとき）。そのキットは、リポジトリの外に作り、Git にも CI の成果物にも入れない。
 """
 
 import argparse
@@ -27,7 +27,7 @@ ROOT = Path(__file__).resolve().parents[2]
 FIELDS = ["id", "kind", "layer", "source", "bbox", "hash", "geometry"]
 # 診断ごとに返す場所の数。既定の 16 では、黙って捨てない照合で、場所のない図形を誤って数える
 MAX_PLACES = 100000
-# 適合テストの図面と束の台本のライセンス（このリポジトリと同じ）
+# 適合テストの図面とキットのスクリプトのライセンス（このリポジトリと同じ）
 REPOSITORY = ("MIT OR Apache-2.0", "zumen-jp（このリポジトリ）。本文は licenses/LICENSE-MIT と licenses/LICENSE-APACHE")
 SUFFIXES = {".dxf": "dxf", ".dwg": "dwg", ".jww": "jww", ".sfc": "sfc", ".p21": "p21"}
 # 適合テストの中で作った図面（cases の push）。Jw_cad・SXF の公開サンプルがまだないので、これを入力にする
@@ -272,7 +272,7 @@ def add(place, geometry, layer=None, color=None):
     return edit
 
 
-# 束の組。名前・対象の issue・入力の選び方・変更の作り方
+# キットの組。名前・対象の issue・入力の選び方・変更の作り方
 RECIPES = [
     ("points", 342, lambda name, fmt: fmt in ("jww", "sfc", "p21") or "points-" in name, points_steps),
     ("basic", 156, lambda name, fmt: fmt in ("dxf", "dwg") and ("-layout-" in name or "-xclip-r2013" in name), basic_steps),
@@ -292,7 +292,7 @@ def run_recipe(z, out, entry, data, recipe):
         reading = read(z, doc)
         edits = make(reading)
         if not edits:
-            # 当てる候補がない段（例: 膨らみのないポリラインがない図面の移動）も、束に残して見えるようにする
+            # 当てる候補がない段（例: 膨らみのないポリラインがない図面の移動）も、キットに残して見えるようにする
             record["steps"].append({"step": make.__name__, "edits": [], "skipped": True})
             continue
         request = [{k: v for k, v in e.items() if not k.startswith("_")} for e in edits]
@@ -411,7 +411,7 @@ def save_reading(out, path, reading):
     target.write_text(json.dumps(reading, ensure_ascii=False, indent=1, sort_keys=True) + "\n", encoding="utf-8")
 
 
-# README.md（束の手順と期待する結果）
+# README.md（キットの手順と期待する結果）
 
 
 def num(v):
@@ -457,7 +457,7 @@ def describe(g):
 
 VIEWERS = {"dxf": "AutoCAD", "dwg": "AutoCAD", "jww": "Jw_cad", "sfc": "SXF ブラウザ", "p21": "SXF ブラウザ"}
 
-INTRO = """# 確認の束
+INTRO = """# 検証キット
 
 zumen の CLI で、公開サンプル（`samples/`）と適合テストの中で作った図面に、書き戻し（apply）と変換（convert）を当てて書いたファイルです（#503、決定 0254）。`xtask/verify/make.py` が作りました。
 
@@ -473,10 +473,10 @@ zumen の CLI で、公開サンプル（`samples/`）と適合テストの中�
 
 1. ファイルを開く（DXF は「開く」でファイルの種類を DXF にする）。開けなければ、出た文を記録して次へ進む。
 2. `AUDIT` を「いいえ」（直さない）で流し、見つかった誤りの数を記録する。期待は 0。
-3. フォルダー `C:/zumen-verify/` を作り、`(load "dump.lsp")` と `(zv-dump "C:/zumen-verify/<ファイルの名前>.txt")` で、図形をハンドルごとに書き出す（`dump.lsp` は束にある）。下の表のハンドルの行を、期待する値と比べる。角度（50・51）は度に直して書く。楕円の 11（中心から長軸の端への向き）と 41・42（ラジアン）は、ファイルの値のまま書くので、表の「長軸の端」は中心に 11 を足して比べる。
+3. フォルダー `C:/zumen-verify/` を作り、`(load "dump.lsp")` と `(zv-dump "C:/zumen-verify/<ファイルの名前>.txt")` で、図形をハンドルごとに書き出す（`dump.lsp` はキットにある）。下の表のハンドルの行を、期待する値と比べる。角度（50・51）は度に直して書く。楕円の 11（中心から長軸の端への向き）と 41・42（ラジアン）は、ファイルの値のまま書くので、表の「長軸の端」は中心に 11 を足して比べる。
 4. 画面でも、下の表の形が見えることを確かめる。
 
-画面なしで流すときは、`accoreconsole.exe /i <ファイル> /s <台本>` に、`(load …)`・`_.AUDIT _N`・`(zv-dump …)`・`_.QUIT _Y` の台本を渡す（`xtask/autocad/run.ps1` と同じ）。
+画面なしで流すときは、`accoreconsole.exe /i <ファイル> /s <スクリプト>` に、`(load …)`・`_.AUDIT _N`・`(zv-dump …)`・`_.QUIT _Y` のスクリプトを渡す（`xtask/autocad/run.ps1` と同じ）。
 """
 
 SECTIONS = {
@@ -613,7 +613,7 @@ def inputs(extra):
         data = bytes.fromhex(push["hex"]) if "hex" in push else push["text"].encode("utf-8")
         found.append((f"input/conformance-{Path(case).stem}-{name}", data, f"bindings/conformance/cases/{case}", *REPOSITORY))
     if extra:
-        # 受け取った図面の束は配らないので、ライセンスを書かない
+        # 受け取った図面のキットは配らないので、ライセンスを書かない
         for path in sorted(Path(extra).rglob("*")):
             if path.suffix.lower() in SUFFIXES:
                 found.append((f"input/local-{path.name}", path.read_bytes(), "--inputs", None, None))
@@ -621,19 +621,19 @@ def inputs(extra):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="確認の束を作る")
+    parser = argparse.ArgumentParser(description="検証キットを作る")
     parser.add_argument("zumen")
     parser.add_argument("out")
     parser.add_argument("--inputs")
     args = parser.parse_args()
     out = Path(args.out)
     if args.inputs and out.resolve().is_relative_to(ROOT):
-        print("受け取った図面の束は、リポジトリの外に作る", file=sys.stderr)
+        print("受け取った図面のキットは、リポジトリの外に作る", file=sys.stderr)
         return 2
     if out.exists():
-        # 誤って作業ツリーを指しても消さないよう、前の束か空のフォルダーだけを消す
+        # 誤って作業ツリーを指しても消さないよう、前のキットか空のフォルダーだけを消す
         if any(out.iterdir()) and not (out / "manifest.json").exists():
-            print(f"{out} は前の束でも空でもないので、消さない", file=sys.stderr)
+            print(f"{out} は前のキットでも空でもないので、消さない", file=sys.stderr)
             return 2
         shutil.rmtree(out)
     out.mkdir(parents=True)
@@ -662,11 +662,11 @@ def main():
     (out / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     readme(out, manifest)
     shutil.copy(Path(__file__).with_name("dump.lsp"), out / "dump.lsp")
-    # 束は公開サンプルと適合テストの図面の写しと、それを変えたファイルを配るので、ライセンスの本文を写す
+    # キットは公開サンプルと適合テストの図面の写しと、それを変えたファイルを配るので、ライセンスの本文を写す
     (out / "licenses").mkdir()
     for path in [*sorted((ROOT / "licenses").iterdir()), ROOT / "LICENSE-MIT", ROOT / "LICENSE-APACHE"]:
         shutil.copy(path, out / "licenses" / path.name)
-    # 当たらなかった変更と変換は、束を書き終えてから失敗にする（前は当たっていたものが当たらなくなったら知らせる）
+    # 当たらなかった変更と変換は、キットを書き終えてから失敗にする（前は当たっていたものが当たらなくなったら知らせる）
     failed = [f for f in files if f.get("status") not in (None, "ok")]
     for f in failed:
         print(f"{f['path']}: {f.get('status')} {[d['code'] for s in f.get('steps', []) for d in s.get('diagnostics', [])] or f.get('diagnostics')}", file=sys.stderr)

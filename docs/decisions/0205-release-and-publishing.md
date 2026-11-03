@@ -29,7 +29,7 @@
   - npm: `@zumen-jp/zumen`。`zumen_abi1.wasm` を入れ、`@zumen-jp/zumen/zumen_abi1.wasm` で取り出せるようにする。
   - PyPI: 対象ごとの wheel（`py3-none-<プラットフォーム>`）。ライブラリを `zumen/_native` に入れ、`load()` が道筋なしで読む。wheel は標準ライブラリだけの `bindings/python/build_wheel.py` で作る。
   - NuGet: `Zumen`。ライブラリを `runtimes/{rid}/native` に入れ、`ZumenLibrary.Load()` が道筋なしで読む。
-  - GitHub の Release: CLI の圧縮、ライブラリ、wasm、wheel、npm と NuGet のラッパー。来歴の証明（attestation）を付ける。
+  - GitHub の Release: CLI の圧縮、ライブラリ、wasm、wheel、npm と NuGet のパッケージ。来歴の証明（attestation）を付ける。
 - CLI の MCP のリソースは、`cargo xtask codegen` で `bindings/cli/resources/` に写し、`--check` が更新漏れを調べる。
 - 手で走らせたワークフローは、作るところと `cargo publish --dry-run` までを確かめ、出さない。
 - Windows と Apple のコード署名（[0014](0014-platforms-signing-and-distribution.md)）は、まだしない。証明書と鍵の用意が要る。
