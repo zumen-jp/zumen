@@ -11,7 +11,8 @@ DWG のファイルごとに、次を確かめる。
   半径・角度・位置・文字・尺度・格子・属性など）が同じ。形の欄は両向きに比べる。比べられる種類のモデル空間の
   図形は、zumen の要素が形を持つ。
 - 要素にならないモデル空間の図形の数が、種類ごとに、移さなかったことを言う zumen の診断（compare.py の
-  LIFTED_AWAY。kind は図形の種類）の件数を超えない。DWG の診断の場所はバイトの範囲で、ACadSharp は図形の
+  LIFTED_AWAY。kind は図形の種類。kind を持たない code は、その code が言いうる種類（KINDLESS）に足す）の件数を
+  超えない。DWG の診断の場所はバイトの範囲で、ACadSharp は図形の
   バイトの位置を返さないので、図形ごとには結ばない。そのため、ブロックの定義の中など、ほかの所の同じ種類の図形を
   言う診断と区別しない。
 - 書き戻したファイルでは、変更で決めた形と画層（manifest.json の expect）と、足した画層の色・変えた色・点の
@@ -152,12 +153,22 @@ def check_file(dumps, entry, reading, baseline, counts):
 
     # 黙って捨てない: 要素にならないモデル空間の図形の数は、種類ごとに、移さなかったことを言う zumen の診断（kind は
     # 図形の種類）の件数を超えない。DWG の診断の場所はバイトの範囲なので、図形ごとには結ばない
-    away = Counter()
+    away, kindless = Counter(), Counter()
     for d in lifted_away(entry, reading):
-        kind = d.get("params", {}).get("kind") or KINDLESS.get(d["code"], "")
-        away[kind.upper()] += d.get("count", len(d.get("at", [])))
+        kind, n = d.get("params", {}).get("kind"), d.get("count", len(d.get("at", [])))
+        if kind:
+            away[kind.upper()] += n
+        else:
+            kindless[d["code"]] += n
     dropped = Counter(d["type"].upper() for handle, d in dump["entities"].items() if d["owner"].lower() == MODEL and handle not in seen)
     missing = {kind: n - away[kind] for kind, n in sorted(dropped.items()) if n > away[kind]}
+    # kind を持たない code は、その code が言いうる種類（KINDLESS）の残りに足す。種類の組は code どうしで重ならない
+    for code, n in kindless.items():
+        for kind in sorted(KINDLESS.get(code, set()) & missing.keys()):
+            covered = min(n, missing[kind])
+            missing[kind] -= covered
+            n -= covered
+    missing = {kind: n for kind, n in missing.items() if n}
     if missing:
         failures.append(f"要素にならず、移さなかったことを言う診断もないモデル空間の図形: {missing}")
     return failures, notes

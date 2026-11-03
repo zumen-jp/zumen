@@ -15,8 +15,8 @@ ANGLES = {"rotation", "start_angle", "end_angle"}
 LABELS = {"elements": "出所で結んだ要素", "shapes": "形を比べた要素", "expected": "変更で決めた形"}
 # 図形を図面モデルに移さなかったことを言う診断（catalog/codes.toml）。黙って捨てない照合は、これだけを数える。
 # params の kind は、DXF・DWG では図形の種類（DXF の名前）、JWW ではクラスの名前、SFC ではフィーチャの名前、P21
-# では実体の名前（crates/zumen-sxf/src/drawing.rs の FeatureRecord）。kind を持たない code は、KINDLESS の種類か、
-# レコードだけで結ぶ
+# では実体の名前（crates/zumen-sxf/src/drawing.rs の FeatureRecord）。kind を持たない code は、レコードだけで結ぶ
+# （DWG は、KINDLESS の種類の件数に足す）
 LIFTED_AWAY = {
     "dxf.lift.dropped",
     "dxf.lift.invalid",
@@ -34,8 +34,12 @@ LIFTED_AWAY = {
     "sxf.raster-frame.missing",
     "sxf.p21-sheet.missing",
 }
-# kind を持たない code の、図形の種類（DXF の名前）
-KINDLESS = {"dxf.mtext-columns.unsupported": "MTEXT", "dxf.viewport.unsupported": "VIEWPORT"}
+# kind を持たない code が言いうる図形の種類（DXF の名前）。段組みは、MTEXT と、MULTILEADER の文字と、複数行の
+# 属性で言う（crates/zumen-acad/src/drawing.rs の columns を返す所）
+KINDLESS = {
+    "dxf.mtext-columns.unsupported": {"MTEXT", "MULTILEADER", "MLEADER", "ATTRIB", "ATTDEF"},
+    "dxf.viewport.unsupported": {"VIEWPORT"},
+}
 # catalog/codes.toml の fidelity が dropped でも、図形は移し、その一部だけを落としたことを言う診断と、書き出すときの
 # 診断。黙って捨てない照合では数えない
 PARTLY = {
@@ -151,12 +155,8 @@ def lifted_away(entry, reading):
 
 
 def lifted_away_records(entry, reading):
-    """移さなかった図形の (kind, レコードの番号) の集まり。kind を持たない code は、KINDLESS の種類か None にする"""
-    return {
-        (d.get("params", {}).get("kind") or KINDLESS.get(d["code"]), p.get("record"))
-        for d in lifted_away(entry, reading)
-        for p in d.get("at", [])
-    }
+    """移さなかった図形の (kind, レコードの番号) の集まり。kind を持たない code は、kind を None にする"""
+    return {(d.get("params", {}).get("kind"), p.get("record")) for d in lifted_away(entry, reading) for p in d.get("at", [])}
 
 
 def told(away, kind, record):
