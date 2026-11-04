@@ -1,6 +1,6 @@
 //! 合成の線形から平面図・縦断図・横断図の図面モデルを作り、シーンに描く（決定 0231）。
 
-use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Limits, Ref, codes};
+use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Kind, Limits, Ref, Stop, codes};
 use zumen_civil::{
     Alignment, CivilModel, CrossSection, CrossSectionLine, Horizontal, HorizontalKind, SurfaceRole,
     Tin, TransitionCurve, Vertical, VerticalKind,
@@ -359,6 +359,7 @@ fn huge_station_numbers_end() {
             _ => None,
         })
         .collect();
+    assert!(!texts.is_empty());
     let mut unique = texts.clone();
     unique.sort_unstable();
     unique.dedup();
@@ -383,5 +384,9 @@ fn station_ranges_beyond_u64_stop_at_the_budget() {
     let mut diag = Diagnostics::new();
     let cancel = CancelToken::new();
     let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
-    assert!(drawing(&model, &model.alignments[0], &Options::default(), &mut cx).is_err());
+    let stop = drawing(&model, &model.alignments[0], &Options::default(), &mut cx).unwrap_err();
+    assert!(
+        matches!(stop, Stop::Exceeded(ref e) if e.kind == Kind::Elements),
+        "{stop:?}"
+    );
 }
