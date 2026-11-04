@@ -1565,7 +1565,7 @@ since = "0.2.0"
 status = "active"
 
 [codes."pdf.document.unsupported"]
-description = "hayro-syntax がパニックするか、環境（32 ビットと 64 ビット）で違う値に読むおそれのある値があるので、読まなかった。ファイルとオブジェクトのストリームの中身のどこかに、2 の 31 乗以上の Columns・N・First か、予測子を当てる Predictor と、0 の Colors・BitsPerComponent・Columns か、積が 255 を超える Colors と BitsPerComponent か、1 MiB を超える 1 行の値がある（参照の値は、すべての定義の数を候補にする）。または、オブジェクトのストリームの中の位置が 2 の 31 乗以上か、オブジェクトのストリームの長さ・数・展開の値が参照を含むか、間接オブジェクトの外にオブジェクトのストリームの辞書がある。場所は、理由の値を含むレコード"
+description = "hayro-syntax がパニックするか、環境（32 ビットと 64 ビット）で違う値に読むおそれのある値があるので、読まなかった。ファイルとオブジェクトのストリームの中身のどこかに、2 の 31 乗以上の Columns・N・First か、予測子を当てる Predictor と、0 の Colors・BitsPerComponent・Columns か、積が 255 を超える Colors と BitsPerComponent か、1 MiB を超える 1 行の値がある（参照の値は、すべての定義の数を候補にする）。または、入力の長さが 2 の 28 乗バイトに届きうる LZW・ASCII85 のフィルターがあるか、フィルターの値に参照があり、ほかの所に LZW・ASCII85 の名前があるか、オブジェクトのストリームの中の位置が 2 の 31 乗以上か、オブジェクトのストリームの長さ・数・展開の値が参照を含むか、確かめたオブジェクトのストリームの型でない ObjStm の型があるか、暗号化の辞書の名前がある文書が、オブジェクトのストリームを使う。場所は、理由の値を含むレコード"
 severity = "error"
 since = "0.2.0"
 status = "active"
@@ -1613,7 +1613,7 @@ since = "0.2.0"
 status = "active"
 
 [codes."pdf.optional-content.dropped"]
-description = "既定の設定で隠れる表示グループの内容は、hayro-interpret が塗らないので、移さなかった。name は表示グループの名前"
+description = "既定の設定で隠れる OCG の内容は、hayro-interpret が塗らないので、移さなかった。name は OCG の名前"
 severity = "warning"
 fidelity = "dropped"
 params = { name = "text" }
@@ -1622,14 +1622,14 @@ since = "0.2.0"
 status = "active"
 
 [codes."pdf.optional-content.approximated"]
-description = "表示の規則の辞書（OCMD）で見える内容を最初の表示グループのレイヤに置いたか、表示グループを持つ XObject の内容をレイヤに分けなかった"
+description = "OCMD で見える内容を最初の OCG のレイヤに置いたか、OCG を持つ XObject の内容をレイヤに分けなかった"
 severity = "warning"
 fidelity = "approximated"
 since = "0.2.0"
 status = "active"
 
 [codes."pdf.membership.dropped"]
-description = "表示の規則の辞書（OCMD）で、既定の設定で隠れる内容は、hayro-interpret が塗らないので、移さなかった"
+description = "OCMD で、既定の設定で隠れる内容は、hayro-interpret が塗らないので、移さなかった"
 severity = "warning"
 fidelity = "dropped"
 since = "0.2.0"

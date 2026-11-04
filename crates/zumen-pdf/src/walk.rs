@@ -19,7 +19,7 @@
 //!
 //! あわせて、hayro-interpret が知らせずに捨てるものを診断にする: 展開できないか途中から読めない内容のストリームと、
 //! 壊れた XObject、資源にない XObject、入れ子の深すぎるフォーム、資源にないフォントと読めないフォント、代わりの
-//! フォントで描かない文字列、縦書きの原点の移動が既定と違うフォント、表示の規則の辞書（OCMD）で隠れる内容、
+//! フォントで描かない文字列、縦書きの原点の移動が既定と違うフォント、OCMD で隠れる内容、
 //! 転送関数。
 
 use std::borrow::Cow;
@@ -591,7 +591,7 @@ fn definition_scan(program: &[u8]) -> u64 {
 /// 参照を、書いた順に決まった順でたどる。作り直すかは、引く型で変わる（引く型で読めず、読み飛ばせもしない本体で作り
 /// 直す。`Number` は読めても読み飛ばせないことがある）ので、オブジェクト・辞書・配列のすべてで引く。辞書と配列の両方で
 /// 読める本体はないので、読み飛ばせない本体は、どちらかで作り直す。引くたびに読むバイト数（[`Reads::read_work`]）を
-/// 数える。hayro-syntax 0.9.0 は、読み飛ばす空白と注釈のバイト数を返さないので、それは
+/// 数える。hayro-syntax 0.9.0 は、読み飛ばす空白とコメントのバイト数を返さないので、それは
 /// 数えない。オブジェクトのストリームの展開も、hayro-syntax がどのストリームを展開したかを返さないので、数えない
 pub(crate) fn settle(document: &Pdf, reads: Reads<'_>, cx: &mut Cx<'_>) -> Result<(), Stop> {
     let xref = reads.xref;
@@ -1243,7 +1243,7 @@ pub(crate) struct Walker<'a, 'o> {
     reads: Reads<'a>,
     /// 間接オブジェクト → L1 のレコードの出所
     objects: &'o BTreeMap<(u32, i32), Ref>,
-    /// 既定の設定で隠れる表示グループ（hayro-interpret の `OcgState` と同じ決め方）
+    /// 既定の設定で隠れる OCG（hayro-interpret の `OcgState` と同じ決め方）
     inactive: &'o BTreeSet<(u32, i32)>,
     settings: &'o InterpreterSettings,
     /// hayro-interpret と同じ読み方でフォントを読む。読めるかを見て、切り抜きにする文字の輪郭を作る
@@ -2749,9 +2749,9 @@ impl<'a, 'o> Walker<'a, 'o> {
         Ok(shifted)
     }
 
-    /// マーク付きの内容の始まり（`BDC`、14.6）。表示グループ（8.11.3.2）の見え方を、hayro-interpret と同じく決める。
-    /// 表示グループの名前が資源の `Properties` で間接参照を指すか、内容の中の辞書が `OC` に間接参照を持てば、
-    /// 表示グループか表示の規則の辞書として扱う
+    /// マーク付きの内容の始まり（`BDC`、14.6）。OCG（8.11.3.2）の見え方を、hayro-interpret と同じく決める。
+    /// OCG の名前が資源の `Properties` で間接参照を指すか、内容の中の辞書が `OC` に間接参照を持てば、
+    /// OCG か OCMD として扱う
     fn begin_marked(
         &mut self,
         resources: &Resources<'a>,
@@ -2786,7 +2786,7 @@ impl<'a, 'o> Walker<'a, 'o> {
         let parent = self.is_visible();
         let visible = match membership {
             Some((dict, reference)) => {
-                // hayro-interpret は、内容のマークのたびに表示グループか表示の規則の辞書を引き直す。表示の規則の辞書なら、
+                // hayro-interpret は、内容のマークのたびに OCG か OCMD を引き直す。OCMD なら、
                 // hayro-interpret・走査・装置が、それぞれ `OCGs` の配列を読む
                 let groups = dict
                     .get::<Array<'_>>(b"OCGs")
@@ -2810,7 +2810,7 @@ impl<'a, 'o> Walker<'a, 'o> {
         Ok(())
     }
 
-    /// 表示の規則の辞書（OCMD）の内容の診断。見える内容は最初の表示グループのレイヤに置き、隠れる内容は
+    /// OCMD の内容の診断。見える内容は最初の OCG のレイヤに置き、隠れる内容は
     /// hayro-interpret が描かない
     fn membership_report(&mut self, shown: bool, place: &Ref, cx: &mut Cx<'_>) {
         let code = if shown {
@@ -2821,7 +2821,7 @@ impl<'a, 'o> Walker<'a, 'o> {
         self.report(code, place.clone(), cx);
     }
 
-    /// 表示グループか表示の規則の辞書で、内容が見えるか。2 つ目は、表示の規則の辞書か（hayro-interpret の
+    /// OCG か OCMD で、内容が見えるか。2 つ目は、OCMD か（hayro-interpret の
     /// `OcgState::begin_ocg`）
     fn membership(&self, properties: &Dict<'_>, reference: (u32, i32)) -> (bool, bool) {
         if properties.get::<Name<'_>>(b"Type").as_deref() == Some(b"OCMD".as_slice()) {
@@ -2831,7 +2831,7 @@ impl<'a, 'o> Walker<'a, 'o> {
         }
     }
 
-    /// 表示の規則の辞書（8.11.2.2）で、内容が見えるか。`P` の規則だけを見る。hayro-interpret は `VE` を読まない
+    /// OCMD（8.11.2.2）で、内容が見えるか。`P` の規則だけを見る。hayro-interpret は `VE` を読まない
     fn ocmd(&self, ocmd: &Dict<'_>) -> bool {
         let groups: Vec<(u32, i32)> = match ocmd.get::<Array<'_>>(b"OCGs") {
             Some(items) => items
@@ -2853,8 +2853,8 @@ impl<'a, 'o> Walker<'a, 'o> {
         }
     }
 
-    /// XObject の表示グループ（`OC`、8.11.3.3）で、XObject が見えるか。表示グループがなければ `None`。見える内容は、
-    /// XObject の表示グループのレイヤに分けない
+    /// XObject の OCG（`OC`、8.11.3.3）で、XObject が見えるか。OCG がなければ `None`。見える内容は、
+    /// XObject の OCG のレイヤに分けない
     fn optional(&mut self, dict: &Dict<'_>, place: &Ref, cx: &mut Cx<'_>) -> Option<bool> {
         let properties = dict.get::<Dict<'_>>(b"OC")?;
         let (shown, ocmd) = match dict.get_ref(b"OC") {
@@ -2885,7 +2885,7 @@ impl<'a, 'o> Walker<'a, 'o> {
         let visible = self.is_visible();
         let mut cost = Cost::default();
         spend(&mut cost, self.reread_stream(stream), 0, cx)?;
-        // hayro-interpret は、描くたびに表示グループ（`OC`、8.11.3.3）の辞書と、表示の規則の辞書の `OCGs` を読み直す。
+        // hayro-interpret は、描くたびに OCG（`OC`、8.11.3.3）の辞書と、OCMD の `OCGs` を読み直す。
         // 走査も、見えるかを決めるために読む
         if let Some(group) = dict.get::<Dict<'_>>(b"OC") {
             let groups = group
@@ -2980,7 +2980,7 @@ impl<'a, 'o> Walker<'a, 'o> {
             self.report(codes::PDF_NESTING_DROPPED, place.clone(), cx);
             return Ok(cost);
         }
-        // hayro-interpret は、表示グループを持つフォームの中身を、その表示グループの入れ子の中で解釈する
+        // hayro-interpret は、OCG を持つフォームの中身を、その OCG の入れ子の中で解釈する
         let optional = self.optional(dict, place, cx);
         if let Some(shown) = optional {
             self.visible.push(shown);

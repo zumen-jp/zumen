@@ -101,8 +101,6 @@ Markdown の誤りの多くは、`npm run fix:text` で直せます。
 | 確かめた度合い | 形式ごとに、読み書きをどこまで確かめたかの段（検証の段階）。`synthetic`・`external`・`application`（[決定 0254](decisions/0254-parallel-agents-and-cross-review.md)） |
 | 外部の実装 | 結果を照らすのに使う、ほかの人が作った実装（テストのオラクル）。成果物に入れない。外部のプラグイン（[決定 0017](decisions/0017-format-rights-ledger-and-plugin-sdk.md)）とは別。[決定 0007](decisions/0007-single-rust-implementation.md) の「参照実装」（旧版の TypeScript のリーダー）と、台帳の `references`（参照した実装）とも別（[決定 0254](decisions/0254-parallel-agents-and-cross-review.md)） |
 | 検証キット | 実際のソフトで開くファイルと、作るコマンド・開く手順・期待する結果の組（[決定 0254](decisions/0254-parallel-agents-and-cross-review.md)） |
-| 表示グループ | PDF の、表示と印刷を切り替える内容のまとまり（オプショナルコンテンツグループ、OCG。ISO 32000-2 の 8.11 節）。図面モデルのレイヤにする |
-| 表示の規則の辞書 | PDF の、表示グループの組み合わせで内容が見えるかを決める辞書（OCMD、8.11.2.2 節） |
 
 ### 書き方を決めた語
 
@@ -161,6 +159,8 @@ Markdown の誤りの多くは、`npm run fix:text` で直せます。
 | 空白文字 | `白空白` | PDF の white-space characters（7.2.3 節） |
 | 字形 | `グリフ` | フォントの glyph |
 | コメント | `注記` | PDF の `%` から行の終わりまで（7.2.4 節）。注記は、図面の注記（引出線の注記など）の意味にだけ使う |
+| OCG | `表示グループ` | PDF の optional content group（ISO 32000-2 の 8.11 節）。表示と印刷を切り替える内容のまとまりで、図面モデルのレイヤにする |
+| OCMD | `表示の規則の辞書` | PDF の optional content membership dictionary（8.11.2.2 節）。OCG の組み合わせで、内容が見えるかを決める |
 | 公開サンプル | `公開の試料` | 誰でも入手できるように公開されたサンプルのファイル。このリポジトリの `samples/` には、[決定 0171](decisions/0171-public-samples-in-git.md) の条件（再配布を認めるライセンス・大きさ）に合うものを置ける。受け取った図面は含めない |
 | メモリの最大 | `メモリの頂点`・`メモリの山` | 確保した量の最大。「頂点」は形の点と取り違える |
 | 線形 | | 道路・鉄道の中心の線（alignment）を指す。図面の寸法とスプラインの linear は「線形の寸法」「線形のスプライン」と名詞を付けて書く（[決定 0230](decisions/0230-civil-model-alignments.md)） |

@@ -2697,7 +2697,7 @@ pub const PDF_DASH_APPROXIMATED: Code = Code::new(
 pub const PDF_DOCUMENT_INVALID: Code =
     Code::new("pdf.document.invalid", Severity::Error, None, &[], &[]);
 
-/// hayro-syntax がパニックするか、環境（32 ビットと 64 ビット）で違う値に読むおそれのある値があるので、読まなかった。ファイルとオブジェクトのストリームの中身のどこかに、2 の 31 乗以上の Columns・N・First か、予測子を当てる Predictor と、0 の Colors・BitsPerComponent・Columns か、積が 255 を超える Colors と BitsPerComponent か、1 MiB を超える 1 行の値がある（参照の値は、すべての定義の数を候補にする）。または、オブジェクトのストリームの中の位置が 2 の 31 乗以上か、オブジェクトのストリームの長さ・数・展開の値が参照を含むか、間接オブジェクトの外にオブジェクトのストリームの辞書がある。場所は、理由の値を含むレコード
+/// hayro-syntax がパニックするか、環境（32 ビットと 64 ビット）で違う値に読むおそれのある値があるので、読まなかった。ファイルとオブジェクトのストリームの中身のどこかに、2 の 31 乗以上の Columns・N・First か、予測子を当てる Predictor と、0 の Colors・BitsPerComponent・Columns か、積が 255 を超える Colors と BitsPerComponent か、1 MiB を超える 1 行の値がある（参照の値は、すべての定義の数を候補にする）。または、入力の長さが 2 の 28 乗バイトに届きうる LZW・ASCII85 のフィルターがあるか、フィルターの値に参照があり、ほかの所に LZW・ASCII85 の名前があるか、オブジェクトのストリームの中の位置が 2 の 31 乗以上か、オブジェクトのストリームの長さ・数・展開の値が参照を含むか、確かめたオブジェクトのストリームの型でない ObjStm の型があるか、暗号化の辞書の名前がある文書が、オブジェクトのストリームを使う。場所は、理由の値を含むレコード
 ///
 /// `pdf.document.unsupported`（0.2.0 から）
 pub const PDF_DOCUMENT_UNSUPPORTED: Code =
@@ -2829,7 +2829,7 @@ pub const PDF_MEASURE_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
-/// 表示の規則の辞書（OCMD）で、既定の設定で隠れる内容は、hayro-interpret が塗らないので、移さなかった
+/// OCMD で、既定の設定で隠れる内容は、hayro-interpret が塗らないので、移さなかった
 ///
 /// `pdf.membership.dropped`（0.2.0 から）
 pub const PDF_MEMBERSHIP_DROPPED: Code = Code::new(
@@ -2857,7 +2857,7 @@ pub const PDF_NESTING_DROPPED: Code = Code::new(
 pub const PDF_OBJECT_REPAIRED: Code =
     Code::new("pdf.object.repaired", Severity::Warning, None, &[], &[]);
 
-/// 表示の規則の辞書（OCMD）で見える内容を最初の表示グループのレイヤに置いたか、表示グループを持つ XObject の内容をレイヤに分けなかった
+/// OCMD で見える内容を最初の OCG のレイヤに置いたか、OCG を持つ XObject の内容をレイヤに分けなかった
 ///
 /// `pdf.optional-content.approximated`（0.2.0 から）
 pub const PDF_OPTIONAL_CONTENT_APPROXIMATED: Code = Code::new(
@@ -2868,7 +2868,7 @@ pub const PDF_OPTIONAL_CONTENT_APPROXIMATED: Code = Code::new(
     &[],
 );
 
-/// 既定の設定で隠れる表示グループの内容は、hayro-interpret が塗らないので、移さなかった。name は表示グループの名前
+/// 既定の設定で隠れる OCG の内容は、hayro-interpret が塗らないので、移さなかった。name は OCG の名前
 ///
 /// `pdf.optional-content.dropped`（0.2.0 から）
 pub const PDF_OPTIONAL_CONTENT_DROPPED: Code = Code::new(

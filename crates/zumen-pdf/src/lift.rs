@@ -1,6 +1,6 @@
 //! PDF から図面モデル（L2）への移し（決定 0256）。
 //!
-//! ページを用紙に、表示グループ（optional content group、8.11）をレイヤにする。ページの内容は、解釈する前に
+//! ページを用紙に、OCG（optional content group、8.11）をレイヤにする。ページの内容は、解釈する前に
 //! 走査して予算に数え（[`crate::walk`]）、hayro-interpret で解釈し、塗った経路・字形の並び・画像を要素にする
 //! （[`crate::device`]）。文書の情報とバージョンは、図面の拡張 `pdf.document` に持つ。注釈と縮尺の辞書は、まだ移さずに
 //! 診断する。
@@ -42,7 +42,7 @@ const NO_CROSS_REFERENCES: &[u8] = b"startxref\n-1\n%%EOF\n";
 const WITNESS: u32 = 2_147_483_646;
 const WITNESS_BODY: &[u8] = b" 0 obj\n1\nendobj\n";
 
-/// 表示グループの外の内容を置くレイヤの名前
+/// OCG の外の内容を置くレイヤの名前
 const PAGE_LAYER_NAME: &str = "0";
 
 impl Lift<Drawing2D> for PdfFile {
@@ -62,27 +62,17 @@ impl Lift<Drawing2D> for PdfFile {
                         .and_then(parse_version)
                 });
         // hayro-syntax がパニックするか、環境で違う値に読むおそれのある文書は、読まない
-        let later = match guard::before(&self.src, cx).map_err(|stop| stopped(cx, stop, &header))? {
-            guard::Verdict::Fits(later) => later,
-            guard::Verdict::Refused(place) => {
-                cx.report(guard::refused(place_ref(
-                    self,
-                    &objects(self),
-                    place,
-                    &header,
-                )));
-                return Err(Error::Unsupported);
-            }
-        };
+        if let Some(at) = guard::before(&self.src, cx).map_err(|stop| stopped(cx, stop, &header))? {
+            cx.report(guard::refused(place_ref(self, at, &header)));
+            return Err(Error::Unsupported);
+        }
         // 相互参照・ページの木を読む。壊れた相互参照は、オブジェクトを探し直して読む（hayro-syntax、7.5）
         let document = load(&self.src).map_err(|error| not_loaded(cx, error, &header))?;
         let objects = objects(self);
         Lifter {
             document: &document,
-            file: self,
             source: &self.src,
             objects: &objects,
-            later: Some(later),
             header,
             header_version,
             styles: Styles::default(),
@@ -167,30 +157,18 @@ fn record_ref(file: &PdfFile, index: usize) -> Ref {
     }
 }
 
-/// 読まない理由の場所 → 出所。バイトの位置は、それを含む L1 のレコードにする。オブジェクトのストリームは、その
-/// 間接オブジェクトのレコードにする。見つからなければ、ヘッダーのレコードにする
-fn place_ref(
-    file: &PdfFile,
-    objects: &BTreeMap<(u32, i32), Ref>,
-    place: guard::Place,
-    header: &Ref,
-) -> Ref {
-    let found = match place {
-        guard::Place::Byte(at) => {
-            let at = at as u64;
-            let index = file.records.partition_point(|record| record.start <= at);
-            index
-                .checked_sub(1)
-                .filter(|&index| {
-                    file.records
-                        .get(index)
-                        .is_some_and(|record| at < record.end)
-                })
-                .map(|index| record_ref(file, index))
-        }
-        guard::Place::Object(id) => objects.get(&id).cloned(),
-    };
-    found.unwrap_or_else(|| header.clone())
+/// 読まない理由のファイルのバイトの位置 → それを含む L1 のレコードの出所。見つからなければ、ヘッダーのレコードにする
+fn place_ref(file: &PdfFile, at: usize, header: &Ref) -> Ref {
+    let at = at as u64;
+    let index = file.records.partition_point(|record| record.start <= at);
+    index
+        .checked_sub(1)
+        .filter(|&index| {
+            file.records
+                .get(index)
+                .is_some_and(|record| at < record.end)
+        })
+        .map_or_else(|| header.clone(), |index| record_ref(file, index))
 }
 
 /// 間接オブジェクトの番号と世代番号 → L1 のレコードの出所。増分の更新で同じ番号が何度も現れれば、後ろのものを使う
@@ -205,10 +183,10 @@ fn objects(file: &PdfFile) -> BTreeMap<(u32, i32), Ref> {
     out
 }
 
-/// 表示グループのオブジェクト → レイヤ
+/// OCG のオブジェクト → レイヤ
 type Groups = BTreeMap<(u32, i32), LayerId>;
 
-/// 既定の設定で隠れる表示グループのオブジェクト
+/// 既定の設定で隠れる OCG のオブジェクト
 type Inactive = BTreeSet<(u32, i32)>;
 
 fn key(id: impl Into<ObjectIdentifier>) -> (u32, i32) {
@@ -223,14 +201,10 @@ fn stopped(cx: &mut Cx, stop: Stop, place: &Ref) -> Error {
 
 struct Lifter<'d, 'o> {
     document: &'d Document,
-    /// 読み込んだファイルのモデル
-    file: &'d PdfFile,
     /// 読み込んだファイル
     source: &'d [u8],
     /// 間接オブジェクト → L1 のレコードの出所
     objects: &'o BTreeMap<(u32, i32), Ref>,
-    /// 読み込みの後に確かめるもの（[`guard::before`]）
-    later: Option<guard::Later>,
     /// ヘッダーのレコード
     header: Ref,
     /// ヘッダーのバージョン
@@ -246,15 +220,6 @@ impl Lifter<'_, '_> {
         // 相互参照の表を作り直すなら、ページを読む前に作り直させる
         let reads = Reads::new(document.xref(), self.source);
         walk::settle(document, reads, cx).map_err(|stop| stopped(cx, stop, &self.header))?;
-        // 暗号化した文書は、作り直した後の表が指すオブジェクトのストリームの中を確かめる
-        if let Some(later) = self.later.take()
-            && let Some(place) =
-                guard::after(document, later, cx).map_err(|stop| stopped(cx, stop, &self.header))?
-        {
-            let place = place_ref(self.file, self.objects, place, &self.header);
-            cx.report(guard::refused(place));
-            return Err(Error::Unsupported);
-        }
         let xref = document.xref();
         let catalog = xref.get::<Dict<'_>>(xref.root_id());
         let (layers, ocgs, inactive) = self.layers(catalog.as_ref(), cx)?;
@@ -379,8 +344,8 @@ impl Lifter<'_, '_> {
         first.and_then(|id| self.objects.get(&key(id)).cloned())
     }
 
-    /// 表示グループ（8.11.2）のレイヤと、既定で隠れる表示グループ。表示の状態は既定の設定（`OCProperties` の
-    /// `D`、8.11.4.3）から決める。hayro-interpret は既定で隠れる表示グループの内容を塗らないので、その内容は
+    /// OCG（8.11.2）のレイヤと、既定で隠れる OCG。表示の状態は既定の設定（`OCProperties` の
+    /// `D`、8.11.4.3）から決める。hayro-interpret は既定で隠れる OCG の内容を塗らないので、その内容は
     /// 読まずに診断する
     fn layers(
         &mut self,
@@ -427,7 +392,7 @@ impl Lifter<'_, '_> {
             })
             .unwrap_or_else(Vec::new);
         // hayro-interpret（`OcgState::from_catalog`）と同じ順に決める: BaseState が OFF ならすべて隠し、ON で見せ、
-        // OFF で隠す。`OCGs` にない表示グループも、OFF にあれば隠れる
+        // OFF で隠す。`OCGs` にない OCG も、OFF にあれば隠れる
         let mut inactive: Inactive = if base_off {
             items.iter().copied().map(key).collect()
         } else {

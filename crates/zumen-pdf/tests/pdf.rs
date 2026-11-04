@@ -20,7 +20,7 @@ fn kinds(file: &PdfFile) -> Vec<RecordKind> {
     file.records().iter().map(|record| record.kind).collect()
 }
 
-/// 線・文字・画像・表示グループを持つ 2 ページの文書
+/// 線・文字・画像・OCG を持つ 2 ページの文書
 fn sample() -> Vec<u8> {
     let mut document = Document::new(vec![
         Page::new(

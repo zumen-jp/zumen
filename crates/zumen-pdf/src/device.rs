@@ -35,7 +35,7 @@ use crate::walk::{Owned, own_stream};
 /// hayro-interpret は 1 装置単位の幅の線にするので、その線は 1/1024 mm の細い線になる
 pub(crate) const DEVICE_PER_MM: f64 = 1024.0;
 
-/// 表示グループ（optional content group）の外の内容を置くレイヤ
+/// OCG（optional content group）の外の内容を置くレイヤ
 pub(crate) const PAGE_LAYER: LayerId = LayerId(0);
 
 // 図面モデルのメモリ（`DecodedBytes` に数えるバイト数）。hayro-interpret は、フォームを呼ぶたびに中身を解釈し
@@ -560,7 +560,7 @@ pub(crate) struct Collector<'c, 'x, 'd> {
     /// 要素の出所（ページの最初の内容のストリームか、ページのオブジェクト）
     source: Ref,
     sheet: SheetId,
-    /// 表示グループのオブジェクト → レイヤ
+    /// OCG のオブジェクト → レイヤ
     ocgs: &'c BTreeMap<(u32, i32), LayerId>,
     /// 間接オブジェクト → L1 のレコードの出所
     objects: &'c BTreeMap<(u32, i32), Ref>,
@@ -571,7 +571,7 @@ pub(crate) struct Collector<'c, 'x, 'd> {
     pub(crate) elements: Vec<Element<PaperPoint>>,
     /// 切り抜きの外接矩形（用紙の mm）の重なり。最初はページ
     clips: Vec<Rect>,
-    /// マーク付きの内容の入れ子。それぞれ、その所でいちばん内側の表示グループのレイヤ
+    /// マーク付きの内容の入れ子。それぞれ、その所でいちばん内側の OCG のレイヤ
     marks: Vec<Option<LayerId>>,
     /// 透明のグループの重なり
     groups: Vec<Group>,
@@ -1054,7 +1054,7 @@ impl<'c, 'x, 'd> Collector<'c, 'x, 'd> {
         (self.styles.line_type(pattern), phased)
     }
 
-    /// 表示グループの辞書のレイヤ。表示の規則の辞書（OCMD、8.11.2.2）は、最初の表示グループのレイヤにする
+    /// OCG の辞書のレイヤ。OCMD（8.11.2.2）は、最初の OCG のレイヤにする
     /// （その診断は、見えるかを決める解釈の前の走査で返す）
     fn layer_of(&self, properties: &Dict<'_>) -> Option<LayerId> {
         let find = |id: Option<ObjectIdentifier>| {
@@ -1519,7 +1519,7 @@ impl<'a> Device<'a> for Collector<'_, '_, '_> {
             (b"OC", Some(properties)) => self.layer_of(properties),
             _ => None,
         };
-        // 表示グループでないマーク付きの内容は、外の入れ子のレイヤを受け継ぐ
+        // OCG でないマーク付きの内容は、外の入れ子のレイヤを受け継ぐ
         let inner = layer.or_else(|| self.marks.last().copied().flatten());
         self.marks.push(inner);
     }

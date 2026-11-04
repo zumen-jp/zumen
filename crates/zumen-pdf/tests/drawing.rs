@@ -537,7 +537,7 @@ fn moves_optional_content_groups_to_layers() {
             (LayerId(2), "Hidden", Some((false, true))),
         ]
     );
-    // 隠れた表示グループの内容は、hayro-interpret が塗らない
+    // 隠れた OCG の内容は、hayro-interpret が塗らない
     let on: Vec<_> = elements(&drawing).iter().map(|e| e.layer).collect();
     assert_eq!(on, [LayerId(1), LayerId(1), LayerId(0)]);
     assert_eq!(
@@ -2049,7 +2049,7 @@ fn counts_work_that_grows_with_sizes() {
     let properties = format!("/Properties << /P << /MCID 0 {pad} >> >>");
     let src = one_page(Page::new(&marks).resources(&properties));
     assert!(used(&src, Kind::Work) >= 100 * 200);
-    // 表示の規則の辞書の `OCGs`（参照の先の配列）は、hayro-interpret・走査・装置が、マーク付きの内容のたびに読む
+    // OCMD の `OCGs`（参照の先の配列）は、hayro-interpret・走査・装置が、マーク付きの内容のたびに読む
     let marks = "/OC /m BDC EMC ".repeat(100);
     let mut document = Document::new(vec![
         Page::new(&marks).resources("/Properties << /m 3 0 R >>"),
@@ -3834,14 +3834,134 @@ fn reads_the_members_of_object_streams_in_linear_work() {
 }
 
 #[test]
-fn checks_object_streams_of_encrypted_documents_after_loading() {
-    // 暗号化の辞書の名前があると、オブジェクトのストリームの中身は、読み込みの後に hayro-syntax が展開したものを見る
-    let encrypted = |data: &str| vec![b"<< /Encrypt (x) >>".to_vec(), one_member(data)];
-    assert!(unsupported(encrypted("30 2147483648 << /A 1 >>")));
-    assert!(unsupported(encrypted(
-        "30 0 << /DecodeParms << /Predictor 2 /Columns 0 >> >>"
-    )));
-    assert!(!unsupported(encrypted("30 0 << /A 1 >>")));
+fn refuses_object_streams_that_only_the_rebuilt_table_reads() {
+    // hayro-syntax は、表を作り直すとき、字句ごとに見て、型が `ObjStm` のどの辞書も展開する。確かめたストリームの
+    // 上の段の型でない型は、読まない
+    for object in [
+        // 間接オブジェクトの辞書の中と、文字列の中
+        "<< /X << /Type /ObjStm /N 1 /First 4 /Length 9 >>\nstream\n9 0 [0 0]\nendstream >>",
+        "<< /K (<< /Type /ObjStm /N 1 /First 4 /Length 9 >> stream\n9 0 [0 0]\nendstream) >>",
+        // 型の前のコメント。ほかの辞書が、コメントの中から同じ型を読みうる
+        "<< /Length 9 /N 1 /First 4 %\n/Type /ObjStm >>\nstream\n9 0 [0 0]\nendstream",
+        // `N` か `First` のない辞書と、ストリームでない辞書
+        "<< /Length 9 /Type /ObjStm /N 1 >>\nstream\n9 0 [0 0]\nendstream",
+        "<< /Type /ObjStm /N 1 /First 4 >>",
+        // `#xx` で書いた型
+        "<< /Length 9 /N 1 /First 4 /Type /Obj#53tm >>\nstream\n9 0 [0 0]\nendstream",
+    ] {
+        assert!(unsupported(vec![object.as_bytes().to_vec()]), "{object}");
+    }
+    // 辞書の始まりの行の、前のコメント（コメントの中の `obj` から読む）
+    let mut object = b"%obj ".to_vec();
+    object.extend(one_member("30 0 << /A 1 >>"));
+    assert!(unsupported(vec![object]));
+    // 型が、ほかのキーの後ろにあるもの
+    assert!(!unsupported(vec![
+        b"<< /Length 9 /N 1 /First 4 /Type /ObjStm >>\nstream\n9 0 [0 0]\nendstream".to_vec()
+    ]));
+}
+
+#[test]
+fn refuses_object_streams_of_encrypted_documents() {
+    // 暗号化の辞書の名前があると、オブジェクトのストリームの中身を読み込む前に復号できないので、オブジェクトの
+    // ストリームになりうるもの（型が参照の辞書も、hayro-syntax は表を作り直すときに解く）を持つ文書は読まない
+    let encrypted =
+        |object: &[u8]| unsupported(vec![b"<< /Encrypt (x) >>".to_vec(), object.to_vec()]);
+    assert!(encrypted(&one_member("30 0 << /A 1 >>")));
+    assert!(encrypted(b"(<< /Type /ObjStm >>)"));
+    assert!(encrypted(b"<< /Type 9 0 R >>"));
+    assert!(!encrypted(b"<< /Type /Font >>"));
+    assert!(!unsupported(vec![one_member("30 0 << /A 1 >>")]));
+}
+
+#[test]
+fn refuses_coded_filters_whose_input_may_be_large() {
+    // hayro-syntax は、LZW の符号を読む位置と ASCII85 の出力の大きさを、環境の大きさの整数で求める。前のフィルターが
+    // どこまでも長くしうる入力の LZW と ASCII85 は、読まない
+    for dict in [
+        "/Filter [/FlateDecode /LZWDecode]",
+        "/Filter [/Fl /A85]",
+        "/F [/RL /LZW]",
+        "/Filter [/LZWDecode /LZWDecode]",
+        "/Filter [/Crypt /Fl /LZW]",
+        "/Filter [3 0 R /LZWDecode]",
+    ] {
+        assert!(unsupported(vec![common::stream(dict, "x")]), "{dict}");
+    }
+    // フィルターの値として読めない所の名前は、フィルターの値に参照があれば、参照の先かもしれない
+    for filter in ["/Filter 4 0 R", "/F [/AHx 4 0 R]"] {
+        for name in ["/LZWDecode", "(/A85)"] {
+            assert!(
+                unsupported(vec![common::stream(filter, "x"), name.as_bytes().to_vec()]),
+                "{filter} {name}"
+            );
+        }
+    }
+    // 参照がなければ、hayro-syntax はフィルターとして当てない
+    assert!(!unsupported(vec![b"(/LZWDecode)".to_vec()]));
+    assert!(!unsupported(vec![
+        common::stream("/Filter [[/LZWDecode]]", "x"),
+        common::stream("/Filter [/AHx 4 /A85]", "x"),
+    ]));
+    // 入力の長さが、ファイルの長さの定数倍に収まるもの
+    for dict in [
+        "/Filter /LZWDecode",
+        "/Filter [/LZW]",
+        "/Filter [/A85 /LZW]",
+        "/Filter [/AHx /A85]",
+        "/Filter [/Crypt /LZWDecode]",
+        "/Filter [/Unknown /LZWDecode]",
+        "/F /A85",
+        "/Filter %\n/LZWDecode",
+    ] {
+        assert!(!unsupported(vec![common::stream(dict, "x")]), "{dict}");
+    }
+}
+
+#[test]
+fn reads_names_in_comments_in_linear_work() {
+    use zumen_base::Kind;
+    // コメントの行の中の名前と `obj` から、後ろのコメントの行を読み直さない
+    let count = 20_000;
+    let plain = used(
+        &Document::new(vec![Page::new("0 0 m 10 10 l S")]).bytes(),
+        Kind::Work,
+    );
+    for line in [
+        "%/N\n",
+        "%/N \n",
+        "%/A\n",
+        "%obj\n",
+        "%/Type\n",
+        "%/Filter [\n",
+    ] {
+        let mut document = Document::new(vec![Page::new("0 0 m 10 10 l S")]);
+        document.objects = vec![format!("null\n{}", line.repeat(count)).into_bytes()];
+        let work = used(&document.bytes(), Kind::Work);
+        assert!(work < plain + 8 * count as u64, "{line:?} {plain} {work}");
+    }
+}
+
+#[test]
+fn counts_reads_that_grow_faster_than_the_file() {
+    use zumen_base::Kind;
+    // 中の位置が長い数の途中を指せば、位置ごとに数の終わりまで読む
+    let count = 1_000;
+    let header: String = (0..count)
+        .map(|index| format!("{index} {index} "))
+        .collect();
+    let data = format!("{header}{}", "1".repeat(100_000));
+    let mut document = Document::new(vec![Page::new("0 0 m 10 10 l S")]);
+    document.objects = vec![container(count, header.len(), &data)];
+    let work = used(&document.bytes(), Kind::Work);
+    assert!(work >= count as u64 * 99_000 / 4, "{work}");
+    // `Length` が合わないストリームは、hayro-syntax が `endstream` を探して、後ろを読む
+    let line = "9 0 obj << /N 1 /First 0 /Length 0 >>\nstream\n";
+    let mut document = Document::new(vec![Page::new("0 0 m 10 10 l S")]);
+    document.objects = vec![format!("({})", line.repeat(count)).into_bytes()];
+    let work = used(&document.bytes(), Kind::Work);
+    let size = (count * line.len()) as u64;
+    assert!(work >= size * count as u64 / 16, "{work}");
 }
 
 #[test]
