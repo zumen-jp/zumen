@@ -3450,7 +3450,11 @@ fn reads_pages_again_without_a_page_tree() {
             let mut cut = tied_entries(twice, shared, "");
             cut.extend(format!("{twice} 0 obj").as_bytes());
             one_sheet(&cut, &label);
-            // 作り直したことは、ファイルの終わりに何があっても分かる。後ろの辞書は、足す写しの中で閉じ、番号が同じ定義は読めない
+            // 符号だけの数も、ファイルの終わりでは読めない
+            let mut sign = tied_entries(twice, shared, "");
+            sign.extend(format!("{twice} 0 obj -").as_bytes());
+            one_sheet(&sign, &label);
+            // 作り直したことは、ファイルの終わりに何があっても分かる。後ろの辞書は閉じず、番号が同じ定義は読めない
             let mut tail = tied_entries(twice, shared, &tree);
             tail.extend(b"2147483646 0 obj\n5-3.2\nendobj\n)>>\n<< /A (\n");
             one_sheet(&tail, &label);
@@ -3574,6 +3578,162 @@ fn keeps_the_table_of_documents_with_page_trees() {
     ]);
     assert_eq!(found.len(), 1, "{found:?}");
     assert_eq!(found[0].1, 1, "{found:?}");
+}
+
+#[test]
+fn reads_files_whose_table_comes_first_as_they_are() {
+    // 表と `startxref` がファイルの初めにあり、終わりのフォームに `endstream` がない。読むときに足す字は、ファイルの
+    // 中身を写さないので、フォームの本体は閉じず、読めない
+    let bodies = [
+        "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
+        "<< /Type /Page /MediaBox [0 0 100 100] /Contents 4 0 R \
+         /Resources << /XObject << /X 5 0 R >> >> >>"
+            .to_owned(),
+        "<< /Length 5 >>\nstream\n/X Do\nendstream".to_owned(),
+        "<< /Type /XObject /Subtype /Form /BBox [0 0 10 10] >>\nstream\n0 0 m 10 10 l S\n"
+            .to_owned(),
+    ];
+    let head = b"%PDF-1.7\n";
+    let table = |offsets: &[usize]| {
+        let mut table = format!("xref\n0 {}\n0000000000 65535 f \n", offsets.len() + 1);
+        for offset in offsets {
+            table.push_str(&format!("{offset:010} 00000 n \n"));
+        }
+        let size = offsets.len() + 1;
+        let at = head.len();
+        table.push_str(&format!(
+            "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{at}\n%%EOF\n"
+        ));
+        table
+    };
+    let start = head.len() + table(&[0; 5]).len();
+    let mut objects = String::new();
+    let mut offsets = Vec::new();
+    for (number, body) in bodies.iter().enumerate() {
+        offsets.push(start + objects.len());
+        objects.push_str(&format!("{} 0 obj\n{body}", number + 1));
+        if number + 1 < bodies.len() {
+            objects.push_str("\nendobj\n");
+        }
+    }
+    let mut src = head.to_vec();
+    src.extend(table(&offsets).as_bytes());
+    src.extend(objects.as_bytes());
+    let (drawing, diag) = lift(&src);
+    assert_eq!(drawing.sheets.len(), 1);
+    assert!(elements(&drawing).is_empty(), "{:?}", elements(&drawing));
+    assert!(
+        diag.iter().any(|d| d.code() == codes::PDF_XOBJECT_MISSING),
+        "{diag:?}"
+    );
+}
+
+/// 文書を読まず、`pdf.document.unsupported` を返すか
+#[cfg(test)]
+fn unsupported(objects: Vec<Vec<u8>>) -> bool {
+    let mut document = Document::new(vec![Page::new("0 0 m 10 10 l S")]);
+    document.objects = objects;
+    let src = document.bytes();
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let file = testkit::read::<Pdf>(&src).0.unwrap();
+    let result = file.lift(&mut Cx::new(&mut budget, &mut diag, &cancel));
+    let codes: Vec<_> = diag.iter().map(|d| d.code()).collect();
+    match result {
+        Err(Error::Unsupported) => {
+            assert_eq!(codes, [codes::PDF_DOCUMENT_UNSUPPORTED]);
+            true
+        }
+        result => {
+            assert!(result.is_ok(), "{result:?}");
+            assert!(
+                !codes.contains(&codes::PDF_DOCUMENT_UNSUPPORTED),
+                "{codes:?}"
+            );
+            false
+        }
+    }
+}
+
+#[test]
+fn refuses_values_that_panic_or_differ_by_platform() {
+    let with = |dict: &str| vec![common::stream(dict, "x")];
+    // 予測子の行の長さが 0 になるか、32 ビットであふれる。hayro-syntax は 0 で割ってパニックする
+    for params in [
+        "<< /Predictor 2 /Columns 0 >>",
+        "<< /Predictor 2 /Colors 0 >>",
+        "<< /Predictor 2 /Columns 536870912 >>",
+        "<< /Predictor 2 /Columns 2305843009213693952 >>",
+        "<< /Predictor 12 /Colors 32 /BitsPerComponent 16 >>",
+        "<< /Predictor 2.5 /Columns 0.5 >>",
+    ] {
+        let dict = format!("/Filter /FlateDecode /DecodeParms {params}");
+        assert!(unsupported(with(&dict)), "{params}");
+    }
+    // 配列の項目と、短い名前
+    assert!(unsupported(with(
+        "/Filter [/AHx /Fl] /DecodeParms [null << /Predictor 2 /Columns 0 >>]"
+    )));
+    assert!(unsupported(with(
+        "/F /Fl /DP << /Predictor 10 /Colors 0 >>"
+    )));
+    // 32 ビットの環境で読めない Columns（CCITT は予測子によらず読む）・N・First
+    assert!(unsupported(with(
+        "/Filter /CCITTFaxDecode /DecodeParms << /Columns 4294967296 >>"
+    )));
+    assert!(unsupported(with("/N 4294967299 /Alternate /DeviceRGB")));
+    assert!(unsupported(with("/Type /ObjStm /N 1 /First 4294967296")));
+    assert!(unsupported(with("/Type /ObjStm /N 2147483648 /First 0")));
+    // 参照は、L1 のすべての定義を見る。L1 にない番号は、読む前に確かめられない
+    let parted = |params: &str| {
+        vec![
+            params.as_bytes().to_vec(),
+            common::stream("/Filter /FlateDecode /DecodeParms 3 0 R", "x"),
+            b"0".to_vec(),
+        ]
+    };
+    assert!(unsupported(parted("<< /Predictor 2 /Columns 0 >>")));
+    assert!(unsupported(parted("<< /Predictor 2 /Columns 5 0 R >>")));
+    assert!(!unsupported(parted("<< /Predictor 12 /Columns 4 >>")));
+    assert!(unsupported(with(
+        "/Filter /FlateDecode /DecodeParms 99 0 R"
+    )));
+    // ふつうの値と、予測子のない値
+    for params in [
+        "<< /Predictor 12 /Colors 3 /Columns 5 >>",
+        "<< /Predictor 2 /Colors 255 /BitsPerComponent 1 /Columns 16777216 >>",
+        "<< /Predictor 1 /Columns 536870912 >>",
+        "<< /Predictor 300 /Columns 0 >>",
+        "<< /Predictor 2 /Columns -5 >>",
+    ] {
+        let dict = format!("/Filter /FlateDecode /DecodeParms {params}");
+        assert!(!unsupported(with(&dict)), "{params}");
+    }
+}
+
+#[test]
+fn refuses_object_streams_that_differ_by_platform() {
+    let container = |data: &str| {
+        let first = data.find('<').unwrap_or(data.len());
+        vec![common::stream(
+            &format!("/Type /ObjStm /N 1 /First {first}"),
+            data,
+        )]
+    };
+    // 中の位置が、32 ビットの環境で読めないか、足すとあふれる
+    assert!(unsupported(container("30 2147483648 << /A 1 >>")));
+    assert!(unsupported(container("30 4294967296 << /A 1 >>")));
+    // 中に書いたストリーム。hayro-syntax は読むが、展開のパラメーターを L1 で確かめられない
+    assert!(unsupported(container(
+        "30 0 << /Length 1 /DecodeParms << /Predictor 2 /Columns 0 >> >>\nstream\nx\nendstream"
+    )));
+    // ふつうの中身と、負の位置（どの環境でも読まない）
+    assert!(!unsupported(container("30 0 << /A 1 >>")));
+    assert!(!unsupported(container(
+        "30 -1 << /A 1 >>\nstream\nx\nendstream"
+    )));
 }
 
 #[test]

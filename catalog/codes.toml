@@ -1564,6 +1564,12 @@ severity = "error"
 since = "0.2.0"
 status = "active"
 
+[codes."pdf.document.unsupported"]
+description = "hayro-syntax がパニックするか、環境（32 ビットと 64 ビット）で違う値に読むおそれのある値があるので、読まなかった。予測子のパラメーターの行の長さが 0 か、Columns が 16,777,216 を超えるか、Colors と BitsPerComponent の積が 255 を超えるもの、2 の 31 乗以上の Columns・N・First とオブジェクトのストリームの中の位置、L1 にない番号を指す展開のパラメーターの参照、オブジェクトのストリームの中に書いたストリームを含む。場所は、理由のストリームのレコード"
+severity = "error"
+since = "0.2.0"
+status = "active"
+
 [codes."pdf.encryption.unsupported"]
 description = "空のパスワードで開けないか、扱えない方式の暗号なので、読まなかった"
 severity = "error"

@@ -243,6 +243,7 @@
     "pdf.content.invalid": "展開できないか途中から読めない内容のストリームと XObject の内容を、移しませんでした（{count} 件）。",
     "pdf.dash.approximated": "破線の位相を移しませんでした（{count} 件）。",
     "pdf.document.invalid": "相互参照とページの木を読めないので、PDF として読めません。",
+    "pdf.document.unsupported": "読むとパニックするか、環境で結果が変わるおそれのある値があるので、読めません。",
     "pdf.encryption.unsupported": "パスワードが要るか、扱えない方式の暗号なので、読めません。",
     "pdf.file.invalid": "先頭の 1,024 バイトに見出し %PDF- がないので、PDF として読めません。",
     "pdf.fill-rule.approximated": "非ゼロ回転数の規則で塗った形を、輪の中の輪を交互に埋めるハッチングにしました（{count} 件）。",

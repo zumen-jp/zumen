@@ -22,6 +22,7 @@ use zumen_drawing::{
 use zumen_sdk::{Cx, Error, Lift};
 
 use crate::device::{Collector, DEVICE_PER_MM, PAGE_LAYER, Styles};
+use crate::guard;
 use crate::page::{self, Geometry};
 use crate::walk::{self, Reads, Walker};
 use crate::{MAGIC, PdfFile, RecordKind, strings};
@@ -29,12 +30,10 @@ use crate::{MAGIC, PdfFile, RecordKind, strings};
 /// 形式固有の情報の値の型の契約の版（決定 0115）
 const SCHEMA: u32 = 1;
 
-/// 相互参照の表の位置を指す語（7.5.5）
-const START_XREF: &[u8] = b"startxref";
-
-/// ファイルの後ろに足すバイト列の前に置く。`t` で始まるので、ファイルの終わりで読みかけのオブジェクトを読めるものに
-/// しない（hayro-syntax の `Object::skip`）
-const SEPARATOR: &[u8] = b"\ntrailer\n";
+/// ファイルの後ろに足すバイト列の前に置く。ファイルの終わりで読みかけのオブジェクトを、読めるものにしない。`%` は
+/// 空白でない区切りの字なので、符号だけの数（`N 0 obj -`）を 0 と読み飛ばさせず（hayro-syntax の `Number::skip`）、
+/// 注釈の後の `trailer` は `t` で始まるので、オブジェクトにならない（`Object::skip`）
+const SEPARATOR: &[u8] = b"%\ntrailer\n";
 
 /// ファイルの後ろに足すと、hayro-syntax が相互参照の表を読まず、ファイルを走査した表で読む（読めない位置）
 const NO_CROSS_REFERENCES: &[u8] = b"startxref\n-1\n%%EOF\n";
@@ -62,6 +61,15 @@ impl Lift<Drawing2D> for PdfFile {
                         .strip_prefix(MAGIC)
                         .and_then(parse_version)
                 });
+        // hayro-syntax がパニックするか、環境で違う値に読むおそれのある文書は、読まない
+        let containers =
+            match guard::records(self, cx).map_err(|stop| stopped(cx, stop, &header))? {
+                guard::Verdict::Fits(containers) => containers,
+                guard::Verdict::Refused(index) => {
+                    cx.report(guard::refused(record_ref(self, index)));
+                    return Err(Error::Unsupported);
+                }
+            };
         // 相互参照・ページの木を読む。壊れた相互参照は、オブジェクトを探し直して読む（hayro-syntax、7.5）
         let document = load(&self.src).map_err(|error| not_loaded(cx, error, &header))?;
         let objects = objects(self);
@@ -69,6 +77,7 @@ impl Lift<Drawing2D> for PdfFile {
             document: &document,
             source: &self.src,
             objects: &objects,
+            containers: &containers,
             header,
             header_version,
             styles: Styles::default(),
@@ -91,7 +100,7 @@ fn not_loaded(cx: &mut Cx, error: LoadPdfError, place: &Ref) -> Error {
 /// 同じ位置の項目の順は表（`FxHashMap`）のハッシュで決まり、32 ビットと 64 ビットの環境で違うので、どの定義をページに
 /// するか、ページがあるかが環境で変わる。そこで、表を作り直さずにページの木を読めた文書だけをそのまま使い、ほかは、
 /// ファイルを走査した表で読み直す。走査した表では、同じ位置の項目のうち読めるものは 1 つで、作り直さないので、順で結果が
-/// 変わらない。読み直す前に 1 度目の文書を放すので、持つのは 1 つだけ。写しはファイルの大きさの 2 倍までで、予算には数えない
+/// 変わらない。読み直す前に 1 度目の文書を放すので、持つのは 1 つだけ。写しはファイルの大きさと数十バイトで、予算には数えない
 fn load(source: &[u8]) -> Result<Document, LoadPdfError> {
     let first = Document::new(PdfData::from(with_witness(source)));
     let keep = match &first {
@@ -130,19 +139,13 @@ fn follows_table(document: &Document) -> bool {
 /// ファイルの後ろに、どの表にも載らない番号の定義を足したバイト列。hayro-syntax は、作り直すとファイルの走査だけで表を
 /// 作るので、引けるかで作り直したかが分かる（`XRef::repair`。公開の API では知れない）。走査は、辞書を読めると辞書の
 /// 終わりまで飛ぶが、足す定義に `>>` はなく、最後に置くので、どの辞書にも飛び越されず、ほかの定義にも上書きされない。
-/// hayro-syntax は最後の `startxref` から表を探すので、その後ろを写して、同じ位置を読ませる。前の位置は変わらない
+/// hayro-syntax は最後の `startxref` をデータの全体から後ろ向きに探し（`find_last_xref_pos`）、足す字は `startxref`
+/// を含まないので、ファイルと同じ位置の表を読む
 fn with_witness(source: &[u8]) -> Vec<u8> {
-    let last = source
-        .windows(START_XREF.len())
-        .rposition(|bytes| bytes == START_XREF);
-    let tail = last.and_then(|at| source.get(at..)).unwrap_or_default();
     let number = WITNESS.to_string();
-    let mut bytes = Vec::with_capacity(
-        source.len() + tail.len() + 2 * SEPARATOR.len() + number.len() + WITNESS_BODY.len(),
-    );
+    let mut bytes =
+        Vec::with_capacity(source.len() + SEPARATOR.len() + number.len() + WITNESS_BODY.len());
     bytes.extend_from_slice(source);
-    bytes.extend_from_slice(SEPARATOR);
-    bytes.extend_from_slice(tail);
     bytes.extend_from_slice(SEPARATOR);
     bytes.extend_from_slice(number.as_bytes());
     bytes.extend_from_slice(WITNESS_BODY);
@@ -193,6 +196,8 @@ struct Lifter<'d, 'o> {
     source: &'d [u8],
     /// 間接オブジェクト → L1 のレコードの出所
     objects: &'o BTreeMap<(u32, i32), Ref>,
+    /// オブジェクトのストリームになりうるストリームの番号（[`guard::records`]）
+    containers: &'o BTreeSet<(u32, i32)>,
     /// 見出しのレコード
     header: Ref,
     /// 見出しの版
@@ -208,6 +213,18 @@ impl Lifter<'_, '_> {
         // 相互参照の表を作り直すなら、ページを読む前に作り直させる
         let reads = Reads::new(document.xref(), self.source);
         walk::settle(document, reads, cx).map_err(|stop| stopped(cx, stop, &self.header))?;
+        // 作り直した後の表が指すオブジェクトのストリームの中を確かめる
+        if let Some(id) = guard::object_streams(document, self.containers, cx)
+            .map_err(|stop| stopped(cx, stop, &self.header))?
+        {
+            let place = self
+                .objects
+                .get(&id)
+                .cloned()
+                .unwrap_or_else(|| self.header.clone());
+            cx.report(guard::refused(place));
+            return Err(Error::Unsupported);
+        }
         let xref = document.xref();
         let catalog = xref.get::<Dict<'_>>(xref.root_id());
         let (layers, ocgs, inactive) = self.layers(catalog.as_ref(), cx)?;

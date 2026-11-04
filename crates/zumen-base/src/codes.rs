@@ -2697,6 +2697,12 @@ pub const PDF_DASH_APPROXIMATED: Code = Code::new(
 pub const PDF_DOCUMENT_INVALID: Code =
     Code::new("pdf.document.invalid", Severity::Error, None, &[], &[]);
 
+/// hayro-syntax がパニックするか、環境（32 ビットと 64 ビット）で違う値に読むおそれのある値があるので、読まなかった。予測子のパラメーターの行の長さが 0 か、Columns が 16,777,216 を超えるか、Colors と BitsPerComponent の積が 255 を超えるもの、2 の 31 乗以上の Columns・N・First とオブジェクトのストリームの中の位置、L1 にない番号を指す展開のパラメーターの参照、オブジェクトのストリームの中に書いたストリームを含む。場所は、理由のストリームのレコード
+///
+/// `pdf.document.unsupported`（0.2.0 から）
+pub const PDF_DOCUMENT_UNSUPPORTED: Code =
+    Code::new("pdf.document.unsupported", Severity::Error, None, &[], &[]);
+
 /// 空のパスワードで開けないか、扱えない方式の暗号なので、読まなかった
 ///
 /// `pdf.encryption.unsupported`（0.2.0 から）
@@ -4562,6 +4568,7 @@ pub const ALL: &[Code] = &[
     PDF_CONTENT_INVALID,
     PDF_DASH_APPROXIMATED,
     PDF_DOCUMENT_INVALID,
+    PDF_DOCUMENT_UNSUPPORTED,
     PDF_ENCRYPTION_UNSUPPORTED,
     PDF_FILE_INVALID,
     PDF_FILL_RULE_APPROXIMATED,
