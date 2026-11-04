@@ -29,8 +29,9 @@ flate2 = { version = "=1.1.10", default-features = false, features = ["zlib-rs"]
 # コードからは使わない。hayro-interpret は ICC のプロファイルを moxcms で読み、読めなければ代わりの色空間
 # （Alternate）にするので、色空間の系統と色の診断が版で変わりうる。そのため版を固定する
 moxcms = { version = "=0.8.1", default-features = false, optional = true }
-# コードからは使わない。hayro-font はフォントのプログラムを skrifa（と read-fonts）で読み、Widths のない
-# TrueType の送りを決めるので、文字の分け方と ID が版で変わりうる。そのため版を固定する
+# hayro-font はフォントのプログラムを skrifa（と read-fonts）で読み、Widths のない TrueType の送りを決めるので、
+# 文字の分け方と ID が版で変わりうる。そのため版を固定する。走査は、フォントのプログラムの手間を数えるときに、
+# hayro-font と同じ表を見るよう skrifa で読む。read-fonts は、コードからは使わない
 skrifa = { version = "=0.49.0", default-features = false, optional = true }
 read-fonts = { version = "=0.46.0", default-features = false, optional = true }
 # 文字の向きと斜体の角度。std の三角関数は環境で値が違いうる（決定 0007）

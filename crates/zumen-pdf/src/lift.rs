@@ -11,8 +11,9 @@ use std::sync::Arc;
 use hayro_interpret::{
     Context, InterpreterCache, InterpreterSettings, RenderContent, interpret_page,
 };
-use hayro_syntax::object::{Array, Dict, Name, ObjectIdentifier, String as PdfString};
+use hayro_syntax::object::{Array, Dict, Name, Object, ObjectIdentifier, String as PdfString};
 use hayro_syntax::page::Page;
+use hayro_syntax::xref::XRef;
 use hayro_syntax::{LoadPdfError, Pdf as Document, PdfData, PdfVersion};
 use kurbo::{Affine, Rect};
 use zumen_base::{Diagnostic, Kind, Ref, Stop, codes};
@@ -135,7 +136,7 @@ impl Lifter<'_, '_> {
         let pages = document.pages();
         let labels = page::labels(xref, catalog.as_ref(), pages.len(), cx)
             .map_err(|stop| stopped(cx, stop, &self.header))?;
-        let reread = catalog_work(catalog.as_ref());
+        let reread = catalog_work(xref, catalog.as_ref());
         let version = self.version(catalog.as_ref());
 
         // hayro-interpret の警告（読めないフォントなど）は、解釈の前の走査で場所を添えて診断にするので、受けない
@@ -154,8 +155,12 @@ impl Lifter<'_, '_> {
                 .obj_id()
                 .and_then(|id| self.objects.get(&key(id)).cloned())
                 .unwrap_or_default();
-            cx.check(Kind::Work, 1)
-                .map_err(|stop| stopped(cx, stop, &source))?;
+            // ページの値は、読むたびに参照を解く
+            cx.check(
+                Kind::Work,
+                walk::dict_targets(xref, page.raw()).saturating_add(1),
+            )
+            .map_err(|stop| stopped(cx, stop, &source))?;
             let sheet = SheetId(u32::try_from(index).unwrap_or(u32::MAX));
             let geometry = Geometry::of(page);
             let elements = {
@@ -354,9 +359,18 @@ impl Lifter<'_, '_> {
     /// 辞書のレコードを場所にする（間接オブジェクトでなければ、ページ）
     fn unread(&self, page: &Page<'_>, source: &Ref, cx: &mut Cx) -> Result<(), Error> {
         let raw = page.raw();
+        let xref = page.xref();
+        // hayro-syntax は項目を読むたびに参照を解くので、読む大きさを数える
+        let values = walk::value_work(xref, raw, b"Annots")
+            .saturating_add(walk::value_work(xref, raw, b"VP"));
+        cx.check(Kind::Work, values)
+            .map_err(|stop| stopped(cx, stop, source))?;
         if let Some(annotations) = raw.get::<Array<'_>>(b"Annots") {
             for annotation in annotations.iter::<Dict<'_>>() {
-                cx.check(Kind::Work, 1)
+                let work = walk::lookup_work(annotation.data())
+                    .saturating_add(walk::value_work(xref, &annotation, b"Subtype"))
+                    .saturating_add(1);
+                cx.check(Kind::Work, work)
                     .map_err(|stop| stopped(cx, stop, source))?;
                 let kind = annotation
                     .get::<Name<'_>>(b"Subtype")
@@ -376,8 +390,11 @@ impl Lifter<'_, '_> {
         if let Some(viewports) = raw.get::<Array<'_>>(b"VP") {
             let mut measured = false;
             for viewport in viewports.iter::<Dict<'_>>() {
-                cx.check(Kind::Work, 1)
-                    .map_err(|stop| stopped(cx, stop, source))?;
+                cx.check(
+                    Kind::Work,
+                    walk::lookup_work(viewport.data()).saturating_add(1),
+                )
+                .map_err(|stop| stopped(cx, stop, source))?;
                 measured |= viewport.contains_key(b"Measure");
             }
             if measured {
@@ -452,19 +469,24 @@ impl Lifter<'_, '_> {
 }
 
 /// hayro-interpret がページごとにカタログを読み直す作業の量（`Context::new` が表示の設定を読む）。カタログと、
-/// 表示の設定の辞書・配列のバイト数で数える
-fn catalog_work(catalog: Option<&Dict<'_>>) -> u64 {
+/// 表示の設定の辞書・配列のバイト数と、表示の設定の値の参照の先で数える（[`walk::dict_targets`]）
+fn catalog_work(xref: &XRef, catalog: Option<&Dict<'_>>) -> u64 {
     let Some(catalog) = catalog else {
         return 1;
     };
     let mut bytes = catalog.data().len();
+    let mut targets = catalog
+        .get::<Object<'_>>(b"OCProperties")
+        .map_or(0, |properties| walk::read_work(&properties));
     if let Some(properties) = catalog.get::<Dict<'_>>(b"OCProperties") {
         bytes = bytes.saturating_add(properties.data().len());
+        targets = targets.saturating_add(walk::dict_targets(xref, &properties));
         if let Some(groups) = properties.get::<Array<'_>>(b"OCGs") {
             bytes = bytes.saturating_add(groups.data().len());
         }
         if let Some(config) = properties.get::<Dict<'_>>(b"D") {
             bytes = bytes.saturating_add(config.data().len());
+            targets = targets.saturating_add(walk::dict_targets(xref, &config));
             for name in [b"ON".as_slice(), b"OFF"] {
                 if let Some(groups) = config.get::<Array<'_>>(name) {
                     bytes = bytes.saturating_add(groups.data().len());
@@ -472,7 +494,10 @@ fn catalog_work(catalog: Option<&Dict<'_>>) -> u64 {
             }
         }
     }
-    u64::try_from(bytes).unwrap_or(u64::MAX).saturating_add(1)
+    u64::try_from(bytes)
+        .unwrap_or(u64::MAX)
+        .saturating_add(targets)
+        .saturating_add(1)
 }
 
 /// 版の書き方（`1.7` など）。hayro-syntax の `PdfVersion` と同じく、知っている版の最初の 3 バイトだけを読む

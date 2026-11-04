@@ -2,7 +2,8 @@
 
 use std::collections::BTreeSet;
 
-use hayro_syntax::object::{Array, Dict, Name, Object, String as PdfString};
+use hayro_syntax::object::array::ArrayIter;
+use hayro_syntax::object::{Array, Dict, MaybeRef, Name, Object, String as PdfString};
 use hayro_syntax::page::{A4, Page, Rotation};
 use hayro_syntax::xref::XRef;
 use kurbo::Affine;
@@ -10,7 +11,7 @@ use zumen_base::{Kind, Stop};
 use zumen_sdk::Cx;
 
 use crate::strings;
-use crate::walk::{Owned, own_dict};
+use crate::walk::{REFERENCE_BYTES, lookup_work, read_work, reread_work, value_work};
 
 /// 1 pt（既定のユーザー空間の 1 単位）の mm
 pub(crate) const MM_PER_PT: f64 = 25.4 / 72.0;
@@ -24,9 +25,13 @@ const MAX_TREE_DEPTH: u32 = 32;
 /// 文字で数えるページラベル（A〜Z、AA〜ZZ …）で、同じ文字を並べる数の上限。超えたら数字で書く
 const MAX_LETTERS: u64 = 64;
 
-/// 持っておく辞書の 1 つのメモリ。hayro-syntax 0.9.0 は、読んだ辞書ごとに、8 項目の鍵の表（`FxHashMap`）を `Arc` に
-/// 入れて作る。64 ビットで測ると 1 つに 900 バイトほどで、空の辞書（`<<>>`、4 バイト）でも変わらない
-const DICT_BYTES: u64 = 1_024;
+/// ページラベルの範囲の 1 つのメモリ（[`Range`] と、配列を伸ばす間の写し）
+const RANGE_BYTES: u64 = 256;
+
+/// ページラベルの 1 つのメモリ。前に付ける文字列は、1 バイトが UTF-8 で 3 バイトまでになり、ラベルは図面モデルに
+/// 写すので、前に付ける文字列の 1 バイトを 6 バイトと数え、数の文字列の分を足す
+const LABEL_BYTES_PER_PREFIX: u64 = 6;
+const LABEL_BYTES: u64 = 256;
 
 /// ページの大きさと、既定のユーザー空間から用紙の mm への変換
 #[derive(Clone, Copy, Debug)]
@@ -86,89 +91,176 @@ impl Geometry {
     }
 }
 
+/// ページラベルの範囲（12.4.2 の表）。hayro-syntax の辞書は鍵の数に比例するメモリを持つので、持たずに値だけを持つ
+struct Range<'a> {
+    /// 開始ページ（0 から）
+    start: i64,
+    /// 前に付ける文字列（`P`）
+    prefix: Option<PdfString<'a>>,
+    /// 始めの番号（`St`、既定 1）
+    first: i64,
+    /// 数の書き方（`S`）
+    style: Option<Name<'a>>,
+}
+
+impl<'a> Range<'a> {
+    /// 範囲の辞書から値を読む。読むたびに参照を解くので、文字列と名前の大きさを `work` に数える
+    fn read(start: i64, range: &Dict<'a>, cx: &mut Cx<'_>) -> Result<Self, Stop> {
+        let prefix = range.get::<PdfString<'a>>(b"P");
+        let style = range.get::<Name<'a>>(b"S");
+        let length = prefix.as_ref().map_or(0, |prefix| prefix.as_bytes().len()) as u64;
+        cx.check(
+            Kind::Work,
+            lookup_work(
+                prefix
+                    .as_ref()
+                    .map_or(b"".as_slice(), |prefix| prefix.as_bytes()),
+            )
+            .saturating_add(lookup_work(
+                style
+                    .as_ref()
+                    .map_or(b"".as_slice(), |style| style.as_ref()),
+            )),
+        )?;
+        cx.check(Kind::DecodedBytes, RANGE_BYTES.saturating_add(length))?;
+        Ok(Self {
+            start,
+            prefix,
+            first: range
+                .get::<i64>(b"St")
+                .filter(|first| *first >= 1)
+                .unwrap_or(1),
+            style,
+        })
+    }
+}
+
 /// 各ページのページラベル（12.4.2）。カタログの `PageLabels` の数の木から、ページの番号（0 から）以下でいちばん
 /// 大きい開始ページの範囲の書き方で作る。ラベルのないページと、空のラベルは `None`。木の節と項目ごとに予算の
-/// `work` を 1 使い、持っておく節と範囲の辞書ごとに `DecodedBytes` を [`DICT_BYTES`] 使う。深さは
-/// [`MAX_TREE_DEPTH`] まで、同じ節は 2 度たどらない。範囲は二分探索で引く。同じ節かは、
-/// それ自身の間接オブジェクトの節だけを番号で見分ける（[`own_dict`]。直接書いた節は、入れ物の番号を持つので）。
-/// 入れ物は、番号ごとに 1 度だけ引く
+/// `work` を 1 と、読み直すバイト数（hayro-syntax は、参照を解くたびに読み直す）を使い、ラベルのメモリを
+/// `DecodedBytes` に数える。深さは [`MAX_TREE_DEPTH`] まで、同じ参照は 2 度解かない（直接書いた節は、それを含む節を
+/// たどるときに 1 度だけ読む）。範囲は二分探索で引く
 pub(crate) fn labels(
     xref: &XRef,
     catalog: Option<&Dict<'_>>,
     count: usize,
     cx: &mut Cx<'_>,
 ) -> Result<Vec<Option<String>>, Stop> {
-    let mut ranges: Vec<(i64, Dict<'_>)> = Vec::new();
-    if let Some(tree) = catalog.and_then(|catalog| catalog.get::<Dict<'_>>(b"PageLabels")) {
-        let mut seen = BTreeSet::new();
-        let mut known = Owned::new();
-        let mut stack = vec![(tree, 0u32)];
-        while let Some((node, depth)) = stack.pop() {
+    let mut ranges: Vec<Range<'_>> = Vec::new();
+    if let Some(catalog) = catalog
+        && let Some(tree) = catalog.get::<Dict<'_>>(b"PageLabels")
+    {
+        let mut seen: BTreeSet<_> = catalog
+            .get_ref(b"PageLabels")
+            .map(|id| (id.obj_number, id.gen_number))
+            .into_iter()
+            .collect();
+        let mut open: Vec<ArrayIter<'_>> = Vec::new();
+        cx.check(Kind::Work, lookup_work(tree.data()))?;
+        node(xref, &tree, &mut ranges, &mut open, cx)?;
+        while let Some(kids) = open.last_mut() {
+            let Some(kid) = kids.next() else {
+                open.pop();
+                continue;
+            };
             cx.check(Kind::Work, 1)?;
-            if depth > MAX_TREE_DEPTH {
-                continue;
-            }
-            if let Some(id) = own_dict(xref, &mut known, &node)
-                && !seen.insert(id)
-            {
-                continue;
-            }
-            if let Some(nums) = node.get::<Array<'_>>(b"Nums") {
-                let mut items = nums.iter::<Object<'_>>();
-                while let (Some(key), Some(value)) = (items.next(), items.next()) {
-                    cx.check(Kind::Work, 1)?;
-                    if let (Object::Number(key), Object::Dict(range)) = (key, value) {
-                        cx.check(Kind::DecodedBytes, DICT_BYTES)?;
-                        ranges.push((key.as_i64(), range));
+            let kid = match kid {
+                MaybeRef::Ref(id) => {
+                    if !seen.insert((id.obj_number, id.gen_number)) {
+                        continue;
                     }
+                    cx.check(Kind::DecodedBytes, REFERENCE_BYTES)?;
+                    xref.get::<Dict<'_>>(id.into())
                 }
-            }
-            if let Some(kids) = node.get::<Array<'_>>(b"Kids") {
-                let mut held = Vec::new();
-                for kid in kids.iter::<Dict<'_>>() {
-                    cx.check(Kind::Work, 1)?;
-                    cx.check(Kind::DecodedBytes, DICT_BYTES)?;
-                    held.push((kid, depth + 1));
-                }
-                // 後ろから積むので、木の順にたどる
-                stack.extend(held.into_iter().rev());
+                MaybeRef::NotRef(Object::Dict(kid)) => Some(kid),
+                MaybeRef::NotRef(_) => None,
+            };
+            // 辞書でない項目から後ろは、読まない
+            let Some(kid) = kid else {
+                open.pop();
+                continue;
+            };
+            cx.check(Kind::Work, lookup_work(kid.data()))?;
+            if open.len() as u32 <= MAX_TREE_DEPTH {
+                node(xref, &kid, &mut ranges, &mut open, cx)?;
             }
         }
     }
     // 開始ページの順に並べる（安定な並べ替え）。同じ開始ページが重なれば、木の順で後のものを使う（推定）
-    ranges.sort_by_key(|(start, _)| *start);
+    ranges.sort_by_key(|range| range.start);
     let mut out = Vec::with_capacity(count);
     for index in 0..count {
-        cx.check(Kind::Work, 1)?;
         let index = i64::try_from(index).unwrap_or(i64::MAX);
         // 開始ページが `index` 以下の範囲のうち、最後のもの
         let found = ranges
-            .partition_point(|(start, _)| *start <= index)
+            .partition_point(|range| range.start <= index)
             .checked_sub(1)
-            .and_then(|at| ranges.get(at))
-            .map(|(start, range)| label(range, index.saturating_sub(*start)))
-            .filter(|label| !label.is_empty());
-        out.push(found);
+            .and_then(|at| ranges.get(at));
+        let prefix = found
+            .and_then(|range| range.prefix.as_ref())
+            .map_or(b"".as_slice(), |prefix| prefix.as_bytes());
+        cx.check(Kind::Work, lookup_work(prefix).saturating_add(1))?;
+        cx.check(
+            Kind::DecodedBytes,
+            (prefix.len() as u64)
+                .saturating_mul(LABEL_BYTES_PER_PREFIX)
+                .saturating_add(LABEL_BYTES),
+        )?;
+        out.push(
+            found
+                .map(|range| label(range, index.saturating_sub(range.start)))
+                .filter(|label| !label.is_empty()),
+        );
     }
     Ok(out)
 }
 
+/// 数の木の節（7.9.7）を読む。範囲を `ranges` に足し、子の配列を `open` に積む（木の順にたどる）
+fn node<'a>(
+    xref: &XRef,
+    node: &Dict<'a>,
+    ranges: &mut Vec<Range<'a>>,
+    open: &mut Vec<ArrayIter<'a>>,
+    cx: &mut Cx<'_>,
+) -> Result<(), Stop> {
+    cx.check(
+        Kind::Work,
+        value_work(xref, node, b"Nums").saturating_add(value_work(xref, node, b"Kids")),
+    )?;
+    if let Some(nums) = node.get::<Array<'a>>(b"Nums") {
+        cx.check(Kind::Work, lookup_work(nums.data()))?;
+        let mut items = nums.iter::<Object<'a>>();
+        while let (Some(key), Some(value)) = (items.next(), items.next()) {
+            cx.check(
+                Kind::Work,
+                read_work(&key)
+                    .saturating_add(reread_work(xref, &value))
+                    .saturating_add(1),
+            )?;
+            if let (Object::Number(key), Object::Dict(range)) = (key, value) {
+                ranges.push(Range::read(key.as_i64(), &range, cx)?);
+            }
+        }
+    }
+    if let Some(kids) = node.get::<Array<'a>>(b"Kids") {
+        cx.check(Kind::Work, lookup_work(kids.data()))?;
+        open.push(kids.raw_iter());
+    }
+    Ok(())
+}
+
 /// 範囲の書き方（12.4.2 の表）で、範囲の先頭から `offset` 番目のページのラベル。`St` は始めの番号（既定 1）、
 /// `S` は数の書き方、`P` は前に付ける文字列
-fn label(range: &Dict<'_>, offset: i64) -> String {
+fn label(range: &Range<'_>, offset: i64) -> String {
     let prefix = range
-        .get::<PdfString<'_>>(b"P")
+        .prefix
+        .as_ref()
         .map(|prefix| strings::text(prefix.as_bytes()))
         .unwrap_or_default();
-    let start = range
-        .get::<i64>(b"St")
-        .filter(|start| *start >= 1)
-        .unwrap_or(1);
-    let number = u64::try_from(start.saturating_add(offset))
+    let number = u64::try_from(range.first.saturating_add(offset))
         .unwrap_or(1)
         .max(1);
-    let style = range.get::<Name<'_>>(b"S");
-    let digits = match style.as_deref() {
+    let digits = match range.style.as_deref() {
         Some(b"D") => number.to_string(),
         Some(b"R") => roman(number),
         Some(b"r") => roman(number).to_lowercase(),

@@ -611,8 +611,7 @@ fn names_sheets_by_page_labels() {
 #[test]
 fn counts_memory_of_page_labels() {
     use zumen_base::Kind;
-    // hayro-syntax は、読んだ辞書ごとに鍵の表を作る。ページラベルの木の、持っておく節と範囲の辞書は、1 つを
-    // 1,024 バイトと数える。直接書いた節を 1,000 並べると、節と範囲で 2,000 の辞書を持つ
+    // ページラベルの範囲は、1 つを 256 バイトと数える
     let tree = format!(
         "/PageLabels << /Kids [{}] >>",
         "<< /Nums [0 << /S /D >>] >> ".repeat(1_000)
@@ -620,7 +619,56 @@ fn counts_memory_of_page_labels() {
     let mut document = Document::new(vec![Page::new("")]);
     document.catalog = &tree;
     let bytes = used(&document.bytes(), Kind::DecodedBytes);
-    assert!(bytes >= 2_000 * 1_024, "{bytes}");
+    assert!(bytes >= 1_000 * 256, "{bytes}");
+    // ラベルは図面モデルに写すので、前に付ける文字列を、ページごとに読み直す手間とメモリに数える
+    let tree = format!(
+        "/PageLabels << /Nums [0 << /P ({}) >>] >>",
+        "x".repeat(10_000)
+    );
+    let mut document = Document::new(vec![Page::new(""); 100]);
+    document.catalog = &tree;
+    let bytes = used(&document.bytes(), Kind::DecodedBytes);
+    assert!(bytes >= 100 * 10_000 * 6, "{bytes}");
+    let work = used(&document.bytes(), Kind::Work);
+    assert!(work >= 100 * 10_000 / 4, "{work}");
+}
+
+#[test]
+fn counts_repeated_references_in_page_labels() {
+    use zumen_base::Kind;
+    // `Nums` の値は、参照を解くたびに読み直す
+    let range = format!("<< /P ({}) >>", "x".repeat(10_000)).into_bytes();
+    let nums: String = (0..1_000).map(|at| format!("{at} 3 0 R ")).collect();
+    let tree = format!("/PageLabels << /Nums [{nums}] >>");
+    let mut document = Document::new(vec![Page::new("")]);
+    document.catalog = &tree;
+    document.objects = vec![range];
+    let work = used(&document.bytes(), Kind::Work);
+    assert!(work >= 1_000 * 10_000 / 4, "{work}");
+    // `Kids` の同じ参照は、2 度解かない
+    let node = format!("<< /Nums [0 << /P ({}) >>] >>", "x".repeat(10_000)).into_bytes();
+    let tree = format!("/PageLabels << /Kids [{}] >>", "3 0 R ".repeat(10_000));
+    let mut document = Document::new(vec![Page::new("")]);
+    document.catalog = &tree;
+    document.objects = vec![node];
+    let work = used(&document.bytes(), Kind::Work);
+    assert!(work < 1_000_000, "{work}");
+    let (drawing, _) = lift(&document.bytes());
+    assert_eq!(
+        drawing.sheets[0].name.as_deref().map(str::len),
+        Some(10_000)
+    );
+    // 辞書でない項目から後ろは、読まない
+    let mut document = Document::new(vec![Page::new(""), Page::new("")]);
+    document.catalog =
+        "/PageLabels << /Kids [<< /Nums [0 << /S /r >>] >> 5 << /Nums [1 << /S /D >>] >>] >>";
+    let (drawing, _) = lift(&document.bytes());
+    let names: Vec<_> = drawing
+        .sheets
+        .iter()
+        .map(|sheet| sheet.name.clone())
+        .collect();
+    assert_eq!(names, [Some("i".to_owned()), Some("ii".to_owned())]);
 }
 
 #[test]
@@ -2244,6 +2292,16 @@ fn be32(out: &mut Vec<u8>, value: u32) {
 
 /// `glyphs` を字形 0 から並べた、最小の TrueType のフォント（glyf・head・hhea・hmtx・loca・maxp）。loca は長い形
 fn truetype(glyphs: &[Vec<u8>]) -> Vec<u8> {
+    truetype_with(glyphs, None, Vec::new())
+}
+
+/// [`truetype`] に表 `extra` を足したフォント。`limits` があれば、`maxp` を 1.0 版にして、影の領域の点・記憶域・
+/// 関数の定義・命令の定義・スタックの項目の数を書く
+fn truetype_with(
+    glyphs: &[Vec<u8>],
+    limits: Option<[u16; 5]>,
+    extra: Vec<(&[u8; 4], Vec<u8>)>,
+) -> Vec<u8> {
     let mut glyf = Vec::new();
     let mut loca = Vec::new();
     for glyph in glyphs {
@@ -2266,8 +2324,33 @@ fn truetype(glyphs: &[Vec<u8>]) -> Vec<u8> {
         be16(&mut head, value);
     }
     let mut maxp = Vec::new();
-    be32(&mut maxp, 0x0000_5000);
-    be16(&mut maxp, count);
+    match limits {
+        None => {
+            be32(&mut maxp, 0x0000_5000);
+            be16(&mut maxp, count);
+        }
+        Some([twilight, storage, functions, instructions, stack]) => {
+            be32(&mut maxp, 0x0001_0000);
+            for value in [
+                count,
+                100,
+                10,
+                100,
+                10,
+                2,
+                twilight,
+                storage,
+                functions,
+                instructions,
+                stack,
+                1000,
+                10,
+                2,
+            ] {
+                be16(&mut maxp, value);
+            }
+        }
+    }
     let mut hhea = Vec::new();
     be32(&mut hhea, 0x0001_0000);
     for value in [
@@ -2280,7 +2363,7 @@ fn truetype(glyphs: &[Vec<u8>]) -> Vec<u8> {
         be16(&mut hmtx, 1000);
         be16(&mut hmtx, 0);
     }
-    let tables = [
+    let mut tables = vec![
         (b"glyf", glyf),
         (b"head", head),
         (b"hhea", hhea),
@@ -2288,6 +2371,9 @@ fn truetype(glyphs: &[Vec<u8>]) -> Vec<u8> {
         (b"loca", loca),
         (b"maxp", maxp),
     ];
+    tables.extend(extra);
+    // 表の目録は、タグの順に並べる
+    tables.sort_by_key(|(tag, _)| **tag);
     let mut font = Vec::new();
     be32(&mut font, 0x0001_0000);
     for value in [tables.len() as u16, 64, 2, 32] {
@@ -2313,6 +2399,11 @@ fn truetype(glyphs: &[Vec<u8>]) -> Vec<u8> {
 /// 字形 1 に、`points` 個の点を同じ所に置いた輪郭を 1 つ持つ、最小の TrueType のフォント。点は、旗の繰り返しと
 /// 「前と同じ座標」で書くので、座標のバイトを持たない
 fn outline_font(points: u16) -> Vec<u8> {
+    truetype(&[Vec::new(), outline_glyph(points)])
+}
+
+/// [`outline_font`] の字形
+fn outline_glyph(points: u16) -> Vec<u8> {
     let mut glyph = Vec::new();
     // 輪郭の数・外接矩形・最後の点・命令の長さ
     for value in [1, 0, 0, 100, 100, points - 1, 0] {
@@ -2325,7 +2416,45 @@ fn outline_font(points: u16) -> Vec<u8> {
         glyph.extend([0x01 | 0x08 | 0x10 | 0x20, (run - 1) as u8]);
         left -= run;
     }
-    truetype(&[Vec::new(), glyph])
+    glyph
+}
+
+/// 字形の輪郭を TrueType の命令に頼るフォント（`is_hint_reliant`）の形をしたフォント。ファミリーの名前（`name` の
+/// 1 番）を `family`、`fpgm` と `prep` を `program`、影の領域の点を 65,535 にする
+fn hinted_font(family: &str, program: &[u8]) -> Vec<u8> {
+    let text: Vec<u8> = family.encode_utf16().flat_map(u16::to_be_bytes).collect();
+    let mut name = Vec::new();
+    // 形式・数・文字列の位置と、Windows の英語のファミリーの名前の項目
+    for value in [0, 1, 18, 3, 1, 0x409, 1, text.len() as u16, 0] {
+        be16(&mut name, value);
+    }
+    name.extend(&text);
+    truetype_with(
+        &[Vec::new(), outline_glyph(3)],
+        Some([65_535, 0, 0, 0, 100]),
+        vec![
+            (b"fpgm", program.to_vec()),
+            (b"name", name),
+            (b"prep", program.to_vec()),
+        ],
+    )
+}
+
+/// 字形 1 を覆う、1 バイトの字形を持つ `VARC` の表（variable composites の 1.0 版）を足したフォント
+fn varc_font() -> Vec<u8> {
+    let mut varc = Vec::new();
+    // 版と、覆う字形・変化の値・条件・軸の並び・字形の位置
+    for value in [0x0001_0000, 24, 0, 0, 0, 30] {
+        be32(&mut varc, value);
+    }
+    // 覆う字形の形式 1
+    for value in [1, 1, 1] {
+        be16(&mut varc, value);
+    }
+    // 字形の INDEX（数・位置のバイト数・位置・中身）
+    be32(&mut varc, 1);
+    varc.extend([1, 1, 2, 0]);
+    truetype_with(&[Vec::new(), outline_glyph(3)], None, vec![(b"VARC", varc)])
 }
 
 /// [`outline_font`] の字形 1 を `count` 字、描画モード `mode` で描くページ。フォントは Identity-H の Type0 の
@@ -2617,6 +2746,17 @@ fn counts_memory_of_unicode_text() {
 /// TrueType のフォントの字形 1 が、空の字形 2 を `components` 回使う合成の字形のページ。`count` 字を描画モード
 /// `mode` で描く
 fn composite_document(components: u16, count: usize, mode: u32) -> Vec<u8> {
+    font_document(
+        "/CIDFontType2",
+        "/FontFile2",
+        truetype(&[Vec::new(), composite_glyph(components), Vec::new()]),
+        count,
+        mode,
+    )
+}
+
+/// `components` 個の部品（字形 2）を持つ合成の字形
+fn composite_glyph(components: u16) -> Vec<u8> {
     let mut glyph = Vec::new();
     // 輪郭の数（負は合成の字形）・外接矩形
     for value in [0xFFFF, 0, 0, 100, 100] {
@@ -2629,13 +2769,7 @@ fn composite_document(components: u16, count: usize, mode: u32) -> Vec<u8> {
         be16(&mut glyph, 2);
         glyph.extend([0, 0]);
     }
-    font_document(
-        "/CIDFontType2",
-        "/FontFile2",
-        truetype(&[Vec::new(), glyph, Vec::new()]),
-        count,
-        mode,
-    )
+    glyph
 }
 
 /// 字形を 1 つ（`endchar` だけ）持つ、最小の CFF のフォント（Adobe の Technical Note #5176）。名前・Top DICT・
@@ -2713,20 +2847,112 @@ fn counts_programs_of_clipping_text() {
     assert!(standard < 100 * 65_536, "{standard}");
 }
 
+#[test]
+fn counts_composite_glyphs_of_a_table_at_the_start_of_the_file() {
+    use zumen_base::Kind;
+    // skrifa は、表の記録の位置が 0 の表も読む。glyf を、表の目録（12 + 16 × 6 = 108 バイト）から始まる表とし、
+    // 記録の位置を 0、長さと loca を 108 だけ増やす
+    let mut font = truetype(&[Vec::new(), composite_glyph(1_000), Vec::new()]);
+    let be32_at = |font: &[u8], at: usize| u32::from_be_bytes(font[at..at + 4].try_into().unwrap());
+    assert_eq!(&font[12..16], b"glyf");
+    assert_eq!(&font[76..80], b"loca");
+    let length = be32_at(&font, 24);
+    font[20..24].copy_from_slice(&0u32.to_be_bytes());
+    font[24..28].copy_from_slice(&(length + 108).to_be_bytes());
+    let (loca, size) = (be32_at(&font, 84) as usize, be32_at(&font, 88) as usize);
+    for entry in font[loca..loca + size].as_chunks_mut::<4>().0 {
+        *entry = (u32::from_be_bytes(*entry) + 108).to_be_bytes();
+    }
+    let document = font_document("/CIDFontType2", "/FontFile2", font, 10, 7);
+    let clip = used(&document, Kind::Work);
+    assert!(clip >= 10 * 2_049 * 1_000, "{clip}");
+}
+
+#[test]
+fn counts_setup_programs_of_hint_reliant_fonts() {
+    use zumen_base::Kind;
+    // skrifa は、命令に頼るフォントを読むときに、`fpgm` と `prep` を 1 度ずつ、100 万の命令まで動かす。走査と
+    // hayro-interpret が読むので、2 × 2 × 100 万 × 8 を数える
+    let program = [0xB0, 0, 0x21]; // PUSHB[0] 0・POP
+    let document = |family, program: &[u8]| {
+        font_document(
+            "/CIDFontType2",
+            "/FontFile2",
+            hinted_font(family, program),
+            1,
+            0,
+        )
+    };
+    let hinted = used(&document("MingLiU", &program), Kind::Work);
+    assert!(hinted >= 2 * 2 * 1_000_000 * 8, "{hinted}");
+    // 影の領域の点は 1 つ 17 バイト、走査と hayro-interpret で 2 度作る
+    let bytes = used(&document("MingLiU", &program), Kind::DecodedBytes);
+    assert!(bytes >= 2 * 65_539 * 17, "{bytes}");
+    // 頼らないフォントと、空のプログラムは、動かない
+    let plain = used(&document("Plain", &program), Kind::Work);
+    assert!(plain < 1_000_000, "{plain}");
+    let empty = used(&document("MingLiU", &[]), Kind::Work);
+    assert!(empty < 1_000_000, "{empty}");
+}
+
+#[test]
+fn refuses_clipping_text_of_programs_without_a_bound() {
+    // 切り抜きにする字の輪郭は、字ごとに作り直す。命令に頼るフォントは、たどる字形ごとに 100 万の命令が動き、VARC は、
+    // 部品ごとに条件を評価する。上限で数えると文書を読めないので、解釈しない
+    for font in [hinted_font("MingLiU", &[]), varc_font()] {
+        let clip = font_document("/CIDFontType2", "/FontFile2", font.clone(), 10, 7);
+        let (drawing, diag) = lift(&clip);
+        assert!(elements(&drawing).is_empty());
+        assert!(
+            diag.iter().any(|d| d.code() == codes::PDF_PAGE_DROPPED),
+            "{diag:?}"
+        );
+        // 塗るだけなら、輪郭を字ごとに作り直さない
+        let fill = font_document("/CIDFontType2", "/FontFile2", font, 10, 0);
+        let (_, diag) = lift(&fill);
+        assert!(
+            !diag.iter().any(|d| d.code() == codes::PDF_PAGE_DROPPED),
+            "{diag:?}"
+        );
+    }
+}
+
+/// 線を描くフォーム
+const LINE_FORM: &str = "/Type /XObject /Subtype /Form /BBox [0 0 100 100]";
+
 /// 相互参照の表の 5 番の項目が 4 番の前の定義（線を描くフォーム）を指し、4 番の後ろの定義 `later` は表にないファイル。
-/// ページの資源は `/X 4 0 R /Y 5 0 R`、内容は `content`。`extra` は 7 番からのオブジェクトで、表に載せる
+/// ページの資源は `/XObject << /X 4 0 R /Y 5 0 R >>`、内容は `content`。`extra` は 7 番からのオブジェクトで、表に載せる
 fn repaired_document(content: &str, later: Vec<u8>, extra: &[Vec<u8>]) -> Vec<u8> {
-    let form = "/Type /XObject /Subtype /Form /BBox [0 0 100 100]";
+    let first = common::stream(LINE_FORM, "0 0 m 10 10 l S");
+    let resources = "/XObject << /X 4 0 R /Y 5 0 R >>";
+    repaired_with(resources, "", first, content, later, extra)
+}
+
+/// [`repaired_document`] の、ページの資源を `resources`、カタログに足す項目を `catalog`、4 番の前の定義を `first` に
+/// したファイル
+fn repaired_with(
+    resources: &str,
+    catalog: &str,
+    first: Vec<u8>,
+    content: &str,
+    later: Vec<u8>,
+    extra: &[Vec<u8>],
+) -> Vec<u8> {
     let mut objects: Vec<(u32, Vec<u8>)> = vec![
-        (1, b"<< /Type /Catalog /Pages 2 0 R >>".to_vec()),
+        (
+            1,
+            format!("<< /Type /Catalog /Pages 2 0 R {catalog} >>").into_bytes(),
+        ),
         (2, b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec()),
         (
             3,
-            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 6 0 R \
-              /Resources << /XObject << /X 4 0 R /Y 5 0 R >> >> >>"
-                .to_vec(),
+            format!(
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 6 0 R \
+                 /Resources << {resources} >> >>"
+            )
+            .into_bytes(),
         ),
-        (4, common::stream(form, "0 0 m 10 10 l S")),
+        (4, first),
         (6, common::stream("", content)),
     ];
     for (number, body) in (7u32..).zip(extra) {
@@ -2762,7 +2988,7 @@ fn walks_objects_after_repairing_cross_references() {
     // hayro-syntax は、相互参照の表の項目が別の番号のオブジェクトを指すと、表をファイルの全体から作り直し、同じ番号の
     // 後ろの定義を使う。走査の前に作り直させるので、走査も hayro-interpret も、4 番の後ろの定義（10 万の `w` と
     // 長方形）を使う
-    let form = "/Type /XObject /Subtype /Form /BBox [0 0 100 100]";
+    let form = LINE_FORM;
     let later = common::stream(form, format!("{}0 0 10 10 re f", "1 w ".repeat(100_000)));
     let src = repaired_document("/X Do /Y Do", later, &[]);
     assert!(used(&src, Kind::Work) >= 100_000);
@@ -2799,18 +3025,181 @@ fn walks_objects_after_repairing_cross_references() {
 }
 
 #[test]
-fn counts_object_streams_before_walking() {
+fn settles_only_entries_reached_from_the_document() {
     use zumen_base::Kind;
-    // 走査の前に、相互参照の表のすべての項目を引く。オブジェクトのストリームは、hayro-syntax が展開して文書の間
-    // 持つので、使われなくても、展開したバイト数を数える
+    let later = common::stream(
+        LINE_FORM,
+        format!("{}0 0 10 10 re f", "1 w ".repeat(100_000)),
+    );
+    let first = || common::stream(LINE_FORM, "0 0 m 10 10 l S");
+    let resources = "/XObject << /X 4 0 R >>";
+    let shapes = |src: &[u8]| {
+        let (drawing, _) = lift(src);
+        elements(&drawing)
+            .iter()
+            .map(|element| format!("{:?}", element.shape))
+            .collect::<Vec<_>>()
+    };
+    // カタログとページの辞書からたどれない項目は、別の番号のオブジェクトを指していても引かない。表を作り直さない
+    // ので、4 番は前の定義（線）のまま。ハッシュの順に引くと、環境によって数える量が変わる
+    let src = repaired_with(resources, "", first(), "/X Do", later.clone(), &[]);
+    let work = used(&src, Kind::Work);
+    assert!(work < 100_000, "{work}");
+    assert!(shapes(&src).iter().all(|shape| !shape.contains("Hatch")));
+    // カタログの知らない鍵からでも、たどれる項目は引く。ページを読むときに引かれても、数えた定義と同じものを読む
+    let src = repaired_with(
+        resources,
+        "/Unknown [<< /Deep 5 0 R >>]",
+        first(),
+        "/X Do",
+        later.clone(),
+        &[],
+    );
+    let work = used(&src, Kind::Work);
+    assert!(work >= 100_000, "{work}");
+    assert!(shapes(&src).iter().any(|shape| shape.contains("Hatch")));
+    // 辞書の後ろに読めないストリームがある定義は、オブジェクトとしては読めず、辞書としてなら読めるので、辞書としても
+    // 引く。hayro-interpret がフォントの辞書として引くと、そこで作り直す
+    let junk = b"<< /Type /Junk >>\nstream\njunk".to_vec();
+    let src = repaired_with(
+        "/XObject << /X 4 0 R >> /Font << /Y 5 0 R >>",
+        "",
+        junk,
+        "/X Do",
+        later,
+        &[],
+    );
+    let work = used(&src, Kind::Work);
+    assert!(work >= 100_000, "{work}");
+    assert!(shapes(&src).iter().any(|shape| shape.contains("Hatch")));
+}
+
+#[test]
+fn reads_only_objects_reached_from_the_document() {
+    use zumen_base::Kind;
+    // 走査の前に引くのは、参照でたどれるオブジェクトだけ。どの鍵の値かは見ない
+    let big = format!("[{}]", "0 ".repeat(100_000)).into_bytes();
     let mut document = Document::new(vec![Page::new("0 0 m 10 10 l S")]);
-    let plain = used(&document.bytes(), Kind::DecodedBytes);
-    document.objects = vec![common::stream(
-        "/Type /ObjStm /N 1 /First 4",
-        format!("7 0 {}", " ".repeat(100_000)),
-    )];
-    let with = used(&document.bytes(), Kind::DecodedBytes);
-    assert!(with >= plain + 2 * 100_000, "{plain} {with}");
+    let plain = used(&document.bytes(), Kind::Work);
+    document.objects = vec![big];
+    let unreached = used(&document.bytes(), Kind::Work);
+    assert!(unreached < plain + 100, "{plain} {unreached}");
+    document.catalog = "/Unknown 3 0 R";
+    let reached = used(&document.bytes(), Kind::Work);
+    assert!(reached >= plain + 200_000 / 4, "{plain} {reached}");
+}
+
+#[test]
+fn counts_streams_read_without_a_right_length() {
+    use zumen_base::Kind;
+    // `Length` が合わないストリームは、hayro-syntax が、読むたびに本体を読み進めて `endstream` を探す
+    let body = format!("%{}", "x".repeat(99_999));
+    let calls = "/F Do ".repeat(100);
+    let form = |length: &str| {
+        let mut document =
+            Document::new(vec![Page::new(&calls).resources("/XObject << /F 3 0 R >>")]);
+        document.objects =
+            vec![format!("<< {length} {LINE_FORM} >>\nstream\n{body}\nendstream").into_bytes()];
+        used(&document.bytes(), Kind::Work)
+    };
+    let right = form("/Length 100000");
+    for length in ["/Length 1", ""] {
+        let wrong = form(length);
+        assert!(wrong >= right + 100 * 100_000 / 4, "{right} {wrong}");
+    }
+    // ページの内容も同じ
+    let contents = format!("[{}]", "3 0 R ".repeat(100));
+    let content = |length: &str| {
+        let mut document = Document::new(vec![Page::new("").contents(&contents)]);
+        document.objects = vec![format!("<< {length} >>\nstream\n{body}\nendstream").into_bytes()];
+        used(&document.bytes(), Kind::Work)
+    };
+    let right = content("/Length 100000");
+    let wrong = content("");
+    assert!(wrong >= right + 100 * 100_000 / 4, "{right} {wrong}");
+}
+
+#[test]
+fn counts_values_of_objects_read_again() {
+    use zumen_base::Kind;
+    // hayro-syntax は、鍵を引くたびに値の参照を解き、型が違っても読み飛ばす。読み直す辞書の値が大きな配列を指せば、
+    // 使うたびに読む
+    let big = format!("[{}]", "0 ".repeat(10_000)).into_bytes();
+    let many = |calls: &str, resources: &str, objects: Vec<Vec<u8>>| {
+        let mut document = Document::new(vec![Page::new(calls).resources(resources)]);
+        document.objects = objects;
+        used(&document.bytes(), Kind::Work)
+    };
+    let calls = "/F Do ".repeat(100);
+    let resources = "/XObject << /F 3 0 R >>";
+    let form = |extra: &str| common::stream(&format!("{LINE_FORM} {extra}"), "");
+    let plain = many(&calls, resources, vec![form("")]);
+    let once = 100 * 20_000 / 4;
+    // 1 段
+    let work = many(&calls, resources, vec![form("/Matrix 4 0 R"), big.clone()]);
+    assert!(work >= plain + once, "{plain} {work}");
+    // `DecodeParms` の配列の辞書の値まで、3 段
+    let filtered = common::stream(
+        &format!("{LINE_FORM} /Filter /ASCIIHexDecode /DecodeParms 4 0 R"),
+        ">",
+    );
+    let chain = vec![
+        filtered,
+        b"[5 0 R]".to_vec(),
+        b"<< /Predictor 6 0 R >>".to_vec(),
+        big.clone(),
+    ];
+    let work = many(&calls, resources, chain);
+    assert!(work >= plain + once, "{plain} {work}");
+    // 拡張グラフィックス状態
+    let state = "/G gs ".repeat(100);
+    let plain = many(&state, "/ExtGState << /G << /LW 1 >> >>", Vec::new());
+    let chain = vec![b"[4 0 R 12]".to_vec(), big.clone()];
+    let work = many(&state, "/ExtGState << /G << /Font 3 0 R >> >>", chain);
+    assert!(work >= plain + once, "{plain} {work}");
+    // 同じ参照は、書いた回数だけ読む
+    let list = format!("[[{}] 0]", "4 0 R ".repeat(10)).into_bytes();
+    let chain = vec![list, big.clone()];
+    let work = many(&state, "/ExtGState << /G << /D 3 0 R >> >>", chain);
+    assert!(work >= plain + 10 * once, "{plain} {work}");
+    // 資源の辞書の、種類の辞書の中の資源は、名前で引くまで読まない
+    let plain = many(&calls, resources, vec![form("")]);
+    let unused = vec![form("/Resources << /Font << /F1 4 0 R >> >>"), big.clone()];
+    let work = many(&calls, resources, unused);
+    assert!(work < plain + once, "{plain} {work}");
+    // 種類の辞書を参照で書けば、読む
+    let kinds = vec![form("/Resources << /Font 4 0 R >>"), big.clone()];
+    let work = many(&calls, resources, kinds);
+    assert!(work >= plain + once, "{plain} {work}");
+    // ほかの鍵は、hayro-syntax が読まない
+    let other = vec![form("/Resources << /Other 4 0 R >>"), big.clone()];
+    let work = many(&calls, resources, other);
+    assert!(work < plain + once, "{plain} {work}");
+    // ページの値も、ページごとに読む
+    let mut document = Document::new(vec![Page::new("").extra("/Group 3 0 R"); 100]);
+    document.objects = vec![big.clone()];
+    let work = used(&document.bytes(), Kind::Work);
+    assert!(work >= once, "{work}");
+    // 注釈は、項目を読むたびに数える
+    let annots = format!("/Annots [{}]", "3 0 R ".repeat(100));
+    let mut document = Document::new(vec![Page::new("").extra(&annots)]);
+    document.objects =
+        vec![format!("<< /Subtype /Text /A {} >>", String::from_utf8_lossy(&big)).into_bytes()];
+    let work = used(&document.bytes(), Kind::Work);
+    assert!(work >= once, "{work}");
+    // 注釈が指す親のページは読まないので、注釈の数の 2 乗にならない
+    let refs: String = (0..1_000).map(|at| format!("{} 0 R ", at + 3)).collect();
+    let annots = format!("/Annots [{refs}]");
+    let mut document = Document::new(vec![Page::new("").extra(&annots)]);
+    document.objects = (0..1_000)
+        .map(|_| b"<< /Subtype /Link /Rect [0 0 1 1] /P 1003 0 R >>".to_vec())
+        .collect();
+    let work = used(&document.bytes(), Kind::Work);
+    assert!(work < 100_000, "{work}");
+    // 親は読まないので、ページの木の配列は、ページごとに数えない
+    let document = Document::new(vec![Page::new(""); 1_000]);
+    let work = used(&document.bytes(), Kind::Work);
+    assert!(work < 1_000_000, "{work}");
 }
 
 #[test]
