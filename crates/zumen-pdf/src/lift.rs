@@ -6,12 +6,11 @@
 //! 診断する。
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::Arc;
 
 use hayro_interpret::{
     Context, InterpreterCache, InterpreterSettings, RenderContent, interpret_page,
 };
-use hayro_syntax::object::{Array, Dict, Name, ObjectIdentifier, String as PdfString};
+use hayro_syntax::object::{Array, Dict, Name, Object, ObjectIdentifier, String as PdfString};
 use hayro_syntax::page::Page;
 use hayro_syntax::{LoadPdfError, Pdf as Document, PdfData, PdfVersion};
 use kurbo::{Affine, Rect};
@@ -30,12 +29,19 @@ use crate::{MAGIC, PdfFile, RecordKind, strings};
 /// 形式固有の情報の値の型の契約の版（決定 0115）
 const SCHEMA: u32 = 1;
 
-/// ファイルの後ろに足すと、hayro-syntax が相互参照の表を読まず、ファイルを走査した表で読む（読めない位置の
-/// `startxref`、7.5.5）。走査した表は、1 つの位置に 1 つの番号しか持たないので、順がハッシュによらない
-const NO_CROSS_REFERENCES: &[u8] = b"\nstartxref\n-1\n%%EOF\n";
+/// 相互参照の表の位置を指す語（7.5.5）
+const START_XREF: &[u8] = b"startxref";
 
-/// トレーラーの暗号化の鍵（7.6.1）
-const ENCRYPT: &[u8] = b"Encrypt";
+/// ファイルの後ろに足すバイト列の前に置く。`t` で始まるので、ファイルの終わりで読みかけのオブジェクトを読めるものに
+/// しない（hayro-syntax の `Object::skip`）
+const SEPARATOR: &[u8] = b"\ntrailer\n";
+
+/// ファイルの後ろに足すと、hayro-syntax が相互参照の表を読まず、ファイルを走査した表で読む（読めない位置）
+const NO_CROSS_REFERENCES: &[u8] = b"startxref\n-1\n%%EOF\n";
+
+/// ファイルの後ろに足す定義の番号と本体。走査で作った表にだけ入る（[`with_witness`]）
+const WITNESS: u32 = 2_147_483_646;
+const WITNESS_BODY: &[u8] = b" 0 obj\n1\nendobj\n";
 
 /// 表示グループの外の内容を置くレイヤの名前
 const PAGE_LAYER_NAME: &str = "0";
@@ -57,24 +63,10 @@ impl Lift<Drawing2D> for PdfFile {
                         .and_then(parse_version)
                 });
         // 相互参照・ページの木を読む。壊れた相互参照は、オブジェクトを探し直して読む（hayro-syntax、7.5）
-        let first = Document::new(PdfData::from(Arc::clone(&self.src)))
-            .map_err(|error| not_loaded(cx, error, &header))?;
-        // ページの木のとおりに読めていなければ、ページの列が環境で変わりうるので、走査した表で読み直す
-        let follows = page::follows_tree(&first, Reads::new(first.xref(), &self.src), cx)
-            .map_err(|stop| stopped(cx, stop, &header))?;
-        let reloaded = if follows {
-            None
-        } else {
-            let bytes = without_tables(&self.src, first.xref().root_id());
-            Some(
-                Document::new(PdfData::from(bytes))
-                    .map_err(|error| not_loaded(cx, error, &header))?,
-            )
-        };
+        let document = load(&self.src).map_err(|error| not_loaded(cx, error, &header))?;
         let objects = objects(self);
         Lifter {
-            document: reloaded.as_ref().unwrap_or(&first),
-            first: &first,
+            document: &document,
             source: &self.src,
             objects: &objects,
             header,
@@ -95,45 +87,66 @@ fn not_loaded(cx: &mut Cx, error: LoadPdfError, place: &Ref) -> Error {
     error
 }
 
-/// ページの木を読めない文書を、走査した表で読み直すバイト列。読み直しは、後ろのトレーラーの `Root` を選ぶので、
-/// 1 度目と同じカタログを指すトレーラーを足す。暗号化の辞書もトレーラーから読むので、暗号化の鍵のある文書には足さない。
-/// 写しはファイルの大きさまでで、読み直すかが環境で変わる文書でも数える量を変えないよう、予算に数えない。足すバイト列は
-/// `t` で始まるので、ファイルの終わりで読みかけのオブジェクトを読めるものにしない（hayro-syntax の `Object::skip`）
-fn without_tables(source: &[u8], root: ObjectIdentifier) -> Vec<u8> {
-    let mut bytes = source.to_vec();
-    if !names_encryption(source) {
-        let trailer = format!(
-            "\ntrailer\n<< /Root {} {} R >>",
-            root.obj_number, root.gen_number
-        );
-        bytes.extend_from_slice(trailer.as_bytes());
+/// 文書を読む。ページの木を読めないと、hayro-syntax は、表の項目を順に引いてページを探す（`Pages::new_brute_force`）。
+/// 同じ位置の項目の順は表（`FxHashMap`）のハッシュで決まり、32 ビットと 64 ビットの環境で違うので、どの定義をページに
+/// するか、ページがあるかが環境で変わる。そこで、表を作り直さずにページの木を読めた文書だけをそのまま使い、ほかは、
+/// ファイルを走査した表で読み直す。走査した表では、同じ位置の項目のうち読めるものは 1 つで、作り直さないので、順で結果が
+/// 変わらない。読み直す前に 1 度目の文書を放すので、持つのは 1 つだけ。写しはファイルの大きさの 2 倍までで、予算には数えない
+fn load(source: &[u8]) -> Result<Document, LoadPdfError> {
+    let first = Document::new(PdfData::from(with_witness(source)));
+    let keep = match &first {
+        Ok(document) => follows_table(document),
+        Err(LoadPdfError::Decryption(_)) => true,
+        Err(LoadPdfError::Invalid) => false,
+    };
+    if keep {
+        return first;
     }
+    drop(first);
+    let mut bytes = Vec::with_capacity(source.len() + SEPARATOR.len() + NO_CROSS_REFERENCES.len());
+    bytes.extend_from_slice(source);
+    bytes.extend_from_slice(SEPARATOR);
     bytes.extend_from_slice(NO_CROSS_REFERENCES);
-    bytes
+    Document::new(PdfData::from(bytes))
 }
 
-/// 暗号化の鍵の名前があるか。名前は、`#` と 2 桁の 16 進で字を書ける（7.3.5）
-fn names_encryption(source: &[u8]) -> bool {
-    let hex = |byte: u8| char::from(byte).to_digit(16);
-    source.iter().enumerate().any(|(at, byte)| {
-        if *byte != b'/' {
-            return false;
-        }
-        let mut rest = source.get(at + 1..).unwrap_or_default();
-        ENCRYPT.iter().all(|wanted| {
-            let escaped = match rest {
-                [b'#', high, low, ..] => hex(*high).zip(hex(*low)),
-                _ => None,
-            };
-            let (read, used) = match (escaped, rest.first()) {
-                (Some((high, low)), _) => (high * 16 + low, 3),
-                (None, Some(byte)) => (u32::from(*byte), 1),
-                (None, None) => return false,
-            };
-            rest = rest.get(used..).unwrap_or_default();
-            read == u32::from(*wanted)
-        })
-    })
+/// 表を作り直さずに、ページの木を読めたか。探すのは木を読めないときだけで、作り直していなければ、読み込みのとき
+/// （`CachedPages::new`）と同じ読みは同じ結果になるので、探した文書はここで見分けられる。作り直していない表には
+/// [`WITNESS`] がないか、ファイルが書いた項目があるだけなので、引いても結果は環境で変わらない
+fn follows_table(document: &Document) -> bool {
+    let xref = document.xref();
+    if xref
+        .get::<Object<'_>>(ObjectIdentifier::new(WITNESS, 0))
+        .is_some()
+    {
+        return false;
+    }
+    xref.get::<Dict<'_>>(xref.root_id())
+        .and_then(|catalog| catalog.get_ref(b"Pages"))
+        .and_then(|id| xref.get::<Dict<'_>>(id.into()))
+        .is_some_and(|tree| tree.get::<Array<'_>>(b"Kids").is_some())
+}
+
+/// ファイルの後ろに、どの表にも載らない番号の定義を足したバイト列。hayro-syntax は、作り直すとファイルの走査だけで表を
+/// 作るので、引けるかで作り直したかが分かる（`XRef::repair`。公開の API では知れない）。走査は、辞書を読めると辞書の
+/// 終わりまで飛ぶが、足す定義に `>>` はなく、最後に置くので、どの辞書にも飛び越されず、ほかの定義にも上書きされない。
+/// hayro-syntax は最後の `startxref` から表を探すので、その後ろを写して、同じ位置を読ませる。前の位置は変わらない
+fn with_witness(source: &[u8]) -> Vec<u8> {
+    let last = source
+        .windows(START_XREF.len())
+        .rposition(|bytes| bytes == START_XREF);
+    let tail = last.and_then(|at| source.get(at..)).unwrap_or_default();
+    let number = WITNESS.to_string();
+    let mut bytes = Vec::with_capacity(
+        source.len() + tail.len() + 2 * SEPARATOR.len() + number.len() + WITNESS_BODY.len(),
+    );
+    bytes.extend_from_slice(source);
+    bytes.extend_from_slice(SEPARATOR);
+    bytes.extend_from_slice(tail);
+    bytes.extend_from_slice(SEPARATOR);
+    bytes.extend_from_slice(number.as_bytes());
+    bytes.extend_from_slice(WITNESS_BODY);
+    bytes
 }
 
 /// L1 のレコードを指す出所。番号とバイト範囲
@@ -176,9 +189,6 @@ fn stopped(cx: &mut Cx, stop: Stop, place: &Ref) -> Error {
 
 struct Lifter<'d, 'o> {
     document: &'d Document,
-    /// 1 度目に読んだ文書。読み直しても、文書の情報と版はこちらから読む。読み直すかは環境で変わることがあるが、
-    /// 1 度目のトレーラーと表で読む値は変わらない
-    first: &'d Document,
     /// 読み込んだファイル
     source: &'d [u8],
     /// 間接オブジェクト → L1 のレコードの出所
@@ -488,13 +498,13 @@ impl Lifter<'_, '_> {
         match (self.header_version, declared) {
             (Some(header), Some(declared)) => header.max(declared),
             (Some(version), None) | (None, Some(version)) => version,
-            (None, None) => self.first.version(),
+            (None, None) => self.document.version(),
         }
     }
 
     /// 文書の情報の辞書（14.3.3）とページの数を、図面の拡張 `pdf.document` にする。版は拡張の版に持つ
     fn document_draft(&mut self, pages: usize, version: PdfVersion) {
-        let info = self.first.metadata();
+        let info = self.document.metadata();
         let mut fields = Vec::new();
         let texts = [
             ("title", &info.title),
@@ -601,20 +611,5 @@ fn version_name(version: PdfVersion) -> &'static str {
         PdfVersion::Pdf16 => "1.6",
         PdfVersion::Pdf17 => "1.7",
         PdfVersion::Pdf20 => "2.0",
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn finds_the_encryption_key_in_any_spelling() {
-        assert!(names_encryption(b"<< /Encrypt 1 0 R >>"));
-        assert!(names_encryption(b"<< /Encr#79pt 1 0 R >>"));
-        assert!(names_encryption(b"<< /#45#6E#63#72#79#70#74 1 0 R >>"));
-        assert!(!names_encryption(b"<< /Encryp 1 0 R >>"));
-        assert!(!names_encryption(b"<< /Encr#7 1 0 R >>"));
-        assert!(!names_encryption(b"Encrypt"));
     }
 }

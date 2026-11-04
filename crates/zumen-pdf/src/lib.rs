@@ -18,8 +18,6 @@ mod strings;
 #[cfg(feature = "drawing")]
 mod walk;
 
-use std::sync::Arc;
-
 use zumen_base::{Diagnostic, Kind, Ref, codes};
 use zumen_sdk::{ByteRange, Codec, Cx, Error, FileModel, RecordInfo, Signature, Stop};
 
@@ -38,8 +36,8 @@ const HEADER_WINDOW: usize = 1024;
 /// PDF のファイルモデル（L1）。元のバイト列と、そのレコード
 #[derive(Clone, Debug, PartialEq)]
 pub struct PdfFile {
-    /// 元のバイト列。図面モデルへの移しで、hayro-syntax と分け合う
-    src: Arc<Vec<u8>>,
+    /// 元のバイト列
+    src: Vec<u8>,
     records: Vec<Record>,
 }
 
@@ -95,7 +93,7 @@ impl Codec for Pdf {
         }
         let records = file::records(src, cx)?;
         Ok(PdfFile {
-            src: Arc::new(src.to_vec()),
+            src: src.to_vec(),
             records,
         })
     }

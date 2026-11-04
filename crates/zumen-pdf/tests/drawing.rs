@@ -3308,11 +3308,32 @@ fn settles_entries_that_only_some_types_repair() {
         let work = used(&first_definitions(&objects, true), Kind::Work);
         assert!(work >= 100_000, "{reference}: {work}");
     }
+    // 配列の中では、符号か点だけの項目に続けて、参照を読む（`[--0 0 R]` は、`-` と `-0 0 R`）
+    for reference in ["--0 0 R", ".-0 0 R", "-.-0 0 R", "+.-0 0 R", "---0 R"] {
+        let form = common::stream(&format!("{LINE_FORM} /Matrix [{reference} 1 0 0 1 0]"), "");
+        let objects = with_page(
+            resources,
+            vec![
+                ("4 0 obj", content.clone()),
+                ("5 0 obj", form),
+                ("6 0 obj", common::stream(LINE_FORM, "")),
+                ("6 0 obj", later.clone()),
+            ],
+        );
+        let work = used(&first_definitions(&objects, true), Kind::Work);
+        assert!(work >= 100_000, "{reference}: {work}");
+    }
 }
 
 /// 表の項目 `twice` と `shared` が 1 つの位置を指し、`twice` を 2 度定義したファイル。`later` は、ファイルの終わりに足す
 /// 定義。カタログは 1 番、ページの木は 2 番で、`Kids` がない。文書の情報は 98 番
 fn tied_entries(twice: u32, shared: u32, later: &str) -> Vec<u8> {
+    let first = "<< /Type /Page /MediaBox [0 0 100 100] /Contents [] >>";
+    tied_definitions(first, twice, shared, later)
+}
+
+/// [`tied_entries`] の、`twice` のはじめの定義を `first` にしたファイル
+fn tied_definitions(first: &str, twice: u32, shared: u32, later: &str) -> Vec<u8> {
     let page = |side: u32| format!("<< /Type /Page /MediaBox [0 0 {side} {side}] /Contents [] >>");
     let mut src = b"%PDF-1.7\n".to_vec();
     let mut offsets = Vec::new();
@@ -3320,7 +3341,7 @@ fn tied_entries(twice: u32, shared: u32, later: &str) -> Vec<u8> {
         (98, "<< /Title (Kept) >>".to_owned()),
         (1, "<< /Type /Catalog /Pages 2 0 R >>".to_owned()),
         (2, "<< /Type /Pages >>".to_owned()),
-        (twice, page(100)),
+        (twice, first.to_owned()),
     ] {
         offsets.push((number, src.len()));
         src.extend(format!("{number} 0 obj\n{body}\nendobj\n").as_bytes());
@@ -3337,6 +3358,54 @@ fn tied_entries(twice: u32, shared: u32, later: &str) -> Vec<u8> {
         format!("trailer\n<< /Size 99 /Root 1 0 R /Info 98 0 R >>\nstartxref\n{xref}\n%%EOF\n")
             .as_bytes(),
     );
+    src
+}
+
+/// オブジェクトのストリーム `container` を 2 度定義し（中の 30 番の本体は、`first` と `later`）、相互参照ストリームの項目
+/// `shared` がはじめの定義を指すファイル。カタログは 1 番で、2 番のページの木は表にない。`plain` は、表に載せる定義
+fn tied_object_stream(
+    container: u32,
+    shared: u32,
+    first: &str,
+    later: &str,
+    plain: &[(u32, String)],
+) -> Vec<u8> {
+    let packed = |body: &str| {
+        let head = "30 0 ";
+        let dict = format!("/Type /ObjStm /N 1 /First {}", head.len());
+        common::stream(&dict, format!("{head}{body}"))
+    };
+    let mut src = b"%PDF-1.7\n".to_vec();
+    let mut entries = std::collections::BTreeMap::new();
+    entries.insert(30, (2u8, container as usize));
+    let catalog = "<< /Type /Catalog /Pages 2 0 R >>".to_owned();
+    for (number, body) in core::iter::once((1, &catalog)).chain(plain.iter().map(|(n, b)| (*n, b)))
+    {
+        entries.insert(number, (1, src.len()));
+        src.extend(format!("{number} 0 obj\n{body}\nendobj\n").as_bytes());
+    }
+    entries.insert(container, (1, src.len()));
+    entries.insert(shared, (1, src.len()));
+    for body in [first, later] {
+        src.extend(format!("{container} 0 obj\n").as_bytes());
+        src.extend(packed(body));
+        src.extend(b"\nendobj\n");
+    }
+    let table = 99u32;
+    let xref = src.len();
+    entries.insert(table, (1, xref));
+    let mut data = Vec::new();
+    let mut index = String::new();
+    for (number, (kind, field)) in &entries {
+        index.push_str(&format!("{number} 1 "));
+        data.push(*kind);
+        data.extend((*field as u32).to_be_bytes());
+        data.extend([0, 0]);
+    }
+    let dict = format!("/Type /XRef /Size 100 /W [1 4 2] /Index [{index}] /Root 1 0 R");
+    src.extend(format!("{table} 0 obj\n").as_bytes());
+    src.extend(common::stream(&dict, data));
+    src.extend(format!("\nendobj\nstartxref\n{xref}\n%%EOF\n").as_bytes());
     src
 }
 
@@ -3363,7 +3432,7 @@ fn reads_pages_again_without_a_page_tree() {
     };
     // ページの木を読めないと、hayro-syntax は、表の項目を順に引いてページを探す。同じ位置の項目の順は、表のハッシュで
     // 決まり、32 ビットと 64 ビットの環境で違う。走査した表で読み直すので、番号によらず、後ろの定義を読む。文書の情報は、
-    // 1 度目のトレーラーから読む
+    // 走査で選んだトレーラーから読む
     for twice in 5..=20 {
         for shared in 5..=20 {
             if twice == shared {
@@ -3374,15 +3443,72 @@ fn reads_pages_again_without_a_page_tree() {
             // 作り直すと木を読めても、同じ
             let tree = format!("2 0 obj\n<< /Type /Pages /Kids [{twice} 0 R] >>\nendobj\n");
             one_sheet(&tied_entries(twice, shared, &tree), &label);
+            // はじめの定義は内容がなく、作り直す前に引くと、ページが見つからない
+            let first = "<< /Type /Page /MediaBox [0 0 100 100] >>";
+            one_sheet(&tied_definitions(first, twice, shared, ""), &label);
+            // ファイルの終わりで読みかけの定義は、読めるものにならない
+            let mut cut = tied_entries(twice, shared, "");
+            cut.extend(format!("{twice} 0 obj").as_bytes());
+            one_sheet(&cut, &label);
+            // 作り直したことは、ファイルの終わりに何があっても分かる。後ろの辞書は、足す写しの中で閉じ、番号が同じ定義は読めない
+            let mut tail = tied_entries(twice, shared, &tree);
+            tail.extend(b"2147483646 0 obj\n5-3.2\nendobj\n)>>\n<< /A (\n");
+            one_sheet(&tail, &label);
         }
     }
-    // カタログは、1 度目のトレーラーのものを読む
+    // カタログは、走査で選んだトレーラーのものを読む
     let other = "2 0 obj\n<< /Type /Pages /Kids [5 0 R] >>\nendobj\n\
                  7 0 obj\n<< /Type /Catalog /Pages 8 0 R >>\nendobj\n\
                  8 0 obj\n<< /Type /Pages /Kids [9 0 R] >>\nendobj\n\
                  9 0 obj\n<< /Type /Page /MediaBox [0 0 400 400] /Contents [] >>\nendobj\n\
                  10 0 obj\n<< /Root 7 0 R >>\nendobj\n";
     one_sheet(&tied_entries(5, 6, other), "other catalog");
+}
+
+#[test]
+fn reads_object_streams_again_without_a_page_tree() {
+    use zumen_base::Kind;
+    let page = |side: u32| format!("<< /Type /Page /MediaBox [0 0 {side} {side}] /Contents [] >>");
+    // 解いたオブジェクトのストリームは、作り直しても残るので、順によっては、前の定義の中身を読む。読み直せば残らない。
+    // ページがストリームの中にある
+    for container in 5..=20 {
+        for shared in 5..=20 {
+            if container == shared {
+                continue;
+            }
+            let src = tied_object_stream(container, shared, &page(100), &page(200), &[]);
+            let (drawing, _) = lift(&src);
+            assert_eq!(drawing.sheets.len(), 1, "{container} {shared}");
+            let size = drawing.sheets[0].size.map(|[w, h]| (w.0, h.0));
+            assert_size(size, 200.0, 200.0);
+        }
+    }
+    // フォントがストリームの中にあると、数える量が同じ
+    let font = |name: &str| format!("<< /Type /Font /Subtype /Type1 /BaseFont /{name} >>");
+    let plain = vec![
+        (
+            3,
+            "<< /Type /Page /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F 30 0 R >> >> >>"
+                .to_owned(),
+        ),
+        (4, "<< /Length 28 >>\nstream\nBT /F 9 Tf (a) Tj ET\n        \nendstream".to_owned()),
+    ];
+    let mut works = std::collections::BTreeSet::new();
+    for container in 5..=20 {
+        for shared in 5..=20 {
+            if container != shared {
+                let src = tied_object_stream(
+                    container,
+                    shared,
+                    &font("A"),
+                    &font("LongerNameOfTheFontThatCostsMoreToRead"),
+                    &plain,
+                );
+                works.insert(used(&src, Kind::Work));
+            }
+        }
+    }
+    assert_eq!(works.len(), 1, "{works:?}");
 }
 
 #[test]
@@ -3480,6 +3606,12 @@ fn counts_reads_of_values_that_cannot_be_used() {
         );
         assert!(work >= plain + once, "{op}: {plain} {work}");
     }
+    // ストリームとして引くと、直接書いた辞書を読んでから、ストリームでないと分かる
+    let calls = "/N Do ".repeat(100);
+    let plain = many(&calls, "", Vec::new());
+    let direct = format!("/XObject << /N << /A {} >> >>", "0 ".repeat(10_000));
+    let work = many(&calls, &direct, Vec::new());
+    assert!(work >= plain + once, "{plain} {work}");
     // フォントの名前と種類は、選ぶたびに読む
     let calls = "/F 1 Tf ".repeat(100);
     let resources = "/Font << /F 3 0 R >>";
@@ -3518,9 +3650,15 @@ fn counts_reads_of_values_that_cannot_be_used() {
     }
     // ストリームの長さが、別の型を指す
     let target = b"<< /Length 5 0 R >>\nstream\n\nendstream".to_vec();
-    let objects = vec![form("/Matrix 4 0 R"), target, big.clone()];
-    let work = many(&calls, resources, objects);
-    assert!(work >= plain + 2 * once, "{plain} {work}");
+    for length in [
+        big.clone(),
+        format!("({})", "x".repeat(20_000)).into_bytes(),
+        format!("/{}", "x".repeat(20_000)).into_bytes(),
+    ] {
+        let objects = vec![form("/Matrix 4 0 R"), target.clone(), length];
+        let work = many(&calls, resources, objects);
+        assert!(work >= plain + 2 * once, "{plain} {work}");
+    }
     // カタログからたどるだけのストリームも、作り直しを済ませるときに読む
     let list = (4..104)
         .map(|number| format!("{number} 0 R "))
@@ -3631,6 +3769,45 @@ fn counts_values_pushed_for_each_axis() {
     let small = document(60_000, 100);
     assert!(small < plain, "{small} {plain}");
     assert!(many > plain + 1_000_000_000, "{many} {plain}");
+}
+
+#[test]
+fn does_not_read_fonts_with_too_large_character_ranges() {
+    use zumen_base::Kind;
+    let font = |first: u64, last: u64| {
+        format!(
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /FirstChar {first} /LastChar {last} /Widths [100] >>"
+        )
+    };
+    let file = |font: &str| {
+        let mut document = Document::new(vec![
+            Page::new("BT /F 10 Tf (A) Tj ET").resources("/Font << /F 3 0 R >>"),
+        ]);
+        document.objects = vec![font.as_bytes().to_vec()];
+        document.bytes()
+    };
+    // hayro-font は、`FirstChar` の数だけ表を伸ばし、どちらの値も環境の大きさの整数で読む
+    for (first, last) in [
+        (262_145, 262_145),
+        (4_000_000_000, 4_000_000_000),
+        (65, 262_145),
+        (65, 4_294_967_296),
+    ] {
+        let (drawing, diagnostics) = lift(&file(&font(first, last)));
+        assert!(drawing.sheets[0].elements.is_empty(), "{first} {last}");
+        assert!(
+            diagnostics
+                .iter()
+                .any(|d| d.code() == codes::PDF_PAGE_DROPPED),
+            "{first} {last}"
+        );
+    }
+    // 上限の中なら読む。ふつうの範囲を超える分の手間とメモリを数える
+    let (usual, large) = (file(&font(65, 65)), file(&font(262_144, 262_144)));
+    let (drawing, _) = lift(&large);
+    assert!(!drawing.sheets[0].elements.is_empty());
+    assert!(used(&large, Kind::Work) >= used(&usual, Kind::Work) + 262_144);
+    assert!(used(&large, Kind::DecodedBytes) >= used(&usual, Kind::DecodedBytes) + (8 << 20));
 }
 
 #[test]

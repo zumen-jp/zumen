@@ -139,8 +139,10 @@ const NESTED_DEPTH: u32 = 16;
 /// つなぐ入れ子より深く書かれうるので、[`NESTED_DEPTH`] より多めにする
 const PROCEDURE_DEPTH: u32 = 64;
 /// CID フォントの幅の項目の数の上限。これより多い項目（範囲の CID の数）を持つフォントを使うページは解釈しない。
-/// 2 バイトの符号で選ぶ CID は 65,536 個までなので、その 4 倍とする
+/// 2 バイトの符号で選ぶ CID は 65,536 個までなので、その 4 倍とする。単純なフォントの文字の範囲の値にも使う
 const MAX_WIDTHS: u64 = 1 << 18;
+/// 単純なフォントの文字の範囲の値で、数えないものの上限。文字の符号は 1 バイトなので、ふつうはこれを超えない
+const SIMPLE_WIDTHS: u64 = 256;
 /// Type 0 の関数（7.10.2）の大きさ（`Size`）の上限。hayro-interpret は標本の位置を f32 で求めるので、これより
 /// 大きい大きさでは、丸めた位置が標本の外を指してパニックする（`Type0::eval`）。これより大きい大きさの関数を使う
 /// ページは解釈しない
@@ -162,6 +164,9 @@ const OUTLINE_COPY_BYTES: u64 = 128;
 /// CID フォントの幅の表の 1 項目。走査と hayro-interpret が、文書の間、それぞれ表を持つ（`W2` の 1 項目で、2 つの
 /// 表を合わせておよそ 76 バイト）
 const WIDTH_BYTES: u64 = 160;
+/// 単純なフォントの幅の表の 1 項目のメモリ。hayro-font の 8 バイトの項目を、走査と hayro-interpret がそれぞれ持ち、伸ばす間は
+/// 前と後の配列が同時にある
+const SIMPLE_WIDTH_BYTES: u64 = 32;
 /// メッシュのシェーディング（型 4・5）の三角形の 1 つ（216 バイト。配列を伸ばす間は、およそ 650 バイト）
 const TRIANGLE_BYTES: u64 = 1024;
 /// 格子のメッシュ（型 5）の頂点の 1 つ（48 バイト）。hayro-interpret は、頂点を行ごとの配列に足すので、頂点が
@@ -465,8 +470,9 @@ fn longest_composite(font: &FontProgram, cx: &mut Cx<'_>) -> Result<u64, Stop> {
 /// `is_hint_reliant` のフォントの字形が TrueType なら、`fpgm` と `prep` を 1 度ずつ動かす。1 回に 100 万の命令まで
 /// 動き、命令の手間は、影の領域（`maxp` の点の数と 4）・値のスタック（`maxp` の項目の数と 32）・定義の表の大きさ・
 /// `GETVARIATION` が積む値の数（`fvar` の軸の数）で決まる。定義の本体を読み飛ばす命令は上限に数えないので、定義の
-/// 命令を動かせる回数の上限だけ、いちばん長い本体を読み飛ばしうるとする（[`definition_scan`]）。上限で数えるので、
-/// ふつうのプログラムでは多めになる。空のプログラムは動かない
+/// 命令を動かせる回数の見積もりだけ、いちばん長い本体を読み飛ばしうるとする（[`definition_scan`]）。回数は上限では
+/// ない（呼び出しの入れ子でもっと動かせる）が、そのときの 1 回の手間は、測った手間の幅に収まる（pdf.md）。大きめに
+/// 見積もるので、ふつうのプログラムでは多めになる。空のプログラムは動かない
 fn setup_cost(font: &FontProgram) -> Cost {
     if !font.is_hint_reliant()
         || font.outline_glyphs().underlying_source() != Some(OutlineSource::Glyf)
@@ -609,9 +615,11 @@ pub(crate) fn settle(document: &Pdf, reads: Reads<'_>, cx: &mut Cx<'_>) -> Resul
     Ok(())
 }
 
-/// バイト列に書いた参照（`n g R`、7.3.10）を、書いた順に返す。字句を読まず、`R` の前の 2 つの数の字の並びを、
-/// hayro-syntax の `ObjRef` で読む。hayro-syntax は、符号か点だけの番号（0 番）に続けて世代番号を読む（`--5 R`）ので、
-/// 1 つの並びからも読む。読めない項目の後ろと文字列の中のものも見つけるが、余分に引くだけで、順は決まっている
+/// バイト列に書いた参照（`n g R`、7.3.10）を、書いた順に返す。字句を読まず、`R` の前の 2 つの数の字の並びの、読み
+/// 始めうるすべての位置から、hayro-syntax の `ObjRef` で読む。hayro-syntax は、数字の前の符号か点だけを数（0）として
+/// 読んで次の字に進むので、配列の中の参照は並びの途中から始まり（`[--0 7 R]` は、`-` と `-0 7 R`）、番号と世代番号を
+/// 1 つの並びから読むこともある（`--5 R`）。読めない項目の後ろと文字列の中のものも見つけるが、余分に引くだけで、順は
+/// 決まっている。`R` の前で止まる位置から先を見ないので、バイト列の長さに比例する手間で済む
 fn written_references(data: &[u8]) -> impl Iterator<Item = ObjectIdentifier> + '_ {
     data.iter()
         .enumerate()
@@ -619,12 +627,25 @@ fn written_references(data: &[u8]) -> impl Iterator<Item = ObjectIdentifier> + '
         .flat_map(move |(at, _)| {
             let generation = number_before(data, at);
             let number = number_before(data, generation);
-            [number, generation].into_iter().filter_map(move |start| {
-                data.get(start..=at)
-                    .and_then(ObjRef::from_bytes)
-                    .map(ObjectIdentifier::from)
-            })
+            let starts = reading_starts(data, number).filter(move |start| *start < generation);
+            starts
+                .chain(reading_starts(data, generation))
+                .filter_map(move |start| {
+                    data.get(start..=at)
+                        .and_then(ObjRef::from_bytes)
+                        .map(ObjectIdentifier::from)
+                })
         })
+}
+
+/// `start` から始まる数の字の並びで、読み始めうる位置。はじめの数字まで。数字のある数は、並びの終わりまで読むか、読めない
+fn reading_starts(data: &[u8], start: usize) -> core::ops::RangeInclusive<usize> {
+    let rest = data.get(start..).unwrap_or_default();
+    let signs = rest
+        .iter()
+        .take_while(|byte| matches!(byte, b'+' | b'-' | b'.'))
+        .count();
+    start..=start + signs
 }
 
 /// バイト列に書いた参照のうち、まだ見ていない番号を、見つけた順に引くよう `pending` に積む
@@ -851,7 +872,8 @@ impl<'x> Reads<'x> {
 
     /// 番号のオブジェクトを読む手間と、読めたオブジェクト。オブジェクトとして読めない定義のうち、辞書の後ろに読めない
     /// ストリームがあるものは、辞書として返す。hayro-syntax は、読むたびに `endstream` をファイルの終わりまで探すので、
-    /// ファイルを読み通す手間とする
+    /// ファイルを読み通す手間とする。ほかの読めない定義（読み飛ばせて読めない数。`5-3.2`）は、読んだバイト数を知れない
+    /// ので、0 とする（pdf.md の「予算の外」）
     pub(crate) fn read(self, id: ObjectIdentifier) -> (u64, Option<Object<'x>>) {
         match self.xref.get::<Object<'x>>(id) {
             Some(object) => (self.read_work(&object), Some(object)),
@@ -946,36 +968,19 @@ impl<'x> Reads<'x> {
         dict.get_ref(name).map_or(0, |id| self.read(id.into()).0)
     }
 
+    /// 鍵の値を読む手間。[`Reads::value_work`] と違い、直接書いた値も数える。hayro-syntax は、ストリームとして引くと、
+    /// 直接書いた辞書を読んでから、ストリームでないと分かる
+    pub(crate) fn entry_work(self, dict: &Dict<'_>, name: &[u8]) -> u64 {
+        dict.get_raw::<Object<'_>>(name)
+            .map_or(0, |value| self.item_work(&value))
+    }
+
     /// 配列の項目を読む手間。型が違っても読み飛ばして確かめるので、読めるかによらない
     pub(crate) fn item_work(self, item: &MaybeRef<Object<'_>>) -> u64 {
         match item {
             MaybeRef::Ref(id) => self.read((*id).into()).0,
             MaybeRef::NotRef(object) => self.read_work(object),
         }
-    }
-
-    /// ページの木の節の値を読む手間。hayro-syntax の `resolve_pages` と `Page::new` が読む鍵だけを数える。`Kids` は、
-    /// 木をたどるときに項目ごとに数える
-    pub(crate) fn tree_node_work(self, node: &Dict<'_>) -> u64 {
-        let mut first = Targets::new();
-        for name in [b"Type".as_slice(), b"MediaBox", b"CropBox", b"Rotate"] {
-            match node.get_raw::<Object<'_>>(name) {
-                Some(MaybeRef::Ref(id)) => {
-                    add_targets(&mut first, core::iter::once(id.into()), 1);
-                }
-                Some(MaybeRef::NotRef(object)) => {
-                    add_targets(&mut first, written_references(object_data(&object)), 1);
-                }
-                None => {}
-            }
-        }
-        let resources = match node.get_raw::<Object<'_>>(b"Resources") {
-            Some(value) => self.resources_value_work(value),
-            None => 0,
-        };
-        self.targets(first)
-            .saturating_add(self.value_work(node, b"Kids"))
-            .saturating_add(resources)
     }
 
     /// オブジェクトを読み直す手間。値の参照の先を含む
@@ -992,13 +997,11 @@ impl<'x> Reads<'x> {
         self.read_work(object).saturating_add(targets)
     }
 
-    /// オブジェクトを読む手間（[`LOOKUP_BYTES`]）。数は短いものとして数えない
+    /// オブジェクトを読む手間（[`LOOKUP_BYTES`]）
     pub(crate) fn read_work(self, object: &Object<'_>) -> u64 {
         match object {
-            Object::String(string) => lookup_work(string.as_bytes()),
-            Object::Name(name) => lookup_work(name.as_ref()),
             Object::Stream(stream) => self.stream_work(stream),
-            other => lookup_work(object_data(other)),
+            other => plain_read_work(other),
         }
     }
 
@@ -1030,9 +1033,19 @@ impl<'x> Reads<'x> {
             None => self
                 .xref
                 .get::<Object<'_>>(id)
-                .map_or(0, |target| lookup_work(object_data(&target))),
+                .map_or(0, |target| plain_read_work(&target)),
         };
         read.saturating_mul(2)
+    }
+}
+
+/// ストリームのほかのオブジェクトを読む手間（[`LOOKUP_BYTES`]）。hayro-syntax は、読んだバイト数を返さないので、読んだ値の
+/// 大きさで数える。数と語（`null` と読む）は短いものとして 0 にし、文字列は読んだ後の長さで数える（pdf.md の「予算の外」）
+fn plain_read_work(object: &Object<'_>) -> u64 {
+    match object {
+        Object::String(string) => lookup_work(string.as_bytes()),
+        Object::Name(name) => lookup_work(name.as_ref()),
+        other => lookup_work(object_data(other)),
     }
 }
 
@@ -1694,7 +1707,7 @@ impl<'a, 'o> Walker<'a, 'o> {
                     None => {
                         let read = self
                             .reads
-                            .value_work(&resources.x_objects, x_object.0.as_ref());
+                            .entry_work(&resources.x_objects, x_object.0.as_ref());
                         spend(&mut cost, read, 0, cx)?;
                         if self.is_visible() {
                             let name = name_text(x_object.0.as_ref());
@@ -2621,18 +2634,18 @@ impl<'a, 'o> Walker<'a, 'o> {
 
     /// CID フォント（9.7）の幅（`W`・`W2`、9.7.4.3）の項目が [`MAX_WIDTHS`] に収まるか。hayro-font が範囲の CID を
     /// 1 つずつ表に入れる手間を数える（間接オブジェクトのフォントは、ページの中で 1 度だけ）。収まれば、表のメモリを
-    /// 文書の中で 1 度だけ数える
+    /// 文書の中で 1 度だけ数える。単純なフォントは、[`Walker::simple_widths_fit`]
     fn widths_fit(
         &mut self,
         font: &Dict<'_>,
         reference: Option<(u32, i32)>,
         cx: &mut Cx<'_>,
     ) -> Result<bool, Stop> {
-        if font.get::<Name<'_>>(b"Subtype").as_deref() != Some(b"Type0".as_slice()) {
-            return Ok(true);
-        }
         if let Some(count) = reference.and_then(|id| self.widths.get(&id)) {
             return Ok(*count <= MAX_WIDTHS);
+        }
+        if font.get::<Name<'_>>(b"Subtype").as_deref() != Some(b"Type0".as_slice()) {
+            return self.simple_widths_fit(font, reference, cx);
         }
         cx.check(Kind::Work, self.reads.dict_targets(font))?;
         let descendant = font
@@ -2652,6 +2665,38 @@ impl<'a, 'o> Walker<'a, 'o> {
         let fits = count <= MAX_WIDTHS;
         if fits && self.tables.insert(font.data().to_vec()) {
             cx.check(Kind::DecodedBytes, count.saturating_mul(WIDTH_BYTES))?;
+        }
+        Ok(fits)
+    }
+
+    /// 単純なフォント（9.6.2）の文字の範囲（`FirstChar`・`LastChar`）の値が [`MAX_WIDTHS`] に収まるか。hayro-font は、
+    /// `FirstChar` の数だけ幅の表を伸ばすので、数十バイトの指定から、値に比例した時間とメモリを使う。どちらの値も環境の
+    /// 大きさの整数で読むので、2 の 32 乗からの値は、32 ビットの環境で読めず、幅が変わる。収まれば、ふつうの範囲を超える
+    /// 分の手間とメモリを、文書の中で 1 度だけ数える
+    fn simple_widths_fit(
+        &mut self,
+        font: &Dict<'_>,
+        reference: Option<(u32, i32)>,
+        cx: &mut Cx<'_>,
+    ) -> Result<bool, Stop> {
+        let read = |key: &[u8]| {
+            let value = font.get::<i64>(key).unwrap_or_default();
+            (
+                u64::try_from(value).unwrap_or_default(),
+                self.reads.value_work(font, key),
+            )
+        };
+        let (first, first_work) = read(b"FirstChar");
+        let (last, last_work) = read(b"LastChar");
+        cx.check(Kind::Work, first_work.saturating_add(last_work))?;
+        let count = first.max(last);
+        if let Some(id) = reference {
+            self.widths.insert(id, count);
+        }
+        let fits = count <= MAX_WIDTHS;
+        if fits && first > SIMPLE_WIDTHS && self.tables.insert(font.data().to_vec()) {
+            cx.check(Kind::Work, first)?;
+            cx.check(Kind::DecodedBytes, first.saturating_mul(SIMPLE_WIDTH_BYTES))?;
         }
         Ok(fits)
     }
