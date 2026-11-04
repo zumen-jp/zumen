@@ -15,10 +15,11 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  # crates.io に出す順。依存される側が先（決定 0205）
+  # crates.io に出す crate（決定 0205）。cargo publish は、渡した順によらず依存される側から出す（Cargo 1.90 から）。
+  # 足し忘れは cargo xtask codegen --check が確かめる
   CRATES: >-
     -p zumen-json -p zumen-base -p zumen-sdk -p zumen-crs -p zumen-step -p zumen-geom2d -p zumen-geom3d -p zumen-drawing -p zumen-acad
-    -p zumen-jww -p zumen-sxf -p zumen-xml -p zumen-zip -p zumen-photo -p zumen-sheet -p zumen-geology -p zumen-building -p zumen-ids -p zumen-civil -p zumen-ifc -p zumen-review -p zumen-bcf -p zumen-civil-drawing -p zumen-landxml -p zumen-geo -p zumen-citygml -p zumen-pointcloud -p zumen-las -p zumen-ply -p zumen-xyz -p zumen-e57
+    -p zumen-jww -p zumen-sxf -p zumen-xml -p zumen-zip -p zumen-photo -p zumen-sheet -p zumen-geology -p zumen-building -p zumen-ids -p zumen-civil -p zumen-ifc -p zumen-review -p zumen-bcf -p zumen-civil-drawing -p zumen-landxml -p zumen-geo -p zumen-citygml -p zumen-extdm -p zumen-fgd -p zumen-pointcloud -p zumen-las -p zumen-ply -p zumen-xyz -p zumen-e57
     -p zumen-scene -p zumen-profile -p zumen-delivery -p zumen-asbuilt -p zumen-abi -p zumen -p zumen-cli
 
 jobs:
@@ -118,9 +119,55 @@ jobs:
           path: out
           if-no-files-found: error
 
+  licenses:
+    name: ライセンスの文を作る
+    # 第三者のツール（cargo-about）と、その依存の build script が、配るものに触れないよう、wasm を作る job と分ける
+    # （決定 0259）
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: rust-toolchain.toml のバージョンの Rust と、wasm32 の target を入れる
+        run: |
+          rustup toolchain install
+          rustup target add wasm32-unknown-unknown
+      - name: wasm に入れた依存のライセンスの文を、cargo-about で作る（決定 0014・0259）
+        run: |
+          cargo install --locked cargo-about@0.9.2 --features cli
+          mkdir -p out
+          args="--config about.toml --manifest-path crates/zumen-abi/Cargo.toml --target wasm32-unknown-unknown --locked --fail"
+          cargo about generate $args --output-file out/THIRD_PARTY_LICENSES about.hbs 2> about.log || { cat about.log; exit 1; }
+          cat about.log
+          cargo about generate $args --format json --output-file licenses.json
+      - name: 第三者の crate の本文が、定型の文や標準の本文に代わっていないことを確かめる
+        # cargo-about は、crate の本文を見分けられないと、著作権の表示のない SPDX の定型の文で代える。clarify で指した
+        # ファイルが変わったときは、警告を出して元の扱いに戻る。どちらも --fail では止まらないので、ここで止める。直すとき
+        # は about.toml の clarify で本文のファイルを指す。このリポジトリの crate の節は about.hbs が載せない
+        run: |
+          if grep -E 'WARN|ERROR' about.log; then
+            echo "::error::cargo-about が警告を出した（clarify で指したファイルが変わったなど）。about.toml の clarify を直す"
+            exit 1
+          fi
+          fallback=$(jq -r '.licenses[] | select(.text | test("<year>|<copyright holders>|<owner>"; "i")) | .used_by[]
+            | select(.crate.repository != "https://github.com/zumen-jp/zumen") | "\(.crate.name) \(.crate.version)"' licenses.json)
+          if [ -n "$fallback" ]; then
+            echo "$fallback"
+            echo "::error::上の crate が、本文の代わりに SPDX の定型の文を使っている。about.toml の clarify で本文のファイルを指す"
+            exit 1
+          fi
+          if grep -n -i -F -e '<year>' -e '<copyright holders>' -e '<owner>' out/THIRD_PARTY_LICENSES; then
+            echo "::error::THIRD_PARTY_LICENSES に SPDX の定型の文が残っている"
+            exit 1
+          fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: licenses
+          path: out
+          if-no-files-found: error
+
   packages:
     name: npm と NuGet のパッケージを作る
-    needs: [version, native, wasm]
+    needs: [version, native, wasm, licenses]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -134,9 +181,9 @@ jobs:
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: '10.0.x'
-      - name: npm のパッケージに wasm を入れて包む
+      - name: npm のパッケージに wasm とライセンスの文を入れて包む（決定 0259）
         run: |
-          cp artifacts/zumen_abi1.wasm bindings/js/
+          cp artifacts/zumen_abi1.wasm artifacts/THIRD_PARTY_LICENSES LICENSE-MIT LICENSE-APACHE bindings/js/
           mkdir -p out
           (cd bindings/js && npm pack --pack-destination ../../out)
       - name: NuGet のパッケージに、対象ごとのネイティブのライブラリを入れて包む
@@ -169,7 +216,7 @@ jobs:
       - name: 置くものを 1 つのディレクトリに集める
         run: |
           mkdir -p files
-          cp artifacts/*.tar.gz artifacts/*.zip artifacts/zumen_abi1.wasm artifacts/wheels/*.whl artifacts/*.tgz artifacts/*.nupkg files/
+          cp artifacts/*.tar.gz artifacts/*.zip artifacts/zumen_abi1.wasm artifacts/THIRD_PARTY_LICENSES artifacts/wheels/*.whl artifacts/*.tgz artifacts/*.nupkg files/
           for rid in $(ls artifacts/native); do
             for f in artifacts/native/$rid/*; do cp "$f" "files/$rid-$(basename "$f")"; done
           done

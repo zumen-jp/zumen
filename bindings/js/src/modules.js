@@ -392,7 +392,7 @@ export function modulesWith(op) {
 }
 
 /**
- * 分けた wasm のモジュールを、要るときに 1 度だけ読み込む。
+ * 分けた wasm のモジュールを、要るときに読み込んで使い回す。trap で使えなくなったら、読み込み直す。
  *
  * `loaders` は、モジュールの名前から、読み込む関数（`load` に渡せるものを返す）を引く表。持たないモジュールは使えない。
  * `load` は、ラッパーの `load`。
@@ -417,19 +417,36 @@ export class Modules {
     return this.#plugins.find((plugin) => plugin.name === name);
   }
 
-  /** 名前のモジュールを読み込む。プラグインのモジュールは、その名前で引く */
+  /**
+   * 名前のモジュールを読み込む。プラグインのモジュールは、その名前で引く。読み込んだインスタンスは使い回し、trap で
+   * 使えなくなったら（Zumen.broken）、捨てて読み込み直す。読み込みに失敗したら覚えず、次に引いたときにやり直す
+   * （決定 0259）
+   */
   get(name) {
-    let loaded = this.#loaded.get(name);
-    if (loaded === undefined) {
-      const plugin = MODULES[name] === undefined ? this.#plugin(name) : undefined;
-      const loader = plugin === undefined ? this.#loaders[name] : plugin.load;
-      if ((MODULES[name] === undefined && plugin === undefined) || typeof loader !== "function") {
-        return Promise.reject(new Error(`wasm のモジュール ${name} を読み込めない`));
-      }
-      loaded = this.#load(loader());
-      this.#loaded.set(name, loaded);
+    const cached = this.#loaded.get(name);
+    if (cached !== undefined && cached.zumen?.broken !== true) {
+      return cached.loading;
     }
-    return loaded;
+    const plugin = MODULES[name] === undefined ? this.#plugin(name) : undefined;
+    const loader = plugin === undefined ? this.#loaders[name] : plugin.load;
+    if ((MODULES[name] === undefined && plugin === undefined) || typeof loader !== "function") {
+      return Promise.reject(new Error(`wasm のモジュール ${name} を読み込めない`));
+    }
+    const entry = { loading: undefined, zumen: undefined };
+    entry.loading = this.#load(loader()).then(
+      (zumen) => {
+        entry.zumen = zumen;
+        return zumen;
+      },
+      (error) => {
+        if (this.#loaded.get(name) === entry) {
+          this.#loaded.delete(name);
+        }
+        throw error;
+      },
+    );
+    this.#loaded.set(name, entry);
+    return entry.loading;
   }
 
   /** 入力の形式を判定する。コアの形式でなければ、プラグインの規則で試す。どの形式でもなければ undefined */

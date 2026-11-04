@@ -1,5 +1,7 @@
 //! ブーリアンのない形を、自前で三角形にする。どの候補も、ブーリアンの前の形はこれで作る
 
+use std::collections::BTreeSet;
+
 use zumen_geom3d::{
     Curve, Face, Failure, Mesh, Profile, Shape, Tolerance, Transform, Xy, Xyz, cross, dot,
     normalize, sub,
@@ -50,7 +52,25 @@ pub fn rings(profile: &Profile, tolerance: Tolerance) -> Result<Vec<Vec<Xy>>, Fa
     Ok(out)
 }
 
-/// 平面の輪（外が先）を三角形にする。番号は輪を順に並べた点の番号
+/// 点 `p` が、線分 `a`–`b` の端を除く内側にあるか（線分の長さに比べて十分に近いか）
+fn inside(p: Xy, a: Xy, b: Xy) -> bool {
+    let ab = [b[0] - a[0], b[1] - a[1]];
+    let ap = [p[0] - a[0], p[1] - a[1]];
+    let length2 = ab[0] * ab[0] + ab[1] * ab[1];
+    if length2.is_nan() || length2 <= 0.0 {
+        return false;
+    }
+    let t = (ab[0] * ap[0] + ab[1] * ap[1]) / length2;
+    let cross = ab[0] * ap[1] - ab[1] * ap[0];
+    t > 0.0 && t < 1.0 && cross * cross <= 1e-18 * length2 * length2
+}
+
+/// 平面の輪（外が先）を三角形にする。番号は輪を順に並べた点の番号。
+///
+/// earcut は、一直線の上の点を除いて分け、一直線に並ぶ穴の頂点を通り抜ける辺も作る。そのままだと、その点を持つ
+/// 隣の面と辺が合わず、閉じたメッシュにならない（T 字の継ぎ目）。輪の点が、逆向きの辺を持たない三角形の辺の内側に
+/// あれば、その点で分ける。逆向きの辺があれば、その辺の両側の三角形はもう合っている（ほぼ一直線の点の間の細い
+/// 三角形など）ので、分けない
 fn triangulate(rings: &[Vec<Xy>]) -> Result<Vec<[u32; 3]>, Failure> {
     let mut flat: Vec<f64> = Vec::new();
     let mut holes = Vec::new();
@@ -61,10 +81,48 @@ fn triangulate(rings: &[Vec<Xy>]) -> Result<Vec<[u32; 3]>, Failure> {
         flat.extend(r.iter().flatten());
     }
     let index = earcutr::earcut(&flat, &holes, 2).map_err(|_| Failure::Failed("earcut".into()))?;
-    Ok(index
-        .chunks_exact(3)
-        .map(|t| [t[0] as u32, t[1] as u32, t[2] as u32])
-        .collect())
+    let mut triangles: Vec<[u32; 3]> = index
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .map(|t| t.map(|i| i as u32))
+        .collect();
+    let points: Vec<Xy> = rings.iter().flatten().copied().collect();
+    let mut edges: BTreeSet<(u32, u32)> = BTreeSet::new();
+    for t in &triangles {
+        for e in 0..3 {
+            edges.insert((t[e], t[(e + 1) % 3]));
+        }
+    }
+    for (k, p) in points.iter().enumerate() {
+        let k = k as u32;
+        let on_edge = |triangles: &[[u32; 3]], edges: &BTreeSet<(u32, u32)>| {
+            triangles.iter().enumerate().find_map(|(at, t)| {
+                if t.contains(&k) {
+                    return None;
+                }
+                (0..3).find_map(|e| {
+                    let (a, b) = (t[e], t[(e + 1) % 3]);
+                    (!edges.contains(&(b, a)) && inside(*p, points[a as usize], points[b as usize]))
+                        .then_some((at, e))
+                })
+            })
+        };
+        // 分けた辺は点を端に持つので、繰り返しは終わる
+        while let Some((at, e)) = on_edge(&triangles, &edges) {
+            let t = triangles[at];
+            let (a, b, c) = (t[e], t[(e + 1) % 3], t[(e + 2) % 3]);
+            for edge in [(a, b), (b, c), (c, a)] {
+                edges.remove(&edge);
+            }
+            triangles[at] = [a, k, c];
+            triangles.push([k, b, c]);
+            for edge in [(a, k), (k, c), (c, a), (k, b), (b, c), (c, k)] {
+                edges.insert(edge);
+            }
+        }
+    }
+    Ok(triangles)
 }
 
 /// 断面の輪を、局所の向き `direction` に押し出したメッシュ（局所の座標）
@@ -203,12 +261,14 @@ fn faces(faces: &[Face]) -> Result<Mesh, Failure> {
             normal[1] += (a[2] - b[2]) * (a[0] + b[0]);
             normal[2] += (a[0] - b[0]) * (a[1] + b[1]);
         }
-        let frame = Transform::from_axes(
+        // 面積のない面（点が 1 直線に並ぶ面など）は、三角形にせずに飛ばす。国内の設備の書き出しの継手に多い（#5）
+        let Some(frame) = Transform::from_axes(
             face.outer.first().copied().unwrap_or_default(),
             Some(normal),
             None,
-        )
-        .ok_or(Failure::Invalid("face"))?;
+        ) else {
+            continue;
+        };
         let flat: Vec<Vec<Xy>> = all
             .iter()
             .map(|r| {

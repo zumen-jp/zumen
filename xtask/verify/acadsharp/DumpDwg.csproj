@@ -1,0 +1,25 @@
+<!--
+  検証キットの DWG を ACadSharp（MIT）で読み、図形を JSON に書き出す（#503）。テストのツールで、zumen の成果物にも依存にも入れない。
+  流し方は Program.cs の初めにある。照らすのは check_acadsharp.py。
+  ACadSharp のバージョンは決めて入れ、packages.lock.json で中身のハッシュも固定する（CI では lock のとおりにだけ取る）。
+-->
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <RestoreLockedMode Condition="'$(CI)' == 'true'">true</RestoreLockedMode>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ACadSharp" Version="[3.8.0]" />
+  </ItemGroup>
+
+</Project>

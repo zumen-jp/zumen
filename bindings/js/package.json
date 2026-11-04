@@ -17,11 +17,18 @@
       "types": "./src/index.d.ts",
       "default": "./src/index.js"
     },
+    "./node": {
+      "types": "./src/node.d.ts",
+      "default": "./src/node.js"
+    },
     "./zumen_abi1.wasm": "./zumen_abi1.wasm"
   },
   "files": [
     "src",
-    "zumen_abi1.wasm"
+    "zumen_abi1.wasm",
+    "LICENSE-MIT",
+    "LICENSE-APACHE",
+    "THIRD_PARTY_LICENSES"
   ],
   "sideEffects": false,
   "scripts": {

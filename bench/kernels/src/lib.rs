@@ -1,5 +1,6 @@
-//! 3D のカーネルの候補を、合成の形で比べる（#414）。`compare` と `size.sh` が使う
+//! 3D のカーネルの候補を、合成の形（#414）と公開サンプルの IFC（#5）で比べる。`compare`・`samples`・`size.sh` が使う
 
+pub mod ifc;
 pub mod kernels;
 mod primitives;
 
@@ -24,6 +25,12 @@ pub fn candidates() -> Vec<(&'static str, Box<dyn Kernel>)> {
     out
 }
 
+/// 時計の今。速さを測るツールなので、時計を読むのはここだけにする（コアの規則の外。clippy.toml）
+#[allow(clippy::disallowed_methods)]
+pub fn now() -> std::time::Instant {
+    std::time::Instant::now()
+}
+
 /// 比べるときの許容差
 pub const TOLERANCE: Tolerance = Tolerance {
     chord: cases::CHORD,
@@ -32,11 +39,20 @@ pub const TOLERANCE: Tolerance = Tolerance {
 
 /// 形を評価する
 pub fn evaluate(kernel: &dyn Kernel, shape: &zumen_geom3d::Shape) -> Result<Mesh, Failure> {
+    evaluate_with(kernel, shape, TOLERANCE)
+}
+
+/// 許容差を決めて、形を評価する
+pub fn evaluate_with(
+    kernel: &dyn Kernel,
+    shape: &zumen_geom3d::Shape,
+    tolerance: Tolerance,
+) -> Result<Mesh, Failure> {
     let mut budget = Budget::default();
     let mut diag = Diagnostics::new();
     let cancel = CancelToken::new();
     let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
-    kernel.evaluate(shape, TOLERANCE, &mut cx)
+    kernel.evaluate(shape, tolerance, &mut cx)
 }
 
 /// 出力のメッシュの指紋（FNV-1a、点の座標のビットと三角形の番号）。環境で結果が変わらないかを比べる

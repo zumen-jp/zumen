@@ -199,6 +199,8 @@ jobs:
           node templates/plugin/tests/wasm.mjs target/wasm32-unknown-unknown/release/zumen_plugin_template.wasm modules/zumen_abi1_drawing.wasm
       - name: TypeScript・JavaScript のラッパーを通しても、同じハッシュの一覧になることを確かめる（決定 0194）
         run: node bindings/js/test/conformance.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm
+      - name: Node.js の入口・別の realm のモジュール・trap のあとの扱いを、パッケージで確かめる（決定 0259）
+        run: node bindings/js/test/server.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm
       - name: ブラウザーを動かすツール（Playwright）を、インストールのスクリプトを走らせずに入れる（決定 0199）
         working-directory: bindings/js/test/browser
         run: npm ci --ignore-scripts

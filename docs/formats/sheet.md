@@ -38,3 +38,14 @@
 ## 上限
 
 - 入力の大きさを `InputBytes`、展開した xlsx の部品と、文字に直した CSV の大きさを `DecodedBytes`、セル・共有文字列・CSV の行の数を `Records` で数える。
+
+## 確かめた度合い
+
+| 形式 | 向き | 段 |
+| --- | --- | --- |
+| `xlsx` | 読み | `synthetic` |
+| `csv` | 読み | `synthetic` |
+
+段の意味は[決定 0254](../decisions/0254-parallel-agents-and-cross-review.md) に、根拠は[形式と権利の一覧](README.md#format-xlsx)（CSV は[こちら](README.md#format-csv)）にあります。この文書の規則は、仕様と、テストの中で作ったファイルだけで確かめたものです。公開サンプル・受け取った図面・外部の実装・基準になるソフトとは、まだ照らしていません。実際のファイルでは、ここに書いた扱いと違うことがあります。
+
+- 表計算のソフトが書いた xlsx・CSV と、外部の実装（openpyxl・calamine など）での照合は #505 で行う。

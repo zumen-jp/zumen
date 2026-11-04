@@ -1,0 +1,49 @@
+# 依存のライセンスの文（THIRD_PARTY_LICENSES）を cargo-about で作る設定（決定 0014・0259）。
+# 使い方は .github/workflows/release.yml にある。許すライセンスは deny.toml と合わせる。
+
+accepted = [
+    "MIT",
+    "MIT-0",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "0BSD",
+    "BSL-1.0",
+    "Unicode-3.0",
+]
+# 配る成果物に入るものだけを載せる
+ignore-build-dependencies = true
+ignore-dev-dependencies = true
+
+# 本文を見分けられない crate は、ファイルを指して載せる。crate のバージョンを上げてファイルが変わると、checksum が合わず、
+# cargo-about は警告を出して元の扱い（定型の文や標準の本文）に戻る。リリースのワークフローは、この警告で止まるので、
+# 中身を見て直す。
+
+# libm の LICENSE.txt は、MIT と Apache-2.0 の本文と、libm と移植元（musl など）の著作権の表示を 1 つのファイルに
+# まとめている。cargo-about はこれを MIT の本文と見分けられず、SPDX の定型の文で代えるので、ファイル全体を MIT の文と
+# して載せる。
+[libm.clarify]
+license = "MIT"
+
+[[libm.clarify.files]]
+path = "LICENSE.txt"
+license = "MIT"
+checksum = "3823dda7cf046602f4b4e77ec8e227863dc4736037cc85bb33d9f19febe16bb7"
+
+# laz の LICENSE.txt は、作者と、移植元の LASzip の著作権の表示を持つ。cargo-about は、これを Apache-2.0 の本文と
+# 見分けられず、標準の本文で代えて表示を落とすので、本文（COPYING）と並べて載せる。
+[laz.clarify]
+license = "Apache-2.0"
+
+[[laz.clarify.files]]
+path = "COPYING"
+license = "Apache-2.0"
+checksum = "d8ddd6435eae4d5e7df65248f19a347fcf67e2d454d0826cb418a33648e2dd54"
+
+[[laz.clarify.files]]
+path = "LICENSE.txt"
+license = "Apache-2.0"
+checksum = "1994396677f149094cb8d74037908783f87ccfc5e5d238bac31ffb6afabc81e3"

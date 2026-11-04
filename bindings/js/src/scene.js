@@ -66,7 +66,8 @@ function toBytes(input) {
   if (ArrayBuffer.isView(input)) {
     return new Uint8Array(input.buffer, input.byteOffset, input.byteLength);
   }
-  if (input instanceof ArrayBuffer) {
+  // 別の realm で作った ArrayBuffer も受け取る
+  if (Object.prototype.toString.call(input) === "[object ArrayBuffer]") {
     return new Uint8Array(input);
   }
   throw new TypeError("バイト列を渡す");

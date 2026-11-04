@@ -289,4 +289,9 @@
 - [0252: 配る wasm のモジュールから名前のセクションを除き、LTO と大きさ優先の最適化はまだ使わない](0252-strip-wasm-names.md)（2026-11-03、採用）
 - [0253: 地理の地物と点群を wasm の civil・pointcloud のモジュールに分け、J-LandXML と civil の op は要るモジュールのそれぞれに置く](0253-wasm-civil-and-pointcloud-modules.md)（2026-11-03、採用）
 - [0254: 複数のエージェントが並行して進め、互いに確かめ、人を待つのは人にしかできないことに限る](0254-parallel-agents-and-cross-review.md)（2026-11-03、採用）
+- [0255: 形式の確かめた度合いは、もっとも強い方法の段と範囲を台帳と形式の文書に置き、API の capabilities には出さない](0255-verification-levels-in-the-ledger.md)（2026-11-03、採用）
 - [0257: 和語への言い換えをやめ、開発と実務で定着した語で書く](0257-established-terms-over-coined-words.md)（2026-11-03、採用）
+- [0258: fuzz の種に公開サンプルと合成の入力を使い、crate を変えた PR で短く、毎晩長く流す](0258-fuzz-seeds-and-runs.md)（2026-11-03、採用）
+- [0259: npm のパッケージに Node.js の入口を足し、trap のあとのインスタンスを使えなくし、ライセンスの文を入れる](0259-javascript-on-node-servers.md)（2026-11-03、採用）
+- [0260: サンプルの IFC で測り、3D のカーネルを manifold-rust にして、建物モデルの残りの 7 項目を決める](0260-kernel-and-building-items-from-samples.md)（2026-11-03、採用）
+- [0261: fuzz の job を main の必須の検査にせず、PR の変更と関係のない失敗ではマージを止めずに早めに直す](0261-fuzz-outside-required-checks.md)（2026-11-04、採用）

@@ -1,4 +1,4 @@
-# 3D のカーネルの候補を、合成の形で比べる試作（#414）。コアのワークスペースには入れない。
+# 3D のカーネルの候補を、合成の形（#414）と公開サンプルの IFC（#5）で比べる試作。コアのワークスペースには入れない。
 [package]
 name = "zumen-bench-kernels"
 version = "0.0.0"
@@ -15,6 +15,10 @@ crate-type = ["rlib", "cdylib"]
 name = "compare"
 path = "src/main.rs"
 
+[[bin]]
+name = "samples"
+path = "src/samples.rs"
+
 # wasm の大きさは、候補を 1 つずつ入れて測る（size.sh）
 [features]
 default = ["own", "manifold", "csgrs"]
@@ -26,6 +30,10 @@ csgrs = ["dep:csgrs", "dep:nalgebra"]
 zumen-base = { path = "../../crates/zumen-base" }
 zumen-geom2d = { path = "../../crates/zumen-geom2d" }
 zumen-geom3d = { path = "../../crates/zumen-geom3d" }
+# 公開サンプルの IFC を読み、建物モデルの配置と開口を使う
+zumen-ifc = { path = "../../crates/zumen-ifc", default-features = false, features = ["building"] }
+zumen-building = { path = "../../crates/zumen-building" }
+zumen-sdk = { path = "../../crates/zumen-sdk" }
 earcutr = "0.5"
 nalgebra = { version = "0.33", optional = true }
 libm = "0.2.16"

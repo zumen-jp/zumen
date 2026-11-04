@@ -1,13 +1,13 @@
 //! コーデックのテストのツール（決定 0017 のテストキット）。
 //!
-//! どれも、食い違いを人向けの文で返す。テストの側で `unwrap` する。予算は、[`stops_at_same_place`] のほかは既定の
-//! 上限を使う。
+//! どれも、食い違いを人向けの文で返す。テストの側で `unwrap` する。予算は、[`stops_at_same_place`] と fuzz の関数
+//! （[`survives`]・[`survives_lift`]・[`survives_with`]）のほかは既定の上限を使う。
 
 use std::collections::BTreeMap;
 
 use zumen_base::{Budget, CancelToken, Cx, Diagnostic, Diagnostics, Kind, Limit, Limits, Stop};
 
-use crate::{ByteRange, Codec, Error, FileModel};
+use crate::{ByteRange, Codec, Error, FileModel, Lift};
 
 /// 既定の予算で読む。結果と、足された診断を返す
 pub fn read<C: Codec>(src: &[u8]) -> (Result<C::File, Error>, Vec<Diagnostic>) {
@@ -175,15 +175,15 @@ fn slice(src: &[u8], range: ByteRange) -> Option<&[u8]> {
 /// 上限にして 2 回読み、どちらも同じ理由で止まり、同じ診断と同じ使った量になることを確かめる。レコードを 2 つ
 /// より少なく数える入力では、止めずに 2 回読んで同じになることだけを確かめる
 pub fn stops_at_same_place<C: Codec>(src: &[u8]) -> Result<(), String> {
-    let full = limited::<C>(src, Limits::default());
+    let full = limited(src, Limits::default(), C::read);
     let records = full.used.get(&Kind::Records).copied().unwrap_or(0);
     let limits = if records < 2 {
         Limits::default()
     } else {
         Limits::default().with(Kind::Records, Limit::Finite(records / 2))
     };
-    let first = limited::<C>(src, limits);
-    let second = limited::<C>(src, limits);
+    let first = limited(src, limits, C::read);
+    let second = limited(src, limits, C::read);
     if records >= 2 && first.stopped.is_none() {
         return Err(format!(
             "レコードの上限 {} で止まらなかった（既定の予算で {records} 数えた）",
@@ -207,11 +207,15 @@ struct Limited {
     used: BTreeMap<Kind, u64>,
 }
 
-fn limited<C: Codec>(src: &[u8], limits: Limits) -> Limited {
+fn limited<T>(
+    src: &[u8],
+    limits: Limits,
+    run: impl FnOnce(&[u8], &mut Cx) -> Result<T, Error>,
+) -> Limited {
     let mut budget = Budget::new(limits);
     let mut diag = Diagnostics::new();
     let cancel = CancelToken::new();
-    let result = C::read(src, &mut Cx::new(&mut budget, &mut diag, &cancel));
+    let result = run(src, &mut Cx::new(&mut budget, &mut diag, &cancel));
     let read = result.is_ok();
     let stopped = match result {
         Err(Error::Stopped(stop)) => Some(stop),
@@ -281,8 +285,25 @@ fn fuzz_limits() -> Limits {
 /// 理由・診断・使った量）になることを確かめる。パニックしないことは、呼ぶ側の fuzz のツールが確かめる。cargo-fuzz の
 /// target から呼び、`Err` ならパニックにして知らせる
 pub fn survives<C: Codec>(data: &[u8]) -> Result<(), String> {
-    let first = limited::<C>(data, fuzz_limits());
-    let second = limited::<C>(data, fuzz_limits());
+    survives_with(data, C::read)
+}
+
+/// [`survives`] と同じことを、読んでから領域モデル `M` に移すまでで確かめる。移す処理も、読む処理と同じ予算から使う
+pub fn survives_lift<C: Codec, M>(data: &[u8]) -> Result<(), String>
+where
+    C::File: Lift<M>,
+{
+    survives_with(data, |src, cx| Lift::<M>::lift(&C::read(src, cx)?, cx))
+}
+
+/// [`survives`] と同じことを、`run` で確かめる。`run` は、受け取ったバイト列を文脈の予算の中で読む関数。コーデックで
+/// ない読み取り（L0 の ZIP・XML・ISO 10303-21 や、成果品・写真・表など）と、読んだ後の処理までを試すのに使う
+pub fn survives_with<T>(
+    data: &[u8],
+    run: impl Fn(&[u8], &mut Cx) -> Result<T, Error>,
+) -> Result<(), String> {
+    let first = limited(data, fuzz_limits(), &run);
+    let second = limited(data, fuzz_limits(), &run);
     if first != second {
         return Err(format!(
             "同じバイト列を 2 回読むと結果が違う（1 回目: {first:?}、2 回目: {second:?}）"

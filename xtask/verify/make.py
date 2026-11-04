@@ -27,11 +27,231 @@ ROOT = Path(__file__).resolve().parents[2]
 FIELDS = ["id", "kind", "layer", "source", "bbox", "hash", "geometry"]
 # 診断ごとに返す場所の数。既定の 16 では、黙って捨てない照合で、場所のない図形を誤って数える
 MAX_PLACES = 100000
+# 作った DXF（input/made-dropped.dxf）の、zumen が要素にしない図形の数。既定の場所の数 16 より多くする
+DROPPED = 20
+# 作った入力が役目を果たすこと: 移さなかったことを言う診断の、code ごとの場所の数
+PLACES = {
+    "input/made-dropped.dxf": {"dxf.lift.dropped": DROPPED, "dxf.non-planar.dropped": 2},
+    "input/made-structure.sfc": {"sxf.lift.invalid": 1},
+    "input/made-structure.p21": {"sxf.lift.invalid": 1},
+}
 # 適合テストの図面とキットのスクリプトのライセンス（このリポジトリと同じ）
 REPOSITORY = ("MIT OR Apache-2.0", "zumen-jp（このリポジトリ）。本文は licenses/LICENSE-MIT と licenses/LICENSE-APACHE")
 SUFFIXES = {".dxf": "dxf", ".dwg": "dwg", ".jww": "jww", ".sfc": "sfc", ".p21": "p21"}
 # 適合テストの中で作った図面（cases の push）。Jw_cad・SXF の公開サンプルがまだないので、これを入力にする
 CASES = [("open_jww.json", "a.jww"), ("open_sxf.json", "a.sfc"), ("open_sxf.json", "c.p21")]
+# ezsxf がフィーチャを型で読む SFC（フラグが `/*SXF` で、FILE_NAME がある）。適合テストの SFC はフラグが `/*SXF3` で、
+# ezsxf はそのフィーチャの値を読まないので、外部の実装と照らすために作る
+SFC = r"""ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION(('SCADEC level2 feature_mode'),'2;1');
+FILE_NAME('made-features.sfc','2026-11-03T00:00:00',(''),(''),'zumen$$3.1','zumen','');
+FILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));
+ENDSEC;
+DATA;
+/*SXF
+#10 = layer_feature(\'L\','1')
+SXF*/
+/*SXF
+#20 = pre_defined_font_feature(\'continuous\')
+SXF*/
+/*SXF
+#30 = pre_defined_colour_feature(\'black\')
+SXF*/
+/*SXF
+#40 = width_feature('0.13')
+SXF*/
+/*SXF
+#50 = line_feature('1','1','1','1','0.0','0.0','100.0','50.0')
+SXF*/
+/*SXF
+#60 = circle_feature('1','1','1','1','50.0','25.0','10.0')
+SXF*/
+/*SXF
+#90 = drawing_sheet_feature(\'S\','3','1','420','297')
+SXF*/
+ENDSEC;
+END-ISO-10303-21;
+"""
+# 照らすスクリプトの、置き方と黙って捨てない照合の枝を毎晩通す SFC と P21（決定 0121・0129・0130、docs/formats/sxf.md）。
+# 作図部品（P）と作図グループ（G）の定義と配置、表示する複合曲線と表示しない複合曲線、それを輪にするハッチング、
+# 文字、P21 ではバルーン、zumen が移さない半径 0 の円を持つ。書き戻しと変換は当てない（CHECKS）
+STRUCTURE_SFC = r"""ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION(('SCADEC level2 feature_mode'),'2;1');
+FILE_NAME('made-structure.sfc','2026-11-03T00:00:00',(''),(''),'zumen$$3.1','zumen','');
+FILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));
+ENDSEC;
+DATA;
+/*SXF
+#10 = layer_feature(\'L\','1')
+SXF*/
+/*SXF
+#20 = pre_defined_font_feature(\'continuous\')
+SXF*/
+/*SXF
+#30 = pre_defined_colour_feature(\'black\')
+SXF*/
+/*SXF
+#40 = width_feature('0.13')
+SXF*/
+/*SXF
+#50 = text_font_feature(\'MS\')
+SXF*/
+/*SXF
+#60 = line_feature('1','1','1','1','0.0','0.0','5.0','5.0')
+SXF*/
+/*SXF
+#70 = sfig_org_feature(\'P\','4')
+SXF*/
+/*SXF
+#80 = line_feature('1','1','1','1','0.0','0.0','10.0','0.0')
+SXF*/
+/*SXF
+#90 = sfig_org_feature(\'G\','3')
+SXF*/
+/*SXF
+#100 = polyline_feature('1','1','1','1','5','(50.0,60.0,60.0,50.0,50.0)','(50.0,50.0,60.0,60.0,50.0)')
+SXF*/
+/*SXF
+#110 = composite_curve_org_feature('1','1','1','1')
+SXF*/
+/*SXF
+#120 = polyline_feature('1','1','1','1','5','(54.0,56.0,56.0,54.0,54.0)','(54.0,54.0,56.0,56.0,54.0)')
+SXF*/
+/*SXF
+#130 = composite_curve_org_feature('1','1','1','0')
+SXF*/
+/*SXF
+#140 = line_feature('1','1','1','1','0.0','0.0','100.0','0.0')
+SXF*/
+/*SXF
+#150 = circle_feature('1','1','1','1','10.0','10.0','0.0')
+SXF*/
+/*SXF
+#160 = sfig_locate_feature('1',\'P\','20.0','20.0','0.0','1.0','1.0')
+SXF*/
+/*SXF
+#170 = sfig_locate_feature('1',\'G\','0.0','0.0','0.0','1.0','1.0')
+SXF*/
+/*SXF
+#180 = fill_area_style_colour_feature('1','3','1','1','(2)')
+SXF*/
+/*SXF
+#190 = text_string_feature('1','1','1',\'TEXT\','0.0','20.0','3.5','20.0','0.0','0.0','0.0','1','1')
+SXF*/
+/*SXF
+#200 = drawing_sheet_feature(\'S\','3','1','420','297')
+SXF*/
+ENDSEC;
+END-ISO-10303-21;
+"""
+STRUCTURE_P21 = """ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION(('SCADEC level2 AP202_mode'),'2;1');
+FILE_NAME('made-structure.p21','2026-11-03T00:00:00',(''),(''),'zumen$$3.1','zumen','');
+FILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));
+ENDSEC;
+DATA;
+#1=DRAUGHTING_PRE_DEFINED_COLOUR('black');
+#2=DRAUGHTING_PRE_DEFINED_CURVE_FONT('continuous');
+#3=(LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.MILLI.,.METRE.));
+#4=LENGTH_MEASURE_WITH_UNIT(POSITIVE_LENGTH_MEASURE(0.13),#3);
+#5=CURVE_STYLE(' ',#2,#4,#1);
+#6=PRESENTATION_STYLE_ASSIGNMENT((#5));
+#7=PRESENTATION_STYLE_ASSIGNMENT((NULL_STYLE(.NULL.)));
+#8=DIRECTION(' ',(1.,0.));
+#9=DIRECTION(' ',(0.,1.));
+#10=CARTESIAN_POINT(' ',(0.,0.));
+#11=AXIS2_PLACEMENT_2D(' ',#10,#8);
+#12=GEOMETRIC_REPRESENTATION_CONTEXT(' ',' ',2);
+#13=VECTOR(' ',#8,1.);
+#14=VECTOR(' ',#9,1.);
+#15=EXTERNALLY_DEFINED_TEXT_FONT('MS',$);
+#16=TEXT_STYLE_FOR_DEFINED_FONT(#1);
+#17=(TEXT_STYLE(' ',#16) TEXT_STYLE_WITH_BOX_CHARACTERISTICS((BOX_SLANT_ANGLE(0.))) TEXT_STYLE_WITH_SPACING(LENGTH_MEASURE(0.)));
+#18=PRESENTATION_STYLE_ASSIGNMENT((#17));
+#20=CARTESIAN_POINT(' ',(100.,0.));
+#21=LINE(' ',#10,#13);
+#22=TRIMMED_CURVE(' ',#21,(#10),(#20),.T.,.CARTESIAN.);
+#23=ANNOTATION_CURVE_OCCURRENCE(' ',(#6),#22);
+#24=CARTESIAN_POINT(' ',(10.,10.));
+#25=AXIS2_PLACEMENT_2D(' ',#24,$);
+#26=CIRCLE(' ',#25,0.);
+#27=ANNOTATION_CURVE_OCCURRENCE(' ',(#6),#26);
+#30=CARTESIAN_POINT(' ',(0.,20.));
+#31=AXIS2_PLACEMENT_2D(' ',#30,#8);
+#32=PLANAR_EXTENT(' ',20.,3.5);
+#33=TEXT_LITERAL_WITH_EXTENT('$$SXF_baseline left','TEXT',#31,'baseline left',.RIGHT.,#15,#32);
+#34=(ANNOTATION_OCCURRENCE() ANNOTATION_TEXT_OCCURRENCE() DRAUGHTING_ANNOTATION_OCCURRENCE() GEOMETRIC_REPRESENTATION_ITEM() REPRESENTATION_ITEM(' ') STYLED_ITEM((#18),#33));
+#40=CARTESIAN_POINT(' ',(0.,10.));
+#41=LINE(' ',#10,#14);
+#42=TRIMMED_CURVE(' ',#41,(#10),(#40),.T.,.CARTESIAN.);
+#43=ANNOTATION_CURVE_OCCURRENCE(' ',(#6),#42);
+#44=DRAUGHTING_SUBFIGURE_REPRESENTATION('$$SXF_G_G',(#43,#11),#12);
+#45=SYMBOL_REPRESENTATION_MAP(#11,#44);
+#46=SYMBOL_TARGET(' ',#11,1.,1.);
+#47=(ANNOTATION_SYMBOL() GEOMETRIC_REPRESENTATION_ITEM() MAPPED_ITEM(#45,#46) REPRESENTATION_ITEM(' '));
+#48=(ANNOTATION_OCCURRENCE() ANNOTATION_SUBFIGURE_OCCURRENCE() ANNOTATION_SYMBOL_OCCURRENCE() DRAUGHTING_ANNOTATION_OCCURRENCE() GEOMETRIC_REPRESENTATION_ITEM() REPRESENTATION_ITEM(' ') STYLED_ITEM((#7),#47));
+#50=CARTESIAN_POINT(' ',(5.,5.));
+#51=DIRECTION(' ',(0.7071067811865475,0.7071067811865475));
+#52=VECTOR(' ',#51,1.);
+#53=LINE(' ',#10,#52);
+#54=TRIMMED_CURVE(' ',#53,(#10),(#50),.T.,.CARTESIAN.);
+#55=ANNOTATION_CURVE_OCCURRENCE(' ',(#6),#54);
+#56=DRAUGHTING_SUBFIGURE_REPRESENTATION('$$SXF_P_P',(#55,#11),#12);
+#57=SYMBOL_REPRESENTATION_MAP(#11,#56);
+#58=CARTESIAN_POINT(' ',(20.,20.));
+#59=AXIS2_PLACEMENT_2D(' ',#58,#8);
+#60=SYMBOL_TARGET(' ',#59,1.,1.);
+#61=(ANNOTATION_SYMBOL() GEOMETRIC_REPRESENTATION_ITEM() MAPPED_ITEM(#57,#60) REPRESENTATION_ITEM(' '));
+#62=(ANNOTATION_OCCURRENCE() ANNOTATION_SUBFIGURE_OCCURRENCE() ANNOTATION_SYMBOL_OCCURRENCE() DRAUGHTING_ANNOTATION_OCCURRENCE() GEOMETRIC_REPRESENTATION_ITEM() REPRESENTATION_ITEM('$$SXF_P_P') STYLED_ITEM((#7),#61));
+#70=CARTESIAN_POINT(' ',(50.,50.));
+#71=CARTESIAN_POINT(' ',(60.,50.));
+#72=LINE(' ',#70,#13);
+#73=TRIMMED_CURVE(' ',#72,(#70),(#71),.T.,.CARTESIAN.);
+#74=CARTESIAN_POINT(' ',(60.,60.));
+#75=CARTESIAN_POINT(' ',(50.,60.));
+#76=POLYLINE(' ',(#71,#74,#75,#70));
+#77=COMPOSITE_CURVE_SEGMENT(.CONTINUOUS.,.T.,#73);
+#78=COMPOSITE_CURVE_SEGMENT(.CONTINUOUS.,.T.,#76);
+#79=COMPOSITE_CURVE(' ',(#77,#78),.F.);
+#80=ANNOTATION_CURVE_OCCURRENCE(' ',(#6),#79);
+#81=CARTESIAN_POINT(' ',(55.,55.));
+#82=AXIS2_PLACEMENT_2D(' ',#81,#8);
+#83=CIRCLE(' ',#82,2.);
+#84=COMPOSITE_CURVE_SEGMENT(.CONTINUOUS.,.T.,#83);
+#85=COMPOSITE_CURVE(' ',(#84),.F.);
+#86=ANNOTATION_CURVE_OCCURRENCE(' ',(#6),#85);
+#87=INVISIBILITY((#86));
+#88=DRAUGHTING_PRE_DEFINED_COLOUR('green');
+#89=FILL_AREA_STYLE_COLOUR(' ',#88);
+#90=FILL_AREA_STYLE(' ',(#89));
+#91=PRESENTATION_STYLE_ASSIGNMENT((#90));
+#92=ANNOTATION_FILL_AREA(' ',(#79,#85));
+#93=ANNOTATION_FILL_AREA_OCCURRENCE(' ',(#91),#92,#70);
+#100=CARTESIAN_POINT(' ',(80.,10.));
+#101=CARTESIAN_POINT(' ',(90.,20.));
+#102=POLYLINE(' ',(#100,#101));
+#103=(ANNOTATION_CURVE_OCCURRENCE() ANNOTATION_OCCURRENCE() DRAUGHTING_ANNOTATION_OCCURRENCE() GEOMETRIC_REPRESENTATION_ITEM() LEADER_CURVE() REPRESENTATION_ITEM(' ') STYLED_ITEM((#6),#102));
+#104=CARTESIAN_POINT(' ',(95.,25.));
+#105=AXIS2_PLACEMENT_2D(' ',#104,#8);
+#106=CIRCLE(' ',#105,5.);
+#107=ANNOTATION_CURVE_OCCURRENCE(' ',(#6),#106);
+#108=CARTESIAN_POINT(' ',(95.,23.));
+#109=AXIS2_PLACEMENT_2D(' ',#108,#8);
+#110=PLANAR_EXTENT(' ',2.,4.);
+#111=TEXT_LITERAL_WITH_EXTENT('$$SXF_middleline centre','3',#109,'middleline centre',.RIGHT.,#15,#110);
+#112=ANNOTATION_TEXT_OCCURRENCE(' ',(#18),#111);
+#113=(DRAUGHTING_CALLOUT((#103,#107,#112)) DRAUGHTING_ELEMENTS() GEOMETRIC_REPRESENTATION_ITEM() LEADER_DIRECTED_CALLOUT() REPRESENTATION_ITEM(' '));
+#120=PRESENTATION_LAYER_ASSIGNMENT('L',' ',(#23,#27,#34,#43,#48,#55,#62,#80,#86,#93,#103,#107,#112));
+#121=DRAWING_SHEET_REVISION('A3_horizontal',(#23,#27,#34,#48,#62,#93,#113),$,'01');
+#122=DRAUGHTING_TITLE((),'JAPANESE','S');
+ENDSEC;
+END-ISO-10303-21;
+"""
+# 外部の実装と照らすためだけに作る入力。書き戻しと変換を当てない
+CHECKS = {"input/made-structure.sfc", "input/made-structure.p21"}
 
 
 class Zumen:
@@ -176,14 +396,21 @@ def points_steps(fmt):
             edits.append({"kind": "point_style", "mark": "cross", "circle": False, "square": True, "size": 4, "size_kind": "length"})
         elif fmt == "jww":
             # 普通の点は角度 0 だけ。記号の点は jww.point の番号（決定 0183）。レイヤは線分と同じもので、JWW も
-            # レイヤに従う色を持たないので、ペンの番号を書く（2 は黒）
+            # レイヤに従う色を持たないので、ペンの番号を書く（2 は黒）。レイヤを取る要素がなければ、当てる候補のない段にする
+            if not model(reading):
+                return edits
             layer, color = model(reading)[0]["layer"], {"jww": 2}
             edits.append(add("space/0", {"shape": "point", "position": [1000, 2000], "rotation": 0}, layer=layer, color=color))
             point = {"shape": "point", "position": [3000, 2000], "rotation": 30, "marker": {"namespace": "jww.point", "code": "3", "scale": 2}}
             edits.append(add("space/0", point, layer=layer, color=color))
         else:
-            # SXF はレイヤに従う色を持たないので、色の番号を書く（2 は赤）
-            layer = reading["entities"][0]["layer"]
+            # SXF はレイヤに従う色を持たないので、色の番号を書く（2 は赤）。レイヤは、表で定義したレイヤ（defined）に
+            # ある最初の要素のものか、表の最初のもの。表にないレイヤ（レイヤのコードが 0 のフィーチャなど）に足すと、
+            # zumen は断る（change.edit.unsupported）。定義したレイヤがなければ、当てる候補のない段にする
+            defined = [t["name"] for t in reading.get("tables", {}).get("layers", []) if t.get("defined")]
+            layer = next((e["layer"] for e in reading["entities"] if e.get("layer") in defined), next(iter(defined), None))
+            if layer is None:
+                return edits
             marker = {"namespace": "sxf.marker", "code": "1", "scale": 1}
             color = {"sxf": 2}
             edits.append(add("sheet/0", {"shape": "point", "position": [50, 60], "rotation": 30, "marker": marker}, layer=layer, color=color))
@@ -220,6 +447,19 @@ def basic_steps(_fmt):
             edits.append(replace(circles[0], {"shape": "circle", "center": [c["center"][0] + 10, c["center"][1]], "radius": c["radius"] * 1.5}))
         return edits
 
+    def angles(_reading):
+        # 角度と寄せ方を持つ形。外部の実装の、ラジアンから度への直しと、文字の寄せ方の読みを確かめる
+        aligned = math.degrees(math.atan2(30, 40))
+        return [
+            add("space/0", {"shape": "formatted_text", "content": "ZUMEN ROTATED", "position": [0, -200], "height": 5, "rotation": 30, "attachment": "middle_center", "width": 40}),
+            add("space/0", {"shape": "text", "content": "ALIGNED", "position": [100, -200], "end": [140, -170], "fit": "aligned", "height": 3, "rotation": aligned}),
+            add("space/0", {"shape": "text", "content": "FIT", "position": [200, -200], "end": [250, -200], "fit": "fit", "height": 4, "rotation": 0}),
+            add("space/0", {"shape": "text", "content": "R45", "position": [300, -200], "height": 2, "rotation": 45}),
+            add("space/0", {"shape": "ellipse", "center": [0, -260], "major": [20, -250], "ratio": 0.4, "start_angle": 30, "end_angle": 200}),
+            add("space/0", {"shape": "arc", "center": [100, -260], "radius": 7, "start_angle": 350, "end_angle": 10}),
+            add("space/0", {"shape": "point", "position": [200, -260], "rotation": 60}),
+        ]
+
     def moves(reading):
         edits = []
         lines = [e for e in model(reading, shape="polyline") if not any(e["geometry"].get("bulges", []))]
@@ -230,7 +470,7 @@ def basic_steps(_fmt):
             edits.append({"kind": "restyle", "id": circles[0]["id"], "hash": circles[0]["hash"], "color": {"aci": 1}})
         return edits
 
-    return [layer, shapes, moves]
+    return [layer, shapes, angles, moves]
 
 
 def minsert_steps(_fmt):
@@ -280,7 +520,50 @@ RECIPES = [
 ]
 
 
-def run_recipe(z, out, entry, data, recipe):
+def dropped_dxf():
+    """zumen が要素にしない図形（3DFACE）を DROPPED 持つ DXF。黙って捨てない照合で、診断が図形のレコードを指すことを
+    確かめる（既定の場所の数 16 を超える）。平面の図面モデルに移さない図形（Z が 0 でない線分と、押し出しの向きが X の
+    円。dxf.non-planar.dropped）も持つ。図形はハンドルを持ち、ezdxf の図形と zumen の要素を結べる"""
+
+    def tags(*pairs):
+        return "".join(f"{code}\n{value}\n" for code, value in pairs)
+
+    out = tags((0, "SECTION"), (2, "TABLES"), (0, "TABLE"), (2, "LAYER"), (70, 1))
+    out += tags((0, "LAYER"), (2, "0"), (70, 0), (62, 7), (6, "CONTINUOUS"), (0, "ENDTAB"), (0, "ENDSEC"))
+    out += tags((0, "SECTION"), (2, "ENTITIES"))
+    out += tags((0, "LINE"), (5, "100"), (8, "0"), (10, 0.0), (20, 0.0), (30, 0.0), (11, 100.0), (21, 50.0), (31, 0.0))
+    for i in range(DROPPED):
+        pairs = [(0, "3DFACE"), (5, f"{0x101 + i:X}"), (8, "0")]
+        for k, (x, y) in enumerate([(0, 0), (5, 0), (5, 5), (0, 5)]):
+            pairs += [(10 + k, float(i * 10 + x)), (20 + k, float(y)), (30 + k, 0.0)]
+        out += tags(*pairs)
+    out += tags((0, "LINE"), (5, "200"), (8, "0"), (10, 0.0), (20, 20.0), (30, 5.0), (11, 50.0), (21, 20.0), (31, 5.0))
+    out += tags((0, "CIRCLE"), (5, "201"), (8, "0"), (10, 0.0), (20, 30.0), (30, 0.0), (40, 5.0), (210, 1.0), (220, 0.0), (230, 0.0))
+    return out + tags((0, "ENDSEC"), (0, "EOF"))
+
+
+def codes(*lists):
+    """診断の (code, kind) ごとの件数"""
+    found = Counter()
+    for diagnostics in lists:
+        for d in diagnostics:
+            found[(d["code"], d.get("params", {}).get("kind"))] += d.get("count", 1)
+    return found
+
+
+def reopen(z, out, record, data, baseline):
+    """書いたファイルを zumen で読み直して読みを置く。baseline（入力の診断の (code, kind) ごとの件数）より件数の
+    増えた診断があれば、reread に残す"""
+    record["open"] = open_file(z, record["path"] + ".reopened", data)
+    reading = read(z, record["path"] + ".reopened")
+    save_reading(out, record["path"], reading)
+    found = codes(record["open"], reading["diagnostics"])
+    new = sorted(f"{code}（{kind}）{n}" if kind else f"{code} {n}" for (code, kind), n in found.items() if n > baseline[(code, kind)])
+    if new:
+        record["reread"] = new
+
+
+def run_recipe(z, out, entry, data, recipe, baseline):
     """入力に変更の段を順に当て、最後に書いたファイルを置く。どれかの段が当たらなければ、その診断を残す"""
     name, issue, _, steps = recipe
     stem, suffix = Path(entry["path"]).stem, Path(entry["path"]).suffix
@@ -303,9 +586,9 @@ def run_recipe(z, out, entry, data, recipe):
             record["status"] = "failed"
             return record
         applied = response["result"]["applied"]
-        # 期待する形と、足した要素の画層
+        # 期待する形と、足した要素の画層と色
         step["expect"] = [
-            {"id": a.get("id"), "edit": i, "geometry": e["_expect"], **({"layer": e["layer"]} if "layer" in e else {})}
+            {"id": a.get("id"), "edit": i, "geometry": e["_expect"], **{k: e[k] for k in ("layer", "color") if k in e}}
             for i, (e, a) in enumerate(zip(edits, applied))
             if "_expect" in e and a.get("id")
         ]
@@ -313,12 +596,11 @@ def run_recipe(z, out, entry, data, recipe):
     (out / doc).parent.mkdir(parents=True, exist_ok=True)
     (out / doc).write_bytes(current)
     record["status"] = "ok"
-    record["open"] = open_file(z, doc + ".reopened", current)
-    save_reading(out, doc, read(z, doc + ".reopened"))
+    reopen(z, out, record, current, baseline)
     return record
 
 
-def run_convert(z, out, entry, data):
+def run_convert(z, out, entry, data, baseline):
     """図面モデルを経て DXF に変換する（決定 0206）"""
     source = f"convert/{Path(entry['path']).name}"
     target = source + ".dxf"
@@ -332,8 +614,8 @@ def run_convert(z, out, entry, data):
     data = z.take(response["blobs"][0]["id"])
     (out / target).parent.mkdir(parents=True, exist_ok=True)
     (out / target).write_bytes(data)
-    record["open"] = open_file(z, target + ".reopened", data)
-    save_reading(out, target, read(z, target + ".reopened"))
+    # 入力が持つ値の欠け（例: 単位のない DXF）は、変換した DXF にも残るので、入力の診断と比べる
+    reopen(z, out, record, data, baseline)
     return record
 
 
@@ -439,13 +721,25 @@ def describe(g):
     if s == "arc":
         return f"円弧 中心 {pt(g['center'])}・半径 {num(g['radius'])}・{num(g['start_angle'])}° から {num(g['end_angle'])}°（反時計回り）"
     if s == "ellipse":
-        return f"楕円 中心 {pt(g['center'])}・長軸の端 {pt(g['major'])}・比 {num(g['ratio'])}"
+        text = f"楕円 中心 {pt(g['center'])}・長軸の端 {pt(g['major'])}・比 {num(g['ratio'])}"
+        if (g["start_angle"], g["end_angle"]) != (0, 360):
+            # 図面モデルの楕円の角度は媒介変数の角度（DXF の 41・42）。AutoCAD のプロパティの角度とは違う
+            text += f"・媒介変数で {num(g['start_angle'])}° から {num(g['end_angle'])}°（楕円を円に引き延ばしたときの角度）"
+        return text
     if s == "polyline":
         bulges = "・膨らみ " + "/".join(num(b) for b in g["bulges"]) if any(g.get("bulges", [])) else ""
         return f"ポリライン {'閉じた' if g['closed'] else '開いた'} " + " ".join(pt(p) for p in g["points"]) + bulges
     if s in ("text", "formatted_text"):
         kind = "文字" if s == "text" else "書式つきの文字"
-        return f"{kind}「{g['content']}」・位置 {pt(g['position'])}・高さ {num(g['height'])}・角度 {num(g.get('rotation', 0))}°"
+        text = f"{kind}「{g['content']}」・位置 {pt(g['position'])}・高さ {num(g['height'])}・角度 {num(g.get('rotation', 0))}°"
+        if "end" in g:
+            # 2 点の間に置く文字（DXF の TEXT の 72 が 3 は両端揃え、5 はフィット）
+            text += f"・{pt(g['end'])} までの間に置く（{'両端揃え' if g.get('fit') == 'aligned' else 'フィット'}）"
+        if "attachment" in g:
+            text += f"・寄せ方 {g['attachment']}"
+        if "width" in g:
+            text += f"・枠の幅 {num(g['width'])}"
+        return text
     if s == "symbol":
         text = f"記号「{g['name']}」・位置 {pt(g['position'])}・尺度 {num(g['scale'][0])}×{num(g['scale'][1])}・角度 {num(g['rotation'])}°"
         if "grid" in g:
@@ -456,6 +750,8 @@ def describe(g):
 
 
 VIEWERS = {"dxf": "AutoCAD", "dwg": "AutoCAD", "jww": "Jw_cad", "sfc": "SXF ブラウザ", "p21": "SXF ブラウザ"}
+# 形式の用語。AutoCAD の「画層」と、CAD製図基準・SXF・Jw_cad の「レイヤ」（docs/style.md）
+LAYER_WORDS = {"dxf": "画層", "dwg": "画層"}
 
 INTRO = """# 検証キット
 
@@ -463,7 +759,7 @@ zumen の CLI で、公開サンプル（`samples/`）と適合テストの中�
 
 - `manifest.json`: ファイルごとの出所・当てた変更・期待する形・診断
 - `zumen/`: zumen が読んだ値（`drawing`・`tables`・`entities` の応答）。入力と書いたファイルのそれぞれ
-- `ezdxf.json`: DXF を ezdxf で読んで照らした結果（`check_ezdxf.py`）
+- `ezdxf.json`・`acadsharp.json`・`ezjww.json`・`ezsxf.json`: DXF・DWG・JWW・SFC と P21 を、外部の実装で読んで照らした結果（`check_ezdxf.py` など）。`acadsharp-dump.json` は、ACadSharp で読んだ DWG の値
 - `input/`: 入力の図面。書いたファイルを開く前に、同じソフトで入力も開き、入力から変わった所だけを比べる
 - `licenses/`: 入力のライセンスの本文。入力ごとのライセンスと表示は、下の「出所とライセンス」と `manifest.json` にある
 
@@ -491,7 +787,7 @@ SECTIONS = {
     ),
     156: (
         "#156 書き戻した DWG を AutoCAD で開く",
-        """R2000・R2004・R2013・R2018 の DWG と、同じ変更を当てた DXF です。画層を足し、線分・円・円弧・楕円・ポリライン・文字・書式つきの文字（と記号）を足し、円を置き換えて赤（ACI 1）にし、長方形のポリラインを下へ 20 動かしました（決定 0079〜0104・0155・0162）。
+        """R2000・R2004・R2013・R2018 の DWG と、同じ変更を当てた DXF です。画層を足し、線分・円・円弧・楕円・ポリライン・文字・書式つきの文字（と記号）を足し、角度と寄せ方を持つ形（回した書式つきの文字・2 点の間に置く文字・回した文字・部分の楕円・0° をまたぐ円弧・回した点）を足し、円を置き換えて赤（ACI 1）にし、長方形のポリラインを下へ 20 動かしました（決定 0079〜0104・0155・0162）。
 
 - **AutoCAD。** 共通の手順で、開けること・監査の誤りが 0 であること・下の表の形を確かめる。足した線分は、足した画層 ZUMEN_ADDED（緑、ACI 3）にある。
 """,
@@ -523,7 +819,7 @@ SECTIONS = {
     ),
     174: (
         "#174 DXF から図面モデルへ移す値",
-        """入力の DXF と DWG（AutoCAD で作ったサンプル）を zumen が読んだ値は `zumen/input/` に、ezdxf と照らした結果は `ezdxf.json` にあります。
+        """入力の DXF と DWG（AutoCAD で作ったサンプル）を zumen が読んだ値は `zumen/input/` に、ezdxf・ACadSharp と照らした結果は `ezdxf.json`・`acadsharp.json` にあります。
 
 - **AutoCAD。** 共通の手順の 3 で書き出した値を、`zumen/input/<ファイル>.json` の `entities` の `geometry` と比べる。違えば、ハンドル・フィールド・2 つの値を issue に書く。
 - **まだサンプルのない推定。** MULTILEADER の色の値（AcCmColor）、HATCH の SPLINE の辺のフィット点（R2010 から）、表のセルの 2007 からの値、アンダーレイの切り抜きの頂点、R2018 の 101 を持つ MTEXT は、AutoCAD で作ったサンプルが要る。作り方は `xtask/autocad/samples.lsp` に主題を足して、`make.sh` で作る。
@@ -580,14 +876,17 @@ def expectation(out, f):
         return text
     reading = json.loads((out / "zumen" / (f["path"] + ".json")).read_text(encoding="utf-8"))
     handles = {e["id"]: e.get("source", {}).get("handle") for e in reading["entities"]}
+    word = LAYER_WORDS.get(f["format"], "レイヤ")
     items = []
     for step in f["steps"]:
         if step.get("skipped"):
             items.append(f"段 {step['step']} は当てる候補がなく、当てていない")
         for want in step.get("expect", []):
             handle = handles.get(want["id"])
-            layer = f"・画層 {want['layer']}" if "layer" in want else ""
-            items.append(f"{'ハンドル ' + handle if handle else want['id']}: {describe(want['geometry'])}{layer}")
+            layer = f"・{word} {want['layer']}" if "layer" in want else ""
+            color = want.get("color", {})
+            pen = f"・ペン {color['jww']}" if "jww" in color else f"・既定義色 {color['sxf']}" if "sxf" in color else ""
+            items.append(f"{'ハンドル ' + handle if handle else want['id']}: {describe(want['geometry'])}{layer}{pen}")
         for edit in step["edits"]:
             if edit["kind"] == "point_style":
                 items.append("点の表し方: $PDMODE 67・$PDSIZE 4")
@@ -595,7 +894,9 @@ def expectation(out, f):
                 items.append(f"画層 {edit['name']}（ACI {edit['color']['aci']}）")
             if edit["kind"] == "restyle":
                 items.append(f"ハンドル {handles.get(edit['id'])} の色が ACI {edit['color']['aci']}")
-    return "開けて、監査の誤りが 0。" + "<br>".join(items)
+    # 監査（AUDIT）は AutoCAD の手順にだけある
+    opened = "開けて、監査の誤りが 0。" if VIEWERS.get(f["format"]) == "AutoCAD" else "開ける。"
+    return opened + "<br>".join(items)
 
 
 def inputs(extra):
@@ -612,6 +913,10 @@ def inputs(extra):
         push = next(s["push"] for s in steps if s.get("push", {}).get("name") == name)
         data = bytes.fromhex(push["hex"]) if "hex" in push else push["text"].encode("utf-8")
         found.append((f"input/conformance-{Path(case).stem}-{name}", data, f"bindings/conformance/cases/{case}", *REPOSITORY))
+    found.append(("input/made-features.sfc", SFC.encode("ascii"), "xtask/verify/make.py", *REPOSITORY))
+    found.append(("input/made-dropped.dxf", dropped_dxf().encode("ascii"), "xtask/verify/make.py", *REPOSITORY))
+    found.append(("input/made-structure.sfc", STRUCTURE_SFC.encode("ascii"), "xtask/verify/make.py", *REPOSITORY))
+    found.append(("input/made-structure.p21", STRUCTURE_P21.encode("ascii"), "xtask/verify/make.py", *REPOSITORY))
     if extra:
         # 受け取った図面のキットは配らないので、ライセンスを書かない
         for path in sorted(Path(extra).rglob("*")):
@@ -639,7 +944,7 @@ def main():
     out.mkdir(parents=True)
     z = Zumen(args.zumen)
     _, capabilities = z.call({"op": "capabilities"})
-    files = []
+    files, broken = [], []
     for path, data, source, terms, attribution in inputs(args.inputs):
         fmt = SUFFIXES[Path(path).suffix.lower()]
         (out / path).parent.mkdir(parents=True, exist_ok=True)
@@ -647,12 +952,21 @@ def main():
         entry = {"path": path, "role": "input", "format": fmt, "source": source, "open": open_file(z, path, data)}
         if terms:
             entry["license"], entry["attribution"] = terms, attribution
-        save_reading(out, path, read(z, path))
+        reading = read(z, path)
+        save_reading(out, path, reading)
         files.append(entry)
+        baseline = codes(entry["open"], reading["diagnostics"])
+        # 作った入力が役目を果たすこと: 要素にしない図形のどれもが、移さなかったことを言う診断の場所にある
+        for code, want in PLACES.get(path, {}).items():
+            places = sum(len(d.get("at", [])) for d in entry["open"] + reading["diagnostics"] if d["code"] == code)
+            if places != want:
+                broken.append(f"{path}: {code} の場所が {places}（期待は {want}）。黙って捨てない照合を確かめられない")
+        if path in CHECKS:
+            continue
         for recipe in RECIPES:
             if recipe[2](Path(path).name, fmt):
-                files.append(run_recipe(z, out, entry, data, recipe))
-        files.append(run_convert(z, out, entry, data))
+                files.append(run_recipe(z, out, entry, data, recipe, baseline))
+        files.append(run_convert(z, out, entry, data, baseline))
         # 文字を UTF-8 で書けるのは 2007 からの DXF
         if fmt == "dxf" and "-arcdim-r2018" in path:
             files += dimension_experiments(out, entry, data)
@@ -670,8 +984,13 @@ def main():
     failed = [f for f in files if f.get("status") not in (None, "ok")]
     for f in failed:
         print(f"{f['path']}: {f.get('status')} {[d['code'] for s in f.get('steps', []) for d in s.get('diagnostics', [])] or f.get('diagnostics')}", file=sys.stderr)
-    print(f"{len(files)} のファイル（当たらなかった組 {len(failed)}）を {out} に置いた")
-    return 1 if failed else 0
+    reread = [f for f in files if f.get("reread")]
+    for f in reread:
+        print(f"{f['path']}: zumen が読み直すと、入力より件数の増えた診断が出た: {f['reread']}", file=sys.stderr)
+    for message in broken:
+        print(message, file=sys.stderr)
+    print(f"{len(files)} のファイル（当たらなかった組 {len(failed)}、読み直すと診断が増えた組 {len(reread)}）を {out} に置いた")
+    return 1 if failed or reread or broken else 0
 
 
 if __name__ == "__main__":

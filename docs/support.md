@@ -31,7 +31,7 @@ zumen が対象にするプラットフォーム・言語の実行環境・ホ�
 | --- | --- | --- | --- | --- |
 | 1 | Rust | 1.99（crate の `rust-version`） | 固定したツールチェーン | PR ごと |
 | 1 | TS・JS（ブラウザー） | Chrome・Edge 96、Firefox 79、Safari 15 | Rust の wasm32 が既定で使う wasm の機能（multivalue・mutable-globals・reference-types・sign-ext・bulk-memory・nontrapping-fptoint） | PR ごと（Chromium）、毎晩（Firefox・WebKit） |
-| 1 | Node.js | 22 | 20 のサポートは 2026-04-30 に終わった | PR ごと |
+| 1 | Node.js | 22 | 20 のサポートは 2026-04-30 に終わった | PR ごと。Next.js（Turbopack・webpack）で組んで使うテストは毎晩（[決定 0259](decisions/0259-javascript-on-node-servers.md)） |
 | 1 | Python | 3.9 | Rhino 8 と Dynamo 3.x の CPython3（どちらも 3.9） | PR ごと（3.9 と最新） |
 | 1 | .NET | .NET Framework 4.8、.NET 8 以降 | Revit・AutoCAD 2024 は .NET Framework 4.8。netstandard2.0 の 1 つのアセンブリで両方に出す | PR ごと（.NET Framework 4.8 と .NET 10） |
 | 1 | C・C++ | C99、C++17 | | PR ごと |

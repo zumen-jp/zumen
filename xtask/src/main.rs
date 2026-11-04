@@ -2,8 +2,9 @@
 //!
 //! - `codegen`: 形式の一覧、Rust の定数と型（シーンの配置を含む）、C のヘッダー（シーンの配置を含む）、TypeScript・JavaScript・Python・.NET
 //!   の型と定数、CLI の MCP のツールの一覧、カタログとプロファイルの JSON を生成する
-//! - `codegen --check`: 権利の台帳と依存・カタログ・スキーマ・プロファイル・公開サンプルの台帳と、ラッパーのバージョンを確かめ、
-//!   生成したファイルが最新かを確かめる
+//! - `codegen --check`: 権利の台帳と依存・カタログ・スキーマ・プロファイル・公開サンプルの台帳と、ラッパーのバージョンと、
+//!   登録した形式の fuzz の target を確かめ、生成したファイルが最新かを確かめる
+//! - `fuzz-seeds`: fuzz の種の入力を `fuzz/corpus` に書く（fuzz/README.md）
 
 mod boundary;
 mod catalog;
@@ -12,11 +13,13 @@ mod dart;
 mod dotnet;
 mod drawing;
 mod formats;
+mod fuzz;
 mod go;
 mod java;
 mod javascript;
 mod profiles;
 mod python;
+mod release;
 mod samples;
 mod scene;
 mod schema;
@@ -30,7 +33,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
 
-const USAGE: &str = "使い方: cargo xtask codegen [--check]";
+const USAGE: &str = "使い方: cargo xtask codegen [--check] | cargo xtask fuzz-seeds";
 
 /// 生成するファイルの置き場所（リポジトリの根からの相対パス）
 const CODES_RS: &str = "crates/zumen-base/src/codes.rs";
@@ -83,6 +86,7 @@ fn main() -> ExitCode {
     let result = match args.as_slice() {
         ["codegen"] => codegen(Mode::Write),
         ["codegen", "--check"] => codegen(Mode::Check),
+        ["fuzz-seeds"] => fuzz::seeds(&root()),
         _ => Err(USAGE.to_string()),
     };
     match result {
@@ -161,6 +165,8 @@ fn codegen(mode: Mode) -> Result<(), String> {
     let profiles = profiles::generate(&root)?;
     let drawing = drawing::generate(&root)?;
     samples::check(&root)?;
+    fuzz::check(&root, &boundary)?;
+    release::check(&root)?;
     check_package_version(JS_PACKAGE, &read(JS_PACKAGE)?)?;
     check_pyproject_version(PY_PROJECT, &read(PY_PROJECT)?)?;
     check_csproj_version(CS_PROJECT, &read(CS_PROJECT)?, boundary.versions.abi)?;
