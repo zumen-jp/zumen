@@ -53,8 +53,40 @@
 4. ライセンスが本文や著作権表示の同梱を求める場合は、その条件を満たすように本文を `licenses/` に置き、台帳の表示の文から参照します。
 5. PR に、ライセンスの本文の URL と、再配布を認める箇所を書きます。
 
+## 外し方
+
+ライセンスに疑いが出たときなどに、サンプルを外す手順です。
+
+1. ファイルと、`ledger.toml` のその `[[samples]]` を消します。台帳から参照しなくなった `licenses/` の本文も消します。
+2. PR に、外した理由を書きます。
+
+fuzz が育てた種（actions/cache）のキーは、台帳のハッシュを含みます。台帳が変わると、外す PR の実行も、マージの後の毎晩の実行も、前の種を戻しません。そのため、その後の実行の種と artifact に、外したサンプルとそれを変えた入力は入りません（[決定 0258](../docs/decisions/0258-fuzz-seeds-and-runs.md)・[`fuzz/README.md`](../fuzz/README.md)）。
+
+前の種のキャッシュは、7 日使われなければ GitHub が消します。早く消すときは、外す PR をマージし、流れている fuzz の実行が終わってから、次のコマンドで消します。消した後に、`gh cache list --key fuzz-corpus-` で何も出ないことを確かめます。
+
+```bash
+for id in $(gh cache list --key fuzz-corpus- --limit 100 --json id --jq '.[].id'); do gh cache delete "$id"; done
+```
+
 ## AutoCAD で作った図面
 
 `dwg/zumen-*` は、zumen-jp が AutoCAD 2027 で作った図面です（#316）。ライセンスは CC0 1.0 です。主題ごとに 1 つの図面を作り、版ごとに DWG と、同じ図面の DXF（`_ascii.dxf`）を対で置きます。試験は、この対の表と図面モデルを比べます。
 
 作り直すときは、`xtask/autocad/make.sh` を使います。SSH でつなぐ Windows の AutoCAD の accoreconsole で `xtask/autocad/samples.lsp` を流し、できた図面を `dwg/` に置きます。そのあと、台帳のハッシュとバイト数を直します。AutoCAD は保存のたびに、Windows のログイン名を図面の DWGPROPS に書きます。
+
+## IFC
+
+`ifc/` は、再配布を認める公開の IFC です（#412）。出所・ライセンス・表示の文・変えた内容は、台帳にあります。
+
+| フォルダー | 公開した者 | ライセンス | 書き出したソフト | 版 |
+| --- | --- | --- | --- | --- |
+| `rinya/` | 林野庁 | 公共データ利用規約（第 1.0 版） | Autodesk Revit 2024 日本語版（公開元が IfcOpenShell で保存） | IFC4X3 |
+| `nakano/` | 中野区 | CC BY 4.0 | Autodesk Civil 3D 2024 日本語版 | IFC2X3 |
+| `gni/` | Technical University of Munich, Georg Nemetschek Institute（GNI BIM Dataset） | CC BY 4.0 | Autodesk Revit 2024・2025、Archicad 28 | IFC2X3・IFC4 |
+| `bim-whale/` | André Wisén（BIM Whale） | MIT | Autodesk Revit 2021 | IFC2X3 |
+| `text2bim/` | dcy0577（Text2BIM） | MIT | Vectorworks Architect 2024 | IFC2X3 |
+
+- 見出しに、作った人の名前・手元の機械の名前・手元のフォルダーの道筋があるものは、その値だけを置き換えました。データの節は、取得したままのバイト列です。取得したファイルの大きさと SHA-256 は、台帳の `changes` にあります。
+- `text2bim/` の GlobalId は版 1 の UUID で、作った機械の識別子（MAC アドレスと推定）を含みます。氏名・住所・連絡先ではなく（決定 0171）、元のファイルも公開されているので、データの節を変えずに残しました。
+- `nakano/` の形は点群から作った Brep で、要素はすべて `IfcBuildingElementProxy` です。`rinya/` と `gni/` は、公開元が書き出した後に保存し直しています。どちらも、書き出したソフトがそのまま書いたファイルとしては扱いません。
+- `crates/zumen-ifc/tests/samples.rs` が、すべてを読み、建物モデルに写した要約を `samples.txt` と比べます。毎晩の CI は、写した値を IfcOpenShell で読んだ値と照らします（`crates/zumen-ifc/tests/ifcopenshell/samples.py`）。

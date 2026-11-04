@@ -94,6 +94,9 @@ Markdown の誤りの多くは、`npm run fix:text` で直せます。
 | 鏡のリポジトリ | ミラー | 配る仕組みのために中身を写したリポジトリ（[決定 0004](decisions/0004-repositories.md)） |
 | 試用画面 | デモ・プレイグラウンド | ブラウザーで試す画面 |
 | 正（日本語を正にする） | 正文・正本 | 訳の元になり、食い違ったときに優先する版 |
+| 確かめた度合い | 検証の段階 | 形式ごとに、読み書きをどこまで確かめたかの段。`synthetic`・`external`・`application`（[決定 0254](decisions/0254-parallel-agents-and-cross-review.md)） |
+| 外部の実装 | オラクル | 結果を照らすのに使う、ほかの人が作った実装。成果物に入れない。外部のプラグイン（[決定 0017](decisions/0017-format-rights-ledger-and-plugin-sdk.md)）とは別。[決定 0007](decisions/0007-single-rust-implementation.md) の「参照実装」（旧版の読み取り器）と、台帳の `references`（参照した実装）とも別（[決定 0254](decisions/0254-parallel-agents-and-cross-review.md)） |
+| 確認の束 | 検証キット | 実際のソフトで開くファイルと、作るコマンド・開く手順・期待する結果の組（[決定 0254](decisions/0254-parallel-agents-and-cross-review.md)） |
 
 ### 書き方を決めた語
 
@@ -108,6 +111,8 @@ Markdown の誤りの多くは、`npm run fix:text` で直せます。
 | wasm | `WASM`・`Wasm` | WebAssembly の略。正式な名前は WebAssembly |
 | レイヤ | `レイヤー` | CAD製図基準の用語に合わせる |
 | ブラウザー | `ブラウザ` | 製品名に含まれるものは原典どおり |
+| 公開サンプル | `公開の試料` | 誰でも入手できるように公開されたサンプルのファイル。このリポジトリの `samples/` には、[決定 0171](decisions/0171-public-samples-in-git.md) の条件（再配布を認めるライセンス・大きさ）に合うものを置ける。受け取った図面は含めない |
+| メモリの最大 | `メモリの頂点`・`メモリの山` | 確保した量の最大。「頂点」は形の点と取り違える |
 | 線形 | | 道路・鉄道の中心の線（alignment）を指す。図面の寸法とスプラインの linear は「線形の寸法」「線形のスプライン」と名詞を付けて書く（[決定 0230](decisions/0230-civil-model-alignments.md)） |
 
 ## 辞書と規則を直す

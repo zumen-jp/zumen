@@ -323,8 +323,11 @@ dependencies = [
  "serde",
  "syn",
  "toml",
+ "zumen-base",
+ "zumen-crs",
  "zumen-json",
  "zumen-profile",
+ "zumen-zip",
 ]
 
 [[package]]
@@ -354,6 +357,8 @@ dependencies = [
  "zumen-delivery",
  "zumen-drawing",
  "zumen-e57",
+ "zumen-extdm",
+ "zumen-fgd",
  "zumen-geo",
  "zumen-geology",
  "zumen-geom2d",
@@ -539,6 +544,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "zumen-extdm"
+version = "0.2.0"
+dependencies = [
+ "encoding_rs",
+ "libm",
+ "zumen-base",
+ "zumen-crs",
+ "zumen-geo",
+ "zumen-geom2d",
+ "zumen-geom3d",
+ "zumen-sdk",
+]
+
+[[package]]
+name = "zumen-fgd"
+version = "0.2.0"
+dependencies = [
+ "zumen-base",
+ "zumen-crs",
+ "zumen-geo",
+ "zumen-geom3d",
+ "zumen-sdk",
+ "zumen-xml",
+ "zumen-zip",
+]
+
+[[package]]
 name = "zumen-geo"
 version = "0.2.0"
 dependencies = [
@@ -593,6 +625,7 @@ dependencies = [
  "zumen-civil",
  "zumen-crs",
  "zumen-ids",
+ "zumen-json",
  "zumen-landxml",
  "zumen-sdk",
  "zumen-step",
@@ -750,6 +783,7 @@ dependencies = [
  "zumen-drawing",
  "zumen-sdk",
  "zumen-step",
+ "zumen-xml",
 ]
 
 [[package]]

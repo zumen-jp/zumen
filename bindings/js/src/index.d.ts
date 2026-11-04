@@ -1,7 +1,7 @@
 // zumen の wasm のモジュールを呼ぶ薄い包みの型（決定 0011・0194）。要求と応答の型は messages.d.ts に生成する。
 
 import type { Detection, ModuleName, StatusName } from "./constants.js";
-import type { Operations, Request, Response, SessionOptions } from "./messages.js";
+import type { OpenRequest, Operations, Request, Response, SessionOptions } from "./messages.js";
 
 export * from "./constants.js";
 export type * from "./messages.js";
@@ -15,7 +15,10 @@ export type ResultOf<R extends Request> = R extends { op: infer O extends keyof 
   ? Operations[O]["result"]
   : unknown;
 
-/** 境界の関数が ok でない状態を返した */
+/**
+ * 境界の関数が ok でない状態を返したか、wasm の中から例外が出た。wasm の中で trap などが起きたときは、状態が
+ * panicked になり、cause に元の例外（WebAssembly.RuntimeError など）を持つ
+ */
 export declare class ZumenError extends Error {
   /** 呼んだ境界の関数（zm_call など） */
   readonly operation: string;
@@ -44,20 +47,31 @@ export declare class Session {
   take(blob: number): Uint8Array;
   /** 動いている呼び出しを止める。動いている呼び出しがなければ、何もしない */
   cancel(): void;
-  /** セッションを閉じる。閉じたあとの呼び出しは、invalid の ZumenError になる */
+  /**
+   * セッションを閉じる。閉じたあとの呼び出しは、invalid の ZumenError になる。使えなくなったインスタンスでは何もせず、
+   * finally の中で呼んでも、先に出た例外を隠さない
+   */
   close(): void;
 }
 
 /** 読み込んだ wasm のモジュール */
 export declare class Zumen {
   private constructor();
+  /**
+   * wasm の中で trap などが起き、もう使えないか。使えなければ、それからの呼び出しは panicked の ZumenError になる。
+   * モジュールを読み込み直す
+   */
+  readonly broken: boolean;
   /** ABI の大版 */
   abiVersion(): number;
   /** セッションを作る。設定は、値か JSON の文字列かバイト列で渡す。渡さなければ既定の設定 */
   open(options?: SessionOptions | string | Bytes): Session;
 }
 
-/** モジュールを、コンパイルしたものかバイト列か fetch の応答から、非同期に読み込む */
+/**
+ * モジュールを、コンパイルしたものかバイト列か fetch の応答から、非同期に読み込む。別の realm（Next.js の Edge のランタイム
+ * など）で作ったものも受け取る
+ */
 export declare function load(
   source: WebAssembly.Module | Bytes | globalThis.Response | PromiseLike<WebAssembly.Module | Bytes | globalThis.Response>,
 ): Promise<Zumen>;
@@ -83,15 +97,29 @@ export interface PluginModule {
   load: () => Parameters<typeof load>[0];
 }
 
-/** 分けた wasm のモジュールを、要るときに 1 度だけ読み込む */
+/** 分けた wasm のモジュールを、要るときに読み込んで使い回す。trap で使えなくなったら、読み込み直す */
 export declare class Modules {
   private constructor();
-  /** 名前のモジュールを読み込む。プラグインのモジュールは、その名前で引く */
+  /**
+   * 名前のモジュールを読み込む。プラグインのモジュールは、その名前で引く。読み込んだインスタンスは使い回し、trap で
+   * 使えなくなったら（`Zumen.broken`）、捨てて読み込み直す。読み込みに失敗したら覚えず、次に引いたときにやり直す
+   */
   get(name: ModuleName | string): Promise<Zumen>;
   /** 入力の形式を判定する。コアの形式でなければ、プラグインの規則で試す。どの形式でもなければ undefined */
   detect(bytes: Bytes): { format: string; module: string; rules: Detection["rules"] } | undefined;
   /** 入力の形式を判定し、その形式を持つモジュールを読み込む。どの形式でもなければ undefined */
   forInput(bytes: Bytes): Promise<Zumen | undefined>;
+  /**
+   * 入力を、その形式を持つモジュールの新しいセッションで開く（決定 0250）。図面の形式のプラグインの入力は、プラグインの
+   * モジュールで lift し、図面モデルのバイナリを図面のモジュールで開く。返すセッションは呼び出し側が閉じる。どの
+   * モジュールの形式でもなければ undefined
+   */
+  open(
+    name: string,
+    bytes: Bytes,
+    request?: Omit<OpenRequest, "v" | "op" | "input">,
+    inputs?: Record<string, string | Bytes>,
+  ): Promise<{ zumen: Zumen; session: Session; response: Response<ResultOf<OpenRequest>> } | undefined>;
   /** op を持つモジュールのうち、読み込めるものの最初を読み込む */
   forOp(op: string): Promise<Zumen>;
 }

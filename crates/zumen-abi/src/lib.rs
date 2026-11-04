@@ -11,12 +11,17 @@
 
 // モジュールを分けて作るときは、入れなかった op からしか呼ばない関数が残る（決定 0221）
 #![cfg_attr(
-    not(all(feature = "drawing", feature = "bim")),
+    not(all(
+        feature = "drawing",
+        feature = "bim",
+        feature = "civil",
+        feature = "pointcloud"
+    )),
     allow(dead_code, unused_imports, unused_variables)
 )]
 
 pub mod abi;
-#[cfg(feature = "drawing")]
+#[cfg(feature = "pointcloud")]
 mod asbuilt;
 mod bake;
 mod bcf;
@@ -26,7 +31,13 @@ mod bounds;
 mod building;
 mod changes;
 mod check;
-#[cfg(feature = "drawing")]
+// 土木の領域モデルと civil の op。BIM のモジュールも、IFC4.3 の線形のために持つ（決定 0253）
+#[cfg(any(
+    feature = "drawing",
+    feature = "bim",
+    feature = "civil",
+    feature = "pointcloud"
+))]
 mod civil;
 mod convert;
 #[cfg(feature = "drawing")]
@@ -34,7 +45,7 @@ mod delivery;
 mod describe;
 pub mod ffi;
 mod formats;
-#[cfg(feature = "drawing")]
+#[cfg(feature = "civil")]
 mod geo;
 mod geometry;
 pub mod messages;
@@ -42,7 +53,7 @@ mod packed;
 #[cfg(feature = "drawing")]
 mod photo;
 mod plugin;
-#[cfg(feature = "drawing")]
+#[cfg(feature = "pointcloud")]
 mod pointcloud;
 #[cfg(not(target_family = "wasm"))]
 mod process;

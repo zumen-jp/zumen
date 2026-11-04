@@ -19,6 +19,7 @@ use zumen_drawing::{
 };
 use zumen_sdk::{Cx, Error, Lift};
 
+use crate::saf::AttributeFile;
 use crate::{Mode, Quote, SfcRecord, SxfFile, Value, p21};
 
 mod apply;
@@ -88,11 +89,24 @@ const TITLE_ITEMS: [(&str, &str); 12] = [
 impl Lift<Drawing2D> for SxfFile {
     /// SFC はフィーチャのまま、P21 は実体を同じ形のフィーチャに組み直して変換する（決定 0132）
     fn lift(&self, cx: &mut Cx) -> Result<Drawing2D, Error> {
+        self.lift_with(None, cx)
+    }
+}
+
+impl SxfFile {
+    /// 図面モデルに変換し、属性ファイル（SAF）があれば、属性ファイル用の属性付加機構の要素に属性を結ぶ（決定 0249）
+    pub fn lift_with(
+        &self,
+        attributes: Option<&AttributeFile>,
+        cx: &mut Cx,
+    ) -> Result<Drawing2D, Error> {
         let records = match self.mode() {
             Mode::Sfc => sfc_records(self),
             Mode::P21 => p21::records(self, cx)?,
         };
-        Lifter::new(&records, self).run(cx)
+        let mut lifter = Lifter::new(&records, self);
+        lifter.attributes = attributes;
+        lifter.run(cx)
     }
 }
 
@@ -372,6 +386,8 @@ struct Lifter<'f> {
     raster: Option<Raster>,
     definitions: BTreeMap<String, Definition>,
     composites: Vec<Composite>,
+    /// 属性ファイル（決定 0249）
+    attributes: Option<&'f AttributeFile>,
 }
 
 impl<'f> Lifter<'f> {
@@ -400,6 +416,7 @@ impl<'f> Lifter<'f> {
             raster: None,
             definitions: BTreeMap::new(),
             composites: Vec::new(),
+            attributes: None,
         }
     }
 
@@ -516,6 +533,9 @@ impl<'f> Lifter<'f> {
         }
         self.members(&sheet_members, &OnSheet, &mut out, &mut Vec::new(), cx)?;
         extensions.append(&mut out.extensions);
+        if let Some(file) = self.attributes {
+            bind(file, &mut extensions, cx);
+        }
         let mut drawing = Drawing2D {
             spaces,
             sheets: vec![Sheet {
@@ -2186,6 +2206,93 @@ fn attributes<C: Place>(name: &str, from: usize, at: &C, out: &mut Out, source: 
             source: source.clone(),
         });
     }
+}
+
+/// 属性ファイル用の属性付加機構（`$$ATRF$$図形識別番号$$属性ファイル名`、附属書の属性付加機構編の 2-4-1）の
+/// `sxf.attribute` の拡張が付いた要素に、属性ファイルの同じ図形識別番号の図形の属性を、属性ごとに `sxf.saf` の
+/// 拡張で付ける（決定 0249）。図形のない番号と、要素のない図形は診断する
+fn bind(file: &AttributeFile, extensions: &mut Vec<Draft>, cx: &mut Cx) {
+    let mut bound = vec![false; file.figures.len()];
+    let mut missing = Vec::new();
+    let mut drafts = Vec::new();
+    for draft in extensions.iter() {
+        if draft.namespace != "sxf.attribute" {
+            continue;
+        }
+        let parts: Vec<&str> = draft
+            .fields
+            .iter()
+            .filter(|field| field.key == "part")
+            .filter_map(|field| match &field.value {
+                FieldValue::Text(text) => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+        let (Some(&"ATRF"), Some(id)) = (parts.first(), parts.get(1)) else {
+            continue;
+        };
+        let Some(index) = file.figures.iter().position(|figure| figure.id == *id) else {
+            if !missing.contains(id) {
+                missing.push(*id);
+                cx.report(
+                    Diagnostic::new(codes::SXF_SAF_FIGURE_MISSING)
+                        .with("figure", *id)
+                        .at(draft.source.clone()),
+                );
+            }
+            continue;
+        };
+        let (Some(figure), Some(flag)) = (file.figures.get(index), bound.get_mut(index)) else {
+            continue;
+        };
+        *flag = true;
+        for attribute in &figure.attributes {
+            let text = |key: &'static str, value: &str| Field {
+                key: key.into(),
+                code: None,
+                value: FieldValue::Text(value.to_owned()),
+            };
+            let mut fields = vec![
+                text("figure", &figure.id),
+                text("figure_name", &figure.name),
+                text("set", &attribute.set),
+            ];
+            if let Some(set) = file.sets.iter().find(|set| set.id == attribute.set) {
+                fields.push(text("set_name", &set.name));
+                fields.push(text("set_version", &set.version));
+                fields.push(text("designed_by", &set.designed_by));
+            }
+            if !attribute.groups.is_empty() {
+                fields.push(text("group", &attribute.groups.join("/")));
+            }
+            if let Some(kind) = &attribute.kind {
+                fields.push(text("type", kind));
+            }
+            if let Some(unit) = &attribute.unit {
+                fields.push(text("unit", unit));
+            }
+            fields.push(text("value", &attribute.value));
+            drafts.push(Draft {
+                namespace: "sxf.saf".into(),
+                name: attribute.name.clone(),
+                version: Some(file.version.clone()),
+                schema: SCHEMA,
+                at: draft.at,
+                fields,
+                source: draft.source.clone(),
+            });
+        }
+    }
+    for (figure, bound) in file.figures.iter().zip(bound) {
+        if !bound {
+            cx.report(
+                Diagnostic::new(codes::SXF_SAF_FIGURE_DROPPED)
+                    .with("figure", figure.id.as_str())
+                    .at(figure.source.clone()),
+            );
+        }
+    }
+    extensions.append(&mut drafts);
 }
 
 /// `inner` で写してから `outer` で写す変換

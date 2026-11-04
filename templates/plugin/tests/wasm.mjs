@@ -65,6 +65,18 @@ check(scene.result?.counts?.lines === 2, `シーンの結果が ${JSON.stringify
 check(drawing.take(scene.result.blob).length > 0, "シーンの blob が空");
 drawing.close();
 
+// 包みの Modules.open は、プラグインのモジュールで lift し、図面のモジュールのセッションで開く（決定 0250）
+const opened = await modules.open("b.txt", sample, { doc: "b" });
+check(opened?.zumen === (await modules.get("drawing")), "Modules.open が、図面のモジュールで開かない");
+check(opened?.response.result?.format === "zumen_lines", `Modules.open の結果が ${JSON.stringify(opened?.response)}`);
+const items = opened?.session.call({ v: 1, op: "entities", doc: "b" }).result?.items;
+check(items?.length === 2, `Modules.open で開いた図形が ${JSON.stringify(items)}`);
+opened?.session.close();
+// 図面のモジュールがなければ、プラグインのモジュールで開く
+const alone = await loadModules({}, [plugin]).open("c.txt", sample);
+check(alone?.zumen !== undefined && alone?.response.result?.format === "zumen_lines", "図面のモジュールなしで開けない");
+alone?.session.close();
+
 // コアの図面のモジュールは、プラグインの形式を読まない
 const core = (await modules.get("drawing")).open();
 core.push("a.txt", sample);

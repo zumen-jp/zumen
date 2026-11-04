@@ -1889,6 +1889,147 @@ pub const EXPRESS_VALUE_MISSING: Code = Code::new(
     &["kind", "position"],
 );
 
+/// インデックスレコードの座標系がないか、図郭の座標系が文書の座標系と違うので、図郭の形を移さなかった。sheet は図郭識別番号
+///
+/// `extdm.crs.unsupported`（0.2.0 から）
+pub const EXTDM_CRS_UNSUPPORTED: Code = Code::new(
+    "extdm.crs.unsupported",
+    Severity::Warning,
+    None,
+    &[Param::new("sheet", ParamType::Text)],
+    &[],
+);
+
+/// 円データ・円弧データを、座標値の単位の許容差の折れ線にした。kind はレコードタイプ（E3・E4）、tolerance は m
+///
+/// `extdm.curve.approximated`（0.2.0 から）
+pub const EXTDM_CURVE_APPROXIMATED: Code = Code::new(
+    "extdm.curve.approximated",
+    Severity::Info,
+    Some(Fidelity::Approximated),
+    &[
+        Param::new("kind", ParamType::Text),
+        Param::new("tolerance", ParamType::Float),
+    ],
+    &["kind"],
+);
+
+/// 図郭の測地成果識別コードが世界測地系か、書いていないので、JGD2011（JGD2024）の平面直角座標系と仮定した。JGD2000 とは区別できない。sheet は図郭識別番号
+///
+/// `extdm.datum.assumed`（0.2.0 から）
+pub const EXTDM_DATUM_ASSUMED: Code = Code::new(
+    "extdm.datum.assumed",
+    Severity::Info,
+    None,
+    &[Param::new("sheet", ParamType::Text)],
+    &[],
+);
+
+/// レコードの欄が読めないか足りないので、その値か形を地理の領域モデルに移さなかった。kind はレコードタイプ、field は欄の名前
+///
+/// `extdm.record.invalid`（0.2.0 から）
+pub const EXTDM_RECORD_INVALID: Code = Code::new(
+    "extdm.record.invalid",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("field", ParamType::Text),
+        Param::new("kind", ParamType::Text),
+    ],
+    &["kind", "field"],
+);
+
+/// 見出しのない実データのレコードか、知らないレコードタイプのレコードなので、読まなかった。kind はレコードの初めの 2 文字
+///
+/// `extdm.record.unsupported`（0.2.0 から）
+pub const EXTDM_RECORD_UNSUPPORTED: Code = Code::new(
+    "extdm.record.unsupported",
+    Severity::Warning,
+    None,
+    &[Param::new("kind", ParamType::Text)],
+    &["kind"],
+);
+
+/// インデックスレコードのバージョンが本仕様の 2 でない（旧 DM は 0）。同じ書式として読んだ
+///
+/// `extdm.version.unsupported`（0.2.0 から）
+pub const EXTDM_VERSION_UNSUPPORTED: Code = Code::new(
+    "extdm.version.unsupported",
+    Severity::Warning,
+    None,
+    &[Param::new("version", ParamType::UInt)],
+    &[],
+);
+
+/// 座標系（srsName）が扱わない座標系か、文書の座標系と違うので、その形を移さなかった
+///
+/// `fgd.crs.unsupported`（0.2.0 から）
+pub const FGD_CRS_UNSUPPORTED: Code = Code::new(
+    "fgd.crs.unsupported",
+    Severity::Warning,
+    None,
+    &[Param::new("name", ParamType::Text)],
+    &["name"],
+);
+
+/// 地理の領域モデルに移さない要素なので、読まなかった
+///
+/// `fgd.element.unsupported`（0.2.0 から）
+pub const FGD_ELEMENT_UNSUPPORTED: Code = Code::new(
+    "fgd.element.unsupported",
+    Severity::Warning,
+    None,
+    &[Param::new("element", ParamType::Text)],
+    &["element"],
+);
+
+/// 基盤地図情報の配布の書庫の、FG-GML- で始まる .xml・.zip でない項目なので、読まなかった（決定 0251）
+///
+/// `fgd.entry.unsupported`（0.2.0 から）
+pub const FGD_ENTRY_UNSUPPORTED: Code = Code::new(
+    "fgd.entry.unsupported",
+    Severity::Warning,
+    None,
+    &[Param::new("name", ParamType::Text)],
+    &["name"],
+);
+
+/// DEM 区画の構成点の種別（地表面・表層面など）を点ごとには移さず、種別ごとの点の数だけを属性にした
+///
+/// `fgd.point-kind.dropped`（0.2.0 から）
+pub const FGD_POINT_KIND_DROPPED: Code = Code::new(
+    "fgd.point-kind.dropped",
+    Severity::Info,
+    Some(Fidelity::Dropped),
+    &[Param::new("element", ParamType::Text)],
+    &["element"],
+);
+
+/// 形の参照（xlink:href）が同じ文書の gml:id を指さないので、参照した形を移さなかった
+///
+/// `fgd.reference.unsupported`（0.2.0 から）
+pub const FGD_REFERENCE_UNSUPPORTED: Code = Code::new(
+    "fgd.reference.unsupported",
+    Severity::Warning,
+    None,
+    &[Param::new("href", ParamType::Text)],
+    &["href"],
+);
+
+/// 要素の値が読めないので、その値か形を地理の領域モデルに移さなかった
+///
+/// `fgd.value.invalid`（0.2.0 から）
+pub const FGD_VALUE_INVALID: Code = Code::new(
+    "fgd.value.invalid",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("element", ParamType::Text),
+        Param::new("field", ParamType::Text),
+    ],
+    &["element", "field"],
+);
+
 /// 禁じる仕様の、適用の条件に合う要素がある（指摘）
 ///
 /// `ids.applicability.exists`（0.2.0 から）
@@ -3507,6 +3648,53 @@ pub const SXF_RASTER_FRAME_MISSING: Code = Code::new(
 pub const SXF_RECORD_INVALID: Code =
     Code::new("sxf.record.invalid", Severity::Warning, None, &[], &[]);
 
+/// 属性ファイル（SAF）の知らない要素なので、読まなかった
+///
+/// `sxf.saf-element.unsupported`（0.2.0 から）
+pub const SXF_SAF_ELEMENT_UNSUPPORTED: Code = Code::new(
+    "sxf.saf-element.unsupported",
+    Severity::Warning,
+    None,
+    &[Param::new("element", ParamType::Text)],
+    &["element"],
+);
+
+/// 属性ファイルの図形の図形識別番号を持つ要素が図面にないので、その属性を要素に結ばなかった
+///
+/// `sxf.saf-figure.dropped`（0.2.0 から）
+pub const SXF_SAF_FIGURE_DROPPED: Code = Code::new(
+    "sxf.saf-figure.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("figure", ParamType::Text)],
+    &[],
+);
+
+/// 図面の属性ファイル用の属性付加機構（$$ATRF$$）の図形識別番号の図形が、属性ファイルにない
+///
+/// `sxf.saf-figure.missing`（0.2.0 から）
+pub const SXF_SAF_FIGURE_MISSING: Code = Code::new(
+    "sxf.saf-figure.missing",
+    Severity::Warning,
+    None,
+    &[Param::new("figure", ParamType::Text)],
+    &["figure"],
+);
+
+/// 属性ファイル（SAF）の要素の、省略できないタグ属性がないか、図形識別番号が重なるので、その値か図形を読まなかった
+///
+/// `sxf.saf-value.invalid`（0.2.0 から）
+pub const SXF_SAF_VALUE_INVALID: Code = Code::new(
+    "sxf.saf-value.invalid",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("element", ParamType::Text),
+        Param::new("field", ParamType::Text),
+    ],
+    &["element", "field"],
+);
+
 /// FILE_SCHEMA が SXF の図面のスキーマ（ASSOCIATIVE_DRAUGHTING）でない
 ///
 /// `sxf.schema.unsupported`（0.0.0 から）
@@ -3927,6 +4115,18 @@ pub const ALL: &[Code] = &[
     EXPRESS_SCHEMA_MIXED,
     EXPRESS_VALUE_INVALID,
     EXPRESS_VALUE_MISSING,
+    EXTDM_CRS_UNSUPPORTED,
+    EXTDM_CURVE_APPROXIMATED,
+    EXTDM_DATUM_ASSUMED,
+    EXTDM_RECORD_INVALID,
+    EXTDM_RECORD_UNSUPPORTED,
+    EXTDM_VERSION_UNSUPPORTED,
+    FGD_CRS_UNSUPPORTED,
+    FGD_ELEMENT_UNSUPPORTED,
+    FGD_ENTRY_UNSUPPORTED,
+    FGD_POINT_KIND_DROPPED,
+    FGD_REFERENCE_UNSUPPORTED,
+    FGD_VALUE_INVALID,
     IDS_APPLICABILITY_EXISTS,
     IDS_APPLICABILITY_MISSING,
     IDS_APPLICABILITY_UNSUPPORTED,
@@ -4070,6 +4270,10 @@ pub const ALL: &[Code] = &[
     SXF_P21_UNSUPPORTED,
     SXF_RASTER_FRAME_MISSING,
     SXF_RECORD_INVALID,
+    SXF_SAF_ELEMENT_UNSUPPORTED,
+    SXF_SAF_FIGURE_DROPPED,
+    SXF_SAF_FIGURE_MISSING,
+    SXF_SAF_VALUE_INVALID,
     SXF_SCHEMA_UNSUPPORTED,
     SXF_SFIG_CYCLE_INVALID,
     SXF_SFIG_MISSING,

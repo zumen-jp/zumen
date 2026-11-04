@@ -2015,6 +2015,40 @@ severity = "error"
 since = "0.2.0"
 status = "active"
 
+# SXF の属性ファイル（SAF、決定 0249、#386）
+
+[codes."sxf.saf-element.unsupported"]
+description = "属性ファイル（SAF）の知らない要素なので、読まなかった"
+severity = "warning"
+params = { element = "text" }
+group-by = ["element"]
+since = "0.2.0"
+status = "active"
+
+[codes."sxf.saf-value.invalid"]
+description = "属性ファイル（SAF）の要素の、省略できないタグ属性がないか、図形識別番号が重なるので、その値か図形を読まなかった"
+severity = "warning"
+params = { element = "text", field = "text" }
+group-by = ["element", "field"]
+since = "0.2.0"
+status = "active"
+
+[codes."sxf.saf-figure.missing"]
+description = "図面の属性ファイル用の属性付加機構（$$ATRF$$）の図形識別番号の図形が、属性ファイルにない"
+severity = "warning"
+params = { figure = "text" }
+group-by = ["figure"]
+since = "0.2.0"
+status = "active"
+
+[codes."sxf.saf-figure.dropped"]
+description = "属性ファイルの図形の図形識別番号を持つ要素が図面にないので、その属性を要素に結ばなかった"
+severity = "warning"
+fidelity = "dropped"
+params = { figure = "text" }
+since = "0.2.0"
+status = "active"
+
 [codes."bcf.size.unsupported"]
 description = "書く bcfzip が ZIP64 を要する大きさになる。ZIP64 は書かない（決定 0220）"
 severity = "error"
@@ -2224,6 +2258,105 @@ description = "形の参照（xlink:href）が同じ文書の gml:id を指さ�
 severity = "warning"
 params = { href = "text" }
 group-by = ["href"]
+since = "0.2.0"
+status = "active"
+
+# 基盤地図情報（決定 0233、#378）
+
+[codes."fgd.element.unsupported"]
+description = "地理の領域モデルに移さない要素なので、読まなかった"
+severity = "warning"
+params = { element = "text" }
+group-by = ["element"]
+since = "0.2.0"
+status = "active"
+
+[codes."fgd.value.invalid"]
+description = "要素の値が読めないので、その値か形を地理の領域モデルに移さなかった"
+severity = "warning"
+params = { element = "text", field = "text" }
+group-by = ["element", "field"]
+since = "0.2.0"
+status = "active"
+
+[codes."fgd.crs.unsupported"]
+description = "座標系（srsName）が扱わない座標系か、文書の座標系と違うので、その形を移さなかった"
+severity = "warning"
+params = { name = "text" }
+group-by = ["name"]
+since = "0.2.0"
+status = "active"
+
+[codes."fgd.reference.unsupported"]
+description = "形の参照（xlink:href）が同じ文書の gml:id を指さないので、参照した形を移さなかった"
+severity = "warning"
+params = { href = "text" }
+group-by = ["href"]
+since = "0.2.0"
+status = "active"
+
+[codes."fgd.entry.unsupported"]
+description = "基盤地図情報の配布の書庫の、FG-GML- で始まる .xml・.zip でない項目なので、読まなかった（決定 0251）"
+severity = "warning"
+params = { name = "text" }
+group-by = ["name"]
+since = "0.2.0"
+status = "active"
+
+[codes."fgd.point-kind.dropped"]
+description = "DEM 区画の構成点の種別（地表面・表層面など）を点ごとには移さず、種別ごとの点の数だけを属性にした"
+severity = "info"
+fidelity = "dropped"
+params = { element = "text" }
+group-by = ["element"]
+since = "0.2.0"
+status = "active"
+
+# 拡張 DM（決定 0233、#378）
+
+[codes."extdm.record.unsupported"]
+description = "見出しのない実データのレコードか、知らないレコードタイプのレコードなので、読まなかった。kind はレコードの初めの 2 文字"
+severity = "warning"
+params = { kind = "text" }
+group-by = ["kind"]
+since = "0.2.0"
+status = "active"
+
+[codes."extdm.record.invalid"]
+description = "レコードの欄が読めないか足りないので、その値か形を地理の領域モデルに移さなかった。kind はレコードタイプ、field は欄の名前"
+severity = "warning"
+params = { kind = "text", field = "text" }
+group-by = ["kind", "field"]
+since = "0.2.0"
+status = "active"
+
+[codes."extdm.crs.unsupported"]
+description = "インデックスレコードの座標系がないか、図郭の座標系が文書の座標系と違うので、図郭の形を移さなかった。sheet は図郭識別番号"
+severity = "warning"
+params = { sheet = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."extdm.datum.assumed"]
+description = "図郭の測地成果識別コードが世界測地系か、書いていないので、JGD2011（JGD2024）の平面直角座標系と仮定した。JGD2000 とは区別できない。sheet は図郭識別番号"
+severity = "info"
+params = { sheet = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."extdm.curve.approximated"]
+description = "円データ・円弧データを、座標値の単位の許容差の折れ線にした。kind はレコードタイプ（E3・E4）、tolerance は m"
+severity = "info"
+fidelity = "approximated"
+params = { kind = "text", tolerance = "float" }
+group-by = ["kind"]
+since = "0.2.0"
+status = "active"
+
+[codes."extdm.version.unsupported"]
+description = "インデックスレコードのバージョンが本仕様の 2 でない（旧 DM は 0）。同じ書式として読んだ"
+severity = "warning"
+params = { version = "uint" }
 since = "0.2.0"
 status = "active"
 

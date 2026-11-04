@@ -207,8 +207,10 @@ _OpenRequestOptional = TypedDict(
         "doc": str,
         # 入力の全体の大きさ（バイト）。渡した入力より大きければ、入力を全体の初めの部分とみなし、足りない範囲を needs で求める。範囲で読める形式（LAS・LAZ）だけが使う（決定 0232）。小版 48 から
         "size": int,
-        # 見分ける印のない形式（xyz）を名指して読む。書かなければ、入力から判定する（決定 0232）。小版 49 から
+        # 見分ける印のない形式（xyz・extdm）を名指して読む。書かなければ、入力から判定する（決定 0232）。小版 49 から。extdm は小版 62 から
         "format": str,
+        # SXF の属性ファイル（SAF）を入れた入力の名前。zm_push で渡したもの。属性ファイル用の属性付加機構（$$ATRF$$）の要素に、属性を sxf.saf の拡張で結ぶ（決定 0249）。書かなければ、P2Z・SFZ の中の、図面と同じ名前の SAF を使う。SXF でない入力には使えない。小版 63 から
+        "saf": str,
     },
     total=False,
 )
@@ -4130,7 +4132,7 @@ Engine = Union[
 ]
 
 
-# 線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。線形は、要求に書く（alignment）か、open で開いた J-LandXML の文書（doc）の線形を id で指す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。doc を渡せば、文書の線形と地表面の要約も返す。図面のモジュールに置く。小版 46 から（doc と id は小版 47 から）
+# 線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。線形は、要求に書く（alignment）か、open で開いた J-LandXML の文書（doc）の線形を id で指す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。doc を渡せば、文書の線形と地表面の要約も返す。図面・BIM・土木地理・点群のモジュールに置く（決定 0253）。小版 46 から（doc と id は小版 47 から）
 _CivilRequestRequired = TypedDict(
     "_CivilRequestRequired",
     {
@@ -4173,7 +4175,7 @@ _CivilRequestOptional = TypedDict(
 
 
 class CivilRequest(_CivilRequestRequired, _CivilRequestOptional):
-    "線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。線形は、要求に書く（alignment）か、open で開いた J-LandXML の文書（doc）の線形を id で指す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。doc を渡せば、文書の線形と地表面の要約も返す。図面のモジュールに置く。小版 46 から（doc と id は小版 47 から）"
+    "線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。線形は、要求に書く（alignment）か、open で開いた J-LandXML の文書（doc）の線形を id で指す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。doc を渡せば、文書の線形と地表面の要約も返す。図面・BIM・土木地理・点群のモジュールに置く（決定 0253）。小版 46 から（doc と id は小版 47 から）"
 
 
 # 線形。点は地図の空間（北と東、メートル）に置き、方向角は北から時計回りのラジアンにする。半径は、右へ曲がるものを正にする（決定 0230）
@@ -4444,7 +4446,7 @@ class CivilPosition(_CivilPositionRequired, _CivilPositionOptional):
     "線形の上の 1 つの所"
 
 
-# open で開いた点群（LAS・LAZ）の要約と、条件に合う点を返す。点は八分木の浅い段の節から順に選ぶ（決定 0232）。図面のモジュールに置く。小版 48 から
+# open で開いた点群（LAS・LAZ）の要約と、条件に合う点を返す。点は八分木の浅い段の節から順に選ぶ（決定 0232）。点群のモジュールに置く（決定 0253）。小版 48 から
 _PointcloudRequestRequired = TypedDict(
     "_PointcloudRequestRequired",
     {
@@ -4479,7 +4481,7 @@ _PointcloudRequestOptional = TypedDict(
 
 
 class PointcloudRequest(_PointcloudRequestRequired, _PointcloudRequestOptional):
-    "open で開いた点群（LAS・LAZ）の要約と、条件に合う点を返す。点は八分木の浅い段の節から順に選ぶ（決定 0232）。図面のモジュールに置く。小版 48 から"
+    "open で開いた点群（LAS・LAZ）の要約と、条件に合う点を返す。点は八分木の浅い段の節から順に選ぶ（決定 0232）。点群のモジュールに置く（決定 0253）。小版 48 から"
 
 
 # 地図の空間の箱。北・東・標高（メートル）の最小と最大
@@ -5184,7 +5186,7 @@ class DeliveryManaged(_DeliveryManagedRequired, _DeliveryManagedOptional):
     "管理ファイルの要約"
 
 
-# open で開いた CityGML の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。図面のモジュールに置く。小版 52 から
+# open で開いた CityGML・基盤地図情報（GML）・拡張 DM の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。土木・地理のモジュールに置く（決定 0253）。小版 52 から
 _GeoRequestRequired = TypedDict(
     "_GeoRequestRequired",
     {
@@ -5192,7 +5194,7 @@ _GeoRequestRequired = TypedDict(
         "v": int,
         # op の名前
         "op": Literal["geo"],
-        # open で開いた CityGML の文書の名前
+        # open で開いた CityGML・基盤地図情報（GML）・拡張 DM の文書の名前
         "doc": str,
     },
 )
@@ -5215,7 +5217,7 @@ _GeoRequestOptional = TypedDict(
 
 
 class GeoRequest(_GeoRequestRequired, _GeoRequestOptional):
-    "open で開いた CityGML の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。図面のモジュールに置く。小版 52 から"
+    "open で開いた CityGML・基盤地図情報（GML）・拡張 DM の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。土木・地理のモジュールに置く（決定 0253）。小版 52 から"
 
 
 # 地理の領域モデルの要約
@@ -5469,7 +5471,7 @@ CivilDrawingOptions = TypedDict(
 )
 
 
-# 開いた点群と、土木の文書の TIN の標高の差を求め、プロファイルの surface-elevation の規則の区分ごとに集計して、規格値と比べる（決定 0234）。図面のモジュールに置く。小版 50 から
+# 開いた点群と、土木の文書の TIN の標高の差を求め、プロファイルの surface-elevation の規則の区分ごとに集計して、規格値と比べる（決定 0234）。点群のモジュールに置く（決定 0253）。小版 50 から
 _DeviationRequestRequired = TypedDict(
     "_DeviationRequestRequired",
     {
@@ -5510,7 +5512,7 @@ _DeviationRequestOptional = TypedDict(
 
 
 class DeviationRequest(_DeviationRequestRequired, _DeviationRequestOptional):
-    "開いた点群と、土木の文書の TIN の標高の差を求め、プロファイルの surface-elevation の規則の区分ごとに集計して、規格値と比べる（決定 0234）。図面のモジュールに置く。小版 50 から"
+    "開いた点群と、土木の文書の TIN の標高の差を求め、プロファイルの surface-elevation の規則の区分ごとに集計して、規格値と比べる（決定 0234）。点群のモジュールに置く（決定 0253）。小版 50 から"
 
 
 # 設計面の TIN を持つ文書と、TIN の ID

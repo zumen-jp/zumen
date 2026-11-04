@@ -781,7 +781,7 @@ public final class Messages {
             return this;
         }
 
-        /** 見分ける印のない形式（xyz）を名指して読む。書かなければ、入力から判定する（決定 0232）。小版 49 から */
+        /** 見分ける印のない形式（xyz・extdm）を名指して読む。書かなければ、入力から判定する（決定 0232）。小版 49 から。extdm は小版 62 から */
         public String getFormat() {
             return Json.read(json.get("format"), Json::string);
         }
@@ -789,6 +789,17 @@ public final class Messages {
         /** {@link #getFormat()} を書く。null なら欄を除く */
         public OpenRequest withFormat(String value) {
             put("format", value);
+            return this;
+        }
+
+        /** SXF の属性ファイル（SAF）を入れた入力の名前。zm_push で渡したもの。属性ファイル用の属性付加機構（$$ATRF$$）の要素に、属性を sxf.saf の拡張で結ぶ（決定 0249）。書かなければ、P2Z・SFZ の中の、図面と同じ名前の SAF を使う。SXF でない入力には使えない。小版 63 から */
+        public String getSaf() {
+            return Json.read(json.get("saf"), Json::string);
+        }
+
+        /** {@link #getSaf()} を書く。null なら欄を除く */
+        public OpenRequest withSaf(String value) {
+            put("saf", value);
             return this;
         }
     }
@@ -12895,7 +12906,7 @@ public final class Messages {
         public static final String WASM = "wasm";
     }
 
-    /** 線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。線形は、要求に書く（alignment）か、open で開いた J-LandXML の文書（doc）の線形を id で指す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。doc を渡せば、文書の線形と地表面の要約も返す。図面のモジュールに置く。小版 46 から（doc と id は小版 47 から） */
+    /** 線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。線形は、要求に書く（alignment）か、open で開いた J-LandXML の文書（doc）の線形を id で指す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。doc を渡せば、文書の線形と地表面の要約も返す。図面・BIM・土木地理・点群のモジュールに置く（決定 0253）。小版 46 から（doc と id は小版 47 から） */
     public static final class CivilRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public CivilRequest(Map<String, Object> json) {
@@ -13824,7 +13835,7 @@ public final class Messages {
         }
     }
 
-    /** open で開いた点群（LAS・LAZ）の要約と、条件に合う点を返す。点は八分木の浅い段の節から順に選ぶ（決定 0232）。図面のモジュールに置く。小版 48 から */
+    /** open で開いた点群（LAS・LAZ）の要約と、条件に合う点を返す。点は八分木の浅い段の節から順に選ぶ（決定 0232）。点群のモジュールに置く（決定 0253）。小版 48 から */
     public static final class PointcloudRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public PointcloudRequest(Map<String, Object> json) {
@@ -16057,7 +16068,7 @@ public final class Messages {
         }
     }
 
-    /** open で開いた CityGML の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。図面のモジュールに置く。小版 52 から */
+    /** open で開いた CityGML・基盤地図情報（GML）・拡張 DM の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。土木・地理のモジュールに置く（決定 0253）。小版 52 から */
     public static final class GeoRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public GeoRequest(Map<String, Object> json) {
@@ -16142,7 +16153,7 @@ public final class Messages {
             return this;
         }
 
-        /** open で開いた CityGML の文書の名前 */
+        /** open で開いた CityGML・基盤地図情報（GML）・拡張 DM の文書の名前 */
         public String getDoc() {
             return Json.read(json.get("doc"), Json::string);
         }
@@ -16919,7 +16930,7 @@ public final class Messages {
         }
     }
 
-    /** 開いた点群と、土木の文書の TIN の標高の差を求め、プロファイルの surface-elevation の規則の区分ごとに集計して、規格値と比べる（決定 0234）。図面のモジュールに置く。小版 50 から */
+    /** 開いた点群と、土木の文書の TIN の標高の差を求め、プロファイルの surface-elevation の規則の区分ごとに集計して、規格値と比べる（決定 0234）。点群のモジュールに置く（決定 0253）。小版 50 から */
     public static final class DeviationRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public DeviationRequest(Map<String, Object> json) {

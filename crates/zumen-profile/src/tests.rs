@@ -222,7 +222,7 @@ fn checks_a_drawing_against_mlit_cad() {
         vec![Identity {
             id: "mlit-cad".to_string(),
             edition: "2025-12".to_string(),
-            revision: 3,
+            revision: 4,
         }]
     );
     assert_eq!(
@@ -399,7 +399,7 @@ fn resolves_extends_by_replacing_rules_and_vocabularies() {
         .iter()
         .map(|p| (p.id.as_str(), p.revision))
         .collect();
-    assert_eq!(chain, vec![("mlit-cad", 3), ("office", 3)]);
+    assert_eq!(chain, vec![("mlit-cad", 4), ("office", 3)]);
     // 知らない種類の規則と、用紙の名前を引けなくなった規則は照合せず、診断で返す
     let codes: Vec<&str> = diagnostics.iter().map(|d| d.code().name()).collect();
     assert_eq!(

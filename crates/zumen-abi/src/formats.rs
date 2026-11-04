@@ -19,6 +19,8 @@ pub(crate) const DRAWING: &[Registration] = &[
 pub(crate) const READ_ONLY: &[Registration] = &[
     Registration::of::<zumen_landxml::LandXml>(Rights::Public, "landxml", false, 1),
     Registration::of::<zumen_citygml::CityGml>(Rights::Public, "citygml", false, 1),
+    Registration::of::<zumen_fgd::Fgd>(Rights::Public, "fgd", false, 1),
+    Registration::of::<zumen_extdm::ExtDm>(Rights::Public, "extdm", false, 1),
     Registration::of::<zumen_las::Las>(Rights::Public, "las", false, 1),
     Registration::of::<zumen_ply::Ply>(Rights::Public, "ply", false, 1),
     Registration::of::<zumen_xyz::Xyz>(Rights::Public, "xyz", false, 1),
@@ -31,16 +33,32 @@ mod tests {
 
     const LEDGER: &str = include_str!("../../../formats/ledger.toml");
 
-    /// 台帳の `[formats.<key>]` の `name = "…"` の値
-    fn field<'l>(key: &str, name: &str) -> Option<&'l str> {
+    /// 台帳の `[formats.<key>]` の表の行
+    fn table(key: &str) -> impl Iterator<Item = &'static str> {
         let header = format!("[formats.{key}]");
-        let mut lines = LEDGER.lines().skip_while(|line| line.trim() != header);
-        lines.next()?;
-        let prefix = format!("{name} = \"");
-        lines
+        LEDGER
+            .lines()
+            .skip_while(move |line| line.trim() != header)
+            .skip(1)
             .take_while(|line| !line.starts_with('['))
+    }
+
+    /// 台帳の `[formats.<key>]` の `name = "…"` の値
+    fn field(key: &str, name: &str) -> Option<&'static str> {
+        let prefix = format!("{name} = \"");
+        table(key)
             .find_map(|line| line.strip_prefix(prefix.as_str()))
             .and_then(|rest| rest.strip_suffix('"'))
+    }
+
+    /// 台帳に、読みか書きの確かめた度合いがあるか（決定 0254）。表の見出し `[formats.<key>.<direction>]` と、
+    /// `[formats.<key>]` の中のインラインの表（`read = { … }`）・ドットのキー（`read.level = …`）を数える
+    fn verified(key: &str, direction: &str) -> bool {
+        let header = format!("[formats.{key}.{direction}]");
+        let inline = format!("{direction} = {{");
+        let dotted = format!("{direction}.");
+        LEDGER.lines().any(|line| line.trim() == header)
+            || table(key).any(|line| line.starts_with(&inline) || line.starts_with(&dotted))
     }
 
     #[test]
@@ -53,6 +71,16 @@ mod tests {
                 "{format}"
             );
             assert_eq!(field(format, "place"), Some("core"), "{format}");
+            // capabilities の read・write と同じ向きに、確かめた度合いがある
+            assert!(
+                verified(format, "read"),
+                "{format}: 読みの確かめた度合いがない"
+            );
+            assert_eq!(
+                verified(format, "write"),
+                registration.write,
+                "{format}: 書きの確かめた度合いが、書けるかと合わない"
+            );
         }
     }
 }

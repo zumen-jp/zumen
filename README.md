@@ -2,7 +2,7 @@
 
 日本の建設のデータ（図面・BIM・土木・点群・納品）を読み書きする、寛容なライセンスのライブラリ群です。Rust の 1 つのコアを、ブラウザー・サーバー・各言語から同じ結果で使います。ファイルは外へ出さずに読みます。
 
-> 状態: 作り直しを始めたところで、まだ図面は読めません。設計は [#1](https://github.com/zumen-jp/zumen/issues/1) にあり、決めることを子 issue に分けています。SXF・JWW・DXF・DWG・PDF を今すぐ読み書きしたい場合は、旧版の [zumen-jp/zumen-legacy](https://github.com/zumen-jp/zumen-legacy) を使ってください。
+> 状態: 最初の公開（0.2.0）を準備しています。図面は DXF・DWG・SXF・JWW を読み書きでき、建物（IFC）・土木・地理・点群の形式の一部を読めます。設計は [#1](https://github.com/zumen-jp/zumen/issues/1) にあり、決めることを子 issue に分けています。1.0 までは、壊す変更をリリースノートに書いたうえで、小版で API を変えることがあります。PDF を今すぐ読みたい場合は、旧版の [zumen-jp/zumen-legacy](https://github.com/zumen-jp/zumen-legacy) を使ってください。
 
 ## 方針
 

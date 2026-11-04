@@ -5,7 +5,7 @@
 format = "0.1"
 id = "mlit-cad"
 edition = "2025-12"
-revision = 3
+revision = 4
 title = "CAD製図基準（土木）"
 # 図面管理項目の「適用要領基準」に書く値（本編の改定履歴）。
 standard-code = "土木 202512-01"
@@ -287,7 +287,8 @@ level = "info"
 source = { document = "manual", section = "1-4-5" }
 vocabulary = "scale"
 
-# CAD データの名前（図 1-5）。図面番号・ライフサイクル・整理番号・図面種類・改定履歴の順。
+# CAD データの名前（図 1-5）。図面番号・ライフサイクル・整理番号・図面種類・改定履歴の順。SAF ファイルの名前
+# （図 1-7）も同じ規則で、拡張子だけが違う（決定 0249）。
 [[rules]]
 id = "file-name"
 check = "file-name"
@@ -301,5 +302,5 @@ parts = [
   { length = 1, characters = "0-9A-Z" },
 ]
 user-part = { prefix = "-", max-length = 52 }
-extensions = ["P21", "P2Z"]
+extensions = ["P21", "P2Z", "SAF"]
 max-length = 64

@@ -1,0 +1,139 @@
+{
+  "description": "open は、基盤地図情報の根 Dataset と名前空間で基盤地図情報（GML）を見分け、地理の領域モデル（決定 0233、#378）に移す。geo は、座標系（fguuid:jgd2024.bl は JGD2024 の経緯度 6668 と標高 11317）と地物の型ごとの数を返し、id で指した地物の種別・属性・形の要約を返す。行政区画の面は、境界の曲線を xlink:href で引いてつなぎ、マイナス方向の参照は逆に辿る。DEM 区画は、データなしのセルを除くセルの中心の点を結ぶ三角形にし、構成点の種別ごとの数を属性にする。",
+  "module": "civil",
+  "steps": [
+    {
+      "push": {
+        "name": "basic.xml",
+        "text": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Dataset xmlns=\"http://fgd.gsi.go.jp/spec/2008/FGD_GMLSchema\" xmlns:gml=\"http://www.opengis.net/gml/3.2\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" gml:id=\"Dataset1\">\n  <description>基盤地図情報ダウンロードデータ（GML版）</description>\n  <AdmBdry gml:id=\"K1_1\">\n    <fid>fgoid:10-00100-11-6640-1</fid>\n    <lfSpanFr gml:id=\"K1_1-1\"><gml:timePosition>2025-08-01</gml:timePosition></lfSpanFr>\n    <orgGILvl>2500</orgGILvl>\n    <loc><gml:Curve gml:id=\"K1_1-g\" srsName=\"fguuid:jgd2024.bl\"><gml:segments><gml:LineStringSegment><gml:posList>35.1 139.1 35.1 139.2 35.2 139.2</gml:posList></gml:LineStringSegment></gml:segments></gml:Curve></loc>\n    <type>町村・指定都市の区界</type>\n  </AdmBdry>\n  <AdmBdry gml:id=\"K1_2\">\n    <fid>fgoid:10-00100-11-6640-2</fid>\n    <lfSpanFr gml:id=\"K1_2-1\"><gml:timePosition>2025-08-01</gml:timePosition></lfSpanFr>\n    <orgGILvl>2500</orgGILvl>\n    <loc><gml:Curve gml:id=\"K1_2-g\" srsName=\"fguuid:jgd2024.bl\"><gml:segments><gml:LineStringSegment><gml:posList>35.1 139.1 35.2 139.1 35.2 139.2</gml:posList></gml:LineStringSegment></gml:segments></gml:Curve></loc>\n    <type>町村・指定都市の区界</type>\n  </AdmBdry>\n  <AdmArea gml:id=\"K2_1\">\n    <fid>fgoid:10-00100-11-6640-3</fid>\n    <lfSpanFr gml:id=\"K2_1-1\"><gml:timePosition>2025-08-01</gml:timePosition></lfSpanFr>\n    <orgGILvl>2500</orgGILvl>\n    <area><gml:Surface gml:id=\"K2_1-g\" srsName=\"fguuid:jgd2024.bl\"><gml:patches><gml:PolygonPatch><gml:exterior><gml:Ring>\n      <gml:curveMember xlink:href=\"#K1_1-g\"/>\n      <gml:curveMember><gml:OrientableCurve orientation=\"-\"><gml:baseCurve xlink:href=\"#K1_2-g\"/></gml:OrientableCurve></gml:curveMember>\n    </gml:Ring></gml:exterior></gml:PolygonPatch></gml:patches></gml:Surface></area>\n    <type>町村・指定都市の区</type>\n    <name>千代田区</name>\n    <admCode>13101</admCode>\n    <repPt xlink:href=\"#K9_9\"/>\n  </AdmArea>\n  <ElevPt gml:id=\"K3_1\">\n    <fid>fgoid:10-00100-11-6640-4</fid>\n    <lfSpanFr gml:id=\"K3_1-1\"><gml:timePosition>2025-08-01</gml:timePosition></lfSpanFr>\n    <orgGILvl>2500</orgGILvl>\n    <pos><gml:Point gml:id=\"K3_1-g\" srsName=\"fguuid:jgd2024.bl\"><gml:pos>35.15 139.15</gml:pos></gml:Point></pos>\n    <type>標高点（測点）</type>\n    <alti>12.3</alti>\n  </ElevPt>\n</Dataset>\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "basic.xml"
+      },
+      "expect": {
+        "/result/format": "fgd",
+        "/diagnostics": []
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "geo",
+        "doc": "basic.xml"
+      },
+      "expect": {
+        "/result/crs": 6668,
+        "/result/height": 11317,
+        "/result/features": 4,
+        "/result/kinds": [
+          {
+            "kind": "fgd:AdmArea",
+            "count": 1
+          },
+          {
+            "kind": "fgd:AdmBdry",
+            "count": 2
+          },
+          {
+            "kind": "fgd:ElevPt",
+            "count": 1
+          }
+        ]
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "geo",
+        "doc": "basic.xml",
+        "id": "K2_1"
+      },
+      "expect": {
+        "/result/feature/kind": "fgd:AdmArea",
+        "/result/feature/code": "町村・指定都市の区",
+        "/result/feature/name": "千代田区",
+        "/result/feature/attributes/0": {
+          "name": "fgd:fid",
+          "kind": "text",
+          "value": "fgoid:10-00100-11-6640-3"
+        },
+        "/result/feature/attributes/1": {
+          "name": "fgd:lfSpanFr",
+          "kind": "date",
+          "value": "2025-08-01"
+        },
+        "/result/feature/attributes/2": {
+          "name": "fgd:orgGILvl",
+          "kind": "code",
+          "value": "2500"
+        },
+        "/result/feature/attributes/3": {
+          "name": "fgd:admCode",
+          "kind": "text",
+          "value": "13101"
+        },
+        "/result/feature/attributes/4": {
+          "name": "fgd:repPt",
+          "kind": "text",
+          "value": "#K9_9"
+        },
+        "/result/feature/geometries": [
+          {
+            "form": "area",
+            "points": 4
+          }
+        ]
+      }
+    },
+    {
+      "push": {
+        "name": "dem.xml",
+        "text": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Dataset xmlns=\"http://fgd.gsi.go.jp/spec/2008/FGD_GMLSchema\" xmlns:gml=\"http://www.opengis.net/gml/3.2\" gml:id=\"Dataset1\">\n  <DEM gml:id=\"DEM001\">\n    <fid>fgoid:10-00100-15-60101-533945294</fid>\n    <lfSpanFr gml:id=\"DEM001-1\"><gml:timePosition>2025-08-01</gml:timePosition></lfSpanFr>\n    <orgGILvl>0</orgGILvl>\n    <type>5mメッシュ（標高）</type>\n    <mesh>53394529</mesh>\n    <coverage gml:id=\"DEM001-3\">\n      <gml:boundedBy><gml:Envelope srsName=\"fguuid:jgd2024.bl\"><gml:lowerCorner>35.0 139.0</gml:lowerCorner><gml:upperCorner>35.002 139.003</gml:upperCorner></gml:Envelope></gml:boundedBy>\n      <gml:gridDomain><gml:Grid gml:id=\"DEM001-4\" dimension=\"2\"><gml:limits><gml:GridEnvelope><gml:low>0 0</gml:low><gml:high>2 1</gml:high></gml:GridEnvelope></gml:limits><gml:axisLabels>x y</gml:axisLabels></gml:Grid></gml:gridDomain>\n      <gml:rangeSet><gml:DataBlock><gml:rangeParameters><gml:QuantityList uom=\"DEM構成点\"/></gml:rangeParameters><gml:tupleList>\nデータなし,-9999.\n地表面,10.5\n地表面,11.\n地表面,12.25\n海水面,0.\n地表面,13.\n</gml:tupleList></gml:DataBlock></gml:rangeSet>\n      <gml:coverageFunction><gml:GridFunction><gml:sequenceRule order=\"+x-y\">Linear</gml:sequenceRule><gml:startPoint>0 0</gml:startPoint></gml:GridFunction></gml:coverageFunction>\n    </coverage>\n  </DEM>\n</Dataset>\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "dem.xml"
+      },
+      "expect": {
+        "/result/format": "fgd",
+        "/diagnostics/0/code": "fgd.point-kind.dropped",
+        "/diagnostics/0/params/element": "fgd:DEM"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "geo",
+        "doc": "dem.xml",
+        "id": "DEM001"
+      },
+      "expect": {
+        "/result/feature/code": "5mメッシュ（標高）",
+        "/result/feature/attributes/4": {
+          "name": "fgd:coverage/データなし",
+          "kind": "integer",
+          "value": "1"
+        },
+        "/result/feature/attributes/5": {
+          "name": "fgd:coverage/地表面",
+          "kind": "integer",
+          "value": "4"
+        },
+        "/result/feature/geometries": [
+          {
+            "form": "solid",
+            "points": 5,
+            "faces": 3
+          }
+        ]
+      }
+    }
+  ]
+}

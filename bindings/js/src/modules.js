@@ -366,6 +366,15 @@ function matches(head, rule) {
     }
     case "zip_entry":
       return anyZipName(head, (name) => name[name.length - 1] !== 0x2f && rule.suffixes.some((suffix) => endsWithIgnoreCase(name, suffix)));
+    case "zip_name":
+      return anyZipName(head, (name) => {
+        const base = name.subarray(name.lastIndexOf(0x2f) + 1);
+        return (
+          base.length > 0 &&
+          rule.prefixes.some((prefix) => base.length >= prefix.length && equalsIgnoreCase(base, 0, prefix.length, prefix)) &&
+          rule.suffixes.some((suffix) => endsWithIgnoreCase(base, suffix))
+        );
+      });
     default:
       return false;
   }
@@ -383,7 +392,7 @@ export function modulesWith(op) {
 }
 
 /**
- * 分けた wasm のモジュールを、要るときに 1 度だけ読み込む。
+ * 分けた wasm のモジュールを、要るときに読み込んで使い回す。trap で使えなくなったら、読み込み直す。
  *
  * `loaders` は、モジュールの名前から、読み込む関数（`load` に渡せるものを返す）を引く表。持たないモジュールは使えない。
  * `load` は、包みの `load`。
@@ -408,19 +417,36 @@ export class Modules {
     return this.#plugins.find((plugin) => plugin.name === name);
   }
 
-  /** 名前のモジュールを読み込む。プラグインのモジュールは、その名前で引く */
+  /**
+   * 名前のモジュールを読み込む。プラグインのモジュールは、その名前で引く。読み込んだインスタンスは使い回し、trap で
+   * 使えなくなったら（Zumen.broken）、捨てて読み込み直す。読み込みに失敗したら覚えず、次に引いたときにやり直す
+   * （決定 0259）
+   */
   get(name) {
-    let loaded = this.#loaded.get(name);
-    if (loaded === undefined) {
-      const plugin = MODULES[name] === undefined ? this.#plugin(name) : undefined;
-      const loader = plugin === undefined ? this.#loaders[name] : plugin.load;
-      if ((MODULES[name] === undefined && plugin === undefined) || typeof loader !== "function") {
-        return Promise.reject(new Error(`wasm のモジュール ${name} を読み込めない`));
-      }
-      loaded = this.#load(loader());
-      this.#loaded.set(name, loaded);
+    const cached = this.#loaded.get(name);
+    if (cached !== undefined && cached.zumen?.broken !== true) {
+      return cached.loading;
     }
-    return loaded;
+    const plugin = MODULES[name] === undefined ? this.#plugin(name) : undefined;
+    const loader = plugin === undefined ? this.#loaders[name] : plugin.load;
+    if ((MODULES[name] === undefined && plugin === undefined) || typeof loader !== "function") {
+      return Promise.reject(new Error(`wasm のモジュール ${name} を読み込めない`));
+    }
+    const entry = { loading: undefined, zumen: undefined };
+    entry.loading = this.#load(loader()).then(
+      (zumen) => {
+        entry.zumen = zumen;
+        return zumen;
+      },
+      (error) => {
+        if (this.#loaded.get(name) === entry) {
+          this.#loaded.delete(name);
+        }
+        throw error;
+      },
+    );
+    this.#loaded.set(name, entry);
+    return entry.loading;
   }
 
   /** 入力の形式を判定する。コアの形式でなければ、プラグインの規則で試す。どの形式でもなければ undefined */
@@ -443,6 +469,64 @@ export class Modules {
   forInput(bytes) {
     const detection = this.detect(bytes);
     return detection === undefined ? Promise.resolve(undefined) : this.get(detection.module);
+  }
+
+  /**
+   * 入力を、その形式を持つモジュールの新しいセッションで開く（決定 0250）。`request` は open の要求の残りの欄（`doc`・
+   * `format` など）で、`format` を書けば、その形式を持つモジュールで開く。`inputs` は、open の前にセッションに足す
+   * ほかの入力（`saf` で名指す属性ファイルなど）。
+   *
+   * 図面の形式のプラグイン（op `lift` を持つもの）の入力は、プラグインのモジュールで開いて lift し、図面モデルの
+   * バイナリを図面のモジュールのセッションで開く（決定 0247）。図面のモジュールを読み込めなければ、プラグインの
+   * モジュールのセッションで開く。返すセッションは、呼び出し側が閉じる。どのモジュールの形式でもなければ undefined
+   */
+  async open(name, bytes, request = {}, inputs = {}) {
+    const data = view(bytes);
+    const target = this.#target(data, request.format);
+    if (target === undefined) {
+      return undefined;
+    }
+    const plugin = this.#plugin(target.module);
+    if (plugin !== undefined && plugin.ops.includes("lift") && typeof this.#loaders.drawing === "function") {
+      const source = (await this.get(plugin.name)).open();
+      let lifted;
+      try {
+        source.push(name, data);
+        source.call({ v: 1, op: "open", input: name });
+        const { result } = source.call({ v: 1, op: "lift", doc: name });
+        lifted = source.take(result.blob);
+      } finally {
+        source.close();
+      }
+      return this.#openIn("drawing", name, lifted, request, inputs);
+    }
+    return this.#openIn(target.module, name, data, request, inputs);
+  }
+
+  /** 名指した形式か、判定した形式の、形式とモジュール */
+  #target(data, format) {
+    if (format === undefined) {
+      return this.detect(data);
+    }
+    const module = Object.keys(MODULES).find((name) => MODULES[name].formats.includes(format));
+    return module === undefined ? undefined : { format, module };
+  }
+
+  /** モジュールの新しいセッションで開く。失敗したらセッションを閉じて、例外を投げ直す */
+  async #openIn(module, name, data, request, inputs) {
+    const zumen = await this.get(module);
+    const session = zumen.open();
+    try {
+      for (const [input, value] of Object.entries(inputs)) {
+        session.push(input, value);
+      }
+      session.push(name, data);
+      const response = session.call({ ...request, v: 1, op: "open", input: name });
+      return { zumen, session, response };
+    } catch (error) {
+      session.close();
+      throw error;
+    }
   }
 
   /** op を持つモジュールのうち、読み込めるものの最初を読み込む。コアのモジュールの後に、プラグインのモジュールを試す */

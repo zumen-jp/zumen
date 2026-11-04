@@ -9,8 +9,40 @@ import {
   type StatusName,
   ZumenError,
   load,
+  loadModules,
   readScene,
 } from "../src/index.js";
+import { loadBundled } from "../src/node.js";
+
+export async function server(bytes: Uint8Array): Promise<string | undefined> {
+  const zumen = await loadBundled();
+  if (zumen.broken) {
+    return undefined;
+  }
+  const session = zumen.open();
+  try {
+    session.push("input", bytes);
+    const opened = session.call({ v: SCHEMA_MAJOR, op: "open", input: "input", budget: { input_bytes: 100_000_000 } });
+    return opened.result?.format;
+  } catch (error) {
+    if (error instanceof ZumenError && error.status === "panicked") {
+      console.log(error.cause);
+    }
+    throw error;
+  } finally {
+    session.close();
+  }
+}
+
+export async function modules(bytes: Uint8Array): Promise<void> {
+  const loaded = loadModules({ drawing: () => fetch("zumen_abi1_drawing.wasm") });
+  const opened = await loaded.open("a.p2z", bytes, { doc: "a" }, { "a.saf": "<SxfAttributeXML/>" });
+  if (opened) {
+    const format: string | undefined = opened.response.result?.format;
+    console.log(format, opened.session.call({ v: SCHEMA_MAJOR, op: "drawing", doc: "a" }).result?.hash);
+    opened.session.close();
+  }
+}
 
 export async function sample(bytes: Uint8Array): Promise<void> {
   const zumen = await load(fetch("zumen_abi1.wasm"));

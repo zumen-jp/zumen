@@ -13,10 +13,11 @@ use zumen_drawing::{
 use zumen_json::{FromJson, Invalid, MAX_SAFE_INTEGER, Problem, ToJson, Writer};
 use zumen_jww::{Jww, JwwFile};
 use zumen_sdk::{Apply, Codec, Lift, Registration};
+use zumen_sxf::saf::AttributeFile;
 use zumen_sxf::{Sxf, SxfFile};
 
 use crate::abi::{ABI_VERSION, SCHEMA_MAJOR, SCHEMA_MINOR, Status};
-#[cfg(feature = "drawing")]
+#[cfg(feature = "pointcloud")]
 use crate::asbuilt;
 use crate::bcf;
 #[cfg(feature = "drawing")]
@@ -25,14 +26,19 @@ use crate::bounds;
 use crate::building;
 use crate::changes::changes;
 use crate::check;
-#[cfg(feature = "drawing")]
+#[cfg(any(
+    feature = "drawing",
+    feature = "bim",
+    feature = "civil",
+    feature = "pointcloud"
+))]
 use crate::civil;
 use crate::convert;
 #[cfg(feature = "drawing")]
 use crate::delivery;
 use crate::describe;
 use crate::formats;
-#[cfg(feature = "drawing")]
+#[cfg(feature = "civil")]
 use crate::geo;
 use crate::geometry;
 use crate::messages::{
@@ -52,7 +58,7 @@ use crate::packed::Packed;
 #[cfg(feature = "drawing")]
 use crate::photo;
 use crate::plugin;
-#[cfg(feature = "drawing")]
+#[cfg(feature = "pointcloud")]
 use crate::pointcloud;
 use crate::review;
 use crate::scene;
@@ -110,9 +116,9 @@ enum Doc {
     Dxf(DxfFile),
     #[cfg(feature = "drawing")]
     Dwg(DwgFile),
-    /// SXF。P2Z・SFZ なら、書庫の項目も持つ（#385）
+    /// SXF。P2Z・SFZ なら、書庫の項目も持つ（#385）。属性ファイル（SAF）があれば、読んだものを持つ（決定 0249）
     #[cfg(feature = "drawing")]
-    Sxf(SxfFile, Option<Box<Packed>>),
+    Sxf(SxfFile, Option<Box<Packed>>, Option<Box<AttributeFile>>),
     #[cfg(feature = "drawing")]
     Jww(JwwFile),
     /// プラグインの形式（決定 0243）。読むだけで、図面モデルを持つ
@@ -160,7 +166,9 @@ impl Doc {
             #[cfg(feature = "drawing")]
             Doc::Dwg(file) => file.lift(cx).map(Cow::Owned),
             #[cfg(feature = "drawing")]
-            Doc::Sxf(file, _) => file.lift(cx).map(Cow::Owned),
+            Doc::Sxf(file, _, attributes) => {
+                file.lift_with(attributes.as_deref(), cx).map(Cow::Owned)
+            }
             #[cfg(feature = "drawing")]
             Doc::Jww(file) => file.lift(cx).map(Cow::Owned),
             Doc::Plugin(_, drawing) | Doc::Lifted(_, drawing) => Ok(Cow::Borrowed(drawing)),
@@ -201,6 +209,42 @@ pub(crate) fn stopped(cx: &mut Cx<'_>, stop: Stop) -> Failed {
 /// 文書の種類が op に合わない
 /// 図面の形式なら読む。どの図面の形式でもなければ `None`。形式は、コーデックが持つ判定の規則で決める
 /// （決定 0007・0008）。入力の大きさは、コーデックが確かめる
+/// SXF の文書に、属性ファイル（SAF）を読んで持たせる（決定 0249）。名指した入力がなければ、P2Z・SFZ の中の、図面と
+/// 同じ名前の SAF を使う。SAF が読めなければ、診断を返して、属性ファイルなしで開く。SXF でない文書に名指せば失敗する
+#[cfg(feature = "drawing")]
+fn with_attributes(
+    doc: Option<Doc>,
+    saf: Option<&str>,
+    inputs: &BTreeMap<String, Vec<u8>>,
+    cx: &mut Cx<'_>,
+) -> Result<Option<Doc>, Failed> {
+    let (file, archive) = match doc {
+        Some(Doc::Sxf(file, archive, _)) => (file, archive),
+        other if saf.is_none() => return Ok(other),
+        _ => return Err(fail(cx, invalid_value("/saf"))),
+    };
+    let bytes = match saf {
+        Some(name) => {
+            if !name::is_safe(name) {
+                return Err(fail(cx, invalid_value("/saf")));
+            }
+            let Some(bytes) = inputs.get(name) else {
+                return Err(fail(cx, input_missing(name)));
+            };
+            Some(bytes.as_slice())
+        }
+        None => archive.as_deref().and_then(Packed::attribute_file),
+    };
+    let attributes = match bytes.map(|bytes| zumen_sxf::saf::read(bytes, cx)) {
+        None => None,
+        Some(Ok(file)) => Some(Box::new(file)),
+        // 失敗の理由は、読み取りが診断として足してある
+        Some(Err(zumen_sdk::Error::Stopped(_))) => return Err(Failed),
+        Some(Err(_)) => None,
+    };
+    Ok(Some(Doc::Sxf(file, archive, attributes)))
+}
+
 #[cfg(feature = "drawing")]
 fn read_drawing(bytes: &[u8], cx: &mut Cx<'_>) -> Result<Option<Doc>, Failed> {
     // 図面モデルのバイナリ（決定 0247）。始まりの 4 バイトは、コアのどの形式とも重ならない
@@ -217,13 +261,13 @@ fn read_drawing(bytes: &[u8], cx: &mut Cx<'_>) -> Result<Option<Doc>, Failed> {
         Doc::Dwg(Dwg::read(bytes, cx).map_err(|_| Failed)?)
     } else if format == Some(Sxf::FORMAT) {
         // 同じ始まりの IFC などは、コーデックがスキーマを確かめて、診断を足して失敗する
-        Doc::Sxf(Sxf::read(bytes, cx).map_err(|_| Failed)?, None)
+        Doc::Sxf(Sxf::read(bytes, cx).map_err(|_| Failed)?, None, None)
     } else if format == Some(Jww::FORMAT) {
         Doc::Jww(Jww::read(bytes, cx).map_err(|_| Failed)?)
     } else if let Some((sxf, archive)) = packed::read(bytes, cx)? {
         // P2Z・SFZ（#385）。SXF の項目のない ZIP は、ifcZIP などとして後で試す
         let file = Sxf::read(&sxf, cx).map_err(|_| Failed)?;
-        Doc::Sxf(file, Some(Box::new(archive)))
+        Doc::Sxf(file, Some(Box::new(archive)), None)
     } else if let Some(doc) = read_plugin(bytes, cx)? {
         // コアのどの形式でもなければ、登録した図面の形式のプラグインを順に試す（決定 0243）
         doc
@@ -500,13 +544,18 @@ impl Session {
             Request::BcfWrite(request) => {
                 self.bcf_write(request, &mut cx).map(|r| Box::new(r) as _)
             }
-            #[cfg(feature = "drawing")]
+            #[cfg(any(
+                feature = "drawing",
+                feature = "bim",
+                feature = "civil",
+                feature = "pointcloud"
+            ))]
             Request::Civil(request) => self.civil(request, &mut cx).map(|r| Box::new(r) as _),
-            #[cfg(feature = "drawing")]
+            #[cfg(feature = "pointcloud")]
             Request::Pointcloud(request) => {
                 self.pointcloud(request, &mut cx).map(|r| Box::new(r) as _)
             }
-            #[cfg(feature = "drawing")]
+            #[cfg(feature = "pointcloud")]
             Request::Deviation(request) => {
                 self.deviation(request, &mut cx).map(|r| Box::new(r) as _)
             }
@@ -514,7 +563,7 @@ impl Session {
             Request::CivilDrawing(request) => self
                 .civil_drawing(request, &mut cx)
                 .map(|r| Box::new(r) as _),
-            #[cfg(feature = "drawing")]
+            #[cfg(feature = "civil")]
             Request::Geo(request) => self.geo(request, &mut cx).map(|r| Box::new(r) as _),
             #[cfg(feature = "drawing")]
             Request::DeliveryCheck(request) => self
@@ -576,14 +625,38 @@ impl Session {
         if let Some(model) = building::read_spf(bytes, cx) {
             return self.open_model(name.clone(), model?, cx);
         }
-        // 名指せる形式は xyz だけ。ほかの形式は入力から判定する
+        // 名指せる形式は、見分ける印のない xyz（点群のモジュール）と extdm（土木・地理のモジュール）だけ。ほかの形式は
+        // 入力から判定する
         if request.format.as_deref().is_some_and(|format| {
-            format != zumen_xyz::Xyz::FORMAT || cfg!(not(feature = "drawing"))
+            !((format == zumen_xyz::Xyz::FORMAT && cfg!(feature = "pointcloud"))
+                || (format == zumen_extdm::ExtDm::FORMAT && cfg!(feature = "civil")))
         }) {
             return Err(fail(cx, invalid_value("/format")));
         }
+        // 属性ファイルは、SXF（P2Z・SFZ を含む）にだけ使う（決定 0249）
+        if request.saf.is_some()
+            && !(cfg!(feature = "drawing")
+                && (Sxf::SIGNATURES.iter().any(|rule| rule.matches(bytes))
+                    || bytes.starts_with(b"PK")))
+        {
+            return Err(fail(cx, invalid_value("/saf")));
+        }
+        // 名指した拡張 DM（#378）
+        #[cfg(feature = "civil")]
+        if request.format.as_deref() == Some(zumen_extdm::ExtDm::FORMAT) {
+            let model = geo::read_extdm(bytes, cx)?;
+            self.geos.insert(name.clone(), model);
+            return Ok(OpenResult {
+                doc: name.clone(),
+                format: zumen_extdm::ExtDm::FORMAT.to_string(),
+                needs: None,
+                done: None,
+
+                entries: None,
+            });
+        }
         // LAS・LAZ は範囲で読む（決定 0232）
-        #[cfg(feature = "drawing")]
+        #[cfg(feature = "pointcloud")]
         if let Some(opened) = pointcloud::read(&request.input, &self.inputs, request.size, cx) {
             let format = zumen_las::Las::FORMAT.to_string();
             return Ok(match opened? {
@@ -609,7 +682,7 @@ impl Session {
             });
         }
         // PLY・E57 と、名指した XYZ
-        #[cfg(feature = "drawing")]
+        #[cfg(feature = "pointcloud")]
         if let Some(opened) = pointcloud::read_whole(bytes, request.format.as_deref(), cx) {
             let (format, cloud) = opened?;
             self.clouds.insert(name.clone(), cloud);
@@ -623,7 +696,12 @@ impl Session {
             });
         }
         #[cfg(feature = "drawing")]
-        let doc = read_drawing(bytes, cx)?;
+        let doc = with_attributes(
+            read_drawing(bytes, cx)?,
+            request.saf.as_deref(),
+            &self.inputs,
+            cx,
+        )?;
         // プラグインのモジュールは、プラグインの形式だけを読む（決定 0247）
         #[cfg(all(feature = "plugin", not(feature = "drawing")))]
         let doc = read_plugin(bytes, cx)?;
@@ -637,7 +715,7 @@ impl Session {
 
                 entries: match &doc {
                     #[cfg(feature = "drawing")]
-                    Doc::Sxf(_, Some(archive)) => Some(archive.names()),
+                    Doc::Sxf(_, Some(archive), _) => Some(archive.names()),
                     _ => None,
                 },
             };
@@ -650,8 +728,8 @@ impl Session {
             self.docs.insert(name.clone(), doc);
             return Ok(result);
         }
-        // J-LandXML は XML の根で見分ける（決定 0230）
-        #[cfg(feature = "drawing")]
+        // J-LandXML は XML の根で見分ける（決定 0230）。図面・土木地理・点群のどのモジュールも読む（決定 0253）
+        #[cfg(any(feature = "drawing", feature = "civil", feature = "pointcloud"))]
         if let Some(model) = civil::read(bytes, cx) {
             self.civils.insert(name.clone(), model?);
             return Ok(OpenResult {
@@ -663,13 +741,13 @@ impl Session {
                 entries: None,
             });
         }
-        // CityGML も XML の根で見分ける（決定 0233）
-        #[cfg(feature = "drawing")]
-        if let Some(model) = geo::read(bytes, cx) {
+        // CityGML と基盤地図情報も XML の根で見分ける（決定 0233）
+        #[cfg(feature = "civil")]
+        if let Some((format, model)) = geo::read(bytes, cx) {
             self.geos.insert(name.clone(), model?);
             return Ok(OpenResult {
                 doc: name.clone(),
-                format: zumen_citygml::CityGml::FORMAT.to_string(),
+                format: format.to_string(),
                 needs: None,
                 done: None,
 
@@ -699,14 +777,14 @@ impl Session {
         model: building::Model,
         cx: &mut Cx<'_>,
     ) -> Result<OpenResult, Failed> {
-        // IFC4.3 の線形は、土木の領域モデルにもする（決定 0235）
-        #[cfg(all(feature = "drawing", feature = "bim"))]
+        // IFC4.3 の線形は、土木の領域モデルにもする（決定 0235）。BIM のモジュールも civil の op を持つ（決定 0253）
+        #[cfg(feature = "bim")]
         if let Some(file) = &model.file
             && let Some(civil) = civil::from_ifc(file, cx)?
         {
             self.civils.insert(name.clone(), civil);
         }
-        #[cfg(not(all(feature = "drawing", feature = "bim")))]
+        #[cfg(not(feature = "bim"))]
         let _ = cx;
         let format = model.format.to_string();
         self.models.insert(name.clone(), model);
@@ -981,7 +1059,7 @@ impl Session {
                 *file = updated;
                 (applied, hash)
             }
-            Doc::Sxf(file, archive) => {
+            Doc::Sxf(file, archive, _) => {
                 let mut updated = file.clone();
                 let applied = updated.apply(&changes, cx).map_err(|_| Failed)?;
                 Sxf::write(&updated, &mut bytes, cx).map_err(|_| Failed)?;
@@ -1244,14 +1322,11 @@ impl Session {
         // 書き出しが予算や中断で止まっても、元の文書は変更しない。
         let (updated, result, bytes) = building::apply(model, request, cx)?;
         // IFC4.3 の線形の土木の領域モデルも、書き戻したものから作り直す（決定 0235）
-        #[cfg(feature = "drawing")]
+        self.civils.remove(&request.doc);
+        if let Some(file) = &updated.file
+            && let Some(civil) = civil::from_ifc(file, cx)?
         {
-            self.civils.remove(&request.doc);
-            if let Some(file) = &updated.file
-                && let Some(civil) = civil::from_ifc(file, cx)?
-            {
-                self.civils.insert(request.doc.clone(), civil);
-            }
+            self.civils.insert(request.doc.clone(), civil);
         }
         self.models.insert(request.doc.clone(), updated);
         self.blobs.push(Some(Blob {
@@ -1346,7 +1421,12 @@ impl Session {
     }
 
     /// 線形の上の所を求める。doc を渡せば、開いた土木の領域モデルの線形を使う（決定 0230）
-    #[cfg(feature = "drawing")]
+    #[cfg(any(
+        feature = "drawing",
+        feature = "bim",
+        feature = "civil",
+        feature = "pointcloud"
+    ))]
     fn civil(
         &self,
         request: &messages::CivilRequest,
@@ -1380,7 +1460,7 @@ impl Session {
     }
 
     /// 開いた CityGML の地理の領域モデルの要約と、地物の中身（決定 0233）
-    #[cfg(feature = "drawing")]
+    #[cfg(feature = "civil")]
     fn geo(
         &self,
         request: &messages::GeoRequest,
@@ -1528,7 +1608,7 @@ impl Session {
     }
 
     /// 点群と TIN の標高の差の、規則の区分ごとの集計（決定 0234）
-    #[cfg(feature = "drawing")]
+    #[cfg(feature = "pointcloud")]
     fn deviation(
         &self,
         request: &messages::DeviationRequest,
@@ -1628,7 +1708,7 @@ impl Session {
     }
 
     /// 開いた点群の文書。`pointer` は名前を書いた欄
-    #[cfg(feature = "drawing")]
+    #[cfg(feature = "pointcloud")]
     fn cloud(
         &self,
         doc: &str,
@@ -1655,7 +1735,7 @@ impl Session {
     }
 
     /// 開いた点群の要約と、条件に合う点（決定 0232）
-    #[cfg(feature = "drawing")]
+    #[cfg(feature = "pointcloud")]
     fn pointcloud(
         &self,
         request: &messages::PointcloudRequest,
@@ -1716,7 +1796,7 @@ fn capabilities() -> CapabilitiesResult {
         formats: formats::DRAWING
             .iter()
             .chain(formats::READ_ONLY)
-            .filter(|_| cfg!(feature = "drawing"))
+            .filter(|registration| crate::abi::has_format(registration.format))
             .chain(
                 plugin::installed()
                     .iter()
@@ -2619,7 +2699,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":61}},"ops":["capabilities","open","close","describe","drawing","entities","apply","convert","tables","scene","check","validate","review_carry","review_adopt","building","building_elements","ids_check","review_adopt_ids","bcf_read","bcf_write","civil","pointcloud","deviation","civil_drawing","geo","delivery_check","photo","sheet","boring","building_apply","lift"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}},{{"id":"landxml","family":"landxml","read":true,"write":false,"id_rules":1}},{{"id":"citygml","family":"citygml","read":true,"write":false,"id_rules":1}},{{"id":"las","family":"las","read":true,"write":false,"id_rules":1}},{{"id":"ply","family":"ply","read":true,"write":false,"id_rules":1}},{{"id":"xyz","family":"xyz","read":true,"write":false,"id_rules":1}},{{"id":"e57","family":"e57","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":63}},"ops":["capabilities","open","close","describe","drawing","entities","apply","convert","tables","scene","check","validate","review_carry","review_adopt","building","building_elements","ids_check","review_adopt_ids","bcf_read","bcf_write","civil","pointcloud","deviation","civil_drawing","geo","delivery_check","photo","sheet","boring","building_apply","lift"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}},{{"id":"landxml","family":"landxml","read":true,"write":false,"id_rules":1}},{{"id":"citygml","family":"citygml","read":true,"write":false,"id_rules":1}},{{"id":"fgd","family":"fgd","read":true,"write":false,"id_rules":1}},{{"id":"extdm","family":"extdm","read":true,"write":false,"id_rules":1}},{{"id":"las","family":"las","read":true,"write":false,"id_rules":1}},{{"id":"ply","family":"ply","read":true,"write":false,"id_rules":1}},{{"id":"xyz","family":"xyz","read":true,"write":false,"id_rules":1}},{{"id":"e57","family":"e57","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);

@@ -1,0 +1,151 @@
+{
+  "description": "open は、format に extdm を書いて名指した拡張 DM（公共測量標準図式の数値地形図データ）を読み、地理の領域モデル（決定 0233、#378）に移す。拡張 DM は見分ける印がないので、名指さなければ判定しない。geo は、インデックスレコードの系と図郭の測地成果識別コード（世界測地系は JGD2011 の平面直角座標系と仮定する）の座標系と、地物の型ごとの数を返し、id（レコードの順の番号）で指した地物の分類コード・属性・形の要約を返す。座標は図郭の原点からの mm で、点データは代表点と mm の属性数値の標高にする。",
+  "module": "civil",
+  "steps": [
+    {
+      "push": {
+        "name": "map.dm",
+        "text": "I  9テスト市                    1 1   0002008公共測量作業規程      20   \r\n09LD0000                                                                            \r\nM 09LD0000図郭一             500都市計画図                02                \r\n -40000 -20000 -39700 -19600        3      8  1 -39700 -20000 -40000 -19600         \r\n                                                                                    \r\n0803000000図化機                                                   1             \r\nテスト測量                                                                     \r\nH 2100         0 1                                                                  \r\nE22101         1 2  2         3   1      0      0                                   \r\n      0      0      0   5000   5000   5000                                          \r\nE57101         2 2  0         0   0   1000   2000  12345                            \r\nE72101         3 2  4         4   1   3000   4000                                   \r\n0      0   25    0 1公共測量                                                    \r\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "map.dm"
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "call.format.unsupported"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "map.dm",
+        "format": "extdm"
+      },
+      "expect": {
+        "/result/format": "extdm",
+        "/diagnostics/0/code": "extdm.datum.assumed",
+        "/diagnostics/0/params/sheet": "09LD0000"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "geo",
+        "doc": "map.dm"
+      },
+      "expect": {
+        "/result/crs": 6677,
+        "/result/features": 6,
+        "/result/kinds": [
+          {
+            "kind": "extdm:E2",
+            "count": 1
+          },
+          {
+            "kind": "extdm:E5",
+            "count": 1
+          },
+          {
+            "kind": "extdm:E7",
+            "count": 1
+          },
+          {
+            "kind": "extdm:H",
+            "count": 1
+          },
+          {
+            "kind": "extdm:I",
+            "count": 1
+          },
+          {
+            "kind": "extdm:M",
+            "count": 1
+          }
+        ]
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "geo",
+        "doc": "map.dm",
+        "id": "8"
+      },
+      "expect": {
+        "/result/feature/kind": "extdm:E2",
+        "/result/feature/code": "2101",
+        "/result/feature/parent": "7",
+        "/result/feature/geometries": [
+          {
+            "form": "line",
+            "points": 3
+          }
+        ]
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "geo",
+        "doc": "map.dm",
+        "id": "10"
+      },
+      "expect": {
+        "/result/feature/kind": "extdm:E5",
+        "/result/feature/attributes/1": {
+          "name": "extdm:属性数値",
+          "kind": "measure",
+          "value": "12.345",
+          "unit": "m"
+        },
+        "/result/feature/geometries": [
+          {
+            "form": "point",
+            "points": 1
+          }
+        ]
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "geo",
+        "doc": "map.dm",
+        "id": "11"
+      },
+      "expect": {
+        "/result/feature/name": "公共測量",
+        "/result/feature/geometries": [
+          {
+            "form": "point",
+            "points": 1
+          }
+        ]
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "geo",
+        "doc": "map.dm",
+        "id": "2"
+      },
+      "expect": {
+        "/result/feature/kind": "extdm:M",
+        "/result/feature/name": "図郭一",
+        "/result/feature/children": 1,
+        "/result/feature/geometries": [
+          {
+            "form": "area",
+            "points": 4
+          }
+        ]
+      }
+    }
+  ]
+}
