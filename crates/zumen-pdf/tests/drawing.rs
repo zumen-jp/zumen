@@ -3804,9 +3804,9 @@ fn refuses_object_streams_that_differ_by_platform() {
         "/Type /ObjStm /N 1 /First 4 /Filter 9 0 R",
         "/Type /ObjStm /N 1 /First 4 /DecodeParms [null 9 0 R]",
         "/Type /ObjStm /N 9 0 R /First 4",
-        // 入れ子の深い値と、空白のない参照。値はバイト列として見るので、深さによらない
+        // 入れ子の深い値と、行末で区切った参照。値はバイト列として見るので、深さと空白の字によらない
         "/Type /ObjStm /N 1 /First 4 /DP [[[[[[[[[[[[[[[[[[[[9 0 R]]]]]]]]]]]]]]]]]]]]",
-        "/Type /ObjStm /N 1 /First 4 /DecodeParms << /K 9 0R >>",
+        "/Type /ObjStm /N 1 /First 4 /DecodeParms << /K 9 0\nR >>",
         // 文字列の中の `R` も、参照として扱う（多めに断るだけ）
         "/Type /ObjStm /N 1 /First 4 /DecodeParms << /K (R) >>",
     ] {
@@ -3857,11 +3857,20 @@ fn counts_the_dictionaries_of_object_streams_before_reading_them() {
     )];
     let own = used(&document.bytes(), Kind::DecodedBytes);
     assert!(own >= 176 * count as u64, "{own}");
-    // ほかの辞書と、値の中の辞書と配列は、確かめが表を作らないので数えない
+    // 展開するときに hayro-syntax が表を作る `F`・`DP`・`DecodeParms` の値も、展開の前に名前の数で数える
+    for key in ["F", "DP", "DecodeParms"] {
+        document.objects = vec![common::stream(
+            &format!("/Type /ObjStm /N 1 /First 4 /{key} << {keys}>>"),
+            "30 0 << >>",
+        )];
+        let parameters = used(&document.bytes(), Kind::DecodedBytes);
+        assert!(parameters >= 176 * count as u64, "{key} {parameters}");
+    }
+    // ほかの辞書と、展開に使わない値の中の辞書と配列は、確かめが表を作らないので数えない
     document.objects = vec![
         common::stream(
             &format!(
-                "/Type /ObjStm /N 1 /First 4 /DecodeParms << {keys}>> /DP [{}]",
+                "/Type /ObjStm /N 1 /First 4 /Foo << {keys}>> /DP [{}]",
                 "0 ".repeat(count)
             ),
             "30 0 << >>",
@@ -3870,6 +3879,40 @@ fn counts_the_dictionaries_of_object_streams_before_reading_them() {
     ];
     let values = used(&document.bytes(), Kind::DecodedBytes);
     assert!(values < own / 10, "{values} {own}");
+}
+
+#[test]
+fn refuses_filter_arrays_longer_than_the_limit() {
+    // hayro-syntax は、展開するたびに、フィルターの数だけ `DecodeParms` の配列の項目を辞書として読み、空の辞書でも
+    // 1 KiB ほどの表を持つ。名前と参照の項目が 64 を超えるフィルターの配列は、読まない
+    let names = |count: usize| "/AHx ".repeat(count);
+    assert!(!unsupported(vec![common::stream(
+        &format!("/Filter [{}]", names(64)),
+        "x"
+    )]));
+    for dict in [
+        format!("/Filter [{}]", names(65)),
+        format!("/F [{}]", names(65)),
+        format!("/Filter [{}]", "9 0 R ".repeat(65)),
+        // コメントの中の配列は、前の配列が範囲の終わりから読んだ並びの、項目の数も覚えて足す
+        format!("/Filter [%/Filter [/X\n{}]", "/X ".repeat(64)),
+    ] {
+        assert!(unsupported(vec![common::stream(&dict, "x")]), "{dict}");
+    }
+    assert!(!unsupported(vec![common::stream(
+        &format!("/Filter [%/Filter [\n{}]", "/X ".repeat(64)),
+        "x"
+    )]));
+    // 参照の先の配列も、同じく数える
+    let target = |items: String| {
+        vec![
+            common::stream("/Filter 4 0 R", "x"),
+            format!("[{items}]").into_bytes(),
+        ]
+    };
+    assert!(!unsupported(target(names(64))));
+    assert!(unsupported(target(names(65))));
+    assert!(unsupported(target("9 0 R ".repeat(65))));
 }
 
 #[test]
@@ -3966,6 +4009,18 @@ fn refuses_coded_filters_whose_input_may_be_large() {
             );
         }
     }
+    // フィルターの値の参照が、オブジェクトのストリームの中身にだけあるもの。参照の先の位置は、参照を見つけた順に
+    // よらず見る（ファイルの `obj` の後ろと、前のコンテナーと同じコンテナーの中の位置）
+    let inner = || container(1, 5, "32 0 << /Filter [/Fl 3 0 R] >>");
+    for objects in [
+        vec![b"/LZWDecode".to_vec(), inner()],
+        vec![b"[/FlateDecode /LZWDecode]".to_vec(), inner()],
+        vec![container(1, 5, "31 0 /LZW"), inner()],
+        vec![container(2, 10, "31 0 32 5 /LZW << /Filter 31 0 R >>")],
+    ] {
+        let text = String::from_utf8_lossy(&objects.concat()).into_owned();
+        assert!(unsupported(objects), "{text}");
+    }
     // 配列の参照の項目は、名前に解ければ後ろの項目も読むので、後ろの名前の倍率は分からない
     for dict in ["/Filter [/AHx 4 0 R /LZW]", "/F [4 0 R /A85]"] {
         assert!(unsupported(vec![common::stream(dict, "x")]), "{dict}");
@@ -4023,8 +4078,9 @@ fn reads_names_in_comments_in_linear_work() {
     // 辞書の後ろを飛ばしても、`obj` の側の覚えを変えない
     let stream = "<</N 1/First 0/Length 0>>stream\n\nendstream".to_string();
     // コメントの行の配列は、どれも後ろの同じ項目の並びを読む。配列の項目を飛ばしても、キーの側の覚えを変えない
-    // （範囲の終わりの配列も、違う値のキーと交互に並べた配列も）
-    let list = "/a ".repeat(30_000);
+    // （範囲の終わりの配列も、違う値のキーと交互に並べた配列も）。並びは、フィルターの配列の項目の上限（64）より短く
+    // して、読む文書にする
+    let list = "/a ".repeat(60);
     let few = "/a ".repeat(10);
     let short = "[/a]".to_string();
     let long = format!("[{list}]");

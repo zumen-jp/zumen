@@ -2697,7 +2697,7 @@ pub const PDF_DASH_APPROXIMATED: Code = Code::new(
 pub const PDF_DOCUMENT_INVALID: Code =
     Code::new("pdf.document.invalid", Severity::Error, None, &[], &[]);
 
-/// hayro-syntax がパニックするか、環境（32 ビットと 64 ビット）で違う値に読むおそれのある値があるので、読まなかった。ファイルとオブジェクトのストリームの中身のどこかに、2 の 31 乗以上の Columns・N・First か、予測子を当てる Predictor と、0 の Colors・BitsPerComponent・Columns か、積が 255 を超える Colors と BitsPerComponent か、1 MiB を超える 1 行の値がある（参照の値は、すべての定義の数を候補にする）。または、入力の長さが 2 の 28 乗バイトに届きうる LZW・ASCII85 のフィルターがあるか、フィルターの値に参照があり、参照の先になりうる位置（obj の後ろと、オブジェクトのストリームの中の位置）に LZW・ASCII85 の名前があるか、オブジェクトのストリームの中の位置が 2 の 31 乗以上か、オブジェクトのストリームの長さ・数・展開の値が参照を含むか、確かめたオブジェクトのストリームの型でない ObjStm の型があるか、暗号化の辞書の名前がある文書が、オブジェクトのストリームを使う。場所は、理由の値を含むレコード
+/// hayro-syntax がパニックするか、環境（32 ビットと 64 ビット）で違う値に読むおそれのある値があるので、読まなかった。ファイルとオブジェクトのストリームの中身のどこかに、2 の 31 乗以上の Columns・N・First か、予測子を当てる Predictor と、0 の Colors・BitsPerComponent・Columns か、積が 255 を超える Colors と BitsPerComponent か、1 MiB を超える 1 行の値がある（参照の値は、すべての定義の数を候補にする）。または、入力の長さが 2 の 28 乗バイトに届きうる LZW・ASCII85 のフィルターがあるか、フィルターの値に参照があり、参照の先になりうる位置（obj の後ろと、オブジェクトのストリームの中の位置）に LZW・ASCII85 の名前か、それを名前の項目に持つ配列があるか、名前と参照の項目が 64 を超えるフィルターの配列があるか、オブジェクトのストリームの中の位置が 2 の 31 乗以上か、オブジェクトのストリームの長さ・数・展開の値が参照を含むか、確かめたオブジェクトのストリームの型でない ObjStm の型があるか、暗号化の辞書の名前がある文書が、オブジェクトのストリームを使う。場所は、理由の値を含むレコード
 ///
 /// `pdf.document.unsupported`（0.2.0 から）
 pub const PDF_DOCUMENT_UNSUPPORTED: Code =
