@@ -41,6 +41,10 @@ const CODED: u64 = 1 << 28;
 /// `DecodeParms` の配列の項目を辞書として読み、空の辞書でも 1 KiB ほどの表を持つ（`filters_and_params`）
 const FILTERS: u64 = 64;
 
+/// 展開のパラメーターの配列（[`listed`]）を見るバイト数の上限。ふつうの文書の配列は、数個の小さな辞書か `null` の
+/// 項目で、数百バイトに収まる。上限で、確かめの手間を、見る位置の数の決まった倍までにする
+const PARAMETER_BYTES: usize = 1024;
+
 /// 値を確かめるキー。hayro-syntax の読み方（予測子は 7.4.4.4 の表 8、オブジェクトのストリームは 7.5.7 の表 16）
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Key {
@@ -111,17 +115,24 @@ struct Seen {
     coded: Option<usize>,
     /// 名前と参照の項目が [`FILTERS`] を超えるフィルターの配列
     long: Option<usize>,
-    /// 上の段の参照の項目が 2 つ以上ある、展開のパラメーターの配列（[`listed`]）
-    params: Option<usize>,
-    /// 参照の先になりうる位置の、LZW・ASCII85 の名前か、それを名前の項目に持つか、名前の項目だけで [`FILTERS`] を
-    /// 超える配列（[`Hit::Coded`]）
+    /// フィルターの配列の、名前と参照の項目の数のいちばん大きいもの（[`FILTERS`] を超えれば、`long` で断る）。
+    /// hayro-syntax は、展開のパラメーターの配列の項目を、フィルターの名前の数までしか読まない
+    filters: u64,
+    /// 展開のパラメーターの配列で、表を重ねて持ちうる項目（[`listed`]）。いちばん前の項目の番号と、配列の場所
+    params: Option<(u64, usize)>,
+    /// 参照の先になりうる位置の、LZW・ASCII85 の名前か、それを名前の項目に持つか、最初の参照の項目より前の名前の
+    /// 項目だけで [`FILTERS`] を超える配列（[`Hit::Coded`]）
     target: Option<usize>,
     /// 参照の先になりうる位置の、参照の項目を含めると名前と参照の項目が [`FILTERS`] を超える配列（[`Hit::Crowded`]）
     crowded: Option<usize>,
     /// 参照の先になりうる位置に、名前がある。参照の項目が名前に解けるのは、このときだけ
     named: bool,
-    /// 参照の先になりうる位置の、上の段の参照の項目が 2 つ以上ある配列（[`listed`]）
-    listed: Option<usize>,
+    /// 参照の先になりうる位置の配列の、最初の参照の項目より前の名前の項目の数と、名前と参照の項目の数の、それぞれ
+    /// いちばん大きいもの（[`targeted`]）。フィルターの値の参照の先の配列から、hayro-syntax が読むフィルターの数
+    leading: u64,
+    items: u64,
+    /// 参照の先になりうる位置の配列で、展開のパラメーターの配列として表を重ねて持ちうる項目（[`listed`]）
+    listed: Option<(u64, usize)>,
     /// フィルターの値に参照がある。hayro-syntax は参照の先の名前と配列も読むので、参照の先になりうる位置の名前を、
     /// 倍率の分からないフィルターとして当てうる（その名前が、ほかの所でフィルターの値として読める名前でも）
     indirect: bool,
@@ -188,6 +199,17 @@ impl Seen {
         }
     }
 
+    /// hayro-syntax が、展開のパラメーターの配列の項目を読みうる数。フィルターの値に参照があれば、参照の先の配列の
+    /// 名前の項目も読む（名前の定義がなければ、参照の項目で止まる）
+    fn reads(&self) -> u64 {
+        let target = match (self.indirect, self.named) {
+            (false, _) => 0,
+            (true, false) => self.leading,
+            (true, true) => self.items,
+        };
+        self.filters.max(target)
+    }
+
     fn reference(&mut self, key: Key, place: usize) {
         self.values
             .entry(key)
@@ -213,13 +235,19 @@ impl Seen {
     /// どの `Colors`・`BitsPerComponent`・`Columns`（と既定の値）の組でも行の長さが 0 にならず、`Colors` と
     /// `BitsPerComponent` の積が u8 に収まり、1 行が [`ROW`] に収まるかを見る
     fn verdict(&self) -> Option<usize> {
+        // 展開のパラメーターの配列の項目は、フィルターの数より前のものだけを読む
+        let filters = self.reads();
+        let layered = |slot: Option<(u64, usize)>| {
+            slot.filter(|&(index, _)| index < filters)
+                .map(|(_, place)| place)
+        };
         if let Some(place) = self
             .coded
             .or(self.long)
-            .or(self.params)
+            .or_else(|| layered(self.params))
             .or_else(|| self.target.filter(|_| self.indirect))
             .or_else(|| self.crowded.filter(|_| self.indirect && self.named))
-            .or_else(|| self.listed.filter(|_| self.parameters))
+            .or_else(|| layered(self.listed).filter(|_| self.parameters))
         {
             return Some(place);
         }
@@ -452,10 +480,9 @@ fn members(
         if let Some(number) = number(data, at, cx)? {
             seen.number(number);
         }
-        let hit = targeted(data, at, &mut lists, cx)?;
-        seen.hit(hit, place);
-        if listed(data, at, &mut params, cx)? {
-            seen.listed.get_or_insert(place);
+        targeted(data, at, place, &mut lists, seen, cx)?;
+        if let Some(index) = listed(data, at, &mut params, cx)? {
+            earliest(&mut seen.listed, index, place);
         }
     }
     names(data, |_| place, None, seen, cx)?;
@@ -551,8 +578,8 @@ fn names(
                 }
                 if reference(data, value, cx)?.is_some() {
                     seen.parameters = true;
-                } else if listed(data, value, &mut params, cx)? {
-                    seen.params.get_or_insert(place(start));
+                } else if let Some(index) = listed(data, value, &mut params, cx)? {
+                    earliest(&mut seen.params, index, place(start));
                 }
             }
             (_, Some(key)) => {
@@ -665,7 +692,9 @@ fn filters(
             if let Some((most, remembered)) = *items.slot(first)
                 && factor <= most
             {
-                if count.saturating_add(items.rest) > FILTERS {
+                let total = count.saturating_add(items.rest);
+                seen.filters = seen.filters.max(total);
+                if total > FILTERS {
                     seen.long.get_or_insert(place(at));
                 }
                 return Ok(found || remembered);
@@ -707,9 +736,11 @@ fn filters(
     Ok(found)
 }
 
-/// フィルターの配列の名前か参照の項目を 1 つ数え、[`FILTERS`] を超えたら、配列の場所を記録して真を返す
+/// フィルターの配列の名前か参照の項目を 1 つ数え（[`Seen::filters`]）、[`FILTERS`] を超えたら、配列の場所を記録して
+/// 真を返す
 fn counted(count: &mut u64, seen: &mut Seen, place: usize) -> bool {
     *count += 1;
+    seen.filters = seen.filters.max(*count);
     let long = *count > FILTERS;
     if long {
         seen.long.get_or_insert(place);
@@ -1083,10 +1114,9 @@ fn targets(src: &[u8], seen: &mut Seen, cx: &mut Cx<'_>) -> Result<(), Stop> {
         if start == skip.to && last.replace(start) == Some(start) {
             continue;
         }
-        let hit = targeted(src, start, &mut lists, cx)?;
-        seen.hit(hit, start);
-        if listed(src, start, &mut params, cx)? {
-            seen.listed.get_or_insert(start);
+        targeted(src, start, start, &mut lists, seen, cx)?;
+        if let Some(index) = listed(src, start, &mut params, cx)? {
+            earliest(&mut seen.listed, index, start);
         }
     }
     Ok(())
@@ -1108,32 +1138,41 @@ enum Hit {
 }
 
 /// 参照の先になりうる位置（`obj` の後ろと、オブジェクトのストリームの中の位置。hayro-syntax の `IndirectObject::read`
-/// と `ObjectStream::read_offsets` と同じく、空白とコメントを飛ばした位置）の値を見る。hayro-syntax は、フィルターの値の
-/// 参照を解いて名前か名前の配列を読み、配列の項目の参照も名前に解く（`FlexArrayIter::next`。参照の先の参照は読まない）。
-/// 配列は、hayro-syntax と同じく、名前でも参照でもない最初の項目まで見る（参照の項目の後ろも見るので、多めに当てる）。
-/// 読んだ名前の字と、項目の間の空白とコメントを `Work` に数える。
+/// と `ObjectStream::read_offsets` と同じく、空白とコメントを飛ばした位置）の値を見て、当たり（[`Hit`]）と配列の項目の
+/// 数（[`Seen::leading`]・[`Seen::items`]）を記録する。hayro-syntax は、フィルターの値の参照を解いて名前か名前の配列を
+/// 読み、配列の項目の参照も名前に解く（`FlexArrayIter::next`。参照の先の参照は読まない）。配列は、hayro-syntax と
+/// 同じく、名前でも参照でもない最初の項目まで見る（参照の項目の後ろも見るので、多めに当てる）。読んだ名前の字と、
+/// 項目の間の空白とコメントを `Work` に数える。
 ///
-/// 確かめは、LZW・ASCII85 の名前を見つけたら終えるので、前に読んだ配列には名前がなく、項目は [`FILTERS`] 以下。
-/// コメントの行ごとの `obj [` は、どれも `[` の後ろの空白とコメントを飛ばした範囲の終わりの同じ位置に着き、同じ項目の
-/// 並びを読むので、2 つ目からは読まない（[`Lists`]）
-fn targeted(data: &[u8], at: usize, lists: &mut Lists, cx: &mut Cx<'_>) -> Result<Hit, Stop> {
+/// 配列は、名前と参照の項目を [`FILTERS`] を超えるまでしか読まない。コメントの行ごとの `obj [` は、どれも `[` の後ろの
+/// 空白とコメントを飛ばした範囲の終わりの同じ位置に着き、同じ項目の並びを読むので、2 つ目からは読まない（[`Lists`]）
+fn targeted(
+    data: &[u8],
+    at: usize,
+    place: usize,
+    lists: &mut Lists,
+    seen: &mut Seen,
+    cx: &mut Cx<'_>,
+) -> Result<(), Stop> {
     if let Some((name, next)) = read_name(data, at) {
         cx.check(
             Kind::Work,
             lookup_work(data.get(at..next).unwrap_or_default()),
         )?;
-        return Ok(if coded(&name) { Hit::Coded } else { Hit::Name });
+        seen.hit(if coded(&name) { Hit::Coded } else { Hit::Name }, place);
+        return Ok(());
     }
     if data.get(at) != Some(&b'[') {
-        return Ok(Hit::Nothing);
+        return Ok(());
     }
     let mut item = lists.skip.over(data, at + 1, cx)?;
     if item == lists.skip.to && lists.opened.replace(item) == Some(item) {
-        return Ok(Hit::Nothing);
+        return Ok(());
     }
     let mut count = 0u64;
-    let mut referenced = false;
-    loop {
+    // 最初の参照の項目より前の名前の項目の数
+    let mut leading = None;
+    let hit = loop {
         let next = match read_name(data, item) {
             Some((name, next)) => {
                 cx.check(
@@ -1141,62 +1180,110 @@ fn targeted(data: &[u8], at: usize, lists: &mut Lists, cx: &mut Cx<'_>) -> Resul
                     lookup_work(data.get(item..next).unwrap_or_default()),
                 )?;
                 if coded(&name) {
-                    return Ok(Hit::Coded);
+                    break Hit::Coded;
                 }
                 next
             }
             // 参照の項目は、名前に解ければ当てて、後ろの項目も読む
             None => match reference(data, item, cx)? {
                 Some(end) => {
-                    referenced = true;
+                    leading.get_or_insert(count);
                     end
                 }
-                None => return Ok(Hit::Nothing),
+                None => break Hit::Nothing,
             },
         };
         count += 1;
         if count > FILTERS {
-            return Ok(if referenced { Hit::Crowded } else { Hit::Coded });
+            break if leading.is_some() {
+                Hit::Crowded
+            } else {
+                Hit::Coded
+            };
         }
         item = lists.skip.over(data, next, cx)?;
-    }
+    };
+    seen.leading = seen.leading.max(leading.unwrap_or(count));
+    seen.items = seen.items.max(count);
+    seen.hit(hit, place);
+    Ok(())
 }
 
-/// 位置の値が、上の段の参照の項目を 2 つ以上持つ配列か。hayro-syntax は、展開のパラメーター（`DecodeParms`・`DP`）の
-/// 配列の項目を、フィルターの数（[`FILTERS`] まで）だけ読み（`iter::<Object>`）、参照の項目は、解くたびに辞書を読み直して
-/// 表を作るので、同じ大きな辞書を指す参照を並べると、その表を項目の数だけ持つ。参照が 1 つなら、表も 1 つ。項目は
-/// [`FILTERS`] 個まで見て、読んだバイト列を `Work` に数える（辞書の中の参照は、項目の数だけの表を作らないので見ない）。
-/// [`targeted`] と同じく、`[` の後ろの範囲の終わりの同じ位置からは、1 度だけ読む（[`Lists`]）
-fn listed(data: &[u8], at: usize, lists: &mut Lists, cx: &mut Cx<'_>) -> Result<bool, Stop> {
+/// 位置の値が展開のパラメーター（`DecodeParms`・`DP`）の配列なら、hayro-syntax が同じ辞書の表を重ねて持ちうる、
+/// いちばん前の項目の番号を返す。hayro-syntax は、配列の項目を、フィルターの名前の数（[`Seen::reads`]）だけ読み
+/// （`iter::<Object>`）、参照の項目は、解くたびに辞書を読み直して表を作るので、同じ大きな辞書を指す参照を並べると、
+/// その表を項目の数だけ持つ。そこで、上の段の 2 つ目の参照の項目を返す（参照が 1 つなら、表も 1 つ。辞書の中の参照は、
+/// 項目の数だけの表を作らないので見ない）。
+///
+/// 項目は、hayro-syntax と同じく、参照（`ObjRef`）として読めなければ、飛ばし方（`Skippable`）で区切る。ただし、
+/// hayro-syntax は、辞書の後ろ（空白とコメントを飛ばして）に `stream` がある項目をストリームとして読み、中身を `Length`
+/// で飛ばすので、区切りが飛ばし方と変わる。そうした項目は、後ろの項目が分からないので、その番号を返す（ストリームは
+/// 間接オブジェクトに限るので、ふつうの文書にはない。7.3.8.1）。項目は [`FILTERS`] 個まで、バイト列は
+/// [`PARAMETER_BYTES`] まで見て、上限で切れた項目も、その番号を返す。読んだバイト列を `Work` に数える（飛ばせずに
+/// 位置が戻った項目は、見たバイト列の終わりまで）。[`targeted`] と同じく、`[` の後ろの範囲の終わりの同じ位置からは、
+/// 1 度だけ読む（[`Lists`]）
+fn listed(data: &[u8], at: usize, lists: &mut Lists, cx: &mut Cx<'_>) -> Result<Option<u64>, Stop> {
     if data.get(at) != Some(&b'[') {
-        return Ok(false);
+        return Ok(None);
     }
     let first = lists.skip.over(data, at + 1, cx)?;
     if first == lists.skip.to && lists.opened.replace(first) == Some(first) {
-        return Ok(false);
+        return Ok(None);
     }
-    let mut reader = Reader::new(data);
+    let end = first.saturating_add(PARAMETER_BYTES).min(data.len());
+    let cut = end < data.len();
+    let mut reader = Reader::new(data.get(..end).unwrap_or(data));
     reader.jump(first);
     let mut references = 0;
-    for _ in 0..FILTERS {
+    let mut reached = first;
+    let mut layered = None;
+    for index in 0..FILTERS {
         reader.skip_white_spaces_and_comments();
         if reader.peek_tag(b"]").is_some() {
+            break;
+        }
+        if reader.at_end() {
+            layered = cut.then_some(index);
             break;
         }
         if reader.read_without_context::<ObjRef>().is_some() {
             references += 1;
             if references >= 2 {
+                layered = Some(index);
                 break;
             }
-        } else if reader.skip::<Object<'_>>(false).is_none() {
+            continue;
+        }
+        let dict = reader.peek_tag(b"<<").is_some();
+        if reader.skip::<Object<'_>>(false).is_none() {
+            // 上限で切れたか、hayro-syntax も配列を読めない
+            reached = end;
+            layered = cut.then_some(index);
             break;
         }
+        if dict {
+            let mut after = reader.clone();
+            after.skip_white_spaces_and_comments();
+            reached = after.offset();
+            if after.peek_tag(b"stream").is_some() {
+                layered = Some(index);
+                break;
+            }
+        }
     }
+    let reached = reached.max(reader.offset());
     cx.check(
         Kind::Work,
-        lookup_work(data.get(first..reader.offset()).unwrap_or_default()),
+        lookup_work(data.get(first..reached).unwrap_or_default()),
     )?;
-    Ok(references >= 2)
+    Ok(layered)
+}
+
+/// 表を重ねて持ちうる項目（[`listed`]）の、いちばん前の番号と場所を覚える
+fn earliest(slot: &mut Option<(u64, usize)>, index: u64, place: usize) {
+    if slot.is_none_or(|(least, _)| index < least) {
+        *slot = Some((index, place));
+    }
 }
 
 /// 配列の項目を飛ばす覚えと、`[` の後ろの範囲の終わりとして読んだ位置（[`targeted`]・[`listed`]）

@@ -3927,28 +3927,72 @@ fn refuses_filter_arrays_longer_than_the_limit() {
 #[test]
 fn refuses_parameter_arrays_with_references() {
     // hayro-syntax は、展開のパラメーターの配列の参照の項目を、解くたびに辞書を読み直して表を作る。同じ大きな辞書を
-    // 指す参照を並べると、その表をフィルターの数だけ持つので、上の段の参照の項目が 2 つ以上ある配列は、読まない
-    let with = |parameters: &str| {
+    // 指す参照を並べると、その表をフィルターの数だけ持つので、フィルターの数より前に上の段の参照の項目が 2 つ以上ある
+    // 配列は、読まない
+    let with = |filters: usize, parameters: &str| {
         vec![
-            common::stream(&format!("/Filter [/RL /RL] {parameters}"), "x"),
+            common::stream(
+                &format!("/Filter [{}] {parameters}", "/RL ".repeat(filters)),
+                "x",
+            ),
             b"<< /K 1 >>".to_vec(),
         ]
     };
-    for parameters in [
-        "/DecodeParms [4 0 R 4 0 R]".to_string(),
-        "/DP [null 4 0 R %\n4 0 R]".to_string(),
-        format!("/DecodeParms [{}4 0 R 4 0 R]", "null ".repeat(62)),
+    for (filters, parameters) in [
+        (2, "/DecodeParms [4 0 R 4 0 R]".to_string()),
+        (3, "/DP [null 4 0 R %\n4 0 R]".to_string()),
+        (
+            64,
+            format!("/DecodeParms [{}4 0 R 4 0 R]", "null ".repeat(62)),
+        ),
+        // 辞書の後ろに `stream` がある項目は、hayro-syntax が中身を `Length` で飛ばすので、後ろの項目が分からない
+        (
+            64,
+            "/DP [<< /Length 1 >> stream\n%endstream 4 0 R 4 0 R\n]".to_string(),
+        ),
+        (
+            64,
+            "/DP [<< /Length 3 >> stream\n(()\nendstream 4 0 R 4 0 R ())]".to_string(),
+        ),
+        (2, "/DP [null << /Length 1 >> %\nstream\n%\n]".to_string()),
+        // 見るバイト数の上限で切れた項目も、後ろの項目が分からない
+        (2, format!("/DP [({}) 4 0 R]", "a".repeat(1_100))),
     ] {
-        assert!(unsupported(with(&parameters)), "{parameters}");
+        assert!(unsupported(with(filters, &parameters)), "{parameters}");
     }
-    // 参照が 1 つのものと、辞書の中の参照と、フィルターの数の上限より後ろの項目
-    for parameters in [
-        "/DecodeParms [4 0 R]".to_string(),
-        "/DecodeParms [null << /JBIG2Globals 4 0 R >> << /K 4 0 R >>]".to_string(),
-        format!("/DecodeParms [{}4 0 R 4 0 R]", "null ".repeat(63)),
+    // 参照が 1 つのものと、辞書の中の参照と、フィルターの数より後ろの項目（フィルターの数の上限より後ろも）
+    for (filters, parameters) in [
+        (64, "/DecodeParms [4 0 R]".to_string()),
+        (
+            64,
+            "/DecodeParms [null << /JBIG2Globals 4 0 R >> << /K 4 0 R >>]".to_string(),
+        ),
+        (
+            64,
+            format!("/DecodeParms [{}4 0 R 4 0 R]", "null ".repeat(63)),
+        ),
+        (1, "/DecodeParms [4 0 R 4 0 R]".to_string()),
+        (2, "/DP [null 4 0 R %\n4 0 R]".to_string()),
+        (1, "/DP [null << /Length 1 >> stream\n%\n]".to_string()),
+        (64, format!("/DP [({}) 4 0 R]", "a".repeat(900))),
     ] {
-        assert!(!unsupported(with(&parameters)), "{parameters}");
+        assert!(!unsupported(with(filters, &parameters)), "{parameters}");
     }
+    // 配列ごとの、いちばん前の項目で決める（前に見た配列の項目がフィルターの数より後ろでも）
+    assert!(unsupported(vec![
+        common::stream("/Filter [/RL /RL] /DP [null 4 0 R 4 0 R]", "x"),
+        common::stream("/DP [4 0 R 4 0 R]", "x"),
+    ]));
+    // フィルターの値が名前なら、hayro-syntax は配列の項目を読まない
+    assert!(!unsupported(vec![common::stream(
+        "/Filter /RL /DP [4 0 R 4 0 R]",
+        "x"
+    )]));
+    // フィルターの配列は、オブジェクトのストリームの中身にあっても数える
+    assert!(unsupported(vec![
+        common::stream("/DP [4 0 R 4 0 R]", "x"),
+        one_member("30 0 << /Filter [/RL /RL] >>"),
+    ]));
     // 値が参照なら、参照の先になりうる位置の配列を見る（参照がオブジェクトのストリームの中身にだけあっても）
     let indirect = |target: &[u8]| {
         vec![
@@ -3957,12 +4001,29 @@ fn refuses_parameter_arrays_with_references() {
         ]
     };
     assert!(unsupported(indirect(b"[5 0 R 5 0 R]")));
+    assert!(unsupported(indirect(
+        b"[<< /Length 1 >> stream\n%endstream 5 0 R 5 0 R\n]"
+    )));
     assert!(!unsupported(indirect(b"[5 0 R]")));
     assert!(!unsupported(indirect(b"<< /K 1 >>")));
     assert!(unsupported(vec![
         b"[5 0 R 5 0 R]".to_vec(),
-        container(1, 5, "32 0 << /DP 3 0 R >>"),
+        container(1, 5, "32 0 << /Filter [/RL /RL] /DP 3 0 R >>"),
     ]));
+    // 参照の先の配列は、フィルターの配列がなければ、展開のパラメーターの配列として読まれない（注釈への参照を並べた
+    // 配列など）。フィルターの値に参照があれば、参照の先の配列の名前の項目も、フィルターの数に入る
+    let annotations = |filter: &str| {
+        vec![
+            common::stream(&format!("/Filter {filter} /DecodeParms 6 0 R"), "x"),
+            b"[7 0 R 7 0 R]".to_vec(),
+        ]
+    };
+    assert!(!unsupported(annotations("/FlateDecode")));
+    assert!(!unsupported(annotations("[/FlateDecode]")));
+    assert!(unsupported(annotations("[/FlateDecode /FlateDecode]")));
+    let mut chained = annotations("9 0 R");
+    chained.push(b"[/RL /RL]".to_vec());
+    assert!(unsupported(chained));
 }
 
 #[test]
@@ -4203,6 +4264,11 @@ fn counts_reads_that_grow_faster_than_the_file() {
     let work = used(&document.bytes(), Kind::Work);
     let size = (count * line.len()) as u64;
     assert!(work >= size * count as u64 / 16, "{work}");
+    // 展開のパラメーターの配列の項目は、閉じない文字列で飛ばせずに位置が戻っても、見たバイト列（1 KiB まで）を数える
+    let mut document = Document::new(vec![Page::new("0 0 m 10 10 l S")]);
+    document.objects = vec![format!("null %{}", "/DP [(".repeat(count)).into_bytes()];
+    let work = used(&document.bytes(), Kind::Work);
+    assert!(work >= (count as u64 - 200) * 1024 / 4, "{work}");
 }
 
 #[test]
