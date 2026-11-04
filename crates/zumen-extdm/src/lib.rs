@@ -1,7 +1,7 @@
 //! 拡張 DM（台帳の `extdm_furoku7`。作業規程の準則の付録 7「公共測量標準図式」の数値地形図データファイル
 //! 仕様）を読み、地理の領域モデル（決定 0233）に移す。
 //!
-//! L1 は 84 バイトの固定長のレコード（第 96 条）の列で、行ごとに元のバイトの範囲を持つ。見出しのレコード
+//! L1 は 84 バイトの固定長のレコード（第 96 条）の列で、行ごとに元のバイトの範囲を持つ。ヘッダーのレコード
 //! （インデックス・図郭・グループヘッダー・要素・グリッドヘッダー・不整三角網ヘッダー）が持つ数から、後に続く実データの
 //! レコードを分ける（`docs/formats/extdm.md`）。
 
@@ -14,7 +14,7 @@ use zumen_base::{ByteRange, Kind};
 use zumen_geo::GeoModel;
 use zumen_sdk::{Codec, Cx, Error, FileModel, Lift, RecordInfo, Signature};
 
-/// 拡張 DM のコーデック。見分ける印がないので、判定の規則を持たない。`open` で形式を名指して読む
+/// 拡張 DM のコーデック。見分けるマーカーがないので、判定の規則を持たない。`open` で形式を名指して読む
 pub struct ExtDm;
 
 /// 読んだ拡張 DM。レコードの列を持つ
@@ -31,7 +31,7 @@ pub struct ExtDmFile {
 pub(crate) struct Line {
     /// 区切り（CR LF）を除いたバイトの範囲
     pub(crate) range: Range<usize>,
-    /// 見出しのレコードなら、レコードタイプ（`I`・`M`・`H`・`E1`〜`E8`・`G`・`T`）。実データのレコードは `None`
+    /// ヘッダーのレコードなら、レコードタイプ（`I`・`M`・`H`・`E1`〜`E8`・`G`・`T`）。実データのレコードは `None`
     pub(crate) kind: Option<&'static [u8]>,
 }
 

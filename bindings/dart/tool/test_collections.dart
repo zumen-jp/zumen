@@ -55,6 +55,6 @@ void main() {
 
   final bad = CloseRequest.fromJson({'inputs': ['a.dxf', 2], 'future': true});
   expect(bad.inputs == null, '形の違う要素を含む配列を読んでしまう');
-  expect(bad.toJson()['future'] == true, '知らない欄が失われた');
+  expect(bad.toJson()['future'] == true, '知らないフィールドが失われた');
   print('メッセージの配列・辞書を確認しました');
 }

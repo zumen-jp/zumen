@@ -1,4 +1,4 @@
-//! 試験の中で作った基盤地図情報の配布の書庫（ZIP）を読み、1 つの地理の領域モデルにまとめる（決定 0251、#493）。
+//! テストの中で作った基盤地図情報の配布のアーカイブ（ZIP）を読み、1 つの地理の領域モデルにまとめる（決定 0251、#493）。
 
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, codes};
 use zumen_crs::{Crs, VerticalCrs};
@@ -45,7 +45,7 @@ fn detects_archives_by_the_names_of_their_entries() {
     let road = gml("RdEdg", "K1_1", "fguuid:jgd2024.bl");
     let archive = zip(&[(ROAD, road.as_bytes())]);
     assert!(zumen_fgd::ARCHIVE.iter().any(|rule| rule.matches(&archive)));
-    // ほかの ZIP（SFZ や、名前の違う XML）は基盤地図情報の書庫としない
+    // ほかの ZIP（SFZ や、名前の違う XML）は基盤地図情報のアーカイブとしない
     let other = zip(&[("D0PL001Z.SFC", b"x"), ("data.xml", b"<a/>")]);
     assert!(!zumen_fgd::ARCHIVE.iter().any(|rule| rule.matches(&other)));
 }
@@ -54,7 +54,7 @@ fn detects_archives_by_the_names_of_their_entries() {
 fn merges_the_gml_entries_into_one_model() {
     let road = gml("RdEdg", "K1_1", "fguuid:jgd2024.bl");
     let rail = gml("RailCL", "K1_1", "fguuid:jgd2024.bl");
-    // 全項目の書庫は、提供クラスごとの書庫を入れることがある
+    // 全項目のアーカイブは、提供クラスごとのアーカイブを入れることがある
     let inner = zip(&[(RAIL, rail.as_bytes())]);
     let archive = zip(&[
         (ROAD, road.as_bytes()),

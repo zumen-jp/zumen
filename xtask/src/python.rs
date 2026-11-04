@@ -1,7 +1,7 @@
-//! Python の包み（`bindings/python`）の型と定数を作る（決定 0011・0195）。
+//! Python のラッパー（`bindings/python`）の型と定数を作る（決定 0011・0195）。
 //!
 //! - `messages.py`: メッセージのスキーマ（`schema/messages.json`）の型
-//! - `constants.py`: 境界の版・状態コード・関数の形（`schema/boundary.toml`）と、シーンの配置
+//! - `constants.py`: API のバージョン・状態コード・関数の形（`schema/boundary.toml`）と、シーンの配置
 //!   （`schema/scene.toml`）
 //!
 //! Python 3.9（docs/support.md の下限）で読めるように、標準の `typing` の `TypedDict`・`Literal`・`Union` だけを使う。
@@ -21,7 +21,7 @@ const RESPONSE: &str = "response";
 /// `messages.py` が `typing` から読み込む名前。定義の名前と重ならないようにする
 const TYPING: &[&str] = &["Any", "Dict", "List", "Literal", "TypedDict", "Union"];
 
-/// 境界の引数と戻り値の型と、ctypes の型
+/// API の引数と戻り値の型と、ctypes の型
 const CTYPES: &[(&str, &str)] = &[
     ("void", "None"),
     ("u32", "ctypes.c_uint32"),
@@ -35,7 +35,7 @@ const CTYPES: &[(&str, &str)] = &[
     ("arrow_stream", "ctypes.c_void_p"),
 ];
 
-/// 区画の値の型と、memoryview・array の形式の文字
+/// セクションの値の型と、memoryview・array の形式の文字
 const COLUMNS: &[(&str, &str)] = &[("u8", "B"), ("u32", "I"), ("f32", "f"), ("f64", "d")];
 
 /// 説明を `#` のコメントにする
@@ -50,7 +50,7 @@ fn quote(text: &str) -> String {
     format!("\"{}\"", text.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
-/// 欄の型の式。定義の名前は、定義の順によらずに引けるように文字列で書く
+/// フィールドの型の式。定義の名前は、定義の順によらずに引けるように文字列で書く
 fn py_type(ty: &Ty) -> String {
     match ty {
         Ty::String => "str".to_string(),
@@ -64,7 +64,7 @@ fn py_type(ty: &Ty) -> String {
     }
 }
 
-/// 取り込む定義（`allOf`）の欄を先に、自分の欄を後に並べる
+/// 取り込む定義（`allOf`）のフィールドを先に、自分のフィールドを後に並べる
 fn collect_fields<'a>(schema: &'a Schema, def: &'a Def, out: &mut Vec<&'a Field>, depth: usize) {
     let Shape::Object {
         fields, compose, ..
@@ -86,7 +86,7 @@ fn collect_fields<'a>(schema: &'a Schema, def: &'a Def, out: &mut Vec<&'a Field>
     }
 }
 
-/// `TypedDict` を関数の形で書く。欄の名前に `from` などの予約語があるので、クラスの形は使わない
+/// `TypedDict` を関数の形で書く。フィールドの名前に `from` などの予約語があるので、クラスの形は使わない
 fn typed_dict(out: &mut String, name: &str, fields: &[(&str, &str, String)], total: bool) {
     if fields.is_empty() {
         let _ = writeln!(out, "{name} = TypedDict({}, {{}})", quote(name));
@@ -106,7 +106,7 @@ fn typed_dict(out: &mut String, name: &str, fields: &[(&str, &str, String)], tot
     out.push_str(")\n");
 }
 
-/// 欠かせない欄と、なくてよい欄を分けて書く。両方あれば、2 つを継いだクラスにする
+/// 欠かせないフィールドと、なくてよいフィールドを分けて書く。両方あれば、2 つを継いだクラスにする
 fn render_object(
     out: &mut String,
     name: &str,
@@ -163,7 +163,7 @@ pub fn render_types(schema: &Schema) -> Result<String, String> {
     out.push_str("# 生成したファイル。手で直さない。\n");
     out.push_str("# 元は schema/messages.json で、`cargo xtask codegen` で作り直す。\n");
     out.push_str(
-        "#\n# 境界のメッセージの型（決定 0012・0195）。スキーマの定義ごとに 1 つの型がある。\n",
+        "#\n# API のメッセージの型（決定 0012・0195）。スキーマの定義ごとに 1 つの型がある。\n",
     );
     out.push_str("# 列挙は、知らない値も受け取れるように、ほかの文字列も許す（決定 0015）。\n");
     out.push_str(
@@ -228,7 +228,12 @@ pub fn render_types(schema: &Schema) -> Result<String, String> {
             Shape::Handwritten if def.name == RESPONSE => {
                 out.push_str("\n\n");
                 let fields = [
-                    ("v", "メッセージのスキーマの大版", "int".to_string(), true),
+                    (
+                        "v",
+                        "メッセージのスキーマのメジャーバージョン",
+                        "int".to_string(),
+                        true,
+                    ),
                     (
                         "diagnostics",
                         "診断。入力の順",
@@ -306,18 +311,22 @@ pub fn render_constants(
     let versions = &boundary.versions;
     let _ = writeln!(
         out,
-        "\n# パッケージの版（決定 0015）\nVERSION = {}",
+        "\n# パッケージのバージョン（決定 0015）\nVERSION = {}",
         quote(version)
     );
-    let _ = writeln!(out, "# ABI の大版\nABI_VERSION = {}", versions.abi);
     let _ = writeln!(
         out,
-        "# メッセージのスキーマの大版（要求と応答の v）\nSCHEMA_MAJOR = {}",
+        "# ABI のメジャーバージョン\nABI_VERSION = {}",
+        versions.abi
+    );
+    let _ = writeln!(
+        out,
+        "# メッセージのスキーマのメジャーバージョン（要求と応答の v）\nSCHEMA_MAJOR = {}",
         versions.schema_major
     );
     let _ = writeln!(
         out,
-        "# メッセージのスキーマの小版\nSCHEMA_MINOR = {}",
+        "# メッセージのスキーマのマイナーバージョン\nSCHEMA_MINOR = {}",
         versions.schema_minor
     );
 
@@ -364,34 +373,34 @@ pub fn render_constants(
     }
     out.push_str("    }\n)\n");
 
-    out.push_str("\n# シーンの見出しの始まりの 4 バイト\nSCENE_MAGIC = b\"ZMSC\"\n");
+    out.push_str("\n# シーンのヘッダーの始まりの 4 バイト\nSCENE_MAGIC = b\"ZMSC\"\n");
     let _ = writeln!(
         out,
-        "# シーンの大版。区画の意味を変えるときに上げる\nSCENE_MAJOR = {}",
+        "# シーンのメジャーバージョン。セクションの意味を変えるときに上げる\nSCENE_MAJOR = {}",
         scene.versions.major
     );
     let _ = writeln!(
         out,
-        "# シーンの小版。区画か値を足すたびに上げる\nSCENE_MINOR = {}",
+        "# シーンのマイナーバージョン。セクションか値を足すたびに上げる\nSCENE_MINOR = {}",
         scene.versions.minor
     );
     out.push_str("# 番号の「なし」\nSCENE_NONE = 4294967295\n");
 
-    out.push_str("\n# シーンの区画の名前\nSceneSectionName = Literal[\n");
+    out.push_str("\n# シーンのセクションの名前\nSceneSectionName = Literal[\n");
     for section in &scene.sections {
         let _ = writeln!(out, "    {},", quote(&section.name));
     }
     out.push_str("]\n");
-    out.push_str("\n\nclass SceneSection(NamedTuple):\n    \"\"\"シーンの区画の定義\"\"\"\n\n    # 名前\n    name: str\n    # 値の型（u8・u32・f32・f64）\n    type: str\n    # memoryview と array の形式の文字\n    format: str\n    # 行ごとの値の数\n    width: int\n");
+    out.push_str("\n\nclass SceneSection(NamedTuple):\n    \"\"\"シーンのセクションの定義\"\"\"\n\n    # 名前\n    name: str\n    # 値の型（u8・u32・f32・f64）\n    type: str\n    # memoryview と array の形式の文字\n    format: str\n    # 行ごとの値の数\n    width: int\n");
     out.push_str(
-        "\n\n# シーンの区画の定義。番号の順\nSCENE_SECTIONS: Tuple[SceneSection, ...] = (\n",
+        "\n\n# シーンのセクションの定義。番号の順\nSCENE_SECTIONS: Tuple[SceneSection, ...] = (\n",
     );
     for section in &scene.sections {
         let format = COLUMNS
             .iter()
             .find(|(ty, _)| *ty == section.ty)
             .map(|(_, format)| *format)
-            .ok_or_else(|| format!("区画 {} の型 {} を読めない", section.name, section.ty))?;
+            .ok_or_else(|| format!("セクション {} の型 {} を読めない", section.name, section.ty))?;
         comment(
             &mut out,
             "    ",
@@ -448,7 +457,7 @@ mod tests {
                 "request_common": {
                   "description": "共通",
                   "type": "object",
-                  "properties": { "v": { "description": "版", "type": "integer", "minimum": 1 } },
+                  "properties": { "v": { "description": "バージョン", "type": "integer", "minimum": 1 } },
                   "required": ["v"]
                 },
                 "open_request": {
@@ -478,7 +487,7 @@ mod tests {
         )
         .unwrap();
         let types = render_types(&schema).unwrap();
-        assert!(types.contains("_OpenRequestRequired = TypedDict(\n    \"_OpenRequestRequired\",\n    {\n        # 版\n        \"v\": int,\n        # op\n        \"op\": Literal[\"open\"],\n    },\n)"));
+        assert!(types.contains("_OpenRequestRequired = TypedDict(\n    \"_OpenRequestRequired\",\n    {\n        # バージョン\n        \"v\": int,\n        # op\n        \"op\": Literal[\"open\"],\n    },\n)"));
         assert!(types.contains("        \"from\": \"Unit\",\n        # 名前\n        \"names\": List[str],\n    },\n    total=False,\n)"));
         assert!(types.contains("class OpenRequest(_OpenRequestRequired, _OpenRequestOptional):"));
         assert!(types.contains("Unit = Union[\n    Literal[\n        \"meter\",\n        \"millimeter\",\n    ],\n    str,\n]"));

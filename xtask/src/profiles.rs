@@ -9,7 +9,7 @@ use std::path::Path;
 
 use serde::Deserialize;
 
-// 読める書式の大版と、照合の種類と欄の一覧は、照合の crate から引く（決定 0173）
+// 読める書式のメジャーバージョンと、照合の種類とフィールドの一覧は、照合の crate から引く（決定 0173）
 use zumen_profile::{CHECKS, FORMAT_MAJOR, WITHOUT_VOCABULARY};
 
 #[derive(Debug, Deserialize)]
@@ -163,7 +163,7 @@ pub fn check(profile: &Profile, specs: &BTreeSet<String>) -> Vec<String> {
     let mut errors = Vec::new();
     if profile.format.split('.').next() != Some(FORMAT_MAJOR) {
         errors.push(format!(
-            "format の大版は {FORMAT_MAJOR} にする（{}）",
+            "format のメジャーバージョンは {FORMAT_MAJOR} にする（{}）",
             profile.format
         ));
     }
@@ -275,7 +275,10 @@ pub fn check(profile: &Profile, specs: &BTreeSet<String>) -> Vec<String> {
         };
         for key in rule.params.keys() {
             if !params.contains(&key.as_str()) {
-                errors.push(format!("{place}: {} に書けない欄 {key}", rule.check));
+                errors.push(format!(
+                    "{place}: {} に書けないフィールド {key}",
+                    rule.check
+                ));
             }
         }
         match &rule.vocabulary {
@@ -461,7 +464,7 @@ mod tests {
             errors(&source),
             [
                 "vocabularies.color: sources にない文書 spec",
-                "rules.color: color に書けない欄 tolerance",
+                "rules.color: color に書けないフィールド tolerance",
                 "rules.color: vocabularies にない語彙 pen",
             ]
         );

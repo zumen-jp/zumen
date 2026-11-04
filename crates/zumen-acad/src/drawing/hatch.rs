@@ -20,7 +20,7 @@ impl Lifter<'_> {
         point: &impl Fn(f64, f64) -> P,
         length: &impl Fn(f64) -> Length,
     ) -> Lifted<Hatch<P>> {
-        // DWG の読み手は、SPLINE の辺の当てはめる点を置かない
+        // DWG のリーダーは、SPLINE の辺のフィット点を置かない
         let fit_data = self.fit_data && !matches!(object.origin, Origin::Dwg { .. });
         let kind = object.kind.as_slice();
         if self.real(object, 30, Some(0.0))? != 0.0 {
@@ -98,7 +98,7 @@ impl Lifter<'_> {
             2 => PatternOrigin::Custom,
             _ => return Err(invalid(kind, 76)),
         };
-        // 塗りでも、パターンの欄を書く形式がある。塗りなら読むだけにする
+        // 塗りでも、パターンのフィールドを書く形式がある。塗りなら読むだけにする
         let pattern = if values.next() == Some(52) {
             let angle = values.real(52)?;
             let scale = values.real(41)?;
@@ -200,8 +200,8 @@ impl Lifter<'_> {
                     counterclockwise: values.int(73)? != 0,
                 }
             }
-            // 次数（94）・有理（73）・周期的（74）・節点（95・40）・制御点（96・10・20）と、有理なら重み（42）。
-            // 2010 以降の DXF は、当てはめる点（97・11・21）と、あれば接線（12・22・13・23）が続く
+            // 次数（94）・有理（73）・周期的（74）・ノット（95・40）・制御点（96・10・20）と、有理なら重み（42）。
+            // 2010 以降の DXF は、フィット点（97・11・21）と、あれば接線（12・22・13・23）が続く
             4 => {
                 let degree = u32::try_from(values.int(94)?).map_err(|_| invalid(kind, 94))?;
                 let rational = values.int(73)? != 0;

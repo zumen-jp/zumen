@@ -1,7 +1,7 @@
 //! JWW（Jw_cad の図面）のファイルモデル（L1）と、そのコーデック（決定 0008・0133）。
 //!
-//! JWW は、見出しの欄と、MFC の CArchive で書いた図形の一覧・ブロックの定義の一覧と、版 700 からは画像の一覧を持つ。
-//! 見出し・図形・ブロックの定義・画像を、レコードとして元のバイト範囲のまま読む。値は戻さず、戻すのは図面モデルへの変換で行う。
+//! JWW は、ヘッダーのフィールドと、MFC の CArchive で書いた図形の一覧・ブロックの定義の一覧と、バージョン 700 からは画像の一覧を持つ。
+//! ヘッダー・図形・ブロックの定義・画像を、レコードとして元のバイト範囲のまま読む。値は戻さず、戻すのは図面モデルへの変換で行う。
 
 #[cfg(feature = "drawing")]
 mod drawing;
@@ -30,7 +30,7 @@ pub enum RecordKind {
     Block,
     /// 空のオブジェクト
     Null,
-    /// 画像の件数（版 700 から）
+    /// 画像の件数（バージョン 700 から）
     ImageCount,
     /// 埋め込んだ画像。名前・大きさ・中身
     Image,
@@ -38,7 +38,7 @@ pub enum RecordKind {
     Trailer,
 }
 
-/// オブジェクトの前の印の形。書くときに同じ形を使う
+/// オブジェクトの前のタグの形。書くときに同じ形を使う
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tag {
     /// 新しいクラス（`FF FF`・スキーマ・名前）
@@ -89,12 +89,12 @@ impl Record {
         self.kind
     }
 
-    /// オブジェクトの印の形と、クラスの位置（[`JwwFile::classes`] の中）。図形とブロックの定義にある
+    /// オブジェクトのタグの形と、クラスの位置（[`JwwFile::classes`] の中）。図形とブロックの定義にある
     pub fn tag(&self) -> Option<(Tag, usize)> {
         self.tag
     }
 
-    /// 中身の範囲。図形とブロックの定義は印の後ろ、画像は中身のバイト列
+    /// 中身の範囲。図形とブロックの定義はタグの後ろ、画像は中身のバイト列
     pub fn body(&self) -> Range<usize> {
         self.body.clone()
     }
@@ -115,7 +115,7 @@ pub struct JwwFile {
 }
 
 impl JwwFile {
-    /// 版（`JwwData.` の後ろの 4 バイト）
+    /// バージョン（`JwwData.` の後ろの 4 バイト）
     pub fn version(&self) -> u32 {
         self.version
     }

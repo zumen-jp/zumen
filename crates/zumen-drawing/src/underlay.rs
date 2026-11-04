@@ -1,10 +1,10 @@
-//! 下敷きと、その資源・置き方・切り抜き。
+//! アンダーレイと、その資源・置き方・切り抜き。
 
 use zumen_base::Ref;
 
 use crate::Length;
 
-/// 下敷き（決定 0114）。資源を参照名で指し、コアは開かない。描く順は、ほかの要素と同じく空間と用紙の一覧に従う
+/// アンダーレイ（決定 0114）。資源を参照名で指し、コアは開かない。描く順は、ほかの要素と同じく空間と用紙の一覧に従う
 #[derive(Clone, Debug, PartialEq)]
 pub struct Underlay<P> {
     /// 資源の種類
@@ -21,7 +21,7 @@ pub struct Underlay<P> {
     pub visible: bool,
 }
 
-/// 下敷きの資源の種類
+/// アンダーレイの資源の種類
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum UnderlayKind {
     /// 画素の画像
@@ -43,7 +43,7 @@ pub struct Resource {
     pub definition: Ref,
 }
 
-/// 下敷きの置き方
+/// アンダーレイの置き方
 #[derive(Clone, Debug, PartialEq)]
 pub enum UnderlayFrame<P> {
     /// 画素の格子。元の形式が持つ画素の数と、左下・右下・左上の角
@@ -77,7 +77,7 @@ pub enum UnderlayFrame<P> {
     },
 }
 
-/// 下敷きと記号の切り抜き。頂点の座標は、使う側（下敷きは元の形式の下敷きの座標、記号は定義の空間の座標）が決める
+/// アンダーレイと記号の切り抜き。頂点の座標は、使う側（アンダーレイは元の形式のアンダーレイの座標、記号は定義の空間の座標）が決める
 #[derive(Clone, Debug, PartialEq)]
 pub struct Clip {
     /// 境界の頂点。2 つなら、向かい合う角の長方形

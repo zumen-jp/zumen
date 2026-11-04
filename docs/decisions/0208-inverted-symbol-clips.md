@@ -1,4 +1,4 @@
-# 0208: 記号の反転した切り抜きは、SPATIAL_FILTER の拡張辞書の XRECORD にある元の境界から読む
+# 0208: 記号の反転した切り抜きは、SPATIAL_FILTER の拡張辞書の XRECORD にある元の API から読む
 
 | 項目 | 内容 |
 | --- | --- |
@@ -7,11 +7,11 @@
 
 ## 背景
 
-[決定 0149](0149-drawing-symbol-clips.md) では、INSERT の切り抜き（XCLIP）を SPATIAL_FILTER の境界から作る。境界の内側を隠す切り抜き（AutoCAD 2015 からの反転）は、試料の図面になく、どこに持つかも確かめていなかった。そのため、内側を隠さないものとしていた。
+[決定 0149](0149-drawing-symbol-clips.md) では、INSERT の切り抜き（XCLIP）を SPATIAL_FILTER の境界から作る。境界の内側を隠す切り抜き（AutoCAD 2015 からの反転）は、サンプルの図面になく、どこに持つかも確かめていなかった。そのため、内側を隠さないものとしていた。
 
-AutoCAD 2027 で作った試料の図面（`samples/dwg/zumen-xclip-*`、#316）では、AutoCAD は反転した切り抜きを次のように書いた。R2013 と R2018 の DWG・DXF で同じだった。
+AutoCAD 2027 で作ったサンプルの図面（`samples/dwg/zumen-xclip-*`、#316）では、AutoCAD は反転した切り抜きを次のように書いた。R2013 と R2018 の DWG・DXF で同じだった。
 
-- SPATIAL_FILTER の境界には、記号の外枠から元の境界を切り欠いた 11 点の多角形を書く。反転を知らない版でも、ほぼ同じ見た目になる。
+- SPATIAL_FILTER の境界には、記号の外枠から元の境界を切り欠いた 11 点の多角形を書く。反転を知らないバージョンでも、ほぼ同じ見た目になる。
 - SPATIAL_FILTER の拡張辞書に `ACAD_XREC_ROUNDTRIP` の XRECORD を置く。102 の `ACAD_INVERTEDCLIP_ROUNDTRIP` の後に元の境界の点（10・20・30）を、`ACAD_INVERTEDCLIP_ROUNDTRIP_COMPARE` の後に、そのときの 11 点の多角形の写しを置く。
 
 ## 選択肢

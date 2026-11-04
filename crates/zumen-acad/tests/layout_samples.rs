@@ -1,5 +1,5 @@
-//! 試料の DXF・DWG で、レイアウトごとの用紙を確かめる（決定 0145）。
-//! 試料は公開サンプルの `samples/` と、受け取った図面を置く `ZUMEN_SAMPLES` のフォルダーから集める。
+//! サンプルの DXF・DWG で、レイアウトごとの用紙を確かめる（決定 0145）。
+//! サンプルは公開サンプルの `samples/` と、受け取った図面を置く `ZUMEN_SAMPLES` のフォルダーから集める。
 #![cfg(feature = "drawing")]
 
 mod support;
@@ -36,8 +36,8 @@ fn lift(path: &Path) -> Option<Drawing2D> {
     }
 }
 
-/// 試料の `sample_AC10*` の図面（レイアウトを持たない R12 の AC1009 を除く）は、今のレイアウト MyLayout と、
-/// ほかのレイアウト Layout1・Layout2 を持つ。どの版の DWG・DXF でも、今のレイアウトを先に、ほかをタブの順に
+/// サンプルの `sample_AC10*` の図面（レイアウトを持たない R12 の AC1009 を除く）は、今のレイアウト MyLayout と、
+/// ほかのレイアウト Layout1・Layout2 を持つ。どのバージョンの DWG・DXF でも、今のレイアウトを先に、ほかをタブの順に
 /// 並べた 3 枚の用紙になる。ほかのレイアウトは、用紙そのもののビューポートを除く 1 つのビューを持つ
 #[test]
 fn each_layout_of_the_samples_becomes_a_sheet() {
@@ -75,7 +75,7 @@ fn each_layout_of_the_samples_becomes_a_sheet() {
 }
 
 /// 図形のないレイアウトも、名前と大きさだけの用紙になる（決定 0153）。`arc_2000.dwg` などの AutoCAD の
-/// 試料は、モデルのタブを今のレイアウトとし、図形のない Layout1・Layout2 を持つ。今のレイアウトの用紙は
+/// サンプルは、モデルのタブを今のレイアウトとし、図形のない Layout1・Layout2 を持つ。今のレイアウトの用紙は
 /// 作らず、ほかの 2 つのレイアウトが、中身のない用紙になる
 #[test]
 fn empty_layouts_become_empty_sheets() {
@@ -134,8 +134,8 @@ fn empty_sheets_take_ids_after_the_filled_ones() {
     }
 }
 
-/// AutoCAD で作った試料（#316）の用紙の大きさは、LAYOUT の範囲を、印刷の尺度と単位で mm にした値になる
-/// （決定 0229）。見出しの `$INSUNITS` はどれも mm だが、A3-1to2 の範囲は 840 × 594、Letter-inch の範囲は
+/// AutoCAD で作ったサンプル（#316）の用紙の大きさは、LAYOUT の範囲を、印刷の尺度と単位で mm にした値になる
+/// （決定 0229）。ヘッダーの `$INSUNITS` はどれも mm だが、A3-1to2 の範囲は 840 × 594、Letter-inch の範囲は
 /// 11 × 8.5 だった
 #[test]
 fn autocad_layout_sheets_take_millimeters_from_plot_settings() {
@@ -158,7 +158,7 @@ fn autocad_layout_sheets_take_millimeters_from_plot_settings() {
                     .find(|sheet| sheet.name.as_deref() == Some(name))
                     .unwrap_or_else(|| panic!("{at}: {name}"));
                 let [w, h] = sheet.size.unwrap_or_else(|| panic!("{at}: {name}"));
-                // 試料の Letter-inch の範囲は、11 × 8.5 よりわずかに小さい値で保存されている
+                // サンプルの Letter-inch の範囲は、11 × 8.5 よりわずかに小さい値で保存されている
                 assert!(
                     (w.0 - width).abs() < 1e-3 && (h.0 - height).abs() < 1e-3,
                     "{at}: {name} {w:?} {h:?}"

@@ -1,5 +1,5 @@
-//! 試料の DXF・DWG で、拡張辞書の XRECORD を、決定 0157 の振り分けで形式固有の情報に移す（決定 0148・0152）。
-//! 試料は公開サンプルの `samples/` と、受け取った図面を置く `ZUMEN_SAMPLES` のフォルダーから集める。
+//! サンプルの DXF・DWG で、拡張辞書の XRECORD を、決定 0157 の振り分けで形式固有の情報に移す（決定 0148・0152）。
+//! サンプルは公開サンプルの `samples/` と、受け取った図面を置く `ZUMEN_SAMPLES` のフォルダーから集める。
 #![cfg(feature = "drawing")]
 
 mod support;
@@ -56,11 +56,11 @@ fn unsupported(diag: &Diagnostics) -> BTreeSet<String> {
         .collect()
 }
 
-/// 試料の `sample_AC10*` の図面（R12 の AC1009 を除く）は、版の往復のための XRECORD（`ACAD_XREC_ROUNDTRIP`。
+/// サンプルの `sample_AC10*` の図面（R12 の AC1009 を除く）は、バージョンの往復のための XRECORD（`ACAD_XREC_ROUNDTRIP`。
 /// R2000 と R2004 の文字は `ACAD_MTEXT_RT`・`ACAD_MTEXT_2008_RT` も）と、注釈の尺度
 /// （`AcDbContextDataManager`）・寸法の関連づけ（`ACAD_DIMASSOC`）・動的ブロックの表し方
 /// （`AcDbBlockRepresentation`）を拡張辞書に持つ。どれも図面モデルに移さず、診断する（決定 0157）。
-/// 同じ版の DWG と DXF で、移さなかった項目の名前が同じになる
+/// 同じバージョンの DWG と DXF で、移さなかった項目の名前が同じになる
 #[test]
 fn xrecords_without_model_fields_stay_in_the_file() {
     let mut by_version: BTreeMap<String, Vec<BTreeSet<String>>> = BTreeMap::new();
@@ -100,7 +100,7 @@ fn xrecords_without_model_fields_stay_in_the_file() {
 
 /// 画層の拡張辞書のアプリケーションの XRECORD は、画層に付く形式固有の情報になる（決定 0152）。
 /// `farmhouse.dwg` の画層は、画層の通知の控え（`ADSK_XREC_LAYER_RECONCILED`）を形式固有の情報にし、
-/// ビューごとの色の上書き（`ADSK_XREC_LAYER_COLOR_OVR`）は図面モデルの欄にする値なので移さずに診断する
+/// ビューごとの色の上書き（`ADSK_XREC_LAYER_COLOR_OVR`）は図面モデルのフィールドにする値なので移さずに診断する
 /// （決定 0157）。値はグループ・コードを付けて並べる
 #[test]
 fn xrecords_of_layers_become_extensions() {

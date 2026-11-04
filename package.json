@@ -1,7 +1,7 @@
 {
   "name": "zumen-workspace",
   "private": true,
-  "description": "文書の表記の検査に使う道具（決定 0021）",
+  "description": "文書の表記の検査に使うツール（決定 0021）",
   "license": "MIT OR Apache-2.0",
   "engines": {
     "node": ">=22"

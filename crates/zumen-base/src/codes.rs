@@ -5,7 +5,7 @@
 
 use crate::code::{Code, Fidelity, Param, ParamType, Severity};
 
-/// 元の bcfzip と違う版では書き戻さない。版の間で、写さない要素の形が違うため（#454）。original は元の版、version は書く版
+/// 元の bcfzip と違うバージョンでは書き戻さない。バージョンの間で、写さない要素の形が違うため（#454）。original は元のバージョン、version は書くバージョン
 ///
 /// `bcf.conversion.unsupported`（0.2.0 から）
 pub const BCF_CONVERSION_UNSUPPORTED: Code = Code::new(
@@ -33,7 +33,7 @@ pub const BCF_ELEMENT_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
-/// bcfzip の中の項目が、その版の BCF の形に合わない。name は項目の名前、near は合わなかった要素か属性
+/// bcfzip の中の項目が、そのバージョンの BCF の形に合わない。name は項目の名前、near は合わなかった要素か属性
 ///
 /// `bcf.file.invalid`（0.2.0 から）
 pub const BCF_FILE_INVALID: Code = Code::new(
@@ -118,7 +118,7 @@ pub const BCF_VALUE_MISSING: Code = Code::new(
     &["field"],
 );
 
-/// 読まない BCF の版。読むのは 2.1 と 3.0（決定 0214・0220）
+/// 読まない BCF のバージョン。読むのは 2.1 と 3.0（決定 0214・0220）
 ///
 /// `bcf.version.unsupported`（0.2.0 から）
 pub const BCF_VERSION_UNSUPPORTED: Code = Code::new(
@@ -366,7 +366,7 @@ pub const CALL_DOCUMENT_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
-/// 要求に、必要な欄がない
+/// 要求に、必要なフィールドがない
 ///
 /// `call.field.missing`（0.0.0 から）
 pub const CALL_FIELD_MISSING: Code = Code::new(
@@ -377,7 +377,7 @@ pub const CALL_FIELD_MISSING: Code = Code::new(
     &[],
 );
 
-/// 要求に、このコアが知らない欄か、この形（wasm など）では使えない欄がある
+/// 要求に、このコアが知らないフィールドか、この形態（wasm など）では使えないフィールドがある
 ///
 /// `call.field.unsupported`（0.0.0 から）
 pub const CALL_FIELD_UNSUPPORTED: Code = Code::new(
@@ -432,7 +432,7 @@ pub const CALL_OP_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
-/// 実行の形が process のとき、子プロセスの CLI が落ちたか、答えが読めなかった。子プロセスは捨てたので、セッションを作り直す（決定 0013・0200）
+/// 実行の形態が process のとき、子プロセスの CLI が落ちたか、答えが読めなかった。子プロセスは捨てたので、セッションを作り直す（決定 0013・0200）
 ///
 /// `call.process.caught`（0.0.0 から）
 pub const CALL_PROCESS_CAUGHT: Code =
@@ -455,7 +455,7 @@ pub const CALL_VALUE_INVALID: Code = Code::new(
     &[],
 );
 
-/// 要求の版 v を、このコアが扱えない
+/// 要求のバージョン v を、このコアが扱えない
 ///
 /// `call.version.unsupported`（0.0.0 から）
 pub const CALL_VERSION_UNSUPPORTED: Code = Code::new(
@@ -477,7 +477,7 @@ pub const CATALOG_FILE_INVALID: Code = Code::new(
     &[],
 );
 
-/// 2007 より前の版の DXF・DWG に書き戻す文字か名前に、見出しのコード・ページで表せない文字がある。符号化して戻すと別の文字になるもの（ANSI_932 の ¥・‾・− など）も含む（決定 0192）
+/// 2007 より前のバージョンの DXF・DWG に書き戻す文字か名前に、ヘッダーのコード・ページで表せない文字がある。符号化して戻すと別の文字になるもの（ANSI_932 の ¥・‾・− など）も含む（決定 0192）
 ///
 /// `change.character.unsupported`（0.0.0 から）
 pub const CHANGE_CHARACTER_UNSUPPORTED: Code = Code::new(
@@ -494,7 +494,7 @@ pub const CHANGE_CHARACTER_UNSUPPORTED: Code = Code::new(
 pub const CHANGE_DOCUMENT_STALE: Code =
     Code::new("change.document.stale", Severity::Error, None, &[], &[]);
 
-/// この種類の変更を、この種類の要素について、元の形式のレコードに書き戻せない。扱う種類と欄は docs/formats/dxf.md に書く
+/// この種類の変更を、この種類の要素について、元の形式のレコードに書き戻せない。扱う種類とフィールドは docs/formats/dxf.md に書く
 ///
 /// `change.edit.unsupported`（0.0.0 から）
 pub const CHANGE_EDIT_UNSUPPORTED: Code = Code::new(
@@ -685,7 +685,7 @@ pub const CIVIL_SEGMENT_START_INVALID: Code = Code::new(
     &[],
 );
 
-/// 線形の区間の値が使えない（長さが正でない、半径が 0 か有限でないなど）。index は区間の番号、field は欄の名前
+/// 線形の区間の値が使えない（長さが正でない、半径が 0 か有限でないなど）。index は区間の番号、field はフィールドの名前
 ///
 /// `civil.segment.invalid`（0.2.0 から）
 pub const CIVIL_SEGMENT_INVALID: Code = Code::new(
@@ -958,7 +958,7 @@ pub const DEVIATION_CRS_MIXED: Code = Code::new(
     &[],
 );
 
-/// 図面モデルのバイナリの、後の小版で足した欄を読み飛ばした
+/// 図面モデルのバイナリの、後のマイナーバージョンで足したフィールドを読み飛ばした
 ///
 /// `drawing.binary-field.dropped`（0.2.0 から）
 pub const DRAWING_BINARY_FIELD_DROPPED: Code = Code::new(
@@ -972,7 +972,7 @@ pub const DRAWING_BINARY_FIELD_DROPPED: Code = Code::new(
     &["type"],
 );
 
-/// 図面モデルのバイナリの、後の小版で足した区画を読み飛ばした
+/// 図面モデルのバイナリの、後のマイナーバージョンで足したセクションを読み飛ばした
 ///
 /// `drawing.binary-section.dropped`（0.2.0 から）
 pub const DRAWING_BINARY_SECTION_DROPPED: Code = Code::new(
@@ -997,7 +997,7 @@ pub const DRAWING_BINARY_SIZE_EXCEEDED: Code = Code::new(
     &[],
 );
 
-/// 図面モデルのバイナリが、この版の知らない列挙の値（後の小版で足した値）を使っているので読めない
+/// 図面モデルのバイナリが、このバージョンの知らない列挙の値（後のマイナーバージョンで足した値）を使っているので読めない
 ///
 /// `drawing.binary-value.unsupported`（0.2.0 から）
 pub const DRAWING_BINARY_VALUE_UNSUPPORTED: Code = Code::new(
@@ -1012,7 +1012,7 @@ pub const DRAWING_BINARY_VALUE_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
-/// 図面モデルのバイナリの大版を、このコアが読めない
+/// 図面モデルのバイナリのメジャーバージョンを、このコアが読めない
 ///
 /// `drawing.binary-version.unsupported`（0.2.0 から）
 pub const DRAWING_BINARY_VERSION_UNSUPPORTED: Code = Code::new(
@@ -1095,7 +1095,7 @@ pub const DWG_DATA_INVALID: Code = Code::new(
     &[],
 );
 
-/// R2000（AC1015）でない版の DWG は、まだ変えられない
+/// R2000（AC1015）でないバージョンの DWG は、まだ変えられない
 ///
 /// `dwg.edit.unsupported`（0.0.0 から）
 pub const DWG_EDIT_UNSUPPORTED: Code = Code::new(
@@ -1106,7 +1106,7 @@ pub const DWG_EDIT_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
-/// DWG の見出し・オブジェクトの地図・オブジェクトの区切りを読めない
+/// DWG のヘッダー・オブジェクトのマップ・オブジェクトのセクションを読めない
 ///
 /// `dwg.file.invalid`（0.0.0 から）
 pub const DWG_FILE_INVALID: Code = Code::new(
@@ -1128,7 +1128,7 @@ pub const DWG_LAYER_MISSING: Code = Code::new(
     &["type"],
 );
 
-/// DWG のオブジェクトの欄を読めないので、ハンドルだけを表に置いた
+/// DWG のオブジェクトのフィールドを読めないので、ハンドルだけを表に置いた
 ///
 /// `dwg.object.invalid`（0.0.0 から）
 pub const DWG_OBJECT_INVALID: Code = Code::new(
@@ -1150,7 +1150,7 @@ pub const DWG_OBJECT_MISSING: Code = Code::new(
     &[],
 );
 
-/// DWG の図形が指す文字の体裁・ブロックなどのハンドルに、その型の表のレコードがないので、名前を置かなかった
+/// DWG の図形が指す文字スタイル・ブロックなどのハンドルに、その型の表のレコードがないので、名前を置かなかった
 ///
 /// `dwg.record.missing`（0.0.0 から）
 pub const DWG_RECORD_MISSING: Code = Code::new(
@@ -1186,7 +1186,7 @@ pub const DWG_TYPE_UNSUPPORTED: Code = Code::new(
     &["type"],
 );
 
-/// R2000・R2004・R2010・R2013・R2018 でない版の DWG は、まだ読めない
+/// R2000・R2004・R2010・R2013・R2018 でないバージョンの DWG は、まだ読めない
 ///
 /// `dwg.version.unsupported`（0.0.0 から）
 pub const DWG_VERSION_UNSUPPORTED: Code = Code::new(
@@ -1284,7 +1284,7 @@ pub const DXF_CELL_VALUE_DROPPED: Code = Code::new(
     &["type"],
 );
 
-/// 図面モデルの要素の変更を、元の図形のレコードに書き戻せない。扱う種類と欄は docs/formats/dxf.md に書く（決定 0139）（change.edit.unsupported に移したので使わない）
+/// 図面モデルの要素の変更を、元の図形のレコードに書き戻せない。扱う種類とフィールドは docs/formats/dxf.md に書く（決定 0139）（change.edit.unsupported に移したので使わない）
 ///
 /// `dxf.change.unsupported`（0.0.0 から）
 #[deprecated = "廃止した code（catalog/codes.toml）"]
@@ -1307,7 +1307,7 @@ pub const DXF_CLIP_DROPPED: Code = Code::new(
     &["code"],
 );
 
-/// 2007 より前の版で、対応表のないコード・ページの ASCII でない文字を読めないので、その文字の図形を図面モデルに移さなかった
+/// 2007 より前のバージョンで、対応表のないコード・ページの ASCII でない文字を読めないので、その文字の図形を図面モデルに移さなかった
 ///
 /// `dxf.code-page.unsupported`（0.0.0 から）
 pub const DXF_CODE_PAGE_UNSUPPORTED: Code = Code::new(
@@ -1325,7 +1325,7 @@ pub const DXF_CODE_PAGE_UNSUPPORTED: Code = Code::new(
 pub const DXF_ELEMENT_MISSING: Code =
     Code::new("dxf.element.missing", Severity::Error, None, &[], &[]);
 
-/// 出力先の DXF の版にない種類の図形を、書かなかった
+/// 出力先の DXF のバージョンにない種類の図形を、書かなかった
 ///
 /// `dxf.entity.dropped`（0.0.0 から）
 pub const DXF_ENTITY_DROPPED: Code = Code::new(
@@ -1350,7 +1350,7 @@ pub const DXF_EXTENSION_DICTIONARY_DROPPED: Code = Code::new(
     &["key", "kind"],
 );
 
-/// 図形・画層・線種の拡張辞書の項目のうち、図面モデルの欄にする値で欄がまだないものと、AutoCAD の版の往復の XRECORD を、図面モデルに移さなかった。元の形式の値は残る（決定 0157）
+/// 図形・画層・線種の拡張辞書の項目のうち、図面モデルのフィールドにする値でフィールドがまだないものと、AutoCAD のバージョンの往復の XRECORD を、図面モデルに移さなかった。元の形式の値は残る（決定 0157）
 ///
 /// `dxf.extension-dictionary.unsupported`（0.0.0 から）
 pub const DXF_EXTENSION_DICTIONARY_UNSUPPORTED: Code = Code::new(
@@ -1361,7 +1361,7 @@ pub const DXF_EXTENSION_DICTIONARY_UNSUPPORTED: Code = Code::new(
     &["key"],
 );
 
-/// 出力先の DXF の版にないグループ・コードのタグを、書かなかった
+/// 出力先の DXF のバージョンにないグループ・コードのタグを、書かなかった
 ///
 /// `dxf.group-code.dropped`（0.0.0 から）
 pub const DXF_GROUP_CODE_DROPPED: Code = Code::new(
@@ -1389,7 +1389,7 @@ pub const DXF_GROUP_CODE_MISSING: Code = Code::new(
     &[],
 );
 
-/// DXF の見出しに $HANDSEED がないか、16 進のハンドルとして読めないので、新しいハンドルを決められない
+/// DXF のヘッダーに $HANDSEED がないか、16 進のハンドルとして読めないので、新しいハンドルを決められない
 ///
 /// `dxf.handle-seed.missing`（0.0.0 から）
 pub const DXF_HANDLE_SEED_MISSING: Code =
@@ -1407,7 +1407,7 @@ pub const DXF_HATCH_SPLINE_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
-/// 出力先の DXF の版で書けない値を持つ見出しの変数を、書かなかった
+/// 出力先の DXF のバージョンで書けない値を持つヘッダーの変数を、書かなかった
 ///
 /// `dxf.header-variable.dropped`（0.0.0 から）
 pub const DXF_HEADER_VARIABLE_DROPPED: Code = Code::new(
@@ -1545,7 +1545,7 @@ pub const DXF_RECORD_UNSAFE: Code = Code::new(
     &[],
 );
 
-/// 出力先の DXF の版にないセクションを、書かなかった
+/// 出力先の DXF のバージョンにないセクションを、書かなかった
 ///
 /// `dxf.section.dropped`（0.0.0 から）
 pub const DXF_SECTION_DROPPED: Code = Code::new(
@@ -1556,7 +1556,7 @@ pub const DXF_SECTION_DROPPED: Code = Code::new(
     &["name"],
 );
 
-/// 出力先の DXF の版にない表を、書かなかった
+/// 出力先の DXF のバージョンにない表を、書かなかった
 ///
 /// `dxf.table.dropped`（0.0.0 から）
 pub const DXF_TABLE_DROPPED: Code = Code::new(
@@ -1592,7 +1592,7 @@ pub const DXF_TAG_MISSING: Code = Code::new(
     &[],
 );
 
-/// コード・ページの版に書くため、ASCII でない文字を `\U+XXXX` の表記にした
+/// コード・ページのバージョンに書くため、ASCII でない文字を `\U+XXXX` の表記にした
 ///
 /// `dxf.text.equivalent`（0.0.0 から）
 pub const DXF_TEXT_EQUIVALENT: Code = Code::new(
@@ -1603,12 +1603,12 @@ pub const DXF_TEXT_EQUIVALENT: Code = Code::new(
     &[],
 );
 
-/// UTF-8 の版の値が UTF-8 として読めないので、バイト列のまま書いた
+/// UTF-8 のバージョンの値が UTF-8 として読めないので、バイト列のまま書いた
 ///
 /// `dxf.text.invalid`（0.0.0 から）
 pub const DXF_TEXT_INVALID: Code = Code::new("dxf.text.invalid", Severity::Warning, None, &[], &[]);
 
-/// 見出しの $INSUNITS がないか長さの単位でないので、実寸の単位を不明とした
+/// ヘッダーの $INSUNITS がないか長さの単位でないので、実寸の単位を不明とした
 ///
 /// `dxf.units.missing`（0.0.0 から）
 pub const DXF_UNITS_MISSING: Code = Code::new("dxf.units.missing", Severity::Info, None, &[], &[]);
@@ -1641,7 +1641,7 @@ pub const DXF_VALUE_UNSAFE: Code = Code::new(
     &[],
 );
 
-/// この組の DXF の版の変更は、まだ扱えない
+/// この組の DXF のバージョンの変更は、まだ扱えない
 ///
 /// `dxf.version.unsupported`（0.0.0 から）
 pub const DXF_VERSION_UNSUPPORTED: Code = Code::new(
@@ -1681,7 +1681,7 @@ pub const DXF_XDATA_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
-/// 点群の領域モデルに持たない点の欄か、一部のスキャンだけが持つ属性を、移さなかった（決定 0232）
+/// 点群の領域モデルに持たない点のフィールドか、一部のスキャンだけが持つ属性を、移さなかった（決定 0232）
 ///
 /// `e57.attribute.dropped`（0.2.0 から）
 pub const E57_ATTRIBUTE_DROPPED: Code = Code::new(
@@ -1925,7 +1925,7 @@ pub const EXTDM_DATUM_ASSUMED: Code = Code::new(
     &[],
 );
 
-/// レコードの欄が読めないか足りないので、その値か形を地理の領域モデルに移さなかった。kind はレコードタイプ、field は欄の名前
+/// レコードのフィールドが読めないか足りないので、その値か形を地理の領域モデルに移さなかった。kind はレコードタイプ、field はフィールドの名前
 ///
 /// `extdm.record.invalid`（0.2.0 から）
 pub const EXTDM_RECORD_INVALID: Code = Code::new(
@@ -1939,7 +1939,7 @@ pub const EXTDM_RECORD_INVALID: Code = Code::new(
     &["kind", "field"],
 );
 
-/// 見出しのない実データのレコードか、知らないレコードタイプのレコードなので、読まなかった。kind はレコードの初めの 2 文字
+/// ヘッダーのない実データのレコードか、知らないレコードタイプのレコードなので、読まなかった。kind はレコードの初めの 2 文字
 ///
 /// `extdm.record.unsupported`（0.2.0 から）
 pub const EXTDM_RECORD_UNSUPPORTED: Code = Code::new(
@@ -1983,7 +1983,7 @@ pub const FGD_ELEMENT_UNSUPPORTED: Code = Code::new(
     &["element"],
 );
 
-/// 基盤地図情報の配布の書庫の、FG-GML- で始まる .xml・.zip でない項目なので、読まなかった（決定 0251）
+/// 基盤地図情報の配布のアーカイブの、FG-GML- で始まる .xml・.zip でない項目なので、読まなかった（決定 0251）
 ///
 /// `fgd.entry.unsupported`（0.2.0 から）
 pub const FGD_ENTRY_UNSUPPORTED: Code = Code::new(
@@ -2125,7 +2125,7 @@ pub const IDS_RESTRICTION_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
-/// 仕様の対象の IFC の版に、建物モデルのスキーマがない
+/// 仕様の対象の IFC のバージョンに、建物モデルのスキーマがない
 ///
 /// `ids.version.mixed`（0.2.0 から）
 pub const IDS_VERSION_MIXED: Code = Code::new(
@@ -2211,18 +2211,18 @@ pub const IFC_ENTITY_DROPPED: Code = Code::new(
     &["kind"],
 );
 
-/// ifcZIP の書庫に、IFC-SPF（.ifc）の項目がない
+/// ifcZIP のアーカイブに、IFC-SPF（.ifc）の項目がない
 ///
 /// `ifc.entry.missing`（0.2.0 から）
 pub const IFC_ENTRY_MISSING: Code = Code::new("ifc.entry.missing", Severity::Error, None, &[], &[]);
 
-/// IFC-SPF（.ifc）の項目が複数ある ifcZIP の書庫は読まない
+/// IFC-SPF（.ifc）の項目が複数ある ifcZIP のアーカイブは読まない
 ///
 /// `ifc.entry.unsupported`（0.2.0 から）
 pub const IFC_ENTRY_UNSUPPORTED: Code =
     Code::new("ifc.entry.unsupported", Severity::Error, None, &[], &[]);
 
-/// ISO 10303-21 の始まり・DATA の節・終わりのどれかがない
+/// ISO 10303-21 の始まり・DATA のセクション・終わりのどれかがない
 ///
 /// `ifc.file.invalid`（0.2.0 から）
 pub const IFC_FILE_INVALID: Code = Code::new("ifc.file.invalid", Severity::Error, None, &[], &[]);
@@ -2350,7 +2350,7 @@ pub const IFC_UNIT_MISSING: Code = Code::new(
     &["type"],
 );
 
-/// IFC2X3・IFC4・IFC4X3 でない版のファイルからは、建物モデルを作らない
+/// IFC2X3・IFC4・IFC4X3 でないバージョンのファイルからは、建物モデルを作らない
 ///
 /// `ifc.version.unsupported`（0.2.0 から）
 pub const IFC_VERSION_UNSUPPORTED: Code = Code::new(
@@ -2361,7 +2361,7 @@ pub const IFC_VERSION_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
-/// ネイティブの境界でパニックを捕まえた。不具合なので直す
+/// ネイティブの API でパニックを捕まえた。不具合なので直す
 ///
 /// `internal.panic.caught`（0.0.0 から）
 pub const INTERNAL_PANIC_CAUGHT: Code =
@@ -2378,12 +2378,12 @@ pub const JPEG_EXIF_INVALID: Code = Code::new(
     &[],
 );
 
-/// JPEG の始まりの印（SOI）がないので、写真として読まなかった（#387）
+/// JPEG の始まりのマーカー（SOI）がないので、写真として読まなかった（#387）
 ///
 /// `jpeg.file.invalid`（0.2.0 から）
 pub const JPEG_FILE_INVALID: Code = Code::new("jpeg.file.invalid", Severity::Error, None, &[], &[]);
 
-/// JPEG のセグメントの長さか印が壊れているので、その先を読まなかった（#387）
+/// JPEG のセグメントの長さかマーカーが壊れているので、その先を読まなかった（#387）
 ///
 /// `jpeg.segment.invalid`（0.2.0 から）
 pub const JPEG_SEGMENT_INVALID: Code = Code::new(
@@ -2394,7 +2394,7 @@ pub const JPEG_SEGMENT_INVALID: Code = Code::new(
     &[],
 );
 
-/// XMP の区画を XML として読めないので、XMP の性質を返さなかった（#387）
+/// XMP のセグメントを XML として読めないので、XMP の性質を返さなかった（#387）
 ///
 /// `jpeg.xmp.invalid`（0.2.0 から）
 pub const JPEG_XMP_INVALID: Code = Code::new("jpeg.xmp.invalid", Severity::Warning, None, &[], &[]);
@@ -2404,12 +2404,12 @@ pub const JPEG_XMP_INVALID: Code = Code::new("jpeg.xmp.invalid", Severity::Warni
 /// `jww.body.invalid`（0.0.0 から）
 pub const JWW_BODY_INVALID: Code = Code::new("jww.body.invalid", Severity::Error, None, &[], &[]);
 
-/// JwwData. の始まりか版がない
+/// JwwData. の始まりかバージョンがない
 ///
 /// `jww.file.invalid`（0.0.0 から）
 pub const JWW_FILE_INVALID: Code = Code::new("jww.file.invalid", Severity::Error, None, &[], &[]);
 
-/// 見出しの欄を読めず、レイヤの名前と状態・色・線幅・縮尺を既定にした
+/// ヘッダーのフィールドを読めず、レイヤの名前と状態・色・線幅・縮尺を既定にした
 ///
 /// `jww.header.invalid`（0.0.0 から）
 pub const JWW_HEADER_INVALID: Code =
@@ -2437,7 +2437,7 @@ pub const JWW_LIFT_INVALID: Code = Code::new(
     &["kind"],
 );
 
-/// 図形の一覧の後ろのバイト列（版 700 からは画像の一覧）を読めず、そのまま残した
+/// 図形の一覧の後ろのバイト列（バージョン 700 からは画像の一覧）を読めず、そのまま残した
 ///
 /// `jww.trailer.invalid`（0.0.0 から）
 pub const JWW_TRAILER_INVALID: Code =
@@ -2548,7 +2548,7 @@ pub const LAS_CRS_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
-/// LASF の始まりか見出しがないか、見出しの値が合わない
+/// LASF の始まりかヘッダーがないか、ヘッダーの値が合わない
 ///
 /// `las.file.invalid`（0.2.0 から）
 pub const LAS_FILE_INVALID: Code = Code::new("las.file.invalid", Severity::Error, None, &[], &[]);
@@ -2575,7 +2575,7 @@ pub const LAS_POINT_FORMAT_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
-/// 点のレコードが、見出しの点の数より短いので、読めた点だけを読んだ
+/// 点のレコードが、ヘッダーの点の数より短いので、読めた点だけを読んだ
 ///
 /// `las.points.invalid`（0.2.0 から）
 pub const LAS_POINTS_INVALID: Code = Code::new(
@@ -2633,7 +2633,7 @@ pub const PLY_ELEMENT_DROPPED: Code = Code::new(
     &["element"],
 );
 
-/// ply の始まりか見出しがないか、本体が見出しの要素と合わない
+/// ply の始まりかヘッダーがないか、本体がヘッダーの要素と合わない
 ///
 /// `ply.file.invalid`（0.2.0 から）
 pub const PLY_FILE_INVALID: Code = Code::new("ply.file.invalid", Severity::Error, None, &[], &[]);
@@ -2925,7 +2925,7 @@ pub const PROFILE_FILE_NAME_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
-/// プロファイルの入力を読めないか、書式の大版を読めない（決定 0138）
+/// プロファイルの入力を読めないか、書式のメジャーバージョンを読めない（決定 0138）
 ///
 /// `profile.format.unsupported`（0.0.0 から）
 pub const PROFILE_FORMAT_UNSUPPORTED: Code = Code::new(
@@ -3055,7 +3055,7 @@ pub const PROFILE_ORIENTATION_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
-/// 照合の種類を知らないか、欄か語彙を使えない規則を、照合しなかった
+/// 照合の種類を知らないか、フィールドか語彙を使えない規則を、照合しなかった
 ///
 /// `profile.rule.unsupported`（0.0.0 から）
 pub const PROFILE_RULE_UNSUPPORTED: Code = Code::new(
@@ -3198,7 +3198,7 @@ pub const PROFILE_VOCABULARY_INVALID: Code = Code::new(
     &[],
 );
 
-/// 指摘の文書の JSON の形が合わない。pointer は合わなかった欄の JSON Pointer か、構文の誤りのバイト位置
+/// 指摘の文書の JSON の形が合わない。pointer は合わなかったフィールドの JSON Pointer か、構文の誤りのバイト位置
 ///
 /// `review.file.invalid`（0.2.0 から）
 pub const REVIEW_FILE_INVALID: Code = Code::new(
@@ -3264,7 +3264,7 @@ pub const REVIEW_TARGET_STALE: Code = Code::new(
     &[],
 );
 
-/// 読めない版の指摘の文書
+/// 読めないバージョンの指摘の文書
 ///
 /// `review.version.unsupported`（0.2.0 から）
 pub const REVIEW_VERSION_UNSUPPORTED: Code = Code::new(
@@ -3342,7 +3342,7 @@ pub const SCENE_DIMENSION_DROPPED: Code = Code::new(
     &[],
 );
 
-/// 当てはめる点を許容差で近づけるスプラインを、点を通る曲線で描いた（決定 0184）
+/// フィット点を許容差で近づけるスプラインを、点を通る曲線で描いた（決定 0184）
 ///
 /// `scene.fit-tolerance.approximated`（0.0.0 から）
 pub const SCENE_FIT_TOLERANCE_APPROXIMATED: Code = Code::new(
@@ -3465,7 +3465,7 @@ pub const SCENE_LINE_TYPE_SHAPE_DROPPED: Code = Code::new(
     &[],
 );
 
-/// 当てはめる点だけで決まるスプラインを、当てはめる点を結ぶ折れ線で描いた
+/// フィット点だけで決まるスプラインを、フィット点を結ぶ折れ線で描いた
 ///
 /// `scene.spline.approximated`（0.0.0 から）
 pub const SCENE_SPLINE_APPROXIMATED: Code = Code::new(
@@ -3521,7 +3521,7 @@ pub const SCENE_TEXT_LAYOUT_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
-/// 下敷きの切り抜きを当てずに、下敷きの全体を描いた
+/// アンダーレイの切り抜きを当てずに、アンダーレイの全体を描いた
 ///
 /// `scene.underlay-clip.dropped`（0.0.0 から）
 pub const SCENE_UNDERLAY_CLIP_DROPPED: Code = Code::new(
@@ -3532,7 +3532,7 @@ pub const SCENE_UNDERLAY_CLIP_DROPPED: Code = Code::new(
     &[],
 );
 
-/// 画像と PDF でない下敷き（DWF・DGN）を、シーンに描かなかった（決定 0184 で、DWF・DGN も画像として返すので使わない）
+/// 画像と PDF でないアンダーレイ（DWF・DGN）を、シーンに描かなかった（決定 0184 で、DWF・DGN も画像として返すので使わない）
 ///
 /// `scene.underlay.dropped`（0.0.0 から）
 #[deprecated = "廃止した code（catalog/codes.toml）"]
@@ -3544,7 +3544,7 @@ pub const SCENE_UNDERLAY_DROPPED: Code = Code::new(
     &[],
 );
 
-/// 書き戻す P2Z・SFZ の書庫が ZIP64 を要する大きさになる。ZIP64 は書かない（#385）
+/// 書き戻す P2Z・SFZ のアーカイブが ZIP64 を要する大きさになる。ZIP64 は書かない（#385）
 ///
 /// `sxf.archive.unsupported`（0.2.0 から）
 pub const SXF_ARCHIVE_UNSUPPORTED: Code =
@@ -3564,7 +3564,7 @@ pub const SXF_CODE_MISSING: Code = Code::new(
     &["kind", "code"],
 );
 
-/// ISO 10303-21 の始まり・DATA の節・終わりのどれかがない
+/// ISO 10303-21 の始まり・DATA のセクション・終わりのどれかがない
 ///
 /// `sxf.file.invalid`（0.0.0 から）
 pub const SXF_FILE_INVALID: Code = Code::new("sxf.file.invalid", Severity::Error, None, &[], &[]);
@@ -3747,7 +3747,7 @@ pub const XLSX_CELL_INVALID: Code = Code::new(
 /// `xlsx.file.invalid`（0.2.0 から）
 pub const XLSX_FILE_INVALID: Code = Code::new("xlsx.file.invalid", Severity::Error, None, &[], &[]);
 
-/// xlsx の部品がないか XML として読めないので、その部品を飛ばした（#391）。name は書庫の中の名前かシートの名前
+/// xlsx の部品がないか XML として読めないので、その部品を飛ばした（#391）。name はアーカイブの中の名前かシートの名前
 ///
 /// `xlsx.part.invalid`（0.2.0 から）
 pub const XLSX_PART_INVALID: Code = Code::new(
@@ -3848,7 +3848,7 @@ pub const XYZ_LINE_INVALID: Code = Code::new(
     &[],
 );
 
-/// 中央ディレクトリの終わりの記録がないか、中央ディレクトリが壊れていて、ZIP の書庫として読めない
+/// 中央ディレクトリの終わりの記録がないか、中央ディレクトリが壊れていて、ZIP のアーカイブとして読めない
 ///
 /// `zip.archive.invalid`（0.2.0 から）
 pub const ZIP_ARCHIVE_INVALID: Code =
@@ -3898,7 +3898,7 @@ pub const ZIP_ENCRYPTION_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
-/// 局所の見出しが壊れているか、データが書庫の外にはみ出す項目を読まなかった
+/// ローカルヘッダーが壊れているか、データがアーカイブの外にはみ出す項目を読まなかった
 ///
 /// `zip.entry.invalid`（0.2.0 から）
 pub const ZIP_ENTRY_INVALID: Code = Code::new(
@@ -3945,7 +3945,7 @@ pub const ZIP_RANGE_UNSAFE: Code = Code::new(
     &[],
 );
 
-/// 複数の部分に分けた ZIP の書庫は、読まない（決定 0210）
+/// 複数の部分に分けた ZIP のアーカイブは、読まない（決定 0210）
 ///
 /// `zip.split.unsupported`（0.2.0 から）
 pub const ZIP_SPLIT_UNSUPPORTED: Code =

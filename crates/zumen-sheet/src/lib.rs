@@ -65,7 +65,7 @@ pub enum Kind {
 }
 
 impl Kind {
-    /// 境界の名前
+    /// API の名前
     pub fn name(self) -> &'static str {
         match self {
             Kind::Text => "text",
@@ -99,7 +99,7 @@ pub enum Encoding {
 }
 
 impl Encoding {
-    /// 境界の名前
+    /// API の名前
     pub fn name(self) -> &'static str {
         match self {
             Encoding::Utf8 => "utf_8",

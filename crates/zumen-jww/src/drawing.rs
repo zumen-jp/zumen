@@ -25,15 +25,15 @@ use crate::{JwwFile, Record, RecordKind};
 
 mod apply;
 
-/// 形式固有の情報の値の型の契約の版。どの `jww.*` の名前空間も同じ版にする（決定 0115・0156・0157）
+/// 形式固有の情報の値の型の契約のバージョン。どの `jww.*` の名前空間も同じバージョンにする（決定 0115・0156・0157）
 const SCHEMA: u32 = 2;
 
 const SHEET: SheetId = SheetId(0);
 
-/// 寸法が SXF の欄を持つ最初の版
+/// 寸法が SXF のフィールドを持つ最初のバージョン
 const SXF_SINCE: u32 = 420;
 
-/// 図形の共通の欄に線幅が入る最初の版
+/// 図形の共通のフィールドに線幅が入る最初のバージョン
 const PEN_WIDTH_SINCE: u32 = 351;
 
 /// 用紙の大きさのコードと、横長の幅と高さ（mm）。A0〜A4 と 2A〜5A
@@ -49,7 +49,7 @@ const PAPERS: [(u32, [f64; 2]); 9] = [
     (11, [4756.0, 3364.0]),
 ];
 
-/// 見出しから線種を読めないときの、線種 2〜9 の線と間（mm）
+/// ヘッダーから線種を読めないときの、線種 2〜9 の線と間（mm）
 const DEFAULT_DASHES: [&[f64]; 8] = [
     &[1.0, 1.0],
     &[2.0, 1.0],
@@ -131,7 +131,7 @@ struct Group {
     protects: [u32; 16],
 }
 
-/// 変換に使う見出しの欄
+/// 変換に使うヘッダーのフィールド
 #[derive(Clone, Debug, Default)]
 struct Header {
     version: u32,
@@ -158,7 +158,7 @@ struct Header {
 }
 
 impl Header {
-    /// 見出しを読む。終わりは図形の一覧の件数の前
+    /// ヘッダーを読む。終わりは図形の一覧の件数の前
     fn read(file: &JwwFile, end: usize) -> Result<Header, Fail> {
         let src = file.bytes(0..end);
         let version = file.version();
@@ -290,7 +290,7 @@ impl Header {
             .unwrap_or(1.0)
     }
 
-    /// 色。1〜9 と 100〜356 は見出しの色を、ほかは番号だけを持つ
+    /// 色。1〜9 と 100〜356 はヘッダーの色を、ほかは番号だけを持つ
     fn color(&self, pen: u16) -> Color {
         let rgb = match pen {
             1..=9 => self.pens.get(usize::from(pen)).copied(),
@@ -324,7 +324,7 @@ impl Header {
             .map(|mm| Inherit::Own(LineWeight::Width(PaperLength(mm))))
     }
 
-    /// 見出しの線幅の単位を mm にする。単位が分からなければ `None`
+    /// ヘッダーの線幅の単位を mm にする。単位が分からなければ `None`
     fn width(&self, value: u32) -> Option<f64> {
         if value == 0 {
             return None;
@@ -408,7 +408,7 @@ fn decode(unicode: bool, bytes: &[u8]) -> String {
     }
 }
 
-/// 図形の共通の欄
+/// 図形の共通のフィールド
 struct Base {
     /// 曲線属性の番号
     curve: u32,
@@ -489,7 +489,7 @@ struct Lifter<'f> {
     definitions: BTreeMap<usize, usize>,
     /// 同梱画像の名前から、レコードの位置へ
     images: BTreeMap<String, usize>,
-    /// 変換中の要素に付ける拡張の名前空間と欄
+    /// 変換中の要素に付ける拡張の名前空間とフィールド
     own: Vec<(&'static str, Vec<Field>)>,
     /// 付く先を位置で指す拡張。要素がそろってから ID とハッシュにする（決定 0156）
     drafts: Vec<Draft>,
@@ -787,7 +787,7 @@ impl Lifter<'_> {
         Ok(Some((shape, style)))
     }
 
-    /// 寸法（決定 0135）。寸法線の向きに測る長さとし、測る点は、版 420 からの SXF の形があれば基準点、なければ寸法線の端
+    /// 寸法（決定 0135）。寸法線の向きに測る長さとし、測る点は、バージョン 420 からの SXF の形があれば基準点、なければ寸法線の端
     /// とする。寸法値の文字は、そのまま上書きの文字にする。寸法線・補助線・端の点は `jww.dimension` の拡張に残す
     fn dimension(
         &mut self,
@@ -943,7 +943,7 @@ impl Lifter<'_> {
         }
     }
 
-    /// 線種。番号を名前にし、線と間は見出しから読む。0 は 1 と同じ実線とする
+    /// 線種。番号を名前にし、線と間はヘッダーから読む。0 は 1 と同じ実線とする
     fn line_type(&mut self, code: u8) -> LineTypeId {
         let code = code.max(1);
         if let Some(id) = self.line_types.get(&code) {
@@ -1103,7 +1103,7 @@ impl Lifter<'_> {
         }
     }
 
-    /// 点（決定 0160）。記号の点は、名前空間 `jww.point` と記号の番号の既定義の印にし、ほかは文書の点の表し方に
+    /// 点（決定 0160）。記号の点は、名前空間 `jww.point` と記号の番号の既定義のマーカーにし、ほかは文書の点の表し方に
     /// 従う点にする。仮点は、作図の補助の点にする
     fn point(
         &mut self,

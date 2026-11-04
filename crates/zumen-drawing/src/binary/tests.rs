@@ -127,7 +127,7 @@ fn lays_out_the_header_and_sections_like_the_scene() {
     let (section, elements) = packed(|out| drawing.pack(out));
     assert_eq!(u32_at(&bytes, 8), Some(elements as usize));
     assert_eq!(u32_at(&bytes, 12), Some(SECTIONS));
-    // 区画は表のすぐ後ろから、8 バイトの境界に並ぶ
+    // セクションは表のすぐ後ろから、8 バイトの境界に並ぶ
     let (first, first_len) = (u32_at(&bytes, 16).unwrap(), u32_at(&bytes, 20).unwrap());
     let (second, second_len) = (u32_at(&bytes, 24).unwrap(), u32_at(&bytes, 28).unwrap());
     assert_eq!(first, 32);
@@ -181,7 +181,7 @@ fn survives_broken_bytes() {
     }
 }
 
-/// 元の文書の区画。`extra` は、後の小版で足した欄のつもり
+/// 元の文書のセクション。`extra` は、後のマイナーバージョンで足したフィールドのつもり
 fn source_section(extra: &[u8]) -> Vec<u8> {
     packed(|out| {
         out.record(|out| {
@@ -203,7 +203,7 @@ fn skips_fields_and_sections_of_later_minor_versions_only() {
     let (result, codes) = load(&bytes);
     assert_eq!(result, Ok((source(), Drawing2D::default())));
     assert_eq!(codes, ["drawing.binary-field.dropped"]);
-    // 後の小版の書き手は、読み飛ばす欄の要素も見出しに数える
+    // 後のマイナーバージョンの書き手は、読み飛ばすフィールドの要素もヘッダーに数える
     let bytes = assemble(later, 3, &[source_section(&[1, 2]), empty.clone()]);
     let (result, codes) = load(&bytes);
     assert_eq!(result, Ok((source(), Drawing2D::default())));
@@ -224,7 +224,7 @@ fn skips_fields_and_sections_of_later_minor_versions_only() {
     assert_eq!(result, Err(Error::Invalid));
     assert_eq!(codes, ["drawing.binary.invalid"]);
 
-    // 区画が足りない・重なる・境界にないものは、壊れている
+    // セクションが足りない・重なる・境界にないものは、壊れている
     let (result, _) = load(&assemble(MINOR, 0, &[source_section(&[])]));
     assert_eq!(result, Err(Error::Invalid));
     let mut bytes = assemble(MINOR, 0, &[source_section(&[]), empty]);
@@ -243,7 +243,7 @@ fn refuses_overlapping_sections_and_noncanonical_padding() {
     let second_len = u32_at(&bytes, 28).unwrap();
     assert!(first_end < second);
 
-    // 2 つの区画がそれぞれ読めても、最後のハッシュのバイトと図面を重ねてはならない。
+    // 2 つのセクションがそれぞれ読めても、最後のハッシュのバイトと図面を重ねてはならない。
     let overlap = first_end - first_end % ALIGN;
     let drawing = bytes[second..second + second_len].to_vec();
     bytes[overlap..overlap + second_len].copy_from_slice(&drawing);
@@ -257,7 +257,7 @@ fn refuses_overlapping_sections_and_noncanonical_padding() {
     bytes.push(0);
     assert_eq!(load(&bytes).0, Err(Error::Invalid));
 
-    // 読み飛ばす後の小版の区画も、既知の区画と重ねてはならない。
+    // 読み飛ばす後のマイナーバージョンのセクションも、既知のセクションと重ねてはならない。
     let mut bytes = assemble(
         MINOR + 1,
         0,

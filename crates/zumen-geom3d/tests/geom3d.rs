@@ -1,4 +1,4 @@
-//! 型と trait の試験
+//! 型と trait のテスト
 
 use zumen_base::{Budget, CancelToken, Cx, Diagnostics, Kind, Limit, Limits, Stop};
 use zumen_geom3d::cases::{self, Expect};
@@ -19,7 +19,7 @@ fn close(a: f64, b: f64) -> bool {
     (a - b).abs() <= 1e-12 * (1.0 + a.abs().max(b.abs()))
 }
 
-/// 試験のためのカーネル。三角形と凸の面の集合・写像・組だけを評価し、ほかは評価しないと返す
+/// テストのためのカーネル。三角形と凸の面の集合・写像・組だけを評価し、ほかは評価しないと返す
 struct Faces;
 
 impl Kernel for Faces {

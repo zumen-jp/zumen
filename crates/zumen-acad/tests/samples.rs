@@ -1,5 +1,5 @@
-//! 試料の、同じ図面の DWG（R2000・R2004・R2010 以降）と DXF を読み、表を比べる。
-//! 試料は公開サンプルの `samples/` と、受け取った図面を置く `ZUMEN_SAMPLES` のフォルダーから集める。
+//! サンプルの、同じ図面の DWG（R2000・R2004・R2010 以降）と DXF を読み、表を比べる。
+//! サンプルは公開サンプルの `samples/` と、受け取った図面を置く `ZUMEN_SAMPLES` のフォルダーから集める。
 //!
 //! `名前.dwg` と `名前_ascii.dxf` の組を探す。
 
@@ -13,7 +13,7 @@ use zumen_acad::{AcadDb, Data, Dwg, Dxf, Object, Origin, Section, Value};
 use zumen_base::{Budget, CancelToken, Cx, Diagnostics, codes};
 use zumen_sdk::{Codec, FileModel, Transact, Transaction};
 
-/// 図形の形の欄。DWG の表が既定の値を省くので、DXF だけにあるときは既定の値かを確かめる
+/// 図形の形のフィールド。DWG の表が既定の値を省くので、DXF だけにあるときは既定の値かを確かめる
 #[cfg(test)]
 const SHAPE_CODES: [i16; 33] = [
     10, 20, 30, 11, 21, 31, 12, 22, 32, 13, 23, 33, 39, 40, 42, 48, 50, 51, 60, 62, 210, 220, 230,
@@ -30,7 +30,7 @@ fn is_default(code: i16, data: &Data) -> bool {
         || matches!((code, data), (230, Data::Real(r)) if *r == 1.0)
 }
 
-/// フォルダーの中の、読める版の DWG と同じ名前の DXF の組
+/// フォルダーの中の、読めるバージョンの DWG と同じ名前の DXF の組
 #[cfg(test)]
 fn pairs() -> Vec<(PathBuf, PathBuf)> {
     let mut found: Vec<_> = support::sample_files()
@@ -52,7 +52,7 @@ fn pairs() -> Vec<(PathBuf, PathBuf)> {
     found
 }
 
-/// 受け取った図面（`ZUMEN_SAMPLES`）の組があるか。試料の中に、試験が確かめる種類の要素があることは、受け取った
+/// 受け取った図面（`ZUMEN_SAMPLES`）の組があるか。サンプルの中に、テストが確かめる種類の要素があることは、受け取った
 /// 図面にだけ求める。公開サンプル（`samples/dwg`）は、主題ごとに要素をしぼって作る（#316）
 #[cfg(test)]
 fn received_pairs() -> bool {
@@ -94,7 +94,7 @@ fn close(found: &str, expected: &str) -> bool {
         })
 }
 
-/// フォルダーの中の、版が `version` の DWG
+/// フォルダーの中の、バージョンが `version` の DWG
 #[cfg(test)]
 fn dwgs(version: &[u8]) -> Vec<PathBuf> {
     let mut found: Vec<_> = support::sample_files()
@@ -170,9 +170,9 @@ fn dwg_and_dxf_of_the_same_drawing_give_the_same_table() {
             }
             let at = format!("{} {handle:#X}", dwg.display());
             assert_eq!(object.kind, other.kind, "{at}");
-            // 所有者が DXF に書かれないとき（R2000 の DXF は、新しい版の表の中身を XRECORD の下に
+            // 所有者が DXF に書かれないとき（R2000 の DXF は、新しいバージョンの表の中身を XRECORD の下に
             // 移す）は比べない
-            // 図形の所有者は、空間の図形（見出しの変数で決まる）も含めて、DXF と同じ
+            // 図形の所有者は、空間の図形（ヘッダーの変数で決まる）も含めて、DXF と同じ
             if object.section == Section::Entities {
                 assert_eq!(object.owner(), other.owner(), "{at}");
             }
@@ -210,7 +210,7 @@ fn dwg_and_dxf_of_the_same_drawing_give_the_same_table() {
             let mut seen: BTreeMap<i16, usize> = BTreeMap::new();
             // 辞書の項目（名前 3 と指すオブジェクト 350・360 の組）は、組で比べる。DXF にない
             // オブジェクトを指す項目は、DXF を書くときに落とされたか作り直されたものなので比べない
-            // （R2000 の DXF は、新しい版の見出しの変数の辞書を別のハンドルで書き、版の往復のための
+            // （R2000 の DXF は、新しいバージョンのヘッダーの変数の辞書を別のハンドルで書き、バージョンの往復のための
             // XRECORD を書かない）
             let mut values: Vec<&Value> = ours.iter().collect();
             if matches!(
@@ -442,7 +442,7 @@ fn lifted(path: &Path) -> (zumen_drawing::Drawing2D, Vec<zumen_base::Code>) {
             .iter_mut()
             .for_each(|v| v.source = nowhere.clone());
     }
-    // R2010 からの DWG の読み手は、TABLESTYLE の欄とセルのスタイルをまだ読まない（決定 0151）。
+    // R2010 からの DWG のリーダーは、TABLESTYLE のフィールドとセルのスタイルをまだ読まない（決定 0151）。
     // 書式の一致は table_format_samples.rs が確かめる。記号・用紙と、拡張に控えた値も同じ条件で比べる。
     for space in drawing
         .spaces
@@ -470,7 +470,7 @@ fn lifted(path: &Path) -> (zumen_drawing::Drawing2D, Vec<zumen_base::Code>) {
             extension.basis = zumen_drawing::Basis::Hash(*hash);
         }
     }
-    // 版の往復の XRECORD は、DWG の画層と DXF の線種の片側だけにあることがあり（決定 0152）、移さずに
+    // バージョンの往復の XRECORD は、DWG の画層と DXF の線種の片側だけにあることがあり（決定 0152）、移さずに
     // 診断する（決定 0157）。DWG と DXF で同じ名前になることは xrecord_samples.rs が確かめる
     let codes = diag
         .iter()
@@ -495,7 +495,7 @@ fn without_table_formats<P>(element: &mut zumen_drawing::Element<P>) {
 /// 図面モデルの、DWG と DXF で比べられる文字列。元の場所（`Ref { .. }`）と、名前のないブロック `*U` の番号と、
 /// 真の色の近い色の番号を除く。元の場所は、
 /// DWG（バイトの範囲）と DXF（レコードの番号）で違う。図形の元のほか、ハッチングの輪の元・引出線の注釈・
-/// 寸法の体裁なども元の場所で指す
+/// 寸法スタイルなども元の場所で指す
 #[cfg(test)]
 #[cfg(feature = "drawing")]
 fn comparable(text: &str) -> String {
@@ -634,9 +634,9 @@ fn nearly(a: &str, b: &str) -> bool {
             })
 }
 
-/// R2010 から後の DXF の表のセルの値（301 `CELL_VALUE` から 304 `ACVALUE_END` まで）は、印（93）・
+/// R2010 から後の DXF の表のセルの値（301 `CELL_VALUE` から 304 `ACVALUE_END` まで）は、フラグ（93）・
 /// 型（90）・型ごとの値・単位（94）・書式（300）・表示する文字（302）の順に並ぶ。文字の型（4）の値は
-/// 1 に元の文字を持つ。印の 1 のビットが立てば、型ごとの値はない。DWG の値（ODS 5.4.1 の 20.4.99）と
+/// 1 に元の文字を持つ。フラグの 1 のビットが立てば、型ごとの値はない。DWG の値（ODS 5.4.1 の 20.4.99）と
 /// 同じ並び
 #[test]
 fn r2010_and_later_table_cell_values_end_with_the_displayed_text() {
@@ -673,14 +673,14 @@ fn r2010_and_later_table_cell_values_end_with_the_displayed_text() {
     assert!(!received_pairs() || checked > 0);
 }
 
-/// 試料の線を ID と読んだときのハッシュで指して動かし、図形を 1 つ足すと、apply が返す ID とハッシュは、
+/// サンプルの線を ID と読んだときのハッシュで指して動かし、図形を 1 つ足すと、apply が返す ID とハッシュは、
 /// 書き戻したファイルを読み直したときと同じになる。文書のハッシュは、読んだバイト列のハッシュで通る
 /// （決定 0139・0156）。DWG と DXF の組と、バイナリの DXF で確かめる
 #[cfg(feature = "drawing")]
 #[test]
 #[allow(
     clippy::disallowed_methods,
-    reason = "環境変数を読むのは試験だけで、コアは読まない（AGENTS.md の図面と秘密）"
+    reason = "環境変数を読むのはテストだけで、コアは読まない（AGENTS.md の図面と秘密）"
 )]
 fn drawings_changed_by_id_return_the_ids_and_hashes_of_reading_again() {
     use std::collections::BTreeMap;
@@ -792,7 +792,7 @@ fn drawings_changed_by_id_return_the_ids_and_hashes_of_reading_again() {
     assert!(!received_pairs() || checked > 0);
 }
 
-/// 試料の線のスタイルを ID で変えると、形は変わらず、変えた欄だけが読み直したときに変わっている。DWG は
+/// サンプルの線のスタイルを ID で変えると、形は変わらず、変えたフィールドだけが読み直したときに変わっている。DWG は
 /// 色と線種の倍率を、DXF はレイヤも変える（決定 0139）
 #[cfg(feature = "drawing")]
 #[test]
@@ -952,13 +952,13 @@ fn drawings_take_back_restyled_lines() {
     assert!(!received_pairs() || checked > 0);
 }
 
-/// 試料の線・円・弧・折れ線・文字・記号（INSERT）を、種類ごとに 1 つずつ ID で回して動かすと、読み直した形は変換で
+/// サンプルの線・円・弧・折れ線・文字・記号（INSERT）を、種類ごとに 1 つずつ ID で回して動かすと、読み直した形は変換で
 /// 写した形と同じになり、返すハッシュも読み直したときと同じになる（決定 0139）
 #[cfg(feature = "drawing")]
 #[test]
 #[allow(
     clippy::disallowed_methods,
-    reason = "環境変数を読むのは試験だけで、コアは読まない（AGENTS.md の図面と秘密）"
+    reason = "環境変数を読むのはテストだけで、コアは読まない（AGENTS.md の図面と秘密）"
 )]
 fn drawings_take_back_transformed_elements() {
     use zumen_drawing::{
@@ -1091,7 +1091,7 @@ fn drawings_take_back_transformed_elements() {
                 .map(|(index, element)| (namer.next(index, element), element))
                 .find(|(id, _)| *id == target)
                 .unwrap();
-            // 書き戻すとレコードの位置が変わるので、属性の出所は鍵だけで比べる。鏡映した弧は、
+            // 書き戻すとレコードの位置が変わるので、属性の出所はキーだけで比べる。鏡映した弧は、
             // ファイルが反時計回りでしか持てないので、始まりと終わりを入れ替えた反時計回りの弧と比べる
             let keyed = |shape: &Shape<_>| {
                 let mut shape = shape.clone();
@@ -1133,7 +1133,7 @@ fn drawings_take_back_transformed_elements() {
                 path.display()
             );
         }
-        // 格子に並べる記号は試料にないので、属性と切り抜きを除いた記号を 3 列 2 行で足してから、回して動かし、
+        // 格子に並べる記号はサンプルにないので、属性と切り抜きを除いた記号を 3 列 2 行で足してから、回して動かし、
         // 鏡映する。切り抜きを持つ記号は足さない（add.rs の placing）。DWG は MINSERT として足す。R2000 より前の
         // DWG には、まだ足せない
         let minsert = !src.starts_with(b"AC10") || src.as_slice() >= b"AC1015".as_slice();
@@ -1250,7 +1250,7 @@ fn drawings_take_back_transformed_elements() {
     assert!(!received_pairs() || lines > 0);
 }
 
-/// 試料の記号の定義の中の線を ID で動かすと、読み直した線は動いていて、ID は変わらない（決定 0139・0156）
+/// サンプルの記号の定義の中の線を ID で動かすと、読み直した線は動いていて、ID は変わらない（決定 0139・0156）
 #[cfg(feature = "drawing")]
 #[test]
 fn drawings_take_back_lines_moved_inside_symbol_definitions() {
@@ -1388,7 +1388,7 @@ fn dwg_drawings_take_back_lines_moved_in_the_drawing_model() {
     assert!(!received_pairs() || checked > 0);
 }
 
-/// DWG の見出しから読んだ変数（INSUNITS・PLIMMIN・PLIMMAX・PDMODE・PDSIZE）は、同じ図面の DXF の HEADER と同じ値を
+/// DWG のヘッダーから読んだ変数（INSUNITS・PLIMMIN・PLIMMAX・PDMODE・PDSIZE）は、同じ図面の DXF の HEADER と同じ値を
 /// 持つ
 #[test]
 fn dwg_header_variables_match_the_dxf_of_the_same_drawing() {
@@ -1413,7 +1413,7 @@ fn dwg_header_variables_match_the_dxf_of_the_same_drawing() {
     }
 }
 
-/// AutoCAD が作った点の試料。名前を固定して、試料がなければ試験も失敗する。
+/// AutoCAD が作った点のサンプル。名前を固定して、サンプルがなければテストも失敗する。
 #[cfg(test)]
 fn autocad_point_samples() -> [(&'static str, i64, f64); 4] {
     [
@@ -1525,7 +1525,7 @@ fn dwg_and_dxf_of_the_same_drawing_lift_to_the_same_drawing() {
             comparable(&format!("{ours:?}")),
             comparable(&format!("{theirs:?}")),
         );
-        // R2013 より前の DWG は、スプラインの節点の取り方を図形の欄に持たない（DXF は 70 の 1024 と
+        // R2013 より前の DWG は、スプラインのノットの取り方を図形のフィールドに持たない（DXF は 70 の 1024 と
         // そのビットに書く）ので、比べない
         if std::fs::read(&dwg).unwrap().get(..6) < Some(b"AC1027".as_slice()) {
             for kind in ["Chord", "SquareRoot", "Uniform", "Custom"] {
@@ -1629,7 +1629,7 @@ fn r2010_and_later_drawings_keep_their_table_when_objects_are_rewritten_and_remo
     }
 }
 
-/// 版 `version` の図面のすべてのオブジェクトを同じデータで置き換え、最後のオブジェクトを除いて書くと、読み直した
+/// バージョン `version` の図面のすべてのオブジェクトを同じデータで置き換え、最後のオブジェクトを除いて書くと、読み直した
 /// 表が、除いたものを除いて元と同じになる
 #[cfg(test)]
 fn objects_are_rewritten_and_removed(version: &[u8]) {
@@ -1642,7 +1642,7 @@ fn objects_are_rewritten_and_removed(version: &[u8]) {
         let mut file = Dwg::read(&src, &mut cx).unwrap();
         let before = file.objects(&mut cx).unwrap();
         let count = file.record_count();
-        // すべてのオブジェクトを同じデータで置き換えて区切りの後ろに並べ直し、最後のオブジェクトを除く
+        // すべてのオブジェクトを同じデータで置き換えてセクションの後ろに並べ直し、最後のオブジェクトを除く
         let changes: Vec<_> = (0..count)
             .map(|i| file.object_data(i).unwrap().to_vec())
             .collect();
@@ -1738,7 +1738,7 @@ fn r2004_drawings_take_back_changed_entities() {
         let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
         let file = Dwg::read(&src, &mut cx).unwrap();
         let base = file.objects(&mut cx).unwrap();
-        // 型ごとの欄を R2000 と同じに符号化する種類の図形の、線種の尺度を変え、点を動かす
+        // 型ごとのフィールドを R2000 と同じに符号化する種類の図形の、線種の尺度を変え、点を動かす
         let mut db = base.clone();
         for index in 0..db.objects().len() {
             let object = db.object_mut(index).unwrap();
@@ -1797,7 +1797,7 @@ fn r2004_drawings_take_back_changed_entities() {
                 }
             }
         }
-        // 型ごとの欄をまだ符号化しない種類の図形の変更は書き戻さない
+        // 型ごとのフィールドをまだ符号化しない種類の図形の変更は書き戻さない
         for kind in [&b"MULTILEADER"[..]] {
             let mut db = base.clone();
             let Some(index) = db.objects().iter().position(|o| o.kind == kind) else {
@@ -1884,7 +1884,7 @@ fn r2010_and_later_drawings_take_back_changed_entities() {
                 // HATCH の初めの 10・20 は 0 と決まっているので動かさない
                 let mut fixed = if kind == b"HATCH" { 2 } else { 0 };
                 for value in object.values.iter_mut() {
-                    // 段組みの MTEXT の段組みの欄（101 から後）は、元のビットを写すので変えない
+                    // 段組みの MTEXT の段組みのフィールド（101 から後）は、元のビットを写すので変えない
                     if kind == b"MTEXT" && value.code == 101 {
                         break;
                     }
@@ -1941,7 +1941,7 @@ fn r2010_and_later_drawings_take_back_changed_entities() {
                     }
                 }
             }
-            // 図形でないオブジェクトの、型ごとの欄でない値の変更は書き戻さない
+            // 図形でないオブジェクトの、型ごとのフィールドでない値の変更は書き戻さない
             for kind in [&b"DICTIONARY"[..]] {
                 let mut db = base.clone();
                 let Some(index) = db.objects().iter().position(|o| o.kind == kind) else {
@@ -1973,7 +1973,7 @@ fn r2004_drawings_take_back_changed_table_records() {
     table_records_are_taken_back(b"AC1018");
 }
 
-/// R2010 から後の図面の表のレコードの欄と文字列を変えて書き戻すと、読み直した表が変えた表と同じになる
+/// R2010 から後の図面の表のレコードのフィールドと文字列を変えて書き戻すと、読み直した表が変えた表と同じになる
 /// （決定 0089）
 #[test]
 fn r2010_and_later_drawings_take_back_changed_table_records() {
@@ -1994,7 +1994,7 @@ fn table_records_are_taken_back(version: &[u8; 6]) {
         let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
         let file = Dwg::read(&src, &mut cx).unwrap();
         let mut db = file.objects(&mut cx).unwrap();
-        // R2000 の試験と同じ欄と、寸法の色（176〜178）を変える。画層と寸法の色は CMC の形で書き直す
+        // R2000 のテストと同じフィールドと、寸法の色（176〜178）を変える。画層と寸法の色は CMC の形で書き直す
         for index in 0..db.objects().len() {
             let object = db.object_mut(index).unwrap();
             if object.section != Section::Tables {
@@ -2009,7 +2009,7 @@ fn table_records_are_taken_back(version: &[u8; 6]) {
                     (b"UCS", 10, Data::Real(v)) => *v += 1.5,
                     (b"DIMSTYLE", 40, Data::Real(v)) => *v *= 2.0,
                     (b"DIMSTYLE", 176..=178, Data::Int(v)) => *v = *v % 255 + 1,
-                    // R2010 からは、文字列の流れの文字列と、線種の文字の要素の文字列も変える（決定 0100）
+                    // R2010 からは、文字列のストリームの文字列と、線種の文字の要素の文字列も変える（決定 0100）
                     (b"STYLE" | b"LTYPE", 3, Data::Text(text))
                     | (b"LTYPE", 9, Data::Text(text))
                         if r2010 =>
@@ -2034,7 +2034,7 @@ fn r2004_drawings_take_back_changed_objects() {
     objects_are_taken_back(b"AC1018");
 }
 
-/// R2010 から後の図面の、図形でないオブジェクトの欄と文字列を変えて書き戻すと、読み直した表が変えた表と
+/// R2010 から後の図面の、図形でないオブジェクトのフィールドと文字列を変えて書き戻すと、読み直した表が変えた表と
 /// 同じになる（決定 0090）
 #[test]
 fn r2010_and_later_drawings_take_back_changed_objects() {
@@ -2054,7 +2054,7 @@ fn objects_are_taken_back(version: &[u8; 6]) {
         let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
         let file = Dwg::read(&src, &mut cx).unwrap();
         let mut db = file.objects(&mut cx).unwrap();
-        // R2000 の試験と同じ欄と、多重線の体裁の色を変える。色は CMC の形で書き直す
+        // R2000 のテストと同じフィールドと、マルチラインスタイルの色を変える。色は CMC の形で書き直す
         for index in 0..db.objects().len() {
             let object = db.object_mut(index).unwrap();
             for value in object.values.iter_mut() {
@@ -2125,7 +2125,7 @@ fn r2000_drawings_take_back_changed_entities() {
         let mut file = Dwg::read(&src, &mut cx).unwrap();
         let mut db = file.objects(&mut cx).unwrap();
         let reported = diag.len();
-        // 図形の色と線種の尺度を変え、書き戻せる種類の図形の点を動かす。画層と文字スタイルの欄も変える
+        // 図形の色と線種の尺度を変え、書き戻せる種類の図形の点を動かす。画層と文字スタイルのフィールドも変える
         for index in 0..db.objects().len() {
             let object = db.object_mut(index).unwrap();
             if object.section == Section::Entities {
@@ -2138,7 +2138,7 @@ fn r2000_drawings_take_back_changed_entities() {
                     changed += 1;
                 }
             }
-            // 画層の色（表示しない印の負の符号は保つ）と、文字スタイルの幅の係数と、線種の要素の長さと、ビューとビューポートの高さと、UCS の原点と、寸法の尺度を変える
+            // 画層の色（表示しないフラグの負の符号は保つ）と、文字スタイルの幅の係数と、線種の要素の長さと、ビューとビューポートの高さと、UCS の原点と、寸法の尺度を変える
             if object.section == Section::Tables {
                 for value in object.values.iter_mut() {
                     match (object.kind.as_slice(), value.code, &mut value.data) {
@@ -2153,7 +2153,7 @@ fn r2000_drawings_take_back_changed_entities() {
                     changed += 1;
                 }
             }
-            // 図面の変数の値の後ろに文字を足し、辞書の複製の扱いと、多重線の体裁の線の位置と、レイアウトの高さと、XRECORD の実数と文字列を変える
+            // 図面の変数の値の後ろに文字を足し、辞書の複製の扱いと、マルチラインスタイルの線の位置と、レイアウトの高さと、XRECORD の実数と文字列を変える
             for value in object.values.iter_mut() {
                 match (object.kind.as_slice(), value.code, &mut value.data) {
                     (b"DICTIONARYVAR", 1, Data::Text(text)) => text.extend(b"0"),
@@ -2266,7 +2266,7 @@ fn r2010_and_later_drawings_take_back_removed_entities() {
     }
 }
 
-/// 版 `version` の試料の図面から図形を除いて書き戻し、読み直した表が除いた表と同じことを確かめ、除いた
+/// バージョン `version` のサンプルの図面から図形を除いて書き戻し、読み直した表が除いた表と同じことを確かめ、除いた
 /// 図形の数を返す
 #[cfg(test)]
 fn removed_entities_are_taken_back(version: &[u8]) -> usize {
@@ -2299,7 +2299,7 @@ fn removed_entities_are_taken_back(version: &[u8]) -> usize {
             Dwg::write(&file, &mut out, &mut cx).unwrap();
             Some(Dwg::read(&out, &mut cx).unwrap().objects(&mut cx).unwrap())
         };
-        // 図形を持たない LINE・CIRCLE・ARC・TEXT・INSERT を 2 つおきに選び、1 つずつ足して除く。反応子か
+        // 図形を持たない LINE・CIRCLE・ARC・TEXT・INSERT を 2 つおきに選び、1 つずつ足して除く。リアクターか
         // 拡張辞書を持つものは除けないので、足さない
         let owners: Vec<u64> = base.objects().iter().filter_map(Object::owner).collect();
         let candidates: Vec<u64> = base
@@ -2361,7 +2361,7 @@ fn r2010_and_later_drawings_take_back_added_entities() {
     }
 }
 
-/// 版 `version` の試料の図面のモデル空間に図形を足して書き戻し、読み直した表が足した表と同じことを確かめる。
+/// バージョン `version` のサンプルの図面のモデル空間に図形を足して書き戻し、読み直した表が足した表と同じことを確かめる。
 /// `minsert` なら、属性を持つ MINSERT も足す
 #[cfg(test)]
 fn added_entities_are_taken_back(version: &[u8], minsert: bool) {
@@ -2397,7 +2397,7 @@ fn added_entities_are_taken_back(version: &[u8], minsert: bool) {
             code,
             data: Data::Int(value),
         };
-        // モデル空間に、画層 0 の LINE と CIRCLE と、文字の体裁が Standard の TEXT と MTEXT と、LWPOLYLINE と、重みのない・重みのある・当てはめる点の SPLINE を足す
+        // モデル空間に、画層 0 の LINE と CIRCLE と、文字スタイルが Standard の TEXT と MTEXT と、LWPOLYLINE と、重みのない・重みのある・フィット点の SPLINE を足す
         let mut added: Vec<(&[u8], Vec<Value>)> = vec![
             (
                 b"LINE",
@@ -2601,8 +2601,8 @@ fn added_entities_are_taken_back(version: &[u8], minsert: bool) {
             ));
             added.push((b"SEQEND", Vec::new()));
         }
-        // R2010 から後は、R2013 からの当てはめる点の SPLINE をまだ足せない（決定 0092・0093・0097）。
-        // MTEXT は枠の高さ（46）を、ATTRIB は属性の版と位置を固定するか（280）を持つ。R2018 からは、初めの
+        // R2010 から後は、R2013 からのフィット点の SPLINE をまだ足せない（決定 0092・0093・0097）。
+        // MTEXT は枠の高さ（46）を、ATTRIB は属性のバージョンと位置を固定するか（280）を持つ。R2018 からは、初めの
         // ATTRIB を、埋め込みの MTEXT を持つ複数行の属性とする（決定 0102）
         if !matches!(version, b"AC1015" | b"AC1018") {
             let mut multiline = version == b"AC1032";
@@ -2672,7 +2672,7 @@ fn added_entities_are_taken_back(version: &[u8], minsert: bool) {
         file.write_back(&db, &mut cx).unwrap();
         let mut out = Vec::new();
         Dwg::write(&file, &mut out, &mut cx).unwrap();
-        // 書き換えた見出しの変数と、足したオブジェクトの CRC は合う
+        // 書き換えたヘッダーの変数と、足したオブジェクトの CRC は合う
         let mut fresh = Diagnostics::new();
         let mut cx = Cx::new(&mut budget, &mut fresh, &cancel);
         let mut again = Dwg::read(&out, &mut cx).unwrap();
@@ -2735,8 +2735,8 @@ fn added_entities_are_taken_back(version: &[u8], minsert: bool) {
     }
 }
 
-/// R2000 の図面に画層と文字の体裁と線種と、それらを使う LINE と TEXT と、アプリケーションの名前と、足した
-/// 文字の体裁を使う寸法の体裁と、UCS を伴うビューと、ビューポートの設定を足して書き戻すと、読み直したものが足したものと合う。書き戻した図面に
+/// R2000 の図面に画層と文字スタイルと線種と、それらを使う LINE と TEXT と、アプリケーションの名前と、足した
+/// 文字スタイルを使う寸法スタイルと、UCS を伴うビューと、ビューポートの設定を足して書き戻すと、読み直したものが足したものと合う。書き戻した図面に
 /// もう一度足しても合う（決定 0061〜0067）
 #[test]
 fn r2000_drawings_take_back_added_table_records() {
@@ -2757,7 +2757,7 @@ fn r2010_and_later_drawings_take_back_added_table_records() {
     }
 }
 
-/// 版 `version` の図面に表のレコードと、それを使う図形とブロックを足して書き戻すと、読み直したものが足したものと合う
+/// バージョン `version` の図面に表のレコードと、それを使う図形とブロックを足して書き戻すと、読み直したものが足したものと合う
 #[cfg(test)]
 fn added_table_records_are_taken_back(version: &[u8]) {
     for path in dwgs(version) {
@@ -2858,7 +2858,7 @@ fn added_table_records_are_taken_back(version: &[u8]) {
                     _ => {}
                 }
             }
-            // 接尾辞・矢印の大きさ・文字の高さを持ち、足した文字の体裁を使う寸法の体裁
+            // 接尾辞・矢印の大きさ・文字の高さを持ち、足した文字スタイルを使う寸法スタイル
             let dimstyles = db
                 .objects()
                 .iter()
@@ -2957,7 +2957,7 @@ fn added_table_records_are_taken_back(version: &[u8]) {
                     .collect(),
                 origin: Origin::New,
             });
-            // UCS を伴うビュー。ビューの表は、見出しの並びと同じく線種の表の次にある
+            // UCS を伴うビュー。ビューの表は、ヘッダーの並びと同じく線種の表の次にある
             let mut tables: Vec<u64> = db
                 .objects()
                 .iter()
@@ -3065,7 +3065,7 @@ fn added_table_records_are_taken_back(version: &[u8]) {
                     (2, Data::Text(name.to_vec())),
                 ]
                 .into_iter()
-                // 挿す単位（mm）・分解できるか・尺度を揃えるか。DWG は R2010 から持つ
+                // 挿入単位（mm）・分解できるか・尺度を揃えるか。DWG は R2010 から持つ
                 .chain(
                     [(70, Data::Int(4)), (280, Data::Int(0)), (281, Data::Int(1))]
                         .into_iter()
@@ -3095,7 +3095,7 @@ fn added_table_records_are_taken_back(version: &[u8]) {
             insert.push((2, Data::Text(name.to_vec())));
             db.push(block(b"INSERT", seed + 13, insert));
             file.write_back(&db, &mut cx).unwrap();
-            // DWG の BLOCK は名前を値に持たず、ブロックのレコードの印（70）と基点を持つ
+            // DWG の BLOCK は名前を値に持たず、ブロックのレコードのフラグ（70）と基点を持つ
             let at = db.objects().len() - 4;
             let values = &mut db.object_mut(at).unwrap().values;
             values.retain(|v| v.code != 2);
@@ -3152,7 +3152,7 @@ fn r2010_and_later_drawings_take_back_changed_header_variables() {
     }
 }
 
-/// 版 `version` の試料の図面の見出しの変数を変えて書き戻し、読み直した表が変えた表と同じことと、
+/// バージョン `version` のサンプルの図面のヘッダーの変数を変えて書き戻し、読み直した表が変えた表と同じことと、
 /// HANDSEED を書き換えられることを確かめる
 #[cfg(test)]
 fn header_variables_are_taken_back(version: &[u8]) {
@@ -3670,7 +3670,7 @@ fn drawings_take_back_elements_added_in_the_drawing_model() {
             let elements = &after.spaces[0].elements;
             assert_eq!(elements.len(), before + shapes.len(), "{}", path.display());
             for (found, shape) in elements[before..].iter().zip(&shapes) {
-                // 文字の体裁は、大文字と小文字を区別せずに引いた定義の名前で書く
+                // 文字スタイルは、大文字と小文字を区別せずに引いた定義の名前で書く
                 let mut shape = shape.clone();
                 match (&found.shape, &mut shape) {
                     (Shape::Text(found), Shape::Text(text)) => {
@@ -3863,7 +3863,7 @@ fn drawings_refuse_to_move_entities_with_moving_xdata() {
 #[test]
 #[allow(
     clippy::disallowed_methods,
-    reason = "環境変数を読むのは試験だけで、コアは読まない（AGENTS.md の図面と秘密）"
+    reason = "環境変数を読むのはテストだけで、コアは読まない（AGENTS.md の図面と秘密）"
 )]
 fn drawings_take_back_sheet_elements_moved_in_the_drawing_model() {
     use crate::by_source::{Apply, Changes, Edit};
@@ -4161,7 +4161,7 @@ fn drawings_take_back_sheet_elements_moved_in_the_drawing_model() {
             _ => None,
         }
     }
-    // 用紙に要素を持つ試料。farmhouse.dwg は今のレイアウトとほかの 25 のレイアウトに、features-r2018.dxf は
+    // 用紙に要素を持つサンプル。farmhouse.dwg は今のレイアウトとほかの 25 のレイアウトに、features-r2018.dxf は
     // ほかのレイアウト（A3-PLAN）に要素を持つ
     let Some(dir) = std::env::var_os("ZUMEN_SAMPLES").filter(|d| !d.is_empty()) else {
         return;
@@ -4260,7 +4260,7 @@ fn table_ids(drawing: &zumen_drawing::Drawing2D) -> [Vec<String>; 4] {
 #[cfg(feature = "drawing")]
 #[allow(
     clippy::disallowed_methods,
-    reason = "環境変数を読むのは試験だけで、コアは読まない（AGENTS.md の図面と秘密）"
+    reason = "環境変数を読むのはテストだけで、コアは読まない（AGENTS.md の図面と秘密）"
 )]
 fn dwg_and_dxf_of_the_same_drawing_give_the_same_element_ids() {
     use zumen_drawing::id;
@@ -4317,14 +4317,14 @@ fn dwg_and_dxf_of_the_same_drawing_give_the_same_element_ids() {
     }
 }
 
-/// 同じ図面の DWG と DXF は、図面モデルに移した線種の生成・当てはめの許容差・節点の取り方・図形の透過性と、
-/// 画層の説明と透過性（決定 0157）が同じになる。R2013 より前の DWG は節点の取り方を図形の欄に持たないので、節点の取り方は R2013 からの組で比べる。
-/// 試料の横須賀の平面図は、線種の生成を立てた LWPOLYLINE を持つ
+/// 同じ図面の DWG と DXF は、図面モデルに移した線種の生成・フィット許容差・ノットの取り方・図形の透過性と、
+/// 画層の説明と透過性（決定 0157）が同じになる。R2013 より前の DWG はノットの取り方を図形のフィールドに持たないので、ノットの取り方は R2013 からの組で比べる。
+/// サンプルの横須賀の平面図は、線種の生成を立てた LWPOLYLINE を持つ
 #[test]
 #[cfg(feature = "drawing")]
 #[allow(
     clippy::disallowed_methods,
-    reason = "環境変数を読むのは試験だけで、コアは読まない（AGENTS.md の図面と秘密）"
+    reason = "環境変数を読むのはテストだけで、コアは読まない（AGENTS.md の図面と秘密）"
 )]
 fn dwg_and_dxf_of_the_same_drawing_agree_on_the_moved_values() {
     use zumen_drawing::{
@@ -4410,7 +4410,7 @@ fn dwg_and_dxf_of_the_same_drawing_agree_on_the_moved_values() {
     }
 }
 
-/// 試料の日本の図面の文字スタイルは、TrueType の書体を、XDATA の ACAD の書体の名前と文字集合（128 は
+/// サンプルの日本の図面の文字スタイルは、TrueType の書体を、XDATA の ACAD の書体の名前と文字集合（128 は
 /// Shift_JIS）で指す（決定 0158）。どの文字スタイルも、名前で指すだけのものを含めて表にある
 #[test]
 #[cfg(feature = "drawing")]
@@ -4471,8 +4471,8 @@ fn drawings_name_the_fonts_of_their_text_styles() {
     assert!(!paths.iter().any(|path| support::received(path)) || japanese > 0);
 }
 
-/// 試料のレイヤの名前・色・状態を変え、レイヤを 1 つ足して書き戻すと、読み直したレイヤは変えたものと同じに
-/// なり、図形は名前を変えたレイヤにとどまる。R2010 から後の DWG は、名前を文字列の流れに UTF-16 で書くので、
+/// サンプルのレイヤの名前・色・状態を変え、レイヤを 1 つ足して書き戻すと、読み直したレイヤは変えたものと同じに
+/// なり、図形は名前を変えたレイヤにとどまる。R2010 から後の DWG は、名前を文字列のストリームに UTF-16 で書くので、
 /// 日本語の名前にも変える（決定 0162）
 #[cfg(feature = "drawing")]
 #[test]
@@ -4643,7 +4643,7 @@ fn drawings_take_back_renamed_restyled_and_added_layers() {
     }
 }
 
-/// 試料の図面から、要素が使わない画層を除いて書き戻すと、開き直した図面にその画層がなく、ほかの画層の ID・
+/// サンプルの図面から、要素が使わない画層を除いて書き戻すと、開き直した図面にその画層がなく、ほかの画層の ID・
 /// 名前・状態・スタイルと、要素の画層は変わらない（決定 0162）
 #[cfg(feature = "drawing")]
 #[test]
@@ -4920,7 +4920,7 @@ fn drawings_take_back_removed_layers() {
     }
 }
 
-/// 試料の文字スタイルの名前と定義を変え、文字スタイルを 1 つ足し、要素が使わない文字スタイルを除いて書き戻すと、
+/// サンプルの文字スタイルの名前と定義を変え、文字スタイルを 1 つ足し、要素が使わない文字スタイルを除いて書き戻すと、
 /// 読み直した文字スタイルは変えたものと同じになり、文字は名前を変えた文字スタイルを指す。R2010 から後の DWG は、
 /// 日本語の名前にも変える（決定 0163）
 #[cfg(feature = "drawing")]
@@ -5129,7 +5129,7 @@ fn drawings_take_back_changed_text_styles() {
     }
 }
 
-/// 試料の線種の名前と定義を変え、線種を 1 つ足し、要素とレイヤが使わない線種を除いて書き戻すと、読み直した線種は
+/// サンプルの線種の名前と定義を変え、線種を 1 つ足し、要素とレイヤが使わない線種を除いて書き戻すと、読み直した線種は
 /// 変えたものと同じになり、要素とレイヤは名前を変えた線種を指す。R2010 から後の DWG は、日本語の名前にも変える
 /// （決定 0164）
 #[cfg(feature = "drawing")]
@@ -5336,7 +5336,7 @@ fn drawings_take_back_changed_line_types() {
     }
 }
 
-/// 試料の寸法スタイルの名前・大きさ・斜線・倍率を変え、寸法スタイルを 1 つ足し、寸法と引出線が使わない寸法スタイル
+/// サンプルの寸法スタイルの名前・大きさ・斜線・倍率を変え、寸法スタイルを 1 つ足し、寸法と引出線が使わない寸法スタイル
 /// を除いて書き戻すと、読み直した寸法スタイルは変えたものと同じになり、寸法と引出線は名前を変えた寸法スタイルを指す。
 /// DXF は、端部記号もブロックの矢印に変える。R2010 から後の DWG は、日本語の名前にも変える（決定 0165）
 #[cfg(feature = "drawing")]
@@ -5435,7 +5435,7 @@ fn drawings_take_back_changed_dimension_styles() {
         changed.size = was.size * 2.0 + 1.0;
         changed.scale = 50.0;
         changed.tick = Some(0.75);
-        // DXF は、試料が持つ矢印のブロックがあれば、端部記号もそれに変える
+        // DXF は、サンプルが持つ矢印のブロックがあれば、端部記号もそれに変える
         let arrow = drawing
             .symbols
             .iter()

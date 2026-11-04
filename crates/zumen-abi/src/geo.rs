@@ -1,4 +1,4 @@
-//! 地理の領域モデル（決定 0233）の境界の処理。CityGML・基盤地図情報（GML）・拡張 DM を読み、`geo` の op で要約と
+//! 地理の領域モデル（決定 0233）の API の処理。CityGML・基盤地図情報（GML）・拡張 DM を読み、`geo` の op で要約と
 //! 地物の中身を返す。
 
 use std::collections::BTreeMap;
@@ -30,7 +30,7 @@ pub(crate) fn read(
         let model = Fgd::read(bytes, cx).and_then(|file| file.lift(cx));
         return Some((Fgd::FORMAT, model.map_err(|_| Failed)));
     }
-    // 基盤地図情報の配布の書庫（決定 0251）
+    // 基盤地図情報の配布のアーカイブ（決定 0251）
     if zumen_fgd::ARCHIVE.iter().any(|rule| rule.matches(bytes)) {
         let model = zumen_fgd::lift_archive(bytes, cx);
         return Some((Fgd::FORMAT, model.map_err(|_| Failed)));
@@ -38,7 +38,7 @@ pub(crate) fn read(
     None
 }
 
-/// 名指した拡張 DM を読み、地理の領域モデルに移す。拡張 DM は見分ける印がないので、判定しない
+/// 名指した拡張 DM を読み、地理の領域モデルに移す。拡張 DM は見分けるマーカーがないので、判定しない
 pub(crate) fn read_extdm(bytes: &[u8], cx: &mut Cx<'_>) -> Result<GeoModel, Failed> {
     // 失敗の理由は、コーデックと移す処理が診断として足してある
     ExtDm::read(bytes, cx)

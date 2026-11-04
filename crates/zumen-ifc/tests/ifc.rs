@@ -1,10 +1,10 @@
-//! IFC の L1 の読み書き（決定 0211）。ファイルは、どれも試験の中で作る。
+//! IFC の L1 の読み書き（決定 0211）。ファイルは、どれもテストの中で作る。
 
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Kind, Limit, Limits, Value, codes};
 use zumen_ifc::{Form, Ifc, IfcFile};
 use zumen_sdk::{Codec, Error, testkit};
 
-/// スキーマの名前で見出しを変えた、最小の IFC。知らない実体・複合のインスタンス・コメントを含む
+/// スキーマの名前でヘッダーを変えた、最小の IFC。知らない実体・複合のインスタンス・コメントを含む
 fn ifc(schema: &str) -> String {
     format!(
         "ISO-10303-21;\r\nHEADER;\r\n\
@@ -65,7 +65,7 @@ fn reads_every_version_and_writes_the_same_bytes() {
 fn keeps_unknown_and_complex_instances() {
     let (file, _) = read(ifc("IFC4").as_bytes());
     let file = file.unwrap();
-    // 節の語の 6 つ（始まり・HEADER・ENDSEC・DATA・ENDSEC・終わり）と、見出しの 3 つの文と、11 のインスタンス
+    // 節の語の 6 つ（始まり・HEADER・ENDSEC・DATA・ENDSEC・終わり）と、ヘッダーの 3 つの文と、11 のインスタンス
     assert_eq!(file.records().len(), 20);
     let keywords = file
         .records()

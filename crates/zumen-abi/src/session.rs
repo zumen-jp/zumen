@@ -72,7 +72,7 @@ use crate::validate;
 /// entities の op で、limit を書かなかったときに返す要素の数（決定 0117）
 const ENTITIES_LIMIT: u64 = 1000;
 
-/// このライブラリの実行の形（決定 0013）
+/// このライブラリの実行の形態（決定 0013）
 const BUILT: Engine = if cfg!(target_family = "wasm") {
     Engine::Wasm
 } else {
@@ -103,7 +103,7 @@ pub struct Session {
     op: &'static str,
     /// 直前の呼び出しが作ったバイナリの結果。取り出したものは `None` になる
     blobs: Vec<Option<Blob>>,
-    /// 実行の形が `process` なら、子プロセスの CLI。要求をそのまま送る（決定 0013・0200）
+    /// 実行の形態が `process` なら、子プロセスの CLI。要求をそのまま送る（決定 0013・0200）
     #[cfg(not(target_family = "wasm"))]
     child: Option<crate::process::Child>,
 }
@@ -116,7 +116,7 @@ enum Doc {
     Dxf(DxfFile),
     #[cfg(feature = "drawing")]
     Dwg(DwgFile),
-    /// SXF。P2Z・SFZ なら、書庫の項目も持つ（#385）。属性ファイル（SAF）があれば、読んだものを持つ（決定 0249）
+    /// SXF。P2Z・SFZ なら、アーカイブの項目も持つ（#385）。属性ファイル（SAF）があれば、読んだものを持つ（決定 0249）
     #[cfg(feature = "drawing")]
     Sxf(SxfFile, Option<Box<Packed>>, Option<Box<AttributeFile>>),
     #[cfg(feature = "drawing")]
@@ -257,7 +257,7 @@ fn read_drawing(bytes: &[u8], cx: &mut Cx<'_>) -> Result<Option<Doc>, Failed> {
     let doc = if format == Some(Dxf::FORMAT) {
         Doc::Dxf(Dxf::read(bytes, cx).map_err(|_| Failed)?)
     } else if format == Some(Dwg::FORMAT) {
-        // 読めるのは R2000（AC1015）だけ。ほかの版は、コーデックが診断を足して失敗する
+        // 読めるのは R2000（AC1015）だけ。ほかのバージョンは、コーデックが診断を足して失敗する
         Doc::Dwg(Dwg::read(bytes, cx).map_err(|_| Failed)?)
     } else if format == Some(Sxf::FORMAT) {
         // 同じ始まりの IFC などは、コーデックがスキーマを確かめて、診断を足して失敗する
@@ -318,7 +318,7 @@ pub(crate) fn input_missing(name: &str) -> Diagnostic {
 impl Session {
     /// 設定の JSON（`session_options`）からセッションを作る。設定が空なら既定の設定にする。
     ///
-    /// 設定が読めなければ [`Status::Invalid`]、このライブラリにない実行の形なら [`Status::Failed`] を返す。
+    /// 設定が読めなければ [`Status::Invalid`]、このライブラリにない実行の形態なら [`Status::Failed`] を返す。
     pub fn new(options: &[u8]) -> Result<Self, Status> {
         Self::for_engine(BUILT, options)
     }
@@ -439,7 +439,7 @@ impl Session {
                 return None;
             }
         };
-        // 版を先に確かめる。版が違えば、ほかの欄の形も違いうる
+        // バージョンを先に確かめる。バージョンが違えば、ほかのフィールドの形も違いうる
         if let Some(version) = value
             .pointer("/v")
             .and_then(|v| zumen_json::uint(v, 0, MAX_SAFE_INTEGER as u64).ok())
@@ -449,7 +449,7 @@ impl Session {
                 .report(Diagnostic::new(codes::CALL_VERSION_UNSUPPORTED).with("version", version));
             return None;
         }
-        // wasm のモジュールは、持つ op だけを入れて作る。持たない op は、欄を読む前に断る（決定 0013・0221）
+        // wasm のモジュールは、持つ op だけを入れて作る。持たない op は、フィールドを読む前に断る（決定 0013・0221）
         if let Some(zumen_json::Value::String(op)) = value.pointer("/op")
             && Request::TAGS.contains(&op.as_str())
             && !crate::abi::has_op(op)
@@ -625,7 +625,7 @@ impl Session {
         if let Some(model) = building::read_spf(bytes, cx) {
             return self.open_model(name.clone(), model?, cx);
         }
-        // 名指せる形式は、見分ける印のない xyz（点群のモジュール）と extdm（土木・地理のモジュール）だけ。ほかの形式は
+        // 名指せる形式は、見分けるマーカーのない xyz（点群のモジュール）と extdm（土木・地理のモジュール）だけ。ほかの形式は
         // 入力から判定する
         if request.format.as_deref().is_some_and(|format| {
             !((format == zumen_xyz::Xyz::FORMAT && cfg!(feature = "pointcloud"))
@@ -1003,7 +1003,7 @@ impl Session {
     #[cfg(feature = "drawing")]
     fn apply(&mut self, request: &ApplyRequest, cx: &mut Cx<'_>) -> Result<ApplyResult, Failed> {
         let drawing = self.lift(&request.doc, cx)?;
-        // 移せなかった ATTDEF は図面モデルの定義に現れない。どの定義の属性かを境界で判定できないため、
+        // 移せなかった ATTDEF は図面モデルの定義に現れない。どの定義の属性かを API で判定できないため、
         // 安全に属性を作れない記号の追加は拒否する。
         let mut symbol_add = None;
         for (index, edit) in request.edits.iter().enumerate() {
@@ -1214,7 +1214,7 @@ impl Session {
         check::check(&drawing, request, &profiles, &palette, family, cx)
     }
 
-    /// 入力の名前のバイト列。`pointer` は名前を書いた欄
+    /// 入力の名前のバイト列。`pointer` は名前を書いたフィールド
     fn input(&self, name: &str, pointer: &str, cx: &mut Cx<'_>) -> Result<&[u8], Failed> {
         if !name::is_safe(name) {
             return Err(fail(cx, invalid_value(pointer)));
@@ -1225,7 +1225,7 @@ impl Session {
         }
     }
 
-    /// レビューの文書の対象を、文書の版へ移し、移した文書を blob で返す（決定 0218）
+    /// レビューの文書の対象を、文書のバージョンへ移し、移した文書を blob で返す（決定 0218）
     fn review_carry(
         &mut self,
         request: &ReviewCarryRequest,
@@ -1707,7 +1707,7 @@ impl Session {
         Ok(result)
     }
 
-    /// 開いた点群の文書。`pointer` は名前を書いた欄
+    /// 開いた点群の文書。`pointer` は名前を書いたフィールド
     #[cfg(feature = "pointcloud")]
     fn cloud(
         &self,
@@ -1886,7 +1886,7 @@ struct Page {
     start: u64,
     /// 返す範囲の終わり（含まない）
     end: u64,
-    /// 返す欄。`id` のほかに返すもの
+    /// 返すフィールド。`id` のほかに返すもの
     fields: Vec<EntityField>,
     /// 範囲がこの長方形と重なる要素だけを数える
     region: Option<Extent>,
@@ -2077,7 +2077,7 @@ pub(crate) fn unit_of(unit: Unit) -> messages::Unit {
 }
 
 fn counts<P>(elements: &[Element<P>]) -> ElementCounts {
-    // 書式つきの文字・寸法・引出線・引出線つきの注記・記号・ハッチングは、要約の欄がまだないので数えない（#66）
+    // 書式つきの文字・寸法・引出線・引出線つきの注記・記号・ハッチングは、要約のフィールドがまだないので数えない（#66）
     let count = |is: fn(&Shape<P>) -> bool| elements.iter().filter(|e| is(&e.shape)).count() as u64;
     ElementCounts {
         lines: count(|shape| matches!(shape, Shape::Line { .. })),
@@ -2173,7 +2173,7 @@ fn request_problem(invalid: &Invalid) -> Diagnostic {
     }
 }
 
-/// 要求の予算の欄
+/// 要求の予算のフィールド
 fn budget_field(budget: &messages::Budget, kind: Kind) -> Option<&messages::Limit> {
     match kind {
         Kind::InputBytes => budget.input_bytes.as_ref(),
@@ -2316,7 +2316,7 @@ fn param_of(value: &zumen_base::Value) -> messages::ParamValue {
     }
 }
 
-/// 時間の上限。ネイティブの境界が時計を見て、中断の合図で伝える（決定 0010）
+/// 時間の上限。ネイティブの API が時計を見て、中断の合図で伝える（決定 0010）
 mod watchdog {
     use zumen_base::CancelToken;
 
@@ -2386,7 +2386,7 @@ mod tests {
 
     use crate::changes::{ElementLookup, PlaceLookup, TableLookup, count_old_element};
 
-    /// 見出しの単位と用紙の範囲、モデル空間の線分と文字、ペーパー空間の線分、移さない構築線を持つ DXF
+    /// ヘッダーの単位と用紙の範囲、モデル空間の線分と文字、ペーパー空間の線分、移さない構築線を持つ DXF
     const DRAWING: &[u8] = b"0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1015\n9\n$INSUNITS\n70\n4\n\
         9\n$PLIMMIN\n10\n0.0\n20\n0.0\n9\n$PLIMMAX\n10\n420.0\n20\n297.0\n0\nENDSEC\n\
         0\nSECTION\n2\nENTITIES\n0\nLINE\n8\n0\n10\n1.5\n20\n2.0\n11\n100.0\n21\n50.0\n\
@@ -3020,7 +3020,7 @@ mod tests {
         id.and_then(|id| session.take(id)).unwrap_or_default()
     }
 
-    /// 建物の op の試験に使う、小さな IFC4
+    /// 建物の op のテストに使う、小さな IFC4
     const IFC: &[u8] = b"ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION((''),'2;1');\n\
 FILE_NAME('','',(''),(''),'','','');\nFILE_SCHEMA(('IFC4'));\nENDSEC;\nDATA;\n\
 #1=IFCPROJECT('0000000000000000000001',$,'Project',$,$,$,$,$,#10);\n\
@@ -3303,7 +3303,7 @@ END_SCHEMA;
             "0000000000000000000080"
         );
 
-        // 指摘をレビューの文書に取り込み、同じ版へ移す
+        // 指摘をレビューの文書に取り込み、同じバージョンへ移す
         let (status, response) = call(
             &mut session,
             r#"{"v":1,"op":"review_adopt_ids","doc":"a.ifc","ids":"door.ids","express":"ifc4.exp","target":"model","findings":[0]}"#,
@@ -3839,7 +3839,7 @@ END_SCHEMA;
                 assert_eq!(text(&error, "/params/pointer"), pointer, "{request}");
             }
         }
-        // 足す文字スタイルの書かない欄は、Standard と同じ
+        // 足す文字スタイルの書かないフィールドは、Standard と同じ
         let edits = [
             format!(
                 r#"{{"kind":"text_style","id":"text-style/h11","hash":"{standard}","width":0.9,"backward":false}}"#
@@ -3962,7 +3962,7 @@ END_SCHEMA;
 
     #[test]
     fn reads_and_writes_back_sxf_in_a_zip() {
-        // P2Z・SFZ（#385）。SXF の項目のほかの項目は、名前で返し、書き戻す書庫にそのまま写す
+        // P2Z・SFZ（#385）。SXF の項目のほかの項目は、名前で返し、書き戻すアーカイブにそのまま写す
         let packed = zumen_zip::write(&[
             ("ATTR/", b"".as_slice()),
             ("ATTR/A.SAF", b"saf".as_slice()),
@@ -4055,7 +4055,7 @@ END_SCHEMA;
             assert_eq!(status, Status::Failed, "{request}");
             assert_eq!(text(&error(&response), "/code"), code, "{request}");
         }
-        // 足す寸法スタイルの書かない欄は、Standard と同じ
+        // 足す寸法スタイルの書かないフィールドは、Standard と同じ
         let edits = [
             format!(
                 r#"{{"kind":"dimension_style","id":"dimension-style/h1D","hash":"{standard}","size":3.5,"scale":100}}"#
@@ -4376,7 +4376,7 @@ END_SCHEMA;
             assert_eq!(status, Status::Failed, "{request}");
             assert_eq!(text(&error(&response), "/code"), code, "{request}");
         }
-        // 足す線種の書かない欄は、Continuous と同じ
+        // 足す線種の書かないフィールドは、Continuous と同じ
         let edits = [
             format!(
                 r#"{{"kind":"line_type","id":"line-type/h12","hash":"{dashed}","name":"Hidden","pattern":[0.5,-0.25]}}"#
@@ -5230,7 +5230,7 @@ END_SCHEMA;
     #[test]
     fn symbol_replace_does_not_move_unreadable_attributes() {
         // タグのない ATTRIB はモデルへ移せないが、元のファイルには残る。
-        // 続く印と所有者のどちらで結び付いた場合も INSERT だけを動かさない。
+        // 続くフラグと所有者のどちらで結び付いた場合も INSERT だけを動かさない。
         for (flag, owner) in [("66\n1\n", ""), ("", "330\n40\n")] {
             let file = format!(
                 "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1015\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n\
@@ -5378,7 +5378,7 @@ END_SCHEMA;
         let hash = text(&response, "/result/applied/0/hash");
         assert_eq!(seen(&mut session, "a.dxf")[3], (id.clone(), hash.clone()));
         assert_eq!(shapes(&mut session, "a.dxf")[3], added);
-        // 次数・制御点・節点・重みの数が合わない値は受けない
+        // 次数・制御点・ノット・重みの数が合わない値は受けない
         for (geometry, pointer) in [
             (
                 r#"{"shape":"spline","degree":0,"knots":[0,1],"control":[[0,0],[1,1]],"closed":false,"periodic":false}"#,
@@ -5483,7 +5483,7 @@ END_SCHEMA;
                 r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"add","place":"space/0","geometry":{geometry}}}]}}"#
             )
         };
-        // 注記と寸法スタイルは変えず、足す引出線の注記は図面にある要素を指す。合わない欄を指して失敗し、何も
+        // 注記と寸法スタイルは変えず、足す引出線の注記は図面にある要素を指す。合わないフィールドを指して失敗し、何も
         // 変えない
         for (request, pointer) in [
             (
@@ -5649,7 +5649,7 @@ END_SCHEMA;
         let one =
             r#"{"lines":[[[0,0],[5,5]]],"end":[30,20],"dogleg":{"direction":[-1,0],"length":4}}"#;
         let branch = &format!("[{one}]");
-        // 枝のほかの欄を変えたり、合わない枝を書いたりすると、その欄を指して失敗する
+        // 枝のほかのフィールドを変えたり、合わない枝を書いたりすると、そのフィールドを指して失敗する
         for (request, pointer) in [
             (
                 replace(&callout(branch, false)),
@@ -5811,7 +5811,7 @@ END_SCHEMA;
         // 寸法スタイルも、名前で引いた ID を返す
         assert_eq!(shapes(&mut session, "a.dxf"), [geometry]);
         let (id, hash) = seen(&mut session, "a.dxf").remove(0);
-        // 種類が持たない欄・欠けた欄・合わない文字と測定値は、その欄を指す
+        // 種類が持たないフィールド・欠けたフィールド・合わない文字と測定値は、そのフィールドを指す
         for (geometry, pointer) in [
             (
                 r#"{"shape":"dimension","kind":"linear","first":[0,0],"second":[1,0],"line":[0,1],"rotation":0,"oblique":0,"vertex":[0,0],"label":"measurement","style":"ISO-25"}"#,
@@ -5875,7 +5875,7 @@ END_SCHEMA;
         let mut session = Session::new(b"").unwrap();
         session.push(b"a.dxf", EDITABLE).unwrap();
         call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
-        // 当てはめる点で決まるものは、節点・制御点・重みを持たず、当てはめる点を 2 つ以上と、0 でない接線を持つ
+        // フィット点で決まるものは、ノット・制御点・重みを持たず、フィット点を 2 つ以上と、0 でない接線を持つ
         for (geometry, pointer) in [
             (
                 r#"{"shape":"spline","degree":3,"knots":[0,1],"control":[],"fit":[[0,0],[1,1]],"closed":false,"periodic":false}"#,
@@ -5935,7 +5935,7 @@ END_SCHEMA;
             text(&error(&response), "/params/pointer"),
             "/edits/0/geometry/control"
         );
-        // 接線をなくし、当てはめる点を替える
+        // 接線をなくし、フィット点を替える
         let replaced = r#"{"shape":"spline","degree":3,"knots":[],"control":[],"fit":[[1,0],[3,2],[6,0]],"closed":false,"periodic":false}"#;
         let (status, response) = call(
             &mut session,
@@ -5957,7 +5957,7 @@ END_SCHEMA;
         for code in [" 10\n", " 12\n", " 40\n"] {
             assert!(!spline.contains(code), "{code:?}: {spline}");
         }
-        // 制御点で決まるものは、当てはめる点で決まるものに替えない
+        // 制御点で決まるものは、フィット点で決まるものに替えない
         let controlled = r#"{"shape":"spline","degree":1,"knots":[0,0,1,1],"control":[[0,0],[1,1]],"closed":false,"periodic":false}"#;
         let (_, response) = call(
             &mut session,
@@ -6313,7 +6313,7 @@ END_SCHEMA;
 
     #[test]
     fn replaces_and_adds_points_by_their_geometry() {
-        // 点の形の値を返し、置き換えて足す。DXF の POINT は既定義の印を持たない（決定 0183）
+        // 点の形の値を返し、置き換えて足す。DXF の POINT は既定義のマーカーを持たない（決定 0183）
         let mut session = Session::new(b"").unwrap();
         let dxf = concat!(
             "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1015\n9\n$HANDSEED\n5\n20\n0\nENDSEC\n",
@@ -6338,7 +6338,7 @@ END_SCHEMA;
                 r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"add","place":"space/0","geometry":{geometry}}}]}}"#
             )
         };
-        // 置き換えは描き方を変えず、印の名前空間は既知のものだけ
+        // 置き換えは描き方を変えず、マーカーの名前空間は既知のものだけ
         for (request, pointer) in [
             (
                 replace(
@@ -6379,7 +6379,7 @@ END_SCHEMA;
 
     #[test]
     fn changes_the_point_style_of_a_document() {
-        // 文書の点の表し方を、DXF の見出しの $PDMODE・$PDSIZE に書く。applied は ID を持たない（決定 0190）
+        // 文書の点の表し方を、DXF のヘッダーの $PDMODE・$PDSIZE に書く。applied は ID を持たない（決定 0190）
         let mut session = Session::new(b"").unwrap();
         let dxf = concat!(
             "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1015\n9\n$HANDSEED\n5\n20\n0\nENDSEC\n",
@@ -6921,7 +6921,7 @@ END_SCHEMA;
             };
             assert_eq!(limits.get(kind), expected, "{kind:?}");
         }
-        // JSON の欄の名前は、単位の名前の - を _ にしたもの
+        // JSON のフィールドの名前は、単位の名前の - を _ にしたもの
         let mut out = Writer::new();
         budget.to_json(&mut out);
         let written = zumen_json::parse(&out.into_bytes()).unwrap();

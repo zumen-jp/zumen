@@ -1,7 +1,7 @@
-//! 適合試験（`bindings/conformance`）の組を、C の側（`conformance.c`、ヘッダーだけ）と C++ の側（`conformance.cpp`、
-//! `zumen.hpp` の包み）を通して流し、状態・応答の値・ハッシュの一覧が `hashes.txt` と一致することを確かめる（決定 0198）。
+//! 適合テスト（`bindings/conformance`）の組を、C の側（`conformance.c`、ヘッダーだけ）と C++ の側（`conformance.cpp`、
+//! `zumen.hpp` のラッパー）を通して流し、状態・応答の値・ハッシュの一覧が `hashes.txt` と一致することを確かめる（決定 0198）。
 //!
-//! 組の手順を読んで応答を確かめるのは、Rust の試験の道具（`zumen-conformance`）が受け持つ。C と C++ には JSON を
+//! 組の手順を読んで応答を確かめるのは、Rust のテストのツール（`zumen-conformance`）が受け持つ。C と C++ には JSON を
 //! 読む標準のライブラリがないため。C++ の側では、シーンの blob を `zumen::Scene` で読み、応答の数と合うかも確かめる。
 
 use std::cell::RefCell;
@@ -62,7 +62,7 @@ struct Scenes {
 struct Native {
     side: &'static Side,
     engine: *mut c_void,
-    /// C++ の側では、シーンの blob を読み手で読む
+    /// C++ の側では、シーンの blob をリーダーで読む
     scenes: Option<Rc<RefCell<Scenes>>>,
     last_scene: Option<LastScene>,
 }
@@ -70,7 +70,7 @@ struct Native {
 impl Native {
     fn new(side: &'static Side, scenes: Option<Rc<RefCell<Scenes>>>) -> Self {
         let engine = unsafe { (side.new)() };
-        assert!(!engine.is_null(), "試験の形を作れない");
+        assert!(!engine.is_null(), "テストの形を作れない");
         Self {
             side,
             engine,
@@ -104,9 +104,13 @@ impl Native {
             _ => -1,
         };
         let checks = [
-            ("大版", i64::from(counts.major), i64::from(layout::MAJOR)),
             (
-                "区画の数",
+                "メジャーバージョン",
+                i64::from(counts.major),
+                i64::from(layout::MAJOR),
+            ),
+            (
+                "セクションの数",
                 i64::from(counts.sections),
                 layout::SECTIONS.len() as i64,
             ),

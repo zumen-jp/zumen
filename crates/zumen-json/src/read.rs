@@ -22,11 +22,11 @@ pub enum Problem {
     Type,
     /// 値が、範囲か、決まった値の一覧に入らない
     Value,
-    /// 必要な欄がない
+    /// 必要なフィールドがない
     Missing,
-    /// 知らない欄がある
+    /// 知らないフィールドがある
     Unknown,
-    /// 目印の欄の値が、どの形にも当たらない。その値を持つ
+    /// タグのフィールドの値が、どの形にも当たらない。その値を持つ
     Tag(String),
 }
 
@@ -170,9 +170,9 @@ pub fn map<T>(
         .collect()
 }
 
-/// オブジェクトの欄を 1 つずつ読み、読まなかった欄を知らない欄として返す。
+/// オブジェクトのフィールドを 1 つずつ読み、読まなかったフィールドを知らないフィールドとして返す。
 ///
-/// 生成した型は、欄をスキーマの順に読み、最後に [`ObjectReader::finish`] を呼ぶ。
+/// 生成した型は、フィールドをスキーマの順に読み、最後に [`ObjectReader::finish`] を呼ぶ。
 #[derive(Debug)]
 pub struct ObjectReader<'a> {
     members: &'a [(String, Value)],
@@ -199,7 +199,7 @@ impl<'a> ObjectReader<'a> {
             .map(|(index, (_, value))| (index, value))
     }
 
-    /// 必要な欄を読む
+    /// 必要なフィールドを読む
     pub fn required<T>(
         &mut self,
         key: &str,
@@ -209,7 +209,7 @@ impl<'a> ObjectReader<'a> {
             .ok_or_else(|| Invalid::new(Problem::Missing).in_key(key))
     }
 
-    /// 書かなくてもよい欄を読む。`null` は値がないことにしない
+    /// 書かなくてもよいフィールドを読む。`null` は値がないことにしない
     pub fn optional<T>(
         &mut self,
         key: &str,
@@ -224,7 +224,7 @@ impl<'a> ObjectReader<'a> {
         read(value).map(Some).map_err(|error| error.in_key(key))
     }
 
-    /// 目印の欄の文字列を、読んだことにせずに見る。タグつきの共用体が、どの形かを決めるのに使う
+    /// タグのフィールドの文字列を、読んだことにせずに見る。タグつきの共用体が、どの形かを決めるのに使う
     pub fn tag(&self, key: &str) -> Result<&'a str, Invalid> {
         let (_, value) = self
             .find(key)
@@ -232,7 +232,7 @@ impl<'a> ObjectReader<'a> {
         str(value).map_err(|error| error.in_key(key))
     }
 
-    /// 決まった文字列の欄を読む
+    /// 決まった文字列のフィールドを読む
     pub fn constant(&mut self, key: &str, expected: &str) -> Result<(), Invalid> {
         let text = self.required(key, str)?;
         if text == expected {
@@ -242,7 +242,7 @@ impl<'a> ObjectReader<'a> {
         }
     }
 
-    /// 読まなかった欄を、読んだ順に返す。知らない欄を書き戻すまで保つ文書が使う
+    /// 読まなかったフィールドを、読んだ順に返す。知らないフィールドを書き戻すまで保つ文書が使う
     pub fn rest(self) -> Vec<(String, Value)> {
         self.members
             .iter()
@@ -252,7 +252,7 @@ impl<'a> ObjectReader<'a> {
             .collect()
     }
 
-    /// 読まなかった欄があれば、最初のものを知らない欄として返す
+    /// 読まなかったフィールドがあれば、最初のものを知らないフィールドとして返す
     pub fn finish(self) -> Result<(), Invalid> {
         match self
             .members

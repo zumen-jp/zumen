@@ -1,5 +1,5 @@
 //! 2D のシーン（L3、決定 0137・0172）。図面モデルの配置をたどり（決定 0159）、解いた値を、線・面・文字・点・
-//! 画像の区画と、それらが引く表に並べた 1 つのバッファーにする。区画の配置は `schema/scene.toml` にあり、
+//! 画像のセクションと、それらが引く表に並べた 1 つのバッファーにする。セクションの配置は `schema/scene.toml` にあり、
 //! [`layout`] に生成してある（決定 0178）。
 //!
 //! - 曲線・ふくらみのある折れ線は、起点の長さの許容差で折れ線にする（`zumen-geom2d`）。作った点は予算の
@@ -340,7 +340,7 @@ struct ColorRow {
     flags: u8,
 }
 
-/// 文字列の区画
+/// 文字列のセクション
 #[derive(Default)]
 struct Strings {
     bytes: Vec<u8>,
@@ -524,7 +524,7 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
         self.unit_clipped(visit, kind, made, None)
     }
 
-    /// 描く単位。`extra` は、要素が自分で持つ切り抜き（下敷き）で、配置の切り抜きの内側に足す
+    /// 描く単位。`extra` は、要素が自分で持つ切り抜き（アンダーレイ）で、配置の切り抜きの内側に足す
     fn unit_clipped(
         &mut self,
         visit: &Visit<'_>,
@@ -862,8 +862,8 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
                         self.approximated = true;
                     }
                     None => {
-                        // 制御点で決まらないものは、当てはめる点を通る 3 次のスプラインにする（決定 0184）。
-                        // それもできなければ、当てはめる点か制御点を結ぶ
+                        // 制御点で決まらないものは、フィット点を通る 3 次のスプラインにする（決定 0184）。
+                        // それもできなければ、フィット点か制御点を結ぶ
                         let fit: Vec<Xy> = spline.fit.iter().map(|p| p.xy()).collect();
                         let spacing = match spline.knot_parameterization {
                             Some(KnotParameterization::SquareRoot) => geom::Spacing::SquareRoot,
@@ -1847,7 +1847,7 @@ fn outer_islands(rings: Vec<Vec<Xy>>) -> Vec<Vec<Xy>> {
         .collect()
 }
 
-/// 高さの意味の文字の印（決定 0184）
+/// 高さの意味の文字のフラグ（決定 0184）
 fn meaning_flag(meaning: &HeightMeaning) -> u8 {
     match meaning {
         HeightMeaning::Frame => text_flag::HEIGHT_FRAME,
@@ -1856,7 +1856,7 @@ fn meaning_flag(meaning: &HeightMeaning) -> u8 {
     }
 }
 
-/// 下敷きの切り抜きを、起点の座標の多角形にする（決定 0184）。画素の格子は、DXF の IMAGE と同じく左上の
+/// アンダーレイの切り抜きを、起点の座標の多角形にする（決定 0184）。画素の格子は、DXF の IMAGE と同じく左上の
 /// 画素の中心を原点とし、下へ進む画素の座標とする。尺度で写すものは、内容の座標とする（推定）。内容の
 /// 大きさが分からない置き方なら `None`
 fn underlay_clip<P: Spot>(

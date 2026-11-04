@@ -65,7 +65,7 @@ pub(crate) fn check(
     })
 }
 
-/// 指摘を、境界の形にする。重要度は規則の `level`
+/// 指摘を、API の形にする。重要度は規則の `level`
 pub(crate) fn finding_of(finding: &Finding) -> CheckFinding {
     let mut diagnostic = message_of(&finding.diagnostic);
     diagnostic.severity = match finding.level {
@@ -79,7 +79,7 @@ pub(crate) fn finding_of(finding: &Finding) -> CheckFinding {
     }
 }
 
-/// プロファイルの識別を、境界の形にする
+/// プロファイルの識別を、API の形にする
 pub(crate) fn identity_of(identity: Identity) -> ProfileIdentity {
     ProfileIdentity {
         id: identity.id,

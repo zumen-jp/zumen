@@ -1,4 +1,4 @@
-# CI と手元で同じ版を使う。上げるときは、.github/workflows/ci.yml の cargo-deny の版も合わせる。
+# CI と手元で同じバージョンを使う。上げるときは、.github/workflows/ci.yml の cargo-deny のバージョンも合わせる。
 [toolchain]
 channel = "1.99.1"
 components = ["clippy", "rustfmt"]

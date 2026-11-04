@@ -235,7 +235,7 @@ fn fnv(h: &mut u64, v: u64) {
     }
 }
 
-/// 試料ごと・候補ごとの集計
+/// サンプルごと・候補ごとの集計
 struct Tally {
     elements: u64,
     miss: BTreeMap<String, u64>,

@@ -1,5 +1,5 @@
-//! 窓口に登録する形式（#398、決定 0017）。capabilities の形式の一覧と、図面の形式の判定は、この一覧から引く。
-//! 登録の権利は、台帳（`formats/ledger.toml`）と合うことを試験で確かめる。
+//! レジストリに登録する形式（#398、決定 0017）。capabilities の形式の一覧と、図面の形式の判定は、この一覧から引く。
+//! 登録の権利は、台帳（`formats/ledger.toml`）と合うことをテストで確かめる。
 
 use zumen_acad::{Dwg, Dxf};
 use zumen_jww::Jww;

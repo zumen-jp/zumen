@@ -19,7 +19,7 @@ fn open(bytes: &[u8]) -> Result<(Encoding, PointCloud, Vec<Code>), Error> {
     ))
 }
 
-const HEADER: &str = "ply\nformat ascii 1.0\ncomment 試験\nelement vertex 2\nproperty float x\nproperty float y\nproperty float z\nproperty float nx\nproperty uchar red\nproperty uchar green\nproperty uchar blue\nproperty float scalar_Intensity\nelement face 1\nproperty list uchar int vertex_indices\nend_header\n";
+const HEADER: &str = "ply\nformat ascii 1.0\ncomment テスト\nelement vertex 2\nproperty float x\nproperty float y\nproperty float z\nproperty float nx\nproperty uchar red\nproperty uchar green\nproperty uchar blue\nproperty float scalar_Intensity\nelement face 1\nproperty list uchar int vertex_indices\nend_header\n";
 
 #[test]
 fn reads_ascii_vertices_and_drops_the_rest() {

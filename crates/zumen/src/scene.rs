@@ -1,8 +1,8 @@
-//! シーンの blob の読み手（決定 0137・0203）。配置は `schema/scene.toml` にあり、[`layout`] に生成する。
+//! シーンの blob のリーダー（決定 0137・0203）。配置は `schema/scene.toml` にあり、[`layout`] に生成する。
 //!
-//! 見出しは `ZMSC`、大版（u16）、小版（u16）、塊の数（u32）、区画の数（u32）で、続けて区画ごとに始まりと長さ
-//! （u32、バイト）を置く。数はリトルエンディアン。知らない区画（新しい小版で足したもの）は読み飛ばし、ない区画
-//! （古い小版）は空の列にする。大版が違えば読まない。
+//! ヘッダーは `ZMSC`、メジャーバージョン（u16）、マイナーバージョン（u16）、塊の数（u32）、セクションの数（u32）で、続けてセクションごとに始まりと長さ
+//! （u32、バイト）を置く。数はリトルエンディアン。知らないセクション（新しいマイナーバージョンで足したもの）は読み飛ばし、ないセクション
+//! （古いマイナーバージョン）は空の列にする。メジャーバージョンが違えば読まない。
 
 use std::fmt;
 
@@ -10,12 +10,12 @@ pub use zumen_scene::layout;
 
 use layout::{SECTIONS, Type};
 
-/// 見出しのバイト数
+/// ヘッダーのバイト数
 const HEADER: usize = 16;
-/// 区画の表の 1 行のバイト数
+/// セクションの表の 1 行のバイト数
 const ENTRY: usize = 8;
 
-/// 区画の値の列。行ごとに区画の幅の数の値を並べる
+/// セクションの値の列。行ごとにセクションの幅の数の値を並べる
 #[derive(Clone, Debug, PartialEq)]
 pub enum Column {
     /// `u8` の列
@@ -84,11 +84,11 @@ impl Column {
 pub enum SceneError {
     /// シーンの blob でない
     NotScene,
-    /// 大版が違う。blob の大版を持つ
+    /// メジャーバージョンが違う。blob のメジャーバージョンを持つ
     Major(u16),
-    /// 区画の表が blob に収まらない
+    /// セクションの表が blob に収まらない
     Table,
-    /// 区画の始まりか長さが合わない。区画の名前を持つ
+    /// セクションの始まりか長さが合わない。セクションの名前を持つ
     Section(&'static str),
 }
 
@@ -99,12 +99,12 @@ impl fmt::Display for SceneError {
             Self::Major(major) => {
                 write!(
                     f,
-                    "シーンの大版が {major}（この crate は {}）",
+                    "シーンのメジャーバージョンが {major}（この crate は {}）",
                     layout::MAJOR
                 )
             }
-            Self::Table => write!(f, "区画の表が blob に収まらない"),
-            Self::Section(name) => write!(f, "区画 {name} の始まりか長さが合わない"),
+            Self::Table => write!(f, "セクションの表が blob に収まらない"),
+            Self::Section(name) => write!(f, "セクション {name} の始まりか長さが合わない"),
         }
     }
 }
@@ -114,30 +114,30 @@ impl std::error::Error for SceneError {}
 /// 読んだシーン
 #[derive(Clone, Debug, PartialEq)]
 pub struct Scene {
-    /// 大版
+    /// メジャーバージョン
     pub major: u16,
-    /// 小版
+    /// マイナーバージョン
     pub minor: u16,
     /// 塊の数
     pub chunks: u32,
-    /// blob にある区画の数。この crate が知らない区画も数える
+    /// blob にあるセクションの数。この crate が知らないセクションも数える
     pub sections: u32,
     columns: Vec<Column>,
 }
 
 impl Scene {
-    /// 区画の列。`section` は [`layout`] の区画の番号（`layout::TEXT_XY` など）
+    /// セクションの列。`section` は [`layout`] のセクションの番号（`layout::TEXT_XY` など）
     pub fn column(&self, section: usize) -> Option<&Column> {
         self.columns.get(section)
     }
 
-    /// 名前で区画の列を引く
+    /// 名前でセクションの列を引く
     pub fn column_named(&self, name: &str) -> Option<&Column> {
         let index = SECTIONS.iter().position(|section| section.name == name)?;
         self.columns.get(index)
     }
 
-    /// 区画の行の数。知らない区画は 0
+    /// セクションの行の数。知らないセクションは 0
     pub fn rows(&self, section: usize) -> usize {
         match (SECTIONS.get(section), self.columns.get(section)) {
             (Some(definition), Some(column)) if definition.width > 0 => {
@@ -147,7 +147,7 @@ impl Scene {
         }
     }
 
-    /// `strings` の区画から、始まりと長さ（バイト）で文字列を引く。区画の外か UTF-8 でなければ `None`
+    /// `strings` のセクションから、始まりと長さ（バイト）で文字列を引く。セクションの外か UTF-8 でなければ `None`
     pub fn text(&self, start: u32, length: u32) -> Option<&str> {
         let Some(Column::U8(strings)) = self.columns.get(layout::STRINGS) else {
             return None;
@@ -228,7 +228,7 @@ pub fn read_scene(blob: &[u8]) -> Result<Scene, SceneError> {
 mod tests {
     use super::*;
 
-    /// 見出しと、区画ごとに `rows` 行の 0 を並べた blob を作る
+    /// ヘッダーと、セクションごとに `rows` 行の 0 を並べた blob を作る
     fn blob(sections: usize, rows: usize) -> Vec<u8> {
         let mut out = Vec::new();
         out.extend_from_slice(&layout::MAGIC);
@@ -288,7 +288,7 @@ mod tests {
         let mut broken = blob(SECTIONS.len(), 1);
         broken.splice(12..16, u32::MAX.to_le_bytes());
         assert_eq!(read_scene(&broken), Err(SceneError::Table));
-        // 長さが行の大きさで割り切れない区画
+        // 長さが行の大きさで割り切れないセクション
         let mut ragged = blob(SECTIONS.len(), 1);
         ragged.splice(HEADER + 4..HEADER + 8, 3u32.to_le_bytes());
         assert_eq!(

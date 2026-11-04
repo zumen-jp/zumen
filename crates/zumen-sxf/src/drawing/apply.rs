@@ -284,7 +284,7 @@ impl Apply<Changes> for SxfFile {
                     cx.report(unsupported(format, change.name(), "dimension_style"));
                     None
                 }
-                // SXF は文書の点の表し方を持たない。点は既定義の印だけ（決定 0190）
+                // SXF は文書の点の表し方を持たない。点は既定義のマーカーだけ（決定 0190）
                 Edit::SetPointStyle { .. } => {
                     cx.report(unsupported(format, change.name(), "point_style"));
                     None
@@ -745,7 +745,7 @@ struct Tables {
 }
 
 impl Tables {
-    /// 利用者定義色と線幅を順に探す作業。変わらない欄は探さない。
+    /// 利用者定義色と線幅を順に探す作業。変わらないフィールドは探さない。
     fn style_work(&self, style: &Style, old: Option<&Style>) -> u64 {
         let color = old.is_none_or(|old| old.color != style.color)
             && matches!(
@@ -1123,7 +1123,7 @@ struct Sfc<'f> {
     patches: Vec<(Range<usize>, Vec<u8>)>,
     /// 次に足すインスタンスの番号
     next: u64,
-    /// 足す所と、その印。用紙のフィーチャの前か、最後のフィーチャの後
+    /// 足す所と、そのマーカー。用紙のフィーチャの前か、最後のフィーチャの後
     insert: Option<(usize, Marker, bool)>,
     newline: &'static str,
 }
@@ -1401,7 +1401,7 @@ fn arguments<P: transform::Point>(shape: &Shape<P>) -> Option<Arguments> {
             values.push(format!("({})", ys.join(",")));
             "polyline"
         }
-        // 点マーカーは、点・マーカーのコード・回転（度）・尺度。名前空間 `sxf.marker` の既定義の印で、読み直すと同じ
+        // 点マーカーは、点・マーカーのコード・回転（度）・尺度。名前空間 `sxf.marker` の既定義のマーカーで、読み直すと同じ
         // コードになるものだけを書く。作図の補助の点はない（決定 0183）
         Shape::Point(Point {
             position,

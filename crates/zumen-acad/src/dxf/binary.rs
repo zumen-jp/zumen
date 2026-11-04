@@ -1,10 +1,10 @@
 //! バイナリの DXF（DXF Reference「Binary DXF Files」）。
 //!
-//! 先頭の印の後に、グループ・コードと値の組が続く。グループ・コードは R12 までは 1 バイト
+//! 先頭のセンチネルの後に、グループ・コードと値の組が続く。グループ・コードは R12 までは 1 バイト
 //! （255 なら続く 2 バイトがグループ・コード）、R13 からは 2 バイトの符号つき整数。値の型は
 //! グループ・コードで決まり、文字列とハンドルは NUL で終わるバイト列、整数は 2・4・8 バイト、
 //! 実数は 8 バイト、真偽は 1 バイト、バイナリは長さの 1 バイトとその長さのバイト列。数はどれも
-//! リトル・エンディアン。値の幅の割り当ては推定で、試料のすべての版で確かめた（docs/formats/dxf.md）。
+//! リトル・エンディアン。値の幅の割り当ては推定で、サンプルのすべてのバージョンで確かめた（docs/formats/dxf.md）。
 //!
 //! 読むときは、各タグを ASCII の DXF の表現（グループ・コードの行と値の行）にした文を作り、
 //! タグはその文の上の範囲を持つ。レコードの範囲だけは、元のバイナリのバイト範囲を持つ。
@@ -120,7 +120,7 @@ impl Cursor<'_> {
     }
 }
 
-/// `src` は先頭の印で始まる
+/// `src` は先頭のセンチネルで始まる
 pub(super) fn read(src: &[u8], cx: &mut Cx) -> Result<Decoded, Error> {
     let start = BINARY_SENTINEL.len();
     // 最初のタグは `0 SECTION`。グループ・コードの幅は、その値の位置で決める（推定。docs/formats/dxf.md）
@@ -191,7 +191,7 @@ pub(super) fn read(src: &[u8], cx: &mut Cx) -> Result<Decoded, Error> {
 }
 
 impl Binary {
-    /// 先頭の印
+    /// 先頭のセンチネル
     pub(super) fn sentinel(&self) -> &[u8] {
         self.src.get(..BINARY_SENTINEL.len()).unwrap_or_default()
     }

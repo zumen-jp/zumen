@@ -1,7 +1,7 @@
-//! TypeScript・JavaScript の包み（`bindings/js`）の型と定数を作る（決定 0011・0194）。
+//! TypeScript・JavaScript のラッパー（`bindings/js`）の型と定数を作る（決定 0011・0194）。
 //!
 //! - `messages.d.ts`: メッセージのスキーマ（`schema/messages.json`）の型
-//! - `constants.js`・`constants.d.ts`: 境界の版と状態コード（`schema/boundary.toml`）と、シーンの配置
+//! - `constants.js`・`constants.d.ts`: API のバージョンと状態コード（`schema/boundary.toml`）と、シーンの配置
 //!   （`schema/scene.toml`）
 
 use std::fmt::Write;
@@ -16,7 +16,7 @@ const REQUEST: &str = "request";
 /// 手で書く応答の定義の名前
 const RESPONSE: &str = "response";
 
-/// 区画の値の型と、型付き配列
+/// セクションの値の型と、型付き配列
 const COLUMNS: &[(&str, &str)] = &[
     ("u8", "Uint8Array"),
     ("u32", "Uint32Array"),
@@ -61,7 +61,7 @@ pub fn render_types(schema: &Schema) -> String {
     out.push_str("// 生成したファイル。手で直さない。\n");
     out.push_str("// 元は schema/messages.json で、`cargo xtask codegen` で作り直す。\n");
     out.push_str(
-        "//\n// 境界のメッセージの型（決定 0012・0194）。スキーマの定義ごとに 1 つの型がある。\n",
+        "//\n// API のメッセージの型（決定 0012・0194）。スキーマの定義ごとに 1 つの型がある。\n",
     );
     out.push_str("// 列挙は、知らない値も受け取れるように、ほかの文字列も許す（決定 0015）。\n");
     for def in &schema.defs {
@@ -126,7 +126,7 @@ pub fn render_types(schema: &Schema) -> String {
 fn render_response(out: &mut String, def: &Def) {
     doc(out, "", &def.description);
     out.push_str("export interface Response<R = unknown> {\n");
-    out.push_str("  /** メッセージのスキーマの大版 */\n  v: number;\n");
+    out.push_str("  /** メッセージのスキーマのメジャーバージョン */\n  v: number;\n");
     out.push_str(
         "  /** op ごとの結果（<op>_result の形）。失敗したときは持たない */\n  result?: R;\n",
     );
@@ -273,22 +273,22 @@ pub fn render_constants(version: &str, boundary: &Boundary, scene: &Scene) -> St
     let versions = &boundary.versions;
     let _ = writeln!(
         out,
-        "\n/** パッケージの版（決定 0015） */\nexport const VERSION = {};",
+        "\n/** パッケージのバージョン（決定 0015） */\nexport const VERSION = {};",
         quote(version)
     );
     let _ = writeln!(
         out,
-        "/** ABI の大版 */\nexport const ABI_VERSION = {};",
+        "/** ABI のメジャーバージョン */\nexport const ABI_VERSION = {};",
         versions.abi
     );
     let _ = writeln!(
         out,
-        "/** メッセージのスキーマの大版（要求と応答の v） */\nexport const SCHEMA_MAJOR = {};",
+        "/** メッセージのスキーマのメジャーバージョン（要求と応答の v） */\nexport const SCHEMA_MAJOR = {};",
         versions.schema_major
     );
     let _ = writeln!(
         out,
-        "/** メッセージのスキーマの小版 */\nexport const SCHEMA_MINOR = {};",
+        "/** メッセージのスキーマのマイナーバージョン */\nexport const SCHEMA_MINOR = {};",
         versions.schema_minor
     );
     out.push_str("\n/** 状態コードの名前。値から引く */\nexport const STATUS = Object.freeze({\n");
@@ -305,21 +305,21 @@ pub fn render_constants(version: &str, boundary: &Boundary, scene: &Scene) -> St
     render_modules(&mut out, boundary);
 
     out.push_str(
-        "\n/** シーンの見出しの始まりの 4 バイト */\nexport const SCENE_MAGIC = \"ZMSC\";\n",
+        "\n/** シーンのヘッダーの始まりの 4 バイト */\nexport const SCENE_MAGIC = \"ZMSC\";\n",
     );
     let _ = writeln!(
         out,
-        "/** シーンの大版。区画の意味を変えるときに上げる */\nexport const SCENE_MAJOR = {};",
+        "/** シーンのメジャーバージョン。セクションの意味を変えるときに上げる */\nexport const SCENE_MAJOR = {};",
         scene.versions.major
     );
     let _ = writeln!(
         out,
-        "/** シーンの小版。区画か値を足すたびに上げる */\nexport const SCENE_MINOR = {};",
+        "/** シーンのマイナーバージョン。セクションか値を足すたびに上げる */\nexport const SCENE_MINOR = {};",
         scene.versions.minor
     );
     out.push_str("/** 番号の「なし」 */\nexport const SCENE_NONE = 4294967295;\n");
     out.push_str(
-        "\n/** シーンの区画の定義。番号の順 */\nexport const SCENE_SECTIONS = Object.freeze([\n",
+        "\n/** シーンのセクションの定義。番号の順 */\nexport const SCENE_SECTIONS = Object.freeze([\n",
     );
     for section in &scene.sections {
         let _ = writeln!(
@@ -349,18 +349,20 @@ pub fn render_constants_types(boundary: &Boundary, scene: &Scene) -> String {
     let mut out = String::new();
     header(&mut out);
     let versions = &boundary.versions;
-    out.push_str("\n/** パッケージの版（決定 0015） */\nexport declare const VERSION: string;\n");
+    out.push_str(
+        "\n/** パッケージのバージョン（決定 0015） */\nexport declare const VERSION: string;\n",
+    );
     let _ = writeln!(
         out,
-        "/** ABI の大版 */\nexport declare const ABI_VERSION: {};",
+        "/** ABI のメジャーバージョン */\nexport declare const ABI_VERSION: {};",
         versions.abi
     );
     let _ = writeln!(
         out,
-        "/** メッセージのスキーマの大版（要求と応答の v） */\nexport declare const SCHEMA_MAJOR: {};",
+        "/** メッセージのスキーマのメジャーバージョン（要求と応答の v） */\nexport declare const SCHEMA_MAJOR: {};",
         versions.schema_major
     );
-    out.push_str("/** メッセージのスキーマの小版 */\nexport declare const SCHEMA_MINOR: number;\n");
+    out.push_str("/** メッセージのスキーマのマイナーバージョン */\nexport declare const SCHEMA_MINOR: number;\n");
     out.push_str("\n/** 状態コードの名前 */\nexport type StatusName =");
     for status in &boundary.status {
         let _ = write!(
@@ -388,27 +390,27 @@ pub fn render_constants_types(boundary: &Boundary, scene: &Scene) -> String {
     out.push_str("\n/** open が形式を判定する順と規則 */\nexport declare const DETECTION: readonly Detection[];\n");
 
     out.push_str(
-        "\n/** シーンの見出しの始まりの 4 バイト */\nexport declare const SCENE_MAGIC: \"ZMSC\";\n",
+        "\n/** シーンのヘッダーの始まりの 4 バイト */\nexport declare const SCENE_MAGIC: \"ZMSC\";\n",
     );
     let _ = writeln!(
         out,
-        "/** シーンの大版。区画の意味を変えるときに上げる */\nexport declare const SCENE_MAJOR: {};",
+        "/** シーンのメジャーバージョン。セクションの意味を変えるときに上げる */\nexport declare const SCENE_MAJOR: {};",
         scene.versions.major
     );
-    out.push_str("/** シーンの小版。区画か値を足すたびに上げる */\nexport declare const SCENE_MINOR: number;\n");
+    out.push_str("/** シーンのマイナーバージョン。セクションか値を足すたびに上げる */\nexport declare const SCENE_MINOR: number;\n");
     out.push_str("/** 番号の「なし」 */\nexport declare const SCENE_NONE: 4294967295;\n");
 
-    out.push_str("\n/** シーンの区画の名前 */\nexport type SceneSectionName =");
+    out.push_str("\n/** シーンのセクションの名前 */\nexport type SceneSectionName =");
     for section in &scene.sections {
         let _ = write!(out, "\n  | {}", quote(&section.name));
     }
-    out.push_str(";\n\n/** シーンの区画の値の型 */\nexport type SceneValueType =");
+    out.push_str(";\n\n/** シーンのセクションの値の型 */\nexport type SceneValueType =");
     for (ty, _) in COLUMNS {
         let _ = write!(out, " | {}", quote(ty));
     }
-    out.push_str(";\n\n/** シーンの区画の定義 */\nexport interface SceneSection {\n  readonly name: SceneSectionName;\n  readonly type: SceneValueType;\n  /** 行ごとの値の数 */\n  readonly width: number;\n}\n");
-    out.push_str("\n/** シーンの区画の定義。番号の順 */\nexport declare const SCENE_SECTIONS: readonly SceneSection[];\n");
-    out.push_str("\n/** シーンの区画ごとの列。行ごとに width 個の値を並べる */\nexport interface SceneColumns {\n");
+    out.push_str(";\n\n/** シーンのセクションの定義 */\nexport interface SceneSection {\n  readonly name: SceneSectionName;\n  readonly type: SceneValueType;\n  /** 行ごとの値の数 */\n  readonly width: number;\n}\n");
+    out.push_str("\n/** シーンのセクションの定義。番号の順 */\nexport declare const SCENE_SECTIONS: readonly SceneSection[];\n");
+    out.push_str("\n/** シーンのセクションごとの列。行ごとに width 個の値を並べる */\nexport interface SceneColumns {\n");
     for section in &scene.sections {
         let array = COLUMNS
             .iter()
@@ -456,7 +458,7 @@ mod tests {
                 "request_common": {
                   "description": "共通",
                   "type": "object",
-                  "properties": { "v": { "description": "版", "type": "integer", "minimum": 1 } },
+                  "properties": { "v": { "description": "バージョン", "type": "integer", "minimum": 1 } },
                   "required": ["v"]
                 },
                 "open_request": {

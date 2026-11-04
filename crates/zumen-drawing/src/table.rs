@@ -39,7 +39,7 @@ pub struct Cell {
     pub value: Option<CellValue>,
     /// 文字の回転（度、反時計回り）
     pub rotation: f64,
-    /// セルが上書きする書式（決定 0151）。`None` の欄は、行の種類の書式（[`TableFormats`]）に従う
+    /// セルが上書きする書式（決定 0151）。`None` のフィールドは、行の種類の書式（[`TableFormats`]）に従う
     pub format: CellFormat,
 }
 
@@ -58,7 +58,7 @@ pub struct TableFormats {
     pub data_format: CellFormat,
 }
 
-/// セルの書式。`None` の欄は、元の形式が値を持たない
+/// セルの書式。`None` のフィールドは、元の形式が値を持たない
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct CellFormat {
     /// 元の文字スタイルの名前
@@ -94,7 +94,7 @@ pub struct Borders {
     pub vertical: Border,
 }
 
-/// 枠の 1 辺。`None` の欄は、元の形式が値を持たない
+/// 枠の 1 辺。`None` のフィールドは、元の形式が値を持たない
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Border {
     /// 色

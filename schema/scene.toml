@@ -1,26 +1,26 @@
 # 2D のシーンの配置（決定 0137・0172・0178）。
 #
-# `scene` の op が返すシーンの blob は、見出し・区画の表・区画を 1 つのバッファーに並べる。
+# `scene` の op が返すシーンの blob は、ヘッダー・セクションの表・セクションを 1 つのバッファーに並べる。
 # `cargo xtask codegen` が、ここから Rust の定数（crates/zumen-scene/src/layout.rs）と、TypeScript・JavaScript の
 # 定数と型（bindings/js/src/constants.js・constants.d.ts）と、Python の定数（bindings/python/zumen/constants.py）
 # と、.NET の定数（bindings/dotnet/Zumen/Constants.g.cs）と、C・C++ の定数（bindings/c/include/zumen_scene.h）を
 # 作る。
 #
-# - 見出しは `ZMSC`、大版（u16）、小版（u16）、塊の数（u32）、区画の数（u32）。続けて区画ごとに、
-#   始まりと長さ（u32、バイト）を置く。数はリトルエンディアン。各区画は 8 バイトの境界に置く。
-# - 区画は 1 つの列（型付き配列）で、行ごとに `width` 個の `type` の値を並べる。行の数は、長さを
-#   行の大きさで割ったもの。区画の番号は、ここに書いた順で決まる。
-# - 新しい区画は後ろに足し、区画の意味は変えない（決定 0015）。区画を足したら小版を上げる。読み手は、
-#   知らない区画を読み飛ばす。区画の意味を変えるときは、大版を上げる。
-# - 「始まり」の列は、引く先の区画の行の番号で、終わりは次の行の始まり（最後の行なら、引く先の行の
+# - ヘッダーは `ZMSC`、メジャーバージョン（u16）、マイナーバージョン（u16）、塊の数（u32）、セクションの数（u32）。続けてセクションごとに、
+#   始まりと長さ（u32、バイト）を置く。数はリトルエンディアン。各セクションは 8 バイトの境界に置く。
+# - セクションは 1 つの列（型付き配列）で、行ごとに `width` 個の `type` の値を並べる。行の数は、長さを
+#   行の大きさで割ったもの。セクションの番号は、ここに書いた順で決まる。
+# - 新しいセクションは後ろに足し、セクションの意味は変えない（決定 0015）。セクションを足したらマイナーバージョンを上げる。リーダーは、
+#   知らないセクションを読み飛ばす。セクションの意味を変えるときは、メジャーバージョンを上げる。
+# - 「始まり」の列は、引く先のセクションの行の番号で、終わりは次の行の始まり（最後の行なら、引く先の行の
 #   数）。番号の「なし」は 4294967295（u32 の最大）。
-# - 文字列は `strings` の区画の、始まりと長さ（バイト）の組で引く。
+# - 文字列は `strings` のセクションの、始まりと長さ（バイト）の組で引く。
 # - 座標は、塊の原点からの相対の f32。切り抜きだけは、起点の座標の f64 で持つ。
 
 [versions]
-# 大版。区画の意味を変えるときに上げる
+# メジャーバージョン。セクションの意味を変えるときに上げる
 major = 1
-# 小版。区画か値を足すたびに上げる
+# マイナーバージョン。セクションか値を足すたびに上げる
 minor = 2
 
 # 塊
@@ -173,7 +173,7 @@ description = "位置合わせ。水平（horizontal の値）と垂直（vertic
 name = "text_flags"
 type = "u8"
 width = 1
-description = "印（text_flag の値の和）"
+description = "フラグ（text_flag の値の和）"
 
 [[sections]]
 name = "text_lines"
@@ -211,13 +211,13 @@ description = "点の回転（度、反時計回り）"
 name = "point_markers"
 type = "u32"
 width = 4
-description = "既定義の印のキー。名前空間（strings の始まりと長さ）と、元のコード（strings の始まりと長さ）。文書の点の表し方に従う点は、長さが 0"
+description = "既定義のマーカーのキー。名前空間（strings の始まりと長さ）と、元のコード（strings の始まりと長さ）。文書の点の表し方に従う点は、長さが 0"
 
 [[sections]]
 name = "point_scales"
 type = "f32"
 width = 1
-description = "既定義の印の尺度。文書の点の表し方に従う点は 1"
+description = "既定義のマーカーの尺度。文書の点の表し方に従う点は 1"
 
 [[sections]]
 name = "point_units"
@@ -237,7 +237,7 @@ description = "文書の点の表し方（決定 0160）。形（point_mark の�
 name = "image_names"
 type = "u32"
 width = 2
-description = "下敷きの参照名（strings の始まりと長さ）。コアは開かない"
+description = "アンダーレイの参照名（strings の始まりと長さ）。コアは開かない"
 
 [[sections]]
 name = "image_pages"
@@ -369,7 +369,7 @@ description = "表示する RGBA。ファイルの RGB か、色の表（palette
 name = "color_flags"
 type = "u8"
 width = 1
-description = "印（color_flag の値の和）"
+description = "フラグ（color_flag の値の和）"
 
 # 切り抜き
 
@@ -389,7 +389,7 @@ description = "多角形の頂点の始まり（clip_xy の行）"
 name = "polygon_flags"
 type = "u8"
 width = 1
-description = "多角形の印。1 なら、内側を隠す（外側だけを描く）"
+description = "多角形のフラグ。1 なら、内側を隠す（外側だけを描く）"
 
 [[sections]]
 name = "clip_xy"
@@ -490,7 +490,7 @@ items = [
 [[values]]
 name = "text_flag"
 type = "u8"
-description = "文字の印。和で持つ"
+description = "文字のフラグ。和で持つ"
 items = [
   { name = "backward", value = 1, description = "左右に反転する" },
   { name = "upside_down", value = 2, description = "上下に反転する" },
@@ -535,7 +535,7 @@ items = [
 [[values]]
 name = "image_kind"
 type = "u8"
-description = "下敷きの資源の種類"
+description = "アンダーレイの資源の種類"
 items = [
   { name = "image", value = 0, description = "画素の画像" },
   { name = "pdf", value = 1, description = "PDF" },
@@ -567,7 +567,7 @@ items = [
   { name = "leader", value = 7, description = "引出線" },
   { name = "callout", value = 8, description = "引出線つきの注記" },
   { name = "table", value = 9, description = "表" },
-  { name = "underlay", value = 10, description = "下敷き" },
+  { name = "underlay", value = 10, description = "アンダーレイ" },
   { name = "symbol", value = 11, description = "記号" },
   { name = "hatch", value = 12, description = "ハッチング" },
   { name = "point", value = 13, description = "点" },
@@ -588,7 +588,7 @@ items = [
 [[values]]
 name = "color_flag"
 type = "u8"
-description = "色の印。和で持つ"
+description = "色のフラグ。和で持つ"
 items = [
   { name = "unresolved", value = 1, description = "表示する RGBA が決まらない。表示する側が決める" },
   { name = "foreground", value = 2, description = "背景で変わる色（ACI の 7）。表示する側が、背景に対する前景の色にする" },

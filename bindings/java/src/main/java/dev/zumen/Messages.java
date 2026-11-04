@@ -8,15 +8,15 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 境界のメッセージの型（決定 0012・0224）。スキーマの定義ごとに 1 つの型がある。
+ * API のメッセージの型（決定 0012・0224）。スキーマの定義ごとに 1 つの型がある。
  *
- * <p>型は、JSON のオブジェクト（{@link Map}）を包む見方で、知らない欄もそのまま持つ。列挙は文字列で読み、
- * 知らない値も受け取る（決定 0015）。欄は {@code getXxx} で読み（ない欄と形の違う値は null）、{@code withXxx} で書く。
+ * <p>型は、JSON のオブジェクト（{@link Map}）を包むビューで、知らないフィールドもそのまま持つ。列挙は文字列で読み、
+ * 知らない値も受け取る（決定 0015）。フィールドは {@code getXxx} で読み（ないフィールドと形の違う値は null）、{@code withXxx} で書く。
  */
 public final class Messages {
     private Messages() {}
 
-    /** メッセージの型が継ぐ、JSON のオブジェクトの見方 */
+    /** メッセージの型が継ぐ、JSON のオブジェクトのビュー */
     public abstract static class Message {
         /** 包んでいる JSON のオブジェクト */
         protected final Map<String, Object> json;
@@ -28,12 +28,12 @@ public final class Messages {
             this.json = json;
         }
 
-        /** 包んでいる JSON のオブジェクト。書き換えると、この見方からも見える */
+        /** 包んでいる JSON のオブジェクト。書き換えると、このビューからも見える */
         public Map<String, Object> json() {
             return json;
         }
 
-        /** 欄を書く。null なら欄を除く。メッセージの型と、その列・表は JSON の値に直して持つ */
+        /** フィールドを書く。null ならフィールドを除く。メッセージの型と、その列・表は JSON の値に直して持つ */
         protected void put(String key, Object value) {
             if (value == null) {
                 json.remove(key);
@@ -62,163 +62,163 @@ public final class Messages {
             return json == null ? null : new Request(json);
         }
 
-        /** op が capabilities の形なら、その見方。違えば null */
+        /** op が capabilities の形なら、そのビュー。違えば null */
         public CapabilitiesRequest asCapabilitiesRequest() {
             return "capabilities".equals(json.get("op")) ? new CapabilitiesRequest(json) : null;
         }
 
-        /** op が open の形なら、その見方。違えば null */
+        /** op が open の形なら、そのビュー。違えば null */
         public OpenRequest asOpenRequest() {
             return "open".equals(json.get("op")) ? new OpenRequest(json) : null;
         }
 
-        /** op が close の形なら、その見方。違えば null */
+        /** op が close の形なら、そのビュー。違えば null */
         public CloseRequest asCloseRequest() {
             return "close".equals(json.get("op")) ? new CloseRequest(json) : null;
         }
 
-        /** op が describe の形なら、その見方。違えば null */
+        /** op が describe の形なら、そのビュー。違えば null */
         public DescribeRequest asDescribeRequest() {
             return "describe".equals(json.get("op")) ? new DescribeRequest(json) : null;
         }
 
-        /** op が drawing の形なら、その見方。違えば null */
+        /** op が drawing の形なら、そのビュー。違えば null */
         public DrawingRequest asDrawingRequest() {
             return "drawing".equals(json.get("op")) ? new DrawingRequest(json) : null;
         }
 
-        /** op が entities の形なら、その見方。違えば null */
+        /** op が entities の形なら、そのビュー。違えば null */
         public EntitiesRequest asEntitiesRequest() {
             return "entities".equals(json.get("op")) ? new EntitiesRequest(json) : null;
         }
 
-        /** op が apply の形なら、その見方。違えば null */
+        /** op が apply の形なら、そのビュー。違えば null */
         public ApplyRequest asApplyRequest() {
             return "apply".equals(json.get("op")) ? new ApplyRequest(json) : null;
         }
 
-        /** op が convert の形なら、その見方。違えば null */
+        /** op が convert の形なら、そのビュー。違えば null */
         public ConvertRequest asConvertRequest() {
             return "convert".equals(json.get("op")) ? new ConvertRequest(json) : null;
         }
 
-        /** op が tables の形なら、その見方。違えば null */
+        /** op が tables の形なら、そのビュー。違えば null */
         public TablesRequest asTablesRequest() {
             return "tables".equals(json.get("op")) ? new TablesRequest(json) : null;
         }
 
-        /** op が scene の形なら、その見方。違えば null */
+        /** op が scene の形なら、そのビュー。違えば null */
         public SceneRequest asSceneRequest() {
             return "scene".equals(json.get("op")) ? new SceneRequest(json) : null;
         }
 
-        /** op が check の形なら、その見方。違えば null */
+        /** op が check の形なら、そのビュー。違えば null */
         public CheckRequest asCheckRequest() {
             return "check".equals(json.get("op")) ? new CheckRequest(json) : null;
         }
 
-        /** op が validate の形なら、その見方。違えば null */
+        /** op が validate の形なら、そのビュー。違えば null */
         public ValidateRequest asValidateRequest() {
             return "validate".equals(json.get("op")) ? new ValidateRequest(json) : null;
         }
 
-        /** op が review_carry の形なら、その見方。違えば null */
+        /** op が review_carry の形なら、そのビュー。違えば null */
         public ReviewCarryRequest asReviewCarryRequest() {
             return "review_carry".equals(json.get("op")) ? new ReviewCarryRequest(json) : null;
         }
 
-        /** op が review_adopt の形なら、その見方。違えば null */
+        /** op が review_adopt の形なら、そのビュー。違えば null */
         public ReviewAdoptRequest asReviewAdoptRequest() {
             return "review_adopt".equals(json.get("op")) ? new ReviewAdoptRequest(json) : null;
         }
 
-        /** op が building の形なら、その見方。違えば null */
+        /** op が building の形なら、そのビュー。違えば null */
         public BuildingRequest asBuildingRequest() {
             return "building".equals(json.get("op")) ? new BuildingRequest(json) : null;
         }
 
-        /** op が building_elements の形なら、その見方。違えば null */
+        /** op が building_elements の形なら、そのビュー。違えば null */
         public BuildingElementsRequest asBuildingElementsRequest() {
             return "building_elements".equals(json.get("op")) ? new BuildingElementsRequest(json) : null;
         }
 
-        /** op が ids_check の形なら、その見方。違えば null */
+        /** op が ids_check の形なら、そのビュー。違えば null */
         public IdsCheckRequest asIdsCheckRequest() {
             return "ids_check".equals(json.get("op")) ? new IdsCheckRequest(json) : null;
         }
 
-        /** op が review_adopt_ids の形なら、その見方。違えば null */
+        /** op が review_adopt_ids の形なら、そのビュー。違えば null */
         public ReviewAdoptIdsRequest asReviewAdoptIdsRequest() {
             return "review_adopt_ids".equals(json.get("op")) ? new ReviewAdoptIdsRequest(json) : null;
         }
 
-        /** op が bcf_read の形なら、その見方。違えば null */
+        /** op が bcf_read の形なら、そのビュー。違えば null */
         public BcfReadRequest asBcfReadRequest() {
             return "bcf_read".equals(json.get("op")) ? new BcfReadRequest(json) : null;
         }
 
-        /** op が bcf_write の形なら、その見方。違えば null */
+        /** op が bcf_write の形なら、そのビュー。違えば null */
         public BcfWriteRequest asBcfWriteRequest() {
             return "bcf_write".equals(json.get("op")) ? new BcfWriteRequest(json) : null;
         }
 
-        /** op が civil の形なら、その見方。違えば null */
+        /** op が civil の形なら、そのビュー。違えば null */
         public CivilRequest asCivilRequest() {
             return "civil".equals(json.get("op")) ? new CivilRequest(json) : null;
         }
 
-        /** op が pointcloud の形なら、その見方。違えば null */
+        /** op が pointcloud の形なら、そのビュー。違えば null */
         public PointcloudRequest asPointcloudRequest() {
             return "pointcloud".equals(json.get("op")) ? new PointcloudRequest(json) : null;
         }
 
-        /** op が deviation の形なら、その見方。違えば null */
+        /** op が deviation の形なら、そのビュー。違えば null */
         public DeviationRequest asDeviationRequest() {
             return "deviation".equals(json.get("op")) ? new DeviationRequest(json) : null;
         }
 
-        /** op が civil_drawing の形なら、その見方。違えば null */
+        /** op が civil_drawing の形なら、そのビュー。違えば null */
         public CivilDrawingRequest asCivilDrawingRequest() {
             return "civil_drawing".equals(json.get("op")) ? new CivilDrawingRequest(json) : null;
         }
 
-        /** op が geo の形なら、その見方。違えば null */
+        /** op が geo の形なら、そのビュー。違えば null */
         public GeoRequest asGeoRequest() {
             return "geo".equals(json.get("op")) ? new GeoRequest(json) : null;
         }
 
-        /** op が delivery_check の形なら、その見方。違えば null */
+        /** op が delivery_check の形なら、そのビュー。違えば null */
         public DeliveryCheckRequest asDeliveryCheckRequest() {
             return "delivery_check".equals(json.get("op")) ? new DeliveryCheckRequest(json) : null;
         }
 
-        /** op が photo の形なら、その見方。違えば null */
+        /** op が photo の形なら、そのビュー。違えば null */
         public PhotoRequest asPhotoRequest() {
             return "photo".equals(json.get("op")) ? new PhotoRequest(json) : null;
         }
 
-        /** op が sheet の形なら、その見方。違えば null */
+        /** op が sheet の形なら、そのビュー。違えば null */
         public SheetRequest asSheetRequest() {
             return "sheet".equals(json.get("op")) ? new SheetRequest(json) : null;
         }
 
-        /** op が boring の形なら、その見方。違えば null */
+        /** op が boring の形なら、そのビュー。違えば null */
         public BoringRequest asBoringRequest() {
             return "boring".equals(json.get("op")) ? new BoringRequest(json) : null;
         }
 
-        /** op が building_apply の形なら、その見方。違えば null */
+        /** op が building_apply の形なら、そのビュー。違えば null */
         public BuildingApplyRequest asBuildingApplyRequest() {
             return "building_apply".equals(json.get("op")) ? new BuildingApplyRequest(json) : null;
         }
 
-        /** op が lift の形なら、その見方。違えば null */
+        /** op が lift の形なら、そのビュー。違えば null */
         public LiftRequest asLiftRequest() {
             return "lift".equals(json.get("op")) ? new LiftRequest(json) : null;
         }
     }
 
-    /** どの op の要求にも置ける欄 */
+    /** どの op の要求にも置けるフィールド */
     public static final class RequestCommon extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public RequestCommon(Map<String, Object> json) {
@@ -236,12 +236,12 @@ public final class Messages {
             super(new LinkedHashMap<String, Object>());
         }
 
-        /** メッセージのスキーマの大版。今は 1 */
+        /** メッセージのスキーマのメジャーバージョン。今は 1 */
         public Long getV() {
             return Json.read(json.get("v"), Json::integer);
         }
 
-        /** {@link #getV()} を書く。null なら欄を除く */
+        /** {@link #getV()} を書く。null ならフィールドを除く */
         public RequestCommon withV(Long value) {
             put("v", value);
             return this;
@@ -252,7 +252,7 @@ public final class Messages {
             return Json.read(json.get("budget"), Budget::of);
         }
 
-        /** {@link #getBudget()} を書く。null なら欄を除く */
+        /** {@link #getBudget()} を書く。null ならフィールドを除く */
         public RequestCommon withBudget(Budget value) {
             put("budget", value);
             return this;
@@ -263,7 +263,7 @@ public final class Messages {
             return Json.read(json.get("partial"), Json::bool);
         }
 
-        /** {@link #getPartial()} を書く。null なら欄を除く */
+        /** {@link #getPartial()} を書く。null ならフィールドを除く */
         public RequestCommon withPartial(Boolean value) {
             put("partial", value);
             return this;
@@ -274,18 +274,18 @@ public final class Messages {
             return Json.read(json.get("max_places"), Json::integer);
         }
 
-        /** {@link #getMaxPlaces()} を書く。null なら欄を除く */
+        /** {@link #getMaxPlaces()} を書く。null ならフィールドを除く */
         public RequestCommon withMaxPlaces(Long value) {
             put("max_places", value);
             return this;
         }
 
-        /** 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        /** 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
         public Long getTimeLimitMs() {
             return Json.read(json.get("time_limit_ms"), Json::integer);
         }
 
-        /** {@link #getTimeLimitMs()} を書く。null なら欄を除く */
+        /** {@link #getTimeLimitMs()} を書く。null ならフィールドを除く */
         public RequestCommon withTimeLimitMs(Long value) {
             put("time_limit_ms", value);
             return this;
@@ -315,7 +315,7 @@ public final class Messages {
             return Json.read(json.get("input_bytes"), Json::value);
         }
 
-        /** {@link #getInputBytes()} を書く。null なら欄を除く */
+        /** {@link #getInputBytes()} を書く。null ならフィールドを除く */
         public Budget withInputBytes(Object value) {
             put("input_bytes", value);
             return this;
@@ -326,7 +326,7 @@ public final class Messages {
             return Json.read(json.get("decoded_bytes"), Json::value);
         }
 
-        /** {@link #getDecodedBytes()} を書く。null なら欄を除く */
+        /** {@link #getDecodedBytes()} を書く。null ならフィールドを除く */
         public Budget withDecodedBytes(Object value) {
             put("decoded_bytes", value);
             return this;
@@ -337,7 +337,7 @@ public final class Messages {
             return Json.read(json.get("records"), Json::value);
         }
 
-        /** {@link #getRecords()} を書く。null なら欄を除く */
+        /** {@link #getRecords()} を書く。null ならフィールドを除く */
         public Budget withRecords(Object value) {
             put("records", value);
             return this;
@@ -348,7 +348,7 @@ public final class Messages {
             return Json.read(json.get("elements"), Json::value);
         }
 
-        /** {@link #getElements()} を書く。null なら欄を除く */
+        /** {@link #getElements()} を書く。null ならフィールドを除く */
         public Budget withElements(Object value) {
             put("elements", value);
             return this;
@@ -359,7 +359,7 @@ public final class Messages {
             return Json.read(json.get("depth"), Json::value);
         }
 
-        /** {@link #getDepth()} を書く。null なら欄を除く */
+        /** {@link #getDepth()} を書く。null ならフィールドを除く */
         public Budget withDepth(Object value) {
             put("depth", value);
             return this;
@@ -370,7 +370,7 @@ public final class Messages {
             return Json.read(json.get("segments"), Json::value);
         }
 
-        /** {@link #getSegments()} を書く。null なら欄を除く */
+        /** {@link #getSegments()} を書く。null ならフィールドを除く */
         public Budget withSegments(Object value) {
             put("segments", value);
             return this;
@@ -381,14 +381,14 @@ public final class Messages {
             return Json.read(json.get("work"), Json::value);
         }
 
-        /** {@link #getWork()} を書く。null なら欄を除く */
+        /** {@link #getWork()} を書く。null ならフィールドを除く */
         public Budget withWork(Object value) {
             put("work", value);
             return this;
         }
     }
 
-    /** コアの版と、使える op・形式を尋ねる */
+    /** コアのバージョンと、使える op・形式を尋ねる */
     public static final class CapabilitiesRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public CapabilitiesRequest(Map<String, Object> json) {
@@ -401,18 +401,18 @@ public final class Messages {
             return json == null ? null : new CapabilitiesRequest(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public CapabilitiesRequest() {
             super(new LinkedHashMap<String, Object>());
             json.put("op", "capabilities");
         }
 
-        /** メッセージのスキーマの大版。今は 1 */
+        /** メッセージのスキーマのメジャーバージョン。今は 1 */
         public Long getV() {
             return Json.read(json.get("v"), Json::integer);
         }
 
-        /** {@link #getV()} を書く。null なら欄を除く */
+        /** {@link #getV()} を書く。null ならフィールドを除く */
         public CapabilitiesRequest withV(Long value) {
             put("v", value);
             return this;
@@ -423,7 +423,7 @@ public final class Messages {
             return Json.read(json.get("budget"), Budget::of);
         }
 
-        /** {@link #getBudget()} を書く。null なら欄を除く */
+        /** {@link #getBudget()} を書く。null ならフィールドを除く */
         public CapabilitiesRequest withBudget(Budget value) {
             put("budget", value);
             return this;
@@ -434,7 +434,7 @@ public final class Messages {
             return Json.read(json.get("partial"), Json::bool);
         }
 
-        /** {@link #getPartial()} を書く。null なら欄を除く */
+        /** {@link #getPartial()} を書く。null ならフィールドを除く */
         public CapabilitiesRequest withPartial(Boolean value) {
             put("partial", value);
             return this;
@@ -445,18 +445,18 @@ public final class Messages {
             return Json.read(json.get("max_places"), Json::integer);
         }
 
-        /** {@link #getMaxPlaces()} を書く。null なら欄を除く */
+        /** {@link #getMaxPlaces()} を書く。null ならフィールドを除く */
         public CapabilitiesRequest withMaxPlaces(Long value) {
             put("max_places", value);
             return this;
         }
 
-        /** 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        /** 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
         public Long getTimeLimitMs() {
             return Json.read(json.get("time_limit_ms"), Json::integer);
         }
 
-        /** {@link #getTimeLimitMs()} を書く。null なら欄を除く */
+        /** {@link #getTimeLimitMs()} を書く。null ならフィールドを除く */
         public CapabilitiesRequest withTimeLimitMs(Long value) {
             put("time_limit_ms", value);
             return this;
@@ -467,14 +467,14 @@ public final class Messages {
             return Json.read(json.get("op"), Json::string);
         }
 
-        /** {@link #getOp()} を書く。null なら欄を除く */
+        /** {@link #getOp()} を書く。null ならフィールドを除く */
         public CapabilitiesRequest withOp(String value) {
             put("op", value);
             return this;
         }
     }
 
-    /** コアの版と、使える op・形式（決定 0015） */
+    /** コアのバージョンと、使える op・形式（決定 0015） */
     public static final class CapabilitiesResult extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public CapabilitiesResult(Map<String, Object> json) {
@@ -492,34 +492,34 @@ public final class Messages {
             super(new LinkedHashMap<String, Object>());
         }
 
-        /** パッケージの版（semver） */
+        /** パッケージのバージョン（semver） */
         public String getPackage() {
             return Json.read(json.get("package"), Json::string);
         }
 
-        /** {@link #getPackage()} を書く。null なら欄を除く */
+        /** {@link #getPackage()} を書く。null ならフィールドを除く */
         public CapabilitiesResult withPackage(String value) {
             put("package", value);
             return this;
         }
 
-        /** ABI の大版。zm_abi_version と同じ */
+        /** ABI のメジャーバージョン。zm_abi_version と同じ */
         public Long getAbi() {
             return Json.read(json.get("abi"), Json::integer);
         }
 
-        /** {@link #getAbi()} を書く。null なら欄を除く */
+        /** {@link #getAbi()} を書く。null ならフィールドを除く */
         public CapabilitiesResult withAbi(Long value) {
             put("abi", value);
             return this;
         }
 
-        /** メッセージのスキーマの版 */
+        /** メッセージのスキーマのバージョン */
         public SchemaVersion getSchema() {
             return Json.read(json.get("schema"), SchemaVersion::of);
         }
 
-        /** {@link #getSchema()} を書く。null なら欄を除く */
+        /** {@link #getSchema()} を書く。null ならフィールドを除く */
         public CapabilitiesResult withSchema(SchemaVersion value) {
             put("schema", value);
             return this;
@@ -530,7 +530,7 @@ public final class Messages {
             return Json.read(json.get("ops"), v0 -> Json.list(v0, Json::string));
         }
 
-        /** {@link #getOps()} を書く。null なら欄を除く */
+        /** {@link #getOps()} を書く。null ならフィールドを除く */
         public CapabilitiesResult withOps(List<String> value) {
             put("ops", value);
             return this;
@@ -541,14 +541,14 @@ public final class Messages {
             return Json.read(json.get("formats"), v0 -> Json.list(v0, Format::of));
         }
 
-        /** {@link #getFormats()} を書く。null なら欄を除く */
+        /** {@link #getFormats()} を書く。null ならフィールドを除く */
         public CapabilitiesResult withFormats(List<Format> value) {
             put("formats", value);
             return this;
         }
     }
 
-    /** メッセージのスキーマの版。大版は要求と応答の v、小版は op・欄・列挙の値を足すたびに上げる */
+    /** メッセージのスキーマのバージョン。メジャーバージョンは要求と応答の v、マイナーバージョンは op・フィールド・列挙の値を足すたびに上げる */
     public static final class SchemaVersion extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public SchemaVersion(Map<String, Object> json) {
@@ -566,23 +566,23 @@ public final class Messages {
             super(new LinkedHashMap<String, Object>());
         }
 
-        /** 大版 */
+        /** メジャーバージョン */
         public Long getMajor() {
             return Json.read(json.get("major"), Json::integer);
         }
 
-        /** {@link #getMajor()} を書く。null なら欄を除く */
+        /** {@link #getMajor()} を書く。null ならフィールドを除く */
         public SchemaVersion withMajor(Long value) {
             put("major", value);
             return this;
         }
 
-        /** 小版 */
+        /** マイナーバージョン */
         public Long getMinor() {
             return Json.read(json.get("minor"), Json::integer);
         }
 
-        /** {@link #getMinor()} を書く。null なら欄を除く */
+        /** {@link #getMinor()} を書く。null ならフィールドを除く */
         public SchemaVersion withMinor(Long value) {
             put("minor", value);
             return this;
@@ -612,7 +612,7 @@ public final class Messages {
             return Json.read(json.get("id"), Json::string);
         }
 
-        /** {@link #getId()} を書く。null なら欄を除く */
+        /** {@link #getId()} を書く。null ならフィールドを除く */
         public Format withId(String value) {
             put("id", value);
             return this;
@@ -623,7 +623,7 @@ public final class Messages {
             return Json.read(json.get("family"), Json::string);
         }
 
-        /** {@link #getFamily()} を書く。null なら欄を除く */
+        /** {@link #getFamily()} を書く。null ならフィールドを除く */
         public Format withFamily(String value) {
             put("family", value);
             return this;
@@ -634,7 +634,7 @@ public final class Messages {
             return Json.read(json.get("read"), Json::bool);
         }
 
-        /** {@link #getRead()} を書く。null なら欄を除く */
+        /** {@link #getRead()} を書く。null ならフィールドを除く */
         public Format withRead(Boolean value) {
             put("read", value);
             return this;
@@ -645,18 +645,18 @@ public final class Messages {
             return Json.read(json.get("write"), Json::bool);
         }
 
-        /** {@link #getWrite()} を書く。null なら欄を除く */
+        /** {@link #getWrite()} を書く。null ならフィールドを除く */
         public Format withWrite(Boolean value) {
             put("write", value);
             return this;
         }
 
-        /** この形式の ID の規則の版（決定 0015） */
+        /** この形式の ID の規則のバージョン（決定 0015） */
         public Long getIdRules() {
             return Json.read(json.get("id_rules"), Json::integer);
         }
 
-        /** {@link #getIdRules()} を書く。null なら欄を除く */
+        /** {@link #getIdRules()} を書く。null ならフィールドを除く */
         public Format withIdRules(Long value) {
             put("id_rules", value);
             return this;
@@ -676,18 +676,18 @@ public final class Messages {
             return json == null ? null : new OpenRequest(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public OpenRequest() {
             super(new LinkedHashMap<String, Object>());
             json.put("op", "open");
         }
 
-        /** メッセージのスキーマの大版。今は 1 */
+        /** メッセージのスキーマのメジャーバージョン。今は 1 */
         public Long getV() {
             return Json.read(json.get("v"), Json::integer);
         }
 
-        /** {@link #getV()} を書く。null なら欄を除く */
+        /** {@link #getV()} を書く。null ならフィールドを除く */
         public OpenRequest withV(Long value) {
             put("v", value);
             return this;
@@ -698,7 +698,7 @@ public final class Messages {
             return Json.read(json.get("budget"), Budget::of);
         }
 
-        /** {@link #getBudget()} を書く。null なら欄を除く */
+        /** {@link #getBudget()} を書く。null ならフィールドを除く */
         public OpenRequest withBudget(Budget value) {
             put("budget", value);
             return this;
@@ -709,7 +709,7 @@ public final class Messages {
             return Json.read(json.get("partial"), Json::bool);
         }
 
-        /** {@link #getPartial()} を書く。null なら欄を除く */
+        /** {@link #getPartial()} を書く。null ならフィールドを除く */
         public OpenRequest withPartial(Boolean value) {
             put("partial", value);
             return this;
@@ -720,18 +720,18 @@ public final class Messages {
             return Json.read(json.get("max_places"), Json::integer);
         }
 
-        /** {@link #getMaxPlaces()} を書く。null なら欄を除く */
+        /** {@link #getMaxPlaces()} を書く。null ならフィールドを除く */
         public OpenRequest withMaxPlaces(Long value) {
             put("max_places", value);
             return this;
         }
 
-        /** 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        /** 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
         public Long getTimeLimitMs() {
             return Json.read(json.get("time_limit_ms"), Json::integer);
         }
 
-        /** {@link #getTimeLimitMs()} を書く。null なら欄を除く */
+        /** {@link #getTimeLimitMs()} を書く。null ならフィールドを除く */
         public OpenRequest withTimeLimitMs(Long value) {
             put("time_limit_ms", value);
             return this;
@@ -742,7 +742,7 @@ public final class Messages {
             return Json.read(json.get("op"), Json::string);
         }
 
-        /** {@link #getOp()} を書く。null なら欄を除く */
+        /** {@link #getOp()} を書く。null ならフィールドを除く */
         public OpenRequest withOp(String value) {
             put("op", value);
             return this;
@@ -753,7 +753,7 @@ public final class Messages {
             return Json.read(json.get("input"), Json::string);
         }
 
-        /** {@link #getInput()} を書く。null なら欄を除く */
+        /** {@link #getInput()} を書く。null ならフィールドを除く */
         public OpenRequest withInput(String value) {
             put("input", value);
             return this;
@@ -764,40 +764,40 @@ public final class Messages {
             return Json.read(json.get("doc"), Json::string);
         }
 
-        /** {@link #getDoc()} を書く。null なら欄を除く */
+        /** {@link #getDoc()} を書く。null ならフィールドを除く */
         public OpenRequest withDoc(String value) {
             put("doc", value);
             return this;
         }
 
-        /** 入力の全体の大きさ（バイト）。渡した入力より大きければ、入力を全体の初めの部分とみなし、足りない範囲を needs で求める。範囲で読める形式（LAS・LAZ）だけが使う（決定 0232）。小版 48 から */
+        /** 入力の全体の大きさ（バイト）。渡した入力より大きければ、入力を全体の初めの部分とみなし、足りない範囲を needs で求める。範囲で読める形式（LAS・LAZ）だけが使う（決定 0232）。マイナーバージョン 48 から */
         public Long getSize() {
             return Json.read(json.get("size"), Json::integer);
         }
 
-        /** {@link #getSize()} を書く。null なら欄を除く */
+        /** {@link #getSize()} を書く。null ならフィールドを除く */
         public OpenRequest withSize(Long value) {
             put("size", value);
             return this;
         }
 
-        /** 見分ける印のない形式（xyz・extdm）を名指して読む。書かなければ、入力から判定する（決定 0232）。小版 49 から。extdm は小版 62 から */
+        /** 見分けるマーカーのない形式（xyz・extdm）を名指して読む。書かなければ、入力から判定する（決定 0232）。マイナーバージョン 49 から。extdm はマイナーバージョン 62 から */
         public String getFormat() {
             return Json.read(json.get("format"), Json::string);
         }
 
-        /** {@link #getFormat()} を書く。null なら欄を除く */
+        /** {@link #getFormat()} を書く。null ならフィールドを除く */
         public OpenRequest withFormat(String value) {
             put("format", value);
             return this;
         }
 
-        /** SXF の属性ファイル（SAF）を入れた入力の名前。zm_push で渡したもの。属性ファイル用の属性付加機構（$$ATRF$$）の要素に、属性を sxf.saf の拡張で結ぶ（決定 0249）。書かなければ、P2Z・SFZ の中の、図面と同じ名前の SAF を使う。SXF でない入力には使えない。小版 63 から */
+        /** SXF の属性ファイル（SAF）を入れた入力の名前。zm_push で渡したもの。属性ファイル用の属性付加機構（$$ATRF$$）の要素に、属性を sxf.saf の拡張で結ぶ（決定 0249）。書かなければ、P2Z・SFZ の中の、図面と同じ名前の SAF を使う。SXF でない入力には使えない。マイナーバージョン 63 から */
         public String getSaf() {
             return Json.read(json.get("saf"), Json::string);
         }
 
-        /** {@link #getSaf()} を書く。null なら欄を除く */
+        /** {@link #getSaf()} を書く。null ならフィールドを除く */
         public OpenRequest withSaf(String value) {
             put("saf", value);
             return this;
@@ -827,7 +827,7 @@ public final class Messages {
             return Json.read(json.get("doc"), Json::string);
         }
 
-        /** {@link #getDoc()} を書く。null なら欄を除く */
+        /** {@link #getDoc()} を書く。null ならフィールドを除く */
         public OpenResult withDoc(String value) {
             put("doc", value);
             return this;
@@ -838,40 +838,40 @@ public final class Messages {
             return Json.read(json.get("format"), Json::string);
         }
 
-        /** {@link #getFormat()} を書く。null なら欄を除く */
+        /** {@link #getFormat()} を書く。null ならフィールドを除く */
         public OpenResult withFormat(String value) {
             put("format", value);
             return this;
         }
 
-        /** 読むのに足りない範囲。あれば文書はまだ作らない。範囲をその名前で zm_push してから、同じ要求をもう一度呼ぶ（決定 0232）。小版 48 から */
+        /** 読むのに足りない範囲。あれば文書はまだ作らない。範囲をその名前で zm_push してから、同じ要求をもう一度呼ぶ（決定 0232）。マイナーバージョン 48 から */
         public List<InputRange> getNeeds() {
             return Json.read(json.get("needs"), v0 -> Json.list(v0, InputRange::of));
         }
 
-        /** {@link #getNeeds()} を書く。null なら欄を除く */
+        /** {@link #getNeeds()} を書く。null ならフィールドを除く */
         public OpenResult withNeeds(List<InputRange> value) {
             put("needs", value);
             return this;
         }
 
-        /** 読み終えたので、close の inputs で捨ててよい範囲の入力。小版 48 から */
+        /** 読み終えたので、close の inputs で捨ててよい範囲の入力。マイナーバージョン 48 から */
         public List<InputRange> getDone() {
             return Json.read(json.get("done"), v0 -> Json.list(v0, InputRange::of));
         }
 
-        /** {@link #getDone()} を書く。null なら欄を除く */
+        /** {@link #getDone()} を書く。null ならフィールドを除く */
         public OpenResult withDone(List<InputRange> value) {
             put("done", value);
             return this;
         }
 
-        /** SXF を ZIP に入れた書庫（P2Z・SFZ）なら、SXF の項目のほかの項目（属性ファイル・画像など）の書庫の中の名前。書庫の順。apply は、SXF の項目だけを置き換え、ほかの項目を写した書庫を書く（#385）。小版 54 から */
+        /** SXF を ZIP に入れたアーカイブ（P2Z・SFZ）なら、SXF の項目のほかの項目（属性ファイル・画像など）のアーカイブの中の名前。アーカイブの順。apply は、SXF の項目だけを置き換え、ほかの項目を写したアーカイブを書く（#385）。マイナーバージョン 54 から */
         public List<String> getEntries() {
             return Json.read(json.get("entries"), v0 -> Json.list(v0, Json::string));
         }
 
-        /** {@link #getEntries()} を書く。null なら欄を除く */
+        /** {@link #getEntries()} を書く。null ならフィールドを除く */
         public OpenResult withEntries(List<String> value) {
             put("entries", value);
             return this;
@@ -901,7 +901,7 @@ public final class Messages {
             return Json.read(json.get("input"), Json::string);
         }
 
-        /** {@link #getInput()} を書く。null なら欄を除く */
+        /** {@link #getInput()} を書く。null ならフィールドを除く */
         public InputRange withInput(String value) {
             put("input", value);
             return this;
@@ -912,7 +912,7 @@ public final class Messages {
             return Json.read(json.get("start"), Json::integer);
         }
 
-        /** {@link #getStart()} を書く。null なら欄を除く */
+        /** {@link #getStart()} を書く。null ならフィールドを除く */
         public InputRange withStart(Long value) {
             put("start", value);
             return this;
@@ -923,7 +923,7 @@ public final class Messages {
             return Json.read(json.get("end"), Json::integer);
         }
 
-        /** {@link #getEnd()} を書く。null なら欄を除く */
+        /** {@link #getEnd()} を書く。null ならフィールドを除く */
         public InputRange withEnd(Long value) {
             put("end", value);
             return this;
@@ -943,18 +943,18 @@ public final class Messages {
             return json == null ? null : new CloseRequest(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public CloseRequest() {
             super(new LinkedHashMap<String, Object>());
             json.put("op", "close");
         }
 
-        /** メッセージのスキーマの大版。今は 1 */
+        /** メッセージのスキーマのメジャーバージョン。今は 1 */
         public Long getV() {
             return Json.read(json.get("v"), Json::integer);
         }
 
-        /** {@link #getV()} を書く。null なら欄を除く */
+        /** {@link #getV()} を書く。null ならフィールドを除く */
         public CloseRequest withV(Long value) {
             put("v", value);
             return this;
@@ -965,7 +965,7 @@ public final class Messages {
             return Json.read(json.get("budget"), Budget::of);
         }
 
-        /** {@link #getBudget()} を書く。null なら欄を除く */
+        /** {@link #getBudget()} を書く。null ならフィールドを除く */
         public CloseRequest withBudget(Budget value) {
             put("budget", value);
             return this;
@@ -976,7 +976,7 @@ public final class Messages {
             return Json.read(json.get("partial"), Json::bool);
         }
 
-        /** {@link #getPartial()} を書く。null なら欄を除く */
+        /** {@link #getPartial()} を書く。null ならフィールドを除く */
         public CloseRequest withPartial(Boolean value) {
             put("partial", value);
             return this;
@@ -987,18 +987,18 @@ public final class Messages {
             return Json.read(json.get("max_places"), Json::integer);
         }
 
-        /** {@link #getMaxPlaces()} を書く。null なら欄を除く */
+        /** {@link #getMaxPlaces()} を書く。null ならフィールドを除く */
         public CloseRequest withMaxPlaces(Long value) {
             put("max_places", value);
             return this;
         }
 
-        /** 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        /** 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
         public Long getTimeLimitMs() {
             return Json.read(json.get("time_limit_ms"), Json::integer);
         }
 
-        /** {@link #getTimeLimitMs()} を書く。null なら欄を除く */
+        /** {@link #getTimeLimitMs()} を書く。null ならフィールドを除く */
         public CloseRequest withTimeLimitMs(Long value) {
             put("time_limit_ms", value);
             return this;
@@ -1009,7 +1009,7 @@ public final class Messages {
             return Json.read(json.get("op"), Json::string);
         }
 
-        /** {@link #getOp()} を書く。null なら欄を除く */
+        /** {@link #getOp()} を書く。null ならフィールドを除く */
         public CloseRequest withOp(String value) {
             put("op", value);
             return this;
@@ -1020,7 +1020,7 @@ public final class Messages {
             return Json.read(json.get("docs"), v0 -> Json.list(v0, Json::string));
         }
 
-        /** {@link #getDocs()} を書く。null なら欄を除く */
+        /** {@link #getDocs()} を書く。null ならフィールドを除く */
         public CloseRequest withDocs(List<String> value) {
             put("docs", value);
             return this;
@@ -1031,7 +1031,7 @@ public final class Messages {
             return Json.read(json.get("inputs"), v0 -> Json.list(v0, Json::string));
         }
 
-        /** {@link #getInputs()} を書く。null なら欄を除く */
+        /** {@link #getInputs()} を書く。null ならフィールドを除く */
         public CloseRequest withInputs(List<String> value) {
             put("inputs", value);
             return this;
@@ -1070,18 +1070,18 @@ public final class Messages {
             return json == null ? null : new DescribeRequest(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public DescribeRequest() {
             super(new LinkedHashMap<String, Object>());
             json.put("op", "describe");
         }
 
-        /** メッセージのスキーマの大版。今は 1 */
+        /** メッセージのスキーマのメジャーバージョン。今は 1 */
         public Long getV() {
             return Json.read(json.get("v"), Json::integer);
         }
 
-        /** {@link #getV()} を書く。null なら欄を除く */
+        /** {@link #getV()} を書く。null ならフィールドを除く */
         public DescribeRequest withV(Long value) {
             put("v", value);
             return this;
@@ -1092,7 +1092,7 @@ public final class Messages {
             return Json.read(json.get("budget"), Budget::of);
         }
 
-        /** {@link #getBudget()} を書く。null なら欄を除く */
+        /** {@link #getBudget()} を書く。null ならフィールドを除く */
         public DescribeRequest withBudget(Budget value) {
             put("budget", value);
             return this;
@@ -1103,7 +1103,7 @@ public final class Messages {
             return Json.read(json.get("partial"), Json::bool);
         }
 
-        /** {@link #getPartial()} を書く。null なら欄を除く */
+        /** {@link #getPartial()} を書く。null ならフィールドを除く */
         public DescribeRequest withPartial(Boolean value) {
             put("partial", value);
             return this;
@@ -1114,18 +1114,18 @@ public final class Messages {
             return Json.read(json.get("max_places"), Json::integer);
         }
 
-        /** {@link #getMaxPlaces()} を書く。null なら欄を除く */
+        /** {@link #getMaxPlaces()} を書く。null ならフィールドを除く */
         public DescribeRequest withMaxPlaces(Long value) {
             put("max_places", value);
             return this;
         }
 
-        /** 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        /** 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
         public Long getTimeLimitMs() {
             return Json.read(json.get("time_limit_ms"), Json::integer);
         }
 
-        /** {@link #getTimeLimitMs()} を書く。null なら欄を除く */
+        /** {@link #getTimeLimitMs()} を書く。null ならフィールドを除く */
         public DescribeRequest withTimeLimitMs(Long value) {
             put("time_limit_ms", value);
             return this;
@@ -1136,7 +1136,7 @@ public final class Messages {
             return Json.read(json.get("op"), Json::string);
         }
 
-        /** {@link #getOp()} を書く。null なら欄を除く */
+        /** {@link #getOp()} を書く。null ならフィールドを除く */
         public DescribeRequest withOp(String value) {
             put("op", value);
             return this;
@@ -1147,7 +1147,7 @@ public final class Messages {
             return Json.read(json.get("catalog"), Json::string);
         }
 
-        /** {@link #getCatalog()} を書く。null なら欄を除く */
+        /** {@link #getCatalog()} を書く。null ならフィールドを除く */
         public DescribeRequest withCatalog(String value) {
             put("catalog", value);
             return this;
@@ -1158,7 +1158,7 @@ public final class Messages {
             return Json.read(json.get("diagnostics"), v0 -> Json.list(v0, Diagnostic::of));
         }
 
-        /** {@link #getDiagnostics()} を書く。null なら欄を除く */
+        /** {@link #getDiagnostics()} を書く。null ならフィールドを除く */
         public DescribeRequest withDiagnostics(List<Diagnostic> value) {
             put("diagnostics", value);
             return this;
@@ -1188,14 +1188,14 @@ public final class Messages {
             return Json.read(json.get("texts"), v0 -> Json.list(v0, Json::string));
         }
 
-        /** {@link #getTexts()} を書く。null なら欄を除く */
+        /** {@link #getTexts()} を書く。null ならフィールドを除く */
         public DescribeResult withTexts(List<String> value) {
             put("texts", value);
             return this;
         }
     }
 
-    /** 開いた文書を図面モデル（L2、決定 0022）に変換し、その要約を返す。ネイティブと wasm の出力の一致を、適合試験で比べるためにも使う（決定 0007） */
+    /** 開いた文書を図面モデル（L2、決定 0022）に変換し、その要約を返す。ネイティブと wasm の出力の一致を、適合テストで比べるためにも使う（決定 0007） */
     public static final class DrawingRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public DrawingRequest(Map<String, Object> json) {
@@ -1208,18 +1208,18 @@ public final class Messages {
             return json == null ? null : new DrawingRequest(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public DrawingRequest() {
             super(new LinkedHashMap<String, Object>());
             json.put("op", "drawing");
         }
 
-        /** メッセージのスキーマの大版。今は 1 */
+        /** メッセージのスキーマのメジャーバージョン。今は 1 */
         public Long getV() {
             return Json.read(json.get("v"), Json::integer);
         }
 
-        /** {@link #getV()} を書く。null なら欄を除く */
+        /** {@link #getV()} を書く。null ならフィールドを除く */
         public DrawingRequest withV(Long value) {
             put("v", value);
             return this;
@@ -1230,7 +1230,7 @@ public final class Messages {
             return Json.read(json.get("budget"), Budget::of);
         }
 
-        /** {@link #getBudget()} を書く。null なら欄を除く */
+        /** {@link #getBudget()} を書く。null ならフィールドを除く */
         public DrawingRequest withBudget(Budget value) {
             put("budget", value);
             return this;
@@ -1241,7 +1241,7 @@ public final class Messages {
             return Json.read(json.get("partial"), Json::bool);
         }
 
-        /** {@link #getPartial()} を書く。null なら欄を除く */
+        /** {@link #getPartial()} を書く。null ならフィールドを除く */
         public DrawingRequest withPartial(Boolean value) {
             put("partial", value);
             return this;
@@ -1252,18 +1252,18 @@ public final class Messages {
             return Json.read(json.get("max_places"), Json::integer);
         }
 
-        /** {@link #getMaxPlaces()} を書く。null なら欄を除く */
+        /** {@link #getMaxPlaces()} を書く。null ならフィールドを除く */
         public DrawingRequest withMaxPlaces(Long value) {
             put("max_places", value);
             return this;
         }
 
-        /** 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        /** 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
         public Long getTimeLimitMs() {
             return Json.read(json.get("time_limit_ms"), Json::integer);
         }
 
-        /** {@link #getTimeLimitMs()} を書く。null なら欄を除く */
+        /** {@link #getTimeLimitMs()} を書く。null ならフィールドを除く */
         public DrawingRequest withTimeLimitMs(Long value) {
             put("time_limit_ms", value);
             return this;
@@ -1274,7 +1274,7 @@ public final class Messages {
             return Json.read(json.get("op"), Json::string);
         }
 
-        /** {@link #getOp()} を書く。null なら欄を除く */
+        /** {@link #getOp()} を書く。null ならフィールドを除く */
         public DrawingRequest withOp(String value) {
             put("op", value);
             return this;
@@ -1285,7 +1285,7 @@ public final class Messages {
             return Json.read(json.get("doc"), Json::string);
         }
 
-        /** {@link #getDoc()} を書く。null なら欄を除く */
+        /** {@link #getDoc()} を書く。null ならフィールドを除く */
         public DrawingRequest withDoc(String value) {
             put("doc", value);
             return this;
@@ -1315,7 +1315,7 @@ public final class Messages {
             return Json.read(json.get("hash"), Json::string);
         }
 
-        /** {@link #getHash()} を書く。null なら欄を除く */
+        /** {@link #getHash()} を書く。null ならフィールドを除く */
         public DrawingResult withHash(String value) {
             put("hash", value);
             return this;
@@ -1326,7 +1326,7 @@ public final class Messages {
             return Json.read(json.get("spaces"), v0 -> Json.list(v0, SpaceSummary::of));
         }
 
-        /** {@link #getSpaces()} を書く。null なら欄を除く */
+        /** {@link #getSpaces()} を書く。null ならフィールドを除く */
         public DrawingResult withSpaces(List<SpaceSummary> value) {
             put("spaces", value);
             return this;
@@ -1337,25 +1337,25 @@ public final class Messages {
             return Json.read(json.get("sheets"), v0 -> Json.list(v0, SheetSummary::of));
         }
 
-        /** {@link #getSheets()} を書く。null なら欄を除く */
+        /** {@link #getSheets()} を書く。null ならフィールドを除く */
         public DrawingResult withSheets(List<SheetSummary> value) {
             put("sheets", value);
             return this;
         }
 
-        /** 文書の点の表し方（marker を持たない点の見え方、決定 0160）。point_style の変更で変える。文書が持たなければ（JWW・SXF）持たない。小版 39 から */
+        /** 文書の点の表し方（marker を持たない点の見え方、決定 0160）。point_style の変更で変える。文書が持たなければ（JWW・SXF）持たない。マイナーバージョン 39 から */
         public PointStyleSummary getPointStyle() {
             return Json.read(json.get("point_style"), PointStyleSummary::of);
         }
 
-        /** {@link #getPointStyle()} を書く。null なら欄を除く */
+        /** {@link #getPointStyle()} を書く。null ならフィールドを除く */
         public DrawingResult withPointStyle(PointStyleSummary value) {
             put("point_style", value);
             return this;
         }
     }
 
-    /** 文書の点の表し方。欄の意味は point_style_edit と同じ */
+    /** 文書の点の表し方。フィールドの意味は point_style_edit と同じ */
     public static final class PointStyleSummary extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public PointStyleSummary(Map<String, Object> json) {
@@ -1378,7 +1378,7 @@ public final class Messages {
             return Json.read(json.get("mark"), Json::string);
         }
 
-        /** {@link #getMark()} を書く。null なら欄を除く */
+        /** {@link #getMark()} を書く。null ならフィールドを除く */
         public PointStyleSummary withMark(String value) {
             put("mark", value);
             return this;
@@ -1389,7 +1389,7 @@ public final class Messages {
             return Json.read(json.get("circle"), Json::bool);
         }
 
-        /** {@link #getCircle()} を書く。null なら欄を除く */
+        /** {@link #getCircle()} を書く。null ならフィールドを除く */
         public PointStyleSummary withCircle(Boolean value) {
             put("circle", value);
             return this;
@@ -1400,7 +1400,7 @@ public final class Messages {
             return Json.read(json.get("square"), Json::bool);
         }
 
-        /** {@link #getSquare()} を書く。null なら欄を除く */
+        /** {@link #getSquare()} を書く。null ならフィールドを除く */
         public PointStyleSummary withSquare(Boolean value) {
             put("square", value);
             return this;
@@ -1411,7 +1411,7 @@ public final class Messages {
             return Json.read(json.get("size"), Json::number);
         }
 
-        /** {@link #getSize()} を書く。null なら欄を除く */
+        /** {@link #getSize()} を書く。null ならフィールドを除く */
         public PointStyleSummary withSize(Double value) {
             put("size", value);
             return this;
@@ -1422,7 +1422,7 @@ public final class Messages {
             return Json.read(json.get("size_kind"), Json::string);
         }
 
-        /** {@link #getSizeKind()} を書く。null なら欄を除く */
+        /** {@link #getSizeKind()} を書く。null ならフィールドを除く */
         public PointStyleSummary withSizeKind(String value) {
             put("size_kind", value);
             return this;
@@ -1452,7 +1452,7 @@ public final class Messages {
             return Json.read(json.get("id"), Json::string);
         }
 
-        /** {@link #getId()} を書く。null なら欄を除く */
+        /** {@link #getId()} を書く。null ならフィールドを除く */
         public SpaceSummary withId(String value) {
             put("id", value);
             return this;
@@ -1463,7 +1463,7 @@ public final class Messages {
             return Json.read(json.get("unit"), Json::string);
         }
 
-        /** {@link #getUnit()} を書く。null なら欄を除く */
+        /** {@link #getUnit()} を書く。null ならフィールドを除く */
         public SpaceSummary withUnit(String value) {
             put("unit", value);
             return this;
@@ -1474,7 +1474,7 @@ public final class Messages {
             return Json.read(json.get("elements"), ElementCounts::of);
         }
 
-        /** {@link #getElements()} を書く。null なら欄を除く */
+        /** {@link #getElements()} を書く。null ならフィールドを除く */
         public SpaceSummary withElements(ElementCounts value) {
             put("elements", value);
             return this;
@@ -1485,7 +1485,7 @@ public final class Messages {
             return Json.read(json.get("extent"), Extent::of);
         }
 
-        /** {@link #getExtent()} を書く。null なら欄を除く */
+        /** {@link #getExtent()} を書く。null ならフィールドを除く */
         public SpaceSummary withExtent(Extent value) {
             put("extent", value);
             return this;
@@ -1515,7 +1515,7 @@ public final class Messages {
             return Json.read(json.get("id"), Json::string);
         }
 
-        /** {@link #getId()} を書く。null なら欄を除く */
+        /** {@link #getId()} を書く。null ならフィールドを除く */
         public SheetSummary withId(String value) {
             put("id", value);
             return this;
@@ -1526,7 +1526,7 @@ public final class Messages {
             return Json.read(json.get("name"), Json::string);
         }
 
-        /** {@link #getName()} を書く。null なら欄を除く */
+        /** {@link #getName()} を書く。null ならフィールドを除く */
         public SheetSummary withName(String value) {
             put("name", value);
             return this;
@@ -1537,7 +1537,7 @@ public final class Messages {
             return Json.read(json.get("size"), v0 -> Json.list(v0, Json::number));
         }
 
-        /** {@link #getSize()} を書く。null なら欄を除く */
+        /** {@link #getSize()} を書く。null ならフィールドを除く */
         public SheetSummary withSize(List<Double> value) {
             put("size", value);
             return this;
@@ -1548,7 +1548,7 @@ public final class Messages {
             return Json.read(json.get("elements"), ElementCounts::of);
         }
 
-        /** {@link #getElements()} を書く。null なら欄を除く */
+        /** {@link #getElements()} を書く。null ならフィールドを除く */
         public SheetSummary withElements(ElementCounts value) {
             put("elements", value);
             return this;
@@ -1559,7 +1559,7 @@ public final class Messages {
             return Json.read(json.get("views"), Json::integer);
         }
 
-        /** {@link #getViews()} を書く。null なら欄を除く */
+        /** {@link #getViews()} を書く。null ならフィールドを除く */
         public SheetSummary withViews(Long value) {
             put("views", value);
             return this;
@@ -1570,7 +1570,7 @@ public final class Messages {
             return Json.read(json.get("extent"), Extent::of);
         }
 
-        /** {@link #getExtent()} を書く。null なら欄を除く */
+        /** {@link #getExtent()} を書く。null ならフィールドを除く */
         public SheetSummary withExtent(Extent value) {
             put("extent", value);
             return this;
@@ -1621,7 +1621,7 @@ public final class Messages {
             return Json.read(json.get("lines"), Json::integer);
         }
 
-        /** {@link #getLines()} を書く。null なら欄を除く */
+        /** {@link #getLines()} を書く。null ならフィールドを除く */
         public ElementCounts withLines(Long value) {
             put("lines", value);
             return this;
@@ -1632,7 +1632,7 @@ public final class Messages {
             return Json.read(json.get("texts"), Json::integer);
         }
 
-        /** {@link #getTexts()} を書く。null なら欄を除く */
+        /** {@link #getTexts()} を書く。null ならフィールドを除く */
         public ElementCounts withTexts(Long value) {
             put("texts", value);
             return this;
@@ -1662,7 +1662,7 @@ public final class Messages {
             return Json.read(json.get("min_x"), Json::number);
         }
 
-        /** {@link #getMinX()} を書く。null なら欄を除く */
+        /** {@link #getMinX()} を書く。null ならフィールドを除く */
         public Extent withMinX(Double value) {
             put("min_x", value);
             return this;
@@ -1673,7 +1673,7 @@ public final class Messages {
             return Json.read(json.get("min_y"), Json::number);
         }
 
-        /** {@link #getMinY()} を書く。null なら欄を除く */
+        /** {@link #getMinY()} を書く。null ならフィールドを除く */
         public Extent withMinY(Double value) {
             put("min_y", value);
             return this;
@@ -1684,7 +1684,7 @@ public final class Messages {
             return Json.read(json.get("max_x"), Json::number);
         }
 
-        /** {@link #getMaxX()} を書く。null なら欄を除く */
+        /** {@link #getMaxX()} を書く。null ならフィールドを除く */
         public Extent withMaxX(Double value) {
             put("max_x", value);
             return this;
@@ -1695,7 +1695,7 @@ public final class Messages {
             return Json.read(json.get("max_y"), Json::number);
         }
 
-        /** {@link #getMaxY()} を書く。null なら欄を除く */
+        /** {@link #getMaxY()} を書く。null ならフィールドを除く */
         public Extent withMaxY(Double value) {
             put("max_y", value);
             return this;
@@ -1715,18 +1715,18 @@ public final class Messages {
             return json == null ? null : new EntitiesRequest(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public EntitiesRequest() {
             super(new LinkedHashMap<String, Object>());
             json.put("op", "entities");
         }
 
-        /** メッセージのスキーマの大版。今は 1 */
+        /** メッセージのスキーマのメジャーバージョン。今は 1 */
         public Long getV() {
             return Json.read(json.get("v"), Json::integer);
         }
 
-        /** {@link #getV()} を書く。null なら欄を除く */
+        /** {@link #getV()} を書く。null ならフィールドを除く */
         public EntitiesRequest withV(Long value) {
             put("v", value);
             return this;
@@ -1737,7 +1737,7 @@ public final class Messages {
             return Json.read(json.get("budget"), Budget::of);
         }
 
-        /** {@link #getBudget()} を書く。null なら欄を除く */
+        /** {@link #getBudget()} を書く。null ならフィールドを除く */
         public EntitiesRequest withBudget(Budget value) {
             put("budget", value);
             return this;
@@ -1748,7 +1748,7 @@ public final class Messages {
             return Json.read(json.get("partial"), Json::bool);
         }
 
-        /** {@link #getPartial()} を書く。null なら欄を除く */
+        /** {@link #getPartial()} を書く。null ならフィールドを除く */
         public EntitiesRequest withPartial(Boolean value) {
             put("partial", value);
             return this;
@@ -1759,18 +1759,18 @@ public final class Messages {
             return Json.read(json.get("max_places"), Json::integer);
         }
 
-        /** {@link #getMaxPlaces()} を書く。null なら欄を除く */
+        /** {@link #getMaxPlaces()} を書く。null ならフィールドを除く */
         public EntitiesRequest withMaxPlaces(Long value) {
             put("max_places", value);
             return this;
         }
 
-        /** 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        /** 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
         public Long getTimeLimitMs() {
             return Json.read(json.get("time_limit_ms"), Json::integer);
         }
 
-        /** {@link #getTimeLimitMs()} を書く。null なら欄を除く */
+        /** {@link #getTimeLimitMs()} を書く。null ならフィールドを除く */
         public EntitiesRequest withTimeLimitMs(Long value) {
             put("time_limit_ms", value);
             return this;
@@ -1781,7 +1781,7 @@ public final class Messages {
             return Json.read(json.get("op"), Json::string);
         }
 
-        /** {@link #getOp()} を書く。null なら欄を除く */
+        /** {@link #getOp()} を書く。null ならフィールドを除く */
         public EntitiesRequest withOp(String value) {
             put("op", value);
             return this;
@@ -1792,7 +1792,7 @@ public final class Messages {
             return Json.read(json.get("doc"), Json::string);
         }
 
-        /** {@link #getDoc()} を書く。null なら欄を除く */
+        /** {@link #getDoc()} を書く。null ならフィールドを除く */
         public EntitiesRequest withDoc(String value) {
             put("doc", value);
             return this;
@@ -1803,7 +1803,7 @@ public final class Messages {
             return Json.read(json.get("offset"), Json::integer);
         }
 
-        /** {@link #getOffset()} を書く。null なら欄を除く */
+        /** {@link #getOffset()} を書く。null ならフィールドを除く */
         public EntitiesRequest withOffset(Long value) {
             put("offset", value);
             return this;
@@ -1814,18 +1814,18 @@ public final class Messages {
             return Json.read(json.get("limit"), Json::integer);
         }
 
-        /** {@link #getLimit()} を書く。null なら欄を除く */
+        /** {@link #getLimit()} を書く。null ならフィールドを除く */
         public EntitiesRequest withLimit(Long value) {
             put("limit", value);
             return this;
         }
 
-        /** 返す欄の名前。1 つ以上で、重ねない。id は書かなくても返す。書かなければ id・kind・layer・source を返す（決定 0118） */
+        /** 返すフィールドの名前。1 つ以上で、重ねない。id は書かなくても返す。書かなければ id・kind・layer・source を返す（決定 0118） */
         public List<String> getFields() {
             return Json.read(json.get("fields"), v0 -> Json.list(v0, Json::string));
         }
 
-        /** {@link #getFields()} を書く。null なら欄を除く */
+        /** {@link #getFields()} を書く。null ならフィールドを除く */
         public EntitiesRequest withFields(List<String> value) {
             put("fields", value);
             return this;
@@ -1836,18 +1836,18 @@ public final class Messages {
             return Json.read(json.get("region"), v0 -> Json.list(v0, Json::number));
         }
 
-        /** {@link #getRegion()} を書く。null なら欄を除く */
+        /** {@link #getRegion()} を書く。null ならフィールドを除く */
         public EntitiesRequest withRegion(List<Double> value) {
             put("region", value);
             return this;
         }
 
-        /** 空間か用紙の ID（space/0・sheet/h22 など）。書けば、その空間か用紙の要素だけを返す。記号の定義の空間（space/h1F など。BLOCK のハンドルから作る、決定 0156）も指せ、書かなければ定義の中の要素は返さない。ない ID なら要素を返さない。小版 31 から（決定 0177） */
+        /** 空間か用紙の ID（space/0・sheet/h22 など）。書けば、その空間か用紙の要素だけを返す。記号の定義の空間（space/h1F など。BLOCK のハンドルから作る、決定 0156）も指せ、書かなければ定義の中の要素は返さない。ない ID なら要素を返さない。マイナーバージョン 31 から（決定 0177） */
         public String getPlace() {
             return Json.read(json.get("place"), Json::string);
         }
 
-        /** {@link #getPlace()} を書く。null なら欄を除く */
+        /** {@link #getPlace()} を書く。null ならフィールドを除く */
         public EntitiesRequest withPlace(String value) {
             put("place", value);
             return this;
@@ -1877,7 +1877,7 @@ public final class Messages {
             return Json.read(json.get("items"), v0 -> Json.list(v0, Entity::of));
         }
 
-        /** {@link #getItems()} を書く。null なら欄を除く */
+        /** {@link #getItems()} を書く。null ならフィールドを除く */
         public EntitiesResult withItems(List<Entity> value) {
             put("items", value);
             return this;
@@ -1888,7 +1888,7 @@ public final class Messages {
             return Json.read(json.get("total"), Json::integer);
         }
 
-        /** {@link #getTotal()} を書く。null なら欄を除く */
+        /** {@link #getTotal()} を書く。null ならフィールドを除く */
         public EntitiesResult withTotal(Long value) {
             put("total", value);
             return this;
@@ -1899,7 +1899,7 @@ public final class Messages {
             return Json.read(json.get("next_offset"), Json::integer);
         }
 
-        /** {@link #getNextOffset()} を書く。null なら欄を除く */
+        /** {@link #getNextOffset()} を書く。null ならフィールドを除く */
         public EntitiesResult withNextOffset(Long value) {
             put("next_offset", value);
             return this;
@@ -1924,12 +1924,12 @@ public final class Messages {
             super(new LinkedHashMap<String, Object>());
         }
 
-        /** 空間か用紙と、出所で作る ID（space/0/h2F、space/0/r12、sheet/1/b4096 など）。出所の部分は、形式が持つ鍵（ハンドル）があれば鍵で作り、書き戻しても前の要素が増えても変わらない。同じバイト列には、どの版でも同じ ID を返す（決定 0117・0156） */
+        /** 空間か用紙と、出所で作る ID（space/0/h2F、space/0/r12、sheet/1/b4096 など）。出所の部分は、形式が持つキー（ハンドル）があればキーで作り、書き戻しても前の要素が増えても変わらない。同じバイト列には、どのバージョンでも同じ ID を返す（決定 0117・0156） */
         public String getId() {
             return Json.read(json.get("id"), Json::string);
         }
 
-        /** {@link #getId()} を書く。null なら欄を除く */
+        /** {@link #getId()} を書く。null ならフィールドを除く */
         public Entity withId(String value) {
             put("id", value);
             return this;
@@ -1940,7 +1940,7 @@ public final class Messages {
             return Json.read(json.get("kind"), Json::string);
         }
 
-        /** {@link #getKind()} を書く。null なら欄を除く */
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
         public Entity withKind(String value) {
             put("kind", value);
             return this;
@@ -1951,7 +1951,7 @@ public final class Messages {
             return Json.read(json.get("layer"), Json::string);
         }
 
-        /** {@link #getLayer()} を書く。null なら欄を除く */
+        /** {@link #getLayer()} を書く。null ならフィールドを除く */
         public Entity withLayer(String value) {
             put("layer", value);
             return this;
@@ -1962,7 +1962,7 @@ public final class Messages {
             return Json.read(json.get("source"), Source::of);
         }
 
-        /** {@link #getSource()} を書く。null なら欄を除く */
+        /** {@link #getSource()} を書く。null ならフィールドを除く */
         public Entity withSource(Source value) {
             put("source", value);
             return this;
@@ -1973,7 +1973,7 @@ public final class Messages {
             return Json.read(json.get("bbox"), Extent::of);
         }
 
-        /** {@link #getBbox()} を書く。null なら欄を除く */
+        /** {@link #getBbox()} を書く。null ならフィールドを除く */
         public Entity withBbox(Extent value) {
             put("bbox", value);
             return this;
@@ -1984,18 +1984,18 @@ public final class Messages {
             return Json.read(json.get("hash"), Json::string);
         }
 
-        /** {@link #getHash()} を書く。null なら欄を除く */
+        /** {@link #getHash()} を書く。null ならフィールドを除く */
         public Entity withHash(String value) {
             put("hash", value);
             return this;
         }
 
-        /** 形の値。線分・円・円弧・楕円・幅を持たない折れ線・1 点か 2 点の間に置く文字・書式つきの文字・ブロックの記号・制御点か当てはめる点で決まるスプライン・寸法・引出線（LEADER）だけが持つ。apply の replace と add に渡せる形（決定 0139）。小版 10 から */
+        /** 形の値。線分・円・円弧・楕円・幅を持たない折れ線・1 点か 2 点の間に置く文字・書式つきの文字・ブロックの記号・制御点かフィット点で決まるスプライン・寸法・引出線（LEADER）だけが持つ。apply の replace と add に渡せる形（決定 0139）。マイナーバージョン 10 から */
         public Geometry getGeometry() {
             return Json.read(json.get("geometry"), Geometry::of);
         }
 
-        /** {@link #getGeometry()} を書く。null なら欄を除く */
+        /** {@link #getGeometry()} を書く。null ならフィールドを除く */
         public Entity withGeometry(Geometry value) {
             put("geometry", value);
             return this;
@@ -2003,7 +2003,7 @@ public final class Messages {
     }
 
     /**
-     * entities で返す要素の欄（決定 0118）
+     * entities で返す要素のフィールド（決定 0118）
      * 
      * 列挙の値。知らない値も受け取る
      */
@@ -2038,67 +2038,67 @@ public final class Messages {
             return json == null ? null : new Geometry(json);
         }
 
-        /** shape が line の形なら、その見方。違えば null */
+        /** shape が line の形なら、そのビュー。違えば null */
         public LineGeometry asLineGeometry() {
             return "line".equals(json.get("shape")) ? new LineGeometry(json) : null;
         }
 
-        /** shape が circle の形なら、その見方。違えば null */
+        /** shape が circle の形なら、そのビュー。違えば null */
         public CircleGeometry asCircleGeometry() {
             return "circle".equals(json.get("shape")) ? new CircleGeometry(json) : null;
         }
 
-        /** shape が arc の形なら、その見方。違えば null */
+        /** shape が arc の形なら、そのビュー。違えば null */
         public ArcGeometry asArcGeometry() {
             return "arc".equals(json.get("shape")) ? new ArcGeometry(json) : null;
         }
 
-        /** shape が ellipse の形なら、その見方。違えば null */
+        /** shape が ellipse の形なら、そのビュー。違えば null */
         public EllipseGeometry asEllipseGeometry() {
             return "ellipse".equals(json.get("shape")) ? new EllipseGeometry(json) : null;
         }
 
-        /** shape が polyline の形なら、その見方。違えば null */
+        /** shape が polyline の形なら、そのビュー。違えば null */
         public PolylineGeometry asPolylineGeometry() {
             return "polyline".equals(json.get("shape")) ? new PolylineGeometry(json) : null;
         }
 
-        /** shape が text の形なら、その見方。違えば null */
+        /** shape が text の形なら、そのビュー。違えば null */
         public TextGeometry asTextGeometry() {
             return "text".equals(json.get("shape")) ? new TextGeometry(json) : null;
         }
 
-        /** shape が formatted_text の形なら、その見方。違えば null */
+        /** shape が formatted_text の形なら、そのビュー。違えば null */
         public FormattedTextGeometry asFormattedTextGeometry() {
             return "formatted_text".equals(json.get("shape")) ? new FormattedTextGeometry(json) : null;
         }
 
-        /** shape が symbol の形なら、その見方。違えば null */
+        /** shape が symbol の形なら、そのビュー。違えば null */
         public SymbolGeometry asSymbolGeometry() {
             return "symbol".equals(json.get("shape")) ? new SymbolGeometry(json) : null;
         }
 
-        /** shape が spline の形なら、その見方。違えば null */
+        /** shape が spline の形なら、そのビュー。違えば null */
         public SplineGeometry asSplineGeometry() {
             return "spline".equals(json.get("shape")) ? new SplineGeometry(json) : null;
         }
 
-        /** shape が dimension の形なら、その見方。違えば null */
+        /** shape が dimension の形なら、そのビュー。違えば null */
         public DimensionGeometry asDimensionGeometry() {
             return "dimension".equals(json.get("shape")) ? new DimensionGeometry(json) : null;
         }
 
-        /** shape が leader の形なら、その見方。違えば null */
+        /** shape が leader の形なら、そのビュー。違えば null */
         public LeaderGeometry asLeaderGeometry() {
             return "leader".equals(json.get("shape")) ? new LeaderGeometry(json) : null;
         }
 
-        /** shape が point の形なら、その見方。違えば null */
+        /** shape が point の形なら、そのビュー。違えば null */
         public PointGeometry asPointGeometry() {
             return "point".equals(json.get("shape")) ? new PointGeometry(json) : null;
         }
 
-        /** shape が callout の形なら、その見方。違えば null */
+        /** shape が callout の形なら、そのビュー。違えば null */
         public CalloutGeometry asCalloutGeometry() {
             return "callout".equals(json.get("shape")) ? new CalloutGeometry(json) : null;
         }
@@ -2117,7 +2117,7 @@ public final class Messages {
             return json == null ? null : new LineGeometry(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public LineGeometry() {
             super(new LinkedHashMap<String, Object>());
             json.put("shape", "line");
@@ -2128,7 +2128,7 @@ public final class Messages {
             return Json.read(json.get("shape"), Json::string);
         }
 
-        /** {@link #getShape()} を書く。null なら欄を除く */
+        /** {@link #getShape()} を書く。null ならフィールドを除く */
         public LineGeometry withShape(String value) {
             put("shape", value);
             return this;
@@ -2139,7 +2139,7 @@ public final class Messages {
             return Json.read(json.get("start"), v0 -> Json.list(v0, Json::number));
         }
 
-        /** {@link #getStart()} を書く。null なら欄を除く */
+        /** {@link #getStart()} を書く。null ならフィールドを除く */
         public LineGeometry withStart(List<Double> value) {
             put("start", value);
             return this;
@@ -2150,7 +2150,7 @@ public final class Messages {
             return Json.read(json.get("end"), v0 -> Json.list(v0, Json::number));
         }
 
-        /** {@link #getEnd()} を書く。null なら欄を除く */
+        /** {@link #getEnd()} を書く。null ならフィールドを除く */
         public LineGeometry withEnd(List<Double> value) {
             put("end", value);
             return this;
@@ -2170,7 +2170,7 @@ public final class Messages {
             return json == null ? null : new CircleGeometry(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public CircleGeometry() {
             super(new LinkedHashMap<String, Object>());
             json.put("shape", "circle");
@@ -2181,7 +2181,7 @@ public final class Messages {
             return Json.read(json.get("shape"), Json::string);
         }
 
-        /** {@link #getShape()} を書く。null なら欄を除く */
+        /** {@link #getShape()} を書く。null ならフィールドを除く */
         public CircleGeometry withShape(String value) {
             put("shape", value);
             return this;
@@ -2192,7 +2192,7 @@ public final class Messages {
             return Json.read(json.get("center"), v0 -> Json.list(v0, Json::number));
         }
 
-        /** {@link #getCenter()} を書く。null なら欄を除く */
+        /** {@link #getCenter()} を書く。null ならフィールドを除く */
         public CircleGeometry withCenter(List<Double> value) {
             put("center", value);
             return this;
@@ -2203,7 +2203,7 @@ public final class Messages {
             return Json.read(json.get("radius"), Json::number);
         }
 
-        /** {@link #getRadius()} を書く。null なら欄を除く */
+        /** {@link #getRadius()} を書く。null ならフィールドを除く */
         public CircleGeometry withRadius(Double value) {
             put("radius", value);
             return this;
@@ -2223,7 +2223,7 @@ public final class Messages {
             return json == null ? null : new ArcGeometry(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public ArcGeometry() {
             super(new LinkedHashMap<String, Object>());
             json.put("shape", "arc");
@@ -2234,7 +2234,7 @@ public final class Messages {
             return Json.read(json.get("shape"), Json::string);
         }
 
-        /** {@link #getShape()} を書く。null なら欄を除く */
+        /** {@link #getShape()} を書く。null ならフィールドを除く */
         public ArcGeometry withShape(String value) {
             put("shape", value);
             return this;
@@ -2245,7 +2245,7 @@ public final class Messages {
             return Json.read(json.get("center"), v0 -> Json.list(v0, Json::number));
         }
 
-        /** {@link #getCenter()} を書く。null なら欄を除く */
+        /** {@link #getCenter()} を書く。null ならフィールドを除く */
         public ArcGeometry withCenter(List<Double> value) {
             put("center", value);
             return this;
@@ -2256,7 +2256,7 @@ public final class Messages {
             return Json.read(json.get("radius"), Json::number);
         }
 
-        /** {@link #getRadius()} を書く。null なら欄を除く */
+        /** {@link #getRadius()} を書く。null ならフィールドを除く */
         public ArcGeometry withRadius(Double value) {
             put("radius", value);
             return this;
@@ -2267,7 +2267,7 @@ public final class Messages {
             return Json.read(json.get("start_angle"), Json::number);
         }
 
-        /** {@link #getStartAngle()} を書く。null なら欄を除く */
+        /** {@link #getStartAngle()} を書く。null ならフィールドを除く */
         public ArcGeometry withStartAngle(Double value) {
             put("start_angle", value);
             return this;
@@ -2278,14 +2278,14 @@ public final class Messages {
             return Json.read(json.get("end_angle"), Json::number);
         }
 
-        /** {@link #getEndAngle()} を書く。null なら欄を除く */
+        /** {@link #getEndAngle()} を書く。null ならフィールドを除く */
         public ArcGeometry withEndAngle(Double value) {
             put("end_angle", value);
             return this;
         }
     }
 
-    /** 楕円か楕円の弧。始まりの角度から終わりの角度へ、反時計回りにたどる。閉じた楕円は 0 度から 360 度。小版 11 から */
+    /** 楕円か楕円の弧。始まりの角度から終わりの角度へ、反時計回りにたどる。閉じた楕円は 0 度から 360 度。マイナーバージョン 11 から */
     public static final class EllipseGeometry extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public EllipseGeometry(Map<String, Object> json) {
@@ -2298,7 +2298,7 @@ public final class Messages {
             return json == null ? null : new EllipseGeometry(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public EllipseGeometry() {
             super(new LinkedHashMap<String, Object>());
             json.put("shape", "ellipse");
@@ -2309,7 +2309,7 @@ public final class Messages {
             return Json.read(json.get("shape"), Json::string);
         }
 
-        /** {@link #getShape()} を書く。null なら欄を除く */
+        /** {@link #getShape()} を書く。null ならフィールドを除く */
         public EllipseGeometry withShape(String value) {
             put("shape", value);
             return this;
@@ -2320,7 +2320,7 @@ public final class Messages {
             return Json.read(json.get("center"), v0 -> Json.list(v0, Json::number));
         }
 
-        /** {@link #getCenter()} を書く。null なら欄を除く */
+        /** {@link #getCenter()} を書く。null ならフィールドを除く */
         public EllipseGeometry withCenter(List<Double> value) {
             put("center", value);
             return this;
@@ -2331,7 +2331,7 @@ public final class Messages {
             return Json.read(json.get("major"), v0 -> Json.list(v0, Json::number));
         }
 
-        /** {@link #getMajor()} を書く。null なら欄を除く */
+        /** {@link #getMajor()} を書く。null ならフィールドを除く */
         public EllipseGeometry withMajor(List<Double> value) {
             put("major", value);
             return this;
@@ -2342,7 +2342,7 @@ public final class Messages {
             return Json.read(json.get("ratio"), Json::number);
         }
 
-        /** {@link #getRatio()} を書く。null なら欄を除く */
+        /** {@link #getRatio()} を書く。null ならフィールドを除く */
         public EllipseGeometry withRatio(Double value) {
             put("ratio", value);
             return this;
@@ -2353,7 +2353,7 @@ public final class Messages {
             return Json.read(json.get("start_angle"), Json::number);
         }
 
-        /** {@link #getStartAngle()} を書く。null なら欄を除く */
+        /** {@link #getStartAngle()} を書く。null ならフィールドを除く */
         public EllipseGeometry withStartAngle(Double value) {
             put("start_angle", value);
             return this;
@@ -2364,7 +2364,7 @@ public final class Messages {
             return Json.read(json.get("end_angle"), Json::number);
         }
 
-        /** {@link #getEndAngle()} を書く。null なら欄を除く */
+        /** {@link #getEndAngle()} を書く。null ならフィールドを除く */
         public EllipseGeometry withEndAngle(Double value) {
             put("end_angle", value);
             return this;
@@ -2384,7 +2384,7 @@ public final class Messages {
             return json == null ? null : new PolylineGeometry(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public PolylineGeometry() {
             super(new LinkedHashMap<String, Object>());
             json.put("shape", "polyline");
@@ -2395,7 +2395,7 @@ public final class Messages {
             return Json.read(json.get("shape"), Json::string);
         }
 
-        /** {@link #getShape()} を書く。null なら欄を除く */
+        /** {@link #getShape()} を書く。null ならフィールドを除く */
         public PolylineGeometry withShape(String value) {
             put("shape", value);
             return this;
@@ -2406,7 +2406,7 @@ public final class Messages {
             return Json.read(json.get("points"), v0 -> Json.list(v0, v1 -> Json.list(v1, Json::number)));
         }
 
-        /** {@link #getPoints()} を書く。null なら欄を除く */
+        /** {@link #getPoints()} を書く。null ならフィールドを除く */
         public PolylineGeometry withPoints(List<List<Double>> value) {
             put("points", value);
             return this;
@@ -2417,7 +2417,7 @@ public final class Messages {
             return Json.read(json.get("bulges"), v0 -> Json.list(v0, Json::number));
         }
 
-        /** {@link #getBulges()} を書く。null なら欄を除く */
+        /** {@link #getBulges()} を書く。null ならフィールドを除く */
         public PolylineGeometry withBulges(List<Double> value) {
             put("bulges", value);
             return this;
@@ -2428,7 +2428,7 @@ public final class Messages {
             return Json.read(json.get("closed"), Json::bool);
         }
 
-        /** {@link #getClosed()} を書く。null なら欄を除く */
+        /** {@link #getClosed()} を書く。null ならフィールドを除く */
         public PolylineGeometry withClosed(Boolean value) {
             put("closed", value);
             return this;
@@ -2448,7 +2448,7 @@ public final class Messages {
             return json == null ? null : new TextGeometry(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public TextGeometry() {
             super(new LinkedHashMap<String, Object>());
             json.put("shape", "text");
@@ -2459,7 +2459,7 @@ public final class Messages {
             return Json.read(json.get("shape"), Json::string);
         }
 
-        /** {@link #getShape()} を書く。null なら欄を除く */
+        /** {@link #getShape()} を書く。null ならフィールドを除く */
         public TextGeometry withShape(String value) {
             put("shape", value);
             return this;
@@ -2470,7 +2470,7 @@ public final class Messages {
             return Json.read(json.get("content"), Json::string);
         }
 
-        /** {@link #getContent()} を書く。null なら欄を除く */
+        /** {@link #getContent()} を書く。null ならフィールドを除く */
         public TextGeometry withContent(String value) {
             put("content", value);
             return this;
@@ -2481,29 +2481,29 @@ public final class Messages {
             return Json.read(json.get("position"), v0 -> Json.list(v0, Json::number));
         }
 
-        /** {@link #getPosition()} を書く。null なら欄を除く */
+        /** {@link #getPosition()} を書く。null ならフィールドを除く */
         public TextGeometry withPosition(List<Double> value) {
             put("position", value);
             return this;
         }
 
-        /** 2 点の間に合わせる文字の 2 点目 [X, Y]。合わせ方（fit）と一緒に書く。置き換えでは、1 点に置く文字と 2 点の間に合わせる文字を入れ替えられない。小版 17 から */
+        /** 2 点の間に合わせる文字の 2 点目 [X, Y]。合わせ方（fit）と一緒に書く。置き換えでは、1 点に置く文字と 2 点の間に合わせる文字を入れ替えられない。マイナーバージョン 17 から */
         public List<Double> getEnd() {
             return Json.read(json.get("end"), v0 -> Json.list(v0, Json::number));
         }
 
-        /** {@link #getEnd()} を書く。null なら欄を除く */
+        /** {@link #getEnd()} を書く。null ならフィールドを除く */
         public TextGeometry withEnd(List<Double> value) {
             put("end", value);
             return this;
         }
 
-        /** 2 点の間への合わせ方。2 点目（end）と一緒に書く。小版 17 から */
+        /** 2 点の間への合わせ方。2 点目（end）と一緒に書く。マイナーバージョン 17 から */
         public String getFit() {
             return Json.read(json.get("fit"), Json::string);
         }
 
-        /** {@link #getFit()} を書く。null なら欄を除く */
+        /** {@link #getFit()} を書く。null ならフィールドを除く */
         public TextGeometry withFit(String value) {
             put("fit", value);
             return this;
@@ -2514,7 +2514,7 @@ public final class Messages {
             return Json.read(json.get("height"), Json::number);
         }
 
-        /** {@link #getHeight()} を書く。null なら欄を除く */
+        /** {@link #getHeight()} を書く。null ならフィールドを除く */
         public TextGeometry withHeight(Double value) {
             put("height", value);
             return this;
@@ -2525,29 +2525,29 @@ public final class Messages {
             return Json.read(json.get("rotation"), Json::number);
         }
 
-        /** {@link #getRotation()} を書く。null なら欄を除く */
+        /** {@link #getRotation()} を書く。null ならフィールドを除く */
         public TextGeometry withRotation(Double value) {
             put("rotation", value);
             return this;
         }
 
-        /** 文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。DXF に文字スタイルの定義がないときは Standard だけを受ける。置き換えるときは、元と同じ名前だけを受ける。style_id と一緒に書くなら、同じ文字スタイルを指す。小版 12 から */
+        /** 文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。DXF に文字スタイルの定義がないときは Standard だけを受ける。置き換えるときは、元と同じ名前だけを受ける。style_id と一緒に書くなら、同じ文字スタイルを指す。マイナーバージョン 12 から */
         public String getStyle() {
             return Json.read(json.get("style"), Json::string);
         }
 
-        /** {@link #getStyle()} を書く。null なら欄を除く */
+        /** {@link #getStyle()} を書く。null ならフィールドを除く */
         public TextGeometry withStyle(String value) {
             put("style", value);
             return this;
         }
 
-        /** 文字スタイルの ID。tables が返したもの。entities は、名前で引いた文字スタイルの ID を返す。足す・置き換えるときは、名前の代わりに書ける（名前より先に使う）。同じ名前（大文字と小文字を区別しない）の項目が複数あれば書き戻せない。小版 23 から */
+        /** 文字スタイルの ID。tables が返したもの。entities は、名前で引いた文字スタイルの ID を返す。足す・置き換えるときは、名前の代わりに書ける（名前より先に使う）。同じ名前（大文字と小文字を区別しない）の項目が複数あれば書き戻せない。マイナーバージョン 23 から */
         public String getStyleId() {
             return Json.read(json.get("style_id"), Json::string);
         }
 
-        /** {@link #getStyleId()} を書く。null なら欄を除く */
+        /** {@link #getStyleId()} を書く。null ならフィールドを除く */
         public TextGeometry withStyleId(String value) {
             put("style_id", value);
             return this;
@@ -2567,7 +2567,7 @@ public final class Messages {
         public static final String FIT = "fit";
     }
 
-    /** 書式つきの文字（DXF の MTEXT）。置き換えるときは、枠の高さ・書き進める向き・行送り・背景・高さの意味・文字スタイルを元の値のままにする。足すときは、枠の高さなし・左から右・行送り 1 倍・背景なしにする。小版 13 から */
+    /** 書式つきの文字（DXF の MTEXT）。置き換えるときは、枠の高さ・書き進める向き・行送り・背景・高さの意味・文字スタイルを元の値のままにする。足すときは、枠の高さなし・左から右・行送り 1 倍・背景なしにする。マイナーバージョン 13 から */
     public static final class FormattedTextGeometry extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public FormattedTextGeometry(Map<String, Object> json) {
@@ -2580,7 +2580,7 @@ public final class Messages {
             return json == null ? null : new FormattedTextGeometry(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public FormattedTextGeometry() {
             super(new LinkedHashMap<String, Object>());
             json.put("shape", "formatted_text");
@@ -2591,7 +2591,7 @@ public final class Messages {
             return Json.read(json.get("shape"), Json::string);
         }
 
-        /** {@link #getShape()} を書く。null なら欄を除く */
+        /** {@link #getShape()} を書く。null ならフィールドを除く */
         public FormattedTextGeometry withShape(String value) {
             put("shape", value);
             return this;
@@ -2602,7 +2602,7 @@ public final class Messages {
             return Json.read(json.get("content"), Json::string);
         }
 
-        /** {@link #getContent()} を書く。null なら欄を除く */
+        /** {@link #getContent()} を書く。null ならフィールドを除く */
         public FormattedTextGeometry withContent(String value) {
             put("content", value);
             return this;
@@ -2613,7 +2613,7 @@ public final class Messages {
             return Json.read(json.get("position"), v0 -> Json.list(v0, Json::number));
         }
 
-        /** {@link #getPosition()} を書く。null なら欄を除く */
+        /** {@link #getPosition()} を書く。null ならフィールドを除く */
         public FormattedTextGeometry withPosition(List<Double> value) {
             put("position", value);
             return this;
@@ -2624,7 +2624,7 @@ public final class Messages {
             return Json.read(json.get("height"), Json::number);
         }
 
-        /** {@link #getHeight()} を書く。null なら欄を除く */
+        /** {@link #getHeight()} を書く。null ならフィールドを除く */
         public FormattedTextGeometry withHeight(Double value) {
             put("height", value);
             return this;
@@ -2635,7 +2635,7 @@ public final class Messages {
             return Json.read(json.get("rotation"), Json::number);
         }
 
-        /** {@link #getRotation()} を書く。null なら欄を除く */
+        /** {@link #getRotation()} を書く。null ならフィールドを除く */
         public FormattedTextGeometry withRotation(Double value) {
             put("rotation", value);
             return this;
@@ -2646,7 +2646,7 @@ public final class Messages {
             return Json.read(json.get("attachment"), Json::string);
         }
 
-        /** {@link #getAttachment()} を書く。null なら欄を除く */
+        /** {@link #getAttachment()} を書く。null ならフィールドを除く */
         public FormattedTextGeometry withAttachment(String value) {
             put("attachment", value);
             return this;
@@ -2657,7 +2657,7 @@ public final class Messages {
             return Json.read(json.get("width"), Json::number);
         }
 
-        /** {@link #getWidth()} を書く。null なら欄を除く */
+        /** {@link #getWidth()} を書く。null ならフィールドを除く */
         public FormattedTextGeometry withWidth(Double value) {
             put("width", value);
             return this;
@@ -2668,25 +2668,25 @@ public final class Messages {
             return Json.read(json.get("style"), Json::string);
         }
 
-        /** {@link #getStyle()} を書く。null なら欄を除く */
+        /** {@link #getStyle()} を書く。null ならフィールドを除く */
         public FormattedTextGeometry withStyle(String value) {
             put("style", value);
             return this;
         }
 
-        /** 文字スタイルの ID。tables が返したもの。entities は、名前で引いた文字スタイルの ID を返す。足す・置き換えるときは、名前の代わりに書ける（名前より先に使う）。同じ名前（大文字と小文字を区別しない）の項目が複数あれば書き戻せない。小版 23 から */
+        /** 文字スタイルの ID。tables が返したもの。entities は、名前で引いた文字スタイルの ID を返す。足す・置き換えるときは、名前の代わりに書ける（名前より先に使う）。同じ名前（大文字と小文字を区別しない）の項目が複数あれば書き戻せない。マイナーバージョン 23 から */
         public String getStyleId() {
             return Json.read(json.get("style_id"), Json::string);
         }
 
-        /** {@link #getStyleId()} を書く。null なら欄を除く */
+        /** {@link #getStyleId()} を書く。null ならフィールドを除く */
         public FormattedTextGeometry withStyleId(String value) {
             put("style_id", value);
             return this;
         }
     }
 
-    /** スプライン（NURBS）。制御点で決まるもの（小版 15 から）と、当てはめる点で決まるもの（小版 18 から）がある。当てはめる点で決まるものは、節点と制御点を空にし、当てはめる点（fit）と、あれば両端の接線を持つ。元の図形に制御点や節点もあるときは形の値を返さず、置き換えない。置き換えでは、制御点で決まるものと当てはめる点で決まるものを入れ替えない */
+    /** スプライン（NURBS）。制御点で決まるもの（マイナーバージョン 15 から）と、フィット点で決まるもの（マイナーバージョン 18 から）がある。フィット点で決まるものは、ノットと制御点を空にし、フィット点（fit）と、あれば両端の接線を持つ。元の図形に制御点やノットもあるときは形の値を返さず、置き換えない。置き換えでは、制御点で決まるものとフィット点で決まるものを入れ替えない */
     public static final class SplineGeometry extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public SplineGeometry(Map<String, Object> json) {
@@ -2699,7 +2699,7 @@ public final class Messages {
             return json == null ? null : new SplineGeometry(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public SplineGeometry() {
             super(new LinkedHashMap<String, Object>());
             json.put("shape", "spline");
@@ -2710,7 +2710,7 @@ public final class Messages {
             return Json.read(json.get("shape"), Json::string);
         }
 
-        /** {@link #getShape()} を書く。null なら欄を除く */
+        /** {@link #getShape()} を書く。null ならフィールドを除く */
         public SplineGeometry withShape(String value) {
             put("shape", value);
             return this;
@@ -2721,29 +2721,29 @@ public final class Messages {
             return Json.read(json.get("degree"), Json::integer);
         }
 
-        /** {@link #getDegree()} を書く。null なら欄を除く */
+        /** {@link #getDegree()} を書く。null ならフィールドを除く */
         public SplineGeometry withDegree(Long value) {
             put("degree", value);
             return this;
         }
 
-        /** 節点の並び。周期的でなければ、制御点の数と次数と 1 の和の数。当てはめる点で決まるものは空 */
+        /** ノットの並び。周期的でなければ、制御点の数と次数と 1 の和の数。フィット点で決まるものは空 */
         public List<Double> getKnots() {
             return Json.read(json.get("knots"), v0 -> Json.list(v0, Json::number));
         }
 
-        /** {@link #getKnots()} を書く。null なら欄を除く */
+        /** {@link #getKnots()} を書く。null ならフィールドを除く */
         public SplineGeometry withKnots(List<Double> value) {
             put("knots", value);
             return this;
         }
 
-        /** 制御点の [X, Y] の並び。次数より多い。当てはめる点で決まるものは空 */
+        /** 制御点の [X, Y] の並び。次数より多い。フィット点で決まるものは空 */
         public List<List<Double>> getControl() {
             return Json.read(json.get("control"), v0 -> Json.list(v0, v1 -> Json.list(v1, Json::number)));
         }
 
-        /** {@link #getControl()} を書く。null なら欄を除く */
+        /** {@link #getControl()} を書く。null ならフィールドを除く */
         public SplineGeometry withControl(List<List<Double>> value) {
             put("control", value);
             return this;
@@ -2754,40 +2754,40 @@ public final class Messages {
             return Json.read(json.get("weights"), v0 -> Json.list(v0, Json::number));
         }
 
-        /** {@link #getWeights()} を書く。null なら欄を除く */
+        /** {@link #getWeights()} を書く。null ならフィールドを除く */
         public SplineGeometry withWeights(List<Double> value) {
             put("weights", value);
             return this;
         }
 
-        /** 当てはめる点の [X, Y] の並び。2 つ以上。書けば、節点と制御点は空で、重みは書かない。小版 18 から */
+        /** フィット点の [X, Y] の並び。2 つ以上。書けば、ノットと制御点は空で、重みは書かない。マイナーバージョン 18 から */
         public List<List<Double>> getFit() {
             return Json.read(json.get("fit"), v0 -> Json.list(v0, v1 -> Json.list(v1, Json::number)));
         }
 
-        /** {@link #getFit()} を書く。null なら欄を除く */
+        /** {@link #getFit()} を書く。null ならフィールドを除く */
         public SplineGeometry withFit(List<List<Double>> value) {
             put("fit", value);
             return this;
         }
 
-        /** 当てはめる点で決まるスプラインの、始まりの接線の向き [X, Y]。0 でない。書かなければ読む側が決める。小版 18 から */
+        /** フィット点で決まるスプラインの、始まりの接線の向き [X, Y]。0 でない。書かなければ読む側が決める。マイナーバージョン 18 から */
         public List<Double> getStartTangent() {
             return Json.read(json.get("start_tangent"), v0 -> Json.list(v0, Json::number));
         }
 
-        /** {@link #getStartTangent()} を書く。null なら欄を除く */
+        /** {@link #getStartTangent()} を書く。null ならフィールドを除く */
         public SplineGeometry withStartTangent(List<Double> value) {
             put("start_tangent", value);
             return this;
         }
 
-        /** 当てはめる点で決まるスプラインの、終わりの接線の向き [X, Y]。0 でない。書かなければ読む側が決める。小版 18 から */
+        /** フィット点で決まるスプラインの、終わりの接線の向き [X, Y]。0 でない。書かなければ読む側が決める。マイナーバージョン 18 から */
         public List<Double> getEndTangent() {
             return Json.read(json.get("end_tangent"), v0 -> Json.list(v0, Json::number));
         }
 
-        /** {@link #getEndTangent()} を書く。null なら欄を除く */
+        /** {@link #getEndTangent()} を書く。null ならフィールドを除く */
         public SplineGeometry withEndTangent(List<Double> value) {
             put("end_tangent", value);
             return this;
@@ -2798,7 +2798,7 @@ public final class Messages {
             return Json.read(json.get("closed"), Json::bool);
         }
 
-        /** {@link #getClosed()} を書く。null なら欄を除く */
+        /** {@link #getClosed()} を書く。null ならフィールドを除く */
         public SplineGeometry withClosed(Boolean value) {
             put("closed", value);
             return this;
@@ -2809,14 +2809,14 @@ public final class Messages {
             return Json.read(json.get("periodic"), Json::bool);
         }
 
-        /** {@link #getPeriodic()} を書く。null なら欄を除く */
+        /** {@link #getPeriodic()} を書く。null ならフィールドを除く */
         public SplineGeometry withPeriodic(Boolean value) {
             put("periodic", value);
             return this;
         }
     }
 
-    /** 寸法。種類（kind）ごとに、その種類の定義点の欄を持つ。測定値（measurement）は元の形式が保存した値で、定義点から測り直さない。寸法を描いた部品（ブロック）は形の値に含めない。entities が返すだけで、置き換えと追加は change.edit.unsupported になる（寸法を描いた部品を作り直す必要があるため）。小版 19 から */
+    /** 寸法。種類（kind）ごとに、その種類の定義点のフィールドを持つ。測定値（measurement）は元の形式が保存した値で、定義点から測り直さない。寸法を描いた部品（ブロック）は形の値に含めない。entities が返すだけで、置き換えと追加は change.edit.unsupported になる（寸法を描いた部品を作り直す必要があるため）。マイナーバージョン 19 から */
     public static final class DimensionGeometry extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public DimensionGeometry(Map<String, Object> json) {
@@ -2829,7 +2829,7 @@ public final class Messages {
             return json == null ? null : new DimensionGeometry(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public DimensionGeometry() {
             super(new LinkedHashMap<String, Object>());
             json.put("shape", "dimension");
@@ -2840,7 +2840,7 @@ public final class Messages {
             return Json.read(json.get("shape"), Json::string);
         }
 
-        /** {@link #getShape()} を書く。null なら欄を除く */
+        /** {@link #getShape()} を書く。null ならフィールドを除く */
         public DimensionGeometry withShape(String value) {
             put("shape", value);
             return this;
@@ -2851,7 +2851,7 @@ public final class Messages {
             return Json.read(json.get("kind"), Json::string);
         }
 
-        /** {@link #getKind()} を書く。null なら欄を除く */
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
         public DimensionGeometry withKind(String value) {
             put("kind", value);
             return this;
@@ -2862,7 +2862,7 @@ public final class Messages {
             return Json.read(json.get("first"), v0 -> Json.list(v0, Json::number));
         }
 
-        /** {@link #getFirst()} を書く。null なら欄を除く */
+        /** {@link #getFirst()} を書く。null ならフィールドを除く */
         public DimensionGeometry withFirst(List<Double> value) {
             put("first", value);
             return this;
@@ -2873,7 +2873,7 @@ public final class Messages {
             return Json.read(json.get("second"), v0 -> Json.list(v0, Json::number));
         }
 
-        /** {@link #getSecond()} を書く。null なら欄を除く */
+        /** {@link #getSecond()} を書く。null ならフィールドを除く */
         public DimensionGeometry withSecond(List<Double> value) {
             put("second", value);
             return this;
@@ -2884,7 +2884,7 @@ public final class Messages {
             return Json.read(json.get("line"), v0 -> Json.list(v0, Json::number));
         }
 
-        /** {@link #getLine()} を書く。null なら欄を除く */
+        /** {@link #getLine()} を書く。null ならフィールドを除く */
         public DimensionGeometry withLine(List<Double> value) {
             put("line", value);
             return this;
@@ -2895,7 +2895,7 @@ public final class Messages {
             return Json.read(json.get("rotation"), Json::number);
         }
 
-        /** {@link #getRotation()} を書く。null なら欄を除く */
+        /** {@link #getRotation()} を書く。null ならフィールドを除く */
         public DimensionGeometry withRotation(Double value) {
             put("rotation", value);
             return this;
@@ -2906,7 +2906,7 @@ public final class Messages {
             return Json.read(json.get("oblique"), Json::number);
         }
 
-        /** {@link #getOblique()} を書く。null なら欄を除く */
+        /** {@link #getOblique()} を書く。null ならフィールドを除く */
         public DimensionGeometry withOblique(Double value) {
             put("oblique", value);
             return this;
@@ -2917,7 +2917,7 @@ public final class Messages {
             return Json.read(json.get("vertex"), v0 -> Json.list(v0, Json::number));
         }
 
-        /** {@link #getVertex()} を書く。null なら欄を除く */
+        /** {@link #getVertex()} を書く。null ならフィールドを除く */
         public DimensionGeometry withVertex(List<Double> value) {
             put("vertex", value);
             return this;
@@ -2928,7 +2928,7 @@ public final class Messages {
             return Json.read(json.get("first_line"), v0 -> Json.list(v0, v1 -> Json.list(v1, Json::number)));
         }
 
-        /** {@link #getFirstLine()} を書く。null なら欄を除く */
+        /** {@link #getFirstLine()} を書く。null ならフィールドを除く */
         public DimensionGeometry withFirstLine(List<List<Double>> value) {
             put("first_line", value);
             return this;
@@ -2939,7 +2939,7 @@ public final class Messages {
             return Json.read(json.get("second_line"), v0 -> Json.list(v0, v1 -> Json.list(v1, Json::number)));
         }
 
-        /** {@link #getSecondLine()} を書く。null なら欄を除く */
+        /** {@link #getSecondLine()} を書く。null ならフィールドを除く */
         public DimensionGeometry withSecondLine(List<List<Double>> value) {
             put("second_line", value);
             return this;
@@ -2950,7 +2950,7 @@ public final class Messages {
             return Json.read(json.get("arc"), v0 -> Json.list(v0, Json::number));
         }
 
-        /** {@link #getArc()} を書く。null なら欄を除く */
+        /** {@link #getArc()} を書く。null ならフィールドを除く */
         public DimensionGeometry withArc(List<Double> value) {
             put("arc", value);
             return this;
@@ -2961,7 +2961,7 @@ public final class Messages {
             return Json.read(json.get("center"), v0 -> Json.list(v0, Json::number));
         }
 
-        /** {@link #getCenter()} を書く。null なら欄を除く */
+        /** {@link #getCenter()} を書く。null ならフィールドを除く */
         public DimensionGeometry withCenter(List<Double> value) {
             put("center", value);
             return this;
@@ -2972,7 +2972,7 @@ public final class Messages {
             return Json.read(json.get("chord"), v0 -> Json.list(v0, Json::number));
         }
 
-        /** {@link #getChord()} を書く。null なら欄を除く */
+        /** {@link #getChord()} を書く。null ならフィールドを除く */
         public DimensionGeometry withChord(List<Double> value) {
             put("chord", value);
             return this;
@@ -2983,7 +2983,7 @@ public final class Messages {
             return Json.read(json.get("opposite"), v0 -> Json.list(v0, Json::number));
         }
 
-        /** {@link #getOpposite()} を書く。null なら欄を除く */
+        /** {@link #getOpposite()} を書く。null ならフィールドを除く */
         public DimensionGeometry withOpposite(List<Double> value) {
             put("opposite", value);
             return this;
@@ -2994,7 +2994,7 @@ public final class Messages {
             return Json.read(json.get("leader"), Json::number);
         }
 
-        /** {@link #getLeader()} を書く。null なら欄を除く */
+        /** {@link #getLeader()} を書く。null ならフィールドを除く */
         public DimensionGeometry withLeader(Double value) {
             put("leader", value);
             return this;
@@ -3005,7 +3005,7 @@ public final class Messages {
             return Json.read(json.get("origin"), v0 -> Json.list(v0, Json::number));
         }
 
-        /** {@link #getOrigin()} を書く。null なら欄を除く */
+        /** {@link #getOrigin()} を書く。null ならフィールドを除く */
         public DimensionGeometry withOrigin(List<Double> value) {
             put("origin", value);
             return this;
@@ -3016,7 +3016,7 @@ public final class Messages {
             return Json.read(json.get("feature"), v0 -> Json.list(v0, Json::number));
         }
 
-        /** {@link #getFeature()} を書く。null なら欄を除く */
+        /** {@link #getFeature()} を書く。null ならフィールドを除く */
         public DimensionGeometry withFeature(List<Double> value) {
             put("feature", value);
             return this;
@@ -3027,7 +3027,7 @@ public final class Messages {
             return Json.read(json.get("leader_end"), v0 -> Json.list(v0, Json::number));
         }
 
-        /** {@link #getLeaderEnd()} を書く。null なら欄を除く */
+        /** {@link #getLeaderEnd()} を書く。null ならフィールドを除く */
         public DimensionGeometry withLeaderEnd(List<Double> value) {
             put("leader_end", value);
             return this;
@@ -3038,7 +3038,7 @@ public final class Messages {
             return Json.read(json.get("axis"), Json::string);
         }
 
-        /** {@link #getAxis()} を書く。null なら欄を除く */
+        /** {@link #getAxis()} を書く。null ならフィールドを除く */
         public DimensionGeometry withAxis(String value) {
             put("axis", value);
             return this;
@@ -3049,7 +3049,7 @@ public final class Messages {
             return Json.read(json.get("label"), Json::string);
         }
 
-        /** {@link #getLabel()} を書く。null なら欄を除く */
+        /** {@link #getLabel()} を書く。null ならフィールドを除く */
         public DimensionGeometry withLabel(String value) {
             put("label", value);
             return this;
@@ -3060,29 +3060,29 @@ public final class Messages {
             return Json.read(json.get("content"), Json::string);
         }
 
-        /** {@link #getContent()} を書く。null なら欄を除く */
+        /** {@link #getContent()} を書く。null ならフィールドを除く */
         public DimensionGeometry withContent(String value) {
             put("content", value);
             return this;
         }
 
-        /** 元の形式が保存した測定値。単位と倍率は measurement_key の欄に従う */
+        /** 元の形式が保存した測定値。単位と倍率は measurement_key のフィールドに従う */
         public Double getMeasurement() {
             return Json.read(json.get("measurement"), Json::number);
         }
 
-        /** {@link #getMeasurement()} を書く。null なら欄を除く */
+        /** {@link #getMeasurement()} を書く。null ならフィールドを除く */
         public DimensionGeometry withMeasurement(Double value) {
             put("measurement", value);
             return this;
         }
 
-        /** measurement の形式と欄を指すキー（DXF の DIMENSION の 42 なら dxf.DIMENSION.42）。measurement と一緒に持つ */
+        /** measurement の形式とフィールドを指すキー（DXF の DIMENSION の 42 なら dxf.DIMENSION.42）。measurement と一緒に持つ */
         public String getMeasurementKey() {
             return Json.read(json.get("measurement_key"), Json::string);
         }
 
-        /** {@link #getMeasurementKey()} を書く。null なら欄を除く */
+        /** {@link #getMeasurementKey()} を書く。null ならフィールドを除く */
         public DimensionGeometry withMeasurementKey(String value) {
             put("measurement_key", value);
             return this;
@@ -3093,7 +3093,7 @@ public final class Messages {
             return Json.read(json.get("text_position"), v0 -> Json.list(v0, Json::number));
         }
 
-        /** {@link #getTextPosition()} を書く。null なら欄を除く */
+        /** {@link #getTextPosition()} を書く。null ならフィールドを除く */
         public DimensionGeometry withTextPosition(List<Double> value) {
             put("text_position", value);
             return this;
@@ -3104,7 +3104,7 @@ public final class Messages {
             return Json.read(json.get("text_rotation"), Json::number);
         }
 
-        /** {@link #getTextRotation()} を書く。null なら欄を除く */
+        /** {@link #getTextRotation()} を書く。null ならフィールドを除く */
         public DimensionGeometry withTextRotation(Double value) {
             put("text_rotation", value);
             return this;
@@ -3115,25 +3115,25 @@ public final class Messages {
             return Json.read(json.get("style"), Json::string);
         }
 
-        /** {@link #getStyle()} を書く。null なら欄を除く */
+        /** {@link #getStyle()} を書く。null ならフィールドを除く */
         public DimensionGeometry withStyle(String value) {
             put("style", value);
             return this;
         }
 
-        /** 寸法スタイルの ID。tables が返したもの。名前で引いた寸法スタイルがなければ書かない。小版 23 から */
+        /** 寸法スタイルの ID。tables が返したもの。名前で引いた寸法スタイルがなければ書かない。マイナーバージョン 23 から */
         public String getStyleId() {
             return Json.read(json.get("style_id"), Json::string);
         }
 
-        /** {@link #getStyleId()} を書く。null なら欄を除く */
+        /** {@link #getStyleId()} を書く。null ならフィールドを除く */
         public DimensionGeometry withStyleId(String value) {
             put("style_id", value);
             return this;
         }
     }
 
-    /** 引出線（DXF・DWG の LEADER、決定 0177）。注記（MTEXT など）は別の要素で、annotation がその ID を指す。置き換えるときは寸法スタイルと注記を変えず、経路・曲線か・矢印を書き直す。足すときの注記は、同じ空間か用紙の MTEXT だけを指せる（小版 36 から。それまでは注記を持てなかった）。DWG は置き換えと追加を書き戻すが、矢印の印を必ず持つので、arrow を書かない引出線は書けない（小版 36 から。それまでは R2004 までの置き換えだけ）。小版 31 から */
+    /** 引出線（DXF・DWG の LEADER、決定 0177）。注記（MTEXT など）は別の要素で、annotation がその ID を指す。置き換えるときは寸法スタイルと注記を変えず、経路・曲線か・矢印を書き直す。足すときの注記は、同じ空間か用紙の MTEXT だけを指せる（マイナーバージョン 36 から。それまでは注記を持てなかった）。DWG は置き換えと追加を書き戻すが、矢印のフラグを必ず持つので、arrow を書かない引出線は書けない（マイナーバージョン 36 から。それまでは R2004 までの置き換えだけ）。マイナーバージョン 31 から */
     public static final class LeaderGeometry extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public LeaderGeometry(Map<String, Object> json) {
@@ -3146,7 +3146,7 @@ public final class Messages {
             return json == null ? null : new LeaderGeometry(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public LeaderGeometry() {
             super(new LinkedHashMap<String, Object>());
             json.put("shape", "leader");
@@ -3157,7 +3157,7 @@ public final class Messages {
             return Json.read(json.get("shape"), Json::string);
         }
 
-        /** {@link #getShape()} を書く。null なら欄を除く */
+        /** {@link #getShape()} を書く。null ならフィールドを除く */
         public LeaderGeometry withShape(String value) {
             put("shape", value);
             return this;
@@ -3168,7 +3168,7 @@ public final class Messages {
             return Json.read(json.get("path"), v0 -> Json.list(v0, v1 -> Json.list(v1, Json::number)));
         }
 
-        /** {@link #getPath()} を書く。null なら欄を除く */
+        /** {@link #getPath()} を書く。null ならフィールドを除く */
         public LeaderGeometry withPath(List<List<Double>> value) {
             put("path", value);
             return this;
@@ -3179,7 +3179,7 @@ public final class Messages {
             return Json.read(json.get("spline"), Json::bool);
         }
 
-        /** {@link #getSpline()} を書く。null なら欄を除く */
+        /** {@link #getSpline()} を書く。null ならフィールドを除く */
         public LeaderGeometry withSpline(Boolean value) {
             put("spline", value);
             return this;
@@ -3190,7 +3190,7 @@ public final class Messages {
             return Json.read(json.get("arrow"), Json::bool);
         }
 
-        /** {@link #getArrow()} を書く。null なら欄を除く */
+        /** {@link #getArrow()} を書く。null ならフィールドを除く */
         public LeaderGeometry withArrow(Boolean value) {
             put("arrow", value);
             return this;
@@ -3201,7 +3201,7 @@ public final class Messages {
             return Json.read(json.get("annotation"), Json::string);
         }
 
-        /** {@link #getAnnotation()} を書く。null なら欄を除く */
+        /** {@link #getAnnotation()} を書く。null ならフィールドを除く */
         public LeaderGeometry withAnnotation(String value) {
             put("annotation", value);
             return this;
@@ -3212,7 +3212,7 @@ public final class Messages {
             return Json.read(json.get("style"), Json::string);
         }
 
-        /** {@link #getStyle()} を書く。null なら欄を除く */
+        /** {@link #getStyle()} を書く。null ならフィールドを除く */
         public LeaderGeometry withStyle(String value) {
             put("style", value);
             return this;
@@ -3223,14 +3223,14 @@ public final class Messages {
             return Json.read(json.get("style_id"), Json::string);
         }
 
-        /** {@link #getStyleId()} を書く。null なら欄を除く */
+        /** {@link #getStyleId()} を書く。null ならフィールドを除く */
         public LeaderGeometry withStyleId(String value) {
             put("style_id", value);
             return this;
         }
     }
 
-    /** 引出線つきの注記（DXF・DWG の MULTILEADER、決定 0185）。注記は形の中にあり、content と text・symbol で種類と中身を示す。置き換えるときは枝の線の頂点・集まる点・折れ曲がりだけを変えられ、ほかの欄は元の値のままにする。DXF だけが置き換えを書き戻し、枝と線の数と、集まる点と折れ曲がりの有無は元と同じでなければならない。足すことと DWG の書き戻しは、まだしない。小版 36 から */
+    /** 引出線つきの注記（DXF・DWG の MULTILEADER、決定 0185）。注記は形の中にあり、content と text・symbol で種類と中身を示す。置き換えるときは枝の線の頂点・集まる点・折れ曲がりだけを変えられ、ほかのフィールドは元の値のままにする。DXF だけが置き換えを書き戻し、枝と線の数と、集まる点と折れ曲がりの有無は元と同じでなければならない。足すことと DWG の書き戻しは、まだしない。マイナーバージョン 36 から */
     public static final class CalloutGeometry extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public CalloutGeometry(Map<String, Object> json) {
@@ -3243,7 +3243,7 @@ public final class Messages {
             return json == null ? null : new CalloutGeometry(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public CalloutGeometry() {
             super(new LinkedHashMap<String, Object>());
             json.put("shape", "callout");
@@ -3254,7 +3254,7 @@ public final class Messages {
             return Json.read(json.get("shape"), Json::string);
         }
 
-        /** {@link #getShape()} を書く。null なら欄を除く */
+        /** {@link #getShape()} を書く。null ならフィールドを除く */
         public CalloutGeometry withShape(String value) {
             put("shape", value);
             return this;
@@ -3265,7 +3265,7 @@ public final class Messages {
             return Json.read(json.get("branches"), v0 -> Json.list(v0, CalloutBranch::of));
         }
 
-        /** {@link #getBranches()} を書く。null なら欄を除く */
+        /** {@link #getBranches()} を書く。null ならフィールドを除く */
         public CalloutGeometry withBranches(List<CalloutBranch> value) {
             put("branches", value);
             return this;
@@ -3276,7 +3276,7 @@ public final class Messages {
             return Json.read(json.get("path"), Json::string);
         }
 
-        /** {@link #getPath()} を書く。null なら欄を除く */
+        /** {@link #getPath()} を書く。null ならフィールドを除く */
         public CalloutGeometry withPath(String value) {
             put("path", value);
             return this;
@@ -3287,7 +3287,7 @@ public final class Messages {
             return Json.read(json.get("landing"), Json::bool);
         }
 
-        /** {@link #getLanding()} を書く。null なら欄を除く */
+        /** {@link #getLanding()} を書く。null ならフィールドを除く */
         public CalloutGeometry withLanding(Boolean value) {
             put("landing", value);
             return this;
@@ -3298,7 +3298,7 @@ public final class Messages {
             return Json.read(json.get("arrow_size"), Json::number);
         }
 
-        /** {@link #getArrowSize()} を書く。null なら欄を除く */
+        /** {@link #getArrowSize()} を書く。null ならフィールドを除く */
         public CalloutGeometry withArrowSize(Double value) {
             put("arrow_size", value);
             return this;
@@ -3309,7 +3309,7 @@ public final class Messages {
             return Json.read(json.get("scale"), Json::number);
         }
 
-        /** {@link #getScale()} を書く。null なら欄を除く */
+        /** {@link #getScale()} を書く。null ならフィールドを除く */
         public CalloutGeometry withScale(Double value) {
             put("scale", value);
             return this;
@@ -3320,7 +3320,7 @@ public final class Messages {
             return Json.read(json.get("content"), Json::string);
         }
 
-        /** {@link #getContent()} を書く。null なら欄を除く */
+        /** {@link #getContent()} を書く。null ならフィールドを除く */
         public CalloutGeometry withContent(String value) {
             put("content", value);
             return this;
@@ -3331,7 +3331,7 @@ public final class Messages {
             return Json.read(json.get("text"), Json::string);
         }
 
-        /** {@link #getText()} を書く。null なら欄を除く */
+        /** {@link #getText()} を書く。null ならフィールドを除く */
         public CalloutGeometry withText(String value) {
             put("text", value);
             return this;
@@ -3342,7 +3342,7 @@ public final class Messages {
             return Json.read(json.get("symbol"), Json::string);
         }
 
-        /** {@link #getSymbol()} を書く。null なら欄を除く */
+        /** {@link #getSymbol()} を書く。null ならフィールドを除く */
         public CalloutGeometry withSymbol(String value) {
             put("symbol", value);
             return this;
@@ -3372,7 +3372,7 @@ public final class Messages {
             return Json.read(json.get("lines"), v0 -> Json.list(v0, v1 -> Json.list(v1, v2 -> Json.list(v2, Json::number))));
         }
 
-        /** {@link #getLines()} を書く。null なら欄を除く */
+        /** {@link #getLines()} を書く。null ならフィールドを除く */
         public CalloutBranch withLines(List<List<List<Double>>> value) {
             put("lines", value);
             return this;
@@ -3383,7 +3383,7 @@ public final class Messages {
             return Json.read(json.get("end"), v0 -> Json.list(v0, Json::number));
         }
 
-        /** {@link #getEnd()} を書く。null なら欄を除く */
+        /** {@link #getEnd()} を書く。null ならフィールドを除く */
         public CalloutBranch withEnd(List<Double> value) {
             put("end", value);
             return this;
@@ -3394,7 +3394,7 @@ public final class Messages {
             return Json.read(json.get("dogleg"), CalloutDogleg::of);
         }
 
-        /** {@link #getDogleg()} を書く。null なら欄を除く */
+        /** {@link #getDogleg()} を書く。null ならフィールドを除く */
         public CalloutBranch withDogleg(CalloutDogleg value) {
             put("dogleg", value);
             return this;
@@ -3424,7 +3424,7 @@ public final class Messages {
             return Json.read(json.get("direction"), v0 -> Json.list(v0, Json::number));
         }
 
-        /** {@link #getDirection()} を書く。null なら欄を除く */
+        /** {@link #getDirection()} を書く。null ならフィールドを除く */
         public CalloutDogleg withDirection(List<Double> value) {
             put("direction", value);
             return this;
@@ -3435,7 +3435,7 @@ public final class Messages {
             return Json.read(json.get("length"), Json::number);
         }
 
-        /** {@link #getLength()} を書く。null なら欄を除く */
+        /** {@link #getLength()} を書く。null ならフィールドを除く */
         public CalloutDogleg withLength(Double value) {
             put("length", value);
             return this;
@@ -3472,7 +3472,7 @@ public final class Messages {
         public static final String SYMBOL = "symbol";
     }
 
-    /** 点（決定 0160・0183）。marker がなければ文書の点の表し方（DXF・DWG の $PDMODE・$PDSIZE）に従う点で、DXF・DWG の POINT と JWW の記号でない点が当たる。marker があれば既定義の印の点で、SFC の点マーカーと JWW の記号の点が当たる。置き換えるときは、描き方（marker があるか）を元のまま保つ。DXF・DWG は marker と construction を持つ点を書かず、JWW の記号でない点は角度 0 だけを、SXF は SFC の点マーカーだけを書く。小版 35 から */
+    /** 点（決定 0160・0183）。marker がなければ文書の点の表し方（DXF・DWG の $PDMODE・$PDSIZE）に従う点で、DXF・DWG の POINT と JWW の記号でない点が当たる。marker があれば既定義のマーカーの点で、SFC の点マーカーと JWW の記号の点が当たる。置き換えるときは、描き方（marker があるか）を元のまま保つ。DXF・DWG は marker と construction を持つ点を書かず、JWW の記号でない点は角度 0 だけを、SXF は SFC の点マーカーだけを書く。マイナーバージョン 35 から */
     public static final class PointGeometry extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public PointGeometry(Map<String, Object> json) {
@@ -3485,7 +3485,7 @@ public final class Messages {
             return json == null ? null : new PointGeometry(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public PointGeometry() {
             super(new LinkedHashMap<String, Object>());
             json.put("shape", "point");
@@ -3496,7 +3496,7 @@ public final class Messages {
             return Json.read(json.get("shape"), Json::string);
         }
 
-        /** {@link #getShape()} を書く。null なら欄を除く */
+        /** {@link #getShape()} を書く。null ならフィールドを除く */
         public PointGeometry withShape(String value) {
             put("shape", value);
             return this;
@@ -3507,7 +3507,7 @@ public final class Messages {
             return Json.read(json.get("position"), v0 -> Json.list(v0, Json::number));
         }
 
-        /** {@link #getPosition()} を書く。null なら欄を除く */
+        /** {@link #getPosition()} を書く。null ならフィールドを除く */
         public PointGeometry withPosition(List<Double> value) {
             put("position", value);
             return this;
@@ -3518,18 +3518,18 @@ public final class Messages {
             return Json.read(json.get("rotation"), Json::number);
         }
 
-        /** {@link #getRotation()} を書く。null なら欄を除く */
+        /** {@link #getRotation()} を書く。null ならフィールドを除く */
         public PointGeometry withRotation(Double value) {
             put("rotation", value);
             return this;
         }
 
-        /** 既定義の印。書かなければ文書の点の表し方に従う */
+        /** 既定義のマーカー。書かなければ文書の点の表し方に従う */
         public PointMarker getMarker() {
             return Json.read(json.get("marker"), PointMarker::of);
         }
 
-        /** {@link #getMarker()} を書く。null なら欄を除く */
+        /** {@link #getMarker()} を書く。null ならフィールドを除く */
         public PointGeometry withMarker(PointMarker value) {
             put("marker", value);
             return this;
@@ -3540,14 +3540,14 @@ public final class Messages {
             return Json.read(json.get("construction"), Json::bool);
         }
 
-        /** {@link #getConstruction()} を書く。null なら欄を除く */
+        /** {@link #getConstruction()} を書く。null ならフィールドを除く */
         public PointGeometry withConstruction(Boolean value) {
             put("construction", value);
             return this;
         }
     }
 
-    /** 既定義の印の表のキーと尺度。印の形は、表示する側がキーから引く */
+    /** 既定義のマーカーの表のキーと尺度。マーカーの形は、表示する側がキーから引く */
     public static final class PointMarker extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public PointMarker(Map<String, Object> json) {
@@ -3565,12 +3565,12 @@ public final class Messages {
             super(new LinkedHashMap<String, Object>());
         }
 
-        /** 印の表の名前空間。sxf.marker（SFC の点マーカー）か jww.point（JWW の記号の点） */
+        /** マーカーの表の名前空間。sxf.marker（SFC の点マーカー）か jww.point（JWW の記号の点） */
         public String getNamespace() {
             return Json.read(json.get("namespace"), Json::string);
         }
 
-        /** {@link #getNamespace()} を書く。null なら欄を除く */
+        /** {@link #getNamespace()} を書く。null ならフィールドを除く */
         public PointMarker withNamespace(String value) {
             put("namespace", value);
             return this;
@@ -3581,7 +3581,7 @@ public final class Messages {
             return Json.read(json.get("code"), Json::string);
         }
 
-        /** {@link #getCode()} を書く。null なら欄を除く */
+        /** {@link #getCode()} を書く。null ならフィールドを除く */
         public PointMarker withCode(String value) {
             put("code", value);
             return this;
@@ -3592,7 +3592,7 @@ public final class Messages {
             return Json.read(json.get("scale"), Json::number);
         }
 
-        /** {@link #getScale()} を書く。null なら欄を除く */
+        /** {@link #getScale()} を書く。null ならフィールドを除く */
         public PointMarker withScale(Double value) {
             put("scale", value);
             return this;
@@ -3652,7 +3652,7 @@ public final class Messages {
         public static final String HIDDEN = "hidden";
     }
 
-    /** 記号（DXF・DWG のブロックの INSERT）。定義の点を、尺度・回転・移動の順に写す。切り抜きは形の値に含めない。置き換えるときは切り抜きを元のままにし、属性は値だけを変えられる。属性を持つ記号の置く点・尺度・回転は変えない（属性ごと動かすなら transform を使う）。足すときは切り抜きを持たない。小版 14 から */
+    /** 記号（DXF・DWG のブロックの INSERT）。定義の点を、尺度・回転・移動の順に写す。切り抜きは形の値に含めない。置き換えるときは切り抜きを元のままにし、属性は値だけを変えられる。属性を持つ記号の置く点・尺度・回転は変えない（属性ごと動かすなら transform を使う）。足すときは切り抜きを持たない。マイナーバージョン 14 から */
     public static final class SymbolGeometry extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public SymbolGeometry(Map<String, Object> json) {
@@ -3665,7 +3665,7 @@ public final class Messages {
             return json == null ? null : new SymbolGeometry(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public SymbolGeometry() {
             super(new LinkedHashMap<String, Object>());
             json.put("shape", "symbol");
@@ -3676,7 +3676,7 @@ public final class Messages {
             return Json.read(json.get("shape"), Json::string);
         }
 
-        /** {@link #getShape()} を書く。null なら欄を除く */
+        /** {@link #getShape()} を書く。null ならフィールドを除く */
         public SymbolGeometry withShape(String value) {
             put("shape", value);
             return this;
@@ -3687,7 +3687,7 @@ public final class Messages {
             return Json.read(json.get("name"), Json::string);
         }
 
-        /** {@link #getName()} を書く。null なら欄を除く */
+        /** {@link #getName()} を書く。null ならフィールドを除く */
         public SymbolGeometry withName(String value) {
             put("name", value);
             return this;
@@ -3698,7 +3698,7 @@ public final class Messages {
             return Json.read(json.get("position"), v0 -> Json.list(v0, Json::number));
         }
 
-        /** {@link #getPosition()} を書く。null なら欄を除く */
+        /** {@link #getPosition()} を書く。null ならフィールドを除く */
         public SymbolGeometry withPosition(List<Double> value) {
             put("position", value);
             return this;
@@ -3709,7 +3709,7 @@ public final class Messages {
             return Json.read(json.get("scale"), v0 -> Json.list(v0, Json::number));
         }
 
-        /** {@link #getScale()} を書く。null なら欄を除く */
+        /** {@link #getScale()} を書く。null ならフィールドを除く */
         public SymbolGeometry withScale(List<Double> value) {
             put("scale", value);
             return this;
@@ -3720,7 +3720,7 @@ public final class Messages {
             return Json.read(json.get("rotation"), Json::number);
         }
 
-        /** {@link #getRotation()} を書く。null なら欄を除く */
+        /** {@link #getRotation()} を書く。null ならフィールドを除く */
         public SymbolGeometry withRotation(Double value) {
             put("rotation", value);
             return this;
@@ -3731,18 +3731,18 @@ public final class Messages {
             return Json.read(json.get("grid"), SymbolGrid::of);
         }
 
-        /** {@link #getGrid()} を書く。null なら欄を除く */
+        /** {@link #getGrid()} を書く。null ならフィールドを除く */
         public SymbolGeometry withGrid(SymbolGrid value) {
             put("grid", value);
             return this;
         }
 
-        /** 属性のタグと値。entities は記号の属性を入力の順に返す。足すときは、定義の属性の定義（値が決まったものを除く）から属性を作り、ここに書いたタグの値で既定の値を替える。タグは大文字と小文字を区別せず、重複を受けない。必要な属性を作れなければ失敗する。置き換えるときは、元と同じ数・順・タグを受け、値を変えた属性の ATTRIB の値を書き直す（表題欄の項目の書き換えなど）。書式つきの値（複数行の属性）を持つ属性の値は変えられない。小版 16 から。置き換えで値を変えるのは小版 21 から */
+        /** 属性のタグと値。entities は記号の属性を入力の順に返す。足すときは、定義の属性の定義（値が決まったものを除く）から属性を作り、ここに書いたタグの値で既定の値を替える。タグは大文字と小文字を区別せず、重複を受けない。必要な属性を作れなければ失敗する。置き換えるときは、元と同じ数・順・タグを受け、値を変えた属性の ATTRIB の値を書き直す（表題欄の項目の書き換えなど）。書式つきの値（複数行の属性）を持つ属性の値は変えられない。マイナーバージョン 16 から。置き換えで値を変えるのはマイナーバージョン 21 から */
         public List<SymbolAttribute> getAttributes() {
             return Json.read(json.get("attributes"), v0 -> Json.list(v0, SymbolAttribute::of));
         }
 
-        /** {@link #getAttributes()} を書く。null なら欄を除く */
+        /** {@link #getAttributes()} を書く。null ならフィールドを除く */
         public SymbolGeometry withAttributes(List<SymbolAttribute> value) {
             put("attributes", value);
             return this;
@@ -3772,7 +3772,7 @@ public final class Messages {
             return Json.read(json.get("tag"), Json::string);
         }
 
-        /** {@link #getTag()} を書く。null なら欄を除く */
+        /** {@link #getTag()} を書く。null ならフィールドを除く */
         public SymbolAttribute withTag(String value) {
             put("tag", value);
             return this;
@@ -3783,7 +3783,7 @@ public final class Messages {
             return Json.read(json.get("value"), Json::string);
         }
 
-        /** {@link #getValue()} を書く。null なら欄を除く */
+        /** {@link #getValue()} を書く。null ならフィールドを除く */
         public SymbolAttribute withValue(String value) {
             put("value", value);
             return this;
@@ -3813,7 +3813,7 @@ public final class Messages {
             return Json.read(json.get("columns"), Json::integer);
         }
 
-        /** {@link #getColumns()} を書く。null なら欄を除く */
+        /** {@link #getColumns()} を書く。null ならフィールドを除く */
         public SymbolGrid withColumns(Long value) {
             put("columns", value);
             return this;
@@ -3824,7 +3824,7 @@ public final class Messages {
             return Json.read(json.get("rows"), Json::integer);
         }
 
-        /** {@link #getRows()} を書く。null なら欄を除く */
+        /** {@link #getRows()} を書く。null ならフィールドを除く */
         public SymbolGrid withRows(Long value) {
             put("rows", value);
             return this;
@@ -3835,7 +3835,7 @@ public final class Messages {
             return Json.read(json.get("column_spacing"), Json::number);
         }
 
-        /** {@link #getColumnSpacing()} を書く。null なら欄を除く */
+        /** {@link #getColumnSpacing()} を書く。null ならフィールドを除く */
         public SymbolGrid withColumnSpacing(Double value) {
             put("column_spacing", value);
             return this;
@@ -3846,7 +3846,7 @@ public final class Messages {
             return Json.read(json.get("row_spacing"), Json::number);
         }
 
-        /** {@link #getRowSpacing()} を書く。null なら欄を除く */
+        /** {@link #getRowSpacing()} を書く。null ならフィールドを除く */
         public SymbolGrid withRowSpacing(Double value) {
             put("row_spacing", value);
             return this;
@@ -3881,7 +3881,7 @@ public final class Messages {
     }
 
     /**
-     * 要素の形の種類（決定 0022）。point（点、決定 0160）は小版 32 から。それまで点は symbol だった
+     * 要素の形の種類（決定 0022）。point（点、決定 0160）はマイナーバージョン 32 から。それまで点は symbol だった
      * 
      * 列挙の値。知らない値も受け取る
      */
@@ -3917,7 +3917,7 @@ public final class Messages {
         public static final String POINT = "point";
     }
 
-    /** 開いた文書に、変更の一覧を当てて書き戻す（決定 0139・0156）。要素は、entities が返す ID とハッシュで指す。どれか 1 つでも当てられなければ、何も変えない。当てたら、文書を書き戻したものに替え、書き戻したファイルを blobs で返す。小版 7 から */
+    /** 開いた文書に、変更の一覧を当てて書き戻す（決定 0139・0156）。要素は、entities が返す ID とハッシュで指す。どれか 1 つでも当てられなければ、何も変えない。当てたら、文書を書き戻したものに替え、書き戻したファイルを blobs で返す。マイナーバージョン 7 から */
     public static final class ApplyRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public ApplyRequest(Map<String, Object> json) {
@@ -3930,18 +3930,18 @@ public final class Messages {
             return json == null ? null : new ApplyRequest(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public ApplyRequest() {
             super(new LinkedHashMap<String, Object>());
             json.put("op", "apply");
         }
 
-        /** メッセージのスキーマの大版。今は 1 */
+        /** メッセージのスキーマのメジャーバージョン。今は 1 */
         public Long getV() {
             return Json.read(json.get("v"), Json::integer);
         }
 
-        /** {@link #getV()} を書く。null なら欄を除く */
+        /** {@link #getV()} を書く。null ならフィールドを除く */
         public ApplyRequest withV(Long value) {
             put("v", value);
             return this;
@@ -3952,7 +3952,7 @@ public final class Messages {
             return Json.read(json.get("budget"), Budget::of);
         }
 
-        /** {@link #getBudget()} を書く。null なら欄を除く */
+        /** {@link #getBudget()} を書く。null ならフィールドを除く */
         public ApplyRequest withBudget(Budget value) {
             put("budget", value);
             return this;
@@ -3963,7 +3963,7 @@ public final class Messages {
             return Json.read(json.get("partial"), Json::bool);
         }
 
-        /** {@link #getPartial()} を書く。null なら欄を除く */
+        /** {@link #getPartial()} を書く。null ならフィールドを除く */
         public ApplyRequest withPartial(Boolean value) {
             put("partial", value);
             return this;
@@ -3974,18 +3974,18 @@ public final class Messages {
             return Json.read(json.get("max_places"), Json::integer);
         }
 
-        /** {@link #getMaxPlaces()} を書く。null なら欄を除く */
+        /** {@link #getMaxPlaces()} を書く。null ならフィールドを除く */
         public ApplyRequest withMaxPlaces(Long value) {
             put("max_places", value);
             return this;
         }
 
-        /** 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        /** 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
         public Long getTimeLimitMs() {
             return Json.read(json.get("time_limit_ms"), Json::integer);
         }
 
-        /** {@link #getTimeLimitMs()} を書く。null なら欄を除く */
+        /** {@link #getTimeLimitMs()} を書く。null ならフィールドを除く */
         public ApplyRequest withTimeLimitMs(Long value) {
             put("time_limit_ms", value);
             return this;
@@ -3996,7 +3996,7 @@ public final class Messages {
             return Json.read(json.get("op"), Json::string);
         }
 
-        /** {@link #getOp()} を書く。null なら欄を除く */
+        /** {@link #getOp()} を書く。null ならフィールドを除く */
         public ApplyRequest withOp(String value) {
             put("op", value);
             return this;
@@ -4007,7 +4007,7 @@ public final class Messages {
             return Json.read(json.get("doc"), Json::string);
         }
 
-        /** {@link #getDoc()} を書く。null なら欄を除く */
+        /** {@link #getDoc()} を書く。null ならフィールドを除く */
         public ApplyRequest withDoc(String value) {
             put("doc", value);
             return this;
@@ -4018,7 +4018,7 @@ public final class Messages {
             return Json.read(json.get("hash"), Json::string);
         }
 
-        /** {@link #getHash()} を書く。null なら欄を除く */
+        /** {@link #getHash()} を書く。null ならフィールドを除く */
         public ApplyRequest withHash(String value) {
             put("hash", value);
             return this;
@@ -4029,7 +4029,7 @@ public final class Messages {
             return Json.read(json.get("edits"), v0 -> Json.list(v0, Edit::of));
         }
 
-        /** {@link #getEdits()} を書く。null なら欄を除く */
+        /** {@link #getEdits()} を書く。null ならフィールドを除く */
         public ApplyRequest withEdits(List<Edit> value) {
             put("edits", value);
             return this;
@@ -4059,7 +4059,7 @@ public final class Messages {
             return Json.read(json.get("applied"), v0 -> Json.list(v0, Applied::of));
         }
 
-        /** {@link #getApplied()} を書く。null なら欄を除く */
+        /** {@link #getApplied()} を書く。null ならフィールドを除く */
         public ApplyResult withApplied(List<Applied> value) {
             put("applied", value);
             return this;
@@ -4070,25 +4070,25 @@ public final class Messages {
             return Json.read(json.get("hash"), Json::string);
         }
 
-        /** {@link #getHash()} を書く。null なら欄を除く */
+        /** {@link #getHash()} を書く。null ならフィールドを除く */
         public ApplyResult withHash(String value) {
             put("hash", value);
             return this;
         }
 
-        /** true なら、変えていない要素の ID がずれた。鍵を持たない形式（JWW）で、前の図形を除くか足したとき。ID を使う前に entities で読み直す。ずれないときは持たない。小版 30 から */
+        /** true なら、変えていない要素の ID がずれた。キーを持たない形式（JWW）で、前の図形を除くか足したとき。ID を使う前に entities で読み直す。ずれないときは持たない。マイナーバージョン 30 から */
         public Boolean getIdsShifted() {
             return Json.read(json.get("ids_shifted"), Json::bool);
         }
 
-        /** {@link #getIdsShifted()} を書く。null なら欄を除く */
+        /** {@link #getIdsShifted()} を書く。null ならフィールドを除く */
         public ApplyResult withIdsShifted(Boolean value) {
             put("ids_shifted", value);
             return this;
         }
     }
 
-    /** 開いた文書の図面モデルを、別の形式の新しいファイルに書き、新しい文書として開く（決定 0139・0206）。書けない要素は落とし、種類ごとの件数を診断で返す。書いたファイルは blobs で返す。今は DXF にだけ書ける。小版 41 から */
+    /** 開いた文書の図面モデルを、別の形式の新しいファイルに書き、新しい文書として開く（決定 0139・0206）。書けない要素は落とし、種類ごとの件数を診断で返す。書いたファイルは blobs で返す。今は DXF にだけ書ける。マイナーバージョン 41 から */
     public static final class ConvertRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public ConvertRequest(Map<String, Object> json) {
@@ -4101,18 +4101,18 @@ public final class Messages {
             return json == null ? null : new ConvertRequest(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public ConvertRequest() {
             super(new LinkedHashMap<String, Object>());
             json.put("op", "convert");
         }
 
-        /** メッセージのスキーマの大版。今は 1 */
+        /** メッセージのスキーマのメジャーバージョン。今は 1 */
         public Long getV() {
             return Json.read(json.get("v"), Json::integer);
         }
 
-        /** {@link #getV()} を書く。null なら欄を除く */
+        /** {@link #getV()} を書く。null ならフィールドを除く */
         public ConvertRequest withV(Long value) {
             put("v", value);
             return this;
@@ -4123,7 +4123,7 @@ public final class Messages {
             return Json.read(json.get("budget"), Budget::of);
         }
 
-        /** {@link #getBudget()} を書く。null なら欄を除く */
+        /** {@link #getBudget()} を書く。null ならフィールドを除く */
         public ConvertRequest withBudget(Budget value) {
             put("budget", value);
             return this;
@@ -4134,7 +4134,7 @@ public final class Messages {
             return Json.read(json.get("partial"), Json::bool);
         }
 
-        /** {@link #getPartial()} を書く。null なら欄を除く */
+        /** {@link #getPartial()} を書く。null ならフィールドを除く */
         public ConvertRequest withPartial(Boolean value) {
             put("partial", value);
             return this;
@@ -4145,18 +4145,18 @@ public final class Messages {
             return Json.read(json.get("max_places"), Json::integer);
         }
 
-        /** {@link #getMaxPlaces()} を書く。null なら欄を除く */
+        /** {@link #getMaxPlaces()} を書く。null ならフィールドを除く */
         public ConvertRequest withMaxPlaces(Long value) {
             put("max_places", value);
             return this;
         }
 
-        /** 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        /** 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
         public Long getTimeLimitMs() {
             return Json.read(json.get("time_limit_ms"), Json::integer);
         }
 
-        /** {@link #getTimeLimitMs()} を書く。null なら欄を除く */
+        /** {@link #getTimeLimitMs()} を書く。null ならフィールドを除く */
         public ConvertRequest withTimeLimitMs(Long value) {
             put("time_limit_ms", value);
             return this;
@@ -4167,7 +4167,7 @@ public final class Messages {
             return Json.read(json.get("op"), Json::string);
         }
 
-        /** {@link #getOp()} を書く。null なら欄を除く */
+        /** {@link #getOp()} を書く。null ならフィールドを除く */
         public ConvertRequest withOp(String value) {
             put("op", value);
             return this;
@@ -4178,7 +4178,7 @@ public final class Messages {
             return Json.read(json.get("doc"), Json::string);
         }
 
-        /** {@link #getDoc()} を書く。null なら欄を除く */
+        /** {@link #getDoc()} を書く。null ならフィールドを除く */
         public ConvertRequest withDoc(String value) {
             put("doc", value);
             return this;
@@ -4189,7 +4189,7 @@ public final class Messages {
             return Json.read(json.get("format"), Json::string);
         }
 
-        /** {@link #getFormat()} を書く。null なら欄を除く */
+        /** {@link #getFormat()} を書く。null ならフィールドを除く */
         public ConvertRequest withFormat(String value) {
             put("format", value);
             return this;
@@ -4200,7 +4200,7 @@ public final class Messages {
             return Json.read(json.get("to"), Json::string);
         }
 
-        /** {@link #getTo()} を書く。null なら欄を除く */
+        /** {@link #getTo()} を書く。null ならフィールドを除く */
         public ConvertRequest withTo(String value) {
             put("to", value);
             return this;
@@ -4230,7 +4230,7 @@ public final class Messages {
             return Json.read(json.get("doc"), Json::string);
         }
 
-        /** {@link #getDoc()} を書く。null なら欄を除く */
+        /** {@link #getDoc()} を書く。null ならフィールドを除く */
         public ConvertResult withDoc(String value) {
             put("doc", value);
             return this;
@@ -4241,7 +4241,7 @@ public final class Messages {
             return Json.read(json.get("format"), Json::string);
         }
 
-        /** {@link #getFormat()} を書く。null なら欄を除く */
+        /** {@link #getFormat()} を書く。null ならフィールドを除く */
         public ConvertResult withFormat(String value) {
             put("format", value);
             return this;
@@ -4252,7 +4252,7 @@ public final class Messages {
             return Json.read(json.get("hash"), Json::string);
         }
 
-        /** {@link #getHash()} を書く。null なら欄を除く */
+        /** {@link #getHash()} を書く。null ならフィールドを除く */
         public ConvertResult withHash(String value) {
             put("hash", value);
             return this;
@@ -4263,7 +4263,7 @@ public final class Messages {
             return Json.read(json.get("elements"), Json::integer);
         }
 
-        /** {@link #getElements()} を書く。null なら欄を除く */
+        /** {@link #getElements()} を書く。null ならフィールドを除く */
         public ConvertResult withElements(Long value) {
             put("elements", value);
             return this;
@@ -4293,7 +4293,7 @@ public final class Messages {
             return Json.read(json.get("id"), Json::string);
         }
 
-        /** {@link #getId()} を書く。null なら欄を除く */
+        /** {@link #getId()} を書く。null ならフィールドを除く */
         public Applied withId(String value) {
             put("id", value);
             return this;
@@ -4304,7 +4304,7 @@ public final class Messages {
             return Json.read(json.get("hash"), Json::string);
         }
 
-        /** {@link #getHash()} を書く。null なら欄を除く */
+        /** {@link #getHash()} を書く。null ならフィールドを除く */
         public Applied withHash(String value) {
             put("hash", value);
             return this;
@@ -4324,92 +4324,92 @@ public final class Messages {
             return json == null ? null : new Edit(json);
         }
 
-        /** kind が restyle の形なら、その見方。違えば null */
+        /** kind が restyle の形なら、そのビュー。違えば null */
         public RestyleEdit asRestyleEdit() {
             return "restyle".equals(json.get("kind")) ? new RestyleEdit(json) : null;
         }
 
-        /** kind が transform の形なら、その見方。違えば null */
+        /** kind が transform の形なら、そのビュー。違えば null */
         public TransformEdit asTransformEdit() {
             return "transform".equals(json.get("kind")) ? new TransformEdit(json) : null;
         }
 
-        /** kind が remove の形なら、その見方。違えば null */
+        /** kind が remove の形なら、そのビュー。違えば null */
         public RemoveEdit asRemoveEdit() {
             return "remove".equals(json.get("kind")) ? new RemoveEdit(json) : null;
         }
 
-        /** kind が replace の形なら、その見方。違えば null */
+        /** kind が replace の形なら、そのビュー。違えば null */
         public ReplaceEdit asReplaceEdit() {
             return "replace".equals(json.get("kind")) ? new ReplaceEdit(json) : null;
         }
 
-        /** kind が add の形なら、その見方。違えば null */
+        /** kind が add の形なら、そのビュー。違えば null */
         public AddEdit asAddEdit() {
             return "add".equals(json.get("kind")) ? new AddEdit(json) : null;
         }
 
-        /** kind が layer の形なら、その見方。違えば null */
+        /** kind が layer の形なら、そのビュー。違えば null */
         public LayerEdit asLayerEdit() {
             return "layer".equals(json.get("kind")) ? new LayerEdit(json) : null;
         }
 
-        /** kind が add_layer の形なら、その見方。違えば null */
+        /** kind が add_layer の形なら、そのビュー。違えば null */
         public AddLayerEdit asAddLayerEdit() {
             return "add_layer".equals(json.get("kind")) ? new AddLayerEdit(json) : null;
         }
 
-        /** kind が remove_layer の形なら、その見方。違えば null */
+        /** kind が remove_layer の形なら、そのビュー。違えば null */
         public RemoveLayerEdit asRemoveLayerEdit() {
             return "remove_layer".equals(json.get("kind")) ? new RemoveLayerEdit(json) : null;
         }
 
-        /** kind が text_style の形なら、その見方。違えば null */
+        /** kind が text_style の形なら、そのビュー。違えば null */
         public TextStyleEdit asTextStyleEdit() {
             return "text_style".equals(json.get("kind")) ? new TextStyleEdit(json) : null;
         }
 
-        /** kind が add_text_style の形なら、その見方。違えば null */
+        /** kind が add_text_style の形なら、そのビュー。違えば null */
         public AddTextStyleEdit asAddTextStyleEdit() {
             return "add_text_style".equals(json.get("kind")) ? new AddTextStyleEdit(json) : null;
         }
 
-        /** kind が remove_text_style の形なら、その見方。違えば null */
+        /** kind が remove_text_style の形なら、そのビュー。違えば null */
         public RemoveTextStyleEdit asRemoveTextStyleEdit() {
             return "remove_text_style".equals(json.get("kind")) ? new RemoveTextStyleEdit(json) : null;
         }
 
-        /** kind が line_type の形なら、その見方。違えば null */
+        /** kind が line_type の形なら、そのビュー。違えば null */
         public LineTypeEdit asLineTypeEdit() {
             return "line_type".equals(json.get("kind")) ? new LineTypeEdit(json) : null;
         }
 
-        /** kind が add_line_type の形なら、その見方。違えば null */
+        /** kind が add_line_type の形なら、そのビュー。違えば null */
         public AddLineTypeEdit asAddLineTypeEdit() {
             return "add_line_type".equals(json.get("kind")) ? new AddLineTypeEdit(json) : null;
         }
 
-        /** kind が remove_line_type の形なら、その見方。違えば null */
+        /** kind が remove_line_type の形なら、そのビュー。違えば null */
         public RemoveLineTypeEdit asRemoveLineTypeEdit() {
             return "remove_line_type".equals(json.get("kind")) ? new RemoveLineTypeEdit(json) : null;
         }
 
-        /** kind が dimension_style の形なら、その見方。違えば null */
+        /** kind が dimension_style の形なら、そのビュー。違えば null */
         public DimensionStyleEdit asDimensionStyleEdit() {
             return "dimension_style".equals(json.get("kind")) ? new DimensionStyleEdit(json) : null;
         }
 
-        /** kind が add_dimension_style の形なら、その見方。違えば null */
+        /** kind が add_dimension_style の形なら、そのビュー。違えば null */
         public AddDimensionStyleEdit asAddDimensionStyleEdit() {
             return "add_dimension_style".equals(json.get("kind")) ? new AddDimensionStyleEdit(json) : null;
         }
 
-        /** kind が remove_dimension_style の形なら、その見方。違えば null */
+        /** kind が remove_dimension_style の形なら、そのビュー。違えば null */
         public RemoveDimensionStyleEdit asRemoveDimensionStyleEdit() {
             return "remove_dimension_style".equals(json.get("kind")) ? new RemoveDimensionStyleEdit(json) : null;
         }
 
-        /** kind が point_style の形なら、その見方。違えば null */
+        /** kind が point_style の形なら、そのビュー。違えば null */
         public PointStyleEdit asPointStyleEdit() {
             return "point_style".equals(json.get("kind")) ? new PointStyleEdit(json) : null;
         }
@@ -4428,7 +4428,7 @@ public final class Messages {
             return json == null ? null : new RestyleEdit(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public RestyleEdit() {
             super(new LinkedHashMap<String, Object>());
             json.put("kind", "restyle");
@@ -4439,7 +4439,7 @@ public final class Messages {
             return Json.read(json.get("kind"), Json::string);
         }
 
-        /** {@link #getKind()} を書く。null なら欄を除く */
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
         public RestyleEdit withKind(String value) {
             put("kind", value);
             return this;
@@ -4450,7 +4450,7 @@ public final class Messages {
             return Json.read(json.get("id"), Json::string);
         }
 
-        /** {@link #getId()} を書く。null なら欄を除く */
+        /** {@link #getId()} を書く。null ならフィールドを除く */
         public RestyleEdit withId(String value) {
             put("id", value);
             return this;
@@ -4461,7 +4461,7 @@ public final class Messages {
             return Json.read(json.get("hash"), Json::string);
         }
 
-        /** {@link #getHash()} を書く。null なら欄を除く */
+        /** {@link #getHash()} を書く。null ならフィールドを除く */
         public RestyleEdit withHash(String value) {
             put("hash", value);
             return this;
@@ -4472,18 +4472,18 @@ public final class Messages {
             return Json.read(json.get("layer"), Json::string);
         }
 
-        /** {@link #getLayer()} を書く。null なら欄を除く */
+        /** {@link #getLayer()} を書く。null ならフィールドを除く */
         public RestyleEdit withLayer(String value) {
             put("layer", value);
             return this;
         }
 
-        /** レイヤの ID。tables が返したもの。同じ名前の項目が複数あるときは書き戻せない。小版 8 から */
+        /** レイヤの ID。tables が返したもの。同じ名前の項目が複数あるときは書き戻せない。マイナーバージョン 8 から */
         public String getLayerId() {
             return Json.read(json.get("layer_id"), Json::string);
         }
 
-        /** {@link #getLayerId()} を書く。null なら欄を除く */
+        /** {@link #getLayerId()} を書く。null ならフィールドを除く */
         public RestyleEdit withLayerId(String value) {
             put("layer_id", value);
             return this;
@@ -4494,7 +4494,7 @@ public final class Messages {
             return Json.read(json.get("color"), ColorChange::of);
         }
 
-        /** {@link #getColor()} を書く。null なら欄を除く */
+        /** {@link #getColor()} を書く。null ならフィールドを除く */
         public RestyleEdit withColor(ColorChange value) {
             put("color", value);
             return this;
@@ -4505,7 +4505,7 @@ public final class Messages {
             return Json.read(json.get("line_type"), LineTypeChange::of);
         }
 
-        /** {@link #getLineType()} を書く。null なら欄を除く */
+        /** {@link #getLineType()} を書く。null ならフィールドを除く */
         public RestyleEdit withLineType(LineTypeChange value) {
             put("line_type", value);
             return this;
@@ -4516,7 +4516,7 @@ public final class Messages {
             return Json.read(json.get("line_type_scale"), Json::number);
         }
 
-        /** {@link #getLineTypeScale()} を書く。null なら欄を除く */
+        /** {@link #getLineTypeScale()} を書く。null ならフィールドを除く */
         public RestyleEdit withLineTypeScale(Double value) {
             put("line_type_scale", value);
             return this;
@@ -4527,7 +4527,7 @@ public final class Messages {
             return Json.read(json.get("line_weight"), LineWeightChange::of);
         }
 
-        /** {@link #getLineWeight()} を書く。null なら欄を除く */
+        /** {@link #getLineWeight()} を書く。null ならフィールドを除く */
         public RestyleEdit withLineWeight(LineWeightChange value) {
             put("line_weight", value);
             return this;
@@ -4547,7 +4547,7 @@ public final class Messages {
             return json == null ? null : new TransformEdit(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public TransformEdit() {
             super(new LinkedHashMap<String, Object>());
             json.put("kind", "transform");
@@ -4558,7 +4558,7 @@ public final class Messages {
             return Json.read(json.get("kind"), Json::string);
         }
 
-        /** {@link #getKind()} を書く。null なら欄を除く */
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
         public TransformEdit withKind(String value) {
             put("kind", value);
             return this;
@@ -4569,7 +4569,7 @@ public final class Messages {
             return Json.read(json.get("id"), Json::string);
         }
 
-        /** {@link #getId()} を書く。null なら欄を除く */
+        /** {@link #getId()} を書く。null ならフィールドを除く */
         public TransformEdit withId(String value) {
             put("id", value);
             return this;
@@ -4580,7 +4580,7 @@ public final class Messages {
             return Json.read(json.get("hash"), Json::string);
         }
 
-        /** {@link #getHash()} を書く。null なら欄を除く */
+        /** {@link #getHash()} を書く。null ならフィールドを除く */
         public TransformEdit withHash(String value) {
             put("hash", value);
             return this;
@@ -4591,7 +4591,7 @@ public final class Messages {
             return Json.read(json.get("matrix"), v0 -> Json.list(v0, Json::number));
         }
 
-        /** {@link #getMatrix()} を書く。null なら欄を除く */
+        /** {@link #getMatrix()} を書く。null ならフィールドを除く */
         public TransformEdit withMatrix(List<Double> value) {
             put("matrix", value);
             return this;
@@ -4611,7 +4611,7 @@ public final class Messages {
             return json == null ? null : new RemoveEdit(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public RemoveEdit() {
             super(new LinkedHashMap<String, Object>());
             json.put("kind", "remove");
@@ -4622,7 +4622,7 @@ public final class Messages {
             return Json.read(json.get("kind"), Json::string);
         }
 
-        /** {@link #getKind()} を書く。null なら欄を除く */
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
         public RemoveEdit withKind(String value) {
             put("kind", value);
             return this;
@@ -4633,7 +4633,7 @@ public final class Messages {
             return Json.read(json.get("id"), Json::string);
         }
 
-        /** {@link #getId()} を書く。null なら欄を除く */
+        /** {@link #getId()} を書く。null ならフィールドを除く */
         public RemoveEdit withId(String value) {
             put("id", value);
             return this;
@@ -4644,14 +4644,14 @@ public final class Messages {
             return Json.read(json.get("hash"), Json::string);
         }
 
-        /** {@link #getHash()} を書く。null なら欄を除く */
+        /** {@link #getHash()} を書く。null ならフィールドを除く */
         public RemoveEdit withHash(String value) {
             put("hash", value);
             return this;
         }
     }
 
-    /** 要素の形を、渡す値で置き換える。形の種類は変えない。レイヤとスタイルは変えない。小版 10 から */
+    /** 要素の形を、渡す値で置き換える。形の種類は変えない。レイヤとスタイルは変えない。マイナーバージョン 10 から */
     public static final class ReplaceEdit extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public ReplaceEdit(Map<String, Object> json) {
@@ -4664,7 +4664,7 @@ public final class Messages {
             return json == null ? null : new ReplaceEdit(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public ReplaceEdit() {
             super(new LinkedHashMap<String, Object>());
             json.put("kind", "replace");
@@ -4675,7 +4675,7 @@ public final class Messages {
             return Json.read(json.get("kind"), Json::string);
         }
 
-        /** {@link #getKind()} を書く。null なら欄を除く */
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
         public ReplaceEdit withKind(String value) {
             put("kind", value);
             return this;
@@ -4686,7 +4686,7 @@ public final class Messages {
             return Json.read(json.get("id"), Json::string);
         }
 
-        /** {@link #getId()} を書く。null なら欄を除く */
+        /** {@link #getId()} を書く。null ならフィールドを除く */
         public ReplaceEdit withId(String value) {
             put("id", value);
             return this;
@@ -4697,7 +4697,7 @@ public final class Messages {
             return Json.read(json.get("hash"), Json::string);
         }
 
-        /** {@link #getHash()} を書く。null なら欄を除く */
+        /** {@link #getHash()} を書く。null ならフィールドを除く */
         public ReplaceEdit withHash(String value) {
             put("hash", value);
             return this;
@@ -4708,14 +4708,14 @@ public final class Messages {
             return Json.read(json.get("geometry"), Geometry::of);
         }
 
-        /** {@link #getGeometry()} を書く。null なら欄を除く */
+        /** {@link #getGeometry()} を書く。null ならフィールドを除く */
         public ReplaceEdit withGeometry(Geometry value) {
             put("geometry", value);
             return this;
         }
     }
 
-    /** 空間か用紙に要素を足す。書かない色・線種・線幅はレイヤに従う。足せる形は、形の値のどの種類も。小版 10 から */
+    /** 空間か用紙に要素を足す。書かない色・線種・線幅はレイヤに従う。足せる形は、形の値のどの種類も。マイナーバージョン 10 から */
     public static final class AddEdit extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public AddEdit(Map<String, Object> json) {
@@ -4728,7 +4728,7 @@ public final class Messages {
             return json == null ? null : new AddEdit(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public AddEdit() {
             super(new LinkedHashMap<String, Object>());
             json.put("kind", "add");
@@ -4739,18 +4739,18 @@ public final class Messages {
             return Json.read(json.get("kind"), Json::string);
         }
 
-        /** {@link #getKind()} を書く。null なら欄を除く */
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
         public AddEdit withKind(String value) {
             put("kind", value);
             return this;
         }
 
-        /** 足す先の空間か用紙の ID（space/0・sheet/h22 など）。entities の ID の先頭の部分。小版 31 から、記号の定義の空間（space/h1F など）も指せる（決定 0177） */
+        /** 足す先の空間か用紙の ID（space/0・sheet/h22 など）。entities の ID の先頭の部分。マイナーバージョン 31 から、記号の定義の空間（space/h1F など）も指せる（決定 0177） */
         public String getPlace() {
             return Json.read(json.get("place"), Json::string);
         }
 
-        /** {@link #getPlace()} を書く。null なら欄を除く */
+        /** {@link #getPlace()} を書く。null ならフィールドを除く */
         public AddEdit withPlace(String value) {
             put("place", value);
             return this;
@@ -4761,7 +4761,7 @@ public final class Messages {
             return Json.read(json.get("layer"), Json::string);
         }
 
-        /** {@link #getLayer()} を書く。null なら欄を除く */
+        /** {@link #getLayer()} を書く。null ならフィールドを除く */
         public AddEdit withLayer(String value) {
             put("layer", value);
             return this;
@@ -4772,40 +4772,40 @@ public final class Messages {
             return Json.read(json.get("layer_id"), Json::string);
         }
 
-        /** {@link #getLayerId()} を書く。null なら欄を除く */
+        /** {@link #getLayerId()} を書く。null ならフィールドを除く */
         public AddEdit withLayerId(String value) {
             put("layer_id", value);
             return this;
         }
 
-        /** 色。SXF はレイヤに従う色を書けないので、書く。小版 29 から */
+        /** 色。SXF はレイヤに従う色を書けないので、書く。マイナーバージョン 29 から */
         public ColorChange getColor() {
             return Json.read(json.get("color"), ColorChange::of);
         }
 
-        /** {@link #getColor()} を書く。null なら欄を除く */
+        /** {@link #getColor()} を書く。null ならフィールドを除く */
         public AddEdit withColor(ColorChange value) {
             put("color", value);
             return this;
         }
 
-        /** 線種。小版 29 から */
+        /** 線種。マイナーバージョン 29 から */
         public LineTypeChange getLineType() {
             return Json.read(json.get("line_type"), LineTypeChange::of);
         }
 
-        /** {@link #getLineType()} を書く。null なら欄を除く */
+        /** {@link #getLineType()} を書く。null ならフィールドを除く */
         public AddEdit withLineType(LineTypeChange value) {
             put("line_type", value);
             return this;
         }
 
-        /** 線幅。小版 29 から */
+        /** 線幅。マイナーバージョン 29 から */
         public LineWeightChange getLineWeight() {
             return Json.read(json.get("line_weight"), LineWeightChange::of);
         }
 
-        /** {@link #getLineWeight()} を書く。null なら欄を除く */
+        /** {@link #getLineWeight()} を書く。null ならフィールドを除く */
         public AddEdit withLineWeight(LineWeightChange value) {
             put("line_weight", value);
             return this;
@@ -4816,14 +4816,14 @@ public final class Messages {
             return Json.read(json.get("geometry"), Geometry::of);
         }
 
-        /** {@link #getGeometry()} を書く。null なら欄を除く */
+        /** {@link #getGeometry()} を書く。null ならフィールドを除く */
         public AddEdit withGeometry(Geometry value) {
             put("geometry", value);
             return this;
         }
     }
 
-    /** レイヤの名前・状態・色・線種・線幅のうち、書いたものだけを変える（決定 0162）。DXF は、名前を変えると、図形と今のレイヤ（$CLAYER）も新しい名前で指す。DWG は、今あるレイヤの線種と真の色を変えられない。小版 22 から */
+    /** レイヤの名前・状態・色・線種・線幅のうち、書いたものだけを変える（決定 0162）。DXF は、名前を変えると、図形と今のレイヤ（$CLAYER）も新しい名前で指す。DWG は、今あるレイヤの線種と真の色を変えられない。マイナーバージョン 22 から */
     public static final class LayerEdit extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public LayerEdit(Map<String, Object> json) {
@@ -4836,7 +4836,7 @@ public final class Messages {
             return json == null ? null : new LayerEdit(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public LayerEdit() {
             super(new LinkedHashMap<String, Object>());
             json.put("kind", "layer");
@@ -4847,7 +4847,7 @@ public final class Messages {
             return Json.read(json.get("kind"), Json::string);
         }
 
-        /** {@link #getKind()} を書く。null なら欄を除く */
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
         public LayerEdit withKind(String value) {
             put("kind", value);
             return this;
@@ -4858,7 +4858,7 @@ public final class Messages {
             return Json.read(json.get("id"), Json::string);
         }
 
-        /** {@link #getId()} を書く。null なら欄を除く */
+        /** {@link #getId()} を書く。null ならフィールドを除く */
         public LayerEdit withId(String value) {
             put("id", value);
             return this;
@@ -4869,7 +4869,7 @@ public final class Messages {
             return Json.read(json.get("hash"), Json::string);
         }
 
-        /** {@link #getHash()} を書く。null なら欄を除く */
+        /** {@link #getHash()} を書く。null ならフィールドを除く */
         public LayerEdit withHash(String value) {
             put("hash", value);
             return this;
@@ -4880,7 +4880,7 @@ public final class Messages {
             return Json.read(json.get("name"), Json::string);
         }
 
-        /** {@link #getName()} を書く。null なら欄を除く */
+        /** {@link #getName()} を書く。null ならフィールドを除く */
         public LayerEdit withName(String value) {
             put("name", value);
             return this;
@@ -4891,7 +4891,7 @@ public final class Messages {
             return Json.read(json.get("visible"), Json::bool);
         }
 
-        /** {@link #getVisible()} を書く。null なら欄を除く */
+        /** {@link #getVisible()} を書く。null ならフィールドを除く */
         public LayerEdit withVisible(Boolean value) {
             put("visible", value);
             return this;
@@ -4902,7 +4902,7 @@ public final class Messages {
             return Json.read(json.get("printable"), Json::bool);
         }
 
-        /** {@link #getPrintable()} を書く。null なら欄を除く */
+        /** {@link #getPrintable()} を書く。null ならフィールドを除く */
         public LayerEdit withPrintable(Boolean value) {
             put("printable", value);
             return this;
@@ -4913,7 +4913,7 @@ public final class Messages {
             return Json.read(json.get("editable"), Json::bool);
         }
 
-        /** {@link #getEditable()} を書く。null なら欄を除く */
+        /** {@link #getEditable()} を書く。null ならフィールドを除く */
         public LayerEdit withEditable(Boolean value) {
             put("editable", value);
             return this;
@@ -4924,7 +4924,7 @@ public final class Messages {
             return Json.read(json.get("frozen"), Json::bool);
         }
 
-        /** {@link #getFrozen()} を書く。null なら欄を除く */
+        /** {@link #getFrozen()} を書く。null ならフィールドを除く */
         public LayerEdit withFrozen(Boolean value) {
             put("frozen", value);
             return this;
@@ -4935,7 +4935,7 @@ public final class Messages {
             return Json.read(json.get("color"), ColorChange::of);
         }
 
-        /** {@link #getColor()} を書く。null なら欄を除く */
+        /** {@link #getColor()} を書く。null ならフィールドを除く */
         public LayerEdit withColor(ColorChange value) {
             put("color", value);
             return this;
@@ -4946,7 +4946,7 @@ public final class Messages {
             return Json.read(json.get("line_type"), LineTypeChange::of);
         }
 
-        /** {@link #getLineType()} を書く。null なら欄を除く */
+        /** {@link #getLineType()} を書く。null ならフィールドを除く */
         public LayerEdit withLineType(LineTypeChange value) {
             put("line_type", value);
             return this;
@@ -4957,14 +4957,14 @@ public final class Messages {
             return Json.read(json.get("line_weight"), LineWeightChange::of);
         }
 
-        /** {@link #getLineWeight()} を書く。null なら欄を除く */
+        /** {@link #getLineWeight()} を書く。null ならフィールドを除く */
         public LayerEdit withLineWeight(LineWeightChange value) {
             put("line_weight", value);
             return this;
         }
     }
 
-    /** レイヤを除く（決定 0162）。要素・ほかのオブジェクト・今のレイヤ（$CLAYER）が指すレイヤと、0・Defpoints・外部参照に依るレイヤは除けない。同じ apply の要素の変更が指すレイヤも除けない。後ろにハンドルのないレイヤがあれば、その ID が変わるので除けない。除いたレイヤより後ろのレイヤと、その上の要素のハッシュは変わるので、読み直す。小版 24 から */
+    /** レイヤを除く（決定 0162）。要素・ほかのオブジェクト・今のレイヤ（$CLAYER）が指すレイヤと、0・Defpoints・外部参照に依るレイヤは除けない。同じ apply の要素の変更が指すレイヤも除けない。後ろにハンドルのないレイヤがあれば、その ID が変わるので除けない。除いたレイヤより後ろのレイヤと、その上の要素のハッシュは変わるので、読み直す。マイナーバージョン 24 から */
     public static final class RemoveLayerEdit extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public RemoveLayerEdit(Map<String, Object> json) {
@@ -4977,7 +4977,7 @@ public final class Messages {
             return json == null ? null : new RemoveLayerEdit(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public RemoveLayerEdit() {
             super(new LinkedHashMap<String, Object>());
             json.put("kind", "remove_layer");
@@ -4988,7 +4988,7 @@ public final class Messages {
             return Json.read(json.get("kind"), Json::string);
         }
 
-        /** {@link #getKind()} を書く。null なら欄を除く */
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
         public RemoveLayerEdit withKind(String value) {
             put("kind", value);
             return this;
@@ -4999,7 +4999,7 @@ public final class Messages {
             return Json.read(json.get("id"), Json::string);
         }
 
-        /** {@link #getId()} を書く。null なら欄を除く */
+        /** {@link #getId()} を書く。null ならフィールドを除く */
         public RemoveLayerEdit withId(String value) {
             put("id", value);
             return this;
@@ -5010,14 +5010,14 @@ public final class Messages {
             return Json.read(json.get("hash"), Json::string);
         }
 
-        /** {@link #getHash()} を書く。null なら欄を除く */
+        /** {@link #getHash()} を書く。null ならフィールドを除く */
         public RemoveLayerEdit withHash(String value) {
             put("hash", value);
             return this;
         }
     }
 
-    /** 文字スタイルの名前・フォント・高さ・幅の倍率・傾き・裏返し・上下反転・縦書きのうち、書いたものだけを変える（決定 0163）。DXF は、名前を変えると、文字と今の文字スタイル（$TEXTSTYLE）も新しい名前で指す。表の書式などの図形でないオブジェクトが名前で指す文字スタイルの名前は変えられない。小版 25 から */
+    /** 文字スタイルの名前・フォント・高さ・幅の倍率・傾き・裏返し・上下反転・縦書きのうち、書いたものだけを変える（決定 0163）。DXF は、名前を変えると、文字と今の文字スタイル（$TEXTSTYLE）も新しい名前で指す。表の書式などの図形でないオブジェクトが名前で指す文字スタイルの名前は変えられない。マイナーバージョン 25 から */
     public static final class TextStyleEdit extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public TextStyleEdit(Map<String, Object> json) {
@@ -5030,7 +5030,7 @@ public final class Messages {
             return json == null ? null : new TextStyleEdit(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public TextStyleEdit() {
             super(new LinkedHashMap<String, Object>());
             json.put("kind", "text_style");
@@ -5041,7 +5041,7 @@ public final class Messages {
             return Json.read(json.get("kind"), Json::string);
         }
 
-        /** {@link #getKind()} を書く。null なら欄を除く */
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
         public TextStyleEdit withKind(String value) {
             put("kind", value);
             return this;
@@ -5052,7 +5052,7 @@ public final class Messages {
             return Json.read(json.get("id"), Json::string);
         }
 
-        /** {@link #getId()} を書く。null なら欄を除く */
+        /** {@link #getId()} を書く。null ならフィールドを除く */
         public TextStyleEdit withId(String value) {
             put("id", value);
             return this;
@@ -5063,7 +5063,7 @@ public final class Messages {
             return Json.read(json.get("hash"), Json::string);
         }
 
-        /** {@link #getHash()} を書く。null なら欄を除く */
+        /** {@link #getHash()} を書く。null ならフィールドを除く */
         public TextStyleEdit withHash(String value) {
             put("hash", value);
             return this;
@@ -5074,7 +5074,7 @@ public final class Messages {
             return Json.read(json.get("name"), Json::string);
         }
 
-        /** {@link #getName()} を書く。null なら欄を除く */
+        /** {@link #getName()} を書く。null ならフィールドを除く */
         public TextStyleEdit withName(String value) {
             put("name", value);
             return this;
@@ -5085,7 +5085,7 @@ public final class Messages {
             return Json.read(json.get("font"), Font::of);
         }
 
-        /** {@link #getFont()} を書く。null なら欄を除く */
+        /** {@link #getFont()} を書く。null ならフィールドを除く */
         public TextStyleEdit withFont(Font value) {
             put("font", value);
             return this;
@@ -5096,7 +5096,7 @@ public final class Messages {
             return Json.read(json.get("big_font"), Font::of);
         }
 
-        /** {@link #getBigFont()} を書く。null なら欄を除く */
+        /** {@link #getBigFont()} を書く。null ならフィールドを除く */
         public TextStyleEdit withBigFont(Font value) {
             put("big_font", value);
             return this;
@@ -5107,7 +5107,7 @@ public final class Messages {
             return Json.read(json.get("height"), Json::number);
         }
 
-        /** {@link #getHeight()} を書く。null なら欄を除く */
+        /** {@link #getHeight()} を書く。null ならフィールドを除く */
         public TextStyleEdit withHeight(Double value) {
             put("height", value);
             return this;
@@ -5118,7 +5118,7 @@ public final class Messages {
             return Json.read(json.get("width"), Json::number);
         }
 
-        /** {@link #getWidth()} を書く。null なら欄を除く */
+        /** {@link #getWidth()} を書く。null ならフィールドを除く */
         public TextStyleEdit withWidth(Double value) {
             put("width", value);
             return this;
@@ -5129,7 +5129,7 @@ public final class Messages {
             return Json.read(json.get("oblique"), Json::number);
         }
 
-        /** {@link #getOblique()} を書く。null なら欄を除く */
+        /** {@link #getOblique()} を書く。null ならフィールドを除く */
         public TextStyleEdit withOblique(Double value) {
             put("oblique", value);
             return this;
@@ -5140,7 +5140,7 @@ public final class Messages {
             return Json.read(json.get("backward"), Json::bool);
         }
 
-        /** {@link #getBackward()} を書く。null なら欄を除く */
+        /** {@link #getBackward()} を書く。null ならフィールドを除く */
         public TextStyleEdit withBackward(Boolean value) {
             put("backward", value);
             return this;
@@ -5151,7 +5151,7 @@ public final class Messages {
             return Json.read(json.get("upside_down"), Json::bool);
         }
 
-        /** {@link #getUpsideDown()} を書く。null なら欄を除く */
+        /** {@link #getUpsideDown()} を書く。null ならフィールドを除く */
         public TextStyleEdit withUpsideDown(Boolean value) {
             put("upside_down", value);
             return this;
@@ -5162,14 +5162,14 @@ public final class Messages {
             return Json.read(json.get("vertical"), Json::bool);
         }
 
-        /** {@link #getVertical()} を書く。null なら欄を除く */
+        /** {@link #getVertical()} を書く。null ならフィールドを除く */
         public TextStyleEdit withVertical(Boolean value) {
             put("vertical", value);
             return this;
         }
     }
 
-    /** 文字スタイルを足す（決定 0163）。書かない欄は Standard と同じ。同じ apply の要素は、足した文字スタイルを指せない。小版 25 から */
+    /** 文字スタイルを足す（決定 0163）。書かないフィールドは Standard と同じ。同じ apply の要素は、足した文字スタイルを指せない。マイナーバージョン 25 から */
     public static final class AddTextStyleEdit extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public AddTextStyleEdit(Map<String, Object> json) {
@@ -5182,7 +5182,7 @@ public final class Messages {
             return json == null ? null : new AddTextStyleEdit(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public AddTextStyleEdit() {
             super(new LinkedHashMap<String, Object>());
             json.put("kind", "add_text_style");
@@ -5193,7 +5193,7 @@ public final class Messages {
             return Json.read(json.get("kind"), Json::string);
         }
 
-        /** {@link #getKind()} を書く。null なら欄を除く */
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
         public AddTextStyleEdit withKind(String value) {
             put("kind", value);
             return this;
@@ -5204,7 +5204,7 @@ public final class Messages {
             return Json.read(json.get("name"), Json::string);
         }
 
-        /** {@link #getName()} を書く。null なら欄を除く */
+        /** {@link #getName()} を書く。null ならフィールドを除く */
         public AddTextStyleEdit withName(String value) {
             put("name", value);
             return this;
@@ -5215,7 +5215,7 @@ public final class Messages {
             return Json.read(json.get("font"), Font::of);
         }
 
-        /** {@link #getFont()} を書く。null なら欄を除く */
+        /** {@link #getFont()} を書く。null ならフィールドを除く */
         public AddTextStyleEdit withFont(Font value) {
             put("font", value);
             return this;
@@ -5226,7 +5226,7 @@ public final class Messages {
             return Json.read(json.get("big_font"), Font::of);
         }
 
-        /** {@link #getBigFont()} を書く。null なら欄を除く */
+        /** {@link #getBigFont()} を書く。null ならフィールドを除く */
         public AddTextStyleEdit withBigFont(Font value) {
             put("big_font", value);
             return this;
@@ -5237,7 +5237,7 @@ public final class Messages {
             return Json.read(json.get("height"), Json::number);
         }
 
-        /** {@link #getHeight()} を書く。null なら欄を除く */
+        /** {@link #getHeight()} を書く。null ならフィールドを除く */
         public AddTextStyleEdit withHeight(Double value) {
             put("height", value);
             return this;
@@ -5248,7 +5248,7 @@ public final class Messages {
             return Json.read(json.get("width"), Json::number);
         }
 
-        /** {@link #getWidth()} を書く。null なら欄を除く */
+        /** {@link #getWidth()} を書く。null ならフィールドを除く */
         public AddTextStyleEdit withWidth(Double value) {
             put("width", value);
             return this;
@@ -5259,7 +5259,7 @@ public final class Messages {
             return Json.read(json.get("oblique"), Json::number);
         }
 
-        /** {@link #getOblique()} を書く。null なら欄を除く */
+        /** {@link #getOblique()} を書く。null ならフィールドを除く */
         public AddTextStyleEdit withOblique(Double value) {
             put("oblique", value);
             return this;
@@ -5270,7 +5270,7 @@ public final class Messages {
             return Json.read(json.get("backward"), Json::bool);
         }
 
-        /** {@link #getBackward()} を書く。null なら欄を除く */
+        /** {@link #getBackward()} を書く。null ならフィールドを除く */
         public AddTextStyleEdit withBackward(Boolean value) {
             put("backward", value);
             return this;
@@ -5281,7 +5281,7 @@ public final class Messages {
             return Json.read(json.get("upside_down"), Json::bool);
         }
 
-        /** {@link #getUpsideDown()} を書く。null なら欄を除く */
+        /** {@link #getUpsideDown()} を書く。null ならフィールドを除く */
         public AddTextStyleEdit withUpsideDown(Boolean value) {
             put("upside_down", value);
             return this;
@@ -5292,14 +5292,14 @@ public final class Messages {
             return Json.read(json.get("vertical"), Json::bool);
         }
 
-        /** {@link #getVertical()} を書く。null なら欄を除く */
+        /** {@link #getVertical()} を書く。null ならフィールドを除く */
         public AddTextStyleEdit withVertical(Boolean value) {
             put("vertical", value);
             return this;
         }
     }
 
-    /** 文字スタイルを除く（決定 0163）。要素・表の書式や寸法スタイルなどのほかのオブジェクト・今の文字スタイル（$TEXTSTYLE）が指すものと、Standard・外部参照に依るものは除けない。同じ apply で足す要素が指すものも除けない。後ろにハンドルのない文字スタイルがあれば、その ID が変わるので除けない。小版 25 から */
+    /** 文字スタイルを除く（決定 0163）。要素・表の書式や寸法スタイルなどのほかのオブジェクト・今の文字スタイル（$TEXTSTYLE）が指すものと、Standard・外部参照に依るものは除けない。同じ apply で足す要素が指すものも除けない。後ろにハンドルのない文字スタイルがあれば、その ID が変わるので除けない。マイナーバージョン 25 から */
     public static final class RemoveTextStyleEdit extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public RemoveTextStyleEdit(Map<String, Object> json) {
@@ -5312,7 +5312,7 @@ public final class Messages {
             return json == null ? null : new RemoveTextStyleEdit(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public RemoveTextStyleEdit() {
             super(new LinkedHashMap<String, Object>());
             json.put("kind", "remove_text_style");
@@ -5323,7 +5323,7 @@ public final class Messages {
             return Json.read(json.get("kind"), Json::string);
         }
 
-        /** {@link #getKind()} を書く。null なら欄を除く */
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
         public RemoveTextStyleEdit withKind(String value) {
             put("kind", value);
             return this;
@@ -5334,7 +5334,7 @@ public final class Messages {
             return Json.read(json.get("id"), Json::string);
         }
 
-        /** {@link #getId()} を書く。null なら欄を除く */
+        /** {@link #getId()} を書く。null ならフィールドを除く */
         public RemoveTextStyleEdit withId(String value) {
             put("id", value);
             return this;
@@ -5345,14 +5345,14 @@ public final class Messages {
             return Json.read(json.get("hash"), Json::string);
         }
 
-        /** {@link #getHash()} を書く。null なら欄を除く */
+        /** {@link #getHash()} を書く。null ならフィールドを除く */
         public RemoveTextStyleEdit withHash(String value) {
             put("hash", value);
             return this;
         }
     }
 
-    /** 線種の名前・説明・線と間の長さの列のうち、書いたものだけを変える（決定 0164）。DXF は、名前を変えると、要素・レイヤと今の線種（$CELTYPE）も新しい名前で指す。多重線のスタイルなどの図形でないオブジェクトが名前で指す線種の名前は変えられない。形か文字を添える線種と DWG の線種は、列の要素の数を変えられない。小版 26 から */
+    /** 線種の名前・説明・線と間の長さの列のうち、書いたものだけを変える（決定 0164）。DXF は、名前を変えると、要素・レイヤと今の線種（$CELTYPE）も新しい名前で指す。マルチラインスタイルなどの図形でないオブジェクトが名前で指す線種の名前は変えられない。形か文字を添える線種と DWG の線種は、列の要素の数を変えられない。マイナーバージョン 26 から */
     public static final class LineTypeEdit extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public LineTypeEdit(Map<String, Object> json) {
@@ -5365,7 +5365,7 @@ public final class Messages {
             return json == null ? null : new LineTypeEdit(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public LineTypeEdit() {
             super(new LinkedHashMap<String, Object>());
             json.put("kind", "line_type");
@@ -5376,7 +5376,7 @@ public final class Messages {
             return Json.read(json.get("kind"), Json::string);
         }
 
-        /** {@link #getKind()} を書く。null なら欄を除く */
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
         public LineTypeEdit withKind(String value) {
             put("kind", value);
             return this;
@@ -5387,7 +5387,7 @@ public final class Messages {
             return Json.read(json.get("id"), Json::string);
         }
 
-        /** {@link #getId()} を書く。null なら欄を除く */
+        /** {@link #getId()} を書く。null ならフィールドを除く */
         public LineTypeEdit withId(String value) {
             put("id", value);
             return this;
@@ -5398,7 +5398,7 @@ public final class Messages {
             return Json.read(json.get("hash"), Json::string);
         }
 
-        /** {@link #getHash()} を書く。null なら欄を除く */
+        /** {@link #getHash()} を書く。null ならフィールドを除く */
         public LineTypeEdit withHash(String value) {
             put("hash", value);
             return this;
@@ -5409,7 +5409,7 @@ public final class Messages {
             return Json.read(json.get("name"), Json::string);
         }
 
-        /** {@link #getName()} を書く。null なら欄を除く */
+        /** {@link #getName()} を書く。null ならフィールドを除く */
         public LineTypeEdit withName(String value) {
             put("name", value);
             return this;
@@ -5420,7 +5420,7 @@ public final class Messages {
             return Json.read(json.get("description"), Json::string);
         }
 
-        /** {@link #getDescription()} を書く。null なら欄を除く */
+        /** {@link #getDescription()} を書く。null ならフィールドを除く */
         public LineTypeEdit withDescription(String value) {
             put("description", value);
             return this;
@@ -5431,14 +5431,14 @@ public final class Messages {
             return Json.read(json.get("pattern"), v0 -> Json.list(v0, Json::number));
         }
 
-        /** {@link #getPattern()} を書く。null なら欄を除く */
+        /** {@link #getPattern()} を書く。null ならフィールドを除く */
         public LineTypeEdit withPattern(List<Double> value) {
             put("pattern", value);
             return this;
         }
     }
 
-    /** 線種を足す（決定 0164）。書かない欄は Continuous と同じ。同じ apply の要素とレイヤは、足した線種を指せない。小版 26 から */
+    /** 線種を足す（決定 0164）。書かないフィールドは Continuous と同じ。同じ apply の要素とレイヤは、足した線種を指せない。マイナーバージョン 26 から */
     public static final class AddLineTypeEdit extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public AddLineTypeEdit(Map<String, Object> json) {
@@ -5451,7 +5451,7 @@ public final class Messages {
             return json == null ? null : new AddLineTypeEdit(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public AddLineTypeEdit() {
             super(new LinkedHashMap<String, Object>());
             json.put("kind", "add_line_type");
@@ -5462,7 +5462,7 @@ public final class Messages {
             return Json.read(json.get("kind"), Json::string);
         }
 
-        /** {@link #getKind()} を書く。null なら欄を除く */
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
         public AddLineTypeEdit withKind(String value) {
             put("kind", value);
             return this;
@@ -5473,7 +5473,7 @@ public final class Messages {
             return Json.read(json.get("name"), Json::string);
         }
 
-        /** {@link #getName()} を書く。null なら欄を除く */
+        /** {@link #getName()} を書く。null ならフィールドを除く */
         public AddLineTypeEdit withName(String value) {
             put("name", value);
             return this;
@@ -5484,7 +5484,7 @@ public final class Messages {
             return Json.read(json.get("description"), Json::string);
         }
 
-        /** {@link #getDescription()} を書く。null なら欄を除く */
+        /** {@link #getDescription()} を書く。null ならフィールドを除く */
         public AddLineTypeEdit withDescription(String value) {
             put("description", value);
             return this;
@@ -5495,14 +5495,14 @@ public final class Messages {
             return Json.read(json.get("pattern"), v0 -> Json.list(v0, Json::number));
         }
 
-        /** {@link #getPattern()} を書く。null なら欄を除く */
+        /** {@link #getPattern()} を書く。null ならフィールドを除く */
         public AddLineTypeEdit withPattern(List<Double> value) {
             put("pattern", value);
             return this;
         }
     }
 
-    /** 線種を除く（決定 0164）。要素・レイヤ・多重線のスタイルなどのほかのオブジェクト・今の線種（$CELTYPE）が指すものと、ByLayer・ByBlock・Continuous・外部参照に依るものは除けない。同じ apply で足す・変える要素とレイヤが指すものも除けない。後ろにハンドルのない線種があれば、その ID が変わるので除けない。小版 26 から */
+    /** 線種を除く（決定 0164）。要素・レイヤ・マルチラインスタイルなどのほかのオブジェクト・今の線種（$CELTYPE）が指すものと、ByLayer・ByBlock・Continuous・外部参照に依るものは除けない。同じ apply で足す・変える要素とレイヤが指すものも除けない。後ろにハンドルのない線種があれば、その ID が変わるので除けない。マイナーバージョン 26 から */
     public static final class RemoveLineTypeEdit extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public RemoveLineTypeEdit(Map<String, Object> json) {
@@ -5515,7 +5515,7 @@ public final class Messages {
             return json == null ? null : new RemoveLineTypeEdit(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public RemoveLineTypeEdit() {
             super(new LinkedHashMap<String, Object>());
             json.put("kind", "remove_line_type");
@@ -5526,7 +5526,7 @@ public final class Messages {
             return Json.read(json.get("kind"), Json::string);
         }
 
-        /** {@link #getKind()} を書く。null なら欄を除く */
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
         public RemoveLineTypeEdit withKind(String value) {
             put("kind", value);
             return this;
@@ -5537,7 +5537,7 @@ public final class Messages {
             return Json.read(json.get("id"), Json::string);
         }
 
-        /** {@link #getId()} を書く。null なら欄を除く */
+        /** {@link #getId()} を書く。null ならフィールドを除く */
         public RemoveLineTypeEdit withId(String value) {
             put("id", value);
             return this;
@@ -5548,14 +5548,14 @@ public final class Messages {
             return Json.read(json.get("hash"), Json::string);
         }
 
-        /** {@link #getHash()} を書く。null なら欄を除く */
+        /** {@link #getHash()} を書く。null ならフィールドを除く */
         public RemoveLineTypeEdit withHash(String value) {
             put("hash", value);
             return this;
         }
     }
 
-    /** 寸法スタイルの名前・端部記号・その大きさ・斜線・倍率のうち、書いたものだけを変える（決定 0165）。DXF は、名前を変えると、寸法・引出線・公差と今の寸法スタイル（$DIMSTYLE）も新しい名前で指す。図形でないオブジェクトが名前で指す寸法スタイルの名前は変えられない。小版 27 から */
+    /** 寸法スタイルの名前・端部記号・その大きさ・斜線・倍率のうち、書いたものだけを変える（決定 0165）。DXF は、名前を変えると、寸法・引出線・公差と今の寸法スタイル（$DIMSTYLE）も新しい名前で指す。図形でないオブジェクトが名前で指す寸法スタイルの名前は変えられない。マイナーバージョン 27 から */
     public static final class DimensionStyleEdit extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public DimensionStyleEdit(Map<String, Object> json) {
@@ -5568,7 +5568,7 @@ public final class Messages {
             return json == null ? null : new DimensionStyleEdit(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public DimensionStyleEdit() {
             super(new LinkedHashMap<String, Object>());
             json.put("kind", "dimension_style");
@@ -5579,7 +5579,7 @@ public final class Messages {
             return Json.read(json.get("kind"), Json::string);
         }
 
-        /** {@link #getKind()} を書く。null なら欄を除く */
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
         public DimensionStyleEdit withKind(String value) {
             put("kind", value);
             return this;
@@ -5590,7 +5590,7 @@ public final class Messages {
             return Json.read(json.get("id"), Json::string);
         }
 
-        /** {@link #getId()} を書く。null なら欄を除く */
+        /** {@link #getId()} を書く。null ならフィールドを除く */
         public DimensionStyleEdit withId(String value) {
             put("id", value);
             return this;
@@ -5601,7 +5601,7 @@ public final class Messages {
             return Json.read(json.get("hash"), Json::string);
         }
 
-        /** {@link #getHash()} を書く。null なら欄を除く */
+        /** {@link #getHash()} を書く。null ならフィールドを除く */
         public DimensionStyleEdit withHash(String value) {
             put("hash", value);
             return this;
@@ -5612,7 +5612,7 @@ public final class Messages {
             return Json.read(json.get("name"), Json::string);
         }
 
-        /** {@link #getName()} を書く。null なら欄を除く */
+        /** {@link #getName()} を書く。null ならフィールドを除く */
         public DimensionStyleEdit withName(String value) {
             put("name", value);
             return this;
@@ -5623,7 +5623,7 @@ public final class Messages {
             return Json.read(json.get("ends"), v0 -> Json.list(v0, Json::string));
         }
 
-        /** {@link #getEnds()} を書く。null なら欄を除く */
+        /** {@link #getEnds()} を書く。null ならフィールドを除く */
         public DimensionStyleEdit withEnds(List<String> value) {
             put("ends", value);
             return this;
@@ -5634,7 +5634,7 @@ public final class Messages {
             return Json.read(json.get("leader"), Json::string);
         }
 
-        /** {@link #getLeader()} を書く。null なら欄を除く */
+        /** {@link #getLeader()} を書く。null ならフィールドを除く */
         public DimensionStyleEdit withLeader(String value) {
             put("leader", value);
             return this;
@@ -5645,7 +5645,7 @@ public final class Messages {
             return Json.read(json.get("size"), Json::number);
         }
 
-        /** {@link #getSize()} を書く。null なら欄を除く */
+        /** {@link #getSize()} を書く。null ならフィールドを除く */
         public DimensionStyleEdit withSize(Double value) {
             put("size", value);
             return this;
@@ -5656,7 +5656,7 @@ public final class Messages {
             return Json.read(json.get("tick"), Json::number);
         }
 
-        /** {@link #getTick()} を書く。null なら欄を除く */
+        /** {@link #getTick()} を書く。null ならフィールドを除く */
         public DimensionStyleEdit withTick(Double value) {
             put("tick", value);
             return this;
@@ -5667,14 +5667,14 @@ public final class Messages {
             return Json.read(json.get("scale"), Json::number);
         }
 
-        /** {@link #getScale()} を書く。null なら欄を除く */
+        /** {@link #getScale()} を書く。null ならフィールドを除く */
         public DimensionStyleEdit withScale(Double value) {
             put("scale", value);
             return this;
         }
     }
 
-    /** 寸法スタイルを足す（決定 0165）。書かない欄は Standard と同じ。同じ apply の要素は、足した寸法スタイルを指せない。小版 27 から */
+    /** 寸法スタイルを足す（決定 0165）。書かないフィールドは Standard と同じ。同じ apply の要素は、足した寸法スタイルを指せない。マイナーバージョン 27 から */
     public static final class AddDimensionStyleEdit extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public AddDimensionStyleEdit(Map<String, Object> json) {
@@ -5687,7 +5687,7 @@ public final class Messages {
             return json == null ? null : new AddDimensionStyleEdit(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public AddDimensionStyleEdit() {
             super(new LinkedHashMap<String, Object>());
             json.put("kind", "add_dimension_style");
@@ -5698,7 +5698,7 @@ public final class Messages {
             return Json.read(json.get("kind"), Json::string);
         }
 
-        /** {@link #getKind()} を書く。null なら欄を除く */
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
         public AddDimensionStyleEdit withKind(String value) {
             put("kind", value);
             return this;
@@ -5709,7 +5709,7 @@ public final class Messages {
             return Json.read(json.get("name"), Json::string);
         }
 
-        /** {@link #getName()} を書く。null なら欄を除く */
+        /** {@link #getName()} を書く。null ならフィールドを除く */
         public AddDimensionStyleEdit withName(String value) {
             put("name", value);
             return this;
@@ -5720,7 +5720,7 @@ public final class Messages {
             return Json.read(json.get("ends"), v0 -> Json.list(v0, Json::string));
         }
 
-        /** {@link #getEnds()} を書く。null なら欄を除く */
+        /** {@link #getEnds()} を書く。null ならフィールドを除く */
         public AddDimensionStyleEdit withEnds(List<String> value) {
             put("ends", value);
             return this;
@@ -5731,7 +5731,7 @@ public final class Messages {
             return Json.read(json.get("leader"), Json::string);
         }
 
-        /** {@link #getLeader()} を書く。null なら欄を除く */
+        /** {@link #getLeader()} を書く。null ならフィールドを除く */
         public AddDimensionStyleEdit withLeader(String value) {
             put("leader", value);
             return this;
@@ -5742,7 +5742,7 @@ public final class Messages {
             return Json.read(json.get("size"), Json::number);
         }
 
-        /** {@link #getSize()} を書く。null なら欄を除く */
+        /** {@link #getSize()} を書く。null ならフィールドを除く */
         public AddDimensionStyleEdit withSize(Double value) {
             put("size", value);
             return this;
@@ -5753,7 +5753,7 @@ public final class Messages {
             return Json.read(json.get("tick"), Json::number);
         }
 
-        /** {@link #getTick()} を書く。null なら欄を除く */
+        /** {@link #getTick()} を書く。null ならフィールドを除く */
         public AddDimensionStyleEdit withTick(Double value) {
             put("tick", value);
             return this;
@@ -5764,14 +5764,14 @@ public final class Messages {
             return Json.read(json.get("scale"), Json::number);
         }
 
-        /** {@link #getScale()} を書く。null なら欄を除く */
+        /** {@link #getScale()} を書く。null ならフィールドを除く */
         public AddDimensionStyleEdit withScale(Double value) {
             put("scale", value);
             return this;
         }
     }
 
-    /** 寸法スタイルを除く（決定 0165）。寸法・引出線・公差などのほかのオブジェクト・今の寸法スタイル（$DIMSTYLE）が指すものと、Standard・子の寸法スタイル・子を持つ寸法スタイル・外部参照に依るものは除けない。後ろにハンドルのない寸法スタイルがあれば、その ID が変わるので除けない。小版 27 から */
+    /** 寸法スタイルを除く（決定 0165）。寸法・引出線・公差などのほかのオブジェクト・今の寸法スタイル（$DIMSTYLE）が指すものと、Standard・子の寸法スタイル・子を持つ寸法スタイル・外部参照に依るものは除けない。後ろにハンドルのない寸法スタイルがあれば、その ID が変わるので除けない。マイナーバージョン 27 から */
     public static final class RemoveDimensionStyleEdit extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public RemoveDimensionStyleEdit(Map<String, Object> json) {
@@ -5784,7 +5784,7 @@ public final class Messages {
             return json == null ? null : new RemoveDimensionStyleEdit(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public RemoveDimensionStyleEdit() {
             super(new LinkedHashMap<String, Object>());
             json.put("kind", "remove_dimension_style");
@@ -5795,7 +5795,7 @@ public final class Messages {
             return Json.read(json.get("kind"), Json::string);
         }
 
-        /** {@link #getKind()} を書く。null なら欄を除く */
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
         public RemoveDimensionStyleEdit withKind(String value) {
             put("kind", value);
             return this;
@@ -5806,7 +5806,7 @@ public final class Messages {
             return Json.read(json.get("id"), Json::string);
         }
 
-        /** {@link #getId()} を書く。null なら欄を除く */
+        /** {@link #getId()} を書く。null ならフィールドを除く */
         public RemoveDimensionStyleEdit withId(String value) {
             put("id", value);
             return this;
@@ -5817,14 +5817,14 @@ public final class Messages {
             return Json.read(json.get("hash"), Json::string);
         }
 
-        /** {@link #getHash()} を書く。null なら欄を除く */
+        /** {@link #getHash()} を書く。null ならフィールドを除く */
         public RemoveDimensionStyleEdit withHash(String value) {
             put("hash", value);
             return this;
         }
     }
 
-    /** 文書の点の表し方（marker を持たない点の見え方）を変える（決定 0190）。文書全体の設定なので要素を指さない。読んだときの文書は、apply の hash で確かめる。DXF・DWG は見出しの $PDMODE・$PDSIZE に書く。DWG は、変数を書く幅が変わる値（$PDMODE の 0 とほかの値の間の変更、$PDSIZE の 0・1 とほかの値の間の変更）を、小版 39 から書ける（決定 0193）。JWW・SXF は文書の点の表し方を持たないので断る。applied は id と hash を持たない。小版 38 から */
+    /** 文書の点の表し方（marker を持たない点の見え方）を変える（決定 0190）。文書全体の設定なので要素を指さない。読んだときの文書は、apply の hash で確かめる。DXF・DWG はヘッダーの $PDMODE・$PDSIZE に書く。DWG は、変数を書く幅が変わる値（$PDMODE の 0 とほかの値の間の変更、$PDSIZE の 0・1 とほかの値の間の変更）を、マイナーバージョン 39 から書ける（決定 0193）。JWW・SXF は文書の点の表し方を持たないので断る。applied は id と hash を持たない。マイナーバージョン 38 から */
     public static final class PointStyleEdit extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public PointStyleEdit(Map<String, Object> json) {
@@ -5837,7 +5837,7 @@ public final class Messages {
             return json == null ? null : new PointStyleEdit(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public PointStyleEdit() {
             super(new LinkedHashMap<String, Object>());
             json.put("kind", "point_style");
@@ -5848,7 +5848,7 @@ public final class Messages {
             return Json.read(json.get("kind"), Json::string);
         }
 
-        /** {@link #getKind()} を書く。null なら欄を除く */
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
         public PointStyleEdit withKind(String value) {
             put("kind", value);
             return this;
@@ -5859,7 +5859,7 @@ public final class Messages {
             return Json.read(json.get("mark"), Json::string);
         }
 
-        /** {@link #getMark()} を書く。null なら欄を除く */
+        /** {@link #getMark()} を書く。null ならフィールドを除く */
         public PointStyleEdit withMark(String value) {
             put("mark", value);
             return this;
@@ -5870,7 +5870,7 @@ public final class Messages {
             return Json.read(json.get("circle"), Json::bool);
         }
 
-        /** {@link #getCircle()} を書く。null なら欄を除く */
+        /** {@link #getCircle()} を書く。null ならフィールドを除く */
         public PointStyleEdit withCircle(Boolean value) {
             put("circle", value);
             return this;
@@ -5881,7 +5881,7 @@ public final class Messages {
             return Json.read(json.get("square"), Json::bool);
         }
 
-        /** {@link #getSquare()} を書く。null なら欄を除く */
+        /** {@link #getSquare()} を書く。null ならフィールドを除く */
         public PointStyleEdit withSquare(Boolean value) {
             put("square", value);
             return this;
@@ -5892,7 +5892,7 @@ public final class Messages {
             return Json.read(json.get("size"), Json::number);
         }
 
-        /** {@link #getSize()} を書く。null なら欄を除く */
+        /** {@link #getSize()} を書く。null ならフィールドを除く */
         public PointStyleEdit withSize(Double value) {
             put("size", value);
             return this;
@@ -5903,7 +5903,7 @@ public final class Messages {
             return Json.read(json.get("size_kind"), Json::string);
         }
 
-        /** {@link #getSizeKind()} を書く。null なら欄を除く */
+        /** {@link #getSizeKind()} を書く。null ならフィールドを除く */
         public PointStyleEdit withSizeKind(String value) {
             put("size_kind", value);
             return this;
@@ -5942,7 +5942,7 @@ public final class Messages {
         public static final String SCREEN = "screen";
     }
 
-    /** レイヤを足す（決定 0162）。書かない欄は、状態なら表示・印刷・編集でき凍結せず、色・線種・線幅ならレイヤ 0 と同じ。同じ apply の要素は、足したレイヤを指せない。小版 22 から */
+    /** レイヤを足す（決定 0162）。書かないフィールドは、状態なら表示・印刷・編集でき凍結せず、色・線種・線幅ならレイヤ 0 と同じ。同じ apply の要素は、足したレイヤを指せない。マイナーバージョン 22 から */
     public static final class AddLayerEdit extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public AddLayerEdit(Map<String, Object> json) {
@@ -5955,7 +5955,7 @@ public final class Messages {
             return json == null ? null : new AddLayerEdit(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public AddLayerEdit() {
             super(new LinkedHashMap<String, Object>());
             json.put("kind", "add_layer");
@@ -5966,7 +5966,7 @@ public final class Messages {
             return Json.read(json.get("kind"), Json::string);
         }
 
-        /** {@link #getKind()} を書く。null なら欄を除く */
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
         public AddLayerEdit withKind(String value) {
             put("kind", value);
             return this;
@@ -5977,7 +5977,7 @@ public final class Messages {
             return Json.read(json.get("name"), Json::string);
         }
 
-        /** {@link #getName()} を書く。null なら欄を除く */
+        /** {@link #getName()} を書く。null ならフィールドを除く */
         public AddLayerEdit withName(String value) {
             put("name", value);
             return this;
@@ -5988,7 +5988,7 @@ public final class Messages {
             return Json.read(json.get("visible"), Json::bool);
         }
 
-        /** {@link #getVisible()} を書く。null なら欄を除く */
+        /** {@link #getVisible()} を書く。null ならフィールドを除く */
         public AddLayerEdit withVisible(Boolean value) {
             put("visible", value);
             return this;
@@ -5999,7 +5999,7 @@ public final class Messages {
             return Json.read(json.get("printable"), Json::bool);
         }
 
-        /** {@link #getPrintable()} を書く。null なら欄を除く */
+        /** {@link #getPrintable()} を書く。null ならフィールドを除く */
         public AddLayerEdit withPrintable(Boolean value) {
             put("printable", value);
             return this;
@@ -6010,7 +6010,7 @@ public final class Messages {
             return Json.read(json.get("editable"), Json::bool);
         }
 
-        /** {@link #getEditable()} を書く。null なら欄を除く */
+        /** {@link #getEditable()} を書く。null ならフィールドを除く */
         public AddLayerEdit withEditable(Boolean value) {
             put("editable", value);
             return this;
@@ -6021,7 +6021,7 @@ public final class Messages {
             return Json.read(json.get("frozen"), Json::bool);
         }
 
-        /** {@link #getFrozen()} を書く。null なら欄を除く */
+        /** {@link #getFrozen()} を書く。null ならフィールドを除く */
         public AddLayerEdit withFrozen(Boolean value) {
             put("frozen", value);
             return this;
@@ -6032,7 +6032,7 @@ public final class Messages {
             return Json.read(json.get("color"), ColorChange::of);
         }
 
-        /** {@link #getColor()} を書く。null なら欄を除く */
+        /** {@link #getColor()} を書く。null ならフィールドを除く */
         public AddLayerEdit withColor(ColorChange value) {
             put("color", value);
             return this;
@@ -6043,7 +6043,7 @@ public final class Messages {
             return Json.read(json.get("line_type"), LineTypeChange::of);
         }
 
-        /** {@link #getLineType()} を書く。null なら欄を除く */
+        /** {@link #getLineType()} を書く。null ならフィールドを除く */
         public AddLayerEdit withLineType(LineTypeChange value) {
             put("line_type", value);
             return this;
@@ -6054,7 +6054,7 @@ public final class Messages {
             return Json.read(json.get("line_weight"), LineWeightChange::of);
         }
 
-        /** {@link #getLineWeight()} を書く。null なら欄を除く */
+        /** {@link #getLineWeight()} を書く。null ならフィールドを除く */
         public AddLayerEdit withLineWeight(LineWeightChange value) {
             put("line_weight", value);
             return this;
@@ -6097,7 +6097,7 @@ public final class Messages {
             return Json.read(json.get("inherit"), Json::string);
         }
 
-        /** {@link #getInherit()} を書く。null なら欄を除く */
+        /** {@link #getInherit()} を書く。null ならフィールドを除く */
         public ColorChange withInherit(String value) {
             put("inherit", value);
             return this;
@@ -6108,29 +6108,29 @@ public final class Messages {
             return Json.read(json.get("aci"), Json::integer);
         }
 
-        /** {@link #getAci()} を書く。null なら欄を除く */
+        /** {@link #getAci()} を書く。null ならフィールドを除く */
         public ColorChange withAci(Long value) {
             put("aci", value);
             return this;
         }
 
-        /** SXF の色のコード。1〜16 は既定義色、17 からは利用者定義色を定義の順に数えたもの。小版 29 から */
+        /** SXF の色のコード。1〜16 は既定義色、17 からは利用者定義色を定義の順に数えたもの。マイナーバージョン 29 から */
         public Long getSxf() {
             return Json.read(json.get("sxf"), Json::integer);
         }
 
-        /** {@link #getSxf()} を書く。null なら欄を除く */
+        /** {@link #getSxf()} を書く。null ならフィールドを除く */
         public ColorChange withSxf(Long value) {
             put("sxf", value);
             return this;
         }
 
-        /** Jw_cad のペンの番号。0〜9 と、版 420 からの SXF の拡張色 100〜356。小版 30 から */
+        /** Jw_cad のペンの番号。0〜9 と、バージョン 420 からの SXF の拡張色 100〜356。マイナーバージョン 30 から */
         public Long getJww() {
             return Json.read(json.get("jww"), Json::integer);
         }
 
-        /** {@link #getJww()} を書く。null なら欄を除く */
+        /** {@link #getJww()} を書く。null ならフィールドを除く */
         public ColorChange withJww(Long value) {
             put("jww", value);
             return this;
@@ -6141,7 +6141,7 @@ public final class Messages {
             return Json.read(json.get("rgb"), v0 -> Json.list(v0, Json::integer));
         }
 
-        /** {@link #getRgb()} を書く。null なら欄を除く */
+        /** {@link #getRgb()} を書く。null ならフィールドを除く */
         public ColorChange withRgb(List<Long> value) {
             put("rgb", value);
             return this;
@@ -6171,7 +6171,7 @@ public final class Messages {
             return Json.read(json.get("inherit"), Json::string);
         }
 
-        /** {@link #getInherit()} を書く。null なら欄を除く */
+        /** {@link #getInherit()} を書く。null ならフィールドを除く */
         public LineTypeChange withInherit(String value) {
             put("inherit", value);
             return this;
@@ -6182,18 +6182,18 @@ public final class Messages {
             return Json.read(json.get("name"), Json::string);
         }
 
-        /** {@link #getName()} を書く。null なら欄を除く */
+        /** {@link #getName()} を書く。null ならフィールドを除く */
         public LineTypeChange withName(String value) {
             put("name", value);
             return this;
         }
 
-        /** 線種の ID。tables が返したもの。同じ名前の項目が複数あるときは書き戻せない。小版 8 から */
+        /** 線種の ID。tables が返したもの。同じ名前の項目が複数あるときは書き戻せない。マイナーバージョン 8 から */
         public String getId() {
             return Json.read(json.get("id"), Json::string);
         }
 
-        /** {@link #getId()} を書く。null なら欄を除く */
+        /** {@link #getId()} を書く。null ならフィールドを除く */
         public LineTypeChange withId(String value) {
             put("id", value);
             return this;
@@ -6223,7 +6223,7 @@ public final class Messages {
             return Json.read(json.get("inherit"), Json::string);
         }
 
-        /** {@link #getInherit()} を書く。null なら欄を除く */
+        /** {@link #getInherit()} を書く。null ならフィールドを除く */
         public LineWeightChange withInherit(String value) {
             put("inherit", value);
             return this;
@@ -6234,7 +6234,7 @@ public final class Messages {
             return Json.read(json.get("mm"), Json::number);
         }
 
-        /** {@link #getMm()} を書く。null なら欄を除く */
+        /** {@link #getMm()} を書く。null ならフィールドを除く */
         public LineWeightChange withMm(Double value) {
             put("mm", value);
             return this;
@@ -6245,14 +6245,14 @@ public final class Messages {
             return Json.read(json.get("default"), Json::bool);
         }
 
-        /** {@link #getDefault()} を書く。null なら欄を除く */
+        /** {@link #getDefault()} を書く。null ならフィールドを除く */
         public LineWeightChange withDefault(Boolean value) {
             put("default", value);
             return this;
         }
     }
 
-    /** 開いた文書を図面モデル（L2）に変換し、レイヤと線種の表の項目を返す（決定 0156）。小版 8 から */
+    /** 開いた文書を図面モデル（L2）に変換し、レイヤと線種の表の項目を返す（決定 0156）。マイナーバージョン 8 から */
     public static final class TablesRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public TablesRequest(Map<String, Object> json) {
@@ -6265,18 +6265,18 @@ public final class Messages {
             return json == null ? null : new TablesRequest(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public TablesRequest() {
             super(new LinkedHashMap<String, Object>());
             json.put("op", "tables");
         }
 
-        /** メッセージのスキーマの大版。今は 1 */
+        /** メッセージのスキーマのメジャーバージョン。今は 1 */
         public Long getV() {
             return Json.read(json.get("v"), Json::integer);
         }
 
-        /** {@link #getV()} を書く。null なら欄を除く */
+        /** {@link #getV()} を書く。null ならフィールドを除く */
         public TablesRequest withV(Long value) {
             put("v", value);
             return this;
@@ -6287,7 +6287,7 @@ public final class Messages {
             return Json.read(json.get("budget"), Budget::of);
         }
 
-        /** {@link #getBudget()} を書く。null なら欄を除く */
+        /** {@link #getBudget()} を書く。null ならフィールドを除く */
         public TablesRequest withBudget(Budget value) {
             put("budget", value);
             return this;
@@ -6298,7 +6298,7 @@ public final class Messages {
             return Json.read(json.get("partial"), Json::bool);
         }
 
-        /** {@link #getPartial()} を書く。null なら欄を除く */
+        /** {@link #getPartial()} を書く。null ならフィールドを除く */
         public TablesRequest withPartial(Boolean value) {
             put("partial", value);
             return this;
@@ -6309,18 +6309,18 @@ public final class Messages {
             return Json.read(json.get("max_places"), Json::integer);
         }
 
-        /** {@link #getMaxPlaces()} を書く。null なら欄を除く */
+        /** {@link #getMaxPlaces()} を書く。null ならフィールドを除く */
         public TablesRequest withMaxPlaces(Long value) {
             put("max_places", value);
             return this;
         }
 
-        /** 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        /** 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
         public Long getTimeLimitMs() {
             return Json.read(json.get("time_limit_ms"), Json::integer);
         }
 
-        /** {@link #getTimeLimitMs()} を書く。null なら欄を除く */
+        /** {@link #getTimeLimitMs()} を書く。null ならフィールドを除く */
         public TablesRequest withTimeLimitMs(Long value) {
             put("time_limit_ms", value);
             return this;
@@ -6331,7 +6331,7 @@ public final class Messages {
             return Json.read(json.get("op"), Json::string);
         }
 
-        /** {@link #getOp()} を書く。null なら欄を除く */
+        /** {@link #getOp()} を書く。null ならフィールドを除く */
         public TablesRequest withOp(String value) {
             put("op", value);
             return this;
@@ -6342,7 +6342,7 @@ public final class Messages {
             return Json.read(json.get("doc"), Json::string);
         }
 
-        /** {@link #getDoc()} を書く。null なら欄を除く */
+        /** {@link #getDoc()} を書く。null ならフィールドを除く */
         public TablesRequest withDoc(String value) {
             put("doc", value);
             return this;
@@ -6372,47 +6372,47 @@ public final class Messages {
             return Json.read(json.get("layers"), v0 -> Json.list(v0, LayerItem::of));
         }
 
-        /** {@link #getLayers()} を書く。null なら欄を除く */
+        /** {@link #getLayers()} を書く。null ならフィールドを除く */
         public TablesResult withLayers(List<LayerItem> value) {
             put("layers", value);
             return this;
         }
 
-        /** 線種。小版 26 から、定義を持つ */
+        /** 線種。マイナーバージョン 26 から、定義を持つ */
         public List<LineTypeItem> getLineTypes() {
             return Json.read(json.get("line_types"), v0 -> Json.list(v0, LineTypeItem::of));
         }
 
-        /** {@link #getLineTypes()} を書く。null なら欄を除く */
+        /** {@link #getLineTypes()} を書く。null ならフィールドを除く */
         public TablesResult withLineTypes(List<LineTypeItem> value) {
             put("line_types", value);
             return this;
         }
 
-        /** 寸法スタイル。小版 27 から、端部記号と大きさを持つ */
+        /** 寸法スタイル。マイナーバージョン 27 から、端部記号と大きさを持つ */
         public List<DimensionStyleItem> getDimensionStyles() {
             return Json.read(json.get("dimension_styles"), v0 -> Json.list(v0, DimensionStyleItem::of));
         }
 
-        /** {@link #getDimensionStyles()} を書く。null なら欄を除く */
+        /** {@link #getDimensionStyles()} を書く。null ならフィールドを除く */
         public TablesResult withDimensionStyles(List<DimensionStyleItem> value) {
             put("dimension_styles", value);
             return this;
         }
 
-        /** 文字スタイル（決定 0158）。要素が名前で指すだけで、ファイルに定義がないものは、定義の欄を持たない項目として後ろに並ぶ。小版 20 から */
+        /** 文字スタイル（決定 0158）。要素が名前で指すだけで、ファイルに定義がないものは、定義のフィールドを持たない項目として後ろに並ぶ。マイナーバージョン 20 から */
         public List<TextStyleItem> getTextStyles() {
             return Json.read(json.get("text_styles"), v0 -> Json.list(v0, TextStyleItem::of));
         }
 
-        /** {@link #getTextStyles()} を書く。null なら欄を除く */
+        /** {@link #getTextStyles()} を書く。null ならフィールドを除く */
         public TablesResult withTextStyles(List<TextStyleItem> value) {
             put("text_styles", value);
             return this;
         }
     }
 
-    /** 開いた文書を図面モデル（L2）に変換し、起点から配置をたどって、2D のシーンを blob で返す（決定 0172）。シーンの配置は schema/scene.toml にある。小版 33 から */
+    /** 開いた文書を図面モデル（L2）に変換し、起点から配置をたどって、2D のシーンを blob で返す（決定 0172）。シーンの配置は schema/scene.toml にある。マイナーバージョン 33 から */
     public static final class SceneRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public SceneRequest(Map<String, Object> json) {
@@ -6425,18 +6425,18 @@ public final class Messages {
             return json == null ? null : new SceneRequest(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public SceneRequest() {
             super(new LinkedHashMap<String, Object>());
             json.put("op", "scene");
         }
 
-        /** メッセージのスキーマの大版。今は 1 */
+        /** メッセージのスキーマのメジャーバージョン。今は 1 */
         public Long getV() {
             return Json.read(json.get("v"), Json::integer);
         }
 
-        /** {@link #getV()} を書く。null なら欄を除く */
+        /** {@link #getV()} を書く。null ならフィールドを除く */
         public SceneRequest withV(Long value) {
             put("v", value);
             return this;
@@ -6447,7 +6447,7 @@ public final class Messages {
             return Json.read(json.get("budget"), Budget::of);
         }
 
-        /** {@link #getBudget()} を書く。null なら欄を除く */
+        /** {@link #getBudget()} を書く。null ならフィールドを除く */
         public SceneRequest withBudget(Budget value) {
             put("budget", value);
             return this;
@@ -6458,7 +6458,7 @@ public final class Messages {
             return Json.read(json.get("partial"), Json::bool);
         }
 
-        /** {@link #getPartial()} を書く。null なら欄を除く */
+        /** {@link #getPartial()} を書く。null ならフィールドを除く */
         public SceneRequest withPartial(Boolean value) {
             put("partial", value);
             return this;
@@ -6469,18 +6469,18 @@ public final class Messages {
             return Json.read(json.get("max_places"), Json::integer);
         }
 
-        /** {@link #getMaxPlaces()} を書く。null なら欄を除く */
+        /** {@link #getMaxPlaces()} を書く。null ならフィールドを除く */
         public SceneRequest withMaxPlaces(Long value) {
             put("max_places", value);
             return this;
         }
 
-        /** 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        /** 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
         public Long getTimeLimitMs() {
             return Json.read(json.get("time_limit_ms"), Json::integer);
         }
 
-        /** {@link #getTimeLimitMs()} を書く。null なら欄を除く */
+        /** {@link #getTimeLimitMs()} を書く。null ならフィールドを除く */
         public SceneRequest withTimeLimitMs(Long value) {
             put("time_limit_ms", value);
             return this;
@@ -6491,7 +6491,7 @@ public final class Messages {
             return Json.read(json.get("op"), Json::string);
         }
 
-        /** {@link #getOp()} を書く。null なら欄を除く */
+        /** {@link #getOp()} を書く。null ならフィールドを除く */
         public SceneRequest withOp(String value) {
             put("op", value);
             return this;
@@ -6502,7 +6502,7 @@ public final class Messages {
             return Json.read(json.get("doc"), Json::string);
         }
 
-        /** {@link #getDoc()} を書く。null なら欄を除く */
+        /** {@link #getDoc()} を書く。null ならフィールドを除く */
         public SceneRequest withDoc(String value) {
             put("doc", value);
             return this;
@@ -6513,7 +6513,7 @@ public final class Messages {
             return Json.read(json.get("from"), Json::string);
         }
 
-        /** {@link #getFrom()} を書く。null なら欄を除く */
+        /** {@link #getFrom()} を書く。null ならフィールドを除く */
         public SceneRequest withFrom(String value) {
             put("from", value);
             return this;
@@ -6524,7 +6524,7 @@ public final class Messages {
             return Json.read(json.get("view"), Json::integer);
         }
 
-        /** {@link #getView()} を書く。null なら欄を除く */
+        /** {@link #getView()} を書く。null ならフィールドを除く */
         public SceneRequest withView(Long value) {
             put("view", value);
             return this;
@@ -6535,7 +6535,7 @@ public final class Messages {
             return Json.read(json.get("region"), v0 -> Json.list(v0, Json::number));
         }
 
-        /** {@link #getRegion()} を書く。null なら欄を除く */
+        /** {@link #getRegion()} を書く。null ならフィールドを除く */
         public SceneRequest withRegion(List<Double> value) {
             put("region", value);
             return this;
@@ -6546,7 +6546,7 @@ public final class Messages {
             return Json.read(json.get("tolerance"), Json::number);
         }
 
-        /** {@link #getTolerance()} を書く。null なら欄を除く */
+        /** {@link #getTolerance()} を書く。null ならフィールドを除く */
         public SceneRequest withTolerance(Double value) {
             put("tolerance", value);
             return this;
@@ -6557,40 +6557,40 @@ public final class Messages {
             return Json.read(json.get("print"), Json::bool);
         }
 
-        /** {@link #getPrint()} を書く。null なら欄を除く */
+        /** {@link #getPrint()} を書く。null ならフィールドを除く */
         public SceneRequest withPrint(Boolean value) {
             put("print", value);
             return this;
         }
 
-        /** 色の表の入力の名前（zm_push で渡したもの）。プロファイルの色の語彙と同じ形の JSON で、values に rgb（#rrggbb）と aci・sxf・jww の符号を並べる（決定 0138・0178）。書かなければ、ファイルが RGB を持たない色は未解決の印を立てる */
+        /** 色の表の入力の名前（zm_push で渡したもの）。プロファイルの色の語彙と同じ形の JSON で、values に rgb（#rrggbb）と aci・sxf・jww の符号を並べる（決定 0138・0178）。書かなければ、ファイルが RGB を持たない色は未解決のフラグを立てる */
         public String getPalette() {
             return Json.read(json.get("palette"), Json::string);
         }
 
-        /** {@link #getPalette()} を書く。null なら欄を除く */
+        /** {@link #getPalette()} を書く。null ならフィールドを除く */
         public SceneRequest withPalette(String value) {
             put("palette", value);
             return this;
         }
 
-        /** 文字を置くフォント（決定 0188）。書けば、文字を字形で置き、シーンの字形の区画に形と変換を返す。文字スタイルと書式の区間のフォントの名前（シーンの font_names）で引き、同じ名前、なければ ASCII の大文字と小文字を区別しない名前で合わせる。合うものがなければ名前のないフォントで置く。小版 37 から */
+        /** 文字を置くフォント（決定 0188）。書けば、文字を字形で置き、シーンの字形のセクションに形と変換を返す。文字スタイルと書式の区間のフォントの名前（シーンの font_names）で引き、同じ名前、なければ ASCII の大文字と小文字を区別しない名前で合わせる。合うものがなければ名前のないフォントで置く。マイナーバージョン 37 から */
         public List<SceneFont> getFonts() {
             return Json.read(json.get("fonts"), v0 -> Json.list(v0, SceneFont::of));
         }
 
-        /** {@link #getFonts()} を書く。null なら欄を除く */
+        /** {@link #getFonts()} を書く。null ならフィールドを除く */
         public SceneRequest withFonts(List<SceneFont> value) {
             put("fonts", value);
             return this;
         }
 
-        /** 形式の宣言値の高さ（キーは dxf.TEXT.40・dxf.MTEXT.40・jww.moji.size_y など）が、フォントのどの寸法に当たるか（決定 0176・0188）。書かないキーは、表示と比べて決めた意味（dxf.TEXT.40 は capital_a。小版 59 から）にし、それもなければ大文字の高さとみなす。fonts を書いたときだけ使う。小版 37 から */
+        /** 形式の宣言値の高さ（キーは dxf.TEXT.40・dxf.MTEXT.40・jww.moji.size_y など）が、フォントのどの寸法に当たるか（決定 0176・0188）。書かないキーは、表示と比べて決めた意味（dxf.TEXT.40 は capital_a。マイナーバージョン 59 から）にし、それもなければ大文字の高さとみなす。fonts を書いたときだけ使う。マイナーバージョン 37 から */
         public Map<String, String> getHeights() {
             return Json.read(json.get("heights"), v0 -> Json.map(v0, Json::string));
         }
 
-        /** {@link #getHeights()} を書く。null なら欄を除く */
+        /** {@link #getHeights()} を書く。null ならフィールドを除く */
         public SceneRequest withHeights(Map<String, String> value) {
             put("heights", value);
             return this;
@@ -6620,7 +6620,7 @@ public final class Messages {
             return Json.read(json.get("name"), Json::string);
         }
 
-        /** {@link #getName()} を書く。null なら欄を除く */
+        /** {@link #getName()} を書く。null ならフィールドを除く */
         public SceneFont withName(String value) {
             put("name", value);
             return this;
@@ -6631,7 +6631,7 @@ public final class Messages {
             return Json.read(json.get("input"), Json::string);
         }
 
-        /** {@link #getInput()} を書く。null なら欄を除く */
+        /** {@link #getInput()} を書く。null ならフィールドを除く */
         public SceneFont withInput(String value) {
             put("input", value);
             return this;
@@ -6642,7 +6642,7 @@ public final class Messages {
             return Json.read(json.get("index"), Json::integer);
         }
 
-        /** {@link #getIndex()} を書く。null なら欄を除く */
+        /** {@link #getIndex()} を書く。null ならフィールドを除く */
         public SceneFont withIndex(Long value) {
             put("index", value);
             return this;
@@ -6650,7 +6650,7 @@ public final class Messages {
     }
 
     /**
-     * 宣言された高さが当たるフォントの寸法。cap_height は大文字の高さ、em は em、frame はアセンダーとディセンダーを合わせた高さ、capital_a は A の字形の外形の上（A がなければ大文字の高さ。小版 59 から）
+     * 宣言された高さが当たるフォントの寸法。cap_height は大文字の高さ、em は em、frame はアセンダーとディセンダーを合わせた高さ、capital_a は A の字形の外形の上（A がなければ大文字の高さ。マイナーバージョン 59 から）
      * 
      * 列挙の値。知らない値も受け取る
      */
@@ -6689,7 +6689,7 @@ public final class Messages {
             return Json.read(json.get("from"), Json::string);
         }
 
-        /** {@link #getFrom()} を書く。null なら欄を除く */
+        /** {@link #getFrom()} を書く。null ならフィールドを除く */
         public SceneResult withFrom(String value) {
             put("from", value);
             return this;
@@ -6700,7 +6700,7 @@ public final class Messages {
             return Json.read(json.get("view"), Json::integer);
         }
 
-        /** {@link #getView()} を書く。null なら欄を除く */
+        /** {@link #getView()} を書く。null ならフィールドを除く */
         public SceneResult withView(Long value) {
             put("view", value);
             return this;
@@ -6711,7 +6711,7 @@ public final class Messages {
             return Json.read(json.get("unit"), Json::string);
         }
 
-        /** {@link #getUnit()} を書く。null なら欄を除く */
+        /** {@link #getUnit()} を書く。null ならフィールドを除く */
         public SceneResult withUnit(String value) {
             put("unit", value);
             return this;
@@ -6722,7 +6722,7 @@ public final class Messages {
             return Json.read(json.get("tolerance"), Json::number);
         }
 
-        /** {@link #getTolerance()} を書く。null なら欄を除く */
+        /** {@link #getTolerance()} を書く。null ならフィールドを除く */
         public SceneResult withTolerance(Double value) {
             put("tolerance", value);
             return this;
@@ -6733,7 +6733,7 @@ public final class Messages {
             return Json.read(json.get("counts"), SceneCounts::of);
         }
 
-        /** {@link #getCounts()} を書く。null なら欄を除く */
+        /** {@link #getCounts()} を書く。null ならフィールドを除く */
         public SceneResult withCounts(SceneCounts value) {
             put("counts", value);
             return this;
@@ -6744,7 +6744,7 @@ public final class Messages {
             return Json.read(json.get("extent"), Extent::of);
         }
 
-        /** {@link #getExtent()} を書く。null なら欄を除く */
+        /** {@link #getExtent()} を書く。null ならフィールドを除く */
         public SceneResult withExtent(Extent value) {
             put("extent", value);
             return this;
@@ -6755,7 +6755,7 @@ public final class Messages {
             return Json.read(json.get("blob"), Json::integer);
         }
 
-        /** {@link #getBlob()} を書く。null なら欄を除く */
+        /** {@link #getBlob()} を書く。null ならフィールドを除く */
         public SceneResult withBlob(Long value) {
             put("blob", value);
             return this;
@@ -6785,7 +6785,7 @@ public final class Messages {
             return Json.read(json.get("chunks"), Json::integer);
         }
 
-        /** {@link #getChunks()} を書く。null なら欄を除く */
+        /** {@link #getChunks()} を書く。null ならフィールドを除く */
         public SceneCounts withChunks(Long value) {
             put("chunks", value);
             return this;
@@ -6796,7 +6796,7 @@ public final class Messages {
             return Json.read(json.get("lines"), Json::integer);
         }
 
-        /** {@link #getLines()} を書く。null なら欄を除く */
+        /** {@link #getLines()} を書く。null ならフィールドを除く */
         public SceneCounts withLines(Long value) {
             put("lines", value);
             return this;
@@ -6807,7 +6807,7 @@ public final class Messages {
             return Json.read(json.get("vertices"), Json::integer);
         }
 
-        /** {@link #getVertices()} を書く。null なら欄を除く */
+        /** {@link #getVertices()} を書く。null ならフィールドを除く */
         public SceneCounts withVertices(Long value) {
             put("vertices", value);
             return this;
@@ -6818,7 +6818,7 @@ public final class Messages {
             return Json.read(json.get("faces"), Json::integer);
         }
 
-        /** {@link #getFaces()} を書く。null なら欄を除く */
+        /** {@link #getFaces()} を書く。null ならフィールドを除く */
         public SceneCounts withFaces(Long value) {
             put("faces", value);
             return this;
@@ -6829,7 +6829,7 @@ public final class Messages {
             return Json.read(json.get("texts"), Json::integer);
         }
 
-        /** {@link #getTexts()} を書く。null なら欄を除く */
+        /** {@link #getTexts()} を書く。null ならフィールドを除く */
         public SceneCounts withTexts(Long value) {
             put("texts", value);
             return this;
@@ -6840,7 +6840,7 @@ public final class Messages {
             return Json.read(json.get("points"), Json::integer);
         }
 
-        /** {@link #getPoints()} を書く。null なら欄を除く */
+        /** {@link #getPoints()} を書く。null ならフィールドを除く */
         public SceneCounts withPoints(Long value) {
             put("points", value);
             return this;
@@ -6851,25 +6851,25 @@ public final class Messages {
             return Json.read(json.get("images"), Json::integer);
         }
 
-        /** {@link #getImages()} を書く。null なら欄を除く */
+        /** {@link #getImages()} を書く。null ならフィールドを除く */
         public SceneCounts withImages(Long value) {
             put("images", value);
             return this;
         }
 
-        /** 置いた字形。fonts を書かなければ 0。小版 37 から */
+        /** 置いた字形。fonts を書かなければ 0。マイナーバージョン 37 から */
         public Long getGlyphs() {
             return Json.read(json.get("glyphs"), Json::integer);
         }
 
-        /** {@link #getGlyphs()} を書く。null なら欄を除く */
+        /** {@link #getGlyphs()} を書く。null ならフィールドを除く */
         public SceneCounts withGlyphs(Long value) {
             put("glyphs", value);
             return this;
         }
     }
 
-    /** 開いた文書を図面モデル（L2）に変換し、起点から配置をたどって、プロファイルの規則と語彙で照合する（決定 0138・0173・0179）。小版 34 から */
+    /** 開いた文書を図面モデル（L2）に変換し、起点から配置をたどって、プロファイルの規則と語彙で照合する（決定 0138・0173・0179）。マイナーバージョン 34 から */
     public static final class CheckRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public CheckRequest(Map<String, Object> json) {
@@ -6882,18 +6882,18 @@ public final class Messages {
             return json == null ? null : new CheckRequest(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public CheckRequest() {
             super(new LinkedHashMap<String, Object>());
             json.put("op", "check");
         }
 
-        /** メッセージのスキーマの大版。今は 1 */
+        /** メッセージのスキーマのメジャーバージョン。今は 1 */
         public Long getV() {
             return Json.read(json.get("v"), Json::integer);
         }
 
-        /** {@link #getV()} を書く。null なら欄を除く */
+        /** {@link #getV()} を書く。null ならフィールドを除く */
         public CheckRequest withV(Long value) {
             put("v", value);
             return this;
@@ -6904,7 +6904,7 @@ public final class Messages {
             return Json.read(json.get("budget"), Budget::of);
         }
 
-        /** {@link #getBudget()} を書く。null なら欄を除く */
+        /** {@link #getBudget()} を書く。null ならフィールドを除く */
         public CheckRequest withBudget(Budget value) {
             put("budget", value);
             return this;
@@ -6915,7 +6915,7 @@ public final class Messages {
             return Json.read(json.get("partial"), Json::bool);
         }
 
-        /** {@link #getPartial()} を書く。null なら欄を除く */
+        /** {@link #getPartial()} を書く。null ならフィールドを除く */
         public CheckRequest withPartial(Boolean value) {
             put("partial", value);
             return this;
@@ -6926,18 +6926,18 @@ public final class Messages {
             return Json.read(json.get("max_places"), Json::integer);
         }
 
-        /** {@link #getMaxPlaces()} を書く。null なら欄を除く */
+        /** {@link #getMaxPlaces()} を書く。null ならフィールドを除く */
         public CheckRequest withMaxPlaces(Long value) {
             put("max_places", value);
             return this;
         }
 
-        /** 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        /** 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
         public Long getTimeLimitMs() {
             return Json.read(json.get("time_limit_ms"), Json::integer);
         }
 
-        /** {@link #getTimeLimitMs()} を書く。null なら欄を除く */
+        /** {@link #getTimeLimitMs()} を書く。null ならフィールドを除く */
         public CheckRequest withTimeLimitMs(Long value) {
             put("time_limit_ms", value);
             return this;
@@ -6948,7 +6948,7 @@ public final class Messages {
             return Json.read(json.get("op"), Json::string);
         }
 
-        /** {@link #getOp()} を書く。null なら欄を除く */
+        /** {@link #getOp()} を書く。null ならフィールドを除く */
         public CheckRequest withOp(String value) {
             put("op", value);
             return this;
@@ -6959,7 +6959,7 @@ public final class Messages {
             return Json.read(json.get("doc"), Json::string);
         }
 
-        /** {@link #getDoc()} を書く。null なら欄を除く */
+        /** {@link #getDoc()} を書く。null ならフィールドを除く */
         public CheckRequest withDoc(String value) {
             put("doc", value);
             return this;
@@ -6970,7 +6970,7 @@ public final class Messages {
             return Json.read(json.get("profiles"), v0 -> Json.list(v0, Json::string));
         }
 
-        /** {@link #getProfiles()} を書く。null なら欄を除く */
+        /** {@link #getProfiles()} を書く。null ならフィールドを除く */
         public CheckRequest withProfiles(List<String> value) {
             put("profiles", value);
             return this;
@@ -6981,7 +6981,7 @@ public final class Messages {
             return Json.read(json.get("profile"), ProfileRef::of);
         }
 
-        /** {@link #getProfile()} を書く。null なら欄を除く */
+        /** {@link #getProfile()} を書く。null ならフィールドを除く */
         public CheckRequest withProfile(ProfileRef value) {
             put("profile", value);
             return this;
@@ -6992,7 +6992,7 @@ public final class Messages {
             return Json.read(json.get("from"), Json::string);
         }
 
-        /** {@link #getFrom()} を書く。null なら欄を除く */
+        /** {@link #getFrom()} を書く。null ならフィールドを除く */
         public CheckRequest withFrom(String value) {
             put("from", value);
             return this;
@@ -7003,18 +7003,18 @@ public final class Messages {
             return Json.read(json.get("view"), Json::integer);
         }
 
-        /** {@link #getView()} を書く。null なら欄を除く */
+        /** {@link #getView()} を書く。null ならフィールドを除く */
         public CheckRequest withView(Long value) {
             put("view", value);
             return this;
         }
 
-        /** 照合するファイルの名前（拡張子を含み、フォルダーを含まない）。file-name の規則で比べる。書かなければ、file-name の規則は照合できない（決定 0204）。小版 40 から */
+        /** 照合するファイルの名前（拡張子を含み、フォルダーを含まない）。file-name の規則で比べる。書かなければ、file-name の規則は照合できない（決定 0204）。マイナーバージョン 40 から */
         public String getFileName() {
             return Json.read(json.get("file_name"), Json::string);
         }
 
-        /** {@link #getFileName()} を書く。null なら欄を除く */
+        /** {@link #getFileName()} を書く。null ならフィールドを除く */
         public CheckRequest withFileName(String value) {
             put("file_name", value);
             return this;
@@ -7025,7 +7025,7 @@ public final class Messages {
             return Json.read(json.get("offset"), Json::integer);
         }
 
-        /** {@link #getOffset()} を書く。null なら欄を除く */
+        /** {@link #getOffset()} を書く。null ならフィールドを除く */
         public CheckRequest withOffset(Long value) {
             put("offset", value);
             return this;
@@ -7036,7 +7036,7 @@ public final class Messages {
             return Json.read(json.get("limit"), Json::integer);
         }
 
-        /** {@link #getLimit()} を書く。null なら欄を除く */
+        /** {@link #getLimit()} を書く。null ならフィールドを除く */
         public CheckRequest withLimit(Long value) {
             put("limit", value);
             return this;
@@ -7047,7 +7047,7 @@ public final class Messages {
             return Json.read(json.get("palette"), Json::string);
         }
 
-        /** {@link #getPalette()} を書く。null なら欄を除く */
+        /** {@link #getPalette()} を書く。null ならフィールドを除く */
         public CheckRequest withPalette(String value) {
             put("palette", value);
             return this;
@@ -7077,7 +7077,7 @@ public final class Messages {
             return Json.read(json.get("id"), Json::string);
         }
 
-        /** {@link #getId()} を書く。null なら欄を除く */
+        /** {@link #getId()} を書く。null ならフィールドを除く */
         public ProfileRef withId(String value) {
             put("id", value);
             return this;
@@ -7088,7 +7088,7 @@ public final class Messages {
             return Json.read(json.get("edition"), Json::string);
         }
 
-        /** {@link #getEdition()} を書く。null なら欄を除く */
+        /** {@link #getEdition()} を書く。null ならフィールドを除く */
         public ProfileRef withEdition(String value) {
             put("edition", value);
             return this;
@@ -7118,7 +7118,7 @@ public final class Messages {
             return Json.read(json.get("chain"), v0 -> Json.list(v0, ProfileIdentity::of));
         }
 
-        /** {@link #getChain()} を書く。null なら欄を除く */
+        /** {@link #getChain()} を書く。null ならフィールドを除く */
         public CheckResult withChain(List<ProfileIdentity> value) {
             put("chain", value);
             return this;
@@ -7129,7 +7129,7 @@ public final class Messages {
             return Json.read(json.get("rules"), v0 -> Json.list(v0, CheckRule::of));
         }
 
-        /** {@link #getRules()} を書く。null なら欄を除く */
+        /** {@link #getRules()} を書く。null ならフィールドを除く */
         public CheckResult withRules(List<CheckRule> value) {
             put("rules", value);
             return this;
@@ -7140,7 +7140,7 @@ public final class Messages {
             return Json.read(json.get("findings"), v0 -> Json.list(v0, CheckFinding::of));
         }
 
-        /** {@link #getFindings()} を書く。null なら欄を除く */
+        /** {@link #getFindings()} を書く。null ならフィールドを除く */
         public CheckResult withFindings(List<CheckFinding> value) {
             put("findings", value);
             return this;
@@ -7151,7 +7151,7 @@ public final class Messages {
             return Json.read(json.get("total"), Json::integer);
         }
 
-        /** {@link #getTotal()} を書く。null なら欄を除く */
+        /** {@link #getTotal()} を書く。null ならフィールドを除く */
         public CheckResult withTotal(Long value) {
             put("total", value);
             return this;
@@ -7162,7 +7162,7 @@ public final class Messages {
             return Json.read(json.get("next_offset"), Json::integer);
         }
 
-        /** {@link #getNextOffset()} を書く。null なら欄を除く */
+        /** {@link #getNextOffset()} を書く。null ならフィールドを除く */
         public CheckResult withNextOffset(Long value) {
             put("next_offset", value);
             return this;
@@ -7192,7 +7192,7 @@ public final class Messages {
             return Json.read(json.get("id"), Json::string);
         }
 
-        /** {@link #getId()} を書く。null なら欄を除く */
+        /** {@link #getId()} を書く。null ならフィールドを除く */
         public ProfileIdentity withId(String value) {
             put("id", value);
             return this;
@@ -7203,7 +7203,7 @@ public final class Messages {
             return Json.read(json.get("edition"), Json::string);
         }
 
-        /** {@link #getEdition()} を書く。null なら欄を除く */
+        /** {@link #getEdition()} を書く。null ならフィールドを除く */
         public ProfileIdentity withEdition(String value) {
             put("edition", value);
             return this;
@@ -7214,7 +7214,7 @@ public final class Messages {
             return Json.read(json.get("revision"), Json::integer);
         }
 
-        /** {@link #getRevision()} を書く。null なら欄を除く */
+        /** {@link #getRevision()} を書く。null ならフィールドを除く */
         public ProfileIdentity withRevision(Long value) {
             put("revision", value);
             return this;
@@ -7244,7 +7244,7 @@ public final class Messages {
             return Json.read(json.get("id"), Json::string);
         }
 
-        /** {@link #getId()} を書く。null なら欄を除く */
+        /** {@link #getId()} を書く。null ならフィールドを除く */
         public CheckRule withId(String value) {
             put("id", value);
             return this;
@@ -7255,7 +7255,7 @@ public final class Messages {
             return Json.read(json.get("check"), Json::string);
         }
 
-        /** {@link #getCheck()} を書く。null なら欄を除く */
+        /** {@link #getCheck()} を書く。null ならフィールドを除く */
         public CheckRule withCheck(String value) {
             put("check", value);
             return this;
@@ -7266,7 +7266,7 @@ public final class Messages {
             return Json.read(json.get("findings"), Json::integer);
         }
 
-        /** {@link #getFindings()} を書く。null なら欄を除く */
+        /** {@link #getFindings()} を書く。null ならフィールドを除く */
         public CheckRule withFindings(Long value) {
             put("findings", value);
             return this;
@@ -7277,7 +7277,7 @@ public final class Messages {
             return Json.read(json.get("unsupported"), Json::integer);
         }
 
-        /** {@link #getUnsupported()} を書く。null なら欄を除く */
+        /** {@link #getUnsupported()} を書く。null ならフィールドを除く */
         public CheckRule withUnsupported(Long value) {
             put("unsupported", value);
             return this;
@@ -7307,7 +7307,7 @@ public final class Messages {
             return Json.read(json.get("rule"), Json::string);
         }
 
-        /** {@link #getRule()} を書く。null なら欄を除く */
+        /** {@link #getRule()} を書く。null ならフィールドを除く */
         public CheckFinding withRule(String value) {
             put("rule", value);
             return this;
@@ -7318,14 +7318,14 @@ public final class Messages {
             return Json.read(json.get("diagnostic"), Diagnostic::of);
         }
 
-        /** {@link #getDiagnostic()} を書く。null なら欄を除く */
+        /** {@link #getDiagnostic()} を書く。null ならフィールドを除く */
         public CheckFinding withDiagnostic(Diagnostic value) {
             put("diagnostic", value);
             return this;
         }
     }
 
-    /** zm_push で渡した IFC（IFC-SPF か ifcZIP）を、zm_push で渡した EXPRESS のスキーマに照らしてチェックする（決定 0207・0216）。インスタンスの実体の名前・抽象・属性の数・値の型・省略を見る。WHERE・UNIQUE・RULE の規則は評価せず、数を返す。zumen は EXPRESS を同梱しない。小版 42 から */
+    /** zm_push で渡した IFC（IFC-SPF か ifcZIP）を、zm_push で渡した EXPRESS のスキーマに照らしてチェックする（決定 0207・0216）。インスタンスの実体の名前・抽象・属性の数・値の型・省略を見る。WHERE・UNIQUE・RULE の規則は評価せず、数を返す。zumen は EXPRESS を同梱しない。マイナーバージョン 42 から */
     public static final class ValidateRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public ValidateRequest(Map<String, Object> json) {
@@ -7338,18 +7338,18 @@ public final class Messages {
             return json == null ? null : new ValidateRequest(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public ValidateRequest() {
             super(new LinkedHashMap<String, Object>());
             json.put("op", "validate");
         }
 
-        /** メッセージのスキーマの大版。今は 1 */
+        /** メッセージのスキーマのメジャーバージョン。今は 1 */
         public Long getV() {
             return Json.read(json.get("v"), Json::integer);
         }
 
-        /** {@link #getV()} を書く。null なら欄を除く */
+        /** {@link #getV()} を書く。null ならフィールドを除く */
         public ValidateRequest withV(Long value) {
             put("v", value);
             return this;
@@ -7360,7 +7360,7 @@ public final class Messages {
             return Json.read(json.get("budget"), Budget::of);
         }
 
-        /** {@link #getBudget()} を書く。null なら欄を除く */
+        /** {@link #getBudget()} を書く。null ならフィールドを除く */
         public ValidateRequest withBudget(Budget value) {
             put("budget", value);
             return this;
@@ -7371,7 +7371,7 @@ public final class Messages {
             return Json.read(json.get("partial"), Json::bool);
         }
 
-        /** {@link #getPartial()} を書く。null なら欄を除く */
+        /** {@link #getPartial()} を書く。null ならフィールドを除く */
         public ValidateRequest withPartial(Boolean value) {
             put("partial", value);
             return this;
@@ -7382,18 +7382,18 @@ public final class Messages {
             return Json.read(json.get("max_places"), Json::integer);
         }
 
-        /** {@link #getMaxPlaces()} を書く。null なら欄を除く */
+        /** {@link #getMaxPlaces()} を書く。null ならフィールドを除く */
         public ValidateRequest withMaxPlaces(Long value) {
             put("max_places", value);
             return this;
         }
 
-        /** 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        /** 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
         public Long getTimeLimitMs() {
             return Json.read(json.get("time_limit_ms"), Json::integer);
         }
 
-        /** {@link #getTimeLimitMs()} を書く。null なら欄を除く */
+        /** {@link #getTimeLimitMs()} を書く。null ならフィールドを除く */
         public ValidateRequest withTimeLimitMs(Long value) {
             put("time_limit_ms", value);
             return this;
@@ -7404,7 +7404,7 @@ public final class Messages {
             return Json.read(json.get("op"), Json::string);
         }
 
-        /** {@link #getOp()} を書く。null なら欄を除く */
+        /** {@link #getOp()} を書く。null ならフィールドを除く */
         public ValidateRequest withOp(String value) {
             put("op", value);
             return this;
@@ -7415,7 +7415,7 @@ public final class Messages {
             return Json.read(json.get("input"), Json::string);
         }
 
-        /** {@link #getInput()} を書く。null なら欄を除く */
+        /** {@link #getInput()} を書く。null ならフィールドを除く */
         public ValidateRequest withInput(String value) {
             put("input", value);
             return this;
@@ -7426,7 +7426,7 @@ public final class Messages {
             return Json.read(json.get("express"), Json::string);
         }
 
-        /** {@link #getExpress()} を書く。null なら欄を除く */
+        /** {@link #getExpress()} を書く。null ならフィールドを除く */
         public ValidateRequest withExpress(String value) {
             put("express", value);
             return this;
@@ -7437,7 +7437,7 @@ public final class Messages {
             return Json.read(json.get("offset"), Json::integer);
         }
 
-        /** {@link #getOffset()} を書く。null なら欄を除く */
+        /** {@link #getOffset()} を書く。null ならフィールドを除く */
         public ValidateRequest withOffset(Long value) {
             put("offset", value);
             return this;
@@ -7448,7 +7448,7 @@ public final class Messages {
             return Json.read(json.get("limit"), Json::integer);
         }
 
-        /** {@link #getLimit()} を書く。null なら欄を除く */
+        /** {@link #getLimit()} を書く。null ならフィールドを除く */
         public ValidateRequest withLimit(Long value) {
             put("limit", value);
             return this;
@@ -7478,7 +7478,7 @@ public final class Messages {
             return Json.read(json.get("schema"), Json::string);
         }
 
-        /** {@link #getSchema()} を書く。null なら欄を除く */
+        /** {@link #getSchema()} を書く。null ならフィールドを除く */
         public ValidateResult withSchema(String value) {
             put("schema", value);
             return this;
@@ -7489,7 +7489,7 @@ public final class Messages {
             return Json.read(json.get("file_schema"), Json::string);
         }
 
-        /** {@link #getFileSchema()} を書く。null なら欄を除く */
+        /** {@link #getFileSchema()} を書く。null ならフィールドを除く */
         public ValidateResult withFileSchema(String value) {
             put("file_schema", value);
             return this;
@@ -7500,7 +7500,7 @@ public final class Messages {
             return Json.read(json.get("express_hash"), Json::string);
         }
 
-        /** {@link #getExpressHash()} を書く。null なら欄を除く */
+        /** {@link #getExpressHash()} を書く。null ならフィールドを除く */
         public ValidateResult withExpressHash(String value) {
             put("express_hash", value);
             return this;
@@ -7511,7 +7511,7 @@ public final class Messages {
             return Json.read(json.get("rules_not_evaluated"), Json::integer);
         }
 
-        /** {@link #getRulesNotEvaluated()} を書く。null なら欄を除く */
+        /** {@link #getRulesNotEvaluated()} を書く。null ならフィールドを除く */
         public ValidateResult withRulesNotEvaluated(Long value) {
             put("rules_not_evaluated", value);
             return this;
@@ -7522,7 +7522,7 @@ public final class Messages {
             return Json.read(json.get("findings"), v0 -> Json.list(v0, Diagnostic::of));
         }
 
-        /** {@link #getFindings()} を書く。null なら欄を除く */
+        /** {@link #getFindings()} を書く。null ならフィールドを除く */
         public ValidateResult withFindings(List<Diagnostic> value) {
             put("findings", value);
             return this;
@@ -7533,7 +7533,7 @@ public final class Messages {
             return Json.read(json.get("total"), Json::integer);
         }
 
-        /** {@link #getTotal()} を書く。null なら欄を除く */
+        /** {@link #getTotal()} を書く。null ならフィールドを除く */
         public ValidateResult withTotal(Long value) {
             put("total", value);
             return this;
@@ -7544,14 +7544,14 @@ public final class Messages {
             return Json.read(json.get("next_offset"), Json::integer);
         }
 
-        /** {@link #getNextOffset()} を書く。null なら欄を除く */
+        /** {@link #getNextOffset()} を書く。null ならフィールドを除く */
         public ValidateResult withNextOffset(Long value) {
             put("next_offset", value);
             return this;
         }
     }
 
-    /** レビューの文書（決定 0214・0218）の 1 つの対象を、開いた図面の文書の版へ移す。要素の参照を図面の要素の ID で引き、参照ごとに unchanged・changed・removed を返す。場所と図形に元の版のハッシュと状態を書き、対象のハッシュを文書のハッシュにする。2D の点は動かさない。移した文書は blobs の file で返す。小版 43 から */
+    /** レビューの文書（決定 0214・0218）の 1 つの対象を、開いた図面の文書のバージョンへ移す。要素の参照を図面の要素の ID で引き、参照ごとに unchanged・changed・removed を返す。場所と図形に元のバージョンのハッシュと状態を書き、対象のハッシュを文書のハッシュにする。2D の点は動かさない。移した文書は blobs の file で返す。マイナーバージョン 43 から */
     public static final class ReviewCarryRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public ReviewCarryRequest(Map<String, Object> json) {
@@ -7564,18 +7564,18 @@ public final class Messages {
             return json == null ? null : new ReviewCarryRequest(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public ReviewCarryRequest() {
             super(new LinkedHashMap<String, Object>());
             json.put("op", "review_carry");
         }
 
-        /** メッセージのスキーマの大版。今は 1 */
+        /** メッセージのスキーマのメジャーバージョン。今は 1 */
         public Long getV() {
             return Json.read(json.get("v"), Json::integer);
         }
 
-        /** {@link #getV()} を書く。null なら欄を除く */
+        /** {@link #getV()} を書く。null ならフィールドを除く */
         public ReviewCarryRequest withV(Long value) {
             put("v", value);
             return this;
@@ -7586,7 +7586,7 @@ public final class Messages {
             return Json.read(json.get("budget"), Budget::of);
         }
 
-        /** {@link #getBudget()} を書く。null なら欄を除く */
+        /** {@link #getBudget()} を書く。null ならフィールドを除く */
         public ReviewCarryRequest withBudget(Budget value) {
             put("budget", value);
             return this;
@@ -7597,7 +7597,7 @@ public final class Messages {
             return Json.read(json.get("partial"), Json::bool);
         }
 
-        /** {@link #getPartial()} を書く。null なら欄を除く */
+        /** {@link #getPartial()} を書く。null ならフィールドを除く */
         public ReviewCarryRequest withPartial(Boolean value) {
             put("partial", value);
             return this;
@@ -7608,18 +7608,18 @@ public final class Messages {
             return Json.read(json.get("max_places"), Json::integer);
         }
 
-        /** {@link #getMaxPlaces()} を書く。null なら欄を除く */
+        /** {@link #getMaxPlaces()} を書く。null ならフィールドを除く */
         public ReviewCarryRequest withMaxPlaces(Long value) {
             put("max_places", value);
             return this;
         }
 
-        /** 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        /** 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
         public Long getTimeLimitMs() {
             return Json.read(json.get("time_limit_ms"), Json::integer);
         }
 
-        /** {@link #getTimeLimitMs()} を書く。null なら欄を除く */
+        /** {@link #getTimeLimitMs()} を書く。null ならフィールドを除く */
         public ReviewCarryRequest withTimeLimitMs(Long value) {
             put("time_limit_ms", value);
             return this;
@@ -7630,18 +7630,18 @@ public final class Messages {
             return Json.read(json.get("op"), Json::string);
         }
 
-        /** {@link #getOp()} を書く。null なら欄を除く */
+        /** {@link #getOp()} を書く。null ならフィールドを除く */
         public ReviewCarryRequest withOp(String value) {
             put("op", value);
             return this;
         }
 
-        /** 新しい版の文書の名前。open で作ったもの。小版 44 から、IFC の建物モデルの文書も渡せ、要素の参照を建物モデルの要素の ID とハッシュで引く */
+        /** 新しいバージョンの文書の名前。open で作ったもの。マイナーバージョン 44 から、IFC の建物モデルの文書も渡せ、要素の参照を建物モデルの要素の ID とハッシュで引く */
         public String getDoc() {
             return Json.read(json.get("doc"), Json::string);
         }
 
-        /** {@link #getDoc()} を書く。null なら欄を除く */
+        /** {@link #getDoc()} を書く。null ならフィールドを除く */
         public ReviewCarryRequest withDoc(String value) {
             put("doc", value);
             return this;
@@ -7652,7 +7652,7 @@ public final class Messages {
             return Json.read(json.get("review"), Json::string);
         }
 
-        /** {@link #getReview()} を書く。null なら欄を除く */
+        /** {@link #getReview()} を書く。null ならフィールドを除く */
         public ReviewCarryRequest withReview(String value) {
             put("review", value);
             return this;
@@ -7663,7 +7663,7 @@ public final class Messages {
             return Json.read(json.get("target"), Json::string);
         }
 
-        /** {@link #getTarget()} を書く。null なら欄を除く */
+        /** {@link #getTarget()} を書く。null ならフィールドを除く */
         public ReviewCarryRequest withTarget(String value) {
             put("target", value);
             return this;
@@ -7674,7 +7674,7 @@ public final class Messages {
             return Json.read(json.get("offset"), Json::integer);
         }
 
-        /** {@link #getOffset()} を書く。null なら欄を除く */
+        /** {@link #getOffset()} を書く。null ならフィールドを除く */
         public ReviewCarryRequest withOffset(Long value) {
             put("offset", value);
             return this;
@@ -7685,7 +7685,7 @@ public final class Messages {
             return Json.read(json.get("limit"), Json::integer);
         }
 
-        /** {@link #getLimit()} を書く。null なら欄を除く */
+        /** {@link #getLimit()} を書く。null ならフィールドを除く */
         public ReviewCarryRequest withLimit(Long value) {
             put("limit", value);
             return this;
@@ -7715,7 +7715,7 @@ public final class Messages {
             return Json.read(json.get("from"), Json::string);
         }
 
-        /** {@link #getFrom()} を書く。null なら欄を除く */
+        /** {@link #getFrom()} を書く。null ならフィールドを除く */
         public ReviewCarryResult withFrom(String value) {
             put("from", value);
             return this;
@@ -7726,7 +7726,7 @@ public final class Messages {
             return Json.read(json.get("hash"), Json::string);
         }
 
-        /** {@link #getHash()} を書く。null なら欄を除く */
+        /** {@link #getHash()} を書く。null ならフィールドを除く */
         public ReviewCarryResult withHash(String value) {
             put("hash", value);
             return this;
@@ -7737,7 +7737,7 @@ public final class Messages {
             return Json.read(json.get("references"), v0 -> Json.list(v0, CarriedReference::of));
         }
 
-        /** {@link #getReferences()} を書く。null なら欄を除く */
+        /** {@link #getReferences()} を書く。null ならフィールドを除く */
         public ReviewCarryResult withReferences(List<CarriedReference> value) {
             put("references", value);
             return this;
@@ -7748,7 +7748,7 @@ public final class Messages {
             return Json.read(json.get("total"), Json::integer);
         }
 
-        /** {@link #getTotal()} を書く。null なら欄を除く */
+        /** {@link #getTotal()} を書く。null ならフィールドを除く */
         public ReviewCarryResult withTotal(Long value) {
             put("total", value);
             return this;
@@ -7759,7 +7759,7 @@ public final class Messages {
             return Json.read(json.get("next_offset"), Json::integer);
         }
 
-        /** {@link #getNextOffset()} を書く。null なら欄を除く */
+        /** {@link #getNextOffset()} を書く。null ならフィールドを除く */
         public ReviewCarryResult withNextOffset(Long value) {
             put("next_offset", value);
             return this;
@@ -7789,7 +7789,7 @@ public final class Messages {
             return Json.read(json.get("topic"), Json::string);
         }
 
-        /** {@link #getTopic()} を書く。null なら欄を除く */
+        /** {@link #getTopic()} を書く。null ならフィールドを除く */
         public CarriedReference withTopic(String value) {
             put("topic", value);
             return this;
@@ -7800,7 +7800,7 @@ public final class Messages {
             return Json.read(json.get("location"), Json::string);
         }
 
-        /** {@link #getLocation()} を書く。null なら欄を除く */
+        /** {@link #getLocation()} を書く。null ならフィールドを除く */
         public CarriedReference withLocation(String value) {
             put("location", value);
             return this;
@@ -7811,7 +7811,7 @@ public final class Messages {
             return Json.read(json.get("element"), Json::string);
         }
 
-        /** {@link #getElement()} を書く。null なら欄を除く */
+        /** {@link #getElement()} を書く。null ならフィールドを除く */
         public CarriedReference withElement(String value) {
             put("element", value);
             return this;
@@ -7822,7 +7822,7 @@ public final class Messages {
             return Json.read(json.get("state"), Json::string);
         }
 
-        /** {@link #getState()} を書く。null なら欄を除く */
+        /** {@link #getState()} を書く。null ならフィールドを除く */
         public CarriedReference withState(String value) {
             put("state", value);
             return this;
@@ -7830,7 +7830,7 @@ public final class Messages {
     }
 
     /**
-     * 移したときの状態（決定 0214）。unchanged は要素のハッシュが同じ、changed は違うか元のハッシュがない、removed は新しい版に要素がない
+     * 移したときの状態（決定 0214）。unchanged は要素のハッシュが同じ、changed は違うか元のハッシュがない、removed は新しいバージョンに要素がない
      * 
      * 列挙の値。知らない値も受け取る
      */
@@ -7844,7 +7844,7 @@ public final class Messages {
         public static final String REMOVED = "removed";
     }
 
-    /** 開いた文書を check と同じに照合し、選んだ指摘だけを開いた指摘としてレビューの文書（決定 0214・0218）に足す。指摘の ID は対象のハッシュ・規則・診断から決め、取り込み済みの指摘は足さない。足した文書は blobs の file で返す。小版 43 から */
+    /** 開いた文書を check と同じに照合し、選んだ指摘だけを開いた指摘としてレビューの文書（決定 0214・0218）に足す。指摘の ID は対象のハッシュ・規則・診断から決め、取り込み済みの指摘は足さない。足した文書は blobs の file で返す。マイナーバージョン 43 から */
     public static final class ReviewAdoptRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public ReviewAdoptRequest(Map<String, Object> json) {
@@ -7857,18 +7857,18 @@ public final class Messages {
             return json == null ? null : new ReviewAdoptRequest(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public ReviewAdoptRequest() {
             super(new LinkedHashMap<String, Object>());
             json.put("op", "review_adopt");
         }
 
-        /** メッセージのスキーマの大版。今は 1 */
+        /** メッセージのスキーマのメジャーバージョン。今は 1 */
         public Long getV() {
             return Json.read(json.get("v"), Json::integer);
         }
 
-        /** {@link #getV()} を書く。null なら欄を除く */
+        /** {@link #getV()} を書く。null ならフィールドを除く */
         public ReviewAdoptRequest withV(Long value) {
             put("v", value);
             return this;
@@ -7879,7 +7879,7 @@ public final class Messages {
             return Json.read(json.get("budget"), Budget::of);
         }
 
-        /** {@link #getBudget()} を書く。null なら欄を除く */
+        /** {@link #getBudget()} を書く。null ならフィールドを除く */
         public ReviewAdoptRequest withBudget(Budget value) {
             put("budget", value);
             return this;
@@ -7890,7 +7890,7 @@ public final class Messages {
             return Json.read(json.get("partial"), Json::bool);
         }
 
-        /** {@link #getPartial()} を書く。null なら欄を除く */
+        /** {@link #getPartial()} を書く。null ならフィールドを除く */
         public ReviewAdoptRequest withPartial(Boolean value) {
             put("partial", value);
             return this;
@@ -7901,18 +7901,18 @@ public final class Messages {
             return Json.read(json.get("max_places"), Json::integer);
         }
 
-        /** {@link #getMaxPlaces()} を書く。null なら欄を除く */
+        /** {@link #getMaxPlaces()} を書く。null ならフィールドを除く */
         public ReviewAdoptRequest withMaxPlaces(Long value) {
             put("max_places", value);
             return this;
         }
 
-        /** 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        /** 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
         public Long getTimeLimitMs() {
             return Json.read(json.get("time_limit_ms"), Json::integer);
         }
 
-        /** {@link #getTimeLimitMs()} を書く。null なら欄を除く */
+        /** {@link #getTimeLimitMs()} を書く。null ならフィールドを除く */
         public ReviewAdoptRequest withTimeLimitMs(Long value) {
             put("time_limit_ms", value);
             return this;
@@ -7923,7 +7923,7 @@ public final class Messages {
             return Json.read(json.get("op"), Json::string);
         }
 
-        /** {@link #getOp()} を書く。null なら欄を除く */
+        /** {@link #getOp()} を書く。null ならフィールドを除く */
         public ReviewAdoptRequest withOp(String value) {
             put("op", value);
             return this;
@@ -7934,7 +7934,7 @@ public final class Messages {
             return Json.read(json.get("doc"), Json::string);
         }
 
-        /** {@link #getDoc()} を書く。null なら欄を除く */
+        /** {@link #getDoc()} を書く。null ならフィールドを除く */
         public ReviewAdoptRequest withDoc(String value) {
             put("doc", value);
             return this;
@@ -7945,7 +7945,7 @@ public final class Messages {
             return Json.read(json.get("profiles"), v0 -> Json.list(v0, Json::string));
         }
 
-        /** {@link #getProfiles()} を書く。null なら欄を除く */
+        /** {@link #getProfiles()} を書く。null ならフィールドを除く */
         public ReviewAdoptRequest withProfiles(List<String> value) {
             put("profiles", value);
             return this;
@@ -7956,7 +7956,7 @@ public final class Messages {
             return Json.read(json.get("profile"), ProfileRef::of);
         }
 
-        /** {@link #getProfile()} を書く。null なら欄を除く */
+        /** {@link #getProfile()} を書く。null ならフィールドを除く */
         public ReviewAdoptRequest withProfile(ProfileRef value) {
             put("profile", value);
             return this;
@@ -7967,7 +7967,7 @@ public final class Messages {
             return Json.read(json.get("from"), Json::string);
         }
 
-        /** {@link #getFrom()} を書く。null なら欄を除く */
+        /** {@link #getFrom()} を書く。null ならフィールドを除く */
         public ReviewAdoptRequest withFrom(String value) {
             put("from", value);
             return this;
@@ -7978,18 +7978,18 @@ public final class Messages {
             return Json.read(json.get("view"), Json::integer);
         }
 
-        /** {@link #getView()} を書く。null なら欄を除く */
+        /** {@link #getView()} を書く。null ならフィールドを除く */
         public ReviewAdoptRequest withView(Long value) {
             put("view", value);
             return this;
         }
 
-        /** 照合するファイルの名前（拡張子を含み、フォルダーを含まない）。file-name の規則で比べる。書かなければ、file-name の規則は照合できない（決定 0204）。小版 40 から */
+        /** 照合するファイルの名前（拡張子を含み、フォルダーを含まない）。file-name の規則で比べる。書かなければ、file-name の規則は照合できない（決定 0204）。マイナーバージョン 40 から */
         public String getFileName() {
             return Json.read(json.get("file_name"), Json::string);
         }
 
-        /** {@link #getFileName()} を書く。null なら欄を除く */
+        /** {@link #getFileName()} を書く。null ならフィールドを除く */
         public ReviewAdoptRequest withFileName(String value) {
             put("file_name", value);
             return this;
@@ -8000,7 +8000,7 @@ public final class Messages {
             return Json.read(json.get("palette"), Json::string);
         }
 
-        /** {@link #getPalette()} を書く。null なら欄を除く */
+        /** {@link #getPalette()} を書く。null ならフィールドを除く */
         public ReviewAdoptRequest withPalette(String value) {
             put("palette", value);
             return this;
@@ -8011,7 +8011,7 @@ public final class Messages {
             return Json.read(json.get("review"), Json::string);
         }
 
-        /** {@link #getReview()} を書く。null なら欄を除く */
+        /** {@link #getReview()} を書く。null ならフィールドを除く */
         public ReviewAdoptRequest withReview(String value) {
             put("review", value);
             return this;
@@ -8022,7 +8022,7 @@ public final class Messages {
             return Json.read(json.get("target"), Json::string);
         }
 
-        /** {@link #getTarget()} を書く。null なら欄を除く */
+        /** {@link #getTarget()} を書く。null ならフィールドを除く */
         public ReviewAdoptRequest withTarget(String value) {
             put("target", value);
             return this;
@@ -8033,7 +8033,7 @@ public final class Messages {
             return Json.read(json.get("findings"), v0 -> Json.list(v0, Json::integer));
         }
 
-        /** {@link #getFindings()} を書く。null なら欄を除く */
+        /** {@link #getFindings()} を書く。null ならフィールドを除く */
         public ReviewAdoptRequest withFindings(List<Long> value) {
             put("findings", value);
             return this;
@@ -8063,7 +8063,7 @@ public final class Messages {
             return Json.read(json.get("added"), v0 -> Json.list(v0, Json::string));
         }
 
-        /** {@link #getAdded()} を書く。null なら欄を除く */
+        /** {@link #getAdded()} を書く。null ならフィールドを除く */
         public ReviewAdoptResult withAdded(List<String> value) {
             put("added", value);
             return this;
@@ -8074,14 +8074,14 @@ public final class Messages {
             return Json.read(json.get("topics"), Json::integer);
         }
 
-        /** {@link #getTopics()} を書く。null なら欄を除く */
+        /** {@link #getTopics()} を書く。null ならフィールドを除く */
         public ReviewAdoptResult withTopics(Long value) {
             put("topics", value);
             return this;
         }
     }
 
-    /** 開いた IFC の建物モデル（決定 0207・0219）の要約を返す。小版 44 から */
+    /** 開いた IFC の建物モデル（決定 0207・0219）の要約を返す。マイナーバージョン 44 から */
     public static final class BuildingRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public BuildingRequest(Map<String, Object> json) {
@@ -8094,18 +8094,18 @@ public final class Messages {
             return json == null ? null : new BuildingRequest(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public BuildingRequest() {
             super(new LinkedHashMap<String, Object>());
             json.put("op", "building");
         }
 
-        /** メッセージのスキーマの大版。今は 1 */
+        /** メッセージのスキーマのメジャーバージョン。今は 1 */
         public Long getV() {
             return Json.read(json.get("v"), Json::integer);
         }
 
-        /** {@link #getV()} を書く。null なら欄を除く */
+        /** {@link #getV()} を書く。null ならフィールドを除く */
         public BuildingRequest withV(Long value) {
             put("v", value);
             return this;
@@ -8116,7 +8116,7 @@ public final class Messages {
             return Json.read(json.get("budget"), Budget::of);
         }
 
-        /** {@link #getBudget()} を書く。null なら欄を除く */
+        /** {@link #getBudget()} を書く。null ならフィールドを除く */
         public BuildingRequest withBudget(Budget value) {
             put("budget", value);
             return this;
@@ -8127,7 +8127,7 @@ public final class Messages {
             return Json.read(json.get("partial"), Json::bool);
         }
 
-        /** {@link #getPartial()} を書く。null なら欄を除く */
+        /** {@link #getPartial()} を書く。null ならフィールドを除く */
         public BuildingRequest withPartial(Boolean value) {
             put("partial", value);
             return this;
@@ -8138,18 +8138,18 @@ public final class Messages {
             return Json.read(json.get("max_places"), Json::integer);
         }
 
-        /** {@link #getMaxPlaces()} を書く。null なら欄を除く */
+        /** {@link #getMaxPlaces()} を書く。null ならフィールドを除く */
         public BuildingRequest withMaxPlaces(Long value) {
             put("max_places", value);
             return this;
         }
 
-        /** 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        /** 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
         public Long getTimeLimitMs() {
             return Json.read(json.get("time_limit_ms"), Json::integer);
         }
 
-        /** {@link #getTimeLimitMs()} を書く。null なら欄を除く */
+        /** {@link #getTimeLimitMs()} を書く。null ならフィールドを除く */
         public BuildingRequest withTimeLimitMs(Long value) {
             put("time_limit_ms", value);
             return this;
@@ -8160,7 +8160,7 @@ public final class Messages {
             return Json.read(json.get("op"), Json::string);
         }
 
-        /** {@link #getOp()} を書く。null なら欄を除く */
+        /** {@link #getOp()} を書く。null ならフィールドを除く */
         public BuildingRequest withOp(String value) {
             put("op", value);
             return this;
@@ -8171,7 +8171,7 @@ public final class Messages {
             return Json.read(json.get("doc"), Json::string);
         }
 
-        /** {@link #getDoc()} を書く。null なら欄を除く */
+        /** {@link #getDoc()} を書く。null ならフィールドを除く */
         public BuildingRequest withDoc(String value) {
             put("doc", value);
             return this;
@@ -8201,18 +8201,18 @@ public final class Messages {
             return Json.read(json.get("schema"), Json::string);
         }
 
-        /** {@link #getSchema()} を書く。null なら欄を除く */
+        /** {@link #getSchema()} を書く。null ならフィールドを除く */
         public BuildingResult withSchema(String value) {
             put("schema", value);
             return this;
         }
 
-        /** 入力のバイト列のハッシュ。review_carry の対象の版に使う */
+        /** 入力のバイト列のハッシュ。review_carry の対象のバージョンに使う */
         public String getHash() {
             return Json.read(json.get("hash"), Json::string);
         }
 
-        /** {@link #getHash()} を書く。null なら欄を除く */
+        /** {@link #getHash()} を書く。null ならフィールドを除く */
         public BuildingResult withHash(String value) {
             put("hash", value);
             return this;
@@ -8223,7 +8223,7 @@ public final class Messages {
             return Json.read(json.get("project"), Json::string);
         }
 
-        /** {@link #getProject()} を書く。null なら欄を除く */
+        /** {@link #getProject()} を書く。null ならフィールドを除く */
         public BuildingResult withProject(String value) {
             put("project", value);
             return this;
@@ -8234,7 +8234,7 @@ public final class Messages {
             return Json.read(json.get("project_name"), Json::string);
         }
 
-        /** {@link #getProjectName()} を書く。null なら欄を除く */
+        /** {@link #getProjectName()} を書く。null ならフィールドを除く */
         public BuildingResult withProjectName(String value) {
             put("project_name", value);
             return this;
@@ -8245,7 +8245,7 @@ public final class Messages {
             return Json.read(json.get("units"), v0 -> Json.list(v0, BuildingUnit::of));
         }
 
-        /** {@link #getUnits()} を書く。null なら欄を除く */
+        /** {@link #getUnits()} を書く。null ならフィールドを除く */
         public BuildingResult withUnits(List<BuildingUnit> value) {
             put("units", value);
             return this;
@@ -8256,7 +8256,7 @@ public final class Messages {
             return Json.read(json.get("elements"), Json::integer);
         }
 
-        /** {@link #getElements()} を書く。null なら欄を除く */
+        /** {@link #getElements()} を書く。null ならフィールドを除く */
         public BuildingResult withElements(Long value) {
             put("elements", value);
             return this;
@@ -8267,7 +8267,7 @@ public final class Messages {
             return Json.read(json.get("classes"), v0 -> Json.list(v0, ClassCount::of));
         }
 
-        /** {@link #getClasses()} を書く。null なら欄を除く */
+        /** {@link #getClasses()} を書く。null ならフィールドを除く */
         public BuildingResult withClasses(List<ClassCount> value) {
             put("classes", value);
             return this;
@@ -8297,7 +8297,7 @@ public final class Messages {
             return Json.read(json.get("kind"), Json::string);
         }
 
-        /** {@link #getKind()} を書く。null なら欄を除く */
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
         public BuildingUnit withKind(String value) {
             put("kind", value);
             return this;
@@ -8308,7 +8308,7 @@ public final class Messages {
             return Json.read(json.get("prefix"), Json::string);
         }
 
-        /** {@link #getPrefix()} を書く。null なら欄を除く */
+        /** {@link #getPrefix()} を書く。null ならフィールドを除く */
         public BuildingUnit withPrefix(String value) {
             put("prefix", value);
             return this;
@@ -8319,7 +8319,7 @@ public final class Messages {
             return Json.read(json.get("name"), Json::string);
         }
 
-        /** {@link #getName()} を書く。null なら欄を除く */
+        /** {@link #getName()} を書く。null ならフィールドを除く */
         public BuildingUnit withName(String value) {
             put("name", value);
             return this;
@@ -8330,7 +8330,7 @@ public final class Messages {
             return Json.read(json.get("scale"), Json::number);
         }
 
-        /** {@link #getScale()} を書く。null なら欄を除く */
+        /** {@link #getScale()} を書く。null ならフィールドを除く */
         public BuildingUnit withScale(Double value) {
             put("scale", value);
             return this;
@@ -8360,7 +8360,7 @@ public final class Messages {
             return Json.read(json.get("name"), Json::string);
         }
 
-        /** {@link #getName()} を書く。null なら欄を除く */
+        /** {@link #getName()} を書く。null ならフィールドを除く */
         public ClassCount withName(String value) {
             put("name", value);
             return this;
@@ -8371,14 +8371,14 @@ public final class Messages {
             return Json.read(json.get("count"), Json::integer);
         }
 
-        /** {@link #getCount()} を書く。null なら欄を除く */
+        /** {@link #getCount()} を書く。null ならフィールドを除く */
         public ClassCount withCount(Long value) {
             put("count", value);
             return this;
         }
     }
 
-    /** 開いた IFC の建物モデルの要素を、書いた順に返す。成分は components で選ぶ（決定 0207・0219）。小版 44 から */
+    /** 開いた IFC の建物モデルの要素を、書いた順に返す。コンポーネントは components で選ぶ（決定 0207・0219）。マイナーバージョン 44 から */
     public static final class BuildingElementsRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public BuildingElementsRequest(Map<String, Object> json) {
@@ -8391,18 +8391,18 @@ public final class Messages {
             return json == null ? null : new BuildingElementsRequest(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public BuildingElementsRequest() {
             super(new LinkedHashMap<String, Object>());
             json.put("op", "building_elements");
         }
 
-        /** メッセージのスキーマの大版。今は 1 */
+        /** メッセージのスキーマのメジャーバージョン。今は 1 */
         public Long getV() {
             return Json.read(json.get("v"), Json::integer);
         }
 
-        /** {@link #getV()} を書く。null なら欄を除く */
+        /** {@link #getV()} を書く。null ならフィールドを除く */
         public BuildingElementsRequest withV(Long value) {
             put("v", value);
             return this;
@@ -8413,7 +8413,7 @@ public final class Messages {
             return Json.read(json.get("budget"), Budget::of);
         }
 
-        /** {@link #getBudget()} を書く。null なら欄を除く */
+        /** {@link #getBudget()} を書く。null ならフィールドを除く */
         public BuildingElementsRequest withBudget(Budget value) {
             put("budget", value);
             return this;
@@ -8424,7 +8424,7 @@ public final class Messages {
             return Json.read(json.get("partial"), Json::bool);
         }
 
-        /** {@link #getPartial()} を書く。null なら欄を除く */
+        /** {@link #getPartial()} を書く。null ならフィールドを除く */
         public BuildingElementsRequest withPartial(Boolean value) {
             put("partial", value);
             return this;
@@ -8435,18 +8435,18 @@ public final class Messages {
             return Json.read(json.get("max_places"), Json::integer);
         }
 
-        /** {@link #getMaxPlaces()} を書く。null なら欄を除く */
+        /** {@link #getMaxPlaces()} を書く。null ならフィールドを除く */
         public BuildingElementsRequest withMaxPlaces(Long value) {
             put("max_places", value);
             return this;
         }
 
-        /** 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        /** 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
         public Long getTimeLimitMs() {
             return Json.read(json.get("time_limit_ms"), Json::integer);
         }
 
-        /** {@link #getTimeLimitMs()} を書く。null なら欄を除く */
+        /** {@link #getTimeLimitMs()} を書く。null ならフィールドを除く */
         public BuildingElementsRequest withTimeLimitMs(Long value) {
             put("time_limit_ms", value);
             return this;
@@ -8457,7 +8457,7 @@ public final class Messages {
             return Json.read(json.get("op"), Json::string);
         }
 
-        /** {@link #getOp()} を書く。null なら欄を除く */
+        /** {@link #getOp()} を書く。null ならフィールドを除く */
         public BuildingElementsRequest withOp(String value) {
             put("op", value);
             return this;
@@ -8468,7 +8468,7 @@ public final class Messages {
             return Json.read(json.get("doc"), Json::string);
         }
 
-        /** {@link #getDoc()} を書く。null なら欄を除く */
+        /** {@link #getDoc()} を書く。null ならフィールドを除く */
         public BuildingElementsRequest withDoc(String value) {
             put("doc", value);
             return this;
@@ -8479,7 +8479,7 @@ public final class Messages {
             return Json.read(json.get("ids"), v0 -> Json.list(v0, Json::string));
         }
 
-        /** {@link #getIds()} を書く。null なら欄を除く */
+        /** {@link #getIds()} を書く。null ならフィールドを除く */
         public BuildingElementsRequest withIds(List<String> value) {
             put("ids", value);
             return this;
@@ -8490,18 +8490,18 @@ public final class Messages {
             return Json.read(json.get("class"), Json::string);
         }
 
-        /** {@link #getClassValue()} を書く。null なら欄を除く */
+        /** {@link #getClassValue()} を書く。null ならフィールドを除く */
         public BuildingElementsRequest withClassValue(String value) {
             put("class", value);
             return this;
         }
 
-        /** 返す成分の名前。1 つ以上で、重ねない。書かなければ class と identity を返す */
+        /** 返すコンポーネントの名前。1 つ以上で、重ねない。書かなければ class と identity を返す */
         public List<String> getComponents() {
             return Json.read(json.get("components"), v0 -> Json.list(v0, Json::string));
         }
 
-        /** {@link #getComponents()} を書く。null なら欄を除く */
+        /** {@link #getComponents()} を書く。null ならフィールドを除く */
         public BuildingElementsRequest withComponents(List<String> value) {
             put("components", value);
             return this;
@@ -8512,7 +8512,7 @@ public final class Messages {
             return Json.read(json.get("offset"), Json::integer);
         }
 
-        /** {@link #getOffset()} を書く。null なら欄を除く */
+        /** {@link #getOffset()} を書く。null ならフィールドを除く */
         public BuildingElementsRequest withOffset(Long value) {
             put("offset", value);
             return this;
@@ -8523,7 +8523,7 @@ public final class Messages {
             return Json.read(json.get("limit"), Json::integer);
         }
 
-        /** {@link #getLimit()} を書く。null なら欄を除く */
+        /** {@link #getLimit()} を書く。null ならフィールドを除く */
         public BuildingElementsRequest withLimit(Long value) {
             put("limit", value);
             return this;
@@ -8531,7 +8531,7 @@ public final class Messages {
     }
 
     /**
-     * building_elements で返す成分（決定 0207）。relations は索引から求める子・参照・型の実例・開口・埋める要素・構成員
+     * building_elements で返すコンポーネント（決定 0207）。relations は索引から求める子・参照・型の実例・開口・埋める要素・構成員
      * 
      * 列挙の値。知らない値も受け取る
      */
@@ -8596,7 +8596,7 @@ public final class Messages {
             return Json.read(json.get("elements"), v0 -> Json.list(v0, BuildingElement::of));
         }
 
-        /** {@link #getElements()} を書く。null なら欄を除く */
+        /** {@link #getElements()} を書く。null ならフィールドを除く */
         public BuildingElementsResult withElements(List<BuildingElement> value) {
             put("elements", value);
             return this;
@@ -8607,7 +8607,7 @@ public final class Messages {
             return Json.read(json.get("total"), Json::integer);
         }
 
-        /** {@link #getTotal()} を書く。null なら欄を除く */
+        /** {@link #getTotal()} を書く。null ならフィールドを除く */
         public BuildingElementsResult withTotal(Long value) {
             put("total", value);
             return this;
@@ -8618,14 +8618,14 @@ public final class Messages {
             return Json.read(json.get("next_offset"), Json::integer);
         }
 
-        /** {@link #getNextOffset()} を書く。null なら欄を除く */
+        /** {@link #getNextOffset()} を書く。null ならフィールドを除く */
         public BuildingElementsResult withNextOffset(Long value) {
             put("next_offset", value);
             return this;
         }
     }
 
-    /** 建物モデルの要素。成分は、選んだもののうち要素が持つものだけを持つ */
+    /** 建物モデルの要素。コンポーネントは、選んだもののうち要素が持つものだけを持つ */
     public static final class BuildingElement extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public BuildingElement(Map<String, Object> json) {
@@ -8648,18 +8648,18 @@ public final class Messages {
             return Json.read(json.get("id"), Json::string);
         }
 
-        /** {@link #getId()} を書く。null なら欄を除く */
+        /** {@link #getId()} を書く。null ならフィールドを除く */
         public BuildingElement withId(String value) {
             put("id", value);
             return this;
         }
 
-        /** 要素の成分のハッシュ（v1: と 32 桁の 16 進、決定 0207） */
+        /** 要素のコンポーネントのハッシュ（v1: と 32 桁の 16 進、決定 0207） */
         public String getHash() {
             return Json.read(json.get("hash"), Json::string);
         }
 
-        /** {@link #getHash()} を書く。null なら欄を除く */
+        /** {@link #getHash()} を書く。null ならフィールドを除く */
         public BuildingElement withHash(String value) {
             put("hash", value);
             return this;
@@ -8670,7 +8670,7 @@ public final class Messages {
             return Json.read(json.get("identity"), IdentityComponent::of);
         }
 
-        /** {@link #getIdentity()} を書く。null なら欄を除く */
+        /** {@link #getIdentity()} を書く。null ならフィールドを除く */
         public BuildingElement withIdentity(IdentityComponent value) {
             put("identity", value);
             return this;
@@ -8681,7 +8681,7 @@ public final class Messages {
             return Json.read(json.get("class"), ClassComponent::of);
         }
 
-        /** {@link #getClassValue()} を書く。null なら欄を除く */
+        /** {@link #getClassValue()} を書く。null ならフィールドを除く */
         public BuildingElement withClassValue(ClassComponent value) {
             put("class", value);
             return this;
@@ -8692,7 +8692,7 @@ public final class Messages {
             return Json.read(json.get("classification"), v0 -> Json.list(v0, ClassificationReference::of));
         }
 
-        /** {@link #getClassification()} を書く。null なら欄を除く */
+        /** {@link #getClassification()} を書く。null ならフィールドを除く */
         public BuildingElement withClassification(List<ClassificationReference> value) {
             put("classification", value);
             return this;
@@ -8703,7 +8703,7 @@ public final class Messages {
             return Json.read(json.get("spatial"), SpatialComponent::of);
         }
 
-        /** {@link #getSpatial()} を書く。null なら欄を除く */
+        /** {@link #getSpatial()} を書く。null ならフィールドを除く */
         public BuildingElement withSpatial(SpatialComponent value) {
             put("spatial", value);
             return this;
@@ -8714,7 +8714,7 @@ public final class Messages {
             return Json.read(json.get("parent"), ParentComponent::of);
         }
 
-        /** {@link #getParent()} を書く。null なら欄を除く */
+        /** {@link #getParent()} を書く。null ならフィールドを除く */
         public BuildingElement withParent(ParentComponent value) {
             put("parent", value);
             return this;
@@ -8725,7 +8725,7 @@ public final class Messages {
             return Json.read(json.get("placement"), PlacementComponent::of);
         }
 
-        /** {@link #getPlacement()} を書く。null なら欄を除く */
+        /** {@link #getPlacement()} を書く。null ならフィールドを除く */
         public BuildingElement withPlacement(PlacementComponent value) {
             put("placement", value);
             return this;
@@ -8736,7 +8736,7 @@ public final class Messages {
             return Json.read(json.get("type_of"), Json::string);
         }
 
-        /** {@link #getTypeOf()} を書く。null なら欄を除く */
+        /** {@link #getTypeOf()} を書く。null ならフィールドを除く */
         public BuildingElement withTypeOf(String value) {
             put("type_of", value);
             return this;
@@ -8747,7 +8747,7 @@ public final class Messages {
             return Json.read(json.get("properties"), v0 -> Json.list(v0, PropertySet::of));
         }
 
-        /** {@link #getProperties()} を書く。null なら欄を除く */
+        /** {@link #getProperties()} を書く。null ならフィールドを除く */
         public BuildingElement withProperties(List<PropertySet> value) {
             put("properties", value);
             return this;
@@ -8758,7 +8758,7 @@ public final class Messages {
             return Json.read(json.get("quantities"), v0 -> Json.list(v0, QuantitySet::of));
         }
 
-        /** {@link #getQuantities()} を書く。null なら欄を除く */
+        /** {@link #getQuantities()} を書く。null ならフィールドを除く */
         public BuildingElement withQuantities(List<QuantitySet> value) {
             put("quantities", value);
             return this;
@@ -8769,7 +8769,7 @@ public final class Messages {
             return Json.read(json.get("material"), MaterialComponent::of);
         }
 
-        /** {@link #getMaterial()} を書く。null なら欄を除く */
+        /** {@link #getMaterial()} を書く。null ならフィールドを除く */
         public BuildingElement withMaterial(MaterialComponent value) {
             put("material", value);
             return this;
@@ -8780,7 +8780,7 @@ public final class Messages {
             return Json.read(json.get("opening"), OpeningComponent::of);
         }
 
-        /** {@link #getOpening()} を書く。null なら欄を除く */
+        /** {@link #getOpening()} を書く。null ならフィールドを除く */
         public BuildingElement withOpening(OpeningComponent value) {
             put("opening", value);
             return this;
@@ -8791,7 +8791,7 @@ public final class Messages {
             return Json.read(json.get("group"), v0 -> Json.list(v0, Json::string));
         }
 
-        /** {@link #getGroup()} を書く。null なら欄を除く */
+        /** {@link #getGroup()} を書く。null ならフィールドを除く */
         public BuildingElement withGroup(List<String> value) {
             put("group", value);
             return this;
@@ -8802,7 +8802,7 @@ public final class Messages {
             return Json.read(json.get("connection"), v0 -> Json.list(v0, ConnectionLink::of));
         }
 
-        /** {@link #getConnection()} を書く。null なら欄を除く */
+        /** {@link #getConnection()} を書く。null ならフィールドを除く */
         public BuildingElement withConnection(List<ConnectionLink> value) {
             put("connection", value);
             return this;
@@ -8813,7 +8813,7 @@ public final class Messages {
             return Json.read(json.get("level"), LevelComponent::of);
         }
 
-        /** {@link #getLevel()} を書く。null なら欄を除く */
+        /** {@link #getLevel()} を書く。null ならフィールドを除く */
         public BuildingElement withLevel(LevelComponent value) {
             put("level", value);
             return this;
@@ -8824,7 +8824,7 @@ public final class Messages {
             return Json.read(json.get("zone"), ZoneComponent::of);
         }
 
-        /** {@link #getZone()} を書く。null なら欄を除く */
+        /** {@link #getZone()} を書く。null ならフィールドを除く */
         public BuildingElement withZone(ZoneComponent value) {
             put("zone", value);
             return this;
@@ -8835,7 +8835,7 @@ public final class Messages {
             return Json.read(json.get("style"), StyleComponent::of);
         }
 
-        /** {@link #getStyle()} を書く。null なら欄を除く */
+        /** {@link #getStyle()} を書く。null ならフィールドを除く */
         public BuildingElement withStyle(StyleComponent value) {
             put("style", value);
             return this;
@@ -8846,7 +8846,7 @@ public final class Messages {
             return Json.read(json.get("relations"), RelationsComponent::of);
         }
 
-        /** {@link #getRelations()} を書く。null なら欄を除く */
+        /** {@link #getRelations()} を書く。null ならフィールドを除く */
         public BuildingElement withRelations(RelationsComponent value) {
             put("relations", value);
             return this;
@@ -8876,7 +8876,7 @@ public final class Messages {
             return Json.read(json.get("name"), Json::string);
         }
 
-        /** {@link #getName()} を書く。null なら欄を除く */
+        /** {@link #getName()} を書く。null ならフィールドを除く */
         public IdentityComponent withName(String value) {
             put("name", value);
             return this;
@@ -8887,7 +8887,7 @@ public final class Messages {
             return Json.read(json.get("description"), Json::string);
         }
 
-        /** {@link #getDescription()} を書く。null なら欄を除く */
+        /** {@link #getDescription()} を書く。null ならフィールドを除く */
         public IdentityComponent withDescription(String value) {
             put("description", value);
             return this;
@@ -8898,7 +8898,7 @@ public final class Messages {
             return Json.read(json.get("tag"), Json::string);
         }
 
-        /** {@link #getTag()} を書く。null なら欄を除く */
+        /** {@link #getTag()} を書く。null ならフィールドを除く */
         public IdentityComponent withTag(String value) {
             put("tag", value);
             return this;
@@ -8909,7 +8909,7 @@ public final class Messages {
             return Json.read(json.get("long_name"), Json::string);
         }
 
-        /** {@link #getLongName()} を書く。null なら欄を除く */
+        /** {@link #getLongName()} を書く。null ならフィールドを除く */
         public IdentityComponent withLongName(String value) {
             put("long_name", value);
             return this;
@@ -8939,7 +8939,7 @@ public final class Messages {
             return Json.read(json.get("name"), Json::string);
         }
 
-        /** {@link #getName()} を書く。null なら欄を除く */
+        /** {@link #getName()} を書く。null ならフィールドを除く */
         public ClassComponent withName(String value) {
             put("name", value);
             return this;
@@ -8950,7 +8950,7 @@ public final class Messages {
             return Json.read(json.get("predefined"), Json::string);
         }
 
-        /** {@link #getPredefined()} を書く。null なら欄を除く */
+        /** {@link #getPredefined()} を書く。null ならフィールドを除く */
         public ClassComponent withPredefined(String value) {
             put("predefined", value);
             return this;
@@ -8961,7 +8961,7 @@ public final class Messages {
             return Json.read(json.get("user_defined"), Json::string);
         }
 
-        /** {@link #getUserDefined()} を書く。null なら欄を除く */
+        /** {@link #getUserDefined()} を書く。null ならフィールドを除く */
         public ClassComponent withUserDefined(String value) {
             put("user_defined", value);
             return this;
@@ -8972,7 +8972,7 @@ public final class Messages {
             return Json.read(json.get("original"), Json::string);
         }
 
-        /** {@link #getOriginal()} を書く。null なら欄を除く */
+        /** {@link #getOriginal()} を書く。null ならフィールドを除く */
         public ClassComponent withOriginal(String value) {
             put("original", value);
             return this;
@@ -9002,18 +9002,18 @@ public final class Messages {
             return Json.read(json.get("system"), Json::string);
         }
 
-        /** {@link #getSystem()} を書く。null なら欄を除く */
+        /** {@link #getSystem()} を書く。null ならフィールドを除く */
         public ClassificationReference withSystem(String value) {
             put("system", value);
             return this;
         }
 
-        /** 体系の版 */
+        /** 体系のバージョン */
         public String getEdition() {
             return Json.read(json.get("edition"), Json::string);
         }
 
-        /** {@link #getEdition()} を書く。null なら欄を除く */
+        /** {@link #getEdition()} を書く。null ならフィールドを除く */
         public ClassificationReference withEdition(String value) {
             put("edition", value);
             return this;
@@ -9024,7 +9024,7 @@ public final class Messages {
             return Json.read(json.get("code"), Json::string);
         }
 
-        /** {@link #getCode()} を書く。null なら欄を除く */
+        /** {@link #getCode()} を書く。null ならフィールドを除く */
         public ClassificationReference withCode(String value) {
             put("code", value);
             return this;
@@ -9035,7 +9035,7 @@ public final class Messages {
             return Json.read(json.get("name"), Json::string);
         }
 
-        /** {@link #getName()} を書く。null なら欄を除く */
+        /** {@link #getName()} を書く。null ならフィールドを除く */
         public ClassificationReference withName(String value) {
             put("name", value);
             return this;
@@ -9065,7 +9065,7 @@ public final class Messages {
             return Json.read(json.get("value"), Json::number);
         }
 
-        /** {@link #getValue()} を書く。null なら欄を除く */
+        /** {@link #getValue()} を書く。null ならフィールドを除く */
         public Measured withValue(Double value) {
             put("value", value);
             return this;
@@ -9076,7 +9076,7 @@ public final class Messages {
             return Json.read(json.get("unit"), BuildingUnit::of);
         }
 
-        /** {@link #getUnit()} を書く。null なら欄を除く */
+        /** {@link #getUnit()} を書く。null ならフィールドを除く */
         public Measured withUnit(BuildingUnit value) {
             put("unit", value);
             return this;
@@ -9106,7 +9106,7 @@ public final class Messages {
             return Json.read(json.get("kind"), Json::string);
         }
 
-        /** {@link #getKind()} を書く。null なら欄を除く */
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
         public SpatialComponent withKind(String value) {
             put("kind", value);
             return this;
@@ -9117,7 +9117,7 @@ public final class Messages {
             return Json.read(json.get("elevation"), Measured::of);
         }
 
-        /** {@link #getElevation()} を書く。null なら欄を除く */
+        /** {@link #getElevation()} を書く。null ならフィールドを除く */
         public SpatialComponent withElevation(Measured value) {
             put("elevation", value);
             return this;
@@ -9128,7 +9128,7 @@ public final class Messages {
             return Json.read(json.get("ref_elevation"), Measured::of);
         }
 
-        /** {@link #getRefElevation()} を書く。null なら欄を除く */
+        /** {@link #getRefElevation()} を書く。null ならフィールドを除く */
         public SpatialComponent withRefElevation(Measured value) {
             put("ref_elevation", value);
             return this;
@@ -9158,7 +9158,7 @@ public final class Messages {
             return Json.read(json.get("of"), Membership::of);
         }
 
-        /** {@link #getOf()} を書く。null なら欄を除く */
+        /** {@link #getOf()} を書く。null ならフィールドを除く */
         public ParentComponent withOf(Membership value) {
             put("of", value);
             return this;
@@ -9169,7 +9169,7 @@ public final class Messages {
             return Json.read(json.get("referenced_in"), v0 -> Json.list(v0, Json::string));
         }
 
-        /** {@link #getReferencedIn()} を書く。null なら欄を除く */
+        /** {@link #getReferencedIn()} を書く。null ならフィールドを除く */
         public ParentComponent withReferencedIn(List<String> value) {
             put("referenced_in", value);
             return this;
@@ -9199,7 +9199,7 @@ public final class Messages {
             return Json.read(json.get("target"), Json::string);
         }
 
-        /** {@link #getTarget()} を書く。null なら欄を除く */
+        /** {@link #getTarget()} を書く。null ならフィールドを除く */
         public Membership withTarget(String value) {
             put("target", value);
             return this;
@@ -9210,7 +9210,7 @@ public final class Messages {
             return Json.read(json.get("kind"), Json::string);
         }
 
-        /** {@link #getKind()} を書く。null なら欄を除く */
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
         public Membership withKind(String value) {
             put("kind", value);
             return this;
@@ -9221,7 +9221,7 @@ public final class Messages {
             return Json.read(json.get("order"), Json::integer);
         }
 
-        /** {@link #getOrder()} を書く。null なら欄を除く */
+        /** {@link #getOrder()} を書く。null ならフィールドを除く */
         public Membership withOrder(Long value) {
             put("order", value);
             return this;
@@ -9251,7 +9251,7 @@ public final class Messages {
             return Json.read(json.get("relative_to"), Json::string);
         }
 
-        /** {@link #getRelativeTo()} を書く。null なら欄を除く */
+        /** {@link #getRelativeTo()} を書く。null ならフィールドを除く */
         public PlacementComponent withRelativeTo(String value) {
             put("relative_to", value);
             return this;
@@ -9262,7 +9262,7 @@ public final class Messages {
             return Json.read(json.get("world"), v0 -> Json.list(v0, v1 -> Json.list(v1, Json::number)));
         }
 
-        /** {@link #getWorld()} を書く。null なら欄を除く */
+        /** {@link #getWorld()} を書く。null ならフィールドを除く */
         public PlacementComponent withWorld(List<List<Double>> value) {
             put("world", value);
             return this;
@@ -9273,7 +9273,7 @@ public final class Messages {
             return Json.read(json.get("unsupported"), Json::string);
         }
 
-        /** {@link #getUnsupported()} を書く。null なら欄を除く */
+        /** {@link #getUnsupported()} を書く。null ならフィールドを除く */
         public PlacementComponent withUnsupported(String value) {
             put("unsupported", value);
             return this;
@@ -9303,7 +9303,7 @@ public final class Messages {
             return Json.read(json.get("type_name"), Json::string);
         }
 
-        /** {@link #getTypeName()} を書く。null なら欄を除く */
+        /** {@link #getTypeName()} を書く。null ならフィールドを除く */
         public BuildingValue withTypeName(String value) {
             put("type_name", value);
             return this;
@@ -9314,7 +9314,7 @@ public final class Messages {
             return Json.read(json.get("kind"), Json::string);
         }
 
-        /** {@link #getKind()} を書く。null なら欄を除く */
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
         public BuildingValue withKind(String value) {
             put("kind", value);
             return this;
@@ -9325,7 +9325,7 @@ public final class Messages {
             return Json.read(json.get("number"), Json::number);
         }
 
-        /** {@link #getNumber()} を書く。null なら欄を除く */
+        /** {@link #getNumber()} を書く。null ならフィールドを除く */
         public BuildingValue withNumber(Double value) {
             put("number", value);
             return this;
@@ -9336,7 +9336,7 @@ public final class Messages {
             return Json.read(json.get("text"), Json::string);
         }
 
-        /** {@link #getText()} を書く。null なら欄を除く */
+        /** {@link #getText()} を書く。null ならフィールドを除く */
         public BuildingValue withText(String value) {
             put("text", value);
             return this;
@@ -9347,7 +9347,7 @@ public final class Messages {
             return Json.read(json.get("boolean"), Json::bool);
         }
 
-        /** {@link #getBoolean()} を書く。null なら欄を除く */
+        /** {@link #getBoolean()} を書く。null ならフィールドを除く */
         public BuildingValue withBoolean(Boolean value) {
             put("boolean", value);
             return this;
@@ -9358,7 +9358,7 @@ public final class Messages {
             return Json.read(json.get("element"), Json::string);
         }
 
-        /** {@link #getElement()} を書く。null なら欄を除く */
+        /** {@link #getElement()} を書く。null ならフィールドを除く */
         public BuildingValue withElement(String value) {
             put("element", value);
             return this;
@@ -9369,7 +9369,7 @@ public final class Messages {
             return Json.read(json.get("items"), v0 -> Json.list(v0, BuildingValue::of));
         }
 
-        /** {@link #getItems()} を書く。null なら欄を除く */
+        /** {@link #getItems()} を書く。null ならフィールドを除く */
         public BuildingValue withItems(List<BuildingValue> value) {
             put("items", value);
             return this;
@@ -9399,7 +9399,7 @@ public final class Messages {
             return Json.read(json.get("name"), Json::string);
         }
 
-        /** {@link #getName()} を書く。null なら欄を除く */
+        /** {@link #getName()} を書く。null ならフィールドを除く */
         public PropertySet withName(String value) {
             put("name", value);
             return this;
@@ -9410,7 +9410,7 @@ public final class Messages {
             return Json.read(json.get("properties"), v0 -> Json.list(v0, Property::of));
         }
 
-        /** {@link #getProperties()} を書く。null なら欄を除く */
+        /** {@link #getProperties()} を書く。null ならフィールドを除く */
         public PropertySet withProperties(List<Property> value) {
             put("properties", value);
             return this;
@@ -9440,7 +9440,7 @@ public final class Messages {
             return Json.read(json.get("name"), Json::string);
         }
 
-        /** {@link #getName()} を書く。null なら欄を除く */
+        /** {@link #getName()} を書く。null ならフィールドを除く */
         public Property withName(String value) {
             put("name", value);
             return this;
@@ -9451,7 +9451,7 @@ public final class Messages {
             return Json.read(json.get("value"), BuildingValue::of);
         }
 
-        /** {@link #getValue()} を書く。null なら欄を除く */
+        /** {@link #getValue()} を書く。null ならフィールドを除く */
         public Property withValue(BuildingValue value) {
             put("value", value);
             return this;
@@ -9462,7 +9462,7 @@ public final class Messages {
             return Json.read(json.get("unit"), BuildingUnit::of);
         }
 
-        /** {@link #getUnit()} を書く。null なら欄を除く */
+        /** {@link #getUnit()} を書く。null ならフィールドを除く */
         public Property withUnit(BuildingUnit value) {
             put("unit", value);
             return this;
@@ -9492,7 +9492,7 @@ public final class Messages {
             return Json.read(json.get("name"), Json::string);
         }
 
-        /** {@link #getName()} を書く。null なら欄を除く */
+        /** {@link #getName()} を書く。null ならフィールドを除く */
         public QuantitySet withName(String value) {
             put("name", value);
             return this;
@@ -9503,7 +9503,7 @@ public final class Messages {
             return Json.read(json.get("method"), Json::string);
         }
 
-        /** {@link #getMethod()} を書く。null なら欄を除く */
+        /** {@link #getMethod()} を書く。null ならフィールドを除く */
         public QuantitySet withMethod(String value) {
             put("method", value);
             return this;
@@ -9514,7 +9514,7 @@ public final class Messages {
             return Json.read(json.get("quantities"), v0 -> Json.list(v0, Quantity::of));
         }
 
-        /** {@link #getQuantities()} を書く。null なら欄を除く */
+        /** {@link #getQuantities()} を書く。null ならフィールドを除く */
         public QuantitySet withQuantities(List<Quantity> value) {
             put("quantities", value);
             return this;
@@ -9544,7 +9544,7 @@ public final class Messages {
             return Json.read(json.get("name"), Json::string);
         }
 
-        /** {@link #getName()} を書く。null なら欄を除く */
+        /** {@link #getName()} を書く。null ならフィールドを除く */
         public Quantity withName(String value) {
             put("name", value);
             return this;
@@ -9555,7 +9555,7 @@ public final class Messages {
             return Json.read(json.get("kind"), Json::string);
         }
 
-        /** {@link #getKind()} を書く。null なら欄を除く */
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
         public Quantity withKind(String value) {
             put("kind", value);
             return this;
@@ -9566,7 +9566,7 @@ public final class Messages {
             return Json.read(json.get("value"), Measured::of);
         }
 
-        /** {@link #getValue()} を書く。null なら欄を除く */
+        /** {@link #getValue()} を書く。null ならフィールドを除く */
         public Quantity withValue(Measured value) {
             put("value", value);
             return this;
@@ -9577,7 +9577,7 @@ public final class Messages {
             return Json.read(json.get("formula"), Json::string);
         }
 
-        /** {@link #getFormula()} を書く。null なら欄を除く */
+        /** {@link #getFormula()} を書く。null ならフィールドを除く */
         public Quantity withFormula(String value) {
             put("formula", value);
             return this;
@@ -9607,7 +9607,7 @@ public final class Messages {
             return Json.read(json.get("kind"), Json::string);
         }
 
-        /** {@link #getKind()} を書く。null なら欄を除く */
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
         public MaterialComponent withKind(String value) {
             put("kind", value);
             return this;
@@ -9618,7 +9618,7 @@ public final class Messages {
             return Json.read(json.get("parts"), v0 -> Json.list(v0, MaterialPart::of));
         }
 
-        /** {@link #getParts()} を書く。null なら欄を除く */
+        /** {@link #getParts()} を書く。null ならフィールドを除く */
         public MaterialComponent withParts(List<MaterialPart> value) {
             put("parts", value);
             return this;
@@ -9629,7 +9629,7 @@ public final class Messages {
             return Json.read(json.get("direction"), Json::string);
         }
 
-        /** {@link #getDirection()} を書く。null なら欄を除く */
+        /** {@link #getDirection()} を書く。null ならフィールドを除く */
         public MaterialComponent withDirection(String value) {
             put("direction", value);
             return this;
@@ -9640,7 +9640,7 @@ public final class Messages {
             return Json.read(json.get("offset"), Measured::of);
         }
 
-        /** {@link #getOffset()} を書く。null なら欄を除く */
+        /** {@link #getOffset()} を書く。null ならフィールドを除く */
         public MaterialComponent withOffset(Measured value) {
             put("offset", value);
             return this;
@@ -9670,7 +9670,7 @@ public final class Messages {
             return Json.read(json.get("material"), Json::string);
         }
 
-        /** {@link #getMaterial()} を書く。null なら欄を除く */
+        /** {@link #getMaterial()} を書く。null ならフィールドを除く */
         public MaterialPart withMaterial(String value) {
             put("material", value);
             return this;
@@ -9681,7 +9681,7 @@ public final class Messages {
             return Json.read(json.get("name"), Json::string);
         }
 
-        /** {@link #getName()} を書く。null なら欄を除く */
+        /** {@link #getName()} を書く。null ならフィールドを除く */
         public MaterialPart withName(String value) {
             put("name", value);
             return this;
@@ -9692,7 +9692,7 @@ public final class Messages {
             return Json.read(json.get("thickness"), Measured::of);
         }
 
-        /** {@link #getThickness()} を書く。null なら欄を除く */
+        /** {@link #getThickness()} を書く。null ならフィールドを除く */
         public MaterialPart withThickness(Measured value) {
             put("thickness", value);
             return this;
@@ -9722,7 +9722,7 @@ public final class Messages {
             return Json.read(json.get("voids"), Json::string);
         }
 
-        /** {@link #getVoids()} を書く。null なら欄を除く */
+        /** {@link #getVoids()} を書く。null ならフィールドを除く */
         public OpeningComponent withVoids(String value) {
             put("voids", value);
             return this;
@@ -9733,7 +9733,7 @@ public final class Messages {
             return Json.read(json.get("fills"), Json::string);
         }
 
-        /** {@link #getFills()} を書く。null なら欄を除く */
+        /** {@link #getFills()} を書く。null ならフィールドを除く */
         public OpeningComponent withFills(String value) {
             put("fills", value);
             return this;
@@ -9763,7 +9763,7 @@ public final class Messages {
             return Json.read(json.get("kind"), Json::string);
         }
 
-        /** {@link #getKind()} を書く。null なら欄を除く */
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
         public ConnectionLink withKind(String value) {
             put("kind", value);
             return this;
@@ -9774,7 +9774,7 @@ public final class Messages {
             return Json.read(json.get("target"), Json::string);
         }
 
-        /** {@link #getTarget()} を書く。null なら欄を除く */
+        /** {@link #getTarget()} を書く。null ならフィールドを除く */
         public ConnectionLink withTarget(String value) {
             put("target", value);
             return this;
@@ -9804,7 +9804,7 @@ public final class Messages {
             return Json.read(json.get("name"), Json::string);
         }
 
-        /** {@link #getName()} を書く。null なら欄を除く */
+        /** {@link #getName()} を書く。null ならフィールドを除く */
         public LevelComponent withName(String value) {
             put("name", value);
             return this;
@@ -9815,7 +9815,7 @@ public final class Messages {
             return Json.read(json.get("kind"), Json::string);
         }
 
-        /** {@link #getKind()} を書く。null なら欄を除く */
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
         public LevelComponent withKind(String value) {
             put("kind", value);
             return this;
@@ -9826,7 +9826,7 @@ public final class Messages {
             return Json.read(json.get("height"), Measured::of);
         }
 
-        /** {@link #getHeight()} を書く。null なら欄を除く */
+        /** {@link #getHeight()} を書く。null ならフィールドを除く */
         public LevelComponent withHeight(Measured value) {
             put("height", value);
             return this;
@@ -9837,7 +9837,7 @@ public final class Messages {
             return Json.read(json.get("datum"), Json::string);
         }
 
-        /** {@link #getDatum()} を書く。null なら欄を除く */
+        /** {@link #getDatum()} を書く。null ならフィールドを除く */
         public LevelComponent withDatum(String value) {
             put("datum", value);
             return this;
@@ -9867,7 +9867,7 @@ public final class Messages {
             return Json.read(json.get("kind"), Json::string);
         }
 
-        /** {@link #getKind()} を書く。null なら欄を除く */
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
         public ZoneComponent withKind(String value) {
             put("kind", value);
             return this;
@@ -9878,7 +9878,7 @@ public final class Messages {
             return Json.read(json.get("members"), v0 -> Json.list(v0, Json::string));
         }
 
-        /** {@link #getMembers()} を書く。null なら欄を除く */
+        /** {@link #getMembers()} を書く。null ならフィールドを除く */
         public ZoneComponent withMembers(List<String> value) {
             put("members", value);
             return this;
@@ -9908,7 +9908,7 @@ public final class Messages {
             return Json.read(json.get("surface_color"), v0 -> Json.list(v0, Json::number));
         }
 
-        /** {@link #getSurfaceColor()} を書く。null なら欄を除く */
+        /** {@link #getSurfaceColor()} を書く。null ならフィールドを除く */
         public StyleComponent withSurfaceColor(List<Double> value) {
             put("surface_color", value);
             return this;
@@ -9919,7 +9919,7 @@ public final class Messages {
             return Json.read(json.get("transparency"), Json::number);
         }
 
-        /** {@link #getTransparency()} を書く。null なら欄を除く */
+        /** {@link #getTransparency()} を書く。null ならフィールドを除く */
         public StyleComponent withTransparency(Double value) {
             put("transparency", value);
             return this;
@@ -9930,7 +9930,7 @@ public final class Messages {
             return Json.read(json.get("curve_color"), v0 -> Json.list(v0, Json::number));
         }
 
-        /** {@link #getCurveColor()} を書く。null なら欄を除く */
+        /** {@link #getCurveColor()} を書く。null ならフィールドを除く */
         public StyleComponent withCurveColor(List<Double> value) {
             put("curve_color", value);
             return this;
@@ -9941,7 +9941,7 @@ public final class Messages {
             return Json.read(json.get("layers"), v0 -> Json.list(v0, Json::string));
         }
 
-        /** {@link #getLayers()} を書く。null なら欄を除く */
+        /** {@link #getLayers()} を書く。null ならフィールドを除く */
         public StyleComponent withLayers(List<String> value) {
             put("layers", value);
             return this;
@@ -9971,7 +9971,7 @@ public final class Messages {
             return Json.read(json.get("children"), v0 -> Json.list(v0, Json::string));
         }
 
-        /** {@link #getChildren()} を書く。null なら欄を除く */
+        /** {@link #getChildren()} を書く。null ならフィールドを除く */
         public RelationsComponent withChildren(List<String> value) {
             put("children", value);
             return this;
@@ -9982,7 +9982,7 @@ public final class Messages {
             return Json.read(json.get("referenced"), v0 -> Json.list(v0, Json::string));
         }
 
-        /** {@link #getReferenced()} を書く。null なら欄を除く */
+        /** {@link #getReferenced()} を書く。null ならフィールドを除く */
         public RelationsComponent withReferenced(List<String> value) {
             put("referenced", value);
             return this;
@@ -9993,7 +9993,7 @@ public final class Messages {
             return Json.read(json.get("instances"), v0 -> Json.list(v0, Json::string));
         }
 
-        /** {@link #getInstances()} を書く。null なら欄を除く */
+        /** {@link #getInstances()} を書く。null ならフィールドを除く */
         public RelationsComponent withInstances(List<String> value) {
             put("instances", value);
             return this;
@@ -10004,7 +10004,7 @@ public final class Messages {
             return Json.read(json.get("openings"), v0 -> Json.list(v0, Json::string));
         }
 
-        /** {@link #getOpenings()} を書く。null なら欄を除く */
+        /** {@link #getOpenings()} を書く。null ならフィールドを除く */
         public RelationsComponent withOpenings(List<String> value) {
             put("openings", value);
             return this;
@@ -10015,7 +10015,7 @@ public final class Messages {
             return Json.read(json.get("fillings"), v0 -> Json.list(v0, Json::string));
         }
 
-        /** {@link #getFillings()} を書く。null なら欄を除く */
+        /** {@link #getFillings()} を書く。null ならフィールドを除く */
         public RelationsComponent withFillings(List<String> value) {
             put("fillings", value);
             return this;
@@ -10026,7 +10026,7 @@ public final class Messages {
             return Json.read(json.get("members"), v0 -> Json.list(v0, Json::string));
         }
 
-        /** {@link #getMembers()} を書く。null なら欄を除く */
+        /** {@link #getMembers()} を書く。null ならフィールドを除く */
         public RelationsComponent withMembers(List<String> value) {
             put("members", value);
             return this;
@@ -10128,7 +10128,7 @@ public final class Messages {
         public static final String UNKNOWN = "unknown";
     }
 
-    /** 開いた IFC に、変更の一覧を当てて書き戻す（決定 0207・0244）。要素は、building_elements が返す ID とハッシュで指す。どれか 1 つでも当てられなければ、何も変えない。当てたら、文書を書き戻したものに替え、書き戻したファイル（ifcZIP で開いたものは ifcZIP）を blobs の file で返す。名前を挙げないインスタンスは、元のバイト列のまま書く。小版 58 から */
+    /** 開いた IFC に、変更の一覧を当てて書き戻す（決定 0207・0244）。要素は、building_elements が返す ID とハッシュで指す。どれか 1 つでも当てられなければ、何も変えない。当てたら、文書を書き戻したものに替え、書き戻したファイル（ifcZIP で開いたものは ifcZIP）を blobs の file で返す。名前を挙げないインスタンスは、元のバイト列のまま書く。マイナーバージョン 58 から */
     public static final class BuildingApplyRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public BuildingApplyRequest(Map<String, Object> json) {
@@ -10141,18 +10141,18 @@ public final class Messages {
             return json == null ? null : new BuildingApplyRequest(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public BuildingApplyRequest() {
             super(new LinkedHashMap<String, Object>());
             json.put("op", "building_apply");
         }
 
-        /** メッセージのスキーマの大版。今は 1 */
+        /** メッセージのスキーマのメジャーバージョン。今は 1 */
         public Long getV() {
             return Json.read(json.get("v"), Json::integer);
         }
 
-        /** {@link #getV()} を書く。null なら欄を除く */
+        /** {@link #getV()} を書く。null ならフィールドを除く */
         public BuildingApplyRequest withV(Long value) {
             put("v", value);
             return this;
@@ -10163,7 +10163,7 @@ public final class Messages {
             return Json.read(json.get("budget"), Budget::of);
         }
 
-        /** {@link #getBudget()} を書く。null なら欄を除く */
+        /** {@link #getBudget()} を書く。null ならフィールドを除く */
         public BuildingApplyRequest withBudget(Budget value) {
             put("budget", value);
             return this;
@@ -10174,7 +10174,7 @@ public final class Messages {
             return Json.read(json.get("partial"), Json::bool);
         }
 
-        /** {@link #getPartial()} を書く。null なら欄を除く */
+        /** {@link #getPartial()} を書く。null ならフィールドを除く */
         public BuildingApplyRequest withPartial(Boolean value) {
             put("partial", value);
             return this;
@@ -10185,18 +10185,18 @@ public final class Messages {
             return Json.read(json.get("max_places"), Json::integer);
         }
 
-        /** {@link #getMaxPlaces()} を書く。null なら欄を除く */
+        /** {@link #getMaxPlaces()} を書く。null ならフィールドを除く */
         public BuildingApplyRequest withMaxPlaces(Long value) {
             put("max_places", value);
             return this;
         }
 
-        /** 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        /** 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
         public Long getTimeLimitMs() {
             return Json.read(json.get("time_limit_ms"), Json::integer);
         }
 
-        /** {@link #getTimeLimitMs()} を書く。null なら欄を除く */
+        /** {@link #getTimeLimitMs()} を書く。null ならフィールドを除く */
         public BuildingApplyRequest withTimeLimitMs(Long value) {
             put("time_limit_ms", value);
             return this;
@@ -10207,7 +10207,7 @@ public final class Messages {
             return Json.read(json.get("op"), Json::string);
         }
 
-        /** {@link #getOp()} を書く。null なら欄を除く */
+        /** {@link #getOp()} を書く。null ならフィールドを除く */
         public BuildingApplyRequest withOp(String value) {
             put("op", value);
             return this;
@@ -10218,7 +10218,7 @@ public final class Messages {
             return Json.read(json.get("doc"), Json::string);
         }
 
-        /** {@link #getDoc()} を書く。null なら欄を除く */
+        /** {@link #getDoc()} を書く。null ならフィールドを除く */
         public BuildingApplyRequest withDoc(String value) {
             put("doc", value);
             return this;
@@ -10229,7 +10229,7 @@ public final class Messages {
             return Json.read(json.get("hash"), Json::string);
         }
 
-        /** {@link #getHash()} を書く。null なら欄を除く */
+        /** {@link #getHash()} を書く。null ならフィールドを除く */
         public BuildingApplyRequest withHash(String value) {
             put("hash", value);
             return this;
@@ -10240,7 +10240,7 @@ public final class Messages {
             return Json.read(json.get("edits"), v0 -> Json.list(v0, BuildingEdit::of));
         }
 
-        /** {@link #getEdits()} を書く。null なら欄を除く */
+        /** {@link #getEdits()} を書く。null ならフィールドを除く */
         public BuildingApplyRequest withEdits(List<BuildingEdit> value) {
             put("edits", value);
             return this;
@@ -10260,12 +10260,12 @@ public final class Messages {
             return json == null ? null : new BuildingEdit(json);
         }
 
-        /** kind が property の形なら、その見方。違えば null */
+        /** kind が property の形なら、そのビュー。違えば null */
         public BuildingPropertyEdit asBuildingPropertyEdit() {
             return "property".equals(json.get("kind")) ? new BuildingPropertyEdit(json) : null;
         }
 
-        /** kind が attribute の形なら、その見方。違えば null */
+        /** kind が attribute の形なら、そのビュー。違えば null */
         public BuildingAttributeEdit asBuildingAttributeEdit() {
             return "attribute".equals(json.get("kind")) ? new BuildingAttributeEdit(json) : null;
         }
@@ -10284,7 +10284,7 @@ public final class Messages {
             return json == null ? null : new BuildingPropertyEdit(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public BuildingPropertyEdit() {
             super(new LinkedHashMap<String, Object>());
             json.put("kind", "property");
@@ -10295,7 +10295,7 @@ public final class Messages {
             return Json.read(json.get("kind"), Json::string);
         }
 
-        /** {@link #getKind()} を書く。null なら欄を除く */
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
         public BuildingPropertyEdit withKind(String value) {
             put("kind", value);
             return this;
@@ -10306,7 +10306,7 @@ public final class Messages {
             return Json.read(json.get("id"), Json::string);
         }
 
-        /** {@link #getId()} を書く。null なら欄を除く */
+        /** {@link #getId()} を書く。null ならフィールドを除く */
         public BuildingPropertyEdit withId(String value) {
             put("id", value);
             return this;
@@ -10317,7 +10317,7 @@ public final class Messages {
             return Json.read(json.get("hash"), Json::string);
         }
 
-        /** {@link #getHash()} を書く。null なら欄を除く */
+        /** {@link #getHash()} を書く。null ならフィールドを除く */
         public BuildingPropertyEdit withHash(String value) {
             put("hash", value);
             return this;
@@ -10328,7 +10328,7 @@ public final class Messages {
             return Json.read(json.get("set"), Json::string);
         }
 
-        /** {@link #getSet()} を書く。null なら欄を除く */
+        /** {@link #getSet()} を書く。null ならフィールドを除く */
         public BuildingPropertyEdit withSet(String value) {
             put("set", value);
             return this;
@@ -10339,7 +10339,7 @@ public final class Messages {
             return Json.read(json.get("name"), Json::string);
         }
 
-        /** {@link #getName()} を書く。null なら欄を除く */
+        /** {@link #getName()} を書く。null ならフィールドを除く */
         public BuildingPropertyEdit withName(String value) {
             put("name", value);
             return this;
@@ -10350,7 +10350,7 @@ public final class Messages {
             return Json.read(json.get("value"), BuildingValue::of);
         }
 
-        /** {@link #getValue()} を書く。null なら欄を除く */
+        /** {@link #getValue()} を書く。null ならフィールドを除く */
         public BuildingPropertyEdit withValue(BuildingValue value) {
             put("value", value);
             return this;
@@ -10370,7 +10370,7 @@ public final class Messages {
             return json == null ? null : new BuildingAttributeEdit(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public BuildingAttributeEdit() {
             super(new LinkedHashMap<String, Object>());
             json.put("kind", "attribute");
@@ -10381,7 +10381,7 @@ public final class Messages {
             return Json.read(json.get("kind"), Json::string);
         }
 
-        /** {@link #getKind()} を書く。null なら欄を除く */
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
         public BuildingAttributeEdit withKind(String value) {
             put("kind", value);
             return this;
@@ -10392,7 +10392,7 @@ public final class Messages {
             return Json.read(json.get("id"), Json::string);
         }
 
-        /** {@link #getId()} を書く。null なら欄を除く */
+        /** {@link #getId()} を書く。null ならフィールドを除く */
         public BuildingAttributeEdit withId(String value) {
             put("id", value);
             return this;
@@ -10403,7 +10403,7 @@ public final class Messages {
             return Json.read(json.get("hash"), Json::string);
         }
 
-        /** {@link #getHash()} を書く。null なら欄を除く */
+        /** {@link #getHash()} を書く。null ならフィールドを除く */
         public BuildingAttributeEdit withHash(String value) {
             put("hash", value);
             return this;
@@ -10414,7 +10414,7 @@ public final class Messages {
             return Json.read(json.get("attribute"), Json::string);
         }
 
-        /** {@link #getAttribute()} を書く。null なら欄を除く */
+        /** {@link #getAttribute()} を書く。null ならフィールドを除く */
         public BuildingAttributeEdit withAttribute(String value) {
             put("attribute", value);
             return this;
@@ -10425,7 +10425,7 @@ public final class Messages {
             return Json.read(json.get("value"), Json::string);
         }
 
-        /** {@link #getValue()} を書く。null なら欄を除く */
+        /** {@link #getValue()} を書く。null ならフィールドを除く */
         public BuildingAttributeEdit withValue(String value) {
             put("value", value);
             return this;
@@ -10468,7 +10468,7 @@ public final class Messages {
             return Json.read(json.get("applied"), v0 -> Json.list(v0, Applied::of));
         }
 
-        /** {@link #getApplied()} を書く。null なら欄を除く */
+        /** {@link #getApplied()} を書く。null ならフィールドを除く */
         public BuildingApplyResult withApplied(List<Applied> value) {
             put("applied", value);
             return this;
@@ -10479,14 +10479,14 @@ public final class Messages {
             return Json.read(json.get("hash"), Json::string);
         }
 
-        /** {@link #getHash()} を書く。null なら欄を除く */
+        /** {@link #getHash()} を書く。null ならフィールドを除く */
         public BuildingApplyResult withHash(String value) {
             put("hash", value);
             return this;
         }
     }
 
-    /** 開いた図面の文書を図面モデル（L2）に変換し、図面モデルのバイナリ（決定 0247）を blob で返す。配置は schema/drawing.toml にあり、元の文書の形式・系統・ハッシュも持つ。プラグインのモジュールが読んだ図面は、これを図面のモジュールの open に渡すと、元の形式とハッシュの読むだけの文書になる。小版 60 から */
+    /** 開いた図面の文書を図面モデル（L2）に変換し、図面モデルのバイナリ（決定 0247）を blob で返す。配置は schema/drawing.toml にあり、元の文書の形式・系統・ハッシュも持つ。プラグインのモジュールが読んだ図面は、これを図面のモジュールの open に渡すと、元の形式とハッシュの読むだけの文書になる。マイナーバージョン 60 から */
     public static final class LiftRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public LiftRequest(Map<String, Object> json) {
@@ -10499,18 +10499,18 @@ public final class Messages {
             return json == null ? null : new LiftRequest(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public LiftRequest() {
             super(new LinkedHashMap<String, Object>());
             json.put("op", "lift");
         }
 
-        /** メッセージのスキーマの大版。今は 1 */
+        /** メッセージのスキーマのメジャーバージョン。今は 1 */
         public Long getV() {
             return Json.read(json.get("v"), Json::integer);
         }
 
-        /** {@link #getV()} を書く。null なら欄を除く */
+        /** {@link #getV()} を書く。null ならフィールドを除く */
         public LiftRequest withV(Long value) {
             put("v", value);
             return this;
@@ -10521,7 +10521,7 @@ public final class Messages {
             return Json.read(json.get("budget"), Budget::of);
         }
 
-        /** {@link #getBudget()} を書く。null なら欄を除く */
+        /** {@link #getBudget()} を書く。null ならフィールドを除く */
         public LiftRequest withBudget(Budget value) {
             put("budget", value);
             return this;
@@ -10532,7 +10532,7 @@ public final class Messages {
             return Json.read(json.get("partial"), Json::bool);
         }
 
-        /** {@link #getPartial()} を書く。null なら欄を除く */
+        /** {@link #getPartial()} を書く。null ならフィールドを除く */
         public LiftRequest withPartial(Boolean value) {
             put("partial", value);
             return this;
@@ -10543,18 +10543,18 @@ public final class Messages {
             return Json.read(json.get("max_places"), Json::integer);
         }
 
-        /** {@link #getMaxPlaces()} を書く。null なら欄を除く */
+        /** {@link #getMaxPlaces()} を書く。null ならフィールドを除く */
         public LiftRequest withMaxPlaces(Long value) {
             put("max_places", value);
             return this;
         }
 
-        /** 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        /** 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
         public Long getTimeLimitMs() {
             return Json.read(json.get("time_limit_ms"), Json::integer);
         }
 
-        /** {@link #getTimeLimitMs()} を書く。null なら欄を除く */
+        /** {@link #getTimeLimitMs()} を書く。null ならフィールドを除く */
         public LiftRequest withTimeLimitMs(Long value) {
             put("time_limit_ms", value);
             return this;
@@ -10565,7 +10565,7 @@ public final class Messages {
             return Json.read(json.get("op"), Json::string);
         }
 
-        /** {@link #getOp()} を書く。null なら欄を除く */
+        /** {@link #getOp()} を書く。null ならフィールドを除く */
         public LiftRequest withOp(String value) {
             put("op", value);
             return this;
@@ -10576,7 +10576,7 @@ public final class Messages {
             return Json.read(json.get("doc"), Json::string);
         }
 
-        /** {@link #getDoc()} を書く。null なら欄を除く */
+        /** {@link #getDoc()} を書く。null ならフィールドを除く */
         public LiftRequest withDoc(String value) {
             put("doc", value);
             return this;
@@ -10606,14 +10606,14 @@ public final class Messages {
             return Json.read(json.get("blob"), Json::integer);
         }
 
-        /** {@link #getBlob()} を書く。null なら欄を除く */
+        /** {@link #getBlob()} を書く。null ならフィールドを除く */
         public LiftResult withBlob(Long value) {
             put("blob", value);
             return this;
         }
     }
 
-    /** 開いた IFC の建物モデルを、zm_push で渡した IDS で照合する（決定 0217・0219）。確かめられない facet は、指摘と分けて info の指摘で返す。小版 44 から */
+    /** 開いた IFC の建物モデルを、zm_push で渡した IDS で照合する（決定 0217・0219）。確かめられない facet は、指摘と分けて info の指摘で返す。マイナーバージョン 44 から */
     public static final class IdsCheckRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public IdsCheckRequest(Map<String, Object> json) {
@@ -10626,18 +10626,18 @@ public final class Messages {
             return json == null ? null : new IdsCheckRequest(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public IdsCheckRequest() {
             super(new LinkedHashMap<String, Object>());
             json.put("op", "ids_check");
         }
 
-        /** メッセージのスキーマの大版。今は 1 */
+        /** メッセージのスキーマのメジャーバージョン。今は 1 */
         public Long getV() {
             return Json.read(json.get("v"), Json::integer);
         }
 
-        /** {@link #getV()} を書く。null なら欄を除く */
+        /** {@link #getV()} を書く。null ならフィールドを除く */
         public IdsCheckRequest withV(Long value) {
             put("v", value);
             return this;
@@ -10648,7 +10648,7 @@ public final class Messages {
             return Json.read(json.get("budget"), Budget::of);
         }
 
-        /** {@link #getBudget()} を書く。null なら欄を除く */
+        /** {@link #getBudget()} を書く。null ならフィールドを除く */
         public IdsCheckRequest withBudget(Budget value) {
             put("budget", value);
             return this;
@@ -10659,7 +10659,7 @@ public final class Messages {
             return Json.read(json.get("partial"), Json::bool);
         }
 
-        /** {@link #getPartial()} を書く。null なら欄を除く */
+        /** {@link #getPartial()} を書く。null ならフィールドを除く */
         public IdsCheckRequest withPartial(Boolean value) {
             put("partial", value);
             return this;
@@ -10670,18 +10670,18 @@ public final class Messages {
             return Json.read(json.get("max_places"), Json::integer);
         }
 
-        /** {@link #getMaxPlaces()} を書く。null なら欄を除く */
+        /** {@link #getMaxPlaces()} を書く。null ならフィールドを除く */
         public IdsCheckRequest withMaxPlaces(Long value) {
             put("max_places", value);
             return this;
         }
 
-        /** 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        /** 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
         public Long getTimeLimitMs() {
             return Json.read(json.get("time_limit_ms"), Json::integer);
         }
 
-        /** {@link #getTimeLimitMs()} を書く。null なら欄を除く */
+        /** {@link #getTimeLimitMs()} を書く。null ならフィールドを除く */
         public IdsCheckRequest withTimeLimitMs(Long value) {
             put("time_limit_ms", value);
             return this;
@@ -10692,7 +10692,7 @@ public final class Messages {
             return Json.read(json.get("op"), Json::string);
         }
 
-        /** {@link #getOp()} を書く。null なら欄を除く */
+        /** {@link #getOp()} を書く。null ならフィールドを除く */
         public IdsCheckRequest withOp(String value) {
             put("op", value);
             return this;
@@ -10703,7 +10703,7 @@ public final class Messages {
             return Json.read(json.get("doc"), Json::string);
         }
 
-        /** {@link #getDoc()} を書く。null なら欄を除く */
+        /** {@link #getDoc()} を書く。null ならフィールドを除く */
         public IdsCheckRequest withDoc(String value) {
             put("doc", value);
             return this;
@@ -10714,18 +10714,18 @@ public final class Messages {
             return Json.read(json.get("ids"), Json::string);
         }
 
-        /** {@link #getIds()} を書く。null なら欄を除く */
+        /** {@link #getIds()} を書く。null ならフィールドを除く */
         public IdsCheckRequest withIds(String value) {
             put("ids", value);
             return this;
         }
 
-        /** EXPRESS の入力の名前（zm_push で渡した .exp）。渡せば、IFC の属性の全体を EXPRESS の名前で照らす。渡さなければ、建物モデルの成分にある属性だけを照らす */
+        /** EXPRESS の入力の名前（zm_push で渡した .exp）。渡せば、IFC の属性の全体を EXPRESS の名前で照らす。渡さなければ、建物モデルのコンポーネントにある属性だけを照らす */
         public String getExpress() {
             return Json.read(json.get("express"), Json::string);
         }
 
-        /** {@link #getExpress()} を書く。null なら欄を除く */
+        /** {@link #getExpress()} を書く。null ならフィールドを除く */
         public IdsCheckRequest withExpress(String value) {
             put("express", value);
             return this;
@@ -10736,7 +10736,7 @@ public final class Messages {
             return Json.read(json.get("offset"), Json::integer);
         }
 
-        /** {@link #getOffset()} を書く。null なら欄を除く */
+        /** {@link #getOffset()} を書く。null ならフィールドを除く */
         public IdsCheckRequest withOffset(Long value) {
             put("offset", value);
             return this;
@@ -10747,7 +10747,7 @@ public final class Messages {
             return Json.read(json.get("limit"), Json::integer);
         }
 
-        /** {@link #getLimit()} を書く。null なら欄を除く */
+        /** {@link #getLimit()} を書く。null ならフィールドを除く */
         public IdsCheckRequest withLimit(Long value) {
             put("limit", value);
             return this;
@@ -10777,7 +10777,7 @@ public final class Messages {
             return Json.read(json.get("title"), Json::string);
         }
 
-        /** {@link #getTitle()} を書く。null なら欄を除く */
+        /** {@link #getTitle()} を書く。null ならフィールドを除く */
         public IdsCheckResult withTitle(String value) {
             put("title", value);
             return this;
@@ -10788,7 +10788,7 @@ public final class Messages {
             return Json.read(json.get("specifications"), v0 -> Json.list(v0, IdsSpecification::of));
         }
 
-        /** {@link #getSpecifications()} を書く。null なら欄を除く */
+        /** {@link #getSpecifications()} を書く。null ならフィールドを除く */
         public IdsCheckResult withSpecifications(List<IdsSpecification> value) {
             put("specifications", value);
             return this;
@@ -10799,7 +10799,7 @@ public final class Messages {
             return Json.read(json.get("findings"), v0 -> Json.list(v0, IdsFinding::of));
         }
 
-        /** {@link #getFindings()} を書く。null なら欄を除く */
+        /** {@link #getFindings()} を書く。null ならフィールドを除く */
         public IdsCheckResult withFindings(List<IdsFinding> value) {
             put("findings", value);
             return this;
@@ -10810,7 +10810,7 @@ public final class Messages {
             return Json.read(json.get("total"), Json::integer);
         }
 
-        /** {@link #getTotal()} を書く。null なら欄を除く */
+        /** {@link #getTotal()} を書く。null ならフィールドを除く */
         public IdsCheckResult withTotal(Long value) {
             put("total", value);
             return this;
@@ -10821,7 +10821,7 @@ public final class Messages {
             return Json.read(json.get("next_offset"), Json::integer);
         }
 
-        /** {@link #getNextOffset()} を書く。null なら欄を除く */
+        /** {@link #getNextOffset()} を書く。null ならフィールドを除く */
         public IdsCheckResult withNextOffset(Long value) {
             put("next_offset", value);
             return this;
@@ -10851,7 +10851,7 @@ public final class Messages {
             return Json.read(json.get("name"), Json::string);
         }
 
-        /** {@link #getName()} を書く。null なら欄を除く */
+        /** {@link #getName()} を書く。null ならフィールドを除く */
         public IdsSpecification withName(String value) {
             put("name", value);
             return this;
@@ -10862,7 +10862,7 @@ public final class Messages {
             return Json.read(json.get("identifier"), Json::string);
         }
 
-        /** {@link #getIdentifier()} を書く。null なら欄を除く */
+        /** {@link #getIdentifier()} を書く。null ならフィールドを除く */
         public IdsSpecification withIdentifier(String value) {
             put("identifier", value);
             return this;
@@ -10873,7 +10873,7 @@ public final class Messages {
             return Json.read(json.get("status"), Json::string);
         }
 
-        /** {@link #getStatus()} を書く。null なら欄を除く */
+        /** {@link #getStatus()} を書く。null ならフィールドを除く */
         public IdsSpecification withStatus(String value) {
             put("status", value);
             return this;
@@ -10884,7 +10884,7 @@ public final class Messages {
             return Json.read(json.get("applicable"), Json::integer);
         }
 
-        /** {@link #getApplicable()} を書く。null なら欄を除く */
+        /** {@link #getApplicable()} を書く。null ならフィールドを除く */
         public IdsSpecification withApplicable(Long value) {
             put("applicable", value);
             return this;
@@ -10895,7 +10895,7 @@ public final class Messages {
             return Json.read(json.get("failed"), Json::integer);
         }
 
-        /** {@link #getFailed()} を書く。null なら欄を除く */
+        /** {@link #getFailed()} を書く。null ならフィールドを除く */
         public IdsSpecification withFailed(Long value) {
             put("failed", value);
             return this;
@@ -10906,7 +10906,7 @@ public final class Messages {
             return Json.read(json.get("unsupported"), Json::integer);
         }
 
-        /** {@link #getUnsupported()} を書く。null なら欄を除く */
+        /** {@link #getUnsupported()} を書く。null ならフィールドを除く */
         public IdsSpecification withUnsupported(Long value) {
             put("unsupported", value);
             return this;
@@ -10936,7 +10936,7 @@ public final class Messages {
             return Json.read(json.get("specification"), Json::string);
         }
 
-        /** {@link #getSpecification()} を書く。null なら欄を除く */
+        /** {@link #getSpecification()} を書く。null ならフィールドを除く */
         public IdsFinding withSpecification(String value) {
             put("specification", value);
             return this;
@@ -10947,14 +10947,14 @@ public final class Messages {
             return Json.read(json.get("diagnostic"), Diagnostic::of);
         }
 
-        /** {@link #getDiagnostic()} を書く。null なら欄を除く */
+        /** {@link #getDiagnostic()} を書く。null ならフィールドを除く */
         public IdsFinding withDiagnostic(Diagnostic value) {
             put("diagnostic", value);
             return this;
         }
     }
 
-    /** 開いた IFC を ids_check と同じに照合し、選んだ指摘だけを開いた指摘としてレビューの文書（決定 0218・0219）に足す。足した文書は blobs の file で返す。小版 44 から */
+    /** 開いた IFC を ids_check と同じに照合し、選んだ指摘だけを開いた指摘としてレビューの文書（決定 0218・0219）に足す。足した文書は blobs の file で返す。マイナーバージョン 44 から */
     public static final class ReviewAdoptIdsRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public ReviewAdoptIdsRequest(Map<String, Object> json) {
@@ -10967,18 +10967,18 @@ public final class Messages {
             return json == null ? null : new ReviewAdoptIdsRequest(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public ReviewAdoptIdsRequest() {
             super(new LinkedHashMap<String, Object>());
             json.put("op", "review_adopt_ids");
         }
 
-        /** メッセージのスキーマの大版。今は 1 */
+        /** メッセージのスキーマのメジャーバージョン。今は 1 */
         public Long getV() {
             return Json.read(json.get("v"), Json::integer);
         }
 
-        /** {@link #getV()} を書く。null なら欄を除く */
+        /** {@link #getV()} を書く。null ならフィールドを除く */
         public ReviewAdoptIdsRequest withV(Long value) {
             put("v", value);
             return this;
@@ -10989,7 +10989,7 @@ public final class Messages {
             return Json.read(json.get("budget"), Budget::of);
         }
 
-        /** {@link #getBudget()} を書く。null なら欄を除く */
+        /** {@link #getBudget()} を書く。null ならフィールドを除く */
         public ReviewAdoptIdsRequest withBudget(Budget value) {
             put("budget", value);
             return this;
@@ -11000,7 +11000,7 @@ public final class Messages {
             return Json.read(json.get("partial"), Json::bool);
         }
 
-        /** {@link #getPartial()} を書く。null なら欄を除く */
+        /** {@link #getPartial()} を書く。null ならフィールドを除く */
         public ReviewAdoptIdsRequest withPartial(Boolean value) {
             put("partial", value);
             return this;
@@ -11011,18 +11011,18 @@ public final class Messages {
             return Json.read(json.get("max_places"), Json::integer);
         }
 
-        /** {@link #getMaxPlaces()} を書く。null なら欄を除く */
+        /** {@link #getMaxPlaces()} を書く。null ならフィールドを除く */
         public ReviewAdoptIdsRequest withMaxPlaces(Long value) {
             put("max_places", value);
             return this;
         }
 
-        /** 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        /** 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
         public Long getTimeLimitMs() {
             return Json.read(json.get("time_limit_ms"), Json::integer);
         }
 
-        /** {@link #getTimeLimitMs()} を書く。null なら欄を除く */
+        /** {@link #getTimeLimitMs()} を書く。null ならフィールドを除く */
         public ReviewAdoptIdsRequest withTimeLimitMs(Long value) {
             put("time_limit_ms", value);
             return this;
@@ -11033,7 +11033,7 @@ public final class Messages {
             return Json.read(json.get("op"), Json::string);
         }
 
-        /** {@link #getOp()} を書く。null なら欄を除く */
+        /** {@link #getOp()} を書く。null ならフィールドを除く */
         public ReviewAdoptIdsRequest withOp(String value) {
             put("op", value);
             return this;
@@ -11044,7 +11044,7 @@ public final class Messages {
             return Json.read(json.get("doc"), Json::string);
         }
 
-        /** {@link #getDoc()} を書く。null なら欄を除く */
+        /** {@link #getDoc()} を書く。null ならフィールドを除く */
         public ReviewAdoptIdsRequest withDoc(String value) {
             put("doc", value);
             return this;
@@ -11055,18 +11055,18 @@ public final class Messages {
             return Json.read(json.get("ids"), Json::string);
         }
 
-        /** {@link #getIds()} を書く。null なら欄を除く */
+        /** {@link #getIds()} を書く。null ならフィールドを除く */
         public ReviewAdoptIdsRequest withIds(String value) {
             put("ids", value);
             return this;
         }
 
-        /** EXPRESS の入力の名前（zm_push で渡した .exp）。渡せば、IFC の属性の全体を EXPRESS の名前で照らす。渡さなければ、建物モデルの成分にある属性だけを照らす */
+        /** EXPRESS の入力の名前（zm_push で渡した .exp）。渡せば、IFC の属性の全体を EXPRESS の名前で照らす。渡さなければ、建物モデルのコンポーネントにある属性だけを照らす */
         public String getExpress() {
             return Json.read(json.get("express"), Json::string);
         }
 
-        /** {@link #getExpress()} を書く。null なら欄を除く */
+        /** {@link #getExpress()} を書く。null ならフィールドを除く */
         public ReviewAdoptIdsRequest withExpress(String value) {
             put("express", value);
             return this;
@@ -11077,7 +11077,7 @@ public final class Messages {
             return Json.read(json.get("review"), Json::string);
         }
 
-        /** {@link #getReview()} を書く。null なら欄を除く */
+        /** {@link #getReview()} を書く。null ならフィールドを除く */
         public ReviewAdoptIdsRequest withReview(String value) {
             put("review", value);
             return this;
@@ -11088,7 +11088,7 @@ public final class Messages {
             return Json.read(json.get("target"), Json::string);
         }
 
-        /** {@link #getTarget()} を書く。null なら欄を除く */
+        /** {@link #getTarget()} を書く。null ならフィールドを除く */
         public ReviewAdoptIdsRequest withTarget(String value) {
             put("target", value);
             return this;
@@ -11099,14 +11099,14 @@ public final class Messages {
             return Json.read(json.get("findings"), v0 -> Json.list(v0, Json::integer));
         }
 
-        /** {@link #getFindings()} を書く。null なら欄を除く */
+        /** {@link #getFindings()} を書く。null ならフィールドを除く */
         public ReviewAdoptIdsRequest withFindings(List<Long> value) {
             put("findings", value);
             return this;
         }
     }
 
-    /** zm_push で渡した BCF 2.1 か 3.0 の bcfzip を読み、開いた IFC を対象にしたレビューの文書（決定 0214・0220）にする。topic は指摘に、comment はコメントに、viewpoint は 3D の場所に写し、要素の参照のハッシュは建物モデルの要素のハッシュで埋める。文書は blobs の file で返す。小版 45 から */
+    /** zm_push で渡した BCF 2.1 か 3.0 の bcfzip を読み、開いた IFC を対象にしたレビューの文書（決定 0214・0220）にする。topic は指摘に、comment はコメントに、viewpoint は 3D の場所に写し、要素の参照のハッシュは建物モデルの要素のハッシュで埋める。文書は blobs の file で返す。マイナーバージョン 45 から */
     public static final class BcfReadRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public BcfReadRequest(Map<String, Object> json) {
@@ -11119,18 +11119,18 @@ public final class Messages {
             return json == null ? null : new BcfReadRequest(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public BcfReadRequest() {
             super(new LinkedHashMap<String, Object>());
             json.put("op", "bcf_read");
         }
 
-        /** メッセージのスキーマの大版。今は 1 */
+        /** メッセージのスキーマのメジャーバージョン。今は 1 */
         public Long getV() {
             return Json.read(json.get("v"), Json::integer);
         }
 
-        /** {@link #getV()} を書く。null なら欄を除く */
+        /** {@link #getV()} を書く。null ならフィールドを除く */
         public BcfReadRequest withV(Long value) {
             put("v", value);
             return this;
@@ -11141,7 +11141,7 @@ public final class Messages {
             return Json.read(json.get("budget"), Budget::of);
         }
 
-        /** {@link #getBudget()} を書く。null なら欄を除く */
+        /** {@link #getBudget()} を書く。null ならフィールドを除く */
         public BcfReadRequest withBudget(Budget value) {
             put("budget", value);
             return this;
@@ -11152,7 +11152,7 @@ public final class Messages {
             return Json.read(json.get("partial"), Json::bool);
         }
 
-        /** {@link #getPartial()} を書く。null なら欄を除く */
+        /** {@link #getPartial()} を書く。null ならフィールドを除く */
         public BcfReadRequest withPartial(Boolean value) {
             put("partial", value);
             return this;
@@ -11163,18 +11163,18 @@ public final class Messages {
             return Json.read(json.get("max_places"), Json::integer);
         }
 
-        /** {@link #getMaxPlaces()} を書く。null なら欄を除く */
+        /** {@link #getMaxPlaces()} を書く。null ならフィールドを除く */
         public BcfReadRequest withMaxPlaces(Long value) {
             put("max_places", value);
             return this;
         }
 
-        /** 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        /** 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
         public Long getTimeLimitMs() {
             return Json.read(json.get("time_limit_ms"), Json::integer);
         }
 
-        /** {@link #getTimeLimitMs()} を書く。null なら欄を除く */
+        /** {@link #getTimeLimitMs()} を書く。null ならフィールドを除く */
         public BcfReadRequest withTimeLimitMs(Long value) {
             put("time_limit_ms", value);
             return this;
@@ -11185,7 +11185,7 @@ public final class Messages {
             return Json.read(json.get("op"), Json::string);
         }
 
-        /** {@link #getOp()} を書く。null なら欄を除く */
+        /** {@link #getOp()} を書く。null ならフィールドを除く */
         public BcfReadRequest withOp(String value) {
             put("op", value);
             return this;
@@ -11196,7 +11196,7 @@ public final class Messages {
             return Json.read(json.get("doc"), Json::string);
         }
 
-        /** {@link #getDoc()} を書く。null なら欄を除く */
+        /** {@link #getDoc()} を書く。null ならフィールドを除く */
         public BcfReadRequest withDoc(String value) {
             put("doc", value);
             return this;
@@ -11207,7 +11207,7 @@ public final class Messages {
             return Json.read(json.get("input"), Json::string);
         }
 
-        /** {@link #getInput()} を書く。null なら欄を除く */
+        /** {@link #getInput()} を書く。null ならフィールドを除く */
         public BcfReadRequest withInput(String value) {
             put("input", value);
             return this;
@@ -11218,7 +11218,7 @@ public final class Messages {
             return Json.read(json.get("target"), Json::string);
         }
 
-        /** {@link #getTarget()} を書く。null なら欄を除く */
+        /** {@link #getTarget()} を書く。null ならフィールドを除く */
         public BcfReadRequest withTarget(String value) {
             put("target", value);
             return this;
@@ -11229,7 +11229,7 @@ public final class Messages {
             return Json.read(json.get("statuses"), v0 -> Json.list(v0, BcfStatus::of));
         }
 
-        /** {@link #getStatuses()} を書く。null なら欄を除く */
+        /** {@link #getStatuses()} を書く。null ならフィールドを除く */
         public BcfReadRequest withStatuses(List<BcfStatus> value) {
             put("statuses", value);
             return this;
@@ -11259,7 +11259,7 @@ public final class Messages {
             return Json.read(json.get("text"), Json::string);
         }
 
-        /** {@link #getText()} を書く。null なら欄を除く */
+        /** {@link #getText()} を書く。null ならフィールドを除く */
         public BcfStatus withText(String value) {
             put("text", value);
             return this;
@@ -11270,7 +11270,7 @@ public final class Messages {
             return Json.read(json.get("status"), Json::string);
         }
 
-        /** {@link #getStatus()} を書く。null なら欄を除く */
+        /** {@link #getStatus()} を書く。null ならフィールドを除く */
         public BcfStatus withStatus(String value) {
             put("status", value);
             return this;
@@ -11310,12 +11310,12 @@ public final class Messages {
             super(new LinkedHashMap<String, Object>());
         }
 
-        /** BCF の版 */
+        /** BCF のバージョン */
         public String getVersion() {
             return Json.read(json.get("version"), Json::string);
         }
 
-        /** {@link #getVersion()} を書く。null なら欄を除く */
+        /** {@link #getVersion()} を書く。null ならフィールドを除く */
         public BcfReadResult withVersion(String value) {
             put("version", value);
             return this;
@@ -11326,14 +11326,14 @@ public final class Messages {
             return Json.read(json.get("topics"), Json::integer);
         }
 
-        /** {@link #getTopics()} を書く。null なら欄を除く */
+        /** {@link #getTopics()} を書く。null ならフィールドを除く */
         public BcfReadResult withTopics(Long value) {
             put("topics", value);
             return this;
         }
     }
 
-    /** zm_push で渡したレビューの文書を、BCF の bcfzip に書く（決定 0214・0220）。版は version で選ぶ（小版 61 から。それまでは 3.0 だけ）。target を対象にした 3D の場所を viewpoint にし、2D の場所と図形は書かずに診断する。original を渡せば、変えていない topic を元のバイト列のまま書き、変えた topic でも写さない要素と知らない要素を保つ。bcfzip は blobs の file で返す。小版 45 から */
+    /** zm_push で渡したレビューの文書を、BCF の bcfzip に書く（決定 0214・0220）。バージョンは version で選ぶ（マイナーバージョン 61 から。それまでは 3.0 だけ）。target を対象にした 3D の場所を viewpoint にし、2D の場所と図形は書かずに診断する。original を渡せば、変えていない topic を元のバイト列のまま書き、変えた topic でも写さない要素と知らない要素を保つ。bcfzip は blobs の file で返す。マイナーバージョン 45 から */
     public static final class BcfWriteRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public BcfWriteRequest(Map<String, Object> json) {
@@ -11346,18 +11346,18 @@ public final class Messages {
             return json == null ? null : new BcfWriteRequest(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public BcfWriteRequest() {
             super(new LinkedHashMap<String, Object>());
             json.put("op", "bcf_write");
         }
 
-        /** メッセージのスキーマの大版。今は 1 */
+        /** メッセージのスキーマのメジャーバージョン。今は 1 */
         public Long getV() {
             return Json.read(json.get("v"), Json::integer);
         }
 
-        /** {@link #getV()} を書く。null なら欄を除く */
+        /** {@link #getV()} を書く。null ならフィールドを除く */
         public BcfWriteRequest withV(Long value) {
             put("v", value);
             return this;
@@ -11368,7 +11368,7 @@ public final class Messages {
             return Json.read(json.get("budget"), Budget::of);
         }
 
-        /** {@link #getBudget()} を書く。null なら欄を除く */
+        /** {@link #getBudget()} を書く。null ならフィールドを除く */
         public BcfWriteRequest withBudget(Budget value) {
             put("budget", value);
             return this;
@@ -11379,7 +11379,7 @@ public final class Messages {
             return Json.read(json.get("partial"), Json::bool);
         }
 
-        /** {@link #getPartial()} を書く。null なら欄を除く */
+        /** {@link #getPartial()} を書く。null ならフィールドを除く */
         public BcfWriteRequest withPartial(Boolean value) {
             put("partial", value);
             return this;
@@ -11390,18 +11390,18 @@ public final class Messages {
             return Json.read(json.get("max_places"), Json::integer);
         }
 
-        /** {@link #getMaxPlaces()} を書く。null なら欄を除く */
+        /** {@link #getMaxPlaces()} を書く。null ならフィールドを除く */
         public BcfWriteRequest withMaxPlaces(Long value) {
             put("max_places", value);
             return this;
         }
 
-        /** 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        /** 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
         public Long getTimeLimitMs() {
             return Json.read(json.get("time_limit_ms"), Json::integer);
         }
 
-        /** {@link #getTimeLimitMs()} を書く。null なら欄を除く */
+        /** {@link #getTimeLimitMs()} を書く。null ならフィールドを除く */
         public BcfWriteRequest withTimeLimitMs(Long value) {
             put("time_limit_ms", value);
             return this;
@@ -11412,7 +11412,7 @@ public final class Messages {
             return Json.read(json.get("op"), Json::string);
         }
 
-        /** {@link #getOp()} を書く。null なら欄を除く */
+        /** {@link #getOp()} を書く。null ならフィールドを除く */
         public BcfWriteRequest withOp(String value) {
             put("op", value);
             return this;
@@ -11423,7 +11423,7 @@ public final class Messages {
             return Json.read(json.get("review"), Json::string);
         }
 
-        /** {@link #getReview()} を書く。null なら欄を除く */
+        /** {@link #getReview()} を書く。null ならフィールドを除く */
         public BcfWriteRequest withReview(String value) {
             put("review", value);
             return this;
@@ -11434,7 +11434,7 @@ public final class Messages {
             return Json.read(json.get("target"), Json::string);
         }
 
-        /** {@link #getTarget()} を書く。null なら欄を除く */
+        /** {@link #getTarget()} を書く。null ならフィールドを除く */
         public BcfWriteRequest withTarget(String value) {
             put("target", value);
             return this;
@@ -11445,7 +11445,7 @@ public final class Messages {
             return Json.read(json.get("original"), Json::string);
         }
 
-        /** {@link #getOriginal()} を書く。null なら欄を除く */
+        /** {@link #getOriginal()} を書く。null ならフィールドを除く */
         public BcfWriteRequest withOriginal(String value) {
             put("original", value);
             return this;
@@ -11456,7 +11456,7 @@ public final class Messages {
             return Json.read(json.get("statuses"), v0 -> Json.list(v0, BcfStatus::of));
         }
 
-        /** {@link #getStatuses()} を書く。null なら欄を除く */
+        /** {@link #getStatuses()} を書く。null ならフィールドを除く */
         public BcfWriteRequest withStatuses(List<BcfStatus> value) {
             put("statuses", value);
             return this;
@@ -11467,7 +11467,7 @@ public final class Messages {
             return Json.read(json.get("kind"), Json::string);
         }
 
-        /** {@link #getKind()} を書く。null なら欄を除く */
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
         public BcfWriteRequest withKind(String value) {
             put("kind", value);
             return this;
@@ -11478,7 +11478,7 @@ public final class Messages {
             return Json.read(json.get("author"), Json::string);
         }
 
-        /** {@link #getAuthor()} を書く。null なら欄を除く */
+        /** {@link #getAuthor()} を書く。null ならフィールドを除く */
         public BcfWriteRequest withAuthor(String value) {
             put("author", value);
             return this;
@@ -11489,18 +11489,18 @@ public final class Messages {
             return Json.read(json.get("date"), Json::string);
         }
 
-        /** {@link #getDate()} を書く。null なら欄を除く */
+        /** {@link #getDate()} を書く。null ならフィールドを除く */
         public BcfWriteRequest withDate(String value) {
             put("date", value);
             return this;
         }
 
-        /** 書く BCF の版。2.1 か 3.0。書かなければ、original の版か 3.0。original と違う版では書かず、bcf.conversion.unsupported で失敗する。ほかの値は call.value.invalid。小版 61 から */
+        /** 書く BCF のバージョン。2.1 か 3.0。書かなければ、original のバージョンか 3.0。original と違うバージョンでは書かず、bcf.conversion.unsupported で失敗する。ほかの値は call.value.invalid。マイナーバージョン 61 から */
         public String getVersion() {
             return Json.read(json.get("version"), Json::string);
         }
 
-        /** {@link #getVersion()} を書く。null なら欄を除く */
+        /** {@link #getVersion()} を書く。null ならフィールドを除く */
         public BcfWriteRequest withVersion(String value) {
             put("version", value);
             return this;
@@ -11530,7 +11530,7 @@ public final class Messages {
             return Json.read(json.get("topics"), Json::integer);
         }
 
-        /** {@link #getTopics()} を書く。null なら欄を除く */
+        /** {@link #getTopics()} を書く。null ならフィールドを除く */
         public BcfWriteResult withTopics(Long value) {
             put("topics", value);
             return this;
@@ -11560,7 +11560,7 @@ public final class Messages {
             return Json.read(json.get("id"), Json::string);
         }
 
-        /** {@link #getId()} を書く。null なら欄を除く */
+        /** {@link #getId()} を書く。null ならフィールドを除く */
         public TableItem withId(String value) {
             put("id", value);
             return this;
@@ -11571,7 +11571,7 @@ public final class Messages {
             return Json.read(json.get("name"), Json::string);
         }
 
-        /** {@link #getName()} を書く。null なら欄を除く */
+        /** {@link #getName()} を書く。null ならフィールドを除く */
         public TableItem withName(String value) {
             put("name", value);
             return this;
@@ -11582,14 +11582,14 @@ public final class Messages {
             return Json.read(json.get("hash"), Json::string);
         }
 
-        /** {@link #getHash()} を書く。null なら欄を除く */
+        /** {@link #getHash()} を書く。null ならフィールドを除く */
         public TableItem withHash(String value) {
             put("hash", value);
             return this;
         }
     }
 
-    /** レイヤの表の項目（決定 0162）。小版 22 から、状態とスタイルを持つ */
+    /** レイヤの表の項目（決定 0162）。マイナーバージョン 22 から、状態とスタイルを持つ */
     public static final class LayerItem extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public LayerItem(Map<String, Object> json) {
@@ -11612,7 +11612,7 @@ public final class Messages {
             return Json.read(json.get("id"), Json::string);
         }
 
-        /** {@link #getId()} を書く。null なら欄を除く */
+        /** {@link #getId()} を書く。null ならフィールドを除く */
         public LayerItem withId(String value) {
             put("id", value);
             return this;
@@ -11623,7 +11623,7 @@ public final class Messages {
             return Json.read(json.get("name"), Json::string);
         }
 
-        /** {@link #getName()} を書く。null なら欄を除く */
+        /** {@link #getName()} を書く。null ならフィールドを除く */
         public LayerItem withName(String value) {
             put("name", value);
             return this;
@@ -11634,102 +11634,102 @@ public final class Messages {
             return Json.read(json.get("hash"), Json::string);
         }
 
-        /** {@link #getHash()} を書く。null なら欄を除く */
+        /** {@link #getHash()} を書く。null ならフィールドを除く */
         public LayerItem withHash(String value) {
             put("hash", value);
             return this;
         }
 
-        /** ファイルに定義がある。偽なら、要素が名前で指すだけのレイヤで、ほかの欄を持たない。小版 22 から */
+        /** ファイルに定義がある。偽なら、要素が名前で指すだけのレイヤで、ほかのフィールドを持たない。マイナーバージョン 22 から */
         public Boolean getDefined() {
             return Json.read(json.get("defined"), Json::bool);
         }
 
-        /** {@link #getDefined()} を書く。null なら欄を除く */
+        /** {@link #getDefined()} を書く。null ならフィールドを除く */
         public LayerItem withDefined(Boolean value) {
             put("defined", value);
             return this;
         }
 
-        /** 表示する。小版 22 から */
+        /** 表示する。マイナーバージョン 22 から */
         public Boolean getVisible() {
             return Json.read(json.get("visible"), Json::bool);
         }
 
-        /** {@link #getVisible()} を書く。null なら欄を除く */
+        /** {@link #getVisible()} を書く。null ならフィールドを除く */
         public LayerItem withVisible(Boolean value) {
             put("visible", value);
             return this;
         }
 
-        /** 印刷する。小版 22 から */
+        /** 印刷する。マイナーバージョン 22 から */
         public Boolean getPrintable() {
             return Json.read(json.get("printable"), Json::bool);
         }
 
-        /** {@link #getPrintable()} を書く。null なら欄を除く */
+        /** {@link #getPrintable()} を書く。null ならフィールドを除く */
         public LayerItem withPrintable(Boolean value) {
             put("printable", value);
             return this;
         }
 
-        /** 編集できる。小版 22 から */
+        /** 編集できる。マイナーバージョン 22 から */
         public Boolean getEditable() {
             return Json.read(json.get("editable"), Json::bool);
         }
 
-        /** {@link #getEditable()} を書く。null なら欄を除く */
+        /** {@link #getEditable()} を書く。null ならフィールドを除く */
         public LayerItem withEditable(Boolean value) {
             put("editable", value);
             return this;
         }
 
-        /** 凍結する。小版 22 から */
+        /** 凍結する。マイナーバージョン 22 から */
         public Boolean getFrozen() {
             return Json.read(json.get("frozen"), Json::bool);
         }
 
-        /** {@link #getFrozen()} を書く。null なら欄を除く */
+        /** {@link #getFrozen()} を書く。null ならフィールドを除く */
         public LayerItem withFrozen(Boolean value) {
             put("frozen", value);
             return this;
         }
 
-        /** 色。inherit を持たない。定義が色を持たなければ書かない。小版 22 から */
+        /** 色。inherit を持たない。定義が色を持たなければ書かない。マイナーバージョン 22 から */
         public ColorChange getColor() {
             return Json.read(json.get("color"), ColorChange::of);
         }
 
-        /** {@link #getColor()} を書く。null なら欄を除く */
+        /** {@link #getColor()} を書く。null ならフィールドを除く */
         public LayerItem withColor(ColorChange value) {
             put("color", value);
             return this;
         }
 
-        /** 線種の ID。定義が線種を持たなければ書かない。小版 22 から */
+        /** 線種の ID。定義が線種を持たなければ書かない。マイナーバージョン 22 から */
         public String getLineTypeId() {
             return Json.read(json.get("line_type_id"), Json::string);
         }
 
-        /** {@link #getLineTypeId()} を書く。null なら欄を除く */
+        /** {@link #getLineTypeId()} を書く。null ならフィールドを除く */
         public LayerItem withLineTypeId(String value) {
             put("line_type_id", value);
             return this;
         }
 
-        /** 線幅。inherit を持たない。定義が線幅を持たなければ書かない。小版 22 から */
+        /** 線幅。inherit を持たない。定義が線幅を持たなければ書かない。マイナーバージョン 22 から */
         public LineWeightChange getLineWeight() {
             return Json.read(json.get("line_weight"), LineWeightChange::of);
         }
 
-        /** {@link #getLineWeight()} を書く。null なら欄を除く */
+        /** {@link #getLineWeight()} を書く。null ならフィールドを除く */
         public LayerItem withLineWeight(LineWeightChange value) {
             put("line_weight", value);
             return this;
         }
     }
 
-    /** 線種の表の項目（決定 0164）。小版 26 から、定義を持つ */
+    /** 線種の表の項目（決定 0164）。マイナーバージョン 26 から、定義を持つ */
     public static final class LineTypeItem extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public LineTypeItem(Map<String, Object> json) {
@@ -11752,7 +11752,7 @@ public final class Messages {
             return Json.read(json.get("id"), Json::string);
         }
 
-        /** {@link #getId()} を書く。null なら欄を除く */
+        /** {@link #getId()} を書く。null ならフィールドを除く */
         public LineTypeItem withId(String value) {
             put("id", value);
             return this;
@@ -11763,7 +11763,7 @@ public final class Messages {
             return Json.read(json.get("name"), Json::string);
         }
 
-        /** {@link #getName()} を書く。null なら欄を除く */
+        /** {@link #getName()} を書く。null ならフィールドを除く */
         public LineTypeItem withName(String value) {
             put("name", value);
             return this;
@@ -11774,80 +11774,80 @@ public final class Messages {
             return Json.read(json.get("hash"), Json::string);
         }
 
-        /** {@link #getHash()} を書く。null なら欄を除く */
+        /** {@link #getHash()} を書く。null ならフィールドを除く */
         public LineTypeItem withHash(String value) {
             put("hash", value);
             return this;
         }
 
-        /** ファイルに定義がある。偽なら、要素が名前で指すだけの線種で、ほかの欄を持たない。小版 26 から */
+        /** ファイルに定義がある。偽なら、要素が名前で指すだけの線種で、ほかのフィールドを持たない。マイナーバージョン 26 から */
         public Boolean getDefined() {
             return Json.read(json.get("defined"), Json::bool);
         }
 
-        /** {@link #getDefined()} を書く。null なら欄を除く */
+        /** {@link #getDefined()} を書く。null ならフィールドを除く */
         public LineTypeItem withDefined(Boolean value) {
             put("defined", value);
             return this;
         }
 
-        /** 元の説明。小版 26 から */
+        /** 元の説明。マイナーバージョン 26 から */
         public String getDescription() {
             return Json.read(json.get("description"), Json::string);
         }
 
-        /** {@link #getDescription()} を書く。null なら欄を除く */
+        /** {@link #getDescription()} を書く。null ならフィールドを除く */
         public LineTypeItem withDescription(String value) {
             put("description", value);
             return this;
         }
 
-        /** 線と間の長さの列。正は線、負は間、0 は点。空なら実線。長さの単位は paper が決める。小版 26 から */
+        /** 線と間の長さの列。正は線、負は間、0 は点。空なら実線。長さの単位は paper が決める。マイナーバージョン 26 から */
         public List<Double> getPattern() {
             return Json.read(json.get("pattern"), v0 -> Json.list(v0, Json::number));
         }
 
-        /** {@link #getPattern()} を書く。null なら欄を除く */
+        /** {@link #getPattern()} を書く。null ならフィールドを除く */
         public LineTypeItem withPattern(List<Double> value) {
             put("pattern", value);
             return this;
         }
 
-        /** 列の長さが用紙の mm なら真、文書の単位なら偽。用紙の mm の列は line_type で変えられない。小版 26 から */
+        /** 列の長さが用紙の mm なら真、文書の単位なら偽。用紙の mm の列は line_type で変えられない。マイナーバージョン 26 から */
         public Boolean getPaper() {
             return Json.read(json.get("paper"), Json::bool);
         }
 
-        /** {@link #getPaper()} を書く。null なら欄を除く */
+        /** {@link #getPaper()} を書く。null ならフィールドを除く */
         public LineTypeItem withPaper(Boolean value) {
             put("paper", value);
             return this;
         }
 
-        /** 列の要素に形か文字を添える。添えれば、line_type で列の要素の数を変えられない。小版 26 から */
+        /** 列の要素に形か文字を添える。添えれば、line_type で列の要素の数を変えられない。マイナーバージョン 26 から */
         public Boolean getMarked() {
             return Json.read(json.get("marked"), Json::bool);
         }
 
-        /** {@link #getMarked()} を書く。null なら欄を除く */
+        /** {@link #getMarked()} を書く。null ならフィールドを除く */
         public LineTypeItem withMarked(Boolean value) {
             put("marked", value);
             return this;
         }
 
-        /** 列の要素に添える形と文字（決定 0150・0166）。添えなければ空。小版 28 から */
+        /** 列の要素に添える形と文字（決定 0150・0166）。添えなければ空。マイナーバージョン 28 から */
         public List<LineTypeMark> getMarks() {
             return Json.read(json.get("marks"), v0 -> Json.list(v0, LineTypeMark::of));
         }
 
-        /** {@link #getMarks()} を書く。null なら欄を除く */
+        /** {@link #getMarks()} を書く。null ならフィールドを除く */
         public LineTypeItem withMarks(List<LineTypeMark> value) {
             put("marks", value);
             return this;
         }
     }
 
-    /** 寸法スタイルの表の項目（決定 0165）。小版 27 から、端部記号と大きさを持つ */
+    /** 寸法スタイルの表の項目（決定 0165）。マイナーバージョン 27 から、端部記号と大きさを持つ */
     public static final class DimensionStyleItem extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public DimensionStyleItem(Map<String, Object> json) {
@@ -11870,7 +11870,7 @@ public final class Messages {
             return Json.read(json.get("id"), Json::string);
         }
 
-        /** {@link #getId()} を書く。null なら欄を除く */
+        /** {@link #getId()} を書く。null ならフィールドを除く */
         public DimensionStyleItem withId(String value) {
             put("id", value);
             return this;
@@ -11881,7 +11881,7 @@ public final class Messages {
             return Json.read(json.get("name"), Json::string);
         }
 
-        /** {@link #getName()} を書く。null なら欄を除く */
+        /** {@link #getName()} を書く。null ならフィールドを除く */
         public DimensionStyleItem withName(String value) {
             put("name", value);
             return this;
@@ -11892,69 +11892,69 @@ public final class Messages {
             return Json.read(json.get("hash"), Json::string);
         }
 
-        /** {@link #getHash()} を書く。null なら欄を除く */
+        /** {@link #getHash()} を書く。null ならフィールドを除く */
         public DimensionStyleItem withHash(String value) {
             put("hash", value);
             return this;
         }
 
-        /** 寸法線の 1 本目と 2 本目の補助線の側の端部記号の、ブロックの名前。空の名前は既定の矢印。小版 27 から */
+        /** 寸法線の 1 本目と 2 本目の補助線の側の端部記号の、ブロックの名前。空の名前は既定の矢印。マイナーバージョン 27 から */
         public List<String> getEnds() {
             return Json.read(json.get("ends"), v0 -> Json.list(v0, Json::string));
         }
 
-        /** {@link #getEnds()} を書く。null なら欄を除く */
+        /** {@link #getEnds()} を書く。null ならフィールドを除く */
         public DimensionStyleItem withEnds(List<String> value) {
             put("ends", value);
             return this;
         }
 
-        /** 引出線の端部記号の、ブロックの名前。空の名前は既定の矢印。小版 27 から */
+        /** 引出線の端部記号の、ブロックの名前。空の名前は既定の矢印。マイナーバージョン 27 から */
         public String getLeader() {
             return Json.read(json.get("leader"), Json::string);
         }
 
-        /** {@link #getLeader()} を書く。null なら欄を除く */
+        /** {@link #getLeader()} を書く。null ならフィールドを除く */
         public DimensionStyleItem withLeader(String value) {
             put("leader", value);
             return this;
         }
 
-        /** 端部記号の大きさ。文書の単位で、scale を掛ける前の値。小版 27 から */
+        /** 端部記号の大きさ。文書の単位で、scale を掛ける前の値。マイナーバージョン 27 から */
         public Double getSize() {
             return Json.read(json.get("size"), Json::number);
         }
 
-        /** {@link #getSize()} を書く。null なら欄を除く */
+        /** {@link #getSize()} を書く。null ならフィールドを除く */
         public DimensionStyleItem withSize(Double value) {
             put("size", value);
             return this;
         }
 
-        /** 端部記号の代わりに描く斜線の大きさ。0 なら斜線を描かない。小版 27 から */
+        /** 端部記号の代わりに描く斜線の大きさ。0 なら斜線を描かない。マイナーバージョン 27 から */
         public Double getTick() {
             return Json.read(json.get("tick"), Json::number);
         }
 
-        /** {@link #getTick()} を書く。null なら欄を除く */
+        /** {@link #getTick()} を書く。null ならフィールドを除く */
         public DimensionStyleItem withTick(Double value) {
             put("tick", value);
             return this;
         }
 
-        /** 大きさに掛ける倍率。0 はビューの縮尺から決める。小版 27 から */
+        /** 大きさに掛ける倍率。0 はビューの縮尺から決める。マイナーバージョン 27 から */
         public Double getScale() {
             return Json.read(json.get("scale"), Json::number);
         }
 
-        /** {@link #getScale()} を書く。null なら欄を除く */
+        /** {@link #getScale()} を書く。null ならフィールドを除く */
         public DimensionStyleItem withScale(Double value) {
             put("scale", value);
             return this;
         }
     }
 
-    /** 線種の列の要素に添える形か文字（決定 0150・0166）。要素の始まりに、線の向きとずれで置く。小版 28 から */
+    /** 線種の列の要素に添える形か文字（決定 0150・0166）。要素の始まりに、線の向きとずれで置く。マイナーバージョン 28 から */
     public static final class LineTypeMark extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public LineTypeMark(Map<String, Object> json) {
@@ -11977,7 +11977,7 @@ public final class Messages {
             return Json.read(json.get("index"), Json::integer);
         }
 
-        /** {@link #getIndex()} を書く。null なら欄を除く */
+        /** {@link #getIndex()} を書く。null ならフィールドを除く */
         public LineTypeMark withIndex(Long value) {
             put("index", value);
             return this;
@@ -11988,7 +11988,7 @@ public final class Messages {
             return Json.read(json.get("kind"), Json::string);
         }
 
-        /** {@link #getKind()} を書く。null なら欄を除く */
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
         public LineTypeMark withKind(String value) {
             put("kind", value);
             return this;
@@ -11999,7 +11999,7 @@ public final class Messages {
             return Json.read(json.get("font"), Font::of);
         }
 
-        /** {@link #getFont()} を書く。null なら欄を除く */
+        /** {@link #getFont()} を書く。null ならフィールドを除く */
         public LineTypeMark withFont(Font value) {
             put("font", value);
             return this;
@@ -12010,7 +12010,7 @@ public final class Messages {
             return Json.read(json.get("number"), Json::integer);
         }
 
-        /** {@link #getNumber()} を書く。null なら欄を除く */
+        /** {@link #getNumber()} を書く。null ならフィールドを除く */
         public LineTypeMark withNumber(Long value) {
             put("number", value);
             return this;
@@ -12021,7 +12021,7 @@ public final class Messages {
             return Json.read(json.get("text"), Json::string);
         }
 
-        /** {@link #getText()} を書く。null なら欄を除く */
+        /** {@link #getText()} を書く。null ならフィールドを除く */
         public LineTypeMark withText(String value) {
             put("text", value);
             return this;
@@ -12032,7 +12032,7 @@ public final class Messages {
             return Json.read(json.get("style"), Json::string);
         }
 
-        /** {@link #getStyle()} を書く。null なら欄を除く */
+        /** {@link #getStyle()} を書く。null ならフィールドを除く */
         public LineTypeMark withStyle(String value) {
             put("style", value);
             return this;
@@ -12043,7 +12043,7 @@ public final class Messages {
             return Json.read(json.get("style_id"), Json::string);
         }
 
-        /** {@link #getStyleId()} を書く。null なら欄を除く */
+        /** {@link #getStyleId()} を書く。null ならフィールドを除く */
         public LineTypeMark withStyleId(String value) {
             put("style_id", value);
             return this;
@@ -12054,7 +12054,7 @@ public final class Messages {
             return Json.read(json.get("height"), Json::number);
         }
 
-        /** {@link #getHeight()} を書く。null なら欄を除く */
+        /** {@link #getHeight()} を書く。null ならフィールドを除く */
         public LineTypeMark withHeight(Double value) {
             put("height", value);
             return this;
@@ -12065,7 +12065,7 @@ public final class Messages {
             return Json.read(json.get("scale"), Json::number);
         }
 
-        /** {@link #getScale()} を書く。null なら欄を除く */
+        /** {@link #getScale()} を書く。null ならフィールドを除く */
         public LineTypeMark withScale(Double value) {
             put("scale", value);
             return this;
@@ -12076,7 +12076,7 @@ public final class Messages {
             return Json.read(json.get("rotation"), Json::number);
         }
 
-        /** {@link #getRotation()} を書く。null なら欄を除く */
+        /** {@link #getRotation()} を書く。null ならフィールドを除く */
         public LineTypeMark withRotation(Double value) {
             put("rotation", value);
             return this;
@@ -12087,7 +12087,7 @@ public final class Messages {
             return Json.read(json.get("rotation_basis"), Json::string);
         }
 
-        /** {@link #getRotationBasis()} を書く。null なら欄を除く */
+        /** {@link #getRotationBasis()} を書く。null ならフィールドを除く */
         public LineTypeMark withRotationBasis(String value) {
             put("rotation_basis", value);
             return this;
@@ -12098,7 +12098,7 @@ public final class Messages {
             return Json.read(json.get("offset"), v0 -> Json.list(v0, Json::number));
         }
 
-        /** {@link #getOffset()} を書く。null なら欄を除く */
+        /** {@link #getOffset()} を書く。null ならフィールドを除く */
         public LineTypeMark withOffset(List<Double> value) {
             put("offset", value);
             return this;
@@ -12133,7 +12133,7 @@ public final class Messages {
         public static final String UPRIGHT = "upright";
     }
 
-    /** 文字スタイルの表の項目（決定 0158）。フォントと縦書きは、この文字スタイルを指す文字に効く。高さ・幅の倍率・傾き・裏返し・上下反転は、新しく作る文字の既定の値で、今の文字はそれぞれの値を持つ。小版 20 から */
+    /** 文字スタイルの表の項目（決定 0158）。フォントと縦書きは、この文字スタイルを指す文字に効く。高さ・幅の倍率・傾き・裏返し・上下反転は、新しく作る文字の既定の値で、今の文字はそれぞれの値を持つ。マイナーバージョン 20 から */
     public static final class TextStyleItem extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public TextStyleItem(Map<String, Object> json) {
@@ -12156,7 +12156,7 @@ public final class Messages {
             return Json.read(json.get("id"), Json::string);
         }
 
-        /** {@link #getId()} を書く。null なら欄を除く */
+        /** {@link #getId()} を書く。null ならフィールドを除く */
         public TextStyleItem withId(String value) {
             put("id", value);
             return this;
@@ -12167,7 +12167,7 @@ public final class Messages {
             return Json.read(json.get("name"), Json::string);
         }
 
-        /** {@link #getName()} を書く。null なら欄を除く */
+        /** {@link #getName()} を書く。null ならフィールドを除く */
         public TextStyleItem withName(String value) {
             put("name", value);
             return this;
@@ -12178,18 +12178,18 @@ public final class Messages {
             return Json.read(json.get("hash"), Json::string);
         }
 
-        /** {@link #getHash()} を書く。null なら欄を除く */
+        /** {@link #getHash()} を書く。null ならフィールドを除く */
         public TextStyleItem withHash(String value) {
             put("hash", value);
             return this;
         }
 
-        /** ファイルに定義がある。偽なら、ほかの欄を持たない */
+        /** ファイルに定義がある。偽なら、ほかのフィールドを持たない */
         public Boolean getDefined() {
             return Json.read(json.get("defined"), Json::bool);
         }
 
-        /** {@link #getDefined()} を書く。null なら欄を除く */
+        /** {@link #getDefined()} を書く。null ならフィールドを除く */
         public TextStyleItem withDefined(Boolean value) {
             put("defined", value);
             return this;
@@ -12200,7 +12200,7 @@ public final class Messages {
             return Json.read(json.get("font"), Font::of);
         }
 
-        /** {@link #getFont()} を書く。null なら欄を除く */
+        /** {@link #getFont()} を書く。null ならフィールドを除く */
         public TextStyleItem withFont(Font value) {
             put("font", value);
             return this;
@@ -12211,7 +12211,7 @@ public final class Messages {
             return Json.read(json.get("big_font"), Font::of);
         }
 
-        /** {@link #getBigFont()} を書く。null なら欄を除く */
+        /** {@link #getBigFont()} を書く。null ならフィールドを除く */
         public TextStyleItem withBigFont(Font value) {
             put("big_font", value);
             return this;
@@ -12222,7 +12222,7 @@ public final class Messages {
             return Json.read(json.get("height"), Json::number);
         }
 
-        /** {@link #getHeight()} を書く。null なら欄を除く */
+        /** {@link #getHeight()} を書く。null ならフィールドを除く */
         public TextStyleItem withHeight(Double value) {
             put("height", value);
             return this;
@@ -12233,7 +12233,7 @@ public final class Messages {
             return Json.read(json.get("width"), Json::number);
         }
 
-        /** {@link #getWidth()} を書く。null なら欄を除く */
+        /** {@link #getWidth()} を書く。null ならフィールドを除く */
         public TextStyleItem withWidth(Double value) {
             put("width", value);
             return this;
@@ -12244,7 +12244,7 @@ public final class Messages {
             return Json.read(json.get("oblique"), Json::number);
         }
 
-        /** {@link #getOblique()} を書く。null なら欄を除く */
+        /** {@link #getOblique()} を書く。null ならフィールドを除く */
         public TextStyleItem withOblique(Double value) {
             put("oblique", value);
             return this;
@@ -12255,7 +12255,7 @@ public final class Messages {
             return Json.read(json.get("backward"), Json::bool);
         }
 
-        /** {@link #getBackward()} を書く。null なら欄を除く */
+        /** {@link #getBackward()} を書く。null ならフィールドを除く */
         public TextStyleItem withBackward(Boolean value) {
             put("backward", value);
             return this;
@@ -12266,7 +12266,7 @@ public final class Messages {
             return Json.read(json.get("upside_down"), Json::bool);
         }
 
-        /** {@link #getUpsideDown()} を書く。null なら欄を除く */
+        /** {@link #getUpsideDown()} を書く。null ならフィールドを除く */
         public TextStyleItem withUpsideDown(Boolean value) {
             put("upside_down", value);
             return this;
@@ -12277,7 +12277,7 @@ public final class Messages {
             return Json.read(json.get("vertical"), Json::bool);
         }
 
-        /** {@link #getVertical()} を書く。null なら欄を除く */
+        /** {@link #getVertical()} を書く。null ならフィールドを除く */
         public TextStyleItem withVertical(Boolean value) {
             put("vertical", value);
             return this;
@@ -12307,7 +12307,7 @@ public final class Messages {
             return Json.read(json.get("name"), Json::string);
         }
 
-        /** {@link #getName()} を書く。null なら欄を除く */
+        /** {@link #getName()} を書く。null ならフィールドを除く */
         public Font withName(String value) {
             put("name", value);
             return this;
@@ -12318,7 +12318,7 @@ public final class Messages {
             return Json.read(json.get("kind"), Json::string);
         }
 
-        /** {@link #getKind()} を書く。null なら欄を除く */
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
         public Font withKind(String value) {
             put("kind", value);
             return this;
@@ -12329,7 +12329,7 @@ public final class Messages {
             return Json.read(json.get("bold"), Json::bool);
         }
 
-        /** {@link #getBold()} を書く。null なら欄を除く */
+        /** {@link #getBold()} を書く。null ならフィールドを除く */
         public Font withBold(Boolean value) {
             put("bold", value);
             return this;
@@ -12340,7 +12340,7 @@ public final class Messages {
             return Json.read(json.get("italic"), Json::bool);
         }
 
-        /** {@link #getItalic()} を書く。null なら欄を除く */
+        /** {@link #getItalic()} を書く。null ならフィールドを除く */
         public Font withItalic(Boolean value) {
             put("italic", value);
             return this;
@@ -12351,7 +12351,7 @@ public final class Messages {
             return Json.read(json.get("charset"), Json::integer);
         }
 
-        /** {@link #getCharset()} を書く。null なら欄を除く */
+        /** {@link #getCharset()} を書く。null ならフィールドを除く */
         public Font withCharset(Long value) {
             put("charset", value);
             return this;
@@ -12362,7 +12362,7 @@ public final class Messages {
             return Json.read(json.get("pitch"), Json::integer);
         }
 
-        /** {@link #getPitch()} を書く。null なら欄を除く */
+        /** {@link #getPitch()} を書く。null ならフィールドを除く */
         public Font withPitch(Long value) {
             put("pitch", value);
             return this;
@@ -12382,7 +12382,7 @@ public final class Messages {
         public static final String NAMED = "named";
     }
 
-    /** 要素の出所。L1 のレコードの番号かバイト範囲（決定 0008）と、形式が持つ鍵（決定 0156）。ファイルから読んでいない要素は、レコードの番号もバイト範囲も持たない */
+    /** 要素の出所。L1 のレコードの番号かバイト範囲（決定 0008）と、形式が持つキー（決定 0156）。ファイルから読んでいない要素は、レコードの番号もバイト範囲も持たない */
     public static final class Source extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public Source(Map<String, Object> json) {
@@ -12405,7 +12405,7 @@ public final class Messages {
             return Json.read(json.get("record"), Json::integer);
         }
 
-        /** {@link #getRecord()} を書く。null なら欄を除く */
+        /** {@link #getRecord()} を書く。null ならフィールドを除く */
         public Source withRecord(Long value) {
             put("record", value);
             return this;
@@ -12416,7 +12416,7 @@ public final class Messages {
             return Json.read(json.get("bytes"), ByteRange::of);
         }
 
-        /** {@link #getBytes()} を書く。null なら欄を除く */
+        /** {@link #getBytes()} を書く。null ならフィールドを除く */
         public Source withBytes(ByteRange value) {
             put("bytes", value);
             return this;
@@ -12427,18 +12427,18 @@ public final class Messages {
             return Json.read(json.get("handle"), Json::string);
         }
 
-        /** {@link #getHandle()} を書く。null なら欄を除く */
+        /** {@link #getHandle()} を書く。null ならフィールドを除く */
         public Source withHandle(String value) {
             put("handle", value);
             return this;
         }
 
-        /** SXF のインスタンスの番号（#n の n）。10 進の文字列。小版 6 から */
+        /** SXF のインスタンスの番号（#n の n）。10 進の文字列。マイナーバージョン 6 から */
         public String getInstance() {
             return Json.read(json.get("instance"), Json::string);
         }
 
-        /** {@link #getInstance()} を書く。null なら欄を除く */
+        /** {@link #getInstance()} を書く。null ならフィールドを除く */
         public Source withInstance(String value) {
             put("instance", value);
             return this;
@@ -12458,12 +12458,12 @@ public final class Messages {
             return json == null ? null : new Response(json);
         }
 
-        /** メッセージのスキーマの大版 */
+        /** メッセージのスキーマのメジャーバージョン */
         public Long getV() {
             return Json.read(json.get("v"), Json::integer);
         }
 
-        /** {@link #getV()} を書く。null なら欄を除く */
+        /** {@link #getV()} を書く。null ならフィールドを除く */
         public Response withV(Long value) {
             put("v", value);
             return this;
@@ -12474,7 +12474,7 @@ public final class Messages {
             return Json.read(json.get("diagnostics"), v0 -> Json.list(v0, Diagnostic::of));
         }
 
-        /** {@link #getDiagnostics()} を書く。null なら欄を除く */
+        /** {@link #getDiagnostics()} を書く。null ならフィールドを除く */
         public Response withDiagnostics(List<Diagnostic> value) {
             put("diagnostics", value);
             return this;
@@ -12485,7 +12485,7 @@ public final class Messages {
             return Json.read(json.get("blobs"), v0 -> Json.list(v0, Blob::of));
         }
 
-        /** {@link #getBlobs()} を書く。null なら欄を除く */
+        /** {@link #getBlobs()} を書く。null ならフィールドを除く */
         public Response withBlobs(List<Blob> value) {
             put("blobs", value);
             return this;
@@ -12529,7 +12529,7 @@ public final class Messages {
             return Json.read(json.get("code"), Json::string);
         }
 
-        /** {@link #getCode()} を書く。null なら欄を除く */
+        /** {@link #getCode()} を書く。null ならフィールドを除く */
         public Diagnostic withCode(String value) {
             put("code", value);
             return this;
@@ -12540,7 +12540,7 @@ public final class Messages {
             return Json.read(json.get("severity"), Json::string);
         }
 
-        /** {@link #getSeverity()} を書く。null なら欄を除く */
+        /** {@link #getSeverity()} を書く。null ならフィールドを除く */
         public Diagnostic withSeverity(String value) {
             put("severity", value);
             return this;
@@ -12551,7 +12551,7 @@ public final class Messages {
             return Json.read(json.get("fidelity"), Json::string);
         }
 
-        /** {@link #getFidelity()} を書く。null なら欄を除く */
+        /** {@link #getFidelity()} を書く。null ならフィールドを除く */
         public Diagnostic withFidelity(String value) {
             put("fidelity", value);
             return this;
@@ -12562,7 +12562,7 @@ public final class Messages {
             return Json.read(json.get("count"), Json::integer);
         }
 
-        /** {@link #getCount()} を書く。null なら欄を除く */
+        /** {@link #getCount()} を書く。null ならフィールドを除く */
         public Diagnostic withCount(Long value) {
             put("count", value);
             return this;
@@ -12573,7 +12573,7 @@ public final class Messages {
             return Json.read(json.get("at"), v0 -> Json.list(v0, Place::of));
         }
 
-        /** {@link #getAt()} を書く。null なら欄を除く */
+        /** {@link #getAt()} を書く。null ならフィールドを除く */
         public Diagnostic withAt(List<Place> value) {
             put("at", value);
             return this;
@@ -12584,7 +12584,7 @@ public final class Messages {
             return Json.read(json.get("cite"), Cite::of);
         }
 
-        /** {@link #getCite()} を書く。null なら欄を除く */
+        /** {@link #getCite()} を書く。null ならフィールドを除く */
         public Diagnostic withCite(Cite value) {
             put("cite", value);
             return this;
@@ -12595,7 +12595,7 @@ public final class Messages {
             return Json.read(json.get("params"), v0 -> Json.map(v0, Json::value));
         }
 
-        /** {@link #getParams()} を書く。null なら欄を除く */
+        /** {@link #getParams()} を書く。null ならフィールドを除く */
         public Diagnostic withParams(Map<String, Object> value) {
             put("params", value);
             return this;
@@ -12657,7 +12657,7 @@ public final class Messages {
             return Json.read(json.get("id"), Json::string);
         }
 
-        /** {@link #getId()} を書く。null なら欄を除く */
+        /** {@link #getId()} を書く。null ならフィールドを除く */
         public Place withId(String value) {
             put("id", value);
             return this;
@@ -12668,7 +12668,7 @@ public final class Messages {
             return Json.read(json.get("record"), Json::integer);
         }
 
-        /** {@link #getRecord()} を書く。null なら欄を除く */
+        /** {@link #getRecord()} を書く。null ならフィールドを除く */
         public Place withRecord(Long value) {
             put("record", value);
             return this;
@@ -12679,7 +12679,7 @@ public final class Messages {
             return Json.read(json.get("bytes"), ByteRange::of);
         }
 
-        /** {@link #getBytes()} を書く。null なら欄を除く */
+        /** {@link #getBytes()} を書く。null ならフィールドを除く */
         public Place withBytes(ByteRange value) {
             put("bytes", value);
             return this;
@@ -12709,7 +12709,7 @@ public final class Messages {
             return Json.read(json.get("start"), Json::integer);
         }
 
-        /** {@link #getStart()} を書く。null なら欄を除く */
+        /** {@link #getStart()} を書く。null ならフィールドを除く */
         public ByteRange withStart(Long value) {
             put("start", value);
             return this;
@@ -12720,7 +12720,7 @@ public final class Messages {
             return Json.read(json.get("end"), Json::integer);
         }
 
-        /** {@link #getEnd()} を書く。null なら欄を除く */
+        /** {@link #getEnd()} を書く。null ならフィールドを除く */
         public ByteRange withEnd(Long value) {
             put("end", value);
             return this;
@@ -12750,7 +12750,7 @@ public final class Messages {
             return Json.read(json.get("spec"), Json::string);
         }
 
-        /** {@link #getSpec()} を書く。null なら欄を除く */
+        /** {@link #getSpec()} を書く。null ならフィールドを除く */
         public Cite withSpec(String value) {
             put("spec", value);
             return this;
@@ -12761,7 +12761,7 @@ public final class Messages {
             return Json.read(json.get("section"), Json::string);
         }
 
-        /** {@link #getSection()} を書く。null なら欄を除く */
+        /** {@link #getSection()} を書く。null ならフィールドを除く */
         public Cite withSection(String value) {
             put("section", value);
             return this;
@@ -12791,7 +12791,7 @@ public final class Messages {
             return Json.read(json.get("id"), Json::integer);
         }
 
-        /** {@link #getId()} を書く。null なら欄を除く */
+        /** {@link #getId()} を書く。null ならフィールドを除く */
         public Blob withId(Long value) {
             put("id", value);
             return this;
@@ -12802,7 +12802,7 @@ public final class Messages {
             return Json.read(json.get("kind"), Json::string);
         }
 
-        /** {@link #getKind()} を書く。null なら欄を除く */
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
         public Blob withKind(String value) {
             put("kind", value);
             return this;
@@ -12813,7 +12813,7 @@ public final class Messages {
             return Json.read(json.get("size"), Json::integer);
         }
 
-        /** {@link #getSize()} を書く。null なら欄を除く */
+        /** {@link #getSize()} を書く。null ならフィールドを除く */
         public Blob withSize(Long value) {
             put("size", value);
             return this;
@@ -12821,7 +12821,7 @@ public final class Messages {
     }
 
     /**
-     * バイナリの結果の種類。file は書き出したファイル、image は描いた画像、scene は 2D のシーン（schema/scene.toml の配置、決定 0137・0172）、arrow は表（Arrow の IPC ストリーム。ネイティブでは zm_take_arrow でも取り出せる）、drawing は図面モデルのバイナリ（schema/drawing.toml の配置、決定 0247。小版 60 から）
+     * バイナリの結果の種類。file は書き出したファイル、image は描いた画像、scene は 2D のシーン（schema/scene.toml の配置、決定 0137・0172）、arrow は表（Arrow の IPC ストリーム。ネイティブでは zm_take_arrow でも取り出せる）、drawing は図面モデルのバイナリ（schema/drawing.toml の配置、決定 0247。マイナーバージョン 60 から）
      * 
      * 列挙の値。知らない値も受け取る
      */
@@ -12857,23 +12857,23 @@ public final class Messages {
             super(new LinkedHashMap<String, Object>());
         }
 
-        /** メッセージのスキーマの大版。今は 1 */
+        /** メッセージのスキーマのメジャーバージョン。今は 1 */
         public Long getV() {
             return Json.read(json.get("v"), Json::integer);
         }
 
-        /** {@link #getV()} を書く。null なら欄を除く */
+        /** {@link #getV()} を書く。null ならフィールドを除く */
         public SessionOptions withV(Long value) {
             put("v", value);
             return this;
         }
 
-        /** 実行の形。書かなければ、ネイティブのライブラリでは `native`、wasm のモジュールでは `wasm`（決定 0013） */
+        /** 実行の形態。書かなければ、ネイティブのライブラリでは `native`、wasm のモジュールでは `wasm`（決定 0013） */
         public String getEngine() {
             return Json.read(json.get("engine"), Json::string);
         }
 
-        /** {@link #getEngine()} を書く。null なら欄を除く */
+        /** {@link #getEngine()} を書く。null ならフィールドを除く */
         public SessionOptions withEngine(String value) {
             put("engine", value);
             return this;
@@ -12884,7 +12884,7 @@ public final class Messages {
             return Json.read(json.get("process_path"), Json::string);
         }
 
-        /** {@link #getProcessPath()} を書く。null なら欄を除く */
+        /** {@link #getProcessPath()} を書く。null ならフィールドを除く */
         public SessionOptions withProcessPath(String value) {
             put("process_path", value);
             return this;
@@ -12892,7 +12892,7 @@ public final class Messages {
     }
 
     /**
-     * 実行の形（決定 0013）。`native` はプロセスの中でコアを動かす、`process` は子プロセスの CLI に送る、`wasm` は wasm のモジュールで動かす
+     * 実行の形態（決定 0013）。`native` はプロセスの中でコアを動かす、`process` は子プロセスの CLI に送る、`wasm` は wasm のモジュールで動かす
      * 
      * 列挙の値。知らない値も受け取る
      */
@@ -12906,7 +12906,7 @@ public final class Messages {
         public static final String WASM = "wasm";
     }
 
-    /** 線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。線形は、要求に書く（alignment）か、open で開いた J-LandXML の文書（doc）の線形を id で指す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。doc を渡せば、文書の線形と地表面の要約も返す。図面・BIM・土木地理・点群のモジュールに置く（決定 0253）。小版 46 から（doc と id は小版 47 から） */
+    /** 線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。線形は、要求に書く（alignment）か、open で開いた J-LandXML の文書（doc）の線形を id で指す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。doc を渡せば、文書の線形と地表面の要約も返す。図面・BIM・土木地理・点群のモジュールに置く（決定 0253）。マイナーバージョン 46 から（doc と id はマイナーバージョン 47 から） */
     public static final class CivilRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public CivilRequest(Map<String, Object> json) {
@@ -12919,18 +12919,18 @@ public final class Messages {
             return json == null ? null : new CivilRequest(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public CivilRequest() {
             super(new LinkedHashMap<String, Object>());
             json.put("op", "civil");
         }
 
-        /** メッセージのスキーマの大版。今は 1 */
+        /** メッセージのスキーマのメジャーバージョン。今は 1 */
         public Long getV() {
             return Json.read(json.get("v"), Json::integer);
         }
 
-        /** {@link #getV()} を書く。null なら欄を除く */
+        /** {@link #getV()} を書く。null ならフィールドを除く */
         public CivilRequest withV(Long value) {
             put("v", value);
             return this;
@@ -12941,7 +12941,7 @@ public final class Messages {
             return Json.read(json.get("budget"), Budget::of);
         }
 
-        /** {@link #getBudget()} を書く。null なら欄を除く */
+        /** {@link #getBudget()} を書く。null ならフィールドを除く */
         public CivilRequest withBudget(Budget value) {
             put("budget", value);
             return this;
@@ -12952,7 +12952,7 @@ public final class Messages {
             return Json.read(json.get("partial"), Json::bool);
         }
 
-        /** {@link #getPartial()} を書く。null なら欄を除く */
+        /** {@link #getPartial()} を書く。null ならフィールドを除く */
         public CivilRequest withPartial(Boolean value) {
             put("partial", value);
             return this;
@@ -12963,18 +12963,18 @@ public final class Messages {
             return Json.read(json.get("max_places"), Json::integer);
         }
 
-        /** {@link #getMaxPlaces()} を書く。null なら欄を除く */
+        /** {@link #getMaxPlaces()} を書く。null ならフィールドを除く */
         public CivilRequest withMaxPlaces(Long value) {
             put("max_places", value);
             return this;
         }
 
-        /** 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        /** 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
         public Long getTimeLimitMs() {
             return Json.read(json.get("time_limit_ms"), Json::integer);
         }
 
-        /** {@link #getTimeLimitMs()} を書く。null なら欄を除く */
+        /** {@link #getTimeLimitMs()} を書く。null ならフィールドを除く */
         public CivilRequest withTimeLimitMs(Long value) {
             put("time_limit_ms", value);
             return this;
@@ -12985,7 +12985,7 @@ public final class Messages {
             return Json.read(json.get("op"), Json::string);
         }
 
-        /** {@link #getOp()} を書く。null なら欄を除く */
+        /** {@link #getOp()} を書く。null ならフィールドを除く */
         public CivilRequest withOp(String value) {
             put("op", value);
             return this;
@@ -12996,29 +12996,29 @@ public final class Messages {
             return Json.read(json.get("alignment"), CivilAlignment::of);
         }
 
-        /** {@link #getAlignment()} を書く。null なら欄を除く */
+        /** {@link #getAlignment()} を書く。null ならフィールドを除く */
         public CivilRequest withAlignment(CivilAlignment value) {
             put("alignment", value);
             return this;
         }
 
-        /** open で開いた J-LandXML の文書の名前。小版 47 から */
+        /** open で開いた J-LandXML の文書の名前。マイナーバージョン 47 から */
         public String getDoc() {
             return Json.read(json.get("doc"), Json::string);
         }
 
-        /** {@link #getDoc()} を書く。null なら欄を除く */
+        /** {@link #getDoc()} を書く。null ならフィールドを除く */
         public CivilRequest withDoc(String value) {
             put("doc", value);
             return this;
         }
 
-        /** doc の線形の ID。文書に線形が 1 つなら書かなくてよい。小版 47 から */
+        /** doc の線形の ID。文書に線形が 1 つなら書かなくてよい。マイナーバージョン 47 から */
         public String getId() {
             return Json.read(json.get("id"), Json::string);
         }
 
-        /** {@link #getId()} を書く。null なら欄を除く */
+        /** {@link #getId()} を書く。null ならフィールドを除く */
         public CivilRequest withId(String value) {
             put("id", value);
             return this;
@@ -13029,7 +13029,7 @@ public final class Messages {
             return Json.read(json.get("distances"), v0 -> Json.list(v0, Json::number));
         }
 
-        /** {@link #getDistances()} を書く。null なら欄を除く */
+        /** {@link #getDistances()} を書く。null ならフィールドを除く */
         public CivilRequest withDistances(List<Double> value) {
             put("distances", value);
             return this;
@@ -13040,7 +13040,7 @@ public final class Messages {
             return Json.read(json.get("stations"), v0 -> Json.list(v0, Json::string));
         }
 
-        /** {@link #getStations()} を書く。null なら欄を除く */
+        /** {@link #getStations()} を書く。null ならフィールドを除く */
         public CivilRequest withStations(List<String> value) {
             put("stations", value);
             return this;
@@ -13051,7 +13051,7 @@ public final class Messages {
             return Json.read(json.get("interval"), Json::number);
         }
 
-        /** {@link #getInterval()} を書く。null なら欄を除く */
+        /** {@link #getInterval()} を書く。null ならフィールドを除く */
         public CivilRequest withInterval(Double value) {
             put("interval", value);
             return this;
@@ -13062,7 +13062,7 @@ public final class Messages {
             return Json.read(json.get("pitch"), Json::number);
         }
 
-        /** {@link #getPitch()} を書く。null なら欄を除く */
+        /** {@link #getPitch()} を書く。null ならフィールドを除く */
         public CivilRequest withPitch(Double value) {
             put("pitch", value);
             return this;
@@ -13073,7 +13073,7 @@ public final class Messages {
             return Json.read(json.get("digits"), Json::integer);
         }
 
-        /** {@link #getDigits()} を書く。null なら欄を除く */
+        /** {@link #getDigits()} を書く。null ならフィールドを除く */
         public CivilRequest withDigits(Long value) {
             put("digits", value);
             return this;
@@ -13103,7 +13103,7 @@ public final class Messages {
             return Json.read(json.get("horizontal"), v0 -> Json.list(v0, CivilHorizontal::of));
         }
 
-        /** {@link #getHorizontal()} を書く。null なら欄を除く */
+        /** {@link #getHorizontal()} を書く。null ならフィールドを除く */
         public CivilAlignment withHorizontal(List<CivilHorizontal> value) {
             put("horizontal", value);
             return this;
@@ -13114,7 +13114,7 @@ public final class Messages {
             return Json.read(json.get("vertical"), v0 -> Json.list(v0, CivilVertical::of));
         }
 
-        /** {@link #getVertical()} を書く。null なら欄を除く */
+        /** {@link #getVertical()} を書く。null ならフィールドを除く */
         public CivilAlignment withVertical(List<CivilVertical> value) {
             put("vertical", value);
             return this;
@@ -13125,7 +13125,7 @@ public final class Messages {
             return Json.read(json.get("start_station"), Json::number);
         }
 
-        /** {@link #getStartStation()} を書く。null なら欄を除く */
+        /** {@link #getStartStation()} を書く。null ならフィールドを除く */
         public CivilAlignment withStartStation(Double value) {
             put("start_station", value);
             return this;
@@ -13136,7 +13136,7 @@ public final class Messages {
             return Json.read(json.get("breaks"), v0 -> Json.list(v0, CivilStationBreak::of));
         }
 
-        /** {@link #getBreaks()} を書く。null なら欄を除く */
+        /** {@link #getBreaks()} を書く。null ならフィールドを除く */
         public CivilAlignment withBreaks(List<CivilStationBreak> value) {
             put("breaks", value);
             return this;
@@ -13166,7 +13166,7 @@ public final class Messages {
             return Json.read(json.get("kind"), Json::string);
         }
 
-        /** {@link #getKind()} を書く。null なら欄を除く */
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
         public CivilHorizontal withKind(String value) {
             put("kind", value);
             return this;
@@ -13177,7 +13177,7 @@ public final class Messages {
             return Json.read(json.get("northing"), Json::number);
         }
 
-        /** {@link #getNorthing()} を書く。null なら欄を除く */
+        /** {@link #getNorthing()} を書く。null ならフィールドを除く */
         public CivilHorizontal withNorthing(Double value) {
             put("northing", value);
             return this;
@@ -13188,7 +13188,7 @@ public final class Messages {
             return Json.read(json.get("easting"), Json::number);
         }
 
-        /** {@link #getEasting()} を書く。null なら欄を除く */
+        /** {@link #getEasting()} を書く。null ならフィールドを除く */
         public CivilHorizontal withEasting(Double value) {
             put("easting", value);
             return this;
@@ -13199,7 +13199,7 @@ public final class Messages {
             return Json.read(json.get("direction"), Json::number);
         }
 
-        /** {@link #getDirection()} を書く。null なら欄を除く */
+        /** {@link #getDirection()} を書く。null ならフィールドを除く */
         public CivilHorizontal withDirection(Double value) {
             put("direction", value);
             return this;
@@ -13210,7 +13210,7 @@ public final class Messages {
             return Json.read(json.get("length"), Json::number);
         }
 
-        /** {@link #getLength()} を書く。null なら欄を除く */
+        /** {@link #getLength()} を書く。null ならフィールドを除く */
         public CivilHorizontal withLength(Double value) {
             put("length", value);
             return this;
@@ -13221,7 +13221,7 @@ public final class Messages {
             return Json.read(json.get("radius"), Json::number);
         }
 
-        /** {@link #getRadius()} を書く。null なら欄を除く */
+        /** {@link #getRadius()} を書く。null ならフィールドを除く */
         public CivilHorizontal withRadius(Double value) {
             put("radius", value);
             return this;
@@ -13232,7 +13232,7 @@ public final class Messages {
             return Json.read(json.get("start_radius"), Json::number);
         }
 
-        /** {@link #getStartRadius()} を書く。null なら欄を除く */
+        /** {@link #getStartRadius()} を書く。null ならフィールドを除く */
         public CivilHorizontal withStartRadius(Double value) {
             put("start_radius", value);
             return this;
@@ -13243,7 +13243,7 @@ public final class Messages {
             return Json.read(json.get("end_radius"), Json::number);
         }
 
-        /** {@link #getEndRadius()} を書く。null なら欄を除く */
+        /** {@link #getEndRadius()} を書く。null ならフィールドを除く */
         public CivilHorizontal withEndRadius(Double value) {
             put("end_radius", value);
             return this;
@@ -13254,7 +13254,7 @@ public final class Messages {
             return Json.read(json.get("curve"), Json::string);
         }
 
-        /** {@link #getCurve()} を書く。null なら欄を除く */
+        /** {@link #getCurve()} を書く。null ならフィールドを除く */
         public CivilHorizontal withCurve(String value) {
             put("curve", value);
             return this;
@@ -13284,7 +13284,7 @@ public final class Messages {
             return Json.read(json.get("kind"), Json::string);
         }
 
-        /** {@link #getKind()} を書く。null なら欄を除く */
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
         public CivilVertical withKind(String value) {
             put("kind", value);
             return this;
@@ -13295,7 +13295,7 @@ public final class Messages {
             return Json.read(json.get("start_distance"), Json::number);
         }
 
-        /** {@link #getStartDistance()} を書く。null なら欄を除く */
+        /** {@link #getStartDistance()} を書く。null ならフィールドを除く */
         public CivilVertical withStartDistance(Double value) {
             put("start_distance", value);
             return this;
@@ -13306,7 +13306,7 @@ public final class Messages {
             return Json.read(json.get("start_height"), Json::number);
         }
 
-        /** {@link #getStartHeight()} を書く。null なら欄を除く */
+        /** {@link #getStartHeight()} を書く。null ならフィールドを除く */
         public CivilVertical withStartHeight(Double value) {
             put("start_height", value);
             return this;
@@ -13317,7 +13317,7 @@ public final class Messages {
             return Json.read(json.get("start_gradient"), Json::number);
         }
 
-        /** {@link #getStartGradient()} を書く。null なら欄を除く */
+        /** {@link #getStartGradient()} を書く。null ならフィールドを除く */
         public CivilVertical withStartGradient(Double value) {
             put("start_gradient", value);
             return this;
@@ -13328,7 +13328,7 @@ public final class Messages {
             return Json.read(json.get("length"), Json::number);
         }
 
-        /** {@link #getLength()} を書く。null なら欄を除く */
+        /** {@link #getLength()} を書く。null ならフィールドを除く */
         public CivilVertical withLength(Double value) {
             put("length", value);
             return this;
@@ -13339,7 +13339,7 @@ public final class Messages {
             return Json.read(json.get("end_gradient"), Json::number);
         }
 
-        /** {@link #getEndGradient()} を書く。null なら欄を除く */
+        /** {@link #getEndGradient()} を書く。null ならフィールドを除く */
         public CivilVertical withEndGradient(Double value) {
             put("end_gradient", value);
             return this;
@@ -13350,7 +13350,7 @@ public final class Messages {
             return Json.read(json.get("radius"), Json::number);
         }
 
-        /** {@link #getRadius()} を書く。null なら欄を除く */
+        /** {@link #getRadius()} を書く。null ならフィールドを除く */
         public CivilVertical withRadius(Double value) {
             put("radius", value);
             return this;
@@ -13433,7 +13433,7 @@ public final class Messages {
             return Json.read(json.get("distance"), Json::number);
         }
 
-        /** {@link #getDistance()} を書く。null なら欄を除く */
+        /** {@link #getDistance()} を書く。null ならフィールドを除く */
         public CivilStationBreak withDistance(Double value) {
             put("distance", value);
             return this;
@@ -13444,7 +13444,7 @@ public final class Messages {
             return Json.read(json.get("back"), Json::number);
         }
 
-        /** {@link #getBack()} を書く。null なら欄を除く */
+        /** {@link #getBack()} を書く。null ならフィールドを除く */
         public CivilStationBreak withBack(Double value) {
             put("back", value);
             return this;
@@ -13455,7 +13455,7 @@ public final class Messages {
             return Json.read(json.get("ahead"), Json::number);
         }
 
-        /** {@link #getAhead()} を書く。null なら欄を除く */
+        /** {@link #getAhead()} を書く。null ならフィールドを除く */
         public CivilStationBreak withAhead(Double value) {
             put("ahead", value);
             return this;
@@ -13485,7 +13485,7 @@ public final class Messages {
             return Json.read(json.get("length"), Json::number);
         }
 
-        /** {@link #getLength()} を書く。null なら欄を除く */
+        /** {@link #getLength()} を書く。null ならフィールドを除く */
         public CivilResult withLength(Double value) {
             put("length", value);
             return this;
@@ -13496,51 +13496,51 @@ public final class Messages {
             return Json.read(json.get("positions"), v0 -> Json.list(v0, CivilPosition::of));
         }
 
-        /** {@link #getPositions()} を書く。null なら欄を除く */
+        /** {@link #getPositions()} を書く。null ならフィールドを除く */
         public CivilResult withPositions(List<CivilPosition> value) {
             put("positions", value);
             return this;
         }
 
-        /** 所を求めた doc の線形の ID。小版 47 から */
+        /** 所を求めた doc の線形の ID。マイナーバージョン 47 から */
         public String getAlignment() {
             return Json.read(json.get("alignment"), Json::string);
         }
 
-        /** {@link #getAlignment()} を書く。null なら欄を除く */
+        /** {@link #getAlignment()} を書く。null ならフィールドを除く */
         public CivilResult withAlignment(String value) {
             put("alignment", value);
             return this;
         }
 
-        /** doc の線形の要約。doc を渡したときに返す。小版 47 から */
+        /** doc の線形の要約。doc を渡したときに返す。マイナーバージョン 47 から */
         public List<CivilAlignmentSummary> getAlignments() {
             return Json.read(json.get("alignments"), v0 -> Json.list(v0, CivilAlignmentSummary::of));
         }
 
-        /** {@link #getAlignments()} を書く。null なら欄を除く */
+        /** {@link #getAlignments()} を書く。null ならフィールドを除く */
         public CivilResult withAlignments(List<CivilAlignmentSummary> value) {
             put("alignments", value);
             return this;
         }
 
-        /** doc の地表面（TIN）の要約。doc を渡したときに返す。小版 47 から */
+        /** doc の地表面（TIN）の要約。doc を渡したときに返す。マイナーバージョン 47 から */
         public List<CivilSurfaceSummary> getSurfaces() {
             return Json.read(json.get("surfaces"), v0 -> Json.list(v0, CivilSurfaceSummary::of));
         }
 
-        /** {@link #getSurfaces()} を書く。null なら欄を除く */
+        /** {@link #getSurfaces()} を書く。null ならフィールドを除く */
         public CivilResult withSurfaces(List<CivilSurfaceSummary> value) {
             put("surfaces", value);
             return this;
         }
 
-        /** doc の水平の座標系の EPSG のコード。分からなければ書かない。小版 47 から */
+        /** doc の水平の座標系の EPSG のコード。分からなければ書かない。マイナーバージョン 47 から */
         public Long getCrs() {
             return Json.read(json.get("crs"), Json::integer);
         }
 
-        /** {@link #getCrs()} を書く。null なら欄を除く */
+        /** {@link #getCrs()} を書く。null ならフィールドを除く */
         public CivilResult withCrs(Long value) {
             put("crs", value);
             return this;
@@ -13570,7 +13570,7 @@ public final class Messages {
             return Json.read(json.get("id"), Json::string);
         }
 
-        /** {@link #getId()} を書く。null なら欄を除く */
+        /** {@link #getId()} を書く。null ならフィールドを除く */
         public CivilAlignmentSummary withId(String value) {
             put("id", value);
             return this;
@@ -13581,7 +13581,7 @@ public final class Messages {
             return Json.read(json.get("name"), Json::string);
         }
 
-        /** {@link #getName()} を書く。null なら欄を除く */
+        /** {@link #getName()} を書く。null ならフィールドを除く */
         public CivilAlignmentSummary withName(String value) {
             put("name", value);
             return this;
@@ -13592,7 +13592,7 @@ public final class Messages {
             return Json.read(json.get("length"), Json::number);
         }
 
-        /** {@link #getLength()} を書く。null なら欄を除く */
+        /** {@link #getLength()} を書く。null ならフィールドを除く */
         public CivilAlignmentSummary withLength(Double value) {
             put("length", value);
             return this;
@@ -13603,7 +13603,7 @@ public final class Messages {
             return Json.read(json.get("start_station"), Json::number);
         }
 
-        /** {@link #getStartStation()} を書く。null なら欄を除く */
+        /** {@link #getStartStation()} を書く。null ならフィールドを除く */
         public CivilAlignmentSummary withStartStation(Double value) {
             put("start_station", value);
             return this;
@@ -13614,7 +13614,7 @@ public final class Messages {
             return Json.read(json.get("horizontal"), Json::integer);
         }
 
-        /** {@link #getHorizontal()} を書く。null なら欄を除く */
+        /** {@link #getHorizontal()} を書く。null ならフィールドを除く */
         public CivilAlignmentSummary withHorizontal(Long value) {
             put("horizontal", value);
             return this;
@@ -13625,7 +13625,7 @@ public final class Messages {
             return Json.read(json.get("vertical"), Json::integer);
         }
 
-        /** {@link #getVertical()} を書く。null なら欄を除く */
+        /** {@link #getVertical()} を書く。null ならフィールドを除く */
         public CivilAlignmentSummary withVertical(Long value) {
             put("vertical", value);
             return this;
@@ -13636,7 +13636,7 @@ public final class Messages {
             return Json.read(json.get("breaks"), Json::integer);
         }
 
-        /** {@link #getBreaks()} を書く。null なら欄を除く */
+        /** {@link #getBreaks()} を書く。null ならフィールドを除く */
         public CivilAlignmentSummary withBreaks(Long value) {
             put("breaks", value);
             return this;
@@ -13647,7 +13647,7 @@ public final class Messages {
             return Json.read(json.get("cross_sections"), Json::integer);
         }
 
-        /** {@link #getCrossSections()} を書く。null なら欄を除く */
+        /** {@link #getCrossSections()} を書く。null ならフィールドを除く */
         public CivilAlignmentSummary withCrossSections(Long value) {
             put("cross_sections", value);
             return this;
@@ -13677,7 +13677,7 @@ public final class Messages {
             return Json.read(json.get("id"), Json::string);
         }
 
-        /** {@link #getId()} を書く。null なら欄を除く */
+        /** {@link #getId()} を書く。null ならフィールドを除く */
         public CivilSurfaceSummary withId(String value) {
             put("id", value);
             return this;
@@ -13688,7 +13688,7 @@ public final class Messages {
             return Json.read(json.get("name"), Json::string);
         }
 
-        /** {@link #getName()} を書く。null なら欄を除く */
+        /** {@link #getName()} を書く。null ならフィールドを除く */
         public CivilSurfaceSummary withName(String value) {
             put("name", value);
             return this;
@@ -13699,7 +13699,7 @@ public final class Messages {
             return Json.read(json.get("role"), Json::string);
         }
 
-        /** {@link #getRole()} を書く。null なら欄を除く */
+        /** {@link #getRole()} を書く。null ならフィールドを除く */
         public CivilSurfaceSummary withRole(String value) {
             put("role", value);
             return this;
@@ -13710,7 +13710,7 @@ public final class Messages {
             return Json.read(json.get("points"), Json::integer);
         }
 
-        /** {@link #getPoints()} を書く。null なら欄を除く */
+        /** {@link #getPoints()} を書く。null ならフィールドを除く */
         public CivilSurfaceSummary withPoints(Long value) {
             put("points", value);
             return this;
@@ -13721,7 +13721,7 @@ public final class Messages {
             return Json.read(json.get("triangles"), Json::integer);
         }
 
-        /** {@link #getTriangles()} を書く。null なら欄を除く */
+        /** {@link #getTriangles()} を書く。null ならフィールドを除く */
         public CivilSurfaceSummary withTriangles(Long value) {
             put("triangles", value);
             return this;
@@ -13751,7 +13751,7 @@ public final class Messages {
             return Json.read(json.get("distance"), Json::number);
         }
 
-        /** {@link #getDistance()} を書く。null なら欄を除く */
+        /** {@link #getDistance()} を書く。null ならフィールドを除く */
         public CivilPosition withDistance(Double value) {
             put("distance", value);
             return this;
@@ -13762,7 +13762,7 @@ public final class Messages {
             return Json.read(json.get("station"), Json::number);
         }
 
-        /** {@link #getStation()} を書く。null なら欄を除く */
+        /** {@link #getStation()} を書く。null ならフィールドを除く */
         public CivilPosition withStation(Double value) {
             put("station", value);
             return this;
@@ -13773,7 +13773,7 @@ public final class Messages {
             return Json.read(json.get("label"), Json::string);
         }
 
-        /** {@link #getLabel()} を書く。null なら欄を除く */
+        /** {@link #getLabel()} を書く。null ならフィールドを除く */
         public CivilPosition withLabel(String value) {
             put("label", value);
             return this;
@@ -13784,7 +13784,7 @@ public final class Messages {
             return Json.read(json.get("northing"), Json::number);
         }
 
-        /** {@link #getNorthing()} を書く。null なら欄を除く */
+        /** {@link #getNorthing()} を書く。null ならフィールドを除く */
         public CivilPosition withNorthing(Double value) {
             put("northing", value);
             return this;
@@ -13795,7 +13795,7 @@ public final class Messages {
             return Json.read(json.get("easting"), Json::number);
         }
 
-        /** {@link #getEasting()} を書く。null なら欄を除く */
+        /** {@link #getEasting()} を書く。null ならフィールドを除く */
         public CivilPosition withEasting(Double value) {
             put("easting", value);
             return this;
@@ -13806,7 +13806,7 @@ public final class Messages {
             return Json.read(json.get("direction"), Json::number);
         }
 
-        /** {@link #getDirection()} を書く。null なら欄を除く */
+        /** {@link #getDirection()} を書く。null ならフィールドを除く */
         public CivilPosition withDirection(Double value) {
             put("direction", value);
             return this;
@@ -13817,7 +13817,7 @@ public final class Messages {
             return Json.read(json.get("height"), Json::number);
         }
 
-        /** {@link #getHeight()} を書く。null なら欄を除く */
+        /** {@link #getHeight()} を書く。null ならフィールドを除く */
         public CivilPosition withHeight(Double value) {
             put("height", value);
             return this;
@@ -13828,14 +13828,14 @@ public final class Messages {
             return Json.read(json.get("gradient"), Json::number);
         }
 
-        /** {@link #getGradient()} を書く。null なら欄を除く */
+        /** {@link #getGradient()} を書く。null ならフィールドを除く */
         public CivilPosition withGradient(Double value) {
             put("gradient", value);
             return this;
         }
     }
 
-    /** open で開いた点群（LAS・LAZ）の要約と、条件に合う点を返す。点は八分木の浅い段の節から順に選ぶ（決定 0232）。点群のモジュールに置く（決定 0253）。小版 48 から */
+    /** open で開いた点群（LAS・LAZ）の要約と、条件に合う点を返す。点は八分木の浅い段のノードから順に選ぶ（決定 0232）。点群のモジュールに置く（決定 0253）。マイナーバージョン 48 から */
     public static final class PointcloudRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public PointcloudRequest(Map<String, Object> json) {
@@ -13848,18 +13848,18 @@ public final class Messages {
             return json == null ? null : new PointcloudRequest(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public PointcloudRequest() {
             super(new LinkedHashMap<String, Object>());
             json.put("op", "pointcloud");
         }
 
-        /** メッセージのスキーマの大版。今は 1 */
+        /** メッセージのスキーマのメジャーバージョン。今は 1 */
         public Long getV() {
             return Json.read(json.get("v"), Json::integer);
         }
 
-        /** {@link #getV()} を書く。null なら欄を除く */
+        /** {@link #getV()} を書く。null ならフィールドを除く */
         public PointcloudRequest withV(Long value) {
             put("v", value);
             return this;
@@ -13870,7 +13870,7 @@ public final class Messages {
             return Json.read(json.get("budget"), Budget::of);
         }
 
-        /** {@link #getBudget()} を書く。null なら欄を除く */
+        /** {@link #getBudget()} を書く。null ならフィールドを除く */
         public PointcloudRequest withBudget(Budget value) {
             put("budget", value);
             return this;
@@ -13881,7 +13881,7 @@ public final class Messages {
             return Json.read(json.get("partial"), Json::bool);
         }
 
-        /** {@link #getPartial()} を書く。null なら欄を除く */
+        /** {@link #getPartial()} を書く。null ならフィールドを除く */
         public PointcloudRequest withPartial(Boolean value) {
             put("partial", value);
             return this;
@@ -13892,18 +13892,18 @@ public final class Messages {
             return Json.read(json.get("max_places"), Json::integer);
         }
 
-        /** {@link #getMaxPlaces()} を書く。null なら欄を除く */
+        /** {@link #getMaxPlaces()} を書く。null ならフィールドを除く */
         public PointcloudRequest withMaxPlaces(Long value) {
             put("max_places", value);
             return this;
         }
 
-        /** 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        /** 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
         public Long getTimeLimitMs() {
             return Json.read(json.get("time_limit_ms"), Json::integer);
         }
 
-        /** {@link #getTimeLimitMs()} を書く。null なら欄を除く */
+        /** {@link #getTimeLimitMs()} を書く。null ならフィールドを除く */
         public PointcloudRequest withTimeLimitMs(Long value) {
             put("time_limit_ms", value);
             return this;
@@ -13914,7 +13914,7 @@ public final class Messages {
             return Json.read(json.get("op"), Json::string);
         }
 
-        /** {@link #getOp()} を書く。null なら欄を除く */
+        /** {@link #getOp()} を書く。null ならフィールドを除く */
         public PointcloudRequest withOp(String value) {
             put("op", value);
             return this;
@@ -13925,7 +13925,7 @@ public final class Messages {
             return Json.read(json.get("doc"), Json::string);
         }
 
-        /** {@link #getDoc()} を書く。null なら欄を除く */
+        /** {@link #getDoc()} を書く。null ならフィールドを除く */
         public PointcloudRequest withDoc(String value) {
             put("doc", value);
             return this;
@@ -13936,7 +13936,7 @@ public final class Messages {
             return Json.read(json.get("region"), PointcloudBox::of);
         }
 
-        /** {@link #getRegion()} を書く。null なら欄を除く */
+        /** {@link #getRegion()} を書く。null ならフィールドを除く */
         public PointcloudRequest withRegion(PointcloudBox value) {
             put("region", value);
             return this;
@@ -13947,7 +13947,7 @@ public final class Messages {
             return Json.read(json.get("tolerance"), Json::number);
         }
 
-        /** {@link #getTolerance()} を書く。null なら欄を除く */
+        /** {@link #getTolerance()} を書く。null ならフィールドを除く */
         public PointcloudRequest withTolerance(Double value) {
             put("tolerance", value);
             return this;
@@ -13958,7 +13958,7 @@ public final class Messages {
             return Json.read(json.get("limit"), Json::integer);
         }
 
-        /** {@link #getLimit()} を書く。null なら欄を除く */
+        /** {@link #getLimit()} を書く。null ならフィールドを除く */
         public PointcloudRequest withLimit(Long value) {
             put("limit", value);
             return this;
@@ -13988,7 +13988,7 @@ public final class Messages {
             return Json.read(json.get("min"), v0 -> Json.list(v0, Json::number));
         }
 
-        /** {@link #getMin()} を書く。null なら欄を除く */
+        /** {@link #getMin()} を書く。null ならフィールドを除く */
         public PointcloudBox withMin(List<Double> value) {
             put("min", value);
             return this;
@@ -13999,7 +13999,7 @@ public final class Messages {
             return Json.read(json.get("max"), v0 -> Json.list(v0, Json::number));
         }
 
-        /** {@link #getMax()} を書く。null なら欄を除く */
+        /** {@link #getMax()} を書く。null ならフィールドを除く */
         public PointcloudBox withMax(List<Double> value) {
             put("max", value);
             return this;
@@ -14029,7 +14029,7 @@ public final class Messages {
             return Json.read(json.get("points"), Json::integer);
         }
 
-        /** {@link #getPoints()} を書く。null なら欄を除く */
+        /** {@link #getPoints()} を書く。null ならフィールドを除く */
         public PointcloudResult withPoints(Long value) {
             put("points", value);
             return this;
@@ -14040,7 +14040,7 @@ public final class Messages {
             return Json.read(json.get("bounds"), PointcloudBox::of);
         }
 
-        /** {@link #getBounds()} を書く。null なら欄を除く */
+        /** {@link #getBounds()} を書く。null ならフィールドを除く */
         public PointcloudResult withBounds(PointcloudBox value) {
             put("bounds", value);
             return this;
@@ -14051,7 +14051,7 @@ public final class Messages {
             return Json.read(json.get("crs"), Json::integer);
         }
 
-        /** {@link #getCrs()} を書く。null なら欄を除く */
+        /** {@link #getCrs()} を書く。null ならフィールドを除く */
         public PointcloudResult withCrs(Long value) {
             put("crs", value);
             return this;
@@ -14062,7 +14062,7 @@ public final class Messages {
             return Json.read(json.get("vertical"), Json::integer);
         }
 
-        /** {@link #getVertical()} を書く。null なら欄を除く */
+        /** {@link #getVertical()} を書く。null ならフィールドを除く */
         public PointcloudResult withVertical(Long value) {
             put("vertical", value);
             return this;
@@ -14073,7 +14073,7 @@ public final class Messages {
             return Json.read(json.get("attributes"), v0 -> Json.list(v0, Json::string));
         }
 
-        /** {@link #getAttributes()} を書く。null なら欄を除く */
+        /** {@link #getAttributes()} を書く。null ならフィールドを除く */
         public PointcloudResult withAttributes(List<String> value) {
             put("attributes", value);
             return this;
@@ -14084,18 +14084,18 @@ public final class Messages {
             return Json.read(json.get("depth"), Json::integer);
         }
 
-        /** {@link #getDepth()} を書く。null なら欄を除く */
+        /** {@link #getDepth()} を書く。null ならフィールドを除く */
         public PointcloudResult withDepth(Long value) {
             put("depth", value);
             return this;
         }
 
-        /** 八分木の節の数 */
+        /** 八分木のノードの数 */
         public Long getNodes() {
             return Json.read(json.get("nodes"), Json::integer);
         }
 
-        /** {@link #getNodes()} を書く。null なら欄を除く */
+        /** {@link #getNodes()} を書く。null ならフィールドを除く */
         public PointcloudResult withNodes(Long value) {
             put("nodes", value);
             return this;
@@ -14106,7 +14106,7 @@ public final class Messages {
             return Json.read(json.get("selected"), PointcloudPoints::of);
         }
 
-        /** {@link #getSelected()} を書く。null なら欄を除く */
+        /** {@link #getSelected()} を書く。null ならフィールドを除く */
         public PointcloudResult withSelected(PointcloudPoints value) {
             put("selected", value);
             return this;
@@ -14136,7 +14136,7 @@ public final class Messages {
             return Json.read(json.get("positions"), v0 -> Json.list(v0, v1 -> Json.list(v1, Json::number)));
         }
 
-        /** {@link #getPositions()} を書く。null なら欄を除く */
+        /** {@link #getPositions()} を書く。null ならフィールドを除く */
         public PointcloudPoints withPositions(List<List<Double>> value) {
             put("positions", value);
             return this;
@@ -14147,7 +14147,7 @@ public final class Messages {
             return Json.read(json.get("intensity"), v0 -> Json.list(v0, Json::integer));
         }
 
-        /** {@link #getIntensity()} を書く。null なら欄を除く */
+        /** {@link #getIntensity()} を書く。null ならフィールドを除く */
         public PointcloudPoints withIntensity(List<Long> value) {
             put("intensity", value);
             return this;
@@ -14158,7 +14158,7 @@ public final class Messages {
             return Json.read(json.get("classification"), v0 -> Json.list(v0, Json::integer));
         }
 
-        /** {@link #getClassification()} を書く。null なら欄を除く */
+        /** {@link #getClassification()} を書く。null ならフィールドを除く */
         public PointcloudPoints withClassification(List<Long> value) {
             put("classification", value);
             return this;
@@ -14169,7 +14169,7 @@ public final class Messages {
             return Json.read(json.get("color"), v0 -> Json.list(v0, v1 -> Json.list(v1, Json::integer)));
         }
 
-        /** {@link #getColor()} を書く。null なら欄を除く */
+        /** {@link #getColor()} を書く。null ならフィールドを除く */
         public PointcloudPoints withColor(List<List<Long>> value) {
             put("color", value);
             return this;
@@ -14180,7 +14180,7 @@ public final class Messages {
             return Json.read(json.get("truncated"), Json::bool);
         }
 
-        /** {@link #getTruncated()} を書く。null なら欄を除く */
+        /** {@link #getTruncated()} を書く。null ならフィールドを除く */
         public PointcloudPoints withTruncated(Boolean value) {
             put("truncated", value);
             return this;
@@ -14191,14 +14191,14 @@ public final class Messages {
             return Json.read(json.get("level"), Json::integer);
         }
 
-        /** {@link #getLevel()} を書く。null なら欄を除く */
+        /** {@link #getLevel()} を書く。null ならフィールドを除く */
         public PointcloudPoints withLevel(Long value) {
             put("level", value);
             return this;
         }
     }
 
-    /** 電子納品の成果品（決定 0241）を読み、管理ファイルの要約を返す。成果品は、zm_push で渡した入力のうち root の下にある名前の集まりか、ZIP の入力（archive）で渡す。profiles と profile を渡せば、プロファイルの delivery- で始まる照合の種類の規則と照らし、指摘を返す（#384）。ほかの種類の規則は飛ばす。図面のモジュールに置く。小版 53 から */
+    /** 電子納品の成果品（決定 0241）を読み、管理ファイルの要約を返す。成果品は、zm_push で渡した入力のうち root の下にある名前の集まりか、ZIP の入力（archive）で渡す。profiles と profile を渡せば、プロファイルの delivery- で始まる照合の種類の規則と照らし、指摘を返す（#384）。ほかの種類の規則は飛ばす。図面のモジュールに置く。マイナーバージョン 53 から */
     public static final class DeliveryCheckRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public DeliveryCheckRequest(Map<String, Object> json) {
@@ -14211,18 +14211,18 @@ public final class Messages {
             return json == null ? null : new DeliveryCheckRequest(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public DeliveryCheckRequest() {
             super(new LinkedHashMap<String, Object>());
             json.put("op", "delivery_check");
         }
 
-        /** メッセージのスキーマの大版。今は 1 */
+        /** メッセージのスキーマのメジャーバージョン。今は 1 */
         public Long getV() {
             return Json.read(json.get("v"), Json::integer);
         }
 
-        /** {@link #getV()} を書く。null なら欄を除く */
+        /** {@link #getV()} を書く。null ならフィールドを除く */
         public DeliveryCheckRequest withV(Long value) {
             put("v", value);
             return this;
@@ -14233,7 +14233,7 @@ public final class Messages {
             return Json.read(json.get("budget"), Budget::of);
         }
 
-        /** {@link #getBudget()} を書く。null なら欄を除く */
+        /** {@link #getBudget()} を書く。null ならフィールドを除く */
         public DeliveryCheckRequest withBudget(Budget value) {
             put("budget", value);
             return this;
@@ -14244,7 +14244,7 @@ public final class Messages {
             return Json.read(json.get("partial"), Json::bool);
         }
 
-        /** {@link #getPartial()} を書く。null なら欄を除く */
+        /** {@link #getPartial()} を書く。null ならフィールドを除く */
         public DeliveryCheckRequest withPartial(Boolean value) {
             put("partial", value);
             return this;
@@ -14255,18 +14255,18 @@ public final class Messages {
             return Json.read(json.get("max_places"), Json::integer);
         }
 
-        /** {@link #getMaxPlaces()} を書く。null なら欄を除く */
+        /** {@link #getMaxPlaces()} を書く。null ならフィールドを除く */
         public DeliveryCheckRequest withMaxPlaces(Long value) {
             put("max_places", value);
             return this;
         }
 
-        /** 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        /** 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
         public Long getTimeLimitMs() {
             return Json.read(json.get("time_limit_ms"), Json::integer);
         }
 
-        /** {@link #getTimeLimitMs()} を書く。null なら欄を除く */
+        /** {@link #getTimeLimitMs()} を書く。null ならフィールドを除く */
         public DeliveryCheckRequest withTimeLimitMs(Long value) {
             put("time_limit_ms", value);
             return this;
@@ -14277,7 +14277,7 @@ public final class Messages {
             return Json.read(json.get("op"), Json::string);
         }
 
-        /** {@link #getOp()} を書く。null なら欄を除く */
+        /** {@link #getOp()} を書く。null ならフィールドを除く */
         public DeliveryCheckRequest withOp(String value) {
             put("op", value);
             return this;
@@ -14288,7 +14288,7 @@ public final class Messages {
             return Json.read(json.get("root"), Json::string);
         }
 
-        /** {@link #getRoot()} を書く。null なら欄を除く */
+        /** {@link #getRoot()} を書く。null ならフィールドを除く */
         public DeliveryCheckRequest withRoot(String value) {
             put("root", value);
             return this;
@@ -14299,7 +14299,7 @@ public final class Messages {
             return Json.read(json.get("archive"), Json::string);
         }
 
-        /** {@link #getArchive()} を書く。null なら欄を除く */
+        /** {@link #getArchive()} を書く。null ならフィールドを除く */
         public DeliveryCheckRequest withArchive(String value) {
             put("archive", value);
             return this;
@@ -14310,7 +14310,7 @@ public final class Messages {
             return Json.read(json.get("profiles"), v0 -> Json.list(v0, Json::string));
         }
 
-        /** {@link #getProfiles()} を書く。null なら欄を除く */
+        /** {@link #getProfiles()} を書く。null ならフィールドを除く */
         public DeliveryCheckRequest withProfiles(List<String> value) {
             put("profiles", value);
             return this;
@@ -14321,7 +14321,7 @@ public final class Messages {
             return Json.read(json.get("profile"), ProfileRef::of);
         }
 
-        /** {@link #getProfile()} を書く。null なら欄を除く */
+        /** {@link #getProfile()} を書く。null ならフィールドを除く */
         public DeliveryCheckRequest withProfile(ProfileRef value) {
             put("profile", value);
             return this;
@@ -14332,7 +14332,7 @@ public final class Messages {
             return Json.read(json.get("offset"), Json::integer);
         }
 
-        /** {@link #getOffset()} を書く。null なら欄を除く */
+        /** {@link #getOffset()} を書く。null ならフィールドを除く */
         public DeliveryCheckRequest withOffset(Long value) {
             put("offset", value);
             return this;
@@ -14343,7 +14343,7 @@ public final class Messages {
             return Json.read(json.get("limit"), Json::integer);
         }
 
-        /** {@link #getLimit()} を書く。null なら欄を除く */
+        /** {@link #getLimit()} を書く。null ならフィールドを除く */
         public DeliveryCheckRequest withLimit(Long value) {
             put("limit", value);
             return this;
@@ -14373,7 +14373,7 @@ public final class Messages {
             return Json.read(json.get("files"), Json::integer);
         }
 
-        /** {@link #getFiles()} を書く。null なら欄を除く */
+        /** {@link #getFiles()} を書く。null ならフィールドを除く */
         public DeliveryCheckResult withFiles(Long value) {
             put("files", value);
             return this;
@@ -14384,7 +14384,7 @@ public final class Messages {
             return Json.read(json.get("managed"), v0 -> Json.list(v0, DeliveryManaged::of));
         }
 
-        /** {@link #getManaged()} を書く。null なら欄を除く */
+        /** {@link #getManaged()} を書く。null ならフィールドを除く */
         public DeliveryCheckResult withManaged(List<DeliveryManaged> value) {
             put("managed", value);
             return this;
@@ -14395,7 +14395,7 @@ public final class Messages {
             return Json.read(json.get("chain"), v0 -> Json.list(v0, ProfileIdentity::of));
         }
 
-        /** {@link #getChain()} を書く。null なら欄を除く */
+        /** {@link #getChain()} を書く。null ならフィールドを除く */
         public DeliveryCheckResult withChain(List<ProfileIdentity> value) {
             put("chain", value);
             return this;
@@ -14406,7 +14406,7 @@ public final class Messages {
             return Json.read(json.get("rules"), v0 -> Json.list(v0, CheckRule::of));
         }
 
-        /** {@link #getRules()} を書く。null なら欄を除く */
+        /** {@link #getRules()} を書く。null ならフィールドを除く */
         public DeliveryCheckResult withRules(List<CheckRule> value) {
             put("rules", value);
             return this;
@@ -14417,7 +14417,7 @@ public final class Messages {
             return Json.read(json.get("findings"), v0 -> Json.list(v0, CheckFinding::of));
         }
 
-        /** {@link #getFindings()} を書く。null なら欄を除く */
+        /** {@link #getFindings()} を書く。null ならフィールドを除く */
         public DeliveryCheckResult withFindings(List<CheckFinding> value) {
             put("findings", value);
             return this;
@@ -14428,7 +14428,7 @@ public final class Messages {
             return Json.read(json.get("total"), Json::integer);
         }
 
-        /** {@link #getTotal()} を書く。null なら欄を除く */
+        /** {@link #getTotal()} を書く。null ならフィールドを除く */
         public DeliveryCheckResult withTotal(Long value) {
             put("total", value);
             return this;
@@ -14439,14 +14439,14 @@ public final class Messages {
             return Json.read(json.get("next_offset"), Json::integer);
         }
 
-        /** {@link #getNextOffset()} を書く。null なら欄を除く */
+        /** {@link #getNextOffset()} を書く。null ならフィールドを除く */
         public DeliveryCheckResult withNextOffset(Long value) {
             put("next_offset", value);
             return this;
         }
     }
 
-    /** 工事写真（JPEG）の Exif と XMP を読み、画素数・向き・撮影の日時・位置などを返す（#387）。画像は復号しない。図面のモジュールに置く。小版 55 から */
+    /** 工事写真（JPEG）の Exif と XMP を読み、画素数・向き・撮影の日時・位置などを返す（#387）。画像は復号しない。図面のモジュールに置く。マイナーバージョン 55 から */
     public static final class PhotoRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public PhotoRequest(Map<String, Object> json) {
@@ -14459,18 +14459,18 @@ public final class Messages {
             return json == null ? null : new PhotoRequest(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public PhotoRequest() {
             super(new LinkedHashMap<String, Object>());
             json.put("op", "photo");
         }
 
-        /** メッセージのスキーマの大版。今は 1 */
+        /** メッセージのスキーマのメジャーバージョン。今は 1 */
         public Long getV() {
             return Json.read(json.get("v"), Json::integer);
         }
 
-        /** {@link #getV()} を書く。null なら欄を除く */
+        /** {@link #getV()} を書く。null ならフィールドを除く */
         public PhotoRequest withV(Long value) {
             put("v", value);
             return this;
@@ -14481,7 +14481,7 @@ public final class Messages {
             return Json.read(json.get("budget"), Budget::of);
         }
 
-        /** {@link #getBudget()} を書く。null なら欄を除く */
+        /** {@link #getBudget()} を書く。null ならフィールドを除く */
         public PhotoRequest withBudget(Budget value) {
             put("budget", value);
             return this;
@@ -14492,7 +14492,7 @@ public final class Messages {
             return Json.read(json.get("partial"), Json::bool);
         }
 
-        /** {@link #getPartial()} を書く。null なら欄を除く */
+        /** {@link #getPartial()} を書く。null ならフィールドを除く */
         public PhotoRequest withPartial(Boolean value) {
             put("partial", value);
             return this;
@@ -14503,18 +14503,18 @@ public final class Messages {
             return Json.read(json.get("max_places"), Json::integer);
         }
 
-        /** {@link #getMaxPlaces()} を書く。null なら欄を除く */
+        /** {@link #getMaxPlaces()} を書く。null ならフィールドを除く */
         public PhotoRequest withMaxPlaces(Long value) {
             put("max_places", value);
             return this;
         }
 
-        /** 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        /** 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
         public Long getTimeLimitMs() {
             return Json.read(json.get("time_limit_ms"), Json::integer);
         }
 
-        /** {@link #getTimeLimitMs()} を書く。null なら欄を除く */
+        /** {@link #getTimeLimitMs()} を書く。null ならフィールドを除く */
         public PhotoRequest withTimeLimitMs(Long value) {
             put("time_limit_ms", value);
             return this;
@@ -14525,7 +14525,7 @@ public final class Messages {
             return Json.read(json.get("op"), Json::string);
         }
 
-        /** {@link #getOp()} を書く。null なら欄を除く */
+        /** {@link #getOp()} を書く。null ならフィールドを除く */
         public PhotoRequest withOp(String value) {
             put("op", value);
             return this;
@@ -14536,7 +14536,7 @@ public final class Messages {
             return Json.read(json.get("input"), Json::string);
         }
 
-        /** {@link #getInput()} を書く。null なら欄を除く */
+        /** {@link #getInput()} を書く。null ならフィールドを除く */
         public PhotoRequest withInput(String value) {
             put("input", value);
             return this;
@@ -14561,23 +14561,23 @@ public final class Messages {
             super(new LinkedHashMap<String, Object>());
         }
 
-        /** 画素の幅（フレームの見出し） */
+        /** 画素の幅（フレームのヘッダー） */
         public Long getWidth() {
             return Json.read(json.get("width"), Json::integer);
         }
 
-        /** {@link #getWidth()} を書く。null なら欄を除く */
+        /** {@link #getWidth()} を書く。null ならフィールドを除く */
         public PhotoResult withWidth(Long value) {
             put("width", value);
             return this;
         }
 
-        /** 画素の高さ（フレームの見出し） */
+        /** 画素の高さ（フレームのヘッダー） */
         public Long getHeight() {
             return Json.read(json.get("height"), Json::integer);
         }
 
-        /** {@link #getHeight()} を書く。null なら欄を除く */
+        /** {@link #getHeight()} を書く。null ならフィールドを除く */
         public PhotoResult withHeight(Long value) {
             put("height", value);
             return this;
@@ -14588,7 +14588,7 @@ public final class Messages {
             return Json.read(json.get("orientation"), Json::integer);
         }
 
-        /** {@link #getOrientation()} を書く。null なら欄を除く */
+        /** {@link #getOrientation()} を書く。null ならフィールドを除く */
         public PhotoResult withOrientation(Long value) {
             put("orientation", value);
             return this;
@@ -14599,7 +14599,7 @@ public final class Messages {
             return Json.read(json.get("taken"), Json::string);
         }
 
-        /** {@link #getTaken()} を書く。null なら欄を除く */
+        /** {@link #getTaken()} を書く。null ならフィールドを除く */
         public PhotoResult withTaken(String value) {
             put("taken", value);
             return this;
@@ -14610,7 +14610,7 @@ public final class Messages {
             return Json.read(json.get("make"), Json::string);
         }
 
-        /** {@link #getMake()} を書く。null なら欄を除く */
+        /** {@link #getMake()} を書く。null ならフィールドを除く */
         public PhotoResult withMake(String value) {
             put("make", value);
             return this;
@@ -14621,7 +14621,7 @@ public final class Messages {
             return Json.read(json.get("model"), Json::string);
         }
 
-        /** {@link #getModel()} を書く。null なら欄を除く */
+        /** {@link #getModel()} を書く。null ならフィールドを除く */
         public PhotoResult withModel(String value) {
             put("model", value);
             return this;
@@ -14632,7 +14632,7 @@ public final class Messages {
             return Json.read(json.get("position"), PhotoPosition::of);
         }
 
-        /** {@link #getPosition()} を書く。null なら欄を除く */
+        /** {@link #getPosition()} を書く。null ならフィールドを除く */
         public PhotoResult withPosition(PhotoPosition value) {
             put("position", value);
             return this;
@@ -14643,7 +14643,7 @@ public final class Messages {
             return Json.read(json.get("direction"), Json::number);
         }
 
-        /** {@link #getDirection()} を書く。null なら欄を除く */
+        /** {@link #getDirection()} を書く。null ならフィールドを除く */
         public PhotoResult withDirection(Double value) {
             put("direction", value);
             return this;
@@ -14654,7 +14654,7 @@ public final class Messages {
             return Json.read(json.get("direction_reference"), Json::string);
         }
 
-        /** {@link #getDirectionReference()} を書く。null なら欄を除く */
+        /** {@link #getDirectionReference()} を書く。null ならフィールドを除く */
         public PhotoResult withDirectionReference(String value) {
             put("direction_reference", value);
             return this;
@@ -14665,7 +14665,7 @@ public final class Messages {
             return Json.read(json.get("datum"), Json::string);
         }
 
-        /** {@link #getDatum()} を書く。null なら欄を除く */
+        /** {@link #getDatum()} を書く。null ならフィールドを除く */
         public PhotoResult withDatum(String value) {
             put("datum", value);
             return this;
@@ -14676,7 +14676,7 @@ public final class Messages {
             return Json.read(json.get("xmp"), v0 -> Json.list(v0, PhotoProperty::of));
         }
 
-        /** {@link #getXmp()} を書く。null なら欄を除く */
+        /** {@link #getXmp()} を書く。null ならフィールドを除く */
         public PhotoResult withXmp(List<PhotoProperty> value) {
             put("xmp", value);
             return this;
@@ -14706,7 +14706,7 @@ public final class Messages {
             return Json.read(json.get("latitude"), Json::number);
         }
 
-        /** {@link #getLatitude()} を書く。null なら欄を除く */
+        /** {@link #getLatitude()} を書く。null ならフィールドを除く */
         public PhotoPosition withLatitude(Double value) {
             put("latitude", value);
             return this;
@@ -14717,7 +14717,7 @@ public final class Messages {
             return Json.read(json.get("longitude"), Json::number);
         }
 
-        /** {@link #getLongitude()} を書く。null なら欄を除く */
+        /** {@link #getLongitude()} を書く。null ならフィールドを除く */
         public PhotoPosition withLongitude(Double value) {
             put("longitude", value);
             return this;
@@ -14728,7 +14728,7 @@ public final class Messages {
             return Json.read(json.get("altitude"), Json::number);
         }
 
-        /** {@link #getAltitude()} を書く。null なら欄を除く */
+        /** {@link #getAltitude()} を書く。null ならフィールドを除く */
         public PhotoPosition withAltitude(Double value) {
             put("altitude", value);
             return this;
@@ -14758,7 +14758,7 @@ public final class Messages {
             return Json.read(json.get("namespace"), Json::string);
         }
 
-        /** {@link #getNamespace()} を書く。null なら欄を除く */
+        /** {@link #getNamespace()} を書く。null ならフィールドを除く */
         public PhotoProperty withNamespace(String value) {
             put("namespace", value);
             return this;
@@ -14769,7 +14769,7 @@ public final class Messages {
             return Json.read(json.get("name"), Json::string);
         }
 
-        /** {@link #getName()} を書く。null なら欄を除く */
+        /** {@link #getName()} を書く。null ならフィールドを除く */
         public PhotoProperty withName(String value) {
             put("name", value);
             return this;
@@ -14780,14 +14780,14 @@ public final class Messages {
             return Json.read(json.get("value"), Json::string);
         }
 
-        /** {@link #getValue()} を書く。null なら欄を除く */
+        /** {@link #getValue()} を書く。null ならフィールドを除く */
         public PhotoProperty withValue(String value) {
             put("value", value);
             return this;
         }
     }
 
-    /** 表（Excel の xlsx と CSV）を、様式を知らずに読み、シートごとのセルの値・数式・結合セルを返す（#391）。数式は計算せず、保存された値を返す。図面のモジュールに置く。小版 56 から */
+    /** 表（Excel の xlsx と CSV）を、様式を知らずに読み、シートごとのセルの値・数式・結合セルを返す（#391）。数式は計算せず、保存された値を返す。図面のモジュールに置く。マイナーバージョン 56 から */
     public static final class SheetRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public SheetRequest(Map<String, Object> json) {
@@ -14800,18 +14800,18 @@ public final class Messages {
             return json == null ? null : new SheetRequest(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public SheetRequest() {
             super(new LinkedHashMap<String, Object>());
             json.put("op", "sheet");
         }
 
-        /** メッセージのスキーマの大版。今は 1 */
+        /** メッセージのスキーマのメジャーバージョン。今は 1 */
         public Long getV() {
             return Json.read(json.get("v"), Json::integer);
         }
 
-        /** {@link #getV()} を書く。null なら欄を除く */
+        /** {@link #getV()} を書く。null ならフィールドを除く */
         public SheetRequest withV(Long value) {
             put("v", value);
             return this;
@@ -14822,7 +14822,7 @@ public final class Messages {
             return Json.read(json.get("budget"), Budget::of);
         }
 
-        /** {@link #getBudget()} を書く。null なら欄を除く */
+        /** {@link #getBudget()} を書く。null ならフィールドを除く */
         public SheetRequest withBudget(Budget value) {
             put("budget", value);
             return this;
@@ -14833,7 +14833,7 @@ public final class Messages {
             return Json.read(json.get("partial"), Json::bool);
         }
 
-        /** {@link #getPartial()} を書く。null なら欄を除く */
+        /** {@link #getPartial()} を書く。null ならフィールドを除く */
         public SheetRequest withPartial(Boolean value) {
             put("partial", value);
             return this;
@@ -14844,18 +14844,18 @@ public final class Messages {
             return Json.read(json.get("max_places"), Json::integer);
         }
 
-        /** {@link #getMaxPlaces()} を書く。null なら欄を除く */
+        /** {@link #getMaxPlaces()} を書く。null ならフィールドを除く */
         public SheetRequest withMaxPlaces(Long value) {
             put("max_places", value);
             return this;
         }
 
-        /** 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        /** 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
         public Long getTimeLimitMs() {
             return Json.read(json.get("time_limit_ms"), Json::integer);
         }
 
-        /** {@link #getTimeLimitMs()} を書く。null なら欄を除く */
+        /** {@link #getTimeLimitMs()} を書く。null ならフィールドを除く */
         public SheetRequest withTimeLimitMs(Long value) {
             put("time_limit_ms", value);
             return this;
@@ -14866,7 +14866,7 @@ public final class Messages {
             return Json.read(json.get("op"), Json::string);
         }
 
-        /** {@link #getOp()} を書く。null なら欄を除く */
+        /** {@link #getOp()} を書く。null ならフィールドを除く */
         public SheetRequest withOp(String value) {
             put("op", value);
             return this;
@@ -14877,7 +14877,7 @@ public final class Messages {
             return Json.read(json.get("input"), Json::string);
         }
 
-        /** {@link #getInput()} を書く。null なら欄を除く */
+        /** {@link #getInput()} を書く。null ならフィールドを除く */
         public SheetRequest withInput(String value) {
             put("input", value);
             return this;
@@ -14888,7 +14888,7 @@ public final class Messages {
             return Json.read(json.get("format"), Json::string);
         }
 
-        /** {@link #getFormat()} を書く。null なら欄を除く */
+        /** {@link #getFormat()} を書く。null ならフィールドを除く */
         public SheetRequest withFormat(String value) {
             put("format", value);
             return this;
@@ -14899,7 +14899,7 @@ public final class Messages {
             return Json.read(json.get("encoding"), Json::string);
         }
 
-        /** {@link #getEncoding()} を書く。null なら欄を除く */
+        /** {@link #getEncoding()} を書く。null ならフィールドを除く */
         public SheetRequest withEncoding(String value) {
             put("encoding", value);
             return this;
@@ -14910,7 +14910,7 @@ public final class Messages {
             return Json.read(json.get("delimiter"), Json::string);
         }
 
-        /** {@link #getDelimiter()} を書く。null なら欄を除く */
+        /** {@link #getDelimiter()} を書く。null ならフィールドを除く */
         public SheetRequest withDelimiter(String value) {
             put("delimiter", value);
             return this;
@@ -14981,7 +14981,7 @@ public final class Messages {
             return Json.read(json.get("format"), Json::string);
         }
 
-        /** {@link #getFormat()} を書く。null なら欄を除く */
+        /** {@link #getFormat()} を書く。null ならフィールドを除く */
         public SheetResult withFormat(String value) {
             put("format", value);
             return this;
@@ -14992,7 +14992,7 @@ public final class Messages {
             return Json.read(json.get("encoding"), Json::string);
         }
 
-        /** {@link #getEncoding()} を書く。null なら欄を除く */
+        /** {@link #getEncoding()} を書く。null ならフィールドを除く */
         public SheetResult withEncoding(String value) {
             put("encoding", value);
             return this;
@@ -15003,7 +15003,7 @@ public final class Messages {
             return Json.read(json.get("sheets"), v0 -> Json.list(v0, Sheet::of));
         }
 
-        /** {@link #getSheets()} を書く。null なら欄を除く */
+        /** {@link #getSheets()} を書く。null ならフィールドを除く */
         public SheetResult withSheets(List<Sheet> value) {
             put("sheets", value);
             return this;
@@ -15033,7 +15033,7 @@ public final class Messages {
             return Json.read(json.get("name"), Json::string);
         }
 
-        /** {@link #getName()} を書く。null なら欄を除く */
+        /** {@link #getName()} を書く。null ならフィールドを除く */
         public Sheet withName(String value) {
             put("name", value);
             return this;
@@ -15044,7 +15044,7 @@ public final class Messages {
             return Json.read(json.get("rows"), Json::integer);
         }
 
-        /** {@link #getRows()} を書く。null なら欄を除く */
+        /** {@link #getRows()} を書く。null ならフィールドを除く */
         public Sheet withRows(Long value) {
             put("rows", value);
             return this;
@@ -15055,7 +15055,7 @@ public final class Messages {
             return Json.read(json.get("columns"), Json::integer);
         }
 
-        /** {@link #getColumns()} を書く。null なら欄を除く */
+        /** {@link #getColumns()} を書く。null ならフィールドを除く */
         public Sheet withColumns(Long value) {
             put("columns", value);
             return this;
@@ -15066,7 +15066,7 @@ public final class Messages {
             return Json.read(json.get("cells"), v0 -> Json.list(v0, SheetCell::of));
         }
 
-        /** {@link #getCells()} を書く。null なら欄を除く */
+        /** {@link #getCells()} を書く。null ならフィールドを除く */
         public Sheet withCells(List<SheetCell> value) {
             put("cells", value);
             return this;
@@ -15077,7 +15077,7 @@ public final class Messages {
             return Json.read(json.get("merged"), v0 -> Json.list(v0, SheetArea::of));
         }
 
-        /** {@link #getMerged()} を書く。null なら欄を除く */
+        /** {@link #getMerged()} を書く。null ならフィールドを除く */
         public Sheet withMerged(List<SheetArea> value) {
             put("merged", value);
             return this;
@@ -15107,7 +15107,7 @@ public final class Messages {
             return Json.read(json.get("row"), Json::integer);
         }
 
-        /** {@link #getRow()} を書く。null なら欄を除く */
+        /** {@link #getRow()} を書く。null ならフィールドを除く */
         public SheetCell withRow(Long value) {
             put("row", value);
             return this;
@@ -15118,7 +15118,7 @@ public final class Messages {
             return Json.read(json.get("column"), Json::integer);
         }
 
-        /** {@link #getColumn()} を書く。null なら欄を除く */
+        /** {@link #getColumn()} を書く。null ならフィールドを除く */
         public SheetCell withColumn(Long value) {
             put("column", value);
             return this;
@@ -15129,7 +15129,7 @@ public final class Messages {
             return Json.read(json.get("kind"), Json::string);
         }
 
-        /** {@link #getKind()} を書く。null なら欄を除く */
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
         public SheetCell withKind(String value) {
             put("kind", value);
             return this;
@@ -15140,7 +15140,7 @@ public final class Messages {
             return Json.read(json.get("value"), Json::string);
         }
 
-        /** {@link #getValue()} を書く。null なら欄を除く */
+        /** {@link #getValue()} を書く。null ならフィールドを除く */
         public SheetCell withValue(String value) {
             put("value", value);
             return this;
@@ -15151,7 +15151,7 @@ public final class Messages {
             return Json.read(json.get("formula"), Json::string);
         }
 
-        /** {@link #getFormula()} を書く。null なら欄を除く */
+        /** {@link #getFormula()} を書く。null ならフィールドを除く */
         public SheetCell withFormula(String value) {
             put("formula", value);
             return this;
@@ -15198,7 +15198,7 @@ public final class Messages {
             return Json.read(json.get("first_row"), Json::integer);
         }
 
-        /** {@link #getFirstRow()} を書く。null なら欄を除く */
+        /** {@link #getFirstRow()} を書く。null ならフィールドを除く */
         public SheetArea withFirstRow(Long value) {
             put("first_row", value);
             return this;
@@ -15209,7 +15209,7 @@ public final class Messages {
             return Json.read(json.get("first_column"), Json::integer);
         }
 
-        /** {@link #getFirstColumn()} を書く。null なら欄を除く */
+        /** {@link #getFirstColumn()} を書く。null ならフィールドを除く */
         public SheetArea withFirstColumn(Long value) {
             put("first_column", value);
             return this;
@@ -15220,7 +15220,7 @@ public final class Messages {
             return Json.read(json.get("last_row"), Json::integer);
         }
 
-        /** {@link #getLastRow()} を書く。null なら欄を除く */
+        /** {@link #getLastRow()} を書く。null ならフィールドを除く */
         public SheetArea withLastRow(Long value) {
             put("last_row", value);
             return this;
@@ -15231,14 +15231,14 @@ public final class Messages {
             return Json.read(json.get("last_column"), Json::integer);
         }
 
-        /** {@link #getLastColumn()} を書く。null なら欄を除く */
+        /** {@link #getLastColumn()} を書く。null ならフィールドを除く */
         public SheetArea withLastColumn(Long value) {
             put("last_column", value);
             return this;
         }
     }
 
-    /** 地質・土質調査のボーリング交換用データ（BED0500.DTD の XML）を読み、ボーリングの位置・標高と、地層・色調・観察記事・標準貫入試験・孔内水位を返す（#390）。ほかの試験と判定表は読まない。図面のモジュールに置く。小版 57 から */
+    /** 地質・土質調査のボーリング交換用データ（BED0500.DTD の XML）を読み、ボーリングの位置・標高と、地層・色調・観察記事・標準貫入試験・孔内水位を返す（#390）。ほかの試験と判定表は読まない。図面のモジュールに置く。マイナーバージョン 57 から */
     public static final class BoringRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public BoringRequest(Map<String, Object> json) {
@@ -15251,18 +15251,18 @@ public final class Messages {
             return json == null ? null : new BoringRequest(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public BoringRequest() {
             super(new LinkedHashMap<String, Object>());
             json.put("op", "boring");
         }
 
-        /** メッセージのスキーマの大版。今は 1 */
+        /** メッセージのスキーマのメジャーバージョン。今は 1 */
         public Long getV() {
             return Json.read(json.get("v"), Json::integer);
         }
 
-        /** {@link #getV()} を書く。null なら欄を除く */
+        /** {@link #getV()} を書く。null ならフィールドを除く */
         public BoringRequest withV(Long value) {
             put("v", value);
             return this;
@@ -15273,7 +15273,7 @@ public final class Messages {
             return Json.read(json.get("budget"), Budget::of);
         }
 
-        /** {@link #getBudget()} を書く。null なら欄を除く */
+        /** {@link #getBudget()} を書く。null ならフィールドを除く */
         public BoringRequest withBudget(Budget value) {
             put("budget", value);
             return this;
@@ -15284,7 +15284,7 @@ public final class Messages {
             return Json.read(json.get("partial"), Json::bool);
         }
 
-        /** {@link #getPartial()} を書く。null なら欄を除く */
+        /** {@link #getPartial()} を書く。null ならフィールドを除く */
         public BoringRequest withPartial(Boolean value) {
             put("partial", value);
             return this;
@@ -15295,18 +15295,18 @@ public final class Messages {
             return Json.read(json.get("max_places"), Json::integer);
         }
 
-        /** {@link #getMaxPlaces()} を書く。null なら欄を除く */
+        /** {@link #getMaxPlaces()} を書く。null ならフィールドを除く */
         public BoringRequest withMaxPlaces(Long value) {
             put("max_places", value);
             return this;
         }
 
-        /** 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        /** 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
         public Long getTimeLimitMs() {
             return Json.read(json.get("time_limit_ms"), Json::integer);
         }
 
-        /** {@link #getTimeLimitMs()} を書く。null なら欄を除く */
+        /** {@link #getTimeLimitMs()} を書く。null ならフィールドを除く */
         public BoringRequest withTimeLimitMs(Long value) {
             put("time_limit_ms", value);
             return this;
@@ -15317,7 +15317,7 @@ public final class Messages {
             return Json.read(json.get("op"), Json::string);
         }
 
-        /** {@link #getOp()} を書く。null なら欄を除く */
+        /** {@link #getOp()} を書く。null ならフィールドを除く */
         public BoringRequest withOp(String value) {
             put("op", value);
             return this;
@@ -15328,7 +15328,7 @@ public final class Messages {
             return Json.read(json.get("input"), Json::string);
         }
 
-        /** {@link #getInput()} を書く。null なら欄を除く */
+        /** {@link #getInput()} を書く。null ならフィールドを除く */
         public BoringRequest withInput(String value) {
             put("input", value);
             return this;
@@ -15358,7 +15358,7 @@ public final class Messages {
             return Json.read(json.get("standards"), v0 -> Json.list(v0, Json::string));
         }
 
-        /** {@link #getStandards()} を書く。null なら欄を除く */
+        /** {@link #getStandards()} を書く。null ならフィールドを除く */
         public BoringResult withStandards(List<String> value) {
             put("standards", value);
             return this;
@@ -15369,7 +15369,7 @@ public final class Messages {
             return Json.read(json.get("publication"), Json::string);
         }
 
-        /** {@link #getPublication()} を書く。null なら欄を除く */
+        /** {@link #getPublication()} を書く。null ならフィールドを除く */
         public BoringResult withPublication(String value) {
             put("publication", value);
             return this;
@@ -15380,7 +15380,7 @@ public final class Messages {
             return Json.read(json.get("project"), Json::string);
         }
 
-        /** {@link #getProject()} を書く。null なら欄を除く */
+        /** {@link #getProject()} を書く。null ならフィールドを除く */
         public BoringResult withProject(String value) {
             put("project", value);
             return this;
@@ -15391,7 +15391,7 @@ public final class Messages {
             return Json.read(json.get("survey"), Json::string);
         }
 
-        /** {@link #getSurvey()} を書く。null なら欄を除く */
+        /** {@link #getSurvey()} を書く。null ならフィールドを除く */
         public BoringResult withSurvey(String value) {
             put("survey", value);
             return this;
@@ -15402,7 +15402,7 @@ public final class Messages {
             return Json.read(json.get("name"), Json::string);
         }
 
-        /** {@link #getName()} を書く。null なら欄を除く */
+        /** {@link #getName()} を書く。null ならフィールドを除く */
         public BoringResult withName(String value) {
             put("name", value);
             return this;
@@ -15413,7 +15413,7 @@ public final class Messages {
             return Json.read(json.get("count"), Json::integer);
         }
 
-        /** {@link #getCount()} を書く。null なら欄を除く */
+        /** {@link #getCount()} を書く。null ならフィールドを除く */
         public BoringResult withCount(Long value) {
             put("count", value);
             return this;
@@ -15424,7 +15424,7 @@ public final class Messages {
             return Json.read(json.get("serial"), Json::integer);
         }
 
-        /** {@link #getSerial()} を書く。null なら欄を除く */
+        /** {@link #getSerial()} を書く。null ならフィールドを除く */
         public BoringResult withSerial(Long value) {
             put("serial", value);
             return this;
@@ -15435,7 +15435,7 @@ public final class Messages {
             return Json.read(json.get("position"), BoringPosition::of);
         }
 
-        /** {@link #getPosition()} を書く。null なら欄を除く */
+        /** {@link #getPosition()} を書く。null ならフィールドを除く */
         public BoringResult withPosition(BoringPosition value) {
             put("position", value);
             return this;
@@ -15446,7 +15446,7 @@ public final class Messages {
             return Json.read(json.get("datum"), Json::string);
         }
 
-        /** {@link #getDatum()} を書く。null なら欄を除く */
+        /** {@link #getDatum()} を書く。null ならフィールドを除く */
         public BoringResult withDatum(String value) {
             put("datum", value);
             return this;
@@ -15457,7 +15457,7 @@ public final class Messages {
             return Json.read(json.get("address"), Json::string);
         }
 
-        /** {@link #getAddress()} を書く。null なら欄を除く */
+        /** {@link #getAddress()} を書く。null ならフィールドを除く */
         public BoringResult withAddress(String value) {
             put("address", value);
             return this;
@@ -15468,7 +15468,7 @@ public final class Messages {
             return Json.read(json.get("start"), Json::string);
         }
 
-        /** {@link #getStart()} を書く。null なら欄を除く */
+        /** {@link #getStart()} を書く。null ならフィールドを除く */
         public BoringResult withStart(String value) {
             put("start", value);
             return this;
@@ -15479,7 +15479,7 @@ public final class Messages {
             return Json.read(json.get("end"), Json::string);
         }
 
-        /** {@link #getEnd()} を書く。null なら欄を除く */
+        /** {@link #getEnd()} を書く。null ならフィールドを除く */
         public BoringResult withEnd(String value) {
             put("end", value);
             return this;
@@ -15490,7 +15490,7 @@ public final class Messages {
             return Json.read(json.get("elevation"), BoringHeight::of);
         }
 
-        /** {@link #getElevation()} を書く。null なら欄を除く */
+        /** {@link #getElevation()} を書く。null ならフィールドを除く */
         public BoringResult withElevation(BoringHeight value) {
             put("elevation", value);
             return this;
@@ -15501,7 +15501,7 @@ public final class Messages {
             return Json.read(json.get("length"), Json::number);
         }
 
-        /** {@link #getLength()} を書く。null なら欄を除く */
+        /** {@link #getLength()} を書く。null ならフィールドを除く */
         public BoringResult withLength(Double value) {
             put("length", value);
             return this;
@@ -15512,7 +15512,7 @@ public final class Messages {
             return Json.read(json.get("angle"), Json::number);
         }
 
-        /** {@link #getAngle()} を書く。null なら欄を除く */
+        /** {@link #getAngle()} を書く。null ならフィールドを除く */
         public BoringResult withAngle(Double value) {
             put("angle", value);
             return this;
@@ -15523,7 +15523,7 @@ public final class Messages {
             return Json.read(json.get("direction"), Json::number);
         }
 
-        /** {@link #getDirection()} を書く。null なら欄を除く */
+        /** {@link #getDirection()} を書く。null ならフィールドを除く */
         public BoringResult withDirection(Double value) {
             put("direction", value);
             return this;
@@ -15534,7 +15534,7 @@ public final class Messages {
             return Json.read(json.get("layers"), v0 -> Json.list(v0, BoringLayer::of));
         }
 
-        /** {@link #getLayers()} を書く。null なら欄を除く */
+        /** {@link #getLayers()} を書く。null ならフィールドを除く */
         public BoringResult withLayers(List<BoringLayer> value) {
             put("layers", value);
             return this;
@@ -15545,7 +15545,7 @@ public final class Messages {
             return Json.read(json.get("colors"), v0 -> Json.list(v0, BoringColor::of));
         }
 
-        /** {@link #getColors()} を書く。null なら欄を除く */
+        /** {@link #getColors()} を書く。null ならフィールドを除く */
         public BoringResult withColors(List<BoringColor> value) {
             put("colors", value);
             return this;
@@ -15556,7 +15556,7 @@ public final class Messages {
             return Json.read(json.get("observations"), v0 -> Json.list(v0, BoringObservation::of));
         }
 
-        /** {@link #getObservations()} を書く。null なら欄を除く */
+        /** {@link #getObservations()} を書く。null ならフィールドを除く */
         public BoringResult withObservations(List<BoringObservation> value) {
             put("observations", value);
             return this;
@@ -15567,7 +15567,7 @@ public final class Messages {
             return Json.read(json.get("penetrations"), v0 -> Json.list(v0, BoringPenetration::of));
         }
 
-        /** {@link #getPenetrations()} を書く。null なら欄を除く */
+        /** {@link #getPenetrations()} を書く。null ならフィールドを除く */
         public BoringResult withPenetrations(List<BoringPenetration> value) {
             put("penetrations", value);
             return this;
@@ -15578,7 +15578,7 @@ public final class Messages {
             return Json.read(json.get("water_levels"), v0 -> Json.list(v0, BoringWaterLevel::of));
         }
 
-        /** {@link #getWaterLevels()} を書く。null なら欄を除く */
+        /** {@link #getWaterLevels()} を書く。null ならフィールドを除く */
         public BoringResult withWaterLevels(List<BoringWaterLevel> value) {
             put("water_levels", value);
             return this;
@@ -15608,7 +15608,7 @@ public final class Messages {
             return Json.read(json.get("latitude"), Json::number);
         }
 
-        /** {@link #getLatitude()} を書く。null なら欄を除く */
+        /** {@link #getLatitude()} を書く。null ならフィールドを除く */
         public BoringPosition withLatitude(Double value) {
             put("latitude", value);
             return this;
@@ -15619,7 +15619,7 @@ public final class Messages {
             return Json.read(json.get("longitude"), Json::number);
         }
 
-        /** {@link #getLongitude()} を書く。null なら欄を除く */
+        /** {@link #getLongitude()} を書く。null ならフィールドを除く */
         public BoringPosition withLongitude(Double value) {
             put("longitude", value);
             return this;
@@ -15666,7 +15666,7 @@ public final class Messages {
             return Json.read(json.get("value"), Json::number);
         }
 
-        /** {@link #getValue()} を書く。null なら欄を除く */
+        /** {@link #getValue()} を書く。null ならフィールドを除く */
         public BoringHeight withValue(Double value) {
             put("value", value);
             return this;
@@ -15677,7 +15677,7 @@ public final class Messages {
             return Json.read(json.get("datum"), Json::string);
         }
 
-        /** {@link #getDatum()} を書く。null なら欄を除く */
+        /** {@link #getDatum()} を書く。null ならフィールドを除く */
         public BoringHeight withDatum(String value) {
             put("datum", value);
             return this;
@@ -15688,7 +15688,7 @@ public final class Messages {
             return Json.read(json.get("realization"), Json::string);
         }
 
-        /** {@link #getRealization()} を書く。null なら欄を除く */
+        /** {@link #getRealization()} を書く。null ならフィールドを除く */
         public BoringHeight withRealization(String value) {
             put("realization", value);
             return this;
@@ -15746,7 +15746,7 @@ public final class Messages {
             return Json.read(json.get("bottom"), Json::number);
         }
 
-        /** {@link #getBottom()} を書く。null なら欄を除く */
+        /** {@link #getBottom()} を書く。null ならフィールドを除く */
         public BoringLayer withBottom(Double value) {
             put("bottom", value);
             return this;
@@ -15757,7 +15757,7 @@ public final class Messages {
             return Json.read(json.get("name"), Json::string);
         }
 
-        /** {@link #getName()} を書く。null なら欄を除く */
+        /** {@link #getName()} を書く。null ならフィールドを除く */
         public BoringLayer withName(String value) {
             put("name", value);
             return this;
@@ -15768,7 +15768,7 @@ public final class Messages {
             return Json.read(json.get("symbol"), Json::string);
         }
 
-        /** {@link #getSymbol()} を書く。null なら欄を除く */
+        /** {@link #getSymbol()} を書く。null ならフィールドを除く */
         public BoringLayer withSymbol(String value) {
             put("symbol", value);
             return this;
@@ -15798,7 +15798,7 @@ public final class Messages {
             return Json.read(json.get("bottom"), Json::number);
         }
 
-        /** {@link #getBottom()} を書く。null なら欄を除く */
+        /** {@link #getBottom()} を書く。null ならフィールドを除く */
         public BoringColor withBottom(Double value) {
             put("bottom", value);
             return this;
@@ -15809,7 +15809,7 @@ public final class Messages {
             return Json.read(json.get("name"), Json::string);
         }
 
-        /** {@link #getName()} を書く。null なら欄を除く */
+        /** {@link #getName()} を書く。null ならフィールドを除く */
         public BoringColor withName(String value) {
             put("name", value);
             return this;
@@ -15839,7 +15839,7 @@ public final class Messages {
             return Json.read(json.get("top"), Json::number);
         }
 
-        /** {@link #getTop()} を書く。null なら欄を除く */
+        /** {@link #getTop()} を書く。null ならフィールドを除く */
         public BoringObservation withTop(Double value) {
             put("top", value);
             return this;
@@ -15850,7 +15850,7 @@ public final class Messages {
             return Json.read(json.get("bottom"), Json::number);
         }
 
-        /** {@link #getBottom()} を書く。null なら欄を除く */
+        /** {@link #getBottom()} を書く。null ならフィールドを除く */
         public BoringObservation withBottom(Double value) {
             put("bottom", value);
             return this;
@@ -15861,7 +15861,7 @@ public final class Messages {
             return Json.read(json.get("text"), Json::string);
         }
 
-        /** {@link #getText()} を書く。null なら欄を除く */
+        /** {@link #getText()} を書く。null ならフィールドを除く */
         public BoringObservation withText(String value) {
             put("text", value);
             return this;
@@ -15891,7 +15891,7 @@ public final class Messages {
             return Json.read(json.get("depth"), Json::number);
         }
 
-        /** {@link #getDepth()} を書く。null なら欄を除く */
+        /** {@link #getDepth()} を書く。null ならフィールドを除く */
         public BoringPenetration withDepth(Double value) {
             put("depth", value);
             return this;
@@ -15902,7 +15902,7 @@ public final class Messages {
             return Json.read(json.get("blows"), Json::integer);
         }
 
-        /** {@link #getBlows()} を書く。null なら欄を除く */
+        /** {@link #getBlows()} を書く。null ならフィールドを除く */
         public BoringPenetration withBlows(Long value) {
             put("blows", value);
             return this;
@@ -15913,7 +15913,7 @@ public final class Messages {
             return Json.read(json.get("penetration"), Json::number);
         }
 
-        /** {@link #getPenetration()} を書く。null なら欄を除く */
+        /** {@link #getPenetration()} を書く。null ならフィールドを除く */
         public BoringPenetration withPenetration(Double value) {
             put("penetration", value);
             return this;
@@ -15943,7 +15943,7 @@ public final class Messages {
             return Json.read(json.get("date"), Json::string);
         }
 
-        /** {@link #getDate()} を書く。null なら欄を除く */
+        /** {@link #getDate()} を書く。null ならフィールドを除く */
         public BoringWaterLevel withDate(String value) {
             put("date", value);
             return this;
@@ -15954,7 +15954,7 @@ public final class Messages {
             return Json.read(json.get("state"), Json::string);
         }
 
-        /** {@link #getState()} を書く。null なら欄を除く */
+        /** {@link #getState()} を書く。null ならフィールドを除く */
         public BoringWaterLevel withState(String value) {
             put("state", value);
             return this;
@@ -15965,7 +15965,7 @@ public final class Messages {
             return Json.read(json.get("depth"), Json::number);
         }
 
-        /** {@link #getDepth()} を書く。null なら欄を除く */
+        /** {@link #getDepth()} を書く。null ならフィールドを除く */
         public BoringWaterLevel withDepth(Double value) {
             put("depth", value);
             return this;
@@ -15976,7 +15976,7 @@ public final class Messages {
             return Json.read(json.get("note"), Json::string);
         }
 
-        /** {@link #getNote()} を書く。null なら欄を除く */
+        /** {@link #getNote()} を書く。null ならフィールドを除く */
         public BoringWaterLevel withNote(String value) {
             put("note", value);
             return this;
@@ -16006,7 +16006,7 @@ public final class Messages {
             return Json.read(json.get("name"), Json::string);
         }
 
-        /** {@link #getName()} を書く。null なら欄を除く */
+        /** {@link #getName()} を書く。null ならフィールドを除く */
         public DeliveryManaged withName(String value) {
             put("name", value);
             return this;
@@ -16017,7 +16017,7 @@ public final class Messages {
             return Json.read(json.get("doctype"), Json::string);
         }
 
-        /** {@link #getDoctype()} を書く。null なら欄を除く */
+        /** {@link #getDoctype()} を書く。null ならフィールドを除く */
         public DeliveryManaged withDoctype(String value) {
             put("doctype", value);
             return this;
@@ -16028,7 +16028,7 @@ public final class Messages {
             return Json.read(json.get("root"), Json::string);
         }
 
-        /** {@link #getRoot()} を書く。null なら欄を除く */
+        /** {@link #getRoot()} を書く。null ならフィールドを除く */
         public DeliveryManaged withRoot(String value) {
             put("root", value);
             return this;
@@ -16039,7 +16039,7 @@ public final class Messages {
             return Json.read(json.get("records"), Json::integer);
         }
 
-        /** {@link #getRecords()} を書く。null なら欄を除く */
+        /** {@link #getRecords()} を書く。null ならフィールドを除く */
         public DeliveryManaged withRecords(Long value) {
             put("records", value);
             return this;
@@ -16050,7 +16050,7 @@ public final class Messages {
             return Json.read(json.get("links"), Json::integer);
         }
 
-        /** {@link #getLinks()} を書く。null なら欄を除く */
+        /** {@link #getLinks()} を書く。null ならフィールドを除く */
         public DeliveryManaged withLinks(Long value) {
             put("links", value);
             return this;
@@ -16061,14 +16061,14 @@ public final class Messages {
             return Json.read(json.get("missing"), v0 -> Json.list(v0, Json::string));
         }
 
-        /** {@link #getMissing()} を書く。null なら欄を除く */
+        /** {@link #getMissing()} を書く。null ならフィールドを除く */
         public DeliveryManaged withMissing(List<String> value) {
             put("missing", value);
             return this;
         }
     }
 
-    /** open で開いた CityGML・基盤地図情報（GML）・拡張 DM の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。土木・地理のモジュールに置く（決定 0253）。小版 52 から */
+    /** open で開いた CityGML・基盤地図情報（GML）・拡張 DM の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。土木・地理のモジュールに置く（決定 0253）。マイナーバージョン 52 から */
     public static final class GeoRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public GeoRequest(Map<String, Object> json) {
@@ -16081,18 +16081,18 @@ public final class Messages {
             return json == null ? null : new GeoRequest(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public GeoRequest() {
             super(new LinkedHashMap<String, Object>());
             json.put("op", "geo");
         }
 
-        /** メッセージのスキーマの大版。今は 1 */
+        /** メッセージのスキーマのメジャーバージョン。今は 1 */
         public Long getV() {
             return Json.read(json.get("v"), Json::integer);
         }
 
-        /** {@link #getV()} を書く。null なら欄を除く */
+        /** {@link #getV()} を書く。null ならフィールドを除く */
         public GeoRequest withV(Long value) {
             put("v", value);
             return this;
@@ -16103,7 +16103,7 @@ public final class Messages {
             return Json.read(json.get("budget"), Budget::of);
         }
 
-        /** {@link #getBudget()} を書く。null なら欄を除く */
+        /** {@link #getBudget()} を書く。null ならフィールドを除く */
         public GeoRequest withBudget(Budget value) {
             put("budget", value);
             return this;
@@ -16114,7 +16114,7 @@ public final class Messages {
             return Json.read(json.get("partial"), Json::bool);
         }
 
-        /** {@link #getPartial()} を書く。null なら欄を除く */
+        /** {@link #getPartial()} を書く。null ならフィールドを除く */
         public GeoRequest withPartial(Boolean value) {
             put("partial", value);
             return this;
@@ -16125,18 +16125,18 @@ public final class Messages {
             return Json.read(json.get("max_places"), Json::integer);
         }
 
-        /** {@link #getMaxPlaces()} を書く。null なら欄を除く */
+        /** {@link #getMaxPlaces()} を書く。null ならフィールドを除く */
         public GeoRequest withMaxPlaces(Long value) {
             put("max_places", value);
             return this;
         }
 
-        /** 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        /** 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
         public Long getTimeLimitMs() {
             return Json.read(json.get("time_limit_ms"), Json::integer);
         }
 
-        /** {@link #getTimeLimitMs()} を書く。null なら欄を除く */
+        /** {@link #getTimeLimitMs()} を書く。null ならフィールドを除く */
         public GeoRequest withTimeLimitMs(Long value) {
             put("time_limit_ms", value);
             return this;
@@ -16147,7 +16147,7 @@ public final class Messages {
             return Json.read(json.get("op"), Json::string);
         }
 
-        /** {@link #getOp()} を書く。null なら欄を除く */
+        /** {@link #getOp()} を書く。null ならフィールドを除く */
         public GeoRequest withOp(String value) {
             put("op", value);
             return this;
@@ -16158,7 +16158,7 @@ public final class Messages {
             return Json.read(json.get("doc"), Json::string);
         }
 
-        /** {@link #getDoc()} を書く。null なら欄を除く */
+        /** {@link #getDoc()} を書く。null ならフィールドを除く */
         public GeoRequest withDoc(String value) {
             put("doc", value);
             return this;
@@ -16169,7 +16169,7 @@ public final class Messages {
             return Json.read(json.get("id"), Json::string);
         }
 
-        /** {@link #getId()} を書く。null なら欄を除く */
+        /** {@link #getId()} を書く。null ならフィールドを除く */
         public GeoRequest withId(String value) {
             put("id", value);
             return this;
@@ -16199,7 +16199,7 @@ public final class Messages {
             return Json.read(json.get("crs"), Json::integer);
         }
 
-        /** {@link #getCrs()} を書く。null なら欄を除く */
+        /** {@link #getCrs()} を書く。null ならフィールドを除く */
         public GeoResult withCrs(Long value) {
             put("crs", value);
             return this;
@@ -16210,7 +16210,7 @@ public final class Messages {
             return Json.read(json.get("height"), Json::integer);
         }
 
-        /** {@link #getHeight()} を書く。null なら欄を除く */
+        /** {@link #getHeight()} を書く。null ならフィールドを除く */
         public GeoResult withHeight(Long value) {
             put("height", value);
             return this;
@@ -16221,7 +16221,7 @@ public final class Messages {
             return Json.read(json.get("features"), Json::integer);
         }
 
-        /** {@link #getFeatures()} を書く。null なら欄を除く */
+        /** {@link #getFeatures()} を書く。null ならフィールドを除く */
         public GeoResult withFeatures(Long value) {
             put("features", value);
             return this;
@@ -16232,7 +16232,7 @@ public final class Messages {
             return Json.read(json.get("kinds"), v0 -> Json.list(v0, GeoKind::of));
         }
 
-        /** {@link #getKinds()} を書く。null なら欄を除く */
+        /** {@link #getKinds()} を書く。null ならフィールドを除く */
         public GeoResult withKinds(List<GeoKind> value) {
             put("kinds", value);
             return this;
@@ -16243,7 +16243,7 @@ public final class Messages {
             return Json.read(json.get("feature"), GeoFeature::of);
         }
 
-        /** {@link #getFeature()} を書く。null なら欄を除く */
+        /** {@link #getFeature()} を書く。null ならフィールドを除く */
         public GeoResult withFeature(GeoFeature value) {
             put("feature", value);
             return this;
@@ -16273,7 +16273,7 @@ public final class Messages {
             return Json.read(json.get("kind"), Json::string);
         }
 
-        /** {@link #getKind()} を書く。null なら欄を除く */
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
         public GeoKind withKind(String value) {
             put("kind", value);
             return this;
@@ -16284,7 +16284,7 @@ public final class Messages {
             return Json.read(json.get("count"), Json::integer);
         }
 
-        /** {@link #getCount()} を書く。null なら欄を除く */
+        /** {@link #getCount()} を書く。null ならフィールドを除く */
         public GeoKind withCount(Long value) {
             put("count", value);
             return this;
@@ -16314,7 +16314,7 @@ public final class Messages {
             return Json.read(json.get("id"), Json::string);
         }
 
-        /** {@link #getId()} を書く。null なら欄を除く */
+        /** {@link #getId()} を書く。null ならフィールドを除く */
         public GeoFeature withId(String value) {
             put("id", value);
             return this;
@@ -16325,7 +16325,7 @@ public final class Messages {
             return Json.read(json.get("kind"), Json::string);
         }
 
-        /** {@link #getKind()} を書く。null なら欄を除く */
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
         public GeoFeature withKind(String value) {
             put("kind", value);
             return this;
@@ -16336,7 +16336,7 @@ public final class Messages {
             return Json.read(json.get("code"), Json::string);
         }
 
-        /** {@link #getCode()} を書く。null なら欄を除く */
+        /** {@link #getCode()} を書く。null ならフィールドを除く */
         public GeoFeature withCode(String value) {
             put("code", value);
             return this;
@@ -16347,7 +16347,7 @@ public final class Messages {
             return Json.read(json.get("name"), Json::string);
         }
 
-        /** {@link #getName()} を書く。null なら欄を除く */
+        /** {@link #getName()} を書く。null ならフィールドを除く */
         public GeoFeature withName(String value) {
             put("name", value);
             return this;
@@ -16358,7 +16358,7 @@ public final class Messages {
             return Json.read(json.get("parent"), Json::string);
         }
 
-        /** {@link #getParent()} を書く。null なら欄を除く */
+        /** {@link #getParent()} を書く。null ならフィールドを除く */
         public GeoFeature withParent(String value) {
             put("parent", value);
             return this;
@@ -16369,7 +16369,7 @@ public final class Messages {
             return Json.read(json.get("children"), Json::integer);
         }
 
-        /** {@link #getChildren()} を書く。null なら欄を除く */
+        /** {@link #getChildren()} を書く。null ならフィールドを除く */
         public GeoFeature withChildren(Long value) {
             put("children", value);
             return this;
@@ -16380,7 +16380,7 @@ public final class Messages {
             return Json.read(json.get("attributes"), v0 -> Json.list(v0, GeoAttribute::of));
         }
 
-        /** {@link #getAttributes()} を書く。null なら欄を除く */
+        /** {@link #getAttributes()} を書く。null ならフィールドを除く */
         public GeoFeature withAttributes(List<GeoAttribute> value) {
             put("attributes", value);
             return this;
@@ -16391,7 +16391,7 @@ public final class Messages {
             return Json.read(json.get("geometries"), v0 -> Json.list(v0, GeoGeometry::of));
         }
 
-        /** {@link #getGeometries()} を書く。null なら欄を除く */
+        /** {@link #getGeometries()} を書く。null ならフィールドを除く */
         public GeoFeature withGeometries(List<GeoGeometry> value) {
             put("geometries", value);
             return this;
@@ -16421,7 +16421,7 @@ public final class Messages {
             return Json.read(json.get("name"), Json::string);
         }
 
-        /** {@link #getName()} を書く。null なら欄を除く */
+        /** {@link #getName()} を書く。null ならフィールドを除く */
         public GeoAttribute withName(String value) {
             put("name", value);
             return this;
@@ -16432,7 +16432,7 @@ public final class Messages {
             return Json.read(json.get("kind"), Json::string);
         }
 
-        /** {@link #getKind()} を書く。null なら欄を除く */
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
         public GeoAttribute withKind(String value) {
             put("kind", value);
             return this;
@@ -16443,7 +16443,7 @@ public final class Messages {
             return Json.read(json.get("value"), Json::string);
         }
 
-        /** {@link #getValue()} を書く。null なら欄を除く */
+        /** {@link #getValue()} を書く。null ならフィールドを除く */
         public GeoAttribute withValue(String value) {
             put("value", value);
             return this;
@@ -16454,7 +16454,7 @@ public final class Messages {
             return Json.read(json.get("unit"), Json::string);
         }
 
-        /** {@link #getUnit()} を書く。null なら欄を除く */
+        /** {@link #getUnit()} を書く。null ならフィールドを除く */
         public GeoAttribute withUnit(String value) {
             put("unit", value);
             return this;
@@ -16465,7 +16465,7 @@ public final class Messages {
             return Json.read(json.get("space"), Json::string);
         }
 
-        /** {@link #getSpace()} を書く。null なら欄を除く */
+        /** {@link #getSpace()} を書く。null ならフィールドを除く */
         public GeoAttribute withSpace(String value) {
             put("space", value);
             return this;
@@ -16535,7 +16535,7 @@ public final class Messages {
             return Json.read(json.get("lod"), Json::integer);
         }
 
-        /** {@link #getLod()} を書く。null なら欄を除く */
+        /** {@link #getLod()} を書く。null ならフィールドを除く */
         public GeoGeometry withLod(Long value) {
             put("lod", value);
             return this;
@@ -16546,7 +16546,7 @@ public final class Messages {
             return Json.read(json.get("form"), Json::string);
         }
 
-        /** {@link #getForm()} を書く。null なら欄を除く */
+        /** {@link #getForm()} を書く。null ならフィールドを除く */
         public GeoGeometry withForm(String value) {
             put("form", value);
             return this;
@@ -16557,7 +16557,7 @@ public final class Messages {
             return Json.read(json.get("points"), Json::integer);
         }
 
-        /** {@link #getPoints()} を書く。null なら欄を除く */
+        /** {@link #getPoints()} を書く。null ならフィールドを除く */
         public GeoGeometry withPoints(Long value) {
             put("points", value);
             return this;
@@ -16568,14 +16568,14 @@ public final class Messages {
             return Json.read(json.get("faces"), Json::integer);
         }
 
-        /** {@link #getFaces()} を書く。null なら欄を除く */
+        /** {@link #getFaces()} を書く。null ならフィールドを除く */
         public GeoGeometry withFaces(Long value) {
             put("faces", value);
             return this;
         }
     }
 
-    /** open で開いた J-LandXML の文書の線形から、平面図・縦断図・横断図の図面モデルを作り（決定 0231）、用紙を 1 枚選んで新しい DXF の文書として開く（決定 0239）。尺度・文字の高さ・測点の間隔は、プロファイルを渡せば語彙 civil-drawing と text-height から読み、渡さなければ作図の慣習の値にする。縦断図は用紙の要素に焼き込む（決定 0238）。書いたファイルは blobs で返す。作った文書は scene と check に渡せる。図面のモジュールに置く。小版 51 から */
+    /** open で開いた J-LandXML の文書の線形から、平面図・縦断図・横断図の図面モデルを作り（決定 0231）、用紙を 1 枚選んで新しい DXF の文書として開く（決定 0239）。尺度・文字の高さ・測点の間隔は、プロファイルを渡せば語彙 civil-drawing と text-height から読み、渡さなければ作図の慣習の値にする。縦断図は用紙の要素に焼き込む（決定 0238）。書いたファイルは blobs で返す。作った文書は scene と check に渡せる。図面のモジュールに置く。マイナーバージョン 51 から */
     public static final class CivilDrawingRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public CivilDrawingRequest(Map<String, Object> json) {
@@ -16588,18 +16588,18 @@ public final class Messages {
             return json == null ? null : new CivilDrawingRequest(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public CivilDrawingRequest() {
             super(new LinkedHashMap<String, Object>());
             json.put("op", "civil_drawing");
         }
 
-        /** メッセージのスキーマの大版。今は 1 */
+        /** メッセージのスキーマのメジャーバージョン。今は 1 */
         public Long getV() {
             return Json.read(json.get("v"), Json::integer);
         }
 
-        /** {@link #getV()} を書く。null なら欄を除く */
+        /** {@link #getV()} を書く。null ならフィールドを除く */
         public CivilDrawingRequest withV(Long value) {
             put("v", value);
             return this;
@@ -16610,7 +16610,7 @@ public final class Messages {
             return Json.read(json.get("budget"), Budget::of);
         }
 
-        /** {@link #getBudget()} を書く。null なら欄を除く */
+        /** {@link #getBudget()} を書く。null ならフィールドを除く */
         public CivilDrawingRequest withBudget(Budget value) {
             put("budget", value);
             return this;
@@ -16621,7 +16621,7 @@ public final class Messages {
             return Json.read(json.get("partial"), Json::bool);
         }
 
-        /** {@link #getPartial()} を書く。null なら欄を除く */
+        /** {@link #getPartial()} を書く。null ならフィールドを除く */
         public CivilDrawingRequest withPartial(Boolean value) {
             put("partial", value);
             return this;
@@ -16632,18 +16632,18 @@ public final class Messages {
             return Json.read(json.get("max_places"), Json::integer);
         }
 
-        /** {@link #getMaxPlaces()} を書く。null なら欄を除く */
+        /** {@link #getMaxPlaces()} を書く。null ならフィールドを除く */
         public CivilDrawingRequest withMaxPlaces(Long value) {
             put("max_places", value);
             return this;
         }
 
-        /** 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        /** 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
         public Long getTimeLimitMs() {
             return Json.read(json.get("time_limit_ms"), Json::integer);
         }
 
-        /** {@link #getTimeLimitMs()} を書く。null なら欄を除く */
+        /** {@link #getTimeLimitMs()} を書く。null ならフィールドを除く */
         public CivilDrawingRequest withTimeLimitMs(Long value) {
             put("time_limit_ms", value);
             return this;
@@ -16654,7 +16654,7 @@ public final class Messages {
             return Json.read(json.get("op"), Json::string);
         }
 
-        /** {@link #getOp()} を書く。null なら欄を除く */
+        /** {@link #getOp()} を書く。null ならフィールドを除く */
         public CivilDrawingRequest withOp(String value) {
             put("op", value);
             return this;
@@ -16665,7 +16665,7 @@ public final class Messages {
             return Json.read(json.get("doc"), Json::string);
         }
 
-        /** {@link #getDoc()} を書く。null なら欄を除く */
+        /** {@link #getDoc()} を書く。null ならフィールドを除く */
         public CivilDrawingRequest withDoc(String value) {
             put("doc", value);
             return this;
@@ -16676,7 +16676,7 @@ public final class Messages {
             return Json.read(json.get("id"), Json::string);
         }
 
-        /** {@link #getId()} を書く。null なら欄を除く */
+        /** {@link #getId()} を書く。null ならフィールドを除く */
         public CivilDrawingRequest withId(String value) {
             put("id", value);
             return this;
@@ -16687,7 +16687,7 @@ public final class Messages {
             return Json.read(json.get("sheet"), Json::string);
         }
 
-        /** {@link #getSheet()} を書く。null なら欄を除く */
+        /** {@link #getSheet()} を書く。null ならフィールドを除く */
         public CivilDrawingRequest withSheet(String value) {
             put("sheet", value);
             return this;
@@ -16698,7 +16698,7 @@ public final class Messages {
             return Json.read(json.get("to"), Json::string);
         }
 
-        /** {@link #getTo()} を書く。null なら欄を除く */
+        /** {@link #getTo()} を書く。null ならフィールドを除く */
         public CivilDrawingRequest withTo(String value) {
             put("to", value);
             return this;
@@ -16709,7 +16709,7 @@ public final class Messages {
             return Json.read(json.get("profiles"), v0 -> Json.list(v0, Json::string));
         }
 
-        /** {@link #getProfiles()} を書く。null なら欄を除く */
+        /** {@link #getProfiles()} を書く。null ならフィールドを除く */
         public CivilDrawingRequest withProfiles(List<String> value) {
             put("profiles", value);
             return this;
@@ -16720,7 +16720,7 @@ public final class Messages {
             return Json.read(json.get("profile"), ProfileRef::of);
         }
 
-        /** {@link #getProfile()} を書く。null なら欄を除く */
+        /** {@link #getProfile()} を書く。null ならフィールドを除く */
         public CivilDrawingRequest withProfile(ProfileRef value) {
             put("profile", value);
             return this;
@@ -16750,7 +16750,7 @@ public final class Messages {
             return Json.read(json.get("doc"), Json::string);
         }
 
-        /** {@link #getDoc()} を書く。null なら欄を除く */
+        /** {@link #getDoc()} を書く。null ならフィールドを除く */
         public CivilDrawingResult withDoc(String value) {
             put("doc", value);
             return this;
@@ -16761,7 +16761,7 @@ public final class Messages {
             return Json.read(json.get("format"), Json::string);
         }
 
-        /** {@link #getFormat()} を書く。null なら欄を除く */
+        /** {@link #getFormat()} を書く。null ならフィールドを除く */
         public CivilDrawingResult withFormat(String value) {
             put("format", value);
             return this;
@@ -16772,7 +16772,7 @@ public final class Messages {
             return Json.read(json.get("hash"), Json::string);
         }
 
-        /** {@link #getHash()} を書く。null なら欄を除く */
+        /** {@link #getHash()} を書く。null ならフィールドを除く */
         public CivilDrawingResult withHash(String value) {
             put("hash", value);
             return this;
@@ -16783,7 +16783,7 @@ public final class Messages {
             return Json.read(json.get("elements"), Json::integer);
         }
 
-        /** {@link #getElements()} を書く。null なら欄を除く */
+        /** {@link #getElements()} を書く。null ならフィールドを除く */
         public CivilDrawingResult withElements(Long value) {
             put("elements", value);
             return this;
@@ -16794,7 +16794,7 @@ public final class Messages {
             return Json.read(json.get("alignment"), Json::string);
         }
 
-        /** {@link #getAlignment()} を書く。null なら欄を除く */
+        /** {@link #getAlignment()} を書く。null ならフィールドを除く */
         public CivilDrawingResult withAlignment(String value) {
             put("alignment", value);
             return this;
@@ -16805,7 +16805,7 @@ public final class Messages {
             return Json.read(json.get("sheets"), v0 -> Json.list(v0, Json::string));
         }
 
-        /** {@link #getSheets()} を書く。null なら欄を除く */
+        /** {@link #getSheets()} を書く。null ならフィールドを除く */
         public CivilDrawingResult withSheets(List<String> value) {
             put("sheets", value);
             return this;
@@ -16816,7 +16816,7 @@ public final class Messages {
             return Json.read(json.get("sheet"), Json::string);
         }
 
-        /** {@link #getSheet()} を書く。null なら欄を除く */
+        /** {@link #getSheet()} を書く。null ならフィールドを除く */
         public CivilDrawingResult withSheet(String value) {
             put("sheet", value);
             return this;
@@ -16827,7 +16827,7 @@ public final class Messages {
             return Json.read(json.get("options"), CivilDrawingOptions::of);
         }
 
-        /** {@link #getOptions()} を書く。null なら欄を除く */
+        /** {@link #getOptions()} を書く。null ならフィールドを除く */
         public CivilDrawingResult withOptions(CivilDrawingOptions value) {
             put("options", value);
             return this;
@@ -16838,7 +16838,7 @@ public final class Messages {
             return Json.read(json.get("profile"), v0 -> Json.list(v0, ProfileIdentity::of));
         }
 
-        /** {@link #getProfile()} を書く。null なら欄を除く */
+        /** {@link #getProfile()} を書く。null ならフィールドを除く */
         public CivilDrawingResult withProfile(List<ProfileIdentity> value) {
             put("profile", value);
             return this;
@@ -16868,7 +16868,7 @@ public final class Messages {
             return Json.read(json.get("plan"), Json::number);
         }
 
-        /** {@link #getPlan()} を書く。null なら欄を除く */
+        /** {@link #getPlan()} を書く。null ならフィールドを除く */
         public CivilDrawingOptions withPlan(Double value) {
             put("plan", value);
             return this;
@@ -16879,7 +16879,7 @@ public final class Messages {
             return Json.read(json.get("horizontal"), Json::number);
         }
 
-        /** {@link #getHorizontal()} を書く。null なら欄を除く */
+        /** {@link #getHorizontal()} を書く。null ならフィールドを除く */
         public CivilDrawingOptions withHorizontal(Double value) {
             put("horizontal", value);
             return this;
@@ -16890,7 +16890,7 @@ public final class Messages {
             return Json.read(json.get("vertical"), Json::number);
         }
 
-        /** {@link #getVertical()} を書く。null なら欄を除く */
+        /** {@link #getVertical()} を書く。null ならフィールドを除く */
         public CivilDrawingOptions withVertical(Double value) {
             put("vertical", value);
             return this;
@@ -16901,7 +16901,7 @@ public final class Messages {
             return Json.read(json.get("cross_section"), Json::number);
         }
 
-        /** {@link #getCrossSection()} を書く。null なら欄を除く */
+        /** {@link #getCrossSection()} を書く。null ならフィールドを除く */
         public CivilDrawingOptions withCrossSection(Double value) {
             put("cross_section", value);
             return this;
@@ -16912,7 +16912,7 @@ public final class Messages {
             return Json.read(json.get("text_height"), Json::number);
         }
 
-        /** {@link #getTextHeight()} を書く。null なら欄を除く */
+        /** {@link #getTextHeight()} を書く。null ならフィールドを除く */
         public CivilDrawingOptions withTextHeight(Double value) {
             put("text_height", value);
             return this;
@@ -16923,14 +16923,14 @@ public final class Messages {
             return Json.read(json.get("station_pitch"), Json::number);
         }
 
-        /** {@link #getStationPitch()} を書く。null なら欄を除く */
+        /** {@link #getStationPitch()} を書く。null ならフィールドを除く */
         public CivilDrawingOptions withStationPitch(Double value) {
             put("station_pitch", value);
             return this;
         }
     }
 
-    /** 開いた点群と、土木の文書の TIN の標高の差を求め、プロファイルの surface-elevation の規則の区分ごとに集計して、規格値と比べる（決定 0234）。点群のモジュールに置く（決定 0253）。小版 50 から */
+    /** 開いた点群と、土木の文書の TIN の標高の差を求め、プロファイルの surface-elevation の規則の区分ごとに集計して、規格値と比べる（決定 0234）。点群のモジュールに置く（決定 0253）。マイナーバージョン 50 から */
     public static final class DeviationRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public DeviationRequest(Map<String, Object> json) {
@@ -16943,18 +16943,18 @@ public final class Messages {
             return json == null ? null : new DeviationRequest(json);
         }
 
-        /** 目印の欄だけを持つオブジェクトから作る */
+        /** タグのフィールドだけを持つオブジェクトから作る */
         public DeviationRequest() {
             super(new LinkedHashMap<String, Object>());
             json.put("op", "deviation");
         }
 
-        /** メッセージのスキーマの大版。今は 1 */
+        /** メッセージのスキーマのメジャーバージョン。今は 1 */
         public Long getV() {
             return Json.read(json.get("v"), Json::integer);
         }
 
-        /** {@link #getV()} を書く。null なら欄を除く */
+        /** {@link #getV()} を書く。null ならフィールドを除く */
         public DeviationRequest withV(Long value) {
             put("v", value);
             return this;
@@ -16965,7 +16965,7 @@ public final class Messages {
             return Json.read(json.get("budget"), Budget::of);
         }
 
-        /** {@link #getBudget()} を書く。null なら欄を除く */
+        /** {@link #getBudget()} を書く。null ならフィールドを除く */
         public DeviationRequest withBudget(Budget value) {
             put("budget", value);
             return this;
@@ -16976,7 +16976,7 @@ public final class Messages {
             return Json.read(json.get("partial"), Json::bool);
         }
 
-        /** {@link #getPartial()} を書く。null なら欄を除く */
+        /** {@link #getPartial()} を書く。null ならフィールドを除く */
         public DeviationRequest withPartial(Boolean value) {
             put("partial", value);
             return this;
@@ -16987,18 +16987,18 @@ public final class Messages {
             return Json.read(json.get("max_places"), Json::integer);
         }
 
-        /** {@link #getMaxPlaces()} を書く。null なら欄を除く */
+        /** {@link #getMaxPlaces()} を書く。null ならフィールドを除く */
         public DeviationRequest withMaxPlaces(Long value) {
             put("max_places", value);
             return this;
         }
 
-        /** 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        /** 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
         public Long getTimeLimitMs() {
             return Json.read(json.get("time_limit_ms"), Json::integer);
         }
 
-        /** {@link #getTimeLimitMs()} を書く。null なら欄を除く */
+        /** {@link #getTimeLimitMs()} を書く。null ならフィールドを除く */
         public DeviationRequest withTimeLimitMs(Long value) {
             put("time_limit_ms", value);
             return this;
@@ -17009,7 +17009,7 @@ public final class Messages {
             return Json.read(json.get("op"), Json::string);
         }
 
-        /** {@link #getOp()} を書く。null なら欄を除く */
+        /** {@link #getOp()} を書く。null ならフィールドを除く */
         public DeviationRequest withOp(String value) {
             put("op", value);
             return this;
@@ -17020,7 +17020,7 @@ public final class Messages {
             return Json.read(json.get("doc"), Json::string);
         }
 
-        /** {@link #getDoc()} を書く。null なら欄を除く */
+        /** {@link #getDoc()} を書く。null ならフィールドを除く */
         public DeviationRequest withDoc(String value) {
             put("doc", value);
             return this;
@@ -17031,7 +17031,7 @@ public final class Messages {
             return Json.read(json.get("surface"), DeviationSurface::of);
         }
 
-        /** {@link #getSurface()} を書く。null なら欄を除く */
+        /** {@link #getSurface()} を書く。null ならフィールドを除く */
         public DeviationRequest withSurface(DeviationSurface value) {
             put("surface", value);
             return this;
@@ -17042,7 +17042,7 @@ public final class Messages {
             return Json.read(json.get("profiles"), v0 -> Json.list(v0, Json::string));
         }
 
-        /** {@link #getProfiles()} を書く。null なら欄を除く */
+        /** {@link #getProfiles()} を書く。null ならフィールドを除く */
         public DeviationRequest withProfiles(List<String> value) {
             put("profiles", value);
             return this;
@@ -17053,7 +17053,7 @@ public final class Messages {
             return Json.read(json.get("profile"), ProfileRef::of);
         }
 
-        /** {@link #getProfile()} を書く。null なら欄を除く */
+        /** {@link #getProfile()} を書く。null ならフィールドを除く */
         public DeviationRequest withProfile(ProfileRef value) {
             put("profile", value);
             return this;
@@ -17064,7 +17064,7 @@ public final class Messages {
             return Json.read(json.get("work"), Json::string);
         }
 
-        /** {@link #getWork()} を書く。null なら欄を除く */
+        /** {@link #getWork()} を書く。null ならフィールドを除く */
         public DeviationRequest withWork(String value) {
             put("work", value);
             return this;
@@ -17075,7 +17075,7 @@ public final class Messages {
             return Json.read(json.get("offset"), Json::integer);
         }
 
-        /** {@link #getOffset()} を書く。null なら欄を除く */
+        /** {@link #getOffset()} を書く。null ならフィールドを除く */
         public DeviationRequest withOffset(Long value) {
             put("offset", value);
             return this;
@@ -17086,7 +17086,7 @@ public final class Messages {
             return Json.read(json.get("limit"), Json::integer);
         }
 
-        /** {@link #getLimit()} を書く。null なら欄を除く */
+        /** {@link #getLimit()} を書く。null ならフィールドを除く */
         public DeviationRequest withLimit(Long value) {
             put("limit", value);
             return this;
@@ -17116,7 +17116,7 @@ public final class Messages {
             return Json.read(json.get("doc"), Json::string);
         }
 
-        /** {@link #getDoc()} を書く。null なら欄を除く */
+        /** {@link #getDoc()} を書く。null ならフィールドを除く */
         public DeviationSurface withDoc(String value) {
             put("doc", value);
             return this;
@@ -17127,7 +17127,7 @@ public final class Messages {
             return Json.read(json.get("id"), Json::string);
         }
 
-        /** {@link #getId()} を書く。null なら欄を除く */
+        /** {@link #getId()} を書く。null ならフィールドを除く */
         public DeviationSurface withId(String value) {
             put("id", value);
             return this;
@@ -17157,7 +17157,7 @@ public final class Messages {
             return Json.read(json.get("chain"), v0 -> Json.list(v0, ProfileIdentity::of));
         }
 
-        /** {@link #getChain()} を書く。null なら欄を除く */
+        /** {@link #getChain()} を書く。null ならフィールドを除く */
         public DeviationResult withChain(List<ProfileIdentity> value) {
             put("chain", value);
             return this;
@@ -17168,7 +17168,7 @@ public final class Messages {
             return Json.read(json.get("points"), Json::integer);
         }
 
-        /** {@link #getPoints()} を書く。null なら欄を除く */
+        /** {@link #getPoints()} を書く。null ならフィールドを除く */
         public DeviationResult withPoints(Long value) {
             put("points", value);
             return this;
@@ -17179,7 +17179,7 @@ public final class Messages {
             return Json.read(json.get("outside"), Json::integer);
         }
 
-        /** {@link #getOutside()} を書く。null なら欄を除く */
+        /** {@link #getOutside()} を書く。null ならフィールドを除く */
         public DeviationResult withOutside(Long value) {
             put("outside", value);
             return this;
@@ -17190,7 +17190,7 @@ public final class Messages {
             return Json.read(json.get("unmatched"), Json::integer);
         }
 
-        /** {@link #getUnmatched()} を書く。null なら欄を除く */
+        /** {@link #getUnmatched()} を書く。null ならフィールドを除く */
         public DeviationResult withUnmatched(Long value) {
             put("unmatched", value);
             return this;
@@ -17201,7 +17201,7 @@ public final class Messages {
             return Json.read(json.get("excluded"), Json::integer);
         }
 
-        /** {@link #getExcluded()} を書く。null なら欄を除く */
+        /** {@link #getExcluded()} を書く。null ならフィールドを除く */
         public DeviationResult withExcluded(Long value) {
             put("excluded", value);
             return this;
@@ -17212,7 +17212,7 @@ public final class Messages {
             return Json.read(json.get("rules"), v0 -> Json.list(v0, DeviationRule::of));
         }
 
-        /** {@link #getRules()} を書く。null なら欄を除く */
+        /** {@link #getRules()} を書く。null ならフィールドを除く */
         public DeviationResult withRules(List<DeviationRule> value) {
             put("rules", value);
             return this;
@@ -17223,7 +17223,7 @@ public final class Messages {
             return Json.read(json.get("findings"), v0 -> Json.list(v0, CheckFinding::of));
         }
 
-        /** {@link #getFindings()} を書く。null なら欄を除く */
+        /** {@link #getFindings()} を書く。null ならフィールドを除く */
         public DeviationResult withFindings(List<CheckFinding> value) {
             put("findings", value);
             return this;
@@ -17234,7 +17234,7 @@ public final class Messages {
             return Json.read(json.get("evaluated"), Json::integer);
         }
 
-        /** {@link #getEvaluated()} を書く。null なら欄を除く */
+        /** {@link #getEvaluated()} を書く。null ならフィールドを除く */
         public DeviationResult withEvaluated(Long value) {
             put("evaluated", value);
             return this;
@@ -17245,7 +17245,7 @@ public final class Messages {
             return Json.read(json.get("differences"), v0 -> Json.list(v0, DeviationPoint::of));
         }
 
-        /** {@link #getDifferences()} を書く。null なら欄を除く */
+        /** {@link #getDifferences()} を書く。null ならフィールドを除く */
         public DeviationResult withDifferences(List<DeviationPoint> value) {
             put("differences", value);
             return this;
@@ -17256,7 +17256,7 @@ public final class Messages {
             return Json.read(json.get("next_offset"), Json::integer);
         }
 
-        /** {@link #getNextOffset()} を書く。null なら欄を除く */
+        /** {@link #getNextOffset()} を書く。null ならフィールドを除く */
         public DeviationResult withNextOffset(Long value) {
             put("next_offset", value);
             return this;
@@ -17286,7 +17286,7 @@ public final class Messages {
             return Json.read(json.get("rule"), Json::string);
         }
 
-        /** {@link #getRule()} を書く。null なら欄を除く */
+        /** {@link #getRule()} を書く。null ならフィールドを除く */
         public DeviationRule withRule(String value) {
             put("rule", value);
             return this;
@@ -17297,7 +17297,7 @@ public final class Messages {
             return Json.read(json.get("part"), Json::string);
         }
 
-        /** {@link #getPart()} を書く。null なら欄を除く */
+        /** {@link #getPart()} を書く。null ならフィールドを除く */
         public DeviationRule withPart(String value) {
             put("part", value);
             return this;
@@ -17308,7 +17308,7 @@ public final class Messages {
             return Json.read(json.get("points"), Json::integer);
         }
 
-        /** {@link #getPoints()} を書く。null なら欄を除く */
+        /** {@link #getPoints()} を書く。null ならフィールドを除く */
         public DeviationRule withPoints(Long value) {
             put("points", value);
             return this;
@@ -17319,7 +17319,7 @@ public final class Messages {
             return Json.read(json.get("area"), Json::number);
         }
 
-        /** {@link #getArea()} を書く。null なら欄を除く */
+        /** {@link #getArea()} を書く。null ならフィールドを除く */
         public DeviationRule withArea(Double value) {
             put("area", value);
             return this;
@@ -17330,7 +17330,7 @@ public final class Messages {
             return Json.read(json.get("density"), Json::number);
         }
 
-        /** {@link #getDensity()} を書く。null なら欄を除く */
+        /** {@link #getDensity()} を書く。null ならフィールドを除く */
         public DeviationRule withDensity(Double value) {
             put("density", value);
             return this;
@@ -17341,7 +17341,7 @@ public final class Messages {
             return Json.read(json.get("mean"), Json::number);
         }
 
-        /** {@link #getMean()} を書く。null なら欄を除く */
+        /** {@link #getMean()} を書く。null ならフィールドを除く */
         public DeviationRule withMean(Double value) {
             put("mean", value);
             return this;
@@ -17352,7 +17352,7 @@ public final class Messages {
             return Json.read(json.get("min"), Json::number);
         }
 
-        /** {@link #getMin()} を書く。null なら欄を除く */
+        /** {@link #getMin()} を書く。null ならフィールドを除く */
         public DeviationRule withMin(Double value) {
             put("min", value);
             return this;
@@ -17363,7 +17363,7 @@ public final class Messages {
             return Json.read(json.get("max"), Json::number);
         }
 
-        /** {@link #getMax()} を書く。null なら欄を除く */
+        /** {@link #getMax()} を書く。null ならフィールドを除く */
         public DeviationRule withMax(Double value) {
             put("max", value);
             return this;
@@ -17374,7 +17374,7 @@ public final class Messages {
             return Json.read(json.get("findings"), Json::integer);
         }
 
-        /** {@link #getFindings()} を書く。null なら欄を除く */
+        /** {@link #getFindings()} を書く。null ならフィールドを除く */
         public DeviationRule withFindings(Long value) {
             put("findings", value);
             return this;
@@ -17385,7 +17385,7 @@ public final class Messages {
             return Json.read(json.get("unsupported"), Json::integer);
         }
 
-        /** {@link #getUnsupported()} を書く。null なら欄を除く */
+        /** {@link #getUnsupported()} を書く。null ならフィールドを除く */
         public DeviationRule withUnsupported(Long value) {
             put("unsupported", value);
             return this;
@@ -17415,7 +17415,7 @@ public final class Messages {
             return Json.read(json.get("index"), Json::integer);
         }
 
-        /** {@link #getIndex()} を書く。null なら欄を除く */
+        /** {@link #getIndex()} を書く。null ならフィールドを除く */
         public DeviationPoint withIndex(Long value) {
             put("index", value);
             return this;
@@ -17426,7 +17426,7 @@ public final class Messages {
             return Json.read(json.get("position"), v0 -> Json.list(v0, Json::number));
         }
 
-        /** {@link #getPosition()} を書く。null なら欄を除く */
+        /** {@link #getPosition()} を書く。null ならフィールドを除く */
         public DeviationPoint withPosition(List<Double> value) {
             put("position", value);
             return this;
@@ -17437,7 +17437,7 @@ public final class Messages {
             return Json.read(json.get("difference"), Json::number);
         }
 
-        /** {@link #getDifference()} を書く。null なら欄を除く */
+        /** {@link #getDifference()} を書く。null ならフィールドを除く */
         public DeviationPoint withDifference(Double value) {
             put("difference", value);
             return this;
@@ -17448,7 +17448,7 @@ public final class Messages {
             return Json.read(json.get("rule"), Json::string);
         }
 
-        /** {@link #getRule()} を書く。null なら欄を除く */
+        /** {@link #getRule()} を書く。null ならフィールドを除く */
         public DeviationPoint withRule(String value) {
             put("rule", value);
             return this;
@@ -17473,12 +17473,12 @@ public final class Messages {
             super(new LinkedHashMap<String, Object>());
         }
 
-        /** カタログの形の大版。今は 1 */
+        /** カタログの形のメジャーバージョン。今は 1 */
         public Long getV() {
             return Json.read(json.get("v"), Json::integer);
         }
 
-        /** {@link #getV()} を書く。null なら欄を除く */
+        /** {@link #getV()} を書く。null ならフィールドを除く */
         public Catalog withV(Long value) {
             put("v", value);
             return this;
@@ -17489,18 +17489,18 @@ public final class Messages {
             return Json.read(json.get("lang"), Json::string);
         }
 
-        /** {@link #getLang()} を書く。null なら欄を除く */
+        /** {@link #getLang()} を書く。null ならフィールドを除く */
         public Catalog withLang(String value) {
             put("lang", value);
             return this;
         }
 
-        /** パッケージの版。コアと同じ版で出す */
+        /** パッケージのバージョン。コアと同じバージョンで出す */
         public String getPackage() {
             return Json.read(json.get("package"), Json::string);
         }
 
-        /** {@link #getPackage()} を書く。null なら欄を除く */
+        /** {@link #getPackage()} を書く。null ならフィールドを除く */
         public Catalog withPackage(String value) {
             put("package", value);
             return this;
@@ -17511,7 +17511,7 @@ public final class Messages {
             return Json.read(json.get("number"), NumberFormat::of);
         }
 
-        /** {@link #getNumber()} を書く。null なら欄を除く */
+        /** {@link #getNumber()} を書く。null ならフィールドを除く */
         public Catalog withNumber(NumberFormat value) {
             put("number", value);
             return this;
@@ -17522,7 +17522,7 @@ public final class Messages {
             return Json.read(json.get("codes"), v0 -> Json.map(v0, Json::string));
         }
 
-        /** {@link #getCodes()} を書く。null なら欄を除く */
+        /** {@link #getCodes()} を書く。null ならフィールドを除く */
         public Catalog withCodes(Map<String, String> value) {
             put("codes", value);
             return this;
@@ -17552,7 +17552,7 @@ public final class Messages {
             return Json.read(json.get("group_separator"), Json::string);
         }
 
-        /** {@link #getGroupSeparator()} を書く。null なら欄を除く */
+        /** {@link #getGroupSeparator()} を書く。null ならフィールドを除く */
         public NumberFormat withGroupSeparator(String value) {
             put("group_separator", value);
             return this;
@@ -17563,7 +17563,7 @@ public final class Messages {
             return Json.read(json.get("decimal_separator"), Json::string);
         }
 
-        /** {@link #getDecimalSeparator()} を書く。null なら欄を除く */
+        /** {@link #getDecimalSeparator()} を書く。null ならフィールドを除く */
         public NumberFormat withDecimalSeparator(String value) {
             put("decimal_separator", value);
             return this;

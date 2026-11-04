@@ -1,7 +1,7 @@
 //! 図面モデルの変更を、JWW の図形の一覧に書き戻す（決定 0168）。
 //!
-//! スタイルと形の変更は、図形の共通の欄と形の値のバイトを、同じ大きさのまま書き直す。除くか足すときは、図形の一覧と
-//! ブロックの定義の一覧を書き直し、件数と、オブジェクトの前の印（クラスの番号）を数え直す。見出しと画像の一覧は
+//! スタイルと形の変更は、図形の共通のフィールドと形の値のバイトを、同じ大きさのまま書き直す。除くか足すときは、図形の一覧と
+//! ブロックの定義の一覧を書き直し、件数と、オブジェクトの前のタグ（クラスの番号）を数え直す。ヘッダーと画像の一覧は
 //! 写す。当てた後に読み直して図面モデルに変換し、変えた要素が求めた値になり、ほかの要素の値が変わらないことを
 //! 確かめる。合わなければ、何も変えずに断る。
 
@@ -35,7 +35,7 @@ const POINT: &[u8] = b"CDataTen";
 const NEAR: f64 = 1e-9;
 
 impl Apply<Changes> for JwwFile {
-    /// 変更ごとの結果と、ほかの要素の ID がずれたか。JWW の要素は鍵を持たず、ID はレコードの番号で作る
+    /// 変更ごとの結果と、ほかの要素の ID がずれたか。JWW の要素はキーを持たず、ID はレコードの番号で作る
     /// （決定 0156）。前の図形を除くか足すと、後ろの要素の ID がずれる
     type Output = (Vec<Applied>, bool);
 
@@ -548,7 +548,7 @@ impl<'a> Index<'a> {
     }
 }
 
-/// 図形の共通の欄
+/// 図形の共通のフィールド
 #[derive(Clone, Copy)]
 struct Base {
     curve: u32,
@@ -606,7 +606,7 @@ struct Plan<'f> {
     patches: Vec<(usize, Vec<u8>)>,
     /// 除くレコード
     removed: BTreeSet<usize>,
-    /// 図形の一覧の終わりに足す図形のクラスと、印の後ろのバイト列
+    /// 図形の一覧の終わりに足す図形のクラスと、タグの後ろのバイト列
     added: Vec<(&'static [u8], Vec<u8>)>,
 }
 
@@ -634,7 +634,7 @@ impl Plan<'_> {
             .unwrap_or_default()
     }
 
-    /// 図形のレコードのクラスの名前と、共通の欄の位置
+    /// 図形のレコードのクラスの名前と、共通のフィールドの位置
     fn entity(&self, record: usize) -> Option<(&[u8], usize)> {
         let found = self.file.records().get(record)?;
         (found.kind() == RecordKind::Entity)
@@ -647,7 +647,7 @@ impl Plan<'_> {
         Some(())
     }
 
-    /// レイヤとスタイルのうち、変わったものを共通の欄に書く。読み直したときのレイヤとスタイルを返す
+    /// レイヤとスタイルのうち、変わったものを共通のフィールドに書く。読み直したときのレイヤとスタイルを返す
     fn styled(&mut self, found: &Found, layer: LayerId, style: &Style) -> Option<(LayerId, Style)> {
         let (name, at) = self.entity(found.record)?;
         let class = [LINE, ARC, POINT]
@@ -664,7 +664,7 @@ impl Plan<'_> {
         Some((base.layer(), self.style(&base, class)))
     }
 
-    /// 求めたレイヤとスタイルの共通の欄。変わらない値は、元の欄のまま
+    /// 求めたレイヤとスタイルの共通のフィールド。変わらない値は、元のフィールドのまま
     fn base(
         &self,
         was: Base,
@@ -700,7 +700,7 @@ impl Plan<'_> {
         Some(base)
     }
 
-    /// 共通の欄を読み直したときのスタイル（変換の `line_style` と同じ）。点は色だけを持つ（変換の `fill_style` と同じ）
+    /// 共通のフィールドを読み直したときのスタイル（変換の `line_style` と同じ）。点は色だけを持つ（変換の `fill_style` と同じ）
     fn style(&self, base: &Base, class: &[u8]) -> Style {
         if class == POINT {
             return Style {
@@ -747,7 +747,7 @@ impl Plan<'_> {
         Some(pen)
     }
 
-    /// 線種の番号。実線と破線（1〜9）、ランダム線と倍長線（11〜19）、版 420 からの SXF の線種（30〜62）
+    /// 線種の番号。実線と破線（1〜9）、ランダム線と倍長線（11〜19）、バージョン 420 からの SXF の線種（30〜62）
     fn line_type(&self, line_type: Inherit<LineTypeId>) -> Option<u8> {
         let Inherit::Own(LineTypeId(code)) = line_type else {
             return None;
@@ -757,7 +757,7 @@ impl Plan<'_> {
         ((1..=9).contains(&code) || (11..=19).contains(&code) || sxf).then_some(code)
     }
 
-    /// 図形の線幅の値。見出しの単位（1/100 mm かドット）で書け、読み直すと同じ太さになるものだけ
+    /// 図形の線幅の値。ヘッダーの単位（1/100 mm かドット）で書け、読み直すと同じ太さになるものだけ
     fn width(&self, weight: Inherit<LineWeight>) -> Option<u16> {
         let Inherit::Own(LineWeight::Width(PaperLength(mm))) = weight else {
             return None;
@@ -858,7 +858,7 @@ impl Plan<'_> {
             self.scale(group, false),
             symbol,
         )?);
-        // 新しいクラスの印は、ファイルのクラスのスキーマで書く
+        // 新しいクラスのタグは、ファイルのクラスのスキーマで書く
         self.file.classes().first()?;
         self.added.push((class, bytes));
         Some((
@@ -912,7 +912,7 @@ impl Plan<'_> {
     }
 }
 
-/// 図形の一覧とブロックの定義の一覧を、件数とオブジェクトの印を数え直して書く
+/// 図形の一覧とブロックの定義の一覧を、件数とオブジェクトのタグを数え直して書く
 struct Lists<'p> {
     plan: &'p Plan<'p>,
     src: &'p [u8],
@@ -1059,7 +1059,7 @@ impl Lists<'_> {
                 .get(at.wrapping_sub(1))
                 .map_or(header_end, |record| record.span().end)
         };
-        // 残りのレコード（版 700 より前の図面の終わりと、読めない残り）は、最後のレコードの後から始まるので、定義が
+        // 残りのレコード（バージョン 700 より前の図面の終わりと、読めない残り）は、最後のレコードの後から始まるので、定義が
         // なければ定義の件数を含む。件数は書いたので、その後から写す
         let trailer = next.is_some_and(|record| record.kind() == RecordKind::Trailer);
         if end > rest && !trailer {
@@ -1074,7 +1074,7 @@ impl Lists<'_> {
         Ok(Some((self.out, self.moved, added)))
     }
 
-    /// オブジェクトを、印を数え直して写す
+    /// オブジェクトを、タグを数え直して写す
     fn object(&mut self, record: usize) -> bool {
         let end = self
             .plan
@@ -1085,7 +1085,7 @@ impl Lists<'_> {
         end.is_some_and(|end| self.object_until(record, end))
     }
 
-    /// オブジェクトの印と、中身の `end` までを写す
+    /// オブジェクトのタグと、中身の `end` までを写す
     fn object_until(&mut self, record: usize, end: usize) -> bool {
         let Some(found) = self.plan.file.records().get(record) else {
             return false;
@@ -1113,7 +1113,7 @@ impl Lists<'_> {
         true
     }
 
-    /// オブジェクトの前の印。初めてのクラスは名前を書き、ほかは番号で指す（MFC の CArchive）
+    /// オブジェクトの前のタグ。初めてのクラスは名前を書き、ほかは番号で指す（MFC の CArchive）
     fn tag(&mut self, name: &[u8], schema: u16) {
         let key = (name.to_vec(), schema);
         match self.numbers.get(&key) {
@@ -1240,7 +1240,7 @@ fn shape_bytes(
 }
 
 /// 点の形の値（決定 0183）。位置・仮点か（u32）と、記号の点は記号の番号（u32）・角度（度、推定）・倍率を書く。
-/// 記号の点は名前空間 `jww.point` の既定義の印を、ほかの点は文書の点の表し方に従う角度 0 の点を表す。記号の点と
+/// 記号の点は名前空間 `jww.point` の既定義のマーカーを、ほかの点は文書の点の表し方に従う角度 0 の点を表す。記号の点と
 /// ほかの点を入れ替えると図形の大きさが変わるので、書かない
 fn point_bytes(
     dot: &Point<ModelPoint>,

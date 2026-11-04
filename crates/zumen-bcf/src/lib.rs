@@ -1,7 +1,7 @@
 //! BCF（BIM Collaboration Format）の bcfzip を読み書きし、レビューの文書（決定 0214・0218）に写す（決定 0220）。
 //!
 //! 読むのは BCF 2.1 と 3.0 の bcfzip。topic は指摘に、comment はコメントに、viewpoint は 3D の場所に写す。XSD は
-//! 同梱せず、BCF-XML の各版の文書が書く要素と属性だけを読む。書くのは既定で 3.0、引数で 2.1（決定 0214）。元の
+//! 同梱せず、BCF-XML の各バージョンの文書が書く要素と属性だけを読む。書くのは既定で 3.0、引数で 2.1（決定 0214）。元の
 //! bcfzip を渡せば、変えていない topic を元のバイト列のまま書き、変えた topic でも、レビューの文書に写さない要素と
 //! 知らない要素・属性を保つ。
 
@@ -14,7 +14,7 @@ use zumen_review::Status;
 pub use read::review;
 pub use write::write;
 
-/// BCF の版
+/// BCF のバージョン
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Edition {
     /// 2.1。コメントと viewpoint は Markup の直下に並び、一覧の要素を包まない
@@ -33,7 +33,7 @@ impl Edition {
         }
     }
 
-    /// `VersionId` の版。読めない版なら `None`
+    /// `VersionId` のバージョン。読めないバージョンなら `None`
     pub fn from_id(text: &str) -> Option<Self> {
         match text {
             "2.1" => Some(Self::V2_1),
@@ -46,9 +46,9 @@ impl Edition {
 /// 読んだ bcfzip。topic ごとのフォルダーと、ほかの項目を、元のバイト列のまま持つ
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Bcf {
-    /// `bcf.version` の版
+    /// `bcf.version` のバージョン
     pub version: Edition,
-    /// topic のフォルダー。書庫の順
+    /// topic のフォルダー。アーカイブの順
     pub topics: Vec<Folder>,
     /// `bcf.version` と topic のフォルダーのほかの項目（`extensions.xml`・`project.bcfp`・`documents.xml`・
     /// `Documents/` の中など）。名前とデータ
@@ -112,13 +112,13 @@ pub struct Options {
     pub author: Option<String>,
     /// 日時のない指摘とコメントに書く日時（RFC 3339）
     pub date: Option<String>,
-    /// 書く版。なければ、元の bcfzip の版か 3.0
+    /// 書くバージョン。なければ、元の bcfzip のバージョンか 3.0
     pub version: Option<Edition>,
 }
 
 impl Bcf {
     /// bcfzip を読む。ZIP として読めないか、`bcf.version` がないか、topic のフォルダーに `markup.bcf` がなければ
-    /// 失敗する。2.1 と 3.0 でない版は `bcf.version.unsupported` を報告して失敗する
+    /// 失敗する。2.1 と 3.0 でないバージョンは `bcf.version.unsupported` を報告して失敗する
     pub fn read(src: &[u8], cx: &mut zumen_sdk::Cx) -> Result<Self, zumen_sdk::Error> {
         read::archive(src, cx)
     }

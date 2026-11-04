@@ -7,20 +7,20 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-/** 境界の版・状態コードと、シーンの配置（決定 0012・0137・0224） */
+/** API のバージョン・状態コードと、シーンの配置（決定 0012・0137・0224） */
 public final class Constants {
     private Constants() {}
 
-    /** パッケージの版（決定 0015） */
+    /** パッケージのバージョン（決定 0015） */
     public static final String VERSION = "0.2.0";
 
-    /** ABI の大版 */
+    /** ABI のメジャーバージョン */
     public static final int ABI_VERSION = 1;
 
-    /** メッセージのスキーマの大版（要求と応答の v） */
+    /** メッセージのスキーマのメジャーバージョン（要求と応答の v） */
     public static final int SCHEMA_MAJOR = 1;
 
-    /** メッセージのスキーマの小版 */
+    /** メッセージのスキーマのマイナーバージョン */
     public static final int SCHEMA_MINOR = 63;
 
     /** 状態コード */
@@ -61,16 +61,16 @@ public final class Constants {
         }
     }
 
-    /** シーンの大版。区画の意味を変えるときに上げる */
+    /** シーンのメジャーバージョン。セクションの意味を変えるときに上げる */
     public static final int SCENE_MAJOR = 1;
 
-    /** シーンの小版。区画か値を足すたびに上げる */
+    /** シーンのマイナーバージョン。セクションか値を足すたびに上げる */
     public static final int SCENE_MINOR = 2;
 
     /** 番号の「なし」（u32 の最大）を int で読んだ値 */
     public static final int SCENE_NONE = -1;
 
-    /** シーンの区画の値の型 */
+    /** シーンのセクションの値の型 */
     public enum ColumnType {
         /** u8 */
         U8(1),
@@ -89,7 +89,7 @@ public final class Constants {
         }
     }
 
-    /** シーンの区画の定義 */
+    /** シーンのセクションの定義 */
     public static final class SceneSection {
         /** 名前 */
         public final String name;
@@ -105,7 +105,7 @@ public final class Constants {
         }
     }
 
-    /** シーンの区画の定義。番号の順。書き換えない */
+    /** シーンのセクションの定義。番号の順。書き換えない */
     public static final SceneSection[] SCENE_SECTIONS = {
         /** 塊の原点（起点の座標の X・Y）。塊の座標は、ここからの相対の値（f64 × 2） */
         new SceneSection("chunk_origins", ColumnType.F64, 2),
@@ -153,7 +153,7 @@ public final class Constants {
         new SceneSection("text_boxes", ColumnType.F32, 1),
         /** 位置合わせ。水平（horizontal の値）と垂直（vertical の値）（u8 × 2） */
         new SceneSection("text_aligns", ColumnType.U8, 2),
-        /** 印（text_flag の値の和）（u8 × 1） */
+        /** フラグ（text_flag の値の和）（u8 × 1） */
         new SceneSection("text_flags", ColumnType.U8, 1),
         /** 書式つきの文字の行の番号。0 から数える。1 行の文字は 0（u32 × 1） */
         new SceneSection("text_lines", ColumnType.U32, 1),
@@ -165,15 +165,15 @@ public final class Constants {
         new SceneSection("point_xy", ColumnType.F32, 2),
         /** 点の回転（度、反時計回り）（f32 × 1） */
         new SceneSection("point_rotations", ColumnType.F32, 1),
-        /** 既定義の印のキー。名前空間（strings の始まりと長さ）と、元のコード（strings の始まりと長さ）。文書の点の表し方に従う点は、長さが 0（u32 × 4） */
+        /** 既定義のマーカーのキー。名前空間（strings の始まりと長さ）と、元のコード（strings の始まりと長さ）。文書の点の表し方に従う点は、長さが 0（u32 × 4） */
         new SceneSection("point_markers", ColumnType.U32, 4),
-        /** 既定義の印の尺度。文書の点の表し方に従う点は 1（f32 × 1） */
+        /** 既定義のマーカーの尺度。文書の点の表し方に従う点は 1（f32 × 1） */
         new SceneSection("point_scales", ColumnType.F32, 1),
         /** 点の描く単位（unit_entities の行）（u32 × 1） */
         new SceneSection("point_units", ColumnType.U32, 1),
         /** 文書の点の表し方（決定 0160）。形（point_mark の値）・囲み（point_frame の値の和）・大きさの意味（point_size の値）・大きさ。文書が持たなければ行がない（f32 × 4） */
         new SceneSection("point_style", ColumnType.F32, 4),
-        /** 下敷きの参照名（strings の始まりと長さ）。コアは開かない（u32 × 2） */
+        /** アンダーレイの参照名（strings の始まりと長さ）。コアは開かない（u32 × 2） */
         new SceneSection("image_names", ColumnType.U32, 2),
         /** 資源の中のページ（strings の始まりと長さ）。なければ長さが 0（u32 × 2） */
         new SceneSection("image_pages", ColumnType.U32, 2),
@@ -215,13 +215,13 @@ public final class Constants {
         new SceneSection("color_files", ColumnType.U8, 4),
         /** 表示する RGBA。ファイルの RGB か、色の表（palette）から引いた値。未解決なら 0（u8 × 4） */
         new SceneSection("color_rgba", ColumnType.U8, 4),
-        /** 印（color_flag の値の和）（u8 × 1） */
+        /** フラグ（color_flag の値の和）（u8 × 1） */
         new SceneSection("color_flags", ColumnType.U8, 1),
         /** 切り抜きの組の多角形の始まり（polygon_vertices の行）。描くものは、組のすべての多角形の内側だけを描く（u32 × 1） */
         new SceneSection("clip_polygons", ColumnType.U32, 1),
         /** 多角形の頂点の始まり（clip_xy の行）（u32 × 1） */
         new SceneSection("polygon_vertices", ColumnType.U32, 1),
-        /** 多角形の印。1 なら、内側を隠す（外側だけを描く）（u8 × 1） */
+        /** 多角形のフラグ。1 なら、内側を隠す（外側だけを描く）（u8 × 1） */
         new SceneSection("polygon_flags", ColumnType.U8, 1),
         /** 切り抜きの多角形の頂点。起点の座標の X・Y（f64 × 2） */
         new SceneSection("clip_xy", ColumnType.F64, 2),
@@ -269,7 +269,7 @@ public final class Constants {
         items.put("middle", 2);
         items.put("top", 3);
         values.put("vertical", Collections.unmodifiableMap(items));
-        // 文字の印。和で持つ
+        // 文字のフラグ。和で持つ
         items = new LinkedHashMap<String, Integer>();
         items.put("backward", 1);
         items.put("upside_down", 2);
@@ -298,7 +298,7 @@ public final class Constants {
         items.put("length", 0);
         items.put("screen", 1);
         values.put("point_size", Collections.unmodifiableMap(items));
-        // 下敷きの資源の種類
+        // アンダーレイの資源の種類
         items = new LinkedHashMap<String, Integer>();
         items.put("image", 0);
         items.put("pdf", 1);
@@ -335,7 +335,7 @@ public final class Constants {
         items.put("sxf", 2);
         items.put("jww", 3);
         values.put("color_system", Collections.unmodifiableMap(items));
-        // 色の印。和で持つ
+        // 色のフラグ。和で持つ
         items = new LinkedHashMap<String, Integer>();
         items.put("unresolved", 1);
         items.put("foreground", 2);

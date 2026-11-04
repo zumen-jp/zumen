@@ -1,4 +1,4 @@
-# 0243: プラグインはプロセスで 1 度 install して窓口に登録し、wasm ではコアの図面のモジュールに足した別のモジュールにする
+# 0243: プラグインはプロセスで 1 度 install してレジストリに登録し、wasm ではコアの図面のモジュールに足した別のモジュールにする
 
 | 項目 | 内容 |
 | --- | --- |
@@ -7,9 +7,9 @@
 
 ## 背景
 
-[決定 0017](0017-format-rights-ledger-and-plugin-sdk.md) は、外部のリポジトリに置く形式（プラグイン）の束ね方を、使う所ごとに決めた。Rust はビルドの時に束ね、wasm は別のモジュールにし、ネイティブで呼ぶ言語は「コアとプラグイン」の CLI を `process` の形（[決定 0013](0013-boundary-in-four-forms.md)）で使う。実行時に読み込む仕組みは持たない。[#399](https://github.com/zumen-jp/zumen/issues/399) では、その細部を決め、試験用のプラグインで 3 つの形を確かめる。
+[決定 0017](0017-format-rights-ledger-and-plugin-sdk.md) は、外部のリポジトリに置く形式（プラグイン）の束ね方を、使う所ごとに決めた。Rust はビルドの時に束ね、wasm は別のモジュールにし、ネイティブで呼ぶ言語は「コアとプラグイン」の CLI を `process` の形（[決定 0013](0013-boundary-in-four-forms.md)）で使う。実行時に読み込む仕組みは持たない。[#399](https://github.com/zumen-jp/zumen/issues/399) では、その細部を決め、テスト用のプラグインで 3 つの形を確かめる。
 
-いまの窓口（`zumen-abi`）は、次のとおり。
+いまのレジストリ（`zumen-abi`）は、次のとおり。
 
 - 開いた図面は、形式ごとのファイルモデル（L1）の列挙で持ち、op ごとに図面モデル（L2）に lift する。apply は、形式ごとに L1 に書き戻す。
 - 図面の形式の判定は、登録の一覧（[#398](https://github.com/zumen-jp/zumen/issues/398)）から引く。
@@ -18,13 +18,13 @@
 
 決めることは、次のとおり。
 
-- プラグインを窓口に知らせる口。
-- wasm のモジュールの中身と、JavaScript の包みの受け方。
+- プラグインをレジストリに知らせる口。
+- wasm のモジュールの中身と、JavaScript のラッパーの受け方。
 - プラグインの診断の code の作り方。
 
 ## 選択肢
 
-窓口に知らせる口の選択肢は、次の 3 つ。
+レジストリに知らせる口の選択肢は、次の 3 つ。
 
 1. **セッションを作るときに、プラグインの一覧を渡す。** Rust には素直だが、ffi の `zm_session_new` と CLI は一覧を受けられない。wasm と CLI では、別の口が要る。
 2. **プロセスで 1 度、プラグインを登録する（`install`）。** セッションは、登録した一覧を使う。Rust・wasm・CLI で同じ口になる。wasm では、登録する関数を、モジュールを読み込んだ後に呼ぶ必要がある。
@@ -33,13 +33,13 @@
 wasm のモジュールの中身の選択肢は、次の 2 つ。
 
 1. **プラグインの形式だけを持ち、公式のモジュールと L2 のバイナリでやり取りする。** 決定 0017 の形。L2 の図面モデルのバイナリの配置がまだなく、決める仕事が大きい。
-2. **コアの図面のモジュールにプラグインを足したものにする。** 同じ境界の関数を出すので、包みの読み方は公式のモジュールと同じになる。コアの分だけ大きい。
+2. **コアの図面のモジュールにプラグインを足したものにする。** 同じ API の関数を出すので、ラッパーの読み方は公式のモジュールと同じになる。コアの分だけ大きい。
 
 ## 決定
 
 口は 2、wasm のモジュールの中身は、当面 2 を選ぶ。
 
-### 窓口
+### レジストリ
 
 - `zumen_abi1::Plugin` は、形式の登録（`Registration`）と、読んで図面モデルにする関数を持つ。`Plugin::of::<C>()` で、`Codec` と `Lift<Drawing2D>` を持つコーデックから作る。
 - `zumen_abi1::install(&'static [Plugin])` で、プロセスで 1 度だけ登録する。2 度目は何もせずに `false` を返す。
@@ -50,7 +50,7 @@ wasm のモジュールの中身の選択肢は、次の 2 つ。
 ### 3 つの束ね方
 
 - **Rust:** プラグインの crate を依存に足し、`install` してからセッションを作る。
-- **wasm:** プラグインの crate を cdylib にし、`zumen-abi` の `drawing` の feature と一緒に作る。モジュールは、コアの境界の関数に `zm_plugin_init`（引数なし）を足して出し、その中で `install` する。JavaScript の包みは、モジュールが `zm_plugin_init` を出していれば、読み込んだときに呼ぶ。`loadModules` は 2 つ目の引数に、プラグインのモジュールの一覧（名前・形式ごとの判定の規則・op・読み込む関数）を受け、コアのどの形式でもない入力を、その規則で試す。
+- **wasm:** プラグインの crate を cdylib にし、`zumen-abi` の `drawing` の feature と一緒に作る。モジュールは、コアの API の関数に `zm_plugin_init`（引数なし）を足して出し、その中で `install` する。JavaScript のラッパーは、モジュールが `zm_plugin_init` を出していれば、読み込んだときに呼ぶ。`loadModules` は 2 つ目の引数に、プラグインのモジュールの一覧（名前・形式ごとの判定の規則・op・読み込む関数）を受け、コアのどの形式でもない入力を、その規則で試す。
 - **ネイティブで呼ぶ言語:** CLI に、ライブラリの口 `zumen_cli::run` を足す。プラグインの crate の実行ファイルは、`install` してから `run` を呼び、「コアとプラグイン」の CLI になる。各言語は、設定の `engine` を `process`、`process_path` をその実行ファイルにする。
 
 ### 診断の code
@@ -60,8 +60,8 @@ wasm のモジュールの中身の選択肢は、次の 2 つ。
 
 ### ひな形
 
-- `templates/plugin` に、プラグインのリポジトリのひな形を置く。形式は、試験のために決めた公開の形式「zumen の線分の一覧」（`zumen_lines`）である。SDK とテストキット、診断の code、プラグインの台帳、カタログ、「コアとプラグイン」の CLI、包みに渡す判定の規則を持つ。
-- ひな形の crate はコアのワークスペースの一員にし、3 つの形を試験する（Rust と `process` は `cargo test`、wasm は CI の wasm の組で `tests/wasm.mjs`）。コアの台帳には載せず、`package.metadata.zumen` も持たない。
+- `templates/plugin` に、プラグインのリポジトリのひな形を置く。形式は、テストのために決めた公開の形式「zumen の線分の一覧」（`zumen_lines`）である。SDK とテストキット、診断の code、プラグインの台帳、カタログ、「コアとプラグイン」の CLI、ラッパーに渡す判定の規則を持つ。
+- ひな形の crate はコアのワークスペースの一員にし、3 つの形をテストする（Rust と `process` は `cargo test`、wasm は CI の wasm の組で `tests/wasm.mjs`）。コアの台帳には載せず、`package.metadata.zumen` も持たない。
 
 ## 影響
 
@@ -72,7 +72,7 @@ wasm のモジュールの中身の選択肢は、次の 2 つ。
 
 ## 参照
 
-- [0013: 境界の 4 つの形](0013-boundary-in-four-forms.md)
+- [0013: API の 4 つの形態](0013-boundary-in-four-forms.md)
 - [0017: 形式の権利の台帳とプラグインの SDK](0017-format-rights-ledger-and-plugin-sdk.md)
-- [0194: TypeScript・JavaScript の包み](0194-typescript-javascript-wrapper.md)
+- [0194: TypeScript・JavaScript のラッパー](0194-typescript-javascript-wrapper.md)
 - [0221: wasm のモジュールを分ける](0221-wasm-modules.md)

@@ -22,7 +22,7 @@ pub use crate::civil::{CIVIL_DRAWING, CivilDrawing, civil_drawing};
 pub use crate::profile::{FORMAT_MAJOR, Identity};
 use crate::profile::{GetKey, text};
 
-/// 照合の種類と、規則に書ける種類ごとの欄（決定 0173）。`xtask` のプロファイルの検査も、ここから引く
+/// 照合の種類と、規則に書ける種類ごとのフィールド（決定 0173）。`xtask` のプロファイルの検査も、ここから引く
 pub const CHECKS: &[(&str, &[&str])] = &[
     (
         "layer-name",
@@ -171,7 +171,7 @@ pub enum Error {
 }
 
 /// `from` と `view` から、たどる起点を決める。`from` がなければ、すべての用紙から、用紙がなければ実寸の空間
-/// からたどる。使えない値なら、要求の欄の JSON ポインター（`/from`・`/view`）を返す
+/// からたどる。使えない値なら、要求のフィールドの JSON ポインター（`/from`・`/view`）を返す
 pub fn origins(
     drawing: &Drawing2D,
     from: Option<&str>,
@@ -716,7 +716,7 @@ fn char_ranges(text: &str) -> Option<Vec<(char, char)>> {
     (!ranges.is_empty()).then_some(ranges)
 }
 
-/// ファイルの名前が規則に合うか。合わなければ理由の鍵を返す
+/// ファイルの名前が規則に合うか。合わなければ理由のキーを返す
 fn file_name_problem(
     name: &str,
     parts: &[NamePart],

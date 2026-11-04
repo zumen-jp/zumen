@@ -1,8 +1,8 @@
 //! レイヤの置き換えと追加を、画層の表のレコード（LAYER）に書く（決定 0162）。
 //!
-//! 置き換えは、元のレコードの値のうち、名前（2）・印（70）・色（62・420）・線種（6）・印刷の印（290）・
+//! 置き換えは、元のレコードの値のうち、名前（2）・フラグ（70）・色（62・420）・線種（6）・印刷のフラグ（290）・
 //! 線幅（370）だけを書き直す。透過性と説明（XDATA）を変えるものは、まだ書き戻さない（決定 0157）。
-//! 追加は、画層 0 のレコードを写し、ハンドル・拡張辞書・拡張データを除いてから同じ欄を書く。名前を
+//! 追加は、画層 0 のレコードを写し、ハンドル・拡張辞書・拡張データを除いてから同じフィールドを書く。名前を
 //! 変えたら、DXF では、図形の画層の名前（8）と、XDATA の画層の名前（1003）と、今の画層（`$CLAYER`）も
 //! 書き直す。DWG の図形は画層をハンドルで指すので、足した図形のほかは書き直さない
 
@@ -22,7 +22,7 @@ use zumen_sdk::Error;
 /// 名前に使えない文字（AutoCAD の名前の決まり）
 const FORBIDDEN: &[char] = &['<', '>', '/', '\\', '"', ':', ';', '?', '*', '|', '=', '`'];
 
-/// 欄を書く順。ない欄は、この順で前にある欄の後に足す
+/// フィールドを書く順。ないフィールドは、この順で前にあるフィールドの後に足す
 const ORDER: [i16; 7] = [2, 70, 62, 420, 6, 290, 370];
 
 /// 画層の表のレコードか
@@ -93,8 +93,8 @@ pub(super) fn external(object: &Object) -> bool {
     flags & 16 != 0 || name_of(object).is_some_and(|name| name.contains(&b'|'))
 }
 
-/// 足すレコードの元にする値。画層 0 のレコードを写し、ハンドル（5）・拡張辞書と反応子の組（102）・
-/// 拡張データ（1000 から）と真の色（420・430）を除く。DWG は、足せる欄だけを残す
+/// 足すレコードの元にする値。画層 0 のレコードを写し、ハンドル（5）・拡張辞書とリアクターの組（102）・
+/// 拡張データ（1000 から）と真の色（420・430）を除く。DWG は、足せるフィールドだけを残す
 pub(super) fn template(object: &Object, target: Target) -> Vec<Value> {
     let mut values = Vec::new();
     let mut depth = 0usize;
@@ -222,7 +222,7 @@ fn bool_value(code: i16, value: bool) -> Value {
     }
 }
 
-/// 拡張データの前の、欄 `code` の値
+/// 拡張データの前の、フィールド `code` の値
 pub(super) fn find(values: &[Value], code: i16) -> Option<&Data> {
     values
         .iter()
@@ -231,12 +231,12 @@ pub(super) fn find(values: &[Value], code: i16) -> Option<&Data> {
         .map(|value| &value.data)
 }
 
-/// 拡張データの前の、欄 `code` の値を `value` にする。なければ [`ORDER`] の順で足し、`None` なら除く
+/// 拡張データの前の、フィールド `code` の値を `value` にする。なければ [`ORDER`] の順で足し、`None` なら除く
 fn set(values: &mut Vec<Value>, code: i16, value: Option<Value>) {
     set_in(values, code, value, &ORDER);
 }
 
-/// 拡張データの前の、欄 `code` の値を `value` にする。なければ `order` の順で足し、`None` なら除く
+/// 拡張データの前の、フィールド `code` の値を `value` にする。なければ `order` の順で足し、`None` なら除く
 pub(super) fn set_in(values: &mut Vec<Value>, code: i16, value: Option<Value>, order: &[i16]) {
     let end = values
         .iter()
@@ -332,7 +332,7 @@ pub(super) fn rename(
 
 /// 除く画層のレコード `record`（表の位置と、一緒に除く拡張辞書などの位置を `skip` に持つ）を、ほかが指しているか。要素の画層（DXF は名前の 8、DWG はハンドル）、
 /// XDATA の画層の名前（1003）、ほかのオブジェクトのハンドル（ビューポートの凍結・画層の状態・画層の索引など）、
-/// 見出しの変数（今の画層）を見る。DWG の表のオブジェクト（TABLE）の項目の並びは、共有の表に置かれず、
+/// ヘッダーの変数（今の画層）を見る。DWG の表のオブジェクト（TABLE）の項目の並びは、共有の表に置かれず、
 /// 書き戻しが直す。それ以外の TABLE の値は検査する
 pub(super) fn referenced(
     db: &AcadDb,

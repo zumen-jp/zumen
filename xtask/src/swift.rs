@@ -1,9 +1,9 @@
-//! Swift の包み（`bindings/swift`）の型と定数を作る（決定 0011・0225）。
+//! Swift のラッパー（`bindings/swift`）の型と定数を作る（決定 0011・0225）。
 //!
 //! - `Messages.swift`: メッセージのスキーマ（`schema/messages.json`）の型
-//! - `Constants.swift`: 境界の版・状態コード（`schema/boundary.toml`）と、シーンの配置（`schema/scene.toml`）
+//! - `Constants.swift`: API のバージョン・状態コード（`schema/boundary.toml`）と、シーンの配置（`schema/scene.toml`）
 //!
-//! 型は、読んだ JSON のオブジェクト（`[String: JSON]`）を包む見方の構造体で、知らない欄と値もそのまま持つ（決定 0015）。
+//! 型は、読んだ JSON のオブジェクト（`[String: JSON]`）を包むビューの構造体で、知らないフィールドと値もそのまま持つ（決定 0015）。
 
 use std::collections::BTreeSet;
 use std::fmt::Write;
@@ -18,7 +18,7 @@ const REQUEST: &str = "request";
 /// 手で書く応答の定義の名前
 const RESPONSE: &str = "response";
 
-/// 生成したコードと包みが使う型の名前。定義の名前と重ならないようにする
+/// 生成したコードとラッパーが使う型の名前。定義の名前と重ならないようにする
 const RESERVED: &[&str] = &[
     "String",
     "Bool",
@@ -40,7 +40,7 @@ const RESERVED: &[&str] = &[
     "ZumenError",
 ];
 
-/// 見方の構造体が持つメンバー。欄の名前と重なれば、後ろに `Field` を付ける
+/// ビューの構造体が持つメンバー。フィールドの名前と重なれば、後ろに `Field` を付ける
 const MEMBERS: &[&str] = &[
     "json",
     "jsonValue",
@@ -112,7 +112,7 @@ const KEYWORDS: &[&str] = &[
     "while",
 ];
 
-/// 区画の値の型と、`Constants.ColumnType` の場合
+/// セクションの値の型と、`Constants.ColumnType` の場合
 const COLUMNS: &[&str] = &["u8", "u32", "f32", "f64"];
 
 /// 説明をドキュメントのコメントにする
@@ -179,7 +179,7 @@ fn ident(name: String) -> String {
     }
 }
 
-/// 欄の名前を、プロパティの名前にする
+/// フィールドの名前を、プロパティの名前にする
 fn member(name: &str) -> String {
     let name = camel(name);
     if MEMBERS.contains(&name.as_str()) {
@@ -189,7 +189,7 @@ fn member(name: &str) -> String {
     }
 }
 
-/// 欄の型の、Swift の型
+/// フィールドの型の、Swift の型
 fn swift_type(schema: &Schema, ty: &Ty) -> String {
     match ty {
         Ty::String | Ty::Const(_) => "String".to_string(),
@@ -207,7 +207,7 @@ fn swift_type(schema: &Schema, ty: &Ty) -> String {
     }
 }
 
-/// 取り込む定義（`allOf`）の欄を先に、自分の欄を後に並べる
+/// 取り込む定義（`allOf`）のフィールドを先に、自分のフィールドを後に並べる
 fn collect_fields<'a>(schema: &'a Schema, def: &'a Def, out: &mut Vec<&'a Field>, depth: usize) {
     let Shape::Object {
         fields, compose, ..
@@ -229,7 +229,7 @@ fn collect_fields<'a>(schema: &'a Schema, def: &'a Def, out: &mut Vec<&'a Field>
     }
 }
 
-/// 見方の構造体の始まり。JSON のオブジェクトを受ける作り方を置く
+/// ビューの構造体の始まり。JSON のオブジェクトを受ける作り方を置く
 fn struct_head(out: &mut String, name: &str, description: &str) {
     out.push('\n');
     doc(out, "", description);
@@ -239,7 +239,7 @@ fn struct_head(out: &mut String, name: &str, description: &str) {
     );
 }
 
-/// 欄ごとの読み書きのプロパティ。ない欄と形の違う値は nil で、nil を書くと欄を除く
+/// フィールドごとの読み書きのプロパティ。ないフィールドと形の違う値は nil で、nil を書くとフィールドを除く
 fn render_field(out: &mut String, name: &str, description: &str, ty: &str) {
     out.push('\n');
     doc(out, "    ", description);
@@ -272,7 +272,7 @@ fn render_object(out: &mut String, schema: &Schema, def: &Def) -> Result<(), Str
     let mut fields = Vec::new();
     collect_fields(schema, def, &mut fields, 0);
     check_unique(
-        "欄",
+        "フィールド",
         &def.name,
         fields.iter().map(|field| member(&field.name)),
     )?;
@@ -291,7 +291,7 @@ fn render_object(out: &mut String, schema: &Schema, def: &Def) -> Result<(), Str
     } else {
         let _ = writeln!(
             out,
-            "\n    /// 目印の欄だけを持つオブジェクトから作る\n    public init() {{\n        json = [{}]\n    }}",
+            "\n    /// タグのフィールドだけを持つオブジェクトから作る\n    public init() {{\n        json = [{}]\n    }}",
             consts.join(", ")
         );
     }
@@ -307,7 +307,7 @@ fn render_object(out: &mut String, schema: &Schema, def: &Def) -> Result<(), Str
     Ok(())
 }
 
-/// タグつきの共用体の構造体。形ごとの見方に移すプロパティを持つ
+/// タグつきの共用体の構造体。形ごとのビューに移すプロパティを持つ
 fn render_union(out: &mut String, schema: &Schema, def: &Def, variants: &[String]) {
     let name = pascal(&def.name);
     struct_head(out, &name, &def.description);
@@ -318,7 +318,7 @@ fn render_union(out: &mut String, schema: &Schema, def: &Def, variants: &[String
         let class = pascal(variant);
         let _ = writeln!(
             out,
-            "\n    /// {field} が {value} の形なら、その見方。違えば nil\n    public var as{class}: {class}? {{\n        taggedView({}, {})\n    }}",
+            "\n    /// {field} が {value} の形なら、そのビュー。違えば nil\n    public var as{class}: {class}? {{\n        taggedView({}, {})\n    }}",
             quote(field),
             quote(value)
         );
@@ -332,7 +332,7 @@ fn render_response(out: &mut String, schema: &Schema, def: &Def) {
     let fields = [
         (
             "v",
-            "メッセージのスキーマの大版",
+            "メッセージのスキーマのメジャーバージョン",
             Ty::UInt { min: 1, max: 1 },
         ),
         (
@@ -365,14 +365,14 @@ pub fn render_types(schema: &Schema) -> Result<String, String> {
         .find(|def| def.name != RESPONSE && RESERVED.contains(&pascal(&def.name).as_str()))
     {
         return Err(format!(
-            "schema/messages.json の {} が、Swift の包みが使う型の名前と重なる",
+            "schema/messages.json の {} が、Swift のラッパーが使う型の名前と重なる",
             def.name
         ));
     }
     let mut out = String::new();
     out.push_str("// 生成したファイル。手で直さない。\n");
     out.push_str("// 元は schema/messages.json で、`cargo xtask codegen` で作り直す。\n");
-    out.push_str("//\n// 境界のメッセージの型（決定 0012・0225）。スキーマの定義ごとに 1 つの型がある。型は JSON のオブジェクトを包む\n// 見方で、知らない欄もそのまま持つ。列挙は文字列で読み、知らない値も受け取る（決定 0015）。\n");
+    out.push_str("//\n// API のメッセージの型（決定 0012・0225）。スキーマの定義ごとに 1 つの型がある。型は JSON のオブジェクトを包む\n// ビューで、知らないフィールドもそのまま持つ。列挙は文字列で読み、知らない値も受け取る（決定 0015）。\n");
     for def in &schema.defs {
         match &def.shape {
             Shape::Object { .. } => render_object(&mut out, schema, def)?,
@@ -438,11 +438,11 @@ pub fn render_constants(
     out.push_str(
         "// 元は schema/boundary.toml と schema/scene.toml で、`cargo xtask codegen` で作り直す。\n",
     );
-    out.push_str("\n/// 境界の版・状態コードと、シーンの配置（決定 0012・0137・0225）\npublic enum Constants {\n");
+    out.push_str("\n/// API のバージョン・状態コードと、シーンの配置（決定 0012・0137・0225）\npublic enum Constants {\n");
     let versions = &boundary.versions;
     let _ = writeln!(
         out,
-        "    /// パッケージの版（決定 0015）\n    public static let version = {}\n\n    /// ABI の大版\n    public static let abiVersion: UInt32 = {}\n\n    /// メッセージのスキーマの大版（要求と応答の v）\n    public static let schemaMajor: Int64 = {}\n\n    /// メッセージのスキーマの小版\n    public static let schemaMinor: Int64 = {}",
+        "    /// パッケージのバージョン（決定 0015）\n    public static let version = {}\n\n    /// ABI のメジャーバージョン\n    public static let abiVersion: UInt32 = {}\n\n    /// メッセージのスキーマのメジャーバージョン（要求と応答の v）\n    public static let schemaMajor: Int64 = {}\n\n    /// メッセージのスキーマのマイナーバージョン\n    public static let schemaMinor: Int64 = {}",
         quote(version),
         versions.abi,
         versions.schema_major,
@@ -479,16 +479,16 @@ pub fn render_constants(
 
     let _ = writeln!(
         out,
-        "\n    /// シーンの大版。区画の意味を変えるときに上げる\n    public static let sceneMajor: UInt16 = {}\n\n    /// シーンの小版。区画か値を足すたびに上げる\n    public static let sceneMinor: UInt16 = {}\n\n    /// 番号の「なし」（u32 の最大）\n    public static let sceneNone = UInt32.max",
+        "\n    /// シーンのメジャーバージョン。セクションの意味を変えるときに上げる\n    public static let sceneMajor: UInt16 = {}\n\n    /// シーンのマイナーバージョン。セクションか値を足すたびに上げる\n    public static let sceneMinor: UInt16 = {}\n\n    /// 番号の「なし」（u32 の最大）\n    public static let sceneNone = UInt32.max",
         scene.versions.major, scene.versions.minor
     );
-    out.push_str("\n    /// シーンの区画の値の型\n    public enum ColumnType: Sendable {\n        case u8, u32, f32, f64\n\n        /// 値のバイト数\n        public var size: Int {\n            switch self {\n            case .u8: return 1\n            case .u32, .f32: return 4\n            case .f64: return 8\n            }\n        }\n    }\n");
-    out.push_str("\n    /// シーンの区画の定義\n    public struct SceneSection: Sendable {\n        /// 名前\n        public let name: String\n        /// 値の型\n        public let type: ColumnType\n        /// 行ごとの値の数\n        public let width: Int\n    }\n");
-    out.push_str("\n    /// シーンの区画の定義。番号の順\n    public static let sceneSections: [SceneSection] = [\n");
+    out.push_str("\n    /// シーンのセクションの値の型\n    public enum ColumnType: Sendable {\n        case u8, u32, f32, f64\n\n        /// 値のバイト数\n        public var size: Int {\n            switch self {\n            case .u8: return 1\n            case .u32, .f32: return 4\n            case .f64: return 8\n            }\n        }\n    }\n");
+    out.push_str("\n    /// シーンのセクションの定義\n    public struct SceneSection: Sendable {\n        /// 名前\n        public let name: String\n        /// 値の型\n        public let type: ColumnType\n        /// 行ごとの値の数\n        public let width: Int\n    }\n");
+    out.push_str("\n    /// シーンのセクションの定義。番号の順\n    public static let sceneSections: [SceneSection] = [\n");
     for section in &scene.sections {
         if !COLUMNS.contains(&section.ty.as_str()) {
             return Err(format!(
-                "区画 {} の型 {} を読めない",
+                "セクション {} の型 {} を読めない",
                 section.name, section.ty
             ));
         }
@@ -541,7 +541,7 @@ mod tests {
                 "request_common": {
                   "description": "共通",
                   "type": "object",
-                  "properties": { "v": { "description": "版", "type": "integer", "minimum": 1 } },
+                  "properties": { "v": { "description": "バージョン", "type": "integer", "minimum": 1 } },
                   "required": ["v"]
                 },
                 "open_request": {

@@ -1,4 +1,4 @@
-//! XML の L0 の文書から要素を引く道具と、XML を書く道具
+//! XML の L0 の文書から要素を引くツールと、XML を書くツール
 
 use zumen_xml::{Document, Element, Encoding, Node};
 

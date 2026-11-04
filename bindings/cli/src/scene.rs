@@ -1,12 +1,12 @@
-//! シーンの blob（`schema/scene.toml` の配置、決定 0137・0172）を読み、区画ごとの行の数を要約する（決定 0200）。
+//! シーンの blob（`schema/scene.toml` の配置、決定 0137・0172）を読み、セクションごとの行の数を要約する（決定 0200）。
 //!
-//! 見出しは `ZMSC`、大版（u16）、小版（u16）、塊の数（u32）、区画の数（u32）。続けて区画ごとに、始まりと
-//! 長さ（u32、バイト）を置く。数はリトルエンディアン。知らない区画（後の小版で足したもの）は、名前なしで数える。
+//! ヘッダーは `ZMSC`、メジャーバージョン（u16）、マイナーバージョン（u16）、塊の数（u32）、セクションの数（u32）。続けてセクションごとに、始まりと
+//! 長さ（u32、バイト）を置く。数はリトルエンディアン。知らないセクション（後のマイナーバージョンで足したもの）は、名前なしで数える。
 
 use zumen_json::Writer;
 use zumen_scene::layout::{MAGIC, MAJOR, SECTIONS};
 
-/// 見出しのバイト数（区画の表の前まで）
+/// ヘッダーのバイト数（セクションの表の前まで）
 const HEADER: usize = 16;
 
 fn u16_at(bytes: &[u8], at: usize) -> Option<u16> {
@@ -29,7 +29,7 @@ pub fn summary(bytes: &[u8]) -> Result<Vec<u8>, String> {
     let minor = u16_at(bytes, 6).ok_or_else(short)?;
     if major != MAJOR {
         return Err(format!(
-            "シーンの大版 {major} は読めない（読めるのは {MAJOR}）"
+            "シーンのメジャーバージョン {major} は読めない（読めるのは {MAJOR}）"
         ));
     }
     let chunks = u32_at(bytes, 8).ok_or_else(short)?;
@@ -55,7 +55,7 @@ pub fn summary(bytes: &[u8]) -> Result<Vec<u8>, String> {
         let start = u32_at(bytes, at).ok_or_else(short)? as usize;
         let len = u32_at(bytes, at + 4).ok_or_else(short)? as usize;
         if start.checked_add(len).is_none_or(|end| end > bytes.len()) {
-            return Err(format!("区画 {index} がバッファーの外を指す"));
+            return Err(format!("セクション {index} がバッファーの外を指す"));
         }
         out.begin_object();
         out.key("index");
@@ -64,7 +64,7 @@ pub fn summary(bytes: &[u8]) -> Result<Vec<u8>, String> {
             let row = section.ty.size() * section.width;
             if row == 0 || !len.is_multiple_of(row) {
                 return Err(format!(
-                    "区画 {} の長さ {len} が行の大きさ {row} で割り切れない",
+                    "セクション {} の長さ {len} が行の大きさ {row} で割り切れない",
                     section.name
                 ));
             }

@@ -1,4 +1,4 @@
-//! 文書と成分の型（決定 0207）。値は文書の単位のまま、単位とともに持つ。
+//! 文書とコンポーネントの型（決定 0207）。値は文書の単位のまま、単位とともに持つ。
 
 use crate::ElementRef;
 use crate::placement::Transform;
@@ -46,7 +46,7 @@ pub enum Literal {
     List(Vec<Literal>),
 }
 
-/// 文書。プロジェクト・単位・文脈・座標・書き出し・見出しの値（決定 0207 の「文書」）
+/// 文書。プロジェクト・単位・文脈・座標・書き出し・ヘッダーの値（決定 0207 の「文書」）
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Document {
     /// プロジェクトの要素
@@ -65,7 +65,7 @@ pub struct Document {
     pub map: Option<MapConversion>,
     /// 書き出したアプリケーション
     pub application: Option<Application>,
-    /// 見出しの値
+    /// ヘッダーの値
     pub header: Header,
 }
 
@@ -106,11 +106,11 @@ pub struct MapConversion {
 pub struct Application {
     /// 名前
     pub name: String,
-    /// 版
+    /// バージョン
     pub version: Option<String>,
 }
 
-/// 見出しの値（`FILE_DESCRIPTION`・`FILE_NAME`・`FILE_SCHEMA`）
+/// ヘッダーの値（`FILE_DESCRIPTION`・`FILE_NAME`・`FILE_SCHEMA`）
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Header {
     /// ビューの定義などの説明
@@ -171,7 +171,7 @@ pub struct Classification {
 pub struct ClassificationReference {
     /// 分類体系の名前
     pub system: Option<String>,
-    /// 分類体系の版
+    /// 分類体系のバージョン
     pub edition: Option<String>,
     /// 項目のコード
     pub code: Option<String>,
@@ -256,7 +256,7 @@ pub struct Placement {
     pub local: Local,
 }
 
-/// 形の項目の木。項目の型は、試料で一覧を決めてから足す（決定 0207 の「試料を得てから決めること」の 1）
+/// 形の項目の木。項目の型は、サンプルで一覧を決めてから足す（決定 0207 の「サンプルを得てから決めること」の 1）
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ShapeItem {
     /// 項目の種類（`IfcExtrudedAreaSolid` など）
@@ -488,7 +488,7 @@ pub enum Grid {
     },
 }
 
-/// `level`: レベル。どの実体とプロパティから作るかは、試料で決める
+/// `level`: レベル。どの実体とプロパティから作るかは、サンプルで決める
 #[derive(Clone, Debug, PartialEq)]
 pub struct Level {
     /// 名前
@@ -501,7 +501,7 @@ pub struct Level {
     pub datum: Option<String>,
 }
 
-/// `zone`: 区画。どの実体とプロパティから作るかは、試料で決める
+/// `zone`: 区画。どの実体とプロパティから作るかは、サンプルで決める
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Zone {
     /// 区画の種類（防火区画など。語彙はプロファイルに置く）

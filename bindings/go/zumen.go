@@ -1,6 +1,6 @@
-// Package zumen は、zumen の wasm のモジュールを wazero で動かす包み（決定 0011・0013・0226）。cgo を使わない。
+// Package zumen は、zumen の wasm のモジュールを wazero で動かすラッパー（決定 0011・0013・0226）。cgo を使わない。
 //
-// New でモジュールを読み込み、Core.Open でセッションを作る。Session のメソッドは、境界の関数（schema/boundary.toml）に
+// New でモジュールを読み込み、Core.Open でセッションを作る。Session のメソッドは、API の関数（schema/boundary.toml）に
 // 1 つずつ当たる。要求と応答の型は messages.go にある。
 package zumen
 
@@ -37,9 +37,9 @@ var functions = []string{
 	"zm_dealloc",
 }
 
-// ZumenError は、境界の関数の状態が ok でなかったことを表す。
+// ZumenError は、API の関数の状態が ok でなかったことを表す。
 type ZumenError struct {
-	// Operation は、呼んだ境界の関数の名前。
+	// Operation は、呼んだ API の関数の名前。
 	Operation string
 
 	// Code は、状態コード（Status で始まる定数）。
@@ -48,7 +48,7 @@ type ZumenError struct {
 	// Data は、コアが書いたバイト列（failed の応答）。書かなかったときは nil。
 	Data []byte
 
-	// Err は、wasm の実行が止まった理由（取り消し・trap）。境界が状態を返したときは nil。
+	// Err は、wasm の実行が止まった理由（取り消し・trap）。API が状態を返したときは nil。
 	Err error
 }
 
@@ -93,7 +93,7 @@ func New(ctx context.Context) (*Core, error) {
 	return NewFromWasm(ctx, embeddedWasm)
 }
 
-// NewFromWasm は、wasm のモジュールをバイト列から読み込み、関数がそろうことと ABI の大版を確かめる。
+// NewFromWasm は、wasm のモジュールをバイト列から読み込み、関数がそろうことと ABI のメジャーバージョンを確かめる。
 func NewFromWasm(ctx context.Context, wasm []byte) (*Core, error) {
 	// 取り消した呼び出しは、コンテキストで止める。止めたインスタンスは閉じる
 	runtime := wazero.NewRuntimeWithConfig(ctx, wazero.NewRuntimeConfig().WithCloseOnContextDone(true))
@@ -121,7 +121,7 @@ func NewFromWasm(ctx context.Context, wasm []byte) (*Core, error) {
 	}
 	if version != ABIVersion {
 		_ = core.Close(ctx)
-		return nil, fmt.Errorf("ABI の大版が %d（この包みは %d）", version, ABIVersion)
+		return nil, fmt.Errorf("ABI のメジャーバージョンが %d（このラッパーは %d）", version, ABIVersion)
 	}
 	return core, nil
 }
@@ -136,7 +136,7 @@ func (c *Core) instantiate(ctx context.Context) (api.Module, error) {
 	return c.runtime.InstantiateModule(ctx, c.compiled, wazero.NewModuleConfig().WithName(""))
 }
 
-// ABIVersion は、モジュールの ABI の大版（zm_abi_version）。
+// ABIVersion は、モジュールの ABI のメジャーバージョン（zm_abi_version）。
 func (c *Core) ABIVersion(ctx context.Context) (uint32, error) {
 	module, err := c.instantiate(ctx)
 	if err != nil {
@@ -256,7 +256,7 @@ func (s *Session) exec(ctx context.Context, name string, params ...uint64) ([]ui
 	return results, nil
 }
 
-// invoke は、境界の関数を呼び、状態コードを返す。
+// invoke は、API の関数を呼び、状態コードを返す。
 func (s *Session) invoke(ctx context.Context, name string, params ...uint64) (int32, error) {
 	if s.live() == nil {
 		return StatusInvalid, nil
@@ -465,7 +465,7 @@ func rawJSON(data []byte) []byte {
 	return data
 }
 
-// asTagged は、目印の欄が値と同じなら、data をその型で読む。違うか読めなければ nil。
+// asTagged は、タグのフィールドが値と同じなら、data をその型で読む。違うか読めなければ nil。
 func asTagged[T any](data []byte, key, value string) *T {
 	var fields map[string]json.RawMessage
 	if json.Unmarshal(data, &fields) != nil {

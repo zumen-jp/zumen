@@ -5,8 +5,8 @@
 //! `[[detection]]` と `[[modules]]` の形式。target は `fuzz/Cargo.toml` の `[[bin]]` で、`fuzz/fuzz_targets/<名前>.rs`
 //! に置き、テストキットの fuzz の関数（`survives`・`survives_lift`・`survives_with`）を呼ぶ。
 //!
-//! `cargo xtask fuzz-seeds` は、公開サンプル、適合試験の組の合成の入力、L0 の攻撃の形（ZIP 爆弾・膨らむ deflate・
-//! 書庫の入れ子・パスの走査・XML の外部実体と深い入れ子・ISO 10303-21 の深い入れ子）、合成の格子（ISG・
+//! `cargo xtask fuzz-seeds` は、公開サンプル、適合テストの組の合成の入力、L0 の攻撃の形（ZIP 爆弾・膨らむ deflate・
+//! アーカイブの入れ子・パスの走査・XML の外部実体と深い入れ子・ISO 10303-21 の深い入れ子）、合成の格子（ISG・
 //! TKY2JGD・PatchJGD の形）を、どの target にも種として書く（決定 0258）。
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -173,7 +173,7 @@ fn check_targets(
     errors
 }
 
-/// 公開サンプル、適合試験の組の合成の入力、L0 の攻撃の形、合成の格子を、どの target にも
+/// 公開サンプル、適合テストの組の合成の入力、L0 の攻撃の形、合成の格子を、どの target にも
 /// `fuzz/corpus/<target>/` の種として書く。ファイルの名前は、中身の SHA-256 にする
 pub fn seeds(root: &Path) -> Result<(), String> {
     let mut seeds = BTreeMap::new();
@@ -223,7 +223,7 @@ fn samples(root: &Path) -> Result<Vec<Vec<u8>>, String> {
         .collect()
 }
 
-/// 適合試験の組（`bindings/conformance/cases`）の、`push` で入れる合成の入力。ファイルを指すものは公開サンプルなので
+/// 適合テストの組（`bindings/conformance/cases`）の、`push` で入れる合成の入力。ファイルを指すものは公開サンプルなので
 /// 除く
 fn cases(root: &Path) -> Result<Vec<Vec<u8>>, String> {
     let dir = "bindings/conformance/cases";
@@ -257,7 +257,7 @@ fn cases(root: &Path) -> Result<Vec<Vec<u8>>, String> {
     Ok(inputs)
 }
 
-/// 16 進の文字列を読む。適合試験の組と同じく、空白は飛ばす
+/// 16 進の文字列を読む。適合テストの組と同じく、空白は飛ばす
 fn unhex(hex: &str) -> Option<Vec<u8>> {
     let digits: Vec<u8> = hex
         .chars()
@@ -274,7 +274,7 @@ fn attacks() -> Result<Vec<Vec<u8>>, String> {
     let zip = |entries: &[(&str, &[u8])]| {
         zumen_zip::write(entries).ok_or_else(|| "種の ZIP を書けない".to_string())
     };
-    // 書庫の外を指す名前（パスの走査）
+    // アーカイブの外を指す名前（パスの走査）
     let traversal = zip(&[
         ("../up.txt", b"x".as_slice()),
         ("/root.txt", b"x".as_slice()),
@@ -282,7 +282,7 @@ fn attacks() -> Result<Vec<Vec<u8>>, String> {
         ("a\\..\\..\\b.txt", b"x".as_slice()),
         ("ok.txt", b"x".as_slice()),
     ])?;
-    // 書庫の中の書庫の中の書庫
+    // アーカイブの中のアーカイブの中のアーカイブ
     let inner = zip(&[("leaf.txt", b"leaf".as_slice())])?;
     let middle = zip(&[("inner.zip", inner.as_slice())])?;
     let nested = zip(&[("middle.zip", middle.as_slice())])?;
@@ -321,10 +321,10 @@ fn attacks() -> Result<Vec<Vec<u8>>, String> {
     ])
 }
 
-/// 1 つの項目に、0 に展開する deflate のデータ（[`zeros_deflated`]）を入れた書庫。大きさと CRC-32 は、展開した
+/// 1 つの項目に、0 に展開する deflate のデータ（[`zeros_deflated`]）を入れたアーカイブ。大きさと CRC-32 は、展開した
 /// データのものを記録する
 fn swelling() -> Result<Vec<u8>, String> {
-    let fail = || "種の膨らむ deflate の書庫を作れない".to_string();
+    let fail = || "種の膨らむ deflate のアーカイブを作れない".to_string();
     let zeros = vec![0; REPEATS * 258 + 1];
     let mut archive =
         zumen_zip::write(&[("zeros.bin", &zeros_deflated(REPEATS))]).ok_or_else(fail)?;
@@ -367,9 +367,9 @@ fn zeros_deflated(repeats: usize) -> Vec<u8> {
     out
 }
 
-/// 書庫の最初の項目を、deflate で展開すると `size` バイトになると記録したものにする。`crc` があれば、CRC-32 も
-/// 書き換える。見出しの欄の位置は、APPNOTE 6.3.10 の 4.3.7（ローカルの見出し）と 4.3.12（中央ディレクトリの
-/// 見出し）
+/// アーカイブの最初の項目を、deflate で展開すると `size` バイトになると記録したものにする。`crc` があれば、CRC-32 も
+/// 書き換える。ヘッダーのフィールドの位置は、APPNOTE 6.3.10 の 4.3.7（ローカルヘッダー）と 4.3.12（中央ディレクトリの
+/// ヘッダー）
 fn claim(archive: &mut [u8], size: u32, crc: Option<u32>) -> Option<()> {
     let (local, central) = headers(archive)?;
     let mut fields = vec![
@@ -390,8 +390,8 @@ fn claim(archive: &mut [u8], size: u32, crc: Option<u32>) -> Option<()> {
     Some(())
 }
 
-/// 書庫の最初の項目の、ローカルの見出しと中央ディレクトリの見出しの位置。中央ディレクトリは、注釈のない終わりの
-/// 記録から引く（APPNOTE 6.3.10 の 4.3.16）。項目のデータに見出しと同じバイトがあっても、取り違えない
+/// アーカイブの最初の項目の、ローカルヘッダーと中央ディレクトリのヘッダーの位置。中央ディレクトリは、注釈のない終わりの
+/// 記録から引く（APPNOTE 6.3.10 の 4.3.16）。項目のデータにヘッダーと同じバイトがあっても、取り違えない
 fn headers(archive: &[u8]) -> Option<(usize, usize)> {
     let end = archive.len().checked_sub(22)?;
     let central = archive
@@ -577,7 +577,7 @@ mod tests {
         })
     }
 
-    /// 膨らむ deflate の書庫は、記録した大きさと CRC-32 のとおりに 0 へ展開する。記録を小さくすれば記録の所で、
+    /// 膨らむ deflate のアーカイブは、記録した大きさと CRC-32 のとおりに 0 へ展開する。記録を小さくすれば記録の所で、
     /// 記録が予算を超えれば展開する前に止まる
     #[test]
     fn the_swelling_archive_inflates_to_what_it_records() {

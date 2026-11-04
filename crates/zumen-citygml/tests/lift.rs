@@ -1,4 +1,4 @@
-//! 試験の中で作った CityGML（PLATEAU の形）を読み、地理の領域モデルに移す（決定 0233、#379）。
+//! テストの中で作った CityGML（PLATEAU の形）を読み、地理の領域モデルに移す（決定 0233、#379）。
 
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, codes};
 use zumen_citygml::CityGml;

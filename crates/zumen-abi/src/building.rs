@@ -28,7 +28,7 @@ use crate::session::{Failed, fail, invalid_value, message_of, stopped};
 /// limit を書かなかったときに返す数
 const LIMIT: u64 = 1000;
 
-/// 書き忘れたときに返す成分
+/// 書き忘れたときに返すコンポーネント
 const DEFAULT_COMPONENTS: [BuildingComponent; 2] =
     [BuildingComponent::Class, BuildingComponent::Identity];
 
@@ -247,7 +247,7 @@ pub(crate) fn apply(
     Ok((updated, result, bytes))
 }
 
-/// 境界の値を、書く値にする。書けない種類か、欄が足りなければ `None`
+/// API の値を、書く値にする。書けない種類か、フィールドが足りなければ `None`
 fn new_value(value: &BuildingValue) -> Option<NewValue> {
     let literal = match value.kind {
         BuildingValueKind::Real => NewLiteral::Real(value.number.filter(|n| n.is_finite())?),
@@ -283,7 +283,7 @@ impl Model {
         elements.iter().map(|e| self.id(*e)).collect()
     }
 
-    /// 要素の ID と成分のハッシュ。要素の書いた順
+    /// 要素の ID とコンポーネントのハッシュ。要素の書いた順
     pub(crate) fn hashes(&self, cx: &mut Cx<'_>) -> Result<BTreeMap<String, String>, Failed> {
         let mut hashes = BTreeMap::new();
         for index in 0..self.building.elements().len() {
@@ -306,7 +306,7 @@ pub(crate) fn summary(model: &Model) -> BuildingResult {
         *classes.entry(class.name.as_str()).or_default() += 1;
     }
     BuildingResult {
-        // プラグインの文書は、建物モデルの見出しのスキーマの名前
+        // プラグインの文書は、建物モデルのヘッダーのスキーマの名前
         schema: match &model.file {
             Some(file) => String::from_utf8_lossy(file.schema()).into_owned(),
             None => model
@@ -333,7 +333,7 @@ pub(crate) fn summary(model: &Model) -> BuildingResult {
     }
 }
 
-/// 要素を選び、選んだ成分とともに一部を返す
+/// 要素を選び、選んだコンポーネントとともに一部を返す
 pub(crate) fn elements(
     model: &Model,
     request: &BuildingElementsRequest,
@@ -738,7 +738,7 @@ pub(crate) fn check(
     Ok((ids, report))
 }
 
-/// 照合の指摘を、境界の形にする。重さは仕様の重さ
+/// 照合の指摘を、API の形にする。重さは仕様の重さ
 pub(crate) fn finding(finding: &zumen_ids::Finding) -> IdsFinding {
     let mut diagnostic = message_of(&finding.diagnostic);
     diagnostic.severity = match finding.level {

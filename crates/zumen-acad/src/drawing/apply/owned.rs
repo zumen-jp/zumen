@@ -12,7 +12,7 @@ use zumen_base::{Cx, Ref};
 use zumen_sdk::Error;
 
 /// レコード `record` と一緒に除くオブジェクトの位置とハンドル。拡張辞書がなければ空。
-/// レコードが拡張辞書のほかの 102 の組（反応子など）か組の外の 360 を持つとき、辿れないオブジェクトか
+/// レコードが拡張辞書のほかの 102 の組（リアクターなど）か組の外の 360 を持つとき、辿れないオブジェクトか
 /// 所有者の合わないオブジェクトがあるときは `None`
 pub(super) fn owned(
     db: &AcadDb,
@@ -109,7 +109,7 @@ fn children(object: &Object, record: bool) -> Option<Vec<(u64, bool)>> {
     groups.is_empty().then_some(out)
 }
 
-/// 位置 `skip` のほかのオブジェクトか見出しの変数が、ハンドル `handles` のどれかを指すか
+/// 位置 `skip` のほかのオブジェクトかヘッダーの変数が、ハンドル `handles` のどれかを指すか
 pub(super) fn pointed(
     db: &AcadDb,
     skip: &BTreeSet<usize>,

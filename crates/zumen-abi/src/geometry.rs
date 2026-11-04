@@ -25,10 +25,10 @@ use crate::messages::{
     TextFit, TextGeometry,
 };
 
-/// 境界の apply が書き戻す DXF と DWG の、ブロックの記号の名前空間
+/// API の apply が書き戻す DXF と DWG の、ブロックの記号の名前空間
 const BLOCK: &str = "dxf.block";
 
-/// 点の既定義の印の表の名前空間（決定 0160）
+/// 点の既定義のマーカーの表の名前空間（決定 0160）
 const MARKERS: [&str; 2] = ["sxf.marker", "jww.point"];
 
 /// 形の値と行き来できる点
@@ -130,7 +130,7 @@ pub(crate) fn geometry_of<P: Spot>(shape: &Shape<P>) -> Option<Geometry> {
                 periodic: spline.periodic,
             })
         }
-        // 制御点や節点も持つものは、それらが当てはめる点から再現できるか分からないので返さない。
+        // 制御点やノットも持つものは、それらがフィット点から再現できるか分からないので返さない。
         Shape::Curve(Edge::Spline(spline))
             if spline.fit.len() >= 2
                 && spline.control.is_empty()
@@ -459,8 +459,8 @@ fn dimension_geometry<P: Spot>(dimension: &Dimension<P>) -> Option<DimensionGeom
     Some(geometry)
 }
 
-/// 寸法の形の値で作った寸法。`was` は置き換える前の寸法で、足すときは `None`。種類が持たない欄と、
-/// 欠けた欄は、その欄の場所を返す。測定値は元の形式が保存した値なので、置き換えでは元と同じ値だけを、
+/// 寸法の形の値で作った寸法。`was` は置き換える前の寸法で、足すときは `None`。種類が持たないフィールドと、
+/// 欠けたフィールドは、そのフィールドの場所を返す。測定値は元の形式が保存した値なので、置き換えでは元と同じ値だけを、
 /// 足すときは書かないことだけを受ける。寸法を描いた部品は、置き換えでは元のまま持ち、足すときは持たない
 fn dimension_of<P: Spot>(
     geometry: &DimensionGeometry,
@@ -487,7 +487,7 @@ fn dimension_of<P: Spot>(
         Some(value) if value.is_finite() && value >= 0.0 => Ok(origin.length_of(value)),
         _ => Err(at(field)),
     };
-    // 種類ごとの欄。ほかの欄があれば、その欄を指す
+    // 種類ごとのフィールド。ほかのフィールドがあれば、そのフィールドを指す
     let present = [
         ("first", geometry.first.is_some()),
         ("second", geometry.second.is_some()),
@@ -599,7 +599,7 @@ fn dimension_of<P: Spot>(
         (DimensionLabel::Measurement | DimensionLabel::Hidden, Some(_))
         | (DimensionLabel::Override, None) => return Err(at("content")),
     };
-    // 測定値は、置き換えでは元と同じ値と欄だけを受け、足すときは書かない
+    // 測定値は、置き換えでは元と同じ値とフィールドだけを受け、足すときは書かない
     let measurement = was.and_then(|was| was.measurement.clone());
     let given = geometry
         .measurement
@@ -650,7 +650,7 @@ fn dimension_of<P: Spot>(
 }
 
 /// 形の値で作った形。`was` は置き換える前の形で、足すときは `None`。`origin` は、空間か用紙を決める点。
-/// 合わない値は、`geometry` からの欄の場所を返す
+/// 合わない値は、`geometry` からのフィールドの場所を返す
 pub(crate) fn shape_of<P: Spot>(
     geometry: &Geometry,
     was: Option<&Shape<P>>,
@@ -743,10 +743,10 @@ pub(crate) fn shape_of<P: Spot>(
                 .ok()
                 .filter(|degree| *degree >= 1)
                 .ok_or_else(|| "geometry/degree".to_string())?;
-            // 置き換えでは、制御点で決まるものと当てはめる点で決まるものを入れ替えない。DWG の場合（scenario）が
+            // 置き換えでは、制御点で決まるものとフィット点で決まるものを入れ替えない。DWG の場合（scenario）が
             // 変わるため
             let fitting = spline.fit.is_some();
-            // 当てはめの許容差と節点の取り方は、置き換える前の値のまま
+            // フィット許容差とノットの取り方は、置き換える前の値のまま
             let kept = match was {
                 Some(Shape::Curve(Edge::Spline(old))) => {
                     (old.fit_tolerance, old.knot_parameterization)
@@ -828,7 +828,7 @@ pub(crate) fn shape_of<P: Spot>(
             for (index, knot) in spline.knots.iter().enumerate() {
                 finite(*knot, &format!("knots/{index}"))?;
             }
-            // 節点は減らない並びで、周期的でなければ制御点の数と次数と 1 の和の数
+            // ノットは減らない並びで、周期的でなければ制御点の数と次数と 1 の和の数
             if spline
                 .knots
                 .windows(2)
@@ -893,7 +893,7 @@ pub(crate) fn shape_of<P: Spot>(
                 line_type_generation,
             })
         }
-        // 足す文字は、AutoCAD の系統の TEXT の高さ（40）として書く。境界の apply が書けるのは DXF と DWG だけ
+        // 足す文字は、AutoCAD の系統の TEXT の高さ（40）として書く。API の apply が書けるのは DXF と DWG だけ
         (Geometry::Text(text), None) => {
             if text.content.contains(['\n', '\r']) {
                 return Err("geometry/content".to_string());
@@ -1196,7 +1196,7 @@ pub(crate) fn shape_of<P: Spot>(
                 style: leader.style.clone(),
             })
         }
-        // 引出線つきの注記は、枝だけを替える。ほかの欄は元の値と同じでなければならない（決定 0185）
+        // 引出線つきの注記は、枝だけを替える。ほかのフィールドは元の値と同じでなければならない（決定 0185）
         (Geometry::Callout(callout), Some(Shape::Callout(was))) => {
             let current = callout_geometry(was).ok_or("geometry")?;
             for (field, same) in [
@@ -1248,7 +1248,7 @@ pub(crate) fn shape_of<P: Spot>(
                 style: None,
             })
         }
-        // 点は、置き換えでも描き方（文書の点の表し方か既定義の印か）を変えない（決定 0183）
+        // 点は、置き換えでも描き方（文書の点の表し方か既定義のマーカーか）を変えない（決定 0183）
         (Geometry::Point(dot), was @ (None | Some(Shape::Point(_)))) => {
             let look = match &dot.marker {
                 None => PointLook::Document,

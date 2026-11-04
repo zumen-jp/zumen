@@ -1,4 +1,4 @@
-//! 試験の中で作った拡張 DM（数値地形図データ）を読み、地理の領域モデルに移す（決定 0233、#378）。
+//! テストの中で作った拡張 DM（数値地形図データ）を読み、地理の領域モデルに移す（決定 0233、#378）。
 
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Kind, Limit, Limits, codes};
 use zumen_crs::{Crs, MapPoint, Zone};
@@ -7,7 +7,7 @@ use zumen_geo::{Form, GeoModel, Location, Position, Value};
 use zumen_geom3d::Shape;
 use zumen_sdk::{Codec, FileModel, Lift};
 
-/// 欄の値。整数型は右に、文字型は左に詰める
+/// フィールドの値。整数型は右に、文字型は左に詰める
 enum F<'a> {
     I(i64),
     A(&'a str),
@@ -43,7 +43,7 @@ fn numbers(values: &[i64]) -> Vec<u8> {
     rec("", &fields, false)
 }
 
-/// グループヘッダー・要素などに共通の欄（分類コード・要素識別番号・階層レベル）
+/// グループヘッダー・要素などに共通のフィールド（分類コード・要素識別番号・階層レベル）
 fn head(code: &str, number: i64, level: i64) -> Vec<(usize, usize, F<'_>)> {
     vec![(2, 4, A(code)), (12, 4, I(number)), (16, 2, I(level))]
 }

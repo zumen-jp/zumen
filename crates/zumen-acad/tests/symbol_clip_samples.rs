@@ -1,5 +1,5 @@
-//! 試料の DXF・DWG で、記号の切り抜き（XCLIP）を移す（決定 0149）。
-//! 試料は公開サンプルの `samples/` と、受け取った図面を置く `ZUMEN_SAMPLES` のフォルダーから集める。
+//! サンプルの DXF・DWG で、記号の切り抜き（XCLIP）を移す（決定 0149）。
+//! サンプルは公開サンプルの `samples/` と、受け取った図面を置く `ZUMEN_SAMPLES` のフォルダーから集める。
 #![cfg(feature = "drawing")]
 
 mod support;
@@ -60,8 +60,8 @@ fn clips(drawing: &Drawing2D) -> Vec<(String, Clip)> {
         .collect()
 }
 
-/// 試料の `sample_AC10*` の図面（R12 の AC1009 を除く）は、`my_block` の配置を 1 つ、長方形で切り抜く（XCLIP）。
-/// どの版の DWG・DXF でも、境界の 2 つの角は記号の定義の空間で同じ点になり、定義の中身（X が 0〜163）の
+/// サンプルの `sample_AC10*` の図面（R12 の AC1009 を除く）は、`my_block` の配置を 1 つ、長方形で切り抜く（XCLIP）。
+/// どのバージョンの DWG・DXF でも、境界の 2 つの角は記号の定義の空間で同じ点になり、定義の中身（X が 0〜163）の
 /// 右側に重なる。拡張辞書の `ACAD_FILTER` は、移さなかった項目として診断しない
 #[test]
 fn block_clips_become_the_clip_of_the_symbol() {

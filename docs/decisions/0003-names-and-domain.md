@@ -32,12 +32,12 @@
 | pub.dev・RubyGems | `zumen` |
 | Packagist | `zumen-jp/zumen` |
 | Maven | groupId `dev.zumen` |
-| Go | `zumen.dev/go`（`go-import` の meta で鏡のリポジトリを指す） |
+| Go | `zumen.dev/go`（`go-import` の meta でミラーのリポジトリを指す） |
 | Apple | バンドル ID `dev.zumen.*` |
 | 文書 | `https://zumen.dev` |
 | CLI | コマンド `zumen`。Homebrew は `zumen-jp/tap/zumen` |
 
-- crates.io の名前は、中身のある最初の版で取る。名前だけの予約は、crates.io の規約で禁じられている。
+- crates.io の名前は、中身のある最初のバージョンで取る。名前だけの予約は、crates.io の規約で禁じられている。
 - 旧版の `@zumenjs/*`（0.1.1）は、新しい名前で公開したあとに非推奨にし、移った先を案内する。
 - 利用者に `npx zumen` を案内しない。ほかの人のパッケージが動いてしまうため。
 

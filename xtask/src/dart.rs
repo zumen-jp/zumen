@@ -1,9 +1,9 @@
-//! Dart の包み（`bindings/dart`）の型と定数を作る（決定 0011・0227）。
+//! Dart のラッパー（`bindings/dart`）の型と定数を作る（決定 0011・0227）。
 //!
 //! - `messages.dart`: メッセージのスキーマ（`schema/messages.json`）の型
-//! - `constants.dart`: 境界の版・状態コード（`schema/boundary.toml`）と、シーンの配置（`schema/scene.toml`）
+//! - `constants.dart`: API のバージョン・状態コード（`schema/boundary.toml`）と、シーンの配置（`schema/scene.toml`）
 //!
-//! 型は、読んだ JSON のオブジェクト（`Map<String, Object?>`）を包む見方のクラスで、知らない欄と値もそのまま持つ（決定 0015）。
+//! 型は、読んだ JSON のオブジェクト（`Map<String, Object?>`）を包むビューのクラスで、知らないフィールドと値もそのまま持つ（決定 0015）。
 
 use std::collections::BTreeSet;
 use std::fmt::Write;
@@ -18,7 +18,7 @@ const REQUEST: &str = "request";
 /// 手で書く応答の定義の名前
 const RESPONSE: &str = "response";
 
-/// 生成したコードと包みが使う型の名前。定義の名前と重ならないようにする
+/// 生成したコードとラッパーが使う型の名前。定義の名前と重ならないようにする
 const RESERVED: &[&str] = &[
     "String",
     "Object",
@@ -37,7 +37,7 @@ const RESERVED: &[&str] = &[
     "ZumenException",
 ];
 
-/// 見方のクラスが持つメンバー。欄の名前と重なれば、後ろに `Field` を付ける
+/// ビューのクラスが持つメンバー。フィールドの名前と重なれば、後ろに `Field` を付ける
 const MEMBERS: &[&str] = &[
     "json",
     "readField",
@@ -122,7 +122,7 @@ const KEYWORDS: &[&str] = &[
     "yield",
 ];
 
-/// 区画の値の型と、`ColumnType` の値
+/// セクションの値の型と、`ColumnType` の値
 const COLUMNS: &[&str] = &["u8", "u32", "f32", "f64"];
 
 /// 説明をドキュメントのコメントにする
@@ -181,7 +181,7 @@ fn camel(name: &str) -> String {
     out
 }
 
-/// 欄の名前を、ゲッターの名前にする
+/// フィールドの名前を、ゲッターの名前にする
 fn member(name: &str) -> String {
     let name = camel(name);
     if MEMBERS.contains(&name.as_str()) || KEYWORDS.contains(&name.as_str()) {
@@ -201,7 +201,7 @@ fn constant(name: &str) -> String {
     }
 }
 
-/// 欄の型の、Dart の型
+/// フィールドの型の、Dart の型
 fn dart_type(schema: &Schema, ty: &Ty) -> String {
     match ty {
         Ty::String | Ty::Const(_) => "String".to_string(),
@@ -219,7 +219,7 @@ fn dart_type(schema: &Schema, ty: &Ty) -> String {
     }
 }
 
-/// 欄の型の値を JSON の値から読む関数の式（`message.dart` の関数）
+/// フィールドの型の値を JSON の値から読む関数の式（`message.dart` の関数）
 fn decoder(schema: &Schema, ty: &Ty) -> String {
     match ty {
         Ty::String | Ty::Const(_) => "asString".to_string(),
@@ -241,7 +241,7 @@ fn decoder(schema: &Schema, ty: &Ty) -> String {
     }
 }
 
-/// 取り込む定義（`allOf`）の欄を先に、自分の欄を後に並べる
+/// 取り込む定義（`allOf`）のフィールドを先に、自分のフィールドを後に並べる
 fn collect_fields<'a>(schema: &'a Schema, def: &'a Def, out: &mut Vec<&'a Field>, depth: usize) {
     let Shape::Object {
         fields, compose, ..
@@ -263,7 +263,7 @@ fn collect_fields<'a>(schema: &'a Schema, def: &'a Def, out: &mut Vec<&'a Field>
     }
 }
 
-/// 見方のクラスの始まり。JSON のオブジェクトを受ける作り方を置く
+/// ビューのクラスの始まり。JSON のオブジェクトを受ける作り方を置く
 fn class_head(out: &mut String, name: &str, description: &str, init: &str) {
     out.push('\n');
     doc(out, "", description);
@@ -282,7 +282,7 @@ fn nullable(ty: String) -> String {
     }
 }
 
-/// 欄ごとの読み書きのゲッターとセッター。ない欄と形の違う値は null で、null を書くと欄を除く
+/// フィールドごとの読み書きのゲッターとセッター。ないフィールドと形の違う値は null で、null を書くとフィールドを除く
 fn render_field(out: &mut String, schema: &Schema, name: &str, description: &str, ty: &Ty) {
     out.push('\n');
     doc(out, "  ", description);
@@ -317,7 +317,7 @@ fn render_object(out: &mut String, schema: &Schema, def: &Def) -> Result<(), Str
     let mut fields = Vec::new();
     collect_fields(schema, def, &mut fields, 0);
     check_unique(
-        "欄",
+        "フィールド",
         &def.name,
         fields.iter().map(|field| member(&field.name)),
     )?;
@@ -338,7 +338,7 @@ fn render_object(out: &mut String, schema: &Schema, def: &Def) -> Result<(), Str
     } else {
         let _ = writeln!(
             out,
-            "class {name} extends Message {{\n  /// 読んだ JSON のオブジェクトを包む\n  {name}.fromJson(super.json);\n\n  /// 目印の欄だけを持つオブジェクトから作る\n  {name}() : super({{{}}});",
+            "class {name} extends Message {{\n  /// 読んだ JSON のオブジェクトを包む\n  {name}.fromJson(super.json);\n\n  /// タグのフィールドだけを持つオブジェクトから作る\n  {name}() : super({{{}}});",
             consts.join(", ")
         );
     }
@@ -349,7 +349,7 @@ fn render_object(out: &mut String, schema: &Schema, def: &Def) -> Result<(), Str
     Ok(())
 }
 
-/// タグつきの共用体のクラス。形ごとの見方に移すゲッターを持つ
+/// タグつきの共用体のクラス。形ごとのビューに移すゲッターを持つ
 fn render_union(out: &mut String, schema: &Schema, def: &Def, variants: &[String]) {
     let name = pascal(&def.name);
     class_head(out, &name, &def.description, "空のオブジェクトから作る");
@@ -360,7 +360,7 @@ fn render_union(out: &mut String, schema: &Schema, def: &Def, variants: &[String
         let class = pascal(variant);
         let _ = writeln!(
             out,
-            "\n  /// {field} が {value} の形なら、その見方。違えば null\n  {class}? get as{class} => taggedView({}, {}, {class}.fromJson);",
+            "\n  /// {field} が {value} の形なら、そのビュー。違えば null\n  {class}? get as{class} => taggedView({}, {}, {class}.fromJson);",
             quote(field),
             quote(value)
         );
@@ -379,7 +379,7 @@ fn render_response(out: &mut String, schema: &Schema, def: &Def) {
     let fields = [
         (
             "v",
-            "メッセージのスキーマの大版",
+            "メッセージのスキーマのメジャーバージョン",
             Ty::UInt { min: 1, max: 1 },
         ),
         (
@@ -412,14 +412,14 @@ pub fn render_types(schema: &Schema) -> Result<String, String> {
         .find(|def| def.name != RESPONSE && RESERVED.contains(&pascal(&def.name).as_str()))
     {
         return Err(format!(
-            "schema/messages.json の {} が、Dart の包みが使う型の名前と重なる",
+            "schema/messages.json の {} が、Dart のラッパーが使う型の名前と重なる",
             def.name
         ));
     }
     let mut out = String::new();
     out.push_str("// 生成したファイル。手で直さない。\n");
     out.push_str("// 元は schema/messages.json で、`cargo xtask codegen` で作り直す。\n");
-    out.push_str("//\n// 境界のメッセージの型（決定 0012・0227）。スキーマの定義ごとに 1 つの型がある。型は JSON のオブジェクトを包む\n// 見方で、知らない欄もそのまま持つ。列挙は文字列で読み、知らない値も受け取る（決定 0015）。\n\n// ignore_for_file: lines_longer_than_80_chars\n\nimport 'message.dart';\n");
+    out.push_str("//\n// API のメッセージの型（決定 0012・0227）。スキーマの定義ごとに 1 つの型がある。型は JSON のオブジェクトを包む\n// ビューで、知らないフィールドもそのまま持つ。列挙は文字列で読み、知らない値も受け取る（決定 0015）。\n\n// ignore_for_file: lines_longer_than_80_chars\n\nimport 'message.dart';\n");
     for def in &schema.defs {
         match &def.shape {
             Shape::Object { .. } => render_object(&mut out, schema, def)?,
@@ -480,11 +480,11 @@ pub fn render_constants(
     out.push_str(
         "// 元は schema/boundary.toml と schema/scene.toml で、`cargo xtask codegen` で作り直す。\n",
     );
-    out.push_str("\n/// 境界の版と、シーンの配置（決定 0012・0137・0227）\nabstract final class Constants {\n");
+    out.push_str("\n/// API のバージョンと、シーンの配置（決定 0012・0137・0227）\nabstract final class Constants {\n");
     let versions = &boundary.versions;
     let _ = writeln!(
         out,
-        "  /// パッケージの版（決定 0015）\n  static const version = {};\n\n  /// ABI の大版\n  static const abiVersion = {};\n\n  /// メッセージのスキーマの大版（要求と応答の v）\n  static const schemaMajor = {};\n\n  /// メッセージのスキーマの小版\n  static const schemaMinor = {};",
+        "  /// パッケージのバージョン（決定 0015）\n  static const version = {};\n\n  /// ABI のメジャーバージョン\n  static const abiVersion = {};\n\n  /// メッセージのスキーマのメジャーバージョン（要求と応答の v）\n  static const schemaMajor = {};\n\n  /// メッセージのスキーマのマイナーバージョン\n  static const schemaMinor = {};",
         quote(version),
         versions.abi,
         versions.schema_major,
@@ -492,16 +492,16 @@ pub fn render_constants(
     );
     let _ = writeln!(
         out,
-        "\n  /// シーンの大版。区画の意味を変えるときに上げる\n  static const sceneMajor = {};\n\n  /// シーンの小版。区画か値を足すたびに上げる\n  static const sceneMinor = {};\n\n  /// 番号の「なし」（u32 の最大）\n  static const sceneNone = 0xffffffff;",
+        "\n  /// シーンのメジャーバージョン。セクションの意味を変えるときに上げる\n  static const sceneMajor = {};\n\n  /// シーンのマイナーバージョン。セクションか値を足すたびに上げる\n  static const sceneMinor = {};\n\n  /// 番号の「なし」（u32 の最大）\n  static const sceneNone = 0xffffffff;",
         scene.versions.major, scene.versions.minor
     );
     out.push_str(
-        "\n  /// シーンの区画の定義。番号の順\n  static const sceneSections = <SceneSection>[\n",
+        "\n  /// シーンのセクションの定義。番号の順\n  static const sceneSections = <SceneSection>[\n",
     );
     for section in &scene.sections {
         if !COLUMNS.contains(&section.ty.as_str()) {
             return Err(format!(
-                "区画 {} の型 {} を読めない",
+                "セクション {} の型 {} を読めない",
                 section.name, section.ty
             ));
         }
@@ -559,8 +559,8 @@ pub fn render_constants(
     }
     out.push_str("        _ => 'unknown($code)',\n      };\n}\n");
 
-    out.push_str("\n/// シーンの区画の値の型\nenum ColumnType {\n  u8(1),\n  u32(4),\n  f32(4),\n  f64(8);\n\n  const ColumnType(this.size);\n\n  /// 値のバイト数\n  final int size;\n}\n");
-    out.push_str("\n/// シーンの区画の定義\nfinal class SceneSection {\n  const SceneSection(this.name, this.type, this.width);\n\n  /// 名前\n  final String name;\n\n  /// 値の型\n  final ColumnType type;\n\n  /// 行ごとの値の数\n  final int width;\n}\n");
+    out.push_str("\n/// シーンのセクションの値の型\nenum ColumnType {\n  u8(1),\n  u32(4),\n  f32(4),\n  f64(8);\n\n  const ColumnType(this.size);\n\n  /// 値のバイト数\n  final int size;\n}\n");
+    out.push_str("\n/// シーンのセクションの定義\nfinal class SceneSection {\n  const SceneSection(this.name, this.type, this.width);\n\n  /// 名前\n  final String name;\n\n  /// 値の型\n  final ColumnType type;\n\n  /// 行ごとの値の数\n  final int width;\n}\n");
     Ok(out)
 }
 
@@ -578,7 +578,7 @@ mod tests {
                 "request_common": {
                   "description": "共通",
                   "type": "object",
-                  "properties": { "v": { "description": "版", "type": "integer", "minimum": 1 } },
+                  "properties": { "v": { "description": "バージョン", "type": "integer", "minimum": 1 } },
                   "required": ["v"]
                 },
                 "open_request": {

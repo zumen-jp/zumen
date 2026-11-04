@@ -1,6 +1,6 @@
-"""確認の束の SFC・P21 を ezsxf で読み、zumen が読んだ値と照らす（#503、決定 0254）。
+"""検証キットの SFC・P21 を ezsxf で読み、zumen が読んだ値と照らす（#503、決定 0254）。
 
-使い方: python check_ezsxf.py <束のフォルダー>
+使い方: python check_ezsxf.py <キットのフォルダー>
 
 ファイルごとに、次を確かめる。
 
@@ -10,10 +10,10 @@
   zumen が読めないと言った文とコメント（sxf.record.invalid の範囲）は数えない（「壊れた所」）。
 - zumen の要素の種類（kind）と形が、出所のフィーチャ（SFC）か実体（P21）の種類に合う。P21 の曲線の要素は、出所の
   曲線の実体（トリムした曲線は基の曲線）で決まる種類と形を持つ。
-- SFC: 要素の出所のフィーチャを ezsxf が型で読み、レイヤと、線・円・点マーカーでは形の値が同じ。形の欄は両向きに
+- SFC: 要素の出所のフィーチャを ezsxf が型で読み、レイヤと、線・円・点マーカーでは形の値が同じ。形のフィールドは両向きに
   比べ、ezsxf の読みにレイヤや形があれば、zumen の要素も持つ。用紙の要素は、ezsxf の用紙（drawing_sheet_feature）か、
   そこに置いた作図グループの中にあるか、ezsxf の読みで表示する複合曲線の曲線（ezsxf は複合曲線を置かず、ハッチングの
-  境界の定義として持つ。sheet_members）。ezsxf がフィーチャを型で読まない SFC（印が `/*SXF3` など）は、種類
+  境界の定義として持つ。sheet_members）。ezsxf がフィーチャを型で読まない SFC（マーカーが `/*SXF3` など）は、種類
   だけを比べ、結果の notes に書く。ezsxf が複合曲線を読めなかったか飛ばした SFC と、ハッチングの指す複合曲線が
   ないと言った SFC は、用紙の中にあることを比べず、notes に書く。make.py が作った SFC（made-features・
   made-structure）とその書き戻しを ezsxf が型で読まなければ、失敗にする。
@@ -24,7 +24,7 @@
   グループの中の 4 点以上の折れ線から作る（逆の向きは比べない。#558）。レイヤと作図グループの名前は、ファイルの
   バイトから zumen と同じく戻す（ezsxf は P21 の文字列のエスケープを戻さず、8 ビットのバイトを置き換える）。参照を
   たどって、点の位置・回転・倍率と、線分の端点（点か媒介変数のトリム）を比べる。端を点にできない線分は、形を比べず
-  notes に書く。印の種類と色、寸法と引出線のレイヤは比べない。ezsxf が読み飛ばした文（引数の中にコメントを持つ
+  notes に書く。点マーカーの種類と色、寸法と引出線のレイヤは比べない。ezsxf が読み飛ばした文（引数の中にコメントを持つ
   文）を指す要素は、食い違いになる（#558）。
 - 黙って捨てない: 置く所（用紙と部分図）のフィーチャ（SFC）と、用紙の並びの要素（P21）は、どれも zumen の要素になる
   か、移さなかったことを言う zumen の診断（compare.py の LIFTED_AWAY）がそのレコードを指す。SFC は、診断の kind が
@@ -109,7 +109,7 @@ UNTRIMMED = [("POLYLINE", "polyline", "polyline"), ("CIRCLE", "circle", "circle"
 GENERIC = {"ANNOTATION_OCCURRENCE", "DRAUGHTING_ANNOTATION_OCCURRENCE"}
 # P21 の複合図形の名前の接頭語と区分（docs/formats/sxf.md の「P21 の組み直し」。接頭語がなければ作図グループ）
 SUBFIGURES = [("$$SXF_FM_", 1), ("$$SXF_FG_", 2), ("$$SXF_G_", 3), ("$$SXF_P_", 4)]
-# SFC のフィーチャの印と閉じ（docs/formats/sxf.md の「レコードの区切り」。長いものから比べる）
+# SFC のフィーチャのマーカーと閉じ（docs/formats/sxf.md の「レコードの区切り」。長いものから比べる）
 MARKS = [("/*SXF3.1", "SXF3.1*/"), ("/*SXF3", "SXF3*/"), ("/*SXF", "SXF*/")]
 # 複合曲線がまとめて曲線にするフィーチャ（決定 0129 の「背景」の曲線）。表示しない複合曲線も、ほかのフィーチャは
 # まとめても曲線にしないので、黙って捨てない照合で数える
@@ -144,8 +144,8 @@ def string_end(text, i):
 
 def records(text, skipped, statements=None):
     """インスタンスの番号 → zumen のレコードの番号。docs/formats/sxf.md の「レコードの区切り」のとおり、`;` で終わる文と、
-    データの節の `/*SXF` から閉じまでを、ファイルの初めから 0 で数える。間のコメントは数えない。FILE_DESCRIPTION の最初の
-    文字列に AP202 とあれば（大文字と小文字を問わない）、データの節のフィーチャの印も、ただのコメントとする（「判定」）。
+    データのセクションの `/*SXF` から閉じまでを、ファイルの初めから 0 で数える。間のコメントは数えない。FILE_DESCRIPTION の最初の
+    文字列に AP202 とあれば（大文字と小文字を問わない）、データのセクションのフィーチャのマーカーも、ただのコメントとする（「判定」）。
     skipped は、zumen が読めないと言った範囲 (始め, 終わり) の一覧で、そこから始まる文とコメントは数えず、範囲の終わりから
     読む（「壊れた所」）。P21 の同じ番号の 2 つ目の文もレコードとして数え、インスタンスの番号には 1 つ目の文のレコードの
     番号を使う（zumen は 2 つ目を使わない）。statements を渡せば、P21 のインスタンスの番号 → 1 つ目の文を入れる"""
@@ -911,7 +911,7 @@ def check_p21(parsed, entry, reading, counts, notes, at, statements):
                 continue
             counts["shapes"] += 1
             want = dict(element["geometry"])
-            # 印の種類（PRE_DEFINED_POINT_MARKER_SYMBOL の名前）は比べず、倍率だけを比べる
+            # 点マーカーの種類（PRE_DEFINED_POINT_MARKER_SYMBOL の名前）は比べず、倍率だけを比べる
             if "marker" in want:
                 want["marker"] = {"scale": want["marker"]["scale"]}
             for d in differences(want, got, both=True):
@@ -972,7 +972,7 @@ def check_file(folder, entry, reading, baseline, counts):
                     failures.append(f"変更 {want['edit']}（{want['id']}）{d}")
                 if "layer" in want and layer is not None and want["layer"] != layer:
                     failures.append(f"変更 {want['edit']}（{want['id']}）のレイヤが {layer!r}（期待は {want['layer']!r}）")
-                # 色は既定義色の番号（SFC のフィーチャの色の欄）
+                # 色は既定義色の番号（SFC のフィーチャの色のフィールド）
                 code = want.get("color", {}).get("sxf")
                 if entry["format"] == "sfc" and code is not None and color != code:
                     failures.append(f"変更 {want['edit']}（{want['id']}）の色が {color}（期待は既定義色 {code}）")

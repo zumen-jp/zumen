@@ -1,6 +1,6 @@
 [package]
 name = "zumen-review"
-description = "zumen のレビューの文書: 赤入れと BIM の指摘を、対象の要素の ID とハッシュでつなぎ、新しい版へ移す（決定 0214・0218）"
+description = "zumen のレビューの文書: 赤入れと BIM の指摘を、対象の要素の ID とハッシュでつなぎ、新しいバージョンへ移す（決定 0214・0218）"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

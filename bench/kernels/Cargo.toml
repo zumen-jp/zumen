@@ -46,7 +46,7 @@ lto = true
 codegen-units = 1
 strip = true
 
-# csgrs が依存する core2 は、crates.io のすべての版が取り下げ（yank）られていて、新しく解決できない。
-# 比べるためだけに、上流のリポジトリの 0.4.0 の版を当てる
+# csgrs が依存する core2 は、crates.io のすべてのバージョンが取り下げ（yank）られていて、新しく解決できない。
+# 比べるためだけに、上流のリポジトリの 0.4.0 のバージョンを当てる
 [patch.crates-io]
 core2 = { git = "https://github.com/technocreatives/core2", rev = "545e84b" }

@@ -156,7 +156,7 @@ impl<L: Fn(f64) -> Length> Parser<'_, L> {
             'O' | 'o' => self.state.overline = code == 'O',
             'K' | 'k' => self.state.strike = code == 'K',
             'U' => return self.unicode(after),
-            // 2007 より前の版の、コード・ページの文字（\M+ と 5 文字）
+            // 2007 より前のバージョンの、コード・ページの文字（\M+ と 5 文字）
             'M' => {
                 let (taken, tail) = match after.split_at_checked(6) {
                     Some((taken, tail)) if taken.starts_with('+') => (taken, tail),

@@ -1,30 +1,30 @@
 // 生成したファイル。手で直さない。
 // 元は schema/boundary.toml と schema/scene.toml で、`cargo xtask codegen` で作り直す。
 
-/// 境界の版と、シーンの配置（決定 0012・0137・0227）
+/// API のバージョンと、シーンの配置（決定 0012・0137・0227）
 abstract final class Constants {
-  /// パッケージの版（決定 0015）
+  /// パッケージのバージョン（決定 0015）
   static const version = '0.2.0';
 
-  /// ABI の大版
+  /// ABI のメジャーバージョン
   static const abiVersion = 1;
 
-  /// メッセージのスキーマの大版（要求と応答の v）
+  /// メッセージのスキーマのメジャーバージョン（要求と応答の v）
   static const schemaMajor = 1;
 
-  /// メッセージのスキーマの小版
+  /// メッセージのスキーマのマイナーバージョン
   static const schemaMinor = 63;
 
-  /// シーンの大版。区画の意味を変えるときに上げる
+  /// シーンのメジャーバージョン。セクションの意味を変えるときに上げる
   static const sceneMajor = 1;
 
-  /// シーンの小版。区画か値を足すたびに上げる
+  /// シーンのマイナーバージョン。セクションか値を足すたびに上げる
   static const sceneMinor = 2;
 
   /// 番号の「なし」（u32 の最大）
   static const sceneNone = 0xffffffff;
 
-  /// シーンの区画の定義。番号の順
+  /// シーンのセクションの定義。番号の順
   static const sceneSections = <SceneSection>[
     /// 塊の原点（起点の座標の X・Y）。塊の座標は、ここからの相対の値（f64 × 2）
     SceneSection('chunk_origins', ColumnType.f64, 2),
@@ -72,7 +72,7 @@ abstract final class Constants {
     SceneSection('text_boxes', ColumnType.f32, 1),
     /// 位置合わせ。水平（horizontal の値）と垂直（vertical の値）（u8 × 2）
     SceneSection('text_aligns', ColumnType.u8, 2),
-    /// 印（text_flag の値の和）（u8 × 1）
+    /// フラグ（text_flag の値の和）（u8 × 1）
     SceneSection('text_flags', ColumnType.u8, 1),
     /// 書式つきの文字の行の番号。0 から数える。1 行の文字は 0（u32 × 1）
     SceneSection('text_lines', ColumnType.u32, 1),
@@ -84,15 +84,15 @@ abstract final class Constants {
     SceneSection('point_xy', ColumnType.f32, 2),
     /// 点の回転（度、反時計回り）（f32 × 1）
     SceneSection('point_rotations', ColumnType.f32, 1),
-    /// 既定義の印のキー。名前空間（strings の始まりと長さ）と、元のコード（strings の始まりと長さ）。文書の点の表し方に従う点は、長さが 0（u32 × 4）
+    /// 既定義のマーカーのキー。名前空間（strings の始まりと長さ）と、元のコード（strings の始まりと長さ）。文書の点の表し方に従う点は、長さが 0（u32 × 4）
     SceneSection('point_markers', ColumnType.u32, 4),
-    /// 既定義の印の尺度。文書の点の表し方に従う点は 1（f32 × 1）
+    /// 既定義のマーカーの尺度。文書の点の表し方に従う点は 1（f32 × 1）
     SceneSection('point_scales', ColumnType.f32, 1),
     /// 点の描く単位（unit_entities の行）（u32 × 1）
     SceneSection('point_units', ColumnType.u32, 1),
     /// 文書の点の表し方（決定 0160）。形（point_mark の値）・囲み（point_frame の値の和）・大きさの意味（point_size の値）・大きさ。文書が持たなければ行がない（f32 × 4）
     SceneSection('point_style', ColumnType.f32, 4),
-    /// 下敷きの参照名（strings の始まりと長さ）。コアは開かない（u32 × 2）
+    /// アンダーレイの参照名（strings の始まりと長さ）。コアは開かない（u32 × 2）
     SceneSection('image_names', ColumnType.u32, 2),
     /// 資源の中のページ（strings の始まりと長さ）。なければ長さが 0（u32 × 2）
     SceneSection('image_pages', ColumnType.u32, 2),
@@ -134,13 +134,13 @@ abstract final class Constants {
     SceneSection('color_files', ColumnType.u8, 4),
     /// 表示する RGBA。ファイルの RGB か、色の表（palette）から引いた値。未解決なら 0（u8 × 4）
     SceneSection('color_rgba', ColumnType.u8, 4),
-    /// 印（color_flag の値の和）（u8 × 1）
+    /// フラグ（color_flag の値の和）（u8 × 1）
     SceneSection('color_flags', ColumnType.u8, 1),
     /// 切り抜きの組の多角形の始まり（polygon_vertices の行）。描くものは、組のすべての多角形の内側だけを描く（u32 × 1）
     SceneSection('clip_polygons', ColumnType.u32, 1),
     /// 多角形の頂点の始まり（clip_xy の行）（u32 × 1）
     SceneSection('polygon_vertices', ColumnType.u32, 1),
-    /// 多角形の印。1 なら、内側を隠す（外側だけを描く）（u8 × 1）
+    /// 多角形のフラグ。1 なら、内側を隠す（外側だけを描く）（u8 × 1）
     SceneSection('polygon_flags', ColumnType.u8, 1),
     /// 切り抜きの多角形の頂点。起点の座標の X・Y（f64 × 2）
     SceneSection('clip_xy', ColumnType.f64, 2),
@@ -184,7 +184,7 @@ abstract final class Constants {
       'middle': 2,
       'top': 3,
     },
-    // 文字の印。和で持つ
+    // 文字のフラグ。和で持つ
     'text_flag': {
       'backward': 1,
       'upside_down': 2,
@@ -213,7 +213,7 @@ abstract final class Constants {
       'length': 0,
       'screen': 1,
     },
-    // 下敷きの資源の種類
+    // アンダーレイの資源の種類
     'image_kind': {
       'image': 0,
       'pdf': 1,
@@ -250,7 +250,7 @@ abstract final class Constants {
       'sxf': 2,
       'jww': 3,
     },
-    // 色の印。和で持つ
+    // 色のフラグ。和で持つ
     'color_flag': {
       'unresolved': 1,
       'foreground': 2,
@@ -286,7 +286,7 @@ abstract final class Status {
       };
 }
 
-/// シーンの区画の値の型
+/// シーンのセクションの値の型
 enum ColumnType {
   u8(1),
   u32(4),
@@ -299,7 +299,7 @@ enum ColumnType {
   final int size;
 }
 
-/// シーンの区画の定義
+/// シーンのセクションの定義
 final class SceneSection {
   const SceneSection(this.name, this.type, this.width);
 

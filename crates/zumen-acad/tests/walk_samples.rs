@@ -1,6 +1,6 @@
-//! 試料の DXF と DWG を、配置をたどって読む（決定 0159）。
+//! サンプルの DXF と DWG を、配置をたどって読む（決定 0159）。
 //! 配置の中の要素の色・線種・線幅が、決定 0143 の関数で配置を通して解いた値と同じになる。
-//! 試料は公開サンプルの `samples/` と、受け取った図面を置く `ZUMEN_SAMPLES` のフォルダーから集める。
+//! サンプルは公開サンプルの `samples/` と、受け取った図面を置く `ZUMEN_SAMPLES` のフォルダーから集める。
 #![cfg(feature = "drawing")]
 
 mod support;
@@ -107,6 +107,6 @@ fn walking_placements_matches_the_placed_functions() {
                 .unwrap_or_else(|stop| panic!("{name}: {stop:?}"));
         }
     }
-    // 試料では、34 枚の図面の配置の中に 7 千ほどの要素がある
+    // サンプルでは、34 枚の図面の配置の中に 7 千ほどの要素がある
     assert!(!paths.iter().any(|path| support::received(path)) || (drawings > 0 && inside > 0));
 }

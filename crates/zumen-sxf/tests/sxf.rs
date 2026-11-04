@@ -1,4 +1,4 @@
-//! SXF の交換構造の読み書き（決定 0120）。入力は、どれも試験の中で作る。
+//! SXF の交換構造の読み書き（決定 0120）。入力は、どれもテストの中で作る。
 
 use zumen_base::{Budget, CancelToken, Cx, Diagnostics, Kind, Limit, Limits, Ref, Stop, codes};
 use zumen_sdk::{Codec, Error, testkit};
@@ -213,7 +213,7 @@ fn rejects_other_schemas() {
     let (result, diag) = testkit::read::<Sxf>(src.as_bytes());
     assert_eq!(result.unwrap_err(), Error::Unsupported);
     assert_eq!(diag[0].code(), codes::SXF_SCHEMA_UNSUPPORTED);
-    // 版の識別子を後に付けたスキーマの名前は、名前だけを比べる
+    // バージョンの識別子を後に付けたスキーマの名前は、名前だけを比べる
     let src = String::from_utf8(P21.to_vec()).unwrap().replace(
         "'ASSOCIATIVE_DRAUGHTING'",
         "'associative_draughting { 1 0 10303 202 }'",

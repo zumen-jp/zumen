@@ -1,5 +1,5 @@
-//! 試料の DXF・DWG で、線種の列の要素に添える形と文字を、線種の定義に移す（決定 0150）。
-//! 試料は公開サンプルの `samples/` と、受け取った図面を置く `ZUMEN_SAMPLES` のフォルダーから集める。
+//! サンプルの DXF・DWG で、線種の列の要素に添える形と文字を、線種の定義に移す（決定 0150）。
+//! サンプルは公開サンプルの `samples/` と、受け取った図面を置く `ZUMEN_SAMPLES` のフォルダーから集める。
 #![cfg(feature = "drawing")]
 
 mod support;
@@ -59,9 +59,9 @@ fn shape(number: u16) -> MarkContent {
     }
 }
 
-/// 試料の `sample_AC10*` の図面（線種の要素を持たない R12 の AC1009 を除く）は、文字を添える GAS_LINE と、
-/// 形を添える TRACKS・ZIGZAG を持つ。どの版の DWG・DXF でも、同じ形と文字になる。R2013 からは、文字に
-/// 逆さにしない印（74 の 8）が付く
+/// サンプルの `sample_AC10*` の図面（線種の要素を持たない R12 の AC1009 を除く）は、文字を添える GAS_LINE と、
+/// 形を添える TRACKS・ZIGZAG を持つ。どのバージョンの DWG・DXF でも、同じ形と文字になる。R2013 からは、文字に
+/// 逆さにしないフラグ（74 の 8）が付く
 #[test]
 fn shapes_and_text_of_line_types_become_marks() {
     let mut checked = 0;

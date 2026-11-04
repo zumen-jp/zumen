@@ -10,13 +10,13 @@
 //! ```
 //!
 //! プラグインの形式を持つリポジトリは、このひな形を写し、コーデックと lift と台帳を自分の形式に変える。束ね方は
-//! 次の 3 つで、どれもこの crate の [`PLUGINS`] を窓口に登録する。
+//! 次の 3 つで、どれもこの crate の [`PLUGINS`] をレジストリに登録する。
 //!
 //! - Rust: この crate を依存に足し、[`zumen_abi1::install`] に [`PLUGINS`] を渡してからセッションを作る。
 //! - wasm: この crate を `wasm32-unknown-unknown` に向けて作ると、プラグインの形式だけを持つモジュールになる
-//!   （決定 0247）。コアのモジュールと同じ境界の関数に `zm_plugin_init` を足して出し、op は capabilities・open・
+//!   （決定 0247）。コアのモジュールと同じ API の関数に `zm_plugin_init` を足して出し、op は capabilities・open・
 //!   close・describe・lift だけを持つ。読んだ図面は、lift で図面モデルのバイナリにし、コアの図面のモジュールの
-//!   open に渡す。JavaScript の包みは、読み込んだときに `zm_plugin_init` を呼ぶ。
+//!   open に渡す。JavaScript のラッパーは、読み込んだときに `zm_plugin_init` を呼ぶ。
 //! - ネイティブで呼ぶ言語: この crate の実行ファイル（`src/main.rs`）が「コアとプラグイン」の CLI になる。各言語
 //!   からは、その CLI を `process` の形で使う。
 
@@ -28,7 +28,7 @@ use zumen_drawing::{
 };
 use zumen_sdk::{Codec, Error, FileModel, Lift, RecordInfo, Registration, Rights, Signature};
 
-/// 窓口に登録するプラグイン
+/// レジストリに登録するプラグイン
 pub static PLUGINS: &[Plugin] = &[Plugin::of::<Lines>(Registration::of::<Lines>(
     Rights::Public,
     "zumen_lines",
@@ -163,7 +163,7 @@ impl Lift<Drawing2D> for LinesFile {
             .map(|(index, line)| {
                 let [x1, y1, x2, y2] = line.points;
                 Element {
-                    // 図形の ID は、窓口がレコードの番号で作る（`space/0/r<番号>`。ID の規則の版 1）
+                    // 図形の ID は、レジストリがレコードの番号で作る（`space/0/r<番号>`。ID の規則のバージョン 1）
                     source: Ref::at_record(index as u64),
                     layer: LayerId(0),
                     style: Style {
@@ -202,8 +202,8 @@ impl Lift<Drawing2D> for LinesFile {
     }
 }
 
-/// wasm のモジュールが出す、プラグインを登録する関数。JavaScript の包みが、読み込んだときに呼ぶ
-// 境界の関数の名前で出すために no_mangle を使う。ワークスペースで禁じた unsafe を、この関数でだけ許す
+/// wasm のモジュールが出す、プラグインを登録する関数。JavaScript のラッパーが、読み込んだときに呼ぶ
+// API の関数の名前で出すために no_mangle を使う。ワークスペースで禁じた unsafe を、この関数でだけ許す
 #[cfg(target_family = "wasm")]
 #[allow(unsafe_code)]
 #[unsafe(no_mangle)]

@@ -16,7 +16,7 @@ impl Lifter<'_> {
     /// 176）を持ち、種類が 1 なら文字（2 の区切りと 1）、2 ならブロックのレコード（340）を内容とする。文字がなく、
     /// 2007 からの値（301 から）の文字（302）があれば、それを内容とする（docs/formats/dxf.md）。数が合わない
     /// ものは読めないとする。セルの値の型と単位と表示の書式は `cell_value` で、セルの書式と枠は `cell_format` で、
-    /// 表のスタイルの書式は `table_formats` で読む。R2010 からの DWG の読み手は書式を読まないので、書式は空になる
+    /// 表のスタイルの書式は `table_formats` で読む。R2010 からの DWG のリーダーは書式を読まないので、書式は空になる
     /// （`element` で診断する）
     pub(super) fn table<P>(
         &self,
@@ -26,7 +26,7 @@ impl Lifter<'_> {
         length: &impl Fn(f64) -> Length,
     ) -> Lifted<Table<P>> {
         let kind = object.kind.as_slice();
-        // DWG は AcDbTable（100）を持たないので、表の欄の初め（342・11・90）で分ける。表を描いたブロック（2）は、
+        // DWG は AcDbTable（100）を持たないので、表のフィールドの初め（342・11・90）で分ける。表を描いたブロック（2）は、
         // DWG では値の終わりにある（docs/formats/dwg.md）
         let dwg = matches!(object.origin, Origin::Dwg { .. });
         let marker = object
@@ -128,7 +128,7 @@ impl Lifter<'_> {
         })
     }
 
-    /// 表のセル 1 つの値。2007 からの値（301〜304）の中のコードは、セルの欄として読まない
+    /// 表のセル 1 つの値。2007 からの値（301〜304）の中のコードは、セルのフィールドとして読まない
     fn cell(&self, db: &AcadDb, cell: &Object, length: &impl Fn(f64) -> Length) -> Lifted<Cell> {
         let kind = cell.kind.as_slice();
         let end = cell
@@ -190,9 +190,9 @@ impl Lifter<'_> {
 
     /// 表のスタイル（DXF Reference「TABLESTYLE」）の、行の種類ごとの書式。説明（3）の後の 280 が 1 ならタイトルの
     /// 行を、281 が 1 なら見出しの行を持たない。文字スタイル（7）から始まる組が、データ・タイトル・見出しの順に
-    /// 続く（試料の表を描いたブロックの文字の高さと位置合わせで確かめた）。組の枠は、上・内側の横・下・左・
+    /// 続く（サンプルの表を描いたブロックの文字の高さと位置合わせで確かめた）。組の枠は、上・内側の横・下・左・
     /// 内側の縦・右の順に、線幅（274〜279）・表示（284〜289）・色（64〜69）を持つ（推定）。組がなければ `None`。
-    /// R2010 からの DWG の読み手は、TABLESTYLE の欄をまだ読まないので `None` になる（`element` で診断する）
+    /// R2010 からの DWG のリーダーは、TABLESTYLE のフィールドをまだ読まないので `None` になる（`element` で診断する）
     pub(super) fn table_formats(
         &self,
         db: &AcadDb,
@@ -237,7 +237,7 @@ impl Lifter<'_> {
     }
 
     /// セルか、表のスタイルの組の書式。文字スタイル（7。名前か STYLE のハンドル）・高さ（140）・位置合わせ
-    /// （170。1〜9）・文字の色（62 か、セルでは 64）・背景を塗るか（283）と色（63）・枠（`borders` の欄）を読む。
+    /// （170。1〜9）・文字の色（62 か、セルでは 64）・背景を塗るか（283）と色（63）・枠（`borders` のフィールド）を読む。
     /// 色は ACI の符号（0 は配置から、256 はレイヤから継承）、線幅は -1 と -2 を継承、-3 を文書の既定、0〜211 を
     /// 1/100 mm とする
     fn cell_format(
@@ -337,7 +337,7 @@ impl Lifter<'_> {
         })
     }
 
-    /// セルの 2007 からの値（301 `CELL_VALUE` から 304 `ACVALUE_END` まで）の、型のある値。印（93）の 1 が立つか、
+    /// セルの 2007 からの値（301 `CELL_VALUE` から 304 `ACVALUE_END` まで）の、型のある値。フラグ（93）の 1 が立つか、
     /// 型（90）が 0 なら `None`。整数（1）は 91、実数（2）は 140、文字列（4）は 2 の並びと 1、日時（8）は 310 の
     /// SYSTEMTIME（年・月・曜日・日・時・分・秒・ミリ秒の 16 バイト。推定）、点（16・32）は 11・21・31 から読む。
     /// ほかの型（64・128・256・512）は移さない（`element` で診断する）。単位（94）は 0・1・2・4・8・16・32 を
@@ -442,7 +442,7 @@ struct BorderCodes {
     vertical: Option<[i16; 3]>,
 }
 
-/// セルの枠（DXF Reference「ACAD_TABLE」）。上・右・下・左の枠を持つ。左と上と右は、試料の表を描いたブロックの
+/// セルの枠（DXF Reference「ACAD_TABLE」）。上・右・下・左の枠を持つ。左と上と右は、サンプルの表を描いたブロックの
 /// 線の色と線幅で確かめた。下は推定。表示（285〜289）は、DXF が書かない
 const CELL_BORDERS: BorderCodes = BorderCodes {
     text_color: 64,
@@ -466,7 +466,7 @@ const STYLE_BORDERS: BorderCodes = BorderCodes {
 };
 
 /// 表のセルの値（301 から 304 まで）のうち、`Lifter::cell_value` が移さない型（64・128・256・512）で、値を持つ
-/// （印の 93 の 1 が立たない）ものを診断する
+/// （フラグの 93 の 1 が立たない）ものを診断する
 pub(super) fn report_cell_values(object: &Object, cx: &mut Cx) {
     let mut inside = false;
     let (mut flags, mut kind) = (0, 0);

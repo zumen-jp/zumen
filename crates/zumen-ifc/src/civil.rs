@@ -27,7 +27,7 @@ const DROPPED: &[&[u8]] = &[
 ];
 
 impl Lift<CivilModel> for IfcFile {
-    /// IFC4X3 の線形から作る。ほかの版は、診断して作らない
+    /// IFC4X3 の線形から作る。ほかのバージョンは、診断して作らない
     fn lift(&self, cx: &mut Cx) -> Result<CivilModel, Error> {
         if !self.schema().to_ascii_uppercase().starts_with(b"IFC4X3") {
             cx.report(Diagnostic::new(codes::IFC_VERSION_UNSUPPORTED).with(
@@ -49,7 +49,7 @@ impl Lift<CivilModel> for IfcFile {
 }
 
 impl Lift<CivilModel> for IfcZipFile {
-    /// 書庫の中の IFC-SPF から作る
+    /// アーカイブの中の IFC-SPF から作る
     fn lift(&self, cx: &mut Cx) -> Result<CivilModel, Error> {
         self.ifc().lift(cx)
     }
@@ -696,7 +696,7 @@ impl<'f> Lifter<'f> {
                 }
             }
         }
-        // 三角形ごとの印は、意味を確かめるまで読まない。0 でない印があれば知らせる
+        // 三角形ごとのフラグは、意味を確かめるまで読まない。0 でないフラグがあれば知らせる
         if self
             .reals(arg(record, 6))
             .is_some_and(|flags| flags.iter().any(|flag| *flag != 0.0))
@@ -773,7 +773,7 @@ impl<'f> Lifter<'f> {
 
     /// `IfcAlignmentHorizontalSegment`。3 StartPoint・4 StartDirection・5 StartRadiusOfCurvature・
     /// 6 EndRadiusOfCurvature・7 SegmentLength・9 PredefinedType。半径は左へ曲がるものを正、0 を直線とする。
-    /// 長さ 0 の区間（線形の終わりの印）は移さない
+    /// 長さ 0 の区間（線形の終わりのマーカー）は移さない
     fn horizontal(
         &self,
         segment: &Record,

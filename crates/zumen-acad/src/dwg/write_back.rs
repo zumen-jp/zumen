@@ -1,32 +1,32 @@
-//! 共有のオブジェクトの表の変更を、DWG のオブジェクトに書き戻す（決定 0029）。R2000 と R2004 と、R2010 から後の図形・表のレコード・図形でないオブジェクトの変更と、図形の除きと足しを扱う（決定 0085〜0104）。
-//! R2004 は、図形の値の変更のうち、共通の欄と、単純な種類の型ごとの欄だけを書き戻す（決定 0072）。属性を持つ INSERT と
-//! MTEXT は、R2004 で後ろに増えた欄を元のまま写す（決定 0073）。HATCH は、初めのグラデーションの欄を写す（決定 0074）。
+//! 共有のオブジェクトの表の変更を、DWG のオブジェクトに書き戻す（決定 0029）。R2000 と R2004 と、R2010 から後の図形・表のレコード・図形でないオブジェクトの変更と、図形の削除と追加を扱う（決定 0085〜0104）。
+//! R2004 は、図形の値の変更のうち、共通のフィールドと、単純な種類の型ごとのフィールドだけを書き戻す（決定 0072）。属性を持つ INSERT と
+//! MTEXT は、R2004 で後ろに増えたフィールドを元のまま写す（決定 0073）。HATCH は、初めのグラデーションのフィールドを写す（決定 0074）。
 //!
 //! 表と、今のファイルから作り直した表を、元のオブジェクト（[`Origin::Dwg`]）ごとに比べる。値の並びが違う
-//! オブジェクトだけを符号化し直し、1 つの [`DwgTxn`](super::DwgTxn) で置き換える（決定 0028）。共通の欄と、
-//! いくつかの種類の型ごとの欄（決定 0030〜0050）を符号化する。型ごとの欄を書き直して
-//! ハンドルの流れの位置（RL）を直し、その前と、ハンドルの流れから後ろのビットは元のまま写す。
+//! オブジェクトだけを符号化し直し、1 つの [`DwgTxn`](super::DwgTxn) で置き換える（決定 0028）。共通のフィールドと、
+//! いくつかの種類の型ごとのフィールド（決定 0030〜0050）を符号化する。型ごとのフィールドを書き直して
+//! ハンドルのストリームの位置（RL）を直し、その前と、ハンドルのストリームから後ろのビットは元のまま写す。
 //!
-//! 表から除いた図形は、オブジェクトの地図から除き、前後の図形と所有者のブロックのレコードの、図形の並びを
+//! 表から除いた図形は、オブジェクトのマップから除き、前後の図形と所有者のブロックのレコードの、図形の並びを
 //! たどるハンドルを直す（決定 0051）。
 //!
-//! 表の終わりに足した図形のうち、いくつかの種類は、一から符号化してオブジェクトの地図に加え、所有者の
-//! ブロックのレコードの図形の並びの終わりに繋ぎ、見出しの変数の HANDSEED を進める（決定 0052）。TEXT・ATTDEF・INSERT は、指す文字の体裁とブロックを
-//! 名前で探して、そのハンドルを書く（決定 0053）。足した MTEXT は、表にない欄を 0 にする（決定 0054）。
+//! 表の終わりに足した図形のうち、いくつかの種類は、一から符号化してオブジェクトのマップに加え、所有者の
+//! ブロックのレコードの図形の並びの終わりに繋ぎ、ヘッダーの変数の HANDSEED を進める（決定 0052）。TEXT・ATTDEF・INSERT は、指す文字スタイルとブロックを
+//! 名前で探して、そのハンドルを書く（決定 0053）。足した MTEXT は、表にないフィールドを 0 にする（決定 0054）。
 //! 属性を持つ INSERT は、すぐ後の ATTRIB と SEQEND を持たせ、そのハンドルを書く（決定 0055）。足した LWPOLYLINE は、
-//! 表にない印のビットと一定の幅を 0 にする（決定 0056）。足した SPLINE は、閉じている・周期的の印を 0 に
-//! して書く（決定 0057）。重みを持つものは有理の印を立て、当てはめる点を持つものは場合を 2 にする（決定 0059）。SHAPE は、形の番号と形のファイルを表で示せないので、
+//! 表にないフラグのビットと一定の幅を 0 にする（決定 0056）。足した SPLINE は、閉じている・周期的のフラグを 0 に
+//! して書く（決定 0057）。重みを持つものは有理のフラグを立て、フィット点を持つものは場合を 2 にする（決定 0059）。SHAPE は、形の番号と形のファイルを表で示せないので、
 //! 足せない（決定 0058）。列と行の数か間隔を持つ INSERT は、MINSERT として書き、属性も INSERT と同じく
 //! 続ける（決定 0060）。
 //!
-//! 表の終わりに足した画層・文字の体裁・線種・アプリケーションの名前・寸法の体裁・ビュー・ビューポートの設定・ブロックの
-//! レコードは、一から符号化してオブジェクトの地図に加え、所有者の表のオブジェクトの項目の終わりに足す（決定 0061〜0068）。
+//! 表の終わりに足した画層・文字スタイル・線種・アプリケーションの名前・寸法スタイル・ビュー・ビューポートの設定・ブロックの
+//! レコードは、一から符号化してオブジェクトのマップに加え、所有者の表のオブジェクトの項目の終わりに足す（決定 0061〜0068）。
 //! 足したブロックのレコードは、同じく足した BLOCK・ENDBLK と図形を揃えて書く（決定 0068）。
 //!
-//! 見出しの変数の INSUNITS と、用紙空間の PLIMMIN・PLIMMAX と、PDMODE・PDSIZE の変更は、見出しの変数の区切りの中で
-//! 書き直す（決定 0069・0190）。PDMODE・PDSIZE は、書く幅が変わる値なら区切りの大きさを変える（決定 0193）。
+//! ヘッダーの変数の INSUNITS と、用紙空間の PLIMMIN・PLIMMAX と、PDMODE・PDSIZE の変更は、ヘッダーの変数のセクションの中で
+//! 書き直す（決定 0069・0190）。PDMODE・PDSIZE は、書く幅が変わる値ならセクションの大きさを変える（決定 0193）。
 //!
-//! ほかのオブジェクトの追加と並べ替え、図形でないものの削除、ほかの値と、ほかの見出しの変数の変更は、まだ書き戻せない。
+//! ほかのオブジェクトの追加と並べ替え、図形でないものの削除、ほかの値と、ほかのヘッダーの変数の変更は、まだ書き戻せない。
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Range;
@@ -43,10 +43,10 @@ use super::objects::{
 use super::{DwgFile, Release, header, kinds};
 use crate::db::{AcadDb, Data, DataType, Object, Origin, Section, Value, uncaret};
 
-/// 図形の共通の欄のうち、表に置くもののグループ・コード
+/// 図形の共通のフィールドのうち、表に置くもののグループ・コード
 const COMMON: &[i16] = &[62, 48, 60];
 
-/// R2004 で、型ごとの欄を R2000 と同じに符号化する図形の種類（決定 0072・0073）
+/// R2004 で、型ごとのフィールドを R2000 と同じに符号化する図形の種類（決定 0072・0073）
 /// R2010 から後に書き戻す図形の種類（決定 0085〜0088）
 const R2010_KINDS: &[&[u8]] = &[
     b"LINE",
@@ -104,7 +104,7 @@ const R2004_KINDS: &[&[u8]] = &[
     b"VIEWPORT",
 ];
 
-/// 型ごとの欄のグループ・コード
+/// 型ごとのフィールドのグループ・コード
 const LINE: &[i16] = &[10, 20, 30, 11, 21, 31, 39, 210, 220, 230];
 const CIRCLE: &[i16] = &[10, 20, 30, 40, 39, 210, 220, 230];
 const ARC: &[i16] = &[10, 20, 30, 40, 39, 210, 220, 230, 50, 51];
@@ -118,7 +118,7 @@ const FACE3D: &[i16] = &[10, 20, 30, 11, 21, 31, 12, 22, 32, 13, 23, 33, 70];
 const TEXT: &[i16] = &[
     10, 20, 30, 11, 21, 31, 39, 51, 50, 40, 41, 1, 71, 72, 73, 210, 220, 230,
 ];
-/// ATTRIB は、TEXT の欄の縦の合わせを 74 に置き、タグ（2）・欄の長さ（73）・印（70）を足す。ATTDEF は
+/// ATTRIB は、TEXT のフィールドの縦の合わせを 74 に置き、タグ（2）・フィールドの長さ（73）・フラグ（70）を足す。ATTDEF は
 /// 問い（3）も足す
 const ATTRIB: &[i16] = &[
     10, 20, 30, 11, 21, 31, 39, 51, 50, 40, 41, 1, 71, 72, 74, 210, 220, 230, 2, 73, 70,
@@ -145,7 +145,7 @@ const POLYLINE_2D: &[i16] = &[66, 70, 75, 40, 41, 39, 10, 20, 30, 210, 220, 230]
 const POLYLINE_3D: &[i16] = &[66, 10, 20, 30, 70, 75];
 const POLYFACE: &[i16] = &[66, 10, 20, 30, 70, 71, 72];
 const MESH: &[i16] = &[66, 10, 20, 30, 70, 75, 71, 72, 73, 74];
-/// DIMENSION のどの型にもある欄
+/// DIMENSION のどの型にもあるフィールド
 const DIMENSION: &[i16] = &[
     11, 21, 31, 70, 71, 42, 12, 22, 32, 72, 41, 1, 53, 51, 210, 220, 230,
 ];
@@ -159,7 +159,7 @@ const DIMENSION_KINDS: [&[i16]; 7] = [
     &[10, 20, 30, 15, 25, 35, 40],
     &[15, 25, 35, 10, 20, 30, 40],
 ];
-/// DIMENSION の、どれかの型の欄
+/// DIMENSION の、どれかの型のフィールド
 const DIMENSION_ALL: &[i16] = &[
     11, 21, 31, 70, 71, 42, 12, 22, 32, 72, 41, 1, 53, 51, 210, 220, 230, 10, 20, 30, 13, 23, 33,
     14, 24, 34, 15, 25, 35, 16, 26, 36, 40, 50, 52,
@@ -174,7 +174,7 @@ const LEADER: &[i16] = &[
     73, 72, 40, 41, 74, 71, 76, 10, 20, 30, 210, 220, 230, 211, 221, 231, 212, 222, 232, 213, 223,
     233,
 ];
-/// 足す LEADER の欄。寸法スタイルの名前（3）と注記（340）は型ごとのハンドルに、鉤の線を持たないこと（75 = 0）と
+/// 足す LEADER のフィールド。寸法スタイルの名前（3）と注記（340）は型ごとのハンドルに、鉤の線を持たないこと（75 = 0）と
 /// ずれ（212・213）も書く（決定 0185）
 const NEW_LEADER: &[i16] = &[
     73, 72, 40, 41, 74, 71, 75, 76, 10, 20, 30, 210, 220, 230, 211, 221, 231, 212, 222, 232, 213,
@@ -326,10 +326,10 @@ impl DwgFile {
                 return Err(unsupported(b"ENTITIES"));
             }
             if old.values != object.values {
-                // 足した反応子の組は、ほかの欄と分けて、反応子の数とハンドルの流れに書く（決定 0191）
+                // 足したリアクターの組は、ほかのフィールドと分けて、リアクターの数とハンドルのストリームに書く（決定 0191）
                 let (reactors, object) = without_reactors(old, object);
                 let object = &object;
-                // 拡張辞書の組は、読む側が置いたままのものだけを受け付け、型ごとの欄からは除く（決定 0148・0152）
+                // 拡張辞書の組は、読む側が置いたままのものだけを受け付け、型ごとのフィールドからは除く（決定 0148・0152）
                 let (old, object) = match (without_xdictionary(old), without_xdictionary(object)) {
                     ((before, old), (after, object)) if before == after => (old, object),
                     _ => return Err(unsupported(&object.kind)),
@@ -418,7 +418,7 @@ impl DwgFile {
             .chain(db.variables())
             .map(|(n, _)| n)
             .collect();
-        // 変えられるのは、このファイルの見出しの変数の区切りから読んだ変数だけ
+        // 変えられるのは、このファイルのヘッダーの変数のセクションから読んだ変数だけ
         let (mut units, mut limits) = (None, None);
         let (mut point_mode, mut point_size) = (None, None);
         for name in names
@@ -430,7 +430,7 @@ impl DwgFile {
             }
             match name {
                 b"$INSUNITS" => {
-                    // 区切りの長さを変えないよう、BS の幅が変わる値は受け付けない
+                    // セクションの長さを変えないよう、BS の幅が変わる値は受け付けない
                     let new = header_units(db)
                         .filter(|&new| header_units(base).map(bs_width) == Some(bs_width(new)))
                         .ok_or_else(|| unsupported(name))?;
@@ -439,7 +439,7 @@ impl DwgFile {
                 b"$PLIMMIN" | b"$PLIMMAX" => {
                     limits = Some(paper_limits(db).ok_or_else(|| unsupported(name))?);
                 }
-                // BS・BD の幅が変わる値は、見出しの区切りの大きさを変えて書く（決定 0190・0193）
+                // BS・BD の幅が変わる値は、ヘッダーのセクションの大きさを変えて書く（決定 0190・0193）
                 b"$PDMODE" => {
                     point_mode = Some(header_short(db, name).ok_or_else(|| unsupported(name))?);
                 }
@@ -453,7 +453,7 @@ impl DwgFile {
         if r2004 && let Some(object) = added.iter().find(|object| !r2004_addable(object)) {
             return Err(unsupported(&object.kind));
         }
-        // R2010 から後は、文字列の流れの形が R2000 と同じ図形の足しだけを書き戻す（決定 0092）
+        // R2010 から後は、文字列のストリームの形が R2000 と同じ図形の追加だけを書き戻す（決定 0092）
         if r2010 && let Some(object) = added.iter().find(|object| !r2010_addable(object)) {
             return Err(unsupported(&object.kind));
         }
@@ -722,7 +722,7 @@ impl DwgFile {
             (type_code, own)
         };
         let handle = object.handle().filter(|&h| h >= seed)?;
-        // TEXT と ATTDEF は文字の体裁（7）を、INSERT はブロック（2）を指す
+        // TEXT と ATTDEF は文字スタイル（7）を、INSERT はブロック（2）を指す
         let pointing: &[i16] = match object.kind.as_slice() {
             b"TEXT" | b"ATTDEF" | b"MTEXT" => &[7],
             // LEADER は寸法スタイル（3）を指す（決定 0185）
@@ -733,14 +733,14 @@ impl DwgFile {
             b"INSERT" => return None,
             _ => &[],
         };
-        // R2010 からは、MTEXT は枠の高さ（46）を、ATTRIB は属性の版と位置を固定するか（280）を持つ（決定 0093）
+        // R2010 からは、MTEXT は枠の高さ（46）を、ATTRIB は属性のバージョンと位置を固定するか（280）を持つ（決定 0093）
         let r2010: &[i16] = match object.kind.as_slice() {
             b"MTEXT" if self.release >= Release::R2010 => &[46],
             b"ATTRIB" if self.release >= Release::R2010 => &[280],
             _ => &[],
         };
         let codes = [&[5, 330, 8, 6, 67], COMMON, own, pointing, r2010].concat();
-        // R2018 からの複数行の ATTRIB は、属性の値の後に、種類（71）・72・埋め込みのオブジェクトの印（101）と
+        // R2018 からの複数行の ATTRIB は、属性の値の後に、種類（71）・72・埋め込みのオブジェクトのマーカー（101）と
         // MTEXT の値（枠の高さ（46）も）を持つ（決定 0102）
         let (values, embedded) = match multiline_at(object) {
             Some(at) if object.kind == b"ATTRIB" && self.release >= Release::R2018 => {
@@ -806,7 +806,7 @@ impl DwgFile {
             },
         };
         let pointed = match object.kind.as_slice() {
-            // 文字の体裁がなければ Standard
+            // 文字スタイルがなければ Standard
             b"TEXT" | b"ATTRIB" | b"ATTDEF" | b"MTEXT" => {
                 match object.values.iter().any(|value| value.code == 7) {
                     false => Some(record_handle(db, b"STYLE", b"Standard")?),
@@ -861,14 +861,14 @@ impl DwgFile {
 
     /// 足した表のレコード `object` のハンドルと、R2000 のレコードのデータ（決定 0061〜0068）。所有者（330）の
     /// 表のオブジェクトの項目の数を増やし、終わりに新しいレコードのハンドルを足したデータを `changes` に入れる。
-    /// 画層・文字の体裁・線種・アプリケーションの名前（APPID）・寸法の体裁・ビュー・ビューポートの設定（VPORT）・
+    /// 画層・文字スタイル・線種・アプリケーションの名前（APPID）・寸法スタイル・ビュー・ビューポートの設定（VPORT）・
     /// ブロックのレコードだけを扱い、名前（2）が表にないことが要る。
-    /// 画層は、印（70）・色（62）・線の太さ（370）を持ち、印刷スタイル（390）と線種（6）が表になければ
-    /// ならない。印刷スタイルがなければ、画層 0 と同じものにする。文字の体裁は、型ごとの欄をみな持たなければ
-    /// ならない。線種は、要素がみな形も文字も持たないことが要る。アプリケーションの名前は、印（70）が 0 で
-    /// なければならない。寸法の体裁は、表にない欄を既定の値で書き、文字の体裁とブロックのハンドル（340〜344）
-    /// が図面になければならない。ビューは、型ごとの欄をみな持ち、UCS のハンドル（345・346）が図面になければ
-    /// ならない。ビューポートの設定は、型ごとの欄をみな持ち、UCS のハンドル（345・346）が図面になければ
+    /// 画層は、フラグ（70）・色（62）・線の太さ（370）を持ち、印刷スタイル（390）と線種（6）が表になければ
+    /// ならない。印刷スタイルがなければ、画層 0 と同じものにする。文字スタイルは、型ごとのフィールドをみな持たなければ
+    /// ならない。線種は、要素がみな形も文字も持たないことが要る。アプリケーションの名前は、フラグ（70）が 0 で
+    /// なければならない。寸法スタイルは、表にないフィールドを既定の値で書き、文字スタイルとブロックのハンドル（340〜344）
+    /// が図面になければならない。ビューは、型ごとのフィールドをみな持ち、UCS のハンドル（345・346）が図面になければ
+    /// ならない。ビューポートの設定は、型ごとのフィールドをみな持ち、UCS のハンドル（345・346）が図面になければ
     /// ならない。ブロックのレコードは、名前が `*` で始まってはならず、`block` の BLOCK・ENDBLK・図形・INSERT と
     /// 基点を指す。ハンドルが `seed` より小さいか、足せないレコードなら `None`
     fn add_record(
@@ -880,7 +880,7 @@ impl DwgFile {
         changes: &mut BTreeMap<usize, Vec<u8>>,
         block: Option<&NewBlock>,
     ) -> Option<(u64, Vec<u8>)> {
-        // R2010 からは、寸法の体裁は増えた欄と、寸法線と補助線の線種（345〜347）を持つ（決定 0095）
+        // R2010 からは、寸法スタイルは増えたフィールドと、寸法線と補助線の線種（345〜347）を持つ（決定 0095）
         let r2010_dimstyle = self.release >= Release::R2010;
         let dimstyle_codes: Vec<i16> = std::iter::once(70)
             .chain(dim_fields(self.release).iter().map(|field| field.0))
@@ -889,7 +889,7 @@ impl DwgFile {
             .collect();
         let view_codes = [VIEW, &[345, 346]].concat();
         let vport_codes = [VPORT, &[345, 346]].concat();
-        // レコードと表のオブジェクトの型と、型ごとの欄のグループ・コード
+        // レコードと表のオブジェクトの型と、型ごとのフィールドのグループ・コード
         let (type_code, control_type, own): (u16, u16, &[i16]) = match object.kind.as_slice() {
             b"LAYER" => (
                 kinds::LAYER,
@@ -935,15 +935,15 @@ impl DwgFile {
         // 名前のないブロックと空間のブロック（* で始まる）は足せない
         (type_code != kinds::BLOCK_RECORD || !name.starts_with(b"*")).then_some(())?;
         let r2004 = self.release >= Release::R2004;
-        // R2010 からは、文字列を文字列の流れに書き、外部参照の番号を持たない（決定 0094）
+        // R2010 からは、文字列を文字列のストリームに書き、外部参照の番号を持たない（決定 0094）
         let r2010 = self.release >= Release::R2010;
         let mut fields = match r2010 {
             true => BitWriter::with_strings(),
             false => BitWriter::default(),
         };
         fields.handle(0, handle);
-        // 拡張データと反応子がない。R2004 からは、拡張辞書を持たない印を立てる。R2013 からは、DS のデータを
-        // 持たない印が続く
+        // 拡張データとリアクターがない。R2004 からは、拡張辞書を持たないフラグを立てる。R2013 からは、DS のデータを
+        // 持たないフラグが続く
         fields.bs(0);
         fields.bl(0);
         if r2004 {
@@ -953,7 +953,7 @@ impl DwgFile {
             fields.bit(false);
         }
         string(&mut fields, object, 2)?;
-        // 参照される印・外部参照の番号・外部参照に依る印
+        // 参照されるフラグ・外部参照の番号・外部参照に依るフラグ
         fields.bit(true);
         if !r2010 {
             fields.bs(0);
@@ -1006,7 +1006,7 @@ impl DwgFile {
             }
             handles.handle(5, record_handle(db, b"LTYPE", text_of(object, 6)?)?);
         } else if type_code == kinds::STYLE {
-            // 形のファイル 1 と縦書き 4 の印、高さ・幅の係数・斜めの角度・生成の印・前の高さ・字体の名前
+            // 形のファイル 1 と縦書き 4 のフラグ、高さ・幅の係数・斜めの角度・生成のフラグ・前の高さ・字体の名前
             let flags = small(object, 70)??;
             (flags & !(1 | 4) == 0).then_some(())?;
             fields.bit(flags & 1 != 0);
@@ -1020,7 +1020,7 @@ impl DwgFile {
             string(&mut fields, object, 4)?;
         } else if type_code == kinds::LTYPE {
             // 外部参照に依らない線種の、説明・揃え・要素の数・長さと、要素ごとの長さ。形も文字もない要素の
-            // 形の番号・ずれ・尺度・回転は、試料の図面と同じく 0・0・0・1・0 とし、文字の領域は 0 で埋める
+            // 形の番号・ずれ・尺度・回転は、サンプルの図面と同じく 0・0・0・1・0 とし、文字の領域は 0 で埋める
             let mut values = Cursor(
                 object
                     .values
@@ -1049,7 +1049,7 @@ impl DwgFile {
                 fields.bd(1.0);
                 fields.bd(0.0);
                 fields.bs(0);
-                // 形のファイルの文字の体裁
+                // 形のファイルの文字スタイル
                 handles.handle(5, 0);
             }
             values.0.next().is_none().then_some(())?;
@@ -1060,7 +1060,7 @@ impl DwgFile {
                 }
             }
         } else if type_code == kinds::APPID {
-            // 使い道の分からない RC は、試料の図面と同じく 0 とする
+            // 使い道の分からない RC は、サンプルの図面と同じく 0 とする
             (small(object, 70)?? == 0).then_some(())?;
             fields.rc(0);
         } else if type_code == kinds::VIEW {
@@ -1071,8 +1071,8 @@ impl DwgFile {
                 false,
                 r2010.then_some((&lighting[..], 0..bits)),
             )?;
-            // R2010 からは、カメラを印刷するかの B が続き、試料の図面と同じく偽とする。外部参照のブロックの
-            // 後に、背景・表示スタイル・太陽を指す。表示スタイルは試料の図面と同じく 2dWireframe を指し、
+            // R2010 からは、カメラを印刷するかの B が続き、サンプルの図面と同じく偽とする。外部参照のブロックの
+            // 後に、背景・表示スタイル・太陽を指す。表示スタイルはサンプルの図面と同じく 2dWireframe を指し、
             // 見つからなければ持たない。背景と太陽は持たないものとする（決定 0104）
             if r2010 {
                 fields.bit(false);
@@ -1083,11 +1083,11 @@ impl DwgFile {
                 );
                 handles.handle(3, 0);
             }
-            // UCS を伴わないビューは、UCS の欄を持たない
+            // UCS を伴わないビューは、UCS のフィールドを持たない
             let ucs = [110, 120, 130, 111, 121, 131, 112, 122, 132, 79, 146];
             (associated || !object.values.iter().any(|value| ucs.contains(&value.code)))
                 .then_some(())?;
-            // UCS を伴うビューは、基準の UCS と名前の UCS を指す。試料の図面と同じく、参照の型は 5
+            // UCS を伴うビューは、基準の UCS と名前の UCS を指す。サンプルの図面と同じく、参照の型は 5
             if associated {
                 for code in [346, 345] {
                     handles.handle(5, ucs_handle(db, object, code)?);
@@ -1101,7 +1101,7 @@ impl DwgFile {
                 handles.handle(4, 0);
             }
         } else if type_code == kinds::VPORT {
-            // 使い道の分からないビットは、試料の図面と同じく偽とする
+            // 使い道の分からないビットは、サンプルの図面と同じく偽とする
             let (lighting, bits) = default_lighting();
             vport_fields(
                 &mut fields,
@@ -1111,7 +1111,7 @@ impl DwgFile {
                 false,
                 r2010.then_some((&lighting[..], 0..bits)),
             )?;
-            // R2010 からは、格子の印と主の線の間隔（BS）が続く。試料の図面の多くと同じく 3 と 5 とする。外部参照の
+            // R2010 からは、格子のフラグと主の線の間隔（BS）が続く。サンプルの図面の多くと同じく 3 と 5 とする。外部参照の
             // ブロックの後に、背景・表示スタイル・太陽を指す。どれも持たないものとする（決定 0096）
             if r2010 {
                 fields.bs(3);
@@ -1120,13 +1120,13 @@ impl DwgFile {
                 handles.handle(5, 0);
                 handles.handle(3, 0);
             }
-            // 名前の UCS と基準の UCS。試料の図面と同じく、参照の型は 5
+            // 名前の UCS と基準の UCS。サンプルの図面と同じく、参照の型は 5
             for code in [345, 346] {
                 handles.handle(5, ucs_handle(db, object, code)?);
             }
         } else if type_code == kinds::BLOCK_RECORD {
             let block = block?;
-            // 名前のない印・属性を持つ印・外部参照の印・重ねる外部参照の印・読み込んだ印と基点。属性を
+            // 名前のないフラグ・属性を持つフラグ・外部参照のフラグ・重ねる外部参照のフラグ・読み込んだフラグと基点。属性を
             // 持つのは、ATTDEF を持つブロック
             fields.bit(false);
             fields.bit(block.attdef);
@@ -1149,9 +1149,9 @@ impl DwgFile {
             // 説明と、絵の大きさ
             fields.text(b"")?;
             fields.bl(0);
-            // R2010 からは、挿す単位（BS）・分解できるか（B）・尺度を揃えるか（RC）が続く。レコードの 70・280・281
-            // を書き、ないものは試料の図面の多くと同じく、単位なし・分解できる・揃えないとする（決定 0095）
-            // R2004 までは書く欄がないので、単位なし・分解できる・揃えない以外は書けないものとする（推定。docs/formats/dwg.md）
+            // R2010 からは、挿入単位（BS）・分解できるか（B）・尺度を揃えるか（RC）が続く。レコードの 70・280・281
+            // を書き、ないものはサンプルの図面の多くと同じく、単位なし・分解できる・揃えないとする（決定 0095）
+            // R2004 までは書くフィールドがないので、単位なし・分解できる・揃えない以外は書けないものとする（推定。docs/formats/dwg.md）
             if r2010 {
                 fields.bs(small(object, 70)?.unwrap_or(0));
                 fields.bit(small(object, 280)?.unwrap_or(1) != 0);
@@ -1191,11 +1191,11 @@ impl DwgFile {
             for (code, field) in dim_fields(self.release) {
                 dim_field(&mut fields, object, code, field, self.release)?;
             }
-            // R2010 からは、使い道の分からない B が続く。試料の図面と同じく偽とする
+            // R2010 からは、使い道の分からない B が続く。サンプルの図面と同じく偽とする
             if r2010 {
                 fields.bit(false);
             }
-            // 文字の体裁と、引出線・矢印・1 つめと 2 つめの矢印のブロック。試料の図面と同じく、参照の型は 5
+            // 文字スタイルと、引出線・矢印・1 つめと 2 つめの矢印のブロック。サンプルの図面と同じく、参照の型は 5
             // R2010 からは、寸法線と 2 つの補助線の線種が続く
             let last = if r2010 { 347 } else { 344 };
             for code in 340..=last {
@@ -1254,8 +1254,8 @@ impl DwgFile {
         }
     }
 
-    /// R2010 から後の `record` 番目のオブジェクトの、今のデータ（ハンドルの流れの大きさ（MC）の後）と、
-    /// ハンドルの流れの始まりのビットの位置。`changes` のデータは MC から始まる
+    /// R2010 から後の `record` 番目のオブジェクトの、今のデータ（ハンドルのストリームの大きさ（MC）の後）と、
+    /// ハンドルのストリームの始まりのビットの位置。`changes` のデータは MC から始まる
     fn current_r2010(
         &self,
         changes: &BTreeMap<usize, Vec<u8>>,
@@ -1344,7 +1344,7 @@ impl DwgFile {
         )
     }
 
-    /// 見出しの変数の HANDSEED。表に足す図形には、これより小さくないハンドルを付ける（決定 0052）。
+    /// ヘッダーの変数の HANDSEED。表に足す図形には、これより小さくないハンドルを付ける（決定 0052）。
     /// 読めなければ `None`
     pub fn handle_seed(&self) -> Option<u64> {
         let (src, span) = self.header_section()?;
@@ -1352,7 +1352,7 @@ impl DwgFile {
     }
 
     /// 除いた図形 `removed` の前後の図形と、所有者のブロックのレコードの、図形の並びをたどるハンドルを直した
-    /// データを、`changes` に足す（決定 0051）。図形を持つ図形（ATTRIB を持つ INSERT など）と、反応子か
+    /// データを、`changes` に足す（決定 0051）。図形を持つ図形（ATTRIB を持つ INSERT など）と、リアクターか
     /// 拡張辞書を持つ図形と、[`REMOVABLE`] にない種類は除けない。図形でないオブジェクトは、所有者も
     /// 除くとき（除く表のレコードの拡張辞書と、それが持つオブジェクト。決定 0170）だけ除ける
     fn unlink(
@@ -1436,8 +1436,8 @@ impl DwgFile {
         Ok(())
     }
 
-    /// 除いた画層・文字スタイル・線種・寸法スタイルのレコード `old`（オブジェクトの地図の `record`）を、表のオブジェクトの項目から
-    /// 除いたデータを、`changes` に足す（決定 0162〜0165）。反応子を持つレコードと、ほかの表のレコードは
+    /// 除いた画層・文字スタイル・線種・寸法スタイルのレコード `old`（オブジェクトのマップの `record`）を、表のオブジェクトの項目から
+    /// 除いたデータを、`changes` に足す（決定 0162〜0165）。リアクターを持つレコードと、ほかの表のレコードは
     /// 除けない。拡張辞書を持つレコードは、拡張辞書も一緒に除くとき（ハンドルが `all` にある。決定 0170）だけ除ける
     fn unlist(
         &self,
@@ -1616,7 +1616,7 @@ const REMOVABLE: &[&[u8]] = &[
     b"SHAPE",
 ];
 
-/// 表に足せる図形の種類と型と、型ごとの欄のグループ・コード（決定 0052〜0060）。型ごとの欄を元のデータ
+/// 表に足せる図形の種類と型と、型ごとのフィールドのグループ・コード（決定 0052〜0060）。型ごとのフィールドを元のデータ
 /// なしで符号化でき、型ごとのハンドルが表のレコードか、足した図形を指すものだけか、ないもの
 const ADDABLE: &[(&[u8], u16, &[i16])] = &[
     (b"LINE", kinds::LINE, LINE),
@@ -1670,9 +1670,9 @@ struct NewEntity<'a> {
     owner: u64,
     /// 画層のハンドル
     layer: u64,
-    /// 線種の印と、印が 3 のときの線種のハンドル
+    /// 線種のフラグと、フラグが 3 のときの線種のハンドル
     ltype: (u8, u64),
-    /// 型ごとに指す表のレコード（TEXT・ATTDEF の文字の体裁、INSERT のブロック）のハンドル
+    /// 型ごとに指す表のレコード（TEXT・ATTDEF の文字スタイル、INSERT のブロック）のハンドル
     pointed: Option<u64>,
     /// R2018 からの複数行の ATTRIB の、埋め込みの MTEXT が指す ByLayer の線種と材質のハンドル
     embedded: Option<(u64, u64)>,
@@ -1690,10 +1690,10 @@ impl NewEntity<'_> {
         }
     }
 
-    /// 前後の図形のハンドルを `prev` と `next` にした、版 `release` の図形のデータ。共通の欄は、色（62）が
-    /// なければ ByLayer、線種の尺度（48）がなければ 1、非表示（60）がなければ 0 にし、反応子と拡張辞書と
+    /// 前後の図形のハンドルを `prev` と `next` にした、バージョン `release` の図形のデータ。共通のフィールドは、色（62）が
+    /// なければ ByLayer、線種の尺度（48）がなければ 1、非表示（60）がなければ 0 にし、リアクターと拡張辞書と
     /// 図形の絵を持たず、印刷スタイルと線の太さは ByLayer にする。R2000 では前後の図形のハンドルを持ち、
-    /// R2004 では持たず、拡張辞書を持たない印を書き、MTEXT の背景の欄（BL）を 0 にする（決定 0079）
+    /// R2004 では持たず、拡張辞書を持たないフラグを書き、MTEXT の背景のフィールド（BL）を 0 にする（決定 0079）
     fn encode(&self, prev: u64, next: u64, release: Release) -> Option<Vec<u8>> {
         if release >= Release::R2010 {
             return self.encode_r2010(release);
@@ -1707,7 +1707,7 @@ impl NewEntity<'_> {
         common.bit(false);
         common.bb(self.mode);
         common.bl(0);
-        // R2000 は前後の図形のハンドルを持つ印、R2004 は拡張辞書を持たない印
+        // R2000 は前後の図形のハンドルを持つフラグ、R2004 は拡張辞書を持たないフラグ
         common.bit(r2004);
         common.bs(small(object, 62)?.unwrap_or(256));
         common.bd(real(object, 48)?.unwrap_or(1.0));
@@ -1723,7 +1723,7 @@ impl NewEntity<'_> {
         if r2004 && object.kind == b"MTEXT" {
             fields.bl(0);
         }
-        // R2004 の属性を持つ INSERT は、型ごとの欄の終わりに ATTRIB の数（BL）を持つ（決定 0080）
+        // R2004 の属性を持つ INSERT は、型ごとのフィールドの終わりに ATTRIB の数（BL）を持つ（決定 0080）
         if r2004
             && self.type_code != kinds::MINSERT
             && let Some((attribs, _)) = &self.children
@@ -1772,7 +1772,7 @@ impl NewEntity<'_> {
         }
         Some(out.into_bytes())
     }
-    /// R2004 から後の、足す MINSERT の型ごとの欄。属性を持てば、属性が続く印の後、列と行の欄の前に ATTRIB の
+    /// R2004 から後の、足す MINSERT の型ごとのフィールド。属性を持てば、属性が続くフラグの後、列と行のフィールドの前に ATTRIB の
     /// 数（BL）を書く（ODS 5.4.1 の 20.4.9）
     fn minsert(&self) -> Option<BitWriter> {
         let mut fields = BitWriter::default();
@@ -1784,8 +1784,8 @@ impl NewEntity<'_> {
         Some(fields)
     }
 
-    /// R2010 から後の形で符号化したデータ（決定 0092）。ハンドルの流れの大きさ（MC）から始まる。材質は画層の
-    /// もので、影の印は 0、表示スタイルは持たない
+    /// R2010 から後の形で符号化したデータ（決定 0092）。ハンドルのストリームの大きさ（MC）から始まる。材質は画層の
+    /// もので、影のフラグは 0、表示スタイルは持たない
     fn encode_r2010(&self, release: Release) -> Option<Vec<u8>> {
         let object = self.object;
         let mut out = BitWriter::default();
@@ -1796,7 +1796,7 @@ impl NewEntity<'_> {
         out.bit(false);
         out.bb(self.mode);
         out.bl(0);
-        // 拡張辞書を持たない印。R2013 からは、DS のデータを持たない印
+        // 拡張辞書を持たないフラグ。R2013 からは、DS のデータを持たないフラグ
         out.bit(true);
         if release >= Release::R2013 {
             out.bit(false);
@@ -1805,7 +1805,7 @@ impl NewEntity<'_> {
         out.bd(real(object, 48)?.unwrap_or(1.0));
         out.bb(self.ltype.0);
         out.bb(0);
-        // 材質の印（BB）・影の印（RC）・表示スタイルを持つかの 3 つの B
+        // 材質のフラグ（BB）・影のフラグ（RC）・表示スタイルを持つかの 3 つの B
         out.bb(0);
         out.rc(0);
         for _ in 0..3 {
@@ -1818,7 +1818,7 @@ impl NewEntity<'_> {
             b"ATTRIB" => r2010_attribute(&mut fields, object, &[], [0, 0], release)?,
             b"MTEXT" => r2010_mtext(&mut fields, object, &[], 0, 0, release)?,
             b"SPLINE" => spline(&mut fields, object, &[], 0, release)?,
-            // 注釈の枠の高さと幅を持たない版があるので、版を渡す（#345）
+            // 注釈の枠の高さと幅を持たないバージョンがあるので、バージョンを渡す（#345）
             b"LEADER" => leader(&mut fields, object, &[], [0, 0], release)?,
             _ if self.type_code == kinds::MINSERT => {
                 let minsert = self.minsert()?;
@@ -1827,7 +1827,7 @@ impl NewEntity<'_> {
             }
             _ => fields = own_fields(fields, object, object, self.type_code, &[], 0)?,
         }
-        // 属性を持つ INSERT は、R2004 と同じく型ごとの欄の終わりに ATTRIB の数（BL）を持つ（決定 0093）
+        // 属性を持つ INSERT は、R2004 と同じく型ごとのフィールドの終わりに ATTRIB の数（BL）を持つ（決定 0093）
         if self.type_code != kinds::MINSERT
             && let Some((attribs, _)) = &self.children
         {
@@ -1848,12 +1848,12 @@ impl NewEntity<'_> {
         if let Some(pointed) = self.pointed {
             handles.handle(5, pointed);
         }
-        // R2018 からの MTEXT は、アプリケーションの名前を指す。試料の図面と同じく 0 とする（決定 0098）
+        // R2018 からの MTEXT は、アプリケーションの名前を指す。サンプルの図面と同じく 0 とする（決定 0098）
         if object.kind == b"MTEXT" && release >= Release::R2018 {
             handles.handle(5, 0);
         }
-        // 複数行の ATTRIB の埋め込みの MTEXT は、所有者（0）・画層・線種・材質・文字の体裁・アプリケーションの
-        // 名前（0）を指す。試料の図面と同じ並び（決定 0102）
+        // 複数行の ATTRIB の埋め込みの MTEXT は、所有者（0）・画層・線種・材質・文字スタイル・アプリケーションの
+        // 名前（0）を指す。サンプルの図面と同じ並び（決定 0102）
         if let Some((ltype, material)) = self.embedded {
             handles.handle(4, 0);
             for handle in [self.layer, ltype, material, self.pointed?, 0] {
@@ -1912,7 +1912,7 @@ fn record_handle(db: &AcadDb, kind: &[u8], name: &[u8]) -> Option<u64> {
 }
 
 /// ハンドル `handle` の図形のデータ `data` の、前後の図形のハンドルを `prev` と `next` にしたもの。
-/// 前後の図形のハンドルを持たない図形は、持つようにする。ハンドルの流れの位置は変わらない
+/// 前後の図形のハンドルを持たない図形は、持つようにする。ハンドルのストリームの位置は変わらない
 fn relink(data: &[u8], handle: u64, prev: u64, next: u64) -> Option<Vec<u8>> {
     let links = entity_links(data, handle)?;
     let mut out = BitWriter::default();
@@ -1966,9 +1966,9 @@ fn disown(data: &[u8], block: u64, count: usize, gone: &BTreeSet<u64>) -> Option
     Some(out.into_bytes())
 }
 
-/// ハンドル `block` の R2010 から後のブロックのレコードのデータ `data`（ハンドルの流れの大きさ（MC）の後）から、
-/// `gone` の `count` 個の図形を除いたもの（決定 0091）。持つ図形の数（BL）を減らし、文字列の流れは元のまま写して、
-/// MC を付け直す。`handles_at` はハンドルの流れの始まり
+/// ハンドル `block` の R2010 から後のブロックのレコードのデータ `data`（ハンドルのストリームの大きさ（MC）の後）から、
+/// `gone` の `count` 個の図形を除いたもの（決定 0091）。持つ図形の数（BL）を減らし、文字列のストリームは元のまま写して、
+/// MC を付け直す。`handles_at` はハンドルのストリームの始まり
 fn disown_r2010(
     data: &[u8],
     handles_at: usize,
@@ -1999,7 +1999,7 @@ fn disown_r2010(
     with_modular_size(out, handles)
 }
 
-/// R2004 の DWG に足せるものか（決定 0079〜0081）。型ごとの欄が R2000 と同じ形の図形か、MTEXT か、
+/// R2004 の DWG に足せるものか（決定 0079〜0081）。型ごとのフィールドが R2000 と同じ形の図形か、MTEXT か、
 /// 属性を持つ INSERT とその ATTRIB・SEQEND か、表のレコードと、足したブロックの BLOCK・ENDBLK だけを
 /// 足せる。格子を持つもの（MINSERT）も足せる
 fn r2004_addable(object: &Object) -> bool {
@@ -2064,8 +2064,8 @@ fn adopt(data: &[u8], block: u64, handles: &[u64]) -> Option<Vec<u8>> {
     Some(out.into_bytes())
 }
 
-/// ハンドル `block` の R2010 から後のブロックのレコードのデータ `data`（ハンドルの流れの大きさ（MC）の後）の、
-/// 持つ図形の終わりに `handles` を加えたもの（決定 0092）。`handles_at` はハンドルの流れの始まり
+/// ハンドル `block` の R2010 から後のブロックのレコードのデータ `data`（ハンドルのストリームの大きさ（MC）の後）の、
+/// 持つ図形の終わりに `handles` を加えたもの（決定 0092）。`handles_at` はハンドルのストリームの始まり
 fn adopt_r2010(
     data: &[u8],
     handles_at: usize,
@@ -2087,7 +2087,7 @@ fn adopt_r2010(
     with_modular_size(out, at)
 }
 
-/// R2010 から後の DWG に足せるものか（決定 0092〜0102）。型ごとの欄と文字列の流れが R2000 と同じ形に
+/// R2010 から後の DWG に足せるものか（決定 0092〜0102）。型ごとのフィールドと文字列のストリームが R2000 と同じ形に
 /// 書ける図形と、MTEXT と、属性を持つ INSERT とその ATTRIB・SEQEND と、SPLINE（R2013 からは
 /// 制御点のものだけ）と、
 /// UCS のほかの表のレコードと、足したブロックを足せる。格子を持つもの（MINSERT）も足せる
@@ -2144,8 +2144,8 @@ fn offset(object: &Object) -> Option<usize> {
 
 /// MULTILEADER のデータ `data` の実数（BD）の値を、`old` から `new` に変えたもの（決定 0191）。読む側
 /// （`multileader`）で実数のビットの範囲を求め、変わった実数だけを符号化し直し、ほかのビットは元のまま写す。
-/// 値の数・並び・実数でない値は変えられない（枝の線の頂点の数、注記の文字、ハンドルなど）。R2004 までの版だけを
-/// 扱う。R2010 から後は、文字列の流れを分けた試験の図面をまだ作っていないので断る
+/// 値の数・並び・実数でない値は変えられない（枝の線の頂点の数、注記の文字、ハンドルなど）。R2004 までのバージョンだけを
+/// 扱う。R2010 から後は、文字列のストリームを分けたテストの図面をまだ作っていないので断る
 fn callout(data: &[u8], old: &Object, new: &Object, release: Release) -> Option<Vec<u8>> {
     if old.values.len() != new.values.len() {
         return None;
@@ -2172,7 +2172,7 @@ fn callout(data: &[u8], old: &Object, new: &Object, release: Release) -> Option<
     bits.seek(start);
     let mut reals = Vec::new();
     let tagged = multileader(&mut bits, release, &mut 0, Some(&mut reals))?;
-    // 型ごとの欄の値は、文脈の区切り（R2010 からは、その前の版の 270）から並ぶ。読む側は 0 のハンドルと置かない
+    // 型ごとのフィールドの値は、文脈の区切り（R2010 からは、その前のバージョンの 270）から並ぶ。読む側は 0 のハンドルと置かない
     // ハンドルを除くので、読み直した値のハンドルは、表の値と符号が合わなければ飛ばす
     let first = old.values.iter().position(|v| {
         v.code == 300 && matches!(&v.data, Data::Text(t) if t.as_slice() == b"CONTEXT_DATA{")
@@ -2217,8 +2217,8 @@ fn callout(data: &[u8], old: &Object, new: &Object, release: Release) -> Option<
     Some(out.into_bytes())
 }
 
-/// `old` になく `new` が持つ反応子の組（`102 {ACAD_REACTORS`・330・`102 }`）のハンドルと、組を除いた `new`。
-/// DWG を読む側は反応子を値に置かないので、組は書き戻しで足したものだけ（決定 0191）。`old` が組を持てば
+/// `old` になく `new` が持つリアクターの組（`102 {ACAD_REACTORS`・330・`102 }`）のハンドルと、組を除いた `new`。
+/// DWG を読む側はリアクターを値に置かないので、組は書き戻しで足したものだけ（決定 0191）。`old` が組を持てば
 /// 何も除かない
 fn without_reactors(old: &Object, new: &Object) -> (Vec<u64>, Object) {
     let marker = |value: &Value, text: &[u8]| {
@@ -2251,9 +2251,9 @@ fn without_reactors(old: &Object, new: &Object) -> (Vec<u64>, Object) {
     (handles, copy)
 }
 
-/// 版 `release` の図形のデータ `data` の反応子に、ハンドル `reactors` を足したもの（決定 0191）。反応子の数（BL）
-/// を増やし、ハンドルの流れの反応子の終わりに柔らかい参照（符号 4）で書く。R2010 から後は、`handles_at` が
-/// ハンドルの流れの始まりで、`data` はハンドルの流れの大きさ（MC）の後。返すデータは、R2010 から後は MC から
+/// バージョン `release` の図形のデータ `data` のリアクターに、ハンドル `reactors` を足したもの（決定 0191）。リアクターの数（BL）
+/// を増やし、ハンドルのストリームのリアクターの終わりに柔らかい参照（符号 4）で書く。R2010 から後は、`handles_at` が
+/// ハンドルのストリームの始まりで、`data` はハンドルのストリームの大きさ（MC）の後。返すデータは、R2010 から後は MC から
 /// 始まる
 fn react(
     data: &[u8],
@@ -2352,11 +2352,11 @@ fn unsupported(kind: &[u8]) -> Box<Diagnostic> {
     Box::new(Diagnostic::new(codes::DWG_CHANGE_UNSUPPORTED).with("kind", kind))
 }
 
-/// `old` から `new` に値を変えた、版 `release` の図形のデータ `data` を、符号化し直す。共通の欄と型ごとの欄の
-/// ほかの値が変わったか、符号化できない値なら `None`。R2004 は、R2000 と型ごとの欄が同じ種類だけを
+/// `old` から `new` に値を変えた、バージョン `release` の図形のデータ `data` を、符号化し直す。共通のフィールドと型ごとのフィールドの
+/// ほかの値が変わったか、符号化できない値なら `None`。R2004 は、R2000 と型ごとのフィールドが同じ種類だけを
 /// 扱う（決定 0072）
 fn encode(data: &[u8], old: &Object, new: &Object, release: Release) -> Option<Vec<u8>> {
-    // MINSERT も、表では INSERT とする。VERTEX と POLYLINE も、型で欄が分かれる
+    // MINSERT も、表では INSERT とする。VERTEX と POLYLINE も、型でフィールドが分かれる
     let type_code = u16::try_from(Bits::with_release(data, Release::R2000).bs()?).ok()?;
     let own = own_codes(&new.kind, type_code);
     if release == Release::R2004 && !R2004_KINDS.contains(&new.kind.as_slice()) {
@@ -2388,7 +2388,7 @@ fn encode(data: &[u8], old: &Object, new: &Object, release: Release) -> Option<V
         fields.copy(data, start..handles_at)?;
         fields
     } else if release == Release::R2004 && new.kind == b"HATCH" {
-        // R2004 の初めのグラデーションの欄（表では 450〜470）は、元のビットを写す（決定 0074）
+        // R2004 の初めのグラデーションのフィールド（表では 450〜470）は、元のビットを写す（決定 0074）
         let mut bits = Bits::with_release(data, release);
         bits.seek(start);
         hatch_gradient(&mut bits)?;
@@ -2426,12 +2426,12 @@ fn encode(data: &[u8], old: &Object, new: &Object, release: Release) -> Option<V
         let len = part.len();
         out.copy(&part.into_bytes(), 0..len)?;
     }
-    // ハンドルの流れの後ろの、バイトの終わりまでの埋めのビットも写す
+    // ハンドルのストリームの後ろの、バイトの終わりまでの埋めのビットも写す
     out.copy(data, handles_at..data.len() * 8)?;
     Some(out.into_bytes())
 }
 
-/// 種類 `kind`（型 `type_code`）の図形の、型ごとの欄の組の符号。扱わない種類は空
+/// 種類 `kind`（型 `type_code`）の図形の、型ごとのフィールドの組の符号。扱わない種類は空
 fn own_codes(kind: &[u8], type_code: u16) -> &'static [i16] {
     match kind {
         b"LINE" => LINE,
@@ -2474,9 +2474,9 @@ fn own_codes(kind: &[u8], type_code: u16) -> &'static [i16] {
     }
 }
 
-/// R2010 から後の図形を符号化し直したデータ（決定 0085・0086）。`data` はハンドルの流れの大きさ（MC）の後の
-/// データ、`handles_at` はハンドルの流れの始まり。型ごとの欄を変えたときは、主のデータの後の文字列の流れも
-/// 書き直す。ハンドルの流れは写し、MC を付けて返す
+/// R2010 から後の図形を符号化し直したデータ（決定 0085・0086）。`data` はハンドルのストリームの大きさ（MC）の後の
+/// データ、`handles_at` はハンドルのストリームの始まり。型ごとのフィールドを変えたときは、主のデータの後の文字列のストリームも
+/// 書き直す。ハンドルのストリームは写し、MC を付けて返す
 fn encode_r2010(
     data: &[u8],
     handles_at: usize,
@@ -2489,8 +2489,8 @@ fn encode_r2010(
     if !R2010_KINDS.contains(&new.kind.as_slice()) {
         return None;
     }
-    // R2018 からの段組みの MTEXT は、埋め込みのオブジェクトの印（101）の後に段組みの欄を持つ。欄は背景の欄の
-    // 後ろにあり、元のビットを写すので、元と同じときだけ受け付け、印から後を除いて比べる
+    // R2018 からの段組みの MTEXT は、埋め込みのオブジェクトのマーカー（101）の後に段組みのフィールドを持つ。フィールドは背景のフィールドの
+    // 後ろにあり、元のビットを写すので、元と同じときだけ受け付け、マーカーから後を除いて比べる
     let (old, new) = (&columns_removed(old)?, &columns_removed(new)?);
     if old.1 != new.1 {
         return None;
@@ -2523,12 +2523,12 @@ fn encode_r2010(
     out.copy(&common.into_bytes(), 0..common_len)?;
     let handles = if only(own, old, true) == only(own, new, true) {
         out.copy(data, start..end)?;
-        // ハンドルの流れは、主のデータの終わりと同じだけずれる
+        // ハンドルのストリームは、主のデータの終わりと同じだけずれる
         let handles = (out.len() + handles_at).checked_sub(end)?;
         out.copy(data, end..data.len() * 8)?;
         handles
     } else {
-        // 元の値を符号化した欄が、主のデータの終わりまでの長さを持ち、文字列の流れが元と同じことを確かめる。
+        // 元の値を符号化したフィールドが、主のデータの終わりまでの長さを持ち、文字列のストリームが元と同じことを確かめる。
         // 角度は度から直すので、主のデータのビットが元と同じとは限らない
         let mut same = r2010_own_fields(old, old, type_code, data, start, end, release)?;
         (start + same.len() == end).then_some(())?;
@@ -2542,7 +2542,7 @@ fn encode_r2010(
     with_modular_size(out, handles)
 }
 
-/// MTEXT `object` から、埋め込みのオブジェクトの印（101）と後の値を除いたものと、除いた値。MTEXT でなければ
+/// MTEXT `object` から、埋め込みのオブジェクトのマーカー（101）と後の値を除いたものと、除いた値。MTEXT でなければ
 /// そのまま
 fn columns_removed(object: &Object) -> Option<(Object, Vec<Value>)> {
     let at = match object.kind.as_slice() {
@@ -2560,8 +2560,8 @@ fn columns_removed(object: &Object) -> Option<(Object, Vec<Value>)> {
     Some((kept, columns.to_vec()))
 }
 
-/// R2010 から後のオブジェクトのデータを、`out` に続けて、型ごとの欄 `fields` の主のデータと文字列の流れ、
-/// 流れのビットの数と有無の印、元のハンドルの流れの順に書き、MC を付けて返す
+/// R2010 から後のオブジェクトのデータを、`out` に続けて、型ごとのフィールド `fields` の主のデータと文字列のストリーム、
+/// ストリームのビットの数と有無のフラグ、元のハンドルのストリームの順に書き、MC を付けて返す
 fn r2010_finish(
     out: BitWriter,
     fields: BitWriter,
@@ -2573,8 +2573,8 @@ fn r2010_finish(
     r2010_assemble(out, fields, handles)
 }
 
-/// `out` に、主のデータと文字列の流れを持つ `fields` と、その大きさと有無の印と、ハンドルの流れ `handles` を続け、
-/// ハンドルの流れの大きさ（MC）を前に付けたデータ
+/// `out` に、主のデータと文字列のストリームを持つ `fields` と、その大きさと有無のフラグと、ハンドルのストリーム `handles` を続け、
+/// ハンドルのストリームの大きさ（MC）を前に付けたデータ
 fn r2010_assemble(
     mut out: BitWriter,
     mut fields: BitWriter,
@@ -2586,7 +2586,7 @@ fn r2010_assemble(
     let size = strings.len();
     out.copy(&strings.into_bytes(), 0..size)?;
     if size > 0 {
-        // 流れのビットの数（RS）。0x8000 に収まらなければ、上位の RS を前に置き、下位に 0x8000 を立てる
+        // ストリームのビットの数（RS）。0x8000 に収まらなければ、上位の RS を前に置き、下位に 0x8000 を立てる
         if size >= 0x8000 {
             out.rs(i16::try_from(size >> 15).ok()?);
             out.rs(i16::from_ne_bytes(
@@ -2616,7 +2616,7 @@ fn with_modular_size(out: BitWriter, handles: usize) -> Option<Vec<u8>> {
     Some(bytes)
 }
 
-/// R2010 から後の型ごとの欄を、文字列の流れを分けて符号化する。R2004 で後ろに欄が増えた種類は、増えた欄を
+/// R2010 から後の型ごとのフィールドを、文字列のストリームを分けて符号化する。R2004 で後ろにフィールドが増えた種類は、増えたフィールドを
 /// 主のデータの終わり `end` まで写す
 fn r2010_own_fields(
     old: &Object,
@@ -2683,8 +2683,8 @@ fn r2010_own_fields(
         fields.bd(tangent);
         Some(fields)
     } else if new.kind == b"HATCH" {
-        // 初めのグラデーションの欄は、元のビットを写す（決定 0074）。その名前は文字列の流れの初めにあるので、
-        // 流れの初めの TU も写す（決定 0088）
+        // 初めのグラデーションのフィールドは、元のビットを写す（決定 0074）。その名前は文字列のストリームの初めにあるので、
+        // ストリームの初めの TU も写す（決定 0088）
         let mut bits = Bits::with_release(data, release);
         bits.seek(start);
         hatch_gradient(&mut bits)?;
@@ -2723,8 +2723,8 @@ fn r2010_own_fields(
     }
 }
 
-/// R2010 から後の MTEXT の欄（決定 0087）。幅（41）の後に枠の高さ（46）を書く。範囲の大きさと、文字列の後の
-/// 印から主のデータの終わり `end` まで（背景の欄など）は、元のビットを写す
+/// R2010 から後の MTEXT のフィールド（決定 0087）。幅（41）の後に枠の高さ（46）を書く。範囲の大きさと、文字列の後の
+/// フラグから主のデータの終わり `end` まで（背景のフィールドなど）は、元のビットを写す
 fn r2010_mtext(
     fields: &mut BitWriter,
     object: &Object,
@@ -2733,12 +2733,12 @@ fn r2010_mtext(
     end: usize,
     release: Release,
 ) -> Option<()> {
-    // 足した MTEXT は元のデータを持たない（`data` が空）。範囲の大きさを 0 にし、後の B と背景の印（BL）を 0 に
+    // 足した MTEXT は元のデータを持たない（`data` が空）。範囲の大きさを 0 にし、後の B と背景のフラグ（BL）を 0 に
     // する（決定 0093）
     let copied = match data.is_empty() {
         true => None,
         false => {
-            // 文字列は文字列の流れにあるので、主のデータの位置を求めるときは読まない
+            // 文字列は文字列のストリームにあるので、主のデータの位置を求めるときは読まない
             let mut bits = Bits::with_release(data, release);
             bits.seek(start);
             for _ in 0..12 {
@@ -2792,9 +2792,9 @@ fn r2010_mtext(
         None => {
             fields.bit(false);
             fields.bl(0);
-            // R2018 からは、注釈的でない印（B）と、版（BS）・既定の印（B）・揃え・X 軸・挿入点・枠の幅と高さ・
-            // 範囲の幅と高さ・段の種類（BS）が続く。試料の図面と同じく、注釈的でなく、版は 4、既定の印は真、
-            // 段はないとし、ほかは型ごとの欄と同じ値を書く（決定 0098）
+            // R2018 からは、注釈的でないフラグ（B）と、バージョン（BS）・既定のフラグ（B）・揃え・X 軸・挿入点・枠の幅と高さ・
+            // 範囲の幅と高さ・段の種類（BS）が続く。サンプルの図面と同じく、注釈的でなく、バージョンは 4、既定のフラグは真、
+            // 段はないとし、ほかは型ごとのフィールドと同じ値を書く（決定 0098）
             if release >= Release::R2018 {
                 fields.bit(true);
                 fields.bs(4);
@@ -2816,10 +2816,10 @@ fn r2010_mtext(
     }
 }
 
-/// R2018 からの複数行の属性の、意味の分からない 37 ビット。試料の図面の属性はどれもこの値を持つ（決定 0102）
+/// R2018 からの複数行の属性の、意味の分からない 37 ビット。サンプルの図面の属性はどれもこの値を持つ（決定 0102）
 const EMBEDDED_BITS: &[u8; 37] = b"0010101101111100000000000001000011101";
 
-/// 複数行の属性の種類（71）の位置。属性の版（280）の後の 71 で、版の前の 71 は文字の向き。属性の値は、その前に
+/// 複数行の属性の種類（71）の位置。属性のバージョン（280）の後の 71 で、バージョンの前の 71 は文字の向き。属性の値は、その前に
 /// 並ぶ（決定 0102）
 fn multiline_at(object: &Object) -> Option<usize> {
     let version = object.values.iter().position(|value| value.code == 280)?;
@@ -2831,12 +2831,12 @@ fn multiline_at(object: &Object) -> Option<usize> {
         .map(|at| at + version)
 }
 
-/// R2018 からの複数行の属性の元の欄の、種類の後の 37 ビットの始まりと、埋め込みの MTEXT の欄の始まりと、
-/// 段の種類の後の終わりのビットの位置。型ごとの欄は `start` から始まる。文字列は文字列の流れにあるので読まない
+/// R2018 からの複数行の属性の元のフィールドの、種類の後の 37 ビットの始まりと、埋め込みの MTEXT のフィールドの始まりと、
+/// 段の種類の後の終わりのビットの位置。型ごとのフィールドは `start` から始まる。文字列は文字列のストリームにあるので読まない
 fn embedded_span(data: &[u8], start: usize, release: Release) -> Option<[usize; 3]> {
     let mut bits = Bits::with_release(data, release);
     bits.seek(start);
-    // TEXT の欄（R2000）。DataFlags のビットが立つ欄はない
+    // TEXT のフィールド（R2000）。DataFlags のビットが立つフィールドはない
     let flags = bits.rc()?;
     if flags & 0x01 == 0 {
         bits.rd()?;
@@ -2869,14 +2869,14 @@ fn embedded_span(data: &[u8], start: usize, release: Release) -> Option<[usize; 
             bits.bs()?;
         }
     }
-    // 属性の版と種類
+    // 属性のバージョンと種類
     bits.rc()?;
     (bits.rc()? != 1).then_some(())?;
     let at = bits.pos();
     let mtext_at = at.checked_add(EMBEDDED_BITS.len())?;
     bits.seek(mtext_at);
-    // 埋め込みの MTEXT の欄。挿入点・押し出しと X 軸の向き・幅・枠の高さ・文字の高さ、揃えと向き、範囲の大きさ、
-    // 行の間隔の取り方と倍率、B と背景の欄
+    // 埋め込みの MTEXT のフィールド。挿入点・押し出しと X 軸の向き・幅・枠の高さ・文字の高さ、揃えと向き、範囲の大きさ、
+    // 行の間隔の取り方と倍率、B と背景のフィールド
     for _ in 0..12 {
         bits.bd()?;
     }
@@ -2892,7 +2892,7 @@ fn embedded_span(data: &[u8], start: usize, release: Release) -> Option<[usize; 
         bits.cmc()?;
         bits.bl()?;
     }
-    // R2018 から増えた欄（決定 0098）。段のあるものは、まだ扱わない
+    // R2018 から増えたフィールド（決定 0098）。段のあるものは、まだ扱わない
     bits.bit()?;
     bits.bs()?;
     bits.bit()?;
@@ -2904,9 +2904,9 @@ fn embedded_span(data: &[u8], start: usize, release: Release) -> Option<[usize; 
     Some([at, mtext_at, bits.pos()])
 }
 
-/// R2010 から後の ATTRIB・ATTDEF の欄。名前の前に属性の版（RC、1 つ目の 280）を、印の後に位置を固定するか
-/// （B、2 つ目の 280）を書く。ATTDEF の問いの前の版（RC）は、主のデータの終わり `end` の前の元のビットを写す。
-/// 型ごとの欄は `start` から始まり、足したものは元のデータを持たない（`data` が空）
+/// R2010 から後の ATTRIB・ATTDEF のフィールド。名前の前に属性のバージョン（RC、1 つ目の 280）を、フラグの後に位置を固定するか
+/// （B、2 つ目の 280）を書く。ATTDEF の問いの前のバージョン（RC）は、主のデータの終わり `end` の前の元のビットを写す。
+/// 型ごとのフィールドは `start` から始まり、足したものは元のデータを持たない（`data` が空）
 fn r2010_attribute(
     fields: &mut BitWriter,
     object: &Object,
@@ -2914,7 +2914,7 @@ fn r2010_attribute(
     [start, end]: [usize; 2],
     release: Release,
 ) -> Option<()> {
-    // 複数行の属性は、属性の値の後に、種類（71）・72・埋め込みのオブジェクトの印（101）と MTEXT の値を持つ
+    // 複数行の属性は、属性の値の後に、種類（71）・72・埋め込みのオブジェクトのマーカー（101）と MTEXT の値を持つ
     let mut own = object.clone();
     let rest = match multiline_at(object) {
         Some(at) => own.values.split_off(at),
@@ -2929,9 +2929,9 @@ fn r2010_attribute(
     let (version, locked) = (next()?, next()?);
     text(fields, object, 74)?;
     fields.rc(version);
-    // R2018 からは、版の後に属性の種類（RC）が続く。複数行の属性は、37 ビットの後に、埋め込みの MTEXT の欄と
-    // DXF の 72 にあたる BS を持つ。37 ビットは元のものを写し、足したものは試料の図面と同じ値を書く。
-    // MTEXT の欄は、MTEXT と同じく書く（決定 0098・0102）
+    // R2018 からは、バージョンの後に属性の種類（RC）が続く。複数行の属性は、37 ビットの後に、埋め込みの MTEXT のフィールドと
+    // DXF の 72 にあたる BS を持つ。37 ビットは元のものを写し、足したものはサンプルの図面と同じ値を書く。
+    // MTEXT のフィールドは、MTEXT と同じく書く（決定 0098・0102）
     match rest.as_slice() {
         [] if release >= Release::R2018 => fields.rc(1),
         [] => {}
@@ -2974,8 +2974,8 @@ fn r2010_attribute(
     Some(())
 }
 
-/// 主のデータの終わり `end` から始まる文字列の流れの終わり（流れのビットの数（RS）の始まり）のビットの位置。
-/// 流れがなければ `end`
+/// 主のデータの終わり `end` から始まる文字列のストリームの終わり（ストリームのビットの数（RS）の始まり）のビットの位置。
+/// ストリームがなければ `end`
 fn r2010_strings_end(data: &[u8], end: usize, handles_at: usize) -> Option<usize> {
     let mut bits = Bits::new(data);
     bits.seek(handles_at.checked_sub(1)?);
@@ -2992,9 +2992,9 @@ fn r2010_strings_end(data: &[u8], end: usize, handles_at: usize) -> Option<usize
     }
 }
 
-/// 表のレコードの、型ごとの欄でない値が変わっていなければ `Some`（決定 0043〜0046）
+/// 表のレコードの、型ごとのフィールドでない値が変わっていなければ `Some`（決定 0043〜0046）
 fn same_record_rest(old: &Object, new: &Object) -> Option<()> {
-    // DIMSTYLE は、70 と DWG の並びの欄
+    // DIMSTYLE は、70 と DWG の並びのフィールド
     let dimstyle_codes: Vec<i16> = std::iter::once(70)
         .chain(DIM_FIELDS.iter().map(|field| field.0))
         .collect();
@@ -3029,9 +3029,9 @@ fn renamable(object: &Object) -> bool {
     )
 }
 
-/// 表のレコードの、ビット `start` から始まる欄を `fields` に書き、元のデータの型ごとの欄の終わりを返す。
-/// 参照される印・外部参照の番号・外部参照に依る印は、元のビットを写す。名前も写すが、LAYER・STYLE・LTYPE・DIMSTYLE は名前を
-/// 書き直せる（決定 0162〜0165）。R2010 からは、名前は文字列の流れの初めにあり、書き直すなら呼ぶ側が写さずにおく
+/// 表のレコードの、ビット `start` から始まるフィールドを `fields` に書き、元のデータの型ごとのフィールドの終わりを返す。
+/// 参照されるフラグ・外部参照の番号・外部参照に依るフラグは、元のビットを写す。名前も写すが、LAYER・STYLE・LTYPE・DIMSTYLE は名前を
+/// 書き直せる（決定 0162〜0165）。R2010 からは、名前は文字列のストリームの初めにあり、書き直すなら呼ぶ側が写さずにおく
 fn record_fields(
     fields: &mut BitWriter,
     old: &Object,
@@ -3069,8 +3069,8 @@ fn record_fields(
     }
 }
 
-/// R2010 から後の表のレコードを符号化し直したデータ（決定 0089）。`data` はハンドルの流れの大きさ（MC）の後の
-/// データ、`handles_at` はハンドルの流れの始まり。文字列の流れは、初めの名前を写し、型ごとの欄の文字列を続ける。
+/// R2010 から後の表のレコードを符号化し直したデータ（決定 0089）。`data` はハンドルのストリームの大きさ（MC）の後の
+/// データ、`handles_at` はハンドルのストリームの始まり。文字列のストリームは、初めの名前を写し、型ごとのフィールドの文字列を続ける。
 /// 名前を変えた LAYER は、初めに新しい名前を書く（決定 0162）
 fn encode_record_r2010(
     data: &[u8],
@@ -3080,7 +3080,7 @@ fn encode_record_r2010(
     release: Release,
 ) -> Option<Vec<u8>> {
     same_record_rest(old, new)?;
-    // UCS のレコードは、試料の図面になく確かめていない
+    // UCS のレコードは、サンプルの図面になく確かめていない
     (new.kind != b"UCS").then_some(())?;
     let [start, end] = r2010_object_fields(data, handles_at, release)?;
     let encode = |object: &Object| -> Option<BitWriter> {
@@ -3088,7 +3088,7 @@ fn encode_record_r2010(
         let mut bits = Bits::with_release(data, release);
         bits.seek(end);
         let units = usize::try_from(bits.bs()?).ok()?;
-        // 名前を変えたら、`record_fields` が新しい名前を流れの初めに書く
+        // 名前を変えたら、`record_fields` が新しい名前をストリームの初めに書く
         if text_of(old, 2) == text_of(object, 2) {
             fields.copy_strings(data, end..bits.pos() + units * 16)?;
         }
@@ -3099,8 +3099,8 @@ fn encode_record_r2010(
     r2010_checked(data, [start, end, handles_at], encode(old)?, encode(new)?)
 }
 
-/// 型ごとの欄がビット `start` から `end` まで、ハンドルの流れが `handles_at` からの R2010 のオブジェクトに、
-/// 欄 `fields` を置いたデータ。元の値を符号化した `same` が、元の主のデータの長さと文字列の流れを持つことを確かめる
+/// 型ごとのフィールドがビット `start` から `end` まで、ハンドルのストリームが `handles_at` からの R2010 のオブジェクトに、
+/// フィールド `fields` を置いたデータ。元の値を符号化した `same` が、元の主のデータの長さと文字列のストリームを持つことを確かめる
 fn r2010_checked(
     data: &[u8],
     [start, end, handles_at]: [usize; 3],
@@ -3117,7 +3117,7 @@ fn r2010_checked(
     r2010_finish(out, fields, data, handles_at)
 }
 
-/// 表のレコードの型ごとの欄を符号化し直したデータ（決定 0043〜0046）。LAYER・STYLE・LTYPE・VIEW・UCS・VPORT・DIMSTYLE だけを扱う。名前（2）などの
+/// 表のレコードの型ごとのフィールドを符号化し直したデータ（決定 0043〜0046）。LAYER・STYLE・LTYPE・VIEW・UCS・VPORT・DIMSTYLE だけを扱う。名前（2）などの
 /// ほかの値が変わったものは `None`
 fn encode_record(data: &[u8], old: &Object, new: &Object, release: Release) -> Option<Vec<u8>> {
     same_record_rest(old, new)?;
@@ -3135,7 +3135,7 @@ fn encode_record(data: &[u8], old: &Object, new: &Object, release: Release) -> O
     Some(out.into_bytes())
 }
 
-/// OBJECTS のオブジェクトの型ごとの欄を符号化し直したデータ（決定 0047〜0050）。GROUP・DICTIONARYVAR・
+/// OBJECTS のオブジェクトの型ごとのフィールドを符号化し直したデータ（決定 0047〜0050）。GROUP・DICTIONARYVAR・
 /// DICTIONARY・ACDBDICTIONARYWDFLT・MLINESTYLE・LAYOUT・XRECORD だけを扱う。ハンドルの並びから作る値などのほかの値が
 /// 変わったものは `None`
 fn encode_object(data: &[u8], old: &Object, new: &Object, release: Release) -> Option<Vec<u8>> {
@@ -3153,9 +3153,9 @@ fn encode_object(data: &[u8], old: &Object, new: &Object, release: Release) -> O
     Some(out.into_bytes())
 }
 
-/// R2010 から後の OBJECTS のオブジェクトを符号化し直したデータ（決定 0090）。`data` はハンドルの流れの
-/// 大きさ（MC）の後のデータ、`handles_at` はハンドルの流れの始まり。文字列の流れは、型ごとの欄の文字列だけを持つ。
-/// XRECORD の文字列の値は、文字列の流れでなくデータの中に UTF-16LE で持つ（決定 0148）
+/// R2010 から後の OBJECTS のオブジェクトを符号化し直したデータ（決定 0090）。`data` はハンドルのストリームの
+/// 大きさ（MC）の後のデータ、`handles_at` はハンドルのストリームの始まり。文字列のストリームは、型ごとのフィールドの文字列だけを持つ。
+/// XRECORD の文字列の値は、文字列のストリームでなくデータの中に UTF-16LE で持つ（決定 0148）
 fn encode_object_r2010(
     data: &[u8],
     handles_at: usize,
@@ -3173,7 +3173,7 @@ fn encode_object_r2010(
     r2010_checked(data, [start, end, handles_at], encode(old)?, encode(new)?)
 }
 
-/// OBJECTS のオブジェクトの型ごとの欄を、ビット `start` から読みながら `fields` に書き、元の欄の終わりの位置を返す
+/// OBJECTS のオブジェクトの型ごとのフィールドを、ビット `start` から読みながら `fields` に書き、元のフィールドの終わりの位置を返す
 fn object_own_fields(
     fields: &mut BitWriter,
     old: &Object,
@@ -3191,7 +3191,7 @@ fn object_own_fields(
         b"XRECORD" => return xrecord(fields, old, new, data, start, release),
         _ => return None,
     };
-    // 辞書の項目の数と、多重線の体裁の線の数と名前は変えない
+    // 辞書の項目の数と、マルチラインスタイルの線の数と名前は変えない
     let codes = |object: &Object| -> Vec<i16> { object.values.iter().map(|v| v.code).collect() };
     if new.kind != b"GROUP" && new.kind != b"DICTIONARYVAR" && codes(old) != codes(new) {
         return None;
@@ -3213,7 +3213,7 @@ fn object_own_fields(
     let mut bits = Bits::with_release(data, release);
     bits.seek(start);
     if new.kind == b"GROUP" {
-        // 説明・名前のない印・選べる印。図形の数は元のまま写す
+        // 説明・名前のないフラグ・選べるフラグ。図形の数は元のまま写す
         bits.text()?;
         bits.bs()?;
         bits.bs()?;
@@ -3235,9 +3235,9 @@ fn object_own_fields(
     Some(bits.pos())
 }
 
-/// LAYER の欄（決定 0043）。DXF の 70 の凍結 1・新しいビューポートで凍結 2・ロック 4 と、負の色（62）の
-/// 表示しない印、印刷しない印（290）、線の太さ（370）から、DWG の印（BS）を作る。印のほかのビットは元のまま
-/// 写す。外部参照に依る印（70 の 16）は、元のものと同じでなければ受け付けない。元の欄の終わりの位置を返す
+/// LAYER のフィールド（決定 0043）。DXF の 70 の凍結 1・新しいビューポートで凍結 2・ロック 4 と、負の色（62）の
+/// 表示しないフラグ、印刷しないフラグ（290）、線の太さ（370）から、DWG のフラグ（BS）を作る。フラグのほかのビットは元のまま
+/// 写す。外部参照に依るフラグ（70 の 16）は、元のものと同じでなければ受け付けない。元のフィールドの終わりの位置を返す
 fn layer(
     fields: &mut BitWriter,
     object: &Object,
@@ -3264,7 +3264,7 @@ fn layer(
     Some(bits.pos())
 }
 
-/// LAYER の DWG の印（BS）と色の番号。印のほかのビットは `old` から写す（決定 0043）
+/// LAYER の DWG のフラグ（BS）と色の番号。フラグのほかのビットは `old` から写す（決定 0043）
 fn layer_flags(object: &Object, xdep: bool, old: i16) -> Option<(i16, i16)> {
     let dxf = small(object, 70)??;
     (dxf & !(1 | 2 | 4 | 16) == 0 && (dxf & 16 != 0) == xdep).then_some(())?;
@@ -3324,7 +3324,7 @@ impl Entry {
 }
 
 /// 型 `type_code` のレコードの表のオブジェクトのデータ `data` の、項目の数（BL）と項目のハンドルを `entry` の
-/// とおりに変えたもの（決定 0061・0162）。ハンドルの流れの後の埋めるビットは写さない
+/// とおりに変えたもの（決定 0061・0162）。ハンドルのストリームの後の埋めるビットは写さない
 fn add_entry(data: &[u8], entry: Entry, type_code: u16, release: Release) -> Option<Vec<u8>> {
     let [size_at, start, handles_at] = object_fields(data, release)?;
     let mut bits = Bits::with_release(data, release);
@@ -3337,7 +3337,7 @@ fn add_entry(data: &[u8], entry: Entry, type_code: u16, release: Release) -> Opt
     let count = bits.bl()?;
     let mut fields = BitWriter::default();
     fields.bl(entry.count(count)?);
-    // 寸法の体裁の表は、項目の数の後に RC を持ち、項目の後にその数だけハンドルが続く。ブロックの表は、
+    // 寸法スタイルの表は、項目の数の後に RC を持ち、項目の後にその数だけハンドルが続く。ブロックの表は、
     // 項目の後にモデル空間と用紙空間のハンドルが続く（決定 0068）
     let extra = match type_code {
         kinds::DIMSTYLE => bits.rc()?,
@@ -3349,13 +3349,13 @@ fn add_entry(data: &[u8], entry: Entry, type_code: u16, release: Release) -> Opt
     }
     (bits.pos() == handles_at).then_some(())?;
     let mut handles = BitWriter::default();
-    // 所有者・反応子・拡張辞書と、項目
+    // 所有者・リアクター・拡張辞書と、項目
     for _ in 0..(1 + i64::from(reactors) + i64::from(xdic)) {
         let found = bits.handle()?;
         handles.handle(found.code, found.value);
     }
     entry.copy(&mut bits, count, &mut handles)?;
-    // 寸法の体裁の表の項目の後のハンドルが指すものは、除かない（決定 0165）
+    // 寸法スタイルの表の項目の後のハンドルが指すものは、除かない（決定 0165）
     for _ in 0..extra {
         let found = bits.handle()?;
         (!matches!(entry, Entry::Remove(handle) if handle == found.value)).then_some(())?;
@@ -3372,9 +3372,9 @@ fn add_entry(data: &[u8], entry: Entry, type_code: u16, release: Release) -> Opt
     Some(out.into_bytes())
 }
 
-/// 型 `type_code` のレコードの、R2010 から後の表のオブジェクトのデータ `data`（ハンドルの流れの大きさ（MC）の
+/// 型 `type_code` のレコードの、R2010 から後の表のオブジェクトのデータ `data`（ハンドルのストリームの大きさ（MC）の
 /// 後）の、項目の数（BL）と項目のハンドルを `entry` のとおりに変えたもの（決定 0094・0162）。`handles_at` は
-/// ハンドルの流れの始まり。ハンドルの流れの後の埋めるビットは写さない
+/// ハンドルのストリームの始まり。ハンドルのストリームの後の埋めるビットは写さない
 fn add_entry_r2010(
     data: &[u8],
     handles_at: usize,
@@ -3407,13 +3407,13 @@ fn add_entry_r2010(
     out.copy(data, count_end..handles_at)?;
     let at = out.len();
     bits.seek(handles_at);
-    // 所有者・反応子・拡張辞書と、項目
+    // 所有者・リアクター・拡張辞書と、項目
     for _ in 0..(1 + i64::from(reactors) + i64::from(xdic)) {
         let found = bits.handle()?;
         out.handle(found.code, found.value);
     }
     entry.copy(&mut bits, count, &mut out)?;
-    // 寸法の体裁の表の項目の後のハンドルが指すものは、除かない（決定 0165）
+    // 寸法スタイルの表の項目の後のハンドルが指すものは、除かない（決定 0165）
     for _ in 0..extra {
         let found = bits.handle()?;
         (!matches!(entry, Entry::Remove(handle) if handle == found.value)).then_some(())?;
@@ -3449,9 +3449,9 @@ fn lineweight_index(width: i64) -> Option<i16> {
     }
 }
 
-/// STYLE の欄（決定 0043）。70 の形のファイル 1 と縦書き 4 を印に書き、角度（50）は度からラジアンに直す。
-/// 外部参照に依る印（70 の 16）は、元のものと同じでなければ受け付けない。文字列（3・4）が変わらなければ、
-/// 元のビットを写す。元の欄の終わりの位置を返す
+/// STYLE のフィールド（決定 0043）。70 の形のファイル 1 と縦書き 4 をフラグに書き、角度（50）は度からラジアンに直す。
+/// 外部参照に依るフラグ（70 の 16）は、元のものと同じでなければ受け付けない。文字列（3・4）が変わらなければ、
+/// 元のビットを写す。元のフィールドの終わりの位置を返す
 fn style(
     fields: &mut BitWriter,
     old: &Object,
@@ -3485,7 +3485,7 @@ fn style(
     fields.rc(u8::try_from(small(new, 71)??).ok()?);
     fields.bd(real(new, 42)??);
     for (code, range) in texts {
-        // R2010 からは、文字列は文字列の流れに書く（決定 0089）
+        // R2010 からは、文字列は文字列のストリームに書く（決定 0089）
         if text_of(old, code) == text_of(new, code) && release < Release::R2010 {
             fields.copy(data, range)?;
         } else {
@@ -3495,10 +3495,10 @@ fn style(
     Some(bits.pos())
 }
 
-/// LTYPE の欄（決定 0044）。要素の数（73）と、要素ごとの形と文字の印（74 の 2・4）は、元のものと同じでなければ
-/// 受け付けない。要素の印の 7 より上のビットと、形も文字もない要素の形の番号・ずれ・尺度・回転は、元のまま写す。
+/// LTYPE のフィールド（決定 0044）。要素の数（73）と、要素ごとの形と文字のフラグ（74 の 2・4）は、元のものと同じでなければ
+/// 受け付けない。要素のフラグの 7 より上のビットと、形も文字もない要素の形の番号・ずれ・尺度・回転は、元のまま写す。
 /// 説明（3）と文字の要素の文字列（9）が変わらなければ元のビットを写し、文字列が変われば、256 バイト（R2010 からは
-/// 512 バイト）の領域に初めから順に詰め直す。元の欄の終わりの位置を返す
+/// 512 バイト）の領域に初めから順に詰め直す。元のフィールドの終わりの位置を返す
 fn ltype(
     fields: &mut BitWriter,
     old: &Object,
@@ -3540,7 +3540,7 @@ fn ltype(
             .collect()
     };
     let same_texts = texts(old) == texts(new);
-    // R2013 からは、DXF の 74 も文字の要素の印（8）を持つ
+    // R2013 からは、DXF の 74 も文字の要素のフラグ（8）を持つ
     let mask = if release >= Release::R2013 { 15 } else { 7 };
     let mut values = Cursor(
         new.values
@@ -3625,8 +3625,8 @@ fn ltype(
     Some(bits.pos())
 }
 
-/// DIMSTYLE の欄（決定 0046）。値が変わらない欄は元のビットを写し、変わった欄は書き直す。表にない欄は、
-/// 読む側と同じ既定の値で書く。色は R2000 の CMC の番号（BS）で書く。元の欄の終わりの位置を返す
+/// DIMSTYLE のフィールド（決定 0046）。値が変わらないフィールドは元のビットを写し、変わったフィールドは書き直す。表にないフィールドは、
+/// 読む側と同じ既定の値で書く。色は R2000 の CMC の番号（BS）で書く。元のフィールドの終わりの位置を返す
 fn dimstyle(
     fields: &mut BitWriter,
     old: &Object,
@@ -3647,7 +3647,7 @@ fn dimstyle(
     };
     let mut bits = Bits::with_release(data, release);
     bits.seek(own_at);
-    // R2010 からは、増えた欄も並べ、文字列は文字列の流れに書く（決定 0089）
+    // R2010 からは、増えたフィールドも並べ、文字列は文字列のストリームに書く（決定 0089）
     let r2010 = release >= Release::R2010;
     for (code, field) in dim_fields(release) {
         let at = bits.pos();
@@ -3667,7 +3667,7 @@ fn dimstyle(
     Some(bits.pos())
 }
 
-/// DIMSTYLE の `code` の欄を、`new` の値で書く。値がなければ、読む側と同じ既定の値で書く
+/// DIMSTYLE の `code` のフィールドを、`new` の値で書く。値がなければ、読む側と同じ既定の値で書く
 fn dim_field(
     fields: &mut BitWriter,
     new: &Object,
@@ -3714,7 +3714,7 @@ fn same_cmc(
 }
 
 /// 色の番号 `index` の CMC（決定 0075）。R2004 からは、番号（BS）の後に、色の決め方（上位の
-/// バイト）と番号（下位のバイト）の BL と、名前を持たない印（RC の 0）を書く。決め方は、ByLayer（256）が
+/// バイト）と番号（下位のバイト）の BL と、名前を持たないフラグ（RC の 0）を書く。決め方は、ByLayer（256）が
 /// 0xC0、ByBlock（0）が 0xC1、ほかの番号が 0xC3
 fn cmc(fields: &mut BitWriter, index: i16, release: Release) -> Option<()> {
     fields.bs(index);
@@ -3731,7 +3731,7 @@ fn cmc(fields: &mut BitWriter, index: i16, release: Release) -> Option<()> {
     Some(())
 }
 
-/// LAYOUT の欄の形。読む側は、すべての欄を DWG の並びで置く
+/// LAYOUT のフィールドの形。読む側は、すべてのフィールドを DWG の並びで置く
 #[derive(Clone, Copy)]
 enum Field {
     Text,
@@ -3740,7 +3740,7 @@ enum Field {
     Rd,
 }
 
-/// LAYOUT の欄の形の並び（印刷の設定の 28 の欄と、レイアウトの 26 の欄）
+/// LAYOUT のフィールドの形の並び（印刷の設定の 28 のフィールドと、レイアウトの 26 のフィールド）
 const LAYOUT_FIELDS: [Field; 54] = {
     use Field::{Bd, Rd, Short, Text};
     [
@@ -3750,8 +3750,8 @@ const LAYOUT_FIELDS: [Field; 54] = {
     ]
 };
 
-/// 版 `release` の LAYOUT の欄の形の並び。R2004 からは、印刷するビューの名前がハンドルの流れに移り、
-/// 印刷の設定の終わりに陰影の印刷の 3 つの欄が加わる（決定 0082）
+/// バージョン `release` の LAYOUT のフィールドの形の並び。R2004 からは、印刷するビューの名前がハンドルのストリームに移り、
+/// 印刷の設定の終わりに陰影の印刷の 3 つのフィールドが加わる（決定 0082）
 fn layout_fields(release: Release) -> Vec<Field> {
     let mut fields = LAYOUT_FIELDS.to_vec();
     if release >= Release::R2004 {
@@ -3761,8 +3761,8 @@ fn layout_fields(release: Release) -> Vec<Field> {
     fields
 }
 
-/// LAYOUT の欄を `fields` に符号化し直し、元の欄の終わりの位置を返す（決定 0049・0082）。値の番号の並びが元と同じで、レイアウトの名前（2 つめの 1）
-/// とハンドルの並びから作る値が変わらないものだけを扱う。欄は DWG の並びのまま、すべて書き直す
+/// LAYOUT のフィールドを `fields` に符号化し直し、元のフィールドの終わりの位置を返す（決定 0049・0082）。値の番号の並びが元と同じで、レイアウトの名前（2 つめの 1）
+/// とハンドルの並びから作る値が変わらないものだけを扱う。フィールドは DWG の並びのまま、すべて書き直す
 fn layout(
     fields: &mut BitWriter,
     old: &Object,
@@ -3775,11 +3775,11 @@ fn layout(
     if codes(old) != codes(new) {
         return None;
     }
-    // 欄は、ハンドル（5）と所有者（330）の後に、ハンドルの並びから作る値の前に並ぶ
+    // フィールドは、ハンドル（5）と所有者（330）の後に、ハンドルの並びから作る値の前に並ぶ
     let at = new.values.iter().position(|value| value.code == 1)?;
     let layout = layout_fields(release);
     let range = at..at + layout.len();
-    // レイアウトの名前は、印刷の設定の欄の次
+    // レイアウトの名前は、印刷の設定のフィールドの次
     let name = at + layout.len() - 27;
     let own = new.values.get(range.clone())?;
     let rest = |object: &Object| -> Option<Vec<Value>> {
@@ -3820,7 +3820,7 @@ fn layout(
     Some(bits.pos())
 }
 
-/// XRECORD の欄を `fields` に符号化し直し、元の欄の終わりの位置を返す（決定 0050）。値の番号の並びが元と同じものだけを扱う。データは、
+/// XRECORD のフィールドを `fields` に符号化し直し、元のフィールドの終わりの位置を返す（決定 0050）。値の番号の並びが元と同じものだけを扱う。データは、
 /// 元のデータを読みながら値を書き直し、文字列のコード・ページのバイトは元の値のものを写す。R2010 からの文字列は UTF-16LE で書く
 fn xrecord(
     fields: &mut BitWriter,
@@ -3957,8 +3957,8 @@ fn xrecord(
     Some(bits.pos())
 }
 
-/// DICTIONARY の欄（決定 0048）。項目の数は元のまま写し、複製の扱い（281）・所有する印（280）・項目の
-/// 名前（3）を書く。読む側は 0 の所有する印を置かないので、置いた印は 1〜255 だけを受け付ける
+/// DICTIONARY のフィールド（決定 0048）。項目の数は元のまま写し、複製の扱い（281）・所有するフラグ（280）・項目の
+/// 名前（3）を書く。読む側は 0 の所有するフラグを置かないので、置いたフラグは 1〜255 だけを受け付ける
 fn dictionary(fields: &mut BitWriter, bits: &mut Bits, new: &Object, data: &[u8]) -> Option<()> {
     let start = bits.pos();
     bits.bl()?;
@@ -3982,7 +3982,7 @@ fn dictionary(fields: &mut BitWriter, bits: &mut Bits, new: &Object, data: &[u8]
     Some(())
 }
 
-/// MLINESTYLE の欄（決定 0048）。名前は元のまま写す（R2010 からは書き直す）。印（70）は DXF のビットを DWG のビットに並べ直し、
+/// MLINESTYLE のフィールド（決定 0048）。名前は元のまま写す（R2010 からは書き直す）。フラグ（70）は DXF のビットを DWG のビットに並べ直し、
 /// DXF にない DWG のビットは元のまま写す。角度は度からラジアンに直す。線の線種の番号（R2018 からはハンドル）は
 /// 元のまま写す
 fn mlinestyle(
@@ -4003,7 +4003,7 @@ fn mlinestyle(
         (512, 1024),
         (1024, 512),
     ];
-    // R2010 からは、名前を文字列の流れに書く
+    // R2010 からは、名前を文字列のストリームに書く
     let start = bits.pos();
     bits.text()?;
     if release >= Release::R2010 {
@@ -4020,7 +4020,7 @@ fn mlinestyle(
         bits.bd()?;
     }
     let lines = bits.rc()?;
-    // 名前の後の、型ごとの値の並び（印・説明・色・2 つの角度・線の数・線ごとの位置と色）
+    // 名前の後の、型ごとの値の並び（フラグ・説明・色・2 つの角度・線の数・線ごとの位置と色）
     let at = new.values.iter().position(|value| value.code == 2)?;
     let own = new.values.get(at + 1..)?;
     let int = |value: &Value| match value.data {
@@ -4092,7 +4092,7 @@ fn mlinestyle(
     Some(())
 }
 
-/// 外部参照に依る印（70 の 16）が元のものと同じで、ほかに `allowed` のビットだけを持つ 70
+/// 外部参照に依るフラグ（70 の 16）が元のものと同じで、ほかに `allowed` のビットだけを持つ 70
 fn record_flags(object: &Object, xdep: bool, allowed: i16) -> Option<i16> {
     let flags = small(object, 70)??;
     (flags & !(allowed | 16) == 0 && (flags & 16 != 0) == xdep).then_some(flags)
@@ -4115,7 +4115,7 @@ fn point2(fields: &mut BitWriter, object: &Object, code: i16) -> Option<()> {
     Some(())
 }
 
-/// VIEW・VPORT の見え方の印（71）の、透視・前の切り取り・後ろの切り取りと、前の切り取りが目の位置にあること
+/// VIEW・VPORT の見え方のフラグ（71）の、透視・前の切り取り・後ろの切り取りと、前の切り取りが目の位置にあること
 /// （DXF の 16 の逆）の 4 つのビット
 fn view_mode(fields: &mut BitWriter, mode: i16) {
     for flag in [1, 2, 4] {
@@ -4134,8 +4134,8 @@ fn ucs_axes(fields: &mut BitWriter, object: &Object) -> Option<()> {
     Some(())
 }
 
-/// VIEW の欄（決定 0045）。ねじれ（50）は度からラジアンに直し、紙空間の印は 70 の 1 から書く。UCS を伴う印
-/// （72）は、ハンドルの流れの数が変わるので、元のものと同じでなければ受け付けない。元の欄の終わりの位置を返す
+/// VIEW のフィールド（決定 0045）。ねじれ（50）は度からラジアンに直し、紙空間のフラグは 70 の 1 から書く。UCS を伴うフラグ
+/// （72）は、ハンドルのストリームの数が変わるので、元のものと同じでなければ受け付けない。元のフィールドの終わりの位置を返す
 fn view_record(
     fields: &mut BitWriter,
     new: &Object,
@@ -4149,7 +4149,7 @@ fn view_record(
     let old = super::objects::view(&mut bits, 0, &mut Vec::new())?;
     let was = old.iter().find(|value| value.code == 72)?;
     (was.data == Data::Int(i64::from(flag(new, 72)?))).then_some(())?;
-    // R2010 からは、描画の種類（281）の後の照明の欄を、元のビットから写す（決定 0089）
+    // R2010 からは、描画の種類（281）の後の照明のフィールドを、元のビットから写す（決定 0089）
     let lighting = if release >= Release::R2010 {
         let mut bits = Bits::with_release(data, release);
         bits.seek(own_at);
@@ -4180,7 +4180,7 @@ fn view_record(
     Some(bits.pos())
 }
 
-/// R2010 から後の VIEW・VPORT の、描画の種類の後の照明の欄の既定の値と、そのビットの長さ。試料の図面と同じく、
+/// R2010 から後の VIEW・VPORT の、描画の種類の後の照明のフィールドの既定の値と、そのビットの長さ。サンプルの図面と同じく、
 /// 既定の照明を使い、種類は 1、明るさと対比は 0、環境の色は真の色の 0x333333 とする（決定 0095・0096）
 fn default_lighting() -> (Vec<u8>, usize) {
     let mut lighting = BitWriter::default();
@@ -4206,7 +4206,7 @@ fn ucs_handle(db: &AcadDb, object: &Object, code: i16) -> Option<u64> {
     }
 }
 
-/// VIEW の型ごとの欄。UCS を伴うかを返す
+/// VIEW の型ごとのフィールド。UCS を伴うかを返す
 fn view_fields(
     fields: &mut BitWriter,
     new: &Object,
@@ -4239,7 +4239,7 @@ fn view_fields(
     Some(associated)
 }
 
-/// UCS の欄（決定 0045）。後に続く正投影の型は、表にないので元のまま写す。元の欄の終わりの位置を返す
+/// UCS のフィールド（決定 0045）。後に続く正投影の型は、表にないので元のまま写す。元のフィールドの終わりの位置を返す
 fn ucs_record(
     fields: &mut BitWriter,
     new: &Object,
@@ -4263,9 +4263,9 @@ fn ucs_record(
     Some(bits.pos())
 }
 
-/// VPORT の欄（決定 0045）。幅は、高さ（40）と比（41）の積で書く。高さと比が変わらなければ、元の幅を写す。
-/// 角度（50・51）は度からラジアンに直し、UCS に従う印は 71 の 8 から書く。使い道の分からないビットは、元のまま
-/// 写す。元の欄の終わりの位置を返す
+/// VPORT のフィールド（決定 0045）。幅は、高さ（40）と比（41）の積で書く。高さと比が変わらなければ、元の幅を写す。
+/// 角度（50・51）は度からラジアンに直し、UCS に従うフラグは 71 の 8 から書く。使い道の分からないビットは、元のまま
+/// 写す。元のフィールドの終わりの位置を返す
 fn vport_record(
     fields: &mut BitWriter,
     old: &Object,
@@ -4289,7 +4289,7 @@ fn vport_record(
         bits.bit()?;
     }
     bits.rc()?;
-    // R2010 からは、描画の種類の後の照明の欄を、元のビットから写す（決定 0096）
+    // R2010 からは、描画の種類の後の照明のフィールドを、元のビットから写す（決定 0096）
     let lighting = if release >= Release::R2010 {
         let at = bits.pos();
         bits.bit()?;
@@ -4326,7 +4326,7 @@ fn vport_record(
     Some(bits.pos())
 }
 
-/// VPORT の型ごとの欄。幅は、`width` があればそれを、なければ高さ（40）と比（41）の積を書く。
+/// VPORT の型ごとのフィールド。幅は、`width` があればそれを、なければ高さ（40）と比（41）の積を書く。
 /// `unknown` は、使い道の分からないビット
 fn vport_fields(
     fields: &mut BitWriter,
@@ -4381,8 +4381,8 @@ fn vport_fields(
     ucs_axes(fields, new)
 }
 
-/// 版 `release` の共通の欄の、色から型ごとの欄の前まで。`color` なら色を書き、色（62）がなければ ByLayer に
-/// する。線種の尺度（48）がなければ 1、非表示（60）がなければ 0 を書く。線種と印刷スタイルの印と、線の太さは
+/// バージョン `release` の共通のフィールドの、色から型ごとのフィールドの前まで。`color` なら色を書き、色（62）がなければ ByLayer に
+/// する。線種の尺度（48）がなければ 1、非表示（60）がなければ 0 を書く。線種と印刷スタイルのフラグと、線の太さは
 /// 元のまま写す
 fn common_fields(
     data: &[u8],
@@ -4401,7 +4401,7 @@ fn common_fields(
     let scale_at = bits.pos();
     bits.bd()?;
     let flags_at = bits.pos();
-    // 線種と印刷スタイルの印。R2010 からは、材質と影の印と、表示スタイルを持つかの 3 つの B が続く
+    // 線種と印刷スタイルのフラグ。R2010 からは、材質と影のフラグと、表示スタイルを持つかの 3 つの B が続く
     bits.seek(flags_at + 4);
     if release >= Release::R2010 {
         bits.bb()?;
@@ -4419,7 +4419,7 @@ fn common_fields(
     } else if release == Release::R2000 {
         fields.bs(small(object, 62)?.unwrap_or(256));
     } else {
-        // R2004 の番号は、印の下の 12 ビットに収まらなければならない。RGB の値と DBCOLOR を持つ色は、
+        // R2004 の番号は、フラグの下の 12 ビットに収まらなければならない。RGB の値と DBCOLOR を持つ色は、
         // まだ変えない。透明度（0x2000 と BL）は元のまま写す
         let index = small(object, 62)?.unwrap_or(256);
         if flags & 0xC000 != 0 || !(0..=0x0FFF).contains(&index) {
@@ -4435,7 +4435,7 @@ fn common_fields(
     Some(fields)
 }
 
-/// 型ごとの欄。`grid` は MINSERT か。表にない欄は、元のデータ `data` の `start` からの型ごとの欄から写す。
+/// 型ごとのフィールド。`grid` は MINSERT か。表にないフィールドは、元のデータ `data` の `start` からの型ごとのフィールドから写す。
 /// 符号化できない種類なら `None`
 fn own_fields(
     mut fields: BitWriter,
@@ -4529,7 +4529,7 @@ fn own_fields(
             let end = entity_fields(data, Release::R2000)?[3];
             shape(&mut fields, new, data, [start, end], Release::R2000)?;
         }
-        // SEQEND は型ごとの欄を持たない
+        // SEQEND は型ごとのフィールドを持たない
         b"SEQEND" | b"ENDBLK" => {}
         b"BLOCK" => string(&mut fields, new, 2)?,
         _ => return None,
@@ -4537,8 +4537,8 @@ fn own_fields(
     Some(fields)
 }
 
-/// R2004 で後ろに欄が増えた種類（属性を持つ INSERT の、持つオブジェクトの数（BL）と、MTEXT の背景の欄）の
-/// 型ごとの欄。R2000 の形で符号化し、増えた欄は元のビットを写す。元の値を R2000 の形で符号化した欄が、元の
+/// R2004 で後ろにフィールドが増えた種類（属性を持つ INSERT の、持つオブジェクトの数（BL）と、MTEXT の背景のフィールド）の
+/// 型ごとのフィールド。R2000 の形で符号化し、増えたフィールドは元のビットを写す。元の値を R2000 の形で符号化したフィールドが、元の
 /// ビットの初めと同じでなければ `None`（決定 0073）
 fn r2004_own_fields(
     writer: fn() -> BitWriter,
@@ -4561,7 +4561,7 @@ fn r2004_own_fields(
     Some(fields)
 }
 
-/// LINE の欄。両方の Z が 0 なら、Z を書かない
+/// LINE のフィールド。両方の Z が 0 なら、Z を書かない
 fn line(fields: &mut BitWriter, object: &Object) -> Option<()> {
     let [x0, y0, z0, x1, y1, z1] = [10, 20, 30, 11, 21, 31].map(|code| real(object, code));
     let (x0, y0, z0, x1, y1, z1) = (x0??, y0??, z0??, x1??, y1??, z1??);
@@ -4578,7 +4578,7 @@ fn line(fields: &mut BitWriter, object: &Object) -> Option<()> {
     thickness_and_extrusion(fields, object)
 }
 
-/// SOLID・TRACE の欄。4 つの角の Z（30〜33）は、どれも同じ標高でなければならない
+/// SOLID・TRACE のフィールド。4 つの角の Z（30〜33）は、どれも同じ標高でなければならない
 fn solid(fields: &mut BitWriter, object: &Object) -> Option<()> {
     let elevation = real(object, 30)??;
     let mut corners = Vec::new();
@@ -4597,7 +4597,7 @@ fn solid(fields: &mut BitWriter, object: &Object) -> Option<()> {
     extrusion(fields, object)
 }
 
-/// 3DFACE の欄。見えない辺の印（70）がなければ、印を書かない
+/// 3DFACE のフィールド。見えない辺のフラグ（70）がなければ、フラグを書かない
 fn face3d(fields: &mut BitWriter, object: &Object) -> Option<()> {
     let mut corners = [[0.0; 3]; 4];
     for (corner, code) in corners.iter_mut().zip(10..) {
@@ -4628,8 +4628,8 @@ fn face3d(fields: &mut BitWriter, object: &Object) -> Option<()> {
     Some(())
 }
 
-/// TEXT の欄（R2000）。初めの印（RC）は、標高・合わせの点・斜めの角度・回転・幅の比・合わせの向きの、
-/// ない欄を表す。標高（30）が 0 なら書かない。合わせの点の Z（31）は、標高と同じでなければならない。
+/// TEXT のフィールド（R2000）。初めのフラグ（RC）は、標高・合わせの点・斜めの角度・回転・幅の比・合わせの向きの、
+/// ないフィールドを表す。標高（30）が 0 なら書かない。合わせの点の Z（31）は、標高と同じでなければならない。
 /// `vertical` は縦の合わせのグループ・コード
 fn text(fields: &mut BitWriter, object: &Object, vertical: i16) -> Option<()> {
     let [x, y, elevation, height] = [10, 20, 30, 40].map(|code| real(object, code));
@@ -4688,7 +4688,7 @@ fn text(fields: &mut BitWriter, object: &Object, vertical: i16) -> Option<()> {
     Some(())
 }
 
-/// ATTRIB・ATTDEF の欄（R2000）。TEXT の欄に続けて、タグ・欄の長さ（なければ 0）・印を書き、ATTDEF は
+/// ATTRIB・ATTDEF のフィールド（R2000）。TEXT のフィールドに続けて、タグ・フィールドの長さ（なければ 0）・フラグを書き、ATTDEF は
 /// 問いも書く
 fn attribute(fields: &mut BitWriter, object: &Object) -> Option<()> {
     text(fields, object, 74)?;
@@ -4701,7 +4701,7 @@ fn attribute(fields: &mut BitWriter, object: &Object) -> Option<()> {
     Some(())
 }
 
-/// MTEXT の欄（R2000）。押し出しの向きと X 軸の向きは、なければ (0, 0, 1)・(1, 0, 0) を書く。文字列は、
+/// MTEXT のフィールド（R2000）。押し出しの向きと X 軸の向きは、なければ (0, 0, 1)・(1, 0, 0) を書く。文字列は、
 /// 250 バイトずつの 3 と、残りの 1 をつないで書く。表にない文字の範囲の大きさ（2 つの BD）と、行の間隔の後の
 /// B は、元のデータから写す。足した MTEXT では、どちらも 0 にする（決定 0054）
 fn mtext(fields: &mut BitWriter, object: &Object, data: &[u8], start: usize) -> Option<()> {
@@ -4768,10 +4768,10 @@ fn mtext(fields: &mut BitWriter, object: &Object, data: &[u8], start: usize) -> 
     }
 }
 
-/// LWPOLYLINE の欄（R2000）。続く欄があるかの印は、値があるかから選ぶ。膨らみ（42）が 1 つでもあれば、
+/// LWPOLYLINE のフィールド（R2000）。続くフィールドがあるかのフラグは、値があるかから選ぶ。膨らみ（42）が 1 つでもあれば、
 /// すべての頂点の膨らみを書く（ないものは 0）。頂点ごとの幅（40・41）は、初めの頂点から続けて置く。
 /// 頂点ごとの幅があるときは、表にない一定の幅を元のまま残す。閉じている（0x200）と線種の生成（0x100）は
-/// 70 の 1 と 128 から書き、ほかの印のビットは元のまま写す。足した
+/// 70 の 1 と 128 から書き、ほかのフラグのビットは元のまま写す。足した
 /// LWPOLYLINE（`data` が空）では、どちらも 0 にする（決定 0056）
 fn lwpolyline(fields: &mut BitWriter, object: &Object, data: &[u8], start: usize) -> Option<()> {
     let (old, old_width) = if data.is_empty() {
@@ -4896,9 +4896,9 @@ fn lwpolyline(fields: &mut BitWriter, object: &Object, data: &[u8], start: usize
     Some(())
 }
 
-/// R2013 からの、制御点を書かないスプライン（場合が 1 で、印の 1 が立つ）のうち、読む側が当てはめる点の欄と
-/// して置いたものの欄。節点と制御点（10・40〜43）があれば `None`。印・節点の取り方・当てはめる許容差は元の
-/// ビットを写し、次数（71）・接線（12・13。なければ 0）・当てはめる点（11）を書く
+/// R2013 からの、制御点を書かないスプライン（場合が 1 で、フラグの 1 が立つ）のうち、読む側がフィット点のフィールドと
+/// して置いたもののフィールド。ノットと制御点（10・40〜43）があれば `None`。フラグ・ノットの取り方・当てはめる許容差は元の
+/// ビットを写し、次数（71）・接線（12・13。なければ 0）・フィット点（11）を書く
 fn fit_points(
     fields: &mut BitWriter,
     object: &Object,
@@ -4967,11 +4967,11 @@ fn fit_points(
     Some(())
 }
 
-/// R2013 からの、制御点を書かないスプライン（場合が 1 で、印の 1 が立つ）の欄（決定 0103）。読む側は、3 次で
-/// 当てはめる点が 2 つのものを、両端の点と接線から Bézier の制御点に直して置く。その形（3 次・節点が
+/// R2013 からの、制御点を書かないスプライン（場合が 1 で、フラグの 1 が立つ）のフィールド（決定 0103）。読む側は、3 次で
+/// フィット点が 2 つのものを、両端の点と接線から Bézier の制御点に直して置く。その形（3 次・ノットが
 /// 0 と 1 の 4 つずつ・重みのない 4 つの制御点・許容差が 1e-9 と 1e-10）の値だけを受け付け、両端の制御点を
-/// 当てはめる点に、両端の制御点との差の 3 倍を接線に戻して書く。両端の 2 つの制御点が変わらなければ、元の
-/// 接線のビットを写す。印・節点の取り方・当てはめる許容差は元のビットを写す
+/// フィット点に、両端の制御点との差の 3 倍を接線に戻して書く。両端の 2 つの制御点が変わらなければ、元の
+/// 接線のビットを写す。フラグ・ノットの取り方・当てはめる許容差は元のビットを写す
 fn fit_bezier(
     fields: &mut BitWriter,
     object: &Object,
@@ -5098,11 +5098,11 @@ fn fit_bezier(
     Some(())
 }
 
-/// SPLINE の欄（R2000）。場合（scenario）は元のままとし、1 なら節点と制御点、2 なら当てはめる点を書く。
-/// 場合に合わない値があれば `None`。有理・閉じている・周期的の印は、印（70）があればその 4・1・2 を書き、
-/// なければ元のビットを写す。重みがあるかの印は 41 があるかから選ぶ。接線（12・13）がなければ 0 を書く。足した SPLINE（`data` が空）は、
-/// 当てはめる点（11）を持てば場合を 2、持たなければ 1 とし、閉じている・周期的の印を 0、有理の印を
-/// 重みがあるかにする（決定 0057・0059）。節点の取り方（70 の 1024）を持つものは足さない（決定 0157）
+/// SPLINE のフィールド（R2000）。場合（scenario）は元のままとし、1 ならノットと制御点、2 ならフィット点を書く。
+/// 場合に合わない値があれば `None`。有理・閉じている・周期的のフラグは、フラグ（70）があればその 4・1・2 を書き、
+/// なければ元のビットを写す。重みがあるかのフラグは 41 があるかから選ぶ。接線（12・13）がなければ 0 を書く。足した SPLINE（`data` が空）は、
+/// フィット点（11）を持てば場合を 2、持たなければ 1 とし、閉じている・周期的のフラグを 0、有理のフラグを
+/// 重みがあるかにする（決定 0057・0059）。ノットの取り方（70 の 1024）を持つものは足さない（決定 0157）
 fn spline(
     fields: &mut BitWriter,
     object: &Object,
@@ -5113,7 +5113,7 @@ fn spline(
     let added = data.is_empty();
     let r2013 = release >= Release::R2013;
     let (scenario, flags_at, method) = if added {
-        // 節点の取り方（70 の 1024 とそのビット）は、足すスプラインでは書けない
+        // ノットの取り方（70 の 1024 とそのビット）は、足すスプラインでは書けない
         if integer(object, 70)?.unwrap_or(0) & 1024 != 0 {
             return None;
         }
@@ -5123,15 +5123,15 @@ fn spline(
         let mut bits = Bits::with_release(data, release);
         bits.seek(start);
         let scenario = bits.bl()?;
-        // R2013 からは、場合の後にスプラインの印と節点の取り方（BL）が続く。印の 1 が立つ制御点の
-        // スプラインは、読む側が当てはめる点から制御点を求めて置くので、当てはめる点に戻して書く（決定 0103）
+        // R2013 からは、場合の後にスプラインのフラグとノットの取り方（BL）が続く。フラグの 1 が立つ制御点の
+        // スプラインは、読む側がフィット点から制御点を求めて置くので、フィット点に戻して書く（決定 0103）
         let method = if r2013 {
             let at = bits.pos();
             let flags = bits.bl()?;
             bits.bl()?;
             if scenario == 1 && flags & 1 != 0 {
-                // 当てはめる点の欄として読んだものは、当てはめる点で書き、Bézier の制御点に直したものは
-                // 当てはめる点に戻して書く
+                // フィット点のフィールドとして読んだものは、フィット点で書き、Bézier の制御点に直したものは
+                // フィット点に戻して書く
                 if object.values.iter().any(|value| value.code == 11) {
                     return fit_points(fields, object, data, start, release);
                 }
@@ -5144,7 +5144,7 @@ fn spline(
         bits.bl()?;
         (scenario, bits.pos(), method)
     };
-    // 制御点（x・y・z・重み）と、当てはめる点（x・y・z）
+    // 制御点（x・y・z・重み）と、フィット点（x・y・z）
     let mut controls: Vec<[Option<f64>; 4]> = Vec::new();
     let mut fit: Vec<[Option<f64>; 4]> = Vec::new();
     let mut knots = Vec::new();
@@ -5194,7 +5194,7 @@ fn spline(
     fields.bl(scenario);
     match method {
         Some(range) => fields.copy(data, range)?,
-        // 足すのは制御点のスプラインだけとし、試料の図面と同じく印を 0、節点の取り方を 15 とする
+        // 足すのは制御点のスプラインだけとし、サンプルの図面と同じくフラグを 0、ノットの取り方を 15 とする
         None if r2013 => {
             (scenario == 1).then_some(())?;
             fields.bl(0);
@@ -5247,7 +5247,7 @@ fn spline(
             if !controls.is_empty() || !knots.is_empty() || present(&[42, 43]) {
                 return None;
             }
-            // 当てはめる点のスプラインは、閉じている・周期的の印を書けない
+            // フィット点のスプラインは、閉じている・周期的のフラグを書けない
             if integer(object, 70)?.unwrap_or(0) & 3 != 0 {
                 return None;
             }
@@ -5273,7 +5273,7 @@ fn spline(
     Some(())
 }
 
-/// HATCH の欄（R2000）。境界の辺では同じグループ・コードが何度も出るので、表の値を読む側が置く順に
+/// HATCH のフィールド（R2000）。境界の辺では同じグループ・コードが何度も出るので、表の値を読む側が置く順に
 /// 先頭から読み進めて書く。順が合わないか、境界の図形の数（97）が変わったら `None`。10・20 は 0 で
 /// なければならず、押し出しの向きがなければ (0, 0, 1) を書く。角度は度からラジアンに直す
 fn hatch(fields: &mut BitWriter, old: &Object, new: &Object) -> Option<()> {
@@ -5475,8 +5475,8 @@ fn string(fields: &mut BitWriter, object: &Object, code: i16) -> Option<()> {
     fields.text(&bytes)
 }
 
-/// VERTEX の欄（決定 0038）。2D の頂点は、始まりと終わりの幅が同じで 0 でなければ、負の始まりの幅だけを
-/// 書く。角度は度からラジアンに直す。多面の面は、点が 0 で印が 128 のものだけを受け付ける
+/// VERTEX のフィールド（決定 0038）。2D の頂点は、始まりと終わりの幅が同じで 0 でなければ、負の始まりの幅だけを
+/// 書く。角度は度からラジアンに直す。多面の面は、点が 0 でフラグが 128 のものだけを受け付ける
 fn vertex(fields: &mut BitWriter, object: &Object, type_code: u16) -> Option<()> {
     let flags = |object| small(object, 70).map(|flags| flags.unwrap_or(0));
     match type_code {
@@ -5512,8 +5512,8 @@ fn vertex(fields: &mut BitWriter, object: &Object, type_code: u16) -> Option<()>
     Some(())
 }
 
-/// POLYLINE の欄（決定 0038）。頂点が続く印（66）は 1、点（10・20）は 0 だけを受け付ける。3D の
-/// POLYLINE の 2 つの印は、70・75 から読む値が変わらなければ元のバイトを写し、変われば読まれる
+/// POLYLINE のフィールド（決定 0038）。頂点が続くフラグ（66）は 1、点（10・20）は 0 だけを受け付ける。3D の
+/// POLYLINE の 2 つのフラグは、70・75 から読む値が変わらなければ元のバイトを写し、変われば読まれる
 /// ビットだけを書き換える
 fn polyline(
     fields: &mut BitWriter,
@@ -5548,7 +5548,7 @@ fn polyline(
                 6 => 2,
                 _ => return None,
             };
-            // 8 は 3D、4 は曲線の印。読む側が作るのは 8・4・1 だけ
+            // 8 は 3D、4 は曲線のフラグ。読む側が作るのは 8・4・1 だけ
             let splined = if curve != 0 { 4 } else { 0 };
             (flags & !1 == 8 | splined).then_some(())?;
             let mut bits = Bits::with_release(data, Release::R2000);
@@ -5586,7 +5586,7 @@ fn polyline(
     Some(())
 }
 
-/// DIMENSION の欄（決定 0039）。表にないブロックの挿入の尺度と回転は、元のビットを写す。印は、70 から
+/// DIMENSION のフィールド（決定 0039）。表にないブロックの挿入の尺度と回転は、元のビットを写す。フラグは、70 から
 /// 読まれるビットだけを書き換える。利用者の文字（1）が変わらなければ、元のビットを写す。角度は度から
 /// ラジアンに直す。標高（31）と、12 の点の Z・2 線の角度の 36 は同じ値だけを受け付ける
 fn dimension(
@@ -5600,7 +5600,7 @@ fn dimension(
 ) -> Option<()> {
     let at = usize::from(type_code.checked_sub(kinds::DIMENSION_ORDINATE)?);
     let (kind, own) = (*DIMENSION_KIND.get(at)?, *DIMENSION_KINDS.get(at)?);
-    // ほかの型の欄があるものは受け付けない
+    // ほかの型のフィールドがあるものは受け付けない
     let allowed = |code| DIMENSION.contains(&code) || own.contains(&code);
     if new
         .values
@@ -5609,7 +5609,7 @@ fn dimension(
     {
         return None;
     }
-    // R2010 からは、初めの寸法の版（RC）と、測った値の後の 3 つの B を写し、文字列は文字列の流れに書く
+    // R2010 からは、初めの寸法のバージョン（RC）と、測った値の後の 3 つの B を写し、文字列は文字列のストリームに書く
     // （決定 0088）
     let r2010 = release >= Release::R2010;
     let mut bits = Bits::with_release(data, release);
@@ -5741,7 +5741,7 @@ fn zero_point(object: &Object) -> Option<()> {
         .then_some(())
 }
 
-/// 元の INSERT・MINSERT の欄の回転（ラジアン）。元のデータがなければ `None`
+/// 元の INSERT・MINSERT のフィールドの回転（ラジアン）。元のデータがなければ `None`
 fn insert_rotation(data: &[u8], start: usize) -> Option<f64> {
     let mut bits = Bits::new(data);
     bits.seek(start);
@@ -5766,9 +5766,9 @@ fn insert_rotation(data: &[u8], start: usize) -> Option<f64> {
     bits.bd()
 }
 
-/// INSERT・MINSERT の欄（R2000）。尺度（41〜43）がなければ 1、回転（50）がなければ 0、押し出しの向きが
-/// なければ (0, 0, 1) を書く。回転が変わらなければ、元のラジアン `kept` を書く。尺度の印（BB）は、尺度の値から
-/// 選ぶ。属性が続くかの印は、66 から書く
+/// INSERT・MINSERT のフィールド（R2000）。尺度（41〜43）がなければ 1、回転（50）がなければ 0、押し出しの向きが
+/// なければ (0, 0, 1) を書く。回転が変わらなければ、元のラジアン `kept` を書く。尺度のフラグ（BB）は、尺度の値から
+/// 選ぶ。属性が続くかのフラグは、66 から書く
 fn insert(fields: &mut BitWriter, object: &Object, grid: bool, kept: Option<f64>) -> Option<()> {
     point3(fields, object, 10)?;
     let [x, y, z] = [41, 42, 43].map(|code| real(object, code));
@@ -5805,7 +5805,7 @@ fn insert(fields: &mut BitWriter, object: &Object, grid: bool, kept: Option<f64>
     Some(())
 }
 
-/// MINSERT の列と行の数（70・71、なければ 1）と間隔（44・45、なければ 0）の欄
+/// MINSERT の列と行の数（70・71、なければ 1）と間隔（44・45、なければ 0）のフィールド
 fn grid_fields(fields: &mut BitWriter, object: &Object) -> Option<()> {
     for code in [70, 71] {
         fields.bs(small(object, code)?.unwrap_or(1));
@@ -5816,9 +5816,9 @@ fn grid_fields(fields: &mut BitWriter, object: &Object) -> Option<()> {
     Some(())
 }
 
-/// R2004 から後の MINSERT の型ごとの欄（`start` から `end` まで）。属性を持てば、属性が続く印の後、列と行の
-/// 欄の前に、持つオブジェクトの数（BL）が入る（ODS 5.4.1 の 20.4.9）。元のビットが `old` の値から書いたものと
-/// 合うかを確かめ、持つオブジェクトの数と、列と行の欄の後ろは元のビットを写す。属性の有無は変えない
+/// R2004 から後の MINSERT の型ごとのフィールド（`start` から `end` まで）。属性を持てば、属性が続くフラグの後、列と行の
+/// フィールドの前に、持つオブジェクトの数（BL）が入る（ODS 5.4.1 の 20.4.9）。元のビットが `old` の値から書いたものと
+/// 合うかを確かめ、持つオブジェクトの数と、列と行のフィールドの後ろは元のビットを写す。属性の有無は変えない
 fn r2004_minsert_fields(
     writer: fn() -> BitWriter,
     old: &Object,
@@ -5858,7 +5858,7 @@ fn r2004_minsert_fields(
     Some(fields)
 }
 
-/// TOLERANCE の欄（決定 0040）。X 軸の向き（11）がなければ (1, 0, 0)、押し出しの向きがなければ (0, 0, 1) を
+/// TOLERANCE のフィールド（決定 0040）。X 軸の向き（11）がなければ (1, 0, 0)、押し出しの向きがなければ (0, 0, 1) を
 /// 書く。文字（1）が変わっていなければ、元のビットを写す
 fn tolerance(
     fields: &mut BitWriter,
@@ -5879,7 +5879,7 @@ fn tolerance(
     point3(fields, new, 10)?;
     point3_or(fields, new, 11, [1.0, 0.0, 0.0])?;
     point3_or(fields, new, 210, [0.0, 0.0, 1.0])?;
-    // R2010 からは、文字列は文字列の流れに書く（決定 0088）
+    // R2010 からは、文字列は文字列のストリームに書く（決定 0088）
     if text_of(old, 1) == text_of(new, 1) && release < Release::R2010 {
         fields.copy(data, text_at..text_end)?;
     } else {
@@ -5888,12 +5888,12 @@ fn tolerance(
     fields.copy(data, text_end..end)
 }
 
-/// LEADER の欄（決定 0040・0185）。注釈の種類（73）・経路の種類（72、なければ 0）・頂点の数（76）と頂点（10）・
+/// LEADER のフィールド（決定 0040・0185）。注釈の種類（73）・経路の種類（72、なければ 0）・頂点の数（76）と頂点（10）・
 /// 押し出しの向き（なければ (0, 0, 1)）・X 軸の向き（211、なければ (1, 0, 0)）・注釈の高さと幅（40・41）・
-/// 鉤の線の向き（74）・矢印の印（71）を書く。頂点が変わったら、表にない終わりの点の射影は終わりの頂点にする。
-/// 表にない鉤の線の点と差の欄と、後ろの欄は、元のビットを写す。R2010 から後は表が注釈の高さと幅を持たないので、
-/// なければ元のビットを写す。`data` が空なら足す LEADER で、ずれ（212・213）を表から書き、後ろの欄（BS・B・B）
-/// を 0 にする。矢印の印がなければ（寸法スタイルに従う）書けない
+/// 鉤の線の向き（74）・矢印のフラグ（71）を書く。頂点が変わったら、表にない終わりの点の射影は終わりの頂点にする。
+/// 表にない鉤の線の点と差のフィールドと、後ろのフィールドは、元のビットを写す。R2010 から後は表が注釈の高さと幅を持たないので、
+/// なければ元のビットを写す。`data` が空なら足す LEADER で、ずれ（212・213）を表から書き、後ろのフィールド（BS・B・B）
+/// を 0 にする。矢印のフラグがなければ（寸法スタイルに従う）書けない
 fn leader(
     fields: &mut BitWriter,
     object: &Object,
@@ -6029,7 +6029,7 @@ fn leader(
     fields.copy(data, rest_at..end)
 }
 
-/// MLINE の欄（決定 0040）。値を表の並びで読み、DWG の並びで書く。頂点と線と区切りの数は、表の値の数に
+/// MLINE のフィールド（決定 0040）。値を表の並びで読み、DWG の並びで書く。頂点と線とパラメーターの数は、表の値の数に
 /// 合わなければ受け付けない
 fn mline(fields: &mut BitWriter, object: &Object) -> Option<()> {
     let mut values = Cursor(
@@ -6076,8 +6076,8 @@ fn mline(fields: &mut BitWriter, object: &Object) -> Option<()> {
     values.0.next().is_none().then_some(())
 }
 
-/// VIEWPORT の欄（決定 0041）。表の値を DWG の並びで書き、角度（50・51）は度からラジアンに直す。表にない
-/// 凍結した画層の数と後ろの欄は元のビットを写し、印刷スタイルの名前（1）が変わらなければ元のビットを写す
+/// VIEWPORT のフィールド（決定 0041）。表の値を DWG の並びで書き、角度（50・51）は度からラジアンに直す。表にない
+/// 凍結した画層の数と後ろのフィールドは元のビットを写し、印刷スタイルの名前（1）が変わらなければ元のビットを写す
 fn viewport(
     fields: &mut BitWriter,
     old: &Object,
@@ -6087,7 +6087,7 @@ fn viewport(
     release: Release,
 ) -> Option<()> {
     // R2010 からは、グリッドの向き（72）の後に主なグリッドの線の間隔（BS、61）を書き、文字列は文字列の
-    // 流れに書く（決定 0088）
+    // ストリームに書く（決定 0088）
     let r2010 = release >= Release::R2010;
     let mut bits = Bits::with_release(data, release);
     bits.seek(start);
@@ -6158,8 +6158,8 @@ fn viewport(
     fields.copy(data, rest_at..end)
 }
 
-/// SHAPE の欄（決定 0042）。角度（50・51）がなければ 0、幅の尺度（41）がなければ 1、厚さ（39）がなければ 0、
-/// 押し出しの向きがなければ (0, 0, 1) を書く。角度は度からラジアンに直す。表にない形の番号と後ろの欄は、
+/// SHAPE のフィールド（決定 0042）。角度（50・51）がなければ 0、幅の尺度（41）がなければ 1、厚さ（39）がなければ 0、
+/// 押し出しの向きがなければ (0, 0, 1) を書く。角度は度からラジアンに直す。表にない形の番号と後ろのフィールドは、
 /// 元のビットを写す
 fn shape(
     fields: &mut BitWriter,
@@ -6218,7 +6218,7 @@ fn point3(fields: &mut BitWriter, object: &Object, code: i16) -> Option<()> {
     Some(())
 }
 
-/// BT の厚さ（39）と BE の押し出しの向き（210・220・230）。値がなければ既定の値の印を書く
+/// BT の厚さ（39）と BE の押し出しの向き（210・220・230）。値がなければ既定の値のフラグを書く
 fn thickness_and_extrusion(fields: &mut BitWriter, object: &Object) -> Option<()> {
     thickness(fields, object)?;
     extrusion(fields, object)
@@ -6294,20 +6294,20 @@ fn integer(object: &Object, code: i16) -> Option<Option<i64>> {
 mod layer_name_tests {
     use super::*;
 
-    /// 文字列とハンドルの流れを分けた LAYER のデータを、試験の中で作る。
+    /// 文字列とハンドルのストリームを分けた LAYER のデータを、テストの中で作る。
     fn layer_data(release: Release, name: &str, external: bool) -> Vec<u8> {
         let mut head = BitWriter::default();
         head.bot(i16::try_from(kinds::LAYER).unwrap());
         head.handle(0, 0x10);
         head.bs(0); // 拡張データなし
-        head.bl(0); // 反応子なし
+        head.bl(0); // リアクターなし
         head.bit(true); // 拡張辞書なし
         if release >= Release::R2013 {
             head.bit(false); // DS なし
         }
         let mut fields = BitWriter::with_strings();
         fields.text(name.as_bytes()).unwrap();
-        fields.bit(false); // 参照される印
+        fields.bit(false); // 参照されるフラグ
         fields.bit(external);
         fields.bs(16 | (31 << 5)); // 印刷し、既定の線幅
         cmc(&mut fields, 7, release).unwrap();
@@ -6355,7 +6355,7 @@ mod layer_name_tests {
         }
     }
 
-    /// 文字列の長さが変わっても、名前・色・後ろの欄・ハンドルを読み直せる。
+    /// 文字列の長さが変わっても、名前・色・後ろのフィールド・ハンドルを読み直せる。
     #[test]
     fn r2010_layer_names_are_rewritten_in_the_string_stream() {
         for release in [Release::R2010, Release::R2013, Release::R2018] {
@@ -6461,7 +6461,7 @@ mod leader_tests {
     }
 
     /// R2010 から後の LEADER は、注釈の枠の高さと幅を持たない。AutoCAD 2027 が書いた R2010・R2018 の DWG と
-    /// 同じ並びの欄を、矢印の印まで読む（#345）
+    /// 同じ並びのフィールドを、矢印のフラグまで読む（#345）
     #[test]
     fn r2010_leaders_have_no_annotation_box() {
         let mut w = BitWriter::default();
@@ -6478,7 +6478,7 @@ mod leader_tests {
         }
         w.bit(false);
         w.bit(true);
-        // 読む側は矢印の印までを読む
+        // 読む側は矢印のフラグまでを読む
         let end = w.len();
         w.bs(0);
         w.bit(false);
@@ -6500,7 +6500,7 @@ mod leader_tests {
         }
     }
 
-    /// R2010 から後の DWG に足した LEADER の欄と、経路と矢印の印（71）を置き換えた欄を、読み直す（決定 0185）。
+    /// R2010 から後の DWG に足した LEADER のフィールドと、経路と矢印のフラグ（71）を置き換えたフィールドを、読み直す（決定 0185）。
     /// 寸法スタイルに従う矢印（71 がない）は書けない
     #[test]
     fn r2010_leaders_are_added_and_replaced_with_their_arrow() {
@@ -6525,7 +6525,7 @@ mod leader_tests {
                 let mut bits = Bits::with_release(data, release);
                 bits.seek(start);
                 let values = super::super::objects::leader(&mut bits).unwrap();
-                // 後ろの欄（BS・B・B）を読むと、主のデータの終わりに着く。注釈の枠の欄を書くと合わない（#345）
+                // 後ろのフィールド（BS・B・B）を読むと、主のデータの終わりに着く。注釈の枠のフィールドを書くと合わない（#345）
                 bits.bs().unwrap();
                 bits.bit().unwrap();
                 bits.bit().unwrap();
@@ -6567,7 +6567,7 @@ mod leader_tests {
         }
     }
 
-    /// 図形に反応子を足すと、反応子の数とハンドルの流れの反応子が増え、型ごとの欄とほかのハンドルは変わらない
+    /// 図形にリアクターを足すと、リアクターの数とハンドルのストリームのリアクターが増え、型ごとのフィールドとほかのハンドルは変わらない
     /// （決定 0191）
     #[test]
     fn reactors_are_added_to_entities() {
@@ -6592,7 +6592,7 @@ mod leader_tests {
                 children: None,
             };
             let encoded = new.encode(0, 0, release).unwrap();
-            // 反応子の数・反応子のハンドル・型ごとの値・後ろのハンドル
+            // リアクターの数・リアクターのハンドル・型ごとの値・後ろのハンドル
             let read = |bytes: &[u8]| {
                 let (data, handles_at, start) = if release >= Release::R2010 {
                     let (data, handles_at) = split(bytes);

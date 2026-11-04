@@ -1,8 +1,8 @@
-// TypeScript・JavaScript の包みを、Next.js のサーバー側で組んで使えることを確かめる（決定 0259）。
+// TypeScript・JavaScript のラッパーを、Next.js のサーバー側で組んで使えることを確かめる（決定 0259）。
 //
 // 使い方: node bindings/js/test/nextjs/run.mjs <zumen_abi1.wasm>
 //
-// 先に、このフォルダーで `npm ci --ignore-scripts` を流しておく。包みに wasm を入れて npm pack し、このフォルダーに
+// 先に、このフォルダーで `npm ci --ignore-scripts` を流しておく。パッケージに wasm を入れて npm pack し、このフォルダーに
 // 入れる。Turbopack（設定なし）と webpack（serverExternalPackages）のそれぞれで standalone に組み、組んだサーバーを
 // 起こして、API ルート（app/api/open/route.js）に公開サンプルの DXF を送り、開けることを確かめる。
 
@@ -40,7 +40,7 @@ function run(command, args, cwd) {
   }
 }
 
-/** 包みに wasm とライセンスの本文を入れて npm pack し、tgz の道筋を返す */
+/** パッケージに wasm とライセンスの本文を入れて npm pack し、tgz の道筋を返す */
 function pack(work) {
   const staged = join(work, "package");
   cpSync(join(root, "bindings", "js", "src"), join(staged, "src"), { recursive: true });

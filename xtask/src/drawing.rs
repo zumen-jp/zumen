@@ -1,8 +1,8 @@
 //! 図面モデル（L2）のバイナリの読み書きを、図面モデルの型から作る（決定 0247）。
 //!
 //! `crates/zumen-drawing/src` の型の定義を読み、`Drawing2D` と `Source` からたどれる型を集める。型の契約
-//! （`schema/drawing.toml`）と突き合わせ、足した型・欄・値を後ろに足して小版を上げる。消した欄と値、型を変えた欄は、
-//! 大版を上げないと書けないので、誤りにする。読み書きは、契約の順に値を並べる。
+//! （`schema/drawing.toml`）と突き合わせ、足した型・フィールド・値を後ろに足してマイナーバージョンを上げる。消したフィールドと値、型を変えたフィールドは、
+//! メジャーバージョンを上げないと書けないので、誤りにする。読み書きは、契約の順に値を並べる。
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{self, Write as _};
@@ -27,9 +27,9 @@ const EXTERNAL: [(&str, &str); 2] = [
 const ROOT: &str = "lib";
 /// たどり始める型の道
 const ROOTS: [&[&str]; 2] = [&["Drawing2D"], &["binary", "Source"]];
-/// 数える要素の型。見出しの要素の数と、読むときの予算（決定 0010）に使う
+/// 数える要素の型。ヘッダーの要素の数と、読むときの予算（決定 0010）に使う
 const COUNTED: &str = "Element";
-/// 欄を外に見せないので、読み書きを手で書く型（zumen-drawing の binary.rs）と、その欄。欄が変わったら、手で書いた
+/// フィールドを外に見せないので、読み書きを手で書く型（zumen-drawing の binary.rs）と、そのフィールド。フィールドが変わったら、手で書いた
 /// 読み書きを直してから、ここを直す
 const HANDWRITTEN: [(&str, &[&str]); 1] = [(
     "Ref",
@@ -192,9 +192,9 @@ struct Def {
 
 #[derive(Debug)]
 enum Body {
-    /// 名前のある欄。名前は Rust の識別子（`r#type` など）のまま
+    /// 名前のあるフィールド。名前は Rust の識別子（`r#type` など）のまま
     Fields(Vec<(String, Ty)>),
-    /// 名前のない欄
+    /// 名前のないフィールド
     Tuple(Vec<Ty>),
     /// 列挙の値
     Variants(Vec<(String, Payload)>),
@@ -208,7 +208,7 @@ enum Payload {
 }
 
 impl Def {
-    /// 欄の型
+    /// フィールドの型
     fn types(&self) -> Vec<&Ty> {
         match &self.body {
             Body::Fields(fields) => fields.iter().map(|(_, ty)| ty).collect(),
@@ -490,10 +490,10 @@ impl Tree {
                     .ident
                     .as_ref()
                     .map(ToString::to_string)
-                    .ok_or_else(|| format!("{home}: 名前のない欄"))?;
+                    .ok_or_else(|| format!("{home}: 名前のないフィールド"))?;
                 if visible && matches!(field.vis, syn::Visibility::Inherited) {
                     return Err(format!(
-                        "{home}: 欄 `{ident}` が外から見えないので、読み書きを作れない"
+                        "{home}: フィールド `{ident}` が外から見えないので、読み書きを作れない"
                     ));
                 }
                 Ok((ident, self.ty(home, params, &field.ty)?))
@@ -541,7 +541,7 @@ impl Tree {
                 _ => return Err(format!("{home}: `{name}` の寿命・定数の引数を扱えない")),
             }
         }
-        // 図面モデルの根の型の欄は、どのモジュールからも見える。外の crate の型と、ほかのモジュールの型の欄は、
+        // 図面モデルの根の型のフィールドは、どのモジュールからも見える。外の crate の型と、ほかのモジュールの型のフィールドは、
         // pub でないと読み書きを作れない（手で書く型を除く）
         let handwritten = HANDWRITTEN.iter().any(|(known, _)| *known == name);
         let visible = home != ROOT && !handwritten;
@@ -558,7 +558,7 @@ impl Tree {
                             .any(|f| matches!(f.vis, syn::Visibility::Inherited))
                     {
                         return Err(format!(
-                            "{home}: `{name}` の欄が外から見えないので、読み書きを作れない"
+                            "{home}: `{name}` のフィールドが外から見えないので、読み書きを作れない"
                         ));
                     }
                     Body::Tuple(self.unnamed(home, &params, fields)?)
@@ -730,7 +730,7 @@ struct Walk {
     errors: Vec<String>,
 }
 
-/// 手で書く型の欄が、手で書いた読み書きと合うか
+/// 手で書く型のフィールドが、手で書いた読み書きと合うか
 fn check_handwritten(defs: &BTreeMap<String, Def>) -> Result<(), String> {
     for (name, expected) in HANDWRITTEN {
         let Some(def) = defs.get(name) else {
@@ -745,7 +745,7 @@ fn check_handwritten(defs: &BTreeMap<String, Def>) -> Result<(), String> {
         };
         if actual != expected {
             return Err(format!(
-                "`{name}` の欄（{}）が、手で書いた読み書き（{}）と違う。zumen-drawing の binary.rs と、xtask の HANDWRITTEN を直す",
+                "`{name}` のフィールド（{}）が、手で書いた読み書き（{}）と違う。zumen-drawing の binary.rs と、xtask の HANDWRITTEN を直す",
                 actual.join(", "),
                 expected.join(", ")
             ));
@@ -875,27 +875,27 @@ fn new_type(name: &str, def: &Def, since: u16) -> Type {
     }
 }
 
-/// 契約の欄の行（`名前: 型` か `名前: 型 @小版`）を読む
+/// 契約のフィールドの行（`名前: 型` か `名前: 型 @マイナーバージョン`）を読む
 fn parse_field(line: &str) -> Result<(&str, &str, u16), String> {
     let (name, rest) = line
         .split_once(": ")
-        .ok_or_else(|| format!("欄 `{line}` が `名前: 型` の形でない"))?;
+        .ok_or_else(|| format!("フィールド `{line}` が `名前: 型` の形でない"))?;
     match rest.rsplit_once(" @") {
         Some((ty, since)) => {
             let since = since
                 .parse()
-                .map_err(|_| format!("欄 `{line}` の小版が数でない"))?;
+                .map_err(|_| format!("フィールド `{line}` のマイナーバージョンが数でない"))?;
             Ok((name, ty, since))
         }
         None => Ok((name, rest, 0)),
     }
 }
 
-/// 名前のある欄を突き合わせる
+/// 名前のあるフィールドを突き合わせる
 struct Merge {
-    /// 足すものに付ける小版
+    /// 足すものに付けるマイナーバージョン
     next: u16,
-    /// 今の小版
+    /// 今のマイナーバージョン
     minor: u16,
     added: bool,
     errors: Vec<String>,
@@ -921,7 +921,7 @@ impl Merge {
             };
             if field_since > self.minor || (field_since != 0 && field_since <= since) {
                 self.errors.push(format!(
-                    "`{owner}` の欄 `{name}` の小版 {field_since} が合わない"
+                    "`{owner}` のフィールド `{name}` のマイナーバージョン {field_since} が合わない"
                 ));
             }
             match now.iter().find(|(ident, _)| unraw(ident) == name) {
@@ -934,10 +934,10 @@ impl Merge {
                     });
                 }
                 Some((_, now_ty)) => self.errors.push(format!(
-                    "`{owner}` の欄 `{name}` の型が `{ty}` から `{now_ty}` に変わった。変えるには大版を上げる"
+                    "`{owner}` のフィールド `{name}` の型が `{ty}` から `{now_ty}` に変わった。変えるにはメジャーバージョンを上げる"
                 )),
                 None => self.errors.push(format!(
-                    "`{owner}` の欄 `{name}` がなくなった。消すには大版を上げる"
+                    "`{owner}` のフィールド `{name}` がなくなった。消すにはメジャーバージョンを上げる"
                 )),
             }
         }
@@ -958,7 +958,7 @@ impl Merge {
         let now: Vec<String> = now.iter().map(ToString::to_string).collect();
         if now != old {
             self.errors.push(format!(
-                "`{owner}` の欄（{}）が（{}）に変わった。名前のない欄は、変えるには大版を上げる",
+                "`{owner}` のフィールド（{}）が（{}）に変わった。名前のないフィールドは、変えるにはメジャーバージョンを上げる",
                 old.join(", "),
                 now.join(", ")
             ));
@@ -978,12 +978,15 @@ impl Merge {
         for entry in old {
             let label = format!("{owner}::{}", entry.name);
             if entry.since > self.minor || (entry.since != 0 && entry.since <= since) {
-                self.errors
-                    .push(format!("`{label}` の小版 {} が合わない", entry.since));
+                self.errors.push(format!(
+                    "`{label}` のマイナーバージョン {} が合わない",
+                    entry.since
+                ));
             }
             let Some((_, payload)) = now.iter().find(|(name, _)| *name == entry.name) else {
-                self.errors
-                    .push(format!("`{label}` がなくなった。消すには大版を上げる"));
+                self.errors.push(format!(
+                    "`{label}` がなくなった。消すにはメジャーバージョンを上げる"
+                ));
                 continue;
             };
             let variant_since = entry.since.max(since);
@@ -997,7 +1000,7 @@ impl Merge {
                 }
                 _ => {
                     self.errors.push(format!(
-                        "`{label}` の形（値だけ・組・欄）が変わった。変えるには大版を上げる"
+                        "`{label}` の形（値だけ・組・フィールド）が変わった。変えるにはメジャーバージョンを上げる"
                     ));
                     continue;
                 }
@@ -1023,7 +1026,7 @@ impl Merge {
     }
 }
 
-/// 契約と図面モデルの型を突き合わせる。返すのは、大版・小版と、名前の順の型
+/// 契約と図面モデルの型を突き合わせる。返すのは、メジャーバージョン・マイナーバージョンと、名前の順の型
 fn merge(
     old: Option<Contract>,
     defs: &BTreeMap<String, Def>,
@@ -1036,7 +1039,7 @@ fn merge(
         ),
         None => (1, 0, Vec::new()),
     };
-    // 型のない契約は、その大版の始まり
+    // 型のない契約は、そのメジャーバージョンの始まり
     if entries.is_empty() {
         let types = defs
             .iter()
@@ -1045,7 +1048,9 @@ fn merge(
         return Ok((major, 0, types));
     }
     let Some(next) = minor.checked_add(1) else {
-        return Err(vec!["小版を上げきった。大版を上げる".to_owned()]);
+        return Err(vec![
+            "マイナーバージョンを上げきった。メジャーバージョンを上げる".to_owned(),
+        ]);
     };
     let mut merge = Merge {
         next,
@@ -1064,20 +1069,20 @@ fn merge(
         }
         if entry.since > minor {
             merge.errors.push(format!(
-                "`{}` の小版 {} が合わない",
+                "`{}` のマイナーバージョン {} が合わない",
                 entry.name, entry.since
             ));
         }
         let Some(def) = defs.get(&entry.name) else {
             merge.errors.push(format!(
-                "契約の型 `{}` が、図面モデルからたどれない。消すには大版を上げる",
+                "契約の型 `{}` が、図面モデルからたどれない。消すにはメジャーバージョンを上げる",
                 entry.name
             ));
             continue;
         };
         if entry.params != def.params {
             merge.errors.push(format!(
-                "`{}` の型の引数が変わった。変えるには大版を上げる",
+                "`{}` の型の引数が変わった。変えるにはメジャーバージョンを上げる",
                 entry.name
             ));
             continue;
@@ -1094,7 +1099,7 @@ fn merge(
             }
             _ => {
                 merge.errors.push(format!(
-                    "`{}` の形（欄・組・列挙）が変わった。変えるには大版を上げる",
+                    "`{}` の形（フィールド・組・列挙）が変わった。変えるにはメジャーバージョンを上げる",
                     entry.name
                 ));
                 continue;
@@ -1143,12 +1148,12 @@ fn render_contract(major: u16, minor: u16, types: &[Type]) -> String {
         "# 図面モデル（L2）のバイナリの型の契約（決定 0247）。\n\
          #\n\
          # `cargo xtask codegen` が、図面モデル（crates/zumen-drawing）の型から書き、読み書き\n\
-         # （crates/zumen-drawing/src/binary/generated.rs）を作る。手で直すのは、大版を上げるときだけ。\n\
+         # （crates/zumen-drawing/src/binary/generated.rs）を作る。手で直すのは、メジャーバージョンを上げるときだけ。\n\
          #\n\
-         # - 名前のある欄は、並べた順に書く。後の小版で足した欄は後ろに足し、`@` の後ろにその小版を書く\n\
-         # - 列挙の値の番号は、並べた順（0 から）。後の小版で足した値は後ろに足し、since にその小版を書く\n\
+         # - 名前のあるフィールドは、並べた順に書く。後のマイナーバージョンで足したフィールドは後ろに足し、`@` の後ろにそのマイナーバージョンを書く\n\
+         # - 列挙の値の番号は、並べた順（0 から）。後のマイナーバージョンで足した値は後ろに足し、since にそのマイナーバージョンを書く\n\
          # - 型の書き方は Rust に合わせる。`Cow<str>` は文字列、`P` などは型の引数\n\
-         # - 欄・値を消すか、名前・型を変えるには、大版を上げる。major を上げ、types を消してから codegen を流す\n\
+         # - フィールド・値を消すか、名前・型を変えるには、メジャーバージョンを上げる。major を上げ、types を消してから codegen を流す\n\
          \n",
     );
     let _ = writeln!(out, "[versions]\nmajor = {major}\nminor = {minor}");
@@ -1200,7 +1205,7 @@ fn render_contract(major: u16, minor: u16, types: &[Type]) -> String {
     out
 }
 
-/// 欄を読む式。後の小版で足した欄は、古いバイナリになければ既定の値にする
+/// フィールドを読む式。後のマイナーバージョンで足したフィールドは、古いバイナリになければ既定の値にする
 fn read_field(since: Option<u16>) -> String {
     match since {
         Some(since) => format!(
@@ -1238,7 +1243,7 @@ fn rust_type(ty: &Ty, defs: &BTreeMap<String, Def>) -> String {
     }
 }
 
-/// 値 1 つの大きさ（`Unpack::SIZE`）の式。構造体は欄の和、列挙はいちばん大きい値に、値の番号の 8 を足す
+/// 値 1 つの大きさ（`Unpack::SIZE`）の式。構造体はフィールドの和、列挙はいちばん大きい値に、値の番号の 8 を足す
 fn size(def: &Def, defs: &BTreeMap<String, Def>) -> String {
     let sum = |types: Vec<&Ty>| {
         if types.is_empty() {
@@ -1408,8 +1413,8 @@ fn render_rust(major: u16, minor: u16, types: &[Type], defs: &BTreeMap<String, D
     );
     let _ = writeln!(
         out,
-        "/// 大版。読み手は、同じ大版のバイナリだけを読む\npub const MAJOR: u16 = {major};\n\n\
-         /// 小版。型の契約に型・欄・値を足すたびに上げる\npub const MINOR: u16 = {minor};"
+        "/// メジャーバージョン。リーダーは、同じメジャーバージョンのバイナリだけを読む\npub const MAJOR: u16 = {major};\n\n\
+         /// マイナーバージョン。型の契約に型・フィールド・値を足すたびに上げる\npub const MINOR: u16 = {minor};"
     );
     for ty in types {
         if HANDWRITTEN.iter().any(|(name, _)| *name == ty.name) {
@@ -1495,10 +1500,10 @@ mod tests {
             pub enum Shape<P> { Empty, Line { from: P } }";
         let errors = merge(contract(&text), &tree(changed).walk().unwrap()).unwrap_err();
         let all = errors.join("\n");
-        assert!(all.contains("`Layer` の欄"), "{all}");
+        assert!(all.contains("`Layer` のフィールド"), "{all}");
         assert!(all.contains("`Shape::Point` がなくなった"), "{all}");
         assert!(
-            all.contains("`Shape::Line` の欄 `to` がなくなった"),
+            all.contains("`Shape::Line` のフィールド `to` がなくなった"),
             "{all}"
         );
     }

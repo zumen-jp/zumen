@@ -604,7 +604,7 @@ impl Parser<'_> {
     fn schema(&mut self) -> Parsed<Express> {
         self.expect("SCHEMA")?;
         let name = self.name()?;
-        // 版の識別子（`'{…}'`）は読み飛ばす
+        // バージョンの識別子（`'{…}'`）は読み飛ばす
         self.skip_statement()?;
         let mut schema = Express {
             name,
@@ -767,7 +767,7 @@ impl Parser<'_> {
             redeclared: Vec::new(),
             derived: Vec::new(),
         };
-        // 見出し: ABSTRACT・SUPERTYPE OF (…)・SUBTYPE OF (…)
+        // ヘッダー: ABSTRACT・SUPERTYPE OF (…)・SUBTYPE OF (…)
         loop {
             match self.next() {
                 Some(";") => break,

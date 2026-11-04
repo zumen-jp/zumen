@@ -1,4 +1,4 @@
-//! ifcZIP（決定 0211）。ZIP の書庫の中の、ただ 1 つの IFC-SPF を読む。
+//! ifcZIP（決定 0211）。ZIP のアーカイブの中の、ただ 1 つの IFC-SPF を読む。
 
 use zumen_base::{ByteRange, Diagnostic, codes};
 use zumen_sdk::{Codec, Cx, Error, FileModel, RecordInfo, Signature};
@@ -8,7 +8,7 @@ use crate::{Ifc, IfcFile};
 /// ifcZIP のコーデック
 pub struct IfcZip;
 
-/// 読んだ ifcZIP。元の書庫のバイト列と、中の IFC-SPF
+/// 読んだ ifcZIP。元のアーカイブのバイト列と、中の IFC-SPF
 #[derive(Clone, Debug, PartialEq)]
 pub struct IfcZipFile {
     src: Vec<u8>,
@@ -84,7 +84,7 @@ impl Codec for IfcZip {
         })
     }
 
-    /// 元の書庫のバイト列をそのまま書く。変更を当てたものの包み直しは、`zumen-abi` の building_apply がする（決定 0244）
+    /// 元のアーカイブのバイト列をそのまま書く。変更を当てたものの入れ直しは、`zumen-abi` の building_apply がする（決定 0244）
     fn write(file: &IfcZipFile, out: &mut Vec<u8>, _cx: &mut Cx) -> Result<(), Error> {
         out.extend_from_slice(&file.src);
         Ok(())

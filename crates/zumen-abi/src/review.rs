@@ -1,5 +1,5 @@
 //! `review_carry`・`review_adopt`・`review_adopt_ids` の op（決定 0214・0218・0219）。レビューの文書を入力で
-//! 受け、図面か建物モデルの要素の ID とハッシュで新しい版へ移すか、照合の指摘を取り込んで、文書を blob で返す。
+//! 受け、図面か建物モデルの要素の ID とハッシュで新しいバージョンへ移すか、照合の指摘を取り込んで、文書を blob で返す。
 
 use std::collections::BTreeMap;
 
@@ -16,14 +16,14 @@ use crate::session::{Failed, fail, invalid_value, stopped};
 /// limit を書かなかったときに返す参照の数
 const LIMIT: u64 = 1000;
 
-/// 文書の版。文書のハッシュと、要素の ID とハッシュ（決定 0156・0207）
+/// 文書のバージョン。文書のハッシュと、要素の ID とハッシュ（決定 0156・0207）
 pub(crate) struct Plan {
     pub(crate) hash: String,
     pub(crate) elements: BTreeMap<String, String>,
 }
 
 impl Plan {
-    /// 図面の文書の版
+    /// 図面の文書のバージョン
     pub(crate) fn drawing(
         drawing: &Drawing2D,
         hash: String,
@@ -58,7 +58,7 @@ fn state(change: Change) -> CarriedState {
     }
 }
 
-/// レビューの文書の対象を、文書の版へ移す。移した文書のバイト列も返す
+/// レビューの文書の対象を、文書のバージョンへ移す。移した文書のバイト列も返す
 pub(crate) fn carry(
     plan: Plan,
     review: &[u8],

@@ -1,4 +1,4 @@
-//! 利用者が渡す EXPRESS でのチェック（決定 0216）。EXPRESS は、試験の中で書いた小さなものだけを使う。
+//! 利用者が渡す EXPRESS でのチェック（決定 0216）。EXPRESS は、テストの中で書いた小さなものだけを使う。
 
 use zumen_base::{
     Budget, CancelToken, Code, Cx, Diagnostic, Diagnostics, Kind, Limit, Limits, Value, codes,
@@ -6,7 +6,7 @@ use zumen_base::{
 use zumen_ifc::{Express, Ifc, IfcFile, check};
 use zumen_sdk::{Codec, Error};
 
-const EXPRESS: &str = "(* 試験用の小さなスキーマ (* 入れ子の注釈 *) *)
+const EXPRESS: &str = "(* テスト用の小さなスキーマ (* 入れ子の注釈 *) *)
 SCHEMA IFCTINY '{ tiny 1 }';
 TYPE LabelT = STRING; END_TYPE;
 TYPE LengthT = REAL; WHERE WR1 : SELF > 0.; END_TYPE;
@@ -232,7 +232,7 @@ fn reports_a_different_schema_name_and_still_checks() {
 fn rejects_express_it_cannot_read() {
     for broken in [
         EXPRESS.replace("END_SCHEMA;", ""),
-        EXPRESS.replace("(* 試験用", "(* (* 試験用"),
+        EXPRESS.replace("(* テスト用", "(* (* テスト用"),
         EXPRESS.replace("Height : LengthT;", "Height : MissingT;"),
         EXPRESS.replace("ENTITY Prop;", "ENTITY Prop SUBTYPE OF (Prop);"),
         EXPRESS.replace("TYPE CountT = INTEGER;", "TYPE CountT = CountT;"),

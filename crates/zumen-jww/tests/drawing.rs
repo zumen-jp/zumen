@@ -1,4 +1,4 @@
-//! JWW から図面モデルへの変換（決定 0134）。入力は、どれも試験の中で作る。
+//! JWW から図面モデルへの変換（決定 0134）。入力は、どれもテストの中で作る。
 
 mod common;
 
@@ -333,7 +333,7 @@ fn arcs_and_ellipses() {
 fn points_texts_and_solids() {
     let (drawing, _) = drawing();
     let shapes = elements(&drawing, 0);
-    // 点は文書の点の表し方に従う点に、仮点は作図の補助の点に、記号の点は既定義の印にし、記号にしない（決定 0160）
+    // 点は文書の点の表し方に従う点に、仮点は作図の補助の点に、記号の点は既定義のマーカーにし、記号にしない（決定 0160）
     let point = |shape: &Shape<ModelPoint>| match shape {
         Shape::Point(point) => point.clone(),
         other => panic!("{other:?}"),
@@ -421,7 +421,7 @@ fn points_texts_and_solids() {
 
 #[test]
 fn zero_headers_have_hidden_layers_and_no_widths() {
-    // 版 600 は SXF の欄を持ち、版 300 は持たない
+    // バージョン 600 は SXF のフィールドを持ち、バージョン 300 は持たない
     for version in [300, 600] {
         let mut archive = Archive::new(version);
         archive.count(1);
@@ -538,7 +538,7 @@ fn images_and_edit_state() {
             .collect()
     };
 
-    // 画像は、文字の始点を左下にした下敷きにし、同梱画像のレコードを定義にする
+    // 画像は、文字の始点を左下にしたアンダーレイにし、同梱画像のレコードを定義にする
     let shapes = elements(&drawing, 0);
     let Shape::Underlay(image) = &shapes[12].shape else {
         panic!("{:?}", shapes[12].shape);

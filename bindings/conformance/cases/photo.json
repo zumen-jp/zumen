@@ -1,5 +1,5 @@
 {
-  "description": "photo は、工事写真（JPEG）の Exif と XMP を読み、画素数・向き・撮影の日時・GPS の位置・XMP の性質を返す（#387）。画像は復号しない。JPEG の始まりの印がなければ jpeg.file.invalid で失敗する。試験の JPEG は個人情報のない合成のもの。",
+  "description": "photo は、工事写真（JPEG）の Exif と XMP を読み、画素数・向き・撮影の日時・GPS の位置・XMP の性質を返す（#387）。画像は復号しない。JPEG の始まりのマーカーがなければ jpeg.file.invalid で失敗する。テストの JPEG は個人情報のない合成のもの。",
   "module": "drawing",
   "steps": [
     {

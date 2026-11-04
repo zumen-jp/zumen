@@ -16,9 +16,9 @@ impl Lifter<'_> {
     /// 64 は座標寸法の X、128 は利用者が動かした文字。利用者の文字（1）は、ないか空か `<>` なら測定値を、
     /// 空白 1 つなら書かないことを表す。複製の挿入点（12）・行間（41・72）・水平の向き（51）は移さない
     /// （推定。docs/formats/dxf.md）。ARC_DIMENSION（DXF Reference に節がない）は、70 の種類によらず弧長の寸法にし、
-    /// 円弧の中心（15）・始めと終わりの点（13・14）を、弧長寸法の欄（`arc_part`）から読む。部分の印（70）と
-    /// 角度（40・41）は、始めと終わりの点が部分の両端になるので移さない。16・17 は試料ではいつも 13・14 と同じで、
-    /// 意味が分からないので移さない（推定。AutoCAD で作った試料で確かめた。docs/formats/dxf.md）
+    /// 円弧の中心（15）・始めと終わりの点（13・14）を、弧長寸法のフィールド（`arc_part`）から読む。部分のフラグ（70）と
+    /// 角度（40・41）は、始めと終わりの点が部分の両端になるので移さない。16・17 はサンプルではいつも 13・14 と同じで、
+    /// 意味が分からないので移さない（推定。AutoCAD で作ったサンプルで確かめた。docs/formats/dxf.md）
     pub(super) fn dimension<P: Copy>(
         &self,
         object: &Object,
@@ -221,9 +221,9 @@ impl Lifter<'_> {
 
     /// 平面の点（`x` と `x + 10`）。Z（`x + 20`）がなければ 0 とし、0 でなければ移さない
     /// MULTILEADER（DXF Reference「MLEADER」）。値を、注記の文脈（300〜301）・枝（302〜303）・線（304〜305）の
-    /// 区切りで分けてから読む。注記は、文脈の 290 が真なら書式つきの文字、296 が真なら記号とする。公差の注記
+    /// セクションで分けてから読む。注記は、文脈の 290 が真なら書式つきの文字、296 が真なら記号とする。公差の注記
     /// （172 = 3）と段組み（173）は、まだ移さない。線と注記の色・線種・線幅は `callout_style` で読む。
-    /// 線ごとの上書きと、寄せ方の欄は、まだ移さない（docs/formats/dxf.md）
+    /// 線ごとの上書きと、寄せ方のフィールドは、まだ移さない（docs/formats/dxf.md）
     pub(super) fn callout<P: Copy>(
         &self,
         db: &AcadDb,
@@ -335,7 +335,7 @@ impl Lifter<'_> {
     ) -> Lifted<(Style, Inherit<Color>)> {
         let kind = object.kind.as_slice();
         let parts = split_callout(object)?;
-        // DXF の AcDbEntity の欄は、代わりの図形の大きさ（92）を持つ。MULTILEADER の欄は、最後の区切り（100）の後から読む
+        // DXF の AcDbEntity のフィールドは、代わりの図形の大きさ（92）を持つ。MULTILEADER のフィールドは、最後のサブクラスマーカー（100）の後から読む
         let start = parts
             .entity
             .iter()
@@ -378,7 +378,7 @@ impl Lifter<'_> {
             line_type,
             line_type_scale: 1.0,
             line_weight: Some(line_weight),
-            // 引出線は透過性の欄を持たないので、注記の要素に従う
+            // 引出線は透過性のフィールドを持たないので、注記の要素に従う
             transparency: Inherit::Block,
         };
         let content_color = self.inherited_color(&entity, if symbol { 93 } else { 92 })?;
@@ -415,7 +415,7 @@ impl Lifter<'_> {
         }
     }
 
-    /// MULTILEADER の文脈の書式つきの文字。欄は MTEXT と同じ意味で、符号が違う（DXF Reference「MLEADER」）。
+    /// MULTILEADER の文脈の書式つきの文字。フィールドは MTEXT と同じ意味で、符号が違う（DXF Reference「MLEADER」）。
     /// 背景の色（91）は、ほかの色と同じく元の形式の色の値とする
     fn callout_text<P: Copy>(
         &self,
@@ -595,8 +595,8 @@ struct CalloutParts {
     leaders: Vec<(Vec<Value>, Vec<Vec<Value>>)>,
 }
 
-/// ARC_DIMENSION の弧長寸法の欄。70・71 が共通の欄と重なるので分けて読む。DXF では 100 の AcDbArcDimension より
-/// 後、DWG では共通の欄の後の最初の 13 から後とする（docs/formats/dwg.md）
+/// ARC_DIMENSION の弧長寸法のフィールド。70・71 が共通のフィールドと重なるので分けて読む。DXF では 100 の AcDbArcDimension より
+/// 後、DWG では共通のフィールドの後の最初の 13 から後とする（docs/formats/dwg.md）
 fn arc_part(object: &Object) -> Lifted<Object> {
     let dwg = matches!(object.origin, Origin::Dwg { .. });
     let start = object

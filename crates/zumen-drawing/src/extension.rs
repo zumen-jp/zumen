@@ -6,7 +6,7 @@ use zumen_base::Ref;
 
 use crate::{Drawing2D, Hash, LayerId, LineTypeId, SheetId, SpaceId};
 
-/// 形式固有の情報（決定 0022・0115）。共通の要素にできない残りを、系統・版・型付きの値・出所と、
+/// 形式固有の情報（決定 0022・0115）。共通の要素にできない残りを、系統・バージョン・型付きの値・出所と、
 /// 読んだときの付く先のハッシュとともに持つ。付く先のハッシュが変われば失効したものとし、古い値を書き戻さない
 /// （決定 0156）
 #[derive(Clone, Debug, PartialEq)]
@@ -15,9 +15,9 @@ pub struct Extension {
     pub namespace: Cow<'static, str>,
     /// 名前空間の中の元の名前（XDATA の登録アプリケーション名など）。翻訳しない
     pub name: String,
-    /// 元の形式の版（DXF の `$ACADVER` など）。分からなければ `None`
+    /// 元の形式のバージョン（DXF の `$ACADVER` など）。分からなければ `None`
     pub version: Option<String>,
-    /// 名前空間の値の型の契約の版
+    /// 名前空間の値の型の契約のバージョン
     pub schema: u32,
     /// 付く先
     pub target: Target,
@@ -53,7 +53,7 @@ pub enum Target {
 /// 形式固有の情報が依存する、読んだときの付く先のハッシュ（決定 0156）
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Basis {
-    /// 図面全体。共通の欄には依存しない
+    /// 図面全体。共通のフィールドには依存しない
     Document,
     /// 要素・レイヤ・線種のハッシュ（[`Hash::element`]・[`Hash::layer`]・[`Hash::line_type`]）
     Hash(Hash),
@@ -92,9 +92,9 @@ pub struct Draft {
     pub namespace: Cow<'static, str>,
     /// 名前空間の中の元の名前
     pub name: String,
-    /// 元の形式の版
+    /// 元の形式のバージョン
     pub version: Option<String>,
-    /// 名前空間の値の型の契約の版
+    /// 名前空間の値の型の契約のバージョン
     pub schema: u32,
     /// 付く先の位置
     pub at: Position,

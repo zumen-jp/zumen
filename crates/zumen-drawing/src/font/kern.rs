@@ -113,7 +113,7 @@ pub(super) fn feature_lookups<'a>(
     table: &'a [u8],
     tag: &[u8; 4],
 ) -> Option<(BTreeSet<u16>, &'a [u8])> {
-    // 見出し: majorVersion（0）・featureListOffset（6）・lookupListOffset（8）
+    // ヘッダー: majorVersion（0）・featureListOffset（6）・lookupListOffset（8）
     if u16_at(table, 0)? != 1 {
         return None;
     }
@@ -190,7 +190,7 @@ pub(super) fn subtables(
 /// pair adjustment の副表を当てる。最初の字形が副表に入らなければ `None`。値は最初の字形の
 /// XAdvance（縦書きでは YAdvance）だけを読み、2 番目の字形の値と、位置の値（XPlacement など）は読まない
 fn adjust(subtable: &[u8], first: u16, second: u16, vertical: bool) -> Option<i16> {
-    // 見出し: posFormat（0）・coverageOffset（2）・valueFormat1（4）・valueFormat2（6）
+    // ヘッダー: posFormat（0）・coverageOffset（2）・valueFormat1（4）・valueFormat2（6）
     let covered = coverage(from(subtable, u16_at(subtable, 2)?)?, first)?;
     let (format1, format2) = (u16_at(subtable, 4)?, u16_at(subtable, 6)?);
     let (size1, size2) = (record_size(format1), record_size(format2));
@@ -311,10 +311,10 @@ pub(super) fn find(count: usize, order: impl Fn(usize) -> Option<Ordering>) -> O
     None
 }
 
-/// `kern` の表（Microsoft の版 0）の、横書き（`vertical` なら縦書き）の形式 0 の副表を集める。
-/// Apple の版 1 は読まない
+/// `kern` の表（Microsoft のバージョン 0）の、横書き（`vertical` なら縦書き）の形式 0 の副表を集める。
+/// Apple のバージョン 1 は読まない
 fn kern_pairs(table: &[u8], vertical: bool) -> Option<Vec<Pairs<'_>>> {
-    // 見出し: version（0）・nTables（2）。副表: version（0）・length（2）・coverage（4）
+    // ヘッダー: version（0）・nTables（2）。副表: version（0）・length（2）・coverage（4）
     if u16_at(table, 0)? != 0 {
         return None;
     }

@@ -1,13 +1,13 @@
 [package]
 name = "zumen-abi"
-description = "zumen の境界: 各言語から呼ぶ C ABI と wasm の関数と、スキーマで定めたメッセージ"
+description = "zumen の API: 各言語から呼ぶ C ABI と wasm の関数と、スキーマで定めたメッセージ"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 publish = true
 
-# ライブラリのファイル名に ABI の大版を入れる（zumen_abi1.dll・libzumen_abi1.so・libzumen_abi1.dylib、決定 0015）
+# ライブラリのファイル名に ABI のメジャーバージョンを入れる（zumen_abi1.dll・libzumen_abi1.so・libzumen_abi1.dylib、決定 0015）
 [lib]
 name = "zumen_abi1"
 crate-type = ["cdylib", "staticlib", "rlib"]
@@ -64,11 +64,11 @@ zumen-photo = { version = "0.2.0", path = "../zumen-photo" }
 zumen-sheet = { version = "0.2.0", path = "../zumen-sheet" }
 zumen-geology = { version = "0.2.0", path = "../zumen-geology" }
 zumen-sdk = { version = "0.2.0", path = "../zumen-sdk" }
-# P2Z・SFZ の書庫を読み書きする（#385）
+# P2Z・SFZ のアーカイブを読み書きする（#385）
 zumen-zip = { version = "0.2.0", path = "../zumen-zip" }
 
 [dev-dependencies]
-# 試験で、乱数の図面モデルをバイナリにして渡す（決定 0247）
+# テストで、乱数の図面モデルをバイナリにして渡す（決定 0247）
 zumen-drawing = { path = "../zumen-drawing", features = ["random"] }
 
 [lints]

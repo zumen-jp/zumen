@@ -1,6 +1,6 @@
-//! コーデックの試験の道具（決定 0017 のテストキット）。
+//! コーデックのテストのツール（決定 0017 のテストキット）。
 //!
-//! どれも、食い違いを人向けの文で返す。試験の側で `unwrap` する。予算は、[`stops_at_same_place`] と fuzz の関数
+//! どれも、食い違いを人向けの文で返す。テストの側で `unwrap` する。予算は、[`stops_at_same_place`] と fuzz の関数
 //! （[`survives`]・[`survives_lift`]・[`survives_with`]）のほかは既定の上限を使う。
 
 use std::collections::BTreeMap;
@@ -233,7 +233,7 @@ fn limited<T>(
     }
 }
 
-/// 同じバイト列から、記録した一覧と同じ ID が出る（ID の契約試験）。`ids` は、バイト列を読んで ID の一覧を
+/// 同じバイト列から、記録した一覧と同じ ID が出る（ID の契約テスト）。`ids` は、バイト列を読んで ID の一覧を
 /// 作る関数で、2 回呼んで同じになることも確かめる。`recorded` は 1 行に 1 つの ID で、空の行は飛ばす。ID を
 /// 変えるには、先に決定の記録が要る
 pub fn ids_match(
@@ -282,7 +282,7 @@ fn fuzz_limits() -> Limits {
 }
 
 /// fuzz で渡すバイト列を読む（決定 0010・0017）。小さい予算の中で止まり、2 回読んで同じ結果（読めたか・止まった
-/// 理由・診断・使った量）になることを確かめる。パニックしないことは、呼ぶ側の fuzz の道具が確かめる。cargo-fuzz の
+/// 理由・診断・使った量）になることを確かめる。パニックしないことは、呼ぶ側の fuzz のツールが確かめる。cargo-fuzz の
 /// target から呼び、`Err` ならパニックにして知らせる
 pub fn survives<C: Codec>(data: &[u8]) -> Result<(), String> {
     survives_with(data, C::read)

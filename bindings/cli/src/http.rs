@@ -55,7 +55,7 @@ pub struct Limits {
     pub idle: Duration,
     /// 同時のつながりの数
     pub connections: usize,
-    /// 要求の行と見出しのバイト数
+    /// 要求の行とヘッダーのバイト数
     pub head_bytes: u64,
     /// 要求を読み終えるまでの時間
     pub read_timeout: Duration,
@@ -100,7 +100,7 @@ struct State {
     /// ループバックで待ち受けているか。そうなら `Host` を確かめる
     loopback: bool,
     sessions: Mutex<BTreeMap<String, Arc<Slot>>>,
-    /// ID の種。OS の乱数で鍵を決めた SipHash に、数を通して ID を作る
+    /// ID の種。OS の乱数でキーを決めた SipHash に、数を通して ID を作る
     seeds: [RandomState; 2],
     next: AtomicU64,
     input_bytes: AtomicU64,
@@ -441,7 +441,7 @@ fn read_request(
         match head.read_until(b'\n', &mut line) {
             Ok(0) | Err(_) => {
                 return Err(if head.limit() == 0 {
-                    Reply::problem(431, "要求の行と見出しが長すぎる")
+                    Reply::problem(431, "要求の行とヘッダーが長すぎる")
                 } else {
                     broken()
                 });
@@ -449,7 +449,7 @@ fn read_request(
             Ok(_) => {}
         }
         if !line.ends_with(b"\n") {
-            return Err(Reply::problem(431, "要求の行と見出しが長すぎる"));
+            return Err(Reply::problem(431, "要求の行とヘッダーが長すぎる"));
         }
         while line.last().is_some_and(|b| *b == b'\n' || *b == b'\r') {
             line.pop();

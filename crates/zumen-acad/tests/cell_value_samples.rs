@@ -1,5 +1,5 @@
-//! 試料の DXF・DWG で、表のセルの値の型・単位・表示の書式を移す（決定 0147）。
-//! 試料は公開サンプルの `samples/` と、受け取った図面を置く `ZUMEN_SAMPLES` のフォルダーから集める。
+//! サンプルの DXF・DWG で、表のセルの値の型・単位・表示の書式を移す（決定 0147）。
+//! サンプルは公開サンプルの `samples/` と、受け取った図面を置く `ZUMEN_SAMPLES` のフォルダーから集める。
 #![cfg(feature = "drawing")]
 
 mod support;
@@ -10,7 +10,7 @@ use zumen_base::{Budget, CancelToken, Cx, Diagnostics};
 use zumen_drawing::{CellData, CellValue, DateTime, Drawing2D, Shape, ValueUnit};
 use zumen_sdk::{Codec, Lift};
 
-/// フォルダーの中の、2007 からの版の ASCII の DXF と、2010 からの版の DWG
+/// フォルダーの中の、2007 からのバージョンの ASCII の DXF と、2010 からのバージョンの DWG
 #[cfg(test)]
 fn drawings() -> Vec<PathBuf> {
     let mut found: Vec<_> = support::sample_files()
@@ -41,8 +41,8 @@ fn lift(path: &Path) -> Drawing2D {
     }
 }
 
-/// 試料の表は、文字列のほかに、実数・角度・点・日時・整数・百分率・通貨の値を持つ。DXF の 2007 からの版と、DWG の
-/// 2010 からの版で、同じ値・単位・書式になる。角度はラジアンで持つ（表示する文字は 60）。DXF の実数は文字の
+/// サンプルの表は、文字列のほかに、実数・角度・点・日時・整数・百分率・通貨の値を持つ。DXF の 2007 からのバージョンと、DWG の
+/// 2010 からのバージョンで、同じ値・単位・書式になる。角度はラジアンで持つ（表示する文字は 60）。DXF の実数は文字の
 /// 精度で丸まるので、近さで比べる
 #[test]
 fn table_cells_keep_typed_values_in_dwg_and_dxf() {

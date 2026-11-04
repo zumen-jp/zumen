@@ -1,14 +1,14 @@
-"""確認の束の DWG を ACadSharp で読んだ値と、zumen が読んだ値を照らす（#503、決定 0254）。
+"""検証キットの DWG を ACadSharp で読んだ値と、zumen が読んだ値を照らす（#503、決定 0254）。
 
-使い方: 先に acadsharp/ の道具で束の DWG を読み（acadsharp-dump.json を作る）、次に
-        python check_acadsharp.py <束のフォルダー>
+使い方: 先に acadsharp/ のツールでキットの DWG を読み（acadsharp-dump.json を作る）、次に
+        python check_acadsharp.py <キットのフォルダー>
 
 DWG のファイルごとに、次を確かめる。
 
 - ACadSharp が読める。書き戻したファイルの読みで、入力にない通知（警告・誤り）が出ない。
 - zumen が読んだ画層の名前が、ACadSharp の画層の表と同じ。
 - zumen の要素の出所のハンドルの図形が ACadSharp にあり、種類・画層と、モデル空間では形の種類と値（端点・中心・
-  半径・角度・位置・文字・尺度・格子・属性など）が同じ。形の欄は両向きに比べる。比べられる種類のモデル空間の
+  半径・角度・位置・文字・尺度・格子・属性など）が同じ。形のフィールドは両向きに比べる。比べられる種類のモデル空間の
   図形は、zumen の要素が形を持つ。
 - 要素にならないモデル空間の図形の数が、種類ごとに、移さなかったことを言う zumen の診断（compare.py の
   LIFTED_AWAY。kind は図形の種類。kind を持たない code は、その code が言いうる種類（KINDLESS）に足す）の件数を

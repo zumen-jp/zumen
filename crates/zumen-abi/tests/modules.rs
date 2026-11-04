@@ -1,6 +1,6 @@
 //! wasm のモジュールを分けて作る（決定 0013・0221）。表は schema/boundary.toml から生成する。
 //!
-//! モジュールの試験は、そのモジュールの feature だけを入れて流す:
+//! モジュールのテストは、そのモジュールの feature だけを入れて流す:
 //! `cargo test -p zumen-abi --no-default-features --features drawing --test modules`（bim・civil・pointcloud・plugin も
 //! 同じ）。
 
@@ -73,7 +73,7 @@ fn detection_follows_the_codecs_in_the_order_open_tries() {
                 suffixes: &[b".p21", b".sfc"],
             }],
         ),
-        // 基盤地図情報の配布の書庫（決定 0251）
+        // 基盤地図情報の配布のアーカイブ（決定 0251）
         ("fgd", zumen_fgd::ARCHIVE),
         ("ifc", IfcZip::SIGNATURES),
     ];
@@ -103,7 +103,7 @@ fn answers_only_the_ops_of_the_modules_it_has() {
                 "{op}"
             );
             if !expected {
-                // 欄を読む前に断る
+                // フィールドを読む前に断る
                 let (status, response) = call(&mut session, &format!(r#"{{"v":1,"op":"{op}"}}"#));
                 assert_eq!(status, Status::Failed, "{op}");
                 assert!(

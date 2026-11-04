@@ -1,4 +1,4 @@
-//! 見出しの変数の区切り（ODS 5.4.1 の 9）。今は、用紙空間とモデル空間のブロックのレコードの
+//! ヘッダーの変数のセクション（ODS 5.4.1 の 9）。今は、用紙空間とモデル空間のブロックのレコードの
 //! ハンドルと、図面モデルへの変換に使う変数（INSUNITS・PLIMMIN・PLIMMAX・PDMODE・PDSIZE・LTSCALE）だけを取り出す。
 //! どちらの空間の図形も、所有者のハンドルを持たない（entmode が 1・2）ので、所有者はこのハンドルで決まる。
 
@@ -12,22 +12,22 @@ const HEADER_VARIABLES: SpecRef = SpecRef {
     section: "9 Data section AcDb:Header (HEADER VARIABLES)",
 };
 
-/// 区切りの記録の番号
+/// セクションの記録の番号
 pub(super) const NUMBER: u8 = 0;
 
-/// 区切りの始まりの印
+/// セクションの始まりのマーカー
 const START: [u8; 16] = [
     0xCF, 0x7B, 0x1F, 0x23, 0xFD, 0xDE, 0x38, 0xA9, 0x5F, 0x7C, 0x68, 0xB8, 0x4E, 0x6D, 0x33, 0x5F,
 ];
 
-/// 区切りの終わりの印
+/// セクションの終わりのマーカー
 const END: [u8; 16] = [
     0x30, 0x84, 0xE0, 0xDC, 0x02, 0x21, 0xC7, 0x56, 0xA0, 0x83, 0x97, 0x47, 0xB1, 0x92, 0xCC, 0xA0,
 ];
 
 const PART: &str = "header variables";
 
-/// 取り出した見出しの変数
+/// 取り出したヘッダーの変数
 #[derive(Clone, Copy, Debug)]
 pub(super) struct Header {
     /// 用紙空間（`*Paper_Space`）のブロックのレコードのハンドル
@@ -88,7 +88,7 @@ const FIRST: [(Field, usize); 13] = [
     (Bd, 4),
     (Tv, 4),
     (Bl, 2),
-    // 今のビューポートの図形の見出し
+    // 今のビューポートの図形のヘッダー
     (H, 1),
     // DIMASO から PELLIPSE まで
     (B, 20),
@@ -109,9 +109,9 @@ const FIRST: [(Field, usize); 13] = [
     (Bd, 1),
 ];
 
-/// R2004 の、空間ごとの変数より前の変数の並び。R2000 と比べて、今のビューポートの図形の見出しが
+/// R2004 の、空間ごとの変数より前の変数の並び。R2000 と比べて、今のビューポートの図形のヘッダーが
 /// なく、LIMCHECK と USRTIMER の間に B が 1 つ、PDMODE と USERI1 の間と TDUPDATE と TDINDWG の間に
-/// BL が 3 つずつある（どれも使い道は分からない。試料の DWG と DXF の比較で確かめた）
+/// BL が 3 つずつある（どれも使い道は分からない。サンプルの DWG と DXF の比較で確かめた）
 const FIRST_R2004: [(Field, usize); 16] = [
     (Bd, 4),
     (Tv, 4),
@@ -174,7 +174,7 @@ const LAST: [(Field, usize); 16] = [
 /// R2010 からの、空間ごとの変数より後の、寸法の変数の並び。R2004 と比べて、DIMTM の後に
 /// DIMFXL・DIMJOGANG・DIMTFILL・DIMTFILLCLR が、DIMAZIN の後に DIMARCSYM が、DIMATFIT の後に
 /// 2 つの B（DIMFXLON・DIMTXTDIRECTION と見る）・DIMALTMZF・DIMALTMZS・DIMMZF・DIMMZS が、
-/// DIMBLK2 の後に DIMLTYPE・DIMLTEX1・DIMLTEX2 がある（試料の DWG と DXF の比較で確かめた）
+/// DIMBLK2 の後に DIMLTYPE・DIMLTEX1・DIMLTEX2 がある（サンプルの DWG と DXF の比較で確かめた）
 const LAST_R2010: [(Field, usize); 26] = [
     (Tv, 2),
     (Bd, 9),
@@ -206,7 +206,7 @@ const LAST_R2010: [(Field, usize); 26] = [
 
 /// R2000 の、寸法の変数より後、CEPSNTYPE より前の変数の並び
 const TAIL: [(Field, usize); 6] = [
-    // 9 つの表とビューポートの図形の見出しの管理オブジェクト、ACAD_GROUP・ACAD_MLINESTYLE・
+    // 9 つの表とビューポートの図形のヘッダーの管理オブジェクト、ACAD_GROUP・ACAD_MLINESTYLE・
     // 名前付きオブジェクトの辞書
     (H, 13),
     // TSTACKALIGN・TSTACKSIZE・HYPERLINKBASE・STYLESHEET
@@ -214,14 +214,14 @@ const TAIL: [(Field, usize); 6] = [
     (Tv, 2),
     // LAYOUTS・PLOTSETTINGS・PLOTSTYLES の辞書
     (H, 3),
-    // 印（CELWEIGHT・ENDCAPS など）・INSUNITS
+    // フラグ（CELWEIGHT・ENDCAPS など）・INSUNITS
     (Bl, 1),
     (Bs, 1),
 ];
 
 /// R2004 の、寸法の変数より後、CEPSNTYPE より前の変数の並び。R2000 と比べて、ビューポートの図形の
-/// 見出しの管理オブジェクトがなく、PLOTSTYLES の辞書の後にハンドルが 2 つある（使い道は分からない。
-/// 試料の DWG と DXF の比較で確かめた）
+/// ヘッダーの管理オブジェクトがなく、PLOTSTYLES の辞書の後にハンドルが 2 つある（使い道は分からない。
+/// サンプルの DWG と DXF の比較で確かめた）
 const TAIL_R2004: [(Field, usize); 6] = [(H, 12), (Bs, 2), (Tv, 2), (H, 5), (Bl, 1), (Bs, 1)];
 
 /// R2010 の、寸法の変数より後、CEPSNTYPE より前の変数の並び。R2004 と比べて、PLOTSTYLES の
@@ -234,7 +234,7 @@ const TAIL_R2013: [(Field, usize); 6] = [(H, 12), (Bs, 2), (Tv, 2), (H, 8), (Bl,
 /// INTERSECTIONDISPLAY、PROJECTNAME
 const GUIDS_R2004: [(Field, usize); 4] = [(Rc, 6), (Bs, 2), (Rc, 2), (Tv, 1)];
 
-/// 見出しの変数の区切りを読み、取り出した変数を返す。区切りがないか大きさが 0 なら、
+/// ヘッダーの変数のセクションを読み、取り出した変数を返す。セクションがないか大きさが 0 なら、
 /// 何も返さない。壊れていれば、診断を返して何も返さない
 pub(super) fn header(
     src: &[u8],
@@ -244,7 +244,7 @@ pub(super) fn header(
 ) -> Option<Header> {
     let start = span.start;
     let found = section(src, start, release).and_then(|(data, crc_at)| {
-        // CRC は、大きさの RL からデータの終わりまでを 0xC0C1 から計算する（クラスの区切りと同じ）
+        // CRC は、大きさの RL からデータの終わりまでを 0xC0C1 から計算する（クラスのセクションと同じ）
         let crc = crc16(
             OBJECT_CRC_SEED,
             src.get(start + 16..crc_at).unwrap_or_default(),
@@ -265,8 +265,8 @@ pub(super) fn header(
     found
 }
 
-/// 始まりと終わりの印を確かめ、データと CRC の位置を返す。R2010 からは、大きさの RL の後に
-/// 上位の RL があることがある（同じ版でも、ない図面がある）。終わりの印が、データと CRC の後に
+/// 始まりと終わりのマーカーを確かめ、データと CRC の位置を返す。R2010 からは、大きさの RL の後に
+/// 上位の RL があることがある（同じバージョンでも、ない図面がある）。終わりのマーカーが、データと CRC の後に
 /// ある方をとる
 fn section(src: &[u8], start: usize, release: Release) -> Option<(&[u8], usize)> {
     if src.get(start..start.saturating_add(16))? != START {
@@ -286,9 +286,9 @@ fn section(src: &[u8], start: usize, release: Release) -> Option<(&[u8], usize)>
     Some((src.get(data_at..crc_at)?, crc_at))
 }
 
-/// データを読むビット列を作る。R2010 からは、データの初めに文字列の流れの終わりまでのビットの数
-/// （RL）があり、その位置からハンドルの流れが始まる。HANDSEED のほかのハンドルと文字列は、主の
-/// データにない。R2013 からは、変数の前に REQUIREDVERSIONS（BLL）がある（試料の DWG と DXF の
+/// データを読むビット列を作る。R2010 からは、データの初めに文字列のストリームの終わりまでのビットの数
+/// （RL）があり、その位置からハンドルのストリームが始まる。HANDSEED のほかのハンドルと文字列は、主の
+/// データにない。R2013 からは、変数の前に REQUIREDVERSIONS（BLL）がある（サンプルの DWG と DXF の
 /// 比較で確かめた）
 fn streams(data: &[u8], release: Release) -> Option<Bits<'_>> {
     let mut bits = Bits::with_release(data, release);
@@ -304,8 +304,8 @@ fn streams(data: &[u8], release: Release) -> Option<Bits<'_>> {
     Some(bits)
 }
 
-/// 版 `release` の、空間ごとの変数より前の変数の並び。R2010 からは、R2004 と同じ並びのハンドルを
-/// 別の流れから読む（決定 0084）
+/// バージョン `release` の、空間ごとの変数より前の変数の並び。R2010 からは、R2004 と同じ並びのハンドルを
+/// 別のストリームから読む（決定 0084）
 fn first_fields(release: Release) -> Option<&'static [(Field, usize)]> {
     match release {
         Release::R2000 => Some(&FIRST),
@@ -313,7 +313,7 @@ fn first_fields(release: Release) -> Option<&'static [(Field, usize)]> {
     }
 }
 
-/// 変数を順に読み、取り出した変数を返す。見出しのハンドルは絶対の値
+/// 変数を順に読み、取り出した変数を返す。ヘッダーのハンドルは絶対の値
 fn variables(bits: &mut Bits) -> Option<Header> {
     let first: &[(Field, usize)] = match bits.release() {
         Release::R2000 => &FIRST,
@@ -416,10 +416,10 @@ fn skip(bits: &mut Bits, field: Field) -> Option<()> {
     }
 }
 
-/// R2000・R2004 の見出しの変数の HANDSEED（決定 0052・0078）
+/// R2000・R2004 のヘッダーの変数の HANDSEED（決定 0052・0078）
 #[derive(Clone, Copy, Debug)]
 pub(super) struct HandleSeed {
-    /// 区切りの始まり（始まりの印の位置）
+    /// セクションの始まり（始まりのマーカーの位置）
     start: usize,
     /// データの始まりと CRC の位置
     data_at: usize,
@@ -432,7 +432,7 @@ pub(super) struct HandleSeed {
     pub(super) value: u64,
 }
 
-/// `start` から始まる版 `release` の見出しの変数の区切りの、HANDSEED。読めなければ `None`
+/// `start` から始まるバージョン `release` のヘッダーの変数のセクションの、HANDSEED。読めなければ `None`
 pub(super) fn handle_seed(src: &[u8], start: usize, release: Release) -> Option<HandleSeed> {
     let first = first_fields(release)?;
     let (data, crc_at) = section(src, start, release)?;
@@ -452,7 +452,7 @@ pub(super) fn handle_seed(src: &[u8], start: usize, release: Release) -> Option<
     })
 }
 
-/// `src` の見出しの変数の HANDSEED を `value` にし、区切りの CRC を直す。HANDSEED の大きさ（バイト）が
+/// `src` のヘッダーの変数の HANDSEED を `value` にし、セクションの CRC を直す。HANDSEED の大きさ（バイト）が
 /// 変わる値なら `None`
 pub(super) fn set_handle_seed(src: &mut [u8], seed: &HandleSeed, value: u64) -> Option<()> {
     let size = (u64::BITS - value.leading_zeros()).div_ceil(8);
@@ -470,7 +470,7 @@ pub(super) fn set_handle_seed(src: &mut [u8], seed: &HandleSeed, value: u64) -> 
     store(src, seed.start, seed.data_at, seed.crc_at, out)
 }
 
-/// 書き直す見出しの変数。`None` の変数は変えない
+/// 書き直すヘッダーの変数。`None` の変数は変えない
 #[derive(Clone, Copy, Debug, Default)]
 pub(super) struct Values {
     /// INSUNITS（決定 0069）
@@ -493,11 +493,11 @@ impl Values {
     }
 }
 
-/// `start` から始まる版 `release` の見出しの変数の区切りの、`values` の変数を書き直した区切り（始まりの印から終わりの
-/// 印まで）と、元の区切りの範囲を返す（決定 0069・0078・0084・0190・0193）。CRC は計算し直す。
+/// `start` から始まるバージョン `release` のヘッダーの変数のセクションの、`values` の変数を書き直したセクション（始まりのマーカーから終わりの
+/// マーカーまで）と、元のセクションの範囲を返す（決定 0069・0078・0084・0190・0193）。CRC は計算し直す。
 ///
-/// PDMODE・PDSIZE のビットの数が変われば、後ろのビットをそのままずらし、区切りの大きさ（RL）を書き直す。R2010 からは、
-/// データの初めの文字列の流れの終わりの位置（RL）も同じだけずらす。文字列の流れの大きさと有無の印は、その位置から
+/// PDMODE・PDSIZE のビットの数が変われば、後ろのビットをそのままずらし、セクションの大きさ（RL）を書き直す。R2010 からは、
+/// データの初めの文字列のストリームの終わりの位置（RL）も同じだけずらす。文字列のストリームの大きさと有無のフラグは、その位置から
 /// 前へ数えるので変わらない（オブジェクトと同じ。決定 0193）。INSUNITS は、BS の幅が変わる値なら `None`
 pub(super) fn set_values(
     src: &[u8],
@@ -549,7 +549,7 @@ pub(super) fn set_values(
         data.get_mut(..4)?
             .copy_from_slice(&u32::try_from(end).ok()?.to_le_bytes());
     }
-    // 始まりの印・大きさ（RL）・R2010 からの上位の RL・データ・CRC・終わりの印
+    // 始まりのマーカー・大きさ（RL）・R2010 からの上位の RL・データ・CRC・終わりのマーカー
     let mut section = src.get(start..start + 16)?.to_vec();
     section.extend_from_slice(&u32::try_from(data.len()).ok()?.to_le_bytes());
     section.extend_from_slice(src.get(start + 20..data_at)?);
@@ -560,7 +560,7 @@ pub(super) fn set_values(
     Some((start..crc_at + 18, section))
 }
 
-/// 見出しの変数の区切りのデータを、同じ大きさ（バイト）の `out` に置き換え、CRC を直す。大きさが違えば `None`
+/// ヘッダーの変数のセクションのデータを、同じ大きさ（バイト）の `out` に置き換え、CRC を直す。大きさが違えば `None`
 fn store(
     src: &mut [u8],
     start: usize,
@@ -588,7 +588,7 @@ mod tests {
     const MODEL: u64 = 0x1F;
     const LIMITS: [f64; 4] = [1.0, 2.0, 307.0, 220.0];
 
-    /// 主のデータと、R2010 からのハンドルの流れ
+    /// 主のデータと、R2010 からのハンドルのストリーム
     struct Streams {
         release: Release,
         main: BitWriter,
@@ -628,8 +628,8 @@ mod tests {
         }
     }
 
-    /// 版 `release` の見出しの変数の区切りを、読む側の並びどおりに作る。PDMODE・PDSIZE は `point`、INSUNITS は 4、
-    /// 用紙空間の範囲は [`LIMITS`]。R2010 からは文字列とハンドルを別の流れに書き、`high` なら大きさの後に上位の RL を
+    /// バージョン `release` のヘッダーの変数のセクションを、読む側の並びどおりに作る。PDMODE・PDSIZE は `point`、INSUNITS は 4、
+    /// 用紙空間の範囲は [`LIMITS`]。R2010 からは文字列とハンドルを別のストリームに書き、`high` なら大きさの後に上位の RL を
     /// 置く
     fn section_of(release: Release, (mode, size): (i16, f64), high: bool) -> Vec<u8> {
         let split = release >= Release::R2010;
@@ -740,7 +740,7 @@ mod tests {
         (found, diag)
     }
 
-    /// PDMODE・PDSIZE を書く幅が変わると、区切りの大きさが変わる。後ろの変数と、R2010 からの文字列とハンドルの流れは
+    /// PDMODE・PDSIZE を書く幅が変わると、セクションの大きさが変わる。後ろの変数と、R2010 からの文字列とハンドルのストリームは
     /// 元のまま読める（決定 0193）
     #[test]
     fn point_values_of_another_width_resize_the_section() {
@@ -780,7 +780,7 @@ mod tests {
                     (PAPER, MODEL, 4, LIMITS),
                     "{release:?} {from:?} {to:?}"
                 );
-                // 区切りの大きさは、ずれたビットの分だけ変わる
+                // セクションの大きさは、ずれたビットの分だけ変わる
                 let bits = |(mode, size): (i16, f64)| {
                     let mut w = BitWriter::default();
                     w.bs(mode);

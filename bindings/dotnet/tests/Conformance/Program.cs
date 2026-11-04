@@ -1,9 +1,9 @@
-// 適合試験を、.NET の包み（bindings/dotnet）を通して流す（決定 0006・0196）。
+// 適合テストを、.NET のラッパー（bindings/dotnet）を通して流す（決定 0006・0196）。
 //
 // 使い方: dotnet run --project bindings/dotnet/tests/Conformance -- <ネイティブのライブラリ>
 //
-// bindings/conformance/cases/*.json を、包みのセッションのメソッドで流し、状態と応答の値が期待どおりで、ハッシュの
-// 一覧が hashes.txt と一致することを確かめる。シーンの blob は、包みの読み手で読み、応答の数と合うかを確かめる。
+// bindings/conformance/cases/*.json を、ラッパーのセッションのメソッドで流し、状態と応答の値が期待どおりで、ハッシュの
+// 一覧が hashes.txt と一致することを確かめる。シーンの blob は、ラッパーのリーダーで読み、応答の数と合うかを確かめる。
 // 手順の読み方と応答の確かめ方は、Rust の側（bindings/conformance/src/lib.rs）と、Python の側
 // （bindings/python/tests/conformance.py）と同じ規則で書く。
 
@@ -27,7 +27,7 @@ namespace Zumen.Conformance
 {
     internal static class Program
     {
-        /// <summary>手順の種類。手順は、どれか 1 つの欄を持つ</summary>
+        /// <summary>手順の種類。手順は、どれか 1 つのフィールドを持つ</summary>
         private static readonly string[] Actions = { "session", "push", "call", "call_text", "call_hex", "take" };
 
         /// <summary>JSON Pointer で引けなかった</summary>
@@ -226,7 +226,7 @@ namespace Zumen.Conformance
             }
         }
 
-        /// <summary>境界の関数を呼び、状態の名前と、書かれたバイト列を返す</summary>
+        /// <summary>API の関数を呼び、状態の名前と、書かれたバイト列を返す</summary>
         private static (string Status, T? Value) Attempt<T>(Func<T> call)
             where T : class
         {
@@ -250,7 +250,7 @@ namespace Zumen.Conformance
 
         private static long Count(object? counts, string name) => ((JsonNumber)((JsonObject)counts!)[name]!).ToInt64();
 
-        /// <summary>シーンの blob を読み手で読み、応答の数と合うかを確かめる</summary>
+        /// <summary>シーンの blob をリーダーで読み、応答の数と合うかを確かめる</summary>
         private static void CheckScene(string at, byte[] blob, JsonObject result, List<string> failures)
         {
             Scene scene;
@@ -266,8 +266,8 @@ namespace Zumen.Conformance
             var counts = result["counts"];
             var checks = new (string Label, long Actual, long Expected)[]
             {
-                ("大版", scene.Major, SceneLayout.Major),
-                ("区画の数", scene.Sections, SceneLayout.Sections.Count),
+                ("メジャーバージョン", scene.Major, SceneLayout.Major),
+                ("セクションの数", scene.Sections, SceneLayout.Sections.Count),
                 ("塊の数", scene.Chunks, Count(counts, "chunks")),
                 ("chunk_origins の行", scene.Rows("chunk_origins"), Count(counts, "chunks")),
                 ("text_xy の行", scene.Rows("text_xy"), Count(counts, "texts")),
@@ -275,7 +275,7 @@ namespace Zumen.Conformance
                 ("glyph_xy の行", scene.Rows("glyph_xy"), Count(counts, "glyphs")),
                 ("line_xy と face_xy の行", scene.Rows("line_xy") + scene.Rows("face_xy"), Count(counts, "vertices")),
             };
-            // 文字の文字列は、strings の区画から引ける
+            // 文字の文字列は、strings のセクションから引ける
             var strings = scene.ToArray<uint>("text_strings");
 #if NET
             if (!scene.Column<uint>("text_strings").SequenceEqual(strings))
@@ -341,7 +341,7 @@ namespace Zumen.Conformance
                         (actual, opened) = Attempt(() => zumen.Open(BytesOf(input, "options", "options_text")));
                         if (actual != "ok" || opened == null)
                         {
-                            // 作れなかったら、閉じたセッションで続ける。境界は、空のセッションへの呼び出しを invalid にする
+                            // 作れなかったら、閉じたセッションで続ける。API は、空のセッションへの呼び出しを invalid にする
                             opened = zumen.Open();
                             opened.Dispose();
                         }
@@ -412,14 +412,14 @@ namespace Zumen.Conformance
             CompareHashes(conformance, hashes, failures);
             CheckSession(zumen, failures);
 
-            var summary = "包みを通した試験の組 " + files.Count + " 件、ハッシュ " + hashes.Count + " 件、読んだシーン " + scenes + " 件";
+            var summary = "ラッパーを通したテストの組 " + files.Count + " 件、ハッシュ " + hashes.Count + " 件、読んだシーン " + scenes + " 件";
             Console.WriteLine(summary);
             var stepSummary = Environment.GetEnvironmentVariable("GITHUB_STEP_SUMMARY");
             if (!string.IsNullOrEmpty(stepSummary))
             {
                 var runtime = System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription;
                 var bits = IntPtr.Size * 8;
-                File.AppendAllText(stepSummary, "### .NET の包みの適合試験（" + runtime + "、" + bits + " bit）\n\n" + summary + "\n", Utf8);
+                File.AppendAllText(stepSummary, "### .NET のラッパーの適合テスト（" + runtime + "、" + bits + " bit）\n\n" + summary + "\n", Utf8);
             }
             if (scenes == 0)
             {

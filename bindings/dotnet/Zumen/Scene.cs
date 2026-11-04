@@ -1,8 +1,8 @@
-// シーンの blob の読み手（決定 0137・0196）。配置は schema/scene.toml にあり、区画の定義は Constants.g.cs に生成する。
+// シーンの blob のリーダー（決定 0137・0196）。配置は schema/scene.toml にあり、セクションの定義は Constants.g.cs に生成する。
 //
-// 見出しは ZMSC、大版（u16）、小版（u16）、塊の数（u32）、区画の数（u32）で、続けて区画ごとに始まりと長さ（u32、
-// バイト）を置く。数はリトルエンディアン。知らない区画（新しい小版で足したもの）は読み飛ばし、ない区画（古い小版）は
-// 空の列にする。大版が違えば読まない。
+// ヘッダーは ZMSC、メジャーバージョン（u16）、マイナーバージョン（u16）、塊の数（u32）、セクションの数（u32）で、続けてセクションごとに始まりと長さ（u32、
+// バイト）を置く。数はリトルエンディアン。知らないセクション（新しいマイナーバージョンで足したもの）は読み飛ばし、ないセクション（古いマイナーバージョン）は
+// 空の列にする。メジャーバージョンが違えば読まない。
 
 #nullable enable
 
@@ -14,7 +14,7 @@ using System.Runtime.InteropServices;
 
 namespace Zumen
 {
-    /// <summary>シーンの区画の定義</summary>
+    /// <summary>シーンのセクションの定義</summary>
     public sealed class SceneSection
     {
         internal SceneSection(int index, string name, Type type, int width)
@@ -25,7 +25,7 @@ namespace Zumen
             Width = width;
         }
 
-        /// <summary>区画の表での番号</summary>
+        /// <summary>セクションの表での番号</summary>
         public int Index { get; }
 
         /// <summary>名前</summary>
@@ -58,16 +58,16 @@ namespace Zumen
             this.columns = columns;
         }
 
-        /// <summary>大版</summary>
+        /// <summary>メジャーバージョン</summary>
         public int Major { get; }
 
-        /// <summary>小版</summary>
+        /// <summary>マイナーバージョン</summary>
         public int Minor { get; }
 
         /// <summary>塊の数</summary>
         public uint Chunks { get; }
 
-        /// <summary>blob にある区画の数。この包みが知らない区画も数える</summary>
+        /// <summary>blob にあるセクションの数。このラッパーが知らないセクションも数える</summary>
         public uint Sections { get; }
 
         /// <summary>シーンの blob を読む</summary>
@@ -89,11 +89,11 @@ namespace Zumen
             var sections = U32(blob, 12);
             if (major != SceneLayout.Major)
             {
-                throw new FormatException("シーンの大版が " + major + "（この包みは " + SceneLayout.Major + "）");
+                throw new FormatException("シーンのメジャーバージョンが " + major + "（このラッパーは " + SceneLayout.Major + "）");
             }
             if (header + (ulong)entry * sections > (ulong)blob.Length)
             {
-                throw new FormatException("区画の表が blob に収まらない");
+                throw new FormatException("セクションの表が blob に収まらない");
             }
             var columns = new Dictionary<string, (int, int)>();
             foreach (var section in SceneLayout.Sections)
@@ -108,14 +108,14 @@ namespace Zumen
                 var row = (uint)(section.Size * section.Width);
                 if ((ulong)start + length > (ulong)blob.Length || length % row != 0)
                 {
-                    throw new FormatException("区画 " + section.Name + " の始まりか長さが合わない");
+                    throw new FormatException("セクション " + section.Name + " の始まりか長さが合わない");
                 }
                 columns[section.Name] = ((int)start, (int)length);
             }
             return new Scene(blob, major, minor, chunks, sections, columns);
         }
 
-        /// <summary>区画の定義を名前で引く</summary>
+        /// <summary>セクションの定義を名前で引く</summary>
         public static SceneSection SectionOf(string name)
         {
             foreach (var section in SceneLayout.Sections)
@@ -125,17 +125,17 @@ namespace Zumen
                     return section;
                 }
             }
-            throw new KeyNotFoundException("知らない区画: " + name);
+            throw new KeyNotFoundException("知らないセクション: " + name);
         }
 
-        /// <summary>区画の行の数</summary>
+        /// <summary>セクションの行の数</summary>
         public int Rows(string name)
         {
             var section = SectionOf(name);
             return columns[name].Length / (section.Size * section.Width);
         }
 
-        /// <summary>区画のバイト列（リトルエンディアン）。写さない</summary>
+        /// <summary>セクションのバイト列（リトルエンディアン）。写さない</summary>
         public ArraySegment<byte> Bytes(string name)
         {
             SectionOf(name);
@@ -143,7 +143,7 @@ namespace Zumen
             return new ArraySegment<byte>(blob, start, length);
         }
 
-        /// <summary>区画の値を配列に写す。T は区画の値の型（SceneSection.Type）にする</summary>
+        /// <summary>セクションの値を配列に写す。T はセクションの値の型（SceneSection.Type）にする</summary>
         public T[] ToArray<T>(string name)
             where T : struct
         {
@@ -160,7 +160,7 @@ namespace Zumen
 
 #if NET
         /// <summary>
-        /// 区画の値を、行ごとに Width 個の値を並べた列で見る。T は区画の値の型（SceneSection.Type）にする。
+        /// セクションの値を、行ごとに Width 個の値を並べた列で見る。T はセクションの値の型（SceneSection.Type）にする。
         /// リトルエンディアンの環境では blob を写さない
         /// </summary>
         public ReadOnlySpan<T> Column<T>(string name)
@@ -176,13 +176,13 @@ namespace Zumen
         }
 #endif
 
-        /// <summary>strings の区画から、始まりと長さ（バイト）で文字列を引く</summary>
+        /// <summary>strings のセクションから、始まりと長さ（バイト）で文字列を引く</summary>
         public string Text(uint start, uint length)
         {
             var (offset, size) = columns["strings"];
             if ((ulong)start + length > (ulong)size)
             {
-                throw new ArgumentOutOfRangeException(nameof(start), "strings の区画の外を指す");
+                throw new ArgumentOutOfRangeException(nameof(start), "strings のセクションの外を指す");
             }
             return ZumenException.Utf8.GetString(blob, offset + (int)start, (int)length);
         }
@@ -192,7 +192,7 @@ namespace Zumen
             var section = SectionOf(name);
             if (section.Type != typeof(T))
             {
-                throw new ArgumentException("区画 " + name + " の値の型は " + section.Type.Name + "（" + typeof(T).Name + " でない）");
+                throw new ArgumentException("セクション " + name + " の値の型は " + section.Type.Name + "（" + typeof(T).Name + " でない）");
             }
             return section;
         }

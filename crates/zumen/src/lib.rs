@@ -1,6 +1,6 @@
 //! zumen を Rust から使う入口（決定 0017・0203）。
 //!
-//! [`Session`] が境界の関数（決定 0012）に 1 つずつ当たる。要求と応答の型は [`messages`] にあり、
+//! [`Session`] が API の関数（決定 0012）に 1 つずつ当たる。要求と応答の型は [`messages`] にあり、
 //! `schema/messages.json` から生成している。シーンの blob は [`scene::read_scene`] で読む。
 //!
 //! ```
@@ -28,7 +28,7 @@ pub use zumen_json as json;
 
 use messages::{Blob, Diagnostic, Request, SessionOptions};
 
-/// 境界の呼び出しが成功しなかったこと
+/// API の呼び出しが成功しなかったこと
 #[derive(Clone, Debug, PartialEq)]
 pub struct Error {
     /// 状態。[`Status::Ok`] にはならない
@@ -56,10 +56,10 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-/// 応答（`schema/messages.json` の `response`）。知らない欄は読み飛ばす
+/// 応答（`schema/messages.json` の `response`）。知らないフィールドは読み飛ばす
 #[derive(Clone, Debug, PartialEq)]
 pub struct Response {
-    /// メッセージのスキーマの大版
+    /// メッセージのスキーマのメジャーバージョン
     pub v: u64,
     /// op ごとの結果。失敗したときは持たない。型は [`Response::result_as`] で決める
     pub result: Option<Value>,
@@ -113,7 +113,7 @@ fn to_bytes(value: &impl ToJson) -> Vec<u8> {
     writer.into_bytes()
 }
 
-/// コアのセッション。境界の関数に 1 つずつ当たる（決定 0012）。落とすと閉じる
+/// コアのセッション。API の関数に 1 つずつ当たる（決定 0012）。落とすと閉じる
 #[derive(Debug)]
 pub struct Session {
     inner: zumen_abi1::Session,

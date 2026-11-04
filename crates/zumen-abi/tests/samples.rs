@@ -1,5 +1,5 @@
-//! 試料の DXF と DWG を、境界の `apply` で書き戻す。
-//! 試料は公開サンプルの `samples/` と、受け取った図面を置く `ZUMEN_SAMPLES` のフォルダーから集める。
+//! サンプルの DXF と DWG を、API の `apply` で書き戻す。
+//! サンプルは公開サンプルの `samples/` と、受け取った図面を置く `ZUMEN_SAMPLES` のフォルダーから集める。
 
 use std::path::PathBuf;
 
@@ -7,11 +7,11 @@ use zumen_abi1::{Session, Status};
 use zumen_base::CancelToken;
 use zumen_json::Value;
 
-/// 試料の DXF と DWG
+/// サンプルの DXF と DWG
 #[cfg(test)]
 #[allow(
     clippy::disallowed_methods,
-    reason = "環境変数を読むのは試験だけで、コアは読まない（AGENTS.md の図面と秘密）"
+    reason = "環境変数を読むのはテストだけで、コアは読まない（AGENTS.md の図面と秘密）"
 )]
 fn drawings() -> Vec<PathBuf> {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../samples");
@@ -35,11 +35,11 @@ fn drawings() -> Vec<PathBuf> {
     found
 }
 
-/// 受け取った図面（`ZUMEN_SAMPLES` のフォルダー）があるか。試料が持つはずの要素の数は、あるときだけ確かめる
+/// 受け取った図面（`ZUMEN_SAMPLES` のフォルダー）があるか。サンプルが持つはずの要素の数は、あるときだけ確かめる
 #[cfg(test)]
 #[allow(
     clippy::disallowed_methods,
-    reason = "環境変数を読むのは試験だけで、コアは読まない（AGENTS.md の図面と秘密）"
+    reason = "環境変数を読むのはテストだけで、コアは読まない（AGENTS.md の図面と秘密）"
 )]
 fn received() -> bool {
     std::env::var_os("ZUMEN_SAMPLES")
@@ -91,7 +91,7 @@ fn entities(session: &mut Session, doc: &str) -> Vec<(String, String, String)> {
     }
 }
 
-/// 文書を開く。この境界で読めない版（R2000 でない DWG など）は `false`
+/// 文書を開く。この API で読めないバージョン（R2000 でない DWG など）は `false`
 #[cfg(test)]
 fn open(session: &mut Session, input: &str) -> bool {
     let (status, _) = call(
@@ -116,7 +116,7 @@ fn tables(session: &mut Session, doc: &str) -> Value {
     response.pointer("/result").unwrap().clone()
 }
 
-/// 試料の実寸の空間の線を `apply` で動かすと、書き戻したファイルを開き直した要素の ID とハッシュが、
+/// サンプルの実寸の空間の線を `apply` で動かすと、書き戻したファイルを開き直した要素の ID とハッシュが、
 /// `apply` が返したものと同じになり、ほかの要素は変わらない（決定 0139・0156）
 #[test]
 fn drawings_take_back_lines_moved_through_the_boundary() {
@@ -132,7 +132,7 @@ fn drawings_take_back_lines_moved_through_the_boundary() {
             .push(name.as_bytes(), &std::fs::read(&path).unwrap())
             .unwrap();
         if !open(&mut session, &name) {
-            // この境界で読めない版は、読む試験が扱う
+            // この API で読めないバージョンは、読むテストが扱う
             continue;
         }
         let before = entities(&mut session, &name);
@@ -177,7 +177,7 @@ fn drawings_take_back_lines_moved_through_the_boundary() {
     assert!(!received() || checked > 0);
 }
 
-/// 試料の DXF の実寸の空間の線を、`tables` が返したレイヤの ID で別のレイヤに移すと、開き直した線が
+/// サンプルの DXF の実寸の空間の線を、`tables` が返したレイヤの ID で別のレイヤに移すと、開き直した線が
 /// そのレイヤにある（決定 0139・0156）。DWG はレイヤを書き戻せないので、`change.edit.unsupported` になる
 #[test]
 fn drawings_move_lines_to_layers_named_by_id() {
@@ -297,7 +297,7 @@ fn shapes(session: &mut Session, doc: &str) -> Vec<(String, Option<Value>)> {
     }
 }
 
-/// 試料の実寸の空間の線の形を、境界の `replace` で置き換え、`add` で線を足すと、書き戻したファイルを開き直した
+/// サンプルの実寸の空間の線の形を、API の `replace` で置き換え、`add` で線を足すと、書き戻したファイルを開き直した
 /// 要素の形とハッシュが、送った形と `apply` が返したものと同じになり、ほかの要素は変わらない（決定 0139）
 #[test]
 fn drawings_take_back_shapes_replaced_and_added_through_the_boundary() {
@@ -322,7 +322,7 @@ fn drawings_take_back_shapes_replaced_and_added_through_the_boundary() {
             continue;
         };
         let replaced = r#"{"shape":"line","start":[-3.5,2.25],"end":[40,17.75]}"#;
-        // R12 の DXF は LWPOLYLINE を足せないので、どの版でも足せる円弧を足す
+        // R12 の DXF は LWPOLYLINE を足せないので、どのバージョンでも足せる円弧を足す
         let added =
             r#"{"shape":"arc","center":[5,6],"radius":7.5,"start_angle":30,"end_angle":210}"#;
         let request = format!(
@@ -402,7 +402,7 @@ fn close(a: &Value, b: &Value) -> bool {
     }
 }
 
-/// 試料の実寸の空間の楕円の形を、境界の `replace` で置き換えると、開き直した楕円の形とハッシュが、送った形と
+/// サンプルの実寸の空間の楕円の形を、API の `replace` で置き換えると、開き直した楕円の形とハッシュが、送った形と
 /// `apply` が返したものと同じになる（決定 0139）
 #[test]
 fn drawings_take_back_ellipses_replaced_through_the_boundary() {
@@ -468,8 +468,8 @@ fn drawings_take_back_ellipses_replaced_through_the_boundary() {
     assert!(!received() || checked.iter().all(|n| *n > 0), "{checked:?}");
 }
 
-/// 試料の実寸の空間に、境界の `add` で文字を足すと、開き直した文字の形とハッシュが、送った形と `apply` が
-/// 返したものと同じになる（決定 0139）。2007 より前の版はコード・ページで表せる文字だけを書くので（決定 0192）、
+/// サンプルの実寸の空間に、API の `add` で文字を足すと、開き直した文字の形とハッシュが、送った形と `apply` が
+/// 返したものと同じになる（決定 0139）。2007 より前のバージョンはコード・ページで表せる文字だけを書くので（決定 0192）、
 /// ANSI_932 でない図面の日本語の文字は `change.edit.unsupported` になり、ASCII の文字なら足せる
 #[test]
 fn drawings_take_back_texts_added_through_the_boundary() {
@@ -551,8 +551,8 @@ fn drawings_take_back_texts_added_through_the_boundary() {
     );
 }
 
-/// 試料の実寸の空間の 2 点の間に合わせる文字を、境界の `replace` で 2 点だけ動かし、`add` で 2 点の間に合わせる
-/// 文字を足すと、開き直した形とハッシュが、送った形と `apply` が返したものと同じになる（決定 0139）。DWG の試料は
+/// サンプルの実寸の空間の 2 点の間に合わせる文字を、API の `replace` で 2 点だけ動かし、`add` で 2 点の間に合わせる
+/// 文字を足すと、開き直した形とハッシュが、送った形と `apply` が返したものと同じになる（決定 0139）。DWG のサンプルは
 /// 2 点の間に合わせる文字を持たないので、足した文字を置き換えて確かめる
 #[test]
 fn drawings_take_back_texts_fitted_between_two_points() {
@@ -684,7 +684,7 @@ fn drawings_take_back_texts_fitted_between_two_points() {
         let expected = zumen_json::parse(expected.as_bytes()).unwrap();
         assert!(close(&found, &expected), "{name}: {found:?}");
         added[dwg] += 1;
-        // 足した文字も、2 点を動かして置き換える。DWG の試料は 2 点の間に合わせる文字を持たないため
+        // 足した文字も、2 点を動かして置き換える。DWG のサンプルは 2 点の間に合わせる文字を持たないため
         let moving = format!(
             r#"{{"shape":"text","content":"GRID X2","position":[-6,1],"end":[-12,1],"fit":"aligned","height":2,"rotation":180,"style":"{style}","style_id":"{style_id}"}}"#
         );
@@ -710,8 +710,8 @@ fn drawings_take_back_texts_fitted_between_two_points() {
     );
 }
 
-/// 試料の実寸の空間の書式つきの文字を、境界の `replace` で内容と位置だけ替え、`add` で書式つきの文字を足すと、
-/// 開き直した形とハッシュが、送った形と `apply` が返したものと同じになる（決定 0139）。2007 より前の版は
+/// サンプルの実寸の空間の書式つきの文字を、API の `replace` で内容と位置だけ替え、`add` で書式つきの文字を足すと、
+/// 開き直した形とハッシュが、送った形と `apply` が返したものと同じになる（決定 0139）。2007 より前のバージョンは
 /// コード・ページで表せる文字だけを書くので（決定 0192）、ANSI_932 でない図面の日本語の内容は
 /// `change.edit.unsupported` になり、ASCII の内容なら足せる
 #[test]
@@ -858,7 +858,7 @@ fn drawings_take_back_formatted_texts_through_the_boundary() {
     );
 }
 
-/// 試料の実寸の空間の記号を、境界の `replace` で置く点・尺度・回転だけ替え、同じ定義の記号を `add` で足すと、
+/// サンプルの実寸の空間の記号を、API の `replace` で置く点・尺度・回転だけ替え、同じ定義の記号を `add` で足すと、
 /// 開き直した形とハッシュが、送った形と `apply` が返したものと同じになる（決定 0139）。属性を持つ記号の
 /// 置く点などは、属性が付いてこないので、`call.value.invalid` で `/edits/0/geometry` を指して変えない。属性の
 /// 定義を持つ定義の記号を足すと、定義から属性が作られ、渡したタグの値はその値になる
@@ -1013,8 +1013,8 @@ fn drawings_take_back_symbols_through_the_boundary() {
     );
 }
 
-/// 試料の実寸の空間の、当てはめる点で決まるスプラインを、境界の `replace` で当てはめる点を動かして置き換え、
-/// `add` で当てはめる点のスプラインを足すと、開き直した形とハッシュが、送った形と `apply` が返したものと同じに
+/// サンプルの実寸の空間の、フィット点で決まるスプラインを、API の `replace` でフィット点を動かして置き換え、
+/// `add` でフィット点のスプラインを足すと、開き直した形とハッシュが、送った形と `apply` が返したものと同じに
 /// なる（決定 0139）。R12 の DXF には足せず `change.edit.unsupported` に、R2013 から後の DWG には足せず
 /// `dwg.change.unsupported` になる
 #[test]
@@ -1075,7 +1075,7 @@ fn drawings_take_back_splines_fitted_through_points() {
                 .into_iter()
                 .find(|(found, _, _)| *found == id)
                 .unwrap();
-            // 当てはめる点を動かし、ほかの値は元のまま送る
+            // フィット点を動かし、ほかの値は元のまま送る
             let Some(Value::Array(points)) = geometry.pointer("/fit") else {
                 panic!("{name}: {geometry:?}");
             };
@@ -1144,7 +1144,7 @@ fn drawings_take_back_splines_fitted_through_points() {
         }
         check(&mut session, "added", &response, adding);
         added[dwg] += 1;
-        // 足したスプラインも、当てはめる点を動かして置き換える。R2013 より前の DWG の試料は、当てはめる点の
+        // 足したスプラインも、フィット点を動かして置き換える。R2013 より前の DWG のサンプルは、フィット点の
         // スプラインを持たないため
         let id = text(&response, "/result/applied/0/id").unwrap().to_string();
         let hash = text(&response, "/result/applied/0/hash")
@@ -1169,7 +1169,7 @@ fn drawings_take_back_splines_fitted_through_points() {
     );
 }
 
-/// 試料の実寸の空間の、制御点で決まるスプラインを、境界の `replace` で有理のスプラインに置き換え、`add` で
+/// サンプルの実寸の空間の、制御点で決まるスプラインを、API の `replace` で有理のスプラインに置き換え、`add` で
 /// スプラインを足すと、開き直した形とハッシュが、送った形と `apply` が返したものと同じになる（決定 0139）。
 /// R12 の DXF は SPLINE を持たないので、足すと `change.edit.unsupported` になる
 #[test]
@@ -1264,7 +1264,7 @@ fn drawings_take_back_splines_through_the_boundary() {
     );
 }
 
-/// 試料の寸法は、`entities` が形の値を返し、その形の値は `replace` で受ける値になる。寸法を描いた部品を
+/// サンプルの寸法は、`entities` が形の値を返し、その形の値は `replace` で受ける値になる。寸法を描いた部品を
 /// 作り直せないので、書き戻しは `change.edit.unsupported` で断り、ファイルを変えない（決定 0139）
 #[test]
 fn drawings_return_dimensions_but_do_not_write_them() {
@@ -1341,7 +1341,7 @@ fn drawings_return_dimensions_but_do_not_write_them() {
     assert!(!received() || returned > 0);
 }
 
-/// 試料の属性を持つ記号（表題欄など）の属性の値を `replace` で変えると、ATTRIB の値だけが書き直され、読み直した
+/// サンプルの属性を持つ記号（表題欄など）の属性の値を `replace` で変えると、ATTRIB の値だけが書き直され、読み直した
 /// 形の値は変えたものと同じになる。ほかの要素の形の値は変わらない。書式つきの値を持つ属性は値を変えられない
 #[test]
 fn drawings_take_back_attribute_values_changed_through_the_boundary() {
@@ -1419,7 +1419,7 @@ fn drawings_take_back_attribute_values_changed_through_the_boundary() {
     );
 }
 
-/// 試料の文字と書式つきの文字は、`tables` の文字スタイルを ID（`style_id`）で指す。その ID だけで文字を足すと、
+/// サンプルの文字と書式つきの文字は、`tables` の文字スタイルを ID（`style_id`）で指す。その ID だけで文字を足すと、
 /// 書き戻したファイルを開き直した文字が、同じ文字スタイルを指す（決定 0158）
 #[test]
 fn drawings_refer_to_text_styles_by_their_ids() {

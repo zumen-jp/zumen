@@ -9,7 +9,7 @@ use zumen_civil::CivilModel;
 use zumen_ifc::{Ifc, IfcZip};
 use zumen_sdk::{Codec, Cx, Error, Lift};
 
-/// 建物モデルと土木の領域モデルに移す。土木の領域モデルは IFC4X3 からだけ作るので、ほかの版の `Unsupported` は
+/// 建物モデルと土木の領域モデルに移す。土木の領域モデルは IFC4X3 からだけ作るので、ほかのバージョンの `Unsupported` は
 /// 失敗にしない。止めたときだけ失敗を返す
 fn lift<F: Lift<Building> + Lift<CivilModel>>(file: &F, cx: &mut Cx) -> Result<(), Error> {
     let building = Lift::<Building>::lift(file, cx).map(drop);

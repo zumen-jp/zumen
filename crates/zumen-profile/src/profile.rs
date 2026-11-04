@@ -1,6 +1,6 @@
 //! プロファイルの JSON（`profile.json`）を読み、`extends` を解く（決定 0138・0173）。
 //!
-//! 読み手として、知らない欄は読み飛ばす。規則と語彙は JSON の値のまま持ち、照合の種類ごとに読む。
+//! リーダーとして、知らないフィールドは読み飛ばす。規則と語彙は JSON の値のまま持ち、照合の種類ごとに読む。
 
 use std::collections::BTreeMap;
 
@@ -9,7 +9,7 @@ use zumen_json::Value;
 
 use crate::Error;
 
-/// 読める書式の大版。小版が新しくても読む
+/// 読める書式のメジャーバージョン。マイナーバージョンが新しくても読む
 pub const FORMAT_MAJOR: &str = "0";
 
 /// プロファイルの識別
@@ -128,7 +128,7 @@ pub(crate) fn resolve(
     Ok(resolved)
 }
 
-/// プロファイルの JSON を読む。書式の大版が違うか、必ず要る欄がなければ `None`
+/// プロファイルの JSON を読む。書式のメジャーバージョンが違うか、必ず要るフィールドがなければ `None`
 fn read(bytes: &[u8]) -> Option<Profile> {
     let value = zumen_json::parse(bytes).ok()?;
     let format = text(value.get_key("format")?)?;
@@ -183,7 +183,7 @@ pub(crate) fn text(value: &Value) -> Option<&str> {
     }
 }
 
-/// オブジェクトの欄を引く
+/// オブジェクトのフィールドを引く
 pub(crate) trait GetKey {
     fn get_key(&self, key: &str) -> Option<&Value>;
 }

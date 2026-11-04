@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Java の包み（決定 0224）。版はコアと同じにし、xtask が確かめる（決定 0015）。Maven Central に出す手順は #435 で決める -->
+<!-- Java のラッパー（決定 0224）。バージョンはコアと同じにし、xtask が確かめる（決定 0015）。Maven Central に出す手順は #435 で決める -->
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
@@ -9,7 +9,7 @@
   <version>0.2.0</version>
   <packaging>jar</packaging>
   <name>zumen</name>
-  <description>zumen の C ABI を JNA で呼ぶ包み</description>
+  <description>zumen の C ABI を JNA で呼ぶラッパー</description>
   <url>https://github.com/zumen-jp/zumen</url>
   <licenses>
     <license>

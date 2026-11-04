@@ -4,8 +4,8 @@
 
 候補（省けば manifold-rust）の行のうち、閉じたメッシュ（`ok`）・部品ごとに閉じた組（`parts`）・辺で接する閉じた部分
 （`touching`）になった要素ごとに、IfcOpenShell の既定の設定（開口を引く）で形を作り、三角形から体積を求める。zumen の
-体積（ファイルの長さの単位の 3 乗）を m³ にして比べ、相対の差の分布と、差の大きい要素を書く。IfcOpenShell は試験の
-道具で、依存にしない。
+体積（ファイルの長さの単位の 3 乗）を m³ にして比べ、相対の差の分布と、差の大きい要素を書く。IfcOpenShell はテストの
+ツールで、依存にしない。
 
 IfcOpenShell 0.9 は、スキーマの名前 IFC4X3 を読まない。IFC4X3 のファイルは、名前を IFC4X3_ADD2 にした写しを読む。
 """
@@ -22,7 +22,7 @@ import ifcopenshell
 import ifcopenshell.geom
 import ifcopenshell.util.unit
 
-# 差の大きい要素を、試料ごとに書く数
+# 差の大きい要素を、サンプルごとに書く数
 SHOWN = 5
 # これより小さい体積（m³）は、厚さのない形として比べない
 FLAT = 1e-5
@@ -52,7 +52,7 @@ def volume(verts, faces):
 
 
 def ours(folder, candidate):
-    """試料の道筋から、インスタンスの番号・クラス・体積（ファイルの単位）"""
+    """サンプルの道筋から、インスタンスの番号・クラス・体積（ファイルの単位）"""
     found = defaultdict(list)
     for path in sorted(folder.glob(f"*.{candidate}.tsv")):
         with path.open(encoding="utf-8", newline="") as f:

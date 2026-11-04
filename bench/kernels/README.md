@@ -15,8 +15,8 @@
 | `csgrs` | [csgrs](https://crates.io/crates/csgrs) 0.20.1（MIT）。BSP の木 | メッシュのブーリアン |
 
 - ブーリアンのない形（押し出し・回転・円の断面の掃引・面の集合・三角形の集合・写像・組）は、どの候補でも `src/primitives.rs` の同じコードで三角形にし、ブーリアンだけを候補に任せます。半空間は、manifold-rust は `trim_by_plane`、csgrs は大きな箱とのブーリアンにします。
-- csgrs が依存する `core2` は、crates.io のすべての版が取り下げられていて、新しく解決できません。`Cargo.toml` で上流のリポジトリの 0.4.0 を当てています。
-- C++ の Manifold を呼ぶ [manifold-csg](https://crates.io/crates/manifold-csg) は、作るときに C++ の Manifold を git で取得し、cmake と C++ のコンパイラーで作ります。wasm32-unknown-unknown では、libc++ の見出しを持つ LLVM の clang と wasm-cxx-shim の取得が要ります（`manifold-csg-sys` 3.5.105 の `build.rs`）。決定 0018 の「作るのに C・C++ の道具が要らない」に合わないので、比べていません。
+- csgrs が依存する `core2` は、crates.io のすべてのバージョンが取り下げられていて、新しく解決できません。`Cargo.toml` で上流のリポジトリの 0.4.0 を当てています。
+- C++ の Manifold を呼ぶ [manifold-csg](https://crates.io/crates/manifold-csg) は、作るときに C++ の Manifold を git で取得し、cmake と C++ のコンパイラーで作ります。wasm32-unknown-unknown では、libc++ のヘッダーを持つ LLVM の clang と wasm-cxx-shim の取得が要ります（`manifold-csg-sys` 3.5.105 の `build.rs`）。決定 0018 の「作るのに C・C++ のツールが要らない」に合わないので、比べていません。
 
 ## 流し方
 
@@ -57,20 +57,20 @@ cargo build -q --release --bin compare --target wasm32-wasip1
 - 自前は、扱える形（床の開口・円の穴）では manifold-rust と同じ体積と切り口になったが、壁の開口（押し出しの向きが違う）・和・積・半空間は扱えない。
 - 正しくない形（長さ 0・有限でない値・点の番号の範囲の外）は、どの候補でも、ブーリアンの前に自前のコードで断った。候補そのものに渡したときの振る舞いは、試していない。
 - 指紋は、macOS arm64 と x86_64（Rosetta 2）のネイティブと、wasm32-wasip1（Node.js の WASI）で、78 行すべてが一致した。Linux と Windows では、手当ての後に流した（上）。
-- コードの中の数（試験を除く）: manifold-rust は約 4.6 万行で、パニックしうる所（`unwrap`・`expect`・`panic!`・`assert!` など）が 646、std の三角関数などが 42、std の `HashMap` を使うファイルが 6（反復の順が実行ごとに変わりうる。3 回流した指紋は同じだった）。csgrs は約 1.4 万行で、それぞれ 95・121。i_overlay は約 1.7 万行で、20・3、`unsafe` が 49。
+- コードの中の数（テストを除く）: manifold-rust は約 4.6 万行で、パニックしうる所（`unwrap`・`expect`・`panic!`・`assert!` など）が 646、std の三角関数などが 42、std の `HashMap` を使うファイルが 6（反復の順が実行ごとに変わりうる。3 回流した指紋は同じだった）。csgrs は約 1.4 万行で、それぞれ 95・121。i_overlay は約 1.7 万行で、20・3、`unsafe` が 49。
 
 ## 公開サンプルの IFC で測る
 
-[#5](https://github.com/zumen-jp/zumen/issues/5) で、`samples/ifc` の公開サンプル 12 件（[#412](https://github.com/zumen-jp/zumen/issues/412)）を、候補ごとに測りました。国内のソフトの書き出し 9 件（[#513](https://github.com/zumen-jp/zumen/issues/513) の B01〜B09）は、公開の許諾がないので Git に入れず、手元で同じ手順で測った件数（大きさ・時間・メモリを含む）と種類（実体・属性の有無・書き方・値が 0 か）と、#513 に書いた書き出したソフトの名前と版だけを書きます。ファイルは配りません。
+[#5](https://github.com/zumen-jp/zumen/issues/5) で、`samples/ifc` の公開サンプル 12 件（[#412](https://github.com/zumen-jp/zumen/issues/412)）を、候補ごとに測りました。国内のソフトの書き出し 9 件（[#513](https://github.com/zumen-jp/zumen/issues/513) の B01〜B09）は、公開の許諾がないので Git に入れず、手元で同じ手順で測った件数（大きさ・時間・メモリを含む）と種類（実体・属性の有無・書き方・値が 0 か）と、#513 に書いた書き出したソフトの名前とバージョンだけを書きます。ファイルは配りません。
 
 - `samples [候補 | lift] <IFC>...` は、IFC を `zumen-ifc` で読み、建物モデルに写し（lift）、要素ごとの形状表現 `Body` を `zumen_geom3d::Shape` に写して（`src/ifc.rs`）、候補で評価する。開口（`IfcRelVoidsElement`）は、開口の `Body` を、なければ `Reference` を、母体の配置に対する相対の配置で写し、母体から引く。母体が部品の組（層ごとの壁など）なら、部品ごとに引く。
 - 許容差は、弦の誤差を 1 mm、同じ点とみなす距離（格子の間隔）を、要素の `Body` の文脈が書いた精度（`IfcGeometricRepresentationContext` の `Precision`）にする。精度を書いていなければ 1e-9 m にする（決定 0018）。どれもファイルの長さの単位に換算する。
 - 行には、要素ごとの状態・体積・三角形の数・時間・指紋・切断の結果と時間・格子の間隔（メートル）を書く。状態は、閉じたメッシュなら `ok`、部品ごとに閉じた組なら `parts`、閉じた部分どうしが辺で接する形なら `touching`、閉じていても体積のない形（両面の面）なら `flat`、閉じていなければ `open`、評価しない形なら `unsupported:種類`、正しくない形なら `invalid:理由`、カーネルが失敗すれば `failed:理由`、パニックなら `panic` になる。
 - 切断は、閉じた結果（`ok`・`parts`・`touching`）を、箱の高さの中ほどの水平の平面で切る（`zumen_geom3d::MeshSection`。どの候補のメッシュにも同じ切断を使う）。結果は `輪の数/点が 3 つ未満の輪の数` か、`empty`（切り口がない）・`panic`・失敗の名前。
-- `#` で始まる行は、試料と候補ごとの要約で、読む・写す・形に写す時間と、メモリの最大（割り当てを数える）を書く。`lift` は評価せず、読んで写すまでを測る。
-- `samples.sh` は、試料と候補ごとに別のプロセスで流し、15 分で打ち切る。試料のフォルダーは環境変数 `SAMPLES`（既定は `../../samples/ifc`）、候補は `CANDIDATES` で選ぶ。手元の試料は、`SAMPLES="$ZUMEN_SAMPLES/ifc"` のように渡す。`wasi-samples.mjs` は、wasm32-wasip1 に作った `samples` を Node.js の WASI で流し、`SAMPLES` のフォルダーを `/samples` に見せる。
-- 環境で結果が変わらないかは、`file` の列を試料の名前にそろえ、時間の列（`micros_body`・`micros_full`・`micros_section`）を除いた行で比べる。
-- `ifcopenshell_volumes.py` は、`ok`・`parts`・`touching` の要素の体積を、IfcOpenShell（試験の道具で、依存にしない）が開口を引いて作った形の体積と照らす。IfcOpenShell 0.9.0.post1 は仮想環境に入れ、その Python で流す（`-I` は利用者の site-packages を見ないが、仮想環境のものは見る）。
+- `#` で始まる行は、サンプルと候補ごとの要約で、読む・写す・形に写す時間と、メモリの最大（割り当てを数える）を書く。`lift` は評価せず、読んで写すまでを測る。
+- `samples.sh` は、サンプルと候補ごとに別のプロセスで流し、15 分で打ち切る。サンプルのフォルダーは環境変数 `SAMPLES`（既定は `../../samples/ifc`）、候補は `CANDIDATES` で選ぶ。手元のサンプルは、`SAMPLES="$ZUMEN_SAMPLES/ifc"` のように渡す。`wasi-samples.mjs` は、wasm32-wasip1 に作った `samples` を Node.js の WASI で流し、`SAMPLES` のフォルダーを `/samples` に見せる。
+- 環境で結果が変わらないかは、`file` の列をサンプルの名前にそろえ、時間の列（`micros_body`・`micros_full`・`micros_section`）を除いた行で比べる。
+- `ifcopenshell_volumes.py` は、`ok`・`parts`・`touching` の要素の体積を、IfcOpenShell（テストのツールで、依存にしない）が開口を引いて作った形の体積と照らす。IfcOpenShell 0.9.0.post1 は仮想環境に入れ、その Python で流す（`-I` は利用者の site-packages を見ないが、仮想環境のものは見る）。
 
 ```bash
 cargo build -q --release --bin samples
@@ -95,24 +95,24 @@ uv pip install --python <仮想環境> ifcopenshell==0.9.0.post1
 | 断面 | `IfcRectangleProfileDef`・`IfcCircleProfileDef`・`IfcArbitraryClosedProfileDef`・`IfcArbitraryProfileDefWithVoids` |
 | 曲線 | `IfcPolyline`・`IfcIndexedPolyCurve`（`IfcLineIndex`・`IfcArcIndex`）・`IfcCompositeCurve`・`IfcTrimmedCurve`（`IfcLine`・`IfcCircle`）・`IfcCircle` |
 
-### 試料で要った手当て
+### サンプルで要った手当て
 
 6 のほかは、どの候補にも同じに当てます（6 は manifold-rust だけ）。
 
 1. 断面と面を三角形にする手順（earcut）は、同じ直線の上の点を落とし、穴の頂点を通る辺を作るので、T 字の継ぎ目が残る。逆向きの辺がない辺だけを、その上の点で分ける（`src/primitives.rs`）。分けないと、押し出しのメッシュが閉じず、manifold-rust が `NotManifold` で断った。
 2. 面積のない面（点が 1 直線に並ぶ面など）は、要素を断らずに飛ばす。国内の書き出しの 214 要素（多くは設備の継手）にあった。飛ばすと、132 要素が閉じた形（`ok` か `parts`）になった。
-3. GNI の Archicad 28 の試料（公開元が保存し直したもの）は、開口の形を `Body` でなく `Reference` に書く。`Body` がなければ `Reference` を使う。
+3. GNI の Archicad 28 のサンプル（公開元が保存し直したもの）は、開口の形を `Body` でなく `Reference` に書く。`Body` がなければ `Reference` を使う。
 4. 層ごとの壁など、閉じた部品の組の母体は、部品ごとに開口を引く。組を 1 つのメッシュにして引くと、閉じた形にならない。
 5. ブーリアンの前に、点を `Tolerance::length` の格子にそろえる（`src/kernels.rs`）。BIM Whale の TallBuilding の壁（インスタンス `#2401`）は、面が開口の面から 1.6e-13 mm ずれていて、3 つの開口を順に引くと、manifold-rust が 1 つの開口のうち 915 × 200 × 305 mm を引かなかった。逆の順に引く・先に開口の和を取る・格子にそろえる、のどれでも正しい体積になる。1e-9 m の格子にそろえると、csgrs のパニックも 104 から 5 に減った。格子の間隔は、文書の精度（なければ 1e-9 m）にする（決定 0018）。1e-9 m の格子と比べると、manifold-rust の状態はすべて同じで、体積が変わったのは 47 要素（GNI の model_125 の 46・林野庁の 1）、相対の差は 7.6e-6 以下だった。格子は、要素の局所の座標で作る。
 6. manifold-rust のブーリアンは、`_with_engine` で `Exact` のエンジンを明示する。既定のエンジンはプロセス全体の設定で、ほかから変えられる。半空間で切る `trim_by_plane` はエンジンを渡せないので、既定が `Exact` であることを確かめてから呼ぶ。`trim_by_plane` は std の `powi` も通るので、#420 では使わず、`Booleans::clip` の既定（csgrs が使う）と同じく大きな箱とのブーリアンにする（決定 0260 の 2 の条件 6）。
 
 ### 結果（2026-11-03）
 
-Windows 11 x64（AMD Ryzen 5 3600XT、メモリ 32 GB）、Rust 1.99.1、Node.js 24.21.0 で測りました。Linux は、同じ機械の WSL 2 の Ubuntu（x86_64）で、同じ Rust の版で流し、行を Windows と比べました。時間はネイティブで、試料と候補ごとに別のプロセスで流した値です。
+Windows 11 x64（AMD Ryzen 5 3600XT、メモリ 32 GB）、Rust 1.99.1、Node.js 24.21.0 で測りました。Linux は、同じ機械の WSL 2 の Ubuntu（x86_64）で、同じ Rust のバージョンで流し、行を Windows と比べました。時間はネイティブで、サンプルと候補ごとに別のプロセスで流した値です。
 
 格子の間隔（文書の精度）は、林野庁・BIM Whale・GNI が 1e-5 m、中野区が 2.54e-8 m、Text2BIM が 1e-8 m でした。公開サンプルの結果は、次のとおりです（自前の列は、評価しない種類と件数）。
 
-| 試料 | 要素 | 読む・写す（ms） | 最大（MB） | 形（manifold-rust） | 開口のある要素 | 開口を引いた結果: manifold-rust / csgrs / 自前 | 形・開口・切断の時間（ms） |
+| サンプル | 要素 | 読む・写す（ms） | 最大（MB） | 形（manifold-rust） | 開口のある要素 | 開口を引いた結果: manifold-rust / csgrs / 自前 | 形・開口・切断の時間（ms） |
 | --- | ---: | ---: | ---: | --- | ---: | --- | ---: |
 | `bim-whale/LargeBuilding` | 122 | 24・38 | 17.5 | ok 67・parts 44・open 11 | 15 | ok 15 / open 15 / boolean 10・half_space 5 | 37・27・5 |
 | `bim-whale/TallBuilding` | 58 | 11・19 | 9.0 | ok 36・parts 22 | 12 | ok 12 / open 12 / half_space 12 | 6・10・2 |
@@ -128,7 +128,7 @@ Windows 11 x64（AMD Ryzen 5 3600XT、メモリ 32 GB）、Rust 1.99.1、Node.js
 | `text2bim/sample_model` | 19 | 7・9 | 3.7 | ok 9・touching 3・open 7 | 0 | - | 1・0・0 |
 
 - manifold-rust は、開口のある 171 要素のすべてで、開口を引いた結果が閉じた形（`ok` か `parts`）になった。パニックと失敗はなかった。
-- csgrs は、開口を引いた結果が 4 要素しか閉じず（BSP の T 字の継ぎ目）、model_125 の 4 要素と林野庁の 3 要素でパニックした。wasm32 では、パニックで試料の全体が止まった。
+- csgrs は、開口を引いた結果が 4 要素しか閉じず（BSP の T 字の継ぎ目）、model_125 の 4 要素と林野庁の 3 要素でパニックした。wasm32 では、パニックでサンプルの全体が止まった。
 - 自前は、開口のある要素のどれも評価しない（壁の開口は押し出しの向きが母体と違い、半空間での切断もある）。
 - `open` と `flat` は、面の集合で書いた家具・設備・中野区の地形などに出た。公開サンプルでは、これらの要素に開口がなく、ブーリアンを通らなかった。#420 では、閉じていない形（`open`）を渡さない（決定 0260 の 2 の条件 4）。体積のない閉じた形（`flat`）を渡すかは、#420 で決める。
 - 切断は、manifold-rust の閉じた 1,414 要素のすべてで、失敗とパニックがなかった。1,390 要素は輪になった。6 要素は切り口がなかった（開口で上下に分かれた壁と、段の部品を並べた階段で、高さの中ほどに材料がない）。18 要素は、点が 3 つ未満の輪を含んだ（中野区の、点群から作った面の集合。ブーリアンを通らない形で、どの候補でも同じ）。時間は、1 件で 11 ms 以下、1 要素で 1.6 ms 以下だった。
@@ -162,7 +162,7 @@ IfcOpenShell 0.9.0.post1 の既定の設定（開口を引く）と、manifold-r
 | B08 | CADEWA Smart V5.0 | 63.2 | 1,189・2,122 | 602.5・787.0 | ok 1,950・parts 217・touching 35・open 513 | 0 | - | 65 |
 | B09 | FILDER CeeD | 245.3 | 5,179・7,337 | 2,867.2・2,995.7 | ok 2,096・parts 97・touching 52・open 488・flat 15 | 0 | - | 59 |
 
-- 9 件とも、パニックせず、途中で止まった試料もなかった。形を写せた開口のある 168 要素のうち 165 で、開口を引いた結果が閉じた形になった。`failed` の 3 要素は、開口の形が閉じていないので、manifold-rust が `NotManifold` で断った。
+- 9 件とも、パニックせず、途中で止まったサンプルもなかった。形を写せた開口のある 168 要素のうち 165 で、開口を引いた結果が閉じた形になった。`failed` の 3 要素は、開口の形が閉じていないので、manifold-rust が `NotManifold` で断った。
 - B05 の柱の 59 要素は、`IfcIShapeProfileDef`・`IfcRectangleHollowProfileDef` の断面を使い、試作は写していない（開口のある要素に数えていない）。
 - 1e-9 m の格子で測った結果と比べて、状態はすべて同じだった。Linux の 14,943 行も、Windows と同じだった。
 - 切断は、閉じた 13,237 要素のすべてで、失敗とパニックがなかった（6 要素は切り口がない）。時間は、1 件で 0.1 秒以下、1 要素で 26 ms 以下だった。

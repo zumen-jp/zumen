@@ -1,8 +1,8 @@
-//! R2004 の入れ物（ODS 5.4.1 の 4「R2004 DWG FILE FORMAT ORGANIZATION」）。
+//! R2004 のコンテナー（ODS 5.4.1 の 4「R2004 DWG FILE FORMAT ORGANIZATION」）。
 //!
-//! ファイルの見出しの後ろに、暗号化した見出しがある。そこからページの地図と区切りの地図を読み、
-//! 区切りの名前ごとに、ページを展開してつなげたバイト列を作る（決定 0026）。
-//! 書くときは、ページを並べ直して番号を振り直し、2 つの地図と見出しを作り直す（決定 0070）。
+//! ファイルのヘッダーの後ろに、暗号化したヘッダーがある。そこからページのマップとセクションのマップを読み、
+//! セクションの名前ごとに、ページを展開してつなげたバイト列を作る（決定 0026）。
+//! 書くときは、ページを並べ直して番号を振り直し、2 つのマップとヘッダーを作り直す（決定 0070）。
 
 use core::ops::Range;
 
@@ -18,66 +18,66 @@ const R2004: SpecRef = SpecRef {
     section: "4 R2004 DWG FILE FORMAT ORGANIZATION",
 };
 
-/// 暗号化した見出しの位置と大きさ
+/// 暗号化したヘッダーの位置と大きさ
 const HEADER: Range<usize> = 0x80..0x80 + 0x6C;
 
-/// 暗号化した見出しの初めの印
+/// 暗号化したヘッダーの初めのマーカー
 const HEADER_MAGIC: &[u8; 12] = b"AcFssFcAJMB\0";
 
 /// ページの位置を数え始める所
 const PAGES_START: u64 = 0x100;
 
-/// ページの地図のページの型
+/// ページのマップのページの型
 const PAGE_MAP_TYPE: u32 = 0x4163_0E3B;
 
-/// 区切りの地図のページの型
+/// セクションのマップのページの型
 const SECTION_MAP_TYPE: u32 = 0x4163_003B;
 
-/// 区切りのデータのページの型
+/// セクションのデータのページの型
 const DATA_PAGE_TYPE: u32 = 0x4163_043B;
 
-/// データのページの見出しを隠す値。ページの位置と排他的論理和をとって使う
+/// データのページのヘッダーを隠す値。ページの位置と排他的論理和をとって使う
 const DATA_PAGE_MASK: u32 = 0x4164_536B;
 
-/// 地図のページの見出しの大きさ
+/// マップのページのヘッダーの大きさ
 const SYSTEM_PAGE_HEADER: usize = 0x14;
 
-/// データのページの見出しの大きさ
+/// データのページのヘッダーの大きさ
 const DATA_PAGE_HEADER: usize = 0x20;
 
-/// 区切りの地図の 1 つの区切りの、ページの並びの前の大きさ
+/// セクションのマップの 1 つのセクションの、ページの並びの前の大きさ
 const DESCRIPTION_SIZE: usize = 0x60;
 
-/// 区切りの地図の 1 つのページの大きさ
+/// セクションのマップの 1 つのページの大きさ
 const DESCRIPTION_PAGE_SIZE: usize = 0x10;
 
-/// 区切りの地図の、区切りの説明の前の大きさ
+/// セクションのマップの、セクションの説明の前の大きさ
 const SECTION_MAP_HEAD: usize = 20;
 
-/// 地図のページの終わりに置く、空のページの見出し
+/// マップのページの終わりに置く、空のページのヘッダー
 const EMPTY_PAGE: [u8; SYSTEM_PAGE_HEADER] = [
     0x3B, 0x0E, 0x63, 0x41, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0,
 ];
 
-/// 読んだ R2004 の入れ物
+/// 読んだ R2004 のコンテナー
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Container {
-    /// 戻した暗号化した見出し
+    /// 戻した暗号化したヘッダー
     header: [u8; 0x6C],
-    /// 区切りの地図の、区切りの説明の前のバイト列
+    /// セクションのマップの、セクションの説明の前のバイト列
     map_head: [u8; SECTION_MAP_HEAD],
     sections: Vec<Section>,
 }
 
-/// 区切りの説明と、ページを展開してつなげたバイト列
+/// セクションの説明と、ページを展開してつなげたバイト列
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Section {
-    /// 区切りの地図の説明（大きさ・ページの数・名前など）
+    /// セクションのマップの説明（大きさ・ページの数・名前など）
     description: [u8; DESCRIPTION_SIZE],
     name: Vec<u8>,
-    /// 暗号化した区切りは読まないので `None`
+    /// 暗号化したセクションは読まないので `None`
     data: Option<Vec<u8>>,
-    /// ページの位置と、区切りの中の位置
+    /// ページの位置と、セクションの中の位置
     pages: Vec<(u64, u64)>,
     /// `data` を置き換えたか
     replaced: bool,
@@ -115,7 +115,7 @@ impl Container {
         })
     }
 
-    /// 名前（`AcDb:Header`）の区切り
+    /// 名前（`AcDb:Header`）のセクション
     pub(super) fn section(&self, name: &[u8]) -> Option<&[u8]> {
         self.sections
             .iter()
@@ -123,7 +123,7 @@ impl Container {
             .and_then(|section| section.data.as_deref())
     }
 
-    /// 名前の区切りを置き換える。読めた区切りがなければ `None`
+    /// 名前のセクションを置き換える。読めたセクションがなければ `None`
     pub(super) fn replace(&mut self, name: &[u8], data: Vec<u8>) -> Option<()> {
         let section = self
             .sections
@@ -134,20 +134,20 @@ impl Container {
         Some(())
     }
 
-    /// 置き換えた区切りがあるか
+    /// 置き換えたセクションがあるか
     pub(super) fn replaced(&self) -> bool {
         self.sections.iter().any(|section| section.replaced)
     }
 }
 
-/// ページの地図の 1 つのページ
+/// ページのマップの 1 つのページ
 #[derive(Clone, Copy, Debug)]
 struct Page {
     number: i32,
     address: u64,
 }
 
-/// 入れ物を読む。見出しとページの CRC が合わないときは `dwg.crc.invalid` を返して読み続ける
+/// コンテナーを読む。ヘッダーとページの CRC が合わないときは `dwg.crc.invalid` を返して読み続ける
 pub(super) fn read(src: &[u8], cx: &mut Cx) -> Result<Container, Error> {
     let header = header(src, cx)?;
     let page_map_at = u64::from_le_bytes(header[0x54..0x5C].try_into().unwrap_or_default());
@@ -172,7 +172,7 @@ pub(super) fn read(src: &[u8], cx: &mut Cx) -> Result<Container, Error> {
     })
 }
 
-/// 暗号化した見出しを戻し、初めの印と CRC を確かめる
+/// 暗号化したヘッダーを戻し、初めのマーカーと CRC を確かめる
 fn header(src: &[u8], cx: &mut Cx) -> Result<[u8; 0x6C], Error> {
     let bytes = src
         .get(HEADER)
@@ -191,7 +191,7 @@ fn header(src: &[u8], cx: &mut Cx) -> Result<[u8; 0x6C], Error> {
     Ok(header)
 }
 
-/// 見出しを暗号化する、または戻す。乱数の列と排他的論理和をとる
+/// ヘッダーを暗号化する、または戻す。乱数の列と排他的論理和をとる
 fn crypt(bytes: &[u8; 0x6C]) -> [u8; 0x6C] {
     let mut out = [0; 0x6C];
     let mut seed: u32 = 1;
@@ -202,7 +202,7 @@ fn crypt(bytes: &[u8; 0x6C]) -> [u8; 0x6C] {
     out
 }
 
-/// ページの地図を読む。ページの位置は、`0x100` からページの大きさを足していく
+/// ページのマップを読む。ページの位置は、`0x100` からページの大きさを足していく
 fn page_map(src: &[u8], at: u64, cx: &mut Cx) -> Result<Vec<Page>, Error> {
     let map = system_page(src, at, PAGE_MAP_TYPE, "page map", cx)?;
     let count = map.len() / 8;
@@ -227,7 +227,7 @@ fn page_map(src: &[u8], at: u64, cx: &mut Cx) -> Result<Vec<Page>, Error> {
     Ok(pages)
 }
 
-/// 地図のページの見出しを確かめ、データを展開する
+/// マップのページのヘッダーを確かめ、データを展開する
 fn system_page(src: &[u8], at: u64, kind: u32, part: &str, cx: &mut Cx) -> Result<Vec<u8>, Error> {
     let start = usize::try_from(at).unwrap_or(usize::MAX);
     let head = start
@@ -259,7 +259,7 @@ fn system_page(src: &[u8], at: u64, kind: u32, part: &str, cx: &mut Cx) -> Resul
         .ok_or_else(|| invalid(cx, part, start..data_start + data.len()))
 }
 
-/// 区切りの地図を読み、区切りごとにページを展開してつなげる。暗号化した区切りは読まない
+/// セクションのマップを読み、セクションごとにページを展開してつなげる。暗号化したセクションは読まない
 fn section_map(src: &[u8], map: &[u8], pages: &[Page], cx: &mut Cx) -> Result<Vec<Section>, Error> {
     let count = le32(map, 0).ok_or_else(|| invalid(cx, "section map", HEADER))?;
     cx.check(Kind::Records, u64::from(count))
@@ -328,7 +328,7 @@ fn section_map(src: &[u8], map: &[u8], pages: &[Page], cx: &mut Cx) -> Result<Ve
     Ok(sections)
 }
 
-/// データのページの見出しを戻して型を確かめ、データを展開する
+/// データのページのヘッダーを戻して型を確かめ、データを展開する
 fn data_page(
     src: &[u8],
     at: u64,
@@ -350,8 +350,8 @@ fn data_page(
         .and_then(|size| data_start.checked_add(size))
         .and_then(|end| src.get(data_start..end))
         .ok_or_else(|| invalid(cx, "data page", page_range(at)))?;
-    // データの検査の値は 0 を種に、見出しの検査の値はデータの検査の値を種に、見出しの検査の値を 0 にした
-    // 戻した見出しから求める
+    // データの検査の値は 0 を種に、ヘッダーの検査の値はデータの検査の値を種に、ヘッダーの検査の値を 0 にした
+    // 戻したヘッダーから求める
     let mut plain = [0; DATA_PAGE_HEADER];
     for (i, out) in plain.as_chunks_mut::<4>().0.iter_mut().enumerate() {
         *out = field(i).to_le_bytes();
@@ -554,7 +554,7 @@ fn compress(src: &[u8]) -> Vec<u8> {
         out.extend_from_slice(bytes);
         rest = tail;
     }
-    // 終わりの印の後ろに 0 を 2 バイト置く。AutoCAD の書く流れはどれもそうで、ないと AutoCAD 2027 は
+    // 終わりのマーカーの後ろに 0 を 2 バイト置く。AutoCAD の書くストリームはどれもそうで、ないと AutoCAD 2027 は
     // 図面を開かない（#345 で確かめた）
     out.extend_from_slice(&[0x11, 0, 0]);
     out
@@ -646,10 +646,10 @@ fn push_rest(out: &mut Vec<u8>, mut rest: usize) {
     out.push(rest as u8);
 }
 
-/// 入れ物を組み直して書く。ページは元の位置の順に並べ、番号を 1 から振り直す。
-/// 置き換えていない区切りのページは `src` から写して、見出しの隠しだけを新しい位置に合わせる。
-/// 置き換えた区切りは、元の初めのページの所で、新しいページに分けて圧縮する。
-/// 区切りの地図・ページの地図・空のページの見出し・2 つめの見出しを、この順に終わりに置く
+/// コンテナーを組み直して書く。ページは元の位置の順に並べ、番号を 1 から振り直す。
+/// 置き換えていないセクションのページは `src` から写して、ヘッダーの隠しだけを新しい位置に合わせる。
+/// 置き換えたセクションは、元の初めのページの所で、新しいページに分けて圧縮する。
+/// セクションのマップ・ページのマップ・空のページのヘッダー・2 つめのヘッダーを、この順に終わりに置く
 pub(super) fn write(src: &[u8], container: &Container) -> Option<Vec<u8>> {
     let mut out = src.get(..PAGES_START as usize)?.to_vec();
     let mut order = Vec::new();
@@ -664,7 +664,7 @@ pub(super) fn write(src: &[u8], container: &Container) -> Option<Vec<u8>> {
         }
     }
     order.sort_unstable();
-    // ページの地図の並び（番号と大きさ）と、区切りごとの新しいページ（番号・データの大きさ・区切りの中の位置）
+    // ページのマップの並び（番号と大きさ）と、セクションごとの新しいページ（番号・データの大きさ・セクションの中の位置）
     let mut map: Vec<(u32, u32)> = Vec::new();
     let mut lists: Vec<Vec<(u32, u32, u64)>> = vec![Vec::new(); container.sections.len()];
     let mut moved = Vec::new();
@@ -722,8 +722,8 @@ pub(super) fn write(src: &[u8], container: &Container) -> Option<Vec<u8>> {
     out.extend_from_slice(&page);
     out.resize(out.len() + size - page.len(), 0);
     map.push((section_map_id, u32::try_from(size).ok()?));
-    // ページの地図の大きさは、自分の見出しと続く空のページの見出しを含めて 0x20 に切り上げる。
-    // 地図は自分の大きさを含むので、大きさが変わらなくなるまで作り直す
+    // ページのマップの大きさは、自分のヘッダーと続く空のページのヘッダーを含めて 0x20 に切り上げる。
+    // マップは自分の大きさを含むので、大きさが変わらなくなるまで作り直す
     let page_map_id = section_map_id + 1;
     let page_map_at = out.len();
     let mut page_size = 0x20;
@@ -769,7 +769,7 @@ pub(super) fn write(src: &[u8], container: &Container) -> Option<Vec<u8>> {
     let encrypted = crypt(&header);
     put(&mut out, HEADER.start, &encrypted)?;
     out.extend_from_slice(&encrypted);
-    // ファイルの見出しの、要約とプレビューのデータの位置（ページの見出しの後ろ）を、動いたページに合わせる
+    // ファイルのヘッダーの、要約とプレビューのデータの位置（ページのヘッダーの後ろ）を、動いたページに合わせる
     for at in [0x0D, 0x20] {
         let value = u64::from(le32(&out, at)?);
         let found = moved
@@ -783,7 +783,7 @@ pub(super) fn write(src: &[u8], container: &Container) -> Option<Vec<u8>> {
     Some(out)
 }
 
-/// データのページを `src` の `at` から `out` の終わりに写し、見出しを新しい位置で隠し直す。
+/// データのページを `src` の `at` から `out` の終わりに写し、ヘッダーを新しい位置で隠し直す。
 /// ページの大きさとデータの大きさを返す
 fn copy_data_page(src: &[u8], at: u64, out: &mut Vec<u8>) -> Option<(u32, u32)> {
     let start = usize::try_from(at).ok()?;
@@ -803,7 +803,7 @@ fn copy_data_page(src: &[u8], at: u64, out: &mut Vec<u8>) -> Option<(u32, u32)> 
     Some((u32::try_from(page).ok()?, size))
 }
 
-/// データのページを `out` の終わりに書き、ページの大きさを返す。見出しは書く位置で隠す
+/// データのページを `out` の終わりに書き、ページの大きさを返す。ヘッダーは書く位置で隠す
 fn push_data_page(out: &mut Vec<u8>, id: u32, offset: u64, data: &[u8]) -> Option<u32> {
     let size = u32::try_from(data.len()).ok()?;
     let page = round_up(DATA_PAGE_HEADER + data.len());
@@ -833,7 +833,7 @@ fn push_data_page(out: &mut Vec<u8>, id: u32, offset: u64, data: &[u8]) -> Optio
     u32::try_from(page).ok()
 }
 
-/// 地図のページ（見出しと圧縮したデータ）を作る。後ろは埋めない
+/// マップのページ（ヘッダーと圧縮したデータ）を作る。後ろは埋めない
 fn system_page_bytes(kind: u32, data: &[u8]) -> Vec<u8> {
     let compressed = compress(data);
     let mut fields = [kind, data.len() as u32, compressed.len() as u32, 2, 0];
@@ -855,7 +855,7 @@ fn round_up(size: usize) -> usize {
     size.next_multiple_of(0x20)
 }
 
-/// 地図とデータのページの検査の値。2 つの和を `0xFFF1` で割った余りを、`0x15B0` バイトごとにとる
+/// マップとデータのページの検査の値。2 つの和を `0xFFF1` で割った余りを、`0x15B0` バイトごとにとる
 fn adler(seed: u32, data: &[u8]) -> u32 {
     let mut low = seed & 0xFFFF;
     let mut high = seed >> 16;
@@ -996,7 +996,7 @@ mod tests {
         assert_eq!(sections(&back), sections(&container));
         assert_eq!(back.sections[2].pages.len(), 2);
 
-        // 置き換えていない区切りは写し、置き換えた区切りだけを作り直す
+        // 置き換えていないセクションは写し、置き換えたセクションだけを作り直す
         let mut edited = back;
         edited
             .replace(b"AcDb:SummaryInfo", b"changed summary".to_vec())
@@ -1010,12 +1010,12 @@ mod tests {
         assert_eq!(second.len(), first.len());
     }
 
-    /// 試料（公開サンプルの `samples/dwg` と `ZUMEN_SAMPLES` のフォルダー）の R2004 からの DWG を、そのままと、
-    /// 読めた区切りをすべて置き換えて組み直す
+    /// サンプル（公開サンプルの `samples/dwg` と `ZUMEN_SAMPLES` のフォルダー）の R2004 からの DWG を、そのままと、
+    /// 読めたセクションをすべて置き換えて組み直す
     #[test]
     #[allow(
         clippy::disallowed_methods,
-        reason = "環境変数を読むのは試験だけで、コアは読まない（AGENTS.md の図面と秘密）"
+        reason = "環境変数を読むのはテストだけで、コアは読まない（AGENTS.md の図面と秘密）"
     )]
     fn sample_containers_are_rebuilt() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../samples/dwg");

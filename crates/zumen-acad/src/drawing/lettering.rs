@@ -9,7 +9,7 @@ use zumen_drawing::{
 };
 
 impl Lifter<'_> {
-    /// TEXT と ATTRIB の文字。縦の位置合わせは、TEXT では 73、ATTRIB では 74 にある。`key` は高さの欄
+    /// TEXT と ATTRIB の文字。縦の位置合わせは、TEXT では 73、ATTRIB では 74 にある。`key` は高さのフィールド
     pub(super) fn text<P: Copy>(
         &self,
         object: &Object,

@@ -20,16 +20,16 @@ pub struct Point<P> {
 pub enum PointLook {
     /// 文書の点の表し方（[`crate::Drawing2D::point_style`]）に従う
     Document,
-    /// 既定義の印。印の形は、表示する側がキーから引く
+    /// 既定義のマーカー。マーカーの形は、表示する側がキーから引く
     Marker {
-        /// 印の表のキー
+        /// マーカーの表のキー
         key: MarkerKey,
         /// 尺度
         scale: f64,
     },
 }
 
-/// 既定義の印の表のキー
+/// 既定義のマーカーの表のキー
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct MarkerKey {
     /// 名前空間（`sxf.marker`・`jww.point`）

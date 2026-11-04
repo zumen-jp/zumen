@@ -2,7 +2,7 @@
 # キーは、コアの台帳のキーとぶつからないものにする。診断の code は、このキーと `.` で始める。
 
 [formats.zumen_lines]
-name = "zumen の線分の一覧（プラグインのひな形の試験の形式）"
+name = "zumen の線分の一覧（プラグインのひな形のテストの形式）"
 family = "zumen_lines"
 domains = ["drawing"]
 rights = "public"

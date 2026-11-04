@@ -48,7 +48,7 @@ fn record(point: [i32; 3], intensity: u16, class: u8, color: [u16; 3]) -> Vec<u8
     out
 }
 
-/// 見出し。`minor` が 4 なら 1.4 の見出しにする
+/// ヘッダー。`minor` が 4 なら 1.4 のヘッダーにする
 fn header(minor: u8, format: u8, length: u16, count: u32, vlrs: &[Vec<u8>], wkt: bool) -> Vec<u8> {
     let size: u16 = if minor >= 4 { 375 } else { 227 };
     let vlr_bytes: usize = vlrs.iter().map(Vec::len).sum();
@@ -173,7 +173,7 @@ fn reads_points_with_scale_offset_and_attributes() {
             "time"
         ]
     );
-    // 八分木の節は、どの点も 1 度ずつ持つ
+    // 八分木のノードは、どの点も 1 度ずつ持つ
     let mut all: Vec<u32> = cloud
         .octree
         .nodes
@@ -244,7 +244,7 @@ fn asks_for_ranges_and_reads_them() {
     let cancel = CancelToken::new();
     let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
     let size = bytes.len() as u64;
-    // 初めの 100 バイトだけでは、見出しが足りない
+    // 初めの 100 バイトだけでは、ヘッダーが足りない
     let first = (0, &bytes[..100]);
     let Err(Missing::Need(needs)) = Las::read_ranged(
         &Source {
@@ -253,7 +253,7 @@ fn asks_for_ranges_and_reads_them() {
         },
         &mut cx,
     ) else {
-        panic!("見出しを求めない");
+        panic!("ヘッダーを求めない");
     };
     assert_eq!((needs[0].start, needs[0].end), (0, 375.min(size)));
     let head = (0, &bytes[..400]);

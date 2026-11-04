@@ -165,7 +165,7 @@ fn dxf(entities: &[(i16, &str)]) -> Vec<u8> {
     versioned("AC1015", entities)
 }
 
-/// 版が `version` の、図形のタグを並べた DXF
+/// バージョンが `version` の、図形のタグを並べた DXF
 #[cfg(test)]
 fn versioned(version: &str, entities: &[(i16, &str)]) -> Vec<u8> {
     let head: &[(i16, &str)] = &[
@@ -289,7 +289,7 @@ fn arcs_ellipses_and_lightweight_polylines_are_replaced() {
     assert_eq!(ellipse.shape, opened.shape);
     assert_eq!(line.shape, longer.shape);
     let text = String::from_utf8(written).unwrap();
-    // 変えていない楕円の欄と、頂点の後の押し出しの向きは、元の書き方のまま残る
+    // 変えていない楕円のフィールドと、頂点の後の押し出しの向きは、元の書き方のまま残る
     assert!(text.contains(" 11\n4.0\n 21\n0.0\n 31\n0.0\n 40\n0.5\n 41\n0.0\n"));
     assert!(text.contains(" 42\n-0.25\n210\n0.0\n220\n0.0\n230\n1.0\n"));
     assert!(text.contains(" 90\n3\n 70\n1\n 43\n0.5\n 10\n0.0\n 20\n5.0\n 10\n2.0\n"));
@@ -416,7 +416,7 @@ fn texts_are_moved_rewritten_and_turned() {
     assert_eq!(left.shape, changed.shape);
     assert_eq!(centered.shape, moved.shape);
     let text = String::from_utf8(written).unwrap();
-    // 回転と反転は、省いた欄を足して書く。中央に置く文字の 10 は、11 と同じだけ動く
+    // 回転と反転は、省いたフィールドを足して書く。中央に置く文字の 10 は、11 と同じだけ動く
     assert!(text.contains("  1\n通り芯 X1\n 50\n90.0\n 71\n2\n"));
     assert!(text.contains(" 10\n4.0\n 20\n3.0\n"));
 }
@@ -424,7 +424,7 @@ fn texts_are_moved_rewritten_and_turned() {
 #[test]
 fn texts_that_the_records_cannot_hold_change_nothing() {
     use zumen_drawing::Placement;
-    // コード・ページのない 2007 より前の版は、ASCII でない文字を書かない（決定 0192）
+    // コード・ページのない 2007 より前のバージョンは、ASCII でない文字を書かない（決定 0192）
     let src = texts("AC1015");
     let mut file = testkit::read::<Dxf>(&src).0.unwrap();
     let [left, centered] = <[_; 2]>::try_from(elements(&lift(&file))).unwrap();
@@ -560,14 +560,14 @@ fn mtexts_are_moved_rewritten_and_reframed() {
     assert_eq!(first.shape, changed.shape);
     assert_eq!(second.shape, moved.shape);
     let text = String::from_utf8(written).unwrap();
-    // 枠の幅は 0 にし、位置合わせを直す。角度（ラジアン）と行送りは、省いた欄を内容の後に足す
+    // 枠の幅は 0 にし、位置合わせを直す。角度（ラジアン）と行送りは、省いたフィールドを内容の後に足す
     assert!(text.contains(" 41\n0.0\n 71\n5\n"), "{text}");
     assert!(
         text.contains("あ\n 50\n1.5707963267948966\n 73\n2\n 44\n1.5\n"),
         "{text}"
     );
     assert!(text.contains(" 11\n0.0\n 21\n1.0\n"), "{text}");
-    // 元の区切りの内容は、変えていないのでそのまま
+    // 元の区切り（3）の内容は、変えていないのでそのまま
     assert!(text.contains(&format!("  3\n{long}\n  1\nend\n")));
 }
 
@@ -587,7 +587,7 @@ fn mtexts_that_the_records_cannot_hold_change_nothing() {
         Edit::Replace(Box::new(element))
     };
     let cases = [
-        // コード・ページのない 2007 より前の版は、ASCII でない文字を書かない（決定 0192）
+        // コード・ページのない 2007 より前のバージョンは、ASCII でない文字を書かない（決定 0192）
         (
             edit(&first, &|text| {
                 text.content = "通り芯".to_owned();
@@ -697,7 +697,7 @@ fn inserts_are_moved_scaled_and_turned() {
     symbol.position.y = -1.0;
     symbol.scale = [-1.0, 0.5];
     symbol.rotation = 45.0;
-    // 既定の値に戻した欄も、元が持っていれば書く
+    // 既定の値に戻したフィールドも、元が持っていれば書く
     other.scale = [1.0, 1.0];
     other.rotation = 0.0;
     let edits = vec![
@@ -1162,8 +1162,8 @@ fn elements_are_added_with_new_handles() {
             .iter()
             .all(|e| e.layer == before[0].layer)
     );
-    // ハンドルは $HANDSEED（20）から順に付け、$HANDSEED を最後のハンドルの次に進める。区切り（100）を
-    // 持たない表には、区切りを書かない
+    // ハンドルは $HANDSEED（20）から順に付け、$HANDSEED を最後のハンドルの次に進める。サブクラスマーカー（100）を
+    // 持たない表には、サブクラスマーカーを書かない
     let text = String::from_utf8(written).unwrap();
     assert!(text.contains("  0\nLINE\n  5\n20\n  8\n0\n 62\n3\n 10\n0.0\n"));
     assert!(text.contains("  0\nTEXT\n  5\n24\n"));
@@ -1286,7 +1286,7 @@ fn sheet_elements_are_added_in_paper_millimeters() {
         .map(|e| e.shape.clone())
         .collect();
     assert_eq!(shapes, [line.shape, circle.shape]);
-    // 用紙の mm を図面の単位（インチ）に戻して用紙の原点を足し、ペーパー空間の印を付ける。値は、インチに
+    // 用紙の mm を図面の単位（インチ）に戻して用紙の原点を足し、ペーパー空間のフラグを付ける。値は、インチに
     // 戻して最後の桁が違わないものを選ぶ
     let text = String::from_utf8(written).unwrap();
     assert!(text.contains(
@@ -1925,7 +1925,7 @@ fn attributed_additions_count_attribute_content_before_copying() {
     assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
 }
 
-/// 空の LAYOUT。現在の用紙は見出しの原点、ほかの用紙は LAYOUT の原点を使う。
+/// 空の LAYOUT。現在の用紙はヘッダーの原点、ほかの用紙は LAYOUT の原点を使う。
 #[cfg(test)]
 fn empty_sheet_source(current: bool, units: &str, viewport: bool) -> Vec<u8> {
     let name = if current {
@@ -2355,7 +2355,7 @@ fn duplicate_handles_in_definitions_and_tables_reject_apply() {
     }
 }
 
-/// 2 つのレイヤと 2 つの線種を持ち、区切り（100）と XDATA を持つ LINE と、区切りを持たない CIRCLE を持つ
+/// 2 つのレイヤと 2 つの線種を持ち、サブクラスマーカー（100）と XDATA を持つ LINE と、サブクラスマーカーを持たない CIRCLE を持つ
 /// R2004 の DXF
 #[cfg(test)]
 fn styled() -> Vec<u8> {
@@ -2514,7 +2514,7 @@ fn restyles_change_only_the_named_style_fields_and_keep_the_shape() {
     assert_eq!(applied[0].hash, Some(line_id.hash));
     assert_eq!(applied[1].hash, Some(circle_id.hash));
     assert_eq!(circle_id.id, circle.id);
-    // 変えた欄だけを AcDbEntity の区切りの中に書き、XDATA と形の値は元の書き方のまま残す
+    // 変えたフィールドだけを AcDbEntity のサブクラスの中に書き、XDATA と形の値は元の書き方のまま残す
     let text = String::from_utf8(written).unwrap();
     assert!(text.contains(
         "  0\nLINE\n  5\n1A\n100\nAcDbEntity\n  8\nWall\n  6\nDashed\n370\n35\n100\nAcDbLine\n 10\n0.0\n"
@@ -3306,7 +3306,7 @@ fn transforms_mirror_texts_and_attributes_by_turning_them_upside_down() {
             assert_eq!(now.shape, transform(&was.shape, &mirrored).unwrap());
             assert_eq!(applied.hash, Some(now_id.hash));
         }
-        // 文字と属性は、上下の反転の印（71 の 4）を持つ
+        // 文字と属性は、上下の反転のフラグ（71 の 4）を持つ
         let text = String::from_utf8(written).unwrap();
         assert!(
             text.contains(
@@ -4285,7 +4285,7 @@ fn additions_to_two_unkeyed_empty_sheets_return_their_new_ids() {
 }
 
 /// E1: 非等方のビューは DXF・DWG のビューポートで表せないので、ビューを変える変更を持たない（決定 0139）。
-/// ビューの変更を足すと、この照合が網羅でなくなり、書き戻しの扱いを決め直すまで試験が通らない
+/// ビューの変更を足すと、この照合が網羅でなくなり、書き戻しの扱いを決め直すまでテストが通らない
 #[test]
 fn e1_changes_have_no_edit_for_views() {
     use zumen_drawing::Edit as Change;
@@ -4597,7 +4597,7 @@ fn additions_to_symbol_definitions_go_before_endblk_within_the_budget() {
 }
 
 /// POINT の位置と X 軸の角度を置き換え、変換で動かし、文書の点の表し方に従う点を足す。読み直すと同じ点になる。
-/// 既定義の印の点と作図の補助の点は、POINT で表せないので断り、ファイルを変えない（決定 0183）
+/// 既定義のマーカーの点と作図の補助の点は、POINT で表せないので断り、ファイルを変えない（決定 0183）
 #[test]
 fn points_are_replaced_transformed_and_added() {
     use zumen_drawing::{Affine, Edit as Change, MarkerKey, Placed, Point, PointLook, SpaceId, id};
@@ -4782,7 +4782,7 @@ fn callouts(broken: bool) -> Vec<u8> {
     versioned("AC1027", &tags)
 }
 
-/// MULTILEADER は、枝の線の頂点・集まる点・折れ曲がりを書き直し、ほかの欄は元のまま残す（決定 0185）
+/// MULTILEADER は、枝の線の頂点・集まる点・折れ曲がりを書き直し、ほかのフィールドは元のまま残す（決定 0185）
 #[test]
 fn callout_branches_are_replaced() {
     let mut file = testkit::read::<Dxf>(&callouts(false)).0.unwrap();
@@ -4812,7 +4812,7 @@ fn callout_branches_are_replaced() {
     let again = elements(&lift(&testkit::read::<Dxf>(&written).0.unwrap()));
     assert_eq!(again.len(), 1);
     assert_eq!(again[0].shape, moved.shape);
-    // 文脈と図形の欄は、元の書き方のまま残る
+    // 文脈と図形のフィールドは、元の書き方のまま残る
     let text = String::from_utf8(written).unwrap();
     assert!(text.contains(" 42\n2.5\n290\n1\n"));
     assert!(text.contains("140\n2.0\n290\n0\n296\n0\n"));
@@ -4850,7 +4850,7 @@ fn callout_changes_the_records_cannot_hold_change_nothing() {
     }
 }
 
-/// 文書の点の表し方の変更を、見出しの `$PDMODE`・`$PDSIZE` に書き戻す（決定 0190）。変数がなければ足し、あれば
+/// 文書の点の表し方の変更を、ヘッダーの `$PDMODE`・`$PDSIZE` に書き戻す（決定 0190）。変数がなければ足し、あれば
 /// 書き直す。読み直すと同じ点の表し方になり、要素は変わらない。大きさが正でないものと、一覧の中の 2 つ目の変更は
 /// 断り、ファイルを変えない
 #[test]
@@ -4979,7 +4979,7 @@ const NOTED: &[u8] = b"  0\nSECTION\n  2\nHEADER\n  9\n$ACADVER\n  1\nAC1015\n  
 212\n1.0\n222\n0.0\n232\n0.0\n213\n0.0\n223\n2.0\n233\n0.0\n\
   0\nENDSEC\n  0\nEOF\n";
 
-/// 注記を持つ引出線を足すと、注記の MTEXT に、足した LEADER を反応子として書く（決定 0191）。2 つ足すと、同じ
+/// 注記を持つ引出線を足すと、注記の MTEXT に、足した LEADER をリアクターとして書く（決定 0191）。2 つ足すと、同じ
 /// 組に続けて書く。読み直すと、足した引出線は同じ注記を指す
 #[test]
 fn added_leaders_become_reactors_of_their_notes() {

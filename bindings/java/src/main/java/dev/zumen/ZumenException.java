@@ -1,6 +1,6 @@
 package dev.zumen;
 
-/** 境界の関数が ok でない状態を返した */
+/** API の関数が ok でない状態を返した */
 public final class ZumenException extends RuntimeException {
     private static final long serialVersionUID = 1L;
 
@@ -15,7 +15,7 @@ public final class ZumenException extends RuntimeException {
         this.data = data;
     }
 
-    /** 呼んだ境界の関数 */
+    /** 呼んだ API の関数 */
     public String getOperation() {
         return operation;
     }

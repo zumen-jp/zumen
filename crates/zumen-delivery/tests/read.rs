@@ -1,5 +1,5 @@
-//! 試験の中で作った成果品を読む（決定 0241、#383）。要領の作成例は転載が禁じられているので、要素の名前は
-//! 試験のために決めたもの。
+//! テストの中で作った成果品を読む（決定 0241、#383）。要領の作成例は転載が禁じられているので、要素の名前は
+//! テストのために決めたもの。
 
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, codes};
 use zumen_delivery::{Package, Record, read, read_zip};

@@ -1,6 +1,6 @@
 # 電子納品の成果品
 
-電子納品の成果品（フォルダー・管理ファイル・図面・写真の集まり）を読む規則を記録します（[決定 0241](../decisions/0241-delivery-package-check.md)）。実装は `crates/zumen-delivery` です。境界では、`delivery_check` の op に、成果品の起点（`root`）か ZIP の入力（`archive`）を渡し、管理ファイルの要約を返します。要領の本文・DTD・作成例は、転載と改変が禁じられているので写さず、同梱しません（`formats/ledger.toml` の `delivery`）。
+電子納品の成果品（フォルダー・管理ファイル・図面・写真の集まり）を読む規則を記録します（[決定 0241](../decisions/0241-delivery-package-check.md)）。実装は `crates/zumen-delivery` です。API では、`delivery_check` の op に、成果品の起点（`root`）か ZIP の入力（`archive`）を渡し、管理ファイルの要約を返します。要領の本文・DTD・作成例は、転載と改変が禁じられているので写さず、同梱しません（`formats/ledger.toml` の `delivery`）。
 
 ## 対象
 
@@ -10,7 +10,7 @@
 ## 入力
 
 - `root`: `zm_push` で渡した入力のうち、名前が `root`（`/` で終わる）で始まるもの。起点からの相対の名前を、成果品の中の名前にする。
-- `archive`: ZIP の入力。ディレクトリの項目を除き、項目の名前を成果品の中の名前にする。展開した量は予算（`decoded-bytes`）で数える。名前は、UTF-8 の印があれば UTF-8、なければ Shift_JIS として読む（`zumen-zip`）。
+- `archive`: ZIP の入力。ディレクトリの項目を除き、項目の名前を成果品の中の名前にする。展開した量は予算（`decoded-bytes`）で数える。名前は、UTF-8 のフラグがあれば UTF-8、なければ Shift_JIS として読む（`zumen-zip`）。
 - 空の部分・`.`・`..`・`\` を含む名前と、`/` で始まる名前は、`delivery.name.unsafe` を返して除く。同じ名前は 1 つにする。
 - 名前の大文字と小文字は、元のまま持つ。
 
@@ -33,7 +33,7 @@
 
 どの種類も、`folders`（照らす名前の頭。書かなければすべて）・`except`（照らさない名前の頭）・`when`（この頭の名前のファイルがあるときだけ照らす）を書けます。
 
-| 種類 | 欄 | 指摘 |
+| 種類 | フィールド | 指摘 |
 | --- | --- | --- |
 | `delivery-name` | `characters`・`stem`・`extension`・`folder`・`depth`・`prefix` | 名前の文字・拡張子を除いた長さ・拡張子の長さ・フォルダーの名前の長さ・部分の数が外れるか、ファイルの名前が `prefix` で始まらない（`profile.delivery-name.invalid`） |
 | `delivery-required` | `names` | 名前のファイルがない（`profile.delivery-required.invalid`） |
@@ -43,7 +43,7 @@
 | `delivery-characters` | `fullwidth-alphanumerics` | 値に、JIS X 0201 のラテン文字と JIS X 0208 の外の文字がある（`profile.delivery-characters.invalid`）。半角の片仮名、13 区の特殊文字、IBM の拡張は外。`fullwidth-alphanumerics = false` なら、全角の英数字も外 |
 | `delivery-doctype` | `values` | DTD の名前が、どの値とも違うか、文書型宣言がない（`profile.delivery-doctype.invalid`） |
 | `delivery-photo-date` | `entry`・`file`・`date` | 写真 1 枚の記録（`entry`）の下の、撮影の日の要素（`date`）の値が、ファイルの名前の要素（`file`）が指す写真の Exif の撮影の日（日時の始めの `YYYY-MM-DD`）と違う（`profile.delivery-photo-date.invalid`）。日の要素か Exif の撮影の日時がなければ確認できない（`profile.delivery-photo-date.unsupported`、`info`）。ファイルが見つからない記録は飛ばす（`delivery-link` が指摘する） |
-| `delivery-photo-pixels` | `min`・`max` | 写真の画素数（フレームの見出しの幅 × 高さ）が範囲の外にある（`profile.delivery-photo-pixels.invalid`）。JPEG でないか画素数を読めなければ確認できない（`profile.delivery-photo-pixels.unsupported`、`info`） |
+| `delivery-photo-pixels` | `min`・`max` | 写真の画素数（フレームのヘッダーの幅 × 高さ）が範囲の外にある（`profile.delivery-photo-pixels.invalid`）。JPEG でないか画素数を読めなければ確認できない（`profile.delivery-photo-pixels.unsupported`、`info`） |
 
 プロファイルは `profiles/mlit-delivery-const`（工事完成図書の電子納品等要領、令和 8 年 2 月）と `profiles/mlit-delivery-design`（土木設計業務等の電子納品要領、令和 8 年 2 月）です。どちらも、`PHOTO` をデジタル写真管理情報基準（令和 5 年 3 月）の規則で照らします（#388）。管理ファイルの名前と DTD、写真と参考図のファイルの名前、管理ファイルが指すファイル、適用要領基準、使う文字、撮影年月日と Exif、有効画素数の目安です。Exif との突き合わせと、画素数の範囲（100〜300 万画素、範囲の外は `info`）は、基準の目安から選んだ照合です。写真の編集の有無は、ここでは確かめません（電子小黒板の #389）。適用要領基準の要素の名前は、表の項目の名前を選んだ値です（DTD を読まないので、実物で確かめていません）。
 
@@ -57,6 +57,6 @@
 | --- | --- | --- |
 | `delivery` | 読み | `synthetic` |
 
-段の意味は[決定 0254](../decisions/0254-parallel-agents-and-cross-review.md) に、根拠は[形式と権利の一覧](README.md#format-delivery)にあります。この文書の規則は、仕様と、試験の中で作ったファイルだけで確かめたものです。公開サンプル・受け取った図面・外部の実装・基準になるソフトとは、まだ照らしていません。実際のファイルでは、ここに書いた扱いと違うことがあります。
+段の意味は[決定 0254](../decisions/0254-parallel-agents-and-cross-review.md) に、根拠は[形式と権利の一覧](README.md#format-delivery)にあります。この文書の規則は、仕様と、テストの中で作ったファイルだけで確かめたものです。公開サンプル・受け取った図面・外部の実装・基準になるソフトとは、まだ照らしていません。実際のファイルでは、ここに書いた扱いと違うことがあります。
 
 - 要領が配る DTD での検証と、公開サンプルとの照合は #505 で行う。

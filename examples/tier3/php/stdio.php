@@ -41,7 +41,7 @@ function rpc($pipes, &$next, $method, $params)
     throw new RuntimeException("$method の答えがない");
 }
 
-// 境界の要求を送り、応答の JSON を読む
+// API の要求を送り、応答の JSON を読む
 function call($pipes, &$next, $request)
 {
     $result = rpc($pipes, $next, 'call', ['request' => $request]);

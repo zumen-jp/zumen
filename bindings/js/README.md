@@ -1,14 +1,14 @@
-# TypeScript・JavaScript の包み
+# TypeScript・JavaScript のラッパー
 
-wasm のモジュール（`zumen_abi1.wasm`）を、ブラウザーと Node.js（22 以降）から呼ぶ薄い包みです（[決定 0011](../../docs/decisions/0011-bindings-through-ffi.md)・[決定 0194](../../docs/decisions/0194-typescript-javascript-wrapper.md)・[決定 0259](../../docs/decisions/0259-javascript-on-node-servers.md)）。
+wasm のモジュール（`zumen_abi1.wasm`）を、ブラウザーと Node.js（22 以降）から呼ぶ薄いラッパーです（[決定 0011](../../docs/decisions/0011-bindings-through-ffi.md)・[決定 0194](../../docs/decisions/0194-typescript-javascript-wrapper.md)・[決定 0259](../../docs/decisions/0259-javascript-on-node-servers.md)）。
 
-- npm の `@zumen-jp/zumen` で配ります（[決定 0003](../../docs/decisions/0003-names-and-domain.md)・[決定 0205](../../docs/decisions/0205-release-and-publishing.md)）。包みには `zumen_abi1.wasm` を入れ、`@zumen-jp/zumen/zumen_abi1.wasm` で取り出せます。依存のライセンスの文は `THIRD_PARTY_LICENSES` にあります。
+- npm の `@zumen-jp/zumen` で配ります（[決定 0003](../../docs/decisions/0003-names-and-domain.md)・[決定 0205](../../docs/decisions/0205-release-and-publishing.md)）。パッケージには `zumen_abi1.wasm` を入れ、`@zumen-jp/zumen/zumen_abi1.wasm` で取り出せます。依存のライセンスの文は `THIRD_PARTY_LICENSES` にあります。
 - 素の ESM の JavaScript で書き、ビルドも npm の依存もありません。型は `.d.ts` にあります。
 - `src/messages.d.ts`・`src/constants.js`・`src/constants.d.ts` は、`schema/` から `cargo xtask codegen` で生成します。手で直さないでください。
 
 ## 使い方
 
-Node.js では、`@zumen-jp/zumen/node` の `loadBundled` が、包みに入れた wasm を読み込みます。コンパイルは 1 度だけで、呼ぶたびに新しいインスタンスを返します。ブラウザーでは、`@zumen-jp/zumen` の `load` に、wasm の fetch の応答（`load(fetch("/zumen_abi1.wasm"))`）・バイト列・コンパイルしたモジュールを渡します。
+Node.js では、`@zumen-jp/zumen/node` の `loadBundled` が、パッケージに入れた wasm を読み込みます。コンパイルは 1 度だけで、呼ぶたびに新しいインスタンスを返します。ブラウザーでは、`@zumen-jp/zumen` の `load` に、wasm の fetch の応答（`load(fetch("/zumen_abi1.wasm"))`）・バイト列・コンパイルしたモジュールを渡します。
 
 ```js
 import { readFileSync } from "node:fs";
@@ -34,21 +34,21 @@ try {
 
 | 名前 | 中身 |
 | --- | --- |
-| `load`・`loadSync` | モジュールを読み込み、ABI の大版を確かめる。別の realm（Next.js の Edge のランタイムなど）で作ったモジュールやバイト列も受け取る |
-| `loadBundled` | 包みに入れた wasm を読み込む。`@zumen-jp/zumen/node` にあり、Node.js だけで使える |
+| `load`・`loadSync` | モジュールを読み込み、ABI のメジャーバージョンを確かめる。別の realm（Next.js の Edge のランタイムなど）で作ったモジュールやバイト列も受け取る |
+| `loadBundled` | パッケージに入れた wasm を読み込む。`@zumen-jp/zumen/node` にあり、Node.js だけで使える |
 | `Zumen.open` | セッションを作る（`zm_session_new`） |
 | `Zumen.broken` | wasm の中で trap が起き、もう使えないか |
-| `Session.push`・`call`・`callBytes`・`take`・`cancel`・`close` | 境界の関数（`zm_push`・`zm_call`・`zm_take`・`zm_cancel`・`zm_session_close`）。状態が `ok` でなければ `ZumenError` を投げる |
-| `readScene` | シーンの blob を、区画ごとの型付き配列で読む（`schema/scene.toml`） |
+| `Session.push`・`call`・`callBytes`・`take`・`cancel`・`close` | API の関数（`zm_push`・`zm_call`・`zm_take`・`zm_cancel`・`zm_session_close`）。状態が `ok` でなければ `ZumenError` を投げる |
+| `readScene` | シーンの blob を、セクションごとの型付き配列で読む（`schema/scene.toml`） |
 
 ### trap のあと
 
-wasm の中のパニックとメモリ不足は trap になり、そのインスタンスはもう使えません（[決定 0010](../../docs/decisions/0010-budget-by-work.md)）。包みは、trap が起きた呼び出しと、それからの呼び出しを、状態が `panicked` の `ZumenError` にし、元の例外（`WebAssembly.RuntimeError` など）を `cause` に入れます。`Zumen.broken` が `true` になったら、モジュールを読み込み直します。`loadModules` の `Modules` は、使えなくなったインスタンスを捨て、次の `get`・`open`・`forOp` で読み込み直します。読み込みに失敗したときも覚えず、次に引いたときにやり直します。`Session.close` と `cancel` は、使えなくなったインスタンスでは何もせず、`finally` の中で呼んでも先に出た例外を隠しません。
+wasm の中のパニックとメモリ不足は trap になり、そのインスタンスはもう使えません（[決定 0010](../../docs/decisions/0010-budget-by-work.md)）。ラッパーは、trap が起きた呼び出しと、それからの呼び出しを、状態が `panicked` の `ZumenError` にし、元の例外（`WebAssembly.RuntimeError` など）を `cause` に入れます。`Zumen.broken` が `true` になったら、モジュールを読み込み直します。`loadModules` の `Modules` は、使えなくなったインスタンスを捨て、次の `get`・`open`・`forOp` で読み込み直します。読み込みに失敗したときも覚えず、次に引いたときにやり直します。`Session.close` と `cancel` は、使えなくなったインスタンスでは何もせず、`finally` の中で呼んでも先に出た例外を隠しません。
 
 ### Next.js などのサーバー
 
 - Node.js のランタイムで使います。Next.js の文書は、Edge のランタイムを Proxy で使うものとしています。Vercel では、Next.js 16.3 から route と page の `runtime = 'edge'` が使えず、Node.js で動きます。
-- Turbopack（Next.js 16 の既定）で組むときは、設定は要りません。webpack（`next build --webpack`）で組むときは、`next.config` の `serverExternalPackages` に `"@zumen-jp/zumen"` を入れます。webpack は包みの wasm を、ブラウザー向けの URL に書き換えるためです。どちらも、`output: "standalone"` で組んだ出力に wasm が入ります。
+- Turbopack（Next.js 16 の既定）で組むときは、設定は要りません。webpack（`next build --webpack`）で組むときは、`next.config` の `serverExternalPackages` に `"@zumen-jp/zumen"` を入れます。webpack はパッケージの wasm を、ブラウザー向けの URL に書き換えるためです。どちらも、`output: "standalone"` で組んだ出力に wasm が入ります。
 - 要求ごとに `loadBundled` で新しいインスタンスを使います。壊れたファイルで起きた trap がほかの要求に及ばず、wasm のメモリも要求が終われば回収されます。wasm のメモリは縮まないので、1 つのインスタンスを使い回すと、いちばん大きな入力を読んだときの大きさのままになります。
 - 受け取ったファイルを読むときは、要求の `budget` で量に上限を付けます（[決定 0010](../../docs/decisions/0010-budget-by-work.md)）。
 - 呼び出しは同期で、動いている間は Node.js のイベントループが止まります。大きな図面を受けるサーバーでは、`worker_threads` で動かします。
@@ -108,16 +108,16 @@ opened.session.close();
 
 要求と応答の形は [schema/messages.json](../../schema/messages.json) にあり、`call` の型は要求の `op` から結果の型を引きます。
 
-## 試験
+## テスト
 
 ```bash
 cargo build -p zumen-abi --target wasm32-unknown-unknown --release
 node bindings/js/test/conformance.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm
 ```
 
-`test/conformance.mjs` は、[適合試験](../conformance/README.md)の組をこの包みで流し、ハッシュの一覧が `hashes.txt` と一致することを確かめます。型は、CI がサイトと同じ版の TypeScript で `tsconfig.json`（`test/types.ts` を含む）を確かめます。
+`test/conformance.mjs` は、[適合テスト](../conformance/README.md)の組をこのラッパーで流し、ハッシュの一覧が `hashes.txt` と一致することを確かめます。型は、CI がサイトと同じバージョンの TypeScript で `tsconfig.json`（`test/types.ts` を含む）を確かめます。
 
-ブラウザーの中でも、同じ組を流せます（[決定 0199](../../docs/decisions/0199-browser-conformance-with-playwright.md)）。道具は `test/browser` に版を固定して置いてあり、ブラウザーは Playwright で取ります。CI は、PR ごとに Chromium、毎晩に Firefox と WebKit で流します。
+ブラウザーの中でも、同じ組を流せます（[決定 0199](../../docs/decisions/0199-browser-conformance-with-playwright.md)）。ツールは `test/browser` にバージョンを固定して置いてあり、ブラウザーは Playwright で取ります。CI は、PR ごとに Chromium、毎晩に Firefox と WebKit で流します。
 
 ```bash
 npm ci --prefix bindings/js/test/browser --ignore-scripts
@@ -125,7 +125,7 @@ npx --prefix bindings/js/test/browser playwright install chromium
 node bindings/js/test/browser/run.mjs chromium target/wasm32-unknown-unknown/release/zumen_abi1.wasm
 ```
 
-分けたモジュールでは、`test/modules.mjs` が、モジュールごとの op と、`detect` が `open` と同じ形式を選ぶことを確かめ、組ごとに合うモジュールで適合試験を流します。`test/browser/run.mjs` に分けたモジュールを渡すと、ブラウザーの中でも同じことをします。
+分けたモジュールでは、`test/modules.mjs` が、モジュールごとの op と、`detect` が `open` と同じ形式を選ぶことを確かめ、組ごとに合うモジュールで適合テストを流します。`test/browser/run.mjs` に分けたモジュールを渡すと、ブラウザーの中でも同じことをします。
 
 ```bash
 node bindings/js/test/modules.mjs zumen_abi1.wasm zumen_abi1_drawing.wasm zumen_abi1_bim.wasm zumen_abi1_civil.wasm zumen_abi1_pointcloud.wasm zumen_abi1_plugin.wasm
@@ -137,7 +137,7 @@ node bindings/js/test/modules.mjs zumen_abi1.wasm zumen_abi1_drawing.wasm zumen_
 node bindings/js/test/server.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm
 ```
 
-`test/nextjs` は、`npm pack` した包みを Next.js の Turbopack（設定なし）と webpack（`serverExternalPackages`）で standalone に組み、組んだサーバーの API ルートで図面を開きます。Next.js と React は、`test/nextjs/package.json` で版を固定しています。CI は毎晩流します。
+`test/nextjs` は、`npm pack` したパッケージを Next.js の Turbopack（設定なし）と webpack（`serverExternalPackages`）で standalone に組み、組んだサーバーの API ルートで図面を開きます。Next.js と React は、`test/nextjs/package.json` でバージョンを固定しています。CI は毎晩流します。
 
 ```bash
 npm ci --prefix bindings/js/test/nextjs --ignore-scripts

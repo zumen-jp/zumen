@@ -1,4 +1,4 @@
-// 適合試験を、wasm のモジュールで流す（決定 0012）。
+// 適合テストを、wasm のモジュールで流す（決定 0012）。
 //
 // 使い方: node bindings/conformance/wasm.mjs <zumen_abi1.wasm>
 //
@@ -190,10 +190,10 @@ compareHashes(hashes, failures);
 
 // モジュールの大きさを記録する。分け方を見直す材料にする（決定 0013）
 const brotli = brotliCompressSync(bytes).length;
-const summary = `モジュール: ${bytes.length} バイト（brotli で ${brotli} バイト）、試験の組 ${cases.length} 件、ハッシュ ${hashes.length} 件`;
+const summary = `モジュール: ${bytes.length} バイト（brotli で ${brotli} バイト）、テストの組 ${cases.length} 件、ハッシュ ${hashes.length} 件`;
 console.log(summary);
 if (process.env.GITHUB_STEP_SUMMARY) {
-  appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### wasm32 の適合試験\n\n${summary}\n`);
+  appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### wasm32 の適合テスト\n\n${summary}\n`);
 }
 if (failures.length > 0) {
   console.error(`期待と違った:\n${failures.join("\n")}`);

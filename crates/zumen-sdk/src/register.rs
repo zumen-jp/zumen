@@ -1,7 +1,7 @@
-//! 形式の登録（決定 0017）。コーデックの形式を、台帳（`formats/ledger.toml`）と同じキーと権利で窓口に知らせる。
+//! 形式の登録（決定 0017）。コーデックの形式を、台帳（`formats/ledger.toml`）と同じキーと権利でレジストリに知らせる。
 //!
-//! 窓口（`zumen-abi` など）は、登録の一覧から形式を判定し、capabilities の形式の一覧を作る。登録の権利と台帳の
-//! 権利が合うことは、窓口の試験で確かめる。
+//! レジストリ（`zumen-abi` など）は、登録の一覧から形式を判定し、capabilities の形式の一覧を作る。登録の権利と台帳の
+//! 権利が合うことは、レジストリのテストで確かめる。
 
 use crate::{Codec, Signature};
 
@@ -34,13 +34,13 @@ pub struct Registration {
     pub format: &'static str,
     /// 台帳の権利
     pub rights: Rights,
-    /// 境界の形式の系統（capabilities の `family`）
+    /// API の形式の系統（capabilities の `family`）
     pub family: &'static str,
     /// 形式の判定の規則（[`Codec::SIGNATURES`]）
     pub signatures: &'static [Signature],
     /// 書き戻せるか
     pub write: bool,
-    /// ID の規則の版（決定 0156）
+    /// ID の規則のバージョン（決定 0156）
     pub id_rules: u64,
 }
 

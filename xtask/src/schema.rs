@@ -7,13 +7,13 @@ use std::fmt::Write;
 
 use zumen_json::{Object, Value};
 
-/// JSON Schema の版
+/// JSON Schema のバージョン
 const DIALECT: &str = "https://json-schema.org/draft/2020-12/schema";
 
 /// 生成せず、コアが手で書く定義
 const HANDWRITTEN: &[&str] = &["response"];
 
-/// Rust の予約語。欄の名前に使わない
+/// Rust の予約語。フィールドの名前に使わない
 const KEYWORDS: &[&str] = &[
     "as", "async", "await", "box", "break", "const", "continue", "crate", "do", "dyn", "else",
     "enum", "extern", "false", "final", "fn", "for", "gen", "if", "impl", "in", "let", "loop",
@@ -49,7 +49,7 @@ pub enum Shape {
     },
     /// 文字列の列挙
     Enum { values: Vec<String> },
-    /// タグつきの共用体。どの形もオブジェクトで、同じ名前の `const` の欄を目印に持つ
+    /// タグつきの共用体。どの形もオブジェクトで、同じ名前の `const` のフィールドをタグに持つ
     Union { variants: Vec<String> },
     /// JSON の型で見分けられる、スカラーの共用体
     Scalars { members: Vec<Member> },
@@ -57,7 +57,7 @@ pub enum Shape {
     Handwritten,
 }
 
-/// オブジェクトの欄
+/// オブジェクトのフィールド
 #[derive(Debug)]
 pub struct Field {
     pub name: String,
@@ -66,7 +66,7 @@ pub struct Field {
     pub required: bool,
 }
 
-/// 欄の型
+/// フィールドの型
 #[derive(Clone, Debug, PartialEq)]
 pub enum Ty {
     String,
@@ -83,7 +83,7 @@ pub enum Ty {
     Ref(String),
     Array(Box<Ty>),
     Map(Box<Ty>),
-    /// 決まった文字列。共用体の目印にだけ使う
+    /// 決まった文字列。共用体のタグにだけ使う
     Const(String),
 }
 
@@ -415,7 +415,7 @@ impl Reader {
                 Some(_) => {
                     self.error(
                         at,
-                        "additionalProperties は false にする（名前から値への表は、欄の型にだけ使う）",
+                        "additionalProperties は false にする（名前から値への表は、フィールドの型にだけ使う）",
                     );
                     true
                 }
@@ -445,7 +445,7 @@ impl Reader {
                     if !is_snake(name) || KEYWORDS.contains(&name) {
                         self.error(
                             &field_at,
-                            "欄の名前は英小文字・数字・_ にし、Rust の予約語にしない",
+                            "フィールドの名前は英小文字・数字・_ にし、Rust の予約語にしない",
                         );
                     }
                     let Some(field) = self.object(schema, &field_at) else {
@@ -477,7 +477,7 @@ impl Reader {
         }
     }
 
-    /// 欄の型。オブジェクト・列挙・共用体は、$defs に名前をつけて $ref で指す
+    /// フィールドの型。オブジェクト・列挙・共用体は、$defs に名前をつけて $ref で指す
     fn ty(&mut self, object: &Object, at: &str) -> Option<Ty> {
         if let Some(reference) = object.get("$ref") {
             self.allow(object, at, &["description", "$ref"]);
@@ -548,7 +548,7 @@ impl Reader {
                 if values.is_none() {
                     self.error(
                         at,
-                        "欄のオブジェクトは、名前から値への表（additionalProperties に値の型）にだけ使う。ほかは $defs に置く",
+                        "フィールドのオブジェクトは、名前から値への表（additionalProperties に値の型）にだけ使う。ほかは $defs に置く",
                     );
                 }
                 values.map(|values| Ty::Map(Box::new(values)))
@@ -603,8 +603,8 @@ impl Schema {
         self.defs.iter().find(|def| def.name == name)
     }
 
-    /// 共用体の形のオブジェクトから、目印の欄の名前と値を引く
-    /// 要求（`request`）の目印の値（op）。スキーマの順
+    /// 共用体の形のオブジェクトから、タグのフィールドの名前と値を引く
+    /// 要求（`request`）のタグの値（op）。スキーマの順
     pub(crate) fn request_tags(&self) -> Vec<&str> {
         match self.def("request").map(|def| &def.shape) {
             Some(Shape::Union { variants }) => variants
@@ -683,21 +683,21 @@ fn validate(schema: &Schema) -> Vec<String> {
                 let is_variant = variants.contains(def.name.as_str());
                 if is_variant && (constants != 1 || !closed) {
                     errors.push(format!(
-                        "{at}: 共用体の形は、const の欄を 1 つだけ持つ閉じたオブジェクトにする"
+                        "{at}: 共用体の形は、const のフィールドを 1 つだけ持つ閉じたオブジェクトにする"
                     ));
                 }
                 if !is_variant && constants > 0 {
-                    errors.push(format!("{at}: const の欄は、共用体の形にだけ置く"));
+                    errors.push(format!("{at}: const のフィールドは、共用体の形にだけ置く"));
                 }
                 if fields
                     .iter()
                     .any(|field| matches!(field.ty, Ty::Const(_)) && !field.required)
                 {
-                    errors.push(format!("{at}: const の欄は required にする"));
+                    errors.push(format!("{at}: const のフィールドは required にする"));
                 }
                 let mut names: BTreeSet<&str> = fields.iter().map(|f| f.name.as_str()).collect();
                 if names.len() != fields.len() {
-                    errors.push(format!("{at}: 欄の名前が重なっている"));
+                    errors.push(format!("{at}: フィールドの名前が重なっている"));
                 }
                 for target in compose {
                     match schema.def(target).map(|def| &def.shape) {
@@ -712,7 +712,7 @@ fn validate(schema: &Schema) -> Vec<String> {
                             if !names.insert(target.as_str())
                                 || composed.iter().any(|f| names.contains(f.name.as_str()))
                             {
-                                errors.push(format!("{at}: `{target}` の欄の名前が重なっている"));
+                                errors.push(format!("{at}: `{target}` のフィールドの名前が重なっている"));
                             }
                         }
                         _ => errors.push(format!(
@@ -729,16 +729,16 @@ fn validate(schema: &Schema) -> Vec<String> {
                         Some((name, value)) => {
                             tag_names.insert(name);
                             if tags.insert(value, variant).is_some() {
-                                errors.push(format!("{at}: 目印の値 `{value}` が重なっている"));
+                                errors.push(format!("{at}: タグの値 `{value}` が重なっている"));
                             }
                         }
                         None => errors.push(format!(
-                            "{at}: `{variant}` は、const の欄を持つオブジェクトにする"
+                            "{at}: `{variant}` は、const のフィールドを持つオブジェクトにする"
                         )),
                     }
                 }
                 if tag_names.len() > 1 {
-                    errors.push(format!("{at}: 目印の欄の名前をそろえる"));
+                    errors.push(format!("{at}: タグのフィールドの名前をそろえる"));
                 }
             }
             Shape::Enum { .. } | Shape::Scalars { .. } | Shape::Handwritten => {}
@@ -779,7 +779,7 @@ fn reader(ty: &Ty) -> String {
     }
 }
 
-/// 値を書く式。`place` は、`by_ref` なら値への参照の式（`value` など）、そうでなければ欄（`self.v` など）
+/// 値を書く式。`place` は、`by_ref` なら値への参照の式（`value` など）、そうでなければフィールド（`self.v` など）
 fn writer(ty: &Ty, place: &str, by_ref: bool) -> String {
     let (copied, borrowed) = if by_ref {
         (format!("*{place}"), place.to_string())
@@ -824,7 +824,7 @@ pub fn render(schema: &Schema) -> String {
     out.push_str("// 生成したファイル。手で直さない。\n");
     out.push_str("// 元は schema/messages.json で、`cargo xtask codegen` で作り直す。\n\n");
     out.push_str(
-        "//! 境界のメッセージの型（決定 0012）。スキーマの定義ごとに 1 つの型がある。\n\n",
+        "//! API のメッセージの型（決定 0012）。スキーマの定義ごとに 1 つの型がある。\n\n",
     );
     let map = schema.defs.iter().any(|def| match &def.shape {
         Shape::Object { fields, .. } => fields.iter().any(|field| uses_map(&field.ty)),
@@ -868,7 +868,7 @@ fn render_object(out: &mut String, def: &Def, fields: &[Field], compose: &[Strin
     for target in compose {
         let _ = writeln!(
             out,
-            "    /// `{target}` の欄\n    pub {target}: {},",
+            "    /// `{target}` のフィールド\n    pub {target}: {},",
             pascal(target)
         );
     }
@@ -1037,7 +1037,7 @@ fn render_union(out: &mut String, schema: &Schema, def: &Def, variants: &[String
         .collect();
     let tag_name = tags.first().map_or("type", |(tag, _, _)| tag);
     doc(out, "", &def.description);
-    // 境界のメッセージは 1 度読んで使うだけなので、大きい形を箱に入れず、型をスキーマのとおりに保つ
+    // API のメッセージは 1 度読んで使うだけなので、大きい形を箱に入れず、型をスキーマのとおりに保つ
     let _ = writeln!(
         out,
         "#[derive(Clone, Debug, PartialEq)]\n#[allow(clippy::large_enum_variant)]\npub enum {name} {{"
@@ -1052,14 +1052,14 @@ fn render_union(out: &mut String, schema: &Schema, def: &Def, variants: &[String
     out.push_str("}\n\n");
     let _ = writeln!(
         out,
-        "impl {name} {{\n    /// 目印の欄（`{tag_name}`）の値（スキーマの順）\n    pub const TAGS: &[&str] = &["
+        "impl {name} {{\n    /// タグのフィールド（`{tag_name}`）の値（スキーマの順）\n    pub const TAGS: &[&str] = &["
     );
     for (_, value, _) in &tags {
         let _ = writeln!(out, "        \"{value}\",");
     }
     let _ = writeln!(
         out,
-        "    ];\n\n    /// 目印の欄（`{tag_name}`）の値\n    pub const fn tag(&self) -> &'static str {{\n        match self {{"
+        "    ];\n\n    /// タグのフィールド（`{tag_name}`）の値\n    pub const fn tag(&self) -> &'static str {{\n        match self {{"
     );
     for (_, value, _) in &tags {
         let _ = writeln!(
@@ -1233,7 +1233,7 @@ mod tests {
 
     const REQUEST: &str = r##"
         "request": {"description": "要求", "oneOf": [{"$ref": "#/$defs/a_request"}]},
-        "common": {"description": "共通", "type": "object", "properties": {"v": {"description": "版", "type": "integer", "minimum": 1}}, "required": ["v"]},
+        "common": {"description": "共通", "type": "object", "properties": {"v": {"description": "バージョン", "type": "integer", "minimum": 1}}, "required": ["v"]},
         "a_request": {"description": "A", "type": "object", "allOf": [{"$ref": "#/$defs/common"}],
             "properties": {"op": {"description": "op", "const": "a"}, "names": {"description": "名前", "type": "array", "items": {"type": "string"}}},
             "required": ["op"], "unevaluatedProperties": false},
@@ -1303,7 +1303,7 @@ mod tests {
                "u": {"description": "U", "oneOf": [{"$ref": "#/$defs/o"}]}"##,
         )
         .unwrap_err();
-        // s は形が 1 つに決まらない。u の形の o は目印がなく、o の側でも同じことを返す
+        // s は形が 1 つに決まらない。u の形の o はタグがなく、o の側でも同じことを返す
         assert_eq!(errors.len(), 3, "{errors:?}");
     }
 

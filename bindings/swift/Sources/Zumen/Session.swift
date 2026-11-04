@@ -1,9 +1,9 @@
 import CZumen
 import Foundation
 
-/// 境界の関数の状態が ok でなかった（決定 0012）
+/// API の関数の状態が ok でなかった（決定 0012）
 public struct ZumenError: Error, CustomStringConvertible {
-    /// 呼んだ境界の関数の名前
+    /// 呼んだ API の関数の名前
     public let operation: String
     /// 状態コード（`Constants.Status`）
     public let code: Int32
@@ -27,10 +27,10 @@ public struct ZumenError: Error, CustomStringConvertible {
     }
 }
 
-/// コアのセッション（`zm_session`）。境界の関数に 1 つずつ当たるメソッドを持つ（決定 0012・0225）
+/// コアのセッション（`zm_session`）。API の関数に 1 つずつ当たるメソッドを持つ（決定 0012・0225）
 ///
 /// 1 つのセッションは、一度に 1 つのスレッドだけが使う。`cancel` だけは、どのスレッドからも呼べる。閉じたセッションへの呼び出しは
-/// NULL のまま境界に渡し、境界が invalid を返す。
+/// NULL のまま API に渡し、API が invalid を返す。
 public final class Session: @unchecked Sendable {
     /// cancel と close を、ほかのスレッドとの間で順に並べる
     private let lock = NSLock()
@@ -64,7 +64,7 @@ public final class Session: @unchecked Sendable {
         close()
     }
 
-    /// ABI の大版（`zm_abi_version`）
+    /// ABI のメジャーバージョン（`zm_abi_version`）
     public static var abiVersion: UInt32 { zm_abi_version() }
 
     /// 閉じたか

@@ -1,13 +1,13 @@
 // 生成したファイル。手で直さない。
 // 元は schema/boundary.toml と schema/scene.toml で、`cargo xtask codegen` で作り直す。
 
-/** パッケージの版（決定 0015） */
+/** パッケージのバージョン（決定 0015） */
 export const VERSION = "0.2.0";
-/** ABI の大版 */
+/** ABI のメジャーバージョン */
 export const ABI_VERSION = 1;
-/** メッセージのスキーマの大版（要求と応答の v） */
+/** メッセージのスキーマのメジャーバージョン（要求と応答の v） */
 export const SCHEMA_MAJOR = 1;
-/** メッセージのスキーマの小版 */
+/** メッセージのスキーマのマイナーバージョン */
 export const SCHEMA_MINOR = 63;
 
 /** 状態コードの名前。値から引く */
@@ -179,16 +179,16 @@ export const DETECTION = Object.freeze([
   }),
 ]);
 
-/** シーンの見出しの始まりの 4 バイト */
+/** シーンのヘッダーの始まりの 4 バイト */
 export const SCENE_MAGIC = "ZMSC";
-/** シーンの大版。区画の意味を変えるときに上げる */
+/** シーンのメジャーバージョン。セクションの意味を変えるときに上げる */
 export const SCENE_MAJOR = 1;
-/** シーンの小版。区画か値を足すたびに上げる */
+/** シーンのマイナーバージョン。セクションか値を足すたびに上げる */
 export const SCENE_MINOR = 2;
 /** 番号の「なし」 */
 export const SCENE_NONE = 4294967295;
 
-/** シーンの区画の定義。番号の順 */
+/** シーンのセクションの定義。番号の順 */
 export const SCENE_SECTIONS = Object.freeze([
   Object.freeze({ name: "chunk_origins", type: "f64", width: 2 }),
   Object.freeze({ name: "chunk_bounds", type: "f32", width: 4 }),

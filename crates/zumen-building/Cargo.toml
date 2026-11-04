@@ -1,6 +1,6 @@
 [package]
 name = "zumen-building"
-description = "zumen の建物モデル（L2、決定 0207）。要素と成分、ID とハッシュ、配置の連鎖、関係の索引"
+description = "zumen の建物モデル（L2、決定 0207）。要素とコンポーネント、ID とハッシュ、配置の連鎖、関係の索引"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

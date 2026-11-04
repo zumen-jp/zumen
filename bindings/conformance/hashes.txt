@@ -1,6 +1,6 @@
-# 適合試験の応答とバイナリの結果のハッシュ（SHA-256）。生成したファイル。手で直さない。
-# `cargo run -p zumen-conformance -- --write` で作り直す。どの形・どの言語の結合でも、この一覧と一致する（決定 0007・0012）。
-# 行の形: <試験の組> <手順の番号> <response か blob> <ハッシュ>
+# 適合テストの応答とバイナリの結果のハッシュ（SHA-256）。生成したファイル。手で直さない。
+# `cargo run -p zumen-conformance -- --write` で作り直す。どの形態・どの言語のバインディングでも、この一覧と一致する（決定 0007・0012）。
+# 行の形: <テストの組> <手順の番号> <response か blob> <ハッシュ>
 apply 1 response eb0f1f701329a9d551face73aa2ca1c997295583c825b0c1bd4a12ecfde8f3f5
 apply 2 response 6af804fc37b1aaeca3fc8ddafa63d776eaad2d87527227719274b9fe8f3a0c1d
 apply 3 response 99f9e9db52aef6a546a887354b5f14b3d20be5cfb37bb4aeb80a05e62fd21ec0

@@ -1,7 +1,7 @@
 // 生成したファイル。手で直さない。
 // 元は schema/messages.json で、`cargo xtask codegen` で作り直す。
 //
-// 境界のメッセージの型（決定 0012・0194）。スキーマの定義ごとに 1 つの型がある。
+// API のメッセージの型（決定 0012・0194）。スキーマの定義ごとに 1 つの型がある。
 // 列挙は、知らない値も受け取れるように、ほかの文字列も許す（決定 0015）。
 
 /** 要求。op の値で形が決まる */
@@ -38,9 +38,9 @@ export type Request =
   | BuildingApplyRequest
   | LiftRequest;
 
-/** どの op の要求にも置ける欄 */
+/** どの op の要求にも置けるフィールド */
 export interface RequestCommon {
-  /** メッセージのスキーマの大版。今は 1 */
+  /** メッセージのスキーマのメジャーバージョン。今は 1 */
   v: number;
   /** 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010） */
   budget?: Budget;
@@ -48,7 +48,7 @@ export interface RequestCommon {
   partial?: boolean;
   /** 診断ごとに返す場所の数。書かなければ 16（決定 0009） */
   max_places?: number;
-  /** 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+  /** 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
   time_limit_ms?: number;
 }
 
@@ -77,19 +77,19 @@ export type Limit =
   /** 上限なし */
   | "unlimited";
 
-/** コアの版と、使える op・形式を尋ねる */
+/** コアのバージョンと、使える op・形式を尋ねる */
 export interface CapabilitiesRequest extends RequestCommon {
   /** op の名前 */
   op: "capabilities";
 }
 
-/** コアの版と、使える op・形式（決定 0015） */
+/** コアのバージョンと、使える op・形式（決定 0015） */
 export interface CapabilitiesResult {
-  /** パッケージの版（semver） */
+  /** パッケージのバージョン（semver） */
   package: string;
-  /** ABI の大版。zm_abi_version と同じ */
+  /** ABI のメジャーバージョン。zm_abi_version と同じ */
   abi: number;
-  /** メッセージのスキーマの版 */
+  /** メッセージのスキーマのバージョン */
   schema: SchemaVersion;
   /** このコア（wasm ではこのモジュール）で使える op の名前 */
   ops: string[];
@@ -97,11 +97,11 @@ export interface CapabilitiesResult {
   formats: Format[];
 }
 
-/** メッセージのスキーマの版。大版は要求と応答の v、小版は op・欄・列挙の値を足すたびに上げる */
+/** メッセージのスキーマのバージョン。メジャーバージョンは要求と応答の v、マイナーバージョンは op・フィールド・列挙の値を足すたびに上げる */
 export interface SchemaVersion {
-  /** 大版 */
+  /** メジャーバージョン */
   major: number;
-  /** 小版 */
+  /** マイナーバージョン */
   minor: number;
 }
 
@@ -115,7 +115,7 @@ export interface Format {
   read: boolean;
   /** 書けるか */
   write: boolean;
-  /** この形式の ID の規則の版（決定 0015） */
+  /** この形式の ID の規則のバージョン（決定 0015） */
   id_rules: number;
 }
 
@@ -127,11 +127,11 @@ export interface OpenRequest extends RequestCommon {
   input: string;
   /** 作る文書の名前。書かなければ入力の名前 */
   doc?: string;
-  /** 入力の全体の大きさ（バイト）。渡した入力より大きければ、入力を全体の初めの部分とみなし、足りない範囲を needs で求める。範囲で読める形式（LAS・LAZ）だけが使う（決定 0232）。小版 48 から */
+  /** 入力の全体の大きさ（バイト）。渡した入力より大きければ、入力を全体の初めの部分とみなし、足りない範囲を needs で求める。範囲で読める形式（LAS・LAZ）だけが使う（決定 0232）。マイナーバージョン 48 から */
   size?: number;
-  /** 見分ける印のない形式（xyz・extdm）を名指して読む。書かなければ、入力から判定する（決定 0232）。小版 49 から。extdm は小版 62 から */
+  /** 見分けるマーカーのない形式（xyz・extdm）を名指して読む。書かなければ、入力から判定する（決定 0232）。マイナーバージョン 49 から。extdm はマイナーバージョン 62 から */
   format?: string;
-  /** SXF の属性ファイル（SAF）を入れた入力の名前。zm_push で渡したもの。属性ファイル用の属性付加機構（$$ATRF$$）の要素に、属性を sxf.saf の拡張で結ぶ（決定 0249）。書かなければ、P2Z・SFZ の中の、図面と同じ名前の SAF を使う。SXF でない入力には使えない。小版 63 から */
+  /** SXF の属性ファイル（SAF）を入れた入力の名前。zm_push で渡したもの。属性ファイル用の属性付加機構（$$ATRF$$）の要素に、属性を sxf.saf の拡張で結ぶ（決定 0249）。書かなければ、P2Z・SFZ の中の、図面と同じ名前の SAF を使う。SXF でない入力には使えない。マイナーバージョン 63 から */
   saf?: string;
 }
 
@@ -141,11 +141,11 @@ export interface OpenResult {
   doc: string;
   /** 判定した形式の名前 */
   format: string;
-  /** 読むのに足りない範囲。あれば文書はまだ作らない。範囲をその名前で zm_push してから、同じ要求をもう一度呼ぶ（決定 0232）。小版 48 から */
+  /** 読むのに足りない範囲。あれば文書はまだ作らない。範囲をその名前で zm_push してから、同じ要求をもう一度呼ぶ（決定 0232）。マイナーバージョン 48 から */
   needs?: InputRange[];
-  /** 読み終えたので、close の inputs で捨ててよい範囲の入力。小版 48 から */
+  /** 読み終えたので、close の inputs で捨ててよい範囲の入力。マイナーバージョン 48 から */
   done?: InputRange[];
-  /** SXF を ZIP に入れた書庫（P2Z・SFZ）なら、SXF の項目のほかの項目（属性ファイル・画像など）の書庫の中の名前。書庫の順。apply は、SXF の項目だけを置き換え、ほかの項目を写した書庫を書く（#385）。小版 54 から */
+  /** SXF を ZIP に入れたアーカイブ（P2Z・SFZ）なら、SXF の項目のほかの項目（属性ファイル・画像など）のアーカイブの中の名前。アーカイブの順。apply は、SXF の項目だけを置き換え、ほかの項目を写したアーカイブを書く（#385）。マイナーバージョン 54 から */
   entries?: string[];
 }
 
@@ -189,7 +189,7 @@ export interface DescribeResult {
   texts: string[];
 }
 
-/** 開いた文書を図面モデル（L2、決定 0022）に変換し、その要約を返す。ネイティブと wasm の出力の一致を、適合試験で比べるためにも使う（決定 0007） */
+/** 開いた文書を図面モデル（L2、決定 0022）に変換し、その要約を返す。ネイティブと wasm の出力の一致を、適合テストで比べるためにも使う（決定 0007） */
 export interface DrawingRequest extends RequestCommon {
   /** op の名前 */
   op: "drawing";
@@ -205,11 +205,11 @@ export interface DrawingResult {
   spaces: SpaceSummary[];
   /** 用紙。モデルの順 */
   sheets: SheetSummary[];
-  /** 文書の点の表し方（marker を持たない点の見え方、決定 0160）。point_style の変更で変える。文書が持たなければ（JWW・SXF）持たない。小版 39 から */
+  /** 文書の点の表し方（marker を持たない点の見え方、決定 0160）。point_style の変更で変える。文書が持たなければ（JWW・SXF）持たない。マイナーバージョン 39 から */
   point_style?: PointStyleSummary;
 }
 
-/** 文書の点の表し方。欄の意味は point_style_edit と同じ */
+/** 文書の点の表し方。フィールドの意味は point_style_edit と同じ */
 export interface PointStyleSummary {
   /** 基本の形 */
   mark: PointMark;
@@ -291,11 +291,11 @@ export interface EntitiesRequest extends RequestCommon {
   offset?: number;
   /** 返す要素の数の上限。書かなければ 1000 */
   limit?: number;
-  /** 返す欄の名前。1 つ以上で、重ねない。id は書かなくても返す。書かなければ id・kind・layer・source を返す（決定 0118） */
+  /** 返すフィールドの名前。1 つ以上で、重ねない。id は書かなくても返す。書かなければ id・kind・layer・source を返す（決定 0118） */
   fields?: EntityField[];
   /** [最小の X, 最小の Y, 最大の X, 最大の Y]。範囲がこの長方形と重なるか接する要素だけを返す。空間か用紙それぞれの座標で比べる（決定 0118） */
   region?: number[];
-  /** 空間か用紙の ID（space/0・sheet/h22 など）。書けば、その空間か用紙の要素だけを返す。記号の定義の空間（space/h1F など。BLOCK のハンドルから作る、決定 0156）も指せ、書かなければ定義の中の要素は返さない。ない ID なら要素を返さない。小版 31 から（決定 0177） */
+  /** 空間か用紙の ID（space/0・sheet/h22 など）。書けば、その空間か用紙の要素だけを返す。記号の定義の空間（space/h1F など。BLOCK のハンドルから作る、決定 0156）も指せ、書かなければ定義の中の要素は返さない。ない ID なら要素を返さない。マイナーバージョン 31 から（決定 0177） */
   place?: string;
 }
 
@@ -311,7 +311,7 @@ export interface EntitiesResult {
 
 /** 図面モデルの要素 */
 export interface Entity {
-  /** 空間か用紙と、出所で作る ID（space/0/h2F、space/0/r12、sheet/1/b4096 など）。出所の部分は、形式が持つ鍵（ハンドル）があれば鍵で作り、書き戻しても前の要素が増えても変わらない。同じバイト列には、どの版でも同じ ID を返す（決定 0117・0156） */
+  /** 空間か用紙と、出所で作る ID（space/0/h2F、space/0/r12、sheet/1/b4096 など）。出所の部分は、形式が持つキー（ハンドル）があればキーで作り、書き戻しても前の要素が増えても変わらない。同じバイト列には、どのバージョンでも同じ ID を返す（決定 0117・0156） */
   id: string;
   /** 形の種類 */
   kind?: EntityKind;
@@ -323,11 +323,11 @@ export interface Entity {
   bbox?: Extent;
   /** 要素のレイヤ・スタイル・形のハッシュ。出所の位置は含めない。変更の前提条件に使う（v2: と 32 桁の 16 進、決定 0156） */
   hash?: string;
-  /** 形の値。線分・円・円弧・楕円・幅を持たない折れ線・1 点か 2 点の間に置く文字・書式つきの文字・ブロックの記号・制御点か当てはめる点で決まるスプライン・寸法・引出線（LEADER）だけが持つ。apply の replace と add に渡せる形（決定 0139）。小版 10 から */
+  /** 形の値。線分・円・円弧・楕円・幅を持たない折れ線・1 点か 2 点の間に置く文字・書式つきの文字・ブロックの記号・制御点かフィット点で決まるスプライン・寸法・引出線（LEADER）だけが持つ。apply の replace と add に渡せる形（決定 0139）。マイナーバージョン 10 から */
   geometry?: Geometry;
 }
 
-/** entities で返す要素の欄（決定 0118） */
+/** entities で返す要素のフィールド（決定 0118） */
 export type EntityField =
   | "id"
   | "kind"
@@ -388,7 +388,7 @@ export interface ArcGeometry {
   end_angle: number;
 }
 
-/** 楕円か楕円の弧。始まりの角度から終わりの角度へ、反時計回りにたどる。閉じた楕円は 0 度から 360 度。小版 11 から */
+/** 楕円か楕円の弧。始まりの角度から終わりの角度へ、反時計回りにたどる。閉じた楕円は 0 度から 360 度。マイナーバージョン 11 から */
 export interface EllipseGeometry {
   /** 形の種類 */
   shape: "ellipse";
@@ -424,17 +424,17 @@ export interface TextGeometry {
   content: string;
   /** 基点 [X, Y]。2 点の間に合わせる文字では 1 点目 */
   position: number[];
-  /** 2 点の間に合わせる文字の 2 点目 [X, Y]。合わせ方（fit）と一緒に書く。置き換えでは、1 点に置く文字と 2 点の間に合わせる文字を入れ替えられない。小版 17 から */
+  /** 2 点の間に合わせる文字の 2 点目 [X, Y]。合わせ方（fit）と一緒に書く。置き換えでは、1 点に置く文字と 2 点の間に合わせる文字を入れ替えられない。マイナーバージョン 17 から */
   end?: number[];
-  /** 2 点の間への合わせ方。2 点目（end）と一緒に書く。小版 17 から */
+  /** 2 点の間への合わせ方。2 点目（end）と一緒に書く。マイナーバージョン 17 から */
   fit?: TextFit;
   /** 高さ。0 より大きい */
   height: number;
   /** 回転（度）。2 点の間に合わせる文字では、1 点目から 2 点目への向きと同じでなければならない */
   rotation: number;
-  /** 文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。DXF に文字スタイルの定義がないときは Standard だけを受ける。置き換えるときは、元と同じ名前だけを受ける。style_id と一緒に書くなら、同じ文字スタイルを指す。小版 12 から */
+  /** 文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。DXF に文字スタイルの定義がないときは Standard だけを受ける。置き換えるときは、元と同じ名前だけを受ける。style_id と一緒に書くなら、同じ文字スタイルを指す。マイナーバージョン 12 から */
   style?: string;
-  /** 文字スタイルの ID。tables が返したもの。entities は、名前で引いた文字スタイルの ID を返す。足す・置き換えるときは、名前の代わりに書ける（名前より先に使う）。同じ名前（大文字と小文字を区別しない）の項目が複数あれば書き戻せない。小版 23 から */
+  /** 文字スタイルの ID。tables が返したもの。entities は、名前で引いた文字スタイルの ID を返す。足す・置き換えるときは、名前の代わりに書ける（名前より先に使う）。同じ名前（大文字と小文字を区別しない）の項目が複数あれば書き戻せない。マイナーバージョン 23 から */
   style_id?: string;
 }
 
@@ -444,7 +444,7 @@ export type TextFit =
   | "fit"
   | (string & {});
 
-/** 書式つきの文字（DXF の MTEXT）。置き換えるときは、枠の高さ・書き進める向き・行送り・背景・高さの意味・文字スタイルを元の値のままにする。足すときは、枠の高さなし・左から右・行送り 1 倍・背景なしにする。小版 13 から */
+/** 書式つきの文字（DXF の MTEXT）。置き換えるときは、枠の高さ・書き進める向き・行送り・背景・高さの意味・文字スタイルを元の値のままにする。足すときは、枠の高さなし・左から右・行送り 1 倍・背景なしにする。マイナーバージョン 13 から */
 export interface FormattedTextGeometry {
   /** 形の種類 */
   shape: "formatted_text";
@@ -462,27 +462,27 @@ export interface FormattedTextGeometry {
   width?: number;
   /** 文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。置き換えるときは、元と同じ名前だけを受ける。style_id と一緒に書くなら、同じ文字スタイルを指す */
   style?: string;
-  /** 文字スタイルの ID。tables が返したもの。entities は、名前で引いた文字スタイルの ID を返す。足す・置き換えるときは、名前の代わりに書ける（名前より先に使う）。同じ名前（大文字と小文字を区別しない）の項目が複数あれば書き戻せない。小版 23 から */
+  /** 文字スタイルの ID。tables が返したもの。entities は、名前で引いた文字スタイルの ID を返す。足す・置き換えるときは、名前の代わりに書ける（名前より先に使う）。同じ名前（大文字と小文字を区別しない）の項目が複数あれば書き戻せない。マイナーバージョン 23 から */
   style_id?: string;
 }
 
-/** スプライン（NURBS）。制御点で決まるもの（小版 15 から）と、当てはめる点で決まるもの（小版 18 から）がある。当てはめる点で決まるものは、節点と制御点を空にし、当てはめる点（fit）と、あれば両端の接線を持つ。元の図形に制御点や節点もあるときは形の値を返さず、置き換えない。置き換えでは、制御点で決まるものと当てはめる点で決まるものを入れ替えない */
+/** スプライン（NURBS）。制御点で決まるもの（マイナーバージョン 15 から）と、フィット点で決まるもの（マイナーバージョン 18 から）がある。フィット点で決まるものは、ノットと制御点を空にし、フィット点（fit）と、あれば両端の接線を持つ。元の図形に制御点やノットもあるときは形の値を返さず、置き換えない。置き換えでは、制御点で決まるものとフィット点で決まるものを入れ替えない */
 export interface SplineGeometry {
   /** 形の種類 */
   shape: "spline";
   /** 次数。1 以上 */
   degree: number;
-  /** 節点の並び。周期的でなければ、制御点の数と次数と 1 の和の数。当てはめる点で決まるものは空 */
+  /** ノットの並び。周期的でなければ、制御点の数と次数と 1 の和の数。フィット点で決まるものは空 */
   knots: number[];
-  /** 制御点の [X, Y] の並び。次数より多い。当てはめる点で決まるものは空 */
+  /** 制御点の [X, Y] の並び。次数より多い。フィット点で決まるものは空 */
   control: number[][];
   /** 制御点ごとの重み。0 より大きい。有理のスプラインだけが持ち、書かなければ有理でない */
   weights?: number[];
-  /** 当てはめる点の [X, Y] の並び。2 つ以上。書けば、節点と制御点は空で、重みは書かない。小版 18 から */
+  /** フィット点の [X, Y] の並び。2 つ以上。書けば、ノットと制御点は空で、重みは書かない。マイナーバージョン 18 から */
   fit?: number[][];
-  /** 当てはめる点で決まるスプラインの、始まりの接線の向き [X, Y]。0 でない。書かなければ読む側が決める。小版 18 から */
+  /** フィット点で決まるスプラインの、始まりの接線の向き [X, Y]。0 でない。書かなければ読む側が決める。マイナーバージョン 18 から */
   start_tangent?: number[];
-  /** 当てはめる点で決まるスプラインの、終わりの接線の向き [X, Y]。0 でない。書かなければ読む側が決める。小版 18 から */
+  /** フィット点で決まるスプラインの、終わりの接線の向き [X, Y]。0 でない。書かなければ読む側が決める。マイナーバージョン 18 から */
   end_tangent?: number[];
   /** 閉じている */
   closed: boolean;
@@ -490,7 +490,7 @@ export interface SplineGeometry {
   periodic: boolean;
 }
 
-/** 寸法。種類（kind）ごとに、その種類の定義点の欄を持つ。測定値（measurement）は元の形式が保存した値で、定義点から測り直さない。寸法を描いた部品（ブロック）は形の値に含めない。entities が返すだけで、置き換えと追加は change.edit.unsupported になる（寸法を描いた部品を作り直す必要があるため）。小版 19 から */
+/** 寸法。種類（kind）ごとに、その種類の定義点のフィールドを持つ。測定値（measurement）は元の形式が保存した値で、定義点から測り直さない。寸法を描いた部品（ブロック）は形の値に含めない。entities が返すだけで、置き換えと追加は change.edit.unsupported になる（寸法を描いた部品を作り直す必要があるため）。マイナーバージョン 19 から */
 export interface DimensionGeometry {
   /** 形の種類 */
   shape: "dimension";
@@ -534,9 +534,9 @@ export interface DimensionGeometry {
   label: DimensionLabel;
   /** 利用者が書いた寸法値の文字の元の内容。label が override のときだけ持つ。測定値に置き換える符号（DXF の <>）と書式の符号もそのまま持つ */
   content?: string;
-  /** 元の形式が保存した測定値。単位と倍率は measurement_key の欄に従う */
+  /** 元の形式が保存した測定値。単位と倍率は measurement_key のフィールドに従う */
   measurement?: number;
-  /** measurement の形式と欄を指すキー（DXF の DIMENSION の 42 なら dxf.DIMENSION.42）。measurement と一緒に持つ */
+  /** measurement の形式とフィールドを指すキー（DXF の DIMENSION の 42 なら dxf.DIMENSION.42）。measurement と一緒に持つ */
   measurement_key?: string;
   /** 寸法値の文字の中央の点 [X, Y]。元の形式が持たなければ書かない */
   text_position?: number[];
@@ -544,11 +544,11 @@ export interface DimensionGeometry {
   text_rotation?: number;
   /** 寸法スタイルの元の名前 */
   style: string;
-  /** 寸法スタイルの ID。tables が返したもの。名前で引いた寸法スタイルがなければ書かない。小版 23 から */
+  /** 寸法スタイルの ID。tables が返したもの。名前で引いた寸法スタイルがなければ書かない。マイナーバージョン 23 から */
   style_id?: string;
 }
 
-/** 引出線（DXF・DWG の LEADER、決定 0177）。注記（MTEXT など）は別の要素で、annotation がその ID を指す。置き換えるときは寸法スタイルと注記を変えず、経路・曲線か・矢印を書き直す。足すときの注記は、同じ空間か用紙の MTEXT だけを指せる（小版 36 から。それまでは注記を持てなかった）。DWG は置き換えと追加を書き戻すが、矢印の印を必ず持つので、arrow を書かない引出線は書けない（小版 36 から。それまでは R2004 までの置き換えだけ）。小版 31 から */
+/** 引出線（DXF・DWG の LEADER、決定 0177）。注記（MTEXT など）は別の要素で、annotation がその ID を指す。置き換えるときは寸法スタイルと注記を変えず、経路・曲線か・矢印を書き直す。足すときの注記は、同じ空間か用紙の MTEXT だけを指せる（マイナーバージョン 36 から。それまでは注記を持てなかった）。DWG は置き換えと追加を書き戻すが、矢印のフラグを必ず持つので、arrow を書かない引出線は書けない（マイナーバージョン 36 から。それまでは R2004 までの置き換えだけ）。マイナーバージョン 31 から */
 export interface LeaderGeometry {
   /** 形の種類 */
   shape: "leader";
@@ -566,7 +566,7 @@ export interface LeaderGeometry {
   style_id?: string;
 }
 
-/** 引出線つきの注記（DXF・DWG の MULTILEADER、決定 0185）。注記は形の中にあり、content と text・symbol で種類と中身を示す。置き換えるときは枝の線の頂点・集まる点・折れ曲がりだけを変えられ、ほかの欄は元の値のままにする。DXF だけが置き換えを書き戻し、枝と線の数と、集まる点と折れ曲がりの有無は元と同じでなければならない。足すことと DWG の書き戻しは、まだしない。小版 36 から */
+/** 引出線つきの注記（DXF・DWG の MULTILEADER、決定 0185）。注記は形の中にあり、content と text・symbol で種類と中身を示す。置き換えるときは枝の線の頂点・集まる点・折れ曲がりだけを変えられ、ほかのフィールドは元の値のままにする。DXF だけが置き換えを書き戻し、枝と線の数と、集まる点と折れ曲がりの有無は元と同じでなければならない。足すことと DWG の書き戻しは、まだしない。マイナーバージョン 36 から */
 export interface CalloutGeometry {
   /** 形の種類 */
   shape: "callout";
@@ -620,7 +620,7 @@ export type CalloutContent =
   | "symbol"
   | (string & {});
 
-/** 点（決定 0160・0183）。marker がなければ文書の点の表し方（DXF・DWG の $PDMODE・$PDSIZE）に従う点で、DXF・DWG の POINT と JWW の記号でない点が当たる。marker があれば既定義の印の点で、SFC の点マーカーと JWW の記号の点が当たる。置き換えるときは、描き方（marker があるか）を元のまま保つ。DXF・DWG は marker と construction を持つ点を書かず、JWW の記号でない点は角度 0 だけを、SXF は SFC の点マーカーだけを書く。小版 35 から */
+/** 点（決定 0160・0183）。marker がなければ文書の点の表し方（DXF・DWG の $PDMODE・$PDSIZE）に従う点で、DXF・DWG の POINT と JWW の記号でない点が当たる。marker があれば既定義のマーカーの点で、SFC の点マーカーと JWW の記号の点が当たる。置き換えるときは、描き方（marker があるか）を元のまま保つ。DXF・DWG は marker と construction を持つ点を書かず、JWW の記号でない点は角度 0 だけを、SXF は SFC の点マーカーだけを書く。マイナーバージョン 35 から */
 export interface PointGeometry {
   /** 形の種類 */
   shape: "point";
@@ -628,15 +628,15 @@ export interface PointGeometry {
   position: number[];
   /** 回転（度） */
   rotation: number;
-  /** 既定義の印。書かなければ文書の点の表し方に従う */
+  /** 既定義のマーカー。書かなければ文書の点の表し方に従う */
   marker?: PointMarker;
   /** 作図の補助の点（JWW の仮点）か。書かなければ偽 */
   construction?: boolean;
 }
 
-/** 既定義の印の表のキーと尺度。印の形は、表示する側がキーから引く */
+/** 既定義のマーカーの表のキーと尺度。マーカーの形は、表示する側がキーから引く */
 export interface PointMarker {
-  /** 印の表の名前空間。sxf.marker（SFC の点マーカー）か jww.point（JWW の記号の点） */
+  /** マーカーの表の名前空間。sxf.marker（SFC の点マーカー）か jww.point（JWW の記号の点） */
   namespace: string;
   /** 名前空間の中の元のコード */
   code: string;
@@ -669,7 +669,7 @@ export type DimensionLabel =
   | "hidden"
   | (string & {});
 
-/** 記号（DXF・DWG のブロックの INSERT）。定義の点を、尺度・回転・移動の順に写す。切り抜きは形の値に含めない。置き換えるときは切り抜きを元のままにし、属性は値だけを変えられる。属性を持つ記号の置く点・尺度・回転は変えない（属性ごと動かすなら transform を使う）。足すときは切り抜きを持たない。小版 14 から */
+/** 記号（DXF・DWG のブロックの INSERT）。定義の点を、尺度・回転・移動の順に写す。切り抜きは形の値に含めない。置き換えるときは切り抜きを元のままにし、属性は値だけを変えられる。属性を持つ記号の置く点・尺度・回転は変えない（属性ごと動かすなら transform を使う）。足すときは切り抜きを持たない。マイナーバージョン 14 から */
 export interface SymbolGeometry {
   /** 形の種類 */
   shape: "symbol";
@@ -683,7 +683,7 @@ export interface SymbolGeometry {
   rotation: number;
   /** 格子に並べて置く列と行。書かなければ 1 つだけ置く */
   grid?: SymbolGrid;
-  /** 属性のタグと値。entities は記号の属性を入力の順に返す。足すときは、定義の属性の定義（値が決まったものを除く）から属性を作り、ここに書いたタグの値で既定の値を替える。タグは大文字と小文字を区別せず、重複を受けない。必要な属性を作れなければ失敗する。置き換えるときは、元と同じ数・順・タグを受け、値を変えた属性の ATTRIB の値を書き直す（表題欄の項目の書き換えなど）。書式つきの値（複数行の属性）を持つ属性の値は変えられない。小版 16 から。置き換えで値を変えるのは小版 21 から */
+  /** 属性のタグと値。entities は記号の属性を入力の順に返す。足すときは、定義の属性の定義（値が決まったものを除く）から属性を作り、ここに書いたタグの値で既定の値を替える。タグは大文字と小文字を区別せず、重複を受けない。必要な属性を作れなければ失敗する。置き換えるときは、元と同じ数・順・タグを受け、値を変えた属性の ATTRIB の値を書き直す（表題欄の項目の書き換えなど）。書式つきの値（複数行の属性）を持つ属性の値は変えられない。マイナーバージョン 16 から。置き換えで値を変えるのはマイナーバージョン 21 から */
   attributes?: SymbolAttribute[];
 }
 
@@ -720,7 +720,7 @@ export type Attachment =
   | "bottom_right"
   | (string & {});
 
-/** 要素の形の種類（決定 0022）。point（点、決定 0160）は小版 32 から。それまで点は symbol だった */
+/** 要素の形の種類（決定 0022）。point（点、決定 0160）はマイナーバージョン 32 から。それまで点は symbol だった */
 export type EntityKind =
   | "line"
   | "circle"
@@ -738,7 +738,7 @@ export type EntityKind =
   | "point"
   | (string & {});
 
-/** 開いた文書に、変更の一覧を当てて書き戻す（決定 0139・0156）。要素は、entities が返す ID とハッシュで指す。どれか 1 つでも当てられなければ、何も変えない。当てたら、文書を書き戻したものに替え、書き戻したファイルを blobs で返す。小版 7 から */
+/** 開いた文書に、変更の一覧を当てて書き戻す（決定 0139・0156）。要素は、entities が返す ID とハッシュで指す。どれか 1 つでも当てられなければ、何も変えない。当てたら、文書を書き戻したものに替え、書き戻したファイルを blobs で返す。マイナーバージョン 7 から */
 export interface ApplyRequest extends RequestCommon {
   /** op の名前 */
   op: "apply";
@@ -756,11 +756,11 @@ export interface ApplyResult {
   applied: Applied[];
   /** 書き戻した文書のハッシュ。次の apply の前提条件に使う */
   hash: string;
-  /** true なら、変えていない要素の ID がずれた。鍵を持たない形式（JWW）で、前の図形を除くか足したとき。ID を使う前に entities で読み直す。ずれないときは持たない。小版 30 から */
+  /** true なら、変えていない要素の ID がずれた。キーを持たない形式（JWW）で、前の図形を除くか足したとき。ID を使う前に entities で読み直す。ずれないときは持たない。マイナーバージョン 30 から */
   ids_shifted?: boolean;
 }
 
-/** 開いた文書の図面モデルを、別の形式の新しいファイルに書き、新しい文書として開く（決定 0139・0206）。書けない要素は落とし、種類ごとの件数を診断で返す。書いたファイルは blobs で返す。今は DXF にだけ書ける。小版 41 から */
+/** 開いた文書の図面モデルを、別の形式の新しいファイルに書き、新しい文書として開く（決定 0139・0206）。書けない要素は落とし、種類ごとの件数を診断で返す。書いたファイルは blobs で返す。今は DXF にだけ書ける。マイナーバージョン 41 から */
 export interface ConvertRequest extends RequestCommon {
   /** op の名前 */
   op: "convert";
@@ -823,7 +823,7 @@ export interface RestyleEdit {
   hash: string;
   /** レイヤの元の名前。図面にあるレイヤで、名前が 1 つに決まるもの。layer_id と一緒には書かない */
   layer?: string;
-  /** レイヤの ID。tables が返したもの。同じ名前の項目が複数あるときは書き戻せない。小版 8 から */
+  /** レイヤの ID。tables が返したもの。同じ名前の項目が複数あるときは書き戻せない。マイナーバージョン 8 から */
   layer_id?: string;
   /** 色 */
   color?: ColorChange;
@@ -857,7 +857,7 @@ export interface RemoveEdit {
   hash: string;
 }
 
-/** 要素の形を、渡す値で置き換える。形の種類は変えない。レイヤとスタイルは変えない。小版 10 から */
+/** 要素の形を、渡す値で置き換える。形の種類は変えない。レイヤとスタイルは変えない。マイナーバージョン 10 から */
 export interface ReplaceEdit {
   /** 変更の種類 */
   kind: "replace";
@@ -869,27 +869,27 @@ export interface ReplaceEdit {
   geometry: Geometry;
 }
 
-/** 空間か用紙に要素を足す。書かない色・線種・線幅はレイヤに従う。足せる形は、形の値のどの種類も。小版 10 から */
+/** 空間か用紙に要素を足す。書かない色・線種・線幅はレイヤに従う。足せる形は、形の値のどの種類も。マイナーバージョン 10 から */
 export interface AddEdit {
   /** 変更の種類 */
   kind: "add";
-  /** 足す先の空間か用紙の ID（space/0・sheet/h22 など）。entities の ID の先頭の部分。小版 31 から、記号の定義の空間（space/h1F など）も指せる（決定 0177） */
+  /** 足す先の空間か用紙の ID（space/0・sheet/h22 など）。entities の ID の先頭の部分。マイナーバージョン 31 から、記号の定義の空間（space/h1F など）も指せる（決定 0177） */
   place: string;
   /** レイヤの元の名前。図面にあるレイヤで、名前が 1 つに決まるもの。layer_id と一緒には書かない。どちらも書かなければレイヤ 0 */
   layer?: string;
   /** レイヤの ID。tables が返したもの */
   layer_id?: string;
-  /** 色。SXF はレイヤに従う色を書けないので、書く。小版 29 から */
+  /** 色。SXF はレイヤに従う色を書けないので、書く。マイナーバージョン 29 から */
   color?: ColorChange;
-  /** 線種。小版 29 から */
+  /** 線種。マイナーバージョン 29 から */
   line_type?: LineTypeChange;
-  /** 線幅。小版 29 から */
+  /** 線幅。マイナーバージョン 29 から */
   line_weight?: LineWeightChange;
   /** 足す形 */
   geometry: Geometry;
 }
 
-/** レイヤの名前・状態・色・線種・線幅のうち、書いたものだけを変える（決定 0162）。DXF は、名前を変えると、図形と今のレイヤ（$CLAYER）も新しい名前で指す。DWG は、今あるレイヤの線種と真の色を変えられない。小版 22 から */
+/** レイヤの名前・状態・色・線種・線幅のうち、書いたものだけを変える（決定 0162）。DXF は、名前を変えると、図形と今のレイヤ（$CLAYER）も新しい名前で指す。DWG は、今あるレイヤの線種と真の色を変えられない。マイナーバージョン 22 から */
 export interface LayerEdit {
   /** 変更の種類 */
   kind: "layer";
@@ -915,7 +915,7 @@ export interface LayerEdit {
   line_weight?: LineWeightChange;
 }
 
-/** レイヤを除く（決定 0162）。要素・ほかのオブジェクト・今のレイヤ（$CLAYER）が指すレイヤと、0・Defpoints・外部参照に依るレイヤは除けない。同じ apply の要素の変更が指すレイヤも除けない。後ろにハンドルのないレイヤがあれば、その ID が変わるので除けない。除いたレイヤより後ろのレイヤと、その上の要素のハッシュは変わるので、読み直す。小版 24 から */
+/** レイヤを除く（決定 0162）。要素・ほかのオブジェクト・今のレイヤ（$CLAYER）が指すレイヤと、0・Defpoints・外部参照に依るレイヤは除けない。同じ apply の要素の変更が指すレイヤも除けない。後ろにハンドルのないレイヤがあれば、その ID が変わるので除けない。除いたレイヤより後ろのレイヤと、その上の要素のハッシュは変わるので、読み直す。マイナーバージョン 24 から */
 export interface RemoveLayerEdit {
   /** 変更の種類 */
   kind: "remove_layer";
@@ -925,7 +925,7 @@ export interface RemoveLayerEdit {
   hash: string;
 }
 
-/** 文字スタイルの名前・フォント・高さ・幅の倍率・傾き・裏返し・上下反転・縦書きのうち、書いたものだけを変える（決定 0163）。DXF は、名前を変えると、文字と今の文字スタイル（$TEXTSTYLE）も新しい名前で指す。表の書式などの図形でないオブジェクトが名前で指す文字スタイルの名前は変えられない。小版 25 から */
+/** 文字スタイルの名前・フォント・高さ・幅の倍率・傾き・裏返し・上下反転・縦書きのうち、書いたものだけを変える（決定 0163）。DXF は、名前を変えると、文字と今の文字スタイル（$TEXTSTYLE）も新しい名前で指す。表の書式などの図形でないオブジェクトが名前で指す文字スタイルの名前は変えられない。マイナーバージョン 25 から */
 export interface TextStyleEdit {
   /** 変更の種類 */
   kind: "text_style";
@@ -953,7 +953,7 @@ export interface TextStyleEdit {
   vertical?: boolean;
 }
 
-/** 文字スタイルを足す（決定 0163）。書かない欄は Standard と同じ。同じ apply の要素は、足した文字スタイルを指せない。小版 25 から */
+/** 文字スタイルを足す（決定 0163）。書かないフィールドは Standard と同じ。同じ apply の要素は、足した文字スタイルを指せない。マイナーバージョン 25 から */
 export interface AddTextStyleEdit {
   /** 変更の種類 */
   kind: "add_text_style";
@@ -977,7 +977,7 @@ export interface AddTextStyleEdit {
   vertical?: boolean;
 }
 
-/** 文字スタイルを除く（決定 0163）。要素・表の書式や寸法スタイルなどのほかのオブジェクト・今の文字スタイル（$TEXTSTYLE）が指すものと、Standard・外部参照に依るものは除けない。同じ apply で足す要素が指すものも除けない。後ろにハンドルのない文字スタイルがあれば、その ID が変わるので除けない。小版 25 から */
+/** 文字スタイルを除く（決定 0163）。要素・表の書式や寸法スタイルなどのほかのオブジェクト・今の文字スタイル（$TEXTSTYLE）が指すものと、Standard・外部参照に依るものは除けない。同じ apply で足す要素が指すものも除けない。後ろにハンドルのない文字スタイルがあれば、その ID が変わるので除けない。マイナーバージョン 25 から */
 export interface RemoveTextStyleEdit {
   /** 変更の種類 */
   kind: "remove_text_style";
@@ -987,7 +987,7 @@ export interface RemoveTextStyleEdit {
   hash: string;
 }
 
-/** 線種の名前・説明・線と間の長さの列のうち、書いたものだけを変える（決定 0164）。DXF は、名前を変えると、要素・レイヤと今の線種（$CELTYPE）も新しい名前で指す。多重線のスタイルなどの図形でないオブジェクトが名前で指す線種の名前は変えられない。形か文字を添える線種と DWG の線種は、列の要素の数を変えられない。小版 26 から */
+/** 線種の名前・説明・線と間の長さの列のうち、書いたものだけを変える（決定 0164）。DXF は、名前を変えると、要素・レイヤと今の線種（$CELTYPE）も新しい名前で指す。マルチラインスタイルなどの図形でないオブジェクトが名前で指す線種の名前は変えられない。形か文字を添える線種と DWG の線種は、列の要素の数を変えられない。マイナーバージョン 26 から */
 export interface LineTypeEdit {
   /** 変更の種類 */
   kind: "line_type";
@@ -1003,7 +1003,7 @@ export interface LineTypeEdit {
   pattern?: number[];
 }
 
-/** 線種を足す（決定 0164）。書かない欄は Continuous と同じ。同じ apply の要素とレイヤは、足した線種を指せない。小版 26 から */
+/** 線種を足す（決定 0164）。書かないフィールドは Continuous と同じ。同じ apply の要素とレイヤは、足した線種を指せない。マイナーバージョン 26 から */
 export interface AddLineTypeEdit {
   /** 変更の種類 */
   kind: "add_line_type";
@@ -1015,7 +1015,7 @@ export interface AddLineTypeEdit {
   pattern?: number[];
 }
 
-/** 線種を除く（決定 0164）。要素・レイヤ・多重線のスタイルなどのほかのオブジェクト・今の線種（$CELTYPE）が指すものと、ByLayer・ByBlock・Continuous・外部参照に依るものは除けない。同じ apply で足す・変える要素とレイヤが指すものも除けない。後ろにハンドルのない線種があれば、その ID が変わるので除けない。小版 26 から */
+/** 線種を除く（決定 0164）。要素・レイヤ・マルチラインスタイルなどのほかのオブジェクト・今の線種（$CELTYPE）が指すものと、ByLayer・ByBlock・Continuous・外部参照に依るものは除けない。同じ apply で足す・変える要素とレイヤが指すものも除けない。後ろにハンドルのない線種があれば、その ID が変わるので除けない。マイナーバージョン 26 から */
 export interface RemoveLineTypeEdit {
   /** 変更の種類 */
   kind: "remove_line_type";
@@ -1025,7 +1025,7 @@ export interface RemoveLineTypeEdit {
   hash: string;
 }
 
-/** 寸法スタイルの名前・端部記号・その大きさ・斜線・倍率のうち、書いたものだけを変える（決定 0165）。DXF は、名前を変えると、寸法・引出線・公差と今の寸法スタイル（$DIMSTYLE）も新しい名前で指す。図形でないオブジェクトが名前で指す寸法スタイルの名前は変えられない。小版 27 から */
+/** 寸法スタイルの名前・端部記号・その大きさ・斜線・倍率のうち、書いたものだけを変える（決定 0165）。DXF は、名前を変えると、寸法・引出線・公差と今の寸法スタイル（$DIMSTYLE）も新しい名前で指す。図形でないオブジェクトが名前で指す寸法スタイルの名前は変えられない。マイナーバージョン 27 から */
 export interface DimensionStyleEdit {
   /** 変更の種類 */
   kind: "dimension_style";
@@ -1047,7 +1047,7 @@ export interface DimensionStyleEdit {
   scale?: number;
 }
 
-/** 寸法スタイルを足す（決定 0165）。書かない欄は Standard と同じ。同じ apply の要素は、足した寸法スタイルを指せない。小版 27 から */
+/** 寸法スタイルを足す（決定 0165）。書かないフィールドは Standard と同じ。同じ apply の要素は、足した寸法スタイルを指せない。マイナーバージョン 27 から */
 export interface AddDimensionStyleEdit {
   /** 変更の種類 */
   kind: "add_dimension_style";
@@ -1065,7 +1065,7 @@ export interface AddDimensionStyleEdit {
   scale?: number;
 }
 
-/** 寸法スタイルを除く（決定 0165）。寸法・引出線・公差などのほかのオブジェクト・今の寸法スタイル（$DIMSTYLE）が指すものと、Standard・子の寸法スタイル・子を持つ寸法スタイル・外部参照に依るものは除けない。後ろにハンドルのない寸法スタイルがあれば、その ID が変わるので除けない。小版 27 から */
+/** 寸法スタイルを除く（決定 0165）。寸法・引出線・公差などのほかのオブジェクト・今の寸法スタイル（$DIMSTYLE）が指すものと、Standard・子の寸法スタイル・子を持つ寸法スタイル・外部参照に依るものは除けない。後ろにハンドルのない寸法スタイルがあれば、その ID が変わるので除けない。マイナーバージョン 27 から */
 export interface RemoveDimensionStyleEdit {
   /** 変更の種類 */
   kind: "remove_dimension_style";
@@ -1075,7 +1075,7 @@ export interface RemoveDimensionStyleEdit {
   hash: string;
 }
 
-/** 文書の点の表し方（marker を持たない点の見え方）を変える（決定 0190）。文書全体の設定なので要素を指さない。読んだときの文書は、apply の hash で確かめる。DXF・DWG は見出しの $PDMODE・$PDSIZE に書く。DWG は、変数を書く幅が変わる値（$PDMODE の 0 とほかの値の間の変更、$PDSIZE の 0・1 とほかの値の間の変更）を、小版 39 から書ける（決定 0193）。JWW・SXF は文書の点の表し方を持たないので断る。applied は id と hash を持たない。小版 38 から */
+/** 文書の点の表し方（marker を持たない点の見え方）を変える（決定 0190）。文書全体の設定なので要素を指さない。読んだときの文書は、apply の hash で確かめる。DXF・DWG はヘッダーの $PDMODE・$PDSIZE に書く。DWG は、変数を書く幅が変わる値（$PDMODE の 0 とほかの値の間の変更、$PDSIZE の 0・1 とほかの値の間の変更）を、マイナーバージョン 39 から書ける（決定 0193）。JWW・SXF は文書の点の表し方を持たないので断る。applied は id と hash を持たない。マイナーバージョン 38 から */
 export interface PointStyleEdit {
   /** 変更の種類 */
   kind: "point_style";
@@ -1106,7 +1106,7 @@ export type PointSizeKind =
   | "screen"
   | (string & {});
 
-/** レイヤを足す（決定 0162）。書かない欄は、状態なら表示・印刷・編集でき凍結せず、色・線種・線幅ならレイヤ 0 と同じ。同じ apply の要素は、足したレイヤを指せない。小版 22 から */
+/** レイヤを足す（決定 0162）。書かないフィールドは、状態なら表示・印刷・編集でき凍結せず、色・線種・線幅ならレイヤ 0 と同じ。同じ apply の要素は、足したレイヤを指せない。マイナーバージョン 22 から */
 export interface AddLayerEdit {
   /** 変更の種類 */
   kind: "add_layer";
@@ -1140,9 +1140,9 @@ export interface ColorChange {
   inherit?: Inherit;
   /** AutoCAD の色の番号（1〜255） */
   aci?: number;
-  /** SXF の色のコード。1〜16 は既定義色、17 からは利用者定義色を定義の順に数えたもの。小版 29 から */
+  /** SXF の色のコード。1〜16 は既定義色、17 からは利用者定義色を定義の順に数えたもの。マイナーバージョン 29 から */
   sxf?: number;
-  /** Jw_cad のペンの番号。0〜9 と、版 420 からの SXF の拡張色 100〜356。小版 30 から */
+  /** Jw_cad のペンの番号。0〜9 と、バージョン 420 からの SXF の拡張色 100〜356。マイナーバージョン 30 から */
   jww?: number;
   /** [赤, 緑, 青]。それぞれ 0〜255 */
   rgb?: number[];
@@ -1154,7 +1154,7 @@ export interface LineTypeChange {
   inherit?: Inherit;
   /** 線種の元の名前。図面にある線種で、名前が 1 つに決まるもの */
   name?: string;
-  /** 線種の ID。tables が返したもの。同じ名前の項目が複数あるときは書き戻せない。小版 8 から */
+  /** 線種の ID。tables が返したもの。同じ名前の項目が複数あるときは書き戻せない。マイナーバージョン 8 から */
   id?: string;
 }
 
@@ -1168,7 +1168,7 @@ export interface LineWeightChange {
   default?: boolean;
 }
 
-/** 開いた文書を図面モデル（L2）に変換し、レイヤと線種の表の項目を返す（決定 0156）。小版 8 から */
+/** 開いた文書を図面モデル（L2）に変換し、レイヤと線種の表の項目を返す（決定 0156）。マイナーバージョン 8 から */
 export interface TablesRequest extends RequestCommon {
   /** op の名前 */
   op: "tables";
@@ -1180,15 +1180,15 @@ export interface TablesRequest extends RequestCommon {
 export interface TablesResult {
   /** レイヤ */
   layers: LayerItem[];
-  /** 線種。小版 26 から、定義を持つ */
+  /** 線種。マイナーバージョン 26 から、定義を持つ */
   line_types: LineTypeItem[];
-  /** 寸法スタイル。小版 27 から、端部記号と大きさを持つ */
+  /** 寸法スタイル。マイナーバージョン 27 から、端部記号と大きさを持つ */
   dimension_styles: DimensionStyleItem[];
-  /** 文字スタイル（決定 0158）。要素が名前で指すだけで、ファイルに定義がないものは、定義の欄を持たない項目として後ろに並ぶ。小版 20 から */
+  /** 文字スタイル（決定 0158）。要素が名前で指すだけで、ファイルに定義がないものは、定義のフィールドを持たない項目として後ろに並ぶ。マイナーバージョン 20 から */
   text_styles: TextStyleItem[];
 }
 
-/** 開いた文書を図面モデル（L2）に変換し、起点から配置をたどって、2D のシーンを blob で返す（決定 0172）。シーンの配置は schema/scene.toml にある。小版 33 から */
+/** 開いた文書を図面モデル（L2）に変換し、起点から配置をたどって、2D のシーンを blob で返す（決定 0172）。シーンの配置は schema/scene.toml にある。マイナーバージョン 33 から */
 export interface SceneRequest extends RequestCommon {
   /** op の名前 */
   op: "scene";
@@ -1204,11 +1204,11 @@ export interface SceneRequest extends RequestCommon {
   tolerance?: number;
   /** true なら印刷する要素を、書かないか false なら表示する要素を描く */
   print?: boolean;
-  /** 色の表の入力の名前（zm_push で渡したもの）。プロファイルの色の語彙と同じ形の JSON で、values に rgb（#rrggbb）と aci・sxf・jww の符号を並べる（決定 0138・0178）。書かなければ、ファイルが RGB を持たない色は未解決の印を立てる */
+  /** 色の表の入力の名前（zm_push で渡したもの）。プロファイルの色の語彙と同じ形の JSON で、values に rgb（#rrggbb）と aci・sxf・jww の符号を並べる（決定 0138・0178）。書かなければ、ファイルが RGB を持たない色は未解決のフラグを立てる */
   palette?: string;
-  /** 文字を置くフォント（決定 0188）。書けば、文字を字形で置き、シーンの字形の区画に形と変換を返す。文字スタイルと書式の区間のフォントの名前（シーンの font_names）で引き、同じ名前、なければ ASCII の大文字と小文字を区別しない名前で合わせる。合うものがなければ名前のないフォントで置く。小版 37 から */
+  /** 文字を置くフォント（決定 0188）。書けば、文字を字形で置き、シーンの字形のセクションに形と変換を返す。文字スタイルと書式の区間のフォントの名前（シーンの font_names）で引き、同じ名前、なければ ASCII の大文字と小文字を区別しない名前で合わせる。合うものがなければ名前のないフォントで置く。マイナーバージョン 37 から */
   fonts?: SceneFont[];
-  /** 形式の宣言値の高さ（キーは dxf.TEXT.40・dxf.MTEXT.40・jww.moji.size_y など）が、フォントのどの寸法に当たるか（決定 0176・0188）。書かないキーは、表示と比べて決めた意味（dxf.TEXT.40 は capital_a。小版 59 から）にし、それもなければ大文字の高さとみなす。fonts を書いたときだけ使う。小版 37 から */
+  /** 形式の宣言値の高さ（キーは dxf.TEXT.40・dxf.MTEXT.40・jww.moji.size_y など）が、フォントのどの寸法に当たるか（決定 0176・0188）。書かないキーは、表示と比べて決めた意味（dxf.TEXT.40 は capital_a。マイナーバージョン 59 から）にし、それもなければ大文字の高さとみなす。fonts を書いたときだけ使う。マイナーバージョン 37 から */
   heights?: Record<string, HeightReference>;
 }
 
@@ -1222,7 +1222,7 @@ export interface SceneFont {
   index?: number;
 }
 
-/** 宣言された高さが当たるフォントの寸法。cap_height は大文字の高さ、em は em、frame はアセンダーとディセンダーを合わせた高さ、capital_a は A の字形の外形の上（A がなければ大文字の高さ。小版 59 から） */
+/** 宣言された高さが当たるフォントの寸法。cap_height は大文字の高さ、em は em、frame はアセンダーとディセンダーを合わせた高さ、capital_a は A の字形の外形の上（A がなければ大文字の高さ。マイナーバージョン 59 から） */
 export type HeightReference =
   | "cap_height"
   | "em"
@@ -1264,11 +1264,11 @@ export interface SceneCounts {
   points: number;
   /** 画像 */
   images: number;
-  /** 置いた字形。fonts を書かなければ 0。小版 37 から */
+  /** 置いた字形。fonts を書かなければ 0。マイナーバージョン 37 から */
   glyphs: number;
 }
 
-/** 開いた文書を図面モデル（L2）に変換し、起点から配置をたどって、プロファイルの規則と語彙で照合する（決定 0138・0173・0179）。小版 34 から */
+/** 開いた文書を図面モデル（L2）に変換し、起点から配置をたどって、プロファイルの規則と語彙で照合する（決定 0138・0173・0179）。マイナーバージョン 34 から */
 export interface CheckRequest extends RequestCommon {
   /** op の名前 */
   op: "check";
@@ -1282,7 +1282,7 @@ export interface CheckRequest extends RequestCommon {
   from?: string;
   /** 起点の用紙のビューの番号。用紙のビューの並びの順で、0 から数える。書けば、そのビューを通した要素と、そのビューの縮尺だけを照合する。from が用紙のときだけ書ける */
   view?: number;
-  /** 照合するファイルの名前（拡張子を含み、フォルダーを含まない）。file-name の規則で比べる。書かなければ、file-name の規則は照合できない（決定 0204）。小版 40 から */
+  /** 照合するファイルの名前（拡張子を含み、フォルダーを含まない）。file-name の規則で比べる。書かなければ、file-name の規則は照合できない（決定 0204）。マイナーバージョン 40 から */
   file_name?: string;
   /** 返す最初の指摘の位置。前の応答の next_offset を渡す。書かなければ 0 */
   offset?: number;
@@ -1344,7 +1344,7 @@ export interface CheckFinding {
   diagnostic: Diagnostic;
 }
 
-/** zm_push で渡した IFC（IFC-SPF か ifcZIP）を、zm_push で渡した EXPRESS のスキーマに照らしてチェックする（決定 0207・0216）。インスタンスの実体の名前・抽象・属性の数・値の型・省略を見る。WHERE・UNIQUE・RULE の規則は評価せず、数を返す。zumen は EXPRESS を同梱しない。小版 42 から */
+/** zm_push で渡した IFC（IFC-SPF か ifcZIP）を、zm_push で渡した EXPRESS のスキーマに照らしてチェックする（決定 0207・0216）。インスタンスの実体の名前・抽象・属性の数・値の型・省略を見る。WHERE・UNIQUE・RULE の規則は評価せず、数を返す。zumen は EXPRESS を同梱しない。マイナーバージョン 42 から */
 export interface ValidateRequest extends RequestCommon {
   /** op の名前 */
   op: "validate";
@@ -1376,11 +1376,11 @@ export interface ValidateResult {
   next_offset?: number;
 }
 
-/** レビューの文書（決定 0214・0218）の 1 つの対象を、開いた図面の文書の版へ移す。要素の参照を図面の要素の ID で引き、参照ごとに unchanged・changed・removed を返す。場所と図形に元の版のハッシュと状態を書き、対象のハッシュを文書のハッシュにする。2D の点は動かさない。移した文書は blobs の file で返す。小版 43 から */
+/** レビューの文書（決定 0214・0218）の 1 つの対象を、開いた図面の文書のバージョンへ移す。要素の参照を図面の要素の ID で引き、参照ごとに unchanged・changed・removed を返す。場所と図形に元のバージョンのハッシュと状態を書き、対象のハッシュを文書のハッシュにする。2D の点は動かさない。移した文書は blobs の file で返す。マイナーバージョン 43 から */
 export interface ReviewCarryRequest extends RequestCommon {
   /** op の名前 */
   op: "review_carry";
-  /** 新しい版の文書の名前。open で作ったもの。小版 44 から、IFC の建物モデルの文書も渡せ、要素の参照を建物モデルの要素の ID とハッシュで引く */
+  /** 新しいバージョンの文書の名前。open で作ったもの。マイナーバージョン 44 から、IFC の建物モデルの文書も渡せ、要素の参照を建物モデルの要素の ID とハッシュで引く */
   doc: string;
   /** レビューの文書の入力の名前（zm_push で渡した JSON） */
   review: string;
@@ -1418,14 +1418,14 @@ export interface CarriedReference {
   state: CarriedState;
 }
 
-/** 移したときの状態（決定 0214）。unchanged は要素のハッシュが同じ、changed は違うか元のハッシュがない、removed は新しい版に要素がない */
+/** 移したときの状態（決定 0214）。unchanged は要素のハッシュが同じ、changed は違うか元のハッシュがない、removed は新しいバージョンに要素がない */
 export type CarriedState =
   | "unchanged"
   | "changed"
   | "removed"
   | (string & {});
 
-/** 開いた文書を check と同じに照合し、選んだ指摘だけを開いた指摘としてレビューの文書（決定 0214・0218）に足す。指摘の ID は対象のハッシュ・規則・診断から決め、取り込み済みの指摘は足さない。足した文書は blobs の file で返す。小版 43 から */
+/** 開いた文書を check と同じに照合し、選んだ指摘だけを開いた指摘としてレビューの文書（決定 0214・0218）に足す。指摘の ID は対象のハッシュ・規則・診断から決め、取り込み済みの指摘は足さない。足した文書は blobs の file で返す。マイナーバージョン 43 から */
 export interface ReviewAdoptRequest extends RequestCommon {
   /** op の名前 */
   op: "review_adopt";
@@ -1439,7 +1439,7 @@ export interface ReviewAdoptRequest extends RequestCommon {
   from?: string;
   /** 起点の用紙のビューの番号。用紙のビューの並びの順で、0 から数える。書けば、そのビューを通した要素と、そのビューの縮尺だけを照合する。from が用紙のときだけ書ける */
   view?: number;
-  /** 照合するファイルの名前（拡張子を含み、フォルダーを含まない）。file-name の規則で比べる。書かなければ、file-name の規則は照合できない（決定 0204）。小版 40 から */
+  /** 照合するファイルの名前（拡張子を含み、フォルダーを含まない）。file-name の規則で比べる。書かなければ、file-name の規則は照合できない（決定 0204）。マイナーバージョン 40 から */
   file_name?: string;
   /** 色の表の入力の名前（zm_push で渡したもの）。scene の palette と同じ形。ファイルが RGB を持たない色の RGB を引く */
   palette?: string;
@@ -1459,7 +1459,7 @@ export interface ReviewAdoptResult {
   topics: number;
 }
 
-/** 開いた IFC の建物モデル（決定 0207・0219）の要約を返す。小版 44 から */
+/** 開いた IFC の建物モデル（決定 0207・0219）の要約を返す。マイナーバージョン 44 から */
 export interface BuildingRequest extends RequestCommon {
   /** op の名前 */
   op: "building";
@@ -1471,7 +1471,7 @@ export interface BuildingRequest extends RequestCommon {
 export interface BuildingResult {
   /** IFC のスキーマの名前（FILE_SCHEMA の最初） */
   schema: string;
-  /** 入力のバイト列のハッシュ。review_carry の対象の版に使う */
+  /** 入力のバイト列のハッシュ。review_carry の対象のバージョンに使う */
   hash: string;
   /** プロジェクトの要素の ID。なければ持たない */
   project?: string;
@@ -1505,7 +1505,7 @@ export interface ClassCount {
   count: number;
 }
 
-/** 開いた IFC の建物モデルの要素を、書いた順に返す。成分は components で選ぶ（決定 0207・0219）。小版 44 から */
+/** 開いた IFC の建物モデルの要素を、書いた順に返す。コンポーネントは components で選ぶ（決定 0207・0219）。マイナーバージョン 44 から */
 export interface BuildingElementsRequest extends RequestCommon {
   /** op の名前 */
   op: "building_elements";
@@ -1515,7 +1515,7 @@ export interface BuildingElementsRequest extends RequestCommon {
   ids?: string[];
   /** IFC のクラスの名前。書けば、そのクラスの要素だけを返す。大文字と小文字を区別しない */
   class?: string;
-  /** 返す成分の名前。1 つ以上で、重ねない。書かなければ class と identity を返す */
+  /** 返すコンポーネントの名前。1 つ以上で、重ねない。書かなければ class と identity を返す */
   components?: BuildingComponent[];
   /** 返す最初の位置。前の応答の next_offset を渡す。書かなければ 0 */
   offset?: number;
@@ -1523,7 +1523,7 @@ export interface BuildingElementsRequest extends RequestCommon {
   limit?: number;
 }
 
-/** building_elements で返す成分（決定 0207）。relations は索引から求める子・参照・型の実例・開口・埋める要素・構成員 */
+/** building_elements で返すコンポーネント（決定 0207）。relations は索引から求める子・参照・型の実例・開口・埋める要素・構成員 */
 export type BuildingComponent =
   | "identity"
   | "class"
@@ -1554,11 +1554,11 @@ export interface BuildingElementsResult {
   next_offset?: number;
 }
 
-/** 建物モデルの要素。成分は、選んだもののうち要素が持つものだけを持つ */
+/** 建物モデルの要素。コンポーネントは、選んだもののうち要素が持つものだけを持つ */
 export interface BuildingElement {
   /** 要素の ID（GlobalId か、i と番号） */
   id: string;
-  /** 要素の成分のハッシュ（v1: と 32 桁の 16 進、決定 0207） */
+  /** 要素のコンポーネントのハッシュ（v1: と 32 桁の 16 進、決定 0207） */
   hash: string;
   /** 名前・説明・タグ・長い名前 */
   identity?: IdentityComponent;
@@ -1624,7 +1624,7 @@ export interface ClassComponent {
 export interface ClassificationReference {
   /** 分類の体系の名前 */
   system?: string;
-  /** 体系の版 */
+  /** 体系のバージョン */
   edition?: string;
   /** 分類の記号 */
   code?: string;
@@ -1867,7 +1867,7 @@ export type IdsStatus =
   | "unknown"
   | (string & {});
 
-/** 開いた IFC に、変更の一覧を当てて書き戻す（決定 0207・0244）。要素は、building_elements が返す ID とハッシュで指す。どれか 1 つでも当てられなければ、何も変えない。当てたら、文書を書き戻したものに替え、書き戻したファイル（ifcZIP で開いたものは ifcZIP）を blobs の file で返す。名前を挙げないインスタンスは、元のバイト列のまま書く。小版 58 から */
+/** 開いた IFC に、変更の一覧を当てて書き戻す（決定 0207・0244）。要素は、building_elements が返す ID とハッシュで指す。どれか 1 つでも当てられなければ、何も変えない。当てたら、文書を書き戻したものに替え、書き戻したファイル（ifcZIP で開いたものは ifcZIP）を blobs の file で返す。名前を挙げないインスタンスは、元のバイト列のまま書く。マイナーバージョン 58 から */
 export interface BuildingApplyRequest extends RequestCommon {
   /** op の名前 */
   op: "building_apply";
@@ -1928,7 +1928,7 @@ export interface BuildingApplyResult {
   hash: string;
 }
 
-/** 開いた図面の文書を図面モデル（L2）に変換し、図面モデルのバイナリ（決定 0247）を blob で返す。配置は schema/drawing.toml にあり、元の文書の形式・系統・ハッシュも持つ。プラグインのモジュールが読んだ図面は、これを図面のモジュールの open に渡すと、元の形式とハッシュの読むだけの文書になる。小版 60 から */
+/** 開いた図面の文書を図面モデル（L2）に変換し、図面モデルのバイナリ（決定 0247）を blob で返す。配置は schema/drawing.toml にあり、元の文書の形式・系統・ハッシュも持つ。プラグインのモジュールが読んだ図面は、これを図面のモジュールの open に渡すと、元の形式とハッシュの読むだけの文書になる。マイナーバージョン 60 から */
 export interface LiftRequest extends RequestCommon {
   /** op の名前 */
   op: "lift";
@@ -1942,7 +1942,7 @@ export interface LiftResult {
   blob: number;
 }
 
-/** 開いた IFC の建物モデルを、zm_push で渡した IDS で照合する（決定 0217・0219）。確かめられない facet は、指摘と分けて info の指摘で返す。小版 44 から */
+/** 開いた IFC の建物モデルを、zm_push で渡した IDS で照合する（決定 0217・0219）。確かめられない facet は、指摘と分けて info の指摘で返す。マイナーバージョン 44 から */
 export interface IdsCheckRequest extends RequestCommon {
   /** op の名前 */
   op: "ids_check";
@@ -1950,7 +1950,7 @@ export interface IdsCheckRequest extends RequestCommon {
   doc: string;
   /** IDS の入力の名前（zm_push で渡した .ids） */
   ids: string;
-  /** EXPRESS の入力の名前（zm_push で渡した .exp）。渡せば、IFC の属性の全体を EXPRESS の名前で照らす。渡さなければ、建物モデルの成分にある属性だけを照らす */
+  /** EXPRESS の入力の名前（zm_push で渡した .exp）。渡せば、IFC の属性の全体を EXPRESS の名前で照らす。渡さなければ、建物モデルのコンポーネントにある属性だけを照らす */
   express?: string;
   /** 返す最初の位置。前の応答の next_offset を渡す。書かなければ 0 */
   offset?: number;
@@ -1996,7 +1996,7 @@ export interface IdsFinding {
   diagnostic: Diagnostic;
 }
 
-/** 開いた IFC を ids_check と同じに照合し、選んだ指摘だけを開いた指摘としてレビューの文書（決定 0218・0219）に足す。足した文書は blobs の file で返す。小版 44 から */
+/** 開いた IFC を ids_check と同じに照合し、選んだ指摘だけを開いた指摘としてレビューの文書（決定 0218・0219）に足す。足した文書は blobs の file で返す。マイナーバージョン 44 から */
 export interface ReviewAdoptIdsRequest extends RequestCommon {
   /** op の名前 */
   op: "review_adopt_ids";
@@ -2004,7 +2004,7 @@ export interface ReviewAdoptIdsRequest extends RequestCommon {
   doc: string;
   /** IDS の入力の名前（zm_push で渡した .ids） */
   ids: string;
-  /** EXPRESS の入力の名前（zm_push で渡した .exp）。渡せば、IFC の属性の全体を EXPRESS の名前で照らす。渡さなければ、建物モデルの成分にある属性だけを照らす */
+  /** EXPRESS の入力の名前（zm_push で渡した .exp）。渡せば、IFC の属性の全体を EXPRESS の名前で照らす。渡さなければ、建物モデルのコンポーネントにある属性だけを照らす */
   express?: string;
   /** 足す先のレビューの文書の入力の名前（zm_push で渡した JSON）。書かなければ空の文書に足す */
   review?: string;
@@ -2014,7 +2014,7 @@ export interface ReviewAdoptIdsRequest extends RequestCommon {
   findings: number[];
 }
 
-/** zm_push で渡した BCF 2.1 か 3.0 の bcfzip を読み、開いた IFC を対象にしたレビューの文書（決定 0214・0220）にする。topic は指摘に、comment はコメントに、viewpoint は 3D の場所に写し、要素の参照のハッシュは建物モデルの要素のハッシュで埋める。文書は blobs の file で返す。小版 45 から */
+/** zm_push で渡した BCF 2.1 か 3.0 の bcfzip を読み、開いた IFC を対象にしたレビューの文書（決定 0214・0220）にする。topic は指摘に、comment はコメントに、viewpoint は 3D の場所に写し、要素の参照のハッシュは建物モデルの要素のハッシュで埋める。文書は blobs の file で返す。マイナーバージョン 45 から */
 export interface BcfReadRequest extends RequestCommon {
   /** op の名前 */
   op: "bcf_read";
@@ -2045,13 +2045,13 @@ export type ReviewStatus =
 
 /** 読んだ bcfzip */
 export interface BcfReadResult {
-  /** BCF の版 */
+  /** BCF のバージョン */
   version: string;
   /** 指摘の数 */
   topics: number;
 }
 
-/** zm_push で渡したレビューの文書を、BCF の bcfzip に書く（決定 0214・0220）。版は version で選ぶ（小版 61 から。それまでは 3.0 だけ）。target を対象にした 3D の場所を viewpoint にし、2D の場所と図形は書かずに診断する。original を渡せば、変えていない topic を元のバイト列のまま書き、変えた topic でも写さない要素と知らない要素を保つ。bcfzip は blobs の file で返す。小版 45 から */
+/** zm_push で渡したレビューの文書を、BCF の bcfzip に書く（決定 0214・0220）。バージョンは version で選ぶ（マイナーバージョン 61 から。それまでは 3.0 だけ）。target を対象にした 3D の場所を viewpoint にし、2D の場所と図形は書かずに診断する。original を渡せば、変えていない topic を元のバイト列のまま書き、変えた topic でも写さない要素と知らない要素を保つ。bcfzip は blobs の file で返す。マイナーバージョン 45 から */
 export interface BcfWriteRequest extends RequestCommon {
   /** op の名前 */
   op: "bcf_write";
@@ -2069,7 +2069,7 @@ export interface BcfWriteRequest extends RequestCommon {
   author?: string;
   /** 日時のない指摘とコメントに書く日時（RFC 3339） */
   date?: string;
-  /** 書く BCF の版。2.1 か 3.0。書かなければ、original の版か 3.0。original と違う版では書かず、bcf.conversion.unsupported で失敗する。ほかの値は call.value.invalid。小版 61 から */
+  /** 書く BCF のバージョン。2.1 か 3.0。書かなければ、original のバージョンか 3.0。original と違うバージョンでは書かず、bcf.conversion.unsupported で失敗する。ほかの値は call.value.invalid。マイナーバージョン 61 から */
   version?: string;
 }
 
@@ -2089,7 +2089,7 @@ export interface TableItem {
   hash: string;
 }
 
-/** レイヤの表の項目（決定 0162）。小版 22 から、状態とスタイルを持つ */
+/** レイヤの表の項目（決定 0162）。マイナーバージョン 22 から、状態とスタイルを持つ */
 export interface LayerItem {
   /** ID。表のレコードがハンドルを持てば layer/h10、なければ読んだ順の番号（layer/2）。ID が重なれば、2 つ目から /1・/2 を足す。書き戻しても変わらない（決定 0156） */
   id: string;
@@ -2097,25 +2097,25 @@ export interface LayerItem {
   name: string;
   /** 項目のハッシュ（v2: と 32 桁の 16 進、決定 0156） */
   hash: string;
-  /** ファイルに定義がある。偽なら、要素が名前で指すだけのレイヤで、ほかの欄を持たない。小版 22 から */
+  /** ファイルに定義がある。偽なら、要素が名前で指すだけのレイヤで、ほかのフィールドを持たない。マイナーバージョン 22 から */
   defined: boolean;
-  /** 表示する。小版 22 から */
+  /** 表示する。マイナーバージョン 22 から */
   visible?: boolean;
-  /** 印刷する。小版 22 から */
+  /** 印刷する。マイナーバージョン 22 から */
   printable?: boolean;
-  /** 編集できる。小版 22 から */
+  /** 編集できる。マイナーバージョン 22 から */
   editable?: boolean;
-  /** 凍結する。小版 22 から */
+  /** 凍結する。マイナーバージョン 22 から */
   frozen?: boolean;
-  /** 色。inherit を持たない。定義が色を持たなければ書かない。小版 22 から */
+  /** 色。inherit を持たない。定義が色を持たなければ書かない。マイナーバージョン 22 から */
   color?: ColorChange;
-  /** 線種の ID。定義が線種を持たなければ書かない。小版 22 から */
+  /** 線種の ID。定義が線種を持たなければ書かない。マイナーバージョン 22 から */
   line_type_id?: string;
-  /** 線幅。inherit を持たない。定義が線幅を持たなければ書かない。小版 22 から */
+  /** 線幅。inherit を持たない。定義が線幅を持たなければ書かない。マイナーバージョン 22 から */
   line_weight?: LineWeightChange;
 }
 
-/** 線種の表の項目（決定 0164）。小版 26 から、定義を持つ */
+/** 線種の表の項目（決定 0164）。マイナーバージョン 26 から、定義を持つ */
 export interface LineTypeItem {
   /** ID。表のレコードがハンドルを持てば line-type/h14、なければ読んだ順の番号（line-type/2）。ID が重なれば、2 つ目から /1・/2 を足す。書き戻しても変わらない（決定 0156） */
   id: string;
@@ -2123,21 +2123,21 @@ export interface LineTypeItem {
   name: string;
   /** 項目のハッシュ（v2: と 32 桁の 16 進、決定 0156） */
   hash: string;
-  /** ファイルに定義がある。偽なら、要素が名前で指すだけの線種で、ほかの欄を持たない。小版 26 から */
+  /** ファイルに定義がある。偽なら、要素が名前で指すだけの線種で、ほかのフィールドを持たない。マイナーバージョン 26 から */
   defined: boolean;
-  /** 元の説明。小版 26 から */
+  /** 元の説明。マイナーバージョン 26 から */
   description?: string;
-  /** 線と間の長さの列。正は線、負は間、0 は点。空なら実線。長さの単位は paper が決める。小版 26 から */
+  /** 線と間の長さの列。正は線、負は間、0 は点。空なら実線。長さの単位は paper が決める。マイナーバージョン 26 から */
   pattern?: number[];
-  /** 列の長さが用紙の mm なら真、文書の単位なら偽。用紙の mm の列は line_type で変えられない。小版 26 から */
+  /** 列の長さが用紙の mm なら真、文書の単位なら偽。用紙の mm の列は line_type で変えられない。マイナーバージョン 26 から */
   paper?: boolean;
-  /** 列の要素に形か文字を添える。添えれば、line_type で列の要素の数を変えられない。小版 26 から */
+  /** 列の要素に形か文字を添える。添えれば、line_type で列の要素の数を変えられない。マイナーバージョン 26 から */
   marked?: boolean;
-  /** 列の要素に添える形と文字（決定 0150・0166）。添えなければ空。小版 28 から */
+  /** 列の要素に添える形と文字（決定 0150・0166）。添えなければ空。マイナーバージョン 28 から */
   marks?: LineTypeMark[];
 }
 
-/** 寸法スタイルの表の項目（決定 0165）。小版 27 から、端部記号と大きさを持つ */
+/** 寸法スタイルの表の項目（決定 0165）。マイナーバージョン 27 から、端部記号と大きさを持つ */
 export interface DimensionStyleItem {
   /** ID。寸法スタイルのレコードがハンドルを持てば dimension-style/h1A、なければ寸法スタイルの並びの中の順（dimension-style/0）。ID が重なれば、2 つ目から /1・/2 を足す。書き戻しても変わらない（決定 0156） */
   id: string;
@@ -2145,19 +2145,19 @@ export interface DimensionStyleItem {
   name: string;
   /** 項目のハッシュ（v2: と 32 桁の 16 進、決定 0156） */
   hash: string;
-  /** 寸法線の 1 本目と 2 本目の補助線の側の端部記号の、ブロックの名前。空の名前は既定の矢印。小版 27 から */
+  /** 寸法線の 1 本目と 2 本目の補助線の側の端部記号の、ブロックの名前。空の名前は既定の矢印。マイナーバージョン 27 から */
   ends?: string[];
-  /** 引出線の端部記号の、ブロックの名前。空の名前は既定の矢印。小版 27 から */
+  /** 引出線の端部記号の、ブロックの名前。空の名前は既定の矢印。マイナーバージョン 27 から */
   leader?: string;
-  /** 端部記号の大きさ。文書の単位で、scale を掛ける前の値。小版 27 から */
+  /** 端部記号の大きさ。文書の単位で、scale を掛ける前の値。マイナーバージョン 27 から */
   size?: number;
-  /** 端部記号の代わりに描く斜線の大きさ。0 なら斜線を描かない。小版 27 から */
+  /** 端部記号の代わりに描く斜線の大きさ。0 なら斜線を描かない。マイナーバージョン 27 から */
   tick?: number;
-  /** 大きさに掛ける倍率。0 はビューの縮尺から決める。小版 27 から */
+  /** 大きさに掛ける倍率。0 はビューの縮尺から決める。マイナーバージョン 27 から */
   scale?: number;
 }
 
-/** 線種の列の要素に添える形か文字（決定 0150・0166）。要素の始まりに、線の向きとずれで置く。小版 28 から */
+/** 線種の列の要素に添える形か文字（決定 0150・0166）。要素の始まりに、線の向きとずれで置く。マイナーバージョン 28 から */
 export interface LineTypeMark {
   /** 添える列の要素の番号（pattern の添字） */
   index: number;
@@ -2198,7 +2198,7 @@ export type MarkRotation =
   | "upright"
   | (string & {});
 
-/** 文字スタイルの表の項目（決定 0158）。フォントと縦書きは、この文字スタイルを指す文字に効く。高さ・幅の倍率・傾き・裏返し・上下反転は、新しく作る文字の既定の値で、今の文字はそれぞれの値を持つ。小版 20 から */
+/** 文字スタイルの表の項目（決定 0158）。フォントと縦書きは、この文字スタイルを指す文字に効く。高さ・幅の倍率・傾き・裏返し・上下反転は、新しく作る文字の既定の値で、今の文字はそれぞれの値を持つ。マイナーバージョン 20 から */
 export interface TextStyleItem {
   /** ID。表のレコードがハンドルを持てば text-style/h11、なければ文字スタイルの並びの中の順（text-style/0）。ID が重なれば、2 つ目から /1・/2 を足す。書き戻しても変わらない（決定 0156） */
   id: string;
@@ -2206,7 +2206,7 @@ export interface TextStyleItem {
   name: string;
   /** 項目のハッシュ（v2: と 32 桁の 16 進、決定 0156） */
   hash: string;
-  /** ファイルに定義がある。偽なら、ほかの欄を持たない */
+  /** ファイルに定義がある。偽なら、ほかのフィールドを持たない */
   defined: boolean;
   /** 主のフォント。ファイルが決めていなければ書かない */
   font?: Font;
@@ -2248,7 +2248,7 @@ export type FontKind =
   | "named"
   | (string & {});
 
-/** 要素の出所。L1 のレコードの番号かバイト範囲（決定 0008）と、形式が持つ鍵（決定 0156）。ファイルから読んでいない要素は、レコードの番号もバイト範囲も持たない */
+/** 要素の出所。L1 のレコードの番号かバイト範囲（決定 0008）と、形式が持つキー（決定 0156）。ファイルから読んでいない要素は、レコードの番号もバイト範囲も持たない */
 export interface Source {
   /** L1 のレコードの番号 */
   record?: number;
@@ -2256,13 +2256,13 @@ export interface Source {
   bytes?: ByteRange;
   /** AutoCAD の系統のハンドル。大文字の 16 進。書き戻しても変わらない */
   handle?: string;
-  /** SXF のインスタンスの番号（#n の n）。10 進の文字列。小版 6 から */
+  /** SXF のインスタンスの番号（#n の n）。10 進の文字列。マイナーバージョン 6 から */
   instance?: string;
 }
 
 /** 応答。失敗したときも同じ形で、result を持たない */
 export interface Response<R = unknown> {
-  /** メッセージのスキーマの大版 */
+  /** メッセージのスキーマのメジャーバージョン */
   v: number;
   /** op ごとの結果（<op>_result の形）。失敗したときは持たない */
   result?: R;
@@ -2348,7 +2348,7 @@ export interface Blob {
   size: number;
 }
 
-/** バイナリの結果の種類。file は書き出したファイル、image は描いた画像、scene は 2D のシーン（schema/scene.toml の配置、決定 0137・0172）、arrow は表（Arrow の IPC ストリーム。ネイティブでは zm_take_arrow でも取り出せる）、drawing は図面モデルのバイナリ（schema/drawing.toml の配置、決定 0247。小版 60 から） */
+/** バイナリの結果の種類。file は書き出したファイル、image は描いた画像、scene は 2D のシーン（schema/scene.toml の配置、決定 0137・0172）、arrow は表（Arrow の IPC ストリーム。ネイティブでは zm_take_arrow でも取り出せる）、drawing は図面モデルのバイナリ（schema/drawing.toml の配置、決定 0247。マイナーバージョン 60 から） */
 export type BlobKind =
   | "file"
   | "image"
@@ -2359,30 +2359,30 @@ export type BlobKind =
 
 /** zm_session_new に渡す設定。渡さなければ既定の設定 */
 export interface SessionOptions {
-  /** メッセージのスキーマの大版。今は 1 */
+  /** メッセージのスキーマのメジャーバージョン。今は 1 */
   v: number;
-  /** 実行の形。書かなければ、ネイティブのライブラリでは `native`、wasm のモジュールでは `wasm`（決定 0013） */
+  /** 実行の形態。書かなければ、ネイティブのライブラリでは `native`、wasm のモジュールでは `wasm`（決定 0013） */
   engine?: Engine;
   /** engine が `process` のときの、子プロセスにする CLI（zumen）の実行ファイルのパス。書かなければ、ライブラリと同じフォルダーの zumen を使う（決定 0013・0200） */
   process_path?: string;
 }
 
-/** 実行の形（決定 0013）。`native` はプロセスの中でコアを動かす、`process` は子プロセスの CLI に送る、`wasm` は wasm のモジュールで動かす */
+/** 実行の形態（決定 0013）。`native` はプロセスの中でコアを動かす、`process` は子プロセスの CLI に送る、`wasm` は wasm のモジュールで動かす */
 export type Engine =
   | "native"
   | "process"
   | "wasm"
   | (string & {});
 
-/** 線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。線形は、要求に書く（alignment）か、open で開いた J-LandXML の文書（doc）の線形を id で指す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。doc を渡せば、文書の線形と地表面の要約も返す。図面・BIM・土木地理・点群のモジュールに置く（決定 0253）。小版 46 から（doc と id は小版 47 から） */
+/** 線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。線形は、要求に書く（alignment）か、open で開いた J-LandXML の文書（doc）の線形を id で指す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。doc を渡せば、文書の線形と地表面の要約も返す。図面・BIM・土木地理・点群のモジュールに置く（決定 0253）。マイナーバージョン 46 から（doc と id はマイナーバージョン 47 から） */
 export interface CivilRequest extends RequestCommon {
   /** op の名前 */
   op: "civil";
   /** 線形。doc と一緒には書かない */
   alignment?: CivilAlignment;
-  /** open で開いた J-LandXML の文書の名前。小版 47 から */
+  /** open で開いた J-LandXML の文書の名前。マイナーバージョン 47 から */
   doc?: string;
-  /** doc の線形の ID。文書に線形が 1 つなら書かなくてよい。小版 47 から */
+  /** doc の線形の ID。文書に線形が 1 つなら書かなくてよい。マイナーバージョン 47 から */
   id?: string;
   /** 追加距離（メートル）の列 */
   distances?: number[];
@@ -2489,13 +2489,13 @@ export interface CivilResult {
   length: number;
   /** 求めた所 */
   positions: CivilPosition[];
-  /** 所を求めた doc の線形の ID。小版 47 から */
+  /** 所を求めた doc の線形の ID。マイナーバージョン 47 から */
   alignment?: string;
-  /** doc の線形の要約。doc を渡したときに返す。小版 47 から */
+  /** doc の線形の要約。doc を渡したときに返す。マイナーバージョン 47 から */
   alignments?: CivilAlignmentSummary[];
-  /** doc の地表面（TIN）の要約。doc を渡したときに返す。小版 47 から */
+  /** doc の地表面（TIN）の要約。doc を渡したときに返す。マイナーバージョン 47 から */
   surfaces?: CivilSurfaceSummary[];
-  /** doc の水平の座標系の EPSG のコード。分からなければ書かない。小版 47 から */
+  /** doc の水平の座標系の EPSG のコード。分からなければ書かない。マイナーバージョン 47 から */
   crs?: number;
 }
 
@@ -2553,7 +2553,7 @@ export interface CivilPosition {
   gradient?: number;
 }
 
-/** open で開いた点群（LAS・LAZ）の要約と、条件に合う点を返す。点は八分木の浅い段の節から順に選ぶ（決定 0232）。点群のモジュールに置く（決定 0253）。小版 48 から */
+/** open で開いた点群（LAS・LAZ）の要約と、条件に合う点を返す。点は八分木の浅い段のノードから順に選ぶ（決定 0232）。点群のモジュールに置く（決定 0253）。マイナーバージョン 48 から */
 export interface PointcloudRequest extends RequestCommon {
   /** op の名前 */
   op: "pointcloud";
@@ -2589,7 +2589,7 @@ export interface PointcloudResult {
   attributes: string[];
   /** 八分木のいちばん深い段 */
   depth: number;
-  /** 八分木の節の数 */
+  /** 八分木のノードの数 */
   nodes: number;
   /** 選んだ点。limit を書いたときに返す */
   selected?: PointcloudPoints;
@@ -2611,7 +2611,7 @@ export interface PointcloudPoints {
   level: number;
 }
 
-/** 電子納品の成果品（決定 0241）を読み、管理ファイルの要約を返す。成果品は、zm_push で渡した入力のうち root の下にある名前の集まりか、ZIP の入力（archive）で渡す。profiles と profile を渡せば、プロファイルの delivery- で始まる照合の種類の規則と照らし、指摘を返す（#384）。ほかの種類の規則は飛ばす。図面のモジュールに置く。小版 53 から */
+/** 電子納品の成果品（決定 0241）を読み、管理ファイルの要約を返す。成果品は、zm_push で渡した入力のうち root の下にある名前の集まりか、ZIP の入力（archive）で渡す。profiles と profile を渡せば、プロファイルの delivery- で始まる照合の種類の規則と照らし、指摘を返す（#384）。ほかの種類の規則は飛ばす。図面のモジュールに置く。マイナーバージョン 53 から */
 export interface DeliveryCheckRequest extends RequestCommon {
   /** op の名前 */
   op: "delivery_check";
@@ -2647,7 +2647,7 @@ export interface DeliveryCheckResult {
   next_offset?: number;
 }
 
-/** 工事写真（JPEG）の Exif と XMP を読み、画素数・向き・撮影の日時・位置などを返す（#387）。画像は復号しない。図面のモジュールに置く。小版 55 から */
+/** 工事写真（JPEG）の Exif と XMP を読み、画素数・向き・撮影の日時・位置などを返す（#387）。画像は復号しない。図面のモジュールに置く。マイナーバージョン 55 から */
 export interface PhotoRequest extends RequestCommon {
   /** op の名前 */
   op: "photo";
@@ -2657,9 +2657,9 @@ export interface PhotoRequest extends RequestCommon {
 
 /** 写真の情報。ファイルが持たない値は書かない */
 export interface PhotoResult {
-  /** 画素の幅（フレームの見出し） */
+  /** 画素の幅（フレームのヘッダー） */
   width?: number;
-  /** 画素の高さ（フレームの見出し） */
+  /** 画素の高さ（フレームのヘッダー） */
   height?: number;
   /** 向き（Exif の Orientation、1〜8） */
   orientation?: number;
@@ -2701,7 +2701,7 @@ export interface PhotoProperty {
   value: string;
 }
 
-/** 表（Excel の xlsx と CSV）を、様式を知らずに読み、シートごとのセルの値・数式・結合セルを返す（#391）。数式は計算せず、保存された値を返す。図面のモジュールに置く。小版 56 から */
+/** 表（Excel の xlsx と CSV）を、様式を知らずに読み、シートごとのセルの値・数式・結合セルを返す（#391）。数式は計算せず、保存された値を返す。図面のモジュールに置く。マイナーバージョン 56 から */
 export interface SheetRequest extends RequestCommon {
   /** op の名前 */
   op: "sheet";
@@ -2792,7 +2792,7 @@ export interface SheetArea {
   last_column: number;
 }
 
-/** 地質・土質調査のボーリング交換用データ（BED0500.DTD の XML）を読み、ボーリングの位置・標高と、地層・色調・観察記事・標準貫入試験・孔内水位を返す（#390）。ほかの試験と判定表は読まない。図面のモジュールに置く。小版 57 から */
+/** 地質・土質調査のボーリング交換用データ（BED0500.DTD の XML）を読み、ボーリングの位置・標高と、地層・色調・観察記事・標準貫入試験・孔内水位を返す（#390）。ほかの試験と判定表は読まない。図面のモジュールに置く。マイナーバージョン 57 から */
 export interface BoringRequest extends RequestCommon {
   /** op の名前 */
   op: "boring";
@@ -2951,7 +2951,7 @@ export interface DeliveryManaged {
   missing: string[];
 }
 
-/** open で開いた CityGML・基盤地図情報（GML）・拡張 DM の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。土木・地理のモジュールに置く（決定 0253）。小版 52 から */
+/** open で開いた CityGML・基盤地図情報（GML）・拡張 DM の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。土木・地理のモジュールに置く（決定 0253）。マイナーバージョン 52 から */
 export interface GeoRequest extends RequestCommon {
   /** op の名前 */
   op: "geo";
@@ -3048,7 +3048,7 @@ export interface GeoGeometry {
   faces?: number;
 }
 
-/** open で開いた J-LandXML の文書の線形から、平面図・縦断図・横断図の図面モデルを作り（決定 0231）、用紙を 1 枚選んで新しい DXF の文書として開く（決定 0239）。尺度・文字の高さ・測点の間隔は、プロファイルを渡せば語彙 civil-drawing と text-height から読み、渡さなければ作図の慣習の値にする。縦断図は用紙の要素に焼き込む（決定 0238）。書いたファイルは blobs で返す。作った文書は scene と check に渡せる。図面のモジュールに置く。小版 51 から */
+/** open で開いた J-LandXML の文書の線形から、平面図・縦断図・横断図の図面モデルを作り（決定 0231）、用紙を 1 枚選んで新しい DXF の文書として開く（決定 0239）。尺度・文字の高さ・測点の間隔は、プロファイルを渡せば語彙 civil-drawing と text-height から読み、渡さなければ作図の慣習の値にする。縦断図は用紙の要素に焼き込む（決定 0238）。書いたファイルは blobs で返す。作った文書は scene と check に渡せる。図面のモジュールに置く。マイナーバージョン 51 から */
 export interface CivilDrawingRequest extends RequestCommon {
   /** op の名前 */
   op: "civil_drawing";
@@ -3104,7 +3104,7 @@ export interface CivilDrawingOptions {
   station_pitch: number;
 }
 
-/** 開いた点群と、土木の文書の TIN の標高の差を求め、プロファイルの surface-elevation の規則の区分ごとに集計して、規格値と比べる（決定 0234）。点群のモジュールに置く（決定 0253）。小版 50 から */
+/** 開いた点群と、土木の文書の TIN の標高の差を求め、プロファイルの surface-elevation の規則の区分ごとに集計して、規格値と比べる（決定 0234）。点群のモジュールに置く（決定 0253）。マイナーバージョン 50 から */
 export interface DeviationRequest extends RequestCommon {
   /** op の名前 */
   op: "deviation";
@@ -3194,11 +3194,11 @@ export interface DeviationPoint {
 
 /** describe に使うカタログのファイル。catalog/<言語>.toml から生成し、zm_push で渡す（決定 0009） */
 export interface Catalog {
-  /** カタログの形の大版。今は 1 */
+  /** カタログの形のメジャーバージョン。今は 1 */
   v: number;
   /** 言語（ja・en） */
   lang: string;
-  /** パッケージの版。コアと同じ版で出す */
+  /** パッケージのバージョン。コアと同じバージョンで出す */
   package: string;
   /** 数の書き方 */
   number: NumberFormat;

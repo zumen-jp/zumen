@@ -1,4 +1,4 @@
-//! DWG（R2000）の試作を、試験の中で組み立てた DWG で確かめる。受け取った図面は使わない。
+//! DWG（R2000）の試作を、テストの中で組み立てた DWG で確かめる。受け取った図面は使わない。
 
 use zumen_acad::{AcadDb, Data, Dwg, DwgFile, Dxf, Line, Object, Origin, Section, Value};
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Kind, Limit, Limits, codes};
@@ -113,7 +113,7 @@ fn crc16(seed: u16, bytes: &[u8]) -> u16 {
     })
 }
 
-/// 剰余の文字（MC）。`signed` なら、最後のバイトの 0x40 を負の印にする
+/// 剰余の文字（MC）。`signed` なら、最後のバイトの 0x40 を負のフラグにする
 #[cfg(test)]
 fn modular_char(value: i64, signed: bool) -> Vec<u8> {
     let mut rest = value.unsigned_abs();
@@ -173,13 +173,13 @@ fn object_with_xdata(
     out
 }
 
-/// 図形の共通の欄。entmode と色・線種の尺度・非表示を選ぶ
+/// 図形の共通のフィールド。entmode と色・線種の尺度・非表示を選ぶ
 #[cfg(test)]
 fn entity_common(w: &mut BitWriter, entmode: u8, color: u16, ltype_scale: f64, invisible: u16) {
     entity_common_weighted(w, entmode, color, ltype_scale, invisible, 0x1D);
 }
 
-/// 線の太さの番号を選んだ、所有者を持たない図形の共通の欄
+/// 線の太さの番号を選んだ、所有者を持たない図形の共通のフィールド
 #[cfg(test)]
 fn entity_common_weighted(
     w: &mut BitWriter,
@@ -191,7 +191,7 @@ fn entity_common_weighted(
 ) {
     w.bit(false); // 図形の画像はない
     w.bits(u64::from(entmode), 2);
-    w.bl_zero(); // 反応子はない
+    w.bl_zero(); // リアクターはない
     w.bit(true); // 前後の図形へのリンクはない
     w.bs(color);
     w.bd(ltype_scale);
@@ -201,7 +201,7 @@ fn entity_common_weighted(
     w.bytes(&[weight]); // 線の太さ
 }
 
-/// 所有者を持たず、線種の印を選んだ図形の共通の欄
+/// 所有者を持たず、線種のフラグを選んだ図形の共通のフィールド
 #[cfg(test)]
 fn entity_common_with_ltype(w: &mut BitWriter, ltype_flags: u8) {
     w.bit(false);
@@ -216,7 +216,7 @@ fn entity_common_with_ltype(w: &mut BitWriter, ltype_flags: u8) {
     w.bytes(&[0x1D]);
 }
 
-/// LINE の欄
+/// LINE のフィールド
 #[cfg(test)]
 fn line_data(w: &mut BitWriter, start: [f64; 3], end: [f64; 3], thickness: f64) {
     let flat = start[2] == 0.0 && end[2] == 0.0;
@@ -238,8 +238,8 @@ fn line_data(w: &mut BitWriter, start: [f64; 3], end: [f64; 3], thickness: f64) 
     w.bit(true); // 押し出しの向きは (0, 0, 1)
 }
 
-/// 名前を持つ表のレコードの欄。反応子の数と、終わりの NUL を含む長さの名前と、表のレコードの
-/// 共通の欄。型ごとの欄は、どの型でも 0 と空の文字列として読める 0 のビットで埋める
+/// 名前を持つ表のレコードのフィールド。リアクターの数と、終わりの NUL を含む長さの名前と、表のレコードの
+/// 共通のフィールド。型ごとのフィールドは、どの型でも 0 と空の文字列として読める 0 のビットで埋める
 #[cfg(test)]
 fn record_named(name: &'static [u8]) -> impl Fn(&mut BitWriter) {
     move |w| {
@@ -247,9 +247,9 @@ fn record_named(name: &'static [u8]) -> impl Fn(&mut BitWriter) {
         w.bs(name.len() as u16 + 1);
         w.bytes(name);
         w.bytes(&[0]);
-        w.bit(false); // 参照される印
+        w.bit(false); // 参照されるフラグ
         w.bs(0); // 外部参照の番号
-        w.bit(false); // 外部参照に依る印
+        w.bit(false); // 外部参照に依るフラグ
         for _ in 0..40 {
             w.bits(0, 64);
         }
@@ -305,7 +305,7 @@ fn objects_in_sample() -> Vec<(u64, Vec<u8>)> {
             w.handle(5, 0x10); // 画層
         },
     );
-    // モデル空間の LINE（entmode 2）。共通の欄も既定の値でない
+    // モデル空間の LINE（entmode 2）。共通のフィールドも既定の値でない
     let line3d = object(
         0x13,
         0x2B,
@@ -320,7 +320,7 @@ fn objects_in_sample() -> Vec<(u64, Vec<u8>)> {
     );
     // クラスで決まる型
     let custom = object(500, 0x2C, |w| w.bl_zero(), |w| w.handle(4, 0));
-    // 欄の途中で尽きる CIRCLE
+    // フィールドの途中で尽きる CIRCLE
     let mut circle = BitWriter::default();
     circle.bs(0x12);
     circle.rl(0);
@@ -339,13 +339,13 @@ fn objects_in_sample() -> Vec<(u64, Vec<u8>)> {
     ]
 }
 
-/// 見出し・オブジェクト・オブジェクトの地図を並べた R2000 の DWG
+/// ヘッダー・オブジェクト・オブジェクトのマップを並べた R2000 の DWG
 #[cfg(test)]
 fn dwg(objects: &[(u64, Vec<u8>)]) -> Vec<u8> {
     dwg_in_sections(objects, usize::MAX)
 }
 
-/// 地図の区切りごとに、`per_section` 個までのオブジェクトを置く DWG
+/// マップのセクションごとに、`per_section` 個までのオブジェクトを置く DWG
 #[cfg(test)]
 fn dwg_in_sections(objects: &[(u64, Vec<u8>)], per_section: usize) -> Vec<u8> {
     const SENTINEL: [u8; 16] = [
@@ -356,7 +356,7 @@ fn dwg_in_sections(objects: &[(u64, Vec<u8>)], per_section: usize) -> Vec<u8> {
     let mut body: Vec<u8> = Vec::new();
     let mut maps = Vec::new();
     for chunk in objects.chunks(per_section) {
-        // 差分は、区切りごとに 0 から数える
+        // 差分は、セクションごとに 0 から数える
         let mut map = Vec::new();
         let (mut last_handle, mut last_location) = (0u64, 0i64);
         for (handle, bytes) in chunk {
@@ -401,7 +401,7 @@ fn dwg_in_sections(objects: &[(u64, Vec<u8>)], per_section: usize) -> Vec<u8> {
     out
 }
 
-/// DWG の終わりにクラスの区切りを足し、区切りの記録の 1 番をそれに向ける。クラスは番号・DXF の名前・
+/// DWG の終わりにクラスのセクションを足し、セクションの記録の 1 番をそれに向ける。クラスは番号・DXF の名前・
 /// 図形を作るか
 #[cfg(test)]
 fn with_classes(mut src: Vec<u8>, classes: &[(u16, &[u8], bool)]) -> Vec<u8> {
@@ -442,7 +442,7 @@ fn with_classes(mut src: Vec<u8>, classes: &[(u16, &[u8], bool)]) -> Vec<u8> {
     src
 }
 
-/// DWG の終わりに見出しの変数の区切りを足し、区切りの記録の 0 番をそれに向ける。変数は
+/// DWG の終わりにヘッダーの変数のセクションを足し、セクションの記録の 0 番をそれに向ける。変数は
 /// 2 つの空間のハンドルのほかは 0 か空で、CEPSNTYPE は 3（CPSNID のハンドルが続く）
 #[cfg(test)]
 fn with_header_variables(
@@ -455,7 +455,7 @@ fn with_header_variables(
     with_header(src, paper, model, units, limits, 0)
 }
 
-/// [`with_header_variables`] と同じく、HANDSEED を `seed` にした見出しの変数の区切りを足したもの
+/// [`with_header_variables`] と同じく、HANDSEED を `seed` にしたヘッダーの変数のセクションを足したもの
 #[cfg(test)]
 fn with_header(
     src: Vec<u8>,
@@ -468,7 +468,7 @@ fn with_header(
     with_point_header(src, [paper, model, seed], units, limits, (0, 0.0))
 }
 
-/// [`with_header`] と同じく、PDMODE と PDSIZE を `point` にした見出しの変数の区切りを足したもの。`handles` は
+/// [`with_header`] と同じく、PDMODE と PDSIZE を `point` にしたヘッダーの変数のセクションを足したもの。`handles` は
 /// 用紙空間とモデル空間のブロックのレコードと、HANDSEED
 #[cfg(test)]
 fn with_point_header(
@@ -587,7 +587,7 @@ fn the_header_and_the_object_map_are_read() {
         kinds,
         [&b"TABLE"[..], b"LAYER", b"LINE", b"LINE", b"", b"CIRCLE"]
     );
-    // オブジェクトは、見出しの後から隙間なく並ぶ
+    // オブジェクトは、ヘッダーの後から隙間なく並ぶ
     let first = file.record(0).unwrap().bytes.unwrap();
     let second = file.record(1).unwrap().bytes.unwrap();
     assert_eq!(first.start, 0x19 + 27 + 18);
@@ -655,7 +655,7 @@ fn a_line_has_the_same_values_as_in_dxf() {
     assert_eq!(dwg_line.owner(), dxf_line.owner());
     assert_eq!(dwg_line.first(8), dxf_line.first(8));
     assert_eq!(dwg_line.first(8), Some(&Data::Text(b"0".to_vec())));
-    // 既定の値の欄は置かない
+    // 既定の値のフィールドは置かない
     for code in [39, 48, 60, 62, 210, 370] {
         assert_eq!(dwg_line.first(code), None, "{code}");
     }
@@ -786,7 +786,7 @@ fn text_fields_are_read_by_their_flags() {
     let layer = object(0x33, 0x10, record_named(b"0"), record_handles(2));
     let standard = object(0x35, 0x11, record_named(b"Standard"), record_handles(3));
     let mono = object(0x35, 0x12, record_named(b"Mono"), record_handles(3));
-    // DataFlags が 0xFF: 標高・合わせの点・角度・幅・生成・合わせの欄を持たない
+    // DataFlags が 0xFF: 標高・合わせの点・角度・幅・生成・合わせのフィールドを持たない
     let plain = object(
         0x01,
         0x20,
@@ -803,7 +803,7 @@ fn text_fields_are_read_by_their_flags() {
         },
         entity_handles_to(0x10, 0x11),
     );
-    // DataFlags が 0: どの欄も持つ
+    // DataFlags が 0: どのフィールドも持つ
     let full = object(
         0x01,
         0x21,
@@ -845,7 +845,7 @@ fn text_fields_are_read_by_their_flags() {
     for (code, value) in [(10, 1.0), (20, 2.0), (30, 0.0), (40, 2.5)] {
         assert!(close(plain.real(code), value), "{code}");
     }
-    // 文字の体裁が Standard なら、7 は置かない
+    // 文字スタイルが Standard なら、7 は置かない
     for code in [7, 11, 39, 41, 50, 51, 71, 72, 73, 210] {
         assert_eq!(plain.first(code), None, "{code}");
     }
@@ -876,7 +876,7 @@ fn inserts_and_mtexts_have_their_fields() {
     let layer = object(0x33, 0x10, record_named(b"0"), record_handles(2));
     let block = object(0x31, 0x11, record_named(b"DOOR"), record_handles(1));
     let style = object(0x35, 0x12, record_named(b"Mono"), record_handles(3));
-    // 尺度の印 00: 41 は RD、42・43 は 41 を既定の値とする DD
+    // 尺度のフラグ 00: 41 は RD、42・43 は 41 を既定の値とする DD
     let insert = object(
         0x07,
         0x20,
@@ -897,7 +897,7 @@ fn inserts_and_mtexts_have_their_fields() {
         },
         entity_handles_to(0x10, 0x11),
     );
-    // 尺度の印 11: 尺度は (1, 1, 1)
+    // 尺度のフラグ 11: 尺度は (1, 1, 1)
     let plain = object(
         0x07,
         0x21,
@@ -1088,7 +1088,7 @@ fn linetypes_are_named_by_their_flags() {
     assert!(diag.is_empty(), "{:?}", codes_of(&diag));
     let ltype = |handle| db.get(handle).unwrap().first(6).cloned();
     let text = |t: &[u8]| Some(Data::Text(t.to_vec()));
-    // 画層による線種（印が 0 か、ByLayer のレコード）は、DXF と同じく置かない
+    // 画層による線種（フラグが 0 か、ByLayer のレコード）は、DXF と同じく置かない
     assert_eq!(ltype(0x20), None);
     assert_eq!(ltype(0x21), text(b"ByBlock"));
     assert_eq!(ltype(0x22), text(b"Continuous"));
@@ -1118,7 +1118,7 @@ fn solids_faces_ellipses_and_rays_have_their_fields() {
         0x21,
         |w| {
             entity_common(w, 2, 256, 1.0, 0);
-            w.bit(false); // 見えない辺の印がある
+            w.bit(false); // 見えない辺のフラグがある
             w.bit(false); // Z が 0 でない
             for v in [1.0, 2.0, 3.0] {
                 w.rd(v);
@@ -1267,7 +1267,7 @@ fn lwpolylines_have_their_vertices() {
     assert!(diag.is_empty(), "{:?}", codes_of(&diag));
     let lwpolyline = db.get(0x20).unwrap();
     assert_eq!(lwpolyline.kind, b"LWPOLYLINE");
-    // DWG の閉じている印は、DXF の 70 の 1
+    // DWG の閉じているフラグは、DXF の 70 の 1
     assert_eq!(lwpolyline.first(70), Some(&Data::Int(1)));
     assert_eq!(lwpolyline.first(90), Some(&Data::Int(3)));
     for (code, value) in [(43, 0.0), (38, 2.0)] {
@@ -1310,7 +1310,7 @@ fn splines_have_their_knots_or_fit_points() {
             w.bit(false);
             w.bd(1e-9);
             w.bd(1e-10);
-            w.bits(1, 2); // 節点 4 つ
+            w.bits(1, 2); // ノット 4 つ
             w.bytes(&[4]);
             w.bits(1, 2); // 制御点 2 つ
             w.bytes(&[2]);
@@ -1337,7 +1337,7 @@ fn splines_have_their_knots_or_fit_points() {
             for v in [1.0, 0.0, 0.0, 0.0, 0.0, 0.0] {
                 w.bd(v);
             }
-            w.bits(1, 2); // 当てはめる点 2 つ
+            w.bits(1, 2); // フィット点 2 つ
             w.bytes(&[2]);
             for v in [0.0, 0.0, 0.0, 5.0, 6.0, 0.0] {
                 w.bd(v);
@@ -1361,7 +1361,7 @@ fn splines_have_their_knots_or_fit_points() {
     let weights: Vec<_> = spline.values.iter().filter(|v| v.code == 41).collect();
     assert_eq!(weights.len(), 2);
     assert_eq!(weights[1].data, Data::Real(0.5));
-    // 印は有理（4）と閉じている（1）だけを置き、DXF を書くときに決まる平らか（8）と法線は置かない
+    // フラグは有理（4）と閉じている（1）だけを置き、DXF を書くときに決まる平らか（8）と法線は置かない
     assert_eq!(spline.first(70), Some(&Data::Int(5)));
     assert_eq!(spline.first(210), None);
 
@@ -1460,7 +1460,7 @@ fn polylines_and_vertices_have_their_fields() {
     ] {
         assert!(close(vertex.real(code), value), "{code}");
     }
-    // 3D の印 8・閉じている 1・曲線の 4 と、曲線の種類 5
+    // 3D のフラグ 8・閉じている 1・曲線の 4 と、曲線の種類 5
     assert_eq!(ints(0x22, &[70, 75]), [Some(13), Some(5)]);
     assert_eq!(ints(0x23, &[70, 71, 72]), [Some(64), Some(4), Some(2)]);
     // 負の番号は見えない辺。0 の番号は置かない
@@ -1479,7 +1479,7 @@ fn dimensions_have_their_points_and_records() {
     let layer = object(0x33, 0x10, record_named(b"0"), record_handles(2));
     let style = object(0x45, 0x11, record_named(b"ISO-25"), record_handles(3));
     let block = object(0x31, 0x12, record_named(b"*D1"), record_handles(1));
-    // 寸法の共通の欄。標高は 1.5、文字の中点は (5, 6)、測った値は 10
+    // 寸法の共通のフィールド。標高は 1.5、文字の中点は (5, 6)、測った値は 10
     let common = |w: &mut BitWriter, flags: u8, text: &[u8]| {
         for v in [0.0, 0.0, 1.0] {
             w.bd(v);
@@ -1547,7 +1547,7 @@ fn dimensions_have_their_points_and_records() {
     assert!(diag.is_empty(), "{:?}", codes_of(&diag));
     let linear = db.get(0x20).unwrap();
     assert_eq!(linear.kind, b"DIMENSION");
-    // 線形の寸法は種類 0 で、ブロックだけを使う印の 32
+    // 線形の寸法は種類 0 で、ブロックだけを使うフラグの 32
     assert_eq!(linear.first(70), Some(&Data::Int(32)));
     assert_eq!(linear.first(71), Some(&Data::Int(5)));
     assert_eq!(linear.first(3), Some(&Data::Text(b"ISO-25".to_vec())));
@@ -1566,7 +1566,7 @@ fn dimensions_have_their_points_and_records() {
     ] {
         assert!(close(linear.real(code), value), "{code}");
     }
-    // 既定の値の欄と、0 の 12 の点は置かない
+    // 既定の値のフィールドと、0 の 12 の点は置かない
     for code in [12, 41, 72, 52, 53, 51, 210] {
         assert!(linear.first(code).is_none(), "{code}");
     }
@@ -1584,7 +1584,7 @@ fn attributes_and_tolerances_have_their_fields() {
     let layer = object(0x33, 0x10, record_named(b"0"), record_handles(2));
     let standard = object(0x35, 0x11, record_named(b"Standard"), record_handles(3));
     let dimstyle = object(0x45, 0x12, record_named(b"ISO-25"), record_handles(3));
-    // TEXT の欄。DataFlags が 0x7F で、縦の合わせ（DXF の 74）だけを持つ
+    // TEXT のフィールド。DataFlags が 0x7F で、縦の合わせ（DXF の 74）だけを持つ
     let text = |w: &mut BitWriter, value: &[u8]| {
         entity_common(w, 2, 256, 1.0, 0);
         w.bytes(&[0x7F]);
@@ -1679,7 +1679,7 @@ fn attributes_and_tolerances_have_their_fields() {
 fn leaders_and_mlines_have_their_fields() {
     let layer = object(0x33, 0x10, record_named(b"0"), record_handles(2));
     let dimstyle = object(0x45, 0x11, record_named(b"ISO-25"), record_handles(3));
-    // 2 本の線を持つ多重線の体裁。DWG の印 1 と 32 は、DXF の 2 と 64
+    // 2 本の線を持つマルチラインスタイル。DWG のフラグ 1 と 32 は、DXF の 2 と 64
     let style = object(
         0x49,
         0x31,
@@ -1731,7 +1731,7 @@ fn leaders_and_mlines_have_their_fields() {
             w.handle(5, 0x11);
         },
     );
-    // 2 つの頂点と 1 本の線を持つ多重線
+    // 2 つの頂点と 1 本の線を持つマルチライン
     let mline = object(
         0x2F,
         0x21,
@@ -1777,7 +1777,7 @@ fn leaders_and_mlines_have_their_fields() {
     for (code, value) in [(40, 2.5), (41, 10.0)] {
         assert!(close(leader.real(code), value), "{code}");
     }
-    // 頂点の数と頂点を置く。終わりの点の射影と、既定の値の欄は置かない
+    // 頂点の数と頂点を置く。終わりの点の射影と、既定の値のフィールドは置かない
     assert_eq!(leader.first(76), Some(&Data::Int(2)));
     let xs: Vec<_> = leader.values.iter().filter(|v| v.code == 10).collect();
     assert_eq!(xs.len(), 2);
@@ -1913,7 +1913,7 @@ fn types_of_classes_are_named_by_the_classes() {
     let table = db.get(0x20).unwrap();
     assert_eq!(table.kind, b"WIPEOUT");
     assert_eq!(table.section, Section::Entities);
-    // 図形を作るクラスなので、図形の共通の欄を読む
+    // 図形を作るクラスなので、図形の共通のフィールドを読む
     assert_eq!(table.first(8), Some(&Data::Text(b"0".to_vec())));
     assert_eq!(table.first(62), Some(&Data::Int(1)));
     let var = db.get(0x21).unwrap();
@@ -2014,7 +2014,7 @@ fn extended_data_is_placed_as_xdata() {
 
 #[test]
 fn sortents_tables_have_their_entities_and_keys() {
-    // 2 つの図形の並べ替えのハンドルを持つ。並べ替えのハンドルはデータの流れにある
+    // 2 つの図形の並べ替えのハンドルを持つ。並べ替えのハンドルはデータのストリームにある
     let sortents = object(
         502,
         0x22,
@@ -2063,13 +2063,13 @@ fn images_and_their_definitions_have_their_fields() {
         w.bits(1, 2);
         w.bytes(&[n]);
     };
-    // 矩形で切り抜く IMAGE（R2000）。画像の定義と、その反応子を指す
+    // 矩形で切り抜く IMAGE（R2000）。画像の定義と、そのリアクターを指す
     let image = object(
         510,
         0x44,
         |w| {
             entity_common(w, 2, 256, 1.0, 0);
-            w.bl_zero(); // 版
+            w.bl_zero(); // バージョン
             for v in [1.0, 2.0, 0.0, 0.5, 0.0, 0.0, 0.0, 0.5, 0.0] {
                 w.bd(v);
             }
@@ -2092,8 +2092,8 @@ fn images_and_their_definitions_have_their_fields() {
         511,
         0x45,
         |w| {
-            w.bl_zero(); // 反応子の数
-            w.bl_zero(); // 版
+            w.bl_zero(); // リアクターの数
+            w.bl_zero(); // バージョン
             w.rd(640.0);
             w.rd(480.0);
             w.bs(6);
@@ -2260,7 +2260,7 @@ fn multileaders_have_their_context_and_leaders() {
             point(w, [1.0, 0.0, 0.0]);
             point(w, [0.0, 1.0, 0.0]);
             w.bit(false);
-            // 図形の欄
+            // 図形のフィールド
             w.bl_zero();
             w.bs(1);
             w.bs(256);
@@ -2289,7 +2289,7 @@ fn multileaders_have_their_context_and_leaders() {
         },
         |w| {
             entity_handles(0x10)(w);
-            // 文脈の文字の体裁・体裁・線種・矢印・文字の体裁・ブロック
+            // 文脈の文字スタイル・スタイル・線種・矢印・文字スタイル・ブロック
             for handle in [0x11, 0x12, 0, 0, 0x11, 0] {
                 w.handle(5, handle);
             }
@@ -2381,7 +2381,7 @@ fn tables_have_their_cells_and_overrides() {
         w.bits(1, 2);
         w.bytes(&[n]);
     };
-    // R2004 の形の CMC（番号・RGB の値・名前の印）
+    // R2004 の形の CMC（番号・RGB の値・名前のフラグ）
     let color = |w: &mut BitWriter, index: u16| {
         w.bs(index);
         w.bl_zero();
@@ -2395,7 +2395,7 @@ fn tables_have_their_cells_and_overrides() {
         0x44,
         |w| {
             entity_common(w, 2, 256, 1.0, 0);
-            // INSERT の欄
+            // INSERT のフィールド
             for v in [4.0, 5.0, 0.0] {
                 w.bd(v);
             }
@@ -2405,7 +2405,7 @@ fn tables_have_their_cells_and_overrides() {
                 w.bd(v);
             }
             w.bit(false); // 属性は続かない
-            w.bs(0); // 表の印
+            w.bs(0); // 表のフラグ
             for v in [1.0, 0.0, 0.0] {
                 w.bd(v);
             }
@@ -2453,7 +2453,7 @@ fn tables_have_their_cells_and_overrides() {
         },
         |w| {
             entity_handles(0x10)(w);
-            // ブロック・表のスタイル・文字のセルの欄・ブロックのセルのブロック
+            // ブロック・表のスタイル・文字のセルのフィールド・ブロックのセルのブロック
             for handle in [0x11, 0x13, 0, 0x12] {
                 w.handle(5, handle);
             }
@@ -2702,7 +2702,7 @@ fn groups_layouts_and_scales_have_their_fields() {
             w.bd(1.0);
             w.bd(0.0);
             w.bd(0.0);
-            // レイアウトの欄
+            // レイアウトのフィールド
             text(w, b"Layout1");
             w.bs(1); // タブの順
             w.bs(1);
@@ -2800,7 +2800,7 @@ fn groups_layouts_and_scales_have_their_fields() {
             Some(Data::Int(16)),
         ]
     );
-    // 印刷の設定とレイアウトは、名前（1）と印（70）を順に持つ
+    // 印刷の設定とレイアウトは、名前（1）とフラグ（70）を順に持つ
     let all = |code: i16| -> Vec<&Data> {
         layout
             .values
@@ -2852,7 +2852,7 @@ fn a_wrong_class_section_is_reported() {
     let (result, diag) = read(&wrong_crc, Limits::default());
     assert!(result.is_ok());
     assert_eq!(codes_of(&diag), [codes::DWG_CRC_INVALID]);
-    // 終わりの印が合わないときは止める
+    // 終わりのマーカーが合わないときは止める
     let mut wrong_sentinel = src.clone();
     wrong_sentinel[end - 1] ^= 0xFF;
     let (result, diag) = read(&wrong_sentinel, Limits::default());
@@ -2890,7 +2890,7 @@ fn hatches_have_their_paths_and_pattern() {
             w.bit(false); // 塗りつぶしでない
             w.bit(true);
             bl(w, 2);
-            // 辺で囲む境界。印 4 は画素の大きさを持たせる
+            // 辺で囲む境界。フラグ 4 は画素の大きさを持たせる
             bl(w, 4);
             bl(w, 2);
             w.bytes(&[2]); // 円弧
@@ -3009,7 +3009,7 @@ fn hatches_have_their_paths_and_pattern() {
     let hatch = db.get(0x21).unwrap();
     assert_eq!(hatch.first(70), Some(&Data::Int(1)));
     assert!(close(hatch.real(11), 1.0));
-    // 塗りつぶしは、模様の欄と画素の大きさを持たない
+    // 塗りつぶしは、模様のフィールドと画素の大きさを持たない
     assert_eq!(hatch.first(52), None);
     assert_eq!(hatch.first(47), None);
     assert_eq!(hatch.first(98), Some(&Data::Int(0)));
@@ -3075,7 +3075,7 @@ fn other_versions_are_not_read_yet() {
 #[test]
 fn a_wrong_crc_is_reported_and_reading_continues() {
     let mut src = sample();
-    // コード・ページを変えると、見出しの CRC が合わなくなる
+    // コード・ページを変えると、ヘッダーの CRC が合わなくなる
     src[0x13] = 31;
     let (result, diag) = read(&src, Limits::default());
     assert!(result.is_ok());
@@ -3289,7 +3289,7 @@ fn layers_styles_and_linetypes_have_their_fields() {
             (49, Data::Real(-0.5)),
             (74, Data::Int(2)),
             (75, Data::Int(0)),
-            // 文字の体裁は、DXF と同じく形の番号の後に置く
+            // 文字スタイルは、DXF と同じく形の番号の後に置く
             (340, Data::Handle(0x11)),
             (46, Data::Real(0.5)),
             (50, Data::Real(0.0)),
@@ -3413,7 +3413,7 @@ fn views_ucss_vports_and_dimstyles_have_their_fields() {
         },
         handles(8, &[0x64, 0]),
     );
-    // 既定の値から変えた欄は、DIMPOST・DIMSCALE・DIMTIH・DIMDEC・DIMLWD だけ
+    // 既定の値から変えたフィールドは、DIMPOST・DIMSCALE・DIMTIH・DIMDEC・DIMLWD だけ
     let dimstyle = object(
         0x45,
         0x13,
@@ -3574,7 +3574,7 @@ fn entities_in_model_and_paper_space_are_owned_by_their_blocks() {
 fn broken_header_variables_leave_the_spaces_without_owners() {
     let mut src = with_header_variables(dwg(&objects_with_paper_space()), 0x58, 0x1F, 0, [0.0; 4]);
     let last = src.len() - 1;
-    src[last] ^= 0xFF; // 終わりの印を壊す
+    src[last] ^= 0xFF; // 終わりのマーカーを壊す
     let (db, diag) = objects(&src);
     assert!(codes_of(&diag).contains(&codes::DWG_FILE_INVALID));
     assert_eq!(db.get(0x2B).unwrap().owner(), None);
@@ -3620,7 +3620,7 @@ fn header_variables_and_paper_space_flags_are_in_the_table() {
             .collect()
     };
     assert_eq!(variable(b"$ACADVER"), [(1, Data::Text(b"AC1015".to_vec()))]);
-    // 見出しのコード・ページの番号 30 は、DXF の名前にする
+    // ヘッダーのコード・ページの番号 30 は、DXF の名前にする
     assert_eq!(
         variable(b"$DWGCODEPAGE"),
         [(3, Data::Text(b"ANSI_1252".to_vec()))]
@@ -3675,7 +3675,7 @@ fn a_dwg_lifts_to_the_drawing_model_through_the_table() {
             &CancelToken::new(),
         ))
         .unwrap();
-    // 表を作るときの診断に続けて、Z のある線分と、欄の途中で尽きた CIRCLE を移さない。BLOCK のないブロックの
+    // 表を作るときの診断に続けて、Z のある線分と、フィールドの途中で尽きた CIRCLE を移さない。BLOCK のないブロックの
     // レコードに着く LINE は、どの定義のものか分からないので移さない
     assert_eq!(
         codes_of(&diag),
@@ -3834,7 +3834,7 @@ fn dwg_lines_have_the_same_typed_view_as_dxf() {
 }
 
 #[cfg(test)]
-/// R2004 の地図のページの検査の値（ODS の 4）
+/// R2004 のマップのページの検査の値（ODS の 4）
 fn adler(seed: u32, data: &[u8]) -> u32 {
     let (mut low, mut high) = (seed & 0xFFFF, seed >> 16);
     for chunk in data.chunks(0x15B0) {
@@ -3900,7 +3900,7 @@ fn system_page(kind: u32, data: &[u8]) -> Vec<u8> {
 }
 
 #[cfg(test)]
-/// 区切りの名前と圧縮したデータと展開した大きさから、R2004 の入れ物を作る
+/// セクションの名前と圧縮したデータと展開した大きさから、R2004 のコンテナーを作る
 fn r2004(sections: &[(&[u8], Vec<u8>, u64)]) -> Vec<u8> {
     let mut src = vec![0; 0x100];
     src[..6].copy_from_slice(b"AC1018");
@@ -3974,7 +3974,7 @@ fn r2004(sections: &[(&[u8], Vec<u8>, u64)]) -> Vec<u8> {
 
 #[cfg(test)]
 fn r2004_sections() -> Vec<(&'static [u8], Vec<u8>, u64)> {
-    // クラスの区切りは、R2004 の前置き（最大のクラスの番号・0 の RC・0 の RC・真の B）だけを持つ
+    // クラスのセクションは、R2004 の前置き（最大のクラスの番号・0 の RC・0 の RC・真の B）だけを持つ
     let mut w = BitWriter::default();
     w.bs(499);
     w.bytes(&[0, 0]);
@@ -3992,7 +3992,7 @@ fn r2004_sections() -> Vec<(&'static [u8], Vec<u8>, u64)> {
         0x72, 0x5E, 0x3B, 0x47, 0x3B, 0x56, 0x07, 0x3A, 0x3F, 0x23, 0x0B, 0xA0, 0x18, 0x30, 0x49,
         0x75,
     ]);
-    // オブジェクトの地図は、空の区切り（大きさ 2 と CRC）だけを持つ
+    // オブジェクトのマップは、空のセクション（大きさ 2 と CRC）だけを持つ
     let mut map = vec![0x00, 0x02];
     map.extend(crc16(0xC0C1, &map).to_be_bytes());
     let filler: Vec<u8> = (0..40).map(|i| i as u8).collect();
@@ -4014,14 +4014,14 @@ fn r2004_containers_are_checked_and_read() {
     assert!(result.is_ok());
     assert_eq!(codes_of(&diag), []);
 
-    // 暗号化した見出しの使わない欄を変えると、見出しの CRC が合わなくなる
+    // 暗号化したヘッダーの使わないフィールドを変えると、ヘッダーの CRC が合わなくなる
     let mut broken = src.clone();
     broken[0x80 + 0x24] ^= 0x01;
     let (result, diag) = read(&broken, Limits::default());
     assert!(result.is_ok());
     assert_eq!(codes_of(&diag), [codes::DWG_CRC_INVALID]);
 
-    // 初めの印が合わなければ止める
+    // 初めのマーカーが合わなければ止める
     let mut broken = src.clone();
     broken[0x80] ^= 0x01;
     let (result, diag) = read(&broken, Limits::default());
@@ -4035,7 +4035,7 @@ fn r2004_containers_are_checked_and_read() {
     assert!(result.is_ok());
     assert_eq!(codes_of(&diag), [codes::DWG_CRC_INVALID]);
 
-    // ページの地図の最後のページの大きさ（使わない）を変えると、検査の値が合わなくなる
+    // ページのマップの最後のページの大きさ（使わない）を変えると、検査の値が合わなくなる
     let mut broken = src;
     let last = broken.len() - 1;
     assert_eq!(broken[last], 0x11);
@@ -4045,8 +4045,8 @@ fn r2004_containers_are_checked_and_read() {
     assert_eq!(codes_of(&diag), [codes::DWG_CRC_INVALID]);
 }
 
-/// R2010 のクラスの区切り。データの初めに文字列の流れの終わりまでのビットの数（RL）を持ち、
-/// 終わりのビットが 0 なので文字列の流れはない。`high` なら、大きさの後に上位の RL を置く
+/// R2010 のクラスのセクション。データの初めに文字列のストリームの終わりまでのビットの数（RL）を持ち、
+/// 終わりのビットが 0 なので文字列のストリームはない。`high` なら、大きさの後に上位の RL を置く
 #[cfg(test)]
 fn r2010_classes(high: bool) -> Vec<u8> {
     let mut w = BitWriter::default();
@@ -4165,7 +4165,7 @@ fn replaced_object_data_is_appended_with_a_new_object_map() {
     let (out, diag) = edited(&mut file, &[(2, data_of(&line))]);
     let out = out.unwrap();
     assert!(diag.is_empty(), "{:?}", codes_of(&diag));
-    // 元のバイトは残り、変えたオブジェクトと地図が後ろに足される
+    // 元のバイトは残り、変えたオブジェクトとマップが後ろに足される
     assert_eq!(&out[..0x19], &src[..0x19]);
     assert_eq!(&out[0x19 + 27 + 2..src.len()], &src[0x19 + 27 + 2..]);
     let (again, after) = read(&out, Limits::default());
@@ -4210,8 +4210,8 @@ fn invalid_object_changes_are_rejected_without_changing_the_file() {
         let (out, _) = edited(&mut file, &[]);
         assert_eq!(out.unwrap(), src);
     }
-    // R2010 から後の版のデータは、初めにハンドルの流れの大きさ（MC）を持つ。MC を読めないデータと、ハンドルの
-    // 流れが残りのデータより大きいデータは受け付けない（決定 0083）
+    // R2010 から後のバージョンのデータは、初めにハンドルのストリームの大きさ（MC）を持つ。MC を読めないデータと、ハンドルの
+    // ストリームが残りのデータより大きいデータは受け付けない（決定 0083）
     let mut sections = r2004_sections();
     let classes = r2010_classes(false);
     sections[1] = (
@@ -4247,10 +4247,10 @@ fn invalid_object_changes_are_rejected_without_changing_the_file() {
     assert!((0..again.record_count()).any(|i| again.object_data(i) == Some(&data[..])));
 }
 
-/// オブジェクトを並べた区切りと、それを指すオブジェクトの地図を持つ R2004 の入れ物
+/// オブジェクトを並べたセクションと、それを指すオブジェクトのマップを持つ R2004 のコンテナー
 #[cfg(test)]
 fn r2004_with_objects(objects: &[(u64, Vec<u8>)]) -> Vec<u8> {
-    // オブジェクトの区切りは、初めの RL（0x0DCA）の後にオブジェクトを並べる
+    // オブジェクトのセクションは、初めの RL（0x0DCA）の後にオブジェクトを並べる
     let mut body = 0x0DCAu32.to_le_bytes().to_vec();
     let mut pairs = Vec::new();
     let (mut handle, mut location) = (0u64, 0i64);
@@ -4299,13 +4299,13 @@ fn r2004_objects_are_changed_removed_and_added_in_rebuilt_sections() {
     txn.remove(2).unwrap();
     txn.add(0x30, &data_of(&objects[4].1)).unwrap();
     txn.commit(&mut cx).unwrap();
-    // 合成の見出しの区切りは変数を持たないので、表を作るときに診断が出る
+    // 合成のヘッダーのセクションは変数を持たないので、表を作るときに診断が出る
     let edited = file.objects(&mut cx).unwrap();
     let mut out = Vec::new();
     Dwg::write(&file, &mut out, &mut cx).unwrap();
     assert_eq!(&out[..6], b"AC1018");
 
-    // 読み直すと、置き換え・除き・足したオブジェクトが地図から読め、表も同じになる
+    // 読み直すと、置き換え・削除・足したオブジェクトがマップから読め、表も同じになる
     let (result, diag) = read(&out, Limits::default());
     let mut again = result.unwrap();
     assert_eq!(codes_of(&diag), []);
@@ -4322,7 +4322,7 @@ fn r2004_objects_are_changed_removed_and_added_in_rebuilt_sections() {
     let (out, diag) = self::edited(&mut read(&src, Limits::default()).0.unwrap(), &[]);
     assert_eq!(codes_of(&diag), []);
     assert_eq!(out.unwrap(), src);
-    // R2004 の見出しの変数は、見出しの区切りを書き換える。区切りが読めなければ、確定で失敗する
+    // R2004 のヘッダーの変数は、ヘッダーのセクションを書き換える。セクションが読めなければ、確定で失敗する
     let mut txn = again.transaction();
     assert_eq!(txn.set_units(4), Ok(()));
     let mut diag = Diagnostics::new();
@@ -4478,7 +4478,7 @@ fn sample_with_more_kinds() -> Vec<u8> {
         },
         entity_handles_to(0x10, 0),
     );
-    // DataFlags が 0: どの欄も持つ TEXT
+    // DataFlags が 0: どのフィールドも持つ TEXT
     let text = object(
         0x01,
         0x3A,
@@ -4606,7 +4606,7 @@ fn sample_with_more_kinds() -> Vec<u8> {
         },
         entity_handles_to(0x10, 0),
     );
-    // 節点と制御点の SPLINE（閉じている印が立つ）と、当てはめる点の SPLINE
+    // ノットと制御点の SPLINE（閉じているフラグが立つ）と、フィット点の SPLINE
     let by_knots = object(
         0x24,
         0x42,
@@ -4771,7 +4771,7 @@ fn changed_points_ellipses_rays_solids_and_faces_are_written_back() {
     for (handle, code, v) in edits {
         set_value(&mut db, handle, code, Data::Real(v));
     }
-    // 3DFACE の見えない辺の印を除く
+    // 3DFACE の見えない辺のフラグを除く
     let index = db
         .objects()
         .iter()
@@ -4795,7 +4795,7 @@ fn changed_points_ellipses_rays_solids_and_faces_are_written_back() {
         value.data = Data::Real(30.0f64.to_radians().to_degrees());
     }
     assert_eq!(values(&after), expected);
-    // 角の Z が揃わない SOLID と、実数の見えない辺の印は符号化できない
+    // 角の Z が揃わない SOLID と、実数の見えない辺のフラグは符号化できない
     let (db, _) = objects(&src);
     let edits: [(&str, Edit); 2] = [
         ("SOLID", |db| set_value(db, 0x36, 31, Data::Real(1.0))),
@@ -4824,13 +4824,13 @@ fn changed_texts_and_inserts_are_written_back() {
         (0x3A, 40, Data::Real(1.25)),
         (0x3A, 50, Data::Real(30.0)),
         (0x3A, 72, Data::Int(4)),
-        // 尺度の印 00 になる INSERT
+        // 尺度のフラグ 00 になる INSERT
         (0x3B, 41, Data::Real(2.0)),
         (0x3B, 42, Data::Real(3.0)),
         (0x3B, 50, Data::Real(90.0)),
-        // 尺度の印 01 になる INSERT
+        // 尺度のフラグ 01 になる INSERT
         (0x3C, 43, Data::Real(0.5)),
-        // 尺度の印 10 になる MINSERT
+        // 尺度のフラグ 10 になる MINSERT
         (0x3D, 41, Data::Real(2.0)),
         (0x3D, 42, Data::Real(2.0)),
         (0x3D, 43, Data::Real(2.0)),
@@ -4930,7 +4930,7 @@ fn changed_attributes_are_written_back() {
             .collect()
     };
     assert_eq!(values(&after), values(&db));
-    // RC に収まらない印は符号化できない
+    // RC に収まらないフラグは符号化できない
     let mut changed = objects(&src).0;
     set_value(&mut changed, 0x3E, 70, Data::Int(300));
     let mut file = read(&src, Limits::default()).0.unwrap();
@@ -5051,7 +5051,7 @@ fn changed_lwpolylines_are_written_back() {
             .collect()
     };
     assert_eq!(values(&after), values(&db));
-    // 一定の幅（0.5）は元のまま残り、標高の印が立つ
+    // 一定の幅（0.5）は元のまま残り、標高のフラグが立つ
     let expected = object(
         0x4D,
         0x41,
@@ -5077,7 +5077,7 @@ fn changed_lwpolylines_are_written_back() {
     let file = read(&out, Limits::default()).0.unwrap();
     let range = file.record(index).unwrap().bytes.unwrap();
     let got = &out[range.start as usize..range.end as usize];
-    // ハンドルの流れの後ろの埋めのビットも写すので、データが 1 バイト延びることがある。大きさ（MS）と
+    // ハンドルのストリームの後ろの埋めのビットも写すので、データが 1 バイト延びることがある。大きさ（MS）と
     // CRC を除いて、組んだデータに 0 のバイトが続くことを確かめる
     let data = &expected[1..expected.len() - 2];
     assert_eq!(&got[1..=data.len()], data);
@@ -5103,7 +5103,7 @@ fn changed_splines_are_written_back() {
             .position(|o| o.handle() == Some(handle))
             .unwrap()
     };
-    // 節点の SPLINE は、制御点を動かして重みを外す。当てはめる点の SPLINE は、点を動かして
+    // ノットの SPLINE は、制御点を動かして重みを外す。フィット点の SPLINE は、点を動かして
     // 終わりの接線を足す
     let knots = index(&db, 0x42);
     let values = &mut db.object_mut(knots).unwrap().values;
@@ -5138,7 +5138,7 @@ fn changed_splines_are_written_back() {
             .collect()
     };
     assert_eq!(sorted(&after), sorted(&db));
-    // 閉じている印は元のまま残り、重みの印は外れる
+    // 閉じているフラグは元のまま残り、重みのフラグは外れる
     let by_knots = object(
         0x24,
         0x42,
@@ -5198,7 +5198,7 @@ fn changed_splines_are_written_back() {
         assert!(got[data.len() + 1..got.len() - 2].iter().all(|b| *b == 0));
         assert!(got.len() <= expected.len() + 1);
     }
-    // 制御点の数と合わない 73 と、場合 1 の当てはめる点は符号化できない
+    // 制御点の数と合わない 73 と、場合 1 のフィット点は符号化できない
     for (code, data) in [(73, Data::Int(5)), (44, Data::Real(0.5))] {
         let mut changed = objects(&src).0;
         set_value(&mut changed, 0x42, code, data);
@@ -5333,7 +5333,7 @@ fn changed_hatches_are_written_back() {
     }
 }
 
-/// 2D・3D・多面・網の POLYLINE と VERTEX。`v` は 2D の幅と頂点の x、`closed` は 3D の閉じている印
+/// 2D・3D・多面・網の POLYLINE と VERTEX。`v` は 2D の幅と頂点の x、`closed` は 3D の閉じているフラグ
 #[cfg(test)]
 fn polylines_with(v: f64, closed: u8) -> Vec<(u64, Vec<u8>)> {
     let entity = |type_code, handle, data: &dyn Fn(&mut BitWriter)| {
@@ -5433,7 +5433,7 @@ fn changed_polylines_and_vertices_are_written_back() {
         assert!(got[data.len() + 1..got.len() - 2].iter().all(|b| *b == 0));
         assert!(got.len() <= expected.len() + 1);
     }
-    // 頂点が続く印、2D の 0 でない 10、多面の面の印、3D の 3D でない印の変更は符号化できない
+    // 頂点が続くフラグ、2D の 0 でない 10、多面の面のフラグ、3D の 3D でないフラグの変更は符号化できない
     for (handle, code, data) in [
         (0x50, 66, Data::Int(0)),
         (0x50, 10, Data::Real(1.0)),
@@ -5451,7 +5451,7 @@ fn changed_polylines_and_vertices_are_written_back() {
 
 /// 長さ・直径・座標の DIMENSION と、その画層・寸法の様式・ブロック。`x` は文字の中点の x、`text` は
 /// 長さの寸法の利用者の文字、`rotation` はその回転、`radius` は直径の寸法の 40、`flags` は直径の
-/// 寸法の印、`ordinate` は座標の寸法の印
+/// 寸法のフラグ、`ordinate` は座標の寸法のフラグ
 #[cfg(test)]
 fn dimensions_with(
     x: f64,
@@ -5554,7 +5554,7 @@ fn changed_dimensions_are_written_back() {
     ));
     let (mut db, before) = objects(&src);
     let mut file = read(&src, Limits::default()).0.unwrap();
-    // 文字の中点・利用者の文字・回転と、直径・印を変える
+    // 文字の中点・利用者の文字・回転と、直径・フラグを変える
     for (handle, code, data) in [
         (0x20, 11, Data::Real(7.0)),
         (0x21, 11, Data::Real(7.0)),
@@ -5606,8 +5606,8 @@ fn changed_dimensions_are_written_back() {
     }
 }
 
-/// 公差・引出線・多重線を持つ図面。`x` と `text` は公差の挿入点と文字、`height` と `hook` は引出線の注釈の
-/// 高さと鉤の線の向き、`scale` と `start` は多重線の尺度と初めの頂点の X
+/// 公差・引出線・マルチラインを持つ図面。`x` と `text` は公差の挿入点と文字、`height` と `hook` は引出線の注釈の
+/// 高さと鉤の線の向き、`scale` と `start` はマルチラインの尺度と初めの頂点の X
 #[cfg(test)]
 fn annotations_with(
     x: f64,
@@ -5671,7 +5671,7 @@ fn annotations_with(
             w.bd(height);
             w.bd(10.0);
             w.bit(hook);
-            // 表にない後ろの欄
+            // 表にない後ろのフィールド
             w.bit(true);
             w.bs(0);
             w.bit(false);
@@ -5732,7 +5732,7 @@ fn changed_annotations_are_written_back() {
     let src = dwg(&annotations_with(3.0, b"{\\Fgd\n", 2.5, true, 1.5, 0.0));
     let (mut db, before) = objects(&src);
     let mut file = read(&src, Limits::default()).0.unwrap();
-    // 公差の挿入点と文字、引出線の高さと鉤の線の向き、多重線の尺度と初めの頂点を変える
+    // 公差の挿入点と文字、引出線の高さと鉤の線の向き、マルチラインの尺度と初めの頂点を変える
     for (handle, code, data) in [
         (0x20, 10, Data::Real(7.0)),
         (0x20, 1, Data::Text(b"{\\Fgdt;n}^J0.1".to_vec())),
@@ -5766,7 +5766,7 @@ fn changed_annotations_are_written_back() {
         assert!(got[data.len() + 1..got.len() - 2].iter().all(|b| *b == 0));
         assert!(got.len() <= expected.len() + 1);
     }
-    // 0 か 1 でない鉤の線の向き、線の数と合わない区切り、表の頂点の数と合わない頂点の数は符号化できない
+    // 0 か 1 でない鉤の線の向き、線の数と合わないパラメーター、表の頂点の数と合わない頂点の数は符号化できない
     for (handle, code, data) in [
         (0x21, 74, Data::Int(2)),
         (0x22, 73, Data::Int(2)),
@@ -5960,7 +5960,7 @@ fn changed_shapes_are_written_back() {
     assert_eq!(codes_of(&diag), [codes::DWG_CHANGE_UNSUPPORTED]);
 }
 
-/// `handle` の図形に、`code` の共通の欄の値を足す。読む側は、共通の欄を画層（8）の後に置く
+/// `handle` の図形に、`code` の共通のフィールドの値を足す。読む側は、共通のフィールドを画層（8）の後に置く
 #[cfg(test)]
 fn insert_after_layer(db: &mut AcadDb, handle: u64, code: i16, data: Data) {
     let index = db
@@ -5983,7 +5983,7 @@ fn changed_colors_ltype_scales_and_visibility_are_written_back() {
     set_value(&mut db, 0x2B, 48, Data::Real(0.5));
     set_value(&mut db, 0x2B, 60, Data::Int(0));
     set_value(&mut db, 0x2B, 11, Data::Real(7.0));
-    // SHAPE の共通の欄も書き戻せる
+    // SHAPE の共通のフィールドも書き戻せる
     let index = db
         .objects()
         .iter()
@@ -6120,7 +6120,7 @@ fn changes_that_cannot_be_encoded_are_rejected_without_changing_the_file() {
             data: Data::Int(4),
         }],
     );
-    // 読めない見出しの区切りの変数は、書き戻さない
+    // 読めないヘッダーのセクションの変数は、書き戻さない
     let (result, diag) = written_back(&mut r2004, &db);
     assert_eq!(result, Err(Error::Rejected));
     assert_eq!(codes_of(&diag), [codes::DWG_CHANGE_UNSUPPORTED]);
@@ -6142,7 +6142,7 @@ fn changes_that_cannot_be_encoded_are_rejected_without_changing_the_file() {
     assert_eq!(codes_of(&diag), [codes::DWG_CHANGE_UNSUPPORTED]);
 }
 
-/// 印と色を持つ画層と、縦書きかどうかと高さとフォントを持つ文字スタイル
+/// フラグと色を持つ画層と、縦書きかどうかと高さとフォントを持つ文字スタイル
 #[cfg(test)]
 fn records_with(
     flags: u16,
@@ -6259,7 +6259,7 @@ fn changed_layers_and_styles_are_written_back() {
         .find(|o| o.handle() == Some(0x10))
         .unwrap();
     assert_eq!(record.first(2), Some(&Data::Text(b"DOOR".to_vec())));
-    // 外部参照に依る印・表にない線の太さ・形のファイルでも縦書きでもない STYLE の印は受け付けない
+    // 外部参照に依るフラグ・表にない線の太さ・形のファイルでも縦書きでもない STYLE のフラグは受け付けない
     for (handle, code, data) in [
         (0x10, 70, Data::Int(16)),
         (0x10, 370, Data::Int(7)),
@@ -6376,7 +6376,7 @@ fn changed_ltypes_are_written_back() {
     assert_eq!(&got[1..=data.len()], data);
     assert!(got[data.len() + 1..got.len() - 2].iter().all(|b| *b == 0));
     assert!(got.len() <= expected.len() + 1);
-    // 要素の数・形と文字の印・文字の要素の 0 でない 75・領域に収まらない文字列・外部参照に依る印は受け付けない
+    // 要素の数・形と文字のフラグ・文字の要素の 0 でない 75・領域に収まらない文字列・外部参照に依るフラグは受け付けない
     for (code, data) in [
         (73, Data::Int(3)),
         (74, Data::Int(4)),
@@ -6402,7 +6402,7 @@ fn changed_ltypes_are_written_back() {
 }
 
 /// UCS を伴う VIEW と、UCS と、VPORT。`height` は VIEW と VPORT の高さ、`twist` は VIEW のねじれ（ラジアン）、
-/// `origin` は UCS の原点の X、`icon` は VPORT の UCS のアイコンの印
+/// `origin` は UCS の原点の X、`icon` は VPORT の UCS のアイコンのフラグ
 #[cfg(test)]
 fn views_with(height: f64, twist: f64, origin: f64, icon: u8) -> Vec<(u64, Vec<u8>)> {
     fn common(w: &mut BitWriter, name: &[u8]) {
@@ -6447,7 +6447,7 @@ fn views_with(height: f64, twist: f64, origin: f64, icon: u8) -> Vec<(u64, Vec<u
                 w.bit(bit);
             }
             w.bytes(&[0]);
-            w.bit(false); // 紙空間の印
+            w.bit(false); // 紙空間のフラグ
             w.bit(true); // UCS を伴う
             axes(w);
         },
@@ -6553,7 +6553,7 @@ fn changed_views_ucss_and_vports_are_written_back() {
         assert!(got[data.len() + 1..got.len() - 2].iter().all(|b| *b == 0));
         assert!(got.len() <= expected.len() + 1);
     }
-    // UCS を伴う印・紙空間でない 70 のビット・4 からのアイコン・知らない見え方の印・UCS の 70 は受け付けない
+    // UCS を伴うフラグ・紙空間でない 70 のビット・4 からのアイコン・知らない見え方のフラグ・UCS の 70 は受け付けない
     for (handle, code, data) in [
         (0x10, 72, Data::Int(0)),
         (0x10, 70, Data::Int(2)),
@@ -6570,7 +6570,7 @@ fn changed_views_ucss_and_vports_are_written_back() {
     }
 }
 
-/// 寸法の後ろに付く文字（3）・尺度（40）・文字を内側で水平に書く印（73）・文字の縦の位置（77）・寸法線の色
+/// 寸法の後ろに付く文字（3）・尺度（40）・文字を内側で水平に書くフラグ（73）・文字の縦の位置（77）・寸法線の色
 /// （176）のほかは、既定の値の DIMSTYLE
 #[cfg(test)]
 fn dimstyles_with(
@@ -6642,7 +6642,7 @@ fn changed_dimstyles_are_written_back() {
     let (mut db, before) = objects(&src);
     assert!(before.is_empty(), "{:?}", codes_of(&before));
     let mut file = read(&src, Limits::default()).0.unwrap();
-    // 既定の値で表になかった欄を足す
+    // 既定の値で表になかったフィールドを足す
     set_value(&mut db, 0x10, 3, Data::Text(b"<> mm".to_vec()));
     set_value(&mut db, 0x10, 40, Data::Real(2.0));
     set_value(&mut db, 0x10, 73, Data::Int(0));
@@ -6653,7 +6653,7 @@ fn changed_dimstyles_are_written_back() {
     assert!(diag.is_empty(), "{:?}", codes_of(&diag));
     let (after, again) = objects(&out);
     assert_eq!(codes_of(&again), codes_of(&before));
-    // 足した欄は表の終わりに置いたので、番号の順に並べて比べる
+    // 足したフィールドは表の終わりに置いたので、番号の順に並べて比べる
     let sorted = |db: &AcadDb| {
         let mut values = db.get(0x10).unwrap().values.clone();
         values.sort_by_key(|v| v.code);
@@ -6674,7 +6674,7 @@ fn changed_dimstyles_are_written_back() {
     assert_eq!(&got[1..=data.len()], data);
     assert!(got[data.len() + 1..got.len() - 2].iter().all(|b| *b == 0));
     assert!(got.len() <= expected.len() + 1);
-    // 欄を除けば既定の値に戻る
+    // フィールドを除けば既定の値に戻る
     let mut back = after.clone();
     let index = back
         .objects()
@@ -6692,7 +6692,7 @@ fn changed_dimstyles_are_written_back() {
         objects(&again.unwrap()).0.get(0x10).unwrap().values,
         objects(&src).0.get(0x10).unwrap().values
     );
-    // 0 でも 1 でもない印・2 つの同じ欄・外部参照に依る印は受け付けない
+    // 0 でも 1 でもないフラグ・2 つの同じフィールド・外部参照に依るフラグは受け付けない
     for (code, data, twice) in [
         (73, Data::Int(2), false),
         (40, Data::Real(3.0), true),
@@ -6721,7 +6721,7 @@ fn changed_dimstyles_are_written_back() {
     }
 }
 
-/// 説明・名前のない印・選べる印を持つ GROUP（0x20）と、型と値を持つ DICTIONARYVAR（0x21）
+/// 説明・名前のないフラグ・選べるフラグを持つ GROUP（0x20）と、型と値を持つ DICTIONARYVAR（0x21）
 #[cfg(test)]
 fn groups_and_vars_with(
     about: &'static [u8],
@@ -6798,7 +6798,7 @@ fn changed_groups_and_vars_are_written_back() {
             db.get(handle).unwrap().values
         );
     }
-    // 変えた欄のほかは、データが組んだものと同じになる
+    // 変えたフィールドのほかは、データが組んだものと同じになる
     let expected = objects(&groups_and_vars_with(
         b"a longer description",
         1,
@@ -6813,7 +6813,7 @@ fn changed_groups_and_vars_are_written_back() {
             expected.get(handle).unwrap().values
         );
     }
-    // 0 でも 1 でもない印・ハンドルの並びの図形の変更・RC に収まらない型は受け付けない
+    // 0 でも 1 でもないフラグ・ハンドルの並びの図形の変更・RC に収まらない型は受け付けない
     for (handle, code, data) in [
         (0x20, 70, Data::Int(2)),
         (0x20, 340, Data::Handle(0x31)),
@@ -6828,8 +6828,8 @@ fn changed_groups_and_vars_are_written_back() {
     }
 }
 
-/// 2 つの項目を持つ辞書（0x20）と、2 本の線を持つ多重線の体裁（0x21）。辞書の所有する印は 1、多重線の
-/// 体裁の DWG の印は、DXF にない 4 を持つ
+/// 2 つの項目を持つ辞書（0x20）と、2 本の線を持つマルチラインスタイル（0x21）。辞書の所有するフラグは 1、マルチラインの
+/// スタイルの DWG のフラグは、DXF にない 4 を持つ
 #[cfg(test)]
 fn dictionaries_and_mlinestyles_with(
     cloning: u16,
@@ -6938,7 +6938,7 @@ fn changed_dictionaries_and_mlinestyles_are_written_back() {
             expected.get(handle).unwrap().values
         );
     }
-    // DXF にない印のビットと、線の線種の番号は元のまま写すので、データも組んだものと同じになる
+    // DXF にないフラグのビットと、線の線種の番号は元のまま写すので、データも組んだものと同じになる
     let file = read(&out, Limits::default()).0.unwrap();
     let range = file.record(index(&db, 0x21)).unwrap().bytes.unwrap();
     let got = &out[range.start as usize..range.end as usize];
@@ -6950,7 +6950,7 @@ fn changed_dictionaries_and_mlinestyles_are_written_back() {
         .bytes
         .unwrap();
     assert_eq!(got, &built[range.start as usize..range.end as usize]);
-    // 所有しない印・項目の追加・多重線の体裁の名前・DXF にない印は受け付けない
+    // 所有しないフラグ・項目の追加・マルチラインスタイルの名前・DXF にないフラグは受け付けない
     for (handle, code, data) in [
         (0x20, 280, Data::Int(0)),
         (0x21, 2, Data::Text(b"OTHER".to_vec())),
@@ -7096,7 +7096,7 @@ fn changed_layouts_are_written_back() {
         &out[got.start as usize..got.end as usize],
         &built[range.start as usize..range.end as usize]
     );
-    // レイアウトの名前・紙空間のブロックのレコード・BS に収まらない値・欄の削除は受け付けない
+    // レイアウトの名前・紙空間のブロックのレコード・BS に収まらない値・フィールドの削除は受け付けない
     let layout_name = |db: &mut AcadDb| {
         let index = db
             .objects()
@@ -7354,7 +7354,7 @@ fn removed_entities_are_written_back() {
     }
 }
 
-/// [`objects_with_linked_lines`] に、HANDSEED が 0x80 の見出しの変数を付けたもの
+/// [`objects_with_linked_lines`] に、HANDSEED が 0x80 のヘッダーの変数を付けたもの
 #[cfg(test)]
 fn linked_lines_with_seed(links: bool) -> Vec<u8> {
     with_header(
@@ -7420,7 +7420,7 @@ fn added_texts_mtexts_and_inserts_with_attribs_are_written_back() {
         code,
         data: Data::Int(value),
     };
-    // 文字の体裁の Standard と Mono と、図形のないブロック C を足したファイル
+    // 文字スタイルの Standard と Mono と、図形のないブロック C を足したファイル
     let mut parts = objects_with_linked_lines(true);
     parts.push((
         0x11,
@@ -7441,7 +7441,7 @@ fn added_texts_mtexts_and_inserts_with_attribs_are_written_back() {
         w.handle(5, 0);
     });
     parts.push((0x61, block));
-    // 地図は、ハンドルの順に並べる
+    // マップは、ハンドルの順に並べる
     parts.sort_by_key(|(handle, _)| *handle);
     let src = with_header(dwg(&parts), 0, 0, 0, [0.0; 4], 0x80);
     let (base, diag) = objects(&src);
@@ -7526,7 +7526,7 @@ fn added_texts_mtexts_and_inserts_with_attribs_are_written_back() {
     let (again, diag) = objects(&out.unwrap());
     assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
     assert_eq!(summary(&again), summary(&db));
-    // 表にない文字の体裁（TEXT・MTEXT）とブロック、図形を持つブロックそのもの、SEQEND で閉じない INSERT、
+    // 表にない文字スタイル（TEXT・MTEXT）とブロック、図形を持つブロックそのもの、SEQEND で閉じない INSERT、
     // ATTRIB のない SEQEND、INSERT の後にない ATTRIB は、書き戻せない
     let insert = |values: Vec<Value>| with_added_values(&base, 0x80, b"INSERT", values);
     let open = insert(attributed.clone());
@@ -7706,7 +7706,7 @@ fn added_splines_are_written_back() {
     );
     let (base, diag) = objects(&src);
     assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
-    // 3 次で、節点 8 つと制御点 4 つを持つもの
+    // 3 次で、ノット 8 つと制御点 4 つを持つもの
     let head = [
         int(70, 0),
         int(71, 3),
@@ -7735,7 +7735,7 @@ fn added_splines_are_written_back() {
             .collect()
     };
     assert_eq!(summary(&again), summary(&db));
-    // 重みを持つもの（有理の印を立てる）と、当てはめる点だけを持つもの（場合が 2）も、書き戻せる
+    // 重みを持つもの（有理のフラグを立てる）と、フィット点だけを持つもの（場合が 2）も、書き戻せる
     let weighted: Vec<Value> = spline
         .iter()
         .cloned()
@@ -7770,7 +7770,7 @@ fn added_splines_are_written_back() {
         assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
         assert_eq!(summary(&again), summary(&db));
     }
-    // 一部の制御点だけが重みを持つものと、制御点と当てはめる点の両方を持つものは、書き戻せない
+    // 一部の制御点だけが重みを持つものと、制御点とフィット点の両方を持つものは、書き戻せない
     let partly: Vec<Value> = weighted
         .iter()
         .enumerate()
@@ -7876,7 +7876,7 @@ fn added_entities_are_written_back() {
     }
 }
 
-/// 画層の表（項目は画層 0 の 1 つ）と、画層 0 と、文字の体裁の表と Standard と、線種 Continuous と、[`objects_with_linked_lines`] の
+/// 画層の表（項目は画層 0 の 1 つ）と、画層 0 と、文字スタイルの表と Standard と、線種 Continuous と、[`objects_with_linked_lines`] の
 /// ブロックと LINE を持ち、HANDSEED が 0x80 の図面
 #[cfg(test)]
 fn layer_table_with_seed() -> Vec<u8> {
@@ -7902,9 +7902,9 @@ fn layer_table_with_seed() -> Vec<u8> {
             w.bl_zero();
             w.bs(2);
             w.bytes(b"0\0");
-            w.bit(true); // 参照される印
+            w.bit(true); // 参照されるフラグ
             w.bs(0); // 外部参照の番号
-            w.bit(false); // 外部参照に依る印
+            w.bit(false); // 外部参照に依るフラグ
             w.bs(0x3F0); // 印刷し、線の太さは既定
             w.bs(7);
         },
@@ -8043,7 +8043,7 @@ fn added_layers_are_written_back() {
     let src = layer_table_with_seed();
     let (base, diag) = objects(&src);
     assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
-    // 画層 0 を写し、ハンドルと名前と印を変えたもの
+    // 画層 0 を写し、ハンドルと名前とフラグを変えたもの
     let layer = |db: &AcadDb, handle: u64, name: &[u8], change: &dyn Fn(&mut Vec<Value>)| {
         let mut db = db.clone();
         let mut object = db.get(0x10).unwrap().clone();
@@ -8107,7 +8107,7 @@ fn added_layers_are_written_back() {
     let (again, diag) = objects(&out.unwrap());
     assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
     assert_eq!(summary(&again), summary(&db));
-    // 表にある名前・画層の表でない所有者・真の色・外部参照に依る印を持つ画層は、書き戻せない
+    // 表にある名前・画層の表でない所有者・真の色・外部参照に依るフラグを持つ画層は、書き戻せない
     let cases = [
         layer(&base, 0x80, b"0", &|_| {}),
         layer(&base, 0x80, b"Other", &set(330, Data::Handle(5))),
@@ -8158,7 +8158,7 @@ fn added_styles_are_written_back() {
         db.push(object);
         db
     };
-    // 縦書きで、高さ・幅の係数・斜めの角度・生成の印・字体の名前を持つ文字の体裁と、その体裁の TEXT
+    // 縦書きで、高さ・幅の係数・斜めの角度・生成のフラグ・字体の名前を持つ文字スタイルと、そのスタイルの TEXT
     let db = style(
         &base,
         0x80,
@@ -8200,7 +8200,7 @@ fn added_styles_are_written_back() {
     let (again, diag) = objects(&out.unwrap());
     assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
     assert_eq!(summary(&again), summary(&db));
-    // 表にある名前・文字の体裁の表でない所有者・外部参照に依る印を持つ文字の体裁は、書き戻せない
+    // 表にある名前・文字スタイルの表でない所有者・外部参照に依るフラグを持つ文字スタイルは、書き戻せない
     let cases = [
         style(&base, 0x80, b"standard", &[]),
         style(&base, 0x80, b"Other", &[(330, Data::Handle(2))]),
@@ -8226,7 +8226,7 @@ fn added_ltypes_are_written_back() {
     let src = layer_table_with_seed();
     let (base, diag) = objects(&src);
     assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
-    // Continuous を写し、名前と印と要素の数と、要素ごとの長さと印 `dashes` を変えたもの
+    // Continuous を写し、名前とフラグと要素の数と、要素ごとの長さとフラグ `dashes` を変えたもの
     let ltype = |name: &[u8], flags: i64, count: i64, dashes: &[(f64, i64)]| {
         let mut db = base.clone();
         let mut object = db.get(0x12).unwrap().clone();
@@ -8287,7 +8287,7 @@ fn added_ltypes_are_written_back() {
     let (again, diag) = objects(&out.unwrap());
     assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
     assert_eq!(summary(&again), summary(&db));
-    // 表にある名前・外部参照に依る印・数の合わない要素・文字の要素を持つ線種は、書き戻せない
+    // 表にある名前・外部参照に依るフラグ・数の合わない要素・文字の要素を持つ線種は、書き戻せない
     let cases = [
         ltype(b"continuous", 0, 2, &dashes),
         ltype(b"Other", 16, 2, &dashes),
@@ -8314,7 +8314,7 @@ fn added_appids_are_written_back() {
     let src = layer_table_with_seed();
     let (base, diag) = objects(&src);
     assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
-    // ACAD を写し、ハンドルと名前と印を変えたもの
+    // ACAD を写し、ハンドルと名前とフラグを変えたもの
     let appid = |db: &AcadDb, handle: u64, name: &[u8], flags: i64| {
         let mut db = db.clone();
         let mut object = db.get(0x13).unwrap().clone();
@@ -8337,7 +8337,7 @@ fn added_appids_are_written_back() {
     let (again, diag) = objects(&out.unwrap());
     assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
     assert_eq!(summary(&again), summary(&db));
-    // 表にある名前・外部参照に依る印を持つアプリケーションの名前は、書き戻せない
+    // 表にある名前・外部参照に依るフラグを持つアプリケーションの名前は、書き戻せない
     for db in [
         appid(&base, 0x80, b"acad", 0),
         appid(&base, 0x80, b"ZUMEN", 16),
@@ -8361,7 +8361,7 @@ fn added_dimstyles_are_written_back() {
     let src = layer_table_with_seed();
     let (base, diag) = objects(&src);
     assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
-    // 名前と、読む側の並びの値 `values` を持つ寸法の体裁
+    // 名前と、読む側の並びの値 `values` を持つ寸法スタイル
     let dimstyle = |name: &[u8], values: Vec<(i16, Data)>| {
         let mut db = base.clone();
         let mut all = vec![
@@ -8381,7 +8381,7 @@ fn added_dimstyles_are_written_back() {
         });
         db
     };
-    // 接尾辞・矢印の大きさ・ゼロの省略・文字の高さ・寸法線の色・文字の体裁を持つ寸法の体裁
+    // 接尾辞・矢印の大きさ・ゼロの省略・文字の高さ・寸法線の色・文字スタイルを持つ寸法スタイル
     let values = |flags: i64, style: u64| {
         vec![
             (70, Data::Int(flags)),
@@ -8400,7 +8400,7 @@ fn added_dimstyles_are_written_back() {
     let (again, diag) = objects(&out.unwrap());
     assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
     assert_eq!(summary(&again), summary(&db));
-    // 表にある名前・外部参照に依る印・図面にない文字の体裁・形の違う値を持つ寸法の体裁は、書き戻せない
+    // 表にある名前・外部参照に依るフラグ・図面にない文字スタイル・形の違う値を持つ寸法スタイルは、書き戻せない
     let mut wrong = values(0, 0x11);
     wrong[2].1 = Data::Int(2);
     let cases = [
@@ -8429,7 +8429,7 @@ fn added_views_are_written_back() {
     let src = layer_table_with_seed();
     let (base, diag) = objects(&src);
     assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
-    // 名前と、印（70）の後の読む側の並びの値 `values` を持つビュー
+    // 名前と、フラグ（70）の後の読む側の並びの値 `values` を持つビュー
     let view = |name: &[u8], flags: i64, values: Vec<(i16, Data)>| {
         let mut db = base.clone();
         let mut all = vec![
@@ -8450,7 +8450,7 @@ fn added_views_are_written_back() {
         });
         db
     };
-    // 高さ・中心・幅・向き・目標・レンズ・切り取り・ねじれ・見え方・描き方と、UCS を伴う印
+    // 高さ・中心・幅・向き・目標・レンズ・切り取り・ねじれ・見え方・描き方と、UCS を伴うフラグ
     let values = |mode: i64, associated: bool| {
         let mut values = vec![
             (40, Data::Real(120.0)),
@@ -8501,7 +8501,7 @@ fn added_views_are_written_back() {
         assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
         assert_eq!(summary(&again), summary(&db));
     }
-    // 外部参照に依る印・分からない見え方の印・UCS を伴わないのに UCS の欄を持つもの・UCS でないものを
+    // 外部参照に依るフラグ・分からない見え方のフラグ・UCS を伴わないのに UCS のフィールドを持つもの・UCS でないものを
     // 指すものは、書き戻せない
     let mut stray = values(0, false);
     stray.push((146, Data::Real(3.0)));
@@ -8533,7 +8533,7 @@ fn added_vports_are_written_back() {
     let src = layer_table_with_seed();
     let (base, diag) = objects(&src);
     assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
-    // 印（70）・見え方の印（71）・UCS のアイコン（74）と、読む側の並びの値を持つビューポートの設定
+    // フラグ（70）・見え方のフラグ（71）・UCS のアイコン（74）と、読む側の並びの値を持つビューポートの設定
     let vport = |flags: i64, mode: i64, icon: i64, extra: Vec<(i16, Data)>| {
         let mut db = base.clone();
         let mut values = vec![
@@ -8618,7 +8618,7 @@ fn added_vports_are_written_back() {
     let (again, diag) = objects(&out.unwrap());
     assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
     assert_eq!(summary(&again), summary(&db));
-    // 外部参照に依る印・分からない見え方の印・分からないアイコン・UCS でないものを指すものは、書き戻せない
+    // 外部参照に依るフラグ・分からない見え方のフラグ・分からないアイコン・UCS でないものを指すものは、書き戻せない
     let cases = [
         vport(16, 0, 3, Vec::new()),
         vport(0, 32, 3, Vec::new()),
@@ -8719,7 +8719,7 @@ fn added_blocks_are_written_back() {
     let out = out.unwrap();
     let (again, diag) = objects(&out);
     assert!(codes_of(&diag).is_empty(), "{:?}", codes_of(&diag));
-    // DWG の BLOCK は名前を値に持たず、ブロックのレコードの印（70）と基点を持つ
+    // DWG の BLOCK は名前を値に持たず、ブロックのレコードのフラグ（70）と基点を持つ
     let mut expected = db.clone();
     let mut block = expected.get(0x81).unwrap().clone();
     block.values.retain(|v| v.code != 2);
@@ -8766,7 +8766,7 @@ fn added_blocks_are_written_back() {
         let found = diag.iter().next().and_then(|d| d.param("kind"));
         assert_eq!(found, Some(&kind.to_string().into()), "{kind}");
     }
-    // R2004 までの DWG に欄のない挿す単位・分解できるか・尺度を揃えるかを、黙って捨てない
+    // R2004 までの DWG にフィールドのない挿入単位・分解できるか・尺度を揃えるかを、黙って捨てない
     for (code, value) in [(70, 4), (280, 0), (281, 1)] {
         let mut db = built(b"Two", b"Two", point.clone(), true);
         let at = db
@@ -8791,7 +8791,7 @@ fn added_blocks_are_written_back() {
 }
 
 /// R2000 の DWG の引出線の経路・曲線か・矢印を、図面モデルの変更で置き換え、変換で動かす（決定 0177・
-/// 0185）。矢印の印は DWG の LEADER が必ず持つので 71 として読み、書く。寸法スタイルに従う矢印（`None`）は
+/// 0185）。矢印のフラグは DWG の LEADER が必ず持つので 71 として読み、書く。寸法スタイルに従う矢印（`None`）は
 /// 書けないので断り、ファイルを変えない
 #[cfg(feature = "drawing")]
 #[test]
@@ -8976,7 +8976,7 @@ fn drawing_leaders_are_replaced_in_a_dwg() {
 }
 
 /// R2000 の DWG の POINT の位置と X 軸の角度を、図面モデルの変更で置き換え、変換で動かす（決定 0183）。読み直すと
-/// 同じ点になる。既定義の印の点は POINT で表せないので断り、ファイルを変えない。足すことは
+/// 同じ点になる。既定義のマーカーの点は POINT で表せないので断り、ファイルを変えない。足すことは
 /// [`drawing_additions_go_into_symbol_definitions`] で確かめる
 #[cfg(feature = "drawing")]
 #[test]
@@ -9135,7 +9135,7 @@ fn drawing_points_are_written_back_to_a_dwg() {
     ] {
         let (result, diag, written) = apply(edit);
         assert_eq!(result.unwrap_err(), Error::Rejected);
-        // 読むときの警告（試験の図面の知らない型）の後に、断る診断が 1 つ
+        // 読むときの警告（テストの図面の知らない型）の後に、断る診断が 1 つ
         assert_eq!(
             codes_of(&diag).last(),
             Some(&codes::CHANGE_EDIT_UNSUPPORTED)
@@ -9354,7 +9354,7 @@ fn drawing_additions_go_into_symbol_definitions() {
     assert_eq!(dot.position, at(0.25, 0.75));
     assert!((dot.rotation - 30.0).abs() < 1e-9, "{}", dot.rotation);
 
-    // 寸法スタイルに従う矢印（`None`）は、DWG の LEADER が矢印の印を必ず持つので足さない（決定 0185）
+    // 寸法スタイルに従う矢印（`None`）は、DWG の LEADER が矢印のフラグを必ず持つので足さない（決定 0185）
     let mut leader = Leader {
         path: vec![at(0.0, 0.0), at(1.0, 1.0)],
         spline: false,
@@ -9367,7 +9367,7 @@ fn drawing_additions_go_into_symbol_definitions() {
     assert_eq!(codes_of(&diag), [codes::CHANGE_EDIT_UNSUPPORTED]);
     assert_eq!(written, src);
 
-    // 矢印の印を持つ引出線は、注記がなくても、同じ定義の MTEXT を注記にしても足せる（決定 0185）
+    // 矢印のフラグを持つ引出線は、注記がなくても、同じ定義の MTEXT を注記にしても足せる（決定 0185）
     leader.arrow = Some(true);
     let note = definition_note(&lift(&src));
     for annotation in [None, Some(note.clone())] {
@@ -9389,7 +9389,7 @@ fn drawing_additions_go_into_symbol_definitions() {
     }
 }
 
-/// 試験の図面の定義 Two の中の MTEXT の出所
+/// テストの図面の定義 Two の中の MTEXT の出所
 #[cfg(test)]
 #[cfg(feature = "drawing")]
 fn definition_note(drawing: &zumen_drawing::Drawing2D) -> zumen_base::Ref {
@@ -9665,8 +9665,8 @@ fn header_variables_are_written_back() {
     }
 }
 
-/// 見出しの変数の PDMODE・PDSIZE を書き戻す（決定 0190）。BS・BD の幅が変わる値は、大きさを変えた見出しの区切りを
-/// ファイルの後ろに置き、区切りの記録を直す（決定 0193）。有限でない大きさは断る
+/// ヘッダーの変数の PDMODE・PDSIZE を書き戻す（決定 0190）。BS・BD の幅が変わる値は、大きさを変えたヘッダーのセクションを
+/// ファイルの後ろに置き、セクションの記録を直す（決定 0193）。有限でない大きさは断る
 #[test]
 fn point_header_variables_are_written_back() {
     let src = with_point_header(
@@ -9727,8 +9727,8 @@ fn point_header_variables_are_written_back() {
     assert_eq!(codes_of(&diag), [codes::DWG_CHANGE_UNSUPPORTED]);
 }
 
-/// 版 `release`（R2004・R2010・R2013・R2018）の見出しの変数の区切り。PDMODE・PDSIZE を `point` に、INSUNITS を 4 に、
-/// 用紙空間の範囲を `limits` にする。R2010 からは、文字列（"acad"）とハンドルを別の流れに書く
+/// バージョン `release`（R2004・R2010・R2013・R2018）のヘッダーの変数のセクション。PDMODE・PDSIZE を `point` に、INSUNITS を 4 に、
+/// 用紙空間の範囲を `limits` にする。R2010 からは、文字列（"acad"）とハンドルを別のストリームに書く
 #[cfg(test)]
 fn header_of(release: u32, (point_mode, point_size): (u16, f64), limits: [f64; 4]) -> Vec<u8> {
     let split = release >= 2010;
@@ -9831,7 +9831,7 @@ fn header_of(release: u32, (point_mode, point_size): (u16, f64), limits: [f64; 4
     section
 }
 
-/// R2004 から後の入れ物の DWG で、PDMODE・PDSIZE を書く幅が変わる値を書き、展開した見出しの区切りの大きさを変えて
+/// R2004 から後のコンテナーの DWG で、PDMODE・PDSIZE を書く幅が変わる値を書き、展開したヘッダーのセクションの大きさを変えて
 /// 置き換える。読み直すと、書いた値になり、ほかの変数と CRC も合う（決定 0193）
 #[test]
 fn point_header_variables_of_another_width_resize_r2004_and_later_headers() {
@@ -9883,7 +9883,7 @@ fn point_header_variables_of_another_width_resize_r2004_and_later_headers() {
     }
 }
 
-/// 文書の点の表し方の変更を、DWG の見出しの PDMODE・PDSIZE に書き戻す（決定 0190・0193）。読み直すと同じ点の
+/// 文書の点の表し方の変更を、DWG のヘッダーの PDMODE・PDSIZE に書き戻す（決定 0190・0193）。読み直すと同じ点の
 /// 表し方になる
 #[cfg(feature = "drawing")]
 #[test]
@@ -9945,7 +9945,7 @@ fn drawing_point_styles_are_written_back_to_a_dwg() {
         square: false,
         size: PointSize::Screen(7.5),
     };
-    // 読みの警告（試験の表にない種類）だけが残る
+    // 読みの警告（テストの表にない種類）だけが残る
     let (result, diag, out) = apply(style);
     result.unwrap();
     assert!(!codes_of(&diag).contains(&codes::DWG_CHANGE_UNSUPPORTED));
@@ -10249,7 +10249,7 @@ fn drawing_text_and_names_are_written_back_in_shift_jis_to_a_dwg() {
     for (content, name) in [("café", "道路"), ("通り芯", "€")] {
         let (result, found, written) = apply(edits(content, name));
         assert_eq!(result, Err(Error::Rejected));
-        // 試料の DWG を読むときの警告は除く
+        // サンプルの DWG を読むときの警告は除く
         let found: Vec<_> = found
             .into_iter()
             .filter(|code| code.name().starts_with("change."))

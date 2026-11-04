@@ -2,9 +2,9 @@
 //! モデル空間に、用紙の要素は、その用紙のほかの図形と同じ所（今のレイアウトのペーパー空間か、ほかの
 //! レイアウトのペーパー空間のブロック）に足す。
 //!
-//! 足す図形は、レイヤ・線種・文字の体裁・ブロックを名前で指す。指す定義が図面になければ足さない。
-//! R13 以降の DXF は、最初の図形にも DXF Reference の並びで区切り（100）を書く。ハンドルは、表のどのハンドル
-//! よりも大きく、見出しの HANDSEED より小さくない値から順に付ける。
+//! 足す図形は、レイヤ・線種・文字スタイル・ブロックを名前で指す。指す定義が図面になければ足さない。
+//! R13 以降の DXF は、最初の図形にも DXF Reference の並びでサブクラスマーカー（100）を書く。ハンドルは、表のどのハンドル
+//! よりも大きく、ヘッダーの HANDSEED より小さくない値から順に付ける。
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -27,7 +27,7 @@ pub(super) struct Record {
     home: Home,
     /// 図形の後に続き、図形が所有するレコード（ATTRIB と SEQEND）。種類と、ハンドルと所有者の後の値
     followers: Vec<(&'static [u8], Vec<Value>)>,
-    /// 足した図形を反応子（102 `{ACAD_REACTORS` の 330）として書く、注記の MTEXT のハンドル（決定 0191）
+    /// 足した図形をリアクター（102 `{ACAD_REACTORS` の 330）として書く、注記の MTEXT のハンドル（決定 0191）
     annotation: Option<u64>,
 }
 
@@ -43,7 +43,7 @@ impl Record {
 pub(super) enum Target {
     /// DXF。HANDSEED は表の `$HANDSEED` にある
     Dxf,
-    /// DWG と、見出しの HANDSEED。DWG に足す図形は、まだ線の太さと RGB の色を持てない（決定 0079）
+    /// DWG と、ヘッダーの HANDSEED。DWG に足す図形は、まだ線の太さと RGB の色を持てない（決定 0079）
     Dwg(Option<u64>),
 }
 
@@ -51,9 +51,9 @@ pub(super) enum Target {
 pub(super) struct Born {
     /// モデル空間のブロックのレコードのハンドル。ブロックのレコードを持たない図面なら `None`
     owner: Option<u64>,
-    /// 図形が区切り（100）を持つ表か
+    /// 図形がサブクラスマーカー（100）を持つ表か
     markers: bool,
-    /// 版（`$ACADVER`）。なければ空
+    /// バージョン（`$ACADVER`）。なければ空
     version: Vec<u8>,
     /// 文字の値の符号化（決定 0192）
     encoder: Encoder,
@@ -116,7 +116,7 @@ impl Born {
             }) => text.trim_ascii().to_vec(),
             _ => Vec::new(),
         };
-        // R13 以降の DXF は、モデル空間に図形がなくてもサブクラスの区切りが要る。
+        // R13 以降の DXF は、モデル空間に図形がなくてもサブクラスマーカーが要る。
         let markers = (target == Target::Dxf && version.as_slice() >= b"AC1012")
             || db
                 .objects()
@@ -195,7 +195,7 @@ impl Born {
         self.string(code, name)
     }
 
-    /// 文字の値。2007 より前の版は、コード・ページで符号化する。表せない文字があれば `None`（決定 0192）
+    /// 文字の値。2007 より前のバージョンは、コード・ページで符号化する。表せない文字があれば `None`（決定 0192）
     fn string(&self, code: i16, value: &str) -> Option<Value> {
         Some(Value {
             code,
@@ -208,7 +208,7 @@ impl Born {
         &self.encoder
     }
 
-    /// 版が `release` 以後か
+    /// バージョンが `release` 以後か
     fn since(&self, release: &[u8]) -> bool {
         self.version.as_slice() >= release
     }
@@ -306,9 +306,9 @@ impl Born {
                     return None;
                 }
                 values.push(text(100, "AcDbSpline"));
-                // 印（70）には、節点の取り方があれば、当てはめる点で決まること（1024）とそのビットも立てる
+                // フラグ（70）には、ノットの取り方があれば、フィット点で決まること（1024）とそのビットも立てる
                 let flags = super::spline_flags(8, spline) | super::knot_flags(spline);
-                // 当てはめる点で決まるものは、制御点を書かず、読む側が求め直す。当てはめの許容差がなければ、
+                // フィット点で決まるものは、制御点を書かず、読む側が求め直す。フィット許容差がなければ、
                 // AutoCAD の既定の値とする
                 if super::fitted(spline) {
                     let defined = super::fit_values(frame, spline)?;
@@ -323,13 +323,13 @@ impl Born {
                         return None;
                     }
                     let defined = super::spline_values(frame, spline)?;
-                    // 平面の印（8）を立てる
+                    // 平面のフラグ（8）を立てる
                     values.push(int(70, flags));
                     values.push(int(71, i64::from(spline.degree)));
                     values.push(int(72, i64::try_from(spline.knots.len()).ok()?));
                     values.push(int(73, i64::try_from(spline.control.len()).ok()?));
                     values.push(int(74, 0));
-                    // DXF Reference「SPLINE」: 節点と制御点の許容差の既定値。DWG はどちらも持つ
+                    // DXF Reference「SPLINE」: ノットと制御点の許容差の既定値。DWG はどちらも持つ
                     values.extend([real(42, 1e-7)?, real(43, 1e-7)?]);
                     if let Some(tolerance) = spline.fit_tolerance {
                         values.push(real(44, tolerance)?);
@@ -366,7 +366,7 @@ impl Born {
                 annotation = self.leading(&mut values, frame, leader, home)?;
                 b"LEADER"
             }
-            // POINT（DXF Reference「POINT」）。見え方は文書の点の表し方に従うので、既定義の印の点と作図の補助の
+            // POINT（DXF Reference「POINT」）。見え方は文書の点の表し方に従うので、既定義のマーカーの点と作図の補助の
             // 点は足さない。X 軸の角度（50）は 0 でなければ書く（決定 0183）
             Shape::Point(dot) => {
                 if dot.look != PointLook::Document || dot.construction {
@@ -402,8 +402,8 @@ impl Born {
     /// （75 = 0）、X 軸の向き（211）は (1, 0, 0)、ずれ（212・213）は 0 とする。注記がなければ 73 = 3 とし、注記の
     /// 大きさ（40・41）は 1 とする。注記は、同じブロックのレコードが持つ MTEXT だけを指し（73 = 0、340）、注記の
     /// 大きさはその文字の高さ（40）と枠の幅（41）とする（推定。AutoCAD は開くときに求め直す）。注記の MTEXT の
-    /// ハンドルを返し、[`Born::push`] がその MTEXT に反応子（102 `{ACAD_REACTORS`）を書く（決定 0191）。矢印（71）
-    /// は、DXF では寸法スタイルに従うなら書かない。DWG の LEADER は矢印の印を必ず持つので、寸法スタイルに従う
+    /// ハンドルを返し、[`Born::push`] がその MTEXT にリアクター（102 `{ACAD_REACTORS`）を書く（決定 0191）。矢印（71）
+    /// は、DXF では寸法スタイルに従うなら書かない。DWG の LEADER は矢印のフラグを必ず持つので、寸法スタイルに従う
     /// 矢印は DWG に足さない。LEADER を持たない R12 の DXF にも足さない
     fn leading<P>(
         &self,
@@ -457,7 +457,7 @@ impl Born {
         matches!(self.target, Target::Dwg(_))
     }
 
-    /// 図形に共通の値（DXF Reference「Common Group Codes for Entities」）。区切り・ペーパー空間の印（`paper`
+    /// 図形に共通の値（DXF Reference「Common Group Codes for Entities」）。サブクラスマーカー・ペーパー空間のフラグ（`paper`
     /// なら 67 = 1）・レイヤ・線種・色・線幅・線種の倍率
     pub(super) fn entity(&self, layer: LayerId, style: &Style, paper: bool) -> Option<Vec<Value>> {
         let mut values = vec![text(100, "AcDbEntity")];
@@ -486,17 +486,17 @@ impl Born {
         self.target
     }
 
-    /// 文字の値。2007 より前の版のコード・ページで表せない文字を書くなら `None`
+    /// 文字の値。2007 より前のバージョンのコード・ページで表せない文字を書くなら `None`
     pub(super) fn text_value(&self, code: i16, value: &str) -> Option<Value> {
         self.string(code, value)
     }
 
-    /// DXF の版が `release` 以後か。DWG なら真
+    /// DXF のバージョンが `release` 以後か。DWG なら真
     pub(super) fn dxf_since(&self, release: &[u8]) -> bool {
         self.target != Target::Dxf || self.since(release)
     }
 
-    /// 指定された欄だけを検証し、共通の値にする
+    /// 指定されたフィールドだけを検証し、共通の値にする
     pub(super) fn style_values(&self, style: &Style, changed: &[i16]) -> Option<Vec<Value>> {
         let mut values = Vec::new();
         if changed.contains(&6) {
@@ -548,7 +548,7 @@ impl Born {
         if changed.contains(&48) && style.line_type_scale != 1.0 {
             values.push(real(48, nonzero_positive(style.line_type_scale)?)?);
         }
-        // 透過性（440）は、DWG に足す図形の色の欄に書けないので、レイヤから継承するものだけを足す（決定 0157）
+        // 透過性（440）は、DWG に足す図形の色のフィールドに書けないので、レイヤから継承するものだけを足す（決定 0157）
         if changed.contains(&440) && style.transparency != Inherit::Layer {
             return None;
         }
@@ -560,10 +560,10 @@ impl Born {
         Some(values)
     }
 
-    /// TEXT と ATTRIB（DXF Reference「TEXT」「ATTRIB」）の、文字の区切り（AcDbText）の値。高さの意味が `meaning`
+    /// TEXT と ATTRIB（DXF Reference「TEXT」「ATTRIB」）の、文字のサブクラス（AcDbText）の値。高さの意味が `meaning`
     /// のものに限る。位置合わせが左の基準線でなければ、11 を基点とし、10 も同じ点にする。10 は位置合わせから
     /// 決まる点で、読み直すときに使わず、AutoCAD は図面を開き直すと決め直す。垂直の位置合わせ（TEXT は 73、
-    /// ATTRIB は 74）は、後の区切りに書くので、値を返す
+    /// ATTRIB は 74）は、後のサブクラスに書くので、値を返す
     fn lettering<P>(
         &self,
         values: &mut Vec<Value>,
@@ -729,7 +729,7 @@ impl Born {
     }
 
     /// INSERT（DXF Reference「INSERT」）の値と、続く ATTRIB と SEQEND。格子を持つ記号は、列と行の数（70・71）と
-    /// 間隔（44・45）を書く（DWG では MINSERT になる）。切り抜きを持つ記号と、空間のブロックは足さない。属性を持てば、属性が続く印（66 = 1）を書き、属性ごとの ATTRIB と、記号のレイヤの
+    /// 間隔（44・45）を書く（DWG では MINSERT になる）。切り抜きを持つ記号と、空間のブロックは足さない。属性を持てば、属性が続くフラグ（66 = 1）を書き、属性ごとの ATTRIB と、記号のレイヤの
     /// SEQEND を続ける
     fn placing<P>(
         &self,
@@ -782,7 +782,7 @@ impl Born {
         }
         let mut followers = Vec::new();
         if attributed {
-            // DWG の ATTRIB と SEQEND は、所有者を INSERT とし、ペーパー空間の印を持たない
+            // DWG の ATTRIB と SEQEND は、所有者を INSERT とし、ペーパー空間のフラグを持たない
             let paper = home.paper && !self.dwg();
             for attribute in &symbol.attributes {
                 followers.push((
@@ -803,7 +803,7 @@ impl Born {
     }
 
     /// ATTRIB（DXF Reference「ATTRIB」）の値。高さの意味が属性の高さ（`dxf.ATTRIB.40`）で、複数行の値を持たない
-    /// ものに限る。R2010 からの DWG には、属性の版（280）をタグの前に、位置を固定するか（280）を終わりに、どちらも
+    /// ものに限る。R2010 からの DWG には、属性のバージョン（280）をタグの前に、位置を固定するか（280）を終わりに、どちらも
     /// 0 として書く（決定 0093）
     fn attribute<P>(
         &self,
@@ -911,7 +911,7 @@ impl Born {
                 // record が、続く ATTRIB と SEQEND と次の HANDSEED まで加算できることを確かめている。
                 next += 1;
             }
-            // 注記の MTEXT に、足した図形を反応子として書く。AutoCAD は、注記を動かすと引出線も動かす（決定 0191）
+            // 注記の MTEXT に、足した図形をリアクターとして書く。AutoCAD は、注記を動かすと引出線も動かす（決定 0191）
             if let Some(note) = annotation
                 && let Some(at) = db
                     .objects()
@@ -926,7 +926,7 @@ impl Born {
     }
 }
 
-/// 値 `values` の反応子の組（102 `{ACAD_REACTORS`・330・102 `}`）に、ハンドル `reactor` を足す。組がなければ、
+/// 値 `values` のリアクターの組（102 `{ACAD_REACTORS`・330・102 `}`）に、ハンドル `reactor` を足す。組がなければ、
 /// ハンドル（5）の後に作る（DXF Reference「Common Group Codes for Entities」の並び。拡張辞書の組より前）
 fn react(values: &mut Vec<Value>, reactor: u64) {
     let marker = |value: &Value, text: &[u8]| {
@@ -971,7 +971,7 @@ fn react(values: &mut Vec<Value>, reactor: u64) {
     }
 }
 
-/// 表のハンドルの種。DXF は `$HANDSEED`、DWG は見出しのもの
+/// 表のハンドルの種。DXF は `$HANDSEED`、DWG はヘッダーのもの
 fn handle_seed(db: &AcadDb, target: Target) -> Option<u64> {
     match target {
         Target::Dwg(seed) => seed,

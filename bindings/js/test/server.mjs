@@ -2,7 +2,7 @@
 //
 // 使い方: node bindings/js/test/server.mjs <zumen_abi1.wasm>
 //
-// - 包みを一時のフォルダーに写して wasm を置き、Node.js の入口（src/node.js）で読み込んで図面を開く。wasm がなくて
+// - パッケージを一時のフォルダーに写して wasm を置き、Node.js の入口（src/node.js）で読み込んで図面を開く。wasm がなくて
 //   失敗したあとも、置けば読み込める
 // - 別の realm（node:vm）で作った WebAssembly.Module と ArrayBuffer と、別の realm の Response と同じ形のものを、
 //   load・loadSync・Zumen.open・Session.push・readScene に渡す
@@ -70,14 +70,14 @@ function isPanicked(operation) {
 {
   const context = vm.createContext({ bytes });
   const module = vm.runInContext("new WebAssembly.Module(bytes)", context);
-  assert.equal(module instanceof WebAssembly.Module, false, "試験の前提: 別の realm のモジュール");
+  assert.equal(module instanceof WebAssembly.Module, false, "テストの前提: 別の realm のモジュール");
   assert.equal(openSample(await load(module)), "dxf");
   assert.equal(openSample(loadSync(module)), "dxf");
 
   /** バイト列を、別の realm の ArrayBuffer に写す */
   const foreign = vm.runInContext("(data) => new Uint8Array(data).buffer", context);
   const buffer = foreign(bytes);
-  assert.equal(buffer instanceof ArrayBuffer, false, "試験の前提: 別の realm の ArrayBuffer");
+  assert.equal(buffer instanceof ArrayBuffer, false, "テストの前提: 別の realm の ArrayBuffer");
   assert.equal(openSample(await load(buffer)), "dxf");
   assert.equal(openSample(loadSync(buffer)), "dxf");
 
@@ -87,7 +87,7 @@ function isPanicked(operation) {
     "(data) => ({ [Symbol.toStringTag]: 'Response', ok: true, status: 200, arrayBuffer: async () => new Uint8Array(data).buffer })",
     context,
   )(bytes);
-  assert.equal(response instanceof Response, false, "試験の前提: 別の realm の Response");
+  assert.equal(response instanceof Response, false, "テストの前提: 別の realm の Response");
   assert.equal(openSample(await load(response)), "dxf");
 
   // セッションの設定・入力・シーンの blob

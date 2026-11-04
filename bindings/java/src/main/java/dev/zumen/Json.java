@@ -13,9 +13,9 @@ import java.util.Map;
 import java.util.function.Function;
 
 /**
- * 小さな JSON の読み書き（RFC 8259）。Java 8 と Android には標準の JSON の道具がないので、包みの中に持つ。
+ * 小さな JSON の読み書き（RFC 8259）。Java 8 と Android には標準の JSON のツールがないので、ラッパーの中に持つ。
  *
- * <p>読んだ値は、オブジェクトが {@link Map}（欄の順を保つ）、配列が {@link List}、文字列が {@link String}、
+ * <p>読んだ値は、オブジェクトが {@link Map}（フィールドの順を保つ）、配列が {@link List}、文字列が {@link String}、
  * 小数点と指数のない数で long に収まるものが {@link Long}、ほかの数が {@link Double}、真偽値が {@link Boolean}、
  * null が null になる。
  */
@@ -67,7 +67,7 @@ public final class Json {
         }
     }
 
-    // メッセージの型が欄を読むときに使う。形が違えば null にする
+    // メッセージの型がフィールドを読むときに使う。形が違えば null にする
 
     /** 値を read で読む。null なら null */
     public static <T> T read(Object value, Function<Object, T> read) {
@@ -326,7 +326,7 @@ public final class Json {
             while (true) {
                 space();
                 if (at >= text.length() || text.charAt(at) != '"') {
-                    throw error("欄の名前がない");
+                    throw error("フィールドの名前がない");
                 }
                 String key = string();
                 space();

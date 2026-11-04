@@ -1,6 +1,6 @@
 //! 図形の XDATA（決定 0115）と、拡張辞書の XRECORD（決定 0148）を、形式固有の情報にする。
-//! 図面モデルの値にない図形の欄も、`dxf.entity` の拡張に控える（決定 0142）。どの値も元のグループ・コードを
-//! 持ち、図面モデルの欄にする値は移さない（決定 0157）。
+//! 図面モデルの値にない図形のフィールドも、`dxf.entity` の拡張に控える（決定 0142）。どの値も元のグループ・コードを
+//! 持ち、図面モデルのフィールドにする値は移さない（決定 0157）。
 
 use super::{
     ENTITY, ENTITY_SCHEMA, Lifted, Lifter, Out, XDATA, XDATA_SCHEMA, XRECORD, XRECORD_SCHEMA,
@@ -11,12 +11,12 @@ use zumen_base::{Cx, Diagnostic, codes};
 use zumen_drawing::{Draft, Field, FieldValue, Position};
 use zumen_sdk::Error;
 
-/// 図面モデルの欄にする値で、欄がまだない拡張辞書の項目と、AutoCAD の版の往復の XRECORD（決定 0157）。
+/// 図面モデルのフィールドにする値で、フィールドがまだない拡張辞書の項目と、AutoCAD のバージョンの往復の XRECORD（決定 0157）。
 /// 注釈の尺度（`AcDbContextDataManager`・`ASDK_XREC_ANNO_SCALE_INFO`・`ASDK_XREC_ANNOTATION_SCALE_INFO`）、
 /// 寸法の関連づけ（`ACAD_DIMASSOC`）、動的ブロックの表し方（`AcDbBlockRepresentation`）、ビューごとの画層の
-/// 上書き（`ADSK_XREC_LAYER_COLOR_OVR` など、`_OVR` で終わる `ADSK_XREC_LAYER_`）と、版の往復
+/// 上書き（`ADSK_XREC_LAYER_COLOR_OVR` など、`_OVR` で終わる `ADSK_XREC_LAYER_`）と、バージョンの往復
 /// （`ACAD_XREC_ROUNDTRIP`・`ACAD_MTEXT_RT`・`ACAD_MTEXT_2008_RT`）。往復の値は、図形の値で表せる内容と
-/// 表せない内容（新しい版の表の書式など）をまだ読み分けないので、すべて診断する
+/// 表せない内容（新しいバージョンの表の書式など）をまだ読み分けないので、すべて診断する
 fn unmapped(name: &[u8]) -> bool {
     const NAMES: [&[u8]; 8] = [
         b"AcDbContextDataManager",
@@ -40,7 +40,7 @@ fn point_code(code: i16) -> Option<i16> {
 impl Lifter<'_> {
     /// 図形の XDATA（DXF Reference「Extended Data」、決定 0115）を、登録アプリケーション名（1001）ごとの
     /// 形式固有の情報にして、図形の位置とともに控える。最初の 1001 より前の XDATA の値と、読めない値を持つ
-    /// 名前の分は移さず、診断する。図面モデルの値にない図形の欄は、`dxf.entity` の拡張に控える（決定 0142）
+    /// 名前の分は移さず、診断する。図面モデルの値にない図形のフィールドは、`dxf.entity` の拡張に控える（決定 0142）
     pub(super) fn extend(
         &self,
         db: &AcadDb,
@@ -94,7 +94,7 @@ impl Lifter<'_> {
     /// 図形の拡張辞書（`{ACAD_XDICTIONARY` の組の 360 が指す DICTIONARY。DXF Reference「Extension
     /// Dictionary and Persistent Reactors」、決定 0148）の XRECORD の項目を、項目の名前ごとの形式固有の
     /// 情報にして、図形の位置とともに控える。値は、グループ・コードを付けた型の値を順に並べる（決定 0157）。
-    /// 図面モデルの欄にする値で、欄がまだない項目（[`unmapped`]）と、AutoCAD の版の往復の XRECORD は移さず、
+    /// 図面モデルのフィールドにする値で、フィールドがまだない項目（[`unmapped`]）と、AutoCAD のバージョンの往復の XRECORD は移さず、
     /// L1 に残して診断する。XRECORD でない項目と、読めない値を持つ XRECORD も移さず、診断する
     pub(super) fn dictionary(
         &self,
@@ -354,9 +354,9 @@ pub(super) fn extension_work(db: &AcadDb, object: &Object, cx: &mut Cx) -> Resul
     Ok(())
 }
 
-/// 図面モデルの値にない図形の欄（決定 0142）。厚さ（39）は、平面の図形を Z の向きに押し出す長さで、上から
-/// 見た形を変えないので、0 でなければ `thickness` に控える。SPLINE の節点と制御点の許容差（42・43）も控える。
-/// 線種の生成（70 の 128）と当てはめの許容差（44）は、図面モデルの値に移す（決定 0157）
+/// 図面モデルの値にない図形のフィールド（決定 0142）。厚さ（39）は、平面の図形を Z の向きに押し出す長さで、上から
+/// 見た形を変えないので、0 でなければ `thickness` に控える。SPLINE のノットと制御点の許容差（42・43）も控える。
+/// 線種の生成（70 の 128）とフィット許容差（44）は、図面モデルの値に移す（決定 0157）
 fn entity_fields(object: &Object) -> Lifted<Vec<Field>> {
     let mut fields = Vec::new();
     let real = |code: i16| match object.first(code) {

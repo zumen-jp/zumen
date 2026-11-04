@@ -6,7 +6,7 @@ use zumen_abi1::{Session, Status};
 use zumen_base::CancelToken;
 use zumen_json::{Value, Writer};
 
-/// 1 つのセッション。コアがパニックしたら、ネイティブの境界と同じく閉じるしかない（`zm_call` と同じ）
+/// 1 つのセッション。コアがパニックしたら、ネイティブの API と同じく閉じるしかない（`zm_call` と同じ）
 #[derive(Debug)]
 pub struct Host {
     session: Option<Session>,
@@ -76,7 +76,7 @@ pub fn compact(value: &Value) -> Vec<u8> {
     out.into_bytes()
 }
 
-/// オブジェクトの欄の文字列
+/// オブジェクトのフィールドの文字列
 pub fn str_field<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
     match value {
         Value::Object(object) => match object.get(key) {
@@ -87,7 +87,7 @@ pub fn str_field<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
     }
 }
 
-/// オブジェクトの欄
+/// オブジェクトのフィールド
 pub fn field<'a>(value: &'a Value, key: &str) -> Option<&'a Value> {
     match value {
         Value::Object(object) => object.get(key),
