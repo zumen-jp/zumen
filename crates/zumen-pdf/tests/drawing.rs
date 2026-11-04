@@ -3804,6 +3804,11 @@ fn refuses_object_streams_that_differ_by_platform() {
         "/Type /ObjStm /N 1 /First 4 /Filter 9 0 R",
         "/Type /ObjStm /N 1 /First 4 /DecodeParms [null 9 0 R]",
         "/Type /ObjStm /N 9 0 R /First 4",
+        // 入れ子の深い値と、空白のない参照。値はバイト列として見るので、深さによらない
+        "/Type /ObjStm /N 1 /First 4 /DP [[[[[[[[[[[[[[[[[[[[9 0 R]]]]]]]]]]]]]]]]]]]]",
+        "/Type /ObjStm /N 1 /First 4 /DecodeParms << /K 9 0R >>",
+        // 文字列の中の `R` も、参照として扱う（多めに断るだけ）
+        "/Type /ObjStm /N 1 /First 4 /DecodeParms << /K (R) >>",
     ] {
         let mut object = format!("<< {dict} >>\nstream\n30 0 << >>\nendstream");
         if !dict.contains("/Length") {
@@ -3811,6 +3816,11 @@ fn refuses_object_streams_that_differ_by_platform() {
         }
         assert!(unsupported(vec![object.into_bytes()]), "{dict}");
     }
+    // 名前の中の `R` は、参照でない
+    assert!(!unsupported(vec![common::stream(
+        "/Type /ObjStm /N 1 /First 4 /DecodeParms << /Rx /R >>",
+        "30 0 << >>"
+    )]));
     // ふつうの中身と、負の位置（どの環境でも読まない）
     assert!(!unsupported(vec![one_member("30 0 << /A 1 >>")]));
     assert!(!unsupported(vec![one_member(
@@ -3831,6 +3841,35 @@ fn reads_the_members_of_object_streams_in_linear_work() {
     document.objects = vec![container(count, header.len(), &data)];
     let work = used(&document.bytes(), Kind::Work);
     assert!(work < 4 * count as u64, "{work}");
+}
+
+#[test]
+fn counts_the_dictionaries_of_object_streams_before_reading_them() {
+    use zumen_base::Kind;
+    // hayro-syntax は、ストリームを読むと、辞書のキーの表を作る。オブジェクトのストリームになりうるストリームの辞書は、
+    // 表を作る前に、キーの数を数える
+    let count = 20_000;
+    let keys: String = (0..count).map(|index| format!("/K{index} 0 ")).collect();
+    let mut document = Document::new(vec![Page::new("0 0 m 10 10 l S")]);
+    document.objects = vec![common::stream(
+        &format!("/Type /ObjStm /N 1 /First 4 {keys}"),
+        "30 0 << >>",
+    )];
+    let own = used(&document.bytes(), Kind::DecodedBytes);
+    assert!(own >= 176 * count as u64, "{own}");
+    // ほかの辞書と、値の中の辞書と配列は、確かめが表を作らないので数えない
+    document.objects = vec![
+        common::stream(
+            &format!(
+                "/Type /ObjStm /N 1 /First 4 /DecodeParms << {keys}>> /DP [{}]",
+                "0 ".repeat(count)
+            ),
+            "30 0 << >>",
+        ),
+        format!("<< {keys}>>").into_bytes(),
+    ];
+    let values = used(&document.bytes(), Kind::DecodedBytes);
+    assert!(values < own / 10, "{values} {own}");
 }
 
 #[test]
@@ -3896,24 +3935,44 @@ fn refuses_coded_filters_whose_input_may_be_large() {
     ] {
         assert!(unsupported(vec![common::stream(dict, "x")]), "{dict}");
     }
-    // LZW・ASCII85 の名前は、フィルターの値に参照があれば、参照の先かもしれない。参照の先はどこに書いた定義でも
-    // ありうるので、フィルターの値の名前も同じ（コメントの中の `obj` の後ろの名前は、`[/Fl 4 0 R]` の参照の先になる）
+    // フィルターの値に参照があれば、参照の先になりうる位置（`obj` の後ろと、オブジェクトのストリームの中の位置）の
+    // LZW・ASCII85 の名前は、倍率の分からないフィルターとして当たりうる。フィルターの値として読める名前も同じ（コメントの
+    // 中の `4 0 obj` の後ろの名前は、`[/Fl 4 0 R]` の参照の先になる）。参照の先の配列は、参照の項目の後ろも見る
     for filter in ["/Filter 4 0 R", "/F [/AHx 4 0 R]", "/Filter [/Fl 4 0 R]"] {
-        for name in [
+        for target in [
             b"/LZWDecode".to_vec(),
-            b"(/A85)".to_vec(),
-            common::stream("/Filter /LZWDecode", "x"),
+            b"[/AHx 5 0 R /A85]".to_vec(),
             common::stream("/Filter %4 0 obj\n/A85", "x"),
+            container(1, 5, "31 0 /LZW"),
+            // 配列の中の `/Filter` の値として確かめた名前も、配列が参照の先なら倍率が分からない
+            b"[/Fl %\n/Filter /LZWDecode]".to_vec(),
         ] {
-            let text = String::from_utf8_lossy(&name).into_owned();
+            let text = String::from_utf8_lossy(&target).into_owned();
             assert!(
-                unsupported(vec![common::stream(filter, "x"), name]),
+                unsupported(vec![common::stream(filter, "x"), target]),
+                "{filter} {text}"
+            );
+        }
+        // 参照の先になりえない所の名前は、hayro-syntax が当てない（添付ファイルの `/F n 0 R` と、LZW の画像など）
+        for other in [
+            b"(/A85)".to_vec(),
+            b"[(x) /LZW]".to_vec(),
+            common::stream("/Filter /LZWDecode", "x"),
+        ] {
+            let text = String::from_utf8_lossy(&other).into_owned();
+            assert!(
+                !unsupported(vec![common::stream(filter, "x"), other]),
                 "{filter} {text}"
             );
         }
     }
+    // 配列の参照の項目は、名前に解ければ後ろの項目も読むので、後ろの名前の倍率は分からない
+    for dict in ["/Filter [/AHx 4 0 R /LZW]", "/F [4 0 R /A85]"] {
+        assert!(unsupported(vec![common::stream(dict, "x")]), "{dict}");
+    }
     // 参照がなければ、hayro-syntax はフィルターとして当てない
     assert!(!unsupported(vec![b"(/LZWDecode)".to_vec()]));
+    assert!(!unsupported(vec![container(1, 5, "31 0 /LZW")]));
     assert!(!unsupported(vec![
         common::stream("/Filter [[/LZWDecode]]", "x"),
         common::stream("/Filter [/AHx 4 /A85]", "x"),
@@ -3999,6 +4058,15 @@ fn reads_names_in_comments_in_linear_work() {
     document.objects = vec![format!("({}{tail})", "%obj<<\n".repeat(count)).into_bytes()];
     let work = used(&document.bytes(), Kind::Work);
     let most = plain + 8 * count as u64 + tail.len() as u64;
+    assert!(work < most, "{plain} {work}");
+    // フィルターの値に参照があるときに見る、参照の先の配列も、コメントの行の `obj [` から読み直さない
+    let mut document = Document::new(vec![Page::new("0 0 m 10 10 l S")]);
+    document.objects = vec![
+        b"<< /F 9 0 R >>".to_vec(),
+        format!("[\n{}{list}]", "%obj [\n".repeat(count)).into_bytes(),
+    ];
+    let work = used(&document.bytes(), Kind::Work);
+    let most = plain + 8 * count as u64 + list.len() as u64;
     assert!(work < most, "{plain} {work}");
 }
 
