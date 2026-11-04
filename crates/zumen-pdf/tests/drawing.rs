@@ -3848,7 +3848,7 @@ fn refuses_object_streams_that_only_the_rebuilt_table_reads() {
         "<< /Type /ObjStm /N 1 /First 4 >>",
         // `#xx` で書いた型
         "<< /Length 9 /N 1 /First 4 /Type /Obj#53tm >>\nstream\n9 0 [0 0]\nendstream",
-        // 型の前の文字列。名前の終わりの `\` は、文字列の中では次の `(` を逃がすので、文字列の中から読む辞書と外から
+        // 型の前の文字列。名前の終わりの `\` は、文字列の中では次の `(` をエスケープするので、文字列の中から読む辞書と外から
         // 読む辞書が、同じ `)` の後ろの型を上の段に読む
         "[<< /Filter /AHx /X (6 0 obj << /K /a\\(z) /Type /ObjStm /N 1 /First 4 /Length 9 >>\nstream\n9 0 [0 0]\nendstream ]",
         "<< /N 1 /First 4 /A ( << /Filter /AHx /K /a\\(z) /Type /ObjStm /Length 9 >>\nstream\n9 0 [0 0]\nendstream",
@@ -3948,14 +3948,23 @@ fn reads_names_in_comments_in_linear_work() {
         let work = used(&document.bytes(), Kind::Work);
         assert!(work < plain + 8 * count as u64, "{line:?} {plain} {work}");
     }
-    // コメントの行の中のキーは、同じ値の位置に飛ぶ。長い値を、キーごとに読み直さない
+    // コメントの行の中のキーと `obj` は、同じ値の位置に飛ぶ。長い値を、キーと `obj` ごとに読み直さない
     let digits = "0".repeat(100_000);
     let name = format!("/{}", "a".repeat(100_000));
+    let dict = format!("<<{}>>", " /A 1".repeat(20_000));
+    // コメントの行の配列は、どれも後ろの同じ項目の並びを読む。配列の項目を飛ばしても、キーの側の覚えを変えない
+    let list = "/a ".repeat(30_000);
+    let few = "/a ".repeat(10);
     for (line, value) in [
         ("%/Type\n", &digits),
         ("%/N\n", &digits),
         ("%/Type\n", &name),
         ("%/Filter\n", &name),
+        ("%obj\n", &digits),
+        ("%obj\n", &dict),
+        ("%/Filter [\n", &list),
+        ("%/F [/AHx\n", &list),
+        ("%/Filter [\n%/N\n", &few),
     ] {
         let mut document = Document::new(vec![Page::new("0 0 m 10 10 l S")]);
         document.objects = vec![format!("[\n{}{value}]", line.repeat(count)).into_bytes()];
