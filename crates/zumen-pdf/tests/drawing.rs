@@ -3896,12 +3896,19 @@ fn refuses_coded_filters_whose_input_may_be_large() {
     ] {
         assert!(unsupported(vec![common::stream(dict, "x")]), "{dict}");
     }
-    // フィルターの値として読めない所の名前は、フィルターの値に参照があれば、参照の先かもしれない
-    for filter in ["/Filter 4 0 R", "/F [/AHx 4 0 R]"] {
-        for name in ["/LZWDecode", "(/A85)"] {
+    // LZW・ASCII85 の名前は、フィルターの値に参照があれば、参照の先かもしれない。参照の先はどこに書いた定義でも
+    // ありうるので、フィルターの値の名前も同じ（コメントの中の `obj` の後ろの名前は、`[/Fl 4 0 R]` の参照の先になる）
+    for filter in ["/Filter 4 0 R", "/F [/AHx 4 0 R]", "/Filter [/Fl 4 0 R]"] {
+        for name in [
+            b"/LZWDecode".to_vec(),
+            b"(/A85)".to_vec(),
+            common::stream("/Filter /LZWDecode", "x"),
+            common::stream("/Filter %4 0 obj\n/A85", "x"),
+        ] {
+            let text = String::from_utf8_lossy(&name).into_owned();
             assert!(
-                unsupported(vec![common::stream(filter, "x"), name.as_bytes().to_vec()]),
-                "{filter} {name}"
+                unsupported(vec![common::stream(filter, "x"), name]),
+                "{filter} {text}"
             );
         }
     }
@@ -3942,6 +3949,8 @@ fn reads_names_in_comments_in_linear_work() {
         "%obj\n",
         "%/Type\n",
         "%/Filter [\n",
+        // 字句の途中の `obj`。数は、hayro-syntax が読む字だけを読み、字句の残りを読み直さない
+        "obj0",
     ] {
         let mut document = Document::new(vec![Page::new("0 0 m 10 10 l S")]);
         document.objects = vec![format!("null\n{}", line.repeat(count)).into_bytes()];
@@ -3952,9 +3961,14 @@ fn reads_names_in_comments_in_linear_work() {
     let digits = "0".repeat(100_000);
     let name = format!("/{}", "a".repeat(100_000));
     let dict = format!("<<{}>>", " /A 1".repeat(20_000));
+    // 辞書の後ろを飛ばしても、`obj` の側の覚えを変えない
+    let stream = "<</N 1/First 0/Length 0>>stream\n\nendstream".to_string();
     // コメントの行の配列は、どれも後ろの同じ項目の並びを読む。配列の項目を飛ばしても、キーの側の覚えを変えない
+    // （範囲の終わりの配列も、違う値のキーと交互に並べた配列も）
     let list = "/a ".repeat(30_000);
     let few = "/a ".repeat(10);
+    let short = "[/a]".to_string();
+    let long = format!("[{list}]");
     for (line, value) in [
         ("%/Type\n", &digits),
         ("%/N\n", &digits),
@@ -3962,9 +3976,13 @@ fn reads_names_in_comments_in_linear_work() {
         ("%/Filter\n", &name),
         ("%obj\n", &digits),
         ("%obj\n", &dict),
+        ("%obj\n", &stream),
         ("%/Filter [\n", &list),
         ("%/F [/AHx\n", &list),
         ("%/Filter [\n%/N\n", &few),
+        ("%/F [\n%/F\n", &short),
+        ("%/Filter\n%/F x\n", &short),
+        ("%/Filter\n%/F [/x]\n", &long),
     ] {
         let mut document = Document::new(vec![Page::new("0 0 m 10 10 l S")]);
         document.objects = vec![format!("[\n{}{value}]", line.repeat(count)).into_bytes()];
@@ -3972,6 +3990,16 @@ fn reads_names_in_comments_in_linear_work() {
         let most = plain + 8 * count as u64 + value.len() as u64;
         assert!(work < most, "{line:?} {plain} {work}");
     }
+    // コメントの行の `obj<<` から読む辞書は、どれも `<<` の後ろで同じ位置に着き、後ろの同じ辞書を読む
+    let tail = format!(
+        "{}/N 1/First 0/Length 0>>stream\n\nendstream",
+        " /A 1".repeat(20_000)
+    );
+    let mut document = Document::new(vec![Page::new("0 0 m 10 10 l S")]);
+    document.objects = vec![format!("({}{tail})", "%obj<<\n".repeat(count)).into_bytes()];
+    let work = used(&document.bytes(), Kind::Work);
+    let most = plain + 8 * count as u64 + tail.len() as u64;
+    assert!(work < most, "{plain} {work}");
 }
 
 #[test]
