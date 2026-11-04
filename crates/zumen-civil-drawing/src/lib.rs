@@ -467,14 +467,22 @@ fn whole_stations(
     if !(first.is_finite() && last.is_finite() && pitch > 0.0) || last < first {
         return Ok(Vec::new());
     }
-    cx.check(Kind::Elements, (last - first) as u64 + 1)?;
+    // 差が 2^64 を超えると as は u64::MAX に丸めるので、足すと桁があふれる。予算で止める
+    let count = ((last - first) as u64).saturating_add(1);
+    cx.check(Kind::Elements, count)?;
     let mut found = Vec::new();
-    let mut number = first;
-    while number <= last {
+    // 大きな番号には 1 を足しても変わらないので、回数で数える。2^53 を超えると、続く回数が同じ番号に丸まるので、
+    // 増えなかった番号は飛ばす
+    let mut previous = f64::NEG_INFINITY;
+    for step in 0..count {
+        let number = first + step as f64;
+        if number <= previous {
+            continue;
+        }
+        previous = number;
         for distance in stations.distances(number * pitch, length) {
             found.push((distance, number));
         }
-        number += 1.0;
     }
     found.sort_by(|a, b| a.0.total_cmp(&b.0));
     Ok(found)
