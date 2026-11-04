@@ -330,7 +330,7 @@ fn font(value: &str) -> Option<Font> {
     })
 }
 
-/// `\S上^下;`。最初の `^`・`/`・`#` で分ける。`\` の後の文字はセクションとしない
+/// `\S上^下;`。最初の `^`・`/`・`#` で分ける。`\` の後の文字は区切りとしない
 fn stack(value: &str) -> Option<Piece> {
     let mut escaped = false;
     for (at, c) in value.char_indices() {

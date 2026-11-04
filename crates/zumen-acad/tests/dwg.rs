@@ -1679,7 +1679,7 @@ fn attributes_and_tolerances_have_their_fields() {
 fn leaders_and_mlines_have_their_fields() {
     let layer = object(0x33, 0x10, record_named(b"0"), record_handles(2));
     let dimstyle = object(0x45, 0x11, record_named(b"ISO-25"), record_handles(3));
-    // 2 本の線を持つ多重線スタイル。DWG のフラグ 1 と 32 は、DXF の 2 と 64
+    // 2 本の線を持つマルチラインスタイル。DWG のフラグ 1 と 32 は、DXF の 2 と 64
     let style = object(
         0x49,
         0x31,
@@ -1731,7 +1731,7 @@ fn leaders_and_mlines_have_their_fields() {
             w.handle(5, 0x11);
         },
     );
-    // 2 つの頂点と 1 本の線を持つ多重線
+    // 2 つの頂点と 1 本の線を持つマルチライン
     let mline = object(
         0x2F,
         0x21,
@@ -5606,8 +5606,8 @@ fn changed_dimensions_are_written_back() {
     }
 }
 
-/// 公差・引出線・多重線を持つ図面。`x` と `text` は公差の挿入点と文字、`height` と `hook` は引出線の注釈の
-/// 高さと鉤の線の向き、`scale` と `start` は多重線の尺度と初めの頂点の X
+/// 公差・引出線・マルチラインを持つ図面。`x` と `text` は公差の挿入点と文字、`height` と `hook` は引出線の注釈の
+/// 高さと鉤の線の向き、`scale` と `start` はマルチラインの尺度と初めの頂点の X
 #[cfg(test)]
 fn annotations_with(
     x: f64,
@@ -5732,7 +5732,7 @@ fn changed_annotations_are_written_back() {
     let src = dwg(&annotations_with(3.0, b"{\\Fgd\n", 2.5, true, 1.5, 0.0));
     let (mut db, before) = objects(&src);
     let mut file = read(&src, Limits::default()).0.unwrap();
-    // 公差の挿入点と文字、引出線の高さと鉤の線の向き、多重線の尺度と初めの頂点を変える
+    // 公差の挿入点と文字、引出線の高さと鉤の線の向き、マルチラインの尺度と初めの頂点を変える
     for (handle, code, data) in [
         (0x20, 10, Data::Real(7.0)),
         (0x20, 1, Data::Text(b"{\\Fgdt;n}^J0.1".to_vec())),
@@ -5766,7 +5766,7 @@ fn changed_annotations_are_written_back() {
         assert!(got[data.len() + 1..got.len() - 2].iter().all(|b| *b == 0));
         assert!(got.len() <= expected.len() + 1);
     }
-    // 0 か 1 でない鉤の線の向き、線の数と合わないセクション、表の頂点の数と合わない頂点の数は符号化できない
+    // 0 か 1 でない鉤の線の向き、線の数と合わないパラメーター、表の頂点の数と合わない頂点の数は符号化できない
     for (handle, code, data) in [
         (0x21, 74, Data::Int(2)),
         (0x22, 73, Data::Int(2)),
@@ -6828,7 +6828,7 @@ fn changed_groups_and_vars_are_written_back() {
     }
 }
 
-/// 2 つの項目を持つ辞書（0x20）と、2 本の線を持つ多重線スタイル（0x21）。辞書の所有するフラグは 1、多重線の
+/// 2 つの項目を持つ辞書（0x20）と、2 本の線を持つマルチラインスタイル（0x21）。辞書の所有するフラグは 1、マルチラインの
 /// スタイルの DWG のフラグは、DXF にない 4 を持つ
 #[cfg(test)]
 fn dictionaries_and_mlinestyles_with(
@@ -6950,7 +6950,7 @@ fn changed_dictionaries_and_mlinestyles_are_written_back() {
         .bytes
         .unwrap();
     assert_eq!(got, &built[range.start as usize..range.end as usize]);
-    // 所有しないフラグ・項目の追加・多重線スタイルの名前・DXF にないフラグは受け付けない
+    // 所有しないフラグ・項目の追加・マルチラインスタイルの名前・DXF にないフラグは受け付けない
     for (handle, code, data) in [
         (0x20, 280, Data::Int(0)),
         (0x21, 2, Data::Text(b"OTHER".to_vec())),
@@ -9963,7 +9963,7 @@ fn drawing_point_styles_are_written_back_to_a_dwg() {
     assert_eq!(lift(&out).point_style, Some(dot));
 }
 
-/// 文字スタイルがない行も 7 のセクションを残し、高さ・色・枠を次の行と混ぜない
+/// 文字スタイルがない行も 7 の区切りを残し、高さ・色・枠を次の行と混ぜない
 #[test]
 fn table_style_rows_keep_null_text_style_handles() {
     let color = |w: &mut BitWriter, index| {

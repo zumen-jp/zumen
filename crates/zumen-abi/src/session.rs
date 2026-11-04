@@ -6338,7 +6338,7 @@ END_SCHEMA;
                 r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"add","place":"space/0","geometry":{geometry}}}]}}"#
             )
         };
-        // 置き換えは描き方を変えず、フラグの名前空間は既知のものだけ
+        // 置き換えは描き方を変えず、マーカーの名前空間は既知のものだけ
         for (request, pointer) in [
             (
                 replace(

@@ -1346,7 +1346,7 @@ fn restyled(
         return Ok(None);
     };
     written.extend(style);
-    // 図形に共通の値の範囲。サブクラスマーカー（100）を持てば AcDbEntity のセクションの中、持たなければ XDATA の前まで
+    // 図形に共通の値の範囲。サブクラスマーカー（100）を持てば AcDbEntity のサブクラスの中、持たなければ XDATA の前まで
     let mut marker = None;
     for (index, value) in object.values.iter().enumerate() {
         work(cx, 1, &at)?;
@@ -2656,7 +2656,7 @@ fn nonzero(value: f64) -> Option<f64> {
     (value.is_finite() && value != 0.0).then_some(value)
 }
 
-/// MTEXT の内容を、250 バイトずつの区切り（3）と最後の値（1）にして、元の内容の値の場所に置く。セクションは
+/// MTEXT の内容を、250 バイトずつの区切り（3）と最後の値（1）にして、元の内容の値の場所に置く。区切りは
 /// 文字の途中と、制御文字の `^` の表記の途中で切らない。DXF の値は 1 行なので、改行は書けない（段落の区切りは `\P` で書く）。
 /// 2007 より前のバージョンは、コード・ページで符号化したバイトで数える（決定 0192）
 fn contents(values: &mut Vec<Value>, content: &str, encoder: &Encoder) -> Option<()> {
@@ -2675,7 +2675,7 @@ fn contents(values: &mut Vec<Value>, content: &str, encoder: &Encoder) -> Option
     let at = values.iter().position(|v| matches!(v.code, 1 | 3))?;
     values.retain(|v| !matches!(v.code, 1 | 3));
     let mut chunks = Vec::new();
-    // セクションの始まりの、文字の位置
+    // 区切りの始まりの、文字の位置
     let mut first = 0;
     while bytes.len() - boundaries.get(first)? > 250 {
         let start = *boundaries.get(first)?;
@@ -2683,8 +2683,8 @@ fn contents(values: &mut Vec<Value>, content: &str, encoder: &Encoder) -> Option
         let mut cut = (first + 1..boundaries.len().min(first + 251))
             .rev()
             .find(|&at| boundaries.get(at).is_some_and(|&end| end - start <= 250))?;
-        // バイナリの DXF と DWG は、セクションごとに `^ ` や `^J` を戻す。末尾の `^` が対を持たなければ
-        // 次のセクションへ送る。`^^` は 1 組の表記なので、その間では切らない。Shift_JIS の 2 バイト目の `^` は
+        // バイナリの DXF と DWG は、区切りごとに `^ ` や `^J` を戻す。末尾の `^` が対を持たなければ
+        // 次の区切りへ送る。`^^` は 1 組の表記なので、その間では切らない。Shift_JIS の 2 バイト目の `^` は
         // 文字の一部なので数えない
         let carets = chars
             .get(first..cut)?

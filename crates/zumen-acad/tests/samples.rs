@@ -2054,7 +2054,7 @@ fn objects_are_taken_back(version: &[u8; 6]) {
         let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
         let file = Dwg::read(&src, &mut cx).unwrap();
         let mut db = file.objects(&mut cx).unwrap();
-        // R2000 のテストと同じフィールドと、多重線スタイルの色を変える。色は CMC の形で書き直す
+        // R2000 のテストと同じフィールドと、マルチラインスタイルの色を変える。色は CMC の形で書き直す
         for index in 0..db.objects().len() {
             let object = db.object_mut(index).unwrap();
             for value in object.values.iter_mut() {
@@ -2153,7 +2153,7 @@ fn r2000_drawings_take_back_changed_entities() {
                     changed += 1;
                 }
             }
-            // 図面の変数の値の後ろに文字を足し、辞書の複製の扱いと、多重線スタイルの線の位置と、レイアウトの高さと、XRECORD の実数と文字列を変える
+            // 図面の変数の値の後ろに文字を足し、辞書の複製の扱いと、マルチラインスタイルの線の位置と、レイアウトの高さと、XRECORD の実数と文字列を変える
             for value in object.values.iter_mut() {
                 match (object.kind.as_slice(), value.code, &mut value.data) {
                     (b"DICTIONARYVAR", 1, Data::Text(text)) => text.extend(b"0"),

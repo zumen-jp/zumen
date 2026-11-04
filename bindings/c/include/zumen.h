@@ -55,7 +55,7 @@ typedef struct zm_buf {
     size_t len;
 } zm_buf;
 
-/* Arrow の C Data Interface と C Stream Interface。Arrow の文書が勧めるとおりの定義とタグ
+/* Arrow の C Data Interface と C Stream Interface。Arrow の文書が勧めるとおりの定義とガード
  * https://arrow.apache.org/docs/format/CDataInterface.html
  * https://arrow.apache.org/docs/format/CStreamInterface.html */
 #ifndef ARROW_C_DATA_INTERFACE

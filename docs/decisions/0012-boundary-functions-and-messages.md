@@ -22,7 +22,7 @@
 ### API の形
 
 1. **言語ごとに API を作る**（旧版）。言語の数だけ差と保守が増え、バージョンごとに機能がずれる。
-2. **細かい C の関数を多く出す**（要素ごとに関数を呼ぶ）。言語の側のラッパーが大きくなり、API を越える回数も増える。
+2. **細かい C の関数を多く出す**（要素ごとに関数を呼ぶ）。言語の側のラッパーが大きくなり、API を呼ぶ回数も増える。
 3. **数個の関数と、バージョンのあるメッセージにする。** 機能はメッセージとして足し、関数は増やさない。
 
 ### ハンドルが持つもの
@@ -108,7 +108,7 @@ void      zm_free(zm_buf *buf);
   - `zm_cancel` は、どのスレッドからも呼べる。動いている呼び出しを止め、その呼び出しは `call.request.cancelled` を返す。動いている呼び出しがなければ、何もしない。
   - wasm では、呼び出しの途中に `zm_cancel` は届かない。ホストの手段で止める（[0010](0010-budget-by-work.md)）。
   - 別々のセッションは、別々のスレッドで同時に使える。
-- **粒度。** 呼び出しを粗くし、図形 1 つごとに API を越えない。一覧を返す op は、件数の上限と、続きを読む位置を持つ（[旧版の決定 0011](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/0011-tool-functions-for-agents.md) の `limit`・`next_offset` を続ける）。
+- **粒度。** 呼び出しを粗くし、図形 1 つごとに API を呼ばない。一覧を返す op は、件数の上限と、続きを読む位置を持つ（[旧版の決定 0011](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/0011-tool-functions-for-agents.md) の `limit`・`next_offset` を続ける）。
 
 ### メッセージ
 
@@ -192,7 +192,7 @@ op は、[0008](0008-model-layers-and-codecs.md) の 3 つの水準ごとに、�
 - 入りきらない大きな入力（点群など）は、コアが要る範囲を応答で求め、ホストがその範囲を `zm_push` で渡す形を、点群の系統を作るときに決める。その場合も、コールバックは使わない。
 - API を作る crate は、FFI のために `unsafe` を使う。ワークスペースの `unsafe_code = "deny"` は、その crate でだけ、理由を書いて外す。
 - [0009](0009-diagnostics-and-catalog.md) の「`zm_describe` の引数と、カタログをコアに渡す方法」と、[0010](0010-budget-by-work.md) の「予算の設定を受け渡す形」は、この記録で決めた。
-- [#13](https://github.com/zumen-jp/zumen/issues/13) の完了の条件のうち、境界のヘッダーとスキーマの最初のバージョンは、API の crate を作る PR で入れる。
+- [#13](https://github.com/zumen-jp/zumen/issues/13) の完了の条件のうち、API のヘッダーとスキーマの最初のバージョンは、API の crate を作る PR で入れる。
 
 ## 参照
 

@@ -156,7 +156,7 @@ impl DwgFile {
                 .map(|(_, (_, fields))| fields.as_mut());
             number_anonymous(records);
         }
-        // 図形は表のレコードと多重線スタイルをハンドルで指すので、先にその型と名前を集める
+        // 図形は表のレコードとマルチラインスタイルをハンドルで指すので、先にその型と名前を集める
         let names: BTreeMap<u64, (u16, Vec<u8>)> = self
             .entries
             .iter()
@@ -776,7 +776,7 @@ fn read(
             LEADER => &[(3, DIMSTYLE)],
             _ => &[],
         };
-        // LEADER は寸法スタイルの前に注釈のハンドルを、MLINE は多重線スタイルのハンドルを持つ（340）
+        // LEADER は寸法スタイルの前に注釈のハンドルを、MLINE はマルチラインスタイルのハンドルを持つ（340）
         if matches!(entry.type_code, LEADER | MLINE) {
             let annotation = bits.handle()?.resolve(entry.handle)?;
             if annotation != 0 {
@@ -939,7 +939,7 @@ fn read(
                     .find(|value| value.code == code && value.data == Data::Handle(SLOT));
                 match (code, slot) {
                     (0, _) => {}
-                    // TABLESTYLE の行の 7 と LTYPE の要素の 340 は、0 でもセクションとして残す
+                    // TABLESTYLE の行の 7 と LTYPE の要素の 340 は、0 でも区切りとして残す
                     (_, Some(slot)) => slot.data = Data::Handle(handle),
                     (6, None) if handle != 0 => records.push(RecordRef {
                         code,

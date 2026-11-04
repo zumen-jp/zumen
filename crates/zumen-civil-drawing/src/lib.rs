@@ -2,7 +2,7 @@
 //!
 //! 平面図は 1 つ目の空間（x を東、y を北）、縦断図は 2 つ目の空間（x を追加距離、y を標高）、横断図は 3 つ目から
 //! の空間（x を離れ、y を標高）に置き、図ごとの用紙にビューで置く。縦断図のビューは縦横で尺度が違うので、
-//! 縦断図の文字とフィールドは用紙の要素にする。
+//! 縦断図の欄と文字は、用紙の要素にする。
 
 use zumen_base::{Cx, Diagnostic, Diagnostics, Kind, Ref, Stop, codes};
 use zumen_civil::station::Notation;
@@ -81,7 +81,7 @@ const PLAN: SpaceId = SpaceId(0);
 const PROFILE: SpaceId = SpaceId(1);
 /// 用紙の余白（mm）
 const MARGIN: f64 = 10.0;
-/// 縦断図のフィールドの 1 行の高さと、フィールドの見出しの幅（mm）
+/// 縦断図の欄の、1 行の高さと見出しの幅（mm）
 const ROW: f64 = 8.0;
 const HEADING: f64 = 30.0;
 
@@ -695,7 +695,7 @@ fn profile(alignment: &Alignment, options: &Options, cx: &mut Cx<'_>) -> Result<
     let size_text = Length::Paper(PaperLength(options.text_height));
     let mut band = Vec::new();
     let right = size[0] - MARGIN;
-    // フィールドの横の線と見出し
+    // 縦断図の欄の横の線と見出し
     for (row, name) in ["測点", "地盤高", "計画高"].iter().enumerate() {
         let y = ROW * row as f64;
         band.push(element(

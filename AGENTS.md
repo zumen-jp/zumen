@@ -13,6 +13,8 @@ zumen は、日本の建設のデータを読み書きする Rust のコアと�
 | `formats/` | 形式の権利の台帳（`ledger.toml`） |
 | `profiles/` | 要領・基準の規則と語彙（プロファイル） |
 | `samples/` | 再配布できる公開サンプルと、その台帳（`ledger.toml`） |
+| `licenses/` | 公開サンプルが同梱を求めるライセンスの本文（`samples/README.md`） |
+| `fuzz/` | コーデックの fuzz の対象（cargo-fuzz） |
 | `xtask/` | 生成と検査（`cargo xtask codegen`）、外部の実装との照合と検証キット（`verify/`）、AutoCAD でサンプルを作る手順（`autocad/`） |
 | `templates/plugin/` | 外部のプラグインのリポジトリのひな形 |
 | `examples/`・`bench/`・`site/` | Tier 3 の言語のサンプル、ベンチマーク、<https://zumen.dev> のサイト |
@@ -22,16 +24,16 @@ crate は、層の構成（[決定 0008](docs/decisions/0008-model-layers-and-co
 
 | 層 | crate |
 | --- | --- |
-| 横断の部品 | `zumen-base`（診断・予算・中断の合図）・`zumen-json`・`zumen-crs`（座標系と標高）・`zumen-geom2d`・`zumen-geom3d` |
-| L0（交換の構造） | `zumen-step`（ISO 10303-21）・`zumen-xml`・`zumen-zip` |
+| 横断の部品 | `zumen-base`（診断・予算・中断の合図）・`zumen-json`・`zumen-crs`（座標系と標高）・`zumen-geom3d`（3D の幾何） |
+| L0（字句・コンテナー） | `zumen-step`（ISO 10303-21）・`zumen-xml`・`zumen-zip` |
 | L1（ファイルモデルとコーデック） | `zumen-acad`（DXF・DWG）・`zumen-sxf`・`zumen-jww`・`zumen-ifc` |
 | L2（領域モデル） | `zumen-drawing`（図面）・`zumen-building`（建物）・`zumen-civil`（土木）・`zumen-geo`（地理）・`zumen-pointcloud`（点群） |
 | 領域モデルに読む形式 | `zumen-landxml`・`zumen-citygml`・`zumen-fgd`・`zumen-extdm`・`zumen-las`・`zumen-ply`・`zumen-xyz`・`zumen-e57` |
 | 納品の読み取り | `zumen-delivery`（成果品）・`zumen-photo`（工事写真）・`zumen-sheet`（表）・`zumen-geology`（ボーリング交換用データ） |
-| L3（派生）と照合 | `zumen-scene`（2D のシーン）・`zumen-civil-drawing`（土木の図面）・`zumen-profile`（プロファイルの照合）・`zumen-review`（レビューの文書）・`zumen-ids`・`zumen-bcf`・`zumen-asbuilt`（出来形） |
+| L3（派生）と照合 | `zumen-geom2d`（2D の幾何）・`zumen-scene`（2D のシーン）・`zumen-civil-drawing`（土木の図面）・`zumen-profile`（プロファイルの照合）・`zumen-review`（レビューの文書）・`zumen-ids`・`zumen-bcf`・`zumen-asbuilt`（出来形） |
 | API と入口 | `zumen-abi`（C ABI と wasm の関数）・`zumen`（Rust の入口）・`zumen-sdk`（形式を書くための部品とプラグインの SDK） |
 
-- 生成したファイル（`messages.rs`・`zumen.h`・各言語のメッセージの型・`docs/formats/README.md` など）は手で直さない。元（`schema/`・`catalog/`・`formats/`）を直し、`cargo xtask codegen` で作り直す。
+- 生成したファイル（`messages.rs`・`zumen.h`・各言語のメッセージの型・`docs/formats/README.md` など）は手で直さない。元（`schema/`・`catalog/`・`formats/`・`profiles/`）を直し、`cargo xtask codegen` で作り直す。
 - 決定の記録は 250 を超える。関わる決定は、[一覧](docs/decisions/README.md)と、op・形式・crate の名前で `rg` して探す。
 
 ## 最初に確認すること
@@ -103,7 +105,7 @@ crate は、層の構成（[決定 0008](docs/decisions/0008-model-layers-and-co
 
 - 最新の `origin/main` からブランチを作り、すべての変更を PR にする。`main` へ直接 push しない。
 - PR を出す前に、CI と同じ検査を手元で通す: `cargo fmt --all --check`・`cargo clippy --workspace --all-targets -- -D warnings`・`cargo test --workspace`・`cargo xtask codegen --check`。
-  - API の crate を変えたときは、wasm32 の検査も通す: `cargo clippy -p zumen-abi --target wasm32-unknown-unknown -- -D warnings` と、wasm32 の適合テスト（`bindings/conformance/README.md`、Node.js 22 以降）。
+  - API の crate（`zumen-abi`）を変えたときは、wasm32 の検査も通す: `cargo clippy -p zumen-abi --target wasm32-unknown-unknown -- -D warnings` と、wasm32 の適合テスト（`bindings/conformance/README.md`、Node.js 22 以降）。
   - 文書・コメント・カタログ・スキーマの説明を変えたときは、表記の検査も通す: `npm ci` と `npm run lint:text`（Node.js 22 以降）。
 - 互いに確かめ（上の「並行して進める」）、最新の `origin/main` の上で CI が通ったら squash merge し、ブランチを消す。人を待つものを含む PR は、利用者が会話で認めてから、認めた会話のエージェントか利用者がマージする。利用者にレビューで止めるよう頼まれた場合は、そこで止める。
 - Rust のバージョンは `rust-toolchain.toml` で固定する。上げるときは、CI の cargo-deny のバージョンも合わせる。

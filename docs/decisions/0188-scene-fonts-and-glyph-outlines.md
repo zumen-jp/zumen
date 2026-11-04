@@ -7,7 +7,7 @@
 
 ## 背景
 
-フォントのバイト列を読むこと（[決定 0180](0180-read-truetype-metrics-without-dependency.md)・[決定 0186](0186-read-cff-outlines-and-kerning.md)）と、文字の配置（[決定 0176](0176-text-layout-with-glyph-metrics.md)・[決定 0181](0181-formatted-text-layout.md)・[決定 0187](0187-vertical-text-stacks-and-kinsoku.md)）はできたが、境界でフォントを渡す方法がなかった。[決定 0172](0172-scene-sections-and-op.md) は、字形の輪郭をシーンに返すことを「フォントを渡せるようにしてから」とし、[決定 0184](0184-scene-annotations-and-approximations.md) は、線種に添える形と、高さの意味（`text_flag` の `height_frame`・`height_em`）の換算を、フォントを受け取れるようになってからとした（#337）。
+フォントのバイト列を読むこと（[決定 0180](0180-read-truetype-metrics-without-dependency.md)・[決定 0186](0186-read-cff-outlines-and-kerning.md)）と、文字の配置（[決定 0176](0176-text-layout-with-glyph-metrics.md)・[決定 0181](0181-formatted-text-layout.md)・[決定 0187](0187-vertical-text-stacks-and-kinsoku.md)）はできたが、API でフォントを渡す方法がなかった。[決定 0172](0172-scene-sections-and-op.md) は、字形の輪郭をシーンに返すことを「フォントを渡せるようにしてから」とし、[決定 0184](0184-scene-annotations-and-approximations.md) は、線種に添える形と、高さの意味（`text_flag` の `height_frame`・`height_em`）の換算を、フォントを受け取れるようになってからとした（#337）。
 
 決めることは、フォントの渡し方、文字スタイルのフォント名とフォントの対応、フォントがないときの既定と診断、シーンに字形のセクションを足すかである。
 

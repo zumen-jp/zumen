@@ -3191,7 +3191,7 @@ fn object_own_fields(
         b"XRECORD" => return xrecord(fields, old, new, data, start, release),
         _ => return None,
     };
-    // 辞書の項目の数と、多重線スタイルの線の数と名前は変えない
+    // 辞書の項目の数と、マルチラインスタイルの線の数と名前は変えない
     let codes = |object: &Object| -> Vec<i16> { object.values.iter().map(|v| v.code).collect() };
     if new.kind != b"GROUP" && new.kind != b"DICTIONARYVAR" && codes(old) != codes(new) {
         return None;
@@ -6029,7 +6029,7 @@ fn leader(
     fields.copy(data, rest_at..end)
 }
 
-/// MLINE のフィールド（決定 0040）。値を表の並びで読み、DWG の並びで書く。頂点と線とセクションの数は、表の値の数に
+/// MLINE のフィールド（決定 0040）。値を表の並びで読み、DWG の並びで書く。頂点と線とパラメーターの数は、表の値の数に
 /// 合わなければ受け付けない
 fn mline(fields: &mut BitWriter, object: &Object) -> Option<()> {
     let mut values = Cursor(

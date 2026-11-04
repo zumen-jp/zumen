@@ -250,7 +250,7 @@ impl Lifter<'_> {
         object: &Object,
     ) -> Lifted<(u64, Option<usize>, BTreeMap<u64, u64>)> {
         let kind = object.kind.as_slice();
-        // DWG の表はセクションの 100 を持たないので、所有者（初めの 330）の後から読む
+        // DWG の表はサブクラスマーカーの 100 を持たないので、所有者（初めの 330）の後から読む
         let start = object
             .values
             .iter()

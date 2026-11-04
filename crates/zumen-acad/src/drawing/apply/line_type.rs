@@ -110,7 +110,7 @@ pub(super) fn write(
         }
         return Some(());
     }
-    // R13 からの DXF（セクションの 100 を持つ）と DWG は、要素ごとに形と文字のフラグ（74）を書く
+    // R13 からの DXF（サブクラスマーカーの 100 を持つ）と DWG は、要素ごとに形と文字のフラグ（74）を書く
     let flagged = matches!(target, Target::Dwg(_))
         || values.iter().any(|value| matches!(value.code, 74 | 100));
     values.retain(|value| !DASH_CODES.contains(&value.code));
@@ -145,7 +145,7 @@ fn naming(object: &Object) -> bool {
         || (object.section == Section::Tables && object.kind == b"LAYER")
 }
 
-/// DXF の図形と画層のレコードでないオブジェクト（多重線のスタイルなど）が、線種を名前（6）で指すか
+/// DXF の図形と画層のレコードでないオブジェクト（マルチラインスタイルなど）が、線種を名前（6）で指すか
 pub(super) fn named_elsewhere(
     db: &AcadDb,
     name: &[u8],

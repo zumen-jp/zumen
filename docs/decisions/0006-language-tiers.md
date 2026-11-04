@@ -31,7 +31,7 @@
 | --- | --- | --- |
 | 1 | Rust、TS・JS、Python、.NET、C・C++、CLI・MCP | その言語らしいパッケージを作り、PR ごとに適合テストを走らせ、コアと同じ日に公開する |
 | 2 | Java・Kotlin、Swift、Go、Dart、VBA | 生成したパッケージを作り、適合テストを毎晩走らせる |
-| 3 | Ruby、PHP、R、Julia、MATLAB、Fortran、Delphi、AutoLISP、PowerShell など | C ABI・wasm・CLI・HTTP を使う手順とサンプルを用意し、共通のテスト装置で確かめる |
+| 3 | Ruby、PHP、R、Julia、MATLAB、Fortran、Delphi、AutoLISP、PowerShell など | C ABI・wasm・CLI・HTTP を使う手順とサンプルを用意し、共通のテストハーネスで確かめる |
 
 上の Tier へ上げる条件は、次の 3 つ。これを、言語を足す PR のチェックリストにする。
 

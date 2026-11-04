@@ -475,7 +475,7 @@ pub fn render_header(boundary: &Boundary) -> String {
         "    uint8_t *ptr;\n",
         "    size_t len;\n",
         "} zm_buf;\n\n",
-        "/* Arrow の C Data Interface と C Stream Interface。Arrow の文書が勧めるとおりの定義とタグ\n",
+        "/* Arrow の C Data Interface と C Stream Interface。Arrow の文書が勧めるとおりの定義とガード\n",
         " * https://arrow.apache.org/docs/format/CDataInterface.html\n",
         " * https://arrow.apache.org/docs/format/CStreamInterface.html */\n",
         "#ifndef ARROW_C_DATA_INTERFACE\n",

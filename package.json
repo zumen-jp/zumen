@@ -8,7 +8,7 @@
   },
   "scripts": {
     "lint:text": "textlint \"**/*.md\" \".github/**/*.md\" && textlint --config .textlintrc.code.yml \"**/*.{rs,toml,yml}\" \".cargo/**/*.toml\" \".github/**/*.yml\"",
-    "fix:text": "textlint --fix \"**/*.md\" \".github/**/*.md\" && textlint --fix --config .textlintrc.code.yml \"**/*.{rs,toml,yml}\" \".cargo/**/*.toml\" \".github/**/*.yml\""
+    "fix:text": "textlint --fix \"**/*.md\" \".github/**/*.md\""
   },
   "devDependencies": {
     "textlint": "15.8.0",

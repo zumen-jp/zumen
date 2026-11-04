@@ -2170,7 +2170,7 @@ class RemoveTextStyleEdit extends Message {
   set hash(String? value) => writeField('hash', value);
 }
 
-/// 線種の名前・説明・線と間の長さの列のうち、書いたものだけを変える（決定 0164）。DXF は、名前を変えると、要素・レイヤと今の線種（$CELTYPE）も新しい名前で指す。多重線のスタイルなどの図形でないオブジェクトが名前で指す線種の名前は変えられない。形か文字を添える線種と DWG の線種は、列の要素の数を変えられない。マイナーバージョン 26 から
+/// 線種の名前・説明・線と間の長さの列のうち、書いたものだけを変える（決定 0164）。DXF は、名前を変えると、要素・レイヤと今の線種（$CELTYPE）も新しい名前で指す。マルチラインスタイルなどの図形でないオブジェクトが名前で指す線種の名前は変えられない。形か文字を添える線種と DWG の線種は、列の要素の数を変えられない。マイナーバージョン 26 から
 class LineTypeEdit extends Message {
   /// 読んだ JSON のオブジェクトを包む
   LineTypeEdit.fromJson(super.json);
@@ -2228,7 +2228,7 @@ class AddLineTypeEdit extends Message {
   set pattern(List<double>? value) => writeField('pattern', value);
 }
 
-/// 線種を除く（決定 0164）。要素・レイヤ・多重線のスタイルなどのほかのオブジェクト・今の線種（$CELTYPE）が指すものと、ByLayer・ByBlock・Continuous・外部参照に依るものは除けない。同じ apply で足す・変える要素とレイヤが指すものも除けない。後ろにハンドルのない線種があれば、その ID が変わるので除けない。マイナーバージョン 26 から
+/// 線種を除く（決定 0164）。要素・レイヤ・マルチラインスタイルなどのほかのオブジェクト・今の線種（$CELTYPE）が指すものと、ByLayer・ByBlock・Continuous・外部参照に依るものは除けない。同じ apply で足す・変える要素とレイヤが指すものも除けない。後ろにハンドルのない線種があれば、その ID が変わるので除けない。マイナーバージョン 26 から
 class RemoveLineTypeEdit extends Message {
   /// 読んだ JSON のオブジェクトを包む
   RemoveLineTypeEdit.fromJson(super.json);

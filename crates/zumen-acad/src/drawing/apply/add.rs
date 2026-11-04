@@ -457,7 +457,7 @@ impl Born {
         matches!(self.target, Target::Dwg(_))
     }
 
-    /// 図形に共通の値（DXF Reference「Common Group Codes for Entities」）。セクション・ペーパー空間のフラグ（`paper`
+    /// 図形に共通の値（DXF Reference「Common Group Codes for Entities」）。サブクラスマーカー・ペーパー空間のフラグ（`paper`
     /// なら 67 = 1）・レイヤ・線種・色・線幅・線種の倍率
     pub(super) fn entity(&self, layer: LayerId, style: &Style, paper: bool) -> Option<Vec<Value>> {
         let mut values = vec![text(100, "AcDbEntity")];
@@ -560,10 +560,10 @@ impl Born {
         Some(values)
     }
 
-    /// TEXT と ATTRIB（DXF Reference「TEXT」「ATTRIB」）の、文字のセクション（AcDbText）の値。高さの意味が `meaning`
+    /// TEXT と ATTRIB（DXF Reference「TEXT」「ATTRIB」）の、文字のサブクラス（AcDbText）の値。高さの意味が `meaning`
     /// のものに限る。位置合わせが左の基準線でなければ、11 を基点とし、10 も同じ点にする。10 は位置合わせから
     /// 決まる点で、読み直すときに使わず、AutoCAD は図面を開き直すと決め直す。垂直の位置合わせ（TEXT は 73、
-    /// ATTRIB は 74）は、後のセクションに書くので、値を返す
+    /// ATTRIB は 74）は、後のサブクラスに書くので、値を返す
     fn lettering<P>(
         &self,
         values: &mut Vec<Value>,

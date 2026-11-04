@@ -567,7 +567,7 @@ fn mtexts_are_moved_rewritten_and_reframed() {
         "{text}"
     );
     assert!(text.contains(" 11\n0.0\n 21\n1.0\n"), "{text}");
-    // 元のセクションの内容は、変えていないのでそのまま
+    // 元の区切り（3）の内容は、変えていないのでそのまま
     assert!(text.contains(&format!("  3\n{long}\n  1\nend\n")));
 }
 
@@ -1163,7 +1163,7 @@ fn elements_are_added_with_new_handles() {
             .all(|e| e.layer == before[0].layer)
     );
     // ハンドルは $HANDSEED（20）から順に付け、$HANDSEED を最後のハンドルの次に進める。サブクラスマーカー（100）を
-    // 持たない表には、セクションを書かない
+    // 持たない表には、サブクラスマーカーを書かない
     let text = String::from_utf8(written).unwrap();
     assert!(text.contains("  0\nLINE\n  5\n20\n  8\n0\n 62\n3\n 10\n0.0\n"));
     assert!(text.contains("  0\nTEXT\n  5\n24\n"));
@@ -2355,7 +2355,7 @@ fn duplicate_handles_in_definitions_and_tables_reject_apply() {
     }
 }
 
-/// 2 つのレイヤと 2 つの線種を持ち、サブクラスマーカー（100）と XDATA を持つ LINE と、セクションを持たない CIRCLE を持つ
+/// 2 つのレイヤと 2 つの線種を持ち、サブクラスマーカー（100）と XDATA を持つ LINE と、サブクラスマーカーを持たない CIRCLE を持つ
 /// R2004 の DXF
 #[cfg(test)]
 fn styled() -> Vec<u8> {
@@ -2514,7 +2514,7 @@ fn restyles_change_only_the_named_style_fields_and_keep_the_shape() {
     assert_eq!(applied[0].hash, Some(line_id.hash));
     assert_eq!(applied[1].hash, Some(circle_id.hash));
     assert_eq!(circle_id.id, circle.id);
-    // 変えたフィールドだけを AcDbEntity のセクションの中に書き、XDATA と形の値は元の書き方のまま残す
+    // 変えたフィールドだけを AcDbEntity のサブクラスの中に書き、XDATA と形の値は元の書き方のまま残す
     let text = String::from_utf8(written).unwrap();
     assert!(text.contains(
         "  0\nLINE\n  5\n1A\n100\nAcDbEntity\n  8\nWall\n  6\nDashed\n370\n35\n100\nAcDbLine\n 10\n0.0\n"

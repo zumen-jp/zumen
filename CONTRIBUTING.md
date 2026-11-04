@@ -37,7 +37,7 @@ cargo test --workspace
 cargo xtask codegen --check
 ```
 
-API の crate を変えたときは、wasm32 でも確かめてください。適合テストには Node.js 22 以降が要ります（[bindings/conformance/README.md](bindings/conformance/README.md)）。
+API の crate（`zumen-abi`）を変えたときは、wasm32 でも確かめてください。適合テストには Node.js 22 以降が要ります（[bindings/conformance/README.md](bindings/conformance/README.md)）。
 
 ```bash
 cargo clippy -p zumen-abi --target wasm32-unknown-unknown -- -D warnings
@@ -52,7 +52,7 @@ npm ci
 npm run lint:text
 ```
 
-辞書（`prh.yml`）の指摘の多くは、`npm run fix:text` で直せます（Markdown・ソースコード・設定）。
+Markdown の辞書（`prh.yml`）の指摘の多くは、`npm run fix:text` で直せます。ソースコードと設定は、文字列やテストのデータを書き換えないよう、指摘を見て手で直してください。
 
 診断の code を足すときは [catalog/README.md](catalog/README.md)、API の関数・op・フィールドを変えるときは [schema/README.md](schema/README.md) の手順に従ってください。
 

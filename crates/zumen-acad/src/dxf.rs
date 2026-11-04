@@ -599,7 +599,7 @@ fn unsafe_record(record: usize) -> Diagnostic {
         .at(Ref::at_record(record as u64))
 }
 
-/// 足したり除いたりすると、セクションのセクションが変わるレコードの種類
+/// 足したり除いたりすると、セクションの区切りが変わるレコードの種類
 fn structural(kind: &[u8]) -> bool {
     matches!(kind, b"SECTION" | b"ENDSEC" | b"EOF")
 }

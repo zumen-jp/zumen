@@ -26,7 +26,7 @@
 
 | リポジトリ | 公開 | 中身 |
 | --- | --- | --- |
-| `zumen` | 公開 | コア、境界、全言語のバインディングと適合テスト、表示エンジン、プレイグラウンド、文書と決定の記録、プロファイル（当面） |
+| `zumen` | 公開 | コア、API、全言語のバインディングと適合テスト、表示エンジン、プレイグラウンド、文書と決定の記録、プロファイル（当面） |
 | `.github` | 公開 | org の紹介、既定の貢献の案内・行動規範・セキュリティの方針、issue のフォーム |
 | `zumen-swift`・`zumen-go`・`zumen-php`・`homebrew-tap` | 公開・鏡 | `Package.swift`、wasm を埋め込んだ Go のモジュール、`composer.json`、CLI の Formula |
 | `examples` | 公開 | 公開されたパッケージだけで書いた連携例（Revit・AutoCAD・Rhino・Excel・Jw_cad・SketchUp・Unity・Web・Python） |

@@ -34,7 +34,7 @@ fn table(path: &PathBuf) -> AcadDb {
     }
 }
 
-/// 弧長寸法のフィールドを、符号と値の組で返す。DXF では 100 のセクションの後、DWG では最初の 13 から後とする。DWG では
+/// 弧長寸法のフィールドを、符号と値の組で返す。DXF では 100 のサブクラスマーカーの後、DWG では最初の 13 から後とする。DWG では
 /// ハンドルのストリームから読む名前（2・3）も後に置くので除く
 #[cfg(test)]
 fn arc_values(object: &Object, dwg: bool) -> Vec<(i16, Data)> {
@@ -73,7 +73,7 @@ fn same(a: &[(i16, Data)], b: &[(i16, Data)]) -> bool {
 }
 
 /// サンプルを作るスクリプト（xtask/autocad/samples.lsp）の 6 つの弧長寸法を、DWG からも DXF と同じ値で読む。共通のフィールドの
-/// 70・71 は、弧長寸法のフィールドより先に読む。DWG の値は 100 のセクションを持たない
+/// 70・71 は、弧長寸法のフィールドより先に読む。DWG の値は 100 のサブクラスマーカーを持たない
 #[test]
 fn autocad_arc_dimension_values_match_between_dwg_and_dxf() {
     for (dwg, dxf) in pairs() {
