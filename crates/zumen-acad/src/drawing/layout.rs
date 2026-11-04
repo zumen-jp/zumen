@@ -100,7 +100,7 @@ impl Lifter<'_> {
         if !empty {
             out.filled_layouts = id.0;
         }
-        // 中身のない用紙に足す要素は、レイアウトのブロックのレコードを所有者とし、ペーパー空間の印を付ける。
+        // 中身のない用紙に足す要素は、レイアウトのブロックのレコードを所有者とし、ペーパー空間のフラグを付ける。
         // 今のレイアウト（`*Paper_Space`）のものは ENTITIES の所に、ほかのレイアウトのものはそのブロックに置く
         let frame = match (record, mm) {
             (Some(record), Some(mm)) if empty => {
@@ -250,7 +250,7 @@ impl Lifter<'_> {
         object: &Object,
     ) -> Lifted<(u64, Option<usize>, BTreeMap<u64, u64>)> {
         let kind = object.kind.as_slice();
-        // DWG の表は区切りの 100 を持たないので、所有者（初めの 330）の後から読む
+        // DWG の表はサブクラスマーカーの 100 を持たないので、所有者（初めの 330）の後から読む
         let start = object
             .values
             .iter()
@@ -297,7 +297,7 @@ impl Lifter<'_> {
     }
 }
 
-/// LAYOUT の印刷の設定から、用紙の 1 単位の mm の数を決める（決定 0229）。尺度は、標準の尺度の印（最初の
+/// LAYOUT の印刷の設定から、用紙の 1 単位の mm の数を決める（決定 0229）。尺度は、標準の尺度のフラグ（最初の
 /// 70 の 16）があれば 147、なければ 142 ÷ 143 とし、印刷の単位（72）の mm を掛ける。尺度が正の有限の値で
 /// ないか、印刷の単位が画素か読めなければ、決めない
 pub(super) fn plot_mm(layout: &Object) -> Option<f64> {

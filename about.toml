@@ -18,7 +18,7 @@ accepted = [
 ignore-build-dependencies = true
 ignore-dev-dependencies = true
 
-# 本文を見分けられない crate は、ファイルを指して載せる。crate の版を上げてファイルが変わると、checksum が合わず、
+# 本文を見分けられない crate は、ファイルを指して載せる。crate のバージョンを上げてファイルが変わると、checksum が合わず、
 # cargo-about は警告を出して元の扱い（定型の文や標準の本文）に戻る。リリースのワークフローは、この警告で止まるので、
 # 中身を見て直す。
 

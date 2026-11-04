@@ -119,7 +119,7 @@ pub(crate) fn read_whole(
     None
 }
 
-/// 箱の欄を、北・東・標高の最小と最大にする
+/// 箱のフィールドを、北・東・標高の最小と最大にする
 fn corners(region: &PointcloudBox, cx: &mut Cx<'_>) -> Result<[[f64; 3]; 2], Failed> {
     let corner = |values: &[f64]| match values {
         [n, e, h] if [n, e, h].iter().all(|v| v.is_finite()) => Some([*n, *e, *h]),

@@ -1,4 +1,4 @@
-//! `boring` の op（#390）。ボーリング交換用データを読み、境界の形にする。
+//! `boring` の op（#390）。ボーリング交換用データを読み、API の形にする。
 
 use zumen_base::Cx;
 use zumen_crs::{HeightDatum as Datum, Realization};

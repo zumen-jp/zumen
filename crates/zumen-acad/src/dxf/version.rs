@@ -1,7 +1,7 @@
-//! DXF の版の変更（決定 0008）。いまは AC1012〜AC1032 から AC1009（R12）への変更だけを扱う。
+//! DXF のバージョンの変更（決定 0008）。いまは AC1012〜AC1032 から AC1009（R12）への変更だけを扱う。
 //!
 //! R12 が持たないセクション・表・図形の種類・グループ・コードのタグは書かず、診断で返す。
-//! サブクラスの印（100）、所有者への参照（330・360）、アプリケーションの組（102）、
+//! サブクラスマーカー（100）、所有者への参照（330・360）、アプリケーションの組（102）、
 //! 表のハンドル（TABLES の中の 5 と、105）は、R12 に置き換える先のない構造なので、黙って除く。
 //! 残すタグは、グループ・コードの行と改行を元のバイトのまま書く。
 //! 何を R12 が持つとしたかは推定で、`docs/formats/dxf.md` に記録した。
@@ -12,10 +12,10 @@ use zumen_sdk::{Codec, Error};
 
 const R12: &[u8] = b"AC1009";
 
-/// R12 に変えられる元の版の範囲（R13 から 2018 まで）
+/// R12 に変えられる元のバージョンの範囲（R13 から 2018 まで）
 const FROM: core::ops::RangeInclusive<&[u8]> = b"AC1012".as_slice()..=b"AC1032".as_slice();
 
-/// UTF-8 で書く最初の版（2007）
+/// UTF-8 で書く最初のバージョン（2007）
 const UTF8: &[u8] = b"AC1021";
 
 const SECTIONS: &[&[u8]] = &[b"HEADER", b"TABLES", b"BLOCKS", b"ENTITIES"];
@@ -54,7 +54,7 @@ const ENTITIES: &[&[u8]] = &[
 ];
 
 impl DxfFile {
-    /// 見出しの `$ACADVER` の値（前後の空白を除く）。なければ `None`
+    /// ヘッダーの `$ACADVER` の値（前後の空白を除く）。なければ `None`
     pub fn version(&self) -> Option<&[u8]> {
         self.records
             .iter()
@@ -69,8 +69,8 @@ impl DxfFile {
 }
 
 impl Dxf {
-    /// 版を `version`（`$ACADVER` の値）に変えて書く。元と同じ版なら [`Codec::write`] と同じ。
-    /// バイナリの DXF の版は変えない。扱えない組なら `dxf.version.unsupported` を返し、`out` には何も足さない
+    /// バージョンを `version`（`$ACADVER` の値）に変えて書く。元と同じバージョンなら [`Codec::write`] と同じ。
+    /// バイナリの DXF のバージョンは変えない。扱えない組なら `dxf.version.unsupported` を返し、`out` には何も足さない
     pub fn write_as(
         file: &DxfFile,
         version: &[u8],
@@ -81,7 +81,7 @@ impl Dxf {
         if from == version {
             return Dxf::write(file, out, cx);
         }
-        // バイナリの DXF の版の変更は、まだ扱わない（docs/formats/dxf.md）
+        // バイナリの DXF のバージョンの変更は、まだ扱わない（docs/formats/dxf.md）
         if version != R12 || !FROM.contains(&from) || file.is_binary() {
             cx.report(
                 Diagnostic::new(codes::DXF_VERSION_UNSUPPORTED)
@@ -105,7 +105,7 @@ impl Dxf {
 
 struct R12Writer<'a, 'c> {
     file: &'a DxfFile,
-    /// 元が UTF-8 の版なら、ASCII でない文字を `\U+XXXX` にする
+    /// 元が UTF-8 のバージョンなら、ASCII でない文字を `\U+XXXX` にする
     unicode: bool,
     out: &'a mut Vec<u8>,
     cx: &'a mut Cx<'c>,
@@ -174,7 +174,7 @@ impl R12Writer<'_, '_> {
         Ok(())
     }
 
-    /// 見出し。R12 が持たないグループ・コードの値を持つ変数は、変数ごと書かない
+    /// ヘッダー。R12 が持たないグループ・コードの値を持つ変数は、変数ごと書かない
     fn header(&mut self, index: usize, record: &Record) {
         let file = self.file;
         let mut handling = false;

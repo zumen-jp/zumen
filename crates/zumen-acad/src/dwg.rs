@@ -1,13 +1,13 @@
 //! DWG（Open Design Specification for .dwg files 5.4.1）。R2000（AC1015）、R2004（AC1018）、
-//! R2010（AC1024）、R2013（AC1027）、R2018（AC1032）を読む。R2004 から後は、入れ物
+//! R2010（AC1024）、R2013（AC1027）、R2018（AC1032）を読む。R2004 から後は、コンテナー
 //! （4「R2004 DWG FILE FORMAT ORGANIZATION」）を展開してから読む。R2007（AC1021）は読めない。
 //!
-//! 読むのは、ファイルの見出し（3「R13-R15 DWG FILE FORMAT ORGANIZATION」）と、オブジェクトの地図
-//! （23「OBJECT MAP」）と、地図が指すオブジェクトの区切りと、クラス（10「Data section AcDb:Classes」）。オブジェクトの中身は、[`DwgFile::objects`] で
+//! 読むのは、ファイルのヘッダー（3「R13-R15 DWG FILE FORMAT ORGANIZATION」）と、オブジェクトのマップ
+//! （23「OBJECT MAP」）と、マップが指すオブジェクトのセクションと、クラス（10「Data section AcDb:Classes」）。オブジェクトの中身は、[`DwgFile::objects`] で
 //! 系統で共有するオブジェクトの表に置く（決定 0023）。
 //!
 //! 書くときは、元のバイトをそのまま並べる。R2000 は、[`DwgTxn`] でオブジェクトのデータを置き換えられ（決定 0028）、[`DwgFile::write_back`] で共有の表の変更を書き戻せる（決定 0029）。
-//! R2004 も、[`DwgTxn`] でオブジェクトのデータを置き換え、除き、足せ（決定 0071）、図形・表のレコード・図形でないオブジェクトの値の一部と、図形の除きと足しと、見出しの変数を書き戻せる（決定 0072・0075〜0082）。R2010 から後も、[`DwgTxn`] でオブジェクトのデータを置き換え、除き、足せ（決定 0083）、見出しの変数を変えられ（決定 0084）、図形・表のレコード・図形でないオブジェクトの値の一部の変更と、図形の除きと一部の種類の足しを書き戻せる（決定 0085〜0104）。
+//! R2004 も、[`DwgTxn`] でオブジェクトのデータを置き換え、除き、足せ（決定 0071）、図形・表のレコード・図形でないオブジェクトの値の一部と、図形の削除と追加と、ヘッダーの変数を書き戻せる（決定 0072・0075〜0082）。R2010 から後も、[`DwgTxn`] でオブジェクトのデータを置き換え、除き、足せ（決定 0083）、ヘッダーの変数を変えられ（決定 0084）、図形・表のレコード・図形でないオブジェクトの値の一部の変更と、図形の削除と一部の種類の追加を書き戻せる（決定 0085〜0104）。
 
 use core::ops::Range;
 
@@ -45,37 +45,37 @@ const COMMON_OBJECT: SpecRef = SpecRef {
     section: "20.1 Common non-entity object format",
 };
 
-/// 見出しの終わりの印
+/// ヘッダーの終わりのマーカー
 const HEADER_SENTINEL: [u8; 16] = [
     0x95, 0xA0, 0x4E, 0x28, 0x99, 0x82, 0x1A, 0xE5, 0x5E, 0x41, 0xE0, 0x5F, 0x9D, 0x3A, 0x4D, 0x00,
 ];
 
-/// クラスの区切りの始まりの印
+/// クラスのセクションの始まりのマーカー
 const CLASSES_START: [u8; 16] = [
     0x8D, 0xA1, 0xC4, 0xB8, 0xC4, 0xA9, 0xF8, 0xC5, 0xC0, 0xDC, 0xF4, 0x5F, 0xE7, 0xCF, 0xB6, 0x8A,
 ];
 
-/// クラスの区切りの終わりの印
+/// クラスのセクションの終わりのマーカー
 const CLASSES_END: [u8; 16] = [
     0x72, 0x5E, 0x3B, 0x47, 0x3B, 0x56, 0x07, 0x3A, 0x3F, 0x23, 0x0B, 0xA0, 0x18, 0x30, 0x49, 0x75,
 ];
 
-/// クラスの区切りの番号
+/// クラスのセクションの番号
 const CLASSES_NUMBER: u8 = 1;
 
-/// 区切りの記録が始まる位置
+/// セクションの記録が始まる位置
 const LOCATORS_START: usize = 0x19;
 
-/// 区切りの記録の大きさ
+/// セクションの記録の大きさ
 const LOCATOR_SIZE: usize = 9;
 
-/// オブジェクトの地図の区切りの番号
+/// オブジェクトのマップのセクションの番号
 const OBJECT_MAP_NUMBER: u8 = 2;
 
 /// オブジェクトの CRC の初めの値
 const OBJECT_CRC_SEED: u16 = 0xC0C1;
 
-/// R2004 の入れ物に要る区切り
+/// R2004 のコンテナーに要るセクション
 const R2004_SECTIONS: [&[u8]; 4] = [
     b"AcDb:Header",
     b"AcDb:Classes",
@@ -87,21 +87,21 @@ const R2004_SECTIONS: [&[u8]; 4] = [
 #[derive(Clone, Copy, Debug)]
 pub struct Dwg;
 
-/// 読んだ DWG。元のバイト列と、その上のオブジェクトの区切り
+/// 読んだ DWG。元のバイト列と、その上のオブジェクトのセクション
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DwgFile {
     src: Vec<u8>,
     release: Release,
     code_page: u16,
     locators: Vec<Locator>,
-    /// R2004 の入れ物の区切り。R2000 は `None`
+    /// R2004 のコンテナーのセクション。R2000 は `None`
     container: Option<r2004::Container>,
     classes: Vec<Class>,
-    /// R2000 は `src` の中、R2004 は `AcDb:AcDbObjects` の区切りの中の位置
+    /// R2000 は `src` の中、R2004 は `AcDb:AcDbObjects` のセクションの中の位置
     entries: Vec<Entry>,
 }
 
-/// 読める版。ビット列の欄の違いを決める。後の版ほど大きい
+/// 読めるバージョン。ビット列のフィールドの違いを決める。後のバージョンほど大きい
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum Release {
     /// AC1015
@@ -116,7 +116,7 @@ pub(super) enum Release {
     R2018,
 }
 
-/// クラスの区切りの 1 つのクラス。型が 500 以上のオブジェクトは、番号が型と同じクラスで決まる
+/// クラスのセクションの 1 つのクラス。型が 500 以上のオブジェクトは、番号が型と同じクラスで決まる
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Class {
     number: u16,
@@ -126,10 +126,10 @@ struct Class {
     entity: bool,
 }
 
-/// 見出しの区切りの記録（ODS 5.4.1 の 3.2.6）
+/// ヘッダーのセクションの記録（ODS 5.4.1 の 3.2.6）
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Locator {
-    /// 番号。0 は見出しの変数、1 はクラス、2 はオブジェクトの地図
+    /// 番号。0 はヘッダーの変数、1 はクラス、2 はオブジェクトのマップ
     pub number: u8,
     /// ファイルの先頭からの位置
     pub seeker: u32,
@@ -137,21 +137,21 @@ pub struct Locator {
     pub size: u32,
 }
 
-/// オブジェクトの地図が指す 1 つのオブジェクト
+/// オブジェクトのマップが指す 1 つのオブジェクト
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Entry {
     handle: u64,
     /// 大きさ（MS）から CRC の終わりまで
     span: Range<usize>,
-    /// 大きさ（MS）の後の、オブジェクトのデータ。R2010 からは、ハンドルの流れの大きさ（MC）の後
+    /// 大きさ（MS）の後の、オブジェクトのデータ。R2010 からは、ハンドルのストリームの大きさ（MC）の後
     data: Range<usize>,
-    /// R2010 からの、データの中のハンドルの流れが始まるビット
+    /// R2010 からの、データの中のハンドルのストリームが始まるビット
     handles: Option<usize>,
     type_code: u16,
 }
 
 impl DwgFile {
-    /// ファイルを、予算と中断を確かめながら複製する。展開した区切りも保つ
+    /// ファイルを、予算と中断を確かめながら複製する。展開したセクションも保つ
     pub fn snapshot(&self, cx: &mut Cx<'_>) -> Result<Self, Error> {
         use crate::snapshot::{bytes, check};
         let src = bytes(&self.src, cx)?;
@@ -203,23 +203,23 @@ impl DwgFile {
         })
     }
 
-    /// 版の文字列（`AC1015`）
+    /// バージョンの文字列（`AC1015`）
     pub fn version(&self) -> &[u8] {
         self.src.get(..6).unwrap_or_default()
     }
 
-    /// 見出しの `$DWGCODEPAGE` の値
+    /// ヘッダーの `$DWGCODEPAGE` の値
     pub fn code_page(&self) -> u16 {
         self.code_page
     }
 
-    /// 見出しの区切りの記録
+    /// ヘッダーのセクションの記録
     pub fn locators(&self) -> &[Locator] {
         &self.locators
     }
 
     /// `record` 番目のオブジェクトのデータ（大きさ（MS）の後から CRC の前まで）。[`DwgTxn::set_data`] に
-    /// 渡す形と同じ。R2010 からは、ハンドルの流れの大きさ（MC）から始まる（決定 0083）
+    /// 渡す形と同じ。R2010 からは、ハンドルのストリームの大きさ（MC）から始まる（決定 0083）
     pub fn object_data(&self, record: usize) -> Option<&[u8]> {
         let entry = self.entries.get(record)?;
         let mut start = entry.span.start;
@@ -239,7 +239,7 @@ impl DwgFile {
         }
     }
 
-    /// 見出しの変数の区切りを含むバイト列と、区切りの範囲
+    /// ヘッダーの変数のセクションを含むバイト列と、セクションの範囲
     fn header_section(&self) -> Option<(&[u8], Range<usize>)> {
         match &self.container {
             Some(container) => {
@@ -373,7 +373,7 @@ impl Codec for Dwg {
 
     fn write(file: &DwgFile, out: &mut Vec<u8>, cx: &mut Cx) -> Result<(), Error> {
         cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
-        // R2004 の入れ物は、区切りを置き換えたときだけ組み直す（決定 0070）
+        // R2004 のコンテナーは、セクションを置き換えたときだけ組み直す（決定 0070）
         match &file.container {
             Some(container) if container.replaced() => {
                 let rebuilt = r2004::write(&file.src, container)
@@ -386,8 +386,8 @@ impl Codec for Dwg {
     }
 }
 
-/// R2004 の入れ物を読み、展開した区切りからクラスとオブジェクトの地図を読む（決定 0026）。
-/// R2010 からも同じ入れ物を使う（決定 0027）
+/// R2004 のコンテナーを読み、展開したセクションからクラスとオブジェクトのマップを読む（決定 0026）。
+/// R2010 からも同じコンテナーを使う（決定 0027）
 fn read_r2004(src: &[u8], release: Release, cx: &mut Cx) -> Result<DwgFile, Error> {
     let container = r2004::read(src, cx)?;
     let mut sections = [&[][..]; 4];
@@ -412,7 +412,7 @@ fn read_r2004(src: &[u8], release: Release, cx: &mut Cx) -> Result<DwgFile, Erro
     })
 }
 
-/// 見出しのコード・ページと区切りの記録を読み、CRC と終わりの印を確かめる
+/// ヘッダーのコード・ページとセクションの記録を読み、CRC と終わりのマーカーを確かめる
 fn header(src: &[u8], cx: &mut Cx) -> Result<(u16, Vec<Locator>), Error> {
     let code_page = le16(src, 0x13).ok_or_else(|| invalid(cx, "header", 0..src.len()))?;
     let count = le32(src, 0x15).ok_or_else(|| invalid(cx, "header", 0..src.len()))?;
@@ -446,7 +446,7 @@ fn header(src: &[u8], cx: &mut Cx) -> Result<(u16, Vec<Locator>), Error> {
     Ok((code_page, locators))
 }
 
-/// `start` から始まるクラスの区切りを読む
+/// `start` から始まるクラスのセクションを読む
 fn classes(src: &[u8], start: usize, release: Release, cx: &mut Cx) -> Result<Vec<Class>, Error> {
     let span = start..src.len();
     if src.get(start..start.saturating_add(16)) != Some(&CLASSES_START[..]) {
@@ -455,8 +455,8 @@ fn classes(src: &[u8], start: usize, release: Release, cx: &mut Cx) -> Result<Ve
     let size = le32(src, start + 16)
         .and_then(|size| usize::try_from(size).ok())
         .ok_or_else(|| invalid(cx, "classes", span.clone()))?;
-    // R2010 からは、大きさの RL の後に上位の RL があることがある（同じ版でも、ない図面がある）。
-    // 終わりの印が、データと CRC の後にある方をとる
+    // R2010 からは、大きさの RL の後に上位の RL があることがある（同じバージョンでも、ない図面がある）。
+    // 終わりのマーカーが、データと CRC の後にある方をとる
     let ends_at = |data_at: usize| {
         let crc_at = data_at.saturating_add(size);
         src.get(crc_at + 2..crc_at + 18) == Some(&CLASSES_END[..])
@@ -484,7 +484,7 @@ fn classes(src: &[u8], start: usize, release: Release, cx: &mut Cx) -> Result<Ve
     let mut bits = Bits::with_release(data, release);
     // 大きさはバイトで数えるので、終わりの 8 ビットより短い余りは埋め草
     let mut end = size.saturating_mul(8);
-    // R2010 からは、データの初めに、文字列の流れの終わりまでのビットの数（RL）がある
+    // R2010 からは、データの初めに、文字列のストリームの終わりまでのビットの数（RL）がある
     if release >= Release::R2010 {
         let strings_end = le32(data, 0)
             .and_then(|bits| usize::try_from(bits).ok())
@@ -510,7 +510,7 @@ fn classes(src: &[u8], start: usize, release: Release, cx: &mut Cx) -> Result<Ve
     Ok(classes)
 }
 
-/// 1 つのクラス: 番号・版・アプリケーションの名前・C++ の名前・DXF の名前・ゾンビだったか・
+/// 1 つのクラス: 番号・バージョン・アプリケーションの名前・C++ の名前・DXF の名前・ゾンビだったか・
 /// itemclassid
 fn class(bits: &mut Bits, release: Release) -> Option<Class> {
     let number = u16::try_from(bits.bs()?).ok()?;
@@ -520,7 +520,7 @@ fn class(bits: &mut Bits, release: Release) -> Option<Class> {
     let name = bits.text()?;
     bits.bit()?;
     let entity = bits.bs()? == 0x1F2;
-    // R2004 からは、オブジェクトの数（BL）・版（BL）・保守の版（BL）・不明な 2 つの BL が続く
+    // R2004 からは、オブジェクトの数（BL）・バージョン（BL）・保守のバージョン（BL）・不明な 2 つの BL が続く
     if release >= Release::R2004 {
         for _ in 0..5 {
             bits.bl()?;
@@ -533,7 +533,7 @@ fn class(bits: &mut Bits, release: Release) -> Option<Class> {
     })
 }
 
-/// 見出しの CRC に重ねる値。区切りの記録の数で決まる
+/// ヘッダーの CRC に重ねる値。セクションの記録の数で決まる
 fn header_crc_mask(count: usize) -> u16 {
     match count {
         3 => 0xA598,
@@ -544,7 +544,7 @@ fn header_crc_mask(count: usize) -> u16 {
     }
 }
 
-/// `src` の `range` にあるオブジェクトの地図を読み、地図が指す `objects` の中のオブジェクトの区切りを並べる
+/// `src` の `range` にあるオブジェクトのマップを読み、マップが指す `objects` の中のオブジェクトのセクションを並べる
 fn object_map(
     src: &[u8],
     range: Range<usize>,
@@ -556,7 +556,7 @@ fn object_map(
     let mut entries = Vec::new();
     let mut pos = start;
     loop {
-        // 区切りの大きさは上位のバイトから並び、大きさの 2 バイトを含む（推定）
+        // セクションの大きさは上位のバイトから並び、大きさの 2 バイトを含む（推定）
         let size = be16(src, pos).ok_or_else(|| invalid(cx, "object-map", pos..end))?;
         let size = usize::from(size);
         let body = pos + 2..pos + size;
@@ -572,7 +572,7 @@ fn object_map(
             break;
         }
         let section = src.get(body.clone()).unwrap_or_default();
-        // ハンドルと位置の差分は、区切りごとに 0 から数える
+        // ハンドルと位置の差分は、セクションごとに 0 から数える
         let mut handle: u64 = 0;
         let mut location: i64 = 0;
         let mut at = 0;
@@ -595,7 +595,7 @@ fn object_map(
     Ok(entries)
 }
 
-/// `offset` から始まるオブジェクトの区切りと型を読み、CRC を確かめる
+/// `offset` から始まるオブジェクトのセクションと型を読み、CRC を確かめる
 fn entry(
     src: &[u8],
     handle: u64,
@@ -607,8 +607,8 @@ fn entry(
     let size = modular_short(src, &mut pos)
         .and_then(|size| usize::try_from(size).ok())
         .ok_or_else(|| invalid(cx, "object", offset..src.len()))?;
-    // R2010 からは、大きさの後に、ハンドルの流れのビットの数（MC）がある。ハンドルの流れは
-    // データの終わりにある（試料の DWG と DXF の比較で確かめた）
+    // R2010 からは、大きさの後に、ハンドルのストリームのビットの数（MC）がある。ハンドルのストリームは
+    // データの終わりにある（サンプルの DWG と DXF の比較で確かめた）
     let handles = if release >= Release::R2010 {
         let bits = modular_char(src, &mut pos, false)
             .and_then(|bits| usize::try_from(bits).ok())

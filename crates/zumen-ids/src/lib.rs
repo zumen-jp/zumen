@@ -1,6 +1,6 @@
 //! IDS（buildingSMART International の Information Delivery Specification 1.0）を読み、建物モデルで照合する（決定 0207・0217）。
 //!
-//! IDS はプロファイルに写さず、照合の入力としてそのまま読む。facet は建物モデルの成分で確かめ、成分にない IFC の属性は、
+//! IDS はプロファイルに写さず、照合の入力としてそのまま読む。facet は建物モデルのコンポーネントで確かめ、コンポーネントにない IFC の属性は、
 //! 呼び手が渡す [`Lookup`] で引く（`zumen-ifc` が EXPRESS で引く）。この crate は IFC を知らない。
 
 mod check;
@@ -55,7 +55,7 @@ impl Specification {
         self.identifier.as_deref()
     }
 
-    /// 対象の IFC の版（`IFC2X3`・`IFC4`・`IFC4X3_ADD2`）
+    /// 対象の IFC のバージョン（`IFC2X3`・`IFC4`・`IFC4X3_ADD2`）
     pub fn versions(&self) -> &[String] {
         &self.versions
     }

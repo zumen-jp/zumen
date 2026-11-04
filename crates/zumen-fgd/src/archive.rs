@@ -1,7 +1,7 @@
-//! 基盤地図情報ダウンロードデータの配布の書庫（ZIP、ファイル仕様書 4.1 節、決定 0251）。
+//! 基盤地図情報ダウンロードデータの配布のアーカイブ（ZIP、ファイル仕様書 4.1 節、決定 0251）。
 //!
-//! 書庫の中の `FG-GML-` で始まる `.xml` の項目を基盤地図情報の GML として読み、1 つの地理の領域モデルにまとめる。
-//! 全項目の書庫が提供クラスごとの書庫を入れていても読めるよう、`FG-GML-` で始まる `.zip` の項目は 1 段だけ開く。
+//! アーカイブの中の `FG-GML-` で始まる `.xml` の項目を基盤地図情報の GML として読み、1 つの地理の領域モデルにまとめる。
+//! 全項目のアーカイブが提供クラスごとのアーカイブを入れていても読めるよう、`FG-GML-` で始まる `.zip` の項目は 1 段だけ開く。
 
 use zumen_base::{Diagnostic, Kind, codes};
 use zumen_geo::GeoModel;
@@ -10,7 +10,7 @@ use zumen_zip::Archive;
 
 use crate::Fgd;
 
-/// 書庫の判定の規則。中の項目の名前（「基盤地図情報データのファイル名について」の `FG-GML-…`）で、ほかの ZIP の形式と
+/// アーカイブの判定の規則。中の項目の名前（「基盤地図情報データのファイル名について」の `FG-GML-…`）で、ほかの ZIP の形式と
 /// 分ける
 pub const ARCHIVE: &[Signature] = &[Signature::ZipName {
     prefixes: &[PREFIX.as_bytes()],
@@ -20,8 +20,8 @@ pub const ARCHIVE: &[Signature] = &[Signature::ZipName {
 /// 項目の名前の始まり
 const PREFIX: &str = "FG-GML-";
 
-/// 書庫を読み、中の GML を 1 つの地理の領域モデルにまとめる。地物の ID は、項目の名前と `#` と、GML の中の ID
-/// （`FG-GML-533945-RdEdg-20250801-0001.xml#K1_1` など）。入れ子の書庫の項目は、外の項目の名前と `/` でつなぐ
+/// アーカイブを読み、中の GML を 1 つの地理の領域モデルにまとめる。地物の ID は、項目の名前と `#` と、GML の中の ID
+/// （`FG-GML-533945-RdEdg-20250801-0001.xml#K1_1` など）。入れ子のアーカイブの項目は、外の項目の名前と `/` でつなぐ
 pub fn lift_archive(src: &[u8], cx: &mut Cx) -> Result<GeoModel, Error> {
     cx.check(Kind::InputBytes, src.len() as u64)?;
     let archive = zumen_zip::read(src, cx)?;
@@ -63,7 +63,7 @@ pub fn lift_archive(src: &[u8], cx: &mut Cx) -> Result<GeoModel, Error> {
     Ok(model)
 }
 
-/// 書庫の中の GML の項目の名前とバイト列。`FG-GML-` で始まらない項目は診断する
+/// アーカイブの中の GML の項目の名前とバイト列。`FG-GML-` で始まらない項目は診断する
 fn collect(
     archive: &Archive<'_>,
     outer: &str,

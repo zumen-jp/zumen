@@ -1,6 +1,6 @@
 //! XYZ（台帳の `xyz`、座標と属性を区切って並べた点群のテキスト）を読み、点群の領域モデル（決定 0232）に移す。
 //!
-//! 決まった仕様はないので、行ごとの数の列を推定で読む（`docs/formats/xyz.md`）。見分ける印がないので、判定の
+//! 決まった仕様はないので、行ごとの数の列を推定で読む（`docs/formats/xyz.md`）。見分けるマーカーがないので、判定の
 //! 規則を持たず、`open` で形式を名指したときだけ読む。
 
 use zumen_base::{Diagnostic, Kind, Ref, codes};
@@ -45,7 +45,7 @@ impl Codec for Xyz {
 
     const FORMAT: &'static str = "xyz";
 
-    /// 見分ける印はない（決定 0232）
+    /// 見分けるマーカーはない（決定 0232）
     const SIGNATURES: &'static [Signature] = &[];
 
     fn read(src: &[u8], cx: &mut Cx) -> Result<XyzFile, Error> {

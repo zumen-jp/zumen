@@ -1,4 +1,4 @@
-﻿// 適合試験の C++ の側。包み（include/zumen.hpp）で境界の関数を呼び、シーンの blob を zumen::Scene で読む。
+﻿// 適合テストの C++ の側。ラッパー（include/zumen.hpp）で API の関数を呼び、シーンの blob を zumen::Scene で読む。
 // tests/conformance.rs が、bindings/conformance の組の手順をここに渡し、応答のハッシュを hashes.txt と比べる（決定 0198）
 
 #include <cstddef>
@@ -10,7 +10,7 @@
 
 namespace {
 
-// 1 つの試験の組の、セッションと直前の結果
+// 1 つのテストの組の、セッションと直前の結果
 struct Engine {
     zumen::Session session;
     zumen::Bytes output;
@@ -18,7 +18,7 @@ struct Engine {
 
 } // namespace
 
-// シーンを読み手で読んで数えたもの
+// シーンをリーダーで読んで数えたもの
 struct zumen_cpp_scene_counts {
     std::uint32_t major;
     std::uint32_t sections;
@@ -28,7 +28,7 @@ struct zumen_cpp_scene_counts {
     std::uint64_t point_xy;
     std::uint64_t glyph_xy;
     std::uint64_t line_and_face_xy;
-    // text_strings の行のうち、strings の区画から引けなかったもの
+    // text_strings の行のうち、strings のセクションから引けなかったもの
     std::uint64_t bad_texts;
 };
 

@@ -2,7 +2,7 @@
  * 元は schema/boundary.toml で、`cargo xtask codegen` で作り直す。 */
 
 /*
- * zumen の境界（決定 0012）。
+ * zumen の API（決定 0012）。
  *
  * - 文字列は UTF-8。要求と応答は JSON で、形は schema/messages.json にある
  * - 入力のバッファーは呼び出しの間だけ借りる。コアが返したバッファーは zm_free で返す
@@ -27,9 +27,9 @@ extern "C" {
 #define ZM_CALL
 #endif
 
-/* ABI の大版。zm_abi_version が返す */
+/* ABI のメジャーバージョン。zm_abi_version が返す */
 #define ZM_ABI_VERSION 1
-/* メッセージのスキーマの版。大版は要求と応答の v、小版は capabilities が返す */
+/* メッセージのスキーマのバージョン。メジャーバージョンは要求と応答の v、マイナーバージョンは capabilities が返す */
 #define ZM_SCHEMA_VERSION_MAJOR 1
 #define ZM_SCHEMA_VERSION_MINOR 63
 
@@ -55,7 +55,7 @@ typedef struct zm_buf {
     size_t len;
 } zm_buf;
 
-/* Arrow の C Data Interface と C Stream Interface。Arrow の文書が勧めるとおりの定義と目印
+/* Arrow の C Data Interface と C Stream Interface。Arrow の文書が勧めるとおりの定義とガード
  * https://arrow.apache.org/docs/format/CDataInterface.html
  * https://arrow.apache.org/docs/format/CStreamInterface.html */
 #ifndef ARROW_C_DATA_INTERFACE
@@ -105,7 +105,7 @@ struct ArrowArrayStream {
 
 #endif /* ARROW_C_STREAM_INTERFACE */
 
-/* ABI の大版を返す。この関数の形は変えない */
+/* ABI のメジャーバージョンを返す。この関数の形は変えない */
 uint32_t ZM_CALL zm_abi_version(void);
 
 /*

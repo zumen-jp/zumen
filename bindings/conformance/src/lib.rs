@@ -1,12 +1,12 @@
-//! 言語に依存しない適合試験（決定 0012）。
+//! 言語に依存しない適合テスト（決定 0012）。
 //!
-//! 試験の組（`cases/*.json`）を、境界のどの形・どの言語の結合でも同じように流し、状態と、応答の値
+//! テストの組（`cases/*.json`）を、API のどの形態・どの言語のバインディングでも同じように流し、状態と、応答の値
 //! （JSON Pointer で指す）を確かめる。あわせて、応答とバイナリの結果のハッシュ（SHA-256）の一覧を作る。
 //! 一覧は `hashes.txt` と一致しなければならない（決定 0007）。
 //!
 //! この crate は、Rust の 3 つの形を受け持つ。コアを直接呼ぶ [`Direct`]、C ABI の関数を呼ぶ [`CAbi`]、
 //! 利用者向けの `zumen` の crate を通す [`Wrapper`]。
-//! wasm のモジュールは `wasm.mjs` が流す。試験の組の書き方は `README.md` にある。
+//! wasm のモジュールは `wasm.mjs` が流す。テストの組の書き方は `README.md` にある。
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -24,17 +24,17 @@ pub use wrapper::Wrapper;
 
 /// ハッシュの一覧の先頭に書く説明
 const HASHES_HEADER: &str = "\
-# 適合試験の応答とバイナリの結果のハッシュ（SHA-256）。生成したファイル。手で直さない。
-# `cargo run -p zumen-conformance -- --write` で作り直す。どの形・どの言語の結合でも、この一覧と一致する（決定 0007・0012）。
-# 行の形: <試験の組> <手順の番号> <response か blob> <ハッシュ>
+# 適合テストの応答とバイナリの結果のハッシュ（SHA-256）。生成したファイル。手で直さない。
+# `cargo run -p zumen-conformance -- --write` で作り直す。どの形態・どの言語のバインディングでも、この一覧と一致する（決定 0007・0012）。
+# 行の形: <テストの組> <手順の番号> <response か blob> <ハッシュ>
 ";
 
-/// 試験の組とハッシュの一覧の置き場所
+/// テストの組とハッシュの一覧の置き場所
 pub fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).to_path_buf()
 }
 
-/// 境界の 1 つの形。状態は C の値（`ZM_OK` など）で返す
+/// API の 1 つの形。状態は C の値（`ZM_OK` など）で返す
 pub trait Engine {
     /// セッションを作る。前のセッションは閉じる
     fn session_new(&mut self, options: &[u8]) -> i32;
@@ -164,7 +164,7 @@ impl Engine for CAbi {
     }
 }
 
-/// 1 件の試験の組
+/// 1 件のテストの組
 #[derive(Debug)]
 pub struct Case {
     /// 名前（ファイル名から `.json` を除いたもの）
@@ -173,7 +173,7 @@ pub struct Case {
     pub value: Value,
 }
 
-/// 試験の組を、名前の順に読む
+/// テストの組を、名前の順に読む
 pub fn cases() -> Result<Vec<Case>, String> {
     let dir = root().join("cases");
     let mut paths: Vec<PathBuf> = fs::read_dir(&dir)
@@ -197,7 +197,7 @@ pub fn cases() -> Result<Vec<Case>, String> {
         .collect()
 }
 
-/// 1 つの形で、すべての組を流した結果
+/// 1 つの形態で、すべての組を流した結果
 #[derive(Debug, Default)]
 pub struct Report {
     /// ハッシュの一覧の行
@@ -246,7 +246,9 @@ fn run_case(case: &Case, engine: &mut dyn Engine, report: &mut Report) {
             continue;
         };
         if let Some((key, _)) = object.iter().find(|(key, _)| !KEYS.contains(key)) {
-            report.failures.push(format!("{at}: 知らない欄 `{key}`"));
+            report
+                .failures
+                .push(format!("{at}: 知らないフィールド `{key}`"));
         }
         let actions: Vec<&str> = object
             .iter()
@@ -434,7 +436,7 @@ fn compact(value: &Value) -> Vec<u8> {
     out.into_bytes()
 }
 
-/// `value` か `text` の欄からバイト列を作る。どちらもなければ空
+/// `value` か `text` のフィールドからバイト列を作る。どちらもなければ空
 fn bytes_of(input: &Value, value_key: &str, text_key: &str) -> Result<Vec<u8>, String> {
     match input {
         Value::Null => Ok(Vec::new()),

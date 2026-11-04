@@ -120,7 +120,7 @@ function afterString(head, at) {
   }
 }
 
-/** ISO 10303-21 の見出しの FILE_SCHEMA の最初の名前。読めなければ undefined */
+/** ISO 10303-21 のヘッダーの FILE_SCHEMA の最初の名前。読めなければ undefined */
 function stepSchema(head) {
   const magic = encoder.encode("ISO-10303-21;");
   let at = 0;
@@ -297,7 +297,7 @@ function startTag(head, at) {
   }
 }
 
-/** ZIP の書庫の中央ディレクトリの、項目の名前のどれかが pred に合うか。zumen-sdk の zip と同じ読み方 */
+/** ZIP のアーカイブの中央ディレクトリの、項目の名前のどれかが pred に合うか。zumen-sdk の zip と同じ読み方 */
 function anyZipName(bytes, pred) {
   const u16 = (at) => (at + 2 <= bytes.length ? bytes[at] | (bytes[at + 1] << 8) : undefined);
   const u32 = (at) => (at + 4 <= bytes.length ? u16(at) + u16(at + 2) * 0x10000 : undefined);
@@ -395,7 +395,7 @@ export function modulesWith(op) {
  * 分けた wasm のモジュールを、要るときに読み込んで使い回す。trap で使えなくなったら、読み込み直す。
  *
  * `loaders` は、モジュールの名前から、読み込む関数（`load` に渡せるものを返す）を引く表。持たないモジュールは使えない。
- * `load` は、包みの `load`。
+ * `load` は、ラッパーの `load`。
  *
  * `plugins` は、プラグインを束ねたモジュール（決定 0017・0243）の一覧。1 つは、名前（`name`）、形式ごとの判定の規則
  * （`formats`、DETECTION の項目と同じ `format` と `rules`）、持つ op（`ops`）、読み込む関数（`load`）を持つ。コアの
@@ -472,7 +472,7 @@ export class Modules {
   }
 
   /**
-   * 入力を、その形式を持つモジュールの新しいセッションで開く（決定 0250）。`request` は open の要求の残りの欄（`doc`・
+   * 入力を、その形式を持つモジュールの新しいセッションで開く（決定 0250）。`request` は open の要求の残りのフィールド（`doc`・
    * `format` など）で、`format` を書けば、その形式を持つモジュールで開く。`inputs` は、open の前にセッションに足す
    * ほかの入力（`saf` で名指す属性ファイルなど）。
    *

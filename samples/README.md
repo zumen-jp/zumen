@@ -1,6 +1,6 @@
 # 公開サンプル
 
-再配布を認めるライセンスで公開された図面を、取得したままの形で置きます（[決定 0171](../docs/decisions/0171-public-samples-in-git.md)）。CI は、これらの図面で適合試験を流します。試料の試験での利用は #310 で進めます。
+再配布を認めるライセンスで公開された図面を、取得したままの形で置きます（[決定 0171](../docs/decisions/0171-public-samples-in-git.md)）。CI は、これらの図面で適合テストを流します。サンプルのテストでの利用は #310 で進めます。
 
 **ここのファイルは、リポジトリのライセンス（MIT OR Apache-2.0）に従いません。** それぞれ、[`ledger.toml`](ledger.toml) に書いたライセンスに従います。配る crate とパッケージには入れません。
 
@@ -23,7 +23,7 @@
 
 - ライセンスや利用条件が書かれていないもの。ダウンロードできることは、再配布の許諾ではありません
 - 非営利に限るもの（NC）、改変を禁じるもの（ND）、同じ条件での公開を求めるもの（SA）
-- 利用規約で再配布を禁じるもの。ソフトウェアの製品に付く試料で、使用許諾が再配布を認めないものも含みます
+- 利用規約で再配布を禁じるもの。ソフトウェアの製品に付くサンプルで、使用許諾が再配布を認めないものも含みます
 - 個人の氏名・住所・連絡先が読めるもの
 - 1 つで 5 MB を超えるもの。`samples/` の全体は 100 MB までです
 
@@ -70,7 +70,7 @@ for id in $(gh cache list --key fuzz-corpus- --limit 100 --json id --jq '.[].id'
 
 ## AutoCAD で作った図面
 
-`dwg/zumen-*` は、zumen-jp が AutoCAD 2027 で作った図面です（#316）。ライセンスは CC0 1.0 です。主題ごとに 1 つの図面を作り、版ごとに DWG と、同じ図面の DXF（`_ascii.dxf`）を対で置きます。試験は、この対の表と図面モデルを比べます。
+`dwg/zumen-*` は、zumen-jp が AutoCAD 2027 で作った図面です（#316）。ライセンスは CC0 1.0 です。主題ごとに 1 つの図面を作り、バージョンごとに DWG と、同じ図面の DXF（`_ascii.dxf`）を対で置きます。テストは、この対の表と図面モデルを比べます。
 
 作り直すときは、`xtask/autocad/make.sh` を使います。SSH でつなぐ Windows の AutoCAD の accoreconsole で `xtask/autocad/samples.lsp` を流し、できた図面を `dwg/` に置きます。そのあと、台帳のハッシュとバイト数を直します。AutoCAD は保存のたびに、Windows のログイン名を図面の DWGPROPS に書きます。
 
@@ -78,7 +78,7 @@ for id in $(gh cache list --key fuzz-corpus- --limit 100 --json id --jq '.[].id'
 
 `ifc/` は、再配布を認める公開の IFC です（#412）。出所・ライセンス・表示の文・変えた内容は、台帳にあります。
 
-| フォルダー | 公開した者 | ライセンス | 書き出したソフト | 版 |
+| フォルダー | 公開した者 | ライセンス | 書き出したソフト | バージョン |
 | --- | --- | --- | --- | --- |
 | `rinya/` | 林野庁 | 公共データ利用規約（第 1.0 版） | Autodesk Revit 2024 日本語版（公開元が IfcOpenShell で保存） | IFC4X3 |
 | `nakano/` | 中野区 | CC BY 4.0 | Autodesk Civil 3D 2024 日本語版 | IFC2X3 |
@@ -86,7 +86,7 @@ for id in $(gh cache list --key fuzz-corpus- --limit 100 --json id --jq '.[].id'
 | `bim-whale/` | André Wisén（BIM Whale） | MIT | Autodesk Revit 2021 | IFC2X3 |
 | `text2bim/` | dcy0577（Text2BIM） | MIT | Vectorworks Architect 2024 | IFC2X3 |
 
-- 見出しに、作った人の名前・手元の機械の名前・手元のフォルダーの道筋があるものは、その値だけを置き換えました。データの節は、取得したままのバイト列です。取得したファイルの大きさと SHA-256 は、台帳の `changes` にあります。
-- `text2bim/` の GlobalId は版 1 の UUID で、作った機械の識別子（MAC アドレスと推定）を含みます。氏名・住所・連絡先ではなく（決定 0171）、元のファイルも公開されているので、データの節を変えずに残しました。
+- ヘッダーに、作った人の名前・手元の機械の名前・手元のフォルダーの道筋があるものは、その値だけを置き換えました。データのセクションは、取得したままのバイト列です。取得したファイルの大きさと SHA-256 は、台帳の `changes` にあります。
+- `text2bim/` の GlobalId はバージョン 1 の UUID で、作った機械の識別子（MAC アドレスと推定）を含みます。氏名・住所・連絡先ではなく（決定 0171）、元のファイルも公開されているので、データのセクションを変えずに残しました。
 - `nakano/` の形は点群から作った Brep で、要素はすべて `IfcBuildingElementProxy` です。`rinya/` と `gni/` は、公開元が書き出した後に保存し直しています。どちらも、書き出したソフトがそのまま書いたファイルとしては扱いません。
 - `crates/zumen-ifc/tests/samples.rs` が、すべてを読み、建物モデルに写した要約を `samples.txt` と比べます。毎晩の CI は、写した値を IfcOpenShell で読んだ値と照らします（`crates/zumen-ifc/tests/ifcopenshell/samples.py`）。

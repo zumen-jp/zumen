@@ -56,7 +56,7 @@ type Output = Arc<Mutex<io::Stdout>>;
 
 fn write_line(output: &Output, line: &[u8]) {
     let mut out = output.lock().unwrap_or_else(PoisonError::into_inner);
-    // 書けないなら、読み手がいない。読む側が入力の終わりで止まる
+    // 書けないなら、リーダーがいない。読む側が入力の終わりで止まる
     let _ = out
         .write_all(line)
         .and_then(|()| out.write_all(b"\n"))

@@ -1,6 +1,6 @@
 //! 要素と文書のハッシュ（決定 0156・0207）
 //!
-//! 成分を決まった並びのバイト列にし、BLAKE3 の先頭の 128 ビットを取る。出所（インスタンスの番号・元の GlobalId）と
+//! コンポーネントを決まった並びのバイト列にし、BLAKE3 の先頭の 128 ビットを取る。出所（インスタンスの番号・元の GlobalId）と
 //! 要素自身の ID は入れず、ほかの要素への参照は、指す先の ID で入れる。実数はビットの並びで書き、-0 は 0 に、NaN は
 //! 1 つの値にそろえる。並びを変えるときは、[`Hash::VERSION`] を上げる。
 
@@ -22,10 +22,10 @@ use crate::{
 pub struct Hash(pub [u8; 16]);
 
 impl Hash {
-    /// 並びの版
+    /// 並びのバージョン
     pub const VERSION: u32 = 1;
 
-    /// 要素のハッシュ。成分だけから作る。ない要素は `None`
+    /// 要素のハッシュ。コンポーネントだけから作る。ない要素は `None`
     pub fn element(building: &Building, element: ElementRef) -> Option<Self> {
         building.element(element)?;
         let mut out = Canon::new(building, None);
@@ -51,7 +51,7 @@ impl Hash {
         Ok(Some(out.finish()))
     }
 
-    /// 文書の値のハッシュ。要素の成分は入れない
+    /// 文書の値のハッシュ。要素のコンポーネントは入れない
     pub fn document_values(building: &Building) -> Self {
         let mut out = Canon::new(building, None);
         b"document".encode(&mut out);
@@ -83,7 +83,7 @@ impl Hash {
     }
 }
 
-/// 成分の種類の名前を前に付け、要素が持つ成分だけを決まった順に入れる。種類を足しても、それを持たない要素の
+/// コンポーネントの種類の名前を前に付け、要素が持つコンポーネントだけを決まった順に入れる。種類を足しても、それを持たない要素の
 /// ハッシュは変わらない
 fn encode_element(building: &Building, element: ElementRef, out: &mut Canon<'_>) {
     fn put<T: Encode>(name: &str, value: Option<&T>, out: &mut Canon<'_>) {
@@ -113,14 +113,14 @@ fn encode_element(building: &Building, element: ElementRef, out: &mut Canon<'_>)
     put("level", c.level.get(element), out);
     put("zone", c.zone.get(element), out);
     put("extension", c.extension.get(element), out);
-    // 成分の終わり。種類の名前は空でないので、空の名前と重ならない
+    // コンポーネントの終わり。種類の名前は空でないので、空の名前と重ならない
     "".encode(out);
 }
 
 impl core::str::FromStr for Hash {
     type Err = ();
 
-    /// `v` と版（[`Hash::VERSION`]）と `:` に続く、32 桁の 16 進を読む。版が違うか、桁か文字が合わなければ `Err`
+    /// `v` とバージョン（[`Hash::VERSION`]）と `:` に続く、32 桁の 16 進を読む。バージョンが違うか、桁か文字が合わなければ `Err`
     fn from_str(text: &str) -> Result<Self, ()> {
         let digits = text
             .strip_prefix('v')
@@ -321,7 +321,7 @@ impl Encode for Id {
     }
 }
 
-/// 要素への参照は、指す先の ID で入れる。ない要素なら、番号を別の印で入れる
+/// 要素への参照は、指す先の ID で入れる。ない要素なら、番号を別のタグで入れる
 impl Encode for ElementRef {
     fn encode(&self, out: &mut Canon<'_>) {
         match out.building.id(*self) {

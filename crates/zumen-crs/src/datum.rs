@@ -60,7 +60,7 @@ fn node(code: &str) -> Option<(u32, u32)> {
 }
 
 impl ShiftGrid {
-    /// TKY2JGD・PatchJGD の形の格子を読む。初めの数字の行の前は見出しとして飛ばす。数字の行は、3 次メッシュの
+    /// TKY2JGD・PatchJGD の形の格子を読む。初めの数字の行の前はヘッダーとして飛ばす。数字の行は、3 次メッシュの
     /// コードと、緯度・経度の補正量（秒）。高さの補正量の列があっても読まない
     pub fn read(src: &[u8], cx: &mut Cx) -> Result<ShiftGrid, Error> {
         cx.check(Kind::InputBytes, src.len() as u64)

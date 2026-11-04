@@ -1,17 +1,17 @@
 //! 図面モデル（L2）のバイナリ（決定 0247）。
 //!
 //! プラグインだけの wasm のモジュール（決定 0243）が読んだ図面を、公式の図面のモジュールに文書として渡すための配置。
-//! 見出しと区画の表は、2D のシーン（決定 0137）と同じ形にし、区画の中には、値を型の契約（`schema/drawing.toml`）の
+//! ヘッダーとセクションの表は、2D のシーン（決定 0137）と同じ形にし、セクションの中には、値を型の契約（`schema/drawing.toml`）の
 //! 順に並べる。
 //!
 //! - 符号のない整数は最短の LEB128、符号のある整数は zigzag の LEB128、`u8` は 1 バイト、`f64` はビットをリトル
 //!   エンディアンの 8 バイトで置く。`char` は符号位置の整数
 //! - `bool` と `Option` の有無は、0 か 1 の 1 バイト。文字列は、UTF-8 のバイト数と中身。一覧は、項目の数と項目。
 //!   配列と組は、項目だけ
-//! - 名前のある欄の構造体と、列挙の値の欄は、中身のバイト数を前に置く。小版で欄を足すときは後ろに足す。古い読み手は、
-//!   知らない欄を読み飛ばして診断を足し、新しい読み手は、古いバイナリにない欄を既定の値にする
+//! - 名前のあるフィールドの構造体と、列挙の値のフィールドは、中身のバイト数を前に置く。マイナーバージョンでフィールドを足すときは後ろに足す。古いリーダーは、
+//!   知らないフィールドを読み飛ばして診断を足し、新しいリーダーは、古いバイナリにないフィールドを既定の値にする
 //! - 列挙は、値の番号（契約の順）と、値の中身。知らない番号の値は読めない
-//! - 欄に名前のない構造体（`LayerId(u32)` など）は、中の値だけを置く
+//! - フィールドに名前のない構造体（`LayerId(u32)` など）は、中の値だけを置く
 //!
 //! 型ごとの読み書きは、`cargo xtask codegen` が図面モデルの型から作る（`binary/generated.rs`）。
 
@@ -27,17 +27,17 @@ mod random;
 
 pub use generated::{MAJOR, MINOR};
 
-/// 見出しの始まりの 4 バイト
+/// ヘッダーの始まりの 4 バイト
 pub const MAGIC: [u8; 4] = *b"ZMDR";
 
-/// 区画の番号。足すときは後ろに足す
+/// セクションの番号。足すときは後ろに足す
 const SOURCE: usize = 0;
 const DRAWING: usize = 1;
-/// この版が書く区画の数
+/// このバージョンが書くセクションの数
 const SECTIONS: usize = 2;
-/// 区画の表の前のバイト数。始まりの 4 バイト・大版・小版・要素の数・区画の数
+/// セクションの表の前のバイト数。始まりの 4 バイト・メジャーバージョン・マイナーバージョン・要素の数・セクションの数
 const HEADER: usize = 16;
-/// 区画を置く境界
+/// セクションを置く境界
 const ALIGN: usize = 8;
 
 /// 図面を読んだ元の文書
@@ -58,7 +58,7 @@ pub enum Error {
     Stopped(Stop),
     /// 壊れていて読めない
     Invalid,
-    /// この版では読めない大版か、知らない値を使っている
+    /// このバージョンでは読めないメジャーバージョンか、知らない値を使っている
     Unsupported,
 }
 
@@ -67,7 +67,7 @@ pub enum Error {
 pub enum WriteError {
     /// 予算の上限か、中断の合図で止めた
     Stopped(Stop),
-    /// 区画の位置・長さか要素の数が形式の上限を超えた
+    /// セクションの位置・長さか要素の数が形式の上限を超えた
     TooLarge,
 }
 
@@ -99,7 +99,7 @@ pub fn write(source: &Source, drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<Ve
     }
 }
 
-/// 見出しと区画を含む全体の大きさと、要素の数が u32 に収まるか
+/// ヘッダーとセクションを含む全体の大きさと、要素の数が u32 に収まるか
 fn fits(elements: u64, sections: &[u64]) -> bool {
     let max = u64::from(u32::MAX);
     if elements > max || sections.len() as u64 > max {
@@ -124,8 +124,8 @@ fn fits(elements: u64, sections: &[u64]) -> bool {
     true
 }
 
-/// バイナリを読む。壊れているか、この版で読めないものを使っていれば、診断を足して失敗する。後の小版で足した欄と
-/// 区画を読み飛ばしたときは、診断を足す
+/// バイナリを読む。壊れているか、このバージョンで読めないものを使っていれば、診断を足して失敗する。後のマイナーバージョンで足したフィールドと
+/// セクションを読み飛ばしたときは、診断を足す
 pub fn read(bytes: &[u8], cx: &mut Cx<'_>) -> Result<(Source, Drawing2D), Error> {
     if let Err(stop) = cx.check(Kind::InputBytes, bytes.len() as u64) {
         cx.report(stop.to_diagnostic());
@@ -135,7 +135,7 @@ pub fn read(bytes: &[u8], cx: &mut Cx<'_>) -> Result<(Source, Drawing2D), Error>
     parse(bytes, &mut minor, cx).map_err(|bad| report(bad, minor, cx))
 }
 
-/// 見出しと区画の表を付けて、区画を並べる
+/// ヘッダーとセクションの表を付けて、セクションを並べる
 fn assemble(minor: u16, elements: u64, sections: &[Vec<u8>]) -> Vec<u8> {
     let mut out = Vec::new();
     out.extend_from_slice(&MAGIC);
@@ -158,7 +158,7 @@ fn assemble(minor: u16, elements: u64, sections: &[Vec<u8>]) -> Vec<u8> {
     out
 }
 
-/// u32 に収める。書き手は `fits` で範囲を確かめる。試験で壊れた配置を組むときは u32::MAX にする
+/// u32 に収める。書き手は `fits` で範囲を確かめる。テストで壊れた配置を組むときは u32::MAX にする
 fn word(value: u64) -> u32 {
     u32::try_from(value).unwrap_or(u32::MAX)
 }
@@ -174,7 +174,7 @@ pub(crate) enum Bad {
     Stopped(Stop),
     /// `at` バイト目が壊れている
     Invalid { at: usize, reason: &'static str },
-    /// 大版が違う
+    /// メジャーバージョンが違う
     Version { major: u16 },
     /// 列挙 `ty` の、知らない値
     Variant { ty: &'static str, value: u64 },
@@ -272,14 +272,14 @@ fn parse(bytes: &[u8], minor: &mut u16, cx: &mut Cx<'_>) -> Result<(Source, Draw
         if index < SECTIONS {
             ranges.push(start..end);
         } else if written > MINOR {
-            // 後の小版で足した区画は、読み飛ばす
+            // 後のマイナーバージョンで足したセクションは、読み飛ばす
             cx.report(
                 Diagnostic::new(codes::DRAWING_BINARY_SECTION_DROPPED)
                     .with("section", index as u64)
                     .with("minor", u64::from(written)),
             );
         } else {
-            // 知らない区画を持てるのは、この版より後の小版で書いたものだけ
+            // 知らないセクションを持てるのは、このバージョンより後のマイナーバージョンで書いたものだけ
             return Err(invalid(at, "section"));
         }
     }
@@ -304,7 +304,7 @@ fn parse(bytes: &[u8], minor: &mut u16, cx: &mut Cx<'_>) -> Result<(Source, Draw
     reader.end = second.end;
     let drawing = Drawing2D::unpack(&mut reader)?;
     reader.finish()?;
-    // 後の小版の書き手は、この版が読み飛ばす欄の要素も数える。そのときの見出しの数は、上限として確かめる
+    // 後のマイナーバージョンの書き手は、このバージョンが読み飛ばすフィールドの要素も数える。そのときのヘッダーの数は、上限として確かめる
     if reader.elements == reader.limit || written > MINOR {
         Ok((source, drawing))
     } else {
@@ -390,7 +390,7 @@ pub(crate) trait Pack {
     fn pack(&self, out: &mut Writer);
 }
 
-/// 値を取り出す所。バイナリを読む [`Reader`] と、試験のために乱数で値を作る所がある
+/// 値を取り出す所。バイナリを読む [`Reader`] と、テストのために乱数で値を作る所がある
 pub(crate) trait Input {
     /// 取り出せなかったこと
     type Error;
@@ -412,18 +412,18 @@ pub(crate) trait Input {
     fn decoded(&mut self, bytes: u64) -> Result<(), Self::Error>;
     /// 文字列
     fn text(&mut self) -> Result<String, Self::Error>;
-    /// 列挙 `ty` の値の番号。`count` 以上は、この版の知らない値
+    /// 列挙 `ty` の値の番号。`count` 以上は、このバージョンの知らない値
     fn variant(&mut self, ty: &'static str, count: u64) -> Result<u64, Self::Error>;
-    /// 中身のバイト数を前に置いたもの。`read` が読み残した欄は、後の小版で足した欄として読み飛ばす
+    /// 中身のバイト数を前に置いたもの。`read` が読み残したフィールドは、後のマイナーバージョンで足したフィールドとして読み飛ばす
     fn record<T>(
         &mut self,
         ty: &'static str,
         read: impl FnOnce(&mut Self) -> Result<T, Self::Error>,
     ) -> Result<T, Self::Error>;
-    /// 書き手の小版が、欄を足した小版以上か
-    #[allow(dead_code)] // 小版 0 には、後から足した欄がまだない
+    /// 書き手のマイナーバージョンが、フィールドを足したマイナーバージョン以上か
+    #[allow(dead_code)] // マイナーバージョン 0 には、後から足したフィールドがまだない
     fn has_field(&self, since: u16) -> bool;
-    /// 中身に、まだ欄があるか。後の小版で足した欄を、古いバイナリが持たないときに既定の値にする
+    /// 中身に、まだフィールドがあるか。後のマイナーバージョンで足したフィールドを、古いバイナリが持たないときに既定の値にする
     fn more(&self) -> bool;
     /// 要素を 1 つ読む
     fn element(&mut self) -> Result<(), Self::Error>;
@@ -435,7 +435,7 @@ pub(crate) trait Input {
 pub(crate) trait Unpack: Sized {
     /// 値 1 つの大きさ。復号で作ったバイト数（`decoded-bytes`）に数える。64 ビットのメモリでの大きさに近い値を
     /// 型から決めるので、どの環境でも同じ所で止まる。文字列と一覧は 24、`Box` は 8、`Option` は中身に 8 を足し、
-    /// 構造体は欄の和、列挙はいちばん大きい値に 8 を足す。文字列の中身と、一覧の項目と、`Box` の中身は、作るときに
+    /// 構造体はフィールドの和、列挙はいちばん大きい値に 8 を足す。文字列の中身と、一覧の項目と、`Box` の中身は、作るときに
     /// 数える
     const SIZE: u64;
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error>;
@@ -459,9 +459,9 @@ pub(crate) struct Reader<'a, 'b, 'c> {
     at: usize,
     /// 今の中身の終わり
     end: usize,
-    /// 書いた側の小版
+    /// 書いた側のマイナーバージョン
     minor: u16,
-    /// 読んだ要素の数と、見出しにある数
+    /// 読んだ要素の数と、ヘッダーにある数
     elements: u64,
     limit: u64,
     cx: &'b mut Cx<'c>,
@@ -486,7 +486,7 @@ impl Reader<'_, '_, '_> {
         Ok(bytes)
     }
 
-    /// 区画の中身を読み終えた
+    /// セクションの中身を読み終えた
     fn finish(&self) -> Result<(), Bad> {
         if self.at == self.end {
             Ok(())
@@ -628,7 +628,7 @@ impl Input for Reader<'_, '_, '_> {
         self.end = self.at + len;
         let value = read(self)?;
         if self.more() {
-            // 知らない欄を持てるのは、この版より後の小版で書いたものだけ
+            // 知らないフィールドを持てるのは、このバージョンより後のマイナーバージョンで書いたものだけ
             if self.minor > MINOR {
                 self.cx.report(
                     Diagnostic::new(codes::DRAWING_BINARY_FIELD_DROPPED)
@@ -896,7 +896,7 @@ impl<A: Unpack, B: Unpack> Unpack for (A, B) {
     }
 }
 
-// 出所は欄を外に見せないので、手で書く。欄は契約の Ref と同じ順にする（xtask の HANDWRITTEN が確かめる）
+// 出所はフィールドを外に見せないので、手で書く。フィールドは契約の Ref と同じ順にする（xtask の HANDWRITTEN が確かめる）
 impl Pack for Ref {
     fn pack(&self, out: &mut Writer) {
         out.record(|out| {
@@ -938,7 +938,7 @@ impl Unpack for Ref {
     }
 }
 
-/// 試験のための乱数の図面と、元の文書の情報。契約にあるどの型の値も作るので、読み書きと、図面を受け取る処理の
+/// テストのための乱数の図面と、元の文書の情報。契約にあるどの型の値も作るので、読み書きと、図面を受け取る処理の
 /// 頑丈さを試せる。同じ `seed` からは同じ図面を作る。`finite` が false なら、浮動小数に NaN と無限大も入れる
 #[cfg(any(test, feature = "random"))]
 pub fn random(seed: u64, finite: bool) -> (Source, Drawing2D) {

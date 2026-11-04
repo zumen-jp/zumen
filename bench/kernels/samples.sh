@@ -1,7 +1,7 @@
 #!/bin/sh
-# IFC の試料を、候補と試料ごとに別のプロセスで流し、15 分で打ち切る（#5）。
-# パニックやアボートでも、ほかの組を流す。行は <出力のフォルダー>/<試料>.<候補>.tsv に書く。
-# 試料のフォルダーは環境変数 SAMPLES で渡す（既定は公開サンプルの ../../samples/ifc）。手元の試料（ZUMEN_SAMPLES）
+# IFC のサンプルを、候補とサンプルごとに別のプロセスで流し、15 分で打ち切る（#5）。
+# パニックやアボートでも、ほかの組を流す。行は <出力のフォルダー>/<サンプル>.<候補>.tsv に書く。
+# サンプルのフォルダーは環境変数 SAMPLES で渡す（既定は公開サンプルの ../../samples/ifc）。手元のサンプル（ZUMEN_SAMPLES）
 # は、SAMPLES="$ZUMEN_SAMPLES/ifc" のように渡す。候補は環境変数 CANDIDATES で絞れる（既定はすべて）。
 # 使い方: ./samples.sh <出力のフォルダー> ./target/release/samples
 #         ./samples.sh <出力のフォルダー> node --no-warnings wasi-samples.mjs target/wasm32-wasip1/release/samples.wasm

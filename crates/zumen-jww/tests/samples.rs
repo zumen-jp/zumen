@@ -1,4 +1,4 @@
-//! 試料の JWW で確かめる。試料は公開サンプルの `samples/jww` と、受け取った図面を置く `ZUMEN_SAMPLES` の
+//! サンプルの JWW で確かめる。サンプルは公開サンプルの `samples/jww` と、受け取った図面を置く `ZUMEN_SAMPLES` の
 //! フォルダーから集める
 
 use std::path::PathBuf;
@@ -14,7 +14,7 @@ use zumen_sdk::{Apply, Codec, Lift, testkit};
 #[cfg(test)]
 #[allow(
     clippy::disallowed_methods,
-    reason = "環境変数を読むのは試験だけで、コアは読まない（AGENTS.md の図面と秘密）"
+    reason = "環境変数を読むのはテストだけで、コアは読まない（AGENTS.md の図面と秘密）"
 )]
 fn samples() -> Vec<PathBuf> {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../samples");

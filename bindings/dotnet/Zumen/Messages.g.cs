@@ -1,10 +1,10 @@
 // 生成したファイル。手で直さない。
 // 元は schema/messages.json で、`cargo xtask codegen` で作り直す。
 //
-// 境界のメッセージの型（決定 0012・0196）。スキーマの定義ごとに 1 つの型がある。
+// API のメッセージの型（決定 0012・0196）。スキーマの定義ごとに 1 つの型がある。
 // 列挙は、知らない値も受け取れるように string で持ち、値を定数で出す（決定 0015）。
 // 形が値で決まるもの（共用体）は JsonAny（net8.0 は JsonElement、netstandard2.0 は object）で持ち、
-// 目印の値から型を引いて読み直す。
+// タグの値から型を引いて読み直す。
 
 #nullable enable
 
@@ -19,7 +19,7 @@ using JsonAny = System.Object;
 namespace Zumen.Messages
 {
 #if !NET
-    /// <summary>欄の JSON での名前。netstandard2.0 には System.Text.Json がないので、包みの中に代わりを置く</summary>
+    /// <summary>フィールドの JSON での名前。netstandard2.0 には System.Text.Json がないので、ラッパーの中に代わりを置く</summary>
     [global::System.AttributeUsage(global::System.AttributeTargets.Property)]
     internal sealed class JsonPropertyNameAttribute : global::System.Attribute
     {
@@ -34,10 +34,10 @@ namespace Zumen.Messages
     /// </summary>
     public static class Request
     {
-        /// <summary>目印の欄の名前</summary>
+        /// <summary>タグのフィールドの名前</summary>
         public const string Tag = "op";
 
-        /// <summary>目印の値と、その形の型</summary>
+        /// <summary>タグの値と、その形の型</summary>
         public static readonly IReadOnlyDictionary<string, global::System.Type> Variants = new Dictionary<string, global::System.Type>
         {
             ["capabilities"] = typeof(CapabilitiesRequest),
@@ -75,12 +75,12 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// どの op の要求にも置ける欄
+    /// どの op の要求にも置けるフィールド
     /// </summary>
     public sealed record RequestCommon
     {
         /// <summary>
-        /// メッセージのスキーマの大版。今は 1
+        /// メッセージのスキーマのメジャーバージョン。今は 1
         /// </summary>
         [JsonPropertyName("v")]
         public ulong V { get; init; }
@@ -104,7 +104,7 @@ namespace Zumen.Messages
         public ulong? MaxPlaces { get; init; }
 
         /// <summary>
-        /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
         /// </summary>
         [JsonPropertyName("time_limit_ms")]
         public ulong? TimeLimitMs { get; init; }
@@ -172,12 +172,12 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// コアの版と、使える op・形式を尋ねる
+    /// コアのバージョンと、使える op・形式を尋ねる
     /// </summary>
     public sealed record CapabilitiesRequest
     {
         /// <summary>
-        /// メッセージのスキーマの大版。今は 1
+        /// メッセージのスキーマのメジャーバージョン。今は 1
         /// </summary>
         [JsonPropertyName("v")]
         public ulong V { get; init; }
@@ -201,7 +201,7 @@ namespace Zumen.Messages
         public ulong? MaxPlaces { get; init; }
 
         /// <summary>
-        /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
         /// </summary>
         [JsonPropertyName("time_limit_ms")]
         public ulong? TimeLimitMs { get; init; }
@@ -214,24 +214,24 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// コアの版と、使える op・形式（決定 0015）
+    /// コアのバージョンと、使える op・形式（決定 0015）
     /// </summary>
     public sealed record CapabilitiesResult
     {
         /// <summary>
-        /// パッケージの版（semver）
+        /// パッケージのバージョン（semver）
         /// </summary>
         [JsonPropertyName("package")]
         public string Package { get; init; } = default!;
 
         /// <summary>
-        /// ABI の大版。zm_abi_version と同じ
+        /// ABI のメジャーバージョン。zm_abi_version と同じ
         /// </summary>
         [JsonPropertyName("abi")]
         public ulong Abi { get; init; }
 
         /// <summary>
-        /// メッセージのスキーマの版
+        /// メッセージのスキーマのバージョン
         /// </summary>
         [JsonPropertyName("schema")]
         public SchemaVersion Schema { get; init; } = default!;
@@ -250,18 +250,18 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// メッセージのスキーマの版。大版は要求と応答の v、小版は op・欄・列挙の値を足すたびに上げる
+    /// メッセージのスキーマのバージョン。メジャーバージョンは要求と応答の v、マイナーバージョンは op・フィールド・列挙の値を足すたびに上げる
     /// </summary>
     public sealed record SchemaVersion
     {
         /// <summary>
-        /// 大版
+        /// メジャーバージョン
         /// </summary>
         [JsonPropertyName("major")]
         public ulong Major { get; init; }
 
         /// <summary>
-        /// 小版
+        /// マイナーバージョン
         /// </summary>
         [JsonPropertyName("minor")]
         public ulong Minor { get; init; }
@@ -297,7 +297,7 @@ namespace Zumen.Messages
         public bool Write { get; init; }
 
         /// <summary>
-        /// この形式の ID の規則の版（決定 0015）
+        /// この形式の ID の規則のバージョン（決定 0015）
         /// </summary>
         [JsonPropertyName("id_rules")]
         public ulong IdRules { get; init; }
@@ -309,7 +309,7 @@ namespace Zumen.Messages
     public sealed record OpenRequest
     {
         /// <summary>
-        /// メッセージのスキーマの大版。今は 1
+        /// メッセージのスキーマのメジャーバージョン。今は 1
         /// </summary>
         [JsonPropertyName("v")]
         public ulong V { get; init; }
@@ -333,7 +333,7 @@ namespace Zumen.Messages
         public ulong? MaxPlaces { get; init; }
 
         /// <summary>
-        /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
         /// </summary>
         [JsonPropertyName("time_limit_ms")]
         public ulong? TimeLimitMs { get; init; }
@@ -357,19 +357,19 @@ namespace Zumen.Messages
         public string? Doc { get; init; }
 
         /// <summary>
-        /// 入力の全体の大きさ（バイト）。渡した入力より大きければ、入力を全体の初めの部分とみなし、足りない範囲を needs で求める。範囲で読める形式（LAS・LAZ）だけが使う（決定 0232）。小版 48 から
+        /// 入力の全体の大きさ（バイト）。渡した入力より大きければ、入力を全体の初めの部分とみなし、足りない範囲を needs で求める。範囲で読める形式（LAS・LAZ）だけが使う（決定 0232）。マイナーバージョン 48 から
         /// </summary>
         [JsonPropertyName("size")]
         public ulong? Size { get; init; }
 
         /// <summary>
-        /// 見分ける印のない形式（xyz・extdm）を名指して読む。書かなければ、入力から判定する（決定 0232）。小版 49 から。extdm は小版 62 から
+        /// 見分けるマーカーのない形式（xyz・extdm）を名指して読む。書かなければ、入力から判定する（決定 0232）。マイナーバージョン 49 から。extdm はマイナーバージョン 62 から
         /// </summary>
         [JsonPropertyName("format")]
         public string? Format { get; init; }
 
         /// <summary>
-        /// SXF の属性ファイル（SAF）を入れた入力の名前。zm_push で渡したもの。属性ファイル用の属性付加機構（$$ATRF$$）の要素に、属性を sxf.saf の拡張で結ぶ（決定 0249）。書かなければ、P2Z・SFZ の中の、図面と同じ名前の SAF を使う。SXF でない入力には使えない。小版 63 から
+        /// SXF の属性ファイル（SAF）を入れた入力の名前。zm_push で渡したもの。属性ファイル用の属性付加機構（$$ATRF$$）の要素に、属性を sxf.saf の拡張で結ぶ（決定 0249）。書かなければ、P2Z・SFZ の中の、図面と同じ名前の SAF を使う。SXF でない入力には使えない。マイナーバージョン 63 から
         /// </summary>
         [JsonPropertyName("saf")]
         public string? Saf { get; init; }
@@ -393,19 +393,19 @@ namespace Zumen.Messages
         public string Format { get; init; } = default!;
 
         /// <summary>
-        /// 読むのに足りない範囲。あれば文書はまだ作らない。範囲をその名前で zm_push してから、同じ要求をもう一度呼ぶ（決定 0232）。小版 48 から
+        /// 読むのに足りない範囲。あれば文書はまだ作らない。範囲をその名前で zm_push してから、同じ要求をもう一度呼ぶ（決定 0232）。マイナーバージョン 48 から
         /// </summary>
         [JsonPropertyName("needs")]
         public IReadOnlyList<InputRange>? Needs { get; init; }
 
         /// <summary>
-        /// 読み終えたので、close の inputs で捨ててよい範囲の入力。小版 48 から
+        /// 読み終えたので、close の inputs で捨ててよい範囲の入力。マイナーバージョン 48 から
         /// </summary>
         [JsonPropertyName("done")]
         public IReadOnlyList<InputRange>? Done { get; init; }
 
         /// <summary>
-        /// SXF を ZIP に入れた書庫（P2Z・SFZ）なら、SXF の項目のほかの項目（属性ファイル・画像など）の書庫の中の名前。書庫の順。apply は、SXF の項目だけを置き換え、ほかの項目を写した書庫を書く（#385）。小版 54 から
+        /// SXF を ZIP に入れたアーカイブ（P2Z・SFZ）なら、SXF の項目のほかの項目（属性ファイル・画像など）のアーカイブの中の名前。アーカイブの順。apply は、SXF の項目だけを置き換え、ほかの項目を写したアーカイブを書く（#385）。マイナーバージョン 54 から
         /// </summary>
         [JsonPropertyName("entries")]
         public IReadOnlyList<string>? Entries { get; init; }
@@ -441,7 +441,7 @@ namespace Zumen.Messages
     public sealed record CloseRequest
     {
         /// <summary>
-        /// メッセージのスキーマの大版。今は 1
+        /// メッセージのスキーマのメジャーバージョン。今は 1
         /// </summary>
         [JsonPropertyName("v")]
         public ulong V { get; init; }
@@ -465,7 +465,7 @@ namespace Zumen.Messages
         public ulong? MaxPlaces { get; init; }
 
         /// <summary>
-        /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
         /// </summary>
         [JsonPropertyName("time_limit_ms")]
         public ulong? TimeLimitMs { get; init; }
@@ -502,7 +502,7 @@ namespace Zumen.Messages
     public sealed record DescribeRequest
     {
         /// <summary>
-        /// メッセージのスキーマの大版。今は 1
+        /// メッセージのスキーマのメジャーバージョン。今は 1
         /// </summary>
         [JsonPropertyName("v")]
         public ulong V { get; init; }
@@ -526,7 +526,7 @@ namespace Zumen.Messages
         public ulong? MaxPlaces { get; init; }
 
         /// <summary>
-        /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
         /// </summary>
         [JsonPropertyName("time_limit_ms")]
         public ulong? TimeLimitMs { get; init; }
@@ -563,12 +563,12 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 開いた文書を図面モデル（L2、決定 0022）に変換し、その要約を返す。ネイティブと wasm の出力の一致を、適合試験で比べるためにも使う（決定 0007）
+    /// 開いた文書を図面モデル（L2、決定 0022）に変換し、その要約を返す。ネイティブと wasm の出力の一致を、適合テストで比べるためにも使う（決定 0007）
     /// </summary>
     public sealed record DrawingRequest
     {
         /// <summary>
-        /// メッセージのスキーマの大版。今は 1
+        /// メッセージのスキーマのメジャーバージョン。今は 1
         /// </summary>
         [JsonPropertyName("v")]
         public ulong V { get; init; }
@@ -592,7 +592,7 @@ namespace Zumen.Messages
         public ulong? MaxPlaces { get; init; }
 
         /// <summary>
-        /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
         /// </summary>
         [JsonPropertyName("time_limit_ms")]
         public ulong? TimeLimitMs { get; init; }
@@ -634,14 +634,14 @@ namespace Zumen.Messages
         public IReadOnlyList<SheetSummary> Sheets { get; init; } = default!;
 
         /// <summary>
-        /// 文書の点の表し方（marker を持たない点の見え方、決定 0160）。point_style の変更で変える。文書が持たなければ（JWW・SXF）持たない。小版 39 から
+        /// 文書の点の表し方（marker を持たない点の見え方、決定 0160）。point_style の変更で変える。文書が持たなければ（JWW・SXF）持たない。マイナーバージョン 39 から
         /// </summary>
         [JsonPropertyName("point_style")]
         public PointStyleSummary? PointStyle { get; init; }
     }
 
     /// <summary>
-    /// 文書の点の表し方。欄の意味は point_style_edit と同じ
+    /// 文書の点の表し方。フィールドの意味は point_style_edit と同じ
     /// </summary>
     public sealed record PointStyleSummary
     {
@@ -821,7 +821,7 @@ namespace Zumen.Messages
     public sealed record EntitiesRequest
     {
         /// <summary>
-        /// メッセージのスキーマの大版。今は 1
+        /// メッセージのスキーマのメジャーバージョン。今は 1
         /// </summary>
         [JsonPropertyName("v")]
         public ulong V { get; init; }
@@ -845,7 +845,7 @@ namespace Zumen.Messages
         public ulong? MaxPlaces { get; init; }
 
         /// <summary>
-        /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
         /// </summary>
         [JsonPropertyName("time_limit_ms")]
         public ulong? TimeLimitMs { get; init; }
@@ -875,7 +875,7 @@ namespace Zumen.Messages
         public uint? Limit { get; init; }
 
         /// <summary>
-        /// 返す欄の名前。1 つ以上で、重ねない。id は書かなくても返す。書かなければ id・kind・layer・source を返す（決定 0118）
+        /// 返すフィールドの名前。1 つ以上で、重ねない。id は書かなくても返す。書かなければ id・kind・layer・source を返す（決定 0118）
         /// </summary>
         [JsonPropertyName("fields")]
         public IReadOnlyList<string>? Fields { get; init; }
@@ -887,7 +887,7 @@ namespace Zumen.Messages
         public IReadOnlyList<double>? Region { get; init; }
 
         /// <summary>
-        /// 空間か用紙の ID（space/0・sheet/h22 など）。書けば、その空間か用紙の要素だけを返す。記号の定義の空間（space/h1F など。BLOCK のハンドルから作る、決定 0156）も指せ、書かなければ定義の中の要素は返さない。ない ID なら要素を返さない。小版 31 から（決定 0177）
+        /// 空間か用紙の ID（space/0・sheet/h22 など）。書けば、その空間か用紙の要素だけを返す。記号の定義の空間（space/h1F など。BLOCK のハンドルから作る、決定 0156）も指せ、書かなければ定義の中の要素は返さない。ない ID なら要素を返さない。マイナーバージョン 31 から（決定 0177）
         /// </summary>
         [JsonPropertyName("place")]
         public string? Place { get; init; }
@@ -923,7 +923,7 @@ namespace Zumen.Messages
     public sealed record Entity
     {
         /// <summary>
-        /// 空間か用紙と、出所で作る ID（space/0/h2F、space/0/r12、sheet/1/b4096 など）。出所の部分は、形式が持つ鍵（ハンドル）があれば鍵で作り、書き戻しても前の要素が増えても変わらない。同じバイト列には、どの版でも同じ ID を返す（決定 0117・0156）
+        /// 空間か用紙と、出所で作る ID（space/0/h2F、space/0/r12、sheet/1/b4096 など）。出所の部分は、形式が持つキー（ハンドル）があればキーで作り、書き戻しても前の要素が増えても変わらない。同じバイト列には、どのバージョンでも同じ ID を返す（決定 0117・0156）
         /// </summary>
         [JsonPropertyName("id")]
         public string Id { get; init; } = default!;
@@ -959,14 +959,14 @@ namespace Zumen.Messages
         public string? Hash { get; init; }
 
         /// <summary>
-        /// 形の値。線分・円・円弧・楕円・幅を持たない折れ線・1 点か 2 点の間に置く文字・書式つきの文字・ブロックの記号・制御点か当てはめる点で決まるスプライン・寸法・引出線（LEADER）だけが持つ。apply の replace と add に渡せる形（決定 0139）。小版 10 から
+        /// 形の値。線分・円・円弧・楕円・幅を持たない折れ線・1 点か 2 点の間に置く文字・書式つきの文字・ブロックの記号・制御点かフィット点で決まるスプライン・寸法・引出線（LEADER）だけが持つ。apply の replace と add に渡せる形（決定 0139）。マイナーバージョン 10 から
         /// </summary>
         [JsonPropertyName("geometry")]
         public JsonAny? Geometry { get; init; }
     }
 
     /// <summary>
-    /// entities で返す要素の欄（決定 0118）
+    /// entities で返す要素のフィールド（決定 0118）
     /// </summary>
     public static class EntityField
     {
@@ -991,10 +991,10 @@ namespace Zumen.Messages
     /// </summary>
     public static class Geometry
     {
-        /// <summary>目印の欄の名前</summary>
+        /// <summary>タグのフィールドの名前</summary>
         public const string Tag = "shape";
 
-        /// <summary>目印の値と、その形の型</summary>
+        /// <summary>タグの値と、その形の型</summary>
         public static readonly IReadOnlyDictionary<string, global::System.Type> Variants = new Dictionary<string, global::System.Type>
         {
             ["line"] = typeof(LineGeometry),
@@ -1098,7 +1098,7 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 楕円か楕円の弧。始まりの角度から終わりの角度へ、反時計回りにたどる。閉じた楕円は 0 度から 360 度。小版 11 から
+    /// 楕円か楕円の弧。始まりの角度から終わりの角度へ、反時計回りにたどる。閉じた楕円は 0 度から 360 度。マイナーバージョン 11 から
     /// </summary>
     public sealed record EllipseGeometry
     {
@@ -1193,13 +1193,13 @@ namespace Zumen.Messages
         public IReadOnlyList<double> Position { get; init; } = default!;
 
         /// <summary>
-        /// 2 点の間に合わせる文字の 2 点目 [X, Y]。合わせ方（fit）と一緒に書く。置き換えでは、1 点に置く文字と 2 点の間に合わせる文字を入れ替えられない。小版 17 から
+        /// 2 点の間に合わせる文字の 2 点目 [X, Y]。合わせ方（fit）と一緒に書く。置き換えでは、1 点に置く文字と 2 点の間に合わせる文字を入れ替えられない。マイナーバージョン 17 から
         /// </summary>
         [JsonPropertyName("end")]
         public IReadOnlyList<double>? End { get; init; }
 
         /// <summary>
-        /// 2 点の間への合わせ方。2 点目（end）と一緒に書く。小版 17 から
+        /// 2 点の間への合わせ方。2 点目（end）と一緒に書く。マイナーバージョン 17 から
         /// </summary>
         [JsonPropertyName("fit")]
         public string? Fit { get; init; }
@@ -1217,13 +1217,13 @@ namespace Zumen.Messages
         public double Rotation { get; init; }
 
         /// <summary>
-        /// 文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。DXF に文字スタイルの定義がないときは Standard だけを受ける。置き換えるときは、元と同じ名前だけを受ける。style_id と一緒に書くなら、同じ文字スタイルを指す。小版 12 から
+        /// 文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。DXF に文字スタイルの定義がないときは Standard だけを受ける。置き換えるときは、元と同じ名前だけを受ける。style_id と一緒に書くなら、同じ文字スタイルを指す。マイナーバージョン 12 から
         /// </summary>
         [JsonPropertyName("style")]
         public string? Style { get; init; }
 
         /// <summary>
-        /// 文字スタイルの ID。tables が返したもの。entities は、名前で引いた文字スタイルの ID を返す。足す・置き換えるときは、名前の代わりに書ける（名前より先に使う）。同じ名前（大文字と小文字を区別しない）の項目が複数あれば書き戻せない。小版 23 から
+        /// 文字スタイルの ID。tables が返したもの。entities は、名前で引いた文字スタイルの ID を返す。足す・置き換えるときは、名前の代わりに書ける（名前より先に使う）。同じ名前（大文字と小文字を区別しない）の項目が複数あれば書き戻せない。マイナーバージョン 23 から
         /// </summary>
         [JsonPropertyName("style_id")]
         public string? StyleId { get; init; }
@@ -1241,7 +1241,7 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 書式つきの文字（DXF の MTEXT）。置き換えるときは、枠の高さ・書き進める向き・行送り・背景・高さの意味・文字スタイルを元の値のままにする。足すときは、枠の高さなし・左から右・行送り 1 倍・背景なしにする。小版 13 から
+    /// 書式つきの文字（DXF の MTEXT）。置き換えるときは、枠の高さ・書き進める向き・行送り・背景・高さの意味・文字スタイルを元の値のままにする。足すときは、枠の高さなし・左から右・行送り 1 倍・背景なしにする。マイナーバージョン 13 から
     /// </summary>
     public sealed record FormattedTextGeometry
     {
@@ -1294,14 +1294,14 @@ namespace Zumen.Messages
         public string? Style { get; init; }
 
         /// <summary>
-        /// 文字スタイルの ID。tables が返したもの。entities は、名前で引いた文字スタイルの ID を返す。足す・置き換えるときは、名前の代わりに書ける（名前より先に使う）。同じ名前（大文字と小文字を区別しない）の項目が複数あれば書き戻せない。小版 23 から
+        /// 文字スタイルの ID。tables が返したもの。entities は、名前で引いた文字スタイルの ID を返す。足す・置き換えるときは、名前の代わりに書ける（名前より先に使う）。同じ名前（大文字と小文字を区別しない）の項目が複数あれば書き戻せない。マイナーバージョン 23 から
         /// </summary>
         [JsonPropertyName("style_id")]
         public string? StyleId { get; init; }
     }
 
     /// <summary>
-    /// スプライン（NURBS）。制御点で決まるもの（小版 15 から）と、当てはめる点で決まるもの（小版 18 から）がある。当てはめる点で決まるものは、節点と制御点を空にし、当てはめる点（fit）と、あれば両端の接線を持つ。元の図形に制御点や節点もあるときは形の値を返さず、置き換えない。置き換えでは、制御点で決まるものと当てはめる点で決まるものを入れ替えない
+    /// スプライン（NURBS）。制御点で決まるもの（マイナーバージョン 15 から）と、フィット点で決まるもの（マイナーバージョン 18 から）がある。フィット点で決まるものは、ノットと制御点を空にし、フィット点（fit）と、あれば両端の接線を持つ。元の図形に制御点やノットもあるときは形の値を返さず、置き換えない。置き換えでは、制御点で決まるものとフィット点で決まるものを入れ替えない
     /// </summary>
     public sealed record SplineGeometry
     {
@@ -1318,13 +1318,13 @@ namespace Zumen.Messages
         public uint Degree { get; init; }
 
         /// <summary>
-        /// 節点の並び。周期的でなければ、制御点の数と次数と 1 の和の数。当てはめる点で決まるものは空
+        /// ノットの並び。周期的でなければ、制御点の数と次数と 1 の和の数。フィット点で決まるものは空
         /// </summary>
         [JsonPropertyName("knots")]
         public IReadOnlyList<double> Knots { get; init; } = default!;
 
         /// <summary>
-        /// 制御点の [X, Y] の並び。次数より多い。当てはめる点で決まるものは空
+        /// 制御点の [X, Y] の並び。次数より多い。フィット点で決まるものは空
         /// </summary>
         [JsonPropertyName("control")]
         public IReadOnlyList<IReadOnlyList<double>> Control { get; init; } = default!;
@@ -1336,19 +1336,19 @@ namespace Zumen.Messages
         public IReadOnlyList<double>? Weights { get; init; }
 
         /// <summary>
-        /// 当てはめる点の [X, Y] の並び。2 つ以上。書けば、節点と制御点は空で、重みは書かない。小版 18 から
+        /// フィット点の [X, Y] の並び。2 つ以上。書けば、ノットと制御点は空で、重みは書かない。マイナーバージョン 18 から
         /// </summary>
         [JsonPropertyName("fit")]
         public IReadOnlyList<IReadOnlyList<double>>? Fit { get; init; }
 
         /// <summary>
-        /// 当てはめる点で決まるスプラインの、始まりの接線の向き [X, Y]。0 でない。書かなければ読む側が決める。小版 18 から
+        /// フィット点で決まるスプラインの、始まりの接線の向き [X, Y]。0 でない。書かなければ読む側が決める。マイナーバージョン 18 から
         /// </summary>
         [JsonPropertyName("start_tangent")]
         public IReadOnlyList<double>? StartTangent { get; init; }
 
         /// <summary>
-        /// 当てはめる点で決まるスプラインの、終わりの接線の向き [X, Y]。0 でない。書かなければ読む側が決める。小版 18 から
+        /// フィット点で決まるスプラインの、終わりの接線の向き [X, Y]。0 でない。書かなければ読む側が決める。マイナーバージョン 18 から
         /// </summary>
         [JsonPropertyName("end_tangent")]
         public IReadOnlyList<double>? EndTangent { get; init; }
@@ -1367,7 +1367,7 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 寸法。種類（kind）ごとに、その種類の定義点の欄を持つ。測定値（measurement）は元の形式が保存した値で、定義点から測り直さない。寸法を描いた部品（ブロック）は形の値に含めない。entities が返すだけで、置き換えと追加は change.edit.unsupported になる（寸法を描いた部品を作り直す必要があるため）。小版 19 から
+    /// 寸法。種類（kind）ごとに、その種類の定義点のフィールドを持つ。測定値（measurement）は元の形式が保存した値で、定義点から測り直さない。寸法を描いた部品（ブロック）は形の値に含めない。entities が返すだけで、置き換えと追加は change.edit.unsupported になる（寸法を描いた部品を作り直す必要があるため）。マイナーバージョン 19 から
     /// </summary>
     public sealed record DimensionGeometry
     {
@@ -1498,13 +1498,13 @@ namespace Zumen.Messages
         public string? Content { get; init; }
 
         /// <summary>
-        /// 元の形式が保存した測定値。単位と倍率は measurement_key の欄に従う
+        /// 元の形式が保存した測定値。単位と倍率は measurement_key のフィールドに従う
         /// </summary>
         [JsonPropertyName("measurement")]
         public double? Measurement { get; init; }
 
         /// <summary>
-        /// measurement の形式と欄を指すキー（DXF の DIMENSION の 42 なら dxf.DIMENSION.42）。measurement と一緒に持つ
+        /// measurement の形式とフィールドを指すキー（DXF の DIMENSION の 42 なら dxf.DIMENSION.42）。measurement と一緒に持つ
         /// </summary>
         [JsonPropertyName("measurement_key")]
         public string? MeasurementKey { get; init; }
@@ -1528,14 +1528,14 @@ namespace Zumen.Messages
         public string Style { get; init; } = default!;
 
         /// <summary>
-        /// 寸法スタイルの ID。tables が返したもの。名前で引いた寸法スタイルがなければ書かない。小版 23 から
+        /// 寸法スタイルの ID。tables が返したもの。名前で引いた寸法スタイルがなければ書かない。マイナーバージョン 23 から
         /// </summary>
         [JsonPropertyName("style_id")]
         public string? StyleId { get; init; }
     }
 
     /// <summary>
-    /// 引出線（DXF・DWG の LEADER、決定 0177）。注記（MTEXT など）は別の要素で、annotation がその ID を指す。置き換えるときは寸法スタイルと注記を変えず、経路・曲線か・矢印を書き直す。足すときの注記は、同じ空間か用紙の MTEXT だけを指せる（小版 36 から。それまでは注記を持てなかった）。DWG は置き換えと追加を書き戻すが、矢印の印を必ず持つので、arrow を書かない引出線は書けない（小版 36 から。それまでは R2004 までの置き換えだけ）。小版 31 から
+    /// 引出線（DXF・DWG の LEADER、決定 0177）。注記（MTEXT など）は別の要素で、annotation がその ID を指す。置き換えるときは寸法スタイルと注記を変えず、経路・曲線か・矢印を書き直す。足すときの注記は、同じ空間か用紙の MTEXT だけを指せる（マイナーバージョン 36 から。それまでは注記を持てなかった）。DWG は置き換えと追加を書き戻すが、矢印のフラグを必ず持つので、arrow を書かない引出線は書けない（マイナーバージョン 36 から。それまでは R2004 までの置き換えだけ）。マイナーバージョン 31 から
     /// </summary>
     public sealed record LeaderGeometry
     {
@@ -1583,7 +1583,7 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 引出線つきの注記（DXF・DWG の MULTILEADER、決定 0185）。注記は形の中にあり、content と text・symbol で種類と中身を示す。置き換えるときは枝の線の頂点・集まる点・折れ曲がりだけを変えられ、ほかの欄は元の値のままにする。DXF だけが置き換えを書き戻し、枝と線の数と、集まる点と折れ曲がりの有無は元と同じでなければならない。足すことと DWG の書き戻しは、まだしない。小版 36 から
+    /// 引出線つきの注記（DXF・DWG の MULTILEADER、決定 0185）。注記は形の中にあり、content と text・symbol で種類と中身を示す。置き換えるときは枝の線の頂点・集まる点・折れ曲がりだけを変えられ、ほかのフィールドは元の値のままにする。DXF だけが置き換えを書き戻し、枝と線の数と、集まる点と折れ曲がりの有無は元と同じでなければならない。足すことと DWG の書き戻しは、まだしない。マイナーバージョン 36 から
     /// </summary>
     public sealed record CalloutGeometry
     {
@@ -1711,7 +1711,7 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 点（決定 0160・0183）。marker がなければ文書の点の表し方（DXF・DWG の $PDMODE・$PDSIZE）に従う点で、DXF・DWG の POINT と JWW の記号でない点が当たる。marker があれば既定義の印の点で、SFC の点マーカーと JWW の記号の点が当たる。置き換えるときは、描き方（marker があるか）を元のまま保つ。DXF・DWG は marker と construction を持つ点を書かず、JWW の記号でない点は角度 0 だけを、SXF は SFC の点マーカーだけを書く。小版 35 から
+    /// 点（決定 0160・0183）。marker がなければ文書の点の表し方（DXF・DWG の $PDMODE・$PDSIZE）に従う点で、DXF・DWG の POINT と JWW の記号でない点が当たる。marker があれば既定義のマーカーの点で、SFC の点マーカーと JWW の記号の点が当たる。置き換えるときは、描き方（marker があるか）を元のまま保つ。DXF・DWG は marker と construction を持つ点を書かず、JWW の記号でない点は角度 0 だけを、SXF は SFC の点マーカーだけを書く。マイナーバージョン 35 から
     /// </summary>
     public sealed record PointGeometry
     {
@@ -1734,7 +1734,7 @@ namespace Zumen.Messages
         public double Rotation { get; init; }
 
         /// <summary>
-        /// 既定義の印。書かなければ文書の点の表し方に従う
+        /// 既定義のマーカー。書かなければ文書の点の表し方に従う
         /// </summary>
         [JsonPropertyName("marker")]
         public PointMarker? Marker { get; init; }
@@ -1747,12 +1747,12 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 既定義の印の表のキーと尺度。印の形は、表示する側がキーから引く
+    /// 既定義のマーカーの表のキーと尺度。マーカーの形は、表示する側がキーから引く
     /// </summary>
     public sealed record PointMarker
     {
         /// <summary>
-        /// 印の表の名前空間。sxf.marker（SFC の点マーカー）か jww.point（JWW の記号の点）
+        /// マーカーの表の名前空間。sxf.marker（SFC の点マーカー）か jww.point（JWW の記号の点）
         /// </summary>
         [JsonPropertyName("namespace")]
         public string Namespace { get; init; } = default!;
@@ -1818,7 +1818,7 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 記号（DXF・DWG のブロックの INSERT）。定義の点を、尺度・回転・移動の順に写す。切り抜きは形の値に含めない。置き換えるときは切り抜きを元のままにし、属性は値だけを変えられる。属性を持つ記号の置く点・尺度・回転は変えない（属性ごと動かすなら transform を使う）。足すときは切り抜きを持たない。小版 14 から
+    /// 記号（DXF・DWG のブロックの INSERT）。定義の点を、尺度・回転・移動の順に写す。切り抜きは形の値に含めない。置き換えるときは切り抜きを元のままにし、属性は値だけを変えられる。属性を持つ記号の置く点・尺度・回転は変えない（属性ごと動かすなら transform を使う）。足すときは切り抜きを持たない。マイナーバージョン 14 から
     /// </summary>
     public sealed record SymbolGeometry
     {
@@ -1859,7 +1859,7 @@ namespace Zumen.Messages
         public SymbolGrid? Grid { get; init; }
 
         /// <summary>
-        /// 属性のタグと値。entities は記号の属性を入力の順に返す。足すときは、定義の属性の定義（値が決まったものを除く）から属性を作り、ここに書いたタグの値で既定の値を替える。タグは大文字と小文字を区別せず、重複を受けない。必要な属性を作れなければ失敗する。置き換えるときは、元と同じ数・順・タグを受け、値を変えた属性の ATTRIB の値を書き直す（表題欄の項目の書き換えなど）。書式つきの値（複数行の属性）を持つ属性の値は変えられない。小版 16 から。置き換えで値を変えるのは小版 21 から
+        /// 属性のタグと値。entities は記号の属性を入力の順に返す。足すときは、定義の属性の定義（値が決まったものを除く）から属性を作り、ここに書いたタグの値で既定の値を替える。タグは大文字と小文字を区別せず、重複を受けない。必要な属性を作れなければ失敗する。置き換えるときは、元と同じ数・順・タグを受け、値を変えた属性の ATTRIB の値を書き直す（表題欄の項目の書き換えなど）。書式つきの値（複数行の属性）を持つ属性の値は変えられない。マイナーバージョン 16 から。置き換えで値を変えるのはマイナーバージョン 21 から
         /// </summary>
         [JsonPropertyName("attributes")]
         public IReadOnlyList<SymbolAttribute>? Attributes { get; init; }
@@ -1939,7 +1939,7 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 要素の形の種類（決定 0022）。point（点、決定 0160）は小版 32 から。それまで点は symbol だった
+    /// 要素の形の種類（決定 0022）。point（点、決定 0160）はマイナーバージョン 32 から。それまで点は symbol だった
     /// </summary>
     public static class EntityKind
     {
@@ -1974,12 +1974,12 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 開いた文書に、変更の一覧を当てて書き戻す（決定 0139・0156）。要素は、entities が返す ID とハッシュで指す。どれか 1 つでも当てられなければ、何も変えない。当てたら、文書を書き戻したものに替え、書き戻したファイルを blobs で返す。小版 7 から
+    /// 開いた文書に、変更の一覧を当てて書き戻す（決定 0139・0156）。要素は、entities が返す ID とハッシュで指す。どれか 1 つでも当てられなければ、何も変えない。当てたら、文書を書き戻したものに替え、書き戻したファイルを blobs で返す。マイナーバージョン 7 から
     /// </summary>
     public sealed record ApplyRequest
     {
         /// <summary>
-        /// メッセージのスキーマの大版。今は 1
+        /// メッセージのスキーマのメジャーバージョン。今は 1
         /// </summary>
         [JsonPropertyName("v")]
         public ulong V { get; init; }
@@ -2003,7 +2003,7 @@ namespace Zumen.Messages
         public ulong? MaxPlaces { get; init; }
 
         /// <summary>
-        /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
         /// </summary>
         [JsonPropertyName("time_limit_ms")]
         public ulong? TimeLimitMs { get; init; }
@@ -2051,19 +2051,19 @@ namespace Zumen.Messages
         public string Hash { get; init; } = default!;
 
         /// <summary>
-        /// true なら、変えていない要素の ID がずれた。鍵を持たない形式（JWW）で、前の図形を除くか足したとき。ID を使う前に entities で読み直す。ずれないときは持たない。小版 30 から
+        /// true なら、変えていない要素の ID がずれた。キーを持たない形式（JWW）で、前の図形を除くか足したとき。ID を使う前に entities で読み直す。ずれないときは持たない。マイナーバージョン 30 から
         /// </summary>
         [JsonPropertyName("ids_shifted")]
         public bool? IdsShifted { get; init; }
     }
 
     /// <summary>
-    /// 開いた文書の図面モデルを、別の形式の新しいファイルに書き、新しい文書として開く（決定 0139・0206）。書けない要素は落とし、種類ごとの件数を診断で返す。書いたファイルは blobs で返す。今は DXF にだけ書ける。小版 41 から
+    /// 開いた文書の図面モデルを、別の形式の新しいファイルに書き、新しい文書として開く（決定 0139・0206）。書けない要素は落とし、種類ごとの件数を診断で返す。書いたファイルは blobs で返す。今は DXF にだけ書ける。マイナーバージョン 41 から
     /// </summary>
     public sealed record ConvertRequest
     {
         /// <summary>
-        /// メッセージのスキーマの大版。今は 1
+        /// メッセージのスキーマのメジャーバージョン。今は 1
         /// </summary>
         [JsonPropertyName("v")]
         public ulong V { get; init; }
@@ -2087,7 +2087,7 @@ namespace Zumen.Messages
         public ulong? MaxPlaces { get; init; }
 
         /// <summary>
-        /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
         /// </summary>
         [JsonPropertyName("time_limit_ms")]
         public ulong? TimeLimitMs { get; init; }
@@ -2170,10 +2170,10 @@ namespace Zumen.Messages
     /// </summary>
     public static class Edit
     {
-        /// <summary>目印の欄の名前</summary>
+        /// <summary>タグのフィールドの名前</summary>
         public const string Tag = "kind";
 
-        /// <summary>目印の値と、その形の型</summary>
+        /// <summary>タグの値と、その形の型</summary>
         public static readonly IReadOnlyDictionary<string, global::System.Type> Variants = new Dictionary<string, global::System.Type>
         {
             ["restyle"] = typeof(RestyleEdit),
@@ -2227,7 +2227,7 @@ namespace Zumen.Messages
         public string? Layer { get; init; }
 
         /// <summary>
-        /// レイヤの ID。tables が返したもの。同じ名前の項目が複数あるときは書き戻せない。小版 8 から
+        /// レイヤの ID。tables が返したもの。同じ名前の項目が複数あるときは書き戻せない。マイナーバージョン 8 から
         /// </summary>
         [JsonPropertyName("layer_id")]
         public string? LayerId { get; init; }
@@ -2312,7 +2312,7 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 要素の形を、渡す値で置き換える。形の種類は変えない。レイヤとスタイルは変えない。小版 10 から
+    /// 要素の形を、渡す値で置き換える。形の種類は変えない。レイヤとスタイルは変えない。マイナーバージョン 10 から
     /// </summary>
     public sealed record ReplaceEdit
     {
@@ -2342,7 +2342,7 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 空間か用紙に要素を足す。書かない色・線種・線幅はレイヤに従う。足せる形は、形の値のどの種類も。小版 10 から
+    /// 空間か用紙に要素を足す。書かない色・線種・線幅はレイヤに従う。足せる形は、形の値のどの種類も。マイナーバージョン 10 から
     /// </summary>
     public sealed record AddEdit
     {
@@ -2353,7 +2353,7 @@ namespace Zumen.Messages
         public string Kind { get; init; } = "add";
 
         /// <summary>
-        /// 足す先の空間か用紙の ID（space/0・sheet/h22 など）。entities の ID の先頭の部分。小版 31 から、記号の定義の空間（space/h1F など）も指せる（決定 0177）
+        /// 足す先の空間か用紙の ID（space/0・sheet/h22 など）。entities の ID の先頭の部分。マイナーバージョン 31 から、記号の定義の空間（space/h1F など）も指せる（決定 0177）
         /// </summary>
         [JsonPropertyName("place")]
         public string Place { get; init; } = default!;
@@ -2371,19 +2371,19 @@ namespace Zumen.Messages
         public string? LayerId { get; init; }
 
         /// <summary>
-        /// 色。SXF はレイヤに従う色を書けないので、書く。小版 29 から
+        /// 色。SXF はレイヤに従う色を書けないので、書く。マイナーバージョン 29 から
         /// </summary>
         [JsonPropertyName("color")]
         public ColorChange? Color { get; init; }
 
         /// <summary>
-        /// 線種。小版 29 から
+        /// 線種。マイナーバージョン 29 から
         /// </summary>
         [JsonPropertyName("line_type")]
         public LineTypeChange? LineType { get; init; }
 
         /// <summary>
-        /// 線幅。小版 29 から
+        /// 線幅。マイナーバージョン 29 から
         /// </summary>
         [JsonPropertyName("line_weight")]
         public LineWeightChange? LineWeight { get; init; }
@@ -2396,7 +2396,7 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// レイヤの名前・状態・色・線種・線幅のうち、書いたものだけを変える（決定 0162）。DXF は、名前を変えると、図形と今のレイヤ（$CLAYER）も新しい名前で指す。DWG は、今あるレイヤの線種と真の色を変えられない。小版 22 から
+    /// レイヤの名前・状態・色・線種・線幅のうち、書いたものだけを変える（決定 0162）。DXF は、名前を変えると、図形と今のレイヤ（$CLAYER）も新しい名前で指す。DWG は、今あるレイヤの線種と真の色を変えられない。マイナーバージョン 22 から
     /// </summary>
     public sealed record LayerEdit
     {
@@ -2468,7 +2468,7 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// レイヤを除く（決定 0162）。要素・ほかのオブジェクト・今のレイヤ（$CLAYER）が指すレイヤと、0・Defpoints・外部参照に依るレイヤは除けない。同じ apply の要素の変更が指すレイヤも除けない。後ろにハンドルのないレイヤがあれば、その ID が変わるので除けない。除いたレイヤより後ろのレイヤと、その上の要素のハッシュは変わるので、読み直す。小版 24 から
+    /// レイヤを除く（決定 0162）。要素・ほかのオブジェクト・今のレイヤ（$CLAYER）が指すレイヤと、0・Defpoints・外部参照に依るレイヤは除けない。同じ apply の要素の変更が指すレイヤも除けない。後ろにハンドルのないレイヤがあれば、その ID が変わるので除けない。除いたレイヤより後ろのレイヤと、その上の要素のハッシュは変わるので、読み直す。マイナーバージョン 24 から
     /// </summary>
     public sealed record RemoveLayerEdit
     {
@@ -2492,7 +2492,7 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 文字スタイルの名前・フォント・高さ・幅の倍率・傾き・裏返し・上下反転・縦書きのうち、書いたものだけを変える（決定 0163）。DXF は、名前を変えると、文字と今の文字スタイル（$TEXTSTYLE）も新しい名前で指す。表の書式などの図形でないオブジェクトが名前で指す文字スタイルの名前は変えられない。小版 25 から
+    /// 文字スタイルの名前・フォント・高さ・幅の倍率・傾き・裏返し・上下反転・縦書きのうち、書いたものだけを変える（決定 0163）。DXF は、名前を変えると、文字と今の文字スタイル（$TEXTSTYLE）も新しい名前で指す。表の書式などの図形でないオブジェクトが名前で指す文字スタイルの名前は変えられない。マイナーバージョン 25 から
     /// </summary>
     public sealed record TextStyleEdit
     {
@@ -2570,7 +2570,7 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 文字スタイルを足す（決定 0163）。書かない欄は Standard と同じ。同じ apply の要素は、足した文字スタイルを指せない。小版 25 から
+    /// 文字スタイルを足す（決定 0163）。書かないフィールドは Standard と同じ。同じ apply の要素は、足した文字スタイルを指せない。マイナーバージョン 25 から
     /// </summary>
     public sealed record AddTextStyleEdit
     {
@@ -2636,7 +2636,7 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 文字スタイルを除く（決定 0163）。要素・表の書式や寸法スタイルなどのほかのオブジェクト・今の文字スタイル（$TEXTSTYLE）が指すものと、Standard・外部参照に依るものは除けない。同じ apply で足す要素が指すものも除けない。後ろにハンドルのない文字スタイルがあれば、その ID が変わるので除けない。小版 25 から
+    /// 文字スタイルを除く（決定 0163）。要素・表の書式や寸法スタイルなどのほかのオブジェクト・今の文字スタイル（$TEXTSTYLE）が指すものと、Standard・外部参照に依るものは除けない。同じ apply で足す要素が指すものも除けない。後ろにハンドルのない文字スタイルがあれば、その ID が変わるので除けない。マイナーバージョン 25 から
     /// </summary>
     public sealed record RemoveTextStyleEdit
     {
@@ -2660,7 +2660,7 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 線種の名前・説明・線と間の長さの列のうち、書いたものだけを変える（決定 0164）。DXF は、名前を変えると、要素・レイヤと今の線種（$CELTYPE）も新しい名前で指す。多重線のスタイルなどの図形でないオブジェクトが名前で指す線種の名前は変えられない。形か文字を添える線種と DWG の線種は、列の要素の数を変えられない。小版 26 から
+    /// 線種の名前・説明・線と間の長さの列のうち、書いたものだけを変える（決定 0164）。DXF は、名前を変えると、要素・レイヤと今の線種（$CELTYPE）も新しい名前で指す。マルチラインスタイルなどの図形でないオブジェクトが名前で指す線種の名前は変えられない。形か文字を添える線種と DWG の線種は、列の要素の数を変えられない。マイナーバージョン 26 から
     /// </summary>
     public sealed record LineTypeEdit
     {
@@ -2702,7 +2702,7 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 線種を足す（決定 0164）。書かない欄は Continuous と同じ。同じ apply の要素とレイヤは、足した線種を指せない。小版 26 から
+    /// 線種を足す（決定 0164）。書かないフィールドは Continuous と同じ。同じ apply の要素とレイヤは、足した線種を指せない。マイナーバージョン 26 から
     /// </summary>
     public sealed record AddLineTypeEdit
     {
@@ -2732,7 +2732,7 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 線種を除く（決定 0164）。要素・レイヤ・多重線のスタイルなどのほかのオブジェクト・今の線種（$CELTYPE）が指すものと、ByLayer・ByBlock・Continuous・外部参照に依るものは除けない。同じ apply で足す・変える要素とレイヤが指すものも除けない。後ろにハンドルのない線種があれば、その ID が変わるので除けない。小版 26 から
+    /// 線種を除く（決定 0164）。要素・レイヤ・マルチラインスタイルなどのほかのオブジェクト・今の線種（$CELTYPE）が指すものと、ByLayer・ByBlock・Continuous・外部参照に依るものは除けない。同じ apply で足す・変える要素とレイヤが指すものも除けない。後ろにハンドルのない線種があれば、その ID が変わるので除けない。マイナーバージョン 26 から
     /// </summary>
     public sealed record RemoveLineTypeEdit
     {
@@ -2756,7 +2756,7 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 寸法スタイルの名前・端部記号・その大きさ・斜線・倍率のうち、書いたものだけを変える（決定 0165）。DXF は、名前を変えると、寸法・引出線・公差と今の寸法スタイル（$DIMSTYLE）も新しい名前で指す。図形でないオブジェクトが名前で指す寸法スタイルの名前は変えられない。小版 27 から
+    /// 寸法スタイルの名前・端部記号・その大きさ・斜線・倍率のうち、書いたものだけを変える（決定 0165）。DXF は、名前を変えると、寸法・引出線・公差と今の寸法スタイル（$DIMSTYLE）も新しい名前で指す。図形でないオブジェクトが名前で指す寸法スタイルの名前は変えられない。マイナーバージョン 27 から
     /// </summary>
     public sealed record DimensionStyleEdit
     {
@@ -2816,7 +2816,7 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 寸法スタイルを足す（決定 0165）。書かない欄は Standard と同じ。同じ apply の要素は、足した寸法スタイルを指せない。小版 27 から
+    /// 寸法スタイルを足す（決定 0165）。書かないフィールドは Standard と同じ。同じ apply の要素は、足した寸法スタイルを指せない。マイナーバージョン 27 から
     /// </summary>
     public sealed record AddDimensionStyleEdit
     {
@@ -2864,7 +2864,7 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 寸法スタイルを除く（決定 0165）。寸法・引出線・公差などのほかのオブジェクト・今の寸法スタイル（$DIMSTYLE）が指すものと、Standard・子の寸法スタイル・子を持つ寸法スタイル・外部参照に依るものは除けない。後ろにハンドルのない寸法スタイルがあれば、その ID が変わるので除けない。小版 27 から
+    /// 寸法スタイルを除く（決定 0165）。寸法・引出線・公差などのほかのオブジェクト・今の寸法スタイル（$DIMSTYLE）が指すものと、Standard・子の寸法スタイル・子を持つ寸法スタイル・外部参照に依るものは除けない。後ろにハンドルのない寸法スタイルがあれば、その ID が変わるので除けない。マイナーバージョン 27 から
     /// </summary>
     public sealed record RemoveDimensionStyleEdit
     {
@@ -2888,7 +2888,7 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 文書の点の表し方（marker を持たない点の見え方）を変える（決定 0190）。文書全体の設定なので要素を指さない。読んだときの文書は、apply の hash で確かめる。DXF・DWG は見出しの $PDMODE・$PDSIZE に書く。DWG は、変数を書く幅が変わる値（$PDMODE の 0 とほかの値の間の変更、$PDSIZE の 0・1 とほかの値の間の変更）を、小版 39 から書ける（決定 0193）。JWW・SXF は文書の点の表し方を持たないので断る。applied は id と hash を持たない。小版 38 から
+    /// 文書の点の表し方（marker を持たない点の見え方）を変える（決定 0190）。文書全体の設定なので要素を指さない。読んだときの文書は、apply の hash で確かめる。DXF・DWG はヘッダーの $PDMODE・$PDSIZE に書く。DWG は、変数を書く幅が変わる値（$PDMODE の 0 とほかの値の間の変更、$PDSIZE の 0・1 とほかの値の間の変更）を、マイナーバージョン 39 から書ける（決定 0193）。JWW・SXF は文書の点の表し方を持たないので断る。applied は id と hash を持たない。マイナーバージョン 38 から
     /// </summary>
     public sealed record PointStyleEdit
     {
@@ -2958,7 +2958,7 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// レイヤを足す（決定 0162）。書かない欄は、状態なら表示・印刷・編集でき凍結せず、色・線種・線幅ならレイヤ 0 と同じ。同じ apply の要素は、足したレイヤを指せない。小版 22 から
+    /// レイヤを足す（決定 0162）。書かないフィールドは、状態なら表示・印刷・編集でき凍結せず、色・線種・線幅ならレイヤ 0 と同じ。同じ apply の要素は、足したレイヤを指せない。マイナーバージョン 22 から
     /// </summary>
     public sealed record AddLayerEdit
     {
@@ -3046,13 +3046,13 @@ namespace Zumen.Messages
         public uint? Aci { get; init; }
 
         /// <summary>
-        /// SXF の色のコード。1〜16 は既定義色、17 からは利用者定義色を定義の順に数えたもの。小版 29 から
+        /// SXF の色のコード。1〜16 は既定義色、17 からは利用者定義色を定義の順に数えたもの。マイナーバージョン 29 から
         /// </summary>
         [JsonPropertyName("sxf")]
         public ulong? Sxf { get; init; }
 
         /// <summary>
-        /// Jw_cad のペンの番号。0〜9 と、版 420 からの SXF の拡張色 100〜356。小版 30 から
+        /// Jw_cad のペンの番号。0〜9 と、バージョン 420 からの SXF の拡張色 100〜356。マイナーバージョン 30 から
         /// </summary>
         [JsonPropertyName("jww")]
         public uint? Jww { get; init; }
@@ -3082,7 +3082,7 @@ namespace Zumen.Messages
         public string? Name { get; init; }
 
         /// <summary>
-        /// 線種の ID。tables が返したもの。同じ名前の項目が複数あるときは書き戻せない。小版 8 から
+        /// 線種の ID。tables が返したもの。同じ名前の項目が複数あるときは書き戻せない。マイナーバージョン 8 から
         /// </summary>
         [JsonPropertyName("id")]
         public string? Id { get; init; }
@@ -3113,12 +3113,12 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 開いた文書を図面モデル（L2）に変換し、レイヤと線種の表の項目を返す（決定 0156）。小版 8 から
+    /// 開いた文書を図面モデル（L2）に変換し、レイヤと線種の表の項目を返す（決定 0156）。マイナーバージョン 8 から
     /// </summary>
     public sealed record TablesRequest
     {
         /// <summary>
-        /// メッセージのスキーマの大版。今は 1
+        /// メッセージのスキーマのメジャーバージョン。今は 1
         /// </summary>
         [JsonPropertyName("v")]
         public ulong V { get; init; }
@@ -3142,7 +3142,7 @@ namespace Zumen.Messages
         public ulong? MaxPlaces { get; init; }
 
         /// <summary>
-        /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
         /// </summary>
         [JsonPropertyName("time_limit_ms")]
         public ulong? TimeLimitMs { get; init; }
@@ -3172,31 +3172,31 @@ namespace Zumen.Messages
         public IReadOnlyList<LayerItem> Layers { get; init; } = default!;
 
         /// <summary>
-        /// 線種。小版 26 から、定義を持つ
+        /// 線種。マイナーバージョン 26 から、定義を持つ
         /// </summary>
         [JsonPropertyName("line_types")]
         public IReadOnlyList<LineTypeItem> LineTypes { get; init; } = default!;
 
         /// <summary>
-        /// 寸法スタイル。小版 27 から、端部記号と大きさを持つ
+        /// 寸法スタイル。マイナーバージョン 27 から、端部記号と大きさを持つ
         /// </summary>
         [JsonPropertyName("dimension_styles")]
         public IReadOnlyList<DimensionStyleItem> DimensionStyles { get; init; } = default!;
 
         /// <summary>
-        /// 文字スタイル（決定 0158）。要素が名前で指すだけで、ファイルに定義がないものは、定義の欄を持たない項目として後ろに並ぶ。小版 20 から
+        /// 文字スタイル（決定 0158）。要素が名前で指すだけで、ファイルに定義がないものは、定義のフィールドを持たない項目として後ろに並ぶ。マイナーバージョン 20 から
         /// </summary>
         [JsonPropertyName("text_styles")]
         public IReadOnlyList<TextStyleItem> TextStyles { get; init; } = default!;
     }
 
     /// <summary>
-    /// 開いた文書を図面モデル（L2）に変換し、起点から配置をたどって、2D のシーンを blob で返す（決定 0172）。シーンの配置は schema/scene.toml にある。小版 33 から
+    /// 開いた文書を図面モデル（L2）に変換し、起点から配置をたどって、2D のシーンを blob で返す（決定 0172）。シーンの配置は schema/scene.toml にある。マイナーバージョン 33 から
     /// </summary>
     public sealed record SceneRequest
     {
         /// <summary>
-        /// メッセージのスキーマの大版。今は 1
+        /// メッセージのスキーマのメジャーバージョン。今は 1
         /// </summary>
         [JsonPropertyName("v")]
         public ulong V { get; init; }
@@ -3220,7 +3220,7 @@ namespace Zumen.Messages
         public ulong? MaxPlaces { get; init; }
 
         /// <summary>
-        /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
         /// </summary>
         [JsonPropertyName("time_limit_ms")]
         public ulong? TimeLimitMs { get; init; }
@@ -3268,19 +3268,19 @@ namespace Zumen.Messages
         public bool? Print { get; init; }
 
         /// <summary>
-        /// 色の表の入力の名前（zm_push で渡したもの）。プロファイルの色の語彙と同じ形の JSON で、values に rgb（#rrggbb）と aci・sxf・jww の符号を並べる（決定 0138・0178）。書かなければ、ファイルが RGB を持たない色は未解決の印を立てる
+        /// 色の表の入力の名前（zm_push で渡したもの）。プロファイルの色の語彙と同じ形の JSON で、values に rgb（#rrggbb）と aci・sxf・jww の符号を並べる（決定 0138・0178）。書かなければ、ファイルが RGB を持たない色は未解決のフラグを立てる
         /// </summary>
         [JsonPropertyName("palette")]
         public string? Palette { get; init; }
 
         /// <summary>
-        /// 文字を置くフォント（決定 0188）。書けば、文字を字形で置き、シーンの字形の区画に形と変換を返す。文字スタイルと書式の区間のフォントの名前（シーンの font_names）で引き、同じ名前、なければ ASCII の大文字と小文字を区別しない名前で合わせる。合うものがなければ名前のないフォントで置く。小版 37 から
+        /// 文字を置くフォント（決定 0188）。書けば、文字を字形で置き、シーンの字形のセクションに形と変換を返す。文字スタイルと書式の区間のフォントの名前（シーンの font_names）で引き、同じ名前、なければ ASCII の大文字と小文字を区別しない名前で合わせる。合うものがなければ名前のないフォントで置く。マイナーバージョン 37 から
         /// </summary>
         [JsonPropertyName("fonts")]
         public IReadOnlyList<SceneFont>? Fonts { get; init; }
 
         /// <summary>
-        /// 形式の宣言値の高さ（キーは dxf.TEXT.40・dxf.MTEXT.40・jww.moji.size_y など）が、フォントのどの寸法に当たるか（決定 0176・0188）。書かないキーは、表示と比べて決めた意味（dxf.TEXT.40 は capital_a。小版 59 から）にし、それもなければ大文字の高さとみなす。fonts を書いたときだけ使う。小版 37 から
+        /// 形式の宣言値の高さ（キーは dxf.TEXT.40・dxf.MTEXT.40・jww.moji.size_y など）が、フォントのどの寸法に当たるか（決定 0176・0188）。書かないキーは、表示と比べて決めた意味（dxf.TEXT.40 は capital_a。マイナーバージョン 59 から）にし、それもなければ大文字の高さとみなす。fonts を書いたときだけ使う。マイナーバージョン 37 から
         /// </summary>
         [JsonPropertyName("heights")]
         public IReadOnlyDictionary<string, string>? Heights { get; init; }
@@ -3311,7 +3311,7 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 宣言された高さが当たるフォントの寸法。cap_height は大文字の高さ、em は em、frame はアセンダーとディセンダーを合わせた高さ、capital_a は A の字形の外形の上（A がなければ大文字の高さ。小版 59 から）
+    /// 宣言された高さが当たるフォントの寸法。cap_height は大文字の高さ、em は em、frame はアセンダーとディセンダーを合わせた高さ、capital_a は A の字形の外形の上（A がなければ大文字の高さ。マイナーバージョン 59 から）
     /// </summary>
     public static class HeightReference
     {
@@ -3421,19 +3421,19 @@ namespace Zumen.Messages
         public ulong Images { get; init; }
 
         /// <summary>
-        /// 置いた字形。fonts を書かなければ 0。小版 37 から
+        /// 置いた字形。fonts を書かなければ 0。マイナーバージョン 37 から
         /// </summary>
         [JsonPropertyName("glyphs")]
         public ulong Glyphs { get; init; }
     }
 
     /// <summary>
-    /// 開いた文書を図面モデル（L2）に変換し、起点から配置をたどって、プロファイルの規則と語彙で照合する（決定 0138・0173・0179）。小版 34 から
+    /// 開いた文書を図面モデル（L2）に変換し、起点から配置をたどって、プロファイルの規則と語彙で照合する（決定 0138・0173・0179）。マイナーバージョン 34 から
     /// </summary>
     public sealed record CheckRequest
     {
         /// <summary>
-        /// メッセージのスキーマの大版。今は 1
+        /// メッセージのスキーマのメジャーバージョン。今は 1
         /// </summary>
         [JsonPropertyName("v")]
         public ulong V { get; init; }
@@ -3457,7 +3457,7 @@ namespace Zumen.Messages
         public ulong? MaxPlaces { get; init; }
 
         /// <summary>
-        /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
         /// </summary>
         [JsonPropertyName("time_limit_ms")]
         public ulong? TimeLimitMs { get; init; }
@@ -3499,7 +3499,7 @@ namespace Zumen.Messages
         public ulong? View { get; init; }
 
         /// <summary>
-        /// 照合するファイルの名前（拡張子を含み、フォルダーを含まない）。file-name の規則で比べる。書かなければ、file-name の規則は照合できない（決定 0204）。小版 40 から
+        /// 照合するファイルの名前（拡張子を含み、フォルダーを含まない）。file-name の規則で比べる。書かなければ、file-name の規則は照合できない（決定 0204）。マイナーバージョン 40 から
         /// </summary>
         [JsonPropertyName("file_name")]
         public string? FileName { get; init; }
@@ -3650,12 +3650,12 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// zm_push で渡した IFC（IFC-SPF か ifcZIP）を、zm_push で渡した EXPRESS のスキーマに照らしてチェックする（決定 0207・0216）。インスタンスの実体の名前・抽象・属性の数・値の型・省略を見る。WHERE・UNIQUE・RULE の規則は評価せず、数を返す。zumen は EXPRESS を同梱しない。小版 42 から
+    /// zm_push で渡した IFC（IFC-SPF か ifcZIP）を、zm_push で渡した EXPRESS のスキーマに照らしてチェックする（決定 0207・0216）。インスタンスの実体の名前・抽象・属性の数・値の型・省略を見る。WHERE・UNIQUE・RULE の規則は評価せず、数を返す。zumen は EXPRESS を同梱しない。マイナーバージョン 42 から
     /// </summary>
     public sealed record ValidateRequest
     {
         /// <summary>
-        /// メッセージのスキーマの大版。今は 1
+        /// メッセージのスキーマのメジャーバージョン。今は 1
         /// </summary>
         [JsonPropertyName("v")]
         public ulong V { get; init; }
@@ -3679,7 +3679,7 @@ namespace Zumen.Messages
         public ulong? MaxPlaces { get; init; }
 
         /// <summary>
-        /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
         /// </summary>
         [JsonPropertyName("time_limit_ms")]
         public ulong? TimeLimitMs { get; init; }
@@ -3764,12 +3764,12 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// レビューの文書（決定 0214・0218）の 1 つの対象を、開いた図面の文書の版へ移す。要素の参照を図面の要素の ID で引き、参照ごとに unchanged・changed・removed を返す。場所と図形に元の版のハッシュと状態を書き、対象のハッシュを文書のハッシュにする。2D の点は動かさない。移した文書は blobs の file で返す。小版 43 から
+    /// レビューの文書（決定 0214・0218）の 1 つの対象を、開いた図面の文書のバージョンへ移す。要素の参照を図面の要素の ID で引き、参照ごとに unchanged・changed・removed を返す。場所と図形に元のバージョンのハッシュと状態を書き、対象のハッシュを文書のハッシュにする。2D の点は動かさない。移した文書は blobs の file で返す。マイナーバージョン 43 から
     /// </summary>
     public sealed record ReviewCarryRequest
     {
         /// <summary>
-        /// メッセージのスキーマの大版。今は 1
+        /// メッセージのスキーマのメジャーバージョン。今は 1
         /// </summary>
         [JsonPropertyName("v")]
         public ulong V { get; init; }
@@ -3793,7 +3793,7 @@ namespace Zumen.Messages
         public ulong? MaxPlaces { get; init; }
 
         /// <summary>
-        /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
         /// </summary>
         [JsonPropertyName("time_limit_ms")]
         public ulong? TimeLimitMs { get; init; }
@@ -3805,7 +3805,7 @@ namespace Zumen.Messages
         public string Op { get; init; } = "review_carry";
 
         /// <summary>
-        /// 新しい版の文書の名前。open で作ったもの。小版 44 から、IFC の建物モデルの文書も渡せ、要素の参照を建物モデルの要素の ID とハッシュで引く
+        /// 新しいバージョンの文書の名前。open で作ったもの。マイナーバージョン 44 から、IFC の建物モデルの文書も渡せ、要素の参照を建物モデルの要素の ID とハッシュで引く
         /// </summary>
         [JsonPropertyName("doc")]
         public string Doc { get; init; } = default!;
@@ -3902,7 +3902,7 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 移したときの状態（決定 0214）。unchanged は要素のハッシュが同じ、changed は違うか元のハッシュがない、removed は新しい版に要素がない
+    /// 移したときの状態（決定 0214）。unchanged は要素のハッシュが同じ、changed は違うか元のハッシュがない、removed は新しいバージョンに要素がない
     /// </summary>
     public static class CarriedState
     {
@@ -3915,12 +3915,12 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 開いた文書を check と同じに照合し、選んだ指摘だけを開いた指摘としてレビューの文書（決定 0214・0218）に足す。指摘の ID は対象のハッシュ・規則・診断から決め、取り込み済みの指摘は足さない。足した文書は blobs の file で返す。小版 43 から
+    /// 開いた文書を check と同じに照合し、選んだ指摘だけを開いた指摘としてレビューの文書（決定 0214・0218）に足す。指摘の ID は対象のハッシュ・規則・診断から決め、取り込み済みの指摘は足さない。足した文書は blobs の file で返す。マイナーバージョン 43 から
     /// </summary>
     public sealed record ReviewAdoptRequest
     {
         /// <summary>
-        /// メッセージのスキーマの大版。今は 1
+        /// メッセージのスキーマのメジャーバージョン。今は 1
         /// </summary>
         [JsonPropertyName("v")]
         public ulong V { get; init; }
@@ -3944,7 +3944,7 @@ namespace Zumen.Messages
         public ulong? MaxPlaces { get; init; }
 
         /// <summary>
-        /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
         /// </summary>
         [JsonPropertyName("time_limit_ms")]
         public ulong? TimeLimitMs { get; init; }
@@ -3986,7 +3986,7 @@ namespace Zumen.Messages
         public ulong? View { get; init; }
 
         /// <summary>
-        /// 照合するファイルの名前（拡張子を含み、フォルダーを含まない）。file-name の規則で比べる。書かなければ、file-name の規則は照合できない（決定 0204）。小版 40 から
+        /// 照合するファイルの名前（拡張子を含み、フォルダーを含まない）。file-name の規則で比べる。書かなければ、file-name の規則は照合できない（決定 0204）。マイナーバージョン 40 から
         /// </summary>
         [JsonPropertyName("file_name")]
         public string? FileName { get; init; }
@@ -4035,12 +4035,12 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 開いた IFC の建物モデル（決定 0207・0219）の要約を返す。小版 44 から
+    /// 開いた IFC の建物モデル（決定 0207・0219）の要約を返す。マイナーバージョン 44 から
     /// </summary>
     public sealed record BuildingRequest
     {
         /// <summary>
-        /// メッセージのスキーマの大版。今は 1
+        /// メッセージのスキーマのメジャーバージョン。今は 1
         /// </summary>
         [JsonPropertyName("v")]
         public ulong V { get; init; }
@@ -4064,7 +4064,7 @@ namespace Zumen.Messages
         public ulong? MaxPlaces { get; init; }
 
         /// <summary>
-        /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
         /// </summary>
         [JsonPropertyName("time_limit_ms")]
         public ulong? TimeLimitMs { get; init; }
@@ -4094,7 +4094,7 @@ namespace Zumen.Messages
         public string Schema { get; init; } = default!;
 
         /// <summary>
-        /// 入力のバイト列のハッシュ。review_carry の対象の版に使う
+        /// 入力のバイト列のハッシュ。review_carry の対象のバージョンに使う
         /// </summary>
         [JsonPropertyName("hash")]
         public string Hash { get; init; } = default!;
@@ -4179,12 +4179,12 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 開いた IFC の建物モデルの要素を、書いた順に返す。成分は components で選ぶ（決定 0207・0219）。小版 44 から
+    /// 開いた IFC の建物モデルの要素を、書いた順に返す。コンポーネントは components で選ぶ（決定 0207・0219）。マイナーバージョン 44 から
     /// </summary>
     public sealed record BuildingElementsRequest
     {
         /// <summary>
-        /// メッセージのスキーマの大版。今は 1
+        /// メッセージのスキーマのメジャーバージョン。今は 1
         /// </summary>
         [JsonPropertyName("v")]
         public ulong V { get; init; }
@@ -4208,7 +4208,7 @@ namespace Zumen.Messages
         public ulong? MaxPlaces { get; init; }
 
         /// <summary>
-        /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
         /// </summary>
         [JsonPropertyName("time_limit_ms")]
         public ulong? TimeLimitMs { get; init; }
@@ -4238,7 +4238,7 @@ namespace Zumen.Messages
         public string? Class { get; init; }
 
         /// <summary>
-        /// 返す成分の名前。1 つ以上で、重ねない。書かなければ class と identity を返す
+        /// 返すコンポーネントの名前。1 つ以上で、重ねない。書かなければ class と identity を返す
         /// </summary>
         [JsonPropertyName("components")]
         public IReadOnlyList<string>? Components { get; init; }
@@ -4257,7 +4257,7 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// building_elements で返す成分（決定 0207）。relations は索引から求める子・参照・型の実例・開口・埋める要素・構成員
+    /// building_elements で返すコンポーネント（決定 0207）。relations は索引から求める子・参照・型の実例・開口・埋める要素・構成員
     /// </summary>
     public static class BuildingComponent
     {
@@ -4322,7 +4322,7 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 建物モデルの要素。成分は、選んだもののうち要素が持つものだけを持つ
+    /// 建物モデルの要素。コンポーネントは、選んだもののうち要素が持つものだけを持つ
     /// </summary>
     public sealed record BuildingElement
     {
@@ -4333,7 +4333,7 @@ namespace Zumen.Messages
         public string Id { get; init; } = default!;
 
         /// <summary>
-        /// 要素の成分のハッシュ（v1: と 32 桁の 16 進、決定 0207）
+        /// 要素のコンポーネントのハッシュ（v1: と 32 桁の 16 進、決定 0207）
         /// </summary>
         [JsonPropertyName("hash")]
         public string Hash { get; init; } = default!;
@@ -4513,7 +4513,7 @@ namespace Zumen.Messages
         public string? System { get; init; }
 
         /// <summary>
-        /// 体系の版
+        /// 体系のバージョン
         /// </summary>
         [JsonPropertyName("edition")]
         public string? Edition { get; init; }
@@ -5079,12 +5079,12 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 開いた IFC に、変更の一覧を当てて書き戻す（決定 0207・0244）。要素は、building_elements が返す ID とハッシュで指す。どれか 1 つでも当てられなければ、何も変えない。当てたら、文書を書き戻したものに替え、書き戻したファイル（ifcZIP で開いたものは ifcZIP）を blobs の file で返す。名前を挙げないインスタンスは、元のバイト列のまま書く。小版 58 から
+    /// 開いた IFC に、変更の一覧を当てて書き戻す（決定 0207・0244）。要素は、building_elements が返す ID とハッシュで指す。どれか 1 つでも当てられなければ、何も変えない。当てたら、文書を書き戻したものに替え、書き戻したファイル（ifcZIP で開いたものは ifcZIP）を blobs の file で返す。名前を挙げないインスタンスは、元のバイト列のまま書く。マイナーバージョン 58 から
     /// </summary>
     public sealed record BuildingApplyRequest
     {
         /// <summary>
-        /// メッセージのスキーマの大版。今は 1
+        /// メッセージのスキーマのメジャーバージョン。今は 1
         /// </summary>
         [JsonPropertyName("v")]
         public ulong V { get; init; }
@@ -5108,7 +5108,7 @@ namespace Zumen.Messages
         public ulong? MaxPlaces { get; init; }
 
         /// <summary>
-        /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
         /// </summary>
         [JsonPropertyName("time_limit_ms")]
         public ulong? TimeLimitMs { get; init; }
@@ -5143,10 +5143,10 @@ namespace Zumen.Messages
     /// </summary>
     public static class BuildingEdit
     {
-        /// <summary>目印の欄の名前</summary>
+        /// <summary>タグのフィールドの名前</summary>
         public const string Tag = "kind";
 
-        /// <summary>目印の値と、その形の型</summary>
+        /// <summary>タグの値と、その形の型</summary>
         public static readonly IReadOnlyDictionary<string, global::System.Type> Variants = new Dictionary<string, global::System.Type>
         {
             ["property"] = typeof(BuildingPropertyEdit),
@@ -5262,12 +5262,12 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 開いた図面の文書を図面モデル（L2）に変換し、図面モデルのバイナリ（決定 0247）を blob で返す。配置は schema/drawing.toml にあり、元の文書の形式・系統・ハッシュも持つ。プラグインのモジュールが読んだ図面は、これを図面のモジュールの open に渡すと、元の形式とハッシュの読むだけの文書になる。小版 60 から
+    /// 開いた図面の文書を図面モデル（L2）に変換し、図面モデルのバイナリ（決定 0247）を blob で返す。配置は schema/drawing.toml にあり、元の文書の形式・系統・ハッシュも持つ。プラグインのモジュールが読んだ図面は、これを図面のモジュールの open に渡すと、元の形式とハッシュの読むだけの文書になる。マイナーバージョン 60 から
     /// </summary>
     public sealed record LiftRequest
     {
         /// <summary>
-        /// メッセージのスキーマの大版。今は 1
+        /// メッセージのスキーマのメジャーバージョン。今は 1
         /// </summary>
         [JsonPropertyName("v")]
         public ulong V { get; init; }
@@ -5291,7 +5291,7 @@ namespace Zumen.Messages
         public ulong? MaxPlaces { get; init; }
 
         /// <summary>
-        /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
         /// </summary>
         [JsonPropertyName("time_limit_ms")]
         public ulong? TimeLimitMs { get; init; }
@@ -5322,12 +5322,12 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 開いた IFC の建物モデルを、zm_push で渡した IDS で照合する（決定 0217・0219）。確かめられない facet は、指摘と分けて info の指摘で返す。小版 44 から
+    /// 開いた IFC の建物モデルを、zm_push で渡した IDS で照合する（決定 0217・0219）。確かめられない facet は、指摘と分けて info の指摘で返す。マイナーバージョン 44 から
     /// </summary>
     public sealed record IdsCheckRequest
     {
         /// <summary>
-        /// メッセージのスキーマの大版。今は 1
+        /// メッセージのスキーマのメジャーバージョン。今は 1
         /// </summary>
         [JsonPropertyName("v")]
         public ulong V { get; init; }
@@ -5351,7 +5351,7 @@ namespace Zumen.Messages
         public ulong? MaxPlaces { get; init; }
 
         /// <summary>
-        /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
         /// </summary>
         [JsonPropertyName("time_limit_ms")]
         public ulong? TimeLimitMs { get; init; }
@@ -5375,7 +5375,7 @@ namespace Zumen.Messages
         public string Ids { get; init; } = default!;
 
         /// <summary>
-        /// EXPRESS の入力の名前（zm_push で渡した .exp）。渡せば、IFC の属性の全体を EXPRESS の名前で照らす。渡さなければ、建物モデルの成分にある属性だけを照らす
+        /// EXPRESS の入力の名前（zm_push で渡した .exp）。渡せば、IFC の属性の全体を EXPRESS の名前で照らす。渡さなければ、建物モデルのコンポーネントにある属性だけを照らす
         /// </summary>
         [JsonPropertyName("express")]
         public string? Express { get; init; }
@@ -5490,12 +5490,12 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 開いた IFC を ids_check と同じに照合し、選んだ指摘だけを開いた指摘としてレビューの文書（決定 0218・0219）に足す。足した文書は blobs の file で返す。小版 44 から
+    /// 開いた IFC を ids_check と同じに照合し、選んだ指摘だけを開いた指摘としてレビューの文書（決定 0218・0219）に足す。足した文書は blobs の file で返す。マイナーバージョン 44 から
     /// </summary>
     public sealed record ReviewAdoptIdsRequest
     {
         /// <summary>
-        /// メッセージのスキーマの大版。今は 1
+        /// メッセージのスキーマのメジャーバージョン。今は 1
         /// </summary>
         [JsonPropertyName("v")]
         public ulong V { get; init; }
@@ -5519,7 +5519,7 @@ namespace Zumen.Messages
         public ulong? MaxPlaces { get; init; }
 
         /// <summary>
-        /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
         /// </summary>
         [JsonPropertyName("time_limit_ms")]
         public ulong? TimeLimitMs { get; init; }
@@ -5543,7 +5543,7 @@ namespace Zumen.Messages
         public string Ids { get; init; } = default!;
 
         /// <summary>
-        /// EXPRESS の入力の名前（zm_push で渡した .exp）。渡せば、IFC の属性の全体を EXPRESS の名前で照らす。渡さなければ、建物モデルの成分にある属性だけを照らす
+        /// EXPRESS の入力の名前（zm_push で渡した .exp）。渡せば、IFC の属性の全体を EXPRESS の名前で照らす。渡さなければ、建物モデルのコンポーネントにある属性だけを照らす
         /// </summary>
         [JsonPropertyName("express")]
         public string? Express { get; init; }
@@ -5568,12 +5568,12 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// zm_push で渡した BCF 2.1 か 3.0 の bcfzip を読み、開いた IFC を対象にしたレビューの文書（決定 0214・0220）にする。topic は指摘に、comment はコメントに、viewpoint は 3D の場所に写し、要素の参照のハッシュは建物モデルの要素のハッシュで埋める。文書は blobs の file で返す。小版 45 から
+    /// zm_push で渡した BCF 2.1 か 3.0 の bcfzip を読み、開いた IFC を対象にしたレビューの文書（決定 0214・0220）にする。topic は指摘に、comment はコメントに、viewpoint は 3D の場所に写し、要素の参照のハッシュは建物モデルの要素のハッシュで埋める。文書は blobs の file で返す。マイナーバージョン 45 から
     /// </summary>
     public sealed record BcfReadRequest
     {
         /// <summary>
-        /// メッセージのスキーマの大版。今は 1
+        /// メッセージのスキーマのメジャーバージョン。今は 1
         /// </summary>
         [JsonPropertyName("v")]
         public ulong V { get; init; }
@@ -5597,7 +5597,7 @@ namespace Zumen.Messages
         public ulong? MaxPlaces { get; init; }
 
         /// <summary>
-        /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
         /// </summary>
         [JsonPropertyName("time_limit_ms")]
         public ulong? TimeLimitMs { get; init; }
@@ -5670,7 +5670,7 @@ namespace Zumen.Messages
     public sealed record BcfReadResult
     {
         /// <summary>
-        /// BCF の版
+        /// BCF のバージョン
         /// </summary>
         [JsonPropertyName("version")]
         public string Version { get; init; } = default!;
@@ -5683,12 +5683,12 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// zm_push で渡したレビューの文書を、BCF の bcfzip に書く（決定 0214・0220）。版は version で選ぶ（小版 61 から。それまでは 3.0 だけ）。target を対象にした 3D の場所を viewpoint にし、2D の場所と図形は書かずに診断する。original を渡せば、変えていない topic を元のバイト列のまま書き、変えた topic でも写さない要素と知らない要素を保つ。bcfzip は blobs の file で返す。小版 45 から
+    /// zm_push で渡したレビューの文書を、BCF の bcfzip に書く（決定 0214・0220）。バージョンは version で選ぶ（マイナーバージョン 61 から。それまでは 3.0 だけ）。target を対象にした 3D の場所を viewpoint にし、2D の場所と図形は書かずに診断する。original を渡せば、変えていない topic を元のバイト列のまま書き、変えた topic でも写さない要素と知らない要素を保つ。bcfzip は blobs の file で返す。マイナーバージョン 45 から
     /// </summary>
     public sealed record BcfWriteRequest
     {
         /// <summary>
-        /// メッセージのスキーマの大版。今は 1
+        /// メッセージのスキーマのメジャーバージョン。今は 1
         /// </summary>
         [JsonPropertyName("v")]
         public ulong V { get; init; }
@@ -5712,7 +5712,7 @@ namespace Zumen.Messages
         public ulong? MaxPlaces { get; init; }
 
         /// <summary>
-        /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
         /// </summary>
         [JsonPropertyName("time_limit_ms")]
         public ulong? TimeLimitMs { get; init; }
@@ -5766,7 +5766,7 @@ namespace Zumen.Messages
         public string? Date { get; init; }
 
         /// <summary>
-        /// 書く BCF の版。2.1 か 3.0。書かなければ、original の版か 3.0。original と違う版では書かず、bcf.conversion.unsupported で失敗する。ほかの値は call.value.invalid。小版 61 から
+        /// 書く BCF のバージョン。2.1 か 3.0。書かなければ、original のバージョンか 3.0。original と違うバージョンでは書かず、bcf.conversion.unsupported で失敗する。ほかの値は call.value.invalid。マイナーバージョン 61 から
         /// </summary>
         [JsonPropertyName("version")]
         public string? Version { get; init; }
@@ -5809,7 +5809,7 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// レイヤの表の項目（決定 0162）。小版 22 から、状態とスタイルを持つ
+    /// レイヤの表の項目（決定 0162）。マイナーバージョン 22 から、状態とスタイルを持つ
     /// </summary>
     public sealed record LayerItem
     {
@@ -5832,56 +5832,56 @@ namespace Zumen.Messages
         public string Hash { get; init; } = default!;
 
         /// <summary>
-        /// ファイルに定義がある。偽なら、要素が名前で指すだけのレイヤで、ほかの欄を持たない。小版 22 から
+        /// ファイルに定義がある。偽なら、要素が名前で指すだけのレイヤで、ほかのフィールドを持たない。マイナーバージョン 22 から
         /// </summary>
         [JsonPropertyName("defined")]
         public bool Defined { get; init; }
 
         /// <summary>
-        /// 表示する。小版 22 から
+        /// 表示する。マイナーバージョン 22 から
         /// </summary>
         [JsonPropertyName("visible")]
         public bool? Visible { get; init; }
 
         /// <summary>
-        /// 印刷する。小版 22 から
+        /// 印刷する。マイナーバージョン 22 から
         /// </summary>
         [JsonPropertyName("printable")]
         public bool? Printable { get; init; }
 
         /// <summary>
-        /// 編集できる。小版 22 から
+        /// 編集できる。マイナーバージョン 22 から
         /// </summary>
         [JsonPropertyName("editable")]
         public bool? Editable { get; init; }
 
         /// <summary>
-        /// 凍結する。小版 22 から
+        /// 凍結する。マイナーバージョン 22 から
         /// </summary>
         [JsonPropertyName("frozen")]
         public bool? Frozen { get; init; }
 
         /// <summary>
-        /// 色。inherit を持たない。定義が色を持たなければ書かない。小版 22 から
+        /// 色。inherit を持たない。定義が色を持たなければ書かない。マイナーバージョン 22 から
         /// </summary>
         [JsonPropertyName("color")]
         public ColorChange? Color { get; init; }
 
         /// <summary>
-        /// 線種の ID。定義が線種を持たなければ書かない。小版 22 から
+        /// 線種の ID。定義が線種を持たなければ書かない。マイナーバージョン 22 から
         /// </summary>
         [JsonPropertyName("line_type_id")]
         public string? LineTypeId { get; init; }
 
         /// <summary>
-        /// 線幅。inherit を持たない。定義が線幅を持たなければ書かない。小版 22 から
+        /// 線幅。inherit を持たない。定義が線幅を持たなければ書かない。マイナーバージョン 22 から
         /// </summary>
         [JsonPropertyName("line_weight")]
         public LineWeightChange? LineWeight { get; init; }
     }
 
     /// <summary>
-    /// 線種の表の項目（決定 0164）。小版 26 から、定義を持つ
+    /// 線種の表の項目（決定 0164）。マイナーバージョン 26 から、定義を持つ
     /// </summary>
     public sealed record LineTypeItem
     {
@@ -5904,44 +5904,44 @@ namespace Zumen.Messages
         public string Hash { get; init; } = default!;
 
         /// <summary>
-        /// ファイルに定義がある。偽なら、要素が名前で指すだけの線種で、ほかの欄を持たない。小版 26 から
+        /// ファイルに定義がある。偽なら、要素が名前で指すだけの線種で、ほかのフィールドを持たない。マイナーバージョン 26 から
         /// </summary>
         [JsonPropertyName("defined")]
         public bool Defined { get; init; }
 
         /// <summary>
-        /// 元の説明。小版 26 から
+        /// 元の説明。マイナーバージョン 26 から
         /// </summary>
         [JsonPropertyName("description")]
         public string? Description { get; init; }
 
         /// <summary>
-        /// 線と間の長さの列。正は線、負は間、0 は点。空なら実線。長さの単位は paper が決める。小版 26 から
+        /// 線と間の長さの列。正は線、負は間、0 は点。空なら実線。長さの単位は paper が決める。マイナーバージョン 26 から
         /// </summary>
         [JsonPropertyName("pattern")]
         public IReadOnlyList<double>? Pattern { get; init; }
 
         /// <summary>
-        /// 列の長さが用紙の mm なら真、文書の単位なら偽。用紙の mm の列は line_type で変えられない。小版 26 から
+        /// 列の長さが用紙の mm なら真、文書の単位なら偽。用紙の mm の列は line_type で変えられない。マイナーバージョン 26 から
         /// </summary>
         [JsonPropertyName("paper")]
         public bool? Paper { get; init; }
 
         /// <summary>
-        /// 列の要素に形か文字を添える。添えれば、line_type で列の要素の数を変えられない。小版 26 から
+        /// 列の要素に形か文字を添える。添えれば、line_type で列の要素の数を変えられない。マイナーバージョン 26 から
         /// </summary>
         [JsonPropertyName("marked")]
         public bool? Marked { get; init; }
 
         /// <summary>
-        /// 列の要素に添える形と文字（決定 0150・0166）。添えなければ空。小版 28 から
+        /// 列の要素に添える形と文字（決定 0150・0166）。添えなければ空。マイナーバージョン 28 から
         /// </summary>
         [JsonPropertyName("marks")]
         public IReadOnlyList<LineTypeMark>? Marks { get; init; }
     }
 
     /// <summary>
-    /// 寸法スタイルの表の項目（決定 0165）。小版 27 から、端部記号と大きさを持つ
+    /// 寸法スタイルの表の項目（決定 0165）。マイナーバージョン 27 から、端部記号と大きさを持つ
     /// </summary>
     public sealed record DimensionStyleItem
     {
@@ -5964,38 +5964,38 @@ namespace Zumen.Messages
         public string Hash { get; init; } = default!;
 
         /// <summary>
-        /// 寸法線の 1 本目と 2 本目の補助線の側の端部記号の、ブロックの名前。空の名前は既定の矢印。小版 27 から
+        /// 寸法線の 1 本目と 2 本目の補助線の側の端部記号の、ブロックの名前。空の名前は既定の矢印。マイナーバージョン 27 から
         /// </summary>
         [JsonPropertyName("ends")]
         public IReadOnlyList<string>? Ends { get; init; }
 
         /// <summary>
-        /// 引出線の端部記号の、ブロックの名前。空の名前は既定の矢印。小版 27 から
+        /// 引出線の端部記号の、ブロックの名前。空の名前は既定の矢印。マイナーバージョン 27 から
         /// </summary>
         [JsonPropertyName("leader")]
         public string? Leader { get; init; }
 
         /// <summary>
-        /// 端部記号の大きさ。文書の単位で、scale を掛ける前の値。小版 27 から
+        /// 端部記号の大きさ。文書の単位で、scale を掛ける前の値。マイナーバージョン 27 から
         /// </summary>
         [JsonPropertyName("size")]
         public double? Size { get; init; }
 
         /// <summary>
-        /// 端部記号の代わりに描く斜線の大きさ。0 なら斜線を描かない。小版 27 から
+        /// 端部記号の代わりに描く斜線の大きさ。0 なら斜線を描かない。マイナーバージョン 27 から
         /// </summary>
         [JsonPropertyName("tick")]
         public double? Tick { get; init; }
 
         /// <summary>
-        /// 大きさに掛ける倍率。0 はビューの縮尺から決める。小版 27 から
+        /// 大きさに掛ける倍率。0 はビューの縮尺から決める。マイナーバージョン 27 から
         /// </summary>
         [JsonPropertyName("scale")]
         public double? Scale { get; init; }
     }
 
     /// <summary>
-    /// 線種の列の要素に添える形か文字（決定 0150・0166）。要素の始まりに、線の向きとずれで置く。小版 28 から
+    /// 線種の列の要素に添える形か文字（決定 0150・0166）。要素の始まりに、線の向きとずれで置く。マイナーバージョン 28 から
     /// </summary>
     public sealed record LineTypeMark
     {
@@ -6097,7 +6097,7 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 文字スタイルの表の項目（決定 0158）。フォントと縦書きは、この文字スタイルを指す文字に効く。高さ・幅の倍率・傾き・裏返し・上下反転は、新しく作る文字の既定の値で、今の文字はそれぞれの値を持つ。小版 20 から
+    /// 文字スタイルの表の項目（決定 0158）。フォントと縦書きは、この文字スタイルを指す文字に効く。高さ・幅の倍率・傾き・裏返し・上下反転は、新しく作る文字の既定の値で、今の文字はそれぞれの値を持つ。マイナーバージョン 20 から
     /// </summary>
     public sealed record TextStyleItem
     {
@@ -6120,7 +6120,7 @@ namespace Zumen.Messages
         public string Hash { get; init; } = default!;
 
         /// <summary>
-        /// ファイルに定義がある。偽なら、ほかの欄を持たない
+        /// ファイルに定義がある。偽なら、ほかのフィールドを持たない
         /// </summary>
         [JsonPropertyName("defined")]
         public bool Defined { get; init; }
@@ -6228,7 +6228,7 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 要素の出所。L1 のレコードの番号かバイト範囲（決定 0008）と、形式が持つ鍵（決定 0156）。ファイルから読んでいない要素は、レコードの番号もバイト範囲も持たない
+    /// 要素の出所。L1 のレコードの番号かバイト範囲（決定 0008）と、形式が持つキー（決定 0156）。ファイルから読んでいない要素は、レコードの番号もバイト範囲も持たない
     /// </summary>
     public sealed record Source
     {
@@ -6251,7 +6251,7 @@ namespace Zumen.Messages
         public string? Handle { get; init; }
 
         /// <summary>
-        /// SXF のインスタンスの番号（#n の n）。10 進の文字列。小版 6 から
+        /// SXF のインスタンスの番号（#n の n）。10 進の文字列。マイナーバージョン 6 から
         /// </summary>
         [JsonPropertyName("instance")]
         public string? Instance { get; init; }
@@ -6263,7 +6263,7 @@ namespace Zumen.Messages
     public sealed record Response<TResult>
     {
         /// <summary>
-        /// メッセージのスキーマの大版
+        /// メッセージのスキーマのメジャーバージョン
         /// </summary>
         [JsonPropertyName("v")]
         public uint V { get; init; }
@@ -6457,7 +6457,7 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// バイナリの結果の種類。file は書き出したファイル、image は描いた画像、scene は 2D のシーン（schema/scene.toml の配置、決定 0137・0172）、arrow は表（Arrow の IPC ストリーム。ネイティブでは zm_take_arrow でも取り出せる）、drawing は図面モデルのバイナリ（schema/drawing.toml の配置、決定 0247。小版 60 から）
+    /// バイナリの結果の種類。file は書き出したファイル、image は描いた画像、scene は 2D のシーン（schema/scene.toml の配置、決定 0137・0172）、arrow は表（Arrow の IPC ストリーム。ネイティブでは zm_take_arrow でも取り出せる）、drawing は図面モデルのバイナリ（schema/drawing.toml の配置、決定 0247。マイナーバージョン 60 から）
     /// </summary>
     public static class BlobKind
     {
@@ -6479,13 +6479,13 @@ namespace Zumen.Messages
     public sealed record SessionOptions
     {
         /// <summary>
-        /// メッセージのスキーマの大版。今は 1
+        /// メッセージのスキーマのメジャーバージョン。今は 1
         /// </summary>
         [JsonPropertyName("v")]
         public ulong V { get; init; }
 
         /// <summary>
-        /// 実行の形。書かなければ、ネイティブのライブラリでは `native`、wasm のモジュールでは `wasm`（決定 0013）
+        /// 実行の形態。書かなければ、ネイティブのライブラリでは `native`、wasm のモジュールでは `wasm`（決定 0013）
         /// </summary>
         [JsonPropertyName("engine")]
         public string? Engine { get; init; }
@@ -6498,7 +6498,7 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 実行の形（決定 0013）。`native` はプロセスの中でコアを動かす、`process` は子プロセスの CLI に送る、`wasm` は wasm のモジュールで動かす
+    /// 実行の形態（決定 0013）。`native` はプロセスの中でコアを動かす、`process` は子プロセスの CLI に送る、`wasm` は wasm のモジュールで動かす
     /// </summary>
     public static class Engine
     {
@@ -6511,12 +6511,12 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。線形は、要求に書く（alignment）か、open で開いた J-LandXML の文書（doc）の線形を id で指す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。doc を渡せば、文書の線形と地表面の要約も返す。図面・BIM・土木地理・点群のモジュールに置く（決定 0253）。小版 46 から（doc と id は小版 47 から）
+    /// 線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。線形は、要求に書く（alignment）か、open で開いた J-LandXML の文書（doc）の線形を id で指す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。doc を渡せば、文書の線形と地表面の要約も返す。図面・BIM・土木地理・点群のモジュールに置く（決定 0253）。マイナーバージョン 46 から（doc と id はマイナーバージョン 47 から）
     /// </summary>
     public sealed record CivilRequest
     {
         /// <summary>
-        /// メッセージのスキーマの大版。今は 1
+        /// メッセージのスキーマのメジャーバージョン。今は 1
         /// </summary>
         [JsonPropertyName("v")]
         public ulong V { get; init; }
@@ -6540,7 +6540,7 @@ namespace Zumen.Messages
         public ulong? MaxPlaces { get; init; }
 
         /// <summary>
-        /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
         /// </summary>
         [JsonPropertyName("time_limit_ms")]
         public ulong? TimeLimitMs { get; init; }
@@ -6558,13 +6558,13 @@ namespace Zumen.Messages
         public CivilAlignment? Alignment { get; init; }
 
         /// <summary>
-        /// open で開いた J-LandXML の文書の名前。小版 47 から
+        /// open で開いた J-LandXML の文書の名前。マイナーバージョン 47 から
         /// </summary>
         [JsonPropertyName("doc")]
         public string? Doc { get; init; }
 
         /// <summary>
-        /// doc の線形の ID。文書に線形が 1 つなら書かなくてよい。小版 47 から
+        /// doc の線形の ID。文書に線形が 1 つなら書かなくてよい。マイナーバージョン 47 から
         /// </summary>
         [JsonPropertyName("id")]
         public string? Id { get; init; }
@@ -6827,25 +6827,25 @@ namespace Zumen.Messages
         public IReadOnlyList<CivilPosition> Positions { get; init; } = default!;
 
         /// <summary>
-        /// 所を求めた doc の線形の ID。小版 47 から
+        /// 所を求めた doc の線形の ID。マイナーバージョン 47 から
         /// </summary>
         [JsonPropertyName("alignment")]
         public string? Alignment { get; init; }
 
         /// <summary>
-        /// doc の線形の要約。doc を渡したときに返す。小版 47 から
+        /// doc の線形の要約。doc を渡したときに返す。マイナーバージョン 47 から
         /// </summary>
         [JsonPropertyName("alignments")]
         public IReadOnlyList<CivilAlignmentSummary>? Alignments { get; init; }
 
         /// <summary>
-        /// doc の地表面（TIN）の要約。doc を渡したときに返す。小版 47 から
+        /// doc の地表面（TIN）の要約。doc を渡したときに返す。マイナーバージョン 47 から
         /// </summary>
         [JsonPropertyName("surfaces")]
         public IReadOnlyList<CivilSurfaceSummary>? Surfaces { get; init; }
 
         /// <summary>
-        /// doc の水平の座標系の EPSG のコード。分からなければ書かない。小版 47 から
+        /// doc の水平の座標系の EPSG のコード。分からなければ書かない。マイナーバージョン 47 から
         /// </summary>
         [JsonPropertyName("crs")]
         public ulong? Crs { get; init; }
@@ -6996,12 +6996,12 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// open で開いた点群（LAS・LAZ）の要約と、条件に合う点を返す。点は八分木の浅い段の節から順に選ぶ（決定 0232）。点群のモジュールに置く（決定 0253）。小版 48 から
+    /// open で開いた点群（LAS・LAZ）の要約と、条件に合う点を返す。点は八分木の浅い段のノードから順に選ぶ（決定 0232）。点群のモジュールに置く（決定 0253）。マイナーバージョン 48 から
     /// </summary>
     public sealed record PointcloudRequest
     {
         /// <summary>
-        /// メッセージのスキーマの大版。今は 1
+        /// メッセージのスキーマのメジャーバージョン。今は 1
         /// </summary>
         [JsonPropertyName("v")]
         public ulong V { get; init; }
@@ -7025,7 +7025,7 @@ namespace Zumen.Messages
         public ulong? MaxPlaces { get; init; }
 
         /// <summary>
-        /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
         /// </summary>
         [JsonPropertyName("time_limit_ms")]
         public ulong? TimeLimitMs { get; init; }
@@ -7121,7 +7121,7 @@ namespace Zumen.Messages
         public ulong Depth { get; init; }
 
         /// <summary>
-        /// 八分木の節の数
+        /// 八分木のノードの数
         /// </summary>
         [JsonPropertyName("nodes")]
         public ulong Nodes { get; init; }
@@ -7176,12 +7176,12 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 電子納品の成果品（決定 0241）を読み、管理ファイルの要約を返す。成果品は、zm_push で渡した入力のうち root の下にある名前の集まりか、ZIP の入力（archive）で渡す。profiles と profile を渡せば、プロファイルの delivery- で始まる照合の種類の規則と照らし、指摘を返す（#384）。ほかの種類の規則は飛ばす。図面のモジュールに置く。小版 53 から
+    /// 電子納品の成果品（決定 0241）を読み、管理ファイルの要約を返す。成果品は、zm_push で渡した入力のうち root の下にある名前の集まりか、ZIP の入力（archive）で渡す。profiles と profile を渡せば、プロファイルの delivery- で始まる照合の種類の規則と照らし、指摘を返す（#384）。ほかの種類の規則は飛ばす。図面のモジュールに置く。マイナーバージョン 53 から
     /// </summary>
     public sealed record DeliveryCheckRequest
     {
         /// <summary>
-        /// メッセージのスキーマの大版。今は 1
+        /// メッセージのスキーマのメジャーバージョン。今は 1
         /// </summary>
         [JsonPropertyName("v")]
         public ulong V { get; init; }
@@ -7205,7 +7205,7 @@ namespace Zumen.Messages
         public ulong? MaxPlaces { get; init; }
 
         /// <summary>
-        /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
         /// </summary>
         [JsonPropertyName("time_limit_ms")]
         public ulong? TimeLimitMs { get; init; }
@@ -7302,12 +7302,12 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 工事写真（JPEG）の Exif と XMP を読み、画素数・向き・撮影の日時・位置などを返す（#387）。画像は復号しない。図面のモジュールに置く。小版 55 から
+    /// 工事写真（JPEG）の Exif と XMP を読み、画素数・向き・撮影の日時・位置などを返す（#387）。画像は復号しない。図面のモジュールに置く。マイナーバージョン 55 から
     /// </summary>
     public sealed record PhotoRequest
     {
         /// <summary>
-        /// メッセージのスキーマの大版。今は 1
+        /// メッセージのスキーマのメジャーバージョン。今は 1
         /// </summary>
         [JsonPropertyName("v")]
         public ulong V { get; init; }
@@ -7331,7 +7331,7 @@ namespace Zumen.Messages
         public ulong? MaxPlaces { get; init; }
 
         /// <summary>
-        /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
         /// </summary>
         [JsonPropertyName("time_limit_ms")]
         public ulong? TimeLimitMs { get; init; }
@@ -7355,13 +7355,13 @@ namespace Zumen.Messages
     public sealed record PhotoResult
     {
         /// <summary>
-        /// 画素の幅（フレームの見出し）
+        /// 画素の幅（フレームのヘッダー）
         /// </summary>
         [JsonPropertyName("width")]
         public ulong? Width { get; init; }
 
         /// <summary>
-        /// 画素の高さ（フレームの見出し）
+        /// 画素の高さ（フレームのヘッダー）
         /// </summary>
         [JsonPropertyName("height")]
         public ulong? Height { get; init; }
@@ -7470,12 +7470,12 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 表（Excel の xlsx と CSV）を、様式を知らずに読み、シートごとのセルの値・数式・結合セルを返す（#391）。数式は計算せず、保存された値を返す。図面のモジュールに置く。小版 56 から
+    /// 表（Excel の xlsx と CSV）を、様式を知らずに読み、シートごとのセルの値・数式・結合セルを返す（#391）。数式は計算せず、保存された値を返す。図面のモジュールに置く。マイナーバージョン 56 から
     /// </summary>
     public sealed record SheetRequest
     {
         /// <summary>
-        /// メッセージのスキーマの大版。今は 1
+        /// メッセージのスキーマのメジャーバージョン。今は 1
         /// </summary>
         [JsonPropertyName("v")]
         public ulong V { get; init; }
@@ -7499,7 +7499,7 @@ namespace Zumen.Messages
         public ulong? MaxPlaces { get; init; }
 
         /// <summary>
-        /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
         /// </summary>
         [JsonPropertyName("time_limit_ms")]
         public ulong? TimeLimitMs { get; init; }
@@ -7712,12 +7712,12 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 地質・土質調査のボーリング交換用データ（BED0500.DTD の XML）を読み、ボーリングの位置・標高と、地層・色調・観察記事・標準貫入試験・孔内水位を返す（#390）。ほかの試験と判定表は読まない。図面のモジュールに置く。小版 57 から
+    /// 地質・土質調査のボーリング交換用データ（BED0500.DTD の XML）を読み、ボーリングの位置・標高と、地層・色調・観察記事・標準貫入試験・孔内水位を返す（#390）。ほかの試験と判定表は読まない。図面のモジュールに置く。マイナーバージョン 57 から
     /// </summary>
     public sealed record BoringRequest
     {
         /// <summary>
-        /// メッセージのスキーマの大版。今は 1
+        /// メッセージのスキーマのメジャーバージョン。今は 1
         /// </summary>
         [JsonPropertyName("v")]
         public ulong V { get; init; }
@@ -7741,7 +7741,7 @@ namespace Zumen.Messages
         public ulong? MaxPlaces { get; init; }
 
         /// <summary>
-        /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
         /// </summary>
         [JsonPropertyName("time_limit_ms")]
         public ulong? TimeLimitMs { get; init; }
@@ -8135,12 +8135,12 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// open で開いた CityGML・基盤地図情報（GML）・拡張 DM の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。土木・地理のモジュールに置く（決定 0253）。小版 52 から
+    /// open で開いた CityGML・基盤地図情報（GML）・拡張 DM の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。土木・地理のモジュールに置く（決定 0253）。マイナーバージョン 52 から
     /// </summary>
     public sealed record GeoRequest
     {
         /// <summary>
-        /// メッセージのスキーマの大版。今は 1
+        /// メッセージのスキーマのメジャーバージョン。今は 1
         /// </summary>
         [JsonPropertyName("v")]
         public ulong V { get; init; }
@@ -8164,7 +8164,7 @@ namespace Zumen.Messages
         public ulong? MaxPlaces { get; init; }
 
         /// <summary>
-        /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
         /// </summary>
         [JsonPropertyName("time_limit_ms")]
         public ulong? TimeLimitMs { get; init; }
@@ -8399,12 +8399,12 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// open で開いた J-LandXML の文書の線形から、平面図・縦断図・横断図の図面モデルを作り（決定 0231）、用紙を 1 枚選んで新しい DXF の文書として開く（決定 0239）。尺度・文字の高さ・測点の間隔は、プロファイルを渡せば語彙 civil-drawing と text-height から読み、渡さなければ作図の慣習の値にする。縦断図は用紙の要素に焼き込む（決定 0238）。書いたファイルは blobs で返す。作った文書は scene と check に渡せる。図面のモジュールに置く。小版 51 から
+    /// open で開いた J-LandXML の文書の線形から、平面図・縦断図・横断図の図面モデルを作り（決定 0231）、用紙を 1 枚選んで新しい DXF の文書として開く（決定 0239）。尺度・文字の高さ・測点の間隔は、プロファイルを渡せば語彙 civil-drawing と text-height から読み、渡さなければ作図の慣習の値にする。縦断図は用紙の要素に焼き込む（決定 0238）。書いたファイルは blobs で返す。作った文書は scene と check に渡せる。図面のモジュールに置く。マイナーバージョン 51 から
     /// </summary>
     public sealed record CivilDrawingRequest
     {
         /// <summary>
-        /// メッセージのスキーマの大版。今は 1
+        /// メッセージのスキーマのメジャーバージョン。今は 1
         /// </summary>
         [JsonPropertyName("v")]
         public ulong V { get; init; }
@@ -8428,7 +8428,7 @@ namespace Zumen.Messages
         public ulong? MaxPlaces { get; init; }
 
         /// <summary>
-        /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
         /// </summary>
         [JsonPropertyName("time_limit_ms")]
         public ulong? TimeLimitMs { get; init; }
@@ -8579,12 +8579,12 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 開いた点群と、土木の文書の TIN の標高の差を求め、プロファイルの surface-elevation の規則の区分ごとに集計して、規格値と比べる（決定 0234）。点群のモジュールに置く（決定 0253）。小版 50 から
+    /// 開いた点群と、土木の文書の TIN の標高の差を求め、プロファイルの surface-elevation の規則の区分ごとに集計して、規格値と比べる（決定 0234）。点群のモジュールに置く（決定 0253）。マイナーバージョン 50 から
     /// </summary>
     public sealed record DeviationRequest
     {
         /// <summary>
-        /// メッセージのスキーマの大版。今は 1
+        /// メッセージのスキーマのメジャーバージョン。今は 1
         /// </summary>
         [JsonPropertyName("v")]
         public ulong V { get; init; }
@@ -8608,7 +8608,7 @@ namespace Zumen.Messages
         public ulong? MaxPlaces { get; init; }
 
         /// <summary>
-        /// 時間の上限（ミリ秒）。ネイティブの境界が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
         /// </summary>
         [JsonPropertyName("time_limit_ms")]
         public ulong? TimeLimitMs { get; init; }
@@ -8848,7 +8848,7 @@ namespace Zumen.Messages
     public sealed record Catalog
     {
         /// <summary>
-        /// カタログの形の大版。今は 1
+        /// カタログの形のメジャーバージョン。今は 1
         /// </summary>
         [JsonPropertyName("v")]
         public ulong V { get; init; }
@@ -8860,7 +8860,7 @@ namespace Zumen.Messages
         public string Lang { get; init; } = default!;
 
         /// <summary>
-        /// パッケージの版。コアと同じ版で出す
+        /// パッケージのバージョン。コアと同じバージョンで出す
         /// </summary>
         [JsonPropertyName("package")]
         public string Package { get; init; } = default!;

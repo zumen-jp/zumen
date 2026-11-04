@@ -1,5 +1,5 @@
-//! 試料の DXF・DWG で、表のセルの書式と、表のスタイルの行の種類ごとの書式を移す（決定 0151）。
-//! 試料は公開サンプルの `samples/` と、受け取った図面を置く `ZUMEN_SAMPLES` のフォルダーから集める。
+//! サンプルの DXF・DWG で、表のセルの書式と、表のスタイルの行の種類ごとの書式を移す（決定 0151）。
+//! サンプルは公開サンプルの `samples/` と、受け取った図面を置く `ZUMEN_SAMPLES` のフォルダーから集める。
 #![cfg(feature = "drawing")]
 
 mod support;
@@ -84,11 +84,11 @@ fn aci(value: u32) -> Option<Inherit<Color>> {
     }))
 }
 
-/// 試料の `sample_AC10*` の図面（表を持たない R12 の AC1009 を除く）の最初の表は、7 行 3 列で、5 行目の左の
+/// サンプルの `sample_AC10*` の図面（表を持たない R12 の AC1009 を除く）の最初の表は、7 行 3 列で、5 行目の左の
 /// セルが 3 列 2 行に広がる。そのセルは、位置合わせ・文字の色・背景の色（塗らない）・高さと、左と上の枠（色 63、
-/// 0.40 mm）を上書きする。右の列のセルは右の枠も上書きする。どの版の DWG と DXF でも、セルの書式が同じになる。
+/// 0.40 mm）を上書きする。右の列のセルは右の枠も上書きする。どのバージョンの DWG と DXF でも、セルの書式が同じになる。
 /// DXF の表のスタイルは、データ・タイトル・見出しの行の書式を持つ（表を描いたブロックの文字と合う）。
-/// R2004 までの DWG の TABLESTYLE も、DXF と同じ書式になる。R2010 からの DWG の読み手は、セルのスタイルと
+/// R2004 までの DWG の TABLESTYLE も、DXF と同じ書式になる。R2010 からの DWG のリーダーは、セルのスタイルと
 /// 内容の書式と TABLESTYLE をまだ読まないので、セルの書式は空、表の書式は `None` になる
 #[test]
 fn cell_formats_and_table_styles_are_lifted() {
@@ -229,6 +229,6 @@ fn dwg_tables_from_2010_report_that_their_formats_are_not_read() {
         );
         checked += 1;
     }
-    // ZUMEN_SAMPLES がなければ 0。試料の sample_AC1024・sample_AC1027・sample_AC1032 の DWG は表を持つ
+    // ZUMEN_SAMPLES がなければ 0。サンプルの sample_AC1024・sample_AC1027・sample_AC1032 の DWG は表を持つ
     assert!(checked == 0 || checked >= 3, "{checked}");
 }

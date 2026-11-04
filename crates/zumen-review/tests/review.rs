@@ -1,4 +1,4 @@
-//! レビューの文書の読み書き・引き継ぎ・取り込み（決定 0214・0218）。図面と建物モデルは、どれも試験の中で組み立てる。
+//! レビューの文書の読み書き・引き継ぎ・取り込み（決定 0214・0218）。図面と建物モデルは、どれもテストの中で組み立てる。
 
 use std::collections::BTreeMap;
 
@@ -28,7 +28,7 @@ fn found(diag: &Diagnostics) -> Vec<Code> {
     diag.iter().map(|d| d.code()).collect()
 }
 
-/// 要素の ID からハッシュを引く版
+/// 要素の ID からハッシュを引くバージョン
 struct Hashes {
     document: String,
     elements: BTreeMap<String, String>,
@@ -308,7 +308,7 @@ fn carries_drawing_and_building_references_to_new_versions() {
     // なくなった参照は、元のハッシュのまま残す
     assert_eq!(colored[0].elements[0].hash, model.element(SLAB));
 
-    // 同じ版へ移すと、どれも変わっていない
+    // 同じバージョンへ移すと、どれも変わっていない
     let (same, _) = with(|cx| carry(&review, "model", &model, cx));
     let (_, states) = same.unwrap();
     assert!(states.iter().all(|s| s.state == Change::Unchanged));

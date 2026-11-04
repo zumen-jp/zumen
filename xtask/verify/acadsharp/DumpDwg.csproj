@@ -1,7 +1,7 @@
 <!--
-  確認の束の DWG を ACadSharp（MIT）で読み、図形を JSON に書き出す（#503）。試験の道具で、zumen の成果物にも依存にも入れない。
+  検証キットの DWG を ACadSharp（MIT）で読み、図形を JSON に書き出す（#503）。テストのツールで、zumen の成果物にも依存にも入れない。
   流し方は Program.cs の初めにある。照らすのは check_acadsharp.py。
-  ACadSharp の版は決めて入れ、packages.lock.json で中身のハッシュも固定する（CI では lock のとおりにだけ取る）。
+  ACadSharp のバージョンは決めて入れ、packages.lock.json で中身のハッシュも固定する（CI では lock のとおりにだけ取る）。
 -->
 <Project Sdk="Microsoft.NET.Sdk">
 

@@ -1,6 +1,6 @@
-//! 試料の DXF と DWG の寸法の、保存された測定値（DXF の 42）を、定義点から測った値と
+//! サンプルの DXF と DWG の寸法の、保存された測定値（DXF の 42）を、定義点から測った値と
 //! 比べる。長さは図面の単位、角度はラジアンであることを確かめる（docs/formats/dxf.md の推定した扱い）。
-//! 試料は公開サンプルの `samples/` と、受け取った図面を置く `ZUMEN_SAMPLES` のフォルダーから集める。
+//! サンプルは公開サンプルの `samples/` と、受け取った図面を置く `ZUMEN_SAMPLES` のフォルダーから集める。
 #![cfg(feature = "drawing")]
 
 mod support;
@@ -12,7 +12,7 @@ use zumen_base::{Budget, CancelToken, Cx, Diagnostics};
 use zumen_drawing::{Axis, DimensionKind, Drawing2D, ModelPoint, Shape};
 use zumen_sdk::{Codec, Lift};
 
-/// フォルダーの中の DXF と、読める版の DWG
+/// フォルダーの中の DXF と、読めるバージョンの DWG
 #[cfg(test)]
 fn drawings() -> Vec<PathBuf> {
     let mut found: Vec<_> = support::sample_files()
@@ -137,7 +137,7 @@ fn measured(kind: &DimensionKind<ModelPoint>) -> Vec<f64> {
 }
 
 /// 保存された測定値は、最後に寸法を描いたときの値で、後で定義点を動かしたり、寸法でないものと一緒に
-/// 尺度を変えたりすると、定義点から測った値と違うことがある（試料の farmhouse.dwg は 0.99985 倍、
+/// 尺度を変えたりすると、定義点から測った値と違うことがある（サンプルの farmhouse.dwg は 0.99985 倍、
 /// mechanical_example-imperial.dwg は 17 のうち 9 が違う）。そこで、どの図面も 1 つ以上の寸法が測った値と
 /// 合うことと、同じ図面の DWG と DXF の組（`sample_` で始まるもの）はすべてが合うこと、角度の寸法が
 /// ラジアンで合うことを確かめる
@@ -187,7 +187,7 @@ fn stored_dimension_measurements_are_lengths_in_drawing_units_and_angles_in_radi
         }
         assert!(checked == 0 || matched > 0, "{}", path.display());
     }
-    // 角度の寸法を持つ試料があれば、ラジアンで合ったものがある
+    // 角度の寸法を持つサンプルがあれば、ラジアンで合ったものがある
     let any = drawings().iter().any(|path| {
         path.file_name()
             .and_then(|name| name.to_str())

@@ -1,4 +1,4 @@
-﻿/* 生成したヘッダー（include/zumen.h）を C から使う試験。tests/smoke.rs が呼ぶ */
+﻿/* 生成したヘッダー（include/zumen.h）を C から使うテスト。tests/smoke.rs が呼ぶ */
 
 #include <string.h>
 

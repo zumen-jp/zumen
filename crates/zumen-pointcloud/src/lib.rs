@@ -1,7 +1,7 @@
 //! 点群の領域モデル（L2、決定 0232）。
 //!
 //! 点は、地図の空間（`northing`・`easting`、メートル。決定 0019）と標高に置き、属性ごとの列で持つ。形式が
-//! 持たない属性は持たない。索引は八分木で、節は、段が 1 つ深くなるごとに半分の間隔に間引いた点を持つ。
+//! 持たない属性は持たない。索引は八分木で、ノードは、段が 1 つ深くなるごとに半分の間隔に間引いた点を持つ。
 
 use std::collections::BTreeSet;
 
@@ -89,7 +89,7 @@ impl Points {
     }
 }
 
-/// 八分木の節の番号
+/// 八分木のノードの番号
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Key {
     /// 段。根は 0
@@ -102,12 +102,12 @@ pub struct Key {
     pub z: u32,
 }
 
-/// 八分木の節
+/// 八分木のノード
 #[derive(Clone, Debug, PartialEq)]
 pub struct Node {
     /// 番号
     pub key: Key,
-    /// 節の点の番号
+    /// ノードの点の番号
     pub points: Vec<u32>,
 }
 
@@ -118,24 +118,24 @@ pub struct Octree {
     pub origin: [f64; 3],
     /// 根の立方体の辺の長さ（メートル）
     pub size: f64,
-    /// 1 つの節の 1 辺を分ける数。節の点の間隔は `size / 2^段 / span`
+    /// 1 つのノードの 1 辺を分ける数。ノードの点の間隔は `size / 2^段 / span`
     pub span: u32,
-    /// 節。番号の順に並べる
+    /// ノード。番号の順に並べる
     pub nodes: Vec<Node>,
 }
 
-/// 節を分ける数の既定
+/// ノードを分ける数の既定
 pub const SPAN: u32 = 64;
-/// 八分木の深さの上限。これより深い点は、いちばん深い段の節に入れる
+/// 八分木の深さの上限。これより深い点は、いちばん深い段のノードに入れる
 pub const MAX_LEVEL: u8 = 20;
 
 impl Octree {
-    /// 段 `level` の節の点の間隔
+    /// 段 `level` のノードの点の間隔
     pub fn spacing(&self, level: u8) -> f64 {
         self.size / libm::ldexp(1.0, i32::from(level)) / f64::from(self.span.max(1))
     }
 
-    /// 点の列から八分木を作る。点は、浅い段の節の格子の空いた所から順に入れる
+    /// 点の列から八分木を作る。点は、浅い段のノードの格子の空いた所から順に入れる
     pub fn build(points: &Points, cx: &mut Cx<'_>) -> Result<Octree, Stop> {
         let Some([low, high]) = points.bounds() else {
             return Ok(Octree {
@@ -184,7 +184,7 @@ impl Octree {
         Ok(tree)
     }
 
-    /// 点の、段 `level` の節の番号と、節の中の格子の位置
+    /// 点の、段 `level` のノードの番号と、ノードの中の格子の位置
     fn locate(&self, p: [f64; 3], level: u8) -> (Key, [u32; 3]) {
         let cells = libm::ldexp(f64::from(self.span), i32::from(level));
         let side = self.size / cells;
@@ -207,7 +207,7 @@ impl Octree {
         (key, cell)
     }
 
-    /// 節の立方体（最小の角と最大の角）
+    /// ノードの立方体（最小の角と最大の角）
     pub fn cube(&self, key: Key) -> [[f64; 3]; 2] {
         let side = self.size / libm::ldexp(1.0, i32::from(key.level));
         let low = [
@@ -242,7 +242,7 @@ pub struct Query {
 /// 選んだ点
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Selection {
-    /// 点の番号。浅い段の節から順に並べる
+    /// 点の番号。浅い段のノードから順に並べる
     pub points: Vec<u32>,
     /// 上限のために読まなかった点がある
     pub truncated: bool,
@@ -250,7 +250,7 @@ pub struct Selection {
     pub level: u8,
 }
 
-/// 条件に合う点を、浅い段の節から順に選ぶ
+/// 条件に合う点を、浅い段のノードから順に選ぶ
 pub fn select(cloud: &PointCloud, query: &Query, cx: &mut Cx<'_>) -> Result<Selection, Stop> {
     let tree = &cloud.octree;
     let mut nodes: Vec<&Node> = tree

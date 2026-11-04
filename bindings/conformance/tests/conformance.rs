@@ -1,4 +1,4 @@
-//! 適合試験を、コアを直接呼ぶ形と、C ABI の関数を呼ぶ形と、利用者向けの `zumen` の crate を通す形で流し、
+//! 適合テストを、コアを直接呼ぶ形と、C ABI の関数を呼ぶ形と、利用者向けの `zumen` の crate を通す形で流し、
 //! どれも `hashes.txt` と一致することを確かめる。
 
 use zumen_conformance::{
@@ -42,11 +42,11 @@ fn through_the_rust_crate() {
     let failures = wrapper.failures.borrow();
     assert!(
         failures.is_empty(),
-        "シーンの読み手:\n{}",
+        "シーンのリーダー:\n{}",
         failures.join("\n")
     );
     assert!(
         *wrapper.scenes.borrow() > 0,
-        "シーンの blob を読み手で 1 つも読んでいない"
+        "シーンの blob をリーダーで 1 つも読んでいない"
     );
 }

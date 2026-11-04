@@ -16,7 +16,7 @@ invalid = "壊れていて読めない"
 unsafe = "危ないので、そのまま使わなかった"
 exceeded = "予算の上限を超えた"
 cancelled = "中断の合図で止めた"
-caught = "境界で捕まえた"
+caught = "API で捕まえた"
 missing = "名指ししたものがない"
 exists = "名指しした名前が、もう使われている"
 stale = "読んだときと今とで、名指ししたものが違う"
@@ -79,7 +79,7 @@ severity = "error"
 since = "0.0.0"
 status = "active"
 
-# 呼び出しと境界（決定 0010・0012）
+# 呼び出しと API（決定 0010・0012）
 
 [codes."call.json.invalid"]
 description = "要求が UTF-8 の JSON として読めない（文法・重なったキー・深すぎる入れ子・UTF-8 でないバイト）"
@@ -89,7 +89,7 @@ since = "0.0.0"
 status = "active"
 
 [codes."call.version.unsupported"]
-description = "要求の版 v を、このコアが扱えない"
+description = "要求のバージョン v を、このコアが扱えない"
 severity = "error"
 params = { version = "uint" }
 since = "0.0.0"
@@ -103,14 +103,14 @@ since = "0.0.0"
 status = "active"
 
 [codes."call.field.unsupported"]
-description = "要求に、このコアが知らない欄か、この形（wasm など）では使えない欄がある"
+description = "要求に、このコアが知らないフィールドか、この形態（wasm など）では使えないフィールドがある"
 severity = "error"
 params = { pointer = "text" }
 since = "0.0.0"
 status = "active"
 
 [codes."call.field.missing"]
-description = "要求に、必要な欄がない"
+description = "要求に、必要なフィールドがない"
 severity = "error"
 params = { pointer = "text" }
 since = "0.0.0"
@@ -162,7 +162,7 @@ since = "0.0.0"
 status = "active"
 
 [codes."call.process.caught"]
-description = "実行の形が process のとき、子プロセスの CLI が落ちたか、答えが読めなかった。子プロセスは捨てたので、セッションを作り直す（決定 0013・0200）"
+description = "実行の形態が process のとき、子プロセスの CLI が落ちたか、答えが読めなかった。子プロセスは捨てたので、セッションを作り直す（決定 0013・0200）"
 severity = "error"
 since = "0.0.0"
 status = "active"
@@ -174,7 +174,7 @@ since = "0.0.0"
 status = "active"
 
 [codes."internal.panic.caught"]
-description = "ネイティブの境界でパニックを捕まえた。不具合なので直す"
+description = "ネイティブの API でパニックを捕まえた。不具合なので直す"
 severity = "error"
 since = "0.0.0"
 status = "active"
@@ -204,7 +204,7 @@ since = "0.0.0"
 status = "active"
 
 [codes."change.edit.unsupported"]
-description = "この種類の変更を、この種類の要素について、元の形式のレコードに書き戻せない。扱う種類と欄は docs/formats/dxf.md に書く"
+description = "この種類の変更を、この種類の要素について、元の形式のレコードに書き戻せない。扱う種類とフィールドは docs/formats/dxf.md に書く"
 severity = "error"
 params = { edit = "text", kind = "text", format = "text" }
 since = "0.0.0"
@@ -218,7 +218,7 @@ since = "0.0.0"
 status = "active"
 
 [codes."change.character.unsupported"]
-description = "2007 より前の版の DXF・DWG に書き戻す文字か名前に、見出しのコード・ページで表せない文字がある。符号化して戻すと別の文字になるもの（ANSI_932 の ¥・‾・− など）も含む（決定 0192）"
+description = "2007 より前のバージョンの DXF・DWG に書き戻す文字か名前に、ヘッダーのコード・ページで表せない文字がある。符号化して戻すと別の文字になるもの（ANSI_932 の ¥・‾・− など）も含む（決定 0192）"
 severity = "error"
 params = { character = "text" }
 group-by = ["character"]
@@ -278,7 +278,7 @@ params = { name = "text" }
 since = "0.0.0"
 status = "active"
 
-# 入れ物（決定 0010）
+# コンテナー（決定 0010）
 
 [codes."zip.path.unsafe"]
 description = "ZIP の項目の名前が、パスとして安全でない（`..`・絶対パス・ドライブ名・NUL を含む）"
@@ -288,19 +288,19 @@ since = "0.0.0"
 status = "active"
 
 [codes."zip.archive.invalid"]
-description = "中央ディレクトリの終わりの記録がないか、中央ディレクトリが壊れていて、ZIP の書庫として読めない"
+description = "中央ディレクトリの終わりの記録がないか、中央ディレクトリが壊れていて、ZIP のアーカイブとして読めない"
 severity = "error"
 since = "0.2.0"
 status = "active"
 
 [codes."zip.split.unsupported"]
-description = "複数の部分に分けた ZIP の書庫は、読まない（決定 0210）"
+description = "複数の部分に分けた ZIP のアーカイブは、読まない（決定 0210）"
 severity = "error"
 since = "0.2.0"
 status = "active"
 
 [codes."zip.entry.invalid"]
-description = "局所の見出しが壊れているか、データが書庫の外にはみ出す項目を読まなかった"
+description = "ローカルヘッダーが壊れているか、データがアーカイブの外にはみ出す項目を読まなかった"
 severity = "warning"
 params = { name = "text" }
 since = "0.2.0"
@@ -397,14 +397,14 @@ status = "active"
 # AutoCAD の系統（決定 0008）
 
 [codes."dwg.version.unsupported"]
-description = "R2000・R2004・R2010・R2013・R2018 でない版の DWG は、まだ読めない"
+description = "R2000・R2004・R2010・R2013・R2018 でないバージョンの DWG は、まだ読めない"
 severity = "error"
 params = { version = "text" }
 since = "0.0.0"
 status = "active"
 
 [codes."dwg.edit.unsupported"]
-description = "R2000（AC1015）でない版の DWG は、まだ変えられない"
+description = "R2000（AC1015）でないバージョンの DWG は、まだ変えられない"
 severity = "error"
 params = { version = "text" }
 since = "0.0.0"
@@ -432,7 +432,7 @@ since = "0.0.0"
 status = "active"
 
 [codes."dwg.file.invalid"]
-description = "DWG の見出し・オブジェクトの地図・オブジェクトの区切りを読めない"
+description = "DWG のヘッダー・オブジェクトのマップ・オブジェクトのセクションを読めない"
 severity = "error"
 params = { part = "text" }
 since = "0.0.0"
@@ -455,7 +455,7 @@ since = "0.0.0"
 status = "active"
 
 [codes."dwg.record.missing"]
-description = "DWG の図形が指す文字の体裁・ブロックなどのハンドルに、その型の表のレコードがないので、名前を置かなかった"
+description = "DWG の図形が指す文字スタイル・ブロックなどのハンドルに、その型の表のレコードがないので、名前を置かなかった"
 severity = "warning"
 params = { type = "int", code = "int" }
 group-by = ["type", "code"]
@@ -463,7 +463,7 @@ since = "0.0.0"
 status = "active"
 
 [codes."dwg.object.invalid"]
-description = "DWG のオブジェクトの欄を読めないので、ハンドルだけを表に置いた"
+description = "DWG のオブジェクトのフィールドを読めないので、ハンドルだけを表に置いた"
 severity = "warning"
 params = { type = "int" }
 group-by = ["type"]
@@ -543,7 +543,7 @@ since = "0.0.0"
 status = "retired"
 
 [codes."dxf.change.unsupported"]
-description = "図面モデルの要素の変更を、元の図形のレコードに書き戻せない。扱う種類と欄は docs/formats/dxf.md に書く（決定 0139）（change.edit.unsupported に移したので使わない）"
+description = "図面モデルの要素の変更を、元の図形のレコードに書き戻せない。扱う種類とフィールドは docs/formats/dxf.md に書く（決定 0139）（change.edit.unsupported に移したので使わない）"
 severity = "error"
 params = { kind = "text" }
 since = "0.0.0"
@@ -557,7 +557,7 @@ since = "0.0.0"
 status = "retired"
 
 [codes."dxf.handle-seed.missing"]
-description = "DXF の見出しに $HANDSEED がないか、16 進のハンドルとして読めないので、新しいハンドルを決められない"
+description = "DXF のヘッダーに $HANDSEED がないか、16 進のハンドルとして読めないので、新しいハンドルを決められない"
 severity = "error"
 params = {}
 since = "0.0.0"
@@ -598,10 +598,10 @@ params = { record = "uint", code = "int" }
 since = "0.0.0"
 status = "active"
 
-# DXF の版の変更（決定 0008）。出力先の版が持てないもの
+# DXF のバージョンの変更（決定 0008）。出力先のバージョンが持てないもの
 
 [codes."dxf.entity.dropped"]
-description = "出力先の DXF の版にない種類の図形を、書かなかった"
+description = "出力先の DXF のバージョンにない種類の図形を、書かなかった"
 severity = "warning"
 fidelity = "dropped"
 params = { kind = "text" }
@@ -610,7 +610,7 @@ since = "0.0.0"
 status = "active"
 
 [codes."dxf.group-code.dropped"]
-description = "出力先の DXF の版にないグループ・コードのタグを、書かなかった"
+description = "出力先の DXF のバージョンにないグループ・コードのタグを、書かなかった"
 severity = "warning"
 fidelity = "dropped"
 params = { kind = "text", code = "int" }
@@ -619,7 +619,7 @@ since = "0.0.0"
 status = "active"
 
 [codes."dxf.header-variable.dropped"]
-description = "出力先の DXF の版で書けない値を持つ見出しの変数を、書かなかった"
+description = "出力先の DXF のバージョンで書けない値を持つヘッダーの変数を、書かなかった"
 severity = "warning"
 fidelity = "dropped"
 params = { name = "text" }
@@ -628,7 +628,7 @@ since = "0.0.0"
 status = "active"
 
 [codes."dxf.section.dropped"]
-description = "出力先の DXF の版にないセクションを、書かなかった"
+description = "出力先の DXF のバージョンにないセクションを、書かなかった"
 severity = "warning"
 fidelity = "dropped"
 params = { name = "text" }
@@ -637,7 +637,7 @@ since = "0.0.0"
 status = "active"
 
 [codes."dxf.table.dropped"]
-description = "出力先の DXF の版にない表を、書かなかった"
+description = "出力先の DXF のバージョンにない表を、書かなかった"
 severity = "warning"
 fidelity = "dropped"
 params = { name = "text" }
@@ -654,20 +654,20 @@ since = "0.0.0"
 status = "active"
 
 [codes."dxf.text.equivalent"]
-description = "コード・ページの版に書くため、ASCII でない文字を `\\U+XXXX` の表記にした"
+description = "コード・ページのバージョンに書くため、ASCII でない文字を `\\U+XXXX` の表記にした"
 severity = "info"
 fidelity = "equivalent"
 since = "0.0.0"
 status = "active"
 
 [codes."dxf.text.invalid"]
-description = "UTF-8 の版の値が UTF-8 として読めないので、バイト列のまま書いた"
+description = "UTF-8 のバージョンの値が UTF-8 として読めないので、バイト列のまま書いた"
 severity = "warning"
 since = "0.0.0"
 status = "active"
 
 [codes."dxf.version.unsupported"]
-description = "この組の DXF の版の変更は、まだ扱えない"
+description = "この組の DXF のバージョンの変更は、まだ扱えない"
 severity = "error"
 params = { from = "text", to = "text" }
 since = "0.0.0"
@@ -700,21 +700,21 @@ since = "0.2.0"
 status = "active"
 
 [codes."drawing.binary-version.unsupported"]
-description = "図面モデルのバイナリの大版を、このコアが読めない"
+description = "図面モデルのバイナリのメジャーバージョンを、このコアが読めない"
 severity = "error"
 params = { major = "uint", supported = "uint" }
 since = "0.2.0"
 status = "active"
 
 [codes."drawing.binary-value.unsupported"]
-description = "図面モデルのバイナリが、この版の知らない列挙の値（後の小版で足した値）を使っているので読めない"
+description = "図面モデルのバイナリが、このバージョンの知らない列挙の値（後のマイナーバージョンで足した値）を使っているので読めない"
 severity = "error"
 params = { type = "key", value = "uint", minor = "uint" }
 since = "0.2.0"
 status = "active"
 
 [codes."drawing.binary-field.dropped"]
-description = "図面モデルのバイナリの、後の小版で足した欄を読み飛ばした"
+description = "図面モデルのバイナリの、後のマイナーバージョンで足したフィールドを読み飛ばした"
 severity = "warning"
 fidelity = "dropped"
 params = { type = "key", minor = "uint" }
@@ -723,7 +723,7 @@ since = "0.2.0"
 status = "active"
 
 [codes."drawing.binary-section.dropped"]
-description = "図面モデルのバイナリの、後の小版で足した区画を読み飛ばした"
+description = "図面モデルのバイナリの、後のマイナーバージョンで足したセクションを読み飛ばした"
 severity = "warning"
 fidelity = "dropped"
 params = { section = "uint", minor = "uint" }
@@ -742,7 +742,7 @@ since = "0.0.0"
 status = "active"
 
 [codes."scene.spline.approximated"]
-description = "当てはめる点だけで決まるスプラインを、当てはめる点を結ぶ折れ線で描いた"
+description = "フィット点だけで決まるスプラインを、フィット点を結ぶ折れ線で描いた"
 severity = "warning"
 fidelity = "approximated"
 since = "0.0.0"
@@ -791,14 +791,14 @@ since = "0.0.0"
 status = "retired"
 
 [codes."scene.underlay.dropped"]
-description = "画像と PDF でない下敷き（DWF・DGN）を、シーンに描かなかった（決定 0184 で、DWF・DGN も画像として返すので使わない）"
+description = "画像と PDF でないアンダーレイ（DWF・DGN）を、シーンに描かなかった（決定 0184 で、DWF・DGN も画像として返すので使わない）"
 severity = "warning"
 fidelity = "dropped"
 since = "0.0.0"
 status = "retired"
 
 [codes."scene.underlay-clip.dropped"]
-description = "下敷きの切り抜きを当てずに、下敷きの全体を描いた"
+description = "アンダーレイの切り抜きを当てずに、アンダーレイの全体を描いた"
 severity = "warning"
 fidelity = "dropped"
 since = "0.0.0"
@@ -840,7 +840,7 @@ since = "0.0.0"
 status = "active"
 
 [codes."scene.fit-tolerance.approximated"]
-description = "当てはめる点を許容差で近づけるスプラインを、点を通る曲線で描いた（決定 0184）"
+description = "フィット点を許容差で近づけるスプラインを、点を通る曲線で描いた（決定 0184）"
 severity = "info"
 fidelity = "approximated"
 since = "0.0.0"
@@ -1011,7 +1011,7 @@ status = "active"
 # IFC の L1（決定 0207・0211）
 
 [codes."ifc.file.invalid"]
-description = "ISO 10303-21 の始まり・DATA の節・終わりのどれかがない"
+description = "ISO 10303-21 の始まり・DATA のセクション・終わりのどれかがない"
 severity = "error"
 since = "0.2.0"
 status = "active"
@@ -1044,19 +1044,19 @@ since = "0.2.0"
 status = "active"
 
 [codes."ifc.entry.missing"]
-description = "ifcZIP の書庫に、IFC-SPF（.ifc）の項目がない"
+description = "ifcZIP のアーカイブに、IFC-SPF（.ifc）の項目がない"
 severity = "error"
 since = "0.2.0"
 status = "active"
 
 [codes."ifc.entry.unsupported"]
-description = "IFC-SPF（.ifc）の項目が複数ある ifcZIP の書庫は読まない"
+description = "IFC-SPF（.ifc）の項目が複数ある ifcZIP のアーカイブは読まない"
 severity = "error"
 since = "0.2.0"
 status = "active"
 
 [codes."ifc.version.unsupported"]
-description = "IFC2X3・IFC4・IFC4X3 でない版のファイルからは、建物モデルを作らない"
+description = "IFC2X3・IFC4・IFC4X3 でないバージョンのファイルからは、建物モデルを作らない"
 severity = "error"
 params = { schema = "text" }
 since = "0.2.0"
@@ -1251,7 +1251,7 @@ since = "0.0.0"
 status = "active"
 
 [codes."dxf.code-page.unsupported"]
-description = "2007 より前の版で、対応表のないコード・ページの ASCII でない文字を読めないので、その文字の図形を図面モデルに移さなかった"
+description = "2007 より前のバージョンで、対応表のないコード・ページの ASCII でない文字を読めないので、その文字の図形を図面モデルに移さなかった"
 severity = "warning"
 fidelity = "dropped"
 params = { kind = "text" }
@@ -1317,7 +1317,7 @@ since = "0.0.0"
 status = "active"
 
 [codes."dxf.extension-dictionary.unsupported"]
-description = "図形・画層・線種の拡張辞書の項目のうち、図面モデルの欄にする値で欄がまだないものと、AutoCAD の版の往復の XRECORD を、図面モデルに移さなかった。元の形式の値は残る（決定 0157）"
+description = "図形・画層・線種の拡張辞書の項目のうち、図面モデルのフィールドにする値でフィールドがまだないものと、AutoCAD のバージョンの往復の XRECORD を、図面モデルに移さなかった。元の形式の値は残る（決定 0157）"
 severity = "info"
 fidelity = "dropped"
 params = { key = "text" }
@@ -1371,7 +1371,7 @@ since = "0.0.0"
 status = "active"
 
 [codes."dxf.units.missing"]
-description = "見出しの $INSUNITS がないか長さの単位でないので、実寸の単位を不明とした"
+description = "ヘッダーの $INSUNITS がないか長さの単位でないので、実寸の単位を不明とした"
 severity = "info"
 since = "0.0.0"
 status = "active"
@@ -1404,7 +1404,7 @@ status = "active"
 # SXF の交換構造（決定 0120）
 
 [codes."sxf.file.invalid"]
-description = "ISO 10303-21 の始まり・DATA の節・終わりのどれかがない"
+description = "ISO 10303-21 の始まり・DATA のセクション・終わりのどれかがない"
 severity = "error"
 since = "0.0.0"
 status = "active"
@@ -1507,7 +1507,7 @@ status = "active"
 # JWW の L1（決定 0133）
 
 [codes."jww.file.invalid"]
-description = "JwwData. の始まりか版がない"
+description = "JwwData. の始まりかバージョンがない"
 severity = "error"
 since = "0.0.0"
 status = "active"
@@ -1519,7 +1519,7 @@ since = "0.0.0"
 status = "active"
 
 [codes."jww.trailer.invalid"]
-description = "図形の一覧の後ろのバイト列（版 700 からは画像の一覧）を読めず、そのまま残した"
+description = "図形の一覧の後ろのバイト列（バージョン 700 からは画像の一覧）を読めず、そのまま残した"
 severity = "warning"
 since = "0.0.0"
 status = "active"
@@ -1527,7 +1527,7 @@ status = "active"
 # JWW から図面の領域モデルへの変換（決定 0134）
 
 [codes."jww.header.invalid"]
-description = "見出しの欄を読めず、レイヤの名前と状態・色・線幅・縮尺を既定にした"
+description = "ヘッダーのフィールドを読めず、レイヤの名前と状態・色・線幅・縮尺を既定にした"
 severity = "warning"
 since = "0.0.0"
 status = "active"
@@ -1553,7 +1553,7 @@ status = "active"
 # PDF のファイルモデルと、図面の領域モデルへの変換（決定 0256）
 
 [codes."pdf.file.invalid"]
-description = "先頭の 1,024 バイトに、ファイルの見出し %PDF- がない"
+description = "先頭の 1,024 バイトに、ファイルのヘッダー %PDF- がない"
 severity = "error"
 since = "0.2.0"
 status = "active"
@@ -1819,7 +1819,7 @@ status = "active"
 # 指摘の重要度は規則の level を使い、ここの severity は使わない（決定 0173）
 
 [codes."profile.format.unsupported"]
-description = "プロファイルの入力を読めないか、書式の大版を読めない（決定 0138）"
+description = "プロファイルの入力を読めないか、書式のメジャーバージョンを読めない（決定 0138）"
 severity = "error"
 params = { name = "text" }
 group-by = ["name"]
@@ -1850,7 +1850,7 @@ since = "0.2.0"
 status = "active"
 
 [codes."profile.rule.unsupported"]
-description = "照合の種類を知らないか、欄か語彙を使えない規則を、照合しなかった"
+description = "照合の種類を知らないか、フィールドか語彙を使えない規則を、照合しなかった"
 severity = "warning"
 params = { rule = "text", check = "text" }
 group-by = ["rule"]
@@ -2117,7 +2117,7 @@ since = "0.2.0"
 status = "active"
 
 [codes."ids.version.mixed"]
-description = "仕様の対象の IFC の版に、建物モデルのスキーマがない"
+description = "仕様の対象の IFC のバージョンに、建物モデルのスキーマがない"
 severity = "warning"
 params = { specification = "text", schema = "text" }
 since = "0.2.0"
@@ -2158,7 +2158,7 @@ params = { specification = "text", facet = "text" }
 since = "0.2.0"
 status = "active"
 [codes."review.file.invalid"]
-description = "指摘の文書の JSON の形が合わない。pointer は合わなかった欄の JSON Pointer か、構文の誤りのバイト位置"
+description = "指摘の文書の JSON の形が合わない。pointer は合わなかったフィールドの JSON Pointer か、構文の誤りのバイト位置"
 severity = "error"
 params = { pointer = "text" }
 since = "0.2.0"
@@ -2172,7 +2172,7 @@ since = "0.2.0"
 status = "active"
 
 [codes."review.version.unsupported"]
-description = "読めない版の指摘の文書"
+description = "読めないバージョンの指摘の文書"
 severity = "error"
 params = { version = "uint" }
 since = "0.2.0"
@@ -2208,7 +2208,7 @@ status = "active"
 
 
 [codes."bcf.file.invalid"]
-description = "bcfzip の中の項目が、その版の BCF の形に合わない。name は項目の名前、near は合わなかった要素か属性"
+description = "bcfzip の中の項目が、そのバージョンの BCF の形に合わない。name は項目の名前、near は合わなかった要素か属性"
 severity = "error"
 params = { name = "text", near = "text" }
 group-by = ["name"]
@@ -2216,14 +2216,14 @@ since = "0.2.0"
 status = "active"
 
 [codes."bcf.conversion.unsupported"]
-description = "元の bcfzip と違う版では書き戻さない。版の間で、写さない要素の形が違うため（#454）。original は元の版、version は書く版"
+description = "元の bcfzip と違うバージョンでは書き戻さない。バージョンの間で、写さない要素の形が違うため（#454）。original は元のバージョン、version は書くバージョン"
 severity = "error"
 params = { original = "text", version = "text" }
 since = "0.2.0"
 status = "active"
 
 [codes."bcf.version.unsupported"]
-description = "読まない BCF の版。読むのは 2.1 と 3.0（決定 0214・0220）"
+description = "読まない BCF のバージョン。読むのは 2.1 と 3.0（決定 0214・0220）"
 severity = "error"
 params = { version = "text" }
 since = "0.2.0"
@@ -2275,7 +2275,7 @@ since = "0.2.0"
 status = "active"
 
 [codes."sxf.archive.unsupported"]
-description = "書き戻す P2Z・SFZ の書庫が ZIP64 を要する大きさになる。ZIP64 は書かない（#385）"
+description = "書き戻す P2Z・SFZ のアーカイブが ZIP64 を要する大きさになる。ZIP64 は書かない（#385）"
 severity = "error"
 since = "0.2.0"
 status = "active"
@@ -2323,7 +2323,7 @@ status = "active"
 # 土木の領域モデル（決定 0230）
 
 [codes."civil.segment.invalid"]
-description = "線形の区間の値が使えない（長さが正でない、半径が 0 か有限でないなど）。index は区間の番号、field は欄の名前"
+description = "線形の区間の値が使えない（長さが正でない、半径が 0 か有限でないなど）。index は区間の番号、field はフィールドの名前"
 severity = "error"
 params = { index = "uint", field = "text" }
 group-by = ["field"]
@@ -2391,13 +2391,13 @@ status = "active"
 # 電子納品の成果品（決定 0241、#383）
 
 [codes."jpeg.file.invalid"]
-description = "JPEG の始まりの印（SOI）がないので、写真として読まなかった（#387）"
+description = "JPEG の始まりのマーカー（SOI）がないので、写真として読まなかった（#387）"
 severity = "error"
 since = "0.2.0"
 status = "active"
 
 [codes."jpeg.segment.invalid"]
-description = "JPEG のセグメントの長さか印が壊れているので、その先を読まなかった（#387）"
+description = "JPEG のセグメントの長さかマーカーが壊れているので、その先を読まなかった（#387）"
 severity = "warning"
 params = { offset = "uint" }
 since = "0.2.0"
@@ -2411,7 +2411,7 @@ since = "0.2.0"
 status = "active"
 
 [codes."jpeg.xmp.invalid"]
-description = "XMP の区画を XML として読めないので、XMP の性質を返さなかった（#387）"
+description = "XMP のセグメントを XML として読めないので、XMP の性質を返さなかった（#387）"
 severity = "warning"
 since = "0.2.0"
 status = "active"
@@ -2423,7 +2423,7 @@ since = "0.2.0"
 status = "active"
 
 [codes."xlsx.part.invalid"]
-description = "xlsx の部品がないか XML として読めないので、その部品を飛ばした（#391）。name は書庫の中の名前かシートの名前"
+description = "xlsx の部品がないか XML として読めないので、その部品を飛ばした（#391）。name はアーカイブの中の名前かシートの名前"
 severity = "warning"
 params = { name = "text" }
 since = "0.2.0"
@@ -2561,7 +2561,7 @@ since = "0.2.0"
 status = "active"
 
 [codes."fgd.entry.unsupported"]
-description = "基盤地図情報の配布の書庫の、FG-GML- で始まる .xml・.zip でない項目なので、読まなかった（決定 0251）"
+description = "基盤地図情報の配布のアーカイブの、FG-GML- で始まる .xml・.zip でない項目なので、読まなかった（決定 0251）"
 severity = "warning"
 params = { name = "text" }
 group-by = ["name"]
@@ -2580,7 +2580,7 @@ status = "active"
 # 拡張 DM（決定 0233、#378）
 
 [codes."extdm.record.unsupported"]
-description = "見出しのない実データのレコードか、知らないレコードタイプのレコードなので、読まなかった。kind はレコードの初めの 2 文字"
+description = "ヘッダーのない実データのレコードか、知らないレコードタイプのレコードなので、読まなかった。kind はレコードの初めの 2 文字"
 severity = "warning"
 params = { kind = "text" }
 group-by = ["kind"]
@@ -2588,7 +2588,7 @@ since = "0.2.0"
 status = "active"
 
 [codes."extdm.record.invalid"]
-description = "レコードの欄が読めないか足りないので、その値か形を地理の領域モデルに移さなかった。kind はレコードタイプ、field は欄の名前"
+description = "レコードのフィールドが読めないか足りないので、その値か形を地理の領域モデルに移さなかった。kind はレコードタイプ、field はフィールドの名前"
 severity = "warning"
 params = { kind = "text", field = "text" }
 group-by = ["kind", "field"]
@@ -2683,7 +2683,7 @@ status = "active"
 # LAS・LAZ の読み取りと、点群の領域モデルへの移し（#371）
 
 [codes."las.file.invalid"]
-description = "LASF の始まりか見出しがないか、見出しの値が合わない"
+description = "LASF の始まりかヘッダーがないか、ヘッダーの値が合わない"
 severity = "error"
 since = "0.2.0"
 status = "active"
@@ -2696,7 +2696,7 @@ since = "0.2.0"
 status = "active"
 
 [codes."las.points.invalid"]
-description = "点のレコードが、見出しの点の数より短いので、読めた点だけを読んだ"
+description = "点のレコードが、ヘッダーの点の数より短いので、読めた点だけを読んだ"
 severity = "warning"
 fidelity = "dropped"
 params = { expected = "uint", found = "uint" }
@@ -2750,7 +2750,7 @@ status = "active"
 # PLY・XYZ の読み取りと、点群の領域モデルへの移し（#373）
 
 [codes."ply.file.invalid"]
-description = "ply の始まりか見出しがないか、本体が見出しの要素と合わない"
+description = "ply の始まりかヘッダーがないか、本体がヘッダーの要素と合わない"
 severity = "error"
 since = "0.2.0"
 status = "active"
@@ -2841,7 +2841,7 @@ since = "0.2.0"
 status = "active"
 
 [codes."e57.attribute.dropped"]
-description = "点群の領域モデルに持たない点の欄か、一部のスキャンだけが持つ属性を、移さなかった（決定 0232）"
+description = "点群の領域モデルに持たない点のフィールドか、一部のスキャンだけが持つ属性を、移さなかった（決定 0232）"
 severity = "info"
 fidelity = "dropped"
 params = { attribute = "text" }

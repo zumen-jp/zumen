@@ -1,4 +1,4 @@
-//! 試験の中で書いた小さな J-LandXML を読み、線形・縦断・横断・地表面を土木の領域モデルに移す（#368）。
+//! テストの中で書いた小さな J-LandXML を読み、線形・縦断・横断・地表面を土木の領域モデルに移す（#368）。
 
 use zumen_base::{Budget, CancelToken, Diagnostics, codes};
 use zumen_civil::{CivilModel, HorizontalKind, SurfaceRole, TransitionCurve, VerticalKind};
@@ -10,7 +10,7 @@ use zumen_sdk::{Codec, Cx, Lift, Signature};
 /// 点は、クロソイドの式と円弧の中心から求めた値
 const ALIGNMENT: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 <LandXML xmlns="http://www.landxml.org/schema/LandXML-1.2" version="1.2" date="2026-11-01" time="00:00:00">
-  <Project name="試験"><Feature><Property label="applicationCriterion" value="MlitLandXmlVer.1.8"/></Feature></Project>
+  <Project name="テスト"><Feature><Property label="applicationCriterion" value="MlitLandXmlVer.1.8"/></Feature></Project>
   <Units><Metric areaUnit="squareMeter" linearUnit="meter" volumeUnit="cubicMeter" temperatureUnit="celsius" pressureUnit="HPA" angularUnit="decimal dd.mm.ss" directionUnit="decimal dd.mm.ss"/></Units>
   <CoordinateSystem horizontalDatum="JGD2011" verticalDatum="T.P" horizontalCoordinateSystemName="9(X,Y)"/>
   <CgPoints name="ControlPnts"><CgPoint name="K1">0 0 0</CgPoint></CgPoints>

@@ -1,5 +1,5 @@
-//! 試料の、同じ図面のバイナリの DXF（`名前_binary.dxf`）と ASCII の DXF（`名前_ascii.dxf`）を読み、比べる。
-//! 試料は公開サンプルの `samples/` と、受け取った図面を置く `ZUMEN_SAMPLES` のフォルダーから集める。
+//! サンプルの、同じ図面のバイナリの DXF（`名前_binary.dxf`）と ASCII の DXF（`名前_ascii.dxf`）を読み、比べる。
+//! サンプルは公開サンプルの `samples/` と、受け取った図面を置く `ZUMEN_SAMPLES` のフォルダーから集める。
 #![cfg(feature = "drawing")]
 
 mod support;
@@ -125,7 +125,7 @@ fn binary_and_ascii_dxf_of_the_same_drawing_lift_to_the_same_drawing() {
     for (binary, ascii) in pairs() {
         let (ours, our_codes) = lifted(&binary);
         let (theirs, their_codes) = lifted(&ascii);
-        // ASCII の DXF は実数を 16 桁ほどに丸めて書く。R12 の試料は、ポリラインの頂点を 6 桁に丸める
+        // ASCII の DXF は実数を 16 桁ほどに丸めて書く。R12 のサンプルは、ポリラインの頂点を 6 桁に丸める
         let r12 = binary.to_string_lossy().contains("AC1009");
         let tolerance = if r12 { 1e-5 } else { 1e-9 };
         assert!(

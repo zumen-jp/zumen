@@ -1,13 +1,13 @@
 //! zumen の CLI（決定 0013・0197）。crates.io の zumen-cli で配る（決定 0205）。
 //!
-//! コアを同じプロセスで動かし、境界と同じ要求と応答（`schema/messages.json`）を運ぶ。応答は書き換えない。
+//! コアを同じプロセスで動かし、API と同じ要求と応答（`schema/messages.json`）を運ぶ。応答は書き換えない。
 //!
 //! - `zumen call`: 要求の JSON をそのまま渡す
 //! - `zumen <op> [ファイル]`: よく使う op の短い形。ファイルを入力にして open し、その文書で op を呼ぶ
-//! - `zumen serve --stdio`: 境界の関数を、標準入出力の JSON-RPC で出す（`serve.rs`）
+//! - `zumen serve --stdio`: API の関数を、標準入出力の JSON-RPC で出す（`serve.rs`）
 //! - `zumen serve --http`: 同じ JSON-RPC を HTTP で受ける（`http.rs`）
 //! - `zumen mcp`: MCP のサーバー（`mcp.rs`）
-//! - `zumen scene-info`: シーンの blob の区画を要約する（`scene.rs`）
+//! - `zumen scene-info`: シーンの blob のセクションを要約する（`scene.rs`）
 //!
 //! 実行ファイルの `zumen` は [`run`] を呼ぶだけ。
 
@@ -32,20 +32,20 @@ use crate::host::{Host, blobs, str_field};
 const USAGE: &str = "\
 使い方:
   zumen call [--input 名前=ファイル]... [--options 設定の JSON] [--blobs フォルダー] <要求の JSON のファイル | ->
-  zumen <op> [ファイル] [--欄 値]... [--blobs フォルダー]
+  zumen <op> [ファイル] [--フィールド 値]... [--blobs フォルダー]
   zumen serve --stdio
   zumen serve --http [--listen アドレス:ポート]
   zumen mcp [--root フォルダー]
   zumen scene-info <シーンの blob のファイル | ->
   zumen --version
 
-応答の JSON を標準出力に書く。終了コードは境界の状態（0 ok・1 failed・2 invalid・3 busy・4 panicked）で、
+応答の JSON を標準出力に書く。終了コードは API の状態（0 ok・1 failed・2 invalid・3 busy・4 panicked）で、
 引数とファイルの誤りは 64。
 <op> の短い形は、ファイルを入力にして open し、その文書を doc に入れて op を呼ぶ。open と capabilities は
-それだけを呼ぶ。--欄 の値は JSON として読み、読めなければ文字列にする。v は 1 にする。
+それだけを呼ぶ。--フィールド の値は JSON として読み、読めなければ文字列にする。v は 1 にする。
 --blobs を書くと、応答の blobs を <フォルダー>/<id>.<kind> に書き出す。
 serve --http は既定で 127.0.0.1:24180 で待ち受け、待ち受けたアドレスを 1 行目に書く。
-scene-info は、scene の op が返すシーンの blob の、区画ごとの行の数を JSON で書く。";
+scene-info は、scene の op が返すシーンの blob の、セクションごとの行の数を JSON で書く。";
 
 /// 引数とファイルの誤り
 const USAGE_ERROR: u8 = 64;
@@ -220,7 +220,7 @@ fn call(args: &[String]) -> Result<u8, String> {
     )
 }
 
-/// `--欄` の値。JSON として読めなければ文字列
+/// `--フィールド` の値。JSON として読めなければ文字列
 fn flag_json(text: &str) -> Value {
     zumen_json::parse(text.as_bytes()).unwrap_or_else(|_| Value::String(text.to_string()))
 }

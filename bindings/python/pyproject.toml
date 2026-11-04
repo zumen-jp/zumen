@@ -1,13 +1,13 @@
-# zumen の C ABI を、Python の ctypes で呼ぶ薄い包み（決定 0011・0195）。
+# zumen の C ABI を、Python の ctypes で呼ぶ薄いラッパー（決定 0011・0195）。
 #
 # PyPI の zumen で配る（決定 0003・0205）。wheel は対象ごとにネイティブのライブラリを zumen/_native に入れ、
 # build_wheel.py（標準ライブラリだけ）で作る。build-system は使わない。
-# 版はコアと同じにし、`cargo xtask codegen --check` が確かめる（決定 0015）。
+# バージョンはコアと同じにし、`cargo xtask codegen --check` が確かめる（決定 0015）。
 
 [project]
 name = "zumen"
 version = "0.2.0"
-description = "日本の建設の図面（DXF・DWG・SXF・JWW）を読み書きする zumen の、Python の包み"
+description = "日本の建設の図面（DXF・DWG・SXF・JWW）を読み書きする zumen の、Python のラッパー"
 license = "MIT OR Apache-2.0"
 # docs/support.md の Python の下限
 requires-python = ">=3.9"

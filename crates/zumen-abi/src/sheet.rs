@@ -1,4 +1,4 @@
-//! `sheet` の op（#391）。xlsx と CSV の表を読み、境界の形にする。
+//! `sheet` の op（#391）。xlsx と CSV の表を読み、API の形にする。
 
 use zumen_base::Cx;
 

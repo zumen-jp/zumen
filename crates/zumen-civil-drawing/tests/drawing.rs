@@ -1,6 +1,6 @@
 //! 合成の線形から平面図・縦断図・横断図の図面モデルを作り、シーンに描く（決定 0231）。
 
-use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Limits, Ref, codes};
+use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Kind, Limits, Ref, Stop, codes};
 use zumen_civil::{
     Alignment, CivilModel, CrossSection, CrossSectionLine, Horizontal, HorizontalKind, SurfaceRole,
     Tin, TransitionCurve, Vertical, VerticalKind,
@@ -333,5 +333,60 @@ fn vertical_arcs_and_clothoids_are_drawn_at_the_computed_heights() {
     assert!(
         !codes.contains(&codes::CIVIL_CURVE_UNSUPPORTED),
         "{codes:?}"
+    );
+}
+
+/// 測点の番号が 2^53 を超えて 1 を足しても変わらない線形でも、測点を数える繰り返しが終わる（#486）
+#[test]
+fn huge_station_numbers_end() {
+    let mut line = alignment();
+    line.stations.start = 1e18;
+    let model = CivilModel {
+        alignments: vec![line],
+        ..CivilModel::default()
+    };
+    let mut budget = Budget::new(Limits::default());
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+    let out = drawing(&model, &model.alignments[0], &Options::default(), &mut cx).unwrap();
+    // 同じ番号に丸まった測点を、繰り返し描かない
+    let texts: Vec<&str> = out.spaces[0]
+        .elements
+        .iter()
+        .filter_map(|e| match &e.shape {
+            Shape::Text(text) => Some(text.content.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert!(!texts.is_empty());
+    let mut unique = texts.clone();
+    unique.sort_unstable();
+    unique.dedup();
+    assert_eq!(texts.len(), unique.len(), "{texts:?}");
+}
+
+/// 測点の番号の範囲が 2^64 を超える不連続でも、件数が桁あふれせず、予算で止まる（#486）
+#[test]
+fn station_ranges_beyond_u64_stop_at_the_budget() {
+    let mut line = alignment();
+    line.stations.breaks.push(zumen_civil::StationBreak {
+        distance: 100.0,
+        back: 100.0,
+        ahead: 4e20,
+        source: Ref::default(),
+    });
+    let model = CivilModel {
+        alignments: vec![line],
+        ..CivilModel::default()
+    };
+    let mut budget = Budget::new(Limits::default());
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+    let stop = drawing(&model, &model.alignments[0], &Options::default(), &mut cx).unwrap_err();
+    assert!(
+        matches!(stop, Stop::Exceeded(ref e) if e.kind == Kind::Elements),
+        "{stop:?}"
     );
 }

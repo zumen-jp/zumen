@@ -1,4 +1,4 @@
-//! IFC の形状表現を `zumen_geom3d::Shape` に写す試作（#5）。カーネルの候補を試料で測るためで、コアには入れない。
+//! IFC の形状表現を `zumen_geom3d::Shape` に写す試作（#5）。カーネルの候補をサンプルで測るためで、コアには入れない。
 //!
 //! L1 のインスタンスを直に読む。写すのは、公開サンプル（`samples/ifc`）の Body の形状表現に現れる項目だけにする:
 //! 押し出し（矩形・円・任意の閉じた断面・穴のある断面）、Brep、面の模型、多角形と三角形の面の集合、ブーリアンと
@@ -422,7 +422,7 @@ impl<'f> Model<'f> {
 
     /// `IfcTrimmedCurve`（1 BasisCurve・2 Trim1・3 Trim2・4 SenseAgreement・5 MasterRepresentation）。基の曲線は
     /// `IfcLine`（1 Pnt・2 Dir）と `IfcCircle`。端は点か媒介変数で、両方あれば点を使う。円の媒介変数は角度とし、
-    /// 単位は度とする（試料の平面の角度の単位）
+    /// 単位は度とする（サンプルの平面の角度の単位）
     fn trimmed(&self, id: u64) -> Result<Vec<Xy>> {
         let basis = self.target(id, 1, "basis")?;
         let sense = self.flag(self.arg(id, 4)?, true);
@@ -591,7 +591,7 @@ impl<'f> Model<'f> {
                 holes.push(ring);
             }
         }
-        // 外の輪の印がなければ、最初の輪を外にする
+        // 外の輪（IFCFACEOUTERBOUND）がなければ、最初の輪を外にする
         let outer = match outer {
             Some(o) => o,
             None if !holes.is_empty() => holes.remove(0),
@@ -822,7 +822,7 @@ impl<'f> Model<'f> {
         self.shape(product, &["Body"])
     }
 
-    /// 開口の形。`Body` がなければ `Reference`（GNI の Archicad 28 の試料は、開口の形を Body の文脈の `Reference`
+    /// 開口の形。`Body` がなければ `Reference`（GNI の Archicad 28 のサンプルは、開口の形を Body の文脈の `Reference`
     /// に書く。公開元が保存し直したファイルで、Archicad がそう書くかは確かめていない）
     pub fn opening(&self, product: u64) -> Result<Option<Shape>> {
         self.shape(product, &["Body", "Reference"])

@@ -661,7 +661,7 @@ fn extension_dictionaries_that_others_point_to_keep_their_layers() {
     let inputs = [
         // ほかのオブジェクトが、拡張辞書の XRECORD を指す
         with_dictionary("  0\nXRECORD\n  5\nD3\n330\n1F\n100\nAcDbXrecord\n340\nD2\n"),
-        // 見出しの変数が、拡張辞書を指す
+        // ヘッダーの変数が、拡張辞書を指す
         original.replacen("$CLAYER\n", "$TSTACKALIGN\n340\nD1\n  9\n$CLAYER\n", 1),
         // 拡張辞書の所有者が、画層でない
         original.replacen(
@@ -681,7 +681,7 @@ fn extension_dictionaries_that_others_point_to_keep_their_layers() {
         original.replacen("360\nD1\n102\n}\n", "102\n}\n", 1),
         original.replacen("360\nD1\n102\n}\n", "360\nD1\n", 1),
         original.replacen("  0\nDICTIONARY\n  5\nD1\n", "  0\nXRECORD\n  5\nD1\n", 1),
-        // 画層が反応子を持つ
+        // 画層がリアクターを持つ
         original.replacen(
             "  5\n12\n102\n",
             "  5\n12\n102\n{ACAD_REACTORS\n330\n1A\n102\n}\n102\n",

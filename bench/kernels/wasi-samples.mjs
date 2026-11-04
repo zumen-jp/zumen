@@ -1,4 +1,4 @@
-// wasm32-wasip1 に作った samples を Node.js の WASI で流す。試料のフォルダー（環境変数 SAMPLES、既定は
+// wasm32-wasip1 に作った samples を Node.js の WASI で流す。サンプルのフォルダー（環境変数 SAMPLES、既定は
 // ../../samples/ifc）を /samples として渡し、その中の IFC の道筋を /samples からの道筋に直す。
 // 使い方: node wasi-samples.mjs <wasm> [候補] <IFC>...
 import { readFileSync } from "node:fs";

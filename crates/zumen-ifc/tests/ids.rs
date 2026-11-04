@@ -1,4 +1,4 @@
-//! IDS の照合に、EXPRESS の属性の名前で L1 の属性を渡す（決定 0217）。EXPRESS・IFC・IDS は、試験の中で書いた
+//! IDS の照合に、EXPRESS の属性の名前で L1 の属性を渡す（決定 0217）。EXPRESS・IFC・IDS は、テストの中で書いた
 //! 小さなものだけを使う。
 #![cfg(feature = "ids")]
 
@@ -147,7 +147,7 @@ fn checks_attributes_by_express_names() {
             .all(|c| *c == codes::IDS_REQUIREMENT_INVALID)
     );
 
-    // EXPRESS がなければ、成分にない属性は確かめられない
+    // EXPRESS がなければ、コンポーネントにない属性は確かめられない
     let report = run(&specifications, false).unwrap();
     assert_eq!(
         statuses(&report),

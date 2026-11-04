@@ -1,4 +1,4 @@
-//! JWW の読み書き（決定 0133）。入力は、どれも試験の中で作る。
+//! JWW の読み書き（決定 0133）。入力は、どれもテストの中で作る。
 
 use zumen_base::{Budget, CancelToken, Cx, Diagnostics, Kind, Limit, Limits, Ref, Stop, codes};
 use zumen_jww::{Jww, JwwFile, RecordKind, Tag};
@@ -8,7 +8,7 @@ mod common;
 
 use common::{Archive, header};
 
-/// 図形を 1 つずつと、ブロックの定義を 1 つ持つ図面。版 700 からは画像を 1 つ持つ
+/// 図形を 1 つずつと、ブロックの定義を 1 つ持つ図面。バージョン 700 からは画像を 1 つ持つ
 fn drawing(version: u32) -> (Vec<u8>, Archive) {
     let mut archive = Archive::new(version);
     archive.count(9);

@@ -1,4 +1,4 @@
-//! IFC から建物モデルを作る（決定 0207・0215）。ファイルは、どれも試験の中で作る。
+//! IFC から建物モデルを作る（決定 0207・0215）。ファイルは、どれもテストの中で作る。
 #![cfg(feature = "building")]
 
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Kind, Limit, Limits, Value, codes};
@@ -27,7 +27,7 @@ fn gid(n: u32) -> String {
     format!("{n:0>22}")
 }
 
-/// 版ごとの最小の IFC。IFC4 からの属性は、`later` で足す
+/// バージョンごとの最小の IFC。IFC4 からの属性は、`later` で足す
 fn ifc(v: V, schema: &str) -> String {
     let later = |text: &str| if v == V::Ifc2x3 { "" } else { text }.to_owned();
     let mut lines =

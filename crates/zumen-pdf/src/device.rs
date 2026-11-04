@@ -2,7 +2,7 @@
 //!
 //! hayro-interpret は、ページの内容を塗る順に `Device` に渡す。座標は、渡した変換（[`crate::page::Geometry`] に
 //! [`DEVICE_PER_MM`] を掛けたもの）の装置の単位。経路は線分・折れ線・曲線（3 次のベジェ曲線をそのまま持つ
-//! スプライン）とハッチングに、字形の並びは文字に、画像は下敷きにする。移せないもの・形を変えたものは、診断にする。
+//! スプライン）とハッチングに、字形の並びは文字に、画像はアンダーレイにする。移せないもの・形を変えたものは、診断にする。
 //! 要素は、切り抜きと比べてから色を決めるので、切り抜きで捨てる要素には、色・透明の診断を返さない。
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -56,7 +56,7 @@ const LOOP_SIZE: u64 = 64;
 /// 形の配列のメモリに掛ける数。作る間の写し（部分経路から作る頂点・辺・制御点の配列）と、配列の余りの分
 const MODEL_SLACK: u64 = 2;
 /// 字形の Unicode（ToUnicode の CMap の写す先、9.10.3）の 1 バイトのメモリ。装置は、字形ごとの Unicode の配列・
-/// 同じ並びかを見る鍵（次の字形の並びまで持つ）・文字の中身の 3 つに写すので、多めにして 4 倍にする
+/// 同じ並びかを見るキー（次の字形の並びまで持つ）・文字の中身の 3 つに写すので、多めにして 4 倍にする
 const UNICODE_BYTES: u64 = 4;
 /// 字形の Unicode を写す手間の、1 とするバイト数
 const UNICODE_PER_WORK: u64 = 16;
@@ -564,14 +564,14 @@ pub(crate) struct Collector<'c, 'x, 'd> {
     ocgs: &'c BTreeMap<(u32, i32), LayerId>,
     /// 間接オブジェクト → L1 のレコードの出所
     objects: &'c BTreeMap<(u32, i32), Ref>,
-    /// 画像が、それ自身の間接オブジェクトかを見る（[`own_stream`]）。引いた入れ物は、走査と同じ表に覚える
+    /// 画像が、それ自身の間接オブジェクトかを見る（[`own_stream`]）。引いたコンテナーは、走査と同じ表に覚える
     xref: &'d XRef,
     owned: &'c mut Owned<'d>,
     styles: &'c mut Styles,
     pub(crate) elements: Vec<Element<PaperPoint>>,
     /// 切り抜きの外接矩形（用紙の mm）の重なり。最初はページ
     clips: Vec<Rect>,
-    /// 印つきの内容の入れ子。それぞれ、その所でいちばん内側の表示グループのレイヤ
+    /// マーク付きの内容の入れ子。それぞれ、その所でいちばん内側の表示グループのレイヤ
     marks: Vec<Option<LayerId>>,
     /// 透明のグループの重なり
     groups: Vec<Group>,
@@ -735,7 +735,7 @@ impl<'c, 'x, 'd> Collector<'c, 'x, 'd> {
 
     /// 写した色（[`color::map`]）の、図面モデルの色と不透明度。近似した色と移さない色は、要素ごとに診断する
     fn color(&mut self, mapped: Mapped, alpha: u8) -> (Inherit<Color>, Inherit<Transparency>) {
-        // 転送関数（10.4）を使うページでは、hayro-interpret が関数を当てた RGB を渡す。その値は、版と環境で
+        // 転送関数（10.4）を使うページでは、hayro-interpret が関数を当てた RGB を渡す。その値は、バージョンと環境で
         // 変わりうるので使わない（決定 0256）。どの要素に効くかは渡されないので、ページの色をすべてレイヤに従わせる
         if self.transfer {
             self.note_code(codes::PDF_TRANSFER_DROPPED);
@@ -1519,7 +1519,7 @@ impl<'a> Device<'a> for Collector<'_, '_, '_> {
             (b"OC", Some(properties)) => self.layer_of(properties),
             _ => None,
         };
-        // 表示グループでない印は、外の入れ子のレイヤを受け継ぐ
+        // 表示グループでないマーク付きの内容は、外の入れ子のレイヤを受け継ぐ
         let inner = layer.or_else(|| self.marks.last().copied().flatten());
         self.marks.push(inner);
     }

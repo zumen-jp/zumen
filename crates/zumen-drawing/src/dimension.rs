@@ -122,12 +122,12 @@ pub enum Axis {
     Y,
 }
 
-/// 元の形式が保存した値。単位と、倍率を掛けたかは形式ごとに違うので、形式と欄を指すキーと組にする
+/// 元の形式が保存した値。単位と、倍率を掛けたかは形式ごとに違うので、形式とフィールドを指すキーと組にする
 #[derive(Clone, Debug, PartialEq)]
 pub struct Measured {
     /// 値
     pub value: f64,
-    /// 形式と欄を指すキー
+    /// 形式とフィールドを指すキー
     pub key: Cow<'static, str>,
 }
 

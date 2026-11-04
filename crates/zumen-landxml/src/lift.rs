@@ -55,7 +55,7 @@ impl<'d> Reader<'d, '_, '_> {
                         }
                     }
                 }
-                // 版と作者と単位の情報。単位は、交換標準がメートルと決めている
+                // バージョンと作者と単位の情報。単位は、交換標準がメートルと決めている
                 b"Project" | b"Application" | b"Units" => {}
                 _ => self.unsupported(child),
             }
@@ -648,7 +648,7 @@ impl<'d> Reader<'d, '_, '_> {
         Ok(true)
     }
 
-    // 要素をたどる道具
+    // 要素をたどるツール
 
     fn local(&self, element: &Element) -> &'d [u8] {
         self.doc.local_name(element.name())

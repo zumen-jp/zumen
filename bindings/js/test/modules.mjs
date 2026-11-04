@@ -1,16 +1,16 @@
-// 分けた wasm のモジュールで、適合試験を流す（決定 0013・0221）。
+// 分けた wasm のモジュールで、適合テストを流す（決定 0013・0221）。
 //
 // 使い方: node bindings/js/test/modules.mjs <zumen_abi1.wasm> <drawing.wasm> <bim.wasm> <civil.wasm> <pointcloud.wasm>
 //   <plugin.wasm>
 //
-// 包みの loadModules でモジュールを読み込み、組ごとに、組が呼ぶ op を持つモジュール（steps.mjs の moduleOf）で流す
+// ラッパーの loadModules でモジュールを読み込み、組ごとに、組が呼ぶ op を持つモジュール（steps.mjs の moduleOf）で流す
 // （本体は run.mjs）。すべてのモジュールを入れたコアでだけ流す組（module が all）を除き、ハッシュの一覧が hashes.txt
 // の同じ組の行と一致することを確かめる。あわせて、次を確かめる。
 //
 // - capabilities が、モジュールの持つ op だけを返し、持たない op には call.op.unsupported を返す
-// - 包みの detect が、組が足すどの入力でも、すべてを入れたコア（1 つ目の引数）の open と同じ形式を返す。図面モデルの
+// - ラッパーの detect が、組が足すどの入力でも、すべてを入れたコア（1 つ目の引数）の open と同じ形式を返す。図面モデルの
 //   バイナリは、open が元の文書の形式を返すので、判定の形式 drawing を返す（決定 0250）
-// - 包みの Modules.open が、判定したモジュールのセッションで、すべてを入れたコアの open と同じ形式で開く
+// - ラッパーの Modules.open が、判定したモジュールのセッションで、すべてを入れたコアの open と同じ形式で開く
 
 import { createHash } from "node:crypto";
 import { appendFileSync, readFileSync } from "node:fs";
@@ -56,7 +56,7 @@ for (const name of names) {
   session.close();
 }
 
-// 包みの判定と、コアの open
+// ラッパーの判定と、コアの open
 const cases = loadCases();
 const full = (await load(readFileSync(fullPath))).open();
 let inputs = 0;
@@ -73,7 +73,7 @@ for (const { name, steps } of cases) {
         continue;
       }
     }
-    // 図面モデルのバイナリ（決定 0247）の open は、元の文書の形式を返す。包みの判定は、形式 drawing にする（決定 0250）
+    // 図面モデルのバイナリ（決定 0247）の open は、元の文書の形式を返す。ラッパーの判定は、形式 drawing にする（決定 0250）
     const binary = String.fromCharCode(...data.subarray(0, 4)) === "ZMDR";
     const found = detect(data);
     if ((binary ? found?.format !== "drawing" : found?.format !== format) || (binary && format === undefined)) {
@@ -133,7 +133,7 @@ const counts = names.map((name) => `${name} ${chosen.filter((testCase) => testCa
 const summary = `分けたモジュールで流した組 ${chosen.length} 件（${counts}）、ハッシュ ${hashes.length} 件、読んだシーン ${scenes} 件、判定した入力 ${inputs} 件`;
 console.log(summary);
 if (process.env.GITHUB_STEP_SUMMARY) {
-  appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### 分けた wasm のモジュールの適合試験\n\n${summary}\n\n${table}\n`);
+  appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### 分けた wasm のモジュールの適合テスト\n\n${summary}\n\n${table}\n`);
 }
 if (failures.length > 0) {
   console.error(`期待と違った:\n${failures.join("\n")}`);

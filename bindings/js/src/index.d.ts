@@ -1,4 +1,4 @@
-// zumen の wasm のモジュールを呼ぶ薄い包みの型（決定 0011・0194）。要求と応答の型は messages.d.ts に生成する。
+// zumen の wasm のモジュールを呼ぶ薄いラッパーの型（決定 0011・0194）。要求と応答の型は messages.d.ts に生成する。
 
 import type { Detection, ModuleName, StatusName } from "./constants.js";
 import type { OpenRequest, Operations, Request, Response, SessionOptions } from "./messages.js";
@@ -16,11 +16,11 @@ export type ResultOf<R extends Request> = R extends { op: infer O extends keyof 
   : unknown;
 
 /**
- * 境界の関数が ok でない状態を返したか、wasm の中から例外が出た。wasm の中で trap などが起きたときは、状態が
+ * API の関数が ok でない状態を返したか、wasm の中から例外が出た。wasm の中で trap などが起きたときは、状態が
  * panicked になり、cause に元の例外（WebAssembly.RuntimeError など）を持つ
  */
 export declare class ZumenError extends Error {
-  /** 呼んだ境界の関数（zm_call など） */
+  /** 呼んだ API の関数（zm_call など） */
   readonly operation: string;
   /** 状態コード */
   readonly code: number;
@@ -62,7 +62,7 @@ export declare class Zumen {
    * モジュールを読み込み直す
    */
   readonly broken: boolean;
-  /** ABI の大版 */
+  /** ABI のメジャーバージョン */
   abiVersion(): number;
   /** セッションを作る。設定は、値か JSON の文字列かバイト列で渡す。渡さなければ既定の設定 */
   open(options?: SessionOptions | string | Bytes): Session;

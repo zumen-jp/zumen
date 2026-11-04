@@ -2,8 +2,8 @@
 //!
 //! hayro-interpret の RGB への換算は、ICC の換算（moxcms。CPU を見て SIMD の経路を選ぶ）と std の累乗の関数を
 //! 使うので、環境で値が変わりうる（決定 0007）。そこで、色空間の系統を見分け、四則演算だけで色を作る。
-//! 系統は hayro-interpret が公開しないので、色空間の `Debug` の表記の頭で見分ける。表記は hayro-interpret の版に
-//! 結びつくので、版を固定し（`Cargo.toml`）、系統ごとの試験で確かめる。
+//! 系統は hayro-interpret が公開しないので、色空間の `Debug` の表記の頭で見分ける。表記は hayro-interpret のバージョンに
+//! 結びつくので、バージョンを固定し（`Cargo.toml`）、系統ごとのテストで確かめる。
 
 use core::fmt::{self, Write as _};
 

@@ -11,7 +11,7 @@ use crate::{Location, Origin, Place, Reference, Review, Status, Target, Topic};
 pub struct Adopted {
     /// 規則の ID
     pub rule: String,
-    /// 境界の形の診断（決定 0218）
+    /// API の形の診断（決定 0218）
     pub diagnostic: Value,
     /// 指摘の要素
     pub elements: Vec<Reference>,
@@ -19,7 +19,7 @@ pub struct Adopted {
 
 /// `findings` を、`target` を指す開いたトピックにして足した文書と、足したトピックの ID を返す。
 ///
-/// トピックの ID は、対象のハッシュ・規則・診断と、同じ組の何番目かから決まる UUID（版 8）。同じ
+/// トピックの ID は、対象のハッシュ・規則・診断と、同じ組の何番目かから決まる UUID（バージョン 8）。同じ
 /// ID のトピックが文書にあれば、取り込み済みとして足さない。対象が文書になければ足す。同じ ID の対象の
 /// 形式かハッシュが違えば、`review.target.stale` を出して何も足さない
 pub fn adopt(
@@ -102,7 +102,7 @@ pub fn adopt(
     Ok((review, added))
 }
 
-/// 長さを前に置いた欄の BLAKE3 から作る UUID（版 8、RFC 9562）
+/// 長さを前に置いたフィールドの BLAKE3 から作る UUID（バージョン 8、RFC 9562）
 fn uuid(hash: &str, rule: &str, diagnostic: &[u8], ordinal: u64) -> String {
     let mut hasher = blake3::Hasher::new();
     hasher.update(b"zumen-review/topic\0");

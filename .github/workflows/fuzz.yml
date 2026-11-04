@@ -33,7 +33,7 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  # cargo-fuzz は nightly の Rust を使う。日付で固定し、上げるときは cargo-fuzz の版と一緒に確かめる
+  # cargo-fuzz は nightly の Rust を使う。日付で固定し、上げるときは cargo-fuzz のバージョンと一緒に確かめる
   NIGHTLY: nightly-2026-10-30
   CARGO_FUZZ_VERSION: 0.13.2
 
@@ -44,11 +44,11 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: rust-toolchain.toml の版の Rust（種を書く xtask）と、日付で固定した nightly の Rust を入れる
+      - name: rust-toolchain.toml のバージョンの Rust（種を書く xtask）と、日付で固定した nightly の Rust を入れる
         run: |
           rustup toolchain install
           rustup toolchain install "$NIGHTLY" --profile minimal
-      - name: cargo-fuzz を版を決めて入れる
+      - name: cargo-fuzz をバージョンを決めて入れる
         run: cargo install cargo-fuzz --version "$CARGO_FUZZ_VERSION" --locked
       # 育てた種のキャッシュのキーに公開サンプルの台帳のハッシュを入れ、台帳が変わったら前の種を戻さない。外した
       # サンプルとそれを変えた入力を、種と artifact に残さないため（決定 0258）
@@ -58,9 +58,9 @@ jobs:
           path: fuzz/corpus
           key: fuzz-corpus-${{ hashFiles('samples/ledger.toml') }}-${{ github.run_id }}
           restore-keys: fuzz-corpus-${{ hashFiles('samples/ledger.toml') }}-
-      - name: 公開サンプル・適合試験の組の合成の入力・L0 の攻撃の形・合成の格子を、種に足す
+      - name: 公開サンプル・適合テストの組の合成の入力・L0 の攻撃の形・合成の格子を、種に足す
         run: cargo xtask fuzz-seeds
-      - name: 全 target を作る。依存はワークスペースと同じ版から解き、桁あふれも見つけるため debug の検査を入れる
+      - name: 全 target を作る。依存はワークスペースと同じバージョンから解き、桁あふれも見つけるため debug の検査を入れる
         run: |
           cp Cargo.lock fuzz/Cargo.lock
           cargo "+$NIGHTLY" fuzz build -O --debug-assertions

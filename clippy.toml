@@ -1,12 +1,12 @@
 # 決定 0007・0010 の規則のうち、機械で検査できるもの。
 
-# 試験の中では、unwrap・expect・panic・添字を許す。
+# テストの中では、unwrap・expect・panic・添字を許す。
 allow-unwrap-in-tests = true
 allow-expect-in-tests = true
 allow-panic-in-tests = true
 allow-indexing-slicing-in-tests = true
 
-# 精度が決まっていない std の関数は、環境や Rust の版で結果が変わる。libm を使う。
+# 精度が決まっていない std の関数は、環境や Rust のバージョンで結果が変わる。libm を使う。
 disallowed-methods = [
     { path = "f64::sin", reason = "libm::sin を使う（決定 0007）" },
     { path = "f64::cos", reason = "libm::cos を使う（決定 0007）" },
@@ -60,7 +60,7 @@ disallowed-methods = [
     { path = "f32::powi", reason = "掛け算か libm::powf を使う（決定 0007）" },
     { path = "f32::hypot", reason = "libm::hypotf を使う（決定 0007）" },
     { path = "f32::cbrt", reason = "libm::cbrtf を使う（決定 0007）" },
-    # 時計と環境変数は、結果に効く所で読まない（決定 0007）。時間の上限は、境界の側が伝える（決定 0010）。
+    # 時計と環境変数は、結果に効く所で読まない（決定 0007）。時間の上限は、API の側が伝える（決定 0010）。
     { path = "std::time::Instant::now", reason = "コアは時計を読まない（決定 0007・0010）" },
     { path = "std::time::SystemTime::now", reason = "コアは時計を読まない。日時は呼び出し側から受け取る（決定 0007）" },
     { path = "std::env::var", reason = "コアは環境変数を読まない（決定 0007）" },

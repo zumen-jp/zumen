@@ -1,6 +1,6 @@
-//! ZIP に入れた SXF（P2Z・SFZ、#385）。書庫の最初の `.p21`・`.sfc` の項目を SXF として読み、ほかの項目
-//! （属性ファイル・画像）は書庫の中の名前で返す。書き戻すときは、SXF の項目だけを置き換え、ほかの項目は展開した
-//! バイトのまま写す。書庫は `zumen-zip` の書き出し（stored、日時を固定）で作る。
+//! ZIP に入れた SXF（P2Z・SFZ、#385）。アーカイブの最初の `.p21`・`.sfc` の項目を SXF として読み、ほかの項目
+//! （属性ファイル・画像）はアーカイブの中の名前で返す。書き戻すときは、SXF の項目だけを置き換え、ほかの項目は展開した
+//! バイトのまま写す。アーカイブは `zumen-zip` の書き出し（stored、日時を固定）で作る。
 
 #[cfg(feature = "drawing")]
 use zumen_base::{Cx, Diagnostics};
@@ -8,16 +8,16 @@ use zumen_base::{Cx, Diagnostics};
 #[cfg(feature = "drawing")]
 use crate::session::{Failed, stopped};
 
-/// 読んだ書庫の項目
+/// 読んだアーカイブの項目
 #[derive(Clone, Debug)]
 pub(crate) struct Packed {
-    /// 項目の名前とバイト列。書庫の順。SXF の項目のバイト列は持たない
+    /// 項目の名前とバイト列。アーカイブの順。SXF の項目のバイト列は持たない
     entries: Vec<(String, Vec<u8>)>,
     /// SXF の項目の位置
     index: usize,
 }
 
-/// ZIP の署名（ローカルファイルの見出し）
+/// ZIP の署名（ローカルファイルのヘッダー）
 #[cfg(feature = "drawing")]
 const SIGNATURE: &[u8] = b"PK\x03\x04";
 
@@ -27,8 +27,8 @@ fn is_sxf(name: &str) -> bool {
     lower.ends_with(".p21") || lower.ends_with(".sfc")
 }
 
-/// ZIP で、`.p21`・`.sfc` の項目があれば、その項目のバイト列と、書庫の項目を返す。ZIP でないか、SXF の項目が
-/// なければ `None`（ifcZIP などは、ほかの読み取りが試す）。そのときは、書庫を読んだ診断を足さない
+/// ZIP で、`.p21`・`.sfc` の項目があれば、その項目のバイト列と、アーカイブの項目を返す。ZIP でないか、SXF の項目が
+/// なければ `None`（ifcZIP などは、ほかの読み取りが試す）。そのときは、アーカイブを読んだ診断を足さない
 #[cfg(feature = "drawing")]
 pub(crate) fn read(bytes: &[u8], cx: &mut Cx<'_>) -> Result<Option<(Vec<u8>, Packed)>, Failed> {
     if !bytes.starts_with(SIGNATURE) {
@@ -75,7 +75,7 @@ pub(crate) fn read(bytes: &[u8], cx: &mut Cx<'_>) -> Result<Option<(Vec<u8>, Pac
 }
 
 impl Packed {
-    /// SXF の項目のほかの項目の名前。書庫の順
+    /// SXF の項目のほかの項目の名前。アーカイブの順
     #[cfg(feature = "drawing")]
     pub(crate) fn names(&self) -> Vec<String> {
         self.entries
@@ -101,7 +101,7 @@ impl Packed {
             .map(|(_, (_, data))| data.as_slice())
     }
 
-    /// SXF の項目を `sxf` に置き換えた書庫を書く。ZIP64 が要る大きさなら `None`
+    /// SXF の項目を `sxf` に置き換えたアーカイブを書く。ZIP64 が要る大きさなら `None`
     pub(crate) fn write(&self, sxf: &[u8]) -> Option<Vec<u8>> {
         let entries: Vec<(&str, &[u8])> = self
             .entries

@@ -1,4 +1,4 @@
-//! CRC-32（ISO 3309・ITU-T V.42 の多項式 0x04C11DB7 を反転したもの）。ZIP の項目と DWG の見出しで使う。
+//! CRC-32（ISO 3309・ITU-T V.42 の多項式 0x04C11DB7 を反転したもの）。ZIP の項目と DWG のヘッダーで使う。
 
 /// `data` の CRC-32
 pub fn crc32(data: &[u8]) -> u32 {

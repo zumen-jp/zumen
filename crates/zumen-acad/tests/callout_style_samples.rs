@@ -1,5 +1,5 @@
-//! 試料の DXF・DWG で、MULTILEADER の線の色・線種・線幅と注記の色を移す（決定 0146）。
-//! 試料は公開サンプルの `samples/` と、受け取った図面を置く `ZUMEN_SAMPLES` のフォルダーから集める。
+//! サンプルの DXF・DWG で、MULTILEADER の線の色・線種・線幅と注記の色を移す（決定 0146）。
+//! サンプルは公開サンプルの `samples/` と、受け取った図面を置く `ZUMEN_SAMPLES` のフォルダーから集める。
 #![cfg(feature = "drawing")]
 
 mod support;
@@ -68,7 +68,7 @@ fn aci(value: u32) -> Inherit<Color> {
     })
 }
 
-/// 試料の `made-mleader-*.dxf` は、線の色（色の番号 1・RGB・レイヤ）、線種（表の線種・ByLayer）、線幅
+/// サンプルの `made-mleader-*.dxf` は、線の色（色の番号 1・RGB・レイヤ）、線種（表の線種・ByLayer）、線幅
 /// （0.35 mm）、文字の色（色の番号 6）、記号の色（色の番号 5）を明示した注記を持つ。記号の注記は属性の値を持ち、
 /// 図形の所有者（330）を属性の定義と取り違えずに移す
 #[test]
@@ -144,7 +144,7 @@ fn callouts_keep_the_style_of_their_lines_and_content() {
     assert!(checked == 0 || checked >= 2, "{checked}");
 }
 
-/// 試料の `sample_AC10*` の図面（R12 の AC1009 を除く）の注記は、線も注記も注記の要素に従う。DWG と DXF で
+/// サンプルの `sample_AC10*` の図面（R12 の AC1009 を除く）の注記は、線も注記も注記の要素に従う。DWG と DXF で
 /// 同じになる
 #[test]
 fn dwg_and_dxf_callouts_follow_the_callout() {

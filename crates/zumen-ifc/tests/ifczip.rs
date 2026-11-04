@@ -1,4 +1,4 @@
-//! ifcZIP の読み書き（決定 0211）。書庫は、試験の中で圧縮せずに組み立てる。
+//! ifcZIP の読み書き（決定 0211）。アーカイブは、テストの中で圧縮せずに組み立てる。
 
 use zumen_base::crc::crc32;
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Kind, Limit, Limits, codes};
@@ -12,7 +12,7 @@ FILE_NAME('','',(''),(''),'','','');\nFILE_SCHEMA(('IFC4'));\nENDSEC;\nDATA;\n\
 #3=IFCSITE('2YvctVUKr0kugbFTf53O9L',$,'Site',$,$,$,$,$,.ELEMENT.,$,$,$,$,$);\n\
 ENDSEC;\nEND-ISO-10303-21;\n";
 
-/// 圧縮しない項目の書庫
+/// 圧縮しない項目のアーカイブ
 fn archive(entries: &[(&str, &[u8])]) -> Vec<u8> {
     let mut out = Vec::new();
     let mut central = Vec::new();
@@ -108,7 +108,7 @@ fn needs_exactly_one_ifc() {
     assert!(matches!(result, Err(Error::Unsupported)));
     assert_eq!(found(&diag), [codes::IFC_SCHEMA_UNSUPPORTED]);
 
-    // 書庫として壊れている
+    // アーカイブとして壊れている
     let (result, diag) = read_with(b"PK\x03\x04", Limits::default());
     assert!(matches!(result, Err(Error::Invalid)));
     assert_eq!(found(&diag), [codes::ZIP_ARCHIVE_INVALID]);

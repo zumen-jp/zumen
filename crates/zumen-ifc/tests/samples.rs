@@ -1,7 +1,7 @@
 //! 公開サンプルの IFC（`samples/ifc`、#412）を読み、建物モデルに写す。
 //!
 //! - L1 で読み、変えずに書くと元のバイト列に戻る。
-//! - 既定の予算で建物モデルに写せ、2 度写すと同じになる。試料ごとの要約（版・要素・階・成分の数・配置・診断・
+//! - 既定の予算で建物モデルに写せ、2 度写すと同じになる。サンプルごとの要約（バージョン・要素・階・コンポーネントの数・配置・診断・
 //!   要素のハッシュ）が `samples.txt` と同じになる。要約を作り直すときは `ZUMEN_IFC_SAMPLES_WRITE=1` を付けて流し、
 //!   変わった理由を PR に書く。CI はどの環境でも同じ要約を求めるので、ハッシュで環境ごとの一致も確かめる。
 //! - 受け取った IFC（`ZUMEN_SAMPLES` のフォルダー）は、読めて写せることだけを確かめる。
@@ -124,7 +124,7 @@ fn opt(text: Option<&str>) -> String {
     text.map_or_else(|| "-".to_owned(), |t| format!("{t:?}"))
 }
 
-/// 試料の要約。行の並びは決まっている
+/// サンプルの要約。行の並びは決まっている
 #[cfg(test)]
 fn summary(name: &str, src: &[u8]) -> String {
     let (file, read_diag, building, lift_diag) = read_and_lift(name, src);
@@ -249,11 +249,11 @@ fn summary(name: &str, src: &[u8]) -> String {
 #[test]
 #[allow(
     clippy::disallowed_methods,
-    reason = "環境変数を読むのは試験だけで、コアは読まない（AGENTS.md の図面と秘密）"
+    reason = "環境変数を読むのはテストだけで、コアは読まない（AGENTS.md の図面と秘密）"
 )]
 fn public_samples_match_the_summaries() {
     let samples = public_samples();
-    assert!(!samples.is_empty(), "samples/ifc に試料がない");
+    assert!(!samples.is_empty(), "samples/ifc にサンプルがない");
     let mut text = String::from(
         "# samples/ifc の IFC を建物モデルに写した要約（crates/zumen-ifc/tests/samples.rs）。\n\
          # 作り直すときは ZUMEN_IFC_SAMPLES_WRITE=1 を付けて流す。\n",
@@ -285,7 +285,7 @@ fn public_samples_match_the_summaries() {
 #[test]
 #[allow(
     clippy::disallowed_methods,
-    reason = "環境変数を読むのは試験だけで、コアは読まない（AGENTS.md の図面と秘密）"
+    reason = "環境変数を読むのはテストだけで、コアは読まない（AGENTS.md の図面と秘密）"
 )]
 fn received_samples_lift() {
     let Some(dir) = std::env::var_os("ZUMEN_SAMPLES").filter(|d| !d.is_empty()) else {
@@ -447,7 +447,7 @@ fn model_json(name: &str, building: &Building) -> Vec<u8> {
 #[test]
 #[allow(
     clippy::disallowed_methods,
-    reason = "環境変数を読むのは試験だけで、コアは読まない（AGENTS.md の図面と秘密）"
+    reason = "環境変数を読むのはテストだけで、コアは読まない（AGENTS.md の図面と秘密）"
 )]
 fn writes_the_sample_models_for_other_readers() {
     let Some(dir) = std::env::var_os("ZUMEN_IFC_SAMPLES_OUT").filter(|d| !d.is_empty()) else {

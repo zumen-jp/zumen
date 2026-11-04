@@ -83,7 +83,7 @@ pub struct ByteRange {
     pub end: u64,
 }
 
-/// 形式が持つ、変わらない鍵（決定 0156）。書き戻しても、前のレコードが増えても変わらない
+/// 形式が持つ、変わらないキー（決定 0156）。書き戻しても、前のレコードが増えても変わらない
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Key {
     /// AutoCAD の系統のハンドル
@@ -92,7 +92,7 @@ pub enum Key {
     Instance(u64),
 }
 
-/// 診断の場所。ID と、L1 のレコード・バイト範囲（決定 0008 の出所）と、形式が持つ鍵
+/// 診断の場所。ID と、L1 のレコード・バイト範囲（決定 0008 の出所）と、形式が持つキー
 #[derive(Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Ref {
     id: Option<String>,
@@ -136,7 +136,7 @@ impl Ref {
         self
     }
 
-    /// 形式が持つ鍵を足す
+    /// 形式が持つキーを足す
     pub fn with_key(mut self, key: Key) -> Self {
         self.key = Some(key);
         self
@@ -157,7 +157,7 @@ impl Ref {
         self.bytes
     }
 
-    /// 形式が持つ鍵
+    /// 形式が持つキー
     pub fn key(&self) -> Option<Key> {
         self.key
     }
@@ -260,7 +260,7 @@ impl Diagnostic {
     }
 }
 
-/// まとめるときの鍵。code の名前と、台帳で決めた値
+/// まとめるときのキー。code の名前と、台帳で決めた値
 #[derive(Clone, Debug)]
 struct GroupKey {
     code: &'static str,
@@ -413,7 +413,7 @@ mod tests {
     use crate::code::{Param, ParamType};
     use crate::codes;
 
-    /// 値でまとめる code。試験のためだけに作る
+    /// 値でまとめる code。テストのためだけに作る
     const BY_KIND: Code = Code::new(
         "test.kind.dropped",
         Severity::Warning,

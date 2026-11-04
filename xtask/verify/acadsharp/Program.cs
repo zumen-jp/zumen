@@ -1,8 +1,8 @@
-// 確認の束の DWG を ACadSharp で読み、図形をハンドルごとに書き出す（#503）。
+// 検証キットの DWG を ACadSharp で読み、図形をハンドルごとに書き出す（#503）。
 //
-// 使い方: dotnet run --project xtask/verify/acadsharp -c Release -- <束のフォルダー>
+// 使い方: dotnet run --project xtask/verify/acadsharp -c Release -- <キットのフォルダー>
 //
-// 束の manifest.json の DWG を読み、<束>/acadsharp-dump.json に、ファイルごとの読みの通知・誤り・見出しの点の
+// キットの manifest.json の DWG を読み、<キット>/acadsharp-dump.json に、ファイルごとの読みの通知・誤り・ヘッダーの点の
 // 表し方・画層の名前と色と、図形の値（ACadSharp のまま。角度はラジアン）を書く。値を図面モデルの形に直して zumen の
 // 読みと照らすのは check_acadsharp.py。
 using System.Globalization;
@@ -16,7 +16,7 @@ using ACadSharp.IO;
 
 if (args.Length != 1)
 {
-    Console.Error.WriteLine("使い方: dotnet run --project xtask/verify/acadsharp -c Release -- <束のフォルダー>");
+    Console.Error.WriteLine("使い方: dotnet run --project xtask/verify/acadsharp -c Release -- <キットのフォルダー>");
     return 2;
 }
 var folder = args[0];

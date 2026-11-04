@@ -1,4 +1,4 @@
-//! PDF から図面モデル（L2）とシーンへの移し（決定 0256）。入力は、どれも試験の中で作る。
+//! PDF から図面モデル（L2）とシーンへの移し（決定 0256）。入力は、どれもテストの中で作る。
 
 use zumen_base::{Budget, CancelToken, Cx, Diagnostics, codes};
 use zumen_drawing::{
@@ -77,7 +77,7 @@ fn moves_pages_to_sheets() {
     assert_eq!(drawing.sheets[0].name, None);
     // ページの出所は、ページのオブジェクトのレコード
     assert!(drawing.sheets[0].source.record().is_some());
-    // 文書の情報と版は、図面の拡張に持つ
+    // 文書の情報とバージョンは、図面の拡張に持つ
     let document = drawing
         .extensions
         .iter()
@@ -684,7 +684,7 @@ fn moves_images_to_underlays() {
     let (drawing, diag) = lift(&document.bytes());
     assert!(diag.is_empty(), "{diag:?}");
     let Shape::Underlay(underlay) = &elements(&drawing)[0].shape else {
-        panic!("下敷きでない");
+        panic!("アンダーレイでない");
     };
     assert_eq!(underlay.kind, UnderlayKind::Image);
     assert_eq!(underlay.resource.path, "3 0 R");
@@ -703,7 +703,7 @@ fn moves_images_to_underlays() {
     assert_point(right, mm(172.0), mm(200.0));
     assert_point(top, mm(100.0), mm(236.0));
 
-    // 資源の辞書に直接書いた画像（7.3.8.1 に反する）は、入れ物のページの番号を名前にしない
+    // 資源の辞書に直接書いた画像（7.3.8.1 に反する）は、コンテナーのページの番号を名前にしない
     let image = direct_stream(
         "/Type /XObject /Subtype /Image /Width 1 /Height 1 /ColorSpace /DeviceGray \
          /BitsPerComponent 8",
@@ -715,7 +715,7 @@ fn moves_images_to_underlays() {
         .iter()
         .map(|element| match &element.shape {
             Shape::Underlay(underlay) => underlay.resource.path.clone(),
-            _ => panic!("下敷きでない"),
+            _ => panic!("アンダーレイでない"),
         })
         .collect();
     assert_eq!(paths, ["", ""]);
@@ -723,7 +723,7 @@ fn moves_images_to_underlays() {
 
 #[test]
 fn reports_type3_glyphs_and_image_masks() {
-    // Type 3 のフォントの字形は書体のない文字に、色を塗る画像（ImageMask）はレイヤの色の下敷きにする
+    // Type 3 のフォントの字形は書体のない文字に、色を塗る画像（ImageMask）はレイヤの色のアンダーレイにする
     let mut document = Document::new(vec![
         Page::new("BT /T3 12 Tf 100 100 Td (a) Tj ET q 0 0 1 rg 72 0 0 72 200 200 cm /M Do Q")
             .resources("/Font << /T3 3 0 R >> /XObject << /M 5 0 R >>"),
@@ -752,7 +752,7 @@ fn reports_type3_glyphs_and_image_masks() {
     );
     let shapes: Vec<_> = elements(&drawing).iter().map(|e| &e.shape).collect();
     let [Shape::Text(text), Shape::Underlay(underlay)] = shapes.as_slice() else {
-        panic!("文字と下敷きでない: {shapes:?}");
+        panic!("文字とアンダーレイでない: {shapes:?}");
     };
     assert_eq!(text.content, "a");
     assert_eq!(text.style, "");
@@ -1398,7 +1398,7 @@ fn reads_flate_without_checksums_and_with_predictors() {
     }
     let mut missing = common::zlib(content);
     missing.truncate(missing.len() - 4);
-    // 配列の DecodeParms の予測子（7.4.4.4）。行ごとに、予測なし（0）の印を頭に付ける
+    // 配列の DecodeParms の予測子（7.4.4.4）。行ごとに、予測なし（0）の種類のバイトを頭に付ける
     let mut predicted = vec![0u8];
     predicted.extend(content);
     for (dict, data) in [
@@ -2044,12 +2044,12 @@ fn counts_work_that_grows_with_sizes() {
         let work = used(&document.bytes(), Kind::Work);
         assert!(work >= 100 * 200, "{op}: {work}");
     }
-    // hayro-interpret は、印つきの内容の名前の性質の辞書を、印の種類によらず読み直す
+    // hayro-interpret は、マーク付きの内容の名前の性質の辞書を、タグによらず読み直す
     let marks = "/Span /P BDC EMC ".repeat(100);
     let properties = format!("/Properties << /P << /MCID 0 {pad} >> >>");
     let src = one_page(Page::new(&marks).resources(&properties));
     assert!(used(&src, Kind::Work) >= 100 * 200);
-    // 表示の規則の辞書の `OCGs`（参照の先の配列）は、hayro-interpret・走査・装置が、印のたびに読む
+    // 表示の規則の辞書の `OCGs`（参照の先の配列）は、hayro-interpret・走査・装置が、マーク付きの内容のたびに読む
     let marks = "/OC /m BDC EMC ".repeat(100);
     let mut document = Document::new(vec![
         Page::new(&marks).resources("/Properties << /m 3 0 R >>"),
@@ -2267,7 +2267,7 @@ fn counts_copies_of_the_graphics_state() {
     assert!(used(&document.bytes(), Kind::Work) >= 100 * 1_000);
 }
 
-/// 辞書の値に直接書くストリーム（7.3.8.1 に反するが、hayro-syntax は読む）。hayro-syntax は、入れ物の辞書を
+/// 辞書の値に直接書くストリーム（7.3.8.1 に反するが、hayro-syntax は読む）。hayro-syntax は、コンテナーの辞書を
 /// 読むとき、ストリームの中身も字句として読み飛ばすので、区切りの文字（`>`・`{` など）と、数字の後に文字が続く
 /// 字句を書けない。中身は ASCIIHexDecode の 16 進の数字を 1 つずつ空白で分けて書き、終わりの `>` は省く
 /// （hayro-syntax は、なくても読む）
@@ -2295,7 +2295,7 @@ fn truetype(glyphs: &[Vec<u8>]) -> Vec<u8> {
     truetype_with(glyphs, None, Vec::new())
 }
 
-/// [`truetype`] に表 `extra` を足したフォント。`limits` があれば、`maxp` を 1.0 版にして、影の領域の点・記憶域・
+/// [`truetype`] に表 `extra` を足したフォント。`limits` があれば、`maxp` をバージョン 1.0 にして、影の領域の点・記憶域・
 /// 関数の定義・命令の定義・スタックの項目の数を書く
 fn truetype_with(
     glyphs: &[Vec<u8>],
@@ -2440,10 +2440,10 @@ fn hinted_font(family: &str, program: &[u8]) -> Vec<u8> {
     )
 }
 
-/// 字形 1 を覆う、1 バイトの字形を持つ `VARC` の表（variable composites の 1.0 版）を足したフォント
+/// 字形 1 を覆う、1 バイトの字形を持つ `VARC` の表（variable composites のバージョン 1.0）を足したフォント
 fn varc_font() -> Vec<u8> {
     let mut varc = Vec::new();
-    // 版と、覆う字形・変化の値・条件・軸の並び・字形の位置
+    // バージョンと、覆う字形・変化の値・条件・軸の並び・字形の位置
     for value in [0x0001_0000, 24, 0, 0, 0, 30] {
         be32(&mut varc, value);
     }
@@ -2508,7 +2508,7 @@ fn counts_outlines_of_clipping_text() {
 #[test]
 fn walks_streams_written_in_dictionaries_each_time() {
     use zumen_base::Kind;
-    // hayro-syntax は、辞書の値や配列の項目に直接書いたストリームにも、入れ物の間接オブジェクトの番号を返す。
+    // hayro-syntax は、辞書の値や配列の項目に直接書いたストリームにも、コンテナーの間接オブジェクトの番号を返す。
     // 走査は、それ自身の間接オブジェクトのストリームだけを覚え、直接書いたストリームは使うたびにたどる。1 つ目の
     // 手間と中身を 2 つ目に使うと、2 つ目の中の、ページを解釈しない理由を見落とす
     let lattice = |rows: u32| {
@@ -2790,7 +2790,7 @@ fn cff_font() -> Vec<u8> {
 }
 
 /// `font` を埋め込んだ Type0 のフォントで、CID 1 を `count` 字、描画モード `mode` で描くページ。`subtype` は
-/// 子孫の CID フォントの種類、`file` はプログラムを持つ記述子の鍵（9.9）
+/// 子孫の CID フォントの種類、`file` はプログラムを持つ記述子のキー（9.9）
 fn font_document(subtype: &str, file: &str, font: Vec<u8>, count: usize, mode: u32) -> Vec<u8> {
     let text = format!(
         "BT /F 12 Tf {mode} Tr 100 100 Td <{}> Tj ET",
@@ -3053,7 +3053,7 @@ fn settles_only_entries_reached_from_the_document() {
     let work = used(&src, Kind::Work);
     assert!(work < 100_000, "{work}");
     assert!(shapes(&src).iter().all(|shape| !shape.contains("Hatch")));
-    // カタログの知らない鍵からでも、たどれる項目は引く。ページを読むときに引かれても、数えた定義と同じものを読む
+    // カタログの知らないキーからでも、たどれる項目は引く。ページを読むときに引かれても、数えた定義と同じものを読む
     let src = repaired_with(
         resources,
         "/Unknown [<< /Deep 5 0 R >>]",
@@ -3084,7 +3084,7 @@ fn settles_only_entries_reached_from_the_document() {
 #[test]
 fn reads_only_objects_reached_from_the_document() {
     use zumen_base::Kind;
-    // 走査の前に引くのは、参照でたどれるオブジェクトだけ。どの鍵の値かは見ない
+    // 走査の前に引くのは、参照でたどれるオブジェクトだけ。どのキーの値かは見ない
     let big = format!("[{}]", "0 ".repeat(100_000)).into_bytes();
     let mut document = Document::new(vec![Page::new("0 0 m 10 10 l S")]);
     let plain = used(&document.bytes(), Kind::Work);
@@ -3129,7 +3129,7 @@ fn counts_streams_read_without_a_right_length() {
 #[test]
 fn counts_values_of_objects_read_again() {
     use zumen_base::Kind;
-    // hayro-syntax は、鍵を引くたびに値の参照を解き、型が違っても読み飛ばす。読み直す辞書の値が大きな配列を指せば、
+    // hayro-syntax は、キーを引くたびに値の参照を解き、型が違っても読み飛ばす。読み直す辞書の値が大きな配列を指せば、
     // 使うたびに読む
     let big = format!("[{}]", "0 ".repeat(10_000)).into_bytes();
     let many = |calls: &str, resources: &str, objects: Vec<Vec<u8>>| {
@@ -3178,7 +3178,7 @@ fn counts_values_of_objects_read_again() {
     let kinds = vec![form("/Resources << /Font 4 0 R >>"), big.clone()];
     let work = many(&calls, resources, kinds);
     assert!(work >= plain + once, "{plain} {work}");
-    // ほかの鍵は、hayro-syntax が読まない
+    // ほかのキーは、hayro-syntax が読まない
     let other = vec![form("/Resources << /Other 4 0 R >>"), big.clone()];
     let work = many(&calls, resources, other);
     assert!(work < plain + once, "{plain} {work}");
@@ -3209,7 +3209,7 @@ fn counts_values_of_objects_read_again() {
     assert!(work < 1_000_000, "{work}");
 }
 
-/// オブジェクトを順に書いたファイル。項目は、定義の見出しと本体。表には、番号ごとに、はじめの定義を載せる。カタログは
+/// オブジェクトを順に書いたファイル。項目は、定義のヘッダーと本体。表には、番号ごとに、はじめの定義を載せる。カタログは
 /// 1 番。`zero` なら、表の 0 番を、使用中の項目として、はじめの定義（番号の違うオブジェクト）に向ける
 fn first_definitions(objects: &[(&str, Vec<u8>)], zero: bool) -> Vec<u8> {
     let mut src = b"%PDF-1.7\n".to_vec();

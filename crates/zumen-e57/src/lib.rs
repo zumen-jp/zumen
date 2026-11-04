@@ -14,7 +14,7 @@ use zumen_sdk::{Codec, Cx, Error, FileModel, RecordInfo, Signature};
 /// E57 のコーデック
 pub struct E57;
 
-/// 点の値の欄
+/// 点の値のフィールド
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Field {
     /// 直交の座標
@@ -56,7 +56,7 @@ pub enum Field {
 }
 
 impl Field {
-    /// 欄の名前の欄。領域モデルに持たない欄は、移さない属性の名前を `Err` で返す
+    /// フィールドの名前のフィールド。領域モデルに持たないフィールドは、移さない属性の名前を `Err` で返す
     fn from_name(name: &RecordName) -> Result<Field, String> {
         Ok(match name {
             RecordName::CartesianX => Field::X,
@@ -87,7 +87,7 @@ impl Field {
 /// 点の値の列
 #[derive(Clone, Debug, PartialEq)]
 pub struct Column {
-    /// 欄
+    /// フィールド
     pub field: Field,
     /// 型の最小と最大。浮動小数の型で書かなければ `None`
     pub range: Option<(f64, f64)>,
@@ -100,13 +100,13 @@ pub struct Column {
 pub struct Scan {
     /// 名前
     pub name: Option<String>,
-    /// 見出しの点の数
+    /// ヘッダーの点の数
     pub records: u64,
     /// 読めた点の数
     pub read: u64,
     /// 値の列
     pub columns: Vec<Column>,
-    /// 領域モデルに持たない欄の名前
+    /// 領域モデルに持たないフィールドの名前
     pub dropped: Vec<String>,
     /// 姿勢。回転の四元数（w・x・y・z）と移動（x・y・z）
     pub pose: Option<([f64; 4], [f64; 3])>,
@@ -119,7 +119,7 @@ pub struct Scan {
 }
 
 impl Scan {
-    /// 欄の列
+    /// フィールドの列
     pub fn column(&self, field: Field) -> Option<&Column> {
         self.columns.iter().find(|column| column.field == field)
     }
@@ -170,7 +170,7 @@ fn type_range(data_type: &RecordDataType) -> Option<(f64, f64)> {
     }
 }
 
-/// 幅の値を、その欄の型で f64 にする
+/// 幅の値を、そのフィールドの型で f64 にする
 fn limit(value: Option<&RecordValue>, prototype: &[Record], name: &RecordName) -> Option<f64> {
     let value = value?;
     let data_type = prototype
@@ -212,7 +212,7 @@ impl Codec for E57 {
             ..E57File::default()
         };
         for cloud in reader.pointclouds() {
-            // 確保する前に、見出しの点の数を数える
+            // 確保する前に、ヘッダーの点の数を数える
             cx.check(Kind::Records, cloud.records)?;
             let mut scan = Scan {
                 name: cloud.name.clone(),

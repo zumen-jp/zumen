@@ -1,10 +1,10 @@
-//! 試験の中で作った小さな ASCII の DXF で、L1 とコーデックの経路を確かめる。
+//! テストの中で作った小さな ASCII の DXF で、L1 とコーデックの経路を確かめる。
 
 use zumen_acad::{AcadDb, Data, Dxf, DxfFile, Line, Object, Origin, Section, Value, ViewError};
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Kind, Limit, Limits, codes};
 use zumen_sdk::{Codec, Error, FileModel, Transact, Transaction, testkit};
 
-/// 見出し・未知の図形・線分・文字を持つ最小の図面。グループ・コードは仕様の例のように右寄せにする
+/// ヘッダー・未知の図形・線分・文字を持つ最小の図面。グループ・コードは仕様の例のように右寄せにする
 fn sample(newline: &str) -> Vec<u8> {
     let lines = [
         "999",
@@ -673,7 +673,7 @@ fn uncommitted_or_stopped_edits_change_nothing() {
     assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
 }
 
-/// 2018 の版の構造を持つ図面
+/// 2018 のバージョンの構造を持つ図面
 const MODERN: &str = concat!(
     "  0\nSECTION\n  2\nHEADER\n",
     "  9\n$ACADVER\n  1\nAC1032\n",
@@ -852,7 +852,7 @@ fn table_changes_are_written_back_to_the_touched_records() {
     let src = sample("\r\n");
     let file = read(&src);
     let mut db = table(&file);
-    // 終点の X を変え、色（62）を足す。見出しの変数を 1 つ変え、1 つ足す
+    // 終点の X を変え、色（62）を足す。ヘッダーの変数を 1 つ変え、1 つ足す
     edit_line(&mut db, |values| {
         values[3].data = Data::Real(200.0);
         values.insert(

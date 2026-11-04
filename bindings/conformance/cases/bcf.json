@@ -1,5 +1,5 @@
 {
-  "description": "bcf_read は BCF 2.1 と 3.0 の bcfzip を、開いた IFC を対象にしたレビューの文書にし、要素の参照のハッシュを建物モデルで埋める。TopicStatus は statuses の表で状態に写し、表にない文字列は open と status_label にする。bcf_write はレビューの文書を bcfzip に書き、種類・作者・日時のない指摘には要求の値を書き、値がなければ失敗する。version で書く版を選び、2.1 と 3.0 のほかの値と、original と違う版では失敗する。2.1 と 3.0 でない bcfzip は読まない（決定 0214・0220）。入力は試験の中で書いた小さな IFC4 と bcfzip と、レビューの文書",
+  "description": "bcf_read は BCF 2.1 と 3.0 の bcfzip を、開いた IFC を対象にしたレビューの文書にし、要素の参照のハッシュを建物モデルで埋める。TopicStatus は statuses の表で状態に写し、表にない文字列は open と status_label にする。bcf_write はレビューの文書を bcfzip に書き、種類・作者・日時のない指摘には要求の値を書き、値がなければ失敗する。version で書くバージョンを選び、2.1 と 3.0 のほかの値と、original と違うバージョンでは失敗する。2.1 と 3.0 でない bcfzip は読まない（決定 0214・0220）。入力はテストの中で書いた小さな IFC4 と bcfzip と、レビューの文書",
   "steps": [
     {
       "push": {

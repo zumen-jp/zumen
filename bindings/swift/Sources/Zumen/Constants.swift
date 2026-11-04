@@ -1,18 +1,18 @@
 // 生成したファイル。手で直さない。
 // 元は schema/boundary.toml と schema/scene.toml で、`cargo xtask codegen` で作り直す。
 
-/// 境界の版・状態コードと、シーンの配置（決定 0012・0137・0225）
+/// API のバージョン・状態コードと、シーンの配置（決定 0012・0137・0225）
 public enum Constants {
-    /// パッケージの版（決定 0015）
+    /// パッケージのバージョン（決定 0015）
     public static let version = "0.2.0"
 
-    /// ABI の大版
+    /// ABI のメジャーバージョン
     public static let abiVersion: UInt32 = 1
 
-    /// メッセージのスキーマの大版（要求と応答の v）
+    /// メッセージのスキーマのメジャーバージョン（要求と応答の v）
     public static let schemaMajor: Int64 = 1
 
-    /// メッセージのスキーマの小版
+    /// メッセージのスキーマのマイナーバージョン
     public static let schemaMinor: Int64 = 63
 
     /// 状態コード
@@ -45,16 +45,16 @@ public enum Constants {
         }
     }
 
-    /// シーンの大版。区画の意味を変えるときに上げる
+    /// シーンのメジャーバージョン。セクションの意味を変えるときに上げる
     public static let sceneMajor: UInt16 = 1
 
-    /// シーンの小版。区画か値を足すたびに上げる
+    /// シーンのマイナーバージョン。セクションか値を足すたびに上げる
     public static let sceneMinor: UInt16 = 2
 
     /// 番号の「なし」（u32 の最大）
     public static let sceneNone = UInt32.max
 
-    /// シーンの区画の値の型
+    /// シーンのセクションの値の型
     public enum ColumnType: Sendable {
         case u8, u32, f32, f64
 
@@ -68,7 +68,7 @@ public enum Constants {
         }
     }
 
-    /// シーンの区画の定義
+    /// シーンのセクションの定義
     public struct SceneSection: Sendable {
         /// 名前
         public let name: String
@@ -78,7 +78,7 @@ public enum Constants {
         public let width: Int
     }
 
-    /// シーンの区画の定義。番号の順
+    /// シーンのセクションの定義。番号の順
     public static let sceneSections: [SceneSection] = [
         /// 塊の原点（起点の座標の X・Y）。塊の座標は、ここからの相対の値（f64 × 2）
         SceneSection(name: "chunk_origins", type: .f64, width: 2),
@@ -126,7 +126,7 @@ public enum Constants {
         SceneSection(name: "text_boxes", type: .f32, width: 1),
         /// 位置合わせ。水平（horizontal の値）と垂直（vertical の値）（u8 × 2）
         SceneSection(name: "text_aligns", type: .u8, width: 2),
-        /// 印（text_flag の値の和）（u8 × 1）
+        /// フラグ（text_flag の値の和）（u8 × 1）
         SceneSection(name: "text_flags", type: .u8, width: 1),
         /// 書式つきの文字の行の番号。0 から数える。1 行の文字は 0（u32 × 1）
         SceneSection(name: "text_lines", type: .u32, width: 1),
@@ -138,15 +138,15 @@ public enum Constants {
         SceneSection(name: "point_xy", type: .f32, width: 2),
         /// 点の回転（度、反時計回り）（f32 × 1）
         SceneSection(name: "point_rotations", type: .f32, width: 1),
-        /// 既定義の印のキー。名前空間（strings の始まりと長さ）と、元のコード（strings の始まりと長さ）。文書の点の表し方に従う点は、長さが 0（u32 × 4）
+        /// 既定義のマーカーのキー。名前空間（strings の始まりと長さ）と、元のコード（strings の始まりと長さ）。文書の点の表し方に従う点は、長さが 0（u32 × 4）
         SceneSection(name: "point_markers", type: .u32, width: 4),
-        /// 既定義の印の尺度。文書の点の表し方に従う点は 1（f32 × 1）
+        /// 既定義のマーカーの尺度。文書の点の表し方に従う点は 1（f32 × 1）
         SceneSection(name: "point_scales", type: .f32, width: 1),
         /// 点の描く単位（unit_entities の行）（u32 × 1）
         SceneSection(name: "point_units", type: .u32, width: 1),
         /// 文書の点の表し方（決定 0160）。形（point_mark の値）・囲み（point_frame の値の和）・大きさの意味（point_size の値）・大きさ。文書が持たなければ行がない（f32 × 4）
         SceneSection(name: "point_style", type: .f32, width: 4),
-        /// 下敷きの参照名（strings の始まりと長さ）。コアは開かない（u32 × 2）
+        /// アンダーレイの参照名（strings の始まりと長さ）。コアは開かない（u32 × 2）
         SceneSection(name: "image_names", type: .u32, width: 2),
         /// 資源の中のページ（strings の始まりと長さ）。なければ長さが 0（u32 × 2）
         SceneSection(name: "image_pages", type: .u32, width: 2),
@@ -188,13 +188,13 @@ public enum Constants {
         SceneSection(name: "color_files", type: .u8, width: 4),
         /// 表示する RGBA。ファイルの RGB か、色の表（palette）から引いた値。未解決なら 0（u8 × 4）
         SceneSection(name: "color_rgba", type: .u8, width: 4),
-        /// 印（color_flag の値の和）（u8 × 1）
+        /// フラグ（color_flag の値の和）（u8 × 1）
         SceneSection(name: "color_flags", type: .u8, width: 1),
         /// 切り抜きの組の多角形の始まり（polygon_vertices の行）。描くものは、組のすべての多角形の内側だけを描く（u32 × 1）
         SceneSection(name: "clip_polygons", type: .u32, width: 1),
         /// 多角形の頂点の始まり（clip_xy の行）（u32 × 1）
         SceneSection(name: "polygon_vertices", type: .u32, width: 1),
-        /// 多角形の印。1 なら、内側を隠す（外側だけを描く）（u8 × 1）
+        /// 多角形のフラグ。1 なら、内側を隠す（外側だけを描く）（u8 × 1）
         SceneSection(name: "polygon_flags", type: .u8, width: 1),
         /// 切り抜きの多角形の頂点。起点の座標の X・Y（f64 × 2）
         SceneSection(name: "clip_xy", type: .f64, width: 2),
@@ -238,7 +238,7 @@ public enum Constants {
             "middle": 2,
             "top": 3,
         ],
-        // 文字の印。和で持つ
+        // 文字のフラグ。和で持つ
         "text_flag": [
             "backward": 1,
             "upside_down": 2,
@@ -267,7 +267,7 @@ public enum Constants {
             "length": 0,
             "screen": 1,
         ],
-        // 下敷きの資源の種類
+        // アンダーレイの資源の種類
         "image_kind": [
             "image": 0,
             "pdf": 1,
@@ -304,7 +304,7 @@ public enum Constants {
             "sxf": 2,
             "jww": 3,
         ],
-        // 色の印。和で持つ
+        // 色のフラグ。和で持つ
         "color_flag": [
             "unresolved": 1,
             "foreground": 2,

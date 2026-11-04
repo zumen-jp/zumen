@@ -45,7 +45,7 @@ fn vertical(table: &[u8]) -> Option<Vec<Vec<&[u8]>>> {
 
 /// single substitution の副表を当てる。字形が副表に入らなければ `None`
 fn single(subtable: &[u8], glyph: u16) -> Option<u16> {
-    // 見出し: substFormat（0）・coverageOffset（2）
+    // ヘッダー: substFormat（0）・coverageOffset（2）
     let covered = coverage(from(subtable, u16_at(subtable, 2)?)?, glyph)?;
     match u16_at(subtable, 0)? {
         // 形式 1: deltaGlyphID（4）。足した値は 65536 で割った余り

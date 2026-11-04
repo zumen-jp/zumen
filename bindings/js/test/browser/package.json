@@ -1,7 +1,7 @@
 {
   "name": "zumen-js-browser-test",
   "private": true,
-  "description": "TypeScript・JavaScript の包みの適合試験を、ブラウザーで流す道具（決定 0199）",
+  "description": "TypeScript・JavaScript のラッパーの適合テストを、ブラウザーで流すツール（決定 0199）",
   "license": "MIT OR Apache-2.0",
   "type": "module",
   "engines": {

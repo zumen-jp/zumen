@@ -1,4 +1,4 @@
-//! 試験の中で作った小さな DXF から、シーンのバッファーを作って確かめる（決定 0172・0178）。
+//! テストの中で作った小さな DXF から、シーンのバッファーを作って確かめる（決定 0172・0178）。
 
 use zumen_acad::Dxf;
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Kind, Limit, Limits, Stop, codes};
@@ -72,7 +72,7 @@ fn made(drawing: &Drawing2D, options: &Options) -> (Scene, Vec<Code>) {
     (result.unwrap(), codes)
 }
 
-/// 見出しを読んだバッファー
+/// ヘッダーを読んだバッファー
 #[cfg(test)]
 struct Read<'a>(&'a [u8]);
 
@@ -196,7 +196,7 @@ fn writes_the_header_and_sections_by_the_schema() {
         layout::color_system::ACI
     );
     assert_eq!(read.u32s(layout::COLOR_CODES)[color], 1);
-    // 色の表がなければ、未解決の印を立てる
+    // 色の表がなければ、未解決のフラグを立てる
     assert_eq!(
         read.u8s(layout::COLOR_FLAGS)[color],
         layout::color_flag::UNRESOLVED
@@ -984,7 +984,7 @@ fn same_drawing_gives_the_same_bytes() {
     assert!(a.tolerance > 0.0 && a.tolerance < 0.01);
 }
 
-/// 試験の中で組み立てた TrueType のフォント（zumen-drawing の font の試験の `outlined` と同じバイト列）。
+/// テストの中で組み立てた TrueType のフォント（zumen-drawing の font のテストの `outlined` と同じバイト列）。
 /// em 1000・大文字の高さ 700。字形は .notdef（四角）・`H`（2 つの長方形）・`g`（2 次曲線の菱形）・空白・
 /// `I`（`H` と `g` を並べた複合の字形）
 const FONT: &[&str] = &[
@@ -1126,7 +1126,7 @@ fn heights_are_converted_to_cap_heights_with_the_font() {
     fonts.add(None, Face::parse(&data, 0).unwrap());
     let (scene, _) = with_fonts(&drawing, &fonts);
     let read = Read(&scene.bytes);
-    // em 10 は大文字の高さ 7。高さの意味の印は外す
+    // em 10 は大文字の高さ 7。高さの意味のフラグは外す
     assert_eq!(read.f32s(layout::TEXT_HEIGHTS), vec![7.0, 7.0, 7.0]);
     assert!(
         read.u8s(layout::TEXT_FLAGS)

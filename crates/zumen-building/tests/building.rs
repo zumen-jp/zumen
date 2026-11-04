@@ -1,4 +1,4 @@
-//! 建物モデルの ID・ハッシュ・配置・関係の索引（決定 0207）。モデルは、どれも試験の中で組み立てる。
+//! 建物モデルの ID・ハッシュ・配置・関係の索引（決定 0207）。モデルは、どれもテストの中で組み立てる。
 
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Kind, Limit, Limits, codes};
 use zumen_building::{
@@ -213,7 +213,7 @@ fn hashes_depend_only_on_components() {
     let hash = Hash::element(&a, wall_a).unwrap();
     assert_eq!(Hash::element(&b, wall_b), Some(hash));
     assert_ne!(Hash::element(&a, wall_a), Hash::element(&a, ElementRef(0)));
-    // 成分の値を変えると変わる。-0 と 0 は同じ
+    // コンポーネントの値を変えると変わる。-0 と 0 は同じ
     let (c, _, wall_c) = model(true, 10, 2600.0).unwrap();
     assert_ne!(Hash::element(&c, wall_c), Some(hash));
     let (zero, _, wall_zero) = model(true, 10, 0.0).unwrap();
@@ -231,7 +231,7 @@ fn hashes_depend_only_on_components() {
         (building, wall)
     });
     assert_ne!(Hash::element(&other, wall_other), Some(hash));
-    // 成分を除くと変わる
+    // コンポーネントを除くと変わる
     let mut d = a.clone();
     d.components.properties.remove(wall_a);
     assert_ne!(Hash::element(&d, wall_a), Some(hash));

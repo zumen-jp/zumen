@@ -1,10 +1,44 @@
 # 開発エージェント向けの規則
 
-このリポジトリは zumen の作り直しです。設計は [#1](https://github.com/zumen-jp/zumen/issues/1) とその子 issue に、決まったことは `docs/decisions/` にあります。旧版は [zumen-jp/zumen-legacy](https://github.com/zumen-jp/zumen-legacy) にあります。形式の知見（`docs/formats/`）、検証の記録、試験ファイルの作り方は旧版から移します。旧版のコードを移すときも、この規則と新しい層の構成（[決定 0008](docs/decisions/0008-model-layers-and-codecs.md)）に合わせて書き直します。
+zumen は、日本の建設のデータを読み書きする Rust のコアと、各言語のバインディングです。できることと使い方は [README.md](README.md) に、計画は [#1](https://github.com/zumen-jp/zumen/issues/1) の下の issue に、決まったことは [docs/decisions](docs/decisions/README.md) にあります。旧版は [zumen-jp/zumen-legacy](https://github.com/zumen-jp/zumen-legacy) にあります。旧版から知見やコードを移すときも、この規則と層の構成（[決定 0008](docs/decisions/0008-model-layers-and-codecs.md)）に合わせて書き直します。
+
+## リポジトリの地図
+
+| 場所 | 中身 |
+| --- | --- |
+| `crates/` | コア。下の表 |
+| `bindings/` | 各言語のバインディング、CLI と MCP のサーバー（`cli`）、適合テスト（`conformance`） |
+| `schema/` | API の関数（`boundary.toml`）とメッセージ（`messages.json`）、シーンと図面モデルのバイナリの配置 |
+| `catalog/` | 診断の code の台帳（`codes.toml`）と、日本語・英語の文 |
+| `formats/` | 形式の権利の台帳（`ledger.toml`） |
+| `profiles/` | 要領・基準の規則と語彙（プロファイル） |
+| `samples/` | 再配布できる公開サンプルと、その台帳（`ledger.toml`） |
+| `licenses/` | 公開サンプルが同梱を求めるライセンスの本文（`samples/README.md`） |
+| `fuzz/` | コーデックの fuzz の対象（cargo-fuzz） |
+| `xtask/` | 生成と検査（`cargo xtask codegen`）、外部の実装との照合と検証キット（`verify/`）、AutoCAD でサンプルを作る手順（`autocad/`） |
+| `templates/plugin/` | 外部のプラグインのリポジトリのひな形 |
+| `examples/`・`bench/`・`site/` | Tier 3 の言語のサンプル、ベンチマーク、<https://zumen.dev> のサイト |
+| `docs/` | 決定の記録（`decisions/`）、形式の知見（`formats/`）、作業の選び方（`work.md`）、表記の基準（`style.md`）、対応する環境（`support.md`） |
+
+crate は、層の構成（[決定 0008](docs/decisions/0008-model-layers-and-codecs.md)）に沿って分けている。
+
+| 層 | crate |
+| --- | --- |
+| 横断の部品 | `zumen-base`（診断・予算・中断の合図）・`zumen-json`・`zumen-crs`（座標系と標高）・`zumen-geom3d`（3D の幾何） |
+| L0（字句・コンテナー） | `zumen-step`（ISO 10303-21）・`zumen-xml`・`zumen-zip` |
+| L1（ファイルモデルとコーデック） | `zumen-acad`（DXF・DWG）・`zumen-sxf`・`zumen-jww`・`zumen-ifc` |
+| L2（領域モデル） | `zumen-drawing`（図面）・`zumen-building`（建物）・`zumen-civil`（土木）・`zumen-geo`（地理）・`zumen-pointcloud`（点群） |
+| 領域モデルに読む形式 | `zumen-landxml`・`zumen-citygml`・`zumen-fgd`・`zumen-extdm`・`zumen-las`・`zumen-ply`・`zumen-xyz`・`zumen-e57` |
+| 納品の読み取り | `zumen-delivery`（成果品）・`zumen-photo`（工事写真）・`zumen-sheet`（表）・`zumen-geology`（ボーリング交換用データ） |
+| L3（派生）と照合 | `zumen-geom2d`（2D の幾何）・`zumen-scene`（2D のシーン）・`zumen-civil-drawing`（土木の図面）・`zumen-profile`（プロファイルの照合）・`zumen-review`（レビューの文書）・`zumen-ids`・`zumen-bcf`・`zumen-asbuilt`（出来形） |
+| API と入口 | `zumen-abi`（C ABI と wasm の関数）・`zumen`（Rust の入口）・`zumen-sdk`（形式を書くための部品とプラグインの SDK） |
+
+- 生成したファイル（`messages.rs`・`zumen.h`・各言語のメッセージの型・`docs/formats/README.md` など）は手で直さない。元（`schema/`・`catalog/`・`formats/`・`profiles/`）を直し、`cargo xtask codegen` で作り直す。
+- 決定の記録は 250 を超える。関わる決定は、[一覧](docs/decisions/README.md)と、op・形式・crate の名前で `rg` して探す。
 
 ## 最初に確認すること
 
-- 作業を選ぶときは、[#1](https://github.com/zumen-jp/zumen/issues/1) の下の段階の issue を開き、子 issue を上から見る。閉じていない葉の issue のうち、「待ち: 利用者」と「作業中」のラベルがなく、依存で止められていないものを選ぶ。「待ち: 試料」「待ち: 検証環境」の issue では、まず待ちを減らす。開始条件を満たしていなければ、飛ばす。手順は [作業の選び方](docs/work.md) にある（[決定 0174](docs/decisions/0174-plan-in-issues.md)・[0254](docs/decisions/0254-parallel-agents-and-cross-review.md)）。利用者が対象を指定したときは、その依頼を優先する。
+- 作業を選ぶときは、[#1](https://github.com/zumen-jp/zumen/issues/1) の下の段階の issue を開き、子 issue を上から見る。閉じていない葉の issue のうち、「待ち: 利用者」と「作業中」のラベルがなく、依存で止められていないものを選ぶ。「待ち: サンプル」「待ち: 検証環境」の issue では、まず待ちを減らす。開始条件を満たしていなければ、飛ばす。手順は [作業の選び方](docs/work.md) にある（[決定 0174](docs/decisions/0174-plan-in-issues.md)・[0254](docs/decisions/0254-parallel-agents-and-cross-review.md)）。利用者が対象を指定したときは、その依頼を優先する。
 - 対象 issue の本文・コメント、関連する開いた PR、手元の変更と worktree を確認する。issue が開いているだけで、未着手とは判断しない。
 - issue の完了条件と、採用済みの決定・main の実装を照らす。設計済みのことを決め直さず、残っている成果物を特定する。
 - 着手時に「対象 issue・今回作るもの・完了を確かめる方法」を短く示す。着手は issue のコメントで名乗り、名乗りが通ったらラベル「作業中」を付ける（下の「並行して進める」）。条件がそろわない場合の扱いと、引き継ぎの手順は [作業の選び方](docs/work.md) に従う。
@@ -15,7 +49,7 @@
 複数のエージェントが同時に進める。人を待つのは、人にしかできないことだけにする。全体は [決定 0254](docs/decisions/0254-parallel-agents-and-cross-review.md) にある。
 
 - **人を待つもの。** 次のことだけ。ほかの判断は、選択肢と理由を書いて決める。
-  - 権利者への問い合わせ、契約・規約への同意（同意の要る道具を入れることを含む）、費用のかかること
+  - 権利者への問い合わせ、契約・規約への同意（同意の要るツールを入れることを含む）、費用のかかること
   - 権利の判断（台帳の `rights` を `unknown`・`permission` から `public` に変えること、NC・ND や利用規約の読みで採否が決まるもの、持ち主が仕様を公開していない形式と持ち主の分からない形式を新しく `public` として足すこと）
   - リポジトリのライセンス（[決定 0002](docs/decisions/0002-dual-license.md)）を変えること
   - アカウント・署名の鍵・secrets、パッケージの名前の確保と公開（`v*` のタグの push・GitHub の Release・レジストリへの公開）
@@ -26,16 +60,16 @@
   - 利用者が issue・PR・会話で決めたこと（日付と言葉の記録があるもの）を変えること
   - この節の全体、決定 0254 の全体、`docs/work.md` と、この文書の「範囲と権利」「図面と秘密」「守る約束」、「開発の手順」の PR・push・マージの条件を緩める変更（緩めるか迷うものを含む）
 - **人を待つ PR。** 人を待つものを含む PR には「待ち: 利用者」を付け、一覧のどの項に当たるかと中身を本文に書く。ラベルは、マージか閉じるまで外さない。利用者が認めたとするのは、PR の番号・head・当たる項を示したあとの、その PR についての利用者の会話での言葉だけで、前からある一般の指示は当たらない。同じアカウントで動くので、ラベルが外れたことや GitHub のコメントも、認めたとはみなさない。認めた日・head・範囲・利用者の言葉を PR に書き、認めた head と比べて、PR の側で当たる項に関わる所（緩める変更の項なら、その項が守る範囲の文）を変えたら、強める向きでも、変えた所を示して認め直してもらう（main の取り込みで入っただけの変更は除く）。マージするのは、利用者が認めた会話のエージェントか利用者だけにし、PR の記録だけを読んだエージェントは、マージせずに利用者に確かめる。workflow の項に当たる変更は、PR を開くか push した時点で workflow が動くので、push の前に差分と当たる項を利用者に示して認めてもらう（PR を開く前は、PR の番号と head の代わりに、ブランチの名前と push する commit を示す。開いたあとは、PR の番号と push する commit を示す）。PR の全体の差分と当たる項のすべてを示したときは、これをその PR の承認とし、足りなければ、PR を開いたあとに認めてもらう。PR を開いたら、その承認を PR に書く。認める前に、そのブランチで workflow を手で走らせない。
-- **ラベル。** 人を待つものには「待ち: 利用者」を付ける。選ぶ順で「待ち: 利用者」の issue に当たったら、開始条件とコメントを読み、人を待つものでなければ、理由をコメントに書いてラベルを外す。利用者の判断の記録があれば、その判断に従う。利用者が何かを待つと決めたものは、待つものを開始条件に書き、利用者に頼むことが残っていなければ、ラベルを外す。判断を変えて先に進めたいなら、ラベルを付けて利用者に頼む。「待ち: 試料」「待ち: 検証環境」の issue は、飛ばす前に待ちを減らす（[作業の選び方](docs/work.md)）。
+- **ラベル。** 人を待つものには「待ち: 利用者」を付ける。選ぶ順で「待ち: 利用者」の issue に当たったら、開始条件とコメントを読み、人を待つものでなければ、理由をコメントに書いてラベルを外す。利用者の判断の記録があれば、その判断に従う。利用者が何かを待つと決めたものは、待つものを開始条件に書き、利用者に頼むことが残っていなければ、ラベルを外す。判断を変えて先に進めたいなら、ラベルを付けて利用者に頼む。「待ち: サンプル」「待ち: 検証環境」の issue は、飛ばす前に待ちを減らす（[作業の選び方](docs/work.md)）。
 - **着手。** issue のコメントで名乗り（ブランチ・worktree のフォルダーの名前・時刻、決定の記録を書くなら使う番号）、読み直して、いちばん早い名乗りだけが進める。そのあとでラベル「作業中」を付ける。同じ issue か、同じ crate・同じ形式の文書を主に変える開いた PR か名乗りがあれば着手しない。利用者が指定した issue にほかの名乗りがあれば、利用者に伝えて指示を待つ。名乗りから 24 時間更新がなければ引き継げるが、「待ち: 利用者」の issue と PR は、利用者に確かめてから引き継ぐ。worktree を分ける。
 - **消さない。** issue・PR・コメントは消さず、閉じるか、新しいコメントで直す。名乗りと確かめた結果のコメントは、書き換えない。秘密や受け取った図面の情報が入ったら、すぐ利用者に伝え、コメントは消すか伏せ（名乗りと確かめた結果は、消さずにその所だけを伏せる）、消せないものも伏せて、編集の履歴からも消す（できなければ利用者に頼む）。消した所か伏せた所と理由は、秘密を書かずに新しいコメントに書く。push した commit・ブランチの名前・題に入ったものは、GitHub に消してもらうかを利用者に決めてもらう。secrets は、利用者に替えてもらう。
-- **互いに確かめる。** PR は、作った側の会話を引き継がない別のエージェントか人が確かめる。依頼には PR の番号と観点（2 回目からは前の結果と答えも）だけを渡し、確かめる側は直さない。観点には、人を待つものに当たる所がないかと、当たるなら PR にラベル・当たる項・その中身があるか、利用者が認めた記録があれば、記録の範囲が当たる項のすべてを含むかと、認めた head のあとに当たる項に関わる変更がないかを入れる。人を待つものに当たるという指摘は、作った側が当たらないと考えても、人を待つものとして扱い、利用者に示す。結果に、受け取った図面のファイル名・顧客の名前・図面の中身・秘密の値・利用者の名前を含むパスを書かせない。結果は、確かめた commit と確かめる側の種類を添えて、全文を PR のレビューのコメントに貼る。作った側は指摘のすべてに答え、直したあとの差分も確かめてもらう（重と中の指摘がなくなったあとの軽微の直しと、生成物などだけを直す main の取り込みは除く）。確かめ直しで差分の外から出た指摘は、重のものと、権利・秘密・人を待つものに関わるものだけをその PR で直し、ほかは issue に回してよい。新しい形式を `public` として足す PR は、確かめる側を 2 つにする。権利・秘密・境界の互換・ID・採用済みの決定との食い違いの指摘を、重さによらず、直さずにマージするなら、別の確かめる側にも見せる。CI の通過は、この確認の代わりにしない。
+- **互いに確かめる。** PR は、作った側の会話を引き継がない別のエージェントか人が確かめる。依頼には PR の番号と観点（2 回目からは前の結果と答えも）だけを渡し、確かめる側は直さない。観点には、人を待つものに当たる所がないかと、当たるなら PR にラベル・当たる項・その中身があるか、利用者が認めた記録があれば、記録の範囲が当たる項のすべてを含むかと、認めた head のあとに当たる項に関わる変更がないかを入れる。人を待つものに当たるという指摘は、作った側が当たらないと考えても、人を待つものとして扱い、利用者に示す。結果に、受け取った図面のファイル名・顧客の名前・図面の中身・秘密の値・利用者の名前を含むパスを書かせない。結果は、確かめた commit と確かめる側の種類を添えて、全文を PR のレビューのコメントに貼る。作った側は指摘のすべてに答え、直したあとの差分も確かめてもらう（重と中の指摘がなくなったあとの軽微の直しと、生成物などだけを直す main の取り込みは除く）。確かめ直しで差分の外から出た指摘は、重のものと、権利・秘密・人を待つものに関わるものだけをその PR で直し、ほかは issue に回してよい。新しい形式を `public` として足す PR は、確かめる側を 2 つにする。権利・秘密・API の互換・ID・採用済みの決定との食い違いの指摘を、重さによらず、直さずにマージするなら、別の確かめる側にも見せる。CI の通過は、この確認の代わりにしない。
 - **マージ。** 最新の `origin/main` を取り込み、生成物を作り直し、CI を通し直してからマージする。人を待つものを含む PR は、利用者が会話で認めてから、認めた会話のエージェントか利用者がマージする。
 
-## 日本語を正にする
+## 日本語を正とする
 
 - README・文書・決定の記録・issue・PR・コミットの説明は、分かりやすく簡潔な日本語で書く。
-- 表記と用語は [docs/style.md](docs/style.md) に従う。辞書（`prh.yml`）にない揺れや、新しい言い換えを見つけたら、辞書と用語集に足す（[決定 0021](docs/decisions/0021-notation-and-terms.md)）。
+- 表記と用語は [docs/style.md](docs/style.md) に従う。語は和語に言い換えず、要領・基準・製品の語と、開発で定着した語で書く。辞書（`prh.yml`）にない揺れを見つけたら、辞書と用語集に足す（[決定 0021](docs/decisions/0021-notation-and-terms.md)・[決定 0257](docs/decisions/0257-established-terms-over-coined-words.md)）。
 - 識別子は英語にする。関数名・型名・パッケージ名・コマンド・JSON のキー・診断の code などが対象。Conventional Commits の種別とスコープも英語のままにする（例: `feat(dxf): 外部参照を読む`）。
 - 第三者のライセンスの本文と、仕様の引用は原文を保つ。図面に記録された名前・文字・単位は翻訳しない。
 - コア（Rust の crate）は人向けの文を返さない。日本語・英語の文言はカタログに置き、診断の code から引く。code は一度使ったら別の意味に使わない（[決定 0009](docs/decisions/0009-diagnostics-and-catalog.md)）。
@@ -45,43 +79,43 @@
 - 公開仕様に従って実装し、コメントに仕様の節を書く。推定した挙動は `docs/formats/` に記録する。
 - 公開に第三者の許諾が要る形式（ST-Bridge など）は、このリポジトリに入れない。外部のプラグインとして作る（旧版の決定 0013）。
 - 形式を足す前に、`formats/ledger.toml` に仕様の入手先と権利を記録する。権利が `public` でない形式は、コアに入れない（[決定 0017](docs/decisions/0017-format-rights-ledger-and-plugin-sdk.md)、`formats/README.md`）。新しい形式を `public` として足せるのは、持ち主が仕様を公開し、実装を制限していないことを公式の文書で示せる形式と、持ち主のいない慣用の形式だけにし、ほかは人を待つ（[決定 0254](docs/decisions/0254-parallel-agents-and-cross-review.md)）。
-- 形式・版・向き（読む・書く）を足す issue は、次をそろえて閉じる。外部の実装があれば、照らす試験。決定 0171 の条件に合う公開サンプルがあれば、読む試験（なければ、探した所を形式の文書に書く）。fuzz の対象と、テストキットの予算・ID の契約試験。確かめた度合い（`synthetic`・`external`・`application`）の節。ほかの変更は、変えた所の試験を足し、度合いの節を直す（[決定 0254](docs/decisions/0254-parallel-agents-and-cross-review.md)）。
-- 照合に使う外部の実装は、ソースもバイナリもリポジトリに入れない。別に入れたプログラムとして呼ぶ（[決定 0011](docs/decisions/0011-bindings-through-ffi.md) の道具の表）か、寛容なライセンスの crate なら dev の依存にする（下の依存の規則に従う）。プログラムとして呼ぶものは、入っていない環境では試験を飛ばす。食い違いは、仕様と出力・診断を比べて調べ、外部の実装のソースは寛容なライセンスのものだけを読む。
-- 国土地理院のジオイド・モデルや座標変換のパラメーターを、Git・パッケージ・試験に入れない。利用者が入手して渡す（[決定 0019](docs/decisions/0019-coordinate-systems-and-gsi-data.md)）。
-- 実行時の依存とリンクする依存は、寛容なライセンス（MIT・Apache-2.0・BSD・ISC・Zlib など）に限る。GPL・AGPL・LGPL・MPL は入れない。Cargo の依存（build・dev を含む）と、生成したコードを成果物に入れる道具も、寛容なライセンスに限る（[決定 0011](docs/decisions/0011-bindings-through-ffi.md)）。
+- 形式・バージョン・向き（読む・書く）を足す issue は、次をそろえて閉じる。外部の実装があれば、照らすテスト。決定 0171 の条件に合う公開サンプルがあれば、読むテスト（なければ、探した所を形式の文書に書く）。fuzz の対象と、テストキットの予算・ID の契約テスト。確かめた度合い（`synthetic`・`external`・`application`）の節。ほかの変更は、変えた所のテストを足し、度合いの節を直す（[決定 0254](docs/decisions/0254-parallel-agents-and-cross-review.md)）。
+- 照合に使う外部の実装は、ソースもバイナリもリポジトリに入れない。別に入れたプログラムとして呼ぶ（[決定 0011](docs/decisions/0011-bindings-through-ffi.md) のツールの表）か、寛容なライセンスの crate なら dev の依存にする（下の依存の規則に従う）。プログラムとして呼ぶものは、入っていない環境ではテストを飛ばす。食い違いは、仕様と出力・診断を比べて調べ、外部の実装のソースは寛容なライセンスのものだけを読む。
+- 国土地理院のジオイド・モデルや座標変換のパラメーターを、Git・パッケージ・テストに入れない。利用者が入手して渡す（[決定 0019](docs/decisions/0019-coordinate-systems-and-gsi-data.md)）。
+- 実行時の依存とリンクする依存は、寛容なライセンス（MIT・Apache-2.0・BSD・ISC・Zlib など）に限る。GPL・AGPL・LGPL・MPL は入れない。Cargo の依存（build・dev を含む）と、生成したコードを成果物に入れるツールも、寛容なライセンスに限る（[決定 0011](docs/decisions/0011-bindings-through-ffi.md)）。
 - 依存を足す前に、ライセンス、WebAssembly で動くこと、決定性の規則（[決定 0007](docs/decisions/0007-single-rust-implementation.md)）を満たすことを確かめ、理由を記録する。
 - IFC のスキーマと、そこから生成したコードを同梱しない（旧版の決定 0028）。GPL の実装（LibreDWG など）のソースを読まない。
 
 ## 図面と秘密
 
-- 受け取った図面を Git に入れない。リポジトリの外のフォルダーを `ZUMEN_SAMPLES` に指定して開く。`ZUMEN_SAMPLES` が指定されていれば、試験で読んでよい。結果（issue・PR・ログ）に、ファイル名・顧客の名前・図面の中身を書かない。
+- 受け取った図面を Git に入れない。リポジトリの外のフォルダーを `ZUMEN_SAMPLES` に指定して開く。`ZUMEN_SAMPLES` が指定されていれば、テストで読んでよい。結果（issue・PR・ログ）に、ファイル名・顧客の名前・図面の中身を書かない。
 - 公開サンプルは、再配布を認めるライセンスのものだけを `samples/` に入れ、出所とライセンスを `samples/ledger.toml` に書く。ライセンスがはっきりしなければ入れず、理由を issue に書く。どうしても入れたいときは、権利者への問い合わせとして利用者に頼む（[決定 0171](docs/decisions/0171-public-samples-in-git.md)・[0254](docs/decisions/0254-parallel-agents-and-cross-review.md)）。
-- 試験は、規則を確かめる最小のファイルを、試験の中で作る。
+- テストは、規則を確かめる最小のファイルを、テストの中で作る。
 - 顧客の名前・図面と、非公開のリポジトリの情報を書かない。
 
 ## 守る約束
 
-- **どこでも同じ結果。** 同じ入力から、ネイティブ・wasm・各言語の結合でビット単位で同じ出力を返す。三角関数・指数・対数・`powi`・`hypot` などは std ではなく `libm` を使い、`HashMap` の順やロケールに依存しない。規則の全体は [決定 0007](docs/decisions/0007-single-rust-implementation.md) にある。
+- **どこでも同じ結果。** 同じ入力から、ネイティブ・wasm・各言語のバインディングでビット単位で同じ出力を返す。三角関数・指数・対数・`powi`・`hypot` などは std ではなく `libm` を使い、`HashMap` の順やロケールに依存しない。規則の全体は [決定 0007](docs/decisions/0007-single-rust-implementation.md) にある。
 - **黙って捨てない。** 描かないもの・形を変えて書いたものは、診断として種類・件数・場所を返す。
-- **ID は契約。** 同じバイト列は、どの版でも同じ ID を返す。ID を変える変更には、先に決定の記録が要る。
+- **ID は契約。** 同じバイト列は、どのバージョンでも同じ ID を返す。ID を変える変更には、先に決定の記録が要る。
 - **受け取ったファイルを信用しない。** パニックしない。再帰とループには上限を付ける。繰り返しは回数で数え、浮動小数の足し算で終わりを決めない（#486）。予算は、明示的な文脈で渡し、時間ではなく決まった作業量で数える（[決定 0010](docs/decisions/0010-budget-by-work.md)）。
-- **境界は足すだけ。** 各言語へは、数個の関数と、スキーマで定めたメッセージだけで届ける（[決定 0012](docs/decisions/0012-boundary-functions-and-messages.md)）。関数・op・欄・列挙の値は足すだけにし、消さず、名前と意味を変えない（[決定 0015](docs/decisions/0015-add-only-boundary-and-version-floors.md)）。ただし 1.0 より前は、整理のために壊してよい。壊す判断は決定の記録にし、`schema/README.md` の手順で小版を上げて壊す。PR とコミットの題の種別に `!` を付けて（`feat(abi)!: …`）、PR の本文に移り方を書く。ID の規則は、この例外に入らない。形式や用途ごとの op を足す前に、領域の op（`drawing`・`building`・`civil`・`geo`・`pointcloud` など）で表せないかを確かめる（[決定 0254](docs/decisions/0254-parallel-agents-and-cross-review.md)）。
+- **API は足すだけ。** 各言語へは、数個の関数と、スキーマで定めたメッセージだけで届ける（[決定 0012](docs/decisions/0012-boundary-functions-and-messages.md)）。関数・op・フィールド・列挙の値は足すだけにし、消さず、名前と意味を変えない（[決定 0015](docs/decisions/0015-add-only-boundary-and-version-floors.md)）。ただし 1.0 より前は、整理のために壊してよい。壊す判断は決定の記録にし、`schema/README.md` の手順でマイナーバージョンを上げて壊す。PR とコミットの題の種別に `!` を付けて（`feat(abi)!: …`）、PR の本文に移り方を書く。ID の規則は、この例外に入らない。形式や用途ごとの op を足す前に、領域の op（`drawing`・`building`・`civil`・`geo`・`pointcloud` など）で表せないかを確かめる（[決定 0254](docs/decisions/0254-parallel-agents-and-cross-review.md)）。
 
 ## 開発の手順
 
 - 最新の `origin/main` からブランチを作り、すべての変更を PR にする。`main` へ直接 push しない。
 - PR を出す前に、CI と同じ検査を手元で通す: `cargo fmt --all --check`・`cargo clippy --workspace --all-targets -- -D warnings`・`cargo test --workspace`・`cargo xtask codegen --check`。
-  - 境界の crate を変えたときは、wasm32 の検査も通す: `cargo clippy -p zumen-abi --target wasm32-unknown-unknown -- -D warnings` と、wasm32 の適合試験（`bindings/conformance/README.md`、Node.js 22 以降）。
+  - API の crate（`zumen-abi`）を変えたときは、wasm32 の検査も通す: `cargo clippy -p zumen-abi --target wasm32-unknown-unknown -- -D warnings` と、wasm32 の適合テスト（`bindings/conformance/README.md`、Node.js 22 以降）。
   - 文書・コメント・カタログ・スキーマの説明を変えたときは、表記の検査も通す: `npm ci` と `npm run lint:text`（Node.js 22 以降）。
 - 互いに確かめ（上の「並行して進める」）、最新の `origin/main` の上で CI が通ったら squash merge し、ブランチを消す。人を待つものを含む PR は、利用者が会話で認めてから、認めた会話のエージェントか利用者がマージする。利用者にレビューで止めるよう頼まれた場合は、そこで止める。
   - PR で fuzz（`.github/workflows/fuzz.yml`）が流れたら、その結果も通ってからマージする。見つけた入力のある失敗は、直すまで、流し直しや新しいコミットの実行が通っても、手元で落ちなくても、通ったとしない。fuzz の job は main の必須の検査にしない。fuzz の失敗のうち、PR の変更と関係のないもの（`fuzz/README.md` の「失敗を分ける」で関係がないとしたもの）では、マージを止めない。マージの前に issue にし（見つけた入力は最小にして貼る）、PR の本文に書き、早めに直す。関係があるかを確かめられない失敗（時間切れ・メモリの使い過ぎ・手元で再現しない入力など）は、直してからマージする。直せなければ、人を待つ PR として利用者に認めてもらい、同じく issue にする（[決定 0261](docs/decisions/0261-fuzz-outside-required-checks.md)、分け方と確かめ方は `fuzz/README.md` の「落ちたとき」）。
-- Rust の版は `rust-toolchain.toml` で固定する。上げるときは、CI の cargo-deny の版も合わせる。
+- Rust のバージョンは `rust-toolchain.toml` で固定する。上げるときは、CI の cargo-deny のバージョンも合わせる。
 - 診断の code を足すときは、`catalog/` の台帳と日本語・英語の文を直し、`cargo xtask codegen` で生成したファイルも一緒にコミットする（`catalog/README.md`）。
-- 境界の関数・op・欄を変えるときは、`schema/` を直し、`cargo xtask codegen` で生成したファイルも一緒にコミットする（`schema/README.md`）。メッセージの JSON は `zumen-json` で読み書きし、規則は [決定 0016](docs/decisions/0016-boundary-message-details.md) にある。
-- 応答が変わったら、適合試験のハッシュの一覧を `cargo run -p zumen-conformance -- --write` で作り直し、変わった理由を PR に書く（`bindings/conformance/README.md`）。
+- API の関数・op・フィールドを変えるときは、`schema/` を直し、`cargo xtask codegen` で生成したファイルも一緒にコミットする（`schema/README.md`）。メッセージの JSON は `zumen-json` で読み書きし、規則は [決定 0016](docs/decisions/0016-boundary-message-details.md) にある。
+- 応答が変わったら、適合テストのハッシュの一覧を `cargo run -p zumen-conformance -- --write` で作り直し、変わった理由を PR に書く（`bindings/conformance/README.md`）。
 - コミットと PR のタイトルは Conventional Commits にする。
 - 選択肢と理由のある設計判断は、`docs/decisions/README.md` の形で記録する。
-  - 記録にするのは、境界・ID・層とモデル・依存・権利・形式をまたぐ振る舞い・作業の進め方に関わる判断に限る。形式ごとの欄や符号化の細部は、決定にせず `docs/formats/` に書く（[決定 0254](docs/decisions/0254-parallel-agents-and-cross-review.md)）。
+  - 記録にするのは、API・ID・層とモデル・依存・権利・形式をまたぐ振る舞い・作業の進め方に関わる判断に限る。形式ごとのフィールドや符号化の細部は、決定にせず `docs/formats/` に書く（[決定 0254](docs/decisions/0254-parallel-agents-and-cross-review.md)）。
   - 番号は 0001 から振る。番号を振る前に、開いている PR と、着手の名乗りに書かれた番号を確かめ、使う番号を名乗りに書く（issue のない作業は、先に issue を作って名乗る。番号だけなら、下書きの PR を開いて押さえてもよい）。ぶつかったら、後にマージする側が付け替え、古い番号でその決定を指す開いた PR・issue と main のファイルを直すか、知らせる。
   - 旧版の記録は「旧版の決定 0013」と書いて、リンクする。
 - issue で旧版の issue を指すときは、`zumen-jp/zumen-legacy#番号` と書く。

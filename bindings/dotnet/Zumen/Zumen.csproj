@@ -1,9 +1,9 @@
 <!--
-  zumen の C ABI を、P/Invoke（関数ポインターの委譲）で呼ぶ薄い包み（決定 0011・0196）。
+  zumen の C ABI を、P/Invoke（関数ポインターの委譲）で呼ぶ薄いラッパー（決定 0011・0196）。
 
   NuGet の Zumen で配る（決定 0003・0205）。対象ごとのネイティブのライブラリを runtimes/{rid}/native に入れる。
   ライブラリは、リリースのワークフローが runtimes/{rid}/native に置いてから dotnet pack する。
-  版はコアと同じにし、AssemblyVersion は ABI の大版に固定する。どちらも cargo xtask codegen の検査が確かめる
+  バージョンはコアと同じにし、AssemblyVersion は ABI のメジャーバージョンに固定する。どちらも cargo xtask codegen の検査が確かめる
   （決定 0015）。強い名前はまだ付けない。
 
   docs/support.md の下限に合わせ、.NET Framework 4.8 には netstandard2.0、.NET 8 以降には net8.0 のアセンブリを出す。
@@ -16,10 +16,10 @@
     <AssemblyName>Zumen</AssemblyName>
     <RootNamespace>Zumen</RootNamespace>
     <Version>0.2.0</Version>
-    <!-- .NET Framework 4.8 のホストで同じ大版を 1 つとして扱うため、ABI の大版に固定する（決定 0015） -->
+    <!-- .NET Framework 4.8 のホストで同じメジャーバージョンを 1 つとして扱うため、ABI のメジャーバージョンに固定する（決定 0015） -->
     <AssemblyVersion>1.0.0.0</AssemblyVersion>
     <PackageId>Zumen</PackageId>
-    <Description>日本の建設の図面（DXF・DWG・SXF・JWW）を読み書きする zumen の、.NET の包み</Description>
+    <Description>日本の建設の図面（DXF・DWG・SXF・JWW）を読み書きする zumen の、.NET のラッパー</Description>
     <PackageLicenseExpression>MIT OR Apache-2.0</PackageLicenseExpression>
     <RepositoryUrl>https://github.com/zumen-jp/zumen</RepositoryUrl>
     <PackageReadmeFile>README.md</PackageReadmeFile>

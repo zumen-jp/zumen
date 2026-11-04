@@ -1,4 +1,4 @@
-//! ISO 10303-21 の交換構造の読み取りと、文字列のエスケープの戻し方（決定 0120・0207）。入力は、どれも試験の中で作る。
+//! ISO 10303-21 の交換構造の読み取りと、文字列のエスケープの戻し方（決定 0120・0207）。入力は、どれもテストの中で作る。
 
 use zumen_base::{Budget, CancelToken, Cx, Diagnostics, Kind, Limit, Limits, Ref, Stop, codes};
 use zumen_sdk::Error;

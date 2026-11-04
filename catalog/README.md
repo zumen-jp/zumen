@@ -4,12 +4,12 @@
 
 | ファイル | 中身 |
 | --- | --- |
-| `codes.toml` | code の台帳。code ごとの `severity`・`fidelity`・値の名前と型・まとめ方・説明・足した版・状態と、出来事の語 |
-| `ja.toml` | 診断の文と、数の書き方（日本語）。こちらを正にする |
+| `codes.toml` | code の台帳。code ごとの `severity`・`fidelity`・値の名前と型・まとめ方・説明・足したバージョン・状態と、出来事の語 |
+| `ja.toml` | 診断の文と、数の書き方（日本語）。こちらを正とする |
 | `en.toml` | 診断の文と、数の書き方（英語）。`ja.toml` の訳 |
 | `ja.json`・`en.json` | `ja.toml`・`en.toml` から生成したカタログ。コアに `zm_push` で渡し、`describe` の op で文を組み立てる。手で直さない |
 
-カタログの JSON の形は、[schema/messages.json](../schema/messages.json) の `catalog` です。コアと同じ版で出し、コアとは別のファイルとして配ります。文言が要らないアプリは、読み込まなくて構いません。
+カタログの JSON の形は、[schema/messages.json](../schema/messages.json) の `catalog` です。コアと同じバージョンで出し、コアとは別のファイルとして配ります。文言が要らないアプリは、読み込まなくて構いません。
 
 ## code を足す
 

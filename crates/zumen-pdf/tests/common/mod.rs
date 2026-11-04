@@ -1,4 +1,4 @@
-//! 試験の PDF を作る。どれも文字だけで書き、相互参照表の位置を数えて付ける。
+//! テストの PDF を作る。どれも文字だけで書き、相互参照表の位置を数えて付ける。
 
 #![allow(dead_code)]
 
@@ -59,7 +59,7 @@ impl Builder {
     }
 }
 
-/// 圧縮しない区画（RFC 1951 の 3.2.4）だけの zlib のデータ（RFC 1950）。`FlateDecode` で展開できる
+/// 圧縮しないブロック（RFC 1951 の 3.2.4）だけの zlib のデータ（RFC 1950）。`FlateDecode` で展開できる
 #[cfg(test)]
 pub fn zlib(data: &[u8]) -> Vec<u8> {
     let length = u16::try_from(data.len()).unwrap();
@@ -85,7 +85,7 @@ pub fn stream(dict: &str, data: impl AsRef<[u8]>) -> Vec<u8> {
     out
 }
 
-/// 試験のページ
+/// テストのページ
 #[derive(Clone, Copy)]
 pub struct Page<'a> {
     /// 内容
@@ -121,7 +121,7 @@ impl<'a> Page<'a> {
     }
 }
 
-/// 試験の文書。1 番はカタログ、2 番はページの木、3 番から `objects`、その後ろにページとその内容を、ページごとに
+/// テストの文書。1 番はカタログ、2 番はページの木、3 番から `objects`、その後ろにページとその内容を、ページごとに
 /// 2 つずつ置く
 pub struct Document<'a> {
     pub pages: Vec<Page<'a>>,

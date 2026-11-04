@@ -1,11 +1,11 @@
-// 適合試験の手順の読み方と応答の確かめ方のうち、ファイルを読まない部分（決定 0012）。
+// 適合テストの手順の読み方と応答の確かめ方のうち、ファイルを読まない部分（決定 0012）。
 //
-// Node.js とブラウザーの両方で読み込む。ファイルを読む部分は cases.mjs にある。ブラウザーで流す試験
+// Node.js とブラウザーの両方で読み込む。ファイルを読む部分は cases.mjs にある。ブラウザーで流すテスト
 // （bindings/js/test/browser/run.mjs、決定 0199）は、ここだけを読み込む。
 
 const encoder = new TextEncoder();
 
-/** 手順の種類。手順は、どれか 1 つの欄を持つ */
+/** 手順の種類。手順は、どれか 1 つのフィールドを持つ */
 export const ACTIONS = ["session", "push", "call", "call_text", "call_hex", "take"];
 
 export function decodeHex(hex) {
@@ -111,7 +111,7 @@ export function checkResponse(at, step, response, failures) {
 }
 
 /**
- * 組を流す wasm のモジュールの名前（決定 0221）。`modules` は包みの MODULES。組の `module` があればそれを、なければ
+ * 組を流す wasm のモジュールの名前（決定 0221）。`modules` はラッパーの MODULES。組の `module` があればそれを、なければ
  * 組が呼ぶ op（どのモジュールにもない op は除く）をすべて持つ最初のモジュールを返す。`all` は、すべてのモジュールを
  * 入れたコアでだけ流す組。どのモジュールでも流せなければ undefined
  */

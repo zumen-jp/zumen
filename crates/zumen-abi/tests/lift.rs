@@ -8,7 +8,7 @@ use zumen_base::{Budget, CancelToken, Cx, Diagnostics};
 use zumen_drawing::{Drawing2D, binary};
 use zumen_json::Value;
 
-/// 線・円・円弧・文字・点と、用紙の線を持つ DXF（適合試験の scene.json と同じ）
+/// 線・円・円弧・文字・点と、用紙の線を持つ DXF（適合テストの scene.json と同じ）
 const DXF: &str = "0\nSECTION\n2\nHEADER\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n\
 0\nLINE\n5\nA1\n8\n0\n62\n1\n10\n1.5\n20\n2.0\n11\n100.0\n21\n50.0\n\
 0\nCIRCLE\n5\nA2\n8\n0\n10\n100000.0\n20\n50000.0\n40\n3.0\n\

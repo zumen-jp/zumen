@@ -1,7 +1,7 @@
-// 試験の組を読むための、小さな JSON の読み書き。
+// テストの組を読むための、小さな JSON の読み書き。
 //
-// .NET Framework 4.8 には System.Text.Json がなく、NuGet の依存を足さないので、試験の中に置く。値は、null・bool・
-// string・JsonNumber（書かれたままの数）・List（配列）・JsonObject（欄の順を保つ）で持つ。
+// .NET Framework 4.8 には System.Text.Json がなく、NuGet の依存を足さないので、テストの中に置く。値は、null・bool・
+// string・JsonNumber（書かれたままの数）・List（配列）・JsonObject（フィールドの順を保つ）で持つ。
 
 #nullable enable
 
@@ -33,7 +33,7 @@ namespace Zumen.Conformance
         public long ToInt64() => long.Parse(Text, CultureInfo.InvariantCulture);
     }
 
-    /// <summary>欄の順を保つオブジェクト</summary>
+    /// <summary>フィールドの順を保つオブジェクト</summary>
     internal sealed class JsonObject : List<KeyValuePair<string, object?>>
     {
         public bool TryGet(string key, out object? value)

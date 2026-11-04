@@ -1,11 +1,11 @@
-//! .NET の包み（`bindings/dotnet`）の型と定数を作る（決定 0011・0196）。
+//! .NET のラッパー（`bindings/dotnet`）の型と定数を作る（決定 0011・0196）。
 //!
 //! - `Messages.g.cs`: メッセージのスキーマ（`schema/messages.json`）の型
-//! - `Constants.g.cs`: 境界の版・状態コード・関数の形（`schema/boundary.toml`）と、シーンの配置
+//! - `Constants.g.cs`: API のバージョン・状態コード・関数の形（`schema/boundary.toml`）と、シーンの配置
 //!   （`schema/scene.toml`）
 //!
 //! netstandard2.0（.NET Framework 4.8）と net8.0 の両方で読めるように書く。System.Text.Json は net8.0 の側にだけあるので、
-//! 欄の名前の属性は netstandard2.0 では包みの中の代わりの属性で受け、形の決まらない値は `JsonElement` か `object` にする。
+//! フィールドの名前の属性は netstandard2.0 ではラッパーの中の代わりの属性で受け、形の決まらない値は `JsonElement` か `object` にする。
 
 use std::collections::BTreeSet;
 use std::fmt::Write;
@@ -31,7 +31,7 @@ const RESERVED: &[&str] = &[
     "Operations",
 ];
 
-/// record が持つメンバーの名前。欄の名前と重なったら、後ろに `Value` を付ける
+/// record が持つメンバーの名前。フィールドの名前と重なったら、後ろに `Value` を付ける
 const RECORD_MEMBERS: &[&str] = &[
     "EqualityContract",
     "Equals",
@@ -44,7 +44,7 @@ const RECORD_MEMBERS: &[&str] = &[
     "Finalize",
 ];
 
-/// 境界の引数と戻り値の型と、C# の型
+/// API の引数と戻り値の型と、C# の型
 const CS_TYPES: &[(&str, &str)] = &[
     ("void", "void"),
     ("u32", "uint"),
@@ -58,7 +58,7 @@ const CS_TYPES: &[(&str, &str)] = &[
     ("arrow_stream", "IntPtr"),
 ];
 
-/// 区画の値の型と、C# の型
+/// セクションの値の型と、C# の型
 const COLUMNS: &[(&str, &str)] = &[
     ("u8", "byte"),
     ("u32", "uint"),
@@ -124,7 +124,7 @@ fn member(text: &str, owner: &str) -> String {
     }
 }
 
-/// 欄の型の式と、どの TFM でも値の型か（欠かせない欄に既定の値が要らないか）
+/// フィールドの型の式と、どの TFM でも値の型か（欠かせないフィールドに既定の値が要らないか）
 fn cs_type(schema: &Schema, ty: &Ty) -> Result<(String, bool), String> {
     Ok(match ty {
         Ty::String | Ty::Const(_) => ("string".to_string(), false),
@@ -143,8 +143,8 @@ fn cs_type(schema: &Schema, ty: &Ty) -> Result<(String, bool), String> {
             match def.shape {
                 Shape::Object { .. } => (pascal(name), false),
                 Shape::Enum { .. } => ("string".to_string(), false),
-                // 形が値で決まるので、読んだ側で目印を見て読み直す
-                // netstandard2.0 では参照の型なので、欠かせない欄には既定の値を書く
+                // 形が値で決まるので、読んだ側でタグを見て読み直す
+                // netstandard2.0 では参照の型なので、欠かせないフィールドには既定の値を書く
                 Shape::Union { .. } | Shape::Scalars { .. } | Shape::Handwritten => {
                     ("JsonAny".to_string(), false)
                 }
@@ -164,7 +164,7 @@ fn cs_type(schema: &Schema, ty: &Ty) -> Result<(String, bool), String> {
     })
 }
 
-/// 取り込む定義（`allOf`）の欄を先に、自分の欄を後に並べる
+/// 取り込む定義（`allOf`）のフィールドを先に、自分のフィールドを後に並べる
 fn collect_fields<'a>(schema: &'a Schema, def: &'a Def, out: &mut Vec<&'a Field>, depth: usize) {
     let Shape::Object {
         fields, compose, ..
@@ -186,7 +186,7 @@ fn collect_fields<'a>(schema: &'a Schema, def: &'a Def, out: &mut Vec<&'a Field>
     }
 }
 
-/// 1 つの欄。`ty` は C# の型、`value` は値の型か、`init` は既定の値の式
+/// 1 つのフィールド。`ty` は C# の型、`value` は値の型か、`init` は既定の値の式
 struct Property<'a> {
     name: &'a str,
     description: &'a str,
@@ -212,7 +212,7 @@ fn render_record(
         let property = member(field.name, name);
         if !seen.insert(property.clone()) {
             return Err(format!(
-                "{name} の欄 {} の名前が、ほかの欄と重なる",
+                "{name} のフィールド {} の名前が、ほかのフィールドと重なる",
                 field.name
             ));
         }
@@ -228,7 +228,7 @@ fn render_record(
         };
         let init = match (&field.init, field.required, field.value) {
             (Some(init), _, _) => format!(" = {init};"),
-            // 欠かせない参照の欄は、読んだときに埋まる
+            // 欠かせない参照のフィールドは、読んだときに埋まる
             (None, true, false) => " = default!;".to_string(),
             _ => String::new(),
         };
@@ -238,7 +238,7 @@ fn render_record(
     Ok(())
 }
 
-/// 目印の値と、その形の型の表
+/// タグの値と、その形の型の表
 fn render_variants(out: &mut String, schema: &Schema, name: &str, variants: &[String]) {
     let tags: Vec<(&str, &str, String)> = variants
         .iter()
@@ -251,11 +251,11 @@ fn render_variants(out: &mut String, schema: &Schema, name: &str, variants: &[St
     if let Some((field, _, _)) = tags.first() {
         let _ = writeln!(
             out,
-            "        /// <summary>目印の欄の名前</summary>\n        public const string Tag = {};\n",
+            "        /// <summary>タグのフィールドの名前</summary>\n        public const string Tag = {};\n",
             quote(field)
         );
     }
-    out.push_str("        /// <summary>目印の値と、その形の型</summary>\n        public static readonly IReadOnlyDictionary<string, global::System.Type> Variants = new Dictionary<string, global::System.Type>\n        {\n");
+    out.push_str("        /// <summary>タグの値と、その形の型</summary>\n        public static readonly IReadOnlyDictionary<string, global::System.Type> Variants = new Dictionary<string, global::System.Type>\n        {\n");
     for (_, value, ty) in &tags {
         let _ = writeln!(out, "            [{}] = typeof({ty}),", quote(value));
     }
@@ -270,7 +270,7 @@ pub fn render_types(schema: &Schema) -> Result<String, String> {
         .find(|def| RESERVED.contains(&pascal(&def.name).as_str()))
     {
         return Err(format!(
-            "schema/messages.json の {} が、.NET の包みが使う名前と重なる",
+            "schema/messages.json の {} が、.NET のラッパーが使う名前と重なる",
             def.name
         ));
     }
@@ -278,15 +278,15 @@ pub fn render_types(schema: &Schema) -> Result<String, String> {
     out.push_str("// 生成したファイル。手で直さない。\n");
     out.push_str("// 元は schema/messages.json で、`cargo xtask codegen` で作り直す。\n");
     out.push_str(
-        "//\n// 境界のメッセージの型（決定 0012・0196）。スキーマの定義ごとに 1 つの型がある。\n",
+        "//\n// API のメッセージの型（決定 0012・0196）。スキーマの定義ごとに 1 つの型がある。\n",
     );
     out.push_str(
         "// 列挙は、知らない値も受け取れるように string で持ち、値を定数で出す（決定 0015）。\n",
     );
     out.push_str("// 形が値で決まるもの（共用体）は JsonAny（net8.0 は JsonElement、netstandard2.0 は object）で持ち、\n");
-    out.push_str("// 目印の値から型を引いて読み直す。\n\n");
+    out.push_str("// タグの値から型を引いて読み直す。\n\n");
     out.push_str("#nullable enable\n\nusing System.Collections.Generic;\n#if NET\nusing System.Text.Json.Serialization;\nusing JsonAny = System.Text.Json.JsonElement;\n#else\nusing JsonAny = System.Object;\n#endif\n\nnamespace Zumen.Messages\n{\n");
-    out.push_str("#if !NET\n    /// <summary>欄の JSON での名前。netstandard2.0 には System.Text.Json がないので、包みの中に代わりを置く</summary>\n    [global::System.AttributeUsage(global::System.AttributeTargets.Property)]\n    internal sealed class JsonPropertyNameAttribute : global::System.Attribute\n    {\n        public JsonPropertyNameAttribute(string name) => Name = name;\n\n        public string Name { get; }\n    }\n#endif\n");
+    out.push_str("#if !NET\n    /// <summary>フィールドの JSON での名前。netstandard2.0 には System.Text.Json がないので、ラッパーの中に代わりを置く</summary>\n    [global::System.AttributeUsage(global::System.AttributeTargets.Property)]\n    internal sealed class JsonPropertyNameAttribute : global::System.Attribute\n    {\n        public JsonPropertyNameAttribute(string name) => Name = name;\n\n        public string Name { get; }\n    }\n#endif\n");
     for def in &schema.defs {
         let name = pascal(&def.name);
         match &def.shape {
@@ -375,7 +375,7 @@ pub fn render_types(schema: &Schema) -> Result<String, String> {
                 let properties = [
                     Property {
                         name: "v",
-                        description: "メッセージのスキーマの大版",
+                        description: "メッセージのスキーマのメジャーバージョン",
                         ty: "uint".to_string(),
                         value: true,
                         required: true,
@@ -456,26 +456,26 @@ pub fn render_constants(
 
     let versions = &boundary.versions;
     out.push_str(
-        "    /// <summary>版（決定 0015）</summary>\n    public static class Versions\n    {\n",
+        "    /// <summary>バージョン（決定 0015）</summary>\n    public static class Versions\n    {\n",
     );
     let _ = writeln!(
         out,
-        "        /// <summary>パッケージの版</summary>\n        public const string Package = {};\n",
+        "        /// <summary>パッケージのバージョン</summary>\n        public const string Package = {};\n",
         quote(version)
     );
     let _ = writeln!(
         out,
-        "        /// <summary>ABI の大版</summary>\n        public const uint Abi = {};\n",
+        "        /// <summary>ABI のメジャーバージョン</summary>\n        public const uint Abi = {};\n",
         versions.abi
     );
     let _ = writeln!(
         out,
-        "        /// <summary>メッセージのスキーマの大版（要求と応答の v）</summary>\n        public const uint SchemaMajor = {};\n",
+        "        /// <summary>メッセージのスキーマのメジャーバージョン（要求と応答の v）</summary>\n        public const uint SchemaMajor = {};\n",
         versions.schema_major
     );
     let _ = writeln!(
         out,
-        "        /// <summary>メッセージのスキーマの小版</summary>\n        public const uint SchemaMinor = {};",
+        "        /// <summary>メッセージのスキーマのマイナーバージョン</summary>\n        public const uint SchemaMinor = {};",
         versions.schema_minor
     );
     out.push_str("    }\n\n");
@@ -534,25 +534,25 @@ pub fn render_constants(
     out.push_str("        };\n    }\n\n");
 
     out.push_str("    /// <summary>シーンの blob の配置（決定 0137）</summary>\n    public static class SceneLayout\n    {\n");
-    out.push_str("        /// <summary>見出しの始まりの 4 バイト（ZMSC）</summary>\n        public const uint Magic = 0x4353_4D5A;\n\n");
+    out.push_str("        /// <summary>ヘッダーの始まりの 4 バイト（ZMSC）</summary>\n        public const uint Magic = 0x4353_4D5A;\n\n");
     let _ = writeln!(
         out,
-        "        /// <summary>大版。区画の意味を変えるときに上げる</summary>\n        public const ushort Major = {};\n",
+        "        /// <summary>メジャーバージョン。セクションの意味を変えるときに上げる</summary>\n        public const ushort Major = {};\n",
         scene.versions.major
     );
     let _ = writeln!(
         out,
-        "        /// <summary>小版。区画か値を足すたびに上げる</summary>\n        public const ushort Minor = {};\n",
+        "        /// <summary>マイナーバージョン。セクションか値を足すたびに上げる</summary>\n        public const ushort Minor = {};\n",
         scene.versions.minor
     );
     out.push_str("        /// <summary>番号の「なし」</summary>\n        public const uint None = uint.MaxValue;\n\n");
-    out.push_str("        /// <summary>区画の定義。番号の順</summary>\n        public static readonly IReadOnlyList<SceneSection> Sections = new[]\n        {\n");
+    out.push_str("        /// <summary>セクションの定義。番号の順</summary>\n        public static readonly IReadOnlyList<SceneSection> Sections = new[]\n        {\n");
     for (index, section) in scene.sections.iter().enumerate() {
         let ty = COLUMNS
             .iter()
             .find(|(ty, _)| *ty == section.ty)
             .map(|(_, cs)| *cs)
-            .ok_or_else(|| format!("区画 {} の型 {} を読めない", section.name, section.ty))?;
+            .ok_or_else(|| format!("セクション {} の型 {} を読めない", section.name, section.ty))?;
         let _ = writeln!(
             out,
             "            // {}（{} × {}）\n            new SceneSection({index}, {}, typeof({ty}), {}),",
@@ -601,7 +601,7 @@ mod tests {
                 "request_common": {
                   "description": "共通",
                   "type": "object",
-                  "properties": { "v": { "description": "版", "type": "integer", "minimum": 1 } },
+                  "properties": { "v": { "description": "バージョン", "type": "integer", "minimum": 1 } },
                   "required": ["v"]
                 },
                 "open_request": {

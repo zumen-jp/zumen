@@ -2,7 +2,7 @@
 //!
 //! hayro-interpret の解釈は、予算でも中断の合図でも止まらない。フォームの XObject が次の段のフォームを 2 回ずつ
 //! 呼ぶと、解釈する演算子の数は段の数の冪で増える。そこで、ページを渡す前に、内容のストリームを hayro-interpret と
-//! 同じ読み手（hayro-syntax の `TypedIter`）でたどり、hayro-interpret が解釈する手間を `Work` に、展開する
+//! 同じリーダー（hayro-syntax の `TypedIter`）でたどり、hayro-interpret が解釈する手間を `Work` に、展開する
 //! バイト数を `DecodedBytes` に、先に数える。同じフォームを同じ文脈で呼ぶ所は、1 度だけたどる。hayro-interpret が
 //! 作るものの大きさ（写すグラフィックス状態・メッシュ・関数の標本と手続き・CID フォントの幅の表・切り抜きにする
 //! 文字の輪郭・長い経路と字形の並び）も、メモリの代わりに `DecodedBytes` に数え、メッシュと切り抜きの輪郭を作る
@@ -67,7 +67,7 @@ const SHADING_WORK: u64 = 16;
 const LOOKUP_BYTES: u64 = 4;
 /// CID フォントの幅（`W`・`W2`、9.7.4.3）の 1 項目を表に入れる手間。hayro-font は、範囲の CID を 1 つずつ入れる
 const WIDTH_WORK: u64 = 2;
-/// 内容の印（`BDC`、14.6）を始める手間。hayro-interpret は、見えるかの重なりを積み、装置に印と性質の辞書を渡す
+/// 内容のマーク（`BDC`、14.6）を始める手間。hayro-interpret は、見えるかの重なりを積み、装置にタグと性質の辞書を渡す
 const MARKED_WORK: u64 = 4;
 /// 切り抜きにする文字（描画モード 4〜7、9.3.6）の輪郭の経路の要素の 1 つを作る手間。hayro-interpret は、字ごとに
 /// フォントのプログラムから輪郭を作り、写して切り抜きの経路に足す（65,000 点の字形で、要素の 1 つにおよそ
@@ -183,7 +183,7 @@ const HINT_DEFINITION_BYTES: u64 = 16;
 const HINT_VALUE_BYTES: u64 = 4;
 /// 影の領域の点の 1 つ（座標の 2 組と旗で 17 バイト）
 const HINT_POINT_BYTES: u64 = 17;
-/// 参照でたどるオブジェクトの番号の 1 つのメモリ（[`settle`]。たどった印の木の節と、たどる順の配列）
+/// 参照でたどるオブジェクトの番号の 1 つのメモリ（[`settle`]。たどった番号の表の木の節と、たどる順の配列）
 pub(crate) const REFERENCE_BYTES: u64 = 64;
 /// 読み直すオブジェクトの値の参照をたどる段の数（[`targets`]）
 const TARGET_DEPTH: u32 = 3;
@@ -196,7 +196,7 @@ const TRANSIENT_BYTES: u64 = 512;
 /// 使うときに、0〜255 の値のそれぞれに関数を当てて表を作る
 const TABLE: u64 = 256;
 
-/// 内容のストリームの後ろに足す、終わりの印の演算子
+/// 内容のストリームの後ろに足す、終わりのマーカーの演算子
 const END: &[u8] = b"zumen-end";
 
 /// 走査の結果
@@ -294,7 +294,7 @@ struct Conversion {
 /// 展開したフォーム
 #[derive(Clone, Debug)]
 struct Form {
-    /// 展開したバイト列に、終わりの印を足したもの
+    /// 展開したバイト列に、終わりのマーカーを足したもの
     data: Rc<[u8]>,
     /// hayro-syntax が寛容に展開した（[`leniently_inflated`]）
     lenient: bool,
@@ -357,14 +357,14 @@ fn name_text(name: &[u8]) -> String {
     String::from_utf8_lossy(name).into_owned()
 }
 
-/// 番号 → xref から引いたストリームの、辞書のバイト列（[`own_stream`]）。見分けるたびに入れ物を読み直さないよう、
+/// 番号 → xref から引いたストリームの、辞書のバイト列（[`own_stream`]）。見分けるたびにコンテナーを読み直さないよう、
 /// 番号ごとに 1 度だけ引いて覚える。相互参照の表は、走査の前に作り直しを済ませる（[`settle`]）ので、覚えた値は
 /// 文書の間変わらない
 pub(crate) type Owned<'a> = BTreeMap<(u32, i32), Option<&'a [u8]>>;
 
 /// ストリームが、それ自身の間接オブジェクトなら、その番号。hayro-syntax 0.9.0 は、辞書の値や配列の項目に直接書いた
 /// ストリーム（7.3.8.1 に反する）も読み、その `obj_id` には、直接書いた辞書と同じく、それを含む間接オブジェクトの
-/// 番号を返す。そこで、その番号で xref から引いたストリームの辞書が、同じバイト列かを確かめる。入れ物のストリームの
+/// 番号を返す。そこで、その番号で xref から引いたストリームの辞書が、同じバイト列かを確かめる。コンテナーのストリームの
 /// 辞書は、直接書いたストリームの辞書を真に含むので、同じバイト列にならない
 pub(crate) fn own_stream<'a>(
     xref: &'a XRef,
@@ -683,7 +683,7 @@ fn number_before(data: &[u8], end: usize) -> usize {
         .map_or(0, |at| at + 1)
 }
 
-/// 内容のストリームのバイト列に、終わりの印を足したもの。最後の行のコメント（7.2.4）に入らないよう、改行を挟む
+/// 内容のストリームのバイト列に、終わりのマーカーを足したもの。最後の行のコメント（7.2.4）に入らないよう、改行を挟む
 fn with_end(data: &[u8]) -> Rc<[u8]> {
     let mut bytes = Vec::with_capacity(data.len() + END.len() + 2);
     bytes.extend_from_slice(data);
@@ -693,7 +693,7 @@ fn with_end(data: &[u8]) -> Rc<[u8]> {
     Rc::from(bytes)
 }
 
-/// 終わりの印の演算子か
+/// 終わりのマーカーの演算子か
 fn is_end(op: &TypedInstruction<'_, '_>) -> bool {
     match op {
         TypedInstruction::Fallback(operator) => {
@@ -712,10 +712,10 @@ fn transfer(state: &Dict<'_>) -> bool {
         .is_some_and(|function| !matches!(function, Object::Name(_)))
 }
 
-/// ストリームを、hayro-syntax が寛容に展開したか（7.4.4）。hayro-syntax は Flate を、zlib の形、見出しのない
+/// ストリームを、hayro-syntax が寛容に展開したか（7.4.4）。hayro-syntax は Flate を、zlib の形、ヘッダーのない
 /// deflate の形の順に厳しく展開し、どちらも壊れていれば、展開できた所までを返す。途中で切れた zlib の形は、
 /// 厳しい展開でも、展開できた所までを返す。フィルターが Flate だけで予測子のないストリームを、同じ順と、zlib の
-/// 見出しを除いた deflate の形（Adler-32 が違うか、ないもの）で厳しく展開し直し、deflate の終わりまで読めて、
+/// ヘッダーを除いた deflate の形（Adler-32 が違うか、ないもの）で厳しく展開し直し、deflate の終わりまで読めて、
 /// hayro-syntax が返した長さ `length` になるかを見る
 fn leniently_inflated(stream: &Stream<'_>, length: usize) -> bool {
     if predicted(stream.dict()) || !matches!(stream.filters().as_slice(), [Filter::FlateDecode]) {
@@ -755,7 +755,7 @@ fn predicted(dict: &Dict<'_>) -> bool {
         .is_some_and(|predictor| predictor > 1)
 }
 
-/// 厳しく展開して、deflate の終わりまで読め、ちょうど `length` バイトになるか。`zlib` は、zlib の形（見出しと
+/// 厳しく展開して、deflate の終わりまで読め、ちょうど `length` バイトになるか。`zlib` は、zlib の形（ヘッダーと
 /// Adler-32）で読むか。書き出すのは、その長さより 1 バイト多い所まで
 fn inflates_to(data: &[u8], zlib: bool, length: usize) -> bool {
     let length = u64::try_from(length).unwrap_or(u64::MAX);
@@ -884,9 +884,9 @@ impl<'x> Reads<'x> {
         }
     }
 
-    /// 参照の先を読む手間。hayro-syntax は、鍵を引くたびと配列の項目を読むたびに参照を解き、型が違っても読み飛ばして
+    /// 参照の先を読む手間。hayro-syntax は、キーを引くたびと配列の項目を読むたびに参照を解き、型が違っても読み飛ばして
     /// 確かめる。そのため、読み直すオブジェクトを使うたびに、値の参照の先の大きさを、書いた回数だけ読みうる。
-    /// hayro-interpret が読む鍵によらず、参照を [`TARGET_DEPTH`] 段たどって（`DecodeParms` の配列の辞書の値まで）、
+    /// hayro-interpret が読むキーによらず、参照を [`TARGET_DEPTH`] 段たどって（`DecodeParms` の配列の辞書の値まで）、
     /// 書いた回数を掛けて数える。求める間は、同じ番号を段ごとに 1 度だけ引くので、数える量より多く読まない
     fn targets(self, first: Targets) -> u64 {
         let mut frontier = first;
@@ -914,7 +914,7 @@ impl<'x> Reads<'x> {
             return 0;
         }
         let mut first = Targets::new();
-        // 鍵を並べて値を読む手間
+        // キーを並べて値を読む手間
         let mut work = dict.len() as u64;
         for (name, value) in dict.entries() {
             match value {
@@ -963,12 +963,12 @@ impl<'x> Reads<'x> {
         .fold(0, u64::saturating_add)
     }
 
-    /// 鍵の値が参照なら、その先を読む手間。型が違っても読み飛ばして確かめるので、読めるかによらない
+    /// キーの値が参照なら、その先を読む手間。型が違っても読み飛ばして確かめるので、読めるかによらない
     pub(crate) fn value_work(self, dict: &Dict<'_>, name: &[u8]) -> u64 {
         dict.get_ref(name).map_or(0, |id| self.read(id.into()).0)
     }
 
-    /// 鍵の値を読む手間。[`Reads::value_work`] と違い、直接書いた値も数える。hayro-syntax は、ストリームとして引くと、
+    /// キーの値を読む手間。[`Reads::value_work`] と違い、直接書いた値も数える。hayro-syntax は、ストリームとして引くと、
     /// 直接書いた辞書を読んでから、ストリームでないと分かる
     pub(crate) fn entry_work(self, dict: &Dict<'_>, name: &[u8]) -> u64 {
         dict.get_raw::<Object<'_>>(name)
@@ -1273,7 +1273,7 @@ pub(crate) struct Walker<'a, 'o> {
     calls: BTreeMap<Call, Known>,
     /// 拡張グラフィックス状態・シェーディング・画像 → hayro-interpret が使うたびにする作業（ページごと）。間接
     /// オブジェクトだけを覚える。hayro-syntax の `obj_id` は、直接書いた辞書とストリームには、それを含む間接
-    /// オブジェクトの番号を返すので、鍵には、資源の辞書の項目が指す参照か、それ自身の間接オブジェクトのストリームの
+    /// オブジェクトの番号を返すので、キーには、資源の辞書の項目が指す参照か、それ自身の間接オブジェクトのストリームの
     /// 番号（[`own_stream`]）を使う
     costs: BTreeMap<(Role, (u32, i32)), Cost>,
     /// 縦書きのフォント（間接オブジェクト）→ 原点の移動が既定と違いうるか（ページごと）
@@ -1291,13 +1291,13 @@ pub(crate) struct Walker<'a, 'o> {
     refused: Option<Ref>,
     /// 呼ばれ方を覚えるフォームの中で返した診断。たどっているフォームごとに 1 つ
     recording: Vec<Diagnostics>,
-    /// 展開したフォーム。展開できなければ `None`（ページごと）。鍵は、それ自身の間接オブジェクトのストリームの番号
+    /// 展開したフォーム。展開できなければ `None`（ページごと）。キーは、それ自身の間接オブジェクトのストリームの番号
     /// （[`own_stream`]）
     forms: BTreeMap<(u32, i32), Option<Form>>,
     /// ストリーム（ソフトマスクのグループ・シェーディング・関数・Indexed の表）の、展開したバイト数（ページごと）。
-    /// 鍵は、フォームと同じ
+    /// キーは、フォームと同じ
     sizes: BTreeMap<(u32, i32), u64>,
-    /// 印つきの内容の入れ子の、見えるか。hayro-interpret の `OcgState` の重なりと同じく、ページの中で 1 つだけ持ち、
+    /// マーク付きの内容の入れ子の、見えるか。hayro-interpret の `OcgState` の重なりと同じく、ページの中で 1 つだけ持ち、
     /// フォームの中と外で分けない
     visible: Vec<bool>,
     /// 入れ子を閉じる前の重なりの数のうち、いちばん小さいもの。たどっている内容のストリームが、始めた所より外の
@@ -1504,7 +1504,7 @@ impl<'a, 'o> Walker<'a, 'o> {
         self.visible.last().copied().unwrap_or(true)
     }
 
-    /// 印つきの内容の入れ子を閉じる（hayro-interpret の `end_marked_content`。空なら何もしない）
+    /// マーク付きの内容の入れ子を閉じる（hayro-interpret の `end_marked_content`。空なら何もしない）
     fn end_marked(&mut self) {
         self.closed = self.closed.min(self.visible.len());
         self.visible.pop();
@@ -1517,8 +1517,8 @@ impl<'a, 'o> Walker<'a, 'o> {
         }
     }
 
-    /// 内容のストリーム（終わりの印を足したもの）をたどる。`state` は、呼ぶ所のグラフィックス状態。2 つ目は、
-    /// 印つきの内容の入れ子が釣り合うか。釣り合うのは、始めた所より外の入れ子を閉じず、始めた所に戻って終わる
+    /// 内容のストリーム（終わりのマーカーを足したもの）をたどる。`state` は、呼ぶ所のグラフィックス状態。2 つ目は、
+    /// マーク付きの内容の入れ子が釣り合うか。釣り合うのは、始めた所より外の入れ子を閉じず、始めた所に戻って終わる
     /// とき。このとき、見えるかの重なりは、たどる前と同じになり、たどった中身は、呼ぶ所が見えることだけで決まる
     #[allow(clippy::too_many_arguments)]
     fn content(
@@ -1781,7 +1781,7 @@ impl<'a, 'o> Walker<'a, 'o> {
                 _ => {}
             }
         }
-        // 終わりの印まで読めなければ、そこから後ろを hayro-interpret も読まない（引数の足りない経路の演算子・
+        // 終わりのマーカーまで読めなければ、そこから後ろを hayro-interpret も読まない（引数の足りない経路の演算子・
         // 閉じない文字列など）
         if !ended {
             self.report(codes::PDF_CONTENT_INVALID, place.clone(), cx);
@@ -1836,7 +1836,7 @@ impl<'a, 'o> Walker<'a, 'o> {
 
     /// 拡張グラフィックス状態（8.4.5）を当てる手間。転送関数を見つける。hayro-interpret は、状態を当てるたびに、
     /// 転送関数（`TR`・`TR2`、10.4）を作り、ソフトマスク（11.6.5.2）のグループを展開し、その色空間と転送関数を作る。
-    /// 転送関数は、`TR` と `TR2` の鍵のそれぞれで作り直し、はじめて塗るときに [`TABLE`] 個の値に当てて表を作る。
+    /// 転送関数は、`TR` と `TR2` のキーのそれぞれで作り直し、はじめて塗るときに [`TABLE`] 個の値に当てて表を作る。
     /// `reference` は、資源の辞書の項目が指す参照（直接書いた状態なら `None` で、手間を覚えない）
     fn state(
         &mut self,
@@ -2004,7 +2004,7 @@ impl<'a, 'o> Walker<'a, 'o> {
     }
 
     /// 名前で引く色空間（`cs`・`CS`・画像の名前の色空間、8.6.3）を使う手間と、その色空間で色を 1 つ RGB にするたびの
-    /// 手間（[`Conversion::each`]）。hayro-interpret は、使うたびに資源を引いて読み直し、そのバイト列から表の鍵を
+    /// 手間（[`Conversion::each`]）。hayro-interpret は、使うたびに資源を引いて読み直し、そのバイト列から表のキーを
     /// 作る。色空間そのものと色の表（[`Conversion::table`]）は、文書の中で 1 度だけ作るので、作る手間はページで
     /// 1 度だけ数える（使う手間には入れない）。資源にない名前（装置の色空間など）は、何もしない
     fn named_space(
@@ -2559,7 +2559,7 @@ impl<'a, 'o> Walker<'a, 'o> {
     }
 
     /// フォントの辞書（`Tf` で選ぶものと、拡張グラフィックス状態の `Font`）を選ぶ。hayro-interpret は、選ぶたびに
-    /// 辞書のバイト列から表の鍵を作り、文書の中で 1 度だけフォントを読む。`reference` は、フォントの辞書を指す参照
+    /// 辞書のバイト列から表のキーを作り、文書の中で 1 度だけフォントを読む。`reference` は、フォントの辞書を指す参照
     /// （直接書いた辞書なら `None`）。`base` は、診断の名前
     fn font_dict(
         &mut self,
@@ -2741,7 +2741,7 @@ impl<'a, 'o> Walker<'a, 'o> {
         Ok(shifted)
     }
 
-    /// 印つきの内容の始まり（`BDC`、14.6）。表示グループ（8.11.3.2）の見え方を、hayro-interpret と同じく決める。
+    /// マーク付きの内容の始まり（`BDC`、14.6）。表示グループ（8.11.3.2）の見え方を、hayro-interpret と同じく決める。
     /// 表示グループの名前が資源の `Properties` で間接参照を指すか、内容の中の辞書が `OC` に間接参照を持てば、
     /// 表示グループか表示の規則の辞書として扱う
     fn begin_marked(
@@ -2753,7 +2753,7 @@ impl<'a, 'o> Walker<'a, 'o> {
         cx: &mut Cx<'_>,
     ) -> Result<(), Stop> {
         spend(cost, MARKED_WORK, 0, cx)?;
-        // hayro-interpret は、名前の性質の辞書を、印の種類によらず読み直す。別の型のオブジェクトも、読み飛ばして確かめる
+        // hayro-interpret は、名前の性質の辞書を、タグによらず読み直す。別の型のオブジェクトも、読み飛ばして確かめる
         if let Some(name) = properties.clone().into_name() {
             let read = match resources.properties.get::<Dict<'_>>(name.as_ref()) {
                 Some(dict) => self.reread_dict(&dict),
@@ -2778,7 +2778,7 @@ impl<'a, 'o> Walker<'a, 'o> {
         let parent = self.is_visible();
         let visible = match membership {
             Some((dict, reference)) => {
-                // hayro-interpret は、内容の印のたびに表示グループか表示の規則の辞書を引き直す。表示の規則の辞書なら、
+                // hayro-interpret は、内容のマークのたびに表示グループか表示の規則の辞書を引き直す。表示の規則の辞書なら、
                 // hayro-interpret・走査・装置が、それぞれ `OCGs` の配列を読む
                 let groups = dict
                     .get::<Array<'_>>(b"OCGs")
@@ -3020,7 +3020,7 @@ impl<'a, 'o> Walker<'a, 'o> {
                 }
             }
             cost.add(inner);
-            // 印つきの内容の入れ子が釣り合わないフォームは、呼ぶ所の入れ子で中身の見え方が変わるので、覚えない
+            // マーク付きの内容の入れ子が釣り合わないフォームは、呼ぶ所の入れ子で中身の見え方が変わるので、覚えない
             if let Some(call) = call.filter(|_| balanced) {
                 let known = Known {
                     cost: inner,
@@ -3064,7 +3064,7 @@ impl<'a, 'o> Walker<'a, 'o> {
 mod tests {
     use super::*;
 
-    /// 終わりの印まで読めるか
+    /// 終わりのマーカーまで読めるか
     fn reaches_the_end(data: &[u8]) -> bool {
         let data = with_end(data);
         let mut ops = TypedIter::new(&data);
@@ -3077,7 +3077,7 @@ mod tests {
 
     #[test]
     fn finds_where_content_stops() {
-        // 最後の行が PDF のコメントでも、終わりの印は読める
+        // 最後の行が PDF のコメントでも、終わりのマーカーは読める
         assert!(reaches_the_end(b"BT (a) Tj ET % note"));
         assert!(reaches_the_end(b""));
         // 引数の足りない経路の演算子と、閉じない文字列から後ろは読まない

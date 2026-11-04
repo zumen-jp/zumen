@@ -1,4 +1,4 @@
-"""確認の束を外部の実装と照らす台本（check_*.py）が共有する、値の比べ方と束の回し方（#503）。"""
+"""検証キットを外部の実装と照らすスクリプト（check_*.py）が共有する、値の比べ方とキットの回し方（#503）。"""
 
 import json
 import math
@@ -7,9 +7,9 @@ import tomllib
 from collections import Counter
 from pathlib import Path
 
-# zumen の中の ID で、外部の実装と比べない欄
+# zumen の中の ID で、外部の実装と比べないフィールド
 SKIP = {"style_id"}
-# 角度の欄。360 度の違いは同じとみなす
+# 角度のフィールド。360 度の違いは同じとみなす
 ANGLES = {"rotation", "start_angle", "end_angle"}
 # 比べた数の名前（結果の JSON のキー）→ 表示
 LABELS = {"elements": "出所で結んだ要素", "shapes": "形を比べた要素", "expected": "変更で決めた形"}
@@ -106,8 +106,8 @@ def close_angle(a, b):
 
 
 def differences(want, got, path="", both=False):
-    """want の欄が got と同じでない所。both なら、got にだけある欄も食い違いにする（zumen の読みと外部の実装の読みを
-    比べるとき。zumen が欄を落としても見つける）。変更で決めた形は、既定の値の欄を書かないので both にしない。
+    """want のフィールドが got と同じでない所。both なら、got にだけあるフィールドも食い違いにする（zumen の読みと外部の実装の読みを
+    比べるとき。zumen がフィールドを落としても見つける）。変更で決めた形は、既定の値のフィールドを書かないので both にしない。
     want の null は、got も null のときだけ同じとする（zumen の JSON は NaN と無限大を書かず、null にする。決定 0012、
     crates/zumen-json/src/write.rs）"""
     out = []
@@ -283,7 +283,7 @@ def applied(entry, reading, counts, view):
 
 
 def run(folder, tool, version, formats, check, known=()):
-    """束の formats の形式のファイルを check で照らし、<tool>.json に結果を書く。食い違いがあれば 1 を返す。
+    """キットの formats の形式のファイルを check で照らし、<tool>.json に結果を書く。食い違いがあれば 1 を返す。
 
     check(folder, entry, reading, baseline, counts) は、食い違いの文の一覧と、ファイルの監査の結果（入力と
     比べる値）を返す。入力の監査の結果は、その入力から書いたファイルの baseline になる。known は、既知の食い違い
@@ -309,7 +309,7 @@ def run(folder, tool, version, formats, check, known=()):
         try:
             failures, audit = check(folder, entry, reading, baselines.get(entry.get("from")), counts)
         except Exception as error:  # noqa: BLE001 1 つのファイルで止まらず、ほかのファイルも照らす
-            failures, audit = [f"台本が止まった: {type(error).__name__}: {error}"], None
+            failures, audit = [f"スクリプトが止まった: {type(error).__name__}: {error}"], None
         # 落としたことを言う code で、図形ごとか一部だけかを分けていないものは、黙って捨てない照合で扱えない
         if reading is not None:
             failures += [
@@ -344,6 +344,6 @@ def run(folder, tool, version, formats, check, known=()):
 
 def usage(script):
     if len(sys.argv) != 2:
-        print(f"使い方: python {script} <束のフォルダー>", file=sys.stderr)
+        print(f"使い方: python {script} <キットのフォルダー>", file=sys.stderr)
         return None
     return Path(sys.argv[1])

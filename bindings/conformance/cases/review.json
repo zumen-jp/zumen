@@ -1,5 +1,5 @@
 {
-  "description": "review_adopt は、check と同じに照合し、選んだ指摘だけを開いた指摘としてレビューの文書に足し、文書を blobs で返す。review_carry は、レビューの文書の対象を開いた文書の版へ移し、要素の参照ごとに unchanged・changed・removed を返す（決定 0214・0218）。結果が、ネイティブと wasm で同じになることを確かめる",
+  "description": "review_adopt は、check と同じに照合し、選んだ指摘だけを開いた指摘としてレビューの文書に足し、文書を blobs で返す。review_carry は、レビューの文書の対象を開いた文書のバージョンへ移し、要素の参照ごとに unchanged・changed・removed を返す（決定 0214・0218）。結果が、ネイティブと wasm で同じになることを確かめる",
   "steps": [
     {
       "push": {

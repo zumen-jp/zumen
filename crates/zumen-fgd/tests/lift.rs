@@ -1,4 +1,4 @@
-//! 試験の中で作った基盤地図情報（GML）を読み、地理の領域モデルに移す（決定 0233、#378）。
+//! テストの中で作った基盤地図情報（GML）を読み、地理の領域モデルに移す（決定 0233、#378）。
 
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Kind, Limit, Limits, codes};
 use zumen_crs::{Crs, GeoPoint, VerticalCrs};

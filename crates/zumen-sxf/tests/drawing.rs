@@ -1,4 +1,4 @@
-//! SFC と P21 から図面モデルへの変換（決定 0121・0132）。入力は、どれも試験の中で作る。
+//! SFC と P21 から図面モデルへの変換（決定 0121・0132）。入力は、どれもテストの中で作る。
 
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostic, Diagnostics, Key, Ref, codes};
 use zumen_drawing::{
@@ -114,7 +114,7 @@ fn moves_tables_and_shapes_on_the_sheet() {
         .find(|t| t.name == "mine")
         .unwrap();
     assert_eq!(mine.definition.as_ref().unwrap().pattern, [2.0, -1.0]);
-    // 出所は、レコードの番号と、変わらない鍵のインスタンスの番号を持つ（決定 0156）
+    // 出所は、レコードの番号と、変わらないキーのインスタンスの番号を持つ（決定 0156）
     assert_eq!(line.source, Ref::at_record(11).with_key(Key::Instance(60)));
 
     // 既定義の色は RGB を持たず、既定義線種は名前だけを持つ
@@ -499,7 +499,7 @@ fn moves_point_markers_as_points_with_predefined_markers() {
     ]);
     let (drawing, _) = lift(&src);
     let element = &drawing.sheets[0].elements[0];
-    // 点マーカーは既定義の印の点にし、記号にしない（決定 0160）
+    // 点マーカーは既定義のマーカーの点にし、記号にしない（決定 0160）
     assert_eq!(
         element.shape,
         Shape::Point(Point {
@@ -1071,7 +1071,7 @@ fn moves_p21_curves_like_the_same_sfc() {
     let (from_sfc, sfc_diag) = lift(&sfc);
     let (from_p21, diag) = lift(&p21);
     assert!(sfc_diag.is_empty(), "{sfc_diag:?}");
-    // 用紙の文脈（#99）と表題の版（#81）は、この試験では書かない
+    // 用紙の文脈（#99）と表題のバージョン（#81）は、このテストでは書かない
     assert_eq!(
         diag.iter().map(Diagnostic::code).collect::<Vec<_>>(),
         [codes::SXF_P21_REFERENCE_MISSING]

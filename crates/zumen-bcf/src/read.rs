@@ -37,7 +37,7 @@ pub(crate) fn archive(src: &[u8], cx: &mut Cx) -> Result<Bcf, Error> {
             continue;
         }
         work(cx)?;
-        // 読み手は `\` の区切りも受ける
+        // リーダーは `\` の区切りも受ける
         let name = entry.name().replace('\\', "/");
         let data = archive.extract(entry, cx)?;
         if name == "bcf.version" {
@@ -104,7 +104,7 @@ pub(crate) fn archive(src: &[u8], cx: &mut Cx) -> Result<Bcf, Error> {
     })
 }
 
-/// bcfzip の topic を、`target` を対象にした指摘にする。要素の参照のハッシュは、`version` があればその版の
+/// bcfzip の topic を、`target` を対象にした指摘にする。要素の参照のハッシュは、`version` があればそのバージョンの
 /// 要素のハッシュで埋め、なければなしにする。状態は `statuses` で写し、表にない文字列は `open` と
 /// `status_label` にする
 pub fn review(
@@ -154,7 +154,7 @@ fn listed<'d>(
     }
 }
 
-/// 版ごとの、一覧の要素の置き場所。3.0 は一覧を包む要素の中に並べ、2.1 は包まずに並べる
+/// バージョンごとの、一覧の要素の置き場所。3.0 は一覧を包む要素の中に並べ、2.1 は包まずに並べる
 impl Edition {
     /// コメント。3.0 は Topic の `Comments` の中、2.1 は Markup の直下の `Comment`
     pub(crate) fn comments<'d>(

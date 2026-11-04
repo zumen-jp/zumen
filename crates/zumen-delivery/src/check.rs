@@ -9,7 +9,7 @@
 //! - `delivery-unreferenced`: どの管理ファイルも指さないファイル
 //! - `delivery-standard`: 管理ファイルの要素の値（適用要領基準など）
 //! - `delivery-characters`: 管理ファイルの値の文字（JIS X 0201 のラテン文字と JIS X 0208）
-//! - `delivery-doctype`: 管理ファイルの DTD の名前と版
+//! - `delivery-doctype`: 管理ファイルの DTD の名前とバージョン
 //! - `delivery-photo-date`: 写真の管理ファイルの撮影年月日と、写真の Exif の撮影の日（#388）
 //! - `delivery-photo-pixels`: 写真の画素数（#388）
 
@@ -104,7 +104,7 @@ fn text(value: Option<&Value>) -> Option<&str> {
     }
 }
 
-/// 文字の列の欄。書かなければ空
+/// 文字の列のフィールド。書かなければ空
 fn texts(value: Option<&Value>) -> Option<Vec<String>> {
     match value {
         None => Some(Vec::new()),
@@ -116,7 +116,7 @@ fn texts(value: Option<&Value>) -> Option<Vec<String>> {
     }
 }
 
-/// 数の上限の欄。書かなければ `Some(None)`
+/// 数の上限のフィールド。書かなければ `Some(None)`
 fn limit(value: Option<&Value>) -> Option<Option<usize>> {
     match value {
         None => Some(None),

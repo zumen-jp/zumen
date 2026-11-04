@@ -9,7 +9,7 @@ use crate::read::{self, guid};
 use crate::xml::{Writer, Xml};
 use crate::{Bcf, Edition, Folder, Options};
 
-/// 書いた viewpoint のアスペクト比。レビューの文書はカメラの縦横の比を持たないので、BCF 2.1 の読み手の
+/// 書いた viewpoint のアスペクト比。レビューの文書はカメラの縦横の比を持たないので、BCF 2.1 のリーダーの
 /// 既定と同じ 1 にする
 const ASPECT_RATIO: f64 = 1.0;
 
@@ -20,9 +20,9 @@ fn work(cx: &mut Cx) -> Result<(), Error> {
     })
 }
 
-/// レビューの文書を bcfzip に書く。版は `options.version` で、なければ `original` の版か 3.0。
+/// レビューの文書を bcfzip に書く。バージョンは `options.version` で、なければ `original` のバージョンか 3.0。
 ///
-/// - `original` の版と違う版では書かず、`bcf.conversion.unsupported` で失敗する。版の間で、写さない要素の形が違うため。
+/// - `original` のバージョンと違うバージョンでは書かず、`bcf.conversion.unsupported` で失敗する。バージョンの間で、写さない要素の形が違うため。
 /// - `options.target` を対象にした 3D の場所を viewpoint にする。2D の場所・ほかの対象の場所・カメラのない場所と
 ///   図形は書かずに診断する。
 /// - 要素の参照は、IFC の GlobalId（22 字）の ID だけを書く。ほかの ID（`i` と番号）は除いて診断する。
@@ -638,7 +638,7 @@ fn markup(
     Ok(all)
 }
 
-/// 指摘のコメントと viewpoint を書く道具
+/// 指摘のコメントと viewpoint を書くツール
 struct Written<'a, 'd> {
     topic: &'a Topic,
     kept: &'a Kept<'d>,

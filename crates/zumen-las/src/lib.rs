@@ -1,7 +1,7 @@
 //! LAS 1.0〜1.4 と LAZ（台帳の `las_1_4_r15`・`laz_1_4`）の点群を読み、点群の領域モデル（決定 0232）に移す。
 //!
-//! L1 は、見出し・可変長のレコード（VLR・EVLR）と、点のレコードのバイト列で持つ。LAZ は、読むときに点のレコードへ
-//! 展開する。入力は範囲で読める（[`Ranged`]）。見出しを読んでから、VLR・点・EVLR の範囲を求める。
+//! L1 は、ヘッダー・可変長のレコード（VLR・EVLR）と、点のレコードのバイト列で持つ。LAZ は、読むときに点のレコードへ
+//! 展開する。入力は範囲で読める（[`Ranged`]）。ヘッダーを読んでから、VLR・点・EVLR の範囲を求める。
 
 mod lift;
 
@@ -15,14 +15,14 @@ use zumen_sdk::{Codec, Cx, Error, FileModel, Lift, RecordInfo, Signature};
 /// LAS・LAZ のコーデック
 pub struct Las;
 
-/// 読んだ見出し
+/// 読んだヘッダー
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Header {
-    /// 版（大・小）
+    /// バージョン（大・小）
     pub version: (u8, u8),
-    /// 全体の符号化の印。4 ビット目が立てば、座標系を WKT で書く
+    /// 全体の符号化のフラグ。4 ビット目が立てば、座標系を WKT で書く
     pub global_encoding: u16,
-    /// 見出しの大きさ
+    /// ヘッダーの大きさ
     pub header_size: u16,
     /// 点のレコードの始まり
     pub point_offset: u32,
@@ -75,7 +75,7 @@ pub struct Vlr {
 /// 読んだ LAS・LAZ。LAZ の点は展開して持つ
 #[derive(Clone, Debug, PartialEq)]
 pub struct LasFile {
-    /// 見出し
+    /// ヘッダー
     pub header: Header,
     /// VLR と EVLR。ファイルの順
     pub vlrs: Vec<Vlr>,
@@ -106,13 +106,13 @@ impl FileModel for LasFile {
     }
 }
 
-/// 1.0〜1.2 の見出しの大きさ
+/// 1.0〜1.2 のヘッダーの大きさ
 const HEADER_1_0: u16 = 227;
-/// 1.4 の見出しの大きさ
+/// 1.4 のヘッダーの大きさ
 const HEADER_1_4: u16 = 375;
-/// VLR の見出しの大きさ
+/// VLR のヘッダーの大きさ
 const VLR_HEADER: u64 = 54;
-/// EVLR の見出しの大きさ
+/// EVLR のヘッダーの大きさ
 const EVLR_HEADER: u64 = 60;
 
 /// 点の形式ごとの、レコードの最小の長さ
@@ -272,7 +272,7 @@ impl Lift<PointCloud> for LasFile {
     }
 }
 
-/// 小さな読み手。足りなければ `None`
+/// 小さなリーダー。足りなければ `None`
 fn at<const N: usize>(bytes: &[u8], offset: usize) -> Option<[u8; N]> {
     bytes.get(offset..offset.checked_add(N)?)?.try_into().ok()
 }
@@ -293,13 +293,13 @@ fn f64_at(bytes: &[u8], offset: usize) -> Option<f64> {
     at(bytes, offset).map(f64::from_le_bytes)
 }
 
-/// 0 で終わる ASCII の欄
+/// 0 で終わる ASCII のフィールド
 fn text(bytes: &[u8]) -> String {
     let end = bytes.iter().position(|b| *b == 0).unwrap_or(bytes.len());
     String::from_utf8_lossy(bytes.get(..end).unwrap_or_default()).into_owned()
 }
 
-/// 見出しを読む。LAS でなければ `None`
+/// ヘッダーを読む。LAS でなければ `None`
 fn header(bytes: &[u8]) -> Option<Header> {
     if bytes.get(..4)? != b"LASF" {
         return None;
@@ -317,7 +317,7 @@ fn header(bytes: &[u8]) -> Option<Header> {
         header_size,
         point_offset: u32_at(bytes, 96)?,
         vlr_count: u32_at(bytes, 100)?,
-        // 上の 2 ビットは LAZ の印
+        // 上の 2 ビットは LAZ のフラグ
         point_format: id & 0x3f,
         compressed: id & 0xc0 != 0,
         record_length: u16_at(bytes, 105)?,

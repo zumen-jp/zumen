@@ -1,15 +1,15 @@
-# 境界の版・状態コード・関数（決定 0012・0015）。
+# API のバージョン・状態コード・関数（決定 0012・0015）。
 #
 # `cargo xtask codegen` が、ここから C のヘッダー（bindings/c/include/zumen.h）と、
 # Rust の定数と関数の形の検査（crates/zumen-abi/src/abi.rs）を作る。
 # 状態コードと関数は足すだけにし、消さず、名前・値・引数・意味を変えない（決定 0015）。
 
 [versions]
-# ABI の大版。関数の引数か意味を変えるときに上げる。上げないことを目指す
+# ABI のメジャーバージョン。関数の引数か意味を変えるときに上げる。上げないことを目指す
 abi = 1
-# メッセージのスキーマ（schema/messages.json）の大版。要求と応答の v
+# メッセージのスキーマ（schema/messages.json）のメジャーバージョン。要求と応答の v
 schema-major = 1
-# メッセージのスキーマの小版。op・欄・列挙の値を足すたびに上げる
+# メッセージのスキーマのマイナーバージョン。op・フィールド・列挙の値を足すたびに上げる
 schema-minor = 63
 
 # 状態コード。理由は応答の診断で返す
@@ -44,7 +44,7 @@ description = "コアの不具合で止まった。セッションは閉じる�
 [[functions]]
 name = "zm_abi_version"
 returns = "u32"
-description = "ABI の大版を返す。この関数の形は変えない"
+description = "ABI のメジャーバージョンを返す。この関数の形は変えない"
 
 [[functions]]
 name = "zm_session_new"
@@ -189,7 +189,7 @@ formats = []
 ops = ["capabilities", "open", "close", "describe", "lift"]
 
 # open が入力の形式を判定する順と規則（決定 0007・0219）。規則は、形式のコーデックの SIGNATURES と同じにする
-# （zumen-abi の試験が確かめる）。JavaScript の包みは、この順で判定し、形式を持つモジュールを読み込む。
+# （zumen-abi のテストが確かめる）。JavaScript のラッパーは、この順で判定し、形式を持つモジュールを読み込む。
 # 規則の形: bytes（offset の位置から続くバイト列）・lines（先頭の行）・step-schema（ISO 10303-21 の FILE_SCHEMA の始まり）・
 # xml-root（XML の最初の要素の名前。namespace で名前空間を添える）・zip-entry（ZIP の項目の名前の終わり。zip-prefix で
 # フォルダーを除いた名前の始まりを添える、決定 0251）
@@ -205,7 +205,7 @@ format = "las"
 module = "pointcloud"
 rules = [{ offset = 0, bytes = "LASF" }]
 
-# PLY。XYZ は見分ける印がないので、判定に入れない（決定 0232）
+# PLY。XYZ は見分けるマーカーがないので、判定に入れない（決定 0232）
 [[detection]]
 format = "ply"
 module = "pointcloud"
@@ -269,13 +269,13 @@ format = "fgd"
 module = "civil"
 rules = [{ xml-root = "Dataset", namespace = "http://fgd.gsi.go.jp/spec/2008/FGD_GMLSchema" }]
 
-# ZIP に入れた SXF（SFZ・P2Z）。ifcZIP より前に、書庫の項目の名前で分ける
+# ZIP に入れた SXF（SFZ・P2Z）。ifcZIP より前に、アーカイブの項目の名前で分ける
 [[detection]]
 format = "sxf"
 module = "drawing"
 rules = [{ zip-entry = [".p21", ".sfc"] }]
 
-# 基盤地図情報の配布の書庫（ZIP、#493）。中の項目の名前（FG-GML- で始まる .xml と、全項目の書庫の中の .zip）で、
+# 基盤地図情報の配布のアーカイブ（ZIP、#493）。中の項目の名前（FG-GML- で始まる .xml と、全項目のアーカイブの中の .zip）で、
 # ほかの ZIP の形式と分ける（決定 0251）。open は SFZ・P2Z の後、ifcZIP の前に試す
 [[detection]]
 format = "fgd"

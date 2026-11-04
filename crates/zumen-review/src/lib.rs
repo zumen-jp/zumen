@@ -2,7 +2,7 @@
 //!
 //! 文書は、対象（`targets`）・指摘（`topics`）・図形（`markups`）を持つ。場所と図形は対象の ID を指し、要素の参照は
 //! 要素の ID とハッシュの組にする。知らないキーは、読んで書き直しても保つ。この crate は、図面モデルと建物モデルの
-//! ID とハッシュを文字列で持ち、どちらのモデルにも依らない。新しい版の要素は、呼び手が [`Version`] で引く。
+//! ID とハッシュを文字列で持ち、どちらのモデルにも依らない。新しいバージョンの要素は、呼び手が [`Version`] で引く。
 
 mod adopt;
 mod carry;
@@ -16,7 +16,7 @@ pub use carry::{CarriedReference, Version, carry};
 
 /// 文書の `format`
 pub const FORMAT: &str = "zumen-review";
-/// 読み書きする文書の大きい版
+/// 読み書きする文書の大きいバージョン
 pub const VERSION: u64 = 1;
 
 /// 知らないキーと値。読んだ順に、書き直すときに知っているキーの後ろへ書く
@@ -121,12 +121,12 @@ pub struct Comment {
     pub extra: Extra,
 }
 
-/// 照合の結果の出所。規則の id と、境界の診断の形（決定 0179）のまま持つ
+/// 照合の結果の出所。規則の id と、API の診断の形（決定 0179）のまま持つ
 #[derive(Clone, Debug, PartialEq)]
 pub struct Origin {
     /// 規則の id（IDS の照合なら仕様の名前）
     pub rule: String,
-    /// 診断。境界のメッセージの `diagnostic` の形
+    /// 診断。API のメッセージの `diagnostic` の形
     pub diagnostic: Value,
 }
 
@@ -148,7 +148,7 @@ pub struct Location {
     pub target: String,
     /// 2D か 3D の場所
     pub place: Place,
-    /// 新しい版へ移したときの、元の文書のハッシュと状態
+    /// 新しいバージョンへ移したときの、元の文書のハッシュと状態
     pub carried: Option<Carried>,
     /// 知らないキー
     pub extra: Extra,
@@ -225,7 +225,7 @@ pub struct Clip {
     pub normal: [f64; 3],
 }
 
-/// 新しい版へ移したときの状態
+/// 新しいバージョンへ移したときの状態
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Change {
     /// 変わっていない

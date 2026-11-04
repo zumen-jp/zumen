@@ -1,13 +1,13 @@
-//! 指摘を、対象の新しい版へ引き継ぐ（決定 0218）。
+//! 指摘を、対象の新しいバージョンへ引き継ぐ（決定 0218）。
 
 use zumen_base::{Diagnostic, Kind, codes};
 use zumen_sdk::{Cx, Error};
 
 use crate::{Carried, Change, Place, Reference, Review};
 
-/// 対象の新しい版。要素を ID で引き、要素のハッシュを返す
+/// 対象の新しいバージョン。要素を ID で引き、要素のハッシュを返す
 pub trait Version {
-    /// 版の全体のハッシュ
+    /// バージョンの全体のハッシュ
     fn hash(&self) -> String;
     /// ID の要素のハッシュ。要素がなければ `None`
     fn element(&self, id: &str) -> Option<String>;
@@ -28,9 +28,9 @@ pub struct CarriedReference {
 
 /// `target` の ID の対象を `version` へ移した文書と、要素の参照ごとの状態を返す。
 ///
-/// 要素が新しい版になければ「なくなった」、ハッシュが違うか元のハッシュがなければ「変わった」、
+/// 要素が新しいバージョンになければ「なくなった」、ハッシュが違うか元のハッシュがなければ「変わった」、
 /// 同じなら「変わっていない」とする。変わった参照は新しいハッシュに書き換え、なくなった参照は元の
-/// ハッシュのまま残す。場所と図形には、元の版のハッシュと、まとめた状態を `carried` に書く。対象が
+/// ハッシュのまま残す。場所と図形には、元のバージョンのハッシュと、まとめた状態を `carried` に書く。対象が
 /// 文書になければ `review.target.missing` を出して失敗する
 pub fn carry(
     review: &Review,
@@ -75,7 +75,7 @@ pub fn carry(
             });
         }
     }
-    // 図形は要素を指さないので、元の版から変わっていないとする
+    // 図形は要素を指さないので、元のバージョンから変わっていないとする
     for markup in review.markups.iter_mut().filter(|m| m.target == target) {
         markup.carried = Some(Carried {
             from: from.clone(),

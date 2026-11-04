@@ -31,7 +31,7 @@ import ifcopenshell
 import ifcopenshell.util.element
 import ifcopenshell.util.placement
 
-# 1 つの試料で書く食い違いの数の上限
+# 1 つのサンプルで書く食い違いの数の上限
 SHOWN = 20
 
 
@@ -205,7 +205,7 @@ def main():
         for what, n in sorted(missing.items(), key=lambda kv: (-kv[1], kv[0]))[:SHOWN]:
             print(f"  IfcOpenShell だけが読んだ {what}: {n}")
         failed += bool(failures)
-    print(f"IfcOpenShell {ifcopenshell.version} で {len(paths)} 個の試料を照らし、{failed} 個に食い違いがあった")
+    print(f"IfcOpenShell {ifcopenshell.version} で {len(paths)} 個のサンプルを照らし、{failed} 個に食い違いがあった")
     return 1 if failed else 0
 
 

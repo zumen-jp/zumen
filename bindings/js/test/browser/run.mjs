@@ -1,11 +1,11 @@
-// 適合試験を、TypeScript・JavaScript の包み（bindings/js）を通して、ブラウザーの中で流す（決定 0194・0199）。
+// 適合テストを、TypeScript・JavaScript のラッパー（bindings/js）を通して、ブラウザーの中で流す（決定 0194・0199）。
 //
 // 使い方: node bindings/js/test/browser/run.mjs <chromium|firefox|webkit> <zumen_abi1.wasm> [<drawing.wasm> <bim.wasm> <civil.wasm>
 //   <pointcloud.wasm> <plugin.wasm>]
 //
-// 分けた wasm のモジュール（決定 0221）を渡せば、包みの loadModules で読み込み、組ごとに組に合うモジュールでも流す
+// 分けた wasm のモジュール（決定 0221）を渡せば、ラッパーの loadModules で読み込み、組ごとに組に合うモジュールでも流す
 // （すべてのモジュールを入れたコアでだけ流す組を除く）。
-// Playwright でブラウザーを動かし、ページの中で包みを読み込んで、Node.js と同じ本体（../run.mjs）で組を流す。
+// Playwright でブラウザーを動かし、ページの中でラッパーを読み込んで、Node.js と同じ本体（../run.mjs）で組を流す。
 // wasm は fetch の応答から load で読み込み、loadSync も試す。ハッシュの一覧は、ページの外で hashes.txt と比べる。
 // ページとファイルは、Playwright が要求を横取りして返す。待ち受けるサーバーは立てない。
 // ブラウザーは `npx playwright install <ブラウザー>` で取っておく。
@@ -22,7 +22,7 @@ const BROWSERS = { chromium, firefox, webkit };
 // 安全なコンテキスト（crypto.subtle が使える）になる localhost にする。番号は開発用の範囲（AGENTS.md）
 const ORIGIN = "http://localhost:24190";
 const WASM_PATH = "/zumen_abi1.wasm";
-// ページから読めるのは、包み・組の本体・公開サンプルだけ
+// ページから読めるのは、ラッパー・組の本体・公開サンプルだけ
 const SERVED = ["bindings/js/src/", "bindings/js/test/run.mjs", "bindings/conformance/steps.mjs", "samples/"];
 const TYPES = { ".js": "text/javascript", ".mjs": "text/javascript", ".wasm": "application/wasm" };
 
@@ -131,7 +131,7 @@ try {
       // 主スレッドでは大きなモジュールを同期でコンパイルできないので、非同期でコンパイルしたものを loadSync に渡す
       const module = await WebAssembly.compile(await fetchBytes(wasmPath));
       if (loadSync(module).abiVersion() !== zumen.abiVersion()) {
-        run.failures.push("loadSync と load の ABI の大版が違う");
+        run.failures.push("loadSync と load の ABI のメジャーバージョンが違う");
       }
       return { ...run, userAgent: navigator.userAgent };
     },
@@ -149,11 +149,11 @@ if (result.split) {
 }
 
 const splitSummary = result.split ? `。分けたモジュールで流した組 ${split.length} 件、ハッシュ ${result.split.hashes.length} 件` : "";
-const summary = `${name} ${version}: 包みを通した試験の組 ${cases.length} 件、ハッシュ ${result.hashes.length} 件、読んだシーン ${result.scenes} 件${splitSummary}`;
+const summary = `${name} ${version}: ラッパーを通したテストの組 ${cases.length} 件、ハッシュ ${result.hashes.length} 件、読んだシーン ${result.scenes} 件${splitSummary}`;
 console.log(summary);
 console.log(result.userAgent);
 if (process.env.GITHUB_STEP_SUMMARY) {
-  appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### ブラウザーでの TypeScript・JavaScript の包みの適合試験\n\n${summary}\n`);
+  appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### ブラウザーでの TypeScript・JavaScript のラッパーの適合テスト\n\n${summary}\n`);
 }
 if (failures.length > 0) {
   console.error(`期待と違った:\n${failures.join("\n")}`);

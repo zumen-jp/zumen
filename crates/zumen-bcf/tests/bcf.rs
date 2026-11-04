@@ -1,4 +1,4 @@
-//! BCF 2.1 と 3.0 の bcfzip を読み、レビューの文書に写して書き戻す（決定 0214・0220）。bcfzip は試験の中で作る
+//! BCF 2.1 と 3.0 の bcfzip を読み、レビューの文書に写して書き戻す（決定 0214・0220）。bcfzip はテストの中で作る
 
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Kind, Limit, Limits, codes};
 use zumen_bcf::{Bcf, Edition, Options, Statuses};
@@ -188,7 +188,7 @@ fn options() -> Options {
     }
 }
 
-/// 扉だけにハッシュのある版
+/// 扉だけにハッシュのあるバージョン
 struct Model;
 
 impl Version for Model {
@@ -619,7 +619,7 @@ fn reads_bcf_2_1_into_the_same_review_as_3_0() {
 fn writes_bcf_2_1_back_with_its_unmapped_parts() {
     let original = sample_2_1();
     let (bcf, mut review) = read(&original).unwrap();
-    // 版を渡さなければ、元の版で書く
+    // バージョンを渡さなければ、元のバージョンで書く
     let (bytes, diag) = write(&review, Some(&bcf), &options()).unwrap();
     assert!(diag.is_empty(), "{diag:?}");
     for name in [

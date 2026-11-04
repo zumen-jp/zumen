@@ -1,18 +1,18 @@
-//! DWG の変更（決定 0028）。R2000 から R2018 までのオブジェクトを扱う（決定 0071・0083）。見出しの変数も R2018 まで扱う（決定 0084）。
+//! DWG の変更（決定 0028）。R2000 から R2018 までのオブジェクトを扱う（決定 0071・0083）。ヘッダーの変数も R2018 まで扱う（決定 0084）。
 //!
-//! 変えたオブジェクトは、元のファイルの後ろに足し、オブジェクトの地図を作り直してその後ろに置く。
-//! 見出しの区切りの記録の地図の位置と大きさと、見出しの CRC を直す。ほかのバイトは元のまま残す。
-//! 除いたオブジェクトは、地図から除く。元のバイトは残る（決定 0051）。
+//! 変えたオブジェクトは、元のファイルの後ろに足し、オブジェクトのマップを作り直してその後ろに置く。
+//! ヘッダーのセクションの記録のマップの位置と大きさと、ヘッダーの CRC を直す。ほかのバイトは元のまま残す。
+//! 除いたオブジェクトは、マップから除く。元のバイトは残る（決定 0051）。
 //!
-//! 足したオブジェクトは、変えたオブジェクトと同じく後ろに足し、地図に加える。見出しの変数の HANDSEED は、
-//! 大きさ（バイト）が変わらないときだけ、その場で書き換えて区切りの CRC を直す（決定 0052）。
+//! 足したオブジェクトは、変えたオブジェクトと同じく後ろに足し、マップに加える。ヘッダーの変数の HANDSEED は、
+//! 大きさ（バイト）が変わらないときだけ、その場で書き換えてセクションの CRC を直す（決定 0052）。
 //!
-//! 見出しの変数の PDMODE・PDSIZE を書く幅が変わり、見出しの区切りの大きさが変われば、R2000 は書き直した区切りを
-//! ファイルの後ろに足し、区切りの記録の位置と大きさと、見出しの CRC を直す。元の区切りのバイトは残る。R2004 からは、
-//! 展開した見出しの区切りの中で置き換える（決定 0193）。
+//! ヘッダーの変数の PDMODE・PDSIZE を書く幅が変わり、ヘッダーのセクションの大きさが変われば、R2000 は書き直したセクションを
+//! ファイルの後ろに足し、セクションの記録の位置と大きさと、ヘッダーの CRC を直す。元のセクションのバイトは残る。R2004 からは、
+//! 展開したヘッダーのセクションの中で置き換える（決定 0193）。
 //!
-//! R2004 は、展開した `AcDb:AcDbObjects` の区切りの後ろにオブジェクトを足し、`AcDb:Handles` の区切りを
-//! 作り直して、入れ物の区切りを置き換える（決定 0071）。入れ物は、書くときに組み直す（決定 0070）。
+//! R2004 は、展開した `AcDb:AcDbObjects` のセクションの後ろにオブジェクトを足し、`AcDb:Handles` のセクションを
+//! 作り直して、コンテナーのセクションを置き換える（決定 0071）。コンテナーは、書くときに組み直す（決定 0070）。
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -26,7 +26,7 @@ use super::{
     R2004_SECTIONS, Release, header_crc_mask, invalid, stopped,
 };
 
-/// オブジェクトの地図の 1 つの区切りの、データの大きさの上限。試料の DWG の区切りは、
+/// オブジェクトのマップの 1 つのセクションの、データの大きさの上限。サンプルの DWG のセクションは、
 /// これを超えない（推定）
 const MAP_SECTION_LIMIT: usize = 2032;
 
@@ -94,33 +94,33 @@ impl DwgTxn<'_> {
         Ok(())
     }
 
-    /// 見出しの変数の HANDSEED を `seed` にする。大きさ（バイト）が変わる値なら、確定のときに失敗する
+    /// ヘッダーの変数の HANDSEED を `seed` にする。大きさ（バイト）が変わる値なら、確定のときに失敗する
     pub fn set_handle_seed(&mut self, seed: u64) -> Result<(), Error> {
         self.seed = Some(seed);
         Ok(())
     }
 
-    /// 見出しの変数の INSUNITS を `units` にする（決定 0069）。大きさ（バイト）が変わる値なら、確定のときに
+    /// ヘッダーの変数の INSUNITS を `units` にする（決定 0069）。大きさ（バイト）が変わる値なら、確定のときに
     /// 失敗する
     pub fn set_units(&mut self, units: i16) -> Result<(), Error> {
         self.values.units = Some(units);
         Ok(())
     }
 
-    /// 見出しの変数の、用紙空間の PLIMMIN と PLIMMAX（X・Y の順）を `limits` にする（決定 0069）
+    /// ヘッダーの変数の、用紙空間の PLIMMIN と PLIMMAX（X・Y の順）を `limits` にする（決定 0069）
     pub fn set_paper_limits(&mut self, limits: [f64; 4]) -> Result<(), Error> {
         self.values.limits = Some(limits);
         Ok(())
     }
 
-    /// 見出しの変数の PDMODE（点の表し方）を `mode` にする（決定 0190）。書く幅が変われば、見出しの区切りの大きさを
+    /// ヘッダーの変数の PDMODE（点の表し方）を `mode` にする（決定 0190）。書く幅が変われば、ヘッダーのセクションの大きさを
     /// 変える（決定 0193）
     pub fn set_point_mode(&mut self, mode: i16) -> Result<(), Error> {
         self.values.point_mode = Some(mode);
         Ok(())
     }
 
-    /// 見出しの変数の PDSIZE（点の大きさ）を `size` にする（決定 0190）。書く幅が変われば、見出しの区切りの大きさを
+    /// ヘッダーの変数の PDSIZE（点の大きさ）を `size` にする（決定 0190）。書く幅が変われば、ヘッダーのセクションの大きさを
     /// 変える（決定 0193）
     pub fn set_point_size(&mut self, size: f64) -> Result<(), Error> {
         self.values.point_size = Some(size);
@@ -153,7 +153,7 @@ impl Transaction for DwgTxn<'_> {
         cx.check(Kind::Work, work as u64)
             .map_err(|stop| stopped(cx, stop))?;
         let file = self.file;
-        // R2000 はファイル全体、R2004 は展開したオブジェクトの区切りの後ろに足す
+        // R2000 はファイル全体、R2004 は展開したオブジェクトのセクションの後ろに足す
         let mut container = file.container.clone();
         let mut src = match &container {
             Some(container) => container
@@ -164,7 +164,7 @@ impl Transaction for DwgTxn<'_> {
         };
         let objects_changed = !self.staged.is_empty() || !self.added.is_empty();
         let mut entries = file.entries.clone();
-        // R2004 の見出しの変数は、展開した見出しの区切りを書き換えて置き換える（決定 0078）
+        // R2004 のヘッダーの変数は、展開したヘッダーのセクションを書き換えて置き換える（決定 0078）
         let mut head = container
             .as_ref()
             .and_then(|container| container.section(R2004_SECTIONS[0]))
@@ -193,7 +193,7 @@ impl Transaction for DwgTxn<'_> {
                     )
                 })?;
         }
-        // 大きさが変わった見出しの区切り。R2000 は、ファイルの後ろに置いて区切りの記録を直す（決定 0193）
+        // 大きさが変わったヘッダーのセクション。R2000 は、ファイルの後ろに置いてセクションの記録を直す（決定 0193）
         let mut moved_header = None;
         if self.values.any() {
             let (span, section) = header
@@ -208,7 +208,7 @@ impl Transaction for DwgTxn<'_> {
             if section.len() == span.len() {
                 put(header_src, span.start, &section).ok_or(Error::Rejected)?;
             } else if container.is_some() {
-                // R2004 からは、展開した区切りの中で置き換える。入れ物は書くときに組み直す（決定 0070）
+                // R2004 からは、展開したセクションの中で置き換える。コンテナーは書くときに組み直す（決定 0070）
                 header_src.splice(span, section);
             } else {
                 moved_header = Some(section);
@@ -296,7 +296,7 @@ impl Transact for DwgFile {
     }
 }
 
-/// R2000 のファイルの見出しの、番号 `number` の区切りの記録の位置と大きさを書き直し、見出しの CRC を直す
+/// R2000 のファイルのヘッダーの、番号 `number` のセクションの記録の位置と大きさを書き直し、ヘッダーの CRC を直す
 fn set_locator(
     src: &mut [u8],
     locators: &mut [super::Locator],
@@ -324,8 +324,8 @@ pub(super) fn put(src: &mut [u8], at: usize, bytes: &[u8]) -> Option<()> {
     Some(())
 }
 
-/// 版 `release` のハンドル `handle` のオブジェクトのデータ `data` を、大きさ（MS）と CRC を付けて `src` の
-/// 後ろに足す。R2010 からは、大きさは、データの初めのハンドルの流れの大きさ（MC）を除いたバイトの数
+/// バージョン `release` のハンドル `handle` のオブジェクトのデータ `data` を、大きさ（MS）と CRC を付けて `src` の
+/// 後ろに足す。R2010 からは、大きさは、データの初めのハンドルのストリームの大きさ（MC）を除いたバイトの数
 fn push_object(src: &mut Vec<u8>, handle: u64, data: &[u8], release: Release) -> Option<Entry> {
     let type_code = type_code(data, release)?;
     let (skip, handles) = match handle_bits(data, release) {
@@ -347,7 +347,7 @@ fn push_object(src: &mut Vec<u8>, handle: u64, data: &[u8], release: Release) ->
     })
 }
 
-/// 版 `release` のデータの初めの型。R2010 からは、ハンドルの流れの大きさ（MC）の後の BOT
+/// バージョン `release` のデータの初めの型。R2010 からは、ハンドルのストリームの大きさ（MC）の後の BOT
 fn type_code(data: &[u8], release: Release) -> Option<u16> {
     let code = if release >= Release::R2010 {
         let (skip, _) = handle_bits(data, release)?;
@@ -358,8 +358,8 @@ fn type_code(data: &[u8], release: Release) -> Option<u16> {
     code.and_then(|code| u16::try_from(code).ok())
 }
 
-/// R2010 からのデータの初めの、ハンドルの流れの大きさ（MC）のバイトの数と、その値（ビットの数）。MC を
-/// 読めないか、ハンドルの流れが残りのデータより大きければ `None`。R2004 までは `None`
+/// R2010 からのデータの初めの、ハンドルのストリームの大きさ（MC）のバイトの数と、その値（ビットの数）。MC を
+/// 読めないか、ハンドルのストリームが残りのデータより大きければ `None`。R2004 までは `None`
 fn handle_bits(data: &[u8], release: Release) -> Option<(usize, usize)> {
     if release < Release::R2010 {
         return None;
@@ -369,8 +369,8 @@ fn handle_bits(data: &[u8], release: Release) -> Option<(usize, usize)> {
     (bits <= data.len().checked_sub(skip)? * 8).then_some((skip, bits))
 }
 
-/// オブジェクトの地図を、ハンドルの順に書く。区切りごとに、ハンドルと位置の差分を 0 から数え、
-/// 大きさ（上位のバイトから）と CRC（上位のバイトから）を付ける。大きさが 2 の区切りで終える
+/// オブジェクトのマップを、ハンドルの順に書く。セクションごとに、ハンドルと位置の差分を 0 から数え、
+/// 大きさ（上位のバイトから）と CRC（上位のバイトから）を付ける。大きさが 2 のセクションで終える
 fn push_object_map(out: &mut Vec<u8>, entries: &[super::Entry]) {
     let mut order: Vec<_> = entries.iter().collect();
     order.sort_by_key(|entry| entry.handle);

@@ -20,20 +20,20 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 適合試験を、Java の包み（bindings/java）を通して流す（決定 0006・0224）。
+ * 適合テストを、Java のラッパー（bindings/java）を通して流す（決定 0006・0224）。
  *
  * <p>使い方: {@code java -cp <クラスの道筋> dev.zumen.Conformance <ネイティブのライブラリ> [リポジトリの根]}
  *
- * <p>bindings/conformance/cases/*.json を、包みのセッションのメソッドで流し、状態と応答の値が期待どおりで、ハッシュの
- * 一覧が hashes.txt と一致することを確かめる。シーンの blob は、包みの読み手で読み、応答の数と合うかを確かめる。
+ * <p>bindings/conformance/cases/*.json を、ラッパーのセッションのメソッドで流し、状態と応答の値が期待どおりで、ハッシュの
+ * 一覧が hashes.txt と一致することを確かめる。シーンの blob は、ラッパーのリーダーで読み、応答の数と合うかを確かめる。
  * 手順の読み方と応答の確かめ方は、Python の側（bindings/python/tests/conformance.py）と同じ規則で書く。
  * Android のエミュレーターでも、同じクラスを d8 で dex にして app_process で流す。
  */
 public final class Conformance {
-    /** 手順の種類。手順は、どれか 1 つの欄を持つ */
+    /** 手順の種類。手順は、どれか 1 つのフィールドを持つ */
     private static final String[] ACTIONS = {"session", "push", "call", "call_text", "call_hex", "take"};
 
-    /** JSON Pointer で引けなかった印 */
+    /** JSON Pointer で引けなかったことを示す番兵 */
     private static final Object MISSING = new Object();
 
     private final File repository;
@@ -47,7 +47,7 @@ public final class Conformance {
         this.conformance = new File(new File(repository, "bindings"), "conformance");
     }
 
-    /** 境界の関数の結果。状態の名前と、書かれたバイト列 */
+    /** API の関数の結果。状態の名前と、書かれたバイト列 */
     private static final class Outcome {
         final String status;
         final byte[] data;
@@ -62,7 +62,7 @@ public final class Conformance {
         byte[] run();
     }
 
-    /** 境界の関数を呼び、状態の名前と、書かれたバイト列を返す */
+    /** API の関数を呼び、状態の名前と、書かれたバイト列を返す */
     private static Outcome attempt(Call call) {
         try {
             return new Outcome("ok", call.run());
@@ -260,7 +260,7 @@ public final class Conformance {
         }
     }
 
-    /** シーンの blob を読み手で読み、応答の数と合うかを確かめる */
+    /** シーンの blob をリーダーで読み、応答の数と合うかを確かめる */
     void checkScene(String at, byte[] blob, Map<String, Object> result) {
         Scene scene;
         try {
@@ -272,8 +272,8 @@ public final class Conformance {
         Map<String, Object> counts = Json.object(result.get("counts"));
         long chunks = Json.integer(counts.get("chunks"));
         Object[][] checks = {
-            {"大版", (long) scene.major, (long) Constants.SCENE_MAJOR},
-            {"区画の数", scene.sections, (long) Constants.SCENE_SECTIONS.length},
+            {"メジャーバージョン", (long) scene.major, (long) Constants.SCENE_MAJOR},
+            {"セクションの数", scene.sections, (long) Constants.SCENE_SECTIONS.length},
             {"塊の数", scene.chunks, chunks},
             {"chunk_origins の行", (long) scene.rows("chunk_origins"), chunks},
             {"text_xy の行", (long) scene.rows("text_xy"), Json.integer(counts.get("texts"))},
@@ -285,7 +285,7 @@ public final class Conformance {
                 Json.integer(counts.get("vertices"))
             },
         };
-        // 文字の文字列は、strings の区画から引ける
+        // 文字の文字列は、strings のセクションから引ける
         int[] strings = scene.u32("text_strings");
         for (int row = 0; row + 1 < strings.length; row += 2) {
             try {
@@ -301,7 +301,7 @@ public final class Conformance {
         }
     }
 
-    /** 試験の組のファイル。名前の順 */
+    /** テストの組のファイル。名前の順 */
     List<File> caseFiles() {
         File[] files = new File(conformance, "cases").listFiles();
         List<File> out = new ArrayList<File>();
@@ -359,7 +359,7 @@ public final class Conformance {
                     if (outcome.status.equals("ok")) {
                         session = opened[0];
                     } else {
-                        // 作れなかったら、閉じたセッションで続ける。境界は、空のセッションへの呼び出しを invalid にする
+                        // 作れなかったら、閉じたセッションで続ける。API は、空のセッションへの呼び出しを invalid にする
                         session = zumen.open();
                         session.close();
                     }
@@ -428,14 +428,14 @@ public final class Conformance {
         compareHashes();
         checkTypedCalls(zumen);
 
-        String summary = "包みを通した試験の組 " + files.size() + " 件、ハッシュ " + hashes.size() + " 件、読んだシーン "
+        String summary = "ラッパーを通したテストの組 " + files.size() + " 件、ハッシュ " + hashes.size() + " 件、読んだシーン "
                 + scenes + " 件";
         System.out.println(summary);
         String stepSummary = System.getenv("GITHUB_STEP_SUMMARY");
         if (stepSummary != null && !stepSummary.isEmpty()) {
             Writer writer = new OutputStreamWriter(new FileOutputStream(stepSummary, true), StandardCharsets.UTF_8);
             try {
-                writer.write("### Java の包みの適合試験（" + System.getProperty("java.vm.name") + " "
+                writer.write("### Java のラッパーの適合テスト（" + System.getProperty("java.vm.name") + " "
                         + System.getProperty("java.version") + "）\n\n" + summary + "\n");
             } finally {
                 writer.close();

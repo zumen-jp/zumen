@@ -2,7 +2,7 @@
 //!
 //! 平面図は 1 つ目の空間（x を東、y を北）、縦断図は 2 つ目の空間（x を追加距離、y を標高）、横断図は 3 つ目から
 //! の空間（x を離れ、y を標高）に置き、図ごとの用紙にビューで置く。縦断図のビューは縦横で尺度が違うので、
-//! 縦断図の文字と欄は用紙の要素にする。
+//! 縦断図の欄と文字は、用紙の要素にする。
 
 use zumen_base::{Cx, Diagnostic, Diagnostics, Kind, Ref, Stop, codes};
 use zumen_civil::station::Notation;
@@ -81,7 +81,7 @@ const PLAN: SpaceId = SpaceId(0);
 const PROFILE: SpaceId = SpaceId(1);
 /// 用紙の余白（mm）
 const MARGIN: f64 = 10.0;
-/// 縦断図の欄の 1 行の高さと、欄の見出しの幅（mm）
+/// 縦断図の欄の、1 行の高さと見出しの幅（mm）
 const ROW: f64 = 8.0;
 const HEADING: f64 = 30.0;
 
@@ -467,14 +467,22 @@ fn whole_stations(
     if !(first.is_finite() && last.is_finite() && pitch > 0.0) || last < first {
         return Ok(Vec::new());
     }
-    cx.check(Kind::Elements, (last - first) as u64 + 1)?;
+    // 差が 2^64 を超えると as は u64::MAX に丸めるので、足すと桁があふれる。予算で止める
+    let count = ((last - first) as u64).saturating_add(1);
+    cx.check(Kind::Elements, count)?;
     let mut found = Vec::new();
-    let mut number = first;
-    while number <= last {
+    // 大きな番号には 1 を足しても変わらないので、回数で数える。2^53 を超えると、続く回数が同じ番号に丸まるので、
+    // 増えなかった番号は飛ばす
+    let mut previous = f64::NEG_INFINITY;
+    for step in 0..count {
+        let number = first + step as f64;
+        if number <= previous {
+            continue;
+        }
+        previous = number;
         for distance in stations.distances(number * pitch, length) {
             found.push((distance, number));
         }
-        number += 1.0;
     }
     found.sort_by(|a, b| a.0.total_cmp(&b.0));
     Ok(found)
@@ -695,7 +703,7 @@ fn profile(alignment: &Alignment, options: &Options, cx: &mut Cx<'_>) -> Result<
     let size_text = Length::Paper(PaperLength(options.text_height));
     let mut band = Vec::new();
     let right = size[0] - MARGIN;
-    // 欄の横の線と見出し
+    // 縦断図の欄の横の線と見出し
     for (row, name) in ["測点", "地盤高", "計画高"].iter().enumerate() {
         let y = ROW * row as f64;
         band.push(element(

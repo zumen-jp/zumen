@@ -283,7 +283,7 @@ fn remember_handle(handles: &mut BTreeMap<u64, Option<String>>, source: &Ref, id
     }
 }
 
-/// 書き戻した後に、変更の結果を探す鍵
+/// 書き戻した後に、変更の結果を探すキー
 #[derive(Debug)]
 enum ResultTarget {
     /// 図形は用紙の ID が変わっても、ハンドルから探せる
@@ -295,7 +295,7 @@ enum ResultTarget {
     Document,
 }
 
-/// 当てた変更の、書き戻した後の ID とハッシュ。鍵（ハンドル）を持たない要素の ID は、読み直すとずれうる
+/// 当てた変更の、書き戻した後の ID とハッシュ。キー（ハンドル）を持たない要素の ID は、読み直すとずれうる
 /// ので返さない
 fn applied(index: &Index, id: Option<String>, cx: &mut Cx<'_>) -> Result<Applied, Error> {
     let keyed = |id: &String| {
@@ -367,7 +367,7 @@ fn edit(
     let mut quiet = Diagnostics::new();
     let (drawing, frames) = framed(db, &mut Cx::new(cx.budget, &mut quiet, cx.cancel))?;
     let index = Index::new(&drawing, cx)?;
-    // 2007 からの版は文字を UTF-8 で持つ。それより前は、見出しのコード・ページで符号化する（読む側と同じ、
+    // 2007 からのバージョンは文字を UTF-8 で持つ。それより前は、ヘッダーのコード・ページで符号化する（読む側と同じ、
     // 決定 0192）
     let charset = super::charset_of(db);
     let born = Born::new(db, &drawing, charset, target);
@@ -460,7 +460,7 @@ fn unique_handles(db: &AcadDb, target: Target, cx: &mut Cx) -> Result<(), Error>
     Ok(())
 }
 
-/// 書き戻す文字の符号化。2007 より前の版のコード・ページで表せない文字は書かず、最初のものを覚えておく
+/// 書き戻す文字の符号化。2007 より前のバージョンのコード・ページで表せない文字は書かず、最初のものを覚えておく
 /// （決定 0192）
 pub(super) struct Encoder {
     charset: Charset,
@@ -527,7 +527,7 @@ struct Plan<'e> {
     dimension_styles: dimension_style::DimensionStyles,
     /// この変更の一覧で記号の定義の中に足した記号。[`Index::nests`] と同じ形（#333）
     nests: Nests,
-    /// 書き直す見出しの変数（`$PDMODE`・`$PDSIZE`、決定 0190）
+    /// 書き直すヘッダーの変数（`$PDMODE`・`$PDSIZE`、決定 0190）
     variables: Vec<(&'static [u8], Vec<Value>)>,
 }
 
@@ -642,7 +642,7 @@ fn missing(id: &str, cx: &mut Cx) {
     cx.report(Diagnostic::new(codes::CHANGE_ELEMENT_MISSING).with("id", id));
 }
 
-/// 文書の点の表し方を、見出しの `$PDMODE`（70）と `$PDSIZE`（40）に書く（`Edit::SetPointStyle`、決定 0190）。
+/// 文書の点の表し方を、ヘッダーの `$PDMODE`（70）と `$PDSIZE`（40）に書く（`Edit::SetPointStyle`、決定 0190）。
 /// 値の決まりは読む側（DXF Reference「HEADER Section Group Codes」）と同じ。形は 0〜4 に、円で囲むなら 32、
 /// 四角で囲むなら 64 を足す。大きさは、長さなら正、画面の高さに対する百分率なら負の値にする。読んで同じ意味になる
 /// 変数は書き直さない。大きさが正で有限でなければ拒む。一覧の中で一度だけ変えられる
@@ -1124,7 +1124,7 @@ fn insert_records(
     Ok(handles)
 }
 
-/// 変更ごとに、書き戻した後の結果を探す鍵。要素の場所は追加後に変わりうる。ハンドルで読み直した要素の ID を引く
+/// 変更ごとに、書き戻した後の結果を探すキー。要素の場所は追加後に変わりうる。ハンドルで読み直した要素の ID を引く
 fn results(
     changes: &Changes,
     index: &Index<'_>,
@@ -1294,7 +1294,7 @@ fn settled(db: &AcadDb, targets: Vec<ResultTarget>, cx: &mut Cx) -> Result<Vec<A
         .collect()
 }
 
-/// スタイルを変えた図形の値。変わった欄（レイヤ 8・線種 6・色 62 と 420 と 430・線幅 370・線種の倍率 48）
+/// スタイルを変えた図形の値。変わったフィールド（レイヤ 8・線種 6・色 62 と 420 と 430・線幅 370・線種の倍率 48）
 /// だけを、図形に共通の値の中で除いてから、足すときと同じ書き方（[`Born::entity`]）でレイヤの後に書く。
 /// ほかの値は元のまま写す。DWG は、今ある図形のレイヤと線種を書き戻せないので扱わない
 fn restyled(
@@ -1346,7 +1346,7 @@ fn restyled(
         return Ok(None);
     };
     written.extend(style);
-    // 図形に共通の値の範囲。区切り（100）を持てば AcDbEntity の区切りの中、持たなければ XDATA の前まで
+    // 図形に共通の値の範囲。サブクラスマーカー（100）を持てば AcDbEntity のサブクラスの中、持たなければ XDATA の前まで
     let mut marker = None;
     for (index, value) in object.values.iter().enumerate() {
         work(cx, 1, &at)?;
@@ -1658,7 +1658,7 @@ fn directed(values: &mut Vec<Value>, transform: &Affine) -> Option<()> {
     Some(())
 }
 
-/// 記号の属性の値の変更を、続く ATTRIB の値（1）に書く（表題欄の項目の書き換えなど）。値のほかの欄・数・順は
+/// 記号の属性の値の変更を、続く ATTRIB の値（1）に書く（表題欄の項目の書き換えなど）。値のほかのフィールド・数・順は
 /// 変えられない。書式つきの値（複数行の属性）を持つ属性の値も変えられない。INSERT は元の属性のまま書くので、
 /// 元の属性に戻した要素と、書き直す ATTRIB を返す。属性の値が変わらなければ、要素をそのまま返す
 fn revalued<P: Clone + PartialEq>(
@@ -1956,7 +1956,7 @@ fn followed(object: &Object) -> bool {
     }
 }
 
-/// 置き換えで書く値。元の値を写し、変わった形の欄だけを直す。レイヤ・スタイルが同じで、形の種類が
+/// 置き換えで書く値。元の値を写し、変わった形のフィールドだけを直す。レイヤ・スタイルが同じで、形の種類が
 /// 元のレコードで表せ、点と長さが元の要素と同じ空間にあるときだけ返す
 fn replacement<P: PartialEq>(
     original: &Element<P>,
@@ -2078,8 +2078,8 @@ fn replacement<P: PartialEq>(
 }
 
 /// POINT（DXF Reference「POINT」）の位置（10・20）と X 軸の角度（50）を直す。見え方は文書の点の表し方
-/// （`$PDMODE`・`$PDSIZE`）が決めるので、既定義の印の点と作図の補助の点は書かない（決定 0183）。角度は、省けば
-/// 0 なので、欄の並び（10・20・30・39・210・220・230・50）に合わせて書く
+/// （`$PDMODE`・`$PDSIZE`）が決めるので、既定義のマーカーの点と作図の補助の点は書かない（決定 0183）。角度は、省けば
+/// 0 なので、フィールドの並び（10・20・30・39・210・220・230・50）に合わせて書く
 fn dotting<P: PartialEq>(
     values: &mut Vec<Value>,
     dot: &zumen_drawing::Point<P>,
@@ -2096,7 +2096,7 @@ fn dotting<P: PartialEq>(
     Some(())
 }
 
-/// LEADER（DXF Reference「LEADER」）の欄を直す。寸法スタイル（3）と注記（340）は変えない。経路が変われば、
+/// LEADER（DXF Reference「LEADER」）のフィールドを直す。寸法スタイル（3）と注記（340）は変えない。経路が変われば、
 /// 頂点の数（76）の後の頂点（10・20・30）を書き直し、曲線か（72）と矢印（71）は変わったものだけを書く。矢印を
 /// 寸法スタイルに従わせるときは 71 を除く。注記の大きさと鉤の線（40・41・74・75）と、ずれ（212・213）は元のまま
 /// （変換では [`directed`] がずれを写す）
@@ -2121,7 +2121,7 @@ fn leading<P: PartialEq>(
         values.get_mut(count)?.data = Data::Int(i64::try_from(leader.path.len()).ok()?);
         values.splice(count + 1..count + 1, vertices);
     }
-    // 矢印（71）は寸法スタイル（3）の後に、曲線か（72）は矢印の後に書く。どちらもなければ、図形の区切り（100）の
+    // 矢印（71）は寸法スタイル（3）の後に、曲線か（72）は矢印の後に書く。どちらもなければ、図形のサブクラスマーカー（100）の
     // 最後の後に書く（DXF Reference の並び）
     let after = |values: &[Value], codes: &[i16]| {
         codes
@@ -2161,9 +2161,9 @@ fn leading<P: PartialEq>(
     Some(())
 }
 
-/// ELLIPSE（DXF Reference「ELLIPSE」）の欄を直す。長軸の端（11・21）は中心からの向き、始まりと終わりの
-/// パラメーター（41・42）はラジアンで持つ。読むときに度へ直した値と比べ、変わった欄だけを書く。
-/// 直し戻した値が元の値と最後の桁で違って、変えていない欄まで書き換えないようにするため
+/// ELLIPSE（DXF Reference「ELLIPSE」）のフィールドを直す。長軸の端（11・21）は中心からの向き、始まりと終わりの
+/// パラメーター（41・42）はラジアンで持つ。読むときに度へ直した値と比べ、変わったフィールドだけを書く。
+/// 直し戻した値が元の値と最後の桁で違って、変えていないフィールドまで書き換えないようにするため
 fn ellipse<P: PartialEq>(
     values: &mut Vec<Value>,
     frame: &impl Frame<P>,
@@ -2271,12 +2271,12 @@ fn lwpolyline<P: PartialEq>(
     Some(out)
 }
 
-/// LWPOLYLINE・POLYLINE の印（70）の、閉じている（1）と線種の生成（128）
+/// LWPOLYLINE・POLYLINE のフラグ（70）の、閉じている（1）と線種の生成（128）
 fn polyline_flags<P>(line: &Polyline<P>) -> i64 {
     i64::from(line.closed) | i64::from(line.line_type_generation) << 7
 }
 
-/// TEXT（DXF Reference「TEXT」）の欄を直す。内容（1）・高さ（40）・回転（50）・幅の倍率（41）・斜体の角度（51）・
+/// TEXT（DXF Reference「TEXT」）のフィールドを直す。内容（1）・高さ（40）・回転（50）・幅の倍率（41）・斜体の角度（51）・
 /// 反転（71 の 2 と 4）と、置く点を書く。位置合わせ（72・73）・2 点の間への合わせ方・文字スタイル・高さの意味は
 /// 変えられない。左の基準線に置く文字は 10 を、ほかの位置合わせの文字は 11 を基点とし、10 は 11 と同じだけ動かす。
 /// 10 は位置合わせから決まる点で、読み直すときに使わないが、ほかのソフトが読むので食い違わせない
@@ -2367,10 +2367,10 @@ fn lettering<P: PartialEq>(
     Some(())
 }
 
-/// MTEXT（DXF Reference「MTEXT」）の欄を直す。内容（250 バイトずつの 3 と、最後の 1）・基点（10）・高さ（40）・
+/// MTEXT（DXF Reference「MTEXT」）のフィールドを直す。内容（250 バイトずつの 3 と、最後の 1）・基点（10）・高さ（40）・
 /// 向き（50 のラジアンか、11・21 の向き）・枠の幅（41）と高さ（46）・位置合わせ（71）・行送り（44・73）を書く。
 /// 文字スタイル・書き進める向き・背景・高さの意味は変えられない。向きは、元と同じ形（角度か向き）のときだけ
-/// 書く。省いた欄は、DXF Reference の並び（内容の後に 50・73・44）で足す。区間は内容から決まるので、内容を解釈し直した区間と合わなければ受け付けない
+/// 書く。省いたフィールドは、DXF Reference の並び（内容の後に 50・73・44）で足す。区間は内容から決まるので、内容を解釈し直した区間と合わなければ受け付けない
 fn formatting<P: PartialEq>(
     values: &mut Vec<Value>,
     text: &FormattedText<P>,
@@ -2479,7 +2479,7 @@ fn placing<P: PartialEq>(
         return None;
     }
     place(values, frame, [10, 20], &symbol.position, &was.position)?;
-    // 尺度と回転は、省けば既定の値になる。変わったときだけ、欄の並び（10・20・30・41・42・43・50）に合わせて書く
+    // 尺度と回転は、省けば既定の値になる。変わったときだけ、フィールドの並び（10・20・30・41・42・43・50）に合わせて書く
     let [x, y] = symbol.scale;
     if x != was.scale[0] {
         optional(values, 41, nonzero(x)?, 1.0, &[30, 20])?;
@@ -2490,7 +2490,7 @@ fn placing<P: PartialEq>(
     if symbol.rotation != was.rotation {
         optional(values, 50, symbol.rotation, 0.0, &[43, 42, 41, 30, 20])?;
     }
-    // 間隔は、変換で負になることもある（鏡映した行）。省けば 0 なので、欄の並び（70・71・44・45）に合わせて書く
+    // 間隔は、変換で負になることもある（鏡映した行）。省けば 0 なので、フィールドの並び（70・71・44・45）に合わせて書く
     if let Some((grid, original)) = spacing {
         if grid.column_spacing != original.column_spacing {
             let value = frame
@@ -2512,12 +2512,12 @@ fn placing<P: PartialEq>(
     Some(())
 }
 
-/// SPLINE（DXF Reference「SPLINE」）の定義を書き直す。制御点で決まるものは、印（70）の閉じている・周期的・有理
-/// （1・2・4）と、次数（71）・節点と制御点の数（72・73）・節点（40）・制御点（10・20・30）・重み（41）を書く。
-/// 当てはめる点で決まるものは、節点と制御点を書かず、当てはめる点の数（74）・当てはめる点（11・21・31）・
-/// 接線（12・13）を書き、制御点は読む側が求め直す。ほかの印と許容差（42〜44）は元のまま。制御点で決まる
-/// ものと当てはめる点で決まるものは、DWG の場合（scenario）が変わるので入れ替えない。当てはめの許容差と
-/// 節点の取り方は、DWG の書き戻しが元のビットを写すので、変えるものは書き戻さない（決定 0157）
+/// SPLINE（DXF Reference「SPLINE」）の定義を書き直す。制御点で決まるものは、フラグ（70）の閉じている・周期的・有理
+/// （1・2・4）と、次数（71）・ノットと制御点の数（72・73）・ノット（40）・制御点（10・20・30）・重み（41）を書く。
+/// フィット点で決まるものは、ノットと制御点を書かず、フィット点の数（74）・フィット点（11・21・31）・
+/// 接線（12・13）を書き、制御点は読む側が求め直す。ほかのフラグと許容差（42〜44）は元のまま。制御点で決まる
+/// ものとフィット点で決まるものは、DWG の場合（scenario）が変わるので入れ替えない。フィット許容差と
+/// ノットの取り方は、DWG の書き戻しが元のビットを写すので、変えるものは書き戻さない（決定 0157）
 fn splining<P: PartialEq>(
     values: &mut Vec<Value>,
     spline: &Spline<P>,
@@ -2541,7 +2541,7 @@ fn splining<P: PartialEq>(
         _ => None,
     });
     // DXF Reference「SPLINE」: 16 は線形を表す。変更後も線形かは、制御点だけでは
-    // 保証できないため、線形の印を持つものの置き換えは拒否する。
+    // 保証できないため、線形のフラグを持つものの置き換えは拒否する。
     if flags.unwrap_or(0) & 16 != 0 {
         return None;
     }
@@ -2550,8 +2550,8 @@ fn splining<P: PartialEq>(
         (72, i64::try_from(spline.knots.len()).ok()?),
         (73, i64::try_from(spline.control.len()).ok()?),
     ];
-    // DWG の当てはめる点のスプラインは、閉じている・周期的の印を書かない。読んだ値に印がないか、R2013 からの
-    // 当てはめる点で決まる印（1024）だけがあれば、印は直さず、閉じている・周期的は変えない
+    // DWG のフィット点のスプラインは、閉じている・周期的のフラグを書かない。読んだ値にフラグがないか、R2013 からの
+    // フィット点で決まるフラグ（1024）だけがあれば、フラグは直さず、閉じている・周期的は変えない
     let kept = fitting && flags.is_none_or(|flags| flags & 1024 != 0);
     if kept && (spline.closed, spline.periodic) != (was.closed, was.periodic) {
         return None;
@@ -2581,7 +2581,7 @@ fn splining<P: PartialEq>(
     Some(())
 }
 
-/// 制御点だけで決まるスプライン。当てはめる点も接線も持たない
+/// 制御点だけで決まるスプライン。フィット点も接線も持たない
 fn controlled<P>(spline: &Spline<P>) -> bool {
     !spline.control.is_empty()
         && spline.fit.is_empty()
@@ -2589,7 +2589,7 @@ fn controlled<P>(spline: &Spline<P>) -> bool {
         && spline.end_tangent.is_none()
 }
 
-/// 当てはめる点だけで決まるスプライン。節点・制御点・重みを持たず、当てはめる点を 2 つ以上持つ
+/// フィット点だけで決まるスプライン。ノット・制御点・重みを持たず、フィット点を 2 つ以上持つ
 fn fitted<P>(spline: &Spline<P>) -> bool {
     spline.control.is_empty()
         && spline.knots.is_empty()
@@ -2599,7 +2599,7 @@ fn fitted<P>(spline: &Spline<P>) -> bool {
         && spline.end_tangent != Some([0.0, 0.0])
 }
 
-/// SPLINE の接線（12・22・32、13・23・33）と、当てはめる点（11・21・31）の値。読む側が読めないスプラインは `None`
+/// SPLINE の接線（12・22・32、13・23・33）と、フィット点（11・21・31）の値。読む側が読めないスプラインは `None`
 fn fit_values<P>(frame: &impl Frame<P>, spline: &Spline<P>) -> Option<Vec<Value>> {
     super::check_spline(b"SPLINE", spline).ok()?;
     let mut values = Vec::with_capacity(6 + spline.fit.len() * 3);
@@ -2615,7 +2615,7 @@ fn fit_values<P>(frame: &impl Frame<P>, spline: &Spline<P>) -> Option<Vec<Value>
     Some(values)
 }
 
-/// SPLINE の印（70）の、当てはめる点で決まること（1024）と節点の取り方（32・64・128・256）。取り方がなければ 0
+/// SPLINE のフラグ（70）の、フィット点で決まること（1024）とノットの取り方（32・64・128・256）。取り方がなければ 0
 fn knot_flags<P>(spline: &Spline<P>) -> i64 {
     match spline.knot_parameterization {
         None => 0,
@@ -2626,7 +2626,7 @@ fn knot_flags<P>(spline: &Spline<P>) -> i64 {
     }
 }
 
-/// SPLINE の印（70）。`flags` の閉じている・周期的・有理（1・2・4）を、スプラインに合わせる
+/// SPLINE のフラグ（70）。`flags` の閉じている・周期的・有理（1・2・4）を、スプラインに合わせる
 fn spline_flags<P>(flags: i64, spline: &Spline<P>) -> i64 {
     flags & !7
         | i64::from(spline.closed)
@@ -2634,7 +2634,7 @@ fn spline_flags<P>(flags: i64, spline: &Spline<P>) -> i64 {
         | i64::from(!spline.weights.is_empty()) << 2
 }
 
-/// SPLINE の節点（40）と、制御点（10・20・30）とその重み（41）の値。読む側が読めないスプラインは `None`
+/// SPLINE のノット（40）と、制御点（10・20・30）とその重み（41）の値。読む側が読めないスプラインは `None`
 fn spline_values<P>(frame: &impl Frame<P>, spline: &Spline<P>) -> Option<Vec<Value>> {
     super::check_spline(b"SPLINE", spline).ok()?;
     let mut values = Vec::with_capacity(spline.knots.len() + spline.control.len() * 4);
@@ -2658,7 +2658,7 @@ fn nonzero(value: f64) -> Option<f64> {
 
 /// MTEXT の内容を、250 バイトずつの区切り（3）と最後の値（1）にして、元の内容の値の場所に置く。区切りは
 /// 文字の途中と、制御文字の `^` の表記の途中で切らない。DXF の値は 1 行なので、改行は書けない（段落の区切りは `\P` で書く）。
-/// 2007 より前の版は、コード・ページで符号化したバイトで数える（決定 0192）
+/// 2007 より前のバージョンは、コード・ページで符号化したバイトで数える（決定 0192）
 fn contents(values: &mut Vec<Value>, content: &str, encoder: &Encoder) -> Option<()> {
     if content.contains(['\n', '\r']) {
         return None;
@@ -2718,7 +2718,7 @@ fn first_real(values: &[Value], code: i16) -> Option<f64> {
     })
 }
 
-/// 省けば `default` になる欄を直す。欄がなく、値が `default` なら足さない
+/// 省けば `default` になるフィールドを直す。フィールドがなく、値が `default` なら足さない
 fn optional(
     values: &mut Vec<Value>,
     code: i16,
@@ -2781,8 +2781,8 @@ fn insert(values: &mut Vec<Value>, code: i16, data: Data, after: &[i16]) -> Opti
 }
 
 /// MULTILEADER（DXF Reference「MLEADER」）の枝を直す（決定 0185）。枝の線の頂点・集まる点・折れ曲がりと、文字の
-/// 注記の内容（決定 0191）だけを書き、ほかの欄（注記の位置と体裁・線の引き方・端部記号・大きさ・色・スタイル）は
-/// 元と同じでなければならない。枝と線の数と、集まる点と折れ曲がりの有無も元と同じとする。区切り（302 `LEADER{`・
+/// 注記の内容（決定 0191）だけを書き、ほかのフィールド（注記の位置とスタイル・線の引き方・端部記号・大きさ・色・スタイル）は
+/// 元と同じでなければならない。枝と線の数と、集まる点と折れ曲がりの有無も元と同じとする。セクション（302 `LEADER{`・
 /// 304 `LEADER_LINE{`）の中の、枝の 10・20（集まる点）・11・21（折れ曲がりの向き）・40（折れ曲がりの長さ）と、線の
 /// 10・20・30（頂点）を書き直す。線の切れ目（線の 11・12、枝の 12・13）は頂点から決め直せないので、それを持つ線か
 /// 枝を変えるときは書かない。文字の内容は文脈の 304 に 1 つの値で書くので、250 バイトまでとする（長い内容の
@@ -2848,7 +2848,7 @@ fn calling<P: PartialEq>(
     }
     let marker =
         |value: &Value, text: &[u8]| matches!(&value.data, Data::Text(t) if t.as_slice() == text);
-    // 0 は図形、1 は文脈、2 は枝、3 は線の中（読む側の `split_callout` と同じ区切り）
+    // 0 は図形、1 は文脈、2 は枝、3 は線の中（読む側の `split_callout` と同じセクション）
     let mut depth = 0;
     let mut seen = false;
     let mut branches = 0_usize;
@@ -2938,10 +2938,10 @@ fn calling<P: PartialEq>(
 }
 
 /// 変換 `transform`（レコードの座標を写す、尺度を変えず鏡映を含まない相似）で動かした MULTILEADER（DXF
-/// Reference「MLEADER」）の値（決定 0191）。区切りは [`calling`] と同じ。文脈の注記の基点（10）・文字の位置（12）・
+/// Reference「MLEADER」）の値（決定 0191）。セクションは [`calling`] と同じ。文脈の注記の基点（10）・文字の位置（12）・
 /// 平面の原点（110）と、枝の集まる点（10）・切れ目（12・13）と、線の頂点（10）・切れ目（11・12）を点として写し、
 /// 文字の向き（13）・平面の X と Y の軸（111・112）・折れ曲がりの向き（枝の 11）を回し、文字の回転（42、ラジアン）
-/// に回転の角度を足す。大きさは変えない。図形の欄（区切りの外）は、点を持たないので変えない
+/// に回転の角度を足す。大きさは変えない。図形のフィールド（セクションの外）は、点を持たないので変えない
 fn swung(values: &[Value], transform: &Affine) -> Option<Vec<Value>> {
     enum Kind {
         Point,

@@ -1,4 +1,4 @@
-//! PDF のファイルモデル（L1）の読み書きと、テストキットの契約（決定 0010・0156・0256）。入力は、どれも試験の中で
+//! PDF のファイルモデル（L1）の読み書きと、テストキットの契約（決定 0010・0156・0256）。入力は、どれもテストの中で
 //! 作る。
 
 use zumen_base::{Budget, CancelToken, Cx, Diagnostics, codes};
@@ -125,7 +125,7 @@ fn repairs_objects_without_endobj() {
 
 #[test]
 fn keeps_unknown_bytes_and_a_late_header() {
-    // 見出しの前の余計なバイトと、構造の外のバイトは、未知のレコードにする
+    // ヘッダーの前の余計なバイトと、構造の外のバイトは、未知のレコードにする
     let src = b"junk before\n%PDF-2.0\nnot an object\n1 0 obj null endobj\n".to_vec();
     let (file, diag) = read(&src);
     assert!(diag.is_empty(), "{diag:?}");
@@ -143,7 +143,7 @@ fn keeps_unknown_bytes_and_a_late_header() {
 
 #[test]
 fn splits_bytes_before_a_header_on_the_same_line() {
-    // 見出しを読む前は、行の途中の `%PDF-` の前で切る。見出しの後ろでは、行の途中の `%PDF-` を探さない
+    // ヘッダーを読む前は、行の途中の `%PDF-` の前で切る。ヘッダーの後ろでは、行の途中の `%PDF-` を探さない
     let src = b"xx%PDF-1.7\n%c%PDF-2.0\n1 0 obj null endobj\n".to_vec();
     let (file, diag) = read(&src);
     assert!(diag.is_empty(), "{diag:?}");
@@ -168,7 +168,7 @@ fn rejects_files_without_a_header() {
     let (file, diag) = testkit::read::<Pdf>(b"1 0 obj null endobj");
     assert!(matches!(file, Err(Error::Invalid)));
     assert_eq!(diag[0].code(), codes::PDF_FILE_INVALID);
-    // 見出しは先頭の 1,024 バイトの中に要る
+    // ヘッダーは先頭の 1,024 バイトの中に要る
     let mut late = vec![b' '; 1024];
     late.extend(b"%PDF-1.7\n");
     assert!(matches!(testkit::read::<Pdf>(&late).0, Err(Error::Invalid)));

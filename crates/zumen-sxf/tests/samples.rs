@@ -1,4 +1,4 @@
-//! 試料の SXF で確かめる。試料は公開サンプルの `samples/sxf` と、受け取った図面を置く `ZUMEN_SAMPLES` の
+//! サンプルの SXF で確かめる。サンプルは公開サンプルの `samples/sxf` と、受け取った図面を置く `ZUMEN_SAMPLES` の
 //! フォルダーから集める
 
 use std::collections::BTreeSet;
@@ -13,7 +13,7 @@ use zumen_sxf::Sxf;
 #[cfg(test)]
 #[allow(
     clippy::disallowed_methods,
-    reason = "環境変数を読むのは試験だけで、コアは読まない（AGENTS.md の図面と秘密）"
+    reason = "環境変数を読むのはテストだけで、コアは読まない（AGENTS.md の図面と秘密）"
 )]
 fn samples() -> Vec<PathBuf> {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../samples");
@@ -38,7 +38,7 @@ fn samples() -> Vec<PathBuf> {
     found
 }
 
-/// どの要素も、インスタンスの番号の鍵を持ち、ID はその番号で作られて重ならない（決定 0156）
+/// どの要素も、インスタンスの番号のキーを持ち、ID はその番号で作られて重ならない（決定 0156）
 #[test]
 fn every_element_is_named_by_its_instance_number() {
     for path in samples() {
@@ -88,7 +88,7 @@ fn every_element_is_named_by_its_instance_number() {
     }
 }
 
-/// 試料の SFC と P21 で、用紙と部分図の線分・円・円弧・折線を動かし、文字を除き、用紙に線分を足して書き戻す
+/// サンプルの SFC と P21 で、用紙と部分図の線分・円・円弧・折線を動かし、文字を除き、用紙に線分を足して書き戻す
 /// （決定 0167・0169）。複合曲線がまとめる曲線と、作図グループの展開で複数の要素になるものは断るので、断った変更を
 /// 除いて当て直す。変えなかった要素の ID と値が変わらないことは、apply が読み直して確かめる
 #[test]

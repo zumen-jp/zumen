@@ -1,12 +1,12 @@
-// 適合試験の組を、TypeScript・JavaScript の包み（bindings/js）を通して流す本体（決定 0194・0199）。
+// 適合テストの組を、TypeScript・JavaScript のラッパー（bindings/js）を通して流す本体（決定 0194・0199）。
 //
-// Node.js（conformance.mjs）とブラウザー（browser/run.mjs）の両方で読み込むので、ファイルもハッシュの道具も
+// Node.js（conformance.mjs）とブラウザー（browser/run.mjs）の両方で読み込むので、ファイルもハッシュのツールも
 // 引数で受け取る。組の手順の状態と応答の値を確かめ、ハッシュの一覧を返す。一覧を hashes.txt と比べるのは呼んだ側。
 
 import { ACTIONS, bytesOf, checkResponse, pushOf, requestOf } from "../../conformance/steps.mjs";
 import { SCENE_MAJOR, SCENE_SECTIONS, SCHEMA_MAJOR, ZumenError, readScene } from "../src/index.js";
 
-/** 境界の関数を呼び、状態の名前と、書かれたバイト列を返す */
+/** API の関数を呼び、状態の名前と、書かれたバイト列を返す */
 function attempt(fn) {
   try {
     return ["ok", fn()];
@@ -18,7 +18,7 @@ function attempt(fn) {
   }
 }
 
-/** シーンの blob を読み手で読み、応答の数と合うかを確かめる */
+/** シーンの blob をリーダーで読み、応答の数と合うかを確かめる */
 function checkScene(at, blob, result, failures) {
   let scene;
   try {
@@ -29,8 +29,8 @@ function checkScene(at, blob, result, failures) {
   }
   const counts = result.counts;
   const checks = [
-    ["大版", scene.major, SCENE_MAJOR],
-    ["区画の数", scene.sections, SCENE_SECTIONS.length],
+    ["メジャーバージョン", scene.major, SCENE_MAJOR],
+    ["セクションの数", scene.sections, SCENE_SECTIONS.length],
     ["塊の数", scene.chunks, counts.chunks],
     ["chunk_origins の行", scene.rows("chunk_origins"), counts.chunks],
     ["text_xy の行", scene.rows("text_xy"), counts.texts],
@@ -38,7 +38,7 @@ function checkScene(at, blob, result, failures) {
     ["glyph_xy の行", scene.rows("glyph_xy"), counts.glyphs],
     ["line_xy と face_xy の行", scene.rows("line_xy") + scene.rows("face_xy"), counts.vertices],
   ];
-  // 文字の文字列は、strings の区画から引ける
+  // 文字の文字列は、strings のセクションから引ける
   const strings = scene.columns.text_strings;
   for (let row = 0; row < strings.length; row += 2) {
     try {
@@ -61,7 +61,7 @@ function checkScene(at, blob, result, failures) {
  * - cases: cases.mjs の loadCases が返す組
  * - readSample: samples/ の中のファイルの道筋から、中身の Uint8Array を返す
  * - sha256: バイト列から、SHA-256 の 16 進の文字列を返す（非同期でよい）
- * - pick: 分けた wasm のモジュールで流すとき、組から、流すモジュール（load で読み込んだもの）を返す。組のあとの試験は
+ * - pick: 分けた wasm のモジュールで流すとき、組から、流すモジュール（load で読み込んだもの）を返す。組のあとのテストは
  *   zumen で流す
  */
 export async function runConformance({ zumen: base, cases, readSample, sha256, pick }) {
@@ -89,7 +89,7 @@ export async function runConformance({ zumen: base, cases, readSample, sha256, p
         session?.close();
         [status, session] = attempt(() => zumen.open(bytesOf(input, "options", "options_text")));
         if (status !== "ok") {
-          // 作れなかったら、閉じたセッションで続ける。境界は、空のセッションへの呼び出しを invalid にする
+          // 作れなかったら、閉じたセッションで続ける。API は、空のセッションへの呼び出しを invalid にする
           session = zumen.open();
           session.close();
         }

@@ -1,8 +1,8 @@
-// プラグインの形式だけを持つ wasm のモジュールを、JavaScript の包みの loadModules で呼ぶ（#399・#481、決定 0243・0247）。
+// プラグインの形式だけを持つ wasm のモジュールを、JavaScript のラッパーの loadModules で呼ぶ（#399・#481、決定 0243・0247）。
 //
 // 使い方: node templates/plugin/tests/wasm.mjs <zumen_plugin_template.wasm> <drawing.wasm>
 //
-// 包みは、コアのどの形式でもない入力を、plugin.json の判定の規則で試し、プラグインのモジュールを読み込む。プラグインの
+// ラッパーは、コアのどの形式でもない入力を、plugin.json の判定の規則で試し、プラグインのモジュールを読み込む。プラグインの
 // モジュールは、読んだ図面を lift で図面モデルのバイナリにする。コアの図面のモジュールは、それを open で開き、図面を
 // 読む op に答える。
 
@@ -65,7 +65,7 @@ check(scene.result?.counts?.lines === 2, `シーンの結果が ${JSON.stringify
 check(drawing.take(scene.result.blob).length > 0, "シーンの blob が空");
 drawing.close();
 
-// 包みの Modules.open は、プラグインのモジュールで lift し、図面のモジュールのセッションで開く（決定 0250）
+// ラッパーの Modules.open は、プラグインのモジュールで lift し、図面のモジュールのセッションで開く（決定 0250）
 const opened = await modules.open("b.txt", sample, { doc: "b" });
 check(opened?.zumen === (await modules.get("drawing")), "Modules.open が、図面のモジュールで開かない");
 check(opened?.response.result?.format === "zumen_lines", `Modules.open の結果が ${JSON.stringify(opened?.response)}`);

@@ -2,7 +2,7 @@
 //!
 //! ページを用紙に、表示グループ（optional content group、8.11）をレイヤにする。ページの内容は、解釈する前に
 //! 走査して予算に数え（[`crate::walk`]）、hayro-interpret で解釈し、塗った経路・字形の並び・画像を要素にする
-//! （[`crate::device`]）。文書の情報と版は、図面の拡張 `pdf.document` に持つ。注釈と縮尺の辞書は、まだ移さずに
+//! （[`crate::device`]）。文書の情報とバージョンは、図面の拡張 `pdf.document` に持つ。注釈と縮尺の辞書は、まだ移さずに
 //! 診断する。
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -27,7 +27,7 @@ use crate::page::{self, Geometry};
 use crate::walk::{self, Reads, Walker};
 use crate::{MAGIC, PdfFile, RecordKind, strings};
 
-/// 形式固有の情報の値の型の契約の版（決定 0115）
+/// 形式固有の情報の値の型の契約のバージョン（決定 0115）
 const SCHEMA: u32 = 1;
 
 /// ファイルの後ろに足すバイト列の前に置く。ファイルの終わりで読みかけのオブジェクトを、読めるものにしない。`%` は
@@ -52,7 +52,7 @@ impl Lift<Drawing2D> for PdfFile {
             .iter()
             .position(|record| record.kind == RecordKind::Header);
         let header = position.map_or_else(Ref::default, |index| record_ref(self, index));
-        // 見出しの版（7.5.2）。`%PDF-` の後ろ
+        // ヘッダーのバージョン（7.5.2）。`%PDF-` の後ろ
         let header_version =
             position
                 .and_then(|index| self.records.get(index))
@@ -198,9 +198,9 @@ struct Lifter<'d, 'o> {
     objects: &'o BTreeMap<(u32, i32), Ref>,
     /// オブジェクトのストリームになりうるストリームの番号（[`guard::records`]）
     containers: &'o BTreeSet<(u32, i32)>,
-    /// 見出しのレコード
+    /// ヘッダーのレコード
     header: Ref,
-    /// 見出しの版
+    /// ヘッダーのバージョン
     header_version: Option<PdfVersion>,
     styles: Styles,
     /// 付く先を位置で指す拡張。要素がそろってから ID とハッシュにする（決定 0156）
@@ -506,8 +506,8 @@ impl Lifter<'_, '_> {
         Ok(())
     }
 
-    /// 文書の版。見出し（7.5.2）と、カタログの `Version`（7.7.2）の新しいほう。hayro-syntax の `Pdf::version` は、
-    /// カタログの版が古くてもそれを返すので、どちらも読めないときだけ使う
+    /// 文書のバージョン。ヘッダー（7.5.2）と、カタログの `Version`（7.7.2）の新しいほう。hayro-syntax の `Pdf::version` は、
+    /// カタログのバージョンが古くてもそれを返すので、どちらも読めないときだけ使う
     fn version(&self, catalog: Option<&Dict<'_>>) -> PdfVersion {
         let declared = catalog
             .and_then(|catalog| catalog.get::<Name<'_>>(b"Version"))
@@ -519,7 +519,7 @@ impl Lifter<'_, '_> {
         }
     }
 
-    /// 文書の情報の辞書（14.3.3）とページの数を、図面の拡張 `pdf.document` にする。版は拡張の版に持つ
+    /// 文書の情報の辞書（14.3.3）とページの数を、図面の拡張 `pdf.document` にする。バージョンは拡張のバージョンに持つ
     fn document_draft(&mut self, pages: usize, version: PdfVersion) {
         let info = self.document.metadata();
         let mut fields = Vec::new();
@@ -600,7 +600,7 @@ fn catalog_work(reads: Reads<'_>, catalog: Option<&Dict<'_>>) -> u64 {
         .saturating_add(1)
 }
 
-/// 版の書き方（`1.7` など）。hayro-syntax の `PdfVersion` と同じく、知っている版の最初の 3 バイトだけを読む
+/// バージョンの書き方（`1.7` など）。hayro-syntax の `PdfVersion` と同じく、知っているバージョンの最初の 3 バイトだけを読む
 fn parse_version(bytes: &[u8]) -> Option<PdfVersion> {
     Some(match bytes.get(..3)? {
         b"1.0" => PdfVersion::Pdf10,
@@ -616,7 +616,7 @@ fn parse_version(bytes: &[u8]) -> Option<PdfVersion> {
     })
 }
 
-/// 版の名前
+/// バージョンの名前
 fn version_name(version: PdfVersion) -> &'static str {
     match version {
         PdfVersion::Pdf10 => "1.0",

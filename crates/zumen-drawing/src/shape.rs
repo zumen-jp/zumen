@@ -53,7 +53,7 @@ pub enum Shape<P> {
     Callout(Callout<P>),
     /// 表
     Table(Table<P>),
-    /// 下敷きの画像・PDF など
+    /// アンダーレイの画像・PDF など
     Underlay(Underlay<P>),
     /// 記号
     Symbol(Symbol<P>),
@@ -146,19 +146,19 @@ pub enum Edge<P> {
     },
 }
 
-/// スプライン。制御点と節点の定義と、当てはめる点の定義の、元の形式が持つものを持つ。片方から
+/// スプライン。制御点とノットの定義と、フィット点の定義の、元の形式が持つものを持つ。片方から
 /// 他方を計算しない
 #[derive(Clone, Debug, PartialEq)]
 pub struct Spline<P> {
     /// 次数
     pub degree: u32,
-    /// 節点
+    /// ノット
     pub knots: Vec<f64>,
     /// 制御点
     pub control: Vec<P>,
     /// 制御点の重み。有理でなければ空
     pub weights: Vec<f64>,
-    /// 当てはめる点
+    /// フィット点
     pub fit: Vec<P>,
     /// 始まりの接線の向き。なければ `None`
     pub start_tangent: Option<[f64; 2]>,
@@ -168,14 +168,14 @@ pub struct Spline<P> {
     pub closed: bool,
     /// 周期的
     pub periodic: bool,
-    /// 当てはめる点を通す許容差（要素の空間の長さ）。0 なら点を通る。元の形式が持たなければ `None`（決定 0157）
+    /// フィット点を通す許容差（要素の空間の長さ）。0 なら点を通る。元の形式が持たなければ `None`（決定 0157）
     pub fit_tolerance: Option<f64>,
-    /// 当てはめる点から節点を決める取り方。当てはめる点で決まるスプラインでないか、元の形式が持たなければ
+    /// フィット点からノットを決める取り方。フィット点で決まるスプラインでないか、元の形式が持たなければ
     /// `None`（決定 0157）
     pub knot_parameterization: Option<KnotParameterization>,
 }
 
-/// 当てはめる点から節点を決める取り方（DXF・DWG の節点のパラメーター化）
+/// フィット点からノットを決める取り方（DXF・DWG のノットのパラメーター化）
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KnotParameterization {
     /// 隣の点との距離に比例させる
@@ -184,6 +184,6 @@ pub enum KnotParameterization {
     SquareRoot,
     /// 等しい間隔にする
     Uniform,
-    /// 元の形式が持つ節点を使う
+    /// 元の形式が持つノットを使う
     Custom,
 }

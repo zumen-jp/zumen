@@ -12,7 +12,7 @@ out=$root/bindings/swift/build
 case $profile in
   release) flag=--release ;;
   debug) flag= ;;
-  *) echo "版の作り方は debug か release: $profile" >&2; exit 2 ;;
+  *) echo "ビルドの種類は debug か release: $profile" >&2; exit 2 ;;
 esac
 
 for target in $targets; do

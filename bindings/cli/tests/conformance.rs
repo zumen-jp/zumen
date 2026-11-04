@@ -1,12 +1,12 @@
-//! 適合試験を、CLI の形で流す（決定 0006・0197・0200）。
+//! 適合テストを、CLI の形で流す（決定 0006・0197・0200）。
 //!
 //! - `zumen serve --stdio`: すべての組を流し、ハッシュの一覧が `hashes.txt` と一致することを確かめる
 //! - `zumen serve --http`: すべての組を、HTTP の JSON-RPC と本文のままの push・take で流す
-//! - 実行の形 `process`: すべての組を、子プロセスの CLI に送るセッションで流す
-//! - `zumen mcp`: 道具で表せる組（セッションの設定を JSON の値で渡し、要求が知っている op のオブジェクトで、
+//! - 実行の形態 `process`: すべての組を、子プロセスの CLI に送るセッションで流す
+//! - `zumen mcp`: ツールで表せる組（セッションの設定を JSON の値で渡し、要求が知っている op のオブジェクトで、
 //!   入力の名前が文字列のもの）だけを流し、その組の行が `hashes.txt` と一致することを確かめる
 
-// 試験の道具の関数の中でも、試験と同じく unwrap・panic・添字を使う
+// テストのツールの関数の中でも、テストと同じく unwrap・panic・添字を使う
 #![allow(clippy::unwrap_used, clippy::panic, clippy::indexing_slicing)]
 
 use std::io::{BufRead, BufReader, Read, Write};
@@ -18,7 +18,7 @@ use zumen_abi1::Status;
 use zumen_conformance::{Case, Engine, Report, cases, differences, read_hashes, run};
 use zumen_json::{Value, Writer};
 
-/// MCP の道具の結果の `_meta` の、境界の状態のキー
+/// MCP のツールの結果の `_meta` の、API の状態のキー
 const STATUS_KEY: &str = "io.github.zumen-jp~1status";
 
 const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -145,7 +145,7 @@ fn params(fields: &[(&str, &str)]) -> Vec<u8> {
     out.into_bytes()
 }
 
-/// `zumen serve --stdio` を、境界の 1 つの形として使う
+/// `zumen serve --stdio` を、API の 1 つの形態として使う
 struct Serve(Child2);
 
 impl Engine for Serve {
@@ -186,7 +186,7 @@ impl Engine for Serve {
     }
 }
 
-/// `zumen mcp` の道具を、境界の 1 つの形として使う
+/// `zumen mcp` のツールを、API の 1 つの形態として使う
 struct Mcp {
     child: Child2,
     session: Option<String>,
@@ -209,7 +209,7 @@ impl Mcp {
         self.child.request("tools/call", &params)
     }
 
-    /// セッションの名前を足した道具の引数
+    /// セッションの名前を足したツールの引数
     fn arguments(&self, fields: &[(&str, Value)]) -> Option<Vec<u8>> {
         let session = self.session.as_ref()?;
         let mut out = Writer::new();
@@ -259,7 +259,7 @@ impl Engine for Mcp {
 
     fn call(&mut self, request: &[u8]) -> (i32, Option<Vec<u8>>) {
         let Ok(Value::Object(request)) = zumen_json::parse(request) else {
-            panic!("道具で表せない要求");
+            panic!("ツールで表せない要求");
         };
         let Some(Value::String(op)) = request.get("op") else {
             panic!("op のない要求");
@@ -380,7 +380,7 @@ fn percent(bytes: &[u8]) -> String {
         .collect()
 }
 
-/// `zumen serve --http` を、境界の 1 つの形として使う
+/// `zumen serve --http` を、API の 1 つの形態として使う
 struct Http {
     server: Rc<HttpServer>,
     session: Option<String>,
@@ -453,7 +453,7 @@ impl Engine for Http {
     }
 }
 
-/// 実行の形を `process` にしたセッション。実行の形を書かない設定に、`process` とこの CLI のパスを足す
+/// 実行の形態を `process` にしたセッション。実行の形態を書かない設定に、`process` とこの CLI のパスを足す
 #[derive(Default)]
 struct Process {
     session: Option<zumen_abi1::Session>,
@@ -527,7 +527,7 @@ impl Engine for Process {
     }
 }
 
-/// 組が MCP の道具で表せるか
+/// 組が MCP のツールで表せるか
 fn fits_mcp(case: &Case, ops: &[String]) -> bool {
     let Some(Value::Array(steps)) = case.value.pointer("/steps") else {
         return false;

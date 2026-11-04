@@ -1,5 +1,5 @@
 {
-  "description": "open は、基盤地図情報の配布の書庫（ZIP）を、中の FG-GML- で始まる .xml の項目の名前で見分け、中の GML を 1 つの地理の領域モデルにまとめる（決定 0251、#493）。地物の ID は、項目の名前と # と gml:id の組で、同じ gml:id でも項目で分かれる。基盤地図情報の GML でない項目は fgd.entry.unsupported を返す。",
+  "description": "open は、基盤地図情報の配布のアーカイブ（ZIP）を、中の FG-GML- で始まる .xml の項目の名前で見分け、中の GML を 1 つの地理の領域モデルにまとめる（決定 0251、#493）。地物の ID は、項目の名前と # と gml:id の組で、同じ gml:id でも項目で分かれる。基盤地図情報の GML でない項目は fgd.entry.unsupported を返す。",
   "module": "civil",
   "steps": [
     {
