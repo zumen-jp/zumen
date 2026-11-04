@@ -179,7 +179,7 @@ fn other_encodings_are_not_read() {
             Some(&zumen_base::Value::Text(encoding.to_owned()))
         );
     }
-    // 宣言のない文書と UTF-8 のフラグは UTF-8
+    // 宣言のない文書と UTF-8 のバイト順マークは UTF-8
     let (doc, _) = read(b"\xef\xbb\xbf<a/>");
     assert_eq!(doc.unwrap().encoding(), Encoding::Utf8);
 }

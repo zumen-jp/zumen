@@ -158,7 +158,7 @@ impl Parser<'_> {
             .map_err(|stop| Fail::Stop(stop, start..self.pos))
     }
 
-    /// バイト順のフラグと XML 宣言から、文字コードを決める
+    /// バイト順マークと XML 宣言から、文字コードを決める
     fn encoding(&mut self, cx: &mut Cx) -> Result<Encoding, Error> {
         let bom = self.starts(&[0xef, 0xbb, 0xbf]);
         if bom {

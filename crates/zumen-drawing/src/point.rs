@@ -22,7 +22,7 @@ pub enum PointLook {
     Document,
     /// 既定義のマーカー。マーカーの形は、表示する側がキーから引く
     Marker {
-        /// フラグの表のキー
+        /// マーカーの表のキー
         key: MarkerKey,
         /// 尺度
         scale: f64,

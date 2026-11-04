@@ -16,7 +16,7 @@ import 'package:zumen/zumen.dart';
 /// 手順の種類。手順は、どれか 1 つのフィールドを持つ
 const actions = ['session', 'push', 'call', 'call_text', 'call_hex', 'take'];
 
-/// JSON Pointer で引けなかったフラグ
+/// JSON Pointer で引けなかったことを示す番兵
 const missing = Object();
 
 final failures = <String>[];

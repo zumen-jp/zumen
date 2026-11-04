@@ -40,7 +40,7 @@ REPOSITORY = ("MIT OR Apache-2.0", "zumen-jp（このリポジトリ）。本文
 SUFFIXES = {".dxf": "dxf", ".dwg": "dwg", ".jww": "jww", ".sfc": "sfc", ".p21": "p21"}
 # 適合テストの中で作った図面（cases の push）。Jw_cad・SXF の公開サンプルがまだないので、これを入力にする
 CASES = [("open_jww.json", "a.jww"), ("open_sxf.json", "a.sfc"), ("open_sxf.json", "c.p21")]
-# ezsxf がフィーチャを型で読む SFC（フラグが `/*SXF` で、FILE_NAME がある）。適合テストの SFC はフラグが `/*SXF3` で、
+# ezsxf がフィーチャを型で読む SFC（マーカーが `/*SXF` で、FILE_NAME がある）。適合テストの SFC はマーカーが `/*SXF3` で、
 # ezsxf はそのフィーチャの値を読まないので、外部の実装と照らすために作る
 SFC = r"""ISO-10303-21;
 HEADER;

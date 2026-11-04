@@ -4,14 +4,14 @@ crate `zumen-crs` が持つ、座標の空間の型・座標系の名指し・�
 
 ## 空間の型
 
-| 型 | 空間 | コンポーネント |
+| 型 | 空間 | 成分 |
 | --- | --- | --- |
 | `MapPoint` | 地図（メートル） | `northing`・`easting`。平面直角座標系の X・Y に当たる |
 | `GeoPoint` | 地理（度） | `latitude`・`longitude` |
 | `ProjectPoint` | プロジェクト（文書の長さの単位） | `x`・`y`・`z`（Z が上） |
 | `Height` | 高さ（メートル） | 値・基準（`HeightDatum`）・成果（`Realization`） |
 
-- 形式が書くコンポーネントの順は、`Axes`（`EastNorth`・`NorthEast`）で読み書きの所で直す。
+- 形式が書く成分の順は、`Axes`（`EastNorth`・`NorthEast`）で読み書きの所で直す。
 - プロジェクトから地図への変換は `MapConversion`（IFC の `IfcMapConversion`）で表す。IFC 4.3 の定義のとおり、3 つの軸に同じ尺度（`Scale`）を掛け、地図の上の X 軸の向き（`XAxisAbscissa`・`XAxisOrdinate`）で反時計回りに回し、`Eastings`・`Northings`・`OrthogonalHeight` だけ動かす。回す角は、向きのベクトルを長さで割って余弦と正弦にし、三角関数を使わない。`IfcMapConversionScaled`（軸ごとの尺度）は、まだ扱わない。
 
 ## 座標系の名指し

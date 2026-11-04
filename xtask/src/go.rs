@@ -39,7 +39,7 @@ const COLUMNS: &[(&str, &str)] = &[
     ("f64", "ColumnF64"),
 ];
 
-/// 説明をコメントにする。gofmt が書き換える形（字下げ・箇条書きのフラグ）を避け、各行を段落の文にする
+/// 説明をコメントにする。gofmt が書き換える形（字下げ・箇条書きの記号）を避け、各行を段落の文にする
 fn comment(out: &mut String, indent: &str, text: &str) {
     for line in text.lines() {
         let line = line.trim();

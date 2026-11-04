@@ -72,7 +72,7 @@
 
 - 空間ごとに型を分ける。幾何の型（[0018](0018-geometry-layers-and-tolerances.md)）は、空間を型の引数に持つ。
 - 空間の間の変換も型で表す。実寸から用紙への配置（部分図・ビューポート）、プロジェクトから地図への変換（IFC の `IfcMapConversion`）、地理と地図の間の投影。変換を通さずに、別の空間の点を混ぜられない。
-- 地図の座標のコンポーネントは、`x`・`y` と呼ばず、`northing`・`easting` と呼ぶ（EPSG の軸の名前）。API のメッセージ（[0012](0012-boundary-functions-and-messages.md)）と表の列も、同じ名前にする。
+- 地図の座標の成分は、`x`・`y` と呼ばず、`northing`・`easting` と呼ぶ（EPSG の軸の名前）。API のメッセージ（[0012](0012-boundary-functions-and-messages.md)）と表の列も、同じ名前にする。
 - 軸の順は、読み書きの所で型に直す。コーデックと lift・lower が、形式ごとの順（SXF の測地座標系の部分図、IFC の `Eastings`・`Northings` など）を読み、型に入れる。L2 から先は、軸の順を気にしない。
 
 ### 座標系の名前

@@ -1,7 +1,7 @@
 import 'dart:collection';
 import 'dart:convert';
 
-/// フィールドの値の形が、型と違うフラグ
+/// フィールドの値の形が、型と違うことの知らせ
 final class _Mismatch implements Exception {
   const _Mismatch();
 }

@@ -505,7 +505,7 @@ fn point_markers_are_written_into_p21() {
             .collect()
     };
     let near = |a: f64, b: f64| (a - b).abs() <= 1e-9;
-    // 置き換え: 位置・フラグ（x）・回転・尺度
+    // 置き換え: 位置・マーカー（x）・回転・尺度
     let moved = Point {
         position: paper(50.0, 40.0),
         rotation: 30.0,

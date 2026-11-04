@@ -13,7 +13,7 @@
 - SFC: 要素の出所のフィーチャを ezsxf が型で読み、レイヤと、線・円・点マーカーでは形の値が同じ。形のフィールドは両向きに
   比べ、ezsxf の読みにレイヤや形があれば、zumen の要素も持つ。用紙の要素は、ezsxf の用紙（drawing_sheet_feature）か、
   そこに置いた作図グループの中にあるか、ezsxf の読みで表示する複合曲線の曲線（ezsxf は複合曲線を置かず、ハッチングの
-  境界の定義として持つ。sheet_members）。ezsxf がフィーチャを型で読まない SFC（フラグが `/*SXF3` など）は、種類
+  境界の定義として持つ。sheet_members）。ezsxf がフィーチャを型で読まない SFC（マーカーが `/*SXF3` など）は、種類
   だけを比べ、結果の notes に書く。ezsxf が複合曲線を読めなかったか飛ばした SFC と、ハッチングの指す複合曲線が
   ないと言った SFC は、用紙の中にあることを比べず、notes に書く。make.py が作った SFC（made-features・
   made-structure）とその書き戻しを ezsxf が型で読まなければ、失敗にする。
@@ -109,7 +109,7 @@ UNTRIMMED = [("POLYLINE", "polyline", "polyline"), ("CIRCLE", "circle", "circle"
 GENERIC = {"ANNOTATION_OCCURRENCE", "DRAUGHTING_ANNOTATION_OCCURRENCE"}
 # P21 の複合図形の名前の接頭語と区分（docs/formats/sxf.md の「P21 の組み直し」。接頭語がなければ作図グループ）
 SUBFIGURES = [("$$SXF_FM_", 1), ("$$SXF_FG_", 2), ("$$SXF_G_", 3), ("$$SXF_P_", 4)]
-# SFC のフィーチャのフラグと閉じ（docs/formats/sxf.md の「レコードの区切り」。長いものから比べる）
+# SFC のフィーチャのマーカーと閉じ（docs/formats/sxf.md の「レコードの区切り」。長いものから比べる）
 MARKS = [("/*SXF3.1", "SXF3.1*/"), ("/*SXF3", "SXF3*/"), ("/*SXF", "SXF*/")]
 # 複合曲線がまとめて曲線にするフィーチャ（決定 0129 の「背景」の曲線）。表示しない複合曲線も、ほかのフィーチャは
 # まとめても曲線にしないので、黙って捨てない照合で数える
@@ -145,7 +145,7 @@ def string_end(text, i):
 def records(text, skipped, statements=None):
     """インスタンスの番号 → zumen のレコードの番号。docs/formats/sxf.md の「レコードの区切り」のとおり、`;` で終わる文と、
     データのセクションの `/*SXF` から閉じまでを、ファイルの初めから 0 で数える。間のコメントは数えない。FILE_DESCRIPTION の最初の
-    文字列に AP202 とあれば（大文字と小文字を問わない）、データのセクションのフィーチャのフラグも、ただのコメントとする（「判定」）。
+    文字列に AP202 とあれば（大文字と小文字を問わない）、データのセクションのフィーチャのマーカーも、ただのコメントとする（「判定」）。
     skipped は、zumen が読めないと言った範囲 (始め, 終わり) の一覧で、そこから始まる文とコメントは数えず、範囲の終わりから
     読む（「壊れた所」）。P21 の同じ番号の 2 つ目の文もレコードとして数え、インスタンスの番号には 1 つ目の文のレコードの
     番号を使う（zumen は 2 つ目を使わない）。statements を渡せば、P21 のインスタンスの番号 → 1 つ目の文を入れる"""

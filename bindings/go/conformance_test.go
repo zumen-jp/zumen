@@ -29,7 +29,7 @@ var actions = []string{"session", "push", "call", "call_text", "call_hex", "take
 
 var arrayIndex = regexp.MustCompile(`^(0|[1-9][0-9]*)$`)
 
-// missing は、JSON Pointer で引けなかったフラグ。
+// missing は、JSON Pointer で引けなかったことを示す番兵。
 type missing struct{}
 
 type conformance struct {

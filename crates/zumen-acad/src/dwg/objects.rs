@@ -2815,7 +2815,7 @@ fn table(bits: &mut Bits, release: Release, slots: &mut u64) -> Option<Vec<Value
             values.push(r.bd(41)?);
         }
         // 表題・見出し・データの行の上書き。DWG はこの順に持ち、DXF はデータ・表題・見出しの順に書く（推定。
-        // サンプルでは、ヘッダーとデータの行の値が同じ）
+        // サンプルでは、見出しとデータの行の値が同じ）
         let mut rows = |bits: [i32; 3], read: &mut dyn FnMut(&mut Slotted) -> Option<Value>| {
             let mut found: [Option<Value>; 3] = [None, None, None];
             for (slot, bit) in found.iter_mut().zip(bits) {

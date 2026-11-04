@@ -145,7 +145,7 @@ jobs:
       - name: 公開サンプルと適合テストの図面に書き戻しと変換を当て、検証キットを作る
         id: make
         run: python -I xtask/verify/make.py target/release/zumen "$RUNNER_TEMP/verify"
-      - name: キットの DXF を ezdxf で読み、zumen の読みと照らす
+      - name: 検証キットの DXF を ezdxf で読み、zumen の読みと照らす
         # 当たらなかった変更があっても、書いたファイルは照らす。CLI を作れずキットがないときは流さない
         if: ${{ !cancelled() && steps.make.outcome != 'skipped' }}
         run: python -I xtask/verify/check_ezdxf.py "$RUNNER_TEMP/verify"

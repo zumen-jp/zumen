@@ -321,7 +321,7 @@ impl Encode for Id {
     }
 }
 
-/// 要素への参照は、指す先の ID で入れる。ない要素なら、番号を別のフラグで入れる
+/// 要素への参照は、指す先の ID で入れる。ない要素なら、番号を別のタグで入れる
 impl Encode for ElementRef {
     fn encode(&self, out: &mut Canon<'_>) {
         match out.building.id(*self) {

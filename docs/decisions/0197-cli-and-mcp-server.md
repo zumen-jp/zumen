@@ -44,7 +44,7 @@ MCP と JSON-RPC は 2、引数は 2、セッションは 2 を選ぶ。依存�
   - 終了コードは API の状態の値（`ok` が 0、`failed` が 1 など）にし、引数とファイルの誤りは 64 にする。`--blobs` で、応答の blobs を `<id>.<kind>` に書き出す。
 - **`zumen serve --stdio`**: API の関数に 1 対 1 で当たるメソッド（`session_new`・`push`・`call`・`take`・`cancel`）を出す。セッションは 1 つで、既定の設定で作ってから始める。バイト列は、文字列・base64・JSON の値（`request`・`options`）・ファイルの道筋（`push` の `path`）で渡せる。応答の JSON は、書き換えないよう文字列のまま `response` に入れる。`cancel` は読む側のスレッドが受け、実行中の `call` を止める。
 - **`zumen mcp [--root フォルダー]`**
-  - バージョンは 2026-07-28 と、初期化で受ける 2025-11-25・2025-06-18・2025-03-26。`_meta` のバージョンが知らないものなら `-32022` を返す。`_meta` に版がない要求（前のバージョン）は、そのまま受ける。`server/discover`・`initialize`・`ping`・`tools/list`・`tools/call` に応え、`notifications/cancelled` で実行中のツールを止める。
+  - バージョンは 2026-07-28 と、初期化で受ける 2025-11-25・2025-06-18・2025-03-26。`_meta` のバージョンが知らないものなら `-32022` を返す。`_meta` にバージョンがない要求（前のバージョン）は、そのまま受ける。`server/discover`・`initialize`・`ping`・`tools/list`・`tools/call` に応え、`notifications/cancelled` で実行中のツールを止める。
   - ツールは、セッションのツール（`session_new`・`session_close`・`push`・`take`）と、op ごとのツール。op のツールの入力の型は、`schema/messages.json` の `<op>_request` から `op` を除き、共通のフィールドを広げ、`session` を足し、指す定義を `$defs` に入れて閉じたもの。`cargo xtask codegen` が `bindings/cli/src/tools.json` に作り、`--check` が更新漏れを調べる。一覧はスキーマの順に返す。
   - op のツールは、コアの応答の JSON を書き換えずに文字の内容で返し、API の状態を結果の `_meta` の `io.github.zumen-jp/status` に入れる。`ok` でなければ `isError` にする。知らないツールは `-32602` にする。
   - ファイルは `--root` の中だけを、安全な相対の名前（`zumen_base::name::is_safe`）で読み書きする。`--root` がなければ、ファイルを使わない。`take` の書き出しは、まだないファイルに限る。

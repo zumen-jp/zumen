@@ -2,7 +2,7 @@
 //!
 //! SFC と P21 は、どちらも ISO 10303-21 の交換構造（`ISO-10303-21;` で始まり、ヘッダーとデータのセクションを持つ）に入る。
 //! 文（`;` で終わるもの）と、SFC のフィーチャのコメント（`/*SXF` から `SXF*/` まで）を、レコードとして元のバイト範囲のまま読む。
-//! 交換構造の読み取りは `zumen-step` が行い、SFC のフィーチャのコメントのフラグと診断を [`Dialect`] で渡す（決定 0207）。
+//! 交換構造の読み取りは `zumen-step` が行い、SFC のフィーチャのコメントのマーカーと診断を [`Dialect`] で渡す（決定 0207）。
 //! 値は元のバイト列の範囲で持ち、文字列のエスケープと文字コードは戻さない。戻すのは図面モデルへの変換で行う。
 //! SFC と P21 は図面モデル（L2）に変換できる（決定 0121・0132）。
 
@@ -33,7 +33,7 @@ pub enum Mode {
     P21,
 }
 
-/// SFC のフィーチャのコメントのフラグ。フラグは版を表す（推定。docs/formats/sxf.md）
+/// SFC のフィーチャのコメントのマーカー。マーカーは版を表す（推定。docs/formats/sxf.md）
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Marker {
     /// `/*SXF` … `SXF*/`
@@ -45,7 +45,7 @@ pub enum Marker {
 }
 
 impl Marker {
-    /// 長いものから順に並べた、フラグ・開き・閉じ。[`DIALECT`] の `features` と同じ順
+    /// 長いものから順に並べた、マーカー・開き・閉じ。[`DIALECT`] の `features` と同じ順
     const ALL: [(Marker, &'static [u8], &'static [u8]); 3] = [
         (Marker::Sxf31, b"/*SXF3.1", b"SXF3.1*/"),
         (Marker::Sxf3, b"/*SXF3", b"SXF3*/"),
@@ -65,9 +65,9 @@ const DIALECT: Dialect = Dialect {
     plain_if_described: Some(b"AP202"),
 };
 
-/// SFC のフィーチャのコメントのフラグを持つレコード
+/// SFC のフィーチャのコメントのマーカーを持つレコード
 pub trait SfcRecord {
-    /// SFC のフィーチャのコメントのフラグ。文にはない
+    /// SFC のフィーチャのコメントのマーカー。文にはない
     fn marker(&self) -> Option<Marker>;
 }
 

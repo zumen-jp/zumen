@@ -2132,7 +2132,7 @@ since = "0.2.0"
 status = "active"
 
 [codes."jpeg.segment.invalid"]
-description = "JPEG のセグメントの長さかフラグが壊れているので、その先を読まなかった（#387）"
+description = "JPEG のセグメントの長さかマーカーが壊れているので、その先を読まなかった（#387）"
 severity = "warning"
 params = { offset = "uint" }
 since = "0.2.0"

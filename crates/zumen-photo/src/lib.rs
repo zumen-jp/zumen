@@ -79,7 +79,7 @@ pub fn read(src: &[u8], cx: &mut Cx) -> Result<Photo, Error> {
     let mut at = 2;
     loop {
         cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
-        // フラグの前の埋めの 0xFF は飛ばす
+        // マーカーの前の埋めの 0xFF は飛ばす
         let Some(start) = src
             .get(at..)
             .and_then(|rest| rest.iter().position(|b| *b != 0xFF))
