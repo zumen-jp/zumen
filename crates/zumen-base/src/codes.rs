@@ -2383,7 +2383,7 @@ pub const JPEG_EXIF_INVALID: Code = Code::new(
 /// `jpeg.file.invalid`（0.2.0 から）
 pub const JPEG_FILE_INVALID: Code = Code::new("jpeg.file.invalid", Severity::Error, None, &[], &[]);
 
-/// JPEG のセグメントの長さかフラグが壊れているので、その先を読まなかった（#387）
+/// JPEG のセグメントの長さかマーカーが壊れているので、その先を読まなかった（#387）
 ///
 /// `jpeg.segment.invalid`（0.2.0 から）
 pub const JPEG_SEGMENT_INVALID: Code = Code::new(
