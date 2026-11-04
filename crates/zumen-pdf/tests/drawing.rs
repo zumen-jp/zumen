@@ -3959,6 +3959,27 @@ fn refuses_parameter_arrays_with_references() {
         (2, format!("/DP [({}) 4 0 R]", "a".repeat(1_100))),
         // 上限の終わりにかかる参照（2 つ目の `R` が外）は、数 2 つに読むが、参照の項目として数える
         (3, format!("/DP [4 0 R ({}) 4 0 R]", "a".repeat(1_011))),
+        // 上限の最後のバイトが参照の世代番号の符号（`+` は、数字も `.` もなければ読めない）でも、参照の項目として数える
+        (3, format!("/DP [4 0 R ({}) 4 +0 R]", "a".repeat(1_012))),
+        (3, format!("/DP [4 0 R ({}) 4 +. R]", "a".repeat(1_012))),
+        (3, format!("/DP [4 0 R ({}) .+0 R]", "a".repeat(1_013))),
+        // 64 個目までの項目にかかる参照も、後ろの 2 つまで読んで数える
+        (
+            64,
+            format!(
+                "/DP [4 0 R ({}) {}4 0 R]",
+                "a".repeat(706),
+                "null ".repeat(61)
+            ),
+        ),
+        (
+            64,
+            format!(
+                "/DP [4 0 R ({}) {}4 0 R 4 0 R]",
+                "a".repeat(711),
+                "null ".repeat(60)
+            ),
+        ),
         // 上限の終わりにかかる `stream` の語（`str` までが中）も、辞書の項目をストリームとする
         (
             3,
@@ -3967,7 +3988,7 @@ fn refuses_parameter_arrays_with_references() {
                 "a".repeat(993)
             ),
         ),
-        // 数字のない数の字句は、hayro-syntax の読み方が符号か `.` だけを読み、後ろを参照として読む
+        // 数字のない数の字句は、hayro-syntax の読み方が数字の前の符号と `.` までを読み、後ろを参照として読む
         (64, "/DP [.-0 0 R .-0 0 R]".to_string()),
         (64, "/DP [--0 0 R --0 0 R]".to_string()),
         (64, "/DP [-.-0 0 R +.-0 0 R]".to_string()),
@@ -3990,11 +4011,19 @@ fn refuses_parameter_arrays_with_references() {
         (1, "/DP [null << /Length 1 >> stream\n%\n]".to_string()),
         (64, format!("/DP [({}) 4 0 R]", "a".repeat(900))),
         (64, "/DP [.-0 0 R]".to_string()),
-        // hayro-syntax が読めない項目（飛ばせても数として読めない字句）の後ろは、読まない
+        // hayro-syntax が読めない項目（飛ばせても数として読めない字句）の後ろは、読まない（配列の後ろのデータが、見る
+        // 上限より短い形。長ければ、切れた項目と見分けないので断る）
         (64, "/DP [5-5.5 4 0 R 4 0 R]".to_string()),
+        // 入れ子の配列は、ファイルの飛ばし方で区切る（`R` の後ろに続く `+` は、内容のストリームの飛ばし方なら名前の
+        // ような字句として読めるが、ファイルの飛ばし方では読めない）
+        (64, "/DP [[4 0 R+] 4 0 R 4 0 R]".to_string()),
     ] {
         assert!(!unsupported(with(filters, &parameters)), "{parameters}");
     }
+    // 配列の後ろのデータが見る上限より長ければ、読めない項目も、切れた項目と見分けないので断る（多めに断るだけ）
+    let mut long = with(64, "/DP [5-5.5 4 0 R 4 0 R]");
+    long.push(format!("({})", "a".repeat(2_000)).into_bytes());
+    assert!(unsupported(long));
     // 配列ごとの、いちばん前の項目で決める（前に見た配列の項目がフィルターの数より後ろでも）
     assert!(unsupported(vec![
         common::stream("/Filter [/RL /RL] /DP [null 4 0 R 4 0 R]", "x"),
@@ -4030,6 +4059,24 @@ fn refuses_parameter_arrays_with_references() {
     };
     assert!(unsupported(hidden("/RL /RL /RL /RL")));
     assert!(!unsupported(hidden("/RL /RL /RL")));
+    // 参照の先の配列でも、上限の終わりにかかる参照を数える
+    let far = |filters: usize, items: String| {
+        vec![
+            common::stream(
+                &format!("/Filter [{}] /DP 4 0 R", "/RL ".repeat(filters)),
+                "x",
+            ),
+            format!("[{items}]").into_bytes(),
+        ]
+    };
+    assert!(unsupported(far(
+        64,
+        format!("5 0 R ({}) {}5 0 R", "a".repeat(706), "null ".repeat(61))
+    )));
+    assert!(unsupported(far(
+        3,
+        format!("5 0 R ({}) 5 +0 R", "a".repeat(1_012))
+    )));
     assert!(!unsupported(indirect(b"[5 0 R]")));
     assert!(!unsupported(indirect(b"<< /K 1 >>")));
     assert!(unsupported(vec![
