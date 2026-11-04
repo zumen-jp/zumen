@@ -3848,6 +3848,11 @@ fn refuses_object_streams_that_only_the_rebuilt_table_reads() {
         "<< /Type /ObjStm /N 1 /First 4 >>",
         // `#xx` で書いた型
         "<< /Length 9 /N 1 /First 4 /Type /Obj#53tm >>\nstream\n9 0 [0 0]\nendstream",
+        // 型の前の文字列。名前の終わりの `\` は、文字列の中では次の `(` を逃がすので、文字列の中から読む辞書と外から
+        // 読む辞書が、同じ `)` の後ろの型を上の段に読む
+        "[<< /Filter /AHx /X (6 0 obj << /K /a\\(z) /Type /ObjStm /N 1 /First 4 /Length 9 >>\nstream\n9 0 [0 0]\nendstream ]",
+        "<< /N 1 /First 4 /A ( << /Filter /AHx /K /a\\(z) /Type /ObjStm /Length 9 >>\nstream\n9 0 [0 0]\nendstream",
+        "<< /K (z) /Type /ObjStm /N 1 /First 4 /Length 9 >>\nstream\n9 0 [0 0]\nendstream",
     ] {
         assert!(unsupported(vec![object.as_bytes().to_vec()]), "{object}");
     }
@@ -3885,6 +3890,9 @@ fn refuses_coded_filters_whose_input_may_be_large() {
         "/Filter [/LZWDecode /LZWDecode]",
         "/Filter [/Crypt /Fl /LZW]",
         "/Filter [3 0 R /LZWDecode]",
+        // 配列の中の `F`・`Filter` は、hayro-syntax が知らない名前として飛ばす。後ろの名前を、そのキーの値としても読む
+        "/Filter [/FlateDecode /F /LZWDecode]",
+        "/Filter [/Fl /Filter /A85]",
     ] {
         assert!(unsupported(vec![common::stream(dict, "x")]), "{dict}");
     }
@@ -3939,6 +3947,21 @@ fn reads_names_in_comments_in_linear_work() {
         document.objects = vec![format!("null\n{}", line.repeat(count)).into_bytes()];
         let work = used(&document.bytes(), Kind::Work);
         assert!(work < plain + 8 * count as u64, "{line:?} {plain} {work}");
+    }
+    // コメントの行の中のキーは、同じ値の位置に飛ぶ。長い値を、キーごとに読み直さない
+    let digits = "0".repeat(100_000);
+    let name = format!("/{}", "a".repeat(100_000));
+    for (line, value) in [
+        ("%/Type\n", &digits),
+        ("%/N\n", &digits),
+        ("%/Type\n", &name),
+        ("%/Filter\n", &name),
+    ] {
+        let mut document = Document::new(vec![Page::new("0 0 m 10 10 l S")]);
+        document.objects = vec![format!("[\n{}{value}]", line.repeat(count)).into_bytes()];
+        let work = used(&document.bytes(), Kind::Work);
+        let most = plain + 8 * count as u64 + value.len() as u64;
+        assert!(work < most, "{line:?} {plain} {work}");
     }
 }
 

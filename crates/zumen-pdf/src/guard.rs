@@ -275,9 +275,12 @@ pub(crate) fn before(src: &[u8], cx: &mut Cx<'_>) -> Result<Option<usize>, Stop>
 /// として展開する。字句の区切りはコメントと文字列を見ないので、どの位置の辞書も展開しうる。
 ///
 /// 型の値の字が同じ 2 つの辞書は、そこから後ろを同じく読むので、同じ所で終わり、同じストリームを持つ。ただし、
-/// 型の前の値（`Filter`・`Length` など）は、片方がコメントの中に隠したものを読めば違う。文字列の中に隠すと、隠した側か
-/// 隠された側が、閉じていない `)` を読んで辞書を読めない。そこで、確かめたストリームの辞書の型の値は、辞書の始まりの
-/// 行の前と、辞書の始まりから型の値までに `%` がなければ（コメントで隠せなければ）、同じものとする
+/// 型の前の値（`Filter`・`Length` など）は、片方が相手の始まりをコメントか文字列の中に読み、型の前でそこから出れば
+/// 違う。コメントは行末で、文字列は `)` で終わる（`\` は名前の字だが、文字列の中では次の字を逃がすので、同じ `)` で
+/// 片方だけが文字列を出られる）。16 進の文字列は `<<` を含められない。始まりが同じでなければ、片方は相手の辞書を
+/// 入れ子として読み、型の値を上の段に読まない（hayro-syntax は、読み飛ばす辞書も、読む辞書と同じく文字列と入れ子を
+/// 見る）。そこで、確かめたストリームの辞書の型の値は、辞書の始まりの行の前に `%` がなく、辞書の始まりから型の値までに
+/// `%` も `)` もなければ、同じものとする
 fn claims(
     src: &[u8],
     containers: &[Container<'_>],
@@ -304,7 +307,7 @@ fn claims(
         }
         let head = src.get(container.start..value).unwrap_or_default();
         cx.check(Kind::Work, lookup_work(head))?;
-        if !head.contains(&b'%') {
+        if !head.iter().any(|&byte| matches!(byte, b'%' | b')')) {
             claimed.insert(value);
         }
     }
@@ -391,8 +394,9 @@ fn members(
 
 /// バイト列のすべての名前（7.3.5）のうち、値を確かめるキーと、型・フィルターのキーの後ろの値を見る。hayro-syntax の
 /// 辞書と同じく、キーの後ろの空白とコメントを飛ばし、参照（`n g R`）か数として読む。辞書の中かを見ないので、文字列と
-/// ストリームの中の名前も見る（多めに断るだけ）。名前の中に `/` はないので、名前の字は 1 度だけ読む。値を読む手間は
-/// `Work` に数える
+/// ストリームの中の名前も見る（多めに断るだけ）。名前の中に `/` はないので、名前の字は 1 度だけ読む。コメントの中の
+/// キーは、空白とコメントを飛ばす覚えで同じ値の位置に飛ぶので、値は、位置と読み方ごとに 1 度だけ読む（違う位置の値は、
+/// 違う字句から読む）。値を読む手間は `Work` に数える
 fn names(
     data: &[u8],
     place: impl Fn(usize) -> usize,
@@ -403,6 +407,10 @@ fn names(
     let mut skip = Skip::default();
     // フィルターの値の LZW・ASCII85 の名前の位置 → 入力の長さの、バイト列の長さに対する倍率の上限
     let mut bounded = BTreeMap::new();
+    // 型とフィルターの値として読んだ位置と、キーの値として読んだ位置と読んだもの
+    let mut typed = BTreeSet::new();
+    let mut filtered = BTreeSet::new();
+    let mut read = BTreeMap::new();
     let length = data.len() as u64;
     let mut at = 0;
     while let Some(found) = data
@@ -444,30 +452,57 @@ fn names(
         let value = skip.over(data, end, cx)?;
         match (name, key) {
             (b"Type", _) => {
+                if !typed.insert(value) {
+                    continue;
+                }
                 if reference(data, value, cx)? {
                     marks.referenced.get_or_insert(start);
-                } else if let Some((name, _)) = read_name(data, value)
-                    && &*name == b"ObjStm"
-                {
-                    marks.types.push((start, position(data, &name)));
+                } else if let Some((name, next)) = read_name(data, value) {
+                    cx.check(
+                        Kind::Work,
+                        lookup_work(data.get(value..next).unwrap_or_default()),
+                    )?;
+                    if &*name == b"ObjStm" {
+                        marks.types.push((start, position(data, &name)));
+                    }
                 }
             }
             (b"Filter" | b"F", _) => {
-                if filters(data, value, &mut skip, &mut bounded, cx)? {
+                if filtered.insert(value) && filters(data, value, &mut skip, &mut bounded, cx)? {
                     seen.indirect = true;
                 }
             }
             (_, Some(key)) => {
-                if reference(data, value, cx)? {
-                    seen.reference(key, place(start));
-                } else if let Some(number) = number(data, value, cx)? {
-                    seen.value(key, number, place(start));
+                let found = match read.get(&value) {
+                    Some(&found) => found,
+                    None => {
+                        let found = if reference(data, value, cx)? {
+                            Found::Reference
+                        } else {
+                            number(data, value, cx)?.map_or(Found::Other, Found::Number)
+                        };
+                        read.insert(value, found);
+                        found
+                    }
+                };
+                match found {
+                    Found::Reference => seen.reference(key, place(start)),
+                    Found::Number(number) => seen.value(key, number, place(start)),
+                    Found::Other => {}
                 }
             }
             _ => {}
         }
     }
     Ok(marks)
+}
+
+/// キーの値として読んだもの
+#[derive(Debug, Clone, Copy)]
+enum Found {
+    Reference,
+    Number(i64),
+    Other,
 }
 
 /// LZW か ASCII85 のフィルターの名前（7.4、表 6）。hayro-syntax の `Filter::from_name` と同じく、短い名前も読む
@@ -501,9 +536,13 @@ fn filters(
     bounded: &mut BTreeMap<usize, u64>,
     cx: &mut Cx<'_>,
 ) -> Result<bool, Stop> {
-    if let Some((name, _)) = read_name(data, at) {
+    if let Some((name, next)) = read_name(data, at) {
+        cx.check(
+            Kind::Work,
+            lookup_work(data.get(at..next).unwrap_or_default()),
+        )?;
         if coded(&name) {
-            bounded.insert(at, 1);
+            bound(bounded, at, 1);
         }
         return Ok(false);
     }
@@ -523,13 +562,20 @@ fn filters(
             lookup_work(data.get(item..next).unwrap_or_default()),
         )?;
         if coded(&name) {
-            bounded.insert(item, factor);
+            bound(bounded, item, factor);
         }
         let (known, ratio) = expansion(&name, first);
         factor = factor.saturating_mul(ratio);
         first &= !known;
         item = next;
     }
+}
+
+/// 位置の名前に、入力の長さの倍率の上限を記録する。同じ位置を、ほかのキーの値としても読めば（配列の中の `/F` の
+/// 後ろなど。hayro-syntax は、配列の中の `F` を知らない名前として飛ばす）、大きいほうを使う
+fn bound(bounded: &mut BTreeMap<usize, u64>, at: usize, factor: u64) {
+    let kept = bounded.entry(at).or_insert(factor);
+    *kept = (*kept).max(factor);
 }
 
 /// 位置の名前と、その後ろの位置
@@ -540,14 +586,18 @@ fn read_name(data: &[u8], at: usize) -> Option<(Name<'_>, usize)> {
     Some((name, reader.offset()))
 }
 
-/// 位置が参照（7.3.10）か。hayro-syntax の辞書と同じく、数の間の空白だけを飛ばす。読んだバイト数は `Work` に数える
+/// 位置が参照（7.3.10）か。hayro-syntax の辞書と同じく、数の間の空白だけを飛ばす。読んだバイト数を `Work` に数える
+/// （読めなければ hayro-syntax は位置を戻すので、位置の字句の長さを数える）
 fn reference(data: &[u8], at: usize, cx: &mut Cx<'_>) -> Result<bool, Stop> {
     let mut reader = Reader::new(data);
     reader.jump(at);
     let found = <ObjRef as Readable>::read(&mut reader, &ReaderContext::dummy()).is_some();
+    let rest = data.get(at..).unwrap_or_default();
+    let token = rest.iter().take_while(|&&byte| regular(byte)).count();
+    let read = reader.offset().saturating_sub(at).max(token);
     cx.check(
         Kind::Work,
-        lookup_work(data.get(at..reader.offset()).unwrap_or_default()),
+        lookup_work(rest.get(..read).unwrap_or_default()),
     )?;
     Ok(found)
 }
