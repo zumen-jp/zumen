@@ -147,6 +147,10 @@ const SIMPLE_WIDTHS: u64 = 256;
 /// 大きい大きさでは、丸めた位置が標本の外を指してパニックする（`Type0::eval`）。これより大きい大きさの関数を使う
 /// ページは解釈しない
 const MAX_SAMPLE_SIZE: u32 = 1 << 24;
+/// ビットで読むストリーム（Type 0 の関数の標本、型 4〜7 のメッシュ）の、展開したバイト数の上限（含まない）。
+/// hayro-interpret は、長さを 8 倍し（`Type0::new`）、読む位置をビットの数の `usize` で持つ（`BitReader`）ので、
+/// 32 ビットの環境では、これからの長さであふれる。これからの長さのストリームを使うページは解釈しない
+const BIT_DATA: u64 = 1 << 29;
 
 // hayro-interpret が作るもののメモリ（`DecodedBytes` に数えるバイト数）。hayro-interpret 0.9.0 の型の大きさか、
 // 測ったメモリを、配列を伸ばすときの余りと写しを含めて倍にする。1 つずつ足して伸ばす配列は、伸ばす間に前と
@@ -1940,6 +1944,10 @@ impl<'a, 'o> Walker<'a, 'o> {
             if let Some(kind) = kind {
                 cost.add(mesh_cost(dict, kind, size));
             }
+            if kind.is_some_and(|kind| (4..=7).contains(&kind)) && size >= BIT_DATA {
+                let place = self.record(Some(stream.obj_id()));
+                self.refuse(place);
+            }
             // hayro-interpret は、格子のメッシュ（型 5、8.7.4.5.6）の行の頂点の数が 0 だと、頂点を読まずに行を足し
             // 続け、メモリを使い切る（`read_lattice_triangles`）。大きさは hayro-interpret と同じく u32 で読む
             if kind == Some(5) && dict.get::<u32>(b"VerticesPerRow") == Some(0) {
@@ -2130,8 +2138,8 @@ impl<'a, 'o> Walker<'a, 'o> {
 
     /// Type 0 の関数（7.10.2）の標本を読む手間（[`SAMPLES_PER_WORK`]）とメモリ（バイト数）と、1 度当てる手間。
     /// `size` は、展開したバイト数。hayro-interpret は、関数を作るたびに、標本（出力の数 × 大きさの積。展開した
-    /// バイト列に収まる分まで）を読んで f32 にして持つ。大きさのどれかが [`MAX_SAMPLE_SIZE`] を超える関数は、ページを
-    /// 解釈しないことにする
+    /// バイト列に収まる分まで）を読んで f32 にして持つ。大きさのどれかが [`MAX_SAMPLE_SIZE`] を超えるか、展開した
+    /// バイト数が [`BIT_DATA`] からの関数は、ページを解釈しないことにする
     fn sampled(
         &mut self,
         dict: &Dict<'_>,
@@ -2145,7 +2153,7 @@ impl<'a, 'o> Walker<'a, 'o> {
             .map(|sizes| sizes.iter::<u32>().collect())
             .unwrap_or_default();
         cx.check(Kind::Work, sizes.len() as u64)?;
-        if sizes.iter().any(|&size| size > MAX_SAMPLE_SIZE) {
+        if size >= BIT_DATA || sizes.iter().any(|&size| size > MAX_SAMPLE_SIZE) {
             let place = self.record(Some(stream.obj_id()));
             self.refuse(place);
         }

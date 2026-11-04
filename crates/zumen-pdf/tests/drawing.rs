@@ -3660,14 +3660,21 @@ fn unsupported(objects: Vec<Vec<u8>>) -> bool {
 #[test]
 fn refuses_values_that_panic_or_differ_by_platform() {
     let with = |dict: &str| vec![common::stream(dict, "x")];
-    // 予測子の行の長さが 0 になるか、32 ビットであふれる。hayro-syntax は 0 で割ってパニックする
+    // 予測子の行の長さが 0 になるか、u8 であふれるか、1 行が大きすぎる。hayro-syntax は、1 のほかの値（0 を含む）で
+    // 予測子を当て、0 で割ってパニックする
     for params in [
         "<< /Predictor 2 /Columns 0 >>",
         "<< /Predictor 2 /Colors 0 >>",
+        "<< /Predictor 0 /Columns 0 >>",
+        "<< /Predictor 0 /Colors 16 /BitsPerComponent 16 >>",
+        "<< /Predictor 0.5 /Colors 0 >>",
         "<< /Predictor 2 /Columns 536870912 >>",
+        "<< /Predictor 0 /Columns 536870912 >>",
         "<< /Predictor 2 /Columns 2305843009213693952 >>",
         "<< /Predictor 12 /Colors 32 /BitsPerComponent 16 >>",
         "<< /Predictor 2.5 /Columns 0.5 >>",
+        "<< /Predictor 2 /Colors 255 /BitsPerComponent 1 /Columns 16777216 >>",
+        "<< /Predictor 12 /Colors 4 /BitsPerComponent 16 /Columns 131073 >>",
     ] {
         let dict = format!("/Filter /FlateDecode /DecodeParms {params}");
         assert!(unsupported(with(&dict)), "{params}");
@@ -3686,7 +3693,7 @@ fn refuses_values_that_panic_or_differ_by_platform() {
     assert!(unsupported(with("/N 4294967299 /Alternate /DeviceRGB")));
     assert!(unsupported(with("/Type /ObjStm /N 1 /First 4294967296")));
     assert!(unsupported(with("/Type /ObjStm /N 2147483648 /First 0")));
-    // 参照は、L1 のすべての定義を見る。L1 にない番号は、読む前に確かめられない
+    // 値の参照は、すべての定義の数を候補にする
     let parted = |params: &str| {
         vec![
             params.as_bytes().to_vec(),
@@ -3696,14 +3703,16 @@ fn refuses_values_that_panic_or_differ_by_platform() {
     };
     assert!(unsupported(parted("<< /Predictor 2 /Columns 0 >>")));
     assert!(unsupported(parted("<< /Predictor 2 /Columns 5 0 R >>")));
+    assert!(unsupported(parted("<< /Predictor 5 0 R /Columns 0 >>")));
     assert!(!unsupported(parted("<< /Predictor 12 /Columns 4 >>")));
-    assert!(unsupported(with(
+    // 定義のない参照は、hayro-syntax も既定の値で展開する
+    assert!(!unsupported(with(
         "/Filter /FlateDecode /DecodeParms 99 0 R"
     )));
     // ふつうの値と、予測子のない値
     for params in [
         "<< /Predictor 12 /Colors 3 /Columns 5 >>",
-        "<< /Predictor 2 /Colors 255 /BitsPerComponent 1 /Columns 16777216 >>",
+        "<< /Predictor 12 /Colors 4 /BitsPerComponent 16 /Columns 131072 >>",
         "<< /Predictor 1 /Columns 536870912 >>",
         "<< /Predictor 300 /Columns 0 >>",
         "<< /Predictor 2 /Columns -5 >>",
@@ -3714,26 +3723,125 @@ fn refuses_values_that_panic_or_differ_by_platform() {
 }
 
 #[test]
+fn refuses_values_written_anywhere() {
+    // hayro-syntax は、表が指す位置の定義と、どこに書いたストリームも読むので、辞書の中かを見ずに名前を見る
+    let bad = "<< /Filter /FlateDecode /DecodeParms << /Predictor 2 /Columns 0 >> >>";
+    for object in [
+        // 文字列の中、ストリームの中、辞書の中の `endobj` の後ろ、直接書いたストリーム
+        format!("({bad})"),
+        String::from_utf8(common::stream("", bad)).unwrap(),
+        format!("<< /Junk endobj /A {bad} >>"),
+        format!("<< /Contents {bad}\nstream\nx\nendstream >>"),
+        // 名前の `#xx` は解く
+        "<< /Pr#65dictor 2 /Columns 0 >>".to_owned(),
+        // ICCBased を色空間の配列に直接書く
+        "[/ICCBased << /N 4294967299 /Alternate /DeviceRGB >>]".to_owned(),
+        // オブジェクトのストリームの辞書を、間接オブジェクトの外に書く。hayro-syntax は、表を作り直すときに展開する
+        "(<< /Type /ObjStm /N 1 /First 4 >>)".to_owned(),
+    ] {
+        assert!(unsupported(vec![object.clone().into_bytes()]), "{object}");
+    }
+    // 参照の先は、ストリームの中に書いた定義も候補にする
+    assert!(unsupported(vec![
+        b"<< /Predictor 2 /Columns 9 0 R >>".to_vec(),
+        common::stream("", "9 0 obj 0 endobj"),
+    ]));
+    // ふつうの値
+    assert!(!unsupported(vec![
+        b"(<< /Predictor 2 /Columns 1 >>)".to_vec()
+    ]));
+    assert!(!unsupported(vec![
+        b"<< /Predictor 2 /Columns 9 0 R >>".to_vec(),
+        common::stream("", "9 0 obj 1 endobj"),
+    ]));
+}
+
+/// オブジェクトのストリーム。中身は 16 進で書き（`ASCIIHexDecode`）、ファイルのバイト列には見えないようにする。
+/// `first` は、展開した中身の最初の中身の位置
+#[cfg(test)]
+fn container(count: usize, first: usize, data: &str) -> Vec<u8> {
+    let hex: String = data.bytes().map(|byte| format!("{byte:02X}")).collect();
+    common::stream(
+        &format!("/Type /ObjStm /N {count} /First {first} /Filter /ASCIIHexDecode"),
+        format!("{hex}>"),
+    )
+}
+
+/// 中身が 1 つのオブジェクトのストリーム。中身は、最初の `<` から
+#[cfg(test)]
+fn one_member(data: &str) -> Vec<u8> {
+    container(1, data.find('<').unwrap_or(data.len()), data)
+}
+
+#[test]
 fn refuses_object_streams_that_differ_by_platform() {
-    let container = |data: &str| {
-        let first = data.find('<').unwrap_or(data.len());
-        vec![common::stream(
-            &format!("/Type /ObjStm /N 1 /First {first}"),
-            data,
-        )]
-    };
     // 中の位置が、32 ビットの環境で読めないか、足すとあふれる
-    assert!(unsupported(container("30 2147483648 << /A 1 >>")));
-    assert!(unsupported(container("30 4294967296 << /A 1 >>")));
-    // 中に書いたストリーム。hayro-syntax は読むが、展開のパラメーターを L1 で確かめられない
-    assert!(unsupported(container(
-        "30 0 << /Length 1 /DecodeParms << /Predictor 2 /Columns 0 >> >>\nstream\nx\nendstream"
+    assert!(unsupported(vec![one_member("30 2147483648 << /A 1 >>")]));
+    assert!(unsupported(vec![one_member("30 4294967296 << /A 1 >>")]));
+    // 中に書いたストリームと辞書。hayro-syntax は読むので、展開した中身の名前も見る
+    for data in [
+        "30 0 << /Length 1 /DecodeParms << /Predictor 2 /Columns 0 >> >>\nstream\nx\nendstream",
+        "30 0 << /Predictor 2 /Columns 0 >>",
+    ] {
+        assert!(unsupported(vec![one_member(data)]), "{data}");
+    }
+    // 参照の先は、中の数も候補にする
+    let inside = |value: &str, object: &str| {
+        vec![
+            container(1, 5, &format!("31 0 {value}")),
+            object.as_bytes().to_vec(),
+        ]
+    };
+    assert!(unsupported(inside("4294967299", "<< /N 31 0 R >>")));
+    assert!(unsupported(inside(
+        "0",
+        "<< /Predictor 2 /Columns 31 0 R >>"
     )));
+    assert!(!unsupported(inside("3", "<< /N 31 0 R >>")));
+    // 長さと展開の値が参照のもの。読む前に hayro-syntax と同じには展開できない
+    for dict in [
+        "/Type /ObjStm /N 1 /First 4 /Length 9 0 R",
+        "/Type /ObjStm /N 1 /First 4 /Filter 9 0 R",
+        "/Type /ObjStm /N 1 /First 4 /DecodeParms [null 9 0 R]",
+        "/Type /ObjStm /N 9 0 R /First 4",
+    ] {
+        let mut object = format!("<< {dict} >>\nstream\n30 0 << >>\nendstream");
+        if !dict.contains("/Length") {
+            object = format!("<< /Length 10 {dict} >>\nstream\n30 0 << >>\nendstream");
+        }
+        assert!(unsupported(vec![object.into_bytes()]), "{dict}");
+    }
     // ふつうの中身と、負の位置（どの環境でも読まない）
-    assert!(!unsupported(container("30 0 << /A 1 >>")));
-    assert!(!unsupported(container(
+    assert!(!unsupported(vec![one_member("30 0 << /A 1 >>")]));
+    assert!(!unsupported(vec![one_member(
         "30 -1 << /A 1 >>\nstream\nx\nendstream"
+    )]));
+}
+
+#[test]
+fn reads_the_members_of_object_streams_in_linear_work() {
+    use zumen_base::Kind;
+    // 読めない中身（閉じない文字列）が並んでも、中身ごとに読み直さない
+    let count = 50_000;
+    let header: String = (0..count)
+        .map(|index| format!("{index} {} ", index * 3))
+        .collect();
+    let data = format!("{header}{}", "<<(".repeat(count));
+    let mut document = Document::new(vec![Page::new("0 0 m 10 10 l S")]);
+    document.objects = vec![container(count, header.len(), &data)];
+    let work = used(&document.bytes(), Kind::Work);
+    assert!(work < 4 * count as u64, "{work}");
+}
+
+#[test]
+fn checks_object_streams_of_encrypted_documents_after_loading() {
+    // 暗号化の辞書の名前があると、オブジェクトのストリームの中身は、読み込みの後に hayro-syntax が展開したものを見る
+    let encrypted = |data: &str| vec![b"<< /Encrypt (x) >>".to_vec(), one_member(data)];
+    assert!(unsupported(encrypted("30 2147483648 << /A 1 >>")));
+    assert!(unsupported(encrypted(
+        "30 0 << /DecodeParms << /Predictor 2 /Columns 0 >> >>"
     )));
+    assert!(!unsupported(encrypted("30 0 << /A 1 >>")));
 }
 
 #[test]

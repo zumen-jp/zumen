@@ -62,22 +62,27 @@ impl Lift<Drawing2D> for PdfFile {
                         .and_then(parse_version)
                 });
         // hayro-syntax がパニックするか、環境で違う値に読むおそれのある文書は、読まない
-        let containers =
-            match guard::records(self, cx).map_err(|stop| stopped(cx, stop, &header))? {
-                guard::Verdict::Fits(containers) => containers,
-                guard::Verdict::Refused(index) => {
-                    cx.report(guard::refused(record_ref(self, index)));
-                    return Err(Error::Unsupported);
-                }
-            };
+        let later = match guard::before(&self.src, cx).map_err(|stop| stopped(cx, stop, &header))? {
+            guard::Verdict::Fits(later) => later,
+            guard::Verdict::Refused(place) => {
+                cx.report(guard::refused(place_ref(
+                    self,
+                    &objects(self),
+                    place,
+                    &header,
+                )));
+                return Err(Error::Unsupported);
+            }
+        };
         // 相互参照・ページの木を読む。壊れた相互参照は、オブジェクトを探し直して読む（hayro-syntax、7.5）
         let document = load(&self.src).map_err(|error| not_loaded(cx, error, &header))?;
         let objects = objects(self);
         Lifter {
             document: &document,
+            file: self,
             source: &self.src,
             objects: &objects,
-            containers: &containers,
+            later: Some(later),
             header,
             header_version,
             styles: Styles::default(),
@@ -162,6 +167,32 @@ fn record_ref(file: &PdfFile, index: usize) -> Ref {
     }
 }
 
+/// 読まない理由の場所 → 出所。バイトの位置は、それを含む L1 のレコードにする。オブジェクトのストリームは、その
+/// 間接オブジェクトのレコードにする。見つからなければ、ヘッダーのレコードにする
+fn place_ref(
+    file: &PdfFile,
+    objects: &BTreeMap<(u32, i32), Ref>,
+    place: guard::Place,
+    header: &Ref,
+) -> Ref {
+    let found = match place {
+        guard::Place::Byte(at) => {
+            let at = at as u64;
+            let index = file.records.partition_point(|record| record.start <= at);
+            index
+                .checked_sub(1)
+                .filter(|&index| {
+                    file.records
+                        .get(index)
+                        .is_some_and(|record| at < record.end)
+                })
+                .map(|index| record_ref(file, index))
+        }
+        guard::Place::Object(id) => objects.get(&id).cloned(),
+    };
+    found.unwrap_or_else(|| header.clone())
+}
+
 /// 間接オブジェクトの番号と世代番号 → L1 のレコードの出所。増分の更新で同じ番号が何度も現れれば、後ろのものを使う
 /// （推定。相互参照が指すのは、ふつう最後に書いたもの）。オブジェクトのストリームの中のオブジェクトはない
 fn objects(file: &PdfFile) -> BTreeMap<(u32, i32), Ref> {
@@ -192,12 +223,14 @@ fn stopped(cx: &mut Cx, stop: Stop, place: &Ref) -> Error {
 
 struct Lifter<'d, 'o> {
     document: &'d Document,
+    /// 読み込んだファイルのモデル
+    file: &'d PdfFile,
     /// 読み込んだファイル
     source: &'d [u8],
     /// 間接オブジェクト → L1 のレコードの出所
     objects: &'o BTreeMap<(u32, i32), Ref>,
-    /// オブジェクトのストリームになりうるストリームの番号（[`guard::records`]）
-    containers: &'o BTreeSet<(u32, i32)>,
+    /// 読み込みの後に確かめるもの（[`guard::before`]）
+    later: Option<guard::Later>,
     /// ヘッダーのレコード
     header: Ref,
     /// ヘッダーのバージョン
@@ -213,15 +246,12 @@ impl Lifter<'_, '_> {
         // 相互参照の表を作り直すなら、ページを読む前に作り直させる
         let reads = Reads::new(document.xref(), self.source);
         walk::settle(document, reads, cx).map_err(|stop| stopped(cx, stop, &self.header))?;
-        // 作り直した後の表が指すオブジェクトのストリームの中を確かめる
-        if let Some(id) = guard::object_streams(document, self.containers, cx)
-            .map_err(|stop| stopped(cx, stop, &self.header))?
+        // 暗号化した文書は、作り直した後の表が指すオブジェクトのストリームの中を確かめる
+        if let Some(later) = self.later.take()
+            && let Some(place) =
+                guard::after(document, later, cx).map_err(|stop| stopped(cx, stop, &self.header))?
         {
-            let place = self
-                .objects
-                .get(&id)
-                .cloned()
-                .unwrap_or_else(|| self.header.clone());
+            let place = place_ref(self.file, self.objects, place, &self.header);
             cx.report(guard::refused(place));
             return Err(Error::Unsupported);
         }
