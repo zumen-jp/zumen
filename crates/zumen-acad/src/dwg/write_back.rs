@@ -2490,7 +2490,7 @@ fn encode_r2010(
         return None;
     }
     // R2018 からの段組みの MTEXT は、埋め込みのオブジェクトのマーカー（101）の後に段組みのフィールドを持つ。フィールドは背景のフィールドの
-    // 後ろにあり、元のビットを写すので、元と同じときだけ受け付け、フラグから後を除いて比べる
+    // 後ろにあり、元のビットを写すので、元と同じときだけ受け付け、マーカーから後を除いて比べる
     let (old, new) = (&columns_removed(old)?, &columns_removed(new)?);
     if old.1 != new.1 {
         return None;
@@ -4628,7 +4628,7 @@ fn face3d(fields: &mut BitWriter, object: &Object) -> Option<()> {
     Some(())
 }
 
-/// TEXT のフィールド（R2000）。初めのマーカー（RC）は、標高・合わせの点・斜めの角度・回転・幅の比・合わせの向きの、
+/// TEXT のフィールド（R2000）。初めのフラグ（RC）は、標高・合わせの点・斜めの角度・回転・幅の比・合わせの向きの、
 /// ないフィールドを表す。標高（30）が 0 なら書かない。合わせの点の Z（31）は、標高と同じでなければならない。
 /// `vertical` は縦の合わせのグループ・コード
 fn text(fields: &mut BitWriter, object: &Object, vertical: i16) -> Option<()> {

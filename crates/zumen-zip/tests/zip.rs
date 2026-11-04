@@ -214,7 +214,7 @@ fn reads_and_extracts_stored_and_deflated_entries() {
 
 #[test]
 fn reads_stored_deflate_blocks() {
-    // 圧縮しないブロック（種類 0）を 2 つ。初めのブロックは終わりのマーカーを持たない
+    // 圧縮しないブロック（種類 0）を 2 つ。初めのブロックは最後のブロックのフラグ（BFINAL）を立てない
     let mut data = vec![0b000, 3, 0, !3, 0xff];
     data.extend_from_slice(b"abc");
     data.extend_from_slice(&[0b001, 2, 0, !2, 0xff]);

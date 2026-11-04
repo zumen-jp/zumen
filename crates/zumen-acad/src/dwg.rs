@@ -101,7 +101,7 @@ pub struct DwgFile {
     entries: Vec<Entry>,
 }
 
-/// 読めるバージョン。ビット列のフィールドの違いを決める。後の版ほど大きい
+/// 読めるバージョン。ビット列のフィールドの違いを決める。後のバージョンほど大きい
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum Release {
     /// AC1015

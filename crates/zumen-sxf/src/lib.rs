@@ -33,7 +33,7 @@ pub enum Mode {
     P21,
 }
 
-/// SFC のフィーチャのコメントのマーカー。マーカーは版を表す（推定。docs/formats/sxf.md）
+/// SFC のフィーチャのコメントのマーカー。マーカーはバージョンを表す（推定。docs/formats/sxf.md）
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Marker {
     /// `/*SXF` … `SXF*/`

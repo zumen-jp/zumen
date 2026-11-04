@@ -314,7 +314,7 @@ pub struct Value {
 /// 値の型（DXF Reference「Group Code Value Types」）
 #[derive(Clone, Debug, PartialEq)]
 pub enum Data {
-    /// 文字列。符号化のままのバイト列で、文字コードは版と `$DWGCODEPAGE` で決まる。
+    /// 文字列。符号化のままのバイト列で、文字コードはバージョンと `$DWGCODEPAGE` で決まる。
     /// 型どおりに読めなかった値も、ここに元のまま置く
     Text(Vec<u8>),
     /// 整数（16・32・64 ビット）

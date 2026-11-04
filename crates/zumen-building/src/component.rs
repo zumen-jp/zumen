@@ -93,7 +93,7 @@ pub struct MapConversion {
     pub northings: f64,
     /// 高さの移動
     pub height: f64,
-    /// 地図の X 軸の向きの、横のコンポーネント
+    /// 地図の X 軸の向きの、横の成分
     pub x_axis_abscissa: Option<f64>,
     /// 地図の X 軸の向きの、縦の成分
     pub x_axis_ordinate: Option<f64>,

@@ -10,7 +10,7 @@
 - CLI・MCP は Tier 1 で、Rust のバイナリとして出す（[0006](0006-language-tiers.md)・[0011](0011-bindings-through-ffi.md)）。CLI は実行ファイル `zumen` にし、サブコマンド、標準入出力の JSON-RPC（`serve --stdio`）、MCP（`mcp`）を持つ（[0013](0013-boundary-in-four-forms.md)）。配る名前は `zumen`（[0014](0014-platforms-signing-and-distribution.md)）だが、公開の時期と名前は利用者が決める（#317）。
 - [0013](0013-boundary-in-four-forms.md) は、MCP に公式の Rust SDK（rmcp）を使うと決めた。rmcp は tokio などの依存が多く、2026 年にメジャーバージョンを 3 回上げた。
 - MCP の仕様を、2026-10-31 に公開の文書で確かめた。
-  - 最新は 2026-07-28 のバージョン。初期化（`initialize`）をなくし、要求ごとに `_meta` の `io.modelcontextprotocol/protocolVersion` で版を伝える。サーバーは `server/discover` を持たなければならない。バージョンが合わなければ `-32022`（UnsupportedProtocolVersionError）を返す。
+  - 最新は 2026-07-28 のバージョン。初期化（`initialize`）をなくし、要求ごとに `_meta` の `io.modelcontextprotocol/protocolVersion` でバージョンを伝える。サーバーは `server/discover` を持たなければならない。バージョンが合わなければ `-32022`（UnsupportedProtocolVersionError）を返す。
   - 結果には `resultType` が要り、`tools/list` には `ttlMs` と `cacheScope` が要る。ツールの一覧は決まった順に返す。状態はつながりに持たせず、サーバーが渡す名前（handle）をツールの引数で受け取る。
   - 前のバージョン（2025-11-25 まで）のクライアントは初期化から始める。両方に応えるサーバーは、`initialize` を受けたら前のバージョンで応えてよい。
 - API は足すだけで、どの形態でも応答を書き換えずに運び、適合テストのハッシュが一致しなければならない（[0012](0012-boundary-functions-and-messages.md)・[0015](0015-add-only-boundary-and-version-floors.md)）。

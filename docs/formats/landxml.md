@@ -10,7 +10,7 @@ J-LandXML（LandXML 1.2 に準じた 3 次元設計データ交換標準、台�
 
 ## 判定
 
-- 最初の要素が LandXML 1.2 の名前空間（`http://www.landxml.org/schema/LandXML-1.2`）の `LandXML` なら J-LandXML とする（`Signature::XmlRoot`）。交換標準のバージョンのフラグがない LandXML 1.2 も、同じ規則で読む。
+- 最初の要素が LandXML 1.2 の名前空間（`http://www.landxml.org/schema/LandXML-1.2`）の `LandXML` なら J-LandXML とする（`Signature::XmlRoot`）。`applicationCriterion` に交換標準のバージョンを書いていない LandXML 1.2 も、同じ規則で読む。
 
 ## 座標と高さ
 

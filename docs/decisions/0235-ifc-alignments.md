@@ -24,7 +24,7 @@
 
 1 にする。属性の位置は、IFC 4.3 ADD2 の実体の定義（「属性」の節）による。
 
-- **版。** `FILE_SCHEMA` が IFC4X3 のファイルだけを移す。ほかのバージョンは `ifc.version.unsupported` を返す。IFC4X1 の `IfcAlignmentCurve` は扱わない。
+- **バージョン。** `FILE_SCHEMA` が IFC4X3 のファイルだけを移す。ほかのバージョンは `ifc.version.unsupported` を返す。IFC4X1 の `IfcAlignmentCurve` は扱わない。
 - **入れ子。** `IfcAlignment` の入れ子の子の `IfcAlignmentHorizontal`・`IfcAlignmentVertical`・`IfcAlignmentCant` の、入れ子の子の `IfcAlignmentSegment` の 8 DesignParameters を、書いた順に読む。長さ 0 の区間は、線形の終わりを示すマーカーなので移さない。
 - **平面。** `IfcAlignmentHorizontalSegment` の種類を、次のように対応させる。半径は、IFC では左へ曲がるものを正、0 を直線とするので、符号を反転し、0 を `None` にする。
   - `LINE` は直線、`CIRCULARARC` は円弧にする。

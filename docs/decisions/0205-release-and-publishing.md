@@ -38,7 +38,7 @@
 
 - 出す前に、利用者が各レジストリで trusted publisher を登録する。リポジトリ `zumen-jp/zumen`、ワークフロー `release.yml`、環境 `release`。NuGet はアカウントの名前を、リポジトリの変数 `NUGET_USER` に置く。
 - crates.io と npm は、まだない名前に trusted publisher を登録できない。最初の 1 回は、トークンで出すか、空のバージョンで名前を取る必要がある。
-- バージョンを上げるときは、Cargo.toml・`package.json`・`pyproject.toml`・csproj をそろえ、`v<版>` のタグを push する。
+- バージョンを上げるときは、Cargo.toml・`package.json`・`pyproject.toml`・csproj をそろえ、`v<バージョン>` のタグを push する。
 
 ## 参照
 
