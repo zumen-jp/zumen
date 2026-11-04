@@ -374,13 +374,14 @@ issues = ["zumen-jp/zumen#385"]
 
 [formats.sxf.read]
 level = "synthetic"
-scope = "受け取った図面（SFC 1 件・P21 1 件）を読み、要素の ID がインスタンスの番号で重ならないことと、書き戻して読み直せることを試験（crates/zumen-sxf/tests/samples.rs）で確かめた（#288・#290）。読んだ値を外部の実装や SXF ブラウザの表示と照らしていないので、段は synthetic。ほかの規則は、仕様と、試験の中で作った SFC・P21 と書庫で確かめた。公開サンプル・外部の実装・SXF ブラウザでの照合はまだ（#503）"
+scope = "受け取った図面（SFC 1 件・P21 1 件）を読み、要素の ID がインスタンスの番号で重ならないことと、書き戻して読み直せることを試験（crates/zumen-sxf/tests/samples.rs）で確かめた（#288・#290）。読んだ値を外部の実装や SXF ブラウザの表示と照らしていないので、段は synthetic。ほかの規則は、仕様と、試験の中で作った SFC・P21 と書庫で確かめた。毎晩の CI で、試験の中で作った SFC・P21 を ezsxf 0.3.7 でも読んで照らす（xtask/verify、#528）が、自前で作ったファイルなので読みの段に数えない。公開サンプルと受け取った図面を外部の実装と照らすことと、SXF ブラウザでの照合はまだ（#503）"
 received = [{ kind = "SFC", count = 1 }, { kind = "P21", count = 1 }]
-checked = "2026-10-30"
+checked = "2026-11-03"
 
 [formats.sxf.write]
-level = "synthetic"
-scope = "試験の中で作った SFC・P21 と受け取った図面に書き戻し、自前の読み取りで読み直して、変えた要素が求めた値になることを確かめた。書いたファイルを SXF ブラウザなどで開いてはいない（#342・#503）"
+level = "external"
+scope = "試験の中で作った SFC・P21 と受け取った図面に書き戻し、自前の読み取りで読み直して、変えた要素が求めた値になることを確かめた。毎晩の CI で、試験の中で作った SFC・P21 に点を足して書き戻したファイルを ezsxf 0.3.7 で読み、変更で決めた形・レイヤと、SFC の色（既定義色の番号）が、ezsxf の読んだ値と合うことを確かめる（xtask/verify、#528）。P21 では、点の印の種類を比べない。ezsxf は P21 の文字列のエスケープを戻さないので、P21 のレイヤの名前は、照合がファイルのバイトから戻す。外部の実装と照らしたのは点の書き戻しだけで、ほかの変更を書き戻したファイルは、自前の読み取りで読み直しただけ。SFZ・P2Z に書き戻した書庫は、外部の実装と照らしていない。書いたファイルを SXF ブラウザなどで開いてはいない（#342・#503）。P21 の書き戻しは、書き直すインスタンスの 8 ビットの文字列を壊す（#552）"
+implementations = [{ name = "ezsxf", version = "0.3.7" }]
 checked = "2026-11-03"
 
 [[formats.sxf.evidence]]
@@ -406,13 +407,14 @@ docs = ["docs/formats/jww.md"]
 
 [formats.jww.read]
 level = "synthetic"
-scope = "受け取った図面（JWW 10 件）を読んで図面モデルに移し、書き戻して読み直せることを試験（crates/zumen-jww/tests/samples.rs）で確かめた（#289）。読んだ値を外部の実装や Jw_cad の表示と照らしていないので、段は synthetic。ほかの規則は、Jw_cad のデータ形式の説明と、試験の中で作った JWW で確かめた。公開サンプル・外部の実装・Jw_cad での照合はまだ（#503）"
+scope = "受け取った図面（JWW 10 件）を読んで図面モデルに移し、書き戻して読み直せることを試験（crates/zumen-jww/tests/samples.rs）で確かめた（#289）。読んだ値を外部の実装や Jw_cad の表示と照らしていないので、段は synthetic。ほかの規則は、Jw_cad のデータ形式の説明と、試験の中で作った JWW で確かめた。毎晩の CI で、試験の中で作った JWW を ezjww 0.7.6 でも読んで照らす（xtask/verify、#528）が、自前で作ったファイルなので読みの段に数えない。公開サンプルと受け取った図面を外部の実装と照らすことと、Jw_cad での照合はまだ（#503）"
 received = [{ kind = "JWW", count = 10 }]
-checked = "2026-10-30"
+checked = "2026-11-03"
 
 [formats.jww.write]
-level = "synthetic"
-scope = "試験の中で作った JWW と受け取った図面に書き戻し、自前の読み取りで読み直して、変えた要素が求めた値になることを確かめた。書いたファイルを Jw_cad で開いてはいない（#342・#503）"
+level = "external"
+scope = "試験の中で作った JWW と受け取った図面に書き戻し、自前の読み取りで読み直して、変えた要素が求めた値になることを確かめた。毎晩の CI で、試験の中で作った JWW に点を足して書き戻したファイルを ezjww 0.7.6 で読み、変更で決めた形・レイヤ・ペンの番号が、ezjww の読んだ値と合うことを確かめる（xtask/verify、#528）。外部の実装と照らしたのは点の書き戻しだけで、ほかの変更を書き戻したファイルは、自前の読み取りで読み直しただけ。書いたファイルを Jw_cad で開いてはいない（#342・#503）"
+implementations = [{ name = "ezjww", version = "0.7.6" }]
 checked = "2026-11-03"
 
 [formats.jwc]
@@ -495,16 +497,18 @@ docs = ["docs/formats/dwg.md"]
 
 [formats.dwg.read]
 level = "application"
-scope = "AutoCAD 2027 で作った R2000・R2004・R2013・R2018 の DWG（samples/dwg）を、AutoCAD が同じ図面から書いた DXF と比べ、オブジェクトの種類・所有者・値が合うことを試験で確かめる。ほかの図面で確かめた所と、確かめていない所は docs/formats/dwg.md にある"
+scope = "AutoCAD 2027 で作った R2000・R2004・R2013・R2018 の DWG（samples/dwg）を、AutoCAD が同じ図面から書いた DXF と比べ、オブジェクトの種類・所有者・値が合うことを試験で確かめる。ほかの図面で確かめた所と、確かめていない所は docs/formats/dwg.md にある。毎晩の CI で、公開サンプルの DWG（samples/dwg）を ACadSharp 3.8.0 でも読み、画層・図形の種類と画層・モデル空間の形の値が zumen の読みと同じことと、要素にならない図形の数が、移さなかったことを言う診断の件数を超えないことを確かめる（xtask/verify、#528）"
 public-samples = ["samples/dwg/"]
+implementations = [{ name = "ACadSharp", version = "3.8.0" }]
 software = [{ name = "AutoCAD", version = "2027" }]
-checked = "2026-11-02"
+checked = "2026-11-03"
 
 [formats.dwg.write]
 level = "application"
-scope = "AutoCAD 2027（accoreconsole）で、AutoCAD で作った R2000・R2004・R2010・R2018 の DWG に、引出線の置き換え・変換・追加を当てて書き戻したものを開き、監査の誤りが 0 で、形・矢印・注記が当てた値と合うことを確かめた。R2004 から後は、組み直した入れ物も開けた（#345）。ほかの規則は、この方法で確かめていない。点・寸法・表と、引出線のほかの変更を書き戻したファイルは開いていない（#342・#314・#503）"
+scope = "AutoCAD 2027（accoreconsole）で、AutoCAD で作った R2000・R2004・R2010・R2018 の DWG に、引出線の置き換え・変換・追加を当てて書き戻したものを開き、監査の誤りが 0 で、形・矢印・注記が当てた値と合うことを確かめた。R2004 から後は、組み直した入れ物も開けた（#345）。ほかの規則は、この方法で確かめていない。点・寸法・表と、引出線のほかの変更を書き戻したファイルは開いていない（#342・#314・#503）。書き戻した DWG は、毎晩の CI で ACadSharp 3.8.0 で読み、通知が入力より増えないことと、変更で決めた形・画層・色が ACadSharp の読んだ値と合うことを確かめる（xtask/verify、#528）"
+implementations = [{ name = "ACadSharp", version = "3.8.0" }]
 software = [{ name = "AutoCAD", version = "2027" }]
-checked = "2026-11-02"
+checked = "2026-11-03"
 
 [formats.pdf]
 name = "PDF"

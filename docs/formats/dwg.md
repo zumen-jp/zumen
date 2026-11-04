@@ -299,9 +299,10 @@ ZUMEN_SAMPLES=/path/to/samples cargo test -q -p zumen-acad --test samples
 | `dwg` | 読み | `application` |
 | `dwg` | 書き | `application` |
 
-段の意味は[決定 0254](../decisions/0254-parallel-agents-and-cross-review.md) に、根拠は[形式と権利の一覧](README.md#format-dwg)にあります。段は確かめた方法のうちもっとも強いものを示します。AutoCAD で確かめたのは、次の範囲だけです。
+段の意味は[決定 0254](../decisions/0254-parallel-agents-and-cross-review.md) に、根拠は[形式と権利の一覧](README.md#format-dwg)にあります。段は確かめた方法のうちもっとも強いものを示します。AutoCAD で確かめたのは、次の範囲だけです。ACadSharp とは、毎晩の CI で照らします。
 
 - 読み: AutoCAD 2027 で作った R2000・R2004・R2013・R2018 の DWG（`samples/dwg`）を、AutoCAD が同じ図面から書いた DXF と、試験（`crates/zumen-acad/tests/samples.rs` など）で比べる。「実際の図面で確かめた扱い」には、`samples/` にない図面で確かめたものもある。
 - 書き: AutoCAD で作った R2000・R2004・R2010・R2018 の DWG に、引出線の置き換え・変換・追加を当てて書き戻し、AutoCAD 2027 で開いた。監査の誤りは 0 で、形・矢印・注記が当てた値と合った。R2004 から後は、組み直した入れ物も開けた（#345）。
 - 「推定した扱い」の表は、仕様が決めず推した扱い。理由の欄に試料や AutoCAD で確かめたことを書いたものもあるが、その欄にない値は確かめていない。
 - 点・寸法・表を書き戻した DWG は、AutoCAD で開いていない（#342・#314）。
+- ACadSharp: 毎晩の CI で、公開サンプルの DWG（`samples/dwg`）と、それに書き戻しを当てた DWG を ACadSharp 3.8.0 で読み、zumen の読みと照らす（`xtask/verify`、#528）。照らすのは、画層・図形の種類と画層・モデル空間の形の値、要素にならない図形の数が移さなかったことを言う診断の件数を超えないこと、書き戻しで決めた形・画層・色と、通知が入力より増えないこと。ACadSharp は図形のバイトの位置を返さないので、移さなかった図形は、種類ごとの件数でだけ照らす。

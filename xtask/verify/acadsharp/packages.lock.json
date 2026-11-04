@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "dependencies": {
+    "net10.0": {
+      "ACadSharp": {
+        "type": "Direct",
+        "requested": "[3.8.0, 3.8.0]",
+        "resolved": "3.8.0",
+        "contentHash": "XXyrcCaLvWZbswq8Y5lOobtDPgL1SugD17SzpYqEgwSaePo3yTgovFYkEgz7+cX8LWFqcGfCKpUQL+3n8WPdQA=="
+      }
+    }
+  }
+}
