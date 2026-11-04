@@ -4011,8 +4011,8 @@ fn refuses_parameter_arrays_with_references() {
         (1, "/DP [null << /Length 1 >> stream\n%\n]".to_string()),
         (64, format!("/DP [({}) 4 0 R]", "a".repeat(900))),
         (64, "/DP [.-0 0 R]".to_string()),
-        // hayro-syntax が読めない項目（飛ばせても数として読めない字句）の後ろは、読まない（配列の後ろのデータが、見る
-        // 上限より短い形。長ければ、切れた項目と見分けないので断る）
+        // hayro-syntax が読めない項目（飛ばせても数として読めない字句）の後ろは、読まない（`[` の後ろからファイルの
+        // 終わりまでが、見る上限より短い形。長ければ、切れた項目と見分けないので断る）
         (64, "/DP [5-5.5 4 0 R 4 0 R]".to_string()),
         // 入れ子の配列は、ファイルの飛ばし方で区切る（`R` の後ろに続く `+` は、内容のストリームの飛ばし方なら名前の
         // ような字句として読めるが、ファイルの飛ばし方では読めない）
@@ -4020,7 +4020,8 @@ fn refuses_parameter_arrays_with_references() {
     ] {
         assert!(!unsupported(with(filters, &parameters)), "{parameters}");
     }
-    // 配列の後ろのデータが見る上限より長ければ、読めない項目も、切れた項目と見分けないので断る（多めに断るだけ）
+    // `[` の後ろからファイルの終わりまでが見る上限より長ければ（ふつうのファイルは当たる）、読めない項目も、切れた
+    // 項目と見分けないので断る（多めに断るだけ）
     let mut long = with(64, "/DP [5-5.5 4 0 R 4 0 R]");
     long.push(format!("({})", "a".repeat(2_000)).into_bytes());
     assert!(unsupported(long));
@@ -4077,6 +4078,18 @@ fn refuses_parameter_arrays_with_references() {
         3,
         format!("5 0 R ({}) 5 +0 R", "a".repeat(1_012))
     )));
+    // `+` で始まらない読めずに切れた項目は、その番号で断る（CID フォントの `W` のような長い入れ子の配列の前の項目は、
+    // hayro-syntax の参照にならない）
+    let widths = |items: String| {
+        vec![
+            common::stream("/Filter [/RL] /DP 4 0 R", "x"),
+            b"<< /K 1 >>".to_vec(),
+            format!("[{items}]").into_bytes(),
+        ]
+    };
+    assert!(!unsupported(widths(format!("1 [{}]", "500 ".repeat(300)))));
+    assert!(!unsupported(widths(format!("1 ({})", "a".repeat(1_100)))));
+    assert!(unsupported(widths(format!("[{}]", "500 ".repeat(300)))));
     assert!(!unsupported(indirect(b"[5 0 R]")));
     assert!(!unsupported(indirect(b"<< /K 1 >>")));
     assert!(unsupported(vec![
