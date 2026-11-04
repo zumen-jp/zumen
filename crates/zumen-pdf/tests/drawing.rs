@@ -3912,7 +3912,57 @@ fn refuses_filter_arrays_longer_than_the_limit() {
     };
     assert!(!unsupported(target(names(64))));
     assert!(unsupported(target(names(65))));
-    assert!(unsupported(target("9 0 R ".repeat(65))));
+    // 参照の項目は、名前に解けるとき（参照の先になりうる位置に名前があるとき）だけ数える。hayro-syntax は、名前に
+    // 解けない参照の項目で止まる（添付ファイルの `/F n 0 R` と、注釈への参照を並べた配列など）
+    let references = "9 0 R ".repeat(65);
+    assert!(!unsupported(target(references.clone())));
+    let mut named = target(references.clone());
+    named.push(b"/AHx".to_vec());
+    assert!(unsupported(named));
+    let mut inside = target(references);
+    inside.push(container(1, 5, "31 0 /AHx"));
+    assert!(unsupported(inside));
+}
+
+#[test]
+fn refuses_parameter_arrays_with_references() {
+    // hayro-syntax は、展開のパラメーターの配列の参照の項目を、解くたびに辞書を読み直して表を作る。同じ大きな辞書を
+    // 指す参照を並べると、その表をフィルターの数だけ持つので、上の段の参照の項目が 2 つ以上ある配列は、読まない
+    let with = |parameters: &str| {
+        vec![
+            common::stream(&format!("/Filter [/RL /RL] {parameters}"), "x"),
+            b"<< /K 1 >>".to_vec(),
+        ]
+    };
+    for parameters in [
+        "/DecodeParms [4 0 R 4 0 R]".to_string(),
+        "/DP [null 4 0 R %\n4 0 R]".to_string(),
+        format!("/DecodeParms [{}4 0 R 4 0 R]", "null ".repeat(62)),
+    ] {
+        assert!(unsupported(with(&parameters)), "{parameters}");
+    }
+    // 参照が 1 つのものと、辞書の中の参照と、フィルターの数の上限より後ろの項目
+    for parameters in [
+        "/DecodeParms [4 0 R]".to_string(),
+        "/DecodeParms [null << /JBIG2Globals 4 0 R >> << /K 4 0 R >>]".to_string(),
+        format!("/DecodeParms [{}4 0 R 4 0 R]", "null ".repeat(63)),
+    ] {
+        assert!(!unsupported(with(&parameters)), "{parameters}");
+    }
+    // 値が参照なら、参照の先になりうる位置の配列を見る（参照がオブジェクトのストリームの中身にだけあっても）
+    let indirect = |target: &[u8]| {
+        vec![
+            common::stream("/Filter [/RL /RL] /DP 4 0 R", "x"),
+            target.to_vec(),
+        ]
+    };
+    assert!(unsupported(indirect(b"[5 0 R 5 0 R]")));
+    assert!(!unsupported(indirect(b"[5 0 R]")));
+    assert!(!unsupported(indirect(b"<< /K 1 >>")));
+    assert!(unsupported(vec![
+        b"[5 0 R 5 0 R]".to_vec(),
+        container(1, 5, "32 0 << /DP 3 0 R >>"),
+    ]));
 }
 
 #[test]
@@ -4021,6 +4071,11 @@ fn refuses_coded_filters_whose_input_may_be_large() {
         let text = String::from_utf8_lossy(&objects.concat()).into_owned();
         assert!(unsupported(objects), "{text}");
     }
+    // 範囲の終わりから読んだ並びの覚えに当たっても、その前の項目の参照を落とさない
+    assert!(unsupported(vec![
+        common::stream("/F [/AHx %/F [/Fl %/F [/Fl 4 0 R\n/AHx]", "x"),
+        b"/LZWDecode".to_vec(),
+    ]));
     // 配列の参照の項目は、名前に解ければ後ろの項目も読むので、後ろの名前の倍率は分からない
     for dict in ["/Filter [/AHx 4 0 R /LZW]", "/F [4 0 R /A85]"] {
         assert!(unsupported(vec![common::stream(dict, "x")]), "{dict}");
@@ -4093,6 +4148,7 @@ fn reads_names_in_comments_in_linear_work() {
         ("%obj\n", &dict),
         ("%obj\n", &stream),
         ("%/Filter [\n", &list),
+        ("%/DP [\n", &list),
         ("%/F [/AHx\n", &list),
         ("%/Filter [\n%/N\n", &few),
         ("%/F [\n%/F\n", &short),
@@ -4115,14 +4171,15 @@ fn reads_names_in_comments_in_linear_work() {
     let work = used(&document.bytes(), Kind::Work);
     let most = plain + 8 * count as u64 + tail.len() as u64;
     assert!(work < most, "{plain} {work}");
-    // フィルターの値に参照があるときに見る、参照の先の配列も、コメントの行の `obj [` から読み直さない
+    // フィルターの値に参照があるときに見る、参照の先の配列も、コメントの行の `obj [` から読み直さない（名前の配列と、
+    // 展開のパラメーターの配列の 2 つの見方で、それぞれ飛ばす）
     let mut document = Document::new(vec![Page::new("0 0 m 10 10 l S")]);
     document.objects = vec![
         b"<< /F 9 0 R >>".to_vec(),
         format!("[\n{}{list}]", "%obj [\n".repeat(count)).into_bytes(),
     ];
     let work = used(&document.bytes(), Kind::Work);
-    let most = plain + 8 * count as u64 + list.len() as u64;
+    let most = plain + 10 * count as u64 + list.len() as u64;
     assert!(work < most, "{plain} {work}");
 }
 
