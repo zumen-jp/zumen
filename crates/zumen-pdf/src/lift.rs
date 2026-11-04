@@ -11,9 +11,8 @@ use std::sync::Arc;
 use hayro_interpret::{
     Context, InterpreterCache, InterpreterSettings, RenderContent, interpret_page,
 };
-use hayro_syntax::object::{Array, Dict, Name, Object, ObjectIdentifier, String as PdfString};
+use hayro_syntax::object::{Array, Dict, Name, ObjectIdentifier, String as PdfString};
 use hayro_syntax::page::Page;
-use hayro_syntax::xref::XRef;
 use hayro_syntax::{LoadPdfError, Pdf as Document, PdfData, PdfVersion};
 use kurbo::{Affine, Rect};
 use zumen_base::{Diagnostic, Kind, Ref, Stop, codes};
@@ -25,11 +24,18 @@ use zumen_sdk::{Cx, Error, Lift};
 
 use crate::device::{Collector, DEVICE_PER_MM, PAGE_LAYER, Styles};
 use crate::page::{self, Geometry};
-use crate::walk::{self, Walker};
+use crate::walk::{self, Reads, Walker};
 use crate::{MAGIC, PdfFile, RecordKind, strings};
 
 /// 形式固有の情報の値の型の契約の版（決定 0115）
 const SCHEMA: u32 = 1;
+
+/// ファイルの後ろに足すと、hayro-syntax が相互参照の表を読まず、ファイルを走査した表で読む（読めない位置の
+/// `startxref`、7.5.5）。走査した表は、1 つの位置に 1 つの番号しか持たないので、順がハッシュによらない
+const NO_CROSS_REFERENCES: &[u8] = b"\nstartxref\n-1\n%%EOF\n";
+
+/// トレーラーの暗号化の鍵（7.6.1）
+const ENCRYPT: &[u8] = b"Encrypt";
 
 /// 表示グループの外の内容を置くレイヤの名前
 const PAGE_LAYER_NAME: &str = "0";
@@ -51,19 +57,25 @@ impl Lift<Drawing2D> for PdfFile {
                         .and_then(parse_version)
                 });
         // 相互参照・ページの木を読む。壊れた相互参照は、オブジェクトを探し直して読む（hayro-syntax、7.5）
-        let document = Document::new(PdfData::from(Arc::clone(&self.src))).map_err(|error| {
-            let (code, error) = match error {
-                LoadPdfError::Decryption(_) => {
-                    (codes::PDF_ENCRYPTION_UNSUPPORTED, Error::Unsupported)
-                }
-                LoadPdfError::Invalid => (codes::PDF_DOCUMENT_INVALID, Error::Invalid),
-            };
-            cx.report(Diagnostic::new(code).at(header.clone()));
-            error
-        })?;
+        let first = Document::new(PdfData::from(Arc::clone(&self.src)))
+            .map_err(|error| not_loaded(cx, error, &header))?;
+        // ページの木のとおりに読めていなければ、ページの列が環境で変わりうるので、走査した表で読み直す
+        let follows = page::follows_tree(&first, Reads::new(first.xref(), &self.src), cx)
+            .map_err(|stop| stopped(cx, stop, &header))?;
+        let reloaded = if follows {
+            None
+        } else {
+            let bytes = without_tables(&self.src, first.xref().root_id());
+            Some(
+                Document::new(PdfData::from(bytes))
+                    .map_err(|error| not_loaded(cx, error, &header))?,
+            )
+        };
         let objects = objects(self);
         Lifter {
-            document: &document,
+            document: reloaded.as_ref().unwrap_or(&first),
+            first: &first,
+            source: &self.src,
             objects: &objects,
             header,
             header_version,
@@ -72,6 +84,56 @@ impl Lift<Drawing2D> for PdfFile {
         }
         .run(cx)
     }
+}
+
+fn not_loaded(cx: &mut Cx, error: LoadPdfError, place: &Ref) -> Error {
+    let (code, error) = match error {
+        LoadPdfError::Decryption(_) => (codes::PDF_ENCRYPTION_UNSUPPORTED, Error::Unsupported),
+        LoadPdfError::Invalid => (codes::PDF_DOCUMENT_INVALID, Error::Invalid),
+    };
+    cx.report(Diagnostic::new(code).at(place.clone()));
+    error
+}
+
+/// ページの木を読めない文書を、走査した表で読み直すバイト列。読み直しは、後ろのトレーラーの `Root` を選ぶので、
+/// 1 度目と同じカタログを指すトレーラーを足す。暗号化の辞書もトレーラーから読むので、暗号化の鍵のある文書には足さない。
+/// 写しはファイルの大きさまでで、読み直すかが環境で変わる文書でも数える量を変えないよう、予算に数えない。足すバイト列は
+/// `t` で始まるので、ファイルの終わりで読みかけのオブジェクトを読めるものにしない（hayro-syntax の `Object::skip`）
+fn without_tables(source: &[u8], root: ObjectIdentifier) -> Vec<u8> {
+    let mut bytes = source.to_vec();
+    if !names_encryption(source) {
+        let trailer = format!(
+            "\ntrailer\n<< /Root {} {} R >>",
+            root.obj_number, root.gen_number
+        );
+        bytes.extend_from_slice(trailer.as_bytes());
+    }
+    bytes.extend_from_slice(NO_CROSS_REFERENCES);
+    bytes
+}
+
+/// 暗号化の鍵の名前があるか。名前は、`#` と 2 桁の 16 進で字を書ける（7.3.5）
+fn names_encryption(source: &[u8]) -> bool {
+    let hex = |byte: u8| char::from(byte).to_digit(16);
+    source.iter().enumerate().any(|(at, byte)| {
+        if *byte != b'/' {
+            return false;
+        }
+        let mut rest = source.get(at + 1..).unwrap_or_default();
+        ENCRYPT.iter().all(|wanted| {
+            let escaped = match rest {
+                [b'#', high, low, ..] => hex(*high).zip(hex(*low)),
+                _ => None,
+            };
+            let (read, used) = match (escaped, rest.first()) {
+                (Some((high, low)), _) => (high * 16 + low, 3),
+                (None, Some(byte)) => (u32::from(*byte), 1),
+                (None, None) => return false,
+            };
+            rest = rest.get(used..).unwrap_or_default();
+            read == u32::from(*wanted)
+        })
+    })
 }
 
 /// L1 のレコードを指す出所。番号とバイト範囲
@@ -114,6 +176,11 @@ fn stopped(cx: &mut Cx, stop: Stop, place: &Ref) -> Error {
 
 struct Lifter<'d, 'o> {
     document: &'d Document,
+    /// 1 度目に読んだ文書。読み直しても、文書の情報と版はこちらから読む。読み直すかは環境で変わることがあるが、
+    /// 1 度目のトレーラーと表で読む値は変わらない
+    first: &'d Document,
+    /// 読み込んだファイル
+    source: &'d [u8],
     /// 間接オブジェクト → L1 のレコードの出所
     objects: &'o BTreeMap<(u32, i32), Ref>,
     /// 見出しのレコード
@@ -129,14 +196,15 @@ impl Lifter<'_, '_> {
     fn run(mut self, cx: &mut Cx) -> Result<Drawing2D, Error> {
         let document = self.document;
         // 相互参照の表を作り直すなら、ページを読む前に作り直させる
-        walk::settle(document, cx).map_err(|stop| stopped(cx, stop, &self.header))?;
+        let reads = Reads::new(document.xref(), self.source);
+        walk::settle(document, reads, cx).map_err(|stop| stopped(cx, stop, &self.header))?;
         let xref = document.xref();
         let catalog = xref.get::<Dict<'_>>(xref.root_id());
         let (layers, ocgs, inactive) = self.layers(catalog.as_ref(), cx)?;
         let pages = document.pages();
-        let labels = page::labels(xref, catalog.as_ref(), pages.len(), cx)
+        let labels = page::labels(reads, catalog.as_ref(), pages.len(), cx)
             .map_err(|stop| stopped(cx, stop, &self.header))?;
-        let reread = catalog_work(xref, catalog.as_ref());
+        let reread = catalog_work(reads, catalog.as_ref());
         let version = self.version(catalog.as_ref());
 
         // hayro-interpret の警告（読めないフォントなど）は、解釈の前の走査で場所を添えて診断にするので、受けない
@@ -146,7 +214,7 @@ impl Lifter<'_, '_> {
             ..InterpreterSettings::default()
         };
         let cache = InterpreterCache::new();
-        let mut walker = Walker::new(xref, self.objects, &inactive, &settings);
+        let mut walker = Walker::new(reads, self.objects, &inactive, &settings);
         let mut sheets = Vec::with_capacity(pages.len());
         for (index, page) in pages.iter().enumerate() {
             let label = labels.get(index).cloned().flatten();
@@ -156,11 +224,8 @@ impl Lifter<'_, '_> {
                 .and_then(|id| self.objects.get(&key(id)).cloned())
                 .unwrap_or_default();
             // ページの値は、読むたびに参照を解く
-            cx.check(
-                Kind::Work,
-                walk::dict_targets(xref, page.raw()).saturating_add(1),
-            )
-            .map_err(|stop| stopped(cx, stop, &source))?;
+            cx.check(Kind::Work, reads.dict_targets(page.raw()).saturating_add(1))
+                .map_err(|stop| stopped(cx, stop, &source))?;
             let sheet = SheetId(u32::try_from(index).unwrap_or(u32::MAX));
             let geometry = Geometry::of(page);
             let elements = {
@@ -175,7 +240,7 @@ impl Lifter<'_, '_> {
                 // hayro-interpret がスタックかメモリを使い切るおそれのあるページは、解釈しない
                 if let Some(place) = survey.refused {
                     cx.report(Diagnostic::new(codes::PDF_PAGE_DROPPED).at(place));
-                    self.unread(page, &source, cx)?;
+                    self.unread(page, reads, &source, cx)?;
                     sheets.push(Sheet {
                         id: sheet,
                         name: label,
@@ -219,7 +284,7 @@ impl Lifter<'_, '_> {
                     .map_err(|stop| stopped(cx, stop, &content))?;
                 elements
             };
-            self.unread(page, &source, cx)?;
+            self.unread(page, reads, &source, cx)?;
             let order = (0..elements.len()).map(SheetItem::Element).collect();
             sheets.push(Sheet {
                 id: sheet,
@@ -357,20 +422,29 @@ impl Lifter<'_, '_> {
 
     /// まだ移さないものを診断する: 注釈（12.5）と、縮尺の辞書を持つビューポート（12.9）。注釈の診断は、注釈の
     /// 辞書のレコードを場所にする（間接オブジェクトでなければ、ページ）
-    fn unread(&self, page: &Page<'_>, source: &Ref, cx: &mut Cx) -> Result<(), Error> {
+    fn unread(
+        &self,
+        page: &Page<'_>,
+        reads: Reads<'_>,
+        source: &Ref,
+        cx: &mut Cx,
+    ) -> Result<(), Error> {
         let raw = page.raw();
-        let xref = page.xref();
-        // hayro-syntax は項目を読むたびに参照を解くので、読む大きさを数える
-        let values = walk::value_work(xref, raw, b"Annots")
-            .saturating_add(walk::value_work(xref, raw, b"VP"));
+        // hayro-syntax は項目を読むたびに参照を解き、型が違っても読み飛ばして確かめるので、辞書でない項目も数える
+        let values = reads
+            .value_work(raw, b"Annots")
+            .saturating_add(reads.value_work(raw, b"VP"));
         cx.check(Kind::Work, values)
             .map_err(|stop| stopped(cx, stop, source))?;
         if let Some(annotations) = raw.get::<Array<'_>>(b"Annots") {
-            for annotation in annotations.iter::<Dict<'_>>() {
-                let work = walk::lookup_work(annotation.data())
-                    .saturating_add(walk::value_work(xref, &annotation, b"Subtype"))
-                    .saturating_add(1);
-                cx.check(Kind::Work, work)
+            let mut dicts = annotations.iter::<Dict<'_>>();
+            for item in annotations.raw_iter() {
+                cx.check(Kind::Work, reads.item_work(&item).saturating_add(1))
+                    .map_err(|stop| stopped(cx, stop, source))?;
+                let Some(annotation) = dicts.next() else {
+                    break;
+                };
+                cx.check(Kind::Work, reads.value_work(&annotation, b"Subtype"))
                     .map_err(|stop| stopped(cx, stop, source))?;
                 let kind = annotation
                     .get::<Name<'_>>(b"Subtype")
@@ -389,12 +463,13 @@ impl Lifter<'_, '_> {
         }
         if let Some(viewports) = raw.get::<Array<'_>>(b"VP") {
             let mut measured = false;
-            for viewport in viewports.iter::<Dict<'_>>() {
-                cx.check(
-                    Kind::Work,
-                    walk::lookup_work(viewport.data()).saturating_add(1),
-                )
-                .map_err(|stop| stopped(cx, stop, source))?;
+            let mut dicts = viewports.iter::<Dict<'_>>();
+            for item in viewports.raw_iter() {
+                cx.check(Kind::Work, reads.item_work(&item).saturating_add(1))
+                    .map_err(|stop| stopped(cx, stop, source))?;
+                let Some(viewport) = dicts.next() else {
+                    break;
+                };
                 measured |= viewport.contains_key(b"Measure");
             }
             if measured {
@@ -413,13 +488,13 @@ impl Lifter<'_, '_> {
         match (self.header_version, declared) {
             (Some(header), Some(declared)) => header.max(declared),
             (Some(version), None) | (None, Some(version)) => version,
-            (None, None) => self.document.version(),
+            (None, None) => self.first.version(),
         }
     }
 
     /// 文書の情報の辞書（14.3.3）とページの数を、図面の拡張 `pdf.document` にする。版は拡張の版に持つ
     fn document_draft(&mut self, pages: usize, version: PdfVersion) {
-        let info = self.document.metadata();
+        let info = self.first.metadata();
         let mut fields = Vec::new();
         let texts = [
             ("title", &info.title),
@@ -469,24 +544,22 @@ impl Lifter<'_, '_> {
 }
 
 /// hayro-interpret がページごとにカタログを読み直す作業の量（`Context::new` が表示の設定を読む）。カタログと、
-/// 表示の設定の辞書・配列のバイト数と、表示の設定の値の参照の先で数える（[`walk::dict_targets`]）
-fn catalog_work(xref: &XRef, catalog: Option<&Dict<'_>>) -> u64 {
+/// 表示の設定の辞書・配列のバイト数と、表示の設定の値の参照の先で数える（[`Reads::dict_targets`]）
+fn catalog_work(reads: Reads<'_>, catalog: Option<&Dict<'_>>) -> u64 {
     let Some(catalog) = catalog else {
         return 1;
     };
     let mut bytes = catalog.data().len();
-    let mut targets = catalog
-        .get::<Object<'_>>(b"OCProperties")
-        .map_or(0, |properties| walk::read_work(&properties));
+    let mut targets = reads.value_work(catalog, b"OCProperties");
     if let Some(properties) = catalog.get::<Dict<'_>>(b"OCProperties") {
         bytes = bytes.saturating_add(properties.data().len());
-        targets = targets.saturating_add(walk::dict_targets(xref, &properties));
+        targets = targets.saturating_add(reads.dict_targets(&properties));
         if let Some(groups) = properties.get::<Array<'_>>(b"OCGs") {
             bytes = bytes.saturating_add(groups.data().len());
         }
         if let Some(config) = properties.get::<Dict<'_>>(b"D") {
             bytes = bytes.saturating_add(config.data().len());
-            targets = targets.saturating_add(walk::dict_targets(xref, &config));
+            targets = targets.saturating_add(reads.dict_targets(&config));
             for name in [b"ON".as_slice(), b"OFF"] {
                 if let Some(groups) = config.get::<Array<'_>>(name) {
                     bytes = bytes.saturating_add(groups.data().len());
@@ -528,5 +601,20 @@ fn version_name(version: PdfVersion) -> &'static str {
         PdfVersion::Pdf16 => "1.6",
         PdfVersion::Pdf17 => "1.7",
         PdfVersion::Pdf20 => "2.0",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn finds_the_encryption_key_in_any_spelling() {
+        assert!(names_encryption(b"<< /Encrypt 1 0 R >>"));
+        assert!(names_encryption(b"<< /Encr#79pt 1 0 R >>"));
+        assert!(names_encryption(b"<< /#45#6E#63#72#79#70#74 1 0 R >>"));
+        assert!(!names_encryption(b"<< /Encryp 1 0 R >>"));
+        assert!(!names_encryption(b"<< /Encr#7 1 0 R >>"));
+        assert!(!names_encryption(b"Encrypt"));
     }
 }

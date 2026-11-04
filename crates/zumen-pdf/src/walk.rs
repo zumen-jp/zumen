@@ -99,15 +99,21 @@ const STACK_PER_WORK: u64 = 1024;
 /// 命令の 1 つで見る関数と命令の定義の表の、この数を 1 と数える（番号が表の位置と合わなければ、表をすべて見る。
 /// 1 項目におよそ 0.8 ns で、値を積む命令などと合わせて 3 つの命令になる）
 const DEFINITIONS_PER_WORK: u64 = 256;
-/// 定義（`FDEF`・`IDEF`）の本体を読み飛ばすときの、この数のバイトを 1 と数える。読み飛ばす命令は、上限に数えない
-/// （1 バイトの命令で、1 バイトにおよそ 5.7 ns）
-const DEFINITION_BYTES_PER_WORK: u64 = 16;
-/// 後ろへ飛ぶ回数の上限の、表（`cvt`）によらない分と、表の項目の 1 つあたりの分（skrifa の `WorkBudget::new`）。
-/// 定義を読み飛ばし直すには、後ろへ飛ぶしかない
+/// 定義（`FDEF`・`IDEF`）の本体を読み飛ばすときの、この数の命令を 1 と数える。読み飛ばす命令は、上限に数えない
+/// （命令の 1 つにおよそ 6 ns）
+const DEFINITION_INSTRUCTIONS_PER_WORK: u64 = 16;
+/// 後ろへ飛ぶ回数と `LOOPCALL` の回数の上限の、表（`cvt`）によらない分と、表の項目の 1 つあたりの分（skrifa の
+/// `WorkBudget::new`）
 const HINT_JUMPS: u64 = 300;
 const HINT_JUMPS_PER_CVT: u64 = 22;
-/// 定義を読み飛ばし直す 1 回に動かす命令の数の下限（値を積む命令・定義の命令・飛ぶ命令）
-const HINT_LOOP_INSTRUCTIONS: u64 = 3;
+/// 定義を読み飛ばし直す 1 回に動かす命令の数の下限。関数の呼び出しでは 4 つ（呼ぶ命令・飛ぶ命令・定義の命令・
+/// 戻る命令）、後ろへ飛ぶ回数の上限の中では 2 つ（定義の命令・飛ぶ命令）
+const HINT_CALL_INSTRUCTIONS: u64 = 4;
+const HINT_JUMP_INSTRUCTIONS: u64 = 2;
+/// `GETVARIATION` が軸の数だけ値を積むときの、この数の値を 1 と数える（1 つにおよそ 5.4 ns）
+const VARIATION_AXES_PER_WORK: u64 = 128;
+/// TrueType の命令の長さの上限（`NPUSHW` の 255 語）
+const HINT_LONGEST_INSTRUCTION: usize = 512;
 /// 切り抜きにする文字の輪郭の経路の要素の 1 つを写す手間。hayro-interpret は、輪郭を `ET` まで貯め、`ET` と、
 /// グラフィックス状態を写すときに写す
 const CLIP_COPY_WORK: u64 = 1;
@@ -457,9 +463,10 @@ fn longest_composite(font: &FontProgram, cx: &mut Cx<'_>) -> Result<u64, Stop> {
 
 /// フォントを読むときに、skrifa が動かす TrueType の命令の手間とメモリ。hayro-font は、読むときに字形を描く準備をし、
 /// `is_hint_reliant` のフォントの字形が TrueType なら、`fpgm` と `prep` を 1 度ずつ動かす。1 回に 100 万の命令まで
-/// 動き、命令の手間は、影の領域（`maxp` の点の数と 4）・値のスタック（`maxp` の項目の数と 32）・定義の表の大きさで
-/// 決まる。定義の本体を読み飛ばす命令は上限に数えないので、後ろへ飛ぶ回数の上限の回数だけ、プログラムを読み
-/// 飛ばしうるとする。上限で数えるので、ふつうのプログラムでは多めになる。空のプログラムは動かない
+/// 動き、命令の手間は、影の領域（`maxp` の点の数と 4）・値のスタック（`maxp` の項目の数と 32）・定義の表の大きさ・
+/// `GETVARIATION` が積む値の数（`fvar` の軸の数）で決まる。定義の本体を読み飛ばす命令は上限に数えないので、定義の
+/// 命令を動かせる回数の上限だけ、いちばん長い本体を読み飛ばしうるとする（[`definition_scan`]）。上限で数えるので、
+/// ふつうのプログラムでは多めになる。空のプログラムは動かない
 fn setup_cost(font: &FontProgram) -> Cost {
     if !font.is_hint_reliant()
         || font.outline_glyphs().underlying_source() != Some(OutlineSource::Glyf)
@@ -477,23 +484,31 @@ fn setup_cost(font: &FontProgram) -> Cost {
         size(maxp.as_ref().and_then(|maxp| maxp.max_instruction_defs())),
     );
     let cvt = tables.cvt().unwrap_or_default().len() as u64;
+    // 積めるのは、スタックの大きさまで
+    let axes = size(tables.fvar().ok().map(|fvar| fvar.axis_count())).min(stack);
     let each = HINT_WORK
         .saturating_add(twilight / TWILIGHT_PER_WORK)
         .saturating_add(stack / STACK_PER_WORK)
-        .saturating_add(definitions / DEFINITIONS_PER_WORK);
-    let jumps = HINT_JUMPS
-        .saturating_add(HINT_JUMPS_PER_CVT.saturating_mul(cvt))
-        .min(HINT_INSTRUCTIONS / HINT_LOOP_INSTRUCTIONS);
-    let run = |program: &[u8]| {
+        .saturating_add(definitions / DEFINITIONS_PER_WORK)
+        .saturating_add(axes / VARIATION_AXES_PER_WORK);
+    // 後ろへ飛ぶ回数と `LOOPCALL` の回数の上限の中では短い命令で、その外では関数を呼んで動かす
+    let jumps = HINT_JUMPS.saturating_add(HINT_JUMPS_PER_CVT.saturating_mul(cvt));
+    let definitions_run = (HINT_INSTRUCTIONS / HINT_CALL_INSTRUCTIONS)
+        .saturating_add(jumps.saturating_mul(2))
+        .min(HINT_INSTRUCTIONS / HINT_JUMP_INSTRUCTIONS);
+    let run = |program: &[u8], longest: u64| {
         if program.is_empty() {
             return 0;
         }
-        let scan = jumps.saturating_mul(program.len() as u64) / DEFINITION_BYTES_PER_WORK;
+        let scan = definitions_run.saturating_mul(longest) / DEFINITION_INSTRUCTIONS_PER_WORK;
         HINT_INSTRUCTIONS.saturating_mul(each).saturating_add(scan)
     };
+    let fpgm = tables.fpgm().unwrap_or_default();
+    let prep = tables.prep().unwrap_or_default();
+    let (in_fpgm, in_prep) = (definition_scan(fpgm), definition_scan(prep));
     Cost {
-        ops: run(tables.fpgm().unwrap_or_default())
-            .saturating_add(run(tables.prep().unwrap_or_default())),
+        // `fpgm` の間は `fpgm` の定義を、`prep` の間は、`fpgm` の関数を呼んで、どちらの定義も動かせる
+        ops: run(fpgm, in_fpgm).saturating_add(run(prep, in_fpgm.max(in_prep))),
         bytes: definitions
             .saturating_mul(HINT_DEFINITION_BYTES)
             .saturating_add(
@@ -506,18 +521,70 @@ fn setup_cost(font: &FontProgram) -> Cost {
     }
 }
 
+/// TrueType の命令の長さ。プログラムの終わりを越えて読むなら `None`（read-fonts の `Decoder::decode`）
+fn instruction_len(program: &[u8], at: usize) -> Option<usize> {
+    let opcode = *program.get(at)?;
+    let len = match opcode {
+        // NPUSHB・NPUSHW
+        0x40 => 2 + usize::from(*program.get(at + 1)?),
+        0x41 => 2 + 2 * usize::from(*program.get(at + 1)?),
+        // PUSHB[n]・PUSHW[n]
+        0xB0..=0xB7 => 2 + usize::from(opcode - 0xB0),
+        0xB8..=0xBF => 3 + 2 * usize::from(opcode - 0xB8),
+        _ => 1,
+    };
+    (at + len <= program.len()).then_some(len)
+}
+
+/// 定義の命令（`FDEF`・`IDEF`）を 1 度動かすときに読み飛ばす命令の数の上限。skrifa の `do_def` は、次の `ENDF` まで
+/// 読み、読む命令を上限に数えない。先頭から順に読む命令の列に飛ぶ命令（`JMPR`・`JROT`・`JROF`）がなければ、列の
+/// 外には入らず、定義は関数の中で動かないので（入れ子は読むときに誤りになる）、1 度ずつしか動かず、0 とする。飛ぶ
+/// 命令があれば、値を積む命令のデータの中のバイトにも入れるので、すべての位置から読み飛ばす長さを、後ろから求める
+fn definition_scan(program: &[u8]) -> u64 {
+    let mut at = 0;
+    let mut jumps = false;
+    while let Some(len) = instruction_len(program, at) {
+        jumps |= matches!(program.get(at), Some(0x1C | 0x78 | 0x79));
+        at += len;
+    }
+    if !jumps {
+        return 0;
+    }
+    // 位置ごとの、次の `ENDF` までの命令の数。命令の長さまで後ろの値だけを持つ
+    let mut reach = [0u64; HINT_LONGEST_INSTRUCTION + 1];
+    let slot = |at: usize| at % (HINT_LONGEST_INSTRUCTION + 1);
+    let mut longest = 0;
+    for at in (0..program.len()).rev() {
+        let opcode = program.get(at).copied().unwrap_or_default();
+        let definition = matches!(opcode, 0x2C | 0x89);
+        if definition {
+            longest = longest.max(reach.get(slot(at + 1)).copied().unwrap_or_default());
+        }
+        let next = instruction_len(program, at)
+            .filter(|_| !definition && opcode != 0x2D)
+            .and_then(|len| reach.get(slot(at + len)))
+            .copied()
+            .unwrap_or_default();
+        if let Some(value) = reach.get_mut(slot(at)) {
+            *value = next.saturating_add(1);
+        }
+    }
+    longest
+}
+
 /// 相互参照の表の作り直しを、ページを走査する前に済ませる。hayro-syntax 0.9.0 は、表の項目が別の番号のオブジェクトか
 /// 読めないものを指すか、オブジェクトのストリームの中の番号が合わないと、文書の中で 1 度だけファイルの全体から表を
 /// 作り直し、同じ番号の後ろの定義を使う（`XRef::repair`）。走査が数えた後で作り直すと、hayro-interpret は走査が
 /// 見ていない定義を解釈する。`Pdf::new` の後で引かれるオブジェクトは、カタログかページの辞書から参照でたどれるものだけ
 /// なので、それらを番号ごとに 1 度引く。`Pdf::objects` は使わない。同じ位置の項目の順が表（`FxHashMap`）のハッシュで
 /// 決まり、32 ビットと 64 ビットの環境で違うので、どの項目が作り直しの前の定義を引くかで、数える量が変わる。ここでは、
-/// 参照を、書いた順に決まった順でたどる。作り直すかは、引く型によらない（どの型で引いても作り直す項目は、
-/// オブジェクトとして引いても作り直す。辞書の後ろに読めないストリームがある項目だけは、辞書としても引く）。引くたびに
-/// 読むバイト数（[`read_work`]）を数える。hayro-syntax 0.9.0 は、読み飛ばす空白と注釈のバイト数を返さないので、それは
+/// 参照を、書いた順に決まった順でたどる。作り直すかは、引く型で変わる（引く型で読めず、読み飛ばせもしない本体で作り
+/// 直す。`Number` は読めても読み飛ばせないことがある）ので、オブジェクト・辞書・配列のすべてで引く。辞書と配列の両方で
+/// 読める本体はないので、読み飛ばせない本体は、どちらかで作り直す。引くたびに読むバイト数（[`Reads::read_work`]）を
+/// 数える。hayro-syntax 0.9.0 は、読み飛ばす空白と注釈のバイト数を返さないので、それは
 /// 数えない。オブジェクトのストリームの展開も、hayro-syntax がどのストリームを展開したかを返さないので、数えない
-pub(crate) fn settle(document: &Pdf, cx: &mut Cx<'_>) -> Result<(), Stop> {
-    let xref = document.xref();
+pub(crate) fn settle(document: &Pdf, reads: Reads<'_>, cx: &mut Cx<'_>) -> Result<(), Stop> {
+    let xref = reads.xref;
     let mut seen = BTreeSet::new();
     let mut pending = Vec::new();
     // ページの辞書は、`Pdf::new` が持っている。カタログから届かないページもある（力任せに探したとき）
@@ -531,12 +598,11 @@ pub(crate) fn settle(document: &Pdf, cx: &mut Cx<'_>) -> Result<(), Stop> {
         pending.push(root);
     }
     while let Some(id) = pending.pop() {
-        cx.check(Kind::Work, 1)?;
-        let object = xref
-            .get::<Object<'_>>(id)
-            .or_else(|| xref.get::<Dict<'_>>(id).map(Object::Dict));
+        let (read, object) = reads.read(id);
+        let _ = xref.get::<Dict<'_>>(id);
+        let _ = xref.get::<Array<'_>>(id);
+        cx.check(Kind::Work, read.saturating_mul(3).saturating_add(1))?;
         if let Some(object) = object {
-            cx.check(Kind::Work, read_work(&object))?;
             references(object_data(&object), &mut seen, &mut pending, cx)?;
         }
     }
@@ -544,18 +610,20 @@ pub(crate) fn settle(document: &Pdf, cx: &mut Cx<'_>) -> Result<(), Stop> {
 }
 
 /// バイト列に書いた参照（`n g R`、7.3.10）を、書いた順に返す。字句を読まず、`R` の前の 2 つの数の字の並びを、
-/// hayro-syntax の `ObjRef` で読む。hayro-syntax が辞書と配列のどこかで読める参照は、すべて見つける（読めない項目の
-/// 後ろと文字列の中のものも見つけるが、余分に引くだけで、順は決まっている）
+/// hayro-syntax の `ObjRef` で読む。hayro-syntax は、符号か点だけの番号（0 番）に続けて世代番号を読む（`--5 R`）ので、
+/// 1 つの並びからも読む。読めない項目の後ろと文字列の中のものも見つけるが、余分に引くだけで、順は決まっている
 fn written_references(data: &[u8]) -> impl Iterator<Item = ObjectIdentifier> + '_ {
     data.iter()
         .enumerate()
         .filter(|(_, byte)| **byte == b'R')
-        .filter_map(|(at, _)| {
+        .flat_map(move |(at, _)| {
             let generation = number_before(data, at);
             let number = number_before(data, generation);
-            data.get(number..=at)
-                .and_then(ObjRef::from_bytes)
-                .map(ObjectIdentifier::from)
+            [number, generation].into_iter().filter_map(move |start| {
+                data.get(start..=at)
+                    .and_then(ObjRef::from_bytes)
+                    .map(ObjectIdentifier::from)
+            })
         })
 }
 
@@ -753,21 +821,6 @@ fn object_data<'x>(object: &Object<'x>) -> &'x [u8] {
     }
 }
 
-/// ストリームを読む手間（[`LOOKUP_BYTES`]）。hayro-syntax は、読むたびに辞書を読み、`Length` が合わなければ、本体を
-/// 読み進めて `endstream` を探す（`Length` が合えば、本体を読まない）。暗号化した文書では、本体を求めると、復号して
-/// 写す（7.6）
-fn stream_work(stream: &Stream<'_>) -> u64 {
-    let dict = lookup_work(stream.dict().data());
-    let body = stream.raw_data();
-    let length = stream.dict().get::<u32>(b"Length");
-    let right = length.and_then(|length| usize::try_from(length).ok()) == Some(body.len());
-    if right && matches!(body, Cow::Borrowed(_)) {
-        dict
-    } else {
-        dict.saturating_add(lookup_work(&body))
-    }
-}
-
 /// 書いた参照の表（番号 → 参照と、書いた回数）
 type Targets = BTreeMap<(u32, i32), (ObjectIdentifier, u64)>;
 
@@ -779,106 +832,207 @@ fn add_targets(targets: &mut Targets, written: impl Iterator<Item = ObjectIdenti
     }
 }
 
-/// 参照の先を読む手間。hayro-syntax は、鍵を引くたびと配列の項目を読むたびに参照を解き、型が違っても読み飛ばして
-/// 確かめる。そのため、読み直すオブジェクトを使うたびに、値の参照の先の大きさを、書いた回数だけ読みうる。
-/// hayro-interpret が読む鍵によらず、参照を [`TARGET_DEPTH`] 段たどって（`DecodeParms` の配列の辞書の値まで）、
-/// 書いた回数を掛けて数える。求める間は、同じ番号を段ごとに 1 度だけ引くので、数える量より多く読まない
-fn targets(xref: &XRef, first: Targets) -> u64 {
-    let mut frontier = first;
-    let mut work = 0u64;
-    for _ in 0..TARGET_DEPTH {
-        let mut next = Targets::new();
-        for (id, times) in frontier.into_values() {
-            let mut read = 1u64;
-            if let Some(object) = xref.get::<Object<'_>>(id) {
-                read = read.saturating_add(read_work(&object));
-                add_targets(&mut next, written_references(object_data(&object)), times);
-            }
-            work = work.saturating_add(read.saturating_mul(times));
-        }
-        frontier = next;
-    }
-    work
+/// 読み直す手間を求めるもの
+#[derive(Clone, Copy)]
+pub(crate) struct Reads<'x> {
+    pub(crate) xref: &'x XRef,
+    /// ファイルを読み通す手間
+    file: u64,
 }
 
-/// 辞書の値の参照の先を読む手間（[`targets`]）。ほかの値と違い、資源の辞書（`Resources`）は、種類（`Font` など）の
-/// 辞書までを読み（`Resources::new`）、中の資源は名前で引くときに読むので、そこまでを数える。親（`Parent`）は読まない。
-/// 注釈（`Annots`）とビューポート（`VP`）は、読みながら数える（lift.rs の `unread`）
-pub(crate) fn dict_targets(xref: &XRef, dict: &Dict<'_>) -> u64 {
-    // 参照のない辞書は、値を読まない
-    if written_references(dict.data()).next().is_none() {
-        return 0;
+impl<'x> Reads<'x> {
+    /// `source` は、読み込んだファイルのバイト列
+    pub(crate) fn new(xref: &'x XRef, source: &[u8]) -> Self {
+        Self {
+            xref,
+            file: lookup_work(source),
+        }
     }
-    let mut first = Targets::new();
-    // 鍵を並べて値を読む手間
-    let mut work = dict.len() as u64;
-    for (name, value) in dict.entries() {
-        match value {
-            _ if matches!(name.as_ref(), b"Parent" | b"Annots" | b"VP") => {}
-            MaybeRef::Ref(id) if name.as_ref() == b"Resources" => {
-                if let Some(object) = xref.get::<Object<'_>>(id.into()) {
-                    work = work.saturating_add(read_work(&object));
-                    if let Object::Dict(resources) = &object {
-                        work = work.saturating_add(resources_targets(xref, resources));
-                    }
+
+    /// 番号のオブジェクトを読む手間と、読めたオブジェクト。オブジェクトとして読めない定義のうち、辞書の後ろに読めない
+    /// ストリームがあるものは、辞書として返す。hayro-syntax は、読むたびに `endstream` をファイルの終わりまで探すので、
+    /// ファイルを読み通す手間とする
+    pub(crate) fn read(self, id: ObjectIdentifier) -> (u64, Option<Object<'x>>) {
+        match self.xref.get::<Object<'x>>(id) {
+            Some(object) => (self.read_work(&object), Some(object)),
+            None => match self.xref.get::<Dict<'x>>(id) {
+                Some(dict) => (self.file, Some(Object::Dict(dict))),
+                None => (0, None),
+            },
+        }
+    }
+
+    /// 参照の先を読む手間。hayro-syntax は、鍵を引くたびと配列の項目を読むたびに参照を解き、型が違っても読み飛ばして
+    /// 確かめる。そのため、読み直すオブジェクトを使うたびに、値の参照の先の大きさを、書いた回数だけ読みうる。
+    /// hayro-interpret が読む鍵によらず、参照を [`TARGET_DEPTH`] 段たどって（`DecodeParms` の配列の辞書の値まで）、
+    /// 書いた回数を掛けて数える。求める間は、同じ番号を段ごとに 1 度だけ引くので、数える量より多く読まない
+    fn targets(self, first: Targets) -> u64 {
+        let mut frontier = first;
+        let mut work = 0u64;
+        for _ in 0..TARGET_DEPTH {
+            let mut next = Targets::new();
+            for (id, times) in frontier.into_values() {
+                let (read, object) = self.read(id);
+                if let Some(object) = object {
+                    add_targets(&mut next, written_references(object_data(&object)), times);
+                }
+                work = work.saturating_add(read.saturating_add(1).saturating_mul(times));
+            }
+            frontier = next;
+        }
+        work
+    }
+
+    /// 辞書の値の参照の先を読む手間（[`Reads::targets`]）。ほかの値と違い、資源の辞書（`Resources`）は、種類（`Font`
+    /// など）の辞書までを読み（`Resources::new`）、中の資源は名前で引くときに読むので、そこまでを数える。親（`Parent`）は
+    /// 読まない。注釈（`Annots`）とビューポート（`VP`）は、読みながら数える（lift.rs の `unread`）
+    pub(crate) fn dict_targets(self, dict: &Dict<'_>) -> u64 {
+        // 参照のない辞書は、値を読まない
+        if written_references(dict.data()).next().is_none() {
+            return 0;
+        }
+        let mut first = Targets::new();
+        // 鍵を並べて値を読む手間
+        let mut work = dict.len() as u64;
+        for (name, value) in dict.entries() {
+            match value {
+                _ if matches!(name.as_ref(), b"Parent" | b"Annots" | b"VP") => {}
+                _ if name.as_ref() == b"Resources" => {
+                    work = work.saturating_add(self.resources_value_work(value));
+                }
+                MaybeRef::Ref(id) => add_targets(&mut first, core::iter::once(id.into()), 1),
+                MaybeRef::NotRef(object) => {
+                    add_targets(&mut first, written_references(object_data(&object)), 1);
                 }
             }
-            MaybeRef::NotRef(Object::Dict(resources)) if name.as_ref() == b"Resources" => {
-                work = work.saturating_add(resources_targets(xref, &resources));
+        }
+        work.saturating_add(self.targets(first))
+    }
+
+    /// 資源の辞書（`Resources` の値）を読む手間。hayro-syntax は、ストリームのオブジェクトも、辞書として読む
+    fn resources_value_work(self, value: MaybeRef<Object<'_>>) -> u64 {
+        match value {
+            MaybeRef::Ref(id) => {
+                let (read, object) = self.read(id.into());
+                let kinds = object
+                    .as_ref()
+                    .and_then(dict_or_stream)
+                    .map_or(0, |(resources, _)| self.resources_targets(resources));
+                read.saturating_add(kinds)
             }
-            MaybeRef::Ref(id) => add_targets(&mut first, core::iter::once(id.into()), 1),
-            MaybeRef::NotRef(object) => {
-                add_targets(&mut first, written_references(object_data(&object)), 1);
-            }
+            MaybeRef::NotRef(object) => dict_or_stream(&object)
+                .map_or(0, |(resources, _)| self.resources_targets(resources)),
         }
     }
-    work.saturating_add(targets(xref, first))
-}
 
-/// 資源の辞書の、種類の辞書を読む手間。hayro-syntax の `Resources::new` が引く 7 つの種類だけを読む
-fn resources_targets(xref: &XRef, resources: &Dict<'_>) -> u64 {
-    [
-        &b"ExtGState"[..],
-        b"Font",
-        b"Properties",
-        b"ColorSpace",
-        b"XObject",
-        b"Pattern",
-        b"Shading",
-    ]
-    .iter()
-    .map(|kind| value_work(xref, resources, kind).saturating_add(1))
-    .fold(0, u64::saturating_add)
-}
+    /// 資源の辞書の、種類の辞書を読む手間。hayro-syntax の `Resources::new` が引く 7 つの種類だけを読む
+    fn resources_targets(self, resources: &Dict<'_>) -> u64 {
+        [
+            &b"ExtGState"[..],
+            b"Font",
+            b"Properties",
+            b"ColorSpace",
+            b"XObject",
+            b"Pattern",
+            b"Shading",
+        ]
+        .iter()
+        .map(|kind| self.value_work(resources, kind).saturating_add(1))
+        .fold(0, u64::saturating_add)
+    }
 
-/// 鍵の値が参照なら、その先を読む手間
-pub(crate) fn value_work(xref: &XRef, dict: &Dict<'_>, name: &[u8]) -> u64 {
-    dict.get_ref(name)
-        .and_then(|id| xref.get::<Object<'_>>(id.into()))
-        .map_or(0, |object| read_work(&object))
-}
+    /// 鍵の値が参照なら、その先を読む手間。型が違っても読み飛ばして確かめるので、読めるかによらない
+    pub(crate) fn value_work(self, dict: &Dict<'_>, name: &[u8]) -> u64 {
+        dict.get_ref(name).map_or(0, |id| self.read(id.into()).0)
+    }
 
-/// オブジェクトを読み直す手間。値の参照の先を含む
-pub(crate) fn reread_work(xref: &XRef, object: &Object<'_>) -> u64 {
-    let targets = match object {
-        Object::Dict(dict) => dict_targets(xref, dict),
-        Object::Stream(stream) => dict_targets(xref, stream.dict()),
-        other => {
-            let mut first = Targets::new();
-            add_targets(&mut first, written_references(object_data(other)), 1);
-            targets(xref, first)
+    /// 配列の項目を読む手間。型が違っても読み飛ばして確かめるので、読めるかによらない
+    pub(crate) fn item_work(self, item: &MaybeRef<Object<'_>>) -> u64 {
+        match item {
+            MaybeRef::Ref(id) => self.read((*id).into()).0,
+            MaybeRef::NotRef(object) => self.read_work(object),
         }
-    };
-    read_work(object).saturating_add(targets)
-}
+    }
 
-/// オブジェクトを読む手間（[`LOOKUP_BYTES`]）。数は短いものとして数えない
-pub(crate) fn read_work(object: &Object<'_>) -> u64 {
-    match object {
-        Object::String(string) => lookup_work(string.as_bytes()),
-        Object::Name(name) => lookup_work(name.as_ref()),
-        Object::Stream(stream) => stream_work(stream),
-        other => lookup_work(object_data(other)),
+    /// ページの木の節の値を読む手間。hayro-syntax の `resolve_pages` と `Page::new` が読む鍵だけを数える。`Kids` は、
+    /// 木をたどるときに項目ごとに数える
+    pub(crate) fn tree_node_work(self, node: &Dict<'_>) -> u64 {
+        let mut first = Targets::new();
+        for name in [b"Type".as_slice(), b"MediaBox", b"CropBox", b"Rotate"] {
+            match node.get_raw::<Object<'_>>(name) {
+                Some(MaybeRef::Ref(id)) => {
+                    add_targets(&mut first, core::iter::once(id.into()), 1);
+                }
+                Some(MaybeRef::NotRef(object)) => {
+                    add_targets(&mut first, written_references(object_data(&object)), 1);
+                }
+                None => {}
+            }
+        }
+        let resources = match node.get_raw::<Object<'_>>(b"Resources") {
+            Some(value) => self.resources_value_work(value),
+            None => 0,
+        };
+        self.targets(first)
+            .saturating_add(self.value_work(node, b"Kids"))
+            .saturating_add(resources)
+    }
+
+    /// オブジェクトを読み直す手間。値の参照の先を含む
+    pub(crate) fn reread_work(self, object: &Object<'_>) -> u64 {
+        let targets = match object {
+            Object::Dict(dict) => self.dict_targets(dict),
+            Object::Stream(stream) => self.dict_targets(stream.dict()),
+            other => {
+                let mut first = Targets::new();
+                add_targets(&mut first, written_references(object_data(other)), 1);
+                self.targets(first)
+            }
+        };
+        self.read_work(object).saturating_add(targets)
+    }
+
+    /// オブジェクトを読む手間（[`LOOKUP_BYTES`]）。数は短いものとして数えない
+    pub(crate) fn read_work(self, object: &Object<'_>) -> u64 {
+        match object {
+            Object::String(string) => lookup_work(string.as_bytes()),
+            Object::Name(name) => lookup_work(name.as_ref()),
+            Object::Stream(stream) => self.stream_work(stream),
+            other => lookup_work(object_data(other)),
+        }
+    }
+
+    /// ストリームを読む手間（[`LOOKUP_BYTES`]）。hayro-syntax は、読むたびに辞書と `Length` を読み、`Length` が合わなければ、
+    /// 本体を読み進めて `endstream` を探す（`Length` が合えば、本体を読まない）。暗号化した文書では、本体を求めると、
+    /// 復号して写す（7.6）
+    fn stream_work(self, stream: &Stream<'_>) -> u64 {
+        let dict =
+            lookup_work(stream.dict().data()).saturating_add(self.length_work(stream.dict()));
+        let body = stream.raw_data();
+        let length = stream.dict().get::<u32>(b"Length");
+        let right = length.and_then(|length| usize::try_from(length).ok()) == Some(body.len());
+        if right && matches!(body, Cow::Borrowed(_)) {
+            dict
+        } else {
+            dict.saturating_add(lookup_work(&body))
+        }
+    }
+
+    /// `Length` が参照なら、その先を読む手間。hayro-syntax は、数でなければ読み飛ばすので、ストリームなら辞書だけを読む。
+    /// 大きさを求めるのにも読むので、2 回と数える。ふつうの文書では数を指すので、0 になる
+    fn length_work(self, dict: &Dict<'_>) -> u64 {
+        let Some(id) = dict.get_ref(b"Length") else {
+            return 0;
+        };
+        let id = id.into();
+        let read = match self.xref.get::<Dict<'_>>(id) {
+            Some(target) => lookup_work(target.data()),
+            None => self
+                .xref
+                .get::<Object<'_>>(id)
+                .map_or(0, |target| lookup_work(object_data(&target))),
+        };
+        read.saturating_mul(2)
     }
 }
 
@@ -1068,6 +1222,8 @@ fn has_size(dict: &Dict<'_>) -> bool {
 
 pub(crate) struct Walker<'a, 'o> {
     xref: &'a XRef,
+    /// 読み直す手間を求めるもの
+    reads: Reads<'a>,
     /// 間接オブジェクト → L1 のレコードの出所
     objects: &'o BTreeMap<(u32, i32), Ref>,
     /// 既定の設定で隠れる表示グループ（hayro-interpret の `OcgState` と同じ決め方）
@@ -1141,13 +1297,14 @@ pub(crate) struct Walker<'a, 'o> {
 
 impl<'a, 'o> Walker<'a, 'o> {
     pub(crate) fn new(
-        xref: &'a XRef,
+        reads: Reads<'a>,
         objects: &'o BTreeMap<(u32, i32), Ref>,
         inactive: &'o BTreeSet<(u32, i32)>,
         settings: &'o InterpreterSettings,
     ) -> Self {
         Self {
-            xref,
+            xref: reads.xref,
+            reads,
             objects,
             inactive,
             settings,
@@ -1282,14 +1439,16 @@ impl<'a, 'o> Walker<'a, 'o> {
         Ok(())
     }
 
-    /// 辞書を読み直す手間。値の参照の先を含む（[`dict_targets`]）
+    /// 辞書を読み直す手間。値の参照の先を含む（[`Reads::dict_targets`]）
     fn reread_dict(&self, dict: &Dict<'_>) -> u64 {
-        lookup_work(dict.data()).saturating_add(dict_targets(self.xref, dict))
+        lookup_work(dict.data()).saturating_add(self.reads.dict_targets(dict))
     }
 
-    /// ストリームを読み直す手間。値の参照の先を含む（[`dict_targets`]）
+    /// ストリームを読み直す手間。値の参照の先を含む（[`Reads::dict_targets`]）
     fn reread_stream(&self, stream: &Stream<'_>) -> u64 {
-        stream_work(stream).saturating_add(dict_targets(self.xref, stream.dict()))
+        self.reads
+            .stream_work(stream)
+            .saturating_add(self.reads.dict_targets(stream.dict()))
     }
 
     /// 間接オブジェクトのレコードの出所。なければページの内容のストリーム
@@ -1424,6 +1583,11 @@ impl<'a, 'o> Walker<'a, 'o> {
                             cx,
                         )?;
                         self.apply_state(&state, &mut states, &mut cost, cx)?;
+                    } else {
+                        let read = self
+                            .reads
+                            .value_work(&resources.ext_g_states, name.0.as_ref());
+                        spend(&mut cost, read, 0, cx)?;
                     }
                 }
                 TypedInstruction::TextFont(selected) => {
@@ -1525,8 +1689,13 @@ impl<'a, 'o> Walker<'a, 'o> {
                             self.x_object(&stream, resources, owner, depth, current, cx)?;
                         cost.add(called);
                     }
-                    // hayro-interpret は、資源にない XObject（循環する参照を含む）を描かない
+                    // hayro-interpret は、資源にない XObject（循環する参照を含む）を描かない。別の型のオブジェクトも、
+                    // 読み飛ばして確かめる
                     None => {
+                        let read = self
+                            .reads
+                            .value_work(&resources.x_objects, x_object.0.as_ref());
+                        spend(&mut cost, read, 0, cx)?;
                         if self.is_visible() {
                             let name = name_text(x_object.0.as_ref());
                             self.report_once(
@@ -1560,11 +1729,14 @@ impl<'a, 'o> Walker<'a, 'o> {
                         spend(
                             &mut cost,
                             SHADING_WORK
-                                .saturating_add(reread_work(self.xref, &shading))
+                                .saturating_add(self.reads.reread_work(&shading))
                                 .saturating_add(extra.ops),
                             extra.bytes,
                             cx,
                         )?;
+                    } else {
+                        let read = self.reads.value_work(&resources.shadings, name.0.as_ref());
+                        spend(&mut cost, read, 0, cx)?;
                     }
                 }
                 TypedInstruction::NonStrokeColorNamed(color) => {
@@ -1708,16 +1880,19 @@ impl<'a, 'o> Walker<'a, 'o> {
         cx: &mut Cx<'_>,
     ) -> Result<Cost, Stop> {
         let Some(pattern) = resources.get_pattern(name) else {
-            return Ok(Cost::default());
+            return Ok(Cost {
+                ops: self.reads.value_work(&resources.patterns, name.as_ref()),
+                bytes: 0,
+            });
         };
         let mut cost = Cost {
-            ops: reread_work(self.xref, &pattern),
+            ops: self.reads.reread_work(&pattern),
             bytes: 0,
         };
         if let Object::Dict(pattern) = &pattern
             && let Some(shading) = pattern.get::<Object<'_>>(b"Shading")
         {
-            cost.ops = cost.ops.saturating_add(reread_work(self.xref, &shading));
+            cost.ops = cost.ops.saturating_add(self.reads.reread_work(&shading));
             let reference = pattern.get_ref(b"Shading").map(key);
             cost.add(self.shading(&shading, reference, cx)?);
         }
@@ -1827,10 +2002,16 @@ impl<'a, 'o> Walker<'a, 'o> {
         cx: &mut Cx<'_>,
     ) -> Result<(Cost, u64), Stop> {
         let Some(space) = resources.get_color_space(name) else {
-            return Ok((Cost::default(), 0));
+            let cost = Cost {
+                ops: self
+                    .reads
+                    .value_work(&resources.color_spaces, name.as_ref()),
+                bytes: 0,
+            };
+            return Ok((cost, 0));
         };
         let cost = Cost {
-            ops: read_work(&space),
+            ops: self.reads.read_work(&space),
             bytes: 0,
         };
         let entry = match resources.color_spaces.get_ref(name.as_ref()) {
@@ -1864,7 +2045,7 @@ impl<'a, 'o> Walker<'a, 'o> {
     ) -> Result<(Cost, u64), Stop> {
         cx.check(Kind::Work, 1)?;
         let mut cost = Cost {
-            ops: 1u64.saturating_add(reread_work(self.xref, function)),
+            ops: 1u64.saturating_add(self.reads.reread_work(function)),
             bytes: 0,
         };
         if depth > NESTED_DEPTH {
@@ -1988,7 +2169,7 @@ impl<'a, 'o> Walker<'a, 'o> {
         cx.check(Kind::Work, 1)?;
         // hayro-interpret は、色空間を作るたびに配列を読み直す（入れ子の配列の中の参照の先も）
         let mut cost = Cost {
-            ops: 1u64.saturating_add(reread_work(self.xref, space)),
+            ops: 1u64.saturating_add(self.reads.reread_work(space)),
             bytes: 0,
         };
         let mut conversion = Conversion::default();
@@ -2182,6 +2363,9 @@ impl<'a, 'o> Walker<'a, 'o> {
         cost: &mut Cost,
         cx: &mut Cx<'_>,
     ) -> Result<u64, Stop> {
+        if strings.iter().all(|bytes| bytes.is_empty()) {
+            return Ok(0);
+        }
         let (face, fallback) = match font {
             Selected::Loaded(face) | Selected::Shifted(_, face) => (Some(face), false),
             Selected::Assumed | Selected::Fallback => (self.helvetica(), true),
@@ -2342,6 +2526,8 @@ impl<'a, 'o> Walker<'a, 'o> {
         cx: &mut Cx<'_>,
     ) -> Result<Selected, Stop> {
         let Some(dict) = resources.get_font(name) else {
+            let read = self.reads.value_work(&resources.fonts, name.as_ref());
+            spend(cost, read, 0, cx)?;
             let name = name_text(name.as_ref());
             self.report_once(
                 Diagnostic::new(codes::PDF_FONT_MISSING)
@@ -2371,6 +2557,12 @@ impl<'a, 'o> Walker<'a, 'o> {
         cx: &mut Cx<'_>,
     ) -> Result<Selected, Stop> {
         spend(cost, lookup_work(dict.data()), 0, cx)?;
+        // 走査は、選ぶたびに `BaseFont` を 1 度、`Subtype` を 2 度読む
+        let names = self
+            .reads
+            .value_work(dict, b"BaseFont")
+            .saturating_add(self.reads.value_work(dict, b"Subtype").saturating_mul(2));
+        cx.check(Kind::Work, names)?;
         let id = dict.obj_id();
         // 幅の項目の多すぎるフォントは、読む前に、ページを解釈しないことにする
         if !self.widths_fit(dict, reference, cx)? {
@@ -2442,6 +2634,7 @@ impl<'a, 'o> Walker<'a, 'o> {
         if let Some(count) = reference.and_then(|id| self.widths.get(&id)) {
             return Ok(*count <= MAX_WIDTHS);
         }
+        cx.check(Kind::Work, self.reads.dict_targets(font))?;
         let descendant = font
             .get::<Array<'_>>(b"DescendantFonts")
             .and_then(|fonts| fonts.iter::<Dict<'_>>().next())
@@ -2475,6 +2668,7 @@ impl<'a, 'o> Walker<'a, 'o> {
         if let Some(shifted) = reference.and_then(|id| self.vertical.get(&id)) {
             return Ok(*shifted);
         }
+        cx.check(Kind::Work, self.reads.dict_targets(font))?;
         let descendant = font
             .get::<Array<'_>>(b"DescendantFonts")
             .and_then(|fonts| fonts.iter::<Dict<'_>>().next())
@@ -2514,11 +2708,13 @@ impl<'a, 'o> Walker<'a, 'o> {
         cx: &mut Cx<'_>,
     ) -> Result<(), Stop> {
         spend(cost, MARKED_WORK, 0, cx)?;
-        // hayro-interpret は、名前の性質の辞書を、印の種類によらず読み直す
-        if let Some(name) = properties.clone().into_name()
-            && let Some(dict) = resources.properties.get::<Dict<'_>>(name.as_ref())
-        {
-            spend(cost, self.reread_dict(&dict), 0, cx)?;
+        // hayro-interpret は、名前の性質の辞書を、印の種類によらず読み直す。別の型のオブジェクトも、読み飛ばして確かめる
+        if let Some(name) = properties.clone().into_name() {
+            let read = match resources.properties.get::<Dict<'_>>(name.as_ref()) {
+                Some(dict) => self.reread_dict(&dict),
+                None => self.reads.value_work(&resources.properties, name.as_ref()),
+            };
+            spend(cost, read, 0, cx)?;
         }
         let named = properties.clone().into_name().and_then(|name| {
             let reference = resources.properties.get_ref(name.as_ref())?;

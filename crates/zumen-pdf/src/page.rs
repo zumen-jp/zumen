@@ -2,16 +2,18 @@
 
 use std::collections::BTreeSet;
 
+use hayro_syntax::Pdf;
 use hayro_syntax::object::array::ArrayIter;
-use hayro_syntax::object::{Array, Dict, MaybeRef, Name, Object, String as PdfString};
-use hayro_syntax::page::{A4, Page, Rotation};
-use hayro_syntax::xref::XRef;
+use hayro_syntax::object::{
+    Array, Dict, MaybeRef, Name, Object, Rect, String as PdfString, dict_or_stream,
+};
+use hayro_syntax::page::{A4, Page, Resources, Rotation};
 use kurbo::Affine;
 use zumen_base::{Kind, Stop};
 use zumen_sdk::Cx;
 
 use crate::strings;
-use crate::walk::{REFERENCE_BYTES, lookup_work, read_work, reread_work, value_work};
+use crate::walk::{REFERENCE_BYTES, Reads, lookup_work};
 
 /// 1 pt（既定のユーザー空間の 1 単位）の mm
 pub(crate) const MM_PER_PT: f64 = 25.4 / 72.0;
@@ -32,6 +34,9 @@ const RANGE_BYTES: u64 = 256;
 /// 写すので、前に付ける文字列の 1 バイトを 6 バイトと数え、数の文字列の分を足す
 const LABEL_BYTES_PER_PREFIX: u64 = 6;
 const LABEL_BYTES: u64 = 256;
+
+/// ページの木をたどる間の、節の 1 つのメモリ（配列の読み手と、受け継ぐ値）
+const TREE_FRAME_BYTES: u64 = 512;
 
 /// ページの大きさと、既定のユーザー空間から用紙の mm への変換
 #[derive(Clone, Copy, Debug)]
@@ -91,6 +96,142 @@ impl Geometry {
     }
 }
 
+/// ページの木から受け継ぐ値（7.7.3.4、hayro-syntax の `PagesContext`）
+#[derive(Clone)]
+struct Inherited<'a> {
+    media_box: Option<Rect>,
+    crop_box: Option<Rect>,
+    rotate: Option<i32>,
+    resources: Resources<'a>,
+}
+
+impl<'a> Inherited<'a> {
+    /// 節の値で置き換えた値
+    fn under(&self, node: &Dict<'a>) -> Self {
+        Self {
+            media_box: node.get::<Rect>(b"MediaBox").or(self.media_box),
+            crop_box: node.get::<Rect>(b"CropBox").or(self.crop_box),
+            rotate: node.get::<i32>(b"Rotate").or(self.rotate),
+            resources: node
+                .get::<Dict<'a>>(b"Resources")
+                .map_or_else(|| self.resources.clone(), Resources::new),
+        }
+    }
+
+    /// hayro-syntax のページが、この値の節と同じか。`Page::new` と同じ決め方で比べる
+    fn same_page(&self, page: &Page<'a>, node: &Dict<'a>) -> bool {
+        let media_box = self.media_box.unwrap_or(A4);
+        let rotation = match self.rotate.unwrap_or(0).rem_euclid(360) {
+            90 => Rotation::Horizontal,
+            180 => Rotation::Flipped,
+            270 => Rotation::FlippedHorizontal,
+            _ => Rotation::None,
+        };
+        let (ours, theirs) = (&self.resources, page.resources());
+        same_dict(page.raw(), node)
+            && same_rect(page.media_box(), media_box)
+            && same_rect(page.crop_box(), self.crop_box.unwrap_or(media_box))
+            && core::mem::discriminant(&page.rotation()) == core::mem::discriminant(&rotation)
+            && same_dict(&ours.ext_g_states, &theirs.ext_g_states)
+            && same_dict(&ours.fonts, &theirs.fonts)
+            && same_dict(&ours.properties, &theirs.properties)
+            && same_dict(&ours.color_spaces, &theirs.color_spaces)
+            && same_dict(&ours.x_objects, &theirs.x_objects)
+            && same_dict(&ours.patterns, &theirs.patterns)
+            && same_dict(&ours.shadings, &theirs.shadings)
+    }
+}
+
+fn same_rect(a: Rect, b: Rect) -> bool {
+    (a.x0, a.y0, a.x1, a.y1) == (b.x0, b.y0, b.x1, b.y1)
+}
+
+/// 同じ番号の、同じ中身の辞書か。ふつうは同じ位置を指すので、バイト列を比べない
+fn same_dict(a: &Dict<'_>, b: &Dict<'_>) -> bool {
+    a.obj_id() == b.obj_id() && (core::ptr::eq(a.data(), b.data()) || a.data() == b.data())
+}
+
+/// hayro-syntax のページの列が、今の相互参照の表でページの木をたどった列と同じか。木を読めないとき、hayro-syntax は、表の
+/// 項目を順に引いてページを探す（`Pages::new_brute_force`）。同じ位置の項目は表（`FxHashMap`）のハッシュの順に並び、
+/// そのハッシュは 32 ビットと 64 ビットの環境で違うので、どの定義をページにするかと、ページの順が環境で変わる。探したかを
+/// 公開の API では知れないので、`resolve_pages` と `Page::new` と同じ決め方で木をたどって比べる。読める木を持つ文書では
+/// 同じになる。木をたどるのは今の表だけで決まるので、数える量は、比べた結果によらず、環境で変わらない
+pub(crate) fn follows_tree(
+    document: &Pdf,
+    reads: Reads<'_>,
+    cx: &mut Cx<'_>,
+) -> Result<bool, Stop> {
+    let xref = reads.xref;
+    let tree = xref
+        .get::<Dict<'_>>(xref.root_id())
+        .and_then(|catalog| catalog.get_ref(b"Pages"))
+        .and_then(|id| xref.get::<Dict<'_>>(id.into()));
+    let Some(tree) = tree else {
+        return Ok(false);
+    };
+    cx.check(
+        Kind::Work,
+        lookup_work(tree.data()).saturating_add(reads.tree_node_work(&tree)),
+    )?;
+    let Some(kids) = tree.get::<Array<'_>>(b"Kids") else {
+        return Ok(false);
+    };
+    let mut seen: BTreeSet<_> = tree
+        .obj_id()
+        .map(|id| (id.obj_number, id.gen_number))
+        .into_iter()
+        .collect();
+    let nothing = Inherited {
+        media_box: None,
+        crop_box: None,
+        rotate: None,
+        resources: Resources::new(Dict::empty()),
+    };
+    let mut open = vec![(kids.raw_iter(), nothing.under(&tree))];
+    let mut pages = document.pages().iter();
+    let mut same = true;
+    while let Some((kids, inherited)) = open.last_mut() {
+        let Some(kid) = kids.next() else {
+            open.pop();
+            continue;
+        };
+        cx.check(Kind::Work, 1)?;
+        let node = match kid {
+            MaybeRef::Ref(id) => {
+                if !seen.insert((id.obj_number, id.gen_number)) {
+                    continue;
+                }
+                cx.check(Kind::DecodedBytes, REFERENCE_BYTES)?;
+                xref.get::<Dict<'_>>(id.into())
+            }
+            MaybeRef::NotRef(object) => object.into_dict(),
+        };
+        let Some(node) = node else {
+            continue;
+        };
+        cx.check(
+            Kind::Work,
+            lookup_work(node.data()).saturating_add(reads.tree_node_work(&node)),
+        )?;
+        let values = inherited.under(&node);
+        let branch = node
+            .get::<Name<'_>>(b"Type")
+            .is_some_and(|name| name.as_ref() == b"Pages");
+        if branch {
+            if let Some(kids) = node.get::<Array<'_>>(b"Kids") {
+                cx.check(Kind::DecodedBytes, TREE_FRAME_BYTES)?;
+                open.push((kids.raw_iter(), values));
+            }
+        } else {
+            same = same
+                && pages
+                    .next()
+                    .is_some_and(|page| values.same_page(page, &node));
+        }
+    }
+    Ok(same && pages.next().is_none())
+}
+
 /// ページラベルの範囲（12.4.2 の表）。hayro-syntax の辞書は鍵の数に比例するメモリを持つので、持たずに値だけを持つ
 struct Range<'a> {
     /// 開始ページ（0 から）
@@ -99,8 +240,8 @@ struct Range<'a> {
     prefix: Option<PdfString<'a>>,
     /// 始めの番号（`St`、既定 1）
     first: i64,
-    /// 数の書き方（`S`）
-    style: Option<Name<'a>>,
+    /// 数の書き方（`S`）。1 バイトの名前だけを持つ
+    style: Option<u8>,
 }
 
 impl<'a> Range<'a> {
@@ -130,7 +271,10 @@ impl<'a> Range<'a> {
                 .get::<i64>(b"St")
                 .filter(|first| *first >= 1)
                 .unwrap_or(1),
-            style,
+            style: style.as_deref().and_then(|style| match style {
+                [byte] => Some(*byte),
+                _ => None,
+            }),
         })
     }
 }
@@ -141,7 +285,7 @@ impl<'a> Range<'a> {
 /// `DecodedBytes` に数える。深さは [`MAX_TREE_DEPTH`] まで、同じ参照は 2 度解かない（直接書いた節は、それを含む節を
 /// たどるときに 1 度だけ読む）。範囲は二分探索で引く
 pub(crate) fn labels(
-    xref: &XRef,
+    reads: Reads<'_>,
     catalog: Option<&Dict<'_>>,
     count: usize,
     cx: &mut Cx<'_>,
@@ -157,7 +301,7 @@ pub(crate) fn labels(
             .collect();
         let mut open: Vec<ArrayIter<'_>> = Vec::new();
         cx.check(Kind::Work, lookup_work(tree.data()))?;
-        node(xref, &tree, &mut ranges, &mut open, cx)?;
+        node(reads, &tree, &mut ranges, &mut open, cx)?;
         while let Some(kids) = open.last_mut() {
             let Some(kid) = kids.next() else {
                 open.pop();
@@ -170,10 +314,9 @@ pub(crate) fn labels(
                         continue;
                     }
                     cx.check(Kind::DecodedBytes, REFERENCE_BYTES)?;
-                    xref.get::<Dict<'_>>(id.into())
+                    reads.xref.get::<Dict<'_>>(id.into())
                 }
-                MaybeRef::NotRef(Object::Dict(kid)) => Some(kid),
-                MaybeRef::NotRef(_) => None,
+                MaybeRef::NotRef(object) => dict_or_stream(&object).map(|(kid, _)| kid.clone()),
             };
             // 辞書でない項目から後ろは、読まない
             let Some(kid) = kid else {
@@ -182,7 +325,7 @@ pub(crate) fn labels(
             };
             cx.check(Kind::Work, lookup_work(kid.data()))?;
             if open.len() as u32 <= MAX_TREE_DEPTH {
-                node(xref, &kid, &mut ranges, &mut open, cx)?;
+                node(reads, &kid, &mut ranges, &mut open, cx)?;
             }
         }
     }
@@ -217,7 +360,7 @@ pub(crate) fn labels(
 
 /// 数の木の節（7.9.7）を読む。範囲を `ranges` に足し、子の配列を `open` に積む（木の順にたどる）
 fn node<'a>(
-    xref: &XRef,
+    reads: Reads<'_>,
     node: &Dict<'a>,
     ranges: &mut Vec<Range<'a>>,
     open: &mut Vec<ArrayIter<'a>>,
@@ -225,7 +368,9 @@ fn node<'a>(
 ) -> Result<(), Stop> {
     cx.check(
         Kind::Work,
-        value_work(xref, node, b"Nums").saturating_add(value_work(xref, node, b"Kids")),
+        reads
+            .value_work(node, b"Nums")
+            .saturating_add(reads.value_work(node, b"Kids")),
     )?;
     if let Some(nums) = node.get::<Array<'a>>(b"Nums") {
         cx.check(Kind::Work, lookup_work(nums.data()))?;
@@ -233,8 +378,9 @@ fn node<'a>(
         while let (Some(key), Some(value)) = (items.next(), items.next()) {
             cx.check(
                 Kind::Work,
-                read_work(&key)
-                    .saturating_add(reread_work(xref, &value))
+                reads
+                    .read_work(&key)
+                    .saturating_add(reads.reread_work(&value))
                     .saturating_add(1),
             )?;
             if let (Object::Number(key), Object::Dict(range)) = (key, value) {
@@ -260,12 +406,12 @@ fn label(range: &Range<'_>, offset: i64) -> String {
     let number = u64::try_from(range.first.saturating_add(offset))
         .unwrap_or(1)
         .max(1);
-    let digits = match range.style.as_deref() {
-        Some(b"D") => number.to_string(),
-        Some(b"R") => roman(number),
-        Some(b"r") => roman(number).to_lowercase(),
-        Some(b"A") => letters(number, b'A'),
-        Some(b"a") => letters(number, b'a'),
+    let digits = match range.style {
+        Some(b'D') => number.to_string(),
+        Some(b'R') => roman(number),
+        Some(b'r') => roman(number).to_lowercase(),
+        Some(b'A') => letters(number, b'A'),
+        Some(b'a') => letters(number, b'a'),
         _ => String::new(),
     };
     format!("{prefix}{digits}")
