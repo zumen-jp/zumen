@@ -1215,12 +1215,16 @@ fn targeted(
 /// その表を項目の数だけ持つ。そこで、上の段の 2 つ目の参照の項目を返す（参照が 1 つなら、表も 1 つ。辞書の中の参照は、
 /// 項目の数だけの表を作らないので見ない）。
 ///
-/// 項目は、hayro-syntax と同じく、参照（`ObjRef`）として読めなければ、飛ばし方（`Skippable`）で区切る。ただし、
-/// hayro-syntax は、辞書の後ろ（空白とコメントを飛ばして）に `stream` がある項目をストリームとして読み、中身を `Length`
-/// で飛ばすので、区切りが飛ばし方と変わる。そうした項目は、後ろの項目が分からないので、その番号を返す（ストリームは
-/// 間接オブジェクトに限るので、ふつうの文書にはない。7.3.8.1）。項目は [`FILTERS`] 個まで、バイト列は
-/// [`PARAMETER_BYTES`] まで見て、上限で切れた項目も、その番号を返す。読んだバイト列を `Work` に数える（飛ばせずに
-/// 位置が戻った項目は、見たバイト列の終わりまで）。[`targeted`] と同じく、`[` の後ろの範囲の終わりの同じ位置からは、
+/// 項目は、hayro-syntax（`FlexArrayIter::next`）と同じく、参照（`ObjRef`）として読めなければ、読み方（`Object::read`）
+/// で区切る。読み方は、飛ばし方（`Skippable`。配列の終わりを決める）と、次の所で区切りが変わる。
+/// - 数字のない数の字句: 読み方は、符号か `.` だけを読むことがある（`.-0 0 R` は、数 `.` と参照 `-0 0 R`）。
+/// - 辞書の後ろ（空白とコメントを飛ばして）に `stream` がある項目: 読み方はストリームとして読み、中身を `Length` で
+///   飛ばす。後ろの項目が分からないので、その番号を返す（ストリームは間接オブジェクトに限るので、ふつうの文書にはない。
+///   7.3.8.1）。辞書は表を作らないように飛ばし方で読み、後ろの `stream` を見る（辞書の終わりは、どちらも同じ）。
+///
+/// 項目は [`FILTERS`] 個まで、バイト列は [`PARAMETER_BYTES`] まで見て、上限で切れた項目も、その番号を返す。上限の
+/// 終わりにかかる参照（`5 0 R` の `R` が外）は、数 2 つに読むので、切れた所の 2 つ前の項目の番号を返す。読んだバイト
+/// 列を `Work` に数える（読めずに位置が戻った項目は、見たバイト列の終わりまで）。[`targeted`] と同じく、`[` の後ろの範囲の終わりの同じ位置からは、
 /// 1 度だけ読む（[`Lists`]）
 fn listed(data: &[u8], at: usize, lists: &mut Lists, cx: &mut Cx<'_>) -> Result<Option<u64>, Stop> {
     if data.get(at) != Some(&b'[') {
@@ -1243,7 +1247,8 @@ fn listed(data: &[u8], at: usize, lists: &mut Lists, cx: &mut Cx<'_>) -> Result<
             break;
         }
         if reader.at_end() {
-            layered = cut.then_some(index);
+            // 上限で切れた。終わりにかかる参照は、数 2 つに読む
+            layered = cut.then(|| index.saturating_sub(2));
             break;
         }
         if reader.read_without_context::<ObjRef>().is_some() {
@@ -1255,8 +1260,13 @@ fn listed(data: &[u8], at: usize, lists: &mut Lists, cx: &mut Cx<'_>) -> Result<
             continue;
         }
         let dict = reader.peek_tag(b"<<").is_some();
-        if reader.skip::<Object<'_>>(false).is_none() {
-            // 上限で切れたか、hayro-syntax も配列を読めない
+        let read = if dict {
+            reader.skip::<Object<'_>>(false).is_some()
+        } else {
+            reader.read_without_context::<Object<'_>>().is_some()
+        };
+        if !read {
+            // 上限で切れたか、hayro-syntax も項目を読めず、後ろを読まない
             reached = end;
             layered = cut.then_some(index);
             break;

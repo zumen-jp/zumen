@@ -3957,6 +3957,20 @@ fn refuses_parameter_arrays_with_references() {
         (2, "/DP [null << /Length 1 >> %\nstream\n%\n]".to_string()),
         // 見るバイト数の上限で切れた項目も、後ろの項目が分からない
         (2, format!("/DP [({}) 4 0 R]", "a".repeat(1_100))),
+        // 上限の終わりにかかる参照（2 つ目の `R` が外）は、数 2 つに読むが、参照の項目として数える
+        (3, format!("/DP [4 0 R ({}) 4 0 R]", "a".repeat(1_011))),
+        // 上限の終わりにかかる `stream` の語（`str` までが中）も、辞書の項目をストリームとする
+        (
+            3,
+            format!(
+                "/DP [4 0 R << /Length 1 /P ({}) >> stream\n%\nendstream 4 0 R]",
+                "a".repeat(993)
+            ),
+        ),
+        // 数字のない数の字句は、hayro-syntax の読み方が符号か `.` だけを読み、後ろを参照として読む
+        (64, "/DP [.-0 0 R .-0 0 R]".to_string()),
+        (64, "/DP [--0 0 R --0 0 R]".to_string()),
+        (64, "/DP [-.-0 0 R +.-0 0 R]".to_string()),
     ] {
         assert!(unsupported(with(filters, &parameters)), "{parameters}");
     }
@@ -3975,6 +3989,9 @@ fn refuses_parameter_arrays_with_references() {
         (2, "/DP [null 4 0 R %\n4 0 R]".to_string()),
         (1, "/DP [null << /Length 1 >> stream\n%\n]".to_string()),
         (64, format!("/DP [({}) 4 0 R]", "a".repeat(900))),
+        (64, "/DP [.-0 0 R]".to_string()),
+        // hayro-syntax が読めない項目（飛ばせても数として読めない字句）の後ろは、読まない
+        (64, "/DP [5-5.5 4 0 R 4 0 R]".to_string()),
     ] {
         assert!(!unsupported(with(filters, &parameters)), "{parameters}");
     }
@@ -4004,6 +4021,15 @@ fn refuses_parameter_arrays_with_references() {
     assert!(unsupported(indirect(
         b"[<< /Length 1 >> stream\n%endstream 5 0 R 5 0 R\n]"
     )));
+    // `.-0 0 R` は hayro-syntax の項目の 2 つなので、2 つ目の参照は 4 つ目の項目
+    let hidden = |filters: &str| {
+        vec![
+            common::stream(&format!("/Filter [{filters}] /DP 4 0 R"), "x"),
+            b"[.-0 0 R .-0 0 R]".to_vec(),
+        ]
+    };
+    assert!(unsupported(hidden("/RL /RL /RL /RL")));
+    assert!(!unsupported(hidden("/RL /RL /RL")));
     assert!(!unsupported(indirect(b"[5 0 R]")));
     assert!(!unsupported(indirect(b"<< /K 1 >>")));
     assert!(unsupported(vec![
