@@ -151,7 +151,7 @@ jobs:
           python-version: '3.x'
       - name: npm のパッケージに wasm とライセンスの文を入れて包む（決定 0259）
         run: |
-          cp artifacts/zumen_abi1.wasm artifacts/THIRD_PARTY_LICENSES LICENSE-MIT LICENSE-APACHE bindings/js/
+          cp artifacts/zumen_abi1.wasm artifacts/zumen_abi1_drawing.wasm artifacts/zumen_abi1_bim.wasm artifacts/zumen_abi1_civil.wasm artifacts/zumen_abi1_pointcloud.wasm artifacts/THIRD_PARTY_LICENSES LICENSE-MIT LICENSE-APACHE bindings/js/
           mkdir -p out
           (cd bindings/js && npm pack --pack-destination ../../out)
       - name: NuGet のパッケージに、対象ごとのネイティブのライブラリを入れて包む
@@ -179,7 +179,7 @@ jobs:
       - name: 置くものを 1 つのディレクトリに集める
         run: |
           mkdir -p files
-          cp artifacts/*.tar.gz artifacts/*.zip artifacts/zumen_abi1.wasm artifacts/THIRD_PARTY_LICENSES artifacts/wheels/*.whl artifacts/*.tgz artifacts/*.nupkg files/
+          cp artifacts/*.tar.gz artifacts/*.zip artifacts/zumen_abi1.wasm artifacts/zumen_abi1_drawing.wasm artifacts/zumen_abi1_bim.wasm artifacts/zumen_abi1_civil.wasm artifacts/zumen_abi1_pointcloud.wasm artifacts/THIRD_PARTY_LICENSES artifacts/wheels/*.whl artifacts/*.tgz artifacts/*.nupkg files/
           for rid in $(ls artifacts/native); do
             for f in artifacts/native/$rid/*; do cp "$f" "files/$rid-$(basename "$f")"; done
           done

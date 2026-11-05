@@ -2,7 +2,7 @@
 
 wasm のモジュール（`zumen_abi1.wasm`）を、ブラウザーと Node.js（22 以降）から呼ぶ薄いラッパーです（[決定 0011](../../docs/decisions/0011-bindings-through-ffi.md)・[決定 0194](../../docs/decisions/0194-typescript-javascript-wrapper.md)・[決定 0259](../../docs/decisions/0259-javascript-on-node-servers.md)）。
 
-- npm の `@zumen-jp/zumen` で配ります（[決定 0003](../../docs/decisions/0003-names-and-domain.md)・[決定 0205](../../docs/decisions/0205-release-and-publishing.md)）。パッケージには `zumen_abi1.wasm` を入れ、`@zumen-jp/zumen/zumen_abi1.wasm` で取り出せます。依存のライセンスの文は `THIRD_PARTY_LICENSES` にあります。
+- npm の `@zumen-jp/zumen` で配ります（[決定 0003](../../docs/decisions/0003-names-and-domain.md)・[決定 0205](../../docs/decisions/0205-release-and-publishing.md)）。パッケージには全体版と 4 つの分割版の wasm を入れます。依存のライセンスの文は `THIRD_PARTY_LICENSES` にあります。
 - 素の ESM の JavaScript で書き、ビルドも npm の依存もありません。型は `.d.ts` にあります。
 - `src/messages.d.ts`・`src/constants.js`・`src/constants.d.ts` は、`schema/` から `cargo xtask codegen` で生成します。手で直さないでください。
 
@@ -121,14 +121,17 @@ node bindings/js/examples/worker/main.mjs samples/dxf/text_alignments.dxf target
 
 図面・BIM・土木地理・点群を分けたモジュール（`zumen_abi1_drawing.wasm`・`zumen_abi1_bim.wasm`・`zumen_abi1_civil.wasm`・`zumen_abi1_pointcloud.wasm`）もあります（[決定 0221](../../docs/decisions/0221-wasm-modules.md)・[決定 0253](../../docs/decisions/0253-wasm-civil-and-pointcloud-modules.md)）。`loadModules` は、要るモジュールだけを、初めて要るときに読み込みます。入っていない op は `call.op.unsupported` の診断で返ります。
 
+5 つの wasm は、同じ npm パッケージと GitHub の Release に入っています（[決定 0268](../../docs/decisions/0268-distribute-wasm-modules.md)）。ブラウザー向けに Vite などで組むときは、`@zumen-jp/zumen/wasm` の `wasmUrls` を使います。パッケージの中で静的な相対パスを `new URL(..., import.meta.url)` に渡しているため、bundler が wasm を見つけて出力へ写し、URL を書き換えられます。
+
 ```js
-import { detect, loadModules } from "./src/index.js";
+import { loadModules } from "@zumen-jp/zumen";
+import { wasmUrls } from "@zumen-jp/zumen/wasm";
 
 const modules = loadModules({
-  drawing: () => fetch("/zumen_abi1_drawing.wasm"),
-  bim: () => fetch("/zumen_abi1_bim.wasm"),
-  civil: () => fetch("/zumen_abi1_civil.wasm"),
-  pointcloud: () => fetch("/zumen_abi1_pointcloud.wasm"),
+  drawing: () => fetch(wasmUrls.drawing),
+  bim: () => fetch(wasmUrls.bim),
+  civil: () => fetch(wasmUrls.civil),
+  pointcloud: () => fetch(wasmUrls.pointcloud),
 });
 const zumen = await modules.forInput(bytes); // 形式を判定し（detect）、それを開けるモジュールを返す。判定できなければ undefined
 const viewer = await modules.forOp("scene"); // op を持つモジュール
@@ -136,6 +139,22 @@ const opened = await modules.open("a.dxf", bytes); // 形式を持つモジュ�
 opened.session.call({ v: 1, op: "drawing", doc: "a.dxf" });
 opened.session.close();
 ```
+
+`wasmUrls` は URL の文字列の一覧で、import だけでは wasm を取得しません。キーは `all`・`drawing`・`bim`・`civil`・`pointcloud` です。全体版を使う場合は `load(fetch(wasmUrls.all))` と書けます。npm のインストールと bundler の出力には 5 つとも含まれますが、ブラウザーが取得してコンパイルするのは、呼んだ loader のモジュールだけです。
+
+この URL の使い方はブラウザー向けです。Vite の SSR には使わず、Node.js のサーバーでは上の `@zumen-jp/zumen/node` を使います（[Vite の `new URL` の説明](https://vite.dev/guide/assets.html#new-url-url-import-meta-url)）。bundler を使わず配信する場合は、Release の wasm をサーバーに置き、その URL を `fetch` に渡せます。
+
+バイト列を直接取り出すための exports もあります。
+
+| npm の subpath | 内容 |
+| --- | --- |
+| `@zumen-jp/zumen/zumen_abi1.wasm` | 全体版 |
+| `@zumen-jp/zumen/zumen_abi1_drawing.wasm` | 図面 |
+| `@zumen-jp/zumen/zumen_abi1_bim.wasm` | BIM |
+| `@zumen-jp/zumen/zumen_abi1_civil.wasm` | 土木・地理 |
+| `@zumen-jp/zumen/zumen_abi1_pointcloud.wasm` | 点群 |
+
+Node.js で分割版を使うときは、たとえば `readFile(new URL(import.meta.resolve("@zumen-jp/zumen/zumen_abi1_drawing.wasm")))` のバイト列を `load` に渡します。ブラウザーでは、パッケージ名を `new URL` に直接渡さず、上の `wasmUrls` を使います。
 
 | 名前 | 中身 |
 | --- | --- |
@@ -188,3 +207,13 @@ node bindings/js/test/worker.mjs target/wasm32-unknown-unknown/release/zumen_abi
 npm ci --prefix bindings/js/test/nextjs --ignore-scripts
 node bindings/js/test/nextjs/run.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm
 ```
+
+`test/browser/bundle.mjs` は、5 つの wasm を入れて `npm pack` し、Vite の production build を Chromium で開きます。npm の exports と URL から取り出す内容、ルート以外の配信先、図面を開くときの遅延取得、各モジュールの op、2 回目に取得し直さないことを確かめます。Vite と Playwright は `test/browser/package.json` で固定し、CI は PR ごとに流します。
+
+```bash
+npm ci --prefix bindings/js/test/browser --ignore-scripts
+npm exec --prefix bindings/js/test/browser -- playwright install --only-shell chromium
+node bindings/js/test/browser/bundle.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm modules/zumen_abi1_drawing.wasm modules/zumen_abi1_bim.wasm modules/zumen_abi1_civil.wasm modules/zumen_abi1_pointcloud.wasm
+```
+
+この検査の前に、各 feature を `cargo build -p zumen-abi --target wasm32-unknown-unknown --release --no-default-features --features drawing` などで作り、出力を上の名前で保存します。最後に全体版を既定の feature で作ります。

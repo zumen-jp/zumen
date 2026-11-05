@@ -21,11 +21,23 @@
       "types": "./src/node.d.ts",
       "default": "./src/node.js"
     },
-    "./zumen_abi1.wasm": "./zumen_abi1.wasm"
+    "./wasm": {
+      "types": "./src/wasm.d.ts",
+      "default": "./src/wasm.js"
+    },
+    "./zumen_abi1.wasm": "./zumen_abi1.wasm",
+    "./zumen_abi1_drawing.wasm": "./zumen_abi1_drawing.wasm",
+    "./zumen_abi1_bim.wasm": "./zumen_abi1_bim.wasm",
+    "./zumen_abi1_civil.wasm": "./zumen_abi1_civil.wasm",
+    "./zumen_abi1_pointcloud.wasm": "./zumen_abi1_pointcloud.wasm"
   },
   "files": [
     "src",
     "zumen_abi1.wasm",
+    "zumen_abi1_drawing.wasm",
+    "zumen_abi1_bim.wasm",
+    "zumen_abi1_civil.wasm",
+    "zumen_abi1_pointcloud.wasm",
     "LICENSE-MIT",
     "LICENSE-APACHE",
     "THIRD_PARTY_LICENSES"
