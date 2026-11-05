@@ -432,7 +432,7 @@ since = "0.0.0"
 status = "active"
 
 [codes."dwg.file.invalid"]
-description = "DWG のヘッダー・オブジェクトのマップ・オブジェクトのセクションを読めない"
+description = "DWG のヘッダー・オブジェクトのマップ・オブジェクトのレコードを読めない"
 severity = "error"
 params = { part = "text" }
 since = "0.0.0"
@@ -940,7 +940,7 @@ since = "0.2.0"
 status = "active"
 
 [codes."crs.geoid.unsupported"]
-description = "渡されたジオイドの格子は、扱わない形（点の並び・投影の座標・フィートの値・ほかの並びや版）なので読まなかった"
+description = "渡されたジオイドの格子は、扱わない形（点の並び・投影の座標・フィートの値・ほかの並びやバージョン）なので読まなかった"
 severity = "error"
 params = { key = "text", value = "text" }
 group-by = ["key", "value"]

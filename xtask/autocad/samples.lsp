@@ -1,5 +1,5 @@
 ;; zumen の公開サンプル（samples/dwg）を作る（#316）。make.sh が、画面なしの accoreconsole で主題ごとに 1 つの図面を作り、
-;; 版ごとに DWG と DXF（_ascii.dxf）に保存する
+;; バージョンごとに DWG と DXF（_ascii.dxf）に保存する
 (setq zs-out "C:/zumen-work/out/")
 (defun zs-begin () (setvar "CMDECHO" 1) (setvar "INSUNITS" 4) (setvar "ATTREQ" 0) (setvar "OSMODE" 0))
 (defun zs-save (name vers)

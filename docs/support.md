@@ -46,7 +46,7 @@ zumen が対象にするプラットフォーム・言語の実行環境・ホ�
 
 | ホストアプリ | 対象のバージョン | 言語と実行環境 |
 | --- | --- | --- |
-| Revit・AutoCAD・Civil 3D | 2024〜2027（現行と過去 3 版） | .NET Framework 4.8（2024）、.NET 8（2025・2026。2026 年 8〜9 月の更新から .NET 10）、.NET 10（2027） |
+| Revit・AutoCAD・Civil 3D | 2024〜2027（現行と過去 3 バージョン） | .NET Framework 4.8（2024）、.NET 8（2025・2026。2026 年 8〜9 月の更新から .NET 10）、.NET 10（2027） |
 | Dynamo（Revit の中） | 3.x・4.x | CPython 3.9（3.x の既定）、CPython 3.11（PythonNet3。4.0 の既定） |
 | pyRevit | 7 | CPython 3.12 |
 | Rhino・Grasshopper | 8 | CPython 3.9 |
