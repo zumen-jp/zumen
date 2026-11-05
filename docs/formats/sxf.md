@@ -59,6 +59,7 @@ SXF Ver.3.1 の SFC と P21 を、ファイルモデル（L1）として読み�
 - 名前が `$$ATR` で始まる複合図形の要素に、名前と `$$` で区切った値を `sxf.attribute` の拡張で付ける。背景色などの値は解かない（[決定 0131](../decisions/0131-sxf-attribute-mechanism.md)）。
 - 測地座標系の部分図は、実寸の空間の `axes` を `Axes::NorthEast`（X が北、Y が東）にし、点はファイルの X・Y のまま持つ。ビューの変換が、東・北の順に直してから用紙へ置く（[決定 0019](../decisions/0019-coordinate-systems-and-gsi-data.md)、[crs.md](crs.md)）。
 - まだ移さない種類と、読めない値は、`sxf.lift.dropped`・`sxf.lift.invalid` で報告する。
+- SFC の診断は、表と図形の変換段階によって入力順から外れる場合がある。図面・ID・書き戻しを保ったまま入力順にそろえる作業は #624 で扱う。
 
 ## 属性ファイル
 
