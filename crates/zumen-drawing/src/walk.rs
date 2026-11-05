@@ -353,8 +353,8 @@ struct Walker<'a> {
     by_name: BTreeMap<&'a str, usize>,
     /// 空間と用紙ごとの、要素の ID
     names: BTreeMap<String, Rc<[String]>>,
-    /// 空間ごとの、描く順のうち要素を指す添字。鍵は空間のアドレス。図面モデルのバイナリは空間の ID の重なりを確かめずに
-    /// 読むので、ID や名前では空間を取り違える（#567）。鍵は引くだけに使い、鍵の順には回さない（決定 0007）
+    /// 空間ごとの、描く順のうち要素を指す添字。キーは空間のアドレス。図面モデルのバイナリは空間の ID の重なりを確かめ
+    /// ずに読むので、ID や名前では空間を取り違える（#567）。キーは引くだけに使い、キーの順には回さない（決定 0007）
     orders: BTreeMap<*const ModelSpace, Rc<[usize]>>,
     /// 記号の定義の空間ごとの、空間の ID
     spaces: BTreeMap<SpaceId, String>,
@@ -471,6 +471,11 @@ impl<'a> Walker<'a> {
         for &index in order.iter() {
             if let (Some(element), Some(id)) = (space.elements.get(index), ids.get(index)) {
                 self.element(element, id, frame, Item::Model, cx)?;
+            } else {
+                // 要素の ID を引けない添字も、1 つごとに `work` を 1 と数える。空間の ID が重なった図面モデルの
+                // バイナリでは、先にたどった空間の要素の ID を使い、引けない添字が升ごとに残る（#567）
+                cx.check(Kind::Work, 1)
+                    .map_err(|stop| (stop, Ref::default().with_id(name.as_str())))?;
             }
         }
         Ok(())
@@ -1339,6 +1344,42 @@ mod tests {
         // 先に描く配置（FIRST）は描く順 [1, 0]、後の配置（OUTER）は [0, 1] で、線のレイヤが 3・2 と 2・3 の順になる
         let layers: Vec<u32> = lines(&visits).iter().map(|visit| visit.layer.0).collect();
         assert_eq!(layers, vec![3, 2, 2, 3]);
+    }
+
+    #[test]
+    fn indices_without_ids_are_counted() {
+        // #565 の確かめで見つけた形。空間の ID が重なった図面モデルのバイナリでは、定義の空間が、先にたどった空間の
+        // 要素の ID を使う（#567）。ID を引けない添字を数えずに飛ばすと、升ごとに、添字の数だけ数えずに回る
+        const SIDE: u32 = 64;
+        let mut drawing = nested();
+        // 外の定義の空間を、実寸の空間と同じ ID にし、線を 64 本置く。要素の ID は、実寸の空間の 1 つだけになる
+        drawing.symbols[1].space =
+            space(MODEL, (0..64).map(|_| line(MODEL, 2, by_layer())).collect());
+        let Shape::Symbol(symbol) = &mut drawing.spaces[0].elements[0].shape else {
+            panic!("記号の要素")
+        };
+        symbol.grid = Some(Grid {
+            columns: SIDE,
+            rows: SIDE,
+            column_spacing: Length::Model(ModelLength {
+                space: MODEL,
+                value: 1.0,
+            }),
+            row_spacing: Length::Model(ModelLength {
+                space: MODEL,
+                value: 1.0,
+            }),
+        });
+        let cancel = CancelToken::new();
+        // 升ごとに、ID を引けない 63 の添字を数えると、この上限を超えて止まる。数えなければ、上限の中で終わる
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(1 << 16)));
+        let mut diag = Diagnostics::new();
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        let (stop, _) = drawing.walk(Origin::Space(MODEL), &mut cx).unwrap_err();
+        assert!(
+            matches!(stop, Stop::Exceeded(exceeded) if exceeded.kind == Kind::Work),
+            "{stop:?}"
+        );
     }
 
     #[test]

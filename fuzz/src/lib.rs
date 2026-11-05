@@ -1,8 +1,8 @@
-//! 境界を通す fuzz の target（`open`・`font`・`profile`・`review`・`json`、#517・決定 0262）が使う部品。
+//! API を通す fuzz の target（`open`・`font`・`profile`・`review`・`json`、#517・決定 0262）が使う部品。
 //!
 //! [`Calls`] が、`zumen` の [`Session`] に入力を渡して API の関数を呼び、応答の JSON と、取り出したバイナリの結果を
 //! 呼んだ順に並べる。並べたものを、テストキットの `survives_calls` が 2 回で比べる。要求の `budget` には、テストキット
-//! の境界の呼び出しの fuzz の上限（`fuzz_call_limits`）を書く。応答ごとに、次のことを確かめ、合わなければパニックに
+//! の API の呼び出しの fuzz の上限（`fuzz_call_limits`）を書く。応答ごとに、次のことを確かめ、合わなければパニックに
 //! して知らせる。
 //!
 //! - 応答が JSON として読め、成功したときだけ `result` を持つ。失敗した応答は、理由の診断を持つ（AGENTS.md の
@@ -134,7 +134,7 @@ impl Calls {
         self.call_bytes(&out.into_bytes())
     }
 
-    /// 受け取った要求を呼ぶ。オブジェクトなら、`budget` を境界の呼び出しの fuzz の上限に替え、時計で止める
+    /// 受け取った要求を呼ぶ。オブジェクトなら、`budget` を API の呼び出しの fuzz の上限に替え、時計で止める
     /// `time_limit_ms` を除く（止まる所が実行ごとに変わるので、2 回で比べられない）。オブジェクトでなければ、そのまま
     /// 渡す
     pub fn call_value(&mut self, request: &Value) -> Reply {

@@ -3,7 +3,7 @@
 //! 検査は `codegen` から呼ぶ。登録した形式と L0 の crate のどれにも、同じ名前の fuzz の target があることを確かめる。
 //! 登録した形式は、crate が `[package.metadata.zumen]` の `formats` で名乗る形式と、`schema/boundary.toml` の
 //! `[[detection]]` と `[[modules]]` の形式。target は `fuzz/Cargo.toml` の `[[bin]]` で、`fuzz/fuzz_targets/<名前>.rs`
-//! に置き、テストキットの fuzz の関数（`survives`・`survives_lift`・`survives_with`・`survives_calls`）を呼ぶ。境界を
+//! に置き、テストキットの fuzz の関数（`survives`・`survives_lift`・`survives_with`・`survives_calls`）を呼ぶ。API を
 //! 通す target も、例外にせず、`survives_calls` を呼ぶことで同じ検査を通す（決定 0262）。
 //!
 //! `cargo xtask fuzz-seeds` は、公開サンプル、適合テストの組の合成の入力と要求、L0 の攻撃の形（ZIP 爆弾・膨らむ
