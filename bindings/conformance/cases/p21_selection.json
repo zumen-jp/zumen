@@ -1,5 +1,5 @@
 {
-  "description": "P21 の同番号の後続実体・余分な用紙・ほかのレイヤへの所属を、それぞれのレコードで診断する。既存の用紙・形・レイヤ・ID を保ち、診断の直前に Work の予算で止まることと、ネイティブと wasm の応答を確かめる（#550）",
+  "description": "P21 の同番号の後続実体・余分な用紙・ほかのレイヤへの所属を診断する。図面・ID を保ち、参照切れや図形の変換時の診断と合わせた入力順、場所の上限 0 件・1 件と Work の停止をネイティブと wasm で確かめる（#550）",
   "steps": [
     {
       "push": {
@@ -56,7 +56,7 @@
         "op": "drawing",
         "doc": "selection.p21",
         "budget": {
-          "work": 30
+          "work": 35
         }
       },
       "status": "failed",
@@ -86,8 +86,8 @@
               }
             ],
             "params": {
-              "limit": 30,
-              "requested": 31
+              "limit": 35,
+              "requested": 36
             }
           }
         ]
@@ -102,7 +102,7 @@
         "op": "drawing",
         "doc": "selection.p21",
         "budget": {
-          "work": 31
+          "work": 41
         }
       },
       "status": "failed",
@@ -146,8 +146,8 @@
               }
             ],
             "params": {
-              "limit": 31,
-              "requested": 32
+              "limit": 41,
+              "requested": 42
             }
           }
         ]
@@ -209,6 +209,432 @@
                 "record": 15
               }
             ],
+            "params": {
+              "id": 80
+            }
+          }
+        ],
+        "/result/total": 1,
+        "/result/items/0/id": "sheet/0/i5",
+        "/result/items/0/source/instance": "5",
+        "/result/items/0/source/record": 10,
+        "/result/items/0/layer": "L",
+        "/result/items/0/geometry/points": [
+          [
+            1,
+            2
+          ],
+          [
+            4,
+            6
+          ]
+        ]
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "drawing",
+        "doc": "selection.p21",
+        "budget": {
+          "work": 18
+        }
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics": [
+          {
+            "code": "budget.work.exceeded",
+            "severity": "error",
+            "count": 1,
+            "at": [
+              {
+                "record": 13
+              }
+            ],
+            "params": {
+              "limit": 18,
+              "requested": 19
+            }
+          }
+        ]
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "push": {
+        "name": "order.p21",
+        "text": "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('SCADEC level2 AP202_mode'),'2;1');\nFILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));\nENDSEC;\nDATA;\n#1=PRESENTATION_STYLE_ASSIGNMENT(());\n#2=CARTESIAN_POINT(' ',(1.,2.));\n#3=CARTESIAN_POINT(' ',(4.,6.));\n#4=POLYLINE(' ',(#2,#3));\n#5=ANNOTATION_CURVE_OCCURRENCE(' ',(#1),#4);\n#110=ANNOTATION_CURVE_OCCURRENCE(' ',(#1),#999);\n#50=PRESENTATION_LAYER_ASSIGNMENT('OTHER50',' ',(#5,#110));\n#90=DRAWING_SHEET_REVISION('A4_vertical',(),$,'02');\n#101=ANNOTATION_CURVE_OCCURRENCE(' ',(#1),#998);\n#2=CARTESIAN_POINT(' ',(20.,30.));\n#40=PRESENTATION_LAYER_ASSIGNMENT('OTHER40',' ',(#5,#110));\n#80=DRAWING_SHEET_REVISION('A2_vertical',(),$,'03');\n#20=PRESENTATION_LAYER_ASSIGNMENT('L',' ',(#5,#110,#101));\n#70=DRAWING_SHEET_REVISION('A3_horizontal',(#101,#110,#5),$,'01');\nENDSEC;\nEND-ISO-10303-21;\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "order.p21"
+      },
+      "expect": {
+        "/result/doc": "order.p21",
+        "/diagnostics": []
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "order.p21",
+        "max_places": 16,
+        "fields": [
+          "id",
+          "kind",
+          "source",
+          "geometry",
+          "layer"
+        ]
+      },
+      "expect": {
+        "/diagnostics": [
+          {
+            "code": "sxf.p21-reference.missing",
+            "severity": "warning",
+            "count": 2,
+            "at": [
+              {
+                "record": 11
+              },
+              {
+                "record": 14
+              }
+            ],
+            "params": {
+              "id": 999
+            }
+          },
+          {
+            "code": "sxf.lift.dropped",
+            "severity": "warning",
+            "fidelity": "dropped",
+            "count": 2,
+            "at": [
+              {
+                "record": 11
+              },
+              {
+                "record": 14
+              }
+            ],
+            "params": {
+              "kind": "annotation_curve_occurrence"
+            }
+          },
+          {
+            "code": "sxf.p21-layer-member.dropped",
+            "severity": "warning",
+            "fidelity": "dropped",
+            "count": 2,
+            "at": [
+              {
+                "record": 12
+              },
+              {
+                "record": 16
+              }
+            ],
+            "params": {
+              "id": 5
+            }
+          },
+          {
+            "code": "sxf.p21-layer-member.dropped",
+            "severity": "warning",
+            "fidelity": "dropped",
+            "count": 2,
+            "at": [
+              {
+                "record": 12
+              },
+              {
+                "record": 16
+              }
+            ],
+            "params": {
+              "id": 110
+            }
+          },
+          {
+            "code": "sxf.p21-sheet.dropped",
+            "severity": "warning",
+            "fidelity": "dropped",
+            "count": 1,
+            "at": [
+              {
+                "record": 13
+              }
+            ],
+            "params": {
+              "id": 90
+            }
+          },
+          {
+            "code": "sxf.p21-instance.dropped",
+            "severity": "warning",
+            "fidelity": "dropped",
+            "count": 1,
+            "at": [
+              {
+                "record": 15
+              }
+            ],
+            "params": {
+              "id": 2
+            }
+          },
+          {
+            "code": "sxf.p21-sheet.dropped",
+            "severity": "warning",
+            "fidelity": "dropped",
+            "count": 1,
+            "at": [
+              {
+                "record": 17
+              }
+            ],
+            "params": {
+              "id": 80
+            }
+          }
+        ],
+        "/result/total": 1,
+        "/result/items/0/id": "sheet/0/i5",
+        "/result/items/0/source/instance": "5",
+        "/result/items/0/source/record": 10,
+        "/result/items/0/layer": "L",
+        "/result/items/0/geometry/points": [
+          [
+            1,
+            2
+          ],
+          [
+            4,
+            6
+          ]
+        ]
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "order.p21",
+        "max_places": 1,
+        "fields": [
+          "id",
+          "kind",
+          "source",
+          "geometry",
+          "layer"
+        ]
+      },
+      "expect": {
+        "/diagnostics": [
+          {
+            "code": "sxf.p21-reference.missing",
+            "severity": "warning",
+            "count": 2,
+            "at": [
+              {
+                "record": 11
+              }
+            ],
+            "params": {
+              "id": 999
+            }
+          },
+          {
+            "code": "sxf.lift.dropped",
+            "severity": "warning",
+            "fidelity": "dropped",
+            "count": 2,
+            "at": [
+              {
+                "record": 11
+              }
+            ],
+            "params": {
+              "kind": "annotation_curve_occurrence"
+            }
+          },
+          {
+            "code": "sxf.p21-layer-member.dropped",
+            "severity": "warning",
+            "fidelity": "dropped",
+            "count": 2,
+            "at": [
+              {
+                "record": 12
+              }
+            ],
+            "params": {
+              "id": 5
+            }
+          },
+          {
+            "code": "sxf.p21-layer-member.dropped",
+            "severity": "warning",
+            "fidelity": "dropped",
+            "count": 2,
+            "at": [
+              {
+                "record": 12
+              }
+            ],
+            "params": {
+              "id": 110
+            }
+          },
+          {
+            "code": "sxf.p21-sheet.dropped",
+            "severity": "warning",
+            "fidelity": "dropped",
+            "count": 1,
+            "at": [
+              {
+                "record": 13
+              }
+            ],
+            "params": {
+              "id": 90
+            }
+          },
+          {
+            "code": "sxf.p21-instance.dropped",
+            "severity": "warning",
+            "fidelity": "dropped",
+            "count": 1,
+            "at": [
+              {
+                "record": 15
+              }
+            ],
+            "params": {
+              "id": 2
+            }
+          },
+          {
+            "code": "sxf.p21-sheet.dropped",
+            "severity": "warning",
+            "fidelity": "dropped",
+            "count": 1,
+            "at": [
+              {
+                "record": 17
+              }
+            ],
+            "params": {
+              "id": 80
+            }
+          }
+        ],
+        "/result/total": 1,
+        "/result/items/0/id": "sheet/0/i5",
+        "/result/items/0/source/instance": "5",
+        "/result/items/0/source/record": 10,
+        "/result/items/0/layer": "L",
+        "/result/items/0/geometry/points": [
+          [
+            1,
+            2
+          ],
+          [
+            4,
+            6
+          ]
+        ]
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "order.p21",
+        "max_places": 0,
+        "fields": [
+          "id",
+          "kind",
+          "source",
+          "geometry",
+          "layer"
+        ]
+      },
+      "expect": {
+        "/diagnostics": [
+          {
+            "code": "sxf.p21-reference.missing",
+            "severity": "warning",
+            "count": 2,
+            "at": [],
+            "params": {
+              "id": 999
+            }
+          },
+          {
+            "code": "sxf.lift.dropped",
+            "severity": "warning",
+            "fidelity": "dropped",
+            "count": 2,
+            "at": [],
+            "params": {
+              "kind": "annotation_curve_occurrence"
+            }
+          },
+          {
+            "code": "sxf.p21-layer-member.dropped",
+            "severity": "warning",
+            "fidelity": "dropped",
+            "count": 2,
+            "at": [],
+            "params": {
+              "id": 5
+            }
+          },
+          {
+            "code": "sxf.p21-layer-member.dropped",
+            "severity": "warning",
+            "fidelity": "dropped",
+            "count": 2,
+            "at": [],
+            "params": {
+              "id": 110
+            }
+          },
+          {
+            "code": "sxf.p21-sheet.dropped",
+            "severity": "warning",
+            "fidelity": "dropped",
+            "count": 1,
+            "at": [],
+            "params": {
+              "id": 90
+            }
+          },
+          {
+            "code": "sxf.p21-instance.dropped",
+            "severity": "warning",
+            "fidelity": "dropped",
+            "count": 1,
+            "at": [],
+            "params": {
+              "id": 2
+            }
+          },
+          {
+            "code": "sxf.p21-sheet.dropped",
+            "severity": "warning",
+            "fidelity": "dropped",
+            "count": 1,
+            "at": [],
             "params": {
               "id": 80
             }

@@ -40,8 +40,18 @@ fn run(
     limit: Limit,
     cancelled: bool,
 ) -> (Result<Drawing2D, Error>, u64, Vec<Diagnostic>) {
+    run_with_places(file, limit, cancelled, Diagnostics::DEFAULT_MAX_PLACES)
+}
+
+#[cfg(test)]
+fn run_with_places(
+    file: &SxfFile,
+    limit: Limit,
+    cancelled: bool,
+    max_places: usize,
+) -> (Result<Drawing2D, Error>, u64, Vec<Diagnostic>) {
     let mut budget = Budget::new(Limits::default().with(Kind::Work, limit));
-    let mut diagnostics = Diagnostics::new();
+    let mut diagnostics = Diagnostics::with_max_places(max_places);
     let cancel = CancelToken::new();
     if cancelled {
         cancel.cancel();
@@ -128,8 +138,8 @@ fn the_smallest_sheet_number_wins_in_either_file_order() {
         );
         assert_eq!(ids(&drawing), ["sheet/0/i5"]);
         assert_eq!(diagnostics.len(), 2, "{diagnostics:?}");
-        // 診断は番号の順。場所は元のファイルのレコードを指す。
-        for (dropped, id) in diagnostics.iter().zip([80, 90]) {
+        // 採用は番号の順、診断は入力順。場所は元のファイルのレコードを指す。
+        for (dropped, id) in diagnostics.iter().zip([90, 80]) {
             assert_eq!(dropped.code(), codes::SXF_P21_SHEET_DROPPED);
             assert_eq!(dropped.param("id"), Some(&Value::UInt(id)));
             assert_eq!(dropped.count(), 1);
@@ -158,10 +168,10 @@ fn an_empty_first_sheet_is_not_replaced_by_a_later_sheet() {
 #[test]
 fn the_smallest_non_dummy_layer_wins_and_only_other_layers_are_reported() {
     let layers = concat!(
+        "#40=PRESENTATION_LAYER_ASSIGNMENT('FIRST',' ',(#5));\n",
         "#30=PRESENTATION_LAYER_ASSIGNMENT('LATER',' ',(#5,#5));\n",
         "#20=PRESENTATION_LAYER_ASSIGNMENT('FIRST',' ',(#5,#5));\n",
         "#10=PRESENTATION_LAYER_ASSIGNMENT('$$SXF_dummy',' ',(#5));\n",
-        "#40=PRESENTATION_LAYER_ASSIGNMENT('FIRST',' ',(#5));\n",
     );
     let src = p21(&format!("{GEOMETRY}{layers}{SHEET}"));
     let file = read(&src);
@@ -184,12 +194,111 @@ fn the_smallest_non_dummy_layer_wins_and_only_other_layers_are_reported() {
     assert_eq!(
         dropped.places(),
         [
+            places(&file, 40)[0].clone(),
             places(&file, 30)[0].clone(),
             places(&file, 30)[0].clone(),
-            places(&file, 40)[0].clone()
         ]
     );
+    for max_places in [0, 1] {
+        let limited = run_with_places(&file, Limit::Unlimited, false, max_places);
+        assert_eq!(limited.0.unwrap(), drawing);
+        assert_eq!(limited.2[0].count(), 3);
+        assert_eq!(limited.2[0].places(), &places(&file, 40)[..max_places]);
+    }
     assert_eq!(testkit::write::<Sxf>(&file).unwrap(), src);
+}
+
+#[test]
+fn selection_reference_and_lifter_diagnostics_share_input_order_and_first_places() {
+    let src = p21(&format!(
+        "{GEOMETRY}{}",
+        concat!(
+            "#110=ANNOTATION_CURVE_OCCURRENCE(' ',(#1),#999);\n",
+            "#50=PRESENTATION_LAYER_ASSIGNMENT('OTHER50',' ',(#5,#110));\n",
+            "#90=DRAWING_SHEET_REVISION('A4_vertical',(),$,'02');\n",
+            "#101=ANNOTATION_CURVE_OCCURRENCE(' ',(#1),#998);\n",
+            "#2=CARTESIAN_POINT(' ',(20.,30.));\n",
+            "#40=PRESENTATION_LAYER_ASSIGNMENT('OTHER40',' ',(#5,#110));\n",
+            "#80=DRAWING_SHEET_REVISION('A2_vertical',(),$,'03');\n",
+            "#20=PRESENTATION_LAYER_ASSIGNMENT('L',' ',(#5,#110,#101));\n",
+            // 用紙内の並びも入力順と逆にして、Lifter の集約場所を確かめる。
+            "#70=DRAWING_SHEET_REVISION('A3_horizontal',(#101,#110,#5),$,'01');\n",
+        )
+    ));
+    let file = read(&src);
+    let (drawing, _, full) = run(&file, Limit::Unlimited, false);
+    let drawing = drawing.unwrap();
+    assert_eq!(ids(&drawing), ["sheet/0/i5"]);
+    assert_eq!(
+        full.iter()
+            .map(|d| (d.code(), d.places()[0].record().unwrap()))
+            .collect::<Vec<_>>(),
+        [
+            (codes::SXF_P21_REFERENCE_MISSING, 11),
+            (codes::SXF_LIFT_DROPPED, 11),
+            (codes::SXF_P21_LAYER_MEMBER_DROPPED, 12),
+            (codes::SXF_P21_LAYER_MEMBER_DROPPED, 12),
+            (codes::SXF_P21_SHEET_DROPPED, 13),
+            (codes::SXF_P21_INSTANCE_DROPPED, 15),
+            (codes::SXF_P21_SHEET_DROPPED, 17),
+        ],
+        "{full:?}",
+    );
+    assert_eq!(full[0].count(), 2);
+    assert_eq!(full[0].param("id"), Some(&Value::UInt(999)));
+    assert_eq!(full[0].places(), [Ref::at_record(11), Ref::at_record(14)]);
+    assert_eq!(full[1].count(), 2);
+    assert_eq!(
+        full[1].places(),
+        [places(&file, 110)[0].clone(), places(&file, 101)[0].clone()]
+    );
+    assert_eq!(full[2].param("id"), Some(&Value::UInt(5)));
+    assert_eq!(full[3].param("id"), Some(&Value::UInt(110)));
+    for dropped in &full[2..4] {
+        assert_eq!(dropped.count(), 2);
+        assert_eq!(
+            dropped.places(),
+            [places(&file, 50)[0].clone(), places(&file, 40)[0].clone()]
+        );
+    }
+    for max_places in [0, 1] {
+        let (limited, _, diagnostics) = run_with_places(&file, Limit::Unlimited, false, max_places);
+        assert_eq!(limited.unwrap(), drawing);
+        assert_eq!(diagnostics.len(), full.len());
+        for (limited, original) in diagnostics.iter().zip(&full) {
+            assert_eq!(limited.code(), original.code());
+            assert_eq!(limited.params(), original.params());
+            assert_eq!(limited.count(), original.count());
+            assert_eq!(limited.places(), &original.places()[..max_places]);
+        }
+    }
+    assert_eq!(testkit::write::<Sxf>(&file).unwrap(), src);
+}
+
+#[test]
+fn sfc_keeps_its_diagnostic_order_and_work_cost() {
+    let src = String::from_utf8(p21(concat!(
+        "/*SXF3\n#10=future_feature()\nSXF3*/\n",
+        "/*SXF3\n#20=layer_feature()\nSXF3*/\n",
+        "/*SXF3\n#30=drawing_sheet_feature(\\'S\\','3','1','0','0')\nSXF3*/\n",
+    )))
+    .unwrap()
+    .replace("AP202_mode", "feature_mode");
+    let file = read(src.as_bytes());
+    for max_places in [0, 1] {
+        let (drawing, used, diagnostics) =
+            run_with_places(&file, Limit::Finite(4), false, max_places);
+        assert!(drawing.is_ok());
+        assert_eq!(used, 4);
+        assert_eq!(
+            diagnostics.iter().map(Diagnostic::code).collect::<Vec<_>>(),
+            [codes::SXF_LIFT_INVALID, codes::SXF_LIFT_DROPPED]
+        );
+        for (d, id) in diagnostics.iter().zip([20, 10]) {
+            assert_eq!(d.count(), 1);
+            assert_eq!(d.places(), &places(&file, id)[..max_places]);
+        }
+    }
 }
 
 #[test]
@@ -221,12 +330,12 @@ fn ignored_instances_sheets_and_layer_members_obey_work_and_cancellation() {
             codes::SXF_P21_INSTANCE_DROPPED,
         ),
         (
-            before_tables + 3,
+            before_tables + 3 + 5,
             places(&file, 30)[0].clone(),
             codes::SXF_P21_LAYER_MEMBER_DROPPED,
         ),
         (
-            before_tables + 4,
+            before_tables + 4 + 10,
             places(&file, 80)[0].clone(),
             codes::SXF_P21_SHEET_DROPPED,
         ),
@@ -244,8 +353,21 @@ fn ignored_instances_sheets_and_layer_members_obey_work_and_cancellation() {
         assert_eq!(stopped.places(), [place]);
         assert!(result.2.iter().all(|d| d.code() != code));
         assert_eq!(result, run(&file, Limit::Finite(limit), false));
+        // 元の処理 1 回を通っても、収集・整列・転送の 5 Work に足りなければ診断を保持しない。
+        let collecting = run(&file, Limit::Finite(limit + 1 + 4), false);
+        assert!(matches!(collecting.0, Err(Error::Stopped(_))));
+        assert!(collecting.2.iter().all(|d| d.code() != code));
+        assert_eq!(
+            collecting
+                .2
+                .iter()
+                .find(|d| d.code() == codes::BUDGET_WORK_EXCEEDED)
+                .unwrap()
+                .places(),
+            stopped.places()
+        );
         assert!(
-            run(&file, Limit::Finite(limit + 1), false)
+            run(&file, Limit::Finite(limit + 1 + 5), false)
                 .2
                 .iter()
                 .any(|d| d.code() == code)

@@ -100,6 +100,17 @@ impl SxfFile {
         attributes: Option<&AttributeFile>,
         cx: &mut Cx,
     ) -> Result<Drawing2D, Error> {
+        if self.mode() == Mode::P21 {
+            return cx.with_diagnostics_in_record_order(|cx| self.lift_records(attributes, cx));
+        }
+        self.lift_records(attributes, cx)
+    }
+
+    fn lift_records(
+        &self,
+        attributes: Option<&AttributeFile>,
+        cx: &mut Cx,
+    ) -> Result<Drawing2D, Error> {
         let records = match self.mode() {
             Mode::Sfc => sfc_records(self),
             Mode::P21 => p21::records(self, cx)?,
