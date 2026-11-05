@@ -1,7 +1,7 @@
 name: fuzz
 
 # 登録したすべての形式と L0 の fuzz の target を流す（#501、決定 0010・0017・0258）。毎晩は target ごとに長く流し、
-# 育てた種を次の夜に引き継ぐ。crate・種の元・fuzz の target・この workflow を変えた PR では、短く流して確かめる。
+# 育てた種を次の夜に引き継ぐ。crate・種の元・fuzz の target・このワークフローを変えた PR では、短く流して確かめる。
 # target の一覧と動かし方は fuzz/README.md。
 
 on:

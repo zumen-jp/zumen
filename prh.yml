@@ -142,6 +142,32 @@ rules:
         to: 埋め込んだモジュールを配る
       - from: モジュール（module map）
         to: モジュール（module map）
+  - expected: コミット
+    pattern: /(?<![A-Za-z0-9_.:/-]) ?commit ?(?=[ぁ-んァ-ヶー一-龠々、。・）」])/
+    prh: 和文の中では「コミット」と書きます（コマンドや識別子はコードとして書く）
+    specs:
+      - from: 確かめた commit と、その commit の差分
+        to: 確かめたコミットと、そのコミットの差分
+      - from: commit を記録する
+        to: コミットを記録する
+      - from: git commit --amend
+        to: git commit --amend
+      - from: Transaction::commit の結果
+        to: Transaction::commit の結果
+      - from: pre-commit の設定
+        to: pre-commit の設定
+  - expected: ワークフロー
+    pattern: /(?<![A-Za-z0-9_.:/-]) ?workflow ?(?=[ぁ-んァ-ヶー一-龠々、。・）」])/
+    prh: GitHub Actions の和文では「ワークフロー」と書きます（コマンドや識別子はコードとして書く）
+    specs:
+      - from: workflow の変更と、毎晩の workflow を確かめる
+        to: ワークフローの変更と、毎晩のワークフローを確かめる
+      - from: workflow_run と github.workflow の値
+        to: workflow_run と github.workflow の値
+      - from: gh workflow run fuzz.yml
+        to: gh workflow run fuzz.yml
+      - from: --workflow の引数と workflow.yml のファイル
+        to: --workflow の引数と workflow.yml のファイル
   - expected: crate
     pattern: クレート
   - expected: issue

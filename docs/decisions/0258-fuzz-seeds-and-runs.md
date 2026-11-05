@@ -24,8 +24,8 @@
 ### PR で流す条件
 
 1. どの PR でも流す。
-2. crate・種の元・fuzz の target・fuzz の workflow を変えた PR で流す。
-3. fuzz の target と workflow を変えた PR でだけ流す。
+2. crate・種の元・fuzz の target・fuzz のワークフローを変えた PR で流す。
+3. fuzz の target とワークフローを変えた PR でだけ流す。
 
 ### 見つけた入力を外に出すとき
 
