@@ -3,7 +3,7 @@
 zumen が対象にするプラットフォーム・言語の実行環境・ホストアプリと、その下限です。
 
 - 対象のプラットフォームと確かめ方は [決定 0014](decisions/0014-platforms-signing-and-distribution.md)、下限の決め方と上げ方は [決定 0015](decisions/0015-add-only-boundary-and-version-floors.md) にあります。この表は、その規則で直します。
-- 最初のバージョンです（2026-10-24 に確かめた事情による）。まだ成果物がないので、「確かめ方」は予定です。
+- 下限の表の初版は、2026-10-24 に確かめた事情によります。ブラウザーは、下の節に更新時の根拠と検査の範囲を書いています。
 
 ## プラットフォーム
 
@@ -30,7 +30,7 @@ zumen が対象にするプラットフォーム・言語の実行環境・ホ�
 | Tier | 言語 | 下限 | 理由 | 確かめ方 |
 | --- | --- | --- | --- | --- |
 | 1 | Rust | 1.99（crate の `rust-version`） | 固定したツールチェーン | PR ごと |
-| 1 | TS・JS（ブラウザー） | Chrome・Edge 96、Firefox 79、Safari 15 | Rust の wasm32 が既定で使う wasm の機能（multivalue・mutable-globals・reference-types・sign-ext・bulk-memory・nontrapping-fptoint） | PR ごと（Chromium）、毎晩（Firefox・WebKit） |
+| 1 | TS・JS（ブラウザー） | Chrome・Edge 96、Firefox 91、Safari 15.1 | wasm の機能と、ラッパーの構文・API の両方（下の根拠） | PR ごと（Chromium）、毎晩（Firefox・WebKit）。下限の実機は未確認 |
 | 1 | Node.js | 22 | 20 のサポートは 2026-04-30 に終わった | PR ごと。Next.js（Turbopack・webpack）で組んで使うテストは毎晩（[決定 0259](decisions/0259-javascript-on-node-servers.md)） |
 | 1 | Python | 3.9 | Rhino 8 と Dynamo 3.x の CPython3（どちらも 3.9） | PR ごと（3.9 と最新） |
 | 1 | .NET | .NET Framework 4.8、.NET 8 以降 | Revit・AutoCAD 2024 は .NET Framework 4.8。netstandard2.0 の 1 つのアセンブリで両方に出す | PR ごと（.NET Framework 4.8 と .NET 10） |
@@ -41,6 +41,42 @@ zumen が対象にするプラットフォーム・言語の実行環境・ホ�
 | 2 | Go | Go がサポートする 2 つのメジャーバージョン（今は 1.26・1.27） | Go のサポートの方針。wazero も同じ方針 | 毎晩 |
 | 2 | Dart | Dart 3（Flutter 3） | | 毎晩 |
 | 2 | VBA | VBA7（Office 2010 以降）、32 bit・64 bit | `Declare PtrSafe` が使えるバージョン。確かめるのは、サポートのある Microsoft 365 と Office LTSC 2024 | Windows の実機（`verify`） |
+
+## ブラウザーの下限の根拠
+
+2026-11-06 に、ブラウザーの入口の `bindings/js/src/index.js` と、その入口が読む `modules.js`・`scene.js`・生成した `constants.js` を確認しました。下表は、[MDN Browser Compatibility Data の固定したコミット](https://github.com/mdn/browser-compat-data/tree/188707c73f5a93701429eadcdaf35d6e31715c67)で、その構文・API を使える最初のバージョンを調べたものです。Node.js 専用の `node.js` と型の宣言は含めません。
+
+| ラッパーが使う機能 | Chrome | Edge | Firefox | Safari |
+| --- | --- | --- | --- | --- |
+| [ESM の import・export](https://github.com/mdn/browser-compat-data/blob/188707c73f5a93701429eadcdaf35d6e31715c67/javascript/statements.json) | 61 | 16 | 60 | 10.1 |
+| [async・await](https://github.com/mdn/browser-compat-data/blob/188707c73f5a93701429eadcdaf35d6e31715c67/javascript/statements.json) | 55 | 15 | 52 | 10.1 |
+| [オブジェクトのスプレッド](https://github.com/mdn/browser-compat-data/blob/188707c73f5a93701429eadcdaf35d6e31715c67/javascript/operators/spread.json) | 60 | 79 | 55 | 11.1 |
+| [optional chaining（`?.`）](https://github.com/mdn/browser-compat-data/blob/188707c73f5a93701429eadcdaf35d6e31715c67/javascript/operators/optional_chaining.json) | 80 | 80 | 74 | 13.1 |
+| [nullish coalescing（`??`）](https://github.com/mdn/browser-compat-data/blob/188707c73f5a93701429eadcdaf35d6e31715c67/javascript/operators/nullish_coalescing.json) | 80 | 80 | 72 | 13.1 |
+| [private のフィールド](https://github.com/mdn/browser-compat-data/blob/188707c73f5a93701429eadcdaf35d6e31715c67/javascript/classes.json) | 74 | 79 | 90 | 14.1 |
+| [private のメソッド](https://github.com/mdn/browser-compat-data/blob/188707c73f5a93701429eadcdaf35d6e31715c67/javascript/classes.json) | 84 | 84 | 90 | 15 |
+| [`Error` の第 2 引数の `cause`](https://github.com/mdn/browser-compat-data/blob/188707c73f5a93701429eadcdaf35d6e31715c67/javascript/builtins/Error.json) | 93 | 93 | 91 | 15 |
+| [`Object.entries`](https://github.com/mdn/browser-compat-data/blob/188707c73f5a93701429eadcdaf35d6e31715c67/javascript/builtins/Object.json) | 54 | 14 | 47 | 10.1 |
+| [`TextEncoder`](https://github.com/mdn/browser-compat-data/blob/188707c73f5a93701429eadcdaf35d6e31715c67/api/TextEncoder.json) | 38 | 79 | 18 | 10.1 |
+| [`TextDecoder`](https://github.com/mdn/browser-compat-data/blob/188707c73f5a93701429eadcdaf35d6e31715c67/api/TextDecoder.json) | 38 | 79 | 19 | 10.1 |
+| [`Response.arrayBuffer`](https://github.com/mdn/browser-compat-data/blob/188707c73f5a93701429eadcdaf35d6e31715c67/api/Response.json) | 42 | 14 | 39 | 10.1 |
+| [WebAssembly の API](https://github.com/mdn/browser-compat-data/blob/188707c73f5a93701429eadcdaf35d6e31715c67/webassembly/api.json)（compile・instantiate・Module・Instance・Memory） | 57 | 16 | 52 | 11 |
+
+- private のメソッドは、`loadModules` を呼ばなくても import のときに読みます。Firefox 79 は、その時点で構文エラーになります。Firefox 90 でも、`ZumenError` が元の例外を `cause` に保つ契約を満たせません。
+- class・分割代入・テンプレート文字列・アロー関数・rest・配列のスプレッド・for-of と、Array・TypedArray・ArrayBuffer・DataView・Map・Promise・Symbol・Object・JSON・Math の使用箇所も確認しました。これらは上の下限を上げません。`Symbol.dispose` は存在するときだけ使い、`using` の構文は使いません。
+- Edge の 79 は、Chromium を使う Edge の最初のバージョンです。BCD の `mirror` を、その開始バージョンも含めて読みました。
+
+Rust の [`wasm32-unknown-unknown` が既定で使う機能](https://doc.rust-lang.org/stable/rustc/platform-support/wasm32-unknown-unknown.html)は、multivalue・mutable-globals・reference-types・sign-ext・bulk-memory・nontrapping-fptoint です。配布用の `.cargo/config.toml` では、これらを無効にしていません。うち、下限を左右する機能は次のとおりです。
+
+| wasm の機能 | Chrome | Edge | Firefox | Safari |
+| --- | --- | --- | --- | --- |
+| [reference-types](https://github.com/mdn/browser-compat-data/blob/188707c73f5a93701429eadcdaf35d6e31715c67/webassembly/reference-types.json) | 96 | 96 | 79 | 15.1 |
+| [bulk-memory](https://github.com/mdn/browser-compat-data/blob/188707c73f5a93701429eadcdaf35d6e31715c67/webassembly/bulk-memory-operations.json) | 75 | 79 | 79 | 15.1 |
+| [nontrapping-fptoint](https://github.com/mdn/browser-compat-data/blob/188707c73f5a93701429eadcdaf35d6e31715c67/webassembly/non-trapping-float-to-int-conversions.json) | 75 | 18 | 64 | 15.1 |
+
+両方の高いほうから、Chrome・Edge 96、Firefox 91、Safari 15.1 としています。これは互換性の資料から求めた下限で、下限の製品そのもので動かした結果ではありません。[決定 0199](decisions/0199-browser-conformance-with-playwright.md)に従い、CI では固定した Playwright が用意する Chromium・Firefox・WebKit で適合テストを流します。
+
+利用側のコードには、別の要件が加わることがあります。たとえば、[転送の測定ページ](../bench/transfer/browser.html)が使う [module Worker](https://github.com/mdn/browser-compat-data/blob/188707c73f5a93701429eadcdaf35d6e31715c67/api/Worker.json)は Firefox 114 以降です。ラッパー自身は Worker を作りません。`bindings/js/examples/worker` は Node.js の `worker_threads` の例です。
 
 ## ホストアプリ
 

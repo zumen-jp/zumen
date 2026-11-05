@@ -10,7 +10,7 @@ const os = [
   ['Linux', 'glibc 2.28（x64・arm64）。それより古いものは musl の静的な CLI'],
   ['iOS・iPadOS', 'iOS 15'],
   ['Android', 'Android 7.0（API 24）'],
-  ['ブラウザー', 'Chrome・Edge 96、Firefox 79、Safari 15'],
+  ['ブラウザー', 'Chrome・Edge 96、Firefox 91、Safari 15.1'],
   ['Node.js', '22'],
   ['Python', '3.9（Rhino 8・Dynamo 3.x に合わせる）'],
   ['.NET', '.NET Framework 4.8、.NET 8 以降（Revit・AutoCAD 2024 に合わせる）'],
@@ -62,7 +62,7 @@ const packages = [
           <tbody>{os.map(([k, v]) => <tr><th scope="row">{k}</th><td>{v}</td></tr>)}</tbody>
         </table>
       </div>
-      <p class="note">詳しい下限と確かめ方は<a href={`${repo}/blob/main/docs/support.md`}>対応する環境</a>にあります。</p>
+      <p class="note">ブラウザーの下限は wasm と JavaScript の互換性の資料に基づきます。下限の実機は未確認です。根拠と CI での確かめ方は<a href={`${repo}/blob/main/docs/support.md`}>対応する環境</a>にあります。</p>
     </div>
   </section>
 
