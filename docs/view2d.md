@@ -20,7 +20,7 @@
 | `renderScene`・`renderPrimitives`。線・面・文字・点の描画 | `readScene` で読んだ列を Canvas 2D へ描きます。字形はコアの輪郭を使います | [#584](https://github.com/zumen-jp/zumen/issues/584) |
 | `fit`・`fitBounds`・`zoomBy`・`panBy`・`rotateBy` | 全体と指定範囲の表示、拡大・移動・回転を用意します | [#584](https://github.com/zumen-jp/zumen/issues/584) |
 | `getView`・`jumpTo`・`toScreen`・`toPaper` | 表示範囲を保存・復元し、画面とシーンの起点の座標を変換します。空間の座標を用紙の mm とみなしません | [#584](https://github.com/zumen-jp/zumen/issues/584) |
-| `setScene`・`destroy`、サイズと画素比への追従 | 利用側の Canvas を使い、シーンを差し替え、作った資源を破棄します | [#584](https://github.com/zumen-jp/zumen/issues/584) |
+| `setScene`・`destroy`、サイズと画素比への追従 | 利用側の Canvas を使い、シーン・`SceneResult`・文書の識別情報を一緒に差し替え、作った資源を破棄します | [#584](https://github.com/zumen-jp/zumen/issues/584) |
 | 背景、線幅、前景色、選択色、名前付き強調色 | 表示設定を引数で受け取ります。CSS とテーマの管理は利用側に置きます | [#584](https://github.com/zumen-jp/zumen/issues/584)・[#585](https://github.com/zumen-jp/zumen/issues/585) |
 | `setLayersVisible`・`setHiddenLayers` | シーンの実効のレイヤ ID で表示を切り替えます | [#585](https://github.com/zumen-jp/zumen/issues/585) |
 | `select`・`setHovered`・`setHighlight` | L2 の ID と配置の道筋で、選択・hover・名前付き強調を管理します | [#585](https://github.com/zumen-jp/zumen/issues/585) |
@@ -34,7 +34,7 @@
 | `useDrawingViewer`・`useViewerState`・`useViewerEvent` | 表示部品と購読の作成・破棄を React のフックで管理します | [#588](https://github.com/zumen-jp/zumen/issues/588) |
 | `useDrawing` | 既存の wasm のラッパーを Worker で呼び、古い要求を中断し、診断とシーンを受け取ります | [#588](https://github.com/zumen-jp/zumen/issues/588) |
 | ファイル・用紙・レイヤ・要素の一覧を持つプレイグラウンド | 日本語の画面を `playground/` に置き、ファイルを利用側のブラウザーで開きます | [#588](https://github.com/zumen-jp/zumen/issues/588) |
-| `MarkupLayer`、赤入れ・変更雲・注記・写真位置・指摘のツール | 決定 0214・0218 のレビューの文書と、コアが作る形を使います | [#589](https://github.com/zumen-jp/zumen/issues/589) |
+| `MarkupLayer`、赤入れ・変更雲・注記・写真位置・指摘のツール | 決定 0214・0218 のレビューの文書を使います。未実装の図形の生成処理と API をコアに足し、そのシーンを描きます | [#589](https://github.com/zumen-jp/zumen/issues/589) |
 | 赤入れの選択・フィルター・変更イベント・取り消し・やり直し | レビュー文書の対象と場所を保ち、利用側へ変更を返します | [#589](https://github.com/zumen-jp/zumen/issues/589) |
 | `useMarkupLayer`・`useMarkupState`・`useMarkupEvent` と赤入れのプレイグラウンド | レビューの層と購読のフック、保存・再読込の画面を用意します | [#589](https://github.com/zumen-jp/zumen/issues/589) |
 
