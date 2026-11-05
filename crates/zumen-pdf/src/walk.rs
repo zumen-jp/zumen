@@ -308,6 +308,15 @@ struct Form {
     lenient: bool,
 }
 
+/// 資源の展開結果の長さと、解釈が再び展開する量（決定 0273）。予測子と失敗した試みで異なりうる。
+#[derive(Clone, Copy, Debug)]
+struct StreamSize {
+    /// 予測子を当てた後の実際の長さ。標本・メッシュ・手続きの形を確かめるために使う
+    len: u64,
+    /// 再び展開する手間と、予測子の前のバイト数。失敗した試みと寛容な展開の上限も含む
+    decode: Cost,
+}
+
 /// 資源の辞書の持ち主
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Owner {
@@ -1309,9 +1318,9 @@ pub(crate) struct Walker<'a, 'o> {
     /// フォームの展開の結果と、再び展開する量（ページごと）。キーは、それ自身の間接オブジェクトのストリームの番号
     /// （[`own_stream`]）
     forms: BTreeMap<(u32, i32), Form>,
-    /// ストリーム（ソフトマスクのグループ・シェーディング・関数・Indexed の表）の、展開したバイト数（ページごと）。
+    /// ストリーム（ソフトマスクのグループ・シェーディング・関数・Indexed の表）の長さと展開量（ページごと）。
     /// キーは、フォームと同じ
-    sizes: BTreeMap<(u32, i32), u64>,
+    sizes: BTreeMap<(u32, i32), StreamSize>,
     /// マーク付きの内容の入れ子の、見えるか。hayro-interpret の `OcgState` の重なりと同じく、ページの中で 1 つだけ持ち、
     /// フォームの中と外で分けない
     visible: Vec<bool>,
@@ -1908,7 +1917,7 @@ impl<'a, 'o> Walker<'a, 'o> {
             cost.ops = cost.ops.saturating_add(self.reread_dict(&mask));
             if let Some(group) = mask.get::<Stream<'_>>(b"G") {
                 cost.ops = cost.ops.saturating_add(self.reread_stream(&group));
-                cost.bytes = cost.bytes.saturating_add(self.size(&group, cx)?);
+                cost.add(self.size(&group, cx)?.decode);
                 let space = group
                     .dict()
                     .get::<Dict<'_>>(b"Group")
@@ -1978,12 +1987,12 @@ impl<'a, 'o> Walker<'a, 'o> {
         let mut cost = Cost::default();
         if let Some(stream) = stream {
             let size = self.size(stream, cx)?;
-            cost.bytes = cost.bytes.saturating_add(size);
+            cost.add(size.decode);
             let kind = dict.get::<u8>(b"ShadingType");
             if let Some(kind) = kind {
-                cost.add(mesh_cost(dict, kind, size));
+                cost.add(mesh_cost(dict, kind, size.len));
             }
-            if kind.is_some_and(|kind| (4..=7).contains(&kind)) && size >= BIT_DATA {
+            if kind.is_some_and(|kind| (4..=7).contains(&kind)) && size.len >= BIT_DATA {
                 let place = self.record(Some(stream.obj_id()));
                 self.refuse(place);
             }
@@ -2138,21 +2147,21 @@ impl<'a, 'o> Walker<'a, 'o> {
         let mut eval = 1u64;
         if let Some(stream) = stream {
             let size = self.size(stream, cx)?;
-            cost.bytes = size;
+            cost.add(size.decode);
             match dict.get::<u8>(b"FunctionType") {
                 Some(0) => {
-                    let (made, each) = self.sampled(dict, stream, size, cx)?;
+                    let (made, each) = self.sampled(dict, stream, size.len, cx)?;
                     cost.add(made);
                     eval = each;
                 }
                 // hayro-interpret は、作るたびに手続きを読んで演算子の配列にする。読む手間は、引いたオブジェクトと
                 // 同じく 4 バイトを 1 と数える
                 Some(4) => {
-                    cost.ops = cost.ops.saturating_add(size.div_ceil(LOOKUP_BYTES));
+                    cost.ops = cost.ops.saturating_add(size.len.div_ceil(LOOKUP_BYTES));
                     cost.bytes = cost
                         .bytes
-                        .saturating_add(size.saturating_mul(PROCEDURE_BYTES));
-                    eval = size.max(1);
+                        .saturating_add(size.len.saturating_mul(PROCEDURE_BYTES));
+                    eval = size.len.max(1);
                 }
                 _ => {}
             }
@@ -2279,7 +2288,7 @@ impl<'a, 'o> Walker<'a, 'o> {
                 }
                 let _high = items.next();
                 if let Some(Object::Stream(table)) = items.next() {
-                    cost.bytes = cost.bytes.saturating_add(self.size(&table, cx)?);
+                    cost.add(self.size(&table, cx)?.decode);
                 }
             }
             Some(b"Pattern") => {
@@ -2307,17 +2316,32 @@ impl<'a, 'o> Walker<'a, 'o> {
         Ok((cost, conversion))
     }
 
-    /// ストリームを展開したバイト数。それ自身の間接オブジェクトのストリームは、ページの中で 1 度だけ展開し、直接
+    /// ストリームの展開後の長さと展開量。それ自身の間接オブジェクトのストリームは、ページの中で 1 度だけ展開し、直接
     /// 書いたストリームは、使うたびに展開する。hayro-interpret と同じく、画像のフィルター（DCT など）は展開しない。
+    /// 単独 Flate は全出力の確保前に予算を確かめる。解釈が再び展開する量には、予測子前の量と失敗した試みも保つ。
     /// 手続きの入れ子が [`PROCEDURE_DEPTH`] 段より深い Type 4 の関数（7.10.5）は、ページを解釈しないことにする
-    fn size(&mut self, stream: &Stream<'_>, cx: &mut Cx<'_>) -> Result<u64, Stop> {
+    fn size(&mut self, stream: &Stream<'_>, cx: &mut Cx<'_>) -> Result<StreamSize, Stop> {
         let id = self.own(stream);
         if let Some(size) = id.and_then(|id| self.sizes.get(&id)) {
             return Ok(*size);
         }
+        let bytes_before = cx.budget.used(Kind::DecodedBytes);
+        let work_before = cx.budget.used(Kind::Work);
+        let counted = inflate::before(stream, cx)?;
+        let mut decode = Cost {
+            ops: cx.budget.used(Kind::Work).saturating_sub(work_before),
+            bytes: cx
+                .budget
+                .used(Kind::DecodedBytes)
+                .saturating_sub(bytes_before),
+        };
         let data = stream.decoded_data().ok();
-        let size = data.as_ref().map_or(0, |data| data.len() as u64);
-        cx.check(Kind::DecodedBytes, size)?;
+        let len = data.as_ref().map_or(0, |data| data.len() as u64);
+        if !counted {
+            cx.check(Kind::DecodedBytes, len)?;
+            decode.bytes = len;
+        }
+        let size = StreamSize { len, decode };
         let program = stream.dict().get::<u8>(b"FunctionType") == Some(4);
         if program && data.is_some_and(|data| !procedure_fits(&data)) {
             let place = self.record(stream.dict().obj_id());
