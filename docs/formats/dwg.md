@@ -183,6 +183,8 @@ R2010・R2013・R2018 は R2004 と同じコンテナーを使う（決定 0027�
 
 `DwgFile` の `Lift<Drawing2D>` は、DXF と同じく表から図面モデルを作る（[DXF の扱い](dxf.md)）。移す図形と診断は DXF と同じで、診断の符号も `dxf.lift.*` などを使う。DWG のリーダーがまだ読まない値を知らせる診断だけは、`dwg.` で始まる符号を使う（R2010 からの表の書式）。元の位置は、オブジェクトのバイトの範囲を指す。型付きのビュー（`Object::line`）も、DXF と同じものを使う。
 
+非有限値の検査も DXF と共通に行う。DWG の実数は、NaN と正負の無限大も L1 の表と元のバイト列に保持する。図面モデルに移すときに、用紙の範囲（PLIMMIN・PLIMMAX）と XDATA・XRECORD の実数・点を検査し、`dxf.lift.invalid` を返す。計算で非有限になった値も同じく診断する。拡張の異常値では、その名前の拡張だけを移さず、正常な図形とほかの拡張を残す。図形の診断にはバイトの範囲とハンドルを付け、ヘッダーの診断には変数名とグループ・コードを付ける。ヘッダーの変数の表は場所を持たないので、診断にも場所は付けない。用紙の原点と大きさの扱いは [DXF の扱い](dxf.md#図面モデルへの変換)に従う。
+
 画層は DXF と同じく表から移す（[決定 0105](../decisions/0105-drawing-layers-and-order.md)）。ビューポートで凍結した画層（341）と SORTENTSTABLE も表に置くので、ビューで表示しない画層と描く順も DXF と同じく移す。SORTENTSTABLE はセクションの 100 を持たないので、所有者（初めの 330）の後から読む。ただし、真の色を持つ画層は 62 を置かないので、非表示（DWG のフラグの 2）を移さない。DXF は非表示を近い色の番号の負の値で書くが、近さの決まりが分からない。図形の線の太さは、DXF と同じく ByLayer（-1）でなければ 370 に置き、DXF と同じく図面モデルへ移す（[決定 0106](../decisions/0106-drawing-color-line-type-weight.md)）。画層の線種は、名前ではなく LTYPE のレコードのハンドル（6）で引く。画層の透過性と説明も、DXF と同じく拡張データ（`AcCmTransparency`・`AcAecLayerStandard`）から移す（[決定 0157](../decisions/0157-drawing-model-fields-and-extensions.md)）。サンプルの DWG と DXF の組で、図形と画層の透過性と画層の説明が一致することを確かめた。
 
 寸法（DIMENSION）と弧長寸法（ARC_DIMENSION）も DXF と同じく移す（[決定 0107](../decisions/0107-drawing-dimensions-and-leaders.md)・[決定 0228](../decisions/0228-arc-length-dimensions.md)）。DWG の LEADER は鉤の線の点を持たないので、DXF から作った引出線より頂点が 1 つ少ない。
@@ -302,6 +304,7 @@ ZUMEN_SAMPLES=/path/to/samples cargo test -q -p zumen-acad --test samples
 段の意味は[決定 0254](../decisions/0254-parallel-agents-and-cross-review.md) に、根拠は[形式と権利の一覧](README.md#format-dwg)にあります。段は確かめた方法のうちもっとも強いものを示します。AutoCAD で確かめたのは、次の範囲だけです。ACadSharp とは、毎晩の CI で照らします。
 
 - 読み: AutoCAD 2027 で作った R2000・R2004・R2013・R2018 の DWG（`samples/dwg`）を、AutoCAD が同じ図面から書いた DXF と、テスト（`crates/zumen-acad/tests/samples.rs` など）で比べる。「実際の図面で確かめた扱い」には、`samples/` にない図面で確かめたものもある。
+- 非有限値の境界: 小さい R2000 の合成バイナリに NaN・正負の無限大を置き、用紙の範囲と XDATA・XRECORD の実数・点の診断を確かめた（`synthetic`、`crates/zumen-acad/tests/dwg.rs`、#594）。図形の場所・正常な拡張と要素の ID・L1 のバイト列・作業量の上限と中断も確かめている。この異常値の扱いは、AutoCAD では照らしていない。
 - 辞書の項目の数: R2010・R2013・R2018 の文字列のストリームがない辞書を、合成のテストで確かめた（`synthetic`、#582）。項目のハンドルは 1 つ 1 バイト以上なので、レコードのバイト数を超える数は、名前を積む前に `dwg.object.invalid` とする。境界の数と空の名前、予算と中断も確かめている。
 - 書き: AutoCAD で作った R2000・R2004・R2010・R2018 の DWG に、引出線の置き換え・変換・追加を当てて書き戻し、AutoCAD 2027 で開いた。監査の誤りは 0 で、形・矢印・注記が当てた値と合った。R2004 から後は、組み直したコンテナーも開けた（#345）。
 - 「推定した扱い」の表は、仕様が決めず推した扱い。理由の列にサンプルや AutoCAD で確かめたことを書いたものもあるが、その列にない値は確かめていない。
