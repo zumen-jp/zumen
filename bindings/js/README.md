@@ -78,6 +78,45 @@ export async function POST(request: Request) {
 }
 ```
 
+### Node.js の worker で大きな図面を読む
+
+#532 では、同期 API を保ち、アプリ側で `worker_threads` を使う手順を採りました。非同期のラッパーを新設すると、各メソッドの Promise に加え、セッションの寿命・同時実行の上限・中断の扱いも API として決める必要があります。これらはサーバーの構成で変わるため、まず [worker の実行例](examples/worker/main.mjs)をアプリに写して使います。例の関数は npm の公開 API ではありません。
+
+1. `examples/worker` の `main.mjs`・`job.mjs`・`worker.mjs` を、`@zumen-jp/zumen` を入れたアプリへ写す。
+2. 主スレッドで wasm を一度コンパイルし、`WebAssembly.Module` を使い回す。worker にはモジュールを structured clone で渡し、インスタンスとセッションは worker の中で作る。
+3. 入力は専有する `ArrayBuffer` にし、転送リストに入れる。転送後は、主スレッドでそのバッファーを使わない。`request.arrayBuffer()` の結果はそのまま使える。`readFile` の `Buffer` は `Uint8Array.from(buffer).buffer` で写す。
+4. worker の中で `push`・`open`・`scene`・`take` を呼び、`take` が返した blob のバッファーを親へ転送する。JSON の応答も一緒に返す。最後にセッションと通信ポートを閉じ、worker の終了を待つ。
+
+`WebAssembly.Module` は転送リストに入れません。`Session` や wasm の memory も渡しません。転送は、そのバッファーを使うすべてのビューを無効にします。Node.js の `Buffer` の共有プールをそのまま転送すると、必要な範囲だけを渡せるとは限りません（[Node.js の転送の説明](https://nodejs.org/download/release/latest-v22.x/docs/api/worker_threads.html#considerations-when-transferring-typedarrays-and-buffers)）。
+
+```js
+import { readFile } from "node:fs/promises";
+import { createSceneJob } from "./job.mjs";
+
+// サーバーの要求の外で一度だけコンパイルする
+const module = await WebAssembly.compile(await readFile(new URL(import.meta.resolve("@zumen-jp/zumen/zumen_abi1.wasm"))));
+
+// 要求の中。受信する段階でも、入力の大きさに上限を付ける
+const input = await request.arrayBuffer();
+const { result } = createSceneJob(module, input, {
+  budget: { input_bytes: 64 * 1024 * 1024, decoded_bytes: 512 * 1024 * 1024 },
+  signal: AbortSignal.any([request.signal, AbortSignal.timeout(30_000)]),
+});
+const { response, blob } = await result;
+```
+
+- この例は、要求ごとに worker を作り、`result` は worker が終了してから成功か失敗になります。サーバーでは、実行中の worker 数と待ち行列の長さに上限を付けます。頻繁な小さい要求では、worker のプールで起動の費用を減らせます。その場合も、インスタンスは要求ごとに作り直します。
+- wasm が同期処理をしている間は、その worker のイベントループも止まります。`cancel` を呼ぶメッセージを送るだけでは処理中に届かないため、この例は AbortSignal で worker 自体を `terminate()` します。中断した要求の入力は転送済みなので、再試行には入力を再び用意します。
+- API の失敗は、状態・操作・診断を持つ Error として返します。スレッドを越えるため、`instanceof ZumenError` では判断せず、`error.status` と `error.response` を見ます。worker の異常終了や転送の失敗も Promise の失敗になり、worker を残しません。
+- worker は同じプロセスの中で動きます。[`resourceLimits` の対象](https://nodejs.org/download/release/latest-v22.x/docs/api/worker_threads.html#new-workerfilename-options)は JavaScript のエンジンで、ArrayBuffer や wasm のメモリの上限にはなりません。入力の大きさと API の `budget`、同時実行数で量を制限します。OS でメモリを制限したい場合や、ネイティブの CLI を別のプロセスとして動かしたい場合は、子プロセスのエンジン（#358）の用途になります。#358 の Node.js 用ラッパーはまだありません。
+- この例は素の Node.js で確かめています。Next.js などで組むときは、worker のファイルと、そのファイルから解決できる npm パッケージをサーバーの出力に含めます。上の同期の API ルートの例に対する bundler のテストは、worker の配布までを確認するものではありません。
+
+リポジトリでは、作った wasm のパスを渡して実行できます。
+
+```bash
+node bindings/js/examples/worker/main.mjs samples/dxf/text_alignments.dxf target/wasm32-unknown-unknown/release/zumen_abi1.wasm
+```
+
 ### 分けたモジュール
 
 図面・BIM・土木地理・点群を分けたモジュール（`zumen_abi1_drawing.wasm`・`zumen_abi1_bim.wasm`・`zumen_abi1_civil.wasm`・`zumen_abi1_pointcloud.wasm`）もあります（[決定 0221](../../docs/decisions/0221-wasm-modules.md)・[決定 0253](../../docs/decisions/0253-wasm-civil-and-pointcloud-modules.md)）。`loadModules` は、要るモジュールだけを、初めて要るときに読み込みます。入っていない op は `call.op.unsupported` の診断で返ります。
@@ -135,6 +174,12 @@ node bindings/js/test/modules.mjs zumen_abi1.wasm zumen_abi1_drawing.wasm zumen_
 
 ```bash
 node bindings/js/test/server.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm
+```
+
+`test/worker.mjs` は、上の実行例を使い、20 万本の線を持つ合成 DXF の処理中にも主スレッドのタイマーが進むことを確かめます。同期 API と同じ blob、入力の転送、診断、中断・転送失敗・結果を返さない終了の後始末も確かめます。CI は PR ごとに流します。
+
+```bash
+node bindings/js/test/worker.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm
 ```
 
 `test/nextjs` は、`npm pack` したパッケージを Next.js の Turbopack（設定なし）と webpack（`serverExternalPackages`）で standalone に組み、組んだサーバーの API ルートで図面を開きます。Next.js と React は、`test/nextjs/package.json` でバージョンを固定しています。CI は毎晩流します。
