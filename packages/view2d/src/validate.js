@@ -6,6 +6,7 @@ export const DEFAULT_LIMITS = Object.freeze({
   issues: 10_000,
   textLength: 16_384,
   canvasPixels: 16_777_216,
+  stateItems: 100_000,
 });
 
 export function valid(condition, field) {
@@ -116,7 +117,7 @@ export function prepare(input, limits) {
   refs("text_fonts", "font_names", true);
   refs("glyph_shapes", "shape_rings");
   for (const name of ["text_strings", "point_markers", "image_names", "image_pages", "entity_ids", "step_ids", "layer_ids", "font_names"]) {
-    const decode = name === "text_strings" || name === "entity_ids" || name === "step_ids";
+    const decode = name === "text_strings" || name === "entity_ids" || name === "step_ids" || name === "layer_ids";
     for (let i = 0; i < c[name].length; i += 2) {
       valid(c[name][i] + c[name][i + 1] <= c.strings.length, name);
       // 同じ文字列を多数の ID・配置から引く場合も、復号する長さを数える。
