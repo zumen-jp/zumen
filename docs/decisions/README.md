@@ -302,3 +302,4 @@
 - [0265: JWW の一覧の件数はレコードに分けず、最後のレコードの後ろを trailer に残す](0265-jww-list-counts-and-trailer.md)（2026-11-06、採用）
 - [0266: PDF の ObjStm の単独 Flate は、既存の展開と同じリーダーで出力量を先に数える](0266-pdf-flate-preflight.md)（2026-11-06、採用）
 - [0267: 2D の表示部品はシーンの列を Canvas 2D で描き、React と画面を別に置く](0267-view2d-on-scene-columns.md)（2026-11-06、採用）
+- [0268: 全体版と分割版の wasm を同じ npm パッケージと Release に入れ、ブラウザー向けに静的な URL の一覧を出す](0268-distribute-wasm-modules.md)（2026-11-06、採用）
