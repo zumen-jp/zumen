@@ -525,6 +525,8 @@ impl Session {
             #[cfg(feature = "drawing")]
             Request::Scene(request) => self.scene(request, &mut cx).map(|r| Box::new(r) as _),
             #[cfg(feature = "drawing")]
+            Request::Render(request) => self.render(request, &mut cx).map(|r| Box::new(r) as _),
+            #[cfg(feature = "drawing")]
             Request::Check(request) => self.check(request, &mut cx).map(|r| Box::new(r) as _),
             #[cfg(feature = "bim")]
             Request::Validate(request) => {
@@ -1198,16 +1200,41 @@ impl Session {
 
     /// 起点から配置をたどった 2D のシーンを、blob で返す（決定 0172）
     fn scene(&mut self, request: &SceneRequest, cx: &mut Cx<'_>) -> Result<SceneResult, Failed> {
-        scene::check(request, cx)?;
-        let palette = self.palette(request.palette.as_deref(), cx)?;
-        let (mut result, bytes) = {
-            let fonts = self.fonts(request, cx)?;
-            let drawing = self.lift(&request.doc, cx)?;
-            scene::scene(&drawing, request, palette, &fonts, cx)?
-        };
+        let (mut result, bytes) = self.make_scene(request.into(), cx)?;
         result.blob = self.blobs.len() as u64;
         self.blobs.push(Some(Blob {
             kind: BlobKind::Scene,
+            bytes,
+        }));
+        Ok(result)
+    }
+
+    /// 既存の scene と同じ生成経路を共有する。予算は描画まで同じ Cx で数える。
+    fn make_scene(
+        &self,
+        request: scene::View<'_>,
+        cx: &mut Cx<'_>,
+    ) -> Result<(SceneResult, Vec<u8>), Failed> {
+        scene::check(request, cx)?;
+        let palette = self.palette(request.palette, cx)?;
+        let fonts = self.fonts(request, cx)?;
+        let drawing = self.lift(request.doc, cx)?;
+        scene::scene(&drawing, request, palette, &fonts, cx)
+    }
+
+    /// シーンを作って描画し、成功した画像だけを登録する（決定 0275）。
+    #[cfg(feature = "drawing")]
+    fn render(
+        &mut self,
+        request: &messages::RenderRequest,
+        cx: &mut Cx<'_>,
+    ) -> Result<messages::RenderResult, Failed> {
+        let options = crate::render::options(request, cx)?;
+        let (scene, bytes) = self.make_scene(request.into(), cx)?;
+        let (mut result, bytes) = crate::render::render(request, &options, scene, &bytes, cx)?;
+        result.blob = self.blobs.len() as u64;
+        self.blobs.push(Some(Blob {
+            kind: BlobKind::Image,
             bytes,
         }));
         Ok(result)
@@ -1583,11 +1610,11 @@ impl Session {
     /// シーンの文字を置くフォントの入力を読む（決定 0188）
     fn fonts(
         &self,
-        request: &SceneRequest,
+        request: scene::View<'_>,
         cx: &mut Cx<'_>,
     ) -> Result<zumen_scene::FontSet<'_>, Failed> {
         let mut set = zumen_scene::FontSet::default();
-        for (index, font) in request.fonts.iter().flatten().enumerate() {
+        for (index, font) in request.fonts.into_iter().flatten().enumerate() {
             let pointer = format!("/fonts/{index}/input");
             if !name::is_safe(&font.input) {
                 return Err(fail(cx, invalid_value(pointer)));
@@ -1607,7 +1634,7 @@ impl Session {
                 return Err(fail(cx, invalid_value(pointer)));
             }
         }
-        for (key, reference) in request.heights.iter().flatten() {
+        for (key, reference) in request.heights.into_iter().flatten() {
             set.declare(key, scene::reference(*reference));
         }
         Ok(set)
@@ -2156,6 +2183,7 @@ fn common(request: &Request) -> &RequestCommon {
         Request::Convert(request) => &request.request_common,
         Request::Tables(request) => &request.request_common,
         Request::Scene(request) => &request.request_common,
+        Request::Render(request) => &request.request_common,
         Request::Check(request) => &request.request_common,
         Request::Validate(request) => &request.request_common,
         Request::ReviewCarry(request) => &request.request_common,
@@ -2719,7 +2747,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":63}},"ops":["capabilities","open","close","describe","drawing","entities","apply","convert","tables","scene","check","validate","review_carry","review_adopt","building","building_elements","ids_check","review_adopt_ids","bcf_read","bcf_write","civil","pointcloud","deviation","civil_drawing","geo","delivery_check","photo","sheet","boring","building_apply","lift"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}},{{"id":"landxml","family":"landxml","read":true,"write":false,"id_rules":1}},{{"id":"citygml","family":"citygml","read":true,"write":false,"id_rules":1}},{{"id":"fgd","family":"fgd","read":true,"write":false,"id_rules":1}},{{"id":"extdm","family":"extdm","read":true,"write":false,"id_rules":1}},{{"id":"las","family":"las","read":true,"write":false,"id_rules":1}},{{"id":"ply","family":"ply","read":true,"write":false,"id_rules":1}},{{"id":"xyz","family":"xyz","read":true,"write":false,"id_rules":1}},{{"id":"e57","family":"e57","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":64}},"ops":["capabilities","open","close","describe","drawing","entities","apply","convert","tables","scene","check","validate","review_carry","review_adopt","building","building_elements","ids_check","review_adopt_ids","bcf_read","bcf_write","civil","pointcloud","deviation","civil_drawing","geo","delivery_check","photo","sheet","boring","building_apply","lift","render"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}},{{"id":"landxml","family":"landxml","read":true,"write":false,"id_rules":1}},{{"id":"citygml","family":"citygml","read":true,"write":false,"id_rules":1}},{{"id":"fgd","family":"fgd","read":true,"write":false,"id_rules":1}},{{"id":"extdm","family":"extdm","read":true,"write":false,"id_rules":1}},{{"id":"las","family":"las","read":true,"write":false,"id_rules":1}},{{"id":"ply","family":"ply","read":true,"write":false,"id_rules":1}},{{"id":"xyz","family":"xyz","read":true,"write":false,"id_rules":1}},{{"id":"e57","family":"e57","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);

@@ -36,7 +36,8 @@ export type Request =
   | SheetRequest
   | BoringRequest
   | BuildingApplyRequest
-  | LiftRequest;
+  | LiftRequest
+  | RenderRequest;
 
 /** どの op の要求にも置けるフィールド */
 export interface RequestCommon {
@@ -1210,6 +1211,67 @@ export interface SceneRequest extends RequestCommon {
   fonts?: SceneFont[];
   /** 形式の宣言値の高さ（キーは dxf.TEXT.40・dxf.MTEXT.40・jww.moji.size_y など）が、フォントのどの寸法に当たるか（決定 0176・0188）。書かないキーは、表示と比べて決めた意味（dxf.TEXT.40 は capital_a。マイナーバージョン 59 から）にし、それもなければ大文字の高さとみなす。fonts を書いたときだけ使う。マイナーバージョン 37 から */
   heights?: Record<string, HeightReference>;
+}
+
+/** 開いた文書を scene と同じ起点・配置・フォントで 2D のシーンにし、画像を blob で返す（決定 0272・0275）。SVG は字形の輪郭だけを描き、字形のない空でない文字・外部画像・名前付きの点記号は元の ID と unit を診断して描かない。シーン生成と描画で同じ予算と中断の合図を使い、失敗では画像を返さない。マイナーバージョン 64 から */
+export interface RenderRequest extends RequestCommon {
+  /** op の名前 */
+  op: "render";
+  /** 文書の名前。open で作ったもの */
+  doc: string;
+  /** scene と同じ起点。実寸の空間・記号の定義の空間・用紙の ID */
+  from: string;
+  /** 起点の用紙のビューの番号。0 から数える。from が用紙のときだけ書ける。scene と同じ意味 */
+  view?: number;
+  /** 画像の出力形式 */
+  format: RenderFormat;
+  /** 出力の幅（ピクセル） */
+  width: number;
+  /** 出力の高さ（ピクセル） */
+  height: number;
+  /** [x の最小, y の最小, x の最大, y の最大]。起点の座標で、幅と高さが正の有限値になる範囲を明示する。scene の範囲の絞り込みにも使い、縦横同率で中央に収めて範囲外を切る。縦横比の違いによる余白は背景色にする */
+  region: number[];
+  /** 用紙 mm の線幅をピクセルへ直す DPI。正の有限値。座標の単位を mm と推測しない。線幅 0 は 1 ピクセル */
+  dpi: number;
+  /** 背景の sRGB と alpha。[r, g, b, a] の 4 値を 0〜255 で明示する */
+  background: number[];
+  /** ACI 7 と未解決の色に使う sRGB と alpha。[r, g, b, a] の 4 値を 0〜255 で明示する。未解決の色は診断する */
+  foreground: number[];
+  /** scene と同じ弦の誤差（起点の長さ）。0 より大きい。書かなければ用紙は 0.02 mm、空間は要素の範囲の対角線の 1/50000 */
+  tolerance?: number;
+  /** scene と同じ指定。true は印刷する要素、書かないか false は表示する要素を描く */
+  print?: boolean;
+  /** scene と同じ色の表の入力の名前。zm_push で渡した JSON の values に rgb と aci・sxf・jww の符号を並べる */
+  palette?: string;
+  /** scene と同じフォントの指定。名前を合わせ、なければ名前のないフォントを使う。字形の輪郭を作るため、zm_push でフォントのバイト列を渡す。OS のフォントは探索しない */
+  fonts?: SceneFont[];
+  /** scene と同じ宣言値の高さの意味。fonts を書いたときだけ使う。書かないキーは既定の意味に従う（決定 0176・0188） */
+  heights?: Record<string, HeightReference>;
+}
+
+/** 画像の出力形式。svg は SVG 1.1（image/svg+xml） */
+export type RenderFormat =
+  | "svg"
+  | (string & {});
+
+/** 画像の形式・サイズと、シーンの起点・単位・許容差、画像の blob の番号 */
+export interface RenderResult {
+  /** 画像の出力形式 */
+  format: RenderFormat;
+  /** 出力の幅（ピクセル） */
+  width: number;
+  /** 出力の高さ（ピクセル） */
+  height: number;
+  /** シーンの起点の ID */
+  from: string;
+  /** 起点のビューの番号。ビューでなければ持たない */
+  view?: number;
+  /** 起点の座標の単位。用紙とビューからは millimeter */
+  unit: Unit;
+  /** シーンで使った弦の誤差（起点の長さ） */
+  tolerance: number;
+  /** 画像の blob の番号（種類は image）。zm_take で取り出す */
+  blob: number;
 }
 
 /** シーンの文字を置くフォント（決定 0188） */
@@ -3247,4 +3309,5 @@ export interface Operations {
   boring: { request: BoringRequest; result: BoringResult };
   building_apply: { request: BuildingApplyRequest; result: BuildingApplyResult };
   lift: { request: LiftRequest; result: LiftResult };
+  render: { request: RenderRequest; result: RenderResult };
 }

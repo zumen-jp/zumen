@@ -8,6 +8,8 @@ wasm のモジュール（`zumen_abi1.wasm`）を、ブラウザーと Node.js�
 
 ## 使い方
 
+サーバーで SVG を作る `render` op の設定と実行例は、[図面から SVG を作る](../../docs/render.md)にあります。
+
 Node.js では、`@zumen-jp/zumen/node` の `loadBundled` が、パッケージに入れた wasm を読み込みます。コンパイルは 1 度だけで、呼ぶたびに新しいインスタンスを返します。ブラウザーでは、`@zumen-jp/zumen` の `load` に、wasm の fetch の応答（`load(fetch("/zumen_abi1.wasm"))`）・バイト列・コンパイルしたモジュールを渡します。
 
 ```js
