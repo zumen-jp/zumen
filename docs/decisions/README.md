@@ -299,3 +299,4 @@
 - [0262: API を通す fuzz の target を足し、テストキットの呼び出しの関数と上限で確かめ、適合テストの組の要求も種にし、配置をたどる walk が返す要素を `elements` でも数える](0262-boundary-fuzz-targets.md)（2026-11-05、採用）
 - [0263: 文書だけを変えた PR では fuzz を流さず、種や実装に使う Markdown はパスを明示する](0263-skip-documentation-only-fuzz.md)（2026-11-05、採用）
 - [0264: 図面の配置を逐次処理し、継承と切り抜きは配置ごとに共有し、図面モデルのバイナリでは重複する空間 ID を拒否する](0264-stream-drawing-walk.md)（2026-11-06、採用）
+- [0265: JWW の一覧の件数はレコードに分けず、最後のレコードの後ろを trailer に残す](0265-jww-list-counts-and-trailer.md)（2026-11-06、採用）

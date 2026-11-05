@@ -201,6 +201,7 @@ struct Body {
 }
 
 /// ヘッダーのレコードを前に、残りのバイトがあれば後ろに足す
+/// 一覧の件数を独立したレコードにしないため、読めた件数も残りに含む（決定 0265）
 fn finish(src: &[u8], version: u32, start: usize, body: Body) -> Read {
     let mut records = Vec::with_capacity(body.records.len() + 2);
     records.push(Record {
