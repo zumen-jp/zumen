@@ -117,6 +117,23 @@ jobs:
       - name: 同じ IFC を IfcOpenShell で読み、写した値が同じことを確かめる
         run: python -I crates/zumen-ifc/tests/ifcopenshell/samples.py samples "$RUNNER_TEMP/samples"
 
+  pdf:
+    name: PDF の読みを pdf.js と照らす
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: rust-toolchain.toml のバージョンの Rust を入れる
+        run: rustup toolchain install
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - name: pdf.js をテストのツールとして入れる
+        run: npm ci --ignore-scripts --no-audit --no-fund --prefix xtask/verify/pdfjs
+      - name: 合成の PDF と公開サンプルを照らす
+        env:
+          ZUMEN_PDFJS_REQUIRED: '1'
+        run: cargo test --locked -p zumen-pdf --test external
+
   external:
     name: 書き戻し・変換した図面を外部の実装と照らし、検証キットを作る
     # 図面の形式を zumen でない実装で読んで照らし、AutoCAD・Jw_cad・SXF ブラウザで開く検証キットを成果物に置く（決定 0254、#503）。
