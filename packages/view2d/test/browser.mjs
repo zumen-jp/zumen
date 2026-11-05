@@ -4,6 +4,8 @@ import { bundle, fixture } from "./fixtures.mjs";
 import { testFallbackText } from "./fallback.mjs";
 import { testPlacedSelection, testState } from "./state.mjs";
 import { testHit } from "./hit.mjs";
+import { testSnap } from "./snap.mjs";
+import { testTools } from "./tools.mjs";
 
 export async function testView2D(wasmPath, inputs) {
   let assertions = 0;
@@ -13,6 +15,8 @@ export async function testView2D(wasmPath, inputs) {
   testFallbackText({ assert, near });
   testState({ assert, throws });
   testHit({ assert, near });
+  testSnap({ assert, near });
+  testTools({ assert, near, throws });
   const canvas = document.createElement("canvas");
   document.body.append(canvas);
   const viewer = new View2D(canvas, { width: 200, height: 200, pixelRatio: 2, foreground: "#123456", pixelsPerMillimeter: 2 });

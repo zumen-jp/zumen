@@ -24,6 +24,26 @@ const refs = viewer.hitTest({ x: 100, y: 80 }, 4);
 viewer.select(refs, "toggle");
 viewer.setHovered(refs[0] ?? null);
 viewer.setHighlight("search", viewer.hitTestRect({ min_x: 0, min_y: 0, max_x: 200, max_y: 100 }), "#ff0000");
+const detach = viewer.attachInput(canvas, { wheel: false, touch: true });
+viewer.setInputOptions({ keyboard: false });
+viewer.setTool("measure");
+viewer.handleInput({ type: "pointerdown", point: { x: 5, y: 6 }, pointerId: 1, pointerType: "touch" });
+viewer.handleInput({ type: "cancel" });
+const start = viewer.snapAt({ x: 0, y: 0 })?.position ?? viewer.positionAt({ x: 0, y: 0 });
+viewer.toScreen(start);
+viewer.setMeasurement({ start, end: viewer.positionAt({ x: 3, y: 4 }) });
+const removeTool = viewer.addTool("custom", {
+  onActivate(context) {
+    context.on("measurement", ({ state }) => { void state.measurement?.real; });
+    context.addOverlay((ctx, state) => { ctx.strokeRect(0, 0, state.size.width, state.size.height); });
+    return () => { void context.signal.aborted; };
+  },
+  onInput(input, { viewer }) {
+    if (input.type === "pointerup") { viewer.select(viewer.hitTest(input.point)); return true; }
+  },
+});
+const removeOverlay = viewer.addOverlay((ctx) => ctx.fillRect(2, 2, 2, 2), { scope: "viewer" });
+viewer.invalidate(); viewer.cancelInput(); removeTool(); removeOverlay(); detach();
 unsubscribe(); off();
 viewer.setScene(null);
 viewer.destroy();
@@ -43,3 +63,11 @@ state.selection.push({ id: "space/0/h1", path: [] });
 viewer.select([{ id: "space/1/h1", path: [{ id: "space/0/h2" }] }]);
 // @ts-expect-error 未定義の種類を購読しない
 viewer.on("pointer", () => {});
+// @ts-expect-error 入力には画面の点とポインターの番号が要る
+viewer.handleInput({ type: "pointerdown" });
+// @ts-expect-error カメラと同じく計測の位置も直接変更しない
+start.offset.x = 0;
+// @ts-expect-error OffscreenCanvas を DOM の入力先にはしない
+viewer.attachInput(new OffscreenCanvas(100, 100));
+// @ts-expect-error 独自ツールには入力の関数が要る
+viewer.addTool("invalid", {});

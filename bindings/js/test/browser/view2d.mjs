@@ -13,7 +13,7 @@ const inputs = ["scene", "open_jww", "open_sxf"].map((test) =>
   JSON.parse(readFileSync(join(root, `bindings/conformance/cases/${test}.json`), "utf8")).steps.find((s) => s.push).push);
 const browser = await browsers[name].launch();
 try {
-  const page = await browser.newPage();
+  const page = await browser.newPage({ hasTouch: true });
   const failures = [];
   await page.route("**/*", async (route) => {
     const url = new URL(route.request().url());
@@ -40,6 +40,59 @@ try {
       Array.prototype.at = at;
     }
   }, { inputs });
+  // 実際のポインター捕捉と既定の動作は、合成したイベントだけでは確認できない。
+  await page.evaluate(async () => {
+    const { View2D } = await import("/packages/view2d/src/index.js");
+    const { inputFixture } = await import("/packages/view2d/test/tools.mjs");
+    const canvas = document.createElement("canvas");
+    canvas.id = "native-input"; canvas.tabIndex = 0; canvas.style.cssText = "display:block;width:200px;height:200px;touch-action:none";
+    document.body.append(canvas);
+    const viewer = new View2D(canvas, { width: 200, height: 200, pixelRatio: 2, view: { center: { x: 0, y: 0 }, scale: 2, rotation: 0 } });
+    const input = inputFixture(); viewer.setScene(input); viewer.setTool("pan");
+    const state = window.inputTest = { viewer, canvas, input, detach: viewer.attachInput(), pointerId: null, context: null, cleanup: 0, observed: 0 };
+    canvas.addEventListener("pointerdown", (event) => { state.pointerId = event.pointerId; });
+    viewer.addTool("custom", {
+      onActivate(context) { state.context = context; context.subscribe(() => { state.observed++; }); return () => { state.cleanup++; }; },
+      onInput: () => true,
+    });
+  });
+  const native = async (message, fn) => { result.assertions++; if (!await page.evaluate(fn)) throw new Error(message); };
+  await page.locator("#native-input").scrollIntoViewIfNeeded();
+  const box = await page.locator("#native-input").boundingBox();
+  await page.mouse.move(box.x + 100, box.y + 100); await page.mouse.down();
+  await native("実イベントで捕捉する", () => inputTest.canvas.hasPointerCapture(inputTest.pointerId));
+  await page.mouse.move(box.x + 250, box.y + 100); await page.mouse.up();
+  await native("Canvas の外へのドラッグと pointerup", () => inputTest.viewer.getView().center.x === -75 && inputTest.viewer.getState().gesture === null && !inputTest.canvas.hasPointerCapture(inputTest.pointerId));
+  await page.locator("#native-input").focus(); await page.keyboard.press("ArrowRight");
+  await native("実キーで移動する", () => inputTest.viewer.getView().center.x === -55);
+  await page.evaluate(() => inputTest.viewer.setInputOptions({ keyboard: false })); await page.keyboard.press("ArrowRight");
+  await native("無効にした実キーで移動しない", () => inputTest.viewer.getView().center.x === -55);
+  await page.evaluate(() => inputTest.viewer.setInputOptions({ keyboard: true }));
+  await page.mouse.move(box.x + 100, box.y + 100); await page.keyboard.down("Control");
+  try { await page.mouse.wheel(0, -100); await page.waitForFunction(() => inputTest.viewer.getView().scale > 2); }
+  finally { await page.keyboard.up("Control"); }
+  await native("実ホイールで修飾キーと固定点を使う", () => Math.abs(inputTest.viewer.getView().scale - 2 * Math.exp(.2)) < 1e-8 && inputTest.viewer.getView().center.x === -55);
+  for (const reason of ["tool", "cancel", "scene", "options", "detach", "lost", "destroy"]) {
+    await page.evaluate(() => { inputTest.viewer.setTool("custom"); inputTest.detach(); inputTest.detach = inputTest.viewer.attachInput(); });
+    await page.mouse.move(box.x + 100, box.y + 100); await page.mouse.down();
+    await page.mouse.move(box.x + 100.5, box.y + 100);
+    await native(`${reason} の前に捕捉する`, () => inputTest.canvas.hasPointerCapture(inputTest.pointerId));
+    await page.evaluate((reason) => {
+      const { viewer, canvas, pointerId } = inputTest;
+      inputTest.active = inputTest.context;
+      if (reason === "tool") viewer.setTool("select");
+      if (reason === "cancel") viewer.cancelInput();
+      if (reason === "scene") viewer.setScene(inputTest.input);
+      if (reason === "options") viewer.setInputOptions({ wheel: !viewer.getState().input.wheel });
+      if (reason === "detach") inputTest.detach();
+      if (reason === "lost") canvas.releasePointerCapture(pointerId);
+      if (reason === "destroy") viewer.destroy();
+    }, reason);
+    if (reason === "lost") await page.mouse.move(box.x + 101, box.y + 100);
+    await native(`${reason} で捕捉とツールを片づける`, () => !inputTest.canvas.hasPointerCapture(inputTest.pointerId) && inputTest.active.signal.aborted);
+    await page.mouse.up();
+  }
+  await page.evaluate(() => { inputTest.canvas.remove(); delete window.inputTest; });
   await page.goto(`${origin}/packages/view2d/example/index.html`);
   await page.locator("#file").setInputFiles({ name: "synthetic.dxf", mimeType: "application/octet-stream", buffer: Buffer.from(inputs[0].text) });
   await page.waitForFunction(() => document.querySelector("#status").value.startsWith("描画しました。"));
@@ -51,6 +104,17 @@ try {
   await page.waitForFunction(() => document.querySelector("#selection").textContent.includes('"record"'));
   const source = JSON.parse(await page.locator("#selection").textContent());
   if (!Number.isInteger(source.source.record) || source.id !== "space/0/hA1" || source.path.length !== 0) throw new Error("利用例の選択と出所");
+  await page.locator("#tool").selectOption("mark");
+  await page.locator("#drawing").click({ position: { x: 320, y: 200 } });
+  await page.waitForFunction(() => document.querySelector("#mark").textContent.startsWith("しるし:"));
+  await page.locator("#drawing").press("Escape");
+  if (await page.locator("#mark").textContent() !== "") throw new Error("独自ツールの中断");
+  await page.locator("#tool").selectOption("select");
+  await page.locator("#drawing").click({ position: { x: 10, y: 10 } });
+  if (await page.locator("#selection").textContent() !== "") throw new Error("利用例の選択の解除");
+  const drawing = await page.locator("#drawing").boundingBox();
+  await page.touchscreen.tap(drawing.x + 320, drawing.y + 200);
+  await page.waitForFunction(() => document.querySelector("#selection").textContent.includes('"record"'));
   if (failures.length) throw new Error(failures.join("\n"));
   const summary = `${name} ${browser.version()}: view2d の検査 ${result.assertions} 件、コアから ${result.formats.join("・")} を描画、利用例も成功`;
   console.log(summary);

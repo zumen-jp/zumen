@@ -1,6 +1,6 @@
 # 2D の表示部品と、旧版からの置き換え
 
-表示部品は、コアが作る 2D のシーンを利用側の Canvas に描く部品です。方針は[決定 0267](decisions/0267-view2d-on-scene-columns.md)、実装の進み具合と完了条件は [#507](https://github.com/zumen-jp/zumen/issues/507) とその子 issue にあります。この文書は機能の対応表です。描画・カメラ・レイヤ・選択・状態の購読の使用案内は [@zumen-jp/view2d](../packages/view2d/README.md) にあります。操作・資源の解決・React・赤入れは後続の issue で扱います。
+表示部品は、コアが作る 2D のシーンを利用側の Canvas に描く部品です。方針は[決定 0267](decisions/0267-view2d-on-scene-columns.md)、実装の進み具合と完了条件は [#507](https://github.com/zumen-jp/zumen/issues/507) とその子 issue にあります。この文書は機能の対応表です。描画・カメラ・レイヤ・選択・状態の購読・操作・吸着と計測の使用案内は [@zumen-jp/view2d](../packages/view2d/README.md) にあります。資源の解決・React・赤入れは後続の issue で扱います。
 
 ## 比べたもの
 
@@ -26,10 +26,10 @@
 | `select`・`setHovered`・`setHighlight` | L2 の ID と配置の道筋で、選択・hover・名前付き強調を管理します | [#585](https://github.com/zumen-jp/zumen/issues/585) |
 | `HitIndex`・`entitiesAt`・`entitiesIn` | `hitTest`・`hitTestRect` で表示と切り抜きを考慮してシーンに当たり判定し、配置ごとの要素を返します | [#585](https://github.com/zumen-jp/zumen/issues/585) |
 | `getState`・`subscribe`・`on` | 状態とイベントを購読し、解除できます。出所は既存の `entities` で L1 へたどります | [#585](https://github.com/zumen-jp/zumen/issues/585) |
-| 選択・計測・移動、`addTool`・`setTool` | 利用側のツールも同じ入力の入口へ組み込めるようにします | [#586](https://github.com/zumen-jp/zumen/issues/586) |
-| ドラッグ・ホイール・ピンチ・ダブルクリック・キーボード | 個別に停止でき、ページのスクロールと両立できる操作を用意します | [#586](https://github.com/zumen-jp/zumen/issues/586) |
-| `snapAt`・`setMeasurement` | 表示上の吸着と距離を返します。シーンの単位と実寸を区別します | [#586](https://github.com/zumen-jp/zumen/issues/586) |
-| `addOverlay`・`invalidate` | 図面の上の一時の描画と、その更新を利用側から渡せるようにします | [#586](https://github.com/zumen-jp/zumen/issues/586) |
+| 選択・計測・移動、`addTool`・`setTool` | 利用側のツールも `handleInput` の入口を使い、中断時に購読と重ね描きを解除します | [#586](https://github.com/zumen-jp/zumen/issues/586) |
+| ドラッグ・ホイール・ピンチ・ダブルクリック・キーボード | `attachInput` で明示して接続し、`setInputOptions` で個別に停止します。既定のホイールには Ctrl・Command を使います | [#586](https://github.com/zumen-jp/zumen/issues/586) |
+| `snapAt`・`setMeasurement` | 可視の頂点へ吸着し、シーンの単位の距離を返します。実寸が不明なら理由を返します | [#586](https://github.com/zumen-jp/zumen/issues/586) |
+| `addOverlay`・`invalidate` | 一時の描画と更新を利用側から渡します。シーンか表示部品の寿命を選べます | [#586](https://github.com/zumen-jp/zumen/issues/586) |
 | `imageUnderlayRenderer`・`setUnderlayRenderer`・`refreshUnderlays` | 利用側が画像や PDF を解決します。表示範囲・画素数の上限・中断・失敗・再読込を扱います | [#587](https://github.com/zumen-jp/zumen/issues/587) |
 | `useDrawingViewer`・`useViewerState`・`useViewerEvent` | 表示部品と購読の作成・破棄を React のフックで管理します | [#588](https://github.com/zumen-jp/zumen/issues/588) |
 | `useDrawing` | 既存の wasm のラッパーを Worker で呼び、古い要求を中断し、診断とシーンを受け取ります | [#588](https://github.com/zumen-jp/zumen/issues/588) |
