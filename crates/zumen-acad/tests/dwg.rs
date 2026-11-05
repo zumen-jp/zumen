@@ -4092,6 +4092,93 @@ fn r2010_containers_are_read_with_or_without_the_high_size() {
     }
 }
 
+/// 文字列のストリームがない DICTIONARY。ハンドルのストリームには項目を 1 つだけ置く（#582）
+#[cfg(test)]
+fn dictionary_without_strings(version: &[u8; 6], count: u8) -> Vec<u8> {
+    let mut sections = r2004_sections();
+    let classes = r2010_classes(false);
+    sections[1] = (
+        b"AcDb:Classes",
+        literal_stream(&classes),
+        classes.len() as u64,
+    );
+    let mut src = r2004(&sections);
+    src[..6].copy_from_slice(version);
+    let mut file = read(&src, Limits::default()).0.unwrap();
+    let mut w = BitWriter::default();
+    w.bits(0, 2); // BOT の RC
+    w.bytes(&[0x2A]); // DICTIONARY
+    w.handle(0, 0x100);
+    w.bs(0); // 拡張データなし
+    w.bl_zero(); // リアクターなし
+    w.bit(true); // 拡張辞書なし
+    if version != b"AC1024" {
+        w.bit(false); // DS のデータなし
+    }
+    w.bits(1, 2); // BL の RC
+    w.bytes(&[count]);
+    w.bs(0); // 複製の扱い
+    w.bytes(&[0]); // 所有しない
+    w.bit(false); // 文字列のストリームなし
+    let handles_at = w.bits.len();
+    w.handle(4, 0); // 所有者
+    w.handle(2, 0); // 項目
+    let body = w.finish();
+    let mut data = modular_char((body.len() * 8 - handles_at) as i64, false);
+    data.extend(body);
+    let mut diag = Diagnostics::new();
+    let mut budget = Budget::default();
+    let cancel = CancelToken::new();
+    let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+    let mut txn = file.transaction();
+    txn.add(0x100, &data).unwrap();
+    txn.commit(&mut cx).unwrap();
+    let mut out = Vec::new();
+    Dwg::write(&file, &mut out, &mut cx).unwrap();
+    out
+}
+
+#[test]
+fn dictionaries_without_strings_report_invalid_counts_and_keep_budget_checks() {
+    for version in [b"AC1024", b"AC1027", b"AC1032"] {
+        let valid = dictionary_without_strings(version, 1);
+        let (db, diag) = objects(&valid);
+        assert!(!codes_of(&diag).contains(&codes::DWG_OBJECT_INVALID));
+        assert_eq!(
+            db.get(0x100).unwrap().first(3),
+            Some(&Data::Text(Vec::new()))
+        );
+
+        let invalid = dictionary_without_strings(version, 64);
+        let file = read(&invalid, Limits::default()).0.unwrap();
+        let mut diag = Diagnostics::new();
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(1)));
+        let cancel = CancelToken::new();
+        let db = file
+            .objects(&mut Cx::new(&mut budget, &mut diag, &cancel))
+            .unwrap();
+        assert_eq!(budget.used(Kind::Work), 1);
+        assert!(codes_of(&diag).contains(&codes::DWG_OBJECT_INVALID));
+        assert_eq!(db.get(0x100).unwrap().first(3), None);
+        zumen_sdk::testkit::survives_lift::<Dwg, zumen_drawing::Drawing2D>(&invalid).unwrap();
+
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(0)));
+        let result = file.objects(&mut Cx::new(&mut budget, &mut diag, &cancel));
+        assert!(matches!(result, Err(Error::Stopped(_))));
+        assert_eq!(
+            diag.iter().last().unwrap().code(),
+            codes::BUDGET_WORK_EXCEEDED
+        );
+        cancel.cancel();
+        let result = file.objects(&mut Cx::new(&mut Budget::default(), &mut diag, &cancel));
+        assert!(matches!(result, Err(Error::Stopped(_))));
+        assert_eq!(
+            diag.iter().last().unwrap().code(),
+            codes::CALL_REQUEST_CANCELLED
+        );
+    }
+}
+
 #[test]
 fn r2004_containers_need_their_sections_and_valid_pages() {
     let mut sections = r2004_sections();
