@@ -23,6 +23,8 @@ on:
       - 'bindings/conformance/cases/**'
       - 'xtask/src/fuzz.rs'
       - '.github/workflows/fuzz.yml'
+      # 文書だけの変更では流さない。種や実装に使う Markdown を足すときは、後ろにそのパスを足す（決定 0263）
+      - '!**/*.md'
 
 permissions:
   contents: read

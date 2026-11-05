@@ -297,3 +297,4 @@
 - [0260: サンプルの IFC で測り、3D のカーネルを manifold-rust にして、建物モデルの残りの 7 項目を決める](0260-kernel-and-building-items-from-samples.md)（2026-11-03、採用）
 - [0261: fuzz の job を main の必須の検査にせず、PR の変更と関係のない失敗ではマージを止めずに早めに直す](0261-fuzz-outside-required-checks.md)（2026-11-04、採用）
 - [0262: API を通す fuzz の target を足し、テストキットの呼び出しの関数と上限で確かめ、適合テストの組の要求も種にし、配置をたどる walk が返す要素を `elements` でも数える](0262-boundary-fuzz-targets.md)（2026-11-05、採用）
+- [0263: 文書だけを変えた PR では fuzz を流さず、種や実装に使う Markdown はパスを明示する](0263-skip-documentation-only-fuzz.md)（2026-11-05、採用）
