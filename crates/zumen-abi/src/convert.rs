@@ -6,12 +6,13 @@
 
 use std::collections::BTreeMap;
 
+use zumen_acad::db::{Data, Section};
 use zumen_acad::{Dxf, DxfFile};
-use zumen_base::{Cx, Diagnostic, Diagnostics, Kind, Value, codes};
+use zumen_base::{Cx, Diagnostic, Diagnostics, Kind, Ref, Value, codes};
 use zumen_drawing::{
-    Changes, Color, ColorCode, ColorSystem, DimensionStyle, Drawing2D, Edit, Element, Hash,
-    Inherit, Layer, LayerId, LayerState, LayerStyle, LineType, LineTypeId, ModelPoint, PaperPoint,
-    Placed, Seen, Shape, SheetItem, SpaceId, SymbolKey, TextStyle, Unit, id,
+    Changes, Color, ColorCode, ColorSystem, DimensionStyle, Drawing2D, Edit, Element, Inherit,
+    Layer, LayerId, LayerState, LayerStyle, LineType, LineTypeId, ModelPoint, PaperPoint, Placed,
+    Shape, SheetItem, SpaceId, SymbolKey, TextStyle, Unit, id,
 };
 use zumen_sdk::{Apply, Codec, Error, Lift};
 
@@ -29,9 +30,9 @@ pub(crate) struct Converted {
 
 /// 図面モデルを、新しい DXF（R2004）に書く
 pub(crate) fn to_dxf(drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<Converted, Failed> {
-    let mut lost = Lost::default();
+    let mut lost = Lost::new(cx.diag.max_places());
     let blocks = block_names(drawing, &mut lost);
-    let (template, placeholder) = template(drawing, &blocks);
+    let template = template(drawing, &blocks);
     cx.check(Kind::Work, template.len() as u64)
         .map_err(|stop| stopped(cx, stop))?;
     let mut file = quiet(cx, |cx| Dxf::read(&template, cx)).map_err(|error| failed(cx, error))?;
@@ -42,18 +43,19 @@ pub(crate) fn to_dxf(drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<Converted, 
     for line_type in &drawing.line_types {
         cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
         if line_type.definition.is_some() && find_line_type(&target, &line_type.name).is_none() {
-            edits.push((
+            edits.push(Addition::new(
                 Edit::AddLineType {
                     line_type: Box::new(line_type.clone()),
                 },
                 "line_type",
+                &line_type.source,
             ));
         }
     }
     for style in &drawing.text_styles {
         cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
         if style.definition.is_some() && target.text_style(&style.name).is_none() {
-            edits.push((
+            edits.push(Addition::new(
                 Edit::AddTextStyle {
                     style: Box::new(TextStyle {
                         name: style.name.clone(),
@@ -62,6 +64,7 @@ pub(crate) fn to_dxf(drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<Converted, 
                     }),
                 },
                 "text_style",
+                &style.source,
             ));
         }
     }
@@ -72,7 +75,7 @@ pub(crate) fn to_dxf(drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<Converted, 
             .iter()
             .any(|known| known.name.eq_ignore_ascii_case(&style.name))
         {
-            edits.push((
+            edits.push(Addition::new(
                 Edit::AddDimensionStyle {
                     style: Box::new(DimensionStyle {
                         source: zumen_base::Ref::default(),
@@ -80,6 +83,7 @@ pub(crate) fn to_dxf(drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<Converted, 
                     }),
                 },
                 "dimension_style",
+                &style.source,
             ));
         }
     }
@@ -126,7 +130,7 @@ pub(crate) fn to_dxf(drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<Converted, 
                 ..state
             },
         );
-        edits.push((
+        edits.push(Addition::new(
             Edit::AddLayer {
                 layer: Box::new(Layer {
                     state: Some(state),
@@ -142,6 +146,7 @@ pub(crate) fn to_dxf(drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<Converted, 
                 }),
             },
             "layer",
+            &layer.source,
         ));
     }
     add_all(&mut file, edits, &mut lost, cx)?;
@@ -177,14 +182,14 @@ pub(crate) fn to_dxf(drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<Converted, 
             cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
             if attribute.constant && !attribute.attribute.hidden {
                 let text = Element {
-                    source: zumen_base::Ref::default(),
+                    source: attribute.attribute.source.clone(),
                     layer: attribute.attribute.layer,
                     style: attribute.attribute.style,
                     shape: Shape::Text(attribute.attribute.text.clone()),
                 };
                 maps.element(&text, place, &mut edits, &mut lost);
             } else {
-                lost.add("attribute_definition");
+                lost.add("attribute_definition", &attribute.attribute.source);
             }
         }
     }
@@ -208,13 +213,12 @@ pub(crate) fn to_dxf(drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<Converted, 
         },
         wrap: Placed::Paper,
     });
-    let mut baked = 0_u64;
     for (index, sheet) in drawing.sheets.iter().enumerate() {
         cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
         let Some(paper) = paper.as_ref().filter(|_| index == 0) else {
-            lost.add("sheet");
-            if !sheet.views.is_empty() {
-                lost.add_many("view", sheet.views.len() as u64);
+            lost.add("sheet", &sheet.source);
+            for view in &sheet.views {
+                lost.add("view", &view.source);
             }
             continue;
         };
@@ -246,58 +250,33 @@ pub(crate) fn to_dxf(drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<Converted, 
                     }
                     let space = drawing.spaces.iter().find(|space| space.id == view.space);
                     let Some(space) = space.filter(|_| bake::bakes(view)) else {
-                        lost.add("view");
+                        lost.add("view", &view.source);
                         continue;
                     };
-                    baked += 1;
+                    cx.report(
+                        Diagnostic::new(codes::CONVERT_VIEW_APPROXIMATED)
+                            .with("format", "DXF")
+                            .at(view.source.clone()),
+                    );
                     for element in bake::bake(space, view) {
                         cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
                         match element {
                             Ok(element) => maps.element(&element, paper, &mut edits, &mut lost),
-                            Err(element) => lost.add(kind_of(&element.shape)),
+                            Err(element) => lost.add(kind_of(&element.shape), &element.source),
                         }
                     }
                 }
             }
         }
     }
-    for _ in 0..baked {
-        cx.report(Diagnostic::new(codes::CONVERT_VIEW_APPROXIMATED).with("format", "DXF"));
-    }
     lost.added = 0;
     add_all(&mut file, edits, &mut lost, cx)?;
     let elements = lost.added;
 
-    // 4. 用紙を作るために置いた点を除く
-    if let Some(handle) = placeholder {
-        let target = lift(&file, cx)?;
-        let found = target.sheets.first().and_then(|sheet| {
-            let place = id::sheet(sheet);
-            let mut namer = id::Namer::new(&place);
-            sheet
-                .elements
-                .iter()
-                .enumerate()
-                .find_map(|(index, element)| {
-                    let id = namer.next(index, element);
-                    (element.source.key() == Some(zumen_base::Key::Handle(handle))).then(|| Seen {
-                        id,
-                        hash: Hash::element(element),
-                    })
-                })
-        });
-        if let Some(target) = found {
-            let changes = Changes {
-                edits: vec![Edit::Remove { target }],
-                document: None,
-            };
-            quiet(cx, |cx| file.apply(&changes, cx)).map_err(|error| failed(cx, error))?;
-        }
-    }
-
+    quiet(cx, |cx| update_table_counts(&mut file, cx)).map_err(|error| failed(cx, error))?;
     let mut bytes = Vec::new();
     Dxf::write(&file, &mut bytes, cx).map_err(|_| Failed)?;
-    lost.report("DXF", cx);
+    lost.report(cx);
     Ok(Converted {
         file,
         bytes,
@@ -305,38 +284,89 @@ pub(crate) fn to_dxf(drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<Converted, 
     })
 }
 
+/// DXF Reference「Symbol Table Group Codes」の TABLE の 70 は、項目数の上限。
+/// apply で追加した後の実際の項目数を書き、ひな形の初期値のままにしない。
+fn update_table_counts(file: &mut DxfFile, cx: &mut Cx<'_>) -> Result<(), Error> {
+    let mut db = file.objects(cx)?;
+    let mut current: Option<(usize, i64)> = None;
+    let mut tables = Vec::new();
+    for (index, object) in db.objects().iter().enumerate() {
+        cx.check(Kind::Work, 1)?;
+        if object.section != Section::Tables {
+            continue;
+        }
+        match object.kind.as_slice() {
+            b"TABLE" => current = Some((index, 0)),
+            b"ENDTAB" => {
+                if let Some(table) = current.take() {
+                    tables.push(table);
+                }
+            }
+            _ => {
+                if let Some((_, count)) = &mut current {
+                    *count = count.saturating_add(1);
+                }
+            }
+        }
+    }
+    for (index, count) in tables {
+        let object = db.object_mut(index).ok_or(Error::Invalid)?;
+        let value = object
+            .values
+            .iter_mut()
+            .find(|value| value.code == 70)
+            .ok_or(Error::Invalid)?;
+        value.data = Data::Int(count);
+    }
+    file.write_back(&db, cx)
+}
+
 /// 書けなかったものの、種類ごとの件数
-#[derive(Default)]
 struct Lost {
-    kinds: BTreeMap<&'static str, u64>,
+    diagnostics: Diagnostics,
     /// 足した要素の数
     added: u64,
-    /// 記号から離した文字にした属性の数
-    detached: u64,
 }
 
 impl Lost {
-    fn add(&mut self, kind: &'static str) {
-        self.add_many(kind, 1);
-    }
-
-    fn add_many(&mut self, kind: &'static str, count: u64) {
-        *self.kinds.entry(kind).or_insert(0) += count;
-    }
-
-    fn report(self, format: &str, cx: &mut Cx<'_>) {
-        // 同じ値の診断は 1 つにまとまり、件数（count）を数える
-        for _ in 0..self.detached {
-            cx.report(Diagnostic::new(codes::CONVERT_ATTRIBUTE_DRAWN).with("format", format));
+    fn new(max_places: usize) -> Self {
+        Self {
+            diagnostics: Diagnostics::with_max_places(max_places),
+            added: 0,
         }
-        for (kind, count) in self.kinds {
-            for _ in 0..count {
-                cx.report(
-                    Diagnostic::new(codes::CONVERT_ELEMENT_UNSUPPORTED)
-                        .with("kind", Value::Key(kind))
-                        .with("format", format),
-                );
-            }
+    }
+
+    fn add(&mut self, kind: &'static str, source: &Ref) {
+        self.diagnostics.report(
+            Diagnostic::new(codes::CONVERT_ELEMENT_UNSUPPORTED)
+                .with("kind", Value::Key(kind))
+                .with("format", "DXF")
+                .at(source.clone()),
+        );
+    }
+
+    fn report(self, cx: &mut Cx<'_>) {
+        for diagnostic in self.diagnostics.into_vec() {
+            cx.report(diagnostic);
+        }
+    }
+}
+
+/// 追加と、失敗したときに返す元の種類・場所。属性の描画は、追加が通ってから数える。
+struct Addition {
+    edit: Edit,
+    kind: &'static str,
+    source: Ref,
+    detached: bool,
+}
+
+impl Addition {
+    fn new(edit: Edit, kind: &'static str, source: &Ref) -> Self {
+        Self {
+            edit,
+            kind,
+            source: source.clone(),
+            detached: false,
         }
     }
 }
@@ -355,12 +385,12 @@ impl Maps<'_> {
         &self,
         element: &Element<P>,
         place: &Place<P>,
-        edits: &mut Vec<(Edit, &'static str)>,
+        edits: &mut Vec<Addition>,
         lost: &mut Lost,
     ) {
         let kind = kind_of(&element.shape);
         let Some(mut geometry) = geometry::geometry_of(&element.shape) else {
-            lost.add(kind);
+            lost.add(kind, &element.source);
             return;
         };
         let mut detached = Vec::new();
@@ -371,11 +401,11 @@ impl Maps<'_> {
             }
             Geometry::Symbol(symbol) => {
                 let Shape::Symbol(source) = &element.shape else {
-                    lost.add(kind);
+                    lost.add(kind, &element.source);
                     return;
                 };
                 let Some(name) = self.blocks.get(&key_of(&source.key)) else {
-                    lost.add("external_symbol");
+                    lost.add("external_symbol", &element.source);
                     return;
                 };
                 symbol.name = name.clone();
@@ -383,7 +413,7 @@ impl Maps<'_> {
                 for attribute in &source.attributes {
                     if !attribute.hidden {
                         detached.push(Element {
-                            source: zumen_base::Ref::default(),
+                            source: attribute.source.clone(),
                             layer: attribute.layer,
                             style: attribute.style,
                             shape: Shape::Text(attribute.text.clone()),
@@ -394,36 +424,39 @@ impl Maps<'_> {
             _ => {}
         }
         let Ok(shape) = geometry::shape_of(&geometry, None, place.origin) else {
-            lost.add(kind);
+            lost.add(kind, &element.source);
+            return;
+        };
+        let Some(layer) = self.layer(element.layer) else {
+            lost.add(kind, &element.source);
             return;
         };
         let element_of = |shape| Element {
             source: zumen_base::Ref::default(),
-            layer: self.layer(element.layer),
+            layer,
             style: self.style(&element.style),
             shape,
         };
-        edits.push((
+        edits.push(Addition::new(
             Edit::Add {
                 place: place.id.clone(),
                 element: Box::new((place.wrap)(element_of(shape))),
             },
             kind,
+            &element.source,
         ));
         for text in detached {
             let before = edits.len();
             self.element(&text, place, edits, lost);
-            if edits.len() > before {
-                lost.detached += 1;
+            if let Some(addition) = edits.get_mut(before) {
+                addition.detached = true;
             }
         }
     }
 
-    fn layer(&self, layer: LayerId) -> LayerId {
-        let name = self.source.layer(layer).map_or("0", |layer| &layer.name);
-        find_layer(self.target, name)
-            .or_else(|| find_layer(self.target, "0"))
-            .map_or(layer, |layer| layer.id)
+    fn layer(&self, layer: LayerId) -> Option<LayerId> {
+        let name = &self.source.layer(layer)?.name;
+        find_layer(self.target, name).map(|layer| layer.id)
     }
 
     fn style(&self, style: &zumen_drawing::Style) -> zumen_drawing::Style {
@@ -490,7 +523,7 @@ fn model_place(id: String, space: SpaceId) -> Place<ModelPoint> {
 /// 当てられなかった試しの診断は捨てる
 fn add_all(
     file: &mut DxfFile,
-    edits: Vec<(Edit, &'static str)>,
+    edits: Vec<Addition>,
     lost: &mut Lost,
     cx: &mut Cx<'_>,
 ) -> Result<(), Failed> {
@@ -502,19 +535,26 @@ fn add_all(
         cx.check(Kind::Work, edits.len() as u64)
             .map_err(|stop| stopped(cx, stop))?;
         let changes = Changes {
-            edits: edits.iter().map(|(edit, _)| edit.clone()).collect(),
+            edits: edits.iter().map(|addition| addition.edit.clone()).collect(),
             document: None,
         };
         match quiet(cx, |cx| file.apply(&changes, cx)) {
             Ok(_) => {
                 lost.added += edits
                     .iter()
-                    .filter(|(edit, _)| matches!(edit, Edit::Add { .. }))
+                    .filter(|addition| matches!(addition.edit, Edit::Add { .. }))
                     .count() as u64;
+                for addition in edits.iter().filter(|addition| addition.detached) {
+                    lost.diagnostics.report(
+                        Diagnostic::new(codes::CONVERT_ATTRIBUTE_DRAWN)
+                            .with("format", "DXF")
+                            .at(addition.source.clone()),
+                    );
+                }
             }
             Err(Error::Rejected | Error::Invalid | Error::Unsupported) => {
-                if let [(_, kind)] = edits.as_slice() {
-                    lost.add(kind);
+                if let [addition] = edits.as_slice() {
+                    lost.add(addition.kind, &addition.source);
                 } else {
                     let mut first = edits;
                     let second = first.split_off(first.len() / 2);
@@ -587,7 +627,7 @@ fn block_names(drawing: &Drawing2D, lost: &mut Lost) -> BTreeMap<(String, String
     }
     for (index, definition) in drawing.symbols.iter().enumerate() {
         if definition.external.is_some() {
-            lost.add("external_symbol_definition");
+            lost.add("external_symbol_definition", &definition.source);
             continue;
         }
         let base = if definition.anonymous || definition.key.name.starts_with('*') {
@@ -606,7 +646,12 @@ fn block_names(drawing: &Drawing2D, lost: &mut Lost) -> BTreeMap<(String, String
                 })
                 .collect()
         };
-        let base = if base.is_empty() {
+        let (encoded, _, unmappable) = encoding_rs::SHIFT_JIS.encode(&base);
+        let round_trips = !unmappable
+            && encoding_rs::SHIFT_JIS
+                .decode_without_bom_handling_and_without_replacement(&encoded)
+                .is_some_and(|decoded| decoded == base);
+        let base = if base.is_empty() || !round_trips {
             format!("zumen_{index}")
         } else {
             base
@@ -665,19 +710,22 @@ fn is_aci(code: &ColorCode) -> bool {
     code.system == ColorSystem::Aci && (1..=255).contains(&code.value)
 }
 
-/// ひな形の DXF（R2004）。表の既定の項目と、記号の定義の空の部品を持つ。用紙に書く要素があれば、
-/// 用紙を作るための点をペーパー空間に置き、そのハンドルを返す
-fn template(
-    drawing: &Drawing2D,
-    blocks: &BTreeMap<(String, String), String>,
-) -> (Vec<u8>, Option<u64>) {
+/// ひな形の DXF（R2004）。DXF Reference「TABLES Section」「Common Group Codes for
+/// Symbol Table Entries」「BLOCK」「ENDBLK」「BLOCK_RECORD」「DICTIONARY」「LAYOUT」に従い、
+/// 表とブロックの所有者・サブクラスと、モデル・用紙のレイアウトを持つ。用紙への追加には空の LAYOUT を使う。
+fn template(drawing: &Drawing2D, blocks: &BTreeMap<(String, String), String>) -> Vec<u8> {
     let mut handle = 0x10_u64;
     let mut next = || {
         handle += 1;
         format!("{handle:X}")
     };
-    let mut tables = String::new();
-    tables.push_str("0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nLTYPE\n");
+    let root = next();
+    let layouts = next();
+    let model_layout = next();
+    let paper_layout = next();
+    let mut tables = String::from("0\nSECTION\n2\nTABLES\n");
+    let table = next();
+    tables.push_str(&table_start("LTYPE", &table, 3));
     for name in ["ByBlock", "ByLayer", "Continuous"] {
         let description = if name == "Continuous" {
             "Solid line"
@@ -685,48 +733,72 @@ fn template(
             ""
         };
         tables.push_str(&format!(
-            "0\nLTYPE\n5\n{}\n2\n{name}\n70\n0\n3\n{description}\n72\n65\n73\n0\n40\n0.0\n",
+            "0\nLTYPE\n5\n{}\n330\n{table}\n100\nAcDbSymbolTableRecord\n100\nAcDbLinetypeTableRecord\n2\n{name}\n70\n0\n3\n{description}\n72\n65\n73\n0\n40\n0.0\n",
             next()
         ));
     }
-    tables.push_str("0\nENDTAB\n0\nTABLE\n2\nLAYER\n");
+    tables.push_str("0\nENDTAB\n");
+    let table = next();
+    tables.push_str(&table_start("LAYER", &table, 1));
     tables.push_str(&format!(
-        "0\nLAYER\n5\n{}\n2\n0\n70\n0\n62\n7\n6\nContinuous\n",
+        "0\nLAYER\n5\n{}\n330\n{table}\n100\nAcDbSymbolTableRecord\n100\nAcDbLayerTableRecord\n2\n0\n70\n0\n62\n7\n6\nContinuous\n290\n1\n370\n-3\n",
         next()
     ));
-    tables.push_str("0\nENDTAB\n0\nTABLE\n2\nSTYLE\n");
+    tables.push_str("0\nENDTAB\n");
+    let table = next();
+    let style = next();
+    tables.push_str(&table_start("STYLE", &table, 1));
     tables.push_str(&format!(
-        "0\nSTYLE\n5\n{}\n2\nStandard\n70\n0\n40\n0.0\n41\n1.0\n50\n0.0\n71\n0\n42\n2.5\n3\ntxt\n4\n\n",
+        "0\nSTYLE\n5\n{style}\n330\n{table}\n100\nAcDbSymbolTableRecord\n100\nAcDbTextStyleTableRecord\n2\nStandard\n70\n0\n40\n0.0\n41\n1.0\n50\n0.0\n71\n0\n42\n2.5\n3\ntxt\n4\n\n"
+    ));
+    tables.push_str("0\nENDTAB\n");
+    let table = next();
+    tables.push_str(&table_start("DIMSTYLE", &table, 1));
+    tables.push_str("100\nAcDbDimStyleTable\n71\n0\n");
+    tables.push_str(&format!(
+        "0\nDIMSTYLE\n105\n{}\n330\n{table}\n100\nAcDbSymbolTableRecord\n100\nAcDbDimStyleTableRecord\n2\nStandard\n70\n0\n340\n{style}\n",
         next()
     ));
-    tables.push_str("0\nENDTAB\n0\nTABLE\n2\nDIMSTYLE\n");
-    tables.push_str(&format!(
-        "0\nDIMSTYLE\n105\n{}\n2\nStandard\n70\n0\n",
-        next()
-    ));
-    tables.push_str("0\nENDTAB\n0\nTABLE\n2\nBLOCK_RECORD\n");
+    tables.push_str("0\nENDTAB\n");
+    let table = next();
+    let model_record = next();
+    let paper_record = next();
     let mut parts = vec![
-        ("*Model_Space".to_string(), [0.0, 0.0]),
-        ("*Paper_Space".to_string(), [0.0, 0.0]),
+        (
+            "*Model_Space".to_string(),
+            [0.0, 0.0],
+            model_record.clone(),
+            Some(&model_layout),
+        ),
+        (
+            "*Paper_Space".to_string(),
+            [0.0, 0.0],
+            paper_record.clone(),
+            Some(&paper_layout),
+        ),
     ];
     for definition in &drawing.symbols {
         if let Some(name) = blocks.get(&key_of(&definition.key)) {
             let base = definition.base.map_or([0.0, 0.0], |base| [base.x, base.y]);
-            parts.push((name.clone(), base));
+            parts.push((name.clone(), base, next(), None));
         }
     }
-    for (name, _) in &parts {
-        tables.push_str(&format!("0\nBLOCK_RECORD\n5\n{}\n2\n{name}\n", next()));
-    }
-    tables.push_str("0\nENDTAB\n0\nENDSEC\n");
+    tables.push_str(&table_start("BLOCK_RECORD", &table, parts.len()));
     let mut section = String::from("0\nSECTION\n2\nBLOCKS\n");
-    for (name, [x, y]) in &parts {
+    for (name, [x, y], record, layout) in &parts {
+        tables.push_str(&format!(
+            "0\nBLOCK_RECORD\n5\n{record}\n330\n{table}\n100\nAcDbSymbolTableRecord\n100\nAcDbBlockTableRecord\n2\n{name}\n"
+        ));
+        if let Some(layout) = layout {
+            tables.push_str(&format!("340\n{layout}\n"));
+        }
         section.push_str(&format!(
-            "0\nBLOCK\n5\n{}\n8\n0\n2\n{name}\n70\n0\n10\n{x:?}\n20\n{y:?}\n30\n0.0\n3\n{name}\n1\n\n0\nENDBLK\n5\n{}\n8\n0\n",
+            "0\nBLOCK\n5\n{}\n330\n{record}\n100\nAcDbEntity\n8\n0\n100\nAcDbBlockBegin\n2\n{name}\n70\n0\n10\n{x:?}\n20\n{y:?}\n30\n0.0\n3\n{name}\n1\n\n0\nENDBLK\n5\n{}\n330\n{record}\n100\nAcDbEntity\n8\n0\n100\nAcDbBlockEnd\n",
             next(),
             next()
         ));
     }
+    tables.push_str("0\nENDTAB\n0\nENDSEC\n");
     section.push_str("0\nENDSEC\n");
     let unit = match drawing.spaces.first().map(|space| space.unit) {
         Some(Unit::Millimeter) => 4,
@@ -734,49 +806,86 @@ fn template(
         Some(Unit::Meter) => 6,
         Some(Unit::Inch) => 1,
         Some(Unit::Foot) => 2,
-        // 実寸の空間のない図面（SXF）は、用紙の単位の mm にする
         None => 4,
         _ => 0,
     };
-    let placeholder = drawing
-        .sheets
-        .first()
-        .is_some_and(|sheet| !sheet.elements.is_empty() || sheet.views.iter().any(bake::bakes))
-        .then(&mut next);
-    let seed = next();
-    // 用紙の大きさ。DXF の用紙の限界は図面の単位（INSUNITS）で書くので、mm から直す
+    // 用紙の座標は従来どおり INSUNITS の単位。LAYOUT の印刷尺度にも 1 単位の mm を書く。
     let mm = drawing
         .spaces
         .first()
         .and_then(|space| space.unit.millimeters())
         .unwrap_or(1.0);
-    let limits = drawing.sheets.first().and_then(|sheet| sheet.size).map_or(
-        String::new(),
-        |[width, height]| {
-            format!(
-                "9\n$PLIMMIN\n10\n0.0\n20\n0.0\n9\n$PLIMMAX\n10\n{:?}\n20\n{:?}\n",
-                width.0 / mm,
-                height.0 / mm
-            )
-        },
-    );
-    let mut out = format!(
-        "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1018\n9\n$INSUNITS\n70\n{unit}\n{limits}9\n$HANDSEED\n5\n{seed}\n0\nENDSEC\n"
-    );
-    out.push_str(&tables);
-    out.push_str(&section);
-    out.push_str("0\nSECTION\n2\nENTITIES\n");
-    if let Some(handle) = &placeholder {
-        out.push_str(&format!(
-            "0\nPOINT\n5\n{handle}\n8\n0\n67\n1\n10\n0.0\n20\n0.0\n30\n0.0\n"
-        ));
-    }
+    let size = drawing
+        .sheets
+        .first()
+        .and_then(|sheet| sheet.size)
+        .map(|size| size.map(|s| s.0));
+    let limits = size.map_or(String::new(), |[width, height]| {
+        format!(
+            "9\n$PLIMMIN\n10\n0.0\n20\n0.0\n9\n$PLIMMAX\n10\n{:?}\n20\n{:?}\n",
+            width / mm,
+            height / mm
+        )
+    });
+    let mut entities = String::from("0\nSECTION\n2\nENTITIES\n");
     if let Some(sheet) = drawing.sheets.first() {
-        out.push_str(&viewports(sheet, mm, &mut next));
+        entities.push_str(&viewports(sheet, mm, &paper_record, &mut next));
     }
-    out.push_str("0\nENDSEC\n0\nEOF\n");
-    let placeholder = placeholder.and_then(|handle| u64::from_str_radix(&handle, 16).ok());
-    (out.into_bytes(), placeholder)
+    entities.push_str("0\nENDSEC\n");
+    let mut objects = format!(
+        "0\nSECTION\n2\nOBJECTS\n0\nDICTIONARY\n5\n{root}\n330\n0\n100\nAcDbDictionary\n281\n1\n3\nACAD_LAYOUT\n350\n{layouts}\n0\nDICTIONARY\n5\n{layouts}\n330\n{root}\n100\nAcDbDictionary\n281\n1\n3\nModel\n350\n{model_layout}\n3\nLayout1\n350\n{paper_layout}\n"
+    );
+    objects.push_str(&layout(
+        &model_layout,
+        &layouts,
+        &model_record,
+        "Model",
+        None,
+        1.0,
+        true,
+    ));
+    objects.push_str(&layout(
+        &paper_layout,
+        &layouts,
+        &paper_record,
+        "Layout1",
+        size,
+        mm,
+        false,
+    ));
+    objects.push_str("0\nENDSEC\n");
+    // VIEWPORT を含むすべてのハンドルを割り当てた後の、まだ使っていない値。
+    let seed = next();
+    let out = format!(
+        "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1018\n9\n$DWGCODEPAGE\n3\nANSI_932\n9\n$INSUNITS\n70\n{unit}\n{limits}9\n$HANDSEED\n5\n{seed}\n0\nENDSEC\n{tables}{section}{entities}{objects}0\nEOF\n"
+    );
+    // ASCII 以外は block_names で ANSI_932 に戻せると確かめた名前だけ。
+    let (bytes, _, unmappable) = encoding_rs::SHIFT_JIS.encode(&out);
+    debug_assert!(!unmappable);
+    bytes.into_owned()
+}
+
+fn table_start(name: &str, handle: &str, count: usize) -> String {
+    format!("0\nTABLE\n2\n{name}\n5\n{handle}\n330\n0\n100\nAcDbSymbolTable\n70\n{count}\n")
+}
+
+/// DXF Reference「LAYOUT」「PLOTSETTINGS」。印刷する用紙の単位は mm、尺度は mm/図面単位。
+fn layout(
+    handle: &str,
+    owner: &str,
+    block: &str,
+    name: &str,
+    size: Option<[f64; 2]>,
+    mm: f64,
+    model: bool,
+) -> String {
+    let [width, height] = size.unwrap_or([0.0, 0.0]);
+    let [x, y] = [width / mm, height / mm];
+    let flags = if model { 1024 } else { 0 };
+    let tab = usize::from(!model);
+    format!(
+        "0\nLAYOUT\n5\n{handle}\n330\n{owner}\n100\nAcDbPlotSettings\n1\n\n2\n\n4\n\n6\n\n40\n0.0\n41\n0.0\n42\n0.0\n43\n0.0\n44\n{width:?}\n45\n{height:?}\n46\n0.0\n47\n0.0\n142\n{mm:?}\n143\n1.0\n70\n{flags}\n72\n1\n73\n0\n74\n5\n7\n\n75\n0\n147\n{mm:?}\n100\nAcDbLayout\n1\n{name}\n70\n1\n71\n{tab}\n10\n0.0\n20\n0.0\n11\n{x:?}\n21\n{y:?}\n12\n0.0\n22\n0.0\n32\n0.0\n14\n0.0\n24\n0.0\n34\n0.0\n15\n{x:?}\n25\n{y:?}\n35\n0.0\n146\n0.0\n13\n0.0\n23\n0.0\n33\n0.0\n16\n1.0\n26\n0.0\n36\n0.0\n17\n0.0\n27\n1.0\n37\n0.0\n76\n0\n330\n{block}\n"
+    )
 }
 
 /// 実寸の空間 `space` を、DXF のモデル空間に書くか。どの用紙のビューにも置かれない空間と、書く用紙（1 枚目）が
@@ -854,7 +963,12 @@ fn port(view: &zumen_drawing::View, sheet: &zumen_drawing::Sheet) -> Option<Port
 
 /// 用紙のビューのうち VIEWPORT で書けるものと、用紙そのものを表すビューポート（69 = 1）。用紙の値は、図面の
 /// 単位（1 単位が `mm` mm）で書く
-fn viewports(sheet: &zumen_drawing::Sheet, mm: f64, next: &mut impl FnMut() -> String) -> String {
+fn viewports(
+    sheet: &zumen_drawing::Sheet,
+    mm: f64,
+    owner: &str,
+    next: &mut impl FnMut() -> String,
+) -> String {
     let ports: Vec<Port> = sheet
         .views
         .iter()
@@ -868,7 +982,7 @@ fn viewports(sheet: &zumen_drawing::Sheet, mm: f64, next: &mut impl FnMut() -> S
         let [width, height] = port.size.map(|v| v / mm);
         let [tx, ty] = port.target;
         format!(
-            "0\nVIEWPORT\n5\n{handle}\n8\n0\n67\n1\n10\n{cx:?}\n20\n{cy:?}\n30\n0.0\n40\n{width:?}\n41\n{height:?}\n68\n1\n69\n{id}\n12\n{tx:?}\n22\n{ty:?}\n45\n{:?}\n",
+            "0\nVIEWPORT\n5\n{handle}\n330\n{owner}\n100\nAcDbEntity\n67\n1\n8\n0\n100\nAcDbViewport\n10\n{cx:?}\n20\n{cy:?}\n30\n0.0\n40\n{width:?}\n41\n{height:?}\n68\n1\n69\n{id}\n12\n{tx:?}\n22\n{ty:?}\n16\n0.0\n26\n0.0\n36\n1.0\n17\n0.0\n27\n0.0\n37\n0.0\n45\n{:?}\n90\n32768\n",
             port.height
         )
     };
@@ -892,9 +1006,83 @@ fn viewports(sheet: &zumen_drawing::Sheet, mm: f64, next: &mut impl FnMut() -> S
 #[cfg(test)]
 mod tests {
     use super::*;
+    use zumen_acad::db::Data;
     use zumen_base::{Budget, CancelToken, Limits, Ref};
     use zumen_civil::{Alignment, CivilModel, Horizontal, HorizontalKind, Vertical, VerticalKind};
     use zumen_crs::MapPoint;
+
+    /// R2004 の表・図形・レイアウトを結ぶ参照は、すべてファイルの中の正しい種類を指す。
+    fn r2004_structure(file: &DxfFile, cx: &mut Cx<'_>) {
+        let db = file.objects(cx).unwrap();
+        let mut handles = std::collections::BTreeSet::new();
+        for object in db.objects() {
+            let Some(handle) = object.handle() else {
+                assert_eq!(object.kind, b"ENDTAB");
+                continue;
+            };
+            assert!(handles.insert(handle), "同じハンドルがある: {handle:X}");
+            let owner = object.owner().unwrap();
+            if owner != 0 {
+                assert!(db.get(owner).is_some(), "所有者がない: {owner:X}");
+            }
+            let subclass = |name: &[u8]| {
+                object
+                    .values
+                    .iter()
+                    .any(|value| value.code == 100 && value.data == Data::Text(name.to_vec()))
+            };
+            match object.kind.as_slice() {
+                b"TABLE" => {
+                    assert!(subclass(b"AcDbSymbolTable"));
+                    let entries = db
+                        .objects()
+                        .iter()
+                        .filter(|entry| {
+                            entry.section == Section::Tables && entry.owner() == Some(handle)
+                        })
+                        .count();
+                    assert_eq!(object.first(70), Some(&Data::Int(entries as i64)));
+                }
+                b"LTYPE" | b"LAYER" | b"STYLE" | b"DIMSTYLE" | b"BLOCK_RECORD" => {
+                    assert!(subclass(b"AcDbSymbolTableRecord"));
+                    assert_eq!(db.get(owner).unwrap().kind, b"TABLE");
+                }
+                b"BLOCK" | b"ENDBLK" | b"VIEWPORT" | b"LINE" | b"LWPOLYLINE" | b"TEXT" => {
+                    assert!(subclass(b"AcDbEntity"));
+                    assert_eq!(db.get(owner).unwrap().kind, b"BLOCK_RECORD");
+                    if object.kind == b"VIEWPORT" {
+                        assert!(subclass(b"AcDbViewport"));
+                    }
+                }
+                b"LAYOUT" => {
+                    assert!(subclass(b"AcDbPlotSettings") && subclass(b"AcDbLayout"));
+                    assert_eq!(db.get(owner).unwrap().kind, b"DICTIONARY");
+                    let block = object
+                        .values
+                        .iter()
+                        .rfind(|value| value.code == 330)
+                        .unwrap();
+                    let Data::Handle(block) = block.data else {
+                        panic!("ブロックの参照がない")
+                    };
+                    let block = db.get(block).unwrap();
+                    assert_eq!(block.kind, b"BLOCK_RECORD");
+                    assert_eq!(block.first(340), Some(&Data::Handle(handle)));
+                }
+                _ => {}
+            }
+        }
+        let seed = &db.variable(b"$HANDSEED").unwrap()[0].data;
+        let Data::Handle(seed) = seed else {
+            panic!("次のハンドルがない")
+        };
+        assert!(handles.last().unwrap() < seed);
+        assert_eq!(
+            db.objects().iter().filter(|o| o.kind == b"LAYOUT").count(),
+            2
+        );
+        assert!(!db.objects().iter().any(|o| o.kind == b"POINT"));
+    }
 
     /// 北へ 220 m の直線と、勾配・放物線・勾配の縦断
     fn model() -> CivilModel {
@@ -990,6 +1178,7 @@ mod tests {
             let Ok(converted) = to_dxf(&drawing, &mut cx) else {
                 panic!("書けない");
             };
+            r2004_structure(&converted.file, &mut cx);
             let Ok(read) = lift(&converted.file, &mut cx) else {
                 panic!("読めない");
             };
@@ -1040,6 +1229,7 @@ mod tests {
             let Ok(converted) = to_dxf(&drawing, &mut cx) else {
                 panic!("書けない");
             };
+            r2004_structure(&converted.file, &mut cx);
             let Ok(read) = lift(&converted.file, &mut cx) else {
                 panic!("読めない");
             };

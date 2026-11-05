@@ -42,5 +42,6 @@
 
 ## 参照
 
+- R2004 のひな形・空の LAYOUT への追加・画層と診断の扱いの補足は、[DXF の新しい DXF への変換](../formats/dxf.md#新しい-dxf-への変換)（#509）にある。
 - [0139](0139-drawing-apply.md)・[0155](0155-drawing-apply-additions.md)・[0162](0162-drawing-layer-changes.md)
 - #359

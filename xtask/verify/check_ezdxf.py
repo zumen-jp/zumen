@@ -30,8 +30,6 @@ from compare import ATTACHMENTS, check_handles, lifted_away_records, run, told, 
 # 既知の食い違い: (ファイルの道筋の初め, 食い違いの文の初め, issue, 当たるファイルの数)。直ったら消す。当たる数が
 # 変わったら失敗にする（直ったものと、同じ形で新たに食い違うものを知らせる）
 KNOWN = [
-    ("convert/", "ezdxf が読めない: AttributeError: 'NoneType' object has no attribute 'get_xlist'", 509, 15),
-    ("convert/", "ezdxf の監査で直した誤り: {'INVALID_TABLE_HANDLE': 5}", 509, 19),
 ]
 
 
@@ -120,25 +118,39 @@ def geometry(e):
     return None
 
 
-def scan(path):
+def scan(path, encoding):
     """ハンドル → レコードの番号（zumen の DXF のレコードの区切り。グループ・コード 0 のタグから次の 0 の前まで）と、
-    ファイルの LAYER のレコードの名前。ezdxf は、読むときに Defpoints の画層を足すことがあるので、ファイルの名前と分ける"""
+    ファイルの LAYER の名前・TABLE の宣言件数と実件数。ezdxf が追加する Defpoints と分けるため、元の名前を同じ
+    文字コードで読む。encoding は R2007 以降なら UTF-8、それより前ならファイルのコード・ページ"""
     data = Path(path).read_bytes()
     if data.startswith(b"AutoCAD Binary DXF"):
-        return {}, None
+        return {}, None, []
     lines = data.splitlines()
     numbers, layers, record, kind, named = {}, set(), -1, None, False
+    tables, table = [], None
     for i in range(0, len(lines) - 1, 2):
         code, value = lines[i].strip(), lines[i + 1].strip()
         if code == b"0":
             record += 1
             kind, named = value, False
+            if kind == b"TABLE":
+                table = {"name": "", "declared": None, "actual": 0}
+            elif kind == b"ENDTAB":
+                if table is not None:
+                    tables.append(table)
+                    table = None
+            elif table is not None:
+                table["actual"] += 1
+        elif kind == b"TABLE" and table is not None and code == b"2":
+            table["name"] = value.decode("ascii")
+        elif kind == b"TABLE" and table is not None and code == b"70":
+            table["declared"] = int(value)
         elif code == b"5" or (code == b"105" and kind == b"DIMSTYLE"):
             numbers.setdefault(value.decode("ascii", "replace").upper(), max(record, 0))
         elif code == b"2" and kind == b"LAYER" and not named:
-            layers.add(value.decode("utf-8", "replace").lower())
+            layers.add(value.decode(encoding).lower())
             named = True
-    return numbers, layers
+    return numbers, layers, tables
 
 
 def view(doc, raw):
@@ -186,7 +198,11 @@ def check_file(folder, entry, reading, baseline, counts):
         return failures, audit
 
     # 画層の名前・ハンドルで結んだ図形・書き戻した値
-    numbers, raw = scan(path)
+    numbers, raw, tables = scan(path, doc.output_encoding)
+    if entry["role"] == "convert":
+        for table in tables:
+            if table["declared"] != table["actual"]:
+                failures.append(f"TABLE {table['name']} の宣言件数 {table['declared']} と実件数 {table['actual']} が違う")
     found, seen = check_handles(entry, reading, counts, view(doc, raw))
     failures += found
 
