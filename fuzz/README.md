@@ -11,6 +11,7 @@
 | `step` | ISO 10303-21 を、フィーチャのコメントを読まない書き方と読む書き方で読み、文字列を戻す。入れ子が予算で止まる |
 | `dxf`・`dwg`・`sxf`・`jww`・`pdf` | 読んで図面モデルに移す。`pdf` は、移した図面も 2 回で同じになることを確かめる（#506） |
 | `saf`・`drawing` | SXF の属性ファイルと、図面モデルのバイナリを読む |
+| `svg` | シーンのバイナリを検査して SVG を書く。SVG 自体は読まず、2 回の出力も一致することを確かめる |
 | `ifc` | IFC-SPF か ifcZIP を読み、建物モデルと土木の領域モデルに移す |
 | `express`・`ids`・`bcf` | EXPRESS のスキーマ・IDS・BCF を読む |
 | `landxml` | 読んで土木の領域モデルに移す |
@@ -67,11 +68,12 @@ cp Cargo.lock fuzz/Cargo.lock
 cargo "+$NIGHTLY" fuzz run -O --debug-assertions zip
 ```
 
-- `cargo xtask fuzz-seeds` は、どの target にも `fuzz/corpus/<target>/` に種を書きます。種にするのは、次の 4 つです（決定 0258）。受け取った図面と、国土地理院のデータは置きません（AGENTS.md、決定 0019）。
+- `cargo xtask fuzz-seeds` は、どの target にも `fuzz/corpus/<target>/` に種を書きます。種にするのは、次の 5 つです（決定 0258）。受け取った図面と、国土地理院のデータは置きません（AGENTS.md、決定 0019）。
   - 公開サンプル（`samples/`）
   - 適合テストの組の合成の入力と、`call` で渡す要求（1 つずつと、組ごとに並べた配列。決定 0262）。`call_text`・`call_hex` で渡す要求のバイト列（読めない要求と、BOM を付けた要求）も、1 つずつ種にします
   - L0 の攻撃の形（ZIP 爆弾・膨らむ deflate・アーカイブの入れ子・パスの走査・XML の外部実体と深い入れ子・ISO 10303-21 の深い入れ子）
   - 合成の格子（ISG・TKY2JGD・PatchJGD の形）
+  - 線と列の参照を持つ合成シーン（ZMSC、SVG を書く target 用）
 - `cp Cargo.lock fuzz/Cargo.lock` で、fuzz の crate の依存を、ワークスペースと同じバージョンから解きます。`fuzz/Cargo.lock` はリポジトリに入れません。
 - `cargo "+$NIGHTLY" fuzz list` で、target の一覧を出せます。
 - 見つけた入力は `fuzz/artifacts/` に出ます。直したら、その入力を最小にして、合成のテストに移します。`corpus` と `artifacts` はリポジトリに入れません。

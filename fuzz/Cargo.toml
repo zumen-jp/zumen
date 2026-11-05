@@ -41,6 +41,7 @@ zumen-photo = { path = "../crates/zumen-photo" }
 zumen-ply = { path = "../crates/zumen-ply" }
 zumen-pointcloud = { path = "../crates/zumen-pointcloud" }
 zumen-sdk = { path = "../crates/zumen-sdk" }
+zumen-render = { path = "../crates/zumen-render" }
 zumen-sheet = { path = "../crates/zumen-sheet" }
 zumen-step = { path = "../crates/zumen-step" }
 zumen-sxf = { path = "../crates/zumen-sxf" }
@@ -60,6 +61,13 @@ doc = false
 bench = false
 
 # L0
+[[bin]]
+name = "svg"
+path = "fuzz_targets/svg.rs"
+test = false
+doc = false
+bench = false
+
 [[bin]]
 name = "zip"
 path = "fuzz_targets/zip.rs"

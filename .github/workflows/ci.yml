@@ -211,6 +211,11 @@ jobs:
         run: cargo build --package zumen-abi --target wasm32-unknown-unknown --release --locked
       - name: ネイティブと同じハッシュの一覧になることを確かめる
         run: node bindings/conformance/wasm.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm
+      - name: シーンからの SVG のバイト列・診断・予算・停止が wasm とネイティブで同じことを確かめる（決定 0272）
+        run: |
+          cargo run --package zumen-render --example export --locked -- target/svg-check
+          cargo build --package zumen-render --example parity --target wasm32-unknown-unknown --locked
+          node crates/zumen-render/tests/wasm.mjs target/wasm32-unknown-unknown/debug/examples/parity.wasm target/svg-check/transcript.bin
       - name: 分けたモジュールをラッパーで読み込み、組に合うモジュールで流しても、同じハッシュの一覧になることを確かめる（決定 0221）
         run: node bindings/js/test/modules.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm modules/zumen_abi1_drawing.wasm modules/zumen_abi1_bim.wasm modules/zumen_abi1_civil.wasm modules/zumen_abi1_pointcloud.wasm modules/zumen_abi1_plugin.wasm
       - name: プラグインの形式だけを持つ wasm のモジュールを作り、読んだ図面を図面のモジュールで使えることを確かめる（決定 0243・0247）
@@ -244,6 +249,8 @@ jobs:
         run: npx --no-install playwright install --with-deps --only-shell chromium
       - name: ブラウザー（Chromium）の中でラッパーを通しても、同じハッシュの一覧になることを確かめる（決定 0199）
         run: node bindings/js/test/browser/run.mjs chromium target/wasm32-unknown-unknown/release/zumen_abi1.wasm modules/zumen_abi1_drawing.wasm modules/zumen_abi1_bim.wasm modules/zumen_abi1_civil.wasm modules/zumen_abi1_pointcloud.wasm modules/zumen_abi1_plugin.wasm
+      - name: 書いた SVG の描画順・字形・切り抜きを Chromium で照合する
+        run: node crates/zumen-render/tests/browser.mjs target/svg-check/drawing.svg target/svg-check/region.svg
       - name: Canvas 2D で合成シーンと DXF・JWW・SXF を描く（決定 0267）
         run: node bindings/js/test/browser/view2d.mjs chromium target/wasm32-unknown-unknown/release/zumen_abi1.wasm
       - name: npm のパッケージを Vite で組み、必要な wasm だけをブラウザーで読み込むことを確かめる（決定 0268）
