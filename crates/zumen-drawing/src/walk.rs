@@ -168,7 +168,7 @@ impl Drawing2D {
     /// 起点から配置をたどって、要素ごとに解いた値を返す（決定 0159）。起点がなければ空。
     /// 返す要素と配置の升ごとに `work` を 1 と数え、返す要素（属性を含む）を `elements` でも数え、配置の深さを
     /// `depth` で数える。返す要素は集めて返すので、`elements` で数えないと、升の多い格子の配置が、`work` の上限まで
-    /// 要素を集めて記憶を使い果たす（#517）。道筋に同じ定義がもう一度現れる配置はたどらずに
+    /// 要素を集めてメモリを使い果たす（#517）。道筋に同じ定義がもう一度現れる配置はたどらずに
     /// `drawing.placement.invalid` を返し、定義のない配置はたどらない
     pub fn walk(&self, origin: Origin, cx: &mut Cx<'_>) -> Result<Vec<Visit<'_>>, (Stop, Ref)> {
         self.walk_with(origin, false, cx)
@@ -559,8 +559,10 @@ impl<'a> Walker<'a> {
         let Some(symbols) = self.drawing.symbols.get(definition) else {
             return Ok(());
         };
-        // 要素のない定義は、どの升でも何も返さない。升の多い格子でも、升をたどらずに済ませる（#517）
-        if symbols.space.order.is_empty() {
+        // 返す要素のない定義（並びが要素を指さない）は、どの升でも何も返さない。升の多い格子でも、升をたどらずに
+        // 済ませる（#517）。図面モデルのバイナリは、並びの添字を確かめずに読む
+        let elements = symbols.space.elements.len();
+        if !symbols.space.order.iter().any(|&index| index < elements) {
             return Ok(());
         }
         cx.enter().map_err(|stop| (stop, at()))?;
@@ -1206,7 +1208,7 @@ mod tests {
     #[test]
     fn grids_of_cycles_stop_at_the_elements_budget() {
         // #517 の fuzz で見つけた形を縮めたもの。格子の配置の升ごとに、中の配置が循環する定義へ進み、要素を返して
-        // 診断を足す。返す要素を数えないと、既定の `work` の上限（1e10）まで要素を集め、記憶を使い果たす
+        // 診断を足す。返す要素を数えないと、既定の `work` の上限（1e10）まで要素を集め、メモリを使い果たす
         let mut drawing = nested();
         drawing.symbols[0]
             .space
@@ -1229,7 +1231,12 @@ mod tests {
             }),
         });
         let cancel = CancelToken::new();
-        let mut budget = Budget::new(Limits::default().with(Kind::Elements, Limit::Finite(1000)));
+        // `work` も有限にして、要素を数えなくなったときに、終わらずにメモリを使い果たすのではなく、`work` で止まって
+        // 落ちるようにする
+        let limits = Limits::default()
+            .with(Kind::Elements, Limit::Finite(1000))
+            .with(Kind::Work, Limit::Finite(1 << 20));
+        let mut budget = Budget::new(limits);
         let mut diag = Diagnostics::new();
         let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
         let (stop, _) = drawing.walk(Origin::Space(MODEL), &mut cx).unwrap_err();
@@ -1249,31 +1256,36 @@ mod tests {
     fn grids_of_empty_definitions_are_not_walked() {
         // #517 の fuzz で見つけた形を縮めたもの。中身の配置を落とした定義を、升の多い格子で置く。升ごとにたどると、
         // 何も返さないまま `work` の上限まで回る
-        let mut drawing = nested();
-        drawing.symbols[1].space = space(OUTER, Vec::new());
-        let Shape::Symbol(symbol) = &mut drawing.spaces[0].elements[0].shape else {
-            panic!("記号の要素")
-        };
-        symbol.grid = Some(Grid {
-            columns: u32::MAX,
-            rows: u32::MAX,
-            column_spacing: Length::Model(ModelLength {
-                space: MODEL,
-                value: 1.0,
-            }),
-            row_spacing: Length::Model(ModelLength {
-                space: MODEL,
-                value: 1.0,
-            }),
-        });
-        let cancel = CancelToken::new();
-        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(1000)));
-        let mut diag = Diagnostics::new();
-        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
-        let visits = drawing.walk(Origin::Space(MODEL), &mut cx).unwrap();
-        // 配置だけを返し、升をたどらない
-        assert_eq!(visits.len(), 1);
-        assert!(budget.used(Kind::Work) < 100, "{}", budget.used(Kind::Work));
+        // 要素のない定義と、並びが要素の外だけを指す定義（図面モデルのバイナリは、並びの添字を確かめずに読む）
+        let mut outside = space(OUTER, Vec::new());
+        outside.order = vec![0, 7];
+        for definition in [space(OUTER, Vec::new()), outside] {
+            let mut drawing = nested();
+            drawing.symbols[1].space = definition;
+            let Shape::Symbol(symbol) = &mut drawing.spaces[0].elements[0].shape else {
+                panic!("記号の要素")
+            };
+            symbol.grid = Some(Grid {
+                columns: u32::MAX,
+                rows: u32::MAX,
+                column_spacing: Length::Model(ModelLength {
+                    space: MODEL,
+                    value: 1.0,
+                }),
+                row_spacing: Length::Model(ModelLength {
+                    space: MODEL,
+                    value: 1.0,
+                }),
+            });
+            let cancel = CancelToken::new();
+            let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(1000)));
+            let mut diag = Diagnostics::new();
+            let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+            let visits = drawing.walk(Origin::Space(MODEL), &mut cx).unwrap();
+            // 配置だけを返し、升をたどらない
+            assert_eq!(visits.len(), 1);
+            assert!(budget.used(Kind::Work) < 100, "{}", budget.used(Kind::Work));
+        }
     }
 
     #[test]

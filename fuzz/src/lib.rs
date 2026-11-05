@@ -2,14 +2,16 @@
 //!
 //! [`Calls`] が、`zumen` の [`Session`] に入力を渡して API の関数を呼び、応答の JSON と、取り出したバイナリの結果を
 //! 呼んだ順に並べる。並べたものを、テストキットの `survives_calls` が 2 回で比べる。要求の `budget` には、テストキット
-//! の fuzz の上限（`fuzz_limits`）を書く。応答ごとに、次のことを確かめ、合わなければパニックにして知らせる。
+//! の境界の呼び出しの fuzz の上限（`fuzz_call_limits`）を書く。応答ごとに、次のことを確かめ、合わなければパニックに
+//! して知らせる。
 //!
 //! - 応答が JSON として読め、成功したときだけ `result` を持つ。失敗した応答は、理由の診断を持つ（AGENTS.md の
 //!   「黙って捨てない」）
 //! - 応答の `blobs` の結果を、どれも取り出せ、記録した大きさと同じ。シーンの blob は、`zumen` のリーダーで読める
 //!
-//! 文書の中身に依らない入力（図面・プロファイル・線形・点群）は、適合テストの組（`bindings/conformance/cases`）の
-//! 合成の入力を写した、ここの定数を使う。
+//! 文書の中身に依らない入力（図面・プロファイル・色の表・線形・設計面・点群・SXF の図面）は、適合テストの組
+//! （`bindings/conformance/cases`）の合成の入力を写した、ここの定数を使う。図面（[`DXF`]）だけは、写したものに図形と
+//! 文字を足した。
 
 use zumen::json::{self, Value, Writer};
 use zumen::{CancelToken, Session, Status};
@@ -132,8 +134,9 @@ impl Calls {
         self.call_bytes(&out.into_bytes())
     }
 
-    /// 受け取った要求を呼ぶ。オブジェクトなら、`budget` を fuzz の上限に替え、時計で止める `time_limit_ms` を除く
-    /// （止まる所が実行ごとに変わるので、2 回で比べられない）。オブジェクトでなければ、そのまま渡す
+    /// 受け取った要求を呼ぶ。オブジェクトなら、`budget` を境界の呼び出しの fuzz の上限に替え、時計で止める
+    /// `time_limit_ms` を除く（止まる所が実行ごとに変わるので、2 回で比べられない）。オブジェクトでなければ、そのまま
+    /// 渡す
     pub fn call_value(&mut self, request: &Value) -> Reply {
         let mut out = Writer::new();
         match request {
@@ -288,6 +291,20 @@ pub const PLAN_SURFACE: &str = "計画面";
 
 /// 点群。適合テストの組の `deviation.json` の `a.xyz`
 pub const CLOUD: &str = "5 5 10.02\n15 15 9.98\n5 15 10.2\n30 30 10\n";
+
+/// 属性ファイル（SAF）を結ぶ SXF の図面。属性ファイル用の属性付加機構（`$$ATRF$$`）の記号を持つ。適合テストの組の
+/// `open_sxf_saf.json` の `D0PL001Z.SFC`
+pub const SFC: &str = "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('SCADEC level2 feature_mode'),'2;1');\n\
+FILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));\nENDSEC;\nDATA;\n\
+/*SXF3\n#10 = layer_feature('L','1')\nSXF3*/\n\
+/*SXF3\n#20 = line_feature('1','1','1','1','0','0','1','0')\nSXF3*/\n\
+/*SXF3\n#30 = sfig_org_feature('$$ATRF$$10$$D0PL001Z.SAF','3')\nSXF3*/\n\
+/*SXF3\n#40 = line_feature('1','1','1','1','0','0','2','2')\nSXF3*/\n\
+/*SXF3\n#50 = sfig_org_feature('$$ATRF$$30','3')\nSXF3*/\n\
+/*SXF3\n#60 = sfig_locate_feature('1','$$ATRF$$10$$D0PL001Z.SAF','0','0','0','1','1')\nSXF3*/\n\
+/*SXF3\n#70 = sfig_locate_feature('1','$$ATRF$$30','0','0','0','1','1')\nSXF3*/\n\
+/*SXF3\n#80 = drawing_sheet_feature('S','3','1','0','0')\nSXF3*/\n\
+ENDSEC;\nEND-ISO-10303-21;\n";
 
 /// 固定の入力を開く。`format` は、名指す形式
 fn open_fixture(calls: &mut Calls, input: &str, format: Option<&str>) {

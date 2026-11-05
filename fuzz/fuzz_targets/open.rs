@@ -1,17 +1,18 @@
 //! 境界の `open` の fuzz の target（#517、決定 0262）。`zumen` の `Session` に入力を渡し、`open` で形式を判定して
 //! 開き、開いた文書を図面・建物・土木・地理・点群の op で読む。図面はシーンにし、図面モデルのバイナリと DXF に
 //! 書いて読み直す（書き直した文書は、同じ図面なので、シーンにしない）。土木の線形からは図（`civil_drawing`）を作り、
-//! シーンにする。LAS は範囲でも読む（決定 0232）。開けない入力は、`format` で名指せる XYZ・拡張 DM と、文書にしない
-//! op（写真・表・ボーリング交換用データ・成果品）に渡す。
+//! シーンにする。LAS は範囲でも読む（決定 0232）。開けない入力は、`format` で名指せる XYZ・拡張 DM と、SXF の図面の
+//! 属性ファイル（SAF、決定 0249）と、文書にしない op（写真・表・ボーリング交換用データ・成果品）に渡す。
 //!
-//! どの要求の予算も、テストキットの fuzz の上限にする。2 回呼んで、応答のバイト列が同じことを確かめる。
+//! どの要求の予算も、テストキットの境界の呼び出しの fuzz の上限（`fuzz_call_limits`）にする。2 回呼んで、応答の
+//! バイト列が同じことを確かめる。
 
 #![no_main]
 
 use std::collections::BTreeSet;
 
 use libfuzzer_sys::fuzz_target;
-use zumen_fuzz::{Calls, Reply, count, field, list, text};
+use zumen_fuzz::{Calls, Reply, SFC, count, field, list, text};
 
 /// 文書ごとに、シーンにする空間と用紙の数の上限
 const PLACES: usize = 4;
@@ -259,6 +260,16 @@ fn read_other(calls: &mut Calls) {
         if opened.ok {
             read(calls, &doc, Depth::Source);
         }
+    }
+    // SXF の図面に、属性ファイル（SAF）として結ぶ（決定 0249）。結ぶのは図面モデルへの変換なので、`drawing` まで読む
+    calls.push("drawing.sfc", SFC.as_bytes());
+    let opened = calls.call("open", |out| {
+        field(out, "input", "drawing.sfc");
+        field(out, "doc", "drawing.sfc");
+        field(out, "saf", "input");
+    });
+    if opened.ok {
+        read(calls, "drawing.sfc", Depth::Copy);
     }
     calls.call("photo", |out| field(out, "input", "input"));
     for format in ["xlsx", "csv"] {

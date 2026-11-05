@@ -227,7 +227,7 @@ fn samples(root: &Path) -> Result<Vec<Vec<u8>>, String> {
 
 /// 適合テストの組（`bindings/conformance/cases`）の、`push` で入れる合成の入力と、`call` で渡す要求。ファイルを指す
 /// 入力は公開サンプルなので除く。要求は 1 つずつと、組ごとに並べた配列にする（`json` の target が、配列の要素を順に
-/// 呼ぶ。決定 0262）
+/// 呼ぶ。決定 0262）。`call_text`・`call_hex` で渡す読めない要求は、1 つずつだけにする
 fn cases(root: &Path) -> Result<Vec<Vec<u8>>, String> {
     let dir = "bindings/conformance/cases";
     let mut paths = Vec::new();
@@ -262,6 +262,15 @@ fn cases(root: &Path) -> Result<Vec<Vec<u8>>, String> {
                 request.value(call);
                 inputs.push(request.into_bytes());
                 sequence.value(call);
+            }
+            // 読めない要求（`call_text`・`call_hex`）は、そのバイト列を種にする
+            match (step.pointer("/call_text"), step.pointer("/call_hex")) {
+                (Some(Value::String(text)), _) => inputs.push(text.as_bytes().to_vec()),
+                (_, Some(Value::String(hex))) => inputs.push(
+                    unhex(hex)
+                        .ok_or_else(|| format!("{} の call_hex を読めない", path.display()))?,
+                ),
+                _ => {}
             }
         }
         sequence.end_array();
