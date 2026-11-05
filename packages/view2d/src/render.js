@@ -160,15 +160,33 @@ export function paint(ctx, prepared, settings, view, size) {
           } else {
             const p = at(c.text_xy[i * 2], c.text_xy[i * 2 + 1]);
             const flags = c.text_flags[i];
+            const mx = (flags & V.text_flag.backward) ? -1 : 1;
+            const my = (flags & V.text_flag.upside_down) ? -1 : 1;
+            const text = stringAt(c, "text_strings", i);
+            const horizontal = c.text_aligns[i * 2];
+            const vertical = c.text_aligns[i * 2 + 1];
+            ctx.font = `${c.text_heights[i]}px ${settings.fallbackFont}`;
+            ctx.textAlign = ["left", "center", "right", "center"][horizontal];
+            ctx.textBaseline = "alphabetic";
+            let offsetY = 0;
+            if (horizontal === V.horizontal.middle) {
+              // コアの layout::place と同じく、垂直指定によらず外形の中央。位置合わせには斜体を当てない（決定 0246）。
+              const metrics = ctx.measureText(text);
+              offsetY = (metrics.actualBoundingBoxAscent - metrics.actualBoundingBoxDescent) / 2;
+            } else if (vertical !== V.vertical.baseline) {
+              // ほかの垂直指定も、Canvas の基準線の差を先に移し、斜体で横へずらさない。
+              const ascent = ctx.measureText(text).actualBoundingBoxAscent;
+              ctx.textBaseline = ["alphabetic", "bottom", "middle", "top"][vertical];
+              offsetY = ascent - ctx.measureText(text).actualBoundingBoxAscent;
+              ctx.textBaseline = "alphabetic";
+            }
             ctx.translate(p.x, p.y);
             ctx.rotate(-view.rotation - c.text_rotations[i] * Math.PI / 180);
             ctx.scale(view.scale, view.scale);
-            ctx.transform(c.text_widths[i] * ((flags & V.text_flag.backward) ? -1 : 1), 0,
-              -Math.tan(c.text_obliques[i] * Math.PI / 180), (flags & V.text_flag.upside_down) ? -1 : 1, 0, 0);
-            ctx.font = `${c.text_heights[i]}px ${settings.fallbackFont}`;
-            ctx.textAlign = ["left", "center", "right", "center"][c.text_aligns[i * 2]];
-            ctx.textBaseline = ["alphabetic", "bottom", "middle", "top"][c.text_aligns[i * 2 + 1]];
-            ctx.fillText(stringAt(c, "text_strings", i), 0, 0);
+            ctx.translate(0, my * offsetY);
+            // 斜体にも左右反転を当てる。Canvas の文字の Y 軸は下向きなので、せん断の符号を逆にする。
+            ctx.transform(c.text_widths[i] * mx, 0, -mx * Math.tan(c.text_obliques[i] * Math.PI / 180), my, 0, 0);
+            ctx.fillText(text, 0, 0);
           }
         } else if (kind === "point") {
           const p = at(c.point_xy[i * 2], c.point_xy[i * 2 + 1]);

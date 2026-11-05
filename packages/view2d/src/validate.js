@@ -136,6 +136,10 @@ export function prepare(input, limits) {
       finite(x, "text_second"); finite(y, "text_second");
     } else valid((Number.isNaN(x) && Number.isNaN(y)) || (Number.isFinite(x) && Number.isFinite(y)), "text_second");
     valid(c.text_strings[2 * i + 1] <= limits.textLength, "limits.textLength");
+    if ((c.text_glyphs[i] ?? 0) === end(c.text_glyphs, i, c.glyph_shapes.length)) {
+      const measurements = align === SCENE_VALUES.horizontal.middle ? 1 : c.text_aligns[2 * i + 1] === SCENE_VALUES.vertical.baseline ? 0 : 2;
+      charge(measurements * c.text_strings[2 * i + 1]); // 代替文字の位置合わせを measureText で調べる長さも数える。
+    }
   }
 
   valid(document && ["doc", "format", "hash"].every((key) => typeof document[key] === "string" && document[key].length > 0 && document[key].length <= 4096), "document");

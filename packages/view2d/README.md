@@ -68,6 +68,8 @@ Canvas の CSS の幅・高さは利用側で指定します。`resize(width, he
 | 既定義のマーカー | 小さな点で代替し、`marker-unresolved` を報告 |
 | 画像・PDF など | `resource-unresolved` として未描画。参照名を取得せず、外へ送信しない。解決関数は [#587](https://github.com/zumen-jp/zumen/issues/587) で追加予定 |
 
+代替文字の `horizontal.middle` は、横を送り幅の中央、縦をブラウザーが返す字形外形の中央に置きます。垂直の指定には依存せず、位置合わせは斜体を当てる前に決めます（[決定 0246](../../docs/decisions/0246-dxf-text-height-and-alignment-against-autocad.md)）。
+
 `render()` と描画を変えるメソッドは `RenderReport` を返します。`drawn` は描画を発行した数で、画面外や切り抜かれたものも含みます。`issues` は代替（`fallback`）と未描画（`omitted`）を区別し、元の要素 ID と、配置の ID・格子の列・行を保ちます。コアの診断は呼び出し側で別に保持してください。ブラウザーの画素は、コアのシーンと異なり環境間でビット単位の一致を約束しません。
 
 ## 表示範囲と破棄
