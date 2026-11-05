@@ -80,6 +80,8 @@ target ごとの中身と、固定の入力は、`fuzz/README.md` と `fuzz/src/
 - 配置をたどる walk は、返す要素を `elements` でも数える。升の多い格子の配置は、`work` より先に `elements` の上限で止まることがある。返す要素・ID・診断は、上限で止まらない図面では変わらず、適合テストの応答も変わらない。描く順のうち要素の外を指す添字（図面モデルのバイナリで作れる）は、その数だけ `work` を多く使う。空間の ID が重なった図面モデルのバイナリでは、要素の ID を引けない添字の数だけ、升ごとに `work` を多く使う（#567）。0159 の予算の項と影響の節の上限を、この記録で改める。既定の予算（`elements` が 1 億）では、止まるまでのメモリがまだ大きく、#563 で直す。
 - 種は、適合テストの組の要求の分だけ増える。どの target にも同じ種を書くので、ほかの target の起動の時間も、その分だけ延びる。0258 の決定の、種の 2 つ目（適合テストの組の `push` で入れる合成の入力）を、この記録で改める。
 
+[0264](0264-stream-drawing-walk.md) で、走査の逐次処理と索引、結果の予算、重複する空間 ID の拒否を定めた。
+
 ## 参照
 
 - #501・#516・#517・#563・#566・#567、[0007](0007-single-rust-implementation.md)・[0010](0010-budget-by-work.md)・[0012](0012-boundary-functions-and-messages.md)・[0015](0015-add-only-boundary-and-version-floors.md)・[0016](0016-boundary-message-details.md)・[0017](0017-format-rights-ledger-and-plugin-sdk.md)・[0159](0159-drawing-walk-placements.md)・[0247](0247-drawing-model-binary.md)・[0258](0258-fuzz-seeds-and-runs.md)

@@ -13,7 +13,7 @@ use zumen_base::{Cx, Diagnostic, Kind, Ref, Severity, Stop, Value as Param, code
 use zumen_drawing::id::{self, DefinitionNamer, SheetNamer};
 use zumen_drawing::{
     Affine, CalloutContent, CellContent, Color, ColorSystem, Drawing2D, Height, HeightMeaning,
-    Item, Label, LayerId, Length, Origin, Shape, Visit,
+    Item, Label, LayerId, Length, Origin, Shape, VisitRef, WalkVisitor,
 };
 use zumen_json::Value;
 use zumen_scene::Palette;
@@ -277,23 +277,42 @@ pub fn check(
         })
         .collect();
     let context = Context::new(drawing, options, cx)?;
+    let mut outputs: Vec<_> = rules
+        .iter()
+        .map(|(id, _, level, _)| Out {
+            rule: id,
+            level: *level,
+            findings: Vec::new(),
+            charged: 0,
+            invalid: 0,
+            unsupported: 0,
+        })
+        .collect();
+    let mut visitor = CheckVisitor {
+        context: &context,
+        rules: &rules,
+        outputs: &mut outputs,
+        used: BTreeSet::new(),
+        sheet: None,
+        cx,
+    };
+    for &(sheet, origin) in &context.origins {
+        visitor.sheet = sheet;
+        drawing
+            .walk_to(origin, false, &mut visitor)
+            .map_err(|(s, at)| Error::Stop(s, Box::new(at)))?;
+    }
+    let used = visitor.used;
     let mut report = Report {
         chain: resolved.chain,
         rules: Vec::new(),
         findings: Vec::new(),
     };
-    for (id, kind, level, plan) in rules {
-        let mut out = Out {
-            rule: &id,
-            level,
-            findings: Vec::new(),
-            invalid: 0,
-            unsupported: 0,
-        };
-        context.run(&plan, &mut out, cx)?;
+    for ((id, kind, _, plan), mut out) in rules.iter().zip(outputs) {
+        context.run(plan, &mut out, &used, cx)?;
         report.rules.push(RuleSummary {
             id: id.clone(),
-            check: kind,
+            check: kind.clone(),
             findings: out.invalid,
             unsupported: out.unsupported,
         });
@@ -785,11 +804,42 @@ struct Out<'r> {
     rule: &'r str,
     level: Severity,
     findings: Vec<Finding>,
+    charged: usize,
     invalid: u64,
     unsupported: u64,
 }
 
 impl Out<'_> {
+    fn charge(&mut self, cx: &mut Cx<'_>) -> Result<(), Stop> {
+        for finding in self.findings.iter().skip(self.charged) {
+            let refs = finding
+                .diagnostic
+                .places()
+                .iter()
+                .filter_map(Ref::id)
+                .fold(0_u64, |sum, id| sum.saturating_add(id.len() as u64 + 64));
+            let params = finding
+                .diagnostic
+                .params()
+                .iter()
+                .fold(0_u64, |sum, (_, value)| {
+                    sum.saturating_add(
+                        64 + match value {
+                            Param::Text(text) => text.len() as u64,
+                            _ => 0,
+                        },
+                    )
+                });
+            let bytes = 512_u64
+                .saturating_add(finding.rule.len() as u64)
+                .saturating_add(refs)
+                .saturating_add(params);
+            cx.check(Kind::DecodedBytes, bytes)?;
+        }
+        self.charged = self.findings.len();
+        Ok(())
+    }
+
     fn invalid(&mut self, diagnostic: Diagnostic) {
         self.invalid += 1;
         self.findings.push(Finding {
@@ -809,12 +859,53 @@ impl Out<'_> {
     }
 }
 
+struct CheckVisitor<'a, 'c, 'r, 'x> {
+    context: &'c Context<'a>,
+    rules: &'r [(String, String, Severity, Plan)],
+    outputs: &'c mut [Out<'r>],
+    used: BTreeSet<LayerId>,
+    sheet: Option<usize>,
+    cx: &'c mut Cx<'x>,
+}
+
+impl<'a> WalkVisitor<'a> for CheckVisitor<'a, '_, '_, '_> {
+    fn context(&mut self) -> Cx<'_> {
+        Cx::new(self.cx.budget, self.cx.diag, self.cx.cancel)
+    }
+    fn visit(&mut self, visit: VisitRef<'a, '_>) -> Result<(), (Stop, Ref)> {
+        if !visit.visible {
+            return Ok(());
+        }
+        self.used.insert(visit.layer);
+        for ((_, _, _, plan), out) in self.rules.iter().zip(&mut *self.outputs) {
+            if matches!(
+                plan,
+                Plan::LayerName { .. }
+                    | Plan::FileName { .. }
+                    | Plan::Orientation { .. }
+                    | Plan::SheetSize { .. }
+                    | Plan::Scale { .. }
+            ) {
+                continue;
+            }
+            self.cx
+                .check(Kind::Work, 1)
+                .map_err(|s| (s, Ref::default().with_id(visit.id)))?;
+            self.context.element(plan, self.sheet, &visit, out);
+            // 指摘は規則ごとに集め、最後に規則の順で結ぶ。配置の全要素を保持しない。
+            out.charge(self.cx)
+                .map_err(|s| (s, Ref::default().with_id(visit.id)))?;
+        }
+        Ok(())
+    }
+}
+
 /// たどった要素と、用紙の範囲
 struct Context<'a> {
     drawing: &'a Drawing2D,
     palette: &'a Palette,
     /// たどった要素と、たどった起点の用紙（`drawing.sheets` の添字）。実寸の空間からたどれば `None`
-    visits: Vec<(Option<usize>, Visit<'a>)>,
+    origins: Vec<(Option<usize>, Origin)>,
     /// 照合する用紙（添字）と、用紙の大きさと向きも比べるかと、比べるビューの添字
     sheets: Vec<(usize, bool, Vec<usize>)>,
     /// 用紙の ID
@@ -825,10 +916,15 @@ struct Context<'a> {
 
 impl<'a> Context<'a> {
     fn new(drawing: &'a Drawing2D, options: &Options<'a>, cx: &mut Cx<'_>) -> Result<Self, Error> {
+        cx.check(
+            Kind::Work,
+            drawing.sheets.len() as u64 + options.origins.len() as u64,
+        )
+        .map_err(|s| Error::Stop(s, Box::default()))?;
         let mut namer = SheetNamer::default();
         let sheet_ids = drawing.sheets.iter().map(|s| namer.next(s)).collect();
         let index = |id| drawing.sheets.iter().position(|sheet| sheet.id == id);
-        let mut visits = Vec::new();
+        let mut origins = Vec::new();
         let mut sheets = Vec::new();
         for &origin in &options.origins {
             let sheet = match origin {
@@ -841,27 +937,25 @@ impl<'a> Context<'a> {
                     sheets.push((at, false, vec![view]));
                 }),
             };
-            let walked = drawing
-                .walk(origin, cx)
-                .map_err(|(stop, at)| Error::Stop(stop, Box::new(at)))?;
-            visits.extend(
-                walked
-                    .into_iter()
-                    .filter(|visit| visit.visible)
-                    .map(|visit| (sheet, visit)),
-            );
+            origins.push((sheet, origin));
         }
         Ok(Self {
             drawing,
             palette: options.palette,
-            visits,
+            origins,
             sheets,
             sheet_ids,
             file_name: options.file_name,
         })
     }
 
-    fn run(&self, plan: &Plan, out: &mut Out<'_>, cx: &mut Cx<'_>) -> Result<(), Error> {
+    fn run(
+        &self,
+        plan: &Plan,
+        out: &mut Out<'_>,
+        used: &BTreeSet<LayerId>,
+        cx: &mut Cx<'_>,
+    ) -> Result<(), Error> {
         let work = |cx: &mut Cx<'_>| {
             cx.check(Kind::Work, 1)
                 .map_err(|stop| Error::Stop(stop, Box::default()))
@@ -873,7 +967,6 @@ impl<'a> Context<'a> {
                 separator,
                 max_width,
             } => {
-                let used: BTreeSet<LayerId> = self.visits.iter().map(|(_, v)| v.layer).collect();
                 for layer in &self.drawing.layers {
                     work(cx)?;
                     if !used.contains(&layer.id) {
@@ -886,6 +979,7 @@ impl<'a> Context<'a> {
                                 .at(Ref::default().with_id(id::layer(layer))),
                         );
                     }
+                    out.charge(cx).map_err(|s| Error::Stop(s, Box::default()))?;
                 }
             }
             Plan::FileName {
@@ -911,22 +1005,18 @@ impl<'a> Context<'a> {
                 for (at, whole, views) in &self.sheets {
                     work(cx)?;
                     self.sheet(plan, *at, *whole, views, out);
+                    out.charge(cx).map_err(|s| Error::Stop(s, Box::default()))?;
                 }
             }
-            _ => {
-                for (sheet, visit) in &self.visits {
-                    work(cx)?;
-                    self.element(plan, *sheet, visit, out);
-                }
-            }
+            _ => {}
         }
-        Ok(())
+        out.charge(cx).map_err(|s| Error::Stop(s, Box::default()))
     }
 
     /// 要素の場所。要素・実効のレイヤ・起点の用紙の ID
-    fn places(&self, sheet: Option<usize>, visit: &Visit<'_>) -> Vec<Ref> {
-        let mut places = vec![Ref::default().with_id(visit.id.clone())];
-        if let Some(layer) = self.drawing.layer(visit.layer) {
+    fn places(&self, sheet: Option<usize>, visit: &VisitRef<'_, '_>) -> Vec<Ref> {
+        let mut places = vec![Ref::default().with_id(visit.id.to_owned())];
+        if let Some(layer) = visit.layer_definition {
             places.push(Ref::default().with_id(id::layer(layer)));
         }
         if let Some(id) = sheet.and_then(|at| self.sheet_ids.get(at)) {
@@ -935,7 +1025,13 @@ impl<'a> Context<'a> {
         places
     }
 
-    fn element(&self, plan: &Plan, sheet: Option<usize>, visit: &Visit<'_>, out: &mut Out<'_>) {
+    fn element(
+        &self,
+        plan: &Plan,
+        sheet: Option<usize>,
+        visit: &VisitRef<'_, '_>,
+        out: &mut Out<'_>,
+    ) {
         let summary = summary(visit.item);
         let at = |diagnostic: Diagnostic| {
             self.places(sheet, visit)

@@ -617,3 +617,23 @@ fn civil_drawing_values_are_read_from_the_vocabularies() {
     };
     assert_eq!(diagnostic.code(), codes::PROFILE_VOCABULARY_INVALID);
 }
+
+#[test]
+fn repeated_findings_stop_at_the_result_memory_budget() {
+    let mut drawing = drawing();
+    let space = &mut drawing.spaces[0];
+    space.order = vec![1; 10_000];
+    let profile = br#"{"format":"0.1","id":"colors","edition":"2025-12","revision":1,"vocabularies":{"colors":{"values":[{"sxf":2}]}},"rules":[{"id":"color","check":"color","level":"error","vocabulary":"colors"}]}"#;
+    let (result, _) = run(
+        &drawing,
+        &[("colors.json", profile)],
+        "colors",
+        "sxf",
+        vec![Origin::Space(MODEL)],
+        Limits::default().with(Kind::DecodedBytes, Limit::Finite(8192)),
+    );
+    assert!(
+        matches!(result, Err(Error::Stop(Stop::Exceeded(e), _)) if e.kind == Kind::DecodedBytes),
+        "{result:?}"
+    );
+}

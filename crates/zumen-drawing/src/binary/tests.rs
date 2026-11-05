@@ -100,8 +100,19 @@ fn reads_back_what_it_wrote() {
         let bytes = written(&source, &drawing);
         elements += u32_at(&bytes, 8).unwrap();
         let (result, codes) = load(&bytes);
-        assert_eq!(result, Ok((source, drawing)), "seed {seed}");
-        assert!(codes.is_empty(), "seed {seed}: {codes:?}");
+        let mut spaces = BTreeSet::new();
+        let unique = drawing
+            .spaces
+            .iter()
+            .chain(drawing.symbols.iter().map(|s| &s.space))
+            .all(|s| spaces.insert(s.id));
+        if unique {
+            assert_eq!(result, Ok((source, drawing)), "seed {seed}");
+            assert!(codes.is_empty(), "seed {seed}: {codes:?}");
+        } else {
+            assert_eq!(result, Err(Error::Invalid), "seed {seed}");
+            assert_eq!(codes, ["drawing.binary.invalid"]);
+        }
     }
     assert!(elements > 0);
 }
@@ -111,8 +122,12 @@ fn writes_the_same_bytes_again_even_with_nan_and_negative_zero() {
     for seed in 0..300 {
         let (source, drawing) = random(seed, false);
         let bytes = written(&source, &drawing);
-        let (source, drawing) = load(&bytes).0.unwrap();
-        assert_eq!(written(&source, &drawing), bytes, "seed {seed}");
+        if let Ok((source, drawing)) = load(&bytes).0 {
+            assert_eq!(written(&source, &drawing), bytes, "seed {seed}");
+        }
+        // ID が重なったモデルも、型ごとの符号化では NaN のビットを保つ。
+        let raw: Drawing2D = decode(&encode(&drawing)).unwrap();
+        assert_eq!(encode(&raw), encode(&drawing), "seed {seed}");
     }
 }
 
@@ -506,4 +521,40 @@ fn stops_writing_at_the_work_budget_and_the_cancel_signal() {
         write_with(&Drawing2D::default(), 0, &cancel),
         (Err(WriteError::Stopped(Stop::Cancelled)), 0)
     );
+}
+
+#[test]
+fn duplicate_space_ids_are_rejected_across_model_spaces_and_definitions() {
+    let (_, mut drawing) = (0..)
+        .map(|seed| random(seed, true))
+        .find(|(_, d)| !d.spaces.is_empty() && d.symbols.len() >= 2)
+        .unwrap();
+    for (id, space) in drawing
+        .spaces
+        .iter_mut()
+        .chain(drawing.symbols.iter_mut().map(|s| &mut s.space))
+        .enumerate()
+    {
+        space.id = crate::SpaceId(id as u32);
+    }
+    assert!(load(&written(&source(), &drawing)).0.is_ok());
+    let mut model = drawing.clone();
+    model.spaces.push(model.spaces[0].clone());
+    let mut across = drawing.clone();
+    across.symbols[0].space.id = across.spaces[0].id;
+    let mut symbols = drawing;
+    symbols.symbols[1].space.id = symbols.symbols[0].space.id;
+    for drawing in [model, across, symbols] {
+        let bytes = written(&source(), &drawing);
+        let mut budget = Budget::default();
+        let mut diag = Diagnostics::new();
+        let cancel = CancelToken::new();
+        assert_eq!(
+            read(&bytes, &mut Cx::new(&mut budget, &mut diag, &cancel)),
+            Err(Error::Invalid)
+        );
+        let diagnostic = diag.iter().next().unwrap();
+        assert_eq!(diagnostic.code().name(), "drawing.binary.invalid");
+        assert!(format!("{diagnostic:?}").contains("duplicate-space-id"));
+    }
 }
