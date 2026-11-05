@@ -219,6 +219,8 @@ jobs:
         run: node bindings/js/test/conformance.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm
       - name: Node.js の入口・別の realm のモジュール・trap のあとの扱いを、パッケージで確かめる（決定 0259）
         run: node bindings/js/test/server.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm
+      - name: worker で大きな図面を読む間のタイマーと、入力・blob の転送を確かめる
+        run: node bindings/js/test/worker.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm
       - name: ブラウザーを動かすツール（Playwright）を、インストールのスクリプトを走らせずに入れる（決定 0199）
         working-directory: bindings/js/test/browser
         run: npm ci --ignore-scripts
