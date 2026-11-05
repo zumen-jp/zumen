@@ -353,8 +353,9 @@ struct Walker<'a> {
     by_name: BTreeMap<&'a str, usize>,
     /// 空間と用紙ごとの、要素の ID
     names: BTreeMap<String, Rc<[String]>>,
-    /// 空間ごとの、描く順のうち要素を指す添字
-    orders: BTreeMap<String, Rc<[usize]>>,
+    /// 空間ごとの、描く順のうち要素を指す添字。鍵は空間のアドレス。図面モデルのバイナリは空間の ID の重なりを確かめずに
+    /// 読むので、ID や名前では空間を取り違える（#567）。鍵は引くだけに使い、鍵の順には回さない（決定 0007）
+    orders: BTreeMap<*const ModelSpace, Rc<[usize]>>,
     /// 記号の定義の空間ごとの、空間の ID
     spaces: BTreeMap<SpaceId, String>,
     /// キーごとの、記号の定義の添字。同じキーがあれば先のもの
@@ -410,16 +411,12 @@ impl<'a> Walker<'a> {
         Ok(ids)
     }
 
-    /// 空間の描く順のうち、要素を指す添字。一度求めたものは覚えておく。図面モデルのバイナリは並びの添字を確かめずに
-    /// 読むので、要素の外を指す添字を、配置の升ごと・ビューごとに見直さずに済ませる（#517）。要素の外を指す添字は、
-    /// 1 つごとに `work` を 1 と数える
-    fn order(
-        &mut self,
-        place: &str,
-        space: &ModelSpace,
-        cx: &mut Cx<'_>,
-    ) -> Result<Rc<[usize]>, Stop> {
-        if let Some(order) = self.orders.get(place) {
+    /// 空間の描く順のうち、要素を指す添字。空間ごとに一度求めたものを覚えておく。図面モデルのバイナリは描く順の添字を
+    /// 確かめずに読むので、要素の外を指す添字を、配置の升ごと・ビューごとに見直さずに済ませる（#517）。要素の外を指す
+    /// 添字は、1 つごとに `work` を 1 と数える
+    fn order(&mut self, space: &'a ModelSpace, cx: &mut Cx<'_>) -> Result<Rc<[usize]>, Stop> {
+        let key = std::ptr::from_ref(space);
+        if let Some(order) = self.orders.get(&key) {
             return Ok(Rc::clone(order));
         }
         let elements = space.elements.len();
@@ -432,7 +429,7 @@ impl<'a> Walker<'a> {
             }
         }
         let order: Rc<[usize]> = order.into();
-        self.orders.insert(place.to_owned(), Rc::clone(&order));
+        self.orders.insert(key, Rc::clone(&order));
         Ok(order)
     }
 
@@ -469,7 +466,7 @@ impl<'a> Walker<'a> {
         let name = self.space_name(space);
         let ids = self.ids(&name, &space.elements, cx)?;
         let order = self
-            .order(&name, space, cx)
+            .order(space, cx)
             .map_err(|stop| (stop, Ref::default().with_id(name.as_str())))?;
         for &index in order.iter() {
             if let (Some(element), Some(id)) = (space.elements.get(index), ids.get(index)) {
@@ -594,9 +591,8 @@ impl<'a> Walker<'a> {
         };
         // 返す要素のない定義（描く順が要素を指さない）は、どの升でも何も返さない。升の多い格子でも、升をたどらずに
         // 済ませる（#517）。描く順は、定義ごとに一度だけ確かめる
-        let name = self.space_name(&symbols.space);
         if self
-            .order(&name, &symbols.space, cx)
+            .order(&symbols.space, cx)
             .map_err(|stop| (stop, at()))?
             .is_empty()
         {
@@ -1293,7 +1289,7 @@ mod tests {
     fn grids_of_empty_definitions_are_not_walked() {
         // #517 の fuzz で見つけた形を縮めたもの。中身の配置を落とした定義を、升の多い格子で置く。升ごとにたどると、
         // 何も返さないまま `work` の上限まで回る
-        // 要素のない定義と、並びが要素の外だけを指す定義（図面モデルのバイナリは、並びの添字を確かめずに読む）
+        // 要素のない定義と、描く順が要素の外だけを指す定義（図面モデルのバイナリは、描く順の添字を確かめずに読む）
         let mut outside = space(OUTER, Vec::new());
         outside.order = vec![0, 7];
         for definition in [space(OUTER, Vec::new()), outside] {
@@ -1323,6 +1319,26 @@ mod tests {
             assert_eq!(visits.len(), 1);
             assert!(budget.used(Kind::Work) < 100, "{}", budget.used(Kind::Work));
         }
+    }
+
+    #[test]
+    fn spaces_with_the_same_id_keep_their_own_orders() {
+        // #565 の確かめで見つけた形。図面モデルのバイナリは、空間の ID の重なりを確かめずに読む。同じ ID の 2 つの
+        // 定義は、それぞれの描く順で返す。描く順を ID や名前で覚えると、先の定義の描く順で後の定義を返す
+        let mut drawing = nested();
+        let lines_on = || vec![line(OUTER, 2, by_layer()), line(OUTER, 3, by_layer())];
+        let mut first = space(OUTER, lines_on());
+        first.order = vec![1, 0];
+        let second = space(OUTER, lines_on());
+        drawing.symbols = vec![definition("FIRST", first), definition("OUTER", second)];
+        drawing.spaces[0]
+            .elements
+            .push(insert(MODEL, "FIRST", 1, by_layer(), 0.0));
+        drawing.spaces[0].order = vec![1, 0];
+        let (visits, _) = walk(&drawing, Origin::Space(MODEL));
+        // 先に描く配置（FIRST）は描く順 [1, 0]、後の配置（OUTER）は [0, 1] で、線のレイヤが 3・2 と 2・3 の順になる
+        let layers: Vec<u32> = lines(&visits).iter().map(|visit| visit.layer.0).collect();
+        assert_eq!(layers, vec![3, 2, 2, 3]);
     }
 
     #[test]
@@ -1361,7 +1377,7 @@ mod tests {
         // 配置と、升ごとの線
         let cells = (SIDE * SIDE) as usize;
         assert_eq!(visits.len(), 1 + cells);
-        // 外を指す添字は、定義ごとに 1 度だけ数える
+        // 外を指す添字は、定義ごとに一度だけ数える
         let used = budget.used(Kind::Work);
         assert!(
             (OUTSIDE as u64..OUTSIDE as u64 + 4 * cells as u64).contains(&used),
