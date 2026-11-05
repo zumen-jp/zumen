@@ -25,6 +25,8 @@ export interface Limits {
   textLength: number;
   /** Canvas の画素数の上限。既定 16,777,216。 */
   canvasPixels: number;
+  /** 選択・強調・非表示レイヤの合計、購読の数、当たり判定の結果の数。既定 100,000。 */
+  stateItems: number;
 }
 export interface View2DOptions {
   /** CSS px。省略時は Canvas の clientWidth・clientHeight（OffscreenCanvas は width・height）。 */
@@ -37,6 +39,9 @@ export interface View2DOptions {
   background?: string;
   foreground?: string;
   unresolvedColor?: string;
+  /** 選択と hover の色。既定 #ff8800・#00aacc。 */
+  selectionColor?: string;
+  hoverColor?: string;
   /** 用紙 mm の線幅を CSS px にする倍率。既定 96 / 25.4。ズームには連動しない。 */
   pixelsPerMillimeter?: number;
   fallbackFont?: "sans-serif" | "serif" | "monospace";
@@ -46,6 +51,24 @@ export interface ElementRef {
   readonly id: string;
   readonly path: readonly { readonly id: string; readonly column: number; readonly row: number }[];
 }
+export interface Highlight {
+  readonly name: string;
+  readonly color: string;
+  readonly elements: readonly ElementRef[];
+}
+export interface View2DState {
+  readonly scene: SceneSnapshot | null;
+  readonly view: Camera;
+  readonly size: Size;
+  readonly layers: readonly string[];
+  readonly hiddenLayers: readonly string[];
+  readonly selection: readonly ElementRef[];
+  readonly hovered: ElementRef | null;
+  readonly highlights: readonly Highlight[];
+}
+export type View2DEventType = "scene" | "view" | "size" | "layers" | "selection" | "hover" | "highlight";
+export interface View2DEvent { readonly type: View2DEventType; readonly state: View2DState }
+export type SelectionMode = "replace" | "add" | "remove" | "toggle";
 export type RenderReason = "browser-text" | "text-layout-unsupported" | "marker-unresolved" | "point-style-unsupported" | "resource-unresolved" | "color-unresolved" | "clip-unsupported";
 export interface RenderIssue {
   readonly element: ElementRef;
@@ -67,6 +90,23 @@ export declare class View2D {
   getView(): Camera;
   getSize(): Size;
   getReport(): RenderReport;
+  /** 状態が変わるまでは同じ凍結した参照。Scene の列は共有する。 */
+  getState(): View2DState;
+  getLayers(): readonly string[];
+  /** 登録時には呼ばず、更新後に同期で通知する。返す関数で解除。 */
+  subscribe(listener: (state: View2DState) => void): () => void;
+  on(type: View2DEventType, listener: (event: View2DEvent) => void): () => void;
+  setHiddenLayers(ids: readonly string[]): RenderReport;
+  setLayersVisible(ids: readonly string[], visible: boolean): RenderReport;
+  /** 現在のシーンの ID と配置の道筋。未知の参照は RangeError。 */
+  select(elements: readonly ElementRef[], mode?: SelectionMode): RenderReport;
+  setHovered(element: ElementRef | null): RenderReport;
+  /** 同じ名前を置き換え、空の一覧で除く。色の既定は #cc00cc。 */
+  setHighlight(name: string, elements: readonly ElementRef[], color?: string): RenderReport;
+  /** CSS px。既定の許容半径は 3。可視の形と円が触れる配置を、描画の逆順で返す。 */
+  hitTest(point: Point, tolerance?: number): readonly ElementRef[];
+  /** CSS px の四角と可視の形が触れる配置。代替文字は外形の四角で近似する。 */
+  hitTestRect(rect: Extent): readonly ElementRef[];
   render(): RenderReport;
   jumpTo(view: Camera): RenderReport;
   fitBounds(bounds: Extent, padding?: number): RenderReport;
