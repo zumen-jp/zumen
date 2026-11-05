@@ -68,7 +68,7 @@ cp Cargo.lock fuzz/Cargo.lock
 cargo "+$NIGHTLY" fuzz run -O --debug-assertions zip
 ```
 
-- `cargo xtask fuzz-seeds` は、どの target にも `fuzz/corpus/<target>/` に種を書きます。種にするのは、次の 4 つです（決定 0258）。受け取った図面と、国土地理院のデータは置きません（AGENTS.md、決定 0019）。
+- `cargo xtask fuzz-seeds` は、どの target にも `fuzz/corpus/<target>/` に種を書きます。種にするのは、次の 5 つです（決定 0258）。受け取った図面と、国土地理院のデータは置きません（AGENTS.md、決定 0019）。
   - 公開サンプル（`samples/`）
   - 適合テストの組の合成の入力と、`call` で渡す要求（1 つずつと、組ごとに並べた配列。決定 0262）。`call_text`・`call_hex` で渡す要求のバイト列（読めない要求と、BOM を付けた要求）も、1 つずつ種にします
   - L0 の攻撃の形（ZIP 爆弾・膨らむ deflate・アーカイブの入れ子・パスの走査・XML の外部実体と深い入れ子・ISO 10303-21 の深い入れ子）

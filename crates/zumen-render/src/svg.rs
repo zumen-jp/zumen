@@ -12,6 +12,7 @@ use crate::{
 struct Camera {
     scale: f64,
     offset: [f64; 2],
+    size: [f64; 2],
     region: [f64; 4],
 }
 
@@ -36,12 +37,17 @@ impl Camera {
         if !scale.is_finite() || scale <= 0.0 {
             return Err(Error::Options);
         }
+        let size = [width * scale, height * scale];
+        if size.iter().any(|v| !v.is_finite() || *v <= 0.0) {
+            return Err(Error::Options);
+        }
         Ok(Self {
             scale,
             offset: [
                 (f64::from(o.width) - width * scale) / 2.0,
                 (f64::from(o.height) - height * scale) / 2.0,
             ],
+            size,
             region: o.region,
         })
     }
@@ -83,7 +89,20 @@ pub(crate) fn render(bytes: &[u8], options: &Options, cx: &mut Cx<'_>) -> Result
 impl Render<'_, '_, '_> {
     fn document(&mut self) -> Result<(), Error> {
         let (width, height) = (self.options.width, self.options.height);
-        self.out.formatted(format_args!("<svg xmlns=\"http://www.w3.org/2000/svg\" version=\"1.1\" width=\"{width}\" height=\"{height}\" viewBox=\"0 0 {width} {height}\">\n<defs><clipPath id=\"viewport\" clipPathUnits=\"userSpaceOnUse\"><rect width=\"{width}\" height=\"{height}\"/></clipPath>\n"))?;
+        self.out.formatted(format_args!("<svg xmlns=\"http://www.w3.org/2000/svg\" version=\"1.1\" width=\"{width}\" height=\"{height}\" viewBox=\"0 0 {width} {height}\">\n<defs><clipPath id=\"viewport\" clipPathUnits=\"userSpaceOnUse\"><rect"))?;
+        let [left, top] = self.camera.offset;
+        let [view_width, view_height] = self.camera.size;
+        for (name, value) in [
+            ("x", left),
+            ("y", top),
+            ("width", view_width),
+            ("height", view_height),
+        ] {
+            self.out.formatted(format_args!(" {name}=\""))?;
+            self.out.number(value)?;
+            self.out.text("\"")?;
+        }
+        self.out.text("/></clipPath>\n")?;
         for polygon in 0..self.scene.rows(l::POLYGON_VERTICES) {
             self.out.cx.check(Kind::Work, 1)?;
             self.out.formatted(format_args!("<clipPath id=\"p{polygon}\" clipPathUnits=\"userSpaceOnUse\"><path clip-rule=\"evenodd\" d=\""))?;
@@ -98,12 +117,12 @@ impl Render<'_, '_, '_> {
             }
             self.out.text("Z\"/></clipPath>\n")?;
         }
-        self.out
-            .text("</defs>\n<g clip-path=\"url(#viewport)\">\n")?;
+        self.out.text("</defs>\n")?;
         self.out
             .formatted(format_args!("<rect width=\"{width}\" height=\"{height}\""))?;
         self.paint(self.options.background, false)?;
         self.out.text("/>\n")?;
+        self.out.text("<g clip-path=\"url(#viewport)\">\n")?;
         for chunk in 0..self.scene.chunks {
             self.out.cx.check(Kind::Work, 1)?;
             let origin = self.scene.xy(l::CHUNK_ORIGINS, chunk)?;

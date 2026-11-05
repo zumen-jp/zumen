@@ -2,7 +2,7 @@
 
 `zumen_render::svg` は、ZMSC のバイト列と `Options`・`Cx` を受け取り、SVG 1.1 全体のバイト列を返します。領域の API への接続は [#603](https://github.com/zumen-jp/zumen/issues/603)、PNG は [#604](https://github.com/zumen-jp/zumen/issues/604) で追跡しています。
 
-`Options` の `region` はシーンの起点と同じ座標系です。`width`・`height` はピクセル、`dpi` は用紙 mm の線幅の換算にだけ使います。背景・前景は RGBA で明示します。座標の単位を mm と推測しません。
+`Options` の `region` はシーンの起点と同じ座標系です。縦横同率で中央に収め、その範囲の外を切ります。縦横比の違いによる余白にも背景を塗ります。`width`・`height` はピクセル、`dpi` は用紙 mm の線幅の換算にだけ使います。背景・前景は RGBA で明示します。座標の単位を mm と推測しません。
 
 文字はシーンの字形の輪郭を使います。字形のない空でない文字・外部画像・名前で指定された点記号は描かず、要素 ID と描く単位の番号を診断に残します。診断の `unit` からシーンの `unit_entities` と配置の道筋をたどれます。入力の参照名を取得したり、XML に埋め込んだりしません。
 
@@ -26,7 +26,7 @@ node crates/zumen-render/tests/wasm.mjs target/wasm32-unknown-unknown/debug/exam
 ```sh
 npm ci --ignore-scripts --prefix bindings/js/test/browser
 npm exec --prefix bindings/js/test/browser -- playwright install --only-shell chromium
-node crates/zumen-render/tests/browser.mjs target/svg-check/drawing.svg
+node crates/zumen-render/tests/browser.mjs target/svg-check/drawing.svg target/svg-check/region.svg
 ```
 
 CI でも同じ方法で照合します。`fuzz` の `svg` target は ZMSC を入力にし、SVG を 2 回作って出力・診断・停止・予算が一致することを確かめます。`cargo xtask fuzz-seeds` が、線と列の参照を持つ合成シーンを種に足します。

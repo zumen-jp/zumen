@@ -16,6 +16,14 @@ fn main() -> Result<(), Box<dyn Error>> {
         false,
     );
     let svg = result.map_err(|e| format!("SVG を作れない: {e:?}"))?;
+    let mut options = fixtures::options();
+    options.width = 200;
+    options.region = [20.0, 20.0, 80.0, 80.0];
+    let (region, _, _) = fixtures::run(&input, &options, zumen_base::Limits::default(), false);
+    fs::write(
+        folder.join("region.svg"),
+        region.map_err(|e| format!("範囲の SVG を作れない: {e:?}"))?,
+    )?;
     fs::write(folder.join("scene.zmsc"), input)?;
     fs::write(folder.join("drawing.svg"), svg)?;
     fs::write(folder.join("transcript.bin"), fixtures::transcript())?;

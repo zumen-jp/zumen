@@ -166,6 +166,41 @@ fn empty_scene_and_explicit_options() {
 }
 
 #[test]
+fn explicit_foreground_opacity_hairline_and_centered_region() {
+    let mut c = mixed();
+    c.0[l::COLOR_FLAGS][1] = l::color_flag::UNRESOLVED;
+    c.0[l::UNIT_WEIGHTS][4..8].copy_from_slice(&0_f32.to_le_bytes());
+    let mut o = options();
+    o.width = 200;
+    o.dpi = 254.0;
+    o.foreground = [18, 52, 86, 128];
+    let (result, diag, _) = run(&c.pack(), &o, Limits::default(), false);
+    let svg = String::from_utf8(result.unwrap()).unwrap();
+    let line = svg
+        .lines()
+        .find(|line| line.contains("M50 50L150 50"))
+        .unwrap();
+    assert!(
+        line.contains("#123456")
+            && line.contains("stroke-width=\"1\"")
+            && line.contains("stroke-opacity=\"0.5019607843137255\"")
+    );
+    assert!(!svg.contains(" opacity="));
+    assert!(svg.contains("<rect x=\"50\" y=\"0\" width=\"100\" height=\"100\"/></clipPath>"));
+    assert!(
+        svg.find("<rect width=\"200\" height=\"100\" fill=")
+            .unwrap()
+            < svg.find("<g clip-path=\"url(#viewport)\">").unwrap()
+    );
+    let color = diag
+        .iter()
+        .find(|d| d.code() == codes::RENDER_COLOR_ASSUMED)
+        .unwrap();
+    assert_eq!(color.places()[0].id(), Some("fixture-1"));
+    assert_eq!(color.count(), 1);
+}
+
+#[test]
 fn sdk_fuzz_and_id_contracts() {
     let bytes = mixed().pack();
     zumen_sdk::testkit::survives_with(&bytes, |input, cx| {
