@@ -17,6 +17,7 @@ import base64
 import json
 import math
 import shutil
+import struct
 import subprocess
 import sys
 import tomllib
@@ -34,6 +35,7 @@ PLACES = {
     "input/made-dropped.dxf": {"dxf.lift.dropped": DROPPED, "dxf.non-planar.dropped": 2},
     "input/made-structure.sfc": {"sxf.lift.invalid": 1},
     "input/made-structure.p21": {"sxf.lift.invalid": 1},
+    "input/made-non-finite.jww": {"jww.lift.invalid": 1},
 }
 # 適合テストの図面とキットのスクリプトのライセンス（このリポジトリと同じ）
 REPOSITORY = ("MIT OR Apache-2.0", "zumen-jp（このリポジトリ）。本文は licenses/LICENSE-MIT と licenses/LICENSE-APACHE")
@@ -251,7 +253,7 @@ ENDSEC;
 END-ISO-10303-21;
 """
 # 外部の実装と照らすためだけに作る入力。書き戻しと変換を当てない
-CHECKS = {"input/made-structure.sfc", "input/made-structure.p21"}
+CHECKS = {"input/made-structure.sfc", "input/made-structure.p21", "input/made-non-finite.jww"}
 
 
 class Zumen:
@@ -934,6 +936,18 @@ def expectation(out, f):
     return opened + "<br>".join(items)
 
 
+def non_finite_jww(data):
+    """適合テストの JWW の線の終点 Y を NaN にする。図形を落とした診断とレコードを結ぶ照合用（#548）"""
+    # バージョン 700 の CDataSen は、クラスの名前、15 バイトの共通フィールド、4 つの実数の順。
+    # 適合テストの形が変わったら、違うフィールドを書き換える前に止める。
+    if data[:12] != b"JwwData." + struct.pack("<I", 700) or data.count(b"CDataSen") != 1:
+        raise ValueError("非有限値の検査に使う JWW のバージョンかクラスが変わった")
+    at = data.index(b"CDataSen") + len(b"CDataSen") + 15
+    if data[at:at + 32] != struct.pack("<4d", 0.0, 0.0, 100.0, 50.0):
+        raise ValueError("非有限値の検査に使う JWW の線が変わった")
+    return data[:at + 24] + struct.pack("<d", math.nan) + data[at + 32:]
+
+
 def inputs(extra):
     """入力の図面: 公開サンプル、適合テストの中で作った図面、--inputs のフォルダー。(道筋, 中身, 出所, ライセンス, 表示)"""
     ledger = tomllib.loads((ROOT / "samples" / "ledger.toml").read_text(encoding="utf-8"))["samples"]
@@ -948,6 +962,8 @@ def inputs(extra):
         push = next(s["push"] for s in steps if s.get("push", {}).get("name") == name)
         data = bytes.fromhex(push["hex"]) if "hex" in push else push["text"].encode("utf-8")
         found.append((f"input/conformance-{Path(case).stem}-{name}", data, f"bindings/conformance/cases/{case}", *REPOSITORY))
+        if name == "a.jww":
+            found.append(("input/made-non-finite.jww", non_finite_jww(data), "xtask/verify/make.py", *REPOSITORY))
     found.append(("input/made-features.sfc", SFC.encode("ascii"), "xtask/verify/make.py", *REPOSITORY))
     found.append(("input/made-dropped.dxf", dropped_dxf().encode("ascii"), "xtask/verify/make.py", *REPOSITORY))
     found.append(("input/made-japanese-r2004.dxf", japanese_dxf("AC1018", "cp932"), "xtask/verify/make.py", *REPOSITORY))
