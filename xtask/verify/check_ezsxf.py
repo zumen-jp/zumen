@@ -402,7 +402,7 @@ def sfc_placed(raw):
     その前のフィーチャを、曲線でないものもまとめる（zumen の Lifter::run も同じ）。用紙と部分図（区分 1・2）のものを数え、
     作図グループ（区分 3）は置いた所に広げ、作図部品（区分 4）は配置だけを数える。表示しない複合曲線の曲線（CURVES）と、
     作図部品の定義の中身は、zumen の要素の一覧にないので数えない。表示しない複合曲線の、曲線でないフィーチャは数える
-    （zumen は、診断なしで落とす。#549）"""
+    （zumen は要素に戻さず、表示の有無によらず元のレコードを診断で報告する。#549）"""
     keyword = {i: k for i, k, _ in raw}
     params = {i: p for i, _, p in raw}
     pending, sheet, definitions, composites = [], [], {}, {}
