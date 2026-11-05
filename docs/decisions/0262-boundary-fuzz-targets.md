@@ -82,5 +82,5 @@ target ごとの中身と、固定の入力は、`fuzz/README.md` と `fuzz/src/
 
 ## 参照
 
-- #501・#516・#517、[0010](0010-budget-by-work.md)・[0012](0012-boundary-functions-and-messages.md)・[0015](0015-add-only-boundary-and-version-floors.md)・[0016](0016-boundary-message-details.md)・[0017](0017-format-rights-ledger-and-plugin-sdk.md)・[0258](0258-fuzz-seeds-and-runs.md)
-- `fuzz/README.md`・`fuzz/src/lib.rs`・`xtask/src/fuzz.rs`・`crates/zumen-sdk/src/testkit.rs`
+- #501・#516・#517・#563・#566・#567、[0007](0007-single-rust-implementation.md)・[0010](0010-budget-by-work.md)・[0012](0012-boundary-functions-and-messages.md)・[0015](0015-add-only-boundary-and-version-floors.md)・[0016](0016-boundary-message-details.md)・[0017](0017-format-rights-ledger-and-plugin-sdk.md)・[0159](0159-drawing-walk-placements.md)・[0247](0247-drawing-model-binary.md)・[0258](0258-fuzz-seeds-and-runs.md)
+- `fuzz/README.md`・`fuzz/src/lib.rs`・`xtask/src/fuzz.rs`・`crates/zumen-sdk/src/testkit.rs`・`crates/zumen-drawing/src/walk.rs`
