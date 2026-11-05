@@ -1,0 +1,348 @@
+{
+  "description": "複合曲線に取り込まれた曲線以外のフィーチャを、表示・非表示・不正な表示フラグによらず診断する。合成 SFC の文字・点マーカー・未対応のフィーチャと、同じインスタンス番号の後続の円を持つ。元の図形の ID・形・順序と診断の場所を保ち、曲線以外を含むハッチングは従来どおり断る（決定 0129、#549）",
+  "steps": [
+    {
+      "push": {
+        "name": "hidden.sfc",
+        "text": "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('SCADEC level2 feature_mode'),'2;1');\nFILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));\nENDSEC;\nDATA;\n/*SXF3\n#10 = layer_feature(\\'L\\','1')\nSXF3*/\n/*SXF3\n#20 = text_font_feature(\\'F\\')\nSXF3*/\n/*SXF3\n#30 = text_string_feature('1','1','1',\\'before\\','0','20','3','10','0','0','0','1','1')\nSXF3*/\n/*SXF3\n#40 = point_marker_feature('1','1','1','2','2','0','1')\nSXF3*/\n/*SXF3\n#50 = circle_feature('1','1','1','1','5','5','2')\nSXF3*/\n/*SXF3\n#60 = future_feature('1')\nSXF3*/\n/*SXF3\n#70 = composite_curve_org_feature('3','1','1','0')\nSXF3*/\n/*SXF3\n#30 = circle_feature('1','1','1','1','20','20','4')\nSXF3*/\n/*SXF3\n#80 = fill_area_style_colour_feature('1','4','1','0','()')\nSXF3*/\n/*SXF3\n#90 = line_feature('1','1','1','1','20','0','30','0')\nSXF3*/\n/*SXF3\n#100 = drawing_sheet_feature(\\'S\\','3','1','0','0')\nSXF3*/\nENDSEC;\nEND-ISO-10303-21;\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "hidden.sfc"
+      },
+      "expect": {
+        "/result/doc": "hidden.sfc",
+        "/result/format": "sxf",
+        "/diagnostics": []
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "hidden.sfc",
+        "fields": [
+          "id",
+          "kind",
+          "source",
+          "geometry"
+        ]
+      },
+      "expect": {
+        "/result/total": 2,
+        "/diagnostics": [
+          {
+            "code": "sxf.lift.dropped",
+            "severity": "warning",
+            "fidelity": "dropped",
+            "count": 1,
+            "at": [
+              {
+                "record": 8
+              }
+            ],
+            "params": {
+              "kind": "text_string_feature"
+            }
+          },
+          {
+            "code": "sxf.lift.dropped",
+            "severity": "warning",
+            "fidelity": "dropped",
+            "count": 1,
+            "at": [
+              {
+                "record": 9
+              }
+            ],
+            "params": {
+              "kind": "point_marker_feature"
+            }
+          },
+          {
+            "code": "sxf.lift.dropped",
+            "severity": "warning",
+            "fidelity": "dropped",
+            "count": 1,
+            "at": [
+              {
+                "record": 11
+              }
+            ],
+            "params": {
+              "kind": "future_feature"
+            }
+          },
+          {
+            "code": "sxf.lift.invalid",
+            "severity": "warning",
+            "fidelity": "dropped",
+            "count": 1,
+            "at": [
+              {
+                "record": 14
+              }
+            ],
+            "params": {
+              "kind": "fill_area_style_colour_feature"
+            }
+          }
+        ],
+        "/result/items/0/id": "sheet/0/i30",
+        "/result/items/0/source/instance": "30",
+        "/result/items/1/id": "sheet/0/i90",
+        "/result/items/1/source/instance": "90",
+        "/result/items/0/geometry/center": [
+          20,
+          20
+        ],
+        "/result/items/0/geometry/radius": 4,
+        "/result/items/1/geometry/start": [
+          20,
+          0
+        ],
+        "/result/items/1/geometry/end": [
+          30,
+          0
+        ]
+      }
+    },
+    {
+      "push": {
+        "name": "visible.sfc",
+        "text": "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('SCADEC level2 feature_mode'),'2;1');\nFILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));\nENDSEC;\nDATA;\n/*SXF3\n#10 = layer_feature(\\'L\\','1')\nSXF3*/\n/*SXF3\n#20 = text_font_feature(\\'F\\')\nSXF3*/\n/*SXF3\n#30 = text_string_feature('1','1','1',\\'before\\','0','20','3','10','0','0','0','1','1')\nSXF3*/\n/*SXF3\n#40 = point_marker_feature('1','1','1','2','2','0','1')\nSXF3*/\n/*SXF3\n#50 = circle_feature('1','1','1','1','5','5','2')\nSXF3*/\n/*SXF3\n#60 = future_feature('1')\nSXF3*/\n/*SXF3\n#70 = composite_curve_org_feature('3','1','1','1')\nSXF3*/\n/*SXF3\n#30 = circle_feature('1','1','1','1','20','20','4')\nSXF3*/\n/*SXF3\n#80 = fill_area_style_colour_feature('1','4','1','0','()')\nSXF3*/\n/*SXF3\n#90 = line_feature('1','1','1','1','20','0','30','0')\nSXF3*/\n/*SXF3\n#100 = drawing_sheet_feature(\\'S\\','3','1','0','0')\nSXF3*/\nENDSEC;\nEND-ISO-10303-21;\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "visible.sfc"
+      },
+      "expect": {
+        "/result/doc": "visible.sfc",
+        "/result/format": "sxf",
+        "/diagnostics": []
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "visible.sfc",
+        "fields": [
+          "id",
+          "kind",
+          "source",
+          "geometry"
+        ]
+      },
+      "expect": {
+        "/result/total": 3,
+        "/diagnostics": [
+          {
+            "code": "sxf.lift.dropped",
+            "severity": "warning",
+            "fidelity": "dropped",
+            "count": 1,
+            "at": [
+              {
+                "record": 8
+              }
+            ],
+            "params": {
+              "kind": "text_string_feature"
+            }
+          },
+          {
+            "code": "sxf.lift.dropped",
+            "severity": "warning",
+            "fidelity": "dropped",
+            "count": 1,
+            "at": [
+              {
+                "record": 9
+              }
+            ],
+            "params": {
+              "kind": "point_marker_feature"
+            }
+          },
+          {
+            "code": "sxf.lift.dropped",
+            "severity": "warning",
+            "fidelity": "dropped",
+            "count": 1,
+            "at": [
+              {
+                "record": 11
+              }
+            ],
+            "params": {
+              "kind": "future_feature"
+            }
+          },
+          {
+            "code": "sxf.lift.invalid",
+            "severity": "warning",
+            "fidelity": "dropped",
+            "count": 1,
+            "at": [
+              {
+                "record": 14
+              }
+            ],
+            "params": {
+              "kind": "fill_area_style_colour_feature"
+            }
+          }
+        ],
+        "/result/items/0/id": "sheet/0/i50",
+        "/result/items/0/source/instance": "50",
+        "/result/items/1/id": "sheet/0/i30",
+        "/result/items/1/source/instance": "30",
+        "/result/items/2/id": "sheet/0/i90",
+        "/result/items/2/source/instance": "90",
+        "/result/items/1/geometry/center": [
+          20,
+          20
+        ],
+        "/result/items/1/geometry/radius": 4,
+        "/result/items/2/geometry/start": [
+          20,
+          0
+        ],
+        "/result/items/2/geometry/end": [
+          30,
+          0
+        ]
+      }
+    },
+    {
+      "push": {
+        "name": "invalid.sfc",
+        "text": "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('SCADEC level2 feature_mode'),'2;1');\nFILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));\nENDSEC;\nDATA;\n/*SXF3\n#10 = layer_feature(\\'L\\','1')\nSXF3*/\n/*SXF3\n#20 = text_font_feature(\\'F\\')\nSXF3*/\n/*SXF3\n#30 = text_string_feature('1','1','1',\\'before\\','0','20','3','10','0','0','0','1','1')\nSXF3*/\n/*SXF3\n#40 = point_marker_feature('1','1','1','2','2','0','1')\nSXF3*/\n/*SXF3\n#50 = circle_feature('1','1','1','1','5','5','2')\nSXF3*/\n/*SXF3\n#60 = future_feature('1')\nSXF3*/\n/*SXF3\n#70 = composite_curve_org_feature('3','1','1','2')\nSXF3*/\n/*SXF3\n#30 = circle_feature('1','1','1','1','20','20','4')\nSXF3*/\n/*SXF3\n#80 = fill_area_style_colour_feature('1','4','1','0','()')\nSXF3*/\n/*SXF3\n#90 = line_feature('1','1','1','1','20','0','30','0')\nSXF3*/\n/*SXF3\n#100 = drawing_sheet_feature(\\'S\\','3','1','0','0')\nSXF3*/\nENDSEC;\nEND-ISO-10303-21;\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "invalid.sfc"
+      },
+      "expect": {
+        "/result/doc": "invalid.sfc",
+        "/result/format": "sxf",
+        "/diagnostics": []
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "invalid.sfc",
+        "fields": [
+          "id",
+          "kind",
+          "source",
+          "geometry"
+        ]
+      },
+      "expect": {
+        "/result/total": 2,
+        "/diagnostics": [
+          {
+            "code": "sxf.lift.invalid",
+            "severity": "warning",
+            "fidelity": "dropped",
+            "count": 1,
+            "at": [
+              {
+                "record": 12
+              }
+            ],
+            "params": {
+              "kind": "composite_curve_org_feature"
+            }
+          },
+          {
+            "code": "sxf.lift.dropped",
+            "severity": "warning",
+            "fidelity": "dropped",
+            "count": 1,
+            "at": [
+              {
+                "record": 8
+              }
+            ],
+            "params": {
+              "kind": "text_string_feature"
+            }
+          },
+          {
+            "code": "sxf.lift.dropped",
+            "severity": "warning",
+            "fidelity": "dropped",
+            "count": 1,
+            "at": [
+              {
+                "record": 9
+              }
+            ],
+            "params": {
+              "kind": "point_marker_feature"
+            }
+          },
+          {
+            "code": "sxf.lift.dropped",
+            "severity": "warning",
+            "fidelity": "dropped",
+            "count": 1,
+            "at": [
+              {
+                "record": 11
+              }
+            ],
+            "params": {
+              "kind": "future_feature"
+            }
+          },
+          {
+            "code": "sxf.lift.invalid",
+            "severity": "warning",
+            "fidelity": "dropped",
+            "count": 1,
+            "at": [
+              {
+                "record": 14
+              }
+            ],
+            "params": {
+              "kind": "fill_area_style_colour_feature"
+            }
+          }
+        ],
+        "/result/items/0/id": "sheet/0/i30",
+        "/result/items/0/source/instance": "30",
+        "/result/items/1/id": "sheet/0/i90",
+        "/result/items/1/source/instance": "90",
+        "/result/items/0/geometry/center": [
+          20,
+          20
+        ],
+        "/result/items/0/geometry/radius": 4,
+        "/result/items/1/geometry/start": [
+          20,
+          0
+        ],
+        "/result/items/1/geometry/end": [
+          30,
+          0
+        ]
+      }
+    }
+  ]
+}

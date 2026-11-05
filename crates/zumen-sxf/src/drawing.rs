@@ -209,6 +209,23 @@ impl Feature<'_> {
         self.name.as_bytes().eq_ignore_ascii_case(name)
     }
 
+    /// 複合曲線の曲線（決定 0129）。P21 から組み直した未対応の曲線も含む
+    fn is_curve(&self) -> bool {
+        [
+            "line",
+            "polyline",
+            "circle",
+            "arc",
+            "ellipse",
+            "ellipse_arc",
+            "spline",
+            "clothoid",
+        ]
+        .iter()
+        .any(|name| self.name.eq_ignore_ascii_case(name))
+            || (self.name.is_empty() && self.kind == "composite_curve_segment")
+    }
+
     /// 出所。インスタンスの番号があれば、変わらないキーとして足す（決定 0156）
     fn source(&self) -> Ref {
         let at = Ref::at_record(self.record as u64);
@@ -1598,10 +1615,22 @@ impl<'f> Lifter<'f> {
             Some(flag @ (0 | 1)) => flag == 1,
             _ => {
                 invalid(cx, feature);
-                return Ok(());
+                false
             }
         };
         if !visible {
+            // まとめ方と既存 ID は保つ。曲線以外は表示しない場合にも診断し、黙って捨てない（#549）
+            if let Some(composite) = self.composites.iter().find(|c| c.feature == index) {
+                for member in &composite.members {
+                    let Some(&member) = self.features.get(*member) else {
+                        continue;
+                    };
+                    work(cx, 1, &member.source())?;
+                    if !member.is_curve() {
+                        dropped(cx, member);
+                    }
+                }
+            }
             return Ok(());
         }
         let source = feature.source();

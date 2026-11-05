@@ -700,6 +700,353 @@ fn moves_labels_and_balloons_as_callouts() {
 }
 
 #[test]
+fn composites_report_non_curves_without_changing_placement() {
+    use zumen_drawing::id;
+
+    for flag in ["0", "1", "2", ""] {
+        let composite = if flag.is_empty() {
+            "composite_curve_org_feature('3','1','1')".to_owned()
+        } else {
+            format!("composite_curve_org_feature('3','1','1','{flag}')")
+        };
+        let features = [
+            (10, r"layer_feature(\'L\','1')"),
+            (20, r"text_font_feature(\'F\')"),
+            (30, "line_feature('1','1','1','1','0','0','1','0')"),
+            (40, r"sfig_org_feature(\'P\','4')"),
+            (50, "line_feature('1','1','1','1','0','0','2','0')"),
+            (60, r"sfig_org_feature(\'G\','3')"),
+            (
+                70,
+                "polyline_feature('1','1','1','1','5','(0,10,10,0,0)','(0,0,10,10,0)')",
+            ),
+            (80, "composite_curve_org_feature('2','1','1','1')"),
+            (
+                90,
+                r"text_string_feature('1','1','1',\'before\','0','20','3','10','0','0','1','1')",
+            ),
+            (100, "point_marker_feature('1','1','1','2','2','0','1')"),
+            (110, "line_feature('1','1','1','1','2','2','8','2')"),
+            (
+                120,
+                r"text_string_feature('1','1','1',\'between\','0','25','3','10','0','0','1','1')",
+            ),
+            (130, r"sfig_locate_feature('1',\'P\','20','20','0','1','1')"),
+            (140, r"sfig_locate_feature('1',\'G\','0','0','0','1','1')"),
+            (150, "fill_area_style_colour_feature('1','4','1','0','()')"),
+            (160, "future_feature('1')"),
+            (170, "text_string_feature('1')"),
+            (
+                180,
+                "polyline_feature('1','1','1','1','4','(8,8,2,2)','(2,8,8,2)')",
+            ),
+            (190, composite.as_str()),
+            (200, "fill_area_style_colour_feature('1','4','2','0','()')"),
+            (210, "point_marker_feature('1','1','30','30','2','0','1')"),
+            (220, r"drawing_sheet_feature(\'S\','3','1','0','0')"),
+        ];
+        let src = numbered(&features);
+        let (drawing, diag) = lift(&src);
+        let sheet = &drawing.sheets[0];
+        let visible = flag == "1" || flag.is_empty();
+        let mut expected = vec![70];
+        if visible {
+            expected.extend([110, 180]);
+        }
+        expected.push(210);
+        let source = |number| {
+            let index = features.iter().position(|(id, _)| *id == number).unwrap();
+            Ref::at_record(index as u64 + 6).with_key(Key::Instance(number))
+        };
+        assert_eq!(
+            sheet
+                .elements
+                .iter()
+                .map(|e| e.source.clone())
+                .collect::<Vec<_>>(),
+            expected.iter().map(|id| source(*id)).collect::<Vec<_>>(),
+            "flag={flag}, {diag:?}"
+        );
+        assert_eq!(
+            sheet.order,
+            (0..expected.len())
+                .map(SheetItem::Element)
+                .collect::<Vec<_>>()
+        );
+        let place = id::sheet(sheet);
+        let mut namer = id::Namer::new(&place);
+        assert_eq!(
+            sheet
+                .elements
+                .iter()
+                .enumerate()
+                .map(|(i, e)| namer.next(i, e))
+                .collect::<Vec<_>>(),
+            expected
+                .iter()
+                .map(|id| format!("sheet/0/i{id}"))
+                .collect::<Vec<_>>()
+        );
+        assert!(matches!(sheet.elements[0].shape, Shape::Polyline(_)));
+        assert!(matches!(
+            sheet.elements.last().unwrap().shape,
+            Shape::Point(_)
+        ));
+        assert_eq!(diag.len(), if flag == "2" { 7 } else { 6 }, "{diag:?}");
+        let dropped: [(&str, &[u64]); 5] = [
+            ("text_string_feature", &[90, 120, 170]),
+            ("point_marker_feature", &[100]),
+            ("sfig_locate_feature", &[130, 140]),
+            ("fill_area_style_colour_feature", &[150]),
+            ("future_feature", &[160]),
+        ];
+        for (kind, ids) in dropped {
+            let diagnostic = diag
+                .iter()
+                .find(|d| {
+                    d.code() == codes::SXF_LIFT_DROPPED
+                        && d.param("kind") == Some(&zumen_base::Value::from(kind))
+                })
+                .unwrap();
+            assert_eq!(
+                diagnostic.places(),
+                ids.iter().map(|id| source(*id)).collect::<Vec<_>>()
+            );
+            assert_eq!(diagnostic.count(), ids.len() as u64);
+        }
+        let invalid: Vec<_> = diag
+            .iter()
+            .filter(|d| d.code() == codes::SXF_LIFT_INVALID)
+            .flat_map(|d| d.places().iter().cloned())
+            .collect();
+        assert_eq!(
+            invalid,
+            if flag == "2" {
+                vec![source(190), source(200)]
+            } else {
+                vec![source(200)]
+            }
+        );
+        assert!(
+            drawing
+                .extensions
+                .iter()
+                .all(|extension| extension.is_current(&drawing))
+        );
+        testkit::roundtrip::<Sxf>(&src).unwrap();
+    }
+}
+
+#[test]
+fn hidden_composites_report_non_curves_in_subfigures() {
+    for flag in [1, 2, 3, 4] {
+        let definition = format!(r"sfig_org_feature(\'A\','{flag}')");
+        let src = numbered(&[
+            (10, r"layer_feature(\'L\','1')"),
+            (20, "point_marker_feature('1','1','1','2','2','0','1')"),
+            (30, "line_feature('1','1','1','1','0','0','5','0')"),
+            (40, "composite_curve_org_feature('1','1','1','0')"),
+            (50, "point_marker_feature('1','1','3','4','2','0','1')"),
+            (60, &definition),
+            (70, r"sfig_locate_feature('1',\'A\','10','20','0','1','1')"),
+            (80, r"drawing_sheet_feature(\'S\','3','1','0','0')"),
+        ]);
+        let (drawing, diag) = lift(&src);
+        assert_eq!(diag.len(), 1, "flag={flag}, {diag:?}");
+        assert_eq!(
+            find(&diag, codes::SXF_LIFT_DROPPED).places(),
+            [Ref::at_record(7).with_key(Key::Instance(20))]
+        );
+        let sources: Vec<_> = match flag {
+            1 | 2 => {
+                assert_eq!(drawing.sheets[0].views.len(), 1);
+                assert_eq!(drawing.spaces[0].order, [0]);
+                drawing.spaces[0]
+                    .elements
+                    .iter()
+                    .map(|e| e.source.clone())
+                    .collect()
+            }
+            3 => drawing.sheets[0]
+                .elements
+                .iter()
+                .map(|e| e.source.clone())
+                .collect(),
+            _ => {
+                assert!(matches!(
+                    drawing.sheets[0].elements[0].shape,
+                    Shape::Symbol(_)
+                ));
+                assert_eq!(drawing.symbols[0].space.order, [0]);
+                drawing.symbols[0]
+                    .space
+                    .elements
+                    .iter()
+                    .map(|e| e.source.clone())
+                    .collect()
+            }
+        };
+        assert_eq!(sources, [Ref::at_record(10).with_key(Key::Instance(50)),]);
+    }
+}
+
+#[test]
+fn composite_diagnostics_obey_work_limits_and_cancellation() {
+    use zumen_base::{Kind, Limit, Limits};
+    use zumen_sdk::Error;
+
+    let mut features = vec![
+        (10, r"layer_feature(\'L\','1')"),
+        (20, "point_marker_feature('1','1','1','2','2','0','1')"),
+    ];
+    features.extend((30..38).map(|id| (id, "composite_curve_org_feature('1','1','1','0')")));
+    features.push((90, r"drawing_sheet_feature(\'S\','3','1','0','0')"));
+    let src = numbered(&features);
+    let file = testkit::read::<Sxf>(&src).0.unwrap();
+    let run = |limit, cancelled| {
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, limit));
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        if cancelled {
+            cancel.cancel();
+        }
+        let result = file.lift(&mut Cx::new(&mut budget, &mut diagnostics, &cancel));
+        (
+            result.map(|_| ()),
+            budget.used(Kind::Work),
+            diagnostics.into_vec(),
+        )
+    };
+    let (result, used, _) = run(Limit::Unlimited, false);
+    assert!(result.is_ok());
+    let limited = run(Limit::Finite(used - 1), false);
+    assert!(matches!(limited.0, Err(Error::Stopped(_))));
+    assert_eq!(limited, run(Limit::Finite(used - 1), false));
+    assert!(matches!(
+        run(Limit::Unlimited, true).0,
+        Err(Error::Stopped(_))
+    ));
+    let scanning = run(Limit::Finite(features.len() as u64 + 1), false);
+    assert!(matches!(scanning.0, Err(Error::Stopped(_))));
+    assert_eq!(
+        find(&scanning.2, codes::BUDGET_WORK_EXCEEDED).places(),
+        [Ref::at_record(7).with_key(Key::Instance(20))]
+    );
+    assert_eq!(testkit::write::<Sxf>(&file).unwrap(), src);
+}
+
+#[test]
+fn diagnosing_hidden_text_preserves_a_duplicate_instance_id() {
+    use zumen_drawing::id;
+
+    for flag in ["0", "1", "2", ""] {
+        let composite = if flag.is_empty() {
+            "composite_curve_org_feature('1','1','1')".to_owned()
+        } else {
+            format!("composite_curve_org_feature('1','1','1','{flag}')")
+        };
+        let src = numbered(&[
+            (10, r"layer_feature(\'L\','1')"),
+            (20, r"text_font_feature(\'F\')"),
+            (
+                30,
+                r"text_string_feature('1','1','1',\'T\','0','0','2','4','0','0','0','1','1')",
+            ),
+            (40, &composite),
+            (30, "circle_feature('1','1','1','1','5','6','2')"),
+            (50, r"drawing_sheet_feature(\'S\','3','1','0','0')"),
+        ]);
+        let (drawing, diag) = lift(&src);
+        let sheet = &drawing.sheets[0];
+        assert_eq!(sheet.elements.len(), 1);
+        let circle = &sheet.elements[0];
+        assert_eq!(
+            circle.shape,
+            Shape::Circle {
+                center: paper(5.0, 6.0),
+                radius: Length::Paper(PaperLength(2.0))
+            }
+        );
+        assert_eq!(
+            circle.source,
+            Ref::at_record(10).with_key(Key::Instance(30))
+        );
+        let place = id::sheet(sheet);
+        assert_eq!(id::Namer::new(&place).next(0, circle), "sheet/0/i30");
+        assert_eq!(
+            find(&diag, codes::SXF_LIFT_DROPPED).places(),
+            [Ref::at_record(8).with_key(Key::Instance(30))]
+        );
+        assert_eq!(diag.len(), if flag == "2" { 2 } else { 1 });
+        testkit::roundtrip::<Sxf>(&src).unwrap();
+    }
+}
+
+#[test]
+fn hidden_composites_only_suppress_curve_diagnostics() {
+    let curves = [
+        "line",
+        "polyline",
+        "circle",
+        "arc",
+        "ellipse",
+        "ellipse_arc",
+        "spline",
+        "clothoid",
+    ];
+    let others = [
+        "text_string",
+        "point_marker",
+        "fill_area_style_colour",
+        "fill_area_style_hatching",
+        "fill_area_style_tiles",
+        "externally_defined_hatch",
+        "sfig_locate",
+        "label",
+        "balloon",
+        "linear_dim",
+        "curve_dim",
+        "angular_dim",
+        "radius_dim",
+        "diameter_dim",
+        "externally_defined_symbol",
+        "future",
+    ];
+    let mut features = vec![(10, r"layer_feature(\'L\','1')".to_owned())];
+    for (i, name) in curves.into_iter().chain(others).enumerate() {
+        features.push((20 + i as u64, format!("{name}_feature('1')")));
+    }
+    features.push((
+        100,
+        "composite_curve_org_feature('1','1','1','0')".to_owned(),
+    ));
+    features.push((
+        110,
+        r"drawing_sheet_feature(\'S\','3','1','0','0')".to_owned(),
+    ));
+    let src = numbered(
+        &features
+            .iter()
+            .map(|(i, s)| (*i, s.as_str()))
+            .collect::<Vec<_>>(),
+    );
+    let (drawing, diag) = lift(&src);
+    assert!(drawing.sheets[0].elements.is_empty());
+    assert_eq!(diag.len(), others.len(), "{diag:?}");
+    for (i, name) in others.iter().enumerate() {
+        assert_eq!(diag[i].code(), codes::SXF_LIFT_DROPPED);
+        assert_eq!(
+            diag[i].param("kind"),
+            Some(&zumen_base::Value::from(format!("{name}_feature")))
+        );
+        assert_eq!(
+            diag[i].places(),
+            [Ref::at_record(15 + i as u64).with_key(Key::Instance(28 + i as u64))]
+        );
+    }
+}
+
+#[test]
 fn moves_hatches_with_composite_curve_boundaries() {
     let src = sfc(&[
         b"layer_feature(\\'L\\','1')",
@@ -1406,6 +1753,33 @@ fn moves_p21_hatches_and_composite_curves_like_the_same_sfc() {
     assert!(diag.is_empty(), "{diag:?}");
     assert_eq!(from_p21.sheets[0].elements.len(), 6);
     assert_eq!(unsourced(from_p21), unsourced(from_sfc));
+
+    // 未対応の曲線を境界から外すと、ハッチングを穴なしで描いてしまう。非表示でも境界に残して断る
+    let unsupported = String::from_utf8(p21)
+        .unwrap()
+        .replace("#34=CIRCLE(' ',#33,1.);", "#34=PARABOLA(' ',#33,1.);");
+    for hidden in [true, false] {
+        let input = if hidden {
+            unsupported.clone()
+        } else {
+            unsupported.replace("#38=INVISIBILITY((#37));\n", "")
+        };
+        let (drawing, diag) = lift(input.as_bytes());
+        assert_eq!(drawing.sheets[0].elements.len(), 5, "{diag:?}");
+        assert_eq!(diag.len(), if hidden { 1 } else { 2 }, "{diag:?}");
+        assert_eq!(
+            find(&diag, codes::SXF_LIFT_INVALID).places()[0].key(),
+            Some(Key::Instance(44))
+        );
+        if !hidden {
+            let dropped = find(&diag, codes::SXF_LIFT_DROPPED);
+            assert_eq!(dropped.places()[0].key(), Some(Key::Instance(34)));
+            assert_eq!(
+                dropped.param("kind"),
+                Some(&zumen_base::Value::from("composite_curve_segment"))
+            );
+        }
+    }
 }
 
 #[test]

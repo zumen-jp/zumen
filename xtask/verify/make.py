@@ -33,7 +33,7 @@ DROPPED = 20
 # 作った入力が役目を果たすこと: 移さなかったことを言う診断の、code ごとの場所の数
 PLACES = {
     "input/made-dropped.dxf": {"dxf.lift.dropped": DROPPED, "dxf.non-planar.dropped": 2},
-    "input/made-structure.sfc": {"sxf.lift.invalid": 1},
+    "input/made-structure.sfc": {"sxf.lift.invalid": 2, "sxf.lift.dropped": 5},
     "input/made-structure.p21": {"sxf.lift.invalid": 1},
     "input/made-non-finite.jww": {"jww.lift.invalid": 1},
 }
@@ -77,7 +77,8 @@ END-ISO-10303-21;
 """
 # 照らすスクリプトの、置き方と黙って捨てない照合の枝を毎晩通す SFC と P21（決定 0121・0129・0130、docs/formats/sxf.md）。
 # 作図部品（P）と作図グループ（G）の定義と配置、表示する複合曲線と表示しない複合曲線、それを輪にするハッチング、
-# 文字、P21 ではバルーン、zumen が移さない半径 0 の円を持つ。書き戻しと変換は当てない（CHECKS）
+# 文字、P21 ではバルーン、zumen が移さない半径 0 の円を持つ。SFC の非表示の複合曲線の前にも、文字・点マーカー・
+# ハッチング・作図部品と作図グループの配置を置く（#549）。書き戻しと変換は当てない（CHECKS）
 STRUCTURE_SFC = r"""ISO-10303-21;
 HEADER;
 FILE_DESCRIPTION(('SCADEC level2 feature_mode'),'2;1');
@@ -120,6 +121,21 @@ SXF*/
 SXF*/
 /*SXF
 #120 = polyline_feature('1','1','1','1','5','(54.0,56.0,56.0,54.0,54.0)','(54.0,54.0,56.0,56.0,54.0)')
+SXF*/
+/*SXF
+#121 = text_string_feature('1','1','1',\'BEFORE\','0.0','25.0','3.5','20.0','0.0','0.0','0.0','1','1')
+SXF*/
+/*SXF
+#122 = point_marker_feature('1','1','30.0','30.0','2','0.0','1.0')
+SXF*/
+/*SXF
+#123 = fill_area_style_colour_feature('1','3','1','0','()')
+SXF*/
+/*SXF
+#124 = sfig_locate_feature('1',\'P\','35.0','35.0','0.0','1.0','1.0')
+SXF*/
+/*SXF
+#125 = sfig_locate_feature('1',\'G\','0.0','0.0','0.0','1.0','1.0')
 SXF*/
 /*SXF
 #130 = composite_curve_org_feature('1','1','1','0')
