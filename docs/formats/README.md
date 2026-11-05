@@ -35,7 +35,7 @@
 | [kokuban](#format-kokuban) | 電子小黒板の情報と信憑性確認（改ざん検知） | jpeg | delivery | `permission` | `none` |  |  |
 | [landxml](#format-landxml) | J-LandXML（LandXML 1.2 に準じた 3 次元設計データ交換標準） | landxml | civil | `public` | `core` | `synthetic` |  |
 | [las](#format-las) | LAS・LAZ | las | pointcloud | `public` | `core` | `synthetic` |  |
-| [pdf](#format-pdf) | PDF | pdf | drawing | `public` | `core` | `synthetic` | `synthetic` |
+| [pdf](#format-pdf) | PDF | pdf | drawing | `public` | `core` | `external` | `synthetic` |
 | [ply](#format-ply) | PLY（点群） | ply | pointcloud | `public` | `core` | `synthetic` |  |
 | [saf](#format-saf) | SXF の属性ファイル（SAF） | sxf | drawing・delivery | `public` | `core` | `synthetic` |  |
 | [sima](#format-sima) | SIMA 共通フォーマット | sima | civil | `unknown` | `none` |  |  |
@@ -785,9 +785,11 @@
 - 権利の根拠にした文書: [PDF Association の告知「ISO 32000-2（PDF 2.0）を無償で入手できる」（2023-04-05）](https://pdfa.org/announcing-no-cost-access-to-iso-32000-2-pdf-2-0/)（確認日: 2026-11-03）
 - 文書の補足: Adobe・Apryse・Foxit の後援で、PDF Association が登録した人に無償で配る。ページは自動の取得では開けない（HTTP 403）ので、検索の結果の要約で確かめた。無償版の利用の条件までは確かめていない
 - 照合に使う候補: pdf.js
-- サンプルの出どころ: CAD が出力した図面の PDF（手元で作る）
-- 読みの確かめた度合い: `synthetic`（確認日: 2026-11-03）
-- 読みの確かめた範囲: 仕様と、テストの中で作った PDF だけで確かめた（crates/zumen-pdf/tests/pdf.rs・drawing.rs）。図面モデルへの移しは、hayro-interpret 0.9.0 が解釈したページで確かめた。シーンへの移しは、図面モデルから zumen-scene で作れることだけを確かめた。公開サンプルと外部の実装（pdf.js）との照合はまだ（#519）
+- サンプルの出どころ: PDFium の公開サンプル（Type 3・OCG・ソフトマスク・LZW と JPX）。CAD が出力した図面はまだない
+- 読みの確かめた度合い: `external`（確認日: 2026-11-06）
+- 読みの確かめた範囲: PDFium の公開サンプル 4 個と合成の 2 ページを pdf.js 6.5.438 で読み、ページ寸法・文字の内容と位置・経路と画像の数を照らす（crates/zumen-pdf/tests/external.rs、#519）。回転・クロップ・単位、フォーム、表示しない OCG を含む。Type 3 の Unicode の補い方と、ソフトマスクの経路の数は、両方の値と zumen の診断を固定して確認する（#520）。色・透明度・字形の見え方、一般の PDF の文字列の分け方は照らしていない。シーンは、図面モデルから zumen-scene で作れることだけを確かめた
+- 読みで使った公開サンプル: [samples/pdf/](../../samples/pdf/)
+- 読みで照らした外部の実装: pdf.js 6.5.438
 - 書きの確かめた度合い: `synthetic`（確認日: 2026-11-03）
 - 書きの確かめた範囲: 読んだバイト列をそのまま書けることを、自前の読み取りだけで確かめた。書いたファイルを PDF のソフトで開いてはいない
 - 記録: [決定 0008](../decisions/0008-model-layers-and-codecs.md)

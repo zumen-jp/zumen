@@ -2,6 +2,57 @@
 # `cargo xtask codegen --check` が、samples/ のファイルとこの台帳を照らす。
 
 [[samples]]
+path = "pdf/pdfium-type3.pdf"
+sha256 = "dc213b3d2952f06517ac487d9892b11628f4b5bedc2ad8278a4c05c1b40be8f6"
+bytes = 1119
+title = "PDFium の Type 3 の字形を 3 つの変換で描く"
+publisher = "The PDFium Authors"
+url = "https://pdfium.googlesource.com/pdfium/+/a84323421e94f484faca52dd9d027934eba42ab8/testing/resources/pixel/type3.in"
+retrieved = "2026-11-06"
+license = "BSD-3-Clause"
+license-url = "https://pdfium.googlesource.com/pdfium/+/a84323421e94f484faca52dd9d027934eba42ab8/LICENSE"
+attribution = "Copyright 2014 The PDFium Authors. ライセンスの全文は licenses/pdfium.txt"
+changes = "同じリビジョンの testing/tools/fixup_pdf_template.py で、ヘッダー・ストリームの長さ・相互参照表を埋めて PDF にした。描画の内容は変えていない"
+
+[[samples]]
+path = "pdf/pdfium-ocg-invisible.pdf"
+sha256 = "cd8a567bc9d7c595b6dd9545ab2885c0246744ce638179ed5c938d91352589f9"
+bytes = 1035
+title = "PDFium の表示しない OCG と OCMD"
+publisher = "The PDFium Authors"
+url = "https://pdfium.googlesource.com/pdfium/+/a84323421e94f484faca52dd9d027934eba42ab8/testing/resources/pixel/bug_491_invisible.in"
+retrieved = "2026-11-06"
+license = "BSD-3-Clause"
+license-url = "https://pdfium.googlesource.com/pdfium/+/a84323421e94f484faca52dd9d027934eba42ab8/LICENSE"
+attribution = "Copyright 2014 The PDFium Authors. ライセンスの全文は licenses/pdfium.txt"
+changes = "同じリビジョンの testing/tools/fixup_pdf_template.py で、ヘッダー・ストリームの長さ・相互参照表を埋めて PDF にした。描画の内容は変えていない"
+
+[[samples]]
+path = "pdf/pdfium-smask-blend.pdf"
+sha256 = "9947d9c15d853823cedc1e87378dea89a665570e4f233b7a0ba215e5859134ab"
+bytes = 1376
+title = "PDFium のソフトマスクと Screen の合成"
+publisher = "The PDFium Authors"
+url = "https://pdfium.googlesource.com/pdfium/+/a84323421e94f484faca52dd9d027934eba42ab8/testing/resources/pixel/smask_blend.in"
+retrieved = "2026-11-06"
+license = "BSD-3-Clause"
+license-url = "https://pdfium.googlesource.com/pdfium/+/a84323421e94f484faca52dd9d027934eba42ab8/LICENSE"
+attribution = "Copyright 2014 The PDFium Authors. ライセンスの全文は licenses/pdfium.txt"
+changes = "同じリビジョンの testing/tools/fixup_pdf_template.py で、ヘッダー・ストリームの長さ・相互参照表を埋めて PDF にした。描画の内容は変えていない"
+
+[[samples]]
+path = "pdf/pdfium-jpx-lzw.pdf"
+sha256 = "ba14897a4139944e56674fefe176a56f29326e69ff2baf3e07ba096b520def78"
+bytes = 1152
+title = "PDFium の ASCIIHex・LZW・JPX の画像"
+publisher = "The PDFium Authors"
+url = "https://pdfium.googlesource.com/pdfium/+/a84323421e94f484faca52dd9d027934eba42ab8/testing/resources/jpx_lzw.pdf"
+retrieved = "2026-11-06"
+license = "BSD-3-Clause"
+license-url = "https://pdfium.googlesource.com/pdfium/+/a84323421e94f484faca52dd9d027934eba42ab8/LICENSE"
+attribution = "Copyright 2014 The PDFium Authors. ライセンスの全文は licenses/pdfium.txt"
+
+[[samples]]
 path = "dxf/text_alignments.dxf"
 sha256 = "cacf3083c17c8d3836c23c6356edcb6f70db2949ed61875c2572911719a61353"
 bytes = 21536
