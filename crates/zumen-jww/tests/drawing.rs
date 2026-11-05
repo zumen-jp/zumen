@@ -579,3 +579,220 @@ fn images_and_edit_state() {
     assert_eq!(layers.len(), 1);
     assert_eq!(layers[0].name, "0-2");
 }
+
+/// 先頭の図形の実数を差し替える。後ろに正常な線を置き、不正な図形の次も読めることを確かめる。
+#[cfg(test)]
+fn numeric_input(
+    kind: &'static str,
+    values: &[f64],
+    content: &str,
+    pen: u8,
+    full: bool,
+) -> Vec<u8> {
+    let mut archive = Archive::new(700);
+    archive.group = 0;
+    archive.layer = 0;
+    archive.count(2);
+    archive.tag(kind);
+    archive.base(pen, 1);
+    match kind {
+        "CDataSen" | "CDataSolid" => archive.reals(values),
+        "CDataEnko" => {
+            archive.reals(values);
+            archive.out.extend(u32::from(full).to_le_bytes());
+        }
+        "CDataTen" => {
+            archive.reals(&values[..2]);
+            archive.out.extend(0u32.to_le_bytes());
+            archive.out.extend(3u32.to_le_bytes());
+            archive.reals(&values[2..]);
+        }
+        "CDataMoji" => {
+            archive.reals(&values[..4]);
+            archive.out.extend(0u32.to_le_bytes());
+            archive.reals(&values[4..]);
+            archive.cstring("");
+            archive.cstring(content);
+        }
+        "CDataBlock" => {
+            archive.reals(values);
+            archive.out.extend(1u32.to_le_bytes());
+        }
+        "CDataSunpou" => {
+            archive.base(1, 1);
+            archive.reals(&values[..4]);
+            archive.base(1, 1);
+            archive.reals(&values[4..8]);
+            archive.out.extend(0u32.to_le_bytes());
+            archive.reals(&values[8..12]);
+            archive.cstring("");
+            archive.cstring("10");
+            archive.out.extend(1u16.to_le_bytes());
+            for line in values[12..20].as_chunks::<4>().0 {
+                archive.base(1, 1);
+                archive.reals(line);
+            }
+            for point in values[20..].as_chunks::<4>().0 {
+                archive.base(100, 1);
+                archive.reals(&point[..2]);
+                archive.out.extend(0u32.to_le_bytes());
+                archive.out.extend(3u32.to_le_bytes());
+                archive.reals(&point[2..]);
+            }
+        }
+        _ => panic!("{kind}"),
+    }
+    archive.line();
+    archive.count(0);
+    archive.out.extend(0u32.to_le_bytes());
+    let mut src = spec().build();
+    src.extend(archive.out);
+    src
+}
+
+#[cfg(test)]
+fn assert_invalid_first(src: &[u8]) {
+    let (drawing, diag) = lift(src);
+    let elements: Vec<_> = drawing.spaces.iter().flat_map(|s| &s.elements).collect();
+    assert_eq!(elements.len(), 1, "{elements:?}");
+    assert_eq!(elements[0].source.record(), Some(2));
+    assert_eq!(diag.len(), 1, "{diag:?}");
+    assert_eq!(diag[0].code(), zumen_base::codes::JWW_LIFT_INVALID);
+    assert_eq!(diag[0].places(), [zumen_base::Ref::at_record(1)]);
+    // L1 は元の値を保つ。
+    testkit::roundtrip::<Jww>(src).unwrap();
+    testkit::survives_lift::<Jww, Drawing2D>(src).unwrap();
+}
+
+#[test]
+fn rejects_every_non_finite_entity_field() {
+    let text = [1.0, 2.0, 3.0, 4.0, 3.0, 5.0, 0.0, 15.0];
+    let cases: &[(&str, &[f64], &str, u8, bool)] = &[
+        ("CDataSen", &[0.0, 0.0, 1.0, 2.0], "", 1, false),
+        (
+            "CDataEnko",
+            &[0.0, 0.0, 5.0, 0.0, 1.0, 0.0, 0.5],
+            "",
+            1,
+            false,
+        ),
+        (
+            "CDataEnko",
+            &[0.0, 0.0, 5.0, 0.0, 0.0, 0.0, 1.0],
+            "",
+            1,
+            true,
+        ),
+        ("CDataTen", &[1.0, 2.0, 30.0, 2.0], "", 100, false),
+        ("CDataMoji", &text, "text", 1, false),
+        ("CDataMoji", &text, "^@XX", 1, false),
+        (
+            "CDataMoji",
+            &[0.0, -1000.0, 0.0, -1000.0, 3.0, 3.0, 0.0, 0.0],
+            "Setting = 1",
+            1,
+            false,
+        ),
+        ("CDataMoji", &text, "^@BMimage.png,40,30", 1, false),
+        (
+            "CDataSolid",
+            &[0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0],
+            "",
+            1,
+            false,
+        ),
+        (
+            "CDataSolid",
+            &[0.0, 0.0, 2.0, 0.5, 0.0, 0.0, 1.0, 0.0],
+            "",
+            101,
+            false,
+        ),
+        ("CDataBlock", &[1.0, 2.0, 1.0, 1.0, 0.5], "", 1, false),
+        ("CDataSunpou", &[1.0; 36], "", 1, false),
+    ];
+    for &(kind, values, content, pen, full) in cases {
+        let valid = numeric_input(kind, values, content, pen, full);
+        assert!(lift(&valid).1.is_empty(), "{kind}");
+        for field in 0..values.len() {
+            for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+                let mut values = values.to_vec();
+                values[field] = value;
+                assert_invalid_first(&numeric_input(kind, &values, content, pen, full));
+            }
+        }
+    }
+}
+
+#[test]
+fn rejects_non_finite_results_of_finite_values() {
+    let cases: &[(&str, &[f64], &str, u8)] = &[
+        // 縮尺を掛けた座標・半径・ブロックの倍率、ラジアンから度への変換。
+        ("CDataSen", &[0.0, 0.0, f64::MAX, 0.0], "", 1),
+        (
+            "CDataEnko",
+            &[0.0, 0.0, f64::MAX, 0.0, 1.0, 0.0, 1.0],
+            "",
+            1,
+        ),
+        (
+            "CDataEnko",
+            &[0.0, 0.0, 1.0, f64::MAX, 1.0, 0.0, 1.0],
+            "",
+            1,
+        ),
+        (
+            "CDataEnko",
+            &[0.0, 0.0, 2.0, 0.0, 1.0, 0.0, f64::MAX],
+            "",
+            1,
+        ),
+        ("CDataBlock", &[0.0, 0.0, f64::MAX, 1.0, 0.0], "", 1),
+        ("CDataBlock", &[0.0, 0.0, 1.0, 1.0, f64::MAX], "", 1),
+        // 文字の幅比と画像の角の座標。
+        (
+            "CDataMoji",
+            &[0.0, 0.0, 0.0, 0.0, f64::MAX, 0.5, 0.0, 0.0],
+            "text",
+            1,
+        ),
+        (
+            "CDataMoji",
+            &[0.0, 0.0, 0.0, 0.0, 3.0, 3.0, 0.0, 0.0],
+            "^@BMimage.png,1e308,1",
+            1,
+        ),
+        // 円のソリッドの端点。中心と半径はそれぞれ縮尺を掛けても有限。
+        (
+            "CDataSolid",
+            &[1e306, 0.0, 1e306, 1.0, 0.0, 0.0, 1.0, 0.0],
+            "",
+            101,
+        ),
+    ];
+    for &(kind, values, content, pen) in cases {
+        assert_invalid_first(&numeric_input(kind, values, content, pen, false));
+    }
+    let mut dimension = [1.0; 36];
+    dimension[8] = f64::MAX;
+    dimension[9] = 0.5;
+    assert_invalid_first(&numeric_input("CDataSunpou", &dimension, "", 1, false));
+}
+
+#[test]
+fn rejects_a_scale_whose_inverse_is_not_finite() {
+    let mut src = numeric_input("CDataSen", &[0.0, 0.0, 1.0, 1.0], "", 1, false);
+    let mut header = spec();
+    header.groups[0].1 = f64::from_bits(1);
+    let header = header.build();
+    src[..header.len()].copy_from_slice(&header);
+    let (drawing, diag) = lift(&src);
+    assert!(drawing.spaces.is_empty());
+    assert!(drawing.sheets[0].views.is_empty());
+    assert_eq!(diag.len(), 1);
+    assert_eq!(diag[0].code(), zumen_base::codes::JWW_LIFT_INVALID);
+    assert_eq!(
+        diag[0].places(),
+        [zumen_base::Ref::at_record(1), zumen_base::Ref::at_record(2)]
+    );
+}
