@@ -3,7 +3,7 @@
 //! （4「R2004 DWG FILE FORMAT ORGANIZATION」）を展開してから読む。R2007（AC1021）は読めない。
 //!
 //! 読むのは、ファイルのヘッダー（3「R13-R15 DWG FILE FORMAT ORGANIZATION」）と、オブジェクトのマップ
-//! （23「OBJECT MAP」）と、マップが指すオブジェクトのセクションと、クラス（10「Data section AcDb:Classes」）。オブジェクトの中身は、[`DwgFile::objects`] で
+//! （23「OBJECT MAP」）と、マップが指すオブジェクトのレコードと、クラス（10「Data section AcDb:Classes」）。オブジェクトの中身は、[`DwgFile::objects`] で
 //! 系統で共有するオブジェクトの表に置く（決定 0023）。
 //!
 //! 書くときは、元のバイトをそのまま並べる。R2000 は、[`DwgTxn`] でオブジェクトのデータを置き換えられ（決定 0028）、[`DwgFile::write_back`] で共有の表の変更を書き戻せる（決定 0029）。
@@ -87,7 +87,7 @@ const R2004_SECTIONS: [&[u8]; 4] = [
 #[derive(Clone, Copy, Debug)]
 pub struct Dwg;
 
-/// 読んだ DWG。元のバイト列と、その上のオブジェクトのセクション
+/// 読んだ DWG。元のバイト列と、その上のオブジェクトのレコード
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DwgFile {
     src: Vec<u8>,
@@ -544,7 +544,7 @@ fn header_crc_mask(count: usize) -> u16 {
     }
 }
 
-/// `src` の `range` にあるオブジェクトのマップを読み、マップが指す `objects` の中のオブジェクトのセクションを並べる
+/// `src` の `range` にあるオブジェクトのマップを読み、マップが指す `objects` の中のオブジェクトのレコードを並べる
 fn object_map(
     src: &[u8],
     range: Range<usize>,
@@ -595,7 +595,7 @@ fn object_map(
     Ok(entries)
 }
 
-/// `offset` から始まるオブジェクトのセクションと型を読み、CRC を確かめる
+/// `offset` から始まるオブジェクトのレコードと型を読み、CRC を確かめる
 fn entry(
     src: &[u8],
     handle: u64,
