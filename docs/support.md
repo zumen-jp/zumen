@@ -44,11 +44,13 @@ zumen が対象にするプラットフォーム・言語の実行環境・ホ�
 
 ## ブラウザーの下限の根拠
 
-2026-11-06 に、ブラウザーの入口の `bindings/js/src/index.js` と、その入口が読む `modules.js`・`scene.js`・生成した `constants.js` を確認しました。下表は、[MDN Browser Compatibility Data の固定したコミット](https://github.com/mdn/browser-compat-data/tree/188707c73f5a93701429eadcdaf35d6e31715c67)で、その構文・API を使える最初のバージョンを調べたものです。Node.js 専用の `node.js` と型の宣言は含めません。
+2026-11-06 に、ブラウザーの入口の `bindings/js/src/index.js` と、その入口が読む `modules.js`・`scene.js`・生成した `constants.js`、分割 wasm の URL を返す入口の `wasm.js` を確認しました。下表は、[MDN Browser Compatibility Data の固定したコミット](https://github.com/mdn/browser-compat-data/tree/188707c73f5a93701429eadcdaf35d6e31715c67)で、その構文・API を使える最初のバージョンを調べたものです。Node.js 専用の `node.js` と型の宣言は含めません。
 
 | ラッパーが使う機能 | Chrome | Edge | Firefox | Safari |
 | --- | --- | --- | --- | --- |
 | [ESM の import・export](https://github.com/mdn/browser-compat-data/blob/188707c73f5a93701429eadcdaf35d6e31715c67/javascript/statements.json) | 61 | 16 | 60 | 10.1 |
+| [`import.meta`](https://github.com/mdn/browser-compat-data/blob/188707c73f5a93701429eadcdaf35d6e31715c67/javascript/operators/import_meta.json) | 64 | 79 | 62 | 11.1 |
+| [`URL` のコンストラクター](https://github.com/mdn/browser-compat-data/blob/188707c73f5a93701429eadcdaf35d6e31715c67/api/URL.json) | 19 | 12 | 26 | 14.1 |
 | [async・await](https://github.com/mdn/browser-compat-data/blob/188707c73f5a93701429eadcdaf35d6e31715c67/javascript/statements.json) | 55 | 15 | 52 | 10.1 |
 | [オブジェクトのスプレッド](https://github.com/mdn/browser-compat-data/blob/188707c73f5a93701429eadcdaf35d6e31715c67/javascript/operators/spread.json) | 60 | 79 | 55 | 11.1 |
 | [optional chaining（`?.`）](https://github.com/mdn/browser-compat-data/blob/188707c73f5a93701429eadcdaf35d6e31715c67/javascript/operators/optional_chaining.json) | 80 | 80 | 74 | 13.1 |

@@ -13,6 +13,7 @@ import {
   readScene,
 } from "../src/index.js";
 import { loadBundled } from "../src/node.js";
+import { wasmUrls } from "../src/wasm.js";
 
 export async function server(bytes: Uint8Array): Promise<string | undefined> {
   const zumen = await loadBundled();
@@ -35,7 +36,7 @@ export async function server(bytes: Uint8Array): Promise<string | undefined> {
 }
 
 export async function modules(bytes: Uint8Array): Promise<void> {
-  const loaded = loadModules({ drawing: () => fetch("zumen_abi1_drawing.wasm") });
+  const loaded = loadModules({ drawing: () => fetch(wasmUrls.drawing) });
   const opened = await loaded.open("a.p2z", bytes, { doc: "a" }, { "a.saf": "<SxfAttributeXML/>" });
   if (opened) {
     const format: string | undefined = opened.response.result?.format;

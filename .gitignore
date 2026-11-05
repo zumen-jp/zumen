@@ -5,6 +5,10 @@ __pycache__/
 bin/
 obj/
 /bindings/js/zumen_abi1.wasm
+/bindings/js/zumen_abi1_drawing.wasm
+/bindings/js/zumen_abi1_bim.wasm
+/bindings/js/zumen_abi1_civil.wasm
+/bindings/js/zumen_abi1_pointcloud.wasm
 /bindings/js/LICENSE-MIT
 /bindings/js/LICENSE-APACHE
 /bindings/js/THIRD_PARTY_LICENSES
