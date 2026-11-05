@@ -4160,6 +4160,7 @@ fn dictionaries_without_strings_report_invalid_counts_and_keep_budget_checks() {
         assert_eq!(budget.used(Kind::Work), 1);
         assert!(codes_of(&diag).contains(&codes::DWG_OBJECT_INVALID));
         assert_eq!(db.get(0x100).unwrap().first(3), None);
+        #[cfg(feature = "drawing")]
         zumen_sdk::testkit::survives_lift::<Dwg, zumen_drawing::Drawing2D>(&invalid).unwrap();
 
         let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(0)));
