@@ -44,6 +44,13 @@ try {
   await page.locator("#file").setInputFiles({ name: "synthetic.dxf", mimeType: "application/octet-stream", buffer: Buffer.from(inputs[0].text) });
   await page.waitForFunction(() => document.querySelector("#status").value.startsWith("描画しました。"));
   await page.locator("#fit").click();
+  const line = [0,"SECTION",2,"ENTITIES",0,"LINE",5,"A1",8,"0",10,-40,20,0,11,40,21,0,0,"ENDSEC",0,"EOF",""].join("\n");
+  await page.locator("#file").setInputFiles({ name: "source.dxf", mimeType: "application/octet-stream", buffer: Buffer.from(line) });
+  await page.waitForFunction(() => document.querySelector("#status").value.startsWith("描画しました。"));
+  await page.locator("#drawing").click({ position: { x: 320, y: 200 } });
+  await page.waitForFunction(() => document.querySelector("#selection").textContent.includes('"record"'));
+  const source = JSON.parse(await page.locator("#selection").textContent());
+  if (!Number.isInteger(source.source.record) || source.id !== "space/0/hA1" || source.path.length !== 0) throw new Error("利用例の選択と出所");
   if (failures.length) throw new Error(failures.join("\n"));
   const summary = `${name} ${browser.version()}: view2d の検査 ${result.assertions} 件、コアから ${result.formats.join("・")} を描画、利用例も成功`;
   console.log(summary);
