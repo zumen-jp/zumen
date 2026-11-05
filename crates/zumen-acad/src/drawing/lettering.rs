@@ -1,6 +1,7 @@
 //! TEXT の 1 行の文字と、MTEXT の書式のある文字（背景の塗りを含む）を、図面モデルの文字にする。
 //! 枠への位置合わせと書き進める向きは、表のセルと MULTILEADER の文字も使う。
 
+use super::finite;
 use super::{Lifted, Lifter, aci, columns, invalid, mtext, non_planar};
 use crate::db::{Data, Object};
 use zumen_drawing::{
@@ -20,27 +21,30 @@ impl Lifter<'_> {
     ) -> Lifted<Text<P>> {
         let kind = object.kind.as_slice();
         let vertical_code = vertical;
-        let at = |x: i16| -> Lifted<P> {
+        let at = |x: i16| -> Lifted<[f64; 2]> {
             if self.real(object, x + 20, Some(0.0))? != 0.0 {
                 return Err(non_planar(kind));
             }
-            Ok(point(
+            Ok([
                 self.real(object, x, None)?,
                 self.real(object, x + 10, None)?,
-            ))
+            ])
         };
+        // DXF Reference「TEXT」の 72・73。第 1 点は入力を検査するが、採用するときだけ換算する。
+        // 中央・右寄せなどは、第 2 点から配置を決めるので、第 1 点の換算結果を使わない。
         let first = at(10)?;
+        let convert = |[x, y]: [f64; 2]| point(x, y);
         let horizontal = self.int(object, 72, 0)?;
         let vertical = self.int(object, vertical_code, 0)?;
         let placement = match (horizontal, vertical) {
             (0, 0) => Placement::Anchor {
-                point: first,
+                point: convert(first),
                 horizontal: Horizontal::Left,
                 vertical: Vertical::Baseline,
             },
             (3, _) | (5, _) => Placement::Between {
-                first,
-                second: at(11)?,
+                first: convert(first),
+                second: convert(at(11)?),
                 fit: if horizontal == 3 {
                     Fit::Aligned
                 } else {
@@ -48,7 +52,7 @@ impl Lifter<'_> {
                 },
             },
             _ => Placement::Anchor {
-                point: at(11)?,
+                point: convert(at(11)?),
                 horizontal: match horizontal {
                     0 => Horizontal::Left,
                     1 => Horizontal::Center,
@@ -123,7 +127,11 @@ impl Lifter<'_> {
             }
             Rotation::Direction(direction)
         } else {
-            Rotation::Angle(self.real(object, 50, Some(0.0))?.to_degrees())
+            Rotation::Angle(finite(
+                kind,
+                50,
+                self.real(object, 50, Some(0.0))?.to_degrees(),
+            )?)
         };
         let frame = |code: i16| -> Lifted<Option<Length>> {
             match self.real(object, code, Some(0.0))? {

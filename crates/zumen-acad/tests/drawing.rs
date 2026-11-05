@@ -364,6 +364,181 @@ fn e3_text_placements_are_kept_apart() {
     );
 }
 
+/// TEXT と ATTRIB の位置合わせの合成入力。用紙は m なので、第 1 点が 1e308 なら換算で overflow する。
+fn aligned_paper_text(
+    attribute: bool,
+    horizontal: &'static str,
+    vertical: &'static str,
+    first: [&'static str; 3],
+    second: [&'static str; 2],
+) -> Vec<u8> {
+    let blocks = [
+        (0, "BLOCK"),
+        (5, "D"),
+        (8, "0"),
+        (2, "B"),
+        (70, "0"),
+        (10, "0"),
+        (20, "0"),
+        (0, "ENDBLK"),
+        (8, "0"),
+    ];
+    let mut entities = if attribute {
+        vec![
+            (0, "INSERT"),
+            (5, "A"),
+            (8, "0"),
+            (67, "1"),
+            (66, "1"),
+            (2, "B"),
+            (10, "0"),
+            (20, "0"),
+        ]
+    } else {
+        Vec::new()
+    };
+    entities.extend([
+        (0, if attribute { "ATTRIB" } else { "TEXT" }),
+        (5, "B"),
+        (8, "0"),
+        (67, "1"),
+        (10, first[0]),
+        (20, first[1]),
+        (30, first[2]),
+        (11, second[0]),
+        (21, second[1]),
+        (40, "0.01"),
+        (1, "value"),
+        (72, horizontal),
+        (if attribute { 74 } else { 73 }, vertical),
+    ]);
+    if attribute {
+        entities.extend([(2, "tag"), (0, "SEQEND"), (8, "0")]);
+    }
+    sections(&[
+        ("HEADER", &[(9, "$INSUNITS"), (70, "6")]),
+        ("BLOCKS", &blocks),
+        ("ENTITIES", &entities),
+    ])
+}
+
+#[cfg(test)]
+fn check_selected_alignment_points(attribute: bool) {
+    // Autodesk TEXT の表の Center・Right・Middle と、縦の Bottom・Middle・Top。
+    for (h, v, horizontal, vertical) in [
+        ("1", "0", Horizontal::Center, Vertical::Baseline),
+        ("2", "0", Horizontal::Right, Vertical::Baseline),
+        ("4", "0", Horizontal::Middle, Vertical::Baseline),
+        ("0", "1", Horizontal::Left, Vertical::Bottom),
+        ("1", "2", Horizontal::Center, Vertical::Middle),
+        ("2", "3", Horizontal::Right, Vertical::Top),
+    ] {
+        for first in [["1e308", "0", "0"], ["0", "1e308", "0"]] {
+            let src = aligned_paper_text(attribute, h, v, first, ["1", "2"]);
+            let (drawing, diag) = lift(&src, &mut Budget::default());
+            assert_eq!(found(&diag), [], "{attribute}/{h}/{v}/{first:?}");
+            let drawing = drawing.unwrap();
+            let [sheet] = drawing.sheets.as_slice() else {
+                panic!("{drawing:?}")
+            };
+            let [element] = sheet.elements.as_slice() else {
+                panic!("{sheet:?}")
+            };
+            let text = match &element.shape {
+                Shape::Text(text) => text,
+                Shape::Symbol(symbol) => {
+                    let [attribute] = symbol.attributes.as_slice() else {
+                        panic!("{symbol:?}")
+                    };
+                    &attribute.text
+                }
+                shape => panic!("{shape:?}"),
+            };
+            assert_eq!(
+                text.placement,
+                Placement::Anchor {
+                    point: on(1000.0, 2000.0),
+                    horizontal,
+                    vertical
+                }
+            );
+            assert_eq!(text.height.value, Length::Paper(PaperLength(10.0)));
+            let sheet_id = id::sheet(sheet);
+            assert_eq!(
+                id::Namer::new(&sheet_id).next(0, element),
+                if attribute {
+                    "sheet/0/hA"
+                } else {
+                    "sheet/0/hB"
+                }
+            );
+            testkit::roundtrip::<Dxf>(&src).unwrap();
+        }
+    }
+}
+
+#[test]
+fn paper_text_converts_only_used_alignment_points() {
+    check_selected_alignment_points(false);
+}
+
+#[test]
+fn paper_attributes_convert_only_used_alignment_points() {
+    check_selected_alignment_points(true);
+}
+
+#[test]
+fn text_alignment_keeps_input_and_selected_point_validation() {
+    for attribute in [false, true] {
+        // 使わない第 1 点でも、入力そのものの非有限値と非平面の値は従来どおり診断する。
+        for first in [
+            ["NaN", "0", "0"],
+            ["inf", "0", "0"],
+            ["-inf", "0", "0"],
+            ["0", "0", "1"],
+        ] {
+            let (drawing, diag) = lift(
+                &aligned_paper_text(attribute, "1", "0", first, ["1", "2"]),
+                &mut Budget::default(),
+            );
+            let expected = if first[2] == "1" {
+                codes::DXF_NON_PLANAR_DROPPED
+            } else {
+                codes::DXF_LIFT_INVALID
+            };
+            assert_eq!(
+                diag.iter().map(|d| d.code()).collect::<Vec<_>>(),
+                [expected]
+            );
+            if attribute {
+                let Shape::Symbol(symbol) = &drawing.unwrap().sheets[0].elements[0].shape else {
+                    panic!("insert")
+                };
+                assert!(symbol.attributes.is_empty());
+            } else {
+                assert!(drawing.unwrap().sheets.is_empty());
+            }
+        }
+        // 左・基準線、Aligned、Fit で採用する点の overflow は落とす。
+        for (h, first, second) in [
+            ("0", ["1e308", "0", "0"], ["1", "2"]),
+            ("3", ["1e308", "0", "0"], ["1", "2"]),
+            ("5", ["1e308", "0", "0"], ["1", "2"]),
+            ("3", ["0", "0", "0"], ["1e308", "2"]),
+            ("5", ["0", "0", "0"], ["1e308", "2"]),
+        ] {
+            let (_, diag) = lift(
+                &aligned_paper_text(attribute, h, "0", first, second),
+                &mut Budget::default(),
+            );
+            assert_eq!(
+                diag.iter().map(|d| d.code()).collect::<Vec<_>>(),
+                [codes::DXF_LIFT_INVALID]
+            );
+        }
+    }
+}
+
 #[test]
 fn e9_unknown_units_are_not_taken_as_millimeters() {
     let line = |paper: &'static str| {
@@ -696,6 +871,139 @@ fn e9_lifting_stops_at_the_work_limit() {
     // 止めたときに扱っていたレコードを場所に持つ（決定 0119）
     let places: Vec<_> = diag.iter().flat_map(|d| d.places().to_vec()).collect();
     assert_eq!(places, [Ref::at_record(2)]);
+}
+
+#[test]
+fn overflow_of_an_attribute_drops_the_attribute_without_dropping_the_insert() {
+    let blocks = [
+        (0, "BLOCK"),
+        (5, "D"),
+        (8, "0"),
+        (2, "B"),
+        (70, "0"),
+        (10, "0"),
+        (20, "0"),
+        (0, "ENDBLK"),
+        (8, "0"),
+    ];
+    let entities = [
+        (0, "INSERT"),
+        (5, "A"),
+        (8, "0"),
+        (67, "1"),
+        (66, "1"),
+        (2, "B"),
+        (10, "0"),
+        (20, "0"),
+        (0, "ATTRIB"),
+        (5, "B"),
+        (8, "0"),
+        (10, "1e308"),
+        (20, "0"),
+        (40, "1"),
+        (1, "value"),
+        (2, "bad"),
+        (0, "ATTRIB"),
+        (5, "C"),
+        (8, "0"),
+        (10, "1"),
+        (20, "0"),
+        (40, "1"),
+        (1, "value"),
+        (2, "good"),
+        (0, "SEQEND"),
+        (8, "0"),
+    ];
+    let src = sections(&[
+        ("HEADER", &[(9, "$INSUNITS"), (70, "6")]),
+        ("BLOCKS", &blocks),
+        ("ENTITIES", &entities),
+    ]);
+    let (drawing, diag) = lift(&src, &mut Budget::default());
+    let drawing = drawing.unwrap();
+    assert_eq!(
+        found(&diag),
+        [(
+            codes::DXF_LIFT_INVALID,
+            r#"Text("ATTRIB") Int(10)"#.into(),
+            1,
+            vec![Ref::at_record(8).with_key(Key::Handle(0xB))]
+        )]
+    );
+    let Shape::Symbol(symbol) = &drawing.sheets[0].elements[0].shape else {
+        panic!("insert")
+    };
+    let [attribute] = symbol.attributes.as_slice() else {
+        panic!("{symbol:?}")
+    };
+    assert_eq!(attribute.tag, "good");
+    assert_eq!(attribute.text.placement, anchor(on(1000.0, 0.0)));
+}
+
+#[test]
+fn overflow_of_layout_size_keeps_the_layout_without_a_size() {
+    let tables = [(0, "BLOCK_RECORD"), (5, "B1"), (2, "*Paper_Space0")];
+    let blocks = [
+        (0, "BLOCK"),
+        (330, "B1"),
+        (8, "0"),
+        (2, "*Paper_Space0"),
+        (70, "0"),
+        (10, "0"),
+        (20, "0"),
+        (0, "ENDBLK"),
+        (330, "B1"),
+        (8, "0"),
+    ];
+    let objects = layout("D1", "Other", "1", ["-1e308", "0", "1e308", "1"], "B1");
+    let src = sections(&[
+        ("HEADER", MM),
+        ("TABLES", &tables),
+        ("BLOCKS", &blocks),
+        ("OBJECTS", &objects),
+    ]);
+    let (drawing, diag) = lift(&src, &mut Budget::default());
+    let drawing = drawing.unwrap();
+    let [sheet] = drawing.sheets.as_slice() else {
+        panic!("{drawing:?}")
+    };
+    assert_eq!(sheet.name.as_deref(), Some("Other"));
+    assert!(sheet.size.is_none());
+    assert_eq!(
+        found(&diag),
+        [(
+            codes::DXF_LIFT_INVALID,
+            r#"Text("LAYOUT") Int(11)"#.into(),
+            1,
+            vec![sheet.source.clone()]
+        )]
+    );
+}
+
+#[test]
+fn overflow_after_subtracting_the_paper_origin_is_reported() {
+    let header = [MM, &[(9, "$PLIMMIN"), (10, "-1e308"), (20, "0")]].concat();
+    let entities = [
+        (0, "LINE"),
+        (5, "A"),
+        (8, "0"),
+        (67, "1"),
+        (10, "1e308"),
+        (20, "0"),
+        (11, "1e308"),
+        (21, "1"),
+    ];
+    let (drawing, diag) = lift(&dxf(&header, &entities), &mut Budget::default());
+    assert!(drawing.unwrap().sheets.is_empty());
+    assert_eq!(
+        found(&diag),
+        [(
+            codes::DXF_LIFT_INVALID,
+            r#"Text("LINE") Int(10)"#.into(),
+            1,
+            vec![Ref::at_record(3).with_key(Key::Handle(0xA))]
+        )]
+    );
 }
 
 /// 用紙の線分。ハンドルを持つ

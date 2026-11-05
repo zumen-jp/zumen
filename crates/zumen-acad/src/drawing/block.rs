@@ -464,13 +464,16 @@ impl Lifter<'_> {
     /// ATTRIB（DXF Reference「ATTRIB」）。タグ（2）と、TEXT と同じフィールドの値を移し、70 の 1 なら表示しないとする。
     /// 複数行の属性は、埋め込みのオブジェクトのマーカー（101）の後の MTEXT の値も移す。マーカーの前の、最後の 71（属性の
     /// 種類）と 72 の組は、TEXT のフィールドと取り違えないよう、1 行の値から除く（決定 0102）
-    pub(super) fn attribute<P: Copy>(
+    pub(super) fn attribute<P: zumen_drawing::transform::Point>(
         &self,
         object: &Object,
         point: &impl Fn(f64, f64) -> P,
         length: &impl Fn(f64) -> Length,
         out: &mut Out,
     ) -> Lifted<Attribute<P>> {
+        let converted = super::Converted::default();
+        let point = &|x, y| converted.point(point(x, y));
+        let length = &|value| converted.length(length(value));
         let kind = object.kind.as_slice();
         self.planar(object)?;
         let embedded = object
@@ -509,6 +512,7 @@ impl Lifter<'_> {
         };
         let object = single.as_ref().unwrap_or(object);
         let text = self.text(object, point, length, 74, "dxf.ATTRIB.40")?;
+        converted.check(kind)?;
         let tag = self.string(object, 2)?.ok_or_else(|| invalid(kind, 2))?;
         let hidden = self.int(object, 70, 0)? & 1 != 0;
         let style = self.style(object, out)?;

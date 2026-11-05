@@ -3,13 +3,14 @@
 
 use std::collections::BTreeMap;
 
+use super::finite;
 use super::{
     EMPTY, Home, LayoutInfo, Lifted, Lifter, MODEL, Out, PaperFrame, SortKeys, SpaceKeys, amount,
     arrange, attached, invalid, source, text, work,
 };
 use crate::db::{AcadDb, Data, Object, Origin, Section, Value};
 use zumen_base::{Cx, Diagnostic, Ref, codes};
-use zumen_drawing::{Affine, PaperLength, PaperPoint, Sheet, SheetId, View};
+use zumen_drawing::{Affine, PaperPoint, Sheet, SheetId, View};
 use zumen_sdk::Error;
 
 impl Lifter<'_> {
@@ -90,8 +91,15 @@ impl Lifter<'_> {
         }
         let size = match (limits, mm) {
             (Some([[x0, y0], [x1, y1]]), Some(mm)) => {
-                let size = [(x1 - x0) * mm, (y1 - y0) * mm];
-                size.iter().all(|s| *s > 0.0).then(|| size.map(PaperLength))
+                match super::finite::size(b"LAYOUT", [11, 21], [x0, y0], [x1, y1], mm) {
+                    Ok(size) => size,
+                    Err(diagnostic) => {
+                        if let Some((_, layout)) = layout {
+                            cx.report((*diagnostic).at(source(layout)));
+                        }
+                        None
+                    }
+                }
             }
             _ => None,
         };
@@ -171,31 +179,33 @@ impl Lifter<'_> {
         }
         // 用紙の mm = mm × (用紙の中心 + 縮尺 × (実寸の点 − ビューの中心) − 用紙の原点)
         let [ox, oy] = self.origin;
-        let scale = height / view_height * mm;
+        let scale = finite(kind, 45, height / view_height * mm)?;
         let transform = Affine {
             m: [
                 scale,
                 0.0,
-                (px - ox) * mm - scale * vx,
+                finite(kind, 12, (px - ox) * mm - scale * vx)?,
                 0.0,
                 scale,
-                (py - oy) * mm - scale * vy,
+                finite(kind, 22, (py - oy) * mm - scale * vy)?,
             ],
         };
-        let corner = |dx: f64, dy: f64| PaperPoint {
-            sheet: self.sheet,
-            x: (px + dx * width / 2.0 - ox) * mm,
-            y: (py + dy * height / 2.0 - oy) * mm,
+        let corner = |dx: f64, dy: f64| -> Lifted<PaperPoint> {
+            Ok(PaperPoint {
+                sheet: self.sheet,
+                x: finite(kind, 40, (px + dx * width / 2.0 - ox) * mm)?,
+                y: finite(kind, 41, (py + dy * height / 2.0 - oy) * mm)?,
+            })
         };
         Ok(View {
             space: MODEL,
             transform,
             sheet: self.sheet,
             clip: vec![
-                corner(-1.0, -1.0),
-                corner(1.0, -1.0),
-                corner(1.0, 1.0),
-                corner(-1.0, 1.0),
+                corner(-1.0, -1.0)?,
+                corner(1.0, -1.0)?,
+                corner(1.0, 1.0)?,
+                corner(-1.0, 1.0)?,
             ],
             hidden_layers: Vec::new(),
             source,

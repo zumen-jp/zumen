@@ -285,12 +285,17 @@ fn apply(slot: &mut Option<Scaled<f64>>, new: Option<Scaled<f64>>) -> bool {
     let Some(new) = new else {
         return false;
     };
-    *slot = Some(match (*slot, new) {
+    let next = match (*slot, new) {
         (_, Scaled::Value(value)) => Scaled::Value(value),
         (None, Scaled::Factor(factor)) => Scaled::Factor(factor),
         (Some(Scaled::Value(value)), Scaled::Factor(factor)) => Scaled::Value(value * factor),
         (Some(Scaled::Factor(old)), Scaled::Factor(factor)) => Scaled::Factor(old * factor),
-    });
+    };
+    let (Scaled::Value(value) | Scaled::Factor(value)) = next;
+    if !value.is_finite() {
+        return false;
+    }
+    *slot = Some(next);
     true
 }
 
