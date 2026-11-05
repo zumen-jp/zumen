@@ -44,7 +44,9 @@ def third_party(data):
 
 
 def run_about(command):
-    result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, encoding="utf-8", check=True)
+    result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, encoding="utf-8", check=False)
+    if result.returncode:
+        raise ValueError("cargo-about が失敗した\n" + result.stderr)
     if re.search(r"WARN|ERROR", result.stderr, re.IGNORECASE):
         raise ValueError("cargo-about が警告を出した。about.toml の clarify とライセンスを確認する\n" + result.stderr)
     return result

@@ -31,6 +31,11 @@ class PackageTests(unittest.TestCase):
         with patch("licenses.subprocess.run", return_value=result), self.assertRaisesRegex(ValueError, "警告"):
             licenses.run_about(["cargo-about", "about", "generate"])
 
+    def test_cargo_about_failure_keeps_the_reason(self):
+        result = subprocess.CompletedProcess([], 1, "", "fixture failure")
+        with patch("licenses.subprocess.run", return_value=result), self.assertRaisesRegex(ValueError, "fixture failure"):
+            licenses.run_about(["cargo-about", "about", "generate"])
+
     def test_wrong_target_crate_and_changed_text_are_rejected(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary) / "notice"
