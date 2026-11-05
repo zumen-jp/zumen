@@ -149,6 +149,8 @@ Markdown の誤りの多くは、`npm run fix:text` で直せます。
 | ネイティブ | `native` | 識別子は、コードとして `native` と書く |
 | パニック | `panic` | 識別子と lint の名前は、コードとして書く |
 | モジュール | `module` | |
+| コミット | `commit` | Git の記録。コマンドや識別子はコードとして書く |
+| ワークフロー | `workflow` | GitHub Actions の処理。[GitHub の日本語文書](https://docs.github.com/ja/actions/get-started/understand-github-actions)に合わせる。コマンド・識別子・パスはコードとして書く |
 | crate | `クレート` | |
 | issue | `イシュー` | |
 | PR | `プルリクエスト` | |

@@ -402,7 +402,7 @@ mod win {
         }
     }
 
-    /// 子プロセスをジョブ・オブジェクトに入れ、確定したメモリ（commit）の上限を `bytes` にする
+    /// 子プロセスをジョブ・オブジェクトに入れ、確定したメモリ（コミット）の上限を `bytes` にする
     pub(super) fn confine(process: &Child, bytes: u64) -> Option<Job> {
         // SAFETY: 名前と属性のないジョブ・オブジェクトを作る
         let handle = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };

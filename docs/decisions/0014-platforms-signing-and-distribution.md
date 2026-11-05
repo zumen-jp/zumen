@@ -93,7 +93,7 @@
   - 署名の手段は、上の順に選ぶ。どれにしたかは、最初のリリースの前に記録する。
   - EV の証明書は使わない。SmartScreen で、OV と違いがない。
 - **macOS。** GitHub Releases で配る CLI と dylib に、Developer ID で署名し（hardened runtime）、公証を受ける。zip で公証に出し、署名したファイルを配る。
-- **鍵と権限。** 署名と公開の資格は、承認の要る GitHub の environment（`release`）に置き、リリースの workflow だけが使う。
+- **鍵と権限。** 署名と公開の資格は、承認の要る GitHub の environment（`release`）に置き、リリースのワークフローだけが使う。
 - **署名の前のリリース。** 署名の準備が整うまでは、0.x のリリースに限り、署名していないことをリリースノートに書いて出す。
 
 ### 配る場所
@@ -128,7 +128,7 @@
 
 - 費用がかかる。Apple Developer Program（年 99 ドル）と、Windows の署名（Azure Artifact Signing なら月 9.99 ドルから）。組織で入るには、D-U-N-S 番号などの手続きが要る。
 - 公開する主体（法人）を、最初のリリースの前に決める。署名の名前と、各レジストリの持ち主になる。
-- CI に、毎晩の workflow と、リリースの workflow を足す。今の CI（PR ごと）には、32 bit の Windows と、wasm32 のテストを、API の crate を作る PR で足す。
+- CI に、毎晩のワークフローと、リリースのワークフローを足す。今の CI（PR ごと）には、32 bit の Windows と、wasm32 のテストを、API の crate を作る PR で足す。
 - Intel の macOS は、Homebrew が 2026 年 9 月に bottle を作らなくなり、2027 年 9 月に対応を終える。Rust と Homebrew の対応がなくなったら、対象から外す。
 - [#16](https://github.com/zumen-jp/zumen/issues/16) は、この記録で完了する。
 

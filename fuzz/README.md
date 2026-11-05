@@ -89,7 +89,7 @@ cargo "+$NIGHTLY" fuzz run -O --debug-assertions zip
 - パニック、30 秒を超える入力、3 GB を超えるメモリを見つけたら失敗します。種を縮めるときに見つけたときと、1 つの target を縮めるのに 20 分を超えたときも、縮める前の種を残して失敗します。
 - 見つけた入力と、1 秒以上かかった入力のうち target ごとにそれまでの最長を超えたものを、artifact の `fuzz-artifacts` に 14 日残します。公開サンプルの出所とライセンス（`samples/README.md`・`samples/ledger.toml`・`licenses/`）と、種を作ったコミット（`NOTICE.txt`）を添えます。
 - 公開サンプルを台帳から外すと、台帳のハッシュが変わるので、外したサンプルとそれを変えた入力を含む前の種は戻りません。前の種のキャッシュを早く消す手順は、[`samples/README.md`](../samples/README.md) の「外し方」にあります。
-- crate・種の元（`samples/`・`bindings/conformance/cases/`）・fuzz の target・この workflow を変えた PR では、1 つ 20 秒ずつ流します。fuzz の crate はワークスペースの外にあるので、ここで組み立てを確かめます。台帳が同じなら main の育てた種も戻すので、20 秒のうち新しい入力を試す時間が減ります。種を流すのに 20 秒より長くかかる target は、その分長くかかります。
+- crate・種の元（`samples/`・`bindings/conformance/cases/`）・fuzz の target・このワークフローを変えた PR では、1 つ 20 秒ずつ流します。fuzz の crate はワークスペースの外にあるので、ここで組み立てを確かめます。台帳が同じなら main の育てた種も戻すので、20 秒のうち新しい入力を試す時間が減ります。種を流すのに 20 秒より長くかかる target は、その分長くかかります。
 - 落ちたときの扱いは、下の「落ちたとき」にあります（決定 0261）。
 
 ## 落ちたとき
