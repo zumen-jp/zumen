@@ -30,7 +30,7 @@ crate は、層の構成（[決定 0008](docs/decisions/0008-model-layers-and-co
 | L2（領域モデル） | `zumen-drawing`（図面）・`zumen-building`（建物）・`zumen-civil`（土木）・`zumen-geo`（地理）・`zumen-pointcloud`（点群） |
 | 領域モデルに読む形式 | `zumen-landxml`・`zumen-citygml`・`zumen-fgd`・`zumen-extdm`・`zumen-las`・`zumen-ply`・`zumen-xyz`・`zumen-e57` |
 | 納品の読み取り | `zumen-delivery`（成果品）・`zumen-photo`（工事写真）・`zumen-sheet`（表）・`zumen-geology`（ボーリング交換用データ） |
-| L3（派生）と照合 | `zumen-geom2d`（2D の幾何）・`zumen-scene`（2D のシーン）・`zumen-civil-drawing`（土木の図面）・`zumen-profile`（プロファイルの照合）・`zumen-review`（レビューの文書）・`zumen-ids`・`zumen-bcf`・`zumen-asbuilt`（出来形） |
+| L3（派生）と照合 | `zumen-geom2d`（2D の幾何）・`zumen-scene`（2D のシーン）・`zumen-render`（シーンの描画）・`zumen-civil-drawing`（土木の図面）・`zumen-profile`（プロファイルの照合）・`zumen-review`（レビューの文書）・`zumen-ids`・`zumen-bcf`・`zumen-asbuilt`（出来形） |
 | API と入口 | `zumen-abi`（C ABI と wasm の関数）・`zumen`（Rust の入口）・`zumen-sdk`（形式を書くための部品とプラグインの SDK） |
 
 - 生成したファイル（`messages.rs`・`zumen.h`・各言語のメッセージの型・`docs/formats/README.md` など）は手で直さない。元（`schema/`・`catalog/`・`formats/`・`profiles/`）を直し、`cargo xtask codegen` で作り直す。

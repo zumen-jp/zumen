@@ -2883,6 +2883,71 @@ params = { epsg = "uint" }
 since = "0.2.0"
 status = "active"
 
+# シーンからの描画（決定 0272）
+
+[codes."render.section.dropped"]
+description = "シーンの知らない空でないセクションを描画に使わなかった"
+severity = "warning"
+fidelity = "dropped"
+params = { section = "uint" }
+group-by = ["section"]
+since = "0.2.0"
+status = "active"
+
+[codes."render.scene.invalid"]
+description = "シーンの列・参照・数値が契約に合わない"
+severity = "error"
+since = "0.2.0"
+status = "active"
+
+[codes."render.options.invalid"]
+description = "設定か座標変換の計算が正の有限の範囲に収まらない"
+severity = "error"
+since = "0.2.0"
+status = "active"
+
+[codes."render.memory.exceeded"]
+description = "SVG の描画に使うメモリを確保できない"
+severity = "error"
+since = "0.2.0"
+status = "active"
+
+[codes."render.text.dropped"]
+description = "シーンの文字に字形の輪郭がないので描かなかった"
+severity = "warning"
+fidelity = "dropped"
+params = { unit = "uint" }
+group-by = ["unit"]
+since = "0.2.0"
+status = "active"
+
+[codes."render.image.dropped"]
+description = "外部画像・アンダーレイの参照は解決せず描かなかった"
+severity = "warning"
+fidelity = "dropped"
+params = { unit = "uint" }
+group-by = ["unit"]
+since = "0.2.0"
+status = "active"
+
+[codes."render.marker.dropped"]
+description = "名前で指定された点記号は解決せず描かなかった"
+severity = "warning"
+fidelity = "dropped"
+params = { unit = "uint" }
+group-by = ["unit"]
+since = "0.2.0"
+status = "active"
+
+[codes."render.color.assumed"]
+description = "未解決の色を明示された前景の色にした"
+severity = "warning"
+fidelity = "approximated"
+params = { unit = "uint" }
+group-by = ["unit"]
+since = "0.2.0"
+status = "active"
+
 # 出来形（決定 0234）
 
 [codes."deviation.crs.mixed"]

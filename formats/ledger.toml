@@ -6,6 +6,38 @@
 
 # 仕様。診断の cite（決定 0009）は、ここの ID で仕様を指す。
 
+[specs.svg_1_1]
+title = "Scalable Vector Graphics (SVG) 1.1 (Second Edition)"
+publisher = "W3C"
+version = "W3C Recommendation 16 August 2011"
+access = "public"
+url = "https://www.w3.org/TR/SVG11/"
+checked = "2026-11-06"
+note = "公開された W3C 勧告。Status of This Document は W3C Patent Policy (5 February 2004) に従う作業と記す。リンク先の文書ライセンスは、実装のために一部をソフトウェアへ組み込むことを認める。仕様の本文・コードは同梱しない"
+
+[formats.svg]
+name = "SVG"
+family = "svg"
+domains = ["drawing"]
+specs = ["svg_1_1"]
+rights = "public"
+rights-note = "W3C が仕様を公開し、実装を制限していない。勧告の実装を RF で可能にする特許方針と、実装に利用できる文書ライセンスを 2026-11-06 に確認した"
+evidence = [
+  { title = "W3C Patent Policy, 5 February 2004", url = "https://www.w3.org/Consortium/Patent-Policy-20040205/", checked = "2026-11-06", note = "SVG 1.1 の勧告が準拠を記す特許方針。勧告の実装を RF で可能にすることを目的に定める" },
+  { title = "W3C Document License", url = "https://www.w3.org/copyright/document-license-2023/", checked = "2026-11-06", note = "SVG 1.1 の勧告の文書の利用条件からたどれるライセンス。仕様の実装を容易にするため、一部をソフトウェアへ組み込めるとする。本文とコードは同梱しない" },
+]
+place = "core"
+basis = ["spec"]
+decisions = ["0007", "0010", "0172", "0188", "0272"]
+docs = ["docs/formats/svg.md"]
+issues = ["zumen-jp/zumen#602", "zumen-jp/zumen#603", "zumen-jp/zumen#604"]
+
+[formats.svg.write]
+level = "external"
+scope = "合成シーンから書いた SVG を Chromium で読み、寸法・描画順・面の穴・字形・通常と反転の切り抜きを画素と照らした。点記号の細部と閲覧側ごとのアンチエイリアスは照合していない。API 接続は #603、PNG は #604。SVG を読む実装は持たない"
+checked = "2026-11-06"
+implementations = [{ name = "Chromium", version = "156.0.8078.4" }]
+
 [specs.sxf_3_1]
 title = "SXF Ver.3.1 仕様書"
 publisher = "国土交通省"
