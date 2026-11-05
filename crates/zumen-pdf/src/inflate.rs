@@ -1,4 +1,6 @@
-//! オブジェクト・内容・フォーム・描画資源・フォント・ICC の単独 Flate の展開量を先に数える（決定 0266・0270・0273）。
+//! オブジェクト・内容・フォーム・描画資源・フォント・ICC の単独 Flate・LZW の展開量を先に数える（決定 0266・0270・0273）。
+
+mod lzw;
 
 use std::io::Read;
 
@@ -15,18 +17,18 @@ const CHUNK: usize = 8192;
 /// 1 入力バイトが出すのは 8 ÷ 2 * 258 = 1,032 バイト以下。非圧縮のブロックとリテラルもこの範囲に収まる
 const MAX_EXPANSION: u64 = 1032;
 
-/// 単独 Flate なら、出力全体を確保する前に展開量を数え、`true` を返す。ほかのフィルターはここでは扱わない。
+/// 単独 Flate・LZW なら、出力全体を確保する前に展開量を数え、`true` を返す。ほかのフィルターはここでは扱わない。
 /// hayro-syntax と同じ flate2 のリーダーを、同じ順（zlib、raw deflate）で試す。読めなければ、
 /// 寛容な展開の出力の上限を先に数える。失敗した試みの分も戻さない。予測子の出力は、その入力より長くならない
 pub(crate) fn before(stream: &Stream<'_>, cx: &mut Cx<'_>) -> Result<bool, Stop> {
     let filters = stream.filters();
     // hayro-syntax の `Stream::decoded_image` と同じく、先頭の Crypt はフィルターとして適用しない
     let effective = filters.strip_prefix(&[Filter::Crypt]).unwrap_or(&filters);
-    if !matches!(effective, [Filter::FlateDecode]) {
-        return Ok(false);
+    match effective {
+        [Filter::FlateDecode] => count(&stream.raw_data(), cx)?,
+        [Filter::LzwDecode] => lzw::before(stream, cx)?,
+        _ => return Ok(false),
     }
-    let data = stream.raw_data();
-    count(&data, cx)?;
     Ok(true)
 }
 

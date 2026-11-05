@@ -302,8 +302,8 @@ struct Conversion {
 struct Form {
     /// 展開したバイト列に、終わりのマーカーを足したもの
     data: Option<Rc<[u8]>>,
-    /// 予測子の前の展開量。寛容な展開では失敗した試みと上限の見積もりも含む
-    decoded: u64,
+    /// 再展開の手間と予測子の前のバイト数。失敗した試みと上限の見積もりも含む
+    decode: Cost,
     /// hayro-syntax が寛容に展開した（[`leniently_inflated`]）
     lenient: bool,
 }
@@ -322,7 +322,7 @@ struct Decoded<'a> {
     cost: Cost,
 }
 
-/// 単独 Flate は確保前に数え、ほかは従来どおり展開後に数える（決定 0266・0273）。
+/// 単独 Flate・LZW は確保前に数え、ほかは従来どおり展開後に数える（決定 0266・0273）。
 /// 実際の出力と、予測子の前・失敗した試みを含む展開量を分けて返す。
 fn decoded<'a>(stream: &Stream<'a>, cx: &mut Cx<'_>) -> Result<Decoded<'a>, Stop> {
     let bytes_before = cx.budget.used(Kind::DecodedBytes);
@@ -1461,7 +1461,7 @@ impl<'a, 'o> Walker<'a, 'o> {
             cx.check(Kind::Work, self.reread_stream(stream))?;
             inflate::before(stream, cx)?
         } else if let Some(items) = raw.get::<Array<'_>>(b"Contents") {
-            let mut decoded = 0u64;
+            let mut decode = Cost::default();
             let mut joined = 0u64;
             for item in items.raw_iter() {
                 cx.check(Kind::Work, 1)?;
@@ -1473,20 +1473,11 @@ impl<'a, 'o> Walker<'a, 'o> {
                 .and_then(Object::into_stream);
                 let length = if let Some(stream) = &stream {
                     cx.check(Kind::Work, self.reread_stream(stream))?;
-                    let before = cx.budget.used(Kind::DecodedBytes);
-                    let counted = inflate::before(stream, cx)?;
-                    let expanded = cx.budget.used(Kind::DecodedBytes).saturating_sub(before);
-                    let length = stream.decoded_data().ok().map(|data| data.len());
+                    let decoded = decoded(stream, cx)?;
+                    let length = decoded.data.as_ref().map(|data| data.len());
                     // 予測子で短くなったものと、展開後に失敗するものも、再び展開する分を先に数える
-                    decoded = decoded.saturating_add(if counted {
-                        expanded
-                    } else {
-                        length.unwrap_or(0) as u64
-                    });
+                    decode.add(decoded.cost);
                     if let Some(length) = length {
-                        if !counted {
-                            cx.check(Kind::DecodedBytes, length as u64)?;
-                        }
                         joined = joined.saturating_add(length as u64).saturating_add(1);
                     }
                     length
@@ -1505,9 +1496,10 @@ impl<'a, 'o> Walker<'a, 'o> {
             // page_stream は各項目をもう一度展開し、別の Vec に連結してページの中で保持する。
             // Vec が伸びる余りを倍で数え、項目の連結と伸ばす間の写しも先に数える
             cx.check(Kind::Work, joined.div_ceil(16).saturating_mul(3))?;
+            cx.check(Kind::Work, decode.ops)?;
             cx.check(
                 Kind::DecodedBytes,
-                decoded.saturating_add(joined.saturating_mul(2)),
+                decode.bytes.saturating_add(joined.saturating_mul(2)),
             )?;
             true
         } else {
@@ -3074,14 +3066,19 @@ impl<'a, 'o> Walker<'a, 'o> {
         cx: &mut Cx<'_>,
     ) -> Result<Cost, Stop> {
         let data = self.form_data(stream, id, cx)?;
-        let bytes = data.decoded;
+        let decode = data.decode;
         let dict = stream.dict();
         let own_dict = dict.get::<Dict<'_>>(b"Resources");
         let reread = own_dict.as_ref().map_or(0, |own| lookup_work(own.data()));
         let own = own_dict.map(Resources::new);
         let reread = reread.saturating_add(own.as_ref().map_or(0, resources_work));
         let mut cost = Cost::default();
-        spend(&mut cost, FORM_WORK.saturating_add(reread), bytes, cx)?;
+        spend(
+            &mut cost,
+            FORM_WORK.saturating_add(reread).saturating_add(decode.ops),
+            decode.bytes,
+            cx,
+        )?;
         // hayro-interpret は、フォームを呼ぶたびにグラフィックス状態を積み、中で変えるときに写す
         let (work, copied) = copy(state);
         spend(&mut cost, work, copied, cx)?;
@@ -3180,24 +3177,19 @@ impl<'a, 'o> Walker<'a, 'o> {
         if let Some(data) = id.and_then(|id| self.forms.get(&id)) {
             return Ok(data.clone());
         }
-        let before = cx.budget.used(Kind::DecodedBytes);
-        let counted = inflate::before(stream, cx)?;
-        let expanded = cx.budget.used(Kind::DecodedBytes).saturating_sub(before);
-        let data = match stream.decoded_data() {
-            Ok(data) => {
-                if !counted {
-                    cx.check(Kind::DecodedBytes, data.len() as u64)?;
-                }
+        let decoded = decoded(stream, cx)?;
+        let data = match decoded.data {
+            Some(data) => {
                 reserve_end(data.len(), cx)?;
                 Form {
                     data: Some(with_end(&data)),
-                    decoded: if counted { expanded } else { data.len() as u64 },
+                    decode: decoded.cost,
                     lenient: leniently_inflated(stream, data.len()),
                 }
             }
-            Err(_) => Form {
+            None => Form {
                 data: None,
-                decoded: expanded,
+                decode: decoded.cost,
                 lenient: false,
             },
         };
