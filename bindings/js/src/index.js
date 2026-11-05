@@ -203,7 +203,8 @@ export class Session {
     // 入力がこの wasm のメモリのビューでも、名前や入力の確保による memory.grow で無効にならないようにする
     const stable = (value) => {
       const bytes = toBytes(value);
-      return bytes.buffer === core.e.memory.buffer ? bytes.slice() : bytes;
+      // Buffer.slice はメモリを共有するので、Uint8Array のコンストラクターで必ず写す。
+      return bytes.buffer === core.e.memory.buffer ? new Uint8Array(bytes) : bytes;
     };
     const nameBytes = stable(name);
     const bytes = stable(data);

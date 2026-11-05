@@ -65,7 +65,7 @@ if (command === "measure") {
   }
 
   // 名前の確保から memory.grow を起こしても、同じ wasm のメモリを指す入力が無効にならない
-  for (const legacy of [false, true]) {
+  for (const legacy of [false, true]) for (const buffer of [false, true]) for (const wasmName of [false, true]) {
     const { zumen, raw } = fresh(legacy, (exports, actual) => {
       exports.zm_alloc = (length) => {
         const ptr = actual.zm_alloc(length);
@@ -74,11 +74,19 @@ if (command === "measure") {
       };
     });
     const session = zumen.open();
+    const name = new TextEncoder().encode("a.dxf");
+    const namePtr = wasmName ? raw.zm_alloc(name.length) : 0;
     const ptr = raw.zm_alloc(sample.length);
-    const input = new Uint8Array(raw.memory.buffer, ptr, sample.length);
+    const view = (at, length) => buffer
+      ? Buffer.from(raw.memory.buffer, at, length)
+      : new Uint8Array(raw.memory.buffer, at, length);
+    const nameInput = wasmName ? view(namePtr, name.length) : "a.dxf";
+    if (wasmName) nameInput.set(name);
+    const input = view(ptr, sample.length);
     input.set(sample);
-    session.push("a.dxf", input);
+    session.push(nameInput, input);
     raw.zm_dealloc(ptr, sample.length);
+    if (wasmName) raw.zm_dealloc(namePtr, name.length);
     assert.equal(session.call({ v: 1, op: "open", input: "a.dxf" }).result.format, "dxf");
     session.close();
   }
