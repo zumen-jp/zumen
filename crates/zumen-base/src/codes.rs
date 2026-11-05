@@ -847,7 +847,7 @@ pub const CRS_GEOID_INVALID: Code = Code::new(
     &["key"],
 );
 
-/// 渡されたジオイドの格子は、扱わない形（点の並び・投影の座標・フィートの値・ほかの並びや版）なので読まなかった
+/// 渡されたジオイドの格子は、扱わない形（点の並び・投影の座標・フィートの値・ほかの並びやバージョン）なので読まなかった
 ///
 /// `crs.geoid.unsupported`（0.2.0 から）
 pub const CRS_GEOID_UNSUPPORTED: Code = Code::new(
@@ -1106,7 +1106,7 @@ pub const DWG_EDIT_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
-/// DWG のヘッダー・オブジェクトのマップ・オブジェクトのセクションを読めない
+/// DWG のヘッダー・オブジェクトのマップ・オブジェクトのレコードを読めない
 ///
 /// `dwg.file.invalid`（0.0.0 から）
 pub const DWG_FILE_INVALID: Code = Code::new(
