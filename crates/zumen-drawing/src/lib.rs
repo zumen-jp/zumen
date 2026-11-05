@@ -78,7 +78,7 @@ pub use text::{
     Text, Vertical,
 };
 pub use underlay::{Clip, Resource, Underlay, UnderlayFrame, UnderlayKind};
-pub use walk::{Clipping, Item, Origin, Step, Visit};
+pub use walk::{Clipping, Item, Origin, Step, Visit, VisitRef, WalkVisitor};
 
 /// 図面。実寸の空間と用紙を、順序のある一覧で持つ
 #[derive(Clone, Debug, Default, PartialEq)]
