@@ -386,6 +386,26 @@ impl Session {
         Ok(())
     }
 
+    /// wasm のホストが確保した入力を引き取る。最初の入力と空の入力には、その領域をそのまま使う（決定 0271）
+    #[cfg(any(target_family = "wasm", test))]
+    pub(crate) fn push_owned(&mut self, name: &[u8], data: Vec<u8>) -> Result<(), Status> {
+        let name = core::str::from_utf8(name).map_err(|_| Status::Invalid)?;
+        if !name::is_safe(name) {
+            return Err(Status::Invalid);
+        }
+        #[cfg(not(target_family = "wasm"))]
+        if let Some(child) = &mut self.child {
+            return child.push(name.as_bytes(), &data);
+        }
+        let input = self.inputs.entry(name.to_string()).or_default();
+        if input.is_empty() {
+            *input = data;
+        } else {
+            input.extend_from_slice(&data);
+        }
+        Ok(())
+    }
+
     /// 要求の JSON を受けて、応答の JSON を返す。直前の呼び出しのバイナリの結果は、ここで捨てる。
     ///
     /// `cancel` は、この呼び出しの中断の合図。時間の上限があれば、その合図で止める。
@@ -2787,6 +2807,41 @@ mod tests {
         );
         assert_eq!(session.push(b"../x", b""), Err(Status::Invalid));
         assert_eq!(session.push(b"\xff", b""), Err(Status::Invalid));
+    }
+
+    #[test]
+    fn adopts_owned_inputs_and_keeps_borrowed_append_behavior() {
+        let mut session = Session::new(b"").unwrap();
+        for name in [b"../x".as_slice(), b"\xff", b"", b"a//b"] {
+            assert_eq!(
+                session.push_owned(name, vec![1, 2, 3]),
+                Err(Status::Invalid)
+            );
+        }
+        assert!(session.inputs.is_empty());
+        for name in [b"first".as_slice(), b"empty"] {
+            if name == b"empty" {
+                session.push(name, b"").unwrap();
+            }
+            let data = b"12".to_vec();
+            let original = data.as_ptr();
+            session.push_owned(name, data).unwrap();
+            let input = session
+                .inputs
+                .get(core::str::from_utf8(name).unwrap())
+                .unwrap();
+            assert_eq!(input.as_ptr(), original);
+            assert_eq!(input, b"12");
+            session.push(name, b"3").unwrap();
+            session.push_owned(name, b"45".to_vec()).unwrap();
+            session.push_owned(name, Vec::new()).unwrap();
+            assert_eq!(
+                session.inputs[core::str::from_utf8(name).unwrap()],
+                b"12345"
+            );
+        }
+        session.push_owned(b"zero", Vec::new()).unwrap();
+        assert!(session.inputs["zero"].is_empty());
     }
 
     #[test]

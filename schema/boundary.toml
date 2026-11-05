@@ -69,6 +69,19 @@ params = [
 ]
 
 [[functions]]
+name = "zm_push_owned"
+returns = "status"
+targets = ["wasm"]
+description = "zm_alloc で確保した入力の所有権を渡し、同じ名前の入力の後ろへ足す。有効な領域は、どの状態コードを返しても引き取る。呼び出した後は読まず、zm_dealloc でも返さない"
+params = [
+    { name = "session", type = "session", description = "セッション" },
+    { name = "name", type = "bytes", description = "入力の名前（UTF-8）。zm_push と同じ相対の名前。呼び出しの間だけ借りる" },
+    { name = "name_len", type = "size", description = "名前のバイト数" },
+    { name = "data", type = "bytes_mut", description = "このモジュールの zm_alloc(data_len) が返した、まだ渡しても返してもいない領域。長さが 0 なら NULL" },
+    { name = "data_len", type = "size", description = "zm_alloc に渡したバイト数" },
+]
+
+[[functions]]
 name = "zm_call"
 returns = "status"
 description = "要求のメッセージを渡し、応答のメッセージを受け取る。前の呼び出しのバイナリの結果は、ここで捨てる"

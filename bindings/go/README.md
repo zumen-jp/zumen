@@ -56,6 +56,8 @@ origins, _ := columns.F64("chunk_origins")
 
 1 つのセッションは、一度に 1 つのゴルーチンで使います。呼び出しは、渡したコンテキストか `Cancel`（どのゴルーチンからも呼べる）で止められます。止めた呼び出しは `failed` の `ZumenError` を返し、セッションは閉じます。子プロセスのエンジン（`engine: "process"`）は、まだありません。CLI の `zumen serve --stdio` を `os/exec` で起こして使えます。
 
+`Push`・`PushBytes` は、新しい wasm では入力の領域の所有権をコアへ渡し、最初の入力を wasm の中でもう一度写すことを避けます。渡した Go のバイト列は引き続き使えます。新しい関数がない旧 ABI 1 の wasm では、従来の `zm_push` を使います。追記と文書の解析には別にメモリが必要です（[決定 0271](../../docs/decisions/0271-transfer-wasm-input-ownership.md)）。
+
 ## テスト
 
 ```bash
@@ -64,4 +66,4 @@ cp target/wasm32-unknown-unknown/release/zumen_abi1.wasm bindings/go/
 cd bindings/go && go test ./...
 ```
 
-`conformance_test.go` は、[適合テスト](../conformance/README.md)の組をこのラッパーで流し、ハッシュの一覧が `hashes.txt` と一致することを確かめます。毎晩（`nightly.yml`）、Linux で Go 1.26 と 1.27 を流します。
+`conformance_test.go` は、[適合テスト](../conformance/README.md)の組をこのラッパーで流し、ハッシュの一覧が `hashes.txt` と一致することを確かめます。`input_test.go` は、新旧の関数の経路、空の入力と追記、失敗時の解放、32 MiB の入力を渡したときのメモリの削減と中断を確かめます。PR ごとに Go 1.26、毎晩（`nightly.yml`）に Go 1.26 と 1.27 を Linux で流します。
