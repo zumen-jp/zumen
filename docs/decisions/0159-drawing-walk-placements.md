@@ -55,6 +55,8 @@
 - たどった結果を返す API の op は、#219 のシーンの op と一緒に決める。
 - 図面モデルに、外側まで解けない継承の既定の値のフィールドが増える（今の `default_line_weight` を広げる）。
 
+[0264](0264-stream-drawing-walk.md) で、走査の逐次処理と索引、結果の予算、重複する空間 ID の拒否を定めた。
+
 ## 参照
 
 - [決定 0010](0010-budget-by-work.md)、[決定 0105](0105-drawing-layers-and-order.md)、[決定 0112](0112-drawing-symbol-definitions.md)、[決定 0118](0118-entities-bbox-fields-region.md)、[決定 0141](0141-drawing-layer-frozen.md)、[決定 0143](0143-drawing-inherit-through-placements.md)、[決定 0144](0144-drawing-block-insertion-units.md)、[決定 0149](0149-drawing-symbol-clips.md)、[決定 0156](0156-drawing-stable-ids-and-preconditions.md)

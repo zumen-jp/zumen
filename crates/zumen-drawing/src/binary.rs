@@ -16,6 +16,7 @@
 //! 型ごとの読み書きは、`cargo xtask codegen` が図面モデルの型から作る（`binary/generated.rs`）。
 
 use std::borrow::Cow;
+use std::collections::BTreeSet;
 
 use zumen_base::{ByteRange, Cx, Diagnostic, Key, Kind, Ref, Stop, Value, codes};
 
@@ -306,6 +307,18 @@ fn parse(bytes: &[u8], minor: &mut u16, cx: &mut Cx<'_>) -> Result<(Source, Draw
     reader.finish()?;
     // 後のマイナーバージョンの書き手は、このバージョンが読み飛ばすフィールドの要素も数える。そのときのヘッダーの数は、上限として確かめる
     if reader.elements == reader.limit || written > MINOR {
+        // SpaceId は実寸の空間と定義の空間を通して重ならない。重なりを直して読むと ID の契約を壊すので断る（0264）。
+        let mut spaces = BTreeSet::new();
+        for space in drawing
+            .spaces
+            .iter()
+            .chain(drawing.symbols.iter().map(|s| &s.space))
+        {
+            reader.cx.check(Kind::Work, 1).map_err(Bad::Stopped)?;
+            if !spaces.insert(space.id) {
+                return Err(invalid(second.start, "duplicate-space-id"));
+            }
+        }
         Ok((source, drawing))
     } else {
         Err(invalid(8, "elements"))

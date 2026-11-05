@@ -13,7 +13,7 @@ use zumen_base::{Cx, Diagnostic, Kind, Ref, Severity, Stop, Value as Param, code
 use zumen_drawing::id::{self, DefinitionNamer, SheetNamer};
 use zumen_drawing::{
     Affine, CalloutContent, CellContent, Color, ColorSystem, Drawing2D, Height, HeightMeaning,
-    Item, Label, LayerId, Length, Origin, Shape, Visit,
+    Item, Label, LayerId, Length, Origin, Shape, VisitRef, WalkVisitor,
 };
 use zumen_json::Value;
 use zumen_scene::Palette;
@@ -277,23 +277,45 @@ pub fn check(
         })
         .collect();
     let context = Context::new(drawing, options, cx)?;
+    let mut outputs: Vec<_> = rules
+        .iter()
+        .map(|(id, _, level, _)| Out {
+            rule: id,
+            level: *level,
+            findings: Vec::new(),
+            invalid: 0,
+            unsupported: 0,
+        })
+        .collect();
+    // 要素に使わない規則を、各要素で繰り返し判定しない。
+    let element_rules =
+        element_rules(&rules, &mut outputs, cx).map_err(|s| Error::Stop(s, Box::default()))?;
+    let mut visitor = CheckVisitor {
+        context: &context,
+        rules: element_rules,
+        used: BTreeSet::new(),
+        sheet: None,
+        cx,
+    };
+    for &(sheet, origin) in &context.origins {
+        visitor.sheet = sheet;
+        drawing
+            .walk_to(origin, false, &mut visitor)
+            .map_err(|(s, at)| Error::Stop(s, Box::new(at)))?;
+    }
+    let used = visitor.used;
     let mut report = Report {
         chain: resolved.chain,
         rules: Vec::new(),
         findings: Vec::new(),
     };
-    for (id, kind, level, plan) in rules {
-        let mut out = Out {
-            rule: &id,
-            level,
-            findings: Vec::new(),
-            invalid: 0,
-            unsupported: 0,
-        };
-        context.run(&plan, &mut out, cx)?;
+    for ((id, kind, _, plan), mut out) in rules.iter().zip(outputs) {
+        context
+            .run(plan, &mut out, &used, cx)
+            .map_err(|s| Error::Stop(s, Box::default()))?;
         report.rules.push(RuleSummary {
             id: id.clone(),
-            check: kind,
+            check: kind.clone(),
             findings: out.invalid,
             unsupported: out.unsupported,
         });
@@ -790,22 +812,106 @@ struct Out<'r> {
 }
 
 impl Out<'_> {
-    fn invalid(&mut self, diagnostic: Diagnostic) {
-        self.invalid += 1;
+    /// 1 件を保存する前に、指摘と rule の複製量を数える。
+    fn push(
+        &mut self,
+        diagnostic: Diagnostic,
+        unsupported: bool,
+        cx: &mut Cx<'_>,
+    ) -> Result<(), Stop> {
+        let refs = diagnostic
+            .places()
+            .iter()
+            .filter_map(Ref::id)
+            .fold(0_u64, |sum, id| sum.saturating_add(id.len() as u64 + 64));
+        let params = diagnostic.params().iter().fold(0_u64, |sum, (_, value)| {
+            sum.saturating_add(
+                64 + match value {
+                    Param::Text(text) => text.len() as u64,
+                    _ => 0,
+                },
+            )
+        });
+        // rule は Finding と diagnostic のパラメーターの両方に足す。
+        let bytes = 576_u64
+            .saturating_add((self.rule.len() as u64).saturating_mul(2))
+            .saturating_add(refs)
+            .saturating_add(params);
+        cx.check(Kind::DecodedBytes, bytes)?;
+        let level = if unsupported {
+            self.unsupported += 1;
+            Severity::Info
+        } else {
+            self.invalid += 1;
+            self.level
+        };
         self.findings.push(Finding {
-            rule: self.rule.to_string(),
-            level: self.level,
+            rule: self.rule.to_owned(),
+            level,
             diagnostic: diagnostic.with("rule", self.rule),
         });
+        Ok(())
     }
 
-    fn unsupported(&mut self, diagnostic: Diagnostic) {
-        self.unsupported += 1;
-        self.findings.push(Finding {
-            rule: self.rule.to_string(),
-            level: Severity::Info,
-            diagnostic: diagnostic.with("rule", self.rule),
-        });
+    fn invalid(&mut self, diagnostic: Diagnostic, cx: &mut Cx<'_>) -> Result<(), Stop> {
+        self.push(diagnostic, false, cx)
+    }
+
+    fn unsupported(&mut self, diagnostic: Diagnostic, cx: &mut Cx<'_>) -> Result<(), Stop> {
+        self.push(diagnostic, true, cx)
+    }
+}
+
+/// 規則の順と出力先を保ち、要素用の規則だけを一度選ぶ。
+fn element_rules<'r, 'o>(
+    rules: &'r [(String, String, Severity, Plan)],
+    outputs: &'o mut [Out<'r>],
+    cx: &mut Cx<'_>,
+) -> Result<Vec<(&'r Plan, &'o mut Out<'r>)>, Stop> {
+    cx.check(Kind::Work, rules.len() as u64)?;
+    Ok(rules
+        .iter()
+        .zip(outputs)
+        .filter_map(|((_, _, _, plan), out)| {
+            (!matches!(
+                plan,
+                Plan::LayerName { .. }
+                    | Plan::FileName { .. }
+                    | Plan::Orientation { .. }
+                    | Plan::SheetSize { .. }
+                    | Plan::Scale { .. }
+            ))
+            .then_some((plan, out))
+        })
+        .collect())
+}
+
+struct CheckVisitor<'a, 'c, 'r, 'x> {
+    context: &'c Context<'a>,
+    rules: Vec<(&'r Plan, &'c mut Out<'r>)>,
+    used: BTreeSet<LayerId>,
+    sheet: Option<usize>,
+    cx: &'c mut Cx<'x>,
+}
+
+impl<'a> WalkVisitor<'a> for CheckVisitor<'a, '_, '_, '_> {
+    fn context(&mut self) -> Cx<'_> {
+        Cx::new(self.cx.budget, self.cx.diag, self.cx.cancel)
+    }
+    fn visit(&mut self, visit: VisitRef<'a, '_>) -> Result<(), (Stop, Ref)> {
+        if !visit.visible {
+            return Ok(());
+        }
+        self.used.insert(visit.layer);
+        for (plan, out) in &mut self.rules {
+            self.cx
+                .check(Kind::Work, 1)
+                .map_err(|s| (s, Ref::default().with_id(visit.id)))?;
+            self.context
+                .element(plan, self.sheet, &visit, out, self.cx)
+                .map_err(|s| (s, Ref::default().with_id(visit.id)))?;
+        }
+        Ok(())
     }
 }
 
@@ -814,7 +920,7 @@ struct Context<'a> {
     drawing: &'a Drawing2D,
     palette: &'a Palette,
     /// たどった要素と、たどった起点の用紙（`drawing.sheets` の添字）。実寸の空間からたどれば `None`
-    visits: Vec<(Option<usize>, Visit<'a>)>,
+    origins: Vec<(Option<usize>, Origin)>,
     /// 照合する用紙（添字）と、用紙の大きさと向きも比べるかと、比べるビューの添字
     sheets: Vec<(usize, bool, Vec<usize>)>,
     /// 用紙の ID
@@ -825,10 +931,15 @@ struct Context<'a> {
 
 impl<'a> Context<'a> {
     fn new(drawing: &'a Drawing2D, options: &Options<'a>, cx: &mut Cx<'_>) -> Result<Self, Error> {
+        cx.check(
+            Kind::Work,
+            drawing.sheets.len() as u64 + options.origins.len() as u64,
+        )
+        .map_err(|s| Error::Stop(s, Box::default()))?;
         let mut namer = SheetNamer::default();
         let sheet_ids = drawing.sheets.iter().map(|s| namer.next(s)).collect();
         let index = |id| drawing.sheets.iter().position(|sheet| sheet.id == id);
-        let mut visits = Vec::new();
+        let mut origins = Vec::new();
         let mut sheets = Vec::new();
         for &origin in &options.origins {
             let sheet = match origin {
@@ -841,31 +952,26 @@ impl<'a> Context<'a> {
                     sheets.push((at, false, vec![view]));
                 }),
             };
-            let walked = drawing
-                .walk(origin, cx)
-                .map_err(|(stop, at)| Error::Stop(stop, Box::new(at)))?;
-            visits.extend(
-                walked
-                    .into_iter()
-                    .filter(|visit| visit.visible)
-                    .map(|visit| (sheet, visit)),
-            );
+            origins.push((sheet, origin));
         }
         Ok(Self {
             drawing,
             palette: options.palette,
-            visits,
+            origins,
             sheets,
             sheet_ids,
             file_name: options.file_name,
         })
     }
 
-    fn run(&self, plan: &Plan, out: &mut Out<'_>, cx: &mut Cx<'_>) -> Result<(), Error> {
-        let work = |cx: &mut Cx<'_>| {
-            cx.check(Kind::Work, 1)
-                .map_err(|stop| Error::Stop(stop, Box::default()))
-        };
+    fn run(
+        &self,
+        plan: &Plan,
+        out: &mut Out<'_>,
+        used: &BTreeSet<LayerId>,
+        cx: &mut Cx<'_>,
+    ) -> Result<(), Stop> {
+        let work = |cx: &mut Cx<'_>| cx.check(Kind::Work, 1);
         match plan {
             Plan::LayerName {
                 parts,
@@ -873,7 +979,6 @@ impl<'a> Context<'a> {
                 separator,
                 max_width,
             } => {
-                let used: BTreeSet<LayerId> = self.visits.iter().map(|(_, v)| v.layer).collect();
                 for layer in &self.drawing.layers {
                     work(cx)?;
                     if !used.contains(&layer.id) {
@@ -884,7 +989,8 @@ impl<'a> Context<'a> {
                             Diagnostic::new(codes::PROFILE_LAYER_NAME_INVALID)
                                 .with("layer", layer.name.as_str())
                                 .at(Ref::default().with_id(id::layer(layer))),
-                        );
+                            cx,
+                        )?;
                     }
                 }
             }
@@ -902,31 +1008,29 @@ impl<'a> Context<'a> {
                             Diagnostic::new(codes::PROFILE_FILE_NAME_INVALID)
                                 .with("name", name)
                                 .with("reason", Param::Key(reason)),
-                        );
+                            cx,
+                        )?;
                     }
                 }
-                None => out.unsupported(Diagnostic::new(codes::PROFILE_FILE_NAME_UNSUPPORTED)),
+                None => {
+                    out.unsupported(Diagnostic::new(codes::PROFILE_FILE_NAME_UNSUPPORTED), cx)?
+                }
             },
             Plan::Orientation { .. } | Plan::SheetSize { .. } | Plan::Scale { .. } => {
                 for (at, whole, views) in &self.sheets {
                     work(cx)?;
-                    self.sheet(plan, *at, *whole, views, out);
+                    self.sheet(plan, *at, *whole, views, out, cx)?;
                 }
             }
-            _ => {
-                for (sheet, visit) in &self.visits {
-                    work(cx)?;
-                    self.element(plan, *sheet, visit, out);
-                }
-            }
+            _ => {}
         }
         Ok(())
     }
 
     /// 要素の場所。要素・実効のレイヤ・起点の用紙の ID
-    fn places(&self, sheet: Option<usize>, visit: &Visit<'_>) -> Vec<Ref> {
-        let mut places = vec![Ref::default().with_id(visit.id.clone())];
-        if let Some(layer) = self.drawing.layer(visit.layer) {
+    fn places(&self, sheet: Option<usize>, visit: &VisitRef<'_, '_>) -> Vec<Ref> {
+        let mut places = vec![Ref::default().with_id(visit.id.to_owned())];
+        if let Some(layer) = visit.layer_definition {
             places.push(Ref::default().with_id(id::layer(layer)));
         }
         if let Some(id) = sheet.and_then(|at| self.sheet_ids.get(at)) {
@@ -935,7 +1039,14 @@ impl<'a> Context<'a> {
         places
     }
 
-    fn element(&self, plan: &Plan, sheet: Option<usize>, visit: &Visit<'_>, out: &mut Out<'_>) {
+    fn element(
+        &self,
+        plan: &Plan,
+        sheet: Option<usize>,
+        visit: &VisitRef<'_, '_>,
+        out: &mut Out<'_>,
+        cx: &mut Cx<'_>,
+    ) -> Result<(), Stop> {
         let summary = summary(visit.item);
         let at = |diagnostic: Diagnostic| {
             self.places(sheet, visit)
@@ -946,13 +1057,14 @@ impl<'a> Context<'a> {
             Plan::Color { vocabulary, values } if summary.colored => {
                 match color_check(visit.color, values, self.palette) {
                     ColorResult::Ok => {}
-                    ColorResult::Invalid(found) => {
-                        out.invalid(at(Diagnostic::new(codes::PROFILE_COLOR_INVALID)
+                    ColorResult::Invalid(found) => out.invalid(
+                        at(Diagnostic::new(codes::PROFILE_COLOR_INVALID)
                             .with("color", found)
-                            .with("vocabulary", vocabulary.as_str())))
-                    }
+                            .with("vocabulary", vocabulary.as_str())),
+                        cx,
+                    )?,
                     ColorResult::Unsupported => {
-                        out.unsupported(at(Diagnostic::new(codes::PROFILE_COLOR_UNSUPPORTED)));
+                        out.unsupported(at(Diagnostic::new(codes::PROFILE_COLOR_UNSUPPORTED)), cx)?;
                     }
                 }
             }
@@ -964,12 +1076,18 @@ impl<'a> Context<'a> {
                 match (name, names) {
                     (Some(name), Some(names)) => {
                         if !names.iter().any(|known| known.eq_ignore_ascii_case(name)) {
-                            out.invalid(at(Diagnostic::new(codes::PROFILE_LINE_TYPE_INVALID)
-                                .with("line_type", name)
-                                .with("vocabulary", vocabulary.as_str())));
+                            out.invalid(
+                                at(Diagnostic::new(codes::PROFILE_LINE_TYPE_INVALID)
+                                    .with("line_type", name)
+                                    .with("vocabulary", vocabulary.as_str())),
+                                cx,
+                            )?;
                         }
                     }
-                    _ => out.unsupported(at(Diagnostic::new(codes::PROFILE_LINE_TYPE_UNSUPPORTED))),
+                    _ => out.unsupported(
+                        at(Diagnostic::new(codes::PROFILE_LINE_TYPE_UNSUPPORTED)),
+                        cx,
+                    )?,
                 }
             }
             Plan::LineWidth {
@@ -979,12 +1097,18 @@ impl<'a> Context<'a> {
             } if summary.lines => match visit.line_weight {
                 Some(width) if width.0.is_finite() => {
                     if !values.iter().any(|v| (v - width.0).abs() <= *tolerance) {
-                        out.invalid(at(Diagnostic::new(codes::PROFILE_LINE_WIDTH_INVALID)
-                            .with("width", width.0)
-                            .with("vocabulary", vocabulary.as_str())));
+                        out.invalid(
+                            at(Diagnostic::new(codes::PROFILE_LINE_WIDTH_INVALID)
+                                .with("width", width.0)
+                                .with("vocabulary", vocabulary.as_str())),
+                            cx,
+                        )?;
                     }
                 }
-                _ => out.unsupported(at(Diagnostic::new(codes::PROFILE_LINE_WIDTH_UNSUPPORTED))),
+                _ => out.unsupported(
+                    at(Diagnostic::new(codes::PROFILE_LINE_WIDTH_UNSUPPORTED)),
+                    cx,
+                )?,
             },
             Plan::LineWidthBySheet {
                 vocabulary,
@@ -996,28 +1120,32 @@ impl<'a> Context<'a> {
                     .and_then(|at| self.drawing.sheets.get(at))
                     .and_then(|s| s.size)
                 else {
-                    return;
+                    return Ok(());
                 };
                 let near = |a: f64, b: f64| (a - b).abs() <= *tolerance;
                 let Some((_, name, widths)) = rows.iter().find(|([sw, sh], _, _)| {
                     (near(w.0, *sw) && near(h.0, *sh)) || (near(w.0, *sh) && near(h.0, *sw))
                 }) else {
-                    return;
+                    return Ok(());
                 };
                 match visit.line_weight {
                     Some(width) if width.0.is_finite() => {
                         if !widths.iter().any(|v| (v - width.0).abs() <= *tolerance) {
-                            out.invalid(at(Diagnostic::new(
-                                codes::PROFILE_LINE_WIDTH_BY_SHEET_INVALID,
-                            )
-                            .with("width", width.0)
-                            .with("sheet", name.as_str())
-                            .with("vocabulary", vocabulary.as_str())));
+                            out.invalid(
+                                at(Diagnostic::new(codes::PROFILE_LINE_WIDTH_BY_SHEET_INVALID)
+                                    .with("width", width.0)
+                                    .with("sheet", name.as_str())
+                                    .with("vocabulary", vocabulary.as_str())),
+                                cx,
+                            )?;
                         }
                     }
-                    _ => out.unsupported(at(Diagnostic::new(
-                        codes::PROFILE_LINE_WIDTH_BY_SHEET_UNSUPPORTED,
-                    ))),
+                    _ => out.unsupported(
+                        at(Diagnostic::new(
+                            codes::PROFILE_LINE_WIDTH_BY_SHEET_UNSUPPORTED,
+                        )),
+                        cx,
+                    )?,
                 }
             }
             Plan::TextHeight {
@@ -1026,7 +1154,7 @@ impl<'a> Context<'a> {
                 tolerance,
             } => {
                 let Some(height) = summary.height else {
-                    return;
+                    return Ok(());
                 };
                 let value = match height.value {
                     Length::Paper(paper) => Some(paper.0),
@@ -1040,16 +1168,20 @@ impl<'a> Context<'a> {
                 {
                     Some(h) => {
                         if !values.iter().any(|v| (v - h).abs() <= *tolerance) {
-                            out.invalid(at(Diagnostic::new(codes::PROFILE_TEXT_HEIGHT_INVALID)
-                                .with("height", h)
-                                .with("meaning", meaning(&height.meaning))
-                                .with("vocabulary", vocabulary.as_str())));
+                            out.invalid(
+                                at(Diagnostic::new(codes::PROFILE_TEXT_HEIGHT_INVALID)
+                                    .with("height", h)
+                                    .with("meaning", meaning(&height.meaning))
+                                    .with("vocabulary", vocabulary.as_str())),
+                                cx,
+                            )?;
                         }
                     }
                     None => {
-                        out.unsupported(at(Diagnostic::new(
-                            codes::PROFILE_TEXT_HEIGHT_UNSUPPORTED,
-                        )));
+                        out.unsupported(
+                            at(Diagnostic::new(codes::PROFILE_TEXT_HEIGHT_UNSUPPORTED)),
+                            cx,
+                        )?;
                     }
                 }
             }
@@ -1066,18 +1198,30 @@ impl<'a> Context<'a> {
                     })
                     .collect();
                 for c in found {
-                    out.invalid(at(Diagnostic::new(codes::PROFILE_CHARACTERS_INVALID)
-                        .with("character", format!("U+{:04X}", u32::from(c)))
-                        .with("vocabulary", vocabulary.as_str())));
+                    out.invalid(
+                        at(Diagnostic::new(codes::PROFILE_CHARACTERS_INVALID)
+                            .with("character", format!("U+{:04X}", u32::from(c)))
+                            .with("vocabulary", vocabulary.as_str())),
+                        cx,
+                    )?;
                 }
             }
             _ => {}
         }
+        Ok(())
     }
 
-    fn sheet(&self, plan: &Plan, at: usize, whole: bool, views: &[usize], out: &mut Out<'_>) {
+    fn sheet(
+        &self,
+        plan: &Plan,
+        at: usize,
+        whole: bool,
+        views: &[usize],
+        out: &mut Out<'_>,
+        cx: &mut Cx<'_>,
+    ) -> Result<(), Stop> {
         let Some(sheet) = self.drawing.sheets.get(at) else {
-            return;
+            return Ok(());
         };
         let place = || Ref::default().with_id(self.sheet_ids.get(at).cloned().unwrap_or_default());
         match plan {
@@ -1098,12 +1242,14 @@ impl<'a> Context<'a> {
                                 .with("height", h.0)
                                 .with("vocabulary", vocabulary.as_str())
                                 .at(place()),
-                        );
+                            cx,
+                        )?;
                     }
                 }
                 None => out.unsupported(
                     Diagnostic::new(codes::PROFILE_SHEET_SIZE_UNSUPPORTED).at(place()),
-                ),
+                    cx,
+                )?,
             },
             Plan::Orientation { expected } if whole => match sheet.size {
                 Some([w, h]) => {
@@ -1114,18 +1260,21 @@ impl<'a> Context<'a> {
                                 .with("orientation", Param::Key(found))
                                 .with("expected", expected.as_str())
                                 .at(place()),
-                        );
+                            cx,
+                        )?;
                     }
                 }
                 None => out.unsupported(
                     Diagnostic::new(codes::PROFILE_ORIENTATION_UNSUPPORTED).at(place()),
-                ),
+                    cx,
+                )?,
             },
             Plan::Scale {
                 vocabulary,
                 mantissas,
             } => {
                 for &index in views {
+                    cx.check(Kind::Work, 1)?;
                     let Some(view) = sheet.views.get(index) else {
                         continue;
                     };
@@ -1154,19 +1303,22 @@ impl<'a> Context<'a> {
                                         .with("view", number)
                                         .with("vocabulary", vocabulary.as_str())
                                         .at(place()),
-                                );
+                                    cx,
+                                )?;
                             }
                         }
                         None => out.unsupported(
                             Diagnostic::new(codes::PROFILE_SCALE_UNSUPPORTED)
                                 .with("view", number)
                                 .at(place()),
-                        ),
+                            cx,
+                        )?,
                     }
                 }
             }
             _ => {}
         }
+        Ok(())
     }
 }
 
