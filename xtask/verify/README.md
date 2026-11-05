@@ -11,6 +11,7 @@ zumen が書き戻した（apply）・変換した（convert）図面を、zumen
 | `check_acadsharp.py` | `acadsharp-dump.json` の値を、zumen の読みと照らす |
 | `check_ezjww.py` | キットの JWW を ezjww で読み、zumen の読みと照らす |
 | `check_ezsxf.py` | キットの SFC・P21 を ezsxf で読み、zumen の読みと照らす |
+| `pdfjs/` | PDF の寸法・文字・経路と画像の数を pdf.js と照らす。手順は [README](pdfjs/README.md) |
 | `dump.lsp` | AutoCAD で開いた図面の図形を、ハンドルごとに 1 行で書き出す。キットの README の手順で使う |
 
 ## 使い方
@@ -78,6 +79,7 @@ ACadSharp のツールは、.NET 10 の SDK で動かします。ACadSharp の�
 | DWG | [ACadSharp](https://github.com/DomCR/ACadSharp) 3.8.0 | MIT | 照らす（`acadsharp/`・`check_acadsharp.py`）。.NET のツールで読み、値を JSON に書き出す |
 | JWW | [ezjww](https://github.com/monozukuri-ai/ezjww) 0.7.6 | MIT | 照らす（`check_ezjww.py`） |
 | SFC・P21 | [ezsxf](https://github.com/monozukuri-ai/ezsxf) 0.3.7 | MIT | 照らす（`check_ezsxf.py`） |
+| PDF | [pdf.js](https://github.com/mozilla/pdf.js) 6.5.438 | Apache-2.0 | 別のプログラムとして呼び、読みを照らす（`pdfjs/`）。Node.js 22.13.0 以降 |
 
 次のものは使いません。
 
