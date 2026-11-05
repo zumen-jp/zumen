@@ -181,6 +181,20 @@ fn any_drawing_model_in_a_binary_gets_an_answer() {
     for seed in 0..500 {
         let (source, drawing) = binary::random(seed, false);
         let (mut session, status, response) = opened(&written(&source, &drawing).unwrap()).unwrap();
+        let mut ids = std::collections::BTreeSet::new();
+        let unique = drawing
+            .spaces
+            .iter()
+            .chain(drawing.symbols.iter().map(|s| &s.space))
+            .all(|space| ids.insert(space.id));
+        if !unique {
+            assert_eq!(status, Status::Failed, "seed {seed}: {response}");
+            assert!(
+                response.contains("duplicate-space-id"),
+                "seed {seed}: {response}"
+            );
+            continue;
+        }
         assert_eq!(status, Status::Ok, "seed {seed}: {response}");
         let (_, summary) = call(
             &mut session,
@@ -211,4 +225,84 @@ fn any_drawing_model_in_a_binary_gets_an_answer() {
             "seed {seed}"
         );
     }
+}
+
+#[test]
+fn duplicate_space_ids_fail_open_before_scene_can_use_the_document() {
+    let (mut original, ..) = opened(DXF.as_bytes()).unwrap();
+    let bytes = lift(&mut original).unwrap();
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let (source, mut drawing) =
+        binary::read(&bytes, &mut Cx::new(&mut budget, &mut diag, &cancel)).unwrap();
+    drawing.spaces.push(drawing.spaces[0].clone());
+    let (mut session, status, response) = opened(&written(&source, &drawing).unwrap()).unwrap();
+    assert_eq!(status, Status::Failed);
+    let response = zumen_json::parse(response.as_bytes()).unwrap();
+    assert_eq!(
+        text(&response, "/diagnostics/0/code"),
+        Some("drawing.binary.invalid")
+    );
+    assert_eq!(
+        text(&response, "/diagnostics/0/params/reason"),
+        Some("duplicate-space-id")
+    );
+    let (status, response) = call(&mut session, r#"{"v":1,"op":"scene","doc":"a"}"#);
+    assert_eq!(status, Status::Failed);
+    assert!(!response.contains(r#""result""#), "{response}");
+}
+
+#[cfg(test)]
+fn e9_stops(op: &str, budget: &str) {
+    let input = zumen_json::parse(include_bytes!(
+        "../../../bindings/conformance/cases/entities_e9.json"
+    ))
+    .unwrap();
+    let dxf = text(&input, "/steps/0/push/text").unwrap();
+    assert_eq!(dxf.len(), 699);
+    let (mut session, status, response) = opened(dxf.as_bytes()).unwrap();
+    assert_eq!(status, Status::Ok, "{response}");
+    session
+        .push(
+            b"profile",
+            br#"{"format":"0.1","id":"empty","edition":"1","revision":1,"rules":[]}"#,
+        )
+        .unwrap();
+    let extra = if op == "check" {
+        r#", "profiles":["profile"],"profile":{"id":"empty","edition":"1"}"#
+    } else {
+        ""
+    };
+    let request = format!(r#"{{"v":1,"op":"{op}","doc":"a","from":"space/0"{extra}{budget}}}"#);
+    let (status, response) = call(&mut session, &request);
+    assert_eq!(status, Status::Failed, "{response}");
+    assert!(response.contains("budget.elements.exceeded"), "{response}");
+    assert!(!response.contains(r#""result""#), "{response}");
+    assert!(session.take(0).is_none());
+    // 停止しても、元の文書は残る。
+    let (status, response) = call(&mut session, r#"{"v":1,"op":"entities","doc":"a"}"#);
+    assert_eq!(status, Status::Ok, "{response}");
+}
+
+#[test]
+fn scene_and_check_stream_a_huge_grid_until_the_element_limit() {
+    for op in ["scene", "check"] {
+        e9_stops(
+            op,
+            r#", "budget":{"elements":100000,"decoded_bytes":65536}"#,
+        );
+    }
+}
+
+#[test]
+#[ignore = "既定の 1 億要素で測る。release で個別に実行する"]
+fn measure_e9_scene_default_budget() {
+    e9_stops("scene", "");
+}
+
+#[test]
+#[ignore = "既定の 1 億要素で測る。release で個別に実行する"]
+fn measure_e9_check_default_budget() {
+    e9_stops("check", "");
 }

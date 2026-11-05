@@ -617,3 +617,218 @@ fn civil_drawing_values_are_read_from_the_vocabularies() {
     };
     assert_eq!(diagnostic.code(), codes::PROFILE_VOCABULARY_INVALID);
 }
+
+#[test]
+fn repeated_findings_stop_at_the_result_memory_budget() {
+    let mut drawing = drawing();
+    let space = &mut drawing.spaces[0];
+    space.order = vec![1; 10_000];
+    let profile = br#"{"format":"0.1","id":"colors","edition":"2025-12","revision":1,"vocabularies":{"colors":{"values":[{"sxf":2}]}},"rules":[{"id":"color","check":"color","level":"error","vocabulary":"colors"}]}"#;
+    let (result, _) = run(
+        &drawing,
+        &[("colors.json", profile)],
+        "colors",
+        "sxf",
+        vec![Origin::Space(MODEL)],
+        Limits::default().with(Kind::DecodedBytes, Limit::Finite(8192)),
+    );
+    assert!(
+        matches!(result, Err(Error::Stop(Stop::Exceeded(e), _)) if e.kind == Kind::DecodedBytes),
+        "{result:?}"
+    );
+}
+
+#[test]
+fn non_element_rules_are_selected_once_for_many_elements() {
+    let mut drawing = drawing();
+    drawing.spaces[0].order = vec![0; 10_100];
+    let mut rules: Vec<_> = (0..5000)
+        .map(|n| {
+            let plan = match n % 5 {
+                0 => Plan::LayerName {
+                    parts: Vec::new(),
+                    user_part: false,
+                    separator: "-".into(),
+                    max_width: None,
+                },
+                1 => Plan::FileName {
+                    parts: Vec::new(),
+                    user_part: None,
+                    extensions: Vec::new(),
+                    max_length: None,
+                },
+                2 => Plan::SheetSize {
+                    vocabulary: "size".into(),
+                    sizes: Vec::new(),
+                    tolerance: 0.0,
+                },
+                3 => Plan::Scale {
+                    vocabulary: "scale".into(),
+                    mantissas: vec![1.0],
+                },
+                _ => Plan::Orientation {
+                    expected: "landscape".into(),
+                },
+            };
+            (format!("rule-{n}"), String::new(), Severity::Error, plan)
+        })
+        .collect();
+    rules.push((
+        "color".into(),
+        "color".into(),
+        Severity::Error,
+        Plan::Color {
+            vocabulary: "color".into(),
+            values: vec![ColorValue {
+                rgb: None,
+                codes: vec![(ColorSystem::Sxf, 2)],
+            }],
+        },
+    ));
+    let mut outputs: Vec<_> = rules
+        .iter()
+        .map(|(rule, _, level, _)| Out {
+            rule,
+            level: *level,
+            findings: Vec::new(),
+            invalid: 0,
+            unsupported: 0,
+        })
+        .collect();
+    let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(26_000)));
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let palette = Palette::default();
+    let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+    let options = Options {
+        origins: vec![Origin::Space(MODEL)],
+        palette: &palette,
+        family: "sxf",
+        file_name: None,
+    };
+    let context = Context::new(&drawing, &options, &mut cx).unwrap();
+    let rules = element_rules(&rules, &mut outputs, &mut cx).unwrap();
+    // 5,000 万回になる判定を、要素に渡す候補から除く。
+    assert_eq!(rules.len(), 1);
+    let mut visitor = CheckVisitor {
+        context: &context,
+        rules,
+        used: BTreeSet::new(),
+        sheet: None,
+        cx: &mut cx,
+    };
+    drawing
+        .walk_to(Origin::Space(MODEL), false, &mut visitor)
+        .unwrap();
+    assert_eq!(visitor.used, BTreeSet::from([LayerId(0)]));
+    assert!(outputs.iter().all(|out| out.findings.is_empty()));
+    assert!(budget.used(Kind::Work) < 26_000);
+}
+
+#[test]
+fn one_text_stops_before_saving_unbudgeted_character_findings() {
+    let content: String = (0..100_000).filter_map(char::from_u32).collect();
+    let mut drawing = drawing();
+    drawing.spaces[0].elements = vec![text(&content, 2.5)];
+    let plan = Plan::Characters {
+        vocabulary: "letters".into(),
+        ranges: vec![(0, 0x10ffff)],
+    };
+    for limit in [0, 2048] {
+        let mut budget =
+            Budget::new(Limits::default().with(Kind::DecodedBytes, Limit::Finite(limit)));
+        let mut diag = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let palette = Palette::default();
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        let options = Options {
+            origins: vec![Origin::Space(MODEL)],
+            palette: &palette,
+            family: "sxf",
+            file_name: None,
+        };
+        let context = Context::new(&drawing, &options, &mut cx).unwrap();
+        let visit = VisitRef {
+            item: Item::Model(&drawing.spaces[0].elements[0]),
+            id: "space/0/e0",
+            path: &[],
+            transform: Affine::IDENTITY,
+            color: None,
+            line_type: None,
+            line_weight: None,
+            layer: LayerId(0),
+            layer_definition: None,
+            visible: true,
+            printable: true,
+            clips: &[],
+        };
+        let mut out = Out {
+            rule: "letters",
+            level: Severity::Error,
+            findings: Vec::new(),
+            invalid: 0,
+            unsupported: 0,
+        };
+        let stop = context
+            .element(&plan, None, &visit, &mut out, &mut cx)
+            .unwrap_err();
+        assert!(matches!(stop, Stop::Exceeded(e) if e.kind == Kind::DecodedBytes));
+        assert!(out.findings.len() <= 2);
+        assert_eq!(out.invalid, out.findings.len() as u64);
+        assert_eq!(out.unsupported, 0);
+        if limit == 0 {
+            assert!(out.findings.is_empty());
+        } else {
+            assert!(!out.findings.is_empty());
+        }
+        assert!(budget.used(Kind::DecodedBytes) <= limit);
+    }
+}
+
+#[test]
+fn one_sheet_stops_before_saving_unbudgeted_scale_findings() {
+    let plan = Plan::Scale {
+        vocabulary: "scale".into(),
+        mantissas: vec![1.0],
+    };
+    for scale in [0.03, 0.0] {
+        let mut drawing = drawing();
+        drawing.sheets[0].views = vec![view(scale); 100_000];
+        for limit in [0, 2048] {
+            let mut budget =
+                Budget::new(Limits::default().with(Kind::DecodedBytes, Limit::Finite(limit)));
+            let mut diag = Diagnostics::new();
+            let cancel = CancelToken::new();
+            let palette = Palette::default();
+            let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+            let options = Options {
+                origins: vec![Origin::Sheet(SHEET)],
+                palette: &palette,
+                family: "sxf",
+                file_name: None,
+            };
+            let context = Context::new(&drawing, &options, &mut cx).unwrap();
+            let mut out = Out {
+                rule: "scale",
+                level: Severity::Error,
+                findings: Vec::new(),
+                invalid: 0,
+                unsupported: 0,
+            };
+            let stop = context
+                .sheet(&plan, 0, true, &context.sheets[0].2, &mut out, &mut cx)
+                .unwrap_err();
+            assert!(matches!(stop, Stop::Exceeded(e) if e.kind == Kind::DecodedBytes));
+            assert!(out.findings.len() <= 2);
+            assert_eq!(out.invalid + out.unsupported, out.findings.len() as u64);
+            if limit == 0 {
+                assert!(out.findings.is_empty());
+            } else {
+                assert!(!out.findings.is_empty());
+            }
+            // 1 用紙の全ビューを回り終える前に停止する。
+            assert!(budget.used(Kind::Work) < 10);
+            assert!(budget.used(Kind::DecodedBytes) <= limit);
+        }
+    }
+}
