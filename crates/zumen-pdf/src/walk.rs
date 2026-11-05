@@ -43,6 +43,8 @@ use skrifa::{Font as FontProgram, OutlineSource};
 use zumen_base::{Code, Diagnostic, Diagnostics, Kind, Ref, Stop, codes};
 use zumen_sdk::Cx;
 
+use crate::inflate;
+
 /// hayro-interpret がフォームの XObject を入れ子に解釈する深さの上限（`MAX_NESTED_INTERPRETATION_DEPTH`）
 const MAX_DEPTH: u32 = 50;
 
@@ -299,7 +301,9 @@ struct Conversion {
 #[derive(Clone, Debug)]
 struct Form {
     /// 展開したバイト列に、終わりのマーカーを足したもの
-    data: Rc<[u8]>,
+    data: Option<Rc<[u8]>>,
+    /// 予測子の前の展開量。寛容な展開では失敗した試みと上限の見積もりも含む
+    decoded: u64,
     /// hayro-syntax が寛容に展開した（[`leniently_inflated`]）
     lenient: bool,
 }
@@ -695,6 +699,13 @@ fn with_end(data: &[u8]) -> Rc<[u8]> {
     bytes.extend_from_slice(END);
     bytes.push(b'\n');
     Rc::from(bytes)
+}
+
+/// マーカーを足す Vec と、それを写す Rc の 2 回分を、確保する前に数える（決定 0270）
+fn reserve_end(length: usize, cx: &mut Cx<'_>) -> Result<(), Stop> {
+    let bytes = (length as u64).saturating_add(END.len() as u64 + 2);
+    cx.check(Kind::Work, bytes.div_ceil(16).saturating_mul(2))?;
+    cx.check(Kind::DecodedBytes, bytes.saturating_mul(2))
 }
 
 /// 終わりのマーカーの演算子か
@@ -1295,9 +1306,9 @@ pub(crate) struct Walker<'a, 'o> {
     refused: Option<Ref>,
     /// 呼ばれ方を覚えるフォームの中で返した診断。たどっているフォームごとに 1 つ
     recording: Vec<Diagnostics>,
-    /// 展開したフォーム。展開できなければ `None`（ページごと）。キーは、それ自身の間接オブジェクトのストリームの番号
+    /// フォームの展開の結果と、再び展開する量（ページごと）。キーは、それ自身の間接オブジェクトのストリームの番号
     /// （[`own_stream`]）
-    forms: BTreeMap<(u32, i32), Option<Form>>,
+    forms: BTreeMap<(u32, i32), Form>,
     /// ストリーム（ソフトマスクのグループ・シェーディング・関数・Indexed の表）の、展開したバイト数（ページごと）。
     /// キーは、フォームと同じ
     sizes: BTreeMap<(u32, i32), u64>,
@@ -1397,26 +1408,45 @@ impl<'a, 'o> Walker<'a, 'o> {
         self.transfer = false;
 
         let raw = page.raw();
-        // 内容のストリームを確かめる（7.7.3.3）。hayro-syntax は、展開できない配列の項目を飛ばしてつなぎ、壊れた
-        // Flate は展開できた所までを返す。配列は、項目ごとに展開し直す
-        if let Some(items) = raw.get::<Array<'_>>(b"Contents") {
+        // 内容のストリームを確かめる（7.7.3.3）。hayro-syntax と同じく、単独のストリームを先に見る。
+        // 配列では、展開できない項目を飛ばし、読めたストリームの後ろに空白を 1 バイトずつ足す
+        let single = raw.get::<Stream<'_>>(b"Contents");
+        let counted = if let Some(stream) = &single {
+            cx.check(Kind::Work, self.reread_stream(stream))?;
+            inflate::before(stream, cx)?
+        } else if let Some(items) = raw.get::<Array<'_>>(b"Contents") {
+            let mut decoded = 0u64;
+            let mut joined = 0u64;
             for item in items.raw_iter() {
                 cx.check(Kind::Work, 1)?;
                 let id = item.as_obj_ref().map(ObjectIdentifier::from);
-                let stream = id.and_then(|id| self.xref.get::<Stream<'_>>(id));
-                cx.check(
-                    Kind::Work,
-                    stream
-                        .as_ref()
-                        .map_or(0, |stream| self.reread_stream(stream)),
-                )?;
-                let length = stream
-                    .as_ref()
-                    .and_then(|stream| stream.decoded_data().ok())
-                    .map(|data| data.len());
-                if let Some(length) = length {
-                    cx.check(Kind::DecodedBytes, length as u64)?;
+                let stream = match item {
+                    MaybeRef::Ref(id) => self.xref.get::<Object<'_>>(id.into()),
+                    MaybeRef::NotRef(object) => Some(object),
                 }
+                .and_then(Object::into_stream);
+                let length = if let Some(stream) = &stream {
+                    cx.check(Kind::Work, self.reread_stream(stream))?;
+                    let before = cx.budget.used(Kind::DecodedBytes);
+                    let counted = inflate::before(stream, cx)?;
+                    let expanded = cx.budget.used(Kind::DecodedBytes).saturating_sub(before);
+                    let length = stream.decoded_data().ok().map(|data| data.len());
+                    // 予測子で短くなったものと、展開後に失敗するものも、再び展開する分を先に数える
+                    decoded = decoded.saturating_add(if counted {
+                        expanded
+                    } else {
+                        length.unwrap_or(0) as u64
+                    });
+                    if let Some(length) = length {
+                        if !counted {
+                            cx.check(Kind::DecodedBytes, length as u64)?;
+                        }
+                        joined = joined.saturating_add(length as u64).saturating_add(1);
+                    }
+                    length
+                } else {
+                    None
+                };
                 let readable = match (&stream, length) {
                     (Some(stream), Some(length)) => !leniently_inflated(stream, length),
                     _ => false,
@@ -1426,23 +1456,32 @@ impl<'a, 'o> Walker<'a, 'o> {
                     self.report(codes::PDF_CONTENT_INVALID, place, cx);
                 }
             }
-        }
+            // page_stream は各項目をもう一度展開し、別の Vec に連結してページの中で保持する。
+            // Vec が伸びる余りを倍で数え、項目の連結と伸ばす間の写しも先に数える
+            cx.check(Kind::Work, joined.div_ceil(16).saturating_mul(3))?;
+            cx.check(
+                Kind::DecodedBytes,
+                decoded.saturating_add(joined.saturating_mul(2)),
+            )?;
+            true
+        } else {
+            false
+        };
         let content = page.page_stream();
-        if let Some(data) = content {
+        if !counted && let Some(data) = content {
             cx.check(Kind::DecodedBytes, data.len() as u64)?;
         }
-        let broken = match raw.get::<Stream<'_>>(b"Contents") {
-            Some(stream) => {
-                cx.check(Kind::Work, self.reread_stream(&stream))?;
-                content.is_none_or(|data| leniently_inflated(&stream, data.len()))
-            }
+        let broken = match single {
+            Some(stream) => content.is_none_or(|data| leniently_inflated(&stream, data.len())),
             None => content.is_none() && raw.contains_key(b"Contents"),
         };
         if broken {
             self.report(codes::PDF_CONTENT_INVALID, place.clone(), cx);
         }
 
-        let data = with_end(content.unwrap_or_default());
+        let content = content.unwrap_or_default();
+        reserve_end(content.len(), cx)?;
+        let data = with_end(content);
         // hayro-interpret が解釈する手間と、フォームなどを展開するバイト数は、たどりながら数える
         self.content(
             &data,
@@ -2948,9 +2987,7 @@ impl<'a, 'o> Walker<'a, 'o> {
         cx: &mut Cx<'_>,
     ) -> Result<Cost, Stop> {
         let data = self.form_data(stream, id, cx)?;
-        let bytes = data.as_ref().map_or(0, |form| {
-            form.data.len().saturating_sub(END.len() + 2) as u64
-        });
+        let bytes = data.decoded;
         let dict = stream.dict();
         let own_dict = dict.get::<Dict<'_>>(b"Resources");
         let reread = own_dict.as_ref().map_or(0, |own| lookup_work(own.data()));
@@ -2962,7 +2999,10 @@ impl<'a, 'o> Walker<'a, 'o> {
         let (work, copied) = copy(state);
         spend(&mut cost, work, copied, cx)?;
         let visible = self.is_visible();
-        let Some(Form { data, lenient }) = data.filter(|_| dict.get::<[f32; 4]>(b"BBox").is_some())
+        let lenient = data.lenient;
+        let Some(data) = data
+            .data
+            .filter(|_| dict.get::<[f32; 4]>(b"BBox").is_some())
         else {
             if visible {
                 self.report(codes::PDF_CONTENT_INVALID, place.clone(), cx);
@@ -3049,18 +3089,31 @@ impl<'a, 'o> Walker<'a, 'o> {
         stream: &Stream<'a>,
         id: Option<(u32, i32)>,
         cx: &mut Cx<'_>,
-    ) -> Result<Option<Form>, Stop> {
+    ) -> Result<Form, Stop> {
         if let Some(data) = id.and_then(|id| self.forms.get(&id)) {
             return Ok(data.clone());
         }
-        let data = stream.decoded_data().ok().map(|data| Form {
-            data: with_end(&data),
-            lenient: leniently_inflated(stream, data.len()),
-        });
-        cx.check(
-            Kind::DecodedBytes,
-            data.as_ref().map_or(0, |form| form.data.len() as u64),
-        )?;
+        let before = cx.budget.used(Kind::DecodedBytes);
+        let counted = inflate::before(stream, cx)?;
+        let expanded = cx.budget.used(Kind::DecodedBytes).saturating_sub(before);
+        let data = match stream.decoded_data() {
+            Ok(data) => {
+                if !counted {
+                    cx.check(Kind::DecodedBytes, data.len() as u64)?;
+                }
+                reserve_end(data.len(), cx)?;
+                Form {
+                    data: Some(with_end(&data)),
+                    decoded: if counted { expanded } else { data.len() as u64 },
+                    lenient: leniently_inflated(stream, data.len()),
+                }
+            }
+            Err(_) => Form {
+                data: None,
+                decoded: expanded,
+                lenient: false,
+            },
+        };
         if let Some(id) = id {
             self.forms.insert(id, data.clone());
         }
