@@ -1,6 +1,6 @@
 # 2D の表示部品と、旧版からの置き換え
 
-表示部品は、コアが作る 2D のシーンを利用側の Canvas に描く部品です。方針は[決定 0267](decisions/0267-view2d-on-scene-columns.md)、実装の進み具合と完了条件は [#507](https://github.com/zumen-jp/zumen/issues/507) とその子 issue にあります。この文書は機能の対応表で、まだ実装していない API の使用案内ではありません。
+表示部品は、コアが作る 2D のシーンを利用側の Canvas に描く部品です。方針は[決定 0267](decisions/0267-view2d-on-scene-columns.md)、実装の進み具合と完了条件は [#507](https://github.com/zumen-jp/zumen/issues/507) とその子 issue にあります。この文書は機能の対応表です。描画とカメラの使用案内は [@zumen-jp/view2d](../packages/view2d/README.md) にあります。選択・操作・資源の解決・React・赤入れは後続の issue で扱います。
 
 ## 比べたもの
 

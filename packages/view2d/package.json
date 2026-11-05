@@ -1,0 +1,14 @@
+{
+  "name": "@zumen-jp/view2d",
+  "version": "0.1.0",
+  "private": true,
+  "description": "zumen のシーンの列を Canvas 2D で描く表示部品",
+  "license": "MIT OR Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": { "types": "./src/index.d.ts", "default": "./src/index.js" }
+  },
+  "files": ["src", "README.md"],
+  "sideEffects": false,
+  "peerDependencies": { "@zumen-jp/zumen": "^0.2.0" }
+}
