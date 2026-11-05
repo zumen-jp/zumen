@@ -221,6 +221,19 @@ jobs:
         run: node bindings/js/test/conformance.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm
       - name: Node.js の入口・別の realm のモジュール・trap のあとの扱いを、パッケージで確かめる（決定 0259）
         run: node bindings/js/test/server.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm
+      - name: 入力の所有権・旧モジュールへの互換・メモリの削減を確かめる（決定 0271）
+        run: node bindings/js/test/input.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm
+      - name: Go の入力の所有権と適合テストに使う下限の Go を入れる（決定 0271）
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26'
+          cache-dependency-path: bindings/go/go.sum
+      - name: Go の新旧の入力の経路・メモリの削減・適合ハッシュを確かめる
+        run: |
+          cp target/wasm32-unknown-unknown/release/zumen_abi1.wasm bindings/go/
+          test -z "$(gofmt -l bindings/go)"
+          go -C bindings/go vet ./...
+          go -C bindings/go test -count=1 -v ./...
       - name: worker で大きな図面を読む間のタイマーと、入力・blob の転送を確かめる
         run: node bindings/js/test/worker.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm
       - name: ブラウザーを動かすツール（Playwright）を、インストールのスクリプトを走らせずに入れる（決定 0199）
