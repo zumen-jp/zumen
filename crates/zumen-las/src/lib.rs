@@ -202,6 +202,12 @@ impl Ranged for Las {
         if has_evlrs {
             wanted.push((header.evlr_start, src.size));
         }
+        // ヘッダーが全体の大きさより後ろを指せば、ホストはその範囲を渡せない。範囲を求めると、ホストは同じ要求を
+        // 繰り返すことになるので、壊れたファイルとして断る（#517）
+        if wanted.iter().any(|(start, _)| *start > src.size) {
+            cx.report(Diagnostic::new(codes::LAS_FILE_INVALID));
+            return Err(Error::Invalid.into());
+        }
         let mut found = Vec::new();
         let mut needs = Vec::new();
         for (start, end) in wanted {

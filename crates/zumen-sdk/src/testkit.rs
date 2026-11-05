@@ -1,7 +1,8 @@
 //! コーデックのテストのツール（決定 0017 のテストキット）。
 //!
 //! どれも、食い違いを人向けの文で返す。テストの側で `unwrap` する。予算は、[`stops_at_same_place`] と fuzz の関数
-//! （[`survives`]・[`survives_lift`]・[`survives_with`]）のほかは既定の上限を使う。
+//! （[`survives`]・[`survives_lift`]・[`survives_with`] は [`fuzz_limits`]、[`survives_calls`] は
+//! [`fuzz_call_limits`]）のほかは既定の上限を使う。
 
 use std::collections::BTreeMap;
 
@@ -311,4 +312,119 @@ pub fn survives_with<T>(
         ));
     }
     Ok(())
+}
+
+/// 違いを知らせるときに、応答から写す文字の数
+const EXCERPT: usize = 400;
+
+/// API の呼び出しの fuzz の上限（[`survives_calls`]、決定 0262）。[`fuzz_limits`] から、要素・幾何の分割・ほかの
+/// 繰り返しの上限を小さくする。API を通す target は 1 つの入力で多くの op を呼び、配置を展開する所などは、上限まで
+/// 使うと、ASan と計装を入れた fuzz の build で、1 つの入力が fuzz の時間切れ（30 秒）を超えるため
+pub fn fuzz_call_limits() -> Limits {
+    fuzz_limits()
+        .with(Kind::Elements, Limit::Finite(1 << 16))
+        .with(Kind::Segments, Limit::Finite(1 << 18))
+        .with(Kind::Work, Limit::Finite(1 << 20))
+}
+
+/// [`survives`] と同じことを、API の関数の呼び出しの並びで確かめる（決定 0012・0262）。`calls` は、渡した上限
+/// （[`fuzz_call_limits`]）を要求の予算にして API の関数を呼び、応答のバイト列（応答の JSON と、取り出したバイナリの
+/// 結果）を順に返す関数。2 回呼んで、返したバイト列が順に同じになることを確かめる。予算は要求で渡すので、文脈は作らない
+pub fn survives_calls(calls: impl Fn(&Limits) -> Vec<Vec<u8>>) -> Result<(), String> {
+    let limits = fuzz_call_limits();
+    let first = calls(&limits);
+    let second = calls(&limits);
+    let excerpt = |bytes: &[u8]| {
+        let text = String::from_utf8_lossy(bytes);
+        let mut chars = text.chars();
+        let head: String = chars.by_ref().take(EXCERPT).collect();
+        if chars.next().is_some() {
+            format!("{head}…（{} バイト）", bytes.len())
+        } else {
+            head
+        }
+    };
+    if let Some((index, (one, two))) = first
+        .iter()
+        .zip(&second)
+        .enumerate()
+        .find(|(_, (one, two))| one != two)
+    {
+        return Err(format!(
+            "同じ呼び出しを 2 回すると、{index} 番目の応答が違う（1 回目: {}、2 回目: {}）",
+            excerpt(one),
+            excerpt(two)
+        ));
+    }
+    if first.len() != second.len() {
+        return Err(format!(
+            "同じ呼び出しを 2 回すると、応答の数が違う（1 回目: {}、2 回目: {}）",
+            first.len(),
+            second.len()
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn calls_must_give_the_same_replies_twice() {
+        assert_eq!(
+            survives_calls(|limits| vec![format!("{:?}", limits.get(Kind::Work)).into_bytes()]),
+            Ok(())
+        );
+        // 呼ぶたびに変わる応答
+        let count = std::cell::Cell::new(0u8);
+        let changing = survives_calls(|_| {
+            count.set(count.get() + 1);
+            vec![b"same".to_vec(), vec![count.get()]]
+        });
+        assert!(
+            changing
+                .as_ref()
+                .is_err_and(|message| message.contains("1 番目の応答が違う")),
+            "{changing:?}"
+        );
+        // 呼ぶたびに数が変わる応答
+        let count = std::cell::Cell::new(0usize);
+        let growing = survives_calls(|_| {
+            count.set(count.get() + 1);
+            vec![Vec::new(); count.get()]
+        });
+        assert!(
+            growing
+                .as_ref()
+                .is_err_and(|message| message.contains("応答の数が違う")),
+            "{growing:?}"
+        );
+        // 長い応答は、始めだけを写す
+        let count = std::cell::Cell::new(0u8);
+        let long = survives_calls(|_| {
+            count.set(count.get() + 1);
+            vec![vec![b'a' + count.get(); 1000]]
+        })
+        .unwrap_err();
+        assert!(long.contains("…（1000 バイト）"), "{long}");
+    }
+
+    #[test]
+    fn calls_get_the_call_limits() {
+        let seen = std::cell::RefCell::new(Vec::new());
+        survives_calls(|limits| {
+            seen.borrow_mut().push(*limits);
+            Vec::new()
+        })
+        .unwrap();
+        assert_eq!(*seen.borrow(), vec![fuzz_call_limits(); 2]);
+        // 呼び出しの上限は、fuzz の上限を超えない
+        for kind in Kind::ALL {
+            match (fuzz_call_limits().get(kind), fuzz_limits().get(kind)) {
+                (Limit::Finite(call), Limit::Finite(fuzz)) => assert!(call <= fuzz, "{kind:?}"),
+                (call, fuzz) => panic!("{kind:?}: {call:?}・{fuzz:?}"),
+            }
+        }
+    }
 }

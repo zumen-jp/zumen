@@ -166,8 +166,12 @@ impl<P: Point> Symbol<P> {
 
 impl Drawing2D {
     /// 起点から配置をたどって、要素ごとに解いた値を返す（決定 0159）。起点がなければ空。
-    /// 返す要素と配置の升ごとに `work` を 1 と数え、配置の深さを `depth` で数える。道筋に同じ定義がもう一度現れる配置は
-    /// たどらずに `drawing.placement.invalid` を返し、定義のない配置はたどらない
+    /// 返す要素と配置の升ごとに `work` を 1 と数え、返す要素（属性を含む）を `elements` でも数え、配置の深さを
+    /// `depth` で数える。返す要素は集めて返すので、`elements` で数えないと、升の多い格子の配置が、`work` の上限まで
+    /// 要素を集めてメモリを使い果たす（#517）。返す要素のない定義の格子は、升をたどらない。描く順のうち要素の外を指す
+    /// 添字は、空間ごとに一度だけ除き、1 つごとに `work` を 1 と数える。要素の ID を引けない添字（空間の ID が重なった
+    /// 図面モデルのバイナリ、#567）も、1 つごとに `work` を 1 と数える。道筋に同じ定義がもう一度現れる配置はたどらずに
+    /// `drawing.placement.invalid` を返し、定義のない配置はたどらない
     pub fn walk(&self, origin: Origin, cx: &mut Cx<'_>) -> Result<Vec<Visit<'_>>, (Stop, Ref)> {
         self.walk_with(origin, false, cx)
     }
@@ -194,6 +198,7 @@ impl Drawing2D {
             parts,
             by_name: BTreeMap::new(),
             names: BTreeMap::new(),
+            orders: BTreeMap::new(),
             spaces: BTreeMap::new(),
             keys: BTreeMap::new(),
             out: Vec::new(),
@@ -349,6 +354,9 @@ struct Walker<'a> {
     by_name: BTreeMap<&'a str, usize>,
     /// 空間と用紙ごとの、要素の ID
     names: BTreeMap<String, Rc<[String]>>,
+    /// 空間ごとの、描く順のうち要素を指す添字。キーは空間のアドレス。図面モデルのバイナリは空間の ID の重なりを確かめ
+    /// ずに読むので、ID や名前では空間を取り違える（#567）。キーは引くだけに使い、キーの順には回さない（決定 0007）
+    orders: BTreeMap<*const ModelSpace, Rc<[usize]>>,
     /// 記号の定義の空間ごとの、空間の ID
     spaces: BTreeMap<SpaceId, String>,
     /// キーごとの、記号の定義の添字。同じキーがあれば先のもの
@@ -404,6 +412,28 @@ impl<'a> Walker<'a> {
         Ok(ids)
     }
 
+    /// 空間の描く順のうち、要素を指す添字。空間ごとに一度求めたものを覚えておく。図面モデルのバイナリは描く順の添字を
+    /// 確かめずに読むので、要素の外を指す添字を、配置の升ごと・ビューごとに見直さずに済ませる（#517）。要素の外を指す
+    /// 添字は、1 つごとに `work` を 1 と数える
+    fn order(&mut self, space: &'a ModelSpace, cx: &mut Cx<'_>) -> Result<Rc<[usize]>, Stop> {
+        let key = std::ptr::from_ref(space);
+        if let Some(order) = self.orders.get(&key) {
+            return Ok(Rc::clone(order));
+        }
+        let elements = space.elements.len();
+        let mut order = Vec::new();
+        for &index in &space.order {
+            if index < elements {
+                order.push(index);
+            } else {
+                cx.check(Kind::Work, 1)?;
+            }
+        }
+        let order: Rc<[usize]> = order.into();
+        self.orders.insert(key, Rc::clone(&order));
+        Ok(order)
+    }
+
     /// 空間の ID の文字列。記号の定義の空間なら、定義の ID
     fn space_name(&self, space: &ModelSpace) -> String {
         self.spaces
@@ -436,9 +466,17 @@ impl<'a> Walker<'a> {
     ) -> Result<(), (Stop, Ref)> {
         let name = self.space_name(space);
         let ids = self.ids(&name, &space.elements, cx)?;
-        for &index in &space.order {
+        let order = self
+            .order(space, cx)
+            .map_err(|stop| (stop, Ref::default().with_id(name.as_str())))?;
+        for &index in order.iter() {
             if let (Some(element), Some(id)) = (space.elements.get(index), ids.get(index)) {
                 self.element(element, id, frame, Item::Model, cx)?;
+            } else {
+                // 要素の ID を引けない添字も、1 つごとに `work` を 1 と数える。空間の ID が重なった図面モデルの
+                // バイナリでは、先にたどった空間の要素の ID を使い、引けない添字が升ごとに残る（#567）
+                cx.check(Kind::Work, 1)
+                    .map_err(|stop| (stop, Ref::default().with_id(name.as_str())))?;
             }
         }
         Ok(())
@@ -458,6 +496,7 @@ impl<'a> Walker<'a> {
     {
         let at = || element.source.clone();
         cx.check(Kind::Work, 1).map_err(|stop| (stop, at()))?;
+        cx.check(Kind::Elements, 1).map_err(|stop| (stop, at()))?;
         let mut visit = self.resolved(item(element), id, element.layer, &element.style, frame);
         // 作図の補助の点は印刷しない（決定 0160）
         if let Shape::Point(point) = &element.shape {
@@ -482,6 +521,7 @@ impl<'a> Walker<'a> {
         };
         for (index, attribute) in symbol.attributes.iter().enumerate() {
             cx.check(Kind::Work, 1).map_err(|stop| (stop, at()))?;
+            cx.check(Kind::Elements, 1).map_err(|stop| (stop, at()))?;
             self.attribute(element, index, attribute, id, frame);
         }
         let Some(&definition) = self.keys.get(&symbol.key) else {
@@ -555,6 +595,15 @@ impl<'a> Walker<'a> {
         let Some(symbols) = self.drawing.symbols.get(definition) else {
             return Ok(());
         };
+        // 返す要素のない定義（描く順が要素を指さない）は、どの升でも何も返さない。升の多い格子でも、升をたどらずに
+        // 済ませる（#517）。描く順は、定義ごとに一度だけ確かめる
+        if self
+            .order(&symbols.space, cx)
+            .map_err(|stop| (stop, at()))?
+            .is_empty()
+        {
+            return Ok(());
+        }
         cx.enter().map_err(|stop| (stop, at()))?;
         for (cell, placement) in cells {
             if let Err(stop) = cx.check(Kind::Work, 1) {
@@ -1173,6 +1222,209 @@ mod tests {
             assert!(matches!(stop, Stop::Exceeded(_)), "{kind:?}");
             assert_eq!(budget.used(Kind::Depth), 0, "{kind:?}");
         }
+    }
+
+    #[test]
+    fn returned_elements_are_counted_as_elements() {
+        let drawing = nested();
+        let cancel = CancelToken::new();
+        let mut budget = Budget::default();
+        let mut diag = Diagnostics::new();
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        let visits = drawing.walk(Origin::Space(MODEL), &mut cx).unwrap().len();
+        assert_eq!(budget.used(Kind::Elements), visits as u64);
+        let limit = visits as u64 - 1;
+        let mut budget = Budget::new(Limits::default().with(Kind::Elements, Limit::Finite(limit)));
+        let mut diag = Diagnostics::new();
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        let (stop, _) = drawing.walk(Origin::Space(MODEL), &mut cx).unwrap_err();
+        assert!(
+            matches!(stop, Stop::Exceeded(exceeded) if exceeded.kind == Kind::Elements),
+            "{stop:?}"
+        );
+    }
+
+    #[test]
+    fn grids_of_cycles_stop_at_the_elements_budget() {
+        // #517 の fuzz で見つけた形を縮めたもの。格子の配置の升ごとに、中の配置が循環する定義へ進み、要素を返して
+        // 診断を足す。返す要素を数えないと、既定の `work` の上限（1e10）まで要素を集め、メモリを使い果たす
+        let mut drawing = nested();
+        drawing.symbols[0]
+            .space
+            .elements
+            .push(insert(INNER, "OUTER", 0, block(), 0.0));
+        drawing.symbols[0].space.order.push(2);
+        let Shape::Symbol(symbol) = &mut drawing.spaces[0].elements[0].shape else {
+            panic!("記号の要素")
+        };
+        symbol.grid = Some(Grid {
+            columns: 60_000,
+            rows: 60_000,
+            column_spacing: Length::Model(ModelLength {
+                space: MODEL,
+                value: 1.0,
+            }),
+            row_spacing: Length::Model(ModelLength {
+                space: MODEL,
+                value: 1.0,
+            }),
+        });
+        let cancel = CancelToken::new();
+        // `work` も有限にして、要素を数えなくなったときに、終わらずにメモリを使い果たすのではなく、`work` で止まって
+        // 落ちるようにする
+        let limits = Limits::default()
+            .with(Kind::Elements, Limit::Finite(1000))
+            .with(Kind::Work, Limit::Finite(1 << 20));
+        let mut budget = Budget::new(limits);
+        let mut diag = Diagnostics::new();
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        let (stop, _) = drawing.walk(Origin::Space(MODEL), &mut cx).unwrap_err();
+        assert!(
+            matches!(stop, Stop::Exceeded(exceeded) if exceeded.kind == Kind::Elements),
+            "{stop:?}"
+        );
+        // 3.6e9 の升を歩かずに止まる
+        assert!(
+            budget.used(Kind::Work) < 10_000,
+            "{}",
+            budget.used(Kind::Work)
+        );
+    }
+
+    #[test]
+    fn grids_of_empty_definitions_are_not_walked() {
+        // #517 の fuzz で見つけた形を縮めたもの。中身の配置を落とした定義を、升の多い格子で置く。升ごとにたどると、
+        // 何も返さないまま `work` の上限まで回る
+        // 要素のない定義と、描く順が要素の外だけを指す定義（図面モデルのバイナリは、描く順の添字を確かめずに読む）
+        let mut outside = space(OUTER, Vec::new());
+        outside.order = vec![0, 7];
+        for definition in [space(OUTER, Vec::new()), outside] {
+            let mut drawing = nested();
+            drawing.symbols[1].space = definition;
+            let Shape::Symbol(symbol) = &mut drawing.spaces[0].elements[0].shape else {
+                panic!("記号の要素")
+            };
+            symbol.grid = Some(Grid {
+                columns: u32::MAX,
+                rows: u32::MAX,
+                column_spacing: Length::Model(ModelLength {
+                    space: MODEL,
+                    value: 1.0,
+                }),
+                row_spacing: Length::Model(ModelLength {
+                    space: MODEL,
+                    value: 1.0,
+                }),
+            });
+            let cancel = CancelToken::new();
+            let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(1000)));
+            let mut diag = Diagnostics::new();
+            let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+            let visits = drawing.walk(Origin::Space(MODEL), &mut cx).unwrap();
+            // 配置だけを返し、升をたどらない
+            assert_eq!(visits.len(), 1);
+            assert!(budget.used(Kind::Work) < 100, "{}", budget.used(Kind::Work));
+        }
+    }
+
+    #[test]
+    fn spaces_with_the_same_id_keep_their_own_orders() {
+        // #565 の確かめで見つけた形。図面モデルのバイナリは、空間の ID の重なりを確かめずに読む。同じ ID の 2 つの
+        // 定義は、それぞれの描く順で返す。描く順を ID や名前で覚えると、先の定義の描く順で後の定義を返す
+        let mut drawing = nested();
+        let lines_on = || vec![line(OUTER, 2, by_layer()), line(OUTER, 3, by_layer())];
+        let mut first = space(OUTER, lines_on());
+        first.order = vec![1, 0];
+        let second = space(OUTER, lines_on());
+        drawing.symbols = vec![definition("FIRST", first), definition("OUTER", second)];
+        drawing.spaces[0]
+            .elements
+            .push(insert(MODEL, "FIRST", 1, by_layer(), 0.0));
+        drawing.spaces[0].order = vec![1, 0];
+        let (visits, _) = walk(&drawing, Origin::Space(MODEL));
+        // 先に描く配置（FIRST）は描く順 [1, 0]、後の配置（OUTER）は [0, 1] で、線のレイヤが 3・2 と 2・3 の順になる
+        let layers: Vec<u32> = lines(&visits).iter().map(|visit| visit.layer.0).collect();
+        assert_eq!(layers, vec![3, 2, 2, 3]);
+    }
+
+    #[test]
+    fn indices_without_ids_are_counted() {
+        // #565 の確かめで見つけた形。空間の ID が重なった図面モデルのバイナリでは、定義の空間が、先にたどった空間の
+        // 要素の ID を使う（#567）。ID を引けない添字を数えずに飛ばすと、升ごとに、添字の数だけ数えずに回る
+        const SIDE: u32 = 64;
+        let mut drawing = nested();
+        // 外の定義の空間を、実寸の空間と同じ ID にし、線を 64 本置く。要素の ID は、実寸の空間の 1 つだけになる
+        drawing.symbols[1].space =
+            space(MODEL, (0..64).map(|_| line(MODEL, 2, by_layer())).collect());
+        let Shape::Symbol(symbol) = &mut drawing.spaces[0].elements[0].shape else {
+            panic!("記号の要素")
+        };
+        symbol.grid = Some(Grid {
+            columns: SIDE,
+            rows: SIDE,
+            column_spacing: Length::Model(ModelLength {
+                space: MODEL,
+                value: 1.0,
+            }),
+            row_spacing: Length::Model(ModelLength {
+                space: MODEL,
+                value: 1.0,
+            }),
+        });
+        let cancel = CancelToken::new();
+        // 升ごとに、ID を引けない 63 の添字を数えると、この上限を超えて止まる。数えなければ、上限の中で終わる
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(1 << 16)));
+        let mut diag = Diagnostics::new();
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        let (stop, _) = drawing.walk(Origin::Space(MODEL), &mut cx).unwrap_err();
+        assert!(
+            matches!(stop, Stop::Exceeded(exceeded) if exceeded.kind == Kind::Work),
+            "{stop:?}"
+        );
+    }
+
+    #[test]
+    fn orders_outside_the_elements_are_counted_once_per_definition() {
+        // #565 の確かめで見つけた形。描く順が、要素の外を指す添字を数多く持ち、要素を 1 つだけ指す定義を、格子で
+        // 置く。升ごとに描く順を見直すと、`work` を数えずに、升の数 × 添字の数だけ回る
+        const OUTSIDE: usize = 1 << 16;
+        const SIDE: u32 = 64;
+        let mut drawing = nested();
+        let mut definition = space(OUTER, vec![line(OUTER, 0, by_layer())]);
+        definition
+            .order
+            .extend((1..=OUTSIDE).map(|offset| offset + 7));
+        drawing.symbols[1].space = definition;
+        let Shape::Symbol(symbol) = &mut drawing.spaces[0].elements[0].shape else {
+            panic!("記号の要素")
+        };
+        symbol.grid = Some(Grid {
+            columns: SIDE,
+            rows: SIDE,
+            column_spacing: Length::Model(ModelLength {
+                space: MODEL,
+                value: 1.0,
+            }),
+            row_spacing: Length::Model(ModelLength {
+                space: MODEL,
+                value: 1.0,
+            }),
+        });
+        let cancel = CancelToken::new();
+        // 升ごとに外を指す添字を数えると、この上限を超えて止まる
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(1 << 18)));
+        let mut diag = Diagnostics::new();
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        let visits = drawing.walk(Origin::Space(MODEL), &mut cx).unwrap();
+        // 配置と、升ごとの線
+        let cells = (SIDE * SIDE) as usize;
+        assert_eq!(visits.len(), 1 + cells);
+        // 外を指す添字は、定義ごとに一度だけ数える
+        let used = budget.used(Kind::Work);
+        assert!(
+            (OUTSIDE as u64..OUTSIDE as u64 + 4 * cells as u64).contains(&used),
+            "{used}"
+        );
     }
 
     #[test]
