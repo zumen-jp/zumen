@@ -35,3 +35,5 @@
 - #521・#579・#580
 - [0007](0007-single-rust-implementation.md)・[0010](0010-budget-by-work.md)・[0256](0256-pdf-with-hayro.md)
 - ISO 32000-2:2020 の 7.4.4、RFC 1950 と RFC 1951 の 3.2.5
+
+後続: [0270](0270-pdf-content-preflight.md) でページの内容とフォームへ同じ確認を広げる。
