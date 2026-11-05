@@ -42,20 +42,11 @@ jobs:
 
   native:
     name: 作る（${{ matrix.rid }}）
-    needs: version
+    needs: [version, licenses]
     strategy:
       fail-fast: false
       matrix:
-        # rid は .NET の runtime identifier、wheel は wheel のプラットフォームのタグ
-        include:
-          - { os: ubuntu-22.04, target: x86_64-unknown-linux-gnu, rid: linux-x64, wheel: manylinux_2_35_x86_64, library: libzumen_abi1.so, exe: zumen }
-          - { os: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu, rid: linux-arm64, wheel: manylinux_2_35_aarch64, library: libzumen_abi1.so, exe: zumen }
-          - { os: macos-latest, target: aarch64-apple-darwin, rid: osx-arm64, wheel: macosx_11_0_arm64, library: libzumen_abi1.dylib, exe: zumen }
-          - { os: macos-latest, target: x86_64-apple-darwin, rid: osx-x64, wheel: macosx_10_12_x86_64, library: libzumen_abi1.dylib, exe: zumen }
-          - { os: windows-latest, target: x86_64-pc-windows-msvc, rid: win-x64, wheel: win_amd64, library: zumen_abi1.dll, exe: zumen.exe }
-          # 32 bit の Office の VBA のため（決定 0011・0014）
-          - { os: windows-latest, target: i686-pc-windows-msvc, rid: win-x86, wheel: win32, library: zumen_abi1.dll, exe: zumen.exe }
-          - { os: windows-latest, target: aarch64-pc-windows-msvc, rid: win-arm64, wheel: win_arm64, library: zumen_abi1.dll, exe: zumen.exe }
+        include: ${{ fromJSON(needs.licenses.outputs.targets) }}
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -71,20 +62,14 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.x'
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: licenses
+          path: licenses
       - name: 配るものを out に集める（ライブラリ・CLI の圧縮・wheel）
-        run: |
-          built=target/${{ matrix.target }}/release
-          mkdir -p out/native/${{ matrix.rid }} out/wheels
-          cp "$built/${{ matrix.library }}" out/native/${{ matrix.rid }}/
-          name=zumen-${{ needs.version.outputs.version }}-${{ matrix.rid }}
-          mkdir -p "$name"
-          cp "$built/${{ matrix.exe }}" README.md LICENSE-MIT LICENSE-APACHE "$name"/
-          if [ "${{ runner.os }}" = Windows ]; then
-            7z a "out/$name.zip" "$name" > /dev/null
-          else
-            tar -czf "out/$name.tar.gz" "$name"
-          fi
-          python bindings/python/build_wheel.py "$built/${{ matrix.library }}" ${{ matrix.wheel }} out/wheels
+        run: >-
+          python xtask/release/package.py native --rid ${{ matrix.rid }}
+          --built target/${{ matrix.target }}/release --licenses licenses --out out
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: native-${{ matrix.rid }}
@@ -121,44 +106,24 @@ jobs:
 
   licenses:
     name: ライセンスの文を作る
-    # 第三者のツール（cargo-about）と、その依存の build script が、配るものに触れないよう、wasm を作る job と分ける
-    # （決定 0259）
+    # cargo-about と、その依存の build script が、配るバイナリに触れないよう、作る job と分ける（決定 0259・0269）
     needs: version
     runs-on: ubuntu-latest
+    outputs:
+      targets: ${{ steps.targets.outputs.targets }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: rust-toolchain.toml のバージョンの Rust と、wasm32 の target を入れる
-        run: |
-          rustup toolchain install
-          rustup target add wasm32-unknown-unknown
-      - name: wasm に入れた依存のライセンスの文を、cargo-about で作る（決定 0014・0259）
+      - run: rustup toolchain install
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.x'
+      - id: targets
+        name: 配る target の一覧を読む
+        run: echo "targets=$(python xtask/release/package.py targets)" >> "$GITHUB_OUTPUT"
+      - name: crate・target ごとのライセンス本文を作り、警告・定型の文・抜けを検査する
         run: |
           cargo install --locked cargo-about@0.9.2 --features cli
-          mkdir -p out
-          args="--config about.toml --manifest-path crates/zumen-abi/Cargo.toml --target wasm32-unknown-unknown --locked --fail"
-          cargo about generate $args --output-file out/THIRD_PARTY_LICENSES about.hbs 2> about.log || { cat about.log; exit 1; }
-          cat about.log
-          cargo about generate $args --format json --output-file licenses.json
-      - name: 第三者の crate の本文が、定型の文や標準の本文に代わっていないことを確かめる
-        # cargo-about は、crate の本文を見分けられないと、著作権の表示のない SPDX の定型の文で代える。clarify で指した
-        # ファイルが変わったときは、警告を出して元の扱いに戻る。どちらも --fail では止まらないので、ここで止める。直すとき
-        # は about.toml の clarify で本文のファイルを指す。このリポジトリの crate の節は about.hbs が載せない
-        run: |
-          if grep -E 'WARN|ERROR' about.log; then
-            echo "::error::cargo-about が警告を出した（clarify で指したファイルが変わったなど）。about.toml の clarify を直す"
-            exit 1
-          fi
-          fallback=$(jq -r '.licenses[] | select(.text | test("<year>|<copyright holders>|<owner>"; "i")) | .used_by[]
-            | select(.crate.repository != "https://github.com/zumen-jp/zumen") | "\(.crate.name) \(.crate.version)"' licenses.json)
-          if [ -n "$fallback" ]; then
-            echo "$fallback"
-            echo "::error::上の crate が、本文の代わりに SPDX の定型の文を使っている。about.toml の clarify で本文のファイルを指す"
-            exit 1
-          fi
-          if grep -n -i -F -e '<year>' -e '<copyright holders>' -e '<owner>' out/THIRD_PARTY_LICENSES; then
-            echo "::error::THIRD_PARTY_LICENSES に SPDX の定型の文が残っている"
-            exit 1
-          fi
+          python xtask/release/licenses.py --output out
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: licenses
@@ -181,18 +146,16 @@ jobs:
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: '10.0.x'
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.x'
       - name: npm のパッケージに wasm とライセンスの文を入れて包む（決定 0259）
         run: |
           cp artifacts/zumen_abi1.wasm artifacts/THIRD_PARTY_LICENSES LICENSE-MIT LICENSE-APACHE bindings/js/
           mkdir -p out
           (cd bindings/js && npm pack --pack-destination ../../out)
       - name: NuGet のパッケージに、対象ごとのネイティブのライブラリを入れて包む
-        run: |
-          for rid in $(ls artifacts/native); do
-            mkdir -p bindings/dotnet/Zumen/runtimes/$rid/native
-            cp artifacts/native/$rid/* bindings/dotnet/Zumen/runtimes/$rid/native/
-          done
-          dotnet pack bindings/dotnet/Zumen/Zumen.csproj -c Release -o out
+        run: python xtask/release/package.py nuget --artifacts artifacts --out out
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: packages

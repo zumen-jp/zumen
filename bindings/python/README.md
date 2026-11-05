@@ -5,6 +5,7 @@
 - PyPI の `zumen` で配ります（[決定 0003](../../docs/decisions/0003-names-and-domain.md)・[決定 0205](../../docs/decisions/0205-release-and-publishing.md)）。wheel は、対象ごとにネイティブのライブラリを `zumen/_native` に入れ、`load()` が道筋なしでそれを読みます。wheel は `build_wheel.py`（標準ライブラリだけ）で作ります。
 - 依存はなく、ネイティブの拡張も作りません。手元で作ったライブラリを使うときは、`load` に道筋を渡します。
 - `zumen/messages.py`・`zumen/constants.py` は、`schema/` から `cargo xtask codegen` で生成します。手で直さないでください。
+- wheel の `.dist-info/licenses/` に、`LICENSE-MIT`・`LICENSE-APACHE` と、対象の ABI の依存の本文 `THIRD_PARTY_LICENSES` を入れます。作成と検査の手順は [xtask/release](../../xtask/release/README.md) にあります。
 
 ## 使い方
 
