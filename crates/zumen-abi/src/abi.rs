@@ -76,6 +76,7 @@ pub const WASM_FUNCTIONS: &[&str] = &[
     "zm_abi_version",
     "zm_session_new",
     "zm_push",
+    "zm_push_owned",
     "zm_call",
     "zm_take",
     "zm_cancel",
@@ -422,6 +423,14 @@ const _: unsafe extern "system" fn(
     *const u8,
     usize,
 ) -> i32 = crate::ffi::zm_push;
+#[cfg(target_family = "wasm")]
+const _: unsafe extern "system" fn(
+    *mut crate::ffi::SessionHandle,
+    *const u8,
+    usize,
+    *mut u8,
+    usize,
+) -> i32 = crate::ffi::zm_push_owned;
 const _: unsafe extern "system" fn(
     *mut crate::ffi::SessionHandle,
     *const u8,
