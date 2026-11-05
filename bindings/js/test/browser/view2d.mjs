@@ -28,8 +28,17 @@ try {
   page.on("pageerror", (error) => failures.push(error.message));
   await page.goto(origin);
   const result = await page.evaluate(async ({ inputs }) => {
-    const { testView2D } = await import("/packages/view2d/test/browser.mjs");
-    return testView2D("/zumen_abi1.wasm", inputs);
+    // 本体の下限を Safari 15.4 や Firefox 92 まで上げない。下限の実機の検査の代わりではない。
+    const hasOwn = Object.hasOwn, at = Array.prototype.at;
+    Object.hasOwn = undefined;
+    Array.prototype.at = undefined;
+    try {
+      const { testView2D } = await import("/packages/view2d/test/browser.mjs");
+      return await testView2D("/zumen_abi1.wasm", inputs);
+    } finally {
+      Object.hasOwn = hasOwn;
+      Array.prototype.at = at;
+    }
   }, { inputs });
   await page.goto(`${origin}/packages/view2d/example/index.html`);
   await page.locator("#file").setInputFiles({ name: "synthetic.dxf", mimeType: "application/octet-stream", buffer: Buffer.from(inputs[0].text) });

@@ -4,6 +4,8 @@ zumen のシーンの列を、Canvas 2D に描く表示部品です。線・面�
 
 このパッケージは未公開です。名前の確保と公開は別の作業です。手元では `packages/view2d/src/index.js` を ESM として読み込み、`@zumen-jp/zumen` を `bindings/js/src/index.js` に解決します。バンドラーの alias か、[最小の例](example/index.html) の import map を使えます。例を開くサーバーはリポジトリのルートを配り、開発用のポートは 24100〜24199 にします。
 
+最小の例の [import map](https://github.com/mdn/browser-compat-data/blob/188707c73f5a93701429eadcdaf35d6e31715c67/html/elements/script.json) は、Firefox 108・Safari 16.4 以降で使えます。それより前の環境ではバンドラーで解決します。表示部品の本体は import map を作らず、[ラッパーの下限](../../docs/support.md)で使えない `Object.hasOwn`・`Array.at` にも依存しません。`OffscreenCanvas` がない環境では通常の Canvas を使えます。下限の製品そのものでの検査はまだ行っていません。
+
 ## 使い方
 
 ```js

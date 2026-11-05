@@ -28,7 +28,7 @@ export function bounds(value, field = "bounds") {
 export function limitsOf(options = {}) {
   const limits = { ...DEFAULT_LIMITS, ...options };
   for (const [key, value] of Object.entries(limits)) {
-    valid(Object.hasOwn(DEFAULT_LIMITS, key) && Number.isSafeInteger(value) && value > 0, `limits.${key}`);
+    valid(Object.prototype.hasOwnProperty.call(DEFAULT_LIMITS, key) && Number.isSafeInteger(value) && value > 0, `limits.${key}`);
   }
   return Object.freeze(limits);
 }
@@ -176,8 +176,8 @@ export function prepare(input, limits) {
   for (let chunk = 0; chunk < scene.chunks; chunk++) {
     const ranges = KINDS.map((kind) => [c[`chunk_${kind}s`][chunk], end(c[`chunk_${kind}s`], chunk, rows(c, STARTS[kind]))]);
     const bases = [0];
-    for (const [start, finish] of ranges) bases.push(bases.at(-1) + finish - start);
-    const count = bases.at(-1);
+    for (const [start, finish] of ranges) bases.push(bases[bases.length - 1] + finish - start);
+    const count = bases[bases.length - 1];
     charge(count * Math.max(1, Math.ceil(Math.log2(count + 1))));
     const units = new Uint32Array(count);
     for (let k = 0; k < KINDS.length; k++) units.set(c[`${KINDS[k]}_units`].subarray(...ranges[k]), bases[k]);
