@@ -240,16 +240,10 @@ caption.skip {
 }
 
 .logo-mark {
-  display: grid;
-  place-items: center;
+  display: block;
   width: 40px;
   height: 40px;
-  border-radius: var(--border-radius-8);
-  background: var(--key);
-  color: var(--paper);
-  font-weight: 700;
-  font-size: 20px;
-  line-height: 1;
+  flex-shrink: 0;
 }
 
 .logo-text {
