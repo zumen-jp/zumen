@@ -698,6 +698,139 @@ fn e9_lifting_stops_at_the_work_limit() {
     assert_eq!(places, [Ref::at_record(2)]);
 }
 
+#[test]
+fn overflow_of_an_attribute_drops_the_attribute_without_dropping_the_insert() {
+    let blocks = [
+        (0, "BLOCK"),
+        (5, "D"),
+        (8, "0"),
+        (2, "B"),
+        (70, "0"),
+        (10, "0"),
+        (20, "0"),
+        (0, "ENDBLK"),
+        (8, "0"),
+    ];
+    let entities = [
+        (0, "INSERT"),
+        (5, "A"),
+        (8, "0"),
+        (67, "1"),
+        (66, "1"),
+        (2, "B"),
+        (10, "0"),
+        (20, "0"),
+        (0, "ATTRIB"),
+        (5, "B"),
+        (8, "0"),
+        (10, "1e308"),
+        (20, "0"),
+        (40, "1"),
+        (1, "value"),
+        (2, "bad"),
+        (0, "ATTRIB"),
+        (5, "C"),
+        (8, "0"),
+        (10, "1"),
+        (20, "0"),
+        (40, "1"),
+        (1, "value"),
+        (2, "good"),
+        (0, "SEQEND"),
+        (8, "0"),
+    ];
+    let src = sections(&[
+        ("HEADER", &[(9, "$INSUNITS"), (70, "6")]),
+        ("BLOCKS", &blocks),
+        ("ENTITIES", &entities),
+    ]);
+    let (drawing, diag) = lift(&src, &mut Budget::default());
+    let drawing = drawing.unwrap();
+    assert_eq!(
+        found(&diag),
+        [(
+            codes::DXF_LIFT_INVALID,
+            r#"Text("ATTRIB") Int(10)"#.into(),
+            1,
+            vec![Ref::at_record(8).with_key(Key::Handle(0xB))]
+        )]
+    );
+    let Shape::Symbol(symbol) = &drawing.sheets[0].elements[0].shape else {
+        panic!("insert")
+    };
+    let [attribute] = symbol.attributes.as_slice() else {
+        panic!("{symbol:?}")
+    };
+    assert_eq!(attribute.tag, "good");
+    assert_eq!(attribute.text.placement, anchor(on(1000.0, 0.0)));
+}
+
+#[test]
+fn overflow_of_layout_size_keeps_the_layout_without_a_size() {
+    let tables = [(0, "BLOCK_RECORD"), (5, "B1"), (2, "*Paper_Space0")];
+    let blocks = [
+        (0, "BLOCK"),
+        (330, "B1"),
+        (8, "0"),
+        (2, "*Paper_Space0"),
+        (70, "0"),
+        (10, "0"),
+        (20, "0"),
+        (0, "ENDBLK"),
+        (330, "B1"),
+        (8, "0"),
+    ];
+    let objects = layout("D1", "Other", "1", ["-1e308", "0", "1e308", "1"], "B1");
+    let src = sections(&[
+        ("HEADER", MM),
+        ("TABLES", &tables),
+        ("BLOCKS", &blocks),
+        ("OBJECTS", &objects),
+    ]);
+    let (drawing, diag) = lift(&src, &mut Budget::default());
+    let drawing = drawing.unwrap();
+    let [sheet] = drawing.sheets.as_slice() else {
+        panic!("{drawing:?}")
+    };
+    assert_eq!(sheet.name.as_deref(), Some("Other"));
+    assert!(sheet.size.is_none());
+    assert_eq!(
+        found(&diag),
+        [(
+            codes::DXF_LIFT_INVALID,
+            r#"Text("LAYOUT") Int(11)"#.into(),
+            1,
+            vec![sheet.source.clone()]
+        )]
+    );
+}
+
+#[test]
+fn overflow_after_subtracting_the_paper_origin_is_reported() {
+    let header = [MM, &[(9, "$PLIMMIN"), (10, "-1e308"), (20, "0")]].concat();
+    let entities = [
+        (0, "LINE"),
+        (5, "A"),
+        (8, "0"),
+        (67, "1"),
+        (10, "1e308"),
+        (20, "0"),
+        (11, "1e308"),
+        (21, "1"),
+    ];
+    let (drawing, diag) = lift(&dxf(&header, &entities), &mut Budget::default());
+    assert!(drawing.unwrap().sheets.is_empty());
+    assert_eq!(
+        found(&diag),
+        [(
+            codes::DXF_LIFT_INVALID,
+            r#"Text("LINE") Int(10)"#.into(),
+            1,
+            vec![Ref::at_record(3).with_key(Key::Handle(0xA))]
+        )]
+    );
+}
+
 /// 用紙の線分。ハンドルを持つ
 fn paper_line(handle: &'static str) -> Vec<(i16, &'static str)> {
     vec![

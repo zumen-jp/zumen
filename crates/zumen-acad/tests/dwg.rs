@@ -572,6 +572,293 @@ fn codes_of(diag: &Diagnostics) -> Vec<Code> {
     diag.iter().map(|d| d.code()).collect()
 }
 
+/// 非有限値も IEEE 754 のバイト列で書いた小さい R2000。L1 は保持し、L2 で診断する（#594）。
+#[cfg(feature = "drawing")]
+fn finite_extension_sample(xrecord: bool, code: i16, value: f64) -> Vec<u8> {
+    let layer = object(0x33, 0x10, record_named(b"0"), record_handles(2));
+    let data = |bad: bool| {
+        let number = |field| if bad && field == code { value } else { 1.0_f64 };
+        let mut data = Vec::new();
+        if xrecord {
+            data.extend(10_i16.to_le_bytes());
+            for field in [10, 20, 30] {
+                data.extend(number(field).to_le_bytes());
+            }
+            data.extend(40_i16.to_le_bytes());
+            data.extend(number(40).to_le_bytes());
+        } else {
+            data.push(10);
+            for field in [1010, 1020, 1030] {
+                data.extend(number(field).to_le_bytes());
+            }
+            for field in [1040, 1041, 1042] {
+                data.push((field - 1000) as u8);
+                data.extend(number(field).to_le_bytes());
+            }
+        }
+        data
+    };
+    let mut records = vec![(0x10, layer)];
+    if xrecord {
+        let dictionary = object(
+            0x2A,
+            0x20,
+            |w| {
+                w.bl_zero();
+                w.bits(1, 2);
+                w.bytes(&[2]);
+                w.bs(1);
+                w.bytes(&[1]);
+                for name in [b"BAD\0", b"GOOD"] {
+                    w.bs(4);
+                    w.bytes(name);
+                }
+            },
+            |w| {
+                w.handle(4, 0x2A);
+                w.handle(3, 0);
+                w.handle(2, 0x21);
+                w.handle(2, 0x22);
+            },
+        );
+        records.push((0x20, dictionary));
+        for (handle, bad) in [(0x21, true), (0x22, false)] {
+            let bytes = data(bad);
+            records.push((
+                handle,
+                object(
+                    500,
+                    handle,
+                    |w| {
+                        w.bl_zero();
+                        w.bits(1, 2);
+                        w.bytes(&[bytes.len() as u8]);
+                        w.bytes(&bytes);
+                        w.bs(1);
+                    },
+                    |w| {
+                        w.handle(4, 0x20);
+                        w.handle(3, 0);
+                    },
+                ),
+            ));
+        }
+    } else {
+        for (handle, name) in [(0x11, b"BAD\0"), (0x12, b"GOOD")] {
+            records.push((
+                handle,
+                object(
+                    0x43,
+                    handle,
+                    |w| {
+                        w.bl_zero();
+                        w.bs(4);
+                        w.bytes(name);
+                        w.bit(false);
+                        w.bs(0);
+                        w.bit(false);
+                        w.bytes(&[0]);
+                    },
+                    |w| {
+                        w.handle(4, 3);
+                        w.handle(3, 0);
+                        w.handle(5, 0);
+                    },
+                ),
+            ));
+        }
+    }
+    let xdata = if xrecord {
+        vec![]
+    } else {
+        vec![(0x11, data(true)), (0x12, data(false))]
+    };
+    records.push((
+        0x2A,
+        object_with_xdata(
+            0x13,
+            0x2A,
+            &xdata,
+            |w| {
+                entity_common(w, 2, 256, 1.0, 0);
+                line_data(w, [0.0; 3], [1.0, 1.0, 0.0], 0.0);
+            },
+            |w| {
+                w.handle(3, if xrecord { 0x20 } else { 0 });
+                w.handle(5, 0x10);
+            },
+        ),
+    ));
+    let src = dwg(&records);
+    let src = if xrecord {
+        with_classes(src, &[(500, b"XRECORD", false)])
+    } else {
+        src
+    };
+    with_header_variables(src, 0, 0, 4, [0.0, 0.0, 100.0, 100.0])
+}
+
+#[cfg(feature = "drawing")]
+#[test]
+fn nonfinite_dwg_extensions_keep_the_geometry_good_extension_and_l1_bytes() {
+    use zumen_base::{Key, Ref};
+    use zumen_drawing::{Hash, SpaceId, id};
+    use zumen_sdk::{Lift, testkit};
+    for xrecord in [false, true] {
+        let fields: &[i16] = if xrecord {
+            &[10, 20, 30, 40]
+        } else {
+            &[1010, 1020, 1030, 1040, 1041, 1042]
+        };
+        let base = finite_extension_sample(xrecord, 40, 1.0);
+        let (file, _) = read(&base, Limits::default());
+        let baseline = file
+            .unwrap()
+            .lift(&mut Cx::new(
+                &mut Budget::default(),
+                &mut Diagnostics::new(),
+                &CancelToken::new(),
+            ))
+            .unwrap();
+        let good = &baseline.spaces[0].elements[0];
+        let space = id::space(SpaceId(0));
+        let expected_id = id::Namer::new(&space).next(0, good);
+        for &code in fields {
+            for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+                let src = finite_extension_sample(xrecord, code, value);
+                let (db, table_diag) = objects(&src);
+                assert!(table_diag.is_empty(), "{table_diag:?}");
+                let stored = db
+                    .get(if xrecord { 0x21 } else { 0x2A })
+                    .unwrap()
+                    .first(code);
+                assert!(
+                    matches!(stored, Some(Data::Real(found)) if found.to_bits() == value.to_bits())
+                );
+                let Origin::Dwg { offset, end } = db.get(0x2A).unwrap().origin else {
+                    panic!("origin")
+                };
+                let source = Ref::at_bytes(offset as u64, end as u64).with_key(Key::Handle(0x2A));
+                let (file, mut diag) = read(&src, Limits::default());
+                let file = file.unwrap();
+                let drawing = file
+                    .lift(&mut Cx::new(
+                        &mut Budget::default(),
+                        &mut diag,
+                        &CancelToken::new(),
+                    ))
+                    .unwrap();
+                assert_eq!(codes_of(&diag), [codes::DXF_LIFT_INVALID]);
+                let diagnostic = diag.iter().next().unwrap();
+                assert_eq!(diagnostic.param("code"), Some(&i64::from(code).into()));
+                assert_eq!(
+                    diagnostic.param("kind"),
+                    Some(&(if xrecord { "XRECORD" } else { "LINE" }).into())
+                );
+                assert_eq!(diagnostic.count(), 1);
+                assert_eq!(diagnostic.places(), [source]);
+                let [kept] = drawing.spaces[0].elements.as_slice() else {
+                    panic!("shape")
+                };
+                assert_eq!(Hash::element(kept), Hash::element(good));
+                assert_eq!(id::Namer::new(&space).next(0, kept), expected_id);
+                let [extension] = drawing.extensions.as_slice() else {
+                    panic!("{drawing:?}")
+                };
+                assert_eq!(extension.name, "GOOD");
+                assert!(extension.is_current(&drawing));
+                assert_eq!(testkit::write::<Dwg>(&file).unwrap(), src);
+            }
+        }
+    }
+}
+
+#[cfg(feature = "drawing")]
+#[test]
+fn nonfinite_dwg_paper_limits_are_diagnosed_and_do_not_poison_coordinates() {
+    use zumen_drawing::Shape;
+    use zumen_sdk::{Lift, testkit};
+    let layer = object(0x33, 0x10, record_named(b"0"), record_handles(2));
+    let paper = object(
+        0x13,
+        0x2A,
+        |w| {
+            entity_common(w, 1, 256, 1.0, 0);
+            line_data(w, [0.0; 3], [1.0, 1.0, 0.0], 0.0);
+        },
+        entity_handles(0x10),
+    );
+    let base = dwg(&[(0x10, layer), (0x2A, paper)]);
+    for axis in 0..4 {
+        for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let mut limits = [0.0, 0.0, 100.0, 100.0];
+            limits[axis] = bad;
+            let src = with_header_variables(base.clone(), 0, 0, 4, limits);
+            let (file, mut diag) = read(&src, Limits::default());
+            let file = file.unwrap();
+            let drawing = file
+                .lift(&mut Cx::new(
+                    &mut Budget::default(),
+                    &mut diag,
+                    &CancelToken::new(),
+                ))
+                .unwrap();
+            assert_eq!(codes_of(&diag), [codes::DXF_LIFT_INVALID]);
+            let diagnostic = diag.iter().next().unwrap();
+            assert_eq!(
+                diagnostic.param("kind"),
+                Some(&(if axis < 2 { "$PLIMMIN" } else { "$PLIMMAX" }).into())
+            );
+            assert_eq!(
+                diagnostic.param("code"),
+                Some(&(if axis % 2 == 0 { 10_i64 } else { 20_i64 }).into())
+            );
+            assert!(diagnostic.places().is_empty());
+            let [sheet] = drawing.sheets.as_slice() else {
+                panic!("{drawing:?}")
+            };
+            let [element] = sheet.elements.as_slice() else {
+                panic!("paper")
+            };
+            let Shape::Line { start, end } = element.shape else {
+                panic!("line")
+            };
+            assert_eq!([start.x, start.y, end.x, end.y], [0.0, 0.0, 1.0, 1.0]);
+            if axis >= 2 {
+                assert!(sheet.size.is_none());
+            }
+            assert_eq!(testkit::write::<Dwg>(&file).unwrap(), src);
+        }
+    }
+}
+
+#[cfg(feature = "drawing")]
+#[test]
+fn nonfinite_dwg_extensions_still_obey_the_work_limit_and_cancellation() {
+    use zumen_sdk::Lift;
+    for xrecord in [false, true] {
+        let src = finite_extension_sample(xrecord, if xrecord { 40 } else { 1040 }, f64::NAN);
+        let file = read(&src, Limits::default()).0.unwrap();
+        let mut budget = Budget::default();
+        let mut diag = Diagnostics::new();
+        let cancel = CancelToken::new();
+        file.lift(&mut Cx::new(&mut budget, &mut diag, &cancel))
+            .unwrap();
+        let used = budget.used(Kind::Work);
+        assert!(used > 1);
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(used - 1)));
+        assert!(matches!(
+            file.lift(&mut Cx::new(&mut budget, &mut diag, &cancel)),
+            Err(Error::Stopped(_))
+        ));
+        cancel.cancel();
+        assert!(matches!(
+            file.lift(&mut Cx::new(&mut Budget::default(), &mut diag, &cancel)),
+            Err(Error::Stopped(_))
+        ));
+    }
+}
+
 #[test]
 fn the_header_and_the_object_map_are_read() {
     let (file, diag) = read(&sample(), Limits::default());

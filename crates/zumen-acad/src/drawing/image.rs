@@ -1,5 +1,6 @@
 //! IMAGE と PDFUNDERLAY などのアンダーレイを、外部のファイルを指す資源とともに移す（決定 0114）。
 
+use super::finite;
 use super::{Lifted, Lifter, invalid, non_planar, source};
 use crate::db::{AcadDb, Data, Object};
 use zumen_drawing::{Clip, Length, Resource, Underlay, UnderlayFrame, UnderlayKind};
@@ -84,8 +85,14 @@ impl Lifter<'_> {
             frame: UnderlayFrame::Pixels {
                 size,
                 origin: point(x, y),
-                right: point(x + u[0] * width, y + u[1] * width),
-                top: point(x + v[0] * height, y + v[1] * height),
+                right: point(
+                    finite(kind, 11, x + u[0] * width)?,
+                    finite(kind, 21, y + u[1] * width)?,
+                ),
+                top: point(
+                    finite(kind, 12, x + v[0] * height)?,
+                    finite(kind, 22, y + v[1] * height)?,
+                ),
             },
             clip,
             visible: self.int(object, 70, 1)? & 1 != 0,

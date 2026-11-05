@@ -1,5 +1,6 @@
 //! DIMENSION と ARC_DIMENSION を寸法に、LEADER を引出線に、MULTILEADER を注記にする。MULTILEADER の線と注記の色・線種・線幅も読む。
 
+use super::finite;
 use super::lettering::{attachment, flow};
 use super::{Lifted, Lifter, Out, aci, columns, invalid, mtext, non_planar, source};
 use crate::db::{AcadDb, Data, Object, Origin, Value};
@@ -440,7 +441,11 @@ impl Lifter<'_> {
             return Err(non_planar(kind));
         }
         let rotation = if direction == [0.0, 0.0] {
-            Rotation::Angle(self.real(context, 42, Some(0.0))?.to_degrees())
+            Rotation::Angle(finite(
+                kind,
+                42,
+                self.real(context, 42, Some(0.0))?.to_degrees(),
+            )?)
         } else {
             Rotation::Direction(direction)
         };
@@ -542,7 +547,7 @@ impl Lifter<'_> {
             key,
             position: self.planar_point(context, 15, point)?,
             scale,
-            rotation: self.real(context, 46, Some(0.0))?.to_degrees(),
+            rotation: finite(kind, 46, self.real(context, 46, Some(0.0))?.to_degrees())?,
             grid: None,
             attributes: Vec::new(),
             clip: None,

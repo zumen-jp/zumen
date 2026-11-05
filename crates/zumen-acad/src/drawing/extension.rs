@@ -2,6 +2,7 @@
 //! 図面モデルの値にない図形のフィールドも、`dxf.entity` の拡張に控える（決定 0142）。どの値も元のグループ・コードを
 //! 持ち、図面モデルのフィールドにする値は移さない（決定 0157）。
 
+use super::finite;
 use super::{
     ENTITY, ENTITY_SCHEMA, Lifted, Lifter, Out, XDATA, XDATA_SCHEMA, XRECORD, XRECORD_SCHEMA,
     amount, invalid, source, text, work,
@@ -215,14 +216,18 @@ impl Lifter<'_> {
                 fields.push(Field {
                     key: "point".into(),
                     code: Some(*code),
-                    value: FieldValue::Point([*x, *y, *z]),
+                    value: FieldValue::Point([
+                        finite(&item.kind, *code, *x)?,
+                        finite(&item.kind, *y_code, *y)?,
+                        finite(&item.kind, *z_code, *z)?,
+                    ]),
                 });
                 continue;
             }
             let value = match data {
                 Data::Text(_) => FieldValue::Text(self.decode(&item.kind, *code, data)?),
                 Data::Int(value) => FieldValue::Integer(*value),
-                Data::Real(value) => FieldValue::Real(*value),
+                Data::Real(value) => FieldValue::Real(finite(&item.kind, *code, *value)?),
                 Data::Bool(value) => FieldValue::Integer(i64::from(*value)),
                 Data::Handle(handle) => FieldValue::Handle(*handle),
                 Data::Binary(bytes) => FieldValue::Bytes(bytes.clone()),
@@ -280,12 +285,12 @@ impl Lifter<'_> {
                         Some(Value {
                             code: next,
                             data: Data::Real(value),
-                        }) if *next == code + offset => Ok(*value),
+                        }) if *next == code + offset => finite(kind, *next, *value),
                         _ => Err(invalid(kind, code + offset)),
                     };
-                    FieldValue::Point([*x, axis(10)?, axis(20)?])
+                    FieldValue::Point([finite(kind, code, *x)?, axis(10)?, axis(20)?])
                 }
-                (1040..=1042, Data::Real(value)) => FieldValue::Real(*value),
+                (1040..=1042, Data::Real(value)) => FieldValue::Real(finite(kind, code, *value)?),
                 (1070 | 1071, Data::Int(value)) => FieldValue::Integer(*value),
                 _ => return Err(invalid(kind, code)),
             };

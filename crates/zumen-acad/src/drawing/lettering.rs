@@ -1,6 +1,7 @@
 //! TEXT の 1 行の文字と、MTEXT の書式のある文字（背景の塗りを含む）を、図面モデルの文字にする。
 //! 枠への位置合わせと書き進める向きは、表のセルと MULTILEADER の文字も使う。
 
+use super::finite;
 use super::{Lifted, Lifter, aci, columns, invalid, mtext, non_planar};
 use crate::db::{Data, Object};
 use zumen_drawing::{
@@ -123,7 +124,11 @@ impl Lifter<'_> {
             }
             Rotation::Direction(direction)
         } else {
-            Rotation::Angle(self.real(object, 50, Some(0.0))?.to_degrees())
+            Rotation::Angle(finite(
+                kind,
+                50,
+                self.real(object, 50, Some(0.0))?.to_degrees(),
+            )?)
         };
         let frame = |code: i16| -> Lifted<Option<Length>> {
             match self.real(object, code, Some(0.0))? {
