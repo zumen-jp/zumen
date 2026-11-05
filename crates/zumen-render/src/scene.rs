@@ -285,20 +285,6 @@ impl<'a> Scene<'a> {
                 return Err(Error::Scene);
             }
         }
-        // 各塊・種類で unit が昇順なので、5 列だけを逐次マージできる。
-        for chunk in 0..self.chunks {
-            for (starts, units) in STREAMS {
-                let mut previous = 0;
-                for row in self.range(starts, units, chunk)? {
-                    cx.check(Kind::Work, 1)?;
-                    let unit = self.uint(units, row, 0)?;
-                    if unit < previous {
-                        return Err(Error::Scene);
-                    }
-                    previous = unit;
-                }
-            }
-        }
         Ok(())
     }
 }

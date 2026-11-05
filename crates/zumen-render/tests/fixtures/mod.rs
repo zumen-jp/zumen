@@ -177,6 +177,28 @@ pub type Outcome = (
     Vec<(Kind, u64)>,
 );
 
+/// unit の番号が逆順でも、列の位置と ID はそのままに描ける。
+pub fn nonascending() -> Columns {
+    let mut c = mixed();
+    c.0[l::FACE_UNITS] = [7_u32, 0].into_iter().flat_map(u32::to_le_bytes).collect();
+    c
+}
+
+/// 同じ unit で、種類の順と同じ種類の元の行の順を照らす。
+pub fn repeated_units() -> Columns {
+    let mut c = mixed();
+    for section in [
+        l::LINE_UNITS,
+        l::FACE_UNITS,
+        l::TEXT_UNITS,
+        l::POINT_UNITS,
+        l::IMAGE_UNITS,
+    ] {
+        c.0[section].fill(0);
+    }
+    c
+}
+
 pub fn run(
     bytes: &[u8],
     options: &zumen_render::Options,
@@ -208,7 +230,13 @@ pub fn run(
 pub fn transcript() -> Vec<u8> {
     use zumen_base::Limit;
     let mut out = Vec::new();
-    let mut inputs = vec![mixed().pack(), Columns::new().pack(), b"ZMSC".to_vec()];
+    let mut inputs = vec![
+        mixed().pack(),
+        nonascending().pack(),
+        repeated_units().pack(),
+        Columns::new().pack(),
+        b"ZMSC".to_vec(),
+    ];
     let mut huge = mixed();
     huge.d(l::CHUNK_ORIGINS, &[f64::MAX, 0.0]);
     inputs.push(huge.pack());

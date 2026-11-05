@@ -317,7 +317,7 @@
     "render.color.assumed": "描く単位 {unit} の色が未解決のため、前景の色で描きました。",
     "render.image.dropped": "描く単位 {unit} の画像・アンダーレイは参照を解決せず、SVG に描きませんでした。",
     "render.marker.dropped": "描く単位 {unit} の名前で指定された点記号は、SVG に描きませんでした。",
-    "render.memory.exceeded": "SVG の出力のメモリを確保できません。",
+    "render.memory.exceeded": "SVG の描画に使うメモリを確保できません。",
     "render.options.invalid": "設定か座標変換の計算が有効な範囲に収まらないため、SVG を作れません。",
     "render.scene.invalid": "シーンの列・参照・数値が契約に合わないため、SVG を作れません。",
     "render.section.dropped": "シーンの知らないセクション {section} を、SVG の描画に使いませんでした。",

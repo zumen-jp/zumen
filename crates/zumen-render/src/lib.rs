@@ -1,5 +1,6 @@
 //! シーンの列から SVG 1.1 を書く（決定 0272）。外部のフォント・画像は取得しない。
 
+mod order;
 mod scene;
 mod svg;
 mod writer;
@@ -30,7 +31,7 @@ pub enum Error {
     Scene,
     /// 設定か、座標を出力へ移す計算が有限の範囲に収まらない
     Options,
-    /// 出力のメモリを確保できない
+    /// 出力か描画順の索引のメモリを確保できない
     Allocation,
     /// 予算か中断の合図で止まった
     Stopped(Stop),

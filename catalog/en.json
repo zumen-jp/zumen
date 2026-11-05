@@ -317,7 +317,7 @@
     "render.color.assumed": "The unresolved color in drawing unit {unit} was replaced by the configured foreground color.",
     "render.image.dropped": "The image or underlay in drawing unit {unit} was omitted without resolving its resource.",
     "render.marker.dropped": "The named point marker in drawing unit {unit} was omitted from the SVG.",
-    "render.memory.exceeded": "Memory for the SVG output could not be allocated.",
+    "render.memory.exceeded": "Memory for SVG rendering could not be allocated.",
     "render.options.invalid": "The settings or coordinate transformation are out of range; SVG was not produced.",
     "render.scene.invalid": "The scene columns, references, or numeric values are invalid; SVG was not produced.",
     "render.section.dropped": "Unknown scene section {section} was not used to render the SVG.",

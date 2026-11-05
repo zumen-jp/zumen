@@ -3,11 +3,7 @@
 use zumen_base::{Code, Cx, Diagnostic, Kind, Ref, codes};
 use zumen_scene::layout as l;
 
-use crate::{
-    Error, Options,
-    scene::{STREAMS, Scene},
-    writer::Writer,
-};
+use crate::{Error, Options, order, scene::Scene, writer::Writer};
 
 struct Camera {
     scale: f64,
@@ -126,30 +122,8 @@ impl Render<'_, '_, '_> {
         for chunk in 0..self.scene.chunks {
             self.out.cx.check(Kind::Work, 1)?;
             let origin = self.scene.xy(l::CHUNK_ORIGINS, chunk)?;
-            let mut cursors = [(0, 0); 5];
-            for ((start, end), (starts, units)) in cursors.iter_mut().zip(STREAMS) {
-                let range = self.scene.range(starts, units, chunk)?;
-                *start = range.start;
-                *end = range.end;
-            }
-            loop {
-                self.out.cx.check(Kind::Work, 1)?;
-                let mut next: Option<(usize, usize, usize)> = None;
-                for (kind, (&(row, end), (_, units))) in cursors.iter().zip(STREAMS).enumerate() {
-                    if row == end {
-                        continue;
-                    }
-                    let unit = self.scene.uint(units, row, 0)? as usize;
-                    if next.is_none_or(|(_, _, previous)| unit < previous) {
-                        next = Some((kind, row, unit));
-                    }
-                }
-                let Some((kind, row, unit)) = next else {
-                    break;
-                };
-                self.primitive(kind, row, unit, origin)?;
-                let (cursor, _) = cursors.get_mut(kind).ok_or(Error::Scene)?;
-                *cursor += 1;
+            for [unit, kind, row] in order::build(&self.scene, chunk, self.out.cx)? {
+                self.primitive(kind as usize, row as usize, unit as usize, origin)?;
             }
         }
         self.out.text("</g>\n</svg>\n")
@@ -193,7 +167,6 @@ impl Render<'_, '_, '_> {
         unit: usize,
         origin: [f64; 2],
     ) -> Result<(), Error> {
-        self.out.cx.check(Kind::Elements, 1)?;
         if kind == 4 {
             return self.diagnostic(codes::RENDER_IMAGE_DROPPED, unit);
         }
