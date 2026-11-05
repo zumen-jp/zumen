@@ -3934,6 +3934,42 @@ fn bounds_flate_object_streams_before_allocating_the_whole_output() {
 }
 
 #[test]
+fn bounds_flate_object_streams_after_a_leading_crypt_filter() {
+    use std::io::Write;
+    use zumen_base::{Kind, Limit, Limits, Stop};
+
+    let mut plain = b"30 0 null ".to_vec();
+    plain.resize(64 * 1024, b' ');
+    let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::best());
+    encoder.write_all(&plain).unwrap();
+    let compressed = encoder.finish().unwrap();
+    for filter in [
+        "/Filter /FlateDecode",
+        "/Filter [/Crypt /FlateDecode]",
+        "/F [/Crypt /Fl] /DP [<< /Name /Identity >> null]",
+        "/Filter [/Unknown /Crypt /FlateDecode]",
+    ] {
+        let mut document = Document::new(vec![Page::new("0 0 m 10 10 l S")]);
+        document.objects = vec![common::stream(
+            &format!("/Type /ObjStm /N 1 /First 5 {filter}"),
+            &compressed,
+        )];
+        let file = testkit::read::<Pdf>(&document.bytes()).0.unwrap();
+        let mut budget =
+            Budget::new(Limits::default().with(Kind::DecodedBytes, Limit::Finite(4 * 1024)));
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let result = file.lift(&mut Cx::new(&mut budget, &mut diagnostics, &cancel));
+        // 全量の 64 KiB を展開した後ではなく、固定長のバッファーの 1 回目で止まる
+        assert!(
+            matches!(result, Err(Error::Stopped(Stop::Exceeded(e)))
+            if e.kind == Kind::DecodedBytes && e.requested < 16 * 1024),
+            "{filter}: {result:?}"
+        );
+    }
+}
+
+#[test]
 fn keeps_flate_object_stream_contents_with_damage_and_predictors() {
     let plain = b"30 0 null ";
     let good = common::zlib(plain);
@@ -3943,6 +3979,11 @@ fn keeps_flate_object_stream_contents_with_damage_and_predictors() {
     predictor.extend(plain);
     for (filter, data) in [
         ("/Filter /FlateDecode", good.clone()),
+        ("/Filter [/Crypt /FlateDecode]", good.clone()),
+        (
+            "/F [/Crypt /Fl] /DP [<< /Name /Identity >> null]",
+            good.clone(),
+        ),
         ("/F /Fl", good[2..good.len() - 4].to_vec()),
         ("/Filter /FlateDecode", wrong),
         ("/Filter /FlateDecode", good[..good.len() - 4].to_vec()),

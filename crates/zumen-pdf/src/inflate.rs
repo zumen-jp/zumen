@@ -19,7 +19,10 @@ const MAX_EXPANSION: u64 = 1032;
 /// hayro-syntax と同じ flate2 のリーダーを、同じ順（zlib、raw deflate）で試す。読めなければ、
 /// 寛容な展開の出力の上限を先に数える。失敗した試みの分も戻さない。予測子の出力は、その入力より長くならない
 pub(crate) fn before(stream: &Stream<'_>, cx: &mut Cx<'_>) -> Result<bool, Stop> {
-    if !matches!(stream.filters().as_slice(), [Filter::FlateDecode]) {
+    let filters = stream.filters();
+    // hayro-syntax の `Stream::decoded_image` と同じく、先頭の Crypt はフィルターとして適用しない
+    let effective = filters.strip_prefix(&[Filter::Crypt]).unwrap_or(&filters);
+    if !matches!(effective, [Filter::FlateDecode]) {
         return Ok(false);
     }
     let data = stream.raw_data();
