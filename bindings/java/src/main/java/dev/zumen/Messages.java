@@ -216,6 +216,11 @@ public final class Messages {
         public LiftRequest asLiftRequest() {
             return "lift".equals(json.get("op")) ? new LiftRequest(json) : null;
         }
+
+        /** op が render の形なら、そのビュー。違えば null */
+        public RenderRequest asRenderRequest() {
+            return "render".equals(json.get("op")) ? new RenderRequest(json) : null;
+        }
     }
 
     /** どの op の要求にも置けるフィールド */
@@ -6593,6 +6598,375 @@ public final class Messages {
         /** {@link #getHeights()} を書く。null ならフィールドを除く */
         public SceneRequest withHeights(Map<String, String> value) {
             put("heights", value);
+            return this;
+        }
+    }
+
+    /** 開いた文書を scene と同じ起点・配置・フォントで 2D のシーンにし、画像を blob で返す（決定 0272・0275）。SVG は字形の輪郭だけを描き、字形のない空でない文字・外部画像・名前付きの点記号は元の ID と unit を診断して描かない。シーン生成と描画で同じ予算と中断の合図を使い、失敗では画像を返さない。マイナーバージョン 64 から */
+    public static final class RenderRequest extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public RenderRequest(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static RenderRequest of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new RenderRequest(json);
+        }
+
+        /** タグのフィールドだけを持つオブジェクトから作る */
+        public RenderRequest() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("op", "render");
+        }
+
+        /** メッセージのスキーマのメジャーバージョン。今は 1 */
+        public Long getV() {
+            return Json.read(json.get("v"), Json::integer);
+        }
+
+        /** {@link #getV()} を書く。null ならフィールドを除く */
+        public RenderRequest withV(Long value) {
+            put("v", value);
+            return this;
+        }
+
+        /** 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010） */
+        public Budget getBudget() {
+            return Json.read(json.get("budget"), Budget::of);
+        }
+
+        /** {@link #getBudget()} を書く。null ならフィールドを除く */
+        public RenderRequest withBudget(Budget value) {
+            put("budget", value);
+            return this;
+        }
+
+        /** 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010） */
+        public Boolean getPartial() {
+            return Json.read(json.get("partial"), Json::bool);
+        }
+
+        /** {@link #getPartial()} を書く。null ならフィールドを除く */
+        public RenderRequest withPartial(Boolean value) {
+            put("partial", value);
+            return this;
+        }
+
+        /** 診断ごとに返す場所の数。書かなければ 16（決定 0009） */
+        public Long getMaxPlaces() {
+            return Json.read(json.get("max_places"), Json::integer);
+        }
+
+        /** {@link #getMaxPlaces()} を書く。null ならフィールドを除く */
+        public RenderRequest withMaxPlaces(Long value) {
+            put("max_places", value);
+            return this;
+        }
+
+        /** 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        public Long getTimeLimitMs() {
+            return Json.read(json.get("time_limit_ms"), Json::integer);
+        }
+
+        /** {@link #getTimeLimitMs()} を書く。null ならフィールドを除く */
+        public RenderRequest withTimeLimitMs(Long value) {
+            put("time_limit_ms", value);
+            return this;
+        }
+
+        /** op の名前 */
+        public String getOp() {
+            return Json.read(json.get("op"), Json::string);
+        }
+
+        /** {@link #getOp()} を書く。null ならフィールドを除く */
+        public RenderRequest withOp(String value) {
+            put("op", value);
+            return this;
+        }
+
+        /** 文書の名前。open で作ったもの */
+        public String getDoc() {
+            return Json.read(json.get("doc"), Json::string);
+        }
+
+        /** {@link #getDoc()} を書く。null ならフィールドを除く */
+        public RenderRequest withDoc(String value) {
+            put("doc", value);
+            return this;
+        }
+
+        /** scene と同じ起点。実寸の空間・記号の定義の空間・用紙の ID */
+        public String getFrom() {
+            return Json.read(json.get("from"), Json::string);
+        }
+
+        /** {@link #getFrom()} を書く。null ならフィールドを除く */
+        public RenderRequest withFrom(String value) {
+            put("from", value);
+            return this;
+        }
+
+        /** 起点の用紙のビューの番号。0 から数える。from が用紙のときだけ書ける。scene と同じ意味 */
+        public Long getView() {
+            return Json.read(json.get("view"), Json::integer);
+        }
+
+        /** {@link #getView()} を書く。null ならフィールドを除く */
+        public RenderRequest withView(Long value) {
+            put("view", value);
+            return this;
+        }
+
+        /** 画像の出力形式 */
+        public String getFormat() {
+            return Json.read(json.get("format"), Json::string);
+        }
+
+        /** {@link #getFormat()} を書く。null ならフィールドを除く */
+        public RenderRequest withFormat(String value) {
+            put("format", value);
+            return this;
+        }
+
+        /** 出力の幅（ピクセル） */
+        public Long getWidth() {
+            return Json.read(json.get("width"), Json::integer);
+        }
+
+        /** {@link #getWidth()} を書く。null ならフィールドを除く */
+        public RenderRequest withWidth(Long value) {
+            put("width", value);
+            return this;
+        }
+
+        /** 出力の高さ（ピクセル） */
+        public Long getHeight() {
+            return Json.read(json.get("height"), Json::integer);
+        }
+
+        /** {@link #getHeight()} を書く。null ならフィールドを除く */
+        public RenderRequest withHeight(Long value) {
+            put("height", value);
+            return this;
+        }
+
+        /** [x の最小, y の最小, x の最大, y の最大]。起点の座標で、幅と高さが正の有限値になる範囲を明示する。scene の範囲の絞り込みにも使い、縦横同率で中央に収めて範囲外を切る。縦横比の違いによる余白は背景色にする */
+        public List<Double> getRegion() {
+            return Json.read(json.get("region"), v0 -> Json.list(v0, Json::number));
+        }
+
+        /** {@link #getRegion()} を書く。null ならフィールドを除く */
+        public RenderRequest withRegion(List<Double> value) {
+            put("region", value);
+            return this;
+        }
+
+        /** 用紙 mm の線幅をピクセルへ直す DPI。正の有限値。座標の単位を mm と推測しない。線幅 0 は 1 ピクセル */
+        public Double getDpi() {
+            return Json.read(json.get("dpi"), Json::number);
+        }
+
+        /** {@link #getDpi()} を書く。null ならフィールドを除く */
+        public RenderRequest withDpi(Double value) {
+            put("dpi", value);
+            return this;
+        }
+
+        /** 背景の sRGB と alpha。[r, g, b, a] の 4 値を 0〜255 で明示する */
+        public List<Long> getBackground() {
+            return Json.read(json.get("background"), v0 -> Json.list(v0, Json::integer));
+        }
+
+        /** {@link #getBackground()} を書く。null ならフィールドを除く */
+        public RenderRequest withBackground(List<Long> value) {
+            put("background", value);
+            return this;
+        }
+
+        /** ACI 7 と未解決の色に使う sRGB と alpha。[r, g, b, a] の 4 値を 0〜255 で明示する。未解決の色は診断する */
+        public List<Long> getForeground() {
+            return Json.read(json.get("foreground"), v0 -> Json.list(v0, Json::integer));
+        }
+
+        /** {@link #getForeground()} を書く。null ならフィールドを除く */
+        public RenderRequest withForeground(List<Long> value) {
+            put("foreground", value);
+            return this;
+        }
+
+        /** scene と同じ弦の誤差（起点の長さ）。0 より大きい。書かなければ用紙は 0.02 mm、空間は要素の範囲の対角線の 1/50000 */
+        public Double getTolerance() {
+            return Json.read(json.get("tolerance"), Json::number);
+        }
+
+        /** {@link #getTolerance()} を書く。null ならフィールドを除く */
+        public RenderRequest withTolerance(Double value) {
+            put("tolerance", value);
+            return this;
+        }
+
+        /** scene と同じ指定。true は印刷する要素、書かないか false は表示する要素を描く */
+        public Boolean getPrint() {
+            return Json.read(json.get("print"), Json::bool);
+        }
+
+        /** {@link #getPrint()} を書く。null ならフィールドを除く */
+        public RenderRequest withPrint(Boolean value) {
+            put("print", value);
+            return this;
+        }
+
+        /** scene と同じ色の表の入力の名前。zm_push で渡した JSON の values に rgb と aci・sxf・jww の符号を並べる */
+        public String getPalette() {
+            return Json.read(json.get("palette"), Json::string);
+        }
+
+        /** {@link #getPalette()} を書く。null ならフィールドを除く */
+        public RenderRequest withPalette(String value) {
+            put("palette", value);
+            return this;
+        }
+
+        /** scene と同じフォントの指定。名前を合わせ、なければ名前のないフォントを使う。字形の輪郭を作るため、zm_push でフォントのバイト列を渡す。OS のフォントは探索しない */
+        public List<SceneFont> getFonts() {
+            return Json.read(json.get("fonts"), v0 -> Json.list(v0, SceneFont::of));
+        }
+
+        /** {@link #getFonts()} を書く。null ならフィールドを除く */
+        public RenderRequest withFonts(List<SceneFont> value) {
+            put("fonts", value);
+            return this;
+        }
+
+        /** scene と同じ宣言値の高さの意味。fonts を書いたときだけ使う。書かないキーは既定の意味に従う（決定 0176・0188） */
+        public Map<String, String> getHeights() {
+            return Json.read(json.get("heights"), v0 -> Json.map(v0, Json::string));
+        }
+
+        /** {@link #getHeights()} を書く。null ならフィールドを除く */
+        public RenderRequest withHeights(Map<String, String> value) {
+            put("heights", value);
+            return this;
+        }
+    }
+
+    /**
+     * 画像の出力形式。svg は SVG 1.1（image/svg+xml）
+     * 
+     * 列挙の値。知らない値も受け取る
+     */
+    public static final class RenderFormat {
+        private RenderFormat() {}
+
+        public static final String SVG = "svg";
+    }
+
+    /** 画像の形式・サイズと、シーンの起点・単位・許容差、画像の blob の番号 */
+    public static final class RenderResult extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public RenderResult(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static RenderResult of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new RenderResult(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public RenderResult() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 画像の出力形式 */
+        public String getFormat() {
+            return Json.read(json.get("format"), Json::string);
+        }
+
+        /** {@link #getFormat()} を書く。null ならフィールドを除く */
+        public RenderResult withFormat(String value) {
+            put("format", value);
+            return this;
+        }
+
+        /** 出力の幅（ピクセル） */
+        public Long getWidth() {
+            return Json.read(json.get("width"), Json::integer);
+        }
+
+        /** {@link #getWidth()} を書く。null ならフィールドを除く */
+        public RenderResult withWidth(Long value) {
+            put("width", value);
+            return this;
+        }
+
+        /** 出力の高さ（ピクセル） */
+        public Long getHeight() {
+            return Json.read(json.get("height"), Json::integer);
+        }
+
+        /** {@link #getHeight()} を書く。null ならフィールドを除く */
+        public RenderResult withHeight(Long value) {
+            put("height", value);
+            return this;
+        }
+
+        /** シーンの起点の ID */
+        public String getFrom() {
+            return Json.read(json.get("from"), Json::string);
+        }
+
+        /** {@link #getFrom()} を書く。null ならフィールドを除く */
+        public RenderResult withFrom(String value) {
+            put("from", value);
+            return this;
+        }
+
+        /** 起点のビューの番号。ビューでなければ持たない */
+        public Long getView() {
+            return Json.read(json.get("view"), Json::integer);
+        }
+
+        /** {@link #getView()} を書く。null ならフィールドを除く */
+        public RenderResult withView(Long value) {
+            put("view", value);
+            return this;
+        }
+
+        /** 起点の座標の単位。用紙とビューからは millimeter */
+        public String getUnit() {
+            return Json.read(json.get("unit"), Json::string);
+        }
+
+        /** {@link #getUnit()} を書く。null ならフィールドを除く */
+        public RenderResult withUnit(String value) {
+            put("unit", value);
+            return this;
+        }
+
+        /** シーンで使った弦の誤差（起点の長さ） */
+        public Double getTolerance() {
+            return Json.read(json.get("tolerance"), Json::number);
+        }
+
+        /** {@link #getTolerance()} を書く。null ならフィールドを除く */
+        public RenderResult withTolerance(Double value) {
+            put("tolerance", value);
+            return this;
+        }
+
+        /** 画像の blob の番号（種類は image）。zm_take で取り出す */
+        public Long getBlob() {
+            return Json.read(json.get("blob"), Json::integer);
+        }
+
+        /** {@link #getBlob()} を書く。null ならフィールドを除く */
+        public RenderResult withBlob(Long value) {
+            put("blob", value);
             return this;
         }
     }
@@ -17635,5 +18009,7 @@ public final class Messages {
         public static final String BUILDING_APPLY = "building_apply";
 
         public static final String LIFT = "lift";
+
+        public static final String RENDER = "render";
     }
 }

@@ -308,3 +308,4 @@
 - [0271: wasm の入力の所有権を渡し、最初の入力のコピーを 1 回にする](0271-transfer-wasm-input-ownership.md)（2026-11-06、採用）
 - [0272: SVG はシーンの列から書き、文字は字形の輪郭にする](0272-scene-svg-rendering.md)（2026-11-06、採用）
 - [0273: PDF の描画資源も展開前に数え、実際の長さと再展開の見積もりを分ける](0273-pdf-resource-preflight.md)（2026-11-06、採用）
+- [0275: render は scene と同じ図面の指定から画像を返す](0275-render-op-from-drawing-scene.md)（2026-11-06、採用）

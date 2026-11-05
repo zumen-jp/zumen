@@ -1,6 +1,6 @@
 # シーンからの SVG
 
-`zumen_render::svg` は、ZMSC のバイト列と `Options`・`Cx` を受け取り、SVG 1.1 全体のバイト列を返します。領域の API への接続は [#603](https://github.com/zumen-jp/zumen/issues/603)、PNG は [#604](https://github.com/zumen-jp/zumen/issues/604) で追跡しています。
+`zumen_render::svg` は、ZMSC のバイト列と `Options`・`Cx` を受け取り、SVG 1.1 全体のバイト列を返します。各言語の API からは [render op](../../docs/render.md) を使えます。PNG は [#604](https://github.com/zumen-jp/zumen/issues/604) で追跡しています。
 
 `Options` の `region` はシーンの起点と同じ座標系です。縦横同率で中央に収め、その範囲の外を切ります。縦横比の違いによる余白にも背景を塗ります。`width`・`height` はピクセル、`dpi` は用紙 mm の線幅の換算にだけ使います。背景・前景は RGBA で明示します。座標の単位を mm と推測しません。
 
