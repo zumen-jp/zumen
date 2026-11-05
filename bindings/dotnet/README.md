@@ -6,6 +6,7 @@
 - NuGet の依存はありません。型つきの要求と応答（System.Text.Json）は、標準で持つ net8.0 の側にだけあります。netstandard2.0 の側では、JSON の文字列かバイト列で読み書きします。
 - `ZumenLibrary.Load()` は、パッケージに入れたライブラリを読みます。手で作ったライブラリは `Load(道筋)` で読みます。32 bit の Windows では、関数を stdcall で呼びます。
 - `Zumen/Messages.g.cs`・`Zumen/Constants.g.cs` は、`schema/` から `cargo xtask codegen` で生成します。手で直さないでください。
+- パッケージの直下に `LICENSE-MIT`・`LICENSE-APACHE`、各 `runtimes/{rid}/native/` に対象の ABI の依存の本文 `THIRD_PARTY_LICENSES` を入れます。作成と検査の手順は [xtask/release](../../xtask/release/README.md) にあります。
 
 ## 使い方
 

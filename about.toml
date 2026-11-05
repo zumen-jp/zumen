@@ -1,5 +1,5 @@
-# 依存のライセンスの文（THIRD_PARTY_LICENSES）を cargo-about で作る設定（決定 0014・0259）。
-# 使い方は .github/workflows/release.yml にある。許すライセンスは deny.toml と合わせる。
+# 依存のライセンスの文（THIRD_PARTY_LICENSES）を cargo-about で作る設定（決定 0014・0259・0269）。
+# 使い方は xtask/release/README.md にある。許すライセンスは deny.toml と合わせる。
 
 accepted = [
     "MIT",

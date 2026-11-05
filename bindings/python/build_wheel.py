@@ -1,13 +1,15 @@
 """ネイティブのライブラリを入れた wheel を、標準ライブラリだけで作る（決定 0205）。
 
-    python build_wheel.py <ライブラリの道筋> <プラットフォームのタグ> [出力のディレクトリ]
+    python build_wheel.py <ライブラリの道筋> <プラットフォームのタグ> [出力のディレクトリ] --licenses <ライセンスのディレクトリ>
 
-例: python build_wheel.py ../../target/release/libzumen_abi1.so manylinux_2_28_x86_64
 ライブラリは zumen/_native に入れ、load() が道筋なしで読む。拡張のモジュールはないので、タグは py3-none-<プラットフォーム>。
+ライセンスは xtask/release/licenses.py で作る。作成には Python 3.11 以降を使う。
 """
 
+import argparse
 import base64
 import hashlib
+import json
 import os
 import sys
 import tomllib
@@ -22,10 +24,23 @@ def _record(name: str, data: bytes) -> str:
 
 
 def main(argv: list) -> None:
-    if len(argv) not in (3, 4):
-        sys.exit(__doc__)
-    library, platform = argv[1], argv[2]
-    out = argv[3] if len(argv) == 4 else os.path.join(HERE, "dist")
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("library")
+    parser.add_argument("platform")
+    parser.add_argument("out", nargs="?", default=os.path.join(HERE, "dist"))
+    parser.add_argument("--licenses", required=True)
+    args = parser.parse_args(argv[1:])
+    library, platform, out = args.library, args.platform, args.out
+    with open(os.path.join(args.licenses, "THIRD_PARTY_LICENSES"), "rb") as f:
+        third_party = f.read()
+    with open(os.path.join(args.licenses, "license-info.json"), encoding="utf-8") as f:
+        notice_info = json.load(f)
+    with open(os.path.join(HERE, "../../xtask/release/targets.json"), encoding="utf-8") as f:
+        target = next(item for item in json.load(f) if item["wheel"] == platform)
+    if (notice_info["package"] != "zumen-abi" or notice_info["target"] != target["target"]
+            or os.path.basename(library) != target["library"]
+            or hashlib.sha256(third_party).hexdigest() != notice_info["sha256"]):
+        raise ValueError("zumen-abi のライセンス本文と台帳が一致しない")
     with open(os.path.join(HERE, "pyproject.toml"), "rb") as f:
         project = tomllib.load(f)["project"]
     name, version = project["name"], project["version"]
@@ -36,7 +51,11 @@ def main(argv: list) -> None:
         f"Name: {name}",
         f"Version: {version}",
         f"Summary: {project['description']}",
-        f"License-Expression: {project['license']}",
+        f"License-Expression: {notice_info['license_expression']}",
+        # Core metadata 2.4 / PEP 639: .dist-info/licenses からの相対パス
+        "License-File: LICENSE-MIT",
+        "License-File: LICENSE-APACHE",
+        "License-File: THIRD_PARTY_LICENSES",
         f"Requires-Python: {project['requires-python']}",
         *(f"Classifier: {c}" for c in project.get("classifiers", [])),
         *(f"Project-URL: {k}, {v}" for k, v in project.get("urls", {}).items()),
@@ -55,6 +74,10 @@ def main(argv: list) -> None:
     with open(library, "rb") as f:
         files.append((f"zumen/_native/{os.path.basename(library)}", f.read()))
     info = f"{name}-{version}.dist-info"
+    for filename in ("LICENSE-MIT", "LICENSE-APACHE"):
+        with open(os.path.join(HERE, "../..", filename), "rb") as f:
+            files.append((f"{info}/licenses/{filename}", f.read()))
+    files.append((f"{info}/licenses/THIRD_PARTY_LICENSES", third_party))
     files.append((f"{info}/METADATA", "\n".join(metadata).encode()))
     files.append((f"{info}/WHEEL", "\n".join(wheel).encode()))
     record = [_record(n, d) for n, d in files] + [f"{info}/RECORD,,"]
