@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ja">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>view2d の最小の例</title>
+<script type="importmap">
+{"imports":{"@zumen-jp/zumen":"../../../bindings/js/src/index.js","@zumen-jp/view2d":"../src/index.js"}}
+</script>
+<h1>view2d の最小の例</h1>
+<p>DXF・JWW・SXF をこのブラウザーだけで読みます。</p>
+<label>図面 <input id="file" type="file" accept=".dxf,.jww,.sfc,.p21"></label>
+<button id="fit" type="button">全体を表示</button>
+<p><output id="status" aria-live="polite"></output></p>
+<canvas id="drawing" style="width:640px;height:400px;max-width:100%" aria-label="図面の表示"></canvas>
+<script type="module">
+import { load, readScene } from "@zumen-jp/zumen";
+import { View2D } from "@zumen-jp/view2d";
+
+const canvas = document.querySelector("#drawing");
+const status = document.querySelector("#status");
+const viewer = new View2D(canvas, { width: canvas.clientWidth, height: 400, pixelRatio: devicePixelRatio });
+const ready = load(fetch("../../../target/wasm32-unknown-unknown/release/zumen_abi1.wasm"));
+let generation = 0;
+document.querySelector("#fit").addEventListener("click", () => viewer.fit());
+document.querySelector("#file").addEventListener("change", async (event) => {
+  const current = ++generation;
+  const file = event.target.files[0];
+  if (!file) return;
+  status.value = "読んでいます。";
+  let session;
+  try {
+    const [zumen, bytes] = await Promise.all([ready, file.arrayBuffer()]);
+    if (current !== generation) return;
+    session = zumen.open();
+    session.push("input", bytes);
+    const opened = session.call({ v: 1, op: "open", input: "input" }).result;
+    const drawing = session.call({ v: 1, op: "drawing", doc: "input" }).result;
+    const from = drawing.spaces[0]?.id ?? drawing.sheets[0]?.id;
+    const response = session.call({ v: 1, op: "scene", doc: "input", from });
+    const result = response.result;
+    const scene = readScene(session.take(result.blob));
+    const report = viewer.setScene({ scene, result, document: { doc: "input", format: opened.format, hash: drawing.hash } });
+    viewer.fit();
+    status.value = `描画しました。コアの診断 ${response.diagnostics.length} 件、表示の代替・未描画 ${report.issues.length} 件。`;
+  } catch (error) {
+    if (current === generation) status.value = `読めませんでした: ${error.message}`;
+  } finally { session?.close(); }
+});
+window.addEventListener("pagehide", () => { generation++; viewer.destroy(); }, { once: true });
+</script>
+</html>
