@@ -542,6 +542,41 @@ def dropped_dxf():
     return out + tags((0, "ENDSEC"), (0, "EOF"))
 
 
+def japanese_dxf(version, encoding):
+    """日本語の画層を持つ DXF。R2004 は ANSI_932、R2007 は同じコード・ページの指定でも UTF-8 で書く。
+    変換で足す線種・画層・文字スタイルも持ち、TABLE の最終件数を照らす（DXF Reference「TABLES Section」）"""
+
+    def tags(*pairs):
+        return "".join(f"{code}\n{value}\n" for code, value in pairs)
+
+    def table(name, handle, count):
+        return tags((0, "TABLE"), (2, name), (5, handle), (330, "0"), (100, "AcDbSymbolTable"), (70, count))
+
+    def record(kind, handle, owner, subclass):
+        return tags((0, kind), (5, handle), (330, owner), (100, "AcDbSymbolTableRecord"), (100, subclass))
+
+    out = tags((0, "SECTION"), (2, "HEADER"), (9, "$ACADVER"), (1, version), (9, "$DWGCODEPAGE"), (3, "ANSI_932"), (0, "ENDSEC"))
+    out += tags((0, "SECTION"), (2, "TABLES"))
+    out += table("LTYPE", "10", 2)
+    out += record("LTYPE", "11", "10", "AcDbLinetypeTableRecord")
+    out += tags((2, "Continuous"), (70, 0), (3, ""), (72, 65), (73, 0), (40, 0))
+    out += record("LTYPE", "12", "10", "AcDbLinetypeTableRecord")
+    out += tags((2, "DASH"), (70, 0), (3, ""), (72, 65), (73, 2), (40, 1), (49, 0.5), (74, 0), (49, -0.5), (74, 0), (0, "ENDTAB"))
+    out += table("LAYER", "20", 2)
+    for handle, name in [("21", "0"), ("22", "日本語")]:
+        out += record("LAYER", handle, "20", "AcDbLayerTableRecord")
+        out += tags((2, name), (70, 0), (62, 7), (6, "Continuous"))
+    out += tags((0, "ENDTAB"))
+    out += table("STYLE", "30", 2)
+    for handle, name in [("31", "Standard"), ("32", "Caption")]:
+        out += record("STYLE", handle, "30", "AcDbTextStyleTableRecord")
+        out += tags((2, name), (70, 0), (40, 0), (41, 1), (50, 0), (71, 0), (42, 1), (3, "txt"), (4, ""))
+    out += tags((0, "ENDTAB"), (0, "ENDSEC"), (0, "SECTION"), (2, "ENTITIES"))
+    out += tags((0, "LINE"), (5, "100"), (100, "AcDbEntity"), (8, "日本語"), (100, "AcDbLine"))
+    out += tags((10, 0), (20, 0), (30, 0), (11, 100), (21, 50), (31, 0), (0, "ENDSEC"), (0, "EOF"))
+    return out.encode(encoding)
+
+
 def codes(*lists):
     """診断の (code, kind) ごとの件数"""
     found = Counter()
@@ -812,9 +847,9 @@ SECTIONS = {
     ),
     302: (
         "変換した DXF（図面モデルを経た変換、#302・#509）",
-        """入力のどの形式も、図面モデルを経て DXF（R2004）に変換しました（決定 0206）。書けない要素は `convert.element.unsupported` で落とします。ひな形の表と VIEWPORT が R12 の形で、ezdxf が読めないものがあります（#509）。
+        """入力のどの形式も、図面モデルを経て DXF（R2004）に変換しました（決定 0206）。書けない要素と、足せなかった画層の要素は、元の場所を付けて `convert.element.unsupported` で落とします。記号の定義の中身も書き、表・ブロック・VIEWPORT の所有者とサブクラス、レイアウトの辞書を R2004 の形で持ちます（#509）。ezdxf では全変換ファイルを読め、監査の誤りと修復が 0 であることを確かめます。
 
-- **AutoCAD。** 共通の手順で開けるかと監査の誤りの数を記録する。ビューポートを持つもの（layout・points・JWW）が開けるかは、#509 を直す前と後で比べる。
+- **AutoCAD。** 全変換ファイルを共通の手順で開き、開けることと `AUDIT` の誤りの数を記録する。ビューポートを持つもの（layout・points・JWW）は、モデルと `Layout1` の両方を確認し、用紙の大きさとビューの位置・尺度を比べる。記号を持つものは、配置だけでなく定義の中身も描かれることを確かめる。Defpoints などの追加できない画層は、その要素が落ちたことを `manifest.json` の変換の診断と照らし、画層 0 に移っていないことを確かめる。結果にはファイル・ハンドル・期待する値・実際の値を記録する。
 """,
     ),
     174: (
@@ -915,6 +950,8 @@ def inputs(extra):
         found.append((f"input/conformance-{Path(case).stem}-{name}", data, f"bindings/conformance/cases/{case}", *REPOSITORY))
     found.append(("input/made-features.sfc", SFC.encode("ascii"), "xtask/verify/make.py", *REPOSITORY))
     found.append(("input/made-dropped.dxf", dropped_dxf().encode("ascii"), "xtask/verify/make.py", *REPOSITORY))
+    found.append(("input/made-japanese-r2004.dxf", japanese_dxf("AC1018", "cp932"), "xtask/verify/make.py", *REPOSITORY))
+    found.append(("input/made-japanese-r2007.dxf", japanese_dxf("AC1021", "utf-8"), "xtask/verify/make.py", *REPOSITORY))
     found.append(("input/made-structure.sfc", STRUCTURE_SFC.encode("ascii"), "xtask/verify/make.py", *REPOSITORY))
     found.append(("input/made-structure.p21", STRUCTURE_P21.encode("ascii"), "xtask/verify/make.py", *REPOSITORY))
     if extra:
@@ -961,6 +998,10 @@ def main():
             places = sum(len(d.get("at", [])) for d in entry["open"] + reading["diagnostics"] if d["code"] == code)
             if places != want:
                 broken.append(f"{path}: {code} の場所が {places}（期待は {want}）。黙って捨てない照合を確かめられない")
+        if path.startswith("input/made-japanese-"):
+            layers = {layer["name"] for layer in reading["tables"]["layers"] if layer.get("defined")}
+            if layers != {"0", "日本語"} or [e.get("layer") for e in reading["entities"]] != ["日本語"]:
+                broken.append(f"{path}: 日本語の画層とその上の線を読めない。文字コードによる照合を確かめられない")
         if path in CHECKS:
             continue
         for recipe in RECIPES:

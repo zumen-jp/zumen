@@ -52,10 +52,10 @@
         "v": 1,
         "op": "scene",
         "doc": "plan.dxf",
-        "from": "sheet/0"
+        "from": "sheet/h14"
       },
       "expect": {
-        "/result/from": "sheet/0",
+        "/result/from": "sheet/h14",
         "/result/counts/lines": 8,
         "/blobs/0/kind": "scene"
       }
@@ -98,14 +98,14 @@
         "doc": "profile.dxf"
       },
       "expect": {
-        "/result/sheets/0/id": "sheet/0",
+        "/result/sheets/0/id": "sheet/h14",
         "/result/sheets/0/size": [
           240,
           94
         ],
         "/result/sheets/0/views": 0,
         "/result/sheets/0/elements/lines": 7,
-        "/result/sheets/0/elements/texts": 5
+        "/result/sheets/0/elements/texts": 8
       }
     },
     {
@@ -113,12 +113,12 @@
         "v": 1,
         "op": "scene",
         "doc": "profile.dxf",
-        "from": "sheet/0"
+        "from": "sheet/h14"
       },
       "expect": {
-        "/result/from": "sheet/0",
+        "/result/from": "sheet/h14",
         "/result/counts/lines": 7,
-        "/result/counts/texts": 5,
+        "/result/counts/texts": 8,
         "/blobs/0/kind": "scene"
       }
     },

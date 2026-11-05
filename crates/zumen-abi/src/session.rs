@@ -7136,8 +7136,8 @@ END_SCHEMA;
         );
         assert_eq!(status, Status::Ok, "{response:?}");
         assert_eq!(text(&response, "/result/doc"), "b.dxf");
-        // 線分・円・文字・記号と、記号から離した属性の文字。ハッチングは落とす
-        assert_eq!(number(&response, "/result/elements"), "5", "{response:?}");
+        // 定義の線分・モデルの線分・円・文字・記号と、記号から離した属性の文字。ハッチングは落とす
+        assert_eq!(number(&response, "/result/elements"), "6", "{response:?}");
         let codes = codes_of(&response);
         assert!(
             codes.contains(&"convert.attribute.drawn".to_string()),
@@ -7147,6 +7147,9 @@ END_SCHEMA;
             codes.contains(&"convert.element.unsupported".to_string()),
             "{codes:?}"
         );
+        assert_eq!(number(&response, "/diagnostics/0/at/0/record"), "19");
+        assert_eq!(number(&response, "/diagnostics/1/at/0/record"), "29");
+        assert_eq!(number(&response, "/diagnostics/2/at/0/record"), "27");
         let file = String::from_utf8(session.take(0).unwrap()).unwrap();
         assert!(file.contains("\nDOOR\n"), "{file}");
         // 書いた文書は、開いた文書と同じに使える
@@ -7169,6 +7172,97 @@ END_SCHEMA;
         for value in ["\"ABC\"", "\"D-1\"", "\"DOOR\""] {
             assert!(entities.contains(value), "{value}: {entities}");
         }
+        let mut budget = Budget::default();
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let drawing = session
+            .lift(
+                "b.dxf",
+                &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+            )
+            .ok()
+            .unwrap();
+        let [definition] = drawing.symbols.as_slice() else {
+            panic!("定義の数が違う");
+        };
+        assert_eq!(definition.space.elements.len(), 1);
+        assert!(matches!(
+            definition.space.elements[0].shape,
+            zumen_drawing::Shape::Line { .. }
+        ));
+    }
+
+    #[test]
+    fn convert_drops_an_element_on_an_unavailable_layer_and_reports_its_source() {
+        let mut session = Session::new(b"").unwrap();
+        let source = CONVERTIBLE.replace("Wall", "Defpoints");
+        session.push(b"a.dxf", source.as_bytes()).unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+        let (status, response) = call(
+            &mut session,
+            r#"{"v":1,"op":"convert","doc":"a.dxf","format":"dxf","to":"b.dxf"}"#,
+        );
+        assert_eq!(status, Status::Ok, "{response:?}");
+        assert_eq!(number(&response, "/result/elements"), "5", "{response:?}");
+        assert_eq!(text(&response, "/diagnostics/0/params/kind"), "layer");
+        assert_eq!(number(&response, "/diagnostics/0/at/0/record"), "9");
+        assert_eq!(text(&response, "/diagnostics/2/params/kind"), "line");
+        assert_eq!(number(&response, "/diagnostics/2/at/0/record"), "23");
+        let written = shapes(&mut session, "b.dxf");
+        assert_eq!(written.len(), 4);
+        assert!(
+            !written
+                .iter()
+                .any(|shape| shape.contains("\"shape\":\"line\""))
+        );
+    }
+
+    #[test]
+    fn convert_counts_only_successfully_drawn_attributes() {
+        let mut session = Session::new(b"").unwrap();
+        // 入力の UTF-8 では読めるが、出力の ANSI_932 では書けない属性。
+        let source = CONVERTIBLE.replace("AC1015", "AC1021").replace("D-1", "😺");
+        session.push(b"a.dxf", source.as_bytes()).unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+        let (status, response) = call(
+            &mut session,
+            r#"{"v":1,"op":"convert","doc":"a.dxf","format":"dxf","to":"b.dxf"}"#,
+        );
+        assert_eq!(status, Status::Ok, "{response:?}");
+        assert_eq!(number(&response, "/result/elements"), "5", "{response:?}");
+        assert!(!codes_of(&response).contains(&"convert.attribute.drawn".to_string()));
+        assert_eq!(text(&response, "/diagnostics/2/params/kind"), "text");
+        assert_eq!(number(&response, "/diagnostics/2/at/0/record"), "27");
+    }
+
+    #[test]
+    fn convert_preserves_japanese_block_and_layer_names_in_r2004() {
+        let mut session = Session::new(b"").unwrap();
+        let source = CONVERTIBLE
+            .replace("AC1015", "AC1021")
+            .replace("DOOR", "扉")
+            .replace("Wall", "壁");
+        session.push(b"a.dxf", source.as_bytes()).unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+        let (status, response) = call(
+            &mut session,
+            r#"{"v":1,"op":"convert","doc":"a.dxf","format":"dxf","to":"b.dxf"}"#,
+        );
+        assert_eq!(status, Status::Ok, "{response:?}");
+        assert_eq!(number(&response, "/result/elements"), "6", "{response:?}");
+        let mut budget = Budget::default();
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let drawing = session
+            .lift(
+                "b.dxf",
+                &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+            )
+            .ok()
+            .unwrap();
+        assert!(drawing.layers.iter().any(|layer| layer.name == "壁"));
+        assert_eq!(drawing.symbols[0].key.name, "扉");
+        assert_eq!(drawing.symbols[0].space.elements.len(), 1);
     }
 
     #[test]
