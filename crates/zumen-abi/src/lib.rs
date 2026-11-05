@@ -57,6 +57,8 @@ mod plugin;
 mod pointcloud;
 #[cfg(not(target_family = "wasm"))]
 mod process;
+#[cfg(feature = "drawing")]
+mod render;
 mod review;
 mod scene;
 mod session;

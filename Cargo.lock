@@ -814,6 +814,7 @@ dependencies = [
  "zumen-ply",
  "zumen-pointcloud",
  "zumen-profile",
+ "zumen-render",
  "zumen-review",
  "zumen-scene",
  "zumen-sdk",

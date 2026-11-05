@@ -9,9 +9,56 @@ use zumen_scene::{Chunking, FontSet, Options, Palette};
 use crate::messages::{self, Extent, HeightReference, SceneCounts, SceneRequest, SceneResult};
 use crate::session::{Failed, fail, invalid_value};
 
+/// scene と render が共有する借用した指定。要求の列や名前を複写しない（決定 0275）。
+#[derive(Clone, Copy)]
+pub(crate) struct View<'a> {
+    pub doc: &'a str,
+    pub from: &'a str,
+    pub view: Option<u64>,
+    pub region: Option<&'a [f64]>,
+    pub tolerance: Option<f64>,
+    pub print: Option<bool>,
+    pub palette: Option<&'a str>,
+    pub fonts: Option<&'a [messages::SceneFont]>,
+    pub heights: Option<&'a std::collections::BTreeMap<String, HeightReference>>,
+}
+
+impl<'a> From<&'a SceneRequest> for View<'a> {
+    fn from(request: &'a SceneRequest) -> Self {
+        Self {
+            doc: &request.doc,
+            from: &request.from,
+            view: request.view,
+            region: request.region.as_deref(),
+            tolerance: request.tolerance,
+            print: request.print,
+            palette: request.palette.as_deref(),
+            fonts: request.fonts.as_deref(),
+            heights: request.heights.as_ref(),
+        }
+    }
+}
+
+#[cfg(feature = "drawing")]
+impl<'a> From<&'a messages::RenderRequest> for View<'a> {
+    fn from(request: &'a messages::RenderRequest) -> Self {
+        Self {
+            doc: &request.doc,
+            from: &request.from,
+            view: request.view,
+            region: Some(&request.region),
+            tolerance: request.tolerance,
+            print: request.print,
+            palette: request.palette.as_deref(),
+            fonts: request.fonts.as_deref(),
+            heights: request.heights.as_ref(),
+        }
+    }
+}
+
 /// 要求の値を、図面を変換する前に確かめる
-pub(crate) fn check(request: &SceneRequest, cx: &mut Cx<'_>) -> Result<(), Failed> {
-    match request.region.as_deref() {
+pub(crate) fn check(request: View<'_>, cx: &mut Cx<'_>) -> Result<(), Failed> {
+    match request.region {
         None => {}
         Some(&[min_x, min_y, max_x, max_y]) if min_x <= max_x && min_y <= max_y => {}
         Some(_) => return Err(fail(cx, invalid_value("/region"))),
@@ -28,10 +75,10 @@ pub(crate) fn check(request: &SceneRequest, cx: &mut Cx<'_>) -> Result<(), Faile
 /// 起点の ID を、たどる起点と座標の単位にする
 fn origin(
     drawing: &Drawing2D,
-    request: &SceneRequest,
+    request: View<'_>,
     cx: &mut Cx<'_>,
 ) -> Result<(Origin, messages::Unit), Failed> {
-    let from = request.from.as_str();
+    let from = request.from;
     let space = drawing
         .spaces
         .iter()
@@ -127,13 +174,13 @@ pub(crate) fn reference(value: HeightReference) -> Reference {
 /// シーンを作り、結果とバッファーを返す。結果の `blob` は呼ぶ側が書く
 pub(crate) fn scene(
     drawing: &Drawing2D,
-    request: &SceneRequest,
+    request: View<'_>,
     palette: Palette,
     fonts: &FontSet<'_>,
     cx: &mut Cx<'_>,
 ) -> Result<(SceneResult, Vec<u8>), Failed> {
     let (origin, unit) = origin(drawing, request, cx)?;
-    let region = match request.region.as_deref() {
+    let region = match request.region {
         Some(&[a, b, c, d]) => Some([a, b, c, d]),
         _ => None,
     };
@@ -150,7 +197,7 @@ pub(crate) fn scene(
     let counts = scene.counts;
     Ok((
         SceneResult {
-            from: request.from.clone(),
+            from: request.from.to_owned(),
             view: request.view,
             unit,
             tolerance: scene.tolerance,

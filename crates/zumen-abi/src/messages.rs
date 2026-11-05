@@ -73,6 +73,8 @@ pub enum Request {
     BuildingApply(BuildingApplyRequest),
     /// 開いた図面の文書を図面モデル（L2）に変換し、図面モデルのバイナリ（決定 0247）を blob で返す。配置は schema/drawing.toml にあり、元の文書の形式・系統・ハッシュも持つ。プラグインのモジュールが読んだ図面は、これを図面のモジュールの open に渡すと、元の形式とハッシュの読むだけの文書になる。マイナーバージョン 60 から
     Lift(LiftRequest),
+    /// 開いた文書を scene と同じ起点・配置・フォントで 2D のシーンにし、画像を blob で返す（決定 0272・0275）。SVG は字形の輪郭だけを描き、字形のない空でない文字・外部画像・名前付きの点記号は元の ID と unit を診断して描かない。シーン生成と描画で同じ予算と中断の合図を使い、失敗では画像を返さない。マイナーバージョン 64 から
+    Render(RenderRequest),
 }
 
 impl Request {
@@ -109,6 +111,7 @@ impl Request {
         "boring",
         "building_apply",
         "lift",
+        "render",
     ];
 
     /// タグのフィールド（`op`）の値
@@ -145,6 +148,7 @@ impl Request {
             Self::Boring(_) => "boring",
             Self::BuildingApply(_) => "building_apply",
             Self::Lift(_) => "lift",
+            Self::Render(_) => "render",
         }
     }
 }
@@ -192,6 +196,7 @@ impl FromJson for Request {
                 Self::BuildingApply(BuildingApplyRequest::read_fields(&mut object)?)
             }
             "lift" => Self::Lift(LiftRequest::read_fields(&mut object)?),
+            "render" => Self::Render(RenderRequest::read_fields(&mut object)?),
             other => return Err(Invalid::new(Problem::Tag(other.to_string())).in_key("op")),
         };
         object.finish()?;
@@ -233,6 +238,7 @@ impl ToJson for Request {
             Self::Boring(value) => value.to_json(out),
             Self::BuildingApply(value) => value.to_json(out),
             Self::Lift(value) => value.to_json(out),
+            Self::Render(value) => value.to_json(out),
         }
     }
 }
@@ -5987,6 +5993,275 @@ impl FromJson for SceneRequest {
 }
 
 impl ToJson for SceneRequest {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 開いた文書を scene と同じ起点・配置・フォントで 2D のシーンにし、画像を blob で返す（決定 0272・0275）。SVG は字形の輪郭だけを描き、字形のない空でない文字・外部画像・名前付きの点記号は元の ID と unit を診断して描かない。シーン生成と描画で同じ予算と中断の合図を使い、失敗では画像を返さない。マイナーバージョン 64 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct RenderRequest {
+    /// `request_common` のフィールド
+    pub request_common: RequestCommon,
+    /// 文書の名前。open で作ったもの
+    pub doc: String,
+    /// scene と同じ起点。実寸の空間・記号の定義の空間・用紙の ID
+    pub from: String,
+    /// 起点の用紙のビューの番号。0 から数える。from が用紙のときだけ書ける。scene と同じ意味
+    pub view: Option<u64>,
+    /// 画像の出力形式
+    pub format: RenderFormat,
+    /// 出力の幅（ピクセル）
+    pub width: u64,
+    /// 出力の高さ（ピクセル）
+    pub height: u64,
+    /// [x の最小, y の最小, x の最大, y の最大]。起点の座標で、幅と高さが正の有限値になる範囲を明示する。scene の範囲の絞り込みにも使い、縦横同率で中央に収めて範囲外を切る。縦横比の違いによる余白は背景色にする
+    pub region: Vec<f64>,
+    /// 用紙 mm の線幅をピクセルへ直す DPI。正の有限値。座標の単位を mm と推測しない。線幅 0 は 1 ピクセル
+    pub dpi: f64,
+    /// 背景の sRGB と alpha。[r, g, b, a] の 4 値を 0〜255 で明示する
+    pub background: Vec<u64>,
+    /// ACI 7 と未解決の色に使う sRGB と alpha。[r, g, b, a] の 4 値を 0〜255 で明示する。未解決の色は診断する
+    pub foreground: Vec<u64>,
+    /// scene と同じ弦の誤差（起点の長さ）。0 より大きい。書かなければ用紙は 0.02 mm、空間は要素の範囲の対角線の 1/50000
+    pub tolerance: Option<f64>,
+    /// scene と同じ指定。true は印刷する要素、書かないか false は表示する要素を描く
+    pub print: Option<bool>,
+    /// scene と同じ色の表の入力の名前。zm_push で渡した JSON の values に rgb と aci・sxf・jww の符号を並べる
+    pub palette: Option<String>,
+    /// scene と同じフォントの指定。名前を合わせ、なければ名前のないフォントを使う。字形の輪郭を作るため、zm_push でフォントのバイト列を渡す。OS のフォントは探索しない
+    pub fonts: Option<Vec<SceneFont>>,
+    /// scene と同じ宣言値の高さの意味。fonts を書いたときだけ使う。書かないキーは既定の意味に従う（決定 0176・0188）
+    pub heights: Option<BTreeMap<String, HeightReference>>,
+}
+
+impl RenderRequest {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let request_common = RequestCommon::read_fields(object)?;
+        object.constant("op", "render")?;
+        let doc = object.required("doc", json::string)?;
+        let from = object.required("from", json::string)?;
+        let view = object.optional("view", |value| json::uint(value, 0, 9007199254740991))?;
+        let format = object.required("format", RenderFormat::from_json)?;
+        let width = object.required("width", |value| json::uint(value, 1, 4294967295))?;
+        let height = object.required("height", |value| json::uint(value, 1, 4294967295))?;
+        let region = object.required("region", |value| json::array(value, json::number))?;
+        let dpi = object.required("dpi", json::number)?;
+        let background = object.required("background", |value| {
+            json::array(value, |value| json::uint(value, 0, 255))
+        })?;
+        let foreground = object.required("foreground", |value| {
+            json::array(value, |value| json::uint(value, 0, 255))
+        })?;
+        let tolerance = object.optional("tolerance", json::number)?;
+        let print = object.optional("print", json::boolean)?;
+        let palette = object.optional("palette", json::string)?;
+        let fonts = object.optional("fonts", |value| json::array(value, SceneFont::from_json))?;
+        let heights = object.optional("heights", |value| {
+            json::map(value, HeightReference::from_json)
+        })?;
+        Ok(Self {
+            request_common,
+            doc,
+            from,
+            view,
+            format,
+            width,
+            height,
+            region,
+            dpi,
+            background,
+            foreground,
+            tolerance,
+            print,
+            palette,
+            fonts,
+            heights,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        self.request_common.write_fields(out);
+        out.key("op");
+        out.string("render");
+        out.key("doc");
+        out.string(&self.doc);
+        out.key("from");
+        out.string(&self.from);
+        if let Some(value) = &self.view {
+            out.key("view");
+            out.uint(*value);
+        }
+        out.key("format");
+        self.format.to_json(out);
+        out.key("width");
+        out.uint(self.width);
+        out.key("height");
+        out.uint(self.height);
+        out.key("region");
+        out.array(&self.region, |out, item| out.float(*item));
+        out.key("dpi");
+        out.float(self.dpi);
+        out.key("background");
+        out.array(&self.background, |out, item| out.uint(*item));
+        out.key("foreground");
+        out.array(&self.foreground, |out, item| out.uint(*item));
+        if let Some(value) = &self.tolerance {
+            out.key("tolerance");
+            out.float(*value);
+        }
+        if let Some(value) = &self.print {
+            out.key("print");
+            out.bool(*value);
+        }
+        if let Some(value) = &self.palette {
+            out.key("palette");
+            out.string(value);
+        }
+        if let Some(value) = &self.fonts {
+            out.key("fonts");
+            out.array(value, |out, item| item.to_json(out));
+        }
+        if let Some(value) = &self.heights {
+            out.key("heights");
+            out.map(value, |out, item| item.to_json(out));
+        }
+    }
+}
+
+impl FromJson for RenderRequest {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for RenderRequest {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 画像の出力形式。svg は SVG 1.1（image/svg+xml）
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum RenderFormat {
+    /// `svg`
+    Svg,
+}
+
+impl RenderFormat {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[Self::Svg];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Svg => "svg",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "svg" => Some(Self::Svg),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for RenderFormat {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for RenderFormat {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
+    }
+}
+
+/// 画像の形式・サイズと、シーンの起点・単位・許容差、画像の blob の番号
+#[derive(Clone, Debug, PartialEq)]
+pub struct RenderResult {
+    /// 画像の出力形式
+    pub format: RenderFormat,
+    /// 出力の幅（ピクセル）
+    pub width: u64,
+    /// 出力の高さ（ピクセル）
+    pub height: u64,
+    /// シーンの起点の ID
+    pub from: String,
+    /// 起点のビューの番号。ビューでなければ持たない
+    pub view: Option<u64>,
+    /// 起点の座標の単位。用紙とビューからは millimeter
+    pub unit: Unit,
+    /// シーンで使った弦の誤差（起点の長さ）
+    pub tolerance: f64,
+    /// 画像の blob の番号（種類は image）。zm_take で取り出す
+    pub blob: u64,
+}
+
+impl RenderResult {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let format = object.required("format", RenderFormat::from_json)?;
+        let width = object.required("width", |value| json::uint(value, 1, 4294967295))?;
+        let height = object.required("height", |value| json::uint(value, 1, 4294967295))?;
+        let from = object.required("from", json::string)?;
+        let view = object.optional("view", |value| json::uint(value, 0, 9007199254740991))?;
+        let unit = object.required("unit", Unit::from_json)?;
+        let tolerance = object.required("tolerance", json::number)?;
+        let blob = object.required("blob", |value| json::uint(value, 0, 9007199254740991))?;
+        Ok(Self {
+            format,
+            width,
+            height,
+            from,
+            view,
+            unit,
+            tolerance,
+            blob,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("format");
+        self.format.to_json(out);
+        out.key("width");
+        out.uint(self.width);
+        out.key("height");
+        out.uint(self.height);
+        out.key("from");
+        out.string(&self.from);
+        if let Some(value) = &self.view {
+            out.key("view");
+            out.uint(*value);
+        }
+        out.key("unit");
+        self.unit.to_json(out);
+        out.key("tolerance");
+        out.float(self.tolerance);
+        out.key("blob");
+        out.uint(self.blob);
+    }
+}
+
+impl FromJson for RenderResult {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for RenderResult {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);

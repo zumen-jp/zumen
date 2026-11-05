@@ -40,6 +40,8 @@ zumen-geom2d = { version = "0.2.0", path = "../zumen-geom2d" }
 zumen-json = { version = "0.2.0", path = "../zumen-json" }
 zumen-profile = { version = "0.2.0", path = "../zumen-profile" }
 zumen-review = { version = "0.2.0", path = "../zumen-review" }
+# 決定 0272 の描画部品を、scene と同じ図面モデルから使う（決定 0275）
+zumen-render = { version = "0.2.0", path = "../zumen-render" }
 zumen-scene = { version = "0.2.0", path = "../zumen-scene" }
 zumen-jww = { version = "0.2.0", path = "../zumen-jww" }
 zumen-bcf = { version = "0.2.0", path = "../zumen-bcf" }

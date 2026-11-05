@@ -51,9 +51,12 @@ fn javadoc(out: &mut String, indent: &str, text: &str) {
         return;
     }
     let _ = writeln!(out, "{indent}/**");
-    let _ = writeln!(out, "{indent} * {first}");
-    for line in rest {
-        let _ = writeln!(out, "{indent} * {line}");
+    for line in std::iter::once(first).chain(rest) {
+        if line.is_empty() {
+            let _ = writeln!(out, "{indent} *");
+        } else {
+            let _ = writeln!(out, "{indent} * {line}");
+        }
     }
     let _ = writeln!(out, "{indent} */");
 }
