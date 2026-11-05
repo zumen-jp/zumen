@@ -6,6 +6,7 @@
 
 use std::collections::BTreeMap;
 
+use zumen_acad::db::{Data, Section};
 use zumen_acad::{Dxf, DxfFile};
 use zumen_base::{Cx, Diagnostic, Diagnostics, Kind, Ref, Value, codes};
 use zumen_drawing::{
@@ -272,6 +273,7 @@ pub(crate) fn to_dxf(drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<Converted, 
     add_all(&mut file, edits, &mut lost, cx)?;
     let elements = lost.added;
 
+    quiet(cx, |cx| update_table_counts(&mut file, cx)).map_err(|error| failed(cx, error))?;
     let mut bytes = Vec::new();
     Dxf::write(&file, &mut bytes, cx).map_err(|_| Failed)?;
     lost.report(cx);
@@ -280,6 +282,43 @@ pub(crate) fn to_dxf(drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<Converted, 
         bytes,
         elements,
     })
+}
+
+/// DXF Reference「Symbol Table Group Codes」の TABLE の 70 は、項目数の上限。
+/// apply で追加した後の実際の項目数を書き、ひな形の初期値のままにしない。
+fn update_table_counts(file: &mut DxfFile, cx: &mut Cx<'_>) -> Result<(), Error> {
+    let mut db = file.objects(cx)?;
+    let mut current: Option<(usize, i64)> = None;
+    let mut tables = Vec::new();
+    for (index, object) in db.objects().iter().enumerate() {
+        cx.check(Kind::Work, 1)?;
+        if object.section != Section::Tables {
+            continue;
+        }
+        match object.kind.as_slice() {
+            b"TABLE" => current = Some((index, 0)),
+            b"ENDTAB" => {
+                if let Some(table) = current.take() {
+                    tables.push(table);
+                }
+            }
+            _ => {
+                if let Some((_, count)) = &mut current {
+                    *count = count.saturating_add(1);
+                }
+            }
+        }
+    }
+    for (index, count) in tables {
+        let object = db.object_mut(index).ok_or(Error::Invalid)?;
+        let value = object
+            .values
+            .iter_mut()
+            .find(|value| value.code == 70)
+            .ok_or(Error::Invalid)?;
+        value.data = Data::Int(count);
+    }
+    file.write_back(&db, cx)
 }
 
 /// 書けなかったものの、種類ごとの件数
@@ -993,7 +1032,17 @@ mod tests {
                     .any(|value| value.code == 100 && value.data == Data::Text(name.to_vec()))
             };
             match object.kind.as_slice() {
-                b"TABLE" => assert!(subclass(b"AcDbSymbolTable")),
+                b"TABLE" => {
+                    assert!(subclass(b"AcDbSymbolTable"));
+                    let entries = db
+                        .objects()
+                        .iter()
+                        .filter(|entry| {
+                            entry.section == Section::Tables && entry.owner() == Some(handle)
+                        })
+                        .count();
+                    assert_eq!(object.first(70), Some(&Data::Int(entries as i64)));
+                }
                 b"LTYPE" | b"LAYER" | b"STYLE" | b"DIMSTYLE" | b"BLOCK_RECORD" => {
                     assert!(subclass(b"AcDbSymbolTableRecord"));
                     assert_eq!(db.get(owner).unwrap().kind, b"TABLE");

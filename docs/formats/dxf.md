@@ -71,7 +71,7 @@ AutoCAD の系統のファイルモデル（L1）として DXF を読み書き�
 
 `convert` は、図面モデルを新しい R2004 の DXF（AC1018）に書きます（[決定 0206](../decisions/0206-convert-to-new-dxf.md)）。ひな形に表の項目と要素を `apply` で足します。
 
-- ひな形の TABLE はハンドル（5）と `AcDbSymbolTable`、表の項目は所有者（330）と `AcDbSymbolTableRecord`・種類ごとのサブクラス（100）を持つ。DIMSTYLE のハンドルは 105 に書く（DXF Reference「TABLES Section」「Common Group Codes for Symbol Table Entries」）。BLOCK・ENDBLK と足した図形の所有者は、対応する BLOCK_RECORD にする。これにより、記号の定義の中身も足せる。
+- ひな形の TABLE はハンドル（5）と `AcDbSymbolTable`、表の項目は所有者（330）と `AcDbSymbolTableRecord`・種類ごとのサブクラス（100）を持つ。DIMSTYLE のハンドルは 105 に書く（DXF Reference「TABLES Section」「Common Group Codes for Symbol Table Entries」）。BLOCK・ENDBLK と足した図形の所有者は、対応する BLOCK_RECORD にする。これにより、記号の定義の中身も足せる。表の項目を足した後で、各 TABLE の件数（70）を実際の項目数に直す（DXF Reference「Symbol Table Group Codes」）。
 - OBJECTS にルートの DICTIONARY、`ACAD_LAYOUT` の辞書、モデルと用紙の LAYOUT を書く。LAYOUT と BLOCK_RECORD は互いを指す。用紙は最初の 1 枚を `Layout1` にし、入力に用紙がなくても空の `Layout1` を持つ。空の LAYOUT を追加先に使うので、用紙を作るための一時的な POINT は置かない（DXF Reference「DICTIONARY」「LAYOUT」「BLOCK_RECORD」）。
 - 用紙の座標と限界は最初の実寸の空間の単位で書き、LAYOUT の印刷の単位を mm、印刷の尺度を 1 図面単位の mm とする。実寸の空間がなければ mm とする。VIEWPORT は `AcDbEntity`・`AcDbViewport` と、用紙の BLOCK_RECORD を指す所有者を持つ。`$HANDSEED` は、VIEWPORT を含むすべてのハンドルより大きくする（DXF Reference「PLOTSETTINGS」「VIEWPORT」「HEADER Section Group Codes」）。
 - 文字のコード・ページは ANSI_932 とする。ひな形の記号名にも、書き戻しで使う `encoding_rs` の同じ表を使う（[決定 0192](../decisions/0192-acad-code-page-write-back.md)）。この依存は既存採用済みで、ライセンスは `(Apache-2.0 OR MIT) AND BSD-3-Clause`。OS やロケールに依らず、wasm でも同じ表で符号化する。記号名に使えない文字は `_` にし、空の名前・無名の定義・ANSI_932 で元に戻らない名前には `zumen_番号` を付ける。名前が重なれば連番を付ける。
@@ -214,4 +214,4 @@ R2004 の構成は、Autodesk の [DXF Reference](https://images.autodesk.com/ad
 - 書き: AutoCAD で作った R2000・R2004・R2010・R2018 の DXF に、引出線の置き換え・変換・追加と MULTILEADER の線の置き換えを当てて書き戻し、AutoCAD 2027 で開いた。監査の誤りは 0 で、形・矢印・注記が当てた値と合った（#345）。
 - 「サンプルで確かめた」と書いた扱いには、`samples/` にない図面で確かめたものもある。「推定」と書いたものと、サンプルで確かめたと書いていないものは、仕様とテストの中で作ったファイルで確かめた。AutoCAD と照らしたのは上の範囲だけで、ezdxf と照らす値は下の項にある。
 - 点・寸法・表と、引出線のほかの変更を書き戻した DXF と、convert（[決定 0206](../decisions/0206-convert-to-new-dxf.md)）で書いた DXF は、AutoCAD で開いていない（#342・#314・#503）。
-- ezdxf: 毎晩の CI で、公開サンプルの DXF（`samples/dxf`・`samples/dwg`）と、それに書き戻しを当てた DXF を ezdxf 1.4.5 で読み、zumen の読みと照らす（`xtask/verify`、#511）。照らすのは、画層・図形の種類・モデル空間の形の値・黙って捨てていないこと、書き戻しで決めた形・画層・色と、監査の誤りが入力より増えないこと。convert で書いた DXF もすべて読め、監査の誤りと修復が 0 であることを照らす（#509）。公開サンプルと適合テストの図面から変換した 34 ファイルで確かめた。AutoCAD で開く手順は #503 の検証キットにあるが、まだ実行していない。
+- ezdxf: 毎晩の CI で、公開サンプルの DXF（`samples/dxf`・`samples/dwg`）と、それに書き戻しを当てた DXF を ezdxf 1.4.5 で読み、zumen の読みと照らす（`xtask/verify`、#511）。照らすのは、画層・図形の種類・モデル空間の形の値・黙って捨てていないこと、書き戻しで決めた形・画層・色と、監査の誤りが入力より増えないこと。convert で書いた DXF もすべて読め、監査の誤りと修復が 0 であることを照らす（#509）。各 TABLE の宣言件数（70）と実件数も比べる。日本語画層の R2004（ANSI_932）と R2007（UTF-8）を含め、公開サンプルとテストの図面から変換した 36 ファイルで確かめた。AutoCAD で開く手順は #503 の検証キットにあるが、まだ実行していない。
