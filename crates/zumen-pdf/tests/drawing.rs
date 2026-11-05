@@ -4759,3 +4759,203 @@ fn reads_empty_flate_streams() {
         .collect();
     assert_eq!(counts, [0, 1, 1]);
 }
+
+/// 同じストリームを、単独・配列・フォームの、参照と直接の形に置く
+#[cfg(test)]
+fn content_stream_case(filter: &str, data: &[u8], placement: usize, calls: usize) -> Vec<u8> {
+    let mut builder = common::Builder::default();
+    builder.object(b"<< /Type /Catalog /Pages 2 0 R >>");
+    builder.object(b"<< /Type /Pages /Kids [4 0 R] /Count 1 >>");
+    let dict = if placement >= 4 {
+        format!("/Type /XObject /Subtype /Form /BBox [0 0 100 100] {filter}")
+    } else {
+        filter.to_owned()
+    };
+    let stream = common::stream(&dict, data);
+    builder.object(&stream);
+    let mut page = b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] ".to_vec();
+    match placement {
+        0 => page.extend(b"/Contents 3 0 R"),
+        1 => {
+            page.extend(b"/Contents ");
+            page.extend(&stream);
+        }
+        2 => page.extend(b"/Contents [3 0 R 3 0 R]"),
+        3 => {
+            page.extend(b"/Contents [");
+            page.extend(&stream);
+            page.extend(b" 3 0 R]");
+        }
+        4 | 5 => {
+            page.extend(b"/Resources << /XObject << /Fm ");
+            if placement == 4 {
+                page.extend(b"3 0 R");
+            } else {
+                page.extend(&stream);
+            }
+            page.extend(b" >> >> /Contents ");
+            page.extend(common::stream("", "/Fm Do ".repeat(calls)));
+        }
+        _ => panic!("未定義の配置: {placement}"),
+    }
+    page.extend(b" >>");
+    builder.object(page);
+    builder.bytes(1)
+}
+
+#[test]
+fn bounds_flate_content_and_forms_before_allocating_the_whole_output() {
+    use std::io::Write;
+    use zumen_base::{Kind, Limit, Limits, Stop};
+
+    let plain = vec![0; 2 * 1024 * 1024];
+    let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::best());
+    encoder.write_all(&plain).unwrap();
+    let data = encoder.finish().unwrap();
+    assert!(data.len() < 4096);
+    for filter in [
+        "/Filter /FlateDecode",
+        "/F /Fl",
+        "/Filter [/FlateDecode]",
+        "/Filter [/Unknown /FlateDecode]",
+        "/Filter [/Crypt /FlateDecode]",
+        "/F [/Crypt /Fl] /DP [<< /Name /Identity >> null]",
+        "/Filter /FlateDecode /DecodeParms << /Predictor 12 /Columns 1 >>",
+    ] {
+        for placement in 0..6 {
+            let source = content_stream_case(filter, &data, placement, 2);
+            let file = testkit::read::<Pdf>(&source).0.unwrap();
+            let run = || {
+                let mut budget = Budget::new(
+                    Limits::default().with(Kind::DecodedBytes, Limit::Finite(32 * 1024)),
+                );
+                let mut diagnostics = Diagnostics::new();
+                let cancel = CancelToken::new();
+                let result = file.lift(&mut Cx::new(&mut budget, &mut diagnostics, &cancel));
+                // 展開後の 2 MiB ではなく、8 KiB ずつの確認の途中で止まる
+                assert!(
+                    matches!(result, Err(Error::Stopped(Stop::Exceeded(e)))
+                    if e.kind == Kind::DecodedBytes && e.requested < 48 * 1024),
+                    "{filter}, {placement}: {result:?}"
+                );
+                let diagnostics = diagnostics.into_vec();
+                assert_eq!(diagnostics[0].code(), codes::BUDGET_DECODED_BYTES_EXCEEDED);
+                format!("{result:?} {budget:?} {diagnostics:?}")
+            };
+            assert_eq!(run(), run());
+        }
+    }
+}
+
+#[test]
+fn keeps_flate_content_and_forms_with_damage_and_predictors() {
+    let plain = b"0 0 m 10 10 l S ";
+    let good = common::zlib(plain);
+    let mut wrong = good.clone();
+    *wrong.last_mut().unwrap() ^= 0xff;
+    let mut predictor = vec![0];
+    predictor.extend(plain);
+    let columns = plain.len();
+    let filter =
+        format!("/Filter [/FlateDecode] /DecodeParms [<< /Predictor 12 /Columns {columns} >>]");
+    for (filter, data) in [
+        ("/Filter /FlateDecode", good.clone()),
+        ("/Filter [/Crypt /FlateDecode]", good.clone()),
+        (
+            "/F [/Crypt /Fl] /DP [<< /Name /Identity >> null]",
+            good.clone(),
+        ),
+        ("/F /Fl", good[2..good.len() - 4].to_vec()),
+        ("/Filter /FlateDecode", wrong),
+        ("/Filter /FlateDecode", good[..good.len() - 4].to_vec()),
+        (filter.as_str(), common::zlib(&predictor)),
+    ] {
+        for placement in 0..6 {
+            let source = content_stream_case(filter, &data, placement, 2);
+            let (drawing, diagnostics) = lift(&source);
+            let expected = if placement < 2 { 1 } else { 2 };
+            assert_eq!(elements(&drawing).len(), expected, "{filter}, {placement}");
+            assert!(
+                diagnostics.is_empty(),
+                "{filter}, {placement}: {diagnostics:?}"
+            );
+            assert_eq!(drawing, lift(&source).0);
+        }
+    }
+}
+
+#[test]
+fn content_stream_budgets_and_cancellation_are_repeatable() {
+    use zumen_base::{Kind, Limit, Limits, Stop};
+
+    let compressed = common::zlib(b"0 0 m 10 10 l S ");
+    for placement in 0..6 {
+        let source = content_stream_case("/Filter /FlateDecode", &compressed, placement, 4);
+        let file = testkit::read::<Pdf>(&source).0.unwrap();
+        let run = |limits, cancelled| {
+            let mut budget = Budget::new(limits);
+            let mut diagnostics = Diagnostics::new();
+            let cancel = CancelToken::new();
+            if cancelled {
+                cancel.cancel();
+            }
+            let result = file.lift(&mut Cx::new(&mut budget, &mut diagnostics, &cancel));
+            (result, budget, diagnostics.into_vec())
+        };
+        let (expected, total, diagnostics) = run(Limits::default(), false);
+        assert!(expected.is_ok() && diagnostics.is_empty());
+        for kind in [Kind::DecodedBytes, Kind::Work] {
+            let used = total.used(kind);
+            assert!(used > 0);
+            let exact = Limits::default().with(kind, Limit::Finite(used));
+            assert_eq!(run(exact, false).0.unwrap(), expected.clone().unwrap());
+            let short = Limits::default().with(kind, Limit::Finite(used - 1));
+            let stopped = run(short, false);
+            assert!(
+                matches!(stopped.0, Err(Error::Stopped(Stop::Exceeded(e)))
+                if e.kind == kind),
+                "{placement} {kind:?}: {stopped:?}"
+            );
+            assert_eq!(format!("{stopped:?}"), format!("{:?}", run(short, false)));
+        }
+        let cancelled = run(Limits::default(), true);
+        assert!(matches!(cancelled.0, Err(Error::Stopped(Stop::Cancelled))));
+        assert_eq!(cancelled.1.used(Kind::DecodedBytes), 0);
+        assert_eq!(cancelled.2[0].code(), codes::CALL_REQUEST_CANCELLED);
+    }
+}
+
+#[test]
+fn counts_repeated_form_decoding_before_predictors_even_on_failure() {
+    use zumen_base::Kind;
+
+    let used = |predictor, calls| {
+        let content = "/Fm Do ".repeat(calls);
+        let mut document = Document::new(vec![
+            Page::new(&content).resources("/XObject << /Fm 3 0 R >>"),
+        ]);
+        // 1 行の出力は 1 バイト。予測子 12 では各行の先頭も展開する。
+        // 予測子 5 は未対応で、Flate を展開した後に失敗する
+        let plain = vec![0; 8192];
+        document.objects = vec![common::stream(
+            &format!(
+                "/Type /XObject /Subtype /Form /BBox [0 0 1 1] /Filter /FlateDecode /DecodeParms << /Predictor {predictor} /Columns 1 >>"
+            ),
+            common::zlib(&plain),
+        )];
+        let source = document.bytes();
+        let file = testkit::read::<Pdf>(&source).0.unwrap();
+        let mut budget = Budget::default();
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        file.lift(&mut Cx::new(&mut budget, &mut diagnostics, &cancel))
+            .unwrap();
+        budget.used(Kind::DecodedBytes)
+    };
+    for predictor in [1, 12, 5] {
+        let one = used(predictor, 1);
+        let two = used(predictor, 2);
+        // 走査のキャッシュを使っても、解釈側は呼ぶたびに 8 KiB を展開する
+        assert!(two - one >= 8192, "{predictor}: {one} {two}");
+    }
+}
