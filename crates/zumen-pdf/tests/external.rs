@@ -204,7 +204,13 @@ fn compare(name: &str, drawing: &Drawing2D, diag: &[Diagnostic], external: &Valu
             // pdf.js はソフトマスク用の 2 経路も演算の一覧に含む。zumen はマスクを移さず、
             // 診断する（#520、PDF 32000-2 の 11.6.5）。差の数が変わったら、既知として通さない。
             assert_eq!((paths, expected_paths), (2, 4));
-            assert!(has_code(diag, "pdf.transparency.approximated"));
+            assert_eq!(
+                diag.iter()
+                    .filter(|d| d.code().name() == "pdf.transparency.approximated")
+                    .map(Diagnostic::count)
+                    .sum::<u64>(),
+                2
+            );
         } else {
             assert_eq!(paths, expected_paths, "{name}: 経路の数");
         }
