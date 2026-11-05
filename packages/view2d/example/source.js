@@ -3,10 +3,11 @@ export function findSource(session, document, element, maxPages = 1000) {
   if (!Number.isSafeInteger(maxPages) || maxPages <= 0) throw new RangeError("ページの上限");
   const drawing = session.call({ v: 1, op: "drawing", doc: document.doc }).result;
   if (!drawing || drawing.hash !== document.hash) throw new Error("表示した文書と版が異なる");
-  // 要素 ID は空間か用紙の ID と、その中の要素の ID でできている（決定 0117・0156）。
-  const slash = element.id.lastIndexOf("/");
-  if (slash < 0) throw new RangeError("要素 ID");
-  const place = element.id.slice(0, slash);
+  // 空間・用紙と要素は、それぞれ重複を /1・/2 で区別する（決定 0117・0156）。
+  // 出所の h・i・r・b・e を境に分け、要素側の重複を place に含めない。
+  const match = /^((?:space|sheet)\/(?:[0-9]+|h[0-9A-F]+)(?:\/[0-9]+)?)\/(?:h[0-9A-F]+|[irbe][0-9]+)(?:\/[0-9]+)?$/.exec(element.id);
+  if (!match) throw new RangeError("要素 ID");
+  const place = match[1];
   let offset = 0;
   for (let page = 0; page < maxPages; page++) {
     const result = session.call({ v: 1, op: "entities", doc: document.doc, place, offset, limit: 256, fields: ["source"] }).result;

@@ -58,9 +58,74 @@ export function testHit({ assert }) {
     assert(rectangle(80, 101, 120, 101.5) && !rectangle(80, 102.2, 120, 103), "中心線が入らない範囲でも線幅との交差を調べる");
     assert(rectangle(100, 100, 100, 100), "点に縮んだ矩形の問い合わせ");
     set(line([-10, 0, 0, 0, 0, 10]));
-    assert(hit(101.2, 101.2) && !hit(101.8, 101.8), "折れ線の round join の円を使う");
+    assert(hit(101.2, 101.2) && !hit(101.8, 101.8), "折れ線の round join の扇形を使う");
     set(line([0, 0, 0, 0, 0, 0]));
     assert(!hit(100, 100, 2), "長さのない butt の線を拾わない");
+
+    viewer.jumpTo({ ...view, scale: 1 });
+    set(line([-0.5, 0, 0, 0, 0.5, 0]));
+    assert(!hit(101.5, 100) && !hit(98.5, 100), "短い共線の join が butt の端からはみ出さない");
+    assert(!hit(101.5, 100, 0.9) && hit(101.5, 100, 1), "短い線への許容円は実際の butt の端から測る");
+    assert(!rectangle(101, 99, 101.5, 101) && rectangle(100.5, 99, 101, 101), "範囲も短い線の butt の端との接触で判定する");
+    set(clipped(line([-0.5, 0, 0, 0, 0.5, 0]), [{ xy: square(1, -3, 3, 3) }]));
+    assert(!hit(101.5, 100, 5) && !rectangle(90, 90, 110, 110), "join の全円だけが切り抜きに入っても選ばない");
+    set(clipped(line([-0.5, 0, 0, 0, 0, 0.5]), [{ xy: square(-2, -2, -0.9, -0.9) }]));
+    assert(!hit(98.5, 101.5) && !rectangle(90, 90, 110, 110), "短い曲がりの扇形の外を切り抜いても描くものはない");
+    set(clipped(line([-0.5, 0, 0, 0, 0, 0.5]), [{ xy: square(0, -3, 3, 0) }]));
+    assert(hit(101, 101) && hit(100, 100) && rectangle(101, 101, 101.2, 101.2), "扇形の内側と半径方向の clip 境界への接触を拾う");
+    set(clipped(line([-0.5, 0, 0, 0, 0, 0.5]), [{ xy: square(-3, -3, 3, -2) }]));
+    assert(!hit(100, 102) && !rectangle(90, 90, 110, 110), "join の円弧に切り抜きが接するだけなら拾わない");
+
+    // 当たり判定の幾何をまねず、Canvas が構築した stroke の包含と照らす。
+    const reference = document.createElement("canvas").getContext("2d");
+    reference.lineWidth = 4; reference.lineCap = "butt"; reference.lineJoin = "round";
+    const compareStroke = (path, name) => {
+      let mismatch;
+      let inside = 0, outside = 0;
+      for (let y = 0; y < 25; y++) for (let x = 0; x < 25; x++) {
+        const px = 97.073 + x * 0.25, py = 97.073 + y * 0.25;
+        const expected = reference.isPointInStroke(path, px, py);
+        // Canvas の円弧の近似に依存しないよう 0.002 CSS px 以内の境界は外す。
+        // ちょうど接する問い合わせは、上の明示した端・clip のケースで確かめる。
+        if ([[0.002, 0], [-0.002, 0], [0, 0.002], [0, -0.002]].some(([dx, dy]) => reference.isPointInStroke(path, px + dx, py + dy) !== expected)) continue;
+        if (expected) inside++; else outside++;
+        if (hit(px, py) !== expected) mismatch ??= { x: px, y: py };
+      }
+      assert(inside > 0 && outside > 0 && !mismatch, `${name} の round join を Canvas と照合: ${JSON.stringify(mismatch)}`);
+    };
+    const cases = [
+      ["短い共線", [-0.5, 0, 0, 0, 0.5, 0]],
+      ["逆向きの共線", [0.5, 0, 0, 0, -0.5, 0]],
+      ["左への曲がり", [-0.5, 0, 0, 0, 0, 0.5]],
+      ["右への曲がり", [-0.5, 0, 0, 0, 0, -0.5]],
+      ["小さい角度の曲がり", [-0.5, 0, 0, 0, 0.5, 0.25]],
+      ["大きい角度の曲がり", [-0.5, 0, 0, 0, -0.375, 0.25]],
+      ["折返し", [-0.5, 0, 0, 0, -0.5, 0]],
+      ["短い折返し", [-0.5, 0, 0, 0, -0.25, 0]],
+      ["重複した頂点", [-0.5, 0, 0, 0, 0, 0, 0, 0.5]],
+      ["近接した曲がり", [-0.5, 0, 0, 0, 0, 0.5, 0.5, 0.5]],
+      ["始点へ戻る開いた線", [-0.5, 0, 0, 0, 0, 0.5, -0.5, 0]],
+    ];
+    for (const [name, values] of cases) {
+      const xy = new Float32Array(values), path = new Path2D();
+      set(line(values));
+      for (let i = 0; i < xy.length; i += 2) {
+        const p = viewer.toScreen({ x: xy[i], y: xy[i + 1] });
+        if (i === 0) path.moveTo(p.x, p.y); else path.lineTo(p.x, p.y);
+      }
+      compareStroke(path, name);
+    }
+    viewer.jumpTo({ ...view, scale: 0.25, rotation: Math.PI / 5 });
+    set(line([-2, 0, 0, 0, 0, 2]));
+    const rotated = new Path2D();
+    for (const [i, p] of [[-2, 0], [0, 0], [0, 2]].map(([x, y]) => viewer.toScreen({ x, y })).entries()) {
+      if (i === 0) rotated.moveTo(p.x, p.y); else rotated.lineTo(p.x, p.y);
+    }
+    compareStroke(rotated, "縮小して回転した曲がり");
+    viewer.jumpTo({ ...view, scale: 1 });
+    set(point(V.point_mark.none, V.point_frame.square, V.point_size.length, 2));
+    const closed = new Path2D(); closed.rect(99, 99, 2, 2); compareStroke(closed, "短い辺の閉じた四角");
+    viewer.jumpTo(view);
 
     set(face([square(-30, -30, 30, 30), square(-10, -10, 10, 10)]));
     assert(!at(0, 0) && at(15, 0), "面の偶奇規則の穴");

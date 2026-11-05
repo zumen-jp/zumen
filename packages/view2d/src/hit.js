@@ -51,6 +51,29 @@ function segmentContains(a, b, p, radius, direction) {
     compareToward(normal, -radius, across, secondAcross, secondScale) > 0 && compareToward(normal, radius, across, secondAcross, secondScale) < 0;
 }
 
+function roundJoin(previous, center, next) {
+  const ix = center.x - previous.x, iy = center.y - previous.y, ox = next.x - center.x, oy = next.y - center.y;
+  const incomingLength = Math.hypot(ix, iy), outgoingLength = Math.hypot(ox, oy);
+  if (incomingLength === 0 || outgoingLength === 0) return null;
+  const incoming = { x: ix / incomingLength, y: iy / incomingLength }, outgoing = { x: ox / outgoingLength, y: oy / outgoingLength };
+  // 同じ向きの共線の線分には、足す扇形がない。折返しでは前方の半円を残す。
+  if (incoming.x * outgoing.y === incoming.y * outgoing.x && incoming.x * outgoing.x + incoming.y * outgoing.y > 0) return null;
+  return { center, incoming, outgoing };
+}
+
+function joinContains({ center, incoming, outgoing }, p, radius, direction) {
+  const dx = p.x - center.x, dy = p.y - center.y;
+  const before = dx * incoming.x + dy * incoming.y, after = dx * outgoing.x + dy * outgoing.y;
+  // 円全体では、短い線分の butt の端からはみ出す。前の線の先かつ次の線の
+  // 手前だけが round join の外側の扇形で、残りは線分の矩形が担う。
+  if (!direction) return lessEqual(0, before) && lessEqual(after, 0) && lessEqual(Math.hypot(dx, dy), radius);
+  const secondScale = Math.max(Math.abs(direction.ax), Math.abs(direction.ay));
+  return compareToward(before, 0, direction.x * incoming.x + direction.y * incoming.y,
+    direction.ax * incoming.x + direction.ay * incoming.y, secondScale) > 0 &&
+    compareToward(after, 0, direction.x * outgoing.x + direction.y * outgoing.y,
+      direction.ax * outgoing.x + direction.ay * outgoing.y, secondScale) < 0 && circleToward(p, center, radius, direction) < 0;
+}
+
 /** 輪を塗る規則と butt/round の stroke を、描画と同じ座標から調べる。 */
 function compile(part, charge) {
   const segments = [], joins = [];
@@ -60,7 +83,11 @@ function compile(part, charge) {
     const count = closed || part.fill ? points.length : Math.max(0, points.length - 1);
     for (let i = 0; i < count; i++) segments.push({ a: points[i], b: points[(i + 1) % points.length] });
     if (!part.fill && points.length > 1) {
-      for (let i = closed ? 0 : 1; i < (closed ? points.length : points.length - 1); i++) joins.push(points[i]);
+      for (let i = closed ? 0 : 1; i < (closed ? points.length : points.length - 1); i++) {
+        charge(1);
+        const join = roundJoin(points[(i + points.length - 1) % points.length], points[i], points[(i + 1) % points.length]);
+        if (join) joins.push(join);
+      }
     }
   }
   const radius = part.width / 2, work = 1 + segments.length + joins.length + part.circles.length;
@@ -70,7 +97,7 @@ function compile(part, charge) {
     if (!pointInBox(p, box)) return false;
     if (!part.fill) {
       for (const { a, b } of segments) if (segmentContains(a, b, p, radius, direction)) return true;
-      for (const center of joins) if (direction ? circleToward(p, center, radius, direction) < 0 : lessEqual(Math.hypot(p.x - center.x, p.y - center.y), radius)) return true;
+      for (const join of joins) if (joinContains(join, p, radius, direction)) return true;
       for (const circle of part.circles) {
         if (direction ? circleToward(p, circle, circle.radius + radius, direction) < 0 &&
           (circle.radius <= radius || circleToward(p, circle, circle.radius - radius, direction) > 0) :
@@ -112,7 +139,9 @@ function compile(part, charge) {
       const corners = [{ x: a.x + nx, y: a.y + ny }, { x: b.x + nx, y: b.y + ny }, { x: b.x - nx, y: b.y - ny }, { x: a.x - nx, y: a.y - ny }];
       for (let i = 0; i < 4; i++) yield { a: corners[i], b: corners[(i + 1) % 4] };
     }
-    for (const center of joins) { charge(1); yield { ...center, radius }; }
+    // 円弧の候補は全円から出し、contains で扇形に絞る。半径方向の二辺は
+    // 隣接する線分の端辺に含まれ、query/clip との交点もその列から調べる。
+    for (const { center } of joins) { charge(1); yield { ...center, radius }; }
     for (const circle of part.circles) {
       charge(2); yield { ...circle, radius: circle.radius + radius };
       if (circle.radius > radius) yield { ...circle, radius: circle.radius - radius };

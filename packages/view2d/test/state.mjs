@@ -143,7 +143,7 @@ export function testPlacedSelection(zumen, { assert, throws }) {
     const paged = { call(request) {
       calls++;
       if (request.op === "drawing") return { result: { hash: document.hash } };
-      assert(request.place === refs[0].id.slice(0, refs[0].id.lastIndexOf("/")) && request.fields.join() === "source", "定義の空間から出所を要求");
+      assert(request.place === "space/h10" && request.fields.join() === "source", "定義の空間から出所を要求");
       return { result: request.offset === 0 ? { items: [], next_offset: 256 } : {
         items: [{ id: refs[0].id, source: { record: 7, bytes: { start: 10, end: 40 } } }],
       } };
@@ -151,5 +151,45 @@ export function testPlacedSelection(zumen, { assert, throws }) {
     const ranged = findSource(paged, document, refs[0]);
     assert(calls === 3 && ranged.source.record === 7 && ranged.source.bytes.start === 10 && ranged.source.bytes.end === 40, "ページをたどり応答のバイト範囲をそのまま返す");
     throws(() => findSource(paged, document, refs[0], 1), "出所のページ送りにも上限");
+
+    // 実際に読み込んだ DXF で、要素と定義の空間の両方に重複の接尾辞を付ける。
+    const line = (handle, y) => [0,"LINE",5,handle,8,"0",10,0,20,y,11,5,21,y];
+    const block = (name) => [0,"BLOCK",5,"10",2,name,70,0,10,0,20,0,
+      ...line("11", 0), ...line("11", 5), 0,"ENDBLK"];
+    const duplicate = [0,"SECTION",2,"BLOCKS",...block("FIRST"),...block("SECOND"),0,"ENDSEC",
+      0,"SECTION",2,"ENTITIES",...line("A1", 20),...line("A1", 25),
+      0,"INSERT",5,"20",8,"0",2,"FIRST",10,20,20,0,
+      0,"INSERT",5,"21",8,"0",2,"SECOND",10,40,20,0,0,"ENDSEC",0,"EOF",""].join("\n");
+    session.push("duplicate", new TextEncoder().encode(duplicate));
+    session.call({ v: 1, op: "open", input: "duplicate" });
+    const duplicatedDrawing = session.call({ v: 1, op: "drawing", doc: "duplicate" }).result;
+    const duplicatedResult = session.call({ v: 1, op: "scene", doc: "duplicate", from: "space/0" }).result;
+    const duplicatedDocument = { doc: "duplicate", format: "dxf", hash: duplicatedDrawing.hash };
+    viewer.setScene({ scene: readScene(session.take(duplicatedResult.blob)), result: duplicatedResult, document: duplicatedDocument });
+    const expected = [
+      [2,20,"space/0/hA1"], [2,25,"space/0/hA1/1"],
+      [22,0,"space/h10/h11"], [22,5,"space/h10/h11/1"],
+      [42,0,"space/h10/1/h11"], [42,5,"space/h10/1/h11/1"],
+    ];
+    const duplicateSources = expected.map(([x,y,id]) => {
+      const ref = viewer.hitTest(viewer.toScreen({ x, y }), 0)[0];
+      assert(ref?.id === id, "要素と定義の重複を区別した ID を読む");
+      const source = findSource(session, duplicatedDocument, ref);
+      assert(source?.id === id && Number.isInteger(source.source?.record), "重複した要素の出所を返す");
+      return source;
+    });
+    assert(new Set(duplicateSources.map((entry) => entry.source.record)).size === 6, "重複したハンドルでもそれぞれのレコードへたどる");
+
+    // 用紙と、ハンドル以外の出所も同じ ID の契約を使う。
+    for (const [place, origin] of [["sheet/h22/1", "r7/1"], ["sheet/2/1", "i120/2"],
+      ["space/0", "b10/1"], ["space/3", "e5"]]) {
+      const id = `${place}/${origin}`;
+      const sourceSession = { call(request) {
+        if (request.op === "drawing") return { result: { hash: document.hash } };
+        assert(request.place === place, "用紙と要素の重複を分けて出所を要求");
+        return { result: { items: [{ id, source: { record: 7 } }] } };
+      } };
+      assert(findSource(sourceSession, document, { id, path: [] })?.id === id, "出所の種類に応じた ID を読む");
+    }
   } finally { viewer.destroy(); session.close(); }
 }
