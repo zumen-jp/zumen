@@ -79,5 +79,6 @@ libFuzzer は、起動からの時間で止めるが、起動時に種をすべ�
 
 ## 参照
 
+- PR のパス条件から文書を外す扱いは、[0263](0263-skip-documentation-only-fuzz.md) で補った。
 - #398・#501、[0010](0010-budget-by-work.md)・[0017](0017-format-rights-ledger-and-plugin-sdk.md)・[0019](0019-coordinate-systems-and-gsi-data.md)・[0171](0171-public-samples-in-git.md)
 - `fuzz/README.md`・`xtask/src/fuzz.rs`・`.github/workflows/fuzz.yml`
