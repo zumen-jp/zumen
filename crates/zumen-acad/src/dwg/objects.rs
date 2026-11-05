@@ -1724,7 +1724,12 @@ fn mlinestyle(bits: &mut Bits) -> Option<Vec<Value>> {
 /// DICTIONARY のフィールド（ODS 5.4.1 の 20.4.44、R2000）。所有するフラグ（280）は 1 なら、複製の扱い（281）は
 /// いつも置く。項目の名前は `entries` に集め、ハンドルの並びの項目と組にして後で置く
 fn dictionary(bits: &mut Bits, entries: &mut Vec<Vec<u8>>) -> Option<Vec<Value>> {
-    let count = bits.bl()?;
+    let count = usize::try_from(bits.bl()?).unwrap_or(0);
+    // 項目は、文字列のストリームがなく名前が空でも、1 バイト以上のハンドルを持つ（ODS 5.4.1 の 2.13）。
+    // 名前を読むだけでは入力が進まないので、データにない項目の数を、確保する前に拒む（#582）
+    if count > bits.size() {
+        return None;
+    }
     let cloning = bits.bs()?;
     let hard_owner = bits.rc()?;
     let mut values = Vec::new();
@@ -4521,6 +4526,37 @@ mod tests {
         let mut handles = Vec::new();
         let values = group(&mut Bits::with_release(src, Release::R2000), &mut handles);
         (values, handles)
+    }
+
+    /// DICTIONARY の項目の数・複製の扱い・所有するフラグ。文字列のストリームはない（#582）
+    fn dictionary_fields(entries: i32) -> Vec<u8> {
+        let mut w = BitWriter::default();
+        w.bl(entries);
+        w.bs(0);
+        w.rc(0);
+        w.into_bytes()
+    }
+
+    /// 文字列のストリームがないと、項目の名前は入力を進めず空になる。項目のハンドルが入らない数を、
+    /// 名前を積む前に拒む。境界と負の数は、既存の GROUP・LAYOUT と同じ扱いにする
+    #[test]
+    fn dictionary_entries_without_strings_are_bounded_by_the_data() {
+        let (size, count) = at_the_limit(dictionary_fields);
+        for release in [Release::R2010, Release::R2013, Release::R2018] {
+            for (count, expected) in [
+                (count + 1, None),
+                (count, Some(size)),
+                (0, Some(0)),
+                (-1, Some(0)),
+            ] {
+                let data = dictionary_fields(count);
+                let mut entries = Vec::new();
+                let values = dictionary(&mut Bits::with_release(&data, release), &mut entries);
+                assert_eq!(values.is_some(), expected.is_some(), "{release:?}: {count}");
+                assert_eq!(entries.len(), expected.unwrap_or(0));
+                assert!(entries.iter().all(Vec::is_empty));
+            }
+        }
     }
 
     /// 数がデータのバイト数と同じフィールド。BL は 1〜255 なら同じ長さなので、1 で作ったフィールドのバイト数を数にする
