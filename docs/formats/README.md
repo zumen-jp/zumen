@@ -41,6 +41,7 @@
 | [sima](#format-sima) | SIMA 共通フォーマット | sima | civil | `unknown` | `none` |  |  |
 | [stbridge](#format-stbridge) | ST-Bridge | stbridge | building | `permission` | `plugin` |  |  |
 | [stem](#format-stem) | Stem（設備機器ライブラリデータ交換仕様） | stem | building | `unknown` | `none` |  |  |
+| [svg](#format-svg) | SVG | svg | drawing | `public` | `core` |  | `external` |
 | [sxf](#format-sxf) | SXF（SFC・P21 と、それを ZIP に入れた SFZ・P2Z） | sxf | drawing | `public` | `core` | `synthetic` | `external` |
 | [xlsx](#format-xlsx) | Excel の表（xlsx） | xlsx | delivery | `public` | `core` | `synthetic` |  |
 | [xyz](#format-xyz) | XYZ（座標を並べた点群のテキスト） | xyz | pointcloud | `public` | `core` | `synthetic` |  |
@@ -404,6 +405,16 @@
 - 入手の条件: 無償公開
 - 入手先: [ST-Bridge XML ファイル仕様書](https://www.building-smart.or.jp/meeting/buildall/structural-design/)
 - 確認日: 2026-10-24
+
+### spec-svg_1_1
+
+- 名前: Scalable Vector Graphics (SVG) 1.1 (Second Edition)
+- 公開元: W3C
+- 版: W3C Recommendation 16 August 2011
+- 入手の条件: 無償公開
+- 入手先: [Scalable Vector Graphics (SVG) 1.1 (Second Edition)](https://www.w3.org/TR/SVG11/)
+- 確認日: 2026-11-06
+- 補足: 公開された W3C 勧告。Status of This Document は W3C Patent Policy (5 February 2004) に従う作業と記す。リンク先の文書ライセンスは、実装のために一部をソフトウェアへ組み込むことを認める。仕様の本文・コードは同梱しない
 
 ### spec-sxf_3_1
 
@@ -859,6 +870,29 @@
 - 権利の根拠にした文書: [BIM ライブラリーコンソーシアム「BLC-BIM オブジェクト標準（Version1.0）報告書」（2018-10-04）の「1.4 Stem、BE-Bridge 等の承継」](https://blcj.or.jp/wp/wp-content/uploads/2020/03/blcj_bim_standard_v1.pdf)（確認日: 2026-10-24）
 - issue: [zumen-jp/zumen-legacy#141](https://github.com/zumen-jp/zumen-legacy/issues/141)
 - issue: [zumen-jp/zumen#401](https://github.com/zumen-jp/zumen/issues/401)
+
+### format-svg
+
+- 名前: SVG
+- 権利の根拠: W3C が仕様を公開し、実装を制限していない。勧告の実装を RF で可能にする特許方針と、実装に利用できる文書ライセンスを 2026-11-06 に確認した
+- 仕様: [svg\_1\_1](#spec-svg_1_1)
+- 実装の根拠: spec
+- 権利の根拠にした文書: [W3C Patent Policy, 5 February 2004](https://www.w3.org/Consortium/Patent-Policy-20040205/)（確認日: 2026-11-06）
+- 文書の補足: SVG 1.1 の勧告が準拠を記す特許方針。勧告の実装を RF で可能にすることを目的に定める
+- 権利の根拠にした文書: [W3C Document License](https://www.w3.org/copyright/document-license-2023/)（確認日: 2026-11-06）
+- 文書の補足: SVG 1.1 の勧告の文書の利用条件からたどれるライセンス。仕様の実装を容易にするため、一部をソフトウェアへ組み込めるとする。本文とコードは同梱しない
+- 書きの確かめた度合い: `external`（確認日: 2026-11-06）
+- 書きの確かめた範囲: 合成シーンから書いた SVG を Chromium で読み、寸法・描画順・面の穴・字形・通常と反転の切り抜きを画素と照らした。点記号の細部と閲覧側ごとのアンチエイリアスは照合していない。API 接続は #603、PNG は #604。SVG を読む実装は持たない
+- 書きで照らした外部の実装: Chromium 156.0.8078.4
+- 記録: [決定 0007](../decisions/0007-single-rust-implementation.md)
+- 記録: [決定 0010](../decisions/0010-budget-by-work.md)
+- 記録: [決定 0172](../decisions/0172-scene-sections-and-op.md)
+- 記録: [決定 0188](../decisions/0188-scene-fonts-and-glyph-outlines.md)
+- 記録: [決定 0272](../decisions/0272-scene-svg-rendering.md)
+- issue: [zumen-jp/zumen#602](https://github.com/zumen-jp/zumen/issues/602)
+- issue: [zumen-jp/zumen#603](https://github.com/zumen-jp/zumen/issues/603)
+- issue: [zumen-jp/zumen#604](https://github.com/zumen-jp/zumen/issues/604)
+- 形式の文書: [docs/formats/svg.md](../../docs/formats/svg.md)
 
 ### format-sxf
 

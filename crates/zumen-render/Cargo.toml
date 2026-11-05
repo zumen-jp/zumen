@@ -1,0 +1,28 @@
+[package]
+name = "zumen-render"
+description = "zumen のシーンから SVG を作る描画部品"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = true
+
+[package.metadata.zumen]
+formats = ["svg"]
+
+[dependencies]
+libm = { version = "0.2.16", default-features = false }
+zumen-base = { version = "0.2.0", path = "../zumen-base" }
+zumen-scene = { version = "0.2.0", path = "../zumen-scene" }
+
+[dev-dependencies]
+zumen-acad = { path = "../zumen-acad" }
+zumen-drawing = { path = "../zumen-drawing" }
+zumen-sdk = { path = "../zumen-sdk" }
+
+[lints]
+workspace = true
+
+[[example]]
+name = "parity"
+crate-type = ["cdylib"]

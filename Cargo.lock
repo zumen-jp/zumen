@@ -715,6 +715,8 @@ dependencies = [
  "zumen-crs",
  "zumen-json",
  "zumen-profile",
+ "zumen-render",
+ "zumen-scene",
  "zumen-zip",
 ]
 
@@ -1181,6 +1183,18 @@ dependencies = [
  "zumen-drawing",
  "zumen-json",
  "zumen-scene",
+]
+
+[[package]]
+name = "zumen-render"
+version = "0.2.0"
+dependencies = [
+ "libm",
+ "zumen-acad",
+ "zumen-base",
+ "zumen-drawing",
+ "zumen-scene",
+ "zumen-sdk",
 ]
 
 [[package]]
