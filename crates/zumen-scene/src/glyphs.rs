@@ -15,7 +15,7 @@ use zumen_drawing::layout::{self, Glyphs, Reference};
 use zumen_drawing::transform::Point as Spot;
 use zumen_drawing::{
     FormattedText, Height, HeightMeaning, Horizontal, Length, PaperLength, Piece, Placement, Text,
-    Vertical, Visit,
+    Vertical, VisitRef,
 };
 use zumen_geom2d::Xy;
 
@@ -125,7 +125,7 @@ pub(crate) struct LaidSpans {
 }
 
 /// 要素の出所
-pub(crate) fn source(visit: &Visit<'_>) -> Ref {
+pub(crate) fn source(visit: &VisitRef<'_, '_>) -> Ref {
     match visit.item {
         zumen_drawing::Item::Model(element) => element.source.clone(),
         zumen_drawing::Item::Paper(element) => element.source.clone(),
@@ -356,7 +356,7 @@ impl Builder<'_, '_, '_> {
     /// 1 行の文字を、フォントで字形に置く。置けなければ文字列だけにする
     pub(crate) fn lay_text<P: Spot>(
         &mut self,
-        visit: &Visit<'_>,
+        visit: &VisitRef<'_, '_>,
         text: &Text<P>,
         font: Option<&str>,
         vertical: bool,
@@ -407,7 +407,7 @@ impl Builder<'_, '_, '_> {
     /// 書式つきの文字を、フォントで字形に置く。置けなければ `None`
     pub(crate) fn lay_formatted<P: Spot>(
         &mut self,
-        visit: &Visit<'_>,
+        visit: &VisitRef<'_, '_>,
         text: &FormattedText<P>,
         font: Option<&str>,
         vertical: bool,

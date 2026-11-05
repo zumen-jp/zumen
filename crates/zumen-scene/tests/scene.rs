@@ -1195,3 +1195,98 @@ fn line_type_text_marks_use_the_glyphs() {
     assert_eq!(read.u32s(layout::GLYPH_SHAPES), vec![0, 0]);
     assert_eq!(read.f32s(layout::GLYPH_AXES)[..4], [0.001, 0.0, 0.0, 0.001]);
 }
+
+#[cfg(test)]
+fn clipped_grid(cells: u32, layer_count: u32) -> Drawing2D {
+    use zumen_drawing::{Clip, Grid, LayerId, Symbol, SymbolDefinition, SymbolKey};
+    let mut drawing = lift(&SHAPES[..9]);
+    let base = drawing.layers[0].clone();
+    drawing.layers = (0..layer_count)
+        .map(|id| {
+            let mut layer = base.clone();
+            layer.id = LayerId(id);
+            layer
+        })
+        .collect();
+    let mut space = drawing.spaces[0].clone();
+    space.id = SpaceId(1);
+    space.elements[0].layer = LayerId(layer_count - 1);
+    if let Shape::Line { start, end } = &mut space.elements[0].shape {
+        start.space = space.id;
+        end.space = space.id;
+    }
+    space.elements.push(space.elements[0].clone());
+    space.order = vec![0, 1];
+    let key = SymbolKey {
+        namespace: "test".into(),
+        name: "clipped".into(),
+    };
+    drawing.symbols.push(SymbolDefinition {
+        key: key.clone(),
+        space,
+        base: None,
+        attributes: Vec::new(),
+        anonymous: false,
+        external: None,
+        source: Default::default(),
+    });
+    drawing.spaces[0].elements[0].shape = Shape::Symbol(Symbol {
+        key,
+        position: at(0.0, 0.0),
+        scale: [1.0, 1.0],
+        rotation: 0.0,
+        grid: Some(Grid {
+            columns: cells,
+            rows: 1,
+            column_spacing: model(10.0),
+            row_spacing: model(10.0),
+        }),
+        attributes: Vec::new(),
+        clip: Some(Clip {
+            vertices: vec![[0.0, 0.0], [1.0, 1.0]],
+            inverted: false,
+        }),
+    });
+    drawing
+}
+
+#[test]
+fn clipped_grids_reuse_equal_clips_and_keep_distinct_placements_in_order() {
+    let drawing = clipped_grid(2048, 4096);
+    let (scene, found) = made(&drawing, &options());
+    assert!(found.is_empty());
+    let read = Read(&scene.bytes);
+    let units = read.u32s(layout::UNIT_CLIPS);
+    assert_eq!(units, (0..2048).flat_map(|n| [n, n]).collect::<Vec<_>>());
+    assert_eq!(read.f64s(layout::CLIP_XY).len(), 2048 * 8);
+    assert_eq!(
+        read.u32s(layout::STEP_CELLS),
+        (0..2048).flat_map(|n| [n, 0, n, 0]).collect::<Vec<_>>()
+    );
+    let stopped = scene_with(
+        &drawing,
+        &options(),
+        Limits::default().with(Kind::DecodedBytes, Limit::Finite(4096)),
+    )
+    .0;
+    assert!(matches!(stopped, Err(Stop::Exceeded(e)) if e.kind == Kind::DecodedBytes));
+}
+
+#[test]
+#[ignore = "配置・切り抜き・レイヤの数を増やして release で測る"]
+// 計測用のテストだけが時計を読み、所要時間を表示する。
+#[allow(clippy::disallowed_methods, clippy::print_stderr)]
+fn measure_indexed_clipped_grids_and_layers() {
+    for n in [5_000, 10_000, 20_000] {
+        let drawing = clipped_grid(n, n);
+        let start = std::time::Instant::now();
+        let (scene, found) = made(&drawing, &options());
+        assert!(found.is_empty());
+        assert_eq!(scene.counts.lines, u64::from(n * 2));
+        eprintln!(
+            "{n} cells/layers: {:?}, {} bytes",
+            start.elapsed(),
+            scene.bytes.len()
+        );
+    }
+}

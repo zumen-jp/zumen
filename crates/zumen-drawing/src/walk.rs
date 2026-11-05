@@ -12,7 +12,7 @@
 //! [`Drawing2D::walk_parts`] は、寸法・表・引出線つきの注記を描いた部品（表示のための構成要素）の中へも、
 //! 記号と同じく進む（決定 0184）。
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
 
 use zumen_base::{Cx, Diagnostic, Kind, Ref, Stop, codes};
@@ -20,9 +20,9 @@ use zumen_base::{Cx, Diagnostic, Kind, Ref, Stop, codes};
 use crate::id::{self, DefinitionNamer, Namer, SheetNamer};
 use crate::transform::Point;
 use crate::{
-    Affine, Attribute, CalloutContent, Clip, Color, Drawing2D, Element, Inherit, Inheritor,
-    LayerId, Length, LineTypeId, LineWeight, ModelPoint, ModelSpace, PaperLength, PaperPoint,
-    Shape, Sheet, SheetId, SheetItem, SpaceId, Style, Symbol, SymbolKey, View,
+    Affine, Attribute, CalloutContent, Clip, Color, Drawing2D, Element, Inherit, Layer, LayerId,
+    Length, LineTypeId, LineWeight, ModelPoint, ModelSpace, PaperLength, PaperPoint, Shape, Sheet,
+    SheetId, SheetItem, SpaceId, Style, Symbol, SymbolKey, View,
 };
 
 /// たどる起点
@@ -109,6 +109,99 @@ pub struct Visit<'a> {
     pub clips: Vec<Clipping>,
 }
 
+/// 逐次処理で借りて受け取る要素。道筋と切り抜きを要素ごとに複製しない（決定 0264）。
+#[derive(Clone, Copy, Debug)]
+pub struct VisitRef<'a, 'v> {
+    /// 要素
+    pub item: Item<'a>,
+    /// 要素の ID
+    pub id: &'v str,
+    /// 配置の道筋。外側から内側へ
+    pub path: &'v [Step],
+    /// 起点への変換
+    pub transform: Affine,
+    /// 解いた色
+    pub color: Option<Color>,
+    /// 解いた線種
+    pub line_type: Option<LineTypeId>,
+    /// 解いた線幅
+    pub line_weight: Option<PaperLength>,
+    /// 実効のレイヤ
+    pub layer: LayerId,
+    /// 実効のレイヤの定義。ID が重なれば先のもの
+    pub layer_definition: Option<&'a Layer>,
+    /// 表示する
+    pub visible: bool,
+    /// 印刷する
+    pub printable: bool,
+    /// 起点の座標の切り抜き
+    pub clips: &'v [Clipping],
+}
+
+impl<'a> VisitRef<'a, '_> {
+    fn owned(&self) -> Visit<'a> {
+        Visit {
+            item: self.item,
+            id: self.id.to_owned(),
+            path: self.path.to_vec(),
+            transform: self.transform,
+            color: self.color,
+            line_type: self.line_type,
+            line_weight: self.line_weight,
+            layer: self.layer,
+            visible: self.visible,
+            printable: self.printable,
+            clips: self.clips.to_vec(),
+        }
+    }
+}
+
+/// 配置をたどるときの受け取り側。走査と結果を作る処理が、同じ予算と診断を使う。
+pub trait WalkVisitor<'a> {
+    /// 予算・診断・中断の合図を借りる
+    fn context(&mut self) -> Cx<'_>;
+    /// 走査の診断。複数回たどる受け取り側は、最初の走査だけで記録してよい
+    fn diagnostic(&mut self, diagnostic: Diagnostic) {
+        self.context().report(diagnostic);
+    }
+    /// 要素を 1 つ受け取る。結果に残す量を、受け取り側で予算に数える
+    fn visit(&mut self, visit: VisitRef<'a, '_>) -> Result<(), (Stop, Ref)>;
+}
+
+struct Collect<'a, 'c, 'x> {
+    cx: &'c mut Cx<'x>,
+    out: Vec<Visit<'a>>,
+}
+impl<'a> WalkVisitor<'a> for Collect<'a, '_, '_> {
+    fn context(&mut self) -> Cx<'_> {
+        Cx::new(self.cx.budget, self.cx.diag, self.cx.cancel)
+    }
+    fn visit(&mut self, visit: VisitRef<'a, '_>) -> Result<(), (Stop, Ref)> {
+        // ポインターの幅によらない見積もり。道筋・切り抜きも、写す前に数える。
+        let bytes = 256_u64
+            .saturating_add(visit.id.len() as u64)
+            .saturating_add(
+                visit
+                    .path
+                    .iter()
+                    .map(|s| 64 + s.id.len() as u64)
+                    .sum::<u64>(),
+            )
+            .saturating_add(
+                visit
+                    .clips
+                    .iter()
+                    .map(|c| 32 + c.polygon.len() as u64 * 16)
+                    .sum::<u64>(),
+            );
+        self.cx
+            .check(Kind::DecodedBytes, bytes)
+            .map_err(|s| (s, Ref::default().with_id(visit.id)))?;
+        self.out.push(visit.owned());
+        Ok(())
+    }
+}
+
 impl Affine {
     /// 恒等変換
     pub const IDENTITY: Self = Self {
@@ -166,12 +259,10 @@ impl<P: Point> Symbol<P> {
 
 impl Drawing2D {
     /// 起点から配置をたどって、要素ごとに解いた値を返す（決定 0159）。起点がなければ空。
-    /// 返す要素と配置の升ごとに `work` を 1 と数え、返す要素（属性を含む）を `elements` でも数え、配置の深さを
-    /// `depth` で数える。返す要素は集めて返すので、`elements` で数えないと、升の多い格子の配置が、`work` の上限まで
-    /// 要素を集めてメモリを使い果たす（#517）。返す要素のない定義の格子は、升をたどらない。描く順のうち要素の外を指す
-    /// 添字は、空間ごとに一度だけ除き、1 つごとに `work` を 1 と数える。要素の ID を引けない添字（空間の ID が重なった
-    /// 図面モデルのバイナリ、#567）も、1 つごとに `work` を 1 と数える。道筋に同じ定義がもう一度現れる配置はたどらずに
-    /// `drawing.placement.invalid` を返し、定義のない配置はたどらない
+    /// 返す要素は `elements` と `work`、配置の深さは `depth`、集める結果は `decoded_bytes` で数える。
+    /// ID・描く順・レイヤ・ビューは走査中に覚え、配置の継承は親から渡す（決定 0264）。
+    /// 道筋に同じ定義がもう一度現れる配置はたどらず、`drawing.placement.invalid` を返す。
+    /// 定義のない配置と、返す要素のない定義の格子はたどらない。
     pub fn walk(&self, origin: Origin, cx: &mut Cx<'_>) -> Result<Vec<Visit<'_>>, (Stop, Ref)> {
         self.walk_with(origin, false, cx)
     }
@@ -193,6 +284,22 @@ impl Drawing2D {
         parts: bool,
         cx: &mut Cx<'_>,
     ) -> Result<Vec<Visit<'_>>, (Stop, Ref)> {
+        let mut visitor = Collect {
+            cx,
+            out: Vec::new(),
+        };
+        self.walk_to(origin, parts, &mut visitor)?;
+        Ok(visitor.out)
+    }
+
+    /// 要素を集めず、順に受け取り側へ渡す（決定 0264）。`parts` なら、描いた部品の中もたどる。
+    /// 既定の予算を変えず、走査の記憶は入力と配置の深さで決まり、返した要素の総数には依存しない。返す要素と ID は `walk` と同じ。
+    pub fn walk_to<'a>(
+        &'a self,
+        origin: Origin,
+        parts: bool,
+        visitor: &mut dyn WalkVisitor<'a>,
+    ) -> Result<(), (Stop, Ref)> {
         let mut walker = Walker {
             drawing: self,
             parts,
@@ -201,174 +308,130 @@ impl Drawing2D {
             orders: BTreeMap::new(),
             spaces: BTreeMap::new(),
             keys: BTreeMap::new(),
-            out: Vec::new(),
+            layers: BTreeMap::new(),
+            model_spaces: BTreeMap::new(),
+            views: BTreeMap::new(),
+            visitor,
         };
-        walker.name_definitions(cx)?;
+        walker.name_definitions()?;
+        for layer in &self.layers {
+            walker
+                .visitor
+                .context()
+                .check(Kind::Work, 1)
+                .map_err(|s| (s, layer.source.clone()))?;
+            walker.layers.entry(layer.id).or_insert(layer);
+        }
+        for space in &self.spaces {
+            walker
+                .visitor
+                .context()
+                .check(Kind::Work, 1)
+                .map_err(|s| (s, Ref::default()))?;
+            walker.model_spaces.entry(space.id).or_insert(space);
+        }
         match origin {
             Origin::Space(id) => {
-                if let Some(space) = self.any_space(id) {
-                    let top = Frame::top(Affine::IDENTITY, None, Vec::new());
-                    walker.space(space, &top, cx)?;
+                let space = walker.model_spaces.get(&id).copied().or_else(|| {
+                    self.symbols
+                        .iter()
+                        .map(|symbol| &symbol.space)
+                        .find(|space| space.id == id)
+                });
+                if let Some(space) = space {
+                    walker.space(space, &Frame::top(Affine::IDENTITY))?;
                 }
             }
             Origin::Sheet(id) => {
-                let Some((sheet, name)) = walker.sheet(id) else {
-                    return Ok(Vec::new());
+                let Some((sheet, name)) = walker.sheet(id)? else {
+                    return Ok(());
                 };
-                let top = Frame::top(Affine::IDENTITY, None, Vec::new());
-                let ids = walker.ids(&name, &sheet.elements, cx)?;
+                let top = Frame::top(Affine::IDENTITY);
+                let ids = walker.ids(&name, &sheet.elements)?;
                 for item in &sheet.order {
+                    walker
+                        .visitor
+                        .context()
+                        .check(Kind::Work, 1)
+                        .map_err(|s| (s, sheet.source.clone()))?;
                     match *item {
                         SheetItem::Element(index) => {
                             if let (Some(element), Some(id)) =
                                 (sheet.elements.get(index), ids.get(index))
                             {
-                                walker.element(element, id, &top, Item::Paper, cx)?;
+                                walker.element(element, id, &top, Item::Paper)?;
                             }
                         }
                         SheetItem::View(index) => {
                             if let Some(view) = sheet.views.get(index) {
-                                walker.view(view, cx)?;
+                                walker.view(view)?;
                             }
                         }
                     }
                 }
             }
             Origin::View { sheet, view } => {
-                if let Some(view) = walker.sheet(sheet).and_then(|(s, _)| s.views.get(view)) {
-                    walker.view(view, cx)?;
+                if let Some(view) = walker.sheet(sheet)?.and_then(|(s, _)| s.views.get(view)) {
+                    walker.view(view)?;
                 }
             }
         }
-        Ok(walker.out)
-    }
-
-    /// ID の実寸の空間か、記号の定義の空間
-    fn any_space(&self, id: SpaceId) -> Option<&ModelSpace> {
-        self.spaces
-            .iter()
-            .chain(self.symbols.iter().map(|symbol| &symbol.space))
-            .find(|space| space.id == id)
-    }
-
-    /// 配置の並び（内側から外側）を通した値を、文書の既定の値で解く
-    fn resolve(
-        &self,
-        chain: &[Inheritor<'_>],
-    ) -> (Option<Color>, Option<LineTypeId>, Option<PaperLength>) {
-        let color = match self.color_placed(chain) {
-            Inherit::Own(color) => Some(color),
-            Inherit::Block => self.default_color,
-            Inherit::Layer => None,
-        };
-        let line_type = match self.line_type_placed(chain) {
-            Inherit::Own(line_type) => Some(line_type),
-            Inherit::Block => self.default_line_type,
-            Inherit::Layer => None,
-        };
-        let line_weight = match self.line_weight_placed(chain) {
-            Some(Inherit::Own(LineWeight::Width(width))) => Some(width),
-            Some(Inherit::Own(LineWeight::Default) | Inherit::Block) => self.default_line_weight,
-            Some(Inherit::Layer) | None => None,
-        };
-        (color, line_type, line_weight)
-    }
-
-    /// 並び（内側から外側）の実効のレイヤ。配置のレイヤに従うレイヤなら、外側へ進む（決定 0143）
-    fn effective_layer(&self, layers: &[LayerId]) -> Option<LayerId> {
-        let follows = |id: &&LayerId| {
-            self.layer(**id)
-                .is_some_and(|layer| layer.follows_placement)
-        };
-        layers
-            .iter()
-            .find(|id| !follows(id))
-            .or(layers.last())
-            .copied()
-    }
-
-    /// レイヤが凍結している。定義のないレイヤは凍結しない
-    fn frozen(&self, id: LayerId) -> bool {
-        self.layer(id)
-            .and_then(|layer| layer.state)
-            .is_some_and(|state| state.frozen)
+        Ok(())
     }
 }
 
-/// 外側の配置
+/// 外側の配置。継承と表示の状態は、配置ごとに一度だけ求める。
 #[derive(Clone, Debug)]
-struct Frame<'a> {
-    /// この空間から起点への変換
+struct Frame {
     transform: Affine,
-    /// 通しているビュー
-    view: Option<&'a View>,
-    /// 外側からの切り抜き
-    clips: Vec<Clipping>,
-    /// 配置を外側から
-    placements: Vec<Placed<'a>>,
+    clips: Rc<[Clipping]>,
+    path: Rc<[Step]>,
+    definitions: Rc<[usize]>,
+    hidden: Rc<BTreeSet<LayerId>>,
+    layer: Option<LayerId>,
+    color: Option<Color>,
+    line_type: Option<LineTypeId>,
+    line_weight: Option<PaperLength>,
+    visible: bool,
 }
-
-/// 道筋の配置
-#[derive(Clone, Debug)]
-struct Placed<'a> {
-    style: &'a Style,
-    layer: LayerId,
-    step: Step,
-    /// 配置した定義の添字。記号の属性のために足した段なら `None`
-    definition: Option<usize>,
-}
-
-impl<'a> Frame<'a> {
-    fn top(transform: Affine, view: Option<&'a View>, clips: Vec<Clipping>) -> Self {
+impl Frame {
+    fn top(transform: Affine) -> Self {
         Self {
             transform,
-            view,
-            clips,
-            placements: Vec::new(),
+            clips: Rc::from([]),
+            path: Rc::from([]),
+            definitions: Rc::from([]),
+            hidden: Rc::new(BTreeSet::new()),
+            layer: None,
+            color: None,
+            line_type: None,
+            line_weight: None,
+            visible: true,
         }
     }
-
-    /// 要素か配置のレイヤを内側に足した、レイヤの並び（内側から外側）
-    fn layers(&self, inner: LayerId) -> Vec<LayerId> {
-        std::iter::once(inner)
-            .chain(self.placements.iter().rev().map(|placed| placed.layer))
-            .collect()
-    }
-
-    /// 要素か配置を内側に足した、継承の並び（内側から外側）
-    fn chain(&self, inner: Inheritor<'a>) -> Vec<Inheritor<'a>> {
-        std::iter::once(inner)
-            .chain(self.placements.iter().rev().map(|placed| Inheritor {
-                style: placed.style,
-                layer: placed.layer,
-            }))
-            .collect()
-    }
 }
 
-struct Walker<'a> {
+struct Walker<'a, 'v> {
     drawing: &'a Drawing2D,
-    /// 部品の中へも進む
     parts: bool,
-    /// 名前ごとの、記号の定義の添字。同じ名前があれば先のもの。寸法の部品は名前だけで指す
     by_name: BTreeMap<&'a str, usize>,
-    /// 空間と用紙ごとの、要素の ID
     names: BTreeMap<String, Rc<[String]>>,
-    /// 空間ごとの、描く順のうち要素を指す添字。キーは空間のアドレス。図面モデルのバイナリは空間の ID の重なりを確かめ
-    /// ずに読むので、ID や名前では空間を取り違える（#567）。キーは引くだけに使い、キーの順には回さない（決定 0007）
     orders: BTreeMap<*const ModelSpace, Rc<[usize]>>,
-    /// 記号の定義の空間ごとの、空間の ID
     spaces: BTreeMap<SpaceId, String>,
-    /// キーごとの、記号の定義の添字。同じキーがあれば先のもの
     keys: BTreeMap<&'a SymbolKey, usize>,
-    out: Vec<Visit<'a>>,
+    layers: BTreeMap<LayerId, &'a Layer>,
+    model_spaces: BTreeMap<SpaceId, &'a ModelSpace>,
+    views: BTreeMap<*const View, Frame>,
+    visitor: &'v mut dyn WalkVisitor<'a>,
 }
 
-impl<'a> Walker<'a> {
-    fn name_definitions(&mut self, cx: &mut Cx<'_>) -> Result<(), (Stop, Ref)> {
+impl<'a> Walker<'a, '_> {
+    fn name_definitions(&mut self) -> Result<(), (Stop, Ref)> {
         let mut namer = DefinitionNamer::default();
         for (index, definition) in self.drawing.symbols.iter().enumerate() {
-            cx.check(Kind::Work, 1)
+            self.visitor
+                .context()
+                .check(Kind::Work, 1)
                 .map_err(|stop| (stop, definition.source.clone()))?;
             // 名前は、定義の順に飛ばさずに振る
             let name = namer.next(definition);
@@ -381,13 +444,19 @@ impl<'a> Walker<'a> {
         Ok(())
     }
 
-    fn sheet(&self, id: SheetId) -> Option<(&'a Sheet, String)> {
+    fn sheet(&mut self, id: SheetId) -> Result<Option<(&'a Sheet, String)>, (Stop, Ref)> {
         let mut namer = SheetNamer::default();
-        self.drawing
-            .sheets
-            .iter()
-            .map(|sheet| (sheet, namer.next(sheet)))
-            .find(|(sheet, _)| sheet.id == id)
+        for sheet in &self.drawing.sheets {
+            self.visitor
+                .context()
+                .check(Kind::Work, 1)
+                .map_err(|s| (s, sheet.source.clone()))?;
+            let name = namer.next(sheet);
+            if sheet.id == id {
+                return Ok(Some((sheet, name)));
+            }
+        }
+        Ok(None)
     }
 
     /// 空間か用紙の要素の ID を、要素の順に振る。一度振ったものは覚えておく
@@ -395,7 +464,6 @@ impl<'a> Walker<'a> {
         &mut self,
         place: &str,
         elements: &'a [Element<P>],
-        cx: &mut Cx<'_>,
     ) -> Result<Rc<[String]>, (Stop, Ref)> {
         if let Some(ids) = self.names.get(place) {
             return Ok(Rc::clone(ids));
@@ -403,7 +471,9 @@ impl<'a> Walker<'a> {
         let mut namer = Namer::new(place);
         let mut ids = Vec::with_capacity(elements.len());
         for (index, element) in elements.iter().enumerate() {
-            cx.check(Kind::Work, 1)
+            self.visitor
+                .context()
+                .check(Kind::Work, 1)
                 .map_err(|stop| (stop, element.source.clone()))?;
             ids.push(namer.next(index, element));
         }
@@ -415,7 +485,7 @@ impl<'a> Walker<'a> {
     /// 空間の描く順のうち、要素を指す添字。空間ごとに一度求めたものを覚えておく。図面モデルのバイナリは描く順の添字を
     /// 確かめずに読むので、要素の外を指す添字を、配置の升ごと・ビューごとに見直さずに済ませる（#517）。要素の外を指す
     /// 添字は、1 つごとに `work` を 1 と数える
-    fn order(&mut self, space: &'a ModelSpace, cx: &mut Cx<'_>) -> Result<Rc<[usize]>, Stop> {
+    fn order(&mut self, space: &'a ModelSpace) -> Result<Rc<[usize]>, Stop> {
         let key = std::ptr::from_ref(space);
         if let Some(order) = self.orders.get(&key) {
             return Ok(Rc::clone(order));
@@ -426,7 +496,7 @@ impl<'a> Walker<'a> {
             if index < elements {
                 order.push(index);
             } else {
-                cx.check(Kind::Work, 1)?;
+                self.visitor.context().check(Kind::Work, 1)?;
             }
         }
         let order: Rc<[usize]> = order.into();
@@ -442,40 +512,50 @@ impl<'a> Walker<'a> {
             .unwrap_or_else(|| id::space(space.id))
     }
 
-    fn view(&mut self, view: &'a View, cx: &mut Cx<'_>) -> Result<(), (Stop, Ref)> {
-        let Some(space) = self.drawing.spaces.iter().find(|s| s.id == view.space) else {
+    fn view(&mut self, view: &'a View) -> Result<(), (Stop, Ref)> {
+        let Some(space) = self.model_spaces.get(&view.space).copied() else {
             return Ok(());
         };
-        let clips = if view.clip.is_empty() {
-            Vec::new()
+        let key = std::ptr::from_ref(view);
+        let frame = if let Some(frame) = self.views.get(&key) {
+            frame.clone()
         } else {
-            vec![Clipping {
-                polygon: view.clip.iter().map(|p| [p.x, p.y]).collect(),
-                inverted: false,
-            }]
+            self.visitor
+                .context()
+                .check(
+                    Kind::Work,
+                    view.clip.len() as u64 + view.hidden_layers.len() as u64,
+                )
+                .map_err(|s| (s, view.source.clone()))?;
+            let mut frame = Frame::top(view.transform);
+            if !view.clip.is_empty() {
+                frame.clips = Rc::from([Clipping {
+                    polygon: view.clip.iter().map(|p| [p.x, p.y]).collect(),
+                    inverted: false,
+                }]);
+            }
+            frame.hidden = Rc::new(view.hidden_layers.iter().copied().collect());
+            self.views.insert(key, frame.clone());
+            frame
         };
-        let top = Frame::top(view.transform, Some(view), clips);
-        self.space(space, &top, cx)
+        self.space(space, &frame)
     }
 
-    fn space(
-        &mut self,
-        space: &'a ModelSpace,
-        frame: &Frame<'a>,
-        cx: &mut Cx<'_>,
-    ) -> Result<(), (Stop, Ref)> {
+    fn space(&mut self, space: &'a ModelSpace, frame: &Frame) -> Result<(), (Stop, Ref)> {
         let name = self.space_name(space);
-        let ids = self.ids(&name, &space.elements, cx)?;
+        let ids = self.ids(&name, &space.elements)?;
         let order = self
-            .order(space, cx)
+            .order(space)
             .map_err(|stop| (stop, Ref::default().with_id(name.as_str())))?;
         for &index in order.iter() {
             if let (Some(element), Some(id)) = (space.elements.get(index), ids.get(index)) {
-                self.element(element, id, frame, Item::Model, cx)?;
+                self.element(element, id, frame, Item::Model)?;
             } else {
-                // 要素の ID を引けない添字も、1 つごとに `work` を 1 と数える。空間の ID が重なった図面モデルの
-                // バイナリでは、先にたどった空間の要素の ID を使い、引けない添字が升ごとに残る（#567）
-                cx.check(Kind::Work, 1)
+                // Rust から直接渡された不正なモデルでも、ID を引けない添字を無制限に繰り返さない。
+                // バイナリの読み取りでは、空間の ID の重複を拒否する（#567）。
+                self.visitor
+                    .context()
+                    .check(Kind::Work, 1)
                     .map_err(|stop| (stop, Ref::default().with_id(name.as_str())))?;
             }
         }
@@ -487,22 +567,27 @@ impl<'a> Walker<'a> {
         &mut self,
         element: &'a Element<P>,
         id: &str,
-        frame: &Frame<'a>,
+        frame: &Frame,
         item: fn(&'a Element<P>) -> Item<'a>,
-        cx: &mut Cx<'_>,
     ) -> Result<(), (Stop, Ref)>
     where
         Item<'a>: Attributed<'a, P>,
     {
         let at = || element.source.clone();
-        cx.check(Kind::Work, 1).map_err(|stop| (stop, at()))?;
-        cx.check(Kind::Elements, 1).map_err(|stop| (stop, at()))?;
+        self.visitor
+            .context()
+            .check(Kind::Work, 1)
+            .map_err(|stop| (stop, at()))?;
+        self.visitor
+            .context()
+            .check(Kind::Elements, 1)
+            .map_err(|stop| (stop, at()))?;
         let mut visit = self.resolved(item(element), id, element.layer, &element.style, frame);
         // 作図の補助の点は印刷しない（決定 0160）
         if let Shape::Point(point) = &element.shape {
             visit.printable &= !point.construction;
         }
-        self.out.push(visit);
+        self.visitor.visit(visit)?;
         if self.parts
             && let Some((definition, placement)) = self.part(&element.shape)
         {
@@ -513,16 +598,22 @@ impl<'a> Walker<'a> {
                 definition,
                 vec![([0, 0], frame.transform.after(&placement))],
                 None,
-                cx,
+                visit,
             );
         }
         let Shape::Symbol(symbol) = &element.shape else {
             return Ok(());
         };
         for (index, attribute) in symbol.attributes.iter().enumerate() {
-            cx.check(Kind::Work, 1).map_err(|stop| (stop, at()))?;
-            cx.check(Kind::Elements, 1).map_err(|stop| (stop, at()))?;
-            self.attribute(element, index, attribute, id, frame);
+            self.visitor
+                .context()
+                .check(Kind::Work, 1)
+                .map_err(|stop| (stop, at()))?;
+            self.visitor
+                .context()
+                .check(Kind::Elements, 1)
+                .map_err(|stop| (stop, at()))?;
+            self.attribute(element, index, attribute, id, frame)?;
         }
         let Some(&definition) = self.keys.get(&symbol.key) else {
             return Ok(());
@@ -538,7 +629,7 @@ impl<'a> Walker<'a> {
             definition,
             cells,
             symbol.clip.as_ref(),
-            cx,
+            visit,
         )
     }
 
@@ -573,19 +664,15 @@ impl<'a> Walker<'a> {
         &mut self,
         element: &'a Element<P>,
         id: &str,
-        frame: &Frame<'a>,
+        frame: &Frame,
         definition: usize,
         cells: impl IntoIterator<Item = ([u32; 2], Affine)>,
         clip: Option<&'a Clip>,
-        cx: &mut Cx<'_>,
+        inherited: VisitRef<'a, '_>,
     ) -> Result<(), (Stop, Ref)> {
         let at = || element.source.clone();
-        if frame
-            .placements
-            .iter()
-            .any(|placed| placed.definition == Some(definition))
-        {
-            cx.report(
+        if frame.definitions.contains(&definition) {
+            self.visitor.diagnostic(
                 Diagnostic::new(codes::DRAWING_PLACEMENT_INVALID)
                     .with("id", id.to_owned())
                     .at(at()),
@@ -598,58 +685,88 @@ impl<'a> Walker<'a> {
         // 返す要素のない定義（描く順が要素を指さない）は、どの升でも何も返さない。升の多い格子でも、升をたどらずに
         // 済ませる（#517）。描く順は、定義ごとに一度だけ確かめる
         if self
-            .order(&symbols.space, cx)
+            .order(&symbols.space)
             .map_err(|stop| (stop, at()))?
             .is_empty()
         {
             return Ok(());
         }
-        cx.enter().map_err(|stop| (stop, at()))?;
-        for (cell, placement) in cells {
-            if let Err(stop) = cx.check(Kind::Work, 1) {
-                cx.leave();
-                return Err((stop, at()));
-            }
-            let mut clips = frame.clips.clone();
-            if let Some(clip) = clip {
-                let corners = match clip.vertices.as_slice() {
-                    &[[x0, y0], [x1, y1]] => vec![[x0, y0], [x1, y0], [x1, y1], [x0, y1]],
-                    vertices => vertices.to_vec(),
+        self.visitor
+            .context()
+            .enter()
+            .map_err(|stop| (stop, at()))?;
+        let result = (|| {
+            let layer = inherited.layer;
+            let color = inherited.color;
+            let line_type = inherited.line_type;
+            let line_weight = inherited.line_weight;
+            let visible = frame.visible
+                && !frame.hidden.contains(&layer)
+                && self
+                    .layers
+                    .get(&layer)
+                    .and_then(|l| l.state)
+                    .is_none_or(|s| !s.frozen);
+            for (cell, placement) in cells {
+                self.visitor
+                    .context()
+                    .check(Kind::Work, 1 + frame.path.len() as u64)
+                    .map_err(|s| (s, at()))?;
+                let clips = if let Some(clip) = clip {
+                    let points = if clip.vertices.len() == 2 {
+                        4
+                    } else {
+                        clip.vertices.len()
+                    };
+                    let copied: usize = frame.clips.iter().map(|c| c.polygon.len()).sum();
+                    self.visitor
+                        .context()
+                        .check(Kind::Work, (points + copied) as u64)
+                        .map_err(|s| (s, at()))?;
+                    let corners = match clip.vertices.as_slice() {
+                        &[[x0, y0], [x1, y1]] => vec![[x0, y0], [x1, y0], [x1, y1], [x0, y1]],
+                        vertices => vertices.to_vec(),
+                    };
+                    let mut clips = frame.clips.to_vec();
+                    clips.push(Clipping {
+                        polygon: corners
+                            .into_iter()
+                            .map(|[x, y]| {
+                                let (x, y) = placement.apply(x, y);
+                                [x, y]
+                            })
+                            .collect(),
+                        inverted: clip.inverted,
+                    });
+                    Rc::from(clips)
+                } else {
+                    Rc::clone(&frame.clips)
                 };
-                clips.push(Clipping {
-                    polygon: corners
-                        .into_iter()
-                        .map(|[x, y]| {
-                            let (x, y) = placement.apply(x, y);
-                            [x, y]
-                        })
-                        .collect(),
-                    inverted: clip.inverted,
-                });
-            }
-            let mut placements = frame.placements.clone();
-            placements.push(Placed {
-                style: &element.style,
-                layer: element.layer,
-                step: Step {
+                let mut path = frame.path.to_vec();
+                path.push(Step {
                     id: id.to_owned(),
                     cell,
-                },
-                definition: Some(definition),
-            });
-            let inner = Frame {
-                transform: placement,
-                view: frame.view,
-                clips,
-                placements,
-            };
-            if let Err(error) = self.space(&symbols.space, &inner, cx) {
-                cx.leave();
-                return Err(error);
+                });
+                let mut definitions = frame.definitions.to_vec();
+                definitions.push(definition);
+                let inner = Frame {
+                    transform: placement,
+                    clips,
+                    path: path.into(),
+                    definitions: definitions.into(),
+                    hidden: Rc::clone(&frame.hidden),
+                    layer: Some(layer),
+                    color,
+                    line_type,
+                    line_weight,
+                    visible,
+                };
+                self.space(&symbols.space, &inner)?;
             }
-        }
-        cx.leave();
-        Ok(())
+            Ok(())
+        })();
+        self.visitor.context().leave();
+        result
     }
 
     fn attribute<P: Point>(
@@ -658,23 +775,31 @@ impl<'a> Walker<'a> {
         index: usize,
         attribute: &'a Attribute<P>,
         id: &str,
-        frame: &Frame<'a>,
-    ) where
+        frame: &Frame,
+    ) -> Result<(), (Stop, Ref)>
+    where
         Item<'a>: Attributed<'a, P>,
     {
-        // 属性は記号の配置から継承する。記号を一段の配置として、外側に足す
-        let mut placements = frame.placements.clone();
-        placements.push(Placed {
-            style: &element.style,
-            layer: element.layer,
-            step: Step {
-                id: id.to_owned(),
-                cell: [0, 0],
-            },
-            definition: None,
-        });
+        let parent = self.resolved(
+            Item::attribute(element, index),
+            id,
+            element.layer,
+            &element.style,
+            frame,
+        );
+        let layer = parent.layer;
         let inner = Frame {
-            placements,
+            layer: Some(layer),
+            color: parent.color,
+            line_type: parent.line_type,
+            line_weight: parent.line_weight,
+            visible: frame.visible
+                && !frame.hidden.contains(&layer)
+                && self
+                    .layers
+                    .get(&layer)
+                    .and_then(|l| l.state)
+                    .is_none_or(|s| !s.frozen),
             ..frame.clone()
         };
         let mut visit = self.resolved(
@@ -684,59 +809,82 @@ impl<'a> Walker<'a> {
             &attribute.style,
             &inner,
         );
-        // 道筋は、属性を持つ記号の外側の配置まで
-        visit.path.pop();
         visit.visible &= !attribute.hidden;
         visit.printable &= !attribute.hidden;
-        self.out.push(visit);
+        self.visitor.visit(visit)
     }
 
-    fn resolved(
+    fn resolved<'v>(
         &self,
         item: Item<'a>,
-        id: &str,
+        id: &'v str,
         layer: LayerId,
-        style: &'a Style,
-        frame: &Frame<'a>,
-    ) -> Visit<'a> {
-        let drawing = self.drawing;
-        let layers = frame.layers(layer);
-        let effective = drawing.effective_layer(&layers).unwrap_or(layer);
-        let chain = frame.chain(Inheritor { style, layer });
-        let (color, line_type, line_weight) = drawing.resolve(&chain);
-        // 配置ごとの実効のレイヤ。外側の配置から順に、そこより外側の並びで決める
-        let count = frame.placements.len();
-        let placement_layers: Vec<LayerId> = (0..count)
-            .filter_map(|at| drawing.effective_layer(layers.get(count - at..)?))
-            .collect();
-        let hidden = |id: &LayerId| {
-            frame
-                .view
-                .is_some_and(|view| view.hidden_layers.contains(id))
+        style: &Style,
+        frame: &'v Frame,
+    ) -> VisitRef<'a, 'v> {
+        let definition = self.layers.get(&layer).copied();
+        let effective = if definition.is_some_and(|l| l.follows_placement) {
+            frame.layer.unwrap_or(layer)
+        } else {
+            layer
         };
-        let state = drawing.layer(effective).and_then(|layer| layer.state);
-        let visible = placement_layers
-            .iter()
-            .all(|id| !drawing.frozen(*id) && !hidden(id))
-            && state.is_none_or(|state| state.visible && !state.frozen)
-            && !hidden(&effective);
-        let printable = visible && state.is_none_or(|state| state.printable);
-        Visit {
+        let definition = self.layers.get(&effective).copied();
+        let layer_style = definition.and_then(|l| l.style.as_ref());
+        let color = match style.color {
+            Inherit::Own(v) => Some(v),
+            Inherit::Layer => layer_style.and_then(|s| s.color),
+            Inherit::Block => {
+                if frame.layer.is_some() {
+                    frame.color
+                } else {
+                    self.drawing.default_color
+                }
+            }
+        };
+        let line_type = match style.line_type {
+            Inherit::Own(v) => Some(v),
+            Inherit::Layer => layer_style.and_then(|s| s.line_type),
+            Inherit::Block => {
+                if frame.layer.is_some() {
+                    frame.line_type
+                } else {
+                    self.drawing.default_line_type
+                }
+            }
+        };
+        let width = |weight| match weight {
+            LineWeight::Width(width) => Some(width),
+            LineWeight::Default => self.drawing.default_line_weight,
+        };
+        let line_weight = match style.line_weight {
+            Some(Inherit::Own(v)) => width(v),
+            Some(Inherit::Layer) => layer_style.and_then(|s| s.line_weight).and_then(width),
+            Some(Inherit::Block) => {
+                if frame.layer.is_some() {
+                    frame.line_weight
+                } else {
+                    self.drawing.default_line_weight
+                }
+            }
+            None => None,
+        };
+        let state = definition.and_then(|l| l.state);
+        let visible = frame.visible
+            && !frame.hidden.contains(&effective)
+            && state.is_none_or(|s| s.visible && !s.frozen);
+        VisitRef {
             item,
-            id: id.to_owned(),
-            path: frame
-                .placements
-                .iter()
-                .map(|placed| placed.step.clone())
-                .collect(),
+            id,
+            path: &frame.path,
             transform: frame.transform,
             color,
             line_type,
             line_weight,
             layer: effective,
+            layer_definition: definition,
             visible,
-            printable,
-            clips: frame.clips.clone(),
+            printable: visible && state.is_none_or(|s| s.printable),
+            clips: &frame.clips,
         }
     }
 }
@@ -939,6 +1087,152 @@ mod tests {
                 )
             })
             .collect()
+    }
+
+    /// 結果は保持せず、ビューの切り抜きが同じ領域を借りることも確かめる。
+    struct Counter<'c, 'x> {
+        cx: &'c mut Cx<'x>,
+        count: usize,
+        clip: Option<*const [f64; 2]>,
+    }
+    impl<'a> WalkVisitor<'a> for Counter<'_, '_> {
+        fn context(&mut self) -> Cx<'_> {
+            Cx::new(self.cx.budget, self.cx.diag, self.cx.cancel)
+        }
+        fn visit(&mut self, visit: VisitRef<'a, '_>) -> Result<(), (Stop, Ref)> {
+            self.count += 1;
+            if let Some(clip) = visit.clips.first() {
+                let pointer = clip.polygon.as_ptr();
+                if let Some(previous) = self.clip {
+                    assert_eq!(previous, pointer);
+                }
+                self.clip = Some(pointer);
+            }
+            Ok(())
+        }
+    }
+
+    fn viewed(
+        elements: Vec<Element<ModelPoint>>,
+        clip_points: usize,
+        order: Vec<SheetItem>,
+    ) -> Drawing2D {
+        Drawing2D {
+            spaces: vec![space(MODEL, elements)],
+            sheets: vec![Sheet {
+                id: SHEET,
+                name: None,
+                size: None,
+                elements: Vec::new(),
+                source: Ref::default(),
+                order,
+                views: vec![View {
+                    space: MODEL,
+                    sheet: SHEET,
+                    transform: Affine::IDENTITY,
+                    clip: (0..clip_points)
+                        .map(|x| PaperPoint {
+                            sheet: SHEET,
+                            x: x as f64,
+                            y: 0.0,
+                        })
+                        .collect(),
+                    hidden_layers: Vec::new(),
+                    source: Ref::default(),
+                }],
+            }],
+            ..Drawing2D::default()
+        }
+    }
+
+    #[test]
+    fn a_repeated_empty_view_prepares_its_polygon_once_and_counts_sheet_order() {
+        let drawing = viewed(Vec::new(), 10_000, vec![SheetItem::View(0); 10_000]);
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(20_002)));
+        let mut diag = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        let mut counter = Counter {
+            cx: &mut cx,
+            count: 0,
+            clip: None,
+        };
+        drawing
+            .walk_to(Origin::Sheet(SHEET), false, &mut counter)
+            .unwrap();
+        assert_eq!(counter.count, 0);
+        assert_eq!(budget.used(Kind::Work), 20_002);
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(10_000)));
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        assert!(drawing.walk(Origin::Sheet(SHEET), &mut cx).is_err());
+        // 範囲の外の要素とビューも、順の項目ごとに数える。
+        let drawing = viewed(
+            Vec::new(),
+            0,
+            vec![SheetItem::Element(99), SheetItem::View(99)],
+        );
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(3)));
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        assert!(
+            matches!(drawing.walk(Origin::Sheet(SHEET), &mut cx), Err((Stop::Exceeded(e), _)) if e.kind == Kind::Work)
+        );
+    }
+
+    #[test]
+    fn streamed_visits_share_view_clips_and_do_not_charge_for_collected_results() {
+        let drawing = viewed(
+            vec![line(MODEL, 0, block()); 1000],
+            1000,
+            vec![SheetItem::View(0); 10],
+        );
+        let mut budget = Budget::new(Limits::default().with(Kind::DecodedBytes, Limit::Finite(1)));
+        let mut diag = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        let mut counter = Counter {
+            cx: &mut cx,
+            count: 0,
+            clip: None,
+        };
+        drawing
+            .walk_to(Origin::Sheet(SHEET), false, &mut counter)
+            .unwrap();
+        assert_eq!(counter.count, 10_000);
+        assert!(counter.clip.is_some());
+        // 所有する API は、切り抜きを含む複製量の予算が足りなければ止まる。
+        assert!(
+            matches!(drawing.walk(Origin::Sheet(SHEET), &mut cx), Err((Stop::Exceeded(e), _)) if e.kind == Kind::DecodedBytes)
+        );
+    }
+
+    #[test]
+    fn indexed_layers_keep_the_first_duplicate_and_resolve_a_deep_chain() {
+        let mut drawing = nested();
+        drawing
+            .layers
+            .extend((4..10_000).map(|id| layer(id, Some(2), ON)));
+        drawing.layers.push(layer(1, Some(9), ON));
+        let depth = 100;
+        drawing.spaces[0].elements = vec![insert(MODEL, "chain-0", 1, by_layer(), 0.0)];
+        drawing.symbols = (0..depth)
+            .map(|n| {
+                let id = SpaceId(n + 1);
+                let element = if n + 1 == depth {
+                    line(id, 0, block())
+                } else {
+                    insert(id, &format!("chain-{}", n + 1), 0, block(), 0.0)
+                };
+                definition(&format!("chain-{n}"), space(id, vec![element]))
+            })
+            .collect();
+        let (visits, _) = walk(&drawing, Origin::Space(MODEL));
+        let last = visits.last().unwrap();
+        assert_eq!(last.path.len(), depth as usize);
+        assert_eq!(last.layer, LayerId(1));
+        assert_eq!(last.color, Some(aci(1)));
+        assert_eq!(last.line_type, Some(LineTypeId(1)));
+        assert_eq!(last.line_weight, Some(PaperLength(0.2)));
+        assert!(last.visible && last.printable);
     }
 
     #[test]
