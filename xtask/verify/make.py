@@ -941,7 +941,7 @@ def non_finite_jww(data):
     # バージョン 700 の CDataSen は、クラスの名前、15 バイトの共通フィールド、4 つの実数の順。
     # 適合テストの形が変わったら、違うフィールドを書き換える前に止める。
     if data[:12] != b"JwwData." + struct.pack("<I", 700) or data.count(b"CDataSen") != 1:
-        raise ValueError("非有限値の検査に使う JWW の版かクラスが変わった")
+        raise ValueError("非有限値の検査に使う JWW のバージョンかクラスが変わった")
     at = data.index(b"CDataSen") + len(b"CDataSen") + 15
     if data[at:at + 32] != struct.pack("<4d", 0.0, 0.0, 100.0, 50.0):
         raise ValueError("非有限値の検査に使う JWW の線が変わった")
