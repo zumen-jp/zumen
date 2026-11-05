@@ -112,6 +112,74 @@ fn an_empty_drawing_ends_with_the_image_count() {
     assert_eq!(file.records()[0].span(), 0..src.len() - 8);
 }
 
+/// 空の定義一覧の件数は、レコードの隙間か最後の trailer に残す（決定 0265）
+#[test]
+fn list_counts_keep_the_record_boundaries() {
+    for version in [230, 600, 700, 720] {
+        for has_line in [false, true] {
+            // CArchive の短い件数と長い件数で、同じ 0 件を表す
+            for count in [&[0, 0][..], &[0xFF, 0xFF, 0, 0, 0, 0]] {
+                let mut archive = Archive::new(version);
+                archive.count(u16::from(has_line));
+                if has_line {
+                    archive.line();
+                }
+                let mut src = header(version);
+                let header_end = src.len();
+                src.extend(&archive.out);
+                let definitions = src.len();
+                let tail_start = if has_line { definitions } else { header_end };
+                src.extend(count);
+                if version >= 700 {
+                    src.extend(0u32.to_le_bytes());
+                }
+                let (file, diag) = read(&src);
+                assert!(diag.is_empty(), "{version}: {diag:?}");
+                let mut expected = vec!["header"];
+                if has_line {
+                    expected.push("CDataSen");
+                    assert_eq!(file.records()[1].span(), header_end + 2..definitions);
+                }
+                expected.push(if version < 700 {
+                    "trailer"
+                } else {
+                    "image-count"
+                });
+                assert_eq!(kinds(&file), expected);
+                let last = file.records().last().unwrap();
+                if version < 700 {
+                    // 図形もなければ、図形と定義の両方の件数が trailer に入る
+                    assert_eq!(last.span(), tail_start..src.len());
+                    assert_eq!(file.bytes(last.body()), &src[tail_start..]);
+                } else {
+                    // 定義の件数は、画像の件数の前の隙間に残る
+                    assert_eq!(last.span(), definitions + count.len()..src.len());
+                }
+                testkit::roundtrip::<Jww>(&src).unwrap();
+
+                // 読めない後ろがあるときだけ診断する。trailer の有無では判断しない
+                src.push(0xEE);
+                let (broken, diag) = read(&src);
+                assert_eq!(diag.len(), 1);
+                assert_eq!(diag[0].code(), codes::JWW_TRAILER_INVALID);
+                assert_eq!(diag[0].count(), 1);
+                let last = broken.records().last().unwrap();
+                assert_eq!(last.kind(), RecordKind::Trailer);
+                assert_eq!(last.span(), tail_start..src.len());
+                assert_eq!(
+                    diag[0]
+                        .places()
+                        .first()
+                        .and_then(Ref::bytes)
+                        .map(|range| (range.start, range.end)),
+                    Some((tail_start as u64, src.len() as u64))
+                );
+                testkit::roundtrip::<Jww>(&src).unwrap();
+            }
+        }
+    }
+}
+
 #[test]
 fn unknown_header_fields_are_found_by_the_list_start() {
     let (src, _) = drawing(700);

@@ -280,12 +280,13 @@ fn rewriting_lists_without_definitions_writes_their_count_once() {
     common::cstring(&mut image, "a.bmp");
     image.extend(3u32.to_le_bytes());
     image.extend(b"abc");
-    let tails: [(u32, Vec<u8>, &[&str]); 4] = [
+    let tails: [(u32, Vec<u8>, &[&str]); 5] = [
         // バージョン 700 からは、定義の一覧の後に画像の一覧が続く
         (700, 0u32.to_le_bytes().to_vec(), &["image-count"]),
         (700, image, &["image-count", "image"]),
         // バージョン 700 より前は定義の件数で終わり、件数は残りのレコードに入る
         (600, Vec::new(), &["trailer"]),
+        (600, vec![0xEE], &["trailer"]),
         // 読めない残りは、定義の件数ごと残りのレコードになり、そのまま写す
         (700, vec![0, 0, 0, 0, 0xEE], &["trailer"]),
     ];
