@@ -1,6 +1,7 @@
 //! 点・線・円・円弧・楕円・ポリライン・スプライン・SOLID を、図面モデルの形にする。
 //! 厚さと線種の生成は、`dxf.entity` の拡張に控える（決定 0142）。
 
+use super::finite;
 use super::{Lifted, Lifter, Values, check_spline, invalid, non_planar, text};
 use crate::db::{Data, Object, Value};
 use zumen_base::{Diagnostic, codes};
@@ -149,12 +150,15 @@ impl Lifter<'_> {
         }
         Ok(Edge::Elliptic {
             center: point(x, y),
-            major: point(x + dx, y + dy),
+            major: point(finite(kind, 11, x + dx)?, finite(kind, 21, y + dy)?),
             ratio,
-            start: self.real(object, 41, Some(0.0))?.to_degrees(),
-            end: self
-                .real(object, 42, Some(core::f64::consts::TAU))?
-                .to_degrees(),
+            start: finite(kind, 41, self.real(object, 41, Some(0.0))?.to_degrees())?,
+            end: finite(
+                kind,
+                42,
+                self.real(object, 42, Some(core::f64::consts::TAU))?
+                    .to_degrees(),
+            )?,
             counterclockwise: true,
         })
     }
