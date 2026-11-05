@@ -34,6 +34,7 @@
 
 ## 参照
 
+- 一覧の件数と `trailer` の区切りは、[決定 0265](0265-jww-list-counts-and-trailer.md) で補う。
 - [決定 0008](0008-model-layers-and-codecs.md)、[決定 0010](0010-budget-by-work.md)、[決定 0119](0119-budget-stop-place.md)
 - [docs/formats/jww.md](../formats/jww.md)
 - #172
