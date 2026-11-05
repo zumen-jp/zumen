@@ -88,6 +88,8 @@ jobs:
         run: npm run check
       - name: TypeScript・JavaScript のラッパーの型を、サイトと同じバージョンの TypeScript で確かめる（決定 0194）
         run: npx --no-install tsc -p ../bindings/js/tsconfig.json
+      - name: Canvas 2D の表示部品の型を確かめる（決定 0267）
+        run: npx --no-install tsc -p ../packages/view2d/tsconfig.json
       - name: zumen.dev のページを作る
         run: npm run build
 
@@ -229,6 +231,8 @@ jobs:
         run: npx --no-install playwright install --with-deps --only-shell chromium
       - name: ブラウザー（Chromium）の中でラッパーを通しても、同じハッシュの一覧になることを確かめる（決定 0199）
         run: node bindings/js/test/browser/run.mjs chromium target/wasm32-unknown-unknown/release/zumen_abi1.wasm modules/zumen_abi1_drawing.wasm modules/zumen_abi1_bim.wasm modules/zumen_abi1_civil.wasm modules/zumen_abi1_pointcloud.wasm modules/zumen_abi1_plugin.wasm
+      - name: Canvas 2D で合成シーンと DXF・JWW・SXF を描く（決定 0267）
+        run: node bindings/js/test/browser/view2d.mjs chromium target/wasm32-unknown-unknown/release/zumen_abi1.wasm
 
   deny:
     name: 依存の検査
