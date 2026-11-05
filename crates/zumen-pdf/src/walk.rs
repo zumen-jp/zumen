@@ -1456,9 +1456,13 @@ impl<'a, 'o> Walker<'a, 'o> {
                     self.report(codes::PDF_CONTENT_INVALID, place, cx);
                 }
             }
-            // page_stream は各項目をもう一度展開し、別の Vec に連結してページの中で保持する
-            cx.check(Kind::Work, joined.div_ceil(16))?;
-            cx.check(Kind::DecodedBytes, decoded.saturating_add(joined))?;
+            // page_stream は各項目をもう一度展開し、別の Vec に連結してページの中で保持する。
+            // Vec が伸びる余りを倍で数え、項目の連結と伸ばす間の写しも先に数える
+            cx.check(Kind::Work, joined.div_ceil(16).saturating_mul(3))?;
+            cx.check(
+                Kind::DecodedBytes,
+                decoded.saturating_add(joined.saturating_mul(2)),
+            )?;
             true
         } else {
             false
