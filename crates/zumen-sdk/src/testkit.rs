@@ -271,8 +271,9 @@ pub fn ids_match(
     Ok(())
 }
 
-/// fuzz の上限。どの入力でも、すぐに止まるようにする
-fn fuzz_limits() -> Limits {
+/// fuzz の上限。どの入力でも、すぐに止まるようにする。[`survives`] のほかに確かめることのある fuzz の target も、
+/// この上限で読む
+pub fn fuzz_limits() -> Limits {
     Limits::default()
         .with(Kind::DecodedBytes, Limit::Finite(64 << 20))
         .with(Kind::Records, Limit::Finite(1 << 20))

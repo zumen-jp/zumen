@@ -1550,6 +1550,271 @@ group-by = ["kind"]
 since = "0.0.0"
 status = "active"
 
+# PDF のファイルモデルと、図面の領域モデルへの変換（決定 0256）
+
+[codes."pdf.file.invalid"]
+description = "先頭の 1,024 バイトに、ファイルのヘッダー %PDF- がない"
+severity = "error"
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.document.invalid"]
+description = "相互参照とページの木を、オブジェクトを探し直しても読めない"
+severity = "error"
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.document.unsupported"]
+description = "hayro-syntax がパニックするか、環境（32 ビットと 64 ビット）で違う値に読むおそれのある値があるので、読まなかった。ファイルとオブジェクトのストリームの中身のどこかに、2 の 31 乗以上の Columns・N・First か、予測子を当てる Predictor と、0 の Colors・BitsPerComponent・Columns か、積が 255 を超える Colors と BitsPerComponent か、1 MiB を超える 1 行の値がある（参照の値は、すべての定義の数を候補にする）。または、入力の長さが 2 の 28 乗バイトに届きうる LZW・ASCII85 のフィルターがあるか、フィルターの値に参照があり、参照の先になりうる位置（obj の後ろと、オブジェクトのストリームの中の位置）に LZW・ASCII85 の名前か、それを名前の項目に持つ配列か、最初の参照の項目より前の名前の項目が 64 を超える配列（参照の先になりうる位置に名前があれば、名前と参照の項目が 64 を超える配列）があるか、名前と参照の項目が 64 を超えるフィルターの配列か、フィルターの配列の項目の数より前に、上の段の 2 つ目の参照の項目か、辞書の後ろに stream がある項目か、見る上限（1 KiB）で切れる項目がある展開のパラメーター（DecodeParms・DP）の配列があるか（値が参照なら、参照の先になりうる位置の配列も見る）、オブジェクトのストリームの中の位置が 2 の 31 乗以上か、オブジェクトのストリームの長さ・数・展開の値が参照を含むか、確かめたオブジェクトのストリームの型でない ObjStm の型があるか、暗号化の辞書の名前がある文書が、オブジェクトのストリームを使う。場所は、理由の値を含むレコード"
+severity = "error"
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.encryption.unsupported"]
+description = "空のパスワードで開けないか、扱えない方式の暗号なので、読まなかった"
+severity = "error"
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.object.repaired"]
+description = "間接オブジェクトの終わり（endobj）がないので、次のオブジェクトの前か入力の終わりまでを、そのオブジェクトにした"
+severity = "warning"
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.content.invalid"]
+description = "内容のストリーム・フォームの XObject・画像を、展開できないか途中から読めないので、その内容を移さなかった。内容のストリームの配列の展開できない項目、引数の足りない演算子や閉じない文字列から後ろ、BBox のないフォーム、大きさのない画像を含む"
+severity = "warning"
+fidelity = "dropped"
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.nesting.dropped"]
+description = "フォームの XObject の入れ子が、hayro-interpret の上限（50 段）より深いので、その中身を移さなかった"
+severity = "warning"
+fidelity = "dropped"
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.page.dropped"]
+description = "hayro-interpret がスタックかメモリを使い切るか、パニックするおそれのあるもの（16 段より深い関数・色空間の入れ子、64 段より深い Type 4 の関数の手続き、26 万個を超える CID フォントの幅の項目、大きさが 16,777,216 を超える Type 0 の関数、行の頂点の数が 0 の格子のメッシュ）があるので、ページを解釈せず、その中身を移さなかった。場所は、理由のオブジェクトのレコード（直接書いたオブジェクトは、それを含む間接オブジェクトのレコード。色空間の入れ子は、ページの内容のストリーム）"
+severity = "warning"
+fidelity = "dropped"
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.xobject.missing"]
+description = "資源にない XObject を描いた（Do）。hayro-interpret は描かないので、移さなかった。循環する参照で引けない XObject を含む。ページと名前ごとに 1 件。name は資源の名前"
+severity = "warning"
+fidelity = "dropped"
+params = { name = "text" }
+group-by = ["name"]
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.optional-content.dropped"]
+description = "既定の設定で隠れる OCG の内容は、hayro-interpret が塗らないので、移さなかった。name は OCG の名前"
+severity = "warning"
+fidelity = "dropped"
+params = { name = "text" }
+group-by = ["name"]
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.optional-content.approximated"]
+description = "OCMD で見える内容を最初の OCG のレイヤに置いたか、OCG を持つ XObject の内容をレイヤに分けなかった"
+severity = "warning"
+fidelity = "approximated"
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.membership.dropped"]
+description = "OCMD で、既定の設定で隠れる内容は、hayro-interpret が塗らないので、移さなかった"
+severity = "warning"
+fidelity = "dropped"
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.annotation.unsupported"]
+description = "注釈を、図面モデルに移さなかった。kind は注釈の種類（Subtype）"
+severity = "warning"
+fidelity = "dropped"
+params = { kind = "text" }
+group-by = ["kind"]
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.measure.unsupported"]
+description = "縮尺の辞書（Measure）を持つビューポートの縮尺を、移さなかった"
+severity = "warning"
+fidelity = "dropped"
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.shading.dropped"]
+description = "シェーディング（濃淡）で塗った形を、移さなかった"
+severity = "warning"
+fidelity = "dropped"
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.pattern.dropped"]
+description = "タイルのパターンで塗った形を、移さなかった"
+severity = "warning"
+fidelity = "dropped"
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.clip.dropped"]
+description = "切り抜きかページの外にあって見えない要素を、移さなかった"
+severity = "warning"
+fidelity = "dropped"
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.clip.approximated"]
+description = "切り抜きにかかる要素を、切らずに移した"
+severity = "warning"
+fidelity = "approximated"
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.geometry.dropped"]
+description = "座標・線の太さが有限でない要素と、大きさのない文字（0 Tf・0 Tz・特異な行列）を、移さなかった"
+severity = "warning"
+fidelity = "dropped"
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.glyph.dropped"]
+description = "Unicode に戻せない字形を、U+FFFD にした"
+severity = "warning"
+fidelity = "dropped"
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.glyph-position.approximated"]
+description = "字形の並びの中の、字形ごとの位置の小さなずれ（TJ の数・Tc・Tw による）を移さず、フォントの送りで並べた 1 つの文字にした"
+severity = "warning"
+fidelity = "approximated"
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.text.dropped"]
+description = "hayro-interpret が描かない文字列を、移さなかった。代わりのフォント（Helvetica）で読む、ASCII でないバイトを含む文字列と、フォントを選ばずに ' か \" で描いた文字列"
+severity = "warning"
+fidelity = "dropped"
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.font.assumed"]
+description = "フォントを選ばずに（Tf の前に）Tj か TJ で描いた文字を、hayro-interpret が Helvetica で読んだ。ページごとに 1 件"
+severity = "warning"
+fidelity = "approximated"
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.font.missing"]
+description = "資源にないフォントを選んだ文字を、hayro-interpret が Helvetica で読んだ。ページとフォントの名前ごとに 1 件。name は資源の名前"
+severity = "warning"
+fidelity = "approximated"
+params = { name = "text" }
+group-by = ["name"]
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.font.unsupported"]
+description = "hayro-interpret が読めないフォントの文字を、Helvetica で読んだ。ページとフォントのオブジェクトごとに 1 件。name はフォントの名前（BaseFont。なければ資源の名前）"
+severity = "warning"
+fidelity = "approximated"
+params = { name = "text" }
+group-by = ["name"]
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.vertical-origin.approximated"]
+description = "縦書きのフォントの原点の移動（字形の幅・DW2・W2）が既定と違いうるので、文字の基点を、既定の原点の移動で近似した。ページとフォントのオブジェクトごとに 1 件。name はフォントの名前（BaseFont）"
+severity = "warning"
+fidelity = "approximated"
+params = { name = "text" }
+group-by = ["name"]
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.font-name.dropped"]
+description = "hayro-interpret が名前を渡さないフォント（Type 1・埋め込みのない TrueType）と、名前が UTF-8 でないフォントの文字を、文字スタイルを空にして移した"
+severity = "warning"
+fidelity = "dropped"
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.color.approximated"]
+description = "装置の CMYK か、装置によらない色空間の色を、四則演算で RGB にした。space は色空間の系統"
+severity = "warning"
+fidelity = "approximated"
+params = { space = "text" }
+group-by = ["space"]
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.color.dropped"]
+description = "RGB にしない色空間の色を移さず、レイヤの色にした。space は色空間の系統"
+severity = "warning"
+fidelity = "dropped"
+params = { space = "text" }
+group-by = ["space"]
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.transfer.dropped"]
+description = "転送関数（TR・TR2）を使うページの色を移さず、レイヤの色にした。hayro-interpret が関数を当てた色は使わない"
+severity = "warning"
+fidelity = "dropped"
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.fill-rule.approximated"]
+description = "非ゼロ回転数の規則で塗った、輪が 2 つ以上の形を、輪の中の輪を交互に埋めるハッチングにした"
+severity = "warning"
+fidelity = "approximated"
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.stroke.approximated"]
+description = "線の端（丸・四角）とつなぎ（丸・面取り）の形を、移さなかった"
+severity = "warning"
+fidelity = "approximated"
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.dash.approximated"]
+description = "破線の位相を移さなかった"
+severity = "warning"
+fidelity = "approximated"
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.transparency.approximated"]
+description = "ソフトマスク・画像のマスク（Mask・SMaskInData）と、通常でない合成の方法を移さなかった"
+severity = "warning"
+fidelity = "approximated"
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.image-mask.approximated"]
+description = "色を塗る画像（ImageMask）の色を移さず、レイヤの色にした"
+severity = "warning"
+fidelity = "approximated"
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.type3.approximated"]
+description = "Type 3 のフォントの字形（内容のストリームで描く形）を、書体のない文字にした"
+severity = "warning"
+fidelity = "approximated"
+since = "0.2.0"
+status = "active"
+
 # プロファイルの照合（決定 0173・0179）。照合を始められないときの診断と、check の結果の指摘。
 # 指摘の重要度は規則の level を使い、ここの severity は使わない（決定 0173）
 

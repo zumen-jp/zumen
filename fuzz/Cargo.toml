@@ -34,6 +34,7 @@ zumen-ifc = { path = "../crates/zumen-ifc" }
 zumen-jww = { path = "../crates/zumen-jww" }
 zumen-landxml = { path = "../crates/zumen-landxml" }
 zumen-las = { path = "../crates/zumen-las" }
+zumen-pdf = { path = "../crates/zumen-pdf" }
 zumen-photo = { path = "../crates/zumen-photo" }
 zumen-ply = { path = "../crates/zumen-ply" }
 zumen-pointcloud = { path = "../crates/zumen-pointcloud" }
@@ -102,6 +103,13 @@ bench = false
 [[bin]]
 name = "jww"
 path = "fuzz_targets/jww.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "pdf"
+path = "fuzz_targets/pdf.rs"
 test = false
 doc = false
 bench = false

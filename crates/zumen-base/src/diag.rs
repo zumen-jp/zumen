@@ -359,6 +359,11 @@ impl Diagnostics {
         self.list.push(diagnostic);
     }
 
+    /// 診断ごとに持つ場所の数
+    pub fn max_places(&self) -> usize {
+        self.max_places
+    }
+
     /// 届いた順に返す
     pub fn iter(&self) -> core::slice::Iter<'_, Diagnostic> {
         self.list.iter()

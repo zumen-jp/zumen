@@ -35,7 +35,7 @@
 | [kokuban](#format-kokuban) | 電子小黒板の情報と信憑性確認（改ざん検知） | jpeg | delivery | `permission` | `none` |  |  |
 | [landxml](#format-landxml) | J-LandXML（LandXML 1.2 に準じた 3 次元設計データ交換標準） | landxml | civil | `public` | `core` | `synthetic` |  |
 | [las](#format-las) | LAS・LAZ | las | pointcloud | `public` | `core` | `synthetic` |  |
-| [pdf](#format-pdf) | PDF | pdf | drawing | `public` | `core` |  |  |
+| [pdf](#format-pdf) | PDF | pdf | drawing | `public` | `core` | `synthetic` | `synthetic` |
 | [ply](#format-ply) | PLY（点群） | ply | pointcloud | `public` | `core` | `synthetic` |  |
 | [saf](#format-saf) | SXF の属性ファイル（SAF） | sxf | drawing・delivery | `public` | `core` | `synthetic` |  |
 | [sima](#format-sima) | SIMA 共通フォーマット | sima | civil | `unknown` | `none` |  |  |
@@ -782,11 +782,20 @@
 - 権利の根拠: ISO の規格で、PDF Association が無償で配っている。実装を制限する記述はない
 - 仕様: [iso\_32000\_2\_2020](#spec-iso_32000_2_2020)
 - 実装の根拠: spec
+- 権利の根拠にした文書: [PDF Association の告知「ISO 32000-2（PDF 2.0）を無償で入手できる」（2023-04-05）](https://pdfa.org/announcing-no-cost-access-to-iso-32000-2-pdf-2-0/)（確認日: 2026-11-03）
+- 文書の補足: Adobe・Apryse・Foxit の後援で、PDF Association が登録した人に無償で配る。ページは自動の取得では開けない（HTTP 403）ので、検索の結果の要約で確かめた。無償版の利用の条件までは確かめていない
 - 照合に使う候補: pdf.js
 - サンプルの出どころ: CAD が出力した図面の PDF（手元で作る）
+- 読みの確かめた度合い: `synthetic`（確認日: 2026-11-03）
+- 読みの確かめた範囲: 仕様と、テストの中で作った PDF だけで確かめた（crates/zumen-pdf/tests/pdf.rs・drawing.rs）。図面モデルへの移しは、hayro-interpret 0.9.0 が解釈したページで確かめた。シーンへの移しは、図面モデルから zumen-scene で作れることだけを確かめた。公開サンプルと外部の実装（pdf.js）との照合はまだ（#519）
+- 書きの確かめた度合い: `synthetic`（確認日: 2026-11-03）
+- 書きの確かめた範囲: 読んだバイト列をそのまま書けることを、自前の読み取りだけで確かめた。書いたファイルを PDF のソフトで開いてはいない
+- 記録: [決定 0008](../decisions/0008-model-layers-and-codecs.md)
 - 記録: [決定 0013](../decisions/0013-boundary-in-four-forms.md)
+- 記録: [決定 0256](../decisions/0256-pdf-with-hayro.md)
 - 旧版の記録: 旧版の決定 0020、旧版の決定 0030（[旧版の決定の一覧](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/README.md)）
-- 補足: ページの解釈は hayro-interpret（Apache-2.0 OR MIT）を使う予定（旧版の決定 0020）
+- 形式の文書: [docs/formats/pdf.md](../../docs/formats/pdf.md)
+- 補足: ページの解釈は hayro-interpret 0.9.0（Apache-2.0 OR MIT）に任せ、バージョンを固定する（決定 0256）
 
 ### format-ply
 
