@@ -18,7 +18,7 @@
 - 旧版は、AI 向けのツールを、Python のパッケージの MCP サーバーで出した。MCP の公式の SDK を使い、HTTP は、認証と利用者ごとの権限が要るので出さなかった（[旧版の決定 0004](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/0004-mcp-server-in-the-python-package.md)）。
 - ツールの状況（2026-10-24 に確かめた）
   - MCP は、2026-07-28 のバージョンで、状態を持たない形に大きく変わった。それより前のバージョンのクライアントに応えるには、前のバージョンの初期化も受ける必要がある。公式の Rust SDK（rmcp、Apache-2.0）は両方に応える。ただし tokio などの依存が多く、2026 年にメジャーバージョンを 3 回上げた。
-  - HTTP のサーバーの crate は、hyper（MIT）が軽い。tiny_http は、2022 年から版が出ていない。
+  - HTTP のサーバーの crate は、hyper（MIT）が軽い。tiny_http は、2022 年からバージョンが出ていない。
   - wasmtime の各言語のバインディング（Python・.NET）は、64 bit の環境にしかない。32 bit の Windows は、wasmtime 自身でも Tier 3（本番には勧めない）。
   - 安定版の Rust（1.99.1）では、スレッドを使う wasm32 のモジュールを作れない（nightly の `-Z build-std` が要る）。
 - [0007](0007-single-rust-implementation.md) は wasm のモジュールの分け方を、[0011](0011-bindings-through-ffi.md) は MCP の SDK と HTTP のツール、1 つの言語の中で形態を選べるようにするかを、ここに残した。

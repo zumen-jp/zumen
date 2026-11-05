@@ -721,7 +721,7 @@ fn issue_url(value: &str) -> Option<String> {
     Some(format!("https://github.com/{repo}/issues/{number}"))
 }
 
-/// 例外や版の指定のない禁止だけを数える。cargo-deny の Package Specs・bans.deny に従う。
+/// 例外やバージョンの指定のない禁止だけを数える。cargo-deny の Package Specs・bans.deny に従う。
 /// https://embarkstudios.github.io/cargo-deny/checks/bans/cfg.html#deny
 fn full_ban(value: &toml::Value, name: &str) -> bool {
     if value.as_str() == Some(name) {
@@ -773,7 +773,9 @@ fn check_bans(ledger: &Ledger, deny: &toml::Value) -> Vec<String> {
     restricted_crates(ledger)
         .into_iter()
         .filter(|name| bans.is_none_or(|b| !b.iter().any(|v| full_ban(v, name))))
-        .map(|name| format!("deny.toml: `{name}` を [bans].deny で例外・版の制限なく禁止する"))
+        .map(|name| {
+            format!("deny.toml: `{name}` を [bans].deny で例外・バージョンの制限なく禁止する")
+        })
         .collect()
 }
 
