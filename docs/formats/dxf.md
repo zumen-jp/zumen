@@ -67,6 +67,19 @@ AutoCAD の系統のファイルモデル（L1）として DXF を読み書き�
 - `AcadDb::remove` で除いたオブジェクトへの参照のうち、DICTIONARY の項目（3 と次の 350・360）と、102 の組（`{ACAD_REACTORS` など）の中の 330・360 は、ほかのオブジェクトからも除く（DXF Reference「Common Group Codes for Objects」「DICTIONARY」）。参照を除いて空になった組は、組ごと除く。書き戻すと、直したオブジェクトのレコードも直る。
 - まだ扱わないもの: ほかの変更に伴って直すもの（範囲を狭めること、用紙空間の範囲 `$PEXTMIN`・`$PEXTMAX`、組の外の所有者の参照 330 と、所有していたオブジェクトをまとめて除くこと、ブロックのレコードなど）、型付きのビューを広げること。
 
+## 新しい DXF への変換
+
+`convert` は、図面モデルを新しい R2004 の DXF（AC1018）に書きます（[決定 0206](../decisions/0206-convert-to-new-dxf.md)）。ひな形に表の項目と要素を `apply` で足します。
+
+- ひな形の TABLE はハンドル（5）と `AcDbSymbolTable`、表の項目は所有者（330）と `AcDbSymbolTableRecord`・種類ごとのサブクラス（100）を持つ。DIMSTYLE のハンドルは 105 に書く（DXF Reference「TABLES Section」「Common Group Codes for Symbol Table Entries」）。BLOCK・ENDBLK と足した図形の所有者は、対応する BLOCK_RECORD にする。これにより、記号の定義の中身も足せる。
+- OBJECTS にルートの DICTIONARY、`ACAD_LAYOUT` の辞書、モデルと用紙の LAYOUT を書く。LAYOUT と BLOCK_RECORD は互いを指す。用紙は最初の 1 枚を `Layout1` にし、入力に用紙がなくても空の `Layout1` を持つ。空の LAYOUT を追加先に使うので、用紙を作るための一時的な POINT は置かない（DXF Reference「DICTIONARY」「LAYOUT」「BLOCK_RECORD」）。
+- 用紙の座標と限界は最初の実寸の空間の単位で書き、LAYOUT の印刷の単位を mm、印刷の尺度を 1 図面単位の mm とする。実寸の空間がなければ mm とする。VIEWPORT は `AcDbEntity`・`AcDbViewport` と、用紙の BLOCK_RECORD を指す所有者を持つ。`$HANDSEED` は、VIEWPORT を含むすべてのハンドルより大きくする（DXF Reference「PLOTSETTINGS」「VIEWPORT」「HEADER Section Group Codes」）。
+- 文字のコード・ページは ANSI_932 とする。ひな形の記号名にも、書き戻しで使う `encoding_rs` の同じ表を使う（[決定 0192](../decisions/0192-acad-code-page-write-back.md)）。この依存は既存採用済みで、ライセンスは `(Apache-2.0 OR MIT) AND BSD-3-Clause`。OS やロケールに依らず、wasm でも同じ表で符号化する。記号名に使えない文字は `_` にし、空の名前・無名の定義・ANSI_932 で元に戻らない名前には `zumen_番号` を付ける。名前が重なれば連番を付ける。
+- 足せなかった画層は、元の場所と `kind: layer` を付けて `convert.element.unsupported` で返す。その画層の要素も落とし、種類・件数・元の場所を同じ code で返す。画層 0 には移さない。たとえば、追加できない予約名の Defpoints と、その上の要素は、この扱いになる。既定の画層 0 はひな形の項目を使う。
+- 書けない要素と、文字にした属性の診断にも、元の要素・属性の場所を付ける。診断ごとの件数を数え、場所の数は呼び出しの上限まで残す。`convert.attribute.drawn` は、属性の文字を実際に足せたときだけ返す。
+
+R2004 の構成は、Autodesk の [DXF Reference](https://images.autodesk.com/adsk/files/acad_dxf.pdf) の各節に従います。実アプリでの確認範囲は、下の「確かめた度合い」に書きます。
+
 ## バージョンの変更
 
 - `Dxf::write_as` で、`$ACADVER` の値を名指しして書く（[決定 0008](../decisions/0008-model-layers-and-codecs.md)）。元と同じバージョンなら、そのまま書く。バイナリの DXF のバージョンは、まだ変えない。
@@ -201,4 +214,4 @@ AutoCAD の系統のファイルモデル（L1）として DXF を読み書き�
 - 書き: AutoCAD で作った R2000・R2004・R2010・R2018 の DXF に、引出線の置き換え・変換・追加と MULTILEADER の線の置き換えを当てて書き戻し、AutoCAD 2027 で開いた。監査の誤りは 0 で、形・矢印・注記が当てた値と合った（#345）。
 - 「サンプルで確かめた」と書いた扱いには、`samples/` にない図面で確かめたものもある。「推定」と書いたものと、サンプルで確かめたと書いていないものは、仕様とテストの中で作ったファイルで確かめた。AutoCAD と照らしたのは上の範囲だけで、ezdxf と照らす値は下の項にある。
 - 点・寸法・表と、引出線のほかの変更を書き戻した DXF と、convert（[決定 0206](../decisions/0206-convert-to-new-dxf.md)）で書いた DXF は、AutoCAD で開いていない（#342・#314・#503）。
-- ezdxf: 毎晩の CI で、公開サンプルの DXF（`samples/dxf`・`samples/dwg`）と、それに書き戻しを当てた DXF を ezdxf 1.4.5 で読み、zumen の読みと照らす（`xtask/verify`、#511）。照らすのは、画層・図形の種類・モデル空間の形の値・黙って捨てていないこと、書き戻しで決めた形・画層・色と、監査の誤りが入力より増えないこと。convert で書いた DXF は、ezdxf で読めないものと監査が誤りを直すものがある（#509）ので、確かめた度合いの根拠にしない。
+- ezdxf: 毎晩の CI で、公開サンプルの DXF（`samples/dxf`・`samples/dwg`）と、それに書き戻しを当てた DXF を ezdxf 1.4.5 で読み、zumen の読みと照らす（`xtask/verify`、#511）。照らすのは、画層・図形の種類・モデル空間の形の値・黙って捨てていないこと、書き戻しで決めた形・画層・色と、監査の誤りが入力より増えないこと。convert で書いた DXF もすべて読め、監査の誤りと修復が 0 であることを照らす（#509）。公開サンプルと適合テストの図面から変換した 34 ファイルで確かめた。AutoCAD で開く手順は #503 の検証キットにあるが、まだ実行していない。

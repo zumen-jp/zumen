@@ -30,8 +30,6 @@ from compare import ATTACHMENTS, check_handles, lifted_away_records, run, told, 
 # 既知の食い違い: (ファイルの道筋の初め, 食い違いの文の初め, issue, 当たるファイルの数)。直ったら消す。当たる数が
 # 変わったら失敗にする（直ったものと、同じ形で新たに食い違うものを知らせる）
 KNOWN = [
-    ("convert/", "ezdxf が読めない: AttributeError: 'NoneType' object has no attribute 'get_xlist'", 509, 15),
-    ("convert/", "ezdxf の監査で直した誤り: {'INVALID_TABLE_HANDLE': 5}", 509, 19),
 ]
 
 
