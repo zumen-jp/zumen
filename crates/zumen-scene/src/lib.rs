@@ -21,10 +21,10 @@ use zumen_base::{Cx, Diagnostic, Kind, Ref, Stop, codes};
 use zumen_drawing::transform::Point as Spot;
 use zumen_drawing::{
     Affine, Boundary, Clipping, Color, ColorSystem, Drawing2D, Edge, Fill, Flow, FormattedText,
-    Hatch, HeightMeaning, Horizontal, Inherit, Islands, Item, KnotParameterization, Length,
+    Hatch, HeightMeaning, Horizontal, Inherit, Islands, Item, KnotParameterization, Layer, Length,
     LineTypeDefinition, LineTypeId, MarkContent, MarkRotation, Origin, Piece, Placement, PointLook,
     PointMark, PointSize, Polyline, Rotation, Scaled, Shape, Text, Underlay, UnderlayFrame,
-    UnderlayKind, Vertex, Vertical, Visit,
+    UnderlayKind, Vertex, Vertical, VisitRef, WalkVisitor,
 };
 use zumen_geom2d::{self as geom, Xy};
 
@@ -153,48 +153,64 @@ pub fn build_with(
     fonts: &FontSet<'_>,
     cx: &mut Cx<'_>,
 ) -> Result<Scene, (Stop, Ref)> {
-    let visits = drawing.walk_parts(options.origin, cx)?;
-    // 描いた部品の中をたどった要素（寸法・表・注記の記号）は、道筋に持つ
-    let parted: BTreeSet<&str> = visits
-        .iter()
-        .flat_map(|visit| visit.path.iter().map(|step| step.id.as_str()))
-        .collect();
-    let shown = |visit: &Visit<'_>| {
-        if options.print {
-            visit.printable
-        } else {
-            visit.visible
-        }
+    let mut analysis = Analysis {
+        cx,
+        bounds: Bounds::default(),
+        parted: BTreeSet::new(),
+        options,
     };
-    let tolerance = match options.tolerance {
-        Some(tolerance) => tolerance,
-        None => match options.origin {
-            Origin::Sheet(_) | Origin::View { .. } => PAPER_TOLERANCE,
-            Origin::Space(_) => {
-                let mut bounds = Bounds::default();
-                for visit in visits.iter().filter(|v| shown(v)) {
-                    rough(visit, &mut bounds);
-                }
-                match bounds.get() {
-                    Some([x0, y0, x1, y1]) if x1 - x0 + (y1 - y0) > 0.0 => {
-                        libm::hypot(x1 - x0, y1 - y0) / SPACE_TOLERANCE_DIVISOR
-                    }
-                    _ => 1.0,
-                }
+    drawing.walk_to(options.origin, true, &mut analysis)?;
+    let tolerance = options.tolerance.unwrap_or_else(|| match options.origin {
+        Origin::Sheet(_) | Origin::View { .. } => PAPER_TOLERANCE,
+        Origin::Space(_) => match analysis.bounds.get() {
+            Some([x0, y0, x1, y1]) if x1 - x0 + (y1 - y0) > 0.0 => {
+                libm::hypot(x1 - x0, y1 - y0) / SPACE_TOLERANCE_DIVISOR
             }
+            _ => 1.0,
         },
-    };
+    });
+    let parted = analysis.parted;
     let mut builder = Builder::new(drawing, tolerance, options, fonts, cx);
     builder.parted = parted;
-    for visit in visits.iter().filter(|v| shown(v)) {
-        builder.visit(visit)?;
-    }
+    drawing.walk_to(options.origin, true, &mut builder)?;
     if builder.approximated {
         builder
             .cx
             .report(Diagnostic::new(codes::SCENE_CURVE_APPROXIMATED).with("tolerance", tolerance));
     }
     Ok(builder.finish(options.region))
+}
+
+struct Analysis<'o, 'c, 'x> {
+    cx: &'c mut Cx<'x>,
+    bounds: Bounds,
+    parted: BTreeSet<String>,
+    options: &'o Options,
+}
+
+impl<'a> WalkVisitor<'a> for Analysis<'_, '_, '_> {
+    fn context(&mut self) -> Cx<'_> {
+        Cx::new(self.cx.budget, self.cx.diag, self.cx.cancel)
+    }
+    fn visit(&mut self, visit: VisitRef<'a, '_>) -> Result<(), (Stop, Ref)> {
+        // 親の ID だけを覚える。祖先にも子を返す段があるので、道筋の全体を繰り返し調べない。
+        if let Some(step) = visit.path.last()
+            && !self.parted.contains(&step.id)
+        {
+            self.parted.insert(step.id.clone());
+        }
+        if self.options.tolerance.is_none()
+            && matches!(self.options.origin, Origin::Space(_))
+            && if self.options.print {
+                visit.printable
+            } else {
+                visit.visible
+            }
+        {
+            rough(&visit, &mut self.bounds, self.cx)?;
+        }
+        Ok(())
+    }
 }
 
 /// 塊の中の線
@@ -401,9 +417,52 @@ struct Builder<'d, 'c, 'x> {
     shapes: Vec<Vec<Vec<Xy>>>,
     shape_rows: BTreeMap<(usize, u16, i32), u32>,
     /// 描いた部品の中をたどった要素の ID
-    parted: BTreeSet<&'d str>,
+    parted: BTreeSet<String>,
+    print: bool,
+    clip_rows: BTreeMap<ClipKey, u32>,
     /// 単位と色の行ごとの、色だけを変えた単位
     recolored: BTreeMap<(u32, u32), u32>,
+}
+
+impl<'d> WalkVisitor<'d> for Builder<'d, '_, '_> {
+    fn context(&mut self) -> Cx<'_> {
+        Cx::new(self.cx.budget, self.cx.diag, self.cx.cancel)
+    }
+    // 最初の走査で、表示しない要素の診断も含めて記録している。
+    fn diagnostic(&mut self, _: Diagnostic) {}
+    fn visit(&mut self, visit: VisitRef<'d, '_>) -> Result<(), (Stop, Ref)> {
+        if if self.print {
+            visit.printable
+        } else {
+            visit.visible
+        } {
+            self.visit(&visit)?;
+        }
+        Ok(())
+    }
+}
+
+/// `Clipping` の等値と同じキー。符号の違うゼロはまとめ、NaN はどれとも等しくしない。
+type ClipKey = Vec<(bool, Vec<[u64; 2]>)>;
+
+fn clip_key(clips: &[Clipping]) -> Option<ClipKey> {
+    clips
+        .iter()
+        .map(|clip| {
+            let points: Option<Vec<_>> = clip
+                .polygon
+                .iter()
+                .map(|p| {
+                    if p.iter().any(|n| n.is_nan()) {
+                        None
+                    } else {
+                        Some(p.map(|n| if n == 0.0 { 0 } else { n.to_bits() }))
+                    }
+                })
+                .collect();
+            points.map(|points| (clip.inverted, points))
+        })
+        .collect()
 }
 
 /// 変換の、いちばん大きく伸ばす向きの倍率（特異値の最大）
@@ -466,6 +525,8 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
             shapes: Vec::new(),
             shape_rows: BTreeMap::new(),
             parted: BTreeSet::new(),
+            print: options.print,
+            clip_rows: BTreeMap::new(),
             recolored: BTreeMap::new(),
         }
     }
@@ -478,7 +539,7 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
             .map_err(|stop| (stop, at.clone()))
     }
 
-    fn visit(&mut self, visit: &Visit<'_>) -> Result<(), (Stop, Ref)> {
+    fn visit(&mut self, visit: &VisitRef<'_, '_>) -> Result<(), (Stop, Ref)> {
         let mut unit = None;
         match visit.item {
             Item::Model(element) => {
@@ -507,12 +568,12 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
 
     fn attribute<P: Spot>(
         &mut self,
-        visit: &Visit<'_>,
+        visit: &VisitRef<'_, '_>,
         text: &Text<P>,
         formatted: Option<&FormattedText<P>>,
     ) -> Result<(), (Stop, Ref)> {
         let mut unit = None;
-        let unit = self.unit(visit, entity_kind::ATTRIBUTE, &mut unit);
+        let unit = self.unit(visit, entity_kind::ATTRIBUTE, &mut unit)?;
         match formatted {
             Some(formatted) => self.formatted(visit, formatted, unit),
             None => self.text(visit, text, unit),
@@ -520,26 +581,52 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
     }
 
     /// 描く単位。最初に描くものを足すときに作る
-    fn unit(&mut self, visit: &Visit<'_>, kind: u8, made: &mut Option<u32>) -> u32 {
+    fn unit(
+        &mut self,
+        visit: &VisitRef<'_, '_>,
+        kind: u8,
+        made: &mut Option<u32>,
+    ) -> Result<u32, (Stop, Ref)> {
         self.unit_clipped(visit, kind, made, None)
     }
 
     /// 描く単位。`extra` は、要素が自分で持つ切り抜き（アンダーレイ）で、配置の切り抜きの内側に足す
     fn unit_clipped(
         &mut self,
-        visit: &Visit<'_>,
+        visit: &VisitRef<'_, '_>,
         kind: u8,
         made: &mut Option<u32>,
         extra: Option<Clipping>,
-    ) -> u32 {
+    ) -> Result<u32, (Stop, Ref)> {
         if let Some(unit) = made {
-            return *unit;
+            return Ok(*unit);
         }
-        let mut clips = visit.clips.clone();
+        let points = visit
+            .clips
+            .iter()
+            .map(|c| c.polygon.len() as u64)
+            .sum::<u64>()
+            + extra.as_ref().map_or(0, |c| c.polygon.len() as u64);
+        // 索引のキーの組み立てと比較も数える。長い多角形を要素ごとに無制限に比べない。
+        let height = u64::from(self.clip_rows.len().max(1).ilog2()) + 1;
+        self.cx
+            .check(Kind::Work, points.saturating_mul(height.saturating_mul(16)))
+            .map_err(|s| (s, glyphs::source(visit)))?;
+        let bytes = 256
+            + visit.id.len() as u64
+            + visit
+                .path
+                .iter()
+                .map(|s| 64 + s.id.len() as u64)
+                .sum::<u64>();
+        self.cx
+            .check(Kind::DecodedBytes, bytes)
+            .map_err(|s| (s, glyphs::source(visit)))?;
+        let mut clips = visit.clips.to_vec();
         clips.extend(extra);
-        let id = self.strings.add(&visit.id);
+        let id = self.strings.add(visit.id);
         let path = u32::try_from(self.steps.len()).unwrap_or(layout::NONE);
-        for step in &visit.path {
+        for step in visit.path {
             let id = self.strings.add(&step.id);
             self.steps.push((id, step.cell));
         }
@@ -549,15 +636,28 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
         let clip = if clips.is_empty() {
             layout::NONE
         } else {
-            match self.clips.iter().position(|c| *c == clips) {
-                Some(found) => u32::try_from(found).unwrap_or(layout::NONE),
-                None => {
-                    self.clips.push(clips);
-                    u32::try_from(self.clips.len() - 1).unwrap_or(layout::NONE)
+            let key = clip_key(&clips);
+            if let Some(found) = key.as_ref().and_then(|key| self.clip_rows.get(key)) {
+                *found
+            } else {
+                let row = u32::try_from(self.clips.len()).unwrap_or(layout::NONE);
+                // 座標の本体と索引のキーを合わせて数える。値を持つ新しい組にだけ必要。
+                self.cx
+                    .check(
+                        Kind::DecodedBytes,
+                        points
+                            .saturating_mul(32)
+                            .saturating_add(clips.len() as u64 * 64),
+                    )
+                    .map_err(|s| (s, glyphs::source(visit)))?;
+                self.clips.push(clips);
+                if let Some(key) = key {
+                    self.clip_rows.insert(key, row);
                 }
+                row
             }
         };
-        let layer = self.layer(visit.layer.0);
+        let layer = self.layer(visit.layer.0, visit.layer_definition);
         let index = u32::try_from(self.units.len()).unwrap_or(layout::NONE);
         self.units.push(Unit {
             entity,
@@ -568,7 +668,7 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
             layer,
         });
         *made = Some(index);
-        index
+        Ok(index)
     }
 
     /// 色だけを変えた単位。同じ色なら元の単位
@@ -597,13 +697,12 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
     }
 
     /// 書式の色を解く。`Block` は要素の色、`Layer` は要素のレイヤの色
-    fn inherited(&self, visit: &Visit<'_>, color: Inherit<Color>) -> Option<Color> {
+    fn inherited(&self, visit: &VisitRef<'_, '_>, color: Inherit<Color>) -> Option<Color> {
         match color {
             Inherit::Own(color) => Some(color),
             Inherit::Block => visit.color,
-            Inherit::Layer => self
-                .drawing
-                .layer(visit.layer)
+            Inherit::Layer => visit
+                .layer_definition
                 .and_then(|layer| layer.style.as_ref())
                 .and_then(|style| style.color),
         }
@@ -637,17 +736,11 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
         row(&mut self.color_rows, &mut self.colors, key)
     }
 
-    fn layer(&mut self, id: u32) -> u32 {
+    fn layer(&mut self, id: u32, definition: Option<&Layer>) -> u32 {
         if let Some(found) = self.layer_rows.get(&id) {
             return *found;
         }
-        let name = self
-            .drawing
-            .layers
-            .iter()
-            .find(|layer| layer.id.0 == id)
-            .map(zumen_drawing::id::layer)
-            .unwrap_or_default();
+        let name = definition.map(zumen_drawing::id::layer).unwrap_or_default();
         let string = self.strings.add(&name);
         let index = u32::try_from(self.layers.len()).unwrap_or(layout::NONE);
         self.layers.push(string);
@@ -709,7 +802,7 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
 
     fn shape<P: Spot>(
         &mut self,
-        visit: &Visit<'_>,
+        visit: &VisitRef<'_, '_>,
         shape: &Shape<P>,
         source: &Ref,
         unit: &mut Option<u32>,
@@ -719,7 +812,7 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
         let xy = |p: &P| map(&t, p.xy());
         match shape {
             Shape::Line { start, end } | Shape::Curve(Edge::Line { start, end }) => {
-                let unit = self.unit(visit, entity_kind_of(shape), unit);
+                let unit = self.unit(visit, entity_kind_of(shape), unit)?;
                 self.stroke(visit, vec![xy(start), xy(end)], unit, source)?;
             }
             Shape::Circle { center, radius } => {
@@ -727,30 +820,30 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
                 geom::arc(center.xy(), length(*radius), 0.0, 360.0, local, &mut points);
                 self.approximated = true;
                 self.segments(points.len(), source)?;
-                let unit = self.unit(visit, entity_kind::CIRCLE, unit);
+                let unit = self.unit(visit, entity_kind::CIRCLE, unit)?;
                 let points = points.into_iter().map(|p| map(&t, p)).collect();
                 self.stroke(visit, points, unit, source)?;
             }
             Shape::Curve(edge) => {
                 let points = self.edge(edge, local, source)?;
-                let unit = self.unit(visit, entity_kind::CURVE, unit);
+                let unit = self.unit(visit, entity_kind::CURVE, unit)?;
                 let points = points.into_iter().map(|p| map(&t, p)).collect();
                 self.stroke(visit, points, unit, source)?;
             }
             Shape::Polyline(polyline) => {
-                let unit = self.unit(visit, entity_kind::POLYLINE, unit);
+                let unit = self.unit(visit, entity_kind::POLYLINE, unit)?;
                 self.polyline(visit, polyline, local, unit, source)?;
             }
             Shape::Text(text) => {
-                let unit = self.unit(visit, entity_kind::TEXT, unit);
+                let unit = self.unit(visit, entity_kind::TEXT, unit)?;
                 self.text(visit, text, unit)?;
             }
             Shape::Formatted(text) => {
-                let unit = self.unit(visit, entity_kind::FORMATTED, unit);
+                let unit = self.unit(visit, entity_kind::FORMATTED, unit)?;
                 self.formatted(visit, text, unit)?;
             }
             Shape::Point(point) => {
-                let unit = self.unit(visit, entity_kind::POINT, unit);
+                let unit = self.unit(visit, entity_kind::POINT, unit)?;
                 let (rotation, _) = turned(&t, point.rotation);
                 let (marker, scale) = match &point.look {
                     PointLook::Document => ([0; 4], 1.0),
@@ -773,17 +866,17 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
                     bounds,
                 });
             }
-            Shape::Underlay(underlay) => self.underlay(visit, underlay, source, unit),
+            Shape::Underlay(underlay) => self.underlay(visit, underlay, source, unit)?,
             Shape::Hatch(hatch) => self.hatch(visit, hatch, local, source, unit)?,
             Shape::Dimension(dimension) => {
-                if !self.parted.contains(visit.id.as_str()) {
+                if !self.parted.contains(visit.id) {
                     self.dimension(visit, dimension, local, source, unit)?;
                 }
             }
             Shape::Leader(leader) => self.leader(visit, leader, local, source, unit)?,
             Shape::Callout(callout) => self.callout(visit, callout, local, source, unit)?,
             Shape::Table(table) => {
-                if !self.parted.contains(visit.id.as_str()) {
+                if !self.parted.contains(visit.id) {
                     self.table(visit, table, source, unit)?;
                 }
             }
@@ -922,7 +1015,7 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
     /// 起点の座標の折れ線を、解いた線種で線と間に分けて描く
     fn stroke(
         &mut self,
-        visit: &Visit<'_>,
+        visit: &VisitRef<'_, '_>,
         points: Vec<Xy>,
         unit: u32,
         source: &Ref,
@@ -960,7 +1053,7 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
     #[allow(clippy::too_many_arguments)]
     fn marks(
         &mut self,
-        visit: &Visit<'_>,
+        visit: &VisitRef<'_, '_>,
         points: &[Xy],
         pattern: &[f64],
         scale: f64,
@@ -1040,7 +1133,7 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
     }
 
     /// 解いた線種の、起点の長さの列と、列に掛けた倍率と、定義。続く線なら `None`
-    fn pattern(&self, visit: &Visit<'_>) -> Option<(Vec<f64>, f64, &'d LineTypeDefinition)> {
+    fn pattern(&self, visit: &VisitRef<'_, '_>) -> Option<(Vec<f64>, f64, &'d LineTypeDefinition)> {
         let id: LineTypeId = visit.line_type?;
         let definition = self.drawing.line_type(id)?.definition.as_ref()?;
         if definition.pattern.is_empty() {
@@ -1074,7 +1167,7 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
 
     fn polyline<P: Spot>(
         &mut self,
-        visit: &Visit<'_>,
+        visit: &VisitRef<'_, '_>,
         polyline: &Polyline<P>,
         local: f64,
         unit: u32,
@@ -1121,7 +1214,7 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
 
     fn text<P: Spot>(
         &mut self,
-        visit: &Visit<'_>,
+        visit: &VisitRef<'_, '_>,
         text: &Text<P>,
         unit: u32,
     ) -> Result<(), (Stop, Ref)> {
@@ -1226,7 +1319,7 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
     /// 書式つきの文字を、書式の区間ごとの文字にする。行の中の位置は、表示する側が送る（決定 0172）
     fn formatted<P: Spot>(
         &mut self,
-        visit: &Visit<'_>,
+        visit: &VisitRef<'_, '_>,
         text: &FormattedText<P>,
         unit: u32,
     ) -> Result<(), (Stop, Ref)> {
@@ -1347,13 +1440,13 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
 
     fn underlay<P: Spot>(
         &mut self,
-        visit: &Visit<'_>,
+        visit: &VisitRef<'_, '_>,
         underlay: &Underlay<P>,
         source: &Ref,
         unit: &mut Option<u32>,
-    ) {
+    ) -> Result<(), (Stop, Ref)> {
         if !underlay.visible {
-            return;
+            return Ok(());
         }
         let kind = match underlay.kind {
             UnderlayKind::Image => layout::image_kind::IMAGE,
@@ -1401,7 +1494,7 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
                 )
             }
         };
-        let unit = self.unit_clipped(visit, entity_kind::UNDERLAY, unit, clip);
+        let unit = self.unit_clipped(visit, entity_kind::UNDERLAY, unit, clip)?;
         let name = self.strings.add(&underlay.resource.path);
         let page = self.strings.add(underlay.page.as_deref().unwrap_or(""));
         let mut bounds = Bounds::default();
@@ -1423,11 +1516,12 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
             unit,
             bounds,
         });
+        Ok(())
     }
 
     fn hatch<P: Spot>(
         &mut self,
-        visit: &Visit<'_>,
+        visit: &VisitRef<'_, '_>,
         hatch: &Hatch<P>,
         local: f64,
         source: &Ref,
@@ -1479,7 +1573,7 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
         if hatch.islands == Islands::Outer {
             rings = outer_islands(rings);
         }
-        let unit = self.unit(visit, entity_kind::HATCH, unit);
+        let unit = self.unit(visit, entity_kind::HATCH, unit)?;
         let mapped = |rings: &[Vec<Xy>]| -> Vec<Vec<Xy>> {
             rings
                 .iter()
@@ -1954,7 +2048,11 @@ fn entity_kind_of<P>(shape: &Shape<P>) -> u8 {
 }
 
 /// 既定の許容差を決めるための、形の定義の点を囲む範囲。曲線は中心と半径で囲む
-fn rough(visit: &Visit<'_>, bounds: &mut Bounds) {
+fn rough(
+    visit: &VisitRef<'_, '_>,
+    bounds: &mut Bounds,
+    cx: &mut Cx<'_>,
+) -> Result<(), (Stop, Ref)> {
     fn points<P: Spot>(shape: &Shape<P>) -> Vec<Xy> {
         let around = |c: Xy, r: f64| vec![[c[0] - r, c[1] - r], [c[0] + r, c[1] + r]];
         match shape {
@@ -2008,7 +2106,39 @@ fn rough(visit: &Visit<'_>, bounds: &mut Bounds) {
         Item::Paper(element) => points(&element.shape),
         Item::ModelAttribute { .. } | Item::PaperAttribute { .. } => Vec::new(),
     };
+    cx.check(Kind::Work, found.len() as u64)
+        .map_err(|s| (s, glyphs::source(visit)))?;
     for p in found {
         bounds.add(map(&visit.transform, p));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod clip_tests {
+    use super::*;
+    #[test]
+    fn clip_index_keeps_float_equality_and_inversion_rules() {
+        let clip = |x, inverted| {
+            vec![Clipping {
+                polygon: vec![[x, 1.0]],
+                inverted,
+            }]
+        };
+        assert_eq!(clip_key(&clip(0.0, false)), clip_key(&clip(-0.0, false)));
+        assert_ne!(clip_key(&clip(0.0, false)), clip_key(&clip(0.0, true)));
+        assert_ne!(clip_key(&clip(1.0, false)), clip_key(&clip(2.0, false)));
+        assert_eq!(
+            clip_key(&clip(f64::INFINITY, false)),
+            clip_key(&clip(f64::INFINITY, false))
+        );
+        assert!(clip_key(&clip(f64::NAN, false)).is_none());
+        assert!(
+            clip_key(&[Clipping {
+                polygon: vec![[0.0, f64::NAN]],
+                inverted: false
+            }])
+            .is_none()
+        );
     }
 }

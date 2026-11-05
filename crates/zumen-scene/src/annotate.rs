@@ -8,7 +8,7 @@ use zumen_base::{Ref, Stop, codes};
 use zumen_drawing::transform::Point as Spot;
 use zumen_drawing::{
     Arrowhead, Callout, CalloutContent, CellContent, CellFormat, Dimension, DimensionKind,
-    Horizontal, Inherit, Label, Leader, PathKind, Piece, Scaled, Table, Vertical, Visit,
+    Horizontal, Inherit, Label, Leader, PathKind, Piece, Scaled, Table, Vertical, VisitRef,
 };
 use zumen_geom2d::{self as geom, Xy};
 
@@ -92,7 +92,7 @@ impl Builder<'_, '_, '_> {
     #[allow(clippy::too_many_arguments)]
     fn label(
         &mut self,
-        visit: &Visit<'_>,
+        visit: &VisitRef<'_, '_>,
         at: Xy,
         degrees: f64,
         height: f64,
@@ -169,7 +169,7 @@ impl Builder<'_, '_, '_> {
     }
 
     /// 変換の、面積の倍率の平方根（長さの平均の倍率）
-    fn grow(visit: &Visit<'_>) -> f64 {
+    fn grow(visit: &VisitRef<'_, '_>) -> f64 {
         let [a, b, _, d, e, _] = visit.transform.m;
         (a * e - b * d).abs().sqrt()
     }
@@ -177,7 +177,7 @@ impl Builder<'_, '_, '_> {
     /// 描いた部品のない寸法を、定義点から描く
     pub(crate) fn dimension<P: Spot>(
         &mut self,
-        visit: &Visit<'_>,
+        visit: &VisitRef<'_, '_>,
         dimension: &Dimension<P>,
         local: f64,
         source: &Ref,
@@ -302,7 +302,7 @@ impl Builder<'_, '_, '_> {
             self.report(codes::SCENE_DIMENSION_DROPPED, source);
             return Ok(());
         };
-        let unit = self.unit(visit, entity_kind::DIMENSION, unit);
+        let unit = self.unit(visit, entity_kind::DIMENSION, unit)?;
         let t = visit.transform;
         for line in drawn.lines {
             let points = line.into_iter().map(|p| map(&t, p)).collect();
@@ -357,7 +357,7 @@ impl Builder<'_, '_, '_> {
     /// 引出線の経路と、寸法スタイルの端部記号
     pub(crate) fn leader<P: Spot>(
         &mut self,
-        visit: &Visit<'_>,
+        visit: &VisitRef<'_, '_>,
         leader: &Leader<P>,
         local: f64,
         source: &Ref,
@@ -368,7 +368,7 @@ impl Builder<'_, '_, '_> {
             self.report(codes::SCENE_LEADER_DROPPED, source);
             return Ok(());
         };
-        let unit = self.unit(visit, entity_kind::LEADER, unit);
+        let unit = self.unit(visit, entity_kind::LEADER, unit)?;
         let t = visit.transform;
         let line = self.path(points, leader.spline, local);
         self.segments(line.len(), source)?;
@@ -392,13 +392,13 @@ impl Builder<'_, '_, '_> {
     /// 引出線つきの注記の枝と折れ曲がりと端部記号と、注記の文字
     pub(crate) fn callout<P: Spot>(
         &mut self,
-        visit: &Visit<'_>,
+        visit: &VisitRef<'_, '_>,
         callout: &Callout<P>,
         local: f64,
         source: &Ref,
         unit: &mut Option<u32>,
     ) -> Result<(), (Stop, Ref)> {
-        let unit = self.unit(visit, entity_kind::CALLOUT, unit);
+        let unit = self.unit(visit, entity_kind::CALLOUT, unit)?;
         let t = visit.transform;
         let line_unit = match callout.line_style.color {
             Inherit::Block => unit,
@@ -475,12 +475,12 @@ impl Builder<'_, '_, '_> {
     /// 描いた部品のない表を、行と列から描く
     pub(crate) fn table<P: Spot>(
         &mut self,
-        visit: &Visit<'_>,
+        visit: &VisitRef<'_, '_>,
         table: &Table<P>,
         source: &Ref,
         unit: &mut Option<u32>,
     ) -> Result<(), (Stop, Ref)> {
-        let unit = self.unit(visit, entity_kind::TABLE, unit);
+        let unit = self.unit(visit, entity_kind::TABLE, unit)?;
         let t = visit.transform;
         let heights: Vec<f64> = table.row_heights.iter().map(|h| length(*h)).collect();
         let widths: Vec<f64> = table.column_widths.iter().map(|w| length(*w)).collect();
