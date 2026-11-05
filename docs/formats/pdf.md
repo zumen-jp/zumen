@@ -147,17 +147,19 @@ PDF を、ファイルモデル（L1）として読み書きし、図面モデ�
 
 | 形式 | 向き | 段 |
 | --- | --- | --- |
-| `pdf` | 読み | `synthetic` |
+| `pdf` | 読み | `external` |
 | `pdf` | 書き | `synthetic` |
 
-段の意味は[決定 0254](../decisions/0254-parallel-agents-and-cross-review.md) に、根拠は[形式と権利の一覧](README.md#format-pdf)にあります。この文書の規則は、外部の実装・基準になるソフトとは、まだ照らしていません。実際のファイルでは、ここに書いた扱いと違うことがあります。
+段の意味は[決定 0254](../decisions/0254-parallel-agents-and-cross-review.md) に、根拠は[形式と権利の一覧](README.md#format-pdf)にあります。外部の実装と照らしたのは次に書く範囲です。基準になるソフトの表示とは、まだ照らしていません。
 
-- 読み: 仕様と、テストの中で作ったファイルだけで確かめた（`crates/zumen-pdf/tests/pdf.rs`・`drawing.rs`）。図面モデルへの移しは、hayro-interpret 0.9.0 が解釈したページで確かめた。シーンへの移しは、図面モデルから `zumen-scene` で作れることだけを確かめた。
+- 読み: 合成の 2 ページと PDFium の公開サンプル 4 個を pdf.js 6.5.438 で読み、ページ寸法・文字の内容と位置・経路と画像の数を照らした（`crates/zumen-pdf/tests/external.rs`、#519）。回転・クロップ・単位、フォームと、表示しない OCG を含む。外部の実装がないときは照合だけを飛ばし、毎晩の CI では必ず流す。シーンは、図面モデルから `zumen-scene` で作れることだけを確かめた。
 - 書き: 読んだバイト列をそのまま書けることを、自前の読み取りだけで確かめた。書いたファイルを PDF のソフトで開いてはいない。
 - 予算と ID の契約は、テストキットの `stops_at_same_place`・`survives`（どちらも L1 の読み）・`ids_match`（`crates/zumen-pdf/tests/ids/pdf.txt`）と、図面モデルへの移しが同じ所で止まることのテスト（`crates/zumen-pdf/tests/drawing.rs`）で確かめる。fuzz の対象は `fuzz/fuzz_targets/pdf.rs` で、読んで移すまでをテストキットの `survives_lift` で確かめ、2 回移した図面を Debug の表記で比べる。
 - 決定性は、2026-11-04 に、手元の公開の PDF 336 個（hayro のテストのファイルなど）で、ネイティブと wasm32-wasip1 の図面（Debug の表記のハッシュ）・診断・`Work`・`DecodedBytes` が同じことを確かめた。テストにはしていない（適合テストは #518）。
-- 外部の実装（pdf.js）との照合は、まだしていない（#519）。
+- 外部との比較の手順と残る差は、[`xtask/verify/pdfjs/README.md`](../../xtask/verify/pdfjs/README.md) にある。Type 3 の字形名 `C1` に `ToUnicode` がないサンプルでは、pdf.js はコード 65 を `A` とし、zumen は U+FFFD と `pdf.glyph.dropped` 3 件を返す。ソフトマスクのサンプルでは、pdf.js の一覧はマスクの 2 経路も数え、zumen は描画の 2 経路と診断を返す。両方の値と診断を固定して、差が増えたら失敗にする（#520）。色・透明度・字形の見え方と、一般の PDF の文字列の分け方は照らしていない。
 
 ## 公開サンプル
 
-`samples/` に PDF はない。2026-11-03 に、CC0・パブリックドメインで、CAD が出力したベクターの図面の PDF を Web で探した（CC0 の CAD の図面の PDF、Wikimedia Commons の建築の図面の分類）。Commons の分類の PDF は主にスキャンした本で、ライセンスを書かない図面の配布と、素材の販売のサイトは、決定 0171 に合わない。`samples/dwg` の CC0 の図面を PDF に印刷したものを候補として、#519 で足す。
+`samples/pdf/` に、PDFium の Type 3・OCG・ソフトマスク・LZW と JPX の 4 ファイルを置く（2026-11-06、BSD-3-Clause）。3 つは公開された `.in` を、同じリビジョンの `fixup_pdf_template.py` で PDF にした。出所と変換の内容は `samples/ledger.toml`、ライセンスの全文は `licenses/pdfium.txt` にある。PDFium のコードとツールは入れない。
+
+CAD が出力したベクターの図面は、まだない。2026-11-03 に CC0・パブリックドメインの図面と Wikimedia Commons の建築の図面の分類を探した。Commons の PDF は主にスキャンした本で、ライセンスを書かない図面の配布と素材の販売は、決定 0171 に合わない。2026-11-06 には `pdf-association/pdf20examples` も確かめたが、元の `LICENSE.md` は CC BY-SA 4.0 なので入れない。`samples/dwg` の CC0 の図面を PDF に印刷する候補は、利用者が AutoCAD の利用を許したときに進める。

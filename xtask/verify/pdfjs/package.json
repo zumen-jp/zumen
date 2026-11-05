@@ -1,0 +1,8 @@
+{
+  "name": "zumen-pdfjs-verify",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "pdfjs-dist": "6.5.438"
+  }
+}

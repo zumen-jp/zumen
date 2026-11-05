@@ -520,16 +520,18 @@ rights-note = "ISO の規格で、PDF Association が無償で配っている。
 place = "core"
 basis = ["spec"]
 verify = ["pdf.js"]
-samples = ["CAD が出力した図面の PDF（手元で作る）"]
+samples = ["PDFium の公開サンプル（Type 3・OCG・ソフトマスク・LZW と JPX）。CAD が出力した図面はまだない"]
 decisions = ["0008", "0013", "0256"]
 legacy-decisions = ["0020", "0030"]
 docs = ["docs/formats/pdf.md"]
 notes = "ページの解釈は hayro-interpret 0.9.0（Apache-2.0 OR MIT）に任せ、バージョンを固定する（決定 0256）"
 
 [formats.pdf.read]
-level = "synthetic"
-scope = "仕様と、テストの中で作った PDF だけで確かめた（crates/zumen-pdf/tests/pdf.rs・drawing.rs）。図面モデルへの移しは、hayro-interpret 0.9.0 が解釈したページで確かめた。シーンへの移しは、図面モデルから zumen-scene で作れることだけを確かめた。公開サンプルと外部の実装（pdf.js）との照合はまだ（#519）"
-checked = "2026-11-03"
+level = "external"
+scope = "PDFium の公開サンプル 4 個と合成の 2 ページを pdf.js 6.5.438 で読み、ページ寸法・文字の内容と位置・経路と画像の数を照らす（crates/zumen-pdf/tests/external.rs、#519）。回転・クロップ・単位、フォーム、表示しない OCG を含む。Type 3 の Unicode の補い方と、ソフトマスクの経路の数は、両方の値と zumen の診断を固定して確認する（#520）。色・透明度・字形の見え方、一般の PDF の文字列の分け方は照らしていない。シーンは、図面モデルから zumen-scene で作れることだけを確かめた"
+public-samples = ["samples/pdf/"]
+implementations = [{ name = "pdf.js", version = "6.5.438" }]
+checked = "2026-11-06"
 
 [formats.pdf.write]
 level = "synthetic"

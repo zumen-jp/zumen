@@ -57,6 +57,8 @@ drawing = [
 [dev-dependencies]
 zumen-drawing = { path = "../zumen-drawing" }
 zumen-scene = { path = "../zumen-scene" }
+# 別のプログラムで呼ぶ pdf.js の照合結果を読む。既存の JSON の読み取りを使う
+zumen-json = { path = "../zumen-json" }
 
 [lints]
 workspace = true
