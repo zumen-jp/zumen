@@ -24,7 +24,7 @@ jobs:
       - name: actionlint の配布物をハッシュで確かめ、すべてのワークフローを検査する
         shell: bash
         run: |
-          # actionlint 1.7.12（MIT）。版と配布物の SHA-256 を固定する
+          # actionlint 1.7.12（MIT）。バージョンと配布物の SHA-256 を固定する
           curl --fail --silent --show-error --location \
             --output "$RUNNER_TEMP/actionlint.tar.gz" \
             https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
