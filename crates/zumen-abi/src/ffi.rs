@@ -208,6 +208,48 @@ pub unsafe extern "system" fn zm_push(
     })
 }
 
+/// wasm のホストが確保した入力の所有権を引き取る。失敗しても有効な領域は引き取る
+///
+/// # Safety
+///
+/// `session` は NULL か、開いているセッション。`name` から `name_len` バイトを呼び出しの間だけ読めること。
+/// `data` は、このモジュールの `zm_alloc(data_len)` が返した領域で、まだ渡しても返してもいないこと。
+/// 長さが 0 なら NULL にする。呼び出し後は `data` を読まず、`zm_dealloc` でも返さないこと。
+#[cfg(any(target_family = "wasm", test))]
+#[unsafe(no_mangle)]
+pub unsafe extern "system" fn zm_push_owned(
+    session: *mut SessionHandle,
+    name: *const u8,
+    name_len: usize,
+    data: *mut u8,
+    data_len: usize,
+) -> i32 {
+    guard(|| {
+        let data = if data_len == 0 {
+            if !data.is_null() {
+                return Status::Invalid;
+            }
+            Vec::new()
+        } else {
+            if data.is_null() || isize::try_from(data_len).is_err() {
+                return Status::Invalid;
+            }
+            // SAFETY: 関数の約束による。zm_alloc は長さどおりの Box<[u8]> を返す。into_vec は領域を写さない
+            unsafe { Box::from_raw(ptr::slice_from_raw_parts_mut(data, data_len)) }.into_vec()
+        };
+        // 名前やセッションが無効でも、取り出した領域はこの呼び出しの中で捨てる
+        // SAFETY: 関数の約束による
+        let (Some(handle), Some(name)) = (unsafe { (handle(session), bytes(name, name_len)) })
+        else {
+            return Status::Invalid;
+        };
+        match handle.with(|session| session.push_owned(name, data)) {
+            Ok(Ok(())) => Status::Ok,
+            Ok(Err(status)) | Err(status) => status,
+        }
+    })
+}
+
 /// 要求のメッセージを渡し、応答のメッセージを受け取る
 ///
 /// # Safety
@@ -432,6 +474,59 @@ mod tests {
         assert!(buf.ptr.is_null());
         assert_eq!(buf.len, 0);
         text
+    }
+
+    /// zm_alloc と同じ Box の領域。wasm 専用の関数をネイティブの単体テストでも確かめる
+    fn allocation(data: &[u8]) -> *mut u8 {
+        if data.is_empty() {
+            ptr::null_mut()
+        } else {
+            Box::into_raw(data.to_vec().into_boxed_slice()).cast::<u8>()
+        }
+    }
+
+    #[test]
+    fn owned_push_takes_buffers_for_success_invalid_busy_and_panicked() {
+        let session = open();
+        // 各領域を渡すのは 1 回だけで、呼び出し後にホストは返さない
+        for (name, expected) in [
+            (b"a".as_slice(), Status::Ok),
+            (b"../a", Status::Invalid),
+            (b"\xff", Status::Invalid),
+        ] {
+            let status =
+                unsafe { zm_push_owned(session, name.as_ptr(), name.len(), allocation(b"12"), 2) };
+            assert_eq!(status, expected.code());
+        }
+        assert_eq!(
+            unsafe { zm_push_owned(session, b"a".as_ptr(), 1, ptr::null_mut(), 0) },
+            Status::Ok.code()
+        );
+        assert_eq!(
+            unsafe { zm_push_owned(session, b"a".as_ptr(), 1, ptr::null_mut(), 1) },
+            Status::Invalid.code()
+        );
+        assert_eq!(
+            unsafe { zm_push_owned(ptr::null_mut(), b"a".as_ptr(), 1, allocation(b"12"), 2) },
+            Status::Invalid.code()
+        );
+        assert_eq!(
+            unsafe { zm_push_owned(session, ptr::null(), 1, allocation(b"12"), 2) },
+            Status::Invalid.code()
+        );
+        let handle = unsafe { &*session };
+        let locked = handle.session.lock().unwrap();
+        assert_eq!(
+            unsafe { zm_push_owned(session, b"a".as_ptr(), 1, allocation(b"12"), 2) },
+            Status::Busy.code()
+        );
+        drop(locked);
+        handle.panicked.store(true, Ordering::Release);
+        assert_eq!(
+            unsafe { zm_push_owned(session, b"a".as_ptr(), 1, allocation(b"12"), 2) },
+            Status::Panicked.code()
+        );
+        unsafe { zm_session_close(session) };
     }
 
     #[test]

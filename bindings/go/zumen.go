@@ -309,6 +309,38 @@ func (s *Session) withBytes(ctx context.Context, name string, data []byte, f fun
 	return f(ptr, uint32(len(data)))
 }
 
+// pushOwned は、入力を写して所有権を渡す。呼ぶ前に失敗した場合だけ、領域を返す（決定 0271）。
+func (s *Session) pushOwned(ctx context.Context, namePtr, nameLength uint32, data []byte) (int32, error) {
+	if uint64(len(data)) > 0xffffffff {
+		return 0, errors.New("zm_push: 入力が 4 GiB を超える")
+	}
+	length := uint32(len(data))
+	var ptr uint32
+	if length > 0 {
+		var err error
+		ptr, err = s.alloc(ctx, length)
+		if err != nil {
+			return 0, err
+		}
+	}
+	handed := false
+	defer func() {
+		if !handed && length > 0 {
+			s.dealloc(ctx, ptr, length)
+		}
+	}()
+	module := s.live()
+	if module == nil {
+		return StatusInvalid, nil
+	}
+	if length > 0 && !module.Memory().Write(ptr, data) {
+		return 0, errors.New("入力を書く領域が wasm のメモリの外を指す")
+	}
+	// どの状態でも領域を引き取る。trap・中断では exec がインスタンスを閉じる
+	handed = true
+	return s.invoke(ctx, "zm_push_owned", uint64(s.handle), uint64(namePtr), uint64(nameLength), uint64(ptr), uint64(length))
+}
+
 // withBuf は、zm_buf（wasm32 では ptr と len の 2 つの u32）を確保して f に渡し、書かれたバイト列を写してから zm_free で返す。
 func (s *Session) withBuf(ctx context.Context, f func(buf uint32) (int32, error)) (int32, []byte, error) {
 	if s.live() == nil {
@@ -356,6 +388,9 @@ func (s *Session) PushBytes(ctx context.Context, name, data []byte) error {
 	ctx, end := s.begin(ctx)
 	defer end()
 	code, err := s.withBytes(ctx, "zm_push", name, func(namePtr, nameLength uint32) (int32, error) {
+		if module := s.live(); module != nil && module.ExportedFunction("zm_push_owned") != nil {
+			return s.pushOwned(ctx, namePtr, nameLength, data)
+		}
 		return s.withBytes(ctx, "zm_push", data, func(dataPtr, dataLength uint32) (int32, error) {
 			return s.invoke(ctx, "zm_push", uint64(s.handle), uint64(namePtr), uint64(nameLength), uint64(dataPtr), uint64(dataLength))
 		})

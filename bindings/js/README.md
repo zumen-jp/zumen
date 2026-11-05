@@ -195,6 +195,16 @@ node bindings/js/test/modules.mjs zumen_abi1.wasm zumen_abi1_drawing.wasm zumen_
 node bindings/js/test/server.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm
 ```
 
+`Session.push` は、新しい wasm では入力の領域の所有権をコアへ渡します。最初の入力を wasm の中でもう一度写す必要がなくなり、300 MiB の入力を渡す測定では、wasm のメモリが約 602 MiB から 301 MiB に減りました。ホストの入力は引き続き使えます。追記や文書を開く際のメモリは別に必要です。新しい関数がない旧 ABI 1 の wasm では、これまでの入力の渡し方を使います（[決定 0271](../../docs/decisions/0271-transfer-wasm-input-ownership.md)）。
+
+`test/input.mjs` は、新旧の経路、空の入力と追記、失敗時の解放、同じ wasm のメモリを指す入力、trap の後片付けとメモリの削減を確かめます。CI は PR ごとに 32 MiB の入力で測ります。`measure` を付けると、指定したバイト数を 1 回渡す前後の wasm のメモリを表示します。測定には、ホストの入力と文書の解析は含みません。
+
+```bash
+node bindings/js/test/input.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm
+node bindings/js/test/input.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm measure owned 314572800
+node bindings/js/test/input.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm measure legacy 314572800
+```
+
 `test/worker.mjs` は、上の実行例を使い、20 万本の線を持つ合成 DXF の処理中にも主スレッドのタイマーが進むことを確かめます。同期 API と同じ blob、入力の転送、診断、中断・転送失敗・結果を返さない終了の後始末も確かめます。CI は PR ごとに流します。
 
 ```bash

@@ -36,3 +36,5 @@
 - #597・#521・#579
 - [0007](0007-single-rust-implementation.md)・[0010](0010-budget-by-work.md)・[0256](0256-pdf-with-hayro.md)・[0266](0266-pdf-flate-preflight.md)
 - ISO 32000-2:2020 の 7.4.4、7.7.3.3、8.10
+
+後続: [0273](0273-pdf-resource-preflight.md) で関数と描画資源の共通の展開へ同じ確認を広げる。

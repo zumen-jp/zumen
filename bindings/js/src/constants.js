@@ -28,6 +28,7 @@ export const WASM_EXPORTS = Object.freeze([
   "zm_dealloc",
   "zm_free",
   "zm_push",
+  "zm_push_owned",
   "zm_session_close",
   "zm_session_new",
   "zm_take",

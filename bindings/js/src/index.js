@@ -71,7 +71,8 @@ function toBytes(value) {
 class Core {
   constructor(instance) {
     const exports = instance.exports;
-    const missing = WASM_EXPORTS.filter((name) => typeof exports[name] !== "function");
+    // 入力の所有権を渡す関数は最適化用。古い ABI 1 のモジュールでは zm_push を使う（決定 0271）
+    const missing = WASM_EXPORTS.filter((name) => name !== "zm_push_owned" && typeof exports[name] !== "function");
     if (missing.length > 0 || tagOf(exports.memory) !== "WebAssembly.Memory") {
       throw new Error(`zumen の wasm のモジュールでない（ない関数: ${missing.join(", ") || "memory"}）`);
     }
@@ -132,6 +133,25 @@ class Core {
     }
   }
 
+  /** 入力を写して所有権を渡す。呼ぶ前に失敗した場合だけ、自分で領域を返す */
+  pushOwned(handle, namePtr, nameLen, data) {
+    const length = data.length;
+    const ptr = length === 0 ? 0 : this.invoke("zm_alloc", length) >>> 0;
+    let handed = false;
+    try {
+      if (length > 0) {
+        this.bytes().set(data, ptr);
+      }
+      // zm_push_owned は、invalid・busy・panicked を含め、返した状態によらず領域を引き取る
+      handed = true;
+      return this.invoke("zm_push_owned", handle, namePtr, nameLen, ptr, length);
+    } finally {
+      if (!handed && length > 0) {
+        this.tidy("zm_dealloc", ptr, length);
+      }
+    }
+  }
+
   /** zm_buf（wasm32 では ptr と len の 2 つの u32）を確保して fn に渡し、書かれたバイト列を写して返す */
   withBuf(fn) {
     const buf = this.invoke("zm_alloc", 8) >>> 0;
@@ -180,11 +200,21 @@ export class Session {
   /** 名前のついた入力に、バイト列を足す。同じ名前で何回か呼ぶと、後ろに足していく */
   push(name, data) {
     const core = this.#core;
-    const code = core.withBytes(toBytes(name), (namePtr, nameLen) =>
-      core.withBytes(toBytes(data), (dataPtr, dataLen) =>
-        core.invoke("zm_push", this.#handle, namePtr, nameLen, dataPtr, dataLen),
-      ),
-    );
+    // 入力がこの wasm のメモリのビューでも、名前や入力の確保による memory.grow で無効にならないようにする
+    const stable = (value) => {
+      const bytes = toBytes(value);
+      // Buffer.slice はメモリを共有するので、Uint8Array のコンストラクターで必ず写す。
+      return bytes.buffer === core.e.memory.buffer ? new Uint8Array(bytes) : bytes;
+    };
+    const nameBytes = stable(name);
+    const bytes = stable(data);
+    const code = core.withBytes(nameBytes, (namePtr, nameLen) => {
+      return typeof core.e.zm_push_owned === "function"
+        ? core.pushOwned(this.#handle, namePtr, nameLen, bytes)
+        : core.withBytes(bytes, (dataPtr, dataLen) =>
+            core.invoke("zm_push", this.#handle, namePtr, nameLen, dataPtr, dataLen),
+          );
+    });
     if (code !== 0) {
       throw new ZumenError("zm_push", code, null);
     }
