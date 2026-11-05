@@ -7,8 +7,9 @@ use zumen_base::{Cx, Kind, Stop};
 const ENTRIES: usize = 4096;
 const FIRST: usize = 258;
 /// hayro-syntax の Option<Vec<u8>> の項目と、表の容量の拡大中の写しを含めた見積もり。
-/// 64 ビットの項目は 24 バイト。環境によらず同じ量を数え、文字列の中身は別に足す
-const ENTRY_BYTES: u64 = 64;
+/// 64 ビットの項目は 24 バイト。容量を倍にする表の、それまでの確保の合計は項目数の 4 倍未満。
+/// 環境によらず 24 * 4 バイトを数え、文字列の中身は別に足す
+const ENTRY_BYTES: u64 = 96;
 
 pub(super) fn before(stream: &Stream<'_>, cx: &mut Cx<'_>) -> Result<(), Stop> {
     let early = early_change(stream, cx)?;
@@ -229,6 +230,48 @@ mod tests {
                 second_budget.used(Kind::DecodedBytes)
                     >= first_budget.used(Kind::DecodedBytes) + 4 * (3839 + 3840)
             );
+        }
+    }
+
+    #[test]
+    fn covers_table_allocations_at_capacity_boundaries() {
+        // 上流と同じ Vec の容量を観測し、新旧の同時確保を含む全確保の合計と比べる。
+        // 項目の大きさは wasm32 でも 64 ビットの 24 バイトを使う。
+        for literals in [
+            0usize, 1, 254, 255, 256, 766, 767, 768, 1790, 1791, 1792, 3839,
+        ] {
+            let mut table: Vec<Option<Vec<u8>>> =
+                (0..=255).map(|value| Some(vec![value])).collect();
+            let mut allocated = table.capacity() as u64 * 24;
+            for entry in std::iter::repeat_n(None, 2).chain(std::iter::repeat_n(
+                Some(vec![32, 32]),
+                literals.saturating_sub(1),
+            )) {
+                let before = table.capacity();
+                table.push(entry);
+                if table.capacity() != before {
+                    allocated += table.capacity() as u64 * 24;
+                }
+            }
+            let mut codes = vec![256];
+            codes.extend(std::iter::repeat_n(32, literals));
+            codes.push(257);
+            for early in [false, true] {
+                let input = source(
+                    &format!(
+                        "/Filter /LZWDecode /DP << /EarlyChange {} >>",
+                        u8::from(early)
+                    ),
+                    &fixture::pack(&codes, early),
+                );
+                let (result, budget) = run(&input, Limits::default(), false);
+                assert_eq!(result, Ok(true));
+                let words = 256 + literals.saturating_sub(1) as u64 * 2;
+                assert!(
+                    budget.used(Kind::DecodedBytes) >= allocated + words + literals as u64,
+                    "{literals}, {early}"
+                );
+            }
         }
     }
 

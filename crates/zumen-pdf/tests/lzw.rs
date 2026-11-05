@@ -124,6 +124,70 @@ fn keeps_shapes_and_diagnostics_with_predictors_and_repeated_resources() {
 }
 
 #[test]
+fn repeated_forms_keep_decode_work_even_for_empty_and_failed_output() {
+    for clears in [10, 1000, 10_000] {
+        for early in [0, 1] {
+            for end in [257, 500] {
+                let mut codes = vec![256; clears];
+                codes.push(end);
+                let data = encoding::pack(&codes, early != 0);
+                for predictor in ["", "/Predictor 3"] {
+                    let filter =
+                        format!("/Filter /LZWDecode /DP << /EarlyChange {early} {predictor} >>");
+                    let once = cases::document(2, &filter, &data, false, 1);
+                    let twice = cases::document(2, &filter, &data, false, 2);
+                    let first = run(&once, Limits::default(), false);
+                    let second = run(&twice, Limits::default(), false);
+                    assert!(first.0.is_ok() && second.0.is_ok());
+                    assert!(
+                        second.1.used(Kind::Work) >= first.1.used(Kind::Work) + clears as u64,
+                        "{clears}, {early}, {end}, {predictor}"
+                    );
+                    let limits = Limits::default()
+                        .with(Kind::Work, Limit::Finite(first.1.used(Kind::Work) + 150));
+                    let stopped = run(&twice, limits, false);
+                    assert!(matches!(
+                        stopped.0,
+                        Err(Error::Stopped(Stop::Exceeded(e))) if e.kind == Kind::Work
+                    ));
+                    assert_eq!(
+                        format!("{stopped:?}"),
+                        format!("{:?}", run(&twice, limits, false))
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn content_arrays_keep_work_for_the_second_decode() {
+    for early in [0, 1] {
+        for end in [257, 500] {
+            let mut codes = vec![256; 10_000];
+            codes.push(end);
+            let data = encoding::pack(&codes, early != 0);
+            for predictor in ["", "/Predictor 3"] {
+                let filter =
+                    format!("/Filter /LZWDecode /DP << /EarlyChange {early} {predictor} >>");
+                let single = cases::document(0, &filter, &data, false, 1);
+                let array = cases::document(1, &filter, &data, false, 1);
+                let first = run(&single, Limits::default(), false);
+                let second = run(&array, Limits::default(), false);
+                assert!(first.0.is_ok() && second.0.is_ok());
+                assert!(second.1.used(Kind::Work) >= first.1.used(Kind::Work) + 10_000);
+                let limits = Limits::default()
+                    .with(Kind::Work, Limit::Finite(first.1.used(Kind::Work) + 150));
+                assert!(matches!(
+                    run(&array, limits, false).0,
+                    Err(Error::Stopped(Stop::Exceeded(e))) if e.kind == Kind::Work
+                ));
+            }
+        }
+    }
+}
+
+#[test]
 fn lzw_reuse_failure_budgets_and_cancellation_are_repeatable() {
     for case in 0..cases::COUNT {
         let plain = cases::plain(case);
