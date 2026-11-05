@@ -1,1 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="3" fill="#0017c1"/><rect x="4" y="4" width="24" height="24" fill="none" stroke="#fff" stroke-width="1.5"/><path d="M17 20h11M17 20v8M22 20v8" stroke="#fff" stroke-width="1.2" fill="none"/><text x="10.5" y="18" font-family="sans-serif" font-size="11" font-weight="700" fill="#fff" text-anchor="middle">図</text></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="16" fill="#0017c1"/>
+  <path d="M16 16h32v8L28 40h20v8H16v-8l20-16H16z" fill="#fff"/>
+</svg>
