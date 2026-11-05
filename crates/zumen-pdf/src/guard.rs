@@ -24,7 +24,7 @@ use hayro_syntax::reader::{Readable, Reader, ReaderContext, ReaderExt};
 use zumen_base::{Diagnostic, Kind, Ref, Stop};
 use zumen_sdk::Cx;
 
-use crate::walk::lookup_work;
+use crate::{inflate, walk::lookup_work};
 
 /// 環境の大きさの整数で読む値の上限（含まない）。32 ビットの環境でも読め、2 つを足してもあふれない
 const LIMIT: i64 = 1 << 31;
@@ -409,16 +409,6 @@ fn container_fits(
     cx: &mut Cx<'_>,
 ) -> Result<Option<usize>, Stop> {
     let dict = stream.dict();
-    let (Some(count), Some(first)) = (dict.get::<i64>(b"N"), dict.get::<i64>(b"First")) else {
-        return Ok(None);
-    };
-    // 負の値は、どの環境でも読めず、中のオブジェクトを使わない
-    if count < 0 || first < 0 {
-        return Ok(None);
-    }
-    if count >= LIMIT || first >= LIMIT {
-        return Ok(Some(place));
-    }
     // hayro-syntax は、展開するときに `F`・`DP`・`DecodeParms` の辞書の表を作る。表は、値のキーの数に比例するので、
     // 値の名前の数で多めに数える（項目の辞書の表は、フィルターの数の上限から、ファイルの大きさによらない）
     for key in [b"F".as_slice(), b"DP", b"DecodeParms"] {
@@ -428,10 +418,23 @@ fn container_fits(
             cx.check(Kind::DecodedBytes, names.saturating_mul(KEY_BYTES))?;
         }
     }
+    // hayro-syntax は、中の位置を読む前に展開する。`N` と `First` が読めなくても、展開の上限は先に確かめる
+    let counted = inflate::before(stream, cx)?;
+    let (Some(count), Some(first)) = (dict.get::<i64>(b"N"), dict.get::<i64>(b"First")) else {
+        return Ok(None);
+    };
+    if count < 0 || first < 0 {
+        return Ok(None);
+    }
+    if count >= LIMIT || first >= LIMIT {
+        return Ok(Some(place));
+    }
     let Ok(data) = stream.decoded_data() else {
         return Ok(None);
     };
-    cx.check(Kind::DecodedBytes, data.len() as u64)?;
+    if !counted {
+        cx.check(Kind::DecodedBytes, data.len() as u64)?;
+    }
     members(&data, count, first, place, seen, cx)
 }
 

@@ -12,6 +12,8 @@ mod file;
 #[cfg(feature = "drawing")]
 mod guard;
 #[cfg(feature = "drawing")]
+mod inflate;
+#[cfg(feature = "drawing")]
 mod lift;
 #[cfg(feature = "drawing")]
 mod page;
