@@ -1620,7 +1620,12 @@ impl<'f> Lifter<'f> {
         };
         if !visible {
             // まとめ方と既存 ID は保つ。曲線以外は表示しない場合にも診断し、黙って捨てない（#549）
-            if let Some(composite) = self.composites.iter().find(|c| c.feature == index) {
+            let source = feature.source();
+            for composite in &self.composites {
+                work(cx, 1, &source)?;
+                if composite.feature != index {
+                    continue;
+                }
                 for member in &composite.members {
                     let Some(&member) = self.features.get(*member) else {
                         continue;
@@ -1630,6 +1635,7 @@ impl<'f> Lifter<'f> {
                         dropped(cx, member);
                     }
                 }
+                break;
             }
             return Ok(());
         }

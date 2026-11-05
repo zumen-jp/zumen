@@ -926,12 +926,15 @@ fn composite_diagnostics_obey_work_limits_and_cancellation() {
         run(Limit::Unlimited, true).0,
         Err(Error::Stopped(_))
     ));
-    let scanning = run(Limit::Finite(features.len() as u64 + 1), false);
-    assert!(matches!(scanning.0, Err(Error::Stopped(_))));
-    assert_eq!(
-        find(&scanning.2, codes::BUDGET_WORK_EXCEEDED).places(),
-        [Ref::at_record(7).with_key(Key::Instance(20))]
-    );
+    // メンバーに加え、先頭と後続の複合曲線を探す走査も、探索中の複合曲線で止まる。
+    for (extra, record, instance) in [(1, 8, 30), (2, 7, 20), (5, 9, 31)] {
+        let scanning = run(Limit::Finite(features.len() as u64 + extra), false);
+        assert!(matches!(scanning.0, Err(Error::Stopped(_))));
+        assert_eq!(
+            find(&scanning.2, codes::BUDGET_WORK_EXCEEDED).places(),
+            [Ref::at_record(record).with_key(Key::Instance(instance))]
+        );
+    }
     assert_eq!(testkit::write::<Sxf>(&file).unwrap(), src);
 }
 
