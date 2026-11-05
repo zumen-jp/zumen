@@ -286,6 +286,36 @@ fn asks_for_ranges_and_reads_them() {
 }
 
 #[test]
+fn refuses_headers_that_point_past_the_input() {
+    // #517 の fuzz で見つけた形を縮めたもの。点のレコードの始まり（Offset to point data、表 3 の 96 バイト目）が、
+    // 全体の大きさより後ろを指す。範囲で読むと、渡せない範囲を求め続けていた
+    let mut bytes = las(2, &[], false);
+    bytes[96..100].copy_from_slice(&58_112u32.to_le_bytes());
+    let size = bytes.len() as u64;
+    let mut budget = Budget::new(Limits::default());
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+    // ヘッダー（1.4 の大きさまで）を渡す
+    let head = (0, &bytes[..375]);
+    let read = Las::read_ranged(
+        &Source {
+            size,
+            parts: &[head],
+        },
+        &mut cx,
+    );
+    assert!(
+        matches!(read, Err(Missing::Failed(Error::Invalid))),
+        "{read:?}"
+    );
+    let codes: Vec<Code> = diag.iter().map(|d| d.code()).collect();
+    assert_eq!(codes, [codes::LAS_FILE_INVALID]);
+    // 全体を渡しても、同じく断る
+    assert!(matches!(open(&bytes), Err(Error::Invalid)));
+}
+
+#[test]
 fn selects_points_by_box_and_limit() {
     let (_, cloud, _) = open(&las(2, &[], false)).unwrap();
     let mut budget = Budget::new(Limits::default());
