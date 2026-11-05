@@ -318,6 +318,28 @@ function hit(ctx, prepared, settings, view, size, display, index, limits, query)
   return Object.freeze(result);
 }
 
+/** 吸着の候補点が、描画と同じ形とすべての切り抜きに残るかを調べる。 */
+export function visiblePointTest(ctx, prepared, settings, view, size, display, kind, i, chunk, charge) {
+  const { columns: c, omitted } = prepared, unit = c[`${kind}_units`][i];
+  if (omitted.has(`${kind}:${i}`) || !unitVisible(c, unit, display) || transparentStyle(unitStyle(c, unit, settings, display))) return null;
+  let groups;
+  return (point) => {
+    // 半径内の候補が現れるまで、輪郭と切り抜きの派生データを作らない。
+    if (!groups) {
+      const clips = [compile(viewportPart(size, charge), charge), ...Array.from(clipParts(c, unit, view, size, true, charge), (part) => compile(part, charge))];
+      groups = Array.from(primitiveParts(ctx, c, kind, i, chunk, settings, view, size, true, charge), (part) => {
+        charge(1 + clips.length);
+        return [compile(part, charge), ...clips];
+      });
+    }
+    for (const constraints of groups) {
+      charge(constraints.length);
+      if (constraints.every((item) => pointInBox(point, item.bounds) && item.contains(point)) && visibleNear(point, constraints, charge)) return true;
+    }
+    return false;
+  };
+}
+
 export function hitPoint(ctx, prepared, settings, view, size, display, index, limits, point, tolerance) {
   finite(point?.x, "point.x"); finite(point?.y, "point.y"); finite(tolerance, "tolerance"); valid(tolerance >= 0, "tolerance");
   return hit(ctx, prepared, settings, view, size, display, index, limits, circleQuery(point, tolerance));
