@@ -108,6 +108,9 @@ class Request extends Message {
 
   /// op が lift の形なら、そのビュー。違えば null
   LiftRequest? get asLiftRequest => taggedView('op', 'lift', LiftRequest.fromJson);
+
+  /// op が render の形なら、そのビュー。違えば null
+  RenderRequest? get asRenderRequest => taggedView('op', 'render', RenderRequest.fromJson);
 }
 
 /// どの op の要求にも置けるフィールド
@@ -2657,6 +2660,147 @@ class SceneRequest extends Message {
   /// 形式の宣言値の高さ（キーは dxf.TEXT.40・dxf.MTEXT.40・jww.moji.size_y など）が、フォントのどの寸法に当たるか（決定 0176・0188）。書かないキーは、表示と比べて決めた意味（dxf.TEXT.40 は capital_a。マイナーバージョン 59 から）にし、それもなければ大文字の高さとみなす。fonts を書いたときだけ使う。マイナーバージョン 37 から
   Map<String, String>? get heights => readField('heights', mapOf(asString));
   set heights(Map<String, String>? value) => writeField('heights', value);
+}
+
+/// 開いた文書を scene と同じ起点・配置・フォントで 2D のシーンにし、画像を blob で返す（決定 0272・0275）。SVG は字形の輪郭だけを描き、字形のない空でない文字・外部画像・名前付きの点記号は元の ID と unit を診断して描かない。シーン生成と描画で同じ予算と中断の合図を使い、失敗では画像を返さない。マイナーバージョン 64 から
+class RenderRequest extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  RenderRequest.fromJson(super.json);
+
+  /// タグのフィールドだけを持つオブジェクトから作る
+  RenderRequest() : super({'op': 'render'});
+
+  /// メッセージのスキーマのメジャーバージョン。今は 1
+  int? get v => readField('v', asInt);
+  set v(int? value) => writeField('v', value);
+
+  /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+  Budget? get budget => readField('budget', objectOf(Budget.fromJson));
+  set budget(Budget? value) => writeField('budget', value);
+
+  /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+  bool? get partial => readField('partial', asBool);
+  set partial(bool? value) => writeField('partial', value);
+
+  /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+  int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(int? value) => writeField('max_places', value);
+
+  /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(int? value) => writeField('time_limit_ms', value);
+
+  /// op の名前
+  String? get op => readField('op', asString);
+  set op(String? value) => writeField('op', value);
+
+  /// 文書の名前。open で作ったもの
+  String? get doc => readField('doc', asString);
+  set doc(String? value) => writeField('doc', value);
+
+  /// scene と同じ起点。実寸の空間・記号の定義の空間・用紙の ID
+  String? get from => readField('from', asString);
+  set from(String? value) => writeField('from', value);
+
+  /// 起点の用紙のビューの番号。0 から数える。from が用紙のときだけ書ける。scene と同じ意味
+  int? get view => readField('view', asInt);
+  set view(int? value) => writeField('view', value);
+
+  /// 画像の出力形式
+  String? get format => readField('format', asString);
+  set format(String? value) => writeField('format', value);
+
+  /// 出力の幅（ピクセル）
+  int? get width => readField('width', asInt);
+  set width(int? value) => writeField('width', value);
+
+  /// 出力の高さ（ピクセル）
+  int? get height => readField('height', asInt);
+  set height(int? value) => writeField('height', value);
+
+  /// [x の最小, y の最小, x の最大, y の最大]。起点の座標で、幅と高さが正の有限値になる範囲を明示する。scene の範囲の絞り込みにも使い、縦横同率で中央に収めて範囲外を切る。縦横比の違いによる余白は背景色にする
+  List<double>? get region => readField('region', listOf(asDouble));
+  set region(List<double>? value) => writeField('region', value);
+
+  /// 用紙 mm の線幅をピクセルへ直す DPI。正の有限値。座標の単位を mm と推測しない。線幅 0 は 1 ピクセル
+  double? get dpi => readField('dpi', asDouble);
+  set dpi(double? value) => writeField('dpi', value);
+
+  /// 背景の sRGB と alpha。[r, g, b, a] の 4 値を 0〜255 で明示する
+  List<int>? get background => readField('background', listOf(asInt));
+  set background(List<int>? value) => writeField('background', value);
+
+  /// ACI 7 と未解決の色に使う sRGB と alpha。[r, g, b, a] の 4 値を 0〜255 で明示する。未解決の色は診断する
+  List<int>? get foreground => readField('foreground', listOf(asInt));
+  set foreground(List<int>? value) => writeField('foreground', value);
+
+  /// scene と同じ弦の誤差（起点の長さ）。0 より大きい。書かなければ用紙は 0.02 mm、空間は要素の範囲の対角線の 1/50000
+  double? get tolerance => readField('tolerance', asDouble);
+  set tolerance(double? value) => writeField('tolerance', value);
+
+  /// scene と同じ指定。true は印刷する要素、書かないか false は表示する要素を描く
+  bool? get print => readField('print', asBool);
+  set print(bool? value) => writeField('print', value);
+
+  /// scene と同じ色の表の入力の名前。zm_push で渡した JSON の values に rgb と aci・sxf・jww の符号を並べる
+  String? get palette => readField('palette', asString);
+  set palette(String? value) => writeField('palette', value);
+
+  /// scene と同じフォントの指定。名前を合わせ、なければ名前のないフォントを使う。字形の輪郭を作るため、zm_push でフォントのバイト列を渡す。OS のフォントは探索しない
+  List<SceneFont>? get fonts => readField('fonts', listOf(objectOf(SceneFont.fromJson)));
+  set fonts(List<SceneFont>? value) => writeField('fonts', value);
+
+  /// scene と同じ宣言値の高さの意味。fonts を書いたときだけ使う。書かないキーは既定の意味に従う（決定 0176・0188）
+  Map<String, String>? get heights => readField('heights', mapOf(asString));
+  set heights(Map<String, String>? value) => writeField('heights', value);
+}
+
+/// 画像の出力形式。svg は SVG 1.1（image/svg+xml）
+///
+/// 列挙の値。知らない値も受け取る
+abstract final class RenderFormat {
+  static const svg = 'svg';
+}
+
+/// 画像の形式・サイズと、シーンの起点・単位・許容差、画像の blob の番号
+class RenderResult extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  RenderResult.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  RenderResult() : super({});
+
+  /// 画像の出力形式
+  String? get format => readField('format', asString);
+  set format(String? value) => writeField('format', value);
+
+  /// 出力の幅（ピクセル）
+  int? get width => readField('width', asInt);
+  set width(int? value) => writeField('width', value);
+
+  /// 出力の高さ（ピクセル）
+  int? get height => readField('height', asInt);
+  set height(int? value) => writeField('height', value);
+
+  /// シーンの起点の ID
+  String? get from => readField('from', asString);
+  set from(String? value) => writeField('from', value);
+
+  /// 起点のビューの番号。ビューでなければ持たない
+  int? get view => readField('view', asInt);
+  set view(int? value) => writeField('view', value);
+
+  /// 起点の座標の単位。用紙とビューからは millimeter
+  String? get unit => readField('unit', asString);
+  set unit(String? value) => writeField('unit', value);
+
+  /// シーンで使った弦の誤差（起点の長さ）
+  double? get tolerance => readField('tolerance', asDouble);
+  set tolerance(double? value) => writeField('tolerance', value);
+
+  /// 画像の blob の番号（種類は image）。zm_take で取り出す
+  int? get blob => readField('blob', asInt);
+  set blob(int? value) => writeField('blob', value);
 }
 
 /// シーンの文字を置くフォント（決定 0188）
@@ -7057,4 +7201,5 @@ abstract final class Operations {
   static const boring = 'boring';
   static const buildingApply = 'building_apply';
   static const lift = 'lift';
+  static const render = 'render';
 }

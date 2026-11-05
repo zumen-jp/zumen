@@ -185,6 +185,11 @@ func (u Request) AsLiftRequest() *LiftRequest {
 	return asTagged[LiftRequest](u, "op", "lift")
 }
 
+// AsRenderRequest は、op が render の形なら、その型で読む。違えば nil。
+func (u Request) AsRenderRequest() *RenderRequest {
+	return asTagged[RenderRequest](u, "op", "render")
+}
+
 // RequestCommon: どの op の要求にも置けるフィールド
 type RequestCommon struct {
 	// メッセージのスキーマのメジャーバージョン。今は 1
@@ -2391,6 +2396,114 @@ func (m SceneRequest) MarshalJSON() ([]byte, error) {
 	type plain SceneRequest
 	m.Op = "scene"
 	return json.Marshal(plain(m))
+}
+
+// RenderRequest: 開いた文書を scene と同じ起点・配置・フォントで 2D のシーンにし、画像を blob で返す（決定 0272・0275）。SVG は字形の輪郭だけを描き、字形のない空でない文字・外部画像・名前付きの点記号は元の ID と unit を診断して描かない。シーン生成と描画で同じ予算と中断の合図を使い、失敗では画像を返さない。マイナーバージョン 64 から
+type RenderRequest struct {
+	// メッセージのスキーマのメジャーバージョン。今は 1
+	V *int64 `json:"v,omitempty"`
+
+	// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+	Budget *Budget `json:"budget,omitempty"`
+
+	// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+	Partial *bool `json:"partial,omitempty"`
+
+	// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+	MaxPlaces *int64 `json:"max_places,omitempty"`
+
+	// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+	TimeLimitMs *int64 `json:"time_limit_ms,omitempty"`
+
+	// op の名前
+	Op string `json:"op,omitempty"`
+
+	// 文書の名前。open で作ったもの
+	Doc *string `json:"doc,omitempty"`
+
+	// scene と同じ起点。実寸の空間・記号の定義の空間・用紙の ID
+	From *string `json:"from,omitempty"`
+
+	// 起点の用紙のビューの番号。0 から数える。from が用紙のときだけ書ける。scene と同じ意味
+	View *int64 `json:"view,omitempty"`
+
+	// 画像の出力形式
+	Format *RenderFormat `json:"format,omitempty"`
+
+	// 出力の幅（ピクセル）
+	Width *int64 `json:"width,omitempty"`
+
+	// 出力の高さ（ピクセル）
+	Height *int64 `json:"height,omitempty"`
+
+	// [x の最小, y の最小, x の最大, y の最大]。起点の座標で、幅と高さが正の有限値になる範囲を明示する。scene の範囲の絞り込みにも使い、縦横同率で中央に収めて範囲外を切る。縦横比の違いによる余白は背景色にする
+	Region []float64 `json:"region,omitempty"`
+
+	// 用紙 mm の線幅をピクセルへ直す DPI。正の有限値。座標の単位を mm と推測しない。線幅 0 は 1 ピクセル
+	Dpi *float64 `json:"dpi,omitempty"`
+
+	// 背景の sRGB と alpha。[r, g, b, a] の 4 値を 0〜255 で明示する
+	Background []int64 `json:"background,omitempty"`
+
+	// ACI 7 と未解決の色に使う sRGB と alpha。[r, g, b, a] の 4 値を 0〜255 で明示する。未解決の色は診断する
+	Foreground []int64 `json:"foreground,omitempty"`
+
+	// scene と同じ弦の誤差（起点の長さ）。0 より大きい。書かなければ用紙は 0.02 mm、空間は要素の範囲の対角線の 1/50000
+	Tolerance *float64 `json:"tolerance,omitempty"`
+
+	// scene と同じ指定。true は印刷する要素、書かないか false は表示する要素を描く
+	Print *bool `json:"print,omitempty"`
+
+	// scene と同じ色の表の入力の名前。zm_push で渡した JSON の values に rgb と aci・sxf・jww の符号を並べる
+	Palette *string `json:"palette,omitempty"`
+
+	// scene と同じフォントの指定。名前を合わせ、なければ名前のないフォントを使う。字形の輪郭を作るため、zm_push でフォントのバイト列を渡す。OS のフォントは探索しない
+	Fonts []SceneFont `json:"fonts,omitempty"`
+
+	// scene と同じ宣言値の高さの意味。fonts を書いたときだけ使う。書かないキーは既定の意味に従う（決定 0176・0188）
+	Heights map[string]HeightReference `json:"heights,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m RenderRequest) MarshalJSON() ([]byte, error) {
+	type plain RenderRequest
+	m.Op = "render"
+	return json.Marshal(plain(m))
+}
+
+// RenderFormat: 画像の出力形式。svg は SVG 1.1（image/svg+xml）
+//
+// 列挙の値。知らない値も受け取る。
+type RenderFormat string
+
+// RenderFormatSvg は svg。
+const RenderFormatSvg RenderFormat = "svg"
+
+// RenderResult: 画像の形式・サイズと、シーンの起点・単位・許容差、画像の blob の番号
+type RenderResult struct {
+	// 画像の出力形式
+	Format *RenderFormat `json:"format,omitempty"`
+
+	// 出力の幅（ピクセル）
+	Width *int64 `json:"width,omitempty"`
+
+	// 出力の高さ（ピクセル）
+	Height *int64 `json:"height,omitempty"`
+
+	// シーンの起点の ID
+	From *string `json:"from,omitempty"`
+
+	// 起点のビューの番号。ビューでなければ持たない
+	View *int64 `json:"view,omitempty"`
+
+	// 起点の座標の単位。用紙とビューからは millimeter
+	Unit *Unit `json:"unit,omitempty"`
+
+	// シーンで使った弦の誤差（起点の長さ）
+	Tolerance *float64 `json:"tolerance,omitempty"`
+
+	// 画像の blob の番号（種類は image）。zm_take で取り出す
+	Blob *int64 `json:"blob,omitempty"`
 }
 
 // SceneFont: シーンの文字を置くフォント（決定 0188）
@@ -5756,3 +5869,6 @@ const OpBuildingApply = "building_apply"
 
 // OpLift は、op の名前 lift。
 const OpLift = "lift"
+
+// OpRender は、op の名前 render。
+const OpRender = "render"

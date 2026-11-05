@@ -168,6 +168,11 @@ public struct Request: Message {
     public var asLiftRequest: LiftRequest? {
         taggedView("op", "lift")
     }
+
+    /// op が render の形なら、そのビュー。違えば nil
+    public var asRenderRequest: RenderRequest? {
+        taggedView("op", "render")
+    }
 }
 
 /// どの op の要求にも置けるフィールド
@@ -4104,6 +4109,219 @@ public struct SceneRequest: Message {
     public var heights: [String: String]? {
         get { readField("heights") }
         set { writeField("heights", newValue) }
+    }
+}
+
+/// 開いた文書を scene と同じ起点・配置・フォントで 2D のシーンにし、画像を blob で返す（決定 0272・0275）。SVG は字形の輪郭だけを描き、字形のない空でない文字・外部画像・名前付きの点記号は元の ID と unit を診断して描かない。シーン生成と描画で同じ予算と中断の合図を使い、失敗では画像を返さない。マイナーバージョン 64 から
+public struct RenderRequest: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// タグのフィールドだけを持つオブジェクトから作る
+    public init() {
+        json = ["op": .string("render")]
+    }
+
+    /// メッセージのスキーマのメジャーバージョン。今は 1
+    public var v: Int64? {
+        get { readField("v") }
+        set { writeField("v", newValue) }
+    }
+
+    /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+    public var budget: Budget? {
+        get { readField("budget") }
+        set { writeField("budget", newValue) }
+    }
+
+    /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+    public var partial: Bool? {
+        get { readField("partial") }
+        set { writeField("partial", newValue) }
+    }
+
+    /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+    public var maxPlaces: Int64? {
+        get { readField("max_places") }
+        set { writeField("max_places", newValue) }
+    }
+
+    /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    public var timeLimitMs: Int64? {
+        get { readField("time_limit_ms") }
+        set { writeField("time_limit_ms", newValue) }
+    }
+
+    /// op の名前
+    public var op: String? {
+        get { readField("op") }
+        set { writeField("op", newValue) }
+    }
+
+    /// 文書の名前。open で作ったもの
+    public var doc: String? {
+        get { readField("doc") }
+        set { writeField("doc", newValue) }
+    }
+
+    /// scene と同じ起点。実寸の空間・記号の定義の空間・用紙の ID
+    public var from: String? {
+        get { readField("from") }
+        set { writeField("from", newValue) }
+    }
+
+    /// 起点の用紙のビューの番号。0 から数える。from が用紙のときだけ書ける。scene と同じ意味
+    public var view: Int64? {
+        get { readField("view") }
+        set { writeField("view", newValue) }
+    }
+
+    /// 画像の出力形式
+    public var format: String? {
+        get { readField("format") }
+        set { writeField("format", newValue) }
+    }
+
+    /// 出力の幅（ピクセル）
+    public var width: Int64? {
+        get { readField("width") }
+        set { writeField("width", newValue) }
+    }
+
+    /// 出力の高さ（ピクセル）
+    public var height: Int64? {
+        get { readField("height") }
+        set { writeField("height", newValue) }
+    }
+
+    /// [x の最小, y の最小, x の最大, y の最大]。起点の座標で、幅と高さが正の有限値になる範囲を明示する。scene の範囲の絞り込みにも使い、縦横同率で中央に収めて範囲外を切る。縦横比の違いによる余白は背景色にする
+    public var region: [Double]? {
+        get { readField("region") }
+        set { writeField("region", newValue) }
+    }
+
+    /// 用紙 mm の線幅をピクセルへ直す DPI。正の有限値。座標の単位を mm と推測しない。線幅 0 は 1 ピクセル
+    public var dpi: Double? {
+        get { readField("dpi") }
+        set { writeField("dpi", newValue) }
+    }
+
+    /// 背景の sRGB と alpha。[r, g, b, a] の 4 値を 0〜255 で明示する
+    public var background: [Int64]? {
+        get { readField("background") }
+        set { writeField("background", newValue) }
+    }
+
+    /// ACI 7 と未解決の色に使う sRGB と alpha。[r, g, b, a] の 4 値を 0〜255 で明示する。未解決の色は診断する
+    public var foreground: [Int64]? {
+        get { readField("foreground") }
+        set { writeField("foreground", newValue) }
+    }
+
+    /// scene と同じ弦の誤差（起点の長さ）。0 より大きい。書かなければ用紙は 0.02 mm、空間は要素の範囲の対角線の 1/50000
+    public var tolerance: Double? {
+        get { readField("tolerance") }
+        set { writeField("tolerance", newValue) }
+    }
+
+    /// scene と同じ指定。true は印刷する要素、書かないか false は表示する要素を描く
+    public var print: Bool? {
+        get { readField("print") }
+        set { writeField("print", newValue) }
+    }
+
+    /// scene と同じ色の表の入力の名前。zm_push で渡した JSON の values に rgb と aci・sxf・jww の符号を並べる
+    public var palette: String? {
+        get { readField("palette") }
+        set { writeField("palette", newValue) }
+    }
+
+    /// scene と同じフォントの指定。名前を合わせ、なければ名前のないフォントを使う。字形の輪郭を作るため、zm_push でフォントのバイト列を渡す。OS のフォントは探索しない
+    public var fonts: [SceneFont]? {
+        get { readField("fonts") }
+        set { writeField("fonts", newValue) }
+    }
+
+    /// scene と同じ宣言値の高さの意味。fonts を書いたときだけ使う。書かないキーは既定の意味に従う（決定 0176・0188）
+    public var heights: [String: String]? {
+        get { readField("heights") }
+        set { writeField("heights", newValue) }
+    }
+}
+
+/// 画像の出力形式。svg は SVG 1.1（image/svg+xml）
+///
+/// 列挙の値。知らない値も受け取る
+public enum RenderFormat {
+    public static let svg = "svg"
+}
+
+/// 画像の形式・サイズと、シーンの起点・単位・許容差、画像の blob の番号
+public struct RenderResult: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 画像の出力形式
+    public var format: String? {
+        get { readField("format") }
+        set { writeField("format", newValue) }
+    }
+
+    /// 出力の幅（ピクセル）
+    public var width: Int64? {
+        get { readField("width") }
+        set { writeField("width", newValue) }
+    }
+
+    /// 出力の高さ（ピクセル）
+    public var height: Int64? {
+        get { readField("height") }
+        set { writeField("height", newValue) }
+    }
+
+    /// シーンの起点の ID
+    public var from: String? {
+        get { readField("from") }
+        set { writeField("from", newValue) }
+    }
+
+    /// 起点のビューの番号。ビューでなければ持たない
+    public var view: Int64? {
+        get { readField("view") }
+        set { writeField("view", newValue) }
+    }
+
+    /// 起点の座標の単位。用紙とビューからは millimeter
+    public var unit: String? {
+        get { readField("unit") }
+        set { writeField("unit", newValue) }
+    }
+
+    /// シーンで使った弦の誤差（起点の長さ）
+    public var tolerance: Double? {
+        get { readField("tolerance") }
+        set { writeField("tolerance", newValue) }
+    }
+
+    /// 画像の blob の番号（種類は image）。zm_take で取り出す
+    public var blob: Int64? {
+        get { readField("blob") }
+        set { writeField("blob", newValue) }
     }
 }
 
@@ -10847,4 +11065,5 @@ public enum Operations {
     public static let boring = "boring"
     public static let buildingApply = "building_apply"
     public static let lift = "lift"
+    public static let render = "render"
 }
