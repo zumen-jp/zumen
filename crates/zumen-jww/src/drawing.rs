@@ -430,19 +430,28 @@ struct At {
     scale: f64,
 }
 
-fn point(at: At, x: f64, y: f64) -> ModelPoint {
-    ModelPoint {
-        space: at.space,
-        x: x * at.scale,
-        y: y * at.scale,
-    }
+/// L1 のバイト列は保ち、L2 に移す値と計算の結果だけを検査する（決定 0012）。
+fn finite(value: f64) -> Result<f64, Fail> {
+    value.is_finite().then_some(value).ok_or(Fail::Invalid)
 }
 
-fn length(at: At, value: f64) -> Length {
-    Length::Model(ModelLength {
+fn real(r: &mut Reader) -> Result<f64, Fail> {
+    finite(r.f64()?)
+}
+
+fn point(at: At, x: f64, y: f64) -> Result<ModelPoint, Fail> {
+    Ok(ModelPoint {
         space: at.space,
-        value: value * at.scale,
+        x: finite(x * at.scale)?,
+        y: finite(y * at.scale)?,
     })
+}
+
+fn length(at: At, value: f64) -> Result<Length, Fail> {
+    Ok(Length::Model(ModelLength {
+        space: at.space,
+        value: finite(value * at.scale)?,
+    }))
 }
 
 impl Base {
@@ -690,6 +699,11 @@ impl Lifter<'_> {
                 scale: self.header.scale(base.group),
             },
         };
+        // この縮尺では、用紙へ戻すビューの行列も有限でなければならない。
+        if !(1.0 / base.at.scale).is_finite() {
+            invalid(cx, name, source);
+            return;
+        }
         self.own.clear();
         let lifted = match name {
             b"CDataSen" => self.line(&mut r, &base),
@@ -765,13 +779,13 @@ impl Lifter<'_> {
         r: &mut Reader,
         base: &Base,
     ) -> Result<Option<(Shape<ModelPoint>, Style)>, Fail> {
-        let [x, y, sx, sy, rotation] = [r.f64()?, r.f64()?, r.f64()?, r.f64()?, r.f64()?];
+        let [x, y, sx, sy, rotation] = [real(r)?, real(r)?, real(r)?, real(r)?, real(r)?];
         let number = r.u32()?;
         let shape = Shape::Symbol(Symbol {
             key: block_key(number),
-            position: point(base.at, x, y),
-            scale: [sx * base.at.scale, sy * base.at.scale],
-            rotation: rotation.to_degrees(),
+            position: point(base.at, x, y)?,
+            scale: [finite(sx * base.at.scale)?, finite(sy * base.at.scale)?],
+            rotation: finite(rotation.to_degrees())?,
             grid: None,
             attributes: Vec::new(),
             clip: None,
@@ -798,8 +812,8 @@ impl Lifter<'_> {
         let at = base.at;
         let xy = |p: ModelPoint| FieldValue::Point([p.x, p.y, 0.0]);
         let line_base = Base::read(r, version)?;
-        let [x1, y1, x2, y2] = [r.f64()?, r.f64()?, r.f64()?, r.f64()?];
-        let (start, end) = (point(at, x1, y1), point(at, x2, y2));
+        let [x1, y1, x2, y2] = [real(r)?, real(r)?, real(r)?, real(r)?];
+        let (start, end) = (point(at, x1, y1)?, point(at, x2, y2)?);
         let mut fields = vec![
             Field {
                 key: "line_start".into(),
@@ -813,9 +827,9 @@ impl Lifter<'_> {
             },
         ];
         Base::read(r, version)?;
-        let [tx1, ty1, tx2, ty2] = [r.f64()?, r.f64()?, r.f64()?, r.f64()?];
+        let [tx1, ty1, tx2, ty2] = [real(r)?, real(r)?, real(r)?, real(r)?];
         r.skip(4)?;
-        let [size_x, size_y, spacing, angle] = [r.f64()?, r.f64()?, r.f64()?, r.f64()?];
+        let [size_x, size_y, spacing, angle] = [real(r)?, real(r)?, real(r)?, real(r)?];
         let (unicode, font) = r.string()?;
         let font = decode(unicode, font);
         let (unicode, content) = r.string()?;
@@ -823,7 +837,7 @@ impl Lifter<'_> {
         fields.push(Field {
             key: "text_end".into(),
             code: None,
-            value: xy(point(at, tx2, ty2)),
+            value: xy(point(at, tx2, ty2)?),
         });
         fields.push(Field {
             key: "text_spacing".into(),
@@ -843,25 +857,27 @@ impl Lifter<'_> {
                 ("extension2_start", "extension2_end"),
             ] {
                 Base::read(r, version)?;
-                let [x1, y1, x2, y2] = [r.f64()?, r.f64()?, r.f64()?, r.f64()?];
+                let [x1, y1, x2, y2] = [real(r)?, real(r)?, real(r)?, real(r)?];
                 fields.push(Field {
                     key: start_key.into(),
                     code: None,
-                    value: xy(point(at, x1, y1)),
+                    value: xy(point(at, x1, y1)?),
                 });
                 fields.push(Field {
                     key: end_key.into(),
                     code: None,
-                    value: xy(point(at, x2, y2)),
+                    value: xy(point(at, x2, y2)?),
                 });
             }
             let mut points = Vec::with_capacity(4);
             for key in ["end1", "end2", "reference1", "reference2"] {
                 let point_base = Base::read(r, version)?;
-                let p = point(at, r.f64()?, r.f64()?);
+                let p = point(at, real(r)?, real(r)?)?;
                 r.skip(4)?;
                 if point_base.pen_style == POINT_SYMBOL {
-                    r.skip(20)?;
+                    r.skip(4)?;
+                    real(r)?;
+                    real(r)?;
                 }
                 fields.push(Field {
                     key: key.into(),
@@ -877,10 +893,14 @@ impl Lifter<'_> {
                 (first, second) = (reference1, reference2);
             }
         }
-        let rotation = libm::atan2(y2 - y1, x2 - x1).to_degrees();
+        let rotation = libm::atan2(finite(y2 - y1)?, finite(x2 - x1)?).to_degrees();
         let format = Format {
             height: Some(Scaled::Value(Length::Paper(PaperLength(size_y)))),
-            width_factor: (size_y > 0.0).then_some(Scaled::Value(size_x / size_y)),
+            width_factor: if size_y > 0.0 {
+                Some(Scaled::Value(finite(size_x / size_y)?))
+            } else {
+                None
+            },
             font: (!font.is_empty()).then_some(Font {
                 name: font,
                 kind: FontKind::Named {
@@ -909,7 +929,7 @@ impl Lifter<'_> {
                 content,
             },
             text: DimensionText {
-                position: Some(point(at, tx1, ty1)),
+                position: Some(point(at, tx1, ty1)?),
                 moved: false,
                 rotation: Some(angle),
                 attachment: Some((Horizontal::Left, Vertical::Bottom)),
@@ -1006,10 +1026,10 @@ impl Lifter<'_> {
         r: &mut Reader,
         base: &Base,
     ) -> Result<Option<(Shape<ModelPoint>, Style)>, Fail> {
-        let [x1, y1, x2, y2] = [r.f64()?, r.f64()?, r.f64()?, r.f64()?];
+        let [x1, y1, x2, y2] = [real(r)?, real(r)?, real(r)?, real(r)?];
         let shape = Shape::Line {
-            start: point(base.at, x1, y1),
-            end: point(base.at, x2, y2),
+            start: point(base.at, x1, y1)?,
+            end: point(base.at, x2, y2)?,
         };
         Ok(Some((shape, self.line_style(base))))
     }
@@ -1021,13 +1041,13 @@ impl Lifter<'_> {
         base: &Base,
     ) -> Result<Option<(Shape<ModelPoint>, Style)>, Fail> {
         let [cx, cy, radius, start, sweep, tilt, flatness] = [
-            r.f64()?,
-            r.f64()?,
-            r.f64()?,
-            r.f64()?,
-            r.f64()?,
-            r.f64()?,
-            r.f64()?,
+            real(r)?,
+            real(r)?,
+            real(r)?,
+            real(r)?,
+            real(r)?,
+            real(r)?,
+            real(r)?,
         ];
         let full = r.u32()? != 0;
         let edge = self.ellipse(
@@ -1039,7 +1059,7 @@ impl Lifter<'_> {
             start,
             sweep,
             full,
-        );
+        )?;
         let shape = match edge {
             Edge::Arc { center, radius, .. } if full => Shape::Circle { center, radius },
             edge => Shape::Curve(edge),
@@ -1059,24 +1079,20 @@ impl Lifter<'_> {
         start: f64,
         sweep: f64,
         full: bool,
-    ) -> Edge<ModelPoint> {
-        let center = point(at, cx, cy);
+    ) -> Result<Edge<ModelPoint>, Fail> {
+        let center = point(at, cx, cy)?;
         let radius = radius.abs();
-        let flatness = if flatness.is_finite() && flatness > 0.0 {
-            flatness
-        } else {
-            1.0
-        };
+        let flatness = if flatness > 0.0 { flatness } else { 1.0 };
         let (start, sweep) = if full { (0.0, TURN) } else { (start, sweep) };
         let counterclockwise = sweep >= 0.0;
         if (flatness - 1.0).abs() <= 1e-9 {
-            return Edge::Arc {
+            return Ok(Edge::Arc {
                 center,
-                radius: length(at, radius),
-                start: (tilt + start).to_degrees(),
-                end: (tilt + start + sweep).to_degrees(),
+                radius: length(at, radius)?,
+                start: finite((tilt + start).to_degrees())?,
+                end: finite((tilt + start + sweep).to_degrees())?,
                 counterclockwise,
-            };
+            });
         }
         // 楕円弧の角度は、媒介変数の角度とする（推定）
         let (axis, major, ratio, offset) = if flatness < 1.0 {
@@ -1084,23 +1100,23 @@ impl Lifter<'_> {
         } else {
             (
                 tilt + TURN / 4.0,
-                radius * flatness,
+                finite(radius * flatness)?,
                 1.0 / flatness,
                 TURN / 4.0,
             )
         };
-        Edge::Elliptic {
+        Ok(Edge::Elliptic {
             center,
             major: point(
                 at,
                 cx + major * libm::cos(axis),
                 cy + major * libm::sin(axis),
-            ),
+            )?,
             ratio,
-            start: (start - offset).to_degrees(),
-            end: (start + sweep - offset).to_degrees(),
+            start: finite((start - offset).to_degrees())?,
+            end: finite((start + sweep - offset).to_degrees())?,
             counterclockwise,
-        }
+        })
     }
 
     /// 点（決定 0160）。記号の点は、名前空間 `jww.point` と記号の番号の既定義のマーカーにし、ほかは文書の点の表し方に
@@ -1110,12 +1126,12 @@ impl Lifter<'_> {
         r: &mut Reader,
         base: &Base,
     ) -> Result<Option<(Shape<ModelPoint>, Style)>, Fail> {
-        let [x, y] = [r.f64()?, r.f64()?];
+        let [x, y] = [real(r)?, real(r)?];
         let construction = r.u32()? != 0;
         let (look, rotation) = if base.pen_style == POINT_SYMBOL {
             let code = r.u32()?;
             // 記号の角度は度とする（推定）
-            let (rotation, scale) = (r.f64()?, r.f64()?);
+            let (rotation, scale) = (real(r)?, real(r)?);
             let key = MarkerKey {
                 namespace: "jww.point".into(),
                 code: code.to_string(),
@@ -1125,7 +1141,7 @@ impl Lifter<'_> {
             (PointLook::Document, 0.0)
         };
         let shape = Shape::Point(Point {
-            position: point(base.at, x, y),
+            position: point(base.at, x, y)?,
             rotation,
             look,
             construction,
@@ -1143,12 +1159,14 @@ impl Lifter<'_> {
         base: &Base,
         source: &Ref,
     ) -> Result<Option<(Shape<ModelPoint>, Style)>, Fail> {
-        let [x1, y1] = [r.f64()?, r.f64()?];
-        r.skip(16)?;
+        let [x1, y1] = [real(r)?, real(r)?];
+        // 終点は配置に使わないが、不正な座標を持つ文字も診断する。
+        real(r)?;
+        real(r)?;
         let kind = r.u32()?;
-        let [size_x, size_y] = [r.f64()?, r.f64()?];
-        let spacing = r.f64()?;
-        let angle = r.f64()?;
+        let [size_x, size_y] = [real(r)?, real(r)?];
+        let spacing = real(r)?;
+        let angle = real(r)?;
         let (unicode, font) = r.string()?;
         let font = decode(unicode, font);
         let (unicode, content) = r.string()?;
@@ -1215,13 +1233,17 @@ impl Lifter<'_> {
                 meaning: HeightMeaning::Declared("jww.moji.size_y".into()),
             },
             placement: Placement::Anchor {
-                point: point(base.at, x1, y1),
+                point: point(base.at, x1, y1)?,
                 horizontal: Horizontal::Left,
                 vertical: Vertical::Bottom,
             },
             rotation: angle,
             // 全角の字の幅を横の大きさとする（推定）
-            width_factor: if size_y > 0.0 { size_x / size_y } else { 1.0 },
+            width_factor: if size_y > 0.0 {
+                finite(size_x / size_y)?
+            } else {
+                1.0
+            },
             oblique: 0.0,
             backward: false,
             upside_down: false,
@@ -1283,9 +1305,9 @@ impl Lifter<'_> {
             },
             page: None,
             frame: UnderlayFrame::Corners {
-                origin: point(base.at, x, y),
-                right: point(base.at, x + width * cos, y + width * sin),
-                top: point(base.at, x - height * sin, y + height * cos),
+                origin: point(base.at, x, y)?,
+                right: point(base.at, x + width * cos, y + width * sin)?,
+                top: point(base.at, x - height * sin, y + height * cos)?,
             },
             clip: None,
             visible: true,
@@ -1301,7 +1323,7 @@ impl Lifter<'_> {
     ) -> Result<Option<(Shape<ModelPoint>, Style)>, Fail> {
         let mut values = [0.0; 8];
         for value in &mut values {
-            *value = r.f64()?;
+            *value = real(r)?;
         }
         let color = if base.pen_color == SOLID_OWN_COLOR {
             Color {
@@ -1315,11 +1337,15 @@ impl Lifter<'_> {
         let boundary = if base.pen_style >= CIRCLE_SOLID {
             let [cx, cy, radius, flatness, tilt, start, sweep, mode] = values;
             let full = mode == 100.0 || (sweep.abs() - TURN).abs() <= 1e-9;
-            let arc = self.ellipse(at, [cx, cy], radius, flatness, tilt, start, sweep, full);
+            let arc = self.ellipse(at, [cx, cy], radius, flatness, tilt, start, sweep, full)?;
             let mut edges = Vec::new();
             if !full {
                 let [first, last] = ends(&arc).ok_or(Fail::Invalid)?;
-                let center = point(at, cx, cy);
+                for p in [first, last] {
+                    finite(p.x)?;
+                    finite(p.y)?;
+                }
+                let center = point(at, cx, cy)?;
                 // 弓形（-1 と 5）は弦で、ほかは扇形として中心を通って閉じる（推定）
                 if mode == -1.0 || mode == 5.0 {
                     edges.push(arc);
@@ -1347,11 +1373,13 @@ impl Lifter<'_> {
                 .as_chunks::<2>()
                 .0
                 .iter()
-                .map(|&[x, y]| Vertex {
-                    point: point(at, x, y),
-                    bulge: 0.0,
+                .map(|&[x, y]| {
+                    Ok(Vertex {
+                        point: point(at, x, y)?,
+                        bulge: 0.0,
+                    })
                 })
-                .collect();
+                .collect::<Result<_, Fail>>()?;
             Boundary::Polyline {
                 vertices,
                 closed: true,
