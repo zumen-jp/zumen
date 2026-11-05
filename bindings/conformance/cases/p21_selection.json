@@ -1,0 +1,235 @@
+{
+  "description": "P21 の同番号の後続実体・余分な用紙・ほかのレイヤへの所属を、それぞれのレコードで診断する。既存の用紙・形・レイヤ・ID を保ち、診断の直前に Work の予算で止まることと、ネイティブと wasm の応答を確かめる（#550）",
+  "steps": [
+    {
+      "push": {
+        "name": "selection.p21",
+        "text": "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('SCADEC level2 AP202_mode'),'2;1');\nFILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));\nENDSEC;\nDATA;\n#1=PRESENTATION_STYLE_ASSIGNMENT(());\n#2=CARTESIAN_POINT(' ',(1.,2.));\n#3=CARTESIAN_POINT(' ',(4.,6.));\n#4=POLYLINE(' ',(#2,#3));\n#5=ANNOTATION_CURVE_OCCURRENCE(' ',(#1),#4);\n#20=PRESENTATION_LAYER_ASSIGNMENT('L',' ',(#5));\n#70=DRAWING_SHEET_REVISION('A3_horizontal',(#5),$,'01');\n#2=CARTESIAN_POINT(' ',(20.,30.));\n#30=PRESENTATION_LAYER_ASSIGNMENT('LATER',' ',(#5));\n#80=DRAWING_SHEET_REVISION('A4_vertical',(),$,'02');\nENDSEC;\nEND-ISO-10303-21;\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "selection.p21"
+      },
+      "expect": {
+        "/result/doc": "selection.p21",
+        "/diagnostics": []
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "drawing",
+        "doc": "selection.p21",
+        "budget": {
+          "work": 13
+        }
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics": [
+          {
+            "code": "budget.work.exceeded",
+            "severity": "error",
+            "count": 1,
+            "at": [
+              {
+                "record": 13
+              }
+            ],
+            "params": {
+              "limit": 13,
+              "requested": 14
+            }
+          }
+        ]
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "drawing",
+        "doc": "selection.p21",
+        "budget": {
+          "work": 30
+        }
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics": [
+          {
+            "code": "sxf.p21-instance.dropped",
+            "severity": "warning",
+            "fidelity": "dropped",
+            "count": 1,
+            "at": [
+              {
+                "record": 13
+              }
+            ],
+            "params": {
+              "id": 2
+            }
+          },
+          {
+            "code": "budget.work.exceeded",
+            "severity": "error",
+            "count": 1,
+            "at": [
+              {
+                "record": 14
+              }
+            ],
+            "params": {
+              "limit": 30,
+              "requested": 31
+            }
+          }
+        ]
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "drawing",
+        "doc": "selection.p21",
+        "budget": {
+          "work": 31
+        }
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics": [
+          {
+            "code": "sxf.p21-instance.dropped",
+            "severity": "warning",
+            "fidelity": "dropped",
+            "count": 1,
+            "at": [
+              {
+                "record": 13
+              }
+            ],
+            "params": {
+              "id": 2
+            }
+          },
+          {
+            "code": "sxf.p21-layer-member.dropped",
+            "severity": "warning",
+            "fidelity": "dropped",
+            "count": 1,
+            "at": [
+              {
+                "record": 14
+              }
+            ],
+            "params": {
+              "id": 5
+            }
+          },
+          {
+            "code": "budget.work.exceeded",
+            "severity": "error",
+            "count": 1,
+            "at": [
+              {
+                "record": 15
+              }
+            ],
+            "params": {
+              "limit": 31,
+              "requested": 32
+            }
+          }
+        ]
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "selection.p21",
+        "fields": [
+          "id",
+          "kind",
+          "source",
+          "geometry",
+          "layer"
+        ]
+      },
+      "expect": {
+        "/diagnostics": [
+          {
+            "code": "sxf.p21-instance.dropped",
+            "severity": "warning",
+            "fidelity": "dropped",
+            "count": 1,
+            "at": [
+              {
+                "record": 13
+              }
+            ],
+            "params": {
+              "id": 2
+            }
+          },
+          {
+            "code": "sxf.p21-layer-member.dropped",
+            "severity": "warning",
+            "fidelity": "dropped",
+            "count": 1,
+            "at": [
+              {
+                "record": 14
+              }
+            ],
+            "params": {
+              "id": 5
+            }
+          },
+          {
+            "code": "sxf.p21-sheet.dropped",
+            "severity": "warning",
+            "fidelity": "dropped",
+            "count": 1,
+            "at": [
+              {
+                "record": 15
+              }
+            ],
+            "params": {
+              "id": 80
+            }
+          }
+        ],
+        "/result/total": 1,
+        "/result/items/0/id": "sheet/0/i5",
+        "/result/items/0/source/instance": "5",
+        "/result/items/0/source/record": 10,
+        "/result/items/0/layer": "L",
+        "/result/items/0/geometry/points": [
+          [
+            1,
+            2
+          ],
+          [
+            4,
+            6
+          ]
+        ]
+      }
+    }
+  ]
+}
