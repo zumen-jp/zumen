@@ -389,54 +389,80 @@ mod tests {
     fn counts_scene_and_image_work_in_one_budget() {
         use zumen_base::budget::Kind;
 
-        let mut session = session();
-        // 同じシーンを作れる最小の作業量を、決まった回数以内で求める。
-        let mut low = 0;
-        let mut high = 4096;
-        let limited = |work| request(&[("budget", &format!(r#"{{"work":{work}}}"#))]);
-        assert_eq!(
-            call(&mut session, &scene_request(&limited(high))).0,
-            Status::Ok
-        );
-        while low < high {
-            let middle = low + (high - low) / 2;
-            let (status, response) = call(&mut session, &scene_request(&limited(middle)));
-            if status == Status::Ok {
-                high = middle;
+        for format in [r#""svg""#, r#""png""#] {
+            let mut session = session();
+            // 同じシーンを作れる最小の作業量を、決まった回数以内で求める。
+            let mut low = 0;
+            let mut high = 4096;
+            let limited = |work| {
+                request(&[
+                    ("format", format),
+                    ("budget", &format!(r#"{{"work":{work}}}"#)),
+                ])
+            };
+            assert_eq!(
+                call(&mut session, &scene_request(&limited(high))).0,
+                Status::Ok
+            );
+            while low < high {
+                let middle = low + (high - low) / 2;
+                let (status, response) = call(&mut session, &scene_request(&limited(middle)));
+                if status == Status::Ok {
+                    high = middle;
+                } else {
+                    assert_eq!(
+                        text(&response, "/diagnostics/0/code"),
+                        "budget.work.exceeded"
+                    );
+                    low = middle + 1;
+                }
+            }
+            assert!(low > 0);
+            assert_eq!(
+                call(&mut session, &scene_request(&limited(low))).0,
+                Status::Ok
+            );
+            let scene = session.take(0).unwrap();
+            let mut budget = Budget::default();
+            let mut diagnostics = Diagnostics::new();
+            let cancel = CancelToken::new();
+            let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+            let settings = options(&RenderRequest::from_json(&request(&[])).unwrap(), &mut cx)
+                .ok()
+                .unwrap();
+            (if format == r#""svg""# {
+                zumen_render::svg
             } else {
+                zumen_render::png
+            })(&scene, &settings, &mut cx)
+            .unwrap();
+            let image_work = budget.used(Kind::Work);
+            assert!(image_work > 0);
+
+            // 各段だけなら足りる量でも、合計には足りない。段の間で予算を戻すと通ってしまう。
+            let (status, response) = call(&mut session, &limited(low.max(image_work)));
+            assert_eq!(status, Status::Failed, "{response:?}");
+            assert_eq!(
+                text(
+                    &response,
+                    if format == r#""png""# {
+                        "/diagnostics/1/code"
+                    } else {
+                        "/diagnostics/0/code"
+                    }
+                ),
+                "budget.work.exceeded"
+            );
+            if format == r#""png""# {
+                // 描画の診断まで終わり、PNG の符号化で合計の予算が尽きる。
                 assert_eq!(
                     text(&response, "/diagnostics/0/code"),
-                    "budget.work.exceeded"
+                    "render.text.dropped"
                 );
-                low = middle + 1;
             }
+            assert_eq!(session.take(0), None);
+            assert_eq!(call(&mut session, &limited(low + image_work)).0, Status::Ok);
+            assert!(session.take(0).is_some());
         }
-        assert!(low > 0);
-        assert_eq!(
-            call(&mut session, &scene_request(&limited(low))).0,
-            Status::Ok
-        );
-        let scene = session.take(0).unwrap();
-        let mut budget = Budget::default();
-        let mut diagnostics = Diagnostics::new();
-        let cancel = CancelToken::new();
-        let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
-        let settings = options(&RenderRequest::from_json(&request(&[])).unwrap(), &mut cx)
-            .ok()
-            .unwrap();
-        zumen_render::svg(&scene, &settings, &mut cx).unwrap();
-        let image_work = budget.used(Kind::Work);
-        assert!(image_work > 0);
-
-        // 各段だけなら足りる量でも、合計には足りない。段の間で予算を戻すと通ってしまう。
-        let (status, response) = call(&mut session, &limited(low.max(image_work)));
-        assert_eq!(status, Status::Failed, "{response:?}");
-        assert_eq!(
-            text(&response, "/diagnostics/0/code"),
-            "budget.work.exceeded"
-        );
-        assert_eq!(session.take(0), None);
-        assert_eq!(call(&mut session, &limited(low + image_work)).0, Status::Ok);
-        assert!(session.take(0).is_some());
     }
 }

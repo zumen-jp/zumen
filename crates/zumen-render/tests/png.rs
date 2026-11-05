@@ -241,6 +241,15 @@ fn sdk_fuzz_contract_covers_valid_and_mutated_scenes() {
     })
     .unwrap();
     assert!(previous.into_inner().unwrap().is_ok());
+    zumen_sdk::testkit::ids_match(&input, "fixture-4\nfixture-5\nfixture-6", |src| {
+        Ok(run_png(src, &o, Limits::default(), false)
+            .1
+            .iter()
+            .flat_map(|d| d.places())
+            .filter_map(|p| p.id().map(str::to_owned))
+            .collect())
+    })
+    .unwrap();
     let limits = Limits::default()
         .with(Kind::Work, Limit::Finite(4096))
         .with(Kind::DecodedBytes, Limit::Finite(65536));
