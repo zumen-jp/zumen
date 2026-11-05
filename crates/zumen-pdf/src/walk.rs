@@ -317,6 +317,40 @@ struct StreamSize {
     decode: Cost,
 }
 
+struct Decoded<'a> {
+    data: Option<Cow<'a, [u8]>>,
+    cost: Cost,
+}
+
+/// 単独 Flate は確保前に数え、ほかは従来どおり展開後に数える（決定 0266・0273）。
+/// 実際の出力と、予測子の前・失敗した試みを含む展開量を分けて返す。
+fn decoded<'a>(stream: &Stream<'a>, cx: &mut Cx<'_>) -> Result<Decoded<'a>, Stop> {
+    let bytes_before = cx.budget.used(Kind::DecodedBytes);
+    let work_before = cx.budget.used(Kind::Work);
+    let counted = inflate::before(stream, cx)?;
+    let data = stream.decoded_data().ok();
+    if !counted {
+        cx.check(
+            Kind::DecodedBytes,
+            data.as_ref().map_or(0, |data| data.len() as u64),
+        )?;
+    }
+    let decode = Cost {
+        ops: cx.budget.used(Kind::Work).saturating_sub(work_before),
+        bytes: cx
+            .budget
+            .used(Kind::DecodedBytes)
+            .saturating_sub(bytes_before),
+    };
+    Ok(Decoded { data, cost: decode })
+}
+
+/// 依存が再び展開する分を、読み始める前に数える。失敗と予測子の前の量も保つ。
+fn redecode(decode: Cost, times: u64, cx: &mut Cx<'_>) -> Result<(), Stop> {
+    cx.check(Kind::Work, decode.ops.saturating_mul(times))?;
+    cx.check(Kind::DecodedBytes, decode.bytes.saturating_mul(times))
+}
+
 /// 資源の辞書の持ち主
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Owner {
@@ -1279,10 +1313,12 @@ pub(crate) struct Walker<'a, 'o> {
     programs: Vec<(Option<Stream<'a>>, Option<Build>)>,
     /// フォントのプログラムのストリーム（それ自身の間接オブジェクト）→ 輪郭を 1 度作る手間（文書ごと）
     builds: BTreeMap<(u32, i32), Build>,
-    /// 読むときの命令の手間を数えた、フォントの辞書のバイト列（文書ごと、[`Walker::count_setup`]）
+    /// 関連するストリームと読むときの命令の手間を数えた、フォントの辞書のバイト列（文書ごと）
     prepared: BTreeSet<Vec<u8>>,
     /// 読むときの命令の手間を数えた、フォントのプログラムのストリーム（それ自身の間接オブジェクト。文書ごと）
     setups: BTreeSet<(u32, i32)>,
+    /// 展開を数えた ICC のプロファイル（それ自身の間接オブジェクト。文書ごと）。hayro は失敗も覚える
+    profiles: BTreeSet<(u32, i32)>,
     /// フォントの表の番号と文字の符号 → 切り抜きにする字形の輪郭の、経路の要素の数（文書ごと）
     outlines: BTreeMap<(u32, u32), u64>,
     /// いちばん長い経路の、要素の数（文書ごと、[`hold`]）
@@ -1353,6 +1389,7 @@ impl<'a, 'o> Walker<'a, 'o> {
             builds: BTreeMap::new(),
             prepared: BTreeSet::new(),
             setups: BTreeSet::new(),
+            profiles: BTreeSet::new(),
             outlines: BTreeMap::new(),
             longest_path: 0,
             longest_run: 0,
@@ -2302,6 +2339,14 @@ impl<'a, 'o> Walker<'a, 'o> {
                 let profile = items.next().and_then(|profile| profile.into_stream());
                 if let Some(profile) = &profile {
                     cost.ops = cost.ops.saturating_add(self.reread_stream(profile));
+                    // hayro-interpret は N を読めたら展開し、成否を文書の間覚える（8.6.5.5）。直接の
+                    // ストリームは、コンテナーの番号で別のプロファイルと取り違えないよう使うたびに数える。
+                    if profile.dict().get::<u32>(b"N").is_some()
+                        && self.own(profile).is_none_or(|id| self.profiles.insert(id))
+                    {
+                        let decode = decoded(profile, cx)?.cost;
+                        redecode(decode, 1, cx)?;
+                    }
                 }
                 let alternate =
                     profile.and_then(|profile| profile.dict().get::<Object<'_>>(b"Alternate"));
@@ -2325,22 +2370,8 @@ impl<'a, 'o> Walker<'a, 'o> {
         if let Some(size) = id.and_then(|id| self.sizes.get(&id)) {
             return Ok(*size);
         }
-        let bytes_before = cx.budget.used(Kind::DecodedBytes);
-        let work_before = cx.budget.used(Kind::Work);
-        let counted = inflate::before(stream, cx)?;
-        let mut decode = Cost {
-            ops: cx.budget.used(Kind::Work).saturating_sub(work_before),
-            bytes: cx
-                .budget
-                .used(Kind::DecodedBytes)
-                .saturating_sub(bytes_before),
-        };
-        let data = stream.decoded_data().ok();
+        let Decoded { data, cost: decode } = decoded(stream, cx)?;
         let len = data.as_ref().map_or(0, |data| data.len() as u64);
-        if !counted {
-            cx.check(Kind::DecodedBytes, len)?;
-            decode.bytes = len;
-        }
         let size = StreamSize { len, decode };
         let program = stream.dict().get::<u8>(b"FunctionType") == Some(4);
         if program && data.is_some_and(|data| !procedure_fits(&data)) {
@@ -2535,11 +2566,7 @@ impl<'a, 'o> Walker<'a, 'o> {
             build = match id.and_then(|id| self.builds.get(&id)) {
                 Some(build) => *build,
                 None => {
-                    let data = stream.decoded_data().ok();
-                    cx.check(
-                        Kind::DecodedBytes,
-                        data.as_ref().map_or(0, |data| data.len() as u64),
-                    )?;
+                    let data = decoded(&stream, cx)?.data;
                     let build = match data {
                         Some(data) => program_work(data.into_owned(), cx)?,
                         None => Build::Bounded(0),
@@ -2557,14 +2584,50 @@ impl<'a, 'o> Walker<'a, 'o> {
         Ok(build)
     }
 
-    /// フォントを読む前に、読むときに動く TrueType の命令の手間とメモリ（[`setup_cost`]）を数える。hayro-font は、読む
-    /// ときに命令を動かし、走査と hayro-interpret が、文書の中でプログラムのストリームごとに 1 度ずつ読むので、2 回分を
-    /// 数える。それ自身の間接オブジェクトのストリームは、文書の中で 1 度だけ数える
-    fn count_setup(&mut self, dict: &Dict<'_>, cx: &mut Cx<'_>) -> Result<(), Stop> {
+    /// hayro-font が読むストリームを、フォントの辞書のバイト列ごとに 1 度数える（9.7・9.9・9.10）。
+    /// FontCache は失敗も覚える。対応表のキャッシュはフォントごとなので、同じ表を別のフォントが使えばもう一度数える。
+    /// 走査と解釈の 2 回分を先に数え、条件の途中で読めなくなる場合も、後で読む候補の分は戻さない。
+    fn count_font(&mut self, dict: &Dict<'_>, cx: &mut Cx<'_>) -> Result<(), Stop> {
         if self.prepared.contains(dict.data()) {
             return Ok(());
         }
         self.prepared.insert(dict.data().to_vec());
+        let subtype = dict.get::<Name<'_>>(b"Subtype");
+        if !matches!(
+            subtype.as_deref(),
+            Some(b"Type0" | b"Type1" | b"MMType1" | b"TrueType" | b"OpenType" | b"Type3")
+        ) {
+            return Ok(());
+        }
+        if subtype.as_deref() == Some(b"Type0") {
+            if let Some(stream) = dict.get::<Stream<'_>>(b"Encoding") {
+                let decode = decoded(&stream, cx)?.cost;
+                redecode(decode, 2, cx)?;
+            }
+            self.count_setup(dict, cx)?;
+            if let Some(descendant) = dict
+                .get::<Array<'_>>(b"DescendantFonts")
+                .and_then(|fonts| fonts.iter::<Dict<'_>>().next())
+                && let Some(stream) = descendant.get::<Stream<'_>>(b"CIDToGIDMap")
+            {
+                let decode = decoded(&stream, cx)?.cost;
+                redecode(decode, 2, cx)?;
+            }
+        }
+        if let Some(stream) = dict.get::<Stream<'_>>(b"ToUnicode") {
+            let decode = decoded(&stream, cx)?.cost;
+            redecode(decode, 2, cx)?;
+        }
+        if subtype.as_deref() != Some(b"Type0") {
+            self.count_setup(dict, cx)?;
+        }
+        Ok(())
+    }
+
+    /// フォントを読む前に、プログラムの展開と、読むときに動く TrueType の命令の手間とメモリ（[`setup_cost`]）を数える。
+    /// hayro-font は読むときに命令を動かし、走査と hayro-interpret が、文書の中でプログラムのストリームごとに
+    /// 1 度ずつ読むので、2 回分を数える。それ自身の間接オブジェクトのストリームは、文書の中で 1 度だけ数える
+    fn count_setup(&mut self, dict: &Dict<'_>, cx: &mut Cx<'_>) -> Result<(), Stop> {
         let Some(stream) = program_stream(dict) else {
             return Ok(());
         };
@@ -2573,9 +2636,9 @@ impl<'a, 'o> Walker<'a, 'o> {
         {
             return Ok(());
         }
-        let setup = stream
-            .decoded_data()
-            .ok()
+        let Decoded { data, cost: decode } = decoded(&stream, cx)?;
+        redecode(decode, 2, cx)?;
+        let setup = data
             .and_then(|data| FontProgram::new(data.into_owned(), 0))
             .map_or_else(Cost::default, |font| setup_cost(&font));
         cx.check(Kind::Work, setup.ops.saturating_mul(2))?;
@@ -2654,7 +2717,7 @@ impl<'a, 'o> Walker<'a, 'o> {
             self.refuse(place);
             return Ok(Selected::Fallback);
         }
-        self.count_setup(dict, cx)?;
+        self.count_font(dict, cx)?;
         let settings = self.settings;
         let font = self
             .fonts
