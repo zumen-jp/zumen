@@ -1,5 +1,6 @@
 //! HATCH の境界・模様・グラデーションを、図面モデルの塗りにする。
 
+use super::finite;
 use super::{Lifted, Lifter, Values, check_spline, invalid, non_planar, source};
 use crate::db::{AcadDb, Data, Object, Origin};
 use zumen_drawing::{
@@ -193,7 +194,7 @@ impl Lifter<'_> {
                 }
                 Edge::Elliptic {
                     center: point(x, y),
-                    major: point(x + dx, y + dy),
+                    major: point(finite(kind, 11, x + dx)?, finite(kind, 21, y + dy)?),
                     ratio,
                     start: values.real(50)?,
                     end: values.real(51)?,
@@ -278,7 +279,7 @@ impl Lifter<'_> {
         };
         Ok(Gradient {
             name: self.string(object, 470)?.unwrap_or_default(),
-            angle: self.real(object, 460, Some(0.0))?.to_degrees(),
+            angle: finite(kind, 460, self.real(object, 460, Some(0.0))?.to_degrees())?,
             shift: self.real(object, 461, Some(0.0))?,
             colors,
             tint,

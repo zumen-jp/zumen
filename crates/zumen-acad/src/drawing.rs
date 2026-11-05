@@ -18,6 +18,7 @@ mod annotation;
 mod apply;
 mod block;
 mod extension;
+mod finite;
 mod geometry;
 mod hatch;
 mod image;
@@ -32,6 +33,7 @@ use crate::db::{AcadDb, Data, Object, Origin, Section, Value};
 use crate::{DwgFile, DxfFile};
 use acad_table::report_cell_values;
 use extension::extension_work;
+use finite::{Converted, finite};
 use zumen_base::{Cx, Diagnostic, Key, Kind, Ref, codes};
 use zumen_drawing::{
     Arrowhead, Axes, CalloutContent, CellContent, Color, ColorCode, ColorSystem, DimensionStyle,
@@ -125,10 +127,8 @@ pub(crate) struct Home {
 /// 分かるものだけが持つ
 fn framed(db: &AcadDb, cx: &mut Cx) -> Result<(Drawing2D, BTreeMap<SheetId, PaperFrame>), Error> {
     let unit = unit(db, cx);
-    let limits = |name: &[u8]| {
-        db.variable(name)
-            .and_then(|values| Some([header_real(values, 10)?, header_real(values, 20)?]))
-    };
+    let min = header_limits(db, b"$PLIMMIN", cx);
+    let max = header_limits(db, b"$PLIMMAX", cx);
     let version =
         db.variable(b"$ACADVER")
             .and_then(|values| match values.first().map(|v| &v.data) {
@@ -151,7 +151,7 @@ fn framed(db: &AcadDb, cx: &mut Cx) -> Result<(Drawing2D, BTreeMap<SheetId, Pape
         version: version.map(|v| String::from_utf8_lossy(v).into_owned()),
         mm: unit.millimeters(),
         unit,
-        origin: limits(b"$PLIMMIN").unwrap_or_default(),
+        origin: min.unwrap_or_default(),
     };
     // 今のレイアウトの用紙の単位は、ペーパー空間の図形の所有者を指す LAYOUT の印刷の設定で決める（決定 0229）
     let current_mm = db
@@ -286,11 +286,16 @@ fn framed(db: &AcadDb, cx: &mut Cx) -> Result<(Drawing2D, BTreeMap<SheetId, Pape
         .and_then(|handle| lifter.layout_of(db, handle));
     let has_paper = !out.paper.is_empty() || !out.views.is_empty();
     if has_paper {
-        let size = match (limits(b"$PLIMMAX"), lifter.mm) {
+        let size = match (max, lifter.mm) {
             (Some([x, y]), Some(mm)) => {
                 let [ox, oy] = lifter.origin;
-                let size = [(x - ox) * mm, (y - oy) * mm];
-                size.iter().all(|s| *s > 0.0).then(|| size.map(PaperLength))
+                match finite::size(b"$PLIMMAX", [10, 20], [ox, oy], [x, y], mm) {
+                    Ok(size) => size,
+                    Err(diagnostic) => {
+                        cx.report(*diagnostic);
+                        None
+                    }
+                }
             }
             _ => None,
         };
@@ -723,6 +728,23 @@ fn point_style(db: &AcadDb, cx: &mut Cx) -> Option<PointStyle> {
     })
 }
 
+/// 用紙の範囲。読めない変数は名前と座標のコードを診断し、原点は既定の 0、大きさは未指定にする。
+/// 共有の表はヘッダーのレコードの場所を持たないので、診断は変数名で指す（`$PDSIZE` と同じ）。
+fn header_limits(db: &AcadDb, name: &[u8], cx: &mut Cx) -> Option<[f64; 2]> {
+    let values = db.variable(name)?;
+    let mut point = [0.0; 2];
+    for (slot, code) in point.iter_mut().zip([10, 20]) {
+        match header_real(values, code).filter(|value| value.is_finite()) {
+            Some(value) => *slot = value,
+            None => {
+                cx.report(*invalid(name, code));
+                return None;
+            }
+        }
+    }
+    Some(point)
+}
+
 fn header_real(values: &[crate::Value], code: i16) -> Option<f64> {
     match values.iter().find(|v| v.code == code)?.data {
         Data::Real(value) => Some(value),
@@ -907,7 +929,7 @@ impl Lifter<'_> {
     /// 図形を要素にする。INSERT の属性のうち移せないものは、属性の出所を指す診断を返し、INSERT は移す。
     /// R2010 からの DWG の表は、書式を移さないことを表の出所を指す診断で返し、表は移す
     #[allow(clippy::too_many_arguments)]
-    fn element<P: Copy>(
+    fn element<P: zumen_drawing::transform::Point>(
         &self,
         db: &AcadDb,
         object: &Object,
@@ -918,13 +940,17 @@ impl Lifter<'_> {
         out: &mut Out,
         cx: &mut Cx,
     ) -> Lifted<Element<P>> {
+        let converted = Converted::default();
+        let checked_point = |x, y| converted.point(point(x, y));
+        let checked_length = |value| converted.length(length(value));
         // POLYLINE は、続く VERTEX（`attributes`）を頂点にする
         let mut shape = if object.kind == b"POLYLINE" {
             self.planar(object)?;
-            Shape::Polyline(self.polyline(object, attributes, &point, &length)?)
+            Shape::Polyline(self.polyline(object, attributes, &checked_point, &checked_length)?)
         } else {
-            self.shape(db, object, &point, &length)?
+            self.shape(db, object, &checked_point, &checked_length)?
         };
+        converted.check(&object.kind)?;
         let style = self.style(object, out)?;
         let layer = self.layer(object, out)?;
         if let Shape::Callout(callout) = &mut shape {
