@@ -1584,7 +1584,7 @@ public final class Messages {
 
     /**
      * 実寸の単位
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class Unit {
@@ -2009,7 +2009,7 @@ public final class Messages {
 
     /**
      * entities で返す要素のフィールド（決定 0118）
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class EntityField {
@@ -2561,7 +2561,7 @@ public final class Messages {
 
     /**
      * 2 点の間への合わせ方。aligned は縦横の比を保って高さも変え、fit は高さを保って幅だけを変える
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class TextFit {
@@ -3449,7 +3449,7 @@ public final class Messages {
 
     /**
      * 引出線つきの注記の線の引き方。straight は折れ線、spline は頂点を通る曲線、hidden は線を描かない
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class CalloutPath {
@@ -3464,7 +3464,7 @@ public final class Messages {
 
     /**
      * 引出線つきの注記の中身の種類。none は注記を持たず、text は書式つきの文字、symbol は記号（バルーンなどの囲み）
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class CalloutContent {
@@ -3606,7 +3606,7 @@ public final class Messages {
 
     /**
      * 寸法の種類。linear は 2 点を測る向きに、aligned は 2 点を結ぶ向きに測った長さ。angular は頂点から 2 点へ向かう線の、angular_lines は 2 本の線のなす角度。arc_length は円弧の長さ。radius は半径、diameter は直径。ordinate は原点からの X か Y の座標
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class DimensionKind {
@@ -3631,7 +3631,7 @@ public final class Messages {
 
     /**
      * 座標の軸
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class DimensionAxis {
@@ -3644,7 +3644,7 @@ public final class Messages {
 
     /**
      * 寸法値の文字の書き方。measurement は測定値を書き、override は利用者が書いた文字（content）を書き、hidden は書かない
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class DimensionLabel {
@@ -3860,7 +3860,7 @@ public final class Messages {
 
     /**
      * 基点に合わせる枠の位置。entities は返し、足すときに書かなければ左上、置き換えるときに書かなければ元のまま
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class Attachment {
@@ -3887,7 +3887,7 @@ public final class Messages {
 
     /**
      * 要素の形の種類（決定 0022）。point（点、決定 0160）はマイナーバージョン 32 から。それまで点は symbol だった
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class EntityKind {
@@ -5917,7 +5917,7 @@ public final class Messages {
 
     /**
      * 文書の点の基本の形。dot は小さな点、none はなし、plus は十字、cross はバツ、tick は上向きの短い線
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class PointMark {
@@ -5936,7 +5936,7 @@ public final class Messages {
 
     /**
      * 文書の点の大きさの意味。length は点のある空間の長さ、screen は画面の高さに対する百分率
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class PointSizeKind {
@@ -6068,7 +6068,7 @@ public final class Messages {
 
     /**
      * 値を継承する先。layer はレイヤから、block は要素を置いた記号の配置から
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class Inherit {
@@ -6855,7 +6855,7 @@ public final class Messages {
 
     /**
      * 画像の出力形式。svg は SVG 1.1（image/svg+xml）
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class RenderFormat {
@@ -7025,7 +7025,7 @@ public final class Messages {
 
     /**
      * 宣言された高さが当たるフォントの寸法。cap_height は大文字の高さ、em は em、frame はアセンダーとディセンダーを合わせた高さ、capital_a は A の字形の外形の上（A がなければ大文字の高さ。マイナーバージョン 59 から）
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class HeightReference {
@@ -8205,7 +8205,7 @@ public final class Messages {
 
     /**
      * 移したときの状態（決定 0214）。unchanged は要素のハッシュが同じ、changed は違うか元のハッシュがない、removed は新しいバージョンに要素がない
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class CarriedState {
@@ -8906,7 +8906,7 @@ public final class Messages {
 
     /**
      * building_elements で返すコンポーネント（決定 0207）。relations は索引から求める子・参照・型の実例・開口・埋める要素・構成員
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class BuildingComponent {
@@ -10409,7 +10409,7 @@ public final class Messages {
 
     /**
      * 親との関係の種類。集約・入れ子・包含
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class ParentKind {
@@ -10424,7 +10424,7 @@ public final class Messages {
 
     /**
      * 値の種類
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class BuildingValueKind {
@@ -10449,7 +10449,7 @@ public final class Messages {
 
     /**
      * 数量の種類
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class QuantityKind {
@@ -10470,7 +10470,7 @@ public final class Messages {
 
     /**
      * 材料の組み方。単一・層・断面・構成・一覧
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class MaterialKind {
@@ -10489,7 +10489,7 @@ public final class Messages {
 
     /**
      * 仕様の結果。unknown は確かめられない facet があった
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class IdsStatus {
@@ -10808,7 +10808,7 @@ public final class Messages {
 
     /**
      * 変えられる IfcRoot の属性。name は Name、description は Description
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class BuildingAttribute {
@@ -11653,7 +11653,7 @@ public final class Messages {
 
     /**
      * 指摘の状態（決定 0214）
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class ReviewStatus {
@@ -12481,7 +12481,7 @@ public final class Messages {
 
     /**
      * 線種に添えるものの種類。shape は形のファイルの形、text は文字
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class LineTypeMarkKind {
@@ -12494,7 +12494,7 @@ public final class Messages {
 
     /**
      * 回転の基準。relative は線の向きから、absolute は文書の x 軸から測る。upright は線の向きから測り、文字が逆さに見えるなら半回転する
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class MarkRotation {
@@ -12745,7 +12745,7 @@ public final class Messages {
 
     /**
      * フォントの種類。shape は形のファイル（SHX など）、named は名前で指すフォント（TrueType など）
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class FontKind {
@@ -12978,7 +12978,7 @@ public final class Messages {
 
     /**
      * 診断の重さ（決定 0009）。info は何も失っていない、warning は結果を使える、error は失敗した
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class Severity {
@@ -12993,7 +12993,7 @@ public final class Messages {
 
     /**
      * 変換の結果の段のうち、`native` 以外のもの（決定 0009）
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class Fidelity {
@@ -13196,7 +13196,7 @@ public final class Messages {
 
     /**
      * バイナリの結果の種類。file は書き出したファイル、image は描いた画像、scene は 2D のシーン（schema/scene.toml の配置、決定 0137・0172）、arrow は表（Arrow の IPC ストリーム。ネイティブでは zm_take_arrow でも取り出せる）、drawing は図面モデルのバイナリ（schema/drawing.toml の配置、決定 0247。マイナーバージョン 60 から）
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class BlobKind {
@@ -13267,7 +13267,7 @@ public final class Messages {
 
     /**
      * 実行の形態（決定 0013）。`native` はプロセスの中でコアを動かす、`process` は子プロセスの CLI に送る、`wasm` は wasm のモジュールで動かす
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class Engine {
@@ -13733,7 +13733,7 @@ public final class Messages {
 
     /**
      * 平面線形の区間の種類。直線・円弧・緩和曲線
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class CivilHorizontalKind {
@@ -13748,7 +13748,7 @@ public final class Messages {
 
     /**
      * 緩和曲線の種類。クロソイド・3 次放物線・サイン半波長逓減曲線・コサイン曲線・ブロス曲線・ヘルマート曲線・ウィーン曲線
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class CivilTransitionCurve {
@@ -13771,7 +13771,7 @@ public final class Messages {
 
     /**
      * 縦断線形の区間の種類。一定の勾配・2 次放物線・円弧
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class CivilVerticalKind {
@@ -15293,7 +15293,7 @@ public final class Messages {
 
     /**
      * 表の形式
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class SheetFormat {
@@ -15306,7 +15306,7 @@ public final class Messages {
 
     /**
      * CSV の文字コード。shift_jis は Windows の拡張を含む
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class SheetEncoding {
@@ -15319,7 +15319,7 @@ public final class Messages {
 
     /**
      * CSV の区切りの字。comma は「,」、tab はタブ、semicolon は「;」
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class SheetDelimiter {
@@ -15534,7 +15534,7 @@ public final class Messages {
 
     /**
      * セルの値の種類。CSV の値はすべて text
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class SheetCellKind {
@@ -16002,7 +16002,7 @@ public final class Messages {
 
     /**
      * 測地系。tokyo は日本測地系（コード 00）、jgd2000・jgd2011・jgd2024 は世界測地系（コード 01〜03）
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class BoringDatum {
@@ -16071,7 +16071,7 @@ public final class Messages {
 
     /**
      * 高さの基準（決定 0019）。tokyo_bay は東京湾平均海面（T.P.）、island は離島の独自の平均海面、ellipsoid は楕円体（GRS80）
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class HeightDatum {
@@ -16086,7 +16086,7 @@ public final class Messages {
 
     /**
      * 標高の成果（決定 0019）。survey_2011 は測地成果2011（2025-03-31 まで）、survey_2024 は測地成果2024（2025-04-01 から）
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class HeightRealization {
@@ -16848,7 +16848,7 @@ public final class Messages {
 
     /**
      * 属性の値の型
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class GeoValueKind {
@@ -16871,7 +16871,7 @@ public final class Messages {
 
     /**
      * 形の種類
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class GeoForm {
