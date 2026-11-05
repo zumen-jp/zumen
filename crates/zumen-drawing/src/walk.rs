@@ -166,8 +166,10 @@ impl<P: Point> Symbol<P> {
 
 impl Drawing2D {
     /// 起点から配置をたどって、要素ごとに解いた値を返す（決定 0159）。起点がなければ空。
-    /// 返す要素と配置の升ごとに `work` を 1 と数え、配置の深さを `depth` で数える。道筋に同じ定義がもう一度現れる配置は
-    /// たどらずに `drawing.placement.invalid` を返し、定義のない配置はたどらない
+    /// 返す要素と配置の升ごとに `work` を 1 と数え、返す要素（属性を含む）を `elements` でも数え、配置の深さを
+    /// `depth` で数える。返す要素は集めて返すので、`elements` で数えないと、升の多い格子の配置が、`work` の上限まで
+    /// 要素を集めて記憶を使い果たす（#517）。道筋に同じ定義がもう一度現れる配置はたどらずに
+    /// `drawing.placement.invalid` を返し、定義のない配置はたどらない
     pub fn walk(&self, origin: Origin, cx: &mut Cx<'_>) -> Result<Vec<Visit<'_>>, (Stop, Ref)> {
         self.walk_with(origin, false, cx)
     }
@@ -458,6 +460,7 @@ impl<'a> Walker<'a> {
     {
         let at = || element.source.clone();
         cx.check(Kind::Work, 1).map_err(|stop| (stop, at()))?;
+        cx.check(Kind::Elements, 1).map_err(|stop| (stop, at()))?;
         let mut visit = self.resolved(item(element), id, element.layer, &element.style, frame);
         // 作図の補助の点は印刷しない（決定 0160）
         if let Shape::Point(point) = &element.shape {
@@ -482,6 +485,7 @@ impl<'a> Walker<'a> {
         };
         for (index, attribute) in symbol.attributes.iter().enumerate() {
             cx.check(Kind::Work, 1).map_err(|stop| (stop, at()))?;
+            cx.check(Kind::Elements, 1).map_err(|stop| (stop, at()))?;
             self.attribute(element, index, attribute, id, frame);
         }
         let Some(&definition) = self.keys.get(&symbol.key) else {
@@ -555,6 +559,10 @@ impl<'a> Walker<'a> {
         let Some(symbols) = self.drawing.symbols.get(definition) else {
             return Ok(());
         };
+        // 要素のない定義は、どの升でも何も返さない。升の多い格子でも、升をたどらずに済ませる（#517）
+        if symbols.space.order.is_empty() {
+            return Ok(());
+        }
         cx.enter().map_err(|stop| (stop, at()))?;
         for (cell, placement) in cells {
             if let Err(stop) = cx.check(Kind::Work, 1) {
@@ -1173,6 +1181,99 @@ mod tests {
             assert!(matches!(stop, Stop::Exceeded(_)), "{kind:?}");
             assert_eq!(budget.used(Kind::Depth), 0, "{kind:?}");
         }
+    }
+
+    #[test]
+    fn returned_elements_are_counted_as_elements() {
+        let drawing = nested();
+        let cancel = CancelToken::new();
+        let mut budget = Budget::default();
+        let mut diag = Diagnostics::new();
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        let visits = drawing.walk(Origin::Space(MODEL), &mut cx).unwrap().len();
+        assert_eq!(budget.used(Kind::Elements), visits as u64);
+        let limit = visits as u64 - 1;
+        let mut budget = Budget::new(Limits::default().with(Kind::Elements, Limit::Finite(limit)));
+        let mut diag = Diagnostics::new();
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        let (stop, _) = drawing.walk(Origin::Space(MODEL), &mut cx).unwrap_err();
+        assert!(
+            matches!(stop, Stop::Exceeded(exceeded) if exceeded.kind == Kind::Elements),
+            "{stop:?}"
+        );
+    }
+
+    #[test]
+    fn grids_of_cycles_stop_at_the_elements_budget() {
+        // #517 の fuzz で見つけた形を縮めたもの。格子の配置の升ごとに、中の配置が循環する定義へ進み、要素を返して
+        // 診断を足す。返す要素を数えないと、既定の `work` の上限（1e10）まで要素を集め、記憶を使い果たす
+        let mut drawing = nested();
+        drawing.symbols[0]
+            .space
+            .elements
+            .push(insert(INNER, "OUTER", 0, block(), 0.0));
+        drawing.symbols[0].space.order.push(2);
+        let Shape::Symbol(symbol) = &mut drawing.spaces[0].elements[0].shape else {
+            panic!("記号の要素")
+        };
+        symbol.grid = Some(Grid {
+            columns: 60_000,
+            rows: 60_000,
+            column_spacing: Length::Model(ModelLength {
+                space: MODEL,
+                value: 1.0,
+            }),
+            row_spacing: Length::Model(ModelLength {
+                space: MODEL,
+                value: 1.0,
+            }),
+        });
+        let cancel = CancelToken::new();
+        let mut budget = Budget::new(Limits::default().with(Kind::Elements, Limit::Finite(1000)));
+        let mut diag = Diagnostics::new();
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        let (stop, _) = drawing.walk(Origin::Space(MODEL), &mut cx).unwrap_err();
+        assert!(
+            matches!(stop, Stop::Exceeded(exceeded) if exceeded.kind == Kind::Elements),
+            "{stop:?}"
+        );
+        // 3.6e9 の升を歩かずに止まる
+        assert!(
+            budget.used(Kind::Work) < 10_000,
+            "{}",
+            budget.used(Kind::Work)
+        );
+    }
+
+    #[test]
+    fn grids_of_empty_definitions_are_not_walked() {
+        // #517 の fuzz で見つけた形を縮めたもの。中身の配置を落とした定義を、升の多い格子で置く。升ごとにたどると、
+        // 何も返さないまま `work` の上限まで回る
+        let mut drawing = nested();
+        drawing.symbols[1].space = space(OUTER, Vec::new());
+        let Shape::Symbol(symbol) = &mut drawing.spaces[0].elements[0].shape else {
+            panic!("記号の要素")
+        };
+        symbol.grid = Some(Grid {
+            columns: u32::MAX,
+            rows: u32::MAX,
+            column_spacing: Length::Model(ModelLength {
+                space: MODEL,
+                value: 1.0,
+            }),
+            row_spacing: Length::Model(ModelLength {
+                space: MODEL,
+                value: 1.0,
+            }),
+        });
+        let cancel = CancelToken::new();
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(1000)));
+        let mut diag = Diagnostics::new();
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        let visits = drawing.walk(Origin::Space(MODEL), &mut cx).unwrap();
+        // 配置だけを返し、升をたどらない
+        assert_eq!(visits.len(), 1);
+        assert!(budget.used(Kind::Work) < 100, "{}", budget.used(Kind::Work));
     }
 
     #[test]
