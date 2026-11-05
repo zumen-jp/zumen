@@ -3606,7 +3606,7 @@ pub const RENDER_MARKER_DROPPED: Code = Code::new(
     &["unit"],
 );
 
-/// SVG の描画に使うメモリを確保できない
+/// 画像の描画に使うメモリを確保できない
 ///
 /// `render.memory.exceeded`（0.2.0 から）
 pub const RENDER_MEMORY_EXCEEDED: Code =

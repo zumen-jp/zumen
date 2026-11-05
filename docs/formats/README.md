@@ -37,6 +37,7 @@
 | [las](#format-las) | LAS・LAZ | las | pointcloud | `public` | `core` | `synthetic` |  |
 | [pdf](#format-pdf) | PDF | pdf | drawing | `public` | `core` | `external` | `synthetic` |
 | [ply](#format-ply) | PLY（点群） | ply | pointcloud | `public` | `core` | `synthetic` |  |
+| [png](#format-png) | PNG | png | drawing | `public` | `core` |  | `external` |
 | [saf](#format-saf) | SXF の属性ファイル（SAF） | sxf | drawing・delivery | `public` | `core` | `synthetic` |  |
 | [sima](#format-sima) | SIMA 共通フォーマット | sima | civil | `unknown` | `none` |  |  |
 | [stbridge](#format-stbridge) | ST-Bridge | stbridge | building | `permission` | `plugin` |  |  |
@@ -387,6 +388,16 @@
 - 入手先: [3D 都市モデル標準製品仕様書（i-UR の拡張を含む）](https://www.mlit.go.jp/plateau/libraries/handbooks/)
 - 確認日: 2026-11-01
 - 補足: サイトの内容は PDL 1.0。CityGML 3.0 に合わせた応用スキーマの案も公開している
+
+### spec-png_3
+
+- 名前: Portable Network Graphics (PNG) Specification (Third Edition)
+- 公開元: W3C
+- 版: W3C Recommendation 24 June 2025
+- 入手の条件: 無償公開
+- 入手先: [Portable Network Graphics (PNG) Specification (Third Edition)](https://www.w3.org/TR/png-3/)
+- 確認日: 2026-11-06
+- 補足: W3C が公開する勧告。Abstract は patent-free と記し、W3C Patent Policy に従う。仕様と参照コードの本文は同梱しない
 
 ### spec-rfc_4180
 
@@ -823,6 +834,27 @@
 - 読みの確かめた範囲: 公開の解説と、テストの中で作った PLY（crates/zumen-ply/tests）で確かめた。CloudCompare・MeshLab が書いた PLY との照合はまだ（#504）
 - issue: [zumen-jp/zumen#373](https://github.com/zumen-jp/zumen/issues/373)
 - 形式の文書: [docs/formats/ply.md](../../docs/formats/ply.md)
+
+### format-png
+
+- 名前: PNG
+- 権利の根拠: W3C が仕様を公開し、実装を制限していない。勧告の Abstract、RF の実装を可能にする特許方針と文書ライセンスを 2026-11-06 に確認した
+- 仕様: [png\_3](#spec-png_3)
+- 実装の根拠: spec
+- 権利の根拠にした文書: [W3C Patent Policy](https://www.w3.org/policies/patent-policy/)（確認日: 2026-11-06）
+- 文書の補足: 勧告の実装を Royalty-Free で可能にする特許方針。PNG 勧告の Status of This Document が準拠を記す
+- 権利の根拠にした文書: [W3C Document License](https://www.w3.org/copyright/document-license-2023/)（確認日: 2026-11-06）
+- 文書の補足: 勧告からリンクされる文書ライセンス。仕様の実装を容易にするため、一部をソフトウェアへ組み込むことを認める。本文とコードは同梱しない
+- 書きの確かめた度合い: `external`（確認日: 2026-11-06）
+- 書きの確かめた範囲: RGBA 8 bit、非インターレース、非圧縮 DEFLATE の静止画。Chromium と zlib で寸法・RGBA・CRC・Adler-32 を照らした。穴・字形・描画順・通常と反転のクリップ・余白・半透明を含む。Canvas の半透明の RGB の丸めだけ 1 まで認める。外部画像・閲覧側ごとの色管理・アンチエイリアスの一致は対象外。PNG を読む実装は持たない
+- 書きで照らした外部の実装: Chromium 156.0.8078.4・zlib (Node.js) 1.3.2.1-motley-285e94b
+- 記録: [決定 0007](../decisions/0007-single-rust-implementation.md)
+- 記録: [決定 0010](../decisions/0010-budget-by-work.md)
+- 記録: [決定 0272](../decisions/0272-scene-svg-rendering.md)
+- 記録: [決定 0275](../decisions/0275-render-op-from-drawing-scene.md)
+- 記録: [決定 0277](../decisions/0277-bounded-png-rendering.md)
+- issue: [zumen-jp/zumen#604](https://github.com/zumen-jp/zumen/issues/604)
+- 形式の文書: [docs/formats/png.md](../../docs/formats/png.md)
 
 ### format-saf
 

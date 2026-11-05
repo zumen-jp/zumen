@@ -1,4 +1,4 @@
-//! 汎用の render op を、決定 0272 の SVG 描画へ接続する（決定 0275）。
+//! 汎用の render op を、SVG・PNG 描画へ接続する（決定 0275・0277）。
 
 use zumen_base::Cx;
 
@@ -29,9 +29,21 @@ pub(crate) fn options(
         Ok(value) if value > 0 => Ok(value),
         _ => Err(fail(cx, invalid_value(pointer))),
     };
+    let width = size(request.width, "/width", cx)?;
+    let height = size(request.height, "/height", cx)?;
+    if request.format == RenderFormat::Png
+        && u64::from(width) * u64::from(height) > zumen_render::MAX_PNG_PIXELS
+    {
+        let pointer = if u64::from(width) > zumen_render::MAX_PNG_PIXELS {
+            "/width"
+        } else {
+            "/height"
+        };
+        return Err(fail(cx, invalid_value(pointer)));
+    }
     Ok(zumen_render::Options {
-        width: size(request.width, "/width", cx)?,
-        height: size(request.height, "/height", cx)?,
+        width,
+        height,
         region,
         dpi: request.dpi,
         background: rgba(&request.background, "/background", cx)?,
@@ -60,6 +72,7 @@ pub(crate) fn render(
 ) -> Result<(RenderResult, Vec<u8>), Failed> {
     let output = match request.format {
         RenderFormat::Svg => zumen_render::svg(bytes, options, cx),
+        RenderFormat::Png => zumen_render::png(bytes, options, cx),
     }
     .map_err(|_| Failed)?; // 描画部品が、停止を含む失敗の診断を返す。
     Ok((
@@ -189,6 +202,52 @@ mod tests {
     }
 
     #[test]
+    fn png_returns_an_image_and_keeps_ids_after_stopping() {
+        let mut session = session();
+        let req = request(&[("format", r#""png""#)]);
+        let (status, response) = call(&mut session, &req);
+        assert_eq!(status, Status::Ok);
+        assert_eq!(text(&response, "/result/format"), "png");
+        assert_eq!(text(&response, "/blobs/0/kind"), "image");
+        assert_eq!(text(&response, "/diagnostics/0/at/0/id"), "space/0/h2");
+        let image = session.take(0).unwrap();
+        assert!(image.starts_with(b"\x89PNG\r\n\x1a\n"));
+        for budget in [
+            r#"{"work":20000}"#,
+            r#"{"decoded_bytes":50000}"#,
+            r#"{"segments":1}"#,
+        ] {
+            let (status, response) = call(
+                &mut session,
+                &request(&[("format", r#""png""#), ("budget", budget)]),
+            );
+            assert_eq!(status, Status::Failed, "{response:?}");
+            assert!(text(&response, "/diagnostics/0/code").starts_with("budget."));
+            assert!(response.pointer("/result").is_none());
+            assert!(session.take(0).is_none());
+        }
+        let cancel = CancelToken::new();
+        cancel.cancel();
+        assert_eq!(session.call(&json(&req), &cancel).status, Status::Failed);
+        assert!(session.take(0).is_none());
+        for (width, height, pointer) in [("16777217", "1", "/width"), ("4096", "4097", "/height")] {
+            let (status, response) = call(
+                &mut session,
+                &request(&[
+                    ("format", r#""png""#),
+                    ("width", width),
+                    ("height", height),
+                    ("doc", r#""missing""#),
+                ]),
+            );
+            assert_eq!(status, Status::Failed);
+            assert_eq!(text(&response, "/diagnostics/0/params/pointer"), pointer);
+        }
+        assert_eq!(call(&mut session, &req), (Status::Ok, response));
+        assert_eq!(session.take(0).unwrap(), image);
+    }
+
+    #[test]
     fn matches_the_existing_scene_path_with_fonts_palette_and_heights() {
         let mut session = session();
         let fixture = zumen_json::parse(include_bytes!(
@@ -219,39 +278,49 @@ mod tests {
                 br##"{"values":[{"rgb":"#123456","aci":1}]}"##,
             )
             .unwrap();
-        let req = request(&[
-            ("doc", r#""indexed.dxf""#),
-            ("fonts", r#"[{"input":"font.ttf"}]"#),
-            ("heights", r#"{"dxf.TEXT.40":"em"}"#),
-            ("palette", r#""palette.json""#),
-            ("print", "true"),
-            ("width", "200"),
-            ("background", "[10,20,30,128]"),
-        ]);
-        let (status, response) = call(&mut session, &req);
-        assert_eq!(status, Status::Ok, "{response:?}");
-        assert_eq!(text(&response, "/diagnostics/0/code"), "scene.font.assumed");
-        assert!(response.pointer("/diagnostics/1").is_none());
-        let image = session.take(0).unwrap();
-        assert!(std::str::from_utf8(&image).unwrap().contains("#123456"));
-        assert!(
-            std::str::from_utf8(&image)
+        for format in [r#""svg""#, r#""png""#] {
+            let req = request(&[
+                ("format", format),
+                ("doc", r#""indexed.dxf""#),
+                ("fonts", r#"[{"input":"font.ttf"}]"#),
+                ("heights", r#"{"dxf.TEXT.40":"em"}"#),
+                ("palette", r#""palette.json""#),
+                ("print", "true"),
+                ("width", "200"),
+                ("background", "[10,20,30,128]"),
+            ]);
+            let (status, response) = call(&mut session, &req);
+            assert_eq!(status, Status::Ok, "{response:?}");
+            assert_eq!(text(&response, "/diagnostics/0/code"), "scene.font.assumed");
+            assert!(response.pointer("/diagnostics/1").is_none());
+            let image = session.take(0).unwrap();
+            if format == r#""svg""# {
+                assert!(std::str::from_utf8(&image).unwrap().contains("#123456"));
+                assert!(
+                    std::str::from_utf8(&image)
+                        .unwrap()
+                        .contains("fill-rule=\"nonzero\"")
+                );
+            }
+            let (status, _) = call(&mut session, &scene_request(&req));
+            assert_eq!(status, Status::Ok);
+            let scene = session.take(0).unwrap();
+            let request = RenderRequest::from_json(&req).unwrap();
+            let mut budget = Budget::default();
+            let mut diagnostics = Diagnostics::new();
+            let cancel = CancelToken::new();
+            let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+            let settings = options(&request, &mut cx).ok().unwrap();
+            assert_eq!(
+                image,
+                (if format == r#""svg""# {
+                    zumen_render::svg
+                } else {
+                    zumen_render::png
+                })(&scene, &settings, &mut cx)
                 .unwrap()
-                .contains("fill-rule=\"nonzero\"")
-        );
-        let (status, _) = call(&mut session, &scene_request(&req));
-        assert_eq!(status, Status::Ok);
-        let scene = session.take(0).unwrap();
-        let request = RenderRequest::from_json(&req).unwrap();
-        let mut budget = Budget::default();
-        let mut diagnostics = Diagnostics::new();
-        let cancel = CancelToken::new();
-        let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
-        let settings = options(&request, &mut cx).ok().unwrap();
-        assert_eq!(
-            image,
-            zumen_render::svg(&scene, &settings, &mut cx).unwrap()
-        );
+            );
+        }
     }
 
     #[test]
@@ -266,7 +335,7 @@ mod tests {
             ("dpi", "0", "/dpi"),
             ("background", "[0,0,0]", "/background"),
             ("foreground", "[0,0,0,256]", "/foreground/3"),
-            ("format", r#""png""#, "/format"),
+            ("format", r#""webp""#, "/format"),
             ("tolerance", "0", "/tolerance"),
             ("view", "0", "/view"),
             ("from", r#""space/99""#, "/from"),

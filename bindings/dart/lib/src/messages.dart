@@ -2662,7 +2662,7 @@ class SceneRequest extends Message {
   set heights(Map<String, String>? value) => writeField('heights', value);
 }
 
-/// 開いた文書を scene と同じ起点・配置・フォントで 2D のシーンにし、画像を blob で返す（決定 0272・0275）。SVG は字形の輪郭だけを描き、字形のない空でない文字・外部画像・名前付きの点記号は元の ID と unit を診断して描かない。シーン生成と描画で同じ予算と中断の合図を使い、失敗では画像を返さない。マイナーバージョン 64 から
+/// 開いた文書を scene と同じ起点・配置・フォントで 2D のシーンにし、画像を blob で返す（決定 0272・0275・0277）。字形の輪郭だけを描き、字形のない空でない文字・外部画像・名前付きの点記号は元の ID と unit を診断して描かない。シーン生成と描画で同じ予算と中断の合図を使い、失敗では画像を返さない。PNG は最大 16777216 画素で、変換後の座標は絶対値 2^31 ピクセル以内。SVG はマイナーバージョン 64、PNG は 65 から
 class RenderRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
   RenderRequest.fromJson(super.json);
@@ -2755,11 +2755,12 @@ class RenderRequest extends Message {
   set heights(Map<String, String>? value) => writeField('heights', value);
 }
 
-/// 画像の出力形式。svg は SVG 1.1（image/svg+xml）
+/// 画像の出力形式。svg は SVG 1.1（image/svg+xml）、png は RGBA8・非インターレースの PNG（image/png、マイナーバージョン 65 から）
 ///
 /// 列挙の値。知らない値も受け取る
 abstract final class RenderFormat {
   static const svg = 'svg';
+  static const png = 'png';
 }
 
 /// 画像の形式・サイズと、シーンの起点・単位・許容差、画像の blob の番号

@@ -1,13 +1,20 @@
-//! シーンの列から SVG 1.1 を書く（決定 0272）。外部のフォント・画像は取得しない。
+//! シーンの列から SVG 1.1・PNG を書く（決定 0272・0277）。外部のフォント・画像は取得しない。
 
 mod order;
+mod paint;
+mod png;
+mod png_render;
+mod raster;
 mod scene;
 mod svg;
 mod writer;
 
 use zumen_base::{Cx, Diagnostic, Stop, codes};
 
-/// SVG の出力設定。座標はシーンの起点と同じ座標系で渡す
+/// PNG の画素数の上限。RGBA の面と出力が同時に存在するため、予算が無制限でも制限する
+pub const MAX_PNG_PIXELS: u64 = 16 * 1024 * 1024;
+
+/// 画像の出力設定。座標はシーンの起点と同じ座標系で渡す
 #[derive(Clone, Copy, Debug)]
 pub struct Options {
     /// 幅（ピクセル）。0 は不可
@@ -24,7 +31,7 @@ pub struct Options {
     pub foreground: [u8; 4],
 }
 
-/// SVG を作れなかった理由
+/// 画像を作れなかった理由
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {
     /// シーンの列・参照・数値が契約に合わない
@@ -60,6 +67,18 @@ impl Error {
 /// 文字はシーンの字形の輪郭だけを書く。出力の字形と ID の規則は変えない。
 pub fn svg(bytes: &[u8], options: &Options, cx: &mut Cx<'_>) -> Result<Vec<u8>, Error> {
     let result = svg::render(bytes, options, cx);
+    if let Err(error) = result {
+        cx.report(error.diagnostic());
+    }
+    result
+}
+
+/// シーンのバイト列から PNG を作る。成功したときだけ全体のバイト列を返す。
+///
+/// RGBA8・固定の 4×4 サンプル・非圧縮 DEFLATE を使う。最大 16,777,216 画素。
+/// 色・描画順・クリップ・資源の診断は SVG と共通。変換後の座標は絶対値 2^31 ピクセル以内。
+pub fn png(bytes: &[u8], options: &Options, cx: &mut Cx<'_>) -> Result<Vec<u8>, Error> {
+    let result = png_render::render(bytes, options, cx);
     if let Err(error) = result {
         cx.report(error.diagnostic());
     }

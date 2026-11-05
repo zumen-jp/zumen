@@ -73,7 +73,7 @@ pub enum Request {
     BuildingApply(BuildingApplyRequest),
     /// 開いた図面の文書を図面モデル（L2）に変換し、図面モデルのバイナリ（決定 0247）を blob で返す。配置は schema/drawing.toml にあり、元の文書の形式・系統・ハッシュも持つ。プラグインのモジュールが読んだ図面は、これを図面のモジュールの open に渡すと、元の形式とハッシュの読むだけの文書になる。マイナーバージョン 60 から
     Lift(LiftRequest),
-    /// 開いた文書を scene と同じ起点・配置・フォントで 2D のシーンにし、画像を blob で返す（決定 0272・0275）。SVG は字形の輪郭だけを描き、字形のない空でない文字・外部画像・名前付きの点記号は元の ID と unit を診断して描かない。シーン生成と描画で同じ予算と中断の合図を使い、失敗では画像を返さない。マイナーバージョン 64 から
+    /// 開いた文書を scene と同じ起点・配置・フォントで 2D のシーンにし、画像を blob で返す（決定 0272・0275・0277）。字形の輪郭だけを描き、字形のない空でない文字・外部画像・名前付きの点記号は元の ID と unit を診断して描かない。シーン生成と描画で同じ予算と中断の合図を使い、失敗では画像を返さない。PNG は最大 16777216 画素で、変換後の座標は絶対値 2^31 ピクセル以内。SVG はマイナーバージョン 64、PNG は 65 から
     Render(RenderRequest),
 }
 
@@ -6000,7 +6000,7 @@ impl ToJson for SceneRequest {
     }
 }
 
-/// 開いた文書を scene と同じ起点・配置・フォントで 2D のシーンにし、画像を blob で返す（決定 0272・0275）。SVG は字形の輪郭だけを描き、字形のない空でない文字・外部画像・名前付きの点記号は元の ID と unit を診断して描かない。シーン生成と描画で同じ予算と中断の合図を使い、失敗では画像を返さない。マイナーバージョン 64 から
+/// 開いた文書を scene と同じ起点・配置・フォントで 2D のシーンにし、画像を blob で返す（決定 0272・0275・0277）。字形の輪郭だけを描き、字形のない空でない文字・外部画像・名前付きの点記号は元の ID と unit を診断して描かない。シーン生成と描画で同じ予算と中断の合図を使い、失敗では画像を返さない。PNG は最大 16777216 画素で、変換後の座標は絶対値 2^31 ピクセル以内。SVG はマイナーバージョン 64、PNG は 65 から
 #[derive(Clone, Debug, PartialEq)]
 pub struct RenderRequest {
     /// `request_common` のフィールド
@@ -6148,21 +6148,24 @@ impl ToJson for RenderRequest {
     }
 }
 
-/// 画像の出力形式。svg は SVG 1.1（image/svg+xml）
+/// 画像の出力形式。svg は SVG 1.1（image/svg+xml）、png は RGBA8・非インターレースの PNG（image/png、マイナーバージョン 65 から）
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum RenderFormat {
     /// `svg`
     Svg,
+    /// `png`
+    Png,
 }
 
 impl RenderFormat {
     /// すべての値（スキーマの順）
-    pub const ALL: &[Self] = &[Self::Svg];
+    pub const ALL: &[Self] = &[Self::Svg, Self::Png];
 
     /// JSON での名前
     pub const fn name(self) -> &'static str {
         match self {
             Self::Svg => "svg",
+            Self::Png => "png",
         }
     }
 
@@ -6170,6 +6173,7 @@ impl RenderFormat {
     pub fn from_name(name: &str) -> Option<Self> {
         match name {
             "svg" => Some(Self::Svg),
+            "png" => Some(Self::Png),
             _ => None,
         }
     }

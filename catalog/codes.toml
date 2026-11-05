@@ -2907,7 +2907,7 @@ since = "0.2.0"
 status = "active"
 
 [codes."render.memory.exceeded"]
-description = "SVG の描画に使うメモリを確保できない"
+description = "画像の描画に使うメモリを確保できない"
 severity = "error"
 since = "0.2.0"
 status = "active"

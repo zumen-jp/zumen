@@ -184,6 +184,14 @@ pub fn nonascending() -> Columns {
     c
 }
 
+pub fn translucent() -> Columns {
+    let mut c = mixed();
+    for rgba in c.0[l::COLOR_RGBA].as_chunks_mut::<4>().0 {
+        rgba[3] = 128;
+    }
+    c
+}
+
 /// 同じ unit で、種類の順と同じ種類の元の行の順を照らす。
 pub fn repeated_units() -> Columns {
     let mut c = mixed();
@@ -205,13 +213,37 @@ pub fn run(
     limits: Limits,
     cancelled: bool,
 ) -> Outcome {
+    run_format(false, bytes, options, limits, cancelled)
+}
+
+pub fn run_png(
+    bytes: &[u8],
+    options: &zumen_render::Options,
+    limits: Limits,
+    cancelled: bool,
+) -> Outcome {
+    run_format(true, bytes, options, limits, cancelled)
+}
+
+fn run_format(
+    png: bool,
+    bytes: &[u8],
+    options: &zumen_render::Options,
+    limits: Limits,
+    cancelled: bool,
+) -> Outcome {
     let mut budget = Budget::new(limits);
     let mut diag = Diagnostics::new();
     let cancel = CancelToken::new();
     if cancelled {
         cancel.cancel();
     }
-    let result = zumen_render::svg(
+    let render = if png {
+        zumen_render::png
+    } else {
+        zumen_render::svg
+    };
+    let result = render(
         bytes,
         options,
         &mut Cx::new(&mut budget, &mut diag, &cancel),
@@ -251,14 +283,85 @@ pub fn transcript() -> Vec<u8> {
             Limits::default().with(Kind::Segments, Limit::Finite(10)),
         ] {
             for cancelled in [false, true] {
-                let (result, diag, used) = run(&input, &options(), limits, cancelled);
-                match result {
-                    Ok(bytes) => out.extend(bytes),
-                    Err(error) => out.extend(format!("{error:?}").as_bytes()),
+                for png in [false, true] {
+                    let (result, diag, used) =
+                        run_format(png, &input, &options(), limits, cancelled);
+                    match result {
+                        Ok(bytes) => out.extend(bytes),
+                        Err(error) => out.extend(format!("{error:?}").as_bytes()),
+                    }
+                    out.extend(format!("{diag:?}{used:?}\n").as_bytes());
                 }
-                out.extend(format!("{diag:?}{used:?}\n").as_bytes());
             }
         }
     }
+    for options in [
+        zumen_render::Options {
+            width: 137,
+            height: 83,
+            region: [-0.125, 0.375, 101.75, 102.625],
+            background: [40, 80, 160, 128],
+            ..options()
+        },
+        zumen_render::Options {
+            width: u32::MAX,
+            height: u32::MAX,
+            ..options()
+        },
+        zumen_render::Options {
+            dpi: f64::MAX,
+            ..options()
+        },
+    ] {
+        let (result, diag, used) =
+            run_png(&translucent().pack(), &options, Limits::default(), false);
+        match result {
+            Ok(bytes) => out.extend(bytes),
+            Err(error) => out.extend(format!("{error:?}").as_bytes()),
+        }
+        out.extend(format!("{diag:?}{used:?}\n").as_bytes());
+    }
     out
+}
+
+/// テスト専用の、今回書く stored DEFLATE の画素取り出し。外部照合は Chromium でも行う。
+#[allow(clippy::unwrap_used)] // テストで作った PNG の形を assert し、違えばテストを失敗させる。
+pub fn pixels(bytes: &[u8]) -> (usize, usize, Vec<u8>) {
+    assert_eq!(&bytes[..8], b"\x89PNG\r\n\x1a\n");
+    let u32_at = |at| u32::from_be_bytes(bytes[at..at + 4].try_into().unwrap()) as usize;
+    let (width, height) = (u32_at(16), u32_at(20));
+    let mut data = Vec::new();
+    let mut at = 8;
+    while at < bytes.len() {
+        let length = u32_at(at);
+        if &bytes[at + 4..at + 8] == b"IDAT" {
+            data.extend_from_slice(&bytes[at + 8..at + 8 + length]);
+        }
+        at += length + 12;
+    }
+    assert_eq!(&data[..2], &[0x78, 1]);
+    at = 2;
+    let mut rows = Vec::new();
+    loop {
+        let last = data[at];
+        let length = u16::from_le_bytes(data[at + 1..at + 3].try_into().unwrap());
+        assert_eq!(
+            length,
+            !u16::from_le_bytes(data[at + 3..at + 5].try_into().unwrap())
+        );
+        assert!(last <= 1);
+        rows.extend_from_slice(&data[at + 5..at + 5 + usize::from(length)]);
+        at += 5 + usize::from(length);
+        if last == 1 {
+            break;
+        }
+    }
+    assert_eq!(at + 4, data.len());
+    assert_eq!(rows.len(), height * (width * 4 + 1));
+    let mut pixels = Vec::new();
+    for row in rows.chunks_exact(width * 4 + 1) {
+        assert_eq!(row[0], 0);
+        pixels.extend_from_slice(&row[1..]);
+    }
+    (width, height, pixels)
 }

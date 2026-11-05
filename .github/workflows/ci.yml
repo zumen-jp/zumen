@@ -211,7 +211,7 @@ jobs:
         run: cargo build --package zumen-abi --target wasm32-unknown-unknown --release --locked
       - name: ネイティブと同じハッシュの一覧になることを確かめる
         run: node bindings/conformance/wasm.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm
-      - name: シーンからの SVG のバイト列・診断・予算・停止が wasm とネイティブで同じことを確かめる（決定 0272）
+      - name: シーンからの SVG・PNG のバイト列・診断・予算・停止が wasm とネイティブで同じことを確かめる（決定 0272）
         run: |
           cargo run --package zumen-render --example export --locked -- target/svg-check
           cargo build --package zumen-render --example parity --target wasm32-unknown-unknown --locked
