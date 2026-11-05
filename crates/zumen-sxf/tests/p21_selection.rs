@@ -302,6 +302,70 @@ fn sfc_keeps_its_diagnostic_order_and_work_cost() {
 }
 
 #[test]
+fn p21_lift_inside_record_order_keeps_the_same_budget_stops_and_reports() {
+    let src = p21(&format!(
+        "{GEOMETRY}{LAYER}{SHEET}{}",
+        concat!(
+            "#2=CARTESIAN_POINT(' ',(20.,30.));\n",
+            "#30=PRESENTATION_LAYER_ASSIGNMENT('LATER',' ',(#5));\n",
+            "#80=DRAWING_SHEET_REVISION('A4_vertical',(),$,'02');\n",
+        )
+    ));
+    let file = read(&src);
+    for max_places in [0, 1] {
+        let full = run_with_places(&file, Limit::Unlimited, false, max_places);
+        for (limit, cancelled) in [
+            (Limit::Unlimited, false),
+            (Limit::Finite(full.1), false),
+            (Limit::Finite(full.1 - 1), false),
+            (Limit::Finite(18), false),
+            (Limit::Unlimited, true),
+        ] {
+            let expected = run_with_places(&file, limit, cancelled, max_places);
+            let mut budget = Budget::new(Limits::default().with(Kind::Work, limit));
+            let mut diagnostics = Diagnostics::with_max_places(max_places);
+            let cancel = CancelToken::new();
+            if cancelled {
+                cancel.cancel();
+            }
+            let result = Cx::new(&mut budget, &mut diagnostics, &cancel)
+                .with_diagnostics_in_record_order(|cx| {
+                    let inner = file.lift(cx);
+                    assert_eq!(inner, expected.0);
+                    inner
+                });
+            assert_eq!(
+                (result, budget.used(Kind::Work), diagnostics.into_vec()),
+                expected
+            );
+        }
+        // 呼び出し側が先に報告した後方の場所も、P21 の診断と同じ入力順に並ぶ。
+        let mut budget = Budget::default();
+        let mut diagnostics = Diagnostics::with_max_places(max_places);
+        let cancel = CancelToken::new();
+        let result = Cx::new(&mut budget, &mut diagnostics, &cancel)
+            .with_diagnostics_in_record_order(|cx| {
+                cx.report(
+                    Diagnostic::new(codes::ZIP_PATH_UNSAFE)
+                        .with("name", "outer")
+                        .at(Ref::at_record(16)),
+                );
+                file.lift(cx)
+            });
+        assert_eq!(result, full.0);
+        assert_eq!(budget.used(Kind::Work), full.1 + 4 + max_places as u64);
+        let diagnostics = diagnostics.into_vec();
+        assert_eq!(&diagnostics[..full.2.len()], full.2);
+        assert_eq!(diagnostics.last().unwrap().code(), codes::ZIP_PATH_UNSAFE);
+        assert_eq!(
+            diagnostics.last().unwrap().places(),
+            &[Ref::at_record(16)][..max_places]
+        );
+    }
+    assert_eq!(testkit::write::<Sxf>(&file).unwrap(), src);
+}
+
+#[test]
 fn ignored_instances_sheets_and_layer_members_obey_work_and_cancellation() {
     let src = p21(&format!(
         "{GEOMETRY}{LAYER}{SHEET}{}",

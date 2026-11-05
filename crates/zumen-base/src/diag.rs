@@ -364,6 +364,10 @@ impl Diagnostics {
         }
     }
 
+    pub(crate) fn is_collecting_in_record_order(&self) -> bool {
+        self.record_order.is_some()
+    }
+
     /// 収集と、最後の整列・転送の分を先に数える。場所の挿入で動かす要素も上限に含める。
     pub(crate) fn record_order_work(&self, diagnostic: &Diagnostic) -> Option<u64> {
         self.record_order.as_ref()?;

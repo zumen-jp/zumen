@@ -91,7 +91,8 @@ impl<'a> Cx<'a> {
 
     /// 処理中の診断を、レコードの入力順でまとめてから届ける（決定 0009）。
     ///
-    /// 診断は [`Cx::report`] で足す。処理中の `diag.iter()` は届いた順、返した後は入力順になる。
+    /// 診断は [`Cx::report`] で足す。処理中の `diag.iter()` は届いた順になる。
+    /// 入れ子は同じ収集先を使い、もっとも外側の呼び出しが返すときに入力順で届ける。
     /// レコードのない診断は最後に、同じレコードでは届いた順にする。値も先頭の診断から採る。
     /// 場所は収集中も `max_places` 件までにし、0 件でも診断の順を保つ。
     /// 収集・場所の移動・最後の整列と転送を Work に数える。途中で止まっても、収集済みの診断は届ける。
@@ -99,6 +100,16 @@ impl<'a> Cx<'a> {
         &mut self,
         operation: impl FnOnce(&mut Cx<'_>) -> Result<T, E>,
     ) -> Result<T, E> {
+        if let Some(stop) = self.diag.record_order_stop() {
+            return Err(stop.into());
+        }
+        if self.diag.is_collecting_in_record_order() {
+            let result = operation(self);
+            return match self.diag.record_order_stop() {
+                Some(stop) => Err(stop.into()),
+                None => result,
+            };
+        }
         let mut diagnostics = Diagnostics::in_record_order(self.diag.max_places());
         let result = operation(&mut Cx::new(self.budget, &mut diagnostics, self.cancel));
         let stop = diagnostics.record_order_stop();
@@ -323,5 +334,129 @@ mod tests {
         );
         assert_eq!(diagnostics[1].code(), codes::SXF_P21_SHEET_MISSING);
         assert!(diagnostics[1].places().is_empty());
+    }
+
+    #[test]
+    fn nested_record_order_keeps_positions_values_and_one_work_charge() {
+        for max_places in [0, 1] {
+            let work = 5 * (4 + max_places as u64);
+            let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(work)));
+            let mut diag = Diagnostics::with_max_places(max_places);
+            let cancel = CancelToken::new();
+            Cx::new(&mut budget, &mut diag, &cancel)
+                .with_diagnostics_in_record_order(|cx| {
+                    cx.report(
+                        Diagnostic::new(codes::ZIP_PATH_UNSAFE)
+                            .with("name", "late")
+                            .at(crate::Ref::at_record(9)),
+                    );
+                    cx.with_diagnostics_in_record_order(|cx| {
+                        cx.report(
+                            Diagnostic::new(codes::SXF_P21_INSTANCE_DROPPED)
+                                .with("id", 2_u64)
+                                .at(crate::Ref::at_record(4)),
+                        );
+                        cx.with_diagnostics_in_record_order(|cx| {
+                            cx.report(
+                                Diagnostic::new(codes::ZIP_PATH_UNSAFE)
+                                    .with("name", "first")
+                                    .at(crate::Ref::at_record(1)),
+                            );
+                            Ok::<(), Stop>(())
+                        })?;
+                        cx.report(
+                            Diagnostic::new(codes::SXF_P21_INSTANCE_DROPPED)
+                                .with("id", 3_u64)
+                                .at(crate::Ref::at_record(4)),
+                        );
+                        Ok::<(), Stop>(())
+                    })?;
+                    cx.report(
+                        Diagnostic::new(codes::SXF_P21_SHEET_DROPPED)
+                            .with("id", 80_u64)
+                            .at(crate::Ref::at_record(2)),
+                    );
+                    Ok::<(), Stop>(())
+                })
+                .unwrap();
+            assert_eq!(budget.used(Kind::Work), work);
+            let diagnostics = diag.into_vec();
+            assert_eq!(diagnostics.len(), 4);
+            assert_eq!(diagnostics[0].code(), codes::ZIP_PATH_UNSAFE);
+            assert_eq!(diagnostics[0].count(), 2);
+            assert_eq!(
+                diagnostics[0].param("name"),
+                Some(&crate::Value::from("first"))
+            );
+            assert_eq!(diagnostics[1].code(), codes::SXF_P21_SHEET_DROPPED);
+            assert_eq!(diagnostics[2].param("id"), Some(&crate::Value::UInt(2)));
+            assert_eq!(diagnostics[3].param("id"), Some(&crate::Value::UInt(3)));
+            for (diagnostic, record) in diagnostics.iter().zip([1, 2, 4, 4]) {
+                assert_eq!(
+                    diagnostic.places(),
+                    &[crate::Ref::at_record(record)][..max_places]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn nested_record_order_returns_the_inner_stop_and_keeps_collected_reports() {
+        for (max_places, cancelled) in [(0, false), (1, false), (0, true), (1, true)] {
+            let work = 2 * (4 + max_places as u64);
+            let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(work)));
+            let mut diag = Diagnostics::with_max_places(max_places);
+            let cancel = CancelToken::new();
+            let mut inner_stop = None;
+            let result =
+                Cx::new(&mut budget, &mut diag, &cancel).with_diagnostics_in_record_order(|cx| {
+                    cx.report(Diagnostic::new(codes::ZIP_PATH_UNSAFE).at(crate::Ref::at_record(9)));
+                    let result = cx.with_diagnostics_in_record_order(|cx| {
+                        cx.report(
+                            Diagnostic::new(codes::SXF_P21_INSTANCE_DROPPED)
+                                .with("id", 2_u64)
+                                .at(crate::Ref::at_record(3)),
+                        );
+                        if cancelled {
+                            cancel.cancel();
+                        }
+                        cx.report(
+                            Diagnostic::new(codes::SXF_P21_INSTANCE_DROPPED)
+                                .with("id", 3_u64)
+                                .at(crate::Ref::at_record(5)),
+                        );
+                        Ok::<(), Stop>(())
+                    });
+                    let stop = result.unwrap_err();
+                    inner_stop = Some(stop);
+                    assert_eq!(cx.check(Kind::Work, 0), Err(stop));
+                    let mut entered = false;
+                    let after_stop = cx.with_diagnostics_in_record_order(|_| {
+                        entered = true;
+                        Ok::<(), Stop>(())
+                    });
+                    assert_eq!(after_stop, Err(stop));
+                    assert!(!entered);
+                    // 内側の結果を伝え忘れても、外側も同じ停止を返す。
+                    Ok::<(), Stop>(())
+                });
+            let stop = result.unwrap_err();
+            assert_eq!(inner_stop, Some(stop));
+            assert_eq!(cancelled, stop == Stop::Cancelled);
+            assert_eq!(budget.used(Kind::Work), work);
+            let diagnostics = diag.into_vec();
+            assert_eq!(diagnostics.len(), 3);
+            assert_eq!(diagnostics[0].code(), codes::SXF_P21_INSTANCE_DROPPED);
+            assert_eq!(diagnostics[0].param("id"), Some(&crate::Value::UInt(2)));
+            assert_eq!(diagnostics[1].code(), stop.to_diagnostic().code());
+            assert_eq!(diagnostics[2].code(), codes::ZIP_PATH_UNSAFE);
+            for (diagnostic, record) in diagnostics.iter().zip([3, 5, 9]) {
+                assert_eq!(diagnostic.count(), 1);
+                assert_eq!(
+                    diagnostic.places(),
+                    &[crate::Ref::at_record(record)][..max_places]
+                );
+            }
+        }
     }
 }
