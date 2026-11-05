@@ -72,6 +72,32 @@ try {
   try { await page.mouse.wheel(0, -100); await page.waitForFunction(() => inputTest.viewer.getView().scale > 2); }
   finally { await page.keyboard.up("Control"); }
   await native("実ホイールで修飾キーと固定点を使う", () => Math.abs(inputTest.viewer.getView().scale - 2 * Math.exp(.2)) < 1e-8 && inputTest.viewer.getView().center.x === -55);
+  await page.evaluate(() => {
+    const state = inputTest; state.viewer.setScene(null); state.viewer.setTool("select");
+    state.beforeFailure = []; state.afterFailure = []; state.failures = []; state.failedNotifications = 0;
+    state.first = new Error("native input notification"); state.second = new Error("native recovery notification");
+    state.offBefore = state.viewer.subscribe((value) => state.beforeFailure.push(value));
+    state.captureError = (event) => { if (event.error === state.first) { event.preventDefault(); state.failures.push(event.error); } };
+    window.addEventListener("error", state.captureError);
+  });
+  await page.mouse.move(box.x + 20, box.y + 20); await page.mouse.down(); await page.mouse.move(box.x + 60, box.y + 60);
+  await native("通知の失敗前には実ポインターを捕捉し範囲を描く", () => inputTest.canvas.hasPointerCapture(inputTest.pointerId) && inputTest.canvas.getContext("2d").getImageData(0, 0, 400, 400).data.some((value) => value !== 255));
+  await page.evaluate(() => {
+    inputTest.offFailure = inputTest.viewer.on("input", ({ state }) => { inputTest.failedNotifications++; throw state.gesture ? inputTest.first : inputTest.second; });
+    inputTest.offAfter = inputTest.viewer.subscribe((state) => inputTest.afterFailure.push(state));
+  });
+  await page.mouse.move(box.x + 70, box.y + 70);
+  await native("通知の失敗で捕捉を解放し、後始末の例外より元の例外を返す", () => !inputTest.canvas.hasPointerCapture(inputTest.pointerId) && inputTest.failures.length === 1 && inputTest.failures[0] === inputTest.first && inputTest.failedNotifications === 2);
+  await native("通知の失敗後は両方の購読も中断後の状態を持つ", () => {
+    const state = inputTest.viewer.getState();
+    return state.gesture === null && state.measurement === null && inputTest.beforeFailure[inputTest.beforeFailure.length - 1] === state && inputTest.afterFailure[inputTest.afterFailure.length - 1] === state;
+  });
+  await native("通知の失敗後は Canvas の範囲も消す", () => inputTest.canvas.getContext("2d").getImageData(0, 0, 400, 400).data.every((value) => value === 255));
+  await page.mouse.up();
+  await page.evaluate(() => {
+    inputTest.offBefore(); inputTest.offAfter(); inputTest.offFailure(); window.removeEventListener("error", inputTest.captureError);
+    inputTest.viewer.setScene(inputTest.input);
+  });
   for (const reason of ["tool", "cancel", "scene", "options", "detach", "lost", "destroy"]) {
     await page.evaluate(() => { inputTest.viewer.setTool("custom"); inputTest.detach(); inputTest.detach = inputTest.viewer.attachInput(); });
     await page.mouse.move(box.x + 100, box.y + 100); await page.mouse.down();

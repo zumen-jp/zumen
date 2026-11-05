@@ -85,7 +85,7 @@ Canvas の CSS の幅・高さは利用側で指定します。`resize(width, he
 | `getSize()`・`getReport()`・`render()` | 現在の大きさ・報告の取得と、明示的な再描画 |
 | `destroy()` | 画面を消し、シーンと Canvas への参照を解放。繰り返して呼べる。Canvas 自体は利用側に残る |
 
-破棄した後のほかのメソッドは `Error` を返します。`destroy()` は状態の購読も解除し、返した解除関数は破棄後も呼べます。DOM のポインターイベントや非同期の資源は作りません。ポインター操作は [#586](https://github.com/zumen-jp/zumen/issues/586)、React と Worker は [#588](https://github.com/zumen-jp/zumen/issues/588) で扱います。旧版との対応は [機能の比較](../../docs/view2d.md) にあります。
+破棄した後のほかのメソッドは `Error` を返します。DOM の入力は `attachInput` で明示して接続します。`destroy()` は状態の購読・DOM のイベント・ポインターの捕捉を解除し、独自ツールも中断します。返した解除関数は破棄後も呼べます。React と Worker は [#588](https://github.com/zumen-jp/zumen/issues/588) で扱います。旧版との対応は [機能の比較](../../docs/view2d.md) にあります。
 
 ## レイヤと選択
 

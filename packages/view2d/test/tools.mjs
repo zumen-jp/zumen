@@ -222,7 +222,77 @@ export function testTools({ assert, near, throws }) {
     assert(offscreen.getView().center.x === -10 && offscreen.getView().center.y === 20, "OffscreenCanvas へ正規化した入力を渡せる");
     offscreen.destroy();
   }
+  testInputRecovery({ assert });
+  testToolRemoval({ assert, throws });
   testDomInput({ assert, near, throws });
+}
+
+function testInputRecovery({ assert }) {
+  for (const dom of [false, true]) {
+    const canvas = document.createElement("canvas"); canvas.style.cssText = "width:200px;height:200px";
+    document.body.append(canvas);
+    const viewer = new View2D(canvas, { width: 200, height: 200 });
+    const before = [], after = [], reported = [], first = new Error("synthetic input notification"), second = new Error("synthetic recovery notification");
+    let calls = 0;
+    const captureError = (event) => { if (event.error === first) { reported.push(event.error); event.preventDefault(); } };
+    const send = (type, x, y) => {
+      if (!dom) return viewer.handleInput({ type, point: { x, y }, pointerId: 1 });
+      const box = canvas.getBoundingClientRect();
+      canvas.dispatchEvent(new PointerEvent(type, { pointerId: 1, pointerType: "mouse", button: 0, clientX: box.x + x, clientY: box.y + y, bubbles: true, cancelable: true }));
+    };
+    const blank = () => canvas.getContext("2d").getImageData(0, 0, 200, 200).data.every((value) => value === 255);
+    window.addEventListener("error", captureError);
+    try {
+      if (dom) viewer.attachInput();
+      viewer.subscribe((state) => before.push(state));
+      send("pointerdown", 20, 20); send("pointermove", 60, 60);
+      assert(!blank(), "通知の失敗前には選択範囲が見える");
+      const offFailure = viewer.on("input", ({ state }) => { calls++; throw state.gesture ? first : second; });
+      viewer.subscribe((state) => after.push(state));
+      let thrown;
+      try { send("pointermove", 70, 70); } catch (error) { thrown = error; }
+      assert(dom ? reported.length === 1 && reported[0] === first : thrown === first, "中断後の通知も失敗したら元の例外を返す");
+      assert(calls === 2, "失敗後の通知は一度だけで再試行を繰り返さない");
+      const current = viewer.getState();
+      assert(current.gesture === null && current.measurement === null && before[before.length - 1] === current && after[after.length - 1] === current, "失敗する関数の前後の購読側も中断後の状態になる");
+      assert(after.length === 2 && after[0].gesture?.type === "select", "操作中の状態を通知した後に中断を通知する");
+      assert(blank(), "直接入力と DOM 入力のどちらも中断後に選択範囲を消す");
+      offFailure(); const stopped = viewer.getState(); send("pointerup", 70, 70);
+      assert(viewer.getState() === stopped, "失敗した操作の pointerup は状態を更新しない");
+    } finally { viewer.destroy(); window.removeEventListener("error", captureError); canvas.remove(); }
+  }
+}
+
+function testToolRemoval({ assert, throws }) {
+  const viewer = new View2D(document.createElement("canvas"), { width: 200, height: 200 });
+  try {
+    for (const failure of ["cancel", "cleanup", "notification"]) {
+      const error = new Error(`synthetic removal ${failure}`);
+      let context, cancels = 0, cleanups = 0, observed = 0, drawn = 0, latest;
+      const remove = viewer.addTool("remove-error", {
+        onActivate(value) {
+          context = value; value.on("view", () => { observed++; }); value.addOverlay(() => { drawn++; });
+          return () => { cleanups++; if (failure === "cleanup") throw error; };
+        },
+        onInput: () => true,
+        onCancel() { cancels++; if (failure === "cancel") throw error; },
+      });
+      viewer.setTool("remove-error"); viewer.handleInput({ type: "pointerdown", pointerId: 1, point: { x: 30, y: 40 } });
+      const offFailure = viewer.on("tool", () => { if (failure === "notification") throw error; });
+      const offState = viewer.subscribe((state) => { latest = state; });
+      let thrown; try { remove(); } catch (value) { thrown = value; }
+      assert(thrown === error && context.signal.aborted && cancels === 1 && cleanups === 1, `${failure} が失敗しても解除の後始末を終える`);
+      assert(latest === viewer.getState() && latest.tool === "select" && latest.gesture === null, "解除の失敗でも選択ツールへの変更を通知する");
+      offFailure(); offState();
+      throws(() => viewer.setTool("remove-error"), "解除時に例外を投げたツールを選び直せない");
+      const oldObserved = observed, oldDrawn = drawn; viewer.panBy(1, 0);
+      assert(observed === oldObserved && drawn === oldDrawn, "解除したツールの購読と重ね描きを残さない");
+      const removeAgain = viewer.addTool("remove-error", { onInput: () => true });
+      remove(); viewer.setTool("remove-error");
+      assert(viewer.getState().tool === "remove-error" && cancels === 1 && cleanups === 1, "同名で再登録でき、以前の解除関数は再登録したツールを除かない");
+      removeAgain();
+    }
+  } finally { viewer.destroy(); }
 }
 
 function testDomInput({ assert, near, throws }) {

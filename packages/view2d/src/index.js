@@ -246,8 +246,8 @@ export class View2D {
     return () => {
       if (!active || !this.#ctx) return;
       this.#structural();
-      if (this.#tools.name === name) this.setTool("select");
-      this.#tools.definitions.delete(name); active = false;
+      try { if (this.#tools.name === name) this.setTool("select"); }
+      finally { this.#tools.definitions.delete(name); active = false; }
     };
   }
 
@@ -286,18 +286,16 @@ export class View2D {
 
   handleInput(value) {
     this.#mutable(); this.#tools.idle(); const input = normalizeInput(value), before = this.#tools.revision;
-    let handled = false, failed = false, first;
-    try { handled = this.#tools.handle(input); }
-    catch (error) { failed = true; first = error; this.#tools.reset("error"); this.#measurement = null; }
-    if (this.#tools.revision !== before) {
-      try { this.#refresh("input"); }
-      catch (error) {
-        if (!failed) { failed = true; first = error; }
-        this.#tools.reset("error"); this.#measurement = null; this.#snapshot = this.#state();
-      }
+    try {
+      const handled = this.#tools.handle(input);
+      if (this.#tools.revision !== before) this.#refresh("input");
+      return handled;
+    } catch (error) {
+      const cleanup = this.#tools.reset("error"); this.#measurement = null;
+      // 中断後の画面と通知も一度だけ完了する。通知が再び失敗しても、元の例外を返す。
+      try { this.#refresh("input", cleanup); } catch { /* 残りの描画と通知は #refresh が行う。 */ }
+      throw error;
     }
-    if (failed) throw first;
-    return handled;
   }
 
   addOverlay(draw, options = {}) {
