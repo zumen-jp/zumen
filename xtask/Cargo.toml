@@ -18,10 +18,13 @@ zumen-json = { path = "../crates/zumen-json" }
 zumen-profile = { path = "../crates/zumen-profile" }
 # fuzz の種の ZIP を書く（#501）
 zumen-zip = { path = "../crates/zumen-zip" }
+# SVG の fuzz の合成シーンを、生成した列の配置で作る（#602）
+zumen-scene = { path = "../crates/zumen-scene" }
 
 [dev-dependencies]
 # fuzz の合成の格子の種が読めることを確かめる（#501）
 zumen-crs = { path = "../crates/zumen-crs" }
+zumen-render = { path = "../crates/zumen-render" }
 
 [lints.rust]
 unsafe_code = "forbid"

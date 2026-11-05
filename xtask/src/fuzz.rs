@@ -23,6 +23,8 @@ use zumen_json::{Value, Writer};
 use crate::boundary::Boundary;
 use crate::sha256;
 
+mod scene;
+
 /// fuzz の crate のフォルダー
 const DIR: &str = "fuzz";
 /// 形式ではないが、受け取ったバイト列を読む L0 の crate（決定 0008）。target の名前にする
@@ -184,6 +186,7 @@ pub fn seeds(root: &Path) -> Result<(), String> {
         .chain(cases(root)?)
         .chain(attacks()?)
         .chain(grids())
+        .chain(std::iter::once(scene::seed()))
     {
         seeds.insert(sha256::hex(&data), data);
     }

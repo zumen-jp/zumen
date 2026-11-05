@@ -3573,6 +3573,79 @@ pub const PROFILE_VOCABULARY_INVALID: Code = Code::new(
     &[],
 );
 
+/// 未解決の色を明示された前景の色にした
+///
+/// `render.color.assumed`（0.2.0 から）
+pub const RENDER_COLOR_ASSUMED: Code = Code::new(
+    "render.color.assumed",
+    Severity::Warning,
+    Some(Fidelity::Approximated),
+    &[Param::new("unit", ParamType::UInt)],
+    &["unit"],
+);
+
+/// 外部画像・アンダーレイの参照は解決せず描かなかった
+///
+/// `render.image.dropped`（0.2.0 から）
+pub const RENDER_IMAGE_DROPPED: Code = Code::new(
+    "render.image.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("unit", ParamType::UInt)],
+    &["unit"],
+);
+
+/// 名前で指定された点記号は解決せず描かなかった
+///
+/// `render.marker.dropped`（0.2.0 から）
+pub const RENDER_MARKER_DROPPED: Code = Code::new(
+    "render.marker.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("unit", ParamType::UInt)],
+    &["unit"],
+);
+
+/// SVG の出力のメモリを確保できない
+///
+/// `render.memory.exceeded`（0.2.0 から）
+pub const RENDER_MEMORY_EXCEEDED: Code =
+    Code::new("render.memory.exceeded", Severity::Error, None, &[], &[]);
+
+/// 設定か座標変換の計算が正の有限の範囲に収まらない
+///
+/// `render.options.invalid`（0.2.0 から）
+pub const RENDER_OPTIONS_INVALID: Code =
+    Code::new("render.options.invalid", Severity::Error, None, &[], &[]);
+
+/// シーンの列・参照・数値が契約に合わない
+///
+/// `render.scene.invalid`（0.2.0 から）
+pub const RENDER_SCENE_INVALID: Code =
+    Code::new("render.scene.invalid", Severity::Error, None, &[], &[]);
+
+/// シーンの知らない空でないセクションを描画に使わなかった
+///
+/// `render.section.dropped`（0.2.0 から）
+pub const RENDER_SECTION_DROPPED: Code = Code::new(
+    "render.section.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("section", ParamType::UInt)],
+    &["section"],
+);
+
+/// シーンの文字に字形の輪郭がないので描かなかった
+///
+/// `render.text.dropped`（0.2.0 から）
+pub const RENDER_TEXT_DROPPED: Code = Code::new(
+    "render.text.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("unit", ParamType::UInt)],
+    &["unit"],
+);
+
 /// 指摘の文書の JSON の形が合わない。pointer は合わなかったフィールドの JSON Pointer か、構文の誤りのバイト位置
 ///
 /// `review.file.invalid`（0.2.0 から）
@@ -4639,6 +4712,14 @@ pub const ALL: &[Code] = &[
     PROFILE_TEXT_HEIGHT_INVALID,
     PROFILE_TEXT_HEIGHT_UNSUPPORTED,
     PROFILE_VOCABULARY_INVALID,
+    RENDER_COLOR_ASSUMED,
+    RENDER_IMAGE_DROPPED,
+    RENDER_MARKER_DROPPED,
+    RENDER_MEMORY_EXCEEDED,
+    RENDER_OPTIONS_INVALID,
+    RENDER_SCENE_INVALID,
+    RENDER_SECTION_DROPPED,
+    RENDER_TEXT_DROPPED,
     REVIEW_FILE_INVALID,
     REVIEW_FORMAT_UNSUPPORTED,
     REVIEW_ID_EXISTS,
