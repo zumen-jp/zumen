@@ -304,4 +304,5 @@
 - [0267: 2D の表示部品はシーンの列を Canvas 2D で描き、React と画面を別に置く](0267-view2d-on-scene-columns.md)（2026-11-06、採用）
 - [0268: 全体版と分割版の wasm を同じ npm パッケージと Release に入れ、ブラウザー向けに静的な URL の一覧を出す](0268-distribute-wasm-modules.md)（2026-11-06、採用）
 - [0269: 依存のライセンス本文を crate・target ごとに作り、wheel・NuGet・CLI・ネイティブの配布物に入れる](0269-license-texts-per-artifact.md)（2026-11-06、採用）
+- [0270: PDF の内容とフォームも展開量を先に数え、連結と走査用の写しを確保前に数える](0270-pdf-content-preflight.md)（2026-11-06、採用）
 - [0272: SVG はシーンの列から書き、文字は字形の輪郭にする](0272-scene-svg-rendering.md)（2026-11-06、採用）
