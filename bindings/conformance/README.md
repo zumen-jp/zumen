@@ -53,6 +53,21 @@ cargo run -p zumen-conformance -- --write
 
 ## テストの組の書き方
 
+### 合成フォント
+
+`cases/scene_fonts_cff.json` は、CFF・CFF2 と、両方を含むフォントのコレクション（TTC）の合成の入力です（#564）。実在のフォントは使わず、次のコマンドで組み立てます。`--check` は、作り直した組が記録した JSON と同じかを確かめます。
+
+```bash
+node bindings/conformance/generate-font-cases.mjs
+node bindings/conformance/generate-font-cases.mjs --check
+```
+
+`H` は長方形で、CFF の幅は 400、CFF2 の幅は 700 です。`g` は局所と全体の副ルーチンを呼び、3 次 Bézier 曲線を描きます。`font_outlines.rs` はシーンの頂点を調べ、長方形の幅と曲線の最大値が合うこと、単独のフォントと TTC の番号 0・1 の結果がそれぞれ一致することを確かめます。ネイティブと wasm は、応答とシーンのハッシュを比較します。
+
+入力のバイト列は組の `push.hex` に置くので、`cargo xtask fuzz-seeds` で全 target の種になります。組を変えたときは、上の手順でハッシュの一覧も作り直してください。
+
+### 手順と期待値
+
 `cases/<名前>.json` に 1 件ずつ置きます。名前の順に流し、組ごとに新しい形（セッション）で始めます。入力はテストの中で作る合成のものか、`samples/` の公開サンプル（[決定 0171](../../docs/decisions/0171-public-samples-in-git.md)）にし、受け取った図面は使いません。
 
 ```json
