@@ -216,6 +216,11 @@ public final class Messages {
         public LiftRequest asLiftRequest() {
             return "lift".equals(json.get("op")) ? new LiftRequest(json) : null;
         }
+
+        /** op が render の形なら、そのビュー。違えば null */
+        public RenderRequest asRenderRequest() {
+            return "render".equals(json.get("op")) ? new RenderRequest(json) : null;
+        }
     }
 
     /** どの op の要求にも置けるフィールド */
@@ -1579,7 +1584,7 @@ public final class Messages {
 
     /**
      * 実寸の単位
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class Unit {
@@ -2004,7 +2009,7 @@ public final class Messages {
 
     /**
      * entities で返す要素のフィールド（決定 0118）
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class EntityField {
@@ -2556,7 +2561,7 @@ public final class Messages {
 
     /**
      * 2 点の間への合わせ方。aligned は縦横の比を保って高さも変え、fit は高さを保って幅だけを変える
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class TextFit {
@@ -3444,7 +3449,7 @@ public final class Messages {
 
     /**
      * 引出線つきの注記の線の引き方。straight は折れ線、spline は頂点を通る曲線、hidden は線を描かない
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class CalloutPath {
@@ -3459,7 +3464,7 @@ public final class Messages {
 
     /**
      * 引出線つきの注記の中身の種類。none は注記を持たず、text は書式つきの文字、symbol は記号（バルーンなどの囲み）
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class CalloutContent {
@@ -3601,7 +3606,7 @@ public final class Messages {
 
     /**
      * 寸法の種類。linear は 2 点を測る向きに、aligned は 2 点を結ぶ向きに測った長さ。angular は頂点から 2 点へ向かう線の、angular_lines は 2 本の線のなす角度。arc_length は円弧の長さ。radius は半径、diameter は直径。ordinate は原点からの X か Y の座標
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class DimensionKind {
@@ -3626,7 +3631,7 @@ public final class Messages {
 
     /**
      * 座標の軸
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class DimensionAxis {
@@ -3639,7 +3644,7 @@ public final class Messages {
 
     /**
      * 寸法値の文字の書き方。measurement は測定値を書き、override は利用者が書いた文字（content）を書き、hidden は書かない
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class DimensionLabel {
@@ -3855,7 +3860,7 @@ public final class Messages {
 
     /**
      * 基点に合わせる枠の位置。entities は返し、足すときに書かなければ左上、置き換えるときに書かなければ元のまま
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class Attachment {
@@ -3882,7 +3887,7 @@ public final class Messages {
 
     /**
      * 要素の形の種類（決定 0022）。point（点、決定 0160）はマイナーバージョン 32 から。それまで点は symbol だった
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class EntityKind {
@@ -5912,7 +5917,7 @@ public final class Messages {
 
     /**
      * 文書の点の基本の形。dot は小さな点、none はなし、plus は十字、cross はバツ、tick は上向きの短い線
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class PointMark {
@@ -5931,7 +5936,7 @@ public final class Messages {
 
     /**
      * 文書の点の大きさの意味。length は点のある空間の長さ、screen は画面の高さに対する百分率
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class PointSizeKind {
@@ -6063,7 +6068,7 @@ public final class Messages {
 
     /**
      * 値を継承する先。layer はレイヤから、block は要素を置いた記号の配置から
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class Inherit {
@@ -6597,6 +6602,375 @@ public final class Messages {
         }
     }
 
+    /** 開いた文書を scene と同じ起点・配置・フォントで 2D のシーンにし、画像を blob で返す（決定 0272・0275）。SVG は字形の輪郭だけを描き、字形のない空でない文字・外部画像・名前付きの点記号は元の ID と unit を診断して描かない。シーン生成と描画で同じ予算と中断の合図を使い、失敗では画像を返さない。マイナーバージョン 64 から */
+    public static final class RenderRequest extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public RenderRequest(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static RenderRequest of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new RenderRequest(json);
+        }
+
+        /** タグのフィールドだけを持つオブジェクトから作る */
+        public RenderRequest() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("op", "render");
+        }
+
+        /** メッセージのスキーマのメジャーバージョン。今は 1 */
+        public Long getV() {
+            return Json.read(json.get("v"), Json::integer);
+        }
+
+        /** {@link #getV()} を書く。null ならフィールドを除く */
+        public RenderRequest withV(Long value) {
+            put("v", value);
+            return this;
+        }
+
+        /** 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010） */
+        public Budget getBudget() {
+            return Json.read(json.get("budget"), Budget::of);
+        }
+
+        /** {@link #getBudget()} を書く。null ならフィールドを除く */
+        public RenderRequest withBudget(Budget value) {
+            put("budget", value);
+            return this;
+        }
+
+        /** 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010） */
+        public Boolean getPartial() {
+            return Json.read(json.get("partial"), Json::bool);
+        }
+
+        /** {@link #getPartial()} を書く。null ならフィールドを除く */
+        public RenderRequest withPartial(Boolean value) {
+            put("partial", value);
+            return this;
+        }
+
+        /** 診断ごとに返す場所の数。書かなければ 16（決定 0009） */
+        public Long getMaxPlaces() {
+            return Json.read(json.get("max_places"), Json::integer);
+        }
+
+        /** {@link #getMaxPlaces()} を書く。null ならフィールドを除く */
+        public RenderRequest withMaxPlaces(Long value) {
+            put("max_places", value);
+            return this;
+        }
+
+        /** 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        public Long getTimeLimitMs() {
+            return Json.read(json.get("time_limit_ms"), Json::integer);
+        }
+
+        /** {@link #getTimeLimitMs()} を書く。null ならフィールドを除く */
+        public RenderRequest withTimeLimitMs(Long value) {
+            put("time_limit_ms", value);
+            return this;
+        }
+
+        /** op の名前 */
+        public String getOp() {
+            return Json.read(json.get("op"), Json::string);
+        }
+
+        /** {@link #getOp()} を書く。null ならフィールドを除く */
+        public RenderRequest withOp(String value) {
+            put("op", value);
+            return this;
+        }
+
+        /** 文書の名前。open で作ったもの */
+        public String getDoc() {
+            return Json.read(json.get("doc"), Json::string);
+        }
+
+        /** {@link #getDoc()} を書く。null ならフィールドを除く */
+        public RenderRequest withDoc(String value) {
+            put("doc", value);
+            return this;
+        }
+
+        /** scene と同じ起点。実寸の空間・記号の定義の空間・用紙の ID */
+        public String getFrom() {
+            return Json.read(json.get("from"), Json::string);
+        }
+
+        /** {@link #getFrom()} を書く。null ならフィールドを除く */
+        public RenderRequest withFrom(String value) {
+            put("from", value);
+            return this;
+        }
+
+        /** 起点の用紙のビューの番号。0 から数える。from が用紙のときだけ書ける。scene と同じ意味 */
+        public Long getView() {
+            return Json.read(json.get("view"), Json::integer);
+        }
+
+        /** {@link #getView()} を書く。null ならフィールドを除く */
+        public RenderRequest withView(Long value) {
+            put("view", value);
+            return this;
+        }
+
+        /** 画像の出力形式 */
+        public String getFormat() {
+            return Json.read(json.get("format"), Json::string);
+        }
+
+        /** {@link #getFormat()} を書く。null ならフィールドを除く */
+        public RenderRequest withFormat(String value) {
+            put("format", value);
+            return this;
+        }
+
+        /** 出力の幅（ピクセル） */
+        public Long getWidth() {
+            return Json.read(json.get("width"), Json::integer);
+        }
+
+        /** {@link #getWidth()} を書く。null ならフィールドを除く */
+        public RenderRequest withWidth(Long value) {
+            put("width", value);
+            return this;
+        }
+
+        /** 出力の高さ（ピクセル） */
+        public Long getHeight() {
+            return Json.read(json.get("height"), Json::integer);
+        }
+
+        /** {@link #getHeight()} を書く。null ならフィールドを除く */
+        public RenderRequest withHeight(Long value) {
+            put("height", value);
+            return this;
+        }
+
+        /** [x の最小, y の最小, x の最大, y の最大]。起点の座標で、幅と高さが正の有限値になる範囲を明示する。scene の範囲の絞り込みにも使い、縦横同率で中央に収めて範囲外を切る。縦横比の違いによる余白は背景色にする */
+        public List<Double> getRegion() {
+            return Json.read(json.get("region"), v0 -> Json.list(v0, Json::number));
+        }
+
+        /** {@link #getRegion()} を書く。null ならフィールドを除く */
+        public RenderRequest withRegion(List<Double> value) {
+            put("region", value);
+            return this;
+        }
+
+        /** 用紙 mm の線幅をピクセルへ直す DPI。正の有限値。座標の単位を mm と推測しない。線幅 0 は 1 ピクセル */
+        public Double getDpi() {
+            return Json.read(json.get("dpi"), Json::number);
+        }
+
+        /** {@link #getDpi()} を書く。null ならフィールドを除く */
+        public RenderRequest withDpi(Double value) {
+            put("dpi", value);
+            return this;
+        }
+
+        /** 背景の sRGB と alpha。[r, g, b, a] の 4 値を 0〜255 で明示する */
+        public List<Long> getBackground() {
+            return Json.read(json.get("background"), v0 -> Json.list(v0, Json::integer));
+        }
+
+        /** {@link #getBackground()} を書く。null ならフィールドを除く */
+        public RenderRequest withBackground(List<Long> value) {
+            put("background", value);
+            return this;
+        }
+
+        /** ACI 7 と未解決の色に使う sRGB と alpha。[r, g, b, a] の 4 値を 0〜255 で明示する。未解決の色は診断する */
+        public List<Long> getForeground() {
+            return Json.read(json.get("foreground"), v0 -> Json.list(v0, Json::integer));
+        }
+
+        /** {@link #getForeground()} を書く。null ならフィールドを除く */
+        public RenderRequest withForeground(List<Long> value) {
+            put("foreground", value);
+            return this;
+        }
+
+        /** scene と同じ弦の誤差（起点の長さ）。0 より大きい。書かなければ用紙は 0.02 mm、空間は要素の範囲の対角線の 1/50000 */
+        public Double getTolerance() {
+            return Json.read(json.get("tolerance"), Json::number);
+        }
+
+        /** {@link #getTolerance()} を書く。null ならフィールドを除く */
+        public RenderRequest withTolerance(Double value) {
+            put("tolerance", value);
+            return this;
+        }
+
+        /** scene と同じ指定。true は印刷する要素、書かないか false は表示する要素を描く */
+        public Boolean getPrint() {
+            return Json.read(json.get("print"), Json::bool);
+        }
+
+        /** {@link #getPrint()} を書く。null ならフィールドを除く */
+        public RenderRequest withPrint(Boolean value) {
+            put("print", value);
+            return this;
+        }
+
+        /** scene と同じ色の表の入力の名前。zm_push で渡した JSON の values に rgb と aci・sxf・jww の符号を並べる */
+        public String getPalette() {
+            return Json.read(json.get("palette"), Json::string);
+        }
+
+        /** {@link #getPalette()} を書く。null ならフィールドを除く */
+        public RenderRequest withPalette(String value) {
+            put("palette", value);
+            return this;
+        }
+
+        /** scene と同じフォントの指定。名前を合わせ、なければ名前のないフォントを使う。字形の輪郭を作るため、zm_push でフォントのバイト列を渡す。OS のフォントは探索しない */
+        public List<SceneFont> getFonts() {
+            return Json.read(json.get("fonts"), v0 -> Json.list(v0, SceneFont::of));
+        }
+
+        /** {@link #getFonts()} を書く。null ならフィールドを除く */
+        public RenderRequest withFonts(List<SceneFont> value) {
+            put("fonts", value);
+            return this;
+        }
+
+        /** scene と同じ宣言値の高さの意味。fonts を書いたときだけ使う。書かないキーは既定の意味に従う（決定 0176・0188） */
+        public Map<String, String> getHeights() {
+            return Json.read(json.get("heights"), v0 -> Json.map(v0, Json::string));
+        }
+
+        /** {@link #getHeights()} を書く。null ならフィールドを除く */
+        public RenderRequest withHeights(Map<String, String> value) {
+            put("heights", value);
+            return this;
+        }
+    }
+
+    /**
+     * 画像の出力形式。svg は SVG 1.1（image/svg+xml）
+     *
+     * 列挙の値。知らない値も受け取る
+     */
+    public static final class RenderFormat {
+        private RenderFormat() {}
+
+        public static final String SVG = "svg";
+    }
+
+    /** 画像の形式・サイズと、シーンの起点・単位・許容差、画像の blob の番号 */
+    public static final class RenderResult extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public RenderResult(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static RenderResult of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new RenderResult(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public RenderResult() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 画像の出力形式 */
+        public String getFormat() {
+            return Json.read(json.get("format"), Json::string);
+        }
+
+        /** {@link #getFormat()} を書く。null ならフィールドを除く */
+        public RenderResult withFormat(String value) {
+            put("format", value);
+            return this;
+        }
+
+        /** 出力の幅（ピクセル） */
+        public Long getWidth() {
+            return Json.read(json.get("width"), Json::integer);
+        }
+
+        /** {@link #getWidth()} を書く。null ならフィールドを除く */
+        public RenderResult withWidth(Long value) {
+            put("width", value);
+            return this;
+        }
+
+        /** 出力の高さ（ピクセル） */
+        public Long getHeight() {
+            return Json.read(json.get("height"), Json::integer);
+        }
+
+        /** {@link #getHeight()} を書く。null ならフィールドを除く */
+        public RenderResult withHeight(Long value) {
+            put("height", value);
+            return this;
+        }
+
+        /** シーンの起点の ID */
+        public String getFrom() {
+            return Json.read(json.get("from"), Json::string);
+        }
+
+        /** {@link #getFrom()} を書く。null ならフィールドを除く */
+        public RenderResult withFrom(String value) {
+            put("from", value);
+            return this;
+        }
+
+        /** 起点のビューの番号。ビューでなければ持たない */
+        public Long getView() {
+            return Json.read(json.get("view"), Json::integer);
+        }
+
+        /** {@link #getView()} を書く。null ならフィールドを除く */
+        public RenderResult withView(Long value) {
+            put("view", value);
+            return this;
+        }
+
+        /** 起点の座標の単位。用紙とビューからは millimeter */
+        public String getUnit() {
+            return Json.read(json.get("unit"), Json::string);
+        }
+
+        /** {@link #getUnit()} を書く。null ならフィールドを除く */
+        public RenderResult withUnit(String value) {
+            put("unit", value);
+            return this;
+        }
+
+        /** シーンで使った弦の誤差（起点の長さ） */
+        public Double getTolerance() {
+            return Json.read(json.get("tolerance"), Json::number);
+        }
+
+        /** {@link #getTolerance()} を書く。null ならフィールドを除く */
+        public RenderResult withTolerance(Double value) {
+            put("tolerance", value);
+            return this;
+        }
+
+        /** 画像の blob の番号（種類は image）。zm_take で取り出す */
+        public Long getBlob() {
+            return Json.read(json.get("blob"), Json::integer);
+        }
+
+        /** {@link #getBlob()} を書く。null ならフィールドを除く */
+        public RenderResult withBlob(Long value) {
+            put("blob", value);
+            return this;
+        }
+    }
+
     /** シーンの文字を置くフォント（決定 0188） */
     public static final class SceneFont extends Message {
         /** 読んだ JSON のオブジェクトを包む */
@@ -6651,7 +7025,7 @@ public final class Messages {
 
     /**
      * 宣言された高さが当たるフォントの寸法。cap_height は大文字の高さ、em は em、frame はアセンダーとディセンダーを合わせた高さ、capital_a は A の字形の外形の上（A がなければ大文字の高さ。マイナーバージョン 59 から）
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class HeightReference {
@@ -7831,7 +8205,7 @@ public final class Messages {
 
     /**
      * 移したときの状態（決定 0214）。unchanged は要素のハッシュが同じ、changed は違うか元のハッシュがない、removed は新しいバージョンに要素がない
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class CarriedState {
@@ -8532,7 +8906,7 @@ public final class Messages {
 
     /**
      * building_elements で返すコンポーネント（決定 0207）。relations は索引から求める子・参照・型の実例・開口・埋める要素・構成員
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class BuildingComponent {
@@ -10035,7 +10409,7 @@ public final class Messages {
 
     /**
      * 親との関係の種類。集約・入れ子・包含
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class ParentKind {
@@ -10050,7 +10424,7 @@ public final class Messages {
 
     /**
      * 値の種類
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class BuildingValueKind {
@@ -10075,7 +10449,7 @@ public final class Messages {
 
     /**
      * 数量の種類
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class QuantityKind {
@@ -10096,7 +10470,7 @@ public final class Messages {
 
     /**
      * 材料の組み方。単一・層・断面・構成・一覧
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class MaterialKind {
@@ -10115,7 +10489,7 @@ public final class Messages {
 
     /**
      * 仕様の結果。unknown は確かめられない facet があった
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class IdsStatus {
@@ -10434,7 +10808,7 @@ public final class Messages {
 
     /**
      * 変えられる IfcRoot の属性。name は Name、description は Description
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class BuildingAttribute {
@@ -11279,7 +11653,7 @@ public final class Messages {
 
     /**
      * 指摘の状態（決定 0214）
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class ReviewStatus {
@@ -12107,7 +12481,7 @@ public final class Messages {
 
     /**
      * 線種に添えるものの種類。shape は形のファイルの形、text は文字
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class LineTypeMarkKind {
@@ -12120,7 +12494,7 @@ public final class Messages {
 
     /**
      * 回転の基準。relative は線の向きから、absolute は文書の x 軸から測る。upright は線の向きから測り、文字が逆さに見えるなら半回転する
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class MarkRotation {
@@ -12371,7 +12745,7 @@ public final class Messages {
 
     /**
      * フォントの種類。shape は形のファイル（SHX など）、named は名前で指すフォント（TrueType など）
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class FontKind {
@@ -12604,7 +12978,7 @@ public final class Messages {
 
     /**
      * 診断の重さ（決定 0009）。info は何も失っていない、warning は結果を使える、error は失敗した
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class Severity {
@@ -12619,7 +12993,7 @@ public final class Messages {
 
     /**
      * 変換の結果の段のうち、`native` 以外のもの（決定 0009）
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class Fidelity {
@@ -12822,7 +13196,7 @@ public final class Messages {
 
     /**
      * バイナリの結果の種類。file は書き出したファイル、image は描いた画像、scene は 2D のシーン（schema/scene.toml の配置、決定 0137・0172）、arrow は表（Arrow の IPC ストリーム。ネイティブでは zm_take_arrow でも取り出せる）、drawing は図面モデルのバイナリ（schema/drawing.toml の配置、決定 0247。マイナーバージョン 60 から）
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class BlobKind {
@@ -12893,7 +13267,7 @@ public final class Messages {
 
     /**
      * 実行の形態（決定 0013）。`native` はプロセスの中でコアを動かす、`process` は子プロセスの CLI に送る、`wasm` は wasm のモジュールで動かす
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class Engine {
@@ -13359,7 +13733,7 @@ public final class Messages {
 
     /**
      * 平面線形の区間の種類。直線・円弧・緩和曲線
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class CivilHorizontalKind {
@@ -13374,7 +13748,7 @@ public final class Messages {
 
     /**
      * 緩和曲線の種類。クロソイド・3 次放物線・サイン半波長逓減曲線・コサイン曲線・ブロス曲線・ヘルマート曲線・ウィーン曲線
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class CivilTransitionCurve {
@@ -13397,7 +13771,7 @@ public final class Messages {
 
     /**
      * 縦断線形の区間の種類。一定の勾配・2 次放物線・円弧
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class CivilVerticalKind {
@@ -14919,7 +15293,7 @@ public final class Messages {
 
     /**
      * 表の形式
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class SheetFormat {
@@ -14932,7 +15306,7 @@ public final class Messages {
 
     /**
      * CSV の文字コード。shift_jis は Windows の拡張を含む
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class SheetEncoding {
@@ -14945,7 +15319,7 @@ public final class Messages {
 
     /**
      * CSV の区切りの字。comma は「,」、tab はタブ、semicolon は「;」
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class SheetDelimiter {
@@ -15160,7 +15534,7 @@ public final class Messages {
 
     /**
      * セルの値の種類。CSV の値はすべて text
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class SheetCellKind {
@@ -15628,7 +16002,7 @@ public final class Messages {
 
     /**
      * 測地系。tokyo は日本測地系（コード 00）、jgd2000・jgd2011・jgd2024 は世界測地系（コード 01〜03）
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class BoringDatum {
@@ -15697,7 +16071,7 @@ public final class Messages {
 
     /**
      * 高さの基準（決定 0019）。tokyo_bay は東京湾平均海面（T.P.）、island は離島の独自の平均海面、ellipsoid は楕円体（GRS80）
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class HeightDatum {
@@ -15712,7 +16086,7 @@ public final class Messages {
 
     /**
      * 標高の成果（決定 0019）。survey_2011 は測地成果2011（2025-03-31 まで）、survey_2024 は測地成果2024（2025-04-01 から）
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class HeightRealization {
@@ -16474,7 +16848,7 @@ public final class Messages {
 
     /**
      * 属性の値の型
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class GeoValueKind {
@@ -16497,7 +16871,7 @@ public final class Messages {
 
     /**
      * 形の種類
-     * 
+     *
      * 列挙の値。知らない値も受け取る
      */
     public static final class GeoForm {
@@ -17635,5 +18009,7 @@ public final class Messages {
         public static final String BUILDING_APPLY = "building_apply";
 
         public static final String LIFT = "lift";
+
+        public static final String RENDER = "render";
     }
 }
