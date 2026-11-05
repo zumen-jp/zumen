@@ -305,3 +305,4 @@
 - [0268: 全体版と分割版の wasm を同じ npm パッケージと Release に入れ、ブラウザー向けに静的な URL の一覧を出す](0268-distribute-wasm-modules.md)（2026-11-06、採用）
 - [0269: 依存のライセンス本文を crate・target ごとに作り、wheel・NuGet・CLI・ネイティブの配布物に入れる](0269-license-texts-per-artifact.md)（2026-11-06、採用）
 - [0270: PDF の内容とフォームも展開量を先に数え、連結と走査用の写しを確保前に数える](0270-pdf-content-preflight.md)（2026-11-06、採用）
+- [0274: 表示部品の選択は ID と配置の道筋で区別し、シーンの差し替えで消し、状態の購読は表示部品に結ぶ](0274-view2d-selection-and-state.md)（2026-11-06、採用）

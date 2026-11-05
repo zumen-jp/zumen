@@ -1,5 +1,5 @@
 import type { Scene, SceneResult } from "@zumen-jp/zumen";
-import { View2D, type Camera, type RenderIssue } from "../src/index.js";
+import { View2D, type Camera, type RenderIssue, type View2DState, type View2DEvent } from "../src/index.js";
 
 declare const scene: Scene;
 declare const result: SceneResult;
@@ -15,6 +15,16 @@ viewer.panBy(20, 30);
 viewer.jumpTo(view);
 viewer.toScene(viewer.toScreen({ x: 1, y: 2 }));
 viewer.resize(600, 400);
+const state: View2DState = viewer.getState();
+const unsubscribe = viewer.subscribe((next) => { const same: View2DState = next; void same; });
+const off = viewer.on("selection", (event) => { const same: View2DEvent = event; void same; });
+viewer.setHiddenLayers(viewer.getLayers());
+viewer.setLayersVisible(viewer.getLayers(), true);
+const refs = viewer.hitTest({ x: 100, y: 80 }, 4);
+viewer.select(refs, "toggle");
+viewer.setHovered(refs[0] ?? null);
+viewer.setHighlight("search", viewer.hitTestRect({ min_x: 0, min_y: 0, max_x: 200, max_y: 100 }), "#ff0000");
+unsubscribe(); off();
 viewer.setScene(null);
 viewer.destroy();
 new View2D(new OffscreenCanvas(300, 200));
@@ -27,3 +37,9 @@ view.center.x = 1;
 viewer.getScene()!.result.counts.lines = 1;
 // @ts-expect-error 未定義のフォントの取得を指定しない
 new View2D(canvas, { fallbackFont: "https://example.com/font.ttf" });
+// @ts-expect-error 状態の選択を直接変更しない
+state.selection.push({ id: "space/0/h1", path: [] });
+// @ts-expect-error 配置の格子の列・行を省かない
+viewer.select([{ id: "space/1/h1", path: [{ id: "space/0/h2" }] }]);
+// @ts-expect-error 未定義の種類を購読しない
+viewer.on("pointer", () => {});

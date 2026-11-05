@@ -2,6 +2,8 @@ import { load, readScene, SCENE_NONE, SCENE_VALUES as V } from "@zumen-jp/zumen"
 import { View2D } from "../src/index.js";
 import { bundle, fixture } from "./fixtures.mjs";
 import { testFallbackText } from "./fallback.mjs";
+import { testPlacedSelection, testState } from "./state.mjs";
+import { testHit } from "./hit.mjs";
 
 export async function testView2D(wasmPath, inputs) {
   let assertions = 0;
@@ -9,6 +11,8 @@ export async function testView2D(wasmPath, inputs) {
   const near = (a, b, message, tolerance = 1e-8) => assert(Math.abs(a - b) <= tolerance, `${message}: ${a} / ${b}`);
   const throws = (fn, message) => { let caught = false; try { fn(); } catch (error) { caught = error instanceof RangeError || error instanceof Error; } assert(caught, message); };
   testFallbackText({ assert, near });
+  testState({ assert, throws });
+  testHit({ assert, near });
   const canvas = document.createElement("canvas");
   document.body.append(canvas);
   const viewer = new View2D(canvas, { width: 200, height: 200, pixelRatio: 2, foreground: "#123456", pixelsPerMillimeter: 2 });
@@ -154,6 +158,7 @@ export async function testView2D(wasmPath, inputs) {
 
   // 実際の wasm の読み取りと scene の応答を、そのまま受け取る。
   const zumen = await load(fetch(wasmPath));
+  testPlacedSelection(zumen, { assert, throws });
   const formats = [];
   for (const source of inputs) {
     const session = zumen.open();
