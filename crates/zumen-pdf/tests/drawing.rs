@@ -3882,6 +3882,131 @@ fn counts_the_dictionaries_of_object_streams_before_reading_them() {
 }
 
 #[test]
+fn bounds_flate_object_streams_before_allocating_the_whole_output() {
+    use std::io::Write;
+    use zumen_base::{Kind, Limit, Limits, Stop};
+
+    // 2 MiB だけを作り、小さい予算で確かめる。大きなメモリを使わずに、以前の展開後の確認と区別できる
+    let mut plain = b"30 0 null ".to_vec();
+    plain.resize(2 * 1024 * 1024, b' ');
+    let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::best());
+    encoder.write_all(&plain).unwrap();
+    let compressed = encoder.finish().unwrap();
+    assert!(compressed.len() < 4096);
+    for filter in [
+        "/Filter /FlateDecode",
+        "/F /Fl",
+        "/Filter [/FlateDecode]",
+        "/Filter [/Unknown /FlateDecode]",
+        "/Filter /FlateDecode /DecodeParms << /Predictor 12 /Columns 1 >>",
+    ] {
+        for fields in [
+            "/N 1 /First 5",
+            "/N 0 /First 0",
+            "/N -1 /First 0",
+            "/N /Bad /First 0",
+        ] {
+            let mut document = Document::new(vec![Page::new("0 0 m 10 10 l S")]);
+            document.objects = vec![common::stream(
+                &format!("/Type /ObjStm {fields} {filter}"),
+                &compressed,
+            )];
+            let file = testkit::read::<Pdf>(&document.bytes()).0.unwrap();
+            let run = || {
+                let limits = Limits::default().with(Kind::DecodedBytes, Limit::Finite(32 * 1024));
+                let mut budget = Budget::new(limits);
+                let mut diagnostics = Diagnostics::new();
+                let cancel = CancelToken::new();
+                let result = file.lift(&mut Cx::new(&mut budget, &mut diagnostics, &cancel));
+                assert!(
+                    matches!(result,
+                    Err(Error::Stopped(Stop::Exceeded(e)))
+                        if e.kind == Kind::DecodedBytes && e.requested < 48 * 1024),
+                    "{fields} {filter}: {result:?}"
+                );
+                let diagnostics = diagnostics.into_vec();
+                assert_eq!(diagnostics[0].code(), codes::BUDGET_DECODED_BYTES_EXCEEDED);
+                format!("{result:?} {budget:?} {diagnostics:?}")
+            };
+            assert_eq!(run(), run());
+        }
+    }
+}
+
+#[test]
+fn bounds_flate_object_streams_after_a_leading_crypt_filter() {
+    use std::io::Write;
+    use zumen_base::{Kind, Limit, Limits, Stop};
+
+    let mut plain = b"30 0 null ".to_vec();
+    plain.resize(64 * 1024, b' ');
+    let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::best());
+    encoder.write_all(&plain).unwrap();
+    let compressed = encoder.finish().unwrap();
+    for filter in [
+        "/Filter /FlateDecode",
+        "/Filter [/Crypt /FlateDecode]",
+        "/F [/Crypt /Fl] /DP [<< /Name /Identity >> null]",
+        "/Filter [/Unknown /Crypt /FlateDecode]",
+    ] {
+        let mut document = Document::new(vec![Page::new("0 0 m 10 10 l S")]);
+        document.objects = vec![common::stream(
+            &format!("/Type /ObjStm /N 1 /First 5 {filter}"),
+            &compressed,
+        )];
+        let file = testkit::read::<Pdf>(&document.bytes()).0.unwrap();
+        let mut budget =
+            Budget::new(Limits::default().with(Kind::DecodedBytes, Limit::Finite(4 * 1024)));
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let result = file.lift(&mut Cx::new(&mut budget, &mut diagnostics, &cancel));
+        // 全量の 64 KiB を展開した後ではなく、固定長のバッファーの 1 回目で止まる
+        assert!(
+            matches!(result, Err(Error::Stopped(Stop::Exceeded(e)))
+            if e.kind == Kind::DecodedBytes && e.requested < 16 * 1024),
+            "{filter}: {result:?}"
+        );
+    }
+}
+
+#[test]
+fn keeps_flate_object_stream_contents_with_damage_and_predictors() {
+    let plain = b"30 0 null ";
+    let good = common::zlib(plain);
+    let mut wrong = good.clone();
+    *wrong.last_mut().unwrap() ^= 0xff;
+    let mut predictor = vec![0];
+    predictor.extend(plain);
+    for (filter, data) in [
+        ("/Filter /FlateDecode", good.clone()),
+        ("/Filter [/Crypt /FlateDecode]", good.clone()),
+        (
+            "/F [/Crypt /Fl] /DP [<< /Name /Identity >> null]",
+            good.clone(),
+        ),
+        ("/F /Fl", good[2..good.len() - 4].to_vec()),
+        ("/Filter /FlateDecode", wrong),
+        ("/Filter /FlateDecode", good[..good.len() - 4].to_vec()),
+        ("/Filter /FlateDecode", good[..good.len() - 7].to_vec()),
+        (
+            "/Filter [/FlateDecode] /DecodeParms [<< /Predictor 12 /Columns 10 >>]",
+            common::zlib(&predictor),
+        ),
+    ] {
+        let mut document = Document::new(vec![Page::new("0 0 m 10 10 l S")]);
+        document.objects = vec![common::stream(
+            &format!("/Type /ObjStm /N 1 /First 5 {filter}"),
+            data,
+        )];
+        let source = document.bytes();
+        let (drawing, diagnostics) = lift(&source);
+        assert_eq!(elements(&drawing).len(), 1, "{filter}");
+        assert!(diagnostics.is_empty(), "{filter}: {diagnostics:?}");
+        assert_eq!(drawing, lift(&source).0);
+    }
+}
+
+#[test]
 fn refuses_filter_arrays_longer_than_the_limit() {
     // hayro-syntax は、展開するたびに、フィルターの数だけ `DecodeParms` の配列の項目を辞書として読み、空の辞書でも
     // 1 KiB ほどの表を持つ。名前と参照の項目が 64 を超えるフィルターの配列は、読まない

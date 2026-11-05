@@ -300,5 +300,6 @@
 - [0263: 文書だけを変えた PR では fuzz を流さず、種や実装に使う Markdown はパスを明示する](0263-skip-documentation-only-fuzz.md)（2026-11-05、採用）
 - [0264: 図面の配置を逐次処理し、継承と切り抜きは配置ごとに共有し、図面モデルのバイナリでは重複する空間 ID を拒否する](0264-stream-drawing-walk.md)（2026-11-06、採用）
 - [0265: JWW の一覧の件数はレコードに分けず、最後のレコードの後ろを trailer に残す](0265-jww-list-counts-and-trailer.md)（2026-11-06、採用）
+- [0266: PDF の ObjStm の単独 Flate は、既存の展開と同じリーダーで出力量を先に数える](0266-pdf-flate-preflight.md)（2026-11-06、採用）
 - [0267: 2D の表示部品はシーンの列を Canvas 2D で描き、React と画面を別に置く](0267-view2d-on-scene-columns.md)（2026-11-06、採用）
 - [0269: 依存のライセンス本文を crate・target ごとに作り、wheel・NuGet・CLI・ネイティブの配布物に入れる](0269-license-texts-per-artifact.md)（2026-11-06、採用）
