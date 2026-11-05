@@ -296,3 +296,4 @@
 - [0259: npm のパッケージに Node.js の入口を足し、trap のあとのインスタンスを使えなくし、ライセンスの文を入れる](0259-javascript-on-node-servers.md)（2026-11-03、採用）
 - [0260: サンプルの IFC で測り、3D のカーネルを manifold-rust にして、建物モデルの残りの 7 項目を決める](0260-kernel-and-building-items-from-samples.md)（2026-11-03、採用）
 - [0261: fuzz の job を main の必須の検査にせず、PR の変更と関係のない失敗ではマージを止めずに早めに直す](0261-fuzz-outside-required-checks.md)（2026-11-04、採用）
+- [0262: 境界を通す fuzz の target を足し、テストキットの呼び出しの関数で確かめ、適合テストの組の要求も種にする](0262-boundary-fuzz-targets.md)（2026-11-05、採用）

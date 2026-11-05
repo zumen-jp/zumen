@@ -55,7 +55,7 @@ libFuzzer は、起動からの時間で止めるが、起動時に種をすべ�
 
 - `cargo xtask fuzz-seeds` が、次の 4 つを、どの target にも種として書く。
   - `samples/ledger.toml` に載せた公開サンプル（0171）
-  - 適合テストの組の、`push` で入れる合成の入力
+  - 適合テストの組の、`push` で入れる合成の入力。この項は [0262](0262-boundary-fuzz-targets.md) で、`call` で渡す要求も種にすることに改めた。
   - L0 の攻撃の形（ZIP 爆弾・膨らむ deflate・アーカイブの入れ子・パスの走査・XML の外部実体と深い入れ子・ISO 10303-21 の深い入れ子）
   - 合成の格子（ISG・TKY2JGD・PatchJGD の形）。国土地理院のデータは使わない（[0019](0019-coordinate-systems-and-gsi-data.md)）
 - 受け取った図面と、`ZUMEN_SAMPLES` のファイルは種にしない。種と見つけた入力は、Git に入れない。

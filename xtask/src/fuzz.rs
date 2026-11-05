@@ -1,13 +1,14 @@
-//! fuzz の target を検査し、種の入力を書く（#501、決定 0010・0017）。
+//! fuzz の target を検査し、種の入力を書く（#501・#517、決定 0010・0017・0262）。
 //!
 //! 検査は `codegen` から呼ぶ。登録した形式と L0 の crate のどれにも、同じ名前の fuzz の target があることを確かめる。
 //! 登録した形式は、crate が `[package.metadata.zumen]` の `formats` で名乗る形式と、`schema/boundary.toml` の
 //! `[[detection]]` と `[[modules]]` の形式。target は `fuzz/Cargo.toml` の `[[bin]]` で、`fuzz/fuzz_targets/<名前>.rs`
-//! に置き、テストキットの fuzz の関数（`survives`・`survives_lift`・`survives_with`）を呼ぶ。
+//! に置き、テストキットの fuzz の関数（`survives`・`survives_lift`・`survives_with`・`survives_calls`）を呼ぶ。境界を
+//! 通す target も、例外にせず、`survives_calls` を呼ぶことで同じ検査を通す（決定 0262）。
 //!
-//! `cargo xtask fuzz-seeds` は、公開サンプル、適合テストの組の合成の入力、L0 の攻撃の形（ZIP 爆弾・膨らむ deflate・
-//! アーカイブの入れ子・パスの走査・XML の外部実体と深い入れ子・ISO 10303-21 の深い入れ子）、合成の格子（ISG・
-//! TKY2JGD・PatchJGD の形）を、どの target にも種として書く（決定 0258）。
+//! `cargo xtask fuzz-seeds` は、公開サンプル、適合テストの組の合成の入力と要求、L0 の攻撃の形（ZIP 爆弾・膨らむ
+//! deflate・アーカイブの入れ子・パスの走査・XML の外部実体と深い入れ子・ISO 10303-21 の深い入れ子）、合成の格子（ISG・
+//! TKY2JGD・PatchJGD の形）を、どの target にも種として書く（決定 0258・0262）。
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
@@ -17,7 +18,7 @@ use std::process::Command;
 
 use serde::Deserialize;
 use zumen_base::crc::crc32;
-use zumen_json::Value;
+use zumen_json::{Value, Writer};
 
 use crate::boundary::Boundary;
 use crate::sha256;
@@ -26,7 +27,8 @@ use crate::sha256;
 const DIR: &str = "fuzz";
 /// 形式ではないが、受け取ったバイト列を読む L0 の crate（決定 0008）。target の名前にする
 const L0: &[&str] = &["zip", "xml", "step"];
-/// target が呼ぶ、テストキットの fuzz の関数の始まり
+/// target が呼ぶ、テストキットの fuzz の関数の始まり（`survives`・`survives_lift`・`survives_with`・
+/// `survives_calls`）
 const TESTKIT: &str = "zumen_sdk::testkit::survives";
 /// 深い入れ子の種の段の数。fuzz の予算の深さ（既定の 256）を超える
 const DEEP: usize = 1000;
@@ -223,8 +225,9 @@ fn samples(root: &Path) -> Result<Vec<Vec<u8>>, String> {
         .collect()
 }
 
-/// 適合テストの組（`bindings/conformance/cases`）の、`push` で入れる合成の入力。ファイルを指すものは公開サンプルなので
-/// 除く
+/// 適合テストの組（`bindings/conformance/cases`）の、`push` で入れる合成の入力と、`call` で渡す要求。ファイルを指す
+/// 入力は公開サンプルなので除く。要求は 1 つずつと、組ごとに並べた配列にする（`json` の target が、配列の要素を順に
+/// 呼ぶ。決定 0262）
 fn cases(root: &Path) -> Result<Vec<Vec<u8>>, String> {
     let dir = "bindings/conformance/cases";
     let mut paths = Vec::new();
@@ -243,6 +246,8 @@ fn cases(root: &Path) -> Result<Vec<Vec<u8>>, String> {
         let Some(Value::Array(steps)) = case.pointer("/steps") else {
             continue;
         };
+        let mut sequence = Writer::new();
+        sequence.begin_array();
         for step in steps {
             match (step.pointer("/push/text"), step.pointer("/push/hex")) {
                 (Some(Value::String(text)), _) => inputs.push(text.as_bytes().to_vec()),
@@ -252,7 +257,15 @@ fn cases(root: &Path) -> Result<Vec<Vec<u8>>, String> {
                 ),
                 _ => {}
             }
+            if let Some(call) = step.pointer("/call") {
+                let mut request = Writer::new();
+                request.value(call);
+                inputs.push(request.into_bytes());
+                sequence.value(call);
+            }
         }
+        sequence.end_array();
+        inputs.push(sequence.into_bytes());
     }
     Ok(inputs)
 }

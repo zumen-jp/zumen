@@ -14,6 +14,8 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
+# 境界を通す target（#517）が、API の関数をセッションで呼ぶため
+zumen = { path = "../crates/zumen" }
 zumen-acad = { path = "../crates/zumen-acad" }
 zumen-base = { path = "../crates/zumen-base" }
 zumen-bcf = { path = "../crates/zumen-bcf" }
@@ -48,6 +50,14 @@ zumen-zip = { path = "../crates/zumen-zip" }
 
 [workspace]
 members = ["."]
+
+# 境界を通す target が使う部品（#517、決定 0262）。target ではないので、xtask/src/fuzz.rs の検査は見ない
+[lib]
+name = "zumen_fuzz"
+path = "src/lib.rs"
+test = false
+doc = false
+bench = false
 
 # L0
 [[bin]]
@@ -254,6 +264,42 @@ bench = false
 [[bin]]
 name = "csv"
 path = "fuzz_targets/csv.rs"
+test = false
+doc = false
+bench = false
+
+# 境界（#517、決定 0262）。zumen の Session で、形式の判定から応答を作るまでと、形式でない入力を流す
+[[bin]]
+name = "open"
+path = "fuzz_targets/open.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "font"
+path = "fuzz_targets/font.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "profile"
+path = "fuzz_targets/profile.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "review"
+path = "fuzz_targets/review.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "json"
+path = "fuzz_targets/json.rs"
 test = false
 doc = false
 bench = false

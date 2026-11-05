@@ -1,6 +1,6 @@
 # fuzz
 
-受け取ったバイト列を読む所を、cargo-fuzz で試します（#398・#501、[決定 0010](../docs/decisions/0010-budget-by-work.md)・[決定 0017](../docs/decisions/0017-format-rights-ledger-and-plugin-sdk.md)・[決定 0258](../docs/decisions/0258-fuzz-seeds-and-runs.md)）。登録したすべての形式と、L0 の ZIP・XML・ISO 10303-21 に target があります。どの target も、テストキットの fuzz の関数（`survives`・`survives_lift`・`survives_with`）を呼びます。小さい予算の中で止まり、2 回で同じ結果（読めたか・止まった理由・診断・使った量）になることを確かめます。パニック・止まらない繰り返し・メモリの使い過ぎは、libFuzzer が見つけます。
+受け取ったバイト列を読む所を、cargo-fuzz で試します（#398・#501・#517、[決定 0010](../docs/decisions/0010-budget-by-work.md)・[決定 0017](../docs/decisions/0017-format-rights-ledger-and-plugin-sdk.md)・[決定 0258](../docs/decisions/0258-fuzz-seeds-and-runs.md)・[決定 0262](../docs/decisions/0262-boundary-fuzz-targets.md)）。登録したすべての形式と、L0 の ZIP・XML・ISO 10303-21 に target があります。境界（`zumen` の `Session`）を通して、形式の判定から応答を作るまでと、形式でない入力を流す target もあります。どの target も、テストキットの fuzz の関数（`survives`・`survives_lift`・`survives_with`・`survives_calls`）を呼びます。小さい予算の中で止まり、2 回で同じ結果（読めたか・止まった理由・診断・使った量、境界では応答のバイト列）になることを確かめます。パニック・止まらない繰り返し・メモリの使い過ぎは、libFuzzer が見つけます。
 
 ## target
 
@@ -19,14 +19,24 @@
 | `las`・`e57`・`ply`・`xyz` | 読んで点群の領域モデルに移す。LAZ は、laz の中のパニックを直すまで飛ばす（#510） |
 | `delivery` | 電子納品の成果品のアーカイブを読み、照合する |
 | `jpeg`・`boring`・`xlsx`・`csv` | 工事写真・ボーリング交換用データ・Excel の表・CSV を読む |
+| `open` | 境界の `open` で形式を判定して開き、図面・建物・土木・地理・点群の op で読む。図面はシーンにし、図面モデルのバイナリと DXF に書いて読み直す。線形からは図（`civil_drawing`）を作ってシーンにする。LAS は範囲でも読む。開けない入力は、名指せる XYZ・拡張 DM と、写真・表・ボーリング交換用データ・成果品の op に渡す。LAZ は、`las` と同じく飛ばす（#510） |
+| `font` | シーンの文字のフォント（TrueType・OpenType）として渡し、固定の図面をシーンにする |
+| `profile` | プロファイルとして渡し、固定の図面の照合（`check`）・線形の図（`civil_drawing`）・点群と設計面の差（`deviation`）を呼ぶ。線形の図はシーンにする |
+| `review` | レビューの文書として渡し、固定の図面の版へ移し（`review_carry`）、照合の指摘を取り込む（`review_adopt`） |
+| `json` | 色の表として渡して固定の図面をシーンにし、要求として呼ぶ。配列なら、要素を順に要求として呼ぶ |
 
-フォント・プロファイル・レビューの文書・要求の JSON と、領域モデルから図や応答を作る所には、まだ target がありません。#517 で足します。
+境界を通す 5 つの target（`open`・`font`・`profile`・`review`・`json`）は、`fuzz/src/lib.rs` の部品で、`zumen` の `Session` を呼びます（決定 0262）。
+
+- どの要求の予算も、テストキットの fuzz の上限（`fuzz_limits`）にします。`json` の target が受け取った要求も、`budget` を替え、時計で止める `time_limit_ms` を除きます。
+- 2 回呼んで、応答の JSON と、取り出したバイナリの結果のバイト列を呼んだ順に並べたものが、同じになることを確かめます（`survives_calls`）。
+- 応答ごとに、JSON として読め、成功したときだけ `result` を持ち、失敗した応答は理由の診断を持つことを確かめます。`blobs` の結果は、どれも取り出せ、記録した大きさと同じで、シーンの blob は `zumen` のリーダーで読めることを確かめます。
+- 文書の中身に依らない入力（図面・照合のプロファイル・色の表・線形・設計面・点群）は、適合テストの組の合成の入力を写した、`fuzz/src/lib.rs` の定数にします。
 
 ## 名前の付け方
 
 target の名前は、`xtask/src/fuzz.rs` の検査が求める名前にします。crate が `[package.metadata.zumen]` の `formats` で名乗る形式、`schema/boundary.toml` の `[[detection]]` と `[[modules]]` の形式、L0 の `zip`・`xml`・`step` です。どれかに target がないと、`cargo xtask codegen --check` が落ちます。形式を足したら、`fuzz/fuzz_targets/<名前>.rs` を作り、`fuzz/Cargo.toml` の `[[bin]]` に足してください。
 
-検査が求めない読み取りにも、target を置けます。名前は、読むものの短い英語にします（EXPRESS のスキーマの `express`、補正量の格子の `par`）。
+検査が求めない読み取りにも、target を置けます。名前は、読むものの短い英語にします（EXPRESS のスキーマの `express`、補正量の格子の `par`、境界を通す `open`・`font`・`profile`・`review`・`json`）。
 
 ## 動かし方
 
@@ -59,7 +69,7 @@ cargo "+$NIGHTLY" fuzz run -O --debug-assertions zip
 
 - `cargo xtask fuzz-seeds` は、どの target にも `fuzz/corpus/<target>/` に種を書きます。種にするのは、次の 4 つです（決定 0258）。受け取った図面と、国土地理院のデータは置きません（AGENTS.md、決定 0019）。
   - 公開サンプル（`samples/`）
-  - 適合テストの組の合成の入力
+  - 適合テストの組の合成の入力と、`call` で渡す要求（1 つずつと、組ごとに並べた配列。決定 0262）
   - L0 の攻撃の形（ZIP 爆弾・膨らむ deflate・アーカイブの入れ子・パスの走査・XML の外部実体と深い入れ子・ISO 10303-21 の深い入れ子）
   - 合成の格子（ISG・TKY2JGD・PatchJGD の形）
 - `cp Cargo.lock fuzz/Cargo.lock` で、fuzz の crate の依存を、ワークスペースと同じバージョンから解きます。`fuzz/Cargo.lock` はリポジトリに入れません。
