@@ -106,6 +106,8 @@ PDF の読み取りだけを入れた wasm を、2026-11-03 に測った。測�
 
 ObjStm の単独 Flate の展開前の予算確認は、[0266](0266-pdf-flate-preflight.md) で補う。
 
+ページの内容とフォームは [0270](0270-pdf-content-preflight.md)、関数・シェーディング・Indexed の表・ソフトマスクのグループは [0273](0273-pdf-resource-preflight.md) で同じ確認を加える。実際の長さと再展開の見積もりを分けて数え、ほかの展開・解析・解釈の上限は #521 に残す。
+
 - ISO 32000-2:2020（7.2〜7.5 節、8 章、9 章、14.11 節など）
 - [決定 0007](0007-single-rust-implementation.md)・[0008](0008-model-layers-and-codecs.md)・[0010](0010-budget-by-work.md)・[0156](0156-drawing-stable-ids-and-preconditions.md)・[0221](0221-wasm-modules.md)・[0253](0253-wasm-civil-and-pointcloud-modules.md)、旧版の決定 0020・0030
 - #506・#518・#519・#520・#521
