@@ -168,8 +168,9 @@ impl Drawing2D {
     /// 起点から配置をたどって、要素ごとに解いた値を返す（決定 0159）。起点がなければ空。
     /// 返す要素と配置の升ごとに `work` を 1 と数え、返す要素（属性を含む）を `elements` でも数え、配置の深さを
     /// `depth` で数える。返す要素は集めて返すので、`elements` で数えないと、升の多い格子の配置が、`work` の上限まで
-    /// 要素を集めてメモリを使い果たす（#517）。道筋に同じ定義がもう一度現れる配置はたどらずに
-    /// `drawing.placement.invalid` を返し、定義のない配置はたどらない
+    /// 要素を集めてメモリを使い果たす（#517）。描く順のうち要素の外を指す添字は、空間ごとに一度だけ除き、1 つごとに
+    /// `work` を 1 と数える。道筋に同じ定義がもう一度現れる配置はたどらずに `drawing.placement.invalid` を返し、定義の
+    /// ない配置はたどらない
     pub fn walk(&self, origin: Origin, cx: &mut Cx<'_>) -> Result<Vec<Visit<'_>>, (Stop, Ref)> {
         self.walk_with(origin, false, cx)
     }
@@ -196,6 +197,7 @@ impl Drawing2D {
             parts,
             by_name: BTreeMap::new(),
             names: BTreeMap::new(),
+            orders: BTreeMap::new(),
             spaces: BTreeMap::new(),
             keys: BTreeMap::new(),
             out: Vec::new(),
@@ -351,6 +353,8 @@ struct Walker<'a> {
     by_name: BTreeMap<&'a str, usize>,
     /// 空間と用紙ごとの、要素の ID
     names: BTreeMap<String, Rc<[String]>>,
+    /// 空間ごとの、描く順のうち要素を指す添字
+    orders: BTreeMap<String, Rc<[usize]>>,
     /// 記号の定義の空間ごとの、空間の ID
     spaces: BTreeMap<SpaceId, String>,
     /// キーごとの、記号の定義の添字。同じキーがあれば先のもの
@@ -406,6 +410,32 @@ impl<'a> Walker<'a> {
         Ok(ids)
     }
 
+    /// 空間の描く順のうち、要素を指す添字。一度求めたものは覚えておく。図面モデルのバイナリは並びの添字を確かめずに
+    /// 読むので、要素の外を指す添字を、配置の升ごと・ビューごとに見直さずに済ませる（#517）。要素の外を指す添字は、
+    /// 1 つごとに `work` を 1 と数える
+    fn order(
+        &mut self,
+        place: &str,
+        space: &ModelSpace,
+        cx: &mut Cx<'_>,
+    ) -> Result<Rc<[usize]>, Stop> {
+        if let Some(order) = self.orders.get(place) {
+            return Ok(Rc::clone(order));
+        }
+        let elements = space.elements.len();
+        let mut order = Vec::new();
+        for &index in &space.order {
+            if index < elements {
+                order.push(index);
+            } else {
+                cx.check(Kind::Work, 1)?;
+            }
+        }
+        let order: Rc<[usize]> = order.into();
+        self.orders.insert(place.to_owned(), Rc::clone(&order));
+        Ok(order)
+    }
+
     /// 空間の ID の文字列。記号の定義の空間なら、定義の ID
     fn space_name(&self, space: &ModelSpace) -> String {
         self.spaces
@@ -438,7 +468,10 @@ impl<'a> Walker<'a> {
     ) -> Result<(), (Stop, Ref)> {
         let name = self.space_name(space);
         let ids = self.ids(&name, &space.elements, cx)?;
-        for &index in &space.order {
+        let order = self
+            .order(&name, space, cx)
+            .map_err(|stop| (stop, Ref::default().with_id(name.as_str())))?;
+        for &index in order.iter() {
             if let (Some(element), Some(id)) = (space.elements.get(index), ids.get(index)) {
                 self.element(element, id, frame, Item::Model, cx)?;
             }
@@ -559,10 +592,14 @@ impl<'a> Walker<'a> {
         let Some(symbols) = self.drawing.symbols.get(definition) else {
             return Ok(());
         };
-        // 返す要素のない定義（並びが要素を指さない）は、どの升でも何も返さない。升の多い格子でも、升をたどらずに
-        // 済ませる（#517）。図面モデルのバイナリは、並びの添字を確かめずに読む
-        let elements = symbols.space.elements.len();
-        if !symbols.space.order.iter().any(|&index| index < elements) {
+        // 返す要素のない定義（描く順が要素を指さない）は、どの升でも何も返さない。升の多い格子でも、升をたどらずに
+        // 済ませる（#517）。描く順は、定義ごとに一度だけ確かめる
+        let name = self.space_name(&symbols.space);
+        if self
+            .order(&name, &symbols.space, cx)
+            .map_err(|stop| (stop, at()))?
+            .is_empty()
+        {
             return Ok(());
         }
         cx.enter().map_err(|stop| (stop, at()))?;
@@ -1286,6 +1323,50 @@ mod tests {
             assert_eq!(visits.len(), 1);
             assert!(budget.used(Kind::Work) < 100, "{}", budget.used(Kind::Work));
         }
+    }
+
+    #[test]
+    fn orders_outside_the_elements_are_counted_once_per_definition() {
+        // #565 の確かめで見つけた形。描く順が、要素の外を指す添字を数多く持ち、要素を 1 つだけ指す定義を、格子で
+        // 置く。升ごとに描く順を見直すと、`work` を数えずに、升の数 × 添字の数だけ回る
+        const OUTSIDE: usize = 1 << 16;
+        const SIDE: u32 = 64;
+        let mut drawing = nested();
+        let mut definition = space(OUTER, vec![line(OUTER, 0, by_layer())]);
+        definition
+            .order
+            .extend((1..=OUTSIDE).map(|offset| offset + 7));
+        drawing.symbols[1].space = definition;
+        let Shape::Symbol(symbol) = &mut drawing.spaces[0].elements[0].shape else {
+            panic!("記号の要素")
+        };
+        symbol.grid = Some(Grid {
+            columns: SIDE,
+            rows: SIDE,
+            column_spacing: Length::Model(ModelLength {
+                space: MODEL,
+                value: 1.0,
+            }),
+            row_spacing: Length::Model(ModelLength {
+                space: MODEL,
+                value: 1.0,
+            }),
+        });
+        let cancel = CancelToken::new();
+        // 升ごとに外を指す添字を数えると、この上限を超えて止まる
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(1 << 18)));
+        let mut diag = Diagnostics::new();
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        let visits = drawing.walk(Origin::Space(MODEL), &mut cx).unwrap();
+        // 配置と、升ごとの線
+        let cells = (SIDE * SIDE) as usize;
+        assert_eq!(visits.len(), 1 + cells);
+        // 外を指す添字は、定義ごとに 1 度だけ数える
+        let used = budget.used(Kind::Work);
+        assert!(
+            (OUTSIDE as u64..OUTSIDE as u64 + 4 * cells as u64).contains(&used),
+            "{used}"
+        );
     }
 
     #[test]

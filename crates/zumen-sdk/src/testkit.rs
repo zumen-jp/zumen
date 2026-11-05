@@ -319,7 +319,7 @@ const EXCERPT: usize = 400;
 
 /// 境界の呼び出しの fuzz の上限（[`survives_calls`]、決定 0262）。[`fuzz_limits`] から、要素・幾何の分割・ほかの
 /// 繰り返しの上限を小さくする。境界の target は 1 つの入力で多くの op を呼び、配置を展開する所などは、上限まで
-/// 使うと、ASan と計装を入れた fuzz の build で 1 回の呼び出しが fuzz の時間切れ（30 秒）を超えるため
+/// 使うと、ASan と計装を入れた fuzz の build で、1 つの入力が fuzz の時間切れ（30 秒）を超えるため
 pub fn fuzz_call_limits() -> Limits {
     fuzz_limits()
         .with(Kind::Elements, Limit::Finite(1 << 16))
