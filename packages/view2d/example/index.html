@@ -10,10 +10,12 @@
 <p>DXF・JWW・SXF をこのブラウザーだけで読みます。</p>
 <label>図面 <input id="file" type="file" accept=".dxf,.jww,.sfc,.p21"></label>
 <button id="fit" type="button">全体を表示</button>
+<label>操作 <select id="tool"><option value="select">選択</option><option value="pan">移動</option><option value="measure">距離</option><option value="mark">位置にしるし</option></select></label>
 <p><output id="status" aria-live="polite"></output></p>
-<p>図形をクリックすると、その配置を選択して出所を表示します。</p>
+<p>選択では図形をクリックして出所を表示します。Ctrl または Command とホイールで拡大・縮小し、図面にフォーカスを置くと矢印で移動します。Escape で操作を中断します。</p>
+<p><output id="measurement" aria-live="polite"></output> <output id="mark" aria-live="polite"></output></p>
 <pre id="selection" aria-live="polite"></pre>
-<canvas id="drawing" style="width:640px;height:400px;max-width:100%" aria-label="図面の表示"></canvas>
+<canvas id="drawing" style="width:640px;height:400px;max-width:100%;touch-action:none" tabindex="0" aria-label="図面の表示"></canvas>
 <script type="module">
 import { load, readScene } from "@zumen-jp/zumen";
 import { View2D } from "@zumen-jp/view2d";
@@ -22,6 +24,8 @@ import { findSource } from "./source.js";
 const canvas = document.querySelector("#drawing");
 const status = document.querySelector("#status");
 const viewer = new View2D(canvas, { width: canvas.clientWidth, height: 400, pixelRatio: devicePixelRatio });
+const detach = viewer.attachInput();
+canvas.addEventListener("pointerdown", () => canvas.focus({ preventScroll: true }));
 const ready = load(fetch("../../../target/wasm32-unknown-unknown/release/zumen_abi1.wasm"));
 let generation = 0;
 let activeSession;
@@ -35,11 +39,36 @@ const stopSelection = viewer.on("selection", ({ state }) => {
     selection.textContent = JSON.stringify(entry, null, 2);
   } catch (error) { selection.textContent = error.message; }
 });
-canvas.addEventListener("click", (event) => {
-  const box = canvas.getBoundingClientRect(), size = viewer.getSize();
-  const hits = viewer.hitTest({ x: (event.clientX - box.left) * size.width / box.width, y: (event.clientY - box.top) * size.height / box.height });
-  viewer.select(hits.slice(0, 1));
+const unitNames = { millimeter: "mm", centimeter: "cm", meter: "m", inch: "in", foot: "ft", unknown: "単位不明" };
+const measurement = document.querySelector("#measurement");
+const stopState = viewer.subscribe((state) => {
+  const value = state.measurement;
+  measurement.textContent = value ? `シーン上 ${value.distance.toFixed(3)} ${unitNames[value.unit] ?? "単位不明"}。${value.real.status === "known" ? "空間の直接の要素間の距離です。" : "実寸への換算は不明です。"}` : "";
 });
+const mark = document.querySelector("#mark");
+let marked = null;
+// ラベル・色・しるしの形は、この利用側で決める。入力と後始末だけを表示部品へ結ぶ。
+const removeMarkTool = viewer.addTool("mark", {
+  onActivate(context) {
+    context.addOverlay((ctx) => {
+      if (!marked) return;
+      const point = viewer.toScreen(marked);
+      ctx.strokeStyle = "#008055"; ctx.lineWidth = 2; ctx.beginPath();
+      ctx.moveTo(point.x - 8, point.y); ctx.lineTo(point.x + 8, point.y);
+      ctx.moveTo(point.x, point.y - 8); ctx.lineTo(point.x, point.y + 8); ctx.stroke();
+    });
+    return () => { marked = null; mark.textContent = ""; };
+  },
+  onInput(input) {
+    if (input.type !== "pointerdown") return false;
+    const snap = viewer.snapAt(input.point);
+    marked = snap?.position ?? viewer.positionAt(input.point);
+    mark.textContent = snap ? `しるし: ${snap.position.element.id}` : "しるし: シーン上の位置";
+    viewer.invalidate();
+    return true;
+  },
+});
+document.querySelector("#tool").addEventListener("change", (event) => viewer.setTool(event.target.value));
 document.querySelector("#fit").addEventListener("click", () => viewer.fit());
 document.querySelector("#file").addEventListener("change", async (event) => {
   const current = ++generation;
@@ -66,6 +95,6 @@ document.querySelector("#file").addEventListener("change", async (event) => {
     if (current === generation) status.value = `読めませんでした: ${error.message}`;
   } finally { session?.close(); }
 });
-window.addEventListener("pagehide", () => { generation++; stopScene(); stopSelection(); activeSession?.close(); viewer.destroy(); }, { once: true });
+window.addEventListener("pagehide", () => { generation++; detach(); removeMarkTool(); stopScene(); stopSelection(); stopState(); activeSession?.close(); viewer.destroy(); }, { once: true });
 </script>
 </html>

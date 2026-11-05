@@ -3,10 +3,13 @@ import { bounds, finite, limitsOf, prepare, valid } from "./validate.js";
 import { paint, project, reportOf, unproject } from "./render.js";
 import { appearance, emptyInteraction, hiddenLayers, indexElements, references } from "./interaction.js";
 import { hitPoint, hitRect } from "./hit.js";
+import { measurementOf, positionAt, snapPoint } from "./snap.js";
+import { inputOptions, normalizeInput, Tools } from "./tools.js";
+import { bindInput } from "./controls.js";
 
 const EMPTY_REPORT = Object.freeze({ drawn: Object.freeze({ lines: 0, faces: 0, texts: 0, points: 0, images: 0, glyphs: 0 }), issues: Object.freeze([]) });
 const EMPTY = Object.freeze([]);
-const EVENTS = ["scene", "view", "size", "layers", "selection", "hover", "highlight"];
+const EVENTS = ["scene", "view", "size", "layers", "selection", "hover", "highlight", "tool", "input", "measurement"];
 const equalList = (a, b) => a.length === b.length && a.every((value, i) => value === b[i]);
 
 function point(value, name) {
@@ -35,7 +38,7 @@ function color(ctx, value, field) {
   return first;
 }
 
-/** 呼び出し側が所有する Canvas に描く。CSS・イベント・外部資源の取得は持たない。 */
+/** 呼び出し側が所有する Canvas に描く。CSS と外部資源の取得は利用側に置く。 */
 export class View2D {
   #canvas;
   #ctx;
@@ -50,6 +53,12 @@ export class View2D {
   #snapshot;
   #listeners = new Set();
   #notifying = false;
+  #drawing = false;
+  #tools;
+  #binding = null;
+  #measurement = null;
+  #overlays = new Map();
+  #nextOverlay = 0;
 
   constructor(canvas, options = {}) {
     valid(canvas && typeof canvas.getContext === "function", "canvas");
@@ -63,6 +72,7 @@ export class View2D {
       unresolvedColor: color(ctx, options.unresolvedColor ?? "#777777", "unresolvedColor"),
       selectionColor: color(ctx, options.selectionColor ?? "#ff8800", "selectionColor"),
       hoverColor: color(ctx, options.hoverColor ?? "#00aacc", "hoverColor"),
+      overlayColor: color(ctx, options.overlayColor ?? "#cc0066", "overlayColor"),
       pixelsPerMillimeter: finite(options.pixelsPerMillimeter ?? 96 / 25.4, "pixelsPerMillimeter"),
       fallbackFont: options.fallbackFont ?? "sans-serif",
     };
@@ -71,14 +81,23 @@ export class View2D {
     this.#settings = Object.freeze(settings);
     this.#canvas = canvas;
     this.#ctx = ctx;
+    this.#tools = new Tools(this, this.#limits, () => this.#binding?.release());
     this.resize(options.width ?? canvas.clientWidth ?? canvas.width, options.height ?? canvas.clientHeight ?? canvas.height, options.pixelRatio ?? 1);
   }
 
   #live() { if (!this.#ctx) throw new Error("View2D は破棄済み"); }
-  #mutable() { this.#live(); valid(!this.#notifying, "state.notification"); }
+  #mutable() { this.#live(); valid(!this.#notifying, "state.notification"); valid(!this.#drawing, "render.reentrant"); }
+  #structural() { this.#mutable(); this.#tools.idle(); }
+
+  #state() {
+    return Object.freeze({ scene: this.getScene(), view: this.#view, size: this.#size, layers: this.getLayers(), ...this.#interaction,
+      tool: this.#tools.name, input: this.#tools.options, gesture: this.#tools.gesture, measurement: this.#measurement });
+  }
 
   #publish(type) {
-    this.#snapshot = Object.freeze({ scene: this.getScene(), view: this.#view, size: this.#size, layers: this.getLayers(), ...this.#interaction });
+    const next = this.#state();
+    if (this.#snapshot && Object.keys(next).every((key) => this.#snapshot[key] === next[key])) return;
+    this.#snapshot = next;
     const event = Object.freeze({ type, state: this.#snapshot });
     let failed = false, first;
     this.#notifying = true;
@@ -91,6 +110,14 @@ export class View2D {
       }
     } finally { this.#notifying = false; }
     if (failed) throw first;
+  }
+
+  #refresh(type, cleanup = { failed: false }) {
+    let failed = cleanup.failed, first = cleanup.error;
+    try { this.render(); } catch (error) { if (!failed) { failed = true; first = error; } }
+    try { this.#publish(type); } catch (error) { if (!failed) { failed = true; first = error; } }
+    if (failed) throw first;
+    return this.getReport();
   }
 
   #listen(type, listener) {
@@ -107,7 +134,7 @@ export class View2D {
 
   /** Scene・応答・文書識別を一括で検査し、成功したときだけ差し替える。null は消去。 */
   setScene(input) {
-    this.#mutable();
+    this.#structural();
     let next = null, index = null;
     const display = { hidden: new Set(), colors: new Map() };
     if (input !== null) {
@@ -115,13 +142,14 @@ export class View2D {
       index = indexElements(next);
       Object.assign(next, reportOf(next, this.#limits, display));
     }
+    const cleanup = this.#tools.reset("scene");
+    this.#measurement = null;
+    for (const [id, overlay] of this.#overlays) if (overlay.scope === "scene") this.#overlays.delete(id);
     this.#prepared = next;
     this.#index = index;
     this.#interaction = emptyInteraction();
     this.#display = display;
-    const report = this.render();
-    this.#publish("scene");
-    return report;
+    return this.#refresh("scene", cleanup);
   }
 
   getScene() { this.#live(); return this.#prepared?.metadata ?? null; }
@@ -141,9 +169,7 @@ export class View2D {
     this.#prepared = prepared;
     this.#interaction = Object.freeze(next);
     this.#display = display;
-    const report = this.render();
-    this.#publish(type);
-    return report;
+    return this.#refresh(type);
   }
 
   setHiddenLayers(ids) {
@@ -198,9 +224,128 @@ export class View2D {
     return this.#prepared ? hitRect(this.#ctx, this.#prepared, this.#settings, this.#view, this.#size, this.#display, this.#index, this.#limits, rect) : EMPTY;
   }
 
+  positionAt(value) { this.#live(); return positionAt(this.#view, this.#size, point(value, "point")); }
+
+  snapAt(value, tolerance = 8) {
+    this.#live(); const p = point(value, "point"); finite(tolerance, "tolerance"); valid(tolerance >= 0, "tolerance");
+    return this.#prepared ? snapPoint(this.#ctx, this.#prepared, this.#settings, this.#view, this.#size, this.#display, this.#index, this.#limits, p, tolerance) : null;
+  }
+
+  setMeasurement(value) {
+    this.#mutable();
+    valid(value === null || (value && typeof value === "object" && this.#prepared), "measurement");
+    const next = value === null ? null : measurementOf(this.#prepared, value.start, value.end, this.#index, this.#limits);
+    if (next === null && this.#measurement === null) return this.getReport();
+    this.#measurement = next;
+    return this.#refresh("measurement");
+  }
+
+  addTool(name, definition) {
+    this.#structural(); this.#tools.register(name, definition);
+    let active = true;
+    return () => {
+      if (!active || !this.#ctx) return;
+      this.#structural();
+      try { if (this.#tools.name === name) this.setTool("select"); }
+      finally { this.#tools.definitions.delete(name); active = false; }
+    };
+  }
+
+  setTool(name) {
+    this.#structural(); valid(["select", "pan", "measure"].includes(name) || this.#tools.definitions.has(name), "tool.name");
+    if (this.#tools.name === name) return this.getReport();
+    const cleanup = this.#tools.reset("tool"); this.#measurement = null; this.#tools.name = name;
+    return this.#refresh("tool", cleanup);
+  }
+
+  setInputOptions(value) {
+    this.#structural(); const next = inputOptions(value, this.#tools.options);
+    if (Object.keys(next).every((key) => next[key] === this.#tools.options[key])) return this.getReport();
+    const cleanup = this.#tools.reset("options"); this.#measurement = null; this.#tools.options = next;
+    return this.#refresh("input", cleanup);
+  }
+
+  attachInput(element = this.#canvas, options = {}) {
+    this.#structural(); const next = inputOptions(options, this.#tools.options), binding = bindInput(this, element);
+    const cleanup = this.#tools.reset("attach");
+    this.#binding?.disconnect(); this.#binding = binding; this.#measurement = null; this.#tools.options = next;
+    try { this.#refresh("input", cleanup); }
+    catch (error) { binding.disconnect(); this.#binding = null; throw error; }
+    return () => {
+      if (!this.#ctx || this.#binding !== binding) return;
+      this.#structural(); const stopped = this.#tools.reset("detach"); binding.disconnect(); this.#binding = null; this.#measurement = null;
+      this.#refresh("input", stopped);
+    };
+  }
+
+  cancelInput(reason = "cancel") {
+    this.#structural(); valid(typeof reason === "string" && reason.length <= 256, "input.reason");
+    const cleanup = this.#tools.reset(reason); this.#measurement = null;
+    return this.#refresh("input", cleanup);
+  }
+
+  handleInput(value) {
+    this.#mutable(); this.#tools.idle(); const input = normalizeInput(value), before = this.#tools.revision;
+    try {
+      const handled = this.#tools.handle(input);
+      if (this.#tools.revision !== before) this.#refresh("input");
+      return handled;
+    } catch (error) {
+      const cleanup = this.#tools.reset("error"); this.#measurement = null;
+      // 中断後の画面と通知も一度だけ完了する。通知が再び失敗しても、元の例外を返す。
+      try { this.#refresh("input", cleanup); } catch { /* 残りの描画と通知は #refresh が行う。 */ }
+      throw error;
+    }
+  }
+
+  addOverlay(draw, options = {}) {
+    this.#mutable(); valid(options && typeof options === "object" && typeof draw === "function" && ["scene", "viewer"].includes(options.scope ?? "scene"), "overlay");
+    valid(this.#overlays.size < this.#limits.stateItems, "limits.stateItems");
+    const id = this.#nextOverlay++, entry = { draw, scope: options.scope ?? "scene" };
+    this.#overlays.set(id, entry);
+    try { this.invalidate(); }
+    catch (error) {
+      this.#overlays.delete(id);
+      try { this.render(); } catch { /* 登録した関数を除き、元の例外を返す。 */ }
+      throw error;
+    }
+    return () => {
+      if (!this.#ctx || !this.#overlays.has(id)) return;
+      this.#mutable(); this.#overlays.delete(id); this.invalidate();
+    };
+  }
+
+  invalidate() { this.#mutable(); return this.render(); }
+
   render() {
     this.#live();
-    paint(this.#ctx, this.#prepared, this.#settings, this.#view, this.#size, this.#display);
+    valid(!this.#drawing, "render.reentrant"); this.#drawing = true;
+    let failed = false, first;
+    try {
+      const ctx = this.#ctx, size = this.#size;
+      paint(ctx, this.#prepared, this.#settings, this.#view, size, this.#display);
+      ctx.save();
+      try {
+        ctx.setTransform(size.pixelRatio, 0, 0, size.pixelRatio, 0, 0); ctx.strokeStyle = this.#settings.overlayColor; ctx.lineWidth = 1;
+        if (this.#measurement) {
+          const at = ({ origin, offset }) => project(this.#view, size.width, size.height, offset.x, offset.y, origin.x, origin.y);
+          const a = at(this.#measurement.start), b = at(this.#measurement.end);
+          ctx.setLineDash([]); ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+        }
+        const gesture = this.#tools.gesture;
+        if (gesture?.type === "select") {
+          ctx.setLineDash([4, 4]); ctx.strokeRect(gesture.start.x, gesture.start.y, gesture.end.x - gesture.start.x, gesture.end.y - gesture.start.y);
+        }
+      } finally { ctx.restore(); }
+      const state = this.#state();
+      for (const { draw } of this.#overlays.values()) {
+        ctx.save();
+        try { ctx.setTransform(size.pixelRatio, 0, 0, size.pixelRatio, 0, 0); draw(ctx, state); }
+        catch (error) { if (!failed) { failed = true; first = error; } }
+        finally { ctx.restore(); }
+      }
+    } finally { this.#drawing = false; }
+    if (failed) throw first;
     return this.getReport();
   }
 
@@ -208,7 +353,7 @@ export class View2D {
     this.#mutable(); const next = camera(view), previous = this.#view;
     if (next.center.x === previous.center.x && next.center.y === previous.center.y && next.scale === previous.scale && next.rotation === previous.rotation) return this.getReport();
     this.#view = next;
-    const report = this.render(); this.#publish("view"); return report;
+    return this.#refresh("view");
   }
 
   /** 回転を保ち、起点の座標の範囲を CSS px の余白を空けて収める。 */
@@ -263,7 +408,14 @@ export class View2D {
     } });
   }
 
-  toScreen(value) { this.#live(); const p = point(value, "point"); return project(this.#view, this.#size.width, this.#size.height, p.x, p.y); }
+  toScreen(value) {
+    this.#live();
+    if (value?.origin !== undefined || value?.offset !== undefined) {
+      const origin = point(value.origin, "position.origin"), offset = point(value.offset, "position.offset");
+      return project(this.#view, this.#size.width, this.#size.height, offset.x, offset.y, origin.x, origin.y);
+    }
+    const p = point(value, "point"); return project(this.#view, this.#size.width, this.#size.height, p.x, p.y);
+  }
   toScene(value) { this.#live(); const p = point(value, "point"); return unproject(this.#view, this.#size.width, this.#size.height, p.x, p.y); }
 
   resize(width, height, pixelRatio = this.#size?.pixelRatio ?? 1) {
@@ -275,13 +427,15 @@ export class View2D {
     this.#canvas.width = pixelsX;
     this.#canvas.height = pixelsY;
     this.#size = Object.freeze({ width, height, pixelRatio });
-    const report = this.render(); this.#publish("size"); return report;
+    return this.#refresh("size");
   }
 
   /** Canvas の所有権は呼び出し側に残す。繰り返して呼べる。 */
   destroy() {
     if (!this.#ctx) return;
-    this.#mutable();
+    this.#structural();
+    const cleanup = this.#tools.reset("destroy");
+    this.#binding?.disconnect(); this.#binding = null; this.#measurement = null; this.#overlays.clear(); this.#tools.definitions.clear();
     this.#ctx.setTransform(1, 0, 0, 1, 0, 0);
     this.#ctx.clearRect(0, 0, this.#canvas.width, this.#canvas.height);
     this.#prepared = null;
@@ -292,5 +446,6 @@ export class View2D {
     this.#listeners.clear();
     this.#ctx = null;
     this.#canvas = null;
+    if (cleanup.failed) throw cleanup.error;
   }
 }
