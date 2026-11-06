@@ -939,6 +939,27 @@ impl<'x> Reads<'x> {
     /// ファイルを読み通す手間とする。ほかの読めない定義（読み飛ばせて読めない数。`5-3.2`）は、読んだバイト数を知れない
     /// ので、0 とする（pdf.md の「予算の外」）
     pub(crate) fn read(self, id: ObjectIdentifier) -> (u64, Option<Object<'x>>) {
+        if let Some(bound) = self.source.file_ref_bound(id) {
+            // settle と targets が必要とするのは中の参照と読み直す手間。文字列を Object として
+            // 読むと、外部ファイルの判定より先に 16 進やエスケープを展開する（7.3.4・7.3.8.2）。
+            // コンテナーだけを型付きで引く。ほかの値と壊れた辞書は、元の範囲の上限で数える。
+            if let Some(stream) = self.xref.get::<Stream<'_>>(id) {
+                return (self.stream_work(&stream), Some(Object::Stream(stream)));
+            }
+            if let Some(dict) = self.xref.get::<Dict<'_>>(id) {
+                return (
+                    bound.div_ceil(LOOKUP_BYTES).saturating_mul(2),
+                    Some(Object::Dict(dict)),
+                );
+            }
+            if let Some(array) = self.xref.get::<Array<'_>>(id) {
+                return (
+                    lookup_work(array.data()).saturating_mul(3),
+                    Some(Object::Array(array)),
+                );
+            }
+            return (bound.div_ceil(LOOKUP_BYTES).saturating_mul(3), None);
+        }
         match self.xref.get::<Object<'x>>(id) {
             Some(object) => (self.read_work(&object), Some(object)),
             None => match self.xref.get::<Dict<'x>>(id) {
@@ -980,9 +1001,20 @@ impl<'x> Reads<'x> {
         let mut first = Targets::new();
         // キーを並べて値を読む手間
         let mut work = dict.len() as u64;
-        for (name, value) in dict.entries() {
+        // entries() は参照のない直接の文字列まで展開する。従来と同じキー順で、F の文字列は
+        // 中身を読まずに飛ばす。文字列は辞書・配列と違い、たどる参照を持たない。
+        let mut keys: Vec<_> = dict.keys().collect();
+        keys.sort_unstable_by(|a, b| a.as_ref().cmp(b.as_ref()));
+        for name in keys {
+            if matches!(name.as_ref(), b"Parent" | b"Annots" | b"VP")
+                || (name.as_ref() == b"F" && inflate::Source::direct_string(dict, b"F"))
+            {
+                continue;
+            }
+            let Some(value) = dict.get_raw::<Object<'_>>(name.as_ref()) else {
+                continue;
+            };
             match value {
-                _ if matches!(name.as_ref(), b"Parent" | b"Annots" | b"VP") => {}
                 _ if name.as_ref() == b"Resources" => {
                     work = work.saturating_add(self.resources_value_work(value));
                 }
@@ -3213,6 +3245,42 @@ impl<'a, 'o> Walker<'a, 'o> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn follows_file_spec_containers_without_materializing_scalar_targets() {
+        use zumen_base::{Budget, CancelToken, Diagnostics};
+
+        // 同じ番号を複数の辞書から指す。#46 は F（7.3.5）。相互参照表は hayro が作り直す。
+        let data = b"%PDF-1.7\n1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n\
+            2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n\
+            3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >> endobj\n\
+            4 0 obj << /#46 5 0 R /A << /F 6 0 R >> /B << /F 7 0 R >> /C << /F 8 0 R >> >> endobj\n\
+            5 0 obj <414243> endobj\n6 0 obj << /Child 5 0 R >> endobj\n\
+            7 0 obj [5 0 R] endobj\n8 0 obj << /Length 1 >> stream\nx\nendstream\nendobj\n\
+            trailer << /Root 1 0 R >>\n%%EOF";
+        let mut budget = Budget::default();
+        let mut diag = Diagnostics::new();
+        let token = CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diag, &token);
+        let crate::guard::Checked::Ready { file_refs, .. } =
+            crate::guard::before(data, &mut cx).unwrap()
+        else {
+            panic!("合成した参照を含む文書を読めなかった");
+        };
+        assert_eq!(file_refs, BTreeSet::from([(5, 0), (6, 0), (7, 0), (8, 0)]));
+        let doc = Pdf::new(hayro_syntax::PdfData::from(data.to_vec())).unwrap();
+        let source = inflate::Source::new(doc.data().as_ref(), false, 0).with_file_refs(&file_refs);
+        let reads = Reads::new(doc.xref(), data, source);
+        let id = |number| ObjectIdentifier::new(number, 0);
+        assert!(matches!(
+            doc.xref().get::<Object<'_>>(id(5)),
+            Some(Object::String(_))
+        ));
+        assert!(matches!(reads.read(id(5)), (work, None) if work >= lookup_work(data)));
+        assert!(matches!(reads.read(id(6)).1, Some(Object::Dict(_))));
+        assert!(matches!(reads.read(id(7)).1, Some(Object::Array(_))));
+        assert!(matches!(reads.read(id(8)).1, Some(Object::Stream(_))));
+    }
 
     /// 終わりのマーカーまで読めるか
     fn reaches_the_end(data: &[u8]) -> bool {

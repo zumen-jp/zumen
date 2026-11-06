@@ -1,6 +1,8 @@
 //! 復号と外部ファイル指定を、元のストリームと辞書の範囲で確かめる（7.3.8・7.6）。
 
-use hayro_syntax::object::{Dict, MaybeRef, Object, Stream};
+use std::collections::BTreeSet;
+
+use hayro_syntax::object::{Dict, MaybeRef, Object, ObjectIdentifier, Stream};
 use hayro_syntax::reader::{Readable, Reader, ReaderContext, ReaderExt};
 use zumen_base::{Cx, Kind, Stop};
 
@@ -9,6 +11,7 @@ pub(crate) struct Source<'a> {
     file: &'a [u8],
     encrypted: bool,
     largest_container: u64,
+    file_refs: Option<&'a BTreeSet<(u32, i32)>>,
 }
 
 impl<'a> Source<'a> {
@@ -17,7 +20,25 @@ impl<'a> Source<'a> {
             file,
             encrypted,
             largest_container,
+            file_refs: None,
         }
+    }
+
+    pub(crate) fn with_file_refs(mut self, refs: &'a BTreeSet<(u32, i32)>) -> Self {
+        self.file_refs = Some(refs);
+        self
+    }
+
+    /// F の参照先を解かずに読むときの上限。相互参照表は、対象の元の位置を公開しない。
+    pub(crate) fn file_ref_bound(self, id: ObjectIdentifier) -> Option<u64> {
+        self.file_refs?
+            .contains(&(id.obj_number, id.gen_number))
+            .then(|| (self.file.len() as u64).max(self.largest_container))
+    }
+
+    pub(crate) fn direct_string(dict: &Dict<'_>, key: &[u8]) -> bool {
+        matches!(dict.get_raw::<Tail<'_>>(key), Some(MaybeRef::NotRef(Tail(tail)))
+            if tail.starts_with(b"(") || (tail.starts_with(b"<") && !tail.starts_with(b"<<")))
     }
 
     /// raw_data() は暗号化した文書では復号後の Vec を作る。読む前に元のファイル側で長さを求める。

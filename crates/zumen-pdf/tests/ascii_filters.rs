@@ -83,15 +83,18 @@ fn charges_external_file_strings_before_hayro_materializes_them() {
         format!("<{}>", "41".repeat(65535)),
         format!("({})", r"\101".repeat(65535)),
     ] {
-        for indirect in [false, true] {
+        // 直接の文字列、F の間接参照、同じ辞書に別の参照がある直接の文字列。
+        for (indirect, extra) in [(false, ""), (true, ""), (false, "/X 5 0 R")] {
             let mut b = common::Builder::default();
             b.object("<< /Type /Catalog /Pages 2 0 R >>");
             b.object("<< /Type /Pages /Kids [3 0 R] /Count 1 >>");
             b.object("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 4 0 R >>");
             let file = if indirect { "5 0 R" } else { &value };
-            b.stream(&format!("/F {file} /Filter [/AHx /Fl]"), b"00>");
+            b.stream(&format!("/F {file} {extra} /Filter [/AHx /Fl]"), b"00>");
             if indirect {
                 b.object(&value);
+            } else if !extra.is_empty() {
+                b.object("42");
             }
             let input = b.bytes(1);
             let ample = run(&input, Limits::default(), false);

@@ -110,6 +110,8 @@ struct Numbers {
 #[derive(Debug, Default)]
 struct Seen {
     values: BTreeMap<Key, Values>,
+    /// F が参照する番号。読み直しの手間を調べるために外部ファイル名を展開しない。
+    file_refs: BTreeSet<(u32, i32)>,
     numbers: Numbers,
     /// フィルターの値の LZW・ASCII85 の名前のうち、展開する入力が [`CODED`] に届きうるもの
     coded: Option<usize>,
@@ -307,6 +309,7 @@ pub(crate) enum Checked {
     Ready {
         encrypted: bool,
         largest_container: u64,
+        file_refs: BTreeSet<(u32, i32)>,
     },
 }
 
@@ -370,6 +373,7 @@ pub(crate) fn before(src: &[u8], cx: &mut Cx<'_>) -> Result<Checked, Stop> {
         None => Checked::Ready {
             encrypted: marks.encrypted.is_some(),
             largest_container,
+            file_refs: seen.file_refs,
         },
     })
 }
@@ -593,6 +597,16 @@ fn names(
                 }
             }
             (b"Filter" | b"F", _) => {
+                if name == b"F"
+                    && let Some((id, _)) = read_reference(data, value, cx)?
+                {
+                    let id = hayro_syntax::object::ObjectIdentifier::from(id);
+                    let key = (id.obj_number, id.gen_number);
+                    if !seen.file_refs.contains(&key) {
+                        cx.check(Kind::DecodedBytes, crate::walk::REFERENCE_BYTES)?;
+                        seen.file_refs.insert(key);
+                    }
+                }
                 if !(shared && filtered.replace(value) == Some(value))
                     && filters(data, value, &place, &mut skip, &mut items, seen, cx)?
                 {
@@ -809,9 +823,17 @@ fn read_name(data: &[u8], at: usize) -> Option<(Name<'_>, usize)> {
 /// 位置が参照（7.3.10）なら、その後ろの位置。hayro-syntax の辞書と同じく、数の間の空白だけを飛ばす。読んだバイト数を
 /// `Work` に数える（読めなければ hayro-syntax は位置を戻すので、位置の字句の長さを数える）
 fn reference(data: &[u8], at: usize, cx: &mut Cx<'_>) -> Result<Option<usize>, Stop> {
+    Ok(read_reference(data, at, cx)?.map(|(_, end)| end))
+}
+
+fn read_reference(
+    data: &[u8],
+    at: usize,
+    cx: &mut Cx<'_>,
+) -> Result<Option<(ObjRef, usize)>, Stop> {
     let mut reader = Reader::new(data);
     reader.jump(at);
-    let found = <ObjRef as Readable>::read(&mut reader, &ReaderContext::dummy()).is_some();
+    let found = <ObjRef as Readable>::read(&mut reader, &ReaderContext::dummy());
     let rest = data.get(at..).unwrap_or_default();
     let token = rest.iter().take_while(|&&byte| regular(byte)).count();
     let read = reader.offset().saturating_sub(at).max(token);
@@ -819,7 +841,7 @@ fn reference(data: &[u8], at: usize, cx: &mut Cx<'_>) -> Result<Option<usize>, S
         Kind::Work,
         lookup_work(rest.get(..read).unwrap_or_default()),
     )?;
-    Ok(found.then(|| reader.offset()))
+    Ok(found.map(|id| (id, reader.offset())))
 }
 
 /// 位置の数を、hayro-syntax と同じく切り捨てた整数で読む。hayro-syntax の `Number::read` が読む字（符号・数字・
