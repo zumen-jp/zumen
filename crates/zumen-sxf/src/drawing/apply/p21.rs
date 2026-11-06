@@ -71,7 +71,7 @@ pub(super) struct P21<'f> {
     /// 除くレコード
     removed: BTreeSet<usize>,
     /// 足す実体の番号と本体（`#n=` と `;` を除く）
-    added: Vec<(u64, String)>,
+    added: Vec<(u64, Vec<u8>)>,
     next: u64,
     /// 指す所から外した実体。最後に、どこからも指されなければ除く
     loose: Vec<u64>,
@@ -218,10 +218,10 @@ impl<'f> P21<'f> {
         Some(((record, part, at), (record, part, at + 1)))
     }
 
-    fn instance(&mut self, body: String) -> Option<u64> {
+    fn instance(&mut self, body: impl Into<Vec<u8>>) -> Option<u64> {
         let id = self.next;
         self.next = self.next.checked_add(1)?;
-        self.added.push((id, body));
+        self.added.push((id, body.into()));
         Some(id)
     }
 
@@ -294,21 +294,23 @@ impl<'f> P21<'f> {
 
     /// 曲線の見え方（CURVE_STYLE）と見え方の割り当てを足し、その番号を返す。`was` は元の CURVE_STYLE
     fn curve_style(&mut self, was: Option<u64>, codes: &[(usize, i64)]) -> Option<u64> {
-        let mut values = match was {
+        let original = match was {
             Some(was) => {
                 let record = *self.instances.get(&was)?;
                 let part = self.part(record, "CURVE_STYLE")?;
-                (0..4)
-                    .map(|at| Some(text(self.file, self.value((record, part, at))?)))
-                    .collect::<Option<Vec<String>>>()?
+                Some(
+                    self.file
+                        .records()
+                        .get(record)?
+                        .parts()
+                        .get(part)?
+                        .args()
+                        .first_chunk::<4>()?,
+                )
             }
-            None => vec![
-                "' '".to_owned(),
-                String::new(),
-                String::new(),
-                String::new(),
-            ],
+            None => None,
         };
+        let mut changed: [Option<String>; 4] = Default::default();
         for (at, code) in codes {
             let value = match at {
                 1 => format!("#{}", self.color(*code)?),
@@ -321,12 +323,25 @@ impl<'f> P21<'f> {
                 1 => 3,
                 other => *other - 1,
             };
-            *values.get_mut(at)? = value;
+            *changed.get_mut(at)? = Some(value);
         }
-        if values.iter().any(String::is_empty) {
-            return None;
+        let mut body = b"CURVE_STYLE(".to_vec();
+        for (at, change) in changed.iter().enumerate() {
+            if at > 0 {
+                body.push(b',');
+            }
+            if let Some(value) = change {
+                body.extend_from_slice(value.as_bytes());
+            } else if let Some(values) = original {
+                write_value(self.file, values.get(at)?, &mut body);
+            } else if at == 0 {
+                body.extend_from_slice(b"' '");
+            } else {
+                return None;
+            }
         }
-        let style = self.instance(format!("CURVE_STYLE({})", values.join(",")))?;
+        body.push(b')');
+        let style = self.instance(body)?;
         self.instance(format!("PRESENTATION_STYLE_ASSIGNMENT((#{style}))"))
     }
 
@@ -477,7 +492,7 @@ impl<'f> P21<'f> {
                     let items: Vec<String> = list.iter().map(|id| format!("#{id}")).collect();
                     out.extend_from_slice(format!("({})", items.join(",")).as_bytes());
                 } else {
-                    out.extend_from_slice(text(self.file, value).as_bytes());
+                    write_value(self.file, value, &mut out);
                 }
             }
             out.push(b')');
@@ -512,7 +527,7 @@ impl<'f> P21<'f> {
                     let slot = (record, index, at);
                     if let Some(text) = self.args.get(&slot) {
                         work(cx, 1 + text.len() as u64, &Ref::default())?;
-                        refs.extend(scan(text));
+                        refs.extend(scan(text.as_bytes()));
                     } else if let Some(list) = self.lists.get(&slot) {
                         work(cx, 1 + list.len() as u64, &Ref::default())?;
                         refs.extend(list);
@@ -1011,16 +1026,15 @@ impl P21<'_> {
             else {
                 return Err(Error::Rejected);
             };
-            let nl = self.newline;
-            for (_, body) in &self.added {
+            let mut text = Vec::new();
+            for (id, body) in &self.added {
                 work(cx, 1 + body.len() as u64, &Ref::default())?;
+                text.extend_from_slice(self.newline.as_bytes());
+                text.extend_from_slice(format!("#{id}=").as_bytes());
+                text.extend_from_slice(body);
+                text.push(b';');
             }
-            let text: String = self
-                .added
-                .iter()
-                .map(|(id, body)| format!("{nl}#{id}={body};"))
-                .collect();
-            patches.push((end..end, text.into_bytes()));
+            patches.push((end..end, text));
         }
         patched(patches, src, cx)
     }
@@ -1081,40 +1095,53 @@ fn collect(values: &[Value], out: &mut Vec<u64>) {
 }
 
 /// 書いたテキストの中の参照
-fn scan(text: &str) -> Vec<u64> {
-    text.split('#')
-        .skip(1)
+fn scan(bytes: &[u8]) -> Vec<u64> {
+    // 出力した P21 の文字列の外だけを調べる。文字列中の引用符（''）の間の区間は空になる。
+    bytes
+        .split(|b| *b == b'\'')
+        .step_by(2)
+        .flat_map(|outside| outside.split(|b| *b == b'#').skip(1))
         .filter_map(|rest| {
-            let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
-            digits.parse().ok()
+            let end = rest.iter().take_while(|b| b.is_ascii_digit()).count();
+            core::str::from_utf8(rest.get(..end)?).ok()?.parse().ok()
         })
         .collect()
 }
 
-/// 値を P21 のテキストにする
-fn text(file: &SxfFile, value: &Value) -> String {
-    let raw = |range: &core::ops::Range<usize>| String::from_utf8_lossy(file.bytes(range.clone()));
+/// 決定 0169 の「書き直し方」に従い、元の値と型の名前をそのまま写す。文字列の 8 ビットのバイトも残す。
+fn write_value(file: &SxfFile, value: &Value, out: &mut Vec<u8>) {
+    let mut delimited = |mark, raw: &[u8]| {
+        out.push(mark);
+        out.extend_from_slice(raw);
+        out.push(mark);
+    };
     match value {
-        Value::Null => "$".to_owned(),
-        Value::Derived => "*".to_owned(),
-        Value::Ref(id) => format!("#{id}"),
-        Value::Enum(range) => format!(".{}.", raw(range)),
-        Value::Text { raw: range, .. } => format!("'{}'", raw(range)),
-        Value::Number(range) | Value::Token(range) => raw(range).into_owned(),
-        Value::Binary(range) => format!("\"{}\"", raw(range)),
+        Value::Null => out.push(b'$'),
+        Value::Derived => out.push(b'*'),
+        Value::Ref(id) => out.extend_from_slice(format!("#{id}").as_bytes()),
+        Value::Enum(range) => delimited(b'.', file.bytes(range.clone())),
+        Value::Text { raw, .. } => delimited(b'\'', file.bytes(raw.clone())),
+        Value::Number(range) | Value::Token(range) => {
+            out.extend_from_slice(file.bytes(range.clone()))
+        }
+        Value::Binary(range) => delimited(b'"', file.bytes(range.clone())),
         Value::Typed(part) => {
-            let args: Vec<String> = part.args().iter().map(|value| text(file, value)).collect();
-            format!(
-                "{}({})",
-                String::from_utf8_lossy(file.bytes(part.name())),
-                args.join(",")
-            )
+            out.extend_from_slice(file.bytes(part.name()));
+            write_list(file, part.args(), out);
         }
-        Value::List(items) => {
-            let items: Vec<String> = items.iter().map(|value| text(file, value)).collect();
-            format!("({})", items.join(","))
-        }
+        Value::List(items) => write_list(file, items, out),
     }
+}
+
+fn write_list(file: &SxfFile, items: &[Value], out: &mut Vec<u8>) {
+    out.push(b'(');
+    for (at, item) in items.iter().enumerate() {
+        if at > 0 {
+            out.push(b',');
+        }
+        write_value(file, item, out);
+    }
+    out.push(b')');
 }
 
 /// 実数。読み直すと同じ値になる最短の 10 進に、小数点を付ける

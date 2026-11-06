@@ -1,0 +1,134 @@
+{
+  "description": "P21 の Shift_JIS のレイヤ「図枠」（90 7D 98 67）に点を 2 つ足しても、元の線と追加した点が同じ名前のレイヤに入る。書き戻したファイルのバイト列もネイティブと wasm で一致する（#552）",
+  "steps": [
+    {
+      "push": {
+        "name": "raw-layer.p21",
+        "hex": "49534f2d31303330332d32313b0a4845414445523b0a46494c455f4445534352495054494f4e282827534341444543206c6576656c322041503230325f6d6f646527292c27323b3127293b0a46494c455f534348454d412828274153534f434941544956455f44524155474854494e472729293b0a454e445345433b0a444154413b0a23313d44524155474854494e475f5052455f444546494e45445f434f4c4f55522827626c61636b27293b0a23323d44524155474854494e475f5052455f444546494e45445f43555256455f464f4e542827636f6e74696e756f757327293b0a23333d284c454e4754485f554e49542829204e414d45445f554e4954282a292053495f554e4954282e4d494c4c492e2c2e4d455452452e29293b0a23343d4c454e4754485f4d4541535552455f574954485f554e495428504f5349544956455f4c454e4754485f4d45415355524528302e3133292c2333293b0a23353d43555256455f5354594c45282720272c23322c23342c2331293b0a23363d50524553454e544154494f4e5f5354594c455f41535349474e4d454e542828233529293b0a2331303d43415254455349414e5f504f494e54282720272c28302e2c302e29293b0a2331313d43415254455349414e5f504f494e54282720272c283130302e2c35302e29293b0a2331343d444952454354494f4e282720272c28322e2c312e29293b0a2331353d564543544f52282720272c2331342c312e293b0a2331363d4c494e45282720272c2331302c233135293b0a2331373d5452494d4d45445f4355525645282720272c2331362c28233130292c28233131292c2e542e2c2e43415254455349414e2e293b0a2331383d414e4e4f544154494f4e5f43555256455f4f4343555252454e4345282720272c282336292c233137293b0a2332303d50524553454e544154494f4e5f4c415945525f41535349474e4d454e542827907d9867272c2720272c2823313829293b0a2333303d44524157494e475f53484545545f5245564953494f4e282741335f686f72697a6f6e74616c272c28233138292c242c27303127293b0a2333313d44524155474854494e475f5449544c452828292c274a4150414e455345272c275327293b0a454e445345433b0a454e442d49534f2d31303330332d32313b0a"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "raw-layer.p21"
+      },
+      "expect": {
+        "/result/format": "sxf",
+        "/diagnostics": []
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "raw-layer.p21",
+        "fields": [
+          "id",
+          "kind",
+          "layer",
+          "geometry"
+        ]
+      },
+      "expect": {
+        "/result/total": 1,
+        "/result/items/0/id": "sheet/0/i18",
+        "/result/items/0/layer": "図枠",
+        "/diagnostics": []
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "doc": "raw-layer.p21",
+        "edits": [
+          {
+            "kind": "add",
+            "place": "sheet/0",
+            "layer": "図枠",
+            "color": {
+              "sxf": 2
+            },
+            "geometry": {
+              "shape": "point",
+              "position": [
+                50,
+                60
+              ],
+              "rotation": 30,
+              "marker": {
+                "namespace": "sxf.marker",
+                "code": "1",
+                "scale": 1
+              }
+            }
+          },
+          {
+            "kind": "add",
+            "place": "sheet/0",
+            "layer": "図枠",
+            "color": {
+              "sxf": 2
+            },
+            "geometry": {
+              "shape": "point",
+              "position": [
+                80,
+                60
+              ],
+              "rotation": 0,
+              "marker": {
+                "namespace": "sxf.marker",
+                "code": "3",
+                "scale": 1
+              }
+            }
+          }
+        ]
+      },
+      "expect": {
+        "/diagnostics": [],
+        "/blobs/0/kind": "file",
+        "/result/applied/0/id": "sheet/0/i42",
+        "/result/applied/1/id": "sheet/0/i52"
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "raw-layer.p21",
+        "fields": [
+          "id",
+          "kind",
+          "layer",
+          "geometry"
+        ]
+      },
+      "expect": {
+        "/result/total": 3,
+        "/result/items/0/id": "sheet/0/i18",
+        "/result/items/0/layer": "図枠",
+        "/result/items/1/id": "sheet/0/i42",
+        "/result/items/1/kind": "point",
+        "/result/items/1/layer": "図枠",
+        "/result/items/1/geometry/position": [
+          50,
+          60
+        ],
+        "/result/items/2/id": "sheet/0/i52",
+        "/result/items/2/kind": "point",
+        "/result/items/2/layer": "図枠",
+        "/result/items/2/geometry/position": [
+          80,
+          60
+        ],
+        "/diagnostics": []
+      }
+    }
+  ]
+}
