@@ -89,7 +89,8 @@ impl Lift<Drawing2D> for DwgFile {
     }
 }
 
-fn lift(db: &AcadDb, cx: &mut Cx) -> Result<Drawing2D, Error> {
+/// DXF と DWG が共有する表から図面モデルを作る。呼び出し元がすでに読んだ表を使える。
+pub fn lift(db: &AcadDb, cx: &mut Cx) -> Result<Drawing2D, Error> {
     framed(db, cx).map(|(drawing, _)| drawing)
 }
 

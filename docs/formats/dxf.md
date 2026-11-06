@@ -81,6 +81,16 @@ AutoCAD の系統のファイルモデル（L1）として DXF を読み書き�
 
 R2004 の構成は、Autodesk の [DXF Reference](https://images.autodesk.com/adsk/files/acad_dxf.pdf) の各節に従います。実アプリでの確認範囲は、下の「確かめた度合い」に書きます。
 
+### R2004 DWG の弧長寸法
+
+R2004 DWG のモデル空間・ペーパー空間に弧長寸法があり、必要な図形と参照をすべて扱える場合、`convert` は共有のオブジェクト表から R2004 の ASCII DXF に書く（[決定 0281](../decisions/0281-same-family-dxf-conversion.md)）。この経路では、元のハンドル・所有者・表の名前・コードページを使う。
+
+- 弧長寸法は `AcDbDimension` と `AcDbArcDimension` のサブクラスに分ける。共通部と固有部それぞれの 70・71、定義点、部分の角度、引出線の点を区別する。使うクラスの宣言は元の DWG から移し、出力のインスタンス数を 91 に書く。13 から始まる固有部の配置は AutoCAD の公開 DXF と照合した推定（[決定 0228](../decisions/0228-arc-length-dimensions.md)）。
+- 描画ブロックは元の BLOCK_RECORD とその BLOCK・ENDBLK を使い、所有するハンドルの並びで図形を書く。選択されていない用紙の寸法もその用紙のブロックに置く。図形は LINE・ARC・CIRCLE・SOLID・TRACE・POINT・MTEXT に対応する。用紙の LAYOUT は対応するブロックと相互に結び、寸法からは描画ブロックと DIMSTYLE、DIMSTYLE からは文字スタイルを引けるようにする。
+- 元のリアクターのうち、出力するオブジェクトへの参照は 102 の組と 330 に残す。図形のプロキシ画像は 92 にバイト数、310 に元のバイト列を書く。
+- ヘッダーは共有の表に取り出した変数と、新しい `$HANDSEED` を書く。コンテナー固有の情報などの欠落は `dwg.dxf-header.dropped`、出力対象外のオブジェクトは `dwg.dxf-record.dropped`、拡張辞書の組・省いたリアクター・辞書項目・図形の明示的な印刷スタイルへの参照は `dwg.dxf-reference.dropped` で返す。関連付けの DIMASSOC や拡張辞書も診断する。
+- 表の名前に ASCII 以外を使う図面、対象外の図形・外部参照のブロック・解けない必須の参照などがあれば、同じオブジェクト表を図面モデルに移し、決定 0206 の経路で書く。試行と変換には同じ予算を使う。
+
 ## バージョンの変更
 
 - `Dxf::write_as` で、`$ACADVER` の値を名指しして書く（[決定 0008](../decisions/0008-model-layers-and-codecs.md)）。元と同じバージョンなら、そのまま書く。バイナリの DXF のバージョンは、まだ変えない。
@@ -217,6 +227,7 @@ R2004 の構成は、Autodesk の [DXF Reference](https://images.autodesk.com/ad
 
 - 読み: AutoCAD 2027 で作った R2000〜R2018 の DXF（`samples/dwg`）で、レイアウトの用紙（[決定 0229](../decisions/0229-paper-units-from-plot-settings.md)）・弧長寸法（[決定 0228](../decisions/0228-arc-length-dimensions.md)）・反転した切り抜き（[決定 0208](../decisions/0208-inverted-symbol-clips.md)）を、AutoCAD が書いた値と比べた。TEXT の高さと位置合わせは、AutoCAD 2027 が計算した置く点と比べた（[決定 0246](../decisions/0246-dxf-text-height-and-alignment-against-autocad.md)）。
 - 非有限値の境界: 楕円・ハッチング・画像・文字と引出線つきの注記の角度、用紙と属性の換算、TEXT・ATTRIB の位置合わせで採用する点、ビュー、用紙の大きさ、MTEXT の書式倍率を、小さい合成入力で確かめた（`synthetic`、`crates/zumen-acad/tests/finite.rs`・`drawing.rs`、#594）。診断のコード・件数・場所と、正常な要素の ID、L1 のバイト列も確かめている。この異常値の扱いは、AutoCAD では照らしていない。
+- 同系統の再符号化: 最小の共有オブジェクト表で、出力から除いた XRECORD と辞書項目の件数・元のバイト範囲、未対応の参照がある場合の経路の切り替え、予算と中断での停止を確かめた（`synthetic`）。AutoCAD の R2004 の公開 DWG を変換して ezdxf 1.4.5 で再読し、対の公開 DXF と弧長寸法 6 件、寸法スタイル、描画ブロックの図形 67 件を照合した。6 件のプロキシ画像の全バイトと、参照先も保存したリアクター 12 本が一致した。ほかの 12 本のリアクターは元の場所で欠落を診断した。出力の監査の誤り・修復はともに 0 件だった（`external`、#634）。AutoCAD で開き直す実機照合は未実施。
 - 変換時の画層の診断は、説明と透過性を別々の画層と同じ画層に入れた合成 DXF で、フィールドごとの件数と元のレコードを確かめた。ezdxf 1.4.5 で両方の値を設定した R2004 の DXF では、変更なしの書き戻しは元のバイトと一致した。変換した DXF を ezdxf で読み直し、失った 2 つの値と診断が一致し、監査の誤りは 0 件だった（#633）。
 - 書き: AutoCAD で作った R2000・R2004・R2010・R2018 の DXF に、引出線の置き換え・変換・追加と MULTILEADER の線の置き換えを当てて書き戻し、AutoCAD 2027 で開いた。監査の誤りは 0 で、形・矢印・注記が当てた値と合った（#345）。
 - 「サンプルで確かめた」と書いた扱いには、`samples/` にない図面で確かめたものもある。「推定」と書いたものと、サンプルで確かめたと書いていないものは、仕様とテストの中で作ったファイルで確かめた。AutoCAD と照らしたのは上の範囲だけで、ezdxf と照らす値は下の項にある。
