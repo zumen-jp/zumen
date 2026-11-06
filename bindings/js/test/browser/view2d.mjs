@@ -1,5 +1,5 @@
 // 決定 0199 の固定した Playwright を表示部品にも使う。外へ通信せず、合成入力だけを読む。
-import { appendFileSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { dirname, extname, join, normalize, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, firefox, webkit } from "playwright";
@@ -9,6 +9,8 @@ const [name, wasmPath] = process.argv.slice(2);
 if (!browsers[name] || !wasmPath) throw new Error("使い方: node bindings/js/test/browser/view2d.mjs <chromium|firefox|webkit> <zumen_abi1.wasm>");
 const root = join(dirname(fileURLToPath(import.meta.url)), "../../../..");
 const origin = "http://localhost:24191";
+const pdfjs = existsSync(join(root, "xtask/verify/pdfjs/node_modules/pdfjs-dist/build/pdf.mjs"));
+if (!pdfjs && process.env.ZUMEN_PDFJS_REQUIRED) throw new Error("PDF の検査には xtask/verify/pdfjs の npm ci が必要です");
 const inputs = ["scene", "open_jww", "open_sxf"].map((test) =>
   JSON.parse(readFileSync(join(root, `bindings/conformance/cases/${test}.json`), "utf8")).steps.find((s) => s.push).push);
 const browser = await browsers[name].launch();
@@ -21,7 +23,7 @@ try {
     const path = normalize(decodeURIComponent(url.pathname).slice(1)).split(sep).join("/");
     if (url.pathname === "/") return route.fulfill({ contentType: "text/html", body: '<!doctype html><meta charset="utf-8"><title>view2d test</title><script type="importmap">{"imports":{"@zumen-jp/zumen":"/bindings/js/src/index.js"}}</script>' });
     if (["zumen_abi1.wasm", "target/wasm32-unknown-unknown/release/zumen_abi1.wasm"].includes(path)) return route.fulfill({ contentType: "application/wasm", body: readFileSync(wasmPath) });
-    if (!["bindings/js/src/", "packages/view2d/src/", "packages/view2d/test/", "packages/view2d/example/"].some((prefix) => path.startsWith(prefix))) return route.fulfill({ status: 404, body: "" });
+    if (!["bindings/js/src/", "packages/view2d/src/", "packages/view2d/test/", "packages/view2d/example/", "xtask/verify/pdfjs/node_modules/pdfjs-dist/"].some((prefix) => path.startsWith(prefix)) && path !== "samples/pdf/pdfium-smask-blend.pdf") return route.fulfill({ status: 404, body: "" });
     const contentType = [".js", ".mjs"].includes(extname(path)) ? "text/javascript" : extname(path) === ".html" ? "text/html" : "application/octet-stream";
     return route.fulfill({ contentType, body: readFileSync(join(root, path)) });
   });
@@ -40,6 +42,15 @@ try {
       Array.prototype.at = at;
     }
   }, { inputs });
+  // 外部の pdf.js の下限と、表示部品自身の下限の検査を分ける。
+  if (pdfjs) result.assertions += await page.evaluate(async () => {
+    const { testPdfUnderlays } = await import("/packages/view2d/test/pdf.mjs");
+    let assertions = 0;
+    const assert = (ok, message) => { assertions++; if (!ok) throw new Error(message); };
+    const near = (a, b, message) => assert(Math.abs(a - b) <= 1e-8, `${message}: ${a} / ${b}`);
+    await testPdfUnderlays({ assert, near });
+    return assertions;
+  });
   // 実際のポインター捕捉と既定の動作は、合成したイベントだけでは確認できない。
   await page.evaluate(async () => {
     const { View2D } = await import("/packages/view2d/src/index.js");

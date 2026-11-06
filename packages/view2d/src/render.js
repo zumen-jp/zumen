@@ -5,7 +5,7 @@ import { clipParts, pointReason, primitiveParts, stringAt, textReason, unitStyle
 export { project, unproject } from "./geometry.js";
 
 /** 代替と未描画の一覧を描画前に作る。要素 ID と配置の道筋はシーンの値を保つ。 */
-export function reportOf(prepared, limits, display) {
+export function reportOf(prepared, limits, display, underlays) {
   const { columns: c, order } = prepared;
   const issues = [];
   const sources = new Map();
@@ -34,7 +34,7 @@ export function reportOf(prepared, limits, display) {
         if (c.polygon_flags[p] > 1) { reason = "clip-unsupported"; break; }
       }
     }
-    reason ??= kind === "image" ? "resource-unresolved" : kind === "text" ? textReason(c, i) : kind === "point" ? pointReason(c, i) : undefined;
+    reason ??= kind === "image" ? (underlays ? underlays.reason(i) : "resource-unresolved") : kind === "text" ? textReason(c, i) : kind === "point" ? pointReason(c, i) : undefined;
     const skip = reason && reason !== "browser-text" && reason !== "marker-unresolved";
     if (reason) issue(kind, i, unit, reason, skip ? "omitted" : "fallback");
     if (skip) {
@@ -42,7 +42,7 @@ export function reportOf(prepared, limits, display) {
       continue;
     }
     const color = c.unit_colors[unit];
-    if (color === SCENE_NONE || ((c.color_flags[color] & V.color_flag.unresolved) && !(c.color_flags[color] & V.color_flag.foreground))) {
+    if (kind !== "image" && (color === SCENE_NONE || ((c.color_flags[color] & V.color_flag.unresolved) && !(c.color_flags[color] & V.color_flag.foreground)))) {
       issue(kind, i, unit, "color-unresolved", "fallback");
     }
     drawn[`${kind}s`]++;
@@ -51,7 +51,7 @@ export function reportOf(prepared, limits, display) {
   return { report: Object.freeze({ drawn: Object.freeze(drawn), issues: Object.freeze(issues) }), omitted };
 }
 
-export function paint(ctx, prepared, settings, view, size, display) {
+export function paint(ctx, prepared, settings, view, size, display, underlays) {
   const { width, height, pixelRatio } = size;
   ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
   ctx.clearRect(0, 0, width, height);
@@ -72,6 +72,7 @@ export function paint(ctx, prepared, settings, view, size, display) {
       ctx.save();
       try {
         for (const part of clipParts(c, unit, view, size)) ctx.clip(part.path, part.fill);
+        if (kind === "image") { underlays?.draw(ctx, i); continue; }
         const style = unitStyle(c, unit, settings, display);
         ctx.fillStyle = style;
         ctx.strokeStyle = style;

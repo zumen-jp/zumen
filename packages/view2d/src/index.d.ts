@@ -27,6 +27,16 @@ export interface Limits {
   canvasPixels: number;
   /** 選択・強調・非表示レイヤの合計、購読・当たり判定・独自ツール・重ね描きの各件数。既定 100,000。 */
   stateItems: number;
+  /** 利用側へ渡す、1 資源の入力と復号のバイト数の上限。既定 64 MiB。利用側が確保前に数える。 */
+  underlayBytes: number;
+  /** 保持した画像と未完了の描画要求の画素数の合計。既定 16,777,216。 */
+  underlayPixels: number;
+  /** 要求する画像の一辺の上限。既定 8192。 */
+  underlaySide: number;
+  /** 未完了の解決・描画の数。中断して未完了のものも数える。既定 4。 */
+  underlayJobs: number;
+  /** 解決中・保持中・中断して未解放の資源の数。既定 64。 */
+  underlayResources: number;
 }
 export interface View2DOptions {
   /** CSS px。省略時は Canvas の clientWidth・clientHeight（OffscreenCanvas は width・height）。 */
@@ -48,10 +58,55 @@ export interface View2DOptions {
   pixelsPerMillimeter?: number;
   fallbackFont?: "sans-serif" | "serif" | "monospace";
   limits?: Partial<Limits>;
+  underlayRenderer?: UnderlayRenderer;
 }
 export interface ElementRef {
   readonly id: string;
   readonly path: readonly { readonly id: string; readonly column: number; readonly row: number }[];
+}
+export interface UnderlayDescriptor {
+  readonly index: number;
+  readonly element: ElementRef;
+  readonly document: DocumentIdentity;
+  readonly kind: "image" | "pdf" | "dwf" | "dgn" | "unknown";
+  /** 元の参照名とページ名。URL として取得せず、ページ番号へ変換しない。 */
+  readonly name: string;
+  readonly page: string;
+}
+export interface UnderlayRequest extends UnderlayDescriptor {
+  readonly signal: AbortSignal;
+  readonly limits: Readonly<{ maxBytes: number; maxPixels: number; maxSide: number }>;
+}
+export interface UnderlayRenderRequest extends UnderlayRequest {
+  /** 左下原点・Y が上の内容の単位。corners は内容全体を枠へ、unit は内容の 1 単位を辺へ写す。 */
+  readonly region: Readonly<Extent>;
+  /** 返す画像の画素数。pixelRatio を反映済みで、この寸法と一致させる。 */
+  readonly width: number;
+  readonly height: number;
+}
+export interface UnderlayRaster {
+  /** 左上原点の画素。渡した後は、dispose まで変更・転送・close しない。 */
+  readonly source: ImageBitmap | HTMLCanvasElement | OffscreenCanvas;
+  /** 所有権を移す。古い結果にも 1 回呼ぶ。共有資源の参照数は利用側で扱う。 */
+  dispose(): void | Promise<void>;
+}
+export interface UnderlayResource {
+  /** ページ・画像の内容の単位での寸法。PDF の単位やページ名の対応は利用側で決める。 */
+  readonly width: number;
+  readonly height: number;
+  render(request: UnderlayRenderRequest): UnderlayRaster | Promise<UnderlayRaster>;
+  /** 中断した描画の完了を待ち、その画像を解放してから 1 回呼ぶ。 */
+  dispose(): void | Promise<void>;
+}
+/** 必ず同期通知の外で呼ぶ。利用側は上限と signal を守り、URL やページ名を明示して解く。 */
+export type UnderlayRenderer = (request: UnderlayRequest) => UnderlayResource | Promise<UnderlayResource>;
+export type UnderlayStatus = "ready" | "resource-unresolved" | "resource-pending" | "resource-cancelled" | "resource-outside-view"
+  | "resource-limit" | "resource-invalid" | "resource-resolve-failed" | "resource-render-failed" | "resource-release-failed"
+  | "resource-kind-unsupported" | "resource-frame-invalid" | "clip-unsupported";
+export interface UnderlayState extends UnderlayDescriptor {
+  readonly status: UnderlayStatus;
+  readonly width?: number;
+  readonly height?: number;
 }
 export interface Highlight {
   readonly name: string;
@@ -133,11 +188,12 @@ export interface View2DState {
   readonly input: Readonly<InputOptions>;
   readonly gesture: Gesture | null;
   readonly measurement: Measurement | null;
+  readonly underlays: readonly UnderlayState[];
 }
-export type View2DEventType = "scene" | "view" | "size" | "layers" | "selection" | "hover" | "highlight" | "tool" | "input" | "measurement";
+export type View2DEventType = "scene" | "view" | "size" | "layers" | "selection" | "hover" | "highlight" | "tool" | "input" | "measurement" | "underlay";
 export interface View2DEvent { readonly type: View2DEventType; readonly state: View2DState }
 export type SelectionMode = "replace" | "add" | "remove" | "toggle";
-export type RenderReason = "browser-text" | "text-layout-unsupported" | "marker-unresolved" | "point-style-unsupported" | "resource-unresolved" | "color-unresolved" | "clip-unsupported";
+export type RenderReason = "browser-text" | "text-layout-unsupported" | "marker-unresolved" | "point-style-unsupported" | "color-unresolved" | Exclude<UnderlayStatus, "ready">;
 export interface RenderIssue {
   readonly element: ElementRef;
   readonly unit: number;
@@ -160,6 +216,12 @@ export declare class View2D {
   getReport(): RenderReport;
   /** 状態が変わるまでは同じ凍結した参照。Scene の列は共有する。 */
   getState(): View2DState;
+  /** 資源と進行中の要求を解放し、現在のシーンを新しい関数で解決する。null は停止。 */
+  setUnderlayRenderer(renderer: UnderlayRenderer | null): RenderReport;
+  /** 失敗と中断を解除し、資源を解決し直す。 */
+  refreshUnderlays(): RenderReport;
+  /** 再読込かシーン・関数の差し替えまで停止する。 */
+  cancelUnderlays(): RenderReport;
   getLayers(): readonly string[];
   /** 登録時には呼ばず、更新後に同期で通知する。返す関数で解除。 */
   subscribe(listener: (state: View2DState) => void): () => void;

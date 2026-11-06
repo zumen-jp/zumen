@@ -7,6 +7,11 @@ export const DEFAULT_LIMITS = Object.freeze({
   textLength: 16_384,
   canvasPixels: 16_777_216,
   stateItems: 100_000,
+  underlayBytes: 67_108_864,
+  underlayPixels: 16_777_216,
+  underlaySide: 8192,
+  underlayJobs: 4,
+  underlayResources: 64,
 });
 
 export function valid(condition, field) {
@@ -117,11 +122,12 @@ export function prepare(input, limits) {
   refs("text_fonts", "font_names", true);
   refs("glyph_shapes", "shape_rings");
   for (const name of ["text_strings", "point_markers", "image_names", "image_pages", "entity_ids", "step_ids", "layer_ids", "font_names"]) {
-    const decode = name === "text_strings" || name === "entity_ids" || name === "step_ids" || name === "layer_ids";
+    const decode = ["text_strings", "entity_ids", "step_ids", "layer_ids", "image_names", "image_pages"].includes(name);
     for (let i = 0; i < c[name].length; i += 2) {
       valid(c[name][i] + c[name][i + 1] <= c.strings.length, name);
       // 同じ文字列を多数の ID・配置から引く場合も、復号する長さを数える。
       if (decode) charge(c[name][i + 1]);
+      if (name === "image_names" || name === "image_pages") valid(c[name][i + 1] <= limits.textLength, `limits.textLength.${name}`);
     }
   }
   for (let i = 0; i < c.chunk_bounds.length; i += 4) {
@@ -174,6 +180,10 @@ export function prepare(input, limits) {
     }
   }
   for (const kind of KINDS) for (const unit of c[`${kind}_units`]) charge(1 + (clipWork[c.unit_clips[unit]] ?? 0));
+  valid(c.image_units.length <= limits.stateItems, "limits.stateItems");
+  // 表示範囲と画像の四角の交差は、各画像で固定の四辺・最大 8 頂点を処理する。
+  charge(128 * c.image_units.length);
+  for (const unit of c.image_units) charge(clipWork[c.unit_clips[unit]] ?? 0);
   for (const shape of c.glyph_shapes) charge(shapeWork[shape]);
 
   // 描く単位の順の索引だけを持つ。形・座標・書式を要素ごとの別モデルに写さない。

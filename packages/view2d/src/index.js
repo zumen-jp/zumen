@@ -6,10 +6,11 @@ import { hitPoint, hitRect } from "./hit.js";
 import { measurementOf, positionAt, snapPoint } from "./snap.js";
 import { inputOptions, normalizeInput, Tools } from "./tools.js";
 import { bindInput } from "./controls.js";
+import { Underlays } from "./underlays.js";
 
 const EMPTY_REPORT = Object.freeze({ drawn: Object.freeze({ lines: 0, faces: 0, texts: 0, points: 0, images: 0, glyphs: 0 }), issues: Object.freeze([]) });
 const EMPTY = Object.freeze([]);
-const EVENTS = ["scene", "view", "size", "layers", "selection", "hover", "highlight", "tool", "input", "measurement"];
+const EVENTS = ["scene", "view", "size", "layers", "selection", "hover", "highlight", "tool", "input", "measurement", "underlay"];
 const equalList = (a, b) => a.length === b.length && a.every((value, i) => value === b[i]);
 
 function point(value, name) {
@@ -59,6 +60,7 @@ export class View2D {
   #measurement = null;
   #overlays = new Map();
   #nextOverlay = 0;
+  #underlays;
 
   constructor(canvas, options = {}) {
     valid(canvas && typeof canvas.getContext === "function", "canvas");
@@ -82,16 +84,18 @@ export class View2D {
     this.#canvas = canvas;
     this.#ctx = ctx;
     this.#tools = new Tools(this, this.#limits, () => this.#binding?.release());
+    this.#underlays = new Underlays(this.#limits, () => this.#refresh("underlay"));
+    this.#underlays.setRenderer(options.underlayRenderer ?? null);
     this.resize(options.width ?? canvas.clientWidth ?? canvas.width, options.height ?? canvas.clientHeight ?? canvas.height, options.pixelRatio ?? 1);
   }
 
   #live() { if (!this.#ctx) throw new Error("View2D は破棄済み"); }
-  #mutable() { this.#live(); valid(!this.#notifying, "state.notification"); valid(!this.#drawing, "render.reentrant"); }
+  #mutable() { this.#live(); valid(!this.#notifying, "state.notification"); valid(!this.#drawing && !this.#underlays?.calling, "render.reentrant"); }
   #structural() { this.#mutable(); this.#tools.idle(); }
 
   #state() {
     return Object.freeze({ scene: this.getScene(), view: this.#view, size: this.#size, layers: this.getLayers(), ...this.#interaction,
-      tool: this.#tools.name, input: this.#tools.options, gesture: this.#tools.gesture, measurement: this.#measurement });
+      tool: this.#tools.name, input: this.#tools.options, gesture: this.#tools.gesture, measurement: this.#measurement, underlays: this.#underlays.state });
   }
 
   #publish(type) {
@@ -149,6 +153,7 @@ export class View2D {
     this.#index = index;
     this.#interaction = emptyInteraction();
     this.#display = display;
+    this.#underlays.scene(next, index);
     return this.#refresh("scene", cleanup);
   }
 
@@ -158,6 +163,10 @@ export class View2D {
   getReport() { this.#live(); return this.#prepared?.report ?? EMPTY_REPORT; }
   getLayers() { this.#live(); return this.#index?.layers ?? EMPTY; }
   getState() { this.#live(); return this.#snapshot; }
+
+  setUnderlayRenderer(renderer) { this.#structural(); this.#underlays.setRenderer(renderer); return this.#refresh("underlay"); }
+  refreshUnderlays() { this.#structural(); this.#underlays.refresh(); return this.#refresh("underlay"); }
+  cancelUnderlays() { this.#structural(); this.#underlays.cancel(); return this.#refresh("underlay"); }
 
   #interact(next, type) {
     const previous = this.#interaction;
@@ -319,11 +328,15 @@ export class View2D {
 
   render() {
     this.#live();
-    valid(!this.#drawing, "render.reentrant"); this.#drawing = true;
+    valid(!this.#drawing && !this.#underlays.calling, "render.reentrant"); this.#drawing = true;
     let failed = false, first;
     try {
       const ctx = this.#ctx, size = this.#size;
-      paint(ctx, this.#prepared, this.#settings, this.#view, size, this.#display);
+      this.#underlays.update(this.#view, size, this.#display);
+      if (this.#prepared) Object.assign(this.#prepared, reportOf(this.#prepared, this.#limits, this.#display, this.#underlays));
+      const underlayState = this.#underlays.state;
+      paint(ctx, this.#prepared, this.#settings, this.#view, size, this.#display, this.#underlays);
+      if (this.#prepared && underlayState !== this.#underlays.state) Object.assign(this.#prepared, reportOf(this.#prepared, this.#limits, this.#display, this.#underlays));
       ctx.save();
       try {
         ctx.setTransform(size.pixelRatio, 0, 0, size.pixelRatio, 0, 0); ctx.strokeStyle = this.#settings.overlayColor; ctx.lineWidth = 1;
@@ -435,6 +448,7 @@ export class View2D {
     if (!this.#ctx) return;
     this.#structural();
     const cleanup = this.#tools.reset("destroy");
+    this.#underlays.destroy();
     this.#binding?.disconnect(); this.#binding = null; this.#measurement = null; this.#overlays.clear(); this.#tools.definitions.clear();
     this.#ctx.setTransform(1, 0, 0, 1, 0, 0);
     this.#ctx.clearRect(0, 0, this.#canvas.width, this.#canvas.height);
