@@ -218,6 +218,30 @@ fn sample(x: f64, range: &Range<u64>) -> u64 {
     libm::ceil(x * 4.0 - 0.5).clamp(range.start as f64, range.end as f64) as u64
 }
 
+fn crossing_column(
+    low: Point,
+    high: Point,
+    y: f64,
+    columns: &Range<u64>,
+    cx: &mut Cx<'_>,
+) -> Result<u64, Error> {
+    // 辺の左右の端と描画範囲の間で、交点以上の最初のサンプルを二分探索する。
+    // 縦線なら初めから first == end。幅は最大 2^24 画素なので、比較は最大 27 回。
+    let mut first = sample(low[0].min(high[0]), columns);
+    let mut end = sample(low[0].max(high[0]), columns);
+    while first < end {
+        cx.check(Kind::Work, 1)?;
+        let mid = first + (end - first) / 2;
+        let x = (mid as f64 + 0.5) / 4.0;
+        if crate::crossing::on_or_right(low, high, [x, y], cx)? {
+            end = mid;
+        } else {
+            first = mid + 1;
+        }
+    }
+    Ok(first)
+}
+
 fn intersect(a: [f64; 4], b: [f64; 4]) -> [f64; 4] {
     [
         a[0].max(b[0]),
@@ -398,19 +422,10 @@ fn row_mask(
                 for &Edge { low, high, winding } in &path.edges.items {
                     cx.check(Kind::Work, 1)?;
                     if low[1] <= y && y < high[1] {
-                        // 先に傾きを求め、走査線に近い端点から交点までを測る。
-                        // 長い辺の両端が遠くても、頂点順にかかわらず同じ演算になる。
-                        let slope = (high[0] - low[0]) / (high[1] - low[1]);
-                        let from_low = y - low[1];
-                        let from_high = high[1] - y;
-                        let x = if from_low <= from_high {
-                            low[0] + from_low * slope
-                        } else {
-                            high[0] - from_high * slope
-                        };
+                        let column = crossing_column(low, high, y, columns, cx)?;
                         events.push(
                             Event {
-                                column: sample(x, columns) - origin,
+                                column: column - origin,
                                 winding,
                             },
                             cx,

@@ -1,5 +1,6 @@
 //! シーンの列から SVG 1.1・PNG を書く（決定 0272・0277）。外部のフォント・画像は取得しない。
 
+mod crossing;
 mod order;
 mod paint;
 mod png;
