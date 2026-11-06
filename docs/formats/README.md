@@ -838,13 +838,13 @@
 ### format-png
 
 - 名前: PNG
-- 権利の根拠: W3C が仕様を公開し、実装を制限していない。勧告の Abstract、RF の実装を可能にする特許方針と文書ライセンスを 2026-11-06 に確認した
+- 権利の根拠: W3C が仕様を公開し、実装を制限していない。勧告の Abstract と Status of This Document、RF の実装を可能にする特許方針と勧告の著作権表示のライセンスを 2026-11-06 に確認した
 - 仕様: [png\_3](#spec-png_3)
 - 実装の根拠: spec
 - 権利の根拠にした文書: [W3C Patent Policy](https://www.w3.org/policies/patent-policy/)（確認日: 2026-11-06）
 - 文書の補足: 勧告の実装を Royalty-Free で可能にする特許方針。PNG 勧告の Status of This Document が準拠を記す
-- 権利の根拠にした文書: [W3C Document License](https://www.w3.org/copyright/document-license-2023/)（確認日: 2026-11-06）
-- 文書の補足: 勧告からリンクされる文書ライセンス。仕様の実装を容易にするため、一部をソフトウェアへ組み込むことを認める。本文とコードは同梱しない
+- 権利の根拠にした文書: [W3C Software and Document License (2023)](https://www.w3.org/copyright/software-license-2023/)（確認日: 2026-11-06）
+- 文書の補足: 勧告の著作権表示が指定するライセンス。複製にライセンス通知の全文と既存の権利・免責の表示を含め、改変した場合は変更を示す条件で、目的を問わず無償で複製・改変・配布を認める
 - 書きの確かめた度合い: `external`（確認日: 2026-11-06）
 - 書きの確かめた範囲: RGBA 8 bit、非インターレース、非圧縮 DEFLATE の静止画。Chromium と zlib で寸法・RGBA・CRC・Adler-32 を照らした。穴・字形・描画順・通常と反転のクリップ・余白・半透明を含む。Canvas の半透明の RGB の丸めだけ 1 まで認める。外部画像・閲覧側ごとの色管理・アンチエイリアスの一致は対象外。PNG を読む実装は持たない
 - 書きで照らした外部の実装: Chromium 156.0.8078.4・zlib (Node.js) 1.3.2.1-motley-285e94b

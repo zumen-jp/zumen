@@ -21,10 +21,10 @@ family = "png"
 domains = ["drawing"]
 specs = ["png_3"]
 rights = "public"
-rights-note = "W3C が仕様を公開し、実装を制限していない。勧告の Abstract、RF の実装を可能にする特許方針と文書ライセンスを 2026-11-06 に確認した"
+rights-note = "W3C が仕様を公開し、実装を制限していない。勧告の Abstract と Status of This Document、RF の実装を可能にする特許方針と勧告の著作権表示のライセンスを 2026-11-06 に確認した"
 evidence = [
   { title = "W3C Patent Policy", url = "https://www.w3.org/policies/patent-policy/", checked = "2026-11-06", note = "勧告の実装を Royalty-Free で可能にする特許方針。PNG 勧告の Status of This Document が準拠を記す" },
-  { title = "W3C Document License", url = "https://www.w3.org/copyright/document-license-2023/", checked = "2026-11-06", note = "勧告からリンクされる文書ライセンス。仕様の実装を容易にするため、一部をソフトウェアへ組み込むことを認める。本文とコードは同梱しない" },
+  { title = "W3C Software and Document License (2023)", url = "https://www.w3.org/copyright/software-license-2023/", checked = "2026-11-06", note = "勧告の著作権表示が指定するライセンス。複製にライセンス通知の全文と既存の権利・免責の表示を含め、改変した場合は変更を示す条件で、目的を問わず無償で複製・改変・配布を認める" },
 ]
 place = "core"
 basis = ["spec"]
