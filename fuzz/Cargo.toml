@@ -311,3 +311,10 @@ path = "fuzz_targets/json.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "png"
+path = "fuzz_targets/png.rs"
+test = false
+doc = false
+bench = false

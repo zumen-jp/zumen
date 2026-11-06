@@ -1,4 +1,4 @@
-//! SVG を書く target に、線と列の参照を持つ合成シーンを渡す（#602）。
+//! SVG・PNG を書く target に、線と列の参照を持つ合成シーンを渡す（#602・604）。
 
 use zumen_scene::layout as l;
 
@@ -58,7 +58,7 @@ pub(super) fn seed() -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn seed_reaches_svg_paths() {
+    fn seed_reaches_render_paths() {
         use zumen_base::{Budget, CancelToken, Cx, Diagnostics};
         let mut budget = Budget::default();
         let mut diag = Diagnostics::new();
@@ -78,6 +78,14 @@ mod tests {
         )
         .unwrap();
         assert!(String::from_utf8(svg).unwrap().contains("M0 100L100 0"));
+        assert!(diag.is_empty());
+        let png = zumen_render::png(
+            &super::seed(),
+            &options,
+            &mut Cx::new(&mut budget, &mut diag, &cancel),
+        )
+        .unwrap();
+        assert!(png.starts_with(b"\x89PNG\r\n\x1a\n"));
         assert!(diag.is_empty());
     }
 }

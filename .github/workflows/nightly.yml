@@ -54,7 +54,7 @@ jobs:
           node bindings/js/test/browser/view2d.mjs ${{ matrix.browser }} target/wasm32-unknown-unknown/release/zumen_abi1.wasm
 
   svg:
-    name: SVG を Chromium で開いて照らす
+    name: SVG・PNG を Chromium で開いて照らす
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -69,9 +69,9 @@ jobs:
       - name: Playwright のバージョンに合う Chromium と OS のライブラリを入れる
         working-directory: bindings/js/test/browser
         run: npx --no-install playwright install --with-deps --only-shell chromium
-      - name: シーンから SVG の照合用のファイルを作る（決定 0272）
+      - name: シーンから SVG・PNG の照合用のファイルを作る（決定 0272・0277）
         run: cargo run --locked -p zumen-render --example export -- target/svg-check
-      - name: SVG の描画順・穴・字形・切り抜きを外部の実装と照らす（決定 0254）
+      - name: SVG・PNG の描画順・穴・字形・切り抜きを外部の実装と照らす（決定 0254）
         run: node crates/zumen-render/tests/browser.mjs target/svg-check/drawing.svg target/svg-check/region.svg
 
   nextjs:
