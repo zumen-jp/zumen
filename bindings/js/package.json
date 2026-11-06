@@ -33,6 +33,7 @@
   },
   "files": [
     "src",
+    "sboms",
     "zumen_abi1.wasm",
     "zumen_abi1_drawing.wasm",
     "zumen_abi1_bim.wasm",

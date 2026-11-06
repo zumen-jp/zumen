@@ -16,6 +16,16 @@ ABOUT_VERSION = "cargo-about 0.9.2"
 PLACEHOLDER = re.compile(r"<year>|<copyright holders>|<owner>", re.IGNORECASE)
 MANIFESTS = {"abi": "crates/zumen-abi/Cargo.toml", "cli": "bindings/cli/Cargo.toml"}
 TARGETS = json.loads((Path(__file__).parent / "targets.json").read_text(encoding="utf-8"))
+WASM = "wasm32-unknown-unknown"
+MODULES = ("default", "drawing", "bim", "civil", "pointcloud")
+
+
+def feature_args(module):
+    return [] if module == "default" else ["--no-default-features", "--features", module]
+
+
+def wasm_name(module):
+    return "zumen_abi1" + ("" if module == "default" else "_" + module) + ".wasm"
 
 
 def license_expression(ids):
@@ -52,11 +62,11 @@ def run_about(command):
     return result
 
 
-def generate(tool, kind, target, output):
+def generate(tool, kind, target, output, module="default"):
     output.mkdir(parents=True, exist_ok=True)
     package = "zumen-abi" if kind == "abi" else "zumen-cli"
     args = [tool, "about", "generate", "--config", "about.toml", "--manifest-path", MANIFESTS[kind],
-            "--target", target, "--locked", "--fail"]
+            "--target", target, "--locked", "--fail", *feature_args(module)]
     with tempfile.TemporaryDirectory(prefix="zumen-licenses-") as temporary:
         raw = Path(temporary) / "raw.json"
         rendered = Path(temporary) / "licenses.txt"
@@ -69,7 +79,7 @@ def generate(tool, kind, target, output):
         text = f"対象 crate: {package}\n対象 target: {target}\n\n{text}"
         content = text.encode("utf-8")
         info = {
-            "package": package, "target": target,
+            "package": package, "target": target, "features": module,
             "license_expression": license_expression(license_ for dep in dependencies for license_ in dep["licenses"]),
             "sha256": hashlib.sha256(content).hexdigest(), "dependencies": dependencies,
         }
@@ -78,7 +88,7 @@ def generate(tool, kind, target, output):
     print(f"{package} / {target}: 第三者の crate {len(dependencies)} 件")
 
 
-def read_info(directory, package=None, target=None):
+def read_info(directory, package=None, target=None, module="default"):
     directory = Path(directory)
     content = (directory / "THIRD_PARTY_LICENSES").read_bytes()
     info = json.loads((directory / "license-info.json").read_text(encoding="utf-8"))
@@ -88,6 +98,8 @@ def read_info(directory, package=None, target=None):
         raise ValueError("ライセンスの crate が違う")
     if target is not None and info["target"] != target:
         raise ValueError("ライセンスの target が違う")
+    if info.get("features") != module:
+        raise ValueError("ライセンスの feature が違う")
     if info["license_expression"] != license_expression(license_ for dep in info["dependencies"] for license_ in dep["licenses"]):
         raise ValueError("ライセンスの式が依存の一覧と一致しない")
     return info, content
@@ -102,7 +114,9 @@ def main():
         parser.error("cargo-about 0.9.2 を入れ、PATH か --cargo-about で指定する")
     output = args.output.resolve()
     wasm = output / "licenses" / "wasm" / "abi"
-    generate(args.cargo_about, "abi", "wasm32-unknown-unknown", wasm)
+    for module in MODULES:
+        directory = wasm if module == "default" else wasm.parent / module
+        generate(args.cargo_about, "abi", WASM, directory, module)
     shutil.copyfile(wasm / "THIRD_PARTY_LICENSES", output / "THIRD_PARTY_LICENSES")
     for target in TARGETS:
         for kind in MANIFESTS:

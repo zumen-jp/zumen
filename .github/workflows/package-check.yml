@@ -14,6 +14,9 @@ on:
       - '.cargo/**'
       - 'bindings/python/**'
       - 'bindings/dotnet/**'
+      - 'bindings/js/package.json'
+      - 'bindings/js/src/**'
+      - 'bindings/js/README.md'
       - 'LICENSE-*'
 
 permissions:
@@ -43,7 +46,13 @@ jobs:
       - name: cargo-about は、バイナリを作る job と分けて動かす
         run: |
           cargo install --locked cargo-about@0.9.2 --features cli
+          cargo install --locked cargo-cyclonedx@0.5.9
           python xtask/release/licenses.py --output out
+          python xtask/release/sbom.py --output out
+      - name: 別 member だけが有効にする feature を、実際のコンパイルと依存の辺から検出する
+        run: |
+          cargo install --locked cargo-auditable@0.7.7 rust-audit-info@0.5.4
+          python xtask/release/check_cargo_scope.py
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: package-licenses
@@ -66,7 +75,7 @@ jobs:
       - run: |
           rustup toolchain install
           rustup target add ${{ matrix.target }}
-      - run: cargo build --release --locked --target ${{ matrix.target }} -p zumen-abi -p zumen-cli
+      - run: cargo install --locked cargo-auditable@0.7.7 rust-audit-info@0.5.4
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.x'
@@ -75,18 +84,45 @@ jobs:
           name: package-licenses
           path: licenses
       - name: ネイティブ・CLI の圧縮・wheel に入る本文とバイナリを確かめる
+        run: python xtask/release/build.py --rid ${{ matrix.rid }} --out built
+      - name: 配布ファイルの SBOM と埋込情報を照合する
         run: >-
           python xtask/release/package.py native --rid ${{ matrix.rid }}
-          --built target/${{ matrix.target }}/release --licenses licenses --out out
+          --built built --licenses licenses --out out
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: package-native-${{ matrix.rid }}
           path: out
           if-no-files-found: error
 
-  nuget:
-    name: NuGet の 7 対象
-    needs: [licenses, native]
+  wasm:
+    name: wasm の 5 対象
+    needs: licenses
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: |
+          rustup toolchain install
+          rustup target add wasm32-unknown-unknown
+          cargo install --locked cargo-auditable@0.7.7 rust-audit-info@0.5.4
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.x'
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: package-licenses
+          path: licenses
+      - run: python xtask/release/build.py --rid wasm --out built
+      - run: python xtask/release/package.py wasm --built built --licenses licenses --out out
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: package-wasm
+          path: out
+          if-no-files-found: error
+
+  packages:
+    name: npm と NuGet の配布物
+    needs: [licenses, native, wasm]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -101,4 +137,9 @@ jobs:
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: '10.0.x'
+      - run: cargo install --locked rust-audit-info@0.5.4
       - run: python xtask/release/package.py nuget --artifacts artifacts --out out
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - run: python xtask/release/package.py npm --artifacts artifacts --out out

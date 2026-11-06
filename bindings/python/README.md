@@ -6,6 +6,7 @@
 - 依存はなく、ネイティブの拡張も作りません。手元で作ったライブラリを使うときは、`load` に道筋を渡します。
 - `zumen/messages.py`・`zumen/constants.py` は、`schema/` から `cargo xtask codegen` で生成します。手で直さないでください。
 - wheel の `.dist-info/licenses/` に、`LICENSE-MIT`・`LICENSE-APACHE` と、対象の ABI の依存の本文 `THIRD_PARTY_LICENSES` を入れます。作成と検査の手順は [xtask/release](../../xtask/release/README.md) にあります。
+- ネイティブのライブラリに対応する CycloneDX SBOM は `.dist-info/sboms/` にあります。
 
 ## 使い方
 

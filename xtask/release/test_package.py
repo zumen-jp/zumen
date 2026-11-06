@@ -12,16 +12,26 @@ from unittest.mock import patch
 
 import licenses
 import package
+import sbom
 
 
 def notice(directory, kind, target):
     directory.mkdir(parents=True)
     content = f"test {kind} {target}\n".encode() + (licenses.ROOT / "LICENSE-MIT").read_bytes()
-    info = {"package": f"zumen-{kind}", "target": target, "sha256": hashlib.sha256(content).hexdigest(),
+    info = {"package": f"zumen-{kind}", "target": target, "features": "default", "sha256": hashlib.sha256(content).hexdigest(),
             "license_expression": licenses.license_expression(["MIT"]),
             "dependencies": [{"name": "fixture", "version": "0.0.0", "licenses": ["MIT"]}]}
     (directory / "THIRD_PARTY_LICENSES").write_bytes(content)
     (directory / "license-info.json").write_text(json.dumps(info), encoding="utf-8")
+    platform = next(t for t in licenses.TARGETS if t["target"] == target)
+    filename = platform["library" if kind == "abi" else "exe"]
+    ref = sbom.bom_ref("local", info["package"], package.VERSION)
+    deps = [{"ref": ref, "dependsOn": []}]
+    meta = {"component": {"bom-ref": ref, "scope": "required"}, "properties": [
+        {"name": k, "value": v} for k, v in {"zumen:crate": info["package"], "zumen:artifact": filename,
+        "zumen:features": "default", "zumen:commit": "fixture", "zumen:lock-sha256": "fixture",
+        "cdx:rustc:sbom:target:triple": target}.items()]}
+    (directory / sbom.DRAFT).write_bytes(sbom.encode({"metadata": meta, "components": [], "dependencies": deps}))
     return info, content
 
 
@@ -72,7 +82,21 @@ class PackageTests(unittest.TestCase):
                 info, abi = notice(notices / "abi", "abi", target["target"])
                 _, cli = notice(notices / "cli", "cli", target["target"])
                 output = root / "out"
-                package.package_native(rid, built, root, output)
+                for kind, filename in (("abi", target["library"]), ("cli", target["exe"])):
+                    ref = sbom.bom_ref("local", "zumen-" + kind, package.VERSION)
+                    receipt = {"package": "zumen-" + kind, "target": target["target"], "features": "default",
+                               "artifact": filename, "sha256": sbom.digest((built / filename).read_bytes()),
+                               "commit": "fixture", "lock": "fixture", "compiled": [ref],
+                               "root": ref, "tree": {ref: ["runtime", []]}}
+                    (built / (filename + ".build.json")).write_bytes(sbom.encode(receipt))
+
+                def extract_fixture(binary):
+                    name = "zumen-abi" if binary == library else "zumen-cli"
+                    ref = sbom.bom_ref("local", name, package.VERSION)
+                    return ref, {ref: ("runtime", set())}
+
+                with patch("sbom.extracted_graph", side_effect=extract_fixture):
+                    package.package_native(rid, built, root, output)
                 self.assertEqual((output / "native" / rid / "THIRD_PARTY_LICENSES").read_bytes(), abi)
                 archive = next(output.glob("zumen-*"))
                 self.assertEqual(package.read_archive(archive)[f"zumen-{package.VERSION}-{rid}/THIRD_PARTY_LICENSES"], cli)
@@ -81,6 +105,8 @@ class PackageTests(unittest.TestCase):
                     entries = {name: source.read(name) for name in source.namelist()}
                 notice_name = f"zumen-{package.VERSION}.dist-info/licenses/THIRD_PARTY_LICENSES"
                 self.assertEqual(entries[notice_name], abi)
+                abi_bom = (output / "native" / rid / (target["library"] + ".cdx.json")).read_bytes()
+                self.assertEqual(entries[f"zumen-{package.VERSION}.dist-info/sboms/{target['library']}.cdx.json"], abi_bom)
                 # 本文があっても RECORD に載っていなければ拒む。
                 record_name = f"zumen-{package.VERSION}.dist-info/RECORD"
                 entries[record_name] = b"\n".join(line for line in entries[record_name].splitlines()
@@ -89,7 +115,7 @@ class PackageTests(unittest.TestCase):
                     for name, content in entries.items():
                         corrupt.writestr(name, content)
                 with self.assertRaisesRegex(ValueError, "RECORD"):
-                    package.verify_wheel(wheel, target, library, abi, info["license_expression"])
+                    package.verify_wheel(wheel, target, library, abi, info["license_expression"], abi_bom)
 
     def test_standalone_wheel_rejects_another_target_notice(self):
         with tempfile.TemporaryDirectory() as temporary:
