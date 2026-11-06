@@ -33,6 +33,9 @@ LIFTED_AWAY = {
     "sxf.sfig-cycle.invalid",
     "sxf.raster-frame.missing",
     "sxf.p21-sheet.missing",
+    # 後続の同番号実体と、採用しない用紙そのもののレコードを指す（#550）。
+    "sxf.p21-instance.dropped",
+    "sxf.p21-sheet.dropped",
 }
 # kind を持たない code が言いうる図形の種類（DXF の名前）。段組みは、MTEXT と、MULTILEADER の文字と、複数行の
 # 属性で言う（crates/zumen-acad/src/drawing.rs の columns を返す所）
@@ -52,6 +55,8 @@ PARTLY = {
     "dxf.leader-line-style.dropped",
     "dxf.line-type-element.dropped",
     "sxf.saf-figure.dropped",
+    # 要素は採用したレイヤ上に残り、ほかのレイヤへの所属だけを落とす（#550）。
+    "sxf.p21-layer-member.dropped",
     # 書き出すとき
     "dxf.entity.dropped",
     "dxf.group-code.dropped",

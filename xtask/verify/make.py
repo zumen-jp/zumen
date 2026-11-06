@@ -34,7 +34,12 @@ DROPPED = 20
 PLACES = {
     "input/made-dropped.dxf": {"dxf.lift.dropped": DROPPED, "dxf.non-planar.dropped": 2},
     "input/made-structure.sfc": {"sxf.lift.invalid": 2, "sxf.lift.dropped": 5},
-    "input/made-structure.p21": {"sxf.lift.invalid": 1},
+    "input/made-structure.p21": {
+        "sxf.lift.invalid": 1,
+        "sxf.p21-instance.dropped": 1,
+        "sxf.p21-sheet.dropped": 1,
+        "sxf.p21-layer-member.dropped": 2,
+    },
     "input/made-non-finite.jww": {"jww.lift.invalid": 1},
 }
 # 適合テストの図面とキットのスクリプトのライセンス（このリポジトリと同じ）
@@ -262,9 +267,12 @@ DATA;
 #111=TEXT_LITERAL_WITH_EXTENT('$$SXF_middleline centre','3',#109,'middleline centre',.RIGHT.,#15,#110);
 #112=ANNOTATION_TEXT_OCCURRENCE(' ',(#18),#111);
 #113=(DRAUGHTING_CALLOUT((#103,#107,#112)) DRAUGHTING_ELEMENTS() GEOMETRIC_REPRESENTATION_ITEM() LEADER_DIRECTED_CALLOUT() REPRESENTATION_ITEM(' '));
+#123=DRAWING_SHEET_REVISION('A4_vertical',(#27),$,'02');
+#124=PRESENTATION_LAYER_ASSIGNMENT('OTHER',' ',(#23,#34));
 #120=PRESENTATION_LAYER_ASSIGNMENT('L',' ',(#23,#27,#34,#43,#48,#55,#62,#80,#86,#93,#103,#107,#112));
 #121=DRAWING_SHEET_REVISION('A3_horizontal',(#23,#27,#34,#48,#62,#93,#113),$,'01');
 #122=DRAUGHTING_TITLE((),'JAPANESE','S');
+#20=CARTESIAN_POINT(' ',(999.,999.));
 ENDSEC;
 END-ISO-10303-21;
 """
