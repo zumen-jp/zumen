@@ -113,19 +113,29 @@ fn kind(type_code: u16) -> Option<(&'static [u8], Section)> {
     }
 }
 
+impl super::Class {
+    fn kind(&self) -> (&[u8], Section) {
+        (
+            self.name.as_slice(),
+            if self.entity {
+                Section::Entities
+            } else {
+                Section::Objects
+            },
+        )
+    }
+}
+
 impl DwgFile {
     /// 型から、DXF の名前と属する所。500 以上の型は、番号が同じクラスで決める。知らない型は `None`
     pub(super) fn kind(&self, type_code: u16) -> Option<(&[u8], Section)> {
         if let Some(found) = kind(type_code) {
             return Some(found);
         }
-        let class = self.classes.iter().find(|c| c.number == type_code)?;
-        let section = if class.entity {
-            Section::Entities
-        } else {
-            Section::Objects
-        };
-        Some((class.name.as_slice(), section))
+        self.classes
+            .iter()
+            .find(|c| c.number == type_code)
+            .map(super::Class::kind)
     }
 
     /// オブジェクトの表を作る。予算の上限か中断の合図で止めたときだけ失敗する
@@ -133,12 +143,19 @@ impl DwgFile {
         let header = self
             .header_section()
             .and_then(|(src, span)| header::header(src, span, self.release, cx));
+        // オブジェクトごとに全クラスを探索しない。重複した番号を読むときは従来通り最初の宣言を使う。
+        let mut classes = BTreeMap::new();
+        for class in &self.classes {
+            cx.check(Kind::Work, 1)
+                .map_err(|stop| super::stopped(cx, stop))?;
+            classes.entry(class.number).or_insert_with(|| class.kind());
+        }
         let mut found = Vec::with_capacity(self.entries.len());
         for entry in &self.entries {
             let place = Ref::at_bytes(entry.span.start as u64, entry.span.end as u64);
             cx.check(Kind::Work, 1)
                 .map_err(|stop| stopped_at(cx, stop, place))?;
-            let kind = self.kind(entry.type_code);
+            let kind = kind(entry.type_code).or_else(|| classes.get(&entry.type_code).cloned());
             let fields = kind.as_ref().and_then(|(name, section)| {
                 // BLOCK と ENDBLK は、DXF では BLOCKS のセクションに属するが、DWG では図形として書かれる
                 let entity = matches!(section, Section::Entities | Section::Blocks);

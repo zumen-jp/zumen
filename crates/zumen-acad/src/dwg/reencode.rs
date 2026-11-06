@@ -16,7 +16,7 @@ pub(crate) struct Extra {
 
 #[derive(Default)]
 pub(crate) struct DxfSource<'a> {
-    pub(crate) classes: &'a [Class],
+    pub(crate) classes: Vec<(&'a Class, u64)>,
     pub(crate) extras: BTreeMap<u64, Extra>,
     pub(crate) order: BTreeMap<u64, Vec<u64>>,
 }
@@ -28,16 +28,27 @@ impl DwgFile {
         kept: &BTreeSet<u64>,
         cx: &mut Cx<'_>,
     ) -> Result<DxfSource<'_>, Error> {
-        let mut source = DxfSource {
-            classes: &self.classes,
-            ..DxfSource::default()
-        };
+        let mut source = DxfSource::default();
+        let mut instances = BTreeMap::new();
         for entry in &self.entries {
             cx.check(Kind::Work, 1)?;
             if !kept.contains(&entry.handle) {
                 continue;
             }
             let object = db.get(entry.handle).ok_or(Error::Unsupported)?;
+            // この R2004 DXF の対象では LAYOUT・ACDBPLACEHOLDER は組み込みの型。
+            if matches!(
+                object.kind.as_slice(),
+                b"ARC_DIMENSION" | b"ACDBDICTIONARYWDFLT"
+            ) {
+                let (name, count) = instances
+                    .entry(entry.type_code)
+                    .or_insert((object.kind.as_slice(), 0_u64));
+                if *name != object.kind {
+                    return Err(Error::Unsupported);
+                }
+                *count += 1;
+            }
             let data = self.data(entry);
             cx.check(Kind::Work, data.len() as u64)?;
             let entity = matches!(object.section, Section::Entities | Section::Blocks);
@@ -81,6 +92,31 @@ impl DwgFile {
                     .insert(entry.handle, objects::owned_ids(data, entry.handle, cx)?);
             }
         }
+        // DWG はクラス番号で宣言を選び、DXF は名前で参照する。番号や出力名が衝突するときは切り替える。
+        let mut declared = BTreeSet::new();
+        for class in &self.classes {
+            cx.check(Kind::Work, 1)?;
+            let Some(&(name, count)) = instances.get(&class.number) else {
+                continue;
+            };
+            let (entity, cpp): (bool, &[u8]) = match name {
+                b"ARC_DIMENSION" => (true, b"AcDbArcDimension"),
+                b"ACDBDICTIONARYWDFLT" => (false, b"AcDbDictionaryWithDefault"),
+                _ => return Err(Error::Unsupported),
+            };
+            if class.name != name
+                || class.entity != entity
+                || class.cpp != cpp
+                || class.proxy
+                || !declared.insert(name)
+            {
+                return Err(Error::Unsupported);
+            }
+            source.classes.push((class, count));
+        }
+        if source.classes.len() != instances.len() {
+            return Err(Error::Unsupported);
+        }
         Ok(source)
     }
 }
@@ -91,19 +127,23 @@ mod tests {
     use crate::Dwg;
     use crate::dwg::bits::BitWriter;
     use crate::dxf::R2004Conversion;
-    use zumen_base::{Budget, CancelToken, Diagnostics};
+    use zumen_base::{Budget, CancelToken, Diagnostics, Limit, Limits};
     use zumen_sdk::{Codec, Transact, Transaction};
 
-    #[test]
-    fn a_changed_dwg_block_order_is_the_order_read_back_from_the_dxf() {
+    fn public_file(cx: &mut Cx<'_>) -> DwgFile {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../samples/dwg/zumen-arcdim-r2004.dwg");
         let bytes = std::fs::read(path).unwrap();
+        Dwg::read(&bytes, cx).unwrap()
+    }
+
+    #[test]
+    fn a_changed_dwg_block_order_is_the_order_read_back_from_the_dxf() {
         let mut budget = Budget::default();
         let mut diagnostics = Diagnostics::new();
         let cancel = CancelToken::new();
         let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
-        let mut file = Dwg::read(&bytes, &mut cx).unwrap();
+        let mut file = public_file(&mut cx);
         let db = file.objects(&mut cx).unwrap();
         let row = db
             .objects()
@@ -152,5 +192,79 @@ mod tests {
             .filter_map(crate::Object::handle)
             .collect();
         assert_eq!(actual, expected);
+    }
+    fn convert(file: &DwgFile, limits: Limits) -> (Result<R2004Conversion, Error>, u64) {
+        let mut budget = Budget::new(limits);
+        let mut diag = Diagnostics::new();
+        let stop = CancelToken::new();
+        let result = file.reencode_r2004_dxf(&mut Cx::new(&mut budget, &mut diag, &stop));
+        (result, budget.used(Kind::Work))
+    }
+
+    #[test]
+    fn uses_the_declared_number_even_when_an_unused_class_has_the_same_name() {
+        let mut file = public_file(&mut Cx::new(
+            &mut Budget::default(),
+            &mut Diagnostics::new(),
+            &CancelToken::new(),
+        ));
+        let (Ok(R2004Conversion::Dxf(original)), _) = convert(&file, Limits::default()) else {
+            panic!("DXF を書けない")
+        };
+        let arc = file
+            .classes
+            .iter()
+            .find(|c| c.name == b"ARC_DIMENSION")
+            .unwrap()
+            .clone();
+        let shadow = Class {
+            number: 60_000,
+            cpp: b"OtherClass".to_vec(),
+            entity: false,
+            ..arc.clone()
+        };
+        file.classes.insert(0, shadow);
+        let (Ok(R2004Conversion::Dxf(output)), _) = convert(&file, Limits::default()) else {
+            panic!("元の宣言で書けない")
+        };
+        assert_eq!(output.bytes, original.bytes);
+        file.classes.push(Class {
+            cpp: b"OtherClass".to_vec(),
+            ..arc
+        });
+        assert!(matches!(
+            convert(&file, Limits::default()).0,
+            Ok(R2004Conversion::DrawingSource(_))
+        ));
+    }
+
+    #[test]
+    fn unused_classes_spend_work_and_can_stop_conversion() {
+        let mut file = public_file(&mut Cx::new(
+            &mut Budget::default(),
+            &mut Diagnostics::new(),
+            &CancelToken::new(),
+        ));
+        let (Ok(R2004Conversion::Dxf(before)), used) = convert(&file, Limits::default()) else {
+            panic!("DXF を書けない")
+        };
+        let class = file.classes.first().unwrap().clone();
+        for number in 60000..60500 {
+            file.classes.push(Class {
+                number,
+                name: format!("UNUSED{number}").into_bytes(),
+                ..class.clone()
+            });
+        }
+        let (Ok(R2004Conversion::Dxf(after)), work) = convert(&file, Limits::default()) else {
+            panic!("DXF を書けない")
+        };
+        assert_eq!(before.bytes, after.bytes);
+        assert!(work >= used + 500);
+        let (limited, _) = convert(
+            &file,
+            Limits::default().with(Kind::Work, Limit::Finite(used)),
+        );
+        assert!(matches!(limited, Err(Error::Stopped(_))));
     }
 }

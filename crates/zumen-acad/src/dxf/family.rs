@@ -161,7 +161,9 @@ impl<'a> Plan<'a> {
         let mut has_dimension = false;
         for object in db.objects() {
             cx.check(Kind::Work, 1)?;
-            if object.kind == b"ARC_DIMENSION" {
+            if object.kind == b"ARC_DIMENSION"
+                && matches!(object.section, Section::Entities | Section::Blocks)
+            {
                 has_dimension = true;
                 break;
             }
@@ -429,30 +431,15 @@ fn encode<'a>(
     w.end()?;
     // DXF Reference「CLASS」。使うクラスの宣言は DWG から移し、個数は実際に書く対象から数える。
     w.section(b"CLASSES")?;
-    let mut instances = BTreeMap::<&[u8], u64>::new();
-    for obj in db.objects() {
-        if obj.handle().is_some_and(|id| plan.kept.contains(&id)) {
-            *instances.entry(&obj.kind).or_default() += 1;
-        }
-    }
-    for class in input.classes {
-        // LAYOUT と ACDBPLACEHOLDER は R2004 の DXF では組み込みの型。
-        if !matches!(
-            class.name.as_slice(),
-            b"ARC_DIMENSION" | b"ACDBDICTIONARYWDFLT"
-        ) {
-            continue;
-        }
-        if let Some(count) = instances.remove(class.name.as_slice()) {
-            w.tag(0, b"CLASS")?;
-            w.tag(1, &class.name)?;
-            w.tag(2, &class.cpp)?;
-            w.tag(3, &class.app)?;
-            w.integer(90, u64::from(class.flags))?;
-            w.integer(91, count)?;
-            w.integer(280, u64::from(class.proxy))?;
-            w.integer(281, u64::from(class.entity))?;
-        }
+    for &(class, count) in &input.classes {
+        w.tag(0, b"CLASS")?;
+        w.tag(1, &class.name)?;
+        w.tag(2, &class.cpp)?;
+        w.tag(3, &class.app)?;
+        w.integer(90, u64::from(class.flags))?;
+        w.integer(91, count)?;
+        w.integer(280, u64::from(class.proxy))?;
+        w.integer(281, u64::from(class.entity))?;
     }
     w.end()?;
     w.section(b"TABLES")?;
