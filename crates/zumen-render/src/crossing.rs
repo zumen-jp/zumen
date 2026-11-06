@@ -4,7 +4,7 @@ use zumen_base::{Cx, Kind};
 
 use crate::{Error, raster::Point};
 
-/// low.y <= p.y < high.y。on-edge は true。画面の左端を含み、右端を除くために使う。
+/// low.y <= p.y < high.y。サンプル p が辺上か右にあれば true。
 pub(crate) fn on_or_right(
     low: Point,
     high: Point,
