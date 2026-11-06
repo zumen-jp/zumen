@@ -324,10 +324,14 @@ struct Decoded<'a> {
 
 /// Flate・LZW と ASCII を前置した系列は確保前に数え、ほかは展開後に数える（決定 0266・0273）。
 /// 実際の出力と、予測子の前・失敗した試みを含む展開量を分けて返す。
-fn decoded<'a>(stream: &Stream<'a>, cx: &mut Cx<'_>) -> Result<Decoded<'a>, Stop> {
+fn decoded<'a>(
+    stream: &Stream<'a>,
+    source: inflate::Source<'_>,
+    cx: &mut Cx<'_>,
+) -> Result<Decoded<'a>, Stop> {
     let bytes_before = cx.budget.used(Kind::DecodedBytes);
     let work_before = cx.budget.used(Kind::Work);
-    let counted = inflate::before(stream, cx)?;
+    let counted = inflate::before(stream, source, cx)?;
     let data = stream.decoded_data().ok();
     if !counted {
         cx.check(
@@ -915,15 +919,17 @@ fn add_targets(targets: &mut Targets, written: impl Iterator<Item = ObjectIdenti
 #[derive(Clone, Copy)]
 pub(crate) struct Reads<'x> {
     pub(crate) xref: &'x XRef,
+    source: inflate::Source<'x>,
     /// ファイルを読み通す手間
     file: u64,
 }
 
 impl<'x> Reads<'x> {
     /// `source` は、読み込んだファイルのバイト列
-    pub(crate) fn new(xref: &'x XRef, source: &[u8]) -> Self {
+    pub(crate) fn new(xref: &'x XRef, source: &[u8], streams: inflate::Source<'x>) -> Self {
         Self {
             xref,
+            source: streams,
             file: lookup_work(source),
         }
     }
@@ -1069,6 +1075,10 @@ impl<'x> Reads<'x> {
     fn stream_work(self, stream: &Stream<'_>) -> u64 {
         let dict =
             lookup_work(stream.dict().data()).saturating_add(self.length_work(stream.dict()));
+        // 長さを調べるために復号しない。実際に復号する系列は inflate::before で確保前に数える。
+        if let Some(bound) = self.source.ciphertext_bound(stream) {
+            return dict.saturating_add(bound.div_ceil(LOOKUP_BYTES));
+        }
         let body = stream.raw_data();
         let length = stream.dict().get::<u32>(b"Length");
         let right = length.and_then(|length| usize::try_from(length).ok()) == Some(body.len());
@@ -1459,7 +1469,7 @@ impl<'a, 'o> Walker<'a, 'o> {
         let single = raw.get::<Stream<'_>>(b"Contents");
         let counted = if let Some(stream) = &single {
             cx.check(Kind::Work, self.reread_stream(stream))?;
-            inflate::before(stream, cx)?
+            inflate::before(stream, self.reads.source, cx)?
         } else if let Some(items) = raw.get::<Array<'_>>(b"Contents") {
             let mut decode = Cost::default();
             let mut joined = 0u64;
@@ -1473,7 +1483,7 @@ impl<'a, 'o> Walker<'a, 'o> {
                 .and_then(Object::into_stream);
                 let length = if let Some(stream) = &stream {
                     cx.check(Kind::Work, self.reread_stream(stream))?;
-                    let decoded = decoded(stream, cx)?;
+                    let decoded = decoded(stream, self.reads.source, cx)?;
                     let length = decoded.data.as_ref().map(|data| data.len());
                     // 予測子で短くなったものと、展開後に失敗するものも、再び展開する分を先に数える
                     decode.add(decoded.cost);
@@ -2336,7 +2346,7 @@ impl<'a, 'o> Walker<'a, 'o> {
                     if profile.dict().get::<u32>(b"N").is_some()
                         && self.own(profile).is_none_or(|id| self.profiles.insert(id))
                     {
-                        let decode = decoded(profile, cx)?.cost;
+                        let decode = decoded(profile, self.reads.source, cx)?.cost;
                         redecode(decode, 1, cx)?;
                     }
                 }
@@ -2362,7 +2372,7 @@ impl<'a, 'o> Walker<'a, 'o> {
         if let Some(size) = id.and_then(|id| self.sizes.get(&id)) {
             return Ok(*size);
         }
-        let Decoded { data, cost: decode } = decoded(stream, cx)?;
+        let Decoded { data, cost: decode } = decoded(stream, self.reads.source, cx)?;
         let len = data.as_ref().map_or(0, |data| data.len() as u64);
         let size = StreamSize { len, decode };
         let program = stream.dict().get::<u8>(b"FunctionType") == Some(4);
@@ -2558,7 +2568,7 @@ impl<'a, 'o> Walker<'a, 'o> {
             build = match id.and_then(|id| self.builds.get(&id)) {
                 Some(build) => *build,
                 None => {
-                    let data = decoded(&stream, cx)?.data;
+                    let data = decoded(&stream, self.reads.source, cx)?.data;
                     let build = match data {
                         Some(data) => program_work(data.into_owned(), cx)?,
                         None => Build::Bounded(0),
@@ -2593,7 +2603,7 @@ impl<'a, 'o> Walker<'a, 'o> {
         }
         if subtype.as_deref() == Some(b"Type0") {
             if let Some(stream) = dict.get::<Stream<'_>>(b"Encoding") {
-                let decode = decoded(&stream, cx)?.cost;
+                let decode = decoded(&stream, self.reads.source, cx)?.cost;
                 redecode(decode, 2, cx)?;
             }
             self.count_setup(dict, cx)?;
@@ -2602,12 +2612,12 @@ impl<'a, 'o> Walker<'a, 'o> {
                 .and_then(|fonts| fonts.iter::<Dict<'_>>().next())
                 && let Some(stream) = descendant.get::<Stream<'_>>(b"CIDToGIDMap")
             {
-                let decode = decoded(&stream, cx)?.cost;
+                let decode = decoded(&stream, self.reads.source, cx)?.cost;
                 redecode(decode, 2, cx)?;
             }
         }
         if let Some(stream) = dict.get::<Stream<'_>>(b"ToUnicode") {
-            let decode = decoded(&stream, cx)?.cost;
+            let decode = decoded(&stream, self.reads.source, cx)?.cost;
             redecode(decode, 2, cx)?;
         }
         if subtype.as_deref() != Some(b"Type0") {
@@ -2628,7 +2638,7 @@ impl<'a, 'o> Walker<'a, 'o> {
         {
             return Ok(());
         }
-        let Decoded { data, cost: decode } = decoded(&stream, cx)?;
+        let Decoded { data, cost: decode } = decoded(&stream, self.reads.source, cx)?;
         redecode(decode, 2, cx)?;
         let setup = data
             .and_then(|data| FontProgram::new(data.into_owned(), 0))
@@ -3177,7 +3187,7 @@ impl<'a, 'o> Walker<'a, 'o> {
         if let Some(data) = id.and_then(|id| self.forms.get(&id)) {
             return Ok(data.clone());
         }
-        let decoded = decoded(stream, cx)?;
+        let decoded = decoded(stream, self.reads.source, cx)?;
         let data = match decoded.data {
             Some(data) => {
                 reserve_end(data.len(), cx)?;

@@ -32,7 +32,9 @@ pub(super) fn decode(
             },
     )?;
     let mut length = 0usize;
-    let valid = visit(data, encoding, cx, |bytes| length += bytes.len())?;
+    let start = cx.budget.used(Kind::Work);
+    let valid = visit(data, encoding, cx, 1, |bytes| length += bytes.len())?;
+    let scan_work = cx.budget.used(Kind::Work) - start;
     // 倍に伸ばす Vec の全確保の合計は、最終の長さ（最小容量 8）を 4 倍した量未満。
     // 初期の容量も別に残し、不正な文字や不正な末尾に至るまでの部分も数える。
     let growth = if matches!(encoding, Encoding::Base85) && length as u64 > initial {
@@ -45,9 +47,14 @@ pub(super) fn decode(
     if !valid {
         return Ok(None);
     }
+    // 同じ位置まで読む手間をまとめて予約し、残量がなければ中間出力を確保しない。
+    // 2 回目も 16 バイトごとに中断を見る。終端より後の入力は再走査しない。
+    cx.check(Kind::Work, scan_work)?;
     cx.check(Kind::DecodedBytes, length as u64)?;
     let mut output = Vec::with_capacity(length);
-    visit(data, encoding, cx, |bytes| output.extend_from_slice(bytes))?;
+    visit(data, encoding, cx, 0, |bytes| {
+        output.extend_from_slice(bytes)
+    })?;
     Ok(Some(output))
 }
 
@@ -57,13 +64,14 @@ fn visit(
     data: &[u8],
     encoding: Encoding,
     cx: &mut Cx<'_>,
+    work_per_chunk: u64,
     mut emit: impl FnMut(&[u8]),
 ) -> Result<bool, Stop> {
     let mut group = [0u8; 5];
     let mut used = 0;
     for (index, &byte) in data.iter().enumerate() {
         if index % 16 == 0 {
-            cx.check(Kind::Work, 1)?;
+            cx.check(Kind::Work, work_per_chunk)?;
         }
         if matches!(byte, 0 | 9 | 10 | 12 | 13 | 32) {
             continue;
@@ -292,6 +300,33 @@ mod tests {
             assert!(
                 matches!(run(&data, encoding, limited, false).0, Err(Stop::Exceeded(e)) if e.kind == Kind::DecodedBytes)
             );
+        }
+    }
+
+    #[test]
+    fn reserves_second_scan_work_before_the_intermediate_output() {
+        for (encoding, byte, end) in [(Encoding::Hex, b'0', b'>'), (Encoding::Base85, b'!', b'~')] {
+            let mut data = vec![byte; 524_280];
+            data.push(end);
+            data.extend(std::iter::repeat_n(b' ', 8192));
+            let (decoded, budget) = run(&data, encoding, Limits::default(), false);
+            let length = decoded.unwrap().unwrap().len() as u64;
+            let total = budget.used(Kind::Work);
+            let scan = 524_281u64.div_ceil(16);
+            assert_eq!(
+                total,
+                (data.len() as u64).div_ceil(16) + 2 * scan + length.div_ceil(16)
+            );
+            for remaining in [0, 1, scan - 1] {
+                let limits =
+                    Limits::default().with(Kind::Work, Limit::Finite(total - scan + remaining));
+                let (result, stopped) = run(&data, encoding, limits, false);
+                assert!(matches!(result, Err(Stop::Exceeded(e)) if e.kind == Kind::Work));
+                assert_eq!(
+                    stopped.used(Kind::DecodedBytes),
+                    budget.used(Kind::DecodedBytes) - length
+                );
+            }
         }
     }
 

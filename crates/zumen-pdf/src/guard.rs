@@ -302,9 +302,17 @@ struct Marks {
     encrypted: Option<usize>,
 }
 
+pub(crate) enum Checked {
+    Refused(usize),
+    Ready {
+        encrypted: bool,
+        largest_container: u64,
+    },
+}
+
 /// 読み込む前に確かめ、読まないなら、その理由のファイルのバイトの位置を返す。ファイルのすべての名前と定義を見て、
 /// オブジェクトのストリームになりうるストリームを展開して、中の位置と中身を見る
-pub(crate) fn before(src: &[u8], cx: &mut Cx<'_>) -> Result<Option<usize>, Stop> {
+pub(crate) fn before(src: &[u8], cx: &mut Cx<'_>) -> Result<Checked, Stop> {
     let mut seen = Seen::default();
     let containers = objects(src, &mut seen, cx)?;
     // 表を作り直すときに展開する辞書は、型の値が、ここで展開するストリームの上の段の型の値と同じ字か
@@ -319,10 +327,10 @@ pub(crate) fn before(src: &[u8], cx: &mut Cx<'_>) -> Result<Option<usize>, Stop>
             .or(marks.typed)
             .or(marks.referenced)
     {
-        return Ok(Some(at));
+        return Ok(Checked::Refused(at));
     }
     if let Some(at) = marks.unclaimed {
-        return Ok(Some(at));
+        return Ok(Checked::Refused(at));
     }
     // フィルターか展開のパラメーターの値に参照があれば、参照の先になりうる位置の値を見る
     let scanned = (seen.indirect || seen.parameters) && seen.coded.is_none();
@@ -331,18 +339,25 @@ pub(crate) fn before(src: &[u8], cx: &mut Cx<'_>) -> Result<Option<usize>, Stop>
     }
     // オブジェクトのストリームを展開する前に、展開のパラメーターを確かめる
     if let Some(place) = seen.verdict() {
-        return Ok(Some(place));
+        return Ok(Checked::Refused(place));
     }
+    let mut largest_container = 0;
     for container in &containers {
         let Some(stream) = container.stream(src, cx)? else {
             continue;
         };
         // 参照の値は、読む前に hayro-syntax と同じには解けない
         if referenced(stream.dict(), cx)? {
-            return Ok(Some(container.start));
+            return Ok(Checked::Refused(container.start));
         }
-        if let Some(place) = container_fits(&stream, container.start, &mut seen, cx)? {
-            return Ok(Some(place));
+        if let Some(place) = container_fits(
+            &stream,
+            container.start,
+            &mut seen,
+            &mut largest_container,
+            cx,
+        )? {
+            return Ok(Checked::Refused(place));
         }
     }
     // フィルターと展開のパラメーターの値の参照は、オブジェクトのストリームの中身にだけあることもある。中の位置は、
@@ -350,7 +365,13 @@ pub(crate) fn before(src: &[u8], cx: &mut Cx<'_>) -> Result<Option<usize>, Stop>
     if (seen.indirect || seen.parameters) && !scanned {
         targets(src, &mut seen, cx)?;
     }
-    Ok(seen.verdict())
+    Ok(match seen.verdict() {
+        Some(at) => Checked::Refused(at),
+        None => Checked::Ready {
+            encrypted: marks.encrypted.is_some(),
+            largest_container,
+        },
+    })
 }
 
 /// 表を作り直すときに、ここで展開するストリームと同じものとして展開される、型の値の名前の字の位置。hayro-syntax は、
@@ -406,6 +427,7 @@ fn container_fits(
     stream: &Stream<'_>,
     place: usize,
     seen: &mut Seen,
+    largest: &mut u64,
     cx: &mut Cx<'_>,
 ) -> Result<Option<usize>, Stop> {
     let dict = stream.dict();
@@ -419,7 +441,8 @@ fn container_fits(
         }
     }
     // hayro-syntax は、中の位置を読む前に展開する。`N` と `First` が読めなくても、展開の上限は先に確かめる
-    let counted = inflate::before(stream, cx)?;
+    // 参照のあるフィルターと暗号化したコンテナーは、ここへ来る前に断っている。
+    let counted = inflate::before(stream, inflate::Source::default(), cx)?;
     let (Some(count), Some(first)) = (dict.get::<i64>(b"N"), dict.get::<i64>(b"First")) else {
         return Ok(None);
     };
@@ -432,6 +455,7 @@ fn container_fits(
     let Ok(data) = stream.decoded_data() else {
         return Ok(None);
     };
+    *largest = (*largest).max(data.len() as u64);
     if !counted {
         cx.check(Kind::DecodedBytes, data.len() as u64)?;
     }

@@ -37,6 +37,74 @@ fn run(
     (result, budget, diagnostics.into_vec())
 }
 
+// 7.6、空パスワードの Standard R2。固定の ID は ASCII の 0 が 16 個で、4 0 obj の
+// 平文は「0 0 m 10 10 l S」を zlib・ASCIIHex の順にしたもの。終端の後ろは描画に影響しない。
+fn encrypted_page(length: usize, declaration: &str) -> Vec<u8> {
+    let mut b = common::Builder::default();
+    b.object("<< /Type /Catalog /Pages 2 0 R >>");
+    b.object("<< /Type /Pages /Kids [3 0 R] /Count 1 >>");
+    b.object("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 4 0 R >>");
+    let mut body = format!("<< {declaration} /Filter [/AHx /Fl] >>\nstream\n").into_bytes();
+    let start = body.len();
+    body.extend([
+        0x39, 0x18, 0x09, 0xd8, 0x8c, 0x9c, 0x60, 0x9c, 0x5e, 0xa9, 0x88, 0x17, 0x1d, 0x6f, 0x8c,
+        0x64, 0x28, 0xc2, 0xfb, 0xa7, 0x48, 0x9a, 0x1d, 0xe8, 0x38, 0x95, 0x38, 0x7c, 0xe5, 0x59,
+        0x6d, 0x9a, 0x67, 0xa7, 0xca, 0xfa, 0xe2, 0x63, 0x37, 0xc0, 0x9c,
+    ]);
+    body.resize(start + length, b'X');
+    body.extend(b"\nendstream");
+    b.object(body);
+    b.object("<< /Filter /Standard /V 1 /R 2 /P -4 /O <2055c756c72e1ad702608e8196acad447ad32d17cff583235f6dd15fed7dab67> /U <92c034164f1ef00c9edf3ba7595c16b11c50ff99a474b82f495eabb623e302f8> >>");
+    b.object(length.to_string());
+    b.trailer = "/Encrypt 5 0 R /ID [<30303030303030303030303030303030> <30303030303030303030303030303030>]".into();
+    b.bytes(1)
+}
+
+#[test]
+fn reserves_decryption_with_correct_wrong_missing_and_indirect_lengths() {
+    for declaration in ["/Length 65535", "/Length 1", "", "/Length 6 0 R"] {
+        let input = encrypted_page(65535, declaration);
+        let (drawing, budget, _) = run(&input, Limits::default(), false);
+        assert_eq!(
+            drawing.unwrap().sheets[0].elements.len(),
+            1,
+            "{declaration}"
+        );
+        assert!(budget.used(Kind::DecodedBytes) >= 65535 * 2);
+        let limits = Limits::default().with(Kind::DecodedBytes, Limit::Finite(32 * 1024));
+        assert!(matches!(run(&input, limits, false).0,
+            Err(Error::Stopped(Stop::Exceeded(e))) if e.kind == Kind::DecodedBytes && e.requested >= 65535 * 2));
+    }
+}
+
+#[test]
+fn charges_external_file_strings_before_hayro_materializes_them() {
+    for value in [
+        format!("<{}>", "41".repeat(65535)),
+        format!("({})", r"\101".repeat(65535)),
+    ] {
+        for indirect in [false, true] {
+            let mut b = common::Builder::default();
+            b.object("<< /Type /Catalog /Pages 2 0 R >>");
+            b.object("<< /Type /Pages /Kids [3 0 R] /Count 1 >>");
+            b.object("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 4 0 R >>");
+            let file = if indirect { "5 0 R" } else { &value };
+            b.stream(&format!("/F {file} /Filter [/AHx /Fl]"), b"00>");
+            if indirect {
+                b.object(&value);
+            }
+            let input = b.bytes(1);
+            let ample = run(&input, Limits::default(), false);
+            assert!(ample.0.unwrap().sheets[0].elements.is_empty());
+            assert!(ample.1.used(Kind::DecodedBytes) >= 65535);
+            let limits = Limits::default().with(Kind::DecodedBytes, Limit::Finite(32 * 1024));
+            assert!(
+                matches!(run(&input, limits, false).0, Err(Error::Stopped(Stop::Exceeded(e))) if e.kind == Kind::DecodedBytes)
+            );
+        }
+    }
+}
+
 #[test]
 fn bounds_ascii_compressed_streams_before_whole_output_allocation() {
     for base85 in [false, true] {

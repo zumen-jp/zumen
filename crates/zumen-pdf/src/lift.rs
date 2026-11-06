@@ -62,16 +62,28 @@ impl Lift<Drawing2D> for PdfFile {
                         .and_then(parse_version)
                 });
         // hayro-syntax がパニックするか、環境で違う値に読むおそれのある文書は、読まない
-        if let Some(at) = guard::before(&self.src, cx).map_err(|stop| stopped(cx, stop, &header))? {
-            cx.report(guard::refused(place_ref(self, at, &header)));
-            return Err(Error::Unsupported);
-        }
+        let (encrypted, largest_container) =
+            match guard::before(&self.src, cx).map_err(|stop| stopped(cx, stop, &header))? {
+                guard::Checked::Refused(at) => {
+                    cx.report(guard::refused(place_ref(self, at, &header)));
+                    return Err(Error::Unsupported);
+                }
+                guard::Checked::Ready {
+                    encrypted,
+                    largest_container,
+                } => (encrypted, largest_container),
+            };
         // 相互参照・ページの木を読む。壊れた相互参照は、オブジェクトを探し直して読む（hayro-syntax、7.5）
         let document = load(&self.src).map_err(|error| not_loaded(cx, error, &header))?;
         let objects = objects(self);
         Lifter {
             document: &document,
             source: &self.src,
+            streams: crate::inflate::Source::new(
+                document.data().as_ref(),
+                encrypted,
+                largest_container,
+            ),
             objects: &objects,
             header,
             header_version,
@@ -203,6 +215,7 @@ struct Lifter<'d, 'o> {
     document: &'d Document,
     /// 読み込んだファイル
     source: &'d [u8],
+    streams: crate::inflate::Source<'d>,
     /// 間接オブジェクト → L1 のレコードの出所
     objects: &'o BTreeMap<(u32, i32), Ref>,
     /// ヘッダーのレコード
@@ -218,7 +231,7 @@ impl Lifter<'_, '_> {
     fn run(mut self, cx: &mut Cx) -> Result<Drawing2D, Error> {
         let document = self.document;
         // 相互参照の表を作り直すなら、ページを読む前に作り直させる
-        let reads = Reads::new(document.xref(), self.source);
+        let reads = Reads::new(document.xref(), self.source, self.streams);
         walk::settle(document, reads, cx).map_err(|stop| stopped(cx, stop, &self.header))?;
         let xref = document.xref();
         let catalog = xref.get::<Dict<'_>>(xref.root_id());

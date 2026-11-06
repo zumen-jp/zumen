@@ -181,6 +181,7 @@ mod tests {
         }
         let result = crate::inflate::before(
             &stream(source),
+            crate::inflate::Source::default(),
             &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
         );
         (result, budget)

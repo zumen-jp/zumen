@@ -2,12 +2,15 @@
 
 mod ascii;
 mod lzw;
+mod source;
+
+pub(crate) use source::Source;
 
 use std::io::Read;
 
 use flate2::read::{DeflateDecoder, ZlibDecoder};
 use hayro_syntax::Filter;
-use hayro_syntax::object::{Object, Stream};
+use hayro_syntax::object::Stream;
 use zumen_base::{Cx, Kind, Stop};
 
 /// 出力を保持しない確かめの、固定長のバッファー。展開の状態と合わせて入力の大きさによらない
@@ -21,7 +24,11 @@ const MAX_EXPANSION: u64 = 1032;
 /// 単独 Flate・LZW と ASCII を 1 個前置した系列は、全出力の確保前に数え、`true` を返す。
 /// hayro-syntax と同じ flate2 のリーダーを、同じ順（zlib、raw deflate）で試す。読めなければ、
 /// 寛容な展開の出力の上限を先に数える。失敗した試みの分も戻さない。予測子の出力は、その入力より長くならない
-pub(crate) fn before(stream: &Stream<'_>, cx: &mut Cx<'_>) -> Result<bool, Stop> {
+pub(crate) fn before(
+    stream: &Stream<'_>,
+    source: Source<'_>,
+    cx: &mut Cx<'_>,
+) -> Result<bool, Stop> {
     let filters = stream.filters();
     // hayro-syntax の `Stream::decoded_image` と同じく、先頭の Crypt はフィルターとして適用しない
     let effective = filters.strip_prefix(&[Filter::Crypt]).unwrap_or(&filters);
@@ -32,13 +39,13 @@ pub(crate) fn before(stream: &Stream<'_>, cx: &mut Cx<'_>) -> Result<bool, Stop>
             Filter::AsciiHexDecode,
             next @ (Filter::FlateDecode | Filter::LzwDecode),
         ] => {
-            return sequence(stream, ascii::Encoding::Hex, *next, cx);
+            return sequence(stream, ascii::Encoding::Hex, *next, source, cx);
         }
         [
             Filter::Ascii85Decode,
             next @ (Filter::FlateDecode | Filter::LzwDecode),
         ] => {
-            return sequence(stream, ascii::Encoding::Base85, *next, cx);
+            return sequence(stream, ascii::Encoding::Base85, *next, source, cx);
         }
         _ => return Ok(false),
     }
@@ -49,17 +56,15 @@ fn sequence(
     stream: &Stream<'_>,
     ascii: ascii::Encoding,
     next: Filter,
+    source: Source<'_>,
     cx: &mut Cx<'_>,
 ) -> Result<bool, Stop> {
     // F は短縮した Filter のほかに外部ファイルを指す（7.3.8.2）。後者では filters() が
     // Filter の配列を返しても、hayro-syntax の decoded_image は適用前に失敗する。
-    cx.check(Kind::Work, 1)?;
-    if matches!(
-        stream.dict().get::<Object<'_>>(b"F"),
-        Some(Object::String(_) | Object::Dict(_))
-    ) {
+    if source.external(stream.dict(), cx)? {
         return Ok(false);
     }
+    source.reserve_decryption(stream, cx)?;
     // 中間の量を先に数え、予算内でだけ保持する。失敗までの確保は戻さず、後段へは進まない。
     let Some(data) = ascii::decode(&stream.raw_data(), ascii, cx)? else {
         return Ok(true);
