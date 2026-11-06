@@ -970,7 +970,7 @@ def check_file(folder, entry, reading, baseline, counts):
                     geometry["marker"] = {"scale": geometry["marker"]["scale"]}
                 for d in differences(geometry, got):
                     failures.append(f"変更 {want['edit']}（{want['id']}）{d}")
-                if "layer" in want and layer is not None and want["layer"] != layer:
+                if "layer" in want and want["layer"] != layer:
                     failures.append(f"変更 {want['edit']}（{want['id']}）のレイヤが {layer!r}（期待は {want['layer']!r}）")
                 # 色は既定義色の番号（SFC のフィーチャの色のフィールド）
                 code = want.get("color", {}).get("sxf")

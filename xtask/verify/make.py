@@ -46,7 +46,12 @@ PLACES = {
 REPOSITORY = ("MIT OR Apache-2.0", "zumen-jp（このリポジトリ）。本文は licenses/LICENSE-MIT と licenses/LICENSE-APACHE")
 SUFFIXES = {".dxf": "dxf", ".dwg": "dwg", ".jww": "jww", ".sfc": "sfc", ".p21": "p21"}
 # 適合テストの中で作った図面（cases の push）。Jw_cad・SXF の公開サンプルがまだないので、これを入力にする
-CASES = [("open_jww.json", "a.jww"), ("open_sxf.json", "a.sfc"), ("open_sxf.json", "c.p21")]
+CASES = [
+    ("open_jww.json", "a.jww"),
+    ("open_sxf.json", "a.sfc"),
+    ("open_sxf.json", "c.p21"),
+    ("apply_p21_raw.json", "raw-layer.p21"),
+]
 # ezsxf がフィーチャを型で読む SFC（マーカーが `/*SXF` で、FILE_NAME がある）。適合テストの SFC はマーカーが `/*SXF3` で、
 # ezsxf はそのフィーチャの値を読まないので、外部の実装と照らすために作る
 SFC = r"""ISO-10303-21;
