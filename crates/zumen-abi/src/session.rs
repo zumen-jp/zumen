@@ -7219,6 +7219,50 @@ END_SCHEMA;
     }
 
     #[test]
+    fn cancelled_layer_conversion_can_retry_and_only_drops_the_unencodable_field() {
+        let source = CONVERTIBLE.replace("AC1015","AC1021").replace(
+            "2\nWall\n70\n0\n62\n1\n6\nDashed\n",
+            "2\nWall\n70\n0\n62\n1\n6\nDashed\n1001\nAcAecLayerStandard\n1000\n\n1000\n🚧\n1001\nAcCmTransparency\n1071\n33554432\n",
+        );
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"a.dxf", source.as_bytes()).unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+        let request = r#"{"v":1,"op":"convert","doc":"a.dxf","to":"b.dxf","format":"dxf"}"#;
+        let cancel = CancelToken::new();
+        cancel.cancel();
+        let interrupted = session.call(request.as_bytes(), &cancel);
+        assert_eq!(interrupted.status, Status::Failed);
+        let message = zumen_json::parse(&interrupted.response).unwrap();
+        assert_eq!(codes_of(&message), ["call.request.cancelled"]);
+        assert!(session.take(0).is_none());
+        let (status, response) = call(&mut session, request);
+        assert_eq!(status, Status::Ok);
+        let Some(Value::Array(diagnostics)) = response.pointer("/diagnostics") else {
+            panic!("診断の配列がない")
+        };
+        let lost: Vec<_> = diagnostics
+            .iter()
+            .filter(|item| text(item, "/code") == "convert.layer-field.dropped")
+            .collect();
+        assert_eq!(lost.len(), 1);
+        assert_eq!(text(lost[0], "/params/field"), "description");
+        let mut budget = zumen_base::Budget::default();
+        let mut diagnostics = zumen_base::Diagnostics::new();
+        let cancel = CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+        let output = session
+            .lift("b.dxf", &mut cx)
+            .unwrap_or_else(|_| panic!("変換後の図面を読めない"));
+        let wall = output
+            .layers
+            .iter()
+            .find(|layer| layer.name == "Wall")
+            .unwrap();
+        assert_eq!(wall.description, None);
+        assert_eq!(wall.style.unwrap().transparency.unwrap().alpha, 0);
+    }
+
+    #[test]
     fn convert_drops_an_element_on_an_unavailable_layer_and_reports_its_source() {
         let mut session = Session::new(b"").unwrap();
         let source = CONVERTIBLE.replace("Wall", "Defpoints");

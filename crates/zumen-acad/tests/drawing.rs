@@ -1403,6 +1403,42 @@ fn layers_keep_their_table_and_views_hide_layers() {
 }
 
 #[test]
+fn unrecognised_xdata_keeps_the_ids_of_layers_without_handles() {
+    let data = sections(&[
+        ("HEADER", &[(9, "$ACADVER"), (1, "AC1009")]),
+        (
+            "TABLES",
+            &[
+                (0, "TABLE"),
+                (2, "LAYER"),
+                (0, "LAYER"),
+                (2, "A"),
+                (70, "0"),
+                (62, "7"),
+                (1001, "accmtransparency"),
+                (1071, "50331648"),
+                (0, "LAYER"),
+                (2, "B"),
+                (70, "0"),
+                (62, "7"),
+                (0, "ENDTAB"),
+            ],
+        ),
+    ]);
+    let (drawing, _) = lift(&data, &mut Budget::default());
+    let drawing = drawing.unwrap();
+    let layers: Vec<_> = drawing
+        .layers
+        .iter()
+        .map(|layer| (layer.name.as_str(), id::layer(layer)))
+        .collect();
+    assert_eq!(
+        layers,
+        [("A", "layer/0".to_string()), ("B", "layer/1".to_string())]
+    );
+}
+
+#[test]
 fn transparency_and_layer_descriptions_move_to_the_model() {
     let tables = [
         (0, "TABLE"),
