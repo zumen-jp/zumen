@@ -25,7 +25,7 @@ import ezdxf
 from ezdxf import recover
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from compare import ATTACHMENTS, check_handles, lifted_away_records, run, told, usage  # noqa: E402
+from compare import ATTACHMENTS, check_handles, diagnostics, lifted_away_records, run, told, usage  # noqa: E402
 
 # 既知の食い違い: (ファイルの道筋の初め, 食い違いの文の初め, issue, 当たるファイルの数)。直ったら消す。当たる数が
 # 変わったら失敗にする（直ったものと、同じ形で新たに食い違うものを知らせる）
@@ -203,13 +203,20 @@ def check_file(folder, entry, reading, baseline, counts):
         # 公開元の f_latin1 が書いた 2 件。原本にハンドルはないので、文字列を照らしてから
         # ezdxf が補ったハンドルを原本の TEXT のレコードに結び、下で zumen の診断の場所を確かめる。
         texts = list(doc.modelspace().query("TEXT"))
-        if (doc.dxfversion, doc.header.get("$DWGCODEPAGE"), doc.encoding) != ("AC1015", "ANSI_1252", "cp1252"):
+        records = (15, 16)
+        if (doc.loaded_dxfversion, doc.header.get("$DWGCODEPAGE"), doc.encoding) != ("AC1015", "ANSI_1252", "cp1252"):
             failures.append("R2000 の ANSI_1252 として読めない")
         if [e.dxf.text for e in texts] == ["Bohrung Ø20 für M6", "Maßstab 1:2"]:
-            for e, record in zip(texts, (15, 16), strict=True):
+            for e, record in zip(texts, records, strict=True):
                 numbers[e.dxf.handle.upper()] = record
         else:
             failures.append("ANSI_1252 の TEXT 2 件の文字列が公開元の値と違う")
+        found = [
+            (d["code"], d["count"], d.get("params", {}).get("kind"), d.get("at", []))
+            for d in diagnostics(entry, reading)
+        ]
+        if found != [("dxf.code-page.unsupported", 2, "TEXT", [{"record": n} for n in records])]:
+            failures.append("ANSI_1252 の TEXT を移せない診断の code・件数・種類・場所が違う")
     if entry["role"] == "convert":
         for table in tables:
             if table["declared"] != table["actual"]:

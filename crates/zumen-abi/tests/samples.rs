@@ -1,13 +1,11 @@
 //! サンプルの DXF と DWG を、API の `apply` で書き戻す。
 //! サンプルは公開サンプルの `samples/` と、受け取った図面を置く `ZUMEN_SAMPLES` のフォルダーから集める。
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use zumen_abi1::{Session, Status};
-use zumen_acad::Dxf;
-use zumen_base::{Budget, CancelToken, Cx, Diagnostics};
+use zumen_base::CancelToken;
 use zumen_json::Value;
-use zumen_sdk::Codec;
 
 /// サンプルの DXF と DWG
 #[cfg(test)]
@@ -470,44 +468,28 @@ fn drawings_take_back_ellipses_replaced_through_the_boundary() {
     assert!(!received() || checked.iter().all(|n| *n > 0), "{checked:?}");
 }
 
-/// ハンドルも $HANDSEED もない DXF は、新しいハンドルを割り当てられず追加を断る（決定 0139）。
+/// #327 の公開サンプルはハンドルも $HANDSEED も持たず、文字の追加を断る（決定 0139）。
+/// ほかのサンプルでは追加の成功を確かめ、その後の往復を検査する。
 #[cfg(test)]
-fn text_added(name: &str, data: &[u8], status: Status, response: &Value) -> bool {
-    if status == Status::Ok {
+fn text_added(path: &Path, status: Status, response: &Value) -> bool {
+    let latin1 =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../samples/dxf/opendxfviewer-latin1.dxf");
+    if path != latin1 {
+        assert_eq!(status, Status::Ok);
         return true;
     }
-    assert_eq!(status, Status::Failed, "{name}: {response:?}");
-    assert!(
-        name.to_ascii_lowercase().ends_with(".dxf"),
-        "{name}: {response:?}"
-    );
-    let file = Dxf::read(
-        data,
-        &mut Cx::new(
-            &mut Budget::default(),
-            &mut Diagnostics::new(),
-            &CancelToken::new(),
-        ),
-    )
-    .unwrap();
-    // グループ・コード 5 はハンドルと $HANDSEED、105 は DIMSTYLE のハンドル。
-    assert!(
-        file.records()
-            .iter()
-            .flat_map(|r| r.tags())
-            .all(|tag| !matches!(tag.code(), 5 | 105)),
-        "{name}: {response:?}"
-    );
+    assert_eq!(status, Status::Failed);
     let Some(Value::Array(diagnostics)) = response.pointer("/diagnostics") else {
-        panic!("{name}: {response:?}");
+        panic!("診断の配列がない");
     };
     let mut errors = diagnostics
         .iter()
         .filter(|d| text(d, "/severity") == Some("error"));
     let error = errors.next().unwrap();
     assert_eq!(text(error, "/code"), Some("change.edit.unsupported"));
-    assert_eq!(text(error, "/params/edit"), Some("add"));
-    assert_eq!(text(error, "/params/kind"), Some("TEXT"));
+    assert!(
+        text(error, "/params/edit") == Some("add") && text(error, "/params/kind") == Some("TEXT")
+    );
     assert!(errors.next().is_none());
     assert!(matches!(response.pointer("/blobs"), Some(Value::Array(blobs)) if blobs.is_empty()));
     false
@@ -526,8 +508,9 @@ fn drawings_take_back_texts_added_through_the_boundary() {
             .to_string_lossy()
             .replace(' ', "_");
         let mut session = Session::new(b"").unwrap();
-        let data = std::fs::read(&path).unwrap();
-        session.push(name.as_bytes(), &data).unwrap();
+        session
+            .push(name.as_bytes(), &std::fs::read(&path).unwrap())
+            .unwrap();
         if !open(&mut session, &name) {
             continue;
         }
@@ -559,7 +542,7 @@ fn drawings_take_back_texts_added_through_the_boundary() {
                 add(&mut session, "GRID X1")
             }
         };
-        if !text_added(&name, &data, status, &response) {
+        if !text_added(&path, status, &response) {
             continue;
         }
         let file = session.take(0).unwrap();
@@ -612,8 +595,9 @@ fn drawings_take_back_texts_fitted_between_two_points() {
             .replace(' ', "_");
         let dwg = usize::from(name.to_ascii_lowercase().ends_with(".dwg"));
         let mut session = Session::new(b"").unwrap();
-        let data = std::fs::read(&path).unwrap();
-        session.push(name.as_bytes(), &data).unwrap();
+        session
+            .push(name.as_bytes(), &std::fs::read(&path).unwrap())
+            .unwrap();
         if !open(&mut session, &name) {
             continue;
         }
@@ -700,7 +684,7 @@ fn drawings_take_back_texts_fitted_between_two_points() {
                 r#"{{"v":1,"op":"apply","doc":"{name}","edits":[{{"kind":"add","place":"space/0","layer_id":"{layer_id}","geometry":{adding}}}],{budget}}}"#
             ),
         );
-        if !text_added(&name, &data, status, &response) {
+        if !text_added(&path, status, &response) {
             continue;
         }
         let file = session.take(0).unwrap();
