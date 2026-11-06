@@ -1,5 +1,6 @@
-//! オブジェクト・内容・フォーム・描画資源・フォント・ICC の単独 Flate・LZW の展開量を先に数える（決定 0266・0270・0273）。
+//! Flate・LZW と、それに ASCII を前置した系列の展開量を先に数える（決定 0266・0270・0273）。
 
+mod ascii;
 mod lzw;
 
 use std::io::Read;
@@ -17,7 +18,7 @@ const CHUNK: usize = 8192;
 /// 1 入力バイトが出すのは 8 ÷ 2 * 258 = 1,032 バイト以下。非圧縮のブロックとリテラルもこの範囲に収まる
 const MAX_EXPANSION: u64 = 1032;
 
-/// 単独 Flate・LZW なら、出力全体を確保する前に展開量を数え、`true` を返す。ほかのフィルターはここでは扱わない。
+/// 単独 Flate・LZW と ASCII を 1 個前置した系列は、全出力の確保前に数え、`true` を返す。
 /// hayro-syntax と同じ flate2 のリーダーを、同じ順（zlib、raw deflate）で試す。読めなければ、
 /// 寛容な展開の出力の上限を先に数える。失敗した試みの分も戻さない。予測子の出力は、その入力より長くならない
 pub(crate) fn before(stream: &Stream<'_>, cx: &mut Cx<'_>) -> Result<bool, Stop> {
@@ -27,9 +28,39 @@ pub(crate) fn before(stream: &Stream<'_>, cx: &mut Cx<'_>) -> Result<bool, Stop>
     match effective {
         [Filter::FlateDecode] => count(&stream.raw_data(), cx)?,
         [Filter::LzwDecode] => lzw::before(stream, cx)?,
+        [
+            Filter::AsciiHexDecode,
+            next @ (Filter::FlateDecode | Filter::LzwDecode),
+        ] => {
+            sequence(stream, ascii::Encoding::Hex, *next, cx)?;
+        }
+        [
+            Filter::Ascii85Decode,
+            next @ (Filter::FlateDecode | Filter::LzwDecode),
+        ] => {
+            sequence(stream, ascii::Encoding::Base85, *next, cx)?;
+        }
         _ => return Ok(false),
     }
     Ok(true)
+}
+
+fn sequence(
+    stream: &Stream<'_>,
+    ascii: ascii::Encoding,
+    next: Filter,
+    cx: &mut Cx<'_>,
+) -> Result<(), Stop> {
+    // 中間の量を先に数え、予算内でだけ保持する。失敗までの確保は戻さず、後段へは進まない。
+    let Some(data) = ascii::decode(&stream.raw_data(), ascii, cx)? else {
+        return Ok(());
+    };
+    if next == Filter::FlateDecode {
+        count(&data, cx)
+    } else {
+        let early = lzw::early_change(stream, cx)?;
+        lzw::count(&data, early, cx)
+    }
 }
 
 fn count(data: &[u8], cx: &mut Cx<'_>) -> Result<(), Stop> {

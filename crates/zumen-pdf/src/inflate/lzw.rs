@@ -18,8 +18,8 @@ pub(super) fn before(stream: &Stream<'_>, cx: &mut Cx<'_>) -> Result<(), Stop> {
 
 /// hayro-syntax 0.9.0 の Stream::filters_and_params と同じ優先順で、LZW のパラメーターを引く。
 /// 名前として読めない項目で止まり、知らない名前もパラメーターの位置を 1 つ進める。
-/// 有効なフィルターが単独 LZW（先頭 Crypt を除く）であることは、呼ぶ側で確認済み
-fn early_change(stream: &Stream<'_>, cx: &mut Cx<'_>) -> Result<bool, Stop> {
+/// 有効な系列に LZW が 1 個だけあることは、呼ぶ側で確認済み
+pub(super) fn early_change(stream: &Stream<'_>, cx: &mut Cx<'_>) -> Result<bool, Stop> {
     let dict = stream.dict();
     let is_lzw = |name: &Name<'_>| matches!(name.as_ref(), b"LZWDecode" | b"LZW");
     let early = |params: Option<Dict<'_>>| {
@@ -83,7 +83,7 @@ impl Codes<'_> {
 
 /// hayro-syntax 0.9.0 の LZW の展開順を長さでたどる。不正な符号では上流も失敗するが、
 /// そこまでに作る分を戻さない。入力が途中で切れた場合は、上流が返す部分の出力まで数える
-fn count(data: &[u8], early: bool, cx: &mut Cx<'_>) -> Result<(), Stop> {
+pub(super) fn count(data: &[u8], early: bool, cx: &mut Cx<'_>) -> Result<(), Stop> {
     cx.check(Kind::Work, (data.len() as u64).div_ceil(16) + 512)?;
     cx.check(Kind::DecodedBytes, FIRST as u64 * ENTRY_BYTES + 256)?;
     let mut lengths = [0u16; ENTRIES];
