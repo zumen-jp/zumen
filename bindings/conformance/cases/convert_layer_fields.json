@@ -5,7 +5,7 @@
     {
       "push": {
         "name": "layers.dxf",
-        "text": "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1018\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nLAYER\n70\n4\n0\nLAYER\n5\n10\n2\n0\n70\n0\n62\n7\n1001\nAcAecLayerStandard\n1000\n\n1000\nWall\n0\nLAYER\n5\n11\n2\nA\n70\n0\n62\n7\n1001\nAcCmTransparency\n1071\n33554483\n0\nLAYER\n5\n12\n2\nB\n70\n0\n62\n7\n1001\nAcAecLayerStandard\n1000\n\n1000\nWall\n1001\nAcCmTransparency\n1071\n33554483\n0\nLAYER\n5\n13\n2\nC\n70\n0\n62\n7\n0\nENDTAB\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nLINE\n5\n20\n8\nA\n10\n0\n20\n0\n11\n1\n21\n1\n0\nENDSEC\n0\nEOF\n"
+        "text": "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1018\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nLAYER\n70\n5\n0\nLAYER\n5\nF\n2\nDefpoints\n70\n0\n62\n7\n0\nLAYER\n5\n10\n2\n0\n70\n0\n62\n7\n1001\nAcAecLayerStandard\n1000\n\n1000\nWall\n0\nLAYER\n5\n11\n2\nA\n70\n0\n62\n7\n1001\nAcCmTransparency\n1071\n33554483\n0\nLAYER\n5\n12\n2\nB\n70\n0\n62\n7\n1001\nAcAecLayerStandard\n1000\n\n1000\nWall\n1001\nAcCmTransparency\n1071\n33554483\n0\nLAYER\n5\n13\n2\nC\n70\n0\n62\n7\n0\nENDTAB\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nLINE\n5\n20\n8\nA\n10\n0\n20\n0\n11\n1\n21\n1\n0\nENDSEC\n0\nEOF\n"
       }
     },
     {
@@ -30,16 +30,30 @@
         "/result/elements": 1,
         "/diagnostics": [
           {
+            "code": "convert.element.unsupported",
+            "severity": "warning",
+            "count": 1,
+            "at": [
+              {
+                "record": 4
+              }
+            ],
+            "params": {
+              "format": "DXF",
+              "kind": "layer"
+            }
+          },
+          {
             "code": "convert.layer-field.dropped",
             "severity": "warning",
             "fidelity": "dropped",
             "count": 2,
             "at": [
               {
-                "record": 4
+                "record": 5
               },
               {
-                "record": 6
+                "record": 7
               }
             ],
             "params": {
@@ -54,12 +68,59 @@
             "count": 2,
             "at": [
               {
-                "record": 5
+                "record": 6
               },
               {
-                "record": 6
+                "record": 7
               }
             ],
+            "params": {
+              "format": "DXF",
+              "field": "transparency"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "convert",
+        "doc": "layers.dxf",
+        "format": "dxf",
+        "to": "no-places.dxf",
+        "max_places": 0
+      },
+      "expect": {
+        "/result/elements": 1,
+        "/diagnostics": [
+          {
+            "code": "convert.element.unsupported",
+            "severity": "warning",
+            "count": 1,
+            "at": [],
+            "params": {
+              "format": "DXF",
+              "kind": "layer"
+            }
+          },
+          {
+            "code": "convert.layer-field.dropped",
+            "severity": "warning",
+            "fidelity": "dropped",
+            "count": 2,
+            "at": [],
+            "params": {
+              "format": "DXF",
+              "field": "description"
+            }
+          },
+          {
+            "code": "convert.layer-field.dropped",
+            "severity": "warning",
+            "fidelity": "dropped",
+            "count": 2,
+            "at": [],
             "params": {
               "format": "DXF",
               "field": "transparency"

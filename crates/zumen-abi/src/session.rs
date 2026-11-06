@@ -7155,8 +7155,8 @@ END_SCHEMA;
             "{codes:?}"
         );
         assert_eq!(number(&response, "/diagnostics/0/at/0/record"), "19");
-        assert_eq!(number(&response, "/diagnostics/1/at/0/record"), "29");
-        assert_eq!(number(&response, "/diagnostics/2/at/0/record"), "27");
+        assert_eq!(number(&response, "/diagnostics/1/at/0/record"), "27");
+        assert_eq!(number(&response, "/diagnostics/2/at/0/record"), "29");
         let file = String::from_utf8(session.take(0).unwrap()).unwrap();
         assert!(file.contains("\nDOOR\n"), "{file}");
         // 書いた文書は、開いた文書と同じに使える
@@ -7238,8 +7238,8 @@ END_SCHEMA;
         assert_eq!(status, Status::Ok, "{response:?}");
         assert_eq!(number(&response, "/result/elements"), "5", "{response:?}");
         assert!(!codes_of(&response).contains(&"convert.attribute.drawn".to_string()));
-        assert_eq!(text(&response, "/diagnostics/2/params/kind"), "text");
-        assert_eq!(number(&response, "/diagnostics/2/at/0/record"), "27");
+        assert_eq!(text(&response, "/diagnostics/1/params/kind"), "text");
+        assert_eq!(number(&response, "/diagnostics/1/at/0/record"), "27");
     }
 
     #[test]

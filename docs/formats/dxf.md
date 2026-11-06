@@ -76,7 +76,7 @@ AutoCAD の系統のファイルモデル（L1）として DXF を読み書き�
 - 用紙の座標と限界は最初の実寸の空間の単位で書き、LAYOUT の印刷の単位を mm、印刷の尺度を 1 図面単位の mm とする。実寸の空間がなければ mm とする。VIEWPORT は `AcDbEntity`・`AcDbViewport` と、用紙の BLOCK_RECORD を指す所有者を持つ。`$HANDSEED` は、VIEWPORT を含むすべてのハンドルより大きくする（DXF Reference「PLOTSETTINGS」「VIEWPORT」「HEADER Section Group Codes」）。
 - 文字のコード・ページは ANSI_932 とする。ひな形の記号名にも、書き戻しで使う `encoding_rs` の同じ表を使う（[決定 0192](../decisions/0192-acad-code-page-write-back.md)）。この依存は既存採用済みで、ライセンスは `(Apache-2.0 OR MIT) AND BSD-3-Clause`。OS やロケールに依らず、wasm でも同じ表で符号化する。記号名に使えない文字は `_` にし、空の名前・無名の定義・ANSI_932 で元に戻らない名前には `zumen_番号` を付ける。名前が重なれば連番を付ける。
 - 足せなかった画層は、元の場所と `kind: layer` を付けて `convert.element.unsupported` で返す。その画層の要素も落とし、種類・件数・元の場所を同じ code で返す。画層 0 には移さない。たとえば、追加できない予約名の Defpoints と、その上の要素は、この扱いになる。既定の画層 0 はひな形の項目を使う。
-- 元の画層に説明か透過性があるときは、出力に移せない値を `convert.layer-field.dropped` で返す。`field` は `description` か `transparency` で、それぞれの件数と元の画層の場所を持つ。ひな形にある画層 0 も含む。
+- 元の画層に説明か透過性があるときは、出力に移せない値を `convert.layer-field.dropped` で返す。`field` は `description` か `transparency` で、それぞれの件数と元の画層の場所を持つ。ひな形にある画層 0 も含む。DXF の書き出しで生じた診断は元のレコードの順に返し、場所の表示を 0 件にしてもその順を保つ。
 - 書けない要素と、文字にした属性の診断にも、元の要素・属性の場所を付ける。診断ごとの件数を数え、場所の数は呼び出しの上限まで残す。`convert.attribute.drawn` は、属性の文字を実際に足せたときだけ返す。
 
 R2004 の構成は、Autodesk の [DXF Reference](https://images.autodesk.com/adsk/files/acad_dxf.pdf) の各節に従います。実アプリでの確認範囲は、下の「確かめた度合い」に書きます。
