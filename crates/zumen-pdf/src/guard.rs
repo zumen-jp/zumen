@@ -530,7 +530,10 @@ fn members(
                     bytes = bytes.saturating_add(key_bytes(data, &name));
                 });
                 table_end = end.unwrap_or(data.len());
-                cx.check(Kind::Work, lookup_work(&data[at..table_end]))?;
+                cx.check(
+                    Kind::Work,
+                    lookup_work(data.get(at..table_end).unwrap_or(data)),
+                )?;
                 seen.table_bytes = seen.table_bytes.max(bytes);
             }
         }
