@@ -267,12 +267,8 @@ def bind(directory, notice, artifact, binary):
     return encode(document)
 
 
-def verify(binary, shipped, expected):
-    check(shipped == expected, "配布した SBOM が対象の SBOM と違う")
-    doc = json.loads(shipped)
-    reject_paths(doc)
+def document_graph(doc):
     root = doc["metadata"]["component"]
-    check(root["hashes"] == [{"alg": "SHA-256", "content": digest(binary)}], "配布バイナリのハッシュが SBOM と違う")
     components = [root, *doc["components"]]
     refs = {c["bom-ref"] for c in components}
     deps = {e["ref"]: set(e["dependsOn"]) for e in doc["dependencies"]}
@@ -283,7 +279,16 @@ def verify(binary, shipped, expected):
         check(len(targets) == len(edge["dependsOn"]) and targets <= refs, "配布した SBOM の依存先が不正")
     graph = {c["bom-ref"]: ({"required": "runtime", "excluded": "build"}[c["scope"]], deps[c["bom-ref"]])
              for c in components}
-    check(extracted_graph(binary) == (root["bom-ref"], graph), "配布バイナリの埋込情報と SBOM の依存・区分・辺が違う")
+    return root["bom-ref"], graph
+
+
+def verify(binary, shipped, expected):
+    check(shipped == expected, "配布した SBOM が対象の SBOM と違う")
+    doc = json.loads(shipped)
+    reject_paths(doc)
+    check(doc["metadata"]["component"]["hashes"] == [{"alg": "SHA-256", "content": digest(binary)}],
+          "配布バイナリのハッシュが SBOM と違う")
+    check(extracted_graph(binary) == document_graph(doc), "配布バイナリの埋込情報と SBOM の依存・区分・辺が違う")
 
 
 if __name__ == "__main__":

@@ -49,6 +49,10 @@ jobs:
           cargo install --locked cargo-cyclonedx@0.5.9
           python xtask/release/licenses.py --output out
           python xtask/release/sbom.py --output out
+      - name: 別 member だけが有効にする feature を、実際のコンパイルと依存の辺から検出する
+        run: |
+          cargo install --locked cargo-auditable@0.7.7 rust-audit-info@0.5.4
+          python xtask/release/check_cargo_scope.py
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: package-licenses

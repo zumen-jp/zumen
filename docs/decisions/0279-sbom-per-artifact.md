@@ -25,6 +25,7 @@ cargo-cyclonedx 0.5.9 は、manifest を指定しても workspace の各 member 
 - `bom-ref` は `urn:zumen:cargo:{source}:{name}@{version}` とし、起点・各部品・依存元・依存先をまとめて書き換える。入手先は workspace の `local` と `crates.io` を区別する。新しい入手先には、一意性を保つ識別規則を決めてから対応する。PURL は、workspace の crate にリポジトリの URL・コミットとリポジトリ内の相対パスを付ける。生成した文書に絶対パスがあれば止める。
 - 配布時のコミットの時刻を `SOURCE_DATE_EPOCH` に渡し、その時刻を検査する。乱数の `serialNumber` は省略する。部品・辺・JSON のキーの順と UTF-8 の改行を固定する。同じコミット・lockfile・target・feature・ツール版・バイナリなら、作業ディレクトリによらず同じ SBOM のバイト列になる。バイナリの再ビルドでバイト列が違えば、そのハッシュも変わる。
 - 実物は `cargo auditable build --release --locked` で作る。Cargo が返した対象ファイルと有効な feature を確かめ、要求した feature・target・crate・コミット・lockfile と実物の SHA-256 を記録する。梱包時にこの記録を照合する。SBOM の起点のハッシュは配るバイナリの SHA-256 とする。
+- 部品の集合はコンパイラーが返す全 `compiler-artifact.package_id` から得る。ビルドと同じ package・target・feature を指定した `cargo tree` で、通常と build の直接の辺、通常の辺だけで proc-macro を経由せず到達する実行時の部品を確かめる。SBOM と埋込情報が workspace のほかの member の feature を同じように含んでも、実際の集合・辺・区分と違えば梱包を止める。
 - 梱包後の実物を rust-audit-info 0.5.4 で読み、起点、入手先・名前・版、build と実行時の区分、依存の辺の全体を照合する。埋込形式 1 は Cargo の解決した依存を表し、最適化で除かれたコードの区別はしない。
 - ネイティブのライブラリと CLI の圧縮では、バイナリの隣に `{バイナリ名}.cdx.json` を置く。wheel は `.dist-info/sboms/` と `RECORD`、NuGet は各 `runtimes/{rid}/native/`、npm は `sboms/` に入れる。個別に配る wasm には、同名で対応付けた 5 つの文書を `zumen-{版}-wasm-sboms.tar.gz` にまとめる。Release の既存のアーカイブ収集と来歴の証明を使える。wasm の全体版に添える本文が分割版の依存も含むことを確かめる。
 

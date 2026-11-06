@@ -1,9 +1,10 @@
 """ネイティブのライブラリを入れた wheel を、標準ライブラリだけで作る（決定 0205）。
 
-    python build_wheel.py <ライブラリの道筋> <プラットフォームのタグ> [出力のディレクトリ] --licenses <ライセンスのディレクトリ>
+    python build_wheel.py <ライブラリの道筋> <プラットフォームのタグ> [出力のディレクトリ] --licenses <ライセンスのディレクトリ> --sbom <対応する .cdx.json>
 
 ライブラリは zumen/_native に入れ、load() が道筋なしで読む。拡張のモジュールはないので、タグは py3-none-<プラットフォーム>。
-ライセンスは xtask/release/licenses.py で作る。作成には Python 3.11 以降を使う。
+SBOM とライセンスの生成から wheel の梱包・検査まで進める手順は、xtask/release/README.md の
+「ネイティブのライブラリ・CLI・wheel を作る」を参照する。作成には Python 3.11 以降を使う。
 """
 
 import argparse
@@ -30,7 +31,7 @@ def main(argv: list) -> None:
     parser.add_argument("platform")
     parser.add_argument("out", nargs="?", default=os.path.join(HERE, "dist"))
     parser.add_argument("--licenses", required=True)
-    parser.add_argument("--sbom", type=Path)
+    parser.add_argument("--sbom", type=Path, help="package.py native が作る対象 ABI の SBOM。既定はライブラリの隣の .cdx.json")
     args = parser.parse_args(argv[1:])
     library, platform, out = args.library, args.platform, args.out
     with open(os.path.join(args.licenses, "THIRD_PARTY_LICENSES"), "rb") as f:

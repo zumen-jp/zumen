@@ -83,9 +83,11 @@ class PackageTests(unittest.TestCase):
                 _, cli = notice(notices / "cli", "cli", target["target"])
                 output = root / "out"
                 for kind, filename in (("abi", target["library"]), ("cli", target["exe"])):
+                    ref = sbom.bom_ref("local", "zumen-" + kind, package.VERSION)
                     receipt = {"package": "zumen-" + kind, "target": target["target"], "features": "default",
                                "artifact": filename, "sha256": sbom.digest((built / filename).read_bytes()),
-                               "commit": "fixture", "lock": "fixture"}
+                               "commit": "fixture", "lock": "fixture", "compiled": [ref],
+                               "root": ref, "tree": {ref: ["runtime", []]}}
                     (built / (filename + ".build.json")).write_bytes(sbom.encode(receipt))
 
                 def extract_fixture(binary):
