@@ -3,6 +3,19 @@ use crate::Dxf;
 use zumen_base::{Budget, CancelToken, Diagnostics, Limit, Limits};
 use zumen_sdk::Codec;
 
+impl AcadDb {
+    fn reencode_r2004_dxf(&self, cx: &mut Cx<'_>) -> Result<Option<ReencodedDxf>, Error> {
+        try_reencode(self, cx, |_, _| Ok(fixture_source()))
+    }
+}
+
+fn fixture_source() -> DxfSource<'static> {
+    DxfSource {
+        order: BTreeMap::from([(10, vec![41]), (11, vec![]), (12, vec![40])]),
+        ..DxfSource::default()
+    }
+}
+
 fn s(code: i16, name: &[u8]) -> Value {
     Value {
         code,
@@ -246,4 +259,130 @@ fn a_dimension_mixed_with_an_unsupported_entity_uses_the_domain_model() {
             .is_none()
     );
     assert_eq!(diagnostics.iter().count(), 0);
+}
+
+#[test]
+fn writes_owned_order_and_reports_only_reactors_whose_target_was_omitted() {
+    use crate::dwg::reencode::Extra;
+    let mut db = fixture();
+    let mut point = db.get(40).unwrap().clone();
+    point.values[0] = h(5, 60);
+    db.push(point);
+    let mut input = fixture_source();
+    input.order.insert(12, vec![60, 40]);
+    input.extras.insert(
+        41,
+        Extra {
+            reactors: vec![9, 54],
+            picture: vec![0x42; 300],
+            plotstyle: false,
+        },
+    );
+    let mut budget = Budget::new(Limits::default());
+    let mut diagnostics = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+    let out = try_reencode(&db, &mut cx, |_, _| Ok(input))
+        .unwrap()
+        .unwrap();
+    let read = Dxf::read(&out.bytes, &mut cx)
+        .unwrap()
+        .objects(&mut cx)
+        .unwrap();
+    let points: Vec<_> = read
+        .objects()
+        .iter()
+        .filter(|o| o.kind == b"POINT")
+        .filter_map(Object::handle)
+        .collect();
+    assert_eq!(points, [60, 40]);
+    let dim = read.get(41).unwrap();
+    assert_eq!(dim.owner(), Some(10));
+    assert!(dim.values.contains(&h(330, 9)));
+    assert!(!dim.values.contains(&h(330, 54)));
+    assert_eq!(dim.first(92), Some(&Data::Int(300)));
+    let graphics: Vec<_> = dim
+        .values
+        .iter()
+        .filter_map(|v| match &v.data {
+            Data::Binary(chunk) if v.code == 310 => Some(chunk.len()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(graphics, [127, 127, 46]);
+    let lost = diagnostics
+        .iter()
+        .find(|d| {
+            d.code() == codes::DWG_DXF_REFERENCE_DROPPED && d.param("code") == Some(&330_i64.into())
+        })
+        .unwrap();
+    assert_eq!(lost.count(), 1);
+    assert_eq!(lost.places(), &[Ref::at_bytes(656, 664)]);
+}
+
+#[test]
+fn writes_a_dimension_in_an_inactive_layout_in_its_block() {
+    let mut db = fixture();
+    // 既存の用紙に加えてもう一つの BLOCK_RECORD と LAYOUT を作り、寸法をその用紙へ移す。
+    for (from, id, owner) in [(11, 61, 5), (21, 62, 61), (31, 63, 61), (53, 64, 51)] {
+        let mut obj = db.get(from).unwrap().clone();
+        obj.values[0] = h(5, id);
+        obj.values[1] = h(330, owner);
+        if id == 61 {
+            obj.values[2] = s(2, b"*Paper_Space0");
+        }
+        if id == 64 {
+            obj.values[3] = s(1, b"Layout2");
+            obj.values[4] = h(330, 61);
+        }
+        db.push(obj);
+    }
+    let dict = db.object_mut(db.position(51).unwrap()).unwrap();
+    dict.values.extend([s(3, b"Layout2"), h(350, 64)]);
+    let dim = db.object_mut(db.position(41).unwrap()).unwrap();
+    dim.values[1] = h(330, 61);
+    dim.section = Section::Blocks;
+    let mut input = fixture_source();
+    input.order.insert(10, vec![]);
+    input.order.insert(61, vec![41]);
+    let mut budget = Budget::new(Limits::default());
+    let mut diagnostics = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+    let out = try_reencode(&db, &mut cx, |_, _| Ok(input))
+        .unwrap()
+        .unwrap();
+    let read = Dxf::read(&out.bytes, &mut cx)
+        .unwrap()
+        .objects(&mut cx)
+        .unwrap();
+    assert_eq!(read.get(41).unwrap().section, Section::Blocks);
+    assert_eq!(read.get(41).unwrap().owner(), Some(61));
+    assert_eq!(read.get(61).unwrap().first(340), Some(&Data::Handle(64)));
+}
+
+#[test]
+fn omits_dictionary_entries_that_would_create_an_ownership_cycle() {
+    let mut db = fixture();
+    db.object_mut(db.position(50).unwrap())
+        .unwrap()
+        .values
+        .extend([s(3, b"self"), h(360, 50)]);
+    let mut budget = Budget::new(Limits::default());
+    let mut diagnostics = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+    let out = db.reencode_r2004_dxf(&mut cx).unwrap().unwrap();
+    let read = Dxf::read(&out.bytes, &mut cx)
+        .unwrap()
+        .objects(&mut cx)
+        .unwrap();
+    assert!(!read.get(50).unwrap().values.contains(&h(360, 50)));
+    let lost = diagnostics
+        .iter()
+        .find(|d| {
+            d.code() == codes::DWG_DXF_REFERENCE_DROPPED && d.param("code") == Some(&360_i64.into())
+        })
+        .unwrap();
+    assert_eq!(lost.places(), &[Ref::at_bytes(800, 808)]);
 }

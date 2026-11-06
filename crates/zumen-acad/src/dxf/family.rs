@@ -7,6 +7,7 @@ use zumen_base::{Cx, Diagnostic, Kind, Ref, codes};
 use zumen_sdk::Error;
 
 use crate::db::{AcadDb, Data, Object, Origin, Section, Value};
+use crate::dwg::{DwgFile, reencode::DxfSource};
 
 mod tags;
 use tags::Writer;
@@ -22,19 +23,45 @@ pub struct ReencodedDxf {
     pub elements: u64,
 }
 
-impl AcadDb {
-    /// R2004 DWG の弧長寸法とその描画ブロックを、同じ版の DXF に再符号化する。
-    /// 対象外の図形や解けない参照があれば `None` を返し、呼び出し元が既存の変換経路を選べる。
-    pub fn reencode_r2004_dxf(&self, cx: &mut Cx<'_>) -> Result<Option<ReencodedDxf>, Error> {
-        match encode(self, cx) {
-            Ok(out) => Ok(Some(out)),
-            Err(Error::Unsupported) => Ok(None),
-            Err(Error::Stopped(stop)) => {
-                cx.report(stop.to_diagnostic());
-                Err(Error::Stopped(stop))
-            }
-            Err(other) => Err(other),
+/// R2004 DWG の同系統の変換結果。対象外のときは、既に読んだ表を図面モデルへ渡せる。
+pub enum R2004Conversion {
+    /// 元のハンドルと参照を使って書いた DXF。
+    Dxf(ReencodedDxf),
+    /// 同系統で扱えない組み合わせを持つ表。
+    DrawingSource(AcadDb),
+}
+
+impl DwgFile {
+    /// 同系統で扱える図面を DXF にする。必要な参照を解けないときは、図面モデルの変換に渡す。
+    pub fn reencode_r2004_dxf(&self, cx: &mut Cx<'_>) -> Result<R2004Conversion, Error> {
+        let db = self.objects(cx)?;
+        let encoded = try_reencode(&db, cx, |plan, cx| self.dxf_source(&db, &plan.kept, cx))?;
+        Ok(match encoded {
+            Some(file) => R2004Conversion::Dxf(file),
+            None => R2004Conversion::DrawingSource(db),
+        })
+    }
+}
+
+fn try_reencode<'a>(
+    db: &AcadDb,
+    cx: &mut Cx<'_>,
+    source: impl FnOnce(&Plan<'_>, &mut Cx<'_>) -> Result<DxfSource<'a>, Error>,
+) -> Result<Option<ReencodedDxf>, Error> {
+    let result = (|| {
+        let mut plan = Plan::new(db, cx)?;
+        let source = source(&plan, cx)?;
+        plan.order_blocks(&source, cx)?;
+        encode(db, &plan, &source, cx)
+    })();
+    match result {
+        Ok(out) => Ok(Some(out)),
+        Err(Error::Unsupported) => Ok(None),
+        Err(Error::Stopped(stop)) => {
+            cx.report(stop.to_diagnostic());
+            Err(Error::Stopped(stop))
         }
+        Err(other) => Err(other),
     }
 }
 
@@ -118,7 +145,7 @@ struct Plan<'a> {
     layouts: BTreeMap<u64, u64>,
     objects: BTreeSet<u64>,
     kept: BTreeSet<u64>,
-    dimensions: u64,
+
     elements: u64,
     next_handle: u64,
 }
@@ -149,7 +176,7 @@ impl<'a> Plan<'a> {
             layouts: BTreeMap::new(),
             objects: BTreeSet::new(),
             kept: BTreeSet::new(),
-            dimensions: 0,
+
             elements: 0,
             next_handle: 0,
         };
@@ -203,7 +230,6 @@ impl<'a> Plan<'a> {
                     entity_class(&object.kind).ok_or(Error::Unsupported)?;
                     if matches!(object.kind.as_slice(), b"BLOCK" | b"ENDBLK")
                         && object.section != Section::Blocks
-                        || object.kind == b"ARC_DIMENSION" && object.section != Section::Entities
                     {
                         return Err(Error::Unsupported);
                     }
@@ -212,12 +238,9 @@ impl<'a> Plan<'a> {
                         b"BLOCK" if block.begin.replace(object).is_none() => (),
                         b"ENDBLK" if block.end.replace(object).is_none() => (),
                         b"BLOCK" | b"ENDBLK" => return Err(Error::Unsupported),
-                        kind => {
+                        _ => {
                             plan.elements += 1;
-                            plan.dimensions += u64::from(kind == b"ARC_DIMENSION");
-                            if object.section == Section::Blocks {
-                                block.entities.push(object);
-                            }
+                            block.entities.push(object);
                         }
                     }
                     plan.kept.insert(id);
@@ -254,6 +277,13 @@ impl<'a> Plan<'a> {
                 return Err(Error::Unsupported);
             }
         }
+        for (id, block) in &plan.blocks {
+            if !plan.layouts.contains_key(id)
+                && block.entities.iter().any(|o| o.kind == b"ARC_DIMENSION")
+            {
+                return Err(Error::Unsupported);
+            }
+        }
         for name in [b"*MODEL_SPACE".as_slice(), b"*PAPER_SPACE"] {
             let space = plan.named(b"BLOCK_RECORD", name, cx)?;
             if !plan.layouts.contains_key(&handle(space)?) {
@@ -261,6 +291,27 @@ impl<'a> Plan<'a> {
             }
         }
         Ok(plan)
+    }
+
+    // ODS 5.4.1 の BLOCK_HEADER。ハンドルの値と、ブロックが持つ図形の表示順は別に決まる。
+    fn order_blocks(&mut self, source: &DxfSource<'_>, cx: &mut Cx<'_>) -> Result<(), Error> {
+        for (id, block) in &mut self.blocks {
+            let order = source.order.get(id).ok_or(Error::Unsupported)?;
+            if order.len() != block.entities.len() {
+                return Err(Error::Unsupported);
+            }
+            cx.check(Kind::Work, order.len() as u64)?;
+            let mut members = BTreeMap::new();
+            for entity in block.entities.drain(..) {
+                members.insert(handle(entity)?, entity);
+            }
+            for key in order {
+                block
+                    .entities
+                    .push(members.remove(key).ok_or(Error::Unsupported)?);
+            }
+        }
+        Ok(())
     }
 
     fn named(&self, table: &'static [u8], name: &[u8], cx: &mut Cx<'_>) -> Result<&Object, Error> {
@@ -356,9 +407,13 @@ impl<'a> Plan<'a> {
     }
 }
 
-fn encode(db: &AcadDb, cx: &mut Cx<'_>) -> Result<ReencodedDxf, Error> {
-    let plan = Plan::new(db, cx)?;
-    let mut w = Writer::new(&plan, cx);
+fn encode<'a>(
+    db: &'a AcadDb,
+    plan: &Plan<'a>,
+    input: &DxfSource<'_>,
+    cx: &mut Cx<'_>,
+) -> Result<ReencodedDxf, Error> {
+    let mut w = Writer::new(plan, input, cx);
     w.section(b"HEADER")?;
     for (name, values) in db.variables() {
         if name == b"$HANDSEED" {
@@ -372,17 +427,33 @@ fn encode(db: &AcadDb, cx: &mut Cx<'_>) -> Result<ReencodedDxf, Error> {
     w.tag(9, b"$HANDSEED")?;
     w.hex(5, plan.next_handle)?;
     w.end()?;
-    // DXF Reference「CLASS」。R2004 の弧長寸法のクラス名・アプリケーション・フラグは
-    // AutoCAD で保存した公開 DXF の CLASS と照合した（docs/formats/dxf.md）。
+    // DXF Reference「CLASS」。使うクラスの宣言は DWG から移し、個数は実際に書く対象から数える。
     w.section(b"CLASSES")?;
-    w.tag(0, b"CLASS")?;
-    w.tag(1, b"ARC_DIMENSION")?;
-    w.tag(2, b"AcDbArcDimension")?;
-    w.tag(3, b"ObjectDBX Classes")?;
-    w.tag(90, b"1025")?;
-    w.integer(91, plan.dimensions)?;
-    w.tag(280, b"0")?;
-    w.tag(281, b"1")?;
+    let mut instances = BTreeMap::<&[u8], u64>::new();
+    for obj in db.objects() {
+        if obj.handle().is_some_and(|id| plan.kept.contains(&id)) {
+            *instances.entry(&obj.kind).or_default() += 1;
+        }
+    }
+    for class in input.classes {
+        // LAYOUT と ACDBPLACEHOLDER は R2004 の DXF では組み込みの型。
+        if !matches!(
+            class.name.as_slice(),
+            b"ARC_DIMENSION" | b"ACDBDICTIONARYWDFLT"
+        ) {
+            continue;
+        }
+        if let Some(count) = instances.remove(class.name.as_slice()) {
+            w.tag(0, b"CLASS")?;
+            w.tag(1, &class.name)?;
+            w.tag(2, &class.cpp)?;
+            w.tag(3, &class.app)?;
+            w.integer(90, u64::from(class.flags))?;
+            w.integer(91, count)?;
+            w.integer(280, u64::from(class.proxy))?;
+            w.integer(281, u64::from(class.entity))?;
+        }
+    }
     w.end()?;
     w.section(b"TABLES")?;
     for &(name, class) in TABLES {
@@ -408,22 +479,28 @@ fn encode(db: &AcadDb, cx: &mut Cx<'_>) -> Result<ReencodedDxf, Error> {
         let name = string(r, 2)?;
         let block = plan.blocks.get(&handle(r)?).ok_or(Error::Unsupported)?;
         w.entity(block.begin.ok_or(Error::Unsupported)?, Some(name))?;
-        for object in &block.entities {
+        for &object in block
+            .entities
+            .iter()
+            .filter(|o| o.section == Section::Blocks)
+        {
             w.entity(object, None)?;
         }
         w.entity(block.end.ok_or(Error::Unsupported)?, None)?;
     }
     w.end()?;
     w.section(b"ENTITIES")?;
-    for obj in db
-        .objects()
-        .iter()
-        .filter(|r| r.section == Section::Entities)
-    {
-        if !plan.layouts.contains_key(&owner(obj)?) {
-            return Err(Error::Unsupported);
+    for (id, block) in &plan.blocks {
+        for &entity in block
+            .entities
+            .iter()
+            .filter(|o| o.section == Section::Entities)
+        {
+            if !plan.layouts.contains_key(id) {
+                return Err(Error::Unsupported);
+            }
+            w.entity(entity, None)?;
         }
-        w.entity(obj, None)?;
     }
     w.end()?;
     w.section(b"OBJECTS")?;
@@ -433,13 +510,13 @@ fn encode(db: &AcadDb, cx: &mut Cx<'_>) -> Result<ReencodedDxf, Error> {
         .iter()
         .find(|o| o.kind == b"DICTIONARY" && o.owner() == Some(0))
         .ok_or(Error::Unsupported)?;
-    w.metadata(root)?;
+    w.metadata(root, db)?;
     for r in db.objects() {
         if !std::ptr::eq(r, root)
             && r.section == Section::Objects
             && r.handle().is_some_and(|h| plan.objects.contains(&h))
         {
-            w.metadata(r)?;
+            w.metadata(r, db)?;
         }
     }
     w.end()?;

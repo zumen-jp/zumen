@@ -497,7 +497,7 @@ since = "0.2.0"
 status = "active"
 
 [codes."dwg.dxf-reference.dropped"]
-description = "DWG を DXF に再符号化するとき、拡張辞書やリアクターの組、出力しない辞書項目の参照を除いた"
+description = "DWG を DXF に再符号化するとき、拡張辞書の組、出力しないリアクター・辞書項目・印刷スタイルの参照を除いた"
 severity = "warning"
 fidelity = "dropped"
 params = { code = "int" }

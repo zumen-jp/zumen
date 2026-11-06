@@ -196,7 +196,7 @@ def compare_arc_record(reference, actual):
     return failures
 
 
-def check_arc_dimensions(folder, doc, counts):
+def check_arc_dimensions(folder, path, doc, counts):
     """同じ図面を AutoCAD が保存した R2004 DXF を比較先にする（#634）。"""
     # recover は MTEXT の Unicode エスケープも文字に戻す。比較先と変換先を同じ読み方で比べる。
     reference, _ = recover.readfile(str(folder / "input/zumen-arcdim-r2004_ascii.dxf"))
@@ -205,8 +205,29 @@ def check_arc_dimensions(folder, doc, counts):
     if doc.dxfversion != "AC1018" or len(wanted) != 6 or len(found) != 6:
         return [f"R2004 の弧長寸法が 6 件と一致しない（比較先 {len(wanted)} 件、出力 {len(found)} 件）"]
     failures = []
+    # ezdxf は読み込み後に既定のオブジェクトを足す。元の出力ファイルが宣言したハンドルだけを比較する。
+    handles, _, _ = scan(path, doc.output_encoding)
+    retained = set(handles).intersection(doc.entitydb.keys(), reference.entitydb.keys())
+    for handle in sorted(retained):
+        left, right = reference.entitydb[handle], doc.entitydb[handle]
+        wanted_links = [h for h in left.get_reactors() if h in retained]
+        if right.get_reactors() != wanted_links:
+            failures.append(f"{left.dxftype()} のリアクターが違う")
+        counts["retained_reactors"] += len(wanted_links)
+    classes = {c.dxf.name: c for c in doc.classes.classes.values()}
+    # この図面の DXF でクラスの宣言を要し、変換先にもインスタンスを持つ 2 種。
+    kinds = {"ARC_DIMENSION", "ACDBDICTIONARYWDFLT"}
+    wanted_classes = {c.dxf.name: c for c in reference.classes.classes.values() if c.dxf.name in kinds}
+    if classes.keys() != wanted_classes.keys():
+        failures.append("出力対象のクラスの宣言が違う")
+    for kind in wanted_classes.keys() & classes.keys():
+        failures += compare_arc_record(wanted_classes[kind], classes[kind])
     for before, after in zip(wanted, found):
         failures += compare_arc_record(before, after)
+        if not before.proxy_graphic or before.proxy_graphic != after.proxy_graphic:
+            failures.append("弧長寸法のプロキシ画像のバイト列が違う")
+        else:
+            counts["proxy_graphics"] += 1
         if after.dxf.owner != doc.modelspace().block_record_handle:
             failures.append("弧長寸法の所有者がモデル空間と違う")
         if after.dxf.dimstyle not in doc.dimstyles or after.dxf.geometry not in doc.blocks:
@@ -243,7 +264,7 @@ def check_file(folder, entry, reading, baseline, counts):
     }
     if entry["role"] == "convert":
         if entry.get("from") == "input/zumen-arcdim-r2004.dwg":
-            failures += check_arc_dimensions(folder, doc, counts)
+            failures += check_arc_dimensions(folder, path, doc, counts)
         if audit["errors"]:
             failures.append(f"ezdxf の監査の誤り: {audit['errors']} {[e.message for e in auditor.errors][:3]}")
         if audit["fixes"]:

@@ -1131,7 +1131,7 @@ pub const DWG_DXF_RECORD_DROPPED: Code = Code::new(
     &["kind"],
 );
 
-/// DWG を DXF に再符号化するとき、拡張辞書やリアクターの組、出力しない辞書項目の参照を除いた
+/// DWG を DXF に再符号化するとき、拡張辞書の組、出力しないリアクター・辞書項目・印刷スタイルの参照を除いた
 ///
 /// `dwg.dxf-reference.dropped`（0.2.0 から）
 pub const DWG_DXF_REFERENCE_DROPPED: Code = Code::new(

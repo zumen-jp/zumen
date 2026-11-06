@@ -526,6 +526,8 @@ impl Fields {
 
 /// 図形の共通のフィールドのうち、型ごとのフィールドとハンドルの並びを読むのに要るもの
 struct Common {
+    /// プロキシ画像の開始ビットとバイト数（ODS 5.4.1 の 21 共通の図形）。
+    picture: Option<(usize, usize)>,
     /// 所有者の決まり方。0 は所有者のハンドルを持ち、1 は用紙空間、2 はモデル空間の図形
     entmode: u8,
     /// リアクターの数
@@ -1151,6 +1153,37 @@ pub(super) fn owned(
     release: Release,
     handles: Option<usize>,
 ) -> Option<Owned> {
+    let OwnedHeader {
+        mut bits,
+        size_at,
+        count,
+        count_range,
+        handles_at,
+    } = owned_header(data, release, handles)?;
+    let mut handles = Vec::with_capacity(count.min(data.len()));
+    for _ in 0..count {
+        let at = bits.pos();
+        let owned = bits.handle()?.resolve(handle)?;
+        handles.push((at..bits.pos(), owned));
+    }
+    Some(Owned {
+        size_at,
+        count: count_range,
+        handles_at,
+        handles,
+        end: bits.pos(),
+    })
+}
+
+struct OwnedHeader<'a> {
+    bits: Bits<'a>,
+    size_at: usize,
+    count: usize,
+    count_range: Range<usize>,
+    handles_at: usize,
+}
+
+fn owned_header(data: &[u8], release: Release, handles: Option<usize>) -> Option<OwnedHeader<'_>> {
     let mut bits = Bits::with_release(data, release);
     let r2010 = release >= Release::R2010;
     let (size_at, handles_at) = if r2010 {
@@ -1190,19 +1223,31 @@ pub(super) fn owned(
     for _ in 0..reactors + u32::from(xdic) + 3 {
         bits.handle()?;
     }
-    let mut handles = Vec::with_capacity(count.min(data.len()));
-    for _ in 0..count {
-        let at = bits.pos();
-        let owned = bits.handle()?.resolve(handle)?;
-        handles.push((at..bits.pos(), owned));
-    }
-    Some(Owned {
+    (count <= data.len().checked_sub(bits.pos() / 8)?).then_some(OwnedHeader {
+        bits,
         size_at,
-        count: count_range,
+        count,
+        count_range,
         handles_at,
-        handles,
-        end: bits.pos(),
     })
+}
+
+/// R2004 のブロックが持つ順にハンドルを読む。再符号化では編集用のビット範囲の割り当てを省く。
+pub(super) fn owned_ids(data: &[u8], id: u64, cx: &mut Cx<'_>) -> Result<Vec<u64>, Error> {
+    let OwnedHeader {
+        mut bits, count, ..
+    } = owned_header(data, Release::R2004, None).ok_or(Error::Unsupported)?;
+    cx.check(Kind::DecodedBytes, (count as u64).saturating_mul(8))?;
+    let mut ids = Vec::with_capacity(count);
+    for _ in 0..count {
+        cx.check(Kind::Work, 1)?;
+        ids.push(
+            bits.handle()
+                .and_then(|h| h.resolve(id))
+                .ok_or(Error::Unsupported)?,
+        );
+    }
+    Ok(ids)
 }
 
 /// 拡張データ（EED）を、登録アプリケーションのハンドルとデータのバイト列の組で読む（ODS 5.4.1 の 28）
@@ -1311,14 +1356,19 @@ pub(super) fn skip_extended_data(bits: &mut Bits) -> Option<()> {
 /// 前後の図形のハンドルはない
 fn entity_data(bits: &mut Bits) -> Option<Common> {
     // 図形の絵の大きさは、R2010 からは BLL
-    if bits.bit()? {
+    let picture = if bits.bit()? {
         let size = if bits.release() >= Release::R2010 {
             bits.bll()?
         } else {
             u64::try_from(bits.rl()?).ok()?
         };
-        bits.skip_bytes(usize::try_from(size).ok()?)?;
-    }
+        let size = usize::try_from(size).ok()?;
+        let start = bits.pos();
+        bits.skip_bytes(size)?;
+        Some((start, size))
+    } else {
+        None
+    };
     let entmode = bits.bb()?;
     let reactors = u32::try_from(bits.bl()?).ok()?;
     let release = bits.release();
@@ -1370,6 +1420,7 @@ fn entity_data(bits: &mut Bits) -> Option<Common> {
         values.push(int(370, weight));
     }
     Some(Common {
+        picture,
         entmode,
         reactors,
         xdic,
@@ -1380,6 +1431,43 @@ fn entity_data(bits: &mut Bits) -> Option<Common> {
         ltype_flags,
         plotstyle_handle: plotstyle_flags == 3,
         values,
+    })
+}
+
+// ODS 5.4.1 の 20.1・21。再符号化に使うヘッダーの情報と、先頭のリアクターへのカーソル。
+pub(super) struct DxfCommon<'a> {
+    pub(super) handles: Bits<'a>,
+    pub(super) count: u32,
+    pub(super) picture: Option<(usize, usize)>,
+    pub(super) plotstyle: bool,
+}
+
+pub(super) fn common_for_dxf(data: &[u8], entity: bool) -> Option<DxfCommon<'_>> {
+    let mut bits = Bits::with_release(data, Release::R2004);
+    bits.bs()?;
+    let handles = usize::try_from(bits.rl()?).ok()?;
+    bits.handle()?;
+    skip_extended_data(&mut bits)?;
+    let (owner, reactors, picture, plotstyle) = if entity {
+        let common = entity_data(&mut bits)?;
+        (
+            common.entmode == 0,
+            common.reactors,
+            common.picture,
+            common.plotstyle_handle,
+        )
+    } else {
+        (true, u32::try_from(bits.bl()?).ok()?, None, false)
+    };
+    bits.seek(handles);
+    if owner {
+        bits.handle()?;
+    }
+    Some(DxfCommon {
+        handles: bits,
+        count: reactors,
+        picture,
+        plotstyle,
     })
 }
 

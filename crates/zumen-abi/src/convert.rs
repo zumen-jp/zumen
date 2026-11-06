@@ -33,17 +33,20 @@ pub(crate) fn from_r2004(
     source: &zumen_acad::DwgFile,
     cx: &mut Cx<'_>,
 ) -> Result<Converted, Failed> {
-    let db = source.objects(cx).map_err(|_| Failed)?;
-    if let Some(encoded) = db.reencode_r2004_dxf(cx).map_err(|_| Failed)? {
-        let file = Dxf::read(&encoded.bytes, cx).map_err(|_| Failed)?;
-        return Ok(Converted {
-            file,
-            bytes: encoded.bytes,
-            elements: encoded.elements,
-        });
+    match source.reencode_r2004_dxf(cx).map_err(|_| Failed)? {
+        zumen_acad::dxf::R2004Conversion::Dxf(encoded) => {
+            let file = Dxf::read(&encoded.bytes, cx).map_err(|_| Failed)?;
+            Ok(Converted {
+                file,
+                bytes: encoded.bytes,
+                elements: encoded.elements,
+            })
+        }
+        zumen_acad::dxf::R2004Conversion::DrawingSource(db) => {
+            let drawing = zumen_acad::lift_drawing(&db, cx).map_err(|_| Failed)?;
+            to_dxf(&drawing, cx)
+        }
     }
-    let drawing = zumen_acad::lift_drawing(&db, cx).map_err(|_| Failed)?;
-    to_dxf(&drawing, cx)
 }
 
 /// 図面モデルを、新しい DXF（R2004）に書く

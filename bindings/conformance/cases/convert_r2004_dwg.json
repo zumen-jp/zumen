@@ -86,6 +86,17 @@
               "end": 1178
             }
           }
+        ],
+        "/diagnostics/1/code": "dwg.dxf-reference.dropped",
+        "/diagnostics/1/count": 12,
+        "/diagnostics/1/params/code": 330,
+        "/diagnostics/1/at": [
+          {
+            "bytes": {
+              "start": 1521,
+              "end": 1577
+            }
+          }
         ]
       }
     },

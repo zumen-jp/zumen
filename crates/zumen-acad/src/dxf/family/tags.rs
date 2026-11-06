@@ -9,15 +9,21 @@ use crate::dxf::{has_newline, value_bytes};
 
 pub(super) struct Writer<'p, 'a, 'c, 'b> {
     plan: &'p Plan<'a>,
+    input: &'p super::DxfSource<'p>,
     cx: &'c mut Cx<'b>,
     bytes: Vec<u8>,
     omitted: Vec<(&'a Object, i16)>,
 }
 
 impl<'p, 'a, 'c, 'b> Writer<'p, 'a, 'c, 'b> {
-    pub(super) fn new(plan: &'p Plan<'a>, cx: &'c mut Cx<'b>) -> Self {
+    pub(super) fn new(
+        plan: &'p Plan<'a>,
+        input: &'p super::DxfSource<'p>,
+        cx: &'c mut Cx<'b>,
+    ) -> Self {
         Self {
             plan,
+            input,
             cx,
             bytes: Vec::new(),
             omitted: Vec::new(),
@@ -93,7 +99,29 @@ impl<'p, 'a, 'c, 'b> Writer<'p, 'a, 'c, 'b> {
             self.tag(2, name)?;
         }
         let id_code = if object.kind == b"DIMSTYLE" { 105 } else { 5 };
-        self.hex(id_code, handle(object)?)?;
+        let id = handle(object)?;
+        self.hex(id_code, id)?;
+        if let Some(extra) = self.input.extras.get(&id) {
+            let mut opened = false;
+            for &link in &extra.reactors {
+                self.cx.check(Kind::Work, 1)?;
+                if self.plan.kept.contains(&link) {
+                    if !opened {
+                        self.tag(102, b"{ACAD_REACTORS")?;
+                        opened = true;
+                    }
+                    self.hex(330, link)?;
+                } else {
+                    self.omitted.push((object, 330));
+                }
+            }
+            if opened {
+                self.tag(102, b"}")?;
+            }
+            if extra.plotstyle {
+                self.omitted.push((object, 390));
+            }
+        }
         self.hex(330, owner(object)?)?;
         let mut body = Vec::new();
         let mut groups = 0usize;
@@ -238,6 +266,18 @@ impl<'p, 'a, 'c, 'b> Writer<'p, 'a, 'c, 'b> {
         }
         self.tag(100, b"AcDbEntity")?;
         self.values(main.iter().copied().filter(|v| common_entity(v.code)))?;
+        if let Some(extra) = self.input.extras.get(&handle(object)?)
+            && !extra.picture.is_empty()
+        {
+            // DXF Reference「Common Group Codes for Entities」。310 のチャンクは最大 127 バイト。
+            self.integer(92, extra.picture.len() as u64)?;
+            for chunk in extra.picture.chunks(127) {
+                self.value(&Value {
+                    code: 310,
+                    data: Data::Binary(chunk.to_vec()),
+                })?;
+            }
+        }
         let own: Vec<_> = main
             .iter()
             .copied()
@@ -310,7 +350,7 @@ impl<'p, 'a, 'c, 'b> Writer<'p, 'a, 'c, 'b> {
         self.values(arc.iter().copied().filter(|v| !matches!(v.code, 2 | 3)))
     }
 
-    pub(super) fn metadata(&mut self, object: &'a Object) -> Result<(), Error> {
+    pub(super) fn metadata(&mut self, object: &'a Object, db: &AcadDb) -> Result<(), Error> {
         let body = self.header(object, None)?;
         let (main, xdata) = xdata(&body);
         match object.kind.as_slice() {
@@ -341,7 +381,9 @@ impl<'p, 'a, 'c, 'b> Writer<'p, 'a, 'c, 'b> {
                             let Data::Handle(h) = target.data else {
                                 return Err(Error::Unsupported);
                             };
-                            if self.plan.objects.contains(&h) {
+                            if self.plan.objects.contains(&h)
+                                && db.get(h).and_then(Object::owner) == object.handle()
+                            {
                                 self.value(v)?;
                                 self.value(target)?;
                             } else {
