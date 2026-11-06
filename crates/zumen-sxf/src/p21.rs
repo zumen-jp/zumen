@@ -4,9 +4,9 @@
 //! 組み直したフィーチャの出どころは、元の実体のレコードにする。まだ組み直さない要素は、実体の名前を種類にして、
 //! 変換に「まだ移さないもの」として渡す。
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, btree_map::Entry};
 
-use zumen_base::{Diagnostic, Ref, codes};
+use zumen_base::{Diagnostic, Key, Ref, codes};
 use zumen_sdk::{Cx, Error};
 
 use crate::drawing::{Arg, FeatureRecord, LINE_TYPES, WIDTHS, work};
@@ -86,7 +86,7 @@ const COLUMNS: [&[&str]; 3] = [&["left"], &["centre", "center"], &["right"]];
 /// SFC の変換は、複合曲線と複合図形の定義に、その前にある要素をまとめる。複合図形の定義を先に、複合曲線を
 /// その図形の並びの先に書き、ほかの要素がまとめられないようにする
 pub(crate) fn records(file: &SxfFile, cx: &mut Cx) -> Result<Vec<FeatureRecord>, Error> {
-    let mut builder = Builder::new(file);
+    let mut builder = Builder::new(file, cx)?;
     builder.check_references(cx)?;
     builder.tables(cx)?;
     let mut out = core::mem::take(&mut builder.out);
@@ -110,7 +110,7 @@ pub(crate) struct Codes {
 
 /// 変換と同じ順で、表のコードを数える
 pub(crate) fn codes(file: &SxfFile, cx: &mut Cx) -> Result<Codes, Error> {
-    let mut builder = Builder::new(file);
+    let mut builder = Builder::new(file, cx)?;
     builder.tables(cx)?;
     Ok(Codes {
         layers: builder.layers,
@@ -208,18 +208,32 @@ struct Builder<'f> {
 }
 
 impl<'f> Builder<'f> {
-    fn new(file: &'f SxfFile) -> Self {
+    fn new(file: &'f SxfFile, cx: &mut Cx) -> Result<Self, Error> {
         let mut instances = BTreeMap::new();
         for (record, entry) in file.records().iter().enumerate() {
+            let mut source = Ref::at_record(record as u64);
             if let Some(id) = entry.id() {
-                // 同じ番号の 2 つ目は使わない
-                instances.entry(id).or_insert(Instance {
-                    record,
-                    parts: entry.parts(),
-                });
+                source = source.with_key(Key::Instance(id));
+            }
+            work(cx, 1, &source)?;
+            if let Some(id) = entry.id() {
+                // 同じ番号はファイルの順で最初だけを使う（docs/formats/sxf.md）。
+                match instances.entry(id) {
+                    Entry::Vacant(slot) => {
+                        slot.insert(Instance {
+                            record,
+                            parts: entry.parts(),
+                        });
+                    }
+                    Entry::Occupied(_) => cx.report(
+                        Diagnostic::new(codes::SXF_P21_INSTANCE_DROPPED)
+                            .with("id", id)
+                            .at(source),
+                    ),
+                }
             }
         }
-        Self {
+        Ok(Self {
             file,
             instances,
             out: Vec::new(),
@@ -235,7 +249,7 @@ impl<'f> Builder<'f> {
             composites: Vec::new(),
             invisible: Vec::new(),
             depth: 0,
-        }
+        })
     }
 
     /// 参照の先がない実体を報告する
@@ -450,6 +464,8 @@ impl<'f> Builder<'f> {
         self.invisible.clone_from(&invisible);
         let mut code = 0;
         for (id, instance, args) in self.all("PRESENTATION_LAYER_ASSIGNMENT") {
+            let source = Ref::at_record(instance.record as u64).with_key(Key::Instance(id));
+            work(cx, 1, &source)?;
             let name = self.text(args.first()).unwrap_or_default();
             // 複合図形を入れるための仮のレイヤは、レイヤにしない（推定）
             if name.starts_with("$$SXF_dummy") {
@@ -465,8 +481,22 @@ impl<'f> Builder<'f> {
             );
             code += 1;
             self.layers.push(id);
-            for item in references(args.get(2)) {
-                self.layer_of.entry(item).or_insert(code);
+            // ISO 10303-46 の assigned_items。番号が最小の仮でないレイヤを保ち、
+            // ほかのレイヤへの割り当てを報告する（docs/formats/sxf.md）。
+            if let Some(Value::List(items)) = args.get(2) {
+                for item in items {
+                    work(cx, 1, &source)?;
+                    let Some(item) = reference(Some(item)) else {
+                        continue;
+                    };
+                    if *self.layer_of.entry(item).or_insert(code) != code {
+                        cx.report(
+                            Diagnostic::new(codes::SXF_P21_LAYER_MEMBER_DROPPED)
+                                .with("id", item)
+                                .at(source.clone()),
+                        );
+                    }
+                }
             }
         }
         Ok(())
@@ -474,11 +504,21 @@ impl<'f> Builder<'f> {
 
     /// 用紙の要素を並びの順にフィーチャにし、用紙を最後に置く
     fn sheet(&mut self, cx: &mut Cx) -> Result<(), Error> {
-        let Some((id, instance, args)) = self.all("DRAWING_SHEET_REVISION").into_iter().next()
-        else {
+        let mut sheets = self.all("DRAWING_SHEET_REVISION").into_iter();
+        let Some((id, instance, args)) = sheets.next() else {
             cx.report(Diagnostic::new(codes::SXF_P21_SHEET_MISSING));
             return Ok(());
         };
+        // 用紙は番号が最小のもの。ほかの用紙の要素は組み直さない（決定 0132、docs/formats/sxf.md）。
+        for (id, instance, _) in sheets {
+            let source = Ref::at_record(instance.record as u64).with_key(Key::Instance(id));
+            work(cx, 1, &source)?;
+            cx.report(
+                Diagnostic::new(codes::SXF_P21_SHEET_DROPPED)
+                    .with("id", id)
+                    .at(source),
+            );
+        }
         for item in references(args.get(1)) {
             let Some(occurrence) = self.instances.get(&item).copied() else {
                 continue;
