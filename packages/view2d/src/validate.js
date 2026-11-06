@@ -1,5 +1,6 @@
 import { SCENE_MAJOR, SCENE_MINOR, SCENE_NONE, SCENE_SECTIONS, SCENE_VALUES } from "@zumen-jp/zumen";
 
+export const VIEW_SCALE_LIMITS = Object.freeze({ min: 1e-12, max: 1e12 });
 export const DEFAULT_LIMITS = Object.freeze({
   columnValues: 16_000_000,
   work: 32_000_000,

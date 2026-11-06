@@ -13,7 +13,11 @@ export function useDrawingViewer(canvas, options = emptyOptions) {
     if (!canvas) { setOwner(null); return; }
     const viewer = new View2D(canvas, options);
     setOwner({ canvas, options, viewer });
-    return () => viewer.destroy();
+    return () => {
+      // Activity と Suspense は state を保ったまま layout effect を切り離す。
+      setOwner(null);
+      viewer.destroy();
+    };
   }, [canvas, options]);
   return owner && owner.canvas === canvas && owner.options === options ? owner.viewer : null;
 }

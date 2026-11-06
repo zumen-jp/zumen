@@ -1,5 +1,5 @@
 // 開発用 React の StrictMode で同じフックを使い、実際の購読・Worker の作成と破棄を数える。
-import React, { StrictMode, useLayoutEffect } from "react";
+import React, { Activity, StrictMode, Suspense, useLayoutEffect } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { View2D } from "@zumen-jp/view2d";
@@ -70,4 +70,33 @@ window.probe = {
     flushSync(() => root.unmount());
     return [await pending, await lookup(element).catch((error) => error.name)];
   },
+};
+
+// Canvas は親が保持する。境界から戻った利用側の layout effect でも、新しい表示部品を直接操作できることを確かめる。
+let pending, resume, boundaryRoot, connected, previous, events = 0;
+function Reconnect({ suspend }) {
+  const value = useDrawingViewer(canvas);
+  const state = useViewerState(value);
+  useViewerEvent(value, "view", () => { events++; });
+  useLayoutEffect(() => {
+    if (value) { value.getState(); connected = value; }
+    return () => { connected = null; };
+  }, [value]);
+  if (suspend) throw pending;
+  return <output id="camera">{state?.view.center.x}</output>;
+}
+window.boundary = {
+  render(kind, show) {
+    if (!boundaryRoot) boundaryRoot = createRoot(document.querySelector("#root"));
+    if (!show) previous = connected;
+    if (kind === "Suspense" && !show) pending = new Promise((resolve) => { resume = resolve; });
+    if (show && resume) { resume(); resume = null; }
+    const child = kind === "Activity" ? <Activity mode={show ? "visible" : "hidden"}><Reconnect /></Activity>
+      : <Suspense fallback={<p>待機</p>}><Reconnect suspend={!show}/></Suspense>;
+    flushSync(() => boundaryRoot.render(<StrictMode>{child}</StrictMode>));
+  },
+  move() { connected.panBy(10, 0); },
+  get fresh() { return Boolean(connected && connected !== previous); },
+  get events() { return events; },
+  end() { flushSync(() => boundaryRoot.unmount()); boundaryRoot = null; connected = previous = null; events = 0; },
 };

@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
 const pageSize = 25;
-const pathLabel = (path) => path.map(({ id, column, row }) => id + " [" + column + ", " + row + "]").join(" → ");
+const pathLabel = (path) => path.map(({ id, column, row }) => id + "（列 " + column + "・行 " + row + "）").join(" → ");
 
 // 大きい図面でも、一覧の DOM は現在のページだけ作る。
 function Pages({ count, label, className = "", children }) {
@@ -21,14 +21,32 @@ function Pages({ count, label, className = "", children }) {
 
 function Source({ opened, element }) {
   const [reply, setReply] = useState(null);
+  const queue = useRef({ busy: false, next: null });
   useEffect(() => {
     if (!element || opened.status !== "ready") return;
-    let current = true;
-    opened.getSource(element).then(
-      (value) => { if (current) setReply({ opened, element, value }); },
-      () => { if (current) setReply({ opened, element, failed: true }); },
-    );
-    return () => { current = false; };
+    const work = queue.current;
+    const job = { opened, element, cancelled: false };
+    work.next = job;
+    // 出所を一つずつ問い合わせる。待っている間の選択は最新の一つにまとめる。
+    async function drain() {
+      if (work.busy) return;
+      work.busy = true;
+      try {
+        while (work.next) {
+          const next = work.next;
+          work.next = null;
+          let result;
+          try { result = { value: await next.opened.getSource(next.element) }; }
+          catch { result = { failed: true }; }
+          if (!next.cancelled) setReply({ opened: next.opened, element: next.element, ...result });
+        }
+      } finally { work.busy = false; }
+    }
+    void drain();
+    return () => {
+      job.cancelled = true;
+      if (work.next === job) work.next = null;
+    };
   }, [opened, element]);
   const answer = reply?.opened === opened && reply.element === element ? reply : null;
   const source = answer?.value?.source;
@@ -87,7 +105,9 @@ export function Diagnostics({ entries, issues }) {
     <Pages count={total} label="診断">{(i) => {
       if (i >= entries.length) {
         const issue = issues[i - entries.length];
-        return <><strong>{issue.disposition === "fallback" ? "代替表示" : "未描画"}</strong> {issue.element.id} <span className="detail">{issue.reason}</span></>;
+        return <><strong>{issue.disposition === "fallback" ? "代替表示" : "未描画"}</strong> {issue.element.id}
+          {issue.element.path.length > 0 && <span className="detail">配置 {pathLabel(issue.element.path)}</span>}
+          <span className="detail">{issue.reason}</span></>;
       }
       const { stage, diagnostic, text } = entries[i];
       return <>

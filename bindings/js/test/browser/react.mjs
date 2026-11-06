@@ -6,6 +6,7 @@ import { basename, dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, firefox, webkit } from "playwright";
 import { build } from "vite";
+import { checkInteractions, installWorkerGate } from "./react-interactions.mjs";
 
 const [product, wasm] = process.argv.slice(2);
 const browsers = { chromium, firefox, webkit, chrome: chromium, msedge: chromium };
@@ -76,6 +77,7 @@ try {
     return route.continue();
   });
   const page = await context.newPage();
+  await page.addInitScript(installWorkerGate);
   await page.addInitScript(() => {
     window.blockedRequests = [];
     document.addEventListener("securitypolicyviolation", (event) => {
@@ -132,6 +134,15 @@ try {
     assert.ok(await pixels() > 0);
     if (format !== "sxf") {
       const place = page.getByLabel("用紙・空間");
+      await page.evaluate(() => placeGate.defer());
+      await place.focus(); await page.keyboard.press("ArrowUp");
+      await page.waitForFunction(() => placeGate.waiting);
+      assert.equal(await place.inputValue(), "sheet/0");
+      assert.ok(await place.evaluate((node) => !node.disabled && node === document.activeElement), "用紙の読み込み中もフォーカスを保つ");
+      await page.keyboard.press("ArrowDown"); await ready(format.toUpperCase() + " ／ space/0");
+      await page.evaluate(() => placeGate.release());
+      assert.equal(await place.inputValue(), "space/0");
+      assert.ok(await place.evaluate((node) => node === document.activeElement));
       await place.selectOption("sheet/0"); await ready(format.toUpperCase() + " ／ sheet/0");
       const first = page.getByRole("region", { name: /^要素/ }).getByRole("button").first();
       await first.press("Enter"); await source.getByText("レコード", { exact: true }).waitFor();
@@ -152,6 +163,7 @@ try {
   assert.equal(await status.textContent(), "図面を選んでください。");
   assert.ok(await file.evaluate((el) => el === document.activeElement));
 
+  await checkInteractions(page, ready);
   assert.deepEqual(await page.evaluate(() => window.blockedRequests), []);
   await page.goto(origin + "/strict/test/lifecycle.html");
   await page.evaluate((bytes) => probe.render(bytes, true), [...inputs.dxf]);
@@ -178,9 +190,20 @@ try {
   assert.equal(page.workers().length, 0);
   const counts = await page.evaluate(() => probe.counts);
   assert.deepEqual([counts.workers, counts.starts, counts.ends, counts.transferred, counts.state, counts.events, counts.destroyed], [0, 3, 3, 3, 0, 0, 2]);
+  for (const kind of ["Activity", "Suspense"]) {
+    await page.evaluate((kind) => boundary.render(kind, true), kind);
+    await page.evaluate((kind) => boundary.render(kind, false), kind);
+    await page.evaluate((kind) => boundary.render(kind, true), kind);
+    assert.ok(await page.evaluate(() => boundary.fresh), kind + " から同じ Canvas に再接続");
+    await page.evaluate(() => boundary.move());
+    await page.waitForFunction(() => boundary.events === 1 && Number(document.querySelector("#camera")?.textContent) < 0);
+    assert.deepEqual(await page.evaluate(() => [probe.counts.state, probe.counts.events]), [1, 1]);
+    await page.evaluate(() => boundary.end());
+    assert.deepEqual(await page.evaluate(() => [probe.counts.state, probe.counts.events]), [0, 0]);
+  }
   assert.ok([...seen].some((p) => p.includes("/app/assets/worker-")) && [...seen].some((p) => p.endsWith(".wasm")));
   assert.deepEqual(failures, []);
-  const summary = product + " " + browser.version() + " で DXF・JWW・SXF、用紙・レイヤ・選択・出所・診断、キーボード、読み込みの中断と StrictMode の解放、ローカルの配布物だけの GET を確認";
+  const summary = product + " " + browser.version() + " で DXF・JWW・SXF、初回の表示範囲・倍率の両端、用紙の連続切り替え・レイヤ・40 要素の選択・配置別の診断、StrictMode の解放と Activity・Suspense の再接続、ローカルの配布物だけの GET を確認";
   console.log(summary);
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, "\n" + summary + "\n");
 } finally {

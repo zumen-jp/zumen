@@ -8,6 +8,8 @@ React で図面ファイルを開き、Canvas に表示するフックです。�
 
 `useViewerState(viewer)` は `useSyncExternalStore` で表示部品の状態を購読します。選択は要素の ID と配置の道筋を持ちます。`useViewerEvent(viewer, type, listener)` ではイベントの種類を絞れます。再描画後のコールバックを使い、表示部品か種類が変わると前の購読を解除します。
 
+Suspense・Activity が表示を再開すると、同じ Canvas でも新しい表示部品を作り、その状態・イベントを購読します。
+
 ```jsx
 const [canvas, setCanvas] = useState(null);
 const viewer = useDrawingViewer(canvas);

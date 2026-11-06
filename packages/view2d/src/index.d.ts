@@ -3,6 +3,8 @@ import type { Extent, Scene, SceneCounts, SceneResult, Session, Source } from "@
 export interface Point { readonly x: number; readonly y: number }
 /** 起点の座標の中心、CSS px / 起点の長さ、反時計回りのラジアン。 */
 export interface Camera { readonly center: Point; readonly scale: number; readonly rotation: number }
+/** カメラと入力が受け付ける拡大率の両端。 */
+export declare const VIEW_SCALE_LIMITS: Readonly<{ min: number; max: number }>;
 export interface Size { readonly width: number; readonly height: number; readonly pixelRatio: number }
 /** セッション内の文書名だけで同一性を決めず、drawing の結果の hash も渡す。 */
 export interface DocumentIdentity { readonly doc: string; readonly format: string; readonly hash: string }
