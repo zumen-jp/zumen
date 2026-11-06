@@ -199,6 +199,17 @@ def check_file(folder, entry, reading, baseline, counts):
 
     # 画層の名前・ハンドルで結んだ図形・書き戻した値
     numbers, raw, tables = scan(path, doc.output_encoding)
+    if entry.get("source") == "samples/dxf/opendxfviewer-latin1.dxf":
+        # 公開元の f_latin1 が書いた 2 件。原本にハンドルはないので、文字列を照らしてから
+        # ezdxf が補ったハンドルを原本の TEXT のレコードに結び、下で zumen の診断の場所を確かめる。
+        texts = list(doc.modelspace().query("TEXT"))
+        if (doc.dxfversion, doc.header.get("$DWGCODEPAGE"), doc.encoding) != ("AC1015", "ANSI_1252", "cp1252"):
+            failures.append("R2000 の ANSI_1252 として読めない")
+        if [e.dxf.text for e in texts] == ["Bohrung Ø20 für M6", "Maßstab 1:2"]:
+            for e, record in zip(texts, (15, 16), strict=True):
+                numbers[e.dxf.handle.upper()] = record
+        else:
+            failures.append("ANSI_1252 の TEXT 2 件の文字列が公開元の値と違う")
     if entry["role"] == "convert":
         for table in tables:
             if table["declared"] != table["actual"]:

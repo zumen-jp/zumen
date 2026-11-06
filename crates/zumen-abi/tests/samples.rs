@@ -4,8 +4,10 @@
 use std::path::PathBuf;
 
 use zumen_abi1::{Session, Status};
-use zumen_base::CancelToken;
+use zumen_acad::Dxf;
+use zumen_base::{Budget, CancelToken, Cx, Diagnostics};
 use zumen_json::Value;
+use zumen_sdk::Codec;
 
 /// サンプルの DXF と DWG
 #[cfg(test)]
@@ -468,9 +470,52 @@ fn drawings_take_back_ellipses_replaced_through_the_boundary() {
     assert!(!received() || checked.iter().all(|n| *n > 0), "{checked:?}");
 }
 
+/// ハンドルも $HANDSEED もない DXF は、新しいハンドルを割り当てられず追加を断る（決定 0139）。
+#[cfg(test)]
+fn text_added(name: &str, data: &[u8], status: Status, response: &Value) -> bool {
+    if status == Status::Ok {
+        return true;
+    }
+    assert_eq!(status, Status::Failed, "{name}: {response:?}");
+    assert!(
+        name.to_ascii_lowercase().ends_with(".dxf"),
+        "{name}: {response:?}"
+    );
+    let file = Dxf::read(
+        data,
+        &mut Cx::new(
+            &mut Budget::default(),
+            &mut Diagnostics::new(),
+            &CancelToken::new(),
+        ),
+    )
+    .unwrap();
+    // グループ・コード 5 はハンドルと $HANDSEED、105 は DIMSTYLE のハンドル。
+    assert!(
+        file.records()
+            .iter()
+            .flat_map(|r| r.tags())
+            .all(|tag| !matches!(tag.code(), 5 | 105)),
+        "{name}: {response:?}"
+    );
+    let Some(Value::Array(diagnostics)) = response.pointer("/diagnostics") else {
+        panic!("{name}: {response:?}");
+    };
+    let mut errors = diagnostics
+        .iter()
+        .filter(|d| text(d, "/severity") == Some("error"));
+    let error = errors.next().unwrap();
+    assert_eq!(text(error, "/code"), Some("change.edit.unsupported"));
+    assert_eq!(text(error, "/params/edit"), Some("add"));
+    assert_eq!(text(error, "/params/kind"), Some("TEXT"));
+    assert!(errors.next().is_none());
+    assert!(matches!(response.pointer("/blobs"), Some(Value::Array(blobs)) if blobs.is_empty()));
+    false
+}
+
 /// サンプルの実寸の空間に、API の `add` で文字を足すと、開き直した文字の形とハッシュが、送った形と `apply` が
 /// 返したものと同じになる（決定 0139）。2007 より前のバージョンはコード・ページで表せる文字だけを書くので（決定 0192）、
-/// ANSI_932 でない図面の日本語の文字は `change.edit.unsupported` になり、ASCII の文字なら足せる
+/// ANSI_932 でない図面の日本語の文字は `change.edit.unsupported` になり、ハンドルを割り当てられる図面には ASCII の文字を足せる
 #[test]
 fn drawings_take_back_texts_added_through_the_boundary() {
     let mut japanese = [0, 0];
@@ -481,9 +526,8 @@ fn drawings_take_back_texts_added_through_the_boundary() {
             .to_string_lossy()
             .replace(' ', "_");
         let mut session = Session::new(b"").unwrap();
-        session
-            .push(name.as_bytes(), &std::fs::read(&path).unwrap())
-            .unwrap();
+        let data = std::fs::read(&path).unwrap();
+        session.push(name.as_bytes(), &data).unwrap();
         if !open(&mut session, &name) {
             continue;
         }
@@ -515,7 +559,9 @@ fn drawings_take_back_texts_added_through_the_boundary() {
                 add(&mut session, "GRID X1")
             }
         };
-        assert_eq!(status, Status::Ok, "{name}: {response:?}");
+        if !text_added(&name, &data, status, &response) {
+            continue;
+        }
         let file = session.take(0).unwrap();
         let id = text(&response, "/result/applied/0/id").unwrap().to_string();
         let hash = text(&response, "/result/applied/0/hash")
@@ -566,9 +612,8 @@ fn drawings_take_back_texts_fitted_between_two_points() {
             .replace(' ', "_");
         let dwg = usize::from(name.to_ascii_lowercase().ends_with(".dwg"));
         let mut session = Session::new(b"").unwrap();
-        session
-            .push(name.as_bytes(), &std::fs::read(&path).unwrap())
-            .unwrap();
+        let data = std::fs::read(&path).unwrap();
+        session.push(name.as_bytes(), &data).unwrap();
         if !open(&mut session, &name) {
             continue;
         }
@@ -655,7 +700,9 @@ fn drawings_take_back_texts_fitted_between_two_points() {
                 r#"{{"v":1,"op":"apply","doc":"{name}","edits":[{{"kind":"add","place":"space/0","layer_id":"{layer_id}","geometry":{adding}}}],{budget}}}"#
             ),
         );
-        assert_eq!(status, Status::Ok, "{name}: {response:?}");
+        if !text_added(&name, &data, status, &response) {
+            continue;
+        }
         let file = session.take(0).unwrap();
         session.push(b"added", &file).unwrap();
         assert!(open(&mut session, "added"), "{name}");

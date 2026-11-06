@@ -221,4 +221,5 @@ R2004 の構成は、Autodesk の [DXF Reference](https://images.autodesk.com/ad
 - 点・寸法・表と、引出線のほかの変更を書き戻した DXF と、convert（[決定 0206](../decisions/0206-convert-to-new-dxf.md)）で書いた DXF は、AutoCAD で開いていない（#342・#314・#503）。
 - ezdxf: 毎晩の CI で、公開サンプルの DXF（`samples/dxf`・`samples/dwg`）と、それに書き戻しを当てた DXF を ezdxf 1.4.5 で読み、zumen の読みと照らす（`xtask/verify`、#511）。照らすのは、画層・図形の種類・モデル空間の形の値・黙って捨てていないこと、書き戻しで決めた形・画層・色と、監査の誤りが入力より増えないこと。convert で書いた DXF もすべて読め、監査の誤りと修復が 0 であることを照らす（#509）。各 TABLE の宣言件数（70）と実件数も比べる。日本語画層の R2004（ANSI_932）と R2007（UTF-8）を含め、公開サンプルとテストの図面から変換した 36 ファイルで確かめた。AutoCAD で開く手順は #503 の検証キットにあるが、まだ実行していない。
 
+- R2000 の `ANSI_1252` の[公開サンプル](../../samples/dxf/opendxfviewer-latin1.dxf)には、TEXT のグループ・コード 1 に `Ø`（`D8`）、`ü`（`FC`）、`ß`（`DF`）が 1 バイトずつ入っている。ezdxf 1.4.5 は文字コードを指定せずに `Bohrung Ø20 für M6` と `Maßstab 1:2` を読んだ。検証キットで両方の文字列を照らす。zumen はこの 2 件を `dxf.code-page.unsupported` として元のレコード 15・16 に返す（#327）。
 - 配置の逐次処理（[決定 0264](../decisions/0264-stream-drawing-walk.md)）: 合成の格子・空のビューの反復・深い配置・多数のレイヤと切り抜きで、継承と予算の停止を確かめた（`synthetic`）。`entities_e9.json` の 699 バイトの格子を scene と check に渡し、ネイティブと wasm の停止位置も比べる。図面モデルのバイナリの空間 ID の重複は、読み取りと API の open で拒否する。通常の描画の根拠は、既存の合成の組と公開サンプルの適合テストである。
