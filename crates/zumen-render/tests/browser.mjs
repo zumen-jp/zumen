@@ -88,7 +88,9 @@ try {
     assert.equal(decoded.rgba.length, expected.length);
     for (let i = 0; i < expected.length; i++) {
       // Canvas が内部で使う premultiplied RGBA の丸めだけ、半透明の RGB は 1 まで認める。
-      assert.ok(Math.abs(decoded.rgba[i] - expected[i]) <= (name.startsWith("alpha") && i % 4 !== 3 ? 1 : 0), `${name}: byte ${i}`);
+      const alpha = expected[i - i % 4 + 3];
+      const tolerance = i % 4 !== 3 && alpha > 0 && alpha < 255 ? 1 : 0;
+      assert.ok(Math.abs(decoded.rgba[i] - expected[i]) <= tolerance, `${name}: byte ${i}`);
     }
   }
   assert.deepEqual(requests, []);
