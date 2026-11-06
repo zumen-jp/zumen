@@ -486,8 +486,11 @@ fn members(
     seen: &mut Seen,
     cx: &mut Cx<'_>,
 ) -> Result<Option<usize>, Stop> {
+    // 展開から戻った直後に中断と、名前を探す 1 回の走査（16 バイトごと）の手間を確かめる。
+    cx.check(Kind::Work, (data.len() as u64).div_ceil(16))?;
     let all_keys = names(data, |_| place, None, seen, cx)?.key_bytes;
     let mut table_end = 0;
+    let mut table_scan = false;
     let mut header = Reader::new(data);
     let mut skip = Skip::default();
     let mut lists = Lists::default();
@@ -525,15 +528,16 @@ fn members(
             if at < table_end {
                 seen.table_bytes = seen.table_bytes.max(all_keys);
             } else {
+                if !table_scan {
+                    // ここから後の辞書は重ならない範囲だけ読む。初めて必要になった所からの上限を 1 回だけ先に数える。
+                    cx.check(Kind::Work, lookup_work(data.get(at..).unwrap_or_default()))?;
+                    table_scan = true;
+                }
                 let mut bytes = 0_u64;
-                let end = entries(data, at, |name, _| {
-                    bytes = bytes.saturating_add(key_bytes(data, &name));
-                });
+                let end = entries(data, at, cx, |_, cost, _| {
+                    bytes = bytes.saturating_add(cost);
+                })?;
                 table_end = end.unwrap_or(data.len());
-                cx.check(
-                    Kind::Work,
-                    lookup_work(data.get(at..table_end).unwrap_or(data)),
-                )?;
                 seen.table_bytes = seen.table_bytes.max(bytes);
             }
         }
@@ -573,20 +577,16 @@ fn names(
     let mut items = Items::default();
     let mut params = Lists::default();
     let mut at = 0;
-    while let Some(found) = data
-        .get(at..)
-        .and_then(|rest| rest.iter().position(|&byte| byte == b'/'))
-    {
-        let start = at + found;
+    while let Some(start) = next_slash(data, at, cx)? {
         let mut reader = Reader::new(data);
         reader.jump(start);
-        let name = reader.read_without_context::<Name<'_>>();
+        let name = scanned_name(data, &mut reader, cx)?;
         let end = reader.offset();
         at = end.max(start + 1);
-        let Some(name) = name else {
+        let Some((name, cost)) = name else {
             continue;
         };
-        marks.key_bytes = marks.key_bytes.saturating_add(key_bytes(data, &name));
+        marks.key_bytes = marks.key_bytes.saturating_add(cost);
         let name: &[u8] = &name;
         let key = Key::of(name);
         match name {
@@ -607,7 +607,7 @@ fn names(
                 }
                 if reference(data, value, cx)?.is_some() {
                     marks.referenced.get_or_insert(start);
-                } else if let Some((name, next)) = read_name(data, value) {
+                } else if let Some((name, next)) = read_name(data, value, cx)? {
                     cx.check(
                         Kind::Work,
                         lookup_work(data.get(value..next).unwrap_or_default()),
@@ -726,7 +726,7 @@ fn filters(
     cx: &mut Cx<'_>,
 ) -> Result<bool, Stop> {
     let length = data.len() as u64;
-    if let Some((name, next)) = read_name(data, at) {
+    if let Some((name, next)) = read_name(data, at, cx)? {
         cx.check(
             Kind::Work,
             lookup_work(data.get(at..next).unwrap_or_default()),
@@ -768,7 +768,7 @@ fn filters(
             }
             start = Some((factor, first, count));
         }
-        let Some((name, next)) = read_name(data, item) else {
+        let Some((name, next)) = read_name(data, item, cx)? else {
             // 参照の項目の先の名前の倍率は分からない
             let Some(end) = reference(data, item, cx)? else {
                 break;
@@ -839,11 +839,80 @@ impl Items {
 }
 
 /// 位置の名前と、その後ろの位置
-fn read_name(data: &[u8], at: usize) -> Option<(Name<'_>, usize)> {
+fn read_name<'a>(
+    data: &'a [u8],
+    at: usize,
+    cx: &mut Cx<'_>,
+) -> Result<Option<(Name<'a>, usize)>, Stop> {
     let mut reader = Reader::new(data);
     reader.jump(at);
-    let name = reader.read_without_context::<Name<'_>>()?;
-    Some((name, reader.offset()))
+    Ok(scanned_name(data, &mut reader, cx)?.map(|(name, _)| (name, reader.offset())))
+}
+
+const NAME_CHUNK: usize = 1024;
+
+fn next_slash(data: &[u8], mut at: usize, cx: &mut Cx<'_>) -> Result<Option<usize>, Stop> {
+    for chunk in data.get(at..).unwrap_or_default().chunks(NAME_CHUNK) {
+        cx.check(Kind::Work, 0)?;
+        if let Some(found) = chunk.iter().position(|&b| b == b'/') {
+            return Ok(Some(at + found));
+        }
+        at += chunk.len();
+    }
+    Ok(None)
+}
+
+/// 名前（7.3.5）の綴りを見て、判定用の名前と、上流の辞書にこのキーを置く確保量を返す。
+/// hayro-syntax 0.9.0 の Name は # があれば不正なエスケープでも名前を所有する。正しい #xx だけを 1 字と数える。
+/// 判定する最長の名前は BitsPerComponent（16 字）。これを超えるエスケープつきの名前は長さだけで判別できる。
+/// 短い名前は上流の 23 バイトのインライン領域に収まる。長いキーのバッファーをここでは確保しない。
+fn scanned_name<'a>(
+    data: &'a [u8],
+    reader: &mut Reader<'a>,
+    cx: &mut Cx<'_>,
+) -> Result<Option<(Name<'a>, u64)>, Stop> {
+    if reader.forward_tag(b"/").is_none() {
+        return Ok(None);
+    }
+    let start = reader.offset();
+    let mut end = start;
+    let mut owned = false;
+    let mut escapes = 0;
+    'name: for chunk in data.get(start..).unwrap_or_default().chunks(NAME_CHUNK) {
+        cx.check(Kind::Work, 0)?;
+        for &byte in chunk {
+            if !regular(byte) {
+                break 'name;
+            }
+            if byte == b'#' {
+                owned = true;
+                if data
+                    .get(end + 1..end + 3)
+                    .is_some_and(|pair| pair.iter().all(u8::is_ascii_hexdigit))
+                {
+                    escapes += 1;
+                }
+            }
+            end += 1;
+        }
+    }
+    reader.jump(end);
+    let raw = data.get(start..end).unwrap_or_default();
+    if !owned {
+        return Ok(Some((Name::new_unescaped(raw), KEY_BYTES)));
+    }
+    let len = raw.len() - 2 * escapes;
+    let name = if len <= b"BitsPerComponent".len() {
+        Name::new(raw)
+    } else {
+        Some(Name::new_unescaped(b""))
+    };
+    Ok(name.map(|name| {
+        (
+            name,
+            KEY_BYTES.saturating_add((len as u64).saturating_mul(4)),
+        )
+    }))
 }
 
 /// 位置が参照（7.3.10）なら、その後ろの位置。hayro-syntax の辞書と同じく、数の間の空白だけを飛ばす。読んだバイト数を
@@ -1010,8 +1079,8 @@ impl Container {
 /// hayro-syntax は、表が指す位置の定義を読むので、レコードの始まりにない定義（文字列とストリームの中）も読みうる。
 /// 数は、参照の先の候補にする。辞書は、キーの表を作らずに（[`entries`]）、手間を数えずに 1 度ずつ読むので、ほかの
 /// 辞書と重ならなければ、手間は `InputBytes` に比例する。重なって読み直す分と、読めなかった辞書とストリームの後ろの
-/// バイト列は、`Work` に数える。コンテナーは、ストリームを読むと hayro-syntax が辞書の表を作るので、読む前にキーの
-/// 1 つを [`KEY_BYTES`] として、また 1 つを [`CONTAINER_BYTES`] として `DecodedBytes` に数える。
+/// バイト列は、`Work` に数える。コンテナーの辞書を 2 回読む前に、キーごとの [`KEY_BYTES`] とエスケープした名前の
+/// 確保を 2 回分、コンテナー 1 つを [`CONTAINER_BYTES`] として `DecodedBytes` に数える。
 ///
 /// 2 つの `obj` が同じ位置に着くのは、後の `obj` が、前の `obj` の後ろで飛ばした空白とコメントの中（コメントの中）に
 /// あり、飛ばした範囲の終わりに飛ぶときだけ。`obj` の位置は増える一方なので、範囲の終わりも増える一方で、範囲の中で
@@ -1054,18 +1123,17 @@ fn objects(src: &[u8], seen: &mut Seen, cx: &mut Cx<'_>) -> Result<Vec<Container
             continue;
         }
         // 辞書の表を作らずに、キーの数と、`N`・`First` と最後の型の値の位置を見る
-        let (mut keys, mut count, mut origin, mut kind) = (0_u64, false, false, None);
+        let (mut count, mut origin, mut kind) = (false, false, None);
         let mut bytes = 0_u64;
-        let end = entries(src, start, |name, value| {
-            keys += 1;
-            bytes = bytes.saturating_add(key_bytes(src, &name));
+        let end = entries(src, start, cx, |name, cost, value| {
+            bytes = bytes.saturating_add(cost);
             match &*name {
                 b"N" => count = true,
                 b"First" => origin = true,
                 b"Type" => kind = Some(value),
                 _ => {}
             }
-        });
+        })?;
         // 途中で壊れた辞書でも、その前のキーの表は作られる。
         seen.table_bytes = seen.table_bytes.max(bytes);
         let Some(end) = end else {
@@ -1094,8 +1162,8 @@ fn objects(src: &[u8], seen: &mut Seen, cx: &mut Cx<'_>) -> Result<Vec<Container
         {
             continue;
         }
-        // ストリームを読むと、hayro-syntax が辞書の表を作る
-        cx.check(Kind::DecodedBytes, keys.saturating_mul(KEY_BYTES))?;
+        // ストリームをここで読み、確認時にもう一度読む。どちらの辞書の表と名前の確保も先に数える。
+        cx.check(Kind::DecodedBytes, bytes.saturating_mul(2))?;
         let mut reader = Reader::new(src);
         reader.jump(start);
         if reader.read_with_context::<Stream<'_>>(&context).is_none() {
@@ -1116,17 +1184,12 @@ fn objects(src: &[u8], seen: &mut Seen, cx: &mut Cx<'_>) -> Result<Vec<Container
         }
         covered = covered.max(reached);
         // hayro-syntax の `Dict::get` と同じく、最後の型の値を、参照でない名前として読む
-        let typed = kind
-            .and_then(|value| {
-                let mut reader = Reader::new(src);
-                reader.jump(value);
-                match reader.read_without_context::<MaybeRef<Name<'_>>>()? {
-                    MaybeRef::NotRef(name) => Some(name),
-                    MaybeRef::Ref(_) => None,
-                }
-            })
-            .filter(|name| &**name == b"ObjStm")
-            .and_then(|name| position(src, &name));
+        let typed = match kind {
+            Some(at) => read_name(src, at, cx)?
+                .filter(|(name, _)| &**name == b"ObjStm")
+                .and_then(|(name, _)| position(src, &name)),
+            None => None,
+        };
         cx.check(Kind::DecodedBytes, CONTAINER_BYTES)?;
         containers.push(Container {
             start,
@@ -1146,38 +1209,39 @@ fn objects(src: &[u8], seen: &mut Seen, cx: &mut Cx<'_>) -> Result<Vec<Container
 fn entries<'a>(
     src: &'a [u8],
     start: usize,
-    mut entry: impl FnMut(Name<'a>, usize),
-) -> Option<usize> {
+    cx: &mut Cx<'_>,
+    mut entry: impl FnMut(Name<'a>, u64, usize),
+) -> Result<Option<usize>, Stop> {
     let mut reader = Reader::new(src);
     reader.jump(start);
-    reader.forward_tag(b"<<")?;
+    if reader.forward_tag(b"<<").is_none() {
+        return Ok(None);
+    }
     loop {
         reader.skip_white_spaces_and_comments();
         if reader.forward_tag(b">>").is_some() {
-            return Some(reader.offset());
+            return Ok(Some(reader.offset()));
         }
-        let Some(name) = reader.read_without_context::<Name<'_>>() else {
-            reader.skip_with_depth::<Object<'_>>(false, 1)?;
+        let Some((name, cost)) = scanned_name(src, &mut reader, cx)? else {
+            if reader.skip_with_depth::<Object<'_>>(false, 1).is_none() {
+                return Ok(None);
+            }
             continue;
         };
         reader.skip_white_spaces_and_comments();
-        entry(name, reader.offset());
-        reader.skip_with_depth::<MaybeRef<Object<'_>>>(false, 1)?;
+        entry(name, cost, reader.offset());
+        if reader
+            .skip_with_depth::<MaybeRef<Object<'_>>>(false, 1)
+            .is_none()
+        {
+            return Ok(None);
+        }
     }
 }
 
 /// hayro-syntax の辞書の表の、キーの 1 つのメモリ。キーと位置の組（48 バイトまで）と制御の 1 バイトを、表が大きく
 /// なる途中で新旧の表が持つ分（キーの数の 3.5 倍まで）
 const KEY_BYTES: u64 = 176;
-
-/// 借りた名前は表の項目だけ、#xx を解いた名前はバッファーを伸ばす分も数える。
-fn key_bytes(src: &[u8], name: &Name<'_>) -> u64 {
-    if position(src, name).is_some() {
-        KEY_BYTES
-    } else {
-        KEY_BYTES.saturating_add((name.len() as u64).saturating_mul(4))
-    }
-}
 
 /// 位置が、定義の `obj`（7.3.10）になりうるか。`endobj` などの語の一部は、定義にならない
 fn definition(src: &[u8], keyword: usize) -> bool {
@@ -1243,7 +1307,7 @@ fn targeted(
     seen: &mut Seen,
     cx: &mut Cx<'_>,
 ) -> Result<(), Stop> {
-    if let Some((name, next)) = read_name(data, at) {
+    if let Some((name, next)) = read_name(data, at, cx)? {
         cx.check(
             Kind::Work,
             lookup_work(data.get(at..next).unwrap_or_default()),
@@ -1262,7 +1326,7 @@ fn targeted(
     // 最初の参照の項目より前の名前の項目の数
     let mut leading = None;
     let hit = loop {
-        let next = match read_name(data, item) {
+        let next = match read_name(data, item, cx)? {
             Some((name, next)) => {
                 cx.check(
                     Kind::Work,
@@ -1462,6 +1526,42 @@ pub(crate) fn refused(place: Ref) -> Diagnostic {
 mod table_tests {
     use super::*;
     use zumen_base::{Budget, CancelToken, Diagnostics};
+
+    #[test]
+    fn counts_long_escaped_keys_without_materializing_them() {
+        let mut budget = Budget::default();
+        let mut diag = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        let raw = format!("/{}#G0#1 ", "#41".repeat(262_144));
+        let mut reader = Reader::new(raw.as_bytes());
+        let (word, cost) = scanned_name(raw.as_bytes(), &mut reader, &mut cx)
+            .unwrap()
+            .unwrap();
+        assert!(word.is_empty());
+        assert_eq!(cost, KEY_BYTES + 4 * (262_144 + 5));
+        assert_eq!(reader.offset(), raw.len() - 1);
+        // 空の名前、16 字の既知の名前、不正な # と区切りも上流と同じ範囲・所有の扱いになる。
+        for raw in [
+            b"/".as_slice(),
+            b"/A}",
+            b"/#42itsPerComponent]",
+            b"/#23#G1#",
+        ] {
+            let mut upstream = Reader::new(raw);
+            let full = upstream.read_without_context::<Name<'_>>().unwrap();
+            let mut reader = Reader::new(raw);
+            let (word, cost) = scanned_name(raw, &mut reader, &mut cx).unwrap().unwrap();
+            assert_eq!(&*word, &*full);
+            assert_eq!(reader.offset(), upstream.offset());
+            let owned = position(raw, &full).is_none();
+            assert_eq!(position(raw, &word), position(raw, &full));
+            assert_eq!(
+                cost,
+                KEY_BYTES + if owned { 4 * full.len() as u64 } else { 0 }
+            );
+        }
+    }
 
     #[test]
     fn bounds_separate_and_overlapping_object_stream_dictionaries() {
