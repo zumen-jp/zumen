@@ -57,11 +57,11 @@ jobs:
         run: |
           rustup toolchain install
           rustup target add ${{ matrix.target }}
-      - name: ネイティブのライブラリと CLI を作る
-        run: cargo build --release --locked --target ${{ matrix.target }} -p zumen-abi -p zumen-cli
+      - run: cargo install --locked cargo-auditable@0.7.7 rust-audit-info@0.5.4
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.x'
+      - run: python xtask/release/build.py --rid ${{ matrix.rid }} --out built
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: licenses
@@ -69,7 +69,7 @@ jobs:
       - name: 配るものを out に集める（ライブラリ・CLI の圧縮・wheel）
         run: >-
           python xtask/release/package.py native --rid ${{ matrix.rid }}
-          --built target/${{ matrix.target }}/release --licenses licenses --out out
+          --built built --licenses licenses --out out
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: native-${{ matrix.rid }}
@@ -78,7 +78,7 @@ jobs:
 
   wasm:
     name: 作る（wasm）
-    needs: version
+    needs: [version, licenses]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -86,18 +86,18 @@ jobs:
         run: |
           rustup toolchain install
           rustup target add wasm32-unknown-unknown
-      - run: cargo build --release --locked --target wasm32-unknown-unknown -p zumen-abi
+      - run: cargo install --locked cargo-auditable@0.7.7 rust-audit-info@0.5.4
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.x'
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: licenses
+          path: licenses
+      - run: python xtask/release/build.py --rid wasm --out built
+      - run: python xtask/release/package.py wasm --built built --licenses licenses --out out
       - name: crates.io に出す crate を、依存の順に包めることを確かめる
         run: cargo publish --dry-run --locked $CRATES
-      - run: |
-          mkdir -p out
-          cp target/wasm32-unknown-unknown/release/zumen_abi1.wasm out/
-      - name: 分けた wasm のモジュールも作る（決定 0221）
-        run: |
-          for module in drawing bim civil pointcloud; do
-            cargo build --release --locked --target wasm32-unknown-unknown -p zumen-abi --no-default-features --features $module
-            cp target/wasm32-unknown-unknown/release/zumen_abi1.wasm out/zumen_abi1_$module.wasm
-          done
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: wasm
@@ -123,7 +123,9 @@ jobs:
       - name: crate・target ごとのライセンス本文を作り、警告・定型の文・抜けを検査する
         run: |
           cargo install --locked cargo-about@0.9.2 --features cli
+          cargo install --locked cargo-cyclonedx@0.5.9
           python xtask/release/licenses.py --output out
+          python xtask/release/sbom.py --output out
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: licenses
@@ -149,11 +151,9 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.x'
-      - name: npm のパッケージに wasm とライセンスの文を入れて包む（決定 0259）
-        run: |
-          cp artifacts/zumen_abi1.wasm artifacts/zumen_abi1_drawing.wasm artifacts/zumen_abi1_bim.wasm artifacts/zumen_abi1_civil.wasm artifacts/zumen_abi1_pointcloud.wasm artifacts/THIRD_PARTY_LICENSES LICENSE-MIT LICENSE-APACHE bindings/js/
-          mkdir -p out
-          (cd bindings/js && npm pack --pack-destination ../../out)
+      - run: cargo install --locked rust-audit-info@0.5.4
+      - name: npm に wasm と SBOM とライセンス本文を入れ、梱包後の依存を照合する
+        run: python xtask/release/package.py npm --artifacts artifacts --out out
       - name: NuGet のパッケージに、対象ごとのネイティブのライブラリを入れて包む
         run: python xtask/release/package.py nuget --artifacts artifacts --out out
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
