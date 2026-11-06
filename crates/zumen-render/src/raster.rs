@@ -352,9 +352,10 @@ fn row_mask(
             Shape::Circle { at, outer, inner } => {
                 for radius in [*outer, *inner] {
                     cx.check(Kind::Work, 1)?;
-                    let dy = y - at[1];
-                    if radius > 0.0 && dy.abs() < radius {
-                        let dx = libm::sqrt((radius * radius - dy * dy).max(0.0));
+                    let dy = (y - at[1]).abs();
+                    if radius > 0.0 && dy < radius {
+                        // 接線の近くで大きい二乗値を引くと、サンプルの内外が変わる。
+                        let dx = libm::sqrt((radius - dy) * (radius + dy));
                         for x in [at[0] - dx, at[0] + dx] {
                             events.push(
                                 Event {
@@ -564,6 +565,29 @@ mod tests {
             Err(Error::Stopped(Stop::Cancelled))
         );
         assert!(surface.pixels.iter().all(|p| *p == [0; 4]));
+    }
+
+    #[test]
+    fn large_circle_keeps_samples_near_the_tangent() {
+        let (mut budget, mut diag, cancel) =
+            (Budget::default(), Diagnostics::new(), CancelToken::new());
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        let mut surface = Surface::new(&options(), &mut cx).unwrap();
+        surface
+            .paint(
+                Shape::Circle {
+                    at: [-15811.263301780698, 1_000_000_000.3],
+                    outer: 1_000_000_000.3,
+                    inner: 0.0,
+                },
+                &[],
+                [255; 4],
+                &mut cx,
+            )
+            .unwrap();
+        // 60 桁の十進計算では y=0.125 の右端は 0.125000938800259…。
+        // 1 行目の最初のサンプルと、ほかの 3 行の全サンプルが入り、13/16 になる。
+        assert_eq!(surface.pixels[0], [255, 255, 255, 207]);
     }
 
     #[test]

@@ -192,6 +192,48 @@ pub fn translucent() -> Columns {
     c
 }
 
+/// 直径 20 億画素の点の円枠。接線付近を 5 × 5 の描画範囲に残す。
+pub fn tangent() -> Columns {
+    let mut c = Columns::new();
+    c.d(
+        l::CHUNK_ORIGINS,
+        &[-15811.263301780698, 5.0 - 1_000_000_000.3],
+    );
+    c.f(l::CHUNK_BOUNDS, &[0.0; 4]);
+    for s in l::CHUNK_LINES..=l::CHUNK_IMAGES {
+        c.u(s, &[0]);
+    }
+    c.u(l::UNIT_ENTITIES, &[0]);
+    c.u(l::UNIT_COLORS, &[0]);
+    c.f(l::UNIT_WEIGHTS, &[0.6]);
+    c.u(l::UNIT_CLIPS, &[l::NONE]);
+    c.u(l::UNIT_LAYERS, &[l::NONE]);
+    c.string(l::ENTITY_IDS, "fixture-circle");
+    c.b(l::ENTITY_KINDS, &[0]);
+    c.u(l::ENTITY_PATHS, &[0]);
+    c.b(l::COLOR_SYSTEMS, &[0]);
+    c.u(l::COLOR_CODES, &[0]);
+    c.b(l::COLOR_FILES, &[0; 4]);
+    c.b(l::COLOR_RGBA, &[255; 4]);
+    c.b(l::COLOR_FLAGS, &[0]);
+    c.f(l::POINT_XY, &[0.0; 2]);
+    c.f(l::POINT_ROTATIONS, &[0.0]);
+    c.f(l::POINT_SCALES, &[1.0]);
+    c.u(l::POINT_UNITS, &[0]);
+    c.string(l::POINT_MARKERS, "");
+    c.string(l::POINT_MARKERS, "");
+    c.f(
+        l::POINT_STYLE,
+        &[
+            f32::from(l::point_mark::NONE),
+            f32::from(l::point_frame::CIRCLE),
+            0.0,
+            2e9,
+        ],
+    );
+    c
+}
+
 /// 同じ unit で、種類の順と同じ種類の元の行の順を照らす。
 pub fn repeated_units() -> Columns {
     let mut c = mixed();
@@ -266,6 +308,7 @@ pub fn transcript() -> Vec<u8> {
         mixed().pack(),
         nonascending().pack(),
         repeated_units().pack(),
+        tangent().pack(),
         Columns::new().pack(),
         b"ZMSC".to_vec(),
     ];

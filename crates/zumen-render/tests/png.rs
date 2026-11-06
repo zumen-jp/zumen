@@ -78,6 +78,21 @@ fn region_margin_and_large_origins_use_the_same_camera() {
 }
 
 #[test]
+fn large_circle_frame_keeps_tangent_samples() {
+    let o = zumen_render::Options {
+        width: 5,
+        height: 5,
+        region: [0.0, 0.0, 5.0, 5.0],
+        background: [0; 4],
+        ..options()
+    };
+    let (png, diag, _) = run_png(&fixtures::tangent().pack(), &o, Limits::default(), false);
+    assert!(diag.is_empty(), "{diag:?}");
+    // 外周が上から 1、4、4 個のサンプルを覆い、最後の 4 個は円枠の内側にある。
+    assert_eq!(pixel(&png.unwrap(), 0, 0), [255, 255, 255, 143]);
+}
+
+#[test]
 fn extreme_dimensions_stop_before_allocating_pixels() {
     let bytes = Columns::new().pack();
     for (width, height) in [
