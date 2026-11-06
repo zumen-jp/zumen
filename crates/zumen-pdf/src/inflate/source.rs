@@ -12,6 +12,7 @@ pub(crate) struct Source<'a> {
     encrypted: bool,
     largest_container: u64,
     file_refs: Option<&'a BTreeSet<(u32, i32)>>,
+    table_bytes: u64,
 }
 
 impl<'a> Source<'a> {
@@ -21,11 +22,17 @@ impl<'a> Source<'a> {
             encrypted,
             largest_container,
             file_refs: None,
+            table_bytes: 0,
         }
     }
 
-    pub(crate) fn with_file_refs(mut self, refs: &'a BTreeSet<(u32, i32)>) -> Self {
+    pub(crate) fn with_file_refs(
+        mut self,
+        refs: &'a BTreeSet<(u32, i32)>,
+        table_bytes: u64,
+    ) -> Self {
         self.file_refs = Some(refs);
+        self.table_bytes = table_bytes;
         self
     }
 
@@ -36,9 +43,26 @@ impl<'a> Source<'a> {
             .then(|| (self.file.len() as u64).max(self.largest_container))
     }
 
-    pub(crate) fn direct_string(dict: &Dict<'_>, key: &[u8]) -> bool {
-        matches!(dict.get_raw::<Tail<'_>>(key), Some(MaybeRef::NotRef(Tail(tail)))
-            if tail.starts_with(b"(") || (tail.starts_with(b"<") && !tail.starts_with(b"<<")))
+    pub(crate) fn file_refs(self) -> impl Iterator<Item = (u32, i32)> + 'a {
+        self.file_refs.into_iter().flatten().copied()
+    }
+
+    pub(crate) fn reserve_tables(self, copies: u64, cx: &mut Cx<'_>) -> Result<(), Stop> {
+        reserve_metadata(self.table_bytes.saturating_mul(copies), cx)
+    }
+
+    /// 参照を調べるための直接の F。文字列は参照を持たず、辞書は表を作らず元の範囲を使う。
+    pub(crate) fn direct_file_data<'b>(dict: &Dict<'b>) -> Option<&'b [u8]> {
+        let MaybeRef::NotRef(Tail(tail)) = dict.get_raw::<Tail<'_>>(b"F")? else {
+            return None;
+        };
+        if tail.starts_with(b"<<") {
+            Reader::new(tail).skip::<Dict<'_>>(false)
+        } else if matches!(tail.first(), Some(b'(' | b'<')) {
+            Some(&[])
+        } else {
+            None
+        }
     }
 
     /// raw_data() は暗号化した文書では復号後の Vec を作る。読む前に元のファイル側で長さを求める。

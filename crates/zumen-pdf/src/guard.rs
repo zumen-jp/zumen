@@ -112,6 +112,8 @@ struct Seen {
     values: BTreeMap<Key, Values>,
     /// F が参照する番号。読み直しの手間を調べるために外部ファイル名を展開しない。
     file_refs: BTreeSet<(u32, i32)>,
+    /// ファイルと確認済みの ObjStm の名前から求めた、辞書の表とエスケープ付きのキーの上限。
+    table_bytes: u64,
     numbers: Numbers,
     /// フィルターの値の LZW・ASCII85 の名前のうち、展開する入力が [`CODED`] に届きうるもの
     coded: Option<usize>,
@@ -310,6 +312,7 @@ pub(crate) enum Checked {
         encrypted: bool,
         largest_container: u64,
         file_refs: BTreeSet<(u32, i32)>,
+        table_bytes: u64,
     },
 }
 
@@ -374,6 +377,7 @@ pub(crate) fn before(src: &[u8], cx: &mut Cx<'_>) -> Result<Checked, Stop> {
             encrypted: marks.encrypted.is_some(),
             largest_container,
             file_refs: seen.file_refs,
+            table_bytes: seen.table_bytes.saturating_add(2048),
         },
     })
 }
@@ -561,6 +565,17 @@ fn names(
         let Some(name) = name else {
             continue;
         };
+        // 各キーの表の分と、#xx を戻すバッファーの伸長。キー以外の名前も含めて多めに数える。
+        let raw = data.get(start..end).unwrap_or_default();
+        let escaped = if raw.contains(&b'#') {
+            (raw.len() as u64).saturating_mul(4)
+        } else {
+            0
+        };
+        seen.table_bytes = seen
+            .table_bytes
+            .saturating_add(KEY_BYTES)
+            .saturating_add(escaped);
         let name: &[u8] = &name;
         let key = Key::of(name);
         match name {

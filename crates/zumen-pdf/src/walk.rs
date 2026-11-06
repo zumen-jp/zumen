@@ -644,7 +644,11 @@ fn definition_scan(program: &[u8]) -> u64 {
 /// 読める本体はないので、読み飛ばせない本体は、どちらかで作り直す。引くたびに読むバイト数（[`Reads::read_work`]）を
 /// 数える。hayro-syntax 0.9.0 は、読み飛ばす空白とコメントのバイト数を返さないので、それは
 /// 数えない。オブジェクトのストリームの展開も、hayro-syntax がどのストリームを展開したかを返さないので、数えない
-pub(crate) fn settle(document: &Pdf, reads: Reads<'_>, cx: &mut Cx<'_>) -> Result<(), Stop> {
+pub(crate) fn settle<'x>(
+    document: &Pdf,
+    reads: Reads<'x>,
+    cx: &mut Cx<'_>,
+) -> Result<FileTargets<'x>, Stop> {
     let xref = reads.xref;
     let mut seen = BTreeSet::new();
     let mut pending = Vec::new();
@@ -659,6 +663,10 @@ pub(crate) fn settle(document: &Pdf, reads: Reads<'_>, cx: &mut Cx<'_>) -> Resul
         pending.push(root);
     }
     while let Some(id) = pending.pop() {
+        if reads.source.file_ref_bound(id).is_some() {
+            // 型付きの辞書の確認、Object（ストリームなら辞書 2 回）、壊れた場合の辞書と下の辞書。
+            reads.source.reserve_tables(5, cx)?;
+        }
         let (read, object) = reads.read(id);
         let _ = xref.get::<Dict<'_>>(id);
         let _ = xref.get::<Array<'_>>(id);
@@ -667,7 +675,20 @@ pub(crate) fn settle(document: &Pdf, reads: Reads<'_>, cx: &mut Cx<'_>) -> Resul
             references(object_data(&object), &mut seen, &mut pending, cx)?;
         }
     }
-    Ok(())
+    // 相互参照表の作り直しが終わった後の定義を使う。到達しなかった番号を新たに引かない。
+    // 後続のページ・資源の手間の見積もりは、この表を借り、F の辞書の表を何度も作らない。
+    let mut files = BTreeMap::new();
+    for (number, generation) in reads.source.file_refs() {
+        if seen.contains(&(number, generation)) {
+            reads.source.reserve_tables(4, cx)?;
+            cx.check(Kind::DecodedBytes, 512)?;
+            files.insert(
+                (number, generation),
+                reads.read(ObjectIdentifier::new(number, generation)),
+            );
+        }
+    }
+    Ok(FileTargets(files))
 }
 
 /// バイト列に書いた参照（`n g R`、7.3.10）を、書いた順に返す。字句を読まず、`R` の前の 2 つの数の字の並びの、読み
@@ -907,6 +928,9 @@ fn object_data<'x>(object: &Object<'x>) -> &'x [u8] {
 /// 書いた参照の表（番号 → 参照と、書いた回数）
 type Targets = BTreeMap<(u32, i32), (ObjectIdentifier, u64)>;
 
+/// 相互参照表を確かめた後の F の参照先。文字列の写しは持たない。
+pub(crate) struct FileTargets<'x>(BTreeMap<(u32, i32), (u64, Option<Object<'x>>)>);
+
 /// 表に、書いた参照を足す
 fn add_targets(targets: &mut Targets, written: impl Iterator<Item = ObjectIdentifier>, times: u64) {
     for id in written {
@@ -920,6 +944,7 @@ fn add_targets(targets: &mut Targets, written: impl Iterator<Item = ObjectIdenti
 pub(crate) struct Reads<'x> {
     pub(crate) xref: &'x XRef,
     source: inflate::Source<'x>,
+    file_targets: Option<&'x FileTargets<'x>>,
     /// ファイルを読み通す手間
     file: u64,
 }
@@ -931,6 +956,17 @@ impl<'x> Reads<'x> {
             xref,
             source: streams,
             file: lookup_work(source),
+            file_targets: None,
+        }
+    }
+
+    pub(crate) fn with_file_targets<'c>(self, targets: &'c FileTargets<'x>) -> Reads<'c>
+    where
+        'x: 'c,
+    {
+        Reads {
+            file_targets: Some(targets),
+            ..self
         }
     }
 
@@ -939,6 +975,9 @@ impl<'x> Reads<'x> {
     /// ファイルを読み通す手間とする。ほかの読めない定義（読み飛ばせて読めない数。`5-3.2`）は、読んだバイト数を知れない
     /// ので、0 とする（pdf.md の「予算の外」）
     pub(crate) fn read(self, id: ObjectIdentifier) -> (u64, Option<Object<'x>>) {
+        if let Some(target) = self.file_targets.and_then(|cache| cache.0.get(&key(id))) {
+            return target.clone();
+        }
         let probe = if let Some(bound) = self.source.file_ref_bound(id) {
             // settle と targets が必要とするのは中の参照と読み直す手間。文字列を Object として
             // 読むと、外部ファイルの判定より先に 16 進やエスケープを展開する（7.3.4・7.3.8.2）。
@@ -998,14 +1037,17 @@ impl<'x> Reads<'x> {
         let mut first = Targets::new();
         // キーを並べて値を読む手間
         let mut work = dict.len() as u64;
-        // entries() は参照のない直接の文字列まで展開する。従来と同じキー順で、F の文字列は
-        // 中身を読まずに飛ばす。文字列は辞書・配列と違い、たどる参照を持たない。
+        // entries() は直接の文字列を展開し、辞書の表も作る。従来と同じキー順で、F は元の範囲を使う。
         let mut keys: Vec<_> = dict.keys().collect();
         keys.sort_unstable_by(|a, b| a.as_ref().cmp(b.as_ref()));
         for name in keys {
-            if matches!(name.as_ref(), b"Parent" | b"Annots" | b"VP")
-                || (name.as_ref() == b"F" && inflate::Source::direct_string(dict, b"F"))
+            if matches!(name.as_ref(), b"Parent" | b"Annots" | b"VP") {
+                continue;
+            }
+            if name.as_ref() == b"F"
+                && let Some(data) = inflate::Source::direct_file_data(dict)
             {
+                add_targets(&mut first, written_references(data), 1);
                 continue;
             }
             let Some(value) = dict.get_raw::<Object<'_>>(name.as_ref()) else {
@@ -3266,7 +3308,8 @@ mod tests {
         };
         assert_eq!(file_refs, BTreeSet::from([(5, 0), (6, 0), (7, 0), (8, 0)]));
         let doc = Pdf::new(hayro_syntax::PdfData::from(data.to_vec())).unwrap();
-        let source = inflate::Source::new(doc.data().as_ref(), false, 0).with_file_refs(&file_refs);
+        let source =
+            inflate::Source::new(doc.data().as_ref(), false, 0).with_file_refs(&file_refs, 0);
         let reads = Reads::new(doc.xref(), data, source);
         let id = |number| ObjectIdentifier::new(number, 0);
         assert!(matches!(
@@ -3277,6 +3320,40 @@ mod tests {
         assert!(matches!(reads.read(id(6)).1, Some(Object::Dict(_))));
         assert!(matches!(reads.read(id(7)).1, Some(Object::Array(_))));
         assert!(matches!(reads.read(id(8)).1, Some(Object::Stream(_))));
+    }
+
+    #[test]
+    fn reserves_large_file_spec_tables_before_settling_references() {
+        use zumen_base::{Budget, CancelToken, Diagnostics, Limit, Limits};
+
+        let keys = (0..4000).map(|i| format!("/K{i} 1 ")).collect::<String>();
+        let data = format!(
+            "%PDF-1.7\n1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n\
+            2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n\
+            3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /Contents 4 0 R >> endobj\n\
+            4 0 obj << /Length 3 /Filter [/AHx /Fl] /F 5 0 R >> stream\n00>\nendstream\nendobj\n\
+            5 0 obj << {keys} >> endobj\ntrailer << /Root 1 0 R >>\n%%EOF"
+        );
+        let mut budget =
+            Budget::new(Limits::default().with(Kind::DecodedBytes, Limit::Finite(32 * 1024)));
+        let mut diag = Diagnostics::new();
+        let token = CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diag, &token);
+        let crate::guard::Checked::Ready {
+            file_refs,
+            table_bytes,
+            ..
+        } = crate::guard::before(data.as_bytes(), &mut cx).unwrap()
+        else {
+            panic!("合成した辞書を含む文書を読めなかった");
+        };
+        let doc = Pdf::new(hayro_syntax::PdfData::from(data.as_bytes().to_vec())).unwrap();
+        let source = inflate::Source::new(doc.data().as_ref(), false, 0)
+            .with_file_refs(&file_refs, table_bytes);
+        let reads = Reads::new(doc.xref(), data.as_bytes(), source);
+        assert!(
+            matches!(settle(&doc, reads, &mut cx), Err(Stop::Exceeded(e)) if e.kind == Kind::DecodedBytes)
+        );
     }
 
     /// 終わりのマーカーまで読めるか

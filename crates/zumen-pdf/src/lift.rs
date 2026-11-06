@@ -62,7 +62,7 @@ impl Lift<Drawing2D> for PdfFile {
                         .and_then(parse_version)
                 });
         // hayro-syntax がパニックするか、環境で違う値に読むおそれのある文書は、読まない
-        let (encrypted, largest_container, file_refs) =
+        let (encrypted, largest_container, file_refs, table_bytes) =
             match guard::before(&self.src, cx).map_err(|stop| stopped(cx, stop, &header))? {
                 guard::Checked::Refused(at) => {
                     cx.report(guard::refused(place_ref(self, at, &header)));
@@ -72,7 +72,8 @@ impl Lift<Drawing2D> for PdfFile {
                     encrypted,
                     largest_container,
                     file_refs,
-                } => (encrypted, largest_container, file_refs),
+                    table_bytes,
+                } => (encrypted, largest_container, file_refs, table_bytes),
             };
         // 相互参照・ページの木を読む。壊れた相互参照は、オブジェクトを探し直して読む（hayro-syntax、7.5）
         let document = load(&self.src).map_err(|error| not_loaded(cx, error, &header))?;
@@ -85,7 +86,7 @@ impl Lift<Drawing2D> for PdfFile {
                 encrypted,
                 largest_container,
             )
-            .with_file_refs(&file_refs),
+            .with_file_refs(&file_refs, table_bytes),
             objects: &objects,
             header,
             header_version,
@@ -234,7 +235,9 @@ impl Lifter<'_, '_> {
         let document = self.document;
         // 相互参照の表を作り直すなら、ページを読む前に作り直させる
         let reads = Reads::new(document.xref(), self.source, self.streams);
-        walk::settle(document, reads, cx).map_err(|stop| stopped(cx, stop, &self.header))?;
+        let file_targets =
+            walk::settle(document, reads, cx).map_err(|stop| stopped(cx, stop, &self.header))?;
+        let reads = reads.with_file_targets(&file_targets);
         let xref = document.xref();
         let catalog = xref.get::<Dict<'_>>(xref.root_id());
         let (layers, ocgs, inactive) = self.layers(catalog.as_ref(), cx)?;
