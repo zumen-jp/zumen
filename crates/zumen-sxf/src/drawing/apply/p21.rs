@@ -1096,9 +1096,11 @@ fn collect(values: &[Value], out: &mut Vec<u64>) {
 
 /// 書いたテキストの中の参照
 fn scan(bytes: &[u8]) -> Vec<u64> {
+    // 出力した P21 の文字列の外だけを調べる。文字列中の引用符（''）の間の区間は空になる。
     bytes
-        .split(|b| *b == b'#')
-        .skip(1)
+        .split(|b| *b == b'\'')
+        .step_by(2)
+        .flat_map(|outside| outside.split(|b| *b == b'#').skip(1))
         .filter_map(|rest| {
             let end = rest.iter().take_while(|b| b.is_ascii_digit()).count();
             core::str::from_utf8(rest.get(..end)?).ok()?.parse().ok()

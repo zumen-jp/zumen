@@ -11,6 +11,7 @@ zumen が書き戻した（apply）・変換した（convert）図面を、zumen
 | `check_acadsharp.py` | `acadsharp-dump.json` の値を、zumen の読みと照らす |
 | `check_ezjww.py` | キットの JWW を ezjww で読み、zumen の読みと照らす |
 | `check_ezsxf.py` | キットの SFC・P21 を ezsxf で読み、zumen の読みと照らす |
+| `test_ezsxf.py` | 合成 P21 のコピーで追加した点のレイヤ所属だけを外し、`check_ezsxf.py` が食い違いを検出することを確かめる |
 | `pdfjs/` | PDF の寸法・文字・経路と画像の数を pdf.js と照らす。手順は [README](pdfjs/README.md) |
 | `dump.lsp` | AutoCAD で開いた図面の図形を、ハンドルごとに 1 行で書き出す。キットの README の手順で使う |
 
@@ -23,6 +24,7 @@ python -I xtask/verify/make.py target/release/zumen ../zumen-verify
 python -I xtask/verify/check_ezdxf.py ../zumen-verify
 python -I xtask/verify/check_ezjww.py ../zumen-verify
 python -I xtask/verify/check_ezsxf.py ../zumen-verify
+python -I xtask/verify/test_ezsxf.py ../zumen-verify
 dotnet run --project xtask/verify/acadsharp -c Release -- ../zumen-verify
 python -I xtask/verify/check_acadsharp.py ../zumen-verify
 ```
@@ -57,7 +59,7 @@ ACadSharp のツールは、.NET 10 の SDK で動かします。ACadSharp の�
   - SFC は、レイヤ・用紙の中にあることと、線・円・点マーカーの形と、足した図形の色（既定義色の番号）を比べる。ezsxf は複合曲線を用紙に置かず、ハッチングの境界の定義として持つので、複合曲線の曲線の要素は、ezsxf の読みで表示する複合曲線（表示のフラグが 1）の曲線であることを比べる。ezsxf がフィーチャを型で読まない SFC（印が `/*SXF3` など）は、要素の種類だけを比べる。ezsxf が複合曲線を読めないか飛ばした SFC と、ハッチングの指す複合曲線がないと言った SFC は、用紙の中にあることを比べない。
   - P21 は、複合のインスタンスも読み、レイヤ（PRESENTATION_LAYER_ASSIGNMENT。2 つのレイヤに入れた要素は先のもの。複合曲線の曲線の要素は、複合曲線を指す曲線の表記の実体のもの）と、用紙（番号がもっとも小さい DRAWING_SHEET_REVISION の並びと、そこに置いた作図グループと表示する複合曲線）の中にあることと、参照をたどって、点の位置・回転・倍率と、線分の端点（点か媒介変数のトリム）を比べる（点マーカーの種類と色、寸法と引出線のレイヤは比べない）。同じ番号の 2 つ目のインスタンスは使わない（zumen と同じ）。画像の範囲の要素は、画像の作図グループ（属性の `$$ATRU$$番号$$名称$$画像$$` か、名前の `$$RASTER$$` の後に、ファイルの名前があるもの）の中の 4 点以上の折れ線から作ったことを比べる。逆の向き（画像の作図グループの折れ線を、zumen が画像の範囲にしたこと）は比べない（#558）。
   - ezsxf は P21 の文字列のエスケープを戻さず、8 ビットのバイトを UTF-8 として読むので、レイヤと作図グループの名前は、ファイルのバイトから zumen と同じく戻す（エスケープを戻し、8 ビットのバイトは Shift_JIS として読む。`docs/formats/sxf.md`）。
-  - Shift_JIS のレイヤ名を持つ合成 P21（`apply_p21_raw.json`）にも点を 2 つ足す。書き戻したファイルで、各点の形と、変更で決めたレイヤ「図枠」に属すことを照らす（#552）。
+  - Shift_JIS のレイヤ名を持つ合成 P21（`apply_p21_raw.json`）にも点を 2 つ足す。書き戻したファイルで、各点の形と、変更で決めたレイヤ「図枠」に属すことを照らす。一時コピーでレイヤの所属一覧だけから 2 点を外すと、用紙の並びと形を保っていても、各点の所属を食い違いにする（#552）。
   - ezsxf 0.3.7 は、引数の中にコメントを持つ P21 の文を読み飛ばす（警告 `salvage-record`）。zumen はその文も読むので、その文を指す要素と、その文から置いた図形は、食い違いになる（#558）。
   - ezsxf の警告は、code の種類で比べる。
 

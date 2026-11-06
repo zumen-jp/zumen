@@ -194,7 +194,9 @@ jobs:
         run: python -I xtask/verify/check_ezjww.py "$RUNNER_TEMP/verify"
       - name: 検証キットの SFC・P21 を ezsxf で読み、zumen の読みと照らす
         if: ${{ !cancelled() && steps.make.outcome != 'skipped' }}
-        run: python -I xtask/verify/check_ezsxf.py "$RUNNER_TEMP/verify"
+        run: |
+          python -I xtask/verify/check_ezsxf.py "$RUNNER_TEMP/verify"
+          python -I xtask/verify/test_ezsxf.py "$RUNNER_TEMP/verify"
       - name: 検証キットの DWG を ACadSharp で読み、値を書き出す
         id: acadsharp
         if: ${{ !cancelled() && steps.make.outcome != 'skipped' }}

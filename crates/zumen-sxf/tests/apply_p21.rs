@@ -258,6 +258,42 @@ fn rewriting_instances_and_copying_styles_preserve_raw_values() {
 }
 
 #[test]
+fn copied_style_names_do_not_keep_unused_instances() {
+    let input = String::from_utf8(src())
+        .unwrap()
+        .replace(
+            "#70=PRESENTATION_STYLE_ASSIGNMENT((#60));",
+            "#70=PRESENTATION_STYLE_ASSIGNMENT((#60));\n#5=CURVE_STYLE('線''#6/#5',#30,#40,#20);\n#6=PRESENTATION_STYLE_ASSIGNMENT((#5));",
+        )
+        .replace("STYLED_ITEM((#70),#150)", "STYLED_ITEM((#6),#150)");
+    let mut file = read(&encoding_rs::SHIFT_JIS.encode(&input).0);
+    let before = lift(&file);
+    let (result, diag) = apply(
+        &mut file,
+        vec![Edit::Restyle {
+            target: seen(&before, 160).0,
+            style: Restyle {
+                color: Some(sxf_color(17)),
+                ..Restyle::default()
+            },
+        }],
+    );
+    assert!(diag.is_empty());
+    let applied = result.unwrap();
+    let bytes = write(&file);
+    let (text, _, errors) = encoding_rs::SHIFT_JIS.decode(&bytes);
+    assert!(!errors);
+    assert_eq!(text.matches("CURVE_STYLE('線''#6/#5',").count(), 1);
+    assert!(!text.contains("\n#5=") && !text.contains("\n#6="));
+    // ほかの曲線が実際に参照するスタイルと割り当ては残す。
+    assert!(text.contains("#60=CURVE_STYLE("));
+    assert!(text.contains("#70=PRESENTATION_STYLE_ASSIGNMENT((#60));"));
+    let after = lift(&read(&bytes));
+    assert_eq!(seen(&after, 230).0, seen(&before, 230).0);
+    assert_eq!(applied[0].hash, Some(seen(&after, 160).0.hash));
+}
+
+#[test]
 fn edits_are_written_into_the_instances() {
     let src = src();
     let mut file = read(&src);
