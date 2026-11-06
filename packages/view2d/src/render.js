@@ -1,27 +1,19 @@
 import { SCENE_NONE, SCENE_VALUES as V } from "@zumen-jp/zumen";
-import { end, rows, valid } from "./validate.js";
+import { end, valid } from "./validate.js";
 import { unitVisible } from "./interaction.js";
-import { clipParts, pointReason, primitiveParts, stringAt, textReason, unitStyle } from "./geometry.js";
+import { clipParts, pointReason, primitiveParts, textReason, unitStyle } from "./geometry.js";
 export { project, unproject } from "./geometry.js";
 
 /** 代替と未描画の一覧を描画前に作る。要素 ID と配置の道筋はシーンの値を保つ。 */
-export function reportOf(prepared, limits, display) {
+export function reportOf(prepared, limits, display, elements, underlays) {
   const { columns: c, order } = prepared;
   const issues = [];
-  const sources = new Map();
   const omitted = new Set();
   const drawn = { lines: 0, faces: 0, texts: 0, points: 0, images: 0, glyphs: 0 };
   function issue(kind, index, unit, reason, disposition) {
     valid(issues.length < limits.issues, "limits.issues");
-    const entity = c.unit_entities[unit];
-    if (!sources.has(entity)) {
-      const path = [];
-      for (let i = c.entity_paths[entity]; i < end(c.entity_paths, entity, rows(c, "step_ids")); i++) {
-        path.push(Object.freeze({ id: stringAt(c, "step_ids", i), column: c.step_cells[i * 2], row: c.step_cells[i * 2 + 1] }));
-      }
-      sources.set(entity, Object.freeze({ id: stringAt(c, "entity_ids", entity), path: Object.freeze(path) }));
-    }
-    issues.push(Object.freeze({ element: sources.get(entity), unit, primitive: Object.freeze({ kind, index }), reason, disposition }));
+    const element = elements[c.unit_entities[unit]];
+    issues.push(Object.freeze({ element, unit, primitive: Object.freeze({ kind, index }), reason, disposition }));
   }
   for (const { indices, locate } of order) for (const ordinal of indices) {
     const [kind, i] = locate(ordinal);
@@ -34,7 +26,7 @@ export function reportOf(prepared, limits, display) {
         if (c.polygon_flags[p] > 1) { reason = "clip-unsupported"; break; }
       }
     }
-    reason ??= kind === "image" ? "resource-unresolved" : kind === "text" ? textReason(c, i) : kind === "point" ? pointReason(c, i) : undefined;
+    reason ??= kind === "image" ? (underlays ? underlays.reason(i) : "resource-unresolved") : kind === "text" ? textReason(c, i) : kind === "point" ? pointReason(c, i) : undefined;
     const skip = reason && reason !== "browser-text" && reason !== "marker-unresolved";
     if (reason) issue(kind, i, unit, reason, skip ? "omitted" : "fallback");
     if (skip) {
@@ -42,7 +34,7 @@ export function reportOf(prepared, limits, display) {
       continue;
     }
     const color = c.unit_colors[unit];
-    if (color === SCENE_NONE || ((c.color_flags[color] & V.color_flag.unresolved) && !(c.color_flags[color] & V.color_flag.foreground))) {
+    if (kind !== "image" && (color === SCENE_NONE || ((c.color_flags[color] & V.color_flag.unresolved) && !(c.color_flags[color] & V.color_flag.foreground)))) {
       issue(kind, i, unit, "color-unresolved", "fallback");
     }
     drawn[`${kind}s`]++;
@@ -51,7 +43,7 @@ export function reportOf(prepared, limits, display) {
   return { report: Object.freeze({ drawn: Object.freeze(drawn), issues: Object.freeze(issues) }), omitted };
 }
 
-export function paint(ctx, prepared, settings, view, size, display) {
+export function paint(ctx, prepared, settings, view, size, display, underlays) {
   const { width, height, pixelRatio } = size;
   ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
   ctx.clearRect(0, 0, width, height);
@@ -72,6 +64,7 @@ export function paint(ctx, prepared, settings, view, size, display) {
       ctx.save();
       try {
         for (const part of clipParts(c, unit, view, size)) ctx.clip(part.path, part.fill);
+        if (kind === "image") { underlays?.draw(ctx, i); continue; }
         const style = unitStyle(c, unit, settings, display);
         ctx.fillStyle = style;
         ctx.strokeStyle = style;
