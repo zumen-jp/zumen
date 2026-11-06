@@ -83,7 +83,11 @@ export class Underlays {
     this.requestLimits = Object.freeze({ maxBytes: limits.underlayBytes, maxPixels: limits.underlayPixels, maxSide: limits.underlaySide });
   }
 
-  invoke(fn) { this.calling = true; try { return fn(); } finally { this.calling = false; } }
+  invoke(fn) {
+    const previous = this.calling;
+    this.calling = true;
+    try { return fn(); } finally { this.calling = previous; }
+  }
 
   notify() {
     if (this.closed || this.queued) return;
@@ -100,15 +104,19 @@ export class Underlays {
       this.notify();
     };
     try {
-      const result = this.invoke(() => typeof value?.dispose === "function" ? value.dispose() : undefined);
-      if (result && typeof result.then === "function") return Promise.resolve(result).catch(failed);
+      return this.invoke(() => {
+        const dispose = value?.dispose;
+        if (typeof dispose !== "function") return;
+        const result = Reflect.apply(dispose, value, []);
+        if (result && typeof result.then === "function") return Promise.resolve(result).catch(failed);
+      });
     } catch { failed(); }
   }
 
   dropPixels(record) {
     if (!record.raster) return;
     const raster = record.raster; record.raster = null;
-    const lease = record.lease;
+    const lease = raster.lease;
     lease.rasterReleases++;
     const done = () => { this.pixels -= raster.pixels; lease.rasterReleases--; this.finishLease(lease); };
     const result = this.release(raster.value, lease, raster.owner);
@@ -168,10 +176,18 @@ export class Underlays {
     Promise.resolve().then(() => lease.retired ? null : this.invoke(() => renderer(request))).then((value) => {
       if (lease.retired) return this.release(value, lease);
       try {
-        const width = value?.width, height = value?.height;
-        if (!value || !safe(width) || !safe(height) || width <= 0 || height <= 0 || typeof value.render !== "function" || typeof value.dispose !== "function") throw new Error("underlay.resource");
-        record.extent = Object.freeze({ width, height });
-        lease.resource = value;
+        // getter も利用側のコード。受領中は同期の変更を拒否し、以降は検査した値を使う。
+        const resource = this.invoke(() => {
+          const { width, height, render, dispose } = value;
+          if (!safe(width) || !safe(height) || width <= 0 || height <= 0 || typeof render !== "function" || typeof dispose !== "function") throw new Error("underlay.resource");
+          return {
+            extent: Object.freeze({ width, height }),
+            render: (request) => Reflect.apply(render, value, [request]),
+            dispose: () => Reflect.apply(dispose, value, []),
+          };
+        });
+        record.extent = resource.extent;
+        lease.resource = resource;
       } catch {
         record.failure = "resource-invalid"; return this.release(value, lease);
       }
@@ -190,9 +206,14 @@ export class Underlays {
     Promise.resolve().then(() => operation.control.signal.aborted ? null : this.invoke(() => lease.resource.render(request))).then((value) => {
       if (lease.retired || operation.control.signal.aborted) return this.release(value, lease, operation.owner);
       try {
-        const source = value?.source, tag = Object.prototype.toString.call(source);
-        if (!["[object ImageBitmap]", "[object HTMLCanvasElement]", "[object OffscreenCanvas]"].includes(tag) || source.width !== plan.width || source.height !== plan.height || typeof value.dispose !== "function") throw new Error("underlay.raster");
-        record.raster = { value, pixels, plan, owner: operation.owner }; operation.pixels = 0;
+        const raster = this.invoke(() => {
+          const { source, dispose } = value;
+          const tag = Object.prototype.toString.call(source);
+          if (!["[object ImageBitmap]", "[object HTMLCanvasElement]", "[object OffscreenCanvas]"].includes(tag) || source.width !== plan.width || source.height !== plan.height || typeof dispose !== "function") throw new Error("underlay.raster");
+          return { source, dispose: () => Reflect.apply(dispose, value, []) };
+        });
+        record.raster = { value: raster, lease, pixels, plan, owner: operation.owner };
+        operation.pixels = 0;
       } catch {
         record.failure = "resource-invalid"; return this.release(value, lease, operation.owner);
       }

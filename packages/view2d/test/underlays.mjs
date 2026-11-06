@@ -41,6 +41,7 @@ function quadrants(request) {
 export async function testUnderlays({ assert, near, throws }) {
   await testUnderlayNotifications(assert);
   await testReplacedRelease(assert);
+  await testResultGetters(assert);
   testStableReport(assert);
   const canvas = canvasOf(200, 200), viewer = new View2D(canvas, { width: 200, height: 200, pixelRatio: 2 });
   const ctx = canvas.getContext("2d");
@@ -207,6 +208,99 @@ async function testReplacedRelease(assert) {
       && pixel[0] === 0 && pixel[2] === 255 && freed.join() === "1", `${change} の旧解放失敗で新しい画素を消さない`);
     viewer.destroy(); await flush();
     assert(freed.join() === "1,2" && closed.join() === (change === "raster" ? "1" : "1,2"), `${change} の各世代を 1 回ずつ解放する`);
+  }
+}
+
+async function testResultGetters(assert) {
+  const errors = [];
+  const capture = (event) => errors.push(event.error ?? event.reason);
+  window.addEventListener("error", capture);
+  window.addEventListener("unhandledrejection", capture);
+  try {
+    for (const action of ["cancel", "scene", "destroy"]) for (const later of [false, true]) {
+      const viewer = new View2D(canvasOf(200, 200), { width: 200, height: 200 });
+      const change = () => {
+        if (action === "cancel") viewer.cancelUnderlays();
+        else if (action === "scene") viewer.setScene(null);
+        else viewer.destroy();
+      };
+      const released = [], nextReleased = [], gate = deferred();
+      let reads = 0, rejected;
+      viewer.setUnderlayRenderer(() => ({
+        width: 8, height: 4,
+        render(request) {
+          const image = raster(request);
+          return {
+            get source() {
+              reads++;
+              try { change(); } catch (error) { rejected = error; if (!later) throw error; }
+              if (later) queueMicrotask(change);
+              return image.source;
+            },
+            async dispose() { released.push("pixels-start"); await gate.promise; image.dispose(); released.push("pixels-end"); },
+          };
+        },
+        dispose() { released.push("resource"); },
+      }));
+      viewer.setScene(bundle(imageScene())); await flush();
+      assert(rejected instanceof RangeError && reads === 1, `${action} の同期再入を source の取得中にも拒否する`);
+      assert(released.join() === "pixels-start", `${action} は画像の非同期解放を待つ`);
+      if (later && action === "scene") {
+        assert(viewer.getScene() === null, "getter の次の microtask でシーンを消去する");
+        viewer.setUnderlayRenderer(() => ({
+          width: 8, height: 4,
+          render(request) { return raster(request, "blue", () => nextReleased.push("pixels")); },
+          dispose() { nextReleased.push("resource"); },
+        }));
+        viewer.setScene(bundle(imageScene({ pages: ["new"] }))); await flush();
+      }
+      gate.resolve(); await flush();
+      assert(released.join() === "pixels-start,pixels-end,resource", `${action} で画像を先に、元の資源を後に 1 回ずつ解放する`);
+      if (!later) {
+        assert(viewer.getScene() !== null && viewer.getState().underlays[0].status === "resource-invalid" && viewer.getReport().drawn.images === 0,
+          "getter の例外は現行のシーンで不正な返却値として報告する");
+      } else if (action === "scene") {
+        assert(viewer.getState().underlays[0].status === "ready" && viewer.getReport().drawn.images === 1 && nextReleased.length === 0,
+          "旧画像の解放を待つ間に開いた新シーンの資源を保つ");
+      }
+      else if (action === "cancel") assert(viewer.getState().underlays[0].status === "resource-cancelled", "getter の次の microtask で要求を中断する");
+      else {
+        let destroyed = false;
+        try { viewer.getState(); } catch { destroyed = true; }
+        assert(destroyed, "getter の次の microtask で破棄する");
+      }
+      viewer.destroy();
+      if (later && action === "scene") assert(nextReleased.join() === "pixels,resource", "新シーンの画像と資源は新シーンの破棄で解放する");
+    }
+    const viewer = new View2D(canvasOf(200, 200), { width: 200, height: 200 }), receivers = [];
+    let guarded = false, sourceReads = 0;
+    const resource = {
+      get width() {
+        try { viewer.setScene(null); } catch (error) { guarded = error instanceof RangeError; }
+        return 8;
+      },
+      height: 4,
+      render(request) {
+        receivers.push(this === resource);
+        const image = raster(request), result = {
+          get source() { sourceReads++; return image.source; },
+          dispose() { receivers.push(this === result); image.dispose(); },
+        };
+        return result;
+      },
+      dispose() { receivers.push(this === resource); },
+    };
+    viewer.setUnderlayRenderer(() => resource);
+    viewer.setScene(bundle(imageScene())); await flush(); viewer.invalidate();
+    assert(guarded && sourceReads === 1 && viewer.getReport().drawn.images === 1, "資源の getter も保護し、再描画には受領した画素を使う");
+    viewer.destroy();
+    assert(receivers.length === 3 && receivers.every(Boolean), "受領したメソッドは元の返却値を this として呼ぶ");
+    // ブラウザーが未捕捉例外・Promise の拒否を通知するターンまで待つ。
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert(errors.length === 0, "返却値の取得と中断で未捕捉例外を出さない");
+  } finally {
+    window.removeEventListener("error", capture);
+    window.removeEventListener("unhandledrejection", capture);
   }
 }
 
