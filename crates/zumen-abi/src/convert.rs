@@ -94,6 +94,8 @@ pub(crate) fn to_dxf(drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<Converted, 
     let mut edits = Vec::new();
     for layer in &drawing.layers {
         cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
+        // ひな形の画層を再利用するときも、この二つの値は出力に移らない。
+        lost.layer_fields(layer);
         if find_layer(&target, &layer.name).is_some() {
             continue;
         }
@@ -343,6 +345,23 @@ impl Lost {
                 .with("format", "DXF")
                 .at(source.clone()),
         );
+    }
+
+    fn layer_fields(&mut self, layer: &Layer) {
+        let transparency = layer.style.and_then(|style| style.transparency);
+        for (field, present) in [
+            ("description", layer.description.is_some()),
+            ("transparency", transparency.is_some()),
+        ] {
+            if present {
+                self.diagnostics.report(
+                    Diagnostic::new(codes::CONVERT_LAYER_FIELD_DROPPED)
+                        .with("field", Value::Key(field))
+                        .with("format", "DXF")
+                        .at(layer.source.clone()),
+                );
+            }
+        }
     }
 
     fn report(self, cx: &mut Cx<'_>) {

@@ -247,6 +247,70 @@
         "/result/positions/1/northing": 2080,
         "/result/positions/1/height": 11.149898771930502
       }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_apply",
+        "doc": "road.ifc",
+        "edits": [],
+        "budget": {
+          "work": 543
+        }
+      },
+      "expect": {
+        "/diagnostics/0/code": "budget.work.exceeded"
+      },
+      "status": "failed"
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "civil",
+        "doc": "road.ifc",
+        "distances": [
+          25
+        ]
+      },
+      "expect": {
+        "/result/alignment": "0000000000000000000040",
+        "/result/positions/0/northing": 2025
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building",
+        "doc": "road.ifc"
+      },
+      "expect": {
+        "/result/schema": "IFC4X3_ADD2"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_apply",
+        "doc": "road.ifc",
+        "edits": []
+      },
+      "expect": {
+        "/result/applied": []
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "civil",
+        "doc": "road.ifc",
+        "distances": [
+          25
+        ]
+      },
+      "expect": {
+        "/result/alignment": "0000000000000000000040",
+        "/result/positions/0/northing": 2025
+      }
     }
   ]
 }

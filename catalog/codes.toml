@@ -262,6 +262,15 @@ group-by = ["kind"]
 since = "0.0.0"
 status = "active"
 
+[codes."convert.layer-field.dropped"]
+description = "新しいファイルへの変換で画層の説明か透過性を出力できず、元の値を落とした。フィールドごとに数える"
+severity = "warning"
+fidelity = "dropped"
+params = { format = "text", field = "key" }
+group-by = ["field"]
+since = "0.2.0"
+status = "active"
+
 [codes."convert.format.unsupported"]
 description = "この形式には、まだ別の形式から書けない（決定 0206）"
 severity = "error"
