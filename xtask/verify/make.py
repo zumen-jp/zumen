@@ -34,6 +34,7 @@ DROPPED = 20
 PLACES = {
     "input/made-dropped.dxf": {"dxf.lift.dropped": DROPPED, "dxf.non-planar.dropped": 2},
     "input/made-structure.sfc": {"sxf.lift.invalid": 2, "sxf.lift.dropped": 5},
+    "input/made-duplicates.sfc": {"sxf.lift.invalid": 1},
     "input/made-structure.p21": {
         "sxf.lift.invalid": 1,
         "sxf.p21-instance.dropped": 1,
@@ -282,7 +283,25 @@ ENDSEC;
 END-ISO-10303-21;
 """
 # 外部の実装と照らすためだけに作る入力。書き戻しと変換を当てない
-CHECKS = {"input/made-structure.sfc", "input/made-structure.p21", "input/made-non-finite.jww"}
+CHECKS = {"input/made-structure.sfc", "input/made-structure.p21", "input/made-duplicates.sfc", "input/made-non-finite.jww"}
+
+
+def duplicate_sfc():
+    """同じ番号のレイヤ 2 つと、引数の欠けた線・線・円・別の線をファイルの順に置く（#553）。"""
+    features = [
+        (70, r"layer_feature(\'A\','1')"),
+        (70, r"layer_feature(\'B\','1')"),
+        (20, r"pre_defined_font_feature(\'continuous\')"),
+        (30, r"pre_defined_colour_feature(\'black\')"),
+        (40, "width_feature('0.13')"),
+        (60, "line_feature('1')"),
+        (60, "line_feature('1','1','1','1','0','0','10','5')"),
+        (60, "circle_feature('2','1','1','1','5','5','2')"),
+        (60, "line_feature('2','1','1','1','8','2','18','7')"),
+        (90, r"drawing_sheet_feature(\'S\','3','1','420','297')"),
+    ]
+    header = SFC.split("/*SXF", 1)[0].replace("made-features.sfc", "made-duplicates.sfc")
+    return header + "".join(f"/*SXF\n#{i} = {value}\nSXF*/\n" for i, value in features) + "ENDSEC;\nEND-ISO-10303-21;\n"
 
 
 class Zumen:
@@ -994,6 +1013,7 @@ def inputs(extra):
         if name == "a.jww":
             found.append(("input/made-non-finite.jww", non_finite_jww(data), "xtask/verify/make.py", *REPOSITORY))
     found.append(("input/made-features.sfc", SFC.encode("ascii"), "xtask/verify/make.py", *REPOSITORY))
+    found.append(("input/made-duplicates.sfc", duplicate_sfc().encode("ascii"), "xtask/verify/make.py", *REPOSITORY))
     found.append(("input/made-dropped.dxf", dropped_dxf().encode("ascii"), "xtask/verify/make.py", *REPOSITORY))
     found.append(("input/made-japanese-r2004.dxf", japanese_dxf("AC1018", "cp932"), "xtask/verify/make.py", *REPOSITORY))
     found.append(("input/made-japanese-r2007.dxf", japanese_dxf("AC1021", "utf-8"), "xtask/verify/make.py", *REPOSITORY))
