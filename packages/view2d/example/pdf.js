@@ -12,7 +12,8 @@ export function pdfUnderlayRenderer(pdfjs, read, { pageNumber, contentUnitsPerPo
     const number = pageNumber(request.page);
     if (!Number.isSafeInteger(number) || number < 1) throw new RangeError("pageNumber");
     // 入力バイト数と出力 Canvas の上限であり、pdf.js 内部の全確保量を制限するものではない。
-    const task = pdfjs.getDocument({ data: bytes, useSystemFonts: false, disableFontFace: true,
+    // pdf.js は data を Worker へ転送する。上限を確かめた後、転送する範囲だけを複製する。
+    const task = pdfjs.getDocument({ data: new Uint8Array(bytes), useSystemFonts: false, disableFontFace: true,
       isEvalSupported: false, maxImageSize: request.limits.maxPixels, canvasMaxAreaInBytes: request.limits.maxPixels * 4 });
     let closing;
     const close = () => closing ??= task.destroy();

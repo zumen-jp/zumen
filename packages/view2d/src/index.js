@@ -101,15 +101,18 @@ export class View2D {
   #publish(type) {
     const next = this.#state();
     if (this.#snapshot && Object.keys(next).every((key) => this.#snapshot[key] === next[key])) return;
+    const events = { [type]: Object.freeze({ type, state: next }) };
+    if (type !== "underlay" && this.#snapshot?.underlays !== next.underlays) {
+      events.underlay = Object.freeze({ type: "underlay", state: next });
+    }
     this.#snapshot = next;
-    const event = Object.freeze({ type, state: this.#snapshot });
     let failed = false, first;
     this.#notifying = true;
     try {
       // 通知中の解除は有効にし、追加は次の変更から通知する。
       for (const entry of [...this.#listeners]) {
-        if (!this.#listeners.has(entry) || (entry.type && entry.type !== type)) continue;
-        try { entry.listener(entry.type ? event : this.#snapshot); }
+        if (!this.#listeners.has(entry) || (entry.type && !events[entry.type])) continue;
+        try { entry.listener(entry.type ? events[entry.type] : next); }
         catch (error) { if (!failed) { failed = true; first = error; } }
       }
     } finally { this.#notifying = false; }
@@ -144,7 +147,8 @@ export class View2D {
     if (input !== null) {
       next = prepare(input, this.#limits);
       index = indexElements(next);
-      Object.assign(next, reportOf(next, this.#limits, display));
+      // 全レイヤを表示し、画像をすべて未解決として報告の最大件数を差し替え前に検査する。
+      Object.assign(next, reportOf(next, this.#limits, display, index.elements));
     }
     const cleanup = this.#tools.reset("scene");
     this.#measurement = null;
@@ -154,6 +158,7 @@ export class View2D {
     this.#interaction = emptyInteraction();
     this.#display = display;
     this.#underlays.scene(next, index);
+    if (next) next.reportUnderlays = this.#underlays.state;
     return this.#refresh("scene", cleanup);
   }
 
@@ -173,9 +178,7 @@ export class View2D {
     if (equalList(previous.hiddenLayers, next.hiddenLayers) && equalList(previous.selection, next.selection) &&
       previous.hovered === next.hovered && equalList(previous.highlights, next.highlights)) return this.getReport();
     const display = appearance(next, this.#index, this.#settings, this.#limits);
-    let prepared = this.#prepared;
-    if (prepared && !equalList(previous.hiddenLayers, next.hiddenLayers)) prepared = { ...prepared, ...reportOf(prepared, this.#limits, display) };
-    this.#prepared = prepared;
+    if (this.#prepared && !equalList(previous.hiddenLayers, next.hiddenLayers)) this.#prepared.reportUnderlays = null;
     this.#interaction = Object.freeze(next);
     this.#display = display;
     return this.#refresh(type);
@@ -326,6 +329,13 @@ export class View2D {
 
   invalidate() { this.#mutable(); return this.render(); }
 
+  #updateReport() {
+    const prepared = this.#prepared, state = this.#underlays.state;
+    if (!prepared || prepared.reportUnderlays === state) return;
+    Object.assign(prepared, reportOf(prepared, this.#limits, this.#display, this.#index.elements, this.#underlays));
+    prepared.reportUnderlays = state;
+  }
+
   render() {
     this.#live();
     valid(!this.#drawing && !this.#underlays.calling, "render.reentrant"); this.#drawing = true;
@@ -333,10 +343,9 @@ export class View2D {
     try {
       const ctx = this.#ctx, size = this.#size;
       this.#underlays.update(this.#view, size, this.#display);
-      if (this.#prepared) Object.assign(this.#prepared, reportOf(this.#prepared, this.#limits, this.#display, this.#underlays));
-      const underlayState = this.#underlays.state;
+      this.#updateReport();
       paint(ctx, this.#prepared, this.#settings, this.#view, size, this.#display, this.#underlays);
-      if (this.#prepared && underlayState !== this.#underlays.state) Object.assign(this.#prepared, reportOf(this.#prepared, this.#limits, this.#display, this.#underlays));
+      this.#updateReport(); // 合成が失敗した場合は、その報告を同じ描画のうちに返す。
       ctx.save();
       try {
         ctx.setTransform(size.pixelRatio, 0, 0, size.pixelRatio, 0, 0); ctx.strokeStyle = this.#settings.overlayColor; ctx.lineWidth = 1;

@@ -91,8 +91,14 @@ export class Underlays {
     queueMicrotask(() => { this.queued = false; if (!this.closed) this.changed(); });
   }
 
-  release(value, record, epoch) {
-    const failed = () => { if (this.records[record.row] === record && record.epoch === epoch) { record.failure = "resource-release-failed"; this.notify(); } };
+  release(value, lease, rasterOwner) {
+    const { record } = lease;
+    const failed = () => {
+      if (this.records[record.row] !== record || record.owner !== lease.owner) return;
+      if (rasterOwner !== undefined && lease.rasterOwner !== rasterOwner) return;
+      record.failure = "resource-release-failed";
+      this.notify();
+    };
     try {
       const result = this.invoke(() => typeof value?.dispose === "function" ? value.dispose() : undefined);
       if (result && typeof result.then === "function") return Promise.resolve(result).catch(failed);
@@ -103,9 +109,9 @@ export class Underlays {
     if (!record.raster) return;
     const raster = record.raster; record.raster = null;
     const lease = record.lease;
-    if (lease) lease.rasterReleases++;
-    const done = () => { this.pixels -= raster.pixels; if (lease) { lease.rasterReleases--; this.finishLease(lease); } };
-    const result = this.release(raster.value, record, raster.epoch);
+    lease.rasterReleases++;
+    const done = () => { this.pixels -= raster.pixels; lease.rasterReleases--; this.finishLease(lease); };
+    const result = this.release(raster.value, lease, raster.owner);
     if (result) result.then(() => { done(); this.notify(); }); else done();
   }
 
@@ -114,7 +120,7 @@ export class Underlays {
     const done = () => { if (this.leases.delete(lease)) this.notify(); };
     if (lease.resource) {
       const resource = lease.resource; lease.resource = null; lease.releasing = true;
-      const result = this.release(resource, lease.record, lease.epoch);
+      const result = this.release(resource, lease);
       if (result) { result.then(done); return; }
     }
     done();
@@ -143,30 +149,31 @@ export class Underlays {
         const unit = c.image_units[row];
         const descriptor = Object.freeze({ index: row, element: index.elements[c.unit_entities[unit]], document: this.document,
           kind: ["image", "pdf", "dwf", "dgn"][c.image_kinds[row]] ?? "unknown", name: stringAt(c, "image_names", row), page: stringAt(c, "image_pages", row) });
-        this.records.push({ row, chunk, unit, descriptor, extent: null, lease: null, raster: null, plan: null, failure: null, epoch: 0 });
+        this.records.push({ row, chunk, unit, descriptor, extent: null, lease: null, raster: null, plan: null, failure: null, owner: null });
       }
     }
   }
 
   setRenderer(renderer) { valid(renderer === null || typeof renderer === "function", "underlayRenderer"); this.renderer = renderer; this.refresh(); }
-  refresh() { this.paused = false; for (const record of this.records) { record.epoch++; this.stop(record); record.extent = null; record.failure = null; } }
+  refresh() { this.paused = false; for (const record of this.records) { record.owner = null; this.stop(record); record.extent = null; record.failure = null; } }
   cancel() { this.paused = true; for (const record of this.records) this.stop(record); }
   destroy() { this.closed = true; this.reset(); this.renderer = null; this.changed = null; }
 
   resolve(record) {
-    const lease = { record, epoch: record.epoch, control: new AbortController(), retired: false, busy: true, resource: null, operation: null, rasterReleases: 0, releasing: false };
+    const lease = { record, owner: Symbol(), rasterOwner: null, control: new AbortController(), retired: false, busy: true, resource: null, operation: null, rasterReleases: 0, releasing: false };
+    record.owner = lease.owner;
     record.lease = lease; this.leases.add(lease); this.jobs++;
     const renderer = this.renderer;
     const request = Object.freeze({ ...record.descriptor, signal: lease.control.signal, limits: this.requestLimits });
     Promise.resolve().then(() => lease.retired ? null : this.invoke(() => renderer(request))).then((value) => {
-      if (lease.retired) return this.release(value, record, lease.epoch);
+      if (lease.retired) return this.release(value, lease);
       try {
         const width = value?.width, height = value?.height;
         if (!value || !safe(width) || !safe(height) || width <= 0 || height <= 0 || typeof value.render !== "function" || typeof value.dispose !== "function") throw new Error("underlay.resource");
         record.extent = Object.freeze({ width, height });
         lease.resource = value;
       } catch {
-        record.failure = "resource-invalid"; return this.release(value, record, lease.epoch);
+        record.failure = "resource-invalid"; return this.release(value, lease);
       }
     }).catch(() => { if (!lease.retired) record.failure = "resource-resolve-failed"; }).finally(() => {
       lease.busy = false; this.jobs--; this.finishLease(lease); this.notify();
@@ -175,18 +182,19 @@ export class Underlays {
 
   rasterize(record, plan) {
     const lease = record.lease, pixels = plan.width * plan.height;
-    const operation = { control: new AbortController(), plan, pixels };
+    const operation = { owner: Symbol(), control: new AbortController(), plan, pixels };
+    lease.rasterOwner = operation.owner;
     lease.operation = operation; lease.busy = true; this.jobs++; this.pixels += pixels;
     const request = Object.freeze({ ...record.descriptor, signal: operation.control.signal, limits: this.requestLimits,
       region: plan.region, width: plan.width, height: plan.height });
     Promise.resolve().then(() => operation.control.signal.aborted ? null : this.invoke(() => lease.resource.render(request))).then((value) => {
-      if (lease.retired || operation.control.signal.aborted) return this.release(value, record, lease.epoch);
+      if (lease.retired || operation.control.signal.aborted) return this.release(value, lease, operation.owner);
       try {
         const source = value?.source, tag = Object.prototype.toString.call(source);
         if (!["[object ImageBitmap]", "[object HTMLCanvasElement]", "[object OffscreenCanvas]"].includes(tag) || source.width !== plan.width || source.height !== plan.height || typeof value.dispose !== "function") throw new Error("underlay.raster");
-        record.raster = { value, pixels, plan, epoch: lease.epoch }; operation.pixels = 0;
+        record.raster = { value, pixels, plan, owner: operation.owner }; operation.pixels = 0;
       } catch {
-        record.failure = "resource-invalid"; return this.release(value, record, lease.epoch);
+        record.failure = "resource-invalid"; return this.release(value, lease, operation.owner);
       }
     }).catch(() => { if (!lease.retired && !operation.control.signal.aborted) record.failure = "resource-render-failed"; }).finally(() => {
       this.pixels -= operation.pixels; lease.busy = false; lease.operation = null; this.jobs--; this.finishLease(lease); this.notify();
@@ -219,10 +227,18 @@ export class Underlays {
       }
       record.plan = plan;
       if (reason) { this.stop(record); record.reason = record.failure ?? reason; continue; }
-      if (record.raster && !samePlan(record.raster.plan, plan)) this.dropPixels(record);
       const lease = record.lease;
-      if (lease?.operation && !samePlan(lease.operation.plan, plan)) this.invoke(() => lease.operation.control.abort());
+      if (record.raster && !samePlan(record.raster.plan, plan)) {
+        lease.rasterOwner = null;
+        this.dropPixels(record);
+      }
+      if (lease?.operation && !samePlan(lease.operation.plan, plan)) {
+        lease.rasterOwner = null;
+        this.invoke(() => lease.operation.control.abort());
+      }
       if (!lease) {
+        // 枠の空きを待つ場合も、以前の表示の解放失敗を次の資源へ持ち越さない。
+        record.owner = null;
         if (this.leases.size >= this.limits.underlayResources) reason = "resource-limit";
         else if (this.jobs < this.limits.underlayJobs) this.resolve(record);
       } else if (lease.resource && !lease.busy && !record.raster && plan) {

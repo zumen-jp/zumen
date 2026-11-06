@@ -39,6 +39,9 @@ function quadrants(request) {
 }
 
 export async function testUnderlays({ assert, near, throws }) {
+  await testUnderlayNotifications(assert);
+  await testReplacedRelease(assert);
+  testStableReport(assert);
   const canvas = canvasOf(200, 200), viewer = new View2D(canvas, { width: 200, height: 200, pixelRatio: 2 });
   const ctx = canvas.getContext("2d");
   const pixel = (x, y, expected, message) => {
@@ -67,7 +70,9 @@ export async function testUnderlays({ assert, near, throws }) {
   assert(viewer.getState() === beforeInvalid && !resolves[0].signal.aborted && released.length === 0, "失敗した差し替えで現在の画像と資源を保つ");
   pixel(80, 110, [255, 0, 0], "画像の左下を置く"); pixel(120, 110, [0, 255, 0], "画像の右下を置く");
   pixel(80, 90, [0, 0, 255], "画像の左上を置く"); pixel(120, 90, [255, 255, 0], "画像の右上を置く");
-  viewer.invalidate(); await flush(); assert(requests.length === 1, "同じ表示の再描画で資源を解決し直さない");
+  const readyReport = viewer.getReport();
+  viewer.invalidate(); await flush();
+  assert(requests.length === 1 && viewer.getReport() === readyReport, "同じ表示の再描画で資源と描画済みの報告を再利用する");
   viewer.resize(200, 200, 1); await flush(); assert(requests[1].width === 80 && requests[1].height === 40, "画素比の変更で画素を作り直す");
   viewer.rotateBy(Math.PI / 2); await flush();
   pixel(110, 120, [255, 0, 0], "回転後の左下の色"); pixel(90, 80, [255, 255, 0], "回転後の右上の色");
@@ -132,6 +137,106 @@ export async function testUnderlays({ assert, near, throws }) {
     assert(bitmapViewer.getReport().drawn.images === 1, "ImageBitmap の結果も合成する");
     bitmapViewer.destroy(); assert(bitmaps.length === 1 && bitmaps[0].width === 0, "破棄で ImageBitmap.close を呼ぶ");
   }
+}
+
+async function testUnderlayNotifications(assert) {
+  const viewer = new View2D(canvasOf(200, 200), { width: 200, height: 200 });
+  const calls = [];
+  viewer.subscribe((state) => calls.push({ type: "all", state }));
+  for (const type of ["scene", "layers", "view", "underlay"]) viewer.on(type, (event) => calls.push(event));
+  const check = (types, status) => {
+    const state = viewer.getState();
+    assert(calls.map((event) => event.type).join() === types && calls.every((event) => event.state === state)
+      && state.underlays[0]?.status === status, `同期通知 ${types} が同じ状態 ${status} を 1 回ずつ受け取る`);
+    calls.length = 0;
+  };
+  viewer.setScene(bundle(imageScene()));
+  check("all,scene,underlay", "resource-unresolved");
+  viewer.setUnderlayRenderer(() => ({ width: 8, height: 4, render: raster, dispose() {} }));
+  check("all,underlay", "resource-pending");
+  await flush();
+  assert(calls[calls.length - 1].state.underlays[0].status === "ready", "非同期の描画完了も画像の購読へ届く");
+  calls.length = 0;
+  viewer.setHiddenLayers(["images"]);
+  check("all,layers,underlay", "resource-outside-view");
+  viewer.invalidate(); await flush();
+  check("", "resource-outside-view");
+  viewer.setHiddenLayers([]);
+  check("all,layers,underlay", "resource-pending");
+  await flush(); calls.length = 0;
+  viewer.panBy(1000, 0);
+  check("all,view,underlay", "resource-outside-view");
+  viewer.setScene(null);
+  check("all,scene,underlay", undefined);
+  viewer.destroy();
+}
+
+async function testReplacedRelease(assert) {
+  for (const change of ["layers", "view", "raster", "waiting"]) {
+    const canvas = canvasOf(200, 200), viewer = new View2D(canvas, { width: 200, height: 200,
+      limits: { underlayResources: change === "waiting" ? 1 : 2 } });
+    const releasing = deferred(), closed = [], freed = [];
+    let resources = 0, images = 0;
+    viewer.setUnderlayRenderer(() => {
+      const resource = ++resources;
+      return {
+        width: 100, height: 50,
+        render(request) {
+          const n = ++images, image = raster(request, n === 1 ? "red" : "blue");
+          return { source: image.source, dispose() {
+            image.dispose(); freed.push(n);
+            if (change === "raster" && n === 1) return releasing.promise;
+          } };
+        },
+        dispose() {
+          closed.push(resource);
+          if (change !== "raster" && resource === 1) return releasing.promise;
+        },
+      };
+    });
+    viewer.setScene(bundle(imageScene())); await flush();
+    if (change === "layers" || change === "waiting") { viewer.setHiddenLayers(["images"]); viewer.setHiddenLayers([]); }
+    else if (change === "view") { viewer.panBy(1000, 0); viewer.panBy(-1000, 0); }
+    else viewer.resize(200, 200, 2);
+    await flush();
+    if (change === "waiting") assert(images === 1 && viewer.getState().underlays[0].status === "resource-limit", "再表示が旧資源の解放を待つ");
+    else assert(images === 2 && viewer.getState().underlays[0].status === "ready", `${change} で旧資源の解放中に新しい画素を描く`);
+    releasing.reject(new Error("old release")); await flush();
+    const center = canvas.width / 2, pixel = canvas.getContext("2d").getImageData(center, center, 1, 1).data;
+    assert(viewer.getState().underlays[0].status === "ready" && viewer.getReport().drawn.images === 1
+      && pixel[0] === 0 && pixel[2] === 255 && freed.join() === "1", `${change} の旧解放失敗で新しい画素を消さない`);
+    viewer.destroy(); await flush();
+    assert(freed.join() === "1,2" && closed.join() === (change === "raster" ? "1" : "1,2"), `${change} の各世代を 1 回ずつ解放する`);
+  }
+}
+
+function testStableReport(assert) {
+  const c = imageScene({ count: 0 }), encode = new TextEncoder();
+  c.line_units = []; c.line_xy = []; c.line_vertices = [];
+  for (let i = 0; i < 1000; i++) {
+    const id = encode.encode(`space/0/h${i}`);
+    c.entity_ids.push(c.strings.length, id.length); c.strings.push(...id);
+    c.entity_paths.push(0); c.entity_kinds.push(V.entity_kind.line); c.unit_entities.push(i);
+    c.unit_colors.push(SCENE_NONE); c.unit_weights.push(0); c.unit_layers.push(0); c.unit_clips.push(SCENE_NONE);
+    c.line_units.push(i); c.line_vertices.push(i * 2); c.line_xy.push(-10, 0, 10, 0);
+  }
+  const viewer = new View2D(canvasOf(200, 200), { width: 200, height: 200 });
+  const report = viewer.setScene(bundle(c));
+  assert(report.drawn.images === 0 && report.issues.length === 1000, "画像がなく未解決色の線だけの報告を作る");
+  const decode = TextDecoder.prototype.decode;
+  let decoded = 0;
+  try {
+    TextDecoder.prototype.decode = function (...args) { decoded++; return decode.apply(this, args); };
+    const after = viewer.invalidate();
+    assert(decoded === 0 && after === report, `同じ表示の再描画で報告と ID を再利用する（復号 ${decoded} 回）`);
+    assert(viewer.panBy(1, 0) === report && decoded === 0, "パンでも同じ報告を再利用する");
+    viewer.select([report.issues[999].element]);
+    assert(viewer.getState().selection[0] === report.issues[999].element, "報告と選択が同じ配置参照を使う");
+    assert(viewer.setHiddenLayers(["images"]).issues.length === 0, "レイヤ変更時には報告を更新する");
+    const visible = viewer.setHiddenLayers([]);
+    assert(visible.issues.length === 1000 && visible.issues[999].element === report.issues[999].element && decoded === 0,
+      "再表示の報告でもシーンの ID と配置の参照を使う");
+  } finally { TextDecoder.prototype.decode = decode; viewer.destroy(); }
 }
 
 async function testUnderlayLifetime({ assert, throws }) {

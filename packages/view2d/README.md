@@ -122,7 +122,7 @@ viewer.setHighlight("search", viewer.hitTestRect({ min_x: 0, min_y: 0, max_x: 30
 
 ## 状態の購読と出所
 
-`getState()` は `scene`・`view`・`size`・`layers`・`hiddenLayers`・`selection`・`hovered`・`highlights` と、ツール名 `tool`・入力設定 `input`・進行中の操作 `gesture`・計測 `measurement` を返します。凍結した状態で、変わるまで同じ参照を返すため、状態を直接変更しないでください。`subscribe(listener)` はすべての変化で `listener(state)`、`on(type, listener)` は種類を絞って `listener({ type, state })` を呼びます。種類は `scene`・`view`・`size`・`layers`・`selection`・`hover`・`highlight`・`tool`・`input`・`measurement` です。
+`getState()` は `scene`・`view`・`size`・`layers`・`hiddenLayers`・`selection`・`hovered`・`highlights` と、ツール名 `tool`・入力設定 `input`・進行中の操作 `gesture`・計測 `measurement`・画像の状態 `underlays` を返します。凍結した状態で、変わるまで同じ参照を返すため、状態を直接変更しないでください。`subscribe(listener)` はすべての変化で `listener(state)`、`on(type, listener)` は種類を絞って `listener({ type, state })` を呼びます。種類は `scene`・`view`・`size`・`layers`・`selection`・`hover`・`highlight`・`tool`・`input`・`measurement`・`underlay` です。
 
 登録だけでは通知せず、描画と状態の更新後に同期で通知します。通知の中から状態を変えると `RangeError` になります。通知する関数が例外を投げても残りへ通知し、最初の例外を返します。この場合、状態の更新は済んでいます。通知中に解除した購読は呼ばず、追加した購読は次の変更から呼びます。
 
@@ -242,13 +242,13 @@ off();
 viewer.destroy();
 ```
 
-[PDF のアダプター](example/pdf.js) は、利用側が選んだ pdf.js、PDF を読む関数、ページ名を番号へ結ぶ関数、`contentUnitsPerPoint` と Canvas を作る関数を受け取ります。pdf.js は表示部品の依存ではありません。入力バイト数と出力 Canvas の上限は確認しますが、pdf.js 内部の全確保量を制限する例ではありません。利用側のデコーダーに必要な実行環境と、内部の上限・中断も利用側で決めてください。
+[PDF のアダプター](example/pdf.js) は、利用側が選んだ pdf.js、PDF を読む関数、ページ名を番号へ結ぶ関数、`contentUnitsPerPoint` と Canvas を作る関数を受け取ります。アダプターは入力バイト数の上限を確かめ、渡された配列の範囲を複製して pdf.js の Worker へ渡します。利用側は同じ `Uint8Array` を再読込や別の配置にも使えます。pdf.js は表示部品の依存ではありません。入力バイト数と出力 Canvas の上限は確認しますが、pdf.js 内部の全確保量を制限する例ではありません。利用側のデコーダーに必要な実行環境と、内部の上限・中断も利用側で決めてください。
 
 解決と描画は同期通知の外で始めます。同期の関数から表示部品を変更することは断ります。画面や画素比の変更で不要になった描画、関数の変更、シーンの差し替え、非表示、画面外、破棄では `signal` を中断します。古い結果と破棄後の結果は描かず、`dispose` を 1 回呼びます。戻した資源と画像は所有権を渡すため、解放されるまで変更・転送・close しないでください。同じ内容を複数の配置で共有する場合は、利用側で参照数を管理します。
 
 `dispose` は Promise も返せます。画像を解放し、未完了の描画を待ってから資源を解放します。中断した処理や解放が未完了の間も、上限の枠を保持します。`cancelUnderlays()` は処理を止め、`refreshUnderlays()`、シーンか関数の差し替えまで再開しません。失敗も自動で繰り返さず、`refreshUnderlays()` で解決し直します。`setUnderlayRenderer(null)` は関数を除きます。
 
-`getState().underlays` と `on("underlay", ...)` は、配置ごとの状態を返します。未描画の理由は `getReport().issues` にも含めます。
+`getState().underlays` と `on("underlay", ...)` は、配置ごとの状態を返します。シーンの差し替え、レイヤやカメラの変更で画像の状態が変わると、その操作の購読と `underlay` の購読に同じ状態を渡します。`subscribe` の各購読には 1 回だけ通知します。未描画の理由は `getReport().issues` にも含めます。同じシーン・表示レイヤ・画像の状態で再描画すると、同じ報告を返します。
 
 | 状態・理由 | 内容 |
 | --- | --- |
@@ -261,7 +261,7 @@ viewer.destroy();
 | `resource-release-failed` | 現行シーンの解放が失敗。ほかの資源の解放は続ける |
 | `resource-kind-unsupported`・`clip-unsupported` | 資源の種類か切り抜きが未対応 |
 
-非同期の結果も、描画と状態を更新してから通知します。例外の本文は状態へ写しません。再読込前や古いシーンの解放、破棄後の失敗も、新しい状態には混ぜません。寿命と上限の判断は[決定 0278](../../docs/decisions/0278-view2d-underlay-resources.md) にあります。
+非同期の結果も、描画と状態を更新してから通知します。例外の本文は状態へ写しません。解放の失敗は、その資源や画素の要求に対応させます。再表示、再読込、表示範囲の変更で次の要求へ移った後に古い解放が失敗しても、新しい画像は表示を続けます。寿命と上限の判断は[決定 0278](../../docs/decisions/0278-view2d-underlay-resources.md) にあります。
 
 ## 入力の検査と上限
 

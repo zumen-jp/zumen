@@ -39,7 +39,8 @@ export async function testPdfUnderlays({ assert, near }) {
   await page.render({ canvasContext: reference.getContext("2d"), viewport }).promise;
   const canvas = canvasOf(200, 200), viewer = new View2D(canvas, { width: 200, height: 200, pixelRatio: 2 });
   const allocated = [], requests = [], disposals = [];
-  const base = pdfUnderlayRenderer(pdfjs, () => Promise.resolve(data.slice()), { pageNumber: (name) => name === "front" ? 1 : Number(name), contentUnitsPerPoint: 1,
+  const originalLength = data.byteLength;
+  const base = pdfUnderlayRenderer(pdfjs, () => data, { pageNumber: (name) => name === "front" ? 1 : Number(name), contentUnitsPerPoint: 1,
     createCanvas(width, height) { const source = canvasOf(width, height); allocated.push(source); return source; } });
   viewer.setUnderlayRenderer(async (request) => {
     requests.push(request);
@@ -55,6 +56,9 @@ export async function testPdfUnderlays({ assert, near }) {
   let wrong = 0, painted = 0;
   for (let i = 0; i < expected.length; i++) { if (Math.abs(expected[i] - actual[i]) > 3) wrong++; if (i % 4 !== 3 && expected[i] < 240) painted++; }
   assert(wrong === 0 && painted > 100, "公開 PDF の画素を直接の pdf.js 描画と配置・画素比まで照らす");
+  viewer.refreshUnderlays(); await settled(viewer);
+  assert(data.byteLength === originalLength && data[0] === 0x25 && viewer.getState().underlays[0].status === "ready"
+    && viewer.getReport().drawn.images === 1, "元の PDF のバイト列を保ち、同じ配列から再読込する");
   viewer.setScene(bundle(imageScene({ kind: V.image_kind.pdf, at: [-50, -50], edges: [100, 0, 0, 100], pages: ["front"],
     clips: [{ xy: [-20, -20, 20, -20, 20, 20, -20, 20], inverted: true }] })));
   await settled(viewer);
@@ -69,6 +73,6 @@ export async function testPdfUnderlays({ assert, near }) {
   assert(blue[0] === 0 && blue[2] === 255, "合成 PDF の 2 ページ目を描く");
   assert(viewer.getState().underlays[0].width === 80 && viewer.getState().underlays[0].height === 160, "PDF のページ回転と利用側が指定した内容の単位を保つ");
   viewer.destroy(); await direct.destroy();
-  for (let n = 0; n < 100 && disposals.length < 2; n++) await new Promise((resolve) => setTimeout(resolve, 10));
-  assert(allocated.every((source) => source.width === 0 && source.height === 0) && disposals.length === 2, "PDF の画素と非同期の文書解放を完了する");
+  for (let n = 0; n < 100 && disposals.length < 3; n++) await new Promise((resolve) => setTimeout(resolve, 10));
+  assert(allocated.every((source) => source.width === 0 && source.height === 0) && disposals.length === 3, "PDF の画素と非同期の文書解放を完了する");
 }
