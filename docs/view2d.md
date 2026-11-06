@@ -1,6 +1,6 @@
 # 2D の表示部品と、旧版からの置き換え
 
-表示部品は、コアが作る 2D のシーンを利用側の Canvas に描く部品です。方針は[決定 0267](decisions/0267-view2d-on-scene-columns.md)、実装の進み具合と完了条件は [#507](https://github.com/zumen-jp/zumen/issues/507) とその子 issue にあります。この文書は機能の対応表です。描画・カメラ・レイヤ・選択・状態の購読・操作・吸着と計測の使用案内は [@zumen-jp/view2d](../packages/view2d/README.md) にあります。資源の解決・React・赤入れは後続の issue で扱います。
+表示部品は、コアが作る 2D のシーンを利用側の Canvas に描く部品です。方針は[決定 0267](decisions/0267-view2d-on-scene-columns.md)、実装の進み具合と完了条件は [#507](https://github.com/zumen-jp/zumen/issues/507) とその子 issue にあります。この文書は機能の対応表です。描画・カメラ・レイヤ・選択・状態の購読・操作・吸着と計測・資源の解決の使用案内は [@zumen-jp/view2d](../packages/view2d/README.md) にあります。React・赤入れは後続の issue で扱います。
 
 ## 比べたもの
 
@@ -30,7 +30,7 @@
 | ドラッグ・ホイール・ピンチ・ダブルクリック・キーボード | `attachInput` で明示して接続し、`setInputOptions` で個別に停止します。既定のホイールには Ctrl・Command を使います | [#586](https://github.com/zumen-jp/zumen/issues/586) |
 | `snapAt`・`setMeasurement` | 可視の頂点へ吸着し、シーンの単位の距離を返します。実寸が不明なら理由を返します | [#586](https://github.com/zumen-jp/zumen/issues/586) |
 | `addOverlay`・`invalidate` | 一時の描画と更新を利用側から渡します。シーンか表示部品の寿命を選べます | [#586](https://github.com/zumen-jp/zumen/issues/586) |
-| `imageUnderlayRenderer`・`setUnderlayRenderer`・`refreshUnderlays` | 利用側が画像や PDF を解決します。表示範囲・画素数の上限・中断・失敗・再読込を扱います | [#587](https://github.com/zumen-jp/zumen/issues/587) |
+| `imageUnderlayRenderer`・`setUnderlayRenderer`・`refreshUnderlays` | 利用側が内容の寸法と部分画像を返します。`cancelUnderlays` で中断し、古い結果と非同期の解放も上限に数えます。画像と PDF のアダプターは利用側の例です | [#587](https://github.com/zumen-jp/zumen/issues/587) |
 | `useDrawingViewer`・`useViewerState`・`useViewerEvent` | 表示部品と購読の作成・破棄を React のフックで管理します | [#588](https://github.com/zumen-jp/zumen/issues/588) |
 | `useDrawing` | 既存の wasm のラッパーを Worker で呼び、古い要求を中断し、診断とシーンを受け取ります | [#588](https://github.com/zumen-jp/zumen/issues/588) |
 | ファイル・用紙・レイヤ・要素の一覧を持つプレイグラウンド | 日本語の画面を `playground/` に置き、ファイルを利用側のブラウザーで開きます | [#588](https://github.com/zumen-jp/zumen/issues/588) |

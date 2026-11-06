@@ -16,6 +16,29 @@ viewer.jumpTo(view);
 viewer.toScene(viewer.toScreen({ x: 1, y: 2 }));
 viewer.resize(600, 400);
 const state: View2DState = viewer.getState();
+viewer.setUnderlayRenderer(async (request) => {
+  const name: string = request.name, page: string = request.page, limit: number = request.limits.maxBytes;
+  const signal: AbortSignal = request.signal;
+  void name; void page; void limit; void signal; void request.element.path;
+  return {
+    width: 100, height: 50,
+    render(part) {
+      const source = document.createElement("canvas"); source.width = part.width; source.height = part.height;
+      const bottom: number = part.region.min_y;
+      void bottom;
+      return { source, dispose() { source.width = 0; } };
+    },
+    async dispose() {},
+  };
+});
+const stopUnderlay = viewer.on("underlay", ({ state }) => { void state.underlays[0]?.status; });
+viewer.refreshUnderlays(); viewer.cancelUnderlays(); viewer.setUnderlayRenderer(null); stopUnderlay();
+// @ts-expect-error 資源にも解放する関数が要る
+viewer.setUnderlayRenderer(() => ({ width: 1, height: 1, render() { return { source: canvas, dispose() {} }; } }));
+// @ts-expect-error Blob は復号した画素ではない
+viewer.setUnderlayRenderer(() => ({ width: 1, height: 1, render() { return { source: new Blob(), dispose() {} }; }, dispose() {} }));
+// @ts-expect-error 画像の状態の一覧を直接変更しない
+state.underlays.push();
 const unsubscribe = viewer.subscribe((next) => { const same: View2DState = next; void same; });
 const off = viewer.on("selection", (event) => { const same: View2DEvent = event; void same; });
 viewer.setHiddenLayers(viewer.getLayers());

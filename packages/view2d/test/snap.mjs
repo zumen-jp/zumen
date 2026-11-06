@@ -54,8 +54,8 @@ export function testSnap({ assert, near }) {
   const set = (source, metadata = {}) => {
     prepared = prepare(bundle(source, metadata), DEFAULT_LIMITS);
     display = { hidden: new Set(), colors: new Map() };
-    Object.assign(prepared, reportOf(prepared, DEFAULT_LIMITS, display));
     index = indexElements(prepared);
+    Object.assign(prepared, reportOf(prepared, DEFAULT_LIMITS, display, index.elements));
   };
   const snap = (x, y, tolerance = 8, limits = DEFAULT_LIMITS) => snapPoint(ctx, prepared, settings, view, size, display, index, limits, { x, y }, tolerance);
   const measure = (start, end, limits = DEFAULT_LIMITS) => measurementOf(prepared, start, end, index, limits);

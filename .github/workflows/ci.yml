@@ -252,7 +252,11 @@ jobs:
       - name: 書いた SVG の描画順・字形・切り抜きを Chromium で照合する
         run: node crates/zumen-render/tests/browser.mjs target/svg-check/drawing.svg target/svg-check/region.svg
       - name: Canvas 2D で合成シーンと DXF・JWW・SXF を描く（決定 0267）
-        run: node bindings/js/test/browser/view2d.mjs chromium target/wasm32-unknown-unknown/release/zumen_abi1.wasm
+        env:
+          ZUMEN_PDFJS_REQUIRED: '1'
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund --prefix xtask/verify/pdfjs
+          node bindings/js/test/browser/view2d.mjs chromium target/wasm32-unknown-unknown/release/zumen_abi1.wasm
       - name: npm のパッケージを Vite で組み、必要な wasm だけをブラウザーで読み込むことを確かめる（決定 0268）
         run: node bindings/js/test/browser/bundle.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm modules/zumen_abi1_drawing.wasm modules/zumen_abi1_bim.wasm modules/zumen_abi1_civil.wasm modules/zumen_abi1_pointcloud.wasm
 
