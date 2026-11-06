@@ -324,11 +324,23 @@ pub struct Diagnostics {
     record_order: Option<RecordOrder>,
 }
 
-/// レコードを持たない場所は最後にする。同じレコードでは届いた順を保つ。
-type RecordPosition = (bool, u64);
+/// 形式がレコード番号を持てばその番号を、バイト範囲だけなら開始位置を使う。
+/// 比較できる位置が同じときは届いた順にし、位置のない診断は最後にする。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum RecordPosition {
+    Record(u64),
+    Byte(u64),
+    Unknown,
+}
 
 fn record_position(place: &Ref) -> RecordPosition {
-    (place.record().is_none(), place.record().unwrap_or(0))
+    if let Some(record) = place.record() {
+        RecordPosition::Record(record)
+    } else if let Some(bytes) = place.bytes() {
+        RecordPosition::Byte(bytes.start)
+    } else {
+        RecordPosition::Unknown
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -436,7 +448,7 @@ impl Diagnostics {
                 .iter()
                 .map(record_position)
                 .min()
-                .unwrap_or((true, 0)),
+                .unwrap_or(RecordPosition::Unknown),
             order.reports,
         );
         order.reports = order.reports.saturating_add(1);

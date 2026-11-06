@@ -1,0 +1,48 @@
+{
+  "description": "公開 R2000 DWG から DXF への変換で、欠落の診断を元のオブジェクトのバイト位置順に並べる。2 枚の用紙を落とし、場所の上限が 1 件でも元のファイルで先にある用紙を指す。",
+  "module": "drawing",
+  "steps": [
+    {
+      "push": {
+        "name": "input.dwg",
+        "file": "samples/dwg/zumen-points-a-r2000.dwg"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "input.dwg"
+      },
+      "expect": {
+        "/result/format": "dwg"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "convert",
+        "doc": "input.dwg",
+        "format": "dxf",
+        "to": "out.dxf",
+        "max_places": 1
+      },
+      "expect": {
+        "/result/format": "dxf",
+        "/diagnostics/0/code": "convert.element.unsupported",
+        "/diagnostics/0/params/kind": "sheet",
+        "/diagnostics/0/count": 2,
+        "/diagnostics/0/at": [
+          {
+            "bytes": {
+              "start": 22998,
+              "end": 23214
+            }
+          }
+        ],
+        "/diagnostics/1/params/kind": "point",
+        "/diagnostics/2/params/kind": "layer"
+      }
+    }
+  ]
+}

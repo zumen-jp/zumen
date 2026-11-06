@@ -216,6 +216,15 @@ pub struct Reply {
 /// op が失敗したこと。理由の診断は、文脈に足してある
 pub(crate) struct Failed;
 
+/// 変換の各段階の診断を一緒に集める。処理が報告した失敗と、収集自体の予算による停止をどちらも返す。
+fn in_input_order<T>(
+    cx: &mut Cx<'_>,
+    operation: impl FnOnce(&mut Cx<'_>) -> Result<T, Failed>,
+) -> Result<T, Failed> {
+    cx.with_diagnostics_in_record_order(|cx| Ok::<_, Stop>(operation(cx)))
+        .map_err(|_| Failed)?
+}
+
 /// 診断を足して、失敗にする
 pub(crate) fn fail(cx: &mut Cx<'_>, diagnostic: Diagnostic) -> Failed {
     cx.report(diagnostic);
@@ -1162,8 +1171,10 @@ impl Session {
                     .with("format", request.format.as_str()),
             ));
         }
-        let drawing = self.lift(&request.doc, cx)?;
-        let converted = convert::to_dxf(&drawing, cx)?;
+        let converted = in_input_order(cx, |cx| {
+            let drawing = self.lift(&request.doc, cx)?;
+            convert::to_dxf(&drawing, cx)
+        })?;
         let hash =
             Hash::document_checked(&converted.bytes, cx).map_err(|stop| stopped(cx, stop))?;
         self.docs.insert(
@@ -1678,8 +1689,10 @@ impl Session {
             let bytes = self.input(name, &format!("/profiles/{index}"), cx)?;
             profiles.push((name.as_str(), bytes));
         }
-        let (drawing, mut result) = civil::civil_drawing(request, model, &profiles, cx)?;
-        let converted = convert::to_dxf(&drawing, cx)?;
+        let (converted, mut result) = in_input_order(cx, |cx| {
+            let (drawing, result) = civil::civil_drawing(request, model, &profiles, cx)?;
+            Ok((convert::to_dxf(&drawing, cx)?, result))
+        })?;
         let hash =
             Hash::document_checked(&converted.bytes, cx).map_err(|stop| stopped(cx, stop))?;
         self.docs.insert(

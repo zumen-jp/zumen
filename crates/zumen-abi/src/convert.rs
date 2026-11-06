@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 
 use zumen_acad::db::{Data, Section};
 use zumen_acad::{Dxf, DxfFile};
-use zumen_base::{Cx, Diagnostic, Diagnostics, Kind, Ref, Stop, Value, codes};
+use zumen_base::{Cx, Diagnostic, Diagnostics, Kind, Ref, Value, codes};
 use zumen_drawing::{
     Changes, Color, ColorCode, ColorSystem, DimensionStyle, Drawing2D, Edit, Element, Inherit,
     Layer, LayerId, LayerState, LayerStyle, LineType, LineTypeId, ModelPoint, PaperPoint, Placed,
@@ -30,12 +30,6 @@ pub(crate) struct Converted {
 
 /// 図面モデルを、新しい DXF（R2004）に書く
 pub(crate) fn to_dxf(drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<Converted, Failed> {
-    // 各段階がすでに報告した失敗はそのまま返し、収集自体が予算で止まったときも失敗にする。
-    cx.with_diagnostics_in_record_order(|cx| Ok::<_, Stop>(write_dxf(drawing, cx)))
-        .map_err(|_| Failed)?
-}
-
-fn write_dxf(drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<Converted, Failed> {
     let blocks = block_names(drawing, cx);
     let template = template(drawing, &blocks);
     cx.check(Kind::Work, template.len() as u64)
