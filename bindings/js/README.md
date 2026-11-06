@@ -4,6 +4,7 @@ wasm のモジュール（`zumen_abi1.wasm`）を、ブラウザーと Node.js�
 
 - npm の `@zumen-jp/zumen` で配ります（[決定 0003](../../docs/decisions/0003-names-and-domain.md)・[決定 0205](../../docs/decisions/0205-release-and-publishing.md)）。パッケージには全体版と 4 つの分割版の wasm を入れます。依存のライセンスの文は `THIRD_PARTY_LICENSES` にあります。
 - 素の ESM の JavaScript で書き、ビルドも npm の依存もありません。型は `.d.ts` にあります。
+- 各 wasm の依存一覧（CycloneDX SBOM）は `sboms/{wasm のファイル名}.cdx.json` にあります。
 - `src/messages.d.ts`・`src/constants.js`・`src/constants.d.ts` は、`schema/` から `cargo xtask codegen` で生成します。手で直さないでください。
 
 ## 使い方

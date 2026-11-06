@@ -1,9 +1,10 @@
 """ネイティブのライブラリを入れた wheel を、標準ライブラリだけで作る（決定 0205）。
 
-    python build_wheel.py <ライブラリの道筋> <プラットフォームのタグ> [出力のディレクトリ] --licenses <ライセンスのディレクトリ>
+    python build_wheel.py <ライブラリの道筋> <プラットフォームのタグ> [出力のディレクトリ] --licenses <ライセンスのディレクトリ> --sbom <対応する .cdx.json>
 
 ライブラリは zumen/_native に入れ、load() が道筋なしで読む。拡張のモジュールはないので、タグは py3-none-<プラットフォーム>。
-ライセンスは xtask/release/licenses.py で作る。作成には Python 3.11 以降を使う。
+SBOM とライセンスの生成から wheel の梱包・検査まで進める手順は、xtask/release/README.md の
+「ネイティブのライブラリ・CLI・wheel を作る」を参照する。作成には Python 3.11 以降を使う。
 """
 
 import argparse
@@ -14,6 +15,7 @@ import os
 import sys
 import tomllib
 import zipfile
+from pathlib import Path
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -29,6 +31,7 @@ def main(argv: list) -> None:
     parser.add_argument("platform")
     parser.add_argument("out", nargs="?", default=os.path.join(HERE, "dist"))
     parser.add_argument("--licenses", required=True)
+    parser.add_argument("--sbom", type=Path, help="package.py native が作る対象 ABI の SBOM。既定はライブラリの隣の .cdx.json")
     args = parser.parse_args(argv[1:])
     library, platform, out = args.library, args.platform, args.out
     with open(os.path.join(args.licenses, "THIRD_PARTY_LICENSES"), "rb") as f:
@@ -73,7 +76,17 @@ def main(argv: list) -> None:
                 files.append((f"zumen/{entry}", f.read()))
     with open(library, "rb") as f:
         files.append((f"zumen/_native/{os.path.basename(library)}", f.read()))
+    binary = files[-1][1]
+    sbom_name = os.path.basename(library) + ".cdx.json"
+    document = (args.sbom or Path(library).with_name(sbom_name)).read_bytes()
+    meta = json.loads(document)["metadata"]
+    attributes = {p["name"]: p["value"] for p in meta["properties"]}
+    if (attributes["zumen:crate"] != "zumen-abi" or attributes["cdx:rustc:sbom:target:triple"] != target["target"]
+            or attributes["zumen:artifact"] != os.path.basename(library) or attributes["zumen:features"] != "default"
+            or meta["component"]["hashes"] != [{"alg": "SHA-256", "content": hashlib.sha256(binary).hexdigest()}]):
+        raise ValueError("wheel のライブラリと SBOM が違う")
     info = f"{name}-{version}.dist-info"
+    files.append((f"{info}/sboms/{sbom_name}", document))
     for filename in ("LICENSE-MIT", "LICENSE-APACHE"):
         with open(os.path.join(HERE, "../..", filename), "rb") as f:
             files.append((f"{info}/licenses/{filename}", f.read()))
