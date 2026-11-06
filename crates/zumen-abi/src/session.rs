@@ -87,18 +87,8 @@ const BUILT: Engine = if cfg!(target_family = "wasm") {
 pub struct Session {
     engine: Engine,
     inputs: BTreeMap<String, Vec<u8>>,
-    /// `open` で作った文書
-    docs: BTreeMap<String, Doc>,
-    /// `open` で作った文書の、元のバイト列のハッシュ（決定 0156）
-    hashes: BTreeMap<String, Hash>,
-    /// `open` で作った建物モデルの文書（決定 0219）。名前は `docs` と分け合う
-    models: BTreeMap<String, building::Model>,
-    /// `open` で作った土木の領域モデルの文書（J-LandXML、決定 0230）。名前は `docs` と分け合う
-    civils: BTreeMap<String, zumen_civil::CivilModel>,
-    /// `open` で作った地理の領域モデルの文書（CityGML、決定 0233）。名前は `docs` と分け合う
-    geos: BTreeMap<String, zumen_geo::GeoModel>,
-    /// 開いた点群（決定 0232）
-    clouds: BTreeMap<String, zumen_pointcloud::PointCloud>,
+    /// 一つの名前で元の文書と、そこから作った領域モデルを一緒に管理する（決定 0219・0235）。
+    docs: BTreeMap<String, Document>,
     /// 実行中の op の名前。使えない文書の診断に書く
     op: &'static str,
     /// 直前の呼び出しが作ったバイナリの結果。取り出したものは `None` になる
@@ -108,10 +98,40 @@ pub struct Session {
     child: Option<crate::process::Child>,
 }
 
+/// 一つの元文書。IFC から読んだ線形は、その建物と一緒に登録・更新・破棄する。
+#[derive(Debug)]
+enum Document {
+    Drawing {
+        file: Box<DrawingFile>,
+        hash: Hash,
+    },
+    Building {
+        model: Box<building::Model>,
+        civil: Option<Box<zumen_civil::CivilModel>>,
+    },
+    Civil(Box<zumen_civil::CivilModel>),
+    Geo(Box<zumen_geo::GeoModel>),
+    Cloud(Box<zumen_pointcloud::PointCloud>),
+}
+
+impl Document {
+    #[cfg(feature = "bim")]
+    fn from_building(model: building::Model, cx: &mut Cx<'_>) -> Result<Self, Failed> {
+        let civil = match &model.file {
+            Some(file) => civil::from_ifc(file, cx)?,
+            None => None,
+        };
+        Ok(Self::Building {
+            model: Box::new(model),
+            civil: civil.map(Box::new),
+        })
+    }
+}
+
 /// 開いた文書。形式ごとのファイルモデル（L1）を持つ。コアの形式は `drawing` の feature で持ち、プラグインのモジュール
 /// （決定 0247）には、コアのコーデックを入れない
 #[derive(Debug)]
-enum Doc {
+enum DrawingFile {
     #[cfg(feature = "drawing")]
     Dxf(DxfFile),
     #[cfg(feature = "drawing")]
@@ -127,20 +147,20 @@ enum Doc {
     Lifted(binary::Source, Drawing2D),
 }
 
-impl Doc {
+impl DrawingFile {
     /// 形式の台帳のキー
     fn format(&self) -> &str {
         match self {
             #[cfg(feature = "drawing")]
-            Doc::Dxf(_) => Dxf::FORMAT,
+            DrawingFile::Dxf(_) => Dxf::FORMAT,
             #[cfg(feature = "drawing")]
-            Doc::Dwg(_) => Dwg::FORMAT,
+            DrawingFile::Dwg(_) => Dwg::FORMAT,
             #[cfg(feature = "drawing")]
-            Doc::Sxf(..) => Sxf::FORMAT,
+            DrawingFile::Sxf(..) => Sxf::FORMAT,
             #[cfg(feature = "drawing")]
-            Doc::Jww(_) => Jww::FORMAT,
-            Doc::Plugin(registration, _) => registration.format,
-            Doc::Lifted(source, _) => &source.format,
+            DrawingFile::Jww(_) => Jww::FORMAT,
+            DrawingFile::Plugin(registration, _) => registration.format,
+            DrawingFile::Lifted(source, _) => &source.format,
         }
     }
 
@@ -148,13 +168,13 @@ impl Doc {
     fn family(&self) -> &str {
         match self {
             #[cfg(feature = "drawing")]
-            Doc::Dxf(_) | Doc::Dwg(_) => "acad",
+            DrawingFile::Dxf(_) | DrawingFile::Dwg(_) => "acad",
             #[cfg(feature = "drawing")]
-            Doc::Sxf(..) => "sxf",
+            DrawingFile::Sxf(..) => "sxf",
             #[cfg(feature = "drawing")]
-            Doc::Jww(_) => "jww",
-            Doc::Plugin(registration, _) => registration.family,
-            Doc::Lifted(source, _) => &source.family,
+            DrawingFile::Jww(_) => "jww",
+            DrawingFile::Plugin(registration, _) => registration.family,
+            DrawingFile::Lifted(source, _) => &source.family,
         }
     }
 
@@ -162,16 +182,18 @@ impl Doc {
     fn lift(&self, cx: &mut Cx<'_>) -> Result<Cow<'_, Drawing2D>, zumen_sdk::Error> {
         match self {
             #[cfg(feature = "drawing")]
-            Doc::Dxf(file) => file.lift(cx).map(Cow::Owned),
+            DrawingFile::Dxf(file) => file.lift(cx).map(Cow::Owned),
             #[cfg(feature = "drawing")]
-            Doc::Dwg(file) => file.lift(cx).map(Cow::Owned),
+            DrawingFile::Dwg(file) => file.lift(cx).map(Cow::Owned),
             #[cfg(feature = "drawing")]
-            Doc::Sxf(file, _, attributes) => {
+            DrawingFile::Sxf(file, _, attributes) => {
                 file.lift_with(attributes.as_deref(), cx).map(Cow::Owned)
             }
             #[cfg(feature = "drawing")]
-            Doc::Jww(file) => file.lift(cx).map(Cow::Owned),
-            Doc::Plugin(_, drawing) | Doc::Lifted(_, drawing) => Ok(Cow::Borrowed(drawing)),
+            DrawingFile::Jww(file) => file.lift(cx).map(Cow::Owned),
+            DrawingFile::Plugin(_, drawing) | DrawingFile::Lifted(_, drawing) => {
+                Ok(Cow::Borrowed(drawing))
+            }
         }
     }
 }
@@ -194,6 +216,15 @@ pub struct Reply {
 /// op が失敗したこと。理由の診断は、文脈に足してある
 pub(crate) struct Failed;
 
+/// 変換の各段階の診断を一緒に集める。処理が報告した失敗と、収集自体の予算による停止をどちらも返す。
+fn in_input_order<T>(
+    cx: &mut Cx<'_>,
+    operation: impl FnOnce(&mut Cx<'_>) -> Result<T, Failed>,
+) -> Result<T, Failed> {
+    cx.with_diagnostics_in_record_order(|cx| Ok::<_, Stop>(operation(cx)))
+        .map_err(|_| Failed)?
+}
+
 /// 診断を足して、失敗にする
 pub(crate) fn fail(cx: &mut Cx<'_>, diagnostic: Diagnostic) -> Failed {
     cx.report(diagnostic);
@@ -213,13 +244,13 @@ pub(crate) fn stopped(cx: &mut Cx<'_>, stop: Stop) -> Failed {
 /// 同じ名前の SAF を使う。SAF が読めなければ、診断を返して、属性ファイルなしで開く。SXF でない文書に名指せば失敗する
 #[cfg(feature = "drawing")]
 fn with_attributes(
-    doc: Option<Doc>,
+    doc: Option<DrawingFile>,
     saf: Option<&str>,
     inputs: &BTreeMap<String, Vec<u8>>,
     cx: &mut Cx<'_>,
-) -> Result<Option<Doc>, Failed> {
+) -> Result<Option<DrawingFile>, Failed> {
     let (file, archive) = match doc {
-        Some(Doc::Sxf(file, archive, _)) => (file, archive),
+        Some(DrawingFile::Sxf(file, archive, _)) => (file, archive),
         other if saf.is_none() => return Ok(other),
         _ => return Err(fail(cx, invalid_value("/saf"))),
     };
@@ -242,32 +273,32 @@ fn with_attributes(
         Some(Err(zumen_sdk::Error::Stopped(_))) => return Err(Failed),
         Some(Err(_)) => None,
     };
-    Ok(Some(Doc::Sxf(file, archive, attributes)))
+    Ok(Some(DrawingFile::Sxf(file, archive, attributes)))
 }
 
 #[cfg(feature = "drawing")]
-fn read_drawing(bytes: &[u8], cx: &mut Cx<'_>) -> Result<Option<Doc>, Failed> {
+fn read_drawing(bytes: &[u8], cx: &mut Cx<'_>) -> Result<Option<DrawingFile>, Failed> {
     // 図面モデルのバイナリ（決定 0247）。始まりの 4 バイトは、コアのどの形式とも重ならない
     if binary::matches(bytes) {
         let (source, drawing) = binary::read(bytes, cx).map_err(|_| Failed)?;
-        return Ok(Some(Doc::Lifted(source, drawing)));
+        return Ok(Some(DrawingFile::Lifted(source, drawing)));
     }
     // 失敗の理由は、コーデックが診断として足してある
     let format = zumen_sdk::detect(formats::DRAWING, bytes).map(|registration| registration.format);
     let doc = if format == Some(Dxf::FORMAT) {
-        Doc::Dxf(Dxf::read(bytes, cx).map_err(|_| Failed)?)
+        DrawingFile::Dxf(Dxf::read(bytes, cx).map_err(|_| Failed)?)
     } else if format == Some(Dwg::FORMAT) {
         // 読めるのは R2000（AC1015）だけ。ほかのバージョンは、コーデックが診断を足して失敗する
-        Doc::Dwg(Dwg::read(bytes, cx).map_err(|_| Failed)?)
+        DrawingFile::Dwg(Dwg::read(bytes, cx).map_err(|_| Failed)?)
     } else if format == Some(Sxf::FORMAT) {
         // 同じ始まりの IFC などは、コーデックがスキーマを確かめて、診断を足して失敗する
-        Doc::Sxf(Sxf::read(bytes, cx).map_err(|_| Failed)?, None, None)
+        DrawingFile::Sxf(Sxf::read(bytes, cx).map_err(|_| Failed)?, None, None)
     } else if format == Some(Jww::FORMAT) {
-        Doc::Jww(Jww::read(bytes, cx).map_err(|_| Failed)?)
+        DrawingFile::Jww(Jww::read(bytes, cx).map_err(|_| Failed)?)
     } else if let Some((sxf, archive)) = packed::read(bytes, cx)? {
         // P2Z・SFZ（#385）。SXF の項目のない ZIP は、ifcZIP などとして後で試す
         let file = Sxf::read(&sxf, cx).map_err(|_| Failed)?;
-        Doc::Sxf(file, Some(Box::new(archive)), None)
+        DrawingFile::Sxf(file, Some(Box::new(archive)), None)
     } else if let Some(doc) = read_plugin(bytes, cx)? {
         // コアのどの形式でもなければ、登録した図面の形式のプラグインを順に試す（決定 0243）
         doc
@@ -279,7 +310,7 @@ fn read_drawing(bytes: &[u8], cx: &mut Cx<'_>) -> Result<Option<Doc>, Failed> {
 
 /// 登録した図面の形式のプラグインを、順に試す。どのプラグインの形式でもなければ `None`
 #[cfg(any(feature = "drawing", feature = "plugin"))]
-fn read_plugin(bytes: &[u8], cx: &mut Cx<'_>) -> Result<Option<Doc>, Failed> {
+fn read_plugin(bytes: &[u8], cx: &mut Cx<'_>) -> Result<Option<DrawingFile>, Failed> {
     let Some((registration, read)) =
         plugin::installed()
             .iter()
@@ -294,7 +325,7 @@ fn read_plugin(bytes: &[u8], cx: &mut Cx<'_>) -> Result<Option<Doc>, Failed> {
         return Ok(None);
     };
     // 失敗の理由は、プラグインが診断として足してある
-    Ok(Some(Doc::Plugin(
+    Ok(Some(DrawingFile::Plugin(
         registration,
         read(bytes, cx).map_err(|_| Failed)?,
     )))
@@ -355,11 +386,6 @@ impl Session {
             engine,
             inputs: BTreeMap::new(),
             docs: BTreeMap::new(),
-            hashes: BTreeMap::new(),
-            models: BTreeMap::new(),
-            civils: BTreeMap::new(),
-            geos: BTreeMap::new(),
-            clouds: BTreeMap::new(),
             op: "",
             blobs: Vec::new(),
             #[cfg(not(target_family = "wasm"))]
@@ -615,6 +641,25 @@ impl Session {
         result.ok()
     }
 
+    fn check_new_document(&self, name: &str, cx: &mut Cx<'_>) -> Result<(), Failed> {
+        if self.docs.contains_key(name) {
+            return Err(fail(
+                cx,
+                Diagnostic::new(codes::CALL_DOCUMENT_EXISTS).with("name", name),
+            ));
+        }
+        Ok(())
+    }
+
+    fn document(&self, name: &str, cx: &mut Cx<'_>) -> Result<&Document, Failed> {
+        self.docs.get(name).ok_or_else(|| {
+            fail(
+                cx,
+                Diagnostic::new(codes::CALL_DOCUMENT_MISSING).with("name", name),
+            )
+        })
+    }
+
     fn open(&mut self, request: &OpenRequest, cx: &mut Cx<'_>) -> Result<OpenResult, Failed> {
         if !name::is_safe(&request.input) {
             return Err(fail(cx, invalid_value("/input")));
@@ -630,17 +675,7 @@ impl Session {
             return Err(fail(cx, input_missing(&request.input)));
         };
         let name = request.doc.as_ref().unwrap_or(&request.input);
-        if self.docs.contains_key(name)
-            || self.models.contains_key(name)
-            || self.civils.contains_key(name)
-            || self.clouds.contains_key(name)
-            || self.geos.contains_key(name)
-        {
-            return Err(fail(
-                cx,
-                Diagnostic::new(codes::CALL_DOCUMENT_EXISTS).with("name", name.as_str()),
-            ));
-        }
+        self.check_new_document(name, cx)?;
         // IFC-SPF は SXF と同じ始まりなので先に、ifcZIP は ZIP なので最後に試す（決定 0219）。モジュールには、
         // 持つ形式の判定だけを入れる（決定 0221）
         #[cfg(feature = "bim")]
@@ -667,7 +702,8 @@ impl Session {
         #[cfg(feature = "civil")]
         if request.format.as_deref() == Some(zumen_extdm::ExtDm::FORMAT) {
             let model = geo::read_extdm(bytes, cx)?;
-            self.geos.insert(name.clone(), model);
+            self.docs
+                .insert(name.clone(), Document::Geo(Box::new(model)));
             return Ok(OpenResult {
                 doc: name.clone(),
                 format: zumen_extdm::ExtDm::FORMAT.to_string(),
@@ -683,7 +719,7 @@ impl Session {
             let format = zumen_las::Las::FORMAT.to_string();
             return Ok(match opened? {
                 pointcloud::Opened::Cloud(cloud, done) => {
-                    self.clouds.insert(name.clone(), *cloud);
+                    self.docs.insert(name.clone(), Document::Cloud(cloud));
                     OpenResult {
                         doc: name.clone(),
                         format,
@@ -707,7 +743,8 @@ impl Session {
         #[cfg(feature = "pointcloud")]
         if let Some(opened) = pointcloud::read_whole(bytes, request.format.as_deref(), cx) {
             let (format, cloud) = opened?;
-            self.clouds.insert(name.clone(), cloud);
+            self.docs
+                .insert(name.clone(), Document::Cloud(Box::new(cloud)));
             return Ok(OpenResult {
                 doc: name.clone(),
                 format: format.to_string(),
@@ -737,23 +774,29 @@ impl Session {
 
                 entries: match &doc {
                     #[cfg(feature = "drawing")]
-                    Doc::Sxf(_, Some(archive), _) => Some(archive.names()),
+                    DrawingFile::Sxf(_, Some(archive), _) => Some(archive.names()),
                     _ => None,
                 },
             };
             let hash = match &doc {
                 // 元の文書のハッシュ。書いた側が付けたもので、ここでは確かめられない
-                Doc::Lifted(source, _) => source.hash,
+                DrawingFile::Lifted(source, _) => source.hash,
                 _ => Hash::document_checked(bytes, cx).map_err(|stop| stopped(cx, stop))?,
             };
-            self.hashes.insert(name.clone(), hash);
-            self.docs.insert(name.clone(), doc);
+            self.docs.insert(
+                name.clone(),
+                Document::Drawing {
+                    file: Box::new(doc),
+                    hash,
+                },
+            );
             return Ok(result);
         }
         // J-LandXML は XML の根で見分ける（決定 0230）。図面・土木地理・点群のどのモジュールも読む（決定 0253）
         #[cfg(any(feature = "drawing", feature = "civil", feature = "pointcloud"))]
         if let Some(model) = civil::read(bytes, cx) {
-            self.civils.insert(name.clone(), model?);
+            self.docs
+                .insert(name.clone(), Document::Civil(Box::new(model?)));
             return Ok(OpenResult {
                 doc: name.clone(),
                 format: zumen_landxml::LandXml::FORMAT.to_string(),
@@ -766,7 +809,8 @@ impl Session {
         // CityGML と基盤地図情報も XML の根で見分ける（決定 0233）
         #[cfg(feature = "civil")]
         if let Some((format, model)) = geo::read(bytes, cx) {
-            self.geos.insert(name.clone(), model?);
+            self.docs
+                .insert(name.clone(), Document::Geo(Box::new(model?)));
             return Ok(OpenResult {
                 doc: name.clone(),
                 format: format.to_string(),
@@ -793,23 +837,16 @@ impl Session {
         ))
     }
 
+    #[cfg(feature = "bim")]
     fn open_model(
         &mut self,
         name: String,
         model: building::Model,
         cx: &mut Cx<'_>,
     ) -> Result<OpenResult, Failed> {
-        // IFC4.3 の線形は、土木の領域モデルにもする（決定 0235）。BIM のモジュールも civil の op を持つ（決定 0253）
-        #[cfg(feature = "bim")]
-        if let Some(file) = &model.file
-            && let Some(civil) = civil::from_ifc(file, cx)?
-        {
-            self.civils.insert(name.clone(), civil);
-        }
-        #[cfg(not(feature = "bim"))]
-        let _ = cx;
         let format = model.format.to_string();
-        self.models.insert(name.clone(), model);
+        self.docs
+            .insert(name.clone(), Document::from_building(model, cx)?);
         Ok(OpenResult {
             doc: name,
             format,
@@ -834,12 +871,7 @@ impl Session {
         }
         let mut missing = false;
         for doc in docs {
-            if !self.docs.contains_key(doc)
-                && !self.models.contains_key(doc)
-                && !self.civils.contains_key(doc)
-                && !self.clouds.contains_key(doc)
-                && !self.geos.contains_key(doc)
-            {
+            if !self.docs.contains_key(doc) {
                 cx.report(Diagnostic::new(codes::CALL_DOCUMENT_MISSING).with("name", doc.as_str()));
                 missing = true;
             }
@@ -856,11 +888,6 @@ impl Session {
         }
         for doc in docs {
             self.docs.remove(doc);
-            self.hashes.remove(doc);
-            self.models.remove(doc);
-            self.civils.remove(doc);
-            self.geos.remove(doc);
-            self.clouds.remove(doc);
         }
         for input in inputs {
             self.inputs.remove(input);
@@ -869,9 +896,9 @@ impl Session {
     }
 
     fn drawing(&self, request: &DrawingRequest, cx: &mut Cx<'_>) -> Result<DrawingResult, Failed> {
-        let drawing = self.lift(&request.doc, cx)?;
-        let hash = self.hashes.get(&request.doc).map(Hash::to_string);
-        summary(&drawing, hash, cx)
+        let (file, hash) = self.drawing_file(&request.doc, cx)?;
+        let drawing = file.lift(cx).map_err(|_| Failed)?;
+        summary(&drawing, Some(hash.to_string()), cx)
     }
 
     fn entities(
@@ -1051,7 +1078,11 @@ impl Session {
             }
         }
         let changes = changes(request, &drawing, cx)?;
-        let Some(doc) = self.docs.get_mut(&request.doc) else {
+        let Some(Document::Drawing {
+            file,
+            hash: current_hash,
+        }) = self.docs.get_mut(&request.doc)
+        else {
             return Err(fail(
                 cx,
                 Diagnostic::new(codes::CALL_DOCUMENT_MISSING).with("name", request.doc.as_str()),
@@ -1060,12 +1091,12 @@ impl Session {
         // 書き出しが予算や中断で止まっても、元の文書は変更しない。
         let mut bytes = Vec::new();
         let mut ids_shifted = false;
-        let (applied, hash) = match doc {
+        let (applied, hash) = match file.as_mut() {
             // プラグインの文書と図面モデルのバイナリは、書き戻せない（決定 0243・0247）
-            Doc::Plugin(..) | Doc::Lifted(..) => {
+            DrawingFile::Plugin(..) | DrawingFile::Lifted(..) => {
                 return Err(fail(cx, unsupported(&request.doc, self.op)));
             }
-            Doc::Dxf(file) => {
+            DrawingFile::Dxf(file) => {
                 let mut updated = file.snapshot(cx).map_err(|_| Failed)?;
                 let applied = updated.apply(&changes, cx).map_err(|_| Failed)?;
                 Dxf::write(&updated, &mut bytes, cx).map_err(|_| Failed)?;
@@ -1073,7 +1104,7 @@ impl Session {
                 *file = updated;
                 (applied, hash)
             }
-            Doc::Dwg(file) => {
+            DrawingFile::Dwg(file) => {
                 let mut updated = file.snapshot(cx).map_err(|_| Failed)?;
                 let applied = updated.apply(&changes, cx).map_err(|_| Failed)?;
                 Dwg::write(&updated, &mut bytes, cx).map_err(|_| Failed)?;
@@ -1081,7 +1112,7 @@ impl Session {
                 *file = updated;
                 (applied, hash)
             }
-            Doc::Sxf(file, archive, _) => {
+            DrawingFile::Sxf(file, archive, _) => {
                 let mut updated = file.clone();
                 let applied = updated.apply(&changes, cx).map_err(|_| Failed)?;
                 Sxf::write(&updated, &mut bytes, cx).map_err(|_| Failed)?;
@@ -1094,7 +1125,7 @@ impl Session {
                 *file = updated;
                 (applied, hash)
             }
-            Doc::Jww(file) => {
+            DrawingFile::Jww(file) => {
                 let mut updated = file.clone();
                 let (applied, shifted) = updated.apply(&changes, cx).map_err(|_| Failed)?;
                 Jww::write(&updated, &mut bytes, cx).map_err(|_| Failed)?;
@@ -1104,7 +1135,7 @@ impl Session {
                 (applied, hash)
             }
         };
-        self.hashes.insert(request.doc.clone(), hash);
+        *current_hash = hash;
         self.blobs.push(Some(Blob {
             kind: BlobKind::File,
             bytes,
@@ -1132,12 +1163,7 @@ impl Session {
         if !name::is_safe(&request.to) {
             return Err(fail(cx, invalid_value("/to")));
         }
-        if self.docs.contains_key(&request.to) {
-            return Err(fail(
-                cx,
-                Diagnostic::new(codes::CALL_DOCUMENT_EXISTS).with("name", request.to.as_str()),
-            ));
-        }
+        self.check_new_document(&request.to, cx)?;
         if request.format != Dxf::FORMAT {
             return Err(fail(
                 cx,
@@ -1145,13 +1171,19 @@ impl Session {
                     .with("format", request.format.as_str()),
             ));
         }
-        let drawing = self.lift(&request.doc, cx)?;
-        let converted = convert::to_dxf(&drawing, cx)?;
+        let converted = in_input_order(cx, |cx| {
+            let drawing = self.lift(&request.doc, cx)?;
+            convert::to_dxf(&drawing, cx)
+        })?;
         let hash =
             Hash::document_checked(&converted.bytes, cx).map_err(|stop| stopped(cx, stop))?;
-        self.hashes.insert(request.to.clone(), hash);
-        self.docs
-            .insert(request.to.clone(), Doc::Dxf(converted.file));
+        self.docs.insert(
+            request.to.clone(),
+            Document::Drawing {
+                file: Box::new(DrawingFile::Dxf(converted.file)),
+                hash,
+            },
+        );
         self.blobs.push(Some(Blob {
             kind: BlobKind::File,
             bytes: converted.bytes,
@@ -1172,16 +1204,12 @@ impl Session {
         cx: &mut Cx<'_>,
     ) -> Result<LiftResult, Failed> {
         let bytes = {
-            let drawing = self.lifted(&request.doc, cx)?;
-            let (Some(doc), Some(hash)) =
-                (self.docs.get(&request.doc), self.hashes.get(&request.doc))
-            else {
-                return Err(fail(cx, invalid_value("/doc")));
-            };
+            let (doc, hash) = self.drawing_file(&request.doc, cx)?;
+            let drawing = doc.lift(cx).map_err(|_| Failed)?;
             let source = binary::Source {
                 format: doc.format().to_string(),
                 family: doc.family().to_string(),
-                hash: *hash,
+                hash,
             };
             binary::write(&source, &drawing, cx).map_err(|error| match error {
                 binary::WriteError::Stopped(stop) => stopped(cx, stop),
@@ -1253,12 +1281,9 @@ impl Session {
             };
             profiles.push((name.as_str(), bytes.as_slice()));
         }
-        let family = match self.docs.get(&request.doc) {
-            Some(doc) => doc.family(),
-            None => "",
-        };
-        let drawing = self.lift(&request.doc, cx)?;
-        check::check(&drawing, request, &profiles, &palette, family, cx)
+        let (doc, _) = self.drawing_file(&request.doc, cx)?;
+        let drawing = doc.lift(cx).map_err(|_| Failed)?;
+        check::check(&drawing, request, &profiles, &palette, doc.family(), cx)
     }
 
     /// 入力の名前のバイト列。`pointer` は名前を書いたフィールド
@@ -1278,21 +1303,19 @@ impl Session {
         request: &ReviewCarryRequest,
         cx: &mut Cx<'_>,
     ) -> Result<ReviewCarryResult, Failed> {
-        let plan = match self.models.get(&request.doc) {
-            Some(model) => review::Plan {
+        let plan = match self.docs.get(&request.doc) {
+            Some(Document::Building { model, .. }) => review::Plan {
                 hash: model.hash.to_string(),
                 elements: model.hashes(cx)?,
             },
             #[cfg(feature = "drawing")]
-            None => {
-                let drawing = self.lift(&request.doc, cx)?;
-                let Some(hash) = self.hashes.get(&request.doc) else {
-                    return Err(fail(cx, invalid_value("/doc")));
-                };
+            _ => {
+                let (file, hash) = self.drawing_file(&request.doc, cx)?;
+                let drawing = file.lift(cx).map_err(|_| Failed)?;
                 review::Plan::drawing(&drawing, hash.to_string(), cx)?
             }
             #[cfg(not(feature = "drawing"))]
-            None => {
+            _ => {
                 return Err(fail(
                     cx,
                     Diagnostic::new(codes::CALL_DOCUMENT_MISSING)
@@ -1328,11 +1351,8 @@ impl Session {
             palette: request.palette.clone(),
         };
         let findings = self.check(&check, cx)?.findings;
-        let drawing = self.lift(&request.doc, cx)?;
-        let (Some(hash), Some(doc)) = (self.hashes.get(&request.doc), self.docs.get(&request.doc))
-        else {
-            return Err(fail(cx, invalid_value("/doc")));
-        };
+        let (doc, hash) = self.drawing_file(&request.doc, cx)?;
+        let drawing = doc.lift(cx).map_err(|_| Failed)?;
         let target = zumen_review::Target {
             id: request.target.clone(),
             format: doc.format().to_string(),
@@ -1368,14 +1388,9 @@ impl Session {
         let model = self.model(&request.doc, "building_apply", cx)?;
         // 書き出しが予算や中断で止まっても、元の文書は変更しない。
         let (updated, result, bytes) = building::apply(model, request, cx)?;
-        // IFC4.3 の線形の土木の領域モデルも、書き戻したものから作り直す（決定 0235）
-        self.civils.remove(&request.doc);
-        if let Some(file) = &updated.file
-            && let Some(civil) = civil::from_ifc(file, cx)?
-        {
-            self.civils.insert(request.doc.clone(), civil);
-        }
-        self.models.insert(request.doc.clone(), updated);
+        // 線形の読み取りも終わってから、建物と土木の見方を一緒に差し替える。
+        self.docs
+            .insert(request.doc.clone(), Document::from_building(updated, cx)?);
         self.blobs.push(Some(Blob {
             kind: BlobKind::File,
             bytes,
@@ -1388,19 +1403,9 @@ impl Session {
         if !name::is_safe(doc) {
             return Err(fail(cx, invalid_value("/doc")));
         }
-        match self.models.get(doc) {
-            Some(model) => Ok(model),
-            None if self.docs.contains_key(doc)
-                || self.civils.contains_key(doc)
-                || self.clouds.contains_key(doc)
-                || self.geos.contains_key(doc) =>
-            {
-                Err(fail(cx, unsupported(doc, op)))
-            }
-            None => Err(fail(
-                cx,
-                Diagnostic::new(codes::CALL_DOCUMENT_MISSING).with("name", doc),
-            )),
+        match self.document(doc, cx)? {
+            Document::Building { model, .. } => Ok(model),
+            _ => Err(fail(cx, unsupported(doc, op))),
         }
     }
 
@@ -1479,31 +1484,31 @@ impl Session {
         request: &messages::CivilRequest,
         cx: &mut Cx<'_>,
     ) -> Result<messages::CivilResult, Failed> {
-        let model = match &request.doc {
-            None => None,
-            Some(doc) => {
-                if !name::is_safe(doc) {
-                    return Err(fail(cx, invalid_value("/doc")));
-                }
-                match self.civils.get(doc) {
-                    Some(model) => Some(model),
-                    None if self.docs.contains_key(doc)
-                        || self.models.contains_key(doc)
-                        || self.clouds.contains_key(doc)
-                        || self.geos.contains_key(doc) =>
-                    {
-                        return Err(fail(cx, unsupported(doc, "civil")));
-                    }
-                    None => {
-                        return Err(fail(
-                            cx,
-                            Diagnostic::new(codes::CALL_DOCUMENT_MISSING).with("name", doc.clone()),
-                        ));
-                    }
-                }
-            }
-        };
+        let model = request
+            .doc
+            .as_deref()
+            .map(|doc| self.civil_model(doc, "/doc", "civil", cx))
+            .transpose()?;
         civil::civil(request, model, cx)
+    }
+
+    fn civil_model(
+        &self,
+        doc: &str,
+        pointer: &str,
+        op: &str,
+        cx: &mut Cx<'_>,
+    ) -> Result<&zumen_civil::CivilModel, Failed> {
+        if !name::is_safe(doc) {
+            return Err(fail(cx, invalid_value(pointer)));
+        }
+        match self.document(doc, cx)? {
+            Document::Civil(model)
+            | Document::Building {
+                civil: Some(model), ..
+            } => Ok(model),
+            _ => Err(fail(cx, unsupported(doc, op))),
+        }
     }
 
     /// 開いた CityGML の地理の領域モデルの要約と、地物の中身（決定 0233）
@@ -1517,19 +1522,9 @@ impl Session {
         if !name::is_safe(doc) {
             return Err(fail(cx, invalid_value("/doc")));
         }
-        match self.geos.get(doc) {
-            Some(model) => geo::geo(request, model, cx),
-            None if self.docs.contains_key(doc)
-                || self.models.contains_key(doc)
-                || self.civils.contains_key(doc)
-                || self.clouds.contains_key(doc) =>
-            {
-                Err(fail(cx, unsupported(doc, "geo")))
-            }
-            None => Err(fail(
-                cx,
-                Diagnostic::new(codes::CALL_DOCUMENT_MISSING).with("name", doc.clone()),
-            )),
+        match self.document(doc, cx)? {
+            Document::Geo(model) => geo::geo(request, model, cx),
+            _ => Err(fail(cx, unsupported(doc, "geo"))),
         }
     }
 
@@ -1662,26 +1657,7 @@ impl Session {
         cx: &mut Cx<'_>,
     ) -> Result<messages::DeviationResult, Failed> {
         let cloud = self.cloud(&request.doc, "/doc", cx)?;
-        let doc = &request.surface.doc;
-        if !name::is_safe(doc) {
-            return Err(fail(cx, invalid_value("/surface/doc")));
-        }
-        let model = match self.civils.get(doc) {
-            Some(model) => model,
-            None if self.docs.contains_key(doc)
-                || self.models.contains_key(doc)
-                || self.clouds.contains_key(doc)
-                || self.geos.contains_key(doc) =>
-            {
-                return Err(fail(cx, unsupported(doc, "deviation")));
-            }
-            None => {
-                return Err(fail(
-                    cx,
-                    Diagnostic::new(codes::CALL_DOCUMENT_MISSING).with("name", doc.clone()),
-                ));
-            }
-        };
+        let model = self.civil_model(&request.surface.doc, "/surface/doc", "deviation", cx)?;
         let mut profiles = Vec::with_capacity(request.profiles.len());
         for (index, name) in request.profiles.iter().enumerate() {
             let bytes = self.input(name, &format!("/profiles/{index}"), cx)?;
@@ -1705,45 +1681,27 @@ impl Session {
             return Err(fail(cx, invalid_value("/to")));
         }
         let to = &request.to;
-        if self.docs.contains_key(to)
-            || self.models.contains_key(to)
-            || self.civils.contains_key(to)
-            || self.clouds.contains_key(to)
-            || self.geos.contains_key(to)
-        {
-            return Err(fail(
-                cx,
-                Diagnostic::new(codes::CALL_DOCUMENT_EXISTS).with("name", to.as_str()),
-            ));
-        }
-        let model = match self.civils.get(doc) {
-            Some(model) => model,
-            None if self.docs.contains_key(doc)
-                || self.models.contains_key(doc)
-                || self.clouds.contains_key(doc)
-                || self.geos.contains_key(doc) =>
-            {
-                return Err(fail(cx, unsupported(doc, "civil_drawing")));
-            }
-            None => {
-                return Err(fail(
-                    cx,
-                    Diagnostic::new(codes::CALL_DOCUMENT_MISSING).with("name", doc.clone()),
-                ));
-            }
-        };
+        self.check_new_document(to, cx)?;
+        let model = self.civil_model(doc, "/doc", "civil_drawing", cx)?;
         let names = request.profiles.as_deref().unwrap_or_default();
         let mut profiles = Vec::with_capacity(names.len());
         for (index, name) in names.iter().enumerate() {
             let bytes = self.input(name, &format!("/profiles/{index}"), cx)?;
             profiles.push((name.as_str(), bytes));
         }
-        let (drawing, mut result) = civil::civil_drawing(request, model, &profiles, cx)?;
-        let converted = convert::to_dxf(&drawing, cx)?;
+        let (converted, mut result) = in_input_order(cx, |cx| {
+            let (drawing, result) = civil::civil_drawing(request, model, &profiles, cx)?;
+            Ok((convert::to_dxf(&drawing, cx)?, result))
+        })?;
         let hash =
             Hash::document_checked(&converted.bytes, cx).map_err(|stop| stopped(cx, stop))?;
-        self.hashes.insert(to.clone(), hash);
-        self.docs.insert(to.clone(), Doc::Dxf(converted.file));
+        self.docs.insert(
+            to.clone(),
+            Document::Drawing {
+                file: Box::new(DrawingFile::Dxf(converted.file)),
+                hash,
+            },
+        );
         self.blobs.push(Some(Blob {
             kind: BlobKind::File,
             bytes: converted.bytes,
@@ -1765,19 +1723,9 @@ impl Session {
         if !name::is_safe(doc) {
             return Err(fail(cx, invalid_value(pointer)));
         }
-        match self.clouds.get(doc) {
-            Some(cloud) => Ok(cloud),
-            None if self.docs.contains_key(doc)
-                || self.models.contains_key(doc)
-                || self.civils.contains_key(doc)
-                || self.geos.contains_key(doc) =>
-            {
-                Err(fail(cx, unsupported(doc, "pointcloud")))
-            }
-            None => Err(fail(
-                cx,
-                Diagnostic::new(codes::CALL_DOCUMENT_MISSING).with("name", doc.to_string()),
-            )),
+        match self.document(doc, cx)? {
+            Document::Cloud(cloud) => Ok(cloud),
+            _ => Err(fail(cx, unsupported(doc, "pointcloud"))),
         }
     }
 
@@ -1794,29 +1742,18 @@ impl Session {
 
     /// 名前の文書を、図面モデルに変換する
     fn lift(&self, doc: &str, cx: &mut Cx<'_>) -> Result<Drawing2D, Failed> {
-        self.lifted(doc, cx).map(Cow::into_owned)
+        let (file, _) = self.drawing_file(doc, cx)?;
+        file.lift(cx).map(Cow::into_owned).map_err(|_| Failed)
     }
 
-    /// 名前の文書の図面モデル。図面モデルを持つ文書は、複製せずに貸す
-    fn lifted(&self, doc: &str, cx: &mut Cx<'_>) -> Result<Cow<'_, Drawing2D>, Failed> {
+    fn drawing_file(&self, doc: &str, cx: &mut Cx<'_>) -> Result<(&DrawingFile, Hash), Failed> {
         if !name::is_safe(doc) {
             return Err(fail(cx, invalid_value("/doc")));
         }
-        let Some(found) = self.docs.get(doc) else {
-            if self.models.contains_key(doc)
-                || self.civils.contains_key(doc)
-                || self.clouds.contains_key(doc)
-                || self.geos.contains_key(doc)
-            {
-                return Err(fail(cx, unsupported(doc, self.op)));
-            }
-            return Err(fail(
-                cx,
-                Diagnostic::new(codes::CALL_DOCUMENT_MISSING).with("name", doc),
-            ));
-        };
-        // 止めた理由は、変換が診断として足してある
-        found.lift(cx).map_err(|_| Failed)
+        match self.document(doc, cx)? {
+            Document::Drawing { file, hash } => Ok((file, *hash)),
+            _ => Err(fail(cx, unsupported(doc, self.op))),
+        }
     }
 
     #[cfg(test)]
@@ -7231,8 +7168,8 @@ END_SCHEMA;
             "{codes:?}"
         );
         assert_eq!(number(&response, "/diagnostics/0/at/0/record"), "19");
-        assert_eq!(number(&response, "/diagnostics/1/at/0/record"), "29");
-        assert_eq!(number(&response, "/diagnostics/2/at/0/record"), "27");
+        assert_eq!(number(&response, "/diagnostics/1/at/0/record"), "27");
+        assert_eq!(number(&response, "/diagnostics/2/at/0/record"), "29");
         let file = String::from_utf8(session.take(0).unwrap()).unwrap();
         assert!(file.contains("\nDOOR\n"), "{file}");
         // 書いた文書は、開いた文書と同じに使える
@@ -7314,8 +7251,8 @@ END_SCHEMA;
         assert_eq!(status, Status::Ok, "{response:?}");
         assert_eq!(number(&response, "/result/elements"), "5", "{response:?}");
         assert!(!codes_of(&response).contains(&"convert.attribute.drawn".to_string()));
-        assert_eq!(text(&response, "/diagnostics/2/params/kind"), "text");
-        assert_eq!(number(&response, "/diagnostics/2/at/0/record"), "27");
+        assert_eq!(text(&response, "/diagnostics/1/params/kind"), "text");
+        assert_eq!(number(&response, "/diagnostics/1/at/0/record"), "27");
     }
 
     #[test]

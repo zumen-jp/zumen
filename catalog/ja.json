@@ -70,6 +70,7 @@
     "convert.attribute.drawn": "記号の属性 {count} 件を、{format} では記号から離した文字として書きました。",
     "convert.element.unsupported": "「{kind}」を {count} 件、{format} に書けないので落としました。",
     "convert.format.unsupported": "{format} には、まだ別の形式から書けません。",
+    "convert.layer-field.dropped": "画層の「{field}」を {count} 件、{format} への変換で落としました。",
     "convert.view.approximated": "横と縦の尺度の違うビュー {count} 件を、{format} では用紙の要素に焼き込んで書きました。",
     "crs.datum-grid.invalid": "測地系の変換のパラメーターの {line} 行目が壊れていて読めませんでした（{count} 件）。",
     "crs.datum-grid.missing": "EPSG:{crs} の座標を JGD2011 に直す {grid} のパラメーターがないので、直しませんでした（{count} 件）。",

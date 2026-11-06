@@ -785,6 +785,20 @@ pub const CONVERT_FORMAT_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
+/// 新しいファイルへの変換で画層の説明か透過性を出力できず、元の値を落とした。フィールドごとに数える
+///
+/// `convert.layer-field.dropped`（0.2.0 から）
+pub const CONVERT_LAYER_FIELD_DROPPED: Code = Code::new(
+    "convert.layer-field.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[
+        Param::new("field", ParamType::Key),
+        Param::new("format", ParamType::Text),
+    ],
+    &["field"],
+);
+
 /// 別の形式に書くとき、横と縦の尺度の違うビューを、ビューの要素を用紙に写した要素にして書いた。曲線は用紙で 0.02 mm に収まる折れ線にした（決定 0238）
 ///
 /// `convert.view.approximated`（0.2.0 から）
@@ -4501,6 +4515,7 @@ pub const ALL: &[Code] = &[
     CONVERT_ATTRIBUTE_DRAWN,
     CONVERT_ELEMENT_UNSUPPORTED,
     CONVERT_FORMAT_UNSUPPORTED,
+    CONVERT_LAYER_FIELD_DROPPED,
     CONVERT_VIEW_APPROXIMATED,
     CRS_DATUM_GRID_INVALID,
     CRS_DATUM_GRID_MISSING,
