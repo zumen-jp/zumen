@@ -1153,7 +1153,7 @@ impl Session {
         })
     }
 
-    /// 図面モデルを別の形式の新しいファイルに書き、新しい文書として開く（決定 0206）
+    /// 開いた図面を別の形式のファイルに変換し、新しい文書として開く（決定 0206・0281）
     #[cfg(feature = "drawing")]
     fn convert(
         &mut self,
@@ -1172,7 +1172,13 @@ impl Session {
             ));
         }
         let converted = in_input_order(cx, |cx| {
-            let drawing = self.lift(&request.doc, cx)?;
+            let (source, _) = self.drawing_file(&request.doc, cx)?;
+            if let DrawingFile::Dwg(file) = source
+                && file.version() == b"AC1018"
+            {
+                return convert::from_r2004(file, cx);
+            }
+            let drawing = source.lift(cx).map_err(|_| Failed)?;
             convert::to_dxf(&drawing, cx)
         })?;
         let hash =

@@ -272,7 +272,7 @@ impl Object {
     }
 
     /// 最初の `code` の値を、有限の実数として読む
-    fn finite(&self, code: i16) -> Result<f64, ViewError> {
+    pub(crate) fn finite(&self, code: i16) -> Result<f64, ViewError> {
         match self.real(code) {
             None => Err(ViewError::Missing(code)),
             Some(value) => value

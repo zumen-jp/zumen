@@ -1,6 +1,6 @@
-//! 図面モデルを、別の形式の新しいファイルに書く（lower。決定 0139・0206）。
+//! 開いた図面を新しい DXF に書く（決定 0139・0206・0281）。対応する R2004 DWG では共有の表を再符号化する。
 //!
-//! 形式ごとのひな形（表の既定の項目と、記号の定義の空の部品だけを持つファイル）を作り、図面モデルの線種・
+//! 図面モデルから書くときは、形式ごとのひな形（表の既定の項目と、記号の定義の空の部品だけを持つファイル）を作り、図面モデルの線種・
 //! 文字スタイル・寸法スタイル・レイヤ・要素を、書き戻し（apply）の追加で足す。書けない要素は落とし、種類ごとの
 //! 件数を診断にする。
 
@@ -26,6 +26,24 @@ pub(crate) struct Converted {
     pub(crate) file: DxfFile,
     pub(crate) bytes: Vec<u8>,
     pub(crate) elements: u64,
+}
+
+/// R2004 DWG は共有の表を一度だけ読む。再符号化の範囲外なら同じ表から図面モデルを作る。
+pub(crate) fn from_r2004(
+    source: &zumen_acad::DwgFile,
+    cx: &mut Cx<'_>,
+) -> Result<Converted, Failed> {
+    let db = source.objects(cx).map_err(|_| Failed)?;
+    if let Some(encoded) = db.reencode_r2004_dxf(cx).map_err(|_| Failed)? {
+        let file = Dxf::read(&encoded.bytes, cx).map_err(|_| Failed)?;
+        return Ok(Converted {
+            file,
+            bytes: encoded.bytes,
+            elements: encoded.elements,
+        });
+    }
+    let drawing = zumen_acad::lift_drawing(&db, cx).map_err(|_| Failed)?;
+    to_dxf(&drawing, cx)
 }
 
 /// 図面モデルを、新しい DXF（R2004）に書く

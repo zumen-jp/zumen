@@ -22,9 +22,12 @@ use zumen_base::{Code, Cx, Diagnostic, Kind, Ref, SpecRef, codes};
 
 use crate::db::ViewError;
 mod binary;
+mod family;
 mod objects;
 mod version;
 mod write_back;
+
+pub use family::ReencodedDxf;
 
 use zumen_sdk::{ByteRange, Codec, Error, FileModel, RecordInfo, Signature, Transact, Transaction};
 
@@ -639,6 +642,29 @@ fn parse_real(value: &[u8]) -> Option<f64> {
         .parse()
         .ok()?;
     real.is_finite().then_some(real)
+}
+
+// DXF Reference「Group Code Value Types」。書き戻しと同系統の再符号化で同じ値の行を書く。
+fn value_bytes(data: &crate::Data) -> Option<std::borrow::Cow<'_, [u8]>> {
+    use crate::Data;
+    use std::borrow::Cow;
+    Some(match data {
+        Data::Text(bytes) => Cow::Borrowed(bytes),
+        Data::Real(f) if f.is_finite() => Cow::Owned(format_real(*f)),
+        Data::Real(_) => return None,
+        Data::Int(n) => Cow::Owned(n.to_string().into_bytes()),
+        Data::Bool(flag) => Cow::Borrowed(if *flag { b"1" } else { b"0" }),
+        Data::Handle(h) => Cow::Owned(format!("{h:X}").into_bytes()),
+        Data::Binary(bytes) => {
+            let hex = |n: u8| if n < 10 { b'0' + n } else { b'A' + (n - 10) };
+            let mut digits = Vec::with_capacity(bytes.len().checked_mul(2)?);
+            for byte in bytes {
+                digits.push(hex(byte >> 4));
+                digits.push(hex(byte & 15));
+            }
+            Cow::Owned(digits)
+        }
+    })
 }
 
 /// 有限の実数を、読み直すと同じ値に戻る最短の 10 進の表記にする。整数の値にも小数点を付ける
