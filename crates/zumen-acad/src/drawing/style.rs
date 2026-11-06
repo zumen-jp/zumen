@@ -510,8 +510,7 @@ pub(super) const LAYER_TRANSPARENCY_APP: &str = "AcCmTransparency";
 /// XDATA の、登録アプリケーション名（1001）が `app` の組の値。なければ `None`
 fn xdata<'a>(object: &'a Object, app: &[u8]) -> Option<&'a [Value]> {
     let start = object.values.iter().position(|value| {
-        value.code == 1001
-            && matches!(&value.data, Data::Text(name) if name.eq_ignore_ascii_case(app))
+        value.code == 1001 && matches!(&value.data, Data::Text(name) if name.as_slice() == app)
     })?;
     let group = object.values.get(start + 1..)?;
     group.split(|value| value.code == 1001).next()
