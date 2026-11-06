@@ -192,7 +192,9 @@ jobs:
       - name: 検証キットの DXF を ezdxf で読み、zumen の読みと照らす
         # 当たらなかった変更があっても、書いたファイルは照らす。CLI を作れずキットがないときは流さない
         if: ${{ !cancelled() && steps.make.outcome != 'skipped' }}
-        run: python -I xtask/verify/check_ezdxf.py "$RUNNER_TEMP/verify"
+        run: |
+          python -I xtask/verify/check_ezdxf.py "$RUNNER_TEMP/verify"
+          python -I xtask/verify/test_dxf_layer_fields.py target/release/zumen
       - name: 検証キットの JWW を ezjww で読み、zumen の読みと照らす
         if: ${{ !cancelled() && steps.make.outcome != 'skipped' }}
         run: python -I xtask/verify/check_ezjww.py "$RUNNER_TEMP/verify"

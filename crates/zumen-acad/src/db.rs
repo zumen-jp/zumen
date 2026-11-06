@@ -39,6 +39,14 @@ impl AcadDb {
         self.reindex();
     }
 
+    /// 表の連続したレコードをまとめて挿入し、ハンドルの索引を 1 回作る。
+    #[cfg(feature = "drawing")]
+    pub(crate) fn insert_many(&mut self, index: usize, records: Vec<Object>) {
+        let index = index.min(self.objects.len());
+        self.objects.splice(index..index, records);
+        self.reindex();
+    }
+
     /// `index` 番目のオブジェクトを除いて返す。なければ `None`。除いたオブジェクトのハンドルを持つものが
     /// ほかになければ、ほかのオブジェクトからの参照のうち、辞書の項目と 102 の組の中の参照も除く
     /// （[`Object::forget`]）

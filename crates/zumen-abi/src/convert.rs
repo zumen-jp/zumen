@@ -4,9 +4,8 @@
 //! 文字スタイル・寸法スタイル・レイヤ・要素を、書き戻し（apply）の追加で足す。書けない要素は落とし、種類ごとの
 //! 件数を診断にする。
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
-use zumen_acad::db::{Data, Section};
 use zumen_acad::{Dxf, DxfFile};
 use zumen_base::{Cx, Diagnostic, Diagnostics, Kind, Ref, Value, codes};
 use zumen_drawing::{
@@ -112,14 +111,20 @@ pub(crate) fn to_dxf(drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<Converted, 
     // 2. レイヤ。線種は、書いた先の ID に直す
     let target = lift(&file, cx)?;
     let mut edits = Vec::new();
+    let mut fields = Vec::new();
+    let mut reused = BTreeSet::new();
     for layer in &drawing.layers {
         cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
-        // ひな形の画層を再利用するときも、この二つの値は出力に移らない。
-        report_layer_fields(layer, cx);
-        if find_layer(&target, &layer.name).is_some() {
+        if let Some(existing) = find_layer(&target, &layer.name) {
+            // 同じひな形の画層を指す入力が複数あれば先の画層を使う。
+            if !reused.insert(existing.id) {
+                report_layer_fields(layer, cx);
+            } else if has_layer_fields(layer) {
+                fields.push(layer);
+            }
             continue;
         }
-        // DXF の画層は、状態・番号の色・線種を持つ。持たないものは既定で埋め、透過性と説明は書かない
+        // 画層の通常の値を先に書き、追加できた画層の拡張データを確定時に書く。
         let style = layer.style.unwrap_or(LayerStyle {
             color: None,
             line_type: None,
@@ -152,9 +157,12 @@ pub(crate) fn to_dxf(drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<Converted, 
                 ..state
             },
         );
-        edits.push(Addition::new(
+        let mut addition = Addition::new(
             Edit::AddLayer {
                 layer: Box::new(Layer {
+                    id: layer.id,
+                    name: layer.name.clone(),
+                    follows_placement: layer.follows_placement,
                     state: Some(state),
                     style: Some(LayerStyle {
                         color: Some(color),
@@ -164,14 +172,15 @@ pub(crate) fn to_dxf(drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<Converted, 
                     }),
                     description: None,
                     source: zumen_base::Ref::default(),
-                    ..layer.clone()
                 }),
             },
             "layer",
             &layer.source,
-        ));
+        );
+        addition.layer_fields = has_layer_fields(layer).then_some(layer);
+        edits.push(addition);
     }
-    add_all(&mut file, edits, cx)?;
+    fields.extend(add_all(&mut file, edits, cx)?.layer_fields);
 
     // 3. 要素。記号の定義の中身を先に、実寸の空間の要素を後に足す
     let target = lift(&file, cx)?;
@@ -293,9 +302,12 @@ pub(crate) fn to_dxf(drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<Converted, 
             }
         }
     }
-    let elements = add_all(&mut file, edits, cx)?;
-
-    quiet(cx, |cx| update_table_counts(&mut file, cx)).map_err(|error| failed(cx, error))?;
+    let elements = add_all(&mut file, edits, cx)?.elements;
+    let db = quiet(cx, |cx| file.objects(cx)).map_err(|error| failed(cx, error))?;
+    let db = db
+        .finish_new_dxf_tables(&fields, cx)
+        .map_err(|error| failed(cx, error))?;
+    quiet(cx, |cx| file.write_back(&db, cx)).map_err(|error| failed(cx, error))?;
     let mut bytes = Vec::new();
     Dxf::write(&file, &mut bytes, cx).map_err(|_| Failed)?;
     Ok(Converted {
@@ -305,43 +317,6 @@ pub(crate) fn to_dxf(drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<Converted, 
     })
 }
 
-/// DXF Reference「Symbol Table Group Codes」の TABLE の 70 は、項目数の上限。
-/// apply で追加した後の実際の項目数を書き、ひな形の初期値のままにしない。
-fn update_table_counts(file: &mut DxfFile, cx: &mut Cx<'_>) -> Result<(), Error> {
-    let mut db = file.objects(cx)?;
-    let mut current: Option<(usize, i64)> = None;
-    let mut tables = Vec::new();
-    for (index, object) in db.objects().iter().enumerate() {
-        cx.check(Kind::Work, 1)?;
-        if object.section != Section::Tables {
-            continue;
-        }
-        match object.kind.as_slice() {
-            b"TABLE" => current = Some((index, 0)),
-            b"ENDTAB" => {
-                if let Some(table) = current.take() {
-                    tables.push(table);
-                }
-            }
-            _ => {
-                if let Some((_, count)) = &mut current {
-                    *count = count.saturating_add(1);
-                }
-            }
-        }
-    }
-    for (index, count) in tables {
-        let object = db.object_mut(index).ok_or(Error::Invalid)?;
-        let value = object
-            .values
-            .iter_mut()
-            .find(|value| value.code == 70)
-            .ok_or(Error::Invalid)?;
-        value.data = Data::Int(count);
-    }
-    file.write_back(&db, cx)
-}
-
 fn report_dropped(cx: &mut Cx<'_>, kind: &'static str, source: &Ref) {
     cx.report(
         Diagnostic::new(codes::CONVERT_ELEMENT_UNSUPPORTED)
@@ -349,6 +324,10 @@ fn report_dropped(cx: &mut Cx<'_>, kind: &'static str, source: &Ref) {
             .with("format", "DXF")
             .at(source.clone()),
     );
+}
+
+fn has_layer_fields(layer: &Layer) -> bool {
+    layer.description.is_some() || layer.style.and_then(|style| style.transparency).is_some()
 }
 
 fn report_layer_fields(layer: &Layer, cx: &mut Cx<'_>) {
@@ -369,20 +348,22 @@ fn report_layer_fields(layer: &Layer, cx: &mut Cx<'_>) {
 }
 
 /// 追加と、失敗したときに返す元の種類・場所。属性の描画は、追加が通ってから数える。
-struct Addition {
+struct Addition<'a> {
     edit: Edit,
     kind: &'static str,
     source: Ref,
     detached: bool,
+    layer_fields: Option<&'a Layer>,
 }
 
-impl Addition {
+impl Addition<'_> {
     fn new(edit: Edit, kind: &'static str, source: &Ref) -> Self {
         Self {
             edit,
             kind,
             source: source.clone(),
             detached: false,
+            layer_fields: None,
         }
     }
 }
@@ -401,7 +382,7 @@ impl Maps<'_> {
         &self,
         element: &Element<P>,
         place: &Place<P>,
-        edits: &mut Vec<Addition>,
+        edits: &mut Vec<Addition<'_>>,
         cx: &mut Cx<'_>,
     ) {
         let kind = kind_of(&element.shape);
@@ -535,10 +516,20 @@ fn model_place(id: String, space: SpaceId) -> Place<ModelPoint> {
     }
 }
 
+#[derive(Default)]
+struct Added<'a> {
+    elements: u64,
+    layer_fields: Vec<&'a Layer>,
+}
+
 /// 変更をまとめて当て、当てられなければ半分に分けて当て直す。1 つでも当てられない変更は落として数える。
 /// 当てられなかった試しの診断は捨てる
-fn add_all(file: &mut DxfFile, edits: Vec<Addition>, cx: &mut Cx<'_>) -> Result<u64, Failed> {
-    let mut added = 0;
+fn add_all<'a>(
+    file: &mut DxfFile,
+    edits: Vec<Addition<'a>>,
+    cx: &mut Cx<'_>,
+) -> Result<Added<'a>, Failed> {
+    let mut added = Added::default();
     let mut pending = vec![edits];
     while let Some(edits) = pending.pop() {
         if edits.is_empty() {
@@ -552,7 +543,10 @@ fn add_all(file: &mut DxfFile, edits: Vec<Addition>, cx: &mut Cx<'_>) -> Result<
         };
         match quiet(cx, |cx| file.apply(&changes, cx)) {
             Ok(_) => {
-                added += edits
+                added
+                    .layer_fields
+                    .extend(edits.iter().filter_map(|a| a.layer_fields));
+                added.elements += edits
                     .iter()
                     .filter(|addition| matches!(addition.edit, Edit::Add { .. }))
                     .count() as u64;
@@ -567,6 +561,9 @@ fn add_all(file: &mut DxfFile, edits: Vec<Addition>, cx: &mut Cx<'_>) -> Result<
             Err(Error::Rejected | Error::Invalid | Error::Unsupported) => {
                 if let [addition] = edits.as_slice() {
                     report_dropped(cx, addition.kind, &addition.source);
+                    if let Some(layer) = addition.layer_fields {
+                        report_layer_fields(layer, cx);
+                    }
                 } else {
                     let mut first = edits;
                     let second = first.split_off(first.len() / 2);
@@ -1018,7 +1015,7 @@ fn viewports(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use zumen_acad::db::Data;
+    use zumen_acad::db::{Data, Section};
     use zumen_base::{Budget, CancelToken, Limits, Ref};
     use zumen_civil::{Alignment, CivilModel, Horizontal, HorizontalKind, Vertical, VerticalKind};
     use zumen_crs::MapPoint;

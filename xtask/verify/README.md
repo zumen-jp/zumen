@@ -7,6 +7,7 @@ zumen が書き戻した（apply）・変換した（convert）図面を、zumen
 | `make.py` | zumen の CLI（`zumen serve --stdio`）で、公開サンプル（`samples/`）と適合テストの中で作った図面を開き、書き戻しと変換を当てて、キットのフォルダーに書く。zumen が読んだ値・入力の出所とライセンス・当てた変更・期待する形を `manifest.json` に、issue ごとの手順と期待する結果を `README.md` に、ライセンスの本文を `licenses/` に書く |
 | `compare.py` | 照らすスクリプトが共有する比べ方。形の値の比べ方、出所のハンドルで結んだ図形の照らし方、結果の書き方 |
 | `check_ezdxf.py` | キットの DXF を ezdxf で読み、zumen の読みと照らす |
+| `test_dxf_layer_fields.py` | ezdxf で作った画層 0 と追加画層の説明・透過性を、公開 API で変換した DXF と照らす（#635） |
 | `acadsharp/` | キットの DWG を ACadSharp で読み、値をキットの `acadsharp-dump.json` に書き出す .NET のツール |
 | `check_acadsharp.py` | `acadsharp-dump.json` の値を、zumen の読みと照らす |
 | `check_ezjww.py` | キットの JWW を ezjww で読み、zumen の読みと照らす |
@@ -22,6 +23,7 @@ cargo build --release -p zumen-cli
 python -m pip install --only-binary :all: ezdxf==1.4.5 ezjww==0.7.6 ezsxf==0.3.7
 python -I xtask/verify/make.py target/release/zumen ../zumen-verify
 python -I xtask/verify/check_ezdxf.py ../zumen-verify
+python -I xtask/verify/test_dxf_layer_fields.py target/release/zumen
 python -I xtask/verify/check_ezjww.py ../zumen-verify
 python -I xtask/verify/check_ezsxf.py ../zumen-verify
 python -I xtask/verify/test_ezsxf.py ../zumen-verify
