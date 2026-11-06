@@ -47,7 +47,11 @@ jobs:
       - name: ブラウザーの中でラッパーを通しても、ネイティブと同じハッシュの一覧になることを確かめる（決定 0199）
         run: node bindings/js/test/browser/run.mjs ${{ matrix.browser }} target/wasm32-unknown-unknown/release/zumen_abi1.wasm modules/zumen_abi1_drawing.wasm modules/zumen_abi1_bim.wasm modules/zumen_abi1_civil.wasm modules/zumen_abi1_pointcloud.wasm modules/zumen_abi1_plugin.wasm
       - name: Canvas 2D で合成シーンと DXF・JWW・SXF を描く（決定 0267）
-        run: node bindings/js/test/browser/view2d.mjs ${{ matrix.browser }} target/wasm32-unknown-unknown/release/zumen_abi1.wasm
+        env:
+          ZUMEN_PDFJS_REQUIRED: '1'
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund --prefix xtask/verify/pdfjs
+          node bindings/js/test/browser/view2d.mjs ${{ matrix.browser }} target/wasm32-unknown-unknown/release/zumen_abi1.wasm
 
   svg:
     name: SVG・PNG を Chromium で開いて照らす

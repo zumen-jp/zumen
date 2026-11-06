@@ -6,10 +6,11 @@ import { hitPoint, hitRect } from "./hit.js";
 import { measurementOf, positionAt, snapPoint } from "./snap.js";
 import { inputOptions, normalizeInput, Tools } from "./tools.js";
 import { bindInput } from "./controls.js";
+import { Underlays } from "./underlays.js";
 
 const EMPTY_REPORT = Object.freeze({ drawn: Object.freeze({ lines: 0, faces: 0, texts: 0, points: 0, images: 0, glyphs: 0 }), issues: Object.freeze([]) });
 const EMPTY = Object.freeze([]);
-const EVENTS = ["scene", "view", "size", "layers", "selection", "hover", "highlight", "tool", "input", "measurement"];
+const EVENTS = ["scene", "view", "size", "layers", "selection", "hover", "highlight", "tool", "input", "measurement", "underlay"];
 const equalList = (a, b) => a.length === b.length && a.every((value, i) => value === b[i]);
 
 function point(value, name) {
@@ -59,6 +60,7 @@ export class View2D {
   #measurement = null;
   #overlays = new Map();
   #nextOverlay = 0;
+  #underlays;
 
   constructor(canvas, options = {}) {
     valid(canvas && typeof canvas.getContext === "function", "canvas");
@@ -82,30 +84,35 @@ export class View2D {
     this.#canvas = canvas;
     this.#ctx = ctx;
     this.#tools = new Tools(this, this.#limits, () => this.#binding?.release());
+    this.#underlays = new Underlays(this.#limits, () => this.#refresh("underlay"));
+    this.#underlays.setRenderer(options.underlayRenderer ?? null);
     this.resize(options.width ?? canvas.clientWidth ?? canvas.width, options.height ?? canvas.clientHeight ?? canvas.height, options.pixelRatio ?? 1);
   }
 
   #live() { if (!this.#ctx) throw new Error("View2D は破棄済み"); }
-  #mutable() { this.#live(); valid(!this.#notifying, "state.notification"); valid(!this.#drawing, "render.reentrant"); }
+  #mutable() { this.#live(); valid(!this.#notifying, "state.notification"); valid(!this.#drawing && !this.#underlays?.calling, "render.reentrant"); }
   #structural() { this.#mutable(); this.#tools.idle(); }
 
   #state() {
     return Object.freeze({ scene: this.getScene(), view: this.#view, size: this.#size, layers: this.getLayers(), ...this.#interaction,
-      tool: this.#tools.name, input: this.#tools.options, gesture: this.#tools.gesture, measurement: this.#measurement });
+      tool: this.#tools.name, input: this.#tools.options, gesture: this.#tools.gesture, measurement: this.#measurement, underlays: this.#underlays.state });
   }
 
   #publish(type) {
     const next = this.#state();
     if (this.#snapshot && Object.keys(next).every((key) => this.#snapshot[key] === next[key])) return;
+    const events = { [type]: Object.freeze({ type, state: next }) };
+    if (type !== "underlay" && this.#snapshot?.underlays !== next.underlays) {
+      events.underlay = Object.freeze({ type: "underlay", state: next });
+    }
     this.#snapshot = next;
-    const event = Object.freeze({ type, state: this.#snapshot });
     let failed = false, first;
     this.#notifying = true;
     try {
       // 通知中の解除は有効にし、追加は次の変更から通知する。
       for (const entry of [...this.#listeners]) {
-        if (!this.#listeners.has(entry) || (entry.type && entry.type !== type)) continue;
-        try { entry.listener(entry.type ? event : this.#snapshot); }
+        if (!this.#listeners.has(entry) || (entry.type && !events[entry.type])) continue;
+        try { entry.listener(entry.type ? events[entry.type] : next); }
         catch (error) { if (!failed) { failed = true; first = error; } }
       }
     } finally { this.#notifying = false; }
@@ -140,7 +147,8 @@ export class View2D {
     if (input !== null) {
       next = prepare(input, this.#limits);
       index = indexElements(next);
-      Object.assign(next, reportOf(next, this.#limits, display));
+      // 全レイヤを表示し、画像をすべて未解決として報告の最大件数を差し替え前に検査する。
+      Object.assign(next, reportOf(next, this.#limits, display, index.elements));
     }
     const cleanup = this.#tools.reset("scene");
     this.#measurement = null;
@@ -149,6 +157,8 @@ export class View2D {
     this.#index = index;
     this.#interaction = emptyInteraction();
     this.#display = display;
+    this.#underlays.scene(next, index);
+    if (next) next.reportUnderlays = this.#underlays.state;
     return this.#refresh("scene", cleanup);
   }
 
@@ -159,14 +169,16 @@ export class View2D {
   getLayers() { this.#live(); return this.#index?.layers ?? EMPTY; }
   getState() { this.#live(); return this.#snapshot; }
 
+  setUnderlayRenderer(renderer) { this.#structural(); this.#underlays.setRenderer(renderer); return this.#refresh("underlay"); }
+  refreshUnderlays() { this.#structural(); this.#underlays.refresh(); return this.#refresh("underlay"); }
+  cancelUnderlays() { this.#structural(); this.#underlays.cancel(); return this.#refresh("underlay"); }
+
   #interact(next, type) {
     const previous = this.#interaction;
     if (equalList(previous.hiddenLayers, next.hiddenLayers) && equalList(previous.selection, next.selection) &&
       previous.hovered === next.hovered && equalList(previous.highlights, next.highlights)) return this.getReport();
     const display = appearance(next, this.#index, this.#settings, this.#limits);
-    let prepared = this.#prepared;
-    if (prepared && !equalList(previous.hiddenLayers, next.hiddenLayers)) prepared = { ...prepared, ...reportOf(prepared, this.#limits, display) };
-    this.#prepared = prepared;
+    if (this.#prepared && !equalList(previous.hiddenLayers, next.hiddenLayers)) this.#prepared.reportUnderlays = null;
     this.#interaction = Object.freeze(next);
     this.#display = display;
     return this.#refresh(type);
@@ -317,13 +329,23 @@ export class View2D {
 
   invalidate() { this.#mutable(); return this.render(); }
 
+  #updateReport() {
+    const prepared = this.#prepared, state = this.#underlays.state;
+    if (!prepared || prepared.reportUnderlays === state) return;
+    Object.assign(prepared, reportOf(prepared, this.#limits, this.#display, this.#index.elements, this.#underlays));
+    prepared.reportUnderlays = state;
+  }
+
   render() {
     this.#live();
-    valid(!this.#drawing, "render.reentrant"); this.#drawing = true;
+    valid(!this.#drawing && !this.#underlays.calling, "render.reentrant"); this.#drawing = true;
     let failed = false, first;
     try {
       const ctx = this.#ctx, size = this.#size;
-      paint(ctx, this.#prepared, this.#settings, this.#view, size, this.#display);
+      this.#underlays.update(this.#view, size, this.#display);
+      this.#updateReport();
+      paint(ctx, this.#prepared, this.#settings, this.#view, size, this.#display, this.#underlays);
+      this.#updateReport(); // 合成が失敗した場合は、その報告を同じ描画のうちに返す。
       ctx.save();
       try {
         ctx.setTransform(size.pixelRatio, 0, 0, size.pixelRatio, 0, 0); ctx.strokeStyle = this.#settings.overlayColor; ctx.lineWidth = 1;
@@ -435,6 +457,7 @@ export class View2D {
     if (!this.#ctx) return;
     this.#structural();
     const cleanup = this.#tools.reset("destroy");
+    this.#underlays.destroy();
     this.#binding?.disconnect(); this.#binding = null; this.#measurement = null; this.#overlays.clear(); this.#tools.definitions.clear();
     this.#ctx.setTransform(1, 0, 0, 1, 0, 0);
     this.#ctx.clearRect(0, 0, this.#canvas.width, this.#canvas.height);
