@@ -1,5 +1,7 @@
 //! 固定の 4×4 サンプルを走査する（決定 0277）。確保・辺・画素の前に予算を数える。
 
+use std::ops::Range;
+
 use zumen_base::{Cx, Kind};
 
 use crate::{Error, MAX_PNG_PIXELS, Options};
@@ -55,22 +57,32 @@ impl<T> Buffer<T> {
 }
 
 #[derive(Clone, Copy)]
-struct Edge(Point, Point);
+struct Edge {
+    low: Point,
+    high: Point,
+    winding: i64,
+}
 
 pub(crate) struct Path {
     edges: Buffer<Edge>,
     pub evenodd: bool,
     pub inverse: bool,
-    bounds: [f64; 2],
+    // [xmin, ymin, xmax, ymax]。水平な辺だけの輪の範囲は空。
+    bounds: [f64; 4],
 }
 
 impl Path {
     pub fn new(evenodd: bool) -> Self {
         Self {
-            edges: Buffer::new(32),
+            edges: Buffer::new(40),
             evenodd,
             inverse: false,
-            bounds: [f64::INFINITY, f64::NEG_INFINITY],
+            bounds: [
+                f64::INFINITY,
+                f64::INFINITY,
+                f64::NEG_INFINITY,
+                f64::NEG_INFINITY,
+            ],
         }
     }
 
@@ -78,9 +90,12 @@ impl Path {
         let (a, b) = (point(a)?, point(b)?);
         cx.check(Kind::Segments, 1)?;
         if a[1] != b[1] {
-            self.bounds[0] = self.bounds[0].min(a[1]).min(b[1]);
-            self.bounds[1] = self.bounds[1].max(a[1]).max(b[1]);
-            self.edges.push(Edge(a, b), cx)?;
+            let (low, high, winding) = if a[1] < b[1] { (a, b, 1) } else { (b, a, -1) };
+            self.bounds[0] = self.bounds[0].min(a[0]).min(b[0]);
+            self.bounds[1] = self.bounds[1].min(low[1]);
+            self.bounds[2] = self.bounds[2].max(a[0]).max(b[0]);
+            self.bounds[3] = self.bounds[3].max(high[1]);
+            self.edges.push(Edge { low, high, winding }, cx)?;
         }
         Ok(())
     }
@@ -199,8 +214,17 @@ pub(crate) enum Shape<'a> {
 }
 
 // 交点そのものではなく、交点以上の最初のサンプルの位置。横方向の範囲外は端へそろえる。
-fn sample(x: f64, width: usize) -> u64 {
-    libm::ceil(x * 4.0 - 0.5).max(0.0).min(width as f64 * 4.0) as u64
+fn sample(x: f64, range: &Range<u64>) -> u64 {
+    libm::ceil(x * 4.0 - 0.5).clamp(range.start as f64, range.end as f64) as u64
+}
+
+fn intersect(a: [f64; 4], b: [f64; 4]) -> [f64; 4] {
+    [
+        a[0].max(b[0]),
+        a[1].max(b[1]),
+        a[2].min(b[2]),
+        a[3].min(b[3]),
+    ]
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -213,18 +237,21 @@ pub(crate) struct Surface {
     pub pixels: Vec<[u8; 4]>,
     width: usize,
     height: usize,
+    viewport: [f64; 4],
     mask: Vec<u16>,
     clip_mask: Vec<u16>,
     events: Buffer<Event>,
 }
 
 impl Surface {
-    pub fn new(o: &Options, cx: &mut Cx<'_>) -> Result<Self, Error> {
+    pub fn new(o: &Options, camera: &crate::svg::Camera, cx: &mut Cx<'_>) -> Result<Self, Error> {
         let count = u64::from(o.width) * u64::from(o.height);
         if count == 0 || count > MAX_PNG_PIXELS {
             return Err(Error::Options);
         }
         let width = o.width as usize;
+        let [x, y] = camera.offset;
+        let [w, h] = camera.size;
         // RGBA と 2 行分のサンプルマスク。大きな初期化は 1024 要素ずつに分ける。
         cx.check(Kind::DecodedBytes, count * 4 + u64::from(o.width) * 4)?;
         let background = if o.background[3] == 0 {
@@ -236,6 +263,7 @@ impl Surface {
             pixels: initialized(count as usize, background, cx)?,
             width,
             height: o.height as usize,
+            viewport: [x, y, x + w, y + h],
             mask: initialized(width, 0, cx)?,
             clip_mask: initialized(width, 0, cx)?,
             events: Buffer::new(16),
@@ -249,6 +277,7 @@ impl Surface {
         rgba: [u8; 4],
         cx: &mut Cx<'_>,
     ) -> Result<(), Error> {
+        cx.check(Kind::Work, 1)?;
         let bounds = match shape {
             Shape::Path(path) => path.bounds,
             Shape::Circle { at, outer, inner } => {
@@ -260,34 +289,61 @@ impl Surface {
                 if outer == 0.0 {
                     return Ok(());
                 }
-                [at[1] - outer, at[1] + outer]
+                [at[0] - outer, at[1] - outer, at[0] + outer, at[1] + outer]
             }
         };
-        let start = libm::floor(bounds[0]).max(0.0).min(self.height as f64) as usize;
-        let end = libm::ceil(bounds[1]).max(0.0).min(self.height as f64) as usize;
-        for row in start..end {
+        let mut bounds = intersect(bounds, self.viewport);
+        for clip in clips {
             cx.check(Kind::Work, 1)?;
-            row_mask(&shape, row, &mut self.mask, &mut self.events, cx)?;
+            if !clip.inverse {
+                bounds = intersect(bounds, clip.bounds);
+            }
+        }
+        // 図形・表示範囲・通常のクリップが重なるサンプルだけを走査する。
+        // 反転クリップは輪の外側も通すので、範囲を狭めずマスクで判定する。
+        let x_samples = 0..self.width as u64 * 4;
+        let y_samples = 0..self.height as u64 * 4;
+        let columns = sample(bounds[0], &x_samples)..sample(bounds[2], &x_samples);
+        let rows = sample(bounds[1], &y_samples)..sample(bounds[3], &y_samples);
+        if columns.is_empty() || rows.is_empty() {
+            return Ok(());
+        }
+        let left = (columns.start / 4) as usize;
+        let right = columns.end.div_ceil(4) as usize;
+        let mask = self.mask.get_mut(left..right).ok_or(Error::Scene)?;
+        let clip_mask = self.clip_mask.get_mut(left..right).ok_or(Error::Scene)?;
+        for row in rows.start / 4..rows.end.div_ceil(4) {
+            cx.check(Kind::Work, 1)?;
+            let subrows = rows.start.max(row * 4)..rows.end.min((row + 1) * 4);
+            row_mask(
+                &shape,
+                &columns,
+                subrows.clone(),
+                mask,
+                &mut self.events,
+                cx,
+            )?;
             for clip in clips {
                 row_mask(
                     &Shape::Path(clip),
-                    row,
-                    &mut self.clip_mask,
+                    &columns,
+                    subrows.clone(),
+                    clip_mask,
                     &mut self.events,
                     cx,
                 )?;
-                for (mask, clip) in self.mask.iter_mut().zip(&self.clip_mask) {
+                for (mask, clip) in mask.iter_mut().zip(clip_mask.iter()) {
                     cx.check(Kind::Work, 1)?;
                     *mask &= clip;
                 }
             }
-            let from = row * self.width;
+            let from = row as usize * self.width;
             for (pixel, &mask) in self
                 .pixels
-                .get_mut(from..from + self.width)
+                .get_mut(from + left..from + right)
                 .ok_or(Error::Scene)?
                 .iter_mut()
-                .zip(&self.mask)
+                .zip(mask.iter())
             {
                 cx.check(Kind::Work, 1)?;
                 composite(pixel, rgba, mask.count_ones());
@@ -317,7 +373,8 @@ pub(crate) fn initialized<T: Copy>(
 
 fn row_mask(
     shape: &Shape<'_>,
-    row: usize,
+    columns: &Range<u64>,
+    subrows: Range<u64>,
     mask: &mut [u16],
     events: &mut Buffer<Event>,
     cx: &mut Cx<'_>,
@@ -330,19 +387,31 @@ fn row_mask(
         Shape::Path(p) => (p.evenodd, p.inverse),
         _ => (true, false),
     };
-    for subrow in 0..4 {
-        let y = row as f64 + (f64::from(subrow) + 0.5) / 4.0;
+    // マスクの先頭は画素境界。表示範囲はその画素の途中からでも始められる。
+    let origin = columns.start / 4 * 4;
+    for sample_y in subrows {
+        let y = (sample_y as f64 + 0.5) / 4.0;
+        let subrow = (sample_y % 4) as u32;
         events.items.clear();
         match shape {
             Shape::Path(path) => {
-                for &Edge(a, b) in &path.edges.items {
+                for &Edge { low, high, winding } in &path.edges.items {
                     cx.check(Kind::Work, 1)?;
-                    if (a[1] <= y && y < b[1]) || (b[1] <= y && y < a[1]) {
-                        let x = a[0] + (y - a[1]) / (b[1] - a[1]) * (b[0] - a[0]);
+                    if low[1] <= y && y < high[1] {
+                        // 先に傾きを求め、走査線に近い端点から交点までを測る。
+                        // 長い辺の両端が遠くても、頂点順にかかわらず同じ演算になる。
+                        let slope = (high[0] - low[0]) / (high[1] - low[1]);
+                        let from_low = y - low[1];
+                        let from_high = high[1] - y;
+                        let x = if from_low <= from_high {
+                            low[0] + from_low * slope
+                        } else {
+                            high[0] - from_high * slope
+                        };
                         events.push(
                             Event {
-                                column: sample(x, mask.len()),
-                                winding: if a[1] < b[1] { 1 } else { -1 },
+                                column: sample(x, columns) - origin,
+                                winding,
                             },
                             cx,
                         )?;
@@ -359,7 +428,7 @@ fn row_mask(
                         for x in [at[0] - dx, at[0] + dx] {
                             events.push(
                                 Event {
-                                    column: sample(x, mask.len()),
+                                    column: sample(x, columns) - origin,
                                     winding: 1,
                                 },
                                 cx,
@@ -371,7 +440,7 @@ fn row_mask(
         }
         sort(&mut events.items, cx)?;
         let mut winding = 0_i64;
-        let mut previous = 0;
+        let mut previous = columns.start - origin;
         for event in &events.items {
             cx.check(Kind::Work, 1)?;
             if (if evenodd {
@@ -386,7 +455,7 @@ fn row_mask(
             previous = event.column;
         }
         if inverse {
-            span(mask, previous, mask.len() as u64 * 4, subrow, cx)?;
+            span(mask, previous, columns.end - origin, subrow, cx)?;
         }
     }
     Ok(())
@@ -462,12 +531,74 @@ mod tests {
         }
     }
 
+    fn test_surface(cx: &mut Cx<'_>) -> Surface {
+        let o = options();
+        Surface::new(&o, &crate::svg::Camera::new(&o).unwrap(), cx).unwrap()
+    }
+
+    #[test]
+    fn collinear_edges_of_different_lengths_cover_no_samples() {
+        let (mut budget, mut diag, cancel) =
+            (Budget::default(), Diagnostics::new(), CancelToken::new());
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        let mut surface = test_surface(&mut cx);
+        let mut path = Path::new(true);
+        // 同じ直線 x=y を 1 辺で進んで、長さの違う 2 辺で戻る。
+        path.polygon(&[[-987_650_560.0; 2], [3.0; 2], [0.0; 2]], &mut cx)
+            .unwrap();
+        surface
+            .paint(Shape::Path(&path), &[], [255; 4], &mut cx)
+            .unwrap();
+        assert!(surface.pixels.iter().all(|p| *p == [0; 4]));
+    }
+
+    #[test]
+    fn fractional_viewport_and_clips_use_the_same_subsamples() {
+        let (mut budget, mut diag, cancel) =
+            (Budget::default(), Diagnostics::new(), CancelToken::new());
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        let o = Options {
+            region: [0.0, 0.0, 2.0, 5.0],
+            ..options()
+        };
+        let mut surface = Surface::new(&o, &crate::svg::Camera::new(&o).unwrap(), &mut cx).unwrap();
+        let mut path = Path::new(true);
+        path.polygon(&[[0.0, 0.5], [5.0, 0.5], [5.0, 1.75], [0.0, 1.75]], &mut cx)
+            .unwrap();
+        let mut clip = Path::new(true);
+        clip.polygon(
+            &[[1.75, 0.0], [3.75, 0.0], [3.75, 5.0], [1.75, 5.0]],
+            &mut cx,
+        )
+        .unwrap();
+        let mut hole = Path::new(true);
+        hole.inverse = true;
+        hole.polygon(
+            &[[2.25, 0.75], [2.75, 0.75], [2.75, 1.25], [2.25, 1.25]],
+            &mut cx,
+        )
+        .unwrap();
+        let clips = [clip, hole];
+        surface
+            .paint(Shape::Path(&path), &clips, [255; 4], &mut cx)
+            .unwrap();
+        // 表示範囲 x=[1.5,3.5)、クリップ後 x=[1.75,3.5)。穴は中央の上下 2 サンプルずつを除く。
+        let alpha: Vec<_> = surface.pixels.iter().map(|p| p[3]).collect();
+        assert_eq!(&alpha[..10], &[0, 32, 96, 64, 0, 0, 48, 159, 96, 0]);
+        assert!(alpha[10..].iter().all(|&a| a == 0));
+        cancel.cancel();
+        assert_eq!(
+            surface.paint(Shape::Path(&Path::new(true)), &clips, [255; 4], &mut cx),
+            Err(Error::Stopped(Stop::Cancelled))
+        );
+    }
+
     #[test]
     fn subpixel_clip_intersects_samples_before_alpha() {
         let (mut budget, mut diag, cancel) =
             (Budget::default(), Diagnostics::new(), CancelToken::new());
         let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
-        let mut surface = Surface::new(&options(), &mut cx).unwrap();
+        let mut surface = test_surface(&mut cx);
         let mut half = Path::new(true);
         half.polygon(&[[0.0, 0.0], [0.5, 0.0], [0.5, 1.0], [0.0, 1.0]], &mut cx)
             .unwrap();
@@ -497,7 +628,7 @@ mod tests {
         ] {
             let mut path = Path::new(false);
             path.stroke(&points, 2.0, false, &mut cx).unwrap();
-            let mut surface = Surface::new(&options(), &mut cx).unwrap();
+            let mut surface = test_surface(&mut cx);
             surface
                 .paint(Shape::Path(&path), &[], [255, 0, 0, 128], &mut cx)
                 .unwrap();
@@ -512,7 +643,7 @@ mod tests {
         let (mut budget, mut diag, cancel) =
             (Budget::default(), Diagnostics::new(), CancelToken::new());
         let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
-        let mut surface = Surface::new(&options(), &mut cx).unwrap();
+        let mut surface = test_surface(&mut cx);
         surface
             .paint(
                 Shape::Circle {
@@ -549,7 +680,7 @@ mod tests {
         let (mut budget, mut diag, cancel) =
             (Budget::default(), Diagnostics::new(), CancelToken::new());
         let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
-        let mut surface = Surface::new(&options(), &mut cx).unwrap();
+        let mut surface = test_surface(&mut cx);
         cancel.cancel();
         assert_eq!(
             surface.paint(
@@ -572,7 +703,7 @@ mod tests {
         let (mut budget, mut diag, cancel) =
             (Budget::default(), Diagnostics::new(), CancelToken::new());
         let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
-        let mut surface = Surface::new(&options(), &mut cx).unwrap();
+        let mut surface = test_surface(&mut cx);
         surface
             .paint(
                 Shape::Circle {
@@ -608,7 +739,7 @@ mod tests {
                 inner.reverse();
             }
             path.polygon(&inner, &mut cx).unwrap();
-            let mut surface = Surface::new(&options(), &mut cx).unwrap();
+            let mut surface = test_surface(&mut cx);
             surface
                 .paint(Shape::Path(&path), &[], [255; 4], &mut cx)
                 .unwrap();
@@ -624,7 +755,7 @@ mod tests {
         let mut path = Path::new(false);
         path.stroke(&[[1.0, 2.0], [4.0, 2.0]], 1.0, false, &mut cx)
             .unwrap();
-        let mut surface = Surface::new(&options(), &mut cx).unwrap();
+        let mut surface = test_surface(&mut cx);
         surface
             .paint(Shape::Path(&path), &[], [255; 4], &mut cx)
             .unwrap();
@@ -637,7 +768,7 @@ mod tests {
             &mut cx,
         )
         .unwrap();
-        let mut surface = Surface::new(&options(), &mut cx).unwrap();
+        let mut surface = test_surface(&mut cx);
         surface
             .paint(Shape::Path(&path), &[], [255; 4], &mut cx)
             .unwrap();
@@ -646,7 +777,7 @@ mod tests {
         let mut path = Path::new(false);
         path.stroke(&[[1.0, 5.0], [2.0, 2.0], [2.1, 5.0]], 1.0, false, &mut cx)
             .unwrap();
-        let mut surface = Surface::new(&options(), &mut cx).unwrap();
+        let mut surface = test_surface(&mut cx);
         surface
             .paint(Shape::Path(&path), &[], [255; 4], &mut cx)
             .unwrap();

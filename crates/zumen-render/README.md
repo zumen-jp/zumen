@@ -25,6 +25,13 @@ node crates/zumen-render/tests/wasm.mjs target/wasm32-unknown-unknown/debug/exam
 
 `export` は合成シーン・SVG・PNG・RGBA と、成功・不正な入力・予算超過・中断の記録を作ります。`parity` は同じ記録を wasm で作るテスト用のモジュールです。製品の ABI ではありません。
 
+製品の wasm で合成 DXF の三角形・面積 0 の輪・多数の縦線を描き、図形から求めた全画素を照らすには、次を実行します。
+
+```sh
+cargo build -p zumen-abi --target wasm32-unknown-unknown --release --locked
+node crates/zumen-render/tests/api.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm
+```
+
 外部との照合は既存のブラウザー検査の依存を使います。インストール済みなら、最後のコマンドだけで実行できます。
 
 ```sh

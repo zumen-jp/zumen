@@ -25,7 +25,7 @@ pub(crate) fn render(bytes: &[u8], options: &Options, cx: &mut Cx<'_>) -> Result
     let scene = Scene::read(bytes, cx)?;
     // 完成した PNG の容量も、画素を初期化する前に検査する。
     let encoder = Encoder::new(options, cx)?;
-    let surface = Surface::new(options, cx)?;
+    let surface = Surface::new(options, &camera, cx)?;
     let mut render = Render {
         scene,
         options,
@@ -78,11 +78,6 @@ impl Render<'_, '_, '_> {
         range: std::ops::Range<usize>,
     ) -> Result<(), Error> {
         let mut clips = Buffer::new(96);
-        let [x, y] = self.camera.offset;
-        let [w, h] = self.camera.size;
-        let mut viewport = Path::new(true);
-        viewport.polygon(&[[x, y], [x + w, y], [x + w, y + h], [x, y + h]], self.cx)?;
-        clips.push(viewport, self.cx)?;
         for clip in range {
             self.cx.check(Kind::Work, 1)?;
             let mut path = Path::new(true);

@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
-import { crc32, inflateSync } from "node:zlib";
+import { decode } from "./decode.mjs";
 
 const require = createRequire(new URL("../../../bindings/js/test/browser/package.json", import.meta.url));
 const { chromium } = require("playwright");
@@ -53,26 +53,7 @@ try {
     const folder = dirname(process.argv[2]);
     const png = readFileSync(join(folder, `${name}.png`));
     const expected = readFileSync(join(folder, `${name}.rgba`));
-    const chunks = [];
-    const idat = [];
-    for (let at = 8; at < png.length;) {
-      const length = png.readUInt32BE(at);
-      const type = png.toString("ascii", at + 4, at + 8);
-      const body = png.subarray(at + 4, at + 8 + length);
-      assert.equal(crc32(body), png.readUInt32BE(at + 8 + length));
-      if (type === "IDAT") idat.push(png.subarray(at + 8, at + 8 + length));
-      chunks.push(type);
-      at += 12 + length;
-    }
-    assert.deepEqual(chunks.slice(0, 3), ["IHDR", "sRGB", "gAMA"]);
-    assert.equal(chunks.at(-1), "IEND");
-    const rows = inflateSync(Buffer.concat(idat)); // 別実装の zlib で stored block と Adler-32 も照らす。
-    assert.equal(rows.length, height * (width * 4 + 1));
-    for (let row = 0; row < height; row++) {
-      const at = row * (width * 4 + 1);
-      assert.equal(rows[at], 0);
-      assert.deepEqual(rows.subarray(at + 1, at + 1 + width * 4), expected.subarray(row * width * 4, (row + 1) * width * 4));
-    }
+    assert.deepEqual(decode(png, width, height), expected);
     const decoded = await page.evaluate(async (base64) => {
       const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
       const url = URL.createObjectURL(new Blob([bytes], { type: "image/png" }));
