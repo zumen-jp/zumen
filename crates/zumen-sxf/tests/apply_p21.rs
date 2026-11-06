@@ -188,6 +188,76 @@ fn comparing_unchanged_elements_counts_their_contents() {
 }
 
 #[test]
+fn rewriting_instances_and_copying_styles_preserve_raw_values() {
+    use zumen_base::{Kind, Limit, Limits};
+
+    let sjis = |s: &str| encoding_rs::SHIFT_JIS.encode(s).0.into_owned();
+    let extra = r#"EXTRA_PART(tYpE((.miXed.,+001.20E+02,"0aB",$,*,#30,'図''枠\X2\56F3\X0\')))"#;
+    let input = sjis(
+        &String::from_utf8(src())
+            .unwrap()
+            .replace("ASSIGNMENT('A',' '", "ASSIGNMENT('図枠','備''考'")
+            .replace("CURVE_STYLE(' ',", "CURVE_STYLE('線''種',")
+            .replace(
+                "REPRESENTATION_ITEM(' ')",
+                &format!("{extra}\nREPRESENTATION_ITEM('表記')"),
+            ),
+    );
+    let original = lift(&read(&input));
+    let line = seen(&original, 160).0;
+    let changes = Changes {
+        edits: vec![Edit::Restyle {
+            target: line.clone(),
+            style: Restyle {
+                layer: Some(LayerId(2)),
+                color: Some(sxf_color(17)),
+                ..Restyle::default()
+            },
+        }],
+        document: None,
+    };
+    let run = |limit, cancelled| {
+        let mut file = read(&input);
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, limit));
+        let mut diag = Diagnostics::new();
+        let cancel = CancelToken::new();
+        if cancelled {
+            cancel.cancel();
+        }
+        let result = file.apply(&changes, &mut Cx::new(&mut budget, &mut diag, &cancel));
+        (result, budget.used(Kind::Work), write(&file))
+    };
+    let (result, work, bytes) = run(Limit::Unlimited, false);
+    let applied = result.unwrap();
+    for (value, count) in [
+        ("ASSIGNMENT('図枠','備''考',(#230,#340,#440,#650))", 1),
+        ("CURVE_STYLE('線''種',", 2),
+        (extra, 1),
+        ("REPRESENTATION_ITEM('表記')", 1),
+    ] {
+        let raw = sjis(value);
+        assert_eq!(
+            bytes.windows(raw.len()).filter(|v| *v == raw).count(),
+            count,
+            "{value}"
+        );
+    }
+    let after = lift(&read(&bytes));
+    assert_eq!(after.layers, original.layers);
+    assert_eq!(seen(&after, 230), seen(&original, 230));
+    let (changed, element) = seen(&after, 160);
+    assert_eq!(changed.id, line.id);
+    assert_eq!(applied[0].hash, Some(changed.hash));
+    assert_eq!(element.layer, LayerId(2));
+    assert_eq!(run(Limit::Finite(work), false).2, bytes);
+    for (limit, cancelled) in [(Limit::Finite(work - 1), false), (Limit::Unlimited, true)] {
+        let (result, _, bytes) = run(limit, cancelled);
+        assert!(matches!(result, Err(Error::Stopped(_))));
+        assert_eq!(bytes, input);
+    }
+}
+
+#[test]
 fn edits_are_written_into_the_instances() {
     let src = src();
     let mut file = read(&src);
