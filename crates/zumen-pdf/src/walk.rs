@@ -663,11 +663,7 @@ pub(crate) fn settle<'x>(
         pending.push(root);
     }
     while let Some(id) = pending.pop() {
-        if reads.source.file_ref_bound(id).is_some() {
-            // 型付きの辞書の確認、Object（ストリームなら辞書 2 回）、壊れた場合の辞書と下の辞書。
-            reads.source.reserve_tables(5, cx)?;
-        }
-        let (read, object) = reads.read(id);
+        let (read, object) = reads.settle_read(id, cx)?;
         let _ = xref.get::<Dict<'_>>(id);
         let _ = xref.get::<Array<'_>>(id);
         cx.check(Kind::Work, read.saturating_mul(3).saturating_add(1))?;
@@ -970,6 +966,29 @@ impl<'x> Reads<'x> {
         }
     }
 
+    /// 表が別番号のスカラーを指していても、従来どおり修復する。hayro-syntax 0.9.0 の
+    /// XRef::get は、指定した型で読めず読み飛ばせた本体の番号を照合しない。辞書と配列の
+    /// 両方で読めなければ、誤った位置と修復後の位置で文字列などを読む分を先に数えてから
+    /// Object として引く。修復で辞書などに変わったら、その中の参照も走査に渡す。
+    fn settle_read(
+        self,
+        id: ObjectIdentifier,
+        cx: &mut Cx<'_>,
+    ) -> Result<(u64, Option<Object<'x>>), Stop> {
+        let Some(bound) = self.source.file_ref_bound(id) else {
+            return Ok(self.read_object(id));
+        };
+        // 型付きの確認と Object（ストリームなら辞書 2 回）、修復による再試行と settle の辞書。
+        self.source.reserve_tables(8, cx)?;
+        let (probe, object) = self.read(id);
+        if object.is_some() {
+            return Ok((probe, object));
+        }
+        self.source.reserve_scalar(bound, cx)?;
+        let (work, object) = self.read_object(id);
+        Ok((probe.saturating_add(work), object))
+    }
+
     /// 番号のオブジェクトを読む手間と、読めたオブジェクト。オブジェクトとして読めない定義のうち、辞書の後ろに読めない
     /// ストリームがあるものは、辞書として返す。hayro-syntax は、読むたびに `endstream` をファイルの終わりまで探すので、
     /// ファイルを読み通す手間とする。ほかの読めない定義（読み飛ばせて読めない数。`5-3.2`）は、読んだバイト数を知れない
@@ -996,10 +1015,15 @@ impl<'x> Reads<'x> {
         } else {
             0
         };
+        let (work, object) = self.read_object(id);
+        (probe.saturating_add(work), object)
+    }
+
+    fn read_object(self, id: ObjectIdentifier) -> (u64, Option<Object<'x>>) {
         match self.xref.get::<Object<'x>>(id) {
-            Some(object) => (probe.saturating_add(self.read_work(&object)), Some(object)),
+            Some(object) => (self.read_work(&object), Some(object)),
             None => match self.xref.get::<Dict<'x>>(id) {
-                Some(dict) => (probe.saturating_add(self.file), Some(Object::Dict(dict))),
+                Some(dict) => (self.file, Some(Object::Dict(dict))),
                 None => (0, None),
             },
         }

@@ -51,6 +51,11 @@ impl<'a> Source<'a> {
         reserve_metadata(self.table_bytes.saturating_mul(copies), cx)
     }
 
+    /// 相互参照の修復前後の 2 回、文字列の展開と復号の余りも含めて数える。
+    pub(crate) fn reserve_scalar(self, bound: u64, cx: &mut Cx<'_>) -> Result<(), Stop> {
+        reserve_metadata(bound.max(24).saturating_mul(16), cx)
+    }
+
     /// 参照を調べるための直接の F。文字列は参照を持たず、辞書は表を作らず元の範囲を使う。
     pub(crate) fn direct_file_data<'b>(dict: &Dict<'b>) -> Option<&'b [u8]> {
         let MaybeRef::NotRef(Tail(tail)) = dict.get_raw::<Tail<'_>>(b"F")? else {

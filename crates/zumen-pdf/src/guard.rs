@@ -112,7 +112,7 @@ struct Seen {
     values: BTreeMap<Key, Values>,
     /// F が参照する番号。読み直しの手間を調べるために外部ファイル名を展開しない。
     file_refs: BTreeSet<(u32, i32)>,
-    /// ファイルと確認済みの ObjStm の名前から求めた、辞書の表とエスケープ付きのキーの上限。
+    /// 参照先になりうる 1 つの辞書が作る表とエスケープ付きのキーの上限。
     table_bytes: u64,
     numbers: Numbers,
     /// フィルターの値の LZW・ASCII85 の名前のうち、展開する入力が [`CODED`] に届きうるもの
@@ -295,6 +295,8 @@ impl Seen {
 /// ファイルのバイト列の名前のうち、表の作り直しと暗号化に関わるもの
 #[derive(Debug, Default)]
 struct Marks {
+    /// 1 つのバイト列のすべての名前が辞書のキーだったときの確保量。
+    key_bytes: u64,
     /// `Type` の値が `ObjStm` の名前の、最初のキーの位置
     typed: Option<usize>,
     /// そのうち、値の名前の字が、ここで展開するストリームの型の値の字でない最初のキーの位置（`#xx` で書いた名前は、
@@ -484,6 +486,8 @@ fn members(
     seen: &mut Seen,
     cx: &mut Cx<'_>,
 ) -> Result<Option<usize>, Stop> {
+    let all_keys = names(data, |_| place, None, seen, cx)?.key_bytes;
+    let mut table_end = 0;
     let mut header = Reader::new(data);
     let mut skip = Skip::default();
     let mut lists = Lists::default();
@@ -515,12 +519,26 @@ fn members(
         if let Some(number) = number(data, at, cx)? {
             seen.number(number);
         }
+        if seen.table_bytes < all_keys && data.get(at..).is_some_and(|tail| tail.starts_with(b"<<"))
+        {
+            // 次の項目が前の辞書の途中を指す場合は、同じ範囲を読み直さず、コンテナー全体の名前で上限を取る。
+            if at < table_end {
+                seen.table_bytes = seen.table_bytes.max(all_keys);
+            } else {
+                let mut bytes = 0_u64;
+                let end = entries(data, at, |name, _| {
+                    bytes = bytes.saturating_add(key_bytes(data, &name));
+                });
+                table_end = end.unwrap_or(data.len());
+                cx.check(Kind::Work, lookup_work(&data[at..table_end]))?;
+                seen.table_bytes = seen.table_bytes.max(bytes);
+            }
+        }
         targeted(data, at, place, &mut lists, seen, cx)?;
         if let Some(index) = listed(data, at, &mut params, cx)? {
             earliest(&mut seen.listed, index, place);
         }
     }
-    names(data, |_| place, None, seen, cx)?;
     Ok(None)
 }
 
@@ -565,17 +583,7 @@ fn names(
         let Some(name) = name else {
             continue;
         };
-        // 各キーの表の分と、#xx を戻すバッファーの伸長。キー以外の名前も含めて多めに数える。
-        let raw = data.get(start..end).unwrap_or_default();
-        let escaped = if raw.contains(&b'#') {
-            (raw.len() as u64).saturating_mul(4)
-        } else {
-            0
-        };
-        seen.table_bytes = seen
-            .table_bytes
-            .saturating_add(KEY_BYTES)
-            .saturating_add(escaped);
+        marks.key_bytes = marks.key_bytes.saturating_add(key_bytes(data, &name));
         let name: &[u8] = &name;
         let key = Key::of(name);
         match name {
@@ -1044,15 +1052,20 @@ fn objects(src: &[u8], seen: &mut Seen, cx: &mut Cx<'_>) -> Result<Vec<Container
         }
         // 辞書の表を作らずに、キーの数と、`N`・`First` と最後の型の値の位置を見る
         let (mut keys, mut count, mut origin, mut kind) = (0_u64, false, false, None);
-        let Some(end) = entries(src, start, |name, value| {
+        let mut bytes = 0_u64;
+        let end = entries(src, start, |name, value| {
             keys += 1;
+            bytes = bytes.saturating_add(key_bytes(src, &name));
             match &*name {
                 b"N" => count = true,
                 b"First" => origin = true,
                 b"Type" => kind = Some(value),
                 _ => {}
             }
-        }) else {
+        });
+        // 途中で壊れた辞書でも、その前のキーの表は作られる。
+        seen.table_bytes = seen.table_bytes.max(bytes);
+        let Some(end) = end else {
             cx.check(
                 Kind::Work,
                 lookup_work(src.get(start..).unwrap_or_default()),
@@ -1153,6 +1166,15 @@ fn entries<'a>(
 /// hayro-syntax の辞書の表の、キーの 1 つのメモリ。キーと位置の組（48 バイトまで）と制御の 1 バイトを、表が大きく
 /// なる途中で新旧の表が持つ分（キーの数の 3.5 倍まで）
 const KEY_BYTES: u64 = 176;
+
+/// 借りた名前は表の項目だけ、#xx を解いた名前はバッファーを伸ばす分も数える。
+fn key_bytes(src: &[u8], name: &Name<'_>) -> u64 {
+    if position(src, name).is_some() {
+        KEY_BYTES
+    } else {
+        KEY_BYTES.saturating_add((name.len() as u64).saturating_mul(4))
+    }
+}
 
 /// 位置が、定義の `obj`（7.3.10）になりうるか。`endobj` などの語の一部は、定義にならない
 fn definition(src: &[u8], keyword: usize) -> bool {
@@ -1431,4 +1453,43 @@ fn mentions(value: &[u8]) -> bool {
 /// 読まない文書の診断
 pub(crate) fn refused(place: Ref) -> Diagnostic {
     Diagnostic::new(zumen_base::codes::PDF_DOCUMENT_UNSUPPORTED).at(place)
+}
+
+#[cfg(test)]
+mod table_tests {
+    use super::*;
+    use zumen_base::{Budget, CancelToken, Diagnostics};
+
+    #[test]
+    fn bounds_separate_and_overlapping_object_stream_dictionaries() {
+        let table = format!(
+            "<< {}>>",
+            (0..4000).map(|i| format!("/K{i} 1 ")).collect::<String>()
+        );
+        // 並んだ 2 辞書では最大の 1 表分で足りる。途中を指す項目は、外側の小さい表で見積もらない。
+        for (body, offset, keys) in [
+            (format!("{table} {table}"), table.len() + 1, 4000),
+            (format!("<< /A {table} >>"), 6, 4001),
+        ] {
+            let header = format!("30 0 31 {offset} ");
+            let data = format!("{header}{body}");
+            let mut budget = Budget::default();
+            let mut diag = Diagnostics::new();
+            let cancel = CancelToken::new();
+            let mut seen = Seen::default();
+            let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+            assert_eq!(
+                members(
+                    data.as_bytes(),
+                    2,
+                    header.len() as i64,
+                    0,
+                    &mut seen,
+                    &mut cx
+                ),
+                Ok(None)
+            );
+            assert_eq!(seen.table_bytes, keys * KEY_BYTES);
+        }
+    }
 }
