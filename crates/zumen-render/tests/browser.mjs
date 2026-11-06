@@ -1,4 +1,4 @@
-// 既存の Playwright で、SVG を外部の実装に読ませ、描画順・穴・字形・クリップの画素を照らす。
+// SVG と PNG を Chromium に読ませて画素を照らす。PNG は Node.js の zlib でも復号する。
 // 入力の参照名は URL にせず、ブラウザーからのネットワーク要求をすべて拒否する。
 import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
