@@ -230,3 +230,22 @@ fn repeated_forms_and_content_arrays_keep_empty_and_failed_ascii_costs() {
         }
     }
 }
+
+#[test]
+fn external_file_specifications_do_not_run_the_filters_on_embedded_bytes() {
+    for file in ["(external)", "<< /Type /Filespec /F (external) >>"] {
+        for base85 in [false, true] {
+            for mode in 0..3 {
+                let ascii = ascii::encode(&compressed(&vec![b' '; 64 * 1024], mode), base85);
+                let filter = format!("/F {file} {}", filters(base85, mode, "")[0]);
+                let input = cases::document(0, &filter, &ascii, false, 1);
+                let ample = run(&input, Limits::default(), false);
+                assert!(ample.0.is_ok());
+                let limits = Limits::default().with(Kind::DecodedBytes, Limit::Finite(32 * 1024));
+                let small = run(&input, limits, false);
+                assert_eq!(format!("{:?}", small.0), format!("{:?}", ample.0));
+                assert_eq!(small.2, ample.2);
+            }
+        }
+    }
+}

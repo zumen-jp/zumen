@@ -7,7 +7,7 @@ use std::io::Read;
 
 use flate2::read::{DeflateDecoder, ZlibDecoder};
 use hayro_syntax::Filter;
-use hayro_syntax::object::Stream;
+use hayro_syntax::object::{Object, Stream};
 use zumen_base::{Cx, Kind, Stop};
 
 /// 出力を保持しない確かめの、固定長のバッファー。展開の状態と合わせて入力の大きさによらない
@@ -32,13 +32,13 @@ pub(crate) fn before(stream: &Stream<'_>, cx: &mut Cx<'_>) -> Result<bool, Stop>
             Filter::AsciiHexDecode,
             next @ (Filter::FlateDecode | Filter::LzwDecode),
         ] => {
-            sequence(stream, ascii::Encoding::Hex, *next, cx)?;
+            return sequence(stream, ascii::Encoding::Hex, *next, cx);
         }
         [
             Filter::Ascii85Decode,
             next @ (Filter::FlateDecode | Filter::LzwDecode),
         ] => {
-            sequence(stream, ascii::Encoding::Base85, *next, cx)?;
+            return sequence(stream, ascii::Encoding::Base85, *next, cx);
         }
         _ => return Ok(false),
     }
@@ -50,17 +50,27 @@ fn sequence(
     ascii: ascii::Encoding,
     next: Filter,
     cx: &mut Cx<'_>,
-) -> Result<(), Stop> {
+) -> Result<bool, Stop> {
+    // F は短縮した Filter のほかに外部ファイルを指す（7.3.8.2）。後者では filters() が
+    // Filter の配列を返しても、hayro-syntax の decoded_image は適用前に失敗する。
+    cx.check(Kind::Work, 1)?;
+    if matches!(
+        stream.dict().get::<Object<'_>>(b"F"),
+        Some(Object::String(_) | Object::Dict(_))
+    ) {
+        return Ok(false);
+    }
     // 中間の量を先に数え、予算内でだけ保持する。失敗までの確保は戻さず、後段へは進まない。
     let Some(data) = ascii::decode(&stream.raw_data(), ascii, cx)? else {
-        return Ok(());
+        return Ok(true);
     };
     if next == Filter::FlateDecode {
-        count(&data, cx)
+        count(&data, cx)?;
     } else {
         let early = lzw::early_change(stream, cx)?;
-        lzw::count(&data, early, cx)
+        lzw::count(&data, early, cx)?;
     }
+    Ok(true)
 }
 
 fn count(data: &[u8], cx: &mut Cx<'_>) -> Result<(), Stop> {
