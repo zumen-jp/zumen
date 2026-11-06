@@ -1,6 +1,6 @@
 # @zumen-jp/view2d
 
-zumen のシーンの列を、Canvas 2D に描く表示部品です。線・面・文字・字形・点を描き、表示範囲・レイヤ・選択・計測を操作します。入力は必要なときだけ接続し、React・CSS・ラベル・操作用のボタンは利用側に置きます。[決定 0267](../../docs/decisions/0267-view2d-on-scene-columns.md) に従い、実行時の外部描画ライブラリは使いません。
+zumen のシーンの列を、Canvas 2D に描く表示部品です。線・面・文字・字形・点と、利用側が解決した画像・PDF を描き、表示範囲・レイヤ・選択・計測を操作します。入力は必要なときだけ接続し、React・CSS・ラベル・操作用のボタンは利用側に置きます。[決定 0267](../../docs/decisions/0267-view2d-on-scene-columns.md) に従い、実行時の外部描画ライブラリは使いません。
 
 このパッケージは未公開です。名前の確保と公開は別の作業です。手元では `packages/view2d/src/index.js` を ESM として読み込み、`@zumen-jp/zumen` を `bindings/js/src/index.js` に解決します。バンドラーの alias か、[最小の例](example/index.html) の import map を使えます。例を開くサーバーはリポジトリのルートを配り、開発用のポートは 24100〜24199 にします。
 
@@ -66,7 +66,8 @@ Canvas の CSS の幅・高さは利用側で指定します。`resize(width, he
 | 書式つき・縦書き・積み上げ・折り返し・2 点間の文字 | 字形がなければ `text-layout-unsupported` として未描画。コアへフォントを渡して字形を得る |
 | 点 | 文書の点の形・囲み・回転と、起点の長さか画面の高さに対する大きさを使う。文書に形がなければ小さな点 |
 | 既定義のマーカー | 小さな点で代替し、`marker-unresolved` を報告 |
-| 画像・PDF など | `resource-unresolved` として未描画。参照名を取得せず、外へ送信しない。解決関数は [#587](https://github.com/zumen-jp/zumen/issues/587) で追加予定 |
+| 画像・PDF | 利用側の解決・描画関数から受け取り、元の順序・画像枠・切り抜きで描画。関数がなければ `resource-unresolved` として未描画 |
+| DWF・DGN など | `resource-kind-unsupported` として未描画 |
 
 代替文字の `horizontal.middle` は、横を送り幅の中央、縦をブラウザーが返す字形外形の中央に置きます。垂直の指定には依存せず、位置合わせは斜体を当てる前に決めます（[決定 0246](../../docs/decisions/0246-dxf-text-height-and-alignment-against-autocad.md)）。
 
@@ -106,7 +107,7 @@ Canvas の CSS の幅・高さは利用側で指定します。`resize(width, he
 
 `hitTest({ x, y }, tolerance = 3)` は、Canvas 左上からの CSS px と許容半径を受けます。`hitTestRect({ min_x, min_y, max_x, max_y })` は、同じ CSS px の四角を受けます。どちらも、描く順の逆順で配置の参照を返します。同じ配置の複数の線や字形は 1 件にまとめます。
 
-線幅・面の穴・字形の塗り規則・点の形・切り抜きは描画と共通です。点の許容差は、問い合わせの円と可視の形の交差で判定します。円の中心が切り抜きの外でも、円が残された形に届けば当たります。範囲は一部でも交わる配置を返し、境界への接触も含みます。未描画の画像や未対応の文字は当たりません。
+線幅・面の穴・字形の塗り規則・点の形・切り抜きは描画と共通です。点の許容差は、問い合わせの円と可視の形の交差で判定します。円の中心が切り抜きの外でも、円が残された形に届けば当たります。範囲は一部でも交わる配置を返し、境界への接触も含みます。画像・PDF の画素と、未対応の文字は当たり判定に含めません。
 
 判定には共通の座標と形を使い、画素のアンチエイリアスは比べません。相殺された輪や、複数の切り抜きが辺で接するだけで描かれない部分は除きます。RGBA と、Canvas が正規化した色に明示された alpha が 0 の形も除きます。未知の CSS 色の構文を独自には解釈せず、透明だと確かめられない色は選択対象に残します。不透明な選択・強調色に変えれば、当たり判定にも戻ります。
 
@@ -121,7 +122,7 @@ viewer.setHighlight("search", viewer.hitTestRect({ min_x: 0, min_y: 0, max_x: 30
 
 ## 状態の購読と出所
 
-`getState()` は `scene`・`view`・`size`・`layers`・`hiddenLayers`・`selection`・`hovered`・`highlights` と、ツール名 `tool`・入力設定 `input`・進行中の操作 `gesture`・計測 `measurement` を返します。凍結した状態で、変わるまで同じ参照を返すため、状態を直接変更しないでください。`subscribe(listener)` はすべての変化で `listener(state)`、`on(type, listener)` は種類を絞って `listener({ type, state })` を呼びます。種類は `scene`・`view`・`size`・`layers`・`selection`・`hover`・`highlight`・`tool`・`input`・`measurement` です。
+`getState()` は `scene`・`view`・`size`・`layers`・`hiddenLayers`・`selection`・`hovered`・`highlights` と、ツール名 `tool`・入力設定 `input`・進行中の操作 `gesture`・計測 `measurement`・画像の状態 `underlays` を返します。凍結した状態で、変わるまで同じ参照を返すため、状態を直接変更しないでください。`subscribe(listener)` はすべての変化で `listener(state)`、`on(type, listener)` は種類を絞って `listener({ type, state })` を呼びます。種類は `scene`・`view`・`size`・`layers`・`selection`・`hover`・`highlight`・`tool`・`input`・`measurement`・`underlay` です。
 
 登録だけでは通知せず、描画と状態の更新後に同期で通知します。通知の中から状態を変えると `RangeError` になります。通知する関数が例外を投げても残りへ通知し、最初の例外を返します。この場合、状態の更新は済んでいます。通知中に解除した購読は呼ばず、追加した購読は次の変更から呼びます。
 
@@ -212,11 +213,73 @@ console.log(viewer.getState().measurement);
 
 [最小の例](example/index.html) の「位置にしるし」は、入力・吸着・重ね描き・後始末を使う独自ツールです。しるしの形・色・ラベルはすべて例の側で指定しています。API と寿命の判断は[決定 0276](../../docs/decisions/0276-view2d-input-tools-and-measurement.md) にあります。
 
+## 画像と PDF のアンダーレイ
+
+`underlayRenderer` または `setUnderlayRenderer(fn)` で、資源を解決する関数を渡します。表示部品は参照名を URL として開かず、入力や結果を外へ送りません。関数には `document`、元の `name` と `page`、`element`（ID と配置の道筋）、画像列の `index`、`kind`、`signal` と `limits` を渡します。ページ名を番号へ推測せず、利用側が自分の入力と結んでください。
+
+関数は `{ width, height, render, dispose }` を返します。幅・高さは内容の単位です。シーンの `corners`（全体の枠）は内容全体を辺に収め、`unit` は内容の幅・高さを辺に掛けます。内容は左下原点で Y が上です。PDF のページ回転と内容の単位は、利用側で決めます。解決後も `SceneResult.extent` は変えず、`fit()` は元の範囲を使います。`unit` の全体を収めたい場合は、利用側から `fitBounds` へ範囲を渡します。
+
+`render(request)` には、内容の単位の `region` と、画素比を反映済みの整数の `width`・`height` を渡します。画面と内側の切り抜きの外形まで絞った長方形です。多角形の正確な共通部分や反転した切り抜きは合成時に処理するため、要求の長方形に最後には描かない部分も含みます。利用側は、その範囲を表す左上原点の画像を `{ source, dispose }` で返します。`source` は ImageBitmap・Canvas・OffscreenCanvas のいずれかで、寸法を要求と一致させます。表示部品は画像を元の描画順に合成し、前後の図形や切り抜きを保ちます。画像自身の色と透明度を使い、図形の選択色では染めません。画像の透明部分を読む当たり判定や、画像内の点への吸着は行いません。
+
+[画像のアダプター](example/image.js) は、利用側が復号した画像から部分画像を作ります。次の `openKnownImage` は利用側の関数です。参照名を自動で取得する関数にはせず、上限を確保前に数えて、所有権を渡せる画像とその `dispose` を返してください。
+
+```js
+import { imageUnderlayRenderer } from "./image.js";
+
+const createCanvas = (width, height) => {
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  return canvas;
+};
+viewer.setUnderlayRenderer(imageUnderlayRenderer(openKnownImage, createCanvas));
+const off = viewer.on("underlay", ({ state }) => {
+  showUnderlayStatus(state.underlays); // 文言と画面は利用側で用意する。
+});
+viewer.refreshUnderlays();
+// 画面を片づけるとき
+off();
+viewer.destroy();
+```
+
+[PDF のアダプター](example/pdf.js) は、利用側が選んだ pdf.js、PDF を読む関数、ページ名を番号へ結ぶ関数、`contentUnitsPerPoint` と Canvas を作る関数を受け取ります。アダプターは入力バイト数の上限を確かめ、渡された配列の範囲を複製して pdf.js の Worker へ渡します。利用側は同じ `Uint8Array` を再読込や別の配置にも使えます。pdf.js は表示部品の依存ではありません。入力バイト数と出力 Canvas の上限は確認しますが、pdf.js 内部の全確保量を制限する例ではありません。利用側のデコーダーに必要な実行環境と、内部の上限・中断も利用側で決めてください。
+
+解決と描画は同期通知の外で始めます。利用側の関数や、返却値のプロパティを読む getter から同期で表示部品を変更すると `RangeError` になります。返却値の検査中に getter が投げた例外は `resource-invalid` として報告し、返却値に解放関数があれば呼びます。画面や画素比の変更で不要になった描画、関数の変更、シーンの差し替え、非表示、画面外、破棄では `signal` を中断します。古い結果と破棄後の結果は描かず、`dispose` を 1 回呼びます。戻した資源と画像は所有権を渡すため、解放されるまで変更・転送・close しないでください。同じ内容を複数の配置で共有する場合は、利用側で参照数を管理します。
+
+`dispose` は Promise も返せます。画像を解放し、未完了の描画を待ってから資源を解放します。中断した処理や解放が未完了の間も、上限の枠を保持します。`cancelUnderlays()` は処理を止め、`refreshUnderlays()`、シーンか関数の差し替えまで再開しません。失敗も自動で繰り返さず、`refreshUnderlays()` で解決し直します。`setUnderlayRenderer(null)` は関数を除きます。
+
+`getState().underlays` と `on("underlay", ...)` は、配置ごとの状態を返します。シーンの差し替え、レイヤやカメラの変更で画像の状態が変わると、その操作の購読と `underlay` の購読に同じ状態を渡します。`subscribe` の各購読には 1 回だけ通知します。未描画の理由は `getReport().issues` にも含めます。同じシーン・表示レイヤ・画像の状態で再描画すると、同じ報告を返します。
+
+| 状態・理由 | 内容 |
+| --- | --- |
+| `ready` | 現在の要求の画素を保持し、描画可能 |
+| `resource-unresolved`・`resource-pending` | 関数なし、または解決・描画・空き枠を待っている |
+| `resource-cancelled`・`resource-outside-view` | 明示した中断、または非表示・画面外 |
+| `resource-limit` | サイズ・総画素数・保持資源数の上限 |
+| `resource-resolve-failed`・`resource-render-failed` | 解決か描画の関数、または合成が失敗 |
+| `resource-invalid`・`resource-frame-invalid` | 返った寸法・関数・画像、または画像枠が不正 |
+| `resource-release-failed` | 現行シーンの解放が失敗。ほかの資源の解放は続ける |
+| `resource-kind-unsupported`・`clip-unsupported` | 資源の種類か切り抜きが未対応 |
+
+非同期の結果も、描画と状態を更新してから通知します。例外の本文は状態へ写しません。解放の失敗は、その資源や画素の要求に対応させます。再表示、再読込、表示範囲の変更で次の要求へ移った後に古い解放が失敗しても、新しい画像は表示を続けます。寿命と上限の判断は[決定 0278](../../docs/decisions/0278-view2d-underlay-resources.md) にあります。
+
 ## 入力の検査と上限
 
 列の型・行数・単調な始まり・参照先・文字列の範囲・座標の有限性を確かめます。座標などの数値の絶対値は、変換の計算がオーバーフローしないよう `1e150` 以下に制限します。`text_second` の未指定の組 `[NaN, NaN]` は正規の値として扱います。応答の件数も列と照らします。未知のメジャー・マイナーバージョンは、知らない描画内容を黙って落とさず拒否します。不正な値や上限の超過は `RangeError` になり、`setScene` の検査に失敗しても現在の組と画面を保ちます。
 
 `limits` はすべて正の整数です。列の値は合計 16,000,000、作業量は 32,000,000、報告は 10,000、1 つの文字は UTF-8 で 16,384 バイト、Canvas は 16,777,216 画素が既定の上限です。`stateItems` は選択・hover・強調の参照とグループ・非表示レイヤの合計、購読・当たり判定の結果・独自ツール・重ね描きの各件数を、それぞれ 100,000 に制限します。作業量は列の検査・並べ替え・共有された切り抜きと字形を描く回数を含み、描画前に確認します。当たり判定と吸着にも問い合わせごとに作業量の上限を使い、超過したら途中の結果を返さず `RangeError` にします。同時に扱うポインターは最大 2 つです。利用側の関数の実行量は利用側で制限してください。画素の一辺は 16,384、画素比は 8、拡大率は `1e-12`〜`1e12` に制限します。入力を読むコアの予算も別に設定してください。
+
+アンダーレイの既定の上限は次のとおりです。画像の件数は `stateItems`、参照名とページ名は `textLength` にも数えます。
+
+| 設定 | 既定 | 数えるもの |
+| --- | --- | --- |
+| `underlayBytes` | 64 MiB | 1 資源の入力と復号。利用側へ渡し、利用側が確保前に数える |
+| `underlayPixels` | 16,777,216 | 保持した画像と未完了の描画要求の総画素数 |
+| `underlaySide` | 8192 | 要求する画像の一辺 |
+| `underlayJobs` | 4 | 未完了の解決と描画 |
+| `underlayResources` | 64 | 解決中・保持中・解放中の資源 |
+
+中断しても完了しない利用側の処理は数え続けるため、新しい要求が止まることがあります。表示部品は利用側のデコーダー内部を強制停止できません。戻った寸法の検査だけで、復号前の上限を守れたとは扱わないでください。
 
 ## 検査
 
@@ -232,7 +295,10 @@ cd bindings/js/test/browser
 npm ci --ignore-scripts
 npx --no-install playwright install --only-shell chromium
 cd ../../../..
+npm ci --ignore-scripts --no-audit --no-fund --prefix xtask/verify/pdfjs
 node bindings/js/test/browser/view2d.mjs chromium target/wasm32-unknown-unknown/release/zumen_abi1.wasm
 ```
 
 合成シーンで穴・切り抜き・順序・大きい原点・色と幅・字形と代替文字・カメラの逆変換・差し替え・不正入力・上限・破棄を検査します。レイヤ・強調の優先順・状態の購読と解除・点と範囲の当たり判定も検査します。入力の個別の無効化、回転中のドラッグ、ピンチ、修飾キーとホイール、単位と尺度が異なる計測、吸着の可視性、独自ツールの後始末も確かめます。実際のポインター捕捉、Canvas の外へのドラッグ、タッチのタップ、利用例の独自ツールをブラウザーで動かします。同じ定義を格子と別の INSERT に配置した合成 DXF で、選択の区別と L1 の出所を確認します。既存の適合テストの合成 DXF・JWW・SXF も、コアの wasm で読んで描きます。PR では Chromium、毎晩は Firefox・WebKit で流します。受け取った図面や外部のフォントは使いません。
+
+画像は合成の色分け、PDF は[台帳](../../samples/ledger.toml)にある PDFium の `pdfium-smask-blend.pdf`（BSD-3-Clause）と合成の 2 ページを使います。ページ・回転・切り抜き・画素比、古い非同期結果、例外、中断、再読込、非同期の解放と上限を検査します。公開 PDF は pdf.js で直接描いた画素とも照らします。pdf.js がなければ PDF の検査だけを飛ばします。CI は `ZUMEN_PDFJS_REQUIRED=1` を指定して必須にします。pdf.js の現在のブラウザー向け API を利用側の例に使うことは、表示部品自身のブラウザーの下限を変えません。
