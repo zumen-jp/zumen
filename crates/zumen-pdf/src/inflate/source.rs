@@ -37,7 +37,7 @@ impl<'a> Source<'a> {
         let Some(tail) = end.and_then(|n| self.file.get(n..)) else {
             return Some((self.file.len() as u64).max(self.largest_container));
         };
-        let header = &tail[..tail.len().min(64)];
+        let header = tail.get(..64).unwrap_or(tail);
         let mut r = Reader::new(header);
         r.skip_white_spaces_and_comments();
         let data = r
@@ -54,7 +54,7 @@ impl<'a> Source<'a> {
         if let Some(MaybeRef::NotRef(length)) = dict.get_raw::<u32>(b"Length")
             && let Some(after) = data.get(length as usize..)
         {
-            let mut r = Reader::new(&after[..after.len().min(64)]);
+            let mut r = Reader::new(after.get(..64).unwrap_or(after));
             r.skip_white_spaces();
             if r.forward_tag(b"endstream").is_some() {
                 return Some(u64::from(length));
