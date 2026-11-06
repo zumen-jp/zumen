@@ -24,6 +24,37 @@ fn main() -> Result<(), Box<dyn Error>> {
         folder.join("region.svg"),
         region.map_err(|e| format!("範囲の SVG を作れない: {e:?}"))?,
     )?;
+    for (name, options, input) in [
+        ("drawing", fixtures::options(), input.clone()),
+        ("region", options, input.clone()),
+        (
+            "alpha",
+            zumen_render::Options {
+                width: 257,
+                height: 80,
+                background: [40, 80, 160, 128],
+                ..fixtures::options()
+            },
+            fixtures::Columns::new().pack(),
+        ),
+        (
+            "alpha-drawing",
+            zumen_render::Options {
+                background: [40, 80, 160, 128],
+                ..fixtures::options()
+            },
+            fixtures::translucent().pack(),
+        ),
+    ] {
+        let (result, _, _) =
+            fixtures::run_png(&input, &options, zumen_base::Limits::default(), false);
+        let png = result.map_err(|e| format!("PNG を作れない: {e:?}"))?;
+        fs::write(
+            folder.join(format!("{name}.rgba")),
+            fixtures::pixels(&png).2,
+        )?;
+        fs::write(folder.join(format!("{name}.png")), png)?;
+    }
     fs::write(folder.join("scene.zmsc"), input)?;
     fs::write(folder.join("drawing.svg"), svg)?;
     fs::write(folder.join("transcript.bin"), fixtures::transcript())?;

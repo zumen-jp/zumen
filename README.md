@@ -69,7 +69,7 @@ target/debug/zumen entities samples/dwg/zumen-layout-r2000.dwg --limit 2
 | [docs/support.md](docs/support.md) | 対応する環境と、言語の下限 |
 | [docs/tier3.md](docs/tier3.md) | 公式のラッパーのない言語から使う手順 |
 | [docs/view2d.md](docs/view2d.md) | 2D の表示部品の方針と、旧版からの置き換えの対応表 |
-| [docs/render.md](docs/render.md) | 図面から SVG を作る API と、Node.js の例 |
+| [docs/render.md](docs/render.md) | 図面から SVG・PNG を作る API と、Node.js の例 |
 | [schema](schema/README.md) | API の関数とメッセージのスキーマ |
 | [catalog](catalog/README.md) | 診断の code と、日本語・英語の文 |
 | [docs/decisions](docs/decisions/README.md) | 決定の記録 |
