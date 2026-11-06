@@ -11,4 +11,4 @@ const ptr = exports.transcript_ptr();
 const size = exports.transcript_len();
 const result = Buffer.from(exports.memory.buffer, ptr, size);
 assert.deepEqual(result, readFileSync(transcript));
-console.log(`SVG の native/wasm 照合: ${size} bytes、sha256 ${createHash("sha256").update(result).digest("hex")}`);
+console.log(`SVG・PNG の native/wasm 照合: ${size} bytes、sha256 ${createHash("sha256").update(result).digest("hex")}`);

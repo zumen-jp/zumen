@@ -1,0 +1,279 @@
+{
+  "description": "render に scene_fonts.json と同じ合成 TrueType を渡し、OS に依らず字形の輪郭を描く。高さの意味の違い、フォントの診断、不正な入力と重複・コレクションの番号を各言語で照らす（決定 0188・0277）",
+  "module": "drawing",
+  "steps": [
+    {
+      "push": {
+        "name": "a.dxf",
+        "text": "0\nSECTION\n2\nHEADER\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nLINE\n5\n1\n8\n0\n420\n255\n10\n0\n20\n0\n11\n100\n21\n100\n0\nTEXT\n5\n2\n8\n0\n420\n65280\n10\n20\n20\n20\n40\n7\n1\nH\n0\nLINE\n5\n3\n8\n0\n67\n1\n420\n65280\n10\n5\n20\n5\n11\n95\n21\n5\n0\nENDSEC\n0\nEOF\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "a.dxf"
+      },
+      "expect": {
+        "/result/format": "dxf"
+      }
+    },
+    {
+      "push": {
+        "name": "font.ttf",
+        "hex": "0001000000080000000000004f532f32000000000000008c00000060636d617000000000000000ec0000004c676c796600000000000001380000007c6865616400000000000001b4000000366868656100000000000001ec00000024686d74780000000000000210000000106c6f63610000000000000220000000186d61787000000000000002380000000600040000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000320ff380000000000000000000000000000000002bc000000000000000000010003000a0000000c000c000000000040000000000000000400000020000000200000000300000048000000480000000100000049000000490000000400000067000000670000000200010032000001c202bc0003000033211121320190fe7002bc00000000020000000002bc02d0000300070000313311230133112364640258646402d0fd3002d00001001eff2e020801e00003000004120a010113f5f5f5d201590159fea70000ffff0000000002bc02d0002b0001000a0014200000020002fb0300000001000000000000000000005f0f3cf5000003e8000000000000000000000000000000000000000000000000000000000000000100000000000100000384ff060000000000000000000000000000000000000000000000000000000401f4000002bc00000226000000fa0000000000000000001c0000004000000060000000600000007c0000500000050000"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "render",
+        "doc": "a.dxf",
+        "from": "space/0",
+        "format": "png",
+        "width": 100,
+        "height": 100,
+        "region": [
+          0,
+          0,
+          100,
+          100
+        ],
+        "dpi": 25.4,
+        "background": [
+          255,
+          255,
+          255,
+          255
+        ],
+        "foreground": [
+          0,
+          0,
+          0,
+          255
+        ],
+        "tolerance": 0.1,
+        "fonts": [
+          {
+            "input": "font.ttf"
+          }
+        ],
+        "heights": {
+          "dxf.TEXT.40": "em"
+        },
+        "print": true
+      },
+      "expect": {
+        "/diagnostics/0/code": "scene.font.assumed",
+        "/result/blob": 0,
+        "/blobs/0/kind": "image"
+      },
+      "absent": [
+        "/diagnostics/1"
+      ]
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "render",
+        "doc": "a.dxf",
+        "from": "space/0",
+        "format": "png",
+        "width": 100,
+        "height": 100,
+        "region": [
+          0,
+          0,
+          100,
+          100
+        ],
+        "dpi": 25.4,
+        "background": [
+          255,
+          255,
+          255,
+          255
+        ],
+        "foreground": [
+          0,
+          0,
+          0,
+          255
+        ],
+        "tolerance": 0.1,
+        "fonts": [
+          {
+            "input": "font.ttf"
+          }
+        ],
+        "heights": {
+          "dxf.TEXT.40": "cap_height"
+        },
+        "print": true
+      },
+      "expect": {
+        "/diagnostics/0/code": "scene.font.assumed"
+      },
+      "absent": [
+        "/diagnostics/1"
+      ]
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "render",
+        "doc": "a.dxf",
+        "from": "space/0",
+        "format": "png",
+        "width": 100,
+        "height": 100,
+        "region": [
+          0,
+          0,
+          100,
+          100
+        ],
+        "dpi": 25.4,
+        "background": [
+          255,
+          255,
+          255,
+          255
+        ],
+        "foreground": [
+          0,
+          0,
+          0,
+          255
+        ],
+        "tolerance": 0.1,
+        "fonts": [
+          {
+            "input": "a.dxf"
+          }
+        ]
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "call.value.invalid",
+        "/diagnostics/0/params/pointer": "/fonts/0/input",
+        "/blobs": []
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "take": 0,
+      "status": "invalid"
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "render",
+        "doc": "a.dxf",
+        "from": "space/0",
+        "format": "png",
+        "width": 100,
+        "height": 100,
+        "region": [
+          0,
+          0,
+          100,
+          100
+        ],
+        "dpi": 25.4,
+        "background": [
+          255,
+          255,
+          255,
+          255
+        ],
+        "foreground": [
+          0,
+          0,
+          0,
+          255
+        ],
+        "tolerance": 0.1,
+        "fonts": [
+          {
+            "input": "font.ttf"
+          },
+          {
+            "input": "font.ttf"
+          }
+        ]
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "call.value.invalid",
+        "/diagnostics/0/params/pointer": "/fonts/1",
+        "/blobs": []
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "take": 0,
+      "status": "invalid"
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "render",
+        "doc": "a.dxf",
+        "from": "space/0",
+        "format": "png",
+        "width": 100,
+        "height": 100,
+        "region": [
+          0,
+          0,
+          100,
+          100
+        ],
+        "dpi": 25.4,
+        "background": [
+          255,
+          255,
+          255,
+          255
+        ],
+        "foreground": [
+          0,
+          0,
+          0,
+          255
+        ],
+        "tolerance": 0.1,
+        "fonts": [
+          {
+            "input": "font.ttf",
+            "index": 1
+          }
+        ]
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "call.value.invalid",
+        "/diagnostics/0/params/pointer": "/fonts/0/input",
+        "/blobs": []
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "take": 0,
+      "status": "invalid"
+    }
+  ]
+}

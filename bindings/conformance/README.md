@@ -55,6 +55,8 @@ cargo run -p zumen-conformance -- --write
 
 `render.json` は、空間と用紙からの SVG、範囲と余白、未描画の元の ID、不正な設定と予算による停止・失敗後の再利用を確かめます。`render_fonts.json` は `scene_fonts.json` と同じ合成の TrueType を使い、フォントと高さの指定から字形の輪郭を描く出力・診断を照合します。どちらも図面のモジュールで、画像は `image` blob として同じハッシュになります。API の中断は zumen-abi、描画部品の中断と予算は zumen-render の契約テストでも確かめています（決定 0275）。
 
+`render_png.json` と `render_fonts_png.json` は同じ図面・フォントを PNG で描き、画像の全バイト列と診断を照らします。大きすぎる寸法、描画と符号化の予算停止、停止後の再利用も含みます（決定 0277）。
+
 ### 合成フォント
 
 `cases/scene_fonts_cff.json` は、CFF・CFF2 と、両方を含むフォントのコレクション（TTC）の合成の入力です（#564）。実在のフォントは使わず、次のコマンドで組み立てます。`--check` は、作り直した組が記録した JSON と同じかを確かめます。

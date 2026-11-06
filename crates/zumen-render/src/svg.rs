@@ -1,19 +1,19 @@
 //! SVG 1.1 の 7（座標）・8（パス）・11（塗り）・14（切り抜き）に従って書く。
 
-use zumen_base::{Code, Cx, Diagnostic, Kind, Ref, codes};
+use zumen_base::{Cx, Kind};
 use zumen_scene::layout as l;
 
-use crate::{Error, Options, order, scene::Scene, writer::Writer};
+use crate::{Error, Options, order, paint, scene::Scene, writer::Writer};
 
-struct Camera {
-    scale: f64,
-    offset: [f64; 2],
-    size: [f64; 2],
+pub(crate) struct Camera {
+    pub scale: f64,
+    pub offset: [f64; 2],
+    pub size: [f64; 2],
     region: [f64; 4],
 }
 
 impl Camera {
-    fn new(o: &Options) -> Result<Self, Error> {
+    pub fn new(o: &Options) -> Result<Self, Error> {
         let [xmin, ymin, xmax, ymax] = o.region;
         let width = xmax - xmin;
         let height = ymax - ymin;
@@ -48,7 +48,7 @@ impl Camera {
         })
     }
 
-    fn point(&self, origin: [f64; 2], local: [f64; 2]) -> [f64; 2] {
+    pub fn point(&self, origin: [f64; 2], local: [f64; 2]) -> [f64; 2] {
         // 絶対座標に戻してから引くと、原点が大きいシーンの相対座標が丸まる。
         let [ox, oy] = origin;
         let [x, y] = local;
@@ -145,21 +145,6 @@ impl Render<'_, '_, '_> {
         Ok(())
     }
 
-    fn diagnostic(&mut self, code: Code, unit: usize) -> Result<(), Error> {
-        let entity = self.scene.uint(l::UNIT_ENTITIES, unit, 0)? as usize;
-        let length = u64::from(self.scene.uint(l::ENTITY_IDS, entity, 1)?);
-        self.out.cx.check(Kind::Work, length)?;
-        // 集約の表・値・場所の分は環境に依らない固定量で数え、ID の複写分を足す。
-        self.out.cx.check(Kind::DecodedBytes, 1024 + length)?;
-        let id = self.scene.text(l::ENTITY_IDS, entity, 0)?;
-        self.out.cx.report(
-            Diagnostic::new(code)
-                .with("unit", unit as u64)
-                .at(Ref::default().with_id(id)),
-        );
-        Ok(())
-    }
-
     fn primitive(
         &mut self,
         kind: usize,
@@ -167,35 +152,9 @@ impl Render<'_, '_, '_> {
         unit: usize,
         origin: [f64; 2],
     ) -> Result<(), Error> {
-        if kind == 4 {
-            return self.diagnostic(codes::RENDER_IMAGE_DROPPED, unit);
-        }
-        if kind == 2 && self.glyph_range(row)?.is_empty() {
-            if self.scene.uint(l::TEXT_STRINGS, row, 1)? != 0 {
-                self.diagnostic(codes::RENDER_TEXT_DROPPED, unit)?;
-            }
+        let Some(rgba) = paint::color(&self.scene, self.options, kind, row, unit, self.out.cx)?
+        else {
             return Ok(());
-        }
-        if kind == 3
-            && (self.scene.uint(l::POINT_MARKERS, row, 1)? != 0
-                || self.scene.uint(l::POINT_MARKERS, row, 3)? != 0)
-        {
-            return self.diagnostic(codes::RENDER_MARKER_DROPPED, unit);
-        }
-        let color = self.scene.uint(l::UNIT_COLORS, unit, 0)? as usize;
-        let flags = self.scene.uint(l::COLOR_FLAGS, color, 0)?;
-        let rgba = if flags & u32::from(l::color_flag::FOREGROUND) != 0 {
-            self.options.foreground
-        } else if flags & u32::from(l::color_flag::UNRESOLVED) != 0 {
-            self.diagnostic(codes::RENDER_COLOR_ASSUMED, unit)?;
-            self.options.foreground
-        } else {
-            [
-                self.scene.uint(l::COLOR_RGBA, color, 0)? as u8,
-                self.scene.uint(l::COLOR_RGBA, color, 1)? as u8,
-                self.scene.uint(l::COLOR_RGBA, color, 2)? as u8,
-                self.scene.uint(l::COLOR_RGBA, color, 3)? as u8,
-            ]
         };
         let clip = self.scene.uint(l::UNIT_CLIPS, unit, 0)?;
         let clips = if clip == l::NONE {
@@ -295,11 +254,7 @@ impl Render<'_, '_, '_> {
     }
 
     fn glyph_range(&self, row: usize) -> Result<std::ops::Range<usize>, Error> {
-        if self.scene.rows(l::TEXT_GLYPHS) == 0 {
-            Ok(0..0)
-        } else {
-            self.scene.range(l::TEXT_GLYPHS, l::GLYPH_SHAPES, row)
-        }
+        paint::glyph_range(&self.scene, row)
     }
 
     fn text(&mut self, row: usize, origin: [f64; 2]) -> Result<(), Error> {

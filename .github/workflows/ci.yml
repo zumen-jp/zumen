@@ -213,11 +213,12 @@ jobs:
         run: cargo build --package zumen-abi --target wasm32-unknown-unknown --release --locked
       - name: ネイティブと同じハッシュの一覧になることを確かめる
         run: node bindings/conformance/wasm.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm
-      - name: シーンからの SVG のバイト列・診断・予算・停止が wasm とネイティブで同じことを確かめる（決定 0272）
+      - name: シーンからの SVG・PNG のバイト列・診断・予算・停止が wasm とネイティブで同じことを確かめる（決定 0272・0277）
         run: |
           cargo run --package zumen-render --example export --locked -- target/svg-check
           cargo build --package zumen-render --example parity --target wasm32-unknown-unknown --locked
           node crates/zumen-render/tests/wasm.mjs target/wasm32-unknown-unknown/debug/examples/parity.wasm target/svg-check/transcript.bin
+          node crates/zumen-render/tests/api.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm
       - name: 分けたモジュールをラッパーで読み込み、組に合うモジュールで流しても、同じハッシュの一覧になることを確かめる（決定 0221）
         run: node bindings/js/test/modules.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm modules/zumen_abi1_drawing.wasm modules/zumen_abi1_bim.wasm modules/zumen_abi1_civil.wasm modules/zumen_abi1_pointcloud.wasm modules/zumen_abi1_plugin.wasm
       - name: プラグインの形式だけを持つ wasm のモジュールを作り、読んだ図面を図面のモジュールで使えることを確かめる（決定 0243・0247）
