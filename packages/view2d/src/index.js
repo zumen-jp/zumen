@@ -7,6 +7,7 @@ import { measurementOf, positionAt, snapPoint } from "./snap.js";
 import { inputOptions, normalizeInput, Tools } from "./tools.js";
 import { bindInput } from "./controls.js";
 import { Underlays } from "./underlays.js";
+export { findSource } from "./source.js";
 
 const EMPTY_REPORT = Object.freeze({ drawn: Object.freeze({ lines: 0, faces: 0, texts: 0, points: 0, images: 0, glyphs: 0 }), issues: Object.freeze([]) });
 const EMPTY = Object.freeze([]);
@@ -167,6 +168,7 @@ export class View2D {
   getSize() { this.#live(); return this.#size; }
   getReport() { this.#live(); return this.#prepared?.report ?? EMPTY_REPORT; }
   getLayers() { this.#live(); return this.#index?.layers ?? EMPTY; }
+  getElements() { this.#live(); return this.#index?.elements ?? EMPTY; }
   getState() { this.#live(); return this.#snapshot; }
 
   setUnderlayRenderer(renderer) { this.#structural(); this.#underlays.setRenderer(renderer); return this.#refresh("underlay"); }

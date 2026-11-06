@@ -1,4 +1,4 @@
-import type { Extent, Scene, SceneCounts, SceneResult } from "@zumen-jp/zumen";
+import type { Extent, Scene, SceneCounts, SceneResult, Session, Source } from "@zumen-jp/zumen";
 
 export interface Point { readonly x: number; readonly y: number }
 /** 起点の座標の中心、CSS px / 起点の長さ、反時計回りのラジアン。 */
@@ -64,6 +64,9 @@ export interface ElementRef {
   readonly id: string;
   readonly path: readonly { readonly id: string; readonly column: number; readonly row: number }[];
 }
+export interface ElementSource extends ElementRef { readonly source: Source | null }
+/** 表示した版を確かめ、配置の道筋を保って entities の出所へたどる。 */
+export declare function findSource(session: Session, document: DocumentIdentity, element: ElementRef, maxPages?: number): ElementSource | null;
 export interface UnderlayDescriptor {
   readonly index: number;
   readonly element: ElementRef;
@@ -223,6 +226,8 @@ export declare class View2D {
   /** 再読込かシーン・関数の差し替えまで停止する。 */
   cancelUnderlays(): RenderReport;
   getLayers(): readonly string[];
+  /** シーンの要素行の順。選択と同じ ID と配置の道筋を持つ読み取り専用の一覧。 */
+  getElements(): readonly ElementRef[];
   /** 登録時には呼ばず、更新後に同期で通知する。返す関数で解除。 */
   subscribe(listener: (state: View2DState) => void): () => void;
   on(type: View2DEventType, listener: (event: View2DEvent) => void): () => void;

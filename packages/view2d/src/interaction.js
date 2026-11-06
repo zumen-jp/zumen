@@ -29,7 +29,7 @@ export function indexElements(prepared) {
     if (!layerIndices.has(id)) { layers.push(id); layerIndices.set(id, []); }
     layerIndices.get(id).push(i);
   }
-  return { elements, byKey, indices, layers: Object.freeze(layers), layerIndices };
+  return { elements: Object.freeze(elements), byKey, indices, layers: Object.freeze(layers), layerIndices };
 }
 
 export const emptyInteraction = () => Object.freeze({ hiddenLayers: EMPTY, selection: EMPTY, hovered: null, highlights: EMPTY });
