@@ -939,31 +939,28 @@ impl<'x> Reads<'x> {
     /// ファイルを読み通す手間とする。ほかの読めない定義（読み飛ばせて読めない数。`5-3.2`）は、読んだバイト数を知れない
     /// ので、0 とする（pdf.md の「予算の外」）
     pub(crate) fn read(self, id: ObjectIdentifier) -> (u64, Option<Object<'x>>) {
-        if let Some(bound) = self.source.file_ref_bound(id) {
+        let probe = if let Some(bound) = self.source.file_ref_bound(id) {
             // settle と targets が必要とするのは中の参照と読み直す手間。文字列を Object として
             // 読むと、外部ファイルの判定より先に 16 進やエスケープを展開する（7.3.4・7.3.8.2）。
-            // コンテナーだけを型付きで引く。ほかの値と壊れた辞書は、元の範囲の上限で数える。
-            if let Some(stream) = self.xref.get::<Stream<'_>>(id) {
-                return (self.stream_work(&stream), Some(Object::Stream(stream)));
-            }
+            // 辞書（ストリームを含む）と配列だけを型付きで引く。辞書は元の読み方で
+            // ストリームと区別し、F がフォントなどの資源名なら実際の辞書の長さを使う。
             if let Some(dict) = self.xref.get::<Dict<'_>>(id) {
+                lookup_work(dict.data())
+            } else if let Some(array) = self.xref.get::<Array<'_>>(id) {
                 return (
-                    bound.div_ceil(LOOKUP_BYTES).saturating_mul(2),
-                    Some(Object::Dict(dict)),
-                );
-            }
-            if let Some(array) = self.xref.get::<Array<'_>>(id) {
-                return (
-                    lookup_work(array.data()).saturating_mul(3),
+                    lookup_work(array.data()).saturating_mul(2),
                     Some(Object::Array(array)),
                 );
+            } else {
+                return (bound.div_ceil(LOOKUP_BYTES).saturating_mul(2), None);
             }
-            return (bound.div_ceil(LOOKUP_BYTES).saturating_mul(3), None);
-        }
+        } else {
+            0
+        };
         match self.xref.get::<Object<'x>>(id) {
-            Some(object) => (self.read_work(&object), Some(object)),
+            Some(object) => (probe.saturating_add(self.read_work(&object)), Some(object)),
             None => match self.xref.get::<Dict<'x>>(id) {
-                Some(dict) => (self.file, Some(Object::Dict(dict))),
+                Some(dict) => (probe.saturating_add(self.file), Some(Object::Dict(dict))),
                 None => (0, None),
             },
         }
