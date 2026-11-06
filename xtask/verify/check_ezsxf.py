@@ -687,7 +687,7 @@ class Step:
         return out
 
     def sheet(self):
-        """番号がもっとも小さい用紙の並び（zumen と同じ。docs/formats/sxf.md の「最初の DRAWING_SHEET_REVISION」、#550）。
+        """番号がもっとも小さい用紙の並び（zumen と同じ。docs/formats/sxf.md の「P21 の組み直し」、#550）。
         drawing_sheet_revision は representation (name, items, context_of_items) の下位の型（ISO 10303-101）"""
         first = next((i for i in self.order if self.has(i, "DRAWING_SHEET_REVISION")), None)
         return self.refs(self.part(first, "DRAWING_SHEET_REVISION")[1]) if first is not None else []

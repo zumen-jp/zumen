@@ -1445,6 +1445,33 @@ fidelity = "dropped"
 since = "0.0.0"
 status = "active"
 
+[codes."sxf.p21-instance.dropped"]
+description = "P21 の同じ番号の実体はファイルの順で最初だけを使い、後の実体を図面モデルに移さなかった"
+severity = "warning"
+fidelity = "dropped"
+params = { id = "uint" }
+group-by = ["id"]
+since = "0.2.0"
+status = "active"
+
+[codes."sxf.p21-sheet.dropped"]
+description = "P21 は番号が最小の用紙だけを使い、ほかの用紙を図面モデルに移さなかった"
+severity = "warning"
+fidelity = "dropped"
+params = { id = "uint" }
+group-by = ["id"]
+since = "0.2.0"
+status = "active"
+
+[codes."sxf.p21-layer-member.dropped"]
+description = "P21 の要素が複数のレイヤに属するので、番号が最小の仮でないレイヤを使い、ほかのレイヤへの割り当てを移さなかった"
+severity = "warning"
+fidelity = "dropped"
+params = { id = "uint" }
+group-by = ["id"]
+since = "0.2.0"
+status = "active"
+
 [codes."sxf.lift.dropped"]
 description = "図面モデルにまだ移せない種類のフィーチャを、移さなかった"
 severity = "warning"

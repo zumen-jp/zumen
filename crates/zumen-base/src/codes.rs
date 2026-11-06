@@ -4045,6 +4045,28 @@ pub const SXF_LIFT_INVALID: Code = Code::new(
 pub const SXF_MEMBER_ASSUMED: Code =
     Code::new("sxf.member.assumed", Severity::Info, None, &[], &[]);
 
+/// P21 の同じ番号の実体はファイルの順で最初だけを使い、後の実体を図面モデルに移さなかった
+///
+/// `sxf.p21-instance.dropped`（0.2.0 から）
+pub const SXF_P21_INSTANCE_DROPPED: Code = Code::new(
+    "sxf.p21-instance.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("id", ParamType::UInt)],
+    &["id"],
+);
+
+/// P21 の要素が複数のレイヤに属するので、番号が最小の仮でないレイヤを使い、ほかのレイヤへの割り当てを移さなかった
+///
+/// `sxf.p21-layer-member.dropped`（0.2.0 から）
+pub const SXF_P21_LAYER_MEMBER_DROPPED: Code = Code::new(
+    "sxf.p21-layer-member.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("id", ParamType::UInt)],
+    &["id"],
+);
+
 /// P21 の実体が、ない実体を参照している
 ///
 /// `sxf.p21-reference.missing`（0.0.0 から）
@@ -4054,6 +4076,17 @@ pub const SXF_P21_REFERENCE_MISSING: Code = Code::new(
     None,
     &[Param::new("id", ParamType::UInt)],
     &[],
+);
+
+/// P21 は番号が最小の用紙だけを使い、ほかの用紙を図面モデルに移さなかった
+///
+/// `sxf.p21-sheet.dropped`（0.2.0 から）
+pub const SXF_P21_SHEET_DROPPED: Code = Code::new(
+    "sxf.p21-sheet.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("id", ParamType::UInt)],
+    &["id"],
 );
 
 /// P21 に用紙（DRAWING_SHEET_REVISION）がないので、要素を図面モデルに移さなかった
@@ -4757,7 +4790,10 @@ pub const ALL: &[Code] = &[
     SXF_LIFT_DROPPED,
     SXF_LIFT_INVALID,
     SXF_MEMBER_ASSUMED,
+    SXF_P21_INSTANCE_DROPPED,
+    SXF_P21_LAYER_MEMBER_DROPPED,
     SXF_P21_REFERENCE_MISSING,
+    SXF_P21_SHEET_DROPPED,
     SXF_P21_SHEET_MISSING,
     SXF_P21_UNSUPPORTED,
     SXF_RASTER_FRAME_MISSING,

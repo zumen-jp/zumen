@@ -4,6 +4,7 @@ use core::cmp::Ordering;
 use std::collections::BTreeMap;
 
 use crate::code::{Code, Fidelity, Severity};
+use crate::cx::Stop;
 
 /// 診断の値。人向けに整形した文字列は持たない。
 #[derive(Clone, Debug, PartialEq)]
@@ -320,6 +321,21 @@ pub struct Diagnostics {
     list: Vec<Diagnostic>,
     index: BTreeMap<GroupKey, usize>,
     max_places: usize,
+    record_order: Option<RecordOrder>,
+}
+
+/// レコードを持たない場所は最後にする。同じレコードでは届いた順を保つ。
+type RecordPosition = (bool, u64);
+
+fn record_position(place: &Ref) -> RecordPosition {
+    (place.record().is_none(), place.record().unwrap_or(0))
+}
+
+#[derive(Clone, Debug, Default)]
+struct RecordOrder {
+    first: Vec<(RecordPosition, u64)>,
+    reports: u64,
+    stop: Option<Stop>,
 }
 
 impl Diagnostics {
@@ -337,11 +353,59 @@ impl Diagnostics {
             list: Vec::new(),
             index: BTreeMap::new(),
             max_places,
+            record_order: None,
+        }
+    }
+
+    pub(crate) fn in_record_order(max_places: usize) -> Self {
+        Self {
+            record_order: Some(RecordOrder::default()),
+            ..Self::with_max_places(max_places)
+        }
+    }
+
+    pub(crate) fn is_collecting_in_record_order(&self) -> bool {
+        self.record_order.is_some()
+    }
+
+    /// 収集と、最後の整列・転送の分を先に数える。場所の挿入で動かす要素も上限に含める。
+    pub(crate) fn record_order_work(&self, diagnostic: &Diagnostic) -> Option<u64> {
+        self.record_order.as_ref()?;
+        let existing = self
+            .index
+            .get(&GroupKey::of(diagnostic))
+            .and_then(|&index| self.list.get(index))
+            .map_or(0, |diagnostic| diagnostic.at.len());
+        let places = diagnostic.at.len() as u64;
+        let retained = self
+            .max_places
+            .min(existing.saturating_add(diagnostic.at.len())) as u64;
+        // 1 報告と 1 転送、場所の走査・転送と挿入時の移動。木と整列の比較は各操作に含める。
+        Some(2_u64.saturating_add(places.saturating_mul(2_u64.saturating_add(retained))))
+    }
+
+    pub(crate) fn record_order_stop(&self) -> Option<Stop> {
+        self.record_order.as_ref().and_then(|order| order.stop)
+    }
+
+    pub(crate) fn stop_record_order(&mut self, stop: Stop, diagnostic: Diagnostic) {
+        let mut stopped = stop.to_diagnostic();
+        if let Some(place) = diagnostic.at.into_iter().min_by_key(record_position) {
+            stopped = stopped.at(place);
+        }
+        // 停止の報告は 1 件だけにし、予算を使い切った後にも残す。
+        self.report(stopped);
+        if let Some(order) = &mut self.record_order {
+            order.stop = Some(stop);
         }
     }
 
     /// 診断を足す。まとめられるものはまとめる
     pub fn report(&mut self, diagnostic: Diagnostic) {
+        if self.record_order.is_some() {
+            self.report_in_record_order(diagnostic);
+            return;
+        }
         let key = GroupKey::of(&diagnostic);
         if let Some(existing) = self
             .index
@@ -357,6 +421,63 @@ impl Diagnostics {
         diagnostic.at.truncate(self.max_places);
         self.index.insert(key, self.list.len());
         self.list.push(diagnostic);
+    }
+
+    fn report_in_record_order(&mut self, mut diagnostic: Diagnostic) {
+        let Some(order) = &mut self.record_order else {
+            return;
+        };
+        if order.stop.is_some() {
+            return;
+        }
+        let first = (
+            diagnostic
+                .at
+                .iter()
+                .map(record_position)
+                .min()
+                .unwrap_or((true, 0)),
+            order.reports,
+        );
+        order.reports = order.reports.saturating_add(1);
+        let key = GroupKey::of(&diagnostic);
+        let places = core::mem::take(&mut diagnostic.at);
+        let position = if let Some(&position) = self.index.get(&key) {
+            let (Some(existing), Some(earliest)) =
+                (self.list.get_mut(position), order.first.get_mut(position))
+            else {
+                return;
+            };
+            let count = existing.count.saturating_add(diagnostic.count);
+            if first < *earliest {
+                diagnostic.at = core::mem::take(&mut existing.at);
+                *existing = diagnostic;
+                *earliest = first;
+            }
+            existing.count = count;
+            position
+        } else {
+            let position = self.list.len();
+            self.index.insert(key, position);
+            self.list.push(diagnostic);
+            order.first.push(first);
+            position
+        };
+        let Some(existing) = self.list.get_mut(position) else {
+            return;
+        };
+        let retained = &mut existing.at;
+        for place in places {
+            let position =
+                retained.partition_point(|known| record_position(known) <= record_position(&place));
+            if position < self.max_places {
+                // 挿入する前に末尾を外し、max_places を一時的にも超えない。
+                if retained.len() == self.max_places {
+                    retained.pop();
+                }
+                retained.insert(position, place);
+            }
+        }
     }
 
     /// 診断ごとに持つ場所の数
@@ -388,7 +509,15 @@ impl Diagnostics {
 
     /// 診断を取り出す
     pub fn into_vec(self) -> Vec<Diagnostic> {
-        self.list
+        let Some(order) = self.record_order else {
+            return self.list;
+        };
+        let mut ordered: Vec<_> = order.first.into_iter().zip(self.list).collect();
+        ordered.sort_by_key(|(position, _)| *position);
+        ordered
+            .into_iter()
+            .map(|(_, diagnostic)| diagnostic)
+            .collect()
     }
 }
 
