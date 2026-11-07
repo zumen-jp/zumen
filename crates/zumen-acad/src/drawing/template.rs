@@ -244,10 +244,11 @@ fn template(drawing: &Drawing2D, blocks: &BTreeMap<(String, String), String>) ->
     let out = format!(
         "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1018\n9\n$DWGCODEPAGE\n3\nANSI_932\n9\n$INSUNITS\n70\n{unit}\n{limits}9\n$HANDSEED\n5\n{seed}\n0\nENDSEC\n{tables}{section}{entities}{objects}0\nEOF\n"
     );
-    // ASCII 以外は、block_names が `Charset::encode` で ANSI_932 に戻せると確かめた名前だけ。
-    let (bytes, _, unmappable) = encoding_rs::SHIFT_JIS.encode(&out);
-    debug_assert!(!unmappable);
-    bytes.into_owned()
+    // ASCII 以外は、block_names が ANSI_932 に戻せると確かめた名前だけなので、符号化は失敗しない。失敗したら、
+    // 空のバイト列にして、読む所で失敗させる
+    let encoded = Charset::ShiftJis.encode(&out);
+    debug_assert!(encoded.is_ok());
+    encoded.unwrap_or_default()
 }
 
 fn table_start(name: &str, handle: &str, count: usize) -> String {
