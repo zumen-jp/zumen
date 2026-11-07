@@ -1,0 +1,198 @@
+{
+  "description": "R2004 DWG に ASCII 名と日本語名の画層をそれぞれ追加し、同じ文書を DXF に変換する。元の寸法の ID、追加した画層、落とした参照と出力バイトを照らす（#641）。",
+  "module": "drawing",
+  "steps": [
+    {
+      "push": {
+        "name": "input.dwg",
+        "file": "samples/dwg/zumen-arcdim-r2004.dwg"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "input.dwg"
+      },
+      "expect": {
+        "/result/format": "dwg"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "doc": "input.dwg",
+        "edits": [
+          {
+            "kind": "add_layer",
+            "name": "Walls",
+            "color": {
+              "aci": 3
+            }
+          }
+        ]
+      },
+      "expect": {
+        "/result/applied/0/id": "layer/h3E0"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "convert",
+        "doc": "input.dwg",
+        "format": "dxf",
+        "to": "out.dxf",
+        "max_places": 12
+      },
+      "expect": {
+        "/result/elements": 79,
+        "/diagnostics/1/code": "dwg.dxf-reference.dropped",
+        "/diagnostics/1/params/code": 330,
+        "/diagnostics/1/count": 12
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "tables",
+        "doc": "out.dxf"
+      },
+      "expect": {
+        "/result/layers/2/id": "layer/h3E0",
+        "/result/layers/2/name": "Walls",
+        "/result/layers/2/color/aci": 3
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "out.dxf",
+        "limit": 2
+      },
+      "expect": {
+        "/result/items/0/id": "space/0/h2D9",
+        "/result/items/1/id": "space/0/h2DA",
+        "/result/items/1/kind": "dimension"
+      }
+    },
+    {
+      "session": {}
+    },
+    {
+      "push": {
+        "name": "input.dwg",
+        "file": "samples/dwg/zumen-arcdim-r2004.dwg"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "input.dwg"
+      },
+      "expect": {
+        "/result/format": "dwg"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "doc": "input.dwg",
+        "edits": [
+          {
+            "kind": "add_layer",
+            "name": "外壁",
+            "color": {
+              "aci": 3
+            }
+          }
+        ]
+      },
+      "expect": {
+        "/result/applied/0/id": "layer/h3E0"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "convert",
+        "doc": "input.dwg",
+        "format": "dxf",
+        "to": "out.dxf",
+        "budget": {
+          "decoded_bytes": 64
+        }
+      },
+      "expect": {
+        "/diagnostics/0/code": "budget.decoded-bytes.exceeded",
+        "/blobs": []
+      },
+      "status": "failed",
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "drawing",
+        "doc": "out.dxf"
+      },
+      "expect": {
+        "/diagnostics/0/code": "call.document.missing"
+      },
+      "status": "failed"
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "convert",
+        "doc": "input.dwg",
+        "format": "dxf",
+        "to": "out.dxf",
+        "max_places": 12
+      },
+      "expect": {
+        "/result/elements": 79,
+        "/diagnostics/1/code": "dwg.dxf-reference.dropped",
+        "/diagnostics/1/params/code": 330,
+        "/diagnostics/1/count": 12
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "tables",
+        "doc": "out.dxf"
+      },
+      "expect": {
+        "/result/layers/2/id": "layer/h3E0",
+        "/result/layers/2/name": "外壁",
+        "/result/layers/2/color/aci": 3
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "out.dxf",
+        "limit": 2
+      },
+      "expect": {
+        "/result/items/0/id": "space/0/h2D9",
+        "/result/items/1/id": "space/0/h2DA",
+        "/result/items/1/kind": "dimension"
+      }
+    }
+  ]
+}
