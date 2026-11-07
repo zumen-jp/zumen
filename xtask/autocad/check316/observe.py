@@ -10,21 +10,28 @@ from pathlib import Path
 MISSING = None
 try:
     import ezdxf
+    from ezdxf.lldxf.const import DXFStructureError
     from ezdxf.lldxf.loader import load_dxf_structure
     from ezdxf.lldxf.tagger import ascii_tags_loader
 except ImportError as error:
-    # 「値が予想と違う」（1）と取り違えないよう、main が理由を付けて 2 を返す。
-    ezdxf, MISSING = None, str(error)
+    # 流し方の誤り（3）として、main が理由を付けて返す。元の文はパスを含み得るので、モジュールの名前だけを使う。
+    ezdxf, MISSING = None, f"{error.name or 'ezdxf'} を読み込めない"
 
 
 EZDXF = "1.4.5"
 NUMBER = r"([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?|\*)"
-STYLES ={"REGULAR": 0, "BOLD": 2, "ITALIC": 1, "BOTH": 3}
+STYLES = {"REGULAR": 0, "BOLD": 2, "ITALIC": 1, "BOTH": 3}
 TEXTS = ("CONTROL", "RGB_A", "RGB_B", "PARA_25", "PARA_50")
 # DXF の線内のコード、現行の DWG リーダーが対応づける 93 のビット、画面で指定する値。
 LEADER = {"leader-type": (170, 1, 2), "leader-color": (92, 2, 0xC2112233),
           "leader-linetype": (340, 4, "Z316_DASH"), "leader-weight": (171, 8, 50),
           "leader-size": (40, 16, 4.5), "leader-arrow": (341, 32, "_DOT")}
+# JSON にそのまま出す線種と部品の名前。ほかの名前は出すときだけ伏せ、比べるのは伏せる前の名前にする。
+NAMES = ("Z316_DASH", "_DOT", "BYBLOCK", "BYLAYER", "CONTINUOUS")
+
+
+class Usage(Exception):
+    """流し方の誤り（ezdxf・ファイル・保存の形式）。終了コード 3 にし、記録せずに直して流し直す。"""
 
 
 def one(items, message):
@@ -75,9 +82,8 @@ def style_values(record):
 
 
 def name_of(refs, raw):
-    # 保存時に変わり得るハンドルは参照先で比べる。対象外の図面の名前は出力しない。
-    name = refs.get(raw.strip().upper())
-    return name if name in ("Z316_DASH", "_DOT", "BYBLOCK", "BYLAYER", "CONTINUOUS") else "other"
+    # 保存時に変わり得るハンドルは参照先の名前で比べる。解決できないハンドルは None。名前は hidden が出す前に伏せる。
+    return refs.get(raw.strip().upper())
 
 
 def field_values(tags, refs):
@@ -130,12 +136,15 @@ def leader_values(record, refs):
 
 def read(path, topic=None):
     if path.stat().st_size > 8 * 1024 * 1024:
-        raise ValueError("このキットの 8 MiB までの合成 DXF を指定してください")
-    with path.open(encoding="utf-8-sig") as stream:
-        sections = load_dxf_structure(ascii_tags_loader(stream))
-    header = sections["HEADER"][0]
+        raise Usage("このキットの 8 MiB までの合成 DXF を指定してください")
+    try:
+        with path.open(encoding="utf-8-sig") as stream:
+            sections = load_dxf_structure(ascii_tags_loader(stream))
+    except (UnicodeDecodeError, DXFStructureError):
+        raise Usage("DXF として読めない。R2018 の ASCII DXF を指定してください") from None
+    header = sections.get("HEADER", [[]])[0]
     if not any(a == (9, "$ACADVER") and b == (1, "AC1032") for a, b in zip(header, header[1:])):
-        raise ValueError("R2018 の ASCII DXF を指定してください")
+        raise Usage("R2018 の ASCII DXF を指定してください")
     tables, entities = sections["TABLES"], sections["ENTITIES"]
     refs = {r.get_first_value(5, "").upper(): r.get_first_value(2, "").upper() for r in tables
             if r.dxftype() in ("BLOCK_RECORD", "LTYPE")}
@@ -228,6 +237,28 @@ def paragraph_values(raw):
     return last("i"), last("l"), align[-1] if align else None
 
 
+def hidden(result, topic):
+    """JSON に出す前に、線種と部品の名前のうち、このキットの名前のほかを伏せる。同じ名前には同じ番号を付ける。"""
+    labels = {}
+
+    def name(value):
+        if value is None or value.upper() in NAMES:
+            return value
+        return labels.setdefault(value.upper(), f"other-{len(labels) + 1}")
+
+    def line(fields):
+        return {code: name(value) if code in (340, 341) else value for code, value in fields.items()}
+
+    for values in result["observed"].values():
+        leader = values["leader"]
+        if leader is not None:
+            values["leader"] = {"left": line(leader["left"]), "right": line(leader["right"]),
+                                "shared": [(code, name(value) if code in (6, 341, 342) else value)
+                                           for code, value in leader["shared"]]}
+    if topic in LEADER and "after" in result:
+        result["before"], result["after"] = line(result["before"]), line(result["after"])
+
+
 def sha256(path):
     digest = hashlib.sha256()
     with path.open("rb") as stream:
@@ -242,25 +273,32 @@ def main():
     parser.add_argument("after", type=Path)
     parser.add_argument("topic", choices=["styles", "color", "paragraph", *LEADER])
     args = parser.parse_args()
-    # 終了コード 0 は予想どおり、1 は予想と違う、2 は比較できない。どれも JSON を出し、2 には理由を添える。
+    # 終了コード 0 は予想どおり、1 は予想と違う、2 は比較できない、3 は流し方の誤り。どれも JSON を出し、2 と 3 には
+    # 理由を添える。理由には、渡したパスを書かず、変更前か変更後かだけを書く。
     result = {"topic": args.topic, "ezdxf": getattr(ezdxf, "__version__", None)}
-    observed = {}
+    observed, status = {}, None
     try:
         if ezdxf is None or ezdxf.__version__ != EZDXF:
-            raise ValueError(f"ezdxf {EZDXF} を入れた Python で流してください（{MISSING or result['ezdxf']}）")
-        for name, path in (("before", args.before), ("after", args.after)):
-            observed[name] = read(path, args.topic)
-            result[name + "_sha256"] = sha256(path)
+            raise Usage(f"ezdxf {EZDXF} を入れた Python で流してください（{MISSING or result['ezdxf']}）")
+        for name, label, path in (("before", "変更前", args.before), ("after", "変更後", args.after)):
+            try:
+                observed[name] = read(path, args.topic)
+                result[name + "_sha256"] = sha256(path)
+            except OSError as error:
+                raise Usage(f"ファイルを読めない（{label}、{error.strerror or type(error).__name__}）") from None
+            except Usage as error:
+                raise Usage(f"{error}（{label}）") from None
         result.update(compare(observed["before"], observed["after"], args.topic))
-    except Exception as error:  # どの失敗も、予想と違う（1）と取り違えないよう 2 にする。
-        result["error"] = f"比較できません: {error}"
+    except Usage as error:
+        result["error"], status = f"流し方の誤り: {error}", 3
+    except Exception as error:  # 比較できない失敗を、予想と違う（1）と取り違えないよう 2 にする。
+        result["error"], status = f"比較できません: {error}", 2
     result["observed"] = observed
+    hidden(result, args.topic)
     # 理由は日本語なので、ファイルに書き出しても端末の文字コードによらず UTF-8 にする。
     sys.stdout.reconfigure(encoding="utf-8")
     print(json.dumps(result, ensure_ascii=False, indent=2))
-    if "error" in result:
-        return 2
-    return 0 if result["matches"] else 1
+    return status or (0 if result["matches"] else 1)
 
 
 if __name__ == "__main__":

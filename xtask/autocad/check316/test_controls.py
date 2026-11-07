@@ -161,9 +161,19 @@ class Controls(unittest.TestCase):
         self.assertEqual((code, "matches" in result), (2, False))
         self.assertIn("対照", result["error"])
         self.assertEqual(result["observed"]["after"]["text"]["CONTROL"]["p"], ["xqc"])
+        # 流し方の誤りは 3 にし、理由には渡したパスを書かず、変更前か変更後かだけを書く
         code, result = self.observe(self.neutral, self.neutral, "color", options=("-I", "-S"))
-        self.assertEqual((code, result["ezdxf"], result["observed"]), (2, None, {}))
+        self.assertEqual((code, result["ezdxf"], result["observed"]), (3, None, {}))
         self.assertIn("ezdxf 1.4.5", result["error"])
+        code, result = self.observe(self.neutral, self.folder / "missing.dxf", "color")
+        self.assertEqual((code, list(result["observed"])), (3, ["before"]))
+        self.assertIn("変更後", result["error"])
+        self.assertNotIn(str(self.folder), result["error"])
+        ezdxf.new("R2013").saveas(self.edited)
+        code, result = self.observe(self.edited, self.neutral, "color")
+        self.assertEqual((code, result["observed"]), (3, {}))
+        self.assertIn("R2018", result["error"])
+        self.assertIn("変更前", result["error"])
 
     def test_mtext_scope(self):
         self.assertEqual(inline(r"\\c4;{\c1;\pxqc;X}M", "M"), {"c": None, "p": []})
@@ -195,6 +205,25 @@ class Controls(unittest.TestCase):
         self.doc.saveas(self.edited)
         with self.assertRaisesRegex(ValueError, "共通部"):
             self.check("leader-weight")
+        # 共通部の線種（341）と矢印（342）は、伏せる前の名前で比べる。JSON では、キットの外の名前を番号で伏せる
+        ARROWS.create_block(self.doc.blocks, "OPEN")
+        ARROWS.create_block(self.doc.blocks, "CLOSEDBLANK")
+        linetypes = [self.doc.linetypes.add(name, pattern=[0.75, 0.5, -0.25]).dxf.handle for name in ("DASHED", "HIDDEN")]
+        arrows = [self.doc.blocks.get(name).block_record_handle for name in ("_OPEN", "_CLOSEDBLANK")]
+        leader = self.doc.modelspace().query("MULTILEADER")[0]
+        before = self.folder / "shared.dxf"
+        for key, (old, new) in (("leader_linetype_handle", linetypes), ("arrow_head_handle", arrows)):
+            with self.subTest(key=key):
+                leader.dxf.set(key, old)
+                self.doc.saveas(before)
+                leader.dxf.set(key, new)
+                self.doc.saveas(self.edited)
+                code, result = self.observe(before, self.edited, "leader-weight")
+                self.assertEqual(code, 2)
+                self.assertIn("共通部", result["error"])
+                self.assertNotEqual(*(result["observed"][k]["leader"]["shared"] for k in ("before", "after")))
+                text = json.dumps(result, ensure_ascii=False)
+                self.assertFalse([name for name in ("DASHED", "HIDDEN", "_OPEN", "_CLOSEDBLANK") if name in text])
 
 
 if __name__ == "__main__":
