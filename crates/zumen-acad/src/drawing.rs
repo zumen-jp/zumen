@@ -26,6 +26,9 @@ mod layout;
 mod lettering;
 mod mtext;
 mod style;
+mod template;
+
+pub use template::NewDxfTemplate;
 
 use std::collections::{BTreeMap, BTreeSet};
 

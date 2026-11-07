@@ -69,7 +69,7 @@ AutoCAD の系統のファイルモデル（L1）として DXF を読み書き�
 
 ## 新しい DXF への変換
 
-`convert` は、図面モデルを新しい R2004 の DXF（AC1018）に書きます（[決定 0206](../decisions/0206-convert-to-new-dxf.md)）。ひな形に表の項目と要素を `apply` で足します。
+`convert` は、図面モデルを新しい R2004 の DXF（AC1018）に書きます（[決定 0206](../decisions/0206-convert-to-new-dxf.md)）。ひな形は `zumen-acad` の `NewDxfTemplate`（`drawing` の feature）が作り、表の項目と要素を `apply` で足します。
 
 - ひな形の TABLE はハンドル（5）と `AcDbSymbolTable`、表の項目は所有者（330）と `AcDbSymbolTableRecord`・種類ごとのサブクラス（100）を持つ。DIMSTYLE のハンドルは 105 に書く（DXF Reference「TABLES Section」「Common Group Codes for Symbol Table Entries」）。BLOCK・ENDBLK と足した図形の所有者は、対応する BLOCK_RECORD にする。これにより、記号の定義の中身も足せる。表の項目を足した後で、各 TABLE の件数（70）を実際の項目数に直す（DXF Reference「Symbol Table Group Codes」）。
 - OBJECTS にルートの DICTIONARY、`ACAD_LAYOUT` の辞書、モデルと用紙の LAYOUT を書く。LAYOUT と BLOCK_RECORD は互いを指す。用紙は最初の 1 枚を `Layout1` にし、入力に用紙がなくても空の `Layout1` を持つ。空の LAYOUT を追加先に使うので、用紙を作るための一時的な POINT は置かない（DXF Reference「DICTIONARY」「LAYOUT」「BLOCK_RECORD」）。

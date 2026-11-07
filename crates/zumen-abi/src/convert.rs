@@ -1,17 +1,17 @@
 //! 開いた図面を新しい DXF に書く（決定 0139・0206・0281）。対応する R2004 DWG では共有の表を再符号化する。
 //!
-//! 図面モデルから書くときは、形式ごとのひな形（表の既定の項目と、記号の定義の空の部品だけを持つファイル）を作り、図面モデルの線種・
+//! 図面モデルから書くときは、形式ごとのひな形（表の既定の項目と、記号の定義の空の部品だけを持つファイル。DXF は `zumen-acad` が作る）を作り、図面モデルの線種・
 //! 文字スタイル・寸法スタイル・レイヤ・要素を、書き戻し（apply）の追加で足す。書けない要素は落とし、種類ごとの
 //! 件数を診断にする。
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use zumen_acad::{Dxf, DxfFile};
+use zumen_acad::{Dxf, DxfFile, NewDxfTemplate};
 use zumen_base::{Cx, Diagnostic, Diagnostics, Kind, Ref, Value, codes};
 use zumen_drawing::{
     Changes, Color, ColorCode, ColorSystem, DimensionStyle, Drawing2D, Edit, Element, Inherit,
     Layer, LayerId, LayerState, LayerStyle, LineType, LineTypeId, ModelPoint, PaperPoint, Placed,
-    Shape, SheetItem, SpaceId, SymbolKey, TextStyle, Unit, id,
+    Shape, SheetItem, SpaceId, TextStyle, id,
 };
 use zumen_sdk::{Apply, Codec, Error, Lift};
 
@@ -50,11 +50,19 @@ pub(crate) fn from_r2004(
 
 /// 図面モデルを、新しい DXF（R2004）に書く
 pub(crate) fn to_dxf(drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<Converted, Failed> {
-    let blocks = block_names(drawing, cx);
-    let template = template(drawing, &blocks);
-    cx.check(Kind::Work, template.len() as u64)
+    // 外部参照の記号の定義は、ひな形に書かない
+    for definition in drawing
+        .symbols
+        .iter()
+        .filter(|definition| definition.external.is_some())
+    {
+        report_dropped(cx, "external_symbol_definition", &definition.source);
+    }
+    let template = NewDxfTemplate::new(drawing);
+    cx.check(Kind::Work, template.bytes().len() as u64)
         .map_err(|stop| stopped(cx, stop))?;
-    let mut file = quiet(cx, |cx| Dxf::read(&template, cx)).map_err(|error| failed(cx, error))?;
+    let mut file =
+        quiet(cx, |cx| Dxf::read(template.bytes(), cx)).map_err(|error| failed(cx, error))?;
 
     // 1. 線種・文字スタイル・寸法スタイル。レイヤは足した線種を同じ一覧で指せないので、先に足す
     let target = lift(&file, cx)?;
@@ -195,11 +203,11 @@ pub(crate) fn to_dxf(drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<Converted, 
     let maps = Maps {
         source: drawing,
         target: &target,
-        blocks: &blocks,
+        blocks: &template,
     };
     let mut edits = Vec::new();
     for definition in &drawing.symbols {
-        let Some(name) = blocks.get(&key_of(&definition.key)) else {
+        let Some(name) = template.block(&definition.key) else {
             continue;
         };
         let Some(place) = places.get(&name.to_lowercase()) else {
@@ -276,7 +284,7 @@ pub(crate) fn to_dxf(drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<Converted, 
                     let Some(view) = sheet.views.get(index) else {
                         continue;
                     };
-                    if port(view, sheet).is_some() {
+                    if NewDxfTemplate::writes_viewport(view, sheet) {
                         continue;
                     }
                     let space = drawing.spaces.iter().find(|space| space.id == view.space);
@@ -372,7 +380,7 @@ impl Addition<'_> {
 struct Maps<'a> {
     source: &'a Drawing2D,
     target: &'a Drawing2D,
-    blocks: &'a BTreeMap<(String, String), String>,
+    blocks: &'a NewDxfTemplate,
 }
 
 impl Maps<'_> {
@@ -401,11 +409,11 @@ impl Maps<'_> {
                     report_dropped(cx, kind, &element.source);
                     return;
                 };
-                let Some(name) = self.blocks.get(&key_of(&source.key)) else {
+                let Some(name) = self.blocks.block(&source.key) else {
                     report_dropped(cx, "external_symbol", &element.source);
                     return;
                 };
-                symbol.name = name.clone();
+                symbol.name = name.to_owned();
                 symbol.attributes = None;
                 for attribute in &source.attributes {
                     if !attribute.hidden {
@@ -623,60 +631,6 @@ fn map_line_type(source: &Drawing2D, target: &Drawing2D, id: LineTypeId) -> Opti
     find_line_type(target, name).map(|line_type| line_type.id)
 }
 
-fn key_of(key: &SymbolKey) -> (String, String) {
-    (key.namespace.to_string(), key.name.clone())
-}
-
-/// 記号の定義ごとの、書いた先の部品の名前。外部参照の定義は書かない。無名の定義には名前を付ける
-fn block_names(drawing: &Drawing2D, cx: &mut Cx<'_>) -> BTreeMap<(String, String), String> {
-    let mut names = BTreeMap::new();
-    let mut used: BTreeMap<String, ()> = BTreeMap::new();
-    for reserved in ["*model_space", "*paper_space"] {
-        used.insert(reserved.to_string(), ());
-    }
-    for (index, definition) in drawing.symbols.iter().enumerate() {
-        if definition.external.is_some() {
-            report_dropped(cx, "external_symbol_definition", &definition.source);
-            continue;
-        }
-        let base = if definition.anonymous || definition.key.name.starts_with('*') {
-            format!("zumen_{index}")
-        } else {
-            definition
-                .key
-                .name
-                .chars()
-                .map(|c| {
-                    if "<>/\\\":;?*|=,`".contains(c) || c.is_control() {
-                        '_'
-                    } else {
-                        c
-                    }
-                })
-                .collect()
-        };
-        let (encoded, _, unmappable) = encoding_rs::SHIFT_JIS.encode(&base);
-        let round_trips = !unmappable
-            && encoding_rs::SHIFT_JIS
-                .decode_without_bom_handling_and_without_replacement(&encoded)
-                .is_some_and(|decoded| decoded == base);
-        let base = if base.is_empty() || !round_trips {
-            format!("zumen_{index}")
-        } else {
-            base
-        };
-        let mut name = base.clone();
-        let mut repeat = 1;
-        while used.contains_key(&name.to_lowercase()) {
-            name = format!("{base}_{repeat}");
-            repeat += 1;
-        }
-        used.insert(name.to_lowercase(), ());
-        names.insert(key_of(&definition.key), name);
-    }
-    names
-}
-
 /// 書いた先の部品の名前（小文字）ごとの、記号の定義の空間
 fn definition_places(target: &Drawing2D) -> BTreeMap<String, Place<ModelPoint>> {
     let mut namer = id::DefinitionNamer::default();
@@ -719,184 +673,6 @@ fn is_aci(code: &ColorCode) -> bool {
     code.system == ColorSystem::Aci && (1..=255).contains(&code.value)
 }
 
-/// ひな形の DXF（R2004）。DXF Reference「TABLES Section」「Common Group Codes for
-/// Symbol Table Entries」「BLOCK」「ENDBLK」「BLOCK_RECORD」「DICTIONARY」「LAYOUT」に従い、
-/// 表とブロックの所有者・サブクラスと、モデル・用紙のレイアウトを持つ。用紙への追加には空の LAYOUT を使う。
-fn template(drawing: &Drawing2D, blocks: &BTreeMap<(String, String), String>) -> Vec<u8> {
-    let mut handle = 0x10_u64;
-    let mut next = || {
-        handle += 1;
-        format!("{handle:X}")
-    };
-    let root = next();
-    let layouts = next();
-    let model_layout = next();
-    let paper_layout = next();
-    let mut tables = String::from("0\nSECTION\n2\nTABLES\n");
-    let table = next();
-    tables.push_str(&table_start("LTYPE", &table, 3));
-    for name in ["ByBlock", "ByLayer", "Continuous"] {
-        let description = if name == "Continuous" {
-            "Solid line"
-        } else {
-            ""
-        };
-        tables.push_str(&format!(
-            "0\nLTYPE\n5\n{}\n330\n{table}\n100\nAcDbSymbolTableRecord\n100\nAcDbLinetypeTableRecord\n2\n{name}\n70\n0\n3\n{description}\n72\n65\n73\n0\n40\n0.0\n",
-            next()
-        ));
-    }
-    tables.push_str("0\nENDTAB\n");
-    let table = next();
-    tables.push_str(&table_start("LAYER", &table, 1));
-    tables.push_str(&format!(
-        "0\nLAYER\n5\n{}\n330\n{table}\n100\nAcDbSymbolTableRecord\n100\nAcDbLayerTableRecord\n2\n0\n70\n0\n62\n7\n6\nContinuous\n290\n1\n370\n-3\n",
-        next()
-    ));
-    tables.push_str("0\nENDTAB\n");
-    let table = next();
-    let style = next();
-    tables.push_str(&table_start("STYLE", &table, 1));
-    tables.push_str(&format!(
-        "0\nSTYLE\n5\n{style}\n330\n{table}\n100\nAcDbSymbolTableRecord\n100\nAcDbTextStyleTableRecord\n2\nStandard\n70\n0\n40\n0.0\n41\n1.0\n50\n0.0\n71\n0\n42\n2.5\n3\ntxt\n4\n\n"
-    ));
-    tables.push_str("0\nENDTAB\n");
-    let table = next();
-    tables.push_str(&table_start("DIMSTYLE", &table, 1));
-    tables.push_str("100\nAcDbDimStyleTable\n71\n0\n");
-    tables.push_str(&format!(
-        "0\nDIMSTYLE\n105\n{}\n330\n{table}\n100\nAcDbSymbolTableRecord\n100\nAcDbDimStyleTableRecord\n2\nStandard\n70\n0\n340\n{style}\n",
-        next()
-    ));
-    tables.push_str("0\nENDTAB\n");
-    let table = next();
-    let model_record = next();
-    let paper_record = next();
-    let mut parts = vec![
-        (
-            "*Model_Space".to_string(),
-            [0.0, 0.0],
-            model_record.clone(),
-            Some(&model_layout),
-        ),
-        (
-            "*Paper_Space".to_string(),
-            [0.0, 0.0],
-            paper_record.clone(),
-            Some(&paper_layout),
-        ),
-    ];
-    for definition in &drawing.symbols {
-        if let Some(name) = blocks.get(&key_of(&definition.key)) {
-            let base = definition.base.map_or([0.0, 0.0], |base| [base.x, base.y]);
-            parts.push((name.clone(), base, next(), None));
-        }
-    }
-    tables.push_str(&table_start("BLOCK_RECORD", &table, parts.len()));
-    let mut section = String::from("0\nSECTION\n2\nBLOCKS\n");
-    for (name, [x, y], record, layout) in &parts {
-        tables.push_str(&format!(
-            "0\nBLOCK_RECORD\n5\n{record}\n330\n{table}\n100\nAcDbSymbolTableRecord\n100\nAcDbBlockTableRecord\n2\n{name}\n"
-        ));
-        if let Some(layout) = layout {
-            tables.push_str(&format!("340\n{layout}\n"));
-        }
-        section.push_str(&format!(
-            "0\nBLOCK\n5\n{}\n330\n{record}\n100\nAcDbEntity\n8\n0\n100\nAcDbBlockBegin\n2\n{name}\n70\n0\n10\n{x:?}\n20\n{y:?}\n30\n0.0\n3\n{name}\n1\n\n0\nENDBLK\n5\n{}\n330\n{record}\n100\nAcDbEntity\n8\n0\n100\nAcDbBlockEnd\n",
-            next(),
-            next()
-        ));
-    }
-    tables.push_str("0\nENDTAB\n0\nENDSEC\n");
-    section.push_str("0\nENDSEC\n");
-    let unit = match drawing.spaces.first().map(|space| space.unit) {
-        Some(Unit::Millimeter) => 4,
-        Some(Unit::Centimeter) => 5,
-        Some(Unit::Meter) => 6,
-        Some(Unit::Inch) => 1,
-        Some(Unit::Foot) => 2,
-        None => 4,
-        _ => 0,
-    };
-    // 用紙の座標は従来どおり INSUNITS の単位。LAYOUT の印刷尺度にも 1 単位の mm を書く。
-    let mm = drawing
-        .spaces
-        .first()
-        .and_then(|space| space.unit.millimeters())
-        .unwrap_or(1.0);
-    let size = drawing
-        .sheets
-        .first()
-        .and_then(|sheet| sheet.size)
-        .map(|size| size.map(|s| s.0));
-    let limits = size.map_or(String::new(), |[width, height]| {
-        format!(
-            "9\n$PLIMMIN\n10\n0.0\n20\n0.0\n9\n$PLIMMAX\n10\n{:?}\n20\n{:?}\n",
-            width / mm,
-            height / mm
-        )
-    });
-    let mut entities = String::from("0\nSECTION\n2\nENTITIES\n");
-    if let Some(sheet) = drawing.sheets.first() {
-        entities.push_str(&viewports(sheet, mm, &paper_record, &mut next));
-    }
-    entities.push_str("0\nENDSEC\n");
-    let mut objects = format!(
-        "0\nSECTION\n2\nOBJECTS\n0\nDICTIONARY\n5\n{root}\n330\n0\n100\nAcDbDictionary\n281\n1\n3\nACAD_LAYOUT\n350\n{layouts}\n0\nDICTIONARY\n5\n{layouts}\n330\n{root}\n100\nAcDbDictionary\n281\n1\n3\nModel\n350\n{model_layout}\n3\nLayout1\n350\n{paper_layout}\n"
-    );
-    objects.push_str(&layout(
-        &model_layout,
-        &layouts,
-        &model_record,
-        "Model",
-        None,
-        1.0,
-        true,
-    ));
-    objects.push_str(&layout(
-        &paper_layout,
-        &layouts,
-        &paper_record,
-        "Layout1",
-        size,
-        mm,
-        false,
-    ));
-    objects.push_str("0\nENDSEC\n");
-    // VIEWPORT を含むすべてのハンドルを割り当てた後の、まだ使っていない値。
-    let seed = next();
-    let out = format!(
-        "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1018\n9\n$DWGCODEPAGE\n3\nANSI_932\n9\n$INSUNITS\n70\n{unit}\n{limits}9\n$HANDSEED\n5\n{seed}\n0\nENDSEC\n{tables}{section}{entities}{objects}0\nEOF\n"
-    );
-    // ASCII 以外は block_names で ANSI_932 に戻せると確かめた名前だけ。
-    let (bytes, _, unmappable) = encoding_rs::SHIFT_JIS.encode(&out);
-    debug_assert!(!unmappable);
-    bytes.into_owned()
-}
-
-fn table_start(name: &str, handle: &str, count: usize) -> String {
-    format!("0\nTABLE\n2\n{name}\n5\n{handle}\n330\n0\n100\nAcDbSymbolTable\n70\n{count}\n")
-}
-
-/// DXF Reference「LAYOUT」「PLOTSETTINGS」。印刷する用紙の単位は mm、尺度は mm/図面単位。
-fn layout(
-    handle: &str,
-    owner: &str,
-    block: &str,
-    name: &str,
-    size: Option<[f64; 2]>,
-    mm: f64,
-    model: bool,
-) -> String {
-    let [width, height] = size.unwrap_or([0.0, 0.0]);
-    let [x, y] = [width / mm, height / mm];
-    let flags = if model { 1024 } else { 0 };
-    let tab = usize::from(!model);
-    format!(
-        "0\nLAYOUT\n5\n{handle}\n330\n{owner}\n100\nAcDbPlotSettings\n1\n\n2\n\n4\n\n6\n\n40\n0.0\n41\n0.0\n42\n0.0\n43\n0.0\n44\n{width:?}\n45\n{height:?}\n46\n0.0\n47\n0.0\n142\n{mm:?}\n143\n1.0\n70\n{flags}\n72\n1\n73\n0\n74\n5\n7\n\n75\n0\n147\n{mm:?}\n100\nAcDbLayout\n1\n{name}\n70\n1\n71\n{tab}\n10\n0.0\n20\n0.0\n11\n{x:?}\n21\n{y:?}\n12\n0.0\n22\n0.0\n32\n0.0\n14\n0.0\n24\n0.0\n34\n0.0\n15\n{x:?}\n25\n{y:?}\n35\n0.0\n146\n0.0\n13\n0.0\n23\n0.0\n33\n0.0\n16\n1.0\n26\n0.0\n36\n0.0\n17\n0.0\n27\n1.0\n37\n0.0\n76\n0\n330\n{block}\n"
-    )
-}
-
 /// 実寸の空間 `space` を、DXF のモデル空間に書くか。どの用紙のビューにも置かれない空間と、書く用紙（1 枚目）が
 /// 焼き込まないビューで置く空間を書く。焼き込むビューだけが置く空間は、用紙に焼き込んだ要素と重ねて書かない
 /// （決定 0240）
@@ -914,102 +690,6 @@ fn modelled(drawing: &Drawing2D, space: SpaceId) -> bool {
                 .iter()
                 .any(|view| view.space == space && !bake::bakes(view))
         })
-}
-
-/// DXF の VIEWPORT で書けるビューの、用紙の中心と幅・高さ（mm）と、実寸の中心と高さ
-struct Port {
-    center: [f64; 2],
-    size: [f64; 2],
-    target: [f64; 2],
-    height: f64,
-}
-
-/// ビューを VIEWPORT で書けるなら、その値（決定 0240）。読む側（`zumen-acad`）が扱う形に合わせ、回転と鏡映の
-/// ない相似で、表示しないレイヤを持たないものだけを書く。枠は、切り抜きが軸に沿った長方形ならそれ、切り抜きが
-/// なければ用紙の全体にする
-fn port(view: &zumen_drawing::View, sheet: &zumen_drawing::Sheet) -> Option<Port> {
-    let similar = view.transform.similarity()?;
-    let turned = similar.rotation.rem_euclid(360.0);
-    if similar.mirrored || turned.min(360.0 - turned) > 1e-9 || !view.hidden_layers.is_empty() {
-        return None;
-    }
-    let [x0, y0, x1, y1] = match view.clip.as_slice() {
-        [] => {
-            let [width, height] = sheet.size?;
-            [0.0, 0.0, width.0, height.0]
-        }
-        corners @ [_, _, _, _] => {
-            let xs = corners.iter().map(|p| p.x);
-            let ys = corners.iter().map(|p| p.y);
-            let box_ = [
-                xs.clone().fold(f64::INFINITY, f64::min),
-                ys.clone().fold(f64::INFINITY, f64::min),
-                xs.fold(f64::NEG_INFINITY, f64::max),
-                ys.fold(f64::NEG_INFINITY, f64::max),
-            ];
-            let on = |v: f64, a: f64, b: f64| v == a || v == b;
-            corners
-                .iter()
-                .all(|p| on(p.x, box_[0], box_[2]) && on(p.y, box_[1], box_[3]))
-                .then_some(box_)?
-        }
-        _ => return None,
-    };
-    let size = [x1 - x0, y1 - y0];
-    if !(size.iter().all(|v| v.is_finite() && *v > 0.0)) {
-        return None;
-    }
-    let center = [(x0 + x1) / 2.0, (y0 + y1) / 2.0];
-    let [_, _, c, _, _, f] = view.transform.m;
-    let scale = similar.scale;
-    Some(Port {
-        center,
-        size,
-        target: [(center[0] - c) / scale, (center[1] - f) / scale],
-        height: size[1] / scale,
-    })
-}
-
-/// 用紙のビューのうち VIEWPORT で書けるものと、用紙そのものを表すビューポート（69 = 1）。用紙の値は、図面の
-/// 単位（1 単位が `mm` mm）で書く
-fn viewports(
-    sheet: &zumen_drawing::Sheet,
-    mm: f64,
-    owner: &str,
-    next: &mut impl FnMut() -> String,
-) -> String {
-    let ports: Vec<Port> = sheet
-        .views
-        .iter()
-        .filter_map(|view| port(view, sheet))
-        .collect();
-    if ports.is_empty() {
-        return String::new();
-    }
-    let entity = |handle: String, id: usize, port: &Port| {
-        let [cx, cy] = port.center.map(|v| v / mm);
-        let [width, height] = port.size.map(|v| v / mm);
-        let [tx, ty] = port.target;
-        format!(
-            "0\nVIEWPORT\n5\n{handle}\n330\n{owner}\n100\nAcDbEntity\n67\n1\n8\n0\n100\nAcDbViewport\n10\n{cx:?}\n20\n{cy:?}\n30\n0.0\n40\n{width:?}\n41\n{height:?}\n68\n1\n69\n{id}\n12\n{tx:?}\n22\n{ty:?}\n16\n0.0\n26\n0.0\n36\n1.0\n17\n0.0\n27\n0.0\n37\n0.0\n45\n{:?}\n90\n32768\n",
-            port.height
-        )
-    };
-    let mut out = String::new();
-    // 用紙そのもののビューポートは、用紙の全体を用紙の単位で映す
-    if let Some([width, height]) = sheet.size {
-        let whole = Port {
-            center: [width.0 / 2.0, height.0 / 2.0],
-            size: [width.0, height.0],
-            target: [width.0 / 2.0 / mm, height.0 / 2.0 / mm],
-            height: height.0 / mm,
-        };
-        out.push_str(&entity(next(), 1, &whole));
-    }
-    for (index, port) in ports.iter().enumerate() {
-        out.push_str(&entity(next(), index + 2, port));
-    }
-    out
 }
 
 #[cfg(test)]
@@ -1234,7 +914,7 @@ mod tests {
             // 平面図の用紙だけを書く
             drawing.sheets.truncate(1);
             let view = drawing.sheets[0].views[0].clone();
-            assert!(port(&view, &drawing.sheets[0]).is_some());
+            assert!(NewDxfTemplate::writes_viewport(&view, &drawing.sheets[0]));
             let Ok(converted) = to_dxf(&drawing, &mut cx) else {
                 panic!("書けない");
             };

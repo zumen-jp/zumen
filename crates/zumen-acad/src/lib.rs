@@ -12,6 +12,6 @@ mod snapshot;
 
 pub use db::{AcadDb, Data, DataType, Line, Object, Origin, Section, Value, ViewError};
 #[cfg(feature = "drawing")]
-pub use drawing::{dimension_spans, lift as lift_drawing, mtext_spans};
+pub use drawing::{NewDxfTemplate, dimension_spans, lift as lift_drawing, mtext_spans};
 pub use dwg::{Dwg, DwgFile, DwgTxn, Locator};
 pub use dxf::{Dxf, DxfFile, DxfTxn, Record, Tag};
