@@ -713,9 +713,11 @@ dependencies = [
  "toml",
  "zumen-base",
  "zumen-crs",
+ "zumen-drawing",
  "zumen-json",
  "zumen-profile",
  "zumen-render",
+ "zumen-review",
  "zumen-scene",
  "zumen-zip",
 ]
