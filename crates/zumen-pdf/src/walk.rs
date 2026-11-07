@@ -322,7 +322,7 @@ struct Decoded<'a> {
     cost: Cost,
 }
 
-/// Flate・LZW と ASCII を前置した系列は確保前に数え、ほかは展開後に数える（決定 0266・0273）。
+/// Flate・LZW・RunLength と ASCII を前置した系列は確保前に数え、ほかは展開後に数える（決定 0266・0273）。
 /// 実際の出力と、予測子の前・失敗した試みを含む展開量を分けて返す。
 fn decoded<'a>(
     stream: &Stream<'a>,

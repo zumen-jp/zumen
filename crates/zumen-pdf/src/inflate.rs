@@ -1,7 +1,8 @@
-//! Flate・LZW と、それに ASCII を前置した系列の展開量を先に数える（決定 0266・0270・0273）。
+//! Flate・LZW・RunLength と、それに ASCII を前置した系列の展開量を先に数える（決定 0266・0270・0273）。
 
 mod ascii;
 mod lzw;
+mod run_length;
 mod source;
 
 pub(crate) use source::Source;
@@ -21,7 +22,7 @@ const CHUNK: usize = 8192;
 /// 1 入力バイトが出すのは 8 ÷ 2 * 258 = 1,032 バイト以下。非圧縮のブロックとリテラルもこの範囲に収まる
 const MAX_EXPANSION: u64 = 1032;
 
-/// 単独 Flate・LZW と ASCII を 1 個前置した系列は、全出力の確保前に数え、`true` を返す。
+/// 単独 Flate・LZW・RunLength と ASCII を 1 個前置した系列は、全出力の確保前に数え、`true` を返す。
 /// hayro-syntax と同じ flate2 のリーダーを、同じ順（zlib、raw deflate）で試す。読めなければ、
 /// 寛容な展開の出力の上限を先に数える。失敗した試みの分も戻さない。予測子の出力は、その入力より長くならない
 pub(crate) fn before(
@@ -35,15 +36,18 @@ pub(crate) fn before(
     match effective {
         [Filter::FlateDecode] => count(&stream.raw_data(), cx)?,
         [Filter::LzwDecode] => lzw::before(stream, cx)?,
+        [Filter::RunLengthDecode] => {
+            run_length::count(&stream.raw_data(), cx)?;
+        }
         [
             Filter::AsciiHexDecode,
-            next @ (Filter::FlateDecode | Filter::LzwDecode),
+            next @ (Filter::FlateDecode | Filter::LzwDecode | Filter::RunLengthDecode),
         ] => {
             return sequence(stream, ascii::Encoding::Hex, *next, source, cx);
         }
         [
             Filter::Ascii85Decode,
-            next @ (Filter::FlateDecode | Filter::LzwDecode),
+            next @ (Filter::FlateDecode | Filter::LzwDecode | Filter::RunLengthDecode),
         ] => {
             return sequence(stream, ascii::Encoding::Base85, *next, source, cx);
         }
@@ -69,11 +73,15 @@ fn sequence(
     let Some(data) = ascii::decode(&stream.raw_data(), ascii, cx)? else {
         return Ok(true);
     };
-    if next == Filter::FlateDecode {
-        count(&data, cx)?;
-    } else {
-        let early = lzw::early_change(stream, cx)?;
-        lzw::count(&data, early, cx)?;
+    match next {
+        Filter::FlateDecode => count(&data, cx)?,
+        Filter::LzwDecode => {
+            let early = lzw::early_change(stream, cx)?;
+            lzw::count(&data, early, cx)?;
+        }
+        _ => {
+            run_length::count(&data, cx)?;
+        }
     }
     Ok(true)
 }
