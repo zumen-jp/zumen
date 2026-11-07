@@ -22,11 +22,12 @@
   レイヤに入れた要素は先のもの）が同じ。複合曲線の曲線の要素は、複合曲線を指す曲線の表記の実体のレイヤと比べる。
   用紙の要素は、用紙（番号がもっとも小さい DRAWING_SHEET_REVISION）の並びか、そこに置いた作図グループと表示する
   複合曲線の中にある。同じ番号の 2 つ目のインスタンスは使わない（zumen と同じ）。画像の範囲の要素は、画像の作図
-  グループの中の 4 点以上の折れ線から作る（逆の向きは比べない。#558）。レイヤと作図グループの名前は、ファイルの
+  グループの最初の 4 点以上の折れ線（raster_outline）から作り、その折れ線が配置の数だけ画像の範囲の要素になることも
+  比べる。枠のない作図グループには sxf.raster-frame.missing を求める。レイヤと作図グループの名前は、ファイルの
   バイトから zumen と同じく戻す（ezsxf は P21 の文字列のエスケープを戻さず、8 ビットのバイトを置き換える）。参照を
   たどって、点の位置・回転・倍率と、線分の端点（点か媒介変数のトリム）を比べる。端を点にできない線分は、形を比べず
   notes に書く。点マーカーの種類と色、寸法と引出線のレイヤは比べない。ezsxf が読み飛ばした文（引数の中にコメントを持つ
-  文）を指す要素は、食い違いになる（#558）。
+  文）は、コメントを空白にしたコピーを読み直して照らす。
 - 黙って捨てない: 置く所（用紙と部分図）のフィーチャ（SFC）と、用紙の並びの要素（P21）は、どれも zumen の要素になる
   か、移さなかったことを言う zumen の診断（compare.py の LIFTED_AWAY）がそのレコードを指す。SFC は、診断の kind が
   フィーチャの名前と同じことも確かめる。置く所は、決定 0121・0129・0130 と docs/formats/sxf.md の「P21 の組み直し」の
@@ -144,7 +145,7 @@ def string_end(text, i):
     return i
 
 
-def records(text, skipped, statements=None, feature_ids=None):
+def records(text, skipped, statements=None, feature_ids=None, comments=None):
     """P21 のインスタンスの番号 → 先頭のレコードの番号。docs/formats/sxf.md の「レコードの区切り」のとおり、`;` で終わる文と、
     データのセクションの `/*SXF` から閉じまでを、ファイルの初めから 0 で数える。間のコメントは数えない。FILE_DESCRIPTION の最初の
     文字列に AP202 とあれば（大文字と小文字を問わない）、データのセクションのフィーチャのマーカーも、ただのコメントとする（「判定」）。
@@ -186,6 +187,8 @@ def records(text, skipped, statements=None, feature_ids=None):
                 i = string_end(text, i)
             elif text.startswith("/*", i):
                 close = text.find("*/", i + 2)
+                if comments is not None and data and close >= 0:
+                    comments.append((i, close + 2))
                 i = end if close < 0 else close + 2
                 continue
             i += 1
@@ -502,17 +505,15 @@ def sfc_kind(where, element, keyword):
     return None
 
 
-def p21_kind(where, element, step, instance, curve, rasters):
-    """要素の種類と形が出所の実体に合わなければ、その食い違い。curve は、曲線の要素の出所の曲線の実体の番号。rasters は、
-    画像の作図グループの中のインスタンスの番号"""
+def p21_kind(where, element, step, instance, curve, frames):
+    """要素の種類と形が出所の実体に合わなければ、その食い違い。curve は出所の曲線の番号、frames は画像枠の実体ごとの配置数。"""
     kind = element.get("kind")
     shape = element.get("geometry", {}).get("shape")
     source = step.type(instance)
     if kind == "underlay":
         # 画像の範囲は、画像の作図グループの中の、4 点以上の折れ線（docs/formats/sxf.md、決定 0125）
-        points = (step.part(curve, "POLYLINE") or [None, []])[1]
-        if instance not in rasters or len(step.refs(points)) < 4:
-            return f"{where}: 画像の範囲の出所が {source} #{instance}（画像の作図グループの中の、4 点以上の折れ線でない）"
+        if instance not in frames:
+            return f"{where}: 画像の範囲の出所が {source} #{instance}（画像の作図グループの最初の 4 点以上の折れ線でない）"
         return None
     if curve is not None:
         found = step.curve(curve)
@@ -719,8 +720,14 @@ class Step:
 
     def point(self, value):
         # cartesian_point (name, coordinates)（ISO 10303-42）
-        args = self.get(value, "CARTESIAN_POINT")
-        return [float(c) for c in args[1]] if args else None
+        return self.xy(self.ref(value))
+
+    def xy(self, instance):
+        args = self.part(instance, "CARTESIAN_POINT")
+        if not args or len(args) < 2 or not isinstance(args[1], list) or len(args[1]) < 2:
+            return None
+        xy = args[1][:2]
+        return xy if all(isinstance(c, (int, float)) and math.isfinite(c) for c in xy) else None
 
     def text(self, instance, keyword):
         """インスタンスの、型 keyword の部分の最初の引数の文字列。ezsxf は P21 の文字列のエスケープを戻さず、8 ビットの
@@ -855,12 +862,13 @@ class Step:
 def p21_placed(step):
     """用紙の並びの要素で、zumen が要素にするか、移さなかったことを言うはずのもの（インスタンスの番号, 型）の一覧と、
     用紙に置いたインスタンスの番号（表示する複合曲線の曲線を含む）と、複合曲線の曲線の実体 → 複合曲線の番号と、
-    画像の作図グループの中のインスタンスの番号。
+    画像枠に使うインスタンスの配置数・枠がない作図グループの定義と名前。
 
     docs/formats/sxf.md の「P21 の組み直し」（crates/zumen-sxf/src/p21.rs の item）の置き方でたどる。作図グループ
     （区分 3）は置いた所に広げ、部分図（区分 1・2）の中は部分図の要素として数え、作図部品（区分 4）は配置だけを数える。
     複合曲線は、表示するものの曲線を数える。見え方を持たない要素（用紙の枠など）は数えない"""
-    placed, sheet, curves, rasters, done = [], set(), {}, set(), set()
+    placed, sheet, curves, done = [], set(), {}, set()
+    frames, missing_frames = Counter(), set()
 
     def composite(c, on_sheet):
         members = step.segments(c)
@@ -892,10 +900,14 @@ def p21_placed(step):
                     definition, flag, name = found
                     if flag in (1, 2):
                         done.add(definition)
-                    members = step.part(definition, "DRAUGHTING_SUBFIGURE_REPRESENTATION")[1]
+                    members = step.refs(step.part(definition, "DRAUGHTING_SUBFIGURE_REPRESENTATION")[1])
                     if flag == 3 and raster(name):
-                        rasters.update(step.refs(members))
-                    items(step.refs(members), on_sheet and flag == 3, stack + [definition])
+                        outline = raster_outline(step, members)
+                        if outline is None:
+                            missing_frames.add((definition, name))
+                        else:
+                            frames[outline] += 1
+                    items(members, on_sheet and flag == 3, stack + [definition])
             elif step.has(i, "ANNOTATION_FILL_AREA_OCCURRENCE"):
                 placed.append((i, step.type(i)))
                 # annotation_fill_area (name, boundaries)（ISO 10303-46）。外形と中抜きの複合曲線を置く
@@ -915,7 +927,22 @@ def p21_placed(step):
                 placed.append((i, step.type(i)))
 
     items(step.sheet(), True, [])
-    return list(dict.fromkeys(placed)), sheet, curves, rasters
+    return list(dict.fromkeys(placed)), sheet, curves, frames, missing_frames
+
+
+def raster_outline(step, members):
+    """作図グループの並びで、最初の 4 点以上の折れ線（決定 0125）の出所。座標を読めない点を持つ折れ線を飛ばすのは、
+    zumen の raster（crates/zumen-sxf/src/drawing.rs）と同じ選び方で、決定 0125 にはない。仕様の解釈を独立に確かめない"""
+    for instance in members:
+        if not step.has(instance, "ANNOTATION_CURVE_OCCURRENCE"):
+            continue
+        polyline = step.get(step.styled(instance)[1], "POLYLINE")
+        if not polyline or len(polyline) < 2:
+            continue
+        points = step.refs(polyline[1])
+        if len(points) >= 4 and all(step.xy(point) is not None for point in points):
+            return instance
+    return None
 
 
 def raster(name):
@@ -932,7 +959,7 @@ def raster(name):
 def check_p21(parsed, entry, reading, counts, notes, at, statements):
     step = Step(parsed, statements)
     layers = step.layers()
-    placed, sheet, curves, rasters = p21_placed(step)
+    placed, sheet, curves, frames, missing_frames = p21_placed(step)
     failures, matched = [], {}
     for element in reading["entities"]:
         instance = instance_of(element)
@@ -950,7 +977,7 @@ def check_p21(parsed, entry, reading, counts, notes, at, statements):
             curve = step.ref(step.styled(instance)[1])
         else:
             curve = None
-        wrong = p21_kind(where, element, step, instance, curve, rasters)
+        wrong = p21_kind(where, element, step, instance, curve, frames)
         if wrong:
             failures.append(wrong)
             continue
@@ -978,6 +1005,21 @@ def check_p21(parsed, entry, reading, counts, notes, at, statements):
     # ことがあるので、レコードだけで結ぶ
     seen = {instance_of(e) for e in reading["entities"]}
     failures += unlifted(((at.get(i), k) for i, k in placed if i not in seen), lifted_away_records(entry, reading), "用紙の要素", kinds=False)
+    frames_read = Counter(instance_of(e) for e in reading["entities"] if e.get("kind") == "underlay")
+    frame_errors = Counter(
+        p.get("record") for d in diagnostics(entry, reading) if d["code"] == "sxf.lift.invalid" for p in d.get("at", [])
+    )
+    for instance, expected in frames.items():
+        # 同じ実体を別の配置では通常の折れ線にできる。配置数を比べ、退化した枠を落とす診断も出所で結ぶ。
+        if not frames_read[instance] <= expected <= frames_read[instance] + frame_errors[at.get(instance)]:
+            failures.append(f"#{instance} の画像の範囲が {frames_read[instance]} 件（配置は {expected} 件）")
+    reported = {
+        (p.get("record"), d.get("params", {}).get("name")) for d in diagnostics(entry, reading)
+        if d["code"] == "sxf.raster-frame.missing" for p in d.get("at", [])
+    }
+    for definition, name in sorted(missing_frames):
+        if (at.get(definition), name) not in reported:
+            failures.append(f"画像の作図グループ #{definition} に枠がなく、その定義を指す sxf.raster-frame.missing もない")
     if step.unpointed:
         notes.append(f"端を点にできないトリムの線 {sorted(step.unpointed)} は、形を比べない")
     return failures, matched
@@ -1004,12 +1046,16 @@ def check_file(folder, entry, reading, baseline, counts):
     # 文字の位置は、zumen の診断のバイトの位置と同じになる
     data = path.read_bytes()
     statements, feature_ids = {}, {}
+    # ezsxf は引数内のコメントを持つ P21 の文を salvage-record で飛ばす。
+    comments = [] if entry["format"] == "p21" and any(code == "salvage-record" for code, _ in found) else None
     skipped = skipped_ranges(entry, reading)
-    at = records(data.decode("latin-1"), skipped, statements, feature_ids)
+    at = records(data.decode("latin-1"), skipped, statements, feature_ids, comments)
     if entry["format"] == "sfc":
         # check_sfc は各要素を source.record で直接引き、元のフィーチャ番号も照らす。
         found_failures, matched = check_sfc(parsed, entry, reading, counts, notes, data, feature_ids, skipped)
     else:
+        if comments:
+            parsed = read_commented_statements(parsed, data, comments, notes)
         failures += check_records(reading, at)
         found_failures, matched = check_p21(parsed, entry, reading, counts, notes, at, statements)
     failures += found_failures
@@ -1038,6 +1084,27 @@ def check_file(folder, entry, reading, baseline, counts):
                 if entry["format"] == "sfc" and code is not None and color != code:
                     failures.append(f"変更 {want['edit']}（{want['id']}）の色が {color}（期待は既定義色 {code}）")
     return failures, audit
+
+
+def read_commented_statements(parsed, data, comments, notes):
+    """ISO 10303-21 のコメントを空白にしたコピーで、ezsxf が飛ばした文を読み、参照と所属も照合する。"""
+    masked = bytearray(data)
+    for begin, end in comments:
+        masked[begin:end] = b" " * (end - begin)
+    recovered = ezsxf.parse_p21(bytes(masked), strict=False)
+    # 元の読みの全行が、値も順序も同じまま残る場合にだけ使う。同番号の前の文だけが増える場合を含む。
+    rows = iter(parsed["entities"])
+    old, added = next(rows, None), []
+    for row in recovered["entities"]:
+        if old == row:
+            old = next(rows, None)
+        else:
+            added.append(row["id"])
+    if old is not None:
+        raise ValueError("P21 のコメントを空白にすると、元の ezsxf が読んだ実体の値か順序が変わった")
+    if added:
+        notes.append(f"ezsxf が飛ばした P21 の文を、コメントを空白にしたコピーで照合: {added}")
+    return recovered
 
 
 def main():

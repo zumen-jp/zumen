@@ -40,8 +40,10 @@ PLACES = {
         "sxf.p21-instance.dropped": 1,
         "sxf.p21-sheet.dropped": 1,
         "sxf.p21-layer-member.dropped": 2,
+        "sxf.raster-frame.missing": 1,
     },
     "input/made-non-finite.jww": {"jww.lift.invalid": 1},
+    "input/made-classes.jww": {"jww.lift.invalid": 1},
 }
 # 適合テストの図面とキットのスクリプトのライセンス（このリポジトリと同じ）
 REPOSITORY = ("MIT OR Apache-2.0", "zumen-jp（このリポジトリ）。本文は licenses/LICENSE-MIT と licenses/LICENSE-APACHE")
@@ -276,14 +278,29 @@ DATA;
 #123=DRAWING_SHEET_REVISION('A4_vertical',(#27),$,'02');
 #124=PRESENTATION_LAYER_ASSIGNMENT('OTHER',' ',(#23,#34));
 #120=PRESENTATION_LAYER_ASSIGNMENT('L',' ',(#23,#27,#34,#43,#48,#55,#62,#80,#86,#93,#103,#107,#112));
-#121=DRAWING_SHEET_REVISION('A3_horizontal',(#23,#27,#34,#48,#62,#93,#113),$,'01');
+#130=POLYLINE(' ',(#70,#71));
+#131=ANNOTATION_CURVE_OCCURRENCE(' ',(#6),#130);
+#132=POLYLINE(' ',(#70,#71,/* points */#74,#75));
+#133=ANNOTATION_CURVE_OCCURRENCE(' ',/* style */(#6),#132);
+#134=POLYLINE(' ',(#71,#74,#75,#70));
+#135=ANNOTATION_CURVE_OCCURRENCE(' ',(#6),#134);
+#136=DRAUGHTING_SUBFIGURE_REPRESENTATION('$$SXF_G_$$RASTER$$frame.png',(#131,#133,#135,#11),#12);
+#137=SYMBOL_REPRESENTATION_MAP(#11,#136);
+#138=(ANNOTATION_SYMBOL() GEOMETRIC_REPRESENTATION_ITEM() MAPPED_ITEM(#137,#46) REPRESENTATION_ITEM(' '));
+#139=(ANNOTATION_OCCURRENCE() ANNOTATION_SUBFIGURE_OCCURRENCE() ANNOTATION_SYMBOL_OCCURRENCE() DRAUGHTING_ANNOTATION_OCCURRENCE() GEOMETRIC_REPRESENTATION_ITEM() REPRESENTATION_ITEM(' ') STYLED_ITEM((#7),#138));
+#140=DRAUGHTING_SUBFIGURE_REPRESENTATION('$$SXF_G_$$RASTER$$missing.png',(#131,#11),#12);
+#141=SYMBOL_REPRESENTATION_MAP(#11,#140);
+#142=(ANNOTATION_SYMBOL() GEOMETRIC_REPRESENTATION_ITEM() MAPPED_ITEM(#141,#46) REPRESENTATION_ITEM(' '));
+#143=(ANNOTATION_OCCURRENCE() ANNOTATION_SUBFIGURE_OCCURRENCE() ANNOTATION_SYMBOL_OCCURRENCE() DRAUGHTING_ANNOTATION_OCCURRENCE() GEOMETRIC_REPRESENTATION_ITEM() REPRESENTATION_ITEM(' ') STYLED_ITEM((#7),#142));
+#144=PRESENTATION_LAYER_ASSIGNMENT('FRAME/*L*/',' ',(/* members */#131,#133,#135));
+#121=DRAWING_SHEET_REVISION('A3_horizontal',(#23,#27,#34,#48,#62,#93,#113,#139,#143,#133),$,'01');
 #122=DRAUGHTING_TITLE((),'JAPANESE','S');
 #20=CARTESIAN_POINT(' ',(999.,999.));
 ENDSEC;
 END-ISO-10303-21;
 """
 # 外部の実装と照らすためだけに作る入力。書き戻しと変換を当てない
-CHECKS = {"input/made-structure.sfc", "input/made-structure.p21", "input/made-duplicates.sfc", "input/made-non-finite.jww"}
+CHECKS = {"input/made-structure.sfc", "input/made-structure.p21", "input/made-duplicates.sfc", "input/made-non-finite.jww", "input/made-classes.jww"}
 
 
 def duplicate_sfc():
@@ -589,6 +606,65 @@ def dropped_dxf():
         out += tags(*pairs)
     out += tags((0, "LINE"), (5, "200"), (8, "0"), (10, 0.0), (20, 20.0), (30, 5.0), (11, 50.0), (21, 20.0), (31, 5.0))
     out += tags((0, "CIRCLE"), (5, "201"), (8, "0"), (10, 0.0), (20, 30.0), (30, 0.0), (40, 5.0), (210, 1.0), (220, 0.0), (230, 0.0))
+    return out + tags((0, "ENDSEC"), (0, "EOF"))
+
+
+def shapeless_dxf():
+    """zumen の entities の応答が形を返さない要素になる図形を持つ DXF（R2010）。HATCH・SOLID・TRACE はハッチング、
+    IMAGE・PDFUNDERLAY は画像の範囲、ACAD_TABLE は表の要素になる。ACAD_TABLE は AC1018 から、PDFUNDERLAY と
+    PDFDEFINITION は AC1024 からの図形とオブジェクトなので、$ACADVER を AC1024 にする。要素の種類を出所の図形の種類と比べる照合（compare.py の KINDS）を、
+    毎晩のキットで通す（#558）。画像と PDF の定義は OBJECTS 節の辞書に置く（DXF Reference「IMAGEDEF」
+    「UNDERLAYDEFINITION」）"""
+
+    def tags(*pairs):
+        return "".join(f"{code}\n{value}\n" for code, value in pairs)
+
+    def entity(kind, handle, subclass, *pairs):
+        return tags((0, kind), (5, handle), (100, "AcDbEntity"), (8, "0"), (100, subclass), *pairs)
+
+    def item(kind, handle, owner, subclass, *pairs):
+        return tags((0, kind), (5, handle), (330, owner), (100, subclass), *pairs)
+
+    def corners(kind, handle, x):
+        # SOLID・TRACE の 4 隅。3 つ目と 4 つ目は、辺をたどる順と逆に置く（DXF Reference「SOLID」）
+        pairs = []
+        for k, (dx, y) in enumerate([(0, 0), (10, 0), (0, 10), (10, 10)]):
+            pairs += [(10 + k, float(x + dx)), (20 + k, float(y)), (30 + k, 0.0)]
+        return entity(kind, handle, "AcDbTrace", *pairs)
+
+    out = tags((0, "SECTION"), (2, "HEADER"), (9, "$ACADVER"), (1, "AC1024"), (9, "$HANDSEED"), (5, "40C"))
+    out += tags((9, "$INSUNITS"), (70, 4), (0, "ENDSEC"))
+    out += tags((0, "SECTION"), (2, "TABLES"), (0, "TABLE"), (2, "LAYER"), (5, "2"), (330, "0"), (100, "AcDbSymbolTable"), (70, 1))
+    out += item("LAYER", "10", "2", "AcDbSymbolTableRecord", (100, "AcDbLayerTableRecord"), (2, "0"), (70, 0), (62, 7), (6, "Continuous"))
+    out += tags((0, "ENDTAB"), (0, "ENDSEC"), (0, "SECTION"), (2, "BLOCKS"))
+    # 表を描いたブロック（表の枠）
+    out += entity("BLOCK", "306", "AcDbBlockBegin", (2, "*T1"), (70, 1), (10, 0.0), (20, 0.0), (30, 0.0), (3, "*T1"), (1, ""))
+    for k, (x1, y1, x2, y2) in enumerate([(0, 0, 20, 0), (20, 0, 20, 5), (20, 5, 0, 5), (0, 5, 0, 0)]):
+        out += entity("LINE", f"{0x307 + k:X}", "AcDbLine", (10, x1 + 0.0), (20, y1 + 0.0), (30, 0.0), (11, x2 + 0.0), (21, y2 + 0.0), (31, 0.0))
+    out += entity("ENDBLK", "30B", "AcDbBlockEnd") + tags((0, "ENDSEC"), (0, "SECTION"), (2, "ENTITIES"))
+    # 塗りつぶしのハッチング。境界は閉じた折れ線 1 つ（92 の 2 は折れ線、1 は外側）
+    out += entity("HATCH", "300", "AcDbHatch", (10, 0.0), (20, 0.0), (30, 0.0), (210, 0.0), (220, 0.0), (230, 1.0), (2, "SOLID"), (70, 1))
+    out += tags((71, 0), (91, 1), (92, 3), (72, 0), (73, 1), (93, 4))
+    out += tags((10, 0.0), (20, 0.0), (10, 10.0), (20, 0.0), (10, 10.0), (20, 10.0), (10, 0.0), (20, 10.0))
+    out += tags((97, 0), (75, 0), (76, 1), (98, 0))
+    out += corners("SOLID", "301", 20)
+    out += corners("TRACE", "302", 40)
+    # 100 × 50 画素の画像。1 画素は 0.1
+    out += entity("IMAGE", "303", "AcDbRasterImage", (90, 0), (10, 60.0), (20, 0.0), (30, 0.0), (11, 0.1), (21, 0.0), (31, 0.0))
+    out += tags((12, 0.0), (22, 0.1), (32, 0.0), (13, 100.0), (23, 50.0), (340, "403"), (70, 1), (280, 0), (281, 50), (282, 50), (283, 0))
+    out += entity("PDFUNDERLAY", "304", "AcDbUnderlayReference", (340, "404"), (10, 80.0), (20, 0.0), (30, 0.0), (41, 1.0), (42, 1.0))
+    out += tags((43, 1.0), (50, 0.0), (280, 2), (281, 100), (282, 0))
+    # 1 行 1 列の表。セルは文字（171 が 1）
+    out += entity("ACAD_TABLE", "305", "AcDbBlockReference", (2, "*T1"), (10, 100.0), (20, 0.0), (30, 0.0), (100, "AcDbTable"), (280, 0))
+    out += tags((11, 1.0), (21, 0.0), (31, 0.0), (90, 22), (91, 1), (92, 1), (93, 0), (94, 0), (95, 0), (96, 0), (141, 5.0), (142, 20.0))
+    out += tags((171, 1), (172, 0), (173, 0), (174, 0), (175, 1), (176, 1), (91, 0), (178, 0), (145, 0.0), (1, "A"))
+    out += tags((0, "ENDSEC"), (0, "SECTION"), (2, "OBJECTS"))
+    out += item("DICTIONARY", "400", "0", "AcDbDictionary", (281, 1), (3, "ACAD_IMAGE_DICT"), (350, "401"), (3, "ACAD_PDFDEFINITIONS"), (350, "402"))
+    out += item("DICTIONARY", "401", "400", "AcDbDictionary", (281, 1), (3, "picture"), (350, "403"))
+    out += item("DICTIONARY", "402", "400", "AcDbDictionary", (281, 1), (3, "drawing - 1"), (350, "404"))
+    out += item("IMAGEDEF", "403", "401", "AcDbRasterImageDef", (90, 0), (1, "picture.png"), (10, 100.0), (20, 50.0), (11, 0.1), (21, 0.1))
+    out += tags((280, 1), (281, 0))
+    out += item("PDFDEFINITION", "404", "402", "AcDbUnderlayDefinition", (1, "drawing.pdf"), (2, "1"))
     return out + tags((0, "ENDSEC"), (0, "EOF"))
 
 
@@ -1007,6 +1083,42 @@ def non_finite_jww(data):
     return data[:at + 24] + struct.pack("<d", math.nan) + data[at + 32:]
 
 
+def classes_jww(data):
+    """適合テストの JWW 700 の図形リストに、設定・制御・描く文字・ソリッド・寸法を置く（docs/formats/jww.md）。"""
+    def tag(name):
+        return struct.pack("<3H", 0xffff, 1, len(name)) + name
+
+    def text_body(x, y, text):
+        return struct.pack("<4dI4d", x, y, x + 5, y, 0, 3, 3, 0, 0) + bytes([0, len(text)]) + text
+
+    # 元の線を、診断と結ぶレコード 1 にする。先頭のクラスのタグと要素数、後ろの空のブロックと画像のリストを確かめる。
+    invalid = non_finite_jww(data)
+    line_header = struct.pack("<H", 1) + tag(b"CDataSen")
+    begin = invalid.index(line_header)
+    fields = begin + len(line_header)
+    base = invalid[fields:fields + 15]
+    end = fields + 15 + 32
+    if invalid[end:] != bytes(6):
+        raise ValueError("クラスの照合に使う JWW の図形リストが変わった")
+
+    # CArchive の番号はクラスとオブジェクトで共通。線のクラスと線に続く文字のクラスは 3（docs/formats/jww.md）。
+    records = [invalid[begin + 2:end]]
+    for x, y, text in [(0, -1000, b"Printer_Orientation = 0"), (0, 0, b"^@XX"), (2, 4, b"TEXT")]:
+        header = tag(b"CDataMoji") if len(records) == 1 else struct.pack("<H", 0x8003)
+        records.append(header + base + text_body(x, y, text))
+    records.append(tag(b"CDataSolid") + base + struct.pack("<8d", 0, 0, 1, 0, 1, 1, 0, 1))
+    # 寸法の線・文字・SXF のフィールド（引出線 2 本と点 4 個）。crates/zumen-jww/tests/drawing.rs と同じ配置。
+    line = base + struct.pack("<4d", 0, 0, 10, 0)
+    dimension = base + line + base + text_body(0, 0, b"10") + struct.pack("<H", 1)
+    for x in (0, 10):
+        dimension += base + struct.pack("<4d", x, -2, x, 1)
+    for x, y in [(0, 0), (10, 0), (0, -2), (10, -2)]:
+        dimension += base + struct.pack("<2dI", x, y, 0)
+    records.append(tag(b"CDataSunpou") + dimension)
+    records.append(struct.pack("<H", 0x8003) + base + text_body(2, 4, b"^@BMimage.png,40,30"))
+    return invalid[:begin] + struct.pack("<H", len(records)) + b"".join(records) + invalid[end:]
+
+
 def inputs(extra):
     """入力の図面: 公開サンプル、適合テストの中で作った図面、--inputs のフォルダー。(道筋, 中身, 出所, ライセンス, 表示)"""
     ledger = tomllib.loads((ROOT / "samples" / "ledger.toml").read_text(encoding="utf-8"))["samples"]
@@ -1023,9 +1135,11 @@ def inputs(extra):
         found.append((f"input/conformance-{Path(case).stem}-{name}", data, f"bindings/conformance/cases/{case}", *REPOSITORY))
         if name == "a.jww":
             found.append(("input/made-non-finite.jww", non_finite_jww(data), "xtask/verify/make.py", *REPOSITORY))
+            found.append(("input/made-classes.jww", classes_jww(data), "xtask/verify/make.py", *REPOSITORY))
     found.append(("input/made-features.sfc", SFC.encode("ascii"), "xtask/verify/make.py", *REPOSITORY))
     found.append(("input/made-duplicates.sfc", duplicate_sfc().encode("ascii"), "xtask/verify/make.py", *REPOSITORY))
     found.append(("input/made-dropped.dxf", dropped_dxf().encode("ascii"), "xtask/verify/make.py", *REPOSITORY))
+    found.append(("input/made-shapeless.dxf", shapeless_dxf().encode("ascii"), "xtask/verify/make.py", *REPOSITORY))
     found.append(("input/made-japanese-r2004.dxf", japanese_dxf("AC1018", "cp932"), "xtask/verify/make.py", *REPOSITORY))
     found.append(("input/made-japanese-r2007.dxf", japanese_dxf("AC1021", "utf-8"), "xtask/verify/make.py", *REPOSITORY))
     found.append(("input/made-structure.sfc", STRUCTURE_SFC.encode("ascii"), "xtask/verify/make.py", *REPOSITORY))
@@ -1078,6 +1192,10 @@ def main():
             layers = {layer["name"] for layer in reading["tables"]["layers"] if layer.get("defined")}
             if layers != {"0", "日本語"} or [e.get("layer") for e in reading["entities"]] != ["日本語"]:
                 broken.append(f"{path}: 日本語の画層とその上の線を読めない。文字コードによる照合を確かめられない")
+        if path == "input/made-shapeless.dxf":
+            shapeless = Counter(e["kind"] for e in reading["entities"] if "geometry" not in e)
+            if shapeless != {"hatch": 3, "underlay": 2, "table": 1} or len(reading["entities"]) != 6:
+                broken.append(f"{path}: 形を返さないハッチング・画像の範囲・表の要素を読めない。要素の種類の照合を確かめられない")
         if path in CHECKS:
             continue
         for recipe in RECIPES:
