@@ -67,4 +67,4 @@
 
 - #501・#516・#527・#545・#556・#557、[0010](0010-budget-by-work.md)・[0174](0174-plan-in-issues.md)・[0254](0254-parallel-agents-and-cross-review.md)・[0258](0258-fuzz-seeds-and-runs.md)
 - AGENTS.md の「開発の手順」・`docs/work.md`・`fuzz/README.md`・`.github/PULL_REQUEST_TEMPLATE.md`
-- 初回リリース後の入力と詳細の記録先（補ったことの 3〜5）と、合成のテストを足す時期（補ったことの 1）は、[0283](0283-fuzz-reporting-after-release.md) で定めた。
+- 初回リリース後の入力と詳細の記録先（補ったことの 3〜5）、合成のテストを足す時期（補ったことの 1）と、issue にする失敗に 0283 の対象を PR で直すものも含めて足すこと（補ったことの 4）は、[0283](0283-fuzz-reporting-after-release.md) で定めた。
