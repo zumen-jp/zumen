@@ -39,7 +39,7 @@ fn all_kinds_round_trip_and_report_values_without_a_current_field() {
         {"id":"cloud","kind":"cloud","view":"二階","points":[[3,0],[0,5],[-2,0]],"text":"境界"},
         {"id":"note","kind":"text","position":[20,25],"text":"注記","color":"#FF000080"},
         {"id":"picture","kind":"photo","position":[2,4],"photo":"https://example.invalid/photo","text":"説明"},
-        {"id":"old-pin","kind":"finding","view":"二階","position":[-2,3],"points":[[2,1],[-3,5],[0,-3]],"text":"要確認","status":"resolved","author":"A","createdAt":"2026-11-01T00:00:00Z","entities":["A"],"carried":{"from":"old","state":"changed"}},
+        {"id":"old-pin","kind":"finding","view":"二階","position":[-2,3],"points":[[2,1],[-3,5],[0,-3]],"text":"要確認","status":"resolved","author":"A","createdAt":"2026-11-01T00:00:00Z","entities":["A"],"carried":{"from":"0000000000000000000000000000000000000000000000000000000000000000","state":"changed"}},
         {"id":"00000000-0000-4000-8000-000000000002","kind":"finding","position":[3,3],"status":"closed"}
     "##;
     let result = migrate(&legacy(items), DRAWING, &map()).unwrap();
