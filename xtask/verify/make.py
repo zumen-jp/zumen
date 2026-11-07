@@ -609,6 +609,64 @@ def dropped_dxf():
     return out + tags((0, "ENDSEC"), (0, "EOF"))
 
 
+def shapeless_dxf():
+    """zumen の entities の応答が形を返さない要素になる図形を持つ DXF（R2000）。HATCH・SOLID・TRACE はハッチング、
+    IMAGE・PDFUNDERLAY は画像の範囲の要素になる。要素の種類を出所の図形の種類と比べる照合（compare.py の KINDS）を、
+    毎晩のキットで通す（#558）。画像と PDF の定義は OBJECTS 節の辞書に置く（DXF Reference「IMAGEDEF」
+    「UNDERLAYDEFINITION」）"""
+
+    def tags(*pairs):
+        return "".join(f"{code}\n{value}\n" for code, value in pairs)
+
+    def entity(kind, handle, subclass, *pairs):
+        return tags((0, kind), (5, handle), (100, "AcDbEntity"), (8, "0"), (100, subclass), *pairs)
+
+    def item(kind, handle, owner, subclass, *pairs):
+        return tags((0, kind), (5, handle), (330, owner), (100, subclass), *pairs)
+
+    def corners(kind, handle, x):
+        # SOLID・TRACE の 4 隅。3 つ目と 4 つ目は、辺をたどる順と逆に置く（DXF Reference「SOLID」）
+        pairs = []
+        for k, (dx, y) in enumerate([(0, 0), (10, 0), (0, 10), (10, 10)]):
+            pairs += [(10 + k, float(x + dx)), (20 + k, float(y)), (30 + k, 0.0)]
+        return entity(kind, handle, "AcDbTrace", *pairs)
+
+    out = tags((0, "SECTION"), (2, "HEADER"), (9, "$ACADVER"), (1, "AC1015"), (9, "$HANDSEED"), (5, "40C"))
+    out += tags((9, "$INSUNITS"), (70, 4), (0, "ENDSEC"))
+    out += tags((0, "SECTION"), (2, "TABLES"), (0, "TABLE"), (2, "LAYER"), (5, "2"), (330, "0"), (100, "AcDbSymbolTable"), (70, 1))
+    out += item("LAYER", "10", "2", "AcDbSymbolTableRecord", (100, "AcDbLayerTableRecord"), (2, "0"), (70, 0), (62, 7), (6, "Continuous"))
+    out += tags((0, "ENDTAB"), (0, "ENDSEC"), (0, "SECTION"), (2, "BLOCKS"))
+    # 表を描いたブロック（表の枠）
+    out += entity("BLOCK", "306", "AcDbBlockBegin", (2, "*T1"), (70, 1), (10, 0.0), (20, 0.0), (30, 0.0), (3, "*T1"), (1, ""))
+    for k, (x1, y1, x2, y2) in enumerate([(0, 0, 20, 0), (20, 0, 20, 5), (20, 5, 0, 5), (0, 5, 0, 0)]):
+        out += entity("LINE", f"{0x307 + k:X}", "AcDbLine", (10, x1 + 0.0), (20, y1 + 0.0), (30, 0.0), (11, x2 + 0.0), (21, y2 + 0.0), (31, 0.0))
+    out += entity("ENDBLK", "30B", "AcDbBlockEnd") + tags((0, "ENDSEC"), (0, "SECTION"), (2, "ENTITIES"))
+    # 塗りつぶしのハッチング。境界は閉じた折れ線 1 つ（92 の 2 は折れ線、1 は外側）
+    out += entity("HATCH", "300", "AcDbHatch", (10, 0.0), (20, 0.0), (30, 0.0), (210, 0.0), (220, 0.0), (230, 1.0), (2, "SOLID"), (70, 1))
+    out += tags((71, 0), (91, 1), (92, 3), (72, 0), (73, 1), (93, 4))
+    out += tags((10, 0.0), (20, 0.0), (10, 10.0), (20, 0.0), (10, 10.0), (20, 10.0), (10, 0.0), (20, 10.0))
+    out += tags((97, 0), (75, 0), (76, 1), (98, 0))
+    out += corners("SOLID", "301", 20)
+    out += corners("TRACE", "302", 40)
+    # 100 × 50 画素の画像。1 画素は 0.1
+    out += entity("IMAGE", "303", "AcDbRasterImage", (90, 0), (10, 60.0), (20, 0.0), (30, 0.0), (11, 0.1), (21, 0.0), (31, 0.0))
+    out += tags((12, 0.0), (22, 0.1), (32, 0.0), (13, 100.0), (23, 50.0), (340, "403"), (70, 1), (280, 0), (281, 50), (282, 50), (283, 0))
+    out += entity("PDFUNDERLAY", "304", "AcDbUnderlayReference", (340, "404"), (10, 80.0), (20, 0.0), (30, 0.0), (41, 1.0), (42, 1.0))
+    out += tags((43, 1.0), (50, 0.0), (280, 2), (281, 100), (282, 0))
+    # 1 行 1 列の表。セルは文字（171 が 1）
+    out += entity("ACAD_TABLE", "305", "AcDbBlockReference", (2, "*T1"), (10, 100.0), (20, 0.0), (30, 0.0), (100, "AcDbTable"), (280, 0))
+    out += tags((11, 1.0), (21, 0.0), (31, 0.0), (90, 22), (91, 1), (92, 1), (93, 0), (94, 0), (95, 0), (96, 0), (141, 5.0), (142, 20.0))
+    out += tags((171, 1), (172, 0), (173, 0), (174, 0), (175, 1), (176, 1), (91, 0), (178, 0), (145, 0.0), (1, "A"))
+    out += tags((0, "ENDSEC"), (0, "SECTION"), (2, "OBJECTS"))
+    out += item("DICTIONARY", "400", "0", "AcDbDictionary", (281, 1), (3, "ACAD_IMAGE_DICT"), (350, "401"), (3, "ACAD_PDFDEFINITIONS"), (350, "402"))
+    out += item("DICTIONARY", "401", "400", "AcDbDictionary", (281, 1), (3, "picture"), (350, "403"))
+    out += item("DICTIONARY", "402", "400", "AcDbDictionary", (281, 1), (3, "drawing - 1"), (350, "404"))
+    out += item("IMAGEDEF", "403", "401", "AcDbRasterImageDef", (90, 0), (1, "picture.png"), (10, 100.0), (20, 50.0), (11, 0.1), (21, 0.1))
+    out += tags((280, 1), (281, 0))
+    out += item("PDFDEFINITION", "404", "402", "AcDbUnderlayDefinition", (1, "drawing.pdf"), (2, "1"))
+    return out + tags((0, "ENDSEC"), (0, "EOF"))
+
+
 def japanese_dxf(version, encoding):
     """日本語の画層を持つ DXF。R2004 は ANSI_932、R2007 は同じコード・ページの指定でも UTF-8 で書く。
     変換で足す線種・画層・文字スタイルも持ち、TABLE の最終件数を照らす（DXF Reference「TABLES Section」）"""
@@ -1069,6 +1127,7 @@ def inputs(extra):
     found.append(("input/made-features.sfc", SFC.encode("ascii"), "xtask/verify/make.py", *REPOSITORY))
     found.append(("input/made-duplicates.sfc", duplicate_sfc().encode("ascii"), "xtask/verify/make.py", *REPOSITORY))
     found.append(("input/made-dropped.dxf", dropped_dxf().encode("ascii"), "xtask/verify/make.py", *REPOSITORY))
+    found.append(("input/made-shapeless.dxf", shapeless_dxf().encode("ascii"), "xtask/verify/make.py", *REPOSITORY))
     found.append(("input/made-japanese-r2004.dxf", japanese_dxf("AC1018", "cp932"), "xtask/verify/make.py", *REPOSITORY))
     found.append(("input/made-japanese-r2007.dxf", japanese_dxf("AC1021", "utf-8"), "xtask/verify/make.py", *REPOSITORY))
     found.append(("input/made-structure.sfc", STRUCTURE_SFC.encode("ascii"), "xtask/verify/make.py", *REPOSITORY))
@@ -1121,6 +1180,10 @@ def main():
             layers = {layer["name"] for layer in reading["tables"]["layers"] if layer.get("defined")}
             if layers != {"0", "日本語"} or [e.get("layer") for e in reading["entities"]] != ["日本語"]:
                 broken.append(f"{path}: 日本語の画層とその上の線を読めない。文字コードによる照合を確かめられない")
+        if path == "input/made-shapeless.dxf":
+            shapeless = Counter(e["kind"] for e in reading["entities"] if "geometry" not in e)
+            if shapeless != {"hatch": 3, "underlay": 2, "table": 1} or len(reading["entities"]) != 6:
+                broken.append(f"{path}: 形を返さないハッチング・画像の範囲・表の要素を読めない。要素の種類の照合を確かめられない")
         if path in CHECKS:
             continue
         for recipe in RECIPES:

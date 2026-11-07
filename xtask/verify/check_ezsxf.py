@@ -930,7 +930,8 @@ def p21_placed(step):
 
 
 def raster_outline(step, members):
-    """決定 0125。作図グループの並びで、座標を読める最初の 4 点以上の折れ線の出所。"""
+    """作図グループの並びで、最初の 4 点以上の折れ線（決定 0125）の出所。座標を読めない点を持つ折れ線を飛ばすのは、
+    zumen の raster（crates/zumen-sxf/src/drawing.rs）と同じ選び方で、決定 0125 にはない。仕様の解釈を独立に確かめない"""
     for instance in members:
         if not step.has(instance, "ANNOTATION_CURVE_OCCURRENCE"):
             continue

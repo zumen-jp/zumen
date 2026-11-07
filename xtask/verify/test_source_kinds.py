@@ -51,13 +51,40 @@ def check_hidden_text(folder):
         raise AssertionError(f"レコード 1 の線の診断の欠落を検出できなかった: {failures}")
 
 
+def check_text_and_image(folder):
+    """JWW の文字（レコード 4）と ^@BM の画像の範囲（レコード 7）は、どちらも TEXT で形を返さない。種類を取り違えた読みを
+    食い違いにする"""
+    entry, original = kit_case(folder, "input/made-classes.jww")
+    for changes in [{4: "underlay"}, {7: "text"}, {4: "underlay", 7: "text"}]:
+        reading = deepcopy(original)
+        expected = []
+        for element in reading["entities"]:
+            record = element["source"]["record"]
+            if record in changes:
+                expected.append(f"{element['id']}: 要素の種類が {changes[record]}、TEXT のレコード {record} の文字からは {element['kind']}")
+                element["kind"] = changes[record]
+        failures, _ = check_ezjww.check_file(folder, entry, reading, None, Counter())
+        if failures != expected:
+            raise AssertionError(f"文字と画像の範囲の種類を {changes} に変えた食い違いが違う: {failures}")
+
+
 if __name__ == "__main__":
     folder = usage("test_source_kinds.py")
     if folder is None:
         sys.exit(2)
-    dumps = json.loads((folder / "acadsharp-dump.json").read_text(encoding="utf-8"))
     check_kind(folder, "input/zumen-arcdim-r2004_ascii.dxf", partial(check_ezdxf.check_file, folder), "dimension", "hatch")
-    check_kind(folder, "input/zumen-arcdim-r2004.dwg", partial(check_acadsharp.check_file, dumps["files"]), "dimension", "hatch")
+    # 形を返さないハッチング・画像の範囲・表（make.py の shapeless_dxf）
+    for kind, wrong_kind in [("hatch", "underlay"), ("underlay", "table"), ("table", "hatch")]:
+        check_kind(folder, "input/made-shapeless.dxf", partial(check_ezdxf.check_file, folder), kind, wrong_kind)
     check_kind(folder, "input/made-classes.jww", partial(check_ezjww.check_file, folder), "hatch", "text")
     check_hidden_text(folder)
-    print("DXF・DWG・JWW で形のない要素の種類の違い、JWW で設定・制御の文字と診断の欠落を検出した")
+    check_text_and_image(folder)
+    # DWG は ACadSharp の値（acadsharp/ が書く）で照らす。ないときは DWG だけを飛ばし、そう言う
+    dump = folder / "acadsharp-dump.json"
+    if dump.exists():
+        dumps = json.loads(dump.read_text(encoding="utf-8"))
+        check_kind(folder, "input/zumen-arcdim-r2004.dwg", partial(check_acadsharp.check_file, dumps["files"]), "dimension", "hatch")
+        print("DXF・DWG・JWW で形のない要素の種類の違い、JWW で文字と画像の範囲の取り違え、設定・制御の文字と診断の欠落を検出した")
+    else:
+        print("DXF・JWW で形のない要素の種類の違い、JWW で文字と画像の範囲の取り違え、設定・制御の文字と診断の欠落を検出した")
+        print(f"{dump.name} がないので、DWG は確かめなかった（ACadSharp のツールで書く）")

@@ -142,6 +142,12 @@ def check_file(folder, entry, reading, baseline, counts):
         if wrong := source_type_error(element, e["type"], KINDS, TYPES):
             failures.append(wrong)
             continue
+        # 文字と画像の範囲は、どちらも TEXT で、形を返さない。画像の範囲になるのは ^@BM で始まる文字だけ
+        image = e["type"] == "TEXT" and e["content"].startswith("^@BM")
+        if e["type"] == "TEXT" and (element.get("kind") == "underlay") != image:
+            expected = "underlay" if image else "text"
+            failures.append(f"{where}: 要素の種類が {element.get('kind')}、TEXT のレコード {record} の文字からは {expected}")
+            continue
         if element.get("layer") != layer_name(header, e["base"]):
             failures.append(f"{where}: レイヤが {element.get('layer')!r}、ezjww は {layer_name(header, e['base'])!r}")
         counts["elements"] += 1
