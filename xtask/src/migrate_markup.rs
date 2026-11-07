@@ -21,28 +21,100 @@ const ITEM_LIMIT: usize = 16_384;
 #[serde(deny_unknown_fields)]
 struct Mapping {
     target: String,
-    default_view: Option<String>,
+    default_view: Option<View>,
     #[serde(default)]
-    views: BTreeMap<String, String>,
+    views: BTreeMap<String, View>,
     #[serde(default)]
     topic_ids: BTreeMap<String, String>,
 }
 
+/// 旧版のビューに当たる現行の用紙か空間と、旧版の点をその座標に写す方法
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum View {
+    /// 座標系が同じと確かめたビュー。点をそのまま使う
+    Same(String),
+    /// 現行の点 = 旧版の点 × scale + offset
+    Moved(Moved),
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Moved {
+    view: String,
+    scale: f64,
+    offset: [f64; 2],
+}
+
+impl Moved {
+    fn valid(&self) -> bool {
+        self.scale.is_finite() && self.scale > 0.0 && self.offset.iter().all(|v| v.is_finite())
+    }
+}
+
+impl View {
+    fn id(&self) -> &str {
+        match self {
+            Self::Same(id) | Self::Moved(Moved { view: id, .. }) => id,
+        }
+    }
+
+    /// 写した点。有限の数にならなければ `None`
+    fn place(&self, [x, y]: [f64; 2]) -> Option<[f64; 2]> {
+        let point = match self {
+            Self::Same(_) => [x, y],
+            Self::Moved(Moved {
+                scale,
+                offset: [dx, dy],
+                ..
+            }) => [x * scale + dx, y * scale + dy],
+        };
+        point.iter().all(|v| v.is_finite()).then_some(point)
+    }
+}
+
 impl Mapping {
+    /// 対応表のビューと、誤りの文でその場所を示す名前
+    fn entries(&self) -> impl Iterator<Item = (String, &View)> {
+        let default = self
+            .default_view
+            .iter()
+            .map(|v| ("default_view".to_owned(), v));
+        default.chain(
+            self.views
+                .iter()
+                .map(|(name, v)| (format!("views の {name:?}"), v)),
+        )
+    }
+
     fn check(&self) -> Result<(), String> {
         // 対象とビューの ID は項目ごとに複写する。項目数と組み合わせて展開後の量を抑える。
-        for id in std::iter::once(&self.target)
-            .chain(&self.default_view)
-            .chain(self.views.values())
+        let ids = self.entries().map(|(_, view)| view.id());
+        if std::iter::once(self.target.as_str())
+            .chain(ids)
+            .any(|id| id.is_empty() || id.len() > 1024)
         {
-            if id.is_empty() || id.len() > 1024 {
-                return Err(
-                    "対応表の対象とビューには 1〜1024 バイトの ID を指定してください".into(),
-                );
-            }
+            return Err("対応表の対象とビューには 1〜1024 バイトの ID を指定してください".into());
+        }
+        let invalid = |view: &View| matches!(view, View::Moved(moved) if !moved.valid());
+        if let Some((name, _)) = self.entries().find(|(_, view)| invalid(view)) {
+            return Err(format!(
+                "対応表の {name} の scale には正の有限の数を、offset には有限の数を 2 つ指定してください"
+            ));
         }
         if !self.topic_ids.values().all(|id| is_uuid(id)) {
             return Err("対応表の topic_ids の値には UUID を指定してください".into());
+        }
+        Ok(())
+    }
+
+    /// 旧版の点をそのまま使えるのは、座標系が同じと確かめた JWW の用紙だけ（決定 0282）
+    fn check_views(&self, format: &str) -> Result<(), String> {
+        let unchecked = |view: &View| matches!(view, View::Same(id) if format != "jww" || !id.starts_with("sheet/"));
+        if let Some((name, _)) = self.entries().find(|(_, view)| unchecked(view)) {
+            return Err(format!(
+                "対応表の {name} に view・scale・offset を指定してください。旧版の点をそのまま使えるのは、JWW の図面の用紙（sheet/）だけです"
+            ));
         }
         Ok(())
     }
@@ -54,6 +126,30 @@ fn is_uuid(id: &str) -> bool {
             8 | 13 | 18 | 23 => byte == b'-',
             _ => byte.is_ascii_hexdigit(),
         })
+}
+
+/// UUID でない指摘の ID を、旧版の図面の SHA-256 と組にして UUID（バージョン 8）にする。
+/// 対応表がなくても、同じ旧版の文書からは同じ ID になる（決定 0282）
+fn topic_uuid(sha: &str, id: &str) -> String {
+    let mut input = b"zumen-review/legacy-markup\0".to_vec();
+    for field in [sha, id] {
+        input.extend_from_slice(&(field.len() as u64).to_le_bytes());
+        input.extend_from_slice(field.as_bytes());
+    }
+    let mut bytes = [0; 16];
+    bytes.copy_from_slice(&crate::sha256::digest(&input)[..16]);
+    bytes[6] = (bytes[6] & 0x0f) | 0x80;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    let mut text = String::with_capacity(36);
+    for (index, byte) in bytes.into_iter().enumerate() {
+        if matches!(index, 4 | 6 | 8 | 10) {
+            text.push('-');
+        }
+        for nibble in [byte >> 4, byte & 0x0f] {
+            text.extend(char::from_digit(nibble.into(), 16));
+        }
+    }
+    text
 }
 
 fn array(value: &Value) -> Result<&[Value], Invalid> {
@@ -92,23 +188,25 @@ fn retain(fields: Extra, prefix: &str, retained: &mut Vec<String>) -> Extra {
         .collect()
 }
 
+/// 対象と、旧版が記録した図面の SHA-256 を返す。
 fn target(
     value: &Value,
     bytes: &[u8],
     map: &Mapping,
     retained: &mut Vec<String>,
-) -> Result<Target, Invalid> {
+) -> Result<(Target, String), Invalid> {
     let mut object = ObjectReader::new(value)?;
     let sha = object.required("sha256", json::string)?;
     if sha != crate::sha256::hex(bytes) {
         return Err(Invalid::new(Problem::Value).in_key("sha256"));
     }
     let format = object.required("format", json::str)?;
-    if format.is_empty() {
+    // 点をそのまま使う対応は、座標系を確かめた形式とビューにだけ許す。
+    if format.is_empty() || map.check_views(format).is_err() {
         return Err(Invalid::new(Problem::Value).in_key("format"));
     }
     let mut extra = retain(object.rest(), "/drawing", retained);
-    extra.push(("legacy.sha256".into(), Value::String(sha)));
+    extra.push(("legacy.sha256".into(), Value::String(sha.clone())));
     // 旧版は SXF の入力の種類を format に持つ。現行の drawing の形式名は一律に sxf。
     let format = match format {
         "sfc" | "p21" | "sfz" | "p2z" => {
@@ -117,19 +215,24 @@ fn target(
         }
         other => other,
     };
-    Ok(Target {
+    let target = Target {
         id: map.target.clone(),
         format: format.into(),
         hash: Hash::document(bytes).to_string(),
         name: None,
         extra,
-    })
+    };
+    Ok((target, sha))
 }
 
 struct Migration {
     review: Review,
     retained: Vec<String>,
+    /// 旧版が記録した図面の SHA-256
+    sha: String,
     topic_ids: BTreeSet<String>,
+    /// 使った対応表の topic_ids のキー
+    mapped: BTreeSet<String>,
 }
 
 impl Migration {
@@ -151,8 +254,27 @@ impl Migration {
             None => map.default_view.as_ref(),
         }
         .ok_or_else(|| Invalid::new(Problem::Missing).in_key("view"))?;
-        let extras = |item: ObjectReader<'_>, retained: &mut Vec<String>| {
+        let locate = |value: &Value| -> Result<[f64; 2], Invalid> {
+            view.place(point(value)?)
+                .ok_or_else(|| Invalid::new(Problem::Value))
+        };
+        let locate_all = |value: &Value, minimum: usize| -> Result<Vec<[f64; 2]>, Invalid> {
+            points(value, minimum)?
+                .into_iter()
+                .enumerate()
+                .map(|(index, point)| {
+                    view.place(point)
+                        .ok_or_else(|| Invalid::new(Problem::Value).in_index(index))
+                })
+                .collect()
+        };
+        // 写した点の元の値も、そのキーに残して報告する。
+        let extras = |item: ObjectReader<'_>, moved: &str, retained: &mut Vec<String>| {
             let mut extra = retain(item.rest(), prefix, retained);
+            if let (View::Moved(_), Some(original)) = (view, value.pointer(&format!("/{moved}"))) {
+                retained.push(format!("{prefix}/{moved}"));
+                extra.push((format!("legacy.{moved}"), original.clone()));
+            }
             if let Some(old) = old_view {
                 extra.push(("legacy.view".into(), Value::String(old.into())));
             }
@@ -160,17 +282,19 @@ impl Migration {
         };
         let kind = item.required("kind", json::str)?;
         if kind == "finding" {
-            let topic_id = if is_uuid(id) {
-                id
-            } else {
-                map.topic_ids
-                    .get(id)
-                    .ok_or_else(|| Invalid::new(Problem::Missing).in_key("id"))?
+            // 対応表が先。旧版の UUID はそのまま使い、ほかは図面と項目の ID から決める。
+            let topic_id = match map.topic_ids.get(id) {
+                Some(mapped) => {
+                    self.mapped.insert(id.to_owned());
+                    mapped.clone()
+                }
+                None if is_uuid(id) => id.to_owned(),
+                None => topic_uuid(&self.sha, id),
             };
             if !self.topic_ids.insert(topic_id.to_ascii_lowercase()) {
                 return Err(Invalid::new(Problem::Value).in_key("id"));
             }
-            let pin = item.required("position", point)?;
+            let pin = item.required("position", locate)?;
             let status = item.required("status", |value| match json::str(value)? {
                 "open" => Ok(Status::Open),
                 "resolved" => Ok(Status::Resolved),
@@ -181,7 +305,7 @@ impl Migration {
             let extent = value
                 .pointer("/points")
                 .map(|value| {
-                    let polygon = points(value, 3).map_err(|e| e.in_key("points"))?;
+                    let polygon = locate_all(value, 3).map_err(|e| e.in_key("points"))?;
                     let [x, y] = polygon[0];
                     Ok(polygon
                         .into_iter()
@@ -196,14 +320,14 @@ impl Migration {
                 carried: None,
                 extra: vec![],
                 place: Place::Plane {
-                    view: Some(view.clone()),
+                    view: Some(view.id().into()),
                     pin: Some(pin),
                     extent,
                     elements: vec![],
                 },
             };
             self.review.topics.push(Topic {
-                id: topic_id.into(),
+                id: topic_id,
                 title: item
                     .optional("text", json::string)?
                     .unwrap_or_else(|| id.into()),
@@ -223,16 +347,17 @@ impl Migration {
                 related: vec![],
                 comments: vec![],
                 origin: None,
-                extra: extras(item, &mut self.retained),
+                extra: extras(item, "position", &mut self.retained),
             });
             return Ok(id);
         }
 
-        let (kind, points, text) = match kind {
+        let (kind, points, text, moved) = match kind {
             "redline" | "cloud" => {
                 let cloud = kind == "cloud";
-                let points =
-                    item.required("points", |value| points(value, if cloud { 3 } else { 2 }))?;
+                let points = item.required("points", |value| {
+                    locate_all(value, if cloud { 3 } else { 2 })
+                })?;
                 let text = item.optional("text", json::string)?;
                 (
                     if cloud {
@@ -242,17 +367,20 @@ impl Migration {
                     },
                     points,
                     text,
+                    "points",
                 )
             }
             "text" => (
                 MarkupKind::Text,
-                vec![item.required("position", point)?],
+                vec![item.required("position", locate)?],
                 Some(item.required("text", json::string)?),
+                "position",
             ),
             "photo" => (
                 MarkupKind::Photo,
-                vec![item.required("position", point)?],
+                vec![item.required("position", locate)?],
                 Some(item.required("photo", json::string)?),
+                "position",
             ),
             _ => return Err(Invalid::new(Problem::Value).in_key("kind")),
         };
@@ -260,12 +388,12 @@ impl Migration {
             id: id.into(),
             kind,
             target: map.target.clone(),
-            view: Some(view.clone()),
+            view: Some(view.id().into()),
             points,
             text,
             topic: None,
             carried: None,
-            extra: extras(item, &mut self.retained),
+            extra: extras(item, moved, &mut self.retained),
         });
         Ok(id)
     }
@@ -275,14 +403,15 @@ fn migrate(src: &Value, drawing: &[u8], map: &Mapping) -> Result<Migration, Inva
     let mut source = ObjectReader::new(src)?;
     source.constant("format", "zumen-markup")?;
     source.required("version", |v| json::uint(v, 1, 1))?;
+    let mut retained = vec![];
+    let (target, sha) = source.required("drawing", |v| target(v, drawing, map, &mut retained))?;
     let mut migration = Migration {
         review: Review::default(),
-        retained: vec![],
+        retained,
+        sha,
         topic_ids: BTreeSet::new(),
+        mapped: BTreeSet::new(),
     };
-    let target = source.required("drawing", |v| {
-        target(v, drawing, map, &mut migration.retained)
-    })?;
     migration.review.targets.push(target);
     let items = source.required("items", array)?;
     if items.len() > ITEM_LIMIT {
@@ -327,6 +456,9 @@ pub(crate) fn run(markup: &str, drawing: &str, mapping: &str, output: &str) -> R
     let markup = read(markup, "旧版の JSON", JSON_LIMIT)?;
     let value = json::parse(&markup)
         .map_err(|e| format!("旧版の JSON のバイト位置 {} を読めませんでした", e.offset))?;
+    if let Some(Value::String(format)) = value.pointer("/drawing/format") {
+        map.check_views(format)?;
+    }
     let drawing = read(drawing, "対象の図面", DRAWING_LIMIT)?;
     let migration = migrate(&value, &drawing, &map).map_err(|e| {
         format!(
@@ -334,6 +466,16 @@ pub(crate) fn run(markup: &str, drawing: &str, mapping: &str, output: &str) -> R
             e.pointer()
         )
     })?;
+    // 使われない対応は、ID の書き違いとして止める。
+    if let Some(id) = map
+        .topic_ids
+        .keys()
+        .find(|id| !migration.mapped.contains(*id))
+    {
+        return Err(format!(
+            "対応表の topic_ids の {id:?} に当たる旧版の指摘がありません"
+        ));
+    }
     let bytes = migration.review.to_bytes();
     let mut budget = Budget::new(Limits::default());
     let mut diagnostics = Diagnostics::new();
