@@ -2990,6 +2990,64 @@ fn repaired_with(
 }
 
 #[test]
+fn repairs_file_references_that_point_to_another_scalar() {
+    // 5 番が 4 番の古い値を指す。使わないフォームの F でも、走査で番号の違いを見つけ、
+    // 4 番の新しい定義（長方形を塗るフォーム）を、予算の計算と実際の描画の両方に使う。
+    for key in ["F", "#46", "X"] {
+        for old in [
+            "(wrong)", "<4142>", "(\\101)", "124", "/Name", "null", "false",
+        ] {
+            let unused = common::stream(
+                &format!("{LINE_FORM} /Filter [/AHx /Fl] /{key} 5 0 R"),
+                "00>",
+            );
+            let src = repaired_with(
+                "/XObject << /X 4 0 R /Unused 7 0 R >>",
+                "",
+                old.as_bytes().to_vec(),
+                "/X Do",
+                common::stream(LINE_FORM, "0 0 10 10 re f"),
+                &[unused],
+            );
+            let (drawing, _) = lift(&src);
+            let items = elements(&drawing);
+            assert_eq!(items.len(), 1, "{key} {old}");
+            assert!(matches!(items[0].shape, Shape::Hatch(_)), "{key} {old}");
+        }
+    }
+}
+
+#[test]
+fn file_key_used_for_fonts_does_not_count_all_pages_for_each_font() {
+    use zumen_base::Kind;
+    let with_fonts = |pages: usize| {
+        let mut b = common::Builder::default();
+        b.object("<< /Type /Catalog /Pages 2 0 R >>");
+        let kids = (4..4 + pages)
+            .map(|n| format!("{n} 0 R "))
+            .collect::<String>();
+        b.object(format!("<< /Type /Pages /Kids [{kids}] /Count {pages} >>"));
+        b.stream("", "BT /F 12 Tf 20 20 Td (P) Tj ET");
+        for font in 4 + pages..4 + 2 * pages {
+            b.object(format!(
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 3 0 R \
+                 /Resources << /Font << /F {font} 0 R >> >> >>"
+            ));
+        }
+        for _ in 0..pages {
+            b.object("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+        }
+        b.bytes(1)
+    };
+    let small = used(&with_fonts(200), Kind::DecodedBytes);
+    let large = used(&with_fonts(400), Kind::DecodedBytes);
+    assert!(
+        large > small && large <= small * 2 + 4096,
+        "{small} {large}"
+    );
+}
+
+#[test]
 fn walks_objects_after_repairing_cross_references() {
     use zumen_base::Kind;
     // hayro-syntax は、相互参照の表の項目が別の番号のオブジェクトを指すと、表をファイルの全体から作り直し、同じ番号の

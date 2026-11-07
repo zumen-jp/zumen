@@ -322,12 +322,16 @@ struct Decoded<'a> {
     cost: Cost,
 }
 
-/// 単独 Flate・LZW は確保前に数え、ほかは従来どおり展開後に数える（決定 0266・0273）。
+/// Flate・LZW と ASCII を前置した系列は確保前に数え、ほかは展開後に数える（決定 0266・0273）。
 /// 実際の出力と、予測子の前・失敗した試みを含む展開量を分けて返す。
-fn decoded<'a>(stream: &Stream<'a>, cx: &mut Cx<'_>) -> Result<Decoded<'a>, Stop> {
+fn decoded<'a>(
+    stream: &Stream<'a>,
+    source: inflate::Source<'_>,
+    cx: &mut Cx<'_>,
+) -> Result<Decoded<'a>, Stop> {
     let bytes_before = cx.budget.used(Kind::DecodedBytes);
     let work_before = cx.budget.used(Kind::Work);
-    let counted = inflate::before(stream, cx)?;
+    let counted = inflate::before(stream, source, cx)?;
     let data = stream.decoded_data().ok();
     if !counted {
         cx.check(
@@ -640,7 +644,11 @@ fn definition_scan(program: &[u8]) -> u64 {
 /// 読める本体はないので、読み飛ばせない本体は、どちらかで作り直す。引くたびに読むバイト数（[`Reads::read_work`]）を
 /// 数える。hayro-syntax 0.9.0 は、読み飛ばす空白とコメントのバイト数を返さないので、それは
 /// 数えない。オブジェクトのストリームの展開も、hayro-syntax がどのストリームを展開したかを返さないので、数えない
-pub(crate) fn settle(document: &Pdf, reads: Reads<'_>, cx: &mut Cx<'_>) -> Result<(), Stop> {
+pub(crate) fn settle<'x>(
+    document: &Pdf,
+    reads: Reads<'x>,
+    cx: &mut Cx<'_>,
+) -> Result<FileTargets<'x>, Stop> {
     let xref = reads.xref;
     let mut seen = BTreeSet::new();
     let mut pending = Vec::new();
@@ -655,7 +663,7 @@ pub(crate) fn settle(document: &Pdf, reads: Reads<'_>, cx: &mut Cx<'_>) -> Resul
         pending.push(root);
     }
     while let Some(id) = pending.pop() {
-        let (read, object) = reads.read(id);
+        let (read, object) = reads.settle_read(id, cx)?;
         let _ = xref.get::<Dict<'_>>(id);
         let _ = xref.get::<Array<'_>>(id);
         cx.check(Kind::Work, read.saturating_mul(3).saturating_add(1))?;
@@ -663,7 +671,20 @@ pub(crate) fn settle(document: &Pdf, reads: Reads<'_>, cx: &mut Cx<'_>) -> Resul
             references(object_data(&object), &mut seen, &mut pending, cx)?;
         }
     }
-    Ok(())
+    // 相互参照表の作り直しが終わった後の定義を使う。到達しなかった番号を新たに引かない。
+    // 後続のページ・資源の手間の見積もりは、この表を借り、F の辞書の表を何度も作らない。
+    let mut files = BTreeMap::new();
+    for (number, generation) in reads.source.file_refs() {
+        if seen.contains(&(number, generation)) {
+            reads.source.reserve_tables(4, cx)?;
+            cx.check(Kind::DecodedBytes, 512)?;
+            files.insert(
+                (number, generation),
+                reads.read(ObjectIdentifier::new(number, generation)),
+            );
+        }
+    }
+    Ok(FileTargets(files))
 }
 
 /// バイト列に書いた参照（`n g R`、7.3.10）を、書いた順に返す。字句を読まず、`R` の前の 2 つの数の字の並びの、読み
@@ -903,6 +924,9 @@ fn object_data<'x>(object: &Object<'x>) -> &'x [u8] {
 /// 書いた参照の表（番号 → 参照と、書いた回数）
 type Targets = BTreeMap<(u32, i32), (ObjectIdentifier, u64)>;
 
+/// 相互参照表を確かめた後の F の参照先。文字列の写しは持たない。
+pub(crate) struct FileTargets<'x>(BTreeMap<(u32, i32), (u64, Option<Object<'x>>)>);
+
 /// 表に、書いた参照を足す
 fn add_targets(targets: &mut Targets, written: impl Iterator<Item = ObjectIdentifier>, times: u64) {
     for id in written {
@@ -915,17 +939,54 @@ fn add_targets(targets: &mut Targets, written: impl Iterator<Item = ObjectIdenti
 #[derive(Clone, Copy)]
 pub(crate) struct Reads<'x> {
     pub(crate) xref: &'x XRef,
+    source: inflate::Source<'x>,
+    file_targets: Option<&'x FileTargets<'x>>,
     /// ファイルを読み通す手間
     file: u64,
 }
 
 impl<'x> Reads<'x> {
     /// `source` は、読み込んだファイルのバイト列
-    pub(crate) fn new(xref: &'x XRef, source: &[u8]) -> Self {
+    pub(crate) fn new(xref: &'x XRef, source: &[u8], streams: inflate::Source<'x>) -> Self {
         Self {
             xref,
+            source: streams,
             file: lookup_work(source),
+            file_targets: None,
         }
+    }
+
+    pub(crate) fn with_file_targets<'c>(self, targets: &'c FileTargets<'x>) -> Reads<'c>
+    where
+        'x: 'c,
+    {
+        Reads {
+            file_targets: Some(targets),
+            ..self
+        }
+    }
+
+    /// 表が別番号のスカラーを指していても、従来どおり修復する。hayro-syntax 0.9.0 の
+    /// XRef::get は、指定した型で読めず読み飛ばせた本体の番号を照合しない。辞書と配列の
+    /// 両方で読めなければ、誤った位置と修復後の位置で文字列などを読む分を先に数えてから
+    /// Object として引く。修復で辞書などに変わったら、その中の参照も走査に渡す。
+    fn settle_read(
+        self,
+        id: ObjectIdentifier,
+        cx: &mut Cx<'_>,
+    ) -> Result<(u64, Option<Object<'x>>), Stop> {
+        let Some(bound) = self.source.file_ref_bound(id) else {
+            return Ok(self.read_object(id));
+        };
+        // 型付きの確認と Object（ストリームなら辞書 2 回）、修復による再試行と settle の辞書。
+        self.source.reserve_tables(8, cx)?;
+        let (probe, object) = self.read(id);
+        if object.is_some() {
+            return Ok((probe, object));
+        }
+        self.source.reserve_scalar(bound, cx)?;
+        let (work, object) = self.read_object(id);
+        Ok((probe.saturating_add(work), object))
     }
 
     /// 番号のオブジェクトを読む手間と、読めたオブジェクト。オブジェクトとして読めない定義のうち、辞書の後ろに読めない
@@ -933,6 +994,32 @@ impl<'x> Reads<'x> {
     /// ファイルを読み通す手間とする。ほかの読めない定義（読み飛ばせて読めない数。`5-3.2`）は、読んだバイト数を知れない
     /// ので、0 とする（pdf.md の「予算の外」）
     pub(crate) fn read(self, id: ObjectIdentifier) -> (u64, Option<Object<'x>>) {
+        if let Some(target) = self.file_targets.and_then(|cache| cache.0.get(&key(id))) {
+            return target.clone();
+        }
+        let probe = if let Some(bound) = self.source.file_ref_bound(id) {
+            // settle と targets が必要とするのは中の参照と読み直す手間。文字列を Object として
+            // 読むと、外部ファイルの判定より先に 16 進やエスケープを展開する（7.3.4・7.3.8.2）。
+            // 辞書（ストリームを含む）と配列だけを型付きで引く。辞書は元の読み方で
+            // ストリームと区別し、F がフォントなどの資源名なら実際の辞書の長さを使う。
+            if let Some(dict) = self.xref.get::<Dict<'_>>(id) {
+                lookup_work(dict.data())
+            } else if let Some(array) = self.xref.get::<Array<'_>>(id) {
+                return (
+                    lookup_work(array.data()).saturating_mul(2),
+                    Some(Object::Array(array)),
+                );
+            } else {
+                return (bound.div_ceil(LOOKUP_BYTES).saturating_mul(2), None);
+            }
+        } else {
+            0
+        };
+        let (work, object) = self.read_object(id);
+        (probe.saturating_add(work), object)
+    }
+
+    fn read_object(self, id: ObjectIdentifier) -> (u64, Option<Object<'x>>) {
         match self.xref.get::<Object<'x>>(id) {
             Some(object) => (self.read_work(&object), Some(object)),
             None => match self.xref.get::<Dict<'x>>(id) {
@@ -974,9 +1061,23 @@ impl<'x> Reads<'x> {
         let mut first = Targets::new();
         // キーを並べて値を読む手間
         let mut work = dict.len() as u64;
-        for (name, value) in dict.entries() {
+        // entries() は直接の文字列を展開し、辞書の表も作る。従来と同じキー順で、F は元の範囲を使う。
+        let mut keys: Vec<_> = dict.keys().collect();
+        keys.sort_unstable_by(|a, b| a.as_ref().cmp(b.as_ref()));
+        for name in keys {
+            if matches!(name.as_ref(), b"Parent" | b"Annots" | b"VP") {
+                continue;
+            }
+            if name.as_ref() == b"F"
+                && let Some(data) = inflate::Source::direct_file_data(dict)
+            {
+                add_targets(&mut first, written_references(data), 1);
+                continue;
+            }
+            let Some(value) = dict.get_raw::<Object<'_>>(name.as_ref()) else {
+                continue;
+            };
             match value {
-                _ if matches!(name.as_ref(), b"Parent" | b"Annots" | b"VP") => {}
                 _ if name.as_ref() == b"Resources" => {
                     work = work.saturating_add(self.resources_value_work(value));
                 }
@@ -1069,6 +1170,10 @@ impl<'x> Reads<'x> {
     fn stream_work(self, stream: &Stream<'_>) -> u64 {
         let dict =
             lookup_work(stream.dict().data()).saturating_add(self.length_work(stream.dict()));
+        // 長さを調べるために復号しない。実際に復号する系列は inflate::before で確保前に数える。
+        if let Some(bound) = self.source.ciphertext_bound(stream) {
+            return dict.saturating_add(bound.div_ceil(LOOKUP_BYTES));
+        }
         let body = stream.raw_data();
         let length = stream.dict().get::<u32>(b"Length");
         let right = length.and_then(|length| usize::try_from(length).ok()) == Some(body.len());
@@ -1459,7 +1564,7 @@ impl<'a, 'o> Walker<'a, 'o> {
         let single = raw.get::<Stream<'_>>(b"Contents");
         let counted = if let Some(stream) = &single {
             cx.check(Kind::Work, self.reread_stream(stream))?;
-            inflate::before(stream, cx)?
+            inflate::before(stream, self.reads.source, cx)?
         } else if let Some(items) = raw.get::<Array<'_>>(b"Contents") {
             let mut decode = Cost::default();
             let mut joined = 0u64;
@@ -1473,7 +1578,7 @@ impl<'a, 'o> Walker<'a, 'o> {
                 .and_then(Object::into_stream);
                 let length = if let Some(stream) = &stream {
                     cx.check(Kind::Work, self.reread_stream(stream))?;
-                    let decoded = decoded(stream, cx)?;
+                    let decoded = decoded(stream, self.reads.source, cx)?;
                     let length = decoded.data.as_ref().map(|data| data.len());
                     // 予測子で短くなったものと、展開後に失敗するものも、再び展開する分を先に数える
                     decode.add(decoded.cost);
@@ -2336,7 +2441,7 @@ impl<'a, 'o> Walker<'a, 'o> {
                     if profile.dict().get::<u32>(b"N").is_some()
                         && self.own(profile).is_none_or(|id| self.profiles.insert(id))
                     {
-                        let decode = decoded(profile, cx)?.cost;
+                        let decode = decoded(profile, self.reads.source, cx)?.cost;
                         redecode(decode, 1, cx)?;
                     }
                 }
@@ -2362,7 +2467,7 @@ impl<'a, 'o> Walker<'a, 'o> {
         if let Some(size) = id.and_then(|id| self.sizes.get(&id)) {
             return Ok(*size);
         }
-        let Decoded { data, cost: decode } = decoded(stream, cx)?;
+        let Decoded { data, cost: decode } = decoded(stream, self.reads.source, cx)?;
         let len = data.as_ref().map_or(0, |data| data.len() as u64);
         let size = StreamSize { len, decode };
         let program = stream.dict().get::<u8>(b"FunctionType") == Some(4);
@@ -2558,7 +2663,7 @@ impl<'a, 'o> Walker<'a, 'o> {
             build = match id.and_then(|id| self.builds.get(&id)) {
                 Some(build) => *build,
                 None => {
-                    let data = decoded(&stream, cx)?.data;
+                    let data = decoded(&stream, self.reads.source, cx)?.data;
                     let build = match data {
                         Some(data) => program_work(data.into_owned(), cx)?,
                         None => Build::Bounded(0),
@@ -2593,7 +2698,7 @@ impl<'a, 'o> Walker<'a, 'o> {
         }
         if subtype.as_deref() == Some(b"Type0") {
             if let Some(stream) = dict.get::<Stream<'_>>(b"Encoding") {
-                let decode = decoded(&stream, cx)?.cost;
+                let decode = decoded(&stream, self.reads.source, cx)?.cost;
                 redecode(decode, 2, cx)?;
             }
             self.count_setup(dict, cx)?;
@@ -2602,12 +2707,12 @@ impl<'a, 'o> Walker<'a, 'o> {
                 .and_then(|fonts| fonts.iter::<Dict<'_>>().next())
                 && let Some(stream) = descendant.get::<Stream<'_>>(b"CIDToGIDMap")
             {
-                let decode = decoded(&stream, cx)?.cost;
+                let decode = decoded(&stream, self.reads.source, cx)?.cost;
                 redecode(decode, 2, cx)?;
             }
         }
         if let Some(stream) = dict.get::<Stream<'_>>(b"ToUnicode") {
-            let decode = decoded(&stream, cx)?.cost;
+            let decode = decoded(&stream, self.reads.source, cx)?.cost;
             redecode(decode, 2, cx)?;
         }
         if subtype.as_deref() != Some(b"Type0") {
@@ -2628,7 +2733,7 @@ impl<'a, 'o> Walker<'a, 'o> {
         {
             return Ok(());
         }
-        let Decoded { data, cost: decode } = decoded(&stream, cx)?;
+        let Decoded { data, cost: decode } = decoded(&stream, self.reads.source, cx)?;
         redecode(decode, 2, cx)?;
         let setup = data
             .and_then(|data| FontProgram::new(data.into_owned(), 0))
@@ -3177,7 +3282,7 @@ impl<'a, 'o> Walker<'a, 'o> {
         if let Some(data) = id.and_then(|id| self.forms.get(&id)) {
             return Ok(data.clone());
         }
-        let decoded = decoded(stream, cx)?;
+        let decoded = decoded(stream, self.reads.source, cx)?;
         let data = match decoded.data {
             Some(data) => {
                 reserve_end(data.len(), cx)?;
@@ -3203,6 +3308,77 @@ impl<'a, 'o> Walker<'a, 'o> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn follows_file_spec_containers_without_materializing_scalar_targets() {
+        use zumen_base::{Budget, CancelToken, Diagnostics};
+
+        // 同じ番号を複数の辞書から指す。#46 は F（7.3.5）。相互参照表は hayro が作り直す。
+        let data = b"%PDF-1.7\n1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n\
+            2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n\
+            3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >> endobj\n\
+            4 0 obj << /#46 5 0 R /A << /F 6 0 R >> /B << /F 7 0 R >> /C << /F 8 0 R >> >> endobj\n\
+            5 0 obj <414243> endobj\n6 0 obj << /Child 5 0 R >> endobj\n\
+            7 0 obj [5 0 R] endobj\n8 0 obj << /Length 1 >> stream\nx\nendstream\nendobj\n\
+            trailer << /Root 1 0 R >>\n%%EOF";
+        let mut budget = Budget::default();
+        let mut diag = Diagnostics::new();
+        let token = CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diag, &token);
+        let crate::guard::Checked::Ready { file_refs, .. } =
+            crate::guard::before(data, &mut cx).unwrap()
+        else {
+            panic!("合成した参照を含む文書を読めなかった");
+        };
+        assert_eq!(file_refs, BTreeSet::from([(5, 0), (6, 0), (7, 0), (8, 0)]));
+        let doc = Pdf::new(hayro_syntax::PdfData::from(data.to_vec())).unwrap();
+        let source =
+            inflate::Source::new(doc.data().as_ref(), false, 0).with_file_refs(&file_refs, 0);
+        let reads = Reads::new(doc.xref(), data, source);
+        let id = |number| ObjectIdentifier::new(number, 0);
+        assert!(matches!(
+            doc.xref().get::<Object<'_>>(id(5)),
+            Some(Object::String(_))
+        ));
+        assert!(matches!(reads.read(id(5)), (work, None) if work >= lookup_work(data)));
+        assert!(matches!(reads.read(id(6)).1, Some(Object::Dict(_))));
+        assert!(matches!(reads.read(id(7)).1, Some(Object::Array(_))));
+        assert!(matches!(reads.read(id(8)).1, Some(Object::Stream(_))));
+    }
+
+    #[test]
+    fn reserves_large_file_spec_tables_before_settling_references() {
+        use zumen_base::{Budget, CancelToken, Diagnostics, Limit, Limits};
+
+        let keys = (0..4000).map(|i| format!("/K{i} 1 ")).collect::<String>();
+        let data = format!(
+            "%PDF-1.7\n1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n\
+            2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n\
+            3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /Contents 4 0 R >> endobj\n\
+            4 0 obj << /Length 3 /Filter [/AHx /Fl] /F 5 0 R >> stream\n00>\nendstream\nendobj\n\
+            5 0 obj << {keys} >> endobj\ntrailer << /Root 1 0 R >>\n%%EOF"
+        );
+        let mut budget =
+            Budget::new(Limits::default().with(Kind::DecodedBytes, Limit::Finite(32 * 1024)));
+        let mut diag = Diagnostics::new();
+        let token = CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diag, &token);
+        let crate::guard::Checked::Ready {
+            file_refs,
+            table_bytes,
+            ..
+        } = crate::guard::before(data.as_bytes(), &mut cx).unwrap()
+        else {
+            panic!("合成した辞書を含む文書を読めなかった");
+        };
+        let doc = Pdf::new(hayro_syntax::PdfData::from(data.as_bytes().to_vec())).unwrap();
+        let source = inflate::Source::new(doc.data().as_ref(), false, 0)
+            .with_file_refs(&file_refs, table_bytes);
+        let reads = Reads::new(doc.xref(), data.as_bytes(), source);
+        assert!(
+            matches!(settle(&doc, reads, &mut cx), Err(Stop::Exceeded(e)) if e.kind == Kind::DecodedBytes)
+        );
+    }
 
     /// 終わりのマーカーまで読めるか
     fn reaches_the_end(data: &[u8]) -> bool {
