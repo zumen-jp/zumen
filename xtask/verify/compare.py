@@ -87,6 +87,14 @@ TYPES = {
     "leader": {"LEADER"},
     "callout": {"MULTILEADER", "MLEADER"},
 }
+# DXF・DWG の要素の種類 → 出所の図形。entities が geometry を持たない要素も kind を返す。
+KINDS = {
+    **{k: TYPES[k] for k in ("line", "circle", "polyline", "point", "text", "formatted_text", "symbol", "dimension", "leader", "callout")},
+    "curve": TYPES["arc"] | TYPES["ellipse"] | TYPES["spline"],
+    "hatch": {"HATCH", "SOLID", "TRACE"},
+    "underlay": {"IMAGE", "PDFUNDERLAY", "DWFUNDERLAY", "DGNUNDERLAY"},
+    "table": {"ACAD_TABLE"},
+}
 # DXF・DWG: 形を比べる種類。モデル空間のこの種類の図形には、zumen の要素の形がある
 COMPARABLE = {"LINE", "CIRCLE", "ARC", "ELLIPSE", "LWPOLYLINE", "POINT", "TEXT", "MTEXT", "INSERT"}
 # DXF・DWG: PDMODE の形（決定 0183）
@@ -194,6 +202,17 @@ def handle_of(element):
     return handle.upper() if handle else None
 
 
+def source_type_error(element, actual, kinds, shapes):
+    """要素の種類と、あれば形の両方を出所の種類と照らす。"""
+    kind = element.get("kind")
+    shape = element.get("geometry", {}).get("shape")
+    if kind not in kinds or (shape is not None and shape not in shapes):
+        return f"{element['id']}: 要素の種類 {kind}・形 {shape} の対応がない（KINDS・TYPES に足す）"
+    if actual not in kinds[kind] or (shape is not None and actual not in shapes[shape]):
+        return f"{element['id']}: 要素の種類 {kind}・形 {shape} の出所が {actual}"
+    return None
+
+
 def point_style(edit):
     """DXF・DWG: 点の表し方の変更（point_style）が決める $PDMODE と $PDSIZE（DXF Reference の HEADER）"""
     mode = MARKS[edit["mark"]] + (32 if edit.get("circle") else 0) + (64 if edit.get("square") else 0)
@@ -225,12 +244,8 @@ def check_handles(entry, reading, counts, view):
             failures.append(f"{where}: {tool} にハンドル {handle} の図形がない")
             continue
         shape = element.get("geometry", {}).get("shape")
-        # 表にない形は、出所の種類を比べられないので知らせる（TYPES に足す）
-        if shape is not None and shape not in TYPES:
-            failures.append(f"{where}: 形 {shape} と図形の種類の対応がない（compare.py の TYPES に足す）")
-            continue
-        if shape in TYPES and e["type"] not in TYPES[shape]:
-            failures.append(f"{where}: 形 {shape} の出所が {e['type']}")
+        if wrong := source_type_error(element, e["type"], KINDS, TYPES):
+            failures.append(wrong)
             continue
         # 外部の実装に画層があれば、zumen の要素も持つ
         if e["layer"] is not None and (element.get("layer") or "").lower() != e["layer"].lower():
@@ -349,6 +364,13 @@ def run(folder, tool, version, formats, check, known=()):
     shown = "・".join(f"{label} {counts[name]}" for name, label in LABELS.items())
     print(f"{tool} {version} で {len(report)} のファイルを照らした。{shown}。食い違い {failed}、既知の食い違い {known_files}")
     return 1 if failed else 0
+
+
+def kit_case(folder, path):
+    manifest = json.loads((folder / "manifest.json").read_text(encoding="utf-8"))
+    entry = next(item for item in manifest["files"] if item["path"] == path)
+    reading = json.loads((folder / "zumen" / (path + ".json")).read_text(encoding="utf-8"))
+    return entry, reading
 
 
 def usage(script):
