@@ -5,6 +5,7 @@
 //! - `codegen --check`: 権利の台帳と依存・カタログ・スキーマ・プロファイル・公開サンプルの台帳と、ラッパーのバージョンと、
 //!   登録した形式の fuzz の target を確かめ、生成したファイルが最新かを確かめる
 //! - `fuzz-seeds`: fuzz の種の入力を `fuzz/corpus` に書く（fuzz/README.md）
+//! - `migrate-markup`: 利用側が渡した図面とビューの対応を使い、旧版の赤入れをレビュー文書に移す
 
 mod boundary;
 mod catalog;
@@ -17,6 +18,7 @@ mod fuzz;
 mod go;
 mod java;
 mod javascript;
+mod migrate_markup;
 mod profiles;
 mod python;
 mod release;
@@ -33,7 +35,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
 
-const USAGE: &str = "使い方: cargo xtask codegen [--check] | cargo xtask fuzz-seeds";
+const USAGE: &str = "使い方: cargo xtask codegen [--check] | cargo xtask fuzz-seeds | cargo xtask migrate-markup <旧版の JSON> <対象の図面> <対応表の TOML> <新しい JSON>";
 
 /// 生成するファイルの置き場所（リポジトリの根からの相対パス）
 const CODES_RS: &str = "crates/zumen-base/src/codes.rs";
@@ -87,6 +89,9 @@ fn main() -> ExitCode {
         ["codegen"] => codegen(Mode::Write),
         ["codegen", "--check"] => codegen(Mode::Check),
         ["fuzz-seeds"] => fuzz::seeds(&root()),
+        ["migrate-markup", markup, drawing, map, output] => {
+            migrate_markup::run(markup, drawing, map, output)
+        }
         _ => Err(USAGE.to_string()),
     };
     match result {

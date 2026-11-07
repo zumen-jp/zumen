@@ -80,6 +80,7 @@ BCF（BIM Collaboration Format）は、topic（指摘）・comment・viewpoint�
 
 ## 参照
 
+- 空間（`space/0`）の上の場所と図形の座標は、[0282](0282-legacy-markup-review-identity.md) で補った。
 - [決定 0013](0013-boundary-in-four-forms.md)、[決定 0156](0156-drawing-stable-ids-and-preconditions.md)、[決定 0172](0172-scene-sections-and-op.md)、[決定 0179](0179-profile-check-details.md)、[決定 0207](0207-building-model-components.md)、[決定 0209](0209-xml-l0-without-dependency.md)、[決定 0210](0210-zip-l0-without-dependency.md)、[決定 0213](0213-scene3d-sections-and-op.md)
 - [旧版の決定 0021](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/0021-drawing-markup.md)
 - [BCF-XML（buildingSMART International）](https://github.com/buildingSMART/BCF-XML)
