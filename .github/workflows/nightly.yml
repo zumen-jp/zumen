@@ -193,6 +193,11 @@ jobs:
       - name: 公開サンプルと適合テストの図面に書き戻しと変換を当て、検証キットを作る
         id: make
         run: python -I xtask/verify/make.py target/release/zumen "$RUNNER_TEMP/verify"
+      - name: AutoCAD の書式を実機で確認する合成入力と比較手順をキットに加える
+        if: ${{ !cancelled() && steps.make.outcome != 'skipped' }}
+        run: |
+          python -I -m unittest discover -s xtask/autocad/check316 -p 'test_*.py'
+          python -I xtask/autocad/check316/make.py "$RUNNER_TEMP/verify/316/controls"
       - name: 検証キットの DXF を ezdxf で読み、zumen の読みと照らす
         # 当たらなかった変更があっても、書いたファイルは照らす。CLI を作れずキットがないときは流さない
         if: ${{ !cancelled() && steps.make.outcome != 'skipped' }}
