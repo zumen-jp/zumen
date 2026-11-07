@@ -4501,6 +4501,21 @@ fn reads_names_in_comments_in_linear_work() {
     let work = used(&document.bytes(), Kind::Work);
     let most = plain + 8 * count as u64 + tail.len() as u64;
     assert!(work < most, "{plain} {work}");
+    // コメントの行の `obj<<` から読む辞書が、`<<` の後ろでそれぞれ違う位置に着いても、前の辞書が読んだ歩み（項目の
+    // 始まりか値の位置）に着いたら、そこから後ろを読み直さない（#562）。キーと値の組が前の辞書と入れ替わる並びと、
+    // 読めない項目（`x`）と、外の辞書の文字列の中の行も
+    for (open, line, close) in [
+        ("<<", "/K 1 %obj<<\n", ">>"),
+        ("<<", "/K /V %obj<< /Z\n", ">>"),
+        ("(", "%obj<< x\n", ")"),
+        ("<<", "%obj<< x\n", "/A 1>>"),
+        ("<< /S (", "%obj<< x\n", ") >>"),
+    ] {
+        let mut document = Document::new(vec![Page::new("0 0 m 10 10 l S")]);
+        document.objects = vec![format!("{open}{}{close}", line.repeat(count)).into_bytes()];
+        let work = used(&document.bytes(), Kind::Work);
+        assert!(work < plain + 8 * count as u64, "{line:?} {plain} {work}");
+    }
     // フィルターの値に参照があるときに見る、参照の先の配列も、コメントの行の `obj [` から読み直さない（名前の配列と、
     // 展開のパラメーターの配列の 2 つの見方で、それぞれ飛ばす）
     let mut document = Document::new(vec![Page::new("0 0 m 10 10 l S")]);

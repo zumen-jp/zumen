@@ -24,7 +24,10 @@ use hayro_syntax::reader::{Readable, Reader, ReaderContext, ReaderExt};
 use zumen_base::{Diagnostic, Kind, Ref, Stop};
 use zumen_sdk::Cx;
 
-use crate::{inflate, walk::lookup_work};
+use crate::{
+    inflate,
+    walk::{LOOKUP_BYTES, lookup_work},
+};
 
 /// 環境の大きさの整数で読む値の上限（含まない）。32 ビットの環境でも読め、2 つを足してもあふれない
 const LIMIT: i64 = 1 << 31;
@@ -534,10 +537,17 @@ fn members(
                     table_scan = true;
                 }
                 let mut bytes = 0_u64;
-                let end = entries(data, at, cx, |_, cost, _| {
-                    bytes = bytes.saturating_add(cost);
+                let mut gaps = Skip::default();
+                let (walked, _) = entries(data, at, &mut gaps, data.len(), cx, |event, _| {
+                    if let Event::Entry(_, cost, _) = event {
+                        bytes = bytes.saturating_add(cost);
+                    }
+                    Ok(false)
                 })?;
-                table_end = end.unwrap_or(data.len());
+                table_end = match walked {
+                    Walked::Closed(end) => end,
+                    Walked::Broken(_) | Walked::Stopped(_) => data.len(),
+                };
                 seen.table_bytes = seen.table_bytes.max(bytes);
             }
         }
@@ -968,8 +978,8 @@ fn white(byte: u8) -> bool {
 
 /// 空白とコメント（7.2.3・7.2.4）を、hayro-syntax の `skip_white_spaces_and_comments` と同じく飛ばす。コメントは行末で
 /// 終わるので、前に飛ばした範囲の中の行末か `%` に来たら、前と同じ所まで飛ぶ。範囲の中のほかの位置から飛ばしても、
-/// 範囲の終わりより先には進まない。そこで、位置が増える順に飛ばせば、手間はバイト列の長さに比例する。読んだバイト数は
-/// `Work` に数える
+/// 範囲の終わりより先には進まない。そこで、位置が増える順に飛ばせば、手間はバイト列の長さに比例する。[`Skip::over`] と
+/// [`Skip::keeping`] は、読んだバイト数を `Work` に数え、[`Skip::holding`] は、読んだバイト数を返す
 #[derive(Debug, Default)]
 struct Skip {
     from: usize,
@@ -980,7 +990,12 @@ struct Skip {
 
 impl Skip {
     fn over(&mut self, data: &[u8], start: usize, cx: &mut Cx<'_>) -> Result<usize, Stop> {
-        self.walk(data, start, None, cx)
+        let (end, at) = self.walk(data, start, false);
+        cx.check(
+            Kind::Work,
+            lookup_work(data.get(start..at).unwrap_or_default()),
+        )?;
+        Ok(end)
     }
 
     /// 配列の項目の間を飛ばす。覚えた範囲が行末か `%` を含み、キーの値（`cursor`）が範囲の終わりより後ろになければ、
@@ -993,16 +1008,34 @@ impl Skip {
         cursor: usize,
         cx: &mut Cx<'_>,
     ) -> Result<usize, Stop> {
-        self.walk(data, start, Some(cursor), cx)
+        let keep = self.lines && cursor <= self.to;
+        let (end, at) = self.walk(data, start, keep);
+        cx.check(
+            Kind::Work,
+            lookup_work(data.get(start..at).unwrap_or_default()),
+        )?;
+        Ok(end)
     }
 
-    fn walk(
+    /// 辞書の項目の間を飛ばし（[`entries`]）、飛ばした先と、読んだバイト数を返す。覚えた範囲が行末か `%` を含み、次の
+    /// `obj`（`hold`）を含めば、範囲の外から飛ばしても覚え直さない。次の `obj` の辞書は、範囲の中のコメントの行から
+    /// 読み始め、項目の間で範囲の中の行末に来る。読んだバイト数は、呼ぶ側が、重なって読む辞書の分だけ `Work` に数える
+    fn holding(
         &mut self,
         data: &[u8],
         start: usize,
-        cursor: Option<usize>,
+        hold: usize,
         cx: &mut Cx<'_>,
-    ) -> Result<usize, Stop> {
+    ) -> Result<(usize, usize), Stop> {
+        cx.check(Kind::Work, 0)?;
+        let keep = self.lines && (self.from..self.to).contains(&hold);
+        let (end, at) = self.walk(data, start, keep);
+        Ok((end, at.saturating_sub(start)))
+    }
+
+    /// 飛ばした先と、読み終えた位置（範囲の終わりに飛んだときは、飛ぶ前の位置）を返す。範囲の外から飛ばしたら、
+    /// `keep` が偽なら、飛ばした範囲を覚え直す
+    fn walk(&mut self, data: &[u8], start: usize, keep: bool) -> (usize, usize) {
         let range = self.from..self.to;
         let mut at = start;
         let mut end = None;
@@ -1027,12 +1060,7 @@ impl Skip {
                 break;
             }
         }
-        cx.check(
-            Kind::Work,
-            lookup_work(data.get(start..at).unwrap_or_default()),
-        )?;
         let end = end.unwrap_or(at);
-        let keep = cursor.is_some_and(|cursor| self.lines && cursor <= self.to);
         if !range.contains(&start) && !keep {
             *self = Self {
                 from: start,
@@ -1040,7 +1068,7 @@ impl Skip {
                 lines,
             };
         }
-        Ok(end)
+        (end, at)
     }
 }
 
@@ -1075,11 +1103,93 @@ impl Container {
     }
 }
 
+/// 辞書の項目を読む歩み。項目の始まり（`value` が偽）か、キーの後ろの値（`value` が真）の位置。hayro-syntax の辞書
+/// は、同じ歩みからは、同じ項目と終わりを読む
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+struct Step {
+    at: usize,
+    value: bool,
+}
+
+/// 辞書を読み終えた形（[`entries`]）
+#[derive(Debug, Clone, Copy)]
+enum Walked {
+    /// `>>` で閉じた。終わりの位置
+    Closed(usize),
+    /// 字句を読めなかった。その字句の位置
+    Broken(usize),
+    /// 呼ぶ側が止めた歩み
+    Stopped(Step),
+}
+
+/// 辞書を読む途中で、呼ぶ側に渡すもの（[`entries`]）
+enum Event<'a> {
+    /// 歩みに着いた
+    Step(Step),
+    /// 項目のキーと、キーの表の 1 つのメモリと、値の位置
+    Entry(Name<'a>, u64, usize),
+}
+
+/// 覚えた歩みから後ろの項目（[`objects`]）
+#[derive(Debug, Clone, Copy, Default)]
+struct Suffix {
+    /// 辞書の終わり。読めない辞書は `None`
+    end: Option<usize>,
+    /// `N` と `First` のキーがある
+    count: bool,
+    origin: bool,
+    /// 最後の `Type` の値の位置
+    kind: Option<usize>,
+    /// キーの表のメモリ
+    bytes: u64,
+}
+
+/// 読んでいる辞書の項目（[`objects`]）
+#[derive(Default)]
+struct Own {
+    /// キーの表のメモリ
+    bytes: u64,
+    /// 最後の `N`・`First`・`Type` の値の位置
+    count: Option<usize>,
+    origin: Option<usize>,
+    kind: Option<usize>,
+    /// 覚える歩みと、そこまでのキーの表のメモリ
+    steps: Vec<(Step, u64)>,
+}
+
+impl Own {
+    fn entry(&mut self, name: &[u8], cost: u64, value: usize) {
+        self.bytes = self.bytes.saturating_add(cost);
+        match name {
+            b"N" => self.count = Some(value),
+            b"First" => self.origin = Some(value),
+            b"Type" => self.kind = Some(value),
+            _ => {}
+        }
+    }
+
+    /// `at` から後ろの項目。`prefix` は `at` までのキーの表のメモリ、`tail` は読むのをやめた所から後ろの項目。`at` から
+    /// 後ろの項目は、値の位置が `at` より後ろにある
+    fn after(&self, at: usize, prefix: u64, tail: &Suffix) -> Suffix {
+        let later = |value: Option<usize>| value.filter(|&value| value > at);
+        Suffix {
+            end: tail.end,
+            count: tail.count || later(self.count).is_some(),
+            origin: tail.origin || later(self.origin).is_some(),
+            kind: tail.kind.or(later(self.kind)),
+            bytes: self.bytes.saturating_sub(prefix).saturating_add(tail.bytes),
+        }
+    }
+}
+
+/// 覚えた歩みの 1 つのメモリ（[`Step`] と [`Suffix`] と、表の木の節と、歩みの並びの分）
+const MARK_BYTES: u64 = 128;
+
 /// ファイルのすべての `obj` の後ろ（7.3.10）を読み、オブジェクトのストリームになりうるストリームを始まりの順に返す。
 /// hayro-syntax は、表が指す位置の定義を読むので、レコードの始まりにない定義（文字列とストリームの中）も読みうる。
 /// 数は、参照の先の候補にする。辞書は、キーの表を作らずに（[`entries`]）、手間を数えずに 1 度ずつ読むので、ほかの
-/// 辞書と重ならなければ、手間は `InputBytes` に比例する。重なって読み直す分と、読めなかった辞書とストリームの後ろの
-/// バイト列は、`Work` に数える。コンテナーの辞書を 2 回読む前に、キーごとの [`KEY_BYTES`] とエスケープした名前の
+/// 辞書と重ならなければ、手間は `InputBytes` に比例する。重なる辞書が読んだバイト数と、読めなかった字句とストリームの
+/// 後ろのバイト列は、`Work` に数える。コンテナーの辞書を 2 回読む前に、キーごとの [`KEY_BYTES`] とエスケープした名前の
 /// 確保を 2 回分、コンテナー 1 つを [`CONTAINER_BYTES`] として `DecodedBytes` に数える。
 ///
 /// 2 つの `obj` が同じ位置に着くのは、後の `obj` が、前の `obj` の後ろで飛ばした空白とコメントの中（コメントの中）に
@@ -1091,7 +1201,15 @@ impl Container {
 /// 位置に着けば、同じ項目と終わりとストリームを持つ。後の辞書の始まりは、前の辞書の `<<` の後ろのコメントの中にあり、
 /// 同じ行の前に `%` があるので、型の値を確かめたものにしない（[`claims`]）。そこで、`<<` の後ろも同じく範囲の終わりの
 /// 位置を 1 つ覚え、最初の辞書だけを読む（コメントの行ごとの `obj<<` から、後ろの同じ大きな辞書を読み直さない）。
-/// 前の辞書より前から始まる辞書は、前の辞書の始まりの `<<` で止まるので、同じ位置に着かない
+/// 前の辞書より前から始まる辞書は、前の辞書の始まりの `<<` で止まるので、同じ位置に着かない。
+///
+/// `<<` の後ろで違う位置に着いた辞書も、前の辞書が読んだ歩み（[`Step`]）に着けば、そこから後ろは前の辞書と同じ項目を
+/// 読む（コメントの行ごとの `obj<<` が、`<<` の後ろで、それぞれ次の行のキーに着くなど）。そこで、次の `obj` より後ろの
+/// 歩みごとに、そこから後ろの項目（[`Suffix`]）を覚え、覚えた歩みに着いたら読むのをやめて、覚えた項目を足す。後ろの
+/// `obj` の辞書は、その `obj` より後ろから読むので、次の `obj` より前の歩みには着かない。どの歩みからも、読み続ける辞書は
+/// 1 つだけになる（歩みの間の 1 つの字句が、後ろの行をまたぐ文字列か配列なら、その字句は辞書ごとに読む）。重なる辞書は、
+/// 読んだバイト数を `Work` に数え、覚えた歩みは、1 つを [`MARK_BYTES`] として `DecodedBytes` に数える。項目の間の空白と
+/// コメントは、辞書をまたぐ 1 つの覚えで飛ばす（[`Skip::holding`]）
 fn objects(src: &[u8], seen: &mut Seen, cx: &mut Cx<'_>) -> Result<Vec<Container>, Stop> {
     let context = ReaderContext::dummy();
     let mut containers = Vec::new();
@@ -1102,9 +1220,19 @@ fn objects(src: &[u8], seen: &mut Seen, cx: &mut Cx<'_>) -> Result<Vec<Container
     let mut skip = Skip::default();
     let mut inner = Skip::default();
     let mut trailing = Skip::default();
-    for keyword in 0..src.len().saturating_sub(2) {
-        if !definition(src, keyword) {
-            continue;
+    // 辞書の項目の間を飛ばす覚えと、前の辞書が読んだ歩みごとの、そこから後ろの項目
+    let mut gaps = Skip::default();
+    let mut marks = BTreeMap::<Step, Suffix>::new();
+    let mut keywords = (0..src.len().saturating_sub(2))
+        .filter(|&keyword| definition(src, keyword))
+        .peekable();
+    while let Some(keyword) = keywords.next() {
+        // ここから後ろの辞書は、この `obj` より後ろから読む
+        while marks
+            .first_key_value()
+            .is_some_and(|(step, _)| step.at <= keyword)
+        {
+            marks.pop_first();
         }
         let start = skip.over(src, keyword + 3, cx)?;
         if start == skip.to && last.replace(start) == Some(start) {
@@ -1122,36 +1250,53 @@ fn objects(src: &[u8], seen: &mut Seen, cx: &mut Cx<'_>) -> Result<Vec<Container
         if first == inner.to && entered.replace(first) == Some(first) {
             continue;
         }
-        // 辞書の表を作らずに、キーの数と、`N`・`First` と最後の型の値の位置を見る
-        let (mut count, mut origin, mut kind) = (false, false, None);
-        let mut bytes = 0_u64;
-        let end = entries(src, start, cx, |name, cost, value| {
-            bytes = bytes.saturating_add(cost);
-            match &*name {
-                b"N" => count = true,
-                b"First" => origin = true,
-                b"Type" => kind = Some(value),
-                _ => {}
+        // 辞書の表を作らずに、キーの数と、`N`・`First` と最後の型の値の位置を見る。次の `obj` より後ろの歩みを覚え、前の
+        // 辞書が覚えた歩みに着いたら、そこで読むのをやめる
+        let hold = keywords.peek().copied().unwrap_or(src.len());
+        let mut own = Own::default();
+        let (walked, read) = entries(src, start, &mut gaps, hold, cx, |event, cx| {
+            match event {
+                Event::Entry(name, cost, value) => own.entry(&name, cost, value),
+                Event::Step(step) if marks.contains_key(&step) => return Ok(true),
+                Event::Step(step) if step.at > hold => {
+                    cx.check(Kind::DecodedBytes, MARK_BYTES)?;
+                    own.steps.push((step, own.bytes));
+                }
+                Event::Step(_) => {}
             }
+            Ok(false)
         })?;
+        let tail = match walked {
+            Walked::Closed(end) => Suffix {
+                end: Some(end),
+                ..Suffix::default()
+            },
+            Walked::Broken(_) => Suffix::default(),
+            Walked::Stopped(step) => marks.get(&step).copied().unwrap_or_default(),
+        };
+        for &(step, prefix) in &own.steps {
+            marks.insert(step, own.after(step.at, prefix, &tail));
+        }
+        let whole = own.after(start, 0, &tail);
         // 途中で壊れた辞書でも、その前のキーの表は作られる。
-        seen.table_bytes = seen.table_bytes.max(bytes);
-        let Some(end) = end else {
-            cx.check(
-                Kind::Work,
-                lookup_work(src.get(start..).unwrap_or_default()),
-            )?;
+        seen.table_bytes = seen.table_bytes.max(whole.bytes);
+        let prior = covered;
+        if start < prior || matches!(walked, Walked::Stopped(_)) {
+            cx.check(Kind::Work, (read as u64).div_ceil(LOOKUP_BYTES))?;
+        }
+        match walked {
+            Walked::Closed(end) => covered = covered.max(end),
+            // 読めない字句は、終わりまで読みうる（閉じない文字列など）
+            Walked::Broken(at) => {
+                cx.check(Kind::Work, lookup_work(src.get(at..).unwrap_or_default()))?;
+                covered = covered.max(at);
+            }
+            Walked::Stopped(step) => covered = covered.max(step.at),
+        }
+        let Some(end) = whole.end else {
             continue;
         };
-        let prior = covered;
-        if start < prior {
-            cx.check(
-                Kind::Work,
-                lookup_work(src.get(start..end).unwrap_or_default()),
-            )?;
-        }
-        covered = covered.max(end);
-        if !(count && origin) {
+        if !(whole.count && whole.origin) {
             continue;
         }
         // ストリームでない辞書は、hayro-syntax も展開しない
@@ -1163,7 +1308,7 @@ fn objects(src: &[u8], seen: &mut Seen, cx: &mut Cx<'_>) -> Result<Vec<Container
             continue;
         }
         // ストリームをここで読み、確認時にもう一度読む。どちらの辞書の表と名前の確保も先に数える。
-        cx.check(Kind::DecodedBytes, bytes.saturating_mul(2))?;
+        cx.check(Kind::DecodedBytes, whole.bytes.saturating_mul(2))?;
         let mut reader = Reader::new(src);
         reader.jump(start);
         if reader.read_with_context::<Stream<'_>>(&context).is_none() {
@@ -1184,7 +1329,7 @@ fn objects(src: &[u8], seen: &mut Seen, cx: &mut Cx<'_>) -> Result<Vec<Container
         }
         covered = covered.max(reached);
         // hayro-syntax の `Dict::get` と同じく、最後の型の値を、参照でない名前として読む
-        let typed = match kind {
+        let typed = match whole.kind {
             Some(at) => read_name(src, at, cx)?
                 .filter(|(name, _)| &**name == b"ObjStm")
                 .and_then(|(name, _)| position(src, &name)),
@@ -1202,40 +1347,63 @@ fn objects(src: &[u8], seen: &mut Seen, cx: &mut Cx<'_>) -> Result<Vec<Container
     Ok(containers)
 }
 
-/// `start` の `<<` からの辞書（7.3.7）を、hayro-syntax の `Dict::read`（`parse_dict_with`）と同じく読み、項目ごとに
-/// キーと値の位置で `entry` を呼んで、終わりの位置を返す。hayro-syntax と違い、キーの表を作らない。キーでない字句は
-/// 値として飛ばし、キーの後ろは空白とコメントを飛ばした位置を値の位置にする。同じキーが何度もあれば、どれでも呼ぶ
-/// （hayro-syntax は最後のものを使う）
+/// `start` の `<<` からの辞書（7.3.7）を、hayro-syntax の `Dict::read`（`parse_dict_with`）と同じく読み、歩みごとと
+/// 項目ごとに `visit` を呼んで、読み終えた形と、読んだバイト数を返す。`visit` が歩みで真を返したら、そこで読むのを
+/// やめる。hayro-syntax と違い、キーの表を作らない。キーでない字句は値として飛ばし、キーの後ろは空白とコメントを
+/// 飛ばした位置を値の位置にする。同じキーが何度もあれば、どれでも呼ぶ（hayro-syntax は最後のものを使う）。空白と
+/// コメントは `gaps` で飛ばす（[`Skip::holding`]）
 fn entries<'a>(
     src: &'a [u8],
     start: usize,
+    gaps: &mut Skip,
+    hold: usize,
     cx: &mut Cx<'_>,
-    mut entry: impl FnMut(Name<'a>, u64, usize),
-) -> Result<Option<usize>, Stop> {
+    mut visit: impl FnMut(Event<'a>, &mut Cx<'_>) -> Result<bool, Stop>,
+) -> Result<(Walked, usize), Stop> {
     let mut reader = Reader::new(src);
     reader.jump(start);
     if reader.forward_tag(b"<<").is_none() {
-        return Ok(None);
+        return Ok((Walked::Broken(start), 0));
     }
+    let mut read = 2;
     loop {
-        reader.skip_white_spaces_and_comments();
+        let (at, gap) = gaps.holding(src, reader.offset(), hold, cx)?;
+        read += gap;
+        reader.jump(at);
+        let step = Step { at, value: false };
+        if visit(Event::Step(step), cx)? {
+            return Ok((Walked::Stopped(step), read));
+        }
         if reader.forward_tag(b">>").is_some() {
-            return Ok(Some(reader.offset()));
+            return Ok((Walked::Closed(reader.offset()), read + 2));
         }
         let Some((name, cost)) = scanned_name(src, &mut reader, cx)? else {
             if reader.skip_with_depth::<Object<'_>>(false, 1).is_none() {
-                return Ok(None);
+                return Ok((Walked::Broken(at), read));
             }
+            read += reader.offset().saturating_sub(at);
             continue;
         };
-        reader.skip_white_spaces_and_comments();
-        entry(name, cost, reader.offset());
+        read += reader.offset().saturating_sub(at);
+        let (value, gap) = gaps.holding(src, reader.offset(), hold, cx)?;
+        read += gap;
+        reader.jump(value);
+        // 項目では読むのをやめない
+        visit(Event::Entry(name, cost, value), cx)?;
+        let step = Step {
+            at: value,
+            value: true,
+        };
+        if visit(Event::Step(step), cx)? {
+            return Ok((Walked::Stopped(step), read));
+        }
         if reader
             .skip_with_depth::<MaybeRef<Object<'_>>>(false, 1)
             .is_none()
         {
-            return Ok(None);
+            return Ok((Walked::Broken(value), read));
         }
+        read += reader.offset().saturating_sub(value);
     }
 }
 
