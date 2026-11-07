@@ -157,6 +157,7 @@
 
 ## 参照
 
+- 結果に書かないものに初回リリース後の入力と詳細を足すことと、その失敗の承認で範囲を書く方法は、[0283](0283-fuzz-reporting-after-release.md) で補った。
 - [決定 0174](0174-plan-in-issues.md)、[作業の選び方](../work.md)
 - [決定 0002](0002-dual-license.md)・[0010](0010-budget-by-work.md)・[0011](0011-bindings-through-ffi.md)・[0015](0015-add-only-boundary-and-version-floors.md)・[0017](0017-format-rights-ledger-and-plugin-sdk.md)・[0019](0019-coordinate-systems-and-gsi-data.md)・[0171](0171-public-samples-in-git.md)
 - #345・#412・#486
