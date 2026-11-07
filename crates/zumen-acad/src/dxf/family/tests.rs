@@ -263,6 +263,41 @@ fn unrepresentable_drawings_discard_the_trial_output_and_diagnostics() {
 }
 
 #[test]
+fn names_beside_layer_zero_check_the_round_trip_and_character_count() {
+    let so = b"\x83\x5c";
+    let mut so_255 = so.repeat(253);
+    so_255.extend_from_slice(b"ab");
+    // 256 文字・510 バイト。バイト数の上限には収まる。
+    let mut so_256 = so.repeat(254);
+    so_256.extend_from_slice(b"ab");
+    for (name, valid) in [
+        (b"\x87\x90".to_vec(), false), // ≒ の別の符号。元のバイト列に戻らない。
+        (b"\x83".to_vec(), false),
+        (b"a".repeat(255), true),
+        (b"a".repeat(256), false),
+        (so_255, cfg!(feature = "cp932")),
+        (so_256, false),
+    ] {
+        // 画層 0 を残し、別のハンドルの画層を足す。
+        let mut db = fixture();
+        let mut layer = db.get(7).unwrap().clone();
+        layer.values[0] = h(5, 60);
+        layer.values[2] = s(2, &name);
+        db.push(layer);
+        let mut budget = Budget::new(Limits::default());
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let out = db
+            .reencode_r2004_dxf(&mut Cx::new(&mut budget, &mut diagnostics, &cancel))
+            .unwrap();
+        assert_eq!(out.is_some(), valid, "{name:?}");
+        if !valid {
+            assert_eq!(diagnostics.iter().count(), 0);
+        }
+    }
+}
+
+#[test]
 fn cancellation_and_output_budget_stop_the_conversion() {
     let db = fixture();
     for cancelled in [true, false] {
