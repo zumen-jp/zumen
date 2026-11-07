@@ -1,5 +1,5 @@
 // シーンの列を直接描く表示部品（決定 0267）。図面の読み取り・字形の配置・曲線の展開はコアに任せる。
-import { bounds, finite, limitsOf, prepare, valid } from "./validate.js";
+import { bounds, finite, limitsOf, prepare, valid, VIEW_SCALE_LIMITS } from "./validate.js";
 import { paint, project, reportOf, unproject } from "./render.js";
 import { appearance, emptyInteraction, hiddenLayers, indexElements, references } from "./interaction.js";
 import { hitPoint, hitRect } from "./hit.js";
@@ -7,6 +7,8 @@ import { measurementOf, positionAt, snapPoint } from "./snap.js";
 import { inputOptions, normalizeInput, Tools } from "./tools.js";
 import { bindInput } from "./controls.js";
 import { Underlays } from "./underlays.js";
+export { findSource } from "./source.js";
+export { VIEW_SCALE_LIMITS };
 
 const EMPTY_REPORT = Object.freeze({ drawn: Object.freeze({ lines: 0, faces: 0, texts: 0, points: 0, images: 0, glyphs: 0 }), issues: Object.freeze([]) });
 const EMPTY = Object.freeze([]);
@@ -22,7 +24,7 @@ function camera(value) {
   valid(value && typeof value === "object", "view");
   const center = point(value.center, "view.center");
   const scale = finite(value.scale, "view.scale");
-  valid(scale >= 1e-12 && scale <= 1e12, "view.scale");
+  valid(scale >= VIEW_SCALE_LIMITS.min && scale <= VIEW_SCALE_LIMITS.max, "view.scale");
   const rotation = finite(value.rotation, "view.rotation") % (2 * Math.PI);
   return Object.freeze({ center, scale, rotation });
 }
@@ -167,6 +169,7 @@ export class View2D {
   getSize() { this.#live(); return this.#size; }
   getReport() { this.#live(); return this.#prepared?.report ?? EMPTY_REPORT; }
   getLayers() { this.#live(); return this.#index?.layers ?? EMPTY; }
+  getElements() { this.#live(); return this.#index?.elements ?? EMPTY; }
   getState() { this.#live(); return this.#snapshot; }
 
   setUnderlayRenderer(renderer) { this.#structural(); this.#underlays.setRenderer(renderer); return this.#refresh("underlay"); }
@@ -391,7 +394,7 @@ export class View2D {
       dx ? (this.#size.width - 2 * padding) / dx : Infinity,
       dy ? (this.#size.height - 2 * padding) / dy : Infinity,
     );
-    return this.jumpTo({ center: { x: box.min_x + w / 2, y: box.min_y + h / 2 }, scale: Math.max(1e-12, Math.min(1e12, scale)), rotation: this.#view.rotation });
+    return this.jumpTo({ center: { x: box.min_x + w / 2, y: box.min_y + h / 2 }, scale: Math.max(VIEW_SCALE_LIMITS.min, Math.min(VIEW_SCALE_LIMITS.max, scale)), rotation: this.#view.rotation });
   }
 
   fit(padding = 16) {

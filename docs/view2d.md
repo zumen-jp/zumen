@@ -31,9 +31,9 @@
 | `snapAt`・`setMeasurement` | 可視の頂点へ吸着し、シーンの単位の距離を返します。実寸が不明なら理由を返します | [#586](https://github.com/zumen-jp/zumen/issues/586) |
 | `addOverlay`・`invalidate` | 一時の描画と更新を利用側から渡します。シーンか表示部品の寿命を選べます | [#586](https://github.com/zumen-jp/zumen/issues/586) |
 | `imageUnderlayRenderer`・`setUnderlayRenderer`・`refreshUnderlays` | 利用側が内容の寸法と部分画像を返します。`cancelUnderlays` で中断し、古い結果と非同期の解放も上限に数えます。画像と PDF のアダプターは利用側の例です | [#587](https://github.com/zumen-jp/zumen/issues/587) |
-| `useDrawingViewer`・`useViewerState`・`useViewerEvent` | 表示部品と購読の作成・破棄を React のフックで管理します | [#588](https://github.com/zumen-jp/zumen/issues/588) |
+| `useDrawingViewer`・`useViewerState`・`useViewerEvent` | 表示部品と購読の作成・破棄を [React のフック](../packages/react/README.md)で管理します | [#588](https://github.com/zumen-jp/zumen/issues/588) |
 | `useDrawing` | 既存の wasm のラッパーを Worker で呼び、古い要求を中断し、診断とシーンを受け取ります | [#588](https://github.com/zumen-jp/zumen/issues/588) |
-| ファイル・用紙・レイヤ・要素の一覧を持つプレイグラウンド | 日本語の画面を `playground/` に置き、ファイルを利用側のブラウザーで開きます | [#588](https://github.com/zumen-jp/zumen/issues/588) |
+| ファイル・用紙・レイヤ・要素の一覧を持つプレイグラウンド | [日本語の画面](../playground/README.md)でファイルを開き、診断と選択した要素の出所を確認します | [#588](https://github.com/zumen-jp/zumen/issues/588) |
 | `MarkupLayer`、赤入れ・変更雲・注記・写真位置・指摘のツール | 決定 0214・0218 のレビューの文書を使います。未実装の図形の生成処理と API をコアに足し、そのシーンを描きます | [#589](https://github.com/zumen-jp/zumen/issues/589) |
 | 赤入れの選択・フィルター・変更イベント・取り消し・やり直し | レビュー文書の対象と場所を保ち、利用側へ変更を返します | [#589](https://github.com/zumen-jp/zumen/issues/589) |
 | `useMarkupLayer`・`useMarkupState`・`useMarkupEvent` と赤入れのプレイグラウンド | レビューの層と購読のフック、保存・再読込の画面を用意します | [#589](https://github.com/zumen-jp/zumen/issues/589) |
