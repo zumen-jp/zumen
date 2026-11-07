@@ -1,5 +1,5 @@
 import type { Scene, SceneResult } from "@zumen-jp/zumen";
-import { View2D, type Camera, type RenderIssue, type View2DState, type View2DEvent } from "../src/index.js";
+import { View2D, VIEW_SCALE_LIMITS, type Camera, type RenderIssue, type View2DState, type View2DEvent } from "../src/index.js";
 
 declare const scene: Scene;
 declare const result: SceneResult;
@@ -13,6 +13,7 @@ viewer.zoomBy(2, { x: 10, y: 20 });
 viewer.rotateBy(Math.PI / 2);
 viewer.panBy(20, 30);
 viewer.jumpTo(view);
+viewer.jumpTo({ ...view, scale: VIEW_SCALE_LIMITS.max });
 viewer.toScene(viewer.toScreen({ x: 1, y: 2 }));
 viewer.resize(600, 400);
 const state: View2DState = viewer.getState();

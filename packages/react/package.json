@@ -1,0 +1,11 @@
+{
+  "name": "@zumen-jp/react",
+  "version": "0.1.0",
+  "private": true,
+  "description": "図面の読み込みと表示部品の寿命を管理する React フック",
+  "license": "MIT OR Apache-2.0",
+  "type": "module",
+  "exports": { ".": { "types": "./src/index.d.ts", "default": "./src/index.js" } },
+  "files": ["src", "README.md"],
+  "peerDependencies": { "@zumen-jp/zumen": "^0.2.0", "@zumen-jp/view2d": "^0.1.0", "react": "^19.3.1" }
+}
