@@ -19,20 +19,24 @@ pub struct NewDxfTemplate {
 
 impl NewDxfTemplate {
     /// 図面モデル `drawing` のひな形を作る。最初の空間の単位、1 枚目の用紙の大きさとビュー、記号の定義を使う。
-    /// 外部参照の記号の定義（`external` を持つもの）は書かず、診断にもしない。書かなかった定義と、それを置いた
-    /// 記号（[`Self::block`] が `None` を返すもの）は、呼び出し側が診断にする
+    /// キーが重ならない定義では、外部参照の記号の定義（`external` を持つもの）は書かず、診断にもしない。書かなかった
+    /// 定義と、それを置いた記号（[`Self::block`] が `None` を返すもの）は、呼び出し側が診断にする。キーが重なる定義は、
+    /// そのキーで外部参照でない最後の定義に付けた名前で、外部参照のものも含めてすべて書く（同じ名前の部品が重なる。
+    /// 扱いは #656 で決める）
     pub fn new(drawing: &Drawing2D) -> Self {
         let blocks = block_names(drawing);
         let bytes = template(drawing, &blocks);
         Self { bytes, blocks }
     }
 
-    /// ひな形の DXF。文字は ANSI_932（Shift_JIS）で書く
+    /// ひな形の DXF。文字は ANSI_932（Shift_JIS）で書く。符号化できなかったとき（不具合）は空なので、呼び出し側は
+    /// 空なら内部の失敗にする（空のバイト列も DXF として読めてしまう）
     pub fn bytes(&self) -> &[u8] {
         &self.bytes
     }
 
-    /// 記号の定義 `key` を書いた部品の名前。外部参照の定義と、図面にない定義は `None`
+    /// 記号の定義 `key` を書いた部品の名前。そのキーに外部参照でない定義がないとき（図面にない定義と、キーが
+    /// 重ならない外部参照の定義）は `None`
     pub fn block(&self, key: &SymbolKey) -> Option<&str> {
         self.blocks.get(&key_of(key)).map(String::as_str)
     }
@@ -244,8 +248,8 @@ fn template(drawing: &Drawing2D, blocks: &BTreeMap<(String, String), String>) ->
     let out = format!(
         "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1018\n9\n$DWGCODEPAGE\n3\nANSI_932\n9\n$INSUNITS\n70\n{unit}\n{limits}9\n$HANDSEED\n5\n{seed}\n0\nENDSEC\n{tables}{section}{entities}{objects}0\nEOF\n"
     );
-    // ASCII 以外は、block_names が ANSI_932 に戻せると確かめた名前だけなので、符号化は失敗しない。失敗したら、
-    // 空のバイト列にして、読む所で失敗させる
+    // ASCII 以外は、block_names が ANSI_932 に戻せると確かめた名前だけなので、符号化は失敗しない。失敗したら
+    // （不具合）、空のバイト列を返す。空のバイト列は DXF として読めてしまうので、呼び出し側が空かを見て止める
     let encoded = Charset::ShiftJis.encode(&out);
     debug_assert!(encoded.is_ok());
     encoded.unwrap_or_default()
@@ -423,7 +427,7 @@ mod tests {
         }
     }
 
-    /// mm のモデル空間と、7 つのビューを持つ A3 横の用紙と、記号の定義 8 つ
+    /// mm のモデル空間と、11 個のビューを持つ A3 横の用紙と、11 個の記号の定義
     fn drawing() -> Drawing2D {
         let corner = |x, y| PaperPoint {
             sheet: SheetId(0),
@@ -473,6 +477,38 @@ mod tests {
                         corner(10.0, 60.0),
                     ],
                 ),
+                // 一部の点だけが外接矩形の角に乗る 4 点、始点をくり返して閉じた長方形の 5 点、幅 0 の長方形で
+                // 切り抜いたビューも書かない
+                view(
+                    [0.25, 0.0, 0.0, 0.0, 0.25, 0.0],
+                    vec![
+                        corner(10.0, 10.0),
+                        corner(110.0, 10.0),
+                        corner(110.0, 60.0),
+                        corner(60.0, 60.0),
+                    ],
+                ),
+                view(
+                    [0.25, 0.0, 0.0, 0.0, 0.25, 0.0],
+                    vec![
+                        corner(10.0, 10.0),
+                        corner(110.0, 10.0),
+                        corner(110.0, 60.0),
+                        corner(10.0, 60.0),
+                        corner(10.0, 10.0),
+                    ],
+                ),
+                view(
+                    [0.25, 0.0, 0.0, 0.0, 0.25, 0.0],
+                    vec![
+                        corner(10.0, 10.0),
+                        corner(10.0, 10.0),
+                        corner(10.0, 60.0),
+                        corner(10.0, 60.0),
+                    ],
+                ),
+                // 0 のすぐ下（約 -1.1e-10 度）の回転は、回していないとみなして書く
+                view([0.5, 1e-12, 0.0, -1e-12, 0.5, 0.0], vec![]),
             ],
             order: vec![],
             source: Ref::default(),
@@ -490,6 +526,10 @@ mod tests {
                 // 無名の定義は、名前が `*` で始まらなくても名前を付ける。`*` で始まる名前も同じ
                 definition(6, "名前", true, false),
                 definition(7, "*D1", false, false),
+                // 符号化はできても別の文字に戻る名前（決定 0192 の ¥・‾・−）にも名前を付ける
+                definition(8, "A\u{A5}B", false, false),
+                definition(9, "A\u{203E}B", false, false),
+                definition(10, "A\u{2212}B", false, false),
             ],
             ..Drawing2D::default()
         }
@@ -650,6 +690,9 @@ mod tests {
                 text("zumen_4"),
                 text("zumen_6"),
                 text("zumen_7"),
+                text("zumen_8"),
+                text("zumen_9"),
+                text("zumen_10"),
             ])
             .map(Some)
             .collect::<Vec<_>>();
@@ -699,7 +742,7 @@ mod tests {
         assert_eq!(records[0].first(340), Some(&handle(layouts[0])));
         assert_eq!(records[1].first(340), Some(&handle(layouts[1])));
 
-        // ビューポートは用紙そのもの（69 = 1）と、書ける 2 つのビュー。ほかのビューは書かない
+        // ビューポートは用紙そのもの（69 = 1）と、書ける 3 つのビュー。ほかのビューは書かない
         let ports = of_kind(&db, b"VIEWPORT");
         let values = |o: &Object| {
             [69, 10, 20, 40, 41, 12, 22, 45].map(|code| match o.first(code) {
@@ -715,6 +758,7 @@ mod tests {
                 [1.0, 210.0, 148.5, 420.0, 297.0, 210.0, 148.5, 297.0],
                 [2.0, 210.0, 148.5, 420.0, 297.0, 400.0, 257.0, 594.0],
                 [3.0, 60.0, 35.0, 100.0, 50.0, 240.0, 140.0, 200.0],
+                [4.0, 210.0, 148.5, 420.0, 297.0, 420.0, 297.0, 594.0],
             ]
         );
         assert!(ports.iter().all(|o| o.owner() == records[1].handle()));
@@ -725,7 +769,12 @@ mod tests {
             .iter()
             .map(|v| NewDxfTemplate::writes_viewport(v, sheet))
             .collect();
-        assert_eq!(writes, [true, true, false, false, false, false, false]);
+        assert_eq!(
+            writes,
+            [
+                true, true, false, false, false, false, false, false, false, false, true
+            ]
+        );
     }
 
     #[test]
@@ -748,6 +797,9 @@ mod tests {
                 None,
                 Some("zumen_6"),
                 Some("zumen_7"),
+                Some("zumen_8"),
+                Some("zumen_9"),
+                Some("zumen_10"),
             ]
         );
         assert_eq!(template.block(&key("ない")), None);
@@ -796,6 +848,16 @@ mod tests {
         ] {
             let mut drawing = drawing();
             drawing.spaces[0].unit = unit;
+            // 2 つ目の空間の単位は使わない
+            let other = if matches!(unit, Unit::Foot) {
+                Unit::Meter
+            } else {
+                Unit::Foot
+            };
+            drawing.spaces.push(ModelSpace {
+                unit: other,
+                ..space(100)
+            });
             let db = read(&NewDxfTemplate::new(&drawing));
             check_structure(&db);
             let header = |name: &[u8]| {
@@ -837,7 +899,7 @@ mod tests {
             );
             // ビューポートの用紙の中心と大きさは図面の単位で書く。ビューの実寸の中心と高さは単位によらない
             let ports = of_kind(&db, b"VIEWPORT");
-            assert_eq!(ports.len(), 3, "{unit:?}");
+            assert_eq!(ports.len(), 4, "{unit:?}");
             let paper = reals(&[210.0 / mm, 148.5 / mm, 420.0 / mm, 297.0 / mm]);
             assert_eq!(values(ports[0], &[10, 20, 40, 41]), paper, "{unit:?}");
             assert_eq!(
@@ -865,7 +927,12 @@ mod tests {
             .iter()
             .map(|v| NewDxfTemplate::writes_viewport(v, sheet))
             .collect();
-        assert_eq!(writes, [false, true, false, false, false, false, false]);
+        assert_eq!(
+            writes,
+            [
+                false, true, false, false, false, false, false, false, false, false, false
+            ]
+        );
         let db = read(&NewDxfTemplate::new(&drawing));
         check_structure(&db);
         assert!(db.variable(b"$PLIMMAX").is_none());

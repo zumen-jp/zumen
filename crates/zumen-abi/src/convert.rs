@@ -51,8 +51,8 @@ pub(crate) fn from_r2004(
 
 /// 図面モデルを、新しい DXF（R2004）に書く
 pub(crate) fn to_dxf(drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<Converted, Failed> {
-    // 外部参照の記号の定義は、ひな形に書かない（`NewDxfTemplate::new` と同じ条件）。それを置いた記号は、下の要素で
-    // 報告する
+    // 外部参照の記号の定義は、ひな形に書かない（`NewDxfTemplate::new` と同じ条件。キーが重ならない定義のとき。
+    // 重なるときの扱いは #656）。それを置いた記号は、下の要素で報告する
     for definition in drawing
         .symbols
         .iter()
@@ -61,6 +61,10 @@ pub(crate) fn to_dxf(drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<Converted, 
         report_dropped(cx, "external_symbol_definition", &definition.source);
     }
     let template = NewDxfTemplate::new(drawing);
+    // ひな形を符号化できなかったとき（不具合）は空。空のバイト列も読めてしまうので、ここで内部の失敗にする
+    if template.bytes().is_empty() {
+        return Err(fail(cx, Diagnostic::new(codes::INTERNAL_PANIC_CAUGHT)));
+    }
     cx.check(Kind::Work, template.bytes().len() as u64)
         .map_err(|stop| stopped(cx, stop))?;
     let mut file =

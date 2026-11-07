@@ -225,7 +225,7 @@ R2004 DWG のモデル空間・ペーパー空間に弧長寸法があり、必�
 | `dxf` | 読み | `application` |
 | `dxf` | 書き | `application` |
 
-段の意味は[決定 0254](../decisions/0254-parallel-agents-and-cross-review.md) に、根拠は[形式と権利の一覧](README.md#format-dxf)にあります。段は確かめた方法のうちもっとも強いものを示します。AutoCAD で確かめたのは、次の範囲だけです。ezdxf とは、毎晩の CI で照らします。
+段の意味は[決定 0254](../decisions/0254-parallel-agents-and-cross-review.md) に、根拠は[形式と権利の一覧](README.md#format-dxf)にあります。段は確かめた方法のうちもっとも強いものを示します。AutoCAD で確かめたのは、次の範囲だけです。ezdxf とは、毎晩の CI で下の「ezdxf」の項に書いた範囲を照らします。
 
 - 読み: AutoCAD 2027 で作った R2000〜R2018 の DXF（`samples/dwg`）で、レイアウトの用紙（[決定 0229](../decisions/0229-paper-units-from-plot-settings.md)）・弧長寸法（[決定 0228](../decisions/0228-arc-length-dimensions.md)）・反転した切り抜き（[決定 0208](../decisions/0208-inverted-symbol-clips.md)）を、AutoCAD が書いた値と比べた。TEXT の高さと位置合わせは、AutoCAD 2027 が計算した置く点と比べた（[決定 0246](../decisions/0246-dxf-text-height-and-alignment-against-autocad.md)）。
 - 非有限値の境界: 楕円・ハッチング・画像・文字と引出線つきの注記の角度、用紙と属性の換算、TEXT・ATTRIB の位置合わせで採用する点、ビュー、用紙の大きさ、MTEXT の書式倍率を、小さい合成入力で確かめた（`synthetic`、`crates/zumen-acad/tests/finite.rs`・`drawing.rs`、#594）。診断のコード・件数・場所と、正常な要素の ID、L1 のバイト列も確かめている。この異常値の扱いは、AutoCAD では照らしていない。
@@ -235,7 +235,8 @@ R2004 DWG のモデル空間・ペーパー空間に弧長寸法があり、必�
 - 書き: AutoCAD で作った R2000・R2004・R2010・R2018 の DXF に、引出線の置き換え・変換・追加と MULTILEADER の線の置き換えを当てて書き戻し、AutoCAD 2027 で開いた。監査の誤りは 0 で、形・矢印・注記が当てた値と合った（#345）。
 - 「サンプルで確かめた」と書いた扱いには、`samples/` にない図面で確かめたものもある。「推定」と書いたものと、サンプルで確かめたと書いていないものは、仕様とテストの中で作ったファイルで確かめた。AutoCAD と照らしたのは上の範囲だけで、ezdxf と照らす値は下の項にある。
 - 点・寸法・表と、引出線のほかの変更を書き戻した DXF と、convert（[決定 0206](../decisions/0206-convert-to-new-dxf.md)）で書いた DXF は、AutoCAD で開いていない（#342・#314・#503）。
-- 新しい DXF のひな形（`synthetic`、#642）: `crates/zumen-acad/src/drawing/template.rs` の合成テストで、表・部品・レイアウト・ビューポートを結ぶ参照とハンドル、空間の単位ごとの用紙の値（`$INSUNITS`・`$PLIMMAX`・LAYOUT・VIEWPORT）、VIEWPORT で書くビューと書かないビュー（回転・鏡映・表示しないレイヤ・軸に沿わない切り抜き）、ANSI_932 に戻せる部品の名前を確かめた。外部参照の記号の定義と、それを置いた記号の診断は、`crates/zumen-abi/src/convert.rs` のテストで確かめた。公開サンプル 6 件の `convert` と適合テストの組の `civil_drawing` の出力を ezdxf 1.4.5 で開き、監査の誤りと直しが 0 件で、各レイアウトの辞書・LAYOUT・BLOCK_RECORD・BLOCK が互いを指すことを確かめた。
+- 新しい DXF のひな形（`synthetic`、#642）: `crates/zumen-acad/src/drawing/template.rs` の合成テストで、表・部品・レイアウト・ビューポートを結ぶ参照とハンドル、最初の空間の単位で決まる用紙の値（`$INSUNITS`・`$PLIMMAX`・LAYOUT・VIEWPORT）、VIEWPORT で書くビューと書かないビュー（回転と 0 のすぐ下の回転・鏡映・表示しないレイヤのビューと、菱形・一部の点だけが角に乗る 4 点・5 点以上・幅 0 の切り抜き）、ANSI_932 に戻せる部品の名前と、戻せない名前（絵文字と、¥・‾・− のように別の文字に戻る名前）に付ける名前を確かめた。外部参照の記号の定義と、それを置いた記号の診断は、`crates/zumen-abi/src/convert.rs` のテストで確かめた（キーが重なる定義の扱いは #656）。
+- 新しい DXF のひな形（`external`、#642）: PR #654 で 1 回（head `c82613fb`）、公開サンプル 6 件の `convert` と適合テストの組の `civil_drawing` の出力を ezdxf 1.4.5 で開き、監査の誤りと直しが 0 件で、各レイアウトの辞書・LAYOUT・BLOCK_RECORD・BLOCK が互いを指すことを確かめた。毎晩の CI は、このレイアウトの参照を照らさない。
 - ezdxf: 毎晩の CI で、公開サンプルの DXF（`samples/dxf`・`samples/dwg`）と、それに書き戻しを当てた DXF を ezdxf 1.4.5 で読み、zumen の読みと照らす（`xtask/verify`、#511）。照らすのは、画層・図形の種類・モデル空間の形の値・黙って捨てていないこと、書き戻しで決めた形・画層・色と、監査の誤りが入力より増えないこと。convert で書いた DXF もすべて読め、監査の誤りと修復が 0 であることを照らす（#509）。各 TABLE の宣言件数（70）と実件数も比べる。日本語画層の R2004（ANSI_932）と R2007（UTF-8）を含め、公開サンプルとテストの図面から変換した 36 ファイルで確かめた。AutoCAD で開く手順は #503 の検証キットにあるが、まだ実行していない。
 
 - R2000 の `ANSI_1252` の[公開サンプル](../../samples/dxf/opendxfviewer-latin1.dxf)には、TEXT のグループ・コード 1 に `Ø`（`D8`）、`ü`（`FC`）、`ß`（`DF`）が 1 バイトずつ入っている。ezdxf 1.4.5 は文字コードを指定せずに `Bohrung Ø20 für M6` と `Maßstab 1:2` を読んだ。検証キットで両方の文字列を照らす。zumen はこの 2 件を `dxf.code-page.unsupported` として元のレコード 15・16 に返す（#327）。
