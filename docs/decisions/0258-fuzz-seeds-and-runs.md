@@ -82,4 +82,4 @@ libFuzzer は、起動からの時間で止めるが、起動時に種をすべ�
 - PR のパス条件から文書を外す扱いは、[0263](0263-skip-documentation-only-fuzz.md) で補った。
 - #398・#501、[0010](0010-budget-by-work.md)・[0017](0017-format-rights-ledger-and-plugin-sdk.md)・[0019](0019-coordinate-systems-and-gsi-data.md)・[0171](0171-public-samples-in-git.md)
 - `fuzz/README.md`・`xtask/src/fuzz.rs`・`.github/workflows/fuzz.yml`
-- 初回リリース後の入力と詳細の公開時期は [0283](0283-fuzz-reporting-after-release.md) で定めた。
+- 0283 の対象（初回リリース後のものと、`v*` のタグの push を頼んでから push までに対象として扱うもの）の入力と詳細の公開時期は [0283](0283-fuzz-reporting-after-release.md) で定めた。
