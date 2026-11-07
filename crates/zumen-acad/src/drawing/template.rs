@@ -8,6 +8,8 @@ use std::collections::BTreeMap;
 
 use zumen_drawing::{Drawing2D, Sheet, SymbolKey, Unit, View};
 
+use crate::charset::Charset;
+
 /// 新しい DXF（R2004）のひな形と、記号の定義ごとに書いた部品の名前
 #[derive(Clone, Debug)]
 pub struct NewDxfTemplate {
@@ -17,7 +19,8 @@ pub struct NewDxfTemplate {
 
 impl NewDxfTemplate {
     /// 図面モデル `drawing` のひな形を作る。最初の空間の単位、1 枚目の用紙の大きさとビュー、記号の定義を使う。
-    /// 外部参照の記号の定義は書かない
+    /// 外部参照の記号の定義（`external` を持つもの）は書かず、診断にもしない。書かなかった定義と、それを置いた
+    /// 記号（[`Self::block`] が `None` を返すもの）は、呼び出し側が診断にする
     pub fn new(drawing: &Drawing2D) -> Self {
         let blocks = block_names(drawing);
         let bytes = template(drawing, &blocks);
@@ -34,8 +37,9 @@ impl NewDxfTemplate {
         self.blocks.get(&key_of(key)).map(String::as_str)
     }
 
-    /// 用紙 `sheet` のビュー `view` を、ひな形の用紙空間に VIEWPORT で書くか（決定 0240）。書かないビューは、
-    /// 呼び出し側が用紙の要素に焼き込むか落とす
+    /// 用紙 `sheet` のビュー `view` を、ひな形の用紙空間に VIEWPORT で書くか（決定 0240）。ひな形は 1 枚目の用紙の
+    /// ビューだけを書くので、`sheet` が 1 枚目の用紙のときの答えになる（ほかの用紙では、書ける形かだけを答える）。
+    /// 書かないビューは、呼び出し側が用紙の要素に焼き込むか落とす
     pub fn writes_viewport(view: &View, sheet: &Sheet) -> bool {
         port(view, sheet).is_some()
     }
@@ -73,12 +77,8 @@ fn block_names(drawing: &Drawing2D) -> BTreeMap<(String, String), String> {
                 })
                 .collect()
         };
-        let (encoded, _, unmappable) = encoding_rs::SHIFT_JIS.encode(&base);
-        let round_trips = !unmappable
-            && encoding_rs::SHIFT_JIS
-                .decode_without_bom_handling_and_without_replacement(&encoded)
-                .is_some_and(|decoded| decoded == base);
-        let base = if base.is_empty() || !round_trips {
+        // 読む側と同じ型で符号化し、同じ名前に戻るものだけを使う（決定 0192）
+        let base = if base.is_empty() || Charset::ShiftJis.encode(&base).is_err() {
             format!("zumen_{index}")
         } else {
             base
@@ -244,7 +244,7 @@ fn template(drawing: &Drawing2D, blocks: &BTreeMap<(String, String), String>) ->
     let out = format!(
         "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1018\n9\n$DWGCODEPAGE\n3\nANSI_932\n9\n$INSUNITS\n70\n{unit}\n{limits}9\n$HANDSEED\n5\n{seed}\n0\nENDSEC\n{tables}{section}{entities}{objects}0\nEOF\n"
     );
-    // ASCII 以外は block_names で ANSI_932 に戻せると確かめた名前だけ。
+    // ASCII 以外は、block_names が `Charset::encode` で ANSI_932 に戻せると確かめた名前だけ。
     let (bytes, _, unmappable) = encoding_rs::SHIFT_JIS.encode(&out);
     debug_assert!(!unmappable);
     bytes.into_owned()
@@ -373,7 +373,7 @@ mod tests {
     use crate::db::{AcadDb, Data, Object, Section};
     use zumen_base::{Budget, CancelToken, Cx, Diagnostics, Ref};
     use zumen_drawing::{
-        Affine, Axes, ModelPoint, ModelSpace, PaperLength, PaperPoint, SheetId, SpaceId,
+        Affine, Axes, LayerId, ModelPoint, ModelSpace, PaperLength, PaperPoint, SheetId, SpaceId,
         SymbolDefinition,
     };
     use zumen_sdk::Codec;
@@ -422,7 +422,7 @@ mod tests {
         }
     }
 
-    /// mm のモデル空間と、3 つのビューを持つ A3 横の用紙と、記号の定義 6 つ
+    /// mm のモデル空間と、7 つのビューを持つ A3 横の用紙と、記号の定義 8 つ
     fn drawing() -> Drawing2D {
         let corner = |x, y| PaperPoint {
             sheet: SheetId(0),
@@ -447,6 +447,31 @@ mod tests {
                 view([0.25, 0.0, 0.0, 0.0, 0.25, 0.0], clip),
                 // 回したビューは VIEWPORT で書かない
                 view([0.0, -1.0, 0.0, 1.0, 0.0, 0.0], vec![]),
+                // 鏡映したビュー（回転は 0）、表示しないレイヤを持つビュー、菱形と 5 点で切り抜いたビューも書かない
+                view([0.5, 0.0, 0.0, 0.0, -0.5, 0.0], vec![]),
+                View {
+                    hidden_layers: vec![LayerId(1)],
+                    ..view([0.5, 0.0, 0.0, 0.0, 0.5, 0.0], vec![])
+                },
+                view(
+                    [0.25, 0.0, 0.0, 0.0, 0.25, 0.0],
+                    vec![
+                        corner(60.0, 10.0),
+                        corner(110.0, 35.0),
+                        corner(60.0, 60.0),
+                        corner(10.0, 35.0),
+                    ],
+                ),
+                view(
+                    [0.25, 0.0, 0.0, 0.0, 0.25, 0.0],
+                    vec![
+                        corner(10.0, 10.0),
+                        corner(110.0, 10.0),
+                        corner(110.0, 60.0),
+                        corner(60.0, 60.0),
+                        corner(10.0, 60.0),
+                    ],
+                ),
             ],
             order: vec![],
             source: Ref::default(),
@@ -461,6 +486,9 @@ mod tests {
                 definition(3, "*U5", true, false),
                 definition(4, "\u{1F600}", false, false),
                 definition(5, "外部", false, true),
+                // 無名の定義は、名前が `*` で始まらなくても名前を付ける。`*` で始まる名前も同じ
+                definition(6, "名前", true, false),
+                definition(7, "*D1", false, false),
             ],
             ..Drawing2D::default()
         }
@@ -600,6 +628,11 @@ mod tests {
             dimension.first(340),
             Some(&Data::Handle(style.handle().unwrap()))
         );
+        // どちらも Standard。寸法スタイルのハンドルは 5 でなく 105 に書く
+        assert_eq!(style.first(2), Some(&text("Standard")));
+        assert_eq!(dimension.first(2), Some(&text("Standard")));
+        assert!(matches!(dimension.first(105), Some(Data::Handle(_))));
+        assert_eq!(dimension.first(5), None);
 
         // 部品の表は、モデル・用紙・外部参照を除く記号の定義の順。部品の名前は BLOCK の 2 と 3 にもある
         let records = of_kind(&db, b"BLOCK_RECORD");
@@ -614,6 +647,8 @@ mod tests {
                 text("a_b_1"),
                 text("zumen_3"),
                 text("zumen_4"),
+                text("zumen_6"),
+                text("zumen_7"),
             ])
             .map(Some)
             .collect::<Vec<_>>();
@@ -663,7 +698,7 @@ mod tests {
         assert_eq!(records[0].first(340), Some(&handle(layouts[0])));
         assert_eq!(records[1].first(340), Some(&handle(layouts[1])));
 
-        // ビューポートは用紙そのもの（69 = 1）と、書ける 2 つのビュー。回したビューは書かない
+        // ビューポートは用紙そのもの（69 = 1）と、書ける 2 つのビュー。ほかのビューは書かない
         let ports = of_kind(&db, b"VIEWPORT");
         let values = |o: &Object| {
             [69, 10, 20, 40, 41, 12, 22, 45].map(|code| match o.first(code) {
@@ -689,7 +724,7 @@ mod tests {
             .iter()
             .map(|v| NewDxfTemplate::writes_viewport(v, sheet))
             .collect();
-        assert_eq!(writes, [true, true, false]);
+        assert_eq!(writes, [true, true, false, false, false, false, false]);
     }
 
     #[test]
@@ -709,7 +744,9 @@ mod tests {
                 Some("a_b_1"),
                 Some("zumen_3"),
                 Some("zumen_4"),
-                None
+                None,
+                Some("zumen_6"),
+                Some("zumen_7"),
             ]
         );
         assert_eq!(template.block(&key("ない")), None);
@@ -743,5 +780,99 @@ mod tests {
         assert_eq!(of_kind(&db, b"BLOCK_RECORD").len(), 2);
         assert!(of_kind(&db, b"VIEWPORT").is_empty());
         assert_eq!(of_kind(&db, b"LAYOUT").len(), 2);
+    }
+
+    #[test]
+    fn paper_values_are_written_in_the_unit_of_the_first_space() {
+        // 単位、$INSUNITS、1 単位の mm。長さの単位でない空間は、mm と同じ値で書き、$INSUNITS は 0
+        for (unit, code, mm) in [
+            (Unit::Millimeter, 4, 1.0),
+            (Unit::Centimeter, 5, 10.0),
+            (Unit::Meter, 6, 1000.0),
+            (Unit::Inch, 1, 25.4),
+            (Unit::Foot, 2, 304.8),
+            (Unit::Unknown, 0, 1.0),
+        ] {
+            let mut drawing = drawing();
+            drawing.spaces[0].unit = unit;
+            let db = read(&NewDxfTemplate::new(&drawing));
+            check_structure(&db);
+            let header = |name: &[u8]| {
+                db.variable(name)
+                    .unwrap()
+                    .iter()
+                    .map(|v| v.data.clone())
+                    .collect::<Vec<_>>()
+            };
+            let values = |o: &Object, codes: &[i16]| {
+                codes
+                    .iter()
+                    .map(|&code| o.first(code).cloned())
+                    .collect::<Vec<_>>()
+            };
+            let reals = |values: &[f64]| {
+                values
+                    .iter()
+                    .map(|&v| Some(Data::Real(v)))
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(header(b"$INSUNITS"), [Data::Int(code)], "{unit:?}");
+            assert_eq!(
+                header(b"$PLIMMAX"),
+                [Data::Real(420.0 / mm), Data::Real(297.0 / mm)],
+                "{unit:?}"
+            );
+            // 用紙のレイアウトの印刷尺度と範囲。モデルのレイアウトは単位によらない
+            let layouts = of_kind(&db, b"LAYOUT");
+            assert_eq!(
+                values(layouts[1], &[142, 147, 11, 21]),
+                reals(&[mm, mm, 420.0 / mm, 297.0 / mm]),
+                "{unit:?}"
+            );
+            assert_eq!(
+                values(layouts[0], &[142, 147]),
+                reals(&[1.0, 1.0]),
+                "{unit:?}"
+            );
+            // ビューポートの用紙の中心と大きさは図面の単位で書く。ビューの実寸の中心と高さは単位によらない
+            let ports = of_kind(&db, b"VIEWPORT");
+            assert_eq!(ports.len(), 3, "{unit:?}");
+            let paper = reals(&[210.0 / mm, 148.5 / mm, 420.0 / mm, 297.0 / mm]);
+            assert_eq!(values(ports[0], &[10, 20, 40, 41]), paper, "{unit:?}");
+            assert_eq!(
+                values(ports[0], &[12, 22, 45]),
+                reals(&[210.0 / mm, 148.5 / mm, 297.0 / mm]),
+                "{unit:?}"
+            );
+            assert_eq!(values(ports[1], &[10, 20, 40, 41]), paper, "{unit:?}");
+            assert_eq!(
+                values(ports[1], &[12, 22, 45]),
+                reals(&[400.0, 257.0, 594.0]),
+                "{unit:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_sheet_without_a_size_has_no_limits_and_writes_only_clipped_views() {
+        let mut drawing = drawing();
+        drawing.sheets[0].size = None;
+        let sheet = &drawing.sheets[0];
+        // 切り抜きのないビューは用紙の全体を映すので、用紙の大きさがなければ書かない
+        let writes: Vec<_> = sheet
+            .views
+            .iter()
+            .map(|v| NewDxfTemplate::writes_viewport(v, sheet))
+            .collect();
+        assert_eq!(writes, [false, true, false, false, false, false, false]);
+        let db = read(&NewDxfTemplate::new(&drawing));
+        check_structure(&db);
+        assert!(db.variable(b"$PLIMMAX").is_none());
+        // 用紙そのもののビューポート（69 = 1）もない
+        let ids: Vec<_> = of_kind(&db, b"VIEWPORT")
+            .iter()
+            .map(|o| o.first(69).cloned())
+            .collect();
+        assert_eq!(ids, [Some(Data::Int(2))]);
     }
 }

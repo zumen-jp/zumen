@@ -1,6 +1,7 @@
 //! 開いた図面を新しい DXF に書く（決定 0139・0206・0281）。対応する R2004 DWG では共有の表を再符号化する。
 //!
-//! 図面モデルから書くときは、形式ごとのひな形（表の既定の項目と、記号の定義の空の部品だけを持つファイル。DXF は `zumen-acad` が作る）を作り、図面モデルの線種・
+//! 図面モデルから書くときは、形式ごとのひな形（表の既定の項目と記号の定義の空の部品を持つファイル。DXF のひな形は
+//! `zumen-acad` の `NewDxfTemplate` が作り、レイアウトと用紙のビューポートも持つ）を作り、図面モデルの線種・
 //! 文字スタイル・寸法スタイル・レイヤ・要素を、書き戻し（apply）の追加で足す。書けない要素は落とし、種類ごとの
 //! 件数を診断にする。
 
@@ -50,7 +51,8 @@ pub(crate) fn from_r2004(
 
 /// 図面モデルを、新しい DXF（R2004）に書く
 pub(crate) fn to_dxf(drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<Converted, Failed> {
-    // 外部参照の記号の定義は、ひな形に書かない
+    // 外部参照の記号の定義は、ひな形に書かない（`NewDxfTemplate::new` と同じ条件）。それを置いた記号は、下の要素で
+    // 報告する
     for definition in drawing
         .symbols
         .iter()
@@ -699,6 +701,7 @@ mod tests {
     use zumen_base::{Budget, CancelToken, Limits, Ref};
     use zumen_civil::{Alignment, CivilModel, Horizontal, HorizontalKind, Vertical, VerticalKind};
     use zumen_crs::MapPoint;
+    use zumen_drawing::{Axes, ModelSpace, Symbol, SymbolDefinition, SymbolKey, Unit};
 
     /// R2004 の表・図形・レイアウトを結ぶ参照は、すべてファイルの中の正しい種類を指す。
     fn r2004_structure(file: &DxfFile, cx: &mut Cx<'_>) {
@@ -952,5 +955,104 @@ mod tests {
                 .iter()
                 .any(|e| matches!(e.shape, Shape::Line { .. } | Shape::Polyline(_)))
         );
+    }
+
+    /// 外部参照の記号の定義は書かず、定義と、それを置いた記号を、それぞれ元の順に報告する
+    #[test]
+    fn external_symbols_are_reported_and_not_written() {
+        let key = |name: &str| SymbolKey {
+            namespace: "dxf.block".into(),
+            name: name.to_owned(),
+        };
+        let space = |id: u32, elements| ModelSpace {
+            id: SpaceId(id),
+            unit: Unit::Millimeter,
+            axes: Axes::EastNorth,
+            elements,
+            order: vec![],
+        };
+        let definition = |id: u32, name: &str, external: bool| SymbolDefinition {
+            key: key(name),
+            space: space(id, vec![]),
+            base: None,
+            attributes: vec![],
+            anonymous: false,
+            external: external.then(|| "other.dwg".to_owned()),
+            source: Ref::at_record(u64::from(id)),
+        };
+        let symbol = |name: &str, record: u64| Element {
+            source: Ref::at_record(record),
+            layer: LayerId(0),
+            style: zumen_drawing::Style {
+                color: Inherit::Layer,
+                line_type: Inherit::Layer,
+                line_type_scale: 1.0,
+                line_weight: None,
+                transparency: Inherit::Layer,
+            },
+            shape: Shape::Symbol(Symbol {
+                key: key(name),
+                position: ModelPoint {
+                    space: SpaceId(0),
+                    x: 0.0,
+                    y: 0.0,
+                },
+                scale: [1.0, 1.0],
+                rotation: 0.0,
+                grid: None,
+                attributes: vec![],
+                clip: None,
+            }),
+        };
+        let drawing = Drawing2D {
+            spaces: vec![space(0, vec![symbol("外部B", 10), symbol("外部A", 11)])],
+            symbols: vec![
+                definition(1, "部品", false),
+                definition(2, "外部A", true),
+                definition(3, "外部B", true),
+            ],
+            ..Drawing2D::default()
+        };
+        let mut budget = Budget::new(Limits::default());
+        let mut diag = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let read = {
+            let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+            let Ok(converted) = to_dxf(&drawing, &mut cx) else {
+                panic!("書けない");
+            };
+            r2004_structure(&converted.file, &mut cx);
+            let Ok(read) = lift(&converted.file, &mut cx) else {
+                panic!("読めない");
+            };
+            read
+        };
+        let dropped: Vec<_> = diag
+            .iter()
+            .filter(|d| d.code() == codes::CONVERT_ELEMENT_UNSUPPORTED)
+            .map(|d| {
+                (
+                    d.param("kind").cloned(),
+                    d.count(),
+                    d.places().iter().map(Ref::record).collect::<Vec<_>>(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            dropped,
+            [
+                (
+                    Some(Value::Key("external_symbol_definition")),
+                    2,
+                    vec![Some(2), Some(3)]
+                ),
+                (
+                    Some(Value::Key("external_symbol")),
+                    2,
+                    vec![Some(10), Some(11)]
+                ),
+            ]
+        );
+        assert!(read.spaces.iter().all(|space| space.elements.is_empty()));
     }
 }
