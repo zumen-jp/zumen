@@ -116,9 +116,34 @@ def check_duplicate_features(folder):
     print("同じ番号の SFC 3 要素は食い違い 0 件。各要素の形・種類・レイヤ・欠落、出所と診断の取り違えを検出した")
 
 
+def check_header_features(folder):
+    """ezsxf がヘッダーから回復したフィーチャを、DATA 節の同じ番号に結ばない。"""
+    entry, reading = kit_case(folder, "input/made-features.sfc")
+    original = (folder / entry["path"]).read_bytes()
+    features = original.split(b"DATA;", 1)[1].split(b"ENDSEC;", 1)[0]
+    header = features.replace(b"'0.0','0.0','100.0'", b"'43.0','0.0','100.0'", 1)
+    if header == features:
+        raise AssertionError("合成 SFC の線の始点が変わった")
+    altered = deepcopy(reading)
+    next(e for e in altered["entities"] if e["kind"] == "line")["geometry"]["start"][0] = 43
+    expected = [
+        f"{e['id']}: ezsxf にレコード {e['source']['record']} の #{e['source']['instance']} のフィーチャがない"
+        for e in reading["entities"]
+    ]
+    with TemporaryDirectory() as directory:
+        copy = Path(directory) / "header.sfc"
+        copy.write_bytes(original.replace(b"FILE_SCHEMA", header + b"FILE_SCHEMA", 1))
+        for result in [reading, altered]:
+            failures, audit = check_file(copy.parent, {**entry, "path": copy.name}, result, None, Counter())
+            if "salvage-header" not in dict(audit["warnings"]) or failures != expected:
+                raise AssertionError(f"ヘッダーのフィーチャと DATA 節の出所を区別できなかった: {failures}")
+    print("ezsxf がヘッダーから回復したフィーチャを DATA 節の 2 要素の出所にしないことを確認した")
+
+
 if __name__ == "__main__":
     kit = usage("test_ezsxf.py")
     if kit is None:
         sys.exit(2)
     check_missing_layers(kit)
     check_duplicate_features(kit)
+    check_header_features(kit)

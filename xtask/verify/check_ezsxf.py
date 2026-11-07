@@ -145,7 +145,7 @@ def string_end(text, i):
 
 
 def records(text, skipped, statements=None, feature_ids=None):
-    """インスタンスの番号 → zumen のレコードの番号の並び。docs/formats/sxf.md の「レコードの区切り」のとおり、`;` で終わる文と、
+    """P21 のインスタンスの番号 → 先頭のレコードの番号。docs/formats/sxf.md の「レコードの区切り」のとおり、`;` で終わる文と、
     データのセクションの `/*SXF` から閉じまでを、ファイルの初めから 0 で数える。間のコメントは数えない。FILE_DESCRIPTION の最初の
     文字列に AP202 とあれば（大文字と小文字を問わない）、データのセクションのフィーチャのマーカーも、ただのコメントとする（「判定」）。
     skipped は、zumen が読めないと言った範囲 (始め, 終わり) の一覧で、そこから始まる文とコメントは数えず、範囲の終わりから
@@ -174,12 +174,10 @@ def records(text, skipped, statements=None, feature_ids=None):
                     i = stop(start)
                     continue
                 m = re.match(r"\s*#(\d+)", text[start + len(mark[0]) : i])
-                if m:
+                if m and feature_ids is not None:
                     instance = int(m.group(1))
-                    found.setdefault(instance, []).append(n)
-                    if feature_ids is not None:
-                        offset = start + len(mark[0])
-                        feature_ids[n] = (instance, offset + m.start(1), offset + m.end(1))
+                    offset = start + len(mark[0])
+                    feature_ids[n] = (instance, offset + m.start(1), offset + m.end(1))
                 n += 1
             continue
         while i < end and text[i] != ";":
@@ -198,7 +196,7 @@ def records(text, skipped, statements=None, feature_ids=None):
             continue
         m = re.match(r"#(\d+)\s*=", statement)
         if m:
-            found.setdefault(int(m.group(1)), [n])
+            found.setdefault(int(m.group(1)), n)
             if statements is not None:
                 statements.setdefault(int(m.group(1)), statement)
         elif re.match(r"DATA\b", statement):
@@ -374,11 +372,11 @@ def instance_of(element):
 
 
 def check_records(reading, at):
-    """zumen の要素の出所のレコードの番号が、数えた番号と同じか"""
+    """P21 の要素の出所が、そのインスタンスの先頭のレコードを指すか"""
     failures = []
     for element in reading["entities"]:
         instance, record = instance_of(element), element.get("source", {}).get("record")
-        if instance is not None and record is not None and record not in at.get(instance, []):
+        if instance is not None and record is not None and at.get(instance) != record:
             failures.append(f"{element['id']}: #{instance} のレコードの番号が {record}、数えると {at.get(instance)}")
     return failures
 
@@ -535,15 +533,17 @@ def p21_kind(where, element, step, instance, curve, rasters):
 def sfc_records(parsed, data, feature_ids, skipped):
     """元の ezsxf の raw・typed の値とレイヤ名を、宣言のレコードに結ぶ。
 
-    ezsxf は型で読めなかったレコードを typed_features に入れず、位置も返さない。同じ番号があるときや、
-    zumen が読み飛ばした範囲に同じ番号の宣言があり得るときは、
+    ezsxf は型で読めなかったレコードを typed_features に入れず、位置も返さない。番号が重なるとき、宣言以外の所にも
+    マーカーがあるとき、zumen が読み飛ばした範囲があるとき、ezsxf が警告を出したときは、
     メモリ上のコピーで宣言の番号に別の番号を振って ezsxf で再度読む。番号を戻した各値が元の読みと
     一致することを確かめて位置だけを得る。読めなかった同種のフィーチャにも、後の値を詰めない。
     """
     positions = {i: record for record, (i, _, _) in feature_ids.items()}
     occupied = {e.get("id") for e in parsed["entities"]}
     indexed = parsed
-    if skipped or len(positions) != len(feature_ids) or len(occupied) != len(parsed["entities"]):
+    # 宣言番号の種類とファイル全体のマーカーの数が異なるなら、番号の重複か、DATA 節の宣言以外にもマーカーがある。
+    # salvage-header などで両者が違う範囲を読んだ場合にも、番号だけで位置を決めない。
+    if skipped or parsed["warnings"] or len(positions) != data.count(b"/*SXF") or len(occupied) != len(parsed["entities"]):
         occupied.update(positions)
         copy, end, tag = bytearray(), 0, 1
         positions = {}
@@ -1006,12 +1006,12 @@ def check_file(folder, entry, reading, baseline, counts):
     statements, feature_ids = {}, {}
     skipped = skipped_ranges(entry, reading)
     at = records(data.decode("latin-1"), skipped, statements, feature_ids)
-    failures += check_records(reading, at)
     if entry["format"] == "sfc":
+        # check_sfc は各要素を source.record で直接引き、元のフィーチャ番号も照らす。
         found_failures, matched = check_sfc(parsed, entry, reading, counts, notes, data, feature_ids, skipped)
     else:
-        first = {i: numbers[0] for i, numbers in at.items()}
-        found_failures, matched = check_p21(parsed, entry, reading, counts, notes, first, statements)
+        failures += check_records(reading, at)
+        found_failures, matched = check_p21(parsed, entry, reading, counts, notes, at, statements)
     failures += found_failures
     # make.py の SFC は、ezsxf が型で読むように作った。読まなくなったら、SFC の形を照らせなくなる
     if matched is None and MADE & {entry["path"], entry.get("from")}:
