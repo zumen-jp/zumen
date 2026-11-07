@@ -2,6 +2,8 @@
 
 import hashlib
 import json
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -114,6 +116,19 @@ class Controls(unittest.TestCase):
             self.doc.saveas(self.edited)
             result = self.check("paragraph")
             self.assertEqual((result["left_units"], result["matches"]), (units, units is not None))
+        # 1 行目（i）は l からの差。両方を 5 にしたなら i は 0 か省略
+        for prefix, matches in ((r"\pxi0,l5,qc;", True), (r"\pxi5,l5,qc;", False)):
+            for name in ("Z316_PARA_25", "Z316_PARA_50"):
+                self.text[name].text = prefix + name
+            self.doc.saveas(self.edited)
+            result = self.check("paragraph")
+            self.assertEqual((result["left_units"], result["matches"]), ("drawing_units", matches))
+        # 1 行目だけを変えた操作と、読まない引数を含む書式は、左インデントの読みにしない
+        for prefix, message in ((r"\pxi5,qc;", "1 行目"), (r"\pxsm1.5,l2,qc;", "範囲外")):
+            self.text["Z316_PARA_25"].text = prefix + "Z316_PARA_25"
+            self.doc.saveas(self.edited)
+            with self.assertRaisesRegex(ValueError, message):
+                self.check("paragraph")
         self.text["Z316_PARA_25"].text = r"\pxl2,ql;Z316_PARA_25"
         self.doc.saveas(self.edited)
         self.assertFalse(self.check("paragraph")["matches"])
@@ -121,6 +136,34 @@ class Controls(unittest.TestCase):
         self.doc.saveas(self.edited)
         with self.assertRaisesRegex(ValueError, "対照"):
             self.check("paragraph")
+
+    def observe(self, *args, options=("-I",)):
+        # 利用者と同じく、キットに入れた observe.py を別のプロセスで流す。
+        process = subprocess.run([sys.executable, *options, str(self.kit / "observe.py"), *map(str, args)],
+                                 capture_output=True, encoding="utf-8", check=False)
+        return process.returncode, json.loads(process.stdout)
+
+    def test_main(self):
+        for suffix, value in (("A", 0x332211), ("B", 0x112233)):
+            name = "Z316_RGB_" + suffix
+            self.text[name].text = "{\\c%d;%s}" % (value, name)
+        self.doc.saveas(self.edited)
+        code, result = self.observe(self.neutral, self.edited, "color")
+        self.assertEqual((code, result["matches"], result["ezdxf"]), (0, True, "1.4.5"))
+        self.assertEqual(result["after_sha256"], hashlib.sha256(self.edited.read_bytes()).hexdigest())
+        self.assertEqual(result["observed"]["after"]["text"]["RGB_A"]["c"], 0x332211)
+        code, result = self.observe(self.neutral, self.neutral, "color")
+        self.assertEqual((code, result["matches"]), (1, False))
+        # 比べられないときも、理由と読めた値を出す
+        self.text["Z316_CONTROL"].text = r"\pxqc;Z316_CONTROL"
+        self.doc.saveas(self.edited)
+        code, result = self.observe(self.neutral, self.edited, "color")
+        self.assertEqual((code, "matches" in result), (2, False))
+        self.assertIn("対照", result["error"])
+        self.assertEqual(result["observed"]["after"]["text"]["CONTROL"]["p"], ["xqc"])
+        code, result = self.observe(self.neutral, self.neutral, "color", options=("-I", "-S"))
+        self.assertEqual((code, result["ezdxf"], result["observed"]), (2, None, {}))
+        self.assertIn("ezdxf 1.4.5", result["error"])
 
     def test_mtext_scope(self):
         self.assertEqual(inline(r"\\c4;{\c1;\pxqc;X}M", "M"), {"c": None, "p": []})

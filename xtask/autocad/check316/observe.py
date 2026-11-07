@@ -4,14 +4,22 @@ import argparse
 import hashlib
 import json
 import re
+import sys
 from pathlib import Path
 
-from ezdxf.lldxf.const import DXFError
-from ezdxf.lldxf.loader import load_dxf_structure
-from ezdxf.lldxf.tagger import ascii_tags_loader
+MISSING = None
+try:
+    import ezdxf
+    from ezdxf.lldxf.loader import load_dxf_structure
+    from ezdxf.lldxf.tagger import ascii_tags_loader
+except ImportError as error:
+    # 「値が予想と違う」（1）と取り違えないよう、main が理由を付けて 2 を返す。
+    ezdxf, MISSING = None, str(error)
 
 
-STYLES = {"REGULAR": 0, "BOLD": 2, "ITALIC": 1, "BOTH": 3}
+EZDXF = "1.4.5"
+NUMBER = r"([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?|\*)"
+STYLES ={"REGULAR": 0, "BOLD": 2, "ITALIC": 1, "BOTH": 3}
 TEXTS = ("CONTROL", "RGB_A", "RGB_B", "PARA_25", "PARA_50")
 # DXF の線内のコード、現行の DWG リーダーが対応づける 93 のビット、画面で指定する値。
 LEADER = {"leader-type": (170, 1, 2), "leader-color": (92, 2, 0xC2112233),
@@ -46,8 +54,9 @@ def inline(text, marker):
         elif kind == "C":
             color = None
         elif kind == "p":
-            if not re.fullmatch(r"[xilrqtcdjeE0-9+*,.\-]{0,160}", value):
-                raise ValueError("このキットで観察する段落書式の範囲外")
+            # 引数はそのまま記録に残す。このキットで読む範囲かは compare で調べる。
+            if not re.fullmatch(r"[A-Za-z0-9+*,.\-]{0,160}", value):
+                raise ValueError("段落書式の引数に、英数字と + * , . - のほかの文字がある")
             paragraphs.append(value)
     return {"c": color, "p": paragraphs}
 
@@ -65,13 +74,17 @@ def style_values(record):
     return {"Arial": families == ["Arial"], "1071": one(flags, "STYLE の ACAD 1071 が複数ある") if flags else None}
 
 
+def name_of(refs, raw):
+    # 保存時に変わり得るハンドルは参照先で比べる。対象外の図面の名前は出力しない。
+    name = refs.get(raw.strip().upper())
+    return name if name in ("Z316_DASH", "_DOT", "BYBLOCK", "BYLAYER", "CONTINUOUS") else "other"
+
+
 def field_values(tags, refs):
     result = {}
     for code, raw in tags:
         if code in (340, 341):
-            # 保存時に変わり得るハンドルは参照先で比べる。対象外の図面の名前は出力しない。
-            name = refs.get(raw.strip().upper())
-            result[code] = name if name in ("Z316_DASH", "_DOT", "BYBLOCK", "BYLAYER", "CONTINUOUS") else "other"
+            result[code] = name_of(refs, raw)
         elif code == 40:
             result[code] = float(raw)
         elif code in (93, 92, 170, 171):
@@ -106,7 +119,7 @@ def leader_values(record, refs):
         elif not context and code in (6, 62, 370, 420, 90, 91, 170, 171, 341, 342, 42):
             # 図形全体の色・スタイルの上書きを、線の 92・93 と混同しない。
             if code in (341, 342):
-                value = refs.get(value.strip().upper(), "other")
+                value = name_of(refs, value)
             elif code != 6:
                 value = float(value) if code == 42 else int(value)
             shared.append((code, value))
@@ -175,16 +188,21 @@ def compare(before, after, topic):
             old, new = before["text"][key], after["text"][key]
             if old["height"] != height or new["height"] != height:
                 raise ValueError("段落用の MTEXT の高さが違う")
-            old_left, old_align = paragraph_values(old["p"])
-            if old_left not in (None, 0.0) or old_align == "c":
-                raise ValueError("変更前に段落の左インデントか中央揃えが設定されている")
-            indent, align = paragraph_values(new["p"])
+            if not all(re.fullmatch(r"[xilrqtcdjeE0-9+*,.\-]*", raw) for raw in old["p"] + new["p"]):
+                raise ValueError("このキットで観察する段落書式の範囲外")
+            old_first, old_left, old_align = paragraph_values(old["p"])
+            if old_first not in (None, 0.0) or old_left not in (None, 0.0) or old_align == "c":
+                raise ValueError("変更前に段落のインデントか中央揃えが設定されている")
+            first, indent, align = paragraph_values(new["p"])
+            if indent is None and first is not None:
+                raise ValueError("1 行目のインデントだけが変わった。README の手順で、1 行目とぶら下げの両方を設定する")
             left.append(indent)
-            result[key] = {"before": old["p"], "after": new["p"], "height": height, "left": indent,
-                           "alignment": align}
+            result[key] = {"before": old["p"], "after": new["p"], "height": height, "first_line": first,
+                           "left": indent, "alignment": align}
         units = {(2.0, 1.0): "text_height", (5.0, 5.0): "drawing_units"}.get(tuple(left))
         return {"paragraphs": result, "left_units": units, "matches": units is not None and
-                all(r["before"] != r["after"] and r["alignment"] == "c" for r in result.values())}
+                all(r["before"] != r["after"] and r["alignment"] == "c" and r["first_line"] in (None, 0.0)
+                    for r in result.values())}
     code, bit, expected = LEADER[topic]
     old, new = before["leader"], after["leader"]
     if old["shared"] != new["shared"] or old["right"] != new["right"]:
@@ -199,11 +217,23 @@ def compare(before, after, topic):
 
 
 def paragraph_values(raw):
+    """`\\p` の 1 行目（`l` からの差の `i`）と、ほかの行（`l`）のインデントと、揃え（`q`）。"""
     args = ",".join(raw)
-    indents = re.findall(r"l([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?|\*)", args)
+
+    def last(letter):
+        values = re.findall(letter + NUMBER, args)
+        return float(values[-1]) if values and values[-1] != "*" else None
+
     align = re.findall(r"q([lcrjd*])", args)
-    left = float(indents[-1]) if indents and indents[-1] != "*" else None
-    return left, align[-1] if align else None
+    return last("i"), last("l"), align[-1] if align else None
+
+
+def sha256(path):
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def main():
@@ -212,13 +242,24 @@ def main():
     parser.add_argument("after", type=Path)
     parser.add_argument("topic", choices=["styles", "color", "paragraph", *LEADER])
     args = parser.parse_args()
+    # 終了コード 0 は予想どおり、1 は予想と違う、2 は比較できない。どれも JSON を出し、2 には理由を添える。
+    result = {"topic": args.topic, "ezdxf": getattr(ezdxf, "__version__", None)}
+    observed = {}
     try:
-        result = compare(read(args.before, args.topic), read(args.after, args.topic), args.topic)
-        result["before_sha256"] = hashlib.sha256(args.before.read_bytes()).hexdigest()
-        result["after_sha256"] = hashlib.sha256(args.after.read_bytes()).hexdigest()
-    except (DXFError, ValueError, KeyError, StopIteration, OSError) as error:
-        parser.exit(2, f"比較できません: {error}\n")
+        if ezdxf is None or ezdxf.__version__ != EZDXF:
+            raise ValueError(f"ezdxf {EZDXF} を入れた Python で流してください（{MISSING or result['ezdxf']}）")
+        for name, path in (("before", args.before), ("after", args.after)):
+            observed[name] = read(path, args.topic)
+            result[name + "_sha256"] = sha256(path)
+        result.update(compare(observed["before"], observed["after"], args.topic))
+    except Exception as error:  # どの失敗も、予想と違う（1）と取り違えないよう 2 にする。
+        result["error"] = f"比較できません: {error}"
+    result["observed"] = observed
+    # 理由は日本語なので、ファイルに書き出しても端末の文字コードによらず UTF-8 にする。
+    sys.stdout.reconfigure(encoding="utf-8")
     print(json.dumps(result, ensure_ascii=False, indent=2))
+    if "error" in result:
+        return 2
     return 0 if result["matches"] else 1
 
 

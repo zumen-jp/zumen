@@ -12,12 +12,14 @@ python -I xtask/autocad/check316/make.py target/controls-316
 
 1. AutoCAD を使える環境で、このキットの `neutral.dxf` だけを開きます。`AUDIT` で修正の問いに「いいえ」と答え、誤りの数を記録します。文字スタイル 4 つが Arial の標準書体で、左・右の矢が 1 つの注記につながることを画面で確かめます。
 2. R2018 の `before.dwg` として保存し、開き直します。その図面を R2018 の ASCII DXF でも保存し、`before.dxf` とします。これで AutoCAD が読み書きしたときに加わる既定値を基準にできます。
-3. 下の各項目は、同じ `before.dwg` の新しいコピーで試します。`Z316_CONTROL` の文字・画層・図形の色は保ちます。編集した DWG を開き直して設定値を画面で読み、同じ R2018 の ASCII DXF に保存します。
-4. キットのフォルダーで、下の例のように変更前後と項目名を渡します。両方のファイルはこの合成図面から作ったものを使います。
+3. 下の各項目は、同じ `before.dwg` の新しいコピーで試します。`Z316_CONTROL` の文字・画層・図形の色は保ちます。編集した DWG を開き直して設定値を画面で読み、同じ形式（R2018 の ASCII DXF）で、項目名を付けた新しいファイル（例: `after-color.dxf`）に保存します。`before.dxf` には上書きしません。
+4. `ezdxf==1.4.5` を入れた Python の仮想環境で、キットのフォルダーから、下の例のように変更前後と項目名を渡します。両方のファイルはこの合成図面から作ったものを使います。`-I` はユーザーのサイトパッケージを読まないので、`pip install --user` で入れた ezdxf は使われません。
 
 ```sh
 python -I observe.py before.dxf after-color.dxf color
 ```
+
+保存した DWG と DXF は、リポジトリの外のキットのフォルダーに残し、Git には入れません。`samples/dwg` に足すかは、記録を受けて #316 で決めます。
 
 ### MTEXT の文字列の色（`color`）
 
@@ -25,7 +27,9 @@ python -I observe.py before.dxf after-color.dxf color
 
 ### MTEXT の段落（`paragraph`）
 
-高さ 2.5 mm の `Z316_PARA_25` と 5 mm の `Z316_PARA_50` を、それぞれ文字の編集画面で選びます。両方の段落を「中央揃え」、左インデントを 5 mm にします。文字の高さと図形の配置は保ちます。比較では `\p` の引数をそのまま返します。中央揃えの `qc` と、左インデントの値が 2 と 1 なら文字の高さの倍数、5 と 5 なら図面の単位という読みと合います。[Autodesk の段落の設定](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Core/files/GUID-E4DC3A14-3F0A-46AE-9503-6BBEE8DAF916.htm)
+高さ 2.5 mm の `Z316_PARA_25` と 5 mm の `Z316_PARA_50` を、それぞれ文字の編集画面で選び、右クリックから「段落」のダイアログを開きます。両方の段落を「中央揃え」にし、「左のインデント」の 1 行目とぶら下げ（英語版の First line と Hanging）を、どちらも 5 mm にします。文字の高さと図形の配置は保ちます。[段落のダイアログ](https://help.autodesk.com/cloudhelp/2026/JPN/AutoCAD-Core/files/GUID-90F5A530-BB66-4264-86F0-D5F670EC8519.htm)
+
+比較では、`\p` の引数をそのまま返し、そのうち左インデント（`l`）・1 行目（`i`、`l` からの差）・揃え（`q`）を読みます。中央揃えの `qc` で、`i` がないか 0 で、`l` の値が 2 と 1 なら文字の高さの倍数、5 と 5 なら図面の単位という読みと合います。`l` がなく `i` だけがあるときは、1 行目だけを変えた操作として、比較できない（2）にします。右インデント（`r`）・タブ（`t`）など、ほかの引数の単位はこのキットでは確かめません。
 
 ### STYLE の太字と斜体（`styles`）
 
@@ -42,7 +46,7 @@ python -I observe.py before.dxf after-color.dxf color
 
 ### MULTILEADER の左右の枝
 
-`Z316_LEADER` 画層には、矢の先が左（−30, 0）と右（30, 0）にあるマルチ引出線が 1 つあります。マルチ引出線を選び、Ctrl キーを使って左の線だけを選択します。下の各行を 1 回ずつ、基準のコピーから始めます。個別に選べない設定は、その版では実施できなかったと記録します。右の線とマルチ引出線全体の設定も、保存の前後で照らします。[Autodesk の線ごとの色の設定](https://help.autodesk.com/cloudhelp/2026/ENU/OARX-ManagedRefGuide/files/OARX-ManagedRefGuide-Autodesk_AutoCAD_DatabaseServices_MLeader_SetLeaderLineColor_int_Color.html)
+`Z316_LEADER` 画層には、矢の先が左（−30, 0）と右（30, 0）にあるマルチ引出線が 1 つあります。マルチ引出線を選び、Ctrl キーを使って左の線だけを選択します。下の各行を 1 回ずつ、基準のコピーから始めます。個別に選べない設定は、その版では実施できなかったと記録します。右の線と、マルチ引出線の共通部（`CONTEXT_DATA{` の外）の値も、保存の前後で照らします。照らすのは、線の中の 170・92・340・171・40・341・93 と、共通部の 6・62・370・420・90・91・170・171・341・342・42 で、ほかのグループコードは照らしません。[Autodesk の線ごとの色の設定](https://help.autodesk.com/cloudhelp/2026/ENU/OARX-ManagedRefGuide/files/OARX-ManagedRefGuide-Autodesk_AutoCAD_DatabaseServices_MLeader_SetLeaderLineColor_int_Color.html)
 
 | 比較する項目名 | 左の線に指定する値 | 線の中に予想するグループコード | 93 の予想値 |
 | --- | --- | --- | --- |
@@ -57,7 +61,7 @@ python -I observe.py before.dxf after-color.dxf color
 
 ## 結果の記録
 
-`observe.py` は対象の値と 2 つの SHA-256 を JSON に出します。終了コード 0 は対照を保って表の予想のいずれかに合ったこと、1 は値が予想と違うこと、2 は対照の変化などで比較できないことを示します。1 も実測結果として残してください。合成入力を使った自動テストの結果は、実機で設定した結果とは別に記録します。
+`observe.py` は、結果を JSON に出します。終了コード 0 は対照を保って表の予想のいずれかに合ったこと、1 は値が予想と違うこと、2 は比較できないこと（対照の変化、手順と違う操作、このキットで読まない書式、ezdxf 1.4.5 を読み込めないなど）を示します。どの場合も、読めた図面の SHA-256 と、そこから読んだ値（`observed`）を出し、比較できたときは対象の値を、2 のときは理由（`error`）を添えます。線種と部品の名前は、このキットの `Z316_DASH`・`_DOT` と ByBlock・ByLayer・Continuous のほかを `other` にして照らし、出します。1 と 2 も実測結果として残してください。JSON が出なかったとき（引数の誤りなど）は記録せず、流し直します。合成入力を使った自動テストの結果は、実機で設定した結果とは別に記録します。
 
 [#316](https://github.com/zumen-jp/zumen/issues/316) には、AutoCAD の製品名と版、項目名、開き直した画面の設定、`AUDIT` の誤りの数、比較結果を記録します。実施できなかった項目と理由も書きます。ほかの図面や利用者の環境のパスは記録に含めません。
 
