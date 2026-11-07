@@ -32,9 +32,9 @@ def check_kind(folder, path, check, kind, wrong_kind):
 
 def check_hidden_text(folder):
     entry, original = kit_case(folder, "input/made-classes.jww")
-    expected = [(4, "text"), (5, "hatch"), (6, "dimension")]
+    expected = [(4, "text"), (5, "hatch"), (6, "dimension"), (7, "underlay")]
     if [(e["source"]["record"], e["kind"]) for e in original["entities"]] != expected:
-        raise AssertionError("合成 JWW の描く文字・ソリッド・寸法が変わった")
+        raise AssertionError("合成 JWW の描く文字・ソリッド・寸法・画像が変わった")
     for record in (2, 3):
         reading = deepcopy(original)
         text = deepcopy(reading["entities"][0])
