@@ -186,6 +186,51 @@ fn reports_each_omitted_record_and_dictionary_entry_at_its_source() {
     assert_eq!(reference.places(), &[Ref::at_bytes(800, 808)]);
 }
 
+#[cfg(feature = "cp932")]
+#[test]
+fn cp932_names_keep_trail_bytes_and_fold_ascii_references() {
+    let mut db = fixture();
+    // アとヂの後続バイトは A と a、ソの後続バイトはバックスラッシュと同じ値。
+    for (id, name, entity, reference) in [
+        (60, b"A\x83\x41\x83\x5c", 40, b"a\x83\x41\x83\x5c"),
+        (61, b"A\x83\x61\x83\x5c", 41, b"a\x83\x61\x83\x5c"),
+    ] {
+        let mut layer = db.get(7).unwrap().clone();
+        layer.values[0] = h(5, id);
+        layer.values[2] = s(2, name);
+        db.push(layer);
+        let entity = db.object_mut(db.position(entity).unwrap()).unwrap();
+        *entity.values.iter_mut().find(|v| v.code == 8).unwrap() = s(8, reference);
+    }
+    let mut budget = Budget::new(Limits::default());
+    let mut diagnostics = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+    let out = db.reencode_r2004_dxf(&mut cx).unwrap().unwrap();
+    let read = Dxf::read(&out.bytes, &mut cx)
+        .unwrap()
+        .objects(&mut cx)
+        .unwrap();
+    for (id, code) in [(60, 2), (61, 2), (40, 8), (41, 8)] {
+        assert_eq!(
+            read.get(id).unwrap().first(code),
+            db.get(id).unwrap().first(code)
+        );
+    }
+}
+
+#[test]
+fn symbol_names_use_the_declared_code_page_and_character_count() {
+    let so = b"\x83\x5c";
+    assert_eq!(
+        valid_name(Charset::ShiftJis, b"LAYER", &so.repeat(255)),
+        cfg!(feature = "cp932")
+    );
+    assert!(!valid_name(Charset::ShiftJis, b"LAYER", &so.repeat(256)));
+    assert!(!valid_name(Charset::Other, b"LAYER", so));
+    assert!(valid_name(Charset::Other, b"LAYER", b"Walls"));
+}
+
 #[test]
 fn unrepresentable_drawings_discard_the_trial_output_and_diagnostics() {
     for (id, value) in [
@@ -193,6 +238,9 @@ fn unrepresentable_drawings_discard_the_trial_output_and_diagnostics() {
         (41, s(3, b"missing")),
         (41, r(14, f64::NAN)),
         (7, s(2, b"bad/name")),
+        (7, s(2, b"\x83")),
+        (7, s(2, b"\x87\x90")), // ≒ の別の符号。元のバイト列に戻らない。
+        (40, s(8, b"\x83\x41")),
         (40, s(8, b"0\n0")),
     ] {
         let mut db = fixture();

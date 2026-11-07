@@ -666,13 +666,22 @@ def run_recipe(z, out, entry, data, recipe, baseline):
     return record
 
 
-def run_convert(z, out, entry, data, baseline):
+def run_convert(z, out, entry, data, baseline, layer=None):
     """公開 API で DXF に変換する（決定 0206・0281）"""
-    source = f"convert/{Path(entry['path']).name}"
+    folder = f"convert/{layer}" if layer else "convert"
+    source = f"{folder}/{Path(entry['path']).name}"
     target = source + ".dxf"
+    record = {"path": target, "role": "convert", "issue": 302, "from": entry["path"], "format": "dxf"}
     open_file(z, source, data)
+    if layer:
+        record["added_layer"] = layer
+        edit = {"kind": "add_layer", "name": layer, "color": {"aci": 3}}
+        status, response = z.call({"op": "apply", "doc": source, "edits": [edit]})
+        if status != "ok":
+            return {**record, "status": status, "diagnostics": response["diagnostics"]}
+        z.take(response["blobs"][0]["id"])
     status, response = z.call({"op": "convert", "doc": source, "format": "dxf", "to": target})
-    record = {"path": target, "role": "convert", "issue": 302, "from": entry["path"], "format": "dxf", "status": status}
+    record["status"] = status
     record["diagnostics"] = response["diagnostics"]
     if status != "ok":
         return record
@@ -937,6 +946,8 @@ def expectation(out, f):
             if d["code"] == "convert.element.unsupported":
                 dropped[d["params"].get("kind")] += d["count"]
         text = f"開けて、監査の誤りが 0。要素 {f['elements']}"
+        if layer := f.get("added_layer"):
+            text += f"。追加した画層 {layer} が ACI 3 で、弧長寸法 6 件と描画ブロックの図形 67 件が残る"
         if dropped:
             text += "。落とした要素: " + "・".join(f"{k} {n}" for k, n in sorted(dropped.items()))
         return text
@@ -1053,6 +1064,9 @@ def main():
             if recipe[2](Path(path).name, fmt):
                 files.append(run_recipe(z, out, entry, data, recipe, baseline))
         files.append(run_convert(z, out, entry, data, baseline))
+        if source == "samples/dwg/zumen-arcdim-r2004.dwg":
+            for layer in ("Walls", "外壁"):
+                files.append(run_convert(z, out, entry, data, baseline, layer))
         # 文字を UTF-8 で書けるのは 2007 からの DXF
         if fmt == "dxf" and "-arcdim-r2018" in path:
             files += dimension_experiments(out, entry, data)
