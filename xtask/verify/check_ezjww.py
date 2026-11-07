@@ -26,7 +26,7 @@ from pathlib import Path
 import ezjww
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from compare import differences, lifted_away_records, run, usage  # noqa: E402
+from compare import differences, lifted_away_records, run, source_type_error, usage  # noqa: E402
 
 # 図面モデルの形 → ezjww の図形の種類
 TYPES = {
@@ -38,6 +38,13 @@ TYPES = {
     "text": {"TEXT"},
     "symbol": {"BLOCK"},
     "dimension": {"DIMENSION"},
+}
+# CDataSolid は塗り、画像を指す CDataMoji は画像の範囲になる（docs/formats/jww.md）。
+KINDS = {
+    **{k: TYPES[k] for k in ("line", "circle", "point", "text", "symbol", "dimension")},
+    "curve": TYPES["arc"] | TYPES["ellipse"],
+    "hatch": {"SOLID"},
+    "underlay": {"TEXT"},
 }
 # 既知の食い違い: (ファイルの道筋の初め, 食い違いの文の初め, issue, 当たるファイルの数)。直ったら消す
 KNOWN = []
@@ -132,12 +139,8 @@ def check_file(folder, entry, reading, baseline, counts):
             failures.append(f"{where}: 描かない文字（TEXT のレコード {record}）が要素になった")
             continue
         shape = element.get("geometry", {}).get("shape")
-        # 表にない形は、出所の種類を比べられないので知らせる（TYPES に足す）
-        if shape is not None and shape not in TYPES:
-            failures.append(f"{where}: 形 {shape} と図形の種類の対応がない（check_ezjww.py の TYPES に足す）")
-            continue
-        if shape in TYPES and e["type"] not in TYPES[shape]:
-            failures.append(f"{where}: 形 {shape} の出所が {e['type']}")
+        if wrong := source_type_error(element, e["type"], KINDS, TYPES):
+            failures.append(wrong)
             continue
         if element.get("layer") != layer_name(header, e["base"]):
             failures.append(f"{where}: レイヤが {element.get('layer')!r}、ezjww は {layer_name(header, e['base'])!r}")
