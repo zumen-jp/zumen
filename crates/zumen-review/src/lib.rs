@@ -157,9 +157,9 @@ pub struct Location {
 /// 2D か 3D の場所
 #[derive(Clone, Debug, PartialEq)]
 pub enum Place {
-    /// 用紙かビューの上の場所。位置は用紙の mm で、Y が上
+    /// 用紙・ビュー・空間の上の場所。位置は、用紙とビューでは用紙の mm、空間ではその空間の座標（文書の単位）で、Y が上（決定 0282）
     Plane {
-        /// 用紙かビューの ID（決定 0156）
+        /// 用紙・ビュー・空間の ID（決定 0156）
         view: Option<String>,
         /// ピンの位置
         pin: Option<[f64; 2]>,
@@ -267,9 +267,9 @@ pub struct Markup {
     pub kind: MarkupKind,
     /// 対象の ID
     pub target: String,
-    /// 用紙かビューの ID
+    /// 用紙・ビュー・空間の ID
     pub view: Option<String>,
-    /// 点（用紙の mm、Y が上）
+    /// 点（用紙とビューでは用紙の mm、空間ではその空間の座標。Y が上）
     pub points: Vec<[f64; 2]>,
     /// 注記の文字か、写真の名前
     pub text: Option<String>,
