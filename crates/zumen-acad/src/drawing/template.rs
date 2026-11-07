@@ -4,7 +4,7 @@
 //! モデルと用紙のレイアウト、用紙のビューポートと、それらのハンドルを持つ。図面モデルの表の項目と要素は、ひな形を
 //! 読んだあとに書き戻し（apply）の追加で足し、表の件数は `AcadDb::finish_new_dxf_tables` で仕上げる。
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use zumen_drawing::{Drawing2D, Sheet, SymbolKey, Unit, View};
 
@@ -24,7 +24,7 @@ impl NewDxfTemplate {
     /// そのキーで外部参照でない最後の定義に付けた名前で、外部参照のものも含めてすべて書く（同じ名前の部品が重なる。
     /// 扱いは #656 で決める）
     pub fn new(drawing: &Drawing2D) -> Self {
-        let blocks = block_names(drawing);
+        let (blocks, _) = block_names(drawing);
         let bytes = template(drawing, &blocks);
         Self { bytes, blocks }
     }
@@ -53,14 +53,15 @@ fn key_of(key: &SymbolKey) -> (String, String) {
     (key.namespace.to_string(), key.name.clone())
 }
 
-/// 記号の定義ごとの、書いた先の部品の名前。外部参照の定義は書かない。無名の定義と、ANSI_932 に戻せない名前には
-/// 名前を付ける
-fn block_names(drawing: &Drawing2D) -> BTreeMap<(String, String), String> {
+/// 記号の定義ごとの、書いた先の部品の名前と、試した名前の数。外部参照の定義は書かない。無名の定義と、ANSI_932 に
+/// 戻せない名前には名前を付ける。名前が（大文字と小文字を区別せずに）重なれば、基の名前に `_1`・`_2`… を付けた名前の
+/// うち、まだ使っていない最初のものにする。小文字にした基の名前ごとに、次に試す番号を覚えるので、試す名前の数は
+/// 定義の数に比例する。使った名前は増えるだけなので、覚えた番号より前の名前は、1 から探しても使われている
+fn block_names(drawing: &Drawing2D) -> (BTreeMap<(String, String), String>, usize) {
     let mut names = BTreeMap::new();
-    let mut used: BTreeMap<String, ()> = BTreeMap::new();
-    for reserved in ["*model_space", "*paper_space"] {
-        used.insert(reserved.to_string(), ());
-    }
+    let mut used = BTreeSet::from(["*model_space".to_owned(), "*paper_space".to_owned()]);
+    let mut next = BTreeMap::<String, usize>::new();
+    let mut tries = 0;
     for (index, definition) in drawing.symbols.iter().enumerate() {
         if definition.external.is_some() {
             continue;
@@ -87,16 +88,26 @@ fn block_names(drawing: &Drawing2D) -> BTreeMap<(String, String), String> {
         } else {
             base
         };
-        let mut name = base.clone();
-        let mut repeat = 1;
-        while used.contains_key(&name.to_lowercase()) {
-            name = format!("{base}_{repeat}");
+        // 番号 0 は基の名前そのもの。`_` と数字は文字の小文字を変えないので、小文字にした基の名前が同じなら、
+        // 小文字にした `基の名前_番号` も同じになり、覚えた番号を共に使える
+        let lower = base.to_lowercase();
+        let mut repeat = next.get(&lower).copied().unwrap_or(0);
+        let name = loop {
+            tries += 1;
+            let name = if repeat == 0 {
+                base.clone()
+            } else {
+                format!("{base}_{repeat}")
+            };
             repeat += 1;
-        }
-        used.insert(name.to_lowercase(), ());
+            if used.insert(name.to_lowercase()) {
+                break name;
+            }
+        };
+        next.insert(lower, repeat);
         names.insert(key_of(&definition.key), name);
     }
-    names
+    (names, tries)
 }
 
 /// ひな形の DXF（R2004）。DXF Reference「TABLES Section」「Common Group Codes for
@@ -820,6 +831,48 @@ mod tests {
         );
         // 同じ図面からは同じバイト列
         assert_eq!(NewDxfTemplate::new(&drawing).bytes(), template.bytes());
+    }
+
+    #[test]
+    fn meeting_names_take_tries_in_proportion_to_the_definitions() {
+        // `a?1`…`a?n`（`a_1`…`a_n` に直る）のあとに、名前空間だけが違い、小文字にすると同じ `a`・`A` を交互に
+        // n 個置く。2 つ目は連番の名前をすべて飛ばして `A_{n+1}` になり、3 つ目からは覚えた番号の名前を 1 回で
+        // 使う。1 から探すと、k 個目は n + k 個の名前を試すので、全体で n の 2 乗になる
+        let variant = |index: usize| if index.is_multiple_of(2) { "a" } else { "A" };
+        let place = |count: usize| {
+            let drawing = Drawing2D {
+                symbols: (1..=count)
+                    .map(|repeat| definition(0, &format!("a?{repeat}"), false, false))
+                    .chain((0..count).map(|index| SymbolDefinition {
+                        key: SymbolKey {
+                            namespace: format!("ns{index}").into(),
+                            name: variant(index).to_owned(),
+                        },
+                        ..definition(0, "a", false, false)
+                    }))
+                    .collect(),
+                ..Drawing2D::default()
+            };
+            let (names, tries) = block_names(&drawing);
+            let names: Vec<_> = drawing
+                .symbols
+                .iter()
+                .map(|definition| names.get(&key_of(&definition.key)).cloned())
+                .collect();
+            (names, tries)
+        };
+        let count = 1_000;
+        let (names, tries) = place(count);
+        let expected: Vec<_> = (1..=count)
+            .map(|repeat| format!("a_{repeat}"))
+            .chain(std::iter::once("a".to_owned()))
+            .chain((1..count).map(|index| format!("{}_{}", variant(index), count + index)))
+            .map(Some)
+            .collect();
+        assert_eq!(names, expected);
+        assert_eq!(tries, 3 * count);
+        // 定義の数を倍にすると、試す名前の数も倍になる
+        assert_eq!(place(2 * count).1, 2 * tries);
     }
 
     #[test]
