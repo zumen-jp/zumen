@@ -2,6 +2,7 @@
 //!
 //! ASCII の DXF を読み書きする（[`dxf`]）。DWG は R2000・R2004・R2010・R2013・R2018 を読み、R2000 のオブジェクトのデータを置き換えられる（[`dwg`]）。DXF と DWG が共有するオブジェクトの表は [`db`]（決定 0023）。
 
+mod charset;
 pub mod db;
 #[cfg(feature = "drawing")]
 mod drawing;

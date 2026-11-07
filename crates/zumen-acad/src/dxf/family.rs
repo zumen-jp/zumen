@@ -6,6 +6,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use zumen_base::{Cx, Diagnostic, Kind, Ref, codes};
 use zumen_sdk::Error;
 
+use crate::charset::{Charset, charset_of};
 use crate::db::{AcadDb, Data, Object, Origin, Section, Value};
 use crate::dwg::{DwgFile, reencode::DxfSource};
 
@@ -100,21 +101,29 @@ fn owner(object: &Object) -> Result<u64, Error> {
     object.owner().ok_or(Error::Unsupported)
 }
 
+const MAX_NAME_CHARS: usize = 255;
+const MAX_NAME_BYTES: usize = 2 * MAX_NAME_CHARS;
+
 // DXF Reference「Symbol Table Group Codes」。匿名ブロックと VPORT の先頭の * は予約名に使う。
-// 表の名前の照合は ASCII から扱う。複数バイトの名前はコード・ページに対応する既存の経路に渡す。
-fn valid_name(table: &[u8], name: &[u8]) -> bool {
-    let value = if matches!(table, b"BLOCK_RECORD" | b"VPORT") {
-        name.strip_prefix(b"*").unwrap_or(name)
-    } else {
-        name
+// R2004 では 1 文字が最大 2 バイト。禁止文字と 255 文字の上限は復号した名前で判定する。
+fn valid_name(charset: Charset, table: &[u8], bytes: &[u8]) -> bool {
+    if bytes.len() > MAX_NAME_BYTES {
+        return false;
+    }
+    let Some(name) = charset.decode_name(bytes) else {
+        return false;
     };
-    name.is_ascii()
-        && !value.is_empty()
-        && name.len() <= 255
-        && name.trim_ascii() == name
+    let value = if matches!(table, b"BLOCK_RECORD" | b"VPORT") {
+        name.strip_prefix('*').unwrap_or(&name)
+    } else {
+        &name
+    };
+    !value.is_empty()
+        && name.chars().count() <= MAX_NAME_CHARS
+        && name.trim() == name
         && !value
-            .iter()
-            .any(|b| b.is_ascii_control() || br#"<>/\:;?*|=,"`"#.contains(b))
+            .chars()
+            .any(|c| c.is_control() || r#"<>/\:;?*|=,"`"#.contains(c))
 }
 
 fn entity_class(kind: &[u8]) -> Option<&'static [u8]> {
@@ -139,6 +148,7 @@ struct Block<'a> {
 }
 
 struct Plan<'a> {
+    charset: Charset,
     tables: BTreeMap<&'a [u8], Vec<&'a Object>>,
     names: BTreeMap<(&'a [u8], Vec<u8>), &'a Object>,
     blocks: BTreeMap<u64, Block<'a>>,
@@ -172,6 +182,7 @@ impl<'a> Plan<'a> {
             return Err(Error::Unsupported);
         }
         let mut plan = Self {
+            charset: charset_of(db),
             tables: BTreeMap::new(),
             names: BTreeMap::new(),
             blocks: BTreeMap::new(),
@@ -206,13 +217,13 @@ impl<'a> Plan<'a> {
                         return Err(Error::Unsupported);
                     }
                     let name = string(object, 2)?;
-                    if !valid_name(&object.kind, name) {
+                    cx.check(Kind::Work, name.len() as u64)?;
+                    if !valid_name(plan.charset, &object.kind, name) {
                         return Err(Error::Unsupported);
                     }
-                    cx.check(Kind::Work, name.len() as u64)?;
                     if plan
                         .names
-                        .insert((&object.kind, name.to_ascii_uppercase()), object)
+                        .insert((&object.kind, plan.charset.fold(name)), object)
                         .is_some()
                     {
                         return Err(Error::Unsupported);
@@ -318,8 +329,11 @@ impl<'a> Plan<'a> {
 
     fn named(&self, table: &'static [u8], name: &[u8], cx: &mut Cx<'_>) -> Result<&Object, Error> {
         cx.check(Kind::Work, (name.len() as u64).saturating_add(1))?;
+        if name.len() > MAX_NAME_BYTES {
+            return Err(Error::Unsupported);
+        }
         self.names
-            .get(&(table, name.to_ascii_uppercase()))
+            .get(&(table, self.charset.fold(name)))
             .copied()
             .ok_or(Error::Unsupported)
     }
