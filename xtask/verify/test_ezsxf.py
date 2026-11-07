@@ -1,6 +1,5 @@
 """検証キットの合成 SXF で、照合が正しい読みと、形・種類・所属・出所の食い違いを区別することを確かめる。"""
 
-import json
 import sys
 from collections import Counter
 from copy import deepcopy
@@ -11,14 +10,7 @@ import ezsxf
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from check_ezsxf import check_file, check_records, records, sfc_records  # noqa: E402
-from compare import usage  # noqa: E402
-
-
-def kit_case(folder, path):
-    manifest = json.loads((folder / "manifest.json").read_text(encoding="utf-8"))
-    entry = next(item for item in manifest["files"] if item["path"] == path)
-    reading = json.loads((folder / "zumen" / (path + ".json")).read_text(encoding="utf-8"))
-    return entry, reading
+from compare import kit_case, usage  # noqa: E402
 
 
 def check_missing_layers(folder):
@@ -140,6 +132,42 @@ def check_header_features(folder):
     print("ezsxf がヘッダーから回復したフィーチャを DATA 節の 2 要素の出所にしないことを確認した")
 
 
+def check_raster_frames(folder):
+    entry, original = kit_case(folder, "input/made-structure.p21")
+
+    def compare(reading, expect=None):
+        failures, audit = check_file(folder, entry, reading, None, Counter())
+        if not any("[132, 133, 144]" in note for note in audit["notes"]):
+            raise AssertionError("コメントを持つ実体・その参照とレイヤを読んでいない")
+        if failures != ([] if expect is None else [expect]):
+            raise AssertionError(f"P21 の画像枠の照合: {failures}（期待は {expect}）")
+
+    compare(original)
+    # 同じ実体 #133 は、作図グループの中で画像枠、用紙の上では通常の折れ線。
+    by_id = {e["id"]: e for e in original["entities"]}
+    frame, plain = by_id["sheet/0/i133"], by_id["sheet/0/i133/1"]
+    if (frame["kind"], plain["kind"], frame["layer"]) != ("underlay", "polyline", "FRAME/*L*/"):
+        raise AssertionError("画像枠・同じ実体の折れ線・コメントに似た文字列を持つレイヤが変わった")
+    reading = deepcopy(original)
+    row = next(e for e in reading["entities"] if e["id"] == frame["id"])
+    row.update(kind="polyline", geometry=plain["geometry"])
+    compare(reading, "#133 の画像の範囲が 0 件（配置は 1 件）")
+
+    reading = deepcopy(original)
+    row = next(e for e in reading["entities"] if e["id"] == "sheet/0/i135")
+    row["kind"] = "underlay"
+    row.pop("geometry")
+    compare(reading, "sheet/0/i135: 画像の範囲の出所が ANNOTATION_CURVE_OCCURRENCE #135（画像の作図グループの最初の 4 点以上の折れ線でない）")
+
+    reading = deepcopy(original)
+    next(d for d in reading["diagnostics"] if d["code"] == "sxf.raster-frame.missing")["at"][0]["record"] += 1
+    compare(reading, "画像の作図グループ #140 に枠がなく、その定義を指す sxf.raster-frame.missing もない")
+    reading = deepcopy(original)
+    next(e for e in reading["entities"] if e["id"] == frame["id"])["layer"] = "OTHER"
+    compare(reading, "sheet/0/i133: レイヤが 'OTHER'、PRESENTATION_LAYER_ASSIGNMENT は 'FRAME/*L*/'")
+    print("P21 の画像枠と折れ線の取り違え、枠がない定義の診断、コメントを持つ実体のレイヤの違いを検出した")
+
+
 if __name__ == "__main__":
     kit = usage("test_ezsxf.py")
     if kit is None:
@@ -147,3 +175,4 @@ if __name__ == "__main__":
     check_missing_layers(kit)
     check_duplicate_features(kit)
     check_header_features(kit)
+    check_raster_frames(kit)
