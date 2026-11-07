@@ -218,6 +218,10 @@ jobs:
       - name: ACadSharp で読んだ値を、zumen の読みと照らす
         if: ${{ !cancelled() && steps.acadsharp.outcome == 'success' }}
         run: python -I xtask/verify/check_acadsharp.py "$RUNNER_TEMP/verify"
+      - name: 照合が、形を返さない要素の種類の取り違えと、描かない JWW の文字を食い違いにすることを確かめる
+        # DXF・JWW は ACadSharp の段の成否によらず流す。DWG は acadsharp-dump.json があるときだけ確かめる
+        if: ${{ !cancelled() && steps.make.outcome != 'skipped' }}
+        run: python -I xtask/verify/test_source_kinds.py "$RUNNER_TEMP/verify"
       - name: 検証キットを成果物に置く
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

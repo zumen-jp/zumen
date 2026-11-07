@@ -9,8 +9,9 @@ JWW のファイルごとに、次を確かめる。
   LIFTED_AWAY）がそのレコードを指す（黙って捨てない）。zumen のレコードの番号は、ヘッダーを 0 とし、図形の
   一覧の i 番目（0 から）を i + 1 とする（決定 0133）。zumen が描かずに拡張に持つ文字（(0, -1000) の設定と、
   `^@BM` でない `^@` で始まる文字。docs/formats/jww.md）は数えず、要素の出所にあれば食い違いにする。キットの座標を
-  NaN にした JWW で、診断とレコードを結ぶ枝も通す（#548）。描かない文字の合成の入力は #558 で足す。
-- zumen の要素の出所の図形の種類・レイヤと、線と点では形の値が同じ（形を返さない要素は、種類を比べない。#558）。
+  NaN にした JWW で、診断とレコードを結ぶ枝も通す（#548）。描かない文字は、合成の入力（make.py の classes_jww）で通す。
+- zumen の要素の出所の図形の種類・レイヤと、線と点では形の値が同じ。形を返さない要素も種類を比べ、出所が TEXT の要素は、
+  `^@BM` で始まるときだけ画像の範囲とする（docs/formats/jww.md）。
   形のフィールドは両向きに比べ、線と点の要素は形を持つ。ezjww の座標は用紙の mm なので、図形のレイヤグループの縮尺の
   分母を掛けて、zumen の実寸の座標と比べる（docs/formats/jww.md）。
 - 書き戻したファイルでは、変更で決めた形・レイヤ・ペンの番号（manifest.json の expect）が、ezjww で読んだ図形と
@@ -26,7 +27,7 @@ from pathlib import Path
 import ezjww
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from compare import differences, lifted_away_records, run, usage  # noqa: E402
+from compare import differences, lifted_away_records, run, source_type_error, usage  # noqa: E402
 
 # 図面モデルの形 → ezjww の図形の種類
 TYPES = {
@@ -38,6 +39,13 @@ TYPES = {
     "text": {"TEXT"},
     "symbol": {"BLOCK"},
     "dimension": {"DIMENSION"},
+}
+# CDataSolid は塗り、画像を指す CDataMoji は画像の範囲になる（docs/formats/jww.md）。
+KINDS = {
+    **{k: TYPES[k] for k in ("line", "circle", "point", "text", "symbol", "dimension")},
+    "curve": TYPES["arc"] | TYPES["ellipse"],
+    "hatch": {"SOLID"},
+    "underlay": {"TEXT"},
 }
 # 既知の食い違い: (ファイルの道筋の初め, 食い違いの文の初め, issue, 当たるファイルの数)。直ったら消す
 KNOWN = []
@@ -132,12 +140,14 @@ def check_file(folder, entry, reading, baseline, counts):
             failures.append(f"{where}: 描かない文字（TEXT のレコード {record}）が要素になった")
             continue
         shape = element.get("geometry", {}).get("shape")
-        # 表にない形は、出所の種類を比べられないので知らせる（TYPES に足す）
-        if shape is not None and shape not in TYPES:
-            failures.append(f"{where}: 形 {shape} と図形の種類の対応がない（check_ezjww.py の TYPES に足す）")
+        if wrong := source_type_error(element, e["type"], KINDS, TYPES):
+            failures.append(wrong)
             continue
-        if shape in TYPES and e["type"] not in TYPES[shape]:
-            failures.append(f"{where}: 形 {shape} の出所が {e['type']}")
+        # 文字と画像の範囲は、どちらも TEXT で、形を返さない。画像の範囲になるのは ^@BM で始まる文字だけ
+        image = e["type"] == "TEXT" and e["content"].startswith("^@BM")
+        if e["type"] == "TEXT" and (element.get("kind") == "underlay") != image:
+            expected = "underlay" if image else "text"
+            failures.append(f"{where}: 要素の種類が {element.get('kind')}、TEXT のレコード {record} の文字からは {expected}")
             continue
         if element.get("layer") != layer_name(header, e["base"]):
             failures.append(f"{where}: レイヤが {element.get('layer')!r}、ezjww は {layer_name(header, e['base'])!r}")
