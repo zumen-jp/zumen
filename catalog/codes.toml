@@ -262,6 +262,15 @@ group-by = ["kind"]
 since = "0.0.0"
 status = "active"
 
+[codes."convert.layer-field.dropped"]
+description = "新しいファイルへの変換で画層の説明か透過性を出力できず、元の値を落とした。フィールドごとに数える"
+severity = "warning"
+fidelity = "dropped"
+params = { format = "text", field = "key" }
+group-by = ["field"]
+since = "0.2.0"
+status = "active"
+
 [codes."convert.format.unsupported"]
 description = "この形式には、まだ別の形式から書けない（決定 0206）"
 severity = "error"
@@ -476,6 +485,32 @@ severity = "warning"
 params = { type = "int" }
 group-by = ["type"]
 since = "0.0.0"
+status = "active"
+
+[codes."dwg.dxf-record.dropped"]
+description = "DWG を DXF に再符号化するとき、出力の対象外のオブジェクトを除いた。元の種類ごとに数える"
+severity = "warning"
+fidelity = "dropped"
+params = { kind = "text" }
+group-by = ["kind"]
+since = "0.2.0"
+status = "active"
+
+[codes."dwg.dxf-reference.dropped"]
+description = "DWG を DXF に再符号化するとき、拡張辞書の組、出力しないリアクター・辞書項目・印刷スタイルの参照を除いた"
+severity = "warning"
+fidelity = "dropped"
+params = { code = "int" }
+group-by = ["code"]
+since = "0.2.0"
+status = "active"
+
+[codes."dwg.dxf-header.dropped"]
+description = "DWG のヘッダーは共有の表に取り出した変数だけを DXF に書いた。コンテナー固有の情報と未使用のクラスは引き継がない"
+severity = "warning"
+fidelity = "dropped"
+params = {}
+since = "0.2.0"
 status = "active"
 
 [codes."dwg.type.unsupported"]

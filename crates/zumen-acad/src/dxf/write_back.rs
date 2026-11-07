@@ -15,7 +15,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use zumen_base::{Cx, Diagnostic, codes};
 use zumen_sdk::{Error, Transact, Transaction};
 
-use super::{DxfFile, DxfTxn, format_real};
+use super::{DxfFile, DxfTxn};
 use crate::db::{AcadDb, Data, Object, Origin, Section, Value};
 
 impl DxfFile {
@@ -379,23 +379,13 @@ fn replace(
 
 /// 値を DXF の値の行にする（DXF Reference「Group Code Value Types」）。表を作るときの読み方の逆
 fn encode(txn: &mut DxfTxn<'_>, record: usize, value: &Value) -> Result<Vec<u8>, Error> {
-    Ok(match &value.data {
-        Data::Text(text) => text.clone(),
-        Data::Int(int) => int.to_string().into_bytes(),
-        Data::Real(real) if real.is_finite() => format_real(*real),
-        Data::Real(_) => {
-            return Err(txn.reject(super::on_tag(
+    super::value_bytes(&value.data)
+        .map(|bytes| bytes.into_owned())
+        .ok_or_else(|| {
+            txn.reject(super::on_tag(
                 codes::DXF_REAL_UNSUPPORTED,
                 record,
                 value.code,
-            )));
-        }
-        Data::Bool(flag) => if *flag { b"1" } else { b"0" }.to_vec(),
-        Data::Handle(handle) => format!("{handle:X}").into_bytes(),
-        Data::Binary(bytes) => bytes
-            .iter()
-            .map(|b| format!("{b:02X}"))
-            .collect::<String>()
-            .into_bytes(),
-    })
+            ))
+        })
 }
