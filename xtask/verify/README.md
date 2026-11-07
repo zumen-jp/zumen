@@ -23,6 +23,8 @@ zumen が書き戻した（apply）・変換した（convert）図面を、zumen
 cargo build --release -p zumen-cli
 python -m pip install --only-binary :all: ezdxf==1.4.5 ezjww==0.7.6 ezsxf==0.3.7
 python -I xtask/verify/make.py target/release/zumen ../zumen-verify
+python -I -m unittest discover -s xtask/autocad/check316 -p 'test_*.py'
+python -I xtask/autocad/check316/make.py ../zumen-verify/316/controls
 python -I xtask/verify/check_ezdxf.py ../zumen-verify
 python -I xtask/verify/test_dxf_layer_fields.py target/release/zumen
 python -I xtask/verify/check_ezjww.py ../zumen-verify
