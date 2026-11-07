@@ -15,12 +15,15 @@ fn map() -> Mapping {
     }
 }
 
-fn legacy(items: &str) -> Value {
+fn legacy_source(items: &str) -> String {
     let sha = crate::sha256::hex(DRAWING);
-    let source = format!(
+    format!(
         r#"{{"format":"zumen-markup","version":1,"drawing":{{"sha256":"{sha}","format":"dxf"}},"items":[{items}],"targets":["original"],"private/field~":true}}"#
-    );
-    json::parse(source.as_bytes()).unwrap()
+    )
+}
+
+fn legacy(items: &str) -> Value {
+    json::parse(legacy_source(items).as_bytes()).unwrap()
 }
 
 fn read_review(bytes: &[u8]) -> Review {
@@ -208,5 +211,55 @@ fn rejects_source_and_destination_id_collisions() {
                 .pointer(),
             "/items/1/id"
         );
+    }
+}
+
+// コマンドは、読み直せた文書だけを新しいファイルに書く。既存のファイルを上書きせず、失敗したら出力を残さない。
+#[test]
+fn command_writes_only_a_new_document_that_reads_back() {
+    let dir = crate::formats::tests::TempDir::new();
+    let path = |name: &str| dir.0.join(name).to_str().unwrap().to_owned();
+    let items = r#"{"id":"note","kind":"text","position":[1,2],"text":"注記"},{"id":"old-pin","kind":"finding","view":"二階","position":[0,0],"status":"open"}"#;
+    fs::write(path("markup.json"), legacy_source(items)).unwrap();
+    fs::write(path("drawing.dxf"), DRAWING).unwrap();
+    let mapping = format!(
+        "target = \"plan\"\ndefault_view = \"sheet/0\"\n\n[views]\n\"二階\" = \"sheet/1\"\n\n[topic_ids]\n\"old-pin\" = \"{TOPIC_ID}\"\n"
+    );
+    fs::write(path("mapping.toml"), &mapping).unwrap();
+    let run_to = |drawing: &str, mapping: &str, output: &str| {
+        run(
+            &path("markup.json"),
+            &path(drawing),
+            &path(mapping),
+            &path(output),
+        )
+    };
+
+    run_to("drawing.dxf", "mapping.toml", "review.json").unwrap();
+    let written = fs::read(path("review.json")).unwrap();
+    let review = read_review(&written);
+    assert_eq!((review.markups.len(), review.topics.len()), (1, 1));
+    assert_eq!(review.topics[0].id, TOPIC_ID);
+    assert_eq!(review.targets[0].hash, Hash::document(DRAWING).to_string());
+
+    // 同じ出力先には書かない。前の文書はそのまま残る。
+    assert!(run_to("drawing.dxf", "mapping.toml", "review.json").is_err());
+    assert_eq!(fs::read(path("review.json")).unwrap(), written);
+
+    // 旧版の記録と違う図面と、未知のキーを持つ対応表では、出力を作らない。
+    let mut other = DRAWING.to_vec();
+    let last = other.len() - 2;
+    other[last] = b'X';
+    fs::write(path("other.dxf"), other).unwrap();
+    let error = run_to("other.dxf", "mapping.toml", "mismatch.json").unwrap_err();
+    assert!(error.contains("/drawing/sha256"), "{error}");
+    fs::write(
+        path("unknown.toml"),
+        format!("{mapping}\n[extra]\nkey = 1\n"),
+    )
+    .unwrap();
+    assert!(run_to("drawing.dxf", "unknown.toml", "unknown.json").is_err());
+    for output in ["mismatch.json", "unknown.json"] {
+        assert!(!dir.0.join(output).exists(), "{output}");
     }
 }
