@@ -1,0 +1,250 @@
+{
+  "description": "図面モデルから新しい R2004 DXF に画層の説明・透過性を書く。画層ごとに保存した値、欠落の診断の種類・件数・元の位置、予算と出力先の再試行を確かめる。 同名の 0/0・A/a・C/C は先の画層を使い、後の値をその場所以外の画層に付けない。",
+  "module": "drawing",
+  "steps": [
+    {
+      "push": {
+        "name": "layers.dxf",
+        "text": "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1021\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nLAYER\n70\n9\n0\nLAYER\n5\nF\n2\nDefpoints\n70\n0\n62\n7\n1001\nAcAecLayerStandard\n1000\n\n1000\nreserved\n1001\nAcCmTransparency\n1071\n33554687\n0\nLAYER\n5\n10\n2\n0\n70\n0\n62\n7\n1001\nAcAecLayerStandard\n1000\n\n1000\nWall\n0\nLAYER\n5\n11\n2\nA\n70\n0\n62\n7\n1001\nAcCmTransparency\n1071\n33554483\n0\nLAYER\n5\n12\n2\nB\n70\n0\n62\n7\n1001\nAcAecLayerStandard\n1000\n\n1000\nWall\n1001\nAcCmTransparency\n1071\n33554483\n0\nLAYER\n5\n13\n2\nC\n70\n0\n62\n7\n0\nLAYER\n5\n14\n2\nD\n70\n0\n62\n7\n1001\nAcAecLayerStandard\n1000\n\n1000\n🚧\n1001\nAcCmTransparency\n1071\n33554432\n0\nLAYER\n5\n15\n2\n0\n70\n0\n62\n7\n1001\nAcAecLayerStandard\n1000\n\n1000\nrejected\n1001\nAcCmTransparency\n1071\n33554687\n0\nLAYER\n5\n16\n2\na\n70\n0\n62\n7\n1001\nAcAecLayerStandard\n1000\n\n1000\nrejected\n1001\nAcCmTransparency\n1071\n33554687\n0\nLAYER\n5\n17\n2\nC\n70\n0\n62\n7\n1001\nAcAecLayerStandard\n1000\n\n1000\nrejected\n1001\nAcCmTransparency\n1071\n33554687\n0\nENDTAB\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nLINE\n5\n20\n8\nA\n10\n0\n20\n0\n11\n1\n21\n1\n0\nCUSTOM_ENTITY\n5\n21\n8\nA\n0\nENDSEC\n0\nEOF\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "layers.dxf"
+      },
+      "expect": {
+        "/result/format": "dxf"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "convert",
+        "doc": "layers.dxf",
+        "format": "dxf",
+        "to": "out.dxf",
+        "budget": {
+          "work": 1
+        }
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "budget.work.exceeded",
+        "/blobs": []
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "tables",
+        "doc": "out.dxf"
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "call.document.missing"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "convert",
+        "doc": "layers.dxf",
+        "format": "dxf",
+        "to": "out.dxf",
+        "max_places": 8
+      },
+      "expect": {
+        "/result/elements": 1,
+        "/diagnostics": [
+          {
+            "code": "convert.element.unsupported",
+            "severity": "warning",
+            "count": 3,
+            "at": [
+              {
+                "record": 4
+              },
+              {
+                "record": 11
+              },
+              {
+                "record": 12
+              }
+            ],
+            "params": {
+              "format": "DXF",
+              "kind": "layer"
+            }
+          },
+          {
+            "code": "convert.layer-field.dropped",
+            "severity": "warning",
+            "fidelity": "dropped",
+            "count": 5,
+            "at": [
+              {
+                "record": 4
+              },
+              {
+                "record": 9
+              },
+              {
+                "record": 10
+              },
+              {
+                "record": 11
+              },
+              {
+                "record": 12
+              }
+            ],
+            "params": {
+              "format": "DXF",
+              "field": "description"
+            }
+          },
+          {
+            "code": "convert.layer-field.dropped",
+            "severity": "warning",
+            "fidelity": "dropped",
+            "count": 4,
+            "at": [
+              {
+                "record": 4
+              },
+              {
+                "record": 10
+              },
+              {
+                "record": 11
+              },
+              {
+                "record": 12
+              }
+            ],
+            "params": {
+              "format": "DXF",
+              "field": "transparency"
+            }
+          },
+          {
+            "code": "dxf.lift.dropped",
+            "severity": "warning",
+            "fidelity": "dropped",
+            "count": 1,
+            "at": [
+              {
+                "record": 17
+              }
+            ],
+            "params": {
+              "kind": "CUSTOM_ENTITY"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "convert",
+        "doc": "layers.dxf",
+        "format": "dxf",
+        "to": "no-places.dxf",
+        "max_places": 0
+      },
+      "expect": {
+        "/result/elements": 1,
+        "/diagnostics": [
+          {
+            "code": "convert.element.unsupported",
+            "severity": "warning",
+            "count": 3,
+            "at": [],
+            "params": {
+              "format": "DXF",
+              "kind": "layer"
+            }
+          },
+          {
+            "code": "convert.layer-field.dropped",
+            "severity": "warning",
+            "fidelity": "dropped",
+            "count": 5,
+            "at": [],
+            "params": {
+              "format": "DXF",
+              "field": "description"
+            }
+          },
+          {
+            "code": "convert.layer-field.dropped",
+            "severity": "warning",
+            "fidelity": "dropped",
+            "count": 4,
+            "at": [],
+            "params": {
+              "format": "DXF",
+              "field": "transparency"
+            }
+          },
+          {
+            "code": "dxf.lift.dropped",
+            "severity": "warning",
+            "fidelity": "dropped",
+            "count": 1,
+            "at": [],
+            "params": {
+              "kind": "CUSTOM_ENTITY"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "doc": "out.dxf",
+        "edits": []
+      },
+      "expect": {
+        "/result/applied": [],
+        "/diagnostics": []
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "tables",
+        "doc": "out.dxf"
+      },
+      "expect": {
+        "/result/layers/0/name": "0",
+        "/result/layers/0/hash": "v2:f7a93c70d807efe2193098f010c634f6",
+        "/result/layers/1/name": "A",
+        "/result/layers/1/hash": "v2:b03510577eeeb2e3415b9cf330e70dc3",
+        "/result/layers/3/name": "C",
+        "/result/layers/3/hash": "v2:406a9cbeae82fe40821323ba38af8789",
+        "/diagnostics": []
+      },
+      "absent": [
+        "/result/layers/5"
+      ]
+    }
+  ]
+}

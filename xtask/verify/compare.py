@@ -46,6 +46,10 @@ KINDLESS = {
 # catalog/codes.toml の fidelity が dropped でも、図形は移し、その一部だけを落としたことを言う診断と、書き出すときの
 # 診断。黙って捨てない照合では数えない
 PARTLY = {
+    # 再符号化の出力で除いたもの。L2 に図形を移さなかったことの根拠にはしない。
+    "dwg.dxf-header.dropped",
+    "dwg.dxf-record.dropped",
+    "dwg.dxf-reference.dropped",
     "dwg.table-format.unsupported",
     "dxf.arc-dimension-leader.dropped",
     "dxf.cell-value.dropped",

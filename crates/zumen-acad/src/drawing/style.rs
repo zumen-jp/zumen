@@ -310,7 +310,7 @@ impl Lifter<'_> {
             None => None,
             Some(_) => Some(self.line_weight(object)?),
         };
-        let transparency = match xdata(object, b"AcCmTransparency")
+        let transparency = match xdata(object, LAYER_TRANSPARENCY_APP.as_bytes())
             .and_then(|group| group.iter().find(|value| value.code == 1071))
         {
             None => None,
@@ -323,7 +323,7 @@ impl Lifter<'_> {
             },
             Some(_) => return Err(invalid(kind, 1071)),
         };
-        let description = match xdata(object, b"AcAecLayerStandard")
+        let description = match xdata(object, LAYER_DESCRIPTION_APP.as_bytes())
             .and_then(|group| group.iter().filter(|value| value.code == 1000).nth(1))
         {
             None => None,
@@ -503,6 +503,9 @@ pub(super) fn transparency(value: i64) -> Option<Inherit<Transparency>> {
         _ => None,
     }
 }
+
+pub(super) const LAYER_DESCRIPTION_APP: &str = "AcAecLayerStandard";
+pub(super) const LAYER_TRANSPARENCY_APP: &str = "AcCmTransparency";
 
 /// XDATA の、登録アプリケーション名（1001）が `app` の組の値。なければ `None`
 fn xdata<'a>(object: &'a Object, app: &[u8]) -> Option<&'a [Value]> {

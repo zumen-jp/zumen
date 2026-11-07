@@ -301,6 +301,8 @@ ZUMEN_SAMPLES=/path/to/samples cargo test -q -p zumen-acad --test samples
 | `dwg` | 読み | `application` |
 | `dwg` | 書き | `application` |
 
+R2004 DWG の弧長寸法と描画ブロックを同系統の DXF に書ける範囲と、対になる公開 DXF との照合は [DXF の扱い](dxf.md#r2004-dwg-の弧長寸法)にあります（#634）。
+
 段の意味は[決定 0254](../decisions/0254-parallel-agents-and-cross-review.md) に、根拠は[形式と権利の一覧](README.md#format-dwg)にあります。段は確かめた方法のうちもっとも強いものを示します。AutoCAD で確かめたのは、次の範囲だけです。ACadSharp とは、毎晩の CI で照らします。
 
 - 読み: AutoCAD 2027 で作った R2000・R2004・R2013・R2018 の DWG（`samples/dwg`）を、AutoCAD が同じ図面から書いた DXF と、テスト（`crates/zumen-acad/tests/samples.rs` など）で比べる。「実際の図面で確かめた扱い」には、`samples/` にない図面で確かめたものもある。

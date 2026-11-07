@@ -20,6 +20,7 @@ mod header;
 mod kinds;
 mod objects;
 mod r2004;
+pub(crate) mod reencode;
 mod write_back;
 
 use bits::{Bits, crc16, modular_char, modular_short};
@@ -118,12 +119,16 @@ pub(super) enum Release {
 
 /// クラスのセクションの 1 つのクラス。型が 500 以上のオブジェクトは、番号が型と同じクラスで決まる
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct Class {
+pub(crate) struct Class {
     number: u16,
     /// DXF の名前
-    name: Vec<u8>,
+    pub(crate) name: Vec<u8>,
+    pub(crate) cpp: Vec<u8>,
+    pub(crate) app: Vec<u8>,
+    pub(crate) flags: u16,
+    pub(crate) proxy: bool,
     /// 図形を作るクラスか（itemclassid が 0x1F2）
-    entity: bool,
+    pub(crate) entity: bool,
 }
 
 /// ヘッダーのセクションの記録（ODS 5.4.1 の 3.2.6）
@@ -171,6 +176,10 @@ impl DwgFile {
             classes.push(Class {
                 number: class.number,
                 name: bytes(&class.name, cx)?,
+                cpp: bytes(&class.cpp, cx)?,
+                app: bytes(&class.app, cx)?,
+                flags: class.flags,
+                proxy: class.proxy,
                 entity: class.entity,
             });
         }
@@ -514,11 +523,11 @@ fn classes(src: &[u8], start: usize, release: Release, cx: &mut Cx) -> Result<Ve
 /// itemclassid
 fn class(bits: &mut Bits, release: Release) -> Option<Class> {
     let number = u16::try_from(bits.bs()?).ok()?;
-    bits.bs()?;
-    bits.text()?;
-    bits.text()?;
+    let flags = bits.bs()? as u16;
+    let app = bits.text()?;
+    let cpp = bits.text()?;
     let name = bits.text()?;
-    bits.bit()?;
+    let proxy = bits.bit()?;
     let entity = bits.bs()? == 0x1F2;
     // R2004 からは、オブジェクトの数（BL）・バージョン（BL）・保守のバージョン（BL）・不明な 2 つの BL が続く
     if release >= Release::R2004 {
@@ -529,6 +538,10 @@ fn class(bits: &mut Bits, release: Release) -> Option<Class> {
     Some(Class {
         number,
         name,
+        app,
+        cpp,
+        flags,
+        proxy,
         entity,
     })
 }
