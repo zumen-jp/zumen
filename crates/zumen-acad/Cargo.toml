@@ -19,8 +19,10 @@ encoding_rs = { version = "0.8.35", optional = true }
 
 [features]
 default = ["drawing"]
+# R2004 の同系統の再符号化では、L1 だけでも CP932 の名前を照合できる
+cp932 = ["dep:encoding_rs"]
 # DXF から図面モデル（L2）への変換。L1 だけを使うなら外せる
-drawing = ["dep:zumen-drawing", "dep:encoding_rs"]
+drawing = ["dep:zumen-drawing", "cp932"]
 
 [dev-dependencies]
 libm = { version = "0.2.16", default-features = false }

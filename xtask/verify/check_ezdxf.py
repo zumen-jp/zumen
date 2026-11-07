@@ -16,6 +16,7 @@
   表し方（$PDMODE・$PDSIZE）が、ezdxf で読んだ値と同じ。
 """
 
+import json
 import math
 import sys
 from collections import Counter
@@ -196,7 +197,7 @@ def compare_arc_record(reference, actual):
     return failures
 
 
-def check_arc_dimensions(folder, path, doc, counts):
+def check_arc_dimensions(folder, entry, path, doc, reading, counts):
     """同じ図面を AutoCAD が保存した R2004 DXF を比較先にする（#634）。"""
     # recover は MTEXT の Unicode エスケープも文字に戻す。比較先と変換先を同じ読み方で比べる。
     reference, _ = recover.readfile(str(folder / "input/zumen-arcdim-r2004_ascii.dxf"))
@@ -205,15 +206,32 @@ def check_arc_dimensions(folder, path, doc, counts):
     if doc.dxfversion != "AC1018" or len(wanted) != 6 or len(found) != 6:
         return [f"R2004 の弧長寸法が 6 件と一致しない（比較先 {len(wanted)} 件、出力 {len(found)} 件）"]
     failures = []
+    if name := entry.get("added_layer"):
+        if name not in doc.layers or (doc.layers.get(name).dxf.name, doc.layers.get(name).dxf.color) != (name, 3):
+            failures.append("追加した画層の名前か ACI が違う")
     # ezdxf は読み込み後に既定のオブジェクトを足す。元の出力ファイルが宣言したハンドルだけを比較する。
     handles, _, _ = scan(path, doc.output_encoding)
     retained = set(handles).intersection(doc.entitydb.keys(), reference.entitydb.keys())
+    original = json.loads((folder / "zumen" / (entry["from"] + ".json")).read_text(encoding="utf-8"))
+    if reading is None or [e["id"] for e in reading["entities"]] != [e["id"] for e in original["entities"]]:
+        failures.append("元の DWG と変換先の要素 ID が違う")
+    places = {e["source"]["handle"]: e["source"]["bytes"] for e in original["entities"] if "handle" in e.get("source", {})}
+    lost = []
     for handle in sorted(retained):
         left, right = reference.entitydb[handle], doc.entitydb[handle]
         wanted_links = [h for h in left.get_reactors() if h in retained]
         if right.get_reactors() != wanted_links:
             failures.append(f"{left.dxftype()} のリアクターが違う")
         counts["retained_reactors"] += len(wanted_links)
+        for target in left.get_reactors():
+            if target not in retained:
+                lost.append(places.get(handle))
+    # 公開 DWG の元の図形と DXF のハンドルを結び、残せなかったリアクターの診断を照合する。
+    dropped = [d for d in entry["diagnostics"] if d["code"] == "dwg.dxf-reference.dropped" and d["params"]["code"] == 330]
+    if len(lost) != 12 or None in lost or len(dropped) != 1 or dropped[0]["count"] != len(lost):
+        failures.append("出力対象外へのリアクター 12 本の件数か出所が違う")
+    elif dropped[0]["at"] != [{"bytes": p} for p in sorted(lost, key=lambda p: p["start"])]:
+        failures.append("出力対象外へのリアクターの診断が元の図形のバイト範囲と違う")
     classes = {c.dxf.name: c for c in doc.classes.classes.values()}
     # この図面の DXF でクラスの宣言を要し、変換先にもインスタンスを持つ 2 種。
     kinds = {"ARC_DIMENSION", "ACDBDICTIONARYWDFLT"}
@@ -264,7 +282,7 @@ def check_file(folder, entry, reading, baseline, counts):
     }
     if entry["role"] == "convert":
         if entry.get("from") == "input/zumen-arcdim-r2004.dwg":
-            failures += check_arc_dimensions(folder, path, doc, counts)
+            failures += check_arc_dimensions(folder, entry, path, doc, reading, counts)
         if audit["errors"]:
             failures.append(f"ezdxf の監査の誤り: {audit['errors']} {[e.message for e in auditor.errors][:3]}")
         if audit["fixes"]:
