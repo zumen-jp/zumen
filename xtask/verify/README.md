@@ -73,7 +73,7 @@ ACadSharp のツールは、.NET 10 の SDK で動かします。ACadSharp の�
 
 - ezsxf がフィーチャを型で読む SFC（`input/made-features.sfc`）。
 - zumen が要素にしない図形を 20 持つ DXF（`input/made-dropped.dxf`）。診断の場所が既定の数（16）を超えても、黙って捨てない照合が働くことを確かめる。平面の図面モデルに移さない図形（`dxf.non-planar.dropped`）も持つ。
-- zumen の entities の応答が形を返さない要素になる図形を持つ R2000 の DXF（`input/made-shapeless.dxf`）。HATCH・SOLID・TRACE はハッチング、IMAGE・PDFUNDERLAY は画像の範囲、ACAD_TABLE は表の要素になる。要素の種類を出所の図形の種類と比べる照合を、毎晩のキットで通し、`test_source_kinds.py` は、その種類を入れ替えた読みを食い違いにすることを確かめる（#558）。キットの DWG（公開サンプル）はこれらの図形を持たないので、DWG は `test_source_kinds.py` が寸法の要素から形を外した読みで確かめる。
+- zumen の entities の応答が形を返さない要素になる図形を持つ R2010 の DXF（`input/made-shapeless.dxf`）。HATCH・SOLID・TRACE はハッチング、IMAGE・PDFUNDERLAY は画像の範囲、ACAD_TABLE は表の要素になる。要素の種類を出所の図形の種類と比べる照合を、毎晩のキットで通し、`test_source_kinds.py` は、その種類を入れ替えた読みを食い違いにすることを確かめる（#558）。キットの DWG（公開サンプル）はこれらの図形を持たないので、DWG は `test_source_kinds.py` が寸法の要素から形を外した読みで確かめる。
 - 日本語の画層とその上の線を持つ R2004（ANSI_932）と R2007（UTF-8）の DXF（`input/made-japanese-r2004.dxf`・`input/made-japanese-r2007.dxf`）。変換で足す線種・画層・文字スタイルも持ち、TABLE の件数と、文字コードごとの画層の照合を確かめる。
 - 置き方と黙って捨てない照合の枝を通す SFC と P21（`input/made-structure.sfc`・`input/made-structure.p21`）。作図部品・作図グループ・表示する複合曲線と表示しない複合曲線・ハッチング・文字・バルーン（P21）と、zumen が移さない半径 0 の円を持つ。P21 は、枠の折れ線がある画像の作図グループと、ない画像の作図グループ、引数の中にコメントを持つ文も持つ（#558）。SFC は、非表示の複合曲線の前にも文字・点マーカー・ハッチング・作図部品と作図グループの配置を持つ（#549）。書き戻しと変換は当てない。
   - P21 は、番号が大きい用紙とレイヤを先に書き、同じ番号の点も後に書く。採用する形・レイヤ・用紙内の所属が変わらず、採用しない実体・用紙・レイヤへの所属を診断することを確かめる（#550）。照合側も zumen と同じ選び方をするので、仕様の解釈を独立に確かめるものではない。

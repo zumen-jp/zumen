@@ -610,8 +610,9 @@ def dropped_dxf():
 
 
 def shapeless_dxf():
-    """zumen の entities の応答が形を返さない要素になる図形を持つ DXF（R2000）。HATCH・SOLID・TRACE はハッチング、
-    IMAGE・PDFUNDERLAY は画像の範囲の要素になる。要素の種類を出所の図形の種類と比べる照合（compare.py の KINDS）を、
+    """zumen の entities の応答が形を返さない要素になる図形を持つ DXF（R2010）。HATCH・SOLID・TRACE はハッチング、
+    IMAGE・PDFUNDERLAY は画像の範囲、ACAD_TABLE は表の要素になる。ACAD_TABLE は AC1018 から、PDFUNDERLAY と
+    PDFDEFINITION は AC1024 からの図形とオブジェクトなので、$ACADVER を AC1024 にする。要素の種類を出所の図形の種類と比べる照合（compare.py の KINDS）を、
     毎晩のキットで通す（#558）。画像と PDF の定義は OBJECTS 節の辞書に置く（DXF Reference「IMAGEDEF」
     「UNDERLAYDEFINITION」）"""
 
@@ -631,7 +632,7 @@ def shapeless_dxf():
             pairs += [(10 + k, float(x + dx)), (20 + k, float(y)), (30 + k, 0.0)]
         return entity(kind, handle, "AcDbTrace", *pairs)
 
-    out = tags((0, "SECTION"), (2, "HEADER"), (9, "$ACADVER"), (1, "AC1015"), (9, "$HANDSEED"), (5, "40C"))
+    out = tags((0, "SECTION"), (2, "HEADER"), (9, "$ACADVER"), (1, "AC1024"), (9, "$HANDSEED"), (5, "40C"))
     out += tags((9, "$INSUNITS"), (70, 4), (0, "ENDSEC"))
     out += tags((0, "SECTION"), (2, "TABLES"), (0, "TABLE"), (2, "LAYER"), (5, "2"), (330, "0"), (100, "AcDbSymbolTable"), (70, 1))
     out += item("LAYER", "10", "2", "AcDbSymbolTableRecord", (100, "AcDbLayerTableRecord"), (2, "0"), (70, 0), (62, 7), (6, "Continuous"))
@@ -1106,7 +1107,7 @@ def classes_jww(data):
         header = tag(b"CDataMoji") if len(records) == 1 else struct.pack("<H", 0x8003)
         records.append(header + base + text_body(x, y, text))
     records.append(tag(b"CDataSolid") + base + struct.pack("<8d", 0, 0, 1, 0, 1, 1, 0, 1))
-    # 寸法の線・文字・SXF の欄（引出線 2 本と点 4 個）。crates/zumen-jww/tests/drawing.rs と同じ配置。
+    # 寸法の線・文字・SXF のフィールド（引出線 2 本と点 4 個）。crates/zumen-jww/tests/drawing.rs と同じ配置。
     line = base + struct.pack("<4d", 0, 0, 10, 0)
     dimension = base + line + base + text_body(0, 0, b"10") + struct.pack("<H", 1)
     for x in (0, 10):
