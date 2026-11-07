@@ -59,6 +59,6 @@ python -I observe.py before.dxf after-color.dxf color
 
 `observe.py` は対象の値と 2 つの SHA-256 を JSON に出します。終了コード 0 は対照を保って表の予想のいずれかに合ったこと、1 は値が予想と違うこと、2 は対照の変化などで比較できないことを示します。1 も実測結果として残してください。合成入力を使った自動テストの結果は、実機で設定した結果とは別に記録します。
 
-[#316](https://github.com/zumen-jp/zumen/issues/316) には、AutoCAD の製品名と版、項目名、開き直した画面の設定、`AUDIT` の誤りの数、比較結果を記録します。実施できなかった項目と理由も書きます。他の図面や利用者の環境のパスは記録に含めません。
+[#316](https://github.com/zumen-jp/zumen/issues/316) には、AutoCAD の製品名と版、項目名、開き直した画面の設定、`AUDIT` の誤りの数、比較結果を記録します。実施できなかった項目と理由も書きます。ほかの図面や利用者の環境のパスは記録に含めません。
 
 点の印刷と MINSERT の再読み込みには、同じ成果物のルートの `README.md` に個別の手順と期待値があります。点は `input/zumen-points-a-r2018.dwg` を PDF に印刷して、画層 0 と記号内の点、印刷しない 2 画層の点を照らします。MINSERT は `316/` の R2000・R2004・R2018 の編集済み DWG を開き、格子と属性、監査結果を確かめます。[既存キットのファイルと期待値](https://github.com/zumen-jp/zumen/issues/316#issuecomment-6610769586)
