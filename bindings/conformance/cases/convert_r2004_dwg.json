@@ -1,0 +1,164 @@
+{
+  "description": "公開 R2004 DWG の弧長寸法を DXF に変換する（決定 0281）。予算で止まった出力先は同じ名前でやり直せる。元の文書と変換先の要素 ID、応答と出力のバイト列をネイティブと wasm で照らす。",
+  "module": "drawing",
+  "steps": [
+    {
+      "push": {
+        "name": "input.dwg",
+        "file": "samples/dwg/zumen-arcdim-r2004.dwg"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "input.dwg"
+      },
+      "expect": {
+        "/result/format": "dwg"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "input.dwg",
+        "limit": 2
+      },
+      "expect": {
+        "/result/items/0/id": "space/0/h2D9",
+        "/result/items/1/id": "space/0/h2DA",
+        "/result/items/1/kind": "dimension"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "convert",
+        "doc": "input.dwg",
+        "format": "dxf",
+        "to": "out.dxf",
+        "max_places": 1,
+        "budget": {
+          "decoded_bytes": 64
+        }
+      },
+      "expect": {
+        "/diagnostics/0/code": "budget.decoded-bytes.exceeded",
+        "/blobs": []
+      },
+      "status": "failed",
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "drawing",
+        "doc": "out.dxf"
+      },
+      "expect": {
+        "/diagnostics/0/code": "call.document.missing"
+      },
+      "status": "failed"
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "convert",
+        "doc": "input.dwg",
+        "format": "dxf",
+        "to": "out.dxf",
+        "max_places": 1
+      },
+      "expect": {
+        "/result/doc": "out.dxf",
+        "/result/format": "dxf",
+        "/result/elements": 79,
+        "/diagnostics/0/code": "dwg.dxf-reference.dropped",
+        "/diagnostics/0/count": 12,
+        "/diagnostics/0/params/code": 102,
+        "/diagnostics/0/at": [
+          {
+            "bytes": {
+              "start": 1055,
+              "end": 1178
+            }
+          }
+        ],
+        "/diagnostics/1/code": "dwg.dxf-reference.dropped",
+        "/diagnostics/1/count": 12,
+        "/diagnostics/1/params/code": 330,
+        "/diagnostics/1/at": [
+          {
+            "bytes": {
+              "start": 1521,
+              "end": 1577
+            }
+          }
+        ]
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "out.dxf",
+        "limit": 2
+      },
+      "expect": {
+        "/result/items/0/id": "space/0/h2D9",
+        "/result/items/1/id": "space/0/h2DA",
+        "/result/items/1/kind": "dimension"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "input.dwg",
+        "limit": 2
+      },
+      "expect": {
+        "/result/items/0/id": "space/0/h2D9",
+        "/result/items/1/id": "space/0/h2DA",
+        "/result/items/1/kind": "dimension"
+      }
+    },
+    {
+      "push": {
+        "name": "layout.dwg",
+        "file": "samples/dwg/zumen-layout-r2004.dwg"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "layout.dwg"
+      },
+      "expect": {
+        "/result/format": "dwg"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "convert",
+        "doc": "layout.dwg",
+        "format": "dxf",
+        "to": "layout.dxf"
+      },
+      "expect": {
+        "/result/elements": 2,
+        "/diagnostics/0/code": "convert.element.unsupported",
+        "/diagnostics/0/params/kind": "view",
+        "/diagnostics/0/count": 5
+      }
+    }
+  ]
+}

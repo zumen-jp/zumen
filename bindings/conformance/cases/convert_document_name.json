@@ -1,0 +1,119 @@
+{
+  "description": "IFC を開いた名前に DXF を作ると重複を返す。元の建物と図面を引け、建物を閉じるとその名前で図面を作れる。",
+  "module": "all",
+  "steps": [
+    {
+      "push": {
+        "name": "a.ifc",
+        "text": "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION((''),'2;1');\nFILE_NAME('','',(''),(''),'','','');\nFILE_SCHEMA(('IFC4'));\nENDSEC;\nDATA;\nENDSEC;\nEND-ISO-10303-21;\n"
+      }
+    },
+    {
+      "push": {
+        "name": "a.dxf",
+        "text": "0\nSECTION\n2\nENTITIES\n0\nLINE\n5\n20\n8\n0\n10\n0\n20\n0\n11\n1\n21\n1\n0\nENDSEC\n0\nEOF\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "a.ifc",
+        "doc": "shared"
+      },
+      "expect": {
+        "/result/format": "ifc"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "a.dxf"
+      },
+      "expect": {
+        "/result/format": "dxf"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "convert",
+        "doc": "a.dxf",
+        "format": "dxf",
+        "to": "shared"
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "call.document.exists",
+        "/diagnostics/0/params/name": "shared"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building",
+        "doc": "shared"
+      },
+      "expect": {
+        "/result/schema": "IFC4"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "drawing",
+        "doc": "shared"
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "call.document.unsupported"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "a.dxf"
+      },
+      "expect": {
+        "/result/total": 1
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "close",
+        "docs": [
+          "shared"
+        ]
+      },
+      "expect": {
+        "/result": {}
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "convert",
+        "doc": "a.dxf",
+        "format": "dxf",
+        "to": "shared"
+      },
+      "expect": {
+        "/result/doc": "shared",
+        "/result/elements": 1
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "shared"
+      },
+      "expect": {
+        "/result/total": 1
+      }
+    }
+  ]
+}

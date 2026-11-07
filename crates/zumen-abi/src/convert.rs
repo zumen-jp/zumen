@@ -1,12 +1,11 @@
-//! 図面モデルを、別の形式の新しいファイルに書く（lower。決定 0139・0206）。
+//! 開いた図面を新しい DXF に書く（決定 0139・0206・0281）。対応する R2004 DWG では共有の表を再符号化する。
 //!
-//! 形式ごとのひな形（表の既定の項目と、記号の定義の空の部品だけを持つファイル）を作り、図面モデルの線種・
+//! 図面モデルから書くときは、形式ごとのひな形（表の既定の項目と、記号の定義の空の部品だけを持つファイル）を作り、図面モデルの線種・
 //! 文字スタイル・寸法スタイル・レイヤ・要素を、書き戻し（apply）の追加で足す。書けない要素は落とし、種類ごとの
 //! 件数を診断にする。
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
-use zumen_acad::db::{Data, Section};
 use zumen_acad::{Dxf, DxfFile};
 use zumen_base::{Cx, Diagnostic, Diagnostics, Kind, Ref, Value, codes};
 use zumen_drawing::{
@@ -28,10 +27,30 @@ pub(crate) struct Converted {
     pub(crate) elements: u64,
 }
 
+/// R2004 DWG は共有の表を一度だけ読む。再符号化の範囲外なら同じ表から図面モデルを作る。
+pub(crate) fn from_r2004(
+    source: &zumen_acad::DwgFile,
+    cx: &mut Cx<'_>,
+) -> Result<Converted, Failed> {
+    match source.reencode_r2004_dxf(cx).map_err(|_| Failed)? {
+        zumen_acad::dxf::R2004Conversion::Dxf(encoded) => {
+            let file = Dxf::read(&encoded.bytes, cx).map_err(|_| Failed)?;
+            Ok(Converted {
+                file,
+                bytes: encoded.bytes,
+                elements: encoded.elements,
+            })
+        }
+        zumen_acad::dxf::R2004Conversion::DrawingSource(db) => {
+            let drawing = zumen_acad::lift_drawing(&db, cx).map_err(|_| Failed)?;
+            to_dxf(&drawing, cx)
+        }
+    }
+}
+
 /// 図面モデルを、新しい DXF（R2004）に書く
 pub(crate) fn to_dxf(drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<Converted, Failed> {
-    let mut lost = Lost::new(cx.diag.max_places());
-    let blocks = block_names(drawing, &mut lost);
+    let blocks = block_names(drawing, cx);
     let template = template(drawing, &blocks);
     cx.check(Kind::Work, template.len() as u64)
         .map_err(|stop| stopped(cx, stop))?;
@@ -87,17 +106,25 @@ pub(crate) fn to_dxf(drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<Converted, 
             ));
         }
     }
-    add_all(&mut file, edits, &mut lost, cx)?;
+    add_all(&mut file, edits, cx)?;
 
     // 2. レイヤ。線種は、書いた先の ID に直す
     let target = lift(&file, cx)?;
     let mut edits = Vec::new();
+    let mut fields = Vec::new();
+    let mut reused = BTreeSet::new();
     for layer in &drawing.layers {
         cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
-        if find_layer(&target, &layer.name).is_some() {
+        if let Some(existing) = find_layer(&target, &layer.name) {
+            // 同じひな形の画層を指す入力が複数あれば先の画層を使う。
+            if !reused.insert(existing.id) {
+                report_layer_fields(layer, cx);
+            } else if has_layer_fields(layer) {
+                fields.push(layer);
+            }
             continue;
         }
-        // DXF の画層は、状態・番号の色・線種を持つ。持たないものは既定で埋め、透過性と説明は書かない
+        // 画層の通常の値を先に書き、追加できた画層の拡張データを確定時に書く。
         let style = layer.style.unwrap_or(LayerStyle {
             color: None,
             line_type: None,
@@ -130,9 +157,12 @@ pub(crate) fn to_dxf(drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<Converted, 
                 ..state
             },
         );
-        edits.push(Addition::new(
+        let mut addition = Addition::new(
             Edit::AddLayer {
                 layer: Box::new(Layer {
+                    id: layer.id,
+                    name: layer.name.clone(),
+                    follows_placement: layer.follows_placement,
                     state: Some(state),
                     style: Some(LayerStyle {
                         color: Some(color),
@@ -142,14 +172,15 @@ pub(crate) fn to_dxf(drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<Converted, 
                     }),
                     description: None,
                     source: zumen_base::Ref::default(),
-                    ..layer.clone()
                 }),
             },
             "layer",
             &layer.source,
-        ));
+        );
+        addition.layer_fields = has_layer_fields(layer).then_some(layer);
+        edits.push(addition);
     }
-    add_all(&mut file, edits, &mut lost, cx)?;
+    fields.extend(add_all(&mut file, edits, cx)?.layer_fields);
 
     // 3. 要素。記号の定義の中身を先に、実寸の空間の要素を後に足す
     let target = lift(&file, cx)?;
@@ -176,7 +207,7 @@ pub(crate) fn to_dxf(drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<Converted, 
         };
         for element in &definition.space.elements {
             cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
-            maps.element(element, place, &mut edits, &mut lost);
+            maps.element(element, place, &mut edits, cx);
         }
         for attribute in &definition.attributes {
             cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
@@ -187,9 +218,9 @@ pub(crate) fn to_dxf(drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<Converted, 
                     style: attribute.attribute.style,
                     shape: Shape::Text(attribute.attribute.text.clone()),
                 };
-                maps.element(&text, place, &mut edits, &mut lost);
+                maps.element(&text, place, &mut edits, cx);
             } else {
-                lost.add("attribute_definition", &attribute.attribute.source);
+                report_dropped(cx, "attribute_definition", &attribute.attribute.source);
             }
         }
     }
@@ -200,7 +231,7 @@ pub(crate) fn to_dxf(drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<Converted, 
     {
         for element in &space.elements {
             cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
-            maps.element(element, &model, &mut edits, &mut lost);
+            maps.element(element, &model, &mut edits, cx);
         }
     }
     // 用紙は 1 つだけ書ける（DXF の Paper_Space）。ほかの用紙は落とす
@@ -216,9 +247,9 @@ pub(crate) fn to_dxf(drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<Converted, 
     for (index, sheet) in drawing.sheets.iter().enumerate() {
         cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
         let Some(paper) = paper.as_ref().filter(|_| index == 0) else {
-            lost.add("sheet", &sheet.source);
+            report_dropped(cx, "sheet", &sheet.source);
             for view in &sheet.views {
-                lost.add("view", &view.source);
+                report_dropped(cx, "view", &view.source);
             }
             continue;
         };
@@ -238,7 +269,7 @@ pub(crate) fn to_dxf(drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<Converted, 
             match item {
                 SheetItem::Element(index) => {
                     if let Some(element) = sheet.elements.get(index) {
-                        maps.element(element, paper, &mut edits, &mut lost);
+                        maps.element(element, paper, &mut edits, cx);
                     }
                 }
                 SheetItem::View(index) => {
@@ -250,7 +281,7 @@ pub(crate) fn to_dxf(drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<Converted, 
                     }
                     let space = drawing.spaces.iter().find(|space| space.id == view.space);
                     let Some(space) = space.filter(|_| bake::bakes(view)) else {
-                        lost.add("view", &view.source);
+                        report_dropped(cx, "view", &view.source);
                         continue;
                     };
                     cx.report(
@@ -261,22 +292,24 @@ pub(crate) fn to_dxf(drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<Converted, 
                     for element in bake::bake(space, view) {
                         cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
                         match element {
-                            Ok(element) => maps.element(&element, paper, &mut edits, &mut lost),
-                            Err(element) => lost.add(kind_of(&element.shape), &element.source),
+                            Ok(element) => maps.element(&element, paper, &mut edits, cx),
+                            Err(element) => {
+                                report_dropped(cx, kind_of(&element.shape), &element.source)
+                            }
                         }
                     }
                 }
             }
         }
     }
-    lost.added = 0;
-    add_all(&mut file, edits, &mut lost, cx)?;
-    let elements = lost.added;
-
-    quiet(cx, |cx| update_table_counts(&mut file, cx)).map_err(|error| failed(cx, error))?;
+    let elements = add_all(&mut file, edits, cx)?.elements;
+    let db = quiet(cx, |cx| file.objects(cx)).map_err(|error| failed(cx, error))?;
+    let db = db
+        .finish_new_dxf_tables(&fields, cx)
+        .map_err(|error| failed(cx, error))?;
+    quiet(cx, |cx| file.write_back(&db, cx)).map_err(|error| failed(cx, error))?;
     let mut bytes = Vec::new();
     Dxf::write(&file, &mut bytes, cx).map_err(|_| Failed)?;
-    lost.report(cx);
     Ok(Converted {
         file,
         bytes,
@@ -284,89 +317,53 @@ pub(crate) fn to_dxf(drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<Converted, 
     })
 }
 
-/// DXF Reference「Symbol Table Group Codes」の TABLE の 70 は、項目数の上限。
-/// apply で追加した後の実際の項目数を書き、ひな形の初期値のままにしない。
-fn update_table_counts(file: &mut DxfFile, cx: &mut Cx<'_>) -> Result<(), Error> {
-    let mut db = file.objects(cx)?;
-    let mut current: Option<(usize, i64)> = None;
-    let mut tables = Vec::new();
-    for (index, object) in db.objects().iter().enumerate() {
-        cx.check(Kind::Work, 1)?;
-        if object.section != Section::Tables {
-            continue;
-        }
-        match object.kind.as_slice() {
-            b"TABLE" => current = Some((index, 0)),
-            b"ENDTAB" => {
-                if let Some(table) = current.take() {
-                    tables.push(table);
-                }
-            }
-            _ => {
-                if let Some((_, count)) = &mut current {
-                    *count = count.saturating_add(1);
-                }
-            }
-        }
-    }
-    for (index, count) in tables {
-        let object = db.object_mut(index).ok_or(Error::Invalid)?;
-        let value = object
-            .values
-            .iter_mut()
-            .find(|value| value.code == 70)
-            .ok_or(Error::Invalid)?;
-        value.data = Data::Int(count);
-    }
-    file.write_back(&db, cx)
+fn report_dropped(cx: &mut Cx<'_>, kind: &'static str, source: &Ref) {
+    cx.report(
+        Diagnostic::new(codes::CONVERT_ELEMENT_UNSUPPORTED)
+            .with("kind", Value::Key(kind))
+            .with("format", "DXF")
+            .at(source.clone()),
+    );
 }
 
-/// 書けなかったものの、種類ごとの件数
-struct Lost {
-    diagnostics: Diagnostics,
-    /// 足した要素の数
-    added: u64,
+fn has_layer_fields(layer: &Layer) -> bool {
+    layer.description.is_some() || layer.style.and_then(|style| style.transparency).is_some()
 }
 
-impl Lost {
-    fn new(max_places: usize) -> Self {
-        Self {
-            diagnostics: Diagnostics::with_max_places(max_places),
-            added: 0,
-        }
-    }
-
-    fn add(&mut self, kind: &'static str, source: &Ref) {
-        self.diagnostics.report(
-            Diagnostic::new(codes::CONVERT_ELEMENT_UNSUPPORTED)
-                .with("kind", Value::Key(kind))
-                .with("format", "DXF")
-                .at(source.clone()),
-        );
-    }
-
-    fn report(self, cx: &mut Cx<'_>) {
-        for diagnostic in self.diagnostics.into_vec() {
-            cx.report(diagnostic);
+fn report_layer_fields(layer: &Layer, cx: &mut Cx<'_>) {
+    let transparency = layer.style.and_then(|style| style.transparency);
+    for (field, present) in [
+        ("description", layer.description.is_some()),
+        ("transparency", transparency.is_some()),
+    ] {
+        if present {
+            cx.report(
+                Diagnostic::new(codes::CONVERT_LAYER_FIELD_DROPPED)
+                    .with("field", Value::Key(field))
+                    .with("format", "DXF")
+                    .at(layer.source.clone()),
+            );
         }
     }
 }
 
 /// 追加と、失敗したときに返す元の種類・場所。属性の描画は、追加が通ってから数える。
-struct Addition {
+struct Addition<'a> {
     edit: Edit,
     kind: &'static str,
     source: Ref,
     detached: bool,
+    layer_fields: Option<&'a Layer>,
 }
 
-impl Addition {
+impl Addition<'_> {
     fn new(edit: Edit, kind: &'static str, source: &Ref) -> Self {
         Self {
             edit,
             kind,
             source: source.clone(),
             detached: false,
+            layer_fields: None,
         }
     }
 }
@@ -385,12 +382,12 @@ impl Maps<'_> {
         &self,
         element: &Element<P>,
         place: &Place<P>,
-        edits: &mut Vec<Addition>,
-        lost: &mut Lost,
+        edits: &mut Vec<Addition<'_>>,
+        cx: &mut Cx<'_>,
     ) {
         let kind = kind_of(&element.shape);
         let Some(mut geometry) = geometry::geometry_of(&element.shape) else {
-            lost.add(kind, &element.source);
+            report_dropped(cx, kind, &element.source);
             return;
         };
         let mut detached = Vec::new();
@@ -401,11 +398,11 @@ impl Maps<'_> {
             }
             Geometry::Symbol(symbol) => {
                 let Shape::Symbol(source) = &element.shape else {
-                    lost.add(kind, &element.source);
+                    report_dropped(cx, kind, &element.source);
                     return;
                 };
                 let Some(name) = self.blocks.get(&key_of(&source.key)) else {
-                    lost.add("external_symbol", &element.source);
+                    report_dropped(cx, "external_symbol", &element.source);
                     return;
                 };
                 symbol.name = name.clone();
@@ -424,11 +421,11 @@ impl Maps<'_> {
             _ => {}
         }
         let Ok(shape) = geometry::shape_of(&geometry, None, place.origin) else {
-            lost.add(kind, &element.source);
+            report_dropped(cx, kind, &element.source);
             return;
         };
         let Some(layer) = self.layer(element.layer) else {
-            lost.add(kind, &element.source);
+            report_dropped(cx, kind, &element.source);
             return;
         };
         let element_of = |shape| Element {
@@ -447,7 +444,7 @@ impl Maps<'_> {
         ));
         for text in detached {
             let before = edits.len();
-            self.element(&text, place, edits, lost);
+            self.element(&text, place, edits, cx);
             if let Some(addition) = edits.get_mut(before) {
                 addition.detached = true;
             }
@@ -519,14 +516,20 @@ fn model_place(id: String, space: SpaceId) -> Place<ModelPoint> {
     }
 }
 
+#[derive(Default)]
+struct Added<'a> {
+    elements: u64,
+    layer_fields: Vec<&'a Layer>,
+}
+
 /// 変更をまとめて当て、当てられなければ半分に分けて当て直す。1 つでも当てられない変更は落として数える。
 /// 当てられなかった試しの診断は捨てる
-fn add_all(
+fn add_all<'a>(
     file: &mut DxfFile,
-    edits: Vec<Addition>,
-    lost: &mut Lost,
+    edits: Vec<Addition<'a>>,
     cx: &mut Cx<'_>,
-) -> Result<(), Failed> {
+) -> Result<Added<'a>, Failed> {
+    let mut added = Added::default();
     let mut pending = vec![edits];
     while let Some(edits) = pending.pop() {
         if edits.is_empty() {
@@ -540,12 +543,15 @@ fn add_all(
         };
         match quiet(cx, |cx| file.apply(&changes, cx)) {
             Ok(_) => {
-                lost.added += edits
+                added
+                    .layer_fields
+                    .extend(edits.iter().filter_map(|a| a.layer_fields));
+                added.elements += edits
                     .iter()
                     .filter(|addition| matches!(addition.edit, Edit::Add { .. }))
                     .count() as u64;
                 for addition in edits.iter().filter(|addition| addition.detached) {
-                    lost.diagnostics.report(
+                    cx.report(
                         Diagnostic::new(codes::CONVERT_ATTRIBUTE_DRAWN)
                             .with("format", "DXF")
                             .at(addition.source.clone()),
@@ -554,7 +560,10 @@ fn add_all(
             }
             Err(Error::Rejected | Error::Invalid | Error::Unsupported) => {
                 if let [addition] = edits.as_slice() {
-                    lost.add(addition.kind, &addition.source);
+                    report_dropped(cx, addition.kind, &addition.source);
+                    if let Some(layer) = addition.layer_fields {
+                        report_layer_fields(layer, cx);
+                    }
                 } else {
                     let mut first = edits;
                     let second = first.split_off(first.len() / 2);
@@ -566,7 +575,7 @@ fn add_all(
             Err(error) => return Err(failed(cx, error)),
         }
     }
-    Ok(())
+    Ok(added)
 }
 
 /// 診断を捨てて走らせる。止めた理由だけは残す
@@ -619,7 +628,7 @@ fn key_of(key: &SymbolKey) -> (String, String) {
 }
 
 /// 記号の定義ごとの、書いた先の部品の名前。外部参照の定義は書かない。無名の定義には名前を付ける
-fn block_names(drawing: &Drawing2D, lost: &mut Lost) -> BTreeMap<(String, String), String> {
+fn block_names(drawing: &Drawing2D, cx: &mut Cx<'_>) -> BTreeMap<(String, String), String> {
     let mut names = BTreeMap::new();
     let mut used: BTreeMap<String, ()> = BTreeMap::new();
     for reserved in ["*model_space", "*paper_space"] {
@@ -627,7 +636,7 @@ fn block_names(drawing: &Drawing2D, lost: &mut Lost) -> BTreeMap<(String, String
     }
     for (index, definition) in drawing.symbols.iter().enumerate() {
         if definition.external.is_some() {
-            lost.add("external_symbol_definition", &definition.source);
+            report_dropped(cx, "external_symbol_definition", &definition.source);
             continue;
         }
         let base = if definition.anonymous || definition.key.name.starts_with('*') {
@@ -1006,7 +1015,7 @@ fn viewports(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use zumen_acad::db::Data;
+    use zumen_acad::db::{Data, Section};
     use zumen_base::{Budget, CancelToken, Limits, Ref};
     use zumen_civil::{Alignment, CivilModel, Horizontal, HorizontalKind, Vertical, VerticalKind};
     use zumen_crs::MapPoint;

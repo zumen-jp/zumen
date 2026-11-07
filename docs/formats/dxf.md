@@ -76,9 +76,21 @@ AutoCAD の系統のファイルモデル（L1）として DXF を読み書き�
 - 用紙の座標と限界は最初の実寸の空間の単位で書き、LAYOUT の印刷の単位を mm、印刷の尺度を 1 図面単位の mm とする。実寸の空間がなければ mm とする。VIEWPORT は `AcDbEntity`・`AcDbViewport` と、用紙の BLOCK_RECORD を指す所有者を持つ。`$HANDSEED` は、VIEWPORT を含むすべてのハンドルより大きくする（DXF Reference「PLOTSETTINGS」「VIEWPORT」「HEADER Section Group Codes」）。
 - 文字のコード・ページは ANSI_932 とする。ひな形の記号名にも、書き戻しで使う `encoding_rs` の同じ表を使う（[決定 0192](../decisions/0192-acad-code-page-write-back.md)）。この依存は既存採用済みで、ライセンスは `(Apache-2.0 OR MIT) AND BSD-3-Clause`。OS やロケールに依らず、wasm でも同じ表で符号化する。記号名に使えない文字は `_` にし、空の名前・無名の定義・ANSI_932 で元に戻らない名前には `zumen_番号` を付ける。名前が重なれば連番を付ける。
 - 足せなかった画層は、元の場所と `kind: layer` を付けて `convert.element.unsupported` で返す。その画層の要素も落とし、種類・件数・元の場所を同じ code で返す。画層 0 には移さない。たとえば、追加できない予約名の Defpoints と、その上の要素は、この扱いになる。既定の画層 0 はひな形の項目を使う。
+- 図面モデルから新しい R2004 DXF を作るときは、画層 0 と追加できた画層の説明を XDATA の `AcAecLayerStandard`（空の 1000、説明の 1000）、透過性を `AcCmTransparency`（1071 の上位バイトが 2、下位バイトが不透明度）に書く。使う APPID を 1 回ずつ表に登録する。説明は ANSI_932 で元の文字に戻り、符号化後 255 バイト以内で、NUL と改行を含まないものを扱う。255 バイトは [DXF Reference の拡張データの上限](https://help.autodesk.com/cloudhelp/2020/ENU/AutoCAD-DXF/files/GUID-A2A628B0-3699-4740-A215-C560E7242F63.htm)による。
+- 画層を作れなかったときや、説明を表せないときは、出力に移せなかった値だけを `convert.layer-field.dropped` で返す。`field` は `description` か `transparency` で、それぞれの件数と元の画層の場所を持つ。ひな形にある画層 0 も含む。図面モデルへの読み取りと DXF への書き出しを通して、診断は元のレコード番号の順（DWG のオブジェクトはバイト範囲の開始位置の順）に返す。場所の表示を 0 件にしてもその順を保つ。
 - 書けない要素と、文字にした属性の診断にも、元の要素・属性の場所を付ける。診断ごとの件数を数え、場所の数は呼び出しの上限まで残す。`convert.attribute.drawn` は、属性の文字を実際に足せたときだけ返す。
 
 R2004 の構成は、Autodesk の [DXF Reference](https://images.autodesk.com/adsk/files/acad_dxf.pdf) の各節に従います。実アプリでの確認範囲は、下の「確かめた度合い」に書きます。
+
+### R2004 DWG の弧長寸法
+
+R2004 DWG のモデル空間・ペーパー空間に弧長寸法があり、必要な図形と参照をすべて扱える場合、`convert` は共有のオブジェクト表から R2004 の ASCII DXF に書く（[決定 0281](../decisions/0281-same-family-dxf-conversion.md)）。この経路では、元のハンドル・所有者・表の名前・コードページを使う。
+
+- 弧長寸法は `AcDbDimension` と `AcDbArcDimension` のサブクラスに分ける。共通部と固有部それぞれの 70・71、定義点、部分の角度、引出線の点を区別する。使うクラスの宣言は元の DWG から移し、出力のインスタンス数を 91 に書く。13 から始まる固有部の配置は AutoCAD の公開 DXF と照合した推定（[決定 0228](../decisions/0228-arc-length-dimensions.md)）。
+- 描画ブロックは元の BLOCK_RECORD とその BLOCK・ENDBLK を使い、所有するハンドルの並びで図形を書く。選択されていない用紙の寸法もその用紙のブロックに置く。図形は LINE・ARC・CIRCLE・SOLID・TRACE・POINT・MTEXT に対応する。用紙の LAYOUT は対応するブロックと相互に結び、寸法からは描画ブロックと DIMSTYLE、DIMSTYLE からは文字スタイルを引けるようにする。
+- 元のリアクターのうち、出力するオブジェクトへの参照は 102 の組と 330 に残す。図形のプロキシ画像は 92 にバイト数、310 に元のバイト列を書く。
+- ヘッダーは共有の表に取り出した変数と、新しい `$HANDSEED` を書く。コンテナー固有の情報などの欠落は `dwg.dxf-header.dropped`、出力対象外のオブジェクトは `dwg.dxf-record.dropped`、拡張辞書の組・省いたリアクター・辞書項目・図形の明示的な印刷スタイルへの参照は `dwg.dxf-reference.dropped` で返す。関連付けの DIMASSOC や拡張辞書も診断する。
+- 表の名前に ASCII 以外を使う図面、対象外の図形・外部参照のブロック・解けない必須の参照などがあれば、同じオブジェクト表を図面モデルに移し、決定 0206 の経路で書く。試行と変換には同じ予算を使う。
 
 ## バージョンの変更
 
@@ -216,9 +228,12 @@ R2004 の構成は、Autodesk の [DXF Reference](https://images.autodesk.com/ad
 
 - 読み: AutoCAD 2027 で作った R2000〜R2018 の DXF（`samples/dwg`）で、レイアウトの用紙（[決定 0229](../decisions/0229-paper-units-from-plot-settings.md)）・弧長寸法（[決定 0228](../decisions/0228-arc-length-dimensions.md)）・反転した切り抜き（[決定 0208](../decisions/0208-inverted-symbol-clips.md)）を、AutoCAD が書いた値と比べた。TEXT の高さと位置合わせは、AutoCAD 2027 が計算した置く点と比べた（[決定 0246](../decisions/0246-dxf-text-height-and-alignment-against-autocad.md)）。
 - 非有限値の境界: 楕円・ハッチング・画像・文字と引出線つきの注記の角度、用紙と属性の換算、TEXT・ATTRIB の位置合わせで採用する点、ビュー、用紙の大きさ、MTEXT の書式倍率を、小さい合成入力で確かめた（`synthetic`、`crates/zumen-acad/tests/finite.rs`・`drawing.rs`、#594）。診断のコード・件数・場所と、正常な要素の ID、L1 のバイト列も確かめている。この異常値の扱いは、AutoCAD では照らしていない。
+- 同系統の再符号化: 最小の共有オブジェクト表で、出力から除いた XRECORD と辞書項目の件数・元のバイト範囲、未対応の参照がある場合の経路の切り替え、予算と中断での停止を確かめた（`synthetic`）。AutoCAD の R2004 の公開 DWG を変換して ezdxf 1.4.5 で再読し、対の公開 DXF と弧長寸法 6 件、寸法スタイル、描画ブロックの図形 67 件を照合した。6 件のプロキシ画像の全バイトと、参照先も保存したリアクター 12 本が一致した。ほかの 12 本のリアクターは元の場所で欠落を診断した。出力の監査の誤り・修復はともに 0 件だった（`external`、#634）。AutoCAD で開き直す実機照合は未実施。
+- 画層の説明と透過性: ezdxf 1.4.5 で R2004 DXF の画層 0 と追加画層に「説明だけ」「透過性だけ」「両方」を設定し、公開 API で変換した。6 通りで再読した値・XDATA・APPID が一致し、監査の誤り・修復は 0 件だった。入力・出力それぞれへの変更なしの `apply` はバイト列が一致した（`external`、#635）。出力できない画層と、ANSI_932 で表せない説明については、フィールドごとの件数と入力位置を適合テストで確かめる（#633）。
 - 書き: AutoCAD で作った R2000・R2004・R2010・R2018 の DXF に、引出線の置き換え・変換・追加と MULTILEADER の線の置き換えを当てて書き戻し、AutoCAD 2027 で開いた。監査の誤りは 0 で、形・矢印・注記が当てた値と合った（#345）。
 - 「サンプルで確かめた」と書いた扱いには、`samples/` にない図面で確かめたものもある。「推定」と書いたものと、サンプルで確かめたと書いていないものは、仕様とテストの中で作ったファイルで確かめた。AutoCAD と照らしたのは上の範囲だけで、ezdxf と照らす値は下の項にある。
 - 点・寸法・表と、引出線のほかの変更を書き戻した DXF と、convert（[決定 0206](../decisions/0206-convert-to-new-dxf.md)）で書いた DXF は、AutoCAD で開いていない（#342・#314・#503）。
 - ezdxf: 毎晩の CI で、公開サンプルの DXF（`samples/dxf`・`samples/dwg`）と、それに書き戻しを当てた DXF を ezdxf 1.4.5 で読み、zumen の読みと照らす（`xtask/verify`、#511）。照らすのは、画層・図形の種類・モデル空間の形の値・黙って捨てていないこと、書き戻しで決めた形・画層・色と、監査の誤りが入力より増えないこと。convert で書いた DXF もすべて読め、監査の誤りと修復が 0 であることを照らす（#509）。各 TABLE の宣言件数（70）と実件数も比べる。日本語画層の R2004（ANSI_932）と R2007（UTF-8）を含め、公開サンプルとテストの図面から変換した 36 ファイルで確かめた。AutoCAD で開く手順は #503 の検証キットにあるが、まだ実行していない。
 
+- R2000 の `ANSI_1252` の[公開サンプル](../../samples/dxf/opendxfviewer-latin1.dxf)には、TEXT のグループ・コード 1 に `Ø`（`D8`）、`ü`（`FC`）、`ß`（`DF`）が 1 バイトずつ入っている。ezdxf 1.4.5 は文字コードを指定せずに `Bohrung Ø20 für M6` と `Maßstab 1:2` を読んだ。検証キットで両方の文字列を照らす。zumen はこの 2 件を `dxf.code-page.unsupported` として元のレコード 15・16 に返す（#327）。
 - 配置の逐次処理（[決定 0264](../decisions/0264-stream-drawing-walk.md)）: 合成の格子・空のビューの反復・深い配置・多数のレイヤと切り抜きで、継承と予算の停止を確かめた（`synthetic`）。`entities_e9.json` の 699 バイトの格子を scene と check に渡し、ネイティブと wasm の停止位置も比べる。図面モデルのバイナリの空間 ID の重複は、読み取りと API の open で拒否する。通常の描画の根拠は、既存の合成の組と公開サンプルの適合テストである。

@@ -90,6 +90,8 @@ jobs:
         run: npx --no-install tsc -p ../bindings/js/tsconfig.json
       - name: Canvas 2D の表示部品の型を確かめる（決定 0267）
         run: npx --no-install tsc -p ../packages/view2d/tsconfig.json
+      - name: React のフックの型を確かめる（決定 0267）
+        run: npx --no-install tsc -p ../packages/react/tsconfig.json
       - name: zumen.dev のページを作る
         run: npm run build
 
@@ -258,6 +260,10 @@ jobs:
         run: |
           npm ci --ignore-scripts --no-audit --no-fund --prefix xtask/verify/pdfjs
           node bindings/js/test/browser/view2d.mjs chromium target/wasm32-unknown-unknown/release/zumen_abi1.wasm
+      - name: React のフックの寿命とプレイグラウンドの操作・通信を Chromium で確かめる
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund --prefix playground
+          node bindings/js/test/browser/react.mjs chromium modules/zumen_abi1_drawing.wasm
       - name: npm のパッケージを Vite で組み、必要な wasm だけをブラウザーで読み込むことを確かめる（決定 0268）
         run: node bindings/js/test/browser/bundle.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm modules/zumen_abi1_drawing.wasm modules/zumen_abi1_bim.wasm modules/zumen_abi1_civil.wasm modules/zumen_abi1_pointcloud.wasm
 

@@ -9,6 +9,7 @@ mod add;
 mod dimension_style;
 mod layer;
 mod line_type;
+mod new_dxf;
 mod owned;
 mod text_style;
 use crate::db::{AcadDb, Data, Object, Section, Value};

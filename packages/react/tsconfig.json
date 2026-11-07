@@ -1,0 +1,10 @@
+{
+  "extends": "../view2d/tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@zumen-jp/zumen": ["../../bindings/js/src/index.d.ts"],
+      "@zumen-jp/view2d": ["../view2d/src/index.d.ts"]
+    }
+  },
+  "files": ["src/index.d.ts", "test/types.ts"]
+}

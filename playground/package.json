@@ -1,0 +1,20 @@
+{
+  "name": "zumen-drawing-playground",
+  "private": true,
+  "description": "手元の図面をブラウザーで確認するプレイグラウンド",
+  "license": "MIT OR Apache-2.0",
+  "type": "module",
+  "engines": { "node": ">=22.12" },
+  "scripts": {
+    "build": "vite build",
+    "start": "vite preview --host 127.0.0.1 --port 24188 --strictPort"
+  },
+  "dependencies": {
+    "@zumen-jp/react": "file:../packages/react",
+    "@zumen-jp/view2d": "file:../packages/view2d",
+    "@zumen-jp/zumen": "file:../bindings/js",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": { "vite": "8.3.5" }
+}

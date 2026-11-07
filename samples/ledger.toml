@@ -65,6 +65,18 @@ license-url = "https://github.com/mozman/ezdxf/blob/5265e6e6d02388a95f406c26983e
 attribution = "Copyright (c) 2020 Manfred Moitzi. ezdxf の examples/entities/text_alignments.py が書き出した DXF。MIT License の本文は licenses/ezdxf-MIT.txt"
 
 [[samples]]
+path = "dxf/opendxfviewer-latin1.dxf"
+sha256 = "45a6712ef1439841ff4776e4026f70d3bcf478dc36a101289ead24f55c89c8ea"
+bytes = 781
+title = "ANSI_1252 の文字を含む R2000 の DXF"
+publisher = "opendxfviewer contributors"
+url = "https://github.com/conol-ai/opendxfviewer/blob/de8d713f66f4e5de1c40c01a312d03588c408e80/tests/fixtures/latin1.dxf"
+retrieved = "2026-11-06"
+license = "MIT"
+license-url = "https://github.com/conol-ai/opendxfviewer/blob/de8d713f66f4e5de1c40c01a312d03588c408e80/LICENSE"
+attribution = "Copyright (c) 2026 opendxfviewer contributors. 公開元の tools/gen_fixtures.py が書き出した DXF。MIT License の本文は licenses/opendxfviewer-MIT.txt"
+
+[[samples]]
 path = "dwg/zumen-arcdim-r2004.dwg"
 sha256 = "5b3fed52811d2fc210f150a4fcdb0b7db498ec0498c8157b198ffea5e6c3c979"
 bytes = 65837
