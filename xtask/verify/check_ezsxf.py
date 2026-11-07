@@ -16,7 +16,8 @@
   境界の定義として持つ。sheet_members）。ezsxf がフィーチャを型で読まない SFC（マーカーが `/*SXF3` など）は、種類
   だけを比べ、結果の notes に書く。ezsxf が複合曲線を読めなかったか飛ばした SFC と、ハッチングの指す複合曲線が
   ないと言った SFC は、用紙の中にあることを比べず、notes に書く。make.py が作った SFC（made-features・
-  made-structure）とその書き戻しを ezsxf が型で読まなければ、失敗にする。
+  made-structure・made-duplicates）とその書き戻しを ezsxf が型で読まなければ、失敗にする。同じ番号の各フィーチャの
+  値と診断は出所のレコードで区別する。ezsxf の用紙・作図グループの所属の読みは、元の番号で比べる。
 - P21: 要素の出所のインスタンス（複合のインスタンスを含む）があり、レイヤ（PRESENTATION_LAYER_ASSIGNMENT。2 つの
   レイヤに入れた要素は先のもの）が同じ。複合曲線の曲線の要素は、複合曲線を指す曲線の表記の実体のレイヤと比べる。
   用紙の要素は、用紙（番号がもっとも小さい DRAWING_SHEET_REVISION）の並びか、そこに置いた作図グループと表示する
@@ -35,10 +36,11 @@
   ezsxf で読んだ値と同じ。
 """
 
+import json
 import math
 import re
 import sys
-from collections import Counter
+from collections import Counter, defaultdict
 from importlib.metadata import version
 from pathlib import Path
 
@@ -129,7 +131,7 @@ CURVES = {
 BROKEN_SHEET = {"sfc-composite-curve-component", "sfc-hatch-reference"}
 SKIPPED = {"sfc-incomplete-feature-skipped", "sfc-invalid-feature-skipped"}
 # make.py が、ezsxf がフィーチャを型で読むように作った SFC
-MADE = {"input/made-features.sfc", "input/made-structure.sfc"}
+MADE = {"input/made-features.sfc", "input/made-structure.sfc", "input/made-duplicates.sfc"}
 # 既知の食い違い: (ファイルの道筋の初め, 食い違いの文の初め, issue, 当たるファイルの数)。直ったら消す
 KNOWN = []
 
@@ -142,13 +144,14 @@ def string_end(text, i):
     return i
 
 
-def records(text, skipped, statements=None):
-    """インスタンスの番号 → zumen のレコードの番号。docs/formats/sxf.md の「レコードの区切り」のとおり、`;` で終わる文と、
+def records(text, skipped, statements=None, feature_ids=None):
+    """P21 のインスタンスの番号 → 先頭のレコードの番号。docs/formats/sxf.md の「レコードの区切り」のとおり、`;` で終わる文と、
     データのセクションの `/*SXF` から閉じまでを、ファイルの初めから 0 で数える。間のコメントは数えない。FILE_DESCRIPTION の最初の
     文字列に AP202 とあれば（大文字と小文字を問わない）、データのセクションのフィーチャのマーカーも、ただのコメントとする（「判定」）。
     skipped は、zumen が読めないと言った範囲 (始め, 終わり) の一覧で、そこから始まる文とコメントは数えず、範囲の終わりから
     読む（「壊れた所」）。P21 の同じ番号の 2 つ目の文もレコードとして数え、インスタンスの番号には 1 つ目の文のレコードの
-    番号を使う（zumen は 2 つ目を使わない）。statements を渡せば、P21 のインスタンスの番号 → 1 つ目の文を入れる"""
+    番号を使う（zumen は 2 つ目を使わない）。statements に P21 の番号 → 1 つ目の文、feature_ids に SFC のレコード
+    →（元の番号、宣言の番号のバイト範囲）を入れる。SFC は同じ番号のフィーチャもそれぞれ 1 件として持つ"""
     found, n, i, data, description = {}, 0, 0, False, ""
     end = len(text)
 
@@ -171,8 +174,10 @@ def records(text, skipped, statements=None):
                     i = stop(start)
                     continue
                 m = re.match(r"\s*#(\d+)", text[start + len(mark[0]) : i])
-                if m:
-                    found[int(m.group(1))] = n
+                if m and feature_ids is not None:
+                    instance = int(m.group(1))
+                    offset = start + len(mark[0])
+                    feature_ids[n] = (instance, offset + m.start(1), offset + m.end(1))
                 n += 1
             continue
         while i < end and text[i] != ";":
@@ -367,7 +372,7 @@ def instance_of(element):
 
 
 def check_records(reading, at):
-    """zumen の要素の出所のレコードの番号が、数えた番号と同じか"""
+    """P21 の要素の出所が、そのインスタンスの先頭のレコードを指すか"""
     failures = []
     for element in reading["entities"]:
         instance, record = instance_of(element), element.get("source", {}).get("record")
@@ -395,7 +400,7 @@ def visible(params):
 
 
 def sfc_placed(raw):
-    """zumen が要素にするか、移さなかったことを言うはずの SFC のフィーチャ（インスタンスの番号, 名前）の一覧。
+    """zumen が要素にするか、移さなかったことを言うはずの SFC のフィーチャ（レコードの番号, 名前）の一覧。
 
     決定 0121・0129・0130 の置き方（crates/zumen-sxf/src/drawing.rs の Lifter::run と members）でたどる。前の定義の
     後に書いたフィーチャは、次の複合図形の定義（sfig_org）か用紙のものになる。次の複合曲線（composite_curve_org）は、
@@ -454,29 +459,35 @@ def sheet_members(model, typed):
     """ezsxf の用紙の中のフィーチャ。用紙に置いた作図グループ（区分 3）の中と、表示する複合曲線の曲線を含む。
     ezsxf は複合曲線を用紙にも作図グループにも置かず、ハッチングの境界の定義として持つ（0.3.7）。そのため、ezsxf の
     読みで表示する（visibility_flag が 1）複合曲線の曲線は、置いた所を問わずに用紙の中に数える"""
-    definitions = {d["entity_id"]: d for d in model.get("sfig_definitions", [])}
-    placed = {r["placement_id"]: r["definition_id"] for r in model.get("sfig_references", [])}
+    # ezsxf の用紙と作図グループの所属は、レコードの位置を持たず番号だけが分かる。
+    groups, placed = defaultdict(set), defaultdict(set)
+    for d in model.get("sfig_definitions", []):
+        if d.get("kind_flag") == 3:
+            groups[d["entity_id"]].update(d.get("component_ids", []))
+    for r in model.get("sfig_references", []):
+        placed[r["placement_id"]].add(r["definition_id"])
     out, todo = set(), list((model.get("sheet") or {}).get("component_ids", []))
     while todo:
         i = todo.pop()
         if i in out:
             continue
         out.add(i)
-        d = definitions.get(placed.get(i))
-        if d is not None and d.get("kind_flag") == 3:
-            todo += d.get("component_ids", [])
+        # 用紙に含まれる番号の集まりなので、同じ作図グループの中をたどるのは一度で足りる。
+        for definition in placed.get(i, ()):
+            todo.extend(groups.pop(definition, ()))
+    shown = {f["id"] for f in typed if f["keyword"].lower() == "composite_curve_org_feature" and f.get("visibility_flag") == 1}
     for c in model.get("composite_curve_definitions", []):
-        if typed.get(c["entity_id"], {}).get("visibility_flag") == 1:
+        if c["entity_id"] in shown:
             out.update(c.get("component_ids", []))
     return out
 
 
-def unlifted(placed, seen, away, at, what, kinds=True):
+def unlifted(missing, away, what, kinds=True):
     """置く所の図形のうち、要素にならず、移さなかったことを言う診断がレコードを指さないもの。kinds なら、診断の kind
     が図形の名前と同じことも確かめ、そうでなければレコードだけで結ぶ"""
     if not kinds:
         away = {(None, record) for _, record in away}
-    dropped = Counter(k for i, k in placed if i not in seen and not told(away, k if kinds else None, at.get(i)))
+    dropped = Counter(k for record, k in missing if not told(away, k if kinds else None, record))
     return [f"要素にならず、移さなかったことを言う診断もない{what}: {dict(dropped)}"] if dropped else []
 
 
@@ -519,19 +530,65 @@ def p21_kind(where, element, step, instance, curve, rasters):
     return None
 
 
-def check_sfc(parsed, entry, reading, counts, notes, at):
-    # 数えたレコードのフィーチャを、ファイルの順に並べる
-    raw = sorted(
-        ((e["id"], e["record"]["keyword"].lower(), e["record"]["parameters"]) for e in parsed["entities"] if e.get("body_type") == "simple" and e["id"] in at),
-        key=lambda f: at[f[0]],
-    )
-    keywords = {i: k for i, k, _ in raw}
-    typed = {f["id"]: f for f in parsed["typed_features"]}
-    reads = any(i in typed for i, k, _ in raw if k not in TABLES)
+def sfc_records(parsed, data, feature_ids, skipped):
+    """元の ezsxf の raw・typed の値とレイヤ名を、宣言のレコードに結ぶ。
+
+    ezsxf は型で読めなかったレコードを typed_features に入れず、位置も返さない。番号が重なるとき、宣言以外の所にも
+    マーカーがあるとき、zumen が読み飛ばした範囲があるとき、ezsxf が警告を出したときは、
+    メモリ上のコピーで宣言の番号に別の番号を振って ezsxf で再度読む。番号を戻した各値が元の読みと
+    一致することを確かめて位置だけを得る。読めなかった同種のフィーチャにも、後の値を詰めない。
+    """
+    positions = {i: record for record, (i, _, _) in feature_ids.items()}
+    occupied = {e.get("id") for e in parsed["entities"]}
+    indexed = parsed
+    # 宣言番号の種類とファイル全体のマーカーの数が異なるなら、番号の重複か、DATA 節の宣言以外にもマーカーがある。
+    # salvage-header などで両者が違う範囲を読んだ場合にも、番号だけで位置を決めない。
+    if skipped or parsed["warnings"] or len(positions) != data.count(b"/*SXF") or len(occupied) != len(parsed["entities"]):
+        occupied.update(positions)
+        copy, end, tag = bytearray(), 0, 1
+        positions = {}
+        for record, (_, begin, after) in feature_ids.items():
+            while tag in occupied:
+                tag += 1
+            copy.extend(data[end:begin])
+            copy.extend(str(tag).encode("ascii"))
+            positions[tag] = record
+            end, tag = after, tag + 1
+        copy.extend(data[end:])
+        indexed = ezsxf.parse_sfc(bytes(copy), strict=False)
+
+    def located(rows, tagged, key):
+        if len(rows) != len(tagged):
+            raise ValueError("ezsxf の元の読みと番号を振った読みの件数が違い、SFC のレコードを結べない")
+        for row, other in zip(rows, tagged):
+            record = positions.get(other.get(key))
+            if indexed is not parsed:
+                restored = other if record is None else {**other, key: feature_ids[record][0]}
+                # NaN は自身とも等しくない。通常の比較で異なったときは、その表現も照らす。
+                if row != restored and json.dumps(row, sort_keys=True) != json.dumps(restored, sort_keys=True):
+                    raise ValueError("ezsxf の元の読みと番号を戻した値が違い、SFC のレコードを結べない")
+            if record is not None:
+                yield record, row
+
+    entities = dict(located(parsed["entities"], indexed["entities"], "id"))
+    typed = dict(located(parsed["typed_features"], indexed["typed_features"], "id"))
+    layers = {
+        row["code"]: typed.get(record, {}).get("name")
+        for record, row in located(parsed["model"]["code_tables"]["layers"], indexed["model"]["code_tables"]["layers"], "entity_id")
+    }
+    raw = [
+        (record, e["record"]["keyword"].lower(), e["record"]["parameters"])
+        for record, e in sorted(entities.items()) if e.get("body_type") == "simple"
+    ]
+    return raw, typed, layers
+
+
+def check_sfc(parsed, entry, reading, counts, notes, data, feature_ids, skipped):
+    raw, typed, layers = sfc_records(parsed, data, feature_ids, skipped)
+    keywords = {record: k for record, k, _ in raw}
+    reads = any(record in typed for record, k, _ in raw if k not in TABLES)
     if not reads:
         notes.append("ezsxf がフィーチャを型で読まないので、要素の種類だけを比べる")
-    model = parsed["model"]
-    layers = {t["code"]: typed.get(t["entity_id"], {}).get("name") for t in model["code_tables"]["layers"]}
     warned = {
         w["code"]
         for w in parsed["warnings"]
@@ -539,17 +596,19 @@ def check_sfc(parsed, entry, reading, counts, notes, at):
     }
     if reads and warned:
         notes.append(f"ezsxf が複合曲線を読めない（{', '.join(sorted(warned))}）ので、用紙の中にあることを比べない")
-    sheet = sheet_members(model, typed)
-    failures, matched = [], {}
+    sheet = sheet_members(parsed["model"], parsed["typed_features"])
+    failures, matched, seen = [], {}, set()
     for element in reading["entities"]:
         instance = instance_of(element)
         if instance is None:
             continue
         where = element["id"]
-        keyword = keywords.get(instance)
-        if keyword is None:
-            failures.append(f"{where}: ezsxf に #{instance} のフィーチャがない")
+        record = element["source"].get("record")
+        keyword = keywords.get(record)
+        if keyword is None or feature_ids[record][0] != instance:
+            failures.append(f"{where}: ezsxf にレコード {record} の #{instance} のフィーチャがない")
             continue
+        seen.add(record)
         wrong = sfc_kind(where, element, keyword)
         if wrong:
             failures.append(wrong)
@@ -557,9 +616,9 @@ def check_sfc(parsed, entry, reading, counts, notes, at):
         counts["elements"] += 1
         if not reads:
             continue
-        f = typed.get(instance)
+        f = typed.get(record)
         if f is None:
-            failures.append(f"{where}: ezsxf が #{instance}（{keyword}）を型で読まない")
+            failures.append(f"{where}: ezsxf がレコード {record} の #{instance}（{keyword}）を型で読まない")
             continue
         matched[where] = f
         # ezsxf の読みにレイヤがあれば、zumen の要素も持つ
@@ -577,9 +636,8 @@ def check_sfc(parsed, entry, reading, counts, notes, at):
             for d in differences(element["geometry"], got, both=True):
                 failures.append(f"{where}（{f['kind']} #{instance}）{d}")
     # 黙って捨てない。ezsxf が型で読まずに飛ばしたフィーチャ（引数の誤りなど）も、生のレコードの名前で数える
-    seen = {instance_of(e) for e in reading["entities"]}
     away = {(kind.lower() if kind else None, record) for kind, record in lifted_away_records(entry, reading)}
-    failures += unlifted(sfc_placed(raw), seen, away, at, "フィーチャ")
+    failures += unlifted(((r, k) for r, k in sfc_placed(raw) if r not in seen), away, "フィーチャ")
     if not reads:
         return failures, None
     out = {}
@@ -919,7 +977,7 @@ def check_p21(parsed, entry, reading, counts, notes, at, statements):
     # 黙って捨てない: 用紙の並びの要素。P21 の診断の kind は組み直したフィーチャの実体の名前で、表記の実体の型と違う
     # ことがあるので、レコードだけで結ぶ
     seen = {instance_of(e) for e in reading["entities"]}
-    failures += unlifted(placed, seen, lifted_away_records(entry, reading), at, "用紙の要素", kinds=False)
+    failures += unlifted(((at.get(i), k) for i, k in placed if i not in seen), lifted_away_records(entry, reading), "用紙の要素", kinds=False)
     if step.unpointed:
         notes.append(f"端を点にできないトリムの線 {sorted(step.unpointed)} は、形を比べない")
     return failures, matched
@@ -944,12 +1002,15 @@ def check_file(folder, entry, reading, baseline, counts):
         return failures, audit
     # 区切りの文字は ASCII なので、バイトをそのまま文字にして数える（Shift_JIS の 2 バイト目は ' と ; にならない）。
     # 文字の位置は、zumen の診断のバイトの位置と同じになる
-    statements = {}
-    at = records(path.read_bytes().decode("latin-1"), skipped_ranges(entry, reading), statements)
-    failures += check_records(reading, at)
+    data = path.read_bytes()
+    statements, feature_ids = {}, {}
+    skipped = skipped_ranges(entry, reading)
+    at = records(data.decode("latin-1"), skipped, statements, feature_ids)
     if entry["format"] == "sfc":
-        found_failures, matched = check_sfc(parsed, entry, reading, counts, notes, at)
+        # check_sfc は各要素を source.record で直接引き、元のフィーチャ番号も照らす。
+        found_failures, matched = check_sfc(parsed, entry, reading, counts, notes, data, feature_ids, skipped)
     else:
+        failures += check_records(reading, at)
         found_failures, matched = check_p21(parsed, entry, reading, counts, notes, at, statements)
     failures += found_failures
     # make.py の SFC は、ezsxf が型で読むように作った。読まなくなったら、SFC の形を照らせなくなる

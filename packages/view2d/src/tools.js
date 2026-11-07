@@ -1,4 +1,4 @@
-import { finite, valid } from "./validate.js";
+import { finite, valid, VIEW_SCALE_LIMITS } from "./validate.js";
 
 export const DEFAULT_INPUT = Object.freeze({ pointer: true, touch: true, drag: true, pinch: true, wheel: true, keyboard: true, doubleClick: true, wheelModifier: "ctrlOrMeta" });
 const BUILTINS = ["select", "pan", "measure"];
@@ -96,7 +96,7 @@ export class Tools {
     } finally { this.busy = previous; }
   }
   zoom(factor, anchor) {
-    const scale = this.viewer.getView().scale, next = Math.max(1e-12, Math.min(1e12, scale * factor));
+    const scale = this.viewer.getView().scale, next = Math.max(VIEW_SCALE_LIMITS.min, Math.min(VIEW_SCALE_LIMITS.max, scale * factor));
     this.viewer.zoomBy(next / scale, anchor);
   }
   location(point) { return this.viewer.snapAt(point)?.position ?? this.viewer.positionAt(point); }

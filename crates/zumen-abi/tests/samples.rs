@@ -1,7 +1,7 @@
 //! サンプルの DXF と DWG を、API の `apply` で書き戻す。
 //! サンプルは公開サンプルの `samples/` と、受け取った図面を置く `ZUMEN_SAMPLES` のフォルダーから集める。
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use zumen_abi1::{Session, Status};
 use zumen_base::CancelToken;
@@ -468,9 +468,36 @@ fn drawings_take_back_ellipses_replaced_through_the_boundary() {
     assert!(!received() || checked.iter().all(|n| *n > 0), "{checked:?}");
 }
 
+/// #327 の公開サンプルはハンドルも $HANDSEED も持たず、文字の追加を断る（決定 0139）。
+/// ほかのサンプルでは追加の成功を確かめ、その後の往復を検査する。
+#[cfg(test)]
+fn text_added(path: &Path, status: Status, response: &Value) -> bool {
+    let latin1 =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../samples/dxf/opendxfviewer-latin1.dxf");
+    if path != latin1 {
+        assert_eq!(status, Status::Ok);
+        return true;
+    }
+    assert_eq!(status, Status::Failed);
+    let Some(Value::Array(diagnostics)) = response.pointer("/diagnostics") else {
+        panic!("診断の配列がない");
+    };
+    let mut errors = diagnostics
+        .iter()
+        .filter(|d| text(d, "/severity") == Some("error"));
+    let error = errors.next().unwrap();
+    assert_eq!(text(error, "/code"), Some("change.edit.unsupported"));
+    assert!(
+        text(error, "/params/edit") == Some("add") && text(error, "/params/kind") == Some("TEXT")
+    );
+    assert!(errors.next().is_none());
+    assert!(matches!(response.pointer("/blobs"), Some(Value::Array(blobs)) if blobs.is_empty()));
+    false
+}
+
 /// サンプルの実寸の空間に、API の `add` で文字を足すと、開き直した文字の形とハッシュが、送った形と `apply` が
 /// 返したものと同じになる（決定 0139）。2007 より前のバージョンはコード・ページで表せる文字だけを書くので（決定 0192）、
-/// ANSI_932 でない図面の日本語の文字は `change.edit.unsupported` になり、ASCII の文字なら足せる
+/// ANSI_932 でない図面の日本語の文字は `change.edit.unsupported` になり、ハンドルを割り当てられる図面には ASCII の文字を足せる
 #[test]
 fn drawings_take_back_texts_added_through_the_boundary() {
     let mut japanese = [0, 0];
@@ -515,7 +542,9 @@ fn drawings_take_back_texts_added_through_the_boundary() {
                 add(&mut session, "GRID X1")
             }
         };
-        assert_eq!(status, Status::Ok, "{name}: {response:?}");
+        if !text_added(&path, status, &response) {
+            continue;
+        }
         let file = session.take(0).unwrap();
         let id = text(&response, "/result/applied/0/id").unwrap().to_string();
         let hash = text(&response, "/result/applied/0/hash")
@@ -655,7 +684,9 @@ fn drawings_take_back_texts_fitted_between_two_points() {
                 r#"{{"v":1,"op":"apply","doc":"{name}","edits":[{{"kind":"add","place":"space/0","layer_id":"{layer_id}","geometry":{adding}}}],{budget}}}"#
             ),
         );
-        assert_eq!(status, Status::Ok, "{name}: {response:?}");
+        if !text_added(&path, status, &response) {
+            continue;
+        }
         let file = session.take(0).unwrap();
         session.push(b"added", &file).unwrap();
         assert!(open(&mut session, "added"), "{name}");

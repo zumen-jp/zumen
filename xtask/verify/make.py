@@ -34,6 +34,7 @@ DROPPED = 20
 PLACES = {
     "input/made-dropped.dxf": {"dxf.lift.dropped": DROPPED, "dxf.non-planar.dropped": 2},
     "input/made-structure.sfc": {"sxf.lift.invalid": 2, "sxf.lift.dropped": 5},
+    "input/made-duplicates.sfc": {"sxf.lift.invalid": 1},
     "input/made-structure.p21": {
         "sxf.lift.invalid": 1,
         "sxf.p21-instance.dropped": 1,
@@ -282,7 +283,25 @@ ENDSEC;
 END-ISO-10303-21;
 """
 # 外部の実装と照らすためだけに作る入力。書き戻しと変換を当てない
-CHECKS = {"input/made-structure.sfc", "input/made-structure.p21", "input/made-non-finite.jww"}
+CHECKS = {"input/made-structure.sfc", "input/made-structure.p21", "input/made-duplicates.sfc", "input/made-non-finite.jww"}
+
+
+def duplicate_sfc():
+    """同じ番号のレイヤ 2 つと、引数の欠けた線・線・円・別の線をファイルの順に置く（#553）。"""
+    features = [
+        (70, r"layer_feature(\'A\','1')"),
+        (70, r"layer_feature(\'B\','1')"),
+        (20, r"pre_defined_font_feature(\'continuous\')"),
+        (30, r"pre_defined_colour_feature(\'black\')"),
+        (40, "width_feature('0.13')"),
+        (60, "line_feature('1')"),
+        (60, "line_feature('1','1','1','1','0','0','10','5')"),
+        (60, "circle_feature('2','1','1','1','5','5','2')"),
+        (60, "line_feature('2','1','1','1','8','2','18','7')"),
+        (90, r"drawing_sheet_feature(\'S\','3','1','420','297')"),
+    ]
+    header = SFC.split("/*SXF", 1)[0].replace("made-features.sfc", "made-duplicates.sfc")
+    return header + "".join(f"/*SXF\n#{i} = {value}\nSXF*/\n" for i, value in features) + "ENDSEC;\nEND-ISO-10303-21;\n"
 
 
 class Zumen:
@@ -667,7 +686,7 @@ def run_recipe(z, out, entry, data, recipe, baseline):
 
 
 def run_convert(z, out, entry, data, baseline):
-    """図面モデルを経て DXF に変換する（決定 0206）"""
+    """公開 API で DXF に変換する（決定 0206・0281）"""
     source = f"convert/{Path(entry['path']).name}"
     target = source + ".dxf"
     open_file(z, source, data)
@@ -878,7 +897,7 @@ SECTIONS = {
     ),
     302: (
         "変換した DXF（図面モデルを経た変換、#302・#509）",
-        """入力のどの形式も、図面モデルを経て DXF（R2004）に変換しました（決定 0206）。書けない要素と、足せなかった画層の要素は、元の場所を付けて `convert.element.unsupported` で落とします。記号の定義の中身も書き、表・ブロック・VIEWPORT の所有者とサブクラス、レイアウトの辞書を R2004 の形で持ちます（#509）。ezdxf では全変換ファイルを読め、監査の誤りと修復が 0 であることを確かめます。
+        """公開 API で DXF（R2004）に変換しました。R2004 DWG の弧長寸法は、対応する図形と参照がそろえば共有のオブジェクト表から書きます（決定 0281）。ほかは図面モデルを経ます（決定 0206）。書けない要素と、足せなかった画層の要素は、元の場所を付けて `convert.element.unsupported` で落とします。記号の定義の中身も書き、表・ブロック・VIEWPORT の所有者とサブクラス、レイアウトの辞書を R2004 の形で持ちます（#509）。ezdxf では全変換ファイルを読め、監査の誤りと修復が 0 であることを確かめます。
 
 - **AutoCAD。** 全変換ファイルを共通の手順で開き、開けることと `AUDIT` の誤りの数を記録する。ビューポートを持つもの（layout・points・JWW）は、モデルと `Layout1` の両方を確認し、用紙の大きさとビューの位置・尺度を比べる。記号を持つものは、配置だけでなく定義の中身も描かれることを確かめる。Defpoints などの追加できない画層は、その要素が落ちたことを `manifest.json` の変換の診断と照らし、画層 0 に移っていないことを確かめる。結果にはファイル・ハンドル・期待する値・実際の値を記録する。
 """,
@@ -994,6 +1013,7 @@ def inputs(extra):
         if name == "a.jww":
             found.append(("input/made-non-finite.jww", non_finite_jww(data), "xtask/verify/make.py", *REPOSITORY))
     found.append(("input/made-features.sfc", SFC.encode("ascii"), "xtask/verify/make.py", *REPOSITORY))
+    found.append(("input/made-duplicates.sfc", duplicate_sfc().encode("ascii"), "xtask/verify/make.py", *REPOSITORY))
     found.append(("input/made-dropped.dxf", dropped_dxf().encode("ascii"), "xtask/verify/make.py", *REPOSITORY))
     found.append(("input/made-japanese-r2004.dxf", japanese_dxf("AC1018", "cp932"), "xtask/verify/make.py", *REPOSITORY))
     found.append(("input/made-japanese-r2007.dxf", japanese_dxf("AC1021", "utf-8"), "xtask/verify/make.py", *REPOSITORY))
