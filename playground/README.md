@@ -35,6 +35,6 @@ CSS は作成したファイルをそのままコピーし、ビルド後のバ�
 node bindings/js/test/browser/react.mjs chromium target/wasm32-unknown-unknown/release/zumen_abi1.wasm
 ```
 
-合成した DXF・JWW・SXF と本番用ビルドで、ファイル選択・用紙・レイヤ・キーボード・出所・診断を操作します。ネットワークではローカル配布物を取得する GET だけを認めます。別に開発用 React を使い、StrictMode の effect の再実行、遅い読み込みの差し替え、アンマウント後の Worker・購読と未完了の問い合わせを検査します。`chromium` の代わりに `firefox`・`webkit`、インストール済みの製品版を使う `chrome`・`msedge` も指定できます。
+合成した DXF・JWW・SXF と本番用ビルドで、ファイル選択・用紙・レイヤ・キーボード・出所・診断を操作します。ネットワークではローカル配布物を取得する GET だけを認めます。本番用 React と開発用 StrictMode の両方で Activity・Suspense の表示を再開し、読み込みを保留した間と新しい Worker の準備後に、利用側の effect が受け取る状態と出所を確かめます。遅い読み込みの差し替え、アンマウント後の Worker・購読と未完了の問い合わせも検査します。`chromium` の代わりに `firefox`・`webkit`、インストール済みの製品版を使う `chrome`・`msedge` も指定できます。
 
 React から組み込む手順は[フックの README](../packages/react/README.md)にあります。赤入れは [#589](https://github.com/zumen-jp/zumen/issues/589) で進めます。

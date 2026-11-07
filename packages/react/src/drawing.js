@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useLayoutEffect, useMemo, useState } from "react";
 import { readScene } from "@zumen-jp/zumen";
 import { connectWorker } from "./client.js";
 
@@ -27,8 +27,8 @@ function readInput(file, signal) {
 export function useDrawing(file, { loadModule, from = null, catalog = null }) {
   const request = useMemo(() => ({ file, loadModule, from, catalog }), [file, loadModule, from, catalog]);
   const [snapshot, setSnapshot] = useState(null);
-  useEffect(() => {
-    setSnapshot(null);
+  // Worker の所有期間を表示の接続に合わせる。ファイルの読み込みと解析は非同期に行う。
+  useLayoutEffect(() => {
     if (!file) return;
     const controller = new AbortController();
     const { signal } = controller;
@@ -56,7 +56,12 @@ export function useDrawing(file, { loadModule, from = null, catalog = null }) {
       }
     }
     void open();
-    return () => { controller.abort(); client?.dispose(); };
+    return () => {
+      // 境界が同じ入力で再接続しても、終了した Worker の getSource を利用側の effect に渡さない。
+      setSnapshot(null);
+      controller.abort();
+      client?.dispose();
+    };
   }, [request]);
   if (!file) return idle;
   return snapshot?.request === request ? snapshot.value : loading;

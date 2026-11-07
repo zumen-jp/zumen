@@ -1,5 +1,5 @@
 // 開発用 React の StrictMode で同じフックを使い、実際の購読・Worker の作成と破棄を数える。
-import React, { Activity, StrictMode, Suspense, useLayoutEffect } from "react";
+import React, { Activity, StrictMode, Suspense, useEffect, useLayoutEffect } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { View2D } from "@zumen-jp/view2d";
@@ -34,7 +34,7 @@ const destroy = View2D.prototype.destroy;
 View2D.prototype.destroy = function () { counts.destroyed++; return destroy.call(this); };
 
 const canvas = document.querySelector("canvas");
-const root = createRoot(document.querySelector("#root"));
+let root;
 const delayed = [];
 const delayModule = (signal) => new Promise((resolve) => delayed.push({ signal, resolve }));
 let opened, viewer, eventVersion, snapshot;
@@ -53,6 +53,7 @@ window.probe = {
   counts, delayed, get status() { return opened?.status; }, get format() { return opened?.input?.document.format; },
   get selected() { return snapshot?.selection[0]?.id; }, get eventVersion() { return eventVersion; },
   render(bytes, delay = false, version = 0) {
+    if (!root) root = createRoot(document.querySelector("#root"));
     if (bytes) file = new Blob([Uint8Array.from(bytes)]);
     flushSync(() => root.render(<StrictMode><Probe file={file} loader={delay ? delayModule : loadModule} version={version}/></StrictMode>));
   },
@@ -74,10 +75,29 @@ window.probe = {
 
 // Canvas は親が保持する。境界から戻った利用側の layout effect でも、新しい表示部品を直接操作できることを確かめる。
 let pending, resume, boundaryRoot, connected, previous, events = 0;
+let boundaryFile, holdModule = false;
+const loaders = [], calls = [];
+function loadBoundaryModule(signal) {
+  if (!holdModule) return loadModule(signal);
+  return new Promise((resolve) => loaders.push(() => resolve(loadModule(signal))));
+}
+function observe(opened, phase) {
+  const call = { phase, status: opened.status, workers: counts.workers };
+  calls.push(call);
+  if (opened.status === "ready") {
+    opened.getSource({ id: "space/0/r1", path: [] }).then(
+      (entry) => { call.record = entry?.source?.record; },
+      (error) => { call.error = error.name; },
+    );
+  }
+}
 function Reconnect({ suspend }) {
   const value = useDrawingViewer(canvas);
   const state = useViewerState(value);
   useViewerEvent(value, "view", () => { events++; });
+  const opened = useDrawing(boundaryFile, { loadModule: loadBoundaryModule });
+  useLayoutEffect(() => { observe(opened, "layout"); }, [opened]);
+  useEffect(() => { observe(opened, "passive"); }, [opened]);
   useLayoutEffect(() => {
     if (value) { value.getState(); connected = value; }
     return () => { connected = null; };
@@ -86,6 +106,11 @@ function Reconnect({ suspend }) {
   return <output id="camera">{state?.view.center.x}</output>;
 }
 window.boundary = {
+  begin(bytes) { boundaryFile = new Blob([Uint8Array.from(bytes)]); },
+  hold() { holdModule = true; },
+  mark() { calls.length = 0; },
+  release() { holdModule = false; for (const release of loaders.splice(0)) release(); },
+  calls, get waiting() { return loaders.length; },
   render(kind, show) {
     if (!boundaryRoot) boundaryRoot = createRoot(document.querySelector("#root"));
     if (!show) previous = connected;
@@ -98,5 +123,9 @@ window.boundary = {
   move() { connected.panBy(10, 0); },
   get fresh() { return Boolean(connected && connected !== previous); },
   get events() { return events; },
-  end() { flushSync(() => boundaryRoot.unmount()); boundaryRoot = null; connected = previous = null; events = 0; },
+  end() {
+    flushSync(() => boundaryRoot.unmount());
+    boundaryRoot = null; connected = previous = null; boundaryFile = null;
+    calls.length = 0; events = 0;
+  },
 };
