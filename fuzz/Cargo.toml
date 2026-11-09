@@ -62,6 +62,13 @@ bench = false
 
 # L0
 [[bin]]
+name = "canary"
+path = "fuzz_targets/canary.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "svg"
 path = "fuzz_targets/svg.rs"
 test = false
