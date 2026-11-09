@@ -228,7 +228,9 @@ impl Express {
                 };
                 next = target;
             }
-            done.append(&mut path);
+            // 1 つずつ足す。`BTreeSet::append` は、範囲が重なると `done` の全体を作り直すので、型の名前の順と
+            // たどる順が食い違うと（`A{i} = Z{i}` など）、手間が型の数の 2 乗になる
+            done.extend(path);
         }
         Ok(None)
     }
@@ -977,7 +979,7 @@ impl Parser<'_> {
             }
             self.expect(":")?;
             let optional = self.eat("OPTIONAL");
-            // 並べた名前は、読んだ型を共有する。名前ごとに写すと、メモリが型の大きさの倍で増える（#668）
+            // 並べた名前は、読んだ型を共有する。名前ごとに写すと、メモリが名前の数と型の大きさの積で増える（#668）
             let ty = Arc::new(self.ty(cx)?);
             self.expect(";")?;
             for (inherited, name, written) in names {

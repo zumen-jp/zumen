@@ -395,6 +395,19 @@ fn long_chains_of_defined_types_are_followed_once() {
     assert_eq!(invalid.code(), codes::EXPRESS_FILE_INVALID);
     assert_eq!(invalid.param("near"), Some(&Value::Text("T0".to_owned())));
     assert_eq!(work, src.len() as u64 + steps + 1);
+    // 名前の順とたどる順が食い違う組（`A{i} = Z{i}`）も、型ごとに 1 度だけたどる。たどり終えた型を覚える所は、
+    // 覚えた型の全体を作り直さない（作り直すと、work に出ずに手間が 2 乗になる）
+    let mut src = String::from("SCHEMA PAIRS;\n");
+    for i in 0..n {
+        let _ = writeln!(
+            src,
+            "TYPE A{i} = Z{i};\nEND_TYPE;\nTYPE Z{i} = INTEGER;\nEND_TYPE;"
+        );
+    }
+    src.push_str("END_SCHEMA;\n");
+    let (result, diag, work) = read(&src, Limits::default());
+    assert!(result.is_ok(), "{diag:?}");
+    assert_eq!(work, src.len() as u64 + 2 * n as u64);
 }
 
 /// 上位の型の長い鎖も、実体ごとに 1 度入り、上位の型ごとに 1 度たどって、1 歩ごとに work で数える（#668）
@@ -486,7 +499,7 @@ fn rejects_declarations_with_the_same_name() {
 }
 
 /// 宣言のない名前は、実体の名前の順に、上位の型・属性の型・宣言し直した属性の型の順で見て、最初のものを指し、
-/// 実体の後に型を見る。1 つの宣言に並べた名前は型を共有し、その型は 1 度だけたどる（#668）
+/// 実体の後に型を見る。1 つの宣言に並べた名前は型を共有し、続く同じ型は 1 度だけたどる（#668）
 #[test]
 fn reports_the_first_unresolved_name() {
     let schema = |declarations: &str| format!("SCHEMA MISSING;\n{declarations}END_SCHEMA;\n");
