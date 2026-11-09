@@ -357,14 +357,23 @@ fn unsupported(edit: &str, kind: &str) -> Diagnostic {
         .with("format", FORMAT)
 }
 
-/// 足す要素の書いていない（レイヤに従う）色か線種。JWW の図形は、色（ペンの番号）と線種を自分で持ち、レイヤに
-/// 従う値を持たない（#702）。足せない形のものは、ここでは見ない
+/// 足す要素の書いていない（レイヤかブロックに従う）色・線種と、ブロックに従う線幅。JWW の図形は、色（ペンの番号）と
+/// 線種と線幅を自分で持ち、レイヤかブロックに従う値を持たない（#702・#715）。足せない形のものは、ここでは見ない
 fn unset(element: &Element<ModelPoint>) -> Option<&'static str> {
     let class = class_of(&element.shape)?;
-    if element.style.color == Inherit::Layer {
+    let style = &element.style;
+    // ブロックに従う値も、JWW の図形は持たない（決定 0292）
+    if !matches!(style.color, Inherit::Own(_)) {
         return Some("color");
     }
-    (class != POINT && element.style.line_type == Inherit::Layer).then_some("line_type")
+    if class == POINT {
+        return None;
+    }
+    if !matches!(style.line_type, Inherit::Own(_)) {
+        return Some("line_type");
+    }
+    // 線幅を持たないか、レイヤに従う線幅は、ペンの印刷の線幅に従う 0 で書く（決定 0290）
+    (style.line_weight == Some(Inherit::Block)).then_some("line_weight")
 }
 
 /// 足す要素のクラスの名前
