@@ -19,7 +19,9 @@ pub struct Placement {
 }
 
 /// 追加距離 `distance` での位置。平面線形の範囲の外か、区間の値が使えないか、曲線の種類から計算できなければ、
-/// 理由の診断を返す。縦断線形の高さを計算できなければ、高さを `None` にし、理由を `cx` に知らせる
+/// 理由の診断を返す。縦断線形の高さを計算できなければ、高さを `None` にし、理由を `cx` に知らせる。
+///
+/// 区間を初めからたどる。予算には数えないので、呼ぶ側がその回数（[`place_work`]）を数える
 pub fn place(
     alignment: &Alignment,
     distance: f64,
@@ -86,7 +88,18 @@ pub fn check(alignment: &Alignment, tolerance: f64, cx: &mut Cx<'_>) {
     }
 }
 
-/// 平面線形の長さ
+/// [`place`] を 1 回呼ぶときに区間をたどる回数の上限。予算の作業（`Kind::Work`）に数える量で、平面線形の区間を
+/// 2 回（長さを足すのと、区間を探すの）と、縦断線形の区間を 1 回たどる（#560）。区間の上の点を求める計算は
+/// 含まない（#727）
+pub fn place_work(alignment: &Alignment) -> u64 {
+    let count = |len: usize| u64::try_from(len).unwrap_or(u64::MAX);
+    count(alignment.horizontal.len())
+        .saturating_mul(2)
+        .saturating_add(count(alignment.vertical.len()))
+        .saturating_add(1)
+}
+
+/// 平面線形の長さ。区間をすべて足すので、作業は平面線形の区間の数に比例する
 pub fn length(alignment: &Alignment) -> f64 {
     alignment
         .horizontal
