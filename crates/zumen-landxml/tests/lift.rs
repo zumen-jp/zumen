@@ -1,10 +1,10 @@
 //! テストの中で書いた小さな J-LandXML を読み、線形・縦断・横断・地表面を土木の領域モデルに移す（#368）。
 
-use zumen_base::{Budget, CancelToken, Diagnostics, codes};
+use zumen_base::{Budget, CancelToken, Diagnostics, Kind, Limit, Limits, Stop, codes};
 use zumen_civil::{CivilModel, HorizontalKind, SurfaceRole, TransitionCurve, VerticalKind};
 use zumen_crs::{Crs, HeightDatum, Realization, Zone};
 use zumen_landxml::LandXml;
-use zumen_sdk::{Codec, Cx, Lift, Signature};
+use zumen_sdk::{Codec, Cx, Error, Lift, Signature};
 
 /// 北へ 100 m の直線、半径 200 m へ右に曲がるクロソイド（A = 100、50 m）、半径 200 m の円弧 40 m、直線 60 m。
 /// 点は、クロソイドの式と円弧の中心から求めた値
@@ -243,4 +243,115 @@ fn missing_coordinate_systems_and_broken_values_are_reported() {
     assert!(model.alignments[0].horizontal.is_empty());
     // 名前が重なる線形は、順の番号で ID を作る
     assert_eq!(model.alignments[1].id, "alignment/1");
+}
+
+/// 測点の不連続を、`order` の順に書いた線形。追加距離 50・100・120 に、進みの値 500・1000・2000 の不連続を
+/// 置く。戻りの値は、50 の所には書かず、100 の所には 555 と書き、120 の所には読めない値を書く
+fn station_breaks(order: [usize; 3]) -> String {
+    let all = [
+        r#"<StaEquation staInternal="50" staAhead="500"/>"#,
+        r#"<StaEquation staInternal="100" staBack="555" staAhead="1000"/>"#,
+        r#"<StaEquation staInternal="120" staBack="abc" staAhead="2000"/>"#,
+    ];
+    let equations: String = order
+        .iter()
+        .filter_map(|at| all.get(*at))
+        .copied()
+        .collect();
+    format!(
+        r#"<LandXML xmlns="http://www.landxml.org/schema/LandXML-1.2" version="1.2">
+      <Alignments><Alignment name="a" length="10" staStart="0"><CoordGeom>
+        <Line><Start>0 0</Start><End>0 10</End></Line>
+      </CoordGeom>{equations}</Alignment></Alignments>
+    </LandXML>"#
+    )
+}
+
+/// 戻りの値のない測点の不連続は、追加距離の順に並べたあとで、手前の不連続から求める。文書の順によらず同じ値に
+/// なる。読めない戻りの値は知らせて、書いていないものと同じく求める（#560）
+#[test]
+fn station_breaks_without_back_values_follow_the_distance_order() {
+    for order in [[0, 1, 2], [1, 0, 2], [2, 1, 0]] {
+        let (model, diag) = read(&station_breaks(order)).unwrap();
+        let breaks: Vec<(f64, f64, f64)> = model.alignments[0]
+            .stations
+            .breaks
+            .iter()
+            .map(|at| (at.distance, at.back, at.ahead))
+            .collect();
+        assert_eq!(
+            breaks,
+            [
+                (50.0, 50.0, 500.0),
+                (100.0, 555.0, 1000.0),
+                (120.0, 1020.0, 2000.0)
+            ],
+            "{order:?}"
+        );
+        assert_eq!(
+            diag.iter()
+                .filter(|d| d.code() == codes::LANDXML_VALUE_INVALID)
+                .count(),
+            1,
+            "{order:?}"
+        );
+    }
+}
+
+/// 直線のあとに緩和曲線を 200 個並べた線形。`pi` が真なら、どれにも交点（PI）を書く
+fn spirals(pi: bool) -> String {
+    let spirals: String = (0..200)
+        .map(|i| {
+            let pi = if pi {
+                format!("<PI>{} 0</PI>", 11 + i)
+            } else {
+                String::new()
+            };
+            format!(
+                r#"<Spiral length="1" radiusStart="INF" radiusEnd="1000" rot="cw" spiType="clothoid"><Start>{} 0</Start>{pi}</Spiral>"#,
+                10 + i
+            )
+        })
+        .collect();
+    format!(
+        r#"<LandXML xmlns="http://www.landxml.org/schema/LandXML-1.2" version="1.2">
+      <Alignments><Alignment name="a" length="210" staStart="0"><CoordGeom>
+        <Line><Start>0 0</Start><End>10 0</End></Line>{spirals}
+      </CoordGeom></Alignment></Alignments>
+    </LandXML>"#
+    )
+}
+
+/// 読んで線形に移し、結果と、使った作業の予算を返す
+fn lift_with(src: &str, limits: Limits) -> (Result<CivilModel, Error>, u64) {
+    let mut budget = Budget::new(limits);
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let out = {
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        LandXml::read(src.as_bytes(), &mut cx).and_then(|file| file.lift(&mut cx))
+    };
+    (out, budget.used(Kind::Work))
+}
+
+/// 交点のない緩和曲線は、前の区間の終わりの向きを、平面線形を初めからたどって求めるので、その作業を予算に数え、
+/// 上限で止まる（#560）
+#[test]
+fn spirals_without_points_of_intersection_count_their_work() {
+    let (given, base) = lift_with(&spirals(true), Limits::default());
+    assert_eq!(given.unwrap().alignments[0].horizontal.len(), 201);
+    let (found, used) = lift_with(&spirals(false), Limits::default());
+    assert_eq!(found.unwrap().alignments[0].horizontal.len(), 201);
+    // i 番目（0 から）の緩和曲線の前の区間は i + 1 個で、長さを足すのに i + 1、所を求めるのに 2(i + 1) + 1 を
+    // 数える。200 個で 3 × 20,100 + 200 = 60,500。交点を書いた側は、XML を読む作業だけを数える
+    assert!(used >= 60_500, "{used}");
+    assert!(base < 10_000, "{base}");
+    let limits = Limits::default().with(Kind::Work, Limit::Finite(30_000));
+    let (stopped, _) = lift_with(&spirals(false), limits);
+    assert!(
+        matches!(stopped, Err(Error::Stopped(Stop::Exceeded(ref e))) if e.kind == Kind::Work),
+        "{stopped:?}"
+    );
+    let (given, _) = lift_with(&spirals(true), limits);
+    given.unwrap();
 }
