@@ -172,7 +172,7 @@ fn decodes_two_stage_sequences_like_the_plain_streams() {
                     common::codes(&expected.1),
                     "{case}, {filter}"
                 );
-                // 予算の境い目で、ちょうどなら同じ結果、1 少なければ超過で止まる
+                // 予算の境目で、ちょうどなら同じ結果、1 少なければ超過で止まる
                 let (result, budget, _) = run(&input, Limits::default());
                 for kind in [Kind::DecodedBytes, Kind::Work] {
                     let exact = Limits::default().with(kind, Limit::Finite(budget.used(kind)));
