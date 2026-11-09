@@ -90,6 +90,33 @@ fn counts_the_first_stage_before_trailing_filters_at_every_entry() {
 }
 
 #[test]
+fn does_not_count_chains_that_hayro_does_not_decode() {
+    // hayro-syntax 0.9.0 の `decoded_data` は、画像のフィルターがあればどの段も当てず、`F` が外部ファイルを指せば
+    // フィルターの前に失敗する。前の段を数えないので、小さい予算でも十分な予算と同じ結果になる
+    let limits = Limits::default().with(Kind::DecodedBytes, Limit::Finite(32 * 1024));
+    for (sequence, data) in sequences() {
+        let mut filters: Vec<String> = ["/DCT", "/CCF", "/JBIG2Decode", "/JPXDecode"]
+            .iter()
+            .map(|image| format!("/Filter [{sequence} {image}]"))
+            .collect();
+        filters.push(format!("/F (external) /Filter [{sequence} /AHx]"));
+        for filter in filters {
+            for case in [0, 2, 3] {
+                let input = cases::document(case, &filter, &data, false, 1);
+                let ample = run(&input, Limits::default());
+                let small = run(&input, limits);
+                assert_eq!(
+                    format!("{:?}", small.0),
+                    format!("{:?}", ample.0),
+                    "{case}, {filter}"
+                );
+                assert_eq!(small.2, ample.2, "{case}, {filter}");
+            }
+        }
+    }
+}
+
+#[test]
 fn keeps_results_of_trailing_filters_with_ample_budgets() {
     let shapes = |drawing: &Drawing2D| {
         drawing

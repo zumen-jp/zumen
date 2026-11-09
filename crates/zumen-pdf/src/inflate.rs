@@ -36,6 +36,15 @@ pub(crate) fn before(
     cx: &mut Cx<'_>,
 ) -> Result<bool, Stop> {
     let filters = stream.filters();
+    // hayro-syntax 0.9.0 の `Stream::decoded_data` は、どこかに画像のフィルターがあれば、どの段も当てずに失敗する
+    if filters.iter().any(|filter| {
+        matches!(
+            filter,
+            Filter::DctDecode | Filter::JpxDecode | Filter::Jbig2Decode | Filter::CcittFaxDecode
+        )
+    }) {
+        return Ok(false);
+    }
     // hayro-syntax の `Stream::decoded_image` と同じく、先頭の Crypt はフィルターとして適用しない
     let effective = filters.strip_prefix(&[Filter::Crypt]).unwrap_or(&filters);
     let (ascii, first, rest) = match effective {
@@ -58,6 +67,11 @@ pub(crate) fn before(
     let counted = match ascii {
         Some(encoding) => sequence(stream, encoding, first, source, cx)?,
         None => {
+            // 単独の段は、これまでどおり `F` を見分けずに数える。後ろに段が続く系列は、ASCII の前置と同じく、
+            // 外部ファイルを指して上流が展開しないものを数えない
+            if !rest.is_empty() && source.external(stream.dict(), cx)? {
+                return Ok(false);
+            }
             match first {
                 // 有効な系列の最初の LZW なので、`lzw::early_change` が引くパラメーターと同じ
                 Filter::LzwDecode => lzw::before(stream, cx)?,
