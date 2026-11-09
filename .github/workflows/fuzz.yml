@@ -74,16 +74,6 @@ jobs:
           path: fuzz/corpus
           key: fuzz-corpus-${{ hashFiles('samples/ledger.toml') }}-${{ github.run_id }}
           restore-keys: fuzz-corpus-${{ hashFiles('samples/ledger.toml') }}-
-      # 一時の手順（#647 の確かめだけに使い、マージの前に消す）。戻した種に canary の種があるかを数える
-      - name: 一時、戻した canary の種を数える
-        run: |
-          total=$(find fuzz/corpus -type f 2>/dev/null | wc -l)
-          canary=$(find fuzz/corpus/canary -type f 2>/dev/null | wc -l)
-          zc=0
-          for f in $(find fuzz/corpus/canary -type f 2>/dev/null); do
-            [ "$(head -c 2 "$f")" = ZC ] && zc=$((zc + 1))
-          done
-          echo "戻した種: 全体 $total、canary $canary、ZC で始まるもの $zc"
       - name: 公開サンプル・適合テストの組の合成の入力・L0 の攻撃の形・合成の格子を、種に足す
         run: cargo xtask fuzz-seeds
       - name: 全 target を作る。依存はワークスペースと同じバージョンから解き、桁あふれも見つけるため debug の検査を入れる
