@@ -3,7 +3,7 @@
 //!
 //! jgdtrans は、データの行を桁の位置で読む。コードは 1〜8 桁目、緯度・経度の補正量は 10〜18 桁目・20〜28 桁目、
 //! 高さの補正量は 30〜38 桁目。ヘッダーの行数は形で決まり、TKY2JGD は 2 行、PatchJGD と SemiDynaEXE は 16 行。
-//! 補間の間隔は形で決まり、TKY2JGD と PatchJGD は 3 次メッシュ、SemiDynaEXE は 5 倍地域メッシュ。テストの格子は、
+//! 補間の間隔は形で決まり、TKY2JGD と PatchJGD は 3 次メッシュ、SemiDynaEXE はその 5 倍。テストの格子は、
 //! この桁とヘッダーの行数で書く。
 
 use jgdtrans::{Format, ParData, Point, Transformer};
@@ -40,7 +40,7 @@ const PATCHJGD: Layout = Layout {
     altitude: false,
 };
 
-/// 5 倍地域メッシュの格子。jgdtrans では、その間隔で補間する形は SemiDynaEXE などに限られる
+/// 3 次メッシュの 5 倍の間隔の格子。jgdtrans では、その間隔で補間する形は SemiDynaEXE などに限られる
 const FIVE_TIMES: Layout = Layout {
     format: Format::SemiDynaEXE,
     header: 16,
@@ -207,9 +207,9 @@ fn patchjgd_grids_with_holes_are_read_and_interpolated_like_jgdtrans() {
     assert!(max < 1e-9, "{max}");
 }
 
-/// 5 倍地域メッシュ（緯度 150 秒・経度 225 秒）の格子。高さの補正量の列があっても、緯度・経度の補正量は同じに読む
+/// 3 次メッシュの 5 倍の間隔（緯度 150 秒・経度 225 秒）の格子。高さの補正量の列があっても、緯度・経度の補正量は同じに読む
 #[test]
-fn grids_at_the_five_times_mesh_are_read_and_interpolated_like_jgdtrans() {
+fn grids_at_five_times_the_mesh_are_read_and_interpolated_like_jgdtrans() {
     let (i0, j0) = (4595, 3270);
     let text = par(&FIVE_TIMES, &block(i0, j0, 4, 5), 3);
     let (i, j) = (f64::from(i0), f64::from(j0));

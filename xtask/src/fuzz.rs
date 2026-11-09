@@ -464,29 +464,36 @@ end_of_head ==================================================\n\
    50.0000    51.0000    52.0000    53.0000 -9999.0000 -9999.0000\n\
    60.0000    61.0000    62.0000    63.0000 -9999.0000 -9999.0000\n";
     // TKY2JGD・PatchJGD の形の補正量の格子。3 次メッシュのコードと、緯度・経度の補正量（秒）。PatchJGD の形は、
-    // 高さの補正量の列も持つ
+    // 高さの補正量の列も持つ。最後の格子は、格子点を 3 次メッシュの 5 倍の間隔に置く（決定 0286）
     let mut tky2jgd = String::from("synthetic\nMeshCode   dB(sec)   dL(sec)\n");
     let mut patchjgd = String::from("synthetic\nMeshCode   dB(sec)   dL(sec)   dH(m)\n");
+    let mut five = String::from("synthetic\nMeshCode   dB(sec)   dL(sec)\n");
+    let code = |i: u32, j: u32| {
+        format!(
+            "{:02}{:02}{}{}{}{}",
+            i / 80,
+            j / 80,
+            (i % 80) / 10,
+            (j % 80) / 10,
+            i % 10,
+            j % 10
+        )
+    };
     for i in 4280..4283_u32 {
         for j in 3180..3183_u32 {
-            let code = format!(
-                "{:02}{:02}{}{}{}{}",
-                i / 80,
-                j / 80,
-                (i % 80) / 10,
-                (j % 80) / 10,
-                i % 10,
-                j % 10
-            );
+            let near = code(i, j);
             let (b, l) = (f64::from(i - 4280) * 0.01, f64::from(j - 3180) * 0.01);
-            let _ = writeln!(tky2jgd, "{code} {:.6} {:.6}", 10.0 + b, -10.0 + l);
-            let _ = writeln!(patchjgd, "{code} {b:.6} {l:.6} 0.000000");
+            let _ = writeln!(tky2jgd, "{near} {:.6} {:.6}", 10.0 + b, -10.0 + l);
+            let _ = writeln!(patchjgd, "{near} {b:.6} {l:.6} 0.000000");
+            let spread = code(4280 + (i - 4280) * 5, 3180 + (j - 3180) * 5);
+            let _ = writeln!(five, "{spread} {b:.6} {l:.6}");
         }
     }
     vec![
         isg.as_bytes().to_vec(),
         tky2jgd.into_bytes(),
         patchjgd.into_bytes(),
+        five.into_bytes(),
     ]
 }
 

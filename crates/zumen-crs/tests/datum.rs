@@ -365,11 +365,11 @@ fn shifted(point: GeoPoint, (b, l): (f64, f64)) -> GeoPoint {
     }
 }
 
-/// 公共測量成果改定マニュアル（令和 7 年 4 月）の第 3 条の解説のとおり、格子点が 5 倍地域メッシュの南西の隅（緯度
+/// 公共測量成果改定マニュアル（令和 7 年 4 月）の第 3 条の解説のとおり、格子点が 3 次メッシュの 5 倍の間隔の所（緯度
 /// 150 秒・経度 225 秒の倍数）だけにある格子は、その間隔で補間する。3 次メッシュの四隅に格子点のない点も、補正量を
 /// 0 にしない（#670、決定 0286）
 #[test]
-fn grids_at_the_five_times_mesh_are_interpolated_at_their_spacing() {
+fn grids_at_five_times_the_mesh_are_interpolated_at_their_spacing() {
     let zone = Zone::new(10).unwrap();
     let point = MapPoint {
         northing: -190_000.0,
@@ -388,7 +388,7 @@ fn grids_at_the_five_times_mesh_are_interpolated_at_their_spacing() {
     let patch = read(&grid_every(geographic, 5, 2, linear));
     assert_eq!(patch.spacing(), (150, 225));
     assert_eq!(read(&grid(geographic, tky)).spacing(), (30, 45));
-    // 3 次メッシュの区画の四隅に、5 倍地域メッシュの格子点が 1 つもない点
+    // 3 次メッシュの区画の四隅に、5 倍の間隔の格子点が 1 つもない点
     let (i0, j0) = (
         (geographic.latitude * 120.0) as u32 / 5 * 5,
         ((geographic.longitude - 100.0) * 80.0) as u32 / 5 * 5,
@@ -422,7 +422,7 @@ fn grids_at_the_five_times_mesh_are_interpolated_at_their_spacing() {
     assert!(distance(moved, point) > 100.0, "{moved:?}");
 }
 
-/// 格子点が、すべて 5 倍地域メッシュの南西の隅にあるのでも、3 次メッシュの間隔で隣り合うのでもなければ、補間の
+/// 格子点が、すべて 3 次メッシュの 5 倍の間隔の所にあるのでも、3 次メッシュの間隔で隣り合うのでもなければ、補間の
 /// 間隔が決まらないので読まない（決定 0286）
 #[test]
 fn grids_that_fit_neither_spacing_are_not_read() {
@@ -433,12 +433,9 @@ fn grids_that_fit_neither_spacing_are_not_read() {
     // 3 次メッシュの 1 つおきの格子点
     let every_other = grid_every(around, 2, 3, tky);
     let (found, diag) = with_cx(|cx| ShiftGrid::read(every_other.as_bytes(), cx));
-    assert!(
-        matches!(found, Err(zumen_sdk::Error::Unsupported)),
-        "{found:?}"
-    );
+    assert!(matches!(found, Err(Error::Unsupported)), "{found:?}");
     assert_eq!(diag, [codes::CRS_DATUM_GRID_UNSUPPORTED]);
-    // 格子点が 1 つだけなら、5 倍地域メッシュの隅にあればその間隔とし、なければ読まない
+    // 格子点が 1 つだけなら、5 倍の間隔の所にあればその間隔とし、なければ読まない
     let single = |i: u32, j: u32| format!("MeshCode dB(sec) dL(sec)\n{} 1.0 2.0\n", code(i, j));
     let (found, diag) = with_cx(|cx| ShiftGrid::read(single(4281, 3181).as_bytes(), cx));
     assert!(found.is_err());
