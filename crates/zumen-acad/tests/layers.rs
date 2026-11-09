@@ -269,6 +269,24 @@ fn color_book_names_follow_true_colors() {
         let written = String::from_utf8(written).unwrap();
         assert_eq!(written.contains("430\nBOOK$RED\n"), kept, "{color:?}");
     }
+    // 真の色のない名前（外れた入力）は、色を変えない置き換えで残す
+    let text = text.replace("420\n16711680\n", "");
+    let mut file = testkit::read::<Dxf>(text.as_bytes()).0.unwrap();
+    let drawing = lift(&file);
+    let was = layer(&drawing, "A");
+    let mut new = was.clone();
+    new.name = "B".to_owned();
+    let (result, codes) = apply(
+        &mut file,
+        vec![Edit::ReplaceLayer {
+            target: seen(was),
+            layer: Box::new(new),
+        }],
+    );
+    result.unwrap();
+    assert!(codes.is_empty(), "{codes:?}");
+    let written = String::from_utf8(testkit::write::<Dxf>(&file).unwrap()).unwrap();
+    assert!(written.contains("430\nBOOK$RED\n"));
 }
 
 #[test]

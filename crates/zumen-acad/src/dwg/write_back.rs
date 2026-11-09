@@ -3435,14 +3435,19 @@ fn layer(
             fields.bl(i32::from_ne_bytes(((0xC2 << 24) | rgb).to_ne_bytes()));
             fields.rc(0);
         }
-        None => same_cmc(
-            fields,
-            data,
-            color_at..bits.pos(),
-            old_color,
-            color,
-            release,
-        )?,
+        None => {
+            // 組み直す CMC は名前を持たないので、色見本帳の色の名前（430）を持つ画層の色は変えない
+            let copied = old_color.rgb.is_none() && old_color.index == color;
+            (copied || !object.values.iter().any(|value| value.code == 430)).then_some(())?;
+            same_cmc(
+                fields,
+                data,
+                color_at..bits.pos(),
+                old_color,
+                color,
+                release,
+            )?;
+        }
     }
     Some(bits.pos())
 }
