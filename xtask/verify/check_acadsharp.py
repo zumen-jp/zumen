@@ -31,7 +31,9 @@ from compare import ATTACHMENTS, KINDLESS, check_handles, lifted_away, run, usag
 # 既知の食い違い: (ファイルの道筋の初め, 食い違いの文の初め, issue, 当たるファイルの数)。直ったら消す
 KNOWN = []
 MODEL = "*model_space"
-# ヘッダーの変数のうち、HANDSEED より後ろに書くもの（crates/zumen-acad/src/dwg/header.rs の並び）
+# ヘッダーの変数のうち、HANDSEED より後ろに書くもの（crates/zumen-acad/src/dwg/header.rs の並び）。CLAYER は ACadSharp が
+# 名前で返すので、入力が既定の画層 0 なら、ハンドルが画層に当たらないずれは見分けにくい（推定）。R2010 からのハンドルの
+# ストリームのずれは、画層・図形の照らしと通知の数でも見つかる
 AFTER_SEED = ("INSUNITS", "PLIMMIN", "PLIMMAX", "CLAYER")
 
 
