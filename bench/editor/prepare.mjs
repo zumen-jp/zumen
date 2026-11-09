@@ -66,13 +66,14 @@ function entities(session, doc, fields) {
   }
 }
 
-function placeOf(session, doc) {
+// 最初の空間か用紙の ID と、文書のハッシュ
+function summaryOf(session, doc) {
   const summary = session.call({ v: 1, op: "drawing", doc }).result;
   const place = summary.spaces?.[0]?.id ?? summary.sheets?.[0]?.id;
   if (!place) {
     throw new Error(`${doc} に空間も用紙もない`);
   }
-  return place;
+  return { place, hash: summary.hash };
 }
 
 function extentOf(items) {
@@ -121,7 +122,7 @@ function grow(base, count) {
   const input = `${base.name}.${base.ext}`;
   const { session, doc } = opened(base.bytes, input);
   try {
-    const place = placeOf(session, doc);
+    const { place } = summaryOf(session, doc);
     const { items } = entities(session, doc, ["layer", "bbox"]);
     const layer = items.find((item) => item.id.startsWith(place + "/") && item.layer !== undefined)?.layer;
     // DXF・DWG は線種をレイヤに従わせる。SXF は図面にある最初の線種を名前で付ける。JWW の点は線種を持たない
@@ -158,8 +159,8 @@ function casesFor(label, file, base) {
   const bytes = readFileSync(path);
   const { session, doc } = opened(bytes, input);
   try {
-    const place = placeOf(session, doc);
-    const { items, total } = entities(session, doc, ["kind", "layer", "hash"]);
+    const { place, hash } = summaryOf(session, doc);
+    const { items, total } = entities(session, doc, ["kind", "layer", "hash", "bbox"]);
     const own = items.filter((item) => item.id.startsWith(place + "/"));
     // 動かす要素。JWW は足したものが点なので、点も含める
     const movable = own.filter((item) => item.kind === "line" || item.kind === "polyline" || item.kind === "point");
@@ -179,8 +180,33 @@ function casesFor(label, file, base) {
     const removeOne = { kind: "remove", id: target.id, hash: target.hash };
     const opener = [`push\t${input}\t${file}`, "call\t" + JSON.stringify({ v: 1, op: "open", input, doc })];
     const timed = (name, request, setup = opener) => ({ name: `${label}/${name}`, setup, request });
-    const apply = (edits) => ({ v: 1, op: "apply", doc, edits });
+    // エディターと同じく、apply には文書のハッシュを付ける（決定 0288）
+    const apply = (edits, docHash = hash) => ({ v: 1, op: "apply", doc, hash: docHash, edits });
     const scene = { v: 1, op: "scene", doc, from: place };
+    const call = (request) => "call\t" + JSON.stringify(request);
+    // エディターが開いたときと同じく、open のあとに scene を流しておく
+    const shown = [...opener, call(scene)];
+    // 最初の操作（1 件を動かす）。続けての操作は、同じ要素をもう一度動かす。前提条件は、最初の操作の結果から作る
+    const first = apply(transform(pick(1)));
+    const firstResult = session.call(first).result;
+    const moved = firstResult.applied[0];
+    if (moved?.id === undefined || moved.hash === undefined) {
+      throw new Error(`${label} の最初の操作が、動かした要素の ID とハッシュを返さない`);
+    }
+    const next = apply([{ kind: "transform", id: moved.id, hash: moved.hash, matrix: [1, 0, 5, 0, 1, 7] }], firstResult.hash);
+    // 選んだ要素を読む。選んだ範囲は、最初に動かす要素の範囲にする
+    const box = pick(1)[0].bbox;
+    const select = {
+      v: 1,
+      op: "entities",
+      doc,
+      place,
+      region: [box.min_x, box.min_y, box.max_x, box.max_y],
+      fields: ["kind", "layer", "hash", "geometry"],
+    };
+    // 取り消し。最初の操作のあと、文書を閉じ、元のバイト列（版 0）を同じ Worker で開き直して、シーンを作る
+    const original = `v0-${input}`;
+    const undo = [{ v: 1, op: "close", docs: [doc] }, { v: 1, op: "open", input: original, doc }, scene];
     return {
       size: bytes.length,
       elements: total,
@@ -201,7 +227,12 @@ function casesFor(label, file, base) {
         timed("apply_transform_100", apply(transform(pick(100)))),
         timed("apply_add_1", apply([addOne])),
         timed("apply_remove_1", apply([removeOne])),
-        timed("scene_after_apply", scene, [...opener, "call\t" + JSON.stringify(apply(transform(pick(1))))]),
+        timed("scene_after_apply", scene, [...opener, call(apply(transform(pick(1))))]),
+        // ここからは、エディターの流れ（決定 0288）。開いてシーンを作ったあとの、操作・選択・取り消し
+        timed("op_first", [first, scene], shown),
+        timed("op_next", [next, scene], [...shown, call(first), call(scene)]),
+        timed("select", select, shown),
+        timed("undo", undo, [`push\t${original}\t${file}`, ...shown, call(first), call(scene)]),
       ],
     };
   } finally {
@@ -226,7 +257,10 @@ for (const base of bases) {
       const search = name.endsWith("/open") || name.endsWith("/scene") || name.endsWith("/apply_transform_1");
       const kinds = !search || size.label === "base" ? "-" : big ? "work" : "work,records,elements,segments";
       const requests = Array.isArray(request) ? request : [request];
-      plan.push(`case\t${name}\t${big ? 3 : 5}\t${kinds}`, ...setup, ...requests.map((r) => "time\t" + JSON.stringify(r)), "end");
+      // エディターの流れの場合は、決定に使うので回数を増やす
+      const flow = /\/(op_first|op_next|select|undo)$/.test(name);
+      const repeat = flow ? (big ? 5 : 7) : big ? 3 : 5;
+      plan.push(`case\t${name}\t${repeat}\t${kinds}`, ...setup, ...requests.map((r) => "time\t" + JSON.stringify(r)), "end");
     }
     console.log(`${label}: ${bytes} バイト・${elements} 要素`);
   }
