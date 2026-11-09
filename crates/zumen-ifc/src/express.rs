@@ -5,11 +5,12 @@
 //! zumen は EXPRESS を同梱しない。
 //!
 //! 読むときは、EXPRESS のバイトと、循環を調べる手順を work で数え、集まりの型の入れ子を 1 段ごとに depth で数える
-//! （決定 0010・0216）。
+//! （決定 0010・0216）。1 つの宣言に並べた属性の名前は、読んだ型を共有し、名前ごとに写さない。
 
 use core::ops::Range;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
+use std::sync::Arc;
 
 use zumen_base::{Diagnostic, Kind, codes};
 use zumen_sdk::{Cx, Error, Stop};
@@ -36,7 +37,7 @@ struct Entity {
     /// 自分で宣言した明示の属性
     attributes: Vec<Attribute>,
     /// 上位の型の属性を、型を変えて宣言し直したもの
-    redeclared: Vec<(String, Type, bool)>,
+    redeclared: Vec<(String, Arc<Type>, bool)>,
     /// 上位の型の属性を、導く属性にしたもの
     derived: Vec<String>,
 }
@@ -46,7 +47,8 @@ struct Attribute {
     name: String,
     /// 書いたままの名前
     written: String,
-    ty: Type,
+    /// 型。同じ宣言に並べた名前の間で共有する（#668）
+    ty: Arc<Type>,
     optional: bool,
 }
 
@@ -108,7 +110,7 @@ struct Slot {
     /// 書いたままの名前。IDS の照合が使う
     #[cfg_attr(not(feature = "ids"), expect(dead_code))]
     written: String,
-    ty: Type,
+    ty: Arc<Type>,
     optional: bool,
     derived: bool,
 }
@@ -124,6 +126,7 @@ impl Express {
             Err(line) => return Err(invalid(cx, line, "")),
         };
         let mut parser = Parser {
+            src,
             tokens: &tokens,
             at: 0,
             stop: None,
@@ -166,27 +169,41 @@ impl Express {
         self.entities.contains_key(name) || self.types.contains_key(name)
     }
 
-    /// 宣言のない型の名前
+    /// 宣言のない型の名前。見つけた所で返し、名前を集めて写さない。1 つの宣言に並べた属性の名前は型を共有するので、
+    /// 続く同じ型は 1 度だけたどる。手間は、入力のバイト数に比例する（#668）
     fn unresolved(&self) -> Option<String> {
-        let known = |name: &String| self.declared(name);
-        let mut named = Vec::new();
+        let unknown = |name: &String| (!self.declared(name)).then(|| name.clone());
         for entity in self.entities.values() {
-            named.extend(entity.supertypes.iter().cloned());
-            for attribute in &entity.attributes {
-                attribute.ty.names(&mut named);
+            if let Some(name) = entity.supertypes.iter().find_map(unknown) {
+                return Some(name);
             }
-            for (_, ty, _) in &entity.redeclared {
-                ty.names(&mut named);
+            let types = entity
+                .attributes
+                .iter()
+                .map(|attribute| &attribute.ty)
+                .chain(entity.redeclared.iter().map(|(_, ty, _)| ty));
+            let mut last: Option<&Arc<Type>> = None;
+            for ty in types {
+                if last.is_some_and(|last| Arc::ptr_eq(last, ty)) {
+                    continue;
+                }
+                last = Some(ty);
+                if let Some(name) = ty.item_name().and_then(unknown) {
+                    return Some(name);
+                }
             }
         }
         for def in self.types.values() {
-            match def {
-                TypeDef::Defined(_, ty) => ty.names(&mut named),
-                TypeDef::Select(_, items) => named.extend(items.iter().cloned()),
-                TypeDef::Enumeration(..) => {}
+            let name = match def {
+                TypeDef::Defined(_, ty) => ty.item_name().and_then(unknown),
+                TypeDef::Select(_, items) => items.iter().find_map(unknown),
+                TypeDef::Enumeration(..) => None,
+            };
+            if name.is_some() {
+                return name;
             }
         }
-        named.into_iter().find(|name| !known(name))
+        None
     }
 
     /// 上位の型か、定義された型が循環する名前
@@ -335,14 +352,14 @@ impl Express {
                 slots.push(Slot {
                     name: attribute.name.clone(),
                     written: attribute.written.clone(),
-                    ty: attribute.ty.clone(),
+                    ty: Arc::clone(&attribute.ty),
                     optional: attribute.optional,
                     derived: false,
                 });
             }
             for (attribute, ty, optional) in &entity.redeclared {
                 if let Some(slot) = slots.iter_mut().rev().find(|s| &s.name == attribute) {
-                    slot.ty = ty.clone();
+                    slot.ty = Arc::clone(ty);
                     slot.optional = *optional;
                 }
             }
@@ -363,7 +380,7 @@ impl Express {
             self.slots(kind)
                 .into_iter()
                 .map(|slot| {
-                    let type_name = match &slot.ty {
+                    let type_name = match &*slot.ty {
                         Type::Named(name) => Some(name.clone()),
                         _ => None,
                     };
@@ -466,13 +483,14 @@ impl Express {
 
 impl Type {
     /// 型が使う名前。集まりなら、項目の型の名前。自分を呼ばない
-    fn names(&self, out: &mut Vec<String>) {
+    fn item_name(&self) -> Option<&String> {
         let mut ty = self;
         while let Self::Aggregate { of, .. } = ty {
             ty = of;
         }
-        if let Self::Named(name) = ty {
-            out.push(name.clone());
+        match ty {
+            Self::Named(name) => Some(name),
+            _ => None,
         }
     }
 }
@@ -492,10 +510,8 @@ fn invalid(cx: &mut Cx, line: u64, near: &str) -> Error {
 struct Token {
     /// 名前は大文字にする。文字列は `'` を含めたまま
     text: String,
-    /// 書いたままの字句
-    written: String,
     line: u64,
-    /// 入力の中の位置
+    /// 入力の中の位置。書いたままの字句は、入力のこの範囲から読む（字句ごとに写して持たない。#668）
     bytes: Range<usize>,
 }
 
@@ -567,11 +583,9 @@ fn tokenize(src: &[u8], cx: &mut Cx) -> Result<Result<Vec<Token>, u64>, Error> {
                         _ => at += 1,
                     }
                 }
-                let text =
-                    String::from_utf8_lossy(src.get(start..at).unwrap_or_default()).into_owned();
                 tokens.push(Token {
-                    written: text.clone(),
-                    text,
+                    text: String::from_utf8_lossy(src.get(start..at).unwrap_or_default())
+                        .into_owned(),
                     line,
                     bytes: start..at,
                 });
@@ -590,12 +604,9 @@ fn tokenize(src: &[u8], cx: &mut Cx) -> Result<Result<Vec<Token>, u64>, Error> {
                         at += 1;
                     }
                 }
-                let written =
-                    String::from_utf8_lossy(src.get(start..at).unwrap_or_default()).into_owned();
-                let text = written.to_ascii_uppercase();
                 tokens.push(Token {
-                    text,
-                    written,
+                    text: String::from_utf8_lossy(src.get(start..at).unwrap_or_default())
+                        .to_ascii_uppercase(),
                     line,
                     bytes: start..at,
                 });
@@ -607,11 +618,9 @@ fn tokenize(src: &[u8], cx: &mut Cx) -> Result<Result<Vec<Token>, u64>, Error> {
                     b":=" | b"<=" | b">=" | b"<>" | b"<*" | b"||" | b"**" => 2,
                     _ => 1,
                 };
-                let text =
-                    String::from_utf8_lossy(src.get(at..at + len).unwrap_or_default()).into_owned();
                 tokens.push(Token {
-                    written: text.clone(),
-                    text,
+                    text: String::from_utf8_lossy(src.get(at..at + len).unwrap_or_default())
+                        .into_owned(),
                     line,
                     bytes: at..at + len,
                 });
@@ -631,6 +640,8 @@ fn tokenize(src: &[u8], cx: &mut Cx) -> Result<Result<Vec<Token>, u64>, Error> {
 // 構文
 
 struct Parser<'t> {
+    /// 入力。書いたままの名前を読む
+    src: &'t [u8],
     tokens: &'t [Token],
     at: usize,
     /// 予算か中断の合図で止めた理由と、そのときの字句の位置。止めたら、読めなかったとして返す
@@ -725,7 +736,7 @@ impl Parser<'_> {
     }
 
     /// スキーマ。字句のバイトは、字句に分けるときに work で数えてある。同じ名前の宣言は、どれを使うか決められない
-    /// ので読まない
+    /// ので断る
     fn schema(&mut self, cx: &mut Cx) -> Parsed<Express> {
         self.expect("SCHEMA")?;
         let name = self.name()?;
@@ -966,16 +977,17 @@ impl Parser<'_> {
             }
             self.expect(":")?;
             let optional = self.eat("OPTIONAL");
-            let ty = self.ty(cx)?;
+            // 並べた名前は、読んだ型を共有する。名前ごとに写すと、メモリが型の大きさの倍で増える（#668）
+            let ty = Arc::new(self.ty(cx)?);
             self.expect(";")?;
             for (inherited, name, written) in names {
                 if inherited {
-                    entity.redeclared.push((name, ty.clone(), optional));
+                    entity.redeclared.push((name, Arc::clone(&ty), optional));
                 } else {
                     entity.attributes.push(Attribute {
                         name,
                         written,
-                        ty: ty.clone(),
+                        ty: Arc::clone(&ty),
                         optional,
                     });
                 }
@@ -1025,10 +1037,12 @@ impl Parser<'_> {
             self.expect(".")?;
         }
         let name = self.name()?;
+        // 書いたままの名前は、字句の位置から入力を読む
         let written = self
             .tokens
             .get(self.at.saturating_sub(1))
-            .map_or_else(|| name.clone(), |t| t.written.clone());
+            .and_then(|t| self.src.get(t.bytes.clone()))
+            .map_or_else(|| name.clone(), |b| String::from_utf8_lossy(b).into_owned());
         if inherited && self.eat("RENAMED") {
             self.name()?;
         }
@@ -1140,7 +1154,7 @@ impl Checker<'_> {
                     .map(|a| Slot {
                         name: a.name.clone(),
                         written: a.written.clone(),
-                        ty: a.ty.clone(),
+                        ty: Arc::clone(&a.ty),
                         optional: a.optional,
                         derived: derived_elsewhere.contains(&a.name),
                     })
@@ -1330,5 +1344,47 @@ impl Checker<'_> {
             }
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use zumen_base::{Budget, CancelToken, Diagnostics, Limits};
+
+    use super::*;
+
+    fn read(src: &str) -> Express {
+        let mut budget = Budget::new(Limits::default());
+        let mut diag = Diagnostics::new();
+        let cancel = CancelToken::new();
+        Express::read(
+            src.as_bytes(),
+            &mut Cx::new(&mut budget, &mut diag, &cancel),
+        )
+        .unwrap_or_else(|e| panic!("{e:?} {diag:?}"))
+    }
+
+    /// 1 つの宣言に並べた属性の名前は、宣言し直したものも含めて、読んだ型を 1 つ共有する。名前ごとに写すと、
+    /// メモリが名前の数と型の大きさの積で増える。別の宣言とは、同じ書き方でも共有しない（#668）
+    #[test]
+    fn names_of_one_declaration_share_the_type() {
+        let schema = read(
+            "SCHEMA S;\nENTITY P;\n  A : INTEGER;\nEND_ENTITY;\nENTITY E SUBTYPE OF (P);\n  \
+             B, SELF\\P.A, C : LIST [1:?] OF INTEGER;\n  D : LIST [1:?] OF INTEGER;\nEND_ENTITY;\n\
+             END_SCHEMA;\n",
+        );
+        let entity = &schema.entities["E"];
+        let names: Vec<_> = entity.attributes.iter().map(|a| a.name.as_str()).collect();
+        assert_eq!(names, ["B", "C", "D"]);
+        let (b, c, d) = (
+            &entity.attributes[0].ty,
+            &entity.attributes[1].ty,
+            &entity.attributes[2].ty,
+        );
+        let a = &entity.redeclared[0].1;
+        assert!(Arc::ptr_eq(b, a) && Arc::ptr_eq(b, c));
+        assert_eq!(Arc::strong_count(b), 3);
+        assert!(!Arc::ptr_eq(b, d));
+        assert_eq!(b, d);
     }
 }

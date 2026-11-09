@@ -8,8 +8,8 @@
 //!
 //! `cargo xtask fuzz-seeds` は、公開サンプル、適合テストの組の合成の入力と要求、L0 の攻撃の形（ZIP 爆弾・膨らむ
 //! deflate・アーカイブの入れ子・パスの走査・XML の外部実体と深い入れ子・ISO 10303-21 の深い入れ子）、EXPRESS の攻撃の
-//! 形（集まりの型の深い入れ子・定義された型と上位の型の長い鎖）、合成の格子（ISG・TKY2JGD・PatchJGD の形）を、どの
-//! target にも種として書く（決定 0258・0262）。
+//! 形（集まりの型の深い入れ子・定義された型と上位の型の長い鎖）、合成の格子（ISG・TKY2JGD・PatchJGD の形）、線と列の
+//! 参照を持つ合成シーン（ZMSC）を、どの target にも種として書く（決定 0258・0262）。
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
@@ -180,7 +180,7 @@ fn check_targets(
     errors
 }
 
-/// 公開サンプル、適合テストの組の合成の入力、L0 と EXPRESS の攻撃の形、合成の格子を、どの target にも
+/// 公開サンプル、適合テストの組の合成の入力、L0 と EXPRESS の攻撃の形、合成の格子、合成シーンを、どの target にも
 /// `fuzz/corpus/<target>/` の種として書く。ファイルの名前は、中身の SHA-256 にする
 pub fn seeds(root: &Path) -> Result<(), String> {
     let mut seeds = BTreeMap::new();

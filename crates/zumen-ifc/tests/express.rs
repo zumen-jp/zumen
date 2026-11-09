@@ -319,7 +319,7 @@ fn nested_aggregates_stop_at_the_depth_budget() {
 }
 
 /// 既定の予算の深さを大きく超える入れ子も、自分を呼ばずに読んで止める。既定の深さまでの入れ子は、小さいスタック
-/// （Windows のメインのスレッドと wasm の既定の 1 MiB）でも、読み・チェック・写し・比べ・捨てられる（#668）
+/// （Windows のメインのスレッドと wasm の既定の 1 MiB）でも、読み・チェック・写し・比べ・`Debug` で書き・捨てられる（#668）
 #[test]
 fn deep_nesting_does_not_exhaust_a_small_stack() {
     std::thread::Builder::new()
@@ -332,7 +332,12 @@ fn deep_nesting_does_not_exhaust_a_small_stack() {
                 codes::BUDGET_DEPTH_EXCEEDED
             );
 
-            let (schema, diag, _) = read(&nested(256, 256), Limits::default());
+            // 既定の深さ（決定 0010 の仮の値）ちょうどの入れ子。既定を変えても、上限ちょうどを確かめる
+            let Limit::Finite(depth) = Limits::default().get(Kind::Depth) else {
+                panic!("既定の depth に上限がない");
+            };
+            let depth = usize::try_from(depth).unwrap();
+            let (schema, diag, _) = read(&nested(depth, depth), Limits::default());
             let schema = schema.unwrap_or_else(|e| panic!("{e:?} {diag:?}"));
             let file = with(Limits::default(), |cx| {
                 Ifc::read(ifc("IFCDEEP", "#1=E(1,1);\n").as_bytes(), cx)
@@ -342,13 +347,14 @@ fn deep_nesting_does_not_exhaust_a_small_stack() {
             let (findings, diag) = with(Limits::default(), |cx| check(&file, &schema, cx));
             let findings = findings.unwrap_or_else(|e| panic!("{e:?} {diag:?}"));
             let expected: Vec<_> = findings.iter().map(|d| d.param("expected")).collect();
-            let deep = format!("{}INTEGER", "LIST [1:?] OF ".repeat(256));
+            let deep = format!("{}INTEGER", "LIST [1:?] OF ".repeat(depth));
             assert_eq!(
                 expected,
                 [Some(&Value::Text(deep)), Some(&Value::Text("T".to_owned()))]
             );
             let copy = schema.clone();
             assert!(copy == schema);
+            assert!(!format!("{copy:?}").is_empty());
             drop(copy);
             drop(schema);
         })
@@ -476,6 +482,49 @@ fn rejects_declarations_with_the_same_name() {
         let invalid = diag.iter().next().unwrap();
         assert_eq!(invalid.param("near"), Some(&Value::Text(name.to_owned())));
         assert_eq!(invalid.param("line"), Some(&Value::UInt(line)));
+    }
+}
+
+/// 宣言のない名前は、実体の名前の順に、上位の型・属性の型・宣言し直した属性の型の順で見て、最初のものを指し、
+/// 実体の後に型を見る。1 つの宣言に並べた名前は型を共有し、その型は 1 度だけたどる（#668）
+#[test]
+fn reports_the_first_unresolved_name() {
+    let schema = |declarations: &str| format!("SCHEMA MISSING;\n{declarations}END_SCHEMA;\n");
+    for (src, name) in [
+        (
+            schema("ENTITY E;\n  A, B, C : LIST [1:?] OF MissingT;\nEND_ENTITY;\n"),
+            "MISSINGT",
+        ),
+        (
+            schema("ENTITY E SUBTYPE OF (MissingE);\n  A, B : MissingT;\nEND_ENTITY;\n"),
+            "MISSINGE",
+        ),
+        // 宣言し直した属性の型は、先に書いても、属性の型の後に見る
+        (
+            schema(
+                "ENTITY P;\n  X : INTEGER;\nEND_ENTITY;\nENTITY Q SUBTYPE OF (P);\n  \
+                 SELF\\P.X : MissingX;\n  A : MissingA;\nEND_ENTITY;\n",
+            ),
+            "MISSINGA",
+        ),
+        // 実体は、書いた順ではなく名前の順に見る
+        (
+            schema(
+                "ENTITY B;\n  X : MissingB;\nEND_ENTITY;\nENTITY A;\n  Y : MissingA;\nEND_ENTITY;\n",
+            ),
+            "MISSINGA",
+        ),
+        (
+            schema("TYPE T = MissingT;\nEND_TYPE;\nENTITY E;\n  X : MissingE;\nEND_ENTITY;\n"),
+            "MISSINGE",
+        ),
+    ] {
+        let (result, diag, _) = read(&src, Limits::default());
+        assert!(matches!(result, Err(Error::Invalid)), "{src}");
+        let invalid = diag.iter().next().unwrap();
+        assert_eq!(invalid.code(), codes::EXPRESS_FILE_INVALID);
+        assert_eq!(invalid.param("line"), Some(&Value::UInt(0)));
+        assert_eq!(invalid.param("near"), Some(&Value::Text(name.to_owned())));
     }
 }
 
