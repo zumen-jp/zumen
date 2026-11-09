@@ -1,6 +1,9 @@
 //! 属性ファイル（SAF）を読み、属性ファイル用の属性付加機構の要素に結ぶ（決定 0249、#386）。入力は、どれもテストの
 //! 中で作る。
 
+// 属性ファイル（`zumen_sxf::saf`）は、機能 `drawing` で作る（#735）
+#![cfg(feature = "drawing")]
+
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, codes};
 use zumen_drawing::{Drawing2D, FieldValue};
 use zumen_sdk::testkit;
