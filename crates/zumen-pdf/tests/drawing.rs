@@ -4516,20 +4516,12 @@ fn reads_names_in_comments_in_linear_work() {
         let work = used(&document.bytes(), Kind::Work);
         assert!(work < plain + 8 * count as u64, "{line:?} {plain} {work}");
     }
-    // 閉じない辞書は、後ろのオブジェクトの字句を最後まで読む。次の `obj` を字句として読んだら、後ろの辞書はそこから後ろの
-    // 歩みに着かないので、歩みを覚えない（覚えると、字句ごとに `DecodedBytes` を数える）
-    let content = "1 2 3 4\n".repeat(20_000);
-    let decoded = |open: &str| {
-        let mut document = Document::new(vec![Page::new("0 0 m 10 10 l S")]);
-        document.objects = vec![
-            open.as_bytes().to_vec(),
-            common::stream("", content.as_str()),
-        ];
-        used(&document.bytes(), Kind::DecodedBytes)
-    };
-    let closed = decoded("<< /A 1 >>");
-    let unclosed = decoded("<< /A 1");
-    assert!(unclosed < closed + 4096, "{closed} {unclosed}");
+    // 次の `obj` の辞書の後ろのコメントの中の `obj<<` の辞書も、前の辞書が覚えた歩みに着いたら読み直さない（PR #658 の
+    // 2 回目の確かめで、覚えるのをやめると 2 乗になった形）
+    let mut document = Document::new(vec![Page::new("0 0 m 10 10 l S")]);
+    document.objects = vec!["9 0 obj << >>\n%obj<<\n/X 1\n".repeat(count).into_bytes()];
+    let work = used(&document.bytes(), Kind::Work);
+    assert!(work < plain + 8 * count as u64, "{plain} {work}");
     // フィルターの値に参照があるときに見る、参照の先の配列も、コメントの行の `obj [` から読み直さない（名前の配列と、
     // 展開のパラメーターの配列の 2 つの見方で、それぞれ飛ばす）
     let mut document = Document::new(vec![Page::new("0 0 m 10 10 l S")]);
