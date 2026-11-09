@@ -9,7 +9,7 @@ use zumen_base::{Diagnostic, Kind, Ref, Severity, codes};
 use zumen_building::{
     Building, ElementRef, Literal, Measured, Opening, ParentKind, Property, QuantityKind, Unit,
 };
-use zumen_sdk::{Cx, Error};
+use zumen_sdk::{Cx, Error, Stop};
 
 use crate::{Cardinality, Constraint, Facet, Ids, Relation, Restriction, Specification, Value};
 
@@ -45,13 +45,16 @@ pub trait Lookup {
     }
 
     /// 要素のすべての明示の属性の名前と値。属性の並びを知らなければ `None`。そのときは、コンポーネントにある属性
-    /// （`GlobalId`・`Name`・`Description`・`Tag`・`LongName`・`PredefinedType`）だけを確かめる
+    /// （`GlobalId`・`Name`・`Description`・`Tag`・`LongName`・`PredefinedType`）だけを確かめる。
+    ///
+    /// 照合は、要素と属性の facet ごとに呼ぶ。引く手間は `cx` の予算の work で数え、超えたら止める（#672）
     fn attributes(
         &self,
         _building: &Building,
         _element: ElementRef,
-    ) -> Option<Vec<(String, AttributeValue)>> {
-        None
+        _cx: &mut Cx,
+    ) -> Result<Option<Vec<(String, AttributeValue)>>, Stop> {
+        Ok(None)
     }
 }
 
@@ -388,9 +391,10 @@ impl Checker<'_> {
                 State::Present(self.entity(name, predefined.as_ref(), element)),
                 "entity",
             ),
-            Facet::Attribute { name, value, .. } => {
-                (self.attribute(name, value.as_ref(), element), "attribute")
-            }
+            Facet::Attribute { name, value, .. } => (
+                self.attribute(name, value.as_ref(), element, cx)?,
+                "attribute",
+            ),
             Facet::Classification { value, system, .. } => (
                 self.classification(value.as_ref(), system.as_ref(), element),
                 "classification",
@@ -469,16 +473,35 @@ impl Checker<'_> {
 
     // attribute
 
-    fn attribute(&self, name: &Value, value: Option<&Value>, element: ElementRef) -> State {
-        let list = match self.source.attributes(self.building, element) {
-            Some(list) => list,
+    fn attribute(
+        &self,
+        name: &Value,
+        value: Option<&Value>,
+        element: ElementRef,
+        cx: &mut Cx,
+    ) -> Result<State, Error> {
+        let stopped = |cx: &mut Cx, stop: Stop| {
+            cx.report(stop.to_diagnostic());
+            Error::Stopped(stop)
+        };
+        let found = self
+            .source
+            .attributes(self.building, element, cx)
+            .map_err(|stop| stopped(cx, stop))?;
+        let list = match found {
+            Some(list) => {
+                // 返った属性ごとに、名前と値を比べる手間を 1 つ数える（#672）
+                cx.check(Kind::Work, list.len() as u64)
+                    .map_err(|stop| stopped(cx, stop))?;
+                list
+            }
             None => {
                 let Value::Simple(simple) = name else {
-                    return State::Unknown;
+                    return Ok(State::Unknown);
                 };
                 match self.known_attribute(simple, element) {
                     Some(found) => vec![(simple.clone(), found)],
-                    None => return State::Unknown,
+                    None => return Ok(State::Unknown),
                 }
             }
         };
@@ -511,10 +534,10 @@ impl Checker<'_> {
                 state = combine(state, this);
             }
         }
-        match state {
+        Ok(match state {
             State::Present(_) if absent => State::Present(Tri::No),
             state => state,
-        }
+        })
     }
 
     /// コンポーネントにある属性。コンポーネントにない名前なら `None`

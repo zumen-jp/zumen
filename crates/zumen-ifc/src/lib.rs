@@ -29,7 +29,7 @@ mod zip;
 
 #[cfg(feature = "building")]
 pub use edit::{Applied, Edit, NewLiteral, NewValue, RootAttribute, apply};
-pub use express::{Express, check};
+pub use express::{Express, Findings, check, check_range};
 #[cfg(feature = "ids")]
 pub use ids::IdsLookup;
 pub use zip::{IfcZip, IfcZipFile};
@@ -99,6 +99,11 @@ impl IfcFile {
     /// 番号 `id` のインスタンス
     pub fn instance(&self, id: u64) -> Option<&Record> {
         self.records.get(*self.index.get(&id)?)
+    }
+
+    /// 番号 `id` のインスタンスの、[`IfcFile::records`] の中の位置
+    pub(crate) fn position(&self, id: u64) -> Option<usize> {
+        self.index.get(&id).copied()
     }
 
     /// インスタンスの番号。書いた順で、同じ番号は初めのもの
