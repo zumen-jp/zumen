@@ -80,6 +80,11 @@ static class Dwg
                 // doc.Header.HandleSeed は、読むときに登録したオブジェクトと ACadSharp が作ったオブジェクトで
                 // 引き上げられるので、ヘッダーだけを読み直した値を使う
                 ["HANDSEED"] = FileHandleSeed(path),
+                // HANDSEED より後ろに書く変数。HANDSEED の大きさが変わったときに、後ろのビットがずれていないことを照らす
+                ["INSUNITS"] = (int)doc.Header.InsUnits,
+                ["PLIMMIN"] = new JsonArray(doc.Header.PaperSpaceLimitsMin.X, doc.Header.PaperSpaceLimitsMin.Y),
+                ["PLIMMAX"] = new JsonArray(doc.Header.PaperSpaceLimitsMax.X, doc.Header.PaperSpaceLimitsMax.Y),
+                ["CLAYER"] = doc.Header.CurrentLayerName,
             };
             var layers = new JsonObject();
             foreach (var layer in doc.Layers)
