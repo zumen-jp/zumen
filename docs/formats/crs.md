@@ -66,10 +66,10 @@ ISG format 2.0（ISG、2020-06-25）の格子を読み、国土地理院の「�
 - 読むのは、`data format` が `grid`、`coord type` が `geodetic`、`coord units` が `deg` か `dms`、`data units` が `meters`、並びが北から南・西から東（`N-to-S, W-to-E`。仕様の例の `N-S, W-E` も読む）のもの。書かれていない項目は、ISG format 2.0 の既定とする。ほかの形は `crs.geoid.unsupported` にする。
 - 格子の間隔は、範囲と行・列の数から求める。`deg` の間隔（`0.333333` など）は丸めて書かれるので、書かれた間隔が求めた間隔と半分より違うときだけ壊れているとする。
 - 双一次の補間は、求める点を囲む四隅の格子点を使う。重みが 0 でない格子点のどれかが `nodata` なら、値を返さない。格子点の上や格子の線の上では、重みが 0 の点を見ない（説明書の注 6）。格子の範囲の外も返さない。
-- 補間の結果は、使ったモデルの名前と年（`model name`・`model year`）を持つ。
-- ヘッダーの前の注記は読まない。値の数は、予算のレコードで数える。ヘッダーの行と列の数で場所を取らない。
+- 補間の結果は、使ったモデルの名前と年（`model name`・`model year`）を持つ。格子の範囲と行・列の数は、`Grid::extent` で返す。
+- ヘッダーの前のコメントの行は読まない。値の数は、予算のレコードで数える。ヘッダーの行と列の数で場所を取らない。
 
-国土地理院のジオイド・モデルは、Git・パッケージ・テストに入れない。テスト（`crates/zumen-crs/tests/grid.rs`）は、ISG format 2.0 の例と同じ形の合成の格子を使う。実際のモデルで、国土地理院の内挿計算プログラムと比べる照合は、[#438](https://github.com/zumen-jp/zumen/issues/438) で行う。
+国土地理院のジオイド・モデルは、Git・パッケージ・テストに入れない。テスト（`crates/zumen-crs/tests/grid.rs`）は、ISG format 2.0 の例と同じ形の合成の格子を使う。実際のモデルで、国土地理院のジオイド高計算サービスか内挿計算プログラム（geoidcalc）と比べる照合は、[#438](https://github.com/zumen-jp/zumen/issues/438) で行う。照合の点・コマンド・手順・期待する結果は、検証キット（[`xtask/verify/geoid/`](../../xtask/verify/geoid/README.md)）にある。
 
 ## 座標の補正量の格子
 
@@ -103,6 +103,6 @@ SXF の測地座標系の部分図（X が北、Y が東）は、図面モデル
 
 段の意味は[決定 0254](../decisions/0254-parallel-agents-and-cross-review.md) に、根拠は形式と権利の一覧の [`isg`](README.md#format-isg) と [`par`](README.md#format-par) にあります。台帳の形式は、ジオイドの格子（ISG 形式）と、座標の補正量の格子（TKY2JGD・PatchJGD のパラメーターのファイル）です。
 
-- ジオイドの格子: ISG format 2.0 の例と同じ形の合成の格子（`crates/zumen-crs/tests/grid.rs`）だけで確かめた `synthetic` の段。国土地理院のジオイド・モデルで、内挿計算プログラムと比べる照合は #438 で行う。
+- ジオイドの格子: ISG format 2.0 の例と同じ形の合成の格子（`crates/zumen-crs/tests/grid.rs`）だけで確かめた `synthetic` の段。国土地理院のジオイド・モデルで、ジオイド高計算サービスか内挿計算プログラムと比べる照合は、検証キット（`xtask/verify/geoid/`）を使って #438 で行う。
 - 座標の補正量の格子: TKY2JGD の論文の表 2 と同じ項目の並びの合成の格子と、長いヘッダーに UTF-8 でない行を含む合成の格子（`crates/zumen-crs/tests/datum.rs`）だけで確かめた `synthetic` の段。国土地理院のパラメーターのファイルは読んでいない。格子の間隔の見分けと jgdtrans との照合は #670 で、国土地理院のファイルと、測量計算サイトの TKY2JGD・PatchJGD で確かめることは #664 で行う。
 - 経緯度と平面直角座標の換算は形式ではないので、段を持たない。測量計算サイトと比べた記録は「照合の記録」にある。

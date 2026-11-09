@@ -15,6 +15,7 @@ zumen が書き戻した（apply）・変換した（convert）図面を、zumen
 | `test_ezsxf.py` | 合成 P21 の追加点のレイヤ所属と、同じ番号を持つ合成 SFC の各要素の形・種類・レイヤ・出所・欠落を個別に変え、`check_ezsxf.py` が食い違いを検出することを確かめる。合成 P21 の画像枠と折れ線の取り違え、枠のない画像の作図グループの診断の欠落、引数の中にコメントを持つ文の実体のレイヤの違いも検出することを確かめる |
 | `test_source_kinds.py` | キットの読みの要素の種類を変え、`check_ezdxf.py`・`check_acadsharp.py`・`check_ezjww.py` が、形を返さない要素の種類の違いを検出することを確かめる。JWW では、文字と画像の範囲の取り違え、描かない文字を要素にした読み、診断の欠落も検出することを確かめる。DWG は `acadsharp-dump.json` があるときだけ確かめる |
 | `pdfjs/` | PDF の寸法・文字・経路と画像の数を pdf.js と照らす。手順は [README](pdfjs/README.md) |
+| `geoid/` | ジオイドの格子の補間を、国土地理院のジオイド高計算サービスか内挿計算プログラムの結果と照らす（#438）。利用者が入手したモデルで、`cargo xtask geoid` を使う。手順は [README](geoid/README.md) |
 | `dump.lsp` | AutoCAD で開いた図面の図形を、ハンドルごとに 1 行で書き出す。キットの README の手順で使う |
 
 ## 使い方

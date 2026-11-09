@@ -19,7 +19,7 @@ pub mod projection;
 
 pub use crs::{Crs, VerticalCrs, Zone, wkt_codes};
 pub use datum::{ShiftGrid, Shifts, to_jgd2011};
-pub use grid::{Grid, Model, Undulation};
+pub use grid::{Extent, Grid, Model, Undulation};
 pub use height::{Height, HeightDatum, Realization};
 pub use point::{Axes, GeoPoint, MapConversion, MapPoint, MapPosition, ProjectPoint};
 pub use projection::{
