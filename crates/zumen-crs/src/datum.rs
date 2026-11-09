@@ -244,8 +244,8 @@ fn shift(
 /// ファイルも当てない（#678）。PatchJGD のファイルは、渡した順（古い順）に、前のファイルで直した経緯度に当てる
 /// （決定 0286）。要る格子がないか、点が格子の範囲の外なら、診断して `None` を返す。診断の `grid` は、PatchJGD の
 /// ファイルが 1 つなら `PatchJGD`、複数なら渡した順の番号を付けた `PatchJGD 1`・`PatchJGD 2` など。平面直角座標と
-/// 経緯度の換算ができない点（補正量の極端な格子で直した点など）は、`crs.projection.unsupported` を診断して `None` を
-/// 返す（#679）。呼ぶ側は、座標系の違う点を比べない
+/// 経緯度の換算ができない点（補正量の極端な格子で直した点など）と、系の決まらない JGD2011 の経緯度の点は、
+/// `crs.projection.unsupported` を診断して `None` を返す（#679）。呼ぶ側は、座標系の違う点を比べない
 pub fn to_jgd2011(
     crs: Crs,
     point: MapPoint,
@@ -266,7 +266,11 @@ pub fn to_jgd2011(
         );
     };
     let (zone, geographic) = match crs {
-        Crs::Geographic => return None,
+        // JGD2011 の経緯度は、どの系の平面直角座標にするかが決まらない
+        Crs::Geographic => {
+            unsupported(cx);
+            return None;
+        }
         Crs::Plane(_) => return Some((crs, point)),
         Crs::Jgd2000(zone) => {
             let Some(geographic) = to_geographic_on(Ellipsoid::Grs80, zone, point) else {

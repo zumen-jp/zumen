@@ -1,8 +1,9 @@
 //! TKY2JGD・PatchJGD の形の格子（座標の補正量）の fuzz の target（#501・#679）。読み取りが、小さい予算の中で止まり、
 //! 2 回で同じ結果になることを確かめる。読めた格子では、決まった点の補間（`ShiftGrid::correction`）と、日本測地系と
 //! JGD2000 の平面直角座標から JGD2011 への変換（`to_jgd2011`）まで通し、落ちないことと、2 回で同じ結果になることを
-//! 確かめる。点には、3 次メッシュのコードで表せない所（北緯 66.66 度より北・東経 100 度より西・東経 180 度より東）と、
-//! 投影の範囲の外を含む。値はビットで比べる（NaN も同じ値として比べる）
+//! 確かめる。点には、3 次メッシュのコードで表せない所（北緯 66.66 度より北・東経 100 度より西・東経 180 度・南緯）と、
+//! 投影の範囲の外を含む。2 回の補間と変換の値は、`survives_with` が比べないので、ここでビットで比べる（NaN も同じ値と
+//! して比べる）
 
 #![no_main]
 
@@ -62,7 +63,18 @@ fn run(src: &[u8], cx: &mut zumen_base::Cx) -> Result<(ShiftGrid, Vec<Bits>), zu
 }
 
 fuzz_target!(|data: &[u8]| {
-    if let Err(message) = zumen_sdk::testkit::survives_with(data, run) {
+    let previous = std::cell::RefCell::new(None);
+    let checked = zumen_sdk::testkit::survives_with(data, |src, cx| {
+        let result = run(src, cx);
+        if let Ok((_, values)) = &result {
+            if let Some(first) = previous.borrow().as_ref() {
+                assert_eq!(first, values, "同じ格子で、補間と変換の値が 2 回で違う");
+            }
+            *previous.borrow_mut() = Some(values.clone());
+        }
+        result
+    });
+    if let Err(message) = checked {
         panic!("{message}");
     }
 });

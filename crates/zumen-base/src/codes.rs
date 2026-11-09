@@ -939,7 +939,7 @@ pub const CRS_HEIGHT_REALIZATION_MIXED: Code = Code::new(
     &["first", "second"],
 );
 
-/// 点の平面直角座標と経緯度の換算ができない（値が有限でないか、緯度が ±90 度の外か、系の原点との経度の差が ±90 度に届く）ので、JGD2011 に直さなかった。補正量の極端な格子で直した点などで起きる。crs は直そうとした点の座標系の EPSG のコード（#679）
+/// 点の平面直角座標と経緯度の換算ができない（値が有限でないか、緯度が ±90 度に届くか外か、系の原点との経度の差が ±90 度に届く）か、点が系の決まらない JGD2011 の経緯度なので、JGD2011 の平面直角座標に直さなかった。補正量の極端な格子で直した点などで起きる。crs は直そうとした点の座標系の EPSG のコード（#679）
 ///
 /// `crs.projection.unsupported`（0.2.0 から）
 pub const CRS_PROJECTION_UNSUPPORTED: Code = Code::new(
