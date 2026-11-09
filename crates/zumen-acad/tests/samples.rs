@@ -3422,6 +3422,52 @@ fn r2000_drawings_take_back_changed_header_variables() {
     header_variables_are_taken_back(b"AC1015");
 }
 
+/// R2000 の補助のヘッダー（セクションの記録の 5 番）の HANDSEED の写しは、ヘッダーの変数のセクションを後ろに移して
+/// 伸ばすときも合わせ、補助のヘッダーの形でなければ元のまま残す（#739）
+#[test]
+fn r2000_aux_headers_follow_grown_handle_seeds() {
+    let path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../samples/dwg/zumen-layout-r2000.dwg");
+    let src = std::fs::read(&path).unwrap();
+    let mut diag = Diagnostics::new();
+    let mut budget = Budget::default();
+    let cancel = CancelToken::new();
+    let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+    let aux = Dwg::read(&src, &mut cx)
+        .unwrap()
+        .locators()
+        .iter()
+        .find(|l| l.number == 5)
+        .copied()
+        .unwrap();
+    let range = aux.seeker as usize..(aux.seeker + aux.size) as usize;
+    // 始まりの 3 バイトを変えたものは、補助のヘッダーの形でない
+    let mut other = src.clone();
+    other[range.start] = 0;
+    for (src, shaped) in [(src, true), (other, false)] {
+        let mut file = Dwg::read(&src, &mut cx).unwrap();
+        assert_eq!(file.aux_handle_seed().is_some(), shaped);
+        let mut txn = file.transaction();
+        // 2 バイトの HANDSEED を 3 バイトに伸ばす
+        txn.set_handle_seed(0x1_0000).unwrap();
+        txn.commit(&mut cx).unwrap();
+        let mut out = Vec::new();
+        Dwg::write(&file, &mut out, &mut cx).unwrap();
+        let again = Dwg::read(&out, &mut cx).unwrap();
+        assert_eq!(again.handle_seed(), Some(0x1_0000));
+        if shaped {
+            assert_eq!(again.aux_handle_seed(), Some(0x1_0000));
+        } else {
+            assert_eq!(again.aux_handle_seed(), None);
+            assert_eq!(out[range.clone()], src[range.clone()]);
+        }
+    }
+    assert!(
+        diag.iter().all(|d| d.code() != codes::DWG_CRC_INVALID),
+        "{diag:?}"
+    );
+}
+
 #[test]
 fn r2004_drawings_take_back_changed_header_variables() {
     header_variables_are_taken_back(b"AC1018");

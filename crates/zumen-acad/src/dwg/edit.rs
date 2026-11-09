@@ -261,12 +261,27 @@ impl Transaction for DwgTxn<'_> {
                 set_aux_handle_seed(&mut aux, release, value).map(|()| aux)
             }),
             (Some(value), None) => {
-                // R2000 は、ファイルの中の補助のヘッダーをその場で書き換える
+                // R2000 は、ファイルの中の補助のヘッダーをその場で書き換える。ファイルのヘッダーか、ほかのセクションの
+                // 記録の範囲と重なれば、書き換えない
+                let span = |l: &super::Locator| {
+                    l.seeker as usize..(l.seeker as usize).saturating_add(l.size as usize)
+                };
+                let head_end = LOCATORS_START + file.locators.len() * LOCATOR_SIZE + 2 + 16;
                 if let Some(range) = file
                     .locators
                     .iter()
                     .find(|l| l.number == AUX_NUMBER)
-                    .map(|l| l.seeker as usize..(l.seeker as usize).saturating_add(l.size as usize))
+                    .map(span)
+                    .filter(|range| {
+                        range.start >= head_end
+                            && file.locators.iter().all(|l| {
+                                let other = span(l);
+                                l.number == AUX_NUMBER
+                                    || l.size == 0
+                                    || other.end <= range.start
+                                    || range.end <= other.start
+                            })
+                    })
                     && let Some(aux) = src.get_mut(range)
                 {
                     let _ = set_aux_handle_seed(aux, release, value);
