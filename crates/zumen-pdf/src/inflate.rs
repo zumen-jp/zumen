@@ -24,7 +24,12 @@ const MAX_EXPANSION: u64 = 1032;
 
 /// 単独 Flate・LZW・RunLength と ASCII を 1 個前置した系列は、全出力の確保前に数え、`true` を返す。
 /// hayro-syntax と同じ flate2 のリーダーを、同じ順（zlib、raw deflate）で試す。読めなければ、
-/// 寛容な展開の出力の上限を先に数える。失敗した試みの分も戻さない。予測子の出力は、その入力より長くならない
+/// 寛容な展開の出力の上限を先に数える。失敗した試みの分も戻さない。予測子の出力は、その入力より長くならない。
+///
+/// その後ろに別のフィルターが続く系列（`[/RL /AHx]`・`[/AHx /Fl /Crypt]` など）も、ここまでの段を確保前に数える。
+/// hayro-syntax 0.9.0 はフィルターを順に当て、前の段の出力の全量を確保してから次を当てるので、後ろの段が失敗しても
+/// 縮めても、前の段の確保は起きる。後ろの段の出力はここでは数えないので `false` を返し、呼ぶ側が展開の後に最終の
+/// 出力の長さを数える（#521）
 pub(crate) fn before(
     stream: &Stream<'_>,
     source: Source<'_>,
@@ -33,27 +38,38 @@ pub(crate) fn before(
     let filters = stream.filters();
     // hayro-syntax の `Stream::decoded_image` と同じく、先頭の Crypt はフィルターとして適用しない
     let effective = filters.strip_prefix(&[Filter::Crypt]).unwrap_or(&filters);
-    match effective {
-        [Filter::FlateDecode] => count(&stream.raw_data(), cx)?,
-        [Filter::LzwDecode] => lzw::before(stream, cx)?,
-        [Filter::RunLengthDecode] => {
-            run_length::count(&stream.raw_data(), cx)?;
-        }
+    let (ascii, first, rest) = match effective {
+        [
+            first @ (Filter::FlateDecode | Filter::LzwDecode | Filter::RunLengthDecode),
+            rest @ ..,
+        ] => (None, *first, rest),
         [
             Filter::AsciiHexDecode,
             next @ (Filter::FlateDecode | Filter::LzwDecode | Filter::RunLengthDecode),
-        ] => {
-            return sequence(stream, ascii::Encoding::Hex, *next, source, cx);
-        }
+            rest @ ..,
+        ] => (Some(ascii::Encoding::Hex), *next, rest),
         [
             Filter::Ascii85Decode,
             next @ (Filter::FlateDecode | Filter::LzwDecode | Filter::RunLengthDecode),
-        ] => {
-            return sequence(stream, ascii::Encoding::Base85, *next, source, cx);
-        }
+            rest @ ..,
+        ] => (Some(ascii::Encoding::Base85), *next, rest),
         _ => return Ok(false),
-    }
-    Ok(true)
+    };
+    let counted = match ascii {
+        Some(encoding) => sequence(stream, encoding, first, source, cx)?,
+        None => {
+            match first {
+                // 有効な系列の最初の LZW なので、`lzw::early_change` が引くパラメーターと同じ
+                Filter::LzwDecode => lzw::before(stream, cx)?,
+                Filter::FlateDecode => count(&stream.raw_data(), cx)?,
+                _ => {
+                    run_length::count(&stream.raw_data(), cx)?;
+                }
+            }
+            true
+        }
+    };
+    Ok(counted && rest.is_empty())
 }
 
 fn sequence(
