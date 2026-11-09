@@ -4520,10 +4520,21 @@ fn reads_names_in_comments_in_linear_work() {
         assert!(work < plain + 8 * count as u64, "{line:?} {plain} {work}");
     }
     // コメントの行ごとの `obj<<` から読む辞書の最初の字句が、後ろの行をまたぐ文字列か配列でも、辞書ごとに読み直さない。
-    // 後ろの同じ辞書がオブジェクトのストリームになりうるときも、同じストリームを辞書ごとに読み直さない（#657）
+    // 後ろの同じ辞書がオブジェクトのストリームになりうるときも、同じストリームを辞書ごとに読み直さない（#657）。字句の
+    // 中の入れ子（配列の中の配列・辞書・文字列）と、キーと値の位置の辞書も、辞書ごとに読み直さない（#747）
     for (open, line, close) in [
         ("[", "%obj<< (\n", "]"),
         ("[", "%obj<< [\n/a ", "]"),
+        ("[", "%obj<< [ [\n/a ", "]"),
+        ("[", "%obj<< [ <<\n/a 1 ", "]"),
+        ("[", "%obj<< [ [(\n/a ", "]"),
+        ("[", "%obj<< [ [ [\n/a ", "]"),
+        ("[", "%obj<< [ << /b [\n/a ", "]"),
+        ("[", "%obj<< <<\n/a 1 ", "]"),
+        ("[", "%obj<< /K <<\n/a 1 ", "]"),
+        ("[", "%obj<< /K [ <<\n/a 1 ", "]"),
+        // hayro-syntax の深さの上限（512）を超える入れ子も、上限で止まる
+        ("<< /K ", "[ <<\n/a ", ">>"),
         (
             "<<",
             "/K 1 %obj<<\n",
@@ -4581,14 +4592,12 @@ fn counts_reads_that_grow_faster_than_the_file() {
     let work = used(&document.bytes(), Kind::Work);
     assert!(work >= count as u64 * 99_000 / 4, "{work}");
     // 辞書の最初の字句が、閉じない文字列か配列で、覚えに着かずに後ろを読み直す形は、読み直す分を数える（PR #745 の
-    // 確かめで、数えないと予算で止まらなかった形）。エスケープした括弧から始まる文字列と、配列の中の入れ子の字句
+    // 確かめで、数えないと予算で止まらなかった形）。エスケープした括弧から始まる文字列。配列の中の入れ子の字句は、
+    // 覚えから飛ばす（#747、`reads_names_in_comments_in_linear_work`）
     let count = 2_000;
     for (name, objects) in [
         ("A", format!("[{}", r"(obj<< [\( ) /a ".repeat(count))),
         ("B", format!("[({}", r"obj<< \( ".repeat(count))),
-        ("C", format!("[{}]", "%obj<< [ [\n/a ".repeat(count))),
-        ("D", format!("[{}]", "%obj<< [ <<\n/a 1 ".repeat(count))),
-        ("E", format!("[{}]", "%obj<< [ [(\n/a ".repeat(count))),
     ] {
         let mut document = Document::new(vec![Page::new("0 0 m 10 10 l S")]);
         document.objects = vec![objects.into_bytes()];

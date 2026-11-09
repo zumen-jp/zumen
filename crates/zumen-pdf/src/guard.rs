@@ -1106,24 +1106,29 @@ impl Skip {
 /// - 文字列（7.3.4.2）: hayro-syntax の `skip_literal` と同じく、`\` の次の字を飛ばし、括弧の深さを数える。読んだ文字列の
 ///   中のエスケープしない `(` は、そこから読んでも、エスケープの組み方が同じで、深さが一定の差になるので、同じ `)` で
 ///   閉じる。そこで、読むたびに括弧の対応を覚え、閉じない括弧は終わりまで閉じないと覚える。
-/// - 配列（7.3.6）: hayro-syntax の `Array::skip_with_depth` と同じく、項目の間の空白とコメントを飛ばし、項目を
-///   `MaybeRef<Object>` として飛ばす。上の段（深さ 1）の配列の項目の始まりからは、どの配列も同じ項目と終わりを読むので、
-///   項目の始まりごとに、配列の終わりを覚える。
+/// - 配列（7.3.6）と辞書（7.3.7）: hayro-syntax の `Array::skip_with_depth` と `Dict::skip_with_depth` と同じく、
+///   項目の間の空白とコメントを飛ばし、配列の項目と辞書の値を `MaybeRef<Object>` として、辞書のキーでない字句を
+///   `Object` として、1 つ深く飛ばす。項目の始まりから後ろは、位置と深さで決まるので（深さの上限で読めなくなる所が
+///   変わる）、どの配列か辞書も、同じ項目と終わりを読む。そこで、項目の始まりと深さごとに、終わりを覚える。入れ子の
+///   配列と辞書も同じく読み、覚える（#747）。
 ///
 /// 覚えは、1 つを [`TOKEN_BYTES`] として `DecodedBytes` に、読んだバイト列を `Work` に数える
 #[derive(Default)]
 struct Tokens {
     /// エスケープしない `(` の位置と、閉じた `)` の後ろ。閉じなければ `None`
     strings: BTreeMap<usize, Option<usize>>,
-    /// 上の段の配列の項目の始まりと、配列の `]` の後ろ。読めなければ `None`
-    arrays: BTreeMap<usize, Option<usize>>,
+    /// 配列か辞書（真）の項目の始まりと、配列か辞書の深さから、その `]` か `>>` の後ろ。読めなければ `None`
+    items: BTreeMap<(usize, usize, bool), Option<usize>>,
     /// 読んだバイト数の合計と、`Work` に数えた分（[`Tokens::count`]）
     scanned: u64,
     counted: u64,
 }
 
-/// 文字列と配列の覚えの 1 つのメモリ（位置の組と、表の木の節）
+/// 文字列と配列と辞書の覚えの 1 つのメモリ（位置の組と、表の木の節）
 const TOKEN_BYTES: u64 = 48;
+
+/// hayro-syntax 0.9.0 の、配列と辞書の入れ子の深さの上限（`MAX_OBJECT_NESTING_DEPTH`）
+const NESTING: usize = 512;
 
 impl Tokens {
     /// 読んだバイト数を足し、合計の [`LOOKUP_BYTES`] ごとに `Work` に数える。読み方の分け方によらず、合計で決まる
@@ -1147,24 +1152,60 @@ impl Tokens {
         cx: &mut Cx<'_>,
     ) -> Result<(Option<()>, usize), Stop> {
         let at = reader.offset();
-        let (end, read) = match src.get(at) {
-            Some(b'(') => self.string(src, at, cx)?,
-            Some(b'[') => self.array(src, at, cx)?,
-            _ => {
-                let skipped = if value {
-                    reader.skip_with_depth::<MaybeRef<Object<'_>>>(false, 1)
-                } else {
-                    reader.skip_with_depth::<Object<'_>>(false, 1)
-                };
-                return Ok((skipped.map(|_| ()), reader.offset().saturating_sub(at)));
-            }
-        };
-        if let Some(end) = end {
-            reader.jump(end);
+        if !matches!(src.get(at..at + 1), Some(b"(" | b"[")) && src.get(at..at + 2) != Some(b"<<") {
+            let skipped = if value {
+                reader.skip_with_depth::<MaybeRef<Object<'_>>>(false, 1)
+            } else {
+                reader.skip_with_depth::<Object<'_>>(false, 1)
+            };
+            return Ok((skipped.map(|_| ()), reader.offset().saturating_sub(at)));
+        }
+        let mut read = 0;
+        let skipped = self.value(src, reader, 1, false, &mut read, cx)?;
+        if src.get(at) == Some(&b'<') {
+            // 辞書は、hayro-syntax で飛ばすほかの字句と同じく、呼ぶ側が、重なる辞書の分だけ数える
+            return Ok((skipped, read));
         }
         // 文字列と配列の読みは、重なるかによらず数える（覚えに着かずに読み直す形も、予算で止める）
         self.count(read, cx)?;
-        Ok((end.map(|_| ()), 0))
+        Ok((skipped, 0))
+    }
+
+    /// `reader` の位置の値を、hayro-syntax の `skip_with_depth` と同じく、深さ `depth` で飛ばす（`reference` なら
+    /// `MaybeRef<Object>`、でなければ `Object`）。文字列と配列と辞書は覚えから飛ばす。読んだバイト数（覚えから
+    /// 飛ばした所を除く）を `read` に足す。飛ばせなければ、位置を戻して `None`
+    fn value(
+        &mut self,
+        src: &[u8],
+        reader: &mut Reader<'_>,
+        depth: usize,
+        reference: bool,
+        read: &mut usize,
+        cx: &mut Cx<'_>,
+    ) -> Result<Option<()>, Stop> {
+        let at = reader.offset();
+        if reference && reader.skip::<ObjRef>(false).is_some() {
+            *read += reader.offset().saturating_sub(at);
+            return Ok(Some(()));
+        }
+        if src.get(at) == Some(&b'(') {
+            let (end, scanned) = self.string(src, at, cx)?;
+            *read += scanned;
+            return Ok(end.map(|end| reader.jump(end)));
+        }
+        let dict = src.get(at..at + 2) == Some(b"<<");
+        if dict || src.get(at) == Some(&b'[') {
+            return self.container(src, reader, depth, dict, read, cx);
+        }
+        let skipped = reader
+            .skip_with_depth::<Object<'_>>(false, depth)
+            .map(|_| ());
+        // 飛ばせなければ hayro-syntax は位置を戻すので、終わりまで読みえたとして数える
+        *read += match skipped {
+            Some(()) => reader.offset().saturating_sub(at),
+            None => src.len().saturating_sub(at),
+        };
+        Ok(skipped)
     }
 
     /// `at` の `(` からの文字列の終わりと、読んだバイト数
@@ -1223,31 +1264,38 @@ impl Tokens {
         Ok((self.strings.get(&at).copied().flatten(), scanned))
     }
 
-    /// `at` の `[` からの配列の終わりと、読んだバイト数。覚えるのは、前の項目との間に行末か `%` がある項目だけにする。
-    /// ほかの配列が同じ項目の始まりに着くのは、その配列の `[` が、この配列のコメントの中にあり、コメントの行末の後で
-    /// 同じ項目を読むとき
-    fn array(
+    /// `reader` の位置の `[` か `<<`（`dict`）からの、深さ `depth` の配列か辞書を飛ばす。覚えるのは、前の項目との間に
+    /// 行末か `%` がある項目だけにする。ほかの配列か辞書が同じ項目の始まりに着くのは、その `[` か `<<` が、この配列か
+    /// 辞書のコメントの中にあり、コメントの行末の後で同じ項目を読むとき
+    fn container(
         &mut self,
         src: &[u8],
-        at: usize,
+        reader: &mut Reader<'_>,
+        depth: usize,
+        dict: bool,
+        read: &mut usize,
         cx: &mut Cx<'_>,
-    ) -> Result<(Option<usize>, usize), Stop> {
-        let mut reader = Reader::new(src);
-        reader.jump(at + 1);
+    ) -> Result<Option<()>, Stop> {
+        // hayro-syntax の深さの上限（`MAX_OBJECT_NESTING_DEPTH`）
+        if depth >= NESTING {
+            return Ok(None);
+        }
+        let at = reader.offset();
+        let (open, close): (usize, &[u8]) = if dict { (2, b">>") } else { (1, b"]") };
+        reader.jump(at + open);
+        *read += open;
         let mut items = Vec::new();
-        // 読んだバイト数（覚えから飛ばした文字列を除く）
-        let mut scanned = 1_usize;
         let end = loop {
             cx.check(Kind::Work, 0)?;
             let gap = reader.offset();
             reader.skip_white_spaces_and_comments();
             let item = reader.offset();
-            scanned += item - gap;
-            if reader.forward_tag(b"]").is_some() {
-                scanned += 1;
+            *read += item - gap;
+            if reader.forward_tag(close).is_some() {
+                *read += close.len();
                 break Some(reader.offset());
             }
-            if let Some(&end) = self.arrays.get(&item) {
+            if let Some(&end) = self.items.get(&(item, depth, dict)) {
                 break end;
             }
             let lines = src
@@ -1258,31 +1306,32 @@ impl Tokens {
                 items.push(item);
             }
             // 項目ごとに覚えを引くので、覚えから飛ばした項目も、1 つを 2 として `Work` に数える
-            scanned += 2 * LOOKUP_BYTES as usize;
-            // 項目の文字列も、覚えから飛ばす。ほかは hayro-syntax と同じ深さで飛ばす
-            let skipped = if src.get(item) == Some(&b'(') {
-                let (end, read) = self.string(src, item, cx)?;
-                scanned += read;
-                end.map(|end| reader.jump(end))
+            *read += 2 * LOOKUP_BYTES as usize;
+            let skipped = if dict && reader.skip::<Name<'_>>(false).is_some() {
+                // キーの後ろの値。キーでない字句は、値と同じ深さの `Object` として飛ばす
+                reader.skip_white_spaces_and_comments();
+                *read += reader.offset() - item;
+                self.value(src, reader, depth + 1, true, read, cx)?
             } else {
-                let skipped = reader
-                    .skip_with_depth::<MaybeRef<Object<'_>>>(false, 2)
-                    .map(|_| ());
-                // 飛ばせなければ hayro-syntax は位置を戻すので、終わりまで読みえたとして数える
-                scanned += match skipped {
-                    Some(()) => reader.offset().saturating_sub(item),
-                    None => src.len().saturating_sub(item),
-                };
-                skipped
+                self.value(src, reader, depth + 1, !dict, read, cx)?
             };
             if skipped.is_none() {
                 break None;
             }
         };
         for item in items {
-            self.arrays.insert(item, end);
+            self.items.insert((item, depth, dict), end);
         }
-        Ok((end, scanned))
+        Ok(match end {
+            Some(end) => {
+                reader.jump(end);
+                Some(())
+            }
+            None => {
+                reader.jump(at);
+                None
+            }
+        })
     }
 }
 
@@ -1537,13 +1586,13 @@ fn objects(src: &[u8], seen: &mut Seen, cx: &mut Cx<'_>) -> Result<Vec<Container
         }
         match walked {
             Walked::Closed(end) => covered = covered.max(end),
-            // 読めない字句は、終わりまで読みうる（閉じない辞書など）。文字列と配列は、読んだ分を数えた
+            // 読めない字句は、終わりまで読みうる。文字列と配列と辞書は、読んだ分を数えた
             Walked::Broken(at, tail) => {
                 if tail {
                     cx.check(Kind::Work, lookup_work(src.get(at..).unwrap_or_default()))?;
                     covered = covered.max(at);
                 } else {
-                    // 読めない文字列と配列は、終わりまで読みうる（[`Tokens`] が読んだ分は `read` にある）。後ろの辞書は、
+                    // 読めない文字列と配列と辞書は、終わりまで読みうる（[`Tokens`] が読んだ分は `read` にある）。後ろの辞書は、
                     // どれも重なる辞書として、読んだバイト数を `Work` に数える（覚えに着かずに読み直す形も、予算で止める）
                     covered = src.len();
                 }
@@ -1667,10 +1716,7 @@ fn entries<'a>(
             let (skipped, bytes) = tokens.skip(src, &mut reader, false, cx)?;
             read += bytes;
             if skipped.is_none() {
-                return Ok((
-                    Walked::Broken(at, !matches!(src.get(at), Some(b'(' | b'['))),
-                    read,
-                ));
+                return Ok((Walked::Broken(at, !tokened(src, at)), read));
             }
             continue;
         };
@@ -1690,12 +1736,15 @@ fn entries<'a>(
         let (skipped, bytes) = tokens.skip(src, &mut reader, true, cx)?;
         read += bytes;
         if skipped.is_none() {
-            return Ok((
-                Walked::Broken(value, !matches!(src.get(value), Some(b'(' | b'['))),
-                read,
-            ));
+            return Ok((Walked::Broken(value, !tokened(src, value)), read));
         }
     }
+}
+
+/// `at` の字句を [`Tokens`] が読むか（文字列・配列・辞書）。読めなければ、[`Tokens`] が読んだ分を数えたので、
+/// 終わりまで読みうるものとしない
+fn tokened(src: &[u8], at: usize) -> bool {
+    matches!(src.get(at), Some(b'(' | b'[')) || src.get(at..at + 2) == Some(b"<<")
 }
 
 /// hayro-syntax の辞書の表の、キーの 1 つのメモリ。キーと位置の組（48 バイトまで）と制御の 1 バイトを、表が大きく
