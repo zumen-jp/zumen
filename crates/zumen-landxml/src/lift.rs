@@ -183,7 +183,7 @@ impl<'d> Reader<'d, '_, '_> {
         }
     }
 
-    /// 測点の不連続と、戻りの値（`staBack`）を書いていたか。書いていなければ、[`station_breaks`] が埋める
+    /// 測点の不連続と、戻りの値（`staBack`）を読めたか。読めなければ、[`station_breaks`] が埋める
     fn station_break(&mut self, element: &Element, start: f64) -> Option<(StationBreak, bool)> {
         let internal = self.number(element, b"staInternal");
         let ahead = self.number(element, b"staAhead");
@@ -797,9 +797,9 @@ fn positive(value: f64) -> Option<f64> {
     (value.is_finite() && value > 0.0).then_some(value)
 }
 
-/// 測点の不連続を追加距離の順に並べ、戻りの値を書いていないもの（`false`）は、手前の不連続の進みの値（なければ
-/// 初めの測点の値 `start`）から数えて埋める。`Stationing::value` と同じ式で、文書の順によらず、作業は不連続の
-/// 数に比例する（#560）
+/// 測点の不連続を追加距離の順に並べ、戻りの値を読めなかったもの（`false`）は、手前の不連続の進みの値（なければ
+/// 初めの測点の値 `start`）から数えて埋める。`Stationing::value` と同じ式で、作業は不連続の数に比例する（#560）。
+/// 追加距離が違う不連続は文書の順によらず、同じ追加距離の不連続は書いた順に並べる
 fn station_breaks(mut breaks: Vec<(StationBreak, bool)>, start: f64) -> Vec<StationBreak> {
     breaks.sort_by(|a, b| a.0.distance.total_cmp(&b.0.distance));
     let mut base = (0.0, start);

@@ -460,8 +460,9 @@ fn repeated_station_numbers_count_as_elements() {
         .filter(|e| matches!(&e.shape, Shape::Text(text) if text.content.starts_with("No.")))
         .count();
     assert!(stations > 200, "{stations}");
-    // 描いた測点は、どれも要素の予算に数えてある。測点ごとに、積んだ所と、平面図の線と文字の 3 つを数える
-    assert!(elements >= 3 * stations as u64, "{elements} {stations}");
+    // 描いた測点は、どれも要素の予算に数えてある。測点ごとに、積んだ所（平面図と縦断図で 2 つ）と、平面図の線と
+    // 文字の 2 つと、縦断図の欄の線と文字の 4 つを数える
+    assert!(elements >= 8 * stations as u64, "{elements} {stations}");
     let limits = Limits::default().with(Kind::Elements, Limit::Finite(100));
     let (stopped, _, _) = draw_with_breaks(&breaks, limits);
     assert!(
@@ -493,6 +494,30 @@ fn many_segments_count_the_work_of_placing_stations() {
     let (many_result, many, _) = draw_line(line.clone(), Limits::default());
     many_result.unwrap();
     assert!(many >= few + 12 * 2 * 799, "{few} {many}");
+    let limits = Limits::default().with(Kind::Work, Limit::Finite(few + 1000));
+    let (stopped, _, _) = draw_line(line, limits);
+    assert!(
+        matches!(stopped, Err(Stop::Exceeded(ref e)) if e.kind == Kind::Work),
+        "{stopped:?}"
+    );
+}
+
+/// 横断の多い線形では、縦断図の欄の測点ごとに地盤線をたどる作業を予算に数え、上限で止まる（#560）
+#[test]
+fn many_ground_points_count_the_work_of_the_profile_band() {
+    let (plain, few, _) = draw_line(alignment(), Limits::default());
+    plain.unwrap();
+    // 横断を 1000 個足す。地盤線の点が 1000 増え、縦断図の欄の測点（0〜11 番）ごとに、1000 回多くたどる。
+    // 平面図の測点は、地盤線をたどらない
+    let mut line = alignment();
+    let template = line.cross_sections[0].clone();
+    line.cross_sections.extend((0..1000).map(|i| CrossSection {
+        distance: 0.2 * f64::from(i),
+        ..template.clone()
+    }));
+    let (many_result, many, _) = draw_line(line.clone(), Limits::default());
+    many_result.unwrap();
+    assert!(many >= few + 12 * 1000, "{few} {many}");
     let limits = Limits::default().with(Kind::Work, Limit::Finite(few + 1000));
     let (stopped, _, _) = draw_line(line, limits);
     assert!(

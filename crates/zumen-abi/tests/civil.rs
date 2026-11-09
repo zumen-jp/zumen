@@ -44,8 +44,9 @@ fn positions_count_the_work_of_walking_the_segments() {
         response.contains(r#""code":"budget.work.exceeded""#),
         "{response}"
     );
-    // 測点の表記ごとにも、平面線形の区間をたどる
-    let stations: Vec<String> = (0..1000).map(|_| r#""No.1""#.to_string()).collect();
+    // 測点の表記ごとにも、不連続と平面線形の区間をたどる。線形の外の表記は追加距離を返さないので、表記ごとの
+    // 作業だけで止まる
+    let stations: Vec<String> = (0..1000).map(|_| r#""No.999""#.to_string()).collect();
     let ask = format!(r#""stations":[{}]"#, stations.join(","));
     let (status, response) = call(&mut session, &request(&ask, r#","budget":{"work":500000}"#));
     assert_eq!(status, Status::Failed, "{response}");
