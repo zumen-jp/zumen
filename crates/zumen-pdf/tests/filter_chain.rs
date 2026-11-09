@@ -1,7 +1,7 @@
 //! 確保前に数えられる段の後ろに別のフィルターが続く系列で、前の段を全量の確保前に数えることを検査する（#659）。
 //!
 //! hayro-syntax 0.9.0 はフィルターを順に当て、前の段の出力の全量を確保してから次を当てる。後ろの段が失敗しても
-//! 縮めても、前の段の確保は起きる。
+//! 縮めても、前の段の確保は起きる。ただし、系列のどこかに画像のフィルターがあるか、`F` が外部ファイルを指せば、どの段も当てずに失敗するので数えない。
 
 #![cfg(feature = "drawing")]
 
@@ -101,7 +101,7 @@ fn does_not_count_chains_that_hayro_does_not_decode() {
             .collect();
         filters.push(format!("/F (external) /Filter [{sequence} /AHx]"));
         for filter in filters {
-            for case in [0, 2, 3] {
+            for case in 0..cases::COUNT {
                 let input = cases::document(case, &filter, &data, false, 1);
                 let ample = run(&input, Limits::default());
                 let small = run(&input, limits);
