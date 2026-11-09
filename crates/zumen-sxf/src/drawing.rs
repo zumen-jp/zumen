@@ -2520,17 +2520,32 @@ fn degrees(x: f64, y: f64) -> Option<f64> {
 
 /// 補助線の傾き（度）。寸法線に垂直なら 0（決定 0127）
 fn oblique(start: [f64; 2], end: [f64; 2], from: [f64; 2], to: [f64; 2]) -> f64 {
-    let (u, v) = (direction(start, end), direction(from, to));
-    let dot = u[0] * v[0] + u[1] * v[1];
-    let scale = libm::hypot(u[0], u[1]) * libm::hypot(v[0], v[1]);
-    match degrees(v[0], v[1]) {
-        Some(angle) if dot.abs() > 1.0e-9 * scale => angle.rem_euclid(180.0),
+    let plain = (
+        [end[0] - start[0], end[1] - start[1]],
+        [to[0] - from[0], to[1] - from[1]],
+    );
+    // あふれも潰れもしない値は、前と同じ式で求める。そうでなければ、2 の冪で割った向きで求める（#728）
+    let (u, v) = match judged(plain.0, plain.1) {
+        Some(_) => plain,
+        None => (direction(start, end), direction(from, to)),
+    };
+    match (degrees(v[0], v[1]), judged(u, v)) {
+        (Some(angle), Some(true)) => angle.rem_euclid(180.0),
         _ => 0.0,
     }
 }
 
-/// `from` から `to` への向き。差と、内積と長さの積があふれないよう、大きいほうの成分の指数を 0 にする 2 の冪で
-/// 割る（#728）。2 の冪で割るので、あふれない値では、向きの角度と、垂直かを決める比は割る前と同じになる
+/// 寸法線の向き `u` と補助線の向き `v` が垂直でないか（内積が長さの積の 1e-9 倍より大きいか）。内積か、比べる
+/// 値が、あふれるか非正規数に潰れるなら `None`
+fn judged(u: [f64; 2], v: [f64; 2]) -> Option<bool> {
+    let dot = u[0] * v[0] + u[1] * v[1];
+    // 前と同じ順に掛ける
+    let limit = 1.0e-9 * (libm::hypot(u[0], u[1]) * libm::hypot(v[0], v[1]));
+    (limit.is_normal() && (dot == 0.0 || dot.is_normal())).then(|| dot.abs() > limit)
+}
+
+/// `from` から `to` への向き。内積と長さの積があふれも潰れもしないよう、大きいほうの成分の指数を 0 にする 2 の冪で
+/// 割る（#728）。割ったあとの成分が非正規数にならなければ、向きの角度と、垂直かを決める比は割る前と同じになる
 fn direction(from: [f64; 2], to: [f64; 2]) -> [f64; 2] {
     let difference = [to[0] - from[0], to[1] - from[1]];
     // 差があふれれば、半分どうしの差から求める（有限の値の半分の差はあふれない）

@@ -1220,10 +1220,10 @@ fn keeps_extreme_values_that_stay_finite() {
     // 値が有限のまま、極端な値で黙って変わっていたもの（#728）
     let layer = b"layer_feature(\'L\','1')".as_slice();
     let sheet = b"drawing_sheet_feature(\'S\','3','1','0','0')".as_slice();
-    // 長さ寸法。寸法線の端の差があふれても、補助線の傾き（1, 1）は 45°
-    let linear = |start: &str, end: &str| {
+    // 長さ寸法。寸法線（`start` から `end`）は横、補助線は (0, 0) から (`to`, `to`) で、傾きは 45°
+    let linear = |start: &str, end: &str, to: &str| {
         format!(
-            "linear_dim_feature('1','1','1','1','{start}','10','{end}','10','1','0','0','0','2','1','3','1','100','0','100','2','101','3','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0')"
+            "linear_dim_feature('1','1','1','1','{start}','0','{end}','0','1','0','0','0','0','{to}','{to}','1','0','0','0','0','{to}','{to}','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0')"
         )
     };
     let oblique = |src: &[u8]| {
@@ -1237,10 +1237,19 @@ fn keeps_extreme_values_that_stay_finite() {
             other => panic!("{other:?}"),
         }
     };
-    let normal = linear("0", "100");
-    assert_eq!(oblique(&sfc(&[layer, normal.as_bytes(), sheet])), 45.0);
-    let extreme = linear("-1e308", "1e308");
-    assert_eq!(oblique(&sfc(&[layer, extreme.as_bytes(), sheet])), 45.0);
+    for (start, end, to) in [
+        ("0", "100", "1"),
+        // 寸法線の端の差があふれる
+        ("-1e308", "1e308", "1"),
+        // 差はあふれないが、内積と長さの積があふれる
+        ("0", "1e200", "1e200"),
+        // 内積と長さの積が潰れる
+        ("0", "1e-200", "1e-200"),
+    ] {
+        let dimension = linear(start, end, to);
+        let src = sfc(&[layer, dimension.as_bytes(), sheet]);
+        assert_eq!(oblique(&src), 45.0, "{start} {end} {to}");
+    }
     // 正常な値で垂直な補助線は、前と同じく 0
     let upright = b"linear_dim_feature('1','1','1','1','0','10','100','10','1','0','0','0','2','0','12','1','100','0','100','2','100','12','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0')";
     assert_eq!(oblique(&sfc(&[layer, upright, sheet])), 0.0);
