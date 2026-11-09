@@ -1,5 +1,6 @@
 // 決定 0199・0267。ローカルのビルドを配り、ページと Worker が要求したものを確認する。
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
 import { basename, dirname, extname, join, resolve } from "node:path";
@@ -7,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { chromium, firefox, webkit } from "playwright";
 import { build } from "vite";
 import { checkBoundaries, checkInteractions, installWorkerGate } from "./react-interactions.mjs";
+import { loadSync } from "../../src/index.js";
 
 const [product, wasm] = process.argv.slice(2);
 const browsers = { chromium, firefox, webkit, chrome: chromium, msedge: chromium };
@@ -30,6 +32,39 @@ function fixture(name) {
   return Buffer.from(value.hex ?? value.text, value.hex ? "hex" : "utf8");
 }
 const inputs = { dxf: fixture("scene"), jww: fixture("open_jww"), sxf: fixture("composite_sxf") };
+// 「DXF で保存」（#690）で変換する入力と、ネイティブの convert が書いた DXF の SHA-256（適合テストのハッシュの一覧の blob の行）
+function conversions() {
+  const steps = JSON.parse(readFileSync(join(root, "bindings/conformance/cases/convert_playground.json"))).steps;
+  const pinned = new Map(readFileSync(join(root, "bindings/conformance/hashes.txt"), "utf8").split(/\r?\n/)
+    .map((line) => line.trim().split(" ")).filter(([name, , kind]) => name === "convert_playground" && kind === "blob")
+    .map(([, step, , hash]) => [Number(step), hash]));
+  const bytes = new Map(steps.filter((step) => step.push).map(({ push }) => [push.name,
+    push.file ? readFileSync(join(root, push.file)) : Buffer.from(push.hex ?? push.text, push.hex ? "hex" : "utf8")]));
+  const found = [];
+  let doc;
+  steps.forEach((step, i) => {
+    if (step.call?.op === "convert") doc = step.call.doc;
+    if ("take" in step) found.push({ name: doc, bytes: bytes.get(doc), sha256: pinned.get(i) });
+  });
+  assert.equal(found.length, 7);
+  assert.ok(found.every((item) => item.bytes && item.sha256));
+  return found;
+}
+// 同じ入力を、Node.js で同じ wasm に convert させる。保存したファイルを開き直し、もう一度 DXF に変換する
+function convertInNode(module, input, saved) {
+  const session = loadSync(module).open();
+  try {
+    session.push("input", input);
+    session.call({ v: 1, op: "open", input: "input" });
+    const converted = session.call({ v: 1, op: "convert", doc: "input", format: "dxf", to: "converted.dxf" });
+    const written = session.take(0);
+    session.push("saved", saved);
+    const reopened = session.call({ v: 1, op: "open", input: "saved" });
+    const drawing = session.call({ v: 1, op: "drawing", doc: reopened.result.doc });
+    const again = session.call({ v: 1, op: "convert", doc: reopened.result.doc, format: "dxf", to: "again.dxf" });
+    return { converted, written, reopened, drawing, again };
+  } finally { session.close(); }
+}
 // 記録されたフォント・画像・PDF の参照名を、ブラウザーの要求先として使わない。
 const section = (name, pairs) => [0, "SECTION", 2, name, ...pairs, 0, "ENDSEC"];
 const external = "https://example.invalid/";
@@ -160,6 +195,44 @@ try {
       assert.match(await source.innerText(), /#30/);
     }
   }
+  // DXF で保存（#690）。合成の DWG・JWW・SFC・P21 と公開サンプルの DWG を開いて保存し、保存したバイト列が、
+  // ネイティブの convert が書いたもの（適合テスト）と同じであることを確かめる。変換の診断の件数は、画面と応答で比べる
+  const module = new WebAssembly.Module(readFileSync(wasm));
+  const exportPanel = page.getByRole("region", { name: /^DXF で保存/ });
+  for (const { name, bytes, sha256 } of conversions()) {
+    await file.setInputFiles({ name, mimeType: "application/octet-stream", buffer: bytes });
+    await ready(name.endsWith(".dwg") ? "DWG" : name.endsWith(".jww") ? "JWW" : "SXF");
+    const saving = page.waitForEvent("download");
+    await exportPanel.getByRole("button", { name: "DXF で保存", exact: true }).click();
+    const download = await saving;
+    assert.equal(download.suggestedFilename(), name.replace(/\.[^.]*$/, "") + ".dxf", name);
+    const saved = readFileSync(await download.path());
+    assert.equal(createHash("sha256").update(saved).digest("hex"), sha256, name + ": ネイティブの convert と同じバイト列");
+    const node = convertInNode(module, bytes, saved);
+    assert.deepEqual(Buffer.from(node.written), saved, name + ": Node.js の wasm と同じバイト列");
+    const { elements } = node.converted.result;
+    const shown = exportPanel.getByRole("status");
+    await shown.getByText(/を保存しました/).waitFor();
+    assert.match(await shown.innerText(), new RegExp("要素 " + elements + " 件・変換の診断 " + node.converted.diagnostics.length + " 件"), name);
+    const listed = exportPanel.getByRole("region", { name: /^変換の診断/ });
+    assert.equal(await listed.locator("h2 small").innerText(), String(node.converted.diagnostics.length), name);
+    for (const diagnostic of node.converted.diagnostics) {
+      assert.ok((await listed.innerText()).includes(diagnostic.code + " · " + diagnostic.count + " 件"), name + ": " + diagnostic.code);
+    }
+    // 保存した DXF を開き直してもう一度変換すると、同じ数の要素を書き、新しく落とすものはない
+    assert.equal(node.reopened.result.format, "dxf", name);
+    assert.equal(node.again.result.elements, elements, name + ": 開き直した要素の数");
+    const known = new Set(node.converted.diagnostics.map(({ code }) => code));
+    for (const { code } of [...node.reopened.diagnostics, ...node.drawing.diagnostics, ...node.again.diagnostics]) {
+      assert.ok(known.has(code), name + ": 開き直して出た " + code);
+    }
+  }
+  // DXF を開いて保存するときは、元のファイルと分かる名前にする
+  await file.setInputFiles({ name: "local.dxf", mimeType: "application/octet-stream", buffer: inputs.dxf });
+  await ready("DXF");
+  const savingDxf = page.waitForEvent("download");
+  await exportPanel.getByRole("button", { name: "DXF で保存", exact: true }).click();
+  assert.equal((await savingDxf).suggestedFilename(), "local-zumen.dxf");
   // 公開サンプル（#689）。DWG の R2000・R2004・R2018 を選んで開き、表示・レイヤ・選択・出所・診断を操作する。
   // サンプルは配布物の中のファイルで、取るのはローカルの GET だけ（下の failures で確かめる）
   const samplePicker = page.getByLabel("公開サンプル");
@@ -276,7 +349,7 @@ try {
   await checkBoundaries(page, inputs.jww, "StrictMode");
   assert.ok([...seen].some((p) => p.includes("/app/assets/worker-")) && [...seen].some((p) => p.endsWith(".wasm")));
   assert.deepEqual(failures, []);
-  const summary = product + " " + browser.version() + " で DXF・JWW・SXF と公開サンプルの DWG（R2000・R2004・R2018）、初回の表示範囲・倍率の両端、用紙の連続切り替え・レイヤ・40 要素の選択・配置別の診断、本番用 React・StrictMode の再接続中の状態と出所、ローカルの配布物だけの GET を確認";
+  const summary = product + " " + browser.version() + " で DXF・JWW・SXF と公開サンプルの DWG（R2000・R2004・R2018）、初回の表示範囲・倍率の両端、用紙の連続切り替え・レイヤ・40 要素の選択・配置別の診断、DXF で保存（合成の DWG・JWW・SFC・P21 と公開サンプルの DWG をネイティブと同じバイト列で）、本番用 React・StrictMode の再接続中の状態と出所、ローカルの配布物だけの GET を確認";
   console.log(summary);
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, "\n" + summary + "\n");
 } finally {

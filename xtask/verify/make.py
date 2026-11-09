@@ -50,6 +50,8 @@ REPOSITORY = ("MIT OR Apache-2.0", "zumen-jp（このリポジトリ）。本文
 SUFFIXES = {".dxf": "dxf", ".dwg": "dwg", ".jww": "jww", ".sfc": "sfc", ".p21": "p21"}
 # 適合テストの中で作った図面（cases の push）。Jw_cad・SXF の公開サンプルがまだないので、これを入力にする
 CASES = [
+    # プレイグラウンドの「DXF で保存」で確かめる合成の DWG（#690）
+    ("open_dwg.json", "a.dwg"),
     ("open_jww.json", "a.jww"),
     ("open_sxf.json", "a.sfc"),
     ("open_sxf.json", "c.p21"),

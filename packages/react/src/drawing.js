@@ -45,7 +45,8 @@ export function useDrawing(file, { loadModule, from = null, catalog = null }) {
         if (signal.aborted) return;
         const input = { scene: readScene(blob), result, document };
         const getSource = (element) => client.request({ op: "source", element });
-        setSnapshot({ request, value: { status: "ready", input, drawing, diagnostics, getSource } });
+        const convert = () => client.request({ op: "convert" });
+        setSnapshot({ request, value: { status: "ready", input, drawing, diagnostics, getSource, convert } });
       } catch (error) {
         client?.dispose();
         if (!signal.aborted) {

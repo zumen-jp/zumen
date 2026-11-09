@@ -14,6 +14,42 @@ function zoom(viewer, factor) {
   const scale = Math.max(VIEW_SCALE_LIMITS.min, Math.min(VIEW_SCALE_LIMITS.max, camera.scale * factor));
   viewer.jumpTo({ ...camera, scale });
 }
+// 保存する名前。DXF を開いたときは、元のファイルと分かるよう名前を変える
+function dxfName(name) {
+  const base = (name || "drawing").replace(/\.[^.]*$/, "") || "drawing";
+  return /\.dxf$/i.test(name ?? "") ? base + "-zumen.dxf" : base + ".dxf";
+}
+function download(bytes, name) {
+  const url = URL.createObjectURL(new Blob([bytes], { type: "application/dxf" }));
+  const link = Object.assign(document.createElement("a"), { href: url, download: name });
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+// 開いた図面を DXF に変換して、ブラウザーのダウンロードで保存する。図面は外へ送らない（決定 0206、#690）。
+function Export({ opened, name }) {
+  const [state, setState] = useState({ status: "idle" });
+  async function save() {
+    setState({ status: "busy" });
+    try {
+      const { bytes, result, diagnostics } = await opened.convert();
+      download(bytes, dxfName(name));
+      setState({ status: "done", result, diagnostics });
+    } catch (error) {
+      setState({ status: "error", diagnostics: error.diagnostics ?? [], message: error.message });
+    }
+  }
+  return <section aria-labelledby="export-title" className="export">
+    <h2 id="export-title">DXF で保存</h2>
+    <p>開いた図面を DXF に変換して、このブラウザーのダウンロードで保存します。書けない値は、変換の診断に種類・件数・場所を出します。</p>
+    <button disabled={state.status === "busy"} onClick={save}>DXF で保存</button>
+    <div role="status" aria-live="polite" aria-atomic="true">
+      {state.status === "busy" ? "変換しています。" : state.status === "done" ? dxfName(name) + " を保存しました（要素 " + state.result.elements + " 件・変換の診断 " + state.diagnostics.length + " 件）。"
+        : state.status === "error" ? "変換できませんでした。" : ""}
+    </div>
+    {state.status === "error" && !state.diagnostics.some(({ diagnostic }) => diagnostic.severity === "error") && <details><summary>エラーの詳細</summary><p>{state.message}</p></details>}
+    {(state.status === "done" || state.status === "error") && <Diagnostics entries={state.diagnostics} issues={[]} title="変換の診断" id="export-diagnostics-title"/>}
+  </section>;
+}
 export function Playground() {
   const [canvas, setCanvas] = useState(null);
   const [file, setFile] = useState(null);
@@ -126,5 +162,6 @@ export function Playground() {
     </div>
     {failed && !opened.diagnostics?.length && <details><summary>エラーの詳細</summary><p>{(fetchError ?? renderError ?? opened.error)?.message}</p></details>}
     {(ready || failed) && <Diagnostics entries={opened.diagnostics ?? []} issues={ready ? viewer.getReport().issues : []}/>}
+    {ready && <Export key={opened.input.document.hash} opened={opened} name={file?.name}/>}
   </main>;
 }

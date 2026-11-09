@@ -29,7 +29,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from compare import ATTACHMENTS, KINDLESS, check_handles, lifted_away, run, usage  # noqa: E402
 
 # 既知の食い違い: (ファイルの道筋の初め, 食い違いの文の初め, issue, 当たるファイルの数)。直ったら消す
-KNOWN = []
+KNOWN = [
+    # 適合テストの合成の DWG（open_dwg.json）は、扱えない型と壊れたオブジェクトをわざと含み、ACadSharp は読めない。
+    # 変換した DXF は ezdxf で照らす（#690）
+    ("input/conformance-open_dwg-a.dwg", "ACadSharp が読めない", 690, 1),
+]
 MODEL = "*model_space"
 # ヘッダーの変数のうち、HANDSEED より後ろに書くもの（crates/zumen-acad/src/dwg/header.rs の並び）。CLAYER は ACadSharp が
 # 名前で返すので、入力が既定の画層 0 なら、ハンドルが画層に当たらないずれは見分けにくい（推定）。R2010 からのハンドルの

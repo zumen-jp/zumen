@@ -3,6 +3,7 @@ import { findSource } from "@zumen-jp/view2d";
 
 let session, document;
 let catalogName;
+let converted = 0;
 const budget = { input_bytes: 64 * 1024 * 1024, decoded_bytes: 256 * 1024 * 1024 };
 
 function describe(entries) {
@@ -18,6 +19,19 @@ self.onmessage = ({ data }) => {
   try {
     if (op === "source") {
       self.postMessage({ id, value: findSource(session, document, data.element) });
+      return;
+    }
+    if (op === "convert") {
+      // 開いた文書を新しい DXF の文書にし、書いたファイルを取り出してから閉じる（決定 0206、#690）。
+      // 元の文書とシーンは変えないので、表示と出所はそのまま使える。
+      stage = "convert";
+      const to = "converted-" + ++converted + ".dxf";
+      // 失敗した応答の診断は、下の catch で stage を convert にして返す
+      const response = session.call({ v: 1, op: "convert", doc: document.doc, format: "dxf", to, budget });
+      for (const diagnostic of response.diagnostics) entries.push({ stage, diagnostic });
+      const bytes = session.take(0);
+      session.call({ v: 1, op: "close", docs: [to] });
+      self.postMessage({ id, value: { bytes, result: response.result, diagnostics: describe(entries) } }, [bytes.buffer]);
       return;
     }
     const { bytes, module, from, catalog } = data;
