@@ -3,11 +3,16 @@
 //! EXPRESS からは、スキーマの名前・実体（上位の型・属性・導く属性・省略できる属性）・型（定義された型・列挙・
 //! 選択・集まり）を読む。`WHERE` の規則・`UNIQUE`・大域の `RULE`・関数は読み飛ばして評価せず、その数を返す。
 //! zumen は EXPRESS を同梱しない。
+//!
+//! 読むときは、EXPRESS のバイトと、循環を調べる手順を work で数え、集まりの型の入れ子を 1 段ごとに depth で数える
+//! （決定 0010・0216）。
 
+use core::ops::Range;
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Write as _;
 
 use zumen_base::{Diagnostic, Kind, codes};
-use zumen_sdk::{Cx, Error};
+use zumen_sdk::{Cx, Error, Stop};
 
 use crate::{IfcFile, Record, Value, at_bytes, stopped};
 
@@ -109,7 +114,8 @@ struct Slot {
 }
 
 impl Express {
-    /// EXPRESS を読む。読めないか、宣言のない名前を使っていれば、`express.file.invalid` を返して失敗する
+    /// EXPRESS を読む。読めないか、宣言のない名前を使っているか、同じ名前を 2 度宣言していれば、
+    /// `express.file.invalid` を返して失敗する。集まりの型の入れ子が予算の depth を超えたら、止める
     pub fn read(src: &[u8], cx: &mut Cx) -> Result<Self, Error> {
         cx.check(Kind::InputBytes, src.len() as u64)
             .map_err(|stop| stopped(cx, stop, None))?;
@@ -120,8 +126,14 @@ impl Express {
         let mut parser = Parser {
             tokens: &tokens,
             at: 0,
+            stop: None,
         };
-        let schema = match parser.schema() {
+        let parsed = parser.schema(cx);
+        if let Some((stop, at)) = parser.stop {
+            let place = tokens.get(at).map(|t| t.bytes.clone());
+            return Err(stopped(cx, stop, place));
+        }
+        let schema = match parsed {
             Ok(schema) => schema,
             Err(at) => {
                 let (line, near) = tokens
@@ -149,10 +161,14 @@ impl Express {
         self.rules
     }
 
+    /// 実体か型として宣言した名前（大文字）か
+    fn declared(&self, name: &str) -> bool {
+        self.entities.contains_key(name) || self.types.contains_key(name)
+    }
+
     /// 宣言のない型の名前
     fn unresolved(&self) -> Option<String> {
-        let known =
-            |name: &String| self.entities.contains_key(name) || self.types.contains_key(name);
+        let known = |name: &String| self.declared(name);
         let mut named = Vec::new();
         for entity in self.entities.values() {
             named.extend(entity.supertypes.iter().cloned());
@@ -175,36 +191,104 @@ impl Express {
 
     /// 上位の型か、定義された型が循環する名前
     fn cyclic(&self, cx: &mut Cx) -> Result<Option<String>, Error> {
-        for name in self.entities.keys() {
-            let mut seen = BTreeSet::new();
-            let mut stack = vec![name.clone()];
-            while let Some(next) = stack.pop() {
+        if let Some(name) = self.cyclic_entity(cx)? {
+            return Ok(Some(name));
+        }
+        // 定義された型の鎖。たどり終えた型を覚えておき、型ごとに 1 度だけたどる。1 歩ごとに work で数え、
+        // 中断の合図も見る
+        let mut done = BTreeSet::new();
+        for name in self.types.keys() {
+            let mut path = BTreeSet::new();
+            let mut next = name;
+            while !done.contains(next) {
                 cx.check(Kind::Work, 1)
                     .map_err(|stop| stopped(cx, stop, None))?;
-                let Some(entity) = self.entities.get(&next) else {
-                    continue;
-                };
-                for supertype in &entity.supertypes {
-                    if supertype == name {
-                        return Ok(Some(name.clone()));
-                    }
-                    if seen.insert(supertype.clone()) {
-                        stack.push(supertype.clone());
-                    }
-                }
-            }
-        }
-        for name in self.types.keys() {
-            let mut seen = BTreeSet::new();
-            let mut next = name;
-            while let Some(TypeDef::Defined(_, Type::Named(target))) = self.types.get(next) {
-                if !seen.insert(target.clone()) || target == name {
+                if !path.insert(next) {
                     return Ok(Some(name.clone()));
                 }
+                let Some(TypeDef::Defined(_, Type::Named(target))) = self.types.get(next) else {
+                    break;
+                };
                 next = target;
             }
+            done.append(&mut path);
         }
         Ok(None)
+    }
+
+    /// 上位の型をたどると自分に戻る実体のうち、名前の順で最初のもの。
+    ///
+    /// 強連結成分を Tarjan の方法で求める。実体ごとに 1 度入り、上位の型ごとに 1 度たどるので、手間は実体と上位の型の
+    /// 数に比例する。1 歩ごとに work で数え、中断の合図も見る
+    fn cyclic_entity(&self, cx: &mut Cx) -> Result<Option<String>, Error> {
+        // 入った実体の、入った順と、そこからたどれて成分の決まっていない実体のうち、もっとも早く入ったものの順（low-link）
+        let mut order: BTreeMap<&str, (usize, usize)> = BTreeMap::new();
+        // 入ったが、成分の決まっていない実体
+        let mut open = Vec::new();
+        let mut on_open = BTreeSet::new();
+        let mut cyclic = BTreeSet::new();
+        for root in self.entities.keys() {
+            if order.contains_key(root.as_str()) {
+                continue;
+            }
+            // たどっている途中の実体と、次にたどる上位の型の位置
+            let mut path = vec![(root.as_str(), 0usize)];
+            while let Some(&(name, at)) = path.last() {
+                cx.check(Kind::Work, 1)
+                    .map_err(|stop| stopped(cx, stop, None))?;
+                if !order.contains_key(name) {
+                    order.insert(name, (order.len(), order.len()));
+                    open.push(name);
+                    on_open.insert(name);
+                }
+                let supertypes = self
+                    .entities
+                    .get(name)
+                    .map_or(&[][..], |entity| entity.supertypes.as_slice());
+                if let Some(supertype) = supertypes.get(at) {
+                    if let Some(top) = path.last_mut() {
+                        top.1 += 1;
+                    }
+                    let supertype = supertype.as_str();
+                    match order.get(supertype) {
+                        None if self.entities.contains_key(supertype) => {
+                            path.push((supertype, 0));
+                        }
+                        Some(&(index, _)) if on_open.contains(supertype) => {
+                            if let Some(entry) = order.get_mut(name) {
+                                entry.1 = entry.1.min(index);
+                            }
+                        }
+                        _ => {}
+                    }
+                    continue;
+                }
+                path.pop();
+                let (index, low) = order.get(name).copied().unwrap_or_default();
+                if let Some(entry) = path.last().and_then(|&(parent, _)| order.get_mut(parent)) {
+                    entry.1 = entry.1.min(low);
+                }
+                if low == index {
+                    // `name` を根とする成分を閉じる
+                    let mut members = Vec::new();
+                    while let Some(member) = open.pop() {
+                        on_open.remove(member);
+                        members.push(member);
+                        if member == name {
+                            break;
+                        }
+                    }
+                    if members.len() > 1 || supertypes.iter().any(|s| s == name) {
+                        cyclic.extend(members);
+                    }
+                }
+            }
+        }
+        Ok(self
+            .entities
+            .keys()
+            .find(|name| cyclic.contains(name.as_str()))
+            .cloned())
     }
 
     /// `name` の上位の型（自分を含む）
@@ -339,51 +423,56 @@ impl Express {
         (entities, types)
     }
 
-    /// 型の書き方（診断の値）
+    /// 型の書き方（診断の値）。集まりの段は、自分を呼ばずに外から順に書く
     fn display(&self, ty: &Type) -> String {
-        match ty {
-            Type::Integer => "INTEGER".to_owned(),
-            Type::Real => "REAL".to_owned(),
-            Type::Number => "NUMBER".to_owned(),
-            Type::Boolean => "BOOLEAN".to_owned(),
-            Type::Logical => "LOGICAL".to_owned(),
-            Type::String => "STRING".to_owned(),
-            Type::Binary => "BINARY".to_owned(),
+        let mut out = String::new();
+        let mut ty = ty;
+        let bound = |b: &Option<u64>| b.map_or("?".to_owned(), |b| b.to_string());
+        while let Type::Aggregate {
+            kind,
+            lower,
+            upper,
+            of,
+            ..
+        } = ty
+        {
+            let _ = write!(out, "{kind} [{}:{}] OF ", bound(lower), bound(upper));
+            ty = of;
+        }
+        out.push_str(match ty {
+            Type::Integer => "INTEGER",
+            Type::Real => "REAL",
+            Type::Number => "NUMBER",
+            Type::Boolean => "BOOLEAN",
+            Type::Logical => "LOGICAL",
+            Type::String => "STRING",
+            Type::Binary => "BINARY",
             Type::Named(name) => match (self.types.get(name), self.entities.get(name)) {
                 (
                     Some(
                         TypeDef::Defined(n, _) | TypeDef::Enumeration(n, _) | TypeDef::Select(n, _),
                     ),
                     _,
-                ) => n.clone(),
-                (None, Some(entity)) => entity.name.clone(),
-                (None, None) => name.clone(),
+                ) => n,
+                (None, Some(entity)) => &entity.name,
+                (None, None) => name,
             },
-            Type::Aggregate {
-                kind,
-                lower,
-                upper,
-                of,
-                ..
-            } => {
-                let bound = |b: &Option<u64>| b.map_or("?".to_owned(), |b| b.to_string());
-                format!(
-                    "{kind} [{}:{}] OF {}",
-                    bound(lower),
-                    bound(upper),
-                    self.display(of)
-                )
-            }
-        }
+            // 集まりの段は、上で書き終えている
+            Type::Aggregate { .. } => "",
+        });
+        out
     }
 }
 
 impl Type {
+    /// 型が使う名前。集まりなら、項目の型の名前。自分を呼ばない
     fn names(&self, out: &mut Vec<String>) {
-        match self {
-            Self::Named(name) => out.push(name.clone()),
-            Self::Aggregate { of, .. } => of.names(out),
-            _ => {}
+        let mut ty = self;
+        while let Self::Aggregate { of, .. } = ty {
+            ty = of;
+        }
+        if let Self::Named(name) = ty {
+            out.push(name.clone());
         }
     }
 }
@@ -406,17 +495,21 @@ struct Token {
     /// 書いたままの字句
     written: String,
     line: u64,
+    /// 入力の中の位置
+    bytes: Range<usize>,
 }
 
-/// 字句に分ける。注釈（`(* … *)` は入れ子もある、`--` から行の終わり）を除く。閉じない注釈か文字列は、行の番号を返す
+/// 字句に分ける。注釈（`(* … *)` は入れ子もある、`--` から行の終わり）を除く。閉じない注釈か文字列は、行の番号を返す。
+/// 読んだバイトは、字句・空白・注釈ごとに、読み終えてからまとめて work で数える（決定 0216）
 fn tokenize(src: &[u8], cx: &mut Cx) -> Result<Result<Vec<Token>, u64>, Error> {
     let mut tokens = Vec::new();
     let mut line = 1u64;
     let mut at = 0usize;
     let byte = |i: usize| src.get(i).copied();
     while let Some(c) = byte(at) {
-        cx.check(Kind::Work, 1)
-            .map_err(|stop| stopped(cx, stop, Some(at..at + 1)))?;
+        let start = at;
+        // 閉じない注釈か文字列なら、報告する行の番号
+        let mut unclosed = None;
         match c {
             b'\n' => {
                 line += 1;
@@ -424,12 +517,15 @@ fn tokenize(src: &[u8], cx: &mut Cx) -> Result<Result<Vec<Token>, u64>, Error> {
             }
             c if c.is_ascii_whitespace() => at += 1,
             b'(' if byte(at + 1) == Some(b'*') => {
-                let start = line;
+                let first = line;
                 let mut depth = 1u32;
                 at += 2;
                 while depth > 0 {
                     match (byte(at), byte(at + 1)) {
-                        (None, _) => return Ok(Err(start)),
+                        (None, _) => {
+                            unclosed = Some(first);
+                            break;
+                        }
                         (Some(b'('), Some(b'*')) => {
                             depth += 1;
                             at += 2;
@@ -452,11 +548,13 @@ fn tokenize(src: &[u8], cx: &mut Cx) -> Result<Result<Vec<Token>, u64>, Error> {
                 }
             }
             b'\'' => {
-                let start = at;
                 at += 1;
                 loop {
                     match (byte(at), byte(at + 1)) {
-                        (None, _) => return Ok(Err(line)),
+                        (None, _) => {
+                            unclosed = Some(line);
+                            break;
+                        }
                         (Some(b'\''), Some(b'\'')) => at += 2,
                         (Some(b'\''), _) => {
                             at += 1;
@@ -475,10 +573,10 @@ fn tokenize(src: &[u8], cx: &mut Cx) -> Result<Result<Vec<Token>, u64>, Error> {
                     written: text.clone(),
                     text,
                     line,
+                    bytes: start..at,
                 });
             }
             c if c.is_ascii_alphanumeric() || c == b'_' => {
-                let start = at;
                 while byte(at).is_some_and(|c| c.is_ascii_alphanumeric() || c == b'_') {
                     at += 1;
                 }
@@ -499,6 +597,7 @@ fn tokenize(src: &[u8], cx: &mut Cx) -> Result<Result<Vec<Token>, u64>, Error> {
                     text,
                     written,
                     line,
+                    bytes: start..at,
                 });
             }
             _ => {
@@ -514,9 +613,16 @@ fn tokenize(src: &[u8], cx: &mut Cx) -> Result<Result<Vec<Token>, u64>, Error> {
                     written: text.clone(),
                     text,
                     line,
+                    bytes: at..at + len,
                 });
                 at += len;
             }
+        }
+        // どの枝も 1 バイト以上を読む
+        cx.check(Kind::Work, (at - start) as u64)
+            .map_err(|stop| stopped(cx, stop, Some(start..at)))?;
+        if let Some(line) = unclosed {
+            return Ok(Err(line));
         }
     }
     Ok(Ok(tokens))
@@ -527,10 +633,28 @@ fn tokenize(src: &[u8], cx: &mut Cx) -> Result<Result<Vec<Token>, u64>, Error> {
 struct Parser<'t> {
     tokens: &'t [Token],
     at: usize,
+    /// 予算か中断の合図で止めた理由と、そのときの字句の位置。止めたら、読めなかったとして返す
+    stop: Option<(Stop, usize)>,
 }
 
 /// 読めなかった字句の位置
 type Parsed<T> = Result<T, usize>;
+
+/// 集まりの型の 1 段
+struct Level {
+    kind: &'static str,
+    lower: Option<u64>,
+    upper: Option<u64>,
+    optional_items: bool,
+}
+
+/// 型の始まりから読んだもの
+enum Head {
+    /// 集まりの 1 段。後ろに項目の型が続く
+    Level(Level),
+    /// 集まりでない型
+    Item(Type),
+}
 
 impl Parser<'_> {
     fn peek(&self) -> Option<&str> {
@@ -600,8 +724,9 @@ impl Parser<'_> {
         }
     }
 
-    /// スキーマ。字句の数は、字句に分けるときに work で数えてある
-    fn schema(&mut self) -> Parsed<Express> {
+    /// スキーマ。字句のバイトは、字句に分けるときに work で数えてある。同じ名前の宣言は、どれを使うか決められない
+    /// ので読まない
+    fn schema(&mut self, cx: &mut Cx) -> Parsed<Express> {
         self.expect("SCHEMA")?;
         let name = self.name()?;
         // バージョンの識別子（`'{…}'`）は読み飛ばす
@@ -619,16 +744,23 @@ impl Parser<'_> {
                     return Ok(schema);
                 }
                 Some("TYPE") => {
-                    let (name, def, rules) = self.type_decl()?;
+                    let at = self.at;
+                    let (name, def, rules) = self.type_decl(cx)?;
+                    if schema.declared(&name) {
+                        return Err(at);
+                    }
                     schema.rules += rules;
                     schema.types.insert(name, def);
                 }
                 Some("ENTITY") => {
-                    let (entity, rules) = self.entity()?;
+                    let at = self.at;
+                    let (entity, rules) = self.entity(cx)?;
+                    let name = entity.name.to_ascii_uppercase();
+                    if schema.declared(&name) {
+                        return Err(at);
+                    }
                     schema.rules += rules;
-                    schema
-                        .entities
-                        .insert(entity.name.to_ascii_uppercase(), entity);
+                    schema.entities.insert(name, entity);
                 }
                 Some("FUNCTION") => self.skip_block("FUNCTION", "END_FUNCTION")?,
                 Some("PROCEDURE") => self.skip_block("PROCEDURE", "END_PROCEDURE")?,
@@ -647,7 +779,7 @@ impl Parser<'_> {
     }
 
     /// `TYPE 名前 = 元の型 ; [WHERE …] END_TYPE ;`
-    fn type_decl(&mut self) -> Parsed<(String, TypeDef, u64)> {
+    fn type_decl(&mut self, cx: &mut Cx) -> Parsed<(String, TypeDef, u64)> {
         let name = self.name()?;
         let display = name.clone();
         self.expect("=")?;
@@ -661,7 +793,7 @@ impl Parser<'_> {
                 self.at += 1;
                 TypeDef::Select(display, self.names()?)
             }
-            _ => TypeDef::Defined(display, self.ty()?),
+            _ => TypeDef::Defined(display, self.ty(cx)?),
         };
         self.expect(";")?;
         let rules = self.rules_until("END_TYPE")?;
@@ -679,8 +811,40 @@ impl Parser<'_> {
         Ok(names)
     }
 
-    /// 型
-    fn ty(&mut self) -> Parsed<Type> {
+    /// 型。集まりの入れ子は、自分を呼ばずに外から 1 段ずつ読み、1 段ごとに予算の depth で数える（決定 0010）
+    fn ty(&mut self, cx: &mut Cx) -> Parsed<Type> {
+        let mut levels = Vec::new();
+        let item = loop {
+            let start = self.at;
+            match self.head() {
+                Ok(Head::Level(level)) => {
+                    if let Err(stop) = cx.enter() {
+                        self.stop = Some((stop, start));
+                        break Err(start);
+                    }
+                    levels.push(level);
+                }
+                Ok(Head::Item(item)) => break Ok(item),
+                Err(at) => break Err(at),
+            }
+        };
+        // 型を読み終えたら、入った段をすべて出る
+        cx.budget.leave(levels.len() as u64);
+        let mut ty = item?;
+        for level in levels.into_iter().rev() {
+            ty = Type::Aggregate {
+                kind: level.kind,
+                lower: level.lower,
+                upper: level.upper,
+                optional_items: level.optional_items,
+                of: Box::new(ty),
+            };
+        }
+        Ok(ty)
+    }
+
+    /// 型の始まり。集まりなら、`OF` の後ろまでの 1 段だけを読む
+    fn head(&mut self) -> Parsed<Head> {
         let Some(word) = self.next().map(str::to_owned) else {
             return Err(self.at);
         };
@@ -703,7 +867,7 @@ impl Parser<'_> {
                 }
                 self.eat("FIXED");
             }
-            return Ok(simple);
+            return Ok(Head::Item(simple));
         }
         let kind = match word.as_str() {
             "LIST" => "LIST",
@@ -711,7 +875,7 @@ impl Parser<'_> {
             "BAG" => "BAG",
             "ARRAY" => "ARRAY",
             _ if word.starts_with(|c: char| c.is_ascii_alphabetic()) => {
-                return Ok(Type::Named(word));
+                return Ok(Head::Item(Type::Named(word)));
             }
             _ => return Err(self.at.saturating_sub(1)),
         };
@@ -725,14 +889,12 @@ impl Parser<'_> {
         self.expect("OF")?;
         let optional_items = self.eat("OPTIONAL");
         self.eat("UNIQUE");
-        let of = self.ty()?;
-        Ok(Type::Aggregate {
+        Ok(Head::Level(Level {
             kind,
             lower,
             upper,
             optional_items,
-            of: Box::new(of),
-        })
+        }))
     }
 
     /// 集まりの上下の限り。数でなければ（`?` や式）、限りなしにする
@@ -757,7 +919,7 @@ impl Parser<'_> {
     }
 
     /// `ENTITY` の宣言
-    fn entity(&mut self) -> Parsed<(Entity, u64)> {
+    fn entity(&mut self, cx: &mut Cx) -> Parsed<(Entity, u64)> {
         let name = self.name()?;
         let mut entity = Entity {
             name: name.clone(),
@@ -804,7 +966,7 @@ impl Parser<'_> {
             }
             self.expect(":")?;
             let optional = self.eat("OPTIONAL");
-            let ty = self.ty()?;
+            let ty = self.ty(cx)?;
             self.expect(";")?;
             for (inherited, name, written) in names {
                 if inherited {

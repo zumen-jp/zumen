@@ -714,11 +714,13 @@ dependencies = [
  "zumen-base",
  "zumen-crs",
  "zumen-drawing",
+ "zumen-ifc",
  "zumen-json",
  "zumen-profile",
  "zumen-render",
  "zumen-review",
  "zumen-scene",
+ "zumen-sdk",
  "zumen-zip",
 ]
 
