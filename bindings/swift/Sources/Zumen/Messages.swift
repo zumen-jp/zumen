@@ -2549,7 +2549,7 @@ public struct ApplyResult: Message {
         set { writeField("hash", newValue) }
     }
 
-    /// true なら、変えていない要素の ID がずれた。キーを持たない形式（JWW）で、前の図形を除くか足したとき。ID を使う前に entities で読み直す。ずれないときは持たない。マイナーバージョン 30 から
+    /// true なら、変えていない要素の ID がずれた。キーを持たない形式（JWW）か、ハンドルを持たない DXF（R12 など）で、前の図形か表のレコードを除くか足したとき。ID を使う前に entities で読み直す。ずれないときは持たない。マイナーバージョン 30 から
     public var idsShifted: Bool? {
         get { readField("ids_shifted") }
         set { writeField("ids_shifted", newValue) }
