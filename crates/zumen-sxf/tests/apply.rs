@@ -642,11 +642,17 @@ fn added_elements_need_their_own_color_line_type_and_width() {
         let mut budget = Budget::default();
         let mut diag = Diagnostics::new();
         let cancel = CancelToken::new();
+        // 当てられる変更と一緒に送っても、何も変えない
         let changes = Changes {
-            edits: vec![Edit::Add {
-                place: id::sheet(&drawing.sheets[0]),
-                element: Box::new(Placed::Paper(circle(style))),
-            }],
+            edits: vec![
+                Edit::Remove {
+                    target: seen(&drawing, 100).0,
+                },
+                Edit::Add {
+                    place: id::sheet(&drawing.sheets[0]),
+                    element: Box::new(Placed::Paper(circle(style))),
+                },
+            ],
             document: None,
         };
         let result = file.apply(&changes, &mut Cx::new(&mut budget, &mut diag, &cancel));
@@ -894,6 +900,42 @@ fn point_markers_are_replaced_transformed_and_added() {
     assert_eq!(result, Err(Error::Rejected));
     assert_eq!(diagnostics, [codes::CHANGE_STYLE_UNSUPPORTED]);
     assert_eq!(write(&file), src);
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let changes = Changes {
+        edits: vec![Edit::Add {
+            place: id::sheet(&drawing.sheets[0]),
+            element: Box::new(Placed::Paper(Element {
+                style: Style {
+                    color: Inherit::Block,
+                    ..marker.style
+                },
+                ..with(point.clone())
+            })),
+        }],
+        document: None,
+    };
+    let result = read(&src).apply(&changes, &mut Cx::new(&mut budget, &mut diag, &cancel));
+    assert_eq!(result, Err(Error::Rejected));
+    let found: Vec<_> = diag
+        .iter()
+        .map(|d| {
+            (
+                d.code(),
+                d.param("field").cloned(),
+                d.param("format").cloned(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        found,
+        [(
+            codes::CHANGE_STYLE_UNSUPPORTED,
+            Some("color".into()),
+            Some("SFC".into())
+        )]
+    );
 }
 
 /// SXF は文書の点の表し方（DXF・DWG の $PDMODE・$PDSIZE）に当たるものを持たない。点は既定義のマーカーだけなので、その

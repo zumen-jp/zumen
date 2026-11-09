@@ -35,7 +35,7 @@ SXF（SFC・P21）のフィーチャも、色・線種・線幅をコードで�
 
 - API で SXF に要素を足すとき、色・線種・線幅のどれを書かなかったかが、診断の `field` で分かる。
 - JWW と SXF の追加で、ブロックに従う値を断る診断の code が変わる。どちらも 0.2.0 で足した振る舞いで、まだ公開していない。
-- `schema/messages.json` の `add_edit` の説明、`docs/formats/sxf.md`・`docs/formats/jww.md` を直した。SFC の合成の試験（色・線種・線幅のそれぞれと、レイヤとブロック、点マーカー）、JWW の試験（ブロックに従う色・線種・線幅）、適合テストの SFC の組で、code と `field` を確かめた。
+- `add_edit` の説明と形式の文書（`docs/formats/sxf.md`・`docs/formats/jww.md`）が、この扱いを書く。
 
 ## 参照
 

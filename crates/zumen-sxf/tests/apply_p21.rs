@@ -111,6 +111,34 @@ fn apply(file: &mut SxfFile, edits: Vec<Edit>) -> (Result<Vec<Applied>, Error>, 
 }
 
 /// 用紙の要素の ID とハッシュ
+/// 診断の code と `field`・`format`
+#[cfg(test)]
+type Found = (Code, Option<zumen_base::Value>, Option<zumen_base::Value>);
+
+/// 変更を当て、診断ごとの code と `field`・`format` を返す
+#[cfg(test)]
+fn refused(file: &mut SxfFile, edits: Vec<Edit>) -> (Result<Vec<Applied>, Error>, Vec<Found>) {
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let changes = Changes {
+        edits,
+        document: None,
+    };
+    let result = file.apply(&changes, &mut Cx::new(&mut budget, &mut diag, &cancel));
+    let found = diag
+        .iter()
+        .map(|d| {
+            (
+                d.code(),
+                d.param("field").cloned(),
+                d.param("format").cloned(),
+            )
+        })
+        .collect();
+    (result, found)
+}
+
 #[cfg(test)]
 fn seen(drawing: &Drawing2D, instance: u64) -> (Seen, Element<PaperPoint>) {
     let element = drawing.sheets[0]
@@ -536,6 +564,86 @@ fn edits_that_cannot_be_written_change_nothing() {
     }
 }
 
+/// P21 でも、色・線種・線幅を書かない（レイヤかブロックに従う）追加は、`change.style.unsupported`（`format` は
+/// `P21`）で断る。当てられる変更と一緒に送っても、何も変えない（決定 0292、#715）
+#[test]
+fn added_elements_need_their_own_color_line_type_and_width() {
+    let src = src();
+    let drawing = lift(&read(&src));
+    let style = Style {
+        color: sxf_color(1),
+        line_type: Inherit::Own(LineTypeId(1)),
+        line_type_scale: 1.0,
+        line_weight: Some(Inherit::Own(LineWeight::Width(PaperLength(0.25)))),
+        transparency: Inherit::Layer,
+    };
+    let circle = Shape::Circle {
+        center: paper(7.0, 8.0),
+        radius: Length::Paper(PaperLength(2.5)),
+    };
+    let line = Shape::Line {
+        start: paper(0.0, 0.0),
+        end: paper(10.0, 20.0),
+    };
+    let cases = [
+        (
+            circle.clone(),
+            Style {
+                color: Inherit::Layer,
+                ..style
+            },
+            "color",
+        ),
+        (
+            circle,
+            Style {
+                line_type: Inherit::Block,
+                ..style
+            },
+            "line_type",
+        ),
+        (
+            line,
+            Style {
+                line_weight: None,
+                ..style
+            },
+            "line_weight",
+        ),
+    ];
+    for (shape, style, field) in cases {
+        let mut file = read(&src);
+        let (result, found) = refused(
+            &mut file,
+            vec![
+                Edit::Remove {
+                    target: seen(&drawing, 440).0,
+                },
+                Edit::Add {
+                    place: id::sheet(&drawing.sheets[0]),
+                    element: Box::new(Placed::Paper(Element {
+                        source: zumen_base::Ref::default(),
+                        layer: LayerId(1),
+                        style,
+                        shape,
+                    })),
+                },
+            ],
+        );
+        assert_eq!(result, Err(Error::Rejected), "{field}");
+        assert_eq!(
+            found,
+            [(
+                codes::CHANGE_STYLE_UNSUPPORTED,
+                Some(field.into()),
+                Some("P21".into())
+            )],
+            "{field}"
+        );
+        assert_eq!(write(&file), src, "{field}");
+    }
+}
+
 #[test]
 fn a_stale_document_is_refused() {
     let src = src();
@@ -799,4 +907,29 @@ fn point_markers_are_written_into_p21() {
         assert_eq!(diagnostics, [codes::CHANGE_EDIT_UNSUPPORTED]);
         assert_eq!(write(&file), src);
     }
+    // レイヤに従う色の点マーカーは、色を書くよう断る。点マーカーは線種と線幅を持たないので、それらは見ない
+    let mut file = read(&src);
+    let (result, found) = refused(
+        &mut file,
+        vec![Edit::Add {
+            place: id::sheet(&drawing.sheets[0]),
+            element: Box::new(Placed::Paper(Element {
+                style: Style {
+                    color: Inherit::Layer,
+                    ..marker.style
+                },
+                ..marker.clone()
+            })),
+        }],
+    );
+    assert_eq!(result, Err(Error::Rejected));
+    assert_eq!(
+        found,
+        [(
+            codes::CHANGE_STYLE_UNSUPPORTED,
+            Some("color".into()),
+            Some("P21".into())
+        )]
+    );
+    assert_eq!(write(&file), src);
 }
