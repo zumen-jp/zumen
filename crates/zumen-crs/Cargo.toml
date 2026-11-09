@@ -18,9 +18,9 @@ zumen-sdk = { version = "0.2.0", path = "../zumen-sdk" }
 
 [dev-dependencies]
 # TKY2JGD・PatchJGD の格子の読みと補間を、テストの中で作った格子で照らす外部の実装（決定 0286、#670）。
-# MIT OR Apache-2.0 で、既定の feature では依存を持たない。wasm32 でも組み立つ。std の HashMap・hypot と、target の
-# FMA で変わる積和を使うが、テストは hypot を使う関数を呼ばず、照らす値を作るだけで、配る成果物には入らない
-# （決定 0269・0279）
+# MIT OR Apache-2.0 で、既定の feature では依存を持たない。wasm32 でも組み立てられる。std の HashMap・hypot と、
+# target の FMA で変わる積和を使うが、テストは hypot を使う関数を呼ばず、照らす値を作るだけで、配る成果物には
+# 入らない（決定 0269・0279）
 jgdtrans = { version = "0.3.1", default-features = false }
 
 [lints]
