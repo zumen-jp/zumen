@@ -148,11 +148,11 @@ pub(super) fn write(
     };
     let flags = (flags & !(1 | 4)) | i64::from(state.frozen) | (i64::from(!state.editable) << 2);
     set(values, 70, Some(int(70, flags)));
-    color(born, values, &state, &style)?;
+    // DWG に足す画層は、真の色をまだ書かない
+    color(born, values, &state, &style, !(dwg && was.is_none()))?;
     match was {
-        // DWG の今あるレコードは、線種をハンドルで持つ。線種は変えられない
-        Some((_, old)) if dwg => {
-            (old.style.and_then(|style| style.line_type) == style.line_type).then_some(())?;
+        // DWG の今あるレコードは、線種をハンドルで持つ。変えるときだけ名前を書き、書き戻すときにハンドルに直す（#723）
+        Some((_, old)) if dwg && old.style.and_then(|style| style.line_type) == style.line_type => {
         }
         _ => set(values, 6, Some(born.line_type_value(6, style.line_type?)?)),
     }
@@ -184,6 +184,7 @@ fn color(
     values: &mut Vec<Value>,
     state: &LayerState,
     style: &LayerStyle,
+    true_color: bool,
 ) -> Option<()> {
     let color = style.color?;
     let code = color.code?;
@@ -198,9 +199,9 @@ fn color(
     match color.rgb {
         Some([r, g, b]) => {
             let rgb = i64::from(u32::from_be_bytes([0, r, g, b]));
-            // DWG は、真の色を変えずに残すときだけ受ける
+            // 真の色は、R2004 からの DXF と DWG に書く（DWG は #723）
             let kept = find(values, 420) == Some(&Data::Int(rgb));
-            (kept || (born.target() == Target::Dxf && born.dxf_since(b"AC1018"))).then_some(())?;
+            (kept || (true_color && born.version_since(b"AC1018"))).then_some(())?;
             set(values, 420, Some(int(420, rgb)));
         }
         None => set(values, 420, None),

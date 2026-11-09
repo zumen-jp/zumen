@@ -568,6 +568,23 @@ def minsert_steps(_fmt):
     return [step]
 
 
+def restyle_steps(_fmt):
+    """#723: 今ある要素のレイヤ・色・線種・線種の倍率・線幅を変え、今あるレイヤの色と線種を変える"""
+
+    def layer(_reading):
+        return [{"kind": "add_layer", "name": "ZUMEN_RESTYLED", "color": {"aci": 4}}]
+
+    def styles(reading):
+        edits = []
+        for e in [e for e in model(reading) if e.get("geometry", {}).get("shape") in ("line", "circle", "arc", "polyline")][:2]:
+            edit = {"kind": "restyle", "id": e["id"], "hash": e["hash"], "layer": "ZUMEN_RESTYLED", "color": {"aci": 5}}
+            edit |= {"line_type": {"inherit": "block"}, "line_type_scale": 2, "line_weight": {"mm": 0.35}}
+            edits.append(edit)
+        return edits
+
+    return [layer, styles]
+
+
 # HANDSEED を 2 バイトから 3 バイトに進めるのに足りる線の数（HANDSEED は 1 以上）
 HANDSEED_LINES = 0x10000
 # manifest.json に書く、1 つの段の変更の数の上限
@@ -611,6 +628,7 @@ RECIPES = [
     ("basic", 156, lambda name, fmt: fmt in ("dxf", "dwg") and ("-layout-" in name or "-xclip-r2013" in name), basic_steps),
     ("minsert", 316, lambda name, fmt: fmt in ("dxf", "dwg") and "-minsert-" in name, minsert_steps),
     # R2004 は R2018 と同じく展開したセクションを置き換えるので、R2000 と R2018 だけにしてキットを小さくする
+    ("restyle", 723, lambda name, fmt: fmt in ("dxf", "dwg") and "-layout-" in name, restyle_steps),
     ("handseed", 701, lambda name, fmt: fmt == "dwg" and ("-layout-r2000" in name or "-layout-r2018" in name), handseed_steps),
 ]
 

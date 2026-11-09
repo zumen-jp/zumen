@@ -465,7 +465,7 @@ impl Born {
             values.push(int(67, 1));
         }
         values.push(self.layer_value(layer)?);
-        values.extend(self.style_values(style, &[6, 62, 420, 430, 370, 48, 440])?);
+        values.extend(self.style_values(style, &[6, 62, 420, 430, 370, 48, 440], false)?);
         Some(values)
     }
 
@@ -491,13 +491,25 @@ impl Born {
         self.string(code, value)
     }
 
+    /// DXF か DWG のバージョンが `release` 以後か
+    pub(super) fn version_since(&self, release: &[u8]) -> bool {
+        self.since(release)
+    }
+
     /// DXF のバージョンが `release` 以後か。DWG なら真
     pub(super) fn dxf_since(&self, release: &[u8]) -> bool {
         self.target != Target::Dxf || self.since(release)
     }
 
-    /// 指定されたフィールドだけを検証し、共通の値にする
-    pub(super) fn style_values(&self, style: &Style, changed: &[i16]) -> Option<Vec<Value>> {
+    /// 指定されたフィールドだけを検証し、共通の値にする。`existing` は今ある図形のスタイルの変更か。DWG は、今ある図形には
+    /// 線幅（R2000 から）と RGB の色（R2004 から）を書けるが、足す図形にはまだ書かない（#723）
+    pub(super) fn style_values(
+        &self,
+        style: &Style,
+        changed: &[i16],
+        existing: bool,
+    ) -> Option<Vec<Value>> {
+        let writes = self.target == Target::Dxf || existing;
         let mut values = Vec::new();
         if changed.contains(&6) {
             match style.line_type {
@@ -530,7 +542,7 @@ impl Born {
                 }
             }
             if let Some([r, g, b]) = rgb {
-                if !(self.target == Target::Dxf && self.since(b"AC1018")) {
+                if !(writes && self.since(b"AC1018")) {
                     return None;
                 }
                 values.push(int(420, i64::from(u32::from_be_bytes([0, r, g, b]))));
@@ -539,7 +551,7 @@ impl Born {
         if changed.contains(&370) {
             match style.line_weight {
                 None | Some(Inherit::Layer) => {}
-                Some(weight) if self.target == Target::Dxf && self.since(b"AC1015") => {
+                Some(weight) if writes && self.since(b"AC1015") => {
                     values.push(int(370, line_weight(weight)?));
                 }
                 Some(_) => return None,
