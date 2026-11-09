@@ -4580,6 +4580,22 @@ fn counts_reads_that_grow_faster_than_the_file() {
     document.objects = vec![container(count, header.len(), &data)];
     let work = used(&document.bytes(), Kind::Work);
     assert!(work >= count as u64 * 99_000 / 4, "{work}");
+    // 辞書の最初の字句が、閉じない文字列か配列で、覚えに着かずに後ろを読み直す形は、読み直す分を数える（PR #745 の
+    // 確かめで、数えないと予算で止まらなかった形）。エスケープした括弧から始まる文字列と、配列の中の入れ子の字句
+    let count = 2_000;
+    for (name, objects) in [
+        ("A", format!("[{}", r"(obj<< [\( ) /a ".repeat(count))),
+        ("B", format!("[({}", r"obj<< \( ".repeat(count))),
+        ("C", format!("[{}]", "%obj<< [ [\n/a ".repeat(count))),
+        ("D", format!("[{}]", "%obj<< [ <<\n/a 1 ".repeat(count))),
+        ("E", format!("[{}]", "%obj<< [ [(\n/a ".repeat(count))),
+    ] {
+        let mut document = Document::new(vec![Page::new("0 0 m 10 10 l S")]);
+        document.objects = vec![objects.into_bytes()];
+        let work = used(&document.bytes(), Kind::Work);
+        assert!(work >= (count * count) as u64, "{name} {work}");
+    }
+    let count = 1_000;
     // `Length` が合わないストリームは、hayro-syntax が `endstream` を探して、後ろを読む
     let line = "9 0 obj << /N 1 /First 0 /Length 0 >>\nstream\n";
     let mut document = Document::new(vec![Page::new("0 0 m 10 10 l S")]);

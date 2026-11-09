@@ -1117,15 +1117,28 @@ struct Tokens {
     strings: BTreeMap<usize, Option<usize>>,
     /// 上の段の配列の項目の始まりと、配列の `]` の後ろ。読めなければ `None`
     arrays: BTreeMap<usize, Option<usize>>,
+    /// 読んだバイト数の合計と、`Work` に数えた分（[`Tokens::count`]）
+    scanned: u64,
+    counted: u64,
 }
 
 /// 文字列と配列の覚えの 1 つのメモリ（位置の組と、表の木の節）
 const TOKEN_BYTES: u64 = 48;
 
 impl Tokens {
+    /// 読んだバイト数を足し、合計の [`LOOKUP_BYTES`] ごとに `Work` に数える。読み方の分け方によらず、合計で決まる
+    fn count(&mut self, bytes: usize, cx: &mut Cx<'_>) -> Result<(), Stop> {
+        self.scanned = self.scanned.saturating_add(bytes as u64);
+        let work = self.scanned / LOOKUP_BYTES;
+        cx.check(Kind::Work, work.saturating_sub(self.counted))?;
+        self.counted = work;
+        Ok(())
+    }
+
     /// 辞書の上の段（深さ 1）の字句を、`reader` の位置から飛ばす。`Some` は飛ばせたか。文字列と配列は覚えから飛ばす。
-    /// ほかは hayro-syntax で飛ばす（`value` なら `MaybeRef<Object>`、でなければ `Object`）。返す数は、読んだバイト数
-    /// （覚えから飛ばした所を除く。呼ぶ側が、重なる辞書の分だけ `Work` に数える）
+    /// ほかは hayro-syntax で飛ばす（`value` なら `MaybeRef<Object>`、でなければ `Object`）。文字列と配列で読んだ
+    /// バイト数（覚えから飛ばした所を除く）は、ここで `Work` に数える。返す数は、hayro-syntax で読んだバイト数（呼ぶ側
+    /// が、重なる辞書の分だけ `Work` に数える）
     fn skip(
         &mut self,
         src: &[u8],
@@ -1149,7 +1162,9 @@ impl Tokens {
         if let Some(end) = end {
             reader.jump(end);
         }
-        Ok((end.map(|_| ()), read))
+        // 文字列と配列の読みは、重なるかによらず数える（覚えに着かずに読み直す形も、予算で止める）
+        self.count(read, cx)?;
+        Ok((end.map(|_| ()), 0))
     }
 
     /// `at` の `(` からの文字列の終わりと、読んだバイト数
@@ -1238,6 +1253,8 @@ impl Tokens {
                 cx.check(Kind::DecodedBytes, TOKEN_BYTES)?;
                 items.push(item);
             }
+            // 項目ごとに覚えを引くので、覚えから飛ばした項目も、1 つを 2 として `Work` に数える
+            scanned += 2 * LOOKUP_BYTES as usize;
             // 項目の文字列も、覚えから飛ばす。ほかは hayro-syntax と同じ深さで飛ばす
             let skipped = if src.get(item) == Some(&b'(') {
                 let (end, read) = self.string(src, item, cx)?;
@@ -1247,7 +1264,11 @@ impl Tokens {
                 let skipped = reader
                     .skip_with_depth::<MaybeRef<Object<'_>>>(false, 2)
                     .map(|_| ());
-                scanned += reader.offset().saturating_sub(item);
+                // 飛ばせなければ hayro-syntax は位置を戻すので、終わりまで読みえたとして数える
+                scanned += match skipped {
+                    Some(()) => reader.offset().saturating_sub(item),
+                    None => src.len().saturating_sub(item),
+                };
                 skipped
             };
             if skipped.is_none() {
@@ -1422,7 +1443,7 @@ const MARK_BYTES: u64 = 128;
 /// コメントは、辞書をまたぐ 1 つの覚えで飛ばす（[`Skip::holding`]）
 fn objects(src: &[u8], seen: &mut Seen, cx: &mut Cx<'_>) -> Result<Vec<Container>, Stop> {
     let context = ReaderContext::dummy();
-    let mut containers = Vec::new();
+    let mut containers = Vec::<Container>::new();
     // 範囲の終わりとして読んだ位置と、辞書の `<<` の後ろを飛ばす覚えの範囲の終わりとして読んだ位置
     let mut last = None;
     let mut entered = None;
@@ -1434,8 +1455,9 @@ fn objects(src: &[u8], seen: &mut Seen, cx: &mut Cx<'_>) -> Result<Vec<Container
     let mut gaps = Skip::default();
     let mut tokens = Tokens::default();
     let mut marks = BTreeMap::<Step, Suffix>::new();
-    // 読んだストリームの、終わりとキーの値の位置ごとの、読み終えた所と型の値の字の位置。読めなければ `None`
-    let mut streams = BTreeMap::<StreamKey, Option<(usize, Option<usize>)>>::new();
+    // 読んだストリームの、終わりとキーの値の位置ごとの、読み終えた所と型の値の字の位置と、展開して確かめるコンテナーの
+    // 番号（並べ替える前の `containers` の位置）。読めなければ `None`
+    let mut streams = BTreeMap::<StreamKey, Option<(usize, Option<usize>, usize)>>::new();
     let mut keywords = (0..src.len().saturating_sub(2))
         .filter(|&keyword| definition(src, keyword))
         .peekable();
@@ -1515,8 +1537,12 @@ fn objects(src: &[u8], seen: &mut Seen, cx: &mut Cx<'_>) -> Result<Vec<Container
             Walked::Broken(at, tail) => {
                 if tail {
                     cx.check(Kind::Work, lookup_work(src.get(at..).unwrap_or_default()))?;
+                    covered = covered.max(at);
+                } else {
+                    // 読めない文字列と配列は、終わりまで読みうる（[`Tokens`] が読んだ分は `read` にある）。後ろの辞書は、
+                    // どれも重なる辞書として、読んだバイト数を `Work` に数える（覚えに着かずに読み直す形も、予算で止める）
+                    covered = src.len();
                 }
-                covered = covered.max(at);
             }
             Walked::Stopped(step) => covered = covered.max(step.at),
         }
@@ -1537,15 +1563,23 @@ fn objects(src: &[u8], seen: &mut Seen, cx: &mut Cx<'_>) -> Result<Vec<Container
         }
         // 終わりと、ストリームを読むキーの値の位置が前の辞書と同じなら、同じストリームなので読み直さない（#657）
         let same = (end, whole.keys);
-        if let Some(&read) = streams.get(&same) {
-            if let Some((reached, typed)) = read {
-                covered = covered.max(reached);
+        if let Some(read) = streams.get_mut(&same) {
+            if let Some((reached, typed, first)) = read {
+                covered = covered.max(*reached);
                 cx.check(Kind::DecodedBytes, CONTAINER_BYTES)?;
+                // 展開して確かめるのは、始まりのいちばん前の辞書にする（断るときに返す位置を、読み直す形と同じにする）
+                let earlier = containers
+                    .get(*first)
+                    .is_some_and(|container| start < container.start);
+                if earlier && let Some(container) = containers.get_mut(*first) {
+                    container.copy = true;
+                    *first = containers.len();
+                }
                 containers.push(Container {
                     start,
-                    typed,
+                    typed: *typed,
                     overlapped: start < prior,
-                    copy: true,
+                    copy: !earlier,
                 });
             }
             continue;
@@ -1581,7 +1615,7 @@ fn objects(src: &[u8], seen: &mut Seen, cx: &mut Cx<'_>) -> Result<Vec<Container
             None => None,
         };
         cx.check(Kind::DecodedBytes, CONTAINER_BYTES)?;
-        streams.insert(same, Some((reached, typed)));
+        streams.insert(same, Some((reached, typed, containers.len())));
         containers.push(Container {
             start,
             typed,
