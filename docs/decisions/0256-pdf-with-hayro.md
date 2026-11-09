@@ -111,3 +111,4 @@ ObjStm の単独 Flate の展開前の予算確認は、[0266](0266-pdf-flate-pr
 - ISO 32000-2:2020（7.2〜7.5 節、8 章、9 章、14.11 節など）
 - [決定 0007](0007-single-rust-implementation.md)・[0008](0008-model-layers-and-codecs.md)・[0010](0010-budget-by-work.md)・[0156](0156-drawing-stable-ids-and-preconditions.md)・[0221](0221-wasm-modules.md)・[0253](0253-wasm-civil-and-pointcloud-modules.md)、旧版の決定 0020・0030
 - #506・#518・#519・#520・#521
+- 0.2.0 で `zumen-pdf` を配らないことは、[0289](0289-release-cut-and-shipped-code.md) で定めた。

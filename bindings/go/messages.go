@@ -331,7 +331,7 @@ type OpenRequest struct {
 	// 作る文書の名前。書かなければ入力の名前
 	Doc *string `json:"doc,omitempty"`
 
-	// 入力の全体の大きさ（バイト）。渡した入力より大きければ、入力を全体の初めの部分とみなし、足りない範囲を needs で求める。範囲で読める形式（LAS・LAZ）だけが使う（決定 0232）。マイナーバージョン 48 から
+	// 入力の全体の大きさ（バイト）。渡した入力より大きければ、入力を全体の初めの部分とみなし、足りない範囲を needs で求める。範囲で読める形式（LAS）だけが使う。LAZ は、ヘッダーを読んで las.laz.unsupported で断る（決定 0232・0289）。マイナーバージョン 48 から
 	Size *int64 `json:"size,omitempty"`
 
 	// 見分けるマーカーのない形式（xyz・extdm）を名指して読む。書かなければ、入力から判定する（決定 0232）。マイナーバージョン 49 から。extdm はマイナーバージョン 62 から
@@ -4698,7 +4698,7 @@ type CivilPosition struct {
 	Gradient *float64 `json:"gradient,omitempty"`
 }
 
-// PointcloudRequest: open で開いた点群（LAS・LAZ）の要約と、条件に合う点を返す。点は八分木の浅い段のノードから順に選ぶ（決定 0232）。点群のモジュールに置く（決定 0253）。マイナーバージョン 48 から
+// PointcloudRequest: open で開いた点群（LAS・PLY・XYZ・E57）の要約と、条件に合う点を返す。点は八分木の浅い段のノードから順に選ぶ（決定 0232）。点群のモジュールに置く（決定 0253）。マイナーバージョン 48 から
 type PointcloudRequest struct {
 	// メッセージのスキーマのメジャーバージョン。今は 1
 	V *int64 `json:"v,omitempty"`

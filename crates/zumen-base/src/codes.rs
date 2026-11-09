@@ -2611,7 +2611,7 @@ pub const LAS_CRS_UNSUPPORTED: Code = Code::new(
 /// `las.file.invalid`（0.2.0 から）
 pub const LAS_FILE_INVALID: Code = Code::new("las.file.invalid", Severity::Error, None, &[], &[]);
 
-/// LAZ の圧縮の記述（laszip の VLR）がないか、点を展開できなかった
+/// LAZ の圧縮の記述（laszip の VLR）がないか、点を展開できなかった。0.2.0 は LAZ の展開を止めているので返さず、展開を戻したら返す（決定 0289）
 ///
 /// `las.laz.invalid`（0.2.0 から）
 pub const LAS_LAZ_INVALID: Code = Code::new(

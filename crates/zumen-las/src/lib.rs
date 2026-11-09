@@ -71,7 +71,7 @@ pub struct Vlr {
     pub span: ByteRange,
 }
 
-/// 読んだ LAS・LAZ。LAZ の点は展開して持つ
+/// 読んだ LAS
 #[derive(Clone, Debug, PartialEq)]
 pub struct LasFile {
     /// ヘッダー

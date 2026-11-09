@@ -713,7 +713,7 @@ impl Session {
                 entries: None,
             });
         }
-        // LAS・LAZ は範囲で読む（決定 0232）
+        // LAS は範囲で読む（決定 0232）。LAZ は、ヘッダーを読んで断る（決定 0289）
         #[cfg(feature = "pointcloud")]
         if let Some(opened) = pointcloud::read(&request.input, &self.inputs, request.size, cx) {
             let format = zumen_las::Las::FORMAT.to_string();
