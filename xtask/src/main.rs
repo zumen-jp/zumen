@@ -6,6 +6,8 @@
 //!   登録した形式の fuzz の target を確かめ、生成したファイルが最新かを確かめる
 //! - `fuzz-seeds`: fuzz の種の入力を `fuzz/corpus` に書く（fuzz/README.md）
 //! - `migrate-markup`: 利用側が渡した図面とビューの対応を使い、旧版の赤入れをレビュー文書に移す
+//! - `geoid points`・`geoid compare`: ジオイドの格子の補間を、国土地理院のジオイド高計算サービスか内挿計算プログラムと
+//!   照らす（`xtask/verify/geoid/README.md`）
 
 mod boundary;
 mod catalog;
@@ -15,6 +17,7 @@ mod dotnet;
 mod drawing;
 mod formats;
 mod fuzz;
+mod geoid;
 mod go;
 mod java;
 mod javascript;
@@ -35,7 +38,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
 
-const USAGE: &str = "使い方: cargo xtask codegen [--check] | cargo xtask fuzz-seeds | cargo xtask migrate-markup <旧版の JSON> <対象の図面> <対応表の TOML> <新しい JSON>";
+const USAGE: &str = "使い方: cargo xtask codegen [--check] | cargo xtask fuzz-seeds | cargo xtask migrate-markup <旧版の JSON> <対象の図面> <対応表の TOML> <新しい JSON> | cargo xtask geoid points <フォルダー> <ISG>... | cargo xtask geoid compare <フォルダー> <ISG> <結果> [--column <列>]";
 
 /// 生成するファイルの置き場所（リポジトリの根からの相対パス）
 const CODES_RS: &str = "crates/zumen-base/src/codes.rs";
@@ -91,6 +94,16 @@ fn main() -> ExitCode {
         ["fuzz-seeds"] => fuzz::seeds(&root()),
         ["migrate-markup", markup, drawing, map, output] => {
             migrate_markup::run(markup, drawing, map, output)
+        }
+        ["geoid", "points", folder, grids @ ..] if !grids.is_empty() => {
+            geoid::points(folder, grids)
+        }
+        ["geoid", "compare", folder, grid, result] => geoid::compare(folder, grid, result, 3),
+        ["geoid", "compare", folder, grid, result, "--column", column] => {
+            match column.parse::<usize>() {
+                Ok(column) if column >= 3 => geoid::compare(folder, grid, result, column),
+                _ => Err("--column には 3 以上の列の番号を指定してください".to_string()),
+            }
         }
         _ => Err(USAGE.to_string()),
     };

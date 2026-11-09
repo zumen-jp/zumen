@@ -108,6 +108,25 @@ fn grid_points_and_cells_are_interpolated_bilinearly() {
     }
 }
 
+/// 範囲と行・列の数は、ヘッダーのとおり。度分秒は度にする
+#[test]
+fn extent_follows_the_header() {
+    for (units, lon_max) in [("deg", 121.666667), ("dms", 120.0 + 100.0 / 60.0)] {
+        let (grid, _) = read(&isg(units, ""));
+        let extent = grid.unwrap().extent();
+        assert_eq!(
+            (extent.lat_min, extent.lat_max, extent.lon_min),
+            (40.0, 41.0, 120.0),
+            "{units}"
+        );
+        assert!(
+            (extent.lon_max - lon_max).abs() < 1e-12,
+            "{units} {extent:?}"
+        );
+        assert_eq!((extent.rows, extent.cols), (4, 6), "{units}");
+    }
+}
+
 /// 重みが 0 でない格子点のどれかが無効なら求めない。無効の点を結ぶ線の上でも、重みが 0 の点は見ない
 #[test]
 fn cells_touching_no_data_are_not_interpolated() {
