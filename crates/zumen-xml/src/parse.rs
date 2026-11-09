@@ -3,7 +3,7 @@
 //! 入れ子は再帰でなく、開いた要素の並びでたどる。要素を予算のレコード、入れ子を深さで数える（決定 0010）。
 
 use core::ops::Range;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use zumen_base::{Diagnostic, Kind, Ref, codes};
 use zumen_sdk::{Cx, Error, Stop};
@@ -23,14 +23,7 @@ enum Fail {
 pub fn read(src: &[u8], cx: &mut Cx) -> Result<Document, Error> {
     cx.check(Kind::InputBytes, src.len() as u64)
         .map_err(|stop| stopped(cx, stop, None))?;
-    let mut p = Parser {
-        src,
-        pos: 0,
-        elements: Vec::new(),
-        scopes: Vec::new(),
-        marks: Vec::new(),
-        doctype: None,
-    };
+    let mut p = Parser::new(src);
     let encoding = p.encoding(cx)?;
     match p.document(cx) {
         Ok(()) => Ok(Document {
@@ -124,21 +117,39 @@ fn pseudo_attributes(declaration: &[u8]) -> Option<Vec<(&[u8], &[u8])>> {
     }
 }
 
-/// 名前空間の宣言。接頭辞（既定の名前空間は `None`）と、値の範囲（`xmlns=""` は `None`）
-type Scope = (Option<Range<usize>>, Option<Range<usize>>);
+/// 名前空間の宣言の接頭辞。既定の名前空間は `None`
+type Prefix<'s> = Option<&'s [u8]>;
+
+/// 名前空間の宣言の値の範囲。`xmlns=""` は `None`
+type Declared = Option<Range<usize>>;
 
 struct Parser<'s> {
     src: &'s [u8],
     pos: usize,
     elements: Vec<Element>,
-    /// 開いている要素の名前空間の宣言。内側の宣言が後
-    scopes: Vec<Scope>,
+    /// 開いている要素の名前空間の宣言を、接頭辞ごとに積む。内側の宣言が後。名前を引く手間が、宣言の数によらない
+    /// （#721）
+    namespaces: BTreeMap<Prefix<'s>, Vec<Declared>>,
+    /// 開いている要素の名前空間の宣言の接頭辞。内側の宣言が後
+    scopes: Vec<Prefix<'s>>,
     /// 開いている要素ごとの、`scopes` の長さ。閉じるときに戻す
     marks: Vec<usize>,
     doctype: Option<Range<usize>>,
 }
 
-impl Parser<'_> {
+impl<'s> Parser<'s> {
+    fn new(src: &'s [u8]) -> Self {
+        Self {
+            src,
+            pos: 0,
+            elements: Vec::new(),
+            namespaces: BTreeMap::new(),
+            scopes: Vec::new(),
+            marks: Vec::new(),
+            doctype: None,
+        }
+    }
+
     fn peek(&self) -> Option<u8> {
         self.src.get(self.pos).copied()
     }
@@ -149,8 +160,34 @@ impl Parser<'_> {
             .is_some_and(|rest| rest.starts_with(pattern))
     }
 
-    fn bytes(&self, range: Range<usize>) -> &[u8] {
+    fn bytes(&self, range: Range<usize>) -> &'s [u8] {
         self.src.get(range).unwrap_or_default()
+    }
+
+    /// 名前空間を宣言する
+    fn declare(&mut self, prefix: Prefix<'s>, value: Declared) {
+        self.namespaces.entry(prefix).or_default().push(value);
+        self.scopes.push(prefix);
+    }
+
+    /// `scopes` を `mark` の長さに戻し、そのあとの宣言を外す
+    fn unwind(&mut self, mark: usize) {
+        while self.scopes.len() > mark {
+            let Some(prefix) = self.scopes.pop() else {
+                break;
+            };
+            if let Some(stack) = self.namespaces.get_mut(&prefix) {
+                stack.pop();
+                if stack.is_empty() {
+                    self.namespaces.remove(&prefix);
+                }
+            }
+        }
+    }
+
+    /// 接頭辞のいちばん内側の宣言。宣言がなければ `None`
+    fn declared(&self, prefix: Prefix<'s>) -> Option<&Declared> {
+        self.namespaces.get(&prefix).and_then(|stack| stack.last())
     }
 
     /// 空白を飛ばす。飛ばしたら真
@@ -347,11 +384,8 @@ impl Parser<'_> {
         if local == raw.start {
             if element {
                 return self
-                    .scopes
-                    .iter()
-                    .rev()
-                    .find(|(prefix, _)| prefix.is_none())
-                    .and_then(|(_, value)| value.clone().map(Namespace::Declared));
+                    .declared(None)
+                    .and_then(|value| value.clone().map(Namespace::Declared));
             }
             return (self.bytes(raw.clone()) == b"xmlns").then_some(Namespace::Xmlns);
         }
@@ -361,12 +395,8 @@ impl Parser<'_> {
             b"xmlns" => return Some(Namespace::Xmlns),
             _ => {}
         }
-        let found = self.scopes.iter().rev().find_map(|(declared, value)| {
-            let declared = declared.clone()?;
-            (self.bytes(declared) == prefix).then(|| value.clone())
-        });
-        match found {
-            Some(value) => value.map(Namespace::Declared),
+        match self.declared(Some(prefix)) {
+            Some(value) => value.clone().map(Namespace::Declared),
             None => {
                 cx.report(
                     Diagnostic::new(codes::XML_NAMESPACE_MISSING)
@@ -413,7 +443,7 @@ impl Parser<'_> {
                     element.span.end = self.pos;
                 }
                 if let Some(mark) = self.marks.pop() {
-                    self.scopes.truncate(mark);
+                    self.unwind(mark);
                 }
                 cx.leave();
                 open.pop();
@@ -508,7 +538,7 @@ impl Parser<'_> {
             let bytes = self.bytes(name.clone());
             let declared = (!value.is_empty()).then(|| value.clone());
             if bytes == b"xmlns" {
-                self.scopes.push((None, declared));
+                self.declare(None, declared);
             } else if let Some(prefix) = bytes.strip_prefix(b"xmlns:") {
                 if matches!(prefix, b"xml" | b"xmlns") {
                     continue;
@@ -516,7 +546,7 @@ impl Parser<'_> {
                 if declared.is_none() {
                     return Err(Fail::Invalid(name.clone()));
                 }
-                self.scopes.push((Some(name.start + 6..name.end), declared));
+                self.declare(Some(prefix), declared);
             }
         }
         let namespace = self.resolve(&raw, local, true, cx);
@@ -547,7 +577,7 @@ impl Parser<'_> {
             parent.children.push(Node::Element(index));
         }
         if empty {
-            self.scopes.truncate(mark);
+            self.unwind(mark);
             cx.leave();
         } else {
             self.marks.push(mark);
@@ -568,14 +598,7 @@ mod tests {
         let mut src = b"<a>".to_vec();
         src.extend(std::iter::repeat_n(b'x', 100_000));
         src.extend(b"&amp;</a>");
-        let parser = Parser {
-            src: &src,
-            pos: 0,
-            elements: Vec::new(),
-            scopes: Vec::new(),
-            marks: Vec::new(),
-            doctype: None,
-        };
+        let parser = Parser::new(&src);
         let mut budget = Budget::default();
         let mut diag = Diagnostics::new();
         let cancel = CancelToken::new();
@@ -595,6 +618,42 @@ mod tests {
             panic!("&amp;");
         };
         assert_eq!(found, 5);
+        assert!(diag.is_empty());
+    }
+
+    /// 名前空間の宣言は接頭辞ごとに積み、閉じた要素の宣言を外す。読み終えたら、積みは空になる（#721）
+    #[test]
+    fn namespaces_are_stacked_by_prefix_and_unwound() {
+        let src = b"<r xmlns:p='urn:r' xmlns='urn:d' xmlns:q='urn:q'>\
+            <p:a xmlns:p='urn:a'><b xmlns=''/></p:a><c xmlns:s='urn:c'/></r>";
+        let mut budget = Budget::default();
+        let mut diag = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        let mut parser = Parser::new(src);
+        assert!(parser.encoding(&mut cx).is_ok());
+        // ルートの開始タグのあとは、接頭辞ごとに 1 つずつ
+        assert!(matches!(parser.open(None, &mut cx), Ok(true)));
+        assert_eq!(parser.namespaces.len(), 3);
+        assert!(parser.namespaces.values().all(|stack| stack.len() == 1));
+        // `p:a` の中では、`p` の宣言が 2 つ積まれ、内側で引く
+        assert!(matches!(parser.open(Some(0), &mut cx), Ok(true)));
+        let p = Some(&b"p"[..]);
+        assert_eq!(parser.namespaces.get(&p).map(Vec::len), Some(2));
+        let inner = parser.declared(p).cloned().flatten();
+        assert_eq!(inner.map(|value| parser.bytes(value)), Some(&b"urn:a"[..]));
+        assert!(diag.is_empty());
+
+        // 読み終えたら、すべて外れる
+        let mut budget = Budget::default();
+        let mut diag = Diagnostics::new();
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        let mut parser = Parser::new(src);
+        assert!(parser.encoding(&mut cx).is_ok());
+        assert!(parser.document(&mut cx).is_ok());
+        assert!(parser.namespaces.is_empty());
+        assert!(parser.scopes.is_empty());
+        assert!(parser.marks.is_empty());
         assert!(diag.is_empty());
     }
 }
