@@ -12,6 +12,10 @@ LAS 1.0〜1.4 と LAZ（台帳の `las_1_4_r15`・`laz_1_4`）の点群を読み
 ## ヘッダーと VLR
 
 - ヘッダーは、バージョン・点の形式と長さ・点の数・倍率とずれ・範囲を読む。1.4 は、64 ビットの点の数と EVLR の位置を読む。点の形式の上の 2 ビットが立てば LAZ とし、VLR と点の範囲を求めずに `las.laz.unsupported` を返して止まる（下の「LAZ」）。
+- 上の 2 ビットのうち、LAZ 1.4（OGC 24-070r1）の 6.2・6.3 が LAZ のフラグと定めるのは、ビット 7（128）だけである。ビット 6（64）も LAZ のフラグとするのは推定で、LASzip（Apache-2.0）の読み方に合わせた（#544）。
+  - LASzip（[`src/laszip_dll.cpp`](https://github.com/LASzip/LASzip/blob/a446a0c01362ed1c642928cff30416217f0468c3/src/laszip_dll.cpp) の `laszip_read_header`）は、点の形式のビット 7 かビット 6 が立てば、LASzip の VLR を求め、なければ「実験版の LASzip で圧縮したファイル」として断る。VLR があれば、ビット 7 だけを落として読む。圧縮して読むかは、ビットではなく、LASzip の VLR があるかで決める。
+  - laz-rs 0.13.0（Apache-2.0、`src/las/file.rs`）は、圧縮をビット 7 だけで見分け、点の形式は下の 6 ビット（`& 0x3f`）にする。
+  - zumen は、点の形式を下の 6 ビットにする所は laz-rs と同じにする。いまは、ビット 6 かビット 7 が立てば、LASzip の VLR を見ずに `las.laz.unsupported` で断る。展開を戻したら、ビット 6 かビット 7 が立つのに LASzip の VLR がないファイルを断る所（`las.laz.invalid` の `laszip-vlr-missing`）は、LASzip と同じになる。LASzip の VLR があってビットが立たないファイルは、LASzip は圧縮したものとして読み、zumen は LAS として読む。ビット 6 だけが立つファイルを LAS として読むと、点の形式が 64 以上になり、点のレコードを読み違えるので、ビット 7 だけを見るようには直さない。
 - VLR と EVLR は、利用者の ID・レコードの ID・説明・中身を持ち、L1 のレコードにする。範囲から外れるレコードの残りは読まず、`las.vlr.invalid` を返す。
 - 点のレコードが、ヘッダーの点の数より短ければ、読めた点だけを読んで `las.points.invalid` を返す。
 

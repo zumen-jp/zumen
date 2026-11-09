@@ -839,10 +839,12 @@
 - 名前: LAS・LAZ
 - 権利の根拠: ASPRS が LAS の仕様を、OGC が LAZ の仕様を無償で公開している。OGC は LAZ を誰でも実装できるとする。LAZ を展開する LASzip と Rust の laz は、どちらも Apache-2.0
 - 仕様: [las\_1\_4\_r15](#spec-las_1_4_r15)、[laz\_1\_4](#spec-laz_1_4)
-- 実装の根拠: spec
+- 実装の根拠: spec・inferred・reference
 - 権利の根拠にした文書: [OGC の LAZ 1.4 コミュニティ標準の公表](https://www.ogc.org/announcement/ogc-announces-publication-of-the-laz-1-4-community-standard/)（確認日: 2026-11-01）
 - 権利の根拠にした文書: [LASzip のリポジトリ（ライセンス）](https://github.com/LASzip/LASzip)（確認日: 2026-11-01）
 - 文書の補足: GitHub のライセンスの判定は Apache-2.0
+- 参照した実装: [LASzip](https://github.com/LASzip/LASzip)（Apache-2.0）
+- 参照した実装: [laz-rs](https://github.com/tmontaigu/laz-rs)（Apache-2.0）
 - 照合に使う候補: CloudCompare・PDAL・LAStools の lasinfo
 - サンプルの出どころ: laz-rs の tests/data（Apache-2.0。数十 KB から数百 KB）
 - 読みの確かめた度合い: `synthetic`（確認日: 2026-11-10）

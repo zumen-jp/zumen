@@ -17,7 +17,7 @@
 | `express`・`ids`・`bcf` | EXPRESS のスキーマ・IDS・BCF を読む |
 | `landxml` | 読んで土木の領域モデルに移す |
 | `citygml`・`fgd`・`extdm` | 読んで地理の領域モデルに移す |
-| `isg`・`par` | ジオイド高の格子（ISG）と、座標の補正量の格子（TKY2JGD・PatchJGD の形）を読む |
+| `isg`・`par` | ジオイド高の格子（ISG）と、座標の補正量の格子（TKY2JGD・PatchJGD の形）を読む。`par` は、読めた格子で、決まった点の補間と JGD2011 への変換（`to_jgd2011`）まで通し、2 回の値をビットで比べる |
 | `las`・`e57`・`ply`・`xyz` | 読んで点群の領域モデルに移す。LAZ は展開を止めているので、ヘッダーで断る（決定 0289・#510） |
 | `delivery` | 電子納品の成果品のアーカイブを読み、照合する |
 | `jpeg`・`boring`・`xlsx`・`csv` | 工事写真・ボーリング交換用データ・Excel の表・CSV を読む |
