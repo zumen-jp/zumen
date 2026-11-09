@@ -2787,6 +2787,12 @@ params = { reason = "text" }
 since = "0.2.0"
 status = "active"
 
+[codes."las.laz.unsupported"]
+description = "LAZ の展開を止めているので、点を読まなかった（決定 0289・#510）"
+severity = "error"
+since = "0.2.0"
+status = "active"
+
 [codes."las.attribute.dropped"]
 description = "点群の領域モデルに持たない点の属性を、移さなかった（決定 0232）"
 severity = "info"

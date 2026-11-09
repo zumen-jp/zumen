@@ -1,18 +1,17 @@
-//! LAS 1.0〜1.4 と LAZ（台帳の `las_1_4_r15`・`laz_1_4`）の点群を読み、点群の領域モデル（決定 0232）に移す。
+//! LAS 1.0〜1.4（台帳の `las_1_4_r15`）の点群を読み、点群の領域モデル（決定 0232）に移す。
 //!
-//! L1 は、ヘッダー・可変長のレコード（VLR・EVLR）と、点のレコードのバイト列で持つ。LAZ は、読むときに点のレコードへ
-//! 展開する。入力は範囲で読める（[`Ranged`]）。ヘッダーを読んでから、VLR・点・EVLR の範囲を求める。
+//! L1 は、ヘッダー・可変長のレコード（VLR・EVLR）と、点のレコードのバイト列で持つ。入力は範囲で読める（[`Ranged`]）。
+//! ヘッダーを読んでから、VLR・点・EVLR の範囲を求める。LAZ（`laz_1_4`）は、ヘッダーで見分けて断る。展開を任せていた
+//! laz 0.13.0 が壊れた入力でパニックするので、直した版が出るまで展開を止める（決定 0289・#510）。
 
 mod lift;
-
-use std::io::{Read, Seek, SeekFrom};
 
 use zumen_base::{ByteRange, Diagnostic, Kind, Ref, codes};
 use zumen_pointcloud::PointCloud;
 use zumen_sdk::ranged::{Missing, Ranged, Source};
 use zumen_sdk::{Codec, Cx, Error, FileModel, Lift, RecordInfo, Signature};
 
-/// LAS・LAZ のコーデック
+/// LAS のコーデック。LAZ は見分けて断る
 pub struct Las;
 
 /// 読んだヘッダー
@@ -181,20 +180,18 @@ impl Ranged for Las {
             cx.report(Diagnostic::new(codes::LAS_FILE_INVALID));
             return Err(Error::Invalid.into());
         }
+        // LAZ は、点の範囲を求めずに断る（決定 0289・#510）。LAZ かは、LAZ 1.4（OGC 24-070r1）の 6.2・6.3 のとおり、
+        // 点の形式の上のビットで見分ける（`header`）
+        if header.compressed {
+            cx.report(Diagnostic::new(codes::LAS_LAZ_UNSUPPORTED));
+            return Err(Error::Unsupported.into());
+        }
         let point_start = u64::from(header.point_offset);
         let has_evlrs = header.evlr_count > 0 && header.evlr_start >= point_start;
-        let point_end = if header.compressed {
-            if has_evlrs {
-                header.evlr_start
-            } else {
-                src.size
-            }
-        } else {
-            header
-                .point_count
-                .saturating_mul(u64::from(header.record_length))
-                .saturating_add(point_start)
-        };
+        let point_end = header
+            .point_count
+            .saturating_mul(u64::from(header.record_length))
+            .saturating_add(point_start);
         let mut wanted = vec![
             (u64::from(header.header_size), point_start),
             (point_start, point_end.min(src.size)),
@@ -243,27 +240,23 @@ impl Ranged for Las {
                 cx,
             )?);
         }
-        let points = if header.compressed {
-            decompress(&header, &vlrs, point_bytes, cx)?
-        } else {
-            let length = u64::from(header.record_length);
-            let whole = point_bytes.len() as u64 / length * length;
-            if whole < header.point_count.saturating_mul(length) {
-                cx.report(
-                    Diagnostic::new(codes::LAS_POINTS_INVALID)
-                        .with("expected", header.point_count)
-                        .with("found", whole / length)
-                        .at(Ref::at_bytes(
-                            point_start,
-                            point_start + point_bytes.len() as u64,
-                        )),
-                );
-            }
-            point_bytes
-                .get(..usize::try_from(whole).unwrap_or(0))
-                .unwrap_or_default()
-                .to_vec()
-        };
+        let length = u64::from(header.record_length);
+        let whole = point_bytes.len() as u64 / length * length;
+        if whole < header.point_count.saturating_mul(length) {
+            cx.report(
+                Diagnostic::new(codes::LAS_POINTS_INVALID)
+                    .with("expected", header.point_count)
+                    .with("found", whole / length)
+                    .at(Ref::at_bytes(
+                        point_start,
+                        point_start + point_bytes.len() as u64,
+                    )),
+            );
+        }
+        let points = point_bytes
+            .get(..usize::try_from(whole).unwrap_or(0))
+            .unwrap_or_default()
+            .to_vec();
         Ok(LasFile {
             header,
             vlrs,
@@ -406,92 +399,4 @@ fn records(
         );
     }
     Ok(out)
-}
-
-/// LAZ の点を展開する。展開したバイトは `decoded-bytes` で数える
-fn decompress(
-    header: &Header,
-    vlrs: &[Vlr],
-    compressed: &[u8],
-    cx: &mut Cx<'_>,
-) -> Result<Vec<u8>, Error> {
-    let invalid = |cx: &mut Cx<'_>, reason: &str| {
-        cx.report(Diagnostic::new(codes::LAS_LAZ_INVALID).with("reason", reason));
-        Error::Invalid
-    };
-    let Some(record) = vlrs
-        .iter()
-        .find(|vlr| vlr.user == laz::LazVlr::USER_ID && vlr.record == laz::LazVlr::RECORD_ID)
-    else {
-        return Err(invalid(cx, "laszip-vlr-missing"));
-    };
-    let Ok(vlr) = laz::LazVlr::from_buffer(&record.data) else {
-        return Err(invalid(cx, "laszip-vlr-invalid"));
-    };
-    if vlr.items_size() != u64::from(header.record_length) {
-        return Err(invalid(cx, "record-length"));
-    }
-    let size = header
-        .point_count
-        .saturating_mul(u64::from(header.record_length));
-    cx.check(Kind::DecodedBytes, size)?;
-    let Ok(size) = usize::try_from(size) else {
-        return Err(invalid(cx, "too-large"));
-    };
-    let mut out = vec![0; size];
-    let mut source = Shifted {
-        bytes: compressed,
-        base: u64::from(header.point_offset),
-        position: u64::from(header.point_offset),
-    };
-    // 塊の表の位置はファイルの初めからなので、点のレコードの始まりからずらして読む
-    let done = laz::LasZipDecompressor::new(&mut source, vlr)
-        .map_err(|_| ())
-        .and_then(|mut decompressor| decompressor.decompress_many(&mut out).map_err(|_| ()));
-    if done.is_err() {
-        return Err(invalid(cx, "decompress"));
-    }
-    Ok(out)
-}
-
-/// ファイルの途中から始まるバイト列を、ファイルの初めからの位置で読む
-struct Shifted<'a> {
-    bytes: &'a [u8],
-    base: u64,
-    position: u64,
-}
-
-impl Read for Shifted<'_> {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        let from = self
-            .position
-            .checked_sub(self.base)
-            .and_then(|from| usize::try_from(from).ok())
-            .ok_or(std::io::ErrorKind::InvalidInput)?;
-        let rest = self.bytes.get(from..).unwrap_or_default();
-        let n = rest.len().min(buf.len());
-        if let (Some(to), Some(from)) = (buf.get_mut(..n), rest.get(..n)) {
-            to.copy_from_slice(from);
-        }
-        self.position += n as u64;
-        Ok(n)
-    }
-}
-
-impl Seek for Shifted<'_> {
-    fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
-        let end = self.base + self.bytes.len() as u64;
-        let next = match pos {
-            SeekFrom::Start(at) => Some(at),
-            SeekFrom::End(delta) => end.checked_add_signed(delta),
-            SeekFrom::Current(delta) => self.position.checked_add_signed(delta),
-        };
-        match next {
-            Some(at) if at >= self.base => {
-                self.position = at;
-                Ok(at)
-            }
-            _ => Err(std::io::ErrorKind::InvalidInput.into()),
-        }
-    }
 }

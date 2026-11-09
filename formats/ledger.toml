@@ -612,10 +612,10 @@ place = "core"
 basis = ["spec"]
 verify = ["pdf.js"]
 samples = ["PDFium の公開サンプル（Type 3・OCG・ソフトマスク・LZW と JPX）。CAD が出力した図面はまだない"]
-decisions = ["0008", "0013", "0256"]
+decisions = ["0008", "0013", "0256", "0289"]
 legacy-decisions = ["0020", "0030"]
 docs = ["docs/formats/pdf.md"]
-notes = "ページの解釈は hayro-interpret 0.9.0（Apache-2.0 OR MIT）に任せ、バージョンを固定する（決定 0256）"
+notes = "ページの解釈は hayro-interpret 0.9.0（Apache-2.0 OR MIT）に任せ、バージョンを固定する（決定 0256）。zumen-pdf は crates.io に出さず、どのパッケージにも入れない（決定 0289）"
 
 [formats.pdf.read]
 level = "external"
@@ -1012,8 +1012,8 @@ issues = ["zumen-jp/zumen#371"]
 
 [formats.las.read]
 level = "synthetic"
-scope = "LAS 1.4 R15・LAZ 1.4 の仕様と、テストの中で作った LAS・LAZ（crates/zumen-las/tests）で確かめた。LAZ の展開は laz の crate に任せる。公開サンプルと外部の実装との照合はまだ（#371・#504）"
-checked = "2026-11-03"
+scope = "LAS 1.4 R15 の仕様と、テストの中で作った LAS（crates/zumen-las/tests）で確かめた。LAZ は展開を止めていて、開くと las.laz.unsupported を返す（#510・決定 0289）。公開サンプルと外部の実装との照合はまだ（#371・#504）"
+checked = "2026-11-10"
 
 [[formats.las.evidence]]
 title = "OGC の LAZ 1.4 コミュニティ標準の公表"

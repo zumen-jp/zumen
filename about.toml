@@ -32,18 +32,3 @@ license = "MIT"
 path = "LICENSE.txt"
 license = "MIT"
 checksum = "3823dda7cf046602f4b4e77ec8e227863dc4736037cc85bb33d9f19febe16bb7"
-
-# laz の LICENSE.txt は、作者と、移植元の LASzip の著作権の表示を持つ。cargo-about は、これを Apache-2.0 の本文と
-# 見分けられず、標準の本文で代えて表示を落とすので、本文（COPYING）と並べて載せる。
-[laz.clarify]
-license = "Apache-2.0"
-
-[[laz.clarify.files]]
-path = "COPYING"
-license = "Apache-2.0"
-checksum = "d8ddd6435eae4d5e7df65248f19a347fcf67e2d454d0826cb418a33648e2dd54"
-
-[[laz.clarify.files]]
-path = "LICENSE.txt"
-license = "Apache-2.0"
-checksum = "1994396677f149094cb8d74037908783f87ccfc5e5d238bac31ffb6afabc81e3"

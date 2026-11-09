@@ -5,7 +5,8 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-publish = true
+# hayro の中の展開・再帰・フォントの読みを予算で止めるまで、crates.io に出さない（決定 0289・#521）
+publish = false
 
 [package.metadata.zumen]
 formats = ["pdf"]

@@ -319,3 +319,4 @@
 - [0283: 初回リリース後は、入力と詳細を、修正したバージョンを公開するまで非公開にする](0283-fuzz-reporting-after-release.md)（2026-11-07、採用）
 - [0284: fuzz の CI は、見つけた入力とログを暗号にして残し、通らなかった target の種をキャッシュに残さない](0284-fuzz-ci-private-artifacts.md)（2026-11-09、採用）
 - [0286: TKY2JGD・PatchJGD の格子は、間隔を格子点の並びから見分けて補間し、地震などごとの PatchJGD のファイルを古い順に当てる](0286-datum-grid-spacing-and-patch-order.md)（2026-11-09、採用）
+- [0289: リリースを止めるものを 3 つに絞って main で区切り、決定 0283 の対象を配ったパッケージに入るコードにする](0289-release-cut-and-shipped-code.md)（2026-11-10、採用）
