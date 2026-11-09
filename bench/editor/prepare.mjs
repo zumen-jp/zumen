@@ -33,8 +33,7 @@ const bases = [
   { name: "p21", ext: "p21", color: { sxf: 1 }, bytes: conformanceInput("apply", "c.p21") },
 ];
 // 大きな図面は 10 万件にする。DWG は、足して $HANDSEED のバイト数が増える（0xFFFF を超える）と書き戻せない（#701）
-// ので 6 万件、P21 は、apply の時間が図面の大きさより速く増え（#709）、足して作るのにも測るのにも時間がかかるので
-// 3 万件にする
+// ので 6 万件、P21 は、apply が遅く（#709）、足して作るのにも測るのにも時間がかかるので 3 万件にする
 const largeOf = { dwg: { label: "60k", count: 60_000 }, p21: { label: "30k", count: 30_000 } };
 const sizesOf = (base) => [
   { label: "base", count: 0 },
@@ -178,14 +177,26 @@ function casesFor(label, file, base) {
         ? { kind: "add", place, layer: own[0]?.layer, color: base.color, line_type: { name: lineType }, line_weight: { mm: 0.25 }, geometry: { shape: "line", start: [0, 0], end: [10, 10] } }
         : { kind: "add", place, color: base.color, geometry: { shape: "line", start: [0, 0], end: [10, 10] } };
     const removeOne = { kind: "remove", id: target.id, hash: target.hash };
-    const opener = [`push\t${input}\t${file}`, "call\t" + JSON.stringify({ v: 1, op: "open", input, doc })];
+    const open = { v: 1, op: "open", input, doc };
+    const opener = [`push\t${input}\t${file}`, "call\t" + JSON.stringify(open)];
     const timed = (name, request, setup = opener) => ({ name: `${label}/${name}`, setup, request });
     // エディターと同じく、apply には文書のハッシュを付ける（決定 0288）
     const apply = (edits, docHash = hash) => ({ v: 1, op: "apply", doc, hash: docHash, edits });
     const scene = { v: 1, op: "scene", doc, from: place };
+    const closeInput = (name) => ({ v: 1, op: "close", inputs: [name] });
     const call = (request) => "call\t" + JSON.stringify(request);
-    // エディターが開いたときと同じく、open のあとに scene を流しておく
-    const shown = [...opener, call(scene)];
+    // エディターが開いたときと同じく、open のあとに入力を捨て、scene を流しておく（決定 0288）
+    const shown = [...opener, call(closeInput(input)), call(scene)];
+    // 1 つの要素を選んだときに読む要素。選んだ範囲は、選ぶ要素（足した図面では、格子の最後の要素）の範囲にする
+    const select = {
+      v: 1,
+      op: "entities",
+      doc,
+      place,
+      region: [target.bbox.min_x, target.bbox.min_y, target.bbox.max_x, target.bbox.max_y],
+      fields: ["kind", "layer", "hash", "geometry"],
+    };
+    const selected = session.call(select).result.items.length;
     // 最初の操作（1 件を動かす）。続けての操作は、同じ要素をもう一度動かす。前提条件は、最初の操作の結果から作る
     const first = apply(transform(pick(1)));
     const firstResult = session.call(first).result;
@@ -194,22 +205,14 @@ function casesFor(label, file, base) {
       throw new Error(`${label} の最初の操作が、動かした要素の ID とハッシュを返さない`);
     }
     const next = apply([{ kind: "transform", id: moved.id, hash: moved.hash, matrix: [1, 0, 5, 0, 1, 7] }], firstResult.hash);
-    // 選んだ要素を読む。選んだ範囲は、最初に動かす要素の範囲にする
-    const box = pick(1)[0].bbox;
-    const select = {
-      v: 1,
-      op: "entities",
-      doc,
-      place,
-      region: [box.min_x, box.min_y, box.max_x, box.max_y],
-      fields: ["kind", "layer", "hash", "geometry"],
-    };
-    // 取り消し。最初の操作のあと、文書を閉じ、元のバイト列（版 0）を同じ Worker で開き直して、シーンを作る
+    // 取り消し。最初の操作のあと、元のバイト列（版 0）を新しい名前で push し、文書を閉じて、同じ Worker で開き直す。
+    // 開いたら入力を捨て、シーンを作る
     const original = `v0-${input}`;
-    const undo = [{ v: 1, op: "close", docs: [doc] }, { v: 1, op: "open", input: original, doc }, scene];
+    const undo = [{ v: 1, op: "close", docs: [doc] }, { v: 1, op: "open", input: original, doc }, closeInput(original), scene];
     return {
       size: bytes.length,
       elements: total,
+      selected,
       cases: [
         timed("open", { v: 1, op: "open", input, doc }, [`push\t${input}\t${file}`]),
         timed("drawing", { v: 1, op: "drawing", doc }),
@@ -228,11 +231,13 @@ function casesFor(label, file, base) {
         timed("apply_add_1", apply([addOne])),
         timed("apply_remove_1", apply([removeOne])),
         timed("scene_after_apply", scene, [...opener, call(apply(transform(pick(1))))]),
-        // ここからは、エディターの流れ（決定 0288）。開いてシーンを作ったあとの、操作・選択・取り消し
+        // ここからは、エディターの流れ（決定 0288）。開く・変換・操作・選択・取り消し
+        timed("show", [open, closeInput(input), scene], [`push\t${input}\t${file}`]),
+        timed("drawing_next", { v: 1, op: "drawing", doc }, shown),
         timed("op_first", [first, scene], shown),
         timed("op_next", [next, scene], [...shown, call(first), call(scene)]),
         timed("select", select, shown),
-        timed("undo", undo, [`push\t${original}\t${file}`, ...shown, call(first), call(scene)]),
+        timed("undo", undo, [...shown, call(first), call(scene), `push\t${original}\t${file}`]),
       ],
     };
   } finally {
@@ -241,7 +246,7 @@ function casesFor(label, file, base) {
 }
 
 const plan = [];
-const table = ["図面\tバイト数\t要素の数"];
+const table = ["図面\tバイト数\t要素の数\t選ぶで読む要素の数"];
 for (const base of bases) {
   for (const size of sizesOf(base)) {
     const label = `${base.name}-${size.label}`;
@@ -250,19 +255,19 @@ for (const base of bases) {
     if (!existsSync(join(out, file))) {
       writeFileSync(join(out, file), grow(base, size.count));
     }
-    const { size: bytes, elements, cases } = casesFor(label, file, base);
-    table.push(`${label}\t${bytes}\t${elements}`);
+    const { size: bytes, elements, selected, cases } = casesFor(label, file, base);
+    table.push(`${label}\t${bytes}\t${elements}\t${selected}`);
     for (const { name, setup, request } of cases) {
       const big = size.count >= 50_000;
       const search = name.endsWith("/open") || name.endsWith("/scene") || name.endsWith("/apply_transform_1");
       const kinds = !search || size.label === "base" ? "-" : big ? "work" : "work,records,elements,segments";
       const requests = Array.isArray(request) ? request : [request];
       // エディターの流れの場合は、決定に使うので回数を増やす
-      const flow = /\/(op_first|op_next|select|undo)$/.test(name);
+      const flow = /\/(show|drawing_next|op_first|op_next|select|undo)$/.test(name);
       const repeat = flow ? (big ? 5 : 7) : big ? 3 : 5;
       plan.push(`case\t${name}\t${repeat}\t${kinds}`, ...setup, ...requests.map((r) => "time\t" + JSON.stringify(r)), "end");
     }
-    console.log(`${label}: ${bytes} バイト・${elements} 要素`);
+    console.log(`${label}: ${bytes} バイト・${elements} 要素・選ぶで ${selected} 要素`);
   }
 }
 writeFileSync(join(out, "plan.txt"), plan.join("\n") + "\n");
