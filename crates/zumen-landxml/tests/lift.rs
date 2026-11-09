@@ -1,10 +1,10 @@
 //! テストの中で書いた小さな J-LandXML を読み、線形・縦断・横断・地表面を土木の領域モデルに移す（#368）。
 
-use zumen_base::{Budget, CancelToken, Diagnostics, codes};
+use zumen_base::{Budget, CancelToken, Diagnostics, Kind, Limit, Limits, Stop, codes};
 use zumen_civil::{CivilModel, HorizontalKind, SurfaceRole, TransitionCurve, VerticalKind};
 use zumen_crs::{Crs, HeightDatum, Realization, Zone};
 use zumen_landxml::LandXml;
-use zumen_sdk::{Codec, Cx, Lift, Signature};
+use zumen_sdk::{Codec, Cx, Error, Lift, Signature};
 
 /// 北へ 100 m の直線、半径 200 m へ右に曲がるクロソイド（A = 100、50 m）、半径 200 m の円弧 40 m、直線 60 m。
 /// 点は、クロソイドの式と円弧の中心から求めた値
@@ -243,4 +243,58 @@ fn missing_coordinate_systems_and_broken_values_are_reported() {
     assert!(model.alignments[0].horizontal.is_empty());
     // 名前が重なる線形は、順の番号で ID を作る
     assert_eq!(model.alignments[1].id, "alignment/1");
+}
+
+/// 測点の不連続を 200 個並べた線形。`back` が真なら、どれにも戻りの値（staBack）を書く
+fn station_breaks(back: bool) -> String {
+    let equations: String = (0..200)
+        .map(|i| {
+            let back = if back {
+                format!(r#" staBack="{}""#, 1000 - i)
+            } else {
+                String::new()
+            };
+            format!(
+                r#"<StaEquation staInternal="{}"{back} staAhead="0"/>"#,
+                1000 - i
+            )
+        })
+        .collect();
+    format!(
+        r#"<LandXML xmlns="http://www.landxml.org/schema/LandXML-1.2" version="1.2">
+      <Alignments><Alignment name="a" length="10" staStart="0"><CoordGeom>
+        <Line><Start>0 0</Start><End>0 10</End></Line>
+      </CoordGeom>{equations}</Alignment></Alignments>
+    </LandXML>"#
+    )
+}
+
+/// 読んで線形に移し、結果と、使った作業の予算を返す
+fn lift_with(src: &str, limits: Limits) -> (Result<CivilModel, Error>, u64) {
+    let mut budget = Budget::new(limits);
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let out = {
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        LandXml::read(src.as_bytes(), &mut cx).and_then(|file| file.lift(&mut cx))
+    };
+    (out, budget.used(Kind::Work))
+}
+
+/// 戻りの値のない測点の不連続は、それまでの不連続をたどって値を求めるので、その作業を予算に数え、上限で止まる（#560）
+#[test]
+fn station_breaks_without_back_values_count_their_work() {
+    let (given, base) = lift_with(&station_breaks(true), Limits::default());
+    given.unwrap();
+    let (found, used) = lift_with(&station_breaks(false), Limits::default());
+    found.unwrap();
+    // 不連続ごとに、それまでの数 + 1 を数える。200 個で 200 × 201 / 2 = 20,100。戻りの値を書いた側は、その属性を
+    // 読む作業が多い
+    assert!(used > base + 19_000, "{base} {used}");
+    let limits = Limits::default().with(Kind::Work, Limit::Finite(base + 1000));
+    let (stopped, _) = lift_with(&station_breaks(false), limits);
+    assert!(
+        matches!(stopped, Err(Error::Stopped(Stop::Exceeded(ref e))) if e.kind == Kind::Work),
+        "{stopped:?}"
+    );
 }

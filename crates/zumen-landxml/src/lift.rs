@@ -140,7 +140,7 @@ impl<'d> Reader<'d, '_, '_> {
         for child in self.children(element) {
             match self.local(child) {
                 b"CoordGeom" => self.coord_geom(child, &mut alignment)?,
-                b"StaEquation" => self.station_break(child, &mut alignment),
+                b"StaEquation" => self.station_break(child, &mut alignment)?,
                 b"Profile" => {
                     for profile in self.children(child) {
                         if self.local(profile) == b"ProfAlign" && !profiled {
@@ -185,7 +185,7 @@ impl<'d> Reader<'d, '_, '_> {
         }
     }
 
-    fn station_break(&mut self, element: &Element, alignment: &mut Alignment) {
+    fn station_break(&mut self, element: &Element, alignment: &mut Alignment) -> Result<(), Error> {
         let internal = self.number(element, b"staInternal");
         let ahead = self.number(element, b"staAhead");
         let (Some(internal), Some(ahead)) = (internal, ahead) else {
@@ -197,18 +197,25 @@ impl<'d> Reader<'d, '_, '_> {
                     "staAhead"
                 },
             );
-            return;
+            return Ok(());
         };
         let distance = internal - alignment.stations.start;
-        let back = self
-            .number(element, b"staBack")
-            .unwrap_or_else(|| alignment.stations.value(distance));
+        let back = match self.number(element, b"staBack") {
+            Some(back) => back,
+            None => {
+                // 戻りの値は、それまでの不連続をたどって求めるので、その作業を数える（#560）
+                let breaks = u64::try_from(alignment.stations.breaks.len()).unwrap_or(u64::MAX);
+                self.charge(element, Kind::Work, breaks.saturating_add(1))?;
+                alignment.stations.value(distance)
+            }
+        };
         alignment.stations.breaks.push(StationBreak {
             distance,
             back,
             ahead,
             source: self.at(element),
         });
+        Ok(())
     }
 
     /// 平面線形。要素の点から、区間の初めの点・向き・長さを求める
@@ -737,7 +744,12 @@ impl<'d> Reader<'d, '_, '_> {
     }
 
     fn spend(&mut self, element: &Element, amount: u64) -> Result<(), Error> {
-        self.cx.check(Kind::Elements, amount).map_err(|stop: Stop| {
+        self.charge(element, Kind::Elements, amount)
+    }
+
+    /// 予算を使う。超えたら、要素の場所を添えて止まる
+    fn charge(&mut self, element: &Element, kind: Kind, amount: u64) -> Result<(), Error> {
+        self.cx.check(kind, amount).map_err(|stop: Stop| {
             let at = self.at(element);
             self.cx.report(stop.to_diagnostic().at(at));
             Error::Stopped(stop)

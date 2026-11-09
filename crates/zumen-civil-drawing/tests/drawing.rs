@@ -1,6 +1,8 @@
 //! 合成の線形から平面図・縦断図・横断図の図面モデルを作り、シーンに描く（決定 0231）。
 
-use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Kind, Limits, Ref, Stop, codes};
+use zumen_base::{
+    Budget, CancelToken, Code, Cx, Diagnostics, Kind, Limit, Limits, Ref, Stop, codes,
+};
 use zumen_civil::{
     Alignment, CivilModel, CrossSection, CrossSectionLine, Horizontal, HorizontalKind, SurfaceRole,
     Tin, TransitionCurve, Vertical, VerticalKind,
@@ -388,5 +390,77 @@ fn station_ranges_beyond_u64_stop_at_the_budget() {
     assert!(
         matches!(stop, Stop::Exceeded(ref e) if e.kind == Kind::Elements),
         "{stop:?}"
+    );
+}
+
+/// 線形に不連続を置いて図面を作り、結果と、使った作業・要素の予算を返す
+fn draw_with_breaks(breaks: &[(f64, f64)], limits: Limits) -> (Result<Drawing2D, Stop>, u64, u64) {
+    let mut line = alignment();
+    for &(distance, ahead) in breaks {
+        let back = line.stations.value(distance);
+        line.stations.breaks.push(zumen_civil::StationBreak {
+            distance,
+            back,
+            ahead,
+            source: Ref::default(),
+        });
+    }
+    let model = CivilModel {
+        alignments: vec![line.clone()],
+        ..CivilModel::default()
+    };
+    let mut budget = Budget::new(limits);
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let out = {
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        drawing(&model, &line, &Options::default(), &mut cx)
+    };
+    (out, budget.used(Kind::Work), budget.used(Kind::Elements))
+}
+
+/// 不連続の多い線形では、番号ごとに不連続をたどる作業を予算に数え、上限で止まる（#560）
+#[test]
+fn many_station_breaks_count_their_work() {
+    let (plain, few, _) = draw_with_breaks(&[], Limits::default());
+    plain.unwrap();
+    // 値の変わらない不連続を 1000 個置く。測点の番号（0〜11）ごとに、1000 回ずつ多くたどる
+    let breaks: Vec<(f64, f64)> = (0..1000)
+        .map(|i| {
+            let distance = 0.1 * f64::from(i);
+            (distance, distance)
+        })
+        .collect();
+    let (many_result, many, _) = draw_with_breaks(&breaks, Limits::default());
+    many_result.unwrap();
+    assert!(many >= few + 12 * 1000, "{few} {many}");
+    let limits = Limits::default().with(Kind::Work, Limit::Finite(few + 1000));
+    let (stopped, _, _) = draw_with_breaks(&breaks, limits);
+    assert!(
+        matches!(stopped, Err(Stop::Exceeded(ref e)) if e.kind == Kind::Work),
+        "{stopped:?}"
+    );
+}
+
+/// 値の戻る不連続を重ねた線形では、同じ番号の 2 つ目からの測点も要素の予算に数える（#560）
+#[test]
+fn repeated_station_numbers_count_as_elements() {
+    // 1 m ごとに値を 0 に戻すので、番号 0 の測点が 200 ほどの所に現れる
+    let breaks: Vec<(f64, f64)> = (1..=200).map(|i| (f64::from(i), 0.0)).collect();
+    let (out, _, elements) = draw_with_breaks(&breaks, Limits::default());
+    let out = out.unwrap();
+    let stations = out.spaces[0]
+        .elements
+        .iter()
+        .filter(|e| matches!(&e.shape, Shape::Text(text) if text.content.starts_with("No.")))
+        .count();
+    assert!(stations > 200, "{stations}");
+    // 描いた測点は、どれも要素の予算に数えてある
+    assert!(elements >= stations as u64, "{elements} {stations}");
+    let limits = Limits::default().with(Kind::Elements, Limit::Finite(100));
+    let (stopped, _, _) = draw_with_breaks(&breaks, limits);
+    assert!(
+        matches!(stopped, Err(Stop::Exceeded(ref e)) if e.kind == Kind::Elements),
+        "{stopped:?}"
     );
 }

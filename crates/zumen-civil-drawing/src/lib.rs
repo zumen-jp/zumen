@@ -470,6 +470,11 @@ fn whole_stations(
     // 差が 2^64 を超えると as は u64::MAX に丸めるので、足すと桁があふれる。予算で止める
     let count = ((last - first) as u64).saturating_add(1);
     cx.check(Kind::Elements, count)?;
+    // 1 つの番号の所を探すのに、不連続の数だけたどる（`Stationing::distances`）ので、その作業を数える。値の戻る
+    // 不連続を重ねると、1 つの番号が多くの所に現れるので、番号ごとの 2 つ目からの測点も要素に数える（#560）
+    let per_number = u64::try_from(stations.breaks.len())
+        .unwrap_or(u64::MAX)
+        .saturating_add(1);
     let mut found = Vec::new();
     // 大きな番号には 1 を足しても変わらないので、回数で数える。2^53 を超えると、続く回数が同じ番号に丸まるので、
     // 増えなかった番号は飛ばす
@@ -480,9 +485,13 @@ fn whole_stations(
             continue;
         }
         previous = number;
-        for distance in stations.distances(number * pitch, length) {
-            found.push((distance, number));
+        cx.check(Kind::Work, per_number)?;
+        let distances = stations.distances(number * pitch, length);
+        let extra = u64::try_from(distances.len().saturating_sub(1)).unwrap_or(u64::MAX);
+        if extra > 0 {
+            cx.check(Kind::Elements, extra)?;
         }
+        found.extend(distances.into_iter().map(|distance| (distance, number)));
     }
     found.sort_by(|a, b| a.0.total_cmp(&b.0));
     Ok(found)
