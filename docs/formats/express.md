@@ -2,13 +2,13 @@
 
 利用者が渡す EXPRESS のスキーマ（ISO 10303-11）を読む規則を記録します。読んだスキーマは、IFC をスキーマに照らしてチェックする `validate` の op で使います（[決定 0207](../decisions/0207-building-model-components.md)・[決定 0216](../decisions/0216-express-validate-op.md)）。実装は `crates/zumen-ifc` の `Express` です。
 
-ISO の本文は買わず、読みません。公開された EXPRESS のスキーマ（IFC など）と、寛容なライセンスの実装から読みます。zumen は EXPRESS のスキーマを同梱しません（旧版の決定 0028）。権利の根拠は[形式と権利の一覧](README.md#format-express)にあります。
+ISO の本文は買わず、OBP のプレビューも読みません（[決定 0287](../decisions/0287-agent-reading-by-agreed-terms.md)）。公開された EXPRESS のスキーマ（IFC など）と、寛容なライセンスの実装から読みます。zumen は EXPRESS のスキーマを同梱しません（旧版の決定 0028）。権利の根拠は[形式と権利の一覧](README.md#format-express)にあります。
 
 ## 入手
 
 - IFC の EXPRESS のスキーマは、buildingSMART International が IFC のバージョンごとに公開している。利用者が入手し、`zm_push` で渡す。
 - IFC のスキーマは、Git・パッケージ・テストに入れない。テストは、テストの中で書いた小さなスキーマを使う。
-- 決定 0171 の条件に合う、再配布できる EXPRESS の公開サンプルは、まだ探していない（#663）。ISO が出すスキーマ（STEP のアプリケーション・プロトコルなど）は、ISO か、ISO がその版の公開を許した配布者が、同意の操作なしに誰でも見られるようにしているものなら、公開の資料として読む（[決定 0287](../decisions/0287-agent-reading-by-agreed-terms.md)）。出版物の一部として売るものは、買うと利用許諾に同意するので読まない。同梱するかは、そのときに版の許諾を確かめ、今の決まり（ライセンス）で決める。
+- 決定 0171 の条件に合う、再配布できる EXPRESS の公開サンプルは、まだ探していない（#663）。ISO が出すスキーマ（STEP のアプリケーション・プロトコルなど）は、規格の一部なので、同意の操作なしに入手できるものも、ISO の出版物として読まない（[決定 0287](../decisions/0287-agent-reading-by-agreed-terms.md)）。
 
 ## 読むもの
 
