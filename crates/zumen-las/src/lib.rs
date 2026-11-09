@@ -180,8 +180,8 @@ impl Ranged for Las {
             cx.report(Diagnostic::new(codes::LAS_FILE_INVALID));
             return Err(Error::Invalid.into());
         }
-        // LAZ は、点の範囲を求めずに断る（決定 0289・#510）。LAZ かは、LAZ 1.4（OGC 24-070r1）の 6.2・6.3 のとおり、
-        // 点の形式の上のビットで見分ける（`header`）
+        // LAZ は、点の範囲を求めずに断る（決定 0289・#510）。LAZ かは、点の形式の上の 2 ビットで見分ける（`header`）。
+        // LAZ 1.4（OGC 24-070r1）の 6.2・6.3 が定めるのはビット 7 だけで、ビット 6 も見るのは推定（#544）
         if header.compressed {
             cx.report(Diagnostic::new(codes::LAS_LAZ_UNSUPPORTED));
             return Err(Error::Unsupported.into());
