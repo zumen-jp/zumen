@@ -9,10 +9,12 @@ interface Props {
   // 下層のページの名前。トップでは渡さない。
   title?: string;
   description?: string;
+  // 検索に載せないページ（404 など）。正規の URL も書かない。
+  noindex?: boolean;
 }
 
 const site = '日本の建設のデータを読み書きするライブラリ群';
-const { title, description = 'zumen は、SXF・Jw_cad・DXF・DWG から BIM・土木・電子納品まで、日本の建設のデータを読み書きする、寛容なライセンスのライブラリ群です。' } = Astro.props;
+const { title, noindex = false, description = 'zumen は、SXF・Jw_cad・DXF・DWG から BIM・土木・電子納品まで、日本の建設のデータを読み書きする、寛容なライセンスのライブラリ群です。' } = Astro.props;
 const fullTitle = title ? `${title}｜zumen` : `zumen｜${site}`;
 const path = Astro.url.pathname;
 const canonical = new URL(path, Astro.site);
@@ -29,9 +31,9 @@ const canonical = new URL(path, Astro.site);
     <meta property="og:title" content={fullTitle} />
     <meta property="og:description" content={description} />
     <meta property="og:type" content="website" />
-    <meta property="og:url" content={canonical} />
+    {!noindex && <meta property="og:url" content={canonical} />}
     <meta property="og:locale" content="ja_JP" />
-    <link rel="canonical" href={canonical} />
+    {noindex ? <meta name="robots" content="noindex" /> : <link rel="canonical" href={canonical} />}
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   </head>
   <body>
