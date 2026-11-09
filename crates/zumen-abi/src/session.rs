@@ -4041,7 +4041,8 @@ END_SCHEMA;
                 apply(
                     r#"{"kind":"add","place":"sheet/0","layer":"A","geometry":{"shape":"line","start":[0,1],"end":[10,1]}}"#,
                 ),
-                "change.edit.unsupported",
+                // 色を書かない追加は、書くフィールドの分かる診断で断る（決定 0292）
+                "change.style.unsupported",
             ),
         ] {
             let (status, response) = call(&mut session, &request);
