@@ -1003,7 +1003,8 @@ specs = ["las_1_4_r15", "laz_1_4"]
 rights = "public"
 rights-note = "ASPRS が LAS の仕様を、OGC が LAZ の仕様を無償で公開している。OGC は LAZ を誰でも実装できるとする。LAZ を展開する LASzip と Rust の laz は、どちらも Apache-2.0"
 place = "core"
-basis = ["spec"]
+basis = ["spec", "inferred", "reference"]
+references = [{ name = "LASzip", license = "Apache-2.0", url = "https://github.com/LASzip/LASzip" }, { name = "laz-rs", license = "Apache-2.0", url = "https://github.com/tmontaigu/laz-rs" }]
 known-crates = ["las", "laz"]
 verify = ["CloudCompare", "PDAL", "LAStools の lasinfo"]
 samples = ["laz-rs の tests/data（Apache-2.0。数十 KB から数百 KB）"]
