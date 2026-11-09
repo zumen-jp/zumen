@@ -123,7 +123,7 @@ fn resolves_namespaces_by_scope() {
 }
 
 /// 宣言が多くても、名前はいちばん内側の宣言で引く。内側で宣言し直した接頭辞は、閉じたら外の宣言に戻り、空要素の
-/// 宣言は次の兄弟に残らない（#721）
+/// 宣言は次の兄弟に残らない。`xmlns=''` は、既定の名前空間を外す（#721）
 #[test]
 fn resolves_namespaces_among_many_declarations() {
     let mut src = b"<r".to_vec();
@@ -131,7 +131,7 @@ fn resolves_namespaces_among_many_declarations() {
         src.extend(format!(" xmlns:p{i}='urn:{i}'").bytes());
     }
     src.extend(b"><p0:a/><p999:b/><c/>");
-    src.extend(b"<p0:d xmlns:p0='urn:inner' xmlns='urn:default'><p0:e/><f/></p0:d>");
+    src.extend(b"<p0:d xmlns:p0='urn:inner' xmlns='urn:default'><p0:e/><f/><k xmlns=''/></p0:d>");
     src.extend(b"<p0:g xmlns:p0='urn:empty'/><p0:h/><i/><j xmlns=''/></r>");
     let (doc, diag) = read(&src);
     let doc = doc.unwrap();
@@ -149,6 +149,8 @@ fn resolves_namespaces_among_many_declarations() {
         Some("urn:inner"),
         Some("urn:inner"),
         Some("urn:default"),
+        // `xmlns=''` は、既定の名前空間を外す
+        None,
         Some("urn:empty"),
         Some("urn:0"),
         None,
