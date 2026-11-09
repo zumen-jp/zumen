@@ -40,21 +40,17 @@ pub(crate) fn validate(
         plain = Ifc::read(ifc, cx).map_err(|_| Failed)?;
         &plain
     };
-    let findings = zumen_ifc::check(file, &schema, cx).map_err(|_| Failed)?;
-    let total = findings.len() as u64;
     let start = request.offset.unwrap_or(0);
     let end = start.saturating_add(request.limit.unwrap_or(LIMIT));
+    // 返す範囲の外の指摘は、作らずに数える（#672）
+    let found = zumen_ifc::check_range(file, &schema, start..end, cx).map_err(|_| Failed)?;
+    let total = found.total;
     Ok(ValidateResult {
         schema: schema.name().to_owned(),
         file_schema: String::from_utf8_lossy(file.schema()).into_owned(),
         express_hash: express_hash.to_string(),
         rules_not_evaluated: schema.rules(),
-        findings: findings
-            .iter()
-            .skip(usize::try_from(start).unwrap_or(usize::MAX))
-            .take(usize::try_from(end - start).unwrap_or(usize::MAX))
-            .map(message_of)
-            .collect(),
+        findings: found.findings.iter().map(message_of).collect(),
         total,
         next_offset: (end < total).then_some(end),
     })
