@@ -220,9 +220,9 @@ checked = "2026-10-24"
 [specs.cedxm]
 title = "CEDXM ファイルフォーマット"
 publisher = "特定非営利活動法人シーデクセマ評議会"
+version = "Ver. 10.00（2024-03 更新）"
 access = "members"
 url = "https://www.cedxm.com/"
-version = "Ver. 10.00（2024-03 更新）"
 checked = "2026-11-10"
 note = "入会案内のページは、最新版のダウンロードを会員の特典とし、非会員には配らないとする。入会は法人が主で、入会申込書を出し、入会金と年会費（それぞれ 8 万円）を払う。会員の条件（定款・会則など）は公開のページに見当たらず、入会でその条件に同意するかと、その条件が AI での利用を禁じるかは確かめられない。そのため、エージェントは本文を読まない（決定 0287）。形式は place = none で、入手もしていない（zumen-jp/zumen#675）"
 
@@ -410,7 +410,7 @@ version = "09/92"
 access = "paid"
 url = "https://www.itu.int/rec/T-REC-T.81"
 checked = "2026-11-10"
-note = "ITU のページは、ISO・IEC との共同の文書（ISO/IEC 10918-1 と同じ）で、取り決めにより有償でだけ配る（sales@itu.int に問い合わせる）とする。無償で配る ITU-T の勧告には当たらない。訂正 1（2004-01）も有効。ITU のサイトの著作権のページは、複製に許諾が要るとするが、AI での利用を名指しする記述はない。買うときの条件は公開のページに見当たらず、AI での利用を禁じるかは確かめられないので、エージェントは本文を読まない（決定 0287、zumen-jp/zumen#675）。JPEG の展開は許容のライセンスの crate に任せ、zumen は Exif と XMP のセグメントだけを読むので、本文は要らない"
+note = "ITU のページは、ISO・IEC との共同の文書（ISO/IEC 10918-1 と同じ）で、取り決めにより有償でだけ配る（sales@itu.int に問い合わせる）とする。無償で配る ITU-T の勧告には当たらない。訂正 1（2004-01）も有効。ITU のサイトの著作権のページは、複製に許諾が要るとするが、AI での利用を名指しする記述はない。買うときの条件は公開のページに見当たらず、AI での利用を禁じるかは確かめられないので、エージェントは本文を読まない（決定 0287、zumen-jp/zumen#675）。JPEG の展開は寛容なライセンスの crate に任せ、zumen は Exif と XMP のセグメントだけを読むので、本文は要らない"
 
 [specs.exif_3_1]
 title = "CIPA DC-008 Exchangeable image file format for digital still cameras: Exif"
@@ -1042,7 +1042,7 @@ family = "e57"
 domains = ["pointcloud"]
 specs = ["e57_astm_e2807"]
 rights = "public"
-rights-note = "仕様は ASTM が売り、実装を制限する記述はない。販売のページが規格を AI で扱うことを禁じるので、本文は読まず、許容のライセンスの公開の実装とサンプルから読む"
+rights-note = "仕様は ASTM が売り、実装を制限する記述はない。販売のページが規格を AI で扱うことを禁じるので、本文は読まず、寛容なライセンスの公開の実装とサンプルから読む"
 place = "core"
 basis = ["reference"]
 references = [
@@ -1157,7 +1157,7 @@ family = "jpeg"
 domains = ["delivery"]
 specs = ["jpeg_t81", "exif_3_1", "xmp_2012"]
 rights = "public"
-rights-note = "Exif は CIPA が、XMP は Adobe が無償で公開している。JPEG の ITU-T T.81 は有償だが実装の制限はなく、画素の展開は許容のライセンスの crate に任せ、zumen は Exif と XMP のセグメントだけを読む"
+rights-note = "Exif は CIPA が、XMP は Adobe が無償で公開している。JPEG の ITU-T T.81 は有償だが実装の制限はなく、画素の展開は寛容なライセンスの crate に任せ、zumen は Exif と XMP のセグメントだけを読む"
 place = "core"
 basis = ["spec"]
 samples = ["個人情報（位置・機種の番号など）を含まないよう、テストの中で作るか、zumen-jp が作った写真を CC0 で入れる"]

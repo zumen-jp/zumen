@@ -13,7 +13,7 @@
 
 ## 仕様（`[specs.<ID>]`）
 
-ID は英小文字・数字・`_` にし、版を含めます（`sxf_3_1` など）。診断の `cite`（[決定 0009](../docs/decisions/0009-diagnostics-and-catalog.md)）は、この ID で仕様を指します。
+ID は英小文字・数字・`_` にし、版を含めます（`sxf_3_1` など）。診断の `cite`（[決定 0009](../docs/decisions/0009-diagnostics-and-catalog.md)）は、この ID で仕様を指します。形式の項の `specs` から指さない仕様も置けます。ISO 10303-21 のように、いくつかの形式の土台になっていても、形式の権利の判断に使っていない規格は、入手の条件と、エージェントが本文を読むか（[決定 0287](../docs/decisions/0287-agent-reading-by-agreed-terms.md)）を記録するために置きます。
 
 | キー | 要るか | 中身 |
 | --- | --- | --- |
