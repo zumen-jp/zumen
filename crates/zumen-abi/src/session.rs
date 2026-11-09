@@ -1103,13 +1103,18 @@ impl Session {
                 let hash = Hash::document_checked(&bytes, cx).map_err(|stop| stopped(cx, stop))?;
                 // ハンドルを持たない DXF（R12 など）の要素の ID は、レコードの番号で決まる（決定 0156、#722）
                 if keyless(&drawing, cx)? {
+                    // 作り直しの診断は、書き戻しの診断と重なるので返さない。失敗したときだけ返す
                     let mut quiet = Diagnostics::new();
-                    let after = updated
-                        .lift(&mut Cx::new(cx.budget, &mut quiet, cx.cancel))
-                        .map_err(|error| match error {
-                            zumen_sdk::Error::Stopped(stop) => stopped(cx, stop),
-                            _ => Failed,
-                        })?;
+                    let lifted = updated.lift(&mut Cx::new(cx.budget, &mut quiet, cx.cancel));
+                    let after = lifted.map_err(|error| match error {
+                        zumen_sdk::Error::Stopped(stop) => stopped(cx, stop),
+                        _ => {
+                            for diagnostic in quiet.iter() {
+                                cx.report(diagnostic.clone());
+                            }
+                            Failed
+                        }
+                    })?;
                     ids_shifted = record_ids_shifted(&drawing, &after, &changes, cx)?;
                 }
                 *file = updated;
@@ -2377,27 +2382,36 @@ mod watchdog {
     }
 }
 
-/// キーを持たず、レコードの番号で ID が決まる要素があるか（決定 0156）
+/// キーを持たず、レコードの番号で ID が決まる要素があるか（決定 0156）。見つけたあとは、数えずに抜ける
 #[cfg(feature = "drawing")]
 fn keyless(drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<bool, Failed> {
     let mut found = false;
     id::each_element(drawing, |_, _, element| {
+        if found {
+            return Ok(());
+        }
         cx.check(Kind::Work, 1)?;
-        let source = match element {
-            id::Found::Model(element) => &element.source,
-            id::Found::Paper(element) => &element.source,
-        };
-        found |= source.key().is_none() && source.record().is_some();
+        found = numbered(element);
         Ok::<(), Stop>(())
     })
     .map_err(|stop| stopped(cx, stop))?;
     Ok(found)
 }
 
-/// 変えていない要素の ID が、apply の前と後でずれたか（決定 0156、#722）。キーを持たずレコードの番号で ID が決まる
-/// 要素のうち、変更が指さないものを、同じ ID の要素のハッシュで比べる。除いた要素の後ろの要素は ID が前に詰まり、
-/// 前に足した要素の後ろの要素は ID が後ろにずれるので、同じ ID の要素が違うものになる。表の変更で要素の値が変わった
-/// ときも、ずれたとみなす
+/// キーを持たず、レコードの番号で ID が決まる要素か
+#[cfg(feature = "drawing")]
+fn numbered(element: id::Found<'_>) -> bool {
+    let source = match element {
+        id::Found::Model(element) => &element.source,
+        id::Found::Paper(element) => &element.source,
+    };
+    source.key().is_none() && source.record().is_some()
+}
+
+/// 残した要素の ID が、apply の前と後でずれたか（決定 0156、#722）。キーを持たずレコードの番号で ID が決まる要素の
+/// ID を、図面の順に並べて比べる。前の並びから除いた要素を抜いたものが、後の並びの頭と同じなら、ずれていない
+/// （終わりに足した要素は、後ろに並ぶ）。前の要素を除くか足すか、置き換えでレコードの数が変わると、後ろの要素の
+/// ID が変わるので、変えた要素も含めて並びが食い違う。値は比べないので、表の変更で要素の値が変わっても、ずれたとしない
 #[cfg(feature = "drawing")]
 fn record_ids_shifted(
     before: &Drawing2D,
@@ -2405,40 +2419,38 @@ fn record_ids_shifted(
     changes: &zumen_drawing::Changes,
     cx: &mut Cx<'_>,
 ) -> Result<bool, Failed> {
+    use std::collections::BTreeSet;
     use zumen_drawing::Edit;
-    let targets: std::collections::BTreeSet<&str> = changes
+    let removed: BTreeSet<&str> = changes
         .edits
         .iter()
         .filter_map(|edit| match edit {
-            Edit::Replace { target, .. }
-            | Edit::Restyle { target, .. }
-            | Edit::Transform { target, .. }
-            | Edit::Remove { target } => Some(target.id.as_str()),
+            Edit::Remove { target } => Some(target.id.as_str()),
             _ => None,
         })
         .collect();
-    let mut now = BTreeMap::new();
-    id::each_element(after, |_, id, element| {
+    let kept = numbered_ids(before, &removed, cx)?;
+    let now = numbered_ids(after, &BTreeSet::new(), cx)?;
+    Ok(!now.starts_with(&kept))
+}
+
+/// レコードの番号で決まる要素の ID を、図面の順に並べる。`skip` の ID は抜く
+#[cfg(feature = "drawing")]
+fn numbered_ids(
+    drawing: &Drawing2D,
+    skip: &std::collections::BTreeSet<&str>,
+    cx: &mut Cx<'_>,
+) -> Result<Vec<String>, Failed> {
+    let mut found = Vec::new();
+    id::each_element(drawing, |_, id, element| {
         cx.check(Kind::Work, 1)?;
-        now.insert(id, element.hash_checked(cx)?);
-        Ok::<(), Stop>(())
-    })
-    .map_err(|stop| stopped(cx, stop))?;
-    let mut shifted = false;
-    id::each_element(before, |_, id, element| {
-        cx.check(Kind::Work, 1)?;
-        let source = match element {
-            id::Found::Model(element) => &element.source,
-            id::Found::Paper(element) => &element.source,
-        };
-        if shifted || source.key().is_some() || targets.contains(id.as_str()) {
-            return Ok(());
+        if numbered(element) && !skip.contains(id.as_str()) {
+            found.push(id);
         }
-        shifted = now.get(&id) != Some(&element.hash_checked(cx)?);
         Ok::<(), Stop>(())
     })
     .map_err(|stop| stopped(cx, stop))?;
-    Ok(shifted)
+    Ok(found)
 }
 
 #[cfg(test)]
@@ -6521,68 +6533,24 @@ END_SCHEMA;
         assert_eq!(text(&response, "/result/point_style/size_kind"), "length");
     }
 
-    /// ハンドルを持たない DXF で、除いた要素の後ろの ID がずれたら `ids_shifted` を返す（決定 0156、#722）
+    /// ハンドルを持たない DXF で、残した要素の ID がずれたら `ids_shifted` を返す（決定 0156、#722）
     #[test]
     fn reports_shifted_ids_of_dxf_without_handles() {
-        const LINES: &[u8] = b"0
-SECTION
-2
-HEADER
-9
-$ACADVER
-1
-AC1009
-0
-ENDSEC
-            0
-SECTION
-2
-ENTITIES
-0
-LINE
-8
-0
-10
-0.0
-20
-0.0
-11
-1.0
-21
-0.0
-            0
-LINE
-8
-0
-10
-0.0
-20
-1.0
-11
-1.0
-21
-1.0
-            0
-LINE
-8
-0
-10
-0.0
-20
-2.0
-11
-1.0
-21
-2.0
-0
-ENDSEC
-0
-EOF
-";
-        let elements = |session: &mut Session| {
+        // $ACADVER が AC1009 で、ハンドルを持たない文字スタイル NOTE と、LINE 3 つと TEXT
+        let mut lines = String::from(
+            "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1009\n0\nENDSEC\n\
+             0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nSTYLE\n70\n1\n\
+             0\nSTYLE\n2\nNOTE\n70\n0\n40\n0.0\n41\n1.0\n50\n0.0\n71\n0\n42\n2.5\n3\ntxt\n4\n\n\
+             0\nENDTAB\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n",
+        );
+        for y in 0..3 {
+            lines += &format!("0\nLINE\n8\n0\n10\n0.0\n20\n{y}.0\n11\n1.0\n21\n{y}.0\n");
+        }
+        lines += "0\nTEXT\n8\n0\n7\nNOTE\n10\n0.0\n20\n5.0\n40\n2.5\n1\nA\n0\nENDSEC\n0\nEOF\n";
+        let elements = |session: &mut Session, doc: &str| {
             let (status, response) = call(
                 session,
-                r#"{"v":1,"op":"entities","doc":"a.dxf","fields":["hash"]}"#,
+                &format!(r#"{{"v":1,"op":"entities","doc":"{doc}","fields":["hash"]}}"#),
             );
             assert_eq!(status, Status::Ok, "{response:?}");
             let Some(Value::Array(items)) = response.pointer("/result/items") else {
@@ -6593,48 +6561,94 @@ EOF
                 .map(|item| (text(item, "/id"), text(item, "/hash")))
                 .collect::<Vec<_>>()
         };
-        let apply = |session: &mut Session, edit: String| {
+        let moved = |(id, hash): &(String, String)| {
+            format!(r#"{{"kind":"transform","id":"{id}","hash":"{hash}","matrix":[1,0,5,0,1,7]}}"#)
+        };
+        let removed = |(id, hash): &(String, String)| {
+            format!(r#"{{"kind":"remove","id":"{id}","hash":"{hash}"}}"#)
+        };
+        // 当てて、ids_shifted と要素を返す。書き戻したファイルを開き直しても、同じ要素になる
+        let mut count = 0;
+        let mut apply = |session: &mut Session, edits: &[String]| {
             let (status, response) = call(
                 session,
-                &format!(r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{edit}]}}"#),
+                &format!(
+                    r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{}]}}"#,
+                    edits.join(",")
+                ),
             );
             assert_eq!(status, Status::Ok, "{response:?}");
-            response
+            let shifted = response.pointer("/result/ids_shifted").cloned();
+            count += 1;
+            let name = format!("again{count}.dxf");
+            let written = session.take(0).unwrap();
+            session.push(name.as_bytes(), &written).unwrap();
+            call(
+                session,
+                &format!(r#"{{"v":1,"op":"open","input":"{name}"}}"#),
+            );
+            let now = elements(session, "a.dxf");
+            assert_eq!(elements(session, &name), now);
+            (shifted, now)
         };
-        let shifted = |response: &Value| response.pointer("/result/ids_shifted").cloned();
+        let open = || {
+            let mut session = Session::new(b"").unwrap();
+            session.push(b"a.dxf", lines.as_bytes()).unwrap();
+            call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+            let before = elements(&mut session, "a.dxf");
+            assert_eq!(before.len(), 4);
+            (session, before)
+        };
 
-        let mut session = Session::new(b"").unwrap();
-        session.push(b"a.dxf", LINES).unwrap();
-        call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
-        let before = elements(&mut session);
-        assert_eq!(before.len(), 3);
-        // 終わりの要素を動かしても、除いても、ほかの要素の ID は変わらない
-        let (id, hash) = &before[2];
-        let response = apply(
-            &mut session,
-            format!(r#"{{"kind":"transform","id":"{id}","hash":"{hash}","matrix":[1,0,5,0,1,7]}}"#),
+        // 間の要素を動かしても、終わりの要素を除いても、ほかの要素の ID は変わらない
+        let (mut session, before) = open();
+        let (shifted, now) = apply(&mut session, &[moved(&before[1])]);
+        assert_eq!(shifted, None);
+        assert_eq!(now[0], before[0]);
+        assert_eq!(now[1].0, before[1].0);
+        assert_eq!(now[2..], before[2..]);
+        let (shifted, after) = apply(&mut session, &[removed(&now[3])]);
+        assert_eq!(shifted, None);
+        assert_eq!(after, now[..3]);
+
+        // 表の変更で文字の値が変わっても、ID はずれない
+        let (mut session, before) = open();
+        let (_, response) = call(&mut session, r#"{"v":1,"op":"tables","doc":"a.dxf"}"#);
+        let Some(Value::Array(styles)) = response.pointer("/result/text_styles") else {
+            panic!("{response:?}");
+        };
+        let note = styles
+            .iter()
+            .find(|style| text(style, "/name") == "NOTE")
+            .unwrap();
+        let rename = format!(
+            r#"{{"kind":"text_style","id":"{}","hash":"{}","name":"MEMO"}}"#,
+            text(note, "/id"),
+            text(note, "/hash")
         );
-        assert_eq!(shifted(&response), None);
-        let moved = elements(&mut session);
-        assert_eq!(moved[..2], before[..2]);
-        let (id, hash) = &moved[2];
-        let response = apply(
-            &mut session,
-            format!(r#"{{"kind":"remove","id":"{id}","hash":"{hash}"}}"#),
-        );
-        assert_eq!(shifted(&response), None);
-        assert_eq!(elements(&mut session), before[..2]);
-        // 先頭の要素を除くと、後ろの要素の ID が前に詰まる
-        let (id, hash) = &before[0];
-        let response = apply(
-            &mut session,
-            format!(r#"{{"kind":"remove","id":"{id}","hash":"{hash}"}}"#),
-        );
-        assert_eq!(shifted(&response), Some(Value::Bool(true)));
-        let after = elements(&mut session);
-        assert_eq!(after.len(), 1);
+        let (shifted, now) = apply(&mut session, &[rename]);
+        assert_eq!(shifted, None);
+        assert_eq!(now[..3], before[..3]);
+        assert_eq!(now[3].0, before[3].0);
+        assert_ne!(now[3].1, before[3].1);
+
+        // 先頭を除くと、後ろの要素の ID が前に詰まる
+        let (mut session, before) = open();
+        let (shifted, after) = apply(&mut session, &[removed(&before[0])]);
+        assert_eq!(shifted, Some(Value::Bool(true)));
+        assert_eq!(after[0], (before[0].0.clone(), before[1].1.clone()));
+        // 先頭を除き、後ろをすべて変えたときも、変えた要素の ID がずれたことを返す
+        let (mut session, before) = open();
+        let edits = [
+            removed(&before[0]),
+            moved(&before[1]),
+            moved(&before[2]),
+            moved(&before[3]),
+        ];
+        let (shifted, after) = apply(&mut session, &edits);
+        assert_eq!(shifted, Some(Value::Bool(true)));
+        assert_eq!(after.len(), 3);
         assert_eq!(after[0].0, before[0].0);
-        assert_eq!(after[0].1, before[1].1);
     }
 
     #[test]
