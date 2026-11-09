@@ -939,6 +939,17 @@ pub const CRS_HEIGHT_REALIZATION_MIXED: Code = Code::new(
     &["first", "second"],
 );
 
+/// 点の平面直角座標と経緯度の換算ができない（値が有限でないか、緯度が ±90 度に届くか外か、系の原点との経度の差が ±90 度に届く）か、点が系の決まらない JGD2011 の経緯度なので、JGD2011 の平面直角座標に直さなかった。補正量の極端な格子で直した点などで起きる。crs は直そうとした点の座標系の EPSG のコード（#679）
+///
+/// `crs.projection.unsupported`（0.2.0 から）
+pub const CRS_PROJECTION_UNSUPPORTED: Code = Code::new(
+    "crs.projection.unsupported",
+    Severity::Warning,
+    None,
+    &[Param::new("crs", ParamType::UInt)],
+    &["crs"],
+);
+
 /// CSV に、その文字コードで直せないバイトがあるので、置き換えの字にした（#391）
 ///
 /// `csv.encoding.invalid`（0.2.0 から）
@@ -2951,6 +2962,17 @@ pub const PDF_OPTIONAL_CONTENT_DROPPED: Code = Code::new(
     &["name"],
 );
 
+/// ページの木（Kids）の項目を、ページの辞書にも中間の節にも読めない（数・null・入れ子の深すぎる値を持つ辞書など）か、たどった節かページをもう一度指すので、hayro-syntax が飛ばし、ページにしなかった。Kids を配列に読めない中間の節も、下のページごと飛ばすので数える。場所は、その項目を持つ節（Kids を読めない節は、その節）のレコードで、件数は飛ばした項目の数（#555）
+///
+/// `pdf.page-tree.dropped`（0.2.0 から）
+pub const PDF_PAGE_TREE_DROPPED: Code = Code::new(
+    "pdf.page-tree.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[],
+    &[],
+);
+
 /// hayro-interpret がスタックかメモリを使い切るか、パニックするおそれのあるもの（16 段より深い関数・色空間の入れ子、64 段より深い Type 4 の関数の手続き、26 万個を超える CID フォントの幅の項目、大きさが 16,777,216 を超える Type 0 の関数、行の頂点の数が 0 の格子のメッシュ）があるので、ページを解釈せず、その中身を移さなかった。場所は、理由のオブジェクトのレコード（直接書いたオブジェクトは、それを含む間接オブジェクトのレコード。色空間の入れ子は、ページの内容のストリーム）
 ///
 /// `pdf.page.dropped`（0.2.0 から）
@@ -4585,6 +4607,7 @@ pub const ALL: &[Code] = &[
     CRS_HEIGHT_DATUM_UNSUPPORTED,
     CRS_HEIGHT_REALIZATION_ASSUMED,
     CRS_HEIGHT_REALIZATION_MIXED,
+    CRS_PROJECTION_UNSUPPORTED,
     CSV_ENCODING_INVALID,
     CSV_QUOTE_INVALID,
     DELIVERY_FILE_INVALID,
@@ -4770,6 +4793,7 @@ pub const ALL: &[Code] = &[
     PDF_OBJECT_REPAIRED,
     PDF_OPTIONAL_CONTENT_APPROXIMATED,
     PDF_OPTIONAL_CONTENT_DROPPED,
+    PDF_PAGE_TREE_DROPPED,
     PDF_PAGE_DROPPED,
     PDF_PATTERN_DROPPED,
     PDF_SHADING_DROPPED,
