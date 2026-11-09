@@ -28,6 +28,7 @@ const PLAIN: usize = 64 * 1024;
 /// 前の段の後ろに続ける段。先頭でない Crypt（失敗する）、ASCIIHex（空白を捨てて縮める）、RunLength（終端で縮める）
 const TRAILING: [&str; 3] = ["/Crypt", "/AHx", "/RL"];
 
+#[cfg(test)]
 fn run(source: &[u8], limits: Limits) -> (Result<Drawing2D, Error>, Budget, Vec<Diagnostic>) {
     let file = testkit::read::<Pdf>(source).0.unwrap();
     let mut budget = Budget::new(limits);
@@ -38,6 +39,7 @@ fn run(source: &[u8], limits: Limits) -> (Result<Drawing2D, Error>, Budget, Vec<
 }
 
 /// 数えられる段の名前と、その段で 64 KiB の空白になる入力
+#[cfg(test)]
 fn heads() -> [(&'static str, Vec<u8>); 3] {
     // 128 個の空白のくり返し（7.4.5）を 512 個と終端
     let mut run_length = [129, b' '].repeat(PLAIN / 128);
@@ -53,6 +55,7 @@ fn heads() -> [(&'static str, Vec<u8>); 3] {
 }
 
 /// 前置しない、ASCIIHex を前置、ASCII85 を前置した、数えられる段とその入力
+#[cfg(test)]
 fn sequences() -> Vec<(String, Vec<u8>)> {
     let mut out = Vec::new();
     for (head, data) in heads() {
@@ -122,6 +125,7 @@ fn keeps_results_of_trailing_filters_with_ample_budgets() {
 }
 
 /// リテラルだけの RunLength（7.4.5）
+#[cfg(test)]
 fn literal_run_length(data: &[u8]) -> Vec<u8> {
     let mut out = Vec::new();
     for chunk in data.chunks(128) {
