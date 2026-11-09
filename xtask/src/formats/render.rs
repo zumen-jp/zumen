@@ -4,9 +4,69 @@ use std::fmt::Write;
 
 use super::{Decisions, Ledger, Tool, Verification, issue_url};
 
+/// 地の文の `http://`・`https://` で始まる URL の長さ（バイト）を返す。URL でなければ 0。
+///
+/// URL は、空白・`<`・`>`・ASCII の外の文字の前で終わる。末尾の `.`・`,`・`:`・`;`・`!`・`?` と、
+/// 対になる `(` のない `)` は、文の句読点として URL に含めない。
+fn url_len(rest: &str) -> usize {
+    let Some(after) = rest
+        .strip_prefix("https://")
+        .or_else(|| rest.strip_prefix("http://"))
+    else {
+        return 0;
+    };
+    let end = after
+        .find(|c: char| !c.is_ascii() || c.is_ascii_whitespace() || c == '<' || c == '>')
+        .unwrap_or(after.len());
+    let mut url = &after[..end];
+    loop {
+        let trimmed = url.trim_end_matches(['.', ',', ':', ';', '!', '?']);
+        let trimmed = match trimmed.strip_suffix(')') {
+            Some(inner) if inner.matches('(').count() < trimmed.matches(')').count() => inner,
+            _ => trimmed,
+        };
+        if trimmed.len() == url.len() {
+            break;
+        }
+        url = trimmed;
+    }
+    if url.is_empty() {
+        0
+    } else {
+        rest.len() - after.len() + url.len()
+    }
+}
+
+/// 地の文を Markdown にする。記号は `\` で逃がし、URL は逃がさずに `<…>` の自動リンクにする
+/// （GitHub の自動リンクは `\` まで URL に含めるため。#671）。
 fn text(value: &str) -> String {
+    escape(value, true)
+}
+
+/// 記号を `\` で逃がす。`urls` が偽なら URL も逃がす（リンクの文字は自動リンクにしない）。
+fn escape(value: &str, urls: bool) -> String {
     let mut out = String::new();
-    for c in value.chars() {
+    let mut chars = value.char_indices().peekable();
+    let mut prev: Option<char> = None;
+    while let Some((i, c)) = chars.next() {
+        let len = if !urls || prev.is_some_and(|p| p.is_ascii_alphanumeric()) {
+            0
+        } else {
+            url_len(&value[i..])
+        };
+        if len > 0 {
+            let url = &value[i..i + len];
+            out.push('<');
+            // 表のセルの区切りにならないよう、`|` だけは逃がす（GFM は表を分けてから `\|` を戻す）。
+            out.push_str(&url.replace('|', "\\|"));
+            out.push('>');
+            while chars.peek().is_some_and(|&(j, _)| j < i + len) {
+                chars.next();
+            }
+            prev = url.chars().last();
+            continue;
+        }
+        prev = Some(c);
         match c {
             '&' => out.push_str("&amp;"),
             '<' => out.push_str("&lt;"),
@@ -31,7 +91,7 @@ fn link(label: &str, target: &str) -> String {
         .replace('<', "%3C")
         .replace('>', "%3E")
         .replace('|', "%7C");
-    format!("[{}]({target})", text(label))
+    format!("[{}]({target})", escape(label, false))
 }
 
 fn list(out: &mut String, label: &str, values: &[String]) {

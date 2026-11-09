@@ -760,6 +760,28 @@ fn renders_records_in_key_order_with_working_links() {
 }
 
 #[test]
+fn renders_urls_in_prose_without_escaping() {
+    let (_, mut ledger, decisions) = fixture();
+    let spec = ledger.specs.values_mut().next().unwrap();
+    spec.note = Some(
+        "DTD は https://example.com/cri_dtdxml/ の boring_R8.2.zip にある。\
+         一覧は https://example.com/a_b?x=1&y=*2*|z。\
+         括弧の中（http://example.com/p_(q)/r）と (https://example.com/s_t). \
+         語の中の xhttps://example.com/u_v と https:// だけ"
+            .into(),
+    );
+    let output = render::render(&ledger, &decisions);
+    for expected in [
+        "DTD は <https://example.com/cri_dtdxml/> の boring\\_R8.2.zip にある。",
+        "一覧は <https://example.com/a_b?x=1&y=*2*\\|z>。",
+        "括弧の中（<http://example.com/p_(q)/r>）と (<https://example.com/s_t>). ",
+        "語の中の xhttps://example.com/u\\_v と https:// だけ",
+    ] {
+        assert!(output.contains(expected), "{expected}\n{output}");
+    }
+}
+
+#[test]
 fn renders_the_evidence_of_each_direction() {
     let (_, mut ledger, decisions) = fixture();
     let f = ledger.formats.get_mut("dxf").unwrap();
