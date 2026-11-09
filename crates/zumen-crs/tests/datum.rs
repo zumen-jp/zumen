@@ -422,28 +422,54 @@ fn grids_at_five_times_the_mesh_are_interpolated_at_their_spacing() {
     assert!(distance(moved, point) > 100.0, "{moved:?}");
 }
 
-/// 格子点が、すべて 3 次メッシュの 5 倍の間隔の所にあるのでも、3 次メッシュの間隔で隣り合うのでもなければ、補間の
-/// 間隔が決まらないので読まない（決定 0286）
+/// 5 倍の格子の南端（北緯 32 度 2 分 30 秒）では、南に格子点がなくても、南西の隅と南辺の中央の値を返す
+#[test]
+fn five_mesh_grid_includes_its_southern_edge() {
+    let grid = read(&format!(
+        "{} 1 10\n{} 3 14\n{} 5 20\n{} 7 24\n",
+        code(3845, 3200),
+        code(3845, 3205),
+        code(3850, 3200),
+        code(3850, 3205),
+    ));
+    let south = 769.0 / 24.0;
+    for (longitude, expected) in [(140.0, (1.0, 10.0)), (140.03125, (2.0, 12.0))] {
+        assert_eq!(
+            grid.correction(GeoPoint {
+                latitude: south,
+                longitude
+            }),
+            Some(expected),
+        );
+    }
+}
+
+/// 3 次メッシュかその 5 倍の間隔で隣り合う格子点がなければ、補間の間隔が決まらないので読まない（決定 0286）
 #[test]
 fn grids_that_fit_neither_spacing_are_not_read() {
     let around = GeoPoint {
         latitude: 35.6,
         longitude: 139.7,
     };
-    // 3 次メッシュの 1 つおきの格子点
-    let every_other = grid_every(around, 2, 3, tky);
-    let (found, diag) = with_cx(|cx| ShiftGrid::read(every_other.as_bytes(), cx));
-    assert!(matches!(found, Err(Error::Unsupported)), "{found:?}");
-    assert_eq!(diag, [codes::CRS_DATUM_GRID_UNSUPPORTED]);
-    // 格子点が 1 つだけなら、5 倍の間隔の所にあればその間隔とし、なければ読まない
-    let single = |i: u32, j: u32| format!("MeshCode dB(sec) dL(sec)\n{} 1.0 2.0\n", code(i, j));
-    let (found, diag) = with_cx(|cx| ShiftGrid::read(single(4281, 3181).as_bytes(), cx));
-    assert!(found.is_err());
-    assert_eq!(diag, [codes::CRS_DATUM_GRID_UNSUPPORTED]);
-    assert_eq!(read(&single(4280, 3180)).spacing(), (150, 225));
+    // 間隔が 2 倍と 15 倍の格子、格子点が 1 つだけの格子では、どちらの間隔も確認できない
+    for text in [
+        grid_every(around, 2, 3, tky),
+        grid_every(around, 15, 3, tky),
+        format!("{} 1.0 2.0\n", code(4281, 3181)),
+        format!("{} 1.0 2.0\n", code(4280, 3180)),
+    ] {
+        let (found, diag) = with_cx(|cx| ShiftGrid::read(text.as_bytes(), cx));
+        assert!(matches!(found, Err(Error::Unsupported)), "{found:?}");
+        assert_eq!(diag, [codes::CRS_DATUM_GRID_UNSUPPORTED]);
+    }
     // 読んだ格子点は、3 次メッシュのコードで返す
-    let nodes: Vec<_> = read(&single(4280, 3180)).nodes().collect();
-    assert_eq!(nodes, [(53_394_600, 1.0, 2.0)]);
+    let pair = read(&format!(
+        "{} 1 2\n{} 3 4\n",
+        code(4280, 3180),
+        code(4280, 3185)
+    ));
+    let nodes: Vec<_> = pair.nodes().collect();
+    assert_eq!(nodes, [(53_394_600, 1.0, 2.0), (53_394_605, 3.0, 4.0)]);
     let text = grid(around, tky);
     let mut written: Vec<u32> = text
         .lines()
@@ -537,6 +563,40 @@ fn patchjgd_files_are_applied_oldest_first() {
     assert_eq!(found, None);
     assert_eq!(diag.len(), 1, "{diag:?}");
     assert_eq!(diag[0].param("grid"), Some(&"PatchJGD".into()));
+}
+
+/// 地震ごとのファイルを 1 つ当てる前に work を 1 つ数え、中断の合図も見る
+#[test]
+fn patch_files_are_counted_and_can_be_cancelled() {
+    let zone = Zone::new(IX).unwrap();
+    let geographic = to_geographic_on(Ellipsoid::Grs80, zone, POINT)
+        .unwrap()
+        .point;
+    let patch = read(&grid(geographic, |_, _| (0.0, 0.0)));
+    let shifts = Shifts {
+        tky2jgd: None,
+        patch: &[&patch, &patch],
+    };
+    for (limit, cancelled, expected, work) in [
+        (2, false, None, 2),
+        (1, false, Some(codes::BUDGET_WORK_EXCEEDED), 1),
+        (2, true, Some(codes::CALL_REQUEST_CANCELLED), 0),
+    ] {
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(limit)));
+        let mut diag = Diagnostics::new();
+        let cancel = CancelToken::new();
+        if cancelled {
+            cancel.cancel();
+        }
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        let found = to_jgd2011(Crs::Jgd2000(zone), POINT, &shifts, &mut cx);
+        assert_eq!(found.is_none(), expected.is_some());
+        assert_eq!(
+            diag.iter().map(|d| d.code()).collect::<Vec<_>>(),
+            expected.as_slice()
+        );
+        assert_eq!(budget.used(Kind::Work), work);
+    }
 }
 
 /// 格子の補正量が大きすぎて、直した点が 3 次メッシュのコードで表せない所に出ても、パニックせずに直さない（受け取った

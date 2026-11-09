@@ -32,9 +32,9 @@ const MESH_LIMIT: u32 = 100 * 80;
 const FIVE: u32 = 5;
 
 /// 変換のパラメーターの格子（TKY2JGD・PatchJGD の形）。格子点の間隔は、格子点の並びから見分ける（決定 0286）。
-/// 格子点がすべて 3 次メッシュの 5 倍の間隔の所にあれば、その間隔（緯度 150 秒・経度 225 秒）で補間する。そうでなく、
-/// 3 次メッシュの間隔で隣り合う格子点があれば、3 次メッシュの間隔（緯度 30 秒・経度 45 秒）で補間する。どちらでも
-/// なければ、`crs.datum-grid.unsupported` で読まない
+/// 格子点がすべて 3 次メッシュの 5 倍の間隔の所にあり、その間隔で隣り合う格子点があれば、緯度 150 秒・経度 225 秒の
+/// 間隔で補間する。3 次メッシュの間隔で隣り合う格子点があれば、緯度 30 秒・経度 45 秒の間隔で補間する。
+/// どちらの間隔も確認できなければ、`crs.datum-grid.unsupported` で読まない
 #[derive(Clone, Debug, PartialEq)]
 pub struct ShiftGrid {
     /// 格子点（緯度の 30 秒ごとの番号、経度 100 度から 45 秒ごとの番号）と、緯度・経度の補正量（秒）
@@ -87,16 +87,18 @@ fn code((i, j): (u32, u32)) -> u32 {
     (first * 100 + second) * 100 + third
 }
 
-/// 格子点の並びから、格子点の間隔（3 次メッシュの数）を見分ける（決定 0286）。格子点がすべて 3 次メッシュの 5 倍
-/// の間隔の所にあれば [`FIVE`]、そうでなく 3 次メッシュの間隔で隣り合う格子点があれば 1、どちらでもなければ `None`
+/// 格子点の並びから、格子点の間隔（3 次メッシュの数）を見分ける（決定 0286）。5 の倍数に並ぶだけでは、もっと粗い
+/// 格子と区別できない。南北か東西に、その間隔で隣り合う格子点が少なくとも 1 組あることを確かめる
 fn spacing(nodes: &BTreeMap<(u32, u32), (f64, f64)>) -> Option<u32> {
-    if nodes.keys().all(|(i, j)| i % FIVE == 0 && j % FIVE == 0) {
-        return Some(FIVE);
-    }
+    let step = if nodes.keys().all(|(i, j)| i % FIVE == 0 && j % FIVE == 0) {
+        FIVE
+    } else {
+        1
+    };
     nodes
         .keys()
-        .any(|&(i, j)| nodes.contains_key(&(i, j + 1)) || nodes.contains_key(&(i + 1, j)))
-        .then_some(1)
+        .any(|&(i, j)| nodes.contains_key(&(i, j + step)) || nodes.contains_key(&(i + step, j)))
+        .then_some(step)
 }
 
 impl ShiftGrid {
@@ -172,10 +174,10 @@ impl ShiftGrid {
     /// どれかがなければ `None`。囲む格子点が 1 つもなければ `Some(None)` にせず、呼ぶ側が決められるよう
     /// 見つかった数を返す
     fn interpolate(&self, at: GeoPoint) -> (usize, Option<(f64, f64)>) {
-        // 格子点の間隔を 1 とする番号。3 次メッシュの間隔では、1 で割っても値は変わらない
+        // 1 度あたりの格子の数を先に求める。5 倍の格子線にある点を、途中の丸めで隣の区画に移さない
         let step = f64::from(self.step);
-        let y = at.latitude * 120.0 / step;
-        let x = (at.longitude - 100.0) * 80.0 / step;
+        let y = at.latitude * (120.0 / step);
+        let x = (at.longitude - 100.0) * (80.0 / step);
         // 3 次メッシュのコードで表せない所（NaN と無限を含む）には、格子点がない。番号が u32 であふれないようにする
         let limit = 0.0..f64::from(MESH_LIMIT / self.step);
         if !(limit.contains(&y) && limit.contains(&x)) {
@@ -276,6 +278,10 @@ pub fn to_jgd2011(
     }
     let mut jgd2011 = geographic;
     for (index, patch) in shifts.patch.iter().enumerate() {
+        if let Err(stop) = cx.check(Kind::Work, 1) {
+            cx.report(stop.to_diagnostic());
+            return None;
+        }
         let name = if shifts.patch.len() == 1 {
             String::from("PatchJGD")
         } else {

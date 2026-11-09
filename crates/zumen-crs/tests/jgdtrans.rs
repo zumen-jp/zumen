@@ -158,9 +158,13 @@ fn compare(layout: &Layout, text: &str, points: &[GeoPoint]) -> (f64, usize) {
             transformer.forward_corr(&Point::new_unchecked(point.latitude, point.longitude, 0.0));
         match (ours, theirs) {
             (Some((b, l)), Ok(correction)) => {
-                max = max
-                    .max((b - correction.latitude * 3600.0).abs())
-                    .max((l - correction.longitude * 3600.0).abs());
+                let latitude_error = (b - correction.latitude * 3600.0).abs();
+                let longitude_error = (l - correction.longitude * 3600.0).abs();
+                assert!(
+                    latitude_error.is_finite() && longitude_error.is_finite(),
+                    "{point:?}"
+                );
+                max = max.max(latitude_error).max(longitude_error);
                 compared += 1;
             }
             (None, Err(_)) => {}
