@@ -997,6 +997,13 @@ group-by = ["crs", "grid"]
 since = "0.2.0"
 status = "active"
 
+[codes."crs.datum-grid.unsupported"]
+description = "渡された測地系の変換のパラメーターの格子点が、すべて 5 倍地域メッシュの南西の隅にあるのでも、3 次メッシュの間隔で隣り合うのでもないので、補間の間隔が決まらず読まなかった（決定 0286）"
+severity = "error"
+params = {}
+since = "0.2.0"
+status = "active"
+
 [codes."crs.datum-shift.missing"]
 description = "点が変換のパラメーターの格子の範囲の外にあるか、囲む格子点が欠けているので、JGD2011 に直さなかった"
 severity = "warning"

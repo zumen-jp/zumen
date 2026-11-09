@@ -835,6 +835,17 @@ pub const CRS_DATUM_GRID_MISSING: Code = Code::new(
     &["crs", "grid"],
 );
 
+/// 渡された測地系の変換のパラメーターの格子点が、すべて 5 倍地域メッシュの南西の隅にあるのでも、3 次メッシュの間隔で隣り合うのでもないので、補間の間隔が決まらず読まなかった（決定 0286）
+///
+/// `crs.datum-grid.unsupported`（0.2.0 から）
+pub const CRS_DATUM_GRID_UNSUPPORTED: Code = Code::new(
+    "crs.datum-grid.unsupported",
+    Severity::Error,
+    None,
+    &[],
+    &[],
+);
+
 /// 点が変換のパラメーターの格子の範囲の外にあるか、囲む格子点が欠けているので、JGD2011 に直さなかった
 ///
 /// `crs.datum-shift.missing`（0.2.0 から）
@@ -4552,6 +4563,7 @@ pub const ALL: &[Code] = &[
     CONVERT_VIEW_APPROXIMATED,
     CRS_DATUM_GRID_INVALID,
     CRS_DATUM_GRID_MISSING,
+    CRS_DATUM_GRID_UNSUPPORTED,
     CRS_DATUM_SHIFT_MISSING,
     CRS_GEOID_INVALID,
     CRS_GEOID_UNSUPPORTED,

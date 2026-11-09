@@ -74,6 +74,7 @@
     "convert.view.approximated": "横と縦の尺度の違うビュー {count} 件を、{format} では用紙の要素に焼き込んで書きました。",
     "crs.datum-grid.invalid": "測地系の変換のパラメーターの {line} 行目が壊れていて読めませんでした（{count} 件）。",
     "crs.datum-grid.missing": "EPSG:{crs} の座標を JGD2011 に直す {grid} のパラメーターがないので、直しませんでした（{count} 件）。",
+    "crs.datum-grid.unsupported": "測地系の変換のパラメーターの格子点の並びが、3 次メッシュの間隔（緯度 30 秒・経度 45 秒）にも 5 倍地域メッシュの間隔（緯度 150 秒・経度 225 秒）にも合わないので、読みませんでした（{count} 件）。",
     "crs.datum-shift.missing": "緯度 {latitude}・経度 {longitude} の点は {grid} のパラメーターの範囲の外なので、JGD2011 に直しませんでした（{count} 件）。",
     "crs.geoid.invalid": "ジオイドの格子の「{key}」が壊れていて読めませんでした（{count} 件）。",
     "crs.geoid.unsupported": "ジオイドの格子の「{key}」が「{value}」なので、読みませんでした（{count} 件）。",
