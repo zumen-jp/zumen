@@ -1,5 +1,8 @@
 //! SFC と P21 から図面モデルへの変換（決定 0121・0132）。入力は、どれもテストの中で作る。
 
+// 図面モデルへの変換は、機能 `drawing` で作る（#735）
+#![cfg(feature = "drawing")]
+
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostic, Diagnostics, Key, Ref, codes};
 use zumen_drawing::{
     Arrowhead, Axes, Boundary, CalloutContent, ColorCode, ColorSystem, DimensionKind, Drawing2D,
