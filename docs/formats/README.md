@@ -311,17 +311,17 @@
 - 入手の条件: 有償
 - 入手先: [ISO 10303-11:2004 Industrial automation systems and integration — Product data representation and exchange — Part 11: Description methods: The EXPRESS language reference manual](https://www.iso.org/standard/38047.html)
 - 確認日: 2026-11-09
-- 補足: ISO が PDF と冊子で売る（CHF 227）。販売のページに、実装を制限する記述はない。ISO のサイトに共通の注記は、ISO Open data のものを除き、ISO の内容を機械学習・AI に使うこと（モデルの学習と、AI のツールに入れて応答を作らせること）を禁じ、出版物の使用と複製に書面の許諾が要るとする。本文は買わず、読まない（zumen-jp/zumen#529）。この項の書誌の事実と注記の中身は、2026-11-09 にエージェントが AI のツールで ISO のページを読んで得た（作った側が www.iso.org をブラウザーの拡張で、zumen-jp/zumen#666 の確かめる側が committee.iso.org を取得のツールで。www.iso.org は自動の取得を拒む）。エージェントが ISO のページを読むことの扱いは zumen-jp/zumen#669 で決め、読まないと決まれば、この項も #669 の判断に従って直す
+- 補足: ISO が PDF と冊子で売る（CHF 227）。販売のページに、実装を制限する記述はない。ISO の利用許諾（End Customer Licence Agreement、2026-05-29 の改定）の 7(b) は、別の許諾がなければ、出版物を AI・機械学習のために読み・使い・処理することを禁じるので、本文は買わず、読まない（決定 0287、zumen-jp/zumen#529）。ISO のサイトの注記（ページの下の折りたたまれた部分）は、ISO Open data のものを除き、ISO の内容を機械学習・AI に使うこと（モデルの学習と、AI のツールに応答を作らせること）を禁じ、出版物の使用と複製に書面の許諾が要るとする。公開のページは、決定 0287 のとおり、この注記によらず事実を得るために読む。書誌の事実は、2026-11-09 に www.iso.org のページで確かめた
 
 ### spec-iso_32000_2_2020
 
 - 名前: ISO 32000-2:2020（PDF 2.0）
 - 公開元: ISO
-- 版: 2020
+- 版: 第 2 版（2020-12）。見直しで確認され、今も有効
 - 入手の条件: 無償公開
 - 入手先: [ISO 32000-2:2020（PDF 2.0）](https://pdfa.org/sponsored-standards/)
-- 確認日: 2026-10-24
-- 補足: PDF Association が、後援の企業の費用で無償で配っている。ISO からは買う
+- 確認日: 2026-11-09
+- 補足: PDF Association が、Adobe・Apryse・Foxit の後援で、無償で配っている（pdfa-inc.org の 0 ドルの手続きで受け取る。Errata Collection 3 を含む版と、ISO/TS 32001〜32005 の束）。ISO からは買う。中身は ISO の出版物で、ISO の利用許諾（End Customer Licence Agreement、2026-05-29 の改定）の 7(b) は、別の許諾がなければ、出版物を AI・機械学習のために読み・使い・処理することを禁じる。無償版を受け取るときの条件と PDF の中の注記は、配る頁に書かれておらず、確かめていない。エージェントは、利用者が条件を確かめるまで本文を読まない（決定 0287、zumen-jp/zumen#674）。書誌の事実は、2026-11-09 に www.iso.org のページで確かめた
 
 ### spec-jlandxml_1_8
 
@@ -647,15 +647,18 @@
 ### format-express
 
 - 名前: EXPRESS のスキーマ（ISO 10303-11。IFC のスキーマなど）
-- 権利の根拠: ISO が規格を売っていて、販売のページに実装を制限する記述はない。実装を制限しないと示す ISO の公式の文書は見つからなかったので、利用者が権利を判断した（zumen-jp/zumen#529、2026-11-09）。ISO のサイトに共通の注記が、ISO の内容を AI で扱うこと（学習と、AI のツールに入れて応答を作らせること）を禁じるので、台帳の e57 と同じく、ISO の本文は買わず、読まない。公開された EXPRESS のスキーマ（IFC など）と、寛容なライセンスの実装から読む。EXPRESS のスキーマは同梱しない（旧版の決定 0028）。ISO のページと仕様の扱いは、zumen-jp/zumen#669 で利用者が決める
+- 権利の根拠: ISO が規格を売っていて、販売のページに実装を制限する記述はない。実装を制限しないと示す ISO の公式の文書は見つからなかったので、利用者が権利を判断した（zumen-jp/zumen#529、2026-11-09）。ISO の利用許諾が出版物を AI で扱うことを禁じるので、台帳の e57 と同じく、ISO の本文は買わず、読まない（決定 0287）。買っていないので、出版物をソフトウェアなどに組み込むことに別の許諾を求める利用許諾の 6(b) にも当たらない。公開された EXPRESS のスキーマ（IFC など）と、寛容なライセンスの実装から読む。EXPRESS のスキーマは同梱しない（旧版の決定 0028）
 - 仕様: [iso\_10303\_11\_2004](#spec-iso_10303_11_2004)
 - 実装の根拠: inferred
+- 権利の根拠にした文書: [ISO の Licence Agreement（2026-05-29 の改定）](https://www.iso.org/terms-conditions-licence-agreement.html)（確認日: 2026-11-09）
+- 文書の補足: 出版物の使用は End Customer Licence Agreement に従う。7(b) は、別の許諾がなければ、出版物を AI・機械学習のために読み・使い・処理することを禁じる。6(b) は、出版物をソフトウェア・データモデル・AI のツールなどに組み込むことに、別の許諾を求める
 - 照合に使う候補: IfcOpenShell（依存にせず、別に入れて使う）
 - サンプルの出どころ: buildingSMART International が公開する IFC の EXPRESS のスキーマ。Git・パッケージ・テストに入れない（旧版の決定 0028）。テストの中で小さなスキーマを書く
 - 読みの確かめた度合い: `synthetic`（確認日: 2026-11-09）
 - 読みの確かめた範囲: テストの中で書いた小さな EXPRESS（crates/zumen-ifc/tests/express.rs）だけで確かめた。型・実体・属性・集まりを読むこと、評価しない規則の数、読めない書き方と宣言のない名前の失敗、予算、切ったり変えたりした EXPRESS で落ちないことを確かめる。buildingSMART が公開する IFC の EXPRESS のスキーマを読むことと、読んだ値とチェックの結果を外部の実装と照らすことはまだ（#663）
 - 記録: [決定 0207](../decisions/0207-building-model-components.md)
 - 記録: [決定 0216](../decisions/0216-express-validate-op.md)
+- 記録: [決定 0287](../decisions/0287-agent-reading-by-agreed-terms.md)
 - 旧版の記録: 旧版の決定 0028（[旧版の決定の一覧](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/README.md)）
 - issue: [zumen-jp/zumen#410](https://github.com/zumen-jp/zumen/issues/410)
 - issue: [zumen-jp/zumen#529](https://github.com/zumen-jp/zumen/issues/529)
@@ -879,11 +882,13 @@
 ### format-pdf
 
 - 名前: PDF
-- 権利の根拠: ISO の規格で、PDF Association が無償で配っている。実装を制限する記述はない
+- 権利の根拠: ISO の規格で、PDF Association が無償で配っている。配る頁に、実装を制限する記述はない。ISO の利用許諾の 6(b) は、出版物を手に入れた者が出版物をソフトウェアなどに組み込むことに別の許諾を求めるが、仕様の本文・表・図を写さずに形式を読み書きすることは当たらないと読む（決定 0287）。エージェントは、無償版の条件を確かめるまで本文を読まない（zumen-jp/zumen#674）
 - 仕様: [iso\_32000\_2\_2020](#spec-iso_32000_2_2020)
 - 実装の根拠: spec
-- 権利の根拠にした文書: [PDF Association の告知「ISO 32000-2（PDF 2.0）を無償で入手できる」（2023-04-05）](https://pdfa.org/announcing-no-cost-access-to-iso-32000-2-pdf-2-0/)（確認日: 2026-11-03）
-- 文書の補足: Adobe・Apryse・Foxit の後援で、PDF Association が登録した人に無償で配る。ページは自動の取得では開けない（HTTP 403）ので、検索の結果の要約で確かめた。無償版の利用の条件までは確かめていない
+- 権利の根拠にした文書: [PDF Association の告知「ISO 32000-2（PDF 2.0）を無償で入手できる」（2023-04-05）](https://pdfa.org/announcing-no-cost-access-to-iso-32000-2-pdf-2-0/)（確認日: 2026-11-09）
+- 文書の補足: Adobe・Apryse・Foxit の後援で、PDF Association が 0 ドルの手続きで配る。自動の取得は拒まれるので、2026-11-09 にブラウザーの拡張で開いて確かめた。配る頁に、利用の条件は書かれていない（zumen-jp/zumen#674）
+- 権利の根拠にした文書: [ISO の Licence Agreement（2026-05-29 の改定）](https://www.iso.org/terms-conditions-licence-agreement.html)（確認日: 2026-11-09）
+- 文書の補足: 出版物の使用は End Customer Licence Agreement に従う。7(b) は、別の許諾がなければ、出版物を AI・機械学習のために読み・使い・処理することを禁じる。6(b) は、出版物をソフトウェア・データモデル・AI のツールなどに組み込むことに、別の許諾を求める。無償版に当たるかは確かめていない（zumen-jp/zumen#674）
 - 照合に使う候補: pdf.js
 - サンプルの出どころ: PDFium の公開サンプル（Type 3・OCG・ソフトマスク・LZW と JPX）。CAD が出力した図面はまだない
 - 読みの確かめた度合い: `external`（確認日: 2026-11-06）
@@ -895,6 +900,7 @@
 - 記録: [決定 0008](../decisions/0008-model-layers-and-codecs.md)
 - 記録: [決定 0013](../decisions/0013-boundary-in-four-forms.md)
 - 記録: [決定 0256](../decisions/0256-pdf-with-hayro.md)
+- 記録: [決定 0287](../decisions/0287-agent-reading-by-agreed-terms.md)
 - 旧版の記録: 旧版の決定 0020、旧版の決定 0030（[旧版の決定の一覧](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/README.md)）
 - 形式の文書: [docs/formats/pdf.md](../../docs/formats/pdf.md)
 - 補足: ページの解釈は hayro-interpret 0.9.0（Apache-2.0 OR MIT）に任せ、バージョンを固定する（決定 0256）
