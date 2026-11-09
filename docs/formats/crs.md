@@ -22,9 +22,11 @@ crate `zumen-crs` が持つ、座標の空間の型・座標系の名指し・�
 | JGD2024（JGD2011）の平面直角座標系 I〜XIX | 6669〜6687 | `Crs::Plane(Zone)` |
 | JGD2011 (vertical) height | 6695 | `VerticalCrs::Jgd2011`（測地成果2011） |
 | JGD2024 (vertical) height | 11317 | `VerticalCrs::Jgd2024`（測地成果2024） |
+| JGD2000 の平面直角座標系 I〜XIX | 2443〜2461 | `Crs::Jgd2000(Zone)` |
+| 日本測地系の平面直角座標系 I〜XIX | 30161〜30179 | `Crs::Tokyo(Zone)` |
 
 - 名前は、`EPSG:6677`・`urn:ogc:def:crs:EPSG::6677`・`http://www.opengis.net/def/crs/EPSG/0/6677` と、EPSG の名前（`JGD2024 / Japan Plane Rectangular CS IX`）を読む。水平の座標系の `JGD2011` は `JGD2024` と同じに読む。高さの 2 つの名前は、別の成果を指す。
-- JGD2000（EPSG:2443〜2461）と日本測地系（EPSG:30161〜30179）は、別の測地系なので読まない。測地系の間の変換は、その座標を持つ形式を足すときに入れる。
+- JGD2000 と日本測地系の平面直角座標系は、EPSG の名前（`JGD2000 / Japan Plane Rectangular CS IX`・`Tokyo / Japan Plane Rectangular CS IX`）も読む。JGD2011 には、利用者が渡す TKY2JGD・PatchJGD のパラメーターのファイルで直す（下の「座標の補正量の格子」、[決定 0237](../decisions/0237-datum-transformations.md)）。経緯度の座標系（EPSG:4612・4301）は、まだ読まない。
 - 19 の系の原点は、平成 14 年国土交通省告示第 9 号の別表から書く。経度は分の整数で持ち、ラジアンにするときに π/10800 を掛ける。
 
 ## 経緯度と平面直角座標の換算
@@ -69,6 +71,20 @@ ISG format 2.0（ISG、2020-06-25）の格子を読み、国土地理院の「�
 
 国土地理院のジオイド・モデルは、Git・パッケージ・テストに入れない。テスト（`crates/zumen-crs/tests/grid.rs`）は、ISG format 2.0 の例と同じ形の合成の格子を使う。実際のモデルで、国土地理院の内挿計算プログラムと比べる照合は、[#438](https://github.com/zumen-jp/zumen/issues/438) で行う。
 
+## 座標の補正量の格子
+
+日本測地系と JGD2000 の平面直角座標は、国土地理院の TKY2JGD（日本測地系から JGD2000）と PatchJGD（JGD2000 から JGD2011）のパラメーターのファイルで経緯度を直し、JGD2011 にする（[決定 0237](../decisions/0237-datum-transformations.md)）。読み取りは `ShiftGrid` で、データの行の書式は TKY2JGD の論文（飛田、国土地理院時報 No.97、2001）の表 2 による。
+
+- データの行は、3 次メッシュのコード（8 桁）と、緯度・経度の補正量（秒）。空白で区切って読み、桁の位置は見ない。4 つ目の列（高さの補正量）があっても読まない。行の終わりは LF でも CR+LF でもよい。
+- 初めのデータの行の前は、ヘッダーとして読まない。TKY2JGD のヘッダーは 2 行。PatchJGD のヘッダーは、バージョンの行と説明の行を持ち、行数と文字コード（UTF-8・Shift_JIS）がファイルのバージョンで違う（国土地理院の[座標補正パラメータファイルの更新の履歴](https://www.gsi.go.jp/sokuchikijun/patchjgd_version_00001.html)。ファイルと各ファイルのヘッダーは[座標補正パラメータファイルの一覧](https://www.gsi.go.jp/sokuchikijun/sokuchikijun41012.html)にある）。
+- 初めのデータの行の後に、空白だけの行のほかで、データの行の形でない行（UTF-8 として読めない行を含む）があれば、`crs.datum-grid.invalid` で読まない（決定 0237）。同じ格子点が 2 度あるときと、格子点の数が上限を超えるときも、同じにする。
+- 補間は、点を囲む 3 次メッシュの四隅（緯度 30 秒・経度 45 秒の間隔）の格子点の双一次。PatchJGD の格子は地殻変動のあった地域だけを持つので、囲む格子点が 1 つもない点の補正量は 0 にする。囲む格子点の一部だけがある点と、TKY2JGD の格子の外の点は、`crs.datum-shift.missing` で直さない。
+- 公共測量成果改定マニュアル（国土地理院技術資料 A1-No.337、令和 7 年 4 月）の第 3 条の解説は、補正パラメーターの格子点を、3 次メッシュのコードの末位 2 桁が 00・05・50・55 のメッシュの南西の隅（緯度 150 秒・経度 225 秒の倍数）とする。この間隔の格子では、多くの点で囲む 3 次メッシュの四隅に格子点がないので、補正量を 0 にするか直さない。間隔の見分けは [#670](https://github.com/zumen-jp/zumen/issues/670) で足し、国土地理院のファイルの間隔は [#664](https://github.com/zumen-jp/zumen/issues/664) で確かめる。
+- PatchJGD の格子は 1 つだけ受ける。マニュアルの第 3 条の解説は、同じ地区に地震ごとのパラメーターのファイルが複数あれば古い順に当てるとするが、順に当てることはまだしない（[#670](https://github.com/zumen-jp/zumen/issues/670)）。
+- 格子点の数は、予算の作業量（`work`）で数える。
+
+パラメーターのファイルは、Git・パッケージ・テストに入れない。テスト（`crates/zumen-crs/tests/datum.rs`）は、表 2 と同じ項目の並びの合成の格子（桁の幅と行の終わりは表 2 と違う）と、行の終わりが CR+LF で長いヘッダーに UTF-8 でない行を含む合成の格子を使う。
+
 ## 標高の成果と基準
 
 - `Height::difference` は、基準の違う高さの差を求めず `crs.height-datum.unsupported` を返す。成果の違う高さの差は求め、`crs.height-realization.mixed` を返す。
@@ -83,8 +99,10 @@ SXF の測地座標系の部分図（X が北、Y が東）は、図面モデル
 | 形式 | 向き | 段 |
 | --- | --- | --- |
 | `isg` | 読み | `synthetic` |
+| `par` | 読み | `synthetic` |
 
-段の意味は[決定 0254](../decisions/0254-parallel-agents-and-cross-review.md) に、根拠は[形式と権利の一覧](README.md#format-isg)にあります。台帳の形式は、ジオイドの格子（ISG 形式）だけです。
+段の意味は[決定 0254](../decisions/0254-parallel-agents-and-cross-review.md) に、根拠は形式と権利の一覧の [`isg`](README.md#format-isg) と [`par`](README.md#format-par) にあります。台帳の形式は、ジオイドの格子（ISG 形式）と、座標の補正量の格子（TKY2JGD・PatchJGD のパラメーターのファイル）です。
 
 - ジオイドの格子: ISG format 2.0 の例と同じ形の合成の格子（`crates/zumen-crs/tests/grid.rs`）だけで確かめた `synthetic` の段。国土地理院のジオイド・モデルで、内挿計算プログラムと比べる照合は #438 で行う。
+- 座標の補正量の格子: TKY2JGD の論文の表 2 と同じ項目の並びの合成の格子と、長いヘッダーに UTF-8 でない行を含む合成の格子（`crates/zumen-crs/tests/datum.rs`）だけで確かめた `synthetic` の段。国土地理院のパラメーターのファイルは読んでいない。格子の間隔の見分けと jgdtrans との照合は #670 で、国土地理院のファイルと、測量計算サイトの TKY2JGD・PatchJGD で確かめることは #664 で行う。
 - 経緯度と平面直角座標の換算は形式ではないので、段を持たない。測量計算サイトと比べた記録は「照合の記録」にある。
