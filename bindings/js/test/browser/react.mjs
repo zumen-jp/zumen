@@ -192,14 +192,26 @@ try {
   const text = await sampleSource.getByRole("link", { name: "本文", exact: true }).getAttribute("href");
   assert.match(await page.evaluate((href) => fetch(href).then((r) => r.text()), text), /MIT License/);
   // 続けて選ぶと、最後に選んだものだけを開く（大きい DWG を取っている間に、小さい DXF を選ぶ）
+  // DWG の要求を止めておき、DXF を開いてから流す
+  const slow = "**/zumen-layout-r2000-*.dwg";
+  let release, held = new Promise((done) => { release = done; });
+  let arrived;
+  const requested = new Promise((done) => { arrived = done; });
+  await page.route(slow, async (route) => { arrived(); await held; await route.continue(); });
   await samplePicker.selectOption("dwg/zumen-layout-r2000.dwg");
+  await requested;
   await samplePicker.selectOption("dxf/opendxfviewer-latin1.dxf");
   await ready("DXF");
   assert.equal(await samplePicker.inputValue(), "dxf/opendxfviewer-latin1.dxf");
   assert.match(await sampleSource.innerText(), /ANSI_1252/);
   // 先に選んだ DWG が遅れて届いても、差し替えない
-  await page.waitForTimeout(1000);
+  const late = page.waitForResponse(slow);
+  release();
+  await late;
+  await page.waitForTimeout(500);
   assert.match(await status.textContent(), /表示しました。 DXF/);
+  assert.equal(await samplePicker.inputValue(), "dxf/opendxfviewer-latin1.dxf");
+  await page.unroute(slow);
   // 開いたサンプルを閉じる
   await page.getByRole("button", { name: "閉じる", exact: true }).click();
   assert.equal(await status.textContent(), "図面を選んでください。");
