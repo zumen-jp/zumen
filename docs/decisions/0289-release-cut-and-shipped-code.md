@@ -41,7 +41,7 @@
 3. **0.2.0。** 止めるものを、#661・#668・#672 に固定する。
 4. **周期。** 0.2.0 のあとは、2 週間ごとに、その時点の main から出す。間に合わないものは次の回に入れる。0283 の対象の失敗を直したら、2 週間を待たずにパッチを出す。
 5. **バージョン。** 壊す変更があればマイナーを、なければパッチを上げる（[0015](0015-add-only-boundary-and-version-floors.md)）。バージョンを上げる PR をマージしたコミットにタグを打つ。リリースのブランチは作らず、いつも main から出す。
-6. **0283 の対象とするコード。** 0283 の「公開した最新のバージョン」は、そのバージョンで配ったパッケージに入るコードとする。配ったパッケージは、crates.io・npm・PyPI・NuGet に出したものと、GitHub の Release に置いたものである（[0205](0205-release-and-publishing.md)）。crates.io の crate では、既定で使わない機能のコードも入る。`publish = false` の crate のように、どのパッケージにも入らないコードだけで起きる失敗は、0283 の対象にせず、[0258](0258-fuzz-seeds-and-runs.md)・[0261](0261-fuzz-outside-required-checks.md) のとおり公開で扱う。0283 の補ったこと 7 の一覧も、タグを打つコミットで配るパッケージに入るコードの失敗に限る。
+6. **0283 の対象とするコード。** 0283 の「公開した最新のバージョン」は、そのバージョンで配ったパッケージに入るコードとする。配ったパッケージは、crates.io・npm・PyPI・NuGet に出したものと、GitHub の Release に置いたものである（[0205](0205-release-and-publishing.md)）。crates.io の crate では、既定で使わない機能のコードも入る。`publish = false` の crate のように、どのパッケージにも入らないコードだけで起きる失敗は、0283 の対象にせず、[0258](0258-fuzz-seeds-and-runs.md)・[0261](0261-fuzz-outside-required-checks.md) のとおり公開で扱う。0283 の補ったこと 7 の一覧も、タグを打つコミットで配るパッケージに入るコードの失敗に限る。[0285](0285-release-push-requests.md) の 2 で、タグを打つコミットのすべての fuzz の target に流すときも、配るパッケージに入らないコードだけで起きる失敗は数えない。
 7. **0.2.0 で外すもの。** LAZ と PDF を、配るパッケージから外す。
    - `zumen-pdf` を `publish = false` にし、`release.yml` の `CRATES` から外す。配るのは、#521 などを直してからにする。
    - `zumen-las` で LAZ の展開を止め、依存の `laz` を外す。LAZ と分かったら、点の範囲を求めずに `las.laz.unsupported` を返して止まる。laz の直した版が出たら、パッチで展開を戻す（#510）。
@@ -56,5 +56,5 @@
 
 ## 参照
 
-- [0205](0205-release-and-publishing.md)・[0256](0256-pdf-with-hayro.md)・[0283](0283-fuzz-reporting-after-release.md)
+- [0205](0205-release-and-publishing.md)・[0256](0256-pdf-with-hayro.md)・[0283](0283-fuzz-reporting-after-release.md)・[0285](0285-release-push-requests.md)
 - #317・#510・#521・#707
