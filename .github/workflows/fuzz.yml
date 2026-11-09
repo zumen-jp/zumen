@@ -58,7 +58,7 @@ jobs:
       - name: cargo-fuzz をバージョンを決めて入れる
         run: cargo install cargo-fuzz --version "$CARGO_FUZZ_VERSION" --locked
       # 見つけた入力とログを暗号にする age を、流す前に入れる。入れられなければ、流さずに落とす（平文で残さない）。
-      # age（BSD-3-Clause）は暗号にするだけの道具で、成果物に入らない。Ubuntu の署名した包みを使い、版は固定しない
+      # age（BSD-3-Clause）は暗号にするだけのツールで、成果物に入らない。Ubuntu の署名したパッケージを使い、版は固定しない
       - name: 見つけた入力を暗号にする age を入れ、受け取り手の公開鍵を確かめる
         run: |
           sudo apt-get update -q
@@ -139,10 +139,10 @@ jobs:
           mkdir -p "$logs"
           export logs results
           targets=$(cargo "+$NIGHTLY" fuzz list)
-          # 流す手順で通らなかった target は、見つけた入力の元を残すため、縮めない。縮める処理は、落ちる入力・止まらない
-          # 入力・メモリを使い過ぎる入力を artifact に書いて飛ばし、0 で終わる。内側を立て直した回数（attempt）か、そうした
-          # 入力が増えたとき、1 つの target を縮めるのに 20 分を超えたとき、0 で終わらなかったときは、縮める前の種を残して、
-          # この手順を失敗させる
+          # 流す手順で通らなかった target は、縮めない。縮める処理は、落ちる入力・止まらない入力・メモリを使い過ぎる入力を
+          # artifact に書いて飛ばし、0 で終わる。内側を立て直した回数（attempt）か、そうした入力が増えたとき、1 つの target を
+          # 縮めるのに 20 分を超えたとき、0 で終わらなかったときは、縮めずに、この手順を失敗させる。どちらの target の種も、
+          # 黙って縮めて外さず、後の手順でキャッシュからまるごと除く（決定 0258 を #647 で改めた）
           printf '%s\n' $targets | xargs -P 4 -I '{}' sh -c '
             bin="fuzz/target/x86_64-unknown-linux-gnu/release/$1"
             [ -x "$bin" ] && [ -d "fuzz/corpus/$1" ] || exit 0
@@ -176,7 +176,7 @@ jobs:
           } | tee -a "$GITHUB_STEP_SUMMARY"
           failed=$(find "$logs" -name '*.failed' | xargs -r -n 1 basename | sed 's/\.failed$//')
           if [ -n "$failed" ]; then
-            echo "::error::種を縮められなかった target: $(echo $failed)。落ちる入力・止まらない入力・メモリの使い過ぎを見つけたか、20 分で縮め終わらなかった。縮める前の種を残した。入力とログは、暗号にした artifact の fuzz-private にある（fuzz/README.md）"
+            echo "::error::種を縮められなかった target: $(echo $failed)。落ちる入力・止まらない入力・メモリの使い過ぎを見つけたか、20 分で縮め終わらなかった。この target の種は、キャッシュに残さない。入力とログは、暗号にした artifact の fuzz-private にある（fuzz/README.md）"
             exit 1
           fi
       # 種を流し始めたときに落ちた入力は、種の中にもある。その後ろの種は、流していないので落ちるかが分からない。
@@ -226,7 +226,7 @@ jobs:
               cp "$RUNNER_TEMP/$dir/$name.log" "$bundle/logs/$dir/" 2>/dev/null || true
             done
           done
-          if find fuzz/artifacts -type f 2>/dev/null | grep -q . || find "$bundle/logs" -type f | grep -q .; then
+          if [ -n "$(find fuzz/artifacts -type f -print -quit 2>/dev/null)" ] || [ -n "$(find "$bundle/logs" -type f -print -quit)" ]; then
             [ -d fuzz/artifacts ] && cp -r fuzz/artifacts "$bundle/artifacts"
             mkdir -p "$bundle/samples"
             cp samples/README.md samples/ledger.toml "$bundle/samples/"
