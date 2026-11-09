@@ -155,6 +155,15 @@ url = "https://standards.buildingsmart.org/IFC/RELEASE/IFC4/ADD2_TC1/HTML/"
 checked = "2026-10-31"
 note = "文書の著作権の注記は CC BY-NC-ND 4.0 で、ライセンスの外の使い方には事前の書面の同意が要るとする。実装についての記述はない。2026-10-31 はサイトが自動の取得を拒み、Internet Archive の 2026-10-12 の写しで確かめた。zumen-jp/zumen#440 で、文書もスキーマも同梱・改変せず、実体と属性の並びなどの事実だけを実装に使うので、この注記の条件に触れないと判断した"
 
+[specs.iso_10303_11_2004]
+title = "ISO 10303-11:2004 Industrial automation systems and integration — Product data representation and exchange — Part 11: Description methods: The EXPRESS language reference manual"
+publisher = "ISO"
+version = "第 2 版（2004-11）。2025 年の見直しで確認され、今も有効"
+access = "paid"
+url = "https://www.iso.org/standard/38047.html"
+checked = "2026-11-09"
+note = "ISO が PDF と冊子で売る（CHF 227）。販売の頁に、実装を制限する記述と、AI で扱うことについての記述はない。本文は買わず、読まない（zumen-jp/zumen#529）。2026-11-09 は自動の取得が拒まれた（HTTP 403）ので、ブラウザーで頁を開いて確かめた"
+
 [specs.ids_1_0]
 title = "Information Delivery Specification（IDS）"
 publisher = "buildingSMART International"
@@ -269,6 +278,24 @@ access = "public"
 url = "https://www.gsi.go.jp/gijyutukanri/gijyutukanri41018.html"
 checked = "2026-11-02"
 note = "拡張 DM の今の正本。A1-No.291 の実装規約を改めたもの。技術資料は、特段の記載がなければ PDL 1.0 を準用する"
+
+[specs.tky2jgd_2001]
+title = "世界測地系移行のための座標変換ソフトウェア“TKY2JGD”"
+publisher = "国土地理院"
+version = "国土地理院時報 No.97（2001）、31〜57 ページ。著者は飛田幹男"
+access = "public"
+url = "https://www.gsi.go.jp/common/000040231.pdf"
+checked = "2026-11-09"
+note = "パラメーターのファイル（TKY2JGD.par）の構造を表－２ に、例を表－１ に載せる。ヘッダーは 2 行。データの行は、3 次メッシュのコード（8 バイト）と緯度・経度の補正量（秒、9 バイトずつ）を半角の空白で区切る。格子の間隔は緯度 30 秒・経度 45 秒で、格子点は 3 次メッシュの南西の隅。補間は、点を囲む 4 つの格子点の双一次（3.3 節）。本文は写さない"
+
+[specs.seikakaitei_r7_4]
+title = "公共測量成果改定マニュアル（国土地理院技術資料 A1-No.337）"
+publisher = "国土地理院"
+version = "令和 7 年 4 月"
+access = "public"
+url = "https://www.gsi.go.jp/shidou/data/seikakaiteimanual.pdf"
+checked = "2026-11-09"
+note = "PatchJGD とその補正パラメーターで公共測量成果を補正する方法を定める。第 3 条の解説は、補正パラメーターの格子点を 3 次メッシュのコードの末位 2 桁が 00・05・50・55 のメッシュの南西の隅（緯度 150 秒・経度 225 秒の倍数）とし、補正量を秒の緯度差・経度差とメートルの標高差で表すとする。技術資料は、特段の記載がなければ PDL 1.0 を準用する"
 
 [specs.citygml_2_0]
 title = "OGC City Geography Markup Language (CityGML) Encoding Standard（OGC 12-019）"
@@ -658,6 +685,28 @@ title = "buildingSMART International の検証のツール（validate）"
 url = "https://github.com/buildingSMART/validate"
 checked = "2026-10-24"
 
+[formats.express]
+name = "EXPRESS のスキーマ（ISO 10303-11。IFC のスキーマなど）"
+family = "express"
+domains = ["building"]
+specs = ["iso_10303_11_2004"]
+rights = "public"
+rights-note = "ISO が規格を売っていて、実装を制限する記述はない。実装を制限しないと示す ISO の公式の文書は見つからなかったので、利用者が権利を判断した（zumen-jp/zumen#529、2026-11-09）。台帳の e57 と同じ扱いにし、ISO の本文は買わず、読まない。公開された EXPRESS のスキーマ（IFC など）と、寛容なライセンスの実装から読む。EXPRESS のスキーマは同梱しない（旧版の決定 0028）"
+place = "core"
+basis = ["inferred"]
+verify = ["IfcOpenShell（依存にせず、別に入れて使う）"]
+samples = ["buildingSMART International が公開する IFC の EXPRESS のスキーマ。Git・パッケージ・テストに入れない（旧版の決定 0028）。テストの中で小さなスキーマを書く"]
+decisions = ["0207", "0216"]
+legacy-decisions = ["0028"]
+docs = ["docs/formats/express.md"]
+issues = ["zumen-jp/zumen#410", "zumen-jp/zumen#529", "zumen-jp/zumen#663"]
+notes = "読み取りを足した PR（zumen-jp/zumen#450）は、参照した実装を記録していないので、実装の根拠は推定にする。寛容なライセンスの実装を参照したら、basis に reference を、references にその実装を足す"
+
+[formats.express.read]
+level = "synthetic"
+scope = "テストの中で書いた小さな EXPRESS（crates/zumen-ifc/tests/express.rs）だけで確かめた。型・実体・属性・集まりを読むこと、評価しない規則の数、読めない書き方と宣言のない名前の失敗、予算、切ったり変えたりした EXPRESS で落ちないことを確かめる。buildingSMART が公開する IFC の EXPRESS のスキーマを読むことと、読んだ値とチェックの結果を外部の実装と照らすことはまだ（#663）"
+checked = "2026-11-09"
+
 [formats.isg]
 name = "ISG 形式（ジオイド高と基準面補正量の格子）"
 family = "isg"
@@ -681,6 +730,45 @@ checked = "2026-11-03"
 title = "「ジオイド2024日本とその周辺」と「基準面補正パラメータ」の説明書（2026 年 4 月）"
 url = "https://www.gsi.go.jp/common/000277542.pdf"
 checked = "2026-10-31"
+
+[formats.par]
+name = "TKY2JGD・PatchJGD のパラメーターのファイル（座標の補正量の格子）"
+family = "par"
+domains = ["geo"]
+specs = ["tky2jgd_2001", "seikakaitei_r7_4"]
+rights = "public"
+rights-note = "持ち主の国土地理院が、パラメーターのファイルの書式を公開している（TKY2JGD の論文の表－２、公共測量成果改定マニュアル）。国土地理院コンテンツ利用規約は、特段の記載がなければ公共データ利用規約（第 1.0 版）を当てはめ、実装を制限する記述はない（zumen-jp/zumen#529、2026-11-09）。パラメーターのファイルは同梱せず、利用者が渡す（決定 0019・0237）"
+place = "core"
+basis = ["spec", "inferred"]
+verify = ["国土地理院の測量計算サイトの TKY2JGD・PatchJGD"]
+samples = ["利用者が国土地理院から入手したパラメーターのファイル。Git・パッケージ・テストに入れない。テストの中で合成の格子を作る"]
+decisions = ["0019", "0233", "0237"]
+docs = ["docs/formats/crs.md"]
+issues = ["zumen-jp/zumen#471", "zumen-jp/zumen#529", "zumen-jp/zumen#664"]
+notes = "PatchJGD のファイルのヘッダーの行数と文字コード（UTF-8・Shift_JIS）は、ファイルのバージョンで違う。初めのデータの行の前をヘッダーとして読まないのは、これに合わせた推定"
+
+[formats.par.read]
+level = "synthetic"
+scope = "TKY2JGD の論文の表－２ と同じ形の合成の格子と、長いヘッダーに UTF-8 でない行を含む合成の格子（crates/zumen-crs/tests/datum.rs）で、ヘッダーの読み飛ばし・壊れた行・予算と、双一次の補間と変換を確かめた。国土地理院のパラメーターのファイルは読んでいない。公共測量成果改定マニュアル（令和 7 年 4 月）は、補正パラメーターの格子点を緯度 150 秒・経度 225 秒の倍数の所とするが、zumen は 3 次メッシュ（緯度 30 秒・経度 45 秒）の四隅で補間するので、その間隔の格子は正しく扱えない見込みで、まだ確かめていない。国土地理院のファイルの間隔と、測量計算サイトの TKY2JGD・PatchJGD との照合は #664 で行う"
+checked = "2026-11-09"
+
+[[formats.par.evidence]]
+title = "国土地理院コンテンツ利用規約"
+url = "https://www.gsi.go.jp/kikakuchousei/kikakuchousei40182.html"
+checked = "2026-11-09"
+note = "令和 7 年 11 月 20 日の改正。特段の記載がなければ、公共データ利用規約（第 1.0 版）を当てはめる。測量法による基本測量成果・公共測量成果の複製と使用の承認は、別に要る"
+
+[[formats.par.evidence]]
+title = "国土地理院の TKY2JGD のダウンロードの頁"
+url = "https://www.gsi.go.jp/sokuchikijun/tky2jgd_download.html"
+checked = "2026-11-09"
+note = "パラメーターのファイル（TKY2JGD.par の Ver.2.1.1・2.1.2 など）と、プログラム開発用の TKY2JGD のソースコードを配る。ソースコードは国土地理院コンテンツ利用規約に従う。書式と、申請の要否の記述はない。プログラムの配布は 2017-06-05 に終え、測量計算サイトの TKY2JGD を案内する"
+
+[[formats.par.evidence]]
+title = "国土地理院の PatchJGD の座標補正パラメータファイルの更新の履歴"
+url = "https://www.gsi.go.jp/sokuchikijun/patchjgd_version_00001.html"
+checked = "2026-11-09"
+note = "noto2024_BL.par の Ver.1.0.1 はヘッダーを 14 行から 15 行に、noto2024_02BL.par の Ver.1.0.1 は文字コードを UTF-8 から Shift_JIS に直した。ファイルと、各ファイルのヘッダーの一覧は https://www.gsi.go.jp/sokuchikijun/sokuchikijun41012.html にある"
 
 [formats.ids]
 name = "IDS（Information Delivery Specification）"

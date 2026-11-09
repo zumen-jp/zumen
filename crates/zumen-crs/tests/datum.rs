@@ -1,10 +1,11 @@
 //! 日本測地系と JGD2000 の座標を、合成の TKY2JGD・PatchJGD の格子で JGD2011 に直す（決定 0233、#471）。
 
-use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, codes};
+use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Kind, Limit, Limits, codes};
 use zumen_crs::{
     Crs, Ellipsoid, GeoPoint, MapPoint, ShiftGrid, Shifts, Zone, to_geographic_on, to_jgd2011,
     to_plane, to_plane_on,
 };
+use zumen_sdk::Error;
 
 #[cfg(test)]
 fn with_cx<T>(f: impl FnOnce(&mut Cx<'_>) -> T) -> (T, Vec<Code>) {
@@ -192,6 +193,48 @@ fn broken_lines_are_reported() {
     let (grid, diag) = with_cx(|cx| ShiftGrid::read(b"header only\n", cx));
     assert!(grid.is_err());
     assert_eq!(diag, [codes::CRS_DATUM_GRID_INVALID]);
+}
+
+/// PatchJGD のファイルのように、ヘッダーが長く、UTF-8 でない行（Shift_JIS の説明）を含んでも、初めのデータの行の
+/// 前は読まない。行の終わりは CR+LF
+#[test]
+fn long_headers_in_other_encodings_are_skipped() {
+    let around = GeoPoint {
+        latitude: 35.6,
+        longitude: 139.7,
+    };
+    let short = grid(around, tky);
+    let mut text = b"for PatchJGD Ver.1.0.0 001\r\n".to_vec();
+    for _ in 0..12 {
+        // Shift_JIS の「補正」。UTF-8 としては読めない
+        text.extend_from_slice(b"\x95\xe2\x90\xb3 \x95\xe2\x90\xb3\r\n");
+    }
+    text.extend_from_slice(b"\r\nMeshCode   dB(sec)   dL(sec)\r\n");
+    for line in short.lines().skip(2) {
+        text.extend_from_slice(line.as_bytes());
+        text.extend_from_slice(b"\r\n");
+    }
+    let (long, diag) = with_cx(|cx| ShiftGrid::read(&text, cx));
+    assert!(diag.is_empty(), "{diag:?}");
+    assert_eq!(long.ok(), Some(read(&short)));
+}
+
+/// 格子点の数は、予算の作業量で数える
+#[test]
+fn nodes_are_counted_in_the_budget() {
+    let text = grid(
+        GeoPoint {
+            latitude: 35.6,
+            longitude: 139.7,
+        },
+        tky,
+    );
+    let mut diag = Diagnostics::new();
+    let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(10)));
+    let cancel = CancelToken::new();
+    let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+    let found = ShiftGrid::read(text.as_bytes(), &mut cx);
+    assert!(matches!(found, Err(Error::Stopped(_))));
 }
 
 #[test]

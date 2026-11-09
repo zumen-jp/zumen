@@ -23,6 +23,7 @@
 | [dwg](#format-dwg) | DWG | acad | drawing | `public` | `core` | `application` | `application` |
 | [dxf](#format-dxf) | DXF | acad | drawing | `public` | `core` | `application` | `application` |
 | [e57](#format-e57) | E57（ASTM E2807） | e57 | pointcloud | `public` | `core` | `synthetic` |  |
+| [express](#format-express) | EXPRESS のスキーマ（ISO 10303-11。IFC のスキーマなど） | express | building | `public` | `core` | `synthetic` |  |
 | [extdm](#format-extdm) | 拡張 DM（公共測量標準図式数値地形図データファイル） | extdm | geo | `public` | `core` | `synthetic` |  |
 | [fgd](#format-fgd) | 基盤地図情報（GML） | fgd | geo | `public` | `core` | `synthetic` |  |
 | [ids](#format-ids) | IDS（Information Delivery Specification） | ids | building | `public` | `core` | `synthetic` |  |
@@ -35,6 +36,7 @@
 | [kokuban](#format-kokuban) | 電子小黒板の情報と信憑性確認（改ざん検知） | jpeg | delivery | `permission` | `none` |  |  |
 | [landxml](#format-landxml) | J-LandXML（LandXML 1.2 に準じた 3 次元設計データ交換標準） | landxml | civil | `public` | `core` | `synthetic` |  |
 | [las](#format-las) | LAS・LAZ | las | pointcloud | `public` | `core` | `synthetic` |  |
+| [par](#format-par) | TKY2JGD・PatchJGD のパラメーターのファイル（座標の補正量の格子） | par | geo | `public` | `core` | `synthetic` |  |
 | [pdf](#format-pdf) | PDF | pdf | drawing | `public` | `core` | `external` | `synthetic` |
 | [ply](#format-ply) | PLY（点群） | ply | pointcloud | `public` | `core` | `synthetic` |  |
 | [png](#format-png) | PNG | png | drawing | `public` | `core` |  | `external` |
@@ -301,6 +303,16 @@
 - 入手先: [The ISG-format (version 2.0)](https://www.isgeoid.polimi.it/Geoid/ISG_format_v20_20200625.pdf)
 - 確認日: 2026-10-31
 
+### spec-iso_10303_11_2004
+
+- 名前: ISO 10303-11:2004 Industrial automation systems and integration — Product data representation and exchange — Part 11: Description methods: The EXPRESS language reference manual
+- 公開元: ISO
+- 版: 第 2 版（2004-11）。2025 年の見直しで確認され、今も有効
+- 入手の条件: 有償
+- 入手先: [ISO 10303-11:2004 Industrial automation systems and integration — Product data representation and exchange — Part 11: Description methods: The EXPRESS language reference manual](https://www.iso.org/standard/38047.html)
+- 確認日: 2026-11-09
+- 補足: ISO が PDF と冊子で売る（CHF 227）。販売の頁に、実装を制限する記述と、AI で扱うことについての記述はない。本文は買わず、読まない（zumen-jp/zumen#529）。2026-11-09 は自動の取得が拒まれた（HTTP 403）ので、ブラウザーで頁を開いて確かめた
+
 ### spec-iso_32000_2_2020
 
 - 名前: ISO 32000-2:2020（PDF 2.0）
@@ -408,6 +420,16 @@
 - 入手先: [RFC 4180 Common Format and MIME Type for Comma-Separated Values (CSV) Files](https://www.rfc-editor.org/rfc/rfc4180)
 - 確認日: 2026-11-01
 
+### spec-seikakaitei_r7_4
+
+- 名前: 公共測量成果改定マニュアル（国土地理院技術資料 A1-No.337）
+- 公開元: 国土地理院
+- 版: 令和 7 年 4 月
+- 入手の条件: 無償公開
+- 入手先: [公共測量成果改定マニュアル（国土地理院技術資料 A1-No.337）](https://www.gsi.go.jp/shidou/data/seikakaiteimanual.pdf)
+- 確認日: 2026-11-09
+- 補足: PatchJGD とその補正パラメーターで公共測量成果を補正する方法を定める。第 3 条の解説は、補正パラメーターの格子点を 3 次メッシュのコードの末位 2 桁が 00・05・50・55 のメッシュの南西の隅（緯度 150 秒・経度 225 秒の倍数）とし、補正量を秒の緯度差・経度差とメートルの標高差で表すとする。技術資料は、特段の記載がなければ PDL 1.0 を準用する
+
 ### spec-stbridge_2_1_1
 
 - 名前: ST-Bridge XML ファイル仕様書
@@ -446,6 +468,16 @@
 - 入手先: [SXF 表示機能及び確認機能要件書（案）](https://www.cals-ed.go.jp/sxf_ver3-1_specification_draft/)
 - 確認日: 2026-10-24
 - 補足: 2026-10-24 はサイトにつながらず、Internet Archive の 2026-02-04 の写しで確かめた
+
+### spec-tky2jgd_2001
+
+- 名前: 世界測地系移行のための座標変換ソフトウェア“TKY2JGD”
+- 公開元: 国土地理院
+- 版: 国土地理院時報 No.97（2001）、31〜57 ページ。著者は飛田幹男
+- 入手の条件: 無償公開
+- 入手先: [世界測地系移行のための座標変換ソフトウェア“TKY2JGD”](https://www.gsi.go.jp/common/000040231.pdf)
+- 確認日: 2026-11-09
+- 補足: パラメーターのファイル（TKY2JGD.par）の構造を表－２ に、例を表－１ に載せる。ヘッダーは 2 行。データの行は、3 次メッシュのコード（8 バイト）と緯度・経度の補正量（秒、9 バイトずつ）を半角の空白で区切る。格子の間隔は緯度 30 秒・経度 45 秒で、格子点は 3 次メッシュの南西の隅。補間は、点を囲む 4 つの格子点の双一次（3.3 節）。本文は写さない
 
 ### spec-xmp_2012
 
@@ -611,6 +643,25 @@
 - 既知の crate: e57
 - issue: [zumen-jp/zumen#373](https://github.com/zumen-jp/zumen/issues/373)
 - 形式の文書: [docs/formats/e57.md](../../docs/formats/e57.md)
+
+### format-express
+
+- 名前: EXPRESS のスキーマ（ISO 10303-11。IFC のスキーマなど）
+- 権利の根拠: ISO が規格を売っていて、実装を制限する記述はない。実装を制限しないと示す ISO の公式の文書は見つからなかったので、利用者が権利を判断した（zumen-jp/zumen#529、2026-11-09）。台帳の e57 と同じ扱いにし、ISO の本文は買わず、読まない。公開された EXPRESS のスキーマ（IFC など）と、寛容なライセンスの実装から読む。EXPRESS のスキーマは同梱しない（旧版の決定 0028）
+- 仕様: [iso\_10303\_11\_2004](#spec-iso_10303_11_2004)
+- 実装の根拠: inferred
+- 照合に使う候補: IfcOpenShell（依存にせず、別に入れて使う）
+- サンプルの出どころ: buildingSMART International が公開する IFC の EXPRESS のスキーマ。Git・パッケージ・テストに入れない（旧版の決定 0028）。テストの中で小さなスキーマを書く
+- 読みの確かめた度合い: `synthetic`（確認日: 2026-11-09）
+- 読みの確かめた範囲: テストの中で書いた小さな EXPRESS（crates/zumen-ifc/tests/express.rs）だけで確かめた。型・実体・属性・集まりを読むこと、評価しない規則の数、読めない書き方と宣言のない名前の失敗、予算、切ったり変えたりした EXPRESS で落ちないことを確かめる。buildingSMART が公開する IFC の EXPRESS のスキーマを読むことと、読んだ値とチェックの結果を外部の実装と照らすことはまだ（#663）
+- 記録: [決定 0207](../decisions/0207-building-model-components.md)
+- 記録: [決定 0216](../decisions/0216-express-validate-op.md)
+- 旧版の記録: 旧版の決定 0028（[旧版の決定の一覧](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/README.md)）
+- issue: [zumen-jp/zumen#410](https://github.com/zumen-jp/zumen/issues/410)
+- issue: [zumen-jp/zumen#529](https://github.com/zumen-jp/zumen/issues/529)
+- issue: [zumen-jp/zumen#663](https://github.com/zumen-jp/zumen/issues/663)
+- 形式の文書: [docs/formats/express.md](../../docs/formats/express.md)
+- 補足: 読み取りを足した PR（zumen-jp/zumen#450）は、参照した実装を記録していないので、実装の根拠は推定にする。寛容なライセンスの実装を参照したら、basis に reference を、references にその実装を足す
 
 ### format-extdm
 
@@ -797,6 +848,31 @@
 - 既知の crate: las・laz
 - issue: [zumen-jp/zumen#371](https://github.com/zumen-jp/zumen/issues/371)
 - 形式の文書: [docs/formats/las.md](../../docs/formats/las.md)
+
+### format-par
+
+- 名前: TKY2JGD・PatchJGD のパラメーターのファイル（座標の補正量の格子）
+- 権利の根拠: 持ち主の国土地理院が、パラメーターのファイルの書式を公開している（TKY2JGD の論文の表－２、公共測量成果改定マニュアル）。国土地理院コンテンツ利用規約は、特段の記載がなければ公共データ利用規約（第 1.0 版）を当てはめ、実装を制限する記述はない（zumen-jp/zumen#529、2026-11-09）。パラメーターのファイルは同梱せず、利用者が渡す（決定 0019・0237）
+- 仕様: [tky2jgd\_2001](#spec-tky2jgd_2001)、[seikakaitei\_r7\_4](#spec-seikakaitei_r7_4)
+- 実装の根拠: spec・inferred
+- 権利の根拠にした文書: [国土地理院コンテンツ利用規約](https://www.gsi.go.jp/kikakuchousei/kikakuchousei40182.html)（確認日: 2026-11-09）
+- 文書の補足: 令和 7 年 11 月 20 日の改正。特段の記載がなければ、公共データ利用規約（第 1.0 版）を当てはめる。測量法による基本測量成果・公共測量成果の複製と使用の承認は、別に要る
+- 権利の根拠にした文書: [国土地理院の TKY2JGD のダウンロードの頁](https://www.gsi.go.jp/sokuchikijun/tky2jgd_download.html)（確認日: 2026-11-09）
+- 文書の補足: パラメーターのファイル（TKY2JGD.par の Ver.2.1.1・2.1.2 など）と、プログラム開発用の TKY2JGD のソースコードを配る。ソースコードは国土地理院コンテンツ利用規約に従う。書式と、申請の要否の記述はない。プログラムの配布は 2017-06-05 に終え、測量計算サイトの TKY2JGD を案内する
+- 権利の根拠にした文書: [国土地理院の PatchJGD の座標補正パラメータファイルの更新の履歴](https://www.gsi.go.jp/sokuchikijun/patchjgd_version_00001.html)（確認日: 2026-11-09）
+- 文書の補足: noto2024\_BL.par の Ver.1.0.1 はヘッダーを 14 行から 15 行に、noto2024\_02BL.par の Ver.1.0.1 は文字コードを UTF-8 から Shift\_JIS に直した。ファイルと、各ファイルのヘッダーの一覧は https://www.gsi.go.jp/sokuchikijun/sokuchikijun41012.html にある
+- 照合に使う候補: 国土地理院の測量計算サイトの TKY2JGD・PatchJGD
+- サンプルの出どころ: 利用者が国土地理院から入手したパラメーターのファイル。Git・パッケージ・テストに入れない。テストの中で合成の格子を作る
+- 読みの確かめた度合い: `synthetic`（確認日: 2026-11-09）
+- 読みの確かめた範囲: TKY2JGD の論文の表－２ と同じ形の合成の格子と、長いヘッダーに UTF-8 でない行を含む合成の格子（crates/zumen-crs/tests/datum.rs）で、ヘッダーの読み飛ばし・壊れた行・予算と、双一次の補間と変換を確かめた。国土地理院のパラメーターのファイルは読んでいない。公共測量成果改定マニュアル（令和 7 年 4 月）は、補正パラメーターの格子点を緯度 150 秒・経度 225 秒の倍数の所とするが、zumen は 3 次メッシュ（緯度 30 秒・経度 45 秒）の四隅で補間するので、その間隔の格子は正しく扱えない見込みで、まだ確かめていない。国土地理院のファイルの間隔と、測量計算サイトの TKY2JGD・PatchJGD との照合は #664 で行う
+- 記録: [決定 0019](../decisions/0019-coordinate-systems-and-gsi-data.md)
+- 記録: [決定 0233](../decisions/0233-geo-model-features.md)
+- 記録: [決定 0237](../decisions/0237-datum-transformations.md)
+- issue: [zumen-jp/zumen#471](https://github.com/zumen-jp/zumen/issues/471)
+- issue: [zumen-jp/zumen#529](https://github.com/zumen-jp/zumen/issues/529)
+- issue: [zumen-jp/zumen#664](https://github.com/zumen-jp/zumen/issues/664)
+- 形式の文書: [docs/formats/crs.md](../../docs/formats/crs.md)
+- 補足: PatchJGD のファイルのヘッダーの行数と文字コード（UTF-8・Shift\_JIS）は、ファイルのバージョンで違う。初めのデータの行の前をヘッダーとして読まないのは、これに合わせた推定
 
 ### format-pdf
 

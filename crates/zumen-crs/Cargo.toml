@@ -8,7 +8,7 @@ repository.workspace = true
 publish = true
 
 [package.metadata.zumen]
-formats = ["isg"]
+formats = ["isg", "par"]
 
 [dependencies]
 # 換算の三角関数と双曲線関数（決定 0007）。どの対象でも同じ値にする
