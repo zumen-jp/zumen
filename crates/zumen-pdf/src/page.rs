@@ -218,6 +218,65 @@ pub(crate) fn labels(
     Ok(out)
 }
 
+/// ページの木（7.7.3.2）の `Kids` の項目のうち、hayro-syntax 0.9.0 の `resolve_pages`（`document.pages()`）が、ページ
+/// にも節にもせずに黙って飛ばすものを、1 項目ごとに、それを持つ節の番号で返す（#555）。飛ばすのは、辞書に読めない項目
+/// （数・`null`・入れ子の深すぎる値を持つ辞書のように、読めない参照の先を含む）と、たどった節かページをもう一度指す
+/// 参照である。hayro-syntax と同じく、`root` から木の順にたどり、同じ参照は 2 度解かず、`Type` が `Pages` でない辞書
+/// はページとみなす。`Kids` は中間の節に必須の項目（7.7.3.2 の表 30）なので、`Kids` を配列に読めない（ない場合を含む）
+/// `Pages` の子の節は、下のページごと飛ばされるものとして、その節の番号で 1 つ数える。直接書いた節の項目は、その節を
+/// 含む間接オブジェクトの節の番号にする。項目ごとに予算の `work` を 1 と、読むバイト数を使う。たどる節の数は、間接
+/// オブジェクトの数と、ファイルに直接書いた節の数で抑えられる
+pub(crate) fn skipped_kids<'a>(
+    reads: Reads<'a>,
+    root: (u32, i32),
+    tree: &Dict<'a>,
+    cx: &mut Cx<'_>,
+) -> Result<Vec<(u32, i32)>, Stop> {
+    let mut skipped = Vec::new();
+    let mut seen = BTreeSet::from([root]);
+    let mut open: Vec<(ArrayIter<'a>, (u32, i32))> = Vec::new();
+    cx.check(Kind::Work, reads.value_work(tree, b"Kids"))?;
+    if let Some(kids) = tree.get::<Array<'a>>(b"Kids") {
+        cx.check(Kind::Work, lookup_work(kids.data()))?;
+        open.push((kids.raw_iter(), root));
+    }
+    while let Some((kids, owner)) = open.last_mut() {
+        let owner = *owner;
+        let Some(kid) = kids.next() else {
+            open.pop();
+            continue;
+        };
+        cx.check(Kind::Work, 1)?;
+        let (kid, at) = match kid {
+            MaybeRef::Ref(reference) => {
+                let id = (reference.obj_number, reference.gen_number);
+                if !seen.insert(id) {
+                    skipped.push(owner);
+                    continue;
+                }
+                cx.check(Kind::DecodedBytes, REFERENCE_BYTES)?;
+                (reads.xref.get::<Dict<'_>>(reference.into()), id)
+            }
+            MaybeRef::NotRef(object) => (object.into_dict(), owner),
+        };
+        let Some(kid) = kid else {
+            skipped.push(owner);
+            continue;
+        };
+        cx.check(Kind::Work, lookup_work(kid.data()))?;
+        if kid.get::<Name<'_>>(b"Type").as_deref() == Some(b"Pages".as_slice()) {
+            cx.check(Kind::Work, reads.value_work(&kid, b"Kids"))?;
+            if let Some(kids) = kid.get::<Array<'a>>(b"Kids") {
+                cx.check(Kind::Work, lookup_work(kids.data()))?;
+                open.push((kids.raw_iter(), at));
+            } else {
+                skipped.push(at);
+            }
+        }
+    }
+    Ok(skipped)
+}
+
 /// 数の木の節（7.9.7）を読む。範囲を `ranges` に足し、子の配列を `open` に積む（木の順にたどる）
 fn node<'a>(
     reads: Reads<'_>,
