@@ -957,6 +957,47 @@ fn lines_circles_and_arcs_are_added_with_the_pen_width_when_weight_follows_the_l
             "{field} {:?}",
             diag.iter().collect::<Vec<_>>()
         );
+        assert_eq!(
+            found[0].param("field"),
+            Some(&zumen_base::Value::Text(field.to_owned()))
+        );
         assert_eq!(write(&file), src);
     }
+
+    // 色を書かない点の追加も、同じ診断で断る（前は change.edit.unsupported だった）
+    let point = Shape::Point(zumen_drawing::Point {
+        position: model(1.0, 2.0),
+        rotation: 0.0,
+        look: zumen_drawing::PointLook::Document,
+        construction: false,
+    });
+    let point_style = Style {
+        color: Inherit::Layer,
+        line_type: Inherit::Layer,
+        line_weight: None,
+        ..style
+    };
+    let mut file = read(&src);
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let changes = Changes {
+        edits: vec![add(point_style, &point)],
+        document: None,
+    };
+    assert!(
+        file.apply(&changes, &mut Cx::new(&mut budget, &mut diag, &cancel))
+            .is_err()
+    );
+    let codes: Vec<_> = diag
+        .iter()
+        .map(|d| (d.code(), d.param("field").cloned()))
+        .collect();
+    assert_eq!(
+        codes,
+        [(
+            codes::CHANGE_STYLE_UNSUPPORTED,
+            Some(zumen_base::Value::Text("color".to_owned()))
+        )]
+    );
 }

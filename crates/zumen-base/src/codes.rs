@@ -542,7 +542,7 @@ pub const CHANGE_FORMAT_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
-/// 足す要素の色か線種を書いていない（レイヤに従う）が、元の形式はレイヤに従う色・線種を持たないので、書き戻せない。今は JWW の add で、色（点と線・円・円弧）と線種（線・円・円弧）を書く（#702）
+/// 足す要素の色か線種を書いていない（レイヤに従う）が、元の形式はレイヤに従う色・線種を持たないので、書き戻せない。今は JWW の add で、色（点と線・円・円弧）と線種（線・円・円弧）を書く（決定 0290）
 ///
 /// `change.style.unsupported`（0.2.0 から）
 pub const CHANGE_STYLE_UNSUPPORTED: Code = Code::new(

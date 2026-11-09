@@ -757,7 +757,7 @@ def run_recipe(z, out, entry, data, recipe, baseline):
         applied = response["result"]["applied"]
         # 期待する形と、足した要素の画層と色
         step["expect"] = [
-            {"id": a.get("id"), "edit": i, "geometry": e["_expect"], **{k: e[k] for k in ("layer", "color") if k in e}}
+            {"id": a.get("id"), "edit": i, "geometry": e["_expect"], **{k: e[k] for k in ("layer", "color", "line_type") if k in e}}
             for i, (e, a) in enumerate(zip(edits, applied))
             if "_expect" in e and a.get("id")
         ]
