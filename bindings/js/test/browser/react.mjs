@@ -53,6 +53,12 @@ try {
   const options = { root: app, configFile: join(app, "vite.config.js"), logLevel: "error" };
   await build({ ...options, build: { outDir: join(work, "app") } });
   assert.deepEqual(readFileSync(join(work, "app/viewer.css")), readFileSync(join(app, "public/viewer.css")));
+  // 同梱した公開サンプルの出所と、同梱を求めるライセンスの本文の一覧（#689）
+  const listed = readFileSync(join(work, "app/samples.md"), "utf8");
+  for (const name of ["dxf/text_alignments.dxf", "dxf/opendxfviewer-latin1.dxf", "dwg/zumen-layout-r2000.dwg", "dwg/zumen-minsert-r2004.dwg", "dwg/zumen-xclip-r2018.dwg"]) {
+    assert.ok(listed.includes("## " + name), name);
+  }
+  assert.equal(listed.match(/Permission is hereby granted/g)?.length, 2, "MIT の本文 2 つ");
   collect(join(work, "app"), "/app");
   // 同じ境界の検査を本番用 React と開発用 StrictMode の両方で組む。検査用の入口は製品へ入れない。
   for (const [folder, mode] of [["production", "production"], ["strict", "development"]]) {
@@ -67,7 +73,7 @@ try {
       failures.push("配布物以外の要求または送信"); response.writeHead(404).end(); return;
     }
     seen.add(request.url);
-    response.writeHead(200, { "Content-Type": mime[extname(path)] }).end(readFileSync(path));
+    response.writeHead(200, { "Content-Type": mime[extname(path)] ?? "application/octet-stream" }).end(readFileSync(path));
   });
   await new Promise((ok, fail) => server.once("error", fail).listen(port, "127.0.0.1", ok));
   browser = await browsers[product].launch(["chrome", "msedge"].includes(product) ? { channel: product } : {});
@@ -154,6 +160,43 @@ try {
       assert.match(await source.innerText(), /#30/);
     }
   }
+  // 公開サンプル（#689）。DWG の R2000・R2004・R2018 を選んで開き、表示・レイヤ・選択・出所・診断を操作する。
+  // サンプルは配布物の中のファイルで、取るのはローカルの GET だけ（下の failures で確かめる）
+  const samplePicker = page.getByLabel("公開サンプル");
+  const sampleSource = page.getByRole("region", { name: "サンプルの提供元とライセンス" });
+  for (const [path, version] of [["dwg/zumen-layout-r2000.dwg", "R2000"], ["dwg/zumen-minsert-r2004.dwg", "R2004"], ["dwg/zumen-xclip-r2018.dwg", "R2018"]]) {
+    await samplePicker.selectOption(path);
+    await ready("DWG");
+    assert.ok(await pixels() > 0, version + ": 図形の画素");
+    const shown = await sampleSource.innerText();
+    assert.match(shown, /CC0-1\.0/, version);
+    assert.match(shown, /zumen-jp/, version);
+    const layers = page.getByRole("checkbox");
+    assert.ok(await layers.count() > 0, version + ": レイヤ");
+    for (const layer of await layers.all()) await layer.uncheck();
+    assert.equal(await pixels(), 0, version + ": レイヤの非表示");
+    for (const layer of await layers.all()) await layer.check();
+    assert.ok(await pixels() > 0, version);
+    const first = page.getByRole("region", { name: /^要素/ }).getByRole("button").first();
+    await first.press("Enter");
+    // DWG の要素の出所は、ハンドルとバイト範囲
+    await source.getByText("ハンドル", { exact: true }).waitFor();
+    assert.match(await source.innerText(), /バイト範囲/, version);
+    assert.equal(await first.getAttribute("aria-pressed"), "true", version);
+    assert.equal(await page.getByRole("region", { name: /^診断/ }).count(), 1, version);
+  }
+  // 本文の同梱を求めるライセンス（MIT）のサンプルは、本文を配布物から開ける
+  await samplePicker.selectOption("dxf/text_alignments.dxf");
+  await ready("DXF");
+  assert.match(await sampleSource.innerText(), /MIT/);
+  const text = await sampleSource.getByRole("link", { name: "本文", exact: true }).getAttribute("href");
+  assert.match(await page.evaluate((href) => fetch(href).then((r) => r.text()), text), /MIT License/);
+  // 手元のファイルを選ぶと、サンプルの出所を消す
+  await file.setInputFiles({ name: "local.dxf", mimeType: "application/octet-stream", buffer: inputs.dxf });
+  await ready("DXF");
+  assert.equal(await sampleSource.count(), 0);
+  assert.equal(await samplePicker.inputValue(), "");
+
   await file.setInputFiles({ name: "references.dxf", mimeType: "application/octet-stream", buffer: references });
   await ready("DXF");
   const report = page.getByRole("region", { name: /^診断/ });
@@ -198,7 +241,7 @@ try {
   await checkBoundaries(page, inputs.jww, "StrictMode");
   assert.ok([...seen].some((p) => p.includes("/app/assets/worker-")) && [...seen].some((p) => p.endsWith(".wasm")));
   assert.deepEqual(failures, []);
-  const summary = product + " " + browser.version() + " で DXF・JWW・SXF、初回の表示範囲・倍率の両端、用紙の連続切り替え・レイヤ・40 要素の選択・配置別の診断、本番用 React・StrictMode の再接続中の状態と出所、ローカルの配布物だけの GET を確認";
+  const summary = product + " " + browser.version() + " で DXF・JWW・SXF と公開サンプルの DWG（R2000・R2004・R2018）、初回の表示範囲・倍率の両端、用紙の連続切り替え・レイヤ・40 要素の選択・配置別の診断、本番用 React・StrictMode の再接続中の状態と出所、ローカルの配布物だけの GET を確認";
   console.log(summary);
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, "\n" + summary + "\n");
 } finally {

@@ -1,6 +1,7 @@
 import React, { useLayoutEffect, useRef, useState } from "react";
 import { useDrawing, useDrawingViewer, useViewerState } from "@zumen-jp/react";
 import { VIEW_SCALE_LIMITS } from "@zumen-jp/view2d";
+import { samples } from "virtual:samples";
 import { catalog, loadModule } from "./module.js";
 import { Diagnostics, Inspector } from "./inspector.jsx";
 
@@ -17,7 +18,10 @@ export function Playground() {
   const [canvas, setCanvas] = useState(null);
   const [file, setFile] = useState(null);
   const [place, setPlace] = useState(null);
+  const [sample, setSample] = useState(null);
+  const [fetchError, setFetchError] = useState(null);
   const picker = useRef(null);
+  const fetching = useRef(0);
   const viewer = useDrawingViewer(canvas, viewOptions);
   const state = useViewerState(viewer);
   const opened = useDrawing(file, { from: place?.id, loadModule, catalog });
@@ -45,22 +49,56 @@ export function Playground() {
     catch (error) { viewer.setScene(null); setRenderError(error); }
   }, [viewer, canvas, input, ready]);
 
-  function choose(next) { setPlace(null); setFile(next); }
+  function choose(next, from = null) {
+    fetching.current++;
+    setPlace(null); setFile(next); setSample(from); setFetchError(null);
+  }
+  // 公開サンプルは、配布物の中のファイルをローカルの GET で取り、選んだファイルと同じに開く（#689）。
+  async function openSample(path) {
+    const chosen = samples.find((item) => item.path === path);
+    if (!chosen) return;
+    picker.current.value = "";
+    choose(null, chosen);
+    const token = fetching.current;
+    try {
+      const response = await fetch(chosen.file, { redirect: "error" });
+      if (!response.ok) throw new Error("sample.load");
+      const bytes = await response.arrayBuffer();
+      if (token !== fetching.current) return;
+      setFile(new File([bytes], chosen.path.split("/").pop()));
+    } catch (error) {
+      if (token === fetching.current) setFetchError(error);
+    }
+  }
   // 同じ図面の用紙を読み直す間も候補とフォーカスを保つ。別のファイルを選べば候補を捨てる。
   const drawing = opened.status === "ready" ? opened.drawing : place?.drawing;
-  const failed = opened.status === "error" || renderError;
+  const failed = opened.status === "error" || renderError || fetchError;
   const status = failed ? opened.error?.message === "drawing.input.limit" ? "64 MiB 以下のファイルを選んでください。" : "図面を表示できませんでした。"
-    : ready ? "表示しました。" : file ? "図面を読んでいます。" : "図面を選んでください。";
+    : ready ? "表示しました。" : file || sample ? "図面を読んでいます。" : "図面を選んでください。";
   return <main>
     <header><div className="heading"><span className="wordmark">zumen</span><h1>図面ビューア</h1></div>
       <p>選んだ図面をこのブラウザーで開きます。</p></header>
     <div className="file-bar">
       <label htmlFor="drawing-file">図面ファイル</label>
-      <input ref={picker} id="drawing-file" type="file" accept=".dxf,.jww,.sfc,.p21,.sfz,.p2z" aria-describedby="file-help"
+      <input ref={picker} id="drawing-file" type="file" accept=".dxf,.dwg,.jww,.sfc,.p21,.sfz,.p2z" aria-describedby="file-help"
         onChange={(e) => choose(e.target.files?.[0] ?? null)}/>
-      <span id="file-help">DXF・JWW・SXF ／ 64 MiB まで</span>
-      {file && <button onClick={() => { choose(null); picker.current.value = ""; picker.current.focus(); }}>閉じる</button>}
+      <span id="file-help">DXF・DWG・JWW・SXF ／ 64 MiB まで</span>
+      <label htmlFor="drawing-sample">公開サンプル</label>
+      <select id="drawing-sample" value={sample?.path ?? ""} onChange={(e) => openSample(e.target.value)}>
+        <option value="">選ぶ</option>
+        {samples.map((item) => <option key={item.path} value={item.path}>{item.title}</option>)}
+      </select>
+      {(file || sample) && <button onClick={() => { choose(null); picker.current.value = ""; picker.current.focus(); }}>閉じる</button>}
     </div>
+    {sample && <section className="sample-source" aria-label="サンプルの提供元とライセンス">
+      <h2>{sample.title}</h2>
+      <dl className="properties">
+        <dt>公開した者</dt><dd>{sample.publisher}</dd>
+        <dt>ライセンス</dt><dd><a href={sample.licenseUrl} rel="noreferrer">{sample.license}</a>{sample.text && <>（<a href={sample.text}>本文</a>）</>}</dd>
+        <dt>出所</dt><dd><a href={sample.source} rel="noreferrer">{sample.source}</a></dd>
+        <dt>表示</dt><dd>{sample.attribution}</dd>
+      </dl>
+    </section>}
     <div className="workspace">
       <div className="drawing-pane">
         <div className="toolbar" role="group" aria-label="表示の操作">
@@ -84,7 +122,7 @@ export function Playground() {
       </div>
       {ready && <Inspector key={opened.input.document.hash + "/" + state.scene.result.from} viewer={viewer} state={state} opened={opened}/>}
     </div>
-    {failed && !opened.diagnostics?.length && <details><summary>エラーの詳細</summary><p>{(renderError ?? opened.error)?.message}</p></details>}
+    {failed && !opened.diagnostics?.length && <details><summary>エラーの詳細</summary><p>{(fetchError ?? renderError ?? opened.error)?.message}</p></details>}
     {(ready || failed) && <Diagnostics entries={opened.diagnostics ?? []} issues={ready ? viewer.getReport().issues : []}/>}
   </main>;
 }
