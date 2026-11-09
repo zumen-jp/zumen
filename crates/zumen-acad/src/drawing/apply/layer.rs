@@ -201,10 +201,17 @@ fn color(
             let rgb = i64::from(u32::from_be_bytes([0, r, g, b]));
             // 真の色は、R2004 からの DXF と DWG に書く（DWG は #723）
             let kept = find(values, 420) == Some(&Data::Int(rgb));
-            (kept || (true_color && born.version_since(b"AC1018"))).then_some(())?;
+            (kept || (true_color && born.since(b"AC1018"))).then_some(())?;
+            // 色見本帳の色の名前（430）は、真の色を変えたら除く。DWG も、名前を持たない真の色を書く
+            if !kept {
+                set(values, 430, None);
+            }
             set(values, 420, Some(int(420, rgb)));
         }
-        None => set(values, 420, None),
+        None => {
+            set(values, 420, None);
+            set(values, 430, None);
+        }
     }
     Some(())
 }

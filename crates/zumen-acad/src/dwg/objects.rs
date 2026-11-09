@@ -1058,6 +1058,7 @@ pub(super) fn entity_fields(data: &[u8], release: Release) -> Option<[usize; 4]>
 }
 
 /// 図形のハンドルのストリームの、画層と線種のハンドルのビットの範囲（#723）
+#[derive(Default)]
 pub(super) struct StyleHandles {
     /// 画層のハンドル
     pub(super) layer: Range<usize>,

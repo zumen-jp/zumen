@@ -910,6 +910,42 @@ fn drawings_take_back_restyled_lines() {
                 rgb: None,
             }
         });
+        // RGB の色を持てないバージョン（R2004 より前）では、RGB の色への変更を、何も変えずに断る
+        if !rgb {
+            let refused = Changes {
+                edits: vec![Edit::Restyle {
+                    target: Seen {
+                        id: target.clone(),
+                        hash: Hash::element(line),
+                    },
+                    style: Restyle {
+                        color: Some(Inherit::Own(Color {
+                            code: None,
+                            rgb: Some([12, 34, 56]),
+                        })),
+                        ..Restyle::default()
+                    },
+                }],
+                document: None,
+            };
+            let mut diag = Diagnostics::new();
+            let mut budget = Budget::default();
+            let cancel = CancelToken::new();
+            let result = file.apply(&refused, &mut Cx::new(&mut budget, &mut diag, &cancel));
+            assert!(result.is_err(), "{}", path.display());
+            assert_eq!(
+                diag.iter().map(|d| d.code()).collect::<Vec<_>>(),
+                [codes::CHANGE_EDIT_UNSUPPORTED],
+                "{}",
+                path.display()
+            );
+            assert_eq!(
+                testkit::write::<C>(&file).unwrap(),
+                src,
+                "{}",
+                path.display()
+            );
+        }
         let weight = Inherit::Own(LineWeight::Width(PaperLength(0.35)));
         let changes = Changes {
             edits: vec![Edit::Restyle {
@@ -976,6 +1012,56 @@ fn drawings_take_back_restyled_lines() {
                 .collect()
         };
         assert_eq!(others(&after), others(&drawing), "{name}");
+        // 線種のハンドルと RGB の色を持つ図形を、ByLayer と番号の色に戻す（ハンドルのストリームから線種のハンドルを
+        // 除き、色の RGB の値を除く）
+        let mut file = testkit::read::<C>(&written).0.unwrap();
+        let aci = Inherit::Own(Color {
+            code: Some(ColorCode {
+                system: ColorSystem::Aci,
+                value: 3,
+            }),
+            rgb: None,
+        });
+        let back = Changes {
+            edits: vec![Edit::Restyle {
+                target: Seen {
+                    id: target.clone(),
+                    hash: Hash::element(restyled),
+                },
+                style: Restyle {
+                    color: Some(aci),
+                    line_type: Some(Inherit::Layer),
+                    ..Restyle::default()
+                },
+            }],
+            document: Some(Hash::document(&written)),
+        };
+        let mut diag = Diagnostics::new();
+        let mut budget = Budget::default();
+        let cancel = CancelToken::new();
+        file.apply(&back, &mut Cx::new(&mut budget, &mut diag, &cancel))
+            .unwrap_or_else(|error| panic!("{name}: {error:?}"));
+        let again = lift(
+            &testkit::read::<C>(&testkit::write::<C>(&file).unwrap())
+                .0
+                .unwrap(),
+        );
+        let space = &again.spaces[0];
+        let place = id::space(space.id);
+        let mut namer = id::Namer::new(&place);
+        let (_, back) = space
+            .elements
+            .iter()
+            .enumerate()
+            .map(|(index, element)| (namer.next(index, element), element))
+            .find(|(id, _)| *id == target)
+            .unwrap();
+        assert_eq!(back.shape, line.shape, "{name}");
+        assert_eq!(back.style.color, aci, "{name}");
+        assert_eq!(back.style.line_type, Inherit::Layer, "{name}");
+        assert_eq!(back.layer, restyled.layer, "{name}");
+        assert_eq!(back.style.line_weight, Some(weight), "{name}");
+        assert_eq!(others(&again), others(&drawing), "{name}");
         true
     }
     let rgb = |path: &Path| {

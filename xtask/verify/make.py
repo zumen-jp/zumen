@@ -569,7 +569,7 @@ def minsert_steps(_fmt):
 
 
 def restyle_steps(_fmt):
-    """#723: 今ある要素のレイヤ・色・線種・線種の倍率・線幅を変え、今あるレイヤの色と線種を変える"""
+    """#723: 画層を足し、今ある 2 つの要素のレイヤ・色・線種・線種の倍率・線幅を変える"""
 
     def layer(_reading):
         return [{"kind": "add_layer", "name": "ZUMEN_RESTYLED", "color": {"aci": 4}}]

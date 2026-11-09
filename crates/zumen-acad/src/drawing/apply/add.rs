@@ -208,8 +208,8 @@ impl Born {
         &self.encoder
     }
 
-    /// バージョンが `release` 以後か
-    fn since(&self, release: &[u8]) -> bool {
+    /// DXF か DWG のバージョンが `release` 以後か
+    pub(super) fn since(&self, release: &[u8]) -> bool {
         self.version.as_slice() >= release
     }
 
@@ -489,11 +489,6 @@ impl Born {
     /// 文字の値。2007 より前のバージョンのコード・ページで表せない文字を書くなら `None`
     pub(super) fn text_value(&self, code: i16, value: &str) -> Option<Value> {
         self.string(code, value)
-    }
-
-    /// DXF か DWG のバージョンが `release` 以後か
-    pub(super) fn version_since(&self, release: &[u8]) -> bool {
-        self.since(release)
     }
 
     /// DXF のバージョンが `release` 以後か。DWG なら真

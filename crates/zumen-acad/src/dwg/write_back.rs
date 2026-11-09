@@ -109,6 +109,10 @@ impl Restyle {
     /// `slots` は元のデータの画層と線種のハンドルの位置。ハンドルは固い参照（符号 5）で、絶対の値で書く
     fn handles(self, data: &[u8], handles_at: usize, slots: &StyleSlots) -> Option<BitWriter> {
         let mut out = BitWriter::default();
+        if self.is_empty() {
+            out.copy(data, handles_at..data.len() * 8)?;
+            return Some(out);
+        }
         out.copy(data, handles_at..slots.layer.start)?;
         match self.layer {
             Some(layer) => out.handle(5, layer),
@@ -2489,7 +2493,11 @@ fn encode(
         return None;
     }
     let [size_at, color_at, start, handles_at] = entity_fields(data, release)?;
-    let slots = style_handles(data, release, None)?;
+    // 画層と線種を変えなければ、ハンドルのストリームを読まない（DBCOLOR の色は、共通のデータのフラグでも断る）
+    let slots = match restyle.is_empty() {
+        true => StyleSlots::default(),
+        false => style_handles(data, release, None)?,
+    };
     let common = common(data, [color_at, start], old, new, release, restyle, &slots)?;
     let fields = if only(own, old, true) == only(own, new, true) {
         let mut fields = BitWriter::default();
@@ -2620,7 +2628,10 @@ fn encode_r2010(
         return None;
     }
     let [color_at, start, end] = r2010_entity_fields(data, handles_at, release)?;
-    let slots = style_handles(data, release, Some(handles_at))?;
+    let slots = match restyle.is_empty() {
+        true => StyleSlots::default(),
+        false => style_handles(data, release, Some(handles_at))?,
+    };
     let common = common(data, [color_at, start], old, new, release, restyle, &slots)?;
     let mut out = BitWriter::default();
     out.copy(data, 0..color_at)?;
@@ -3108,7 +3119,7 @@ fn same_record_rest(old: &Object, new: &Object) -> Option<()> {
         .collect();
     let own: &[i16] = match new.kind.as_slice() {
         // 線種（6）と真の色（420）も書き直せる（#723）
-        b"LAYER" => &[LAYER, &[6, 420]].concat(),
+        b"LAYER" => &[LAYER, &[6, 420, 430]].concat(),
         b"STYLE" => STYLE,
         b"LTYPE" => LTYPE,
         b"VIEW" => VIEW,
@@ -3415,8 +3426,10 @@ fn layer(
         Some(rgb) if old_color.rgb.map(i64::from) == Some(rgb) && old_color.index == color => {
             fields.copy(data, color_at..bits.pos())?;
         }
+        // 色見本帳の色の名前（430）は書かないので、名前を持つ画層の色は変えない
         Some(rgb) => {
-            (release >= Release::R2004).then_some(())?;
+            (release >= Release::R2004 && !object.values.iter().any(|value| value.code == 430))
+                .then_some(())?;
             let rgb = u32::try_from(rgb).ok().filter(|rgb| *rgb <= 0x00FF_FFFF)?;
             fields.bs(color);
             fields.bl(i32::from_ne_bytes(((0xC2 << 24) | rgb).to_ne_bytes()));
