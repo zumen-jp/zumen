@@ -82,6 +82,7 @@
     "crs.height-datum.unsupported": "The difference between heights on different datums ({first} and {second}) was not computed ({count}).",
     "crs.height-realization.assumed": "The survey realization of the heights was not written, so {realization} was assumed ({count}).",
     "crs.height-realization.mixed": "Heights of the {first} and {second} survey realizations were used together ({count}).",
+    "crs.projection.unsupported": "Points in EPSG:{crs} could not be converted between plane rectangular and geographic coordinates, or have no plane rectangular zone, and were not converted to JGD2011 plane rectangular coordinates ({count}).",
     "csv.encoding.invalid": "The CSV has bytes that cannot be decoded as {encoding}, so they were replaced.",
     "csv.quote.invalid": "The quote that starts on line {line} is not closed, so the rest was read as one value.",
     "delivery.file.invalid": "The management file \"{name}\" cannot be read as XML, so it was not moved to the records.",
