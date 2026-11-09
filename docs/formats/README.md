@@ -311,7 +311,7 @@
 - 入手の条件: 有償
 - 入手先: [ISO 10303-11:2004 Industrial automation systems and integration — Product data representation and exchange — Part 11: Description methods: The EXPRESS language reference manual](https://www.iso.org/standard/38047.html)
 - 確認日: 2026-11-09
-- 補足: ISO が PDF と冊子で売る（CHF 227）。販売の頁に、実装を制限する記述と、AI で扱うことについての記述はない。本文は買わず、読まない（zumen-jp/zumen#529）。2026-11-09 は自動の取得が拒まれた（HTTP 403）ので、ブラウザーで頁を開いて確かめた
+- 補足: ISO が PDF と冊子で売る（CHF 227）。販売のページに、実装を制限する記述はない。ISO のサイトに共通の注記は、ISO Open data のものを除き、ISO の内容を機械学習・AI に使うこと（モデルの学習と、AI のツールに入れて応答を作らせること）を禁じ、出版物の使用と複製に書面の許諾が要るとする（2026-11-09 に、zumen-jp/zumen#666 の確かめる側が committee.iso.org の同じ規格のページで見た）。本文は買わず、読まない（zumen-jp/zumen#529）。www.iso.org のページは自動の取得を拒む（HTTP 403）ので、2026-11-09 にブラウザーで開いて書誌の事実を確かめた。エージェントが ISO のページを読むことの扱いは zumen-jp/zumen#669 で決める
 
 ### spec-iso_32000_2_2020
 
@@ -428,7 +428,7 @@
 - 入手の条件: 無償公開
 - 入手先: [公共測量成果改定マニュアル（国土地理院技術資料 A1-No.337）](https://www.gsi.go.jp/shidou/data/seikakaiteimanual.pdf)
 - 確認日: 2026-11-09
-- 補足: PatchJGD とその補正パラメーターで公共測量成果を補正する方法を定める。第 3 条の解説は、補正パラメーターの格子点を 3 次メッシュのコードの末位 2 桁が 00・05・50・55 のメッシュの南西の隅（緯度 150 秒・経度 225 秒の倍数）とし、補正量を秒の緯度差・経度差とメートルの標高差で表すとする。技術資料は、特段の記載がなければ PDL 1.0 を準用する
+- 補足: PatchJGD とその補正パラメーターで公共測量成果を補正する方法を定める。第 3 条の解説は、補正パラメーターの格子点を 3 次メッシュのコードの末位 2 桁が 00・05・50・55 のメッシュの南西の隅（緯度 150 秒・経度 225 秒の倍数）とし、補正量を秒の緯度差・経度差とメートルの標高差で表すとする。パラメーターのファイルの書式（ヘッダー・列・文字コード）は示さない（第 14 条などの入力フォーマットは、補正する点の一覧の書式）。2026-11-09 に確かめた国土地理院の技術資料の一覧は、この資料に当てはめる利用規約を区分 2 の国土地理院コンテンツ利用規約とする。一覧は https://www.gsi.go.jp/REPORT/TECHNICAL/gsigijutsu1.htm にある
 
 ### spec-stbridge_2_1_1
 
@@ -477,7 +477,7 @@
 - 入手の条件: 無償公開
 - 入手先: [世界測地系移行のための座標変換ソフトウェア“TKY2JGD”](https://www.gsi.go.jp/common/000040231.pdf)
 - 確認日: 2026-11-09
-- 補足: パラメーターのファイル（TKY2JGD.par）の構造を表－２ に、例を表－１ に載せる。ヘッダーは 2 行。データの行は、3 次メッシュのコード（8 バイト）と緯度・経度の補正量（秒、9 バイトずつ）を半角の空白で区切る。格子の間隔は緯度 30 秒・経度 45 秒で、格子点は 3 次メッシュの南西の隅。補間は、点を囲む 4 つの格子点の双一次（3.3 節）。本文は写さない
+- 補足: パラメーターのファイル（TKY2JGD.par）の構造を表 2 に、例を表 1 に載せる。ヘッダーは 2 行。データの行は、3 次メッシュのコード（8 バイト）と緯度・経度の補正量（秒、9 バイトずつ）を半角の空白で区切る。格子の間隔は緯度 30 秒・経度 45 秒で、格子点は 3 次メッシュの南西の隅。補間は、点を囲む 4 つの格子点の双一次（3.3 節）。本文は写さない
 
 ### spec-xmp_2012
 
@@ -647,7 +647,7 @@
 ### format-express
 
 - 名前: EXPRESS のスキーマ（ISO 10303-11。IFC のスキーマなど）
-- 権利の根拠: ISO が規格を売っていて、実装を制限する記述はない。実装を制限しないと示す ISO の公式の文書は見つからなかったので、利用者が権利を判断した（zumen-jp/zumen#529、2026-11-09）。台帳の e57 と同じ扱いにし、ISO の本文は買わず、読まない。公開された EXPRESS のスキーマ（IFC など）と、寛容なライセンスの実装から読む。EXPRESS のスキーマは同梱しない（旧版の決定 0028）
+- 権利の根拠: ISO が規格を売っていて、販売のページに実装を制限する記述はない。実装を制限しないと示す ISO の公式の文書は見つからなかったので、利用者が権利を判断した（zumen-jp/zumen#529、2026-11-09）。ISO のサイトに共通の注記が、ISO の内容を AI で扱うこと（学習と、AI のツールに入れて応答を作らせること）を禁じるので、台帳の e57 と同じく、ISO の本文は買わず、読まない。公開された EXPRESS のスキーマ（IFC など）と、寛容なライセンスの実装から読む。EXPRESS のスキーマは同梱しない（旧版の決定 0028）。ISO のページと仕様の扱いは、zumen-jp/zumen#669 で利用者が決める
 - 仕様: [iso\_10303\_11\_2004](#spec-iso_10303_11_2004)
 - 実装の根拠: inferred
 - 照合に使う候補: IfcOpenShell（依存にせず、別に入れて使う）
@@ -660,6 +660,8 @@
 - issue: [zumen-jp/zumen#410](https://github.com/zumen-jp/zumen/issues/410)
 - issue: [zumen-jp/zumen#529](https://github.com/zumen-jp/zumen/issues/529)
 - issue: [zumen-jp/zumen#663](https://github.com/zumen-jp/zumen/issues/663)
+- issue: [zumen-jp/zumen#668](https://github.com/zumen-jp/zumen/issues/668)
+- issue: [zumen-jp/zumen#669](https://github.com/zumen-jp/zumen/issues/669)
 - 形式の文書: [docs/formats/express.md](../../docs/formats/express.md)
 - 補足: 読み取りを足した PR（zumen-jp/zumen#450）は、参照した実装を記録していないので、実装の根拠は推定にする。寛容なライセンスの実装を参照したら、basis に reference を、references にその実装を足す
 
@@ -852,27 +854,27 @@
 ### format-par
 
 - 名前: TKY2JGD・PatchJGD のパラメーターのファイル（座標の補正量の格子）
-- 権利の根拠: 持ち主の国土地理院が、パラメーターのファイルの書式を公開している（TKY2JGD の論文の表－２、公共測量成果改定マニュアル）。国土地理院コンテンツ利用規約は、特段の記載がなければ公共データ利用規約（第 1.0 版）を当てはめ、実装を制限する記述はない（zumen-jp/zumen#529、2026-11-09）。パラメーターのファイルは同梱せず、利用者が渡す（決定 0019・0237）
+- 権利の根拠: 持ち主の国土地理院が、パラメーターのファイルのデータの行の書式（TKY2JGD の論文の表 2）と、PatchJGD の補正パラメーターの格子点の置き方と単位（公共測量成果改定マニュアル）を公開している。PatchJGD のファイルのヘッダーの書式を定めた文書は見当たらず、国土地理院が載せる各ファイルのヘッダーの例から推定する（basis の inferred）。国土地理院コンテンツ利用規約は、特段の記載がなければ公共データ利用規約（第 1.0 版）を当てはめ、実装を制限する記述はない（zumen-jp/zumen#529、2026-11-09）。パラメーターのファイルは同梱せず、利用者が渡す（決定 0019・0237）
 - 仕様: [tky2jgd\_2001](#spec-tky2jgd_2001)、[seikakaitei\_r7\_4](#spec-seikakaitei_r7_4)
 - 実装の根拠: spec・inferred
 - 権利の根拠にした文書: [国土地理院コンテンツ利用規約](https://www.gsi.go.jp/kikakuchousei/kikakuchousei40182.html)（確認日: 2026-11-09）
 - 文書の補足: 令和 7 年 11 月 20 日の改正。特段の記載がなければ、公共データ利用規約（第 1.0 版）を当てはめる。測量法による基本測量成果・公共測量成果の複製と使用の承認は、別に要る
-- 権利の根拠にした文書: [国土地理院の TKY2JGD のダウンロードの頁](https://www.gsi.go.jp/sokuchikijun/tky2jgd_download.html)（確認日: 2026-11-09）
+- 権利の根拠にした文書: [国土地理院の TKY2JGD のダウンロードのページ](https://www.gsi.go.jp/sokuchikijun/tky2jgd_download.html)（確認日: 2026-11-09）
 - 文書の補足: パラメーターのファイル（TKY2JGD.par の Ver.2.1.1・2.1.2 など）と、プログラム開発用の TKY2JGD のソースコードを配る。ソースコードは国土地理院コンテンツ利用規約に従う。書式と、申請の要否の記述はない。プログラムの配布は 2017-06-05 に終え、測量計算サイトの TKY2JGD を案内する
-- 権利の根拠にした文書: [国土地理院の PatchJGD の座標補正パラメータファイルの更新の履歴](https://www.gsi.go.jp/sokuchikijun/patchjgd_version_00001.html)（確認日: 2026-11-09）
-- 文書の補足: noto2024\_BL.par の Ver.1.0.1 はヘッダーを 14 行から 15 行に、noto2024\_02BL.par の Ver.1.0.1 は文字コードを UTF-8 から Shift\_JIS に直した。ファイルと、各ファイルのヘッダーの一覧は https://www.gsi.go.jp/sokuchikijun/sokuchikijun41012.html にある
-- 照合に使う候補: 国土地理院の測量計算サイトの TKY2JGD・PatchJGD
+- 照合に使う候補: 国土地理院の測量計算サイト（TKY2JGD・PatchJGD）・jgdtrans（dev の依存にして、テストの中で作った格子で照らす。zumen-jp/zumen#670）
 - サンプルの出どころ: 利用者が国土地理院から入手したパラメーターのファイル。Git・パッケージ・テストに入れない。テストの中で合成の格子を作る
 - 読みの確かめた度合い: `synthetic`（確認日: 2026-11-09）
-- 読みの確かめた範囲: TKY2JGD の論文の表－２ と同じ形の合成の格子と、長いヘッダーに UTF-8 でない行を含む合成の格子（crates/zumen-crs/tests/datum.rs）で、ヘッダーの読み飛ばし・壊れた行・予算と、双一次の補間と変換を確かめた。国土地理院のパラメーターのファイルは読んでいない。公共測量成果改定マニュアル（令和 7 年 4 月）は、補正パラメーターの格子点を緯度 150 秒・経度 225 秒の倍数の所とするが、zumen は 3 次メッシュ（緯度 30 秒・経度 45 秒）の四隅で補間するので、その間隔の格子は正しく扱えない見込みで、まだ確かめていない。国土地理院のファイルの間隔と、測量計算サイトの TKY2JGD・PatchJGD との照合は #664 で行う
+- 読みの確かめた範囲: TKY2JGD の論文の表 2 と同じ項目の並びの合成の格子（桁の幅と行の終わりは表 2 と違う）と、行の終わりが CR+LF で長いヘッダーに UTF-8 でない行を含む合成の格子（crates/zumen-crs/tests/datum.rs）で、ヘッダーの読み飛ばし・壊れた行（初めのデータの行の後の UTF-8 でない行を含む）・格子点を数える予算と、双一次の補間と変換を確かめた。国土地理院のパラメーターのファイルは読んでいない。公共測量成果改定マニュアル（令和 7 年 4 月）は、補正パラメーターの格子点を緯度 150 秒・経度 225 秒の倍数の所とするが、zumen は 3 次メッシュ（緯度 30 秒・経度 45 秒）の四隅で補間するので、その間隔の格子は正しく扱えない見込みで、まだ確かめていない（#670）。国土地理院のファイルと、測量計算サイトの TKY2JGD・PatchJGD との照合は #664 で行う
+- 既知の crate: jgdtrans
 - 記録: [決定 0019](../decisions/0019-coordinate-systems-and-gsi-data.md)
 - 記録: [決定 0233](../decisions/0233-geo-model-features.md)
 - 記録: [決定 0237](../decisions/0237-datum-transformations.md)
 - issue: [zumen-jp/zumen#471](https://github.com/zumen-jp/zumen/issues/471)
 - issue: [zumen-jp/zumen#529](https://github.com/zumen-jp/zumen/issues/529)
 - issue: [zumen-jp/zumen#664](https://github.com/zumen-jp/zumen/issues/664)
+- issue: [zumen-jp/zumen#670](https://github.com/zumen-jp/zumen/issues/670)
 - 形式の文書: [docs/formats/crs.md](../../docs/formats/crs.md)
-- 補足: PatchJGD のファイルのヘッダーの行数と文字コード（UTF-8・Shift\_JIS）は、ファイルのバージョンで違う。初めのデータの行の前をヘッダーとして読まないのは、これに合わせた推定
+- 補足: PatchJGD のファイルのヘッダーの行数と文字コード（UTF-8・Shift\_JIS）は、ファイルのバージョンで違う。2026-11-09 に確かめた国土地理院の座標補正パラメータファイルの更新の履歴では、noto2024\_BL.par の Ver.1.0.1 がヘッダーを 14 行から 15 行に、noto2024\_02BL.par の Ver.1.0.1 が文字コードを UTF-8 から Shift\_JIS に直した。初めのデータの行の前をヘッダーとして読まないのは、これに合わせた推定。更新の履歴は https://www.gsi.go.jp/sokuchikijun/patchjgd\_version\_00001.html に、ファイルと各ファイルのヘッダーの一覧は https://www.gsi.go.jp/sokuchikijun/sokuchikijun41012.html にある
 
 ### format-pdf
 
