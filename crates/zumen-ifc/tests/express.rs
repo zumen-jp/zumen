@@ -5,7 +5,7 @@ use std::fmt::Write as _;
 use zumen_base::{
     Budget, CancelToken, Code, Cx, Diagnostic, Diagnostics, Kind, Limit, Limits, Value, codes,
 };
-use zumen_ifc::{Express, Ifc, IfcFile, check};
+use zumen_ifc::{Express, Findings, Ifc, IfcFile, check, check_range};
 use zumen_sdk::{Codec, Error};
 
 const EXPRESS: &str = "(* テスト用の小さなスキーマ (* 入れ子の注釈 *) *)
@@ -136,6 +136,55 @@ fn run(data: &str) -> Result<(Vec<Diagnostic>, Diagnostics), Error> {
     let (file, schema) = (file(data)?, schema()?);
     let (findings, diag) = with(Limits::default(), |cx| check(&file, &schema, cx));
     Ok((findings?, diag))
+}
+
+/// EXPRESS と IFC の DATA を読み、`limits` の予算で `range` の指摘を求めて、結果・診断・チェックで使った work を返す。
+/// IFC の `FILE_SCHEMA` は、EXPRESS のスキーマの名前にする
+fn check_work(
+    express: &str,
+    data: &str,
+    range: core::ops::Range<u64>,
+    limits: Limits,
+) -> Result<(Result<Findings, Error>, Diagnostics, u64), Error> {
+    let schema = with(Limits::default(), |cx| {
+        Express::read(express.as_bytes(), cx)
+    })
+    .0?;
+    let file = with(Limits::default(), |cx| {
+        Ifc::read(ifc(schema.name(), data).as_bytes(), cx)
+    })
+    .0?;
+    let mut budget = Budget::new(limits);
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let result = check_range(
+        &file,
+        &schema,
+        range,
+        &mut Cx::new(&mut budget, &mut diag, &cancel),
+    );
+    Ok((result, diag, budget.used(Kind::Work)))
+}
+
+/// `E{i} SUBTYPE OF (E{i+1})` の鎖（`E0` が鎖の端の、もっとも下の型）。`attribute` があれば、実体ごとに
+/// `A{i} : 型` を 1 つ宣言する。`more` は鎖の後ろに足す宣言
+fn chain(n: usize, attribute: Option<&str>, more: &str) -> String {
+    let mut src = String::from("SCHEMA IFCCHAIN;\n");
+    let declare = |i: usize| attribute.map_or(String::new(), |ty| format!("  A{i} : {ty};\n"));
+    for i in 0..n {
+        let _ = write!(
+            src,
+            "ENTITY E{i} SUBTYPE OF (E{});\n{}END_ENTITY;\n",
+            i + 1,
+            declare(i)
+        );
+    }
+    let _ = write!(
+        src,
+        "ENTITY E{n};\n{}END_ENTITY;\n{more}END_SCHEMA;\n",
+        declare(n)
+    );
+    src
 }
 
 fn found(findings: &[Diagnostic]) -> Vec<(Code, Option<String>)> {
@@ -592,4 +641,258 @@ fn truncated_and_mutated_express_does_not_panic() {
             try_all(&changed);
         }
     }
+}
+
+/// 指摘の一部だけを求めると、範囲の外の指摘は作らずに数え、範囲にある指摘だけを、すべてを求めたときと同じ形で返す
+/// （#672）
+#[test]
+fn check_range_keeps_only_the_findings_in_the_range() {
+    let data = "#1=WALL('w',.OTHER.,'tall',#3,(),1);\n#2=POINT('p',(0.));\n\
+#3=PROP(LENGTHT('x'),#3,(1.5),\"0\",.T.);\n#4=PROP(COUNTT(1),$,(),\"0\",.T.);\n#5=ROOT($);\n\
+#6=GHOST(1);\n#7=WALL('w',.STANDARD.,1.);\n#8=PROP($,#2,(),\"0\",*);\n";
+    let (file, schema) = (file(data).unwrap(), schema().unwrap());
+    let (all, _) = with(Limits::default(), |cx| check(&file, &schema, cx));
+    let all = all.unwrap();
+    assert_eq!(all.len(), 16);
+    for range in [0..3, 2..5, 15..100, 16..20, 0..0, 5..u64::MAX] {
+        let (found, diag) = with(Limits::default(), |cx| {
+            check_range(&file, &schema, range.clone(), cx)
+        });
+        let found = found.unwrap();
+        assert_eq!(found.total, 16, "{range:?}");
+        let start = usize::try_from(range.start).unwrap().min(all.len());
+        let end = usize::try_from(range.end)
+            .unwrap_or(usize::MAX)
+            .min(all.len());
+        assert_eq!(found.findings, all[start..end], "{range:?}");
+        // 文脈に足す診断は、範囲によらない
+        let codes_found: Vec<_> = diag.iter().map(|d| d.code()).collect();
+        assert_eq!(codes_found, [codes::EXPRESS_RULE_UNSUPPORTED]);
+    }
+}
+
+/// 合わない値が多く、型の書き方が長くても（既定の深さの `ARRAY` で約 13.5 KB）、作る指摘は範囲の数までにし、
+/// ほかは数えるだけにする（#672）
+#[test]
+fn many_findings_with_long_types_keep_only_the_range() {
+    let Limit::Finite(depth) = Limits::default().get(Kind::Depth) else {
+        panic!("既定の depth に上限がない");
+    };
+    let depth = usize::try_from(depth).unwrap();
+    let level = "ARRAY [18446744073709551615:18446744073709551615] OF ";
+    let express = format!(
+        "SCHEMA IFCLONG;\nENTITY E;\n  A : {}INTEGER;\nEND_ENTITY;\nEND_SCHEMA;\n",
+        level.repeat(depth)
+    );
+    let m = 4000;
+    let mut data = String::new();
+    for k in 0..m {
+        let _ = writeln!(data, "#{}=E(1);", k + 1);
+    }
+    let (result, diag, work) = check_work(&express, &data, 0..10, Limits::default()).unwrap();
+    let found = result.unwrap_or_else(|e| panic!("{e:?} {diag:?}"));
+    assert_eq!(found.total, m);
+    assert_eq!(found.findings.len(), 10);
+    let tenth = &found.findings[9];
+    let Some(Value::Text(expected)) = tenth.param("expected") else {
+        panic!("型の書き方がない");
+    };
+    assert_eq!(expected.len(), level.len() * depth + "INTEGER".len());
+    assert_eq!(tenth.places()[0].id(), Some("#10"));
+    // インスタンスと値ごとに 1 つと、実体の属性の数と並びを 1 度ずつ
+    assert_eq!(work, 2 * m + 1 + 3);
+}
+
+/// 上位の型の長い鎖のどの実体にもインスタンスがあっても、属性の数は、実体ごとに 1 度だけ求めて 1 つ数える。
+/// インスタンスごとに属性の並びを作らず、写さない。#672 で測った形（n = 2000、値を書かないインスタンス）で、使う work
+/// は、インスタンスの数と鎖の実体の数の和になる（#672）
+#[test]
+fn long_chains_of_supertypes_count_each_entity_once() {
+    let n = 2000;
+    let express = chain(n, Some("INTEGER"), "");
+    // どの実体にも 1 つずつと、鎖の端の実体に n 個
+    let mut data = String::new();
+    for i in 0..=n {
+        let _ = writeln!(data, "#{}=E{i}();", i + 1);
+    }
+    for k in 0..n {
+        let _ = writeln!(data, "#{}=E0();", n + 2 + k);
+    }
+    let (result, diag, work) = check_work(&express, &data, 0..u64::MAX, Limits::default()).unwrap();
+    let found = result.unwrap_or_else(|e| panic!("{e:?} {diag:?}"));
+    let (count, instances) = (n as u64, 2 * n as u64 + 1);
+    assert_eq!(found.total, instances);
+    assert!(
+        found
+            .findings
+            .iter()
+            .all(|d| d.code() == codes::EXPRESS_ATTRIBUTE_COUNT_INVALID)
+    );
+    assert_eq!(
+        found.findings[0].param("expected"),
+        Some(&Value::UInt(count + 1))
+    );
+    assert_eq!(found.findings[n].param("expected"), Some(&Value::UInt(1)));
+    assert_eq!(work, instances + count + 1);
+    // 1 つ少ない予算では止める
+    let limits = Limits::default().with(Kind::Work, Limit::Finite(work - 1));
+    let (result, diag, _) = check_work(&express, &data, 0..u64::MAX, limits).unwrap();
+    assert!(matches!(result, Err(Error::Stopped(_))));
+    let codes_found: Vec<_> = diag.iter().map(|d| d.code()).collect();
+    assert_eq!(codes_found, [codes::BUDGET_WORK_EXCEEDED]);
+}
+
+/// 属性の数の合うインスタンスがあれば、属性の並びは実体ごとに 1 度だけ作り、作る手順（上位の型をたどる行きと帰りの
+/// 1 歩と、属性ごと）を work で数える。並びは、インスタンスごとに作り直さない（#672）
+#[test]
+fn slots_are_built_once_per_entity() {
+    let (n, m) = (2000, 20);
+    let express = chain(n, Some("INTEGER"), "");
+    let args = vec!["1"; n + 1].join(",");
+    let mut data = String::new();
+    for k in 0..m {
+        let _ = writeln!(data, "#{}=E0({args});", k + 1);
+    }
+    // 最後のインスタンスは、初めに並ぶ鎖の根の属性だけが合わない
+    let _ = writeln!(data, "#{}=E0('x'{});", m + 1, ",1".repeat(n));
+    let (result, diag, work) = check_work(&express, &data, 0..u64::MAX, Limits::default()).unwrap();
+    let found = result.unwrap_or_else(|e| panic!("{e:?} {diag:?}"));
+    assert_eq!(found.total, 1);
+    let invalid = &found.findings[0];
+    assert_eq!(invalid.param("position"), Some(&Value::UInt(1)));
+    assert_eq!(
+        invalid.param("attribute"),
+        Some(&Value::Text(format!("A{n}")))
+    );
+    let (n, m) = (n as u64, m as u64 + 1);
+    // インスタンスと値ごと、属性の数を求める実体ごと、並びを作る手順
+    assert_eq!(work, m * (n + 2) + (n + 1) + 3 * (n + 1));
+}
+
+/// 参照の先の実体が、求める実体かその下位の型かは、（実体、求める実体）の組ごとに 1 度だけ上位の型をたどって判定し、
+/// 1 歩ごとに work で数える。参照ごとに上位の型を集めて写さない（#672）
+#[test]
+fn subtypes_are_judged_once_per_pair() {
+    let (n, m) = (2000, 1000);
+    let express = chain(
+        n,
+        None,
+        &format!("ENTITY R;\n  T : E{n};\nEND_ENTITY;\nENTITY Q;\nEND_ENTITY;\n"),
+    );
+    let mut data = String::from("#1=E0();\n#2=Q();\n");
+    for k in 0..m {
+        let _ = writeln!(data, "#{}=R(#1);", k + 3);
+    }
+    // 下位の型でない実体への参照は指摘する
+    let _ = writeln!(data, "#{}=R(#2);", m + 3);
+    let (result, diag, work) = check_work(&express, &data, 0..u64::MAX, Limits::default()).unwrap();
+    let found = result.unwrap_or_else(|e| panic!("{e:?} {diag:?}"));
+    assert_eq!(
+        self::found(&found.findings),
+        [(codes::EXPRESS_VALUE_INVALID, Some(format!("#{}", m + 3)))]
+    );
+    let (n, m) = (n as u64, m as u64);
+    // インスタンスごと、属性の数（E0 の鎖・Q・R）、R の並び、値ごと、E0 から E{n} までと Q を 1 度ずつたどる
+    assert_eq!(work, (m + 3) + (n + 1) + 1 + 1 + 3 + (m + 1) + (n + 1) + 1);
+}
+
+/// 選択が受けるかは、（選択、実体）と（選択、型）の組ごとに 1 度だけ、入れ子の選択と上位の型をたどって判定する。
+/// 値ごとに選択の項目を集めて写さない（#672）
+#[test]
+fn selects_are_judged_once_per_pair() {
+    let (n, m) = (2000, 1000);
+    let mut more = String::new();
+    for i in 0..n {
+        let _ = writeln!(more, "TYPE S{i} = SELECT (S{});\nEND_TYPE;", i + 1);
+    }
+    let _ = writeln!(
+        more,
+        "TYPE S{n} = SELECT (E1, L);\nEND_TYPE;\nTYPE L = STRING;\nEND_TYPE;\n\
+         ENTITY R;\n  T : S0;\nEND_ENTITY;"
+    );
+    let express = chain(1, None, &more);
+    let mut data = String::from("#1=E0();\n");
+    for k in 0..m {
+        let _ = writeln!(data, "#{}=R(#1);\n#{}=R(L('x'));", 2 * k + 2, 2 * k + 3);
+    }
+    // 選択の型を付けた値は、選択が受けない
+    let _ = writeln!(data, "#{}=R(S0('x'));", 2 * m + 2);
+    let (result, diag, work) = check_work(&express, &data, 0..u64::MAX, Limits::default()).unwrap();
+    let found = result.unwrap_or_else(|e| panic!("{e:?} {diag:?}"));
+    assert_eq!(
+        self::found(&found.findings),
+        [(
+            codes::EXPRESS_VALUE_INVALID,
+            Some(format!("#{}", 2 * m + 2))
+        )]
+    );
+    let (selects, m) = (n as u64 + 1, m as u64);
+    // インスタンスごと、属性の数（E0 の鎖と R）、R の並び、値ごとと型を付けた値の中身、（S0、E0）・（S0、L）・
+    // （S0、S0）を 1 度ずつ
+    assert_eq!(
+        work,
+        (2 * m + 2) + 2 + 1 + 3 + (2 * m + 1) + m + (selects + 4) + (selects + 1) + (selects + 2)
+    );
+}
+
+/// 列挙の値は、項目を前から比べずに集合で引き、値ごとに 1 つ数える（#672）
+#[test]
+fn enumeration_values_do_not_scan_the_items() {
+    let (items, m) = (50_000, 20_000);
+    let names: Vec<String> = (0..items).map(|i| format!("V{i}")).collect();
+    let express = format!(
+        "SCHEMA IFCENUM;\nTYPE K = ENUMERATION OF ({});\nEND_TYPE;\nENTITY E;\n  A : K;\n\
+         END_ENTITY;\nEND_SCHEMA;\n",
+        names.join(", ")
+    );
+    let mut data = String::new();
+    for k in 0..m {
+        let _ = writeln!(data, "#{}=E(.v{}.);", k + 1, items - 1);
+    }
+    let _ = writeln!(data, "#{}=E(.W.);", m + 1);
+    let (result, diag, work) = check_work(&express, &data, 0..u64::MAX, Limits::default()).unwrap();
+    let found = result.unwrap_or_else(|e| panic!("{e:?} {diag:?}"));
+    assert_eq!(
+        self::found(&found.findings),
+        [(codes::EXPRESS_VALUE_INVALID, Some(format!("#{}", m + 1)))]
+    );
+    let m = m as u64 + 1;
+    assert_eq!(work, 2 * m + 1 + 3);
+}
+
+/// 部分が 1 つでないインスタンスへの参照は、どれかの部分の実体が合えばよい
+#[test]
+fn references_to_complex_instances_check_each_part() {
+    let data = "#1=(NAMED(.STANDARD.)SI($));\n#2=(NAMED(.STANDARD.)WALL(.STANDARD.,1.,$,$,.T.));\n\
+#3=PROP($,#1,(),\"0\",.T.);\n#4=PROP($,#2,(),\"0\",.T.);\n";
+    let (findings, _) = run(data).unwrap();
+    assert_eq!(
+        found(&findings),
+        [(codes::EXPRESS_VALUE_INVALID, Some("#3".to_owned()))]
+    );
+    assert_eq!(
+        findings[0].param("attribute"),
+        Some(&Value::Text("TARGET".to_owned()))
+    );
+}
+
+/// 複合のインスタンスの部分は、ほかの部分の実体が導く属性にした属性に `*` を置く
+#[test]
+fn complex_instances_take_attributes_derived_by_other_parts() {
+    let data = "#1=(POINT((0.,0.))ROOT(*));\n#2=(POINT((0.,0.))ROOT('x'));\n";
+    let (findings, _) = run(data).unwrap();
+    assert_eq!(
+        found(&findings),
+        [(codes::EXPRESS_VALUE_INVALID, Some("#2".to_owned()))]
+    );
+    let invalid = &findings[0];
+    assert_eq!(invalid.param("kind"), Some(&Value::Text("ROOT".to_owned())));
+    assert_eq!(
+        invalid.param("attribute"),
+        Some(&Value::Text("NAME".to_owned()))
+    );
+    assert_eq!(
+        invalid.param("expected"),
+        Some(&Value::Text("*".to_owned()))
+    );
 }
