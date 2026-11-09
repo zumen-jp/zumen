@@ -323,7 +323,7 @@ fn header(bytes: &[u8]) -> Option<Header> {
         header_size,
         point_offset: u32_at(bytes, 96)?,
         vlr_count: u32_at(bytes, 100)?,
-        // 上の 2 ビットは LAZ のフラグ
+        // 上の 2 ビットは LAZ のフラグ。仕様はビット 7 だけで、ビット 6 も見るのは LASzip に合わせた推定（docs/formats/las.md、#544）
         point_format: id & 0x3f,
         compressed: id & 0xc0 != 0,
         record_length: u16_at(bytes, 105)?,
