@@ -9,7 +9,8 @@
 //! 初めて読んだ順に番号を振り、型・上位の型・選択の項目は番号で指す。チェックでは、値ごとに名前を引き直さない（#672）。
 //!
 //! チェックは、インスタンスごと・値ごとに work で数える。実体の属性の数と並び、上位の型と選択の判定は、実体か組ごとに
-//! 1 度だけ作って覚え、作る手順を work で数える。インスタンスと値ごとには写さない（#672）。
+//! 1 度だけ作って覚え、作る手順を work で数える。上位の型か選択の項目をすべてたどるときは、すでにたどった名前を
+//! 飛ばすときも、並びの名前ごとに数える。インスタンスと値ごとには写さない（#672）。
 
 use core::ops::Range;
 use std::collections::{BTreeMap, BTreeSet};
@@ -373,7 +374,8 @@ impl Express {
     /// 実体の属性の並び（単独のインスタンスに書く順）。上位の型の属性から順に、同じ上位の型は 1 度だけ並べる。
     /// 宣言し直した属性と導く属性は、それまでに並べた同じ名前の属性のうち、いちばん後ろのものを変える。
     ///
-    /// 上位の型をたどる 1 歩・属性・宣言し直した属性・導く属性ごとに、`tick` で 1 つ数える（#672）
+    /// 上位の型をたどる 1 歩・上位の型の並びの名前・属性・宣言し直した属性・導く属性ごとに、`tick` で 1 つ数える。
+    /// 並びの名前は、すでにたどった名前を飛ばすときも数える（#672）
     fn slots<F>(&self, entity: usize, tick: &mut F) -> Result<Vec<Slot<'_>>, Stop>
     where
         F: FnMut(u64) -> Result<(), Stop>,
@@ -393,6 +395,7 @@ impl Express {
             }
             stack.push((next, true));
             if let Some(entity) = self.entity(next) {
+                tick(entity.supertypes.len() as u64)?;
                 for &supertype in entity.supertypes.iter().rev() {
                     if !seen.contains(&supertype) {
                         stack.push((supertype, false));
@@ -538,7 +541,8 @@ impl<'a> Layouts<'a> {
 
     /// 実体の属性の数。上位の型が 1 つの実体は、上位の型の数に自分の属性の数を足して、実体ごとに 1 度だけ求める。
     /// 上位の型が 2 つ以上の実体は、同じ上位の型を 1 度だけ数えるために、上位の型をすべてたどる。
-    /// 求める実体と、たどる上位の型ごとに、`tick` で 1 つ数える
+    /// 求める実体ごとに 1 つと、[`Layouts::count_all`] のとおりに、`tick` で数える。上位の型が 1 つかを決めるために
+    /// 並びを見る所は数えないが、実体ごとに 1 度だけで、手間は EXPRESS の大きさに比例する
     pub(crate) fn count<F>(&mut self, entity: usize, tick: &mut F) -> Result<usize, Stop>
     where
         F: FnMut(u64) -> Result<(), Stop>,
@@ -586,7 +590,10 @@ impl<'a> Layouts<'a> {
         Ok(self.counts.get(&entity).copied().unwrap_or(base))
     }
 
-    /// 上位の型をすべてたどって数える属性の数。同じ上位の型は 1 度だけ数える
+    /// 上位の型をすべてたどって数える属性の数。同じ上位の型は 1 度だけ数える。
+    ///
+    /// たどる 1 歩と、たどった実体の上位の型の並びの名前ごとに、`tick` で 1 つ数える。並びの名前は、すでにたどった
+    /// 名前を飛ばすときも数える（#672）
     fn count_all<F>(&self, entity: usize, tick: &mut F) -> Result<usize, Stop>
     where
         F: FnMut(u64) -> Result<(), Stop>,
@@ -601,6 +608,7 @@ impl<'a> Layouts<'a> {
             }
             if let Some(entity) = self.schema.entity(next) {
                 count += entity.attributes.len();
+                tick(entity.supertypes.len() as u64)?;
                 stack.extend(
                     entity
                         .supertypes
@@ -1710,7 +1718,8 @@ impl<'a> Checker<'a> {
         Ok(found)
     }
 
-    /// 実体と、その上位の型をたどり、`want` を満たす実体があるか。たどる 1 歩ごとに work で数える
+    /// 実体と、その上位の型をたどり、`want` を満たす実体があるか。たどる 1 歩と、たどった実体の上位の型の並びの
+    /// 名前ごとに、work で 1 つ数える。並びの名前は、すでにたどった名前を飛ばすときも数える（#672）
     fn reaches(
         &self,
         kind: usize,
@@ -1729,6 +1738,8 @@ impl<'a> Checker<'a> {
                 return Ok(true);
             }
             if let Some(entity) = self.schema.entity(next) {
+                cx.check(Kind::Work, entity.supertypes.len() as u64)
+                    .map_err(|stop| stopped(cx, stop, None))?;
                 stack.extend(
                     entity
                         .supertypes
@@ -1742,7 +1753,8 @@ impl<'a> Checker<'a> {
     }
 
     /// 選択が受ける項目（実体と、定義された型・列挙）を、入れ子の選択もたどって 1 度ずつ `each` に渡す。`each` が
-    /// `true` を返したら止める。たどる 1 歩ごとに work で数える
+    /// `true` を返したら止める。たどる 1 歩と、たどった選択の項目の並びの名前ごとに、work で 1 つ数える。並びの名前は、
+    /// すでにたどった名前を飛ばすときも数える（#672）
     fn select_members(
         &self,
         select: usize,
@@ -1759,6 +1771,8 @@ impl<'a> Checker<'a> {
             }
             match self.schema.decl(next) {
                 Some(Decl::Type(TypeDef::Select(items))) => {
+                    cx.check(Kind::Work, items.len() as u64)
+                        .map_err(|stop| stopped(cx, stop, None))?;
                     stack.extend(items.iter().copied().filter(|s| !seen.contains(s)));
                 }
                 Some(decl) if each(next, decl) => return Ok(()),

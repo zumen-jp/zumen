@@ -743,7 +743,7 @@ fn long_chains_of_supertypes_count_each_entity_once() {
 }
 
 /// 属性の数の合うインスタンスがあれば、属性の並びは実体ごとに 1 度だけ作り、作る手順（上位の型をたどる行きと帰りの
-/// 1 歩と、属性ごと）を work で数える。並びは、インスタンスごとに作り直さない（#672）
+/// 1 歩・上位の型の並びの名前・属性ごと）を work で数える。並びは、インスタンスごとに作り直さない（#672）
 #[test]
 fn slots_are_built_once_per_entity() {
     let (n, m) = (2000, 20);
@@ -765,12 +765,13 @@ fn slots_are_built_once_per_entity() {
         Some(&Value::Text(format!("A{n}")))
     );
     let (n, m) = (n as u64, m as u64 + 1);
-    // インスタンスと値ごと、属性の数を求める実体ごと、並びを作る手順
-    assert_eq!(work, m * (n + 2) + (n + 1) + 3 * (n + 1));
+    // インスタンスと値ごと、属性の数を求める実体ごと、並びを作る手順（行きと帰りの 1 歩と属性が実体ごとに 3 つ、
+    // E0 から E{n-1} までの上位の型の並びの名前が 1 つずつ）
+    assert_eq!(work, m * (n + 2) + (n + 1) + 3 * (n + 1) + n);
 }
 
 /// 参照の先の実体が、求める実体かその下位の型かは、（実体、求める実体）の組ごとに 1 度だけ上位の型をたどって判定し、
-/// 1 歩ごとに work で数える。参照ごとに上位の型を集めて写さない（#672）
+/// たどる 1 歩と上位の型の並びの名前ごとに work で数える。参照ごとに上位の型を集めて写さない（#672）
 #[test]
 fn subtypes_are_judged_once_per_pair() {
     let (n, m) = (2000, 1000);
@@ -792,12 +793,16 @@ fn subtypes_are_judged_once_per_pair() {
         [(codes::EXPRESS_VALUE_INVALID, Some(format!("#{}", m + 3)))]
     );
     let (n, m) = (n as u64, m as u64);
-    // インスタンスごと、属性の数（E0 の鎖・Q・R）、R の並び、値ごと、E0 から E{n} までと Q を 1 度ずつたどる
-    assert_eq!(work, (m + 3) + (n + 1) + 1 + 1 + 3 + (m + 1) + (n + 1) + 1);
+    // インスタンスごと、属性の数（E0 の鎖・Q・R）、R の並び、値ごと、E0 から E{n} までと Q を 1 度ずつたどり、
+    // E0 から E{n-1} までの上位の型の並びの名前を 1 つずつ見る
+    assert_eq!(
+        work,
+        (m + 3) + (n + 1) + 1 + 1 + 3 + (m + 1) + (n + 1) + 1 + n
+    );
 }
 
-/// 選択が受けるかは、（選択、実体）と（選択、型）の組ごとに 1 度だけ、入れ子の選択と上位の型をたどって判定する。
-/// 値ごとに選択の項目を集めて写さない（#672）
+/// 選択が受けるかは、（選択、実体）と（選択、型）の組ごとに 1 度だけ、入れ子の選択と上位の型をたどって判定し、
+/// たどる 1 歩と、選択の項目と上位の型の並びの名前ごとに work で数える。値ごとに選択の項目を集めて写さない（#672）
 #[test]
 fn selects_are_judged_once_per_pair() {
     let (n, m) = (2000, 1000);
@@ -827,17 +832,131 @@ fn selects_are_judged_once_per_pair() {
         )]
     );
     let (selects, m) = (n as u64 + 1, m as u64);
+    // 組ごとに見る選択の項目の並びの名前（S0 から S{n-1} までの 1 つずつと、S{n} の 2 つ）
+    let items = selects + 1;
     // インスタンスごと、属性の数（E0 の鎖と R）、R の並び、値ごとと型を付けた値の中身、（S0、E0）・（S0、L）・
-    // （S0、S0）を 1 度ずつ
+    // （S0、S0）を 1 度ずつ。（S0、E0）では、E0 の上位の型の並びの名前も見る
     assert_eq!(
         work,
-        (2 * m + 2) + 2 + 1 + 3 + (2 * m + 1) + m + (selects + 4) + (selects + 1) + (selects + 2)
+        (2 * m + 2)
+            + 2
+            + 1
+            + 3
+            + (2 * m + 1)
+            + m
+            + (selects + 4 + items + 1)
+            + (selects + 1 + items)
+            + (selects + 2 + items)
     );
 }
 
-/// 列挙の値は、項目を前から比べずに集合で引き、値ごとに 1 つ数える（#672）
+/// 同じ名前を長く並べた上位の型の並びを、先にその名前をたどる多くの実体から見ても、並びの名前ごとに work で数える。
+/// すでにたどった名前を飛ばす所を数えないと、手間は実体か組の数と並びの長さの積になるのに、work は実体か組の数に
+/// しか比例しない。属性の数（上位の型が 2 つ以上の実体）・属性の並び・参照の先の判定のどれでも数える（#672）
 #[test]
-fn enumeration_values_do_not_scan_the_items() {
+fn long_supertype_lists_are_counted_per_name() {
+    let k = 100;
+    let express = |l: usize| {
+        let mut src = String::from("SCHEMA IFCWIDE;\nENTITY C;\n  A : INTEGER;\nEND_ENTITY;\n");
+        let _ = writeln!(
+            src,
+            "ENTITY B SUBTYPE OF ({});\nEND_ENTITY;",
+            vec!["C"; l].join(", ")
+        );
+        for i in 0..k {
+            let _ = writeln!(src, "ENTITY X{i} SUBTYPE OF (C, B, C);\nEND_ENTITY;");
+        }
+        src.push_str("ENTITY D;\nEND_ENTITY;\nENTITY R;\n  P : D;\nEND_ENTITY;\nEND_SCHEMA;\n");
+        src
+    };
+    // 属性の数の合う X{i} のインスタンスと、それを参照する R（X{i} は D の下位の型でないので合わない）を 1 つずつ
+    let mut data = String::new();
+    for i in 0..k {
+        let _ = writeln!(
+            data,
+            "#{}=X{i}(1);\n#{}=R(#{});",
+            2 * i + 1,
+            2 * i + 2,
+            2 * i + 1
+        );
+    }
+    let k = k as u64;
+    for l in [1000, 2000] {
+        let express = express(l);
+        let (result, diag, work) =
+            check_work(&express, &data, 0..u64::MAX, Limits::default()).unwrap();
+        let found = result.unwrap_or_else(|e| panic!("{e:?} {diag:?}"));
+        assert_eq!(found.total, k);
+        // 探索ごとに見る上位の型の並びの名前（X{i} の 3 つと B の l）
+        let names = 3 + l as u64;
+        // X{i}: インスタンスと値、属性の数（求める 1 つと、X{i}・C・B・C の 4 歩）、属性の並び（7 歩と属性 1 つ）。
+        // R: インスタンスと値、（X{i}、D）の組（4 歩）。R の属性の数と並びは 1 度だけ。3 つの探索で並びの名前を見る
+        assert_eq!(
+            work,
+            k * (2 + (1 + 4 + names) + (8 + names) + 2 + (4 + names)) + 1 + 3
+        );
+        // 並びを見る手間に見合う予算では止める
+        let limits = Limits::default().with(Kind::Work, Limit::Finite(k * l as u64));
+        let (result, diag, _) = check_work(&express, &data, 0..u64::MAX, limits).unwrap();
+        assert!(matches!(result, Err(Error::Stopped(_))));
+        let codes_found: Vec<_> = diag.iter().map(|d| d.code()).collect();
+        assert_eq!(codes_found, [codes::BUDGET_WORK_EXCEEDED]);
+    }
+}
+
+/// 同じ名前を長く並べた選択の項目の並びを、先にその名前をたどる入れ子の選択から、多くの組で見ても、並びの名前ごとに
+/// work で数える（#672）
+#[test]
+fn long_select_lists_are_counted_per_name() {
+    let k = 100;
+    let express = |l: usize| {
+        let mut src = format!(
+            "SCHEMA IFCSELECTS;\nTYPE T = STRING;\nEND_TYPE;\nTYPE S1 = SELECT ({});\nEND_TYPE;\n\
+             TYPE S0 = SELECT (S1, T);\nEND_TYPE;\nENTITY R;\n  A : S0;\nEND_ENTITY;\n",
+            vec!["T"; l].join(", ")
+        );
+        for i in 0..k {
+            let _ = writeln!(src, "ENTITY X{i};\nEND_ENTITY;");
+        }
+        src.push_str("END_SCHEMA;\n");
+        src
+    };
+    // X{i} のインスタンスと、それを参照する R（選択が受けない実体なので合わない）を 1 つずつ
+    let mut data = String::new();
+    for i in 0..k {
+        let _ = writeln!(
+            data,
+            "#{}=X{i}();\n#{}=R(#{});",
+            2 * i + 1,
+            2 * i + 2,
+            2 * i + 1
+        );
+    }
+    let k = k as u64;
+    for l in [1000, 2000] {
+        let express = express(l);
+        let (result, diag, work) =
+            check_work(&express, &data, 0..u64::MAX, Limits::default()).unwrap();
+        let found = result.unwrap_or_else(|e| panic!("{e:?} {diag:?}"));
+        assert_eq!(found.total, k);
+        // 組ごとに見る選択の項目の並びの名前（S0 の 2 つと S1 の l）
+        let names = 2 + l as u64;
+        // X{i}: インスタンスと属性の数。R: インスタンスと値、（S0、X{i}）の組（S0・T・S1 の 3 歩と、X{i} の 1 歩）。
+        // R の属性の数と並びは 1 度だけ
+        assert_eq!(work, k * (2 + 2 + (4 + names)) + 1 + 3);
+        // 並びを見る手間に見合う予算では止める
+        let limits = Limits::default().with(Kind::Work, Limit::Finite(k * l as u64));
+        let (result, diag, _) = check_work(&express, &data, 0..u64::MAX, limits).unwrap();
+        assert!(matches!(result, Err(Error::Stopped(_))));
+        let codes_found: Vec<_> = diag.iter().map(|d| d.code()).collect();
+        assert_eq!(codes_found, [codes::BUDGET_WORK_EXCEEDED]);
+    }
+}
+
+/// 列挙の値は、項目の数によらず、値ごとに 1 つ数える。項目を比べる回数は work に出ないので、項目を前から比べずに
+/// 集合で引くことは、この試験では確かめず、列挙の項目の型（`BTreeSet`）で守る（#672）
+#[test]
+fn enumeration_values_count_one_per_value() {
     let (items, m) = (50_000, 20_000);
     let names: Vec<String> = (0..items).map(|i| format!("V{i}")).collect();
     let express = format!(
