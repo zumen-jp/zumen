@@ -1254,11 +1254,16 @@ fn objects(src: &[u8], seen: &mut Seen, cx: &mut Cx<'_>) -> Result<Vec<Container
         // 辞書が覚えた歩みに着いたら、そこで読むのをやめる
         let hold = keywords.peek().copied().unwrap_or(src.len());
         let mut own = Own::default();
+        // 次の `obj` を字句として読んだら（その位置の歩みに着いたら）、後ろの辞書は、この辞書が 1 つの字句として飛ばす
+        // `<<` の中から読むので、この辞書の後ろの歩みには着かない。閉じない辞書が後ろの字句をすべて読む形で、歩みを
+        // 覚え続けない
+        let mut passed = false;
         let (walked, read) = entries(src, start, &mut gaps, hold, cx, |event, cx| {
             match event {
                 Event::Entry(name, cost, value) => own.entry(&name, cost, value),
                 Event::Step(step) if marks.contains_key(&step) => return Ok(true),
-                Event::Step(step) if step.at > hold => {
+                Event::Step(step) if step.at == hold => passed = true,
+                Event::Step(step) if step.at > hold && !passed => {
                     cx.check(Kind::DecodedBytes, MARK_BYTES)?;
                     own.steps.push((step, own.bytes));
                 }

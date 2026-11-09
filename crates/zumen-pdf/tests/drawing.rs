@@ -4516,6 +4516,20 @@ fn reads_names_in_comments_in_linear_work() {
         let work = used(&document.bytes(), Kind::Work);
         assert!(work < plain + 8 * count as u64, "{line:?} {plain} {work}");
     }
+    // 閉じない辞書は、後ろのオブジェクトの字句を最後まで読む。次の `obj` を字句として読んだら、後ろの辞書はそこから後ろの
+    // 歩みに着かないので、歩みを覚えない（覚えると、字句ごとに `DecodedBytes` を数える）
+    let content = "1 2 3 4\n".repeat(20_000);
+    let decoded = |open: &str| {
+        let mut document = Document::new(vec![Page::new("0 0 m 10 10 l S")]);
+        document.objects = vec![
+            open.as_bytes().to_vec(),
+            common::stream("", content.as_str()),
+        ];
+        used(&document.bytes(), Kind::DecodedBytes)
+    };
+    let closed = decoded("<< /A 1 >>");
+    let unclosed = decoded("<< /A 1");
+    assert!(unclosed < closed + 4096, "{closed} {unclosed}");
     // フィルターの値に参照があるときに見る、参照の先の配列も、コメントの行の `obj [` から読み直さない（名前の配列と、
     // 展開のパラメーターの配列の 2 つの見方で、それぞれ飛ばす）
     let mut document = Document::new(vec![Page::new("0 0 m 10 10 l S")]);
@@ -5031,4 +5045,20 @@ fn counts_repeated_form_decoding_before_predictors_even_on_failure() {
         // 走査のキャッシュを使っても、解釈側は呼ぶたびに 8 KiB を展開する
         assert!(two - one >= 8192, "{predictor}: {one} {two}");
     }
+}
+
+#[test]
+fn finds_object_streams_whose_entries_come_from_a_remembered_suffix() {
+    // コメントの中の `obj<<` の辞書が、外の辞書の歩みに着いて止まり、`First`・`Length` の参照・型・終わりを、外の辞書が
+    // 覚えた後ろの項目から得る（#562）。外の辞書は `N` を持たない（コメントの中）ので、コンテナーになりうるのは中の辞書だけ
+    for object in [
+        "<< /K 1 %obj<< /N 1\n/First 0 /Length 5 0 R >>stream\n\nendstream",
+        "<< /K 1 %obj<< /N 1 /First 0\n/Length 5 0 R >>stream\n\nendstream",
+        "<< /K 1 %obj<< /N 1\n/First 0 /Length 1 /Type /ObjStm >>stream\n9 0 [0 0]\nendstream",
+    ] {
+        assert!(unsupported(vec![object.as_bytes().to_vec()]), "{object}");
+    }
+    // 中の辞書が着いた歩みから後ろが読めない（閉じない）辞書は、コンテナーにならない
+    let broken = "<< /K 1 %obj<< /N 1\n/First 0 /Length 5 0 R";
+    assert!(!unsupported(vec![broken.as_bytes().to_vec()]));
 }
