@@ -99,7 +99,8 @@ fn spacing(nodes: &BTreeMap<(u32, u32), (f64, f64)>) -> Option<u32> {
 
 impl ShiftGrid {
     /// TKY2JGD・PatchJGD の形の格子を読む。初めの数字の行の前はヘッダーとして飛ばす。数字の行は、3 次メッシュの
-    /// コードと、緯度・経度の補正量（秒）。高さの補正量の列があっても読まない
+    /// コードと、緯度・経度の補正量（秒）。高さの補正量の列があっても読まない。初めの数字の行の後は、空白だけの
+    /// 行のほかに読めない行（UTF-8 でない行を含む）があれば、`crs.datum-grid.invalid` で読まない（決定 0237）
     pub fn read(src: &[u8], cx: &mut Cx) -> Result<ShiftGrid, Error> {
         cx.check(Kind::InputBytes, src.len() as u64)
             .map_err(|stop| stopped(cx, stop))?;
@@ -133,7 +134,8 @@ impl ShiftGrid {
                         return Err(invalid(cx));
                     }
                 }
-                None if !started || fields.is_empty() => {}
+                // ヘッダーは文字コードを問わず飛ばす。その後は、空白だけの行のほかは読めない行にする
+                None if !started || (text.is_some() && fields.is_empty()) => {}
                 None => return Err(invalid(cx)),
             }
         }
