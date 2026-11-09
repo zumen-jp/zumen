@@ -1475,7 +1475,7 @@ _AddEditOptional = TypedDict(
         "layer": str,
         # レイヤの ID。tables が返したもの
         "layer_id": str,
-        # 色。SXF はレイヤに従う色を書けないので、書く。マイナーバージョン 29 から
+        # 色。SXF と JWW はレイヤに従う色を書けないので、書く（JWW は、ペンの番号の jww か、どれかのペンと同じ RGB）。書かなければ change.edit.unsupported で断る。マイナーバージョン 29 から
         "color": "ColorChange",
         # 線種。マイナーバージョン 29 から
         "line_type": "LineTypeChange",

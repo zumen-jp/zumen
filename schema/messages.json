@@ -986,7 +986,7 @@
         "place": { "description": "足す先の空間か用紙の ID（space/0・sheet/h22 など）。entities の ID の先頭の部分。マイナーバージョン 31 から、記号の定義の空間（space/h1F など）も指せる（決定 0177）", "type": "string" },
         "layer": { "description": "レイヤの元の名前。図面にあるレイヤで、名前が 1 つに決まるもの。layer_id と一緒には書かない。どちらも書かなければレイヤ 0", "type": "string" },
         "layer_id": { "description": "レイヤの ID。tables が返したもの", "type": "string" },
-        "color": { "description": "色。SXF はレイヤに従う色を書けないので、書く。マイナーバージョン 29 から", "$ref": "#/$defs/color_change" },
+        "color": { "description": "色。SXF と JWW はレイヤに従う色を書けないので、書く（JWW は、ペンの番号の jww か、どれかのペンと同じ RGB）。書かなければ change.edit.unsupported で断る。マイナーバージョン 29 から", "$ref": "#/$defs/color_change" },
         "line_type": { "description": "線種。マイナーバージョン 29 から", "$ref": "#/$defs/line_type_change" },
         "line_weight": { "description": "線幅。マイナーバージョン 29 から", "$ref": "#/$defs/line_weight_change" },
         "geometry": { "description": "足す形", "$ref": "#/$defs/geometry" }

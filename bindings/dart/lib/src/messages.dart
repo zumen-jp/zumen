@@ -1955,7 +1955,7 @@ class AddEdit extends Message {
   String? get layerId => readField('layer_id', asString);
   set layerId(String? value) => writeField('layer_id', value);
 
-  /// 色。SXF はレイヤに従う色を書けないので、書く。マイナーバージョン 29 から
+  /// 色。SXF と JWW はレイヤに従う色を書けないので、書く（JWW は、ペンの番号の jww か、どれかのペンと同じ RGB）。書かなければ change.edit.unsupported で断る。マイナーバージョン 29 から
   ColorChange? get color => readField('color', objectOf(ColorChange.fromJson));
   set color(ColorChange? value) => writeField('color', value);
 

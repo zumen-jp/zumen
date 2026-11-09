@@ -1805,7 +1805,7 @@ type AddEdit struct {
 	// レイヤの ID。tables が返したもの
 	LayerId *string `json:"layer_id,omitempty"`
 
-	// 色。SXF はレイヤに従う色を書けないので、書く。マイナーバージョン 29 から
+	// 色。SXF と JWW はレイヤに従う色を書けないので、書く（JWW は、ペンの番号の jww か、どれかのペンと同じ RGB）。書かなければ change.edit.unsupported で断る。マイナーバージョン 29 から
 	Color *ColorChange `json:"color,omitempty"`
 
 	// 線種。マイナーバージョン 29 から

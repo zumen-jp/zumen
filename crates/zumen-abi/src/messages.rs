@@ -4400,7 +4400,7 @@ pub struct AddEdit {
     pub layer: Option<String>,
     /// レイヤの ID。tables が返したもの
     pub layer_id: Option<String>,
-    /// 色。SXF はレイヤに従う色を書けないので、書く。マイナーバージョン 29 から
+    /// 色。SXF と JWW はレイヤに従う色を書けないので、書く（JWW は、ペンの番号の jww か、どれかのペンと同じ RGB）。書かなければ change.edit.unsupported で断る。マイナーバージョン 29 から
     pub color: Option<ColorChange>,
     /// 線種。マイナーバージョン 29 から
     pub line_type: Option<LineTypeChange>,
