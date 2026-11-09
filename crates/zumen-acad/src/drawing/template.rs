@@ -6,7 +6,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use zumen_drawing::{Drawing2D, Sheet, SymbolKey, Unit, View};
+use zumen_drawing::{Drawing2D, Sheet, SymbolDefinition, SymbolKey, Unit, View};
 
 use crate::charset::Charset;
 
@@ -55,8 +55,12 @@ fn key_of(key: &SymbolKey) -> (String, String) {
 
 /// 記号の定義ごとの、書いた先の部品の名前と、試した名前の数。外部参照の定義は書かない。無名の定義と、ANSI_932 に
 /// 戻せない名前には名前を付ける。名前が（大文字と小文字を区別せずに）重なれば、基の名前に `_1`・`_2`… を付けた名前の
-/// うち、まだ使っていない最初のものにする。小文字にした基の名前ごとに、次に試す番号を覚えるので、試す名前の数は
-/// 定義の数に比例する。使った名前は増えるだけなので、覚えた番号より前の名前は、1 から探しても使われている
+/// うち、まだ使っていない最初のものにする。小文字にした基の名前ごとに、次に試す番号を覚える。使った名前は増えるだけ
+/// なので、覚えた番号より前の名前は、1 から探しても使われている。
+///
+/// 試す名前の数は定義の数に比例する（#655）。使った名前（小文字）が候補になる系列は、それ自身を基の名前とする系列と、
+/// 末尾の `_数字` を除いた名前を基の名前とする系列の、多くても 2 つで、どの系列も番号を戻さないので、使った名前を
+/// 飛ばすのは系列ごとに 1 回である。そのため、試す名前の数は、定義の数の 3 倍と 2 つの予約名の和を超えない
 fn block_names(drawing: &Drawing2D) -> (BTreeMap<(String, String), String>, usize) {
     let mut names = BTreeMap::new();
     let mut used = BTreeSet::from(["*model_space".to_owned(), "*paper_space".to_owned()]);
@@ -66,30 +70,11 @@ fn block_names(drawing: &Drawing2D) -> (BTreeMap<(String, String), String>, usiz
         if definition.external.is_some() {
             continue;
         }
-        let base = if definition.anonymous || definition.key.name.starts_with('*') {
-            format!("zumen_{index}")
-        } else {
-            definition
-                .key
-                .name
-                .chars()
-                .map(|c| {
-                    if "<>/\\\":;?*|=,`".contains(c) || c.is_control() {
-                        '_'
-                    } else {
-                        c
-                    }
-                })
-                .collect()
-        };
-        // 読む側と同じ型で符号化し、同じ名前に戻るものだけを使う（決定 0192）
-        let base = if base.is_empty() || Charset::ShiftJis.encode(&base).is_err() {
-            format!("zumen_{index}")
-        } else {
-            base
-        };
-        // 番号 0 は基の名前そのもの。`_` と数字は文字の小文字を変えないので、小文字にした基の名前が同じなら、
-        // 小文字にした `基の名前_番号` も同じになり、覚えた番号を共に使える
+        let base = base_name(index, definition);
+        // 番号 0 は基の名前そのもの。小文字にした `基の名前_番号` は、小文字にした基の名前に `_番号` を足したものに
+        // なる。`_` と数字は大文字と小文字の区別がなく、前の字の小文字も変えない（語末の `Σ` が `ς` になる規則は、
+        // 後ろに `_` が続いても語末のまま）。そのため、小文字にした基の名前が同じなら候補の並びも同じになり、覚えた
+        // 番号を共に使える
         let lower = base.to_lowercase();
         let mut repeat = next.get(&lower).copied().unwrap_or(0);
         let name = loop {
@@ -108,6 +93,33 @@ fn block_names(drawing: &Drawing2D) -> (BTreeMap<(String, String), String>, usiz
         names.insert(key_of(&definition.key), name);
     }
     (names, tries)
+}
+
+/// 記号の定義の、連番を付ける前の部品の名前。無名の定義と `*` で始まる名前、記号に使えない文字を `_` にした名前が
+/// 空か ANSI_932 で同じ名前に戻らないものは `zumen_番号`（番号は図面モデルの定義の位置）
+fn base_name(index: usize, definition: &SymbolDefinition) -> String {
+    let base = if definition.anonymous || definition.key.name.starts_with('*') {
+        format!("zumen_{index}")
+    } else {
+        definition
+            .key
+            .name
+            .chars()
+            .map(|c| {
+                if "<>/\\\":;?*|=,`".contains(c) || c.is_control() {
+                    '_'
+                } else {
+                    c
+                }
+            })
+            .collect()
+    };
+    // 読む側と同じ型で符号化し、同じ名前に戻るものだけを使う（決定 0192）
+    if base.is_empty() || Charset::ShiftJis.encode(&base).is_err() {
+        format!("zumen_{index}")
+    } else {
+        base
+    }
 }
 
 /// ひな形の DXF（R2004）。DXF Reference「TABLES Section」「Common Group Codes for
@@ -873,6 +885,69 @@ mod tests {
         assert_eq!(tries, 3 * count);
         // 定義の数を倍にすると、試す名前の数も倍になる
         assert_eq!(place(2 * count).1, 2 * tries);
+    }
+
+    /// 前の探し方（重なれば、毎回 1 から番号を試す）で付けた名前
+    fn names_searched_from_one(drawing: &Drawing2D) -> BTreeMap<(String, String), String> {
+        let mut names = BTreeMap::new();
+        let mut used = BTreeSet::from(["*model_space".to_owned(), "*paper_space".to_owned()]);
+        for (index, definition) in drawing.symbols.iter().enumerate() {
+            if definition.external.is_some() {
+                continue;
+            }
+            let base = base_name(index, definition);
+            let mut name = base.clone();
+            let mut repeat = 1;
+            while used.contains(&name.to_lowercase()) {
+                name = format!("{base}_{repeat}");
+                repeat += 1;
+            }
+            used.insert(name.to_lowercase());
+            names.insert(key_of(&definition.key), name);
+        }
+        names
+    }
+
+    #[test]
+    fn remembered_numbers_give_the_names_searched_from_one() {
+        // 基の名前がほかの連番と重なるもの・`_` が重なるもの・全角の英字・語末で小文字が変わる `Σ`・`zumen_番号` と
+        // 重なるものの並びを、すべて前の探し方と比べる（PR #716 の確かめ）
+        let words = [
+            "a", "A", "a_1", "A_1", "a_2", "a__1", "a_", "Ａ", "ａ", "AΣ", "aς_1", "aσ", "zumen_1",
+            "*x",
+        ];
+        let mut sequences = vec![vec![]];
+        let mut compared = 0;
+        for _ in 0..4 {
+            let mut longer = Vec::new();
+            for sequence in &sequences {
+                for word in words {
+                    let mut next: Vec<&str> = sequence.clone();
+                    next.push(word);
+                    let drawing = Drawing2D {
+                        symbols: next
+                            .iter()
+                            .enumerate()
+                            .map(|(at, name)| SymbolDefinition {
+                                key: SymbolKey {
+                                    namespace: format!("ns{at}").into(),
+                                    name: (*name).to_owned(),
+                                },
+                                ..definition(0, name, false, false)
+                            })
+                            .collect(),
+                        ..Drawing2D::default()
+                    };
+                    let (names, tries) = block_names(&drawing);
+                    assert_eq!(names, names_searched_from_one(&drawing), "{next:?}");
+                    assert!(tries <= 3 * next.len() + 2, "{next:?} {tries}");
+                    compared += 1;
+                    longer.push(next);
+                }
+            }
+            sequences = longer;
+        }
+        assert_eq!(compared, 14 + 14 * 14 + 14 * 14 * 14 + 14 * 14 * 14 * 14);
     }
 
     #[test]
