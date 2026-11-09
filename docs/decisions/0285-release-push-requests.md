@@ -96,4 +96,4 @@
 - [#661](https://github.com/zumen-jp/zumen/issues/661)、[PR #650 の 8 回目の確かめ](https://github.com/zumen-jp/zumen/pull/650#pullrequestreview-5821499994)、#317・#557・#647
 - [0254](0254-parallel-agents-and-cross-review.md)・[0258](0258-fuzz-seeds-and-runs.md)・[0261](0261-fuzz-outside-required-checks.md)・[0283](0283-fuzz-reporting-after-release.md)
 - `fuzz/README.md` の「初回リリース後の記録先」、[作業の選び方](../work.md) の「選び方」
-- タグを打つコミットで確かめるときに、配るパッケージに入らないコードだけで起きる失敗を数えないことは、[0289](0289-release-cut-and-shipped-code.md) で定めた。
+- タグを打つコミットで確かめるときに、どの失敗を数えるか（入力を渡した入口と落ちた所で決める）は、[0289](0289-release-cut-and-shipped-code.md) の 6 で定めた。
