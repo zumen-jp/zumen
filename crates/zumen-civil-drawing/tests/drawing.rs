@@ -393,18 +393,8 @@ fn station_ranges_beyond_u64_stop_at_the_budget() {
     );
 }
 
-/// 線形に不連続を置いて図面を作り、結果と、使った作業・要素の予算を返す
-fn draw_with_breaks(breaks: &[(f64, f64)], limits: Limits) -> (Result<Drawing2D, Stop>, u64, u64) {
-    let mut line = alignment();
-    for &(distance, ahead) in breaks {
-        let back = line.stations.value(distance);
-        line.stations.breaks.push(zumen_civil::StationBreak {
-            distance,
-            back,
-            ahead,
-            source: Ref::default(),
-        });
-    }
+/// 線形 `line` の図面を作り、結果と、使った作業・要素の予算を返す
+fn draw_line(line: Alignment, limits: Limits) -> (Result<Drawing2D, Stop>, u64, u64) {
     let model = CivilModel {
         alignments: vec![line.clone()],
         ..CivilModel::default()
@@ -417,6 +407,21 @@ fn draw_with_breaks(breaks: &[(f64, f64)], limits: Limits) -> (Result<Drawing2D,
         drawing(&model, &line, &Options::default(), &mut cx)
     };
     (out, budget.used(Kind::Work), budget.used(Kind::Elements))
+}
+
+/// 線形に不連続を置いて図面を作り、結果と、使った作業・要素の予算を返す
+fn draw_with_breaks(breaks: &[(f64, f64)], limits: Limits) -> (Result<Drawing2D, Stop>, u64, u64) {
+    let mut line = alignment();
+    for &(distance, ahead) in breaks {
+        let back = line.stations.value(distance);
+        line.stations.breaks.push(zumen_civil::StationBreak {
+            distance,
+            back,
+            ahead,
+            source: Ref::default(),
+        });
+    }
+    draw_line(line, limits)
 }
 
 /// 不連続の多い線形では、番号ごとに不連続をたどる作業を予算に数え、上限で止まる（#560）
@@ -455,12 +460,43 @@ fn repeated_station_numbers_count_as_elements() {
         .filter(|e| matches!(&e.shape, Shape::Text(text) if text.content.starts_with("No.")))
         .count();
     assert!(stations > 200, "{stations}");
-    // 描いた測点は、どれも要素の予算に数えてある
-    assert!(elements >= stations as u64, "{elements} {stations}");
+    // 描いた測点は、どれも要素の予算に数えてある。測点ごとに、積んだ所と、平面図の線と文字の 3 つを数える
+    assert!(elements >= 3 * stations as u64, "{elements} {stations}");
     let limits = Limits::default().with(Kind::Elements, Limit::Finite(100));
     let (stopped, _, _) = draw_with_breaks(&breaks, limits);
     assert!(
         matches!(stopped, Err(Stop::Exceeded(ref e)) if e.kind == Kind::Elements),
+        "{stopped:?}"
+    );
+}
+
+/// 区間の多い線形では、測点ごとに区間を初めからたどって所を求める作業を予算に数え、上限で止まる（#560）
+#[test]
+fn many_segments_count_the_work_of_placing_stations() {
+    let (plain, few, _) = draw_line(alignment(), Limits::default());
+    plain.unwrap();
+    // 初めの直線 100 m を、0.125 m の直線 800 個に替える。長さの和は変わらず、平面図の測点（0〜11 番）ごとに、
+    // 区間を 2 × 799 回多くたどる
+    let mut line = alignment();
+    line.horizontal.remove(0);
+    let pieces = (0..800).map(|i| Horizontal {
+        start: MapPoint {
+            northing: 0.125 * f64::from(i),
+            easting: 0.0,
+        },
+        direction: 0.0,
+        length: 0.125,
+        kind: HorizontalKind::Line,
+        source: Ref::default(),
+    });
+    line.horizontal.splice(0..0, pieces);
+    let (many_result, many, _) = draw_line(line.clone(), Limits::default());
+    many_result.unwrap();
+    assert!(many >= few + 12 * 2 * 799, "{few} {many}");
+    let limits = Limits::default().with(Kind::Work, Limit::Finite(few + 1000));
+    let (stopped, _, _) = draw_line(line, limits);
+    assert!(
+        matches!(stopped, Err(Stop::Exceeded(ref e)) if e.kind == Kind::Work),
         "{stopped:?}"
     );
 }

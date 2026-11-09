@@ -137,10 +137,11 @@ impl<'d> Reader<'d, '_, '_> {
             ..Alignment::default()
         };
         let mut profiled = false;
+        let mut breaks = Vec::new();
         for child in self.children(element) {
             match self.local(child) {
                 b"CoordGeom" => self.coord_geom(child, &mut alignment)?,
-                b"StaEquation" => self.station_break(child, &mut alignment)?,
+                b"StaEquation" => breaks.extend(self.station_break(child, start)),
                 b"Profile" => {
                     for profile in self.children(child) {
                         if self.local(profile) == b"ProfAlign" && !profiled {
@@ -163,10 +164,7 @@ impl<'d> Reader<'d, '_, '_> {
                 _ => self.unsupported(child),
             }
         }
-        alignment
-            .stations
-            .breaks
-            .sort_by(|a, b| a.distance.total_cmp(&b.distance));
+        alignment.stations.breaks = station_breaks(breaks, start);
         Ok(alignment)
     }
 
@@ -185,7 +183,8 @@ impl<'d> Reader<'d, '_, '_> {
         }
     }
 
-    fn station_break(&mut self, element: &Element, alignment: &mut Alignment) -> Result<(), Error> {
+    /// 測点の不連続と、戻りの値（`staBack`）を書いていたか。書いていなければ、[`station_breaks`] が埋める
+    fn station_break(&mut self, element: &Element, start: f64) -> Option<(StationBreak, bool)> {
         let internal = self.number(element, b"staInternal");
         let ahead = self.number(element, b"staAhead");
         let (Some(internal), Some(ahead)) = (internal, ahead) else {
@@ -197,25 +196,22 @@ impl<'d> Reader<'d, '_, '_> {
                     "staAhead"
                 },
             );
-            return Ok(());
+            return None;
         };
-        let distance = internal - alignment.stations.start;
-        let back = match self.number(element, b"staBack") {
-            Some(back) => back,
-            None => {
-                // 戻りの値は、それまでの不連続をたどって求めるので、その作業を数える（#560）
-                let breaks = u64::try_from(alignment.stations.breaks.len()).unwrap_or(u64::MAX);
-                self.charge(element, Kind::Work, breaks.saturating_add(1))?;
-                alignment.stations.value(distance)
-            }
-        };
-        alignment.stations.breaks.push(StationBreak {
-            distance,
-            back,
-            ahead,
-            source: self.at(element),
-        });
-        Ok(())
+        let back = self.number(element, b"staBack");
+        if back.is_none() && self.attribute(element, b"staBack").is_some() {
+            // 読めない戻りの値は、知らせてから、書いていないものと同じく求める
+            self.invalid(element, "staBack");
+        }
+        Some((
+            StationBreak {
+                distance: internal - start,
+                back: back.unwrap_or_default(),
+                ahead,
+                source: self.at(element),
+            },
+            back.is_some(),
+        ))
     }
 
     /// 平面線形。要素の点から、区間の初めの点・向き・長さを求める
@@ -225,7 +221,17 @@ impl<'d> Reader<'d, '_, '_> {
             let segment = match self.local(child) {
                 b"Line" => self.line(child),
                 b"Curve" => self.curve(child),
-                b"Spiral" => self.spiral(child, alignment),
+                b"Spiral" => {
+                    let pi = self.point_of(child, b"PI");
+                    if pi.is_none() {
+                        // 交点がなければ、前の区間の終わりの向きを、平面線形を初めからたどって求めるので、その作業を
+                        // 数える（#560）
+                        let before = u64::try_from(alignment.horizontal.len()).unwrap_or(u64::MAX);
+                        let work = before.saturating_add(zumen_civil::place_work(alignment));
+                        self.charge(child, Kind::Work, work)?;
+                    }
+                    self.spiral(child, pi, alignment)
+                }
                 _ => {
                     self.unsupported(child);
                     continue;
@@ -300,8 +306,14 @@ impl<'d> Reader<'d, '_, '_> {
         })
     }
 
-    /// 緩和曲線。初めの向きは、初めの点から交点（`PI`）への向きにし、交点がなければ前の区間の終わりの向きにする
-    fn spiral(&mut self, element: &Element, alignment: &Alignment) -> Result<Horizontal, Invalid> {
+    /// 緩和曲線。初めの向きは、初めの点から交点（`PI` の点 `pi`）への向きにし、交点がなければ前の区間の終わりの
+    /// 向きにする
+    fn spiral(
+        &mut self,
+        element: &Element,
+        pi: Option<MapPoint>,
+        alignment: &Alignment,
+    ) -> Result<Horizontal, Invalid> {
         let right = self.right(element)?;
         let start = self.point_of(element, b"Start").ok_or(Invalid("Start"))?;
         let length = self
@@ -324,7 +336,7 @@ impl<'d> Reader<'d, '_, '_> {
         };
         let start_radius = radius(self, b"radiusStart", "radiusStart")?;
         let end_radius = radius(self, b"radiusEnd", "radiusEnd")?;
-        let direction = match self.point_of(element, b"PI") {
+        let direction = match pi {
             Some(pi) => azimuth(start, pi),
             None => {
                 let before = zumen_civil::length(alignment);
@@ -783,6 +795,24 @@ fn azimuth(from: MapPoint, to: MapPoint) -> f64 {
 
 fn positive(value: f64) -> Option<f64> {
     (value.is_finite() && value > 0.0).then_some(value)
+}
+
+/// 測点の不連続を追加距離の順に並べ、戻りの値を書いていないもの（`false`）は、手前の不連続の進みの値（なければ
+/// 初めの測点の値 `start`）から数えて埋める。`Stationing::value` と同じ式で、文書の順によらず、作業は不連続の
+/// 数に比例する（#560）
+fn station_breaks(mut breaks: Vec<(StationBreak, bool)>, start: f64) -> Vec<StationBreak> {
+    breaks.sort_by(|a, b| a.0.distance.total_cmp(&b.0.distance));
+    let mut base = (0.0, start);
+    breaks
+        .into_iter()
+        .map(|(mut at, given)| {
+            if !given {
+                at.back = base.1 + (at.distance - base.0);
+            }
+            base = (at.distance, at.ahead);
+            at
+        })
+        .collect()
 }
 
 fn numbers(text: &str) -> Vec<f64> {

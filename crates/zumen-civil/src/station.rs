@@ -31,7 +31,7 @@ pub struct StationBreak {
 }
 
 impl Stationing {
-    /// 追加距離での測点の値
+    /// 追加距離での測点の値。不連続を終わりからたどるので、作業は多くて不連続の数に比例する
     pub fn value(&self, distance: f64) -> f64 {
         let base = self
             .breaks
@@ -41,7 +41,8 @@ impl Stationing {
         base.1 + (distance - base.0)
     }
 
-    /// 測点の値がある所の追加距離を、線形の初めから順に返す。線形の長さ `length` の外の所は除く
+    /// 測点の値がある所の追加距離を、線形の初めから順に返す。線形の長さ `length` の外の所は除く。不連続を
+    /// すべてたどるので、作業は不連続の数に比例する
     pub fn distances(&self, value: f64, length: f64) -> Vec<f64> {
         let mut found = Vec::new();
         let mut from = (0.0, self.start);
@@ -120,7 +121,7 @@ impl Notation {
 }
 
 /// 測点の表記から追加距離を求める。不連続のために同じ値が何か所にもあれば、`occurrence`（0 から）の所に
-/// する。指定がなければ最初の所にして知らせる
+/// する。指定がなければ最初の所にして知らせる。作業は、不連続の数と平面線形の区間の数の和に比例する
 pub fn distance(
     alignment: &Alignment,
     station: &str,

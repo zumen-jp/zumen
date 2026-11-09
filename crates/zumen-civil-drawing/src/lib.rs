@@ -506,7 +506,16 @@ fn stations(
     cx: &mut Cx<'_>,
 ) -> Result<(), Stop> {
     let half = 2.0 * unit;
-    for (distance, number) in whole_stations(alignment, options.notation.pitch, cx)? {
+    let found = whole_stations(alignment, options.notation.pitch, cx)?;
+    // 測点ごとに、平面線形と縦断線形を初めからたどって所を求めるので、その作業を数える。積む要素も、測点ごとの
+    // 線と文字の 2 つを、積む前に数える（#560）
+    let count = u64::try_from(found.len()).unwrap_or(u64::MAX);
+    cx.check(
+        Kind::Work,
+        count.saturating_mul(zumen_civil::place_work(alignment)),
+    )?;
+    cx.check(Kind::Elements, count.saturating_mul(2))?;
+    for (distance, number) in found {
         let Ok(placed) = quiet(cx, |cx| zumen_civil::place(alignment, distance, cx)) else {
             continue;
         };
@@ -754,8 +763,16 @@ fn profile(alignment: &Alignment, options: &Options, cx: &mut Cx<'_>) -> Result<
         ),
         &Ref::default(),
     ));
-    // 測点ごとの縦の線と、測点・地盤高・計画高
-    for (distance, number) in whole_stations(alignment, options.notation.pitch, cx)? {
+    // 測点ごとの縦の線と、測点・地盤高・計画高。測点ごとに、縦断線形と地盤線を初めからたどって高さを求めるので、
+    // その作業を数える。積む要素も、測点ごとの線と多くて 3 つの文字を、積む前に数える（#560）
+    let found = whole_stations(alignment, options.notation.pitch, cx)?;
+    let count = u64::try_from(found.len()).unwrap_or(u64::MAX);
+    let per_station = u64::try_from(alignment.vertical.len().saturating_add(ground.len()))
+        .unwrap_or(u64::MAX)
+        .saturating_add(1);
+    cx.check(Kind::Work, count.saturating_mul(per_station))?;
+    cx.check(Kind::Elements, count.saturating_mul(4))?;
+    for (distance, number) in found {
         let planned = height(&alignment.vertical, distance);
         let top = place(distance, planned.unwrap_or(datum));
         let x = top.x;
