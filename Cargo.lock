@@ -336,6 +336,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "jgdtrans"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "184e8e0a9aef34bcfa31118e6e8290d865698e73e5225982bb1591ad910d6fbc"
+
+[[package]]
 name = "kurbo"
 version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -947,6 +953,7 @@ dependencies = [
 name = "zumen-crs"
 version = "0.2.0"
 dependencies = [
+ "jgdtrans",
  "libm",
  "zumen-base",
  "zumen-sdk",

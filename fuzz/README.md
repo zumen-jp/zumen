@@ -74,7 +74,7 @@ cargo "+$NIGHTLY" fuzz run -O --debug-assertions zip
   - 適合テストの組の合成の入力と、`call` で渡す要求（1 つずつと、組ごとに並べた配列。決定 0262）。`call_text`・`call_hex` で渡す要求のバイト列（読めない要求と、BOM を付けた要求）も、1 つずつ種にします
   - L0 の攻撃の形（ZIP 爆弾・膨らむ deflate・アーカイブの入れ子・パスの走査・XML の外部実体と深い入れ子・ISO 10303-21 の深い入れ子）
   - EXPRESS の攻撃の形（集まりの型の深い入れ子・定義された型と上位の型の長い鎖。#668）
-  - 合成の格子（ISG・TKY2JGD・PatchJGD の形）
+  - 合成の格子（ISG・TKY2JGD・PatchJGD の形。補正量の格子は、格子点を 3 次メッシュの間隔に置くものと、その 5 倍の間隔に置くもの。決定 0286）
   - 線と列の参照を持つ合成シーン（ZMSC、SVG を書く target 用）
 - `cp Cargo.lock fuzz/Cargo.lock` で、fuzz の crate の依存を、ワークスペースと同じバージョンから解きます。`fuzz/Cargo.lock` はリポジトリに入れません。
 - `cargo "+$NIGHTLY" fuzz list` で、target の一覧を出せます。

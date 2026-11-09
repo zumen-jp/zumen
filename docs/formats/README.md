@@ -155,7 +155,7 @@
 - 入手の条件: 無償公開
 - 入手先: [地質・土質調査成果電子納品要領（ボーリング交換用データ BED0500.DTD を含む）](https://www.cals-ed.go.jp/cri_point/)
 - 確認日: 2026-11-01
-- 補足: DTD は https://www.cals-ed.go.jp/cri\_dtdxml/ の boring\_R8.2.zip に入っている
+- 補足: DTD は <https://www.cals-ed.go.jp/cri_dtdxml/> の boring\_R8.2.zip に入っている
 
 ### spec-ed_const_r8_2
 
@@ -165,7 +165,7 @@
 - 入手の条件: 無償公開
 - 入手先: [工事完成図書の電子納品等要領](https://www.cals-ed.go.jp/cri_point/)
 - 確認日: 2026-11-01
-- 補足: 管理ファイルの DTD と作成例は https://www.cals-ed.go.jp/cri\_dtdxml/ に置く。頁の転載と改変を禁じるので、DTD は同梱しない
+- 補足: 管理ファイルの DTD と作成例は <https://www.cals-ed.go.jp/cri_dtdxml/> に置く。頁の転載と改変を禁じるので、DTD は同梱しない
 
 ### spec-ed_design_r8_2
 
@@ -428,7 +428,7 @@
 - 入手の条件: 無償公開
 - 入手先: [公共測量成果改定マニュアル（国土地理院技術資料 A1-No.337）](https://www.gsi.go.jp/shidou/data/seikakaiteimanual.pdf)
 - 確認日: 2026-11-09
-- 補足: PatchJGD とその補正パラメーターで公共測量成果を補正する方法を定める。第 3 条の解説は、補正パラメーターの格子点を 3 次メッシュのコードの末位 2 桁が 00・05・50・55 のメッシュの南西の隅（緯度 150 秒・経度 225 秒の倍数）とし、補正量を秒の緯度差・経度差とメートルの標高差で表すとする。パラメーターのファイルの書式（ヘッダー・列・文字コード）は示さない（第 14 条などの入力フォーマットは、補正する点の一覧の書式）。2026-11-09 に確かめた国土地理院の技術資料の一覧は、この資料に当てはめる利用規約を区分 2 の国土地理院コンテンツ利用規約とする。一覧は https://www.gsi.go.jp/REPORT/TECHNICAL/gsigijutsu1.htm にある
+- 補足: PatchJGD とその補正パラメーターで公共測量成果を補正する方法を定める。第 3 条の解説は、補正パラメーターの格子点を 3 次メッシュのコードの末位 2 桁が 00・05・50・55 のメッシュの南西の隅（緯度 150 秒・経度 225 秒の倍数）とし、補正量を秒の緯度差・経度差とメートルの標高差で表すとする。同じ地区に地震ごとのファイルが複数あれば、成果を得た時期より後のものを古い年代順に当てるとし、どのファイルを当てるかは利用者が選ぶとする。パラメーターのファイルの書式（ヘッダー・列・文字コード）は示さない（第 14 条などの入力フォーマットは、補正する点の一覧の書式）。2026-11-09 に確かめた国土地理院の技術資料の一覧は、この資料に当てはめる利用規約を区分 2 の国土地理院コンテンツ利用規約とする。一覧は <https://www.gsi.go.jp/REPORT/TECHNICAL/gsigijutsu1.htm> にある
 
 ### spec-stbridge_2_1_1
 
@@ -786,7 +786,7 @@
 - 照合に使う候補: Jw\_cad
 - サンプルの出どころ: Jw\_cad 10 で登録した図形
 - 記録: [決定 0008](../decisions/0008-model-layers-and-codecs.md)
-- 補足: 掲示板の説明: https://www.jwcad.net/log/consult2/consult2-0610-12/thread17752.htm
+- 補足: 掲示板の説明: <https://www.jwcad.net/log/consult2/consult2-0610-12/thread17752.htm>
 
 ### format-jww
 
@@ -861,18 +861,21 @@
 - 文書の補足: 令和 7 年 11 月 20 日の改正。特段の記載がなければ、公共データ利用規約（第 1.0 版）を当てはめる。測量法による基本測量成果・公共測量成果の複製と使用の承認は、別に要る
 - 権利の根拠にした文書: [国土地理院の TKY2JGD のダウンロードのページ](https://www.gsi.go.jp/sokuchikijun/tky2jgd_download.html)（確認日: 2026-11-09）
 - 文書の補足: パラメーターのファイル（TKY2JGD.par の Ver.2.1.1・2.1.2 など）と、プログラム開発用の TKY2JGD のソースコードを配る。ソースコードは国土地理院コンテンツ利用規約に従う。書式と、申請の要否の記述はない。プログラムの配布は 2017-06-05 に終え、測量計算サイトの TKY2JGD を案内する
-- 照合に使う候補: 国土地理院の測量計算サイト（TKY2JGD・PatchJGD）・jgdtrans（dev の依存にして、テストの中で作った格子で照らす。zumen-jp/zumen#670）
+- 照合に使う候補: 国土地理院の測量計算サイト（TKY2JGD・PatchJGD）・jgdtrans 0.3.1（dev の依存。テストの中で作った格子で、読んだ格子点・補間の値・変換した座標を照らす。決定 0286）
 - サンプルの出どころ: 利用者が国土地理院から入手したパラメーターのファイル。Git・パッケージ・テストに入れない。テストの中で合成の格子を作る
 - 読みの確かめた度合い: `synthetic`（確認日: 2026-11-09）
-- 読みの確かめた範囲: TKY2JGD の論文の表 2 と同じ項目の並びの合成の格子（桁の幅と行の終わりは表 2 と違う）と、行の終わりが CR+LF で長いヘッダーに UTF-8 でない行を含む合成の格子（crates/zumen-crs/tests/datum.rs）で、ヘッダーの読み飛ばし・壊れた行（初めのデータの行の後の UTF-8 でない行を含む）・格子点を数える予算と、双一次の補間と変換を確かめた。国土地理院のパラメーターのファイルは読んでいない。公共測量成果改定マニュアル（令和 7 年 4 月）は、補正パラメーターの格子点を緯度 150 秒・経度 225 秒の倍数の所とするが、zumen は 3 次メッシュ（緯度 30 秒・経度 45 秒）の四隅で補間するので、その間隔の格子は正しく扱えない見込みで、まだ確かめていない（#670）。国土地理院のファイルと、測量計算サイトの TKY2JGD・PatchJGD との照合は #664 で行う
+- 読みの確かめた範囲: TKY2JGD の論文の表 2 と同じ項目の並びの合成の格子（桁の幅と行の終わりが表 2 と違うものと、表 2 の桁の幅のもの）と、行の終わりが CR+LF で長いヘッダーに UTF-8 でない行を含む合成の格子（crates/zumen-crs/tests/datum.rs・jgdtrans.rs）で、ヘッダーの読み飛ばし・壊れた行（初めのデータの行の後の UTF-8 でない行を含む）・格子点を数える予算・隣り合う格子点からの間隔の見分け（3 次メッシュの間隔と、公共測量成果改定マニュアル（令和 7 年 4 月）の 5 倍の間隔。格子点が 1 つだけのものや 15 倍の間隔のものは読まない）・双一次の補間（5 倍の格子の南端を含む）・複数の PatchJGD のファイルを古い順に当てる変換と、その作業量の上限や中断の合図で止まることを確かめた（決定 0286）。テストの中で作った格子を jgdtrans 0.3.1 にも読ませ、読んだ格子点・補間の値・変換した座標を照らした（自前で作った格子なので、段は上げない）。国土地理院のパラメーターのファイルは読んでいない。国土地理院のファイルの間隔とヘッダーと、測量計算サイトの TKY2JGD・PatchJGD との照合は #664 で行う
 - 既知の crate: jgdtrans
 - 記録: [決定 0019](../decisions/0019-coordinate-systems-and-gsi-data.md)
 - 記録: [決定 0233](../decisions/0233-geo-model-features.md)
 - 記録: [決定 0237](../decisions/0237-datum-transformations.md)
+- 記録: [決定 0286](../decisions/0286-datum-grid-spacing-and-patch-order.md)
 - issue: [zumen-jp/zumen#471](https://github.com/zumen-jp/zumen/issues/471)
 - issue: [zumen-jp/zumen#529](https://github.com/zumen-jp/zumen/issues/529)
 - issue: [zumen-jp/zumen#664](https://github.com/zumen-jp/zumen/issues/664)
 - issue: [zumen-jp/zumen#670](https://github.com/zumen-jp/zumen/issues/670)
+- issue: [zumen-jp/zumen#678](https://github.com/zumen-jp/zumen/issues/678)
+- issue: [zumen-jp/zumen#679](https://github.com/zumen-jp/zumen/issues/679)
 - 形式の文書: [docs/formats/crs.md](../../docs/formats/crs.md)
 - 補足: PatchJGD のファイルのヘッダーの行数と文字コード（UTF-8・Shift\_JIS）は、ファイルのバージョンで違う。2026-11-09 に確かめた国土地理院の座標補正パラメータファイルの更新の履歴では、noto2024\_BL.par の Ver.1.0.1 がヘッダーを 14 行から 15 行に、noto2024\_02BL.par の Ver.1.0.1 が文字コードを UTF-8 から Shift\_JIS に直した。初めのデータの行の前をヘッダーとして読まないのは、これに合わせた推定。更新の履歴と、ファイルと各ファイルのヘッダーの一覧へのリンクは、docs/formats/crs.md の「座標の補正量の格子」にある
 
