@@ -4625,6 +4625,12 @@ fn invalid_object_changes_are_rejected_without_changing_the_file() {
 /// オブジェクトを並べたセクションと、それを指すオブジェクトのマップを持つ R2004 のコンテナー
 #[cfg(test)]
 fn r2004_with_objects(objects: &[(u64, Vec<u8>)]) -> Vec<u8> {
+    r2004(&r2004_sections_with_objects(objects))
+}
+
+/// [`r2004_with_objects`] のセクション
+#[cfg(test)]
+fn r2004_sections_with_objects(objects: &[(u64, Vec<u8>)]) -> Vec<(&'static [u8], Vec<u8>, u64)> {
     // オブジェクトのセクションは、初めの RL（0x0DCA）の後にオブジェクトを並べる
     let mut body = 0x0DCAu32.to_le_bytes().to_vec();
     let mut pairs = Vec::new();
@@ -4649,7 +4655,7 @@ fn r2004_with_objects(objects: &[(u64, Vec<u8>)]) -> Vec<u8> {
         literal_stream(&body),
         body.len() as u64,
     );
-    r2004(&sections)
+    sections
 }
 
 #[test]
@@ -8251,6 +8257,221 @@ fn added_entities_are_written_back() {
     }
 }
 
+/// HANDSEED の大きさ（バイト）が増える数の図形を足しても書き戻せる（#701）。R2000 では、ヘッダーの変数のセクションを
+/// ファイルの後ろに移して伸ばす。読み直すと、足した図形と HANDSEED が合い、元のレコードのバイトは変わらない
+#[test]
+fn added_entities_grow_the_handle_seed_of_an_r2000_header() {
+    let line = [
+        (10, 1.0),
+        (20, 2.0),
+        (30, 0.0),
+        (11, 3.0),
+        (21, 4.0),
+        (31, 0.0),
+    ];
+    // 元のレコードのうち、書き直したものの番号
+    let changed_records = |src: &[u8], out: &[u8]| {
+        let before = read(src, Limits::default()).0.unwrap();
+        let after = read(out, Limits::default()).0.unwrap();
+        (0..before.record_count())
+            .filter(|&i| after.object_data(i) != before.object_data(i))
+            .collect::<Vec<_>>()
+    };
+    let unchanged_seed = {
+        let src = linked_lines_with_seed(true);
+        let (base, _) = objects(&src);
+        let db = with_added(&base, 0x80, b"LINE", &line);
+        let db = with_added(&db, 0x81, b"LINE", &line);
+        let mut file = read(&src, Limits::default()).0.unwrap();
+        let out = written_back(&mut file, &db).0.unwrap();
+        changed_records(&src, &out)
+    };
+    for (seed, next) in [(0xFE, 0x100), (0xFFFE, 0x1_0000), (0xFF_FFFE, 0x100_0000)] {
+        let src = with_header(
+            dwg(&objects_with_linked_lines(true)),
+            0,
+            0,
+            0,
+            [0.0; 4],
+            seed,
+        );
+        let (base, _) = objects(&src);
+        let db = with_added(&base, seed, b"LINE", &line);
+        let db = with_added(&db, seed + 1, b"LINE", &line);
+        let mut file = read(&src, Limits::default()).0.unwrap();
+        let (out, diag) = written_back(&mut file, &db);
+        let out = out.unwrap();
+        assert!(
+            codes_of(&diag).is_empty(),
+            "{seed:#x} {:?}",
+            codes_of(&diag)
+        );
+        let (again, diag) = objects(&out);
+        assert!(
+            codes_of(&diag).is_empty(),
+            "{seed:#x} {:?}",
+            codes_of(&diag)
+        );
+        let handles = |db: &AcadDb| db.objects().iter().map(Object::handle).collect::<Vec<_>>();
+        assert_eq!(handles(&again), handles(&db), "{seed:#x}");
+        assert_eq!(
+            read(&out, Limits::default()).0.unwrap().handle_seed(),
+            Some(next),
+            "{seed:#x}"
+        );
+        // 書き直すレコードは、HANDSEED の大きさが変わらないときと同じ（図形の並びをたどるハンドルを直すものだけ）
+        assert_eq!(changed_records(&src, &out), unchanged_seed, "{seed:#x}");
+        // 続けて足すときは、進めた HANDSEED から振る
+        let mut file = read(&out, Limits::default()).0.unwrap();
+        let (more, diag) = written_back(&mut file, &with_added(&again, next, b"LINE", &line));
+        assert!(
+            codes_of(&diag).is_empty(),
+            "{seed:#x} {:?}",
+            codes_of(&diag)
+        );
+        let more = more.unwrap();
+        assert_eq!(
+            read(&more, Limits::default()).0.unwrap().handle_seed(),
+            Some(next + 1)
+        );
+    }
+}
+
+/// R2004 から後のコンテナーの DWG でも、HANDSEED の大きさ（バイト）が増える数のオブジェクトを足すと、展開したヘッダーの
+/// セクションを伸ばして置き換える。R2010 からは、文字列のストリームの終わりの位置もずらす（#701・決定 0193）
+#[test]
+fn added_objects_grow_the_handle_seed_of_r2004_and_later_headers() {
+    let in_sample = objects_in_sample();
+    let kept: Vec<_> = [0, 1, 4].iter().map(|&i| in_sample[i].clone()).collect();
+    let added = data_of(&in_sample[4].1);
+    let limits = [10.0, 10.0, 307.0, 220.0];
+    for (version, release) in [
+        (b"AC1018", 2004),
+        (b"AC1024", 2010),
+        (b"AC1027", 2013),
+        (b"AC1032", 2018),
+    ] {
+        // オブジェクトを持つファイル（`objects` が真）と、ヘッダーの変数を表で読めるオブジェクトのないファイル
+        let build = |seed: u64, objects: bool| {
+            let mut sections = if objects {
+                r2004_sections_with_objects(&kept)
+            } else {
+                r2004_sections()
+            };
+            let head = header_with_seed(release, (3, 2.5), limits, seed);
+            sections[0] = (b"AcDb:Header", literal_stream(&head), head.len() as u64);
+            if release >= 2010 {
+                let classes = r2010_classes(false);
+                sections[1] = (
+                    b"AcDb:Classes",
+                    literal_stream(&classes),
+                    classes.len() as u64,
+                );
+            }
+            let mut src = r2004(&sections);
+            src[..6].copy_from_slice(version);
+            src
+        };
+        for (seed, next) in [(0xFE, 0x100), (0xFFFE, 0x1_0000)] {
+            // 合成のオブジェクトは R2000 の符号化なので、R2010 から後は、ヘッダーの変数だけを確かめる。R2018 で足した
+            // 図形は、公開サンプルで確かめる（tests/layout_samples.rs）
+            for with_objects in [true, false] {
+                if with_objects && release >= 2010 {
+                    continue;
+                }
+                let src = build(seed, with_objects);
+                let (base, diag) = read(&src, Limits::default());
+                let base = base.unwrap_or_else(|e| {
+                    panic!("{release} {with_objects} {e:?} {:?}", codes_of(&diag))
+                });
+                assert_eq!(base.handle_seed(), Some(seed));
+                let mut file = read(&src, Limits::default()).0.unwrap();
+                let mut diag = Diagnostics::new();
+                let mut budget = Budget::default();
+                let cancel = CancelToken::new();
+                let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+                let mut txn = file.transaction();
+                if with_objects {
+                    txn.add(seed, &added).unwrap();
+                    txn.add(seed + 1, &added).unwrap();
+                }
+                txn.set_handle_seed(next).unwrap();
+                txn.commit(&mut cx).unwrap();
+                let mut out = Vec::new();
+                Dwg::write(&file, &mut out, &mut cx).unwrap();
+                assert!(diag.is_empty(), "{release} {:?}", codes_of(&diag));
+                let again = read(&out, Limits::default()).0.unwrap();
+                assert_eq!(again.handle_seed(), Some(next), "{release} {seed:#x}");
+                if with_objects {
+                    // 元のオブジェクトのバイトは変わらず、足したオブジェクトが読める
+                    assert_eq!(again.record_count(), kept.len() + 2);
+                    for i in 0..base.record_count() {
+                        assert_eq!(again.object_data(i), base.object_data(i), "{release} {i}");
+                    }
+                    let found = (base.record_count()..again.record_count())
+                        .filter(|&i| again.object_data(i) == Some(&added[..]))
+                        .count();
+                    assert_eq!(found, 2, "{release} {seed:#x}");
+                } else {
+                    // HANDSEED の後ろの変数（R2010 からは文字列のストリームの中の変数も）は変わらない
+                    let (before, diag_before) = objects(&src);
+                    let (after, diag_after) = objects(&out);
+                    assert_eq!(codes_of(&diag_after), codes_of(&diag_before), "{release}");
+                    for name in [
+                        b"$INSUNITS".as_slice(),
+                        b"$PLIMMIN",
+                        b"$PLIMMAX",
+                        b"$PDMODE",
+                        b"$PDSIZE",
+                        b"$MENU",
+                    ] {
+                        assert_eq!(after.variable(name), before.variable(name), "{release}");
+                    }
+                }
+            }
+        }
+        // HANDSEED を縮める値と、同じ確定で幅の変わる PDMODE（3 から 0）と INSUNITS も書く値。HANDSEED のセクションに
+        // 続けて書き、ほかの変数は変わらない（決定 0291）
+        for (seed, next, values) in [(0x1_0000, 0xFFFF, false), (0xFFFE, 0x1_0000, true)] {
+            let src = build(seed, false);
+            let mut file = read(&src, Limits::default()).0.unwrap();
+            let mut diag = Diagnostics::new();
+            let mut budget = Budget::default();
+            let cancel = CancelToken::new();
+            let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+            let mut txn = file.transaction();
+            txn.set_handle_seed(next).unwrap();
+            if values {
+                txn.set_point_mode(0).unwrap();
+                txn.set_units(6).unwrap();
+            }
+            txn.commit(&mut cx).unwrap();
+            let mut out = Vec::new();
+            Dwg::write(&file, &mut out, &mut cx).unwrap();
+            assert!(diag.is_empty(), "{release} {:?}", codes_of(&diag));
+            assert_eq!(
+                read(&out, Limits::default()).0.unwrap().handle_seed(),
+                Some(next),
+                "{release} {seed:#x}"
+            );
+            let (before, diag_before) = objects(&src);
+            let (after, diag_after) = objects(&out);
+            assert_eq!(codes_of(&diag_after), codes_of(&diag_before), "{release}");
+            let variable = |db: &AcadDb, name: &[u8]| db.variable(name).unwrap()[0].data.clone();
+            let (mode, units) = if values { (0, 6) } else { (3, 4) };
+            assert_eq!(variable(&after, b"$PDMODE"), Data::Int(mode), "{release}");
+            assert_eq!(
+                variable(&after, b"$INSUNITS"),
+                Data::Int(units),
+                "{release}"
+            );
+            for name in [b"$PLIMMIN".as_slice(), b"$PLIMMAX", b"$PDSIZE", b"$MENU"] {
+                assert_eq!(after.variable(name), before.variable(name), "{release}");
+            }
+        }
+    }
+}
+
 /// 画層の表（項目は画層 0 の 1 つ）と、画層 0 と、文字スタイルの表と Standard と、線種 Continuous と、[`objects_with_linked_lines`] の
 /// ブロックと LINE を持ち、HANDSEED が 0x80 の図面
 #[cfg(test)]
@@ -10105,7 +10326,18 @@ fn point_header_variables_are_written_back() {
 /// バージョン `release`（R2004・R2010・R2013・R2018）のヘッダーの変数のセクション。PDMODE・PDSIZE を `point` に、INSUNITS を 4 に、
 /// 用紙空間の範囲を `limits` にする。R2010 からは、文字列（"acad"）とハンドルを別のストリームに書く
 #[cfg(test)]
-fn header_of(release: u32, (point_mode, point_size): (u16, f64), limits: [f64; 4]) -> Vec<u8> {
+fn header_of(release: u32, point: (u16, f64), limits: [f64; 4]) -> Vec<u8> {
+    header_with_seed(release, point, limits, 0x99)
+}
+
+/// [`header_of`] と同じく、HANDSEED を `seed` にしたヘッダーの変数のセクション
+#[cfg(test)]
+fn header_with_seed(
+    release: u32,
+    (point_mode, point_size): (u16, f64),
+    limits: [f64; 4],
+    seed: u64,
+) -> Vec<u8> {
     let split = release >= 2010;
     let last = if split {
         "t2 d9 d2 s1 c1 b6 s3 s1 d9 b1 s1 b4 c3 s11 b2 s4 b1 s1 b2 d1 t1 d1 t1 h5 h3 s2"
@@ -10165,7 +10397,7 @@ fn header_of(release: u32, (point_mode, point_size): (u16, f64), limits: [f64; 4
                 "E" => main.bs(3),
                 "M" => main.bs(point_mode),
                 "Z" => main.bd(point_size),
-                "S" => main.handle(0, 0x99),
+                "S" => main.handle(0, seed),
                 "X" => handle(target, 0x58),
                 "Y" => handle(target, 0x1F),
                 _ => handle(target, 0x40),
