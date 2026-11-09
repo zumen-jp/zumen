@@ -21,6 +21,9 @@ button:not(:disabled):hover, .layer:hover { background: #e3eeea; }
 .file-bar label, .toolbar label { font-weight: 650; }
 .file-bar input { max-width: 100%; min-width: 0; }
 .file-bar input::file-selector-button { background: #24564d; color: white; margin-right: .7rem; }
+.file-bar select { max-width: 100%; }
+.sample-source { background: #f5f7f6; border-bottom: 1px solid #d9e2de; padding: .6rem 1rem; overflow-wrap: anywhere; }
+.sample-source h2 { font-size: 1rem; margin: 0 0 .4rem; }
 #file-help, .detail, #drawing-help { font-size: .85rem; }
 .workspace { display: grid; grid-template-columns: minmax(0, 1fr) minmax(15rem, 22rem); background: white; border: 1px solid #bcc9c5; }
 .drawing-pane { min-width: 0; padding: 1rem; }
