@@ -1,5 +1,8 @@
 //! JWW から図面モデルへの変換（決定 0134）。入力は、どれもテストの中で作る。
 
+// 図面モデルへの変換は、機能 `drawing` で作る（#735）
+#![cfg(feature = "drawing")]
+
 mod common;
 
 use core::f64::consts::PI;
