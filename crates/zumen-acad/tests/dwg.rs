@@ -8374,7 +8374,7 @@ fn added_objects_grow_the_handle_seed_of_r2004_and_later_headers() {
         };
         for (seed, next) in [(0xFE, 0x100), (0xFFFE, 0x1_0000)] {
             // 合成のオブジェクトは R2000 の符号化なので、R2010 から後は、ヘッダーの変数だけを確かめる。R2018 で足した
-            // 図形は、公開サンプルで確かめる（tests/handle_seed_samples.rs）
+            // 図形は、公開サンプルで確かめる（tests/layout_samples.rs）
             for with_objects in [true, false] {
                 if with_objects && release >= 2010 {
                     continue;
@@ -8428,6 +8428,45 @@ fn added_objects_grow_the_handle_seed_of_r2004_and_later_headers() {
                         assert_eq!(after.variable(name), before.variable(name), "{release}");
                     }
                 }
+            }
+        }
+        // HANDSEED を縮める値と、同じ確定で幅の変わる PDMODE（3 から 0）と INSUNITS も書く値。HANDSEED のセクションに
+        // 続けて書き、ほかの変数は変わらない（決定 0291）
+        for (seed, next, values) in [(0x1_0000, 0xFFFF, false), (0xFFFE, 0x1_0000, true)] {
+            let src = build(seed, false);
+            let mut file = read(&src, Limits::default()).0.unwrap();
+            let mut diag = Diagnostics::new();
+            let mut budget = Budget::default();
+            let cancel = CancelToken::new();
+            let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+            let mut txn = file.transaction();
+            txn.set_handle_seed(next).unwrap();
+            if values {
+                txn.set_point_mode(0).unwrap();
+                txn.set_units(6).unwrap();
+            }
+            txn.commit(&mut cx).unwrap();
+            let mut out = Vec::new();
+            Dwg::write(&file, &mut out, &mut cx).unwrap();
+            assert!(diag.is_empty(), "{release} {:?}", codes_of(&diag));
+            assert_eq!(
+                read(&out, Limits::default()).0.unwrap().handle_seed(),
+                Some(next),
+                "{release} {seed:#x}"
+            );
+            let (before, diag_before) = objects(&src);
+            let (after, diag_after) = objects(&out);
+            assert_eq!(codes_of(&diag_after), codes_of(&diag_before), "{release}");
+            let variable = |db: &AcadDb, name: &[u8]| db.variable(name).unwrap()[0].data.clone();
+            let (mode, units) = if values { (0, 6) } else { (3, 4) };
+            assert_eq!(variable(&after, b"$PDMODE"), Data::Int(mode), "{release}");
+            assert_eq!(
+                variable(&after, b"$INSUNITS"),
+                Data::Int(units),
+                "{release}"
+            );
+            for name in [b"$PLIMMIN".as_slice(), b"$PLIMMAX", b"$PDSIZE", b"$MENU"] {
+                assert_eq!(after.variable(name), before.variable(name), "{release}");
             }
         }
     }

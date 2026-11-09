@@ -31,9 +31,6 @@ from compare import ATTACHMENTS, KINDLESS, check_handles, lifted_away, run, usag
 # 既知の食い違い: (ファイルの道筋の初め, 食い違いの文の初め, issue, 当たるファイルの数)。直ったら消す
 KNOWN = []
 MODEL = "*model_space"
-# ACadSharp 3.8.0 が読む HANDSEED と、ファイルの HANDSEED（zumen の読み）の差。キットの AutoCAD で作った
-# zumen-layout-r2000・r2004・r2018 の入力で、どれも 2 だった（#701）
-HANDSEED_EXTRA = 2
 
 
 def geometry(d):
@@ -154,13 +151,17 @@ def check_file(dumps, entry, reading, baseline, counts):
     found, seen = check_handles(entry, reading, counts, view(dump))
     failures += found
 
-    # HANDSEED の大きさ（バイト）が増える数の図形を足したファイル（#701）では、zumen は HANDSEED を足した最後の図形の次に
-    # する。ACadSharp の読む HANDSEED は、AutoCAD で作った入力でも zumen の読む値より HANDSEED_EXTRA だけ大きい
+    # HANDSEED の大きさ（バイト）が増える数の図形を足したファイル（#701）では、ファイルの HANDSEED（ACadSharp でヘッダー
+    # だけを読んだ値）が、足した最後の図形の次になる。HANDSEED の後ろの変数（PDMODE・PDSIZE）は入力のまま
     if entry.get("recipe") == "handseed":
         seed = dump["header"].get("HANDSEED")
         last = max(int(handle, 16) for handle in dump["entities"])
-        if seed != last + 1 + HANDSEED_EXTRA or last <= 0xFFFF:
-            failures.append(f"HANDSEED が {seed}（期待は、0xFFFF より大きい最後の図形のハンドル {last} の次に {HANDSEED_EXTRA} を足した値）")
+        source = dumps.get(entry["from"], {}).get("header", {})
+        after = (dump["header"].get("PDMODE"), dump["header"].get("PDSIZE"))
+        if after != (source.get("PDMODE"), source.get("PDSIZE")):
+            failures.append(f"HANDSEED の後ろの PDMODE・PDSIZE が {after}（入力は {source.get('PDMODE')}・{source.get('PDSIZE')}）")
+        if seed != last + 1 or last <= 0xFFFF:
+            failures.append(f"HANDSEED が {seed}（期待は、0xFFFF より大きい最後の図形のハンドル {last} の次）")
 
     # 黙って捨てない: 要素にならないモデル空間の図形の数は、種類ごとに、移さなかったことを言う zumen の診断（kind は
     # 図形の種類）の件数を超えない。DWG の診断の場所はバイトの範囲なので、図形ごとには結ばない

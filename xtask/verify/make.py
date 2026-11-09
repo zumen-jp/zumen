@@ -570,6 +570,8 @@ def minsert_steps(_fmt):
 
 # HANDSEED を 2 バイトから 3 バイトに進めるのに足りる線の数（HANDSEED は 1 以上）
 HANDSEED_LINES = 0x10000
+# manifest.json に書く、1 つの段の変更の数の上限
+MANIFEST_EDITS = 100
 
 
 def handseed_steps(_fmt):
@@ -608,7 +610,8 @@ RECIPES = [
     ("points", 342, lambda name, fmt: fmt in ("jww", "sfc", "p21") or "points-" in name, points_steps),
     ("basic", 156, lambda name, fmt: fmt in ("dxf", "dwg") and ("-layout-" in name or "-xclip-r2013" in name), basic_steps),
     ("minsert", 316, lambda name, fmt: fmt in ("dxf", "dwg") and "-minsert-" in name, minsert_steps),
-    ("handseed", 701, lambda name, fmt: fmt == "dwg" and "-layout-" in name, handseed_steps),
+    # R2004 は R2018 と同じく展開したセクションを置き換えるので、R2000 と R2018 だけにしてキットを小さくする
+    ("handseed", 701, lambda name, fmt: fmt == "dwg" and ("-layout-r2000" in name or "-layout-r2018" in name), handseed_steps),
 ]
 
 
@@ -767,6 +770,10 @@ def run_recipe(z, out, entry, data, recipe, baseline):
         request = [{k: v for k, v in e.items() if not k.startswith("_")} for e in edits]
         status, response = z.call({"op": "apply", "doc": doc, "edits": request})
         step = {"step": make.__name__, "edits": request, "status": status, "diagnostics": response["diagnostics"]}
+        if len(request) > MANIFEST_EDITS:
+            # 数の多い変更（#701 の 65,536 本の線など）は、初めと終わりだけを残して manifest.json を小さくする
+            step["edits"] = request[: MANIFEST_EDITS // 2] + request[-MANIFEST_EDITS // 2 :]
+            step["edit_count"] = len(request)
         record["steps"].append(step)
         if status != "ok":
             record["status"] = "failed"
@@ -885,7 +892,9 @@ def probe_dimension(z, entry, data):
 def save_reading(out, path, reading):
     target = out / "zumen" / (path + ".json")
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(reading, ensure_ascii=False, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+    # 要素の多い読み（#701 の 65,536 本の線を足したものなど）は、字下げせずに書いてキットを小さくする
+    indent = 1 if len(reading.get("entities", [])) <= 10000 else None
+    target.write_text(json.dumps(reading, ensure_ascii=False, indent=indent, sort_keys=True) + "\n", encoding="utf-8")
 
 
 # README.md（キットの手順と期待する結果）
@@ -1014,7 +1023,7 @@ SECTIONS = {
     ),
     701: (
         "#701 HANDSEED の大きさが増える数の図形を足した DWG",
-        """AutoCAD で作った R2000・R2004・R2018 の DWG に、1 回の apply で線分を 65,536 本足して書き戻しました。HANDSEED（次に振るハンドル）が 2 バイトから 3 バイトに増えるので、ヘッダーの変数のセクションを伸ばして書き直しています（決定 0193・#701）。ACadSharp の読みでは、HANDSEED が足した最後の線のハンドルの次であることを確かめます。
+        """AutoCAD で作った R2000・R2018 の DWG に、1 回の apply で線分を 65,536 本足して書き戻しました。HANDSEED（次に振るハンドル）が 2 バイトから 3 バイトに増えるので、ヘッダーの変数のセクションを伸ばして書き直しています（決定 0193・0291）。ACadSharp の読みでは、ファイルの HANDSEED が足した最後の線のハンドルの次であることと、HANDSEED の後ろの PDMODE・PDSIZE が入力のままであることを確かめます。`manifest.json` には、当てた変更の初めと終わりの 50 件ずつと、変更の数（`edit_count`）を書きます。
 
 - **AutoCAD。** 共通の手順で、開けることと監査の誤りが 0 であることを確かめる。`HANDSEED` を入力して、値が 10000（16 進）より大きいことと、`LINE` を新しく 1 本描くと、そのハンドル（`LIST`）が足した線より大きいことを記録する。R2000 では、ファイルの後ろに置いたヘッダーのセクションを AutoCAD が受け付けるかも記録する。
 """,
