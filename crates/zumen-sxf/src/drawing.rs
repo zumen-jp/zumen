@@ -1042,7 +1042,14 @@ impl<'f> Lifter<'f> {
                     let Some(placed) = placed else {
                         continue;
                     };
-                    compose(outer, placed)
+                    // それぞれの配置が有限でも、重ねた尺度があふれうる。重ねた変換が有限でなければ、ビューにせず、
+                    // その配置の中も置かない（#595）
+                    let composed = compose(outer, placed);
+                    if !composed.m.iter().all(|v| v.is_finite()) {
+                        invalid(cx, feature);
+                        continue;
+                    }
+                    composed
                 }
                 _ => continue,
             };
@@ -1459,6 +1466,14 @@ impl<'f> Lifter<'f> {
             };
             let [first, second] = [first.unwrap_or(on(from)), second.unwrap_or(on(to))];
             let arc = on(from + sweep / 2.0);
+            // 角度の差があふれると、弧の点が NaN になる。中心と半径の和があふれると無限大になる（#595）
+            if [first, second, arc]
+                .iter()
+                .flatten()
+                .any(|v| !v.is_finite())
+            {
+                return None;
+            }
             let [center, first, second, arc] =
                 [center, first, second, arc].map(|[x, y]| at.point(x, y));
             let kind = if feature.is(b"curve_dim") {
@@ -2183,9 +2198,14 @@ fn ellipse<C: Place>(
         (ry, rx / ry, 90.0)
     };
     let angle = (rotation + shift).to_radians();
+    // 中心と半径の和があふれた長軸の端の点は、楕円にしない（#595）
+    let tip = [cx + major * libm::cos(angle), cy + major * libm::sin(angle)];
+    if !tip.iter().all(|v| v.is_finite()) {
+        return None;
+    }
     Some(Shape::Curve(Edge::Elliptic {
         center: at.point(cx, cy),
-        major: at.point(cx + major * libm::cos(angle), cy + major * libm::sin(angle)),
+        major: at.point(tip[0], tip[1]),
         ratio,
         start: start - shift,
         end: end - shift,
