@@ -67,13 +67,14 @@ export function Playground() {
       if (token !== fetching.current) return;
       setFile(new File([bytes], chosen.path.split("/").pop()));
     } catch (error) {
-      if (token === fetching.current) setFetchError(error);
+      // 同じサンプルを選び直せるよう、選択は空に戻す
+      if (token === fetching.current) { setSample(null); setFetchError(error); }
     }
   }
   // 同じ図面の用紙を読み直す間も候補とフォーカスを保つ。別のファイルを選べば候補を捨てる。
   const drawing = opened.status === "ready" ? opened.drawing : place?.drawing;
   const failed = opened.status === "error" || renderError || fetchError;
-  const status = failed ? opened.error?.message === "drawing.input.limit" ? "64 MiB 以下のファイルを選んでください。" : "図面を表示できませんでした。"
+  const status = fetchError ? "サンプルを取れませんでした。" : failed ? opened.error?.message === "drawing.input.limit" ? "64 MiB 以下のファイルを選んでください。" : "図面を表示できませんでした。"
     : ready ? "表示しました。" : file || sample ? "図面を読んでいます。" : "図面を選んでください。";
   return <main>
     <header><div className="heading"><span className="wordmark">zumen</span><h1>図面ビューア</h1></div>
@@ -94,9 +95,10 @@ export function Playground() {
       <h2>{sample.title}</h2>
       <dl className="properties">
         <dt>公開した者</dt><dd>{sample.publisher}</dd>
-        <dt>ライセンス</dt><dd><a href={sample.licenseUrl} rel="noreferrer">{sample.license}</a>{sample.text && <>（<a href={sample.text}>本文</a>）</>}</dd>
-        <dt>出所</dt><dd><a href={sample.source} rel="noreferrer">{sample.source}</a></dd>
+        <dt>ライセンス</dt><dd><a href={sample.licenseUrl} target="_blank" rel="noreferrer noopener">{sample.license}</a>{sample.text && <>（<a href={sample.text} target="_blank" rel="noopener">本文</a>）</>}</dd>
+        <dt>出所</dt><dd><a href={sample.source} target="_blank" rel="noreferrer noopener">{sample.source}</a></dd>
         <dt>表示</dt><dd>{sample.attribution}</dd>
+        {sample.changes && <><dt>変えたこと</dt><dd>{sample.changes}</dd></>}
       </dl>
     </section>}
     <div className="workspace">

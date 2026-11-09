@@ -191,6 +191,29 @@ try {
   assert.match(await sampleSource.innerText(), /MIT/);
   const text = await sampleSource.getByRole("link", { name: "本文", exact: true }).getAttribute("href");
   assert.match(await page.evaluate((href) => fetch(href).then((r) => r.text()), text), /MIT License/);
+  // 続けて選ぶと、最後に選んだものだけを開く（大きい DWG を取っている間に、小さい DXF を選ぶ）
+  await samplePicker.selectOption("dwg/zumen-layout-r2000.dwg");
+  await samplePicker.selectOption("dxf/opendxfviewer-latin1.dxf");
+  await ready("DXF");
+  assert.equal(await samplePicker.inputValue(), "dxf/opendxfviewer-latin1.dxf");
+  assert.match(await sampleSource.innerText(), /ANSI_1252/);
+  // 先に選んだ DWG が遅れて届いても、差し替えない
+  await page.waitForTimeout(1000);
+  assert.match(await status.textContent(), /表示しました。 DXF/);
+  // 開いたサンプルを閉じる
+  await page.getByRole("button", { name: "閉じる", exact: true }).click();
+  assert.equal(await status.textContent(), "図面を選んでください。");
+  assert.equal(await sampleSource.count(), 0);
+  assert.equal(await samplePicker.inputValue(), "");
+  // 取れなかったサンプルは、選択を空に戻し、同じものを選び直せる
+  const broken = "**/zumen-xclip-r2018-*.dwg";
+  await page.route(broken, (route) => route.fulfill({ status: 500, body: "" }));
+  await samplePicker.selectOption("dwg/zumen-xclip-r2018.dwg");
+  await page.getByText("サンプルを取れませんでした。", { exact: true }).waitFor();
+  assert.equal(await samplePicker.inputValue(), "");
+  await page.unroute(broken);
+  await samplePicker.selectOption("dwg/zumen-xclip-r2018.dwg");
+  await ready("DWG");
   // 手元のファイルを選ぶと、サンプルの出所を消す
   await file.setInputFiles({ name: "local.dxf", mimeType: "application/octet-stream", buffer: inputs.dxf });
   await ready("DXF");
