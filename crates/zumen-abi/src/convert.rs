@@ -51,16 +51,16 @@ pub(crate) fn from_r2004(
 
 /// 図面モデルを、新しい DXF（R2004）に書く
 pub(crate) fn to_dxf(drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<Converted, Failed> {
-    // 外部参照の記号の定義は、ひな形に書かない（`NewDxfTemplate::new` と同じ条件。キーが重ならない定義のとき。
-    // 重なるときの扱いは #656）。それを置いた記号は、下の要素で報告する
-    for definition in drawing
-        .symbols
-        .iter()
-        .filter(|definition| definition.external.is_some())
-    {
-        report_dropped(cx, "external_symbol_definition", &definition.source);
-    }
     let template = NewDxfTemplate::new(drawing);
+    // ひな形は、キーごとに先の定義だけを書き、それが外部参照なら書かない（`NewDxfTemplate::new`、#656）。書かない
+    // 定義をここで報告する。外部参照の定義を置いた記号は、下の要素で報告する
+    for (index, definition) in drawing.symbols.iter().enumerate() {
+        if template.duplicate(index) {
+            report_dropped(cx, "duplicate_symbol_definition", &definition.source);
+        } else if definition.external.is_some() {
+            report_dropped(cx, "external_symbol_definition", &definition.source);
+        }
+    }
     // ひな形を符号化できなかったとき（不具合）は空。空のバイト列も読めてしまうので、ここで内部の失敗にする
     if template.bytes().is_empty() {
         return Err(fail(cx, Diagnostic::new(codes::INTERNAL_PANIC_CAUGHT)));
@@ -212,7 +212,10 @@ pub(crate) fn to_dxf(drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<Converted, 
         blocks: &template,
     };
     let mut edits = Vec::new();
-    for definition in &drawing.symbols {
+    for (index, definition) in drawing.symbols.iter().enumerate() {
+        if template.duplicate(index) {
+            continue;
+        }
         let Some(name) = template.block(&definition.key) else {
             continue;
         };
@@ -961,41 +964,70 @@ mod tests {
         );
     }
 
-    /// 外部参照の記号の定義は書かず、定義と、それを置いた記号を、それぞれ元の順に報告する
-    #[test]
-    fn external_symbols_are_reported_and_not_written() {
-        let key = |name: &str| SymbolKey {
+    fn block_key(name: &str) -> SymbolKey {
+        SymbolKey {
             namespace: "dxf.block".into(),
             name: name.to_owned(),
-        };
-        let space = |id: u32, elements| ModelSpace {
+        }
+    }
+
+    fn block_space(id: u32, elements: Vec<Element<ModelPoint>>) -> ModelSpace {
+        ModelSpace {
             id: SpaceId(id),
             unit: Unit::Millimeter,
             axes: Axes::EastNorth,
             elements,
             order: vec![],
+        }
+    }
+
+    fn by_layer() -> zumen_drawing::Style {
+        zumen_drawing::Style {
+            color: Inherit::Layer,
+            line_type: Inherit::Layer,
+            line_type_scale: 1.0,
+            line_weight: None,
+            transparency: Inherit::Layer,
+        }
+    }
+
+    /// `id` 番の空間と `id` 番のレコードを持つ記号の定義。`x` があれば、X が `x` の縦の線を 1 本持つ
+    fn block_definition(id: u32, name: &str, external: bool, x: Option<f64>) -> SymbolDefinition {
+        let at = |y: f64| ModelPoint {
+            space: SpaceId(id),
+            x: x.unwrap_or_default(),
+            y,
         };
-        let definition = |id: u32, name: &str, external: bool| SymbolDefinition {
-            key: key(name),
-            space: space(id, vec![]),
+        let elements = x
+            .map(|_| Element {
+                source: Ref::at_record(u64::from(id) + 100),
+                layer: LayerId(0),
+                style: by_layer(),
+                shape: Shape::Line {
+                    start: at(0.0),
+                    end: at(1.0),
+                },
+            })
+            .into_iter()
+            .collect();
+        SymbolDefinition {
+            key: block_key(name),
+            space: block_space(id, elements),
             base: None,
             attributes: vec![],
             anonymous: false,
             external: external.then(|| "other.dwg".to_owned()),
             source: Ref::at_record(u64::from(id)),
-        };
-        let symbol = |name: &str, record: u64| Element {
+        }
+    }
+
+    fn placed_block(name: &str, record: u64) -> Element<ModelPoint> {
+        Element {
             source: Ref::at_record(record),
             layer: LayerId(0),
-            style: zumen_drawing::Style {
-                color: Inherit::Layer,
-                line_type: Inherit::Layer,
-                line_type_scale: 1.0,
-                line_weight: None,
-                transparency: Inherit::Layer,
-            },
+            style: by_layer(),
             shape: Shape::Symbol(Symbol {
-                key: key(name),
+                key: block_key(name),
                 position: ModelPoint {
                     space: SpaceId(0),
                     x: 0.0,
@@ -1007,22 +1039,20 @@ mod tests {
                 attributes: vec![],
                 clip: None,
             }),
-        };
-        let drawing = Drawing2D {
-            spaces: vec![space(0, vec![symbol("外部B", 10), symbol("外部A", 11)])],
-            symbols: vec![
-                definition(1, "部品", false),
-                definition(2, "外部A", true),
-                definition(3, "外部B", true),
-            ],
-            ..Drawing2D::default()
-        };
+        }
+    }
+
+    /// 図面モデルを新しい DXF に書いて読み直し、読んだ図面と、落としたものの報告（種類・件数・場所）を返す
+    #[allow(clippy::type_complexity)]
+    fn convert_and_read(
+        drawing: &Drawing2D,
+    ) -> (Drawing2D, Vec<(Option<Value>, u64, Vec<Option<u64>>)>) {
         let mut budget = Budget::new(Limits::default());
         let mut diag = Diagnostics::new();
         let cancel = CancelToken::new();
         let read = {
             let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
-            let Ok(converted) = to_dxf(&drawing, &mut cx) else {
+            let Ok(converted) = to_dxf(drawing, &mut cx) else {
                 panic!("書けない");
             };
             r2004_structure(&converted.file, &mut cx);
@@ -1031,7 +1061,7 @@ mod tests {
             };
             read
         };
-        let dropped: Vec<_> = diag
+        let dropped = diag
             .iter()
             .filter(|d| d.code() == codes::CONVERT_ELEMENT_UNSUPPORTED)
             .map(|d| {
@@ -1042,6 +1072,25 @@ mod tests {
                 )
             })
             .collect();
+        (read, dropped)
+    }
+
+    /// 外部参照の記号の定義は書かず、定義と、それを置いた記号を、それぞれ元の順に報告する
+    #[test]
+    fn external_symbols_are_reported_and_not_written() {
+        let drawing = Drawing2D {
+            spaces: vec![block_space(
+                0,
+                vec![placed_block("外部B", 10), placed_block("外部A", 11)],
+            )],
+            symbols: vec![
+                block_definition(1, "部品", false, None),
+                block_definition(2, "外部A", true, None),
+                block_definition(3, "外部B", true, None),
+            ],
+            ..Drawing2D::default()
+        };
+        let (read, dropped) = convert_and_read(&drawing);
         assert_eq!(
             dropped,
             [
@@ -1058,5 +1107,113 @@ mod tests {
             ]
         );
         assert!(read.spaces.iter().all(|space| space.elements.is_empty()));
+    }
+
+    /// キーが重なる記号の定義は、キーごとに先の定義だけを書く。先の定義が外部参照なら書かない。あとの定義と、外部参照の
+    /// 定義を置いた記号を報告し、部品の名前は重ならない（#656）
+    #[test]
+    fn symbol_definitions_with_the_same_key_write_the_first() {
+        let drawing = Drawing2D {
+            spaces: vec![block_space(
+                0,
+                vec![
+                    placed_block("K", 20),
+                    placed_block("L", 21),
+                    placed_block("M", 22),
+                ],
+            )],
+            symbols: vec![
+                block_definition(1, "K", false, Some(1.0)),
+                block_definition(2, "K", true, Some(2.0)),
+                block_definition(3, "L", true, Some(3.0)),
+                block_definition(4, "L", false, Some(4.0)),
+                block_definition(5, "M", false, Some(5.0)),
+                block_definition(6, "M", false, Some(6.0)),
+            ],
+            layers: vec![Layer {
+                id: LayerId(0),
+                name: "0".to_owned(),
+                state: None,
+                style: None,
+                follows_placement: false,
+                source: Ref::default(),
+                description: None,
+            }],
+            ..Drawing2D::default()
+        };
+        let (read, dropped) = convert_and_read(&drawing);
+        assert_eq!(
+            dropped,
+            [
+                (
+                    Some(Value::Key("duplicate_symbol_definition")),
+                    3,
+                    vec![Some(2), Some(4), Some(6)]
+                ),
+                (
+                    Some(Value::Key("external_symbol_definition")),
+                    1,
+                    vec![Some(3)]
+                ),
+                (Some(Value::Key("external_symbol")), 1, vec![Some(21)]),
+            ]
+        );
+        // 部品は K と M の 1 つずつで、中身は先の定義の線
+        let written: Vec<_> = read
+            .symbols
+            .iter()
+            .map(|definition| {
+                let xs: Vec<_> = definition
+                    .space
+                    .elements
+                    .iter()
+                    .filter_map(|element| match &element.shape {
+                        Shape::Line { start, .. } => Some(start.x),
+                        _ => None,
+                    })
+                    .collect();
+                (definition.key.name.as_str(), xs)
+            })
+            .collect();
+        assert_eq!(written, [("K", vec![1.0]), ("M", vec![5.0])]);
+        // 置いた記号は、書いた K と M の 2 つ
+        let placed: Vec<_> = read
+            .spaces
+            .iter()
+            .flat_map(|space| &space.elements)
+            .filter_map(|element| match &element.shape {
+                Shape::Symbol(symbol) => Some(symbol.key.name.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(placed, ["K", "M"]);
+
+        // 外部参照の定義どうしが重なると、先の定義を外部参照として、あとの定義を重なりとして報告する
+        let drawing = Drawing2D {
+            spaces: vec![block_space(0, vec![placed_block("X", 30)])],
+            symbols: vec![
+                block_definition(1, "X", true, None),
+                block_definition(2, "X", true, None),
+            ],
+            ..Drawing2D::default()
+        };
+        let (read, dropped) = convert_and_read(&drawing);
+        assert_eq!(
+            dropped,
+            [
+                (
+                    Some(Value::Key("external_symbol_definition")),
+                    1,
+                    vec![Some(1)]
+                ),
+                (
+                    Some(Value::Key("duplicate_symbol_definition")),
+                    1,
+                    vec![Some(2)]
+                ),
+                (Some(Value::Key("external_symbol")), 1, vec![Some(30)]),
+            ]
+        );
+        assert!(read.symbols.is_empty());
     }
 }
