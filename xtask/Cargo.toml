@@ -23,10 +23,14 @@ zumen-scene = { path = "../crates/zumen-scene" }
 # 旧版の赤入れを移すとき、実際の図面のハッシュと現行のレビュー文書の読み書きを使う（決定 0282）
 zumen-drawing = { path = "../crates/zumen-drawing" }
 zumen-review = { path = "../crates/zumen-review" }
+# ジオイドの格子の補間を、国土地理院のサービスか内挿計算プログラムと照らす（#438）。fuzz の合成の格子の種が
+# 読めることも確かめる（#501）
+zumen-crs = { path = "../crates/zumen-crs" }
 
 [dev-dependencies]
-# fuzz の合成の格子の種が読めることを確かめる（#501）
-zumen-crs = { path = "../crates/zumen-crs" }
+# fuzz の EXPRESS の種が、fuzz の予算の深さで止まり、長い鎖を読めることを確かめる（#668）
+zumen-ifc = { path = "../crates/zumen-ifc", default-features = false }
+zumen-sdk = { path = "../crates/zumen-sdk" }
 zumen-render = { path = "../crates/zumen-render" }
 
 [lints.rust]

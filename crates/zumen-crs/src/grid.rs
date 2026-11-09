@@ -30,6 +30,23 @@ pub struct Undulation<'a> {
     pub model: &'a Model,
 }
 
+/// 格子の範囲（度）と、行と列の数。ヘッダーの `lat min`・`lat max`・`lon min`・`lon max`・`nrows`・`ncols`
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Extent {
+    /// 南の端の緯度
+    pub lat_min: f64,
+    /// 北の端の緯度
+    pub lat_max: f64,
+    /// 西の端の経度
+    pub lon_min: f64,
+    /// 東の端の経度
+    pub lon_max: f64,
+    /// 行の数。北の行から南へ並ぶ
+    pub rows: usize,
+    /// 列の数。西の列から東へ並ぶ
+    pub cols: usize,
+}
+
 /// ISG format 2.0 の格子
 #[derive(Clone, Debug, PartialEq)]
 pub struct Grid {
@@ -113,7 +130,7 @@ impl Grid {
     pub fn read(src: &[u8], cx: &mut Cx) -> Result<Grid, Error> {
         cx.check(Kind::InputBytes, src.len() as u64)
             .map_err(|stop| stopped(cx, stop))?;
-        // ヘッダーの前の注記は、どの符号化でもよい。ヘッダーと値は ASCII なので、行ごとに UTF-8 として読む
+        // ヘッダーの前のコメントの行は、どの符号化でもよい。ヘッダーと値は ASCII なので、行ごとに UTF-8 として読む
         let mut lines = src.split(|b| *b == b'\n').map(|line| {
             let line = line.strip_suffix(b"\r").unwrap_or(line);
             core::str::from_utf8(line).ok()
@@ -255,6 +272,18 @@ impl Grid {
     /// モデルの名前と年
     pub fn model(&self) -> &Model {
         &self.model
+    }
+
+    /// 格子の範囲と、行と列の数。格子点の位置は、範囲を行と列の数で等しく分けた所にある
+    pub fn extent(&self) -> Extent {
+        Extent {
+            lat_min: self.lat_min,
+            lat_max: self.lat_max,
+            lon_min: self.lon_min,
+            lon_max: self.lon_max,
+            rows: self.rows,
+            cols: self.cols,
+        }
     }
 
     /// 格子点の値。北から `row` 行目、西から `col` 列目。無効の値なら `None`

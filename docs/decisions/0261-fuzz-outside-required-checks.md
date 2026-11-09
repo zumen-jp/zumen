@@ -67,3 +67,5 @@
 
 - #501・#516・#527・#545・#556・#557、[0010](0010-budget-by-work.md)・[0174](0174-plan-in-issues.md)・[0254](0254-parallel-agents-and-cross-review.md)・[0258](0258-fuzz-seeds-and-runs.md)
 - AGENTS.md の「開発の手順」・`docs/work.md`・`fuzz/README.md`・`.github/PULL_REQUEST_TEMPLATE.md`
+- 0283 の対象（初回リリース後のものと、`v*` のタグの push を頼んでから push までに対象として扱うもの）の入力と詳細の記録先（補ったことの 3〜5）、合成のテストを足す時期（補ったことの 1）、issue にする失敗に 0283 の対象を PR で直すものも含めて足すこと（補ったことの 4）と、影響の、リリースするまでは見つけた入力を公開の issue に貼ることの例外は、[0283](0283-fuzz-reporting-after-release.md) で定めた。
+- 分け方 3・4、入力と誤りの文を issue に書くこと（補ったことの 4）を、暗号にした artifact を開ける人が行うことは、[0284](0284-fuzz-ci-private-artifacts.md) で定めた。
