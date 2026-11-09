@@ -18,7 +18,7 @@ pub(super) fn before(stream: &Stream<'_>, cx: &mut Cx<'_>) -> Result<(), Stop> {
 
 /// hayro-syntax 0.9.0 の Stream::filters_and_params と同じ優先順で、LZW のパラメーターを引く。
 /// 名前として読めない項目で止まり、知らない名前もパラメーターの位置を 1 つ進める。
-/// 有効な系列に LZW が 1 個だけあることは、呼ぶ側で確認済み
+/// 最初の LZW のパラメーターを返す。呼ぶ側は、有効な系列の最初の LZW の段だけを数える
 pub(super) fn early_change(stream: &Stream<'_>, cx: &mut Cx<'_>) -> Result<bool, Stop> {
     let dict = stream.dict();
     let is_lzw = |name: &Name<'_>| matches!(name.as_ref(), b"LZWDecode" | b"LZW");
