@@ -16,8 +16,9 @@ const JPGEO2024: Extent = Extent {
     cols: 1601,
 };
 
-/// 合成の格子。6 行 6 列で、間隔は 0.25 度（15 分）。中の 2 行 2 列は無効で、その北西には値が 0 の格子点を置く
-fn synthetic(values: &str) -> String {
+/// 合成の格子の ISG。間隔は、範囲と行・列の数から求めて書く
+fn isg(extent: &Extent, values: &str) -> String {
+    let delta = |span: f64, n: usize| span / (n - 1) as f64;
     format!(
         "synthetic\n\
 begin_of_head ================================================\n\
@@ -28,19 +29,42 @@ data format    : grid\n\
 data ordering  : N-to-S, W-to-E\n\
 coord type     : geodetic\n\
 coord units    : deg\n\
-lat min        =  40.000000\n\
-lat max        =  41.250000\n\
-lon min        = 120.000000\n\
-lon max        = 121.250000\n\
-delta lat      =   0.250000\n\
-delta lon      =   0.250000\n\
-nrows          =          6\n\
-ncols          =          6\n\
+lat min        = {}\n\
+lat max        = {}\n\
+lon min        = {}\n\
+lon max        = {}\n\
+delta lat      = {}\n\
+delta lon      = {}\n\
+nrows          = {}\n\
+ncols          = {}\n\
 nodata         = -9999.0000\n\
 ISG format     =        2.0\n\
 end_of_head ==================================================\n\
-{values}"
+{values}",
+        extent.lat_min,
+        extent.lat_max,
+        extent.lon_min,
+        extent.lon_max,
+        delta(extent.lat_max - extent.lat_min, extent.rows),
+        delta(extent.lon_max - extent.lon_min, extent.cols),
+        extent.rows,
+        extent.cols
     )
+}
+
+/// 合成の格子の形。6 行 6 列で、間隔は 0.25 度（15 分）
+const SYNTHETIC: Extent = Extent {
+    lat_min: 40.0,
+    lat_max: 41.25,
+    lon_min: 120.0,
+    lon_max: 121.25,
+    rows: 6,
+    cols: 6,
+};
+
+/// 合成の格子。中の 2 行 2 列は無効で、その北西には値が 0 の格子点を置く
+fn synthetic(values: &str) -> String {
+    isg(&SYNTHETIC, values)
 }
 
 const VALUES: &str = "\
@@ -137,6 +161,11 @@ fn the_kit_points_cover_nodes_lines_cells_and_outside() {
         ("P10", Place::Cell, false),
         ("P20", Place::Outside, false),
         ("P23", Place::Outside, false),
+        // 範囲の縁から 0.0001 秒内側の点。縁の線の上ではない
+        ("P24", Place::NorthSouth, false),
+        ("P25", Place::NorthSouth, false),
+        ("P26", Place::EastWest, false),
+        ("P27", Place::EastWest, false),
     ] {
         let point = points.iter().find(|p| p.id == id).unwrap();
         assert_eq!(locate(&JPGEO2024, point.at()), (place, edge), "{id}");
@@ -145,7 +174,7 @@ fn the_kit_points_cover_nodes_lines_cells_and_outside() {
 
 #[test]
 fn points_that_repeat_or_need_rounding_are_refused() {
-    let points = parse_points("# 注記\n\nA 360600.0000 1400600.0000 説明 の 文\n").unwrap();
+    let points = parse_points("# コメント\n\nA 360600.0000 1400600.0000 説明 の 文\n").unwrap();
     assert_eq!(points.len(), 1);
     assert_eq!(points[0].label, "説明 の 文");
     for text in [
@@ -160,24 +189,13 @@ fn points_that_repeat_or_need_rounding_are_refused() {
     }
 }
 
-/// 形ごとに、使う有効の格子点の値がどれも 0 でない、最初の際を選ぶ。どの形も、最初に見つかる際は値が 0 の格子点を
-/// 使うので、0 でないものを先に選んだことも確かめられる
-#[test]
-fn edges_are_chosen_around_no_data() {
-    let grid = read(&synthetic(VALUES));
+/// 選んだ際が、形・位置・場所・zumen の値のあるなしで、期待のとおりか
+fn assert_edges(grid: &Grid, expected: &[(Edge, &str, &str)]) {
     let extent = grid.extent();
-    let found = edges(&grid);
-    let expected = [
-        (Edge::Node, "410000.0000", "1204500.0000"),
-        (Edge::EastWest, "410000.0000", "1205000.0000"),
-        (Edge::NorthSouth, "402500.0000", "1201500.0000"),
-        (Edge::EastWestNoData, "404500.0000", "1205500.0000"),
-        (Edge::NorthSouthNoData, "405500.0000", "1204500.0000"),
-        (Edge::Cell, "405500.0000", "1205000.0000"),
-    ];
+    let found = edges(grid);
     assert_eq!(found.len(), expected.len());
     for ((edge, at), (want, lat, lon)) in found.iter().zip(expected) {
-        assert_eq!(*edge, want);
+        assert_eq!(edge, want);
         let point = Point {
             id: "E".into(),
             lat: Dms::from_degrees(at.latitude),
@@ -186,7 +204,7 @@ fn edges_are_chosen_around_no_data() {
         };
         assert_eq!(
             (point.lat.to_string(), point.lon.to_string()),
-            (lat.to_owned(), lon.to_owned()),
+            ((*lat).to_owned(), (*lon).to_owned()),
             "{edge:?}"
         );
         assert_eq!(locate(&extent, point.at()).0, edge.place(), "{edge:?}");
@@ -196,9 +214,112 @@ fn edges_are_chosen_around_no_data() {
             "{edge:?}"
         );
     }
+}
+
+/// 形ごとに、使う有効の格子点の値がどれも 0 でない、最初の際を選ぶ。北の側の 2 つの形のほかは、最初に見つかる際が
+/// 値が 0 の格子点を使うので、0 でないものを先に選んだことも確かめられる
+#[test]
+fn edges_are_chosen_around_no_data() {
+    let grid = read(&synthetic(VALUES));
+    assert_edges(
+        &grid,
+        &[
+            (Edge::Node, "410000.0000", "1204500.0000"),
+            (Edge::NodeNorth, "403000.0000", "1201500.0000"),
+            (Edge::EastWest, "410000.0000", "1205000.0000"),
+            (Edge::EastWestNorth, "401500.0000", "1202000.0000"),
+            (Edge::NorthSouth, "402500.0000", "1201500.0000"),
+            (Edge::EastWestNoData, "404500.0000", "1205500.0000"),
+            (Edge::NorthSouthNoData, "405500.0000", "1204500.0000"),
+            (Edge::Cell, "405500.0000", "1205000.0000"),
+        ],
+    );
     // 無効の格子点がなければ、際の点はない
     let full = read(&synthetic(&VALUES.replace("-9999.0000", "    1.0000")));
     assert!(edges(&full).is_empty());
+}
+
+/// 北西の隅と南東の隅の格子点が無効のとき。最初と最後の行・列に接する際を選び、範囲の外の格子点は見ない
+#[test]
+fn edges_are_chosen_at_the_corners_of_the_grid() {
+    let corners = Extent {
+        lat_min: 40.0,
+        lat_max: 40.75,
+        lon_min: 120.0,
+        lon_max: 120.75,
+        rows: 4,
+        cols: 4,
+    };
+    let grid = read(&isg(
+        &corners,
+        "-9999.0000 2.0 3.0 4.0\n5.0 6.0 7.0 8.0\n9.0 10.0 11.0 12.0\n13.0 14.0 15.0 -9999.0000\n",
+    ));
+    assert_edges(
+        &grid,
+        &[
+            (Edge::Node, "401500.0000", "1203000.0000"),
+            (Edge::NodeNorth, "403000.0000", "1200000.0000"),
+            (Edge::EastWest, "401500.0000", "1203500.0000"),
+            (Edge::EastWestNorth, "403000.0000", "1200500.0000"),
+            (Edge::NorthSouth, "401000.0000", "1203000.0000"),
+            (Edge::EastWestNoData, "404500.0000", "1201000.0000"),
+            (Edge::NorthSouthNoData, "403500.0000", "1200000.0000"),
+            (Edge::Cell, "404000.0000", "1200500.0000"),
+        ],
+    );
+}
+
+/// 間隔が 1/7 度の格子では、格子点と格子の線の多くが、秒の小数 4 桁で表せない。丸めて場所が変わる際は使わない
+#[test]
+fn edges_that_four_decimals_of_seconds_cannot_hold_are_skipped() {
+    let seventh = Extent {
+        lat_min: 40.0,
+        lat_max: 40.0 + 3.0 / 7.0,
+        lon_min: 120.0,
+        lon_max: 120.0 + 3.0 / 7.0,
+        rows: 4,
+        cols: 4,
+    };
+    let grid = read(&isg(
+        &seventh,
+        "1.0 2.0 3.0 4.0\n5.0 -9999.0000 7.0 8.0\n9.0 10.0 11.0 12.0\n13.0 14.0 15.0 16.0\n",
+    ));
+    assert_eq!(edges(&grid).len(), Edge::ALL.len());
+    let kit = parse_points("A 360600.0000 1400600.0000").unwrap();
+    let points = gather(kit, &[("seventh.isg".to_owned(), grid)]).unwrap();
+    // 残るのは、経度 120 度（西の縁）の南北の線の上と、格子の中だけ
+    let added: Vec<(&str, &str)> = points[1..]
+        .iter()
+        .map(|p| (p.id.as_str(), p.label.as_str()))
+        .collect();
+    let label = |edge: Edge| format!("{}（seventh.isg の無効の領域の際）", edge.label());
+    assert_eq!(
+        added,
+        [
+            ("E01", label(Edge::NorthSouth).as_str()),
+            ("E02", label(Edge::Cell).as_str()),
+        ]
+    );
+}
+
+/// 点がサービスの一括計算の上限（100 点）を超えたら止める
+#[test]
+fn points_over_the_service_limit_are_refused() {
+    let grids = [("synthetic.isg".to_owned(), read(&synthetic(VALUES)))];
+    let kit = |count: usize| -> Vec<Point> {
+        (0..count)
+            .map(|i| Point {
+                id: format!("P{i}"),
+                lat: dms("300000"),
+                lon: Dms(dms("1300000").0 + i as i64 * 10_000),
+                label: String::new(),
+            })
+            .collect()
+    };
+    let fits = SERVICE_LIMIT - Edge::ALL.len();
+    assert_eq!(gather(kit(fits), &grids).unwrap().len(), SERVICE_LIMIT);
+    let error = gather(kit(fits + 1), &grids).unwrap_err();
+    assert!(error.contains("上限"), "{error}");
 }
 
 fn value(value: f64, decimals: usize) -> Reading {
@@ -217,34 +338,48 @@ fn row(point: &Point, reading: Reading) -> Row {
 #[test]
 fn results_are_compared_point_by_point() {
     let grid = read(&synthetic(VALUES));
-    // 格子点の上・東西の線の上（両端が有効）・片方の端が無効の線の上・範囲の外
-    let points =
-        parse_points("A 410000 1204500\nB 410000 1205000\nC 404500 1205500\nD 500000 1400000")
-            .unwrap();
+    // 格子点の上・東西の線の上（両端が有効）・片方の端が無効の線の上・範囲の外・範囲の北西の隅
+    let points = parse_points(
+        "A 410000 1204500\nB 410000 1205000\nC 404500 1205500\nD 500000 1400000\nE 411500 1200000",
+    )
+    .unwrap();
     let line = grid.interpolate(points[1].at()).unwrap().value;
     let rows = vec![
         row(&points[0], value(30.00005, 5)),
         row(&points[1], value(line - 0.00003, 4)),
         row(&points[2], Reading::None),
         row(&points[3], Reading::None),
+        row(&points[4], value(1.0, 4)),
     ];
     let outcome = check(&points, &grid, &rows).unwrap();
-    assert_eq!((outcome.with_value, outcome.without_value), (2, 2));
+    assert_eq!((outcome.with_value, outcome.without_value), (3, 2));
     assert_eq!(outcome.decimals, Some(4));
     let (largest, id) = outcome.largest.clone().unwrap();
     assert!((largest - 0.00005).abs() < 1e-9, "{largest}");
     assert_eq!(id, "A");
     assert!(outcome.mismatches.is_empty());
+    assert!(outcome.border.is_empty());
     assert!(outcome.passed());
 
     // 0.1 mm を超える差と、値のあるなしの違い
     let mut wrong = rows.clone();
     wrong[0].value = value(30.0002, 4);
+    wrong[1].value = Reading::None;
     wrong[2].value = value(1.0, 4);
     wrong[3].value = value(1.0, 4);
     let outcome = check(&points, &grid, &wrong).unwrap();
-    assert_eq!(outcome.mismatches.len(), 3, "{:?}", outcome.mismatches);
+    assert_eq!(outcome.mismatches.len(), 4, "{:?}", outcome.mismatches);
     assert!(!outcome.passed());
+
+    // 範囲の縁の上で、結果だけが値なしなら、境の規則の違いとして分けて示し、失敗にしない
+    let mut edge = rows.clone();
+    edge[4].value = Reading::None;
+    let outcome = check(&points, &grid, &edge).unwrap();
+    assert_eq!(outcome.border.len(), 1, "{:?}", outcome.border);
+    assert!(outcome.border[0].starts_with("E（"), "{:?}", outcome.border);
+    assert!(outcome.mismatches.is_empty());
+    assert_eq!((outcome.with_value, outcome.without_value), (2, 2));
+    assert!(outcome.passed());
 
     // 小数が 3 桁なら、丸めの中では合わないとしないが、0.1 mm の照合にはならない
     let mut short = rows.clone();
@@ -258,7 +393,7 @@ fn results_are_compared_point_by_point() {
     assert_eq!(check(&points, &grid, &short).unwrap().mismatches.len(), 1);
 
     // 行の数か緯度・経度が点の一覧と違えば、比べずに止める
-    assert!(check(&points, &grid, &rows[..3]).is_err());
+    assert!(check(&points, &grid, &rows[..4]).is_err());
     let mut moved = rows.clone();
     moved[1].lat = dms("410000.0001");
     assert!(check(&points, &grid, &moved).is_err());
@@ -266,8 +401,8 @@ fn results_are_compared_point_by_point() {
 
 #[test]
 fn results_of_the_service_and_geoidcalc_are_read() {
-    // サービスの一括計算の結果の形（入出力ファイル形式の説明）。注記とコメントは Shift_JIS のこともある。BOM と、
-    // `#` のない見出しの行も、注記とする
+    // サービスの一括計算の結果の形（入出力ファイル形式の説明）。コメントの行と点の名前は Shift_JIS のこともある。
+    // BOM と、`#` のない見出しの行も、コメントの行とする
     let mut bytes =
         b"\xEF\xBB\xBF# \x83\x57\x83\x49\x83\x43\x83\x68\r\nlat(dms) lon(dms) geoid(m)\r\n"
             .to_vec();
@@ -276,7 +411,7 @@ fn results_of_the_service_and_geoidcalc_are_read() {
     );
     let parsed = parse_result(&bytes, 3).unwrap();
     assert_eq!(parsed.unreadable, 1);
-    assert_eq!(parsed.notes, ["lat(dms) lon(dms) geoid(m)"]);
+    assert_eq!(parsed.comments, ["lat(dms) lon(dms) geoid(m)"]);
     assert_eq!(parsed.rows.len(), 2);
     assert_eq!(parsed.rows[0].lat, dms("350000"));
     assert_eq!(parsed.rows[0].value, value(12.345, 3));
@@ -292,7 +427,7 @@ fn results_of_the_service_and_geoidcalc_are_read() {
         3,
     )
     .unwrap();
-    assert_eq!(parsed.notes.len(), 3);
+    assert_eq!(parsed.comments.len(), 3);
     assert_eq!(parsed.rows[0].value, Reading::None);
     for text in [
         &b"350000.0000 1350000.0000 abc\n"[..],
@@ -359,6 +494,16 @@ fn points_and_compare_work_outside_the_repository() {
             .unwrap_err()
             .contains("0.1 mm の照合になりません")
     );
+
+    // zumen の値のファイルは、内挿計算プログラムの結果と同じ形で、compare でも読める
+    let values = folder.join(values_file("synthetic.isg"));
+    let text = fs::read_to_string(&values).unwrap();
+    assert_eq!(
+        text.lines().filter(|l| !l.starts_with('#')).count(),
+        listed.len()
+    );
+    assert!(text.lines().any(|l| l.ends_with(" NaN")));
+    compare(path(&folder), path(&isg), path(&values), 3).unwrap();
 }
 
 #[test]
@@ -374,4 +519,27 @@ fn files_inside_the_repository_are_refused() {
     let error = points(path(&new), &[path(&inside)]).unwrap_err();
     assert!(error.contains("リポジトリの外"), "{error}");
     assert!(!new.exists());
+
+    // 結果のファイルも、リポジトリの中のものは断る
+    let isg = dir.0.join("synthetic.isg");
+    fs::write(&isg, synthetic(VALUES)).unwrap();
+    let folder = dir.0.join("check");
+    points(path(&folder), &[path(&isg)]).unwrap();
+    let error = compare(path(&folder), path(&isg), path(&inside), 3).unwrap_err();
+    assert!(error.contains("リポジトリの外"), "{error}");
+
+    // ほかの Git の作業ツリーの中も断る。作業ツリーが、ほかの checkout の中にあるとき（`.claude/worktrees/` の下など）
+    let other = dir.0.join("other");
+    fs::create_dir_all(other.join(".git")).unwrap();
+    fs::create_dir_all(other.join("geoid")).unwrap();
+    let error = points(path(&other.join("geoid")), &[path(&isg)]).unwrap_err();
+    assert!(error.contains("Git の作業ツリー"), "{error}");
+    let error = points(path(&other.join("new")), &[path(&isg)]).unwrap_err();
+    assert!(error.contains("Git の作業ツリー"), "{error}");
+    assert!(!other.join("new").exists());
+
+    // 名前の同じ格子は、zumen の値のファイルが重なるので断る
+    let twice = dir.0.join("twice");
+    let error = points(path(&twice), &[path(&isg), path(&isg)]).unwrap_err();
+    assert!(error.contains("重なります"), "{error}");
 }

@@ -130,7 +130,7 @@ impl Grid {
     pub fn read(src: &[u8], cx: &mut Cx) -> Result<Grid, Error> {
         cx.check(Kind::InputBytes, src.len() as u64)
             .map_err(|stop| stopped(cx, stop))?;
-        // ヘッダーの前の注記は、どの符号化でもよい。ヘッダーと値は ASCII なので、行ごとに UTF-8 として読む
+        // ヘッダーの前のコメントの行は、どの符号化でもよい。ヘッダーと値は ASCII なので、行ごとに UTF-8 として読む
         let mut lines = src.split(|b| *b == b'\n').map(|line| {
             let line = line.strip_suffix(b"\r").unwrap_or(line);
             core::str::from_utf8(line).ok()

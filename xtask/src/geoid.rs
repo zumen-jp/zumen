@@ -3,12 +3,14 @@
 //!
 //! - `cargo xtask geoid points <フォルダー> <ISG>...`: キットの点の一覧（`xtask/verify/geoid/points.txt`）に、渡した
 //!   格子の無効の領域の際の点を足し、点の一覧（`points.txt`）・サービスの一括計算の入力（`geoid.in`）・内挿計算
-//!   プログラムの入力（`input.txt`）をフォルダーに書く
-//! - `cargo xtask geoid compare <フォルダー> <ISG> <結果>`: サービスか内挿計算プログラムが書いた結果を、`zumen-crs`
-//!   の `Grid::read`・`Grid::interpolate` で求めた値と比べ、点の数と差の最大を示す
+//!   プログラムの入力（`input.txt`）と、格子ごとに `zumen-crs` の `Grid::read`・`Grid::interpolate` で求めた値
+//!   （`zumen-<格子のファイルの名前>.txt`）をフォルダーに書く
+//! - `cargo xtask geoid compare <フォルダー> <ISG> <結果> [--column <列>]`: サービスか内挿計算プログラムが書いた
+//!   結果を、`Grid::interpolate` で求めた値と比べ、点の数と差の最大を示す
 //!
 //! 国土地理院のモデルとその値、サービスが返した値は、Git・パッケージ・テストに入れない（決定 0019）。フォルダーと
-//! ファイルは、リポジトリの外のものだけを受け付ける。値は表示せず、合わない点も差だけを示す。
+//! ファイルは、リポジトリと Git の作業ツリーの外のものだけを受け付ける。値は画面に出さず、合わない点も差だけを示す。
+//! zumen の値は、そのフォルダーのファイルにだけ書く。
 
 use std::fmt;
 use std::fs::{self, File};
@@ -35,6 +37,8 @@ const SERVICE_LIMIT: usize = 100;
 const TOLERANCE: f64 = 0.0001;
 /// 0.1 mm まで確かめられる、結果の値の小数の桁
 const DIGITS: usize = 4;
+/// 値を比べる点の数。#438 の完了の条件の 10 点以上
+const REQUIRED: usize = 10;
 /// 浮動小数の計算の違いとして許す差（m）
 const NOISE: f64 = 1e-9;
 /// 格子のファイルの大きさの上限。JPGEO2024.isg は 2101 行 × 1601 列で、40 MB ほど
@@ -243,14 +247,19 @@ fn position(extent: &Extent, row: f64, col: f64) -> GeoPoint {
     }
 }
 
-/// 無効の領域の際に選ぶ点の形。`Grid::interpolate` は、格子点の上と格子の線の上では、南と東の隣の格子点を重み 0 で
-/// 持つ。説明書の注 6 のとおり、重みが 0 の格子点は無効でも見ない
+/// 無効の領域の際に選ぶ点の形。説明書の注 6 のとおり、格子点の上と格子の線の上では、重みが 0 の格子点は無効でも見ない。
+/// `Grid::interpolate` は南と東の隣の格子点を重み 0 で持つ。説明書の 3 章 (2) の式は、どちらの側の格子を使うかを
+/// 書いておらず、(i, j) を南西の格子点にとれば、北と東の隣の格子点が重み 0 になる。そこで、両方の側の際を選ぶ
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Edge {
     /// 東・南・南東の隣に無効の格子点を持つ、有効の格子点。値を返す
     Node,
+    /// 北か北東の隣に無効の格子点を持つ、有効の格子点。値を返す
+    NodeNorth,
     /// 両端が有効で、南の隣の格子点に無効のものがある、東西の線の上。値を返す
     EastWest,
+    /// 両端が有効で、北の隣の格子点に無効のものがある、東西の線の上。値を返す
+    EastWestNorth,
     /// 両端が有効で、東の隣の格子点に無効のものがある、南北の線の上。値を返す
     NorthSouth,
     /// 片方の端だけが無効の、東西の線の上。値を返さない
@@ -262,9 +271,11 @@ enum Edge {
 }
 
 impl Edge {
-    const ALL: [Edge; 6] = [
+    const ALL: [Edge; 8] = [
         Edge::Node,
+        Edge::NodeNorth,
         Edge::EastWest,
+        Edge::EastWestNorth,
         Edge::NorthSouth,
         Edge::EastWestNoData,
         Edge::NorthSouthNoData,
@@ -273,14 +284,17 @@ impl Edge {
 
     /// 値を返すか
     fn has_value(self) -> bool {
-        matches!(self, Edge::Node | Edge::EastWest | Edge::NorthSouth)
+        matches!(
+            self,
+            Edge::Node | Edge::NodeNorth | Edge::EastWest | Edge::EastWestNorth | Edge::NorthSouth
+        )
     }
 
     /// 点の場所
     fn place(self) -> Place {
         match self {
-            Edge::Node => Place::Node,
-            Edge::EastWest | Edge::EastWestNoData => Place::EastWest,
+            Edge::Node | Edge::NodeNorth => Place::Node,
+            Edge::EastWest | Edge::EastWestNorth | Edge::EastWestNoData => Place::EastWest,
             Edge::NorthSouth | Edge::NorthSouthNoData => Place::NorthSouth,
             Edge::Cell => Place::Cell,
         }
@@ -289,7 +303,9 @@ impl Edge {
     fn label(self) -> &'static str {
         match self {
             Edge::Node => "東・南・南東の隣に無効の格子点がある格子点",
+            Edge::NodeNorth => "北・北東の隣に無効の格子点がある格子点",
             Edge::EastWest => "両端が有効で南の隣が無効の、東西の線の上",
+            Edge::EastWestNorth => "両端が有効で北の隣が無効の、東西の線の上",
             Edge::NorthSouth => "両端が有効で東の隣が無効の、南北の線の上",
             Edge::EastWestNoData => "片方の端が無効の、東西の線の上",
             Edge::NorthSouthNoData => "片方の端が無効の、南北の線の上",
@@ -338,8 +354,8 @@ impl Nodes {
 fn edges(grid: &Grid) -> Vec<(Edge, GeoPoint)> {
     let nodes = Nodes::new(grid);
     let extent = nodes.extent;
-    let mut first: [Option<(f64, f64)>; 6] = [None; 6];
-    let mut nonzero: [Option<(f64, f64)>; 6] = [None; 6];
+    let mut first: [Option<(f64, f64)>; Edge::ALL.len()] = [None; Edge::ALL.len()];
+    let mut nonzero: [Option<(f64, f64)>; Edge::ALL.len()] = [None; Edge::ALL.len()];
     let mut offer = |edge: Edge, row: f64, col: f64, values: &[f64]| {
         let slot = edge as usize;
         if let Some(first) = first.get_mut(slot).filter(|f| f.is_none()) {
@@ -356,17 +372,22 @@ fn edges(grid: &Grid) -> Vec<(Edge, GeoPoint)> {
         for c in 0..extent.cols as isize {
             let (row, col) = (r as f64, c as f64);
             let here = nodes.at(r, c);
-            if let Some(Some(v)) = here
-                && (nodes.invalid(r, c + 1)
-                    || nodes.invalid(r + 1, c)
-                    || nodes.invalid(r + 1, c + 1))
-            {
-                offer(Edge::Node, row, col, &[v]);
+            if let Some(Some(v)) = here {
+                if nodes.invalid(r, c + 1) || nodes.invalid(r + 1, c) || nodes.invalid(r + 1, c + 1)
+                {
+                    offer(Edge::Node, row, col, &[v]);
+                }
+                if nodes.invalid(r - 1, c) || nodes.invalid(r - 1, c + 1) {
+                    offer(Edge::NodeNorth, row, col, &[v]);
+                }
             }
             match (here, nodes.at(r, c + 1)) {
                 (Some(Some(a)), Some(Some(b))) => {
                     if nodes.invalid(r + 1, c) || nodes.invalid(r + 1, c + 1) {
                         offer(Edge::EastWest, row, col + third, &[a, b]);
+                    }
+                    if nodes.invalid(r - 1, c) || nodes.invalid(r - 1, c + 1) {
+                        offer(Edge::EastWestNorth, row, col + third, &[a, b]);
                     }
                 }
                 (Some(Some(a)), Some(None)) => offer(Edge::EastWestNoData, row, col + third, &[a]),
@@ -414,7 +435,8 @@ fn edges(grid: &Grid) -> Vec<(Edge, GeoPoint)> {
         .collect()
 }
 
-/// リポジトリの中のパスを断る。国土地理院のモデルと、そこから求めた値は Git に入れない（決定 0019）
+/// リポジトリの中と、Git の作業ツリーの中のパスを断る。国土地理院のモデルと、そこから求めた値は Git に入れない
+/// （決定 0019）。作業ツリーがほかの checkout の中にあるとき（`.claude/worktrees/` の下など）も、外の checkout を守る
 fn outside_repository(path: &Path, label: &str) -> Result<PathBuf, String> {
     let root = fs::canonicalize(crate::root())
         .map_err(|e| format!("リポジトリの根を開けませんでした（{}）", e.kind()))?;
@@ -429,6 +451,15 @@ fn outside_repository(path: &Path, label: &str) -> Result<PathBuf, String> {
         return Err(format!(
             "{label}（{}）は、リポジトリの外に置いてください。国土地理院のモデルとその値は Git に入れません（決定 0019）",
             path.display()
+        ));
+    }
+    if let Some(tree) = full.ancestors().find(|a| a.join(".git").exists()) {
+        // Windows の正規化したパスの前に付く `\\?\` は、表示しない
+        let tree = tree.display().to_string();
+        return Err(format!(
+            "{label}（{}）は、Git の作業ツリー（{}）の中にあります。リポジトリの外の、Git の外に置いてください。国土地理院のモデルとその値は Git に入れません（決定 0019）",
+            path.display(),
+            tree.strip_prefix(r"\\?\").unwrap_or(&tree)
         ));
     }
     Ok(full)
@@ -576,21 +607,36 @@ fn geoidcalc_input(points: &[Point]) -> String {
     out
 }
 
-/// `cargo xtask geoid points`。キットの点に、格子ごとの無効の領域の際の点を足して、フォルダーに書く
-pub(crate) fn points(folder: &str, grids: &[&str]) -> Result<(), String> {
-    let folder = output_folder(Path::new(folder))?;
-    let kit = read_text(&crate::root().join(KIT_POINTS), "キットの点の一覧")?;
-    let mut points = parse_points(&kit)?;
-    let fixed = points.len();
-    let mut loaded = Vec::new();
-    for path in grids {
-        let path = outside_repository(Path::new(path), "格子のファイル")?;
-        let name = file_name(&path);
-        let grid = read_grid(&path)?;
-        println!("{}", describe(&name, &grid));
-        loaded.push((name, grid));
+/// zumen の値のファイルの名前。格子のファイルの名前から拡張子を除いて付ける
+fn values_file(name: &str) -> String {
+    let stem = Path::new(name)
+        .file_stem()
+        .map_or_else(|| name.to_owned(), |s| s.to_string_lossy().into_owned());
+    format!("zumen-{stem}.txt")
+}
+
+/// `Grid::interpolate` で求めた値。内挿計算プログラムの結果と同じく「緯度 経度 値」と書き、値なしは `NaN` と書く。
+/// 国土地理院のモデルから求めた値なので、リポジトリの外のフォルダーにだけ書く（決定 0019）
+fn values_text(name: &str, grid: &Grid, points: &[Point]) -> String {
+    let mut out = format!(
+        "# cargo xtask geoid points が {name} を Grid::read・Grid::interpolate で補間した値（m）。\n\
+         # 国土地理院のモデルから求めた値なので、Git・issue・PR に書かない（決定 0019）\n\
+         # Lat(dms) Lon(dms) Value(m)\n"
+    );
+    for p in points {
+        match grid.interpolate(p.at()) {
+            Some(u) => out.push_str(&format!("{} {} {:.6}\n", p.lat, p.lon, u.value)),
+            None => out.push_str(&format!("{} {} NaN\n", p.lat, p.lon)),
+        }
     }
-    for (name, grid) in &loaded {
+    out
+}
+
+/// キットの点に、格子ごとの無効の領域の際の点を足す。秒の小数 4 桁に丸めて場所が変わる点は使わない。点がサービスの
+/// 一括計算の上限を超えたら止める
+fn gather(mut points: Vec<Point>, grids: &[(String, Grid)]) -> Result<Vec<Point>, String> {
+    let fixed = points.len();
+    for (name, grid) in grids {
         let found = edges(grid);
         if found.is_empty() {
             println!("{name}: 無効の格子点がないので、無効の領域の際の点はない");
@@ -602,7 +648,7 @@ pub(crate) fn points(folder: &str, grids: &[&str]) -> Result<(), String> {
                 lon: Dms::from_degrees(at.longitude),
                 label: format!("{}（{name} の無効の領域の際）", edge.label()),
             };
-            // 秒の小数 4 桁に丸めて、格子の線から外れたら使わない
+            // 秒の小数 4 桁に丸めて、格子点の上・格子の線の上から外れたら使わない
             if locate(&grid.extent(), point.at()).0 != edge.place() {
                 println!(
                     "{name}: {} の点は、秒の小数 4 桁で表せないので使わない",
@@ -631,11 +677,41 @@ pub(crate) fn points(folder: &str, grids: &[&str]) -> Result<(), String> {
             points.len()
         ));
     }
-    for (file, contents) in [
-        (POINTS, points_text(&points)),
-        (SERVICE_INPUT, service_input(&points)),
-        (GEOIDCALC_INPUT, geoidcalc_input(&points)),
-    ] {
+    Ok(points)
+}
+
+/// `cargo xtask geoid points`。キットの点に、格子ごとの無効の領域の際の点を足して、フォルダーに書く
+pub(crate) fn points(folder: &str, grids: &[&str]) -> Result<(), String> {
+    let folder = output_folder(Path::new(folder))?;
+    let kit = read_text(&crate::root().join(KIT_POINTS), "キットの点の一覧")?;
+    let kit = parse_points(&kit)?;
+    let fixed = kit.len();
+    let mut loaded: Vec<(String, Grid)> = Vec::new();
+    for path in grids {
+        let path = outside_repository(Path::new(path), "格子のファイル")?;
+        let name = file_name(&path);
+        if loaded
+            .iter()
+            .any(|(n, _)| values_file(n) == values_file(&name))
+        {
+            return Err(format!(
+                "格子のファイルの名前（{name}）が、前に渡したファイルと重なります。名前の違うファイルを渡してください"
+            ));
+        }
+        let grid = read_grid(&path)?;
+        println!("{}", describe(&name, &grid));
+        loaded.push((name, grid));
+    }
+    let points = gather(kit, &loaded)?;
+    let mut files = vec![
+        (POINTS.to_owned(), points_text(&points)),
+        (SERVICE_INPUT.to_owned(), service_input(&points)),
+        (GEOIDCALC_INPUT.to_owned(), geoidcalc_input(&points)),
+    ];
+    for (name, grid) in &loaded {
+        files.push((values_file(name), values_text(name, grid, &points)));
+    }
+    for (file, contents) in &files {
         fs::write(folder.join(file), contents)
             .map_err(|e| format!("{file} を書けませんでした（{}）", e.kind()))?;
     }
@@ -666,6 +742,15 @@ pub(crate) fn points(folder: &str, grids: &[&str]) -> Result<(), String> {
         "点 {}（キットの点 {fixed}・無効の領域の際の点 {}）を、{POINTS}・{SERVICE_INPUT}・{GEOIDCALC_INPUT} に書いた",
         points.len(),
         points.len() - fixed
+    );
+    let written: Vec<&str> = files
+        .iter()
+        .skip(3)
+        .map(|(file, _)| file.as_str())
+        .collect();
+    println!(
+        "zumen の値を {} に書いた。国土地理院のモデルから求めた値なので、Git・issue・PR に書かない（決定 0019）",
+        written.join("・")
     );
     Ok(())
 }
@@ -705,15 +790,16 @@ struct Row {
 #[derive(Debug, Default)]
 struct Parsed {
     rows: Vec<Row>,
-    /// 値の行でない行（`#` で始まる注記など）。モデルのファイルとプログラムの版を書く
-    notes: Vec<String>,
-    /// UTF-8 でない注記の行の数（サービスの結果は Shift_JIS のことがある）
+    /// 値の行でない行（`#` で始まるコメントの行など）。使ったパラメーターやモデルのファイル、プログラムのバージョンを
+    /// 書く
+    comments: Vec<String>,
+    /// UTF-8 でないコメントの行の数（サービスの結果は Shift_JIS のことがある）
     unreadable: usize,
 }
 
 /// サービスか内挿計算プログラムの結果を読む。数字（符号を含む）で始まる行を値の行とし、「緯度 経度 値...」の
-/// `column` 番目（1 から）を値とする。ほかの行は注記とする。値の行を注記と取り違えても、`check` が行の数と緯度・経度で
-/// 見つける。値の後ろの列（コメント）は、どの文字コードでもよい
+/// `column` 番目（1 から）を値とする。ほかの行はコメントの行とする。値の行をコメントの行と取り違えても、`check` が
+/// 行の数と緯度・経度で見つける。値の後ろの列（点の名前など）は、どの文字コードでもよい
 fn parse_result(bytes: &[u8], column: usize) -> Result<Parsed, String> {
     let mut result = Parsed::default();
     let bytes = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(bytes);
@@ -733,7 +819,7 @@ fn parse_result(bytes: &[u8], column: usize) -> Result<Parsed, String> {
         };
         if !data {
             match std::str::from_utf8(line) {
-                Ok(_) => result.notes.push(text.to_owned()),
+                Ok(_) => result.comments.push(text.to_owned()),
                 Err(_) => result.unreadable += 1,
             }
             continue;
@@ -780,6 +866,9 @@ struct Outcome {
     decimals: Option<usize>,
     /// 合わない点。ID・場所・差だけを書き、値は書かない
     mismatches: Vec<String>,
+    /// 範囲の縁の上で、zumen は値を返し、結果は値なしだった点（ID と場所）。範囲の外とする境の規則の違いで、
+    /// 補間の照合には数えない（説明書の 3 章 (4)①。`xtask/verify/geoid/README.md` の「範囲の縁」）
+    border: Vec<String>,
 }
 
 impl Outcome {
@@ -807,11 +896,11 @@ fn check(points: &[Point], grid: &Grid, rows: &[Row]) -> Result<Outcome, String>
                 row.line, row.lat, row.lon, point.id, point.lat, point.lon
             ));
         }
-        let (place, edge) = locate(&extent, point.at());
+        let (spot, border) = locate(&extent, point.at());
         let place = format!(
             "{}{}",
-            place.label(),
-            if edge { "（範囲の縁）" } else { "" }
+            spot.label(),
+            if border { "（範囲の縁）" } else { "" }
         );
         let zumen = grid.interpolate(point.at()).map(|u| u.value);
         match (zumen, row.value) {
@@ -842,6 +931,9 @@ fn check(points: &[Point], grid: &Grid, rows: &[Row]) -> Result<Outcome, String>
                 }
             }
             (None, Reading::None) => outcome.without_value += 1,
+            (Some(_), Reading::None) if border => {
+                outcome.border.push(format!("{}（{place}）", point.id));
+            }
             (Some(_), Reading::None) => outcome.mismatches.push(format!(
                 "{}（{place}）: zumen は値を返し、結果は値なし",
                 point.id
@@ -870,23 +962,29 @@ pub(crate) fn compare(folder: &str, grid: &str, result: &str, column: usize) -> 
     let outcome = check(&points, &grid, &parsed.rows)?;
     println!("{}", describe(&grid_name, &grid));
     println!("結果: {}（{column} 列目）", file_name(&result_path));
-    for note in &parsed.notes {
-        println!("  {note}");
+    for comment in &parsed.comments {
+        println!("  {comment}");
     }
     if parsed.unreadable > 0 {
-        println!("  （UTF-8 でない注記の行 {}）", parsed.unreadable);
+        println!("  （UTF-8 でないコメントの行 {}）", parsed.unreadable);
     }
     println!(
-        "点: {}（値を比べた点 {}・両方とも値なしの点 {}）",
+        "点: {}（値を比べた点 {}・両方とも値なしの点 {}・範囲の縁で結果だけが値なしの点 {}）",
         points.len(),
         outcome.with_value,
-        outcome.without_value
+        outcome.without_value,
+        outcome.border.len()
     );
     if let Some((difference, id)) = &outcome.largest {
         println!("差の最大: {:.4} mm（{id}）", difference * 1000.0);
     }
     if let Some(decimals) = outcome.decimals {
         println!("結果の値の小数の桁: {decimals}");
+    }
+    for border in &outcome.border {
+        println!(
+            "範囲の縁: {border}: zumen は値を返し、結果は値なし。境の規則の違いで、補間の照合には数えない"
+        );
     }
     for mismatch in &outcome.mismatches {
         println!("合わない: {mismatch}");
@@ -900,8 +998,19 @@ pub(crate) fn compare(folder: &str, grid: &str, result: &str, column: usize) -> 
         ));
     }
     println!(
-        "合った: {} 点で、値は 0.1 mm 以内、値なしの点も同じ",
-        points.len()
+        "合った: 値を比べた点 {}（差は 0.1 mm 以内）・両方とも値なしの点 {}",
+        outcome.with_value, outcome.without_value
     );
+    if !outcome.border.is_empty() {
+        println!(
+            "範囲の縁の {} 点は、境の規則の違いとして記録してください（xtask/verify/geoid/README.md の「範囲の縁」）",
+            outcome.border.len()
+        );
+    }
+    if outcome.with_value < REQUIRED {
+        println!(
+            "値を比べた点が {REQUIRED} 点より少なく、この結果だけでは #438 の完了の条件（{REQUIRED} 点以上）に足りません"
+        );
+    }
     Ok(())
 }
