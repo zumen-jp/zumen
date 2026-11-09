@@ -28,7 +28,10 @@ function download(bytes, name) {
 // 開いた図面を DXF に変換して、ブラウザーのダウンロードで保存する。図面は外へ送らない（決定 0206、#690）。
 function Export({ opened, name }) {
   const [state, setState] = useState({ status: "idle" });
+  const busy = state.status === "busy";
   async function save() {
+    // 変換の間もボタンのフォーカスを保つよう、disabled にせず、続けて押したものを無視する
+    if (busy) return;
     setState({ status: "busy" });
     try {
       const { bytes, result, diagnostics } = await opened.convert();
@@ -41,9 +44,9 @@ function Export({ opened, name }) {
   return <section aria-labelledby="export-title" className="export">
     <h2 id="export-title">DXF で保存</h2>
     <p>開いた図面を DXF に変換して、このブラウザーのダウンロードで保存します。書けない値は、変換の診断に種類・件数・場所を出します。</p>
-    <button disabled={state.status === "busy"} onClick={save}>DXF で保存</button>
+    <button aria-disabled={busy} onClick={save}>DXF で保存</button>
     <div role="status" aria-live="polite" aria-atomic="true">
-      {state.status === "busy" ? "変換しています。" : state.status === "done" ? dxfName(name) + " を保存しました（要素 " + state.result.elements + " 件・変換の診断 " + state.diagnostics.length + " 件）。"
+      {state.status === "busy" ? "変換しています。" : state.status === "done" ? dxfName(name) + " のダウンロードを始めました（要素 " + state.result.elements + " 件・変換の診断 " + state.diagnostics.length + " 件）。"
         : state.status === "error" ? "変換できませんでした。" : ""}
     </div>
     {state.status === "error" && !state.diagnostics.some(({ diagnostic }) => diagnostic.severity === "error") && <details><summary>エラーの詳細</summary><p>{state.message}</p></details>}

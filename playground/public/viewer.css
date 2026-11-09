@@ -55,3 +55,4 @@ dd { margin: 0; }
 .export { margin-top: 1rem; padding: 1rem; background: white; border: 1px solid #c4ceca; }
 .export > button { margin: .5rem 0; }
 .export .diagnostics { margin-top: .5rem; padding: 0; border: 0; }
+.export > button[aria-disabled=true] { opacity: .6; cursor: progress; }

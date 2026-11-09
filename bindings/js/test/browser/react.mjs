@@ -202,8 +202,13 @@ try {
   for (const { name, bytes, sha256 } of conversions()) {
     await file.setInputFiles({ name, mimeType: "application/octet-stream", buffer: bytes });
     await ready(name.endsWith(".dwg") ? "DWG" : name.endsWith(".jww") ? "JWW" : "SXF");
+    // 文書ごとに新しい欄になる（前の図面の結果を見ない）
+    const shown = exportPanel.getByRole("status");
+    assert.equal(await shown.innerText(), "", name);
     const saving = page.waitForEvent("download");
-    await exportPanel.getByRole("button", { name: "DXF で保存", exact: true }).click();
+    const save = exportPanel.getByRole("button", { name: "DXF で保存", exact: true });
+    await save.focus();
+    await page.keyboard.press("Enter");
     const download = await saving;
     assert.equal(download.suggestedFilename(), name.replace(/\.[^.]*$/, "") + ".dxf", name);
     const saved = readFileSync(await download.path());
@@ -211,8 +216,8 @@ try {
     const node = convertInNode(module, bytes, saved);
     assert.deepEqual(Buffer.from(node.written), saved, name + ": Node.js の wasm と同じバイト列");
     const { elements } = node.converted.result;
-    const shown = exportPanel.getByRole("status");
-    await shown.getByText(/を保存しました/).waitFor();
+    await shown.getByText(/のダウンロードを始めました/).waitFor();
+    assert.ok(await save.evaluate((el) => el === document.activeElement), name + ": 押したあともフォーカスを保つ");
     assert.match(await shown.innerText(), new RegExp("要素 " + elements + " 件・変換の診断 " + node.converted.diagnostics.length + " 件"), name);
     const listed = exportPanel.getByRole("region", { name: /^変換の診断/ });
     assert.equal(await listed.locator("h2 small").innerText(), String(node.converted.diagnostics.length), name);

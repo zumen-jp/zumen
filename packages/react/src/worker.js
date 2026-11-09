@@ -29,8 +29,9 @@ self.onmessage = ({ data }) => {
       // 失敗した応答の診断は、下の catch で stage を convert にして返す
       const response = session.call({ v: 1, op: "convert", doc: document.doc, format: "dxf", to, budget });
       for (const diagnostic of response.diagnostics) entries.push({ stage, diagnostic });
-      const bytes = session.take(0);
-      session.call({ v: 1, op: "close", docs: [to] });
+      let bytes;
+      try { bytes = session.take(0); }
+      finally { session.call({ v: 1, op: "close", docs: [to] }); }
       self.postMessage({ id, value: { bytes, result: response.result, diagnostics: describe(entries) } }, [bytes.buffer]);
       return;
     }
@@ -57,7 +58,8 @@ self.onmessage = ({ data }) => {
     let diagnostics;
     try { diagnostics = describe(entries); }
     catch { diagnostics = entries.map((entry) => ({ ...entry, text: entry.diagnostic.code })); }
-    if (op === "open") { session?.close(); session = null; }
+    // 開けなかったときと、変換で応答のない失敗（trap など）をしたときは、セッションを閉じる。続く出所と変換も失敗にする
+    if (op === "open" || (op === "convert" && !error.response)) { session?.close(); session = null; }
     self.postMessage({ id, error: { name: error.name, message: error.message, diagnostics } });
   }
 };
