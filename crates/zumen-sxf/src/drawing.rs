@@ -2197,6 +2197,10 @@ fn ellipse<C: Place>(
     } else {
         (ry, rx / ry, 90.0)
     };
+    // 半径の比が小さすぎて 0 に丸められた楕円は、潰れた楕円にしない（#728）
+    if ratio <= 0.0 {
+        return None;
+    }
     let angle = (rotation + shift).to_radians();
     // 中心と半径の和があふれた長軸の端の点は、楕円にしない（#595）
     let tip = [cx + major * libm::cos(angle), cy + major * libm::sin(angle)];
@@ -2516,16 +2520,31 @@ fn degrees(x: f64, y: f64) -> Option<f64> {
 
 /// 補助線の傾き（度）。寸法線に垂直なら 0（決定 0127）
 fn oblique(start: [f64; 2], end: [f64; 2], from: [f64; 2], to: [f64; 2]) -> f64 {
-    let (u, v) = (
-        [end[0] - start[0], end[1] - start[1]],
-        [to[0] - from[0], to[1] - from[1]],
-    );
+    let (u, v) = (direction(start, end), direction(from, to));
     let dot = u[0] * v[0] + u[1] * v[1];
     let scale = libm::hypot(u[0], u[1]) * libm::hypot(v[0], v[1]);
     match degrees(v[0], v[1]) {
         Some(angle) if dot.abs() > 1.0e-9 * scale => angle.rem_euclid(180.0),
         _ => 0.0,
     }
+}
+
+/// `from` から `to` への向き。差と、内積と長さの積があふれないよう、大きいほうの成分の指数を 0 にする 2 の冪で
+/// 割る（#728）。2 の冪で割るので、あふれない値では、向きの角度と、垂直かを決める比は割る前と同じになる
+fn direction(from: [f64; 2], to: [f64; 2]) -> [f64; 2] {
+    let difference = [to[0] - from[0], to[1] - from[1]];
+    // 差があふれれば、半分どうしの差から求める（有限の値の半分の差はあふれない）
+    let difference = if difference.iter().all(|v| v.is_finite()) {
+        difference
+    } else {
+        [to[0] * 0.5 - from[0] * 0.5, to[1] * 0.5 - from[1] * 0.5]
+    };
+    let largest = difference[0].abs().max(difference[1].abs());
+    if !(largest > 0.0 && largest.is_finite()) {
+        return difference;
+    }
+    let exponent = libm::frexp(largest).1;
+    difference.map(|v| libm::scalbn(v, -exponent))
 }
 
 fn dropped(cx: &mut Cx, feature: Feature) {
