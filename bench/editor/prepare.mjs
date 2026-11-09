@@ -86,8 +86,8 @@ function extentOf(items) {
   return box ?? [0, 0, 1000, 1000];
 }
 
-// i 番目に足す要素。線・折れ線・円・円弧・文字を、元の範囲に格子で並べる。JWW は、API の add で線・円・円弧を
-// 足せない（#702）ので、点を足す
+// i 番目に足す要素。線・折れ線・円・円弧・文字を、元の範囲に格子で並べる。JWW は、測ったときに API の add で
+// 線・円・円弧を足せなかった（#702、のちに直った）ので、点を足す
 function addition(i, base, place, layer, lineType, box) {
   const columns = 400;
   const width = Math.max(box[2] - box[0], 1);

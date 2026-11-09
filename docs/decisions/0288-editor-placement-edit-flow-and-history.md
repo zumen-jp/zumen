@@ -117,7 +117,8 @@
 
 - 足す op はない。今の op（`open`・`drawing`・`tables`・`entities`・`scene`・`apply`・`describe`・`close`）で流れを作れる。
 - ただし、#694 の範囲のうち、DWG の今ある図形のレイヤ・線種・線幅・RGB の色の変更と、画層の線種と真の色の変更は、今のコアで当たらない（#723）。DXF では当たる。
-- 足りないものは、コアの issue にした。DWG に足して `$HANDSEED` の長さが変わると断ること（#701）、JWW に API で線・円・円弧を足せないこと（#702）、ハンドルを持たない DXF で `ids_shifted` を返さないこと（#722）、DWG の属性とレイヤの変更（#723）、図面モデルへの変換を呼び出しの間で使い回さないこと（#708）、P21 の `apply` が遅いこと（#709）。
+- 足りないものは、コアの issue にした。DWG に足して `$HANDSEED` の長さが変わると断ること（#701）、ハンドルを持たない DXF で `ids_shifted` を返さないこと（#722）、DWG の属性とレイヤの変更（#723）、図面モデルへの変換を呼び出しの間で使い回さないこと（#708）、P21 の `apply` が遅いこと（#709）。
+- 測ったときは、JWW に API で線・円・円弧を足せなかった（#702）。今は足せるが、色と線種を明示する（[決定 0290](0290-jww-add-inherited-style.md)）ので、JWW の図形を足すツールは、色と線種を選ばせる。
 
 ## 影響
 
@@ -129,4 +130,4 @@
 ## 参照
 
 - #692・#693・#701・#702・#708・#709・#722・#723
-- [決定 0007](0007-single-rust-implementation.md)・[決定 0008](0008-model-layers-and-codecs.md)・[決定 0010](0010-budget-by-work.md)・[決定 0117](0117-entities-op.md)・[決定 0139](0139-drawing-apply.md)・[決定 0156](0156-drawing-stable-ids-and-preconditions.md)・[決定 0259](0259-javascript-on-node-servers.md)・[決定 0268](0268-distribute-wasm-modules.md)・[決定 0274](0274-view2d-selection-and-state.md)・[決定 0276](0276-view2d-input-tools-and-measurement.md)
+- [決定 0007](0007-single-rust-implementation.md)・[決定 0008](0008-model-layers-and-codecs.md)・[決定 0010](0010-budget-by-work.md)・[決定 0117](0117-entities-op.md)・[決定 0139](0139-drawing-apply.md)・[決定 0156](0156-drawing-stable-ids-and-preconditions.md)・[決定 0259](0259-javascript-on-node-servers.md)・[決定 0268](0268-distribute-wasm-modules.md)・[決定 0274](0274-view2d-selection-and-state.md)・[決定 0276](0276-view2d-input-tools-and-measurement.md)・[決定 0290](0290-jww-add-inherited-style.md)

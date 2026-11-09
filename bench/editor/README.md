@@ -18,7 +18,7 @@
 
 - 大きさは、土台のまま・1,000 件・10,000 件・大きな図面の 4 つです。要素は、土台の要素の範囲に格子に並べます。
 - DWG は、足して `$HANDSEED` のバイト数が増える（0xFFFF を超える）と書き戻せない（[#701](https://github.com/zumen-jp/zumen/issues/701)）ので、6 万件までにしました。
-- JWW は、API の `add` で線・円・円弧を足せない（[#702](https://github.com/zumen-jp/zumen/issues/702)）ので、点を足しました。
+- JWW は、測ったときに API の `add` で線・円・円弧を足せなかった（[#702](https://github.com/zumen-jp/zumen/issues/702)、のちに直った）ので、点を足しました。
 - SFC・P21 の `add` は、文字を足せず、線種と線幅をレイヤに従わせられないので、文字を除き、線種と線幅を明示しました。
 - P21 は、`apply` の時間が図面の大きさより速く増え（[#709](https://github.com/zumen-jp/zumen/issues/709)）、足して作るのにも測るのにも時間がかかるので、3 万件までにしました。
 
