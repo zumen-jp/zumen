@@ -939,6 +939,17 @@ pub const CRS_HEIGHT_REALIZATION_MIXED: Code = Code::new(
     &["first", "second"],
 );
 
+/// 点の平面直角座標と経緯度の換算ができない（値が有限でないか、緯度が ±90 度の外か、系の原点との経度の差が ±90 度に届く）ので、JGD2011 に直さなかった。補正量の極端な格子で直した点などで起きる。crs は直そうとした点の座標系の EPSG のコード（#679）
+///
+/// `crs.projection.unsupported`（0.2.0 から）
+pub const CRS_PROJECTION_UNSUPPORTED: Code = Code::new(
+    "crs.projection.unsupported",
+    Severity::Warning,
+    None,
+    &[Param::new("crs", ParamType::UInt)],
+    &["crs"],
+);
+
 /// CSV に、その文字コードで直せないバイトがあるので、置き換えの字にした（#391）
 ///
 /// `csv.encoding.invalid`（0.2.0 から）
@@ -4585,6 +4596,7 @@ pub const ALL: &[Code] = &[
     CRS_HEIGHT_DATUM_UNSUPPORTED,
     CRS_HEIGHT_REALIZATION_ASSUMED,
     CRS_HEIGHT_REALIZATION_MIXED,
+    CRS_PROJECTION_UNSUPPORTED,
     CSV_ENCODING_INVALID,
     CSV_QUOTE_INVALID,
     DELIVERY_FILE_INVALID,
