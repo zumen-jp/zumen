@@ -110,7 +110,6 @@ fn apply(file: &mut SxfFile, edits: Vec<Edit>) -> (Result<Vec<Applied>, Error>, 
     (result, diag.iter().map(|d| d.code()).collect())
 }
 
-/// 用紙の要素の ID とハッシュ
 /// 診断の code と `field`・`format`
 #[cfg(test)]
 type Found = (Code, Option<zumen_base::Value>, Option<zumen_base::Value>);
@@ -139,6 +138,7 @@ fn refused(file: &mut SxfFile, edits: Vec<Edit>) -> (Result<Vec<Applied>, Error>
     (result, found)
 }
 
+/// 用紙の要素の ID とハッシュ
 #[cfg(test)]
 fn seen(drawing: &Drawing2D, instance: u64) -> (Seen, Element<PaperPoint>) {
     let element = drawing.sheets[0]

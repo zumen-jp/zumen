@@ -1098,12 +1098,13 @@ impl<'f> Plan<'f> {
         let computed = (|| -> Option<(u64, Element<PaperPoint>)> {
             let mut element = element.clone();
             let style = element.style;
-            if style.line_type_scale != 1.0 || style.transparency != Inherit::Layer {
-                return None;
-            }
             let mut args = arguments(&element.shape)?;
+            // 書かない値を、ほかの理由より先に示す（JWW と同じ順、決定 0292）
             if let Some(field) = unset_field(&style, args.name == MARKER) {
                 *unset = Some(field);
+                return None;
+            }
+            if style.line_type_scale != 1.0 || style.transparency != Inherit::Layer {
                 return None;
             }
             let (color, read) = tables.color(style.color)?;
