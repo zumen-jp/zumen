@@ -18,6 +18,7 @@ JWW のファイルごとに、次を確かめる。
   同じ。
 """
 
+import math
 import re
 import sys
 from collections import Counter
@@ -98,6 +99,16 @@ def geometry(header, e):
         if e["is_temporary"]:
             g["construction"] = True
         return g
+    # 円と円弧は、扁平率 1 で反時計回り（開き角が正）のものだけを比べる。角度はラジアンで、傾きを足す
+    # （docs/formats/jww.md）。楕円と時計回りの円弧は、まだ比べない（#702）
+    if e["type"] in ("CIRCLE", "ARC") and e["flatness"] == 1.0:
+        center = [e["center_x"] * s, e["center_y"] * s]
+        if e["is_full_circle"]:
+            return {"shape": "circle", "center": center, "radius": e["radius"] * s}
+        if e["arc_angle"] > 0:
+            start = math.degrees(e["start_angle"] + e["tilt_angle"])
+            end = start + math.degrees(e["arc_angle"])
+            return {"shape": "arc", "center": center, "radius": e["radius"] * s, "start_angle": start, "end_angle": end}
     return None
 
 

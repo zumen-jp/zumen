@@ -447,7 +447,7 @@ def transformed(geometry, m):
 
 
 def points_steps(fmt):
-    """#342: 点を置き換え・変換・追加し、DXF・DWG は文書の点の表し方も変える"""
+    """#342: 点を置き換え・変換・追加し、DXF・DWG は文書の点の表し方も変える。JWW は線・円・円弧も足す（#702）"""
 
     def step(reading):
         edits = []
@@ -470,6 +470,12 @@ def points_steps(fmt):
             edits.append(add("space/0", {"shape": "point", "position": [1000, 2000], "rotation": 0}, layer=layer, color=color))
             point = {"shape": "point", "position": [3000, 2000], "rotation": 30, "marker": {"namespace": "jww.point", "code": "3", "scale": 2}}
             edits.append(add("space/0", point, layer=layer, color=color))
+            # 線・円・円弧は、JWW がレイヤに従う線種も持たないので、線種も書く。線幅は書かず、ペンの印刷の幅に従う（#702）
+            solid = {"id": "line-type/1"}
+            edits.append(add("space/0", {"shape": "line", "start": [1000, 3000], "end": [4000, 3500]}, layer=layer, color=color, line_type=solid))
+            edits.append(add("space/0", {"shape": "circle", "center": [5000, 3000], "radius": 500}, layer=layer, color=color, line_type=solid))
+            arc = {"shape": "arc", "center": [6500, 3000], "radius": 500, "start_angle": 0, "end_angle": 135}
+            edits.append(add("space/0", arc, layer=layer, color=color, line_type=solid))
         else:
             # SXF はレイヤに従う色を持たないので、色の番号を書く（2 は赤）。レイヤは、表で定義したレイヤ（defined）に
             # ある最初の要素のものか、表の最初のもの。表にないレイヤ（レイヤのコードが 0 のフィーチャなど）に足すと、
@@ -570,12 +576,14 @@ def transform(e, m):
     return {"kind": "transform", "id": e["id"], "hash": e["hash"], "matrix": m, "_expect": transformed(e["geometry"], m)}
 
 
-def add(place, geometry, layer=None, color=None):
+def add(place, geometry, layer=None, color=None, line_type=None):
     edit = {"kind": "add", "place": place, "geometry": geometry, "_expect": geometry}
     if layer:
         edit["layer"] = layer
     if color:
         edit["color"] = color
+    if line_type:
+        edit["line_type"] = line_type
     return edit
 
 
