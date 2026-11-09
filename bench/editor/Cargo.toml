@@ -1,0 +1,17 @@
+# エディターの設計（#693・決定 0288）のために、open・scene・entities・apply の時間と作業量をネイティブで測る。
+# コアのワークスペースには入れない。
+[package]
+name = "zumen-bench-editor"
+version = "0.0.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[workspace]
+
+[[bin]]
+name = "measure"
+path = "src/main.rs"
+
+[dependencies]
+zumen = { path = "../../crates/zumen" }

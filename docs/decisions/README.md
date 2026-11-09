@@ -319,3 +319,4 @@
 - [0283: 初回リリース後は、入力と詳細を、修正したバージョンを公開するまで非公開にする](0283-fuzz-reporting-after-release.md)（2026-11-07、採用）
 - [0284: fuzz の CI は、見つけた入力とログを暗号にして残し、通らなかった target の種をキャッシュに残さない](0284-fuzz-ci-private-artifacts.md)（2026-11-09、採用）
 - [0286: TKY2JGD・PatchJGD の格子は、間隔を格子点の並びから見分けて補間し、地震などごとの PatchJGD のファイルを古い順に当てる](0286-datum-grid-spacing-and-patch-order.md)（2026-11-09、採用）
+- [0288: エディターは `editor/` に置き、確定した操作ごとに apply してシーンを差し替え、取り消しは書き戻したファイルの版で持つ](0288-editor-placement-edit-flow-and-history.md)（2026-11-10、採用）
