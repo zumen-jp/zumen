@@ -37,3 +37,4 @@
 ## 参照
 
 - [#557 での判断の記録](https://github.com/zumen-jp/zumen/issues/557#issuecomment-6702527675)、[SECURITY.md](../../SECURITY.md)、[fuzz の手順](../../fuzz/README.md)、#317・#647
+- #647 の CI で入力と詳細を出さない方法と、対象でないものを 0258・0261 のとおり公開で扱うこと（2）を、暗号にした artifact を開ける人が行うことは、[0284](0284-fuzz-ci-private-artifacts.md) で定めた。

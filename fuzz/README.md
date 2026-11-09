@@ -78,21 +78,19 @@ cargo "+$NIGHTLY" fuzz run -O --debug-assertions zip
 - `cp Cargo.lock fuzz/Cargo.lock` で、fuzz の crate の依存を、ワークスペースと同じバージョンから解きます。`fuzz/Cargo.lock` はリポジトリに入れません。
 - `cargo "+$NIGHTLY" fuzz list` で、target の一覧を出せます。
 - 見つけた入力は `fuzz/artifacts/` に出ます。直したら、その入力を最小にして、合成のテストに移します（決定 0283 の対象は、修正したバージョンを公開したあと）。`corpus` と `artifacts` はリポジトリに入れません。
-- 見つけた入力は種か種を変えたもので、表示を求めるライセンス（CC BY・MIT・公共データ利用規約）の公開サンプルから来ることがあります。入力を報告に添えるときは、最小にした入力にし、元の公開サンプルの出所とライセンス（`samples/ledger.toml`）を添えます。元が分からなければ、種を作ったコミットに固定した URL（`https://github.com/zumen-jp/zumen/blob/<コミット>/samples/ledger.toml`）で、台帳の全体を指します。サンプルを外した後も、指す先から表示が消えないようにするためです（決定 0258）。種を作ったコミットは、artifact の `NOTICE.txt` と、log の checkout に出ます。
+- 見つけた入力は種か種を変えたもので、表示を求めるライセンス（CC BY・MIT・公共データ利用規約）の公開サンプルから来ることがあります。入力を報告に添えるときは、最小にした入力にし、元の公開サンプルの出所とライセンス（`samples/ledger.toml`）を添えます。元が分からなければ、種を作ったコミットに固定した URL（`https://github.com/zumen-jp/zumen/blob/<コミット>/samples/ledger.toml`）で、台帳の全体を指します。サンプルを外した後も、指す先から表示が消えないようにするためです（決定 0258）。種を作ったコミットは、暗号にした artifact の中の `NOTICE.txt` と、log の checkout に出ます。
   - 毎晩の実行なら、その夜の main のコミットです。
   - PR の実行なら、PR と main を合わせた一時のコミットです。このコミットは、後でどの ref からも指されなくなり、残るとは限らないので、件名の「Merge <PR の head> into <main のコミット>」の 2 つのコミットの台帳を、並べて指します。
 
 ## CI
 
-以下は今の公開 CI の動作です。[#647](https://github.com/zumen-jp/zumen/issues/647) では、入力と詳細が公開のログ・注釈（`::error::`）・summary・artifact・キャッシュに出ないようにします。#647 は初回リリースの前に終えます（[決定 0283](../docs/decisions/0283-fuzz-reporting-after-release.md)）。
+`.github/workflows/fuzz.yml` が、毎晩すべての target を 1 つ 180 秒ずつ、4 つずつ並べて流します（決定 0258）。見つけた入力と詳細（誤りの文・ログ・入力の名前とハッシュ）は、公開のログ・注釈（`::error::`）・summary・artifact・キャッシュに出しません（[#647](https://github.com/zumen-jp/zumen/issues/647)、[決定 0283](../docs/decisions/0283-fuzz-reporting-after-release.md)・[決定 0284](../docs/decisions/0284-fuzz-ci-private-artifacts.md)）。公開の所に出るのは、target と失敗の種類だけです。初回リリースの前も同じにし、タグの push を頼んでから push までの扱い（下の「初回リリース後の記録先」）でも、CI の側を切り替えずに済むようにします。
 
-`.github/workflows/fuzz.yml` が、毎晩すべての target を 1 つ 180 秒ずつ、4 つずつ並べて流します（決定 0258）。
-
-- 前の夜までに育てた種を actions/cache で引き継ぎます。キャッシュのキーに公開サンプルの台帳（`samples/ledger.toml`）のハッシュを入れ、台帳が変わったら引き継ぎません。
-- 残す前に、target ごとに、通る辺を変えずに種を縮めます（libFuzzer の `-merge=1`）。libFuzzer は起動からの時間で止めますが、起動時に種をすべて流し終えるまでは止まりません。縮めないと、種が増えるほど新しい入力を試す時間が減り、種を流すだけで決まった時間を超える target も出ます。縮める前と後の種の数も、summary と log に書きます。流す手順で通らなかった target は、見つけた入力の元を残すため、縮めません。
-- target ごとの結果の表を、実行の summary と log に書きます。表には、試した入力・通った辺・もっとも遅い入力（1 秒から）・使ったメモリ・流した後の種の数を出します。
-- パニック、30 秒を超える入力、3 GB を超えるメモリを見つけたら失敗します。種を縮めるときに見つけたときと、1 つの target を縮めるのに 20 分を超えたときも、縮める前の種を残して失敗します。
-- 見つけた入力と、1 秒以上かかった入力のうち target ごとにそれまでの最長を超えたものを、artifact の `fuzz-artifacts` に 14 日残します。公開サンプルの出所とライセンス（`samples/README.md`・`samples/ledger.toml`・`licenses/`）と、種を作ったコミット（`NOTICE.txt`）を添えます。
+- 前の夜までに育てた種を actions/cache で引き継ぎます。キャッシュのキーに公開サンプルの台帳（`samples/ledger.toml`）のハッシュを入れ、台帳が変わったら引き継ぎません。キャッシュは、フォークからの PR の実行でも、ワークフローを書き換えれば戻せます。そのため、流す手順か縮める手順で通らなかった target の種は、まるごと除いてから残します。種を流し始めたときに落ちた入力は種の中にあり、その後ろの種は流していないので、落ちるかが分からないからです。次の夜は、その target を `cargo xtask fuzz-seeds` の種から育て直します。流す手順か縮める手順が取り消された実行（時間切れ・concurrency）は、確かめていない種が混じるので、キャッシュを残しません。前の夜までのキャッシュに残る種は、この手順では消せません。決定 0283 の対象の失敗では、下の「前の種のキャッシュを消す」で消します。
+- 残す前に、target ごとに、通る辺を変えずに種を縮めます（libFuzzer の `-merge=1`）。libFuzzer は起動からの時間で止めますが、起動時に種をすべて流し終えるまでは止まりません。縮めないと、種が増えるほど新しい入力を試す時間が減り、種を流すだけで決まった時間を超える target も出ます。縮める前と後の種の数も、summary と log に書きます。流す手順で通らなかった target は、縮めません。こうした target と、縮められなかった target の種は、縮めて黙って外すことはせず、下のとおりキャッシュからまるごと除きます（[決定 0284](../docs/decisions/0284-fuzz-ci-private-artifacts.md)）。
+- target ごとの結果の表を、実行の summary と log に書きます。表には、結果（通過か、失敗と種類）・試した入力・通った辺・もっとも遅い入力（1 秒から）・使ったメモリ・流した後の種の数を出します。
+- パニック、30 秒を超える入力、3 GB を超えるメモリを見つけたら失敗します。種を縮めるときに見つけたときと、1 つの target を縮めるのに 20 分を超えたときも、縮めずに失敗します。その target の種は、キャッシュに残しません。注釈（`::error::`）には、通らなかった target と失敗の種類（`crash`・`timeout`・`oom`・`leak`。入力を残さずに落ちたときは「入力なし」）だけを書きます。libFuzzer のログ（誤りの文と、入力のバイト列が出る）は、公開の log に出しません。
+- 見つけた入力と、1 秒以上かかった入力のうち target ごとにそれまでの最長を超えたものと、通らなかった target（縮める手順を含む）のログを、1 つにまとめて暗号にし、artifact の `fuzz-private`（`fuzz-private.tar.gz.age`）に 14 日残します。公開サンプルの出所とライセンス（`samples/README.md`・`samples/ledger.toml`・`licenses/`）と、種を作ったコミットと実行の ID（`NOTICE.txt`）を添えます。平文は artifact に置きません。暗号にできなければ、何も置かずに落ちます。開き方は、下の「暗号にした入力を開く」にあります。
 - 公開サンプルを台帳から外すと、台帳のハッシュが変わるので、外したサンプルとそれを変えた入力を含む前の種は戻りません。前の種のキャッシュを早く消す手順は、[`samples/README.md`](../samples/README.md) の「外し方」にあります。
 - crate・種の元（`samples/`・`bindings/conformance/cases/`）・fuzz の target・このワークフローを変えた PR では、1 つ 20 秒ずつ流します。Markdown（`*.md`）だけの変更では流しません（[決定 0263](../docs/decisions/0263-skip-documentation-only-fuzz.md)）。種や実装に使う Markdown を足すときは、パスの除外条件の後ろにそのパスを足し、実行の対象に戻します。
 - fuzz の crate はワークスペースの外にあるので、PR の fuzz で組み立ても確かめます。台帳が同じなら main の育てた種も戻すので、20 秒のうち新しい入力を試す時間が減ります。種を流すのに 20 秒より長くかかる target は、その分長くかかります。
@@ -119,17 +117,39 @@ fuzz の job は、main の必須の検査ではありません。CI を軽く�
 
 ### 見つけた入力を流す
 
-以下は、今の CI の artifact から入力を取り出す手順です。#647 で、初回リリースの前に変えます。見つけた入力は、落ちた実行の artifact `fuzz-artifacts` のうち、落ちた target のフォルダーにある `crash-*`・`timeout-*`・`oom-*`・`leak-*` です。artifact には、通った実行でも、1 秒以上かかった入力（`slow-unit-*`）が入ります。取り出すと、`<置き場所>/<target>/crash-…` のように並びます。PR の実行は、PR のブランチの名前で引けます。
+見つけた入力は、落ちた実行の暗号にした artifact `fuzz-private` の中の、落ちた target のフォルダー（`artifacts/<target>/`）にある `crash-*`・`timeout-*`・`oom-*`・`leak-*` です。artifact には、通った実行でも、1 秒以上かかった入力（`slow-unit-*`）が入ります。通らなかった target の libFuzzer のログは `logs/fuzz/<target>.log`、縮める手順のログは `logs/fuzz-merge/<target>.log` です。開き方は、下の「暗号にした入力を開く」にあります。PR の実行は、PR のブランチの名前で引けます。
 
 ```bash
 gh run list --workflow fuzz.yml --branch <PR のブランチ> --limit 5
 ```
 
+開いた中身は、リポジトリの外の、自分だけが読めるフォルダーに置きます。中身（入力・誤りの文・ログ・入力の名前とハッシュ）は、決定 0283 の対象なら、非公開のアドバイザリにだけ書きます（上の「初回リリース後の記録先」）。
+
+#### 暗号にした入力を開く
+
+artifact は、`fuzz/recipients.txt` の公開鍵で [age](https://github.com/FiloSottile/age) の形に暗号にしてあります。開くには、age と、どれかの公開鍵に対応する秘密鍵が要ります。秘密鍵は利用者が持つ機械にだけあり、リポジトリにも secrets にも置きません。
+
+秘密鍵のない機械のエージェントは、開けないので、次のようにします。
+
+1. 公開の所に書けることだけで進めます。毎晩の失敗と、PR と関係のない失敗の issue には、落ちた target と失敗の種類を書きます。実行の ID は、初回リリースの前は書き、後は書きません（下の「初回リリース後の記録先」）。
+2. 開くことと、それを要る作業（下の「失敗を分ける」の 3・4、入力を最小にする、issue か非公開の記録に入力と誤りの文を書く）を、利用者に頼みます。利用者の手元にしかないものを用意することなので、開くことを頼む issue に「待ち: 利用者」を付けます（AGENTS.md の「人を待つもの」）。PR の fuzz で入力のある失敗が出たら、分けるまでマージしません（決定 0261）。PR には、このラベルを付けず、本文でその issue を指して、開くのを待っていることを書きます。PR の側で人を待つもの（分けられずに利用者に認めてもらう失敗など）が出たときは、AGENTS.md の「人を待つ PR」の手順で扱います。
+3. 利用者か、秘密鍵のある機械のエージェントが開いたら、その人が続けます。初回リリースの前は、決定 0261 のとおり、最小にした入力と誤りの文を issue に書きます。決定 0283 の対象は、非公開のアドバイザリに書きます。開いて続けられるようになったら、issue のラベルを外します。
+
 ```bash
-gh run download <実行の ID> --name fuzz-artifacts --dir <置き場所>
+gh run download <実行の ID> --name fuzz-private --dir <置き場所>
 ```
 
-PR の実行は、PR の head と main を合わせた一時のコミットで流れます。そのコミットは、log の checkout と `NOTICE.txt` に出ます。手元の target は、次のコミットで作ります。
+```bash
+age -d -i <秘密鍵のファイル> <置き場所>/fuzz-private.tar.gz.age | tar -xzf - -C <置き場所>
+```
+
+取り出すと、`<置き場所>/artifacts/<target>/crash-…` のように並びます。`fuzz/recipients.txt` の受け取り手（公開鍵）を足す・替える・外すのは、秘密鍵の持ち主を決めることなので、利用者が決めます（AGENTS.md の「人を待つもの」の鍵）。外しても、前の実行の artifact は、外した鍵で開けるまま 14 日残ります。
+
+#### 前の種のキャッシュを消す
+
+決定 0283 の対象の失敗を見つけたら、担当者は、前の夜までに残した種のキャッシュを消します。前の夜までのキャッシュには、見つけた入力と、まだ流していない種が残ることがあり、フォークの PR から戻せるからです。流れている fuzz の実行が終わってから、[`samples/README.md`](../samples/README.md) の「外し方」と同じコマンドで消し、`gh cache list --key fuzz-corpus-` で何も出ないことを確かめます。種は、次の夜から `cargo xtask fuzz-seeds` の種で育て直します。消したことは、非公開の記録に書きます。
+
+PR の実行は、PR の head と main を合わせた一時のコミットで流れます。そのコミットは、log の checkout と、暗号にした artifact の中の `NOTICE.txt` に出ます。手元の target は、次のコミットで作ります。
 
 - PR の target: そのコミットか、そのコミットの main を取り込んだ PR の head
 - main の target: そのコミットの main か、それより新しい main
@@ -137,11 +157,11 @@ PR の実行は、PR の head と main を合わせた一時のコミットで�
 入力は、CI と同じ条件（`-timeout=30 -rss_limit_mb=3072`）で流します。上の「動かし方」と同じく、Linux・macOS か WSL で動かします。最小にするときは、`cargo fuzz tmin` を使います。手元で流すのは、調べる・比べる・最小にするためで、落ちなくても、通ったとはしません。
 
 ```bash
-cargo "+$NIGHTLY" fuzz run -O --debug-assertions <target> <置き場所>/<target>/<入力> -- -timeout=30 -rss_limit_mb=3072
+cargo "+$NIGHTLY" fuzz run -O --debug-assertions <target> <置き場所>/artifacts/<target>/<入力> -- -timeout=30 -rss_limit_mb=3072
 ```
 
 ```bash
-cargo "+$NIGHTLY" fuzz tmin -O --debug-assertions <target> <置き場所>/<target>/<入力> -- -timeout=30 -rss_limit_mb=3072
+cargo "+$NIGHTLY" fuzz tmin -O --debug-assertions <target> <置き場所>/artifacts/<target>/<入力> -- -timeout=30 -rss_limit_mb=3072
 ```
 
 ### 失敗を分ける
@@ -151,10 +171,10 @@ cargo "+$NIGHTLY" fuzz tmin -O --debug-assertions <target> <置き場所>/<targe
 1. PR で足した種（`cargo xtask fuzz-seeds` が書く種）そのものが落ちるなら、関係があります。マージすると、その後の実行が、その種で落ち続けるからです。種のファイルの名前は、中身の SHA-256 です。空の `fuzz/corpus` で、PR の側と main の側のそれぞれで `cargo xtask fuzz-seeds` を流し、見つけた入力の SHA-256 の名前の種が、PR の側にだけあるかを見ます。macOS では、`sha256sum` の代わりに `shasum -a 256` を使います。
 2. 時間切れとメモリの使い過ぎは、確かめられないとします。時間切れは機械の速さで、メモリの使い過ぎは OS とメモリの割り当て方で変わるので、main の target と比べても決まりません。メモリは、それまでに流した入力で積もった分も数えるので、入力を 1 つだけ流しても再現しないこともあります。
 3. ほかの、見つけた入力のある失敗は、その入力を手元で PR の target と main の target に流します。どちらの target でも落ちなければ、確かめられないとします。main の target が、PR の実行と同じ誤りで落ちれば、関係がありません。ほかは、関係があります。
-4. 入力のない失敗（組み立てやツールの失敗）は、main の実行と比べます。同じ手順が同じ誤り（落ちた target と誤りの文）で落ちれば、関係がありません。PR の実行の log に、main の実行の log にない誤りがあれば、関係があります。比べる main の実行は、PR の実行が合わせた main のコミットか、それより新しいものにします。main の最新の毎晩の実行がそれより古いときだけ、手で流します。
+4. 入力のない失敗（組み立てやツールの失敗）は、main の実行と比べます。同じ手順が同じ誤り（落ちた target と誤りの文）で落ちれば、関係がありません。PR の実行の log に、main の実行の log にない誤りがあれば、関係があります。target を流す手順と縮める手順の誤りの文は、公開の log になく、暗号にした artifact のログにあります（上の「暗号にした入力を開く」）。比べる main の実行は、PR の実行が合わせた main のコミットか、それより新しいものにします。main の最新の毎晩の実行がそれより古いときだけ、手で流します。
 
 ```bash
-sha256sum <置き場所>/<target>/<入力>
+sha256sum <置き場所>/artifacts/<target>/<入力>
 ```
 
 ```bash
