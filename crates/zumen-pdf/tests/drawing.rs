@@ -4519,6 +4519,36 @@ fn reads_names_in_comments_in_linear_work() {
         let work = used(&document.bytes(), Kind::Work);
         assert!(work < plain + 8 * count as u64, "{line:?} {plain} {work}");
     }
+    // コメントの行ごとの `obj<<` から読む辞書の最初の字句が、後ろの行をまたぐ文字列か配列でも、辞書ごとに読み直さない。
+    // 後ろの同じ辞書がオブジェクトのストリームになりうるときも、同じストリームを辞書ごとに読み直さない（#657）
+    for (open, line, close) in [
+        ("[", "%obj<< (\n", "]"),
+        ("[", "%obj<< [\n/a ", "]"),
+        (
+            "<<",
+            "/K 1 %obj<<\n",
+            "/N 1/First 0/Length 0>>stream\n\nendstream",
+        ),
+    ] {
+        let mut document = Document::new(vec![Page::new("0 0 m 10 10 l S")]);
+        document.objects = vec![format!("{open}{}{close}", line.repeat(count)).into_bytes()];
+        let src = document.bytes();
+        let size = (line.len() * count) as u64;
+        let work = used(&src, Kind::Work);
+        assert!(work < plain + size, "{line:?} {plain} {work}");
+        let decoded = used(&src, Kind::DecodedBytes);
+        assert!(decoded < 64 * size, "{line:?} {decoded}");
+    }
+    // 閉じない辞書が後ろのオブジェクトの字句を最後まで読んでも、後ろの `obj` の辞書が着きえない境目は覚えないので、
+    // 覚える量が閉じた辞書と同じ程度になる（#657）
+    let content = "0 0 m ".repeat(count);
+    let decoded = |first: &[u8]| {
+        let mut document = Document::new(vec![Page::new("0 0 m 10 10 l S")]);
+        document.objects = vec![first.to_vec(), common::stream("", &content)];
+        used(&document.bytes(), Kind::DecodedBytes)
+    };
+    let (open, closed) = (decoded(b"<<"), decoded(b"<< >>"));
+    assert!(open < closed + 4096, "{open} {closed}");
     // 次の `obj` の辞書の後ろのコメントの中の `obj<<` の辞書も、前の辞書が覚えた歩みに着いたら読み直さない（PR #658 の
     // 2 回目の確かめで、覚えるのをやめると 2 乗になった形）
     let mut document = Document::new(vec![Page::new("0 0 m 10 10 l S")]);
@@ -4550,6 +4580,29 @@ fn counts_reads_that_grow_faster_than_the_file() {
     document.objects = vec![container(count, header.len(), &data)];
     let work = used(&document.bytes(), Kind::Work);
     assert!(work >= count as u64 * 99_000 / 4, "{work}");
+    // 辞書の最初の字句が、閉じない文字列か配列で、覚えに着かずに後ろを読み直す形は、読み直す分を数える（PR #745 の
+    // 確かめで、数えないと予算で止まらなかった形）。エスケープした括弧から始まる文字列と、配列の中の入れ子の字句
+    let count = 2_000;
+    for (name, objects) in [
+        ("A", format!("[{}", r"(obj<< [\( ) /a ".repeat(count))),
+        ("B", format!("[({}", r"obj<< \( ".repeat(count))),
+        ("C", format!("[{}]", "%obj<< [ [\n/a ".repeat(count))),
+        ("D", format!("[{}]", "%obj<< [ <<\n/a 1 ".repeat(count))),
+        ("E", format!("[{}]", "%obj<< [ [(\n/a ".repeat(count))),
+    ] {
+        let mut document = Document::new(vec![Page::new("0 0 m 10 10 l S")]);
+        document.objects = vec![objects.into_bytes()];
+        let work = used(&document.bytes(), Kind::Work);
+        assert!(work >= (count * count) as u64, "{name} {work}");
+    }
+    // 読み直す閉じない文字列の中の、覚えた括弧の組も、引くたびに数える（PR #745 の 2 回目の確かめの形）
+    let (lines, pairs) = (200, 10_000);
+    let mut document = Document::new(vec![Page::new("0 0 m 10 10 l S")]);
+    document.objects =
+        vec![format!("[({}{}", r"obj<< \( ".repeat(lines), "()".repeat(pairs)).into_bytes()];
+    let work = used(&document.bytes(), Kind::Work);
+    assert!(work >= 2 * (lines * pairs) as u64, "{work}");
+    let count = 1_000;
     // `Length` が合わないストリームは、hayro-syntax が `endstream` を探して、後ろを読む
     let line = "9 0 obj << /N 1 /First 0 /Length 0 >>\nstream\n";
     let mut document = Document::new(vec![Page::new("0 0 m 10 10 l S")]);
