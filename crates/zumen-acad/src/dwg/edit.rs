@@ -15,12 +15,13 @@
 //! 作り直して、コンテナーのセクションを置き換える（決定 0071）。コンテナーは、書くときに組み直す（決定 0070）。
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::ops::Range;
 
 use zumen_base::{Cx, Diagnostic, Kind, codes};
 use zumen_sdk::{Error, Transact, Transaction};
 
 use super::bits::{Bits, crc16, modular_char, push_modular_char, push_modular_short};
-use super::header::{self, Values, handle_seed, set_handle_seed, set_values};
+use super::header::{self, Values, grow_handle_seed, handle_seed, set_handle_seed, set_values};
 use super::{
     DwgFile, Entry, LOCATOR_SIZE, LOCATORS_START, OBJECT_CRC_SEED, OBJECT_MAP_NUMBER,
     R2004_SECTIONS, Release, header_crc_mask, invalid, stopped,
@@ -94,7 +95,8 @@ impl DwgTxn<'_> {
         Ok(())
     }
 
-    /// ヘッダーの変数の HANDSEED を `seed` にする。大きさ（バイト）が変わる値なら、確定のときに失敗する
+    /// ヘッダーの変数の HANDSEED を `seed` にする。大きさ（バイト）が変わる値なら、確定のときにヘッダーの変数の
+    /// セクションを伸ばすか縮めて書き直す（#701）
     pub fn set_handle_seed(&mut self, seed: u64) -> Result<(), Error> {
         self.seed = Some(seed);
         Ok(())
@@ -181,30 +183,37 @@ impl Transaction for DwgTxn<'_> {
             ),
         };
         let release = file.release;
+        // 大きさが変わったヘッダーのセクション（元の範囲と、書き直したセクション）
+        let mut rewritten: Option<(Range<usize>, Vec<u8>)> = None;
+        let unreadable =
+            |cx: &mut Cx<'_>, len: usize| invalid(cx, "header variables", header.unwrap_or(0)..len);
         if let Some(value) = self.seed {
-            header
-                .and_then(|start| handle_seed(header_src, start, release))
-                .and_then(|seed| set_handle_seed(header_src, &seed, value))
-                .ok_or_else(|| {
-                    invalid(
-                        cx,
-                        "header variables",
-                        header.unwrap_or(0)..header_src.len(),
-                    )
-                })?;
+            let Some(seed) = header.and_then(|start| handle_seed(header_src, start, release))
+            else {
+                return Err(unreadable(cx, header_src.len()));
+            };
+            // HANDSEED の大きさ（バイト）が変われば、セクションを伸ばして書き直す（#701）
+            if set_handle_seed(header_src, &seed, value).is_none() {
+                rewritten = Some(
+                    grow_handle_seed(header_src, &seed, release, value)
+                        .ok_or_else(|| unreadable(cx, header_src.len()))?,
+                );
+            }
+        }
+        if self.values.any() {
+            let changed = match rewritten.take() {
+                // 伸ばした HANDSEED のセクションの上で、ほかの変数を書き直す
+                Some((span, section)) => set_values(&section, 0, release, self.values)
+                    .map(|(_, section)| (span, section)),
+                None => {
+                    header.and_then(|start| set_values(header_src, start, release, self.values))
+                }
+            };
+            rewritten = Some(changed.ok_or_else(|| unreadable(cx, header_src.len()))?);
         }
         // 大きさが変わったヘッダーのセクション。R2000 は、ファイルの後ろに置いてセクションの記録を直す（決定 0193）
         let mut moved_header = None;
-        if self.values.any() {
-            let (span, section) = header
-                .and_then(|start| set_values(header_src, start, release, self.values))
-                .ok_or_else(|| {
-                    invalid(
-                        cx,
-                        "header variables",
-                        header.unwrap_or(0)..header_src.len(),
-                    )
-                })?;
+        if let Some((span, section)) = rewritten {
             if section.len() == span.len() {
                 put(header_src, span.start, &section).ok_or(Error::Rejected)?;
             } else if container.is_some() {

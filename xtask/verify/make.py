@@ -568,6 +568,22 @@ def minsert_steps(_fmt):
     return [step]
 
 
+# HANDSEED を 2 バイトから 3 バイトに進めるのに足りる線の数（HANDSEED は 1 以上）
+HANDSEED_LINES = 0x10000
+
+
+def handseed_steps(_fmt):
+    """#701: HANDSEED の大きさ（バイト）が増える数の線を、1 回の apply で足す。形の期待は、初めと終わりの 2 本ずつに付ける"""
+
+    def lines(_reading):
+        edits = [add("space/0", {"shape": "line", "start": [0, -i], "end": [100, -i]}) for i in range(HANDSEED_LINES)]
+        for e in edits[2:-2]:
+            del e["_expect"]
+        return edits
+
+    return [lines]
+
+
 def replace(e, geometry):
     return {"kind": "replace", "id": e["id"], "hash": e["hash"], "geometry": geometry, "_expect": geometry}
 
@@ -592,6 +608,7 @@ RECIPES = [
     ("points", 342, lambda name, fmt: fmt in ("jww", "sfc", "p21") or "points-" in name, points_steps),
     ("basic", 156, lambda name, fmt: fmt in ("dxf", "dwg") and ("-layout-" in name or "-xclip-r2013" in name), basic_steps),
     ("minsert", 316, lambda name, fmt: fmt in ("dxf", "dwg") and "-minsert-" in name, minsert_steps),
+    ("handseed", 701, lambda name, fmt: fmt == "dwg" and "-layout-" in name, handseed_steps),
 ]
 
 
@@ -995,6 +1012,13 @@ SECTIONS = {
 - **AutoCAD。** 全変換ファイルを共通の手順で開き、開けることと `AUDIT` の誤りの数を記録する。ビューポートを持つもの（layout・points・JWW）は、モデルと `Layout1` の両方を確認し、用紙の大きさとビューの位置・尺度を比べる。記号を持つものは、配置だけでなく定義の中身も描かれることを確かめる。Defpoints などの追加できない画層は、その要素が落ちたことを `manifest.json` の変換の診断と照らし、画層 0 に移っていないことを確かめる。結果にはファイル・ハンドル・期待する値・実際の値を記録する。
 """,
     ),
+    701: (
+        "#701 HANDSEED の大きさが増える数の図形を足した DWG",
+        """AutoCAD で作った R2000・R2004・R2018 の DWG に、1 回の apply で線分を 65,536 本足して書き戻しました。HANDSEED（次に振るハンドル）が 2 バイトから 3 バイトに増えるので、ヘッダーの変数のセクションを伸ばして書き直しています（決定 0193・#701）。ACadSharp の読みでは、HANDSEED が足した最後の線のハンドルの次であることを確かめます。
+
+- **AutoCAD。** 共通の手順で、開けることと監査の誤りが 0 であることを確かめる。`HANDSEED` を入力して、値が 10000（16 進）より大きいことと、`LINE` を新しく 1 本描くと、そのハンドル（`LIST`）が足した線より大きいことを記録する。R2000 では、ファイルの後ろに置いたヘッダーのセクションを AutoCAD が受け付けるかも記録する。
+""",
+    ),
     174: (
         "#174 DXF から図面モデルへ移す値",
         """入力の DXF と DWG（AutoCAD で作ったサンプル）を zumen が読んだ値は `zumen/input/` に、ezdxf・ACadSharp と照らした結果は `ezdxf.json`・`acadsharp.json` にあります。
@@ -1054,6 +1078,8 @@ def expectation(out, f):
         if dropped:
             text += "。落とした要素: " + "・".join(f"{k} {n}" for k, n in sorted(dropped.items()))
         return text
+    if f.get("recipe") == "handseed":
+        return f"開けて、監査の誤りが 0。モデル空間の下に、長さ 100 の水平な線分が {HANDSEED_LINES} 本並ぶ。HANDSEED（`HANDSEED` 変数）が 10000 より大きい"
     reading = json.loads((out / "zumen" / (f["path"] + ".json")).read_text(encoding="utf-8"))
     handles = {e["id"]: e.get("source", {}).get("handle") for e in reading["entities"]}
     word = LAYER_WORDS.get(f["format"], "レイヤ")

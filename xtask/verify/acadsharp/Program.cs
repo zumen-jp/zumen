@@ -70,6 +70,8 @@ static class Dwg
             {
                 ["PDMODE"] = (int)doc.Header.PointDisplayMode,
                 ["PDSIZE"] = doc.Header.PointDisplaySize,
+                // 次に振るハンドル。足した図形で大きさ（バイト）が増えたときの書き直しを照らす（#701）
+                ["HANDSEED"] = doc.Header.HandleSeed,
             };
             var layers = new JsonObject();
             foreach (var layer in doc.Layers)
