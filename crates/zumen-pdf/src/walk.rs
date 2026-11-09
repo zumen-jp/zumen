@@ -66,7 +66,7 @@ const IMAGE_WORK: u64 = 16;
 const SHADING_WORK: u64 = 16;
 /// 引いたオブジェクトの、この数のバイトを 1 と数える。hayro-syntax は、資源を引くたびに辞書を読み直し、
 /// hayro-interpret は、フォームを呼ぶたびに資源の辞書を読み直す
-const LOOKUP_BYTES: u64 = 4;
+pub(crate) const LOOKUP_BYTES: u64 = 4;
 /// CID フォントの幅（`W`・`W2`、9.7.4.3）の 1 項目を表に入れる手間。hayro-font は、範囲の CID を 1 つずつ入れる
 const WIDTH_WORK: u64 = 2;
 /// 内容のマーク（`BDC`、14.6）を始める手間。hayro-interpret は、見えるかの重なりを積み、装置にタグと性質の辞書を渡す

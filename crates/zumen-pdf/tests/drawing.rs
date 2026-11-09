@@ -4501,6 +4501,27 @@ fn reads_names_in_comments_in_linear_work() {
     let work = used(&document.bytes(), Kind::Work);
     let most = plain + 8 * count as u64 + tail.len() as u64;
     assert!(work < most, "{plain} {work}");
+    // コメントの行の `obj<<` から読む辞書が、`<<` の後ろでそれぞれ違う位置に着いても、前の辞書が読んだ歩み（項目の
+    // 始まりか値の位置）に着いたら、そこから後ろを読み直さない（#562）。キーと値の組が前の辞書と入れ替わる並びと、
+    // 読めない項目（`x`）と、外の辞書の文字列の中の行も
+    for (open, line, close) in [
+        ("<<", "/K 1 %obj<<\n", ">>"),
+        ("<<", "/K /V %obj<< /Z\n", ">>"),
+        ("(", "%obj<< x\n", ")"),
+        ("<<", "%obj<< x\n", "/A 1>>"),
+        ("<< /S (", "%obj<< x\n", ") >>"),
+    ] {
+        let mut document = Document::new(vec![Page::new("0 0 m 10 10 l S")]);
+        document.objects = vec![format!("{open}{}{close}", line.repeat(count)).into_bytes()];
+        let work = used(&document.bytes(), Kind::Work);
+        assert!(work < plain + 8 * count as u64, "{line:?} {plain} {work}");
+    }
+    // 次の `obj` の辞書の後ろのコメントの中の `obj<<` の辞書も、前の辞書が覚えた歩みに着いたら読み直さない（PR #658 の
+    // 2 回目の確かめで、覚えるのをやめると 2 乗になった形）
+    let mut document = Document::new(vec![Page::new("0 0 m 10 10 l S")]);
+    document.objects = vec!["9 0 obj << >>\n%obj<<\n/X 1\n".repeat(count).into_bytes()];
+    let work = used(&document.bytes(), Kind::Work);
+    assert!(work < plain + 8 * count as u64, "{plain} {work}");
     // フィルターの値に参照があるときに見る、参照の先の配列も、コメントの行の `obj [` から読み直さない（名前の配列と、
     // 展開のパラメーターの配列の 2 つの見方で、それぞれ飛ばす）
     let mut document = Document::new(vec![Page::new("0 0 m 10 10 l S")]);
@@ -5016,4 +5037,20 @@ fn counts_repeated_form_decoding_before_predictors_even_on_failure() {
         // 走査のキャッシュを使っても、解釈側は呼ぶたびに 8 KiB を展開する
         assert!(two - one >= 8192, "{predictor}: {one} {two}");
     }
+}
+
+#[test]
+fn finds_object_streams_whose_entries_come_from_a_remembered_suffix() {
+    // コメントの中の `obj<<` の辞書が、外の辞書の歩みに着いて止まり、`First`・`Length` の参照・型・終わりを、外の辞書が
+    // 覚えた後ろの項目から得る（#562）。外の辞書は `N` を持たない（コメントの中）ので、コンテナーになりうるのは中の辞書だけ
+    for object in [
+        "<< /K 1 %obj<< /N 1\n/First 0 /Length 5 0 R >>stream\n\nendstream",
+        "<< /K 1 %obj<< /N 1 /First 0\n/Length 5 0 R >>stream\n\nendstream",
+        "<< /K 1 %obj<< /N 1\n/First 0 /Length 1 /Type /ObjStm >>stream\n9 0 [0 0]\nendstream",
+    ] {
+        assert!(unsupported(vec![object.as_bytes().to_vec()]), "{object}");
+    }
+    // 中の辞書が着いた歩みから後ろが読めない（閉じない）辞書は、コンテナーにならない
+    let broken = "<< /K 1 %obj<< /N 1\n/First 0 /Length 5 0 R";
+    assert!(!unsupported(vec![broken.as_bytes().to_vec()]));
 }
