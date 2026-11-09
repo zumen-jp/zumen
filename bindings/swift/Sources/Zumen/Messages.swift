@@ -3018,7 +3018,7 @@ public struct AddEdit: Message {
         set { writeField("layer_id", newValue) }
     }
 
-    /// 色。SXF と JWW はレイヤに従う色を書けないので、書く（JWW は、ペンの番号の jww か、どれかのペンと同じ RGB）。書かなければ change.edit.unsupported で断る。マイナーバージョン 29 から
+    /// 色。SXF と JWW はレイヤに従う色を書けないので、書く。SXF は、sxf の番号か、利用者定義色と同じ RGB を受ける。JWW は、jww の番号（0〜9 と、バージョン 420 からの拡張色 100〜356）か、ペン 1〜9・100〜356 のどれかと同じ RGB を受ける。書かないか、受けられない色なら断る。マイナーバージョン 29 から
     public var color: ColorChange? {
         get { readField("color") }
         set { writeField("color", newValue) }
