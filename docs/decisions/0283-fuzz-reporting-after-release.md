@@ -37,3 +37,4 @@
 ## 参照
 
 - [#557 での判断の記録](https://github.com/zumen-jp/zumen/issues/557#issuecomment-6702527675)、[SECURITY.md](../../SECURITY.md)、[fuzz の手順](../../fuzz/README.md)、#317・#647
+- 補ったこと 7 の、リリースの issue の作り方と見つけ方、タグを打つコミットで失敗しないと確かめる方法、push の頼みを取り下げたあとの扱いは、[0285](0285-release-push-requests.md) で補った。
