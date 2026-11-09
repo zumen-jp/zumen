@@ -1191,7 +1191,11 @@ impl Tokens {
                     next += 1;
                     scanned += 1;
                 }
-                b'(' => match self.strings.get(&(next - 1)) {
+                // 括弧ごとに覚えを引くので、配列の項目と同じく、1 つを 2 として `Work` に数える
+                b'(' => match {
+                    scanned += 2 * LOOKUP_BYTES as usize;
+                    self.strings.get(&(next - 1))
+                } {
                     // 前に読んだ括弧は、覚えた `)` まで飛ばす（深さは変わらない）。閉じない括弧なら、外の括弧も閉じない
                     Some(&Some(end)) => next = end,
                     Some(None) => break,

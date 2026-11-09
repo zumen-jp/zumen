@@ -4595,6 +4595,13 @@ fn counts_reads_that_grow_faster_than_the_file() {
         let work = used(&document.bytes(), Kind::Work);
         assert!(work >= (count * count) as u64, "{name} {work}");
     }
+    // 読み直す閉じない文字列の中の、覚えた括弧の組も、引くたびに数える（PR #745 の 2 回目の確かめの形）
+    let (lines, pairs) = (200, 10_000);
+    let mut document = Document::new(vec![Page::new("0 0 m 10 10 l S")]);
+    document.objects =
+        vec![format!("[({}{}", r"obj<< \( ".repeat(lines), "()".repeat(pairs)).into_bytes()];
+    let work = used(&document.bytes(), Kind::Work);
+    assert!(work >= 2 * (lines * pairs) as u64, "{work}");
     let count = 1_000;
     // `Length` が合わないストリームは、hayro-syntax が `endstream` を探して、後ろを読む
     let line = "9 0 obj << /N 1 /First 0 /Length 0 >>\nstream\n";
