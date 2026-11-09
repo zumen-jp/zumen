@@ -115,11 +115,11 @@ checked = "2026-10-24"
 [specs.iso_32000_2_2020]
 title = "ISO 32000-2:2020（PDF 2.0）"
 publisher = "ISO"
-version = "第 2 版（2020-12）。見直しで確認され、今も有効"
+version = "第 2 版（2020-12）。2026 年の見直しで確認され、今も有効"
 access = "public"
 url = "https://pdfa.org/sponsored-standards/"
 checked = "2026-11-09"
-note = "PDF Association が、Adobe・Apryse・Foxit の後援で、無償で配っている（pdfa-inc.org の 0 ドルの手続きで受け取る。Errata Collection 3 を含む版と、ISO/TS 32001〜32005 の束）。ISO からは買う。中身は ISO の出版物で、ISO の利用許諾（End Customer Licence Agreement、2026-05-29 の改定）の 7(b) は、別の許諾がなければ、出版物を AI・機械学習のために読み・使い・処理することを禁じる。無償版を受け取るときの条件と PDF の中の注記は、配る頁に書かれておらず、確かめていない。エージェントは、利用者が条件を確かめるまで本文を読まない（決定 0287、zumen-jp/zumen#674）。書誌の事実は、2026-11-09 に www.iso.org のページで確かめた"
+note = "PDF Association が、Adobe・Apryse・Foxit の後援で、無償で配っている（pdfa-inc.org の店の 0 ドルの手続きで受け取る。Errata Collection 3 を含む版と、ISO/TS 32001〜32005、PDF Association の文書の束）。ISO からは買う。店の EULA は、ダウンロードかアクセスで同意したとし、個人の、1 台のコンピューターでだけ使えるライセンスで、ネットワークでの使用と、結合・翻案・翻訳・改変を禁じる。AI を名指しする条項はない。中身は ISO の出版物で、ISO の利用許諾（End Customer Licence Agreement、2026-05-29 の改定）の 7(b) は、別の許諾がなければ、出版物を AI・機械学習のために読み・使い・処理することを禁じる。無償版に ISO の利用許諾が当たるかと、手続きの画面のほかの条件、PDF の表紙の注記は確かめていない。エージェントは、利用者が条件を確かめて決めるまで本文を読まない（決定 0287、zumen-jp/zumen#674）。書誌の事実は、2026-11-09 に www.iso.org のページで確かめた"
 
 [specs.ifc_4_3_2]
 title = "IFC 4.3.2 Documentation"
@@ -162,7 +162,7 @@ version = "第 2 版（2004-11）。2025 年の見直しで確認され、今も
 access = "paid"
 url = "https://www.iso.org/standard/38047.html"
 checked = "2026-11-09"
-note = "ISO が PDF と冊子で売る（CHF 227）。販売のページに、実装を制限する記述はない。ISO の利用許諾（End Customer Licence Agreement、2026-05-29 の改定）の 7(b) は、別の許諾がなければ、出版物を AI・機械学習のために読み・使い・処理することを禁じるので、本文は買わず、読まない（決定 0287、zumen-jp/zumen#529）。ISO のサイトの注記（ページの下の折りたたまれた部分）は、ISO Open data のものを除き、ISO の内容を機械学習・AI に使うこと（モデルの学習と、AI のツールに応答を作らせること）を禁じ、出版物の使用と複製に書面の許諾が要るとする。公開のページは、決定 0287 のとおり、この注記によらず事実を得るために読む。書誌の事実は、2026-11-09 に www.iso.org のページで確かめた"
+note = "ISO が PDF と冊子で売る（CHF 227）。販売のページに、実装を制限する記述はない。ISO の利用許諾（End Customer Licence Agreement、2026-05-29 の改定）は、出版物（一部を含む）へのアクセスでも同意したとし、7(b) で、別の許諾がなければ、出版物を AI・機械学習のために読み・使い・処理することを禁じる。法定のテキスト・データマイニングの例外（EU の指令 2019/790 の 4 条など）にも頼れないとする。そのため、本文は買わず、プレビュー（OBP）を含めて読まない（決定 0287、zumen-jp/zumen#529）。ISO のサイトの注記（ページの下の折りたたまれた部分）は、使う者が ISO の著作権の条件を受け入れることを前提とし、ISO Open data のものを除き、ISO の内容を機械学習・AI に使うこと（モデルの学習と、AI のツールに応答を作らせるためのアクセスと使用）を禁じ、出版物の使用と複製に書面の許諾が要るとする。公開のページは、決定 0287 のとおり、この注記によらず事実を得るために読む。書誌の事実は、2026-11-09 に www.iso.org のページで確かめた"
 
 [specs.ids_1_0]
 title = "Information Delivery Specification（IDS）"
@@ -214,7 +214,7 @@ publisher = "特定非営利活動法人シーデクセマ評議会"
 access = "members"
 url = "https://www.cedxm.com/"
 checked = "2026-10-24"
-note = "会員にだけ配る。版は確かめられない"
+note = "会員にだけ配る。版は確かめられない。会員の条件が AI での利用を禁じるかは確かめていないので、エージェントは本文を読まない（決定 0287、zumen-jp/zumen#675）"
 
 [specs.bebridge_6_1]
 title = "設備 CAD データ交換仕様 BE-Bridge"
@@ -400,7 +400,7 @@ version = "09/92"
 access = "paid"
 url = "https://www.itu.int/rec/T-REC-T.81"
 checked = "2026-11-01"
-note = "ITU の頁は有償とする。JPEG の展開は許容のライセンスの crate に任せる"
+note = "ITU の頁は有償とする。JPEG の展開は許容のライセンスの crate に任せる。入手の条件が AI での利用を禁じるかは確かめていないので、エージェントは本文を読まない（決定 0287、zumen-jp/zumen#675）"
 
 [specs.exif_3_1]
 title = "CIPA DC-008 Exchangeable image file format for digital still cameras: Exif"
@@ -443,7 +443,7 @@ version = "Ver.1.1（版の日付は確かめられない）"
 access = "members"
 url = "https://www.jcomsia.org/kokuban"
 checked = "2026-11-01"
-note = "公開の文書は見つからない。協会が検定を受けるソフトの作り手に出すものとみられる（推定）"
+note = "公開の文書は見つからない。協会が検定を受けるソフトの作り手に出すものとみられる（推定）。入手の条件が AI での利用を禁じるかは確かめていないので、エージェントは本文を読まない（決定 0287、zumen-jp/zumen#675）"
 
 # 形式。キーは英小文字と数字だけにする。
 
@@ -607,7 +607,7 @@ family = "pdf"
 domains = ["drawing"]
 specs = ["iso_32000_2_2020"]
 rights = "public"
-rights-note = "ISO の規格で、PDF Association が無償で配っている。配る頁に、実装を制限する記述はない。ISO の利用許諾の 6(b) は、出版物を手に入れた者が出版物をソフトウェアなどに組み込むことに別の許諾を求めるが、仕様の本文・表・図を写さずに形式を読み書きすることは当たらないと読む（決定 0287）。エージェントは、無償版の条件を確かめるまで本文を読まない（zumen-jp/zumen#674）"
+rights-note = "ISO の規格で、PDF Association が無償で配っている。配るページと店の EULA に、実装を制限する記述はない。ISO の利用許諾（ECLA）は、4 節で、許す使い方を社内の業務・製品・サービスに限って組み込みと派生物を除き、6(b) で、出版物をソフトウェア・データモデル・AI のツールなどに統合・符号化・構造化・運用化することに別の許諾を求める。無償版に ECLA が当たるか、当たるなら仕様に従って形式を実装して公開することがこれに当たるかは分からない（言葉の範囲は広い）。zumen-jp/zumen#674 で無償版の条件が分かったら、決定 0017 に照らして rights を見直す。エージェントは、それまで本文を読まない（決定 0287）"
 place = "core"
 basis = ["spec"]
 verify = ["pdf.js"]
@@ -615,6 +615,7 @@ samples = ["PDFium の公開サンプル（Type 3・OCG・ソフトマスク・L
 decisions = ["0008", "0013", "0256", "0287"]
 legacy-decisions = ["0020", "0030"]
 docs = ["docs/formats/pdf.md"]
+issues = ["zumen-jp/zumen#674"]
 notes = "ページの解釈は hayro-interpret 0.9.0（Apache-2.0 OR MIT）に任せ、バージョンを固定する（決定 0256）"
 
 [formats.pdf.read]
@@ -633,13 +634,19 @@ checked = "2026-11-03"
 title = "PDF Association の告知「ISO 32000-2（PDF 2.0）を無償で入手できる」（2023-04-05）"
 url = "https://pdfa.org/announcing-no-cost-access-to-iso-32000-2-pdf-2-0/"
 checked = "2026-11-09"
-note = "Adobe・Apryse・Foxit の後援で、PDF Association が 0 ドルの手続きで配る。自動の取得は拒まれるので、2026-11-09 にブラウザーの拡張で開いて確かめた。配る頁に、利用の条件は書かれていない（zumen-jp/zumen#674）"
+note = "Adobe・Apryse・Foxit の後援で、PDF Association が店の 0 ドルの手続きで配る。自動の取得は拒まれるので、2026-11-09 にブラウザーの拡張で開いて確かめた。配るページと告知に、利用の条件は書かれていない。条件は店の EULA にある"
+
+[[formats.pdf.evidence]]
+title = "PDF Association の店の End User License Agreement"
+url = "https://www.pdfa-inc.org/eula/"
+checked = "2026-11-09"
+note = "ANSI の推奨の文に基づく。ダウンロードかアクセスで同意したとする。個人の、非独占の、譲渡できないライセンスで、1 台のコンピューターでだけ使え、複数のコンピューターやネットワークでの使用を許さない。結合・翻案・翻訳・改変を禁じ、権利は表紙に書かれた著作権者が持つとする。AI・機械学習を名指しする条項と、実装を制限する条項はない。手続きの画面のほかの条件と PDF の表紙の注記は確かめていない（zumen-jp/zumen#674）"
 
 [[formats.pdf.evidence]]
 title = "ISO の Licence Agreement（2026-05-29 の改定）"
 url = "https://www.iso.org/terms-conditions-licence-agreement.html"
 checked = "2026-11-09"
-note = "出版物の使用は End Customer Licence Agreement に従う。7(b) は、別の許諾がなければ、出版物を AI・機械学習のために読み・使い・処理することを禁じる。6(b) は、出版物をソフトウェア・データモデル・AI のツールなどに組み込むことに、別の許諾を求める。無償版に当たるかは確かめていない（zumen-jp/zumen#674）"
+note = "出版物の使用は End Customer Licence Agreement に従い、出版物（一部を含む）へのアクセス・ダウンロード・使用でも同意したとする。4 節は、許す使い方を社内の業務・製品・サービスでの参照と適用に限り、複製・配布・翻案・組み込み・デジタルの統合・派生物を含まない。6(b) は、出版物をソフトウェア・データモデル・AI のツールなどに統合・埋め込み・符号化・構造化・変換・運用化することに、別の許諾を求める。7(b) は、別の許諾がなければ、出版物を AI・機械学習のために読み・使い・処理することを禁じ、法定のテキスト・データマイニングの例外にも頼れないとする。無償版に当たるかは確かめていない（zumen-jp/zumen#674）"
 
 [formats.ifc]
 name = "IFC"
@@ -697,7 +704,7 @@ family = "express"
 domains = ["building"]
 specs = ["iso_10303_11_2004"]
 rights = "public"
-rights-note = "ISO が規格を売っていて、販売のページに実装を制限する記述はない。実装を制限しないと示す ISO の公式の文書は見つからなかったので、利用者が権利を判断した（zumen-jp/zumen#529、2026-11-09）。ISO の利用許諾が出版物を AI で扱うことを禁じるので、台帳の e57 と同じく、ISO の本文は買わず、読まない（決定 0287）。買っていないので、出版物をソフトウェアなどに組み込むことに別の許諾を求める利用許諾の 6(b) にも当たらない。公開された EXPRESS のスキーマ（IFC など）と、寛容なライセンスの実装から読む。EXPRESS のスキーマは同梱しない（旧版の決定 0028）"
+rights-note = "ISO が規格を売っていて、販売のページに実装を制限する記述はない。実装を制限しないと示す ISO の公式の文書は見つからなかったので、利用者が権利を判断した（zumen-jp/zumen#529、2026-11-09）。ISO の利用許諾が出版物を AI で扱うことを禁じるので、台帳の e57 と同じく、ISO の本文は買わず、読まない（決定 0287）。本文を買っておらず、プレビューを含めて出版物のどの部分も読んでいないので、利用許諾（社内の外での使用と組み込みを許さない 4 節と 6(b) を含む）に同意していない。公開された EXPRESS のスキーマ（IFC など）と、寛容なライセンスの実装から読む。EXPRESS のスキーマは同梱しない（旧版の決定 0028）"
 place = "core"
 basis = ["inferred"]
 verify = ["IfcOpenShell（依存にせず、別に入れて使う）"]
@@ -717,7 +724,7 @@ checked = "2026-11-09"
 title = "ISO の Licence Agreement（2026-05-29 の改定）"
 url = "https://www.iso.org/terms-conditions-licence-agreement.html"
 checked = "2026-11-09"
-note = "出版物の使用は End Customer Licence Agreement に従う。7(b) は、別の許諾がなければ、出版物を AI・機械学習のために読み・使い・処理することを禁じる。6(b) は、出版物をソフトウェア・データモデル・AI のツールなどに組み込むことに、別の許諾を求める"
+note = "出版物の使用は End Customer Licence Agreement に従い、出版物（一部を含む）へのアクセス・ダウンロード・使用でも同意したとする。4 節は、許す使い方を社内の業務・製品・サービスでの参照と適用に限り、複製・配布・翻案・組み込み・デジタルの統合・派生物を含まない。6(b) は、出版物をソフトウェア・データモデル・AI のツールなどに統合・埋め込み・符号化・構造化・変換・運用化することに、別の許諾を求める。7(b) は、別の許諾がなければ、出版物を AI・機械学習のために読み・使い・処理することを禁じ、法定のテキスト・データマイニングの例外にも頼れないとする"
 
 [formats.isg]
 name = "ISG 形式（ジオイド高と基準面補正量の格子）"
