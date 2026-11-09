@@ -208,9 +208,12 @@ fn color(
             }
             set(values, 420, Some(int(420, rgb)));
         }
+        // 真の色を除いたら、色見本帳の色の名前も除く。真の色のない名前（外れた入力）には触らない
         None => {
-            set(values, 420, None);
-            set(values, 430, None);
+            if find(values, 420).is_some() {
+                set(values, 420, None);
+                set(values, 430, None);
+            }
         }
     }
     Some(())
