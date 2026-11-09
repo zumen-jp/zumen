@@ -29,7 +29,7 @@ API の `apply` の `add`（`add_edit`）は、書かない色・線種・線幅
 
 ## 影響
 
-- API から JWW に線・円・円弧を足せる。色と線種は書く必要がある。点は色だけを書く。
+- API から JWW に線・円・円弧を足せる。色と線種は書く必要がある。点は色を書き、線種と線幅は書かない。
 - 「レイヤに従う」と頼んだ線幅は、読み直すとペンの印刷の線幅になる。`schema/messages.json` の `add_edit` の説明と、`docs/formats/jww.md` に書く。
 - `change.style.unsupported` は、形式によらない名前にする。SXF もレイヤに従う色を持たず、今は `change.edit.unsupported` で断る。同じ診断にそろえるかは、別に決める。
 
