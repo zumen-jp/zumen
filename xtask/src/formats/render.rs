@@ -6,7 +6,8 @@ use super::{Decisions, Ledger, Tool, Verification, issue_url};
 
 /// 地の文の `http://`・`https://` で始まる URL の長さ（バイト）を返す。URL でなければ 0。
 ///
-/// URL は、空白・`<`・`>`・ASCII の外の文字の前で終わる。末尾の `.`・`,`・`:`・`;`・`!`・`?` と、
+/// URL は、空白・制御文字・`<`・`>`・ASCII の外の文字の前で終わる（GFM の `<…>` の自動リンクが許さない文字と、
+/// URL の直後に続く全角の句読点を含めないため）。末尾の `.`・`,`・`:`・`;`・`!`・`?` と、
 /// 対になる `(` のない `)` は、文の句読点として URL に含めない。
 fn url_len(rest: &str) -> usize {
     let Some(after) = rest
@@ -16,7 +17,7 @@ fn url_len(rest: &str) -> usize {
         return 0;
     };
     let end = after
-        .find(|c: char| !c.is_ascii() || c.is_ascii_whitespace() || c == '<' || c == '>')
+        .find(|c: char| !c.is_ascii() || c.is_ascii_control() || c == ' ' || c == '<' || c == '>')
         .unwrap_or(after.len());
     let mut url = &after[..end];
     loop {
@@ -57,8 +58,9 @@ fn escape(value: &str, urls: bool) -> String {
         if len > 0 {
             let url = &value[i..i + len];
             out.push('<');
-            // 表のセルの区切りにならないよう、`|` だけは逃がす（GFM は表を分けてから `\|` を戻す）。
-            out.push_str(&url.replace('|', "\\|"));
+            // 表のセルの区切りにならないよう、`|` は `%7C` にする。`\|` は表のセルの中でしか戻らず、
+            // 箇条書きの中では `\` が URL に残る。
+            out.push_str(&url.replace('|', "%7C"));
             out.push('>');
             while chars.peek().is_some_and(|&(j, _)| j < i + len) {
                 chars.next();

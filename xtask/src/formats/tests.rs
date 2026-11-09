@@ -767,15 +767,29 @@ fn renders_urls_in_prose_without_escaping() {
         "DTD は https://example.com/cri_dtdxml/ の boring_R8.2.zip にある。\
          一覧は https://example.com/a_b?x=1&y=*2*|z。\
          括弧の中（http://example.com/p_(q)/r）と (https://example.com/s_t). \
-         語の中の xhttps://example.com/u_v と https:// だけ"
+         語の中の xhttps://example.com/u_v と https:// だけ。\
+         句読点 https://example.com/c_1, https://example.com/c_2: https://example.com/c_3; \
+         https://example.com/c_4! https://example.com/c_5? ((https://example.com/c_6)) \
+         記号 https://example.com/c_7<x> と https://example.com/c_8\u{1}y"
             .into(),
     );
+    let f = ledger.formats.get_mut("dxf").unwrap();
+    f.name = "表の https://example.com/t_u|v の名前".into();
+    let read = f.read.as_mut().unwrap();
+    read.public_samples = vec!["https://example.com/l_m".into()];
     let output = render::render(&ledger, &decisions);
     for expected in [
         "DTD は <https://example.com/cri_dtdxml/> の boring\\_R8.2.zip にある。",
-        "一覧は <https://example.com/a_b?x=1&y=*2*\\|z>。",
+        "一覧は <https://example.com/a_b?x=1&y=*2*%7Cz>。",
         "括弧の中（<http://example.com/p_(q)/r>）と (<https://example.com/s_t>). ",
-        "語の中の xhttps://example.com/u\\_v と https:// だけ",
+        "語の中の xhttps://example.com/u\\_v と https:// だけ。",
+        "句読点 <https://example.com/c_1>, <https://example.com/c_2>: <https://example.com/c_3>; ",
+        "<https://example.com/c_4>! <https://example.com/c_5>? ((<https://example.com/c_6>)) ",
+        "記号 <https://example.com/c_7>&lt;x&gt; と <https://example.com/c_8>\u{1}y",
+        // 表のセルの中でも、`|` で列を分けずにリンクにする。
+        "| [dxf](#format-dxf) | 表の <https://example.com/t_u%7Cv> の名前 | acad |",
+        // リンクの文字の URL は逃がしたままにし、自動リンクを入れ子にしない。
+        "[https://example.com/l\\_m](https://example.com/l_m)",
     ] {
         assert!(output.contains(expected), "{expected}\n{output}");
     }
