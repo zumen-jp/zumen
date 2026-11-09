@@ -542,6 +542,20 @@ pub const CHANGE_FORMAT_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
+/// 足す要素の色か線種を書いていない（レイヤに従う）が、元の形式はレイヤに従う色・線種を持たないので、書き戻せない。今は JWW の add で、色（点と線・円・円弧）と線種（線・円・円弧）を書く（決定 0290）
+///
+/// `change.style.unsupported`（0.2.0 から）
+pub const CHANGE_STYLE_UNSUPPORTED: Code = Code::new(
+    "change.style.unsupported",
+    Severity::Error,
+    None,
+    &[
+        Param::new("field", ParamType::Text),
+        Param::new("format", ParamType::Text),
+    ],
+    &[],
+);
+
 /// 記号の定義の中に足す記号が、その定義を直接か間接に置く（自分を含む）ので、定義の入れ子が輪になる（#333）
 ///
 /// `change.symbol-cycle.invalid`（0.0.0 から）
@@ -2937,6 +2951,17 @@ pub const PDF_OPTIONAL_CONTENT_DROPPED: Code = Code::new(
     &["name"],
 );
 
+/// ページの木（Kids）の項目を、ページの辞書にも中間の節にも読めない（数・null・入れ子の深すぎる値を持つ辞書など）か、たどった節かページをもう一度指すので、hayro-syntax が飛ばし、ページにしなかった。Kids を配列に読めない中間の節も、下のページごと飛ばすので数える。場所は、その項目を持つ節（Kids を読めない節は、その節）のレコードで、件数は飛ばした項目の数（#555）
+///
+/// `pdf.page-tree.dropped`（0.2.0 から）
+pub const PDF_PAGE_TREE_DROPPED: Code = Code::new(
+    "pdf.page-tree.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[],
+    &[],
+);
+
 /// hayro-interpret がスタックかメモリを使い切るか、パニックするおそれのあるもの（16 段より深い関数・色空間の入れ子、64 段より深い Type 4 の関数の手続き、26 万個を超える CID フォントの幅の項目、大きさが 16,777,216 を超える Type 0 の関数、行の頂点の数が 0 の格子のメッシュ）があるので、ページを解釈せず、その中身を移さなかった。場所は、理由のオブジェクトのレコード（直接書いたオブジェクトは、それを含む間接オブジェクトのレコード。色空間の入れ子は、ページの内容のストリーム）
 ///
 /// `pdf.page.dropped`（0.2.0 から）
@@ -4540,6 +4565,7 @@ pub const ALL: &[Code] = &[
     CHANGE_ELEMENT_MISSING,
     CHANGE_ELEMENT_STALE,
     CHANGE_FORMAT_UNSUPPORTED,
+    CHANGE_STYLE_UNSUPPORTED,
     CHANGE_SYMBOL_CYCLE_INVALID,
     CHANGE_XDATA_UNSUPPORTED,
     CITYGML_CRS_UNSUPPORTED,
@@ -4755,6 +4781,7 @@ pub const ALL: &[Code] = &[
     PDF_OBJECT_REPAIRED,
     PDF_OPTIONAL_CONTENT_APPROXIMATED,
     PDF_OPTIONAL_CONTENT_DROPPED,
+    PDF_PAGE_TREE_DROPPED,
     PDF_PAGE_DROPPED,
     PDF_PATTERN_DROPPED,
     PDF_SHADING_DROPPED,

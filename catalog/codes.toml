@@ -210,6 +210,13 @@ params = { edit = "text", kind = "text", format = "text" }
 since = "0.0.0"
 status = "active"
 
+[codes."change.style.unsupported"]
+description = "足す要素の色か線種を書いていない（レイヤに従う）が、元の形式はレイヤに従う色・線種を持たないので、書き戻せない。今は JWW の add で、色（点と線・円・円弧）と線種（線・円・円弧）を書く（決定 0290）"
+severity = "error"
+params = { field = "text", format = "text" }
+since = "0.2.0"
+status = "active"
+
 [codes."change.format.unsupported"]
 description = "この形式の文書には、まだ変更を当てられない。今は DXF・DWG・JWW・SXF に当てる（決定 0139・0167・0168・0169）"
 severity = "error"
@@ -1667,6 +1674,13 @@ status = "active"
 
 [codes."pdf.page.dropped"]
 description = "hayro-interpret がスタックかメモリを使い切るか、パニックするおそれのあるもの（16 段より深い関数・色空間の入れ子、64 段より深い Type 4 の関数の手続き、26 万個を超える CID フォントの幅の項目、大きさが 16,777,216 を超える Type 0 の関数、行の頂点の数が 0 の格子のメッシュ）があるので、ページを解釈せず、その中身を移さなかった。場所は、理由のオブジェクトのレコード（直接書いたオブジェクトは、それを含む間接オブジェクトのレコード。色空間の入れ子は、ページの内容のストリーム）"
+severity = "warning"
+fidelity = "dropped"
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.page-tree.dropped"]
+description = "ページの木（Kids）の項目を、ページの辞書にも中間の節にも読めない（数・null・入れ子の深すぎる値を持つ辞書など）か、たどった節かページをもう一度指すので、hayro-syntax が飛ばし、ページにしなかった。Kids を配列に読めない中間の節も、下のページごと飛ばすので数える。場所は、その項目を持つ節（Kids を読めない節は、その節）のレコードで、件数は飛ばした項目の数（#555）"
 severity = "warning"
 fidelity = "dropped"
 since = "0.2.0"

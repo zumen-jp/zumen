@@ -870,7 +870,7 @@ export interface ReplaceEdit {
   geometry: Geometry;
 }
 
-/** 空間か用紙に要素を足す。書かない色・線種・線幅はレイヤに従う。足せる形は、形の値のどの種類も。マイナーバージョン 10 から */
+/** 空間か用紙に要素を足す。書かない色・線種・線幅はレイヤに従う。JWW はレイヤに従う色と線種を持たないので、色と線種を書く（点は色を書き、線種と線幅は書かない）。書かなければ change.style.unsupported で断る。JWW の書かない線幅は、ペンの印刷の線幅に従う。足せる形は、形の値のどの種類も。マイナーバージョン 10 から */
 export interface AddEdit {
   /** 変更の種類 */
   kind: "add";
@@ -880,7 +880,7 @@ export interface AddEdit {
   layer?: string;
   /** レイヤの ID。tables が返したもの */
   layer_id?: string;
-  /** 色。SXF はレイヤに従う色を書けないので、書く。マイナーバージョン 29 から */
+  /** 色。SXF と JWW はレイヤに従う色を書けないので、書く。SXF は、sxf の番号か、利用者定義色と同じ RGB を受ける。JWW は、jww の番号（0〜9 と、バージョン 420 からの拡張色 100〜356）か、ペン 1〜9 と、バージョン 420 からの 100〜356 のどれかと同じ RGB を受ける。書かないか、受けられない色なら断る。マイナーバージョン 29 から */
   color?: ColorChange;
   /** 線種。マイナーバージョン 29 から */
   line_type?: LineTypeChange;

@@ -242,6 +242,21 @@ impl Lifter<'_, '_> {
         let catalog = xref.get::<Dict<'_>>(xref.root_id());
         let (layers, ocgs, inactive) = self.layers(catalog.as_ref(), cx)?;
         let pages = document.pages();
+        // ページの木の読めない項目は、hayro-syntax が黙って飛ばすので、診断にする（#555）。カタログの `Pages` の参照の先に
+        // `Kids` の配列がなければ、hayro-syntax は木をたどらず、ファイルからページを探すので、数えない
+        if let Some(root) = catalog
+            .as_ref()
+            .and_then(|catalog| catalog.get_ref(b"Pages"))
+            && let Some(tree) = xref.get::<Dict<'_>>(root.into())
+            && tree.get::<Array<'_>>(b"Kids").is_some()
+        {
+            let skipped = page::skipped_kids(reads, key(root), &tree, cx)
+                .map_err(|stop| stopped(cx, stop, &self.header))?;
+            for owner in skipped {
+                let place = self.objects.get(&owner).cloned().unwrap_or_default();
+                cx.report(Diagnostic::new(codes::PDF_PAGE_TREE_DROPPED).at(place));
+            }
+        }
         let labels = page::labels(reads, catalog.as_ref(), pages.len(), cx)
             .map_err(|stop| stopped(cx, stop, &self.header))?;
         let reread = catalog_work(reads, catalog.as_ref());
