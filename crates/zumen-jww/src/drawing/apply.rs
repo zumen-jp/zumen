@@ -169,21 +169,34 @@ impl Apply<Changes> for JwwFile {
                         })
                 }
                 Edit::Add { place, element } => {
-                    let added = match element.as_ref() {
-                        Placed::Model(element) => before
-                            .spaces
-                            .get(place)
-                            .and_then(|space| plan.add(*space, element)),
+                    let unset = match element.as_ref() {
+                        Placed::Model(element) => unset(element),
                         Placed::Paper(_) => None,
                     };
-                    added
-                        .map(|(layer, style, shape)| {
-                            Expected::Added(plan.added.len() - 1, layer, style, shape)
-                        })
-                        .or_else(|| {
-                            cx.report(unsupported("add", kind_of(element)));
-                            None
-                        })
+                    if let Some(field) = unset {
+                        cx.report(
+                            Diagnostic::new(codes::CHANGE_STYLE_UNSUPPORTED)
+                                .with("field", field)
+                                .with("format", FORMAT),
+                        );
+                        None
+                    } else {
+                        let added = match element.as_ref() {
+                            Placed::Model(element) => before
+                                .spaces
+                                .get(place)
+                                .and_then(|space| plan.add(*space, element)),
+                            Placed::Paper(_) => None,
+                        };
+                        added
+                            .map(|(layer, style, shape)| {
+                                Expected::Added(plan.added.len() - 1, layer, style, shape)
+                            })
+                            .or_else(|| {
+                                cx.report(unsupported("add", kind_of(element)));
+                                None
+                            })
+                    }
                 }
                 Edit::ReplaceLayer { .. } | Edit::AddLayer { .. } | Edit::RemoveLayer { .. } => {
                     cx.report(unsupported(change.name(), "layer"));
@@ -342,6 +355,16 @@ fn unsupported(edit: &str, kind: &str) -> Diagnostic {
         .with("edit", edit)
         .with("kind", kind)
         .with("format", FORMAT)
+}
+
+/// 足す要素の書いていない（レイヤに従う）色か線種。JWW の図形は、色（ペンの番号）と線種を自分で持ち、レイヤに
+/// 従う値を持たない（#702）。足せない形のものは、ここでは見ない
+fn unset(element: &Element<ModelPoint>) -> Option<&'static str> {
+    let class = class_of(&element.shape)?;
+    if element.style.color == Inherit::Layer {
+        return Some("color");
+    }
+    (class != POINT && element.style.line_type == Inherit::Layer).then_some("line_type")
 }
 
 /// 足す要素のクラスの名前
@@ -836,8 +859,9 @@ impl Plan<'_> {
             _ => (
                 self.line_type(style.line_type)?,
                 match style.line_weight {
-                    // 書かなければ、ペンの印刷の幅に従う
-                    None => 0,
+                    // 書かないか、レイヤに従うなら、ペンの印刷の幅に従う。JWW のレイヤは線幅を持たず、図形の線幅の 0 が
+                    // ペンに従うことを表す（#702）
+                    None | Some(Inherit::Layer) => 0,
                     Some(weight) => self.width(weight)?,
                 },
             ),
