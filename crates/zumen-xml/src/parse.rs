@@ -86,6 +86,15 @@ fn find(src: &[u8], pattern: &[u8], from: usize) -> Option<usize> {
         .map(|at| from + at)
 }
 
+/// `src` の `range` の中で、`byte` の最初の位置。見たバイトの数を `seen` に足す
+fn find_in(src: &[u8], byte: u8, range: Range<usize>, seen: &mut usize) -> Option<usize> {
+    let from = range.start;
+    let rest = src.get(range).unwrap_or_default();
+    let found = rest.iter().position(|b| *b == byte);
+    *seen += found.map_or(rest.len(), |at| at + 1);
+    found.map(|at| from + at)
+}
+
 /// XML 宣言の擬似属性（`version="1.0" encoding="…"`）の名前と値。形が違えば `None`
 fn pseudo_attributes(declaration: &[u8]) -> Option<Vec<(&[u8], &[u8])>> {
     let mut pairs = Vec::new();
@@ -297,12 +306,13 @@ impl Parser<'_> {
         }
     }
 
-    /// 文字か属性の値の参照を確かめる。DTD で宣言する実体の参照は、報告して残す
-    fn references(&self, range: Range<usize>, cx: &mut Cx) -> Result<(), Fail> {
+    /// 文字か属性の値の参照を確かめる。DTD で宣言する実体の参照は、報告して残す。`&` と `;` は `range` の中だけで
+    /// 探すので、手間は範囲の長さに比例する（#721）。見たバイトの数を返す
+    fn references(&self, range: Range<usize>, cx: &mut Cx) -> Result<usize, Fail> {
+        let mut seen = 0;
         let mut at = range.start;
-        while let Some(amp) = find(self.src, b"&", at).filter(|amp| *amp < range.end) {
-            let end = find(self.src, b";", amp)
-                .filter(|end| *end < range.end)
+        while let Some(amp) = find_in(self.src, b'&', at..range.end, &mut seen) {
+            let end = find_in(self.src, b';', amp + 1..range.end, &mut seen)
                 .ok_or(Fail::Invalid(amp..range.end))?;
             let name = core::str::from_utf8(self.bytes(amp + 1..end))
                 .map_err(|_| Fail::Invalid(amp..end + 1))?;
@@ -323,7 +333,7 @@ impl Parser<'_> {
             }
             at = end + 1;
         }
-        Ok(())
+        Ok(seen)
     }
 
     /// 接頭辞の名前空間。`element` なら、接頭辞のない名前は既定の名前空間に入る
@@ -543,5 +553,48 @@ impl Parser<'_> {
             self.marks.push(mark);
         }
         Ok(!empty)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use zumen_base::{Budget, CancelToken, Diagnostics};
+
+    /// 参照は範囲の中だけで探し、文書の残りを見ない。小さな範囲を多く確かめても、見たバイトの数は範囲の長さの
+    /// 和を超えない（#721）
+    #[test]
+    fn references_look_only_inside_the_range() {
+        let mut src = b"<a>".to_vec();
+        src.extend(std::iter::repeat_n(b'x', 100_000));
+        src.extend(b"&amp;</a>");
+        let parser = Parser {
+            src: &src,
+            pos: 0,
+            elements: Vec::new(),
+            scopes: Vec::new(),
+            marks: Vec::new(),
+            doctype: None,
+        };
+        let mut budget = Budget::default();
+        let mut diag = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        let mut seen = 0;
+        let mut ranges = 0;
+        for start in (3..100_003).step_by(10) {
+            let Ok(found) = parser.references(start..start + 10, &mut cx) else {
+                panic!("{start}");
+            };
+            seen += found;
+            ranges += 10;
+        }
+        assert_eq!(seen, ranges);
+        // 範囲の中の参照は、前と同じく読む
+        let Ok(found) = parser.references(100_003..100_008, &mut cx) else {
+            panic!("&amp;");
+        };
+        assert_eq!(found, 5);
+        assert!(diag.is_empty());
     }
 }
