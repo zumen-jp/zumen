@@ -4,7 +4,7 @@
 //! - `cargo xtask geoid points <フォルダー> <ISG>...`: キットの点の一覧（`xtask/verify/geoid/points.txt`）に、渡した
 //!   格子の無効の領域の際の点を足し、点の一覧（`points.txt`）・サービスの一括計算の入力（`geoid.in`）・内挿計算
 //!   プログラムの入力（`input.txt`）と、格子ごとに `zumen-crs` の `Grid::read`・`Grid::interpolate` で求めた値
-//!   （`zumen-<格子のファイルの名前>.txt`）をフォルダーに書く
+//!   （格子のファイルの名前から拡張子を除いて `zumen-JPGEO2024.txt` など）をフォルダーに書く
 //! - `cargo xtask geoid compare <フォルダー> <ISG> <結果> [--column <列>]`: サービスか内挿計算プログラムが書いた
 //!   結果を、`Grid::interpolate` で求めた値と比べ、点の数と差の最大を示す
 //!
@@ -350,13 +350,19 @@ impl Nodes {
 }
 
 /// 無効の領域の際の点を、形ごとに 1 つ選ぶ。北の行から、各行は西から東へ探し、使う有効の格子点の値がどれも 0 でない
-/// ものを先に選ぶ（基準面補正量は、日本水準原点の範囲では 0 なので、離島の際を選ぶため）。無効の格子点がなければ空
+/// ものを先に選ぶ（基準面補正量は、日本水準原点の範囲では 0 なので、離島の際を選ぶため）。範囲の縁の線の上の点は
+/// 選ばない。相手が縁の線の上を範囲の外とすると（説明書の 3 章 (4)①）、境の規則の違いと、注 6 の扱いの違いを
+/// 分けられないため。無効の格子点がなければ空
 fn edges(grid: &Grid) -> Vec<(Edge, GeoPoint)> {
     let nodes = Nodes::new(grid);
     let extent = nodes.extent;
+    let (last_row, last_col) = ((extent.rows - 1) as f64, (extent.cols - 1) as f64);
     let mut first: [Option<(f64, f64)>; Edge::ALL.len()] = [None; Edge::ALL.len()];
     let mut nonzero: [Option<(f64, f64)>; Edge::ALL.len()] = [None; Edge::ALL.len()];
     let mut offer = |edge: Edge, row: f64, col: f64, values: &[f64]| {
+        if row == 0.0 || row == last_row || col == 0.0 || col == last_col {
+            return;
+        }
         let slot = edge as usize;
         if let Some(first) = first.get_mut(slot).filter(|f| f.is_none()) {
             *first = Some((row, col));
@@ -690,9 +696,11 @@ pub(crate) fn points(folder: &str, grids: &[&str]) -> Result<(), String> {
     for path in grids {
         let path = outside_repository(Path::new(path), "格子のファイル")?;
         let name = file_name(&path);
+        // Windows と macOS のファイルシステムは大文字と小文字を分けないので、そろえて比べる
+        let file = values_file(&name).to_lowercase();
         if loaded
             .iter()
-            .any(|(n, _)| values_file(n) == values_file(&name))
+            .any(|(n, _)| values_file(n).to_lowercase() == file)
         {
             return Err(format!(
                 "格子のファイルの名前（{name}）が、前に渡したファイルと重なります。名前の違うファイルを渡してください"
@@ -997,20 +1005,29 @@ pub(crate) fn compare(folder: &str, grid: &str, result: &str, column: usize) -> 
             "結果の値の小数が {DIGITS} 桁より少なく、0.1 mm の照合になりません。表示の丸めの中では合いました"
         ));
     }
-    println!(
-        "合った: 値を比べた点 {}（差は 0.1 mm 以内）・両方とも値なしの点 {}",
-        outcome.with_value, outcome.without_value
-    );
-    if !outcome.border.is_empty() {
-        println!(
-            "範囲の縁の {} 点は、境の規則の違いとして記録してください（xtask/verify/geoid/README.md の「範囲の縁」）",
-            outcome.border.len()
-        );
-    }
-    if outcome.with_value < REQUIRED {
-        println!(
-            "値を比べた点が {REQUIRED} 点より少なく、この結果だけでは #438 の完了の条件（{REQUIRED} 点以上）に足りません"
-        );
+    for line in passed_lines(&outcome) {
+        println!("{line}");
     }
     Ok(())
+}
+
+/// 照合が通ったときに示す行。「合った」の行に、値を比べた点と、両方とも値なしの点の数を分けて示し、その後の行に、
+/// 範囲の縁の点と、値を比べた点が #438 の完了の条件に足りないことを示す
+fn passed_lines(outcome: &Outcome) -> Vec<String> {
+    let mut lines = vec![format!(
+        "合った: 値を比べた点 {}（差は 0.1 mm 以内）・両方とも値なしの点 {}",
+        outcome.with_value, outcome.without_value
+    )];
+    if !outcome.border.is_empty() {
+        lines.push(format!(
+            "範囲の縁の {} 点は、境の規則の違いとして記録してください（xtask/verify/geoid/README.md の「範囲の縁」）",
+            outcome.border.len()
+        ));
+    }
+    if outcome.with_value < REQUIRED {
+        lines.push(format!(
+            "値を比べた点が {REQUIRED} 点より少なく、この結果だけでは #438 の完了の条件（{REQUIRED} 点以上）に足りません"
+        ));
+    }
+    lines
 }

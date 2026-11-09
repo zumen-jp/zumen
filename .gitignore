@@ -20,5 +20,8 @@ obj/
 /fuzz/corpus/
 /fuzz/artifacts/
 /fuzz/Cargo.lock
-# 国土地理院のジオイド・モデル。Git に入れない（決定 0019、xtask/verify/geoid/README.md）
+# 国土地理院のジオイド・モデルと、一緒に配られる内挿計算プログラム。Git に入れない（決定 0019、
+# xtask/verify/geoid/README.md）
 *.isg
+JPGEO2024_isg/
+geoidcalc_*

@@ -239,7 +239,9 @@ fn edges_are_chosen_around_no_data() {
     assert!(edges(&full).is_empty());
 }
 
-/// 北西の隅と南東の隅の格子点が無効のとき。最初と最後の行・列に接する際を選び、範囲の外の格子点は見ない
+/// 北西の隅と南東の隅の格子点が無効のとき。最初と最後の行・列に接する際を選び、範囲の外の格子点は見ない。範囲の縁の
+/// 線の上の候補は選ばないので、候補がどれも縁の上にある 3 つの形（北・北東の隣が無効の格子点と、片方の端が無効の線）
+/// はない
 #[test]
 fn edges_are_chosen_at_the_corners_of_the_grid() {
     let corners = Extent {
@@ -258,36 +260,70 @@ fn edges_are_chosen_at_the_corners_of_the_grid() {
         &grid,
         &[
             (Edge::Node, "401500.0000", "1203000.0000"),
-            (Edge::NodeNorth, "403000.0000", "1200000.0000"),
             (Edge::EastWest, "401500.0000", "1203500.0000"),
             (Edge::EastWestNorth, "403000.0000", "1200500.0000"),
             (Edge::NorthSouth, "401000.0000", "1203000.0000"),
-            (Edge::EastWestNoData, "404500.0000", "1201000.0000"),
-            (Edge::NorthSouthNoData, "403500.0000", "1200000.0000"),
             (Edge::Cell, "404000.0000", "1200500.0000"),
         ],
     );
 }
 
-/// 間隔が 1/7 度の格子では、格子点と格子の線の多くが、秒の小数 4 桁で表せない。丸めて場所が変わる際は使わない
+/// 範囲の縁の線の上の候補は飛ばし、次の候補を選ぶ。北の縁の行だけに有効の格子点の帯を置くと、その行の上の格子点と
+/// 東西の線の上は選ばず、縁から離れた南北の線の上と格子の中だけを選ぶ
 #[test]
-fn edges_that_four_decimals_of_seconds_cannot_hold_are_skipped() {
-    let seventh = Extent {
+fn edges_on_the_border_of_the_grid_are_not_chosen() {
+    let band = Extent {
         lat_min: 40.0,
-        lat_max: 40.0 + 3.0 / 7.0,
+        lat_max: 40.75,
         lon_min: 120.0,
-        lon_max: 120.0 + 3.0 / 7.0,
+        lon_max: 120.75,
         rows: 4,
         cols: 4,
     };
     let grid = read(&isg(
-        &seventh,
-        "1.0 2.0 3.0 4.0\n5.0 -9999.0000 7.0 8.0\n9.0 10.0 11.0 12.0\n13.0 14.0 15.0 16.0\n",
+        &band,
+        "1.0 2.0 3.0 4.0\n\
+         -9999.0000 -9999.0000 -9999.0000 -9999.0000\n\
+         -9999.0000 -9999.0000 -9999.0000 -9999.0000\n\
+         -9999.0000 -9999.0000 -9999.0000 -9999.0000\n",
     ));
+    assert_edges(
+        &grid,
+        &[
+            (Edge::NorthSouthNoData, "404000.0000", "1201500.0000"),
+            (Edge::Cell, "404000.0000", "1200500.0000"),
+        ],
+    );
+}
+
+/// 間隔が 1/7 度の格子では、格子点と格子の線の多くが、秒の小数 4 桁で表せない（表せるのは、緯度 41 度の行と、
+/// 経度 121 度の列と、範囲の縁）。丸めて場所が変わる際は使わない
+#[test]
+fn edges_that_four_decimals_of_seconds_cannot_hold_are_skipped() {
+    let seventh = Extent {
+        lat_min: 40.0,
+        lat_max: 40.0 + 8.0 / 7.0,
+        lon_min: 120.0,
+        lon_max: 120.0 + 8.0 / 7.0,
+        rows: 9,
+        cols: 9,
+    };
+    let values: String = (0..9)
+        .map(|r| {
+            let row: Vec<String> = (0..9)
+                .map(|c| match (r, c) {
+                    (2, 7) => "-9999.0000".to_owned(),
+                    _ => format!("{}.0", r * 9 + c + 1),
+                })
+                .collect();
+            row.join(" ") + "\n"
+        })
+        .collect();
+    let grid = read(&isg(&seventh, &values));
     assert_eq!(edges(&grid).len(), Edge::ALL.len());
     let kit = parse_points("A 360600.0000 1400600.0000").unwrap();
     let points = gather(kit, &[("seventh.isg".to_owned(), grid)]).unwrap();
-    // 残るのは、経度 120 度（西の縁）の南北の線の上と、格子の中だけ
+    // 残るのは、緯度 41 度の東西の線の上と、経度 121 度の南北の線の上と、格子の中だけ
     let added: Vec<(&str, &str)> = points[1..]
         .iter()
         .map(|p| (p.id.as_str(), p.label.as_str()))
@@ -296,8 +332,9 @@ fn edges_that_four_decimals_of_seconds_cannot_hold_are_skipped() {
     assert_eq!(
         added,
         [
-            ("E01", label(Edge::NorthSouth).as_str()),
-            ("E02", label(Edge::Cell).as_str()),
+            ("E01", label(Edge::EastWest).as_str()),
+            ("E02", label(Edge::NorthSouthNoData).as_str()),
+            ("E03", label(Edge::Cell).as_str()),
         ]
     );
 }
@@ -537,9 +574,52 @@ fn files_inside_the_repository_are_refused() {
     let error = points(path(&other.join("new")), &[path(&isg)]).unwrap_err();
     assert!(error.contains("Git の作業ツリー"), "{error}");
     assert!(!other.join("new").exists());
+    // 作業ツリーの `.git` は、ファイルのこともある
+    let linked = dir.0.join("linked");
+    fs::create_dir_all(linked.join("geoid")).unwrap();
+    fs::write(linked.join(".git"), "gitdir: ../somewhere\n").unwrap();
+    let error = points(path(&linked.join("geoid")), &[path(&isg)]).unwrap_err();
+    assert!(error.contains("Git の作業ツリー"), "{error}");
 
-    // 名前の同じ格子は、zumen の値のファイルが重なるので断る
+    // 名前の同じ格子は、zumen の値のファイルが重なるので断る。大文字と小文字だけが違う名前も、Windows と macOS では
+    // 同じファイルになるので断る
     let twice = dir.0.join("twice");
     let error = points(path(&twice), &[path(&isg), path(&isg)]).unwrap_err();
     assert!(error.contains("重なります"), "{error}");
+    for (folder, name) in [("one", "A.isg"), ("two", "a.isg")] {
+        fs::create_dir_all(dir.0.join(folder)).unwrap();
+        fs::write(dir.0.join(folder).join(name), synthetic(VALUES)).unwrap();
+    }
+    let error = points(
+        path(&dir.0.join("cases")),
+        &[
+            path(&dir.0.join("one").join("A.isg")),
+            path(&dir.0.join("two").join("a.isg")),
+        ],
+    )
+    .unwrap_err();
+    assert!(error.contains("重なります"), "{error}");
+}
+
+#[test]
+fn passed_lines_show_counts_border_points_and_shortage() {
+    let mut outcome = Outcome {
+        with_value: 12,
+        without_value: 4,
+        ..Outcome::default()
+    };
+    assert_eq!(
+        passed_lines(&outcome),
+        ["合った: 値を比べた点 12（差は 0.1 mm 以内）・両方とも値なしの点 4"]
+    );
+    // 範囲の縁の点と、10 点に足りないことは、「合った」の行の後に示す
+    outcome.with_value = 3;
+    outcome
+        .border
+        .push("P04（格子点の上（範囲の縁））".to_owned());
+    let lines = passed_lines(&outcome);
+    assert_eq!(lines.len(), 3, "{lines:?}");
+    assert!(lines[0].starts_with("合った: 値を比べた点 3"), "{lines:?}");
+    assert!(lines[1].contains("範囲の縁の 1 点"), "{lines:?}");
+    assert!(lines[2].contains("10 点より少なく"), "{lines:?}");
 }
