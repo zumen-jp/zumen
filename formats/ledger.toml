@@ -164,6 +164,15 @@ url = "https://www.iso.org/standard/38047.html"
 checked = "2026-11-09"
 note = "ISO が PDF と冊子で売る（CHF 227）。販売のページに、実装を制限する記述はない。ISO のサイトに共通の注記は、ISO Open data のものを除き、ISO の内容を機械学習・AI に使うこと（モデルの学習と、AI のツールに入れて応答を作らせること）を禁じ、出版物の使用と複製に書面の許諾が要るとする。本文は買わず、読まない（zumen-jp/zumen#529）。この項の書誌の事実と注記の中身は、2026-11-09 にエージェントが AI のツールで ISO のページを読んで得た（作った側が www.iso.org をブラウザーの拡張で、zumen-jp/zumen#666 の確かめる側が committee.iso.org を取得のツールで。www.iso.org は自動の取得を拒む）。エージェントが ISO のページを読むことの扱いは zumen-jp/zumen#669 で決め、読まないと決まれば、この項も #669 の判断に従って直す"
 
+[specs.iso_10303_21_2016]
+title = "ISO 10303-21:2016 Industrial automation systems and integration — Product data representation and exchange — Part 21: Implementation methods: Clear text encoding of the exchange structure"
+publisher = "ISO"
+version = "第 3 版（2016-03）。2022 年の見直しで確認され、今も有効。前の版の ISO 10303-21:2002 は廃止"
+access = "paid"
+url = "https://www.iso.org/standard/63141.html"
+checked = "2026-11-10"
+note = "交換構造（STEP のファイル）の書き方。zumen-step が字句を読み書きし、SXF の SFC・P21 と IFC の IFC-SPF の土台にする（決定 0120・0207）。ISO が売る（販売のページの形式は HTML だけで、CHF 44）。ISO の無償の規格の一覧（standards.iso.org/ittf）は閉じ、無償のものは ISO の店で 0 の価格で配るとするが、この規格は有償。販売のページに、実装を制限する記述はない。ISO の利用許諾（End Customer Licence Agreement）は、出版物（一部を含む）へのアクセスでも同意したとし、7(b) で AI・機械学習のために読むことを禁じるので、本文は買わず、プレビュー（Read sample）を含めて読まない（決定 0287）。ページの下の注記は、iso_10303_11_2004 の項と同じ。読む元は、学習済みの知識、SXF の仕様書（STEP AP202 サブセット編・SFC 編）と IFC の文書（IFC-SPF の説明）、寛容なライセンスの実装。zumen-step を作ったときに何を読んだかの記録はない。SXF と IFC の形式の項の specs には入れない。両形式の権利は、それぞれの仕様で判断していて、この項を足しても変えない（zumen-jp/zumen#675）。書誌の事実と注記は、2026-11-10 に www.iso.org のページを利用者のブラウザーの拡張で開いて確かめた"
+
 [specs.ids_1_0]
 title = "Information Delivery Specification（IDS）"
 publisher = "buildingSMART International"
@@ -213,8 +222,9 @@ title = "CEDXM ファイルフォーマット"
 publisher = "特定非営利活動法人シーデクセマ評議会"
 access = "members"
 url = "https://www.cedxm.com/"
-checked = "2026-10-24"
-note = "会員にだけ配る。版は確かめられない"
+version = "Ver. 10.00（2024-03 更新）"
+checked = "2026-11-10"
+note = "入会案内のページは、最新版のダウンロードを会員の特典とし、非会員には配らないとする。入会は法人が主で、入会申込書を出し、入会金と年会費（それぞれ 8 万円）を払う。会員の条件（定款・会則など）は公開のページに見当たらず、入会でその条件に同意するかと、その条件が AI での利用を禁じるかは確かめられない。そのため、エージェントは本文を読まない（決定 0287）。形式は place = none で、入手もしていない（zumen-jp/zumen#675）"
 
 [specs.bebridge_6_1]
 title = "設備 CAD データ交換仕様 BE-Bridge"
@@ -399,8 +409,8 @@ publisher = "ITU-T"
 version = "09/92"
 access = "paid"
 url = "https://www.itu.int/rec/T-REC-T.81"
-checked = "2026-11-01"
-note = "ITU の頁は有償とする。JPEG の展開は許容のライセンスの crate に任せる"
+checked = "2026-11-10"
+note = "ITU のページは、ISO・IEC との共同の文書（ISO/IEC 10918-1 と同じ）で、取り決めにより有償でだけ配る（sales@itu.int に問い合わせる）とする。無償で配る ITU-T の勧告には当たらない。訂正 1（2004-01）も有効。ITU のサイトの著作権のページは、複製に許諾が要るとするが、AI での利用を名指しする記述はない。買うときの条件は公開のページに見当たらず、AI での利用を禁じるかは確かめられないので、エージェントは本文を読まない（決定 0287、zumen-jp/zumen#675）。JPEG の展開は許容のライセンスの crate に任せ、zumen は Exif と XMP のセグメントだけを読むので、本文は要らない"
 
 [specs.exif_3_1]
 title = "CIPA DC-008 Exchangeable image file format for digital still cameras: Exif"
@@ -442,8 +452,8 @@ publisher = "一般社団法人施工管理ソフトウェア産業協会（J-CO
 version = "Ver.1.1（版の日付は確かめられない）"
 access = "members"
 url = "https://www.jcomsia.org/kokuban"
-checked = "2026-11-01"
-note = "公開の文書は見つからない。協会が検定を受けるソフトの作り手に出すものとみられる（推定）"
+checked = "2026-11-10"
+note = "公開の文書は見つからない。協会が検定を受けるソフトの作り手に出すものとみられる（推定）。入会案内のページは、入会に定款 6 条による入会申込書と誓約書兼同意書の提出と理事会の承認が要り、部会（年 10 万円）に参加すると部会の成果物を使えるとする（年会費は 10 万円）。誓約書兼同意書は開いておらず、成果物の利用の条件も公開のページに見当たらないので、AI での利用を禁じるかは確かめられない。そのため、エージェントは本文を読まない（決定 0287）。形式は place = none で、入手もしていない（zumen-jp/zumen#675）"
 
 # 形式。キーは英小文字と数字だけにする。
 
