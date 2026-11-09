@@ -1,10 +1,15 @@
 //! PDF のファイルモデル（L1）の読み書きと、テストキットの契約（決定 0010・0156・0256）。入力は、どれもテストの中で
 //! 作る。
 
-use zumen_base::{Budget, CancelToken, Cx, Diagnostics, codes};
+use zumen_base::codes;
+#[cfg(feature = "drawing")]
+use zumen_base::{Budget, CancelToken, Cx, Diagnostics};
+#[cfg(feature = "drawing")]
 use zumen_drawing::{Drawing2D, id};
 use zumen_pdf::{Pdf, PdfFile, RecordKind};
-use zumen_sdk::{Codec, Error, FileModel, Lift, testkit};
+#[cfg(feature = "drawing")]
+use zumen_sdk::Lift;
+use zumen_sdk::{Codec, Error, FileModel, testkit};
 
 mod common;
 
@@ -186,7 +191,8 @@ fn detects_the_header() {
     ));
 }
 
-/// 読んで図面モデルにし、要素の ID を振る順に並べる
+/// 読んで図面モデルにし、要素の ID を振る順に並べる。図面モデルへの移しは drawing の機能で作る（#613）
+#[cfg(feature = "drawing")]
 fn ids(src: &[u8]) -> Result<Vec<String>, String> {
     let file = testkit::read::<Pdf>(src)
         .0
@@ -210,6 +216,8 @@ fn ids(src: &[u8]) -> Result<Vec<String>, String> {
 fn keeps_the_budget_and_the_ids() {
     let src = sample();
     testkit::stops_at_same_place::<Pdf>(&src).unwrap();
+    // 要素の ID は図面モデルの要素に振るので、drawing の機能があるときだけ確かめる
+    #[cfg(feature = "drawing")]
     testkit::ids_match(&src, include_str!("ids/pdf.txt"), ids).unwrap();
 }
 

@@ -2,7 +2,9 @@
 //! PDF 32000-2 の 7.7.3（ページ）・8.5（経路）・8.9（画像）・9.4（文字）。
 //! 公開サンプルの出所とライセンスは samples/ledger.toml。受け取った図面は読まない。
 
+// 図面モデルへの移しと照らすので、drawing の機能で作る（#613）
 #![cfg(test)]
+#![cfg(feature = "drawing")]
 
 use std::io::Write;
 use std::path::PathBuf;

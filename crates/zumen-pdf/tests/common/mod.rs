@@ -2,9 +2,14 @@
 
 #![allow(dead_code)]
 
-use zumen_base::{Budget, CancelToken, Cx, Diagnostic, Diagnostics};
+use zumen_base::Diagnostic;
+#[cfg(feature = "drawing")]
+use zumen_base::{Budget, CancelToken, Cx, Diagnostics};
+#[cfg(feature = "drawing")]
 use zumen_drawing::Drawing2D;
+#[cfg(feature = "drawing")]
 use zumen_pdf::Pdf;
+#[cfg(feature = "drawing")]
 use zumen_sdk::{Lift, testkit};
 
 /// オブジェクトを番号の順に並べて、PDF のバイト列にする
@@ -191,8 +196,9 @@ pub fn one_page(page: Page<'_>) -> Vec<u8> {
     Document::new(vec![page]).bytes()
 }
 
-/// 読んで図面モデルにする。読み取りと移しの診断を返す
+/// 読んで図面モデルにする。読み取りと移しの診断を返す。図面モデルへの移しは drawing の機能で作る（#613）
 #[cfg(test)]
+#[cfg(feature = "drawing")]
 pub fn lift(src: &[u8]) -> (Drawing2D, Vec<Diagnostic>) {
     let (file, mut diag) = testkit::read::<Pdf>(src);
     let file = file.unwrap();
