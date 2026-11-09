@@ -8,4 +8,7 @@ const opened = useDrawing(file, { loadModule: () => module, from: "sheet/0" });
 if (opened.status === "ready" && state?.selection[0]) {
   void opened.getSource(state.selection[0]).then((entity) => entity?.source?.record);
 }
+if (opened.status === "ready") {
+  void opened.convert().then(({ bytes, result, diagnostics }) => [bytes.byteLength, result.elements, diagnostics[0]?.stage]);
+}
 if (opened.status === "error") void opened.diagnostics[0]?.text;

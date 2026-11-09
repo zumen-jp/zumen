@@ -1691,7 +1691,7 @@ func (u Edit) AsPointStyleEdit() *PointStyleEdit {
 	return asTagged[PointStyleEdit](u, "kind", "point_style")
 }
 
-// RestyleEdit: 要素のレイヤ・色・線種・線種の倍率・線幅のうち、書いたものだけを変える。形は変えない
+// RestyleEdit: 要素のレイヤ・色・線種・線種の倍率・線幅のうち、書いたものだけを変える。形は変えない。RGB の色は、DXF と DWG の R2004 から、線幅は R2000 から書ける（DWG の今ある図形のレイヤ・線種・線幅・RGB の色は、決定 0293 から変えられる）
 type RestyleEdit struct {
 	// 変更の種類
 	Kind string `json:"kind,omitempty"`
@@ -1825,7 +1825,7 @@ func (m AddEdit) MarshalJSON() ([]byte, error) {
 	return json.Marshal(plain(m))
 }
 
-// LayerEdit: レイヤの名前・状態・色・線種・線幅のうち、書いたものだけを変える（決定 0162）。DXF は、名前を変えると、図形と今のレイヤ（$CLAYER）も新しい名前で指す。DWG は、今あるレイヤの線種と真の色を変えられない。マイナーバージョン 22 から
+// LayerEdit: レイヤの名前・状態・色・線種・線幅のうち、書いたものだけを変える（決定 0162）。DXF は、名前を変えると、図形と今のレイヤ（$CLAYER）も新しい名前で指す。DWG の真の色は R2004 から書ける（今あるレイヤの線種と真の色は、決定 0293 から変えられる）。マイナーバージョン 22 から
 type LayerEdit struct {
 	// 変更の種類
 	Kind string `json:"kind,omitempty"`
