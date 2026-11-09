@@ -31,6 +31,10 @@ from compare import ATTACHMENTS, KINDLESS, check_handles, lifted_away, run, usag
 # 既知の食い違い: (ファイルの道筋の初め, 食い違いの文の初め, issue, 当たるファイルの数)。直ったら消す
 KNOWN = []
 MODEL = "*model_space"
+# ヘッダーの変数のうち、HANDSEED より後ろに書くもの（crates/zumen-acad/src/dwg/header.rs の並び）。CLAYER は ACadSharp が
+# 名前で返すので、入力が既定の画層 0 なら、ハンドルが画層に当たらないずれは見分けにくい（推定）。R2010 からのハンドルの
+# ストリームのずれは、画層・図形の照らしと通知の数でも見つかる
+AFTER_SEED = ("INSUNITS", "PLIMMIN", "PLIMMAX", "CLAYER")
 
 
 def geometry(d):
@@ -150,6 +154,18 @@ def check_file(dumps, entry, reading, baseline, counts):
 
     found, seen = check_handles(entry, reading, counts, view(dump))
     failures += found
+
+    # HANDSEED の大きさ（バイト）が増える数の図形を足したファイル（#701）では、ファイルの HANDSEED（ACadSharp でヘッダー
+    # だけを読んだ値）が、足した最後の図形の次になる。HANDSEED より後ろに書く変数（AFTER_SEED）は入力のまま
+    if entry.get("recipe") == "handseed":
+        seed = dump["header"].get("HANDSEED")
+        last = max(int(handle, 16) for handle in dump["entities"])
+        source = dumps.get(entry["from"], {}).get("header", {})
+        for name in AFTER_SEED:
+            if name not in source or dump["header"].get(name) != source[name]:
+                failures.append(f"HANDSEED の後ろの {name} が {dump['header'].get(name)!r}（入力は {source.get(name)!r}）")
+        if seed != last + 1 or last <= 0xFFFF:
+            failures.append(f"HANDSEED が {seed}（期待は、0xFFFF より大きい最後の図形のハンドル {last} の次）")
 
     # 黙って捨てない: 要素にならないモデル空間の図形の数は、種類ごとに、移さなかったことを言う zumen の診断（kind は
     # 図形の種類）の件数を超えない。DWG の診断の場所はバイトの範囲なので、図形ごとには結ばない
