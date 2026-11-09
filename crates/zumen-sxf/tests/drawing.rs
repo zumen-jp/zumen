@@ -1279,25 +1279,29 @@ fn reports_computed_values_that_are_not_finite() {
         assert!(!text.contains("NaN") && !text.contains("inf"), "{text}");
     }
 
-    // P21 の楕円も、同じ計算を通る
-    let p21 = p21(concat!(
-        "#1=PRESENTATION_STYLE_ASSIGNMENT(());\n",
-        "#2=CARTESIAN_POINT(' ',(1.E308,0.));\n",
-        "#3=DIRECTION(' ',(1.,0.));\n",
-        "#4=AXIS2_PLACEMENT_2D(' ',#2,#3);\n",
-        "#5=ELLIPSE(' ',#4,1.E308,1.E308);\n",
-        "#6=ANNOTATION_CURVE_OCCURRENCE(' ',(#1),#5);\n",
-        "#7=DRAWING_SHEET_REVISION('FREE',(#6),$,'01');\n",
-    ));
-    testkit::roundtrip::<Sxf>(&p21).unwrap();
-    let (drawing, diag) = lift(&p21);
+    // P21 の楕円も、同じ計算を通る。正常な値の組にない診断は、楕円の表記の実体を指す 1 件だけ
+    let ellipse = |center: &str, radius: &str| {
+        p21(&format!(
+            "#1=PRESENTATION_STYLE_ASSIGNMENT(());
+             #2=CARTESIAN_POINT(' ',({center},0.));
+             #3=DIRECTION(' ',(1.,0.));
+             #4=AXIS2_PLACEMENT_2D(' ',#2,#3);
+             #5=ELLIPSE(' ',#4,{radius},{radius});
+             #6=ANNOTATION_CURVE_OCCURRENCE(' ',(#1),#5);
+             #7=DRAWING_SHEET_REVISION('FREE',(#6),$,'01');
+"
+        ))
+    };
+    let src = ellipse("1.E308", "1.E308");
+    testkit::roundtrip::<Sxf>(&src).unwrap();
+    let (drawing, diag) = lift(&src);
+    let (normal, normal_diag) = lift(&ellipse("1.", "1."));
     assert!(drawing.sheets[0].elements.is_empty());
-    let invalid = find(&diag, codes::SXF_LIFT_INVALID);
-    assert_eq!(
-        invalid.places()[0].key(),
-        Some(Key::Instance(6)),
-        "{diag:?}"
-    );
+    assert_eq!(normal.sheets[0].elements.len(), 1);
+    let added: Vec<_> = diag.iter().filter(|d| !normal_diag.contains(d)).collect();
+    assert_eq!(added.len(), 1, "{diag:?}");
+    assert_eq!(added[0].code(), codes::SXF_LIFT_INVALID);
+    assert_eq!(added[0].places()[0].key(), Some(Key::Instance(6)));
 }
 
 #[test]
