@@ -47,6 +47,12 @@ jobs:
         run: |
           cargo clippy --package zumen-acad --no-default-features --all-targets --locked -- -D warnings
           cargo clippy --package zumen-acad --no-default-features --features cp932 --all-targets --locked -- -D warnings
+      - name: 領域モデルなしの PDF と IFC も、lint し、試験を組み立てて流す（#718）
+        run: |
+          cargo clippy --package zumen-pdf --no-default-features --all-targets --locked -- -D warnings
+          cargo clippy --package zumen-ifc --no-default-features --all-targets --locked -- -D warnings
+          cargo test --package zumen-pdf --no-default-features --locked
+          cargo test --package zumen-ifc --no-default-features --locked
       - name: wasm32 でだけ使うコードも lint する
         run: cargo clippy --package zumen-abi --target wasm32-unknown-unknown --locked -- -D warnings
       - name: 分けた wasm のモジュール（feature を 1 つだけ入れたもの）も lint する（決定 0221）
