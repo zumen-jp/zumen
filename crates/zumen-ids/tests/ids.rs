@@ -1,13 +1,13 @@
 //! IDS の読み取りと照合（決定 0217）。IDS と建物モデルは、テストの中で書いた小さなものだけを使う。
 
-use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Limits, Severity, codes};
+use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Kind, Limits, Severity, Stop, codes};
 use zumen_building::{
     Building, Class, Classification, ClassificationReference, Document, ElementRef, Identity,
     Literal, Material, MaterialKind, MaterialPart, Measured, Membership, Opening, Parent,
     ParentKind, Properties, Property, PropertySet, Quantities, Quantity, QuantityKind, QuantitySet,
     TypeOf, TypedValue, Unit,
 };
-use zumen_ids::{Ids, Lookup, Missing, Report, Status, check};
+use zumen_ids::{AttributeValue, Ids, Lookup, Missing, Report, Status, check};
 use zumen_sdk::Error;
 
 fn with<T>(f: impl FnOnce(&mut Cx) -> T) -> (T, Diagnostics) {
@@ -653,4 +653,51 @@ fn stops_on_budget() {
         &mut Cx::new(&mut budget, &mut diag, &cancel),
     );
     assert!(matches!(result, Err(Error::Stopped(_))));
+}
+
+/// 要素ごとに、値のない属性を決まった数だけ返す作り手
+struct Wide(usize);
+
+impl Lookup for Wide {
+    fn attributes(
+        &self,
+        _building: &Building,
+        _element: ElementRef,
+        _cx: &mut Cx,
+    ) -> Result<Option<Vec<(String, AttributeValue)>>, Stop> {
+        Ok(Some(
+            (0..self.0)
+                .map(|i| (format!("A{i}"), AttributeValue::Null))
+                .collect(),
+        ))
+    }
+}
+
+/// 属性の facet は、作り手が返した属性ごとに、名前と値を比べる手間を 1 つ数える（#672）
+#[test]
+fn counts_each_attribute_the_lookup_returns() {
+    let model = building().unwrap();
+    let parsed = read(&ids(&spec(
+        "属性",
+        &entity("IFCWALL"),
+        "<attribute><name><simpleValue>A0</simpleValue></name></attribute>",
+    )))
+    .0
+    .unwrap();
+    let work = |lookup: &Wide| {
+        let mut budget = Budget::new(Limits::default());
+        let mut diag = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let report = check(
+            &model,
+            &parsed,
+            lookup,
+            &mut Cx::new(&mut budget, &mut diag, &cancel),
+        )
+        .unwrap();
+        assert_eq!(statuses(&report), [("属性", Status::Failed)]);
+        budget.used(Kind::Work)
+    };
+    // 壁は 1 つで、属性の facet も 1 つ
+    assert_eq!(work(&Wide(1000)) - work(&Wide(10)), 990);
 }
