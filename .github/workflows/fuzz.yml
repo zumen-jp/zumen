@@ -5,7 +5,7 @@ name: fuzz
 # target の一覧と動かし方は fuzz/README.md。
 #
 # 見つけた入力と詳細（誤りの文・ログ・入力の名前とハッシュ）は、公開のログ・注釈・summary・artifact・キャッシュに
-# 出さない（#647、決定 0283）。公開の所には、target と失敗の種類（crash・timeout・oom・leak）だけを書く。入力・遅い
+# 出さない（#647、決定 0283・0284）。公開の所には、target と失敗の種類（crash・timeout・oom・leak）だけを書く。入力・遅い
 # 入力・通らなかった target のログは、fuzz/recipients.txt の公開鍵（age）で暗号にしてから、artifact に置く。復号の
 # 鍵は担当者が持ち、リポジトリにも secrets にも置かない。
 
@@ -81,6 +81,7 @@ jobs:
           cp Cargo.lock fuzz/Cargo.lock
           cargo "+$NIGHTLY" fuzz build -O --debug-assertions
       - name: target ごとに決まった時間だけ、4 つずつ並べて流す
+        id: run
         env:
           SECONDS_PER_TARGET: ${{ github.event_name == 'pull_request' && '20' || inputs.seconds || '180' }}
         run: |
@@ -142,7 +143,7 @@ jobs:
           # 流す手順で通らなかった target は、縮めない。縮める処理は、落ちる入力・止まらない入力・メモリを使い過ぎる入力を
           # artifact に書いて飛ばし、0 で終わる。内側を立て直した回数（attempt）か、そうした入力が増えたとき、1 つの target を
           # 縮めるのに 20 分を超えたとき、0 で終わらなかったときは、縮めずに、この手順を失敗させる。どちらの target の種も、
-          # 黙って縮めて外さず、後の手順でキャッシュからまるごと除く（決定 0258 を #647 で改めた）
+          # 黙って縮めて外さず、後の手順でキャッシュからまるごと除く（決定 0284）
           printf '%s\n' $targets | xargs -P 4 -I '{}' sh -c '
             bin="fuzz/target/x86_64-unknown-linux-gnu/release/$1"
             [ -x "$bin" ] && [ -d "fuzz/corpus/$1" ] || exit 0
@@ -199,8 +200,9 @@ jobs:
             rm -rf "fuzz/corpus/$target"
             echo "種を除いた target: $target"
           done
+      # 流す手順が取り消されたとき（時間切れ・concurrency）は、結果のない target の種を確かめていないので、残さない
       - name: 育てた種を、次の夜のために残す
-        if: always() && github.event_name != 'pull_request'
+        if: always() && github.event_name != 'pull_request' && steps.run.outcome != 'cancelled'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: fuzz/corpus
