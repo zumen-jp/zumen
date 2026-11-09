@@ -542,6 +542,20 @@ pub const CHANGE_FORMAT_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
+/// 足す要素の色か線種を書いていない（レイヤに従う）が、元の形式はレイヤに従う色・線種を持たないので、書き戻せない。今は JWW の add で、色（点と線・円・円弧）と線種（線・円・円弧）を書く（決定 0290）
+///
+/// `change.style.unsupported`（0.2.0 から）
+pub const CHANGE_STYLE_UNSUPPORTED: Code = Code::new(
+    "change.style.unsupported",
+    Severity::Error,
+    None,
+    &[
+        Param::new("field", ParamType::Text),
+        Param::new("format", ParamType::Text),
+    ],
+    &[],
+);
+
 /// 記号の定義の中に足す記号が、その定義を直接か間接に置く（自分を含む）ので、定義の入れ子が輪になる（#333）
 ///
 /// `change.symbol-cycle.invalid`（0.0.0 から）
@@ -4551,6 +4565,7 @@ pub const ALL: &[Code] = &[
     CHANGE_ELEMENT_MISSING,
     CHANGE_ELEMENT_STALE,
     CHANGE_FORMAT_UNSUPPORTED,
+    CHANGE_STYLE_UNSUPPORTED,
     CHANGE_SYMBOL_CYCLE_INVALID,
     CHANGE_XDATA_UNSUPPORTED,
     CITYGML_CRS_UNSUPPORTED,
