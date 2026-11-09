@@ -219,6 +219,76 @@ fn layers_are_renamed_restyled_and_their_entities_follow() {
     assert!(text.contains("290\n0\n370\n35\n"));
 }
 
+/// 色見本帳の色（420 と 430）を持つ画層の、真の色を変えるか除いたら、色見本帳の色の名前（430）も除く。名前だけを
+/// 変えたら、名前は残す（#723）
+#[test]
+fn color_book_names_follow_true_colors() {
+    let text = String::from_utf8(src())
+        .unwrap()
+        .replace("AC1015", "AC1018")
+        .replace(
+            "  2\nA\n 70\n0\n 62\n1\n",
+            "  2\nA\n 70\n0\n 62\n1\n420\n16711680\n430\nBOOK$RED\n",
+        );
+    let red = Some(Color {
+        code: Some(ColorCode {
+            system: ColorSystem::Aci,
+            value: 1,
+        }),
+        rgb: Some([255, 0, 0]),
+    });
+    let blue = Some(Color {
+        code: Some(ColorCode {
+            system: ColorSystem::Aci,
+            value: 1,
+        }),
+        rgb: Some([0, 0, 255]),
+    });
+    for (color, kept) in [(red, true), (blue, false), (aci(1), false)] {
+        let mut file = testkit::read::<Dxf>(text.as_bytes()).0.unwrap();
+        let drawing = lift(&file);
+        let was = layer(&drawing, "A");
+        assert_eq!(was.style.unwrap().color, red);
+        let mut new = was.clone();
+        new.name = "B".to_owned();
+        let mut style = new.style.unwrap();
+        style.color = color;
+        new.style = Some(style);
+        let (result, codes) = apply(
+            &mut file,
+            vec![Edit::ReplaceLayer {
+                target: seen(was),
+                layer: Box::new(new.clone()),
+            }],
+        );
+        result.unwrap();
+        assert!(codes.is_empty(), "{codes:?}");
+        let written = testkit::write::<Dxf>(&file).unwrap();
+        let after = lift(&testkit::read::<Dxf>(&written).0.unwrap());
+        assert_eq!(layer(&after, "B").style, new.style, "{color:?}");
+        let written = String::from_utf8(written).unwrap();
+        assert_eq!(written.contains("430\nBOOK$RED\n"), kept, "{color:?}");
+    }
+    // 真の色のない名前（外れた入力）は、色を変えない置き換えで残す
+    let text = text.replace("420\n16711680\n", "");
+    let mut file = testkit::read::<Dxf>(text.as_bytes()).0.unwrap();
+    let drawing = lift(&file);
+    let was = layer(&drawing, "A");
+    let mut new = was.clone();
+    new.name = "B".to_owned();
+    let (result, codes) = apply(
+        &mut file,
+        vec![Edit::ReplaceLayer {
+            target: seen(was),
+            layer: Box::new(new),
+        }],
+    );
+    result.unwrap();
+    assert!(codes.is_empty(), "{codes:?}");
+    let written = String::from_utf8(testkit::write::<Dxf>(&file).unwrap()).unwrap();
+    assert!(written.contains("430\nBOOK$RED\n"));
+}
+
 #[test]
 fn layers_are_added_from_the_zero_layer() {
     let mut file = testkit::read::<Dxf>(&src()).0.unwrap();

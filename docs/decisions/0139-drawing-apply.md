@@ -118,6 +118,10 @@
 - `Restyle` と `Transform` は、要素の並びでなく 1 つの要素を指す。並びは、変更を並べて表す。apply が変更ごとに 1 つの新しい ID とハッシュを返す形と合わせるためで、手間は同じ。
 - 書式つき文字の内容に絶対高さか解釈できない書式がある場合、尺度を変える `Transform` は当てない。元の符号を直さずに拡大すると、文字の高さが変わらないことがあるため。
 
+## 後の記録
+
+- 2026-11-10: [0293](0293-dwg-restyle-and-layer-style-write-back.md) で、DWG の今ある図形の `Restyle` で、レイヤ・線種・線幅・RGB の色（R2004 から）も書き戻すことにした（#723）。
+
 ## 参照
 
 - [決定 0008](0008-model-layers-and-codecs.md)、[決定 0009](0009-diagnostics-and-catalog.md)、[決定 0022](0022-drawing2d-semantics-and-format-mapping.md)、[決定 0024](0024-acad-table-write-back.md)、[決定 0025](0025-acad-object-add-remove-write-back.md)、[決定 0115](0115-drawing-format-extensions.md)、[決定 0154](0154-drawing-apply-keeps-format-data.md)、[決定 0155](0155-drawing-apply-additions.md)、[決定 0156](0156-drawing-stable-ids-and-preconditions.md)、[決定 0158](0158-drawing-text-styles.md)、[決定 0162](0162-drawing-layer-changes.md)、[決定 0206](0206-convert-to-new-dxf.md)（lower を convert として足した）

@@ -1004,7 +1004,7 @@ fn change_element<'e>(
                 Found::Model(element) => (element.layer, &element.style),
                 Found::Paper(element) => (element.layer, &element.style),
             };
-            restyled(born, object, layer, was, style, target, cx)?
+            restyled(born, object, layer, was, style, cx)?
                 .map(|values| replaced.push((position, values)))
         }
         (Edit::Transform { transform, .. }, Found::Model(was)) => {
@@ -1297,14 +1297,13 @@ fn settled(db: &AcadDb, targets: Vec<ResultTarget>, cx: &mut Cx) -> Result<Vec<A
 
 /// スタイルを変えた図形の値。変わったフィールド（レイヤ 8・線種 6・色 62 と 420 と 430・線幅 370・線種の倍率 48）
 /// だけを、図形に共通の値の中で除いてから、足すときと同じ書き方（[`Born::entity`]）でレイヤの後に書く。
-/// ほかの値は元のまま写す。DWG は、今ある図形のレイヤと線種を書き戻せないので扱わない
+/// ほかの値は元のまま写す。DWG では、画層と線種をハンドルで、線の太さと真の色を共通のフィールドに書く（#723）
 fn restyled(
     born: &Born,
     object: &Object,
     layer: LayerId,
     style: &Style,
     change: &Restyle,
-    target: Target,
     cx: &mut Cx<'_>,
 ) -> Result<Option<Vec<Value>>, Error> {
     let at = source(object);
@@ -1333,9 +1332,6 @@ fn restyled(
             .collect::<Result<Vec<_>, _>>()
             .map(Some);
     }
-    if matches!(target, Target::Dwg(_)) && changed.iter().any(|code| matches!(code, 6 | 8)) {
-        return Ok(None);
-    }
     let mut written = Vec::new();
     if changed.contains(&8) {
         let Some(layer) = born.layer_value(new_layer) else {
@@ -1343,7 +1339,7 @@ fn restyled(
         };
         written.push(layer);
     }
-    let Some(style) = born.style_values(&new, &changed) else {
+    let Some(style) = born.style_values(&new, &changed, true) else {
         return Ok(None);
     };
     written.extend(style);

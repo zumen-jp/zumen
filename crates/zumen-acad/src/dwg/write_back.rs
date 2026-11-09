@@ -37,14 +37,116 @@ use zumen_sdk::{Error, Transact, Transaction};
 use super::bits::{BitWriter, Bits, Color, modular_char, push_modular_char};
 use super::objects::{
     DIM_FIELDS, Dim, block_links, dim_fields, entity_fields, entity_links, entity_refs,
-    hatch_gradient, multileader, object_fields, owned, r2010_entity_fields, r2010_object_fields,
-    skip_extended_data,
+    hatch_gradient, layer_line_type, multileader, object_fields, owned, r2010_entity_fields,
+    r2010_object_fields, skip_extended_data, style_handles,
 };
 use super::{DwgFile, Release, header, kinds};
 use crate::db::{AcadDb, Data, DataType, Object, Origin, Section, Value, uncaret};
 
 /// 図形の共通のフィールドのうち、表に置くもののグループ・コード
 const COMMON: &[i16] = &[62, 48, 60];
+
+/// 図形のスタイルの変更で書き直す、ほかの共通の値（#723）。画層（8）と線種（6）はハンドルのストリームに、線の太さ（370）と
+/// 真の色（420）は共通のフィールドに書く
+const STYLED: &[i16] = &[8, 6, 370, 420];
+
+/// 図形のスタイルの変更で、ハンドルのストリームに書く画層と線種（#723）。`None` は変えない
+#[derive(Clone, Copy, Default)]
+pub(super) struct Restyle {
+    /// 画層のハンドル
+    layer: Option<u64>,
+    /// 線種のフラグとハンドル（フラグが 3 のときだけ使う）
+    ltype: Option<(u8, u64)>,
+}
+
+impl Restyle {
+    /// `old` から `new` に変えた図形の、画層と線種の書き方。名前を表から引けなければ `None`
+    fn of(db: &AcadDb, old: &Object, new: &Object) -> Option<Self> {
+        let codes = |object: &Object, code: i16| -> Vec<Data> {
+            object
+                .values
+                .iter()
+                .filter(|value| value.code == code)
+                .map(|value| value.data.clone())
+                .collect()
+        };
+        let layer = if codes(old, 8) == codes(new, 8) {
+            None
+        } else {
+            Some(record_handle(db, b"LAYER", text_of(new, 8)?)?)
+        };
+        let ltype = if codes(old, 6) == codes(new, 6) {
+            None
+        } else {
+            Some(ltype_ref(db, new)?)
+        };
+        Some(Self { layer, ltype })
+    }
+
+    /// `old` から `new` に変えた LAYER のレコードの線種（#723）。名前（変えたとき）かハンドル（元のまま）で持つ
+    fn layer(db: &AcadDb, old: &Object, new: &Object) -> Option<Self> {
+        let first = |object: &Object| {
+            object
+                .values
+                .iter()
+                .find(|value| value.code == 6)
+                .map(|value| value.data.clone())
+        };
+        let ltype = match first(new) {
+            found if found == first(old) => None,
+            Some(Data::Text(name)) => Some((3, record_handle(db, b"LTYPE", &name)?)),
+            Some(Data::Handle(handle)) => Some((3, handle)),
+            _ => return None,
+        };
+        Some(Self { layer: None, ltype })
+    }
+
+    fn is_empty(self) -> bool {
+        self.layer.is_none() && self.ltype.is_none()
+    }
+
+    /// 元のデータ `data` のハンドルのストリーム（`handles_at` から終わりまで）を、画層と線種のハンドルを書き直して写したもの。
+    /// `slots` は元のデータの画層と線種のハンドルの位置。ハンドルは固い参照（符号 5）で、絶対の値で書く
+    fn handles(self, data: &[u8], handles_at: usize, slots: &StyleSlots) -> Option<BitWriter> {
+        let mut out = BitWriter::default();
+        if self.is_empty() {
+            out.copy(data, handles_at..data.len() * 8)?;
+            return Some(out);
+        }
+        out.copy(data, handles_at..slots.layer.start)?;
+        match self.layer {
+            Some(layer) => out.handle(5, layer),
+            None => out.copy(data, slots.layer.clone())?,
+        }
+        let after = slots
+            .ltype
+            .as_ref()
+            .map_or(slots.layer.end, |ltype| ltype.end);
+        match (self.ltype, &slots.ltype) {
+            (None, Some(ltype)) => out.copy(data, ltype.clone())?,
+            (Some((3, handle)), _) => out.handle(5, handle),
+            _ => {}
+        }
+        out.copy(data, after..data.len() * 8)?;
+        Some(out)
+    }
+}
+
+/// 元のデータの、画層と線種のハンドルの位置
+type StyleSlots = super::objects::StyleHandles;
+
+/// 図形 `object` の線種（6）の、DWG のフラグとハンドル。名前がなければ ByLayer
+fn ltype_ref(db: &AcadDb, object: &Object) -> Option<(u8, u64)> {
+    Some(match object.values.iter().any(|value| value.code == 6) {
+        false => (0, 0),
+        true => match text_of(object, 6)? {
+            name if name.eq_ignore_ascii_case(b"ByLayer") => (0, 0),
+            name if name.eq_ignore_ascii_case(b"ByBlock") => (1, 0),
+            name if name.eq_ignore_ascii_case(b"Continuous") => (2, 0),
+            name => (3, record_handle(db, b"LTYPE", name)?),
+        },
+    })
+}
 
 /// R2004 で、型ごとのフィールドを R2000 と同じに符号化する図形の種類（決定 0072・0073）
 /// R2010 から後に書き戻す図形の種類（決定 0085〜0088）
@@ -335,10 +437,15 @@ impl DwgFile {
                     _ => return Err(unsupported(&object.kind)),
                 };
                 let (old, object) = (&old, &object);
-                let data = self
-                    .entries
-                    .get(record)
-                    .and_then(|entry| {
+                // 図形の画層と線種は、名前を表から引いてハンドルで書く（#723）
+                let restyle = match object.section {
+                    Section::Entities | Section::Blocks => Restyle::of(db, old, object),
+                    Section::Tables if object.kind == b"LAYER" => Restyle::layer(db, old, object),
+                    _ => Some(Restyle::default()),
+                };
+                let data = restyle
+                    .and_then(|restyle| Some((restyle, self.entries.get(record)?)))
+                    .and_then(|(restyle, entry)| {
                         let data = self.data(entry);
                         if old.values == object.values {
                             return Some(if r2010 {
@@ -357,22 +464,35 @@ impl DwgFile {
                             Section::Entities | Section::Blocks
                                 if !r2010 && object.kind == b"MULTILEADER" =>
                             {
+                                restyle.is_empty().then_some(())?;
                                 callout(data, old, object, self.release)
                             }
-                            Section::Entities | Section::Blocks if r2010 => {
-                                encode_r2010(data, entry.handles?, old, object, self.release)
-                            }
-                            Section::Tables if r2010 => {
-                                encode_record_r2010(data, entry.handles?, old, object, self.release)
-                            }
+                            Section::Entities | Section::Blocks if r2010 => encode_r2010(
+                                data,
+                                entry.handles?,
+                                old,
+                                object,
+                                self.release,
+                                restyle,
+                            ),
+                            Section::Tables if r2010 => encode_record_r2010(
+                                data,
+                                entry.handles?,
+                                old,
+                                object,
+                                self.release,
+                                restyle.ltype,
+                            ),
                             Section::Objects if r2010 => {
                                 encode_object_r2010(data, entry.handles?, old, object, self.release)
                             }
                             _ if r2010 => None,
                             Section::Entities | Section::Blocks => {
-                                encode(data, old, object, self.release)
+                                encode(data, old, object, self.release, restyle)
                             }
-                            Section::Tables => encode_record(data, old, object, self.release),
+                            Section::Tables => {
+                                encode_record(data, old, object, self.release, restyle.ltype)
+                            }
                             Section::Objects => encode_object(data, old, object, self.release),
                             _ => None,
                         }
@@ -796,15 +916,7 @@ impl DwgFile {
             return None;
         }
         let layer = record_handle(db, b"LAYER", text_of(object, 8)?)?;
-        let ltype = match object.values.iter().any(|value| value.code == 6) {
-            false => (0, 0),
-            true => match text_of(object, 6)? {
-                name if name.eq_ignore_ascii_case(b"ByLayer") => (0, 0),
-                name if name.eq_ignore_ascii_case(b"ByBlock") => (1, 0),
-                name if name.eq_ignore_ascii_case(b"Continuous") => (2, 0),
-                name => (3, record_handle(db, b"LTYPE", name)?),
-            },
-        };
+        let ltype = ltype_ref(db, object)?;
         let pointed = match object.kind.as_slice() {
             // 文字スタイルがなければ Standard
             b"TEXT" | b"ATTRIB" | b"ATTDEF" | b"MTEXT" => {
@@ -2355,7 +2467,13 @@ fn unsupported(kind: &[u8]) -> Box<Diagnostic> {
 /// `old` から `new` に値を変えた、バージョン `release` の図形のデータ `data` を、符号化し直す。共通のフィールドと型ごとのフィールドの
 /// ほかの値が変わったか、符号化できない値なら `None`。R2004 は、R2000 と型ごとのフィールドが同じ種類だけを
 /// 扱う（決定 0072）
-fn encode(data: &[u8], old: &Object, new: &Object, release: Release) -> Option<Vec<u8>> {
+fn encode(
+    data: &[u8],
+    old: &Object,
+    new: &Object,
+    release: Release,
+    restyle: Restyle,
+) -> Option<Vec<u8>> {
     // MINSERT も、表では INSERT とする。VERTEX と POLYLINE も、型でフィールドが分かれる
     let type_code = u16::try_from(Bits::with_release(data, Release::R2000).bs()?).ok()?;
     let own = own_codes(&new.kind, type_code);
@@ -2370,19 +2488,17 @@ fn encode(data: &[u8], old: &Object, new: &Object, release: Release) -> Option<V
             .cloned()
             .collect()
     };
-    let rest = |object| only(&[COMMON, own].concat(), object, false);
+    let rest = |object| only(&[COMMON, STYLED, own].concat(), object, false);
     if rest(old) != rest(new) {
         return None;
     }
     let [size_at, color_at, start, handles_at] = entity_fields(data, release)?;
-    let common = if only(COMMON, old, true) == only(COMMON, new, true) {
-        let mut common = BitWriter::default();
-        common.copy(data, color_at..start)?;
-        common
-    } else {
-        let color = only(&[62], old, true) != only(&[62], new, true);
-        common_fields(data, color_at, start, new, release, color)?
+    // 画層と線種を変えなければ、ハンドルのストリームを読まない（DBCOLOR の色は、共通のデータのフラグでも断る）
+    let slots = match restyle.is_empty() {
+        true => StyleSlots::default(),
+        false => style_handles(data, release, None)?,
     };
+    let common = common(data, [color_at, start], old, new, release, restyle, &slots)?;
     let fields = if only(own, old, true) == only(own, new, true) {
         let mut fields = BitWriter::default();
         fields.copy(data, start..handles_at)?;
@@ -2427,7 +2543,9 @@ fn encode(data: &[u8], old: &Object, new: &Object, release: Release) -> Option<V
         out.copy(&part.into_bytes(), 0..len)?;
     }
     // ハンドルのストリームの後ろの、バイトの終わりまでの埋めのビットも写す
-    out.copy(data, handles_at..data.len() * 8)?;
+    let handles = restyle.handles(data, handles_at, &slots)?;
+    let len = handles.len();
+    out.copy(&handles.into_bytes(), 0..len)?;
     Some(out.into_bytes())
 }
 
@@ -2483,6 +2601,7 @@ fn encode_r2010(
     old: &Object,
     new: &Object,
     release: Release,
+    restyle: Restyle,
 ) -> Option<Vec<u8>> {
     let type_code = u16::try_from(Bits::with_release(data, release).bot()?).ok()?;
     let own = own_codes(&new.kind, type_code);
@@ -2504,28 +2623,28 @@ fn encode_r2010(
             .cloned()
             .collect()
     };
-    let rest = |object| only(&[COMMON, own].concat(), object, false);
+    let rest = |object| only(&[COMMON, STYLED, own].concat(), object, false);
     if rest(old) != rest(new) {
         return None;
     }
     let [color_at, start, end] = r2010_entity_fields(data, handles_at, release)?;
-    let common = if only(COMMON, old, true) == only(COMMON, new, true) {
-        let mut common = BitWriter::default();
-        common.copy(data, color_at..start)?;
-        common
-    } else {
-        let color = only(&[62], old, true) != only(&[62], new, true);
-        common_fields(data, color_at, start, new, release, color)?
+    let slots = match restyle.is_empty() {
+        true => StyleSlots::default(),
+        false => style_handles(data, release, Some(handles_at))?,
     };
+    let common = common(data, [color_at, start], old, new, release, restyle, &slots)?;
     let mut out = BitWriter::default();
     out.copy(data, 0..color_at)?;
     let common_len = common.len();
     out.copy(&common.into_bytes(), 0..common_len)?;
     let handles = if only(own, old, true) == only(own, new, true) {
         out.copy(data, start..end)?;
-        // ハンドルのストリームは、主のデータの終わりと同じだけずれる
-        let handles = (out.len() + handles_at).checked_sub(end)?;
-        out.copy(data, end..data.len() * 8)?;
+        // 文字列のストリームを写し、ハンドルのストリームは画層と線種を書き直して写す
+        out.copy(data, end..handles_at)?;
+        let handles = out.len();
+        let rewritten = restyle.handles(data, handles_at, &slots)?;
+        let len = rewritten.len();
+        out.copy(&rewritten.into_bytes(), 0..len)?;
         handles
     } else {
         // 元の値を符号化したフィールドが、主のデータの終わりまでの長さを持ち、文字列のストリームが元と同じことを確かめる。
@@ -2537,7 +2656,7 @@ fn encode_r2010(
         found.copy(data, end..strings_end)?;
         (found.into_bytes() == same.take_strings().into_bytes()).then_some(())?;
         let fields = r2010_own_fields(old, new, type_code, data, start, end, release)?;
-        return r2010_finish(out, fields, data, handles_at);
+        return r2010_assemble(out, fields, restyle.handles(data, handles_at, &slots)?);
     };
     with_modular_size(out, handles)
 }
@@ -2999,7 +3118,8 @@ fn same_record_rest(old: &Object, new: &Object) -> Option<()> {
         .chain(DIM_FIELDS.iter().map(|field| field.0))
         .collect();
     let own: &[i16] = match new.kind.as_slice() {
-        b"LAYER" => LAYER,
+        // 線種（6）と真の色（420）も書き直せる（#723）
+        b"LAYER" => &[LAYER, &[6, 420, 430]].concat(),
         b"STYLE" => STYLE,
         b"LTYPE" => LTYPE,
         b"VIEW" => VIEW,
@@ -3078,6 +3198,7 @@ fn encode_record_r2010(
     old: &Object,
     new: &Object,
     release: Release,
+    ltype: Option<(u8, u64)>,
 ) -> Option<Vec<u8>> {
     same_record_rest(old, new)?;
     // UCS のレコードは、サンプルの図面になく確かめていない
@@ -3096,7 +3217,36 @@ fn encode_record_r2010(
         fields.copy(data, own_end..end)?;
         Some(fields)
     };
-    r2010_checked(data, [start, end, handles_at], encode(old)?, encode(new)?)
+    let handles = record_handles(data, handles_at, release, Some(handles_at), ltype)?;
+    r2010_checked(
+        data,
+        [start, end, handles_at],
+        encode(old)?,
+        encode(new)?,
+        Some(handles),
+    )
+}
+
+/// 表のレコードのハンドルのストリーム（`handles_at` から終わりまで）を写したもの。LAYER の線種を変えるなら（`ltype`）、線種の
+/// ハンドルを固い参照（符号 5）で書き直す（#723）。`r2010` は、R2010 からのデータのハンドルのストリームの始まり
+fn record_handles(
+    data: &[u8],
+    handles_at: usize,
+    release: Release,
+    r2010: Option<usize>,
+    ltype: Option<(u8, u64)>,
+) -> Option<BitWriter> {
+    let mut out = BitWriter::default();
+    match ltype {
+        None => out.copy(data, handles_at..data.len() * 8)?,
+        Some((_, handle)) => {
+            let slot = layer_line_type(data, release, r2010)?;
+            out.copy(data, handles_at..slot.start)?;
+            out.handle(5, handle);
+            out.copy(data, slot.end..data.len() * 8)?;
+        }
+    }
+    Some(out)
 }
 
 /// 型ごとのフィールドがビット `start` から `end` まで、ハンドルのストリームが `handles_at` からの R2010 のオブジェクトに、
@@ -3106,6 +3256,7 @@ fn r2010_checked(
     [start, end, handles_at]: [usize; 3],
     mut same: BitWriter,
     fields: BitWriter,
+    handles: Option<BitWriter>,
 ) -> Option<Vec<u8>> {
     (start + same.len() == end).then_some(())?;
     let strings_end = r2010_strings_end(data, end, handles_at)?;
@@ -3114,12 +3265,21 @@ fn r2010_checked(
     (found.into_bytes() == same.take_strings().into_bytes()).then_some(())?;
     let mut out = BitWriter::default();
     out.copy(data, 0..start)?;
-    r2010_finish(out, fields, data, handles_at)
+    match handles {
+        Some(handles) => r2010_assemble(out, fields, handles),
+        None => r2010_finish(out, fields, data, handles_at),
+    }
 }
 
 /// 表のレコードの型ごとのフィールドを符号化し直したデータ（決定 0043〜0046）。LAYER・STYLE・LTYPE・VIEW・UCS・VPORT・DIMSTYLE だけを扱う。名前（2）などの
 /// ほかの値が変わったものは `None`
-fn encode_record(data: &[u8], old: &Object, new: &Object, release: Release) -> Option<Vec<u8>> {
+fn encode_record(
+    data: &[u8],
+    old: &Object,
+    new: &Object,
+    release: Release,
+    ltype: Option<(u8, u64)>,
+) -> Option<Vec<u8>> {
     same_record_rest(old, new)?;
     let [size_at, start, handles_at] = object_fields(data, release)?;
     let mut fields = BitWriter::default();
@@ -3131,7 +3291,9 @@ fn encode_record(data: &[u8], old: &Object, new: &Object, release: Release) -> O
     out.copy(data, size_at + 32..start)?;
     let len = fields.len();
     out.copy(&fields.into_bytes(), 0..len)?;
-    out.copy(data, handles_at..data.len() * 8)?;
+    let handles = record_handles(data, handles_at, release, None, ltype)?;
+    let len = handles.len();
+    out.copy(&handles.into_bytes(), 0..len)?;
     Some(out.into_bytes())
 }
 
@@ -3170,7 +3332,13 @@ fn encode_object_r2010(
         fields.copy(data, own_end..end)?;
         Some(fields)
     };
-    r2010_checked(data, [start, end, handles_at], encode(old)?, encode(new)?)
+    r2010_checked(
+        data,
+        [start, end, handles_at],
+        encode(old)?,
+        encode(new)?,
+        None,
+    )
 }
 
 /// OBJECTS のオブジェクトの型ごとのフィールドを、ビット `start` から読みながら `fields` に書き、元のフィールドの終わりの位置を返す
@@ -3253,14 +3421,34 @@ fn layer(
     let old_color = bits.cmc()?;
     let (flags, color) = layer_flags(object, xdep, old)?;
     fields.bs(flags);
-    same_cmc(
-        fields,
-        data,
-        color_at..bits.pos(),
-        old_color,
-        color,
-        release,
-    )?;
+    match integer(object, 420)? {
+        // 真の色（R2004 から、#723）。番号（BS）も書き、読むときに 62 に戻す
+        Some(rgb) if old_color.rgb.map(i64::from) == Some(rgb) && old_color.index == color => {
+            fields.copy(data, color_at..bits.pos())?;
+        }
+        // 色見本帳の色の名前（430）は書かないので、名前を持つ画層の色は変えない
+        Some(rgb) => {
+            (release >= Release::R2004 && !object.values.iter().any(|value| value.code == 430))
+                .then_some(())?;
+            let rgb = u32::try_from(rgb).ok().filter(|rgb| *rgb <= 0x00FF_FFFF)?;
+            fields.bs(color);
+            fields.bl(i32::from_ne_bytes(((0xC2 << 24) | rgb).to_ne_bytes()));
+            fields.rc(0);
+        }
+        None => {
+            // 組み直す CMC は名前を持たないので、色見本帳の色の名前（430）を持つ画層の色は変えない
+            let copied = old_color.rgb.is_none() && old_color.index == color;
+            (copied || !object.values.iter().any(|value| value.code == 430)).then_some(())?;
+            same_cmc(
+                fields,
+                data,
+                color_at..bits.pos(),
+                old_color,
+                color,
+                release,
+            )?;
+        }
+    }
     Some(bits.pos())
 }
 
@@ -4384,13 +4572,71 @@ fn vport_fields(
 /// バージョン `release` の共通のフィールドの、色から型ごとのフィールドの前まで。`color` なら色を書き、色（62）がなければ ByLayer に
 /// する。線種の尺度（48）がなければ 1、非表示（60）がなければ 0 を書く。線種と印刷スタイルのフラグと、線の太さは
 /// 元のまま写す
+/// 図形の共通のフィールド（色から型ごとのフィールドの前まで、`at` は始まりと終わり）を、`old` から `new` に変えて書いたもの。
+/// 変わらなければ元のビットを写す。真の色（420）は R2004 から書き、DBCOLOR で色を指す図形と、DBCOLOR を指すように変える
+/// 図形は扱わない
+fn common(
+    data: &[u8],
+    [color_at, start]: [usize; 2],
+    old: &Object,
+    new: &Object,
+    release: Release,
+    restyle: Restyle,
+    slots: &StyleSlots,
+) -> Option<BitWriter> {
+    let only = |codes: &[i16], object: &Object| -> Vec<_> {
+        object
+            .values
+            .iter()
+            .filter(|value| codes.contains(&value.code))
+            .cloned()
+            .collect()
+    };
+    if only(&[COMMON, &[370, 420]].concat(), old) == only(&[COMMON, &[370, 420]].concat(), new)
+        && restyle.ltype.is_none()
+    {
+        let mut common = BitWriter::default();
+        common.copy(data, color_at..start)?;
+        return Some(common);
+    }
+    let color = only(&[62, 420], old) != only(&[62, 420], new);
+    if color && (slots.color_handle || (release == Release::R2000 && !only(&[420], new).is_empty()))
+    {
+        return None;
+    }
+    let weight = only(&[370], old) != only(&[370], new);
+    common_fields(
+        data,
+        color_at,
+        start,
+        new,
+        release,
+        Changed {
+            color,
+            weight,
+            ltype: restyle.ltype.map(|(flags, _)| flags),
+        },
+    )
+}
+
+/// 共通のフィールドのうち、書き直すもの
+#[derive(Clone, Copy, Default)]
+struct Changed {
+    /// 色（62・420）
+    color: bool,
+    /// 線の太さ（370）
+    weight: bool,
+    /// 線種のフラグ
+    ltype: Option<u8>,
+}
+
 fn common_fields(
     data: &[u8],
     color_at: usize,
     start: usize,
     object: &Object,
     release: Release,
-    color: bool,
+    changed: Changed,
 ) -> Option<BitWriter> {
     let mut bits = Bits::with_release(data, release);
     bits.seek(color_at);
@@ -4414,24 +4660,57 @@ fn common_fields(
     bits.bs()?;
     let lineweight_at = bits.pos();
     let mut fields = BitWriter::default();
-    if !color {
+    if !changed.color {
         fields.copy(data, color_at..scale_at)?;
     } else if release == Release::R2000 {
         fields.bs(small(object, 62)?.unwrap_or(256));
     } else {
-        // R2004 の番号は、フラグの下の 12 ビットに収まらなければならない。RGB の値と DBCOLOR を持つ色は、
-        // まだ変えない。透明度（0x2000 と BL）は元のまま写す
-        let index = small(object, 62)?.unwrap_or(256);
-        if flags & 0xC000 != 0 || !(0..=0x0FFF).contains(&index) {
+        // R2004 からの色（ODS 5.4.1 の 2.11）。DBCOLOR を指す色（0x4000）は扱わない。真の色（420）は 0x8000 を立て、
+        // 0xC2 を上位のバイトにした RGB の値（BL）を続ける。番号は、フラグの下の 12 ビットに収まらなければならない。
+        // 透明度（0x2000 と BL）は元のまま写す
+        if flags & 0x4000 != 0 {
             return None;
         }
-        fields.bs(index | (flags & 0x2000) as i16);
-        fields.copy(data, index_end..scale_at)?;
+        let mut old = Bits::with_release(data, release);
+        old.seek(index_end);
+        if flags & 0x8000 != 0 {
+            old.bl()?;
+        }
+        let rgb_end = old.pos();
+        match integer(object, 420)? {
+            Some(rgb) => {
+                let rgb = u32::try_from(rgb).ok().filter(|rgb| *rgb <= 0x00FF_FFFF)?;
+                fields.bs(i16::from_ne_bytes(
+                    (0x8000 | (flags & 0x2000)).to_ne_bytes(),
+                ));
+                fields.bl(i32::from_ne_bytes(((0xC2 << 24) | rgb).to_ne_bytes()));
+            }
+            None => {
+                let index = small(object, 62)?.unwrap_or(256);
+                if !(0..=0x0FFF).contains(&index) {
+                    return None;
+                }
+                fields.bs(index | (flags & 0x2000) as i16);
+            }
+        }
+        fields.copy(data, rgb_end..scale_at)?;
     }
     fields.bd(real(object, 48)?.unwrap_or(1.0));
-    fields.copy(data, flags_at..invisible_at)?;
+    match changed.ltype {
+        Some(ltype) => {
+            fields.bb(ltype);
+            fields.copy(data, flags_at + 2..invisible_at)?;
+        }
+        None => fields.copy(data, flags_at..invisible_at)?,
+    }
     fields.bs(small(object, 60)?.unwrap_or(0));
-    fields.copy(data, lineweight_at..start)?;
+    if changed.weight {
+        // 線の太さ（RC）。値がなければ ByLayer
+        fields.rc(u8::try_from(lineweight_index(integer(object, 370)?.unwrap_or(-1))?).ok()?);
+        fields.copy(data, lineweight_at + 8..start)?;
+    } else {
+        fields.copy(data, lineweight_at..start)?;
+    }
     Some(fields)
 }
 
@@ -6374,7 +6653,8 @@ mod layer_name_tests {
                     .find(|value| value.code == 62)
                     .unwrap()
                     .data = Data::Int(3);
-                let rewritten = encode_record_r2010(data, handles_at, &old, &new, release).unwrap();
+                let rewritten =
+                    encode_record_r2010(data, handles_at, &old, &new, release, None).unwrap();
                 let (data, handles_at) = split(&rewritten);
                 let mut bits = Bits::with_release(data, release);
                 assert_eq!(bits.bot(), i16::try_from(kinds::LAYER).ok());
@@ -6411,7 +6691,7 @@ mod layer_name_tests {
         let (data, handles_at) = split(&encoded);
         let old = layer_object("xref|old", true);
         let new = layer_object("xref|new", true);
-        assert!(encode_record_r2010(data, handles_at, &old, &new, release).is_none());
+        assert!(encode_record_r2010(data, handles_at, &old, &new, release, None).is_none());
     }
 }
 
@@ -6549,7 +6829,15 @@ mod leader_tests {
 
             let changed = leader_object(&[[1.0, 0.0], [5.0, 5.0], [9.0, 5.0]], 0);
             let (data, handles_at) = split(&encoded);
-            let rewritten = encode_r2010(data, handles_at, &old, &changed, release).unwrap();
+            let rewritten = encode_r2010(
+                data,
+                handles_at,
+                &old,
+                &changed,
+                release,
+                Restyle::default(),
+            )
+            .unwrap();
             let (values, handles) = read(&rewritten);
             assert_eq!(first(&values, 71), Some(Data::Int(0)));
             assert_eq!(first(&values, 76), Some(Data::Int(3)));
@@ -6563,7 +6851,17 @@ mod leader_tests {
 
             let mut following = changed.clone();
             following.values.retain(|value| value.code != 71);
-            assert!(encode_r2010(data, handles_at, &old, &following, release).is_none());
+            assert!(
+                encode_r2010(
+                    data,
+                    handles_at,
+                    &old,
+                    &following,
+                    release,
+                    Restyle::default()
+                )
+                .is_none()
+            );
         }
     }
 

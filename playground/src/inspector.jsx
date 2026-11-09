@@ -95,12 +95,12 @@ export function Inspector({ viewer, state, opened }) {
   </aside>;
 }
 
-const stages = { open: "読み込み", drawing: "図面モデル", scene: "表示" };
+const stages = { open: "読み込み", drawing: "図面モデル", scene: "表示", convert: "変換" };
 const severity = { error: "エラー", warning: "警告", info: "情報" };
-export function Diagnostics({ entries, issues }) {
+export function Diagnostics({ entries, issues, title = "診断", id = "diagnostics-title" }) {
   const total = entries.length + issues.length;
-  return <section aria-labelledby="diagnostics-title" className="diagnostics">
-    <h2 id="diagnostics-title">診断 <small>{total}</small></h2>
+  return <section aria-labelledby={id} className="diagnostics">
+    <h2 id={id}>{title} <small>{total}</small></h2>
     {!total && <p>診断はありません。</p>}
     <Pages count={total} label="診断">{(i) => {
       if (i >= entries.length) {

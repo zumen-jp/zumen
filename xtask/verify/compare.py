@@ -265,7 +265,7 @@ def check_handles(entry, reading, counts, view):
 
 
 def applied(entry, reading, counts, view):
-    """DXF・DWG の書き戻した値: 変更で決めた形と画層、足した画層の色、色を変えた図形の色、点の表し方"""
+    """DXF・DWG の書き戻した値: 変更で決めた形と画層、足した画層の色、色と画層を変えた図形の色と画層、点の表し方"""
     tool = view["tool"]
     failures = []
     by_id = {e["id"]: e for e in reading["entities"]}
@@ -298,6 +298,12 @@ def applied(entry, reading, counts, view):
                     failures.append(f"色を変えた {edit['id']} が {tool} にない")
                 elif e["color"] != aci:
                     failures.append(f"色を変えた {edit['id']} の色が ACI {e['color']}（期待は {aci}）")
+            if edit["kind"] == "restyle" and "layer" in edit:
+                e = view["entity"](handle_of(by_id.get(edit["id"], {})) or "")
+                if e is None:
+                    failures.append(f"画層を変えた {edit['id']} が {tool} にない")
+                elif (e["layer"] or "").lower() != edit["layer"].lower():
+                    failures.append(f"画層を変えた {edit['id']} の画層が {e['layer']!r}（期待は {edit['layer']!r}）")
             if edit["kind"] == "point_style":
                 mode, size = point_style(edit)
                 got_mode, got_size = view["header"]
