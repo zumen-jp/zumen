@@ -1187,5 +1187,33 @@ mod tests {
             })
             .collect();
         assert_eq!(placed, ["K", "M"]);
+
+        // 外部参照の定義どうしが重なると、先の定義を外部参照として、あとの定義を重なりとして報告する
+        let drawing = Drawing2D {
+            spaces: vec![block_space(0, vec![placed_block("X", 30)])],
+            symbols: vec![
+                block_definition(1, "X", true, None),
+                block_definition(2, "X", true, None),
+            ],
+            ..Drawing2D::default()
+        };
+        let (read, dropped) = convert_and_read(&drawing);
+        assert_eq!(
+            dropped,
+            [
+                (
+                    Some(Value::Key("external_symbol_definition")),
+                    1,
+                    vec![Some(1)]
+                ),
+                (
+                    Some(Value::Key("duplicate_symbol_definition")),
+                    1,
+                    vec![Some(2)]
+                ),
+                (Some(Value::Key("external_symbol")), 1, vec![Some(30)]),
+            ]
+        );
+        assert!(read.symbols.is_empty());
     }
 }
