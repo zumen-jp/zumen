@@ -1,0 +1,6 @@
+# fuzz の CI が、見つけた入力とログを暗号にする受け取り手の公開鍵（age の recipients の形。#647、決定 0283）。
+# 1 行に 1 つ、age1… か ssh-ed25519 … の公開鍵を書く。対応する秘密鍵は担当者が持ち、リポジトリにも secrets にも
+# 置かない。受け取り手を足す・替えるのは、利用者が決める（fuzz/README.md の「暗号にした入力を開く」）。
+#
+# 利用者が 2026-11-09 に会話で選んだ鍵（PR #662）。
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJyIDWw+wUJsfm0DB6RN+guoHmIxK6PaznO6Yf20JyNH zumen-fuzz
