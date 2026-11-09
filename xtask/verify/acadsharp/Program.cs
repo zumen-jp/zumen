@@ -43,6 +43,12 @@ return 0;
 
 static class Dwg
 {
+    static ulong FileHandleSeed(string path)
+    {
+        using var reader = new DwgReader(path);
+        return reader.ReadHeader().HandleSeed;
+    }
+
     public static JsonObject Dump(string path)
     {
         var notes = new JsonArray();
@@ -70,6 +76,15 @@ static class Dwg
             {
                 ["PDMODE"] = (int)doc.Header.PointDisplayMode,
                 ["PDSIZE"] = doc.Header.PointDisplaySize,
+                // ファイルに書かれた、次に振るハンドル。足した図形で大きさ（バイト）が増えたときの書き直しを照らす（#701）。
+                // doc.Header.HandleSeed は、読むときに登録したオブジェクトと ACadSharp が作ったオブジェクトで
+                // 引き上げられるので、ヘッダーだけを読み直した値を使う
+                ["HANDSEED"] = FileHandleSeed(path),
+                // HANDSEED より後ろに書く変数。HANDSEED の大きさが変わったときに、後ろのビットがずれていないことを照らす
+                ["INSUNITS"] = (int)doc.Header.InsUnits,
+                ["PLIMMIN"] = new JsonArray(doc.Header.PaperSpaceLimitsMin.X, doc.Header.PaperSpaceLimitsMin.Y),
+                ["PLIMMAX"] = new JsonArray(doc.Header.PaperSpaceLimitsMax.X, doc.Header.PaperSpaceLimitsMax.Y),
+                ["CLAYER"] = doc.Header.CurrentLayerName,
             };
             var layers = new JsonObject();
             foreach (var layer in doc.Layers)
