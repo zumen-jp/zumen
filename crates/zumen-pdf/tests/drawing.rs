@@ -1,6 +1,6 @@
 //! PDF から図面モデル（L2）とシーンへの移し（決定 0256）。入力は、どれもテストの中で作る。
 
-// 図面モデルへの移しは drawing の機能で作る（#613）
+// 図面モデルへの移しは 機能 `drawing` で作る（#613）
 #![cfg(feature = "drawing")]
 
 use zumen_base::{Budget, CancelToken, Cx, Diagnostics, codes};

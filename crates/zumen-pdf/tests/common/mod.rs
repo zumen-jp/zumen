@@ -196,7 +196,7 @@ pub fn one_page(page: Page<'_>) -> Vec<u8> {
     Document::new(vec![page]).bytes()
 }
 
-/// 読んで図面モデルにする。読み取りと移しの診断を返す。図面モデルへの移しは drawing の機能で作る（#613）
+/// 読んで図面モデルにする。読み取りと移しの診断を返す。図面モデルへの移しは 機能 `drawing` で作る（#613）
 #[cfg(test)]
 #[cfg(feature = "drawing")]
 pub fn lift(src: &[u8]) -> (Drawing2D, Vec<Diagnostic>) {
