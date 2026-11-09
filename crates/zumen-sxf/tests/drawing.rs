@@ -1201,6 +1201,109 @@ fn moves_parts_predefined_symbols_and_nested_views() {
     assert!(matches!(element.style.color, Inherit::Own(_)));
 }
 
+/// 図面の要素の ID と、形・スタイル（出どころを除く）
+#[cfg(test)]
+fn identified(drawing: &Drawing2D) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    let _ = zumen_drawing::id::each_element(drawing, |_, id, element| {
+        out.push((id, format!("{:?}", element.hash())));
+        Ok::<(), ()>(())
+    });
+    out
+}
+
+#[test]
+fn reports_computed_values_that_are_not_finite() {
+    // 有限の入力から、計算で無限大か NaN になる値（#595）。正常な値の組と、図形の位置（レコード）をそろえて比べる
+    let line = b"line_feature('1','1','1','1','0','0','1','0')".as_slice();
+    let ellipse = |center: &str, radius: &str| {
+        format!("ellipse_feature('1','1','1','1','{center}','0','{radius}','{radius}','0')")
+    };
+    let dimension = |from: &str, to: &str| {
+        let mut values = vec!["1"; 4];
+        values.extend(["0", "0", "1", from, to]);
+        values.extend(["0"; 25]);
+        let values: Vec<_> = values.iter().map(|v| format!("'{v}'")).collect();
+        format!("curve_dim_feature({})", values.join(","))
+    };
+    let nested = |scale: &str| {
+        [
+            line.to_vec(),
+            b"sfig_org_feature(\'B\','1')".to_vec(),
+            format!("sfig_locate_feature('1',\'B\','0','0','0','{scale}','{scale}')").into_bytes(),
+            b"sfig_org_feature(\'A\','1')".to_vec(),
+            format!("sfig_locate_feature('1',\'A\','0','0','0','{scale}','{scale}')").into_bytes(),
+        ]
+    };
+    // 図形と、正常な値の図形と、診断の場所の番号
+    type Case = (Vec<Vec<u8>>, Vec<Vec<u8>>, u64);
+    let cases: [Case; 3] = [
+        (
+            vec![ellipse("1e308", "1e308").into_bytes()],
+            vec![ellipse("1", "1").into_bytes()],
+            30,
+        ),
+        (
+            vec![dimension("-1e308", "1e308").into_bytes()],
+            vec![dimension("0", "90").into_bytes()],
+            30,
+        ),
+        (nested("1e200").to_vec(), nested("2").to_vec(), 50),
+    ];
+    for (bad, good, at) in cases {
+        let features = |shapes: &[Vec<u8>]| {
+            let mut all = vec![b"layer_feature(\'L\','1')".to_vec(), line.to_vec()];
+            all.extend(shapes.iter().cloned());
+            all.push(b"drawing_sheet_feature(\'S\','3','1','0','0')".to_vec());
+            let refs: Vec<&[u8]> = all.iter().map(Vec::as_slice).collect();
+            sfc(&refs)
+        };
+        let (src, normal) = (features(&bad), features(&good));
+        // ファイルのバイト列は変えない
+        testkit::roundtrip::<Sxf>(&src).unwrap();
+        let (drawing, diag) = lift(&src);
+        let (expected, normal_diag) = lift(&normal);
+        assert!(normal_diag.is_empty(), "{normal_diag:?}");
+        assert_eq!(diag.len(), 1, "{diag:?}");
+        let invalid = find(&diag, codes::SXF_LIFT_INVALID);
+        assert_eq!(invalid.places()[0].key(), Some(Key::Instance(at)));
+        // 図形かビューを 1 つ作らないだけで、ほかの要素の値と ID は変わらない
+        let ids = identified(&drawing);
+        let normal_ids = identified(&expected);
+        assert!(ids.iter().all(|id| normal_ids.contains(id)), "{ids:?}");
+        assert!(!ids.is_empty());
+        for view in &drawing.sheets[0].views {
+            assert!(view.transform.m.iter().all(|v| v.is_finite()), "{view:?}");
+        }
+        let text = format!("{drawing:?}");
+        assert!(!text.contains("NaN") && !text.contains("inf"), "{text}");
+    }
+
+    // P21 の楕円も、同じ計算を通る。正常な値の組にない診断は、楕円の表記の実体を指す 1 件だけ
+    let ellipse = |center: &str, radius: &str| {
+        p21(&format!(
+            "#1=PRESENTATION_STYLE_ASSIGNMENT(());
+             #2=CARTESIAN_POINT(' ',({center},0.));
+             #3=DIRECTION(' ',(1.,0.));
+             #4=AXIS2_PLACEMENT_2D(' ',#2,#3);
+             #5=ELLIPSE(' ',#4,{radius},{radius});
+             #6=ANNOTATION_CURVE_OCCURRENCE(' ',(#1),#5);
+             #7=DRAWING_SHEET_REVISION('FREE',(#6),$,'01');
+"
+        ))
+    };
+    let src = ellipse("1.E308", "1.E308");
+    testkit::roundtrip::<Sxf>(&src).unwrap();
+    let (drawing, diag) = lift(&src);
+    let (normal, normal_diag) = lift(&ellipse("1.", "1."));
+    assert!(drawing.sheets[0].elements.is_empty());
+    assert_eq!(normal.sheets[0].elements.len(), 1);
+    let added: Vec<_> = diag.iter().filter(|d| !normal_diag.contains(d)).collect();
+    assert_eq!(added.len(), 1, "{diag:?}");
+    assert_eq!(added[0].code(), codes::SXF_LIFT_INVALID);
+    assert_eq!(added[0].places()[0].key(), Some(Key::Instance(6)));
+}
+
 #[test]
 fn keeps_attribute_mechanism_names_on_the_elements() {
     let src = sfc(&[
