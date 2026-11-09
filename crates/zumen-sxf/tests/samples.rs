@@ -1,6 +1,9 @@
 //! サンプルの SXF で確かめる。サンプルは公開サンプルの `samples/sxf` と、受け取った図面を置く `ZUMEN_SAMPLES` の
 //! フォルダーから集める
 
+// サンプルの確かめ（図面モデルへの変換と書き戻し）は、機能 `drawing` で作る（#735）
+#![cfg(feature = "drawing")]
+
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 

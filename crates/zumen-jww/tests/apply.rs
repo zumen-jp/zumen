@@ -1,5 +1,8 @@
 //! 図面モデルの変更を、JWW の図形の一覧に書き戻す（決定 0168）。入力は、どれもテストの中で作る。
 
+// 図面モデルの変更の書き戻しは、機能 `drawing` で作る（#735）
+#![cfg(feature = "drawing")]
+
 mod common;
 
 use core::f64::consts::PI;
