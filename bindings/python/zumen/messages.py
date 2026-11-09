@@ -1276,7 +1276,7 @@ _ApplyResultRequired = TypedDict(
 _ApplyResultOptional = TypedDict(
     "_ApplyResultOptional",
     {
-        # true なら、変えていない要素の ID がずれた。キーを持たない形式（JWW）か、ハンドルを持たない DXF（R12 など）で、前の図形を除くか足したとき。ID を使う前に entities で読み直す。ずれないときは持たない。マイナーバージョン 30 から
+        # true なら、変えていない要素の ID がずれた。キーを持たない形式（JWW）か、ハンドルを持たない DXF（R12 など）で、前の図形か表のレコードを除くか足したとき。ID を使う前に entities で読み直す。ずれないときは持たない。マイナーバージョン 30 から
         "ids_shifted": bool,
     },
     total=False,
