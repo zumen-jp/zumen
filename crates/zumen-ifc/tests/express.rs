@@ -357,6 +357,17 @@ fn deep_nesting_does_not_exhaust_a_small_stack() {
             assert!(!format!("{copy:?}").is_empty());
             drop(copy);
             drop(schema);
+
+            // 呼び出し側が上限を引き上げても、読み取った型の各段は同じ配列に並ぶ
+            let raised = 4 * depth;
+            let limits = Limits::default().with(Kind::Depth, Limit::Finite(raised as u64));
+            let (schema, diag, _) = read(&nested(raised, raised), limits);
+            let schema = schema.unwrap_or_else(|e| panic!("{e:?} {diag:?}"));
+            let copy = schema.clone();
+            assert!(schema == copy);
+            assert!(!format!("{copy:?}").is_empty());
+            drop(copy);
+            drop(schema);
         })
         .unwrap()
         .join()

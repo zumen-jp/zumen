@@ -52,8 +52,15 @@ struct Attribute {
     optional: bool,
 }
 
+/// 集まりの段を外から順に持つ。写すときも捨てるときも、型の深さに応じてスタックを使わない
 #[derive(Clone, Debug, PartialEq)]
-enum Type {
+struct Type {
+    levels: Vec<Level>,
+    item: Item,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+enum Item {
     Integer,
     Real,
     Number,
@@ -63,13 +70,6 @@ enum Type {
     Binary,
     /// 型か実体の名前（大文字）
     Named(String),
-    Aggregate {
-        kind: &'static str,
-        lower: Option<u64>,
-        upper: Option<u64>,
-        optional_items: bool,
-        of: Box<Type>,
-    },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -188,14 +188,14 @@ impl Express {
                     continue;
                 }
                 last = Some(ty);
-                if let Some(name) = ty.item_name().and_then(unknown) {
+                if let Some(name) = ty.item.name().and_then(unknown) {
                     return Some(name);
                 }
             }
         }
         for def in self.types.values() {
             let name = match def {
-                TypeDef::Defined(_, ty) => ty.item_name().and_then(unknown),
+                TypeDef::Defined(_, ty) => ty.item.name().and_then(unknown),
                 TypeDef::Select(_, items) => items.iter().find_map(unknown),
                 TypeDef::Enumeration(..) => None,
             };
@@ -223,7 +223,10 @@ impl Express {
                 if !path.insert(next) {
                     return Ok(Some(name.clone()));
                 }
-                let Some(TypeDef::Defined(_, Type::Named(target))) = self.types.get(next) else {
+                let Some(TypeDef::Defined(_, ty)) = self.types.get(next) else {
+                    break;
+                };
+                let Some(target) = ty.name() else {
                     break;
                 };
                 next = target;
@@ -237,8 +240,8 @@ impl Express {
 
     /// 上位の型をたどると自分に戻る実体のうち、名前の順で最初のもの。
     ///
-    /// 強連結成分を Tarjan の方法で求める。実体ごとに 1 度入り、上位の型ごとに 1 度たどるので、手間は実体と上位の型の
-    /// 数に比例する。1 歩ごとに work で数え、中断の合図も見る
+    /// 強連結成分を Tarjan の方法で求める。実体ごとに 1 度入り、上位の型ごとに 1 度たどる。
+    /// work で数える探索の歩数は、実体と上位の型の数に比例する。1 歩ごとに中断の合図も見る
     fn cyclic_entity(&self, cx: &mut Cx) -> Result<Option<String>, Error> {
         // 入った実体の、入った順と、そこからたどれて成分の決まっていない実体のうち、もっとも早く入ったものの順（low-link）
         let mut order: BTreeMap<&str, (usize, usize)> = BTreeMap::new();
@@ -382,10 +385,7 @@ impl Express {
             self.slots(kind)
                 .into_iter()
                 .map(|slot| {
-                    let type_name = match &*slot.ty {
-                        Type::Named(name) => Some(name.clone()),
-                        _ => None,
-                    };
+                    let type_name = slot.ty.name().cloned();
                     Explicit {
                         base: self.base(&slot.ty),
                         name: slot.written,
@@ -403,12 +403,12 @@ impl Express {
         let mut ty = ty;
         // 型の循環は読むときに断っている。深さは念のため
         for _ in 0..64 {
-            match ty {
-                Type::Integer => return Base::Integer,
-                Type::Real | Type::Number => return Base::Real,
-                Type::Boolean => return Base::Boolean,
-                Type::Logical => return Base::Logical,
-                Type::Named(name) => match self.types.get(name) {
+            match (ty.levels.as_slice(), &ty.item) {
+                ([], Item::Integer) => return Base::Integer,
+                ([], Item::Real | Item::Number) => return Base::Real,
+                ([], Item::Boolean) => return Base::Boolean,
+                ([], Item::Logical) => return Base::Logical,
+                ([], Item::Named(name)) => match self.types.get(name) {
                     Some(TypeDef::Defined(_, inner)) => ty = inner,
                     _ => return Base::Other,
                 },
@@ -445,28 +445,22 @@ impl Express {
     /// 型の書き方（診断の値）。集まりの段は、自分を呼ばずに外から順に書く
     fn display(&self, ty: &Type) -> String {
         let mut out = String::new();
-        let mut ty = ty;
         let bound = |b: &Option<u64>| b.map_or("?".to_owned(), |b| b.to_string());
-        while let Type::Aggregate {
-            kind,
-            lower,
-            upper,
-            of,
-            ..
-        } = ty
+        for Level {
+            kind, lower, upper, ..
+        } in &ty.levels
         {
             let _ = write!(out, "{kind} [{}:{}] OF ", bound(lower), bound(upper));
-            ty = of;
         }
-        out.push_str(match ty {
-            Type::Integer => "INTEGER",
-            Type::Real => "REAL",
-            Type::Number => "NUMBER",
-            Type::Boolean => "BOOLEAN",
-            Type::Logical => "LOGICAL",
-            Type::String => "STRING",
-            Type::Binary => "BINARY",
-            Type::Named(name) => match (self.types.get(name), self.entities.get(name)) {
+        out.push_str(match &ty.item {
+            Item::Integer => "INTEGER",
+            Item::Real => "REAL",
+            Item::Number => "NUMBER",
+            Item::Boolean => "BOOLEAN",
+            Item::Logical => "LOGICAL",
+            Item::String => "STRING",
+            Item::Binary => "BINARY",
+            Item::Named(name) => match (self.types.get(name), self.entities.get(name)) {
                 (
                     Some(
                         TypeDef::Defined(n, _) | TypeDef::Enumeration(n, _) | TypeDef::Select(n, _),
@@ -476,21 +470,25 @@ impl Express {
                 (None, Some(entity)) => &entity.name,
                 (None, None) => name,
             },
-            // 集まりの段は、上で書き終えている
-            Type::Aggregate { .. } => "",
         });
         out
     }
 }
 
 impl Type {
-    /// 型が使う名前。集まりなら、項目の型の名前。自分を呼ばない
-    fn item_name(&self) -> Option<&String> {
-        let mut ty = self;
-        while let Self::Aggregate { of, .. } = ty {
-            ty = of;
+    /// 名前で指定した型だけ、その名前を返す
+    fn name(&self) -> Option<&String> {
+        if self.levels.is_empty() {
+            self.item.name()
+        } else {
+            None
         }
-        match ty {
+    }
+}
+
+impl Item {
+    fn name(&self) -> Option<&String> {
+        match self {
             Self::Named(name) => Some(name),
             _ => None,
         }
@@ -654,6 +652,7 @@ struct Parser<'t> {
 type Parsed<T> = Result<T, usize>;
 
 /// 集まりの型の 1 段
+#[derive(Clone, Debug, PartialEq)]
 struct Level {
     kind: &'static str,
     lower: Option<u64>,
@@ -666,7 +665,7 @@ enum Head {
     /// 集まりの 1 段。後ろに項目の型が続く
     Level(Level),
     /// 集まりでない型
-    Item(Type),
+    Item(Item),
 }
 
 impl Parser<'_> {
@@ -843,17 +842,10 @@ impl Parser<'_> {
         };
         // 型を読み終えたら、入った段をすべて出る
         cx.budget.leave(levels.len() as u64);
-        let mut ty = item?;
-        for level in levels.into_iter().rev() {
-            ty = Type::Aggregate {
-                kind: level.kind,
-                lower: level.lower,
-                upper: level.upper,
-                optional_items: level.optional_items,
-                of: Box::new(ty),
-            };
-        }
-        Ok(ty)
+        Ok(Type {
+            levels,
+            item: item?,
+        })
     }
 
     /// 型の始まり。集まりなら、`OF` の後ろまでの 1 段だけを読む
@@ -862,13 +854,13 @@ impl Parser<'_> {
             return Err(self.at);
         };
         let simple = match word.as_str() {
-            "INTEGER" => Some(Type::Integer),
-            "REAL" => Some(Type::Real),
-            "NUMBER" => Some(Type::Number),
-            "BOOLEAN" => Some(Type::Boolean),
-            "LOGICAL" => Some(Type::Logical),
-            "STRING" => Some(Type::String),
-            "BINARY" => Some(Type::Binary),
+            "INTEGER" => Some(Item::Integer),
+            "REAL" => Some(Item::Real),
+            "NUMBER" => Some(Item::Number),
+            "BOOLEAN" => Some(Item::Boolean),
+            "LOGICAL" => Some(Item::Logical),
+            "STRING" => Some(Item::String),
+            "BINARY" => Some(Item::Binary),
             _ => None,
         };
         if let Some(simple) = simple {
@@ -888,7 +880,7 @@ impl Parser<'_> {
             "BAG" => "BAG",
             "ARRAY" => "ARRAY",
             _ if word.starts_with(|c: char| c.is_ascii_alphabetic()) => {
-                return Ok(Head::Item(Type::Named(word)));
+                return Ok(Head::Item(Item::Named(word)));
             }
             _ => return Err(self.at.saturating_sub(1)),
         };
@@ -1186,7 +1178,7 @@ impl Checker<'_> {
                     (false, Value::Derived) => Some((self.schema.display(&slot.ty), false)),
                     (false, Value::Null) if slot.optional => None,
                     (false, Value::Null) => Some((self.schema.display(&slot.ty), true)),
-                    (false, value) => (!self.value(&slot.ty, value, cx)?)
+                    (false, value) => (!self.value(&slot.ty.levels, &slot.ty.item, value, cx)?)
                         .then(|| (self.schema.display(&slot.ty), false)),
                 };
                 if let Some((expected, missing)) = finding {
@@ -1219,11 +1211,41 @@ impl Checker<'_> {
     }
 
     /// 値が型に合うか。集まりの入れ子は `depth` で数える
-    fn value(&mut self, ty: &Type, value: &Value, cx: &mut Cx) -> Result<bool, Error> {
+    fn value(
+        &mut self,
+        levels: &[Level],
+        item_type: &Item,
+        value: &Value,
+        cx: &mut Cx,
+    ) -> Result<bool, Error> {
         cx.check(Kind::Work, 1)
             .map_err(|stop| stopped(cx, stop, None))?;
-        Ok(match ty {
-            Type::Integer => match value {
+        if let Some((level, inner)) = levels.split_first() {
+            let Value::List(items) = value else {
+                return Ok(false);
+            };
+            let count = items.len() as u64;
+            if level.lower.is_some_and(|l| count < l) || level.upper.is_some_and(|u| count > u) {
+                return Ok(false);
+            }
+            cx.enter().map_err(|stop| stopped(cx, stop, None))?;
+            let mut fits = true;
+            for value in items {
+                fits = match value {
+                    Value::Null => level.optional_items,
+                    value => self
+                        .value(inner, item_type, value, cx)
+                        .inspect_err(|_| cx.leave())?,
+                };
+                if !fits {
+                    break;
+                }
+            }
+            cx.leave();
+            return Ok(fits);
+        }
+        Ok(match item_type {
+            Item::Integer => match value {
                 Value::Number(range) => !self
                     .file
                     .bytes(range.clone())
@@ -1231,41 +1253,12 @@ impl Checker<'_> {
                     .any(|b| matches!(b, b'.' | b'E' | b'e')),
                 _ => false,
             },
-            Type::Real | Type::Number => matches!(value, Value::Number(_)),
-            Type::Boolean => matches!(self.enumeration(value).as_deref(), Some("T" | "F")),
-            Type::Logical => matches!(self.enumeration(value).as_deref(), Some("T" | "F" | "U")),
-            Type::String => matches!(value, Value::Text { .. }),
-            Type::Binary => matches!(value, Value::Binary(_)),
-            Type::Aggregate {
-                lower,
-                upper,
-                optional_items,
-                of,
-                ..
-            } => {
-                let Value::List(items) = value else {
-                    return Ok(false);
-                };
-                let count = items.len() as u64;
-                if lower.is_some_and(|l| count < l) || upper.is_some_and(|u| count > u) {
-                    return Ok(false);
-                }
-                cx.enter().map_err(|stop| stopped(cx, stop, None))?;
-                let mut fits = true;
-                for item in items {
-                    let ok = match item {
-                        Value::Null => *optional_items,
-                        item => self.value(of, item, cx).inspect_err(|_| cx.leave())?,
-                    };
-                    if !ok {
-                        fits = false;
-                        break;
-                    }
-                }
-                cx.leave();
-                fits
-            }
-            Type::Named(name) => self.named(name, value, cx)?,
+            Item::Real | Item::Number => matches!(value, Value::Number(_)),
+            Item::Boolean => matches!(self.enumeration(value).as_deref(), Some("T" | "F")),
+            Item::Logical => matches!(self.enumeration(value).as_deref(), Some("T" | "F" | "U")),
+            Item::String => matches!(value, Value::Text { .. }),
+            Item::Binary => matches!(value, Value::Binary(_)),
+            Item::Named(name) => self.named(name, value, cx)?,
         })
     }
 
@@ -1278,9 +1271,8 @@ impl Checker<'_> {
         }
         match self.schema.types.get(name) {
             Some(TypeDef::Defined(_, ty)) => {
-                let ty = ty.clone();
                 cx.enter().map_err(|stop| stopped(cx, stop, None))?;
-                let fits = self.value(&ty, value, cx);
+                let fits = self.value(&ty.levels, &ty.item, value, cx);
                 cx.leave();
                 fits
             }
