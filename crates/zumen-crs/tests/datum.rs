@@ -553,6 +553,7 @@ fn shifts_beyond_mesh_codes_do_not_panic() {
         tky2jgd: Some(&huge),
         patch: &[&patch],
     };
+    // 直せなかったことの診断は、まだ返らない（#679）
     let (found, _) = with_cx(|cx| to_jgd2011(Crs::Tokyo(zone), POINT, &shifts, cx));
     assert_eq!(found, None);
     for (latitude, longitude) in [(1e300, 139.0), (35.0, 1e300), (35.0, 180.0), (66.7, 139.0)] {

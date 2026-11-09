@@ -745,7 +745,7 @@ verify = ["国土地理院の測量計算サイト（TKY2JGD・PatchJGD）", "jg
 samples = ["利用者が国土地理院から入手したパラメーターのファイル。Git・パッケージ・テストに入れない。テストの中で合成の格子を作る"]
 decisions = ["0019", "0233", "0237", "0286"]
 docs = ["docs/formats/crs.md"]
-issues = ["zumen-jp/zumen#471", "zumen-jp/zumen#529", "zumen-jp/zumen#664", "zumen-jp/zumen#670"]
+issues = ["zumen-jp/zumen#471", "zumen-jp/zumen#529", "zumen-jp/zumen#664", "zumen-jp/zumen#670", "zumen-jp/zumen#678", "zumen-jp/zumen#679"]
 notes = "PatchJGD のファイルのヘッダーの行数と文字コード（UTF-8・Shift_JIS）は、ファイルのバージョンで違う。2026-11-09 に確かめた国土地理院の座標補正パラメータファイルの更新の履歴では、noto2024_BL.par の Ver.1.0.1 がヘッダーを 14 行から 15 行に、noto2024_02BL.par の Ver.1.0.1 が文字コードを UTF-8 から Shift_JIS に直した。初めのデータの行の前をヘッダーとして読まないのは、これに合わせた推定。更新の履歴と、ファイルと各ファイルのヘッダーの一覧へのリンクは、docs/formats/crs.md の「座標の補正量の格子」にある"
 
 [formats.par.read]

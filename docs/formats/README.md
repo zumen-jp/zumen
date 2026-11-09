@@ -874,6 +874,8 @@
 - issue: [zumen-jp/zumen#529](https://github.com/zumen-jp/zumen/issues/529)
 - issue: [zumen-jp/zumen#664](https://github.com/zumen-jp/zumen/issues/664)
 - issue: [zumen-jp/zumen#670](https://github.com/zumen-jp/zumen/issues/670)
+- issue: [zumen-jp/zumen#678](https://github.com/zumen-jp/zumen/issues/678)
+- issue: [zumen-jp/zumen#679](https://github.com/zumen-jp/zumen/issues/679)
 - 形式の文書: [docs/formats/crs.md](../../docs/formats/crs.md)
 - 補足: PatchJGD のファイルのヘッダーの行数と文字コード（UTF-8・Shift\_JIS）は、ファイルのバージョンで違う。2026-11-09 に確かめた国土地理院の座標補正パラメータファイルの更新の履歴では、noto2024\_BL.par の Ver.1.0.1 がヘッダーを 14 行から 15 行に、noto2024\_02BL.par の Ver.1.0.1 が文字コードを UTF-8 から Shift\_JIS に直した。初めのデータの行の前をヘッダーとして読まないのは、これに合わせた推定。更新の履歴と、ファイルと各ファイルのヘッダーの一覧へのリンクは、docs/formats/crs.md の「座標の補正量の格子」にある
 
