@@ -311,7 +311,7 @@
 - 入手の条件: 有償
 - 入手先: [ISO 10303-11:2004 Industrial automation systems and integration — Product data representation and exchange — Part 11: Description methods: The EXPRESS language reference manual](https://www.iso.org/standard/38047.html)
 - 確認日: 2026-11-09
-- 補足: ISO が PDF と冊子で売る（CHF 227）。販売のページに、実装を制限する記述はない。ISO のサイトに共通の注記は、ISO Open data のものを除き、ISO の内容を機械学習・AI に使うこと（モデルの学習と、AI のツールに入れて応答を作らせること）を禁じ、出版物の使用と複製に書面の許諾が要るとする（2026-11-09 に、zumen-jp/zumen#666 の確かめる側が committee.iso.org の同じ規格のページで見た）。本文は買わず、読まない（zumen-jp/zumen#529）。www.iso.org のページは自動の取得を拒む（HTTP 403）ので、2026-11-09 にブラウザーで開いて書誌の事実を確かめた。エージェントが ISO のページを読むことの扱いは zumen-jp/zumen#669 で決める
+- 補足: ISO が PDF と冊子で売る（CHF 227）。販売のページに、実装を制限する記述はない。ISO のサイトに共通の注記は、ISO Open data のものを除き、ISO の内容を機械学習・AI に使うこと（モデルの学習と、AI のツールに入れて応答を作らせること）を禁じ、出版物の使用と複製に書面の許諾が要るとする。本文は買わず、読まない（zumen-jp/zumen#529）。この項の書誌の事実と注記の中身は、2026-11-09 にエージェントが AI のツールで ISO のページを読んで得た（作った側が www.iso.org をブラウザーの拡張で、zumen-jp/zumen#666 の確かめる側が committee.iso.org を取得のツールで。www.iso.org は自動の取得を拒む）。エージェントが ISO のページを読むことの扱いは zumen-jp/zumen#669 で決め、読まないと決まれば、この項も #669 の判断に従って直す
 
 ### spec-iso_32000_2_2020
 
@@ -874,7 +874,7 @@
 - issue: [zumen-jp/zumen#664](https://github.com/zumen-jp/zumen/issues/664)
 - issue: [zumen-jp/zumen#670](https://github.com/zumen-jp/zumen/issues/670)
 - 形式の文書: [docs/formats/crs.md](../../docs/formats/crs.md)
-- 補足: PatchJGD のファイルのヘッダーの行数と文字コード（UTF-8・Shift\_JIS）は、ファイルのバージョンで違う。2026-11-09 に確かめた国土地理院の座標補正パラメータファイルの更新の履歴では、noto2024\_BL.par の Ver.1.0.1 がヘッダーを 14 行から 15 行に、noto2024\_02BL.par の Ver.1.0.1 が文字コードを UTF-8 から Shift\_JIS に直した。初めのデータの行の前をヘッダーとして読まないのは、これに合わせた推定。更新の履歴は https://www.gsi.go.jp/sokuchikijun/patchjgd\_version\_00001.html に、ファイルと各ファイルのヘッダーの一覧は https://www.gsi.go.jp/sokuchikijun/sokuchikijun41012.html にある
+- 補足: PatchJGD のファイルのヘッダーの行数と文字コード（UTF-8・Shift\_JIS）は、ファイルのバージョンで違う。2026-11-09 に確かめた国土地理院の座標補正パラメータファイルの更新の履歴では、noto2024\_BL.par の Ver.1.0.1 がヘッダーを 14 行から 15 行に、noto2024\_02BL.par の Ver.1.0.1 が文字コードを UTF-8 から Shift\_JIS に直した。初めのデータの行の前をヘッダーとして読まないのは、これに合わせた推定。更新の履歴と、ファイルと各ファイルのヘッダーの一覧へのリンクは、docs/formats/crs.md の「座標の補正量の格子」にある
 
 ### format-pdf
 
