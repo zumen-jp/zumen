@@ -41,3 +41,4 @@
 
 - [決定 0007](0007-single-rust-implementation.md)・[0019](0019-coordinate-systems-and-gsi-data.md)・[0233](0233-geo-model-features.md)
 - [TKY2JGD](https://www.gsi.go.jp/sokuchikijun/tky2jgd_download.html)、[公共測量成果改定マニュアル（PatchJGD）](https://www.gsi.go.jp/KOUKYOU/koukyo0040.html)（国土地理院）
+- 格子の間隔を格子点の並びから見分けることと、地震などごとの PatchJGD のファイルを古い順に当てることは、[0286](0286-datum-grid-spacing-and-patch-order.md) で補った。
