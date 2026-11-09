@@ -10,14 +10,15 @@ JWW のファイルごとに、次を確かめる。
   一覧の i 番目（0 から）を i + 1 とする（決定 0133）。zumen が描かずに拡張に持つ文字（(0, -1000) の設定と、
   `^@BM` でない `^@` で始まる文字。docs/formats/jww.md）は数えず、要素の出所にあれば食い違いにする。キットの座標を
   NaN にした JWW で、診断とレコードを結ぶ枝も通す（#548）。描かない文字は、合成の入力（make.py の classes_jww）で通す。
-- zumen の要素の出所の図形の種類・レイヤと、線と点では形の値が同じ。形を返さない要素も種類を比べ、出所が TEXT の要素は、
+- zumen の要素の出所の図形の種類・レイヤと、線と点と、扁平率 1 で反時計回りの円・円弧では形の値が同じ（#702）。形を返さない要素も種類を比べ、出所が TEXT の要素は、
   `^@BM` で始まるときだけ画像の範囲とする（docs/formats/jww.md）。
   形のフィールドは両向きに比べ、線と点の要素は形を持つ。ezjww の座標は用紙の mm なので、図形のレイヤグループの縮尺の
   分母を掛けて、zumen の実寸の座標と比べる（docs/formats/jww.md）。
-- 書き戻したファイルでは、変更で決めた形・レイヤ・ペンの番号（manifest.json の expect）が、ezjww で読んだ図形と
-  同じ。
+- 書き戻したファイルでは、変更で決めた形・レイヤ・ペンの番号・線種の番号（manifest.json の expect）が、ezjww で
+  読んだ図形と同じ。
 """
 
+import math
 import re
 import sys
 from collections import Counter
@@ -98,6 +99,16 @@ def geometry(header, e):
         if e["is_temporary"]:
             g["construction"] = True
         return g
+    # 円と円弧は、扁平率 1 で反時計回り（開き角が正）のものだけを比べる。角度はラジアンで、傾きを足す
+    # （docs/formats/jww.md）。楕円と時計回りの円弧は、まだ比べない（#702）
+    if e["type"] in ("CIRCLE", "ARC") and e["flatness"] == 1.0:
+        center = [e["center_x"] * s, e["center_y"] * s]
+        if e["is_full_circle"]:
+            return {"shape": "circle", "center": center, "radius": e["radius"] * s}
+        if e["arc_angle"] > 0:
+            start = math.degrees(e["start_angle"] + e["tilt_angle"])
+            end = start + math.degrees(e["arc_angle"])
+            return {"shape": "arc", "center": center, "radius": e["radius"] * s, "start_angle": start, "end_angle": end}
     return None
 
 
@@ -153,7 +164,7 @@ def check_file(folder, entry, reading, baseline, counts):
             failures.append(f"{where}: レイヤが {element.get('layer')!r}、ezjww は {layer_name(header, e['base'])!r}")
         counts["elements"] += 1
         got = geometry(header, e)
-        # 形を比べる種類（線と点）の要素は、形を持つ
+        # 形を比べる種類（線と点、扁平率 1 で反時計回りの円・円弧）の要素は、形を持つ
         if shape is None and got is not None:
             failures.append(f"{where}: {e['type']} のレコード {record} の要素が形を持たない")
         if shape in TYPES and got is not None:
@@ -191,6 +202,10 @@ def check_file(folder, entry, reading, baseline, counts):
                 pen = want.get("color", {}).get("jww")
                 if pen is not None and e["base"]["pen_color"] != pen:
                     failures.append(f"変更 {want['edit']}（{want['id']}）のペンが {e['base']['pen_color']}（期待は {pen}）")
+                # 足した線・円・円弧の線種は、線種の番号（line-type/番号。docs/formats/jww.md）
+                kind = want.get("line_type", {}).get("id", "")
+                if kind.startswith("line-type/") and e["base"]["pen_style"] != int(kind.removeprefix("line-type/")):
+                    failures.append(f"変更 {want['edit']}（{want['id']}）の線種が {e['base']['pen_style']}（期待は {kind}）")
     return failures, found
 
 
