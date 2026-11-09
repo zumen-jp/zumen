@@ -3498,6 +3498,12 @@ fn header_variables_are_taken_back(version: &[u8]) {
         let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
         let mut file = Dwg::read(&out, &mut cx).unwrap();
         let seed = file.handle_seed().unwrap();
+        // 補助のヘッダーの HANDSEED の写しは、どの公開サンプルもヘッダーの変数の値と同じ（#739）
+        let copy = |seed: u64| Some(u32::try_from(seed).unwrap());
+        let before = file.aux_handle_seed();
+        if !support::received(&path) {
+            assert_eq!(before, copy(seed), "{}", path.display());
+        }
         let mut txn = file.transaction();
         txn.set_handle_seed(seed + 1).unwrap();
         txn.commit(&mut cx).unwrap();
@@ -3505,6 +3511,12 @@ fn header_variables_are_taken_back(version: &[u8]) {
         Dwg::write(&file, &mut out, &mut cx).unwrap();
         let again = Dwg::read(&out, &mut cx).unwrap();
         assert_eq!(again.handle_seed(), Some(seed + 1), "{}", path.display());
+        assert_eq!(
+            again.aux_handle_seed(),
+            before.and(copy(seed + 1)),
+            "{}",
+            path.display()
+        );
     }
 }
 

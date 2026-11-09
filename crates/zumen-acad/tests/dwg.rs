@@ -4186,6 +4186,20 @@ fn system_page(kind: u32, data: &[u8]) -> Vec<u8> {
     head
 }
 
+/// バージョン `release`（年）の補助のヘッダー（ODS 5.4.1 の 27 章）。HANDSEED の写しを `seed` にし、ほかは 0
+#[cfg(test)]
+fn aux_header(release: u32, seed: u64) -> Vec<u8> {
+    let (len, at) = if release >= 2018 {
+        (129, 85)
+    } else {
+        (123, 79)
+    };
+    let mut aux = vec![0; len];
+    aux[..3].copy_from_slice(&[0xFF, 0x77, 0x01]);
+    aux[at..at + 4].copy_from_slice(&u32::try_from(seed).unwrap().to_le_bytes());
+    aux
+}
+
 #[cfg(test)]
 /// セクションの名前と圧縮したデータと展開した大きさから、R2004 のコンテナーを作る
 fn r2004(sections: &[(&[u8], Vec<u8>, u64)]) -> Vec<u8> {
@@ -8368,6 +8382,9 @@ fn added_objects_grow_the_handle_seed_of_r2004_and_later_headers() {
                     classes.len() as u64,
                 );
             }
+            // 補助のヘッダー。HANDSEED の写しは、R2018 からは 6 バイト後ろにある（#739）
+            let aux = aux_header(release, seed);
+            sections.push((b"AcDb:AuxHeader", literal_stream(&aux), aux.len() as u64));
             let mut src = r2004(&sections);
             src[..6].copy_from_slice(version);
             src
@@ -8385,6 +8402,7 @@ fn added_objects_grow_the_handle_seed_of_r2004_and_later_headers() {
                     panic!("{release} {with_objects} {e:?} {:?}", codes_of(&diag))
                 });
                 assert_eq!(base.handle_seed(), Some(seed));
+                assert_eq!(base.aux_handle_seed(), Some(seed as u32));
                 let mut file = read(&src, Limits::default()).0.unwrap();
                 let mut diag = Diagnostics::new();
                 let mut budget = Budget::default();
@@ -8402,6 +8420,8 @@ fn added_objects_grow_the_handle_seed_of_r2004_and_later_headers() {
                 assert!(diag.is_empty(), "{release} {:?}", codes_of(&diag));
                 let again = read(&out, Limits::default()).0.unwrap();
                 assert_eq!(again.handle_seed(), Some(next), "{release} {seed:#x}");
+                // 補助のヘッダーの写しも進める（#739）
+                assert_eq!(again.aux_handle_seed(), Some(next as u32), "{release}");
                 if with_objects {
                     // 元のオブジェクトのバイトは変わらず、足したオブジェクトが読める
                     assert_eq!(again.record_count(), kept.len() + 2);
@@ -8449,11 +8469,9 @@ fn added_objects_grow_the_handle_seed_of_r2004_and_later_headers() {
             let mut out = Vec::new();
             Dwg::write(&file, &mut out, &mut cx).unwrap();
             assert!(diag.is_empty(), "{release} {:?}", codes_of(&diag));
-            assert_eq!(
-                read(&out, Limits::default()).0.unwrap().handle_seed(),
-                Some(next),
-                "{release} {seed:#x}"
-            );
+            let again = read(&out, Limits::default()).0.unwrap();
+            assert_eq!(again.handle_seed(), Some(next), "{release} {seed:#x}");
+            assert_eq!(again.aux_handle_seed(), Some(next as u32), "{release}");
             let (before, diag_before) = objects(&src);
             let (after, diag_after) = objects(&out);
             assert_eq!(codes_of(&diag_after), codes_of(&diag_before), "{release}");
