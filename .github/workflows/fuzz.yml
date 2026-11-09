@@ -133,6 +133,7 @@ jobs:
       # 種をすべて流し終えるまでは止まらないので、種が増えるほど新しい入力を試す時間が減る。残す前に、target ごとに
       # 通る辺を変えずに縮める（決定 0258）
       - name: 育てた種を、通る辺を変えずに縮める
+        id: merge
         if: always() && github.event_name != 'pull_request'
         run: |
           logs="$RUNNER_TEMP/fuzz-merge"
@@ -200,9 +201,9 @@ jobs:
             rm -rf "fuzz/corpus/$target"
             echo "種を除いた target: $target"
           done
-      # 流す手順が取り消されたとき（時間切れ・concurrency）は、結果のない target の種を確かめていないので、残さない
+      # 流す手順か縮める手順が取り消されたとき（時間切れ・concurrency）は、確かめていない種が混じるので、残さない
       - name: 育てた種を、次の夜のために残す
-        if: always() && github.event_name != 'pull_request' && steps.run.outcome != 'cancelled'
+        if: always() && github.event_name != 'pull_request' && steps.run.outcome != 'cancelled' && steps.merge.outcome != 'cancelled'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: fuzz/corpus
