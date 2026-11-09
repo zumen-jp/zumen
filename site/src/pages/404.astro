@@ -1,0 +1,15 @@
+---
+// 存在しないパスのページ。Cloudflare Pages は、dist/404.html があれば、見つからないパスに状態 404 で返す（#688）。
+import PageHeader from '../components/PageHeader.astro';
+import Base from '../layouts/Base.astro';
+---
+
+<Base title="ページが見つかりません" description="お探しのページは見つかりませんでした。" noindex>
+  <PageHeader title="ページが見つかりません" lead="お探しのページは、移動したか、まだありません。" />
+  <section class="section">
+    <div class="wrap">
+      <p>URL を確かめるか、トップページからお探しください。</p>
+      <p><a class="btn btn-primary" href="/">トップページへ</a></p>
+    </div>
+  </section>
+</Base>
