@@ -1101,6 +1101,17 @@ impl Session {
                 let applied = updated.apply(&changes, cx).map_err(|_| Failed)?;
                 Dxf::write(&updated, &mut bytes, cx).map_err(|_| Failed)?;
                 let hash = Hash::document_checked(&bytes, cx).map_err(|stop| stopped(cx, stop))?;
+                // ハンドルを持たない DXF（R12 など）の要素の ID は、レコードの番号で決まる（決定 0156、#722）
+                if keyless(&drawing, cx)? {
+                    let mut quiet = Diagnostics::new();
+                    let after = updated
+                        .lift(&mut Cx::new(cx.budget, &mut quiet, cx.cancel))
+                        .map_err(|error| match error {
+                            zumen_sdk::Error::Stopped(stop) => stopped(cx, stop),
+                            _ => Failed,
+                        })?;
+                    ids_shifted = record_ids_shifted(&drawing, &after, &changes, cx)?;
+                }
                 *file = updated;
                 (applied, hash)
             }
@@ -2364,6 +2375,70 @@ mod watchdog {
             None
         }
     }
+}
+
+/// キーを持たず、レコードの番号で ID が決まる要素があるか（決定 0156）
+#[cfg(feature = "drawing")]
+fn keyless(drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<bool, Failed> {
+    let mut found = false;
+    id::each_element(drawing, |_, _, element| {
+        cx.check(Kind::Work, 1)?;
+        let source = match element {
+            id::Found::Model(element) => &element.source,
+            id::Found::Paper(element) => &element.source,
+        };
+        found |= source.key().is_none() && source.record().is_some();
+        Ok::<(), Stop>(())
+    })
+    .map_err(|stop| stopped(cx, stop))?;
+    Ok(found)
+}
+
+/// 変えていない要素の ID が、apply の前と後でずれたか（決定 0156、#722）。キーを持たずレコードの番号で ID が決まる
+/// 要素のうち、変更が指さないものを、同じ ID の要素のハッシュで比べる。除いた要素の後ろの要素は ID が前に詰まり、
+/// 前に足した要素の後ろの要素は ID が後ろにずれるので、同じ ID の要素が違うものになる。表の変更で要素の値が変わった
+/// ときも、ずれたとみなす
+#[cfg(feature = "drawing")]
+fn record_ids_shifted(
+    before: &Drawing2D,
+    after: &Drawing2D,
+    changes: &zumen_drawing::Changes,
+    cx: &mut Cx<'_>,
+) -> Result<bool, Failed> {
+    use zumen_drawing::Edit;
+    let targets: std::collections::BTreeSet<&str> = changes
+        .edits
+        .iter()
+        .filter_map(|edit| match edit {
+            Edit::Replace { target, .. }
+            | Edit::Restyle { target, .. }
+            | Edit::Transform { target, .. }
+            | Edit::Remove { target } => Some(target.id.as_str()),
+            _ => None,
+        })
+        .collect();
+    let mut now = BTreeMap::new();
+    id::each_element(after, |_, id, element| {
+        cx.check(Kind::Work, 1)?;
+        now.insert(id, element.hash_checked(cx)?);
+        Ok::<(), Stop>(())
+    })
+    .map_err(|stop| stopped(cx, stop))?;
+    let mut shifted = false;
+    id::each_element(before, |_, id, element| {
+        cx.check(Kind::Work, 1)?;
+        let source = match element {
+            id::Found::Model(element) => &element.source,
+            id::Found::Paper(element) => &element.source,
+        };
+        if shifted || source.key().is_some() || targets.contains(id.as_str()) {
+            return Ok(());
+        }
+        shifted = now.get(&id) != Some(&element.hash_checked(cx)?);
+        Ok::<(), Stop>(())
+    })
+    .map_err(|stop| stopped(cx, stop))?;
+    Ok(shifted)
 }
 
 #[cfg(test)]
@@ -6444,6 +6519,122 @@ END_SCHEMA;
         );
         assert_eq!(number(&response, "/result/point_style/size"), "2.5");
         assert_eq!(text(&response, "/result/point_style/size_kind"), "length");
+    }
+
+    /// ハンドルを持たない DXF で、除いた要素の後ろの ID がずれたら `ids_shifted` を返す（決定 0156、#722）
+    #[test]
+    fn reports_shifted_ids_of_dxf_without_handles() {
+        const LINES: &[u8] = b"0
+SECTION
+2
+HEADER
+9
+$ACADVER
+1
+AC1009
+0
+ENDSEC
+            0
+SECTION
+2
+ENTITIES
+0
+LINE
+8
+0
+10
+0.0
+20
+0.0
+11
+1.0
+21
+0.0
+            0
+LINE
+8
+0
+10
+0.0
+20
+1.0
+11
+1.0
+21
+1.0
+            0
+LINE
+8
+0
+10
+0.0
+20
+2.0
+11
+1.0
+21
+2.0
+0
+ENDSEC
+0
+EOF
+";
+        let elements = |session: &mut Session| {
+            let (status, response) = call(
+                session,
+                r#"{"v":1,"op":"entities","doc":"a.dxf","fields":["hash"]}"#,
+            );
+            assert_eq!(status, Status::Ok, "{response:?}");
+            let Some(Value::Array(items)) = response.pointer("/result/items") else {
+                panic!("{response:?}");
+            };
+            items
+                .iter()
+                .map(|item| (text(item, "/id"), text(item, "/hash")))
+                .collect::<Vec<_>>()
+        };
+        let apply = |session: &mut Session, edit: String| {
+            let (status, response) = call(
+                session,
+                &format!(r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{edit}]}}"#),
+            );
+            assert_eq!(status, Status::Ok, "{response:?}");
+            response
+        };
+        let shifted = |response: &Value| response.pointer("/result/ids_shifted").cloned();
+
+        let mut session = Session::new(b"").unwrap();
+        session.push(b"a.dxf", LINES).unwrap();
+        call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+        let before = elements(&mut session);
+        assert_eq!(before.len(), 3);
+        // 終わりの要素を動かしても、除いても、ほかの要素の ID は変わらない
+        let (id, hash) = &before[2];
+        let response = apply(
+            &mut session,
+            format!(r#"{{"kind":"transform","id":"{id}","hash":"{hash}","matrix":[1,0,5,0,1,7]}}"#),
+        );
+        assert_eq!(shifted(&response), None);
+        let moved = elements(&mut session);
+        assert_eq!(moved[..2], before[..2]);
+        let (id, hash) = &moved[2];
+        let response = apply(
+            &mut session,
+            format!(r#"{{"kind":"remove","id":"{id}","hash":"{hash}"}}"#),
+        );
+        assert_eq!(shifted(&response), None);
+        assert_eq!(elements(&mut session), before[..2]);
+        // 先頭の要素を除くと、後ろの要素の ID が前に詰まる
+        let (id, hash) = &before[0];
+        let response = apply(
+            &mut session,
+            format!(r#"{{"kind":"remove","id":"{id}","hash":"{hash}"}}"#),
+        );
+        assert_eq!(shifted(&response), Some(Value::Bool(true)));
+        let after = elements(&mut session);
+        assert_eq!(after.len(), 1);
+        assert_eq!(after[0].0, before[0].0);
+        assert_eq!(after[0].1, before[1].1);
     }
 
     #[test]
