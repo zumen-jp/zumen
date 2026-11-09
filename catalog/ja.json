@@ -266,7 +266,7 @@
     "pdf.object.repaired": "終わり（endobj）のない間接オブジェクトを、次のオブジェクトの前までとして読みました（{count} 件）。",
     "pdf.optional-content.approximated": "OCMD や XObject の OCG を、レイヤに分けずに移しました（{count} 件）。",
     "pdf.optional-content.dropped": "既定で隠れる OCG「{name}」の内容を、移しませんでした。",
-    "pdf.page-tree.dropped": "ページの木の、ページとして読めない項目と、同じページか節をもう一度指す項目を、ページにしませんでした（{count} 件）。",
+    "pdf.page-tree.dropped": "ページの木の、ページか節として読めない項目と、同じページか節をもう一度指す項目を、ページにしませんでした（{count} 件）。",
     "pdf.page.dropped": "読むとスタックかメモリを使い切るか、パニックするおそれのあるページの中身を、移しませんでした（{count} 件）。",
     "pdf.pattern.dropped": "タイルのパターンで塗った形を、移しませんでした（{count} 件）。",
     "pdf.shading.dropped": "シェーディングで塗った形を、移しませんでした（{count} 件）。",

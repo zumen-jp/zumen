@@ -266,7 +266,7 @@
     "pdf.object.repaired": "Read indirect objects without endobj up to the next object ({count}).",
     "pdf.optional-content.approximated": "Moved content of membership dictionaries or XObject groups without splitting it into layers ({count}).",
     "pdf.optional-content.dropped": "Did not move the content of the optional content group \"{name}\", which is hidden by default.",
-    "pdf.page-tree.dropped": "Did not make pages from page tree items that cannot be read as a page or that refer again to the same page or node ({count}).",
+    "pdf.page-tree.dropped": "Did not make pages from page tree items that cannot be read as a page or node, or that refer again to the same page or node ({count}).",
     "pdf.page.dropped": "Did not move the contents of pages that could exhaust the stack or memory, or panic, when read ({count}).",
     "pdf.pattern.dropped": "Did not move shapes filled with tiling patterns ({count}).",
     "pdf.shading.dropped": "Did not move shapes filled with shadings ({count}).",

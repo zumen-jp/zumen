@@ -5102,3 +5102,61 @@ fn unreadable_page_tree_items_are_reported() {
         assert_eq!(node.object, Some((2, 0)), "{kids} {third:.20}");
     }
 }
+
+#[test]
+fn page_tree_items_are_reported_at_the_node_that_holds_them() {
+    let page = "<< /Type /Page /Parent 3 0 R /MediaBox [0 0 100 100] >>";
+    // ルートの Kids、3 番の節、用紙の数、診断の場所（節の番号）
+    let cases: [(&str, &str, usize, u32); 5] = [
+        // Kids を配列に読めない中間の節は、下のページごと飛ばされるので、その節で数える
+        (
+            "[3 0 R 4 0 R]",
+            "<< /Type /Pages /Kids 42 /Count 1 >>",
+            1,
+            3,
+        ),
+        ("[3 0 R 4 0 R]", "<< /Type /Pages /Count 1 >>", 1, 3),
+        (
+            "[3 0 R 4 0 R]",
+            "<< /Type /Pages /Kids 6 0 R /Count 1 >>",
+            1,
+            3,
+        ),
+        // 子の節がルートをもう一度指す参照は、その子の節で数える
+        (
+            "[3 0 R 4 0 R]",
+            "<< /Type /Pages /Kids [2 0 R 5 0 R] /Count 1 >>",
+            2,
+            3,
+        ),
+        // 直接書いた節の項目は、それを含む間接オブジェクトの節で数える
+        (
+            "[<< /Type /Pages /Kids [42] /Count 0 >> 4 0 R]",
+            "<< /Type /Pages /Kids [5 0 R] /Count 1 >>",
+            1,
+            2,
+        ),
+    ];
+    for (kids, third, sheets, owner) in cases {
+        let mut builder = common::Builder::default();
+        builder.object(b"<< /Type /Catalog /Pages 2 0 R >>");
+        builder.object(format!("<< /Type /Pages /Kids {kids} /Count 2 >>"));
+        builder.object(third);
+        builder.object("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>");
+        builder.object(page);
+        builder.object("null");
+        let src = builder.bytes(1);
+        let (drawing, diagnostics) = lift(&src);
+        assert_eq!(drawing.sheets.len(), sheets, "{kids} {third}");
+        let found: Vec<_> = diagnostics
+            .iter()
+            .filter(|d| d.code() == codes::PDF_PAGE_TREE_DROPPED)
+            .collect();
+        assert_eq!(found.len(), 1, "{kids} {third} {diagnostics:?}");
+        assert_eq!(found[0].count(), 1, "{kids} {third}");
+        let record = found[0].places()[0].record().unwrap();
+        let file = testkit::read::<Pdf>(&src).0.unwrap();
+        let node = &file.records()[usize::try_from(record).unwrap()];
+        assert_eq!(node.object, Some((owner, 0)), "{kids} {third}");
+    }
+}
