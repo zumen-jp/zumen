@@ -240,6 +240,25 @@ impl Apply<Changes> for SxfFile {
                     })
                 }
                 Edit::Add { place, element } => {
+                    // SXF のフィーチャは色・線種・線幅を自分で持ち、レイヤかブロックに従う値を持たないので、書かない値は
+                    // 何を書けばよいかが分かる診断で断る（決定 0292）
+                    let unset = match element.as_ref() {
+                        Placed::Paper(element)
+                            if before.sheets.get(place) == Some(&element.shape_sheet()) =>
+                        {
+                            unset(element)
+                        }
+                        _ => None,
+                    };
+                    if let Some(field) = unset {
+                        cx.report(
+                            Diagnostic::new(codes::CHANGE_STYLE_UNSUPPORTED)
+                                .with("field", field)
+                                .with("format", format),
+                        );
+                        rejected = true;
+                        continue;
+                    }
                     let added = match element.as_ref() {
                         Placed::Paper(element)
                             if before.sheets.get(place) == Some(&element.shape_sheet()) =>
@@ -387,6 +406,23 @@ enum Expected {
     /// このインスタンスの要素が、この値になる
     Element(u64, Box<Placed>),
 }
+/// 足す要素のうち、書いていない（レイヤかブロックに従う）ので書き戻せない色・線種・線幅のフィールドの名前。書ける形の
+/// 要素だけを見る。点マーカーは線種と線幅を持たないので、色だけを見る
+fn unset(element: &Element<PaperPoint>) -> Option<&'static str> {
+    let marker = arguments(&element.shape)?.name == MARKER;
+    let style = &element.style;
+    if !matches!(style.color, Inherit::Own(_)) {
+        return Some("color");
+    }
+    if marker {
+        return None;
+    }
+    if !matches!(style.line_type, Inherit::Own(_)) {
+        return Some("line_type");
+    }
+    (!matches!(style.line_weight, Some(Inherit::Own(_)))).then_some("line_weight")
+}
+
 /// 当てられない変更の診断
 fn unsupported(format: &str, edit: &str, kind: &str) -> Diagnostic {
     Diagnostic::new(codes::CHANGE_EDIT_UNSUPPORTED)

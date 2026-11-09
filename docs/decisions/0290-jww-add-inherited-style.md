@@ -33,6 +33,10 @@ API の `apply` の `add`（`add_edit`）は、書かない色・線種・線幅
 - 「レイヤに従う」と頼んだ線幅は、読み直すとペンの印刷の線幅になる。`schema/messages.json` の `add_edit` の説明と、`docs/formats/jww.md` に書く。
 - `change.style.unsupported` は、形式によらない名前にする。SXF もレイヤに従う色を持たず、今は `change.edit.unsupported` で断る。同じ診断にそろえるかは、別に決める。
 
+## 後の記録
+
+- 2026-11-10: [0292](0292-sxf-add-inherited-style.md) で、SXF の追加と、JWW のブロックに従う色・線種・線幅の追加も、`change.style.unsupported` で断ることにした（#715）。
+
 ## 参照
 
 - [決定 0139](0139-drawing-apply.md)、[決定 0168](0168-jww-apply.md)、[決定 0183](0183-drawing-apply-points.md)
