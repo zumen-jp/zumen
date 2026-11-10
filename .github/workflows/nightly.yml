@@ -157,6 +157,10 @@ jobs:
         run: ZUMEN_IFC_SAMPLES_OUT="$RUNNER_TEMP/samples" cargo test --locked -p zumen-ifc --all-features --test samples writes_the_sample_models_for_other_readers
       - name: 同じ IFC を IfcOpenShell で読み、写した値が同じことを確かめる
         run: python -I crates/zumen-ifc/tests/ifcopenshell/samples.py samples "$RUNNER_TEMP/samples"
+      - name: 合成の 3 バージョンと公開サンプルの曲線の値を書く
+        run: ZUMEN_IFC_CURVES_OUT="$RUNNER_TEMP/curves" cargo test --locked -p zumen-ifc --all-features --test curves writes_curves_for_other_readers
+      - name: 曲線の定義を IfcOpenShell で読んだ値と照らす
+        run: python -I crates/zumen-ifc/tests/ifcopenshell/curves.py "$RUNNER_TEMP/curves"
 
   laspy:
     name: 非圧縮 LAS の読みを laspy と照らす
