@@ -548,6 +548,76 @@ fn splines_with_only_fit_points_pass_through_them() {
     assert!((top - 5.0).abs() < 0.02, "{top}");
 }
 
+/// シーンを作るのに使った手間
+#[cfg(test)]
+fn work_of(drawing: &Drawing2D) -> u64 {
+    let mut budget = Budget::new(Limits::default());
+    let mut diag = Diagnostics::new();
+    let built = build(
+        drawing,
+        &options(),
+        &mut Cx::new(&mut budget, &mut diag, &CancelToken::new()),
+    );
+    assert!(built.is_ok());
+    budget.used(Kind::Work)
+}
+
+/// クロソイドとスプラインを折れ線にする手間は、作る点の数によらず予算に数える。原点から遠いクロソイドは、
+/// 点が 2 つでも、原点から刻んで積む手間を数える（#753・#756）
+#[test]
+fn curves_count_the_work_of_making_their_points() {
+    let mut drawing = lift(&SHAPES[..9]);
+    drawing.spaces[0].order.clear();
+    let tolerance = options().tolerance.unwrap();
+    let base = work_of(&drawing);
+    push(
+        &mut drawing,
+        Shape::Curve(zumen_drawing::Edge::Clothoid {
+            origin: at(0.0, 0.0),
+            parameter: model(1.0),
+            angle: 0.0,
+            counterclockwise: true,
+            start: model(1000.0),
+            end: model(1000.0001),
+        }),
+    );
+    let clothoid = zumen_geom2d::clothoid_work(1.0, 1000.0, 1000.0001, tolerance);
+    assert!(clothoid > zumen_geom2d::MAX_STEPS as u64);
+    let with_clothoid = work_of(&drawing);
+    assert!(
+        with_clothoid - base >= clothoid,
+        "{base} {with_clothoid} {clothoid}"
+    );
+    // 200 の制御点を持つ 3 次のスプライン
+    let control: Vec<[f64; 2]> = (0..200).map(|i| [f64::from(i), f64::from(i % 7)]).collect();
+    let knots: Vec<f64> = (0..204)
+        .map(|i: i32| f64::from((i - 3).clamp(0, 197)))
+        .collect();
+    let (points, spline) = zumen_geom2d::spline_with_work(3, &knots, &control, &[], tolerance);
+    assert!(points.is_some() && spline > 0);
+    push(
+        &mut drawing,
+        Shape::Curve(zumen_drawing::Edge::Spline(zumen_drawing::Spline {
+            degree: 3,
+            knots,
+            control: control.iter().map(|&[x, y]| at(x, y)).collect(),
+            weights: Vec::new(),
+            fit: Vec::new(),
+            start_tangent: None,
+            end_tangent: None,
+            closed: false,
+            periodic: false,
+            fit_tolerance: None,
+            knot_parameterization: None,
+        })),
+    );
+    let with_spline = work_of(&drawing);
+    assert!(
+        with_spline - with_clothoid >= spline,
+        "{with_clothoid} {with_spline} {spline}"
+    );
+}
+
 #[test]
 fn dimensions_without_parts_draw_lines_and_their_value() {
     let mut drawing = lift(&SHAPES[..9]);
