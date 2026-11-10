@@ -775,7 +775,7 @@ status = "active"
 # 2D のシーン（決定 0172）
 
 [codes."scene.curve.approximated"]
-description = "曲線・ふくらみのある折れ線を、弦の誤差が許容差以下の折れ線にした（決定 0172）。許容差は起点の長さ"
+description = "曲線・膨らみのある折れ線を、弦の誤差が許容差以下の折れ線にした（決定 0172）。許容差は起点の長さ"
 severity = "info"
 fidelity = "approximated"
 params = { tolerance = "float" }
@@ -788,6 +788,15 @@ description = "フィット点だけで決まるスプラインを、フィッ�
 severity = "warning"
 fidelity = "approximated"
 since = "0.0.0"
+status = "active"
+
+[codes."scene.spline-degree.approximated"]
+description = "次数が上限（`zumen-geom2d` の `MAX_DEGREE`）を超えるスプラインを、制御点で決まる曲線として描かず、フィット点を通る曲線か、点を結ぶ折れ線で描いた（#756）"
+severity = "warning"
+fidelity = "approximated"
+params = { limit = "uint" }
+group-by = ["limit"]
+since = "0.2.0"
 status = "active"
 
 [codes."scene.gradient.approximated"]

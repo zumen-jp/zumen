@@ -2,8 +2,9 @@
 //! 画像のセクションと、それらが引く表に並べた 1 つのバッファーにする。セクションの配置は `schema/scene.toml` にあり、
 //! [`layout`] に生成してある（決定 0178）。
 //!
-//! - 曲線・ふくらみのある折れ線は、起点の長さの許容差で折れ線にする（`zumen-geom2d`）。作った点は予算の
-//!   `segments` で数え、使った許容差を `scene.curve.approximated` で返す。
+//! - 曲線・膨らみのある折れ線は、起点の長さの許容差で折れ線にする（`zumen-geom2d`）。作った点は予算の
+//!   `segments` で数え、使った許容差を `scene.curve.approximated` で返す。クロソイドの原点からの刻みと
+//!   スプラインの点の計算は `work` で数え、膨らみのある折れ線の点は作る前に数える（#753・#756）。
 //! - 線種は、線と間に展開し、添える文字を置く。添える形は描かない（`scene.line-type-shape.dropped`）。
 //! - 寸法・表・注記の記号は、描いた部品の中をたどって描く。部品がなければ、定義点・行と列から線と文字を
 //!   作る。引出線と注記は、経路と端部記号と文字を描く（決定 0184）。
@@ -534,8 +535,21 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
     /// 作った点を `segments` で数える
     fn segments(&mut self, count: usize, at: &Ref) -> Result<(), (Stop, Ref)> {
         let count = u64::try_from(count).unwrap_or(u64::MAX);
+        self.points(count, at)
+    }
+
+    /// 作る点を、作る前に `segments` で数える
+    fn points(&mut self, count: u64, at: &Ref) -> Result<(), (Stop, Ref)> {
         self.cx
             .check(Kind::Segments, count)
+            .map_err(|stop| (stop, at.clone()))
+    }
+
+    /// 曲線を折れ線にする手間のうち、作る点の数に比例しないもの（クロソイドの原点からの刻みと、スプラインの
+    /// 点の計算）を `work` で数える（#756）
+    fn work(&mut self, count: u64, at: &Ref) -> Result<(), (Stop, Ref)> {
+        self.cx
+            .check(Kind::Work, count)
             .map_err(|stop| (stop, at.clone()))
     }
 
@@ -943,20 +957,31 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
             }
             Edge::Spline(spline) => {
                 let control: Vec<Xy> = spline.control.iter().map(|p| p.xy()).collect();
-                match geom::spline(
+                let (found, work) = geom::spline_with_work(
                     spline.degree,
                     &spline.knots,
                     &control,
                     &spline.weights,
                     local,
-                ) {
+                );
+                self.work(work, source)?;
+                match found {
                     Some(found) => {
                         points = found;
                         self.approximated = true;
                     }
                     None => {
                         // 制御点で決まらないものは、フィット点を通る 3 次のスプラインにする（決定 0184）。
-                        // それもできなければ、フィット点か制御点を結ぶ
+                        // それもできなければ、フィット点か制御点を結ぶ。次数が上限を超えて制御点で描けない
+                        // ものは、そのことを知らせる（#756）
+                        let beyond = spline.degree > geom::MAX_DEGREE;
+                        if beyond {
+                            self.cx.report(
+                                Diagnostic::new(codes::SCENE_SPLINE_DEGREE_APPROXIMATED)
+                                    .with("limit", u64::from(geom::MAX_DEGREE))
+                                    .at(source.clone()),
+                            );
+                        }
                         let fit: Vec<Xy> = spline.fit.iter().map(|p| p.xy()).collect();
                         let spacing = match spline.knot_parameterization {
                             Some(KnotParameterization::SquareRoot) => geom::Spacing::SquareRoot,
@@ -964,14 +989,21 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
                             Some(KnotParameterization::Chord | KnotParameterization::Custom)
                             | None => geom::Spacing::Chord,
                         };
-                        let fitted = geom::interpolate(
+                        let fitted = match geom::interpolate(
                             &fit,
                             spline.start_tangent,
                             spline.end_tangent,
                             spacing,
                             spline.closed || spline.periodic,
-                        )
-                        .and_then(|(knots, control)| geom::spline(3, &knots, &control, &[], local));
+                        ) {
+                            Some((knots, control)) => {
+                                let (found, work) =
+                                    geom::spline_with_work(3, &knots, &control, &[], local);
+                                self.work(work, source)?;
+                                found
+                            }
+                            None => None,
+                        };
                         match fitted {
                             Some(found) => {
                                 points = found;
@@ -982,7 +1014,9 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
                             }
                             None => {
                                 points = if fit.len() >= 2 { fit } else { control };
-                                self.report(codes::SCENE_SPLINE_APPROXIMATED, source);
+                                if !beyond {
+                                    self.report(codes::SCENE_SPLINE_APPROXIMATED, source);
+                                }
                             }
                         }
                     }
@@ -996,6 +1030,10 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
                 start,
                 end,
             } => {
+                // 作る点とは別に、原点から区間の初めまで刻んで積むので、求める前に数える（#753）
+                let work =
+                    geom::clothoid_work(length(*parameter), length(*start), length(*end), local);
+                self.work(work, source)?;
                 points = geom::clothoid(
                     origin.xy(),
                     length(*parameter),
@@ -1206,8 +1244,12 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
             }
             return Ok(());
         }
+        // 膨らみのある区間ごとに点を作り、頂点の数に比例して増えるので、作る前に数える（#756）
+        self.points(
+            geom::polyline_points(&vertices, polyline.closed, local),
+            source,
+        )?;
         let points = geom::polyline(&vertices, polyline.closed, local);
-        self.segments(points.len(), source)?;
         let points = points.into_iter().map(|p| map(&t, p)).collect();
         self.stroke(visit, points, unit, source)
     }
@@ -1548,9 +1590,9 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
                     if vertices.iter().any(|(_, b)| *b != 0.0) {
                         self.approximated = true;
                     }
-                    let points = geom::polyline(&vertices, true, local);
-                    self.segments(points.len(), source)?;
-                    points
+                    // 作る前に数える（#756）
+                    self.points(geom::polyline_points(&vertices, true, local), source)?;
+                    geom::polyline(&vertices, true, local)
                 }
                 Boundary::Edges(edges) => {
                     let mut points: Vec<Xy> = Vec::new();

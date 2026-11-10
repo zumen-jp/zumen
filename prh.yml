@@ -535,6 +535,14 @@ rules:
       - from: 1~3
         to: 1〜3
 
+  # 折れ線の頂点の bulge は、漢字で「膨らみ」と書く
+  - expected: 膨らみ
+    pattern: ふくらみ
+    prh: 折れ線の頂点の bulge は「膨らみ」と書きます
+    specs:
+      - from: ふくらみのある折れ線
+        to: 膨らみのある折れ線
+
   # 「境目」に送り仮名を入れない
   - expected: 境目
     pattern: 境い目

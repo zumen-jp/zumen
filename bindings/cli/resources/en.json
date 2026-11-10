@@ -356,6 +356,7 @@
     "scene.leader.dropped": "Did not draw leaders in the scene ({count}).",
     "scene.line-type-mark.dropped": "Did not draw the shapes and text in line types in the scene ({count}).",
     "scene.line-type-shape.dropped": "Did not draw the shapes in line types in the scene ({count}).",
+    "scene.spline-degree.approximated": "Drew splines of a degree above {limit} as curves through their fit points or as polylines through their points ({count}).",
     "scene.spline.approximated": "Drew splines defined only by fit points as polylines through the fit points ({count}).",
     "scene.table.approximated": "Drew tables without drawn parts as cell borders and cell text ({count}).",
     "scene.table.dropped": "Did not draw tables in the scene ({count}).",

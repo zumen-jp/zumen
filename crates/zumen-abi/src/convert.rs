@@ -306,13 +306,22 @@ pub(crate) fn to_dxf(drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<Converted, 
                             .with("format", "DXF")
                             .at(view.source.clone()),
                     );
-                    for element in bake::bake(space, view) {
-                        cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
-                        match element {
-                            Ok(element) => maps.element(&element, paper, &mut edits, cx),
-                            Err(element) => {
-                                report_dropped(cx, kind_of(&element.shape), &element.source)
-                            }
+                    for element in bake::elements(space, view) {
+                        // 曲線を折れ線にする手間と作る点を、作る前に数えられるものは前に、ほかは作ったあとに
+                        // 数える（#753・#756）
+                        let (work, points) = bake::before(&element.shape, view);
+                        cx.check(Kind::Work, work.saturating_add(1))
+                            .map_err(|stop| stopped(cx, stop))?;
+                        cx.check(Kind::Segments, points)
+                            .map_err(|stop| stopped(cx, stop))?;
+                        let baked = bake::element_of(element, view);
+                        cx.check(Kind::Work, baked.work)
+                            .map_err(|stop| stopped(cx, stop))?;
+                        cx.check(Kind::Segments, baked.points)
+                            .map_err(|stop| stopped(cx, stop))?;
+                        match baked.element {
+                            Some(baked) => maps.element(&baked, paper, &mut edits, cx),
+                            None => report_dropped(cx, kind_of(&element.shape), &element.source),
                         }
                     }
                 }
@@ -705,10 +714,12 @@ fn modelled(drawing: &Drawing2D, space: SpaceId) -> bool {
 mod tests {
     use super::*;
     use zumen_acad::db::{Data, Section};
-    use zumen_base::{Budget, CancelToken, Limits, Ref};
+    use zumen_base::{Budget, CancelToken, Code, Limit, Limits, Ref};
     use zumen_civil::{Alignment, CivilModel, Horizontal, HorizontalKind, Vertical, VerticalKind};
     use zumen_crs::MapPoint;
-    use zumen_drawing::{Axes, ModelSpace, Symbol, SymbolDefinition, SymbolKey, Unit};
+    use zumen_drawing::{
+        Axes, Edge, Length, ModelSpace, Polyline, Symbol, SymbolDefinition, SymbolKey, Unit, Vertex,
+    };
 
     /// R2004 の表・図形・レイアウトを結ぶ参照は、すべてファイルの中の正しい種類を指す。
     fn r2004_structure(file: &DxfFile, cx: &mut Cx<'_>) {
@@ -903,6 +914,148 @@ mod tests {
                         .all(|(a, b)| (a[0] - b[0]).abs() < 1e-9 && (a[1] - b[1]).abs() < 1e-9)
             };
             assert!(written.iter().any(same), "{shape:?}");
+        }
+    }
+
+    /// 縦断図の用紙だけを持つ図面。`shape` があれば、焼き込むビューの空間に足す
+    fn profile_with(shape: Option<Shape<ModelPoint>>) -> Drawing2D {
+        let mut budget = Budget::new(Limits::default());
+        let mut diag = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        let model = model();
+        let mut drawing = zumen_civil_drawing::drawing(
+            &model,
+            &model.alignments[0],
+            &zumen_civil_drawing::Options::default(),
+            &mut cx,
+        )
+        .unwrap();
+        let profile = drawing.sheets.remove(1);
+        let view = profile.views[0].clone();
+        assert!(bake::bakes(&view));
+        drawing.sheets = vec![profile];
+        if let Some(shape) = shape {
+            let space = drawing
+                .spaces
+                .iter_mut()
+                .find(|space| space.id == view.space)
+                .unwrap();
+            if !space.order.is_empty() && space.order.len() == space.elements.len() {
+                space.order.push(space.elements.len());
+            }
+            let like = space.elements[0].clone();
+            space.elements.push(Element { shape, ..like });
+        }
+        drawing
+    }
+
+    /// 上限 `limits` で書く。書けたかと、使った予算と、診断の code を返す
+    fn written_within(drawing: &Drawing2D, limits: Limits) -> (bool, Budget, Vec<Code>) {
+        let mut budget = Budget::new(limits);
+        let mut diag = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let written = {
+            let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+            to_dxf(drawing, &mut cx).is_ok()
+        };
+        let codes = diag.iter().map(|d| d.code()).collect();
+        (written, budget, codes)
+    }
+
+    /// 焼き込むビューの曲線は、折れ線にする手間と作る点を予算に数える。クロソイドの手間と、膨らみを持つ
+    /// 折れ線の点は、作る前に数え、スプラインの手間と、ほかの曲線の点は、作ったあとに数える（#753・#756）。
+    /// どれも、数えるのに要る分の半分しか残さなければ、書かずに止まる
+    #[test]
+    fn a_baked_view_counts_the_work_and_points_of_its_curves() {
+        let base = profile_with(None);
+        let (written, used, _) = written_within(&base, Limits::default());
+        assert!(written);
+        let view = &base.sheets[0].views[0];
+        let at = |x, y| ModelPoint {
+            space: view.space,
+            x,
+            y,
+        };
+        let length = |value| {
+            Length::Model(zumen_drawing::ModelLength {
+                space: view.space,
+                value,
+            })
+        };
+        // 区間が原点から離れたクロソイドは、原点から区間の初めまで刻んで積む手間も要る
+        let clothoid = Shape::Curve(Edge::Clothoid {
+            origin: at(0.0, 0.0),
+            parameter: length(50.0),
+            angle: 0.0,
+            counterclockwise: true,
+            start: length(35.0),
+            end: length(50.0),
+        });
+        // 半径 50 m の円を、膨らみを持つ 2 つの区間で描く
+        let bulged = Shape::Polyline(Polyline {
+            vertices: vec![
+                Vertex {
+                    point: at(0.0, 0.0),
+                    bulge: 1.0,
+                },
+                Vertex {
+                    point: at(100.0, 0.0),
+                    bulge: 1.0,
+                },
+            ],
+            closed: true,
+            width: None,
+            vertex_widths: Vec::new(),
+            line_type_generation: false,
+        });
+        // 40 の制御点を持つ 3 次のスプラインと、半径 50 m の円
+        let spline = Shape::Curve(Edge::Spline(zumen_drawing::Spline {
+            degree: 3,
+            knots: (0..44)
+                .map(|i: i32| f64::from((i - 3).clamp(0, 37)))
+                .collect(),
+            control: (0..40)
+                .map(|i| at(f64::from(i) * 5.0, 50.0 + f64::from(i % 3)))
+                .collect(),
+            weights: Vec::new(),
+            fit: Vec::new(),
+            start_tangent: None,
+            end_tangent: None,
+            closed: false,
+            periodic: false,
+            fit_tolerance: None,
+            knot_parameterization: None,
+        }));
+        let circle = Shape::Circle {
+            center: at(100.0, 50.0),
+            radius: length(50.0),
+        };
+        for (shape, kind, code) in [
+            (clothoid, Kind::Work, codes::BUDGET_WORK_EXCEEDED),
+            (bulged, Kind::Segments, codes::BUDGET_SEGMENTS_EXCEEDED),
+            (spline, Kind::Work, codes::BUDGET_WORK_EXCEEDED),
+            (circle, Kind::Segments, codes::BUDGET_SEGMENTS_EXCEEDED),
+        ] {
+            let drawing = profile_with(Some(shape));
+            let element = drawing
+                .spaces
+                .iter()
+                .find(|space| space.id == view.space)
+                .and_then(|space| space.elements.last())
+                .unwrap();
+            let (work, points) = bake::before(&element.shape, view);
+            let baked = bake::element_of(element, view);
+            let needed = if kind == Kind::Work {
+                work + baked.work
+            } else {
+                points + baked.points
+            };
+            assert!(needed > 100, "{:?} {needed}", element.shape);
+            let limits = Limits::default().with(kind, Limit::Finite(used.used(kind) + needed / 2));
+            let (written, _, codes) = written_within(&drawing, limits);
+            assert!(!written, "{kind:?}");
+            assert!(codes.contains(&code), "{codes:?}");
         }
     }
 

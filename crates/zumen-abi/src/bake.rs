@@ -20,10 +20,19 @@ pub(crate) fn bakes(view: &View) -> bool {
 }
 
 /// ビュー `view` の空間 `space` の要素を、描く順に用紙の要素にする。焼き込めない要素は `Err` で返す
+#[cfg(test)]
 pub(crate) fn bake<'a>(
     space: &'a ModelSpace,
     view: &'a View,
 ) -> impl Iterator<Item = Result<Element<PaperPoint>, &'a Element<ModelPoint>>> + 'a {
+    elements(space, view).map(move |element| element_of(element, view).element.ok_or(element))
+}
+
+/// ビュー `view` の空間 `space` の要素のうち、焼き込むものを描く順に返す。隠した画層の要素は除く
+pub(crate) fn elements<'a>(
+    space: &'a ModelSpace,
+    view: &'a View,
+) -> impl Iterator<Item = &'a Element<ModelPoint>> + 'a {
     let order: Vec<usize> = if space.order.len() == space.elements.len() {
         space.order.clone()
     } else {
@@ -33,21 +42,89 @@ pub(crate) fn bake<'a>(
         .into_iter()
         .filter_map(|index| space.elements.get(index))
         .filter(|element| !view.hidden_layers.contains(&element.layer))
-        .map(|element| {
-            shape(&element.shape, view)
-                .map(|shape| Element {
-                    source: element.source.clone(),
-                    layer: element.layer,
-                    style: element.style,
-                    shape,
-                })
-                .ok_or(element)
-        })
 }
 
-fn shape(shape: &Shape<ModelPoint>, view: &View) -> Option<Shape<PaperPoint>> {
-    let m = view.transform.m;
-    let tolerance = TOLERANCE / stretch(m);
+/// 用紙の上で許す誤差を、実寸の空間の長さにしたもの。ビューが大きく引き延ばすほど小さくなる
+fn tolerance(view: &View) -> f64 {
+    TOLERANCE / stretch(view.transform.m)
+}
+
+/// 膨らみを持ち、幅を持たない折れ線。焼き込むと、膨らみのある区間ごとに点を作る
+fn bulged(polyline: &Polyline<ModelPoint>) -> bool {
+    polyline.width.is_none()
+        && polyline.vertex_widths.is_empty()
+        && polyline.vertices.iter().any(|v| v.bulge != 0.0)
+}
+
+fn vertices(polyline: &Polyline<ModelPoint>) -> Vec<(geom::Xy, f64)> {
+    polyline
+        .vertices
+        .iter()
+        .map(|v| ([v.point.x, v.point.y], v.bulge))
+        .collect()
+}
+
+/// 要素を焼き込む前に予算に数える、手間（`work`）と作る点（`segments`）の数。クロソイドは、作る点とは別に
+/// 原点から区間の初めまで刻んで積む手間を、膨らみを持つ折れ線は、区間ごとに作る点を、作る前に数える。
+/// ほかの形は、1 つで作る点が [`geom::MAX_STEPS`]（スプラインは、それとノットの区間の数）で抑えられるので、
+/// 作ったあとに数える（#753・#756）
+pub(crate) fn before(shape: &Shape<ModelPoint>, view: &View) -> (u64, u64) {
+    let tolerance = tolerance(view);
+    match shape {
+        Shape::Curve(Edge::Clothoid {
+            parameter,
+            start,
+            end,
+            ..
+        }) => match (model(*parameter), model(*start), model(*end)) {
+            (Some(parameter), Some(start), Some(end)) => {
+                (geom::clothoid_work(parameter, start, end, tolerance), 0)
+            }
+            _ => (0, 0),
+        },
+        Shape::Polyline(polyline) if bulged(polyline) => (
+            0,
+            geom::polyline_points(&vertices(polyline), polyline.closed, tolerance),
+        ),
+        _ => (0, 0),
+    }
+}
+
+/// 焼き込んだ要素と、焼き込んだあとに予算に数える手間と点
+pub(crate) struct Baked {
+    /// 用紙の要素。焼き込めなければ `None`
+    pub(crate) element: Option<Element<PaperPoint>>,
+    /// スプラインの点を求めた手間（#756）
+    pub(crate) work: u64,
+    /// 作った点のうち、[`before`] で数えなかったもの
+    pub(crate) points: u64,
+}
+
+/// 要素を用紙の要素にする
+pub(crate) fn element_of(element: &Element<ModelPoint>, view: &View) -> Baked {
+    let mut work = 0;
+    let shape = shape(&element.shape, view, &mut work);
+    let points = match (&element.shape, &shape) {
+        (Shape::Polyline(polyline), _) if bulged(polyline) => 0,
+        (_, Some(Shape::Polyline(out))) => out.vertices.len() as u64,
+        (_, Some(Shape::Line { .. })) => 2,
+        _ => 0,
+    };
+    Baked {
+        element: shape.map(|shape| Element {
+            source: element.source.clone(),
+            layer: element.layer,
+            style: element.style,
+            shape,
+        }),
+        work,
+        points,
+    }
+}
+
+/// 形を用紙の形にする。スプラインの点を求めた手間を `work` に足す
+fn shape(shape: &Shape<ModelPoint>, view: &View, work: &mut u64) -> Option<Shape<PaperPoint>> {
+    let tolerance = tolerance(view);
     let paper = |[x, y]: geom::Xy| {
         let (x, y) = view.transform.apply(x, y);
         PaperPoint {
@@ -77,12 +154,7 @@ fn shape(shape: &Shape<ModelPoint>, view: &View) -> Option<Shape<PaperPoint>> {
                 }
                 return Some(out);
             }
-            let vertices: Vec<(geom::Xy, f64)> = polyline
-                .vertices
-                .iter()
-                .map(|v| (xy(&v.point), v.bulge))
-                .collect();
-            let mut points = geom::polyline(&vertices, polyline.closed, tolerance);
+            let mut points = geom::polyline(&vertices(polyline), polyline.closed, tolerance);
             if polyline.closed {
                 points.pop();
             }
@@ -143,14 +215,15 @@ fn shape(shape: &Shape<ModelPoint>, view: &View) -> Option<Shape<PaperPoint>> {
         }
         Shape::Curve(Edge::Spline(spline)) => {
             let control: Vec<geom::Xy> = spline.control.iter().map(xy).collect();
-            let points = geom::spline(
+            let (points, spent) = geom::spline_with_work(
                 spline.degree,
                 &spline.knots,
                 &control,
                 &spline.weights,
                 tolerance,
-            )?;
-            lines(points, false)?
+            );
+            *work = work.saturating_add(spent);
+            lines(points?, false)?
         }
         Shape::Curve(Edge::Clothoid {
             origin,
@@ -278,8 +351,8 @@ mod tests {
     use super::*;
     use zumen_base::Ref;
     use zumen_drawing::{
-        Affine, HeightMeaning, Horizontal, Inherit, LayerId, ModelLength, SheetId, SpaceId, Style,
-        Vertical,
+        Affine, HeightMeaning, Horizontal, Inherit, LayerId, ModelLength, SheetId, SpaceId, Spline,
+        Style, Vertical,
     };
 
     const SPACE: SpaceId = SpaceId(0);
@@ -320,7 +393,7 @@ mod tests {
             end: 180.0,
             counterclockwise: true,
         });
-        let Some(Shape::Polyline(polyline)) = shape(&arc, &view) else {
+        let Some(Shape::Polyline(polyline)) = shape(&arc, &view, &mut 0) else {
             panic!("折れ線にならない");
         };
         assert!(polyline.vertices.len() > 10);
@@ -360,7 +433,7 @@ mod tests {
                 style: String::new(),
             })
         };
-        let Some(Shape::Text(out)) = shape(&text(0.0), &view) else {
+        let Some(Shape::Text(out)) = shape(&text(0.0), &view, &mut 0) else {
             panic!("文字にならない");
         };
         assert_eq!(out.height.value, Length::Paper(PaperLength(2.5)));
@@ -371,7 +444,7 @@ mod tests {
             Placement::Anchor { point, .. } if point.x == 11.0 && point.y == 40.0
         ));
         // 縦に立てた文字は、横の尺度で高さが決まる
-        let Some(Shape::Text(out)) = shape(&text(90.0), &view) else {
+        let Some(Shape::Text(out)) = shape(&text(90.0), &view, &mut 0) else {
             panic!("文字にならない");
         };
         let Length::Paper(PaperLength(height)) = out.height.value else {
@@ -426,5 +499,88 @@ mod tests {
             Ok(Element { shape: Shape::Line { end, .. }, .. }) if end.x == 11.0 && end.y == 30.0
         ));
         assert!(out[1].is_err());
+    }
+
+    #[test]
+    fn curves_are_counted_before_or_after_they_are_baked() {
+        let view = view();
+        let element = |shape| Element {
+            source: Ref::default(),
+            layer: LayerId(0),
+            style: Style {
+                color: Inherit::Layer,
+                line_type: Inherit::Layer,
+                line_type_scale: 1.0,
+                line_weight: None,
+                transparency: Inherit::Layer,
+            },
+            shape,
+        };
+        let polyline = |point: &Element<PaperPoint>| match &point.shape {
+            Shape::Polyline(out) => out.vertices.len() as u64,
+            _ => panic!("折れ線にならない"),
+        };
+        // 区間が原点から離れたクロソイドは、原点から区間の初めまで刻んで積む手間を、作る前に数える。
+        // 区間の刻みだけなら、点の数より 1 少ない刻みごとに 9 回（#753）
+        let clothoid = Shape::Curve(Edge::Clothoid {
+            origin: at(0.0, 0.0),
+            parameter: real(50.0),
+            angle: 0.0,
+            counterclockwise: true,
+            start: real(35.0),
+            end: real(50.0),
+        });
+        let (work, points) = before(&clothoid, &view);
+        assert_eq!(
+            work,
+            geom::clothoid_work(50.0, 35.0, 50.0, tolerance(&view))
+        );
+        assert_eq!(points, 0);
+        let baked = element_of(&element(clothoid), &view);
+        let made = polyline(baked.element.as_ref().unwrap());
+        assert_eq!(baked.points, made);
+        assert!(work > (made - 1) * 9 + 1, "{work} {made}");
+        // 膨らみを持つ折れ線は、作る点を前に数え、作ったあとには数えない。閉じた折れ線は、終わりの点を
+        // 除く前の数を数える
+        let circle = Shape::Polyline(Polyline {
+            vertices: vec![
+                Vertex {
+                    point: at(0.0, 0.0),
+                    bulge: 1.0,
+                },
+                Vertex {
+                    point: at(100.0, 0.0),
+                    bulge: 1.0,
+                },
+            ],
+            closed: true,
+            width: None,
+            vertex_widths: Vec::new(),
+            line_type_generation: false,
+        });
+        let (work, points) = before(&circle, &view);
+        let baked = element_of(&element(circle), &view);
+        assert_eq!(work, 0);
+        assert_eq!(points, polyline(baked.element.as_ref().unwrap()) + 1);
+        assert!(points > 100, "{points}");
+        assert_eq!(baked.points, 0);
+        // スプラインは、点を求めた手間と作った点を、作ったあとに数える（#756）
+        let spline = Shape::Curve(Edge::Spline(Spline {
+            degree: 3,
+            knots: vec![0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0],
+            control: vec![at(0.0, 0.0), at(1.0, 2.0), at(3.0, 2.0), at(4.0, 0.0)],
+            weights: Vec::new(),
+            fit: Vec::new(),
+            start_tangent: None,
+            end_tangent: None,
+            closed: false,
+            periodic: false,
+            fit_tolerance: None,
+            knot_parameterization: None,
+        }));
+        assert_eq!(before(&spline, &view), (0, 0));
+        let baked = element_of(&element(spline), &view);
+        assert!(baked.work > 0);
+        assert_eq!(baked.points, polyline(baked.element.as_ref().unwrap()));
     }
 }
