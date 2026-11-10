@@ -45,7 +45,7 @@ Tier 1 は言語ごとのパッケージをコアと同じ日に公開し、PR �
 | 2 | Swift | iOS・iPadOS 15、macOS 12 | Dart（Flutter）の下限に合わせる。SwiftPM の `binaryTarget` は Apple のプラットフォームだけ | 毎晩（シミュレーター） |
 | 2 | Go | Go がサポートする 2 つのメジャーバージョン（今は 1.26・1.27） | Go のサポートの方針。wazero も同じ方針 | 毎晩 |
 | 2 | Dart | Dart 3（Flutter 3） | | 毎晩 |
-| 2 | VBA | VBA7（Office 2010 以降）、32 bit・64 bit | `Declare PtrSafe` が使えるバージョン。確かめるのは、サポートのある Microsoft 365 と Office LTSC 2024 | Windows の実機（`verify`） |
+| 2 | VBA | VBA7（Office 2010 以降）、32 bit・64 bit | `Declare PtrSafe` が使えるバージョン。確かめるのは、サポートのある Microsoft 365 と Office LTSC 2024 | DLL は PR ごと。Office の実機は [#800](https://github.com/zumen-jp/zumen/issues/800) で未確認 |
 
 ## ブラウザーの下限の根拠
 
