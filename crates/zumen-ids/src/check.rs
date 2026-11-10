@@ -639,11 +639,11 @@ impl Checker<'_> {
         let mut references: Vec<_> = own
             .map(|c| c.references.iter().collect())
             .unwrap_or_default();
-        let mut systems: BTreeSet<Option<&str>> =
+        let own_systems: BTreeSet<Option<&str>> =
             references.iter().map(|r| r.system.as_deref()).collect();
         if let Some(inherited) = inherited {
             for reference in &inherited.references {
-                if systems.insert(reference.system.as_deref()) {
+                if !own_systems.contains(&reference.system.as_deref()) {
                     references.push(reference);
                 }
             }

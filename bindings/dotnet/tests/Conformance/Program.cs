@@ -311,8 +311,9 @@ namespace Zumen.Conformance
             var failures = new List<string>();
             var hashes = new List<string>();
             var scenes = 0;
+            // Rust と同じく拡張子を含めて並べる。building-semantic.json は building.json より前になる。
             var files = Directory.GetFiles(Path.Combine(conformance, "cases"), "*.json")
-                .OrderBy(path => Path.GetFileNameWithoutExtension(path), StringComparer.Ordinal)
+                .OrderBy(path => Path.GetFileName(path), StringComparer.Ordinal)
                 .ToList();
             foreach (var file in files)
             {

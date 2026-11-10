@@ -13,7 +13,7 @@ use crate::{Express, IfcFile, Value};
 
 /// IFC から作った建物モデルを IDS で照合するときの、[`Lookup`]。
 ///
-/// IFC からの変換が建物モデルに写さない値（分類、材料の分類と組の名前、単一の値でないプロパティ。決定 0215）を
+/// IFC からの変換が建物モデルに写さない値（材料の分類と組の名前、単一の値でないプロパティ。決定 0215）を
 /// 持たないと示す。EXPRESS を渡せば、要素のインスタンスのすべての明示の属性を、EXPRESS の属性の名前で返す。
 ///
 /// 実体の属性の並びは、初めて使うときに作って覚え、要素ごとに作り直さない。覚えるのは、属性の数の合う要素があった
@@ -149,10 +149,7 @@ fn unit(building: &Building, kind: &str, cx: &mut Cx) -> Result<Option<Unit>, St
 
 impl Lookup for IdsLookup<'_> {
     fn missing(&self, what: Missing) -> bool {
-        matches!(
-            what,
-            Missing::Classification | Missing::MaterialNames | Missing::PropertyKinds
-        )
+        matches!(what, Missing::MaterialNames | Missing::PropertyKinds)
     }
 
     fn attributes(
