@@ -1036,8 +1036,15 @@ impl Emitter<'_, '_, '_> {
                 line_bounds.add(point);
                 line_bounds.add(end);
             }
+            if let Some([x0, y0, x1, y1]) = line_bounds.get() {
+                self.check_points(&[[x0, y0], [x1, y1]], at)?;
+            }
             bounds = bounds.union(line_bounds);
-            self.builder.put_text(item);
+            // 文字の基点だけで塊を絞ると、範囲に重なる字形が落ちる。レビューで求めた
+            // 字形（なければ概算）の範囲を、塊と文字の両方に使う。
+            item.bounds = line_bounds;
+            self.builder.place(line_bounds);
+            self.builder.current.texts.push(item);
         }
         if frame {
             if approximated {

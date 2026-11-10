@@ -1011,6 +1011,94 @@ fn region_filtering_does_not_move_review_geometry() {
     assert_eq!(result.scene.extent, None);
 }
 
+#[test]
+fn text_overlapping_a_region_survives_when_its_anchor_is_outside() {
+    let drawing = drawing();
+    let bytes = font_bytes();
+    for (use_font, caption) in [(false, false), (true, false), (false, true), (true, true)] {
+        let mut review = review_document(vec![markup(
+            "region-note",
+            if caption {
+                MarkupKind::Redline
+            } else {
+                MarkupKind::Text
+            },
+            Some("space/0"),
+            if caption {
+                &[[0.0, 7.5], [1.0, 7.5]]
+            } else {
+                &[[0.0, 10.0]]
+            },
+        )]);
+        review.markups[0].text = Some(if use_font { "HH" } else { "ABCDEFGH" }.into());
+        let mut fonts = FontSet::default();
+        let mut options = options(Origin::Space(MODEL));
+        options.chunking.items = 1;
+        if use_font {
+            fonts.add(Some("synthetic"), Face::parse(&bytes, 0).unwrap());
+            options.style.font = Some("synthetic".into());
+        }
+        let make = |options: &ReviewOptions| {
+            let mut budget = Budget::default();
+            let mut diagnostics = Diagnostics::new();
+            build_review_with(
+                &drawing,
+                &review,
+                &target(),
+                options,
+                &fonts,
+                &mut Cx::new(&mut budget, &mut diagnostics, &CancelToken::new()),
+            )
+            .unwrap()
+        };
+        assert_eq!(make(&options).scene.counts.texts, 1);
+        options.region = Some(if use_font {
+            [1.0, 9.0, 1.1, 9.1]
+        } else {
+            [10.0, 8.0, 11.0, 9.0]
+        });
+        let clipped = make(&options);
+        assert_eq!(clipped.scene.counts.texts, 1);
+        assert_eq!(clipped.scene.counts.lines, if caption { 0 } else { 1 });
+        options.region = Some([100.0, 100.0, 101.0, 101.0]);
+        assert_eq!(make(&options).scene.counts.texts, 0);
+    }
+}
+
+#[test]
+fn glyph_captions_outside_the_f32_relative_range_are_rejected() {
+    let drawing = drawing();
+    let mut review = review_document(vec![markup(
+        "large-caption",
+        MarkupKind::Redline,
+        Some("space/0"),
+        &[[0.0, 0.0], [1.0, 0.0]],
+    )]);
+    review.markups[0].text = Some("HHHHHHHHHH".into());
+    let bytes = font_bytes();
+    let mut fonts = FontSet::default();
+    fonts.add(Some("synthetic"), Face::parse(&bytes, 0).unwrap());
+    let mut options = options(Origin::Space(MODEL));
+    options.style.font = Some("synthetic".into());
+    options.style.text_height = 1e38;
+    let mut budget = Budget::default();
+    let mut diagnostics = Diagnostics::new();
+    let result = build_review_with(
+        &drawing,
+        &review,
+        &target(),
+        &options,
+        &fonts,
+        &mut Cx::new(&mut budget, &mut diagnostics, &CancelToken::new()),
+    );
+    assert!(matches!(result, Err((ReviewError::Invalid, _))));
+    assert!(has_place(
+        &diagnostics.into_vec(),
+        "review.scene-geometry.invalid",
+        &markup_id("large-caption")
+    ));
+}
+
 /// 既存の scene.rs と同じ合成 TrueType。.notdef・H・g・空白・I だけを持つ。
 const FONT: &[&str] = &[
     "0001000000080000000000004f532f32000000000000008c00000060636d617000000000000000ec0000004c676c7966",
