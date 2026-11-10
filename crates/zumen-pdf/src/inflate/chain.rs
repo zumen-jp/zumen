@@ -187,7 +187,7 @@ fn decode_encoded(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::inflate::stages::read as stages;
+    use crate::inflate::metadata::Metadata;
     use zumen_base::{Budget, CancelToken, Diagnostics, Limit, Limits};
 
     mod lzw_fixture {
@@ -205,6 +205,10 @@ mod tests {
         Reader::new(source)
             .read_with_context(&ReaderContext::dummy())
             .unwrap()
+    }
+
+    fn stages(dict: &hayro_syntax::object::Dict<'_>, cx: &mut Cx<'_>) -> Result<Vec<Stage>, Stop> {
+        crate::inflate::stages::read(dict, Metadata::new(Source::default(), 3), cx)
     }
 
     #[test]

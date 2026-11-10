@@ -1,10 +1,10 @@
 //! 単独と系列で共通のフィルター引数と、予測子の事前予約（#769・#774）。
 
 use hayro_syntax::Filter;
-use hayro_syntax::object::{Array, Dict, Name, Object};
+use hayro_syntax::object::{Dict, Name, Object};
 use zumen_base::{Cx, Kind, Stop};
 
-use super::allocation;
+use super::{allocation, metadata::Metadata};
 
 #[derive(Clone, Copy)]
 pub(super) struct Stage {
@@ -91,27 +91,40 @@ impl Stage {
 
 /// Stream::filters_and_params と同じ優先順。未知名もパラメーターを 1 つ進め、
 /// 名前でない項目で両方の走査を終える。パラメーター内の参照は元の文脈で解く。
-pub(super) fn read(dict: &Dict<'_>, cx: &mut Cx<'_>) -> Result<Vec<Stage>, Stop> {
+pub(super) fn read(
+    dict: &Dict<'_>,
+    metadata: Metadata<'_>,
+    cx: &mut Cx<'_>,
+) -> Result<Vec<Stage>, Stop> {
     let mut out = Vec::new();
-    if let Some(filter) = dict
-        .get::<Name<'_>>(b"F")
-        .or_else(|| dict.get::<Name<'_>>(b"Filter"))
-        .and_then(|name| filter(&name))
-    {
+    let name = match metadata.name(dict, b"F", cx)? {
+        Some(name) => Some(name),
+        None => metadata.name(dict, b"Filter", cx)?,
+    };
+    if let Some(filter) = name.and_then(|name| filter(&name)) {
         allocation::reserve((1, 128), cx)?;
-        out.push(Stage::new(
-            filter,
-            dict.get::<Dict<'_>>(b"DP")
-                .or_else(|| dict.get::<Dict<'_>>(b"DecodeParms")),
-        ));
-    } else if let Some(filters) = dict
-        .get::<Array<'_>>(b"F")
-        .or_else(|| dict.get::<Array<'_>>(b"Filter"))
-    {
-        let mut params = dict
-            .get::<Array<'_>>(b"DP")
-            .or_else(|| dict.get::<Array<'_>>(b"DecodeParms"))
-            .map(|array| array.iter::<Object<'_>>());
+        let params = match metadata.dict(dict, b"DP", cx)? {
+            Some(params) => Some(params),
+            None => metadata.dict(dict, b"DecodeParms", cx)?,
+        };
+        out.push(Stage::new(filter, params));
+    } else {
+        let filters = match metadata.array(dict, b"F", cx)? {
+            Some(filters) => Some(filters),
+            None => metadata.array(dict, b"Filter", cx)?,
+        };
+        let Some(filters) = filters else {
+            return Ok(out);
+        };
+        let attempts = metadata.names(&filters, cx)?;
+        let params = match metadata.array(dict, b"DP", cx)? {
+            Some(params) => Some(params),
+            None => metadata.array(dict, b"DecodeParms", cx)?,
+        };
+        if let Some(params) = &params {
+            metadata.objects(params, attempts, cx)?;
+        }
+        let mut params = params.map(|array| array.iter::<Object<'_>>());
         for name in filters.iter::<Name<'_>>() {
             cx.check(Kind::Work, 1)?;
             let params = params

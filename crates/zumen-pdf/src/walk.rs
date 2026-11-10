@@ -29,6 +29,7 @@ use std::rc::Rc;
 use flate2::{Decompress, FlushDecompress, Status};
 use hayro_font::{Font, FontCache, FontGlyph, StandardFont};
 use hayro_interpret::InterpreterSettings;
+use hayro_syntax::Pdf;
 use hayro_syntax::content::TypedIter;
 use hayro_syntax::content::ops::TypedInstruction;
 use hayro_syntax::object::{
@@ -37,7 +38,6 @@ use hayro_syntax::object::{
 };
 use hayro_syntax::page::{Page, Resources};
 use hayro_syntax::xref::XRef;
-use hayro_syntax::{Filter, Pdf};
 use skrifa::raw::TableProvider;
 use skrifa::{Font as FontProgram, OutlineSource};
 use zumen_base::{Code, Diagnostic, Diagnostics, Kind, Ref, Stop, codes};
@@ -796,42 +796,26 @@ fn transfer(state: &Dict<'_>) -> bool {
 /// 厳しい展開でも、展開できた所までを返す。フィルターが Flate だけで予測子のないストリームを、同じ順と、zlib の
 /// ヘッダーを除いた deflate の形（Adler-32 が違うか、ないもの）で厳しく展開し直し、deflate の終わりまで読めて、
 /// hayro-syntax が返した長さ `length` になるかを見る
-fn leniently_inflated(stream: &Stream<'_>, length: usize) -> bool {
-    if predicted(stream.dict()) || !matches!(stream.filters().as_slice(), [Filter::FlateDecode]) {
-        return false;
+fn leniently_inflated(
+    stream: &Stream<'_>,
+    length: usize,
+    source: inflate::Source<'_>,
+    cx: &mut Cx<'_>,
+) -> Result<bool, Stop> {
+    if !inflate::plain_flate(stream, source, cx)? {
+        return Ok(false);
     }
     let raw = stream.raw_data();
     let raw = raw.as_ref();
     // 空白だけのデータは、hayro-syntax が空のバイト列にするので、何も失わない
     if length == 0 && raw.iter().all(u8::is_ascii_whitespace) {
-        return false;
+        return Ok(false);
     }
-    !(inflates_to(raw, true, length)
+    Ok(!(inflates_to(raw, true, length)
         || inflates_to(raw, false, length)
         || raw
             .get(2..)
-            .is_some_and(|data| inflates_to(data, false, length)))
-}
-
-/// Flate の予測子（7.4.4.4）を使うか。hayro-syntax と同じく、フィルターが名前なら辞書を、配列なら配列の最初の
-/// 項目を読む
-fn predicted(dict: &Dict<'_>) -> bool {
-    let single = dict
-        .get::<Name<'_>>(b"F")
-        .or_else(|| dict.get::<Name<'_>>(b"Filter"))
-        .is_some();
-    let params = if single {
-        dict.get::<Dict<'_>>(b"DP")
-            .or_else(|| dict.get::<Dict<'_>>(b"DecodeParms"))
-    } else {
-        dict.get::<Array<'_>>(b"DP")
-            .or_else(|| dict.get::<Array<'_>>(b"DecodeParms"))
-            .and_then(|params| params.iter::<Object<'_>>().next())
-            .and_then(|params| params.into_dict())
-    };
-    params
-        .and_then(|params| params.get::<i64>(b"Predictor"))
-        .is_some_and(|predictor| predictor > 1)
+            .is_some_and(|data| inflates_to(data, false, length))))
 }
 
 /// 厳しく展開して、deflate の終わりまで読め、ちょうど `length` バイトになるか。`zlib` は、zlib の形（ヘッダーと
@@ -1590,7 +1574,9 @@ impl<'a, 'o> Walker<'a, 'o> {
                     None
                 };
                 let readable = match (&stream, length) {
-                    (Some(stream), Some(length)) => !leniently_inflated(stream, length),
+                    (Some(stream), Some(length)) => {
+                        !leniently_inflated(stream, length, self.reads.source, cx)?
+                    }
                     _ => false,
                 };
                 if !readable {
@@ -1615,7 +1601,10 @@ impl<'a, 'o> Walker<'a, 'o> {
             cx.check(Kind::DecodedBytes, data.len() as u64)?;
         }
         let broken = match single {
-            Some(stream) => content.is_none_or(|data| leniently_inflated(&stream, data.len())),
+            Some(stream) => match content {
+                Some(data) => leniently_inflated(&stream, data.len(), self.reads.source, cx)?,
+                None => true,
+            },
             None => content.is_none() && raw.contains_key(b"Contents"),
         };
         if broken {
@@ -3289,7 +3278,7 @@ impl<'a, 'o> Walker<'a, 'o> {
                 Form {
                     data: Some(with_end(&data)),
                     decode: decoded.cost,
-                    lenient: leniently_inflated(stream, data.len()),
+                    lenient: leniently_inflated(stream, data.len(), self.reads.source, cx)?,
                 }
             }
             None => Form {

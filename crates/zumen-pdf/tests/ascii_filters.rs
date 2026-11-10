@@ -121,10 +121,11 @@ fn bounds_ascii_compressed_streams_before_whole_output_allocation() {
                         Limits::default().with(Kind::DecodedBytes, Limit::Finite(32 * 1024));
                     let result = run(&input, limits, false);
                     assert!(
-                        matches!(result.0, Err(Error::Stopped(Stop::Exceeded(e))) if e.kind == Kind::DecodedBytes && e.requested < 48 * 1024),
+                        matches!(result.0, Err(Error::Stopped(Stop::Exceeded(e))) if e.kind == Kind::DecodedBytes),
                         "{case}, {filter}: {:?}",
                         result.0
                     );
+                    assert!(result.1.used(Kind::DecodedBytes) <= 32 * 1024);
                     assert_eq!(
                         format!("{result:?}"),
                         format!("{:?}", run(&input, limits, false))
@@ -312,7 +313,8 @@ fn external_file_specifications_do_not_run_the_filters_on_embedded_bytes() {
                 let input = cases::document(0, &filter, &ascii, false, 1);
                 let ample = run(&input, Limits::default(), false);
                 assert!(ample.0.is_ok());
-                let limits = Limits::default().with(Kind::DecodedBytes, Limit::Finite(32 * 1024));
+                // 引数解析の予約を通し、64 KiB の出力と容量の予約は通らない限度にする。
+                let limits = Limits::default().with(Kind::DecodedBytes, Limit::Finite(128 * 1024));
                 let small = run(&input, limits, false);
                 assert_eq!(format!("{:?}", small.0), format!("{:?}", ample.0));
                 assert_eq!(small.2, ample.2);

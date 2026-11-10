@@ -181,7 +181,6 @@ fn shapes(drawing: &Drawing2D) -> Vec<String> {
 #[test]
 fn reserves_output_capacity_before_materialization_at_every_entry() {
     const LENGTH: usize = 32 * 1024;
-    const LIMIT: u64 = 128 * 1024;
     let plain = vec![b' '; LENGTH];
     assert_eq!(cases::COUNT, 22);
     for compression in COMPRESSIONS {
@@ -191,7 +190,7 @@ fn reserves_output_capacity_before_materialization_at_every_entry() {
             let filter = compression.filter(prefix, false, "");
             for case in 0..cases::COUNT {
                 let source = cases::document(case, &filter, &data, false, 2);
-                let (exceeded, budget, _) = stopped(&source, Kind::DecodedBytes, LIMIT);
+                let (exceeded, budget) = capacity_stop(&source, compression.growth(LENGTH));
                 // 出力長の確認は通過し、全確保の予約自身で止まる。
                 assert_eq!(
                     exceeded.requested - budget.used(Kind::DecodedBytes),
@@ -201,6 +200,19 @@ fn reserves_output_capacity_before_materialization_at_every_entry() {
             }
         }
     }
+}
+
+#[cfg(test)]
+fn capacity_stop(source: &[u8], growth: u64) -> (zumen_base::Exceeded, Budget) {
+    // 引数解析の費用も先に予約するため、出力容量に達するまで限度を進める。
+    // 32 KiB の出力の容量予約は 128 KiB より大きく、16 KiB 刻みでは飛び越さない。
+    for limit in (128 * 1024..512 * 1024).step_by(16 * 1024) {
+        let (exceeded, budget, _) = stopped(source, Kind::DecodedBytes, limit);
+        if exceeded.requested - budget.used(Kind::DecodedBytes) == growth {
+            return (exceeded, budget);
+        }
+    }
+    panic!("出力容量の予約で止まらなかった");
 }
 
 #[test]
@@ -356,7 +368,7 @@ fn invalid_lzw_keeps_partial_output_capacity_at_every_entry() {
             let data = wrapped(&compressed, prefix);
             for case in 0..cases::COUNT {
                 let source = cases::document(case, &filter, &data, false, 1);
-                let (exceeded, budget, _) = stopped(&source, Kind::DecodedBytes, 128 * 1024);
+                let (exceeded, budget) = capacity_stop(&source, compression.growth(length));
                 assert_eq!(
                     exceeded.requested - budget.used(Kind::DecodedBytes),
                     compression.growth(length),

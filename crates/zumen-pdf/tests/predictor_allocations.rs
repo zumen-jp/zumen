@@ -256,8 +256,37 @@ fn generic_predictors_reserve_their_own_cost_at_every_entry() {
                 let filter = compression.filter(prefix, prefix != 0, predictor);
                 for case in 0..cases::COUNT {
                     let source = cases::document(case, &filter, &data, false, 1);
+                    let inactive = Predictor {
+                        number: 1,
+                        ..predictor
+                    };
+                    let baseline = cases::document(
+                        case,
+                        &compression.filter(prefix, prefix != 0, inactive),
+                        &data,
+                        false,
+                        1,
+                    );
                     for kind in [Kind::DecodedBytes, Kind::Work] {
-                        let (exceeded, budget) = stopped(&source, kind, 64 * 1024);
+                        let limit = if kind == Kind::DecodedBytes {
+                            192 * 1024
+                        } else {
+                            64 * 1024
+                        };
+                        // 前段の費用は内容入口で確認する。資源の後段の解析費用は、この停止とは分ける。
+                        if case == 0 {
+                            assert!(
+                                run(
+                                    &baseline,
+                                    Limits::default().with(kind, Limit::Finite(limit)),
+                                    false
+                                )
+                                .0
+                                .is_ok(),
+                                "baseline: {compression:?}, {prefix}, {predictor:?}, {kind:?}"
+                            );
+                        }
+                        let (exceeded, budget) = stopped(&source, kind, limit);
                         // 出力長・容量の予約は小さい。予測子自身の予約で止まったことを確認する。
                         let reservation = exceeded.requested - budget.used(kind);
                         assert!(
@@ -475,11 +504,32 @@ fn typed_priority_unknown_names_and_array_positions_choose_the_same_params() {
             let data = wrapped(&compressed, prefix);
             for (filter, generic) in typed_variants(compression, prefix) {
                 let source = cases::document(0, &filter, &data, false, 1);
+                let baseline = cases::document(
+                    0,
+                    &filter.replace("/Predictor 12", "/Predictor 1"),
+                    &data,
+                    false,
+                    1,
+                );
                 let actual = run(&source, Limits::default(), false);
                 assert!(actual.0.is_ok());
                 for kind in [Kind::DecodedBytes, Kind::Work] {
+                    let limit = if kind == Kind::DecodedBytes {
+                        256 * 1024
+                    } else {
+                        64 * 1024
+                    };
+                    assert!(
+                        run(
+                            &baseline,
+                            Limits::default().with(kind, Limit::Finite(limit)),
+                            false
+                        )
+                        .0
+                        .is_ok()
+                    );
                     if generic {
-                        let (exceeded, budget) = stopped(&source, kind, 64 * 1024);
+                        let (exceeded, budget) = stopped(&source, kind, limit);
                         assert!(
                             exceeded.requested - budget.used(kind) >= LARGE.row() as u64,
                             "{compression:?}, {prefix}, {filter}"
@@ -488,7 +538,7 @@ fn typed_priority_unknown_names_and_array_positions_choose_the_same_params() {
                         assert!(
                             run(
                                 &source,
-                                Limits::default().with(kind, Limit::Finite(64 * 1024)),
+                                Limits::default().with(kind, Limit::Finite(limit)),
                                 false
                             )
                             .0
@@ -571,8 +621,42 @@ fn indirect_filters_parameter_arrays_dictionaries_and_fields_keep_reservations()
                 "{compression:?}, {filter}: {:?}",
                 actual.0
             );
+            let inactive_filter = filter.replace("/Predictor 12", "/Predictor 1");
+            let inactive_definitions = definitions
+                .iter()
+                .map(|value| {
+                    if value == b"12" {
+                        b"1".to_vec()
+                    } else {
+                        core::str::from_utf8(value)
+                            .unwrap()
+                            .replace("/Predictor 12", "/Predictor 1")
+                            .into_bytes()
+                    }
+                })
+                .collect::<Vec<_>>();
+            let baseline =
+                referenced_document(&inactive_filter, &compressed, &inactive_definitions);
+            let baseline_result = run(&baseline, Limits::default(), false);
+            assert!(baseline_result.0.is_ok());
             for kind in [Kind::DecodedBytes, Kind::Work] {
-                let (exceeded, budget) = stopped(&source, kind, 64 * 1024);
+                let limit = if kind == Kind::DecodedBytes {
+                    256 * 1024
+                } else {
+                    64 * 1024
+                }
+                .max(baseline_result.1.used(kind));
+                assert!(
+                    run(
+                        &baseline,
+                        Limits::default().with(kind, Limit::Finite(limit)),
+                        false
+                    )
+                    .0
+                    .is_ok(),
+                    "baseline: {compression:?}, {filter}, {kind:?}"
+                );
+                let (exceeded, budget) = stopped(&source, kind, limit);
                 assert!(exceeded.requested - budget.used(kind) >= row as u64);
             }
             exact_and_one_less(&source);
@@ -581,7 +665,7 @@ fn indirect_filters_parameter_arrays_dictionaries_and_fields_keep_reservations()
         assert!(
             run(
                 &source,
-                Limits::default().with(Kind::DecodedBytes, Limit::Finite(32 * 1024)),
+                Limits::default().with(Kind::DecodedBytes, Limit::Finite(256 * 1024)),
                 false
             )
             .0
@@ -609,8 +693,34 @@ fn empty_and_short_data_still_reserve_large_generic_rows() {
                     let data = wrapped(&compressed, prefix);
                     for case in 0..cases::COUNT {
                         let source = cases::document(case, &filter, &data, false, 1);
+                        let inactive = Predictor {
+                            number: 1,
+                            ..predictor
+                        };
+                        let baseline = cases::document(
+                            case,
+                            &compression.filter(prefix, true, inactive),
+                            &data,
+                            false,
+                            1,
+                        );
                         for kind in [Kind::DecodedBytes, Kind::Work] {
-                            let (exceeded, budget) = stopped(&source, kind, 32 * 1024);
+                            let limit = if kind == Kind::DecodedBytes {
+                                256 * 1024
+                            } else {
+                                64 * 1024
+                            };
+                            assert!(
+                                run(
+                                    &baseline,
+                                    Limits::default().with(kind, Limit::Finite(limit)),
+                                    false
+                                )
+                                .0
+                                .is_ok(),
+                                "baseline: {case}, {compression:?}, {prefix}, {predictor:?}, {kind:?}"
+                            );
+                            let (exceeded, budget) = stopped(&source, kind, limit);
                             assert!(
                                 exceeded.requested - budget.used(kind) >= predictor.row() as u64,
                                 "{case}, {compression:?}, {prefix}, {predictor:?}, {kind:?}"
@@ -651,10 +761,15 @@ fn empty_and_short_data_still_reserve_large_generic_rows() {
             let filter = compression.filter(0, false, predictor);
             let source = cases::document(0, &filter, &compressed, false, 1);
             for kind in [Kind::DecodedBytes, Kind::Work] {
+                let limit = if kind == Kind::DecodedBytes {
+                    256 * 1024
+                } else {
+                    64 * 1024
+                };
                 assert!(
                     run(
                         &source,
-                        Limits::default().with(kind, Limit::Finite(32 * 1024)),
+                        Limits::default().with(kind, Limit::Finite(limit)),
                         false
                     )
                     .0

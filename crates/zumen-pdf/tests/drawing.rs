@@ -3918,10 +3918,11 @@ fn counts_the_dictionaries_of_object_streams_before_reading_them() {
     )];
     let own = used(&document.bytes(), Kind::DecodedBytes);
     assert!(own >= 176 * count as u64, "{own}");
-    // 展開するときに hayro-syntax が表を作る `F`・`DP`・`DecodeParms` の値も、展開の前に名前の数で数える
+    // 展開するときに hayro-syntax が表を作る `F`・`DP`・`DecodeParms` の値も、展開の前に名前の数で数える。
+    // Crypt を明示して、DP・DecodeParms が実際に読まれるストリームにする。
     for key in ["F", "DP", "DecodeParms"] {
         document.objects = vec![common::stream(
-            &format!("/Type /ObjStm /N 1 /First 4 /{key} << {keys}>>"),
+            &format!("/Type /ObjStm /N 1 /First 4 /Filter /Crypt /{key} << {keys}>>"),
             "30 0 << >>",
         )];
         let parameters = used(&document.bytes(), Kind::DecodedBytes);
@@ -4021,12 +4022,13 @@ fn bounds_flate_object_streams_after_a_leading_crypt_filter() {
         let mut diagnostics = Diagnostics::new();
         let cancel = CancelToken::new();
         let result = file.lift(&mut Cx::new(&mut budget, &mut diagnostics, &cancel));
-        // 全量の 64 KiB を展開した後ではなく、固定長のバッファーの 1 回目で止まる
+        // 全量の 64 KiB を作る前に、引数の一括予約か、固定長のバッファーの確認で止まる。
         assert!(
             matches!(result, Err(Error::Stopped(Stop::Exceeded(e)))
-            if e.kind == Kind::DecodedBytes && e.requested < 16 * 1024),
+            if e.kind == Kind::DecodedBytes),
             "{filter}: {result:?}"
         );
+        assert!(budget.used(Kind::DecodedBytes) <= 4 * 1024);
     }
 }
 
@@ -4502,7 +4504,8 @@ fn reads_names_in_comments_in_linear_work() {
     let mut document = Document::new(vec![Page::new("0 0 m 10 10 l S")]);
     document.objects = vec![format!("({}{tail})", "%obj<<\n".repeat(count)).into_bytes()];
     let work = used(&document.bytes(), Kind::Work);
-    let most = plain + 8 * count as u64 + tail.len() as u64;
+    // 展開引数を調べる固定回数の読み取りも、同じ辞書の長さに比例して数える。
+    let most = plain + 8 * count as u64 + 4 * tail.len() as u64;
     assert!(work < most, "{plain} {work}");
     // コメントの行の `obj<<` から読む辞書が、`<<` の後ろでそれぞれ違う位置に着いても、前の辞書が読んだ歩み（項目の
     // 始まりか値の位置）に着いたら、そこから後ろを読み直さない（#562）。キーと値の組が前の辞書と入れ替わる並びと、
