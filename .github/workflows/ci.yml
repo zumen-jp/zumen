@@ -69,6 +69,15 @@ jobs:
           done
       - name: 形式の権利と依存・診断・スキーマ・公開サンプルの台帳を確かめ、生成した文書とコードの更新漏れを調べる
         run: cargo xtask codegen --check
+      - name: BCF のオフライン検証キットに使う Python を入れる
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.14'
+      - name: BCF 2.1 のキットと、値・画像・出力先の比較器を確かめる（#787）
+        run: |
+          python -I -m unittest discover -s xtask/verify/acc -p 'test_*.py'
+          cargo build --package zumen-cli --locked
+          python -I xtask/verify/acc/make.py make target/debug/zumen "$RUNNER_TEMP/acc-check"
 
   text:
     name: 表記の検査
