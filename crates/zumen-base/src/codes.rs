@@ -3857,7 +3857,7 @@ pub const SCENE_CALLOUT_DROPPED: Code = Code::new(
     &[],
 );
 
-/// 曲線・ふくらみのある折れ線を、弦の誤差が許容差以下の折れ線にした（決定 0172）。許容差は起点の長さ
+/// 曲線・膨らみのある折れ線を、弦の誤差が許容差以下の折れ線にした（決定 0172）。許容差は起点の長さ
 ///
 /// `scene.curve.approximated`（0.0.0 から）
 pub const SCENE_CURVE_APPROXIMATED: Code = Code::new(
@@ -4011,6 +4011,17 @@ pub const SCENE_LINE_TYPE_SHAPE_DROPPED: Code = Code::new(
     Some(Fidelity::Dropped),
     &[],
     &[],
+);
+
+/// 次数が上限（`zumen-geom2d` の `MAX_DEGREE`）を超えるスプラインを、制御点で決まる曲線として描かず、フィット点を通る曲線か、点を結ぶ折れ線で描いた（#756）
+///
+/// `scene.spline-degree.approximated`（0.2.0 から）
+pub const SCENE_SPLINE_DEGREE_APPROXIMATED: Code = Code::new(
+    "scene.spline-degree.approximated",
+    Severity::Warning,
+    Some(Fidelity::Approximated),
+    &[Param::new("limit", ParamType::UInt)],
+    &["limit"],
 );
 
 /// フィット点だけで決まるスプラインを、フィット点を結ぶ折れ線で描いた
@@ -4886,6 +4897,7 @@ pub const ALL: &[Code] = &[
     SCENE_LEADER_DROPPED,
     SCENE_LINE_TYPE_MARK_DROPPED,
     SCENE_LINE_TYPE_SHAPE_DROPPED,
+    SCENE_SPLINE_DEGREE_APPROXIMATED,
     SCENE_SPLINE_APPROXIMATED,
     SCENE_TABLE_APPROXIMATED,
     SCENE_TABLE_DROPPED,

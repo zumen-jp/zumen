@@ -1,10 +1,10 @@
 //! 2D の幾何（L3、決定 0018）。曲線を弦の誤差で折れ線にし、線種の列を線と間に展開する（決定 0172）。
 //!
 //! 点は `[x, y]`、角度は度で反時計回り（線形の区間の [`along`] はラジアン）。三角関数は、どの環境でも同じ値になる `libm` で求める（決定 0007）。
-//! 1 つの曲線で作る点の数は [`MAX_STEPS`] で抑える。使う側は、作った点を予算の `segments` で数える。膨らみを持つ
-//! 折れ線は区間ごとに抑えるので、[`polyline_points`] で作る前に数える。作る点の数に比例しない手間（クロソイドの
-//! 原点からの刻みと、スプラインの点の計算）は、[`clothoid_work`] と [`spline_with_work`] で求めて、予算の `work` に
-//! 数える（#753・#756）。
+//! 1 つの曲線で作る点の数は [`MAX_STEPS`]（スプラインは、それとノットの区間の数）で抑える。使う側は、作った点を
+//! 予算の `segments` で数える。膨らみを持つ折れ線は区間ごとに抑えるので、[`polyline_points`] で作る前に数える。
+//! 作る点の数に比例しない手間（クロソイドの原点からの刻みと、スプラインの点の計算）は、[`clothoid_work`] と
+//! [`spline_with_work`] で求めて、予算の `work` に数える（#753・#756）。
 
 use std::f64::consts::PI;
 
@@ -112,7 +112,7 @@ pub fn ellipse(
     }
 }
 
-/// ふくらみ `bulge`（中心角の 1/4 の正接、正なら反時計回り）で結んだ `from` から `to` までを折れ線にし、
+/// 膨らみ `bulge`（中心角の 1/4 の正接、正なら反時計回り）で結んだ `from` から `to` までを折れ線にし、
 /// `from` の次から `to` までの点を `out` に足す
 pub fn bulge(from: Xy, to: Xy, bulge: f64, tolerance: f64, out: &mut Vec<Xy>) {
     let Some((chord, angle, radius)) = bulge_arc(from, to, bulge) else {
@@ -141,7 +141,7 @@ pub fn bulge(from: Xy, to: Xy, bulge: f64, tolerance: f64, out: &mut Vec<Xy>) {
     out.push(to);
 }
 
-/// ふくらみ `bulge` で `from` から `to` まで結ぶ円弧の、弦の長さ・中心角（ラジアン）・半径。弦で結ぶなら `None`
+/// 膨らみ `bulge` で `from` から `to` まで結ぶ円弧の、弦の長さ・中心角（ラジアン）・半径。弦で結ぶなら `None`
 fn bulge_arc(from: Xy, to: Xy, bulge: f64) -> Option<(f64, f64, f64)> {
     let chord = distance(from, to);
     if bulge == 0.0 || !bulge.is_finite() || chord == 0.0 || !chord.is_finite() {
@@ -181,7 +181,7 @@ pub fn polyline_points(vertices: &[(Xy, f64)], closed: bool, tolerance: f64) -> 
     count
 }
 
-/// ふくらみを持つ頂点の列を折れ線にする。`closed` なら終点から始点へも結び、始点を最後に繰り返す
+/// 膨らみを持つ頂点の列を折れ線にする。`closed` なら終点から始点へも結び、始点を最後に繰り返す
 pub fn polyline(vertices: &[(Xy, f64)], closed: bool, tolerance: f64) -> Vec<Xy> {
     let mut out = Vec::with_capacity(vertices.len() + usize::from(closed));
     let Some(&(first, _)) = vertices.first() else {

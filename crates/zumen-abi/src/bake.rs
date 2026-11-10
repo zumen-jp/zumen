@@ -66,7 +66,8 @@ fn vertices(polyline: &Polyline<ModelPoint>) -> Vec<(geom::Xy, f64)> {
 
 /// 要素を焼き込む前に予算に数える、手間（`work`）と作る点（`segments`）の数。クロソイドは、作る点とは別に
 /// 原点から区間の初めまで刻んで積む手間を、膨らみを持つ折れ線は、区間ごとに作る点を、作る前に数える。
-/// ほかの形は、1 つで作る点が [`geom::MAX_STEPS`] で抑えられるので、作ったあとに数える（#753・#756）
+/// ほかの形は、1 つで作る点が [`geom::MAX_STEPS`]（スプラインは、それとノットの区間の数）で抑えられるので、
+/// 作ったあとに数える（#753・#756）
 pub(crate) fn before(shape: &Shape<ModelPoint>, view: &View) -> (u64, u64) {
     let tolerance = tolerance(view);
     match shape {

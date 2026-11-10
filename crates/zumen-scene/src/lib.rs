@@ -2,8 +2,9 @@
 //! 画像のセクションと、それらが引く表に並べた 1 つのバッファーにする。セクションの配置は `schema/scene.toml` にあり、
 //! [`layout`] に生成してある（決定 0178）。
 //!
-//! - 曲線・ふくらみのある折れ線は、起点の長さの許容差で折れ線にする（`zumen-geom2d`）。作った点は予算の
-//!   `segments` で数え、使った許容差を `scene.curve.approximated` で返す。
+//! - 曲線・膨らみのある折れ線は、起点の長さの許容差で折れ線にする（`zumen-geom2d`）。作った点は予算の
+//!   `segments` で数え、使った許容差を `scene.curve.approximated` で返す。クロソイドの原点からの刻みと
+//!   スプラインの点の計算は `work` で数え、膨らみのある折れ線の点は作る前に数える（#753・#756）。
 //! - 線種は、線と間に展開し、添える文字を置く。添える形は描かない（`scene.line-type-shape.dropped`）。
 //! - 寸法・表・注記の記号は、描いた部品の中をたどって描く。部品がなければ、定義点・行と列から線と文字を
 //!   作る。引出線と注記は、経路と端部記号と文字を描く（決定 0184）。
@@ -971,7 +972,16 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
                     }
                     None => {
                         // 制御点で決まらないものは、フィット点を通る 3 次のスプラインにする（決定 0184）。
-                        // それもできなければ、フィット点か制御点を結ぶ
+                        // それもできなければ、フィット点か制御点を結ぶ。次数が上限を超えて制御点で描けない
+                        // ものは、そのことを知らせる（#756）
+                        let beyond = spline.degree > geom::MAX_DEGREE;
+                        if beyond {
+                            self.cx.report(
+                                Diagnostic::new(codes::SCENE_SPLINE_DEGREE_APPROXIMATED)
+                                    .with("limit", u64::from(geom::MAX_DEGREE))
+                                    .at(source.clone()),
+                            );
+                        }
                         let fit: Vec<Xy> = spline.fit.iter().map(|p| p.xy()).collect();
                         let spacing = match spline.knot_parameterization {
                             Some(KnotParameterization::SquareRoot) => geom::Spacing::SquareRoot,
@@ -1004,7 +1014,9 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
                             }
                             None => {
                                 points = if fit.len() >= 2 { fit } else { control };
-                                self.report(codes::SCENE_SPLINE_APPROXIMATED, source);
+                                if !beyond {
+                                    self.report(codes::SCENE_SPLINE_APPROXIMATED, source);
+                                }
                             }
                         }
                     }

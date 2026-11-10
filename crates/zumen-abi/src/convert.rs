@@ -963,10 +963,11 @@ mod tests {
         (written, budget, codes)
     }
 
-    /// 焼き込むビューの曲線は、折れ線にする前に、手間と作る点を予算に数える（#753・#756）。どちらも、
-    /// 数えるのに要る分の半分しか残さなければ、書かずに止まる
+    /// 焼き込むビューの曲線は、折れ線にする手間と作る点を予算に数える。クロソイドの手間と、膨らみを持つ
+    /// 折れ線の点は、作る前に数え、スプラインの手間と、ほかの曲線の点は、作ったあとに数える（#753・#756）。
+    /// どれも、数えるのに要る分の半分しか残さなければ、書かずに止まる
     #[test]
-    fn a_baked_view_counts_its_curves_before_they_are_made() {
+    fn a_baked_view_counts_the_work_and_points_of_its_curves() {
         let base = profile_with(None);
         let (written, used, _) = written_within(&base, Limits::default());
         assert!(written);
@@ -992,7 +993,7 @@ mod tests {
             end: length(1000.0001),
         });
         // 半径 50 m の円を、膨らみを持つ 2 つの区間で描く
-        let circle = Shape::Polyline(Polyline {
+        let bulged = Shape::Polyline(Polyline {
             vertices: vec![
                 Vertex {
                     point: at(0.0, 0.0),
@@ -1008,14 +1009,49 @@ mod tests {
             vertex_widths: Vec::new(),
             line_type_generation: false,
         });
+        // 40 の制御点を持つ 3 次のスプラインと、半径 50 m の円
+        let spline = Shape::Curve(Edge::Spline(zumen_drawing::Spline {
+            degree: 3,
+            knots: (0..44)
+                .map(|i: i32| f64::from((i - 3).clamp(0, 37)))
+                .collect(),
+            control: (0..40)
+                .map(|i| at(f64::from(i) * 5.0, 50.0 + f64::from(i % 3)))
+                .collect(),
+            weights: Vec::new(),
+            fit: Vec::new(),
+            start_tangent: None,
+            end_tangent: None,
+            closed: false,
+            periodic: false,
+            fit_tolerance: None,
+            knot_parameterization: None,
+        }));
+        let circle = Shape::Circle {
+            center: at(100.0, 50.0),
+            radius: length(50.0),
+        };
         for (shape, kind, code) in [
             (clothoid, Kind::Work, codes::BUDGET_WORK_EXCEEDED),
+            (bulged, Kind::Segments, codes::BUDGET_SEGMENTS_EXCEEDED),
+            (spline, Kind::Work, codes::BUDGET_WORK_EXCEEDED),
             (circle, Kind::Segments, codes::BUDGET_SEGMENTS_EXCEEDED),
         ] {
-            let (work, points) = bake::before(&shape, view);
-            let needed = if kind == Kind::Work { work } else { points };
-            assert!(needed > 100, "{shape:?} {needed}");
             let drawing = profile_with(Some(shape));
+            let element = drawing
+                .spaces
+                .iter()
+                .find(|space| space.id == view.space)
+                .and_then(|space| space.elements.last())
+                .unwrap();
+            let (work, points) = bake::before(&element.shape, view);
+            let baked = bake::element_of(element, view);
+            let needed = if kind == Kind::Work {
+                work + baked.work
+            } else {
+                points + baked.points
+            };
+            assert!(needed > 100, "{:?} {needed}", element.shape);
             let limits = Limits::default().with(kind, Limit::Finite(used.used(kind) + needed / 2));
             let (written, _, codes) = written_within(&drawing, limits);
             assert!(!written, "{kind:?}");
