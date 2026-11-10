@@ -55,3 +55,45 @@ fn positions_count_the_work_of_walking_the_segments() {
         "{response}"
     );
 }
+
+/// 曲率の大きい緩和曲線の上の所を求める手間（向きの式を積む刻み）も予算に数え、ほかの予算の停止と同じく失敗に
+/// する（#727）。区間の初めの点を確かめる手間（`check_within`）も数える
+#[test]
+fn positions_count_the_work_of_steep_transitions() {
+    let mut session = Session::new(b"").unwrap();
+    let steep = r#"{"kind":"transition","northing":0,"easting":0,"direction":0,"length":1000,"end_radius":0.01}"#;
+    let line = r#"{"kind":"line","northing":0,"easting":0,"direction":0,"length":1}"#;
+    let request = |horizontal: &str, budget: &str| {
+        format!(
+            r#"{{"v":1,"op":"civil","alignment":{{"horizontal":[{horizontal}]}},"distances":[500,1000]{budget}}}"#
+        )
+    };
+    // 所を求めず、区間の初めの点を確かめるだけの要求
+    let checked = |horizontal: &str, budget: &str| {
+        format!(
+            r#"{{"v":1,"op":"civil","alignment":{{"horizontal":[{horizontal}]}},"distances":[]{budget}}}"#
+        )
+    };
+    let (status, response) = call(&mut session, &request(steep, ""));
+    assert_eq!(status, Status::Ok, "{response}");
+    // 1 つの所に刻みの上限に近い手間を数えるので、2 つの所は 10 万の上限を超える
+    let (status, response) = call(
+        &mut session,
+        &request(steep, r#","budget":{"work":100000}"#),
+    );
+    assert_eq!(status, Status::Failed, "{response}");
+    assert!(
+        response.contains(r#""code":"budget.work.exceeded""#),
+        "{response}"
+    );
+    // 後ろに区間があれば、初めの点を確かめるときに、緩和曲線の終わりの点を求める手間を数える
+    let both = format!("{steep},{line}");
+    let (status, response) = call(&mut session, &checked(&both, ""));
+    assert_eq!(status, Status::Ok, "{response}");
+    let (status, response) = call(&mut session, &checked(&both, r#","budget":{"work":50000}"#));
+    assert_eq!(status, Status::Failed, "{response}");
+    assert!(
+        response.contains(r#""code":"budget.work.exceeded""#),
+        "{response}"
+    );
+}

@@ -249,3 +249,73 @@ fn outside_distances_and_uncomputable_curves_are_reported() {
     let (invalid, _) = with_cx(|cx| zumen_civil::place(&alignment, 110.0, cx));
     assert_eq!(invalid.unwrap_err().code(), codes::CIVIL_SEGMENT_INVALID);
 }
+
+/// 区間の上の点と高さを求める手間を、求める前に予算の作業に数え、上限で止まる（#727）
+#[test]
+fn placing_counts_the_work_of_curves() {
+    use zumen_base::{Kind, Limit, Limits, Stop};
+    // 半径 0.01 m へ曲がる長さ 1000 m の緩和曲線。刻みの数は上限（65,536）になる
+    let steep = Alignment {
+        horizontal: vec![Horizontal {
+            start: MapPoint {
+                northing: 0.0,
+                easting: 0.0,
+            },
+            direction: 0.0,
+            length: 1000.0,
+            kind: HorizontalKind::Transition {
+                start_radius: None,
+                end_radius: Some(0.01),
+                curve: TransitionCurve::Clothoid,
+            },
+            source: zumen_base::Ref::default(),
+        }],
+        ..Alignment::default()
+    };
+    let work = |limits: Limits, f: &dyn Fn(&mut Cx<'_>) -> Result<(), Stop>| {
+        let mut diag = Diagnostics::new();
+        let mut budget = Budget::new(limits);
+        let cancel = CancelToken::new();
+        let out = f(&mut Cx::new(&mut budget, &mut diag, &cancel));
+        (out, budget.used(Kind::Work))
+    };
+    let place = |cx: &mut Cx<'_>| zumen_civil::place_within(&steep, 1000.0, cx).map(drop);
+    let (out, used) = work(Limits::default(), &place);
+    out.unwrap();
+    assert!(used > 65_536, "{used}");
+    let small = Limits::default().with(Kind::Work, Limit::Finite(1000));
+    let (out, _) = work(small, &place);
+    assert!(
+        matches!(out, Err(Stop::Exceeded(ref e)) if e.kind == Kind::Work),
+        "{out:?}"
+    );
+    // `place` は、止まった理由を診断で返す
+    let (out, _) = work(small, &|cx| {
+        let found = zumen_civil::place(&steep, 1000.0, cx);
+        assert!(found.is_err());
+        Ok(())
+    });
+    out.unwrap();
+    // 縦断のクロソイドは、反復のたびに数える
+    let vertical = Vertical {
+        start_distance: 0.0,
+        start_height: 0.0,
+        start_gradient: 0.0,
+        length: 1000.0,
+        kind: VerticalKind::Clothoid {
+            start_radius: None,
+            end_radius: Some(0.5),
+        },
+        source: zumen_base::Ref::default(),
+    };
+    let elevation =
+        |cx: &mut Cx<'_>| zumen_civil::elevation_within(0, &vertical, 500.0, cx).map(drop);
+    let (out, used) = work(Limits::default(), &elevation);
+    out.unwrap();
+    assert!(used > 65_536, "{used}");
+    let (out, _) = work(small, &elevation);
+    assert!(
+        matches!(out, Err(Stop::Exceeded(ref e)) if e.kind == Kind::Work),
+        "{out:?}"
+    );
+}

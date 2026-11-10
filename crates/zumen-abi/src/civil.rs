@@ -186,7 +186,9 @@ fn positions(
     .map_err(|stop| stopped(cx, stop))?;
     let mut positions = Vec::with_capacity(distances.len());
     for distance in distances {
-        match zumen_civil::place(alignment, distance, cx) {
+        match zumen_civil::place_within(alignment, distance, cx)
+            .map_err(|stop| stopped(cx, stop))?
+        {
             Ok(placed) => {
                 let value = alignment.stations.value(distance);
                 positions.push(CivilPosition {
@@ -289,7 +291,7 @@ fn alignment(request: &CivilAlignment, cx: &mut Cx<'_>) -> Result<Alignment, Fai
         ..Alignment::default()
     };
     // 区間の初めの点の食い違いは、計算をそのまま続けて知らせる
-    zumen_civil::check(&alignment, 1e-3, cx);
+    zumen_civil::check_within(&alignment, 1e-3, cx).map_err(|stop| stopped(cx, stop))?;
     Ok(alignment)
 }
 
