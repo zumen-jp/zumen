@@ -32,8 +32,9 @@ const bases = [
   { name: "sfc", ext: "sfc", color: { sxf: 1 }, bytes: conformanceInput("apply", "b.sfc") },
   { name: "p21", ext: "p21", color: { sxf: 1 }, bytes: conformanceInput("apply", "c.p21") },
 ];
-// 大きな図面は 10 万件にする。DWG は、足して $HANDSEED のバイト数が増える（0xFFFF を超える）と書き戻せない（#701）
-// ので 6 万件、P21 は、apply が遅く（#709）、足して作るのにも測るのにも時間がかかるので 3 万件にする
+// 大きな図面は 10 万件にする。DWG は、測ったときは、足して $HANDSEED のバイト数が増える（0xFFFF を超える）と
+// 書き戻せなかった（#701、のちに直った）ので 6 万件、P21 は、apply が遅く（#709）、足して作るのにも測るのにも
+// 時間がかかるので 3 万件にする
 const largeOf = { dwg: { label: "60k", count: 60_000 }, p21: { label: "30k", count: 30_000 } };
 const sizesOf = (base) => [
   { label: "base", count: 0 },
