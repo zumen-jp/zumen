@@ -131,14 +131,20 @@ fn sequence(
 }
 
 fn count(data: &[u8], cx: &mut Cx<'_>) -> Result<(), Stop> {
+    count_fallback(data, cx).map(|_| ())
+}
+
+/// 寛容な展開が必要かも返す。単独の段の予算は、従来の [`count`] と同じ。
+fn count_fallback(data: &[u8], cx: &mut Cx<'_>) -> Result<bool, Stop> {
     if strict(ZlibDecoder::new(data), data.len(), cx)?
         || strict(DeflateDecoder::new(data), data.len(), cx)?
     {
-        return Ok(());
+        return Ok(false);
     }
     let bound = (data.len() as u64).saturating_mul(MAX_EXPANSION);
     cx.check(Kind::Work, bound.div_ceil(16))?;
-    cx.check(Kind::DecodedBytes, bound)
+    cx.check(Kind::DecodedBytes, bound)?;
+    Ok(true)
 }
 
 /// 入力を読む量は先に、出力を作る手間は 1 回の読みの前に数える。読んだ出力は固定長のバッファーにしか持たず、

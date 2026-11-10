@@ -14,6 +14,14 @@ use super::{Source, ascii, lzw, run_length};
 /// 名前も固定なので、この長さを超えない。入力の長さと合わせて、確保前に数える。
 const ENVELOPE: usize = 512;
 
+/// hayro の寛容な Flate がブロックごとに作る表と一時の列。動的な表は最大 2^15 個の u32 が 2 つ、
+/// 符号長の表は最大 128 個の u32、長さの列は 320 + 19 バイト。非圧縮ブロックの写し（65,535 バイト）と、
+/// 固定の表の写しも含めて 512 KiB で上から数える。出力の Vec は別に数える。
+const FLATE_BLOCK_BYTES: u64 = 1 << 19;
+/// 表の生成は最大 320 個の符号について 2^15 個の欄を埋め、15 回の長さの走査と初期化も行う。
+/// 非圧縮ブロックの写しを含め、ブロックごとに 2^24 の作業で上から数える。
+const FLATE_BLOCK_WORK: u64 = 1 << 24;
+
 #[derive(Clone, Copy)]
 struct Stage {
     filter: Filter,
@@ -135,9 +143,10 @@ pub(super) fn before(
             Filter::FlateDecode | Filter::LzwDecode | Filter::RunLengthDecode => {
                 let bytes_before = cx.budget.used(Kind::DecodedBytes);
                 let work_before = cx.budget.used(Kind::Work);
+                let mut fallback = false;
                 let output_bound = match stage.filter {
                     Filter::FlateDecode => {
-                        super::count(&data, cx)?;
+                        fallback = super::count_fallback(&data, cx)?;
                         // 厳しい展開と寛容な展開の試行は、どれも出力量以上を数える。
                         cx.budget.used(Kind::DecodedBytes) - bytes_before
                     }
@@ -160,8 +169,19 @@ pub(super) fn before(
                     _ => 0,
                 };
                 let (predictor_work, predictor_bytes) = stage.predictor_cost(output_bound);
-                let extra_bytes = growth.saturating_add(predictor_bytes);
-                let extra_work = growth.div_ceil(16).saturating_add(predictor_work);
+                // ブロックは最低 3 ビットのヘッダーを使う。表は出力が空でも作るため、出力量では数えない。
+                let blocks = if fallback {
+                    (data.len() as u64).saturating_mul(8).div_ceil(3)
+                } else {
+                    0
+                };
+                let extra_bytes = growth
+                    .saturating_add(predictor_bytes)
+                    .saturating_add(blocks.saturating_mul(FLATE_BLOCK_BYTES));
+                let extra_work = growth
+                    .div_ceil(16)
+                    .saturating_add(predictor_work)
+                    .saturating_add(blocks.saturating_mul(FLATE_BLOCK_WORK));
                 reserve(extra_work, extra_bytes, cx)?;
                 if index + 1 == stages.len() {
                     return Ok(true);
@@ -331,7 +351,7 @@ fn decode_encoded(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use zumen_base::{Budget, CancelToken, Diagnostics};
+    use zumen_base::{Budget, CancelToken, Diagnostics, Limit, Limits};
 
     mod lzw_fixture {
         include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/common/lzw.rs"));
@@ -462,5 +482,42 @@ mod tests {
             assert!(work >= 64 * 1024);
             assert_eq!(allocated, 0);
         }
+    }
+
+    #[test]
+    fn reserves_fallback_tables_before_materializing_small_outputs() {
+        let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::best());
+        encoder.write_all(&[0, b'A', 128]).unwrap();
+        let mut data = encoder.finish().unwrap();
+        // Adler-32 だけを変え、厳しいリーダーの後に寛容な展開を使わせる。
+        *data.last_mut().unwrap() ^= 1;
+        let input = source("/Filter [/Fl /RL]", &data);
+        let stream = stream(&input);
+        assert_eq!(stream.decoded_data().unwrap().as_ref(), b"A");
+        for kind in [Kind::DecodedBytes, Kind::Work] {
+            let limit = 512 * 1024;
+            let mut budget = Budget::new(Limits::default().with(kind, Limit::Finite(limit)));
+            let mut diagnostics = Diagnostics::new();
+            let cancel = CancelToken::new();
+            let result = before(
+                &stream,
+                Source::default(),
+                &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+            );
+            assert!(matches!(result, Err(Stop::Exceeded(e)) if e.kind == kind));
+            assert!(budget.exceeded().unwrap().requested > limit);
+        }
+        let mut budget = Budget::default();
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        assert_eq!(
+            before(
+                &stream,
+                Source::default(),
+                &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+            ),
+            Ok(true)
+        );
+        assert!(budget.used(Kind::DecodedBytes) >= FLATE_BLOCK_BYTES);
     }
 }
