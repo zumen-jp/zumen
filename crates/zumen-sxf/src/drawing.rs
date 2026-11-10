@@ -1077,16 +1077,18 @@ impl<'f> Lifter<'f> {
     }
 
     /// 画像の作図グループなら、その画像。名前の `$$RASTER$$` か、属性の `$$ATRU$$番号$$名称$$画像$$` の後が
-    /// ファイルの名前で、グループの中の最初の 4 点以上の折れ線が範囲を示す（推定。docs/formats/sxf.md）。座標を読めない
-    /// 点を持つ折れ線は、角を求められないので飛ばす（推定、#651）
+    /// ファイルの名前で、グループの中の最初の 4 点以上の折れ線が範囲を示す（推定。docs/formats/sxf.md）。どれかの点の
+    /// 座標を読めない折れ線（数として読めない値がある、x と y の数が違う）は、角に使わない点であっても飛ばす（推定。#651）
     fn raster(&self, name: &str, definition: &Definition, cx: &mut Cx) -> Option<Raster> {
         let path = raster_path(name)?;
         let outline = definition.members.iter().copied().find(|index| {
             self.features.get(*index).is_some_and(|feature| {
                 let args = self.args(*feature);
                 feature.is(b"polyline")
-                    && args.nums(5).is_some_and(|xs| xs.len() >= 4)
-                    && args.nums(6).is_some_and(|ys| ys.len() >= 4)
+                    && args
+                        .nums(5)
+                        .zip(args.nums(6))
+                        .is_some_and(|(xs, ys)| xs.len() >= 4 && xs.len() == ys.len())
             })
         });
         let Some(outline) = outline else {
