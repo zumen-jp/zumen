@@ -6,12 +6,32 @@
 use libfuzzer_sys::fuzz_target;
 use zumen_building::Building;
 use zumen_civil::CivilModel;
-use zumen_ifc::{Ifc, IfcZip};
+use zumen_ifc::{Ifc, IfcFile, IfcZip};
 use zumen_sdk::{Codec, Cx, Error, Lift};
 
 /// 建物モデルと土木の領域モデルに移す。土木の領域モデルは IFC4X3 からだけ作るので、ほかのバージョンの `Unsupported` は
 /// 失敗にしない。止めたときだけ失敗を返す
-fn lift<F: Lift<Building> + Lift<CivilModel>>(file: &F, cx: &mut Cx) -> Result<(), Error> {
+fn lift(file: &IfcFile, cx: &mut Cx) -> Result<(), Error> {
+    // 必要時の曲線の入口も通す。全体を 16 度まで写し、共有する予算で探索と確保を止める
+    let mut curves = 0;
+    for id in file.ids() {
+        cx.check(zumen_base::Kind::Work, 1)?;
+        if file.instance(id).is_some_and(|r| {
+            let kind = file.kind(r);
+            kind.ends_with(b"CURVE")
+                || [b"IFCPOLYLINE".as_slice(), b"IFCLINE", b"IFCCIRCLE"]
+                    .iter()
+                    .any(|name| kind.eq_ignore_ascii_case(name))
+        }) {
+            if let Err(Error::Stopped(stop)) = file.curve(id, cx) {
+                return Err(Error::Stopped(stop));
+            }
+            curves += 1;
+            if curves == 16 {
+                break;
+            }
+        }
+    }
     let building = Lift::<Building>::lift(file, cx).map(drop);
     let civil = Lift::<CivilModel>::lift(file, cx).map(drop);
     match (building, civil) {
@@ -25,7 +45,7 @@ fn lift<F: Lift<Building> + Lift<CivilModel>>(file: &F, cx: &mut Cx) -> Result<(
 fuzz_target!(|data: &[u8]| {
     let read = zumen_sdk::testkit::survives_with(data, |src, cx| {
         if src.starts_with(b"PK") {
-            lift(&IfcZip::read(src, cx)?, cx)
+            lift(IfcZip::read(src, cx)?.ifc(), cx)
         } else {
             lift(&Ifc::read(src, cx)?, cx)
         }
