@@ -803,8 +803,8 @@
 - 実装の根拠: spec
 - 照合に使う候補: 国土交通省の基準に対応した 3 次元設計データの閲覧ソフト（iLEX など。手元でだけ使う）
 - サンプルの出どころ: 再配布を認める公開サンプルは見つかっていない。テストの中で小さな J-LandXML を作る
-- 読みの確かめた度合い: `synthetic`（確認日: 2026-11-03）
-- 読みの確かめた範囲: J-LandXML Ver.1.8 の文書と、テストの中で作った J-LandXML（crates/zumen-landxml/tests）で確かめた。再配布できる公開サンプルは見つかっていない（#368・#504）
+- 読みの確かめた度合い: `synthetic`（確認日: 2026-11-11）
+- 読みの確かめた範囲: J-LandXML Ver.1.8 の文書と、テストの中で作った J-LandXML（crates/zumen-landxml/tests）で確かめた。片勾配は最大片勾配が一定の区間だけを Rust の L2 モデルへ移す。再配布できる公開サンプルは見つかっていない（#368・#504）
 - issue: [zumen-jp/zumen#366](https://github.com/zumen-jp/zumen/issues/366)
 - issue: [zumen-jp/zumen#368](https://github.com/zumen-jp/zumen/issues/368)
 - 形式の文書: [docs/formats/landxml.md](../../docs/formats/landxml.md)

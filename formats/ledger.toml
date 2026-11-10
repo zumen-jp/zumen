@@ -881,8 +881,8 @@ issues = ["zumen-jp/zumen#366", "zumen-jp/zumen#368"]
 
 [formats.landxml.read]
 level = "synthetic"
-scope = "J-LandXML Ver.1.8 の文書と、テストの中で作った J-LandXML（crates/zumen-landxml/tests）で確かめた。再配布できる公開サンプルは見つかっていない（#368・#504）"
-checked = "2026-11-03"
+scope = "J-LandXML Ver.1.8 の文書と、テストの中で作った J-LandXML（crates/zumen-landxml/tests）で確かめた。片勾配は最大片勾配が一定の区間だけを Rust の L2 モデルへ移す。再配布できる公開サンプルは見つかっていない（#368・#504）"
+checked = "2026-11-11"
 
 [formats.sima]
 name = "SIMA 共通フォーマット"
