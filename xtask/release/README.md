@@ -39,6 +39,8 @@ Linux の x64 と arm64 は、[決定 0014](../../docs/decisions/0014-platforms-
 
 manylinux と、Rust を入れる [dtolnay/rust-toolchain](https://github.com/dtolnay/rust-toolchain/tree/683b588c487a69d01f6c6ddf40f036ff682cc2c8) は MIT のビルドツールとして使います。Rust のバージョンは `rust-toolchain.toml` から読みます。コンテナーとその GCC などのソース・イメージは成果物に同梱せず、実行時の依存は追加しません。ELF の検査は Python の標準ライブラリだけで行います。
 
+コンテナーでは、checkout の一時 HOME にある Git の許可に依存せず、CI の workspace の正確なパスだけを `safe.directory` に指定します。設定は `GIT_CONFIG_COUNT` の command scope でこの job に渡し、既存の項目も保ちます。個人のグローバル設定は変更せず、`*` や親フォルダー全体は指定しません。ビルドの前に、同じ Git でリポジトリの場所と状態を読めることを確かめます。
+
 `linux_abi.py` は ELF64 のアーキテクチャ、GNU のバージョン要求、wheel のタグを確かめます。ELF のバージョン要求が壊れている場合と、glibc 2.28 を超える要求がある場合は拒みます。`build.py` のコピー前、ネイティブ・CLI・wheel・NuGet の梱包で同じ検査を使います。単独でも、バイナリを実行せずに確認できます。
 
 ```bash

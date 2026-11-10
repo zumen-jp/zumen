@@ -66,8 +66,19 @@ jobs:
         if: matrix.container
         name: manylinux の Python と、固定した Rust のバージョンを選ぶ
         run: |
+          # checkout の一時 HOME とは別に、この job へ CI の workspace の許可を渡す。
+          taskGitConfigCount=${GIT_CONFIG_COUNT:-0}
+          echo "GIT_CONFIG_KEY_$taskGitConfigCount=safe.directory" >> "$GITHUB_ENV"
+          echo "GIT_CONFIG_VALUE_$taskGitConfigCount=$GITHUB_WORKSPACE" >> "$GITHUB_ENV"
+          echo "GIT_CONFIG_COUNT=$((taskGitConfigCount + 1))" >> "$GITHUB_ENV"
           echo /opt/python/cp314-cp314/bin >> "$GITHUB_PATH"
           /opt/python/cp314-cp314/bin/python -c 'import tomllib; print("toolchain=" + tomllib.load(open("rust-toolchain.toml", "rb"))["toolchain"]["channel"])' >> "$GITHUB_OUTPUT"
+      - name: manylinux の Git が作業フォルダーを読めることを確かめる
+        if: matrix.container
+        run: |
+          git --version
+          test "$(git rev-parse --show-toplevel)" = "$GITHUB_WORKSPACE"
+          git --no-optional-locks status --porcelain --untracked-files=no
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
         if: matrix.container
         with:
