@@ -5,47 +5,62 @@
 //! zumen は EXPRESS を同梱しない。
 //!
 //! 読むときは、EXPRESS のバイトと、循環を調べる手順を work で数え、集まりの型の入れ子を 1 段ごとに depth で数える
-//! （決定 0010・0216）。1 つの宣言に並べた属性の名前は、読んだ型を共有し、名前ごとに写さない。
+//! （決定 0010・0216）。1 つの宣言に並べた属性の名前は、読んだ型を共有し、名前ごとに写さない。型・実体の名前には、
+//! 初めて読んだ順に番号を振り、型・上位の型・選択の項目は番号で指す。チェックでは、値ごとに名前を引き直さない（#672）。
+//!
+//! チェックは、インスタンスごと・値ごとに work で数える。実体の属性の数と並び、上位の型と選択の判定は、実体か組ごとに
+//! 1 度だけ作って覚え、作る手順を work で数える。上位の型か選択の項目をすべてたどるときは、すでにたどった名前を
+//! 飛ばすときも、並びの名前ごとに数える。インスタンスと値ごとには写さない（#672）。
 
 use core::ops::Range;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use zumen_base::{Diagnostic, Kind, codes};
 use zumen_sdk::{Cx, Error, Stop};
 
-use crate::{IfcFile, Record, Value, at_bytes, stopped};
+use crate::{IfcFile, Part, Record, Value, at_bytes, stopped};
 
 /// 読んだ EXPRESS のスキーマ
 #[derive(Clone, Debug, PartialEq)]
 pub struct Express {
     name: String,
-    /// 大文字の名前から実体
-    entities: BTreeMap<String, Entity>,
-    /// 大文字の名前から型
-    types: BTreeMap<String, TypeDef>,
+    /// 大文字の名前から、宣言の番号。名前の順に並ぶ
+    symbols: BTreeMap<String, usize>,
+    /// 番号ごとの、大文字の名前と宣言。番号は、名前を初めて読んだ順に振る。読めたスキーマは、すべての名前を宣言する
+    decls: Vec<(String, Option<Decl>)>,
     /// 評価しない規則の数
     rules: u64,
 }
 
 #[derive(Clone, Debug, PartialEq)]
+enum Decl {
+    Entity(Entity),
+    Type(TypeDef),
+}
+
+#[derive(Clone, Debug, PartialEq)]
 struct Entity {
-    name: String,
     is_abstract: bool,
-    supertypes: Vec<String>,
+    /// 上位の型の番号
+    supertypes: Vec<usize>,
     /// 自分で宣言した明示の属性
     attributes: Vec<Attribute>,
-    /// 上位の型の属性を、型を変えて宣言し直したもの
-    redeclared: Vec<(String, Arc<Type>, bool)>,
-    /// 上位の型の属性を、導く属性にしたもの
-    derived: Vec<String>,
+    /// 上位の型の属性を、型を変えて宣言し直したもの。属性の名前は番号で持つ
+    redeclared: Vec<(usize, Arc<Type>, bool)>,
+    /// 上位の型の属性を、導く属性にしたもの。属性の名前の番号
+    derived: Vec<usize>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 struct Attribute {
+    /// 大文字の名前（診断の値）
     name: String,
-    /// 書いたままの名前
+    /// 大文字の名前の番号。宣言し直した属性と導く属性を、名前の長さによらない手間で引く（#672）
+    key: usize,
+    /// 書いたままの名前。IDS の照合が使う
     written: String,
     /// 型。同じ宣言に並べた名前の間で共有する（#668）
     ty: Arc<Type>,
@@ -68,28 +83,18 @@ enum Item {
     Logical,
     String,
     Binary,
-    /// 型か実体の名前（大文字）
-    Named(String),
+    /// 型か実体の番号
+    Named(usize),
 }
 
 #[derive(Clone, Debug, PartialEq)]
 enum TypeDef {
-    /// 大文字の名前（診断の値）と、元の型
-    Defined(String, Type),
-    Enumeration(String, Vec<String>),
-    Select(String, Vec<String>),
-}
-
-/// 実体の明示の属性の名前と型（IDS の照合が使う）
-#[cfg(feature = "ids")]
-#[derive(Clone, Debug)]
-pub(crate) struct Explicit {
-    /// 書いたままの名前
-    pub(crate) name: String,
-    pub(crate) derived: bool,
-    /// 宣言の型の名前（大文字）。名前のない型なら `None`
-    pub(crate) type_name: Option<String>,
-    pub(crate) base: Base,
+    /// 元の型
+    Defined(Type),
+    /// 列挙の項目（大文字）。値ごとに項目を前から比べないように、集合で引く（#672）
+    Enumeration(BTreeSet<String>),
+    /// 選択の項目の番号
+    Select(Vec<usize>),
 }
 
 /// 定義された型をたどった、もとの単純な型
@@ -103,16 +108,26 @@ pub(crate) enum Base {
     Other,
 }
 
-/// 実体のインスタンスの属性の 1 つ
-#[derive(Clone, Debug)]
-struct Slot {
-    name: String,
-    /// 書いたままの名前。IDS の照合が使う
-    #[cfg_attr(not(feature = "ids"), expect(dead_code))]
-    written: String,
-    ty: Arc<Type>,
+/// 実体のインスタンスの属性の 1 つ。属性と型は、スキーマのものを指して写さない（#672）
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Slot<'a> {
+    attribute: &'a Attribute,
+    ty: &'a Type,
     optional: bool,
     derived: bool,
+}
+
+#[cfg(feature = "ids")]
+impl<'a> Slot<'a> {
+    /// 書いたままの属性の名前
+    pub(crate) fn written(&self) -> &'a str {
+        &self.attribute.written
+    }
+
+    /// 導く属性か
+    pub(crate) fn is_derived(&self) -> bool {
+        self.derived
+    }
 }
 
 impl Express {
@@ -130,6 +145,9 @@ impl Express {
             tokens: &tokens,
             at: 0,
             stop: None,
+            symbols: BTreeMap::new(),
+            decls: Vec::new(),
+            keys: BTreeMap::new(),
         };
         let parsed = parser.schema(cx);
         if let Some((stop, at)) = parser.stop {
@@ -164,17 +182,56 @@ impl Express {
         self.rules
     }
 
-    /// 実体か型として宣言した名前（大文字）か
-    fn declared(&self, name: &str) -> bool {
-        self.entities.contains_key(name) || self.types.contains_key(name)
+    /// 番号の宣言。宣言のない名前なら `None`
+    fn decl(&self, at: usize) -> Option<&Decl> {
+        self.decls.get(at)?.1.as_ref()
     }
 
-    /// 宣言のない型の名前。見つけた所で返し、名前を集めて写さない。1 つの宣言に並べた属性の名前は型を共有するので、
-    /// 続く同じ型は 1 度だけたどる。手間は、入力のバイト数に比例する（#668）
+    /// 番号の実体。実体でなければ `None`
+    fn entity(&self, at: usize) -> Option<&Entity> {
+        match self.decl(at)? {
+            Decl::Entity(entity) => Some(entity),
+            Decl::Type(_) => None,
+        }
+    }
+
+    /// 番号の型。型でなければ `None`
+    fn type_def(&self, at: usize) -> Option<&TypeDef> {
+        match self.decl(at)? {
+            Decl::Type(def) => Some(def),
+            Decl::Entity(_) => None,
+        }
+    }
+
+    /// 番号の大文字の名前
+    fn symbol(&self, at: usize) -> &str {
+        self.decls.get(at).map_or("", |(name, _)| name)
+    }
+
+    /// 大文字の名前の、宣言の番号。名前の長さと宣言の数の対数に比例する手間で引く
+    fn lookup(&self, name: &str) -> Option<usize> {
+        self.symbols.get(name).copied()
+    }
+
+    /// 大文字の名前の実体の番号
+    pub(crate) fn entity_named(&self, name: &str) -> Option<usize> {
+        self.lookup(name).filter(|&at| self.entity(at).is_some())
+    }
+
+    /// 宣言のない型の名前。見つけた所で返し、名前を集めて写さない。実体の名前の順に、上位の型・属性の型・宣言し直した
+    /// 属性の型の順で見て、実体の後に型を見る。1 つの宣言に並べた属性の名前は型を共有するので、続く同じ型は 1 度だけ
+    /// たどる。手間は、入力のバイト数に比例する（#668）
     fn unresolved(&self) -> Option<String> {
-        let unknown = |name: &String| (!self.declared(name)).then(|| name.clone());
-        for entity in self.entities.values() {
-            if let Some(name) = entity.supertypes.iter().find_map(unknown) {
+        let unknown = |at: usize| match self.decls.get(at) {
+            Some((_, Some(_))) => None,
+            Some((name, None)) => Some(name.clone()),
+            None => Some(String::new()),
+        };
+        for &at in self.symbols.values() {
+            let Some(entity) = self.entity(at) else {
+                continue;
+            };
+            if let Some(name) = entity.supertypes.iter().find_map(|&s| unknown(s)) {
                 return Some(name);
             }
             let types = entity
@@ -193,11 +250,11 @@ impl Express {
                 }
             }
         }
-        for def in self.types.values() {
-            let name = match def {
-                TypeDef::Defined(_, ty) => ty.item.name().and_then(unknown),
-                TypeDef::Select(_, items) => items.iter().find_map(unknown),
-                TypeDef::Enumeration(..) => None,
+        for &at in self.symbols.values() {
+            let name = match self.type_def(at) {
+                Some(TypeDef::Defined(ty)) => ty.item.name().and_then(unknown),
+                Some(TypeDef::Select(items)) => items.iter().find_map(|&s| unknown(s)),
+                Some(TypeDef::Enumeration(_)) | None => None,
             };
             if name.is_some() {
                 return name;
@@ -214,16 +271,19 @@ impl Express {
         // 定義された型の鎖。たどり終えた型を覚えておき、型ごとに 1 度だけたどる。1 歩ごとに work で数え、
         // 中断の合図も見る
         let mut done = BTreeSet::new();
-        for name in self.types.keys() {
+        for (name, &start) in &self.symbols {
+            if self.type_def(start).is_none() {
+                continue;
+            }
             let mut path = BTreeSet::new();
-            let mut next = name;
-            while !done.contains(next) {
+            let mut next = start;
+            while !done.contains(&next) {
                 cx.check(Kind::Work, 1)
                     .map_err(|stop| stopped(cx, stop, None))?;
                 if !path.insert(next) {
                     return Ok(Some(name.clone()));
                 }
-                let Some(TypeDef::Defined(_, ty)) = self.types.get(next) else {
+                let Some(TypeDef::Defined(ty)) = self.type_def(next) else {
                     break;
                 };
                 let Some(target) = ty.name() else {
@@ -244,40 +304,38 @@ impl Express {
     /// work で数える探索の歩数は、実体と上位の型の数に比例する。1 歩ごとに中断の合図も見る
     fn cyclic_entity(&self, cx: &mut Cx) -> Result<Option<String>, Error> {
         // 入った実体の、入った順と、そこからたどれて成分の決まっていない実体のうち、もっとも早く入ったものの順（low-link）
-        let mut order: BTreeMap<&str, (usize, usize)> = BTreeMap::new();
+        let mut order: BTreeMap<usize, (usize, usize)> = BTreeMap::new();
         // 入ったが、成分の決まっていない実体
         let mut open = Vec::new();
         let mut on_open = BTreeSet::new();
         let mut cyclic = BTreeSet::new();
-        for root in self.entities.keys() {
-            if order.contains_key(root.as_str()) {
+        for &root in self.symbols.values() {
+            if self.entity(root).is_none() || order.contains_key(&root) {
                 continue;
             }
             // たどっている途中の実体と、次にたどる上位の型の位置
-            let mut path = vec![(root.as_str(), 0usize)];
-            while let Some(&(name, at)) = path.last() {
+            let mut path = vec![(root, 0usize)];
+            while let Some(&(at, next)) = path.last() {
                 cx.check(Kind::Work, 1)
                     .map_err(|stop| stopped(cx, stop, None))?;
-                if !order.contains_key(name) {
-                    order.insert(name, (order.len(), order.len()));
-                    open.push(name);
-                    on_open.insert(name);
+                if !order.contains_key(&at) {
+                    order.insert(at, (order.len(), order.len()));
+                    open.push(at);
+                    on_open.insert(at);
                 }
                 let supertypes = self
-                    .entities
-                    .get(name)
+                    .entity(at)
                     .map_or(&[][..], |entity| entity.supertypes.as_slice());
-                if let Some(supertype) = supertypes.get(at) {
+                if let Some(&supertype) = supertypes.get(next) {
                     if let Some(top) = path.last_mut() {
                         top.1 += 1;
                     }
-                    let supertype = supertype.as_str();
-                    match order.get(supertype) {
-                        None if self.entities.contains_key(supertype) => {
+                    match order.get(&supertype) {
+                        None if self.entity(supertype).is_some() => {
                             path.push((supertype, 0));
                         }
-                        Some(&(index, _)) if on_open.contains(supertype) => {
-                            if let Some(entry) = order.get_mut(name) {
+                        Some(&(index, _)) if on_open.contains(&supertype) => {
+                            if let Some(entry) = order.get_mut(&at) {
                                 entry.1 = entry.1.min(index);
                             }
                         }
@@ -286,121 +344,106 @@ impl Express {
                     continue;
                 }
                 path.pop();
-                let (index, low) = order.get(name).copied().unwrap_or_default();
-                if let Some(entry) = path.last().and_then(|&(parent, _)| order.get_mut(parent)) {
+                let (index, low) = order.get(&at).copied().unwrap_or_default();
+                if let Some(entry) = path.last().and_then(|&(parent, _)| order.get_mut(&parent)) {
                     entry.1 = entry.1.min(low);
                 }
                 if low == index {
-                    // `name` を根とする成分を閉じる
+                    // `at` を根とする成分を閉じる
                     let mut members = Vec::new();
                     while let Some(member) = open.pop() {
-                        on_open.remove(member);
+                        on_open.remove(&member);
                         members.push(member);
-                        if member == name {
+                        if member == at {
                             break;
                         }
                     }
-                    if members.len() > 1 || supertypes.iter().any(|s| s == name) {
+                    if members.len() > 1 || supertypes.contains(&at) {
                         cyclic.extend(members);
                     }
                 }
             }
         }
         Ok(self
-            .entities
-            .keys()
-            .find(|name| cyclic.contains(name.as_str()))
-            .cloned())
+            .symbols
+            .iter()
+            .find(|(_, at)| cyclic.contains(*at))
+            .map(|(name, _)| name.clone()))
     }
 
-    /// `name` の上位の型（自分を含む）
-    fn ancestors(&self, name: &str) -> BTreeSet<String> {
-        let mut seen = BTreeSet::new();
-        let mut stack = vec![name.to_owned()];
-        while let Some(next) = stack.pop() {
-            if !seen.insert(next.clone()) {
-                continue;
-            }
-            if let Some(entity) = self.entities.get(&next) {
-                stack.extend(entity.supertypes.iter().cloned());
-            }
-        }
-        seen
-    }
-
-    /// 実体の属性の並び。上位の型の属性から順に、同じ上位の型は 1 度だけ並べる
-    fn slots(&self, name: &str) -> Vec<Slot> {
+    /// 実体の属性の並び（単独のインスタンスに書く順）。上位の型の属性から順に、同じ上位の型は 1 度だけ並べる。
+    /// 宣言し直した属性と導く属性は、それまでに並べた同じ名前の属性のうち、いちばん後ろのものを変える。
+    ///
+    /// 上位の型をたどる 1 歩・上位の型の並びの名前・属性・宣言し直した属性・導く属性ごとに、`tick` で 1 つ数える。
+    /// 並びの名前は、すでにたどった名前を飛ばすときも数える（#672）
+    fn slots<F>(&self, entity: usize, tick: &mut F) -> Result<Vec<Slot<'_>>, Stop>
+    where
+        F: FnMut(u64) -> Result<(), Stop>,
+    {
         let mut order = Vec::new();
         let mut seen = BTreeSet::new();
         // 上位の型を先に並べる。深さ優先で、帰りがけに置く
-        let mut stack: Vec<(String, bool)> = vec![(name.to_owned(), false)];
+        let mut stack = vec![(entity, false)];
         while let Some((next, expanded)) = stack.pop() {
+            tick(1)?;
             if expanded {
                 order.push(next);
                 continue;
             }
-            if !seen.insert(next.clone()) {
+            if !seen.insert(next) {
                 continue;
             }
-            stack.push((next.clone(), true));
-            if let Some(entity) = self.entities.get(&next) {
-                for supertype in entity.supertypes.iter().rev() {
-                    if !seen.contains(supertype) {
-                        stack.push((supertype.clone(), false));
+            stack.push((next, true));
+            if let Some(entity) = self.entity(next) {
+                tick(entity.supertypes.len() as u64)?;
+                for &supertype in entity.supertypes.iter().rev() {
+                    if !seen.contains(&supertype) {
+                        stack.push((supertype, false));
                     }
                 }
             }
         }
-        let mut slots: Vec<Slot> = Vec::new();
-        for entity in order.iter().filter_map(|n| self.entities.get(n)) {
+        let mut slots: Vec<Slot<'_>> = Vec::new();
+        // 属性の名前の番号ごとの、いちばん後ろの位置。後ろから探さずに引く
+        let mut last: BTreeMap<usize, usize> = BTreeMap::new();
+        for entity in order.iter().filter_map(|&at| self.entity(at)) {
             for attribute in &entity.attributes {
+                tick(1)?;
+                last.insert(attribute.key, slots.len());
                 slots.push(Slot {
-                    name: attribute.name.clone(),
-                    written: attribute.written.clone(),
-                    ty: Arc::clone(&attribute.ty),
+                    attribute,
+                    ty: &attribute.ty,
                     optional: attribute.optional,
                     derived: false,
                 });
             }
-            for (attribute, ty, optional) in &entity.redeclared {
-                if let Some(slot) = slots.iter_mut().rev().find(|s| &s.name == attribute) {
-                    slot.ty = Arc::clone(ty);
+            for (key, ty, optional) in &entity.redeclared {
+                tick(1)?;
+                if let Some(slot) = last.get(key).and_then(|&at| slots.get_mut(at)) {
+                    slot.ty = ty;
                     slot.optional = *optional;
                 }
             }
-            for attribute in &entity.derived {
-                if let Some(slot) = slots.iter_mut().rev().find(|s| &s.name == attribute) {
+            for key in &entity.derived {
+                tick(1)?;
+                if let Some(slot) = last.get(key).and_then(|&at| slots.get_mut(at)) {
                     slot.derived = true;
                 }
             }
         }
-        slots
+        Ok(slots)
     }
 
-    /// 実体の明示の属性を、インスタンスに書く順に。導く属性も位置を持つ。知らない実体なら `None`
+    /// 宣言の型の名前（大文字）。名前のない型なら `None`
     #[cfg(feature = "ids")]
-    pub(crate) fn explicit(&self, kind: &str) -> Option<Vec<Explicit>> {
-        self.entities.get(kind)?;
-        Some(
-            self.slots(kind)
-                .into_iter()
-                .map(|slot| {
-                    let type_name = slot.ty.name().cloned();
-                    Explicit {
-                        base: self.base(&slot.ty),
-                        name: slot.written,
-                        derived: slot.derived,
-                        type_name,
-                    }
-                })
-                .collect(),
-        )
+    pub(crate) fn type_name(&self, slot: &Slot) -> Option<&str> {
+        slot.ty.name().map(|at| self.symbol(at))
     }
 
     /// 定義された型をたどった、もとの単純な型
     #[cfg(feature = "ids")]
-    fn base(&self, ty: &Type) -> Base {
-        let mut ty = ty;
+    pub(crate) fn base(&self, slot: &Slot) -> Base {
+        let mut ty = slot.ty;
         // 型の循環は読むときに断っている。深さは念のため
         for _ in 0..64 {
             match (ty.levels.as_slice(), &ty.item) {
@@ -408,38 +451,14 @@ impl Express {
                 ([], Item::Real | Item::Number) => return Base::Real,
                 ([], Item::Boolean) => return Base::Boolean,
                 ([], Item::Logical) => return Base::Logical,
-                ([], Item::Named(name)) => match self.types.get(name) {
-                    Some(TypeDef::Defined(_, inner)) => ty = inner,
+                ([], Item::Named(at)) => match self.type_def(*at) {
+                    Some(TypeDef::Defined(inner)) => ty = inner,
                     _ => return Base::Other,
                 },
                 _ => return Base::Other,
             }
         }
         Base::Other
-    }
-
-    /// 選択の型が受ける実体と定義された型（大文字）。入れ子の選択もたどる
-    fn select_members(&self, name: &str) -> (BTreeSet<String>, BTreeSet<String>) {
-        let mut entities = BTreeSet::new();
-        let mut types = BTreeSet::new();
-        let mut seen = BTreeSet::new();
-        let mut stack = vec![name.to_owned()];
-        while let Some(next) = stack.pop() {
-            if !seen.insert(next.clone()) {
-                continue;
-            }
-            match self.types.get(&next) {
-                Some(TypeDef::Select(_, items)) => stack.extend(items.iter().cloned()),
-                Some(_) => {
-                    types.insert(next);
-                }
-                None if self.entities.contains_key(&next) => {
-                    entities.insert(next);
-                }
-                None => {}
-            }
-        }
-        (entities, types)
     }
 
     /// 型の書き方（診断の値）。集まりの段は、自分を呼ばずに外から順に書く
@@ -460,24 +479,15 @@ impl Express {
             Item::Logical => "LOGICAL",
             Item::String => "STRING",
             Item::Binary => "BINARY",
-            Item::Named(name) => match (self.types.get(name), self.entities.get(name)) {
-                (
-                    Some(
-                        TypeDef::Defined(n, _) | TypeDef::Enumeration(n, _) | TypeDef::Select(n, _),
-                    ),
-                    _,
-                ) => n,
-                (None, Some(entity)) => &entity.name,
-                (None, None) => name,
-            },
+            Item::Named(at) => self.symbol(*at),
         });
         out
     }
 }
 
 impl Type {
-    /// 名前で指定した型だけ、その名前を返す
-    fn name(&self) -> Option<&String> {
+    /// 名前で指定した型だけ、その番号を返す
+    fn name(&self) -> Option<usize> {
         if self.levels.is_empty() {
             self.item.name()
         } else {
@@ -487,11 +497,141 @@ impl Type {
 }
 
 impl Item {
-    fn name(&self) -> Option<&String> {
+    fn name(&self) -> Option<usize> {
         match self {
-            Self::Named(name) => Some(name),
+            Self::Named(at) => Some(*at),
             _ => None,
         }
+    }
+}
+
+/// 実体ごとの、単独のインスタンスの属性の数と並び。初めて使うときに作って覚え、インスタンスごとに作り直さない（#672）。
+///
+/// 覚える並びは、属性の数の合うインスタンスがあった実体のものだけにする。覚えるメモリは、そのインスタンスの値の数を
+/// 超えない
+#[derive(Clone, Debug)]
+pub(crate) struct Layouts<'a> {
+    schema: &'a Express,
+    /// 実体の番号から、属性の数
+    counts: BTreeMap<usize, usize>,
+    /// 実体の番号から、属性の並び
+    slots: BTreeMap<usize, Rc<[Slot<'a>]>>,
+}
+
+impl<'a> Layouts<'a> {
+    pub(crate) fn new(schema: &'a Express) -> Self {
+        Self {
+            schema,
+            counts: BTreeMap::new(),
+            slots: BTreeMap::new(),
+        }
+    }
+
+    /// 並びを作るスキーマ
+    #[cfg(feature = "ids")]
+    pub(crate) fn schema(&self) -> &'a Express {
+        self.schema
+    }
+
+    /// 覚えた属性の数と、属性の並びの、実体の数
+    #[cfg(all(test, feature = "ids"))]
+    pub(crate) fn remembered(&self) -> (usize, usize) {
+        (self.counts.len(), self.slots.len())
+    }
+
+    /// 実体の属性の数。上位の型が 1 つの実体は、上位の型の数に自分の属性の数を足して、実体ごとに 1 度だけ求める。
+    /// 上位の型が 2 つ以上の実体は、同じ上位の型を 1 度だけ数えるために、上位の型をすべてたどる。
+    /// 求める実体ごとに 1 つと、[`Layouts::count_all`] のとおりに、`tick` で数える。上位の型が 1 つかを決めるために
+    /// 並びを見る所は数えないが、実体ごとに 1 度だけで、手間は EXPRESS の大きさに比例する
+    pub(crate) fn count<F>(&mut self, entity: usize, tick: &mut F) -> Result<usize, Stop>
+    where
+        F: FnMut(u64) -> Result<(), Stop>,
+    {
+        let schema = self.schema;
+        // 上位の型が 1 つの実体の鎖を、数の分かっている実体まで上る
+        let mut path = Vec::new();
+        let mut at = entity;
+        let mut base = 0;
+        // 上位の型の循環は読むときに断っている。回数は念のため、宣言の数で止める
+        for _ in 0..=schema.decls.len() {
+            if let Some(&known) = self.counts.get(&at) {
+                base = known;
+                break;
+            }
+            tick(1)?;
+            let Some(current) = schema.entity(at) else {
+                break;
+            };
+            let mut supertypes = current
+                .supertypes
+                .iter()
+                .copied()
+                .filter(|&s| schema.entity(s).is_some());
+            match (supertypes.next(), supertypes.next()) {
+                (None, _) => {
+                    path.push(at);
+                    break;
+                }
+                (Some(only), None) => {
+                    path.push(at);
+                    at = only;
+                }
+                _ => {
+                    base = self.count_all(at, tick)?;
+                    self.counts.insert(at, base);
+                    break;
+                }
+            }
+        }
+        for &at in path.iter().rev() {
+            base += schema.entity(at).map_or(0, |e| e.attributes.len());
+            self.counts.insert(at, base);
+        }
+        Ok(self.counts.get(&entity).copied().unwrap_or(base))
+    }
+
+    /// 上位の型をすべてたどって数える属性の数。同じ上位の型は 1 度だけ数える。
+    ///
+    /// たどる 1 歩と、たどった実体の上位の型の並びの名前ごとに、`tick` で 1 つ数える。並びの名前は、すでにたどった
+    /// 名前を飛ばすときも数える（#672）
+    fn count_all<F>(&self, entity: usize, tick: &mut F) -> Result<usize, Stop>
+    where
+        F: FnMut(u64) -> Result<(), Stop>,
+    {
+        let mut seen = BTreeSet::new();
+        let mut stack = vec![entity];
+        let mut count = 0;
+        while let Some(next) = stack.pop() {
+            tick(1)?;
+            if !seen.insert(next) {
+                continue;
+            }
+            if let Some(entity) = self.schema.entity(next) {
+                count += entity.attributes.len();
+                tick(entity.supertypes.len() as u64)?;
+                stack.extend(
+                    entity
+                        .supertypes
+                        .iter()
+                        .copied()
+                        .filter(|s| !seen.contains(s)),
+                );
+            }
+        }
+        Ok(count)
+    }
+
+    /// 実体の属性の並び。初めてなら作って覚える。作る手順は [`Express::slots`] のとおりに数える
+    pub(crate) fn slots<F>(&mut self, entity: usize, tick: &mut F) -> Result<Rc<[Slot<'a>]>, Stop>
+    where
+        F: FnMut(u64) -> Result<(), Stop>,
+    {
+        if let Some(known) = self.slots.get(&entity) {
+            return Ok(Rc::clone(known));
+        }
+        let slots: Rc<[Slot<'a>]> = self.schema.slots(entity, tick)?.into();
+        self.slots.insert(entity, Rc::clone(&slots));
+        Ok(slots)
     }
 }
 
@@ -646,6 +786,12 @@ struct Parser<'t> {
     at: usize,
     /// 予算か中断の合図で止めた理由と、そのときの字句の位置。止めたら、読めなかったとして返す
     stop: Option<(Stop, usize)>,
+    /// 読んだ型・実体の名前の番号。名前を初めて読んだ順に振る（#672）
+    symbols: BTreeMap<String, usize>,
+    /// 番号ごとの名前と宣言
+    decls: Vec<(String, Option<Decl>)>,
+    /// 読んだ属性の名前（大文字）の番号。名前を初めて読んだ順に振る（#672）
+    keys: BTreeMap<String, usize>,
 }
 
 /// 読めなかった字句の位置
@@ -704,6 +850,39 @@ impl Parser<'_> {
         }
     }
 
+    /// 型・実体の名前の番号。初めての名前なら、次の番号を振る
+    fn intern(&mut self, name: String) -> usize {
+        if let Some(&at) = self.symbols.get(&name) {
+            return at;
+        }
+        let at = self.decls.len();
+        self.decls.push((name.clone(), None));
+        self.symbols.insert(name, at);
+        at
+    }
+
+    /// 属性の名前の番号。初めての名前なら、次の番号を振る
+    fn key(&mut self, name: &str) -> usize {
+        if let Some(&key) = self.keys.get(name) {
+            return key;
+        }
+        let key = self.keys.len();
+        self.keys.insert(name.to_owned(), key);
+        key
+    }
+
+    /// 名前を宣言する。同じ名前の宣言は、どれを使うか決められないので、宣言の名前の字句の位置 `at` を返して断る
+    fn declare(&mut self, name: String, decl: Decl, at: usize) -> Parsed<()> {
+        let index = self.intern(name);
+        match self.decls.get_mut(index) {
+            Some((_, slot @ None)) => {
+                *slot = Some(decl);
+                Ok(())
+            }
+            _ => Err(at),
+        }
+    }
+
     /// `;` まで飛ばす。括弧の中の `;` は飛ばさない
     fn skip_statement(&mut self) -> Parsed<()> {
         let mut depth = 0i64;
@@ -743,41 +922,34 @@ impl Parser<'_> {
         let name = self.name()?;
         // バージョンの識別子（`'{…}'`）は読み飛ばす
         self.skip_statement()?;
-        let mut schema = Express {
-            name,
-            entities: BTreeMap::new(),
-            types: BTreeMap::new(),
-            rules: 0,
-        };
+        let mut rules = 0;
         loop {
             match self.next() {
                 Some("END_SCHEMA") => {
                     self.expect(";")?;
-                    return Ok(schema);
+                    return Ok(Express {
+                        name,
+                        symbols: core::mem::take(&mut self.symbols),
+                        decls: core::mem::take(&mut self.decls),
+                        rules,
+                    });
                 }
                 Some("TYPE") => {
                     let at = self.at;
-                    let (name, def, rules) = self.type_decl(cx)?;
-                    if schema.declared(&name) {
-                        return Err(at);
-                    }
-                    schema.rules += rules;
-                    schema.types.insert(name, def);
+                    let (name, def, more) = self.type_decl(cx)?;
+                    self.declare(name, Decl::Type(def), at)?;
+                    rules += more;
                 }
                 Some("ENTITY") => {
                     let at = self.at;
-                    let (entity, rules) = self.entity(cx)?;
-                    let name = entity.name.to_ascii_uppercase();
-                    if schema.declared(&name) {
-                        return Err(at);
-                    }
-                    schema.rules += rules;
-                    schema.entities.insert(name, entity);
+                    let (name, entity, more) = self.entity(cx)?;
+                    self.declare(name, Decl::Entity(entity), at)?;
+                    rules += more;
                 }
                 Some("FUNCTION") => self.skip_block("FUNCTION", "END_FUNCTION")?,
                 Some("PROCEDURE") => self.skip_block("PROCEDURE", "END_PROCEDURE")?,
                 Some("RULE") => {
-                    schema.rules += 1;
+                    rules += 1;
                     self.skip_block("RULE", "END_RULE")?;
                 }
                 Some("CONSTANT") => self.skip_block("CONSTANT", "END_CONSTANT")?,
@@ -793,19 +965,19 @@ impl Parser<'_> {
     /// `TYPE 名前 = 元の型 ; [WHERE …] END_TYPE ;`
     fn type_decl(&mut self, cx: &mut Cx) -> Parsed<(String, TypeDef, u64)> {
         let name = self.name()?;
-        let display = name.clone();
         self.expect("=")?;
         let def = match self.peek() {
             Some("ENUMERATION") => {
                 self.at += 1;
                 self.expect("OF")?;
-                TypeDef::Enumeration(display, self.names()?)
+                TypeDef::Enumeration(self.names()?.into_iter().collect())
             }
             Some("SELECT") => {
                 self.at += 1;
-                TypeDef::Select(display, self.names()?)
+                let items = self.names()?;
+                TypeDef::Select(items.into_iter().map(|item| self.intern(item)).collect())
             }
-            _ => TypeDef::Defined(display, self.ty(cx)?),
+            _ => TypeDef::Defined(self.ty(cx)?),
         };
         self.expect(";")?;
         let rules = self.rules_until("END_TYPE")?;
@@ -880,7 +1052,7 @@ impl Parser<'_> {
             "BAG" => "BAG",
             "ARRAY" => "ARRAY",
             _ if word.starts_with(|c: char| c.is_ascii_alphabetic()) => {
-                return Ok(Head::Item(Item::Named(word)));
+                return Ok(Head::Item(Item::Named(self.intern(word))));
             }
             _ => return Err(self.at.saturating_sub(1)),
         };
@@ -923,11 +1095,10 @@ impl Parser<'_> {
         })
     }
 
-    /// `ENTITY` の宣言
-    fn entity(&mut self, cx: &mut Cx) -> Parsed<(Entity, u64)> {
+    /// `ENTITY` の宣言。名前（大文字）と実体と、評価しない規則の数を返す
+    fn entity(&mut self, cx: &mut Cx) -> Parsed<(String, Entity, u64)> {
         let name = self.name()?;
         let mut entity = Entity {
-            name: name.clone(),
             is_abstract: false,
             supertypes: Vec::new(),
             attributes: Vec::new(),
@@ -954,7 +1125,11 @@ impl Parser<'_> {
                 }
                 Some("SUBTYPE") => {
                     self.expect("OF")?;
-                    entity.supertypes = self.names()?;
+                    let supertypes = self.names()?;
+                    entity.supertypes = supertypes
+                        .into_iter()
+                        .map(|supertype| self.intern(supertype))
+                        .collect();
                 }
                 _ => return Err(self.at.saturating_sub(1)),
             }
@@ -975,11 +1150,13 @@ impl Parser<'_> {
             let ty = Arc::new(self.ty(cx)?);
             self.expect(";")?;
             for (inherited, name, written) in names {
+                let key = self.key(&name);
                 if inherited {
-                    entity.redeclared.push((name, Arc::clone(&ty), optional));
+                    entity.redeclared.push((key, Arc::clone(&ty), optional));
                 } else {
                     entity.attributes.push(Attribute {
                         name,
+                        key,
                         written,
                         ty: Arc::clone(&ty),
                         optional,
@@ -992,7 +1169,7 @@ impl Parser<'_> {
             match self.next() {
                 Some("END_ENTITY") => {
                     self.expect(";")?;
-                    return Ok((entity, rules));
+                    return Ok((name, entity, rules));
                 }
                 Some("DERIVE") => {
                     while !matches!(
@@ -1001,7 +1178,8 @@ impl Parser<'_> {
                     ) {
                         let (inherited, name, _) = self.attribute_name()?;
                         if inherited {
-                            entity.derived.push(name);
+                            let key = self.key(&name);
+                            entity.derived.push(key);
                         }
                         self.skip_statement()?;
                     }
@@ -1063,11 +1241,35 @@ impl Parser<'_> {
 
 // チェック
 
-/// IFC のインスタンスを、スキーマに照らしてチェックする。指摘は書いた順に返す（文脈には足さない）。
+/// チェックの指摘のうち、求めた範囲にあるものと、すべての指摘の数
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Findings {
+    /// 書いた順で、求めた範囲にある指摘
+    pub findings: Vec<Diagnostic>,
+    /// すべての指摘の数
+    pub total: u64,
+}
+
+/// IFC のインスタンスを、スキーマに照らしてチェックする。指摘は書いた順に、すべて返す（文脈には足さない）。
 ///
 /// `FILE_SCHEMA` の名前がスキーマの名前と違えば、`express.schema.mixed` を文脈に足して、そのままチェックする。
-/// 評価しない規則があれば、`express.rule.unsupported` を文脈に足す
+/// 評価しない規則があれば、`express.rule.unsupported` を文脈に足す。指摘の一部だけが要るときは、[`check_range`] で
+/// 範囲の外の指摘を作らずに数える
 pub fn check(file: &IfcFile, schema: &Express, cx: &mut Cx) -> Result<Vec<Diagnostic>, Error> {
+    check_range(file, schema, 0..u64::MAX, cx).map(|found| found.findings)
+}
+
+/// [`check`] と同じくチェックし、書いた順で `range` の位置にある指摘だけを作って返す。範囲の外の指摘は、作らずに
+/// 数える。指摘が使うメモリは、合わない値の数によらず、範囲にある指摘の数までになる（#672）。
+///
+/// 手間は、インスタンスごと・値ごとに work で数える（決定 0216）。実体の属性の数と並び、上位の型と選択の判定は、
+/// 実体か組ごとに 1 度だけ作り、作る手順を work で数える（#672）
+pub fn check_range(
+    file: &IfcFile,
+    schema: &Express,
+    range: Range<u64>,
+    cx: &mut Cx,
+) -> Result<Findings, Error> {
     let file_schema = String::from_utf8_lossy(file.schema()).into_owned();
     if !file_schema.eq_ignore_ascii_case(&schema.name) {
         cx.report(
@@ -1082,126 +1284,242 @@ pub fn check(file: &IfcFile, schema: &Express, cx: &mut Cx) -> Result<Vec<Diagno
     let mut checker = Checker {
         file,
         schema,
-        slots: BTreeMap::new(),
-        ancestors: BTreeMap::new(),
-        selects: BTreeMap::new(),
+        layouts: Layouts::new(schema),
+        kinds: vec![Kinds::Unseen; file.records().len()],
+        parts: BTreeMap::new(),
+        subtypes: BTreeMap::new(),
+        select_entities: BTreeMap::new(),
+        select_types: BTreeMap::new(),
+        range,
+        total: 0,
         findings: Vec::new(),
     };
     for id in file.ids() {
-        let Some(record) = file.instance(id) else {
+        let Some((position, record)) = file
+            .position(id)
+            .and_then(|at| Some((at, file.records().get(at)?)))
+        else {
             continue;
         };
         cx.check(Kind::Work, 1)
             .map_err(|stop| stopped(cx, stop, Some(record.span())))?;
-        checker.instance(record, cx)?;
+        checker.instance(position, record, cx)?;
     }
-    Ok(checker.findings)
+    Ok(Findings {
+        findings: checker.findings,
+        total: checker.total,
+    })
+}
+
+/// レコードの部分の実体
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Kinds {
+    /// まだ名前を引いていない
+    Unseen,
+    /// 単独のインスタンスの実体の番号。実体でない名前なら `None`
+    Single(Option<usize>),
+    /// 部分が 1 つでないインスタンス。部分の実体は [`Checker::parts`] に置く
+    Complex,
+}
+
+/// 値に求める実体
+#[derive(Clone, Copy, Debug)]
+enum Want {
+    /// 実体かその下位の型
+    Entity(usize),
+    /// 選択が受ける実体かその下位の型
+    Select(usize),
+}
+
+/// 合わなかった値に求めたもの
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Expected {
+    /// 導く属性の `*`
+    Derived,
+    /// 属性の型
+    Type,
+    /// 省略できない属性の値
+    Missing,
 }
 
 struct Checker<'a> {
     file: &'a IfcFile,
     schema: &'a Express,
-    slots: BTreeMap<String, Vec<Slot>>,
-    ancestors: BTreeMap<String, BTreeSet<String>>,
-    selects: BTreeMap<String, (BTreeSet<String>, BTreeSet<String>)>,
+    layouts: Layouts<'a>,
+    /// レコードの位置ごとの部分の実体。参照の先の名前を、参照ごとに引き直さない
+    kinds: Vec<Kinds>,
+    /// 部分が 1 つでないレコードの位置から、部分ごとの実体
+    parts: BTreeMap<usize, Rc<[Option<usize>]>>,
+    /// （実体、求める実体）から、求める実体かその下位の型か
+    subtypes: BTreeMap<(usize, usize), bool>,
+    /// （選択、実体）から、選択が受ける実体かその下位の型か
+    select_entities: BTreeMap<(usize, usize), bool>,
+    /// （選択、型）から、選択が受ける型か
+    select_types: BTreeMap<(usize, usize), bool>,
+    /// 作って返す指摘の、書いた順での範囲
+    range: Range<u64>,
+    /// これまでの指摘の数
+    total: u64,
     findings: Vec<Diagnostic>,
 }
 
-impl Checker<'_> {
-    fn instance(&mut self, record: &Record, cx: &mut Cx) -> Result<(), Error> {
-        let complex = record.parts().len() > 1;
-        // 複合のインスタンスで、ほかの部分が導く属性にしたもの
-        let derived_elsewhere: BTreeSet<String> = if complex {
-            record
-                .parts()
+impl<'a> Checker<'a> {
+    fn instance(&mut self, position: usize, record: &'a Record, cx: &mut Cx) -> Result<(), Error> {
+        let kinds = self.kinds(position, record);
+        let parts = record.parts();
+        if let (Kinds::Single(kind), [part]) = (kinds, parts) {
+            return self.part(record, part, kind, false, &BTreeSet::new(), cx);
+        }
+        let entities = self.parts.get(&position).cloned().unwrap_or_default();
+        let complex = parts.len() > 1;
+        // 複合のインスタンスで、ほかの部分が導く属性にしたものの名前の番号。名前ごとに 1 つ数える
+        let mut derived_elsewhere = BTreeSet::new();
+        if complex {
+            let schema = self.schema;
+            for entity in entities
                 .iter()
-                .filter_map(|part| {
-                    let name =
-                        String::from_utf8_lossy(self.file.bytes(part.name())).to_ascii_uppercase();
-                    self.schema.entities.get(&name)
-                })
-                .flat_map(|entity| entity.derived.iter().cloned())
-                .collect()
-        } else {
-            BTreeSet::new()
-        };
-        for part in record.parts() {
-            let kind = String::from_utf8_lossy(self.file.bytes(part.name())).to_ascii_uppercase();
-            let Some(entity) = self.schema.entities.get(&kind) else {
-                self.find(
-                    Diagnostic::new(codes::EXPRESS_ENTITY_MISSING).with("kind", kind.as_str()),
-                    record,
-                );
-                continue;
-            };
-            if entity.is_abstract && !complex {
-                self.find(
-                    Diagnostic::new(codes::EXPRESS_ABSTRACT_INVALID).with("kind", kind.as_str()),
+                .flatten()
+                .filter_map(|&at| schema.entity(at))
+            {
+                for &key in &entity.derived {
+                    cx.check(Kind::Work, 1)
+                        .map_err(|stop| stopped(cx, stop, Some(record.span())))?;
+                    derived_elsewhere.insert(key);
+                }
+            }
+        }
+        for (part, kind) in parts.iter().zip(entities.iter()) {
+            self.part(record, part, *kind, complex, &derived_elsewhere, cx)?;
+        }
+        Ok(())
+    }
+
+    /// インスタンスの部分を、実体の属性に照らす。複合のインスタンスの部分は、その実体が宣言した属性だけを持つ
+    fn part(
+        &mut self,
+        record: &'a Record,
+        part: &'a Part,
+        kind: Option<usize>,
+        complex: bool,
+        derived_elsewhere: &BTreeSet<usize>,
+        cx: &mut Cx,
+    ) -> Result<(), Error> {
+        let schema = self.schema;
+        let Some((kind, entity)) = kind.and_then(|at| Some((at, schema.entity(at)?))) else {
+            if self.keep() {
+                let name =
+                    String::from_utf8_lossy(self.file.bytes(part.name())).to_ascii_uppercase();
+                self.push(
+                    Diagnostic::new(codes::EXPRESS_ENTITY_MISSING).with("kind", name),
                     record,
                 );
             }
-            // 複合のインスタンスの部分は、その実体が宣言した属性だけを持つ
-            let slots: Vec<Slot> = if complex {
-                entity
-                    .attributes
-                    .iter()
-                    .map(|a| Slot {
-                        name: a.name.clone(),
-                        written: a.written.clone(),
-                        ty: Arc::clone(&a.ty),
-                        optional: a.optional,
-                        derived: derived_elsewhere.contains(&a.name),
-                    })
-                    .collect()
-            } else {
-                self.slots
-                    .entry(kind.clone())
-                    .or_insert_with(|| self.schema.slots(&kind))
-                    .clone()
-            };
-            let args = part.args();
-            if args.len() != slots.len() {
-                self.find(
+            return Ok(());
+        };
+        // インスタンスの名前を大文字にしたものと同じ
+        let name = schema.symbol(kind);
+        if entity.is_abstract && !complex && self.keep() {
+            self.push(
+                Diagnostic::new(codes::EXPRESS_ABSTRACT_INVALID).with("kind", name),
+                record,
+            );
+        }
+        let span = record.span();
+        let args = part.args();
+        let expected = if complex {
+            entity.attributes.len()
+        } else {
+            self.layouts
+                .count(kind, &mut |n| cx.check(Kind::Work, n))
+                .map_err(|stop| stopped(cx, stop, Some(span.clone())))?
+        };
+        if args.len() != expected {
+            if self.keep() {
+                self.push(
                     Diagnostic::new(codes::EXPRESS_ATTRIBUTE_COUNT_INVALID)
-                        .with("kind", kind.as_str())
-                        .with("expected", slots.len() as u64)
+                        .with("kind", name)
+                        .with("expected", expected as u64)
                         .with("found", args.len() as u64),
                     record,
                 );
-                continue;
             }
-            for (position, (slot, value)) in slots.iter().zip(args).enumerate() {
-                let position = position as u64 + 1;
-                let finding = match (slot.derived, value) {
-                    (true, Value::Derived) => None,
-                    (true, _) => Some(("*".to_owned(), false)),
-                    (false, Value::Derived) => Some((self.schema.display(&slot.ty), false)),
-                    (false, Value::Null) if slot.optional => None,
-                    (false, Value::Null) => Some((self.schema.display(&slot.ty), true)),
-                    (false, value) => (!self.value(&slot.ty.levels, &slot.ty.item, value, cx)?)
-                        .then(|| (self.schema.display(&slot.ty), false)),
+            return Ok(());
+        }
+        if complex {
+            for (position, (attribute, value)) in entity.attributes.iter().zip(args).enumerate() {
+                let slot = Slot {
+                    attribute,
+                    ty: &attribute.ty,
+                    optional: attribute.optional,
+                    derived: derived_elsewhere.contains(&attribute.key),
                 };
-                if let Some((expected, missing)) = finding {
-                    let code = if missing {
-                        codes::EXPRESS_VALUE_MISSING
-                    } else {
-                        codes::EXPRESS_VALUE_INVALID
-                    };
-                    let mut diagnostic = Diagnostic::new(code)
-                        .with("kind", kind.as_str())
-                        .with("position", position)
-                        .with("attribute", slot.name.as_str());
-                    if !missing {
-                        diagnostic = diagnostic.with("expected", expected);
-                    }
-                    self.find(diagnostic, record);
-                }
+                self.slot(record, name, position, slot, value, cx)?;
+            }
+        } else if expected > 0 {
+            let slots = self
+                .layouts
+                .slots(kind, &mut |n| cx.check(Kind::Work, n))
+                .map_err(|stop| stopped(cx, stop, Some(span)))?;
+            for (position, (slot, value)) in slots.iter().zip(args).enumerate() {
+                self.slot(record, name, position, *slot, value, cx)?;
             }
         }
         Ok(())
     }
 
-    fn find(&mut self, diagnostic: Diagnostic, record: &Record) {
+    /// 属性の値を 1 つ照らす
+    fn slot(
+        &mut self,
+        record: &'a Record,
+        kind: &str,
+        position: usize,
+        slot: Slot<'a>,
+        value: &Value,
+        cx: &mut Cx,
+    ) -> Result<(), Error> {
+        let expected = match (slot.derived, value) {
+            (true, Value::Derived) => None,
+            (true, _) => Some(Expected::Derived),
+            (false, Value::Derived) => Some(Expected::Type),
+            (false, Value::Null) if slot.optional => None,
+            (false, Value::Null) => Some(Expected::Missing),
+            (false, value) => {
+                (!self.value(&slot.ty.levels, &slot.ty.item, value, cx)?).then_some(Expected::Type)
+            }
+        };
+        let Some(expected) = expected else {
+            return Ok(());
+        };
+        if !self.keep() {
+            return Ok(());
+        }
+        let code = match expected {
+            Expected::Missing => codes::EXPRESS_VALUE_MISSING,
+            Expected::Derived | Expected::Type => codes::EXPRESS_VALUE_INVALID,
+        };
+        let mut diagnostic = Diagnostic::new(code)
+            .with("kind", kind)
+            .with("position", position as u64 + 1)
+            .with("attribute", slot.attribute.name.as_str());
+        match expected {
+            Expected::Derived => diagnostic = diagnostic.with("expected", "*"),
+            Expected::Type => {
+                diagnostic = diagnostic.with("expected", self.schema.display(slot.ty))
+            }
+            Expected::Missing => {}
+        }
+        self.push(diagnostic, record);
+        Ok(())
+    }
+
+    /// 指摘を 1 つ数え、作って返す範囲にあるか
+    fn keep(&mut self) -> bool {
+        let index = self.total;
+        self.total = self.total.saturating_add(1);
+        self.range.contains(&index)
+    }
+
+    fn push(&mut self, diagnostic: Diagnostic, record: &Record) {
         let place = at_bytes(record.span());
         let place = match record.id() {
             Some(id) => place.with_id(format!("#{id}")),
@@ -1210,11 +1528,37 @@ impl Checker<'_> {
         self.findings.push(diagnostic.at(place));
     }
 
+    /// レコードの部分の実体。レコードごとに 1 度だけ名前を引いて覚える
+    fn kinds(&mut self, position: usize, record: &Record) -> Kinds {
+        match self.kinds.get(position) {
+            Some(Kinds::Unseen) | None => {}
+            Some(known) => return *known,
+        }
+        let (file, schema) = (self.file, self.schema);
+        let entity = |part: &Part| {
+            schema.entity_named(
+                &String::from_utf8_lossy(file.bytes(part.name())).to_ascii_uppercase(),
+            )
+        };
+        let kinds = match record.parts() {
+            [part] => Kinds::Single(entity(part)),
+            parts => {
+                self.parts
+                    .insert(position, parts.iter().map(entity).collect());
+                Kinds::Complex
+            }
+        };
+        if let Some(slot) = self.kinds.get_mut(position) {
+            *slot = kinds;
+        }
+        kinds
+    }
+
     /// 値が型に合うか。集まりの入れ子は `depth` で数える
     fn value(
         &mut self,
-        levels: &[Level],
-        item_type: &Item,
+        levels: &'a [Level],
+        item_type: &'a Item,
         value: &Value,
         cx: &mut Cx,
     ) -> Result<bool, Error> {
@@ -1258,77 +1602,184 @@ impl Checker<'_> {
             Item::Logical => matches!(self.enumeration(value).as_deref(), Some("T" | "F" | "U")),
             Item::String => matches!(value, Value::Text { .. }),
             Item::Binary => matches!(value, Value::Binary(_)),
-            Item::Named(name) => self.named(name, value, cx)?,
+            Item::Named(at) => self.named(*at, value, cx)?,
         })
     }
 
-    fn named(&mut self, name: &str, value: &Value, cx: &mut Cx) -> Result<bool, Error> {
-        if self.schema.entities.contains_key(name) {
-            return Ok(match value {
-                Value::Ref(id) => self.refers_to(*id, |ancestors| ancestors.contains(name)),
-                _ => false,
-            });
-        }
-        match self.schema.types.get(name) {
-            Some(TypeDef::Defined(_, ty)) => {
+    /// 名前の型か実体に合うか。定義された型は、写さずにスキーマの型を指して照らす
+    fn named(&mut self, at: usize, value: &Value, cx: &mut Cx) -> Result<bool, Error> {
+        let schema = self.schema;
+        match schema.decl(at) {
+            Some(Decl::Entity(_)) => match value {
+                Value::Ref(id) => self.refers_to(*id, Want::Entity(at), cx),
+                _ => Ok(false),
+            },
+            Some(Decl::Type(TypeDef::Defined(ty))) => {
                 cx.enter().map_err(|stop| stopped(cx, stop, None))?;
                 let fits = self.value(&ty.levels, &ty.item, value, cx);
                 cx.leave();
                 fits
             }
-            Some(TypeDef::Enumeration(_, items)) => Ok(self
+            Some(Decl::Type(TypeDef::Enumeration(items))) => Ok(self
                 .enumeration(value)
-                .is_some_and(|v| items.iter().any(|item| item.eq_ignore_ascii_case(&v)))),
-            Some(TypeDef::Select(..)) => {
-                let (entities, types) = self
-                    .selects
-                    .entry(name.to_owned())
-                    .or_insert_with(|| self.schema.select_members(name))
-                    .clone();
-                match value {
-                    Value::Ref(id) => {
-                        Ok(self.refers_to(*id, |ancestors| !ancestors.is_disjoint(&entities)))
+                .is_some_and(|v| items.contains(v.as_str()))),
+            Some(Decl::Type(TypeDef::Select(_))) => match value {
+                Value::Ref(id) => self.refers_to(*id, Want::Select(at), cx),
+                Value::Typed(part) => {
+                    let type_name =
+                        String::from_utf8_lossy(self.file.bytes(part.name())).to_ascii_uppercase();
+                    let Some(ty) = schema.lookup(&type_name) else {
+                        return Ok(false);
+                    };
+                    if !self.select_has_type(at, ty, cx)? {
+                        return Ok(false);
                     }
-                    Value::Typed(part) => {
-                        let type_name = String::from_utf8_lossy(self.file.bytes(part.name()))
-                            .to_ascii_uppercase();
-                        if !types.contains(&type_name) {
-                            return Ok(false);
-                        }
-                        let [inner] = part.args() else {
-                            return Ok(false);
-                        };
-                        cx.enter().map_err(|stop| stopped(cx, stop, None))?;
-                        let fits = self.named(&type_name, inner, cx);
-                        cx.leave();
-                        fits
-                    }
-                    _ => Ok(false),
+                    let [inner] = part.args() else {
+                        return Ok(false);
+                    };
+                    cx.enter().map_err(|stop| stopped(cx, stop, None))?;
+                    let fits = self.named(ty, inner, cx);
+                    cx.leave();
+                    fits
                 }
-            }
+                _ => Ok(false),
+            },
             None => Ok(false),
         }
     }
 
-    /// 参照の先のインスタンスの、どれかの部分の上位の型が `fits` を満たすか。先がなければ、L1 で診断してあるので満たすとする
-    fn refers_to(&mut self, id: u64, fits: impl Fn(&BTreeSet<String>) -> bool) -> bool {
-        let Some(target) = self.file.instance(id) else {
-            return true;
+    /// 参照の先のインスタンスの、どれかの部分の実体が、求める実体に合うか。先がなければ、L1 で診断してあるので
+    /// 合うとする。部分が 1 つでないインスタンスは、部分ごとに 1 つ数える
+    fn refers_to(&mut self, id: u64, want: Want, cx: &mut Cx) -> Result<bool, Error> {
+        let Some((position, record)) = self
+            .file
+            .position(id)
+            .and_then(|at| Some((at, self.file.records().get(at)?)))
+        else {
+            return Ok(true);
         };
-        let kinds: Vec<String> = target
-            .parts()
-            .iter()
-            .map(|part| String::from_utf8_lossy(self.file.bytes(part.name())).to_ascii_uppercase())
-            .collect();
-        let mut all = BTreeSet::new();
-        for kind in kinds {
-            let ancestors = self
-                .ancestors
-                .entry(kind.clone())
-                .or_insert_with(|| self.schema.ancestors(&kind));
-            all.extend(ancestors.iter().cloned());
+        match self.kinds(position, record) {
+            Kinds::Single(Some(kind)) => self.fits(kind, want, cx),
+            Kinds::Single(None) | Kinds::Unseen => Ok(false),
+            Kinds::Complex => {
+                let kinds = self.parts.get(&position).cloned().unwrap_or_default();
+                cx.check(Kind::Work, kinds.len() as u64)
+                    .map_err(|stop| stopped(cx, stop, None))?;
+                for &kind in kinds.iter().flatten() {
+                    if self.fits(kind, want, cx)? {
+                        return Ok(true);
+                    }
+                }
+                Ok(false)
+            }
         }
-        fits(&all)
+    }
+
+    /// 実体が、求める実体に合うか。組ごとに 1 度だけ判定して覚える
+    fn fits(&mut self, kind: usize, want: Want, cx: &mut Cx) -> Result<bool, Error> {
+        match want {
+            Want::Entity(of) => {
+                if let Some(&known) = self.subtypes.get(&(kind, of)) {
+                    return Ok(known);
+                }
+                let fits = self.reaches(kind, |at| at == of, cx)?;
+                self.subtypes.insert((kind, of), fits);
+                Ok(fits)
+            }
+            Want::Select(select) => {
+                if let Some(&known) = self.select_entities.get(&(select, kind)) {
+                    return Ok(known);
+                }
+                let mut entities = BTreeSet::new();
+                self.select_members(select, cx, |at, decl| {
+                    if matches!(decl, Decl::Entity(_)) {
+                        entities.insert(at);
+                    }
+                    false
+                })?;
+                let fits = self.reaches(kind, |at| entities.contains(&at), cx)?;
+                self.select_entities.insert((select, kind), fits);
+                Ok(fits)
+            }
+        }
+    }
+
+    /// 選択が、型を付けた値の型を受けるか。組ごとに 1 度だけ判定して覚える
+    fn select_has_type(&mut self, select: usize, ty: usize, cx: &mut Cx) -> Result<bool, Error> {
+        if let Some(&known) = self.select_types.get(&(select, ty)) {
+            return Ok(known);
+        }
+        let mut found = false;
+        self.select_members(select, cx, |at, decl| {
+            found = at == ty && matches!(decl, Decl::Type(_));
+            found
+        })?;
+        self.select_types.insert((select, ty), found);
+        Ok(found)
+    }
+
+    /// 実体と、その上位の型をたどり、`want` を満たす実体があるか。たどる 1 歩と、たどった実体の上位の型の並びの
+    /// 名前ごとに、work で 1 つ数える。並びの名前は、すでにたどった名前を飛ばすときも数える（#672）
+    fn reaches(
+        &self,
+        kind: usize,
+        want: impl Fn(usize) -> bool,
+        cx: &mut Cx,
+    ) -> Result<bool, Error> {
+        let mut seen = BTreeSet::new();
+        let mut stack = vec![kind];
+        while let Some(next) = stack.pop() {
+            cx.check(Kind::Work, 1)
+                .map_err(|stop| stopped(cx, stop, None))?;
+            if !seen.insert(next) {
+                continue;
+            }
+            if want(next) {
+                return Ok(true);
+            }
+            if let Some(entity) = self.schema.entity(next) {
+                cx.check(Kind::Work, entity.supertypes.len() as u64)
+                    .map_err(|stop| stopped(cx, stop, None))?;
+                stack.extend(
+                    entity
+                        .supertypes
+                        .iter()
+                        .copied()
+                        .filter(|s| !seen.contains(s)),
+                );
+            }
+        }
+        Ok(false)
+    }
+
+    /// 選択が受ける項目（実体と、定義された型・列挙）を、入れ子の選択もたどって 1 度ずつ `each` に渡す。`each` が
+    /// `true` を返したら止める。たどる 1 歩と、たどった選択の項目の並びの名前ごとに、work で 1 つ数える。並びの名前は、
+    /// すでにたどった名前を飛ばすときも数える（#672）
+    fn select_members(
+        &self,
+        select: usize,
+        cx: &mut Cx,
+        mut each: impl FnMut(usize, &Decl) -> bool,
+    ) -> Result<(), Error> {
+        let mut seen = BTreeSet::new();
+        let mut stack = vec![select];
+        while let Some(next) = stack.pop() {
+            cx.check(Kind::Work, 1)
+                .map_err(|stop| stopped(cx, stop, None))?;
+            if !seen.insert(next) {
+                continue;
+            }
+            match self.schema.decl(next) {
+                Some(Decl::Type(TypeDef::Select(items))) => {
+                    cx.check(Kind::Work, items.len() as u64)
+                        .map_err(|stop| stopped(cx, stop, None))?;
+                    stack.extend(items.iter().copied().filter(|s| !seen.contains(s)));
+                }
+                Some(decl) if each(next, decl) => return Ok(()),
+                Some(_) | None => {}
+            }
+        }
+        Ok(())
     }
 
     fn enumeration(&self, value: &Value) -> Option<String> {
@@ -1343,6 +1794,8 @@ impl Checker<'_> {
 
 #[cfg(test)]
 mod tests {
+    use core::cell::Cell;
+
     use zumen_base::{Budget, CancelToken, Diagnostics, Limits};
 
     use super::*;
@@ -1367,7 +1820,7 @@ mod tests {
              B, SELF\\P.A, C : LIST [1:?] OF INTEGER;\n  D : LIST [1:?] OF INTEGER;\nEND_ENTITY;\n\
              END_SCHEMA;\n",
         );
-        let entity = &schema.entities["E"];
+        let entity = schema.entity(schema.lookup("E").unwrap()).unwrap();
         let names: Vec<_> = entity.attributes.iter().map(|a| a.name.as_str()).collect();
         assert_eq!(names, ["B", "C", "D"]);
         let (b, c, d) = (
@@ -1380,5 +1833,93 @@ mod tests {
         assert_eq!(Arc::strong_count(b), 3);
         assert!(!Arc::ptr_eq(b, d));
         assert_eq!(b, d);
+    }
+
+    /// 属性の数は、上位の型が 1 つなら上位の型の数に足し、2 つ以上なら上位の型をすべてたどって、同じ上位の型を
+    /// 1 度だけ数える。どの形でも、属性の並びの長さと同じになる。型の名前を上位の型に書いても、属性を持たない（#672）
+    #[test]
+    fn counts_agree_with_the_slots() {
+        let schema = read(
+            "SCHEMA SHAPES;\nTYPE T = INTEGER;\nEND_TYPE;\n\
+             ENTITY R;\n  A : INTEGER;\nEND_ENTITY;\n\
+             ENTITY L SUBTYPE OF (R);\n  B, C : INTEGER;\nEND_ENTITY;\n\
+             ENTITY M SUBTYPE OF (R, T);\n  D : INTEGER;\nEND_ENTITY;\n\
+             ENTITY X SUBTYPE OF (L, M);\n  E : INTEGER;\n  SELF\\R.A : REAL;\nDERIVE\n  SELF\\L.C : INTEGER := 1;\nEND_ENTITY;\n\
+             ENTITY Y SUBTYPE OF (X);\n  F : INTEGER;\nEND_ENTITY;\n\
+             ENTITY Z SUBTYPE OF (L, L);\nEND_ENTITY;\n\
+             END_SCHEMA;\n",
+        );
+        let mut free = |_: u64| -> Result<(), Stop> { Ok(()) };
+        for (name, expected) in [
+            ("R", &["A"][..]),
+            ("L", &["A", "B", "C"]),
+            ("M", &["A", "D"]),
+            ("X", &["A", "B", "C", "D", "E"]),
+            ("Y", &["A", "B", "C", "D", "E", "F"]),
+            ("Z", &["A", "B", "C"]),
+        ] {
+            let at = schema.entity_named(name).unwrap();
+            let slots = schema.slots(at, &mut free).unwrap();
+            let names: Vec<_> = slots.iter().map(|s| s.attribute.name.as_str()).collect();
+            assert_eq!(names, expected, "{name}");
+            // 実体ごとに、別の順で数えても同じ
+            assert_eq!(
+                Layouts::new(&schema).count(at, &mut free),
+                Ok(slots.len()),
+                "{name}"
+            );
+        }
+        let mut layouts = Layouts::new(&schema);
+        for name in ["Y", "X", "M", "L", "R", "Z"] {
+            let at = schema.entity_named(name).unwrap();
+            let slots = schema.slots(at, &mut free).unwrap();
+            assert_eq!(layouts.count(at, &mut free), Ok(slots.len()), "{name}");
+        }
+        // 宣言し直した属性と導く属性は、下位の型の並びだけを変える
+        let at = schema.entity_named("X").unwrap();
+        let x = schema.slots(at, &mut free).unwrap();
+        let first = x.first().unwrap();
+        assert!(matches!(first.ty.item, Item::Real));
+        assert!(x.get(2).unwrap().derived);
+        let at = schema.entity_named("L").unwrap();
+        let l = schema.slots(at, &mut free).unwrap();
+        assert!(matches!(l.first().unwrap().ty.item, Item::Integer));
+        assert!(!l.get(2).unwrap().derived);
+    }
+
+    /// 上位の型が 1 つの実体の鎖は、どの実体から数えても、実体ごとに 1 度だけたどる（#672）
+    #[test]
+    fn counts_each_entity_of_a_chain_once() {
+        let n = 50;
+        let mut src = String::from("SCHEMA CHAIN;\n");
+        for i in 0..n {
+            let _ = writeln!(
+                src,
+                "ENTITY E{i} SUBTYPE OF (E{});\n  A{i} : INTEGER;\nEND_ENTITY;",
+                i + 1
+            );
+        }
+        let _ = writeln!(
+            src,
+            "ENTITY E{n};\n  A{n} : INTEGER;\nEND_ENTITY;\nEND_SCHEMA;"
+        );
+        let schema = read(&src);
+        let mut layouts = Layouts::new(&schema);
+        let steps = Cell::new(0);
+        let mut tick = |n: u64| -> Result<(), Stop> {
+            steps.set(steps.get() + n);
+            Ok(())
+        };
+        for i in [n / 2, 0, n, n / 3] {
+            let at = schema.entity_named(&format!("E{i}")).unwrap();
+            assert_eq!(layouts.count(at, &mut tick), Ok(n - i + 1));
+        }
+        assert_eq!(steps.get(), n as u64 + 1);
+        // 並びは、作った実体だけを覚える
+        let at = schema.entity_named("E0").unwrap();
+        let first = layouts.slots(at, &mut tick).unwrap();
+        let again = layouts.slots(at, &mut tick).unwrap();
+        assert!(Rc::ptr_eq(&first, &again));
+        assert_eq!(layouts.slots.len(), 1);
     }
 }

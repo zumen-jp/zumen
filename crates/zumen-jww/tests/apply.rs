@@ -1,5 +1,8 @@
 //! 図面モデルの変更を、JWW の図形の一覧に書き戻す（決定 0168）。入力は、どれもテストの中で作る。
 
+// 図面モデルの変更の書き戻しは、機能 `drawing` で作る（#735）
+#![cfg(feature = "drawing")]
+
 mod common;
 
 use core::f64::consts::PI;
@@ -920,7 +923,7 @@ fn lines_circles_and_arcs_are_added_with_the_pen_width_when_weight_follows_the_l
         );
     }
 
-    // 色か線種を書かなければ断り、ファイルを変えない
+    // 色か線種を書かないか、ブロックに従う色・線種・線幅なら断り、ファイルを変えない（決定 0290・0292）
     for (style, field) in [
         (
             Style {
@@ -935,6 +938,27 @@ fn lines_circles_and_arcs_are_added_with_the_pen_width_when_weight_follows_the_l
                 ..style
             },
             "line_type",
+        ),
+        (
+            Style {
+                color: Inherit::Block,
+                ..style
+            },
+            "color",
+        ),
+        (
+            Style {
+                line_type: Inherit::Block,
+                ..style
+            },
+            "line_type",
+        ),
+        (
+            Style {
+                line_weight: Some(Inherit::Block),
+                ..style
+            },
+            "line_weight",
         ),
     ] {
         let mut file = read(&src);

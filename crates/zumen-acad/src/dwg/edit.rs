@@ -15,12 +15,13 @@
 //! 作り直して、コンテナーのセクションを置き換える（決定 0071）。コンテナーは、書くときに組み直す（決定 0070）。
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::ops::Range;
 
 use zumen_base::{Cx, Diagnostic, Kind, codes};
 use zumen_sdk::{Error, Transact, Transaction};
 
 use super::bits::{Bits, crc16, modular_char, push_modular_char, push_modular_short};
-use super::header::{self, Values, handle_seed, set_handle_seed, set_values};
+use super::header::{self, Values, grow_handle_seed, handle_seed, set_handle_seed, set_values};
 use super::{
     DwgFile, Entry, LOCATOR_SIZE, LOCATORS_START, OBJECT_CRC_SEED, OBJECT_MAP_NUMBER,
     R2004_SECTIONS, Release, header_crc_mask, invalid, stopped,
@@ -29,6 +30,37 @@ use super::{
 /// オブジェクトのマップの 1 つのセクションの、データの大きさの上限。サンプルの DWG のセクションは、
 /// これを超えない（推定）
 const MAP_SECTION_LIMIT: usize = 2032;
+
+/// 補助のヘッダー（ODS 5.4.1 の 27 章）の始まりの 3 バイト
+const AUX_MAGIC: [u8; 3] = [0xFF, 0x77, 0x01];
+
+/// R2004 からのコンテナーの、補助のヘッダーのセクションの名前
+const AUX_HEADER: &[u8] = b"AcDb:AuxHeader";
+
+/// R2000 の、補助のヘッダーを指すセクションの記録の番号。ODS 5.4.1 の 3.2.6 は 6 つ目の記録の意味を
+/// 不明とするが、サンプルではどれも補助のヘッダーを指す（推定、#739）
+const AUX_NUMBER: u8 = 5;
+
+/// 補助のヘッダーの、HANDSEED の写し（RL）の位置（ODS 5.4.1 の 27 章、#739）。R2018 からは、保守の
+/// バージョンの 3 つのフィールドが RS から RL に広がるので、6 バイト後ろにある（サンプルから推定）。
+/// 補助のヘッダーの形でなければ `None`
+fn aux_seed_at(aux: &[u8], release: Release) -> Option<usize> {
+    let at = if release >= Release::R2018 { 85 } else { 79 };
+    (aux.get(..AUX_MAGIC.len())? == AUX_MAGIC && aux.len() >= at + 4).then_some(at)
+}
+
+/// 補助のヘッダーの HANDSEED の写しを `value` にする。写しは、0x7FFFFFFF より小さければその値、そうでなければ
+/// -1。補助のヘッダーの形でなければ `None`
+fn set_aux_handle_seed(aux: &mut [u8], release: Release, value: u64) -> Option<()> {
+    let at = aux_seed_at(aux, release)?;
+    let copy = u32::try_from(value)
+        .ok()
+        .filter(|&value| value < 0x7FFF_FFFF)
+        .unwrap_or(u32::MAX);
+    aux.get_mut(at..at + 4)?
+        .copy_from_slice(&copy.to_le_bytes());
+    Some(())
+}
 
 /// DWG の変更をためるトランザクション。[`Transaction::commit`] で、まとめて確かめてから反映する。
 /// 変更の操作が失敗したら、そのトランザクションは確定できない。オブジェクトは、
@@ -94,7 +126,8 @@ impl DwgTxn<'_> {
         Ok(())
     }
 
-    /// ヘッダーの変数の HANDSEED を `seed` にする。大きさ（バイト）が変わる値なら、確定のときに失敗する
+    /// ヘッダーの変数の HANDSEED を `seed` にする。大きさ（バイト）が変わる値なら、確定のときにヘッダーの変数の
+    /// セクションを伸ばすか縮めて書き直す（#701）
     pub fn set_handle_seed(&mut self, seed: u64) -> Result<(), Error> {
         self.seed = Some(seed);
         Ok(())
@@ -181,30 +214,37 @@ impl Transaction for DwgTxn<'_> {
             ),
         };
         let release = file.release;
+        // 大きさが変わったヘッダーのセクション（元の範囲と、書き直したセクション）
+        let mut rewritten: Option<(Range<usize>, Vec<u8>)> = None;
+        let unreadable =
+            |cx: &mut Cx<'_>, len: usize| invalid(cx, "header variables", header.unwrap_or(0)..len);
         if let Some(value) = self.seed {
-            header
-                .and_then(|start| handle_seed(header_src, start, release))
-                .and_then(|seed| set_handle_seed(header_src, &seed, value))
-                .ok_or_else(|| {
-                    invalid(
-                        cx,
-                        "header variables",
-                        header.unwrap_or(0)..header_src.len(),
-                    )
-                })?;
+            let Some(seed) = header.and_then(|start| handle_seed(header_src, start, release))
+            else {
+                return Err(unreadable(cx, header_src.len()));
+            };
+            // HANDSEED の大きさ（バイト）が変われば、セクションを伸ばして書き直す（#701）
+            if set_handle_seed(header_src, &seed, value).is_none() {
+                rewritten = Some(
+                    grow_handle_seed(header_src, &seed, release, value)
+                        .ok_or_else(|| unreadable(cx, header_src.len()))?,
+                );
+            }
+        }
+        if self.values.any() {
+            let changed = match rewritten.take() {
+                // 伸ばした HANDSEED のセクションの上で、ほかの変数を書き直す
+                Some((span, section)) => set_values(&section, 0, release, self.values)
+                    .map(|(_, section)| (span, section)),
+                None => {
+                    header.and_then(|start| set_values(header_src, start, release, self.values))
+                }
+            };
+            rewritten = Some(changed.ok_or_else(|| unreadable(cx, header_src.len()))?);
         }
         // 大きさが変わったヘッダーのセクション。R2000 は、ファイルの後ろに置いてセクションの記録を直す（決定 0193）
         let mut moved_header = None;
-        if self.values.any() {
-            let (span, section) = header
-                .and_then(|start| set_values(header_src, start, release, self.values))
-                .ok_or_else(|| {
-                    invalid(
-                        cx,
-                        "header variables",
-                        header.unwrap_or(0)..header_src.len(),
-                    )
-                })?;
+        if let Some((span, section)) = rewritten {
             if section.len() == span.len() {
                 put(header_src, span.start, &section).ok_or(Error::Rejected)?;
             } else if container.is_some() {
@@ -214,6 +254,42 @@ impl Transaction for DwgTxn<'_> {
                 moved_header = Some(section);
             }
         }
+        // 補助のヘッダーの HANDSEED の写しも合わせる。補助のヘッダーの形でなければ、元のまま残す（#739）
+        let aux = match (self.seed, &container) {
+            (Some(value), Some(container)) => container.section(AUX_HEADER).and_then(|aux| {
+                let mut aux = aux.to_vec();
+                set_aux_handle_seed(&mut aux, release, value).map(|()| aux)
+            }),
+            (Some(value), None) => {
+                // R2000 は、ファイルの中の補助のヘッダーをその場で書き換える。ファイルのヘッダーか、ほかのセクションの
+                // 記録の範囲と重なれば、書き換えない
+                let span = |l: &super::Locator| {
+                    l.seeker as usize..(l.seeker as usize).saturating_add(l.size as usize)
+                };
+                let head_end = LOCATORS_START + file.locators.len() * LOCATOR_SIZE + 2 + 16;
+                if let Some(range) = file
+                    .locators
+                    .iter()
+                    .find(|l| l.number == AUX_NUMBER)
+                    .map(span)
+                    .filter(|range| {
+                        range.start >= head_end
+                            && file.locators.iter().all(|l| {
+                                let other = span(l);
+                                l.number == AUX_NUMBER
+                                    || l.size == 0
+                                    || other.end <= range.start
+                                    || range.end <= other.start
+                            })
+                    })
+                    && let Some(aux) = src.get_mut(range)
+                {
+                    let _ = set_aux_handle_seed(aux, release, value);
+                }
+                None
+            }
+            (None, _) => None,
+        };
         for (record, data) in self.staged {
             let Some(entry) = entries.get_mut(record) else {
                 return Err(Error::Rejected);
@@ -245,6 +321,11 @@ impl Transaction for DwgTxn<'_> {
             container
                 .replace(R2004_SECTIONS[2], map)
                 .ok_or_else(|| invalid(cx, "section", 0..6))?;
+            if let Some(aux) = aux {
+                container
+                    .replace(AUX_HEADER, aux)
+                    .ok_or_else(|| invalid(cx, "section", 0..6))?;
+            }
             file.container = Some(container);
             file.entries = entries;
             return Ok(());
@@ -278,7 +359,23 @@ impl Transaction for DwgTxn<'_> {
     }
 }
 
-impl DwgFile {}
+impl DwgFile {
+    /// 補助のヘッダーの HANDSEED の写し（RL、#739）。-1 は、HANDSEED が 0x7FFFFFFF より小さくないこと。
+    /// 補助のヘッダーがないか、その形でなければ `None`
+    pub fn aux_handle_seed(&self) -> Option<u32> {
+        let aux = match &self.container {
+            Some(container) => container.section(AUX_HEADER)?,
+            None => {
+                let locator = self.locators.iter().find(|l| l.number == AUX_NUMBER)?;
+                let start = locator.seeker as usize;
+                self.src
+                    .get(start..start.checked_add(locator.size as usize)?)?
+            }
+        };
+        let at = aux_seed_at(aux, self.release)?;
+        Some(u32::from_le_bytes(aux.get(at..at + 4)?.try_into().ok()?))
+    }
+}
 
 impl Transact for DwgFile {
     type Txn<'a> = DwgTxn<'a>;
@@ -403,4 +500,41 @@ fn push_map_section(out: &mut Vec<u8>, body: &[u8]) {
     out.extend_from_slice(body);
     let crc = crc16(OBJECT_CRC_SEED, out.get(start..).unwrap_or_default());
     out.extend_from_slice(&crc.to_be_bytes());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Release, set_aux_handle_seed};
+
+    /// 補助のヘッダーの写しは、0x7FFFFFFF より小さければその値、そうでなければ -1 にし、
+    /// 補助のヘッダーの形でないバイト列と短いバイト列は変えない（#739）
+    #[test]
+    fn aux_handle_seeds_follow_the_header() {
+        let mut aux = vec![0; 123];
+        aux[..3].copy_from_slice(&[0xFF, 0x77, 0x01]);
+        let copy = |aux: &[u8], at: usize| aux.get(at..at + 4).map(<[u8]>::to_vec);
+        assert_eq!(
+            set_aux_handle_seed(&mut aux, Release::R2004, 0x7FFF_FFFE),
+            Some(())
+        );
+        assert_eq!(copy(&aux, 79), Some(vec![0xFE, 0xFF, 0xFF, 0x7F]));
+        assert_eq!(
+            set_aux_handle_seed(&mut aux, Release::R2004, 0x7FFF_FFFF),
+            Some(())
+        );
+        assert_eq!(copy(&aux, 79), Some(vec![0xFF; 4]));
+        assert_eq!(
+            set_aux_handle_seed(&mut aux, Release::R2000, 1 << 40),
+            Some(())
+        );
+        assert_eq!(copy(&aux, 79), Some(vec![0xFF; 4]));
+        // R2018 の写しは、6 バイト後ろにある。写しの終わりより短いバイト列は変えない
+        aux.resize(129, 0);
+        assert_eq!(set_aux_handle_seed(&mut aux[..88], Release::R2018, 5), None);
+        assert_eq!(set_aux_handle_seed(&mut aux, Release::R2018, 5), Some(()));
+        assert_eq!(copy(&aux, 85), Some(vec![5, 0, 0, 0]));
+        let mut other = vec![0; 129];
+        assert_eq!(set_aux_handle_seed(&mut other, Release::R2018, 5), None);
+        assert_eq!(other, vec![0; 129]);
+    }
 }

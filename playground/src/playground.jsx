@@ -1,6 +1,7 @@
 import React, { useLayoutEffect, useRef, useState } from "react";
 import { useDrawing, useDrawingViewer, useViewerState } from "@zumen-jp/react";
 import { VIEW_SCALE_LIMITS } from "@zumen-jp/view2d";
+import { samples } from "virtual:samples";
 import { catalog, loadModule } from "./module.js";
 import { Diagnostics, Inspector } from "./inspector.jsx";
 
@@ -13,11 +14,53 @@ function zoom(viewer, factor) {
   const scale = Math.max(VIEW_SCALE_LIMITS.min, Math.min(VIEW_SCALE_LIMITS.max, camera.scale * factor));
   viewer.jumpTo({ ...camera, scale });
 }
+// 保存する名前。DXF を開いたときは、元のファイルと分かるよう名前を変える
+function dxfName(name) {
+  const base = (name || "drawing").replace(/\.[^.]*$/, "") || "drawing";
+  return /\.dxf$/i.test(name ?? "") ? base + "-zumen.dxf" : base + ".dxf";
+}
+function download(bytes, name) {
+  const url = URL.createObjectURL(new Blob([bytes], { type: "application/dxf" }));
+  const link = Object.assign(document.createElement("a"), { href: url, download: name });
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+// 開いた図面を DXF に変換して、ブラウザーのダウンロードで保存する。図面は外へ送らない（決定 0206、#690）。
+function Export({ opened, name }) {
+  const [state, setState] = useState({ status: "idle" });
+  const busy = state.status === "busy";
+  async function save() {
+    // 変換の間もボタンのフォーカスを保つよう、disabled にせず、続けて押したものを無視する
+    if (busy) return;
+    setState({ status: "busy" });
+    try {
+      const { bytes, result, diagnostics } = await opened.convert();
+      download(bytes, dxfName(name));
+      setState({ status: "done", result, diagnostics });
+    } catch (error) {
+      setState({ status: "error", diagnostics: error.diagnostics ?? [], message: error.message });
+    }
+  }
+  return <section aria-labelledby="export-title" className="export">
+    <h2 id="export-title">DXF で保存</h2>
+    <p>開いた図面を DXF に変換して、このブラウザーのダウンロードで保存します。書けない値は、変換の診断に種類・件数・場所を出します。</p>
+    <button aria-disabled={busy} onClick={save}>DXF で保存</button>
+    <div role="status" aria-live="polite" aria-atomic="true">
+      {state.status === "busy" ? "変換しています。" : state.status === "done" ? dxfName(name) + " のダウンロードを始めました（要素 " + state.result.elements + " 件・変換の診断 " + state.diagnostics.length + " 件）。"
+        : state.status === "error" ? "変換できませんでした。" : ""}
+    </div>
+    {state.status === "error" && !state.diagnostics.some(({ diagnostic }) => diagnostic.severity === "error") && <details><summary>エラーの詳細</summary><p>{state.message}</p></details>}
+    {(state.status === "done" || state.status === "error") && <Diagnostics entries={state.diagnostics} issues={[]} title="変換の診断" id="export-diagnostics-title"/>}
+  </section>;
+}
 export function Playground() {
   const [canvas, setCanvas] = useState(null);
   const [file, setFile] = useState(null);
   const [place, setPlace] = useState(null);
+  const [sample, setSample] = useState(null);
+  const [fetchError, setFetchError] = useState(null);
   const picker = useRef(null);
+  const fetching = useRef(0);
   const viewer = useDrawingViewer(canvas, viewOptions);
   const state = useViewerState(viewer);
   const opened = useDrawing(file, { from: place?.id, loadModule, catalog });
@@ -45,22 +88,58 @@ export function Playground() {
     catch (error) { viewer.setScene(null); setRenderError(error); }
   }, [viewer, canvas, input, ready]);
 
-  function choose(next) { setPlace(null); setFile(next); }
+  function choose(next, from = null) {
+    fetching.current++;
+    setPlace(null); setFile(next); setSample(from); setFetchError(null);
+  }
+  // 公開サンプルは、配布物の中のファイルをローカルの GET で取り、選んだファイルと同じに開く（#689）。
+  async function openSample(path) {
+    const chosen = samples.find((item) => item.path === path);
+    if (!chosen) return;
+    picker.current.value = "";
+    choose(null, chosen);
+    const token = fetching.current;
+    try {
+      const response = await fetch(chosen.file, { redirect: "error" });
+      if (!response.ok) throw new Error("sample.load");
+      const bytes = await response.arrayBuffer();
+      if (token !== fetching.current) return;
+      setFile(new File([bytes], chosen.path.split("/").pop()));
+    } catch (error) {
+      // 同じサンプルを選び直せるよう、選択は空に戻す
+      if (token === fetching.current) { setSample(null); setFetchError(error); }
+    }
+  }
   // 同じ図面の用紙を読み直す間も候補とフォーカスを保つ。別のファイルを選べば候補を捨てる。
   const drawing = opened.status === "ready" ? opened.drawing : place?.drawing;
-  const failed = opened.status === "error" || renderError;
-  const status = failed ? opened.error?.message === "drawing.input.limit" ? "64 MiB 以下のファイルを選んでください。" : "図面を表示できませんでした。"
-    : ready ? "表示しました。" : file ? "図面を読んでいます。" : "図面を選んでください。";
+  const failed = opened.status === "error" || renderError || fetchError;
+  const status = fetchError ? "サンプルを取れませんでした。" : failed ? opened.error?.message === "drawing.input.limit" ? "64 MiB 以下のファイルを選んでください。" : "図面を表示できませんでした。"
+    : ready ? "表示しました。" : file || sample ? "図面を読んでいます。" : "図面を選んでください。";
   return <main>
     <header><div className="heading"><span className="wordmark">zumen</span><h1>図面ビューア</h1></div>
       <p>選んだ図面をこのブラウザーで開きます。</p></header>
     <div className="file-bar">
       <label htmlFor="drawing-file">図面ファイル</label>
-      <input ref={picker} id="drawing-file" type="file" accept=".dxf,.jww,.sfc,.p21,.sfz,.p2z" aria-describedby="file-help"
+      <input ref={picker} id="drawing-file" type="file" accept=".dxf,.dwg,.jww,.sfc,.p21,.sfz,.p2z" aria-describedby="file-help"
         onChange={(e) => choose(e.target.files?.[0] ?? null)}/>
-      <span id="file-help">DXF・JWW・SXF ／ 64 MiB まで</span>
-      {file && <button onClick={() => { choose(null); picker.current.value = ""; picker.current.focus(); }}>閉じる</button>}
+      <span id="file-help">DXF・DWG・JWW・SXF ／ 64 MiB まで</span>
+      <label htmlFor="drawing-sample">公開サンプル</label>
+      <select id="drawing-sample" value={sample?.path ?? ""} onChange={(e) => openSample(e.target.value)}>
+        <option value="">選ぶ</option>
+        {samples.map((item) => <option key={item.path} value={item.path}>{item.title}</option>)}
+      </select>
+      {(file || sample) && <button onClick={() => { choose(null); picker.current.value = ""; picker.current.focus(); }}>閉じる</button>}
     </div>
+    {sample && <section className="sample-source" aria-label="サンプルの提供元とライセンス">
+      <h2>{sample.title}</h2>
+      <dl className="properties">
+        <dt>公開した者</dt><dd>{sample.publisher}</dd>
+        <dt>ライセンス</dt><dd><a href={sample.licenseUrl} target="_blank" rel="noreferrer noopener">{sample.license}</a>{sample.text && <>（<a href={sample.text} target="_blank" rel="noopener">本文</a>）</>}</dd>
+        <dt>出所</dt><dd><a href={sample.source} target="_blank" rel="noreferrer noopener">{sample.source}</a></dd>
+        <dt>表示</dt><dd>{sample.attribution}</dd>
+        {sample.changes && <><dt>変えたこと</dt><dd>{sample.changes}</dd></>}
+      </dl>
+    </section>}
     <div className="workspace">
       <div className="drawing-pane">
         <div className="toolbar" role="group" aria-label="表示の操作">
@@ -84,7 +163,8 @@ export function Playground() {
       </div>
       {ready && <Inspector key={opened.input.document.hash + "/" + state.scene.result.from} viewer={viewer} state={state} opened={opened}/>}
     </div>
-    {failed && !opened.diagnostics?.length && <details><summary>エラーの詳細</summary><p>{(renderError ?? opened.error)?.message}</p></details>}
+    {failed && !opened.diagnostics?.length && <details><summary>エラーの詳細</summary><p>{(fetchError ?? renderError ?? opened.error)?.message}</p></details>}
     {(ready || failed) && <Diagnostics entries={opened.diagnostics ?? []} issues={ready ? viewer.getReport().issues : []}/>}
+    {ready && <Export key={opened.input.document.hash} opened={opened} name={file?.name}/>}
   </main>;
 }

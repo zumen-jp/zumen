@@ -322,3 +322,6 @@
 - [0286: TKY2JGD・PatchJGD の格子は、間隔を格子点の並びから見分けて補間し、地震などごとの PatchJGD のファイルを古い順に当てる](0286-datum-grid-spacing-and-patch-order.md)（2026-11-09、採用）
 - [0288: エディターは `editor/` に置き、確定した操作ごとに apply してシーンを差し替え、取り消しは書き戻したファイルの版で持つ](0288-editor-placement-edit-flow-and-history.md)（2026-11-10、採用）
 - [0290: JWW の追加で、レイヤに従う線幅をペンの線幅で書き、レイヤに従う色と線種は理由の分かる診断で断る](0290-jww-add-inherited-style.md)（2026-11-10、採用）
+- [0291: DWG の HANDSEED の大きさ（バイト）が変わるときも、ヘッダーの変数のセクションを作り直して書き戻す](0291-dwg-handle-seed-growth.md)（2026-11-10、採用）
+- [0292: SXF の追加と、ブロックに従う色・線種・線幅の追加も、書くフィールドの分かる診断で断る](0292-sxf-add-inherited-style.md)（2026-11-10、採用）
+- [0293: DWG の今ある図形のレイヤ・線種・線幅・RGB の色と、画層のレコードの線種と真の色を書き戻す](0293-dwg-restyle-and-layer-style-write-back.md)（2026-11-10、採用）

@@ -542,7 +542,7 @@ pub const CHANGE_FORMAT_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
-/// 足す要素の色か線種を書いていない（レイヤに従う）が、元の形式はレイヤに従う色・線種を持たないので、書き戻せない。今は JWW の add で、色（点と線・円・円弧）と線種（線・円・円弧）を書く（決定 0290）
+/// 足す要素の色・線種・線幅を書いていない（レイヤかブロックに従う）が、元の形式の図形はそれを自分で持ち、レイヤかブロックに従う値を持たないので、書き戻せない。JWW の add は、色（点と線・円・円弧）と線種（線・円・円弧）を書き、ブロックに従う線幅も断る。SXF（SFC・P21）の add は、色（点マーカーと線分・折線・円・円弧）と、線種と線幅（線分・折線・円・円弧）を書く（決定 0290・0292）
 ///
 /// `change.style.unsupported`（0.2.0 から）
 pub const CHANGE_STYLE_UNSUPPORTED: Code = Code::new(
@@ -937,6 +937,17 @@ pub const CRS_HEIGHT_REALIZATION_MIXED: Code = Code::new(
         Param::new("second", ParamType::Text),
     ],
     &["first", "second"],
+);
+
+/// 点の平面直角座標と経緯度の換算ができない（値が有限でないか、緯度が ±90 度に届くか外か、系の原点との経度の差が ±90 度に届く）か、点が系の決まらない JGD2011 の経緯度なので、JGD2011 の平面直角座標に直さなかった。補正量の極端な格子で直した点などで起きる。crs は直そうとした点の座標系の EPSG のコード（#679）
+///
+/// `crs.projection.unsupported`（0.2.0 から）
+pub const CRS_PROJECTION_UNSUPPORTED: Code = Code::new(
+    "crs.projection.unsupported",
+    Severity::Warning,
+    None,
+    &[Param::new("crs", ParamType::UInt)],
+    &["crs"],
 );
 
 /// CSV に、その文字コードで直せないバイトがあるので、置き換えの字にした（#391）
@@ -4596,6 +4607,7 @@ pub const ALL: &[Code] = &[
     CRS_HEIGHT_DATUM_UNSUPPORTED,
     CRS_HEIGHT_REALIZATION_ASSUMED,
     CRS_HEIGHT_REALIZATION_MIXED,
+    CRS_PROJECTION_UNSUPPORTED,
     CSV_ENCODING_INVALID,
     CSV_QUOTE_INVALID,
     DELIVERY_FILE_INVALID,
