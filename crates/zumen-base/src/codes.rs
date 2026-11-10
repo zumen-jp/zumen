@@ -3804,6 +3804,83 @@ pub const REVIEW_REFERENCE_MISSING: Code = Code::new(
     &[],
 );
 
+/// 選んだレビューの図形・場所の座標や形を描けない。reason は理由を表すタグ
+///
+/// `review.scene-geometry.invalid`（0.2.0 から）
+pub const REVIEW_SCENE_GEOMETRY_INVALID: Code = Code::new(
+    "review.scene-geometry.invalid",
+    Severity::Error,
+    None,
+    &[Param::new("reason", ParamType::Text)],
+    &[],
+);
+
+/// レビューの描画の設定が条件を満たさない。pointer は設定のフィールド
+///
+/// `review.scene-options.invalid`（0.2.0 から）
+pub const REVIEW_SCENE_OPTIONS_INVALID: Code = Code::new(
+    "review.scene-options.invalid",
+    Severity::Error,
+    None,
+    &[Param::new("pointer", ParamType::Text)],
+    &[],
+);
+
+/// レビューを描く起点が図面にないか、同じ ID の空間を区別できない
+///
+/// `review.scene-origin.invalid`（0.2.0 から）
+pub const REVIEW_SCENE_ORIGIN_INVALID: Code = Code::new(
+    "review.scene-origin.invalid",
+    Severity::Error,
+    None,
+    &[Param::new("origin", ParamType::Text)],
+    &[],
+);
+
+/// 選んだ対象の場所を 2D に置けず描かなかった。reason は 3D・ビューなし・形なしを区別するタグ
+///
+/// `review.scene-placement.dropped`（0.2.0 から）
+pub const REVIEW_SCENE_PLACEMENT_DROPPED: Code = Code::new(
+    "review.scene-placement.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("reason", ParamType::Text)],
+    &["reason"],
+);
+
+/// 注記または写真の位置に使わない、2 点目からの点を描かなかった
+///
+/// `review.scene-points.dropped`（0.2.0 から）
+pub const REVIEW_SCENE_POINTS_DROPPED: Code = Code::new(
+    "review.scene-points.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("points", ParamType::UInt)],
+    &[],
+);
+
+/// 拡張フィールドに保った描画の値をシーンに反映しなかった。property はフィールド名
+///
+/// `review.scene-property.dropped`（0.2.0 から）
+pub const REVIEW_SCENE_PROPERTY_DROPPED: Code = Code::new(
+    "review.scene-property.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("property", ParamType::Text)],
+    &["property"],
+);
+
+/// 字形の範囲を得られず、注記の枠を文字の高さと字数から近似した
+///
+/// `review.scene-text-frame.approximated`（0.2.0 から）
+pub const REVIEW_SCENE_TEXT_FRAME_APPROXIMATED: Code = Code::new(
+    "review.scene-text-frame.approximated",
+    Severity::Warning,
+    Some(Fidelity::Approximated),
+    &[],
+    &[],
+);
+
 /// 引き継ぐ・取り込む対象が、指摘の文書にない
 ///
 /// `review.target.missing`（0.2.0 から）
@@ -4892,6 +4969,13 @@ pub const ALL: &[Code] = &[
     REVIEW_FORMAT_UNSUPPORTED,
     REVIEW_ID_EXISTS,
     REVIEW_REFERENCE_MISSING,
+    REVIEW_SCENE_GEOMETRY_INVALID,
+    REVIEW_SCENE_OPTIONS_INVALID,
+    REVIEW_SCENE_ORIGIN_INVALID,
+    REVIEW_SCENE_PLACEMENT_DROPPED,
+    REVIEW_SCENE_POINTS_DROPPED,
+    REVIEW_SCENE_PROPERTY_DROPPED,
+    REVIEW_SCENE_TEXT_FRAME_APPROXIMATED,
     REVIEW_TARGET_MISSING,
     REVIEW_TARGET_STALE,
     REVIEW_VERSION_UNSUPPORTED,
