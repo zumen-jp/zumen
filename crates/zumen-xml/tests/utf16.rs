@@ -35,6 +35,33 @@ fn offset(text: &str, token: &str) -> usize {
 }
 
 #[test]
+fn rejects_a_second_bom_but_keeps_feff_in_content() {
+    for little in [true, false] {
+        let src = encode("\u{feff}<r/>", little, true);
+        let (result, diag, _) = read(&src, Limits::default());
+        assert!(matches!(result, Err(Error::Invalid)), "{diag:?}");
+        let diagnostic = diag.iter().next().unwrap();
+        assert_eq!(diagnostic.code(), codes::XML_DOCUMENT_INVALID);
+        assert_eq!(
+            diagnostic.places(),
+            &[zumen_base::Ref::at_bytes(2, src.len() as u64)]
+        );
+
+        let src = encode("<r>\u{feff}本文\u{feff}</r>", little, true);
+        let (result, diag, _) = read(&src, Limits::default());
+        let doc = result.unwrap();
+        assert!(diag.is_empty(), "{diag:?}");
+        let root = doc.element(doc.root()).unwrap();
+        let Node::Text(range) = &root.children()[0] else {
+            panic!()
+        };
+        assert_eq!(doc.text(range.clone()), "\u{feff}本文\u{feff}");
+    }
+    let (result, _, _) = read("\u{feff}\u{feff}<r/>".as_bytes(), Limits::default());
+    assert!(matches!(result, Err(Error::Invalid)));
+}
+
+#[test]
 fn preserves_original_bytes_names_namespaces_text_and_diagnostics() {
     let text = "<?xml version='1.0' encoding='UTF-16'?><p:r xmlns:p='urn:test' a='日😀\r\n&amp;'><p:c/>A<![CDATA[本😀\r\n]]>&external;</p:r>";
     for little in [true, false] {

@@ -298,7 +298,8 @@ impl<'s> Parser<'s> {
         cx: &mut Cx,
         expected: Option<utf16::Detection>,
     ) -> Result<Encoding, Error> {
-        let bom = self.starts(&[0xef, 0xbb, 0xbf]);
+        // UTF-16 の原本の BOM は復号時に除去済み。残る U+FEFF は文書の文字なので除かない。
+        let bom = expected.is_none() && self.starts(&[0xef, 0xbb, 0xbf]);
         if bom {
             self.pos = 3;
         } else if matches!(
