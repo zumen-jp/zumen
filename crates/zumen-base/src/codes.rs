@@ -33,6 +33,20 @@ pub const BCF_ELEMENT_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
+/// 変更する topic の元の markup が UTF-8 でないため、未知の要素と属性を保って書き戻せない。変えていない topic は元のバイト列のまま保つ
+///
+/// `bcf.encoding.unsupported`（0.3.0 から）
+pub const BCF_ENCODING_UNSUPPORTED: Code = Code::new(
+    "bcf.encoding.unsupported",
+    Severity::Error,
+    None,
+    &[
+        Param::new("encoding", ParamType::Text),
+        Param::new("topic", ParamType::Text),
+    ],
+    &["encoding"],
+);
+
 /// bcfzip の中の項目が、そのバージョンの BCF の形に合わない。name は項目の名前、near は合わなかった要素か属性
 ///
 /// `bcf.file.invalid`（0.2.0 から）
@@ -4709,6 +4723,7 @@ pub const ZIP_SPLIT_UNSUPPORTED: Code =
 pub const ALL: &[Code] = &[
     BCF_CONVERSION_UNSUPPORTED,
     BCF_ELEMENT_UNSUPPORTED,
+    BCF_ENCODING_UNSUPPORTED,
     BCF_FILE_INVALID,
     BCF_LOCATION_UNSUPPORTED,
     BCF_MARKUP_UNSUPPORTED,

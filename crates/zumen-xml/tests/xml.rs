@@ -204,7 +204,7 @@ fn other_encodings_are_not_read() {
             &b"<?xml version=\"1.0\" encoding=\"EUC-JP\"?><a/>"[..],
             "EUC-JP",
         ),
-        (b"\xff\xfe<\0a\0/\0>\0", "UTF-16"),
+        (b"\xff\xfe\0\0<\0\0\0", "UTF-32"),
         (b"<\0a\0/\0>\0", "UTF-16"),
         (
             b"\xef\xbb\xbf<?xml version=\"1.0\" encoding=\"Shift_JIS\"?><a/>",

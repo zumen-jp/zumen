@@ -6,6 +6,7 @@
   "codes": {
     "bcf.conversion.unsupported": "元の bcfzip は BCF {original} なので、BCF {version} では書き戻せません。",
     "bcf.element.unsupported": "指摘「{topic}」の要素「{id}」は GlobalId を持たないので、BCF の参照から除きました。",
+    "bcf.encoding.unsupported": "指摘 {topic} の元の XML は {encoding} で、未知の要素と属性を保って変更できないため、書き戻しを止めました。",
     "bcf.file.invalid": "bcfzip の「{name}」が、BCF の形に合いません（{near}）。",
     "bcf.location.unsupported": "指摘「{topic}」の場所「{location}」は BCF に表せないので、書きませんでした（{reason}）。",
     "bcf.markup.unsupported": "図形「{id}」は BCF に表せないので、書きませんでした。",
