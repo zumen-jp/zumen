@@ -2306,6 +2306,61 @@ params = { target = "text" }
 since = "0.2.0"
 status = "active"
 
+[codes."review.scene-origin.invalid"]
+description = "レビューを描く起点が図面にないか、同じ ID の空間を区別できない"
+severity = "error"
+params = { origin = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."review.scene-options.invalid"]
+description = "レビューの描画の設定が条件を満たさない。pointer は設定のフィールド"
+severity = "error"
+params = { pointer = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."review.scene-geometry.invalid"]
+description = "選んだレビューの図形・場所の座標や形を描けない。reason は理由を表すタグ"
+severity = "error"
+params = { reason = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."review.scene-text-frame.approximated"]
+description = "字形の範囲を得られず、注記の枠を文字の高さと字数から近似した"
+severity = "warning"
+fidelity = "approximated"
+params = {}
+since = "0.2.0"
+status = "active"
+
+[codes."review.scene-points.dropped"]
+description = "注記または写真の位置に使わない、2 点目からの点を描かなかった"
+severity = "warning"
+fidelity = "dropped"
+params = { points = "uint" }
+since = "0.2.0"
+status = "active"
+
+[codes."review.scene-placement.dropped"]
+description = "選んだ対象の場所を 2D に置けず描かなかった。reason は 3D・ビューなし・形なしを区別するタグ"
+severity = "warning"
+fidelity = "dropped"
+params = { reason = "text" }
+group-by = ["reason"]
+since = "0.2.0"
+status = "active"
+
+[codes."review.scene-property.dropped"]
+description = "拡張フィールドに保った描画の値をシーンに反映しなかった。property はフィールド名"
+severity = "warning"
+fidelity = "dropped"
+params = { property = "text" }
+group-by = ["property"]
+since = "0.2.0"
+status = "active"
+
 
 [codes."bcf.file.invalid"]
 description = "bcfzip の中の項目が、そのバージョンの BCF の形に合わない。name は項目の名前、near は合わなかった要素か属性"

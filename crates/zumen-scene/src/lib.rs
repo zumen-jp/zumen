@@ -14,6 +14,7 @@ mod annotate;
 
 mod glyphs;
 pub mod layout;
+mod review;
 mod write;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -31,6 +32,10 @@ use zumen_geom2d::{self as geom, Xy};
 
 pub use crate::glyphs::FontSet;
 use crate::layout::{color_flag, color_system, entity_kind, horizontal, text_flag, vertical};
+pub use crate::review::{
+    ReviewArrows, ReviewError, ReviewOptions, ReviewScene, ReviewSource, ReviewSourceKind,
+    ReviewStyle, build_review, build_review_with,
+};
 
 /// 塊の分け方。塊の大きさは実際の図面で測って決める（決定 0137・0172、#219）。それまでの仮の値を
 /// [`Chunking::PROVISIONAL`] に置く
