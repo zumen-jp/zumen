@@ -1201,7 +1201,13 @@ impl<'f> Lifter<'f> {
             }),
             // 5 RelatedObjects・6 RelatingPropertyDefinition（IFC4 からは定義の集合でもよい）
             b"IFCRELDEFINESBYPROPERTIES" => {
-                let sets = refs(arg(record, 6));
+                // 定義でない参照は、要素のループの前に除く。要素ごとに引き直さない（#733）
+                let sets: Vec<u64> = refs(arg(record, 6))
+                    .into_iter()
+                    .filter(|&set| {
+                        self.is(set, b"IFCPROPERTYSET") || self.is(set, b"IFCELEMENTQUANTITY")
+                    })
+                    .collect();
                 let related = self.related(record, 5);
                 for (position, element) in &related {
                     self.definitions_of(*element, &sets, cx);
@@ -1473,6 +1479,9 @@ impl<'f> Lifter<'f> {
             return;
         }
         for &set in sets {
+            if self.is_halted() {
+                return;
+            }
             match self.definition(set, cx) {
                 Some(Definition::Properties(set)) => {
                     let mut properties: Properties = self
@@ -1514,6 +1523,10 @@ impl<'f> Lifter<'f> {
             return self
                 .copied(cx, definition_size(definition))
                 .then(|| definition.clone());
+        }
+        // 止まったあとは、まだ読んでいない定義を読まない
+        if self.is_halted() {
+            return None;
         }
         let Some(record) = self.file.instance(id) else {
             // 解けない参照も覚え、要素ごとに引き直さない
@@ -1743,6 +1756,10 @@ impl<'f> Lifter<'f> {
             return self
                 .copied(cx, material_size(material))
                 .then(|| material.clone());
+        }
+        // 止まったあとは、まだ読んでいない材料を読まない
+        if self.is_halted() {
+            return None;
         }
         let material = self.read_material(id, cx);
         if material.is_some() {

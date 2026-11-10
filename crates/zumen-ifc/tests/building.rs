@@ -953,23 +953,26 @@ fn repeated_references_count_each_copy() {
     assert!(found(&diag).contains(&codes::BUDGET_DECODED_BYTES_EXCEEDED));
 }
 
-/// 要素と、解けない定義の参照の組も、作業に数える（#733）
+/// 定義でない参照は要素のループの前に除き、要素と定義の組は作業に数える（#733）
 #[test]
-fn unresolved_definitions_count_their_work() {
-    let unresolved = |walls: u32, sets: u32| {
+fn definitions_count_their_work_per_element() {
+    let relation = |walls: u32, sets: &str| {
         format!(
-            "#901=IFCRELDEFINESBYPROPERTIES('{}',#2,$,$,({}),({}));",
+            "#901=IFCRELDEFINESBYPROPERTIES('{}',#2,$,$,({}),({sets}));",
             gid(901),
-            wall_refs(walls),
-            (0..sets)
-                .map(|i| format!("#{}", 90_000 + i))
-                .collect::<Vec<_>>()
-                .join(",")
+            wall_refs(walls)
         )
     };
-    let work = |walls: u32, sets: u32| {
-        let src = with_walls(walls, &unresolved(walls, sets));
-        let file = read(src.as_bytes()).unwrap();
+    let refs = |from: u32, count: u32| {
+        (0..count)
+            .map(|i| format!("#{}", from + i))
+            .collect::<Vec<_>>()
+            .join(",")
+    };
+    let work = |src: String| {
+        let Some(file) = read(src.as_bytes()) else {
+            return u64::MAX;
+        };
         let mut budget = Budget::new(Limits::default());
         let mut diag = Diagnostics::new();
         let cancel = CancelToken::new();
@@ -977,6 +980,26 @@ fn unresolved_definitions_count_their_work() {
         assert!(result.is_ok(), "{result:?}");
         budget.used(Kind::Work)
     };
-    let (few, many) = (work(100, 2), work(100, 202));
-    assert!(many - few >= 100 * 200, "{few} {many}");
+    // 解けない参照を 200 個増やしても、要素ごとに引き直さない
+    let unresolved = |count: u32| work(with_walls(100, &relation(100, &refs(90_000, count))));
+    let (few, many) = (unresolved(2), unresolved(202));
+    assert!(many.saturating_sub(few) < 1_000, "{few} {many}");
+    // 空のプロパティのセットを 200 個増やすと、要素と定義の組を数える
+    let empty = |count: u32| {
+        let sets: String = (0..count)
+            .map(|i| {
+                format!(
+                    "#{}=IFCPROPERTYSET('{}',#2,'Pset_{i}',$,());\n",
+                    5000 + i,
+                    gid(5000 + i)
+                )
+            })
+            .collect();
+        work(with_walls(
+            100,
+            &format!("{sets}{}", relation(100, &refs(5000, count))),
+        ))
+    };
+    let (few, many) = (empty(2), empty(202));
+    assert!(many.saturating_sub(few) >= 100 * 200, "{few} {many}");
 }
