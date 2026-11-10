@@ -10,7 +10,10 @@ use zumen_crs::{Crs, HeightDatum, MapPoint, Realization};
 mod position;
 pub mod station;
 
-pub use position::{Placement, check, curvature, elevation, length, place, place_work};
+pub use position::{
+    Found, Placement, check, check_within, curvature, elevation, elevation_within, length, place,
+    place_within, place_work,
+};
 pub use station::{StationBreak, Stationing};
 
 /// 土木の領域モデル。線形・横断・地表面を持つ
