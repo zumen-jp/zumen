@@ -1,5 +1,6 @@
 //! Flate・LZW・RunLength と ASCII の系列の展開量を先に数える（決定 0266・0270・0273）。
 
+mod allocation;
 mod ascii;
 mod chain;
 mod lzw;
@@ -48,7 +49,7 @@ pub(crate) fn before(
     }
     // hayro-syntax の `Stream::decoded_image` と同じく、先頭の Crypt はフィルターとして適用しない
     let effective = filters.strip_prefix(&[Filter::Crypt]).unwrap_or(&filters);
-    // 単独の段と、従来の ASCII 1 段の前置は同じ予算で確かめる。
+    // 単独の段と ASCII 1 段の前置は、出力を保持せずに数え、容量の伸長も予約する。
     // それ以外の系列は、中間出力を予算内で保持して次の段を確かめる（#769）。
     if effective.len() > 1
         && !matches!(
@@ -131,14 +132,25 @@ fn sequence(
 }
 
 fn count(data: &[u8], cx: &mut Cx<'_>) -> Result<(), Stop> {
-    count_fallback(data, cx).map(|_| ())
+    let before = cx.budget.used(Kind::DecodedBytes);
+    let fallback = count_fallback(data, cx)?;
+    let bound = cx.budget.used(Kind::DecodedBytes) - before;
+    allocation::reserve(allocation::flate(data.len(), bound, fallback), cx)
 }
 
-/// 寛容な展開が必要かも返す。単独の段の予算は、従来の [`count`] と同じ。
+/// 伸長の予約前の出力量を数え、寛容な展開が必要かも返す。系列は、この量を次の段にも使う。
 fn count_fallback(data: &[u8], cx: &mut Cx<'_>) -> Result<bool, Stop> {
-    if strict(ZlibDecoder::new(data), data.len(), cx)?
-        || strict(DeflateDecoder::new(data), data.len(), cx)?
-    {
+    if strict(
+        ZlibDecoder::new(data),
+        ZlibDecoder::total_out,
+        data.len(),
+        cx,
+    )? || strict(
+        DeflateDecoder::new(data),
+        DeflateDecoder::total_out,
+        data.len(),
+        cx,
+    )? {
         return Ok(false);
     }
     let bound = (data.len() as u64).saturating_mul(MAX_EXPANSION);
@@ -149,15 +161,32 @@ fn count_fallback(data: &[u8], cx: &mut Cx<'_>) -> Result<bool, Stop> {
 
 /// 入力を読む量は先に、出力を作る手間は 1 回の読みの前に数える。読んだ出力は固定長のバッファーにしか持たず、
 /// バイト数を数えてから次を読む。`read_to_end` と同じく、途中で切れていてもリーダーがエラーを返さなければ成功
-fn strict(mut reader: impl Read, input: usize, cx: &mut Cx<'_>) -> Result<bool, Stop> {
+fn strict<R: Read>(
+    mut reader: R,
+    total_out: impl Fn(&R) -> u64,
+    input: usize,
+    cx: &mut Cx<'_>,
+) -> Result<bool, Stop> {
     cx.check(Kind::Work, (input as u64).div_ceil(16))?;
     let mut buffer = [0; CHUNK];
+    let mut counted = 0u64;
     loop {
         cx.check(Kind::Work, 1 + CHUNK as u64 / 16)?;
         match reader.read(&mut buffer) {
             Ok(0) => return Ok(true),
-            Ok(length) => cx.check(Kind::DecodedBytes, length as u64)?,
-            Err(_) => return Ok(false),
+            Ok(length) => {
+                cx.check(Kind::DecodedBytes, length as u64)?;
+                counted = counted.saturating_add(length as u64);
+            }
+            Err(_) => {
+                // flate2 は、出力を書いた後でも Read に Err を返す。read_to_end の小刻みな
+                // 読みでは保持済みになる分を、公開の総出力量から数える。上流と同じ backend を使う。
+                cx.check(
+                    Kind::DecodedBytes,
+                    total_out(&reader).saturating_sub(counted),
+                )?;
+                return Ok(false);
+            }
         }
     }
 }
@@ -204,18 +233,69 @@ mod tests {
             for data in [&encoded[..], &encoded[2..encoded.len() - 4]] {
                 let (result, budget) = run(data, Limits::default());
                 assert_eq!(result, Ok(()));
-                assert_eq!(budget.used(Kind::DecodedBytes), length as u64);
-                let limits =
-                    Limits::default().with(Kind::DecodedBytes, Limit::Finite(length as u64));
+                let used = budget.used(Kind::DecodedBytes);
+                assert!(used > length as u64);
+                let limits = Limits::default().with(Kind::DecodedBytes, Limit::Finite(used));
                 assert_eq!(run(data, limits).0, Ok(()));
-                if length != 0 {
-                    let limits = Limits::default()
-                        .with(Kind::DecodedBytes, Limit::Finite(length as u64 - 1));
+                if used != 0 {
+                    let limits =
+                        Limits::default().with(Kind::DecodedBytes, Limit::Finite(used - 1));
                     assert!(matches!(run(data, limits).0,
                         Err(Stop::Exceeded(e)) if e.kind == Kind::DecodedBytes));
                 }
             }
         }
+    }
+
+    #[test]
+    fn failed_reads_count_bytes_kept_by_smaller_read_to_end_calls() {
+        let mut saw_partial = false;
+        for length in [35usize, 97, CHUNK, CHUNK + 1, CHUNK * 2, CHUNK * 8] {
+            let mut data = encoded(&vec![b'A'; length]);
+            *data.last_mut().unwrap() ^= 1;
+            let mut reader = ZlibDecoder::new(data.as_slice());
+            let mut retained = Vec::new();
+            assert!(reader.read_to_end(&mut retained).is_err());
+            let mut large_reads = ZlibDecoder::new(data.as_slice());
+            let mut buffer = [0; CHUNK];
+            let mut reported = 0;
+            while let Ok(read) = large_reads.read(&mut buffer) {
+                if read == 0 {
+                    break;
+                }
+                reported += read;
+            }
+            saw_partial |= retained.len() > reported;
+            let mut budget = Budget::default();
+            let mut diagnostics = Diagnostics::new();
+            let cancel = CancelToken::new();
+            assert_eq!(
+                strict(
+                    ZlibDecoder::new(data.as_slice()),
+                    ZlibDecoder::total_out,
+                    data.len(),
+                    &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+                ),
+                Ok(false),
+            );
+            assert!(budget.used(Kind::DecodedBytes) >= retained.len() as u64);
+            let limit = budget.used(Kind::DecodedBytes);
+            if limit > 0 {
+                let mut small = Budget::new(
+                    Limits::default().with(Kind::DecodedBytes, Limit::Finite(limit - 1)),
+                );
+                assert!(matches!(
+                    strict(
+                        ZlibDecoder::new(data.as_slice()),
+                        ZlibDecoder::total_out,
+                        data.len(),
+                        &mut Cx::new(&mut small, &mut diagnostics, &cancel),
+                    ),
+                    Err(Stop::Exceeded(e)) if e.kind == Kind::DecodedBytes
+                ));
+            }
+        }
+        assert!(saw_partial);
     }
 
     #[test]
@@ -246,7 +326,11 @@ mod tests {
             let stream = Reader::new(&source)
                 .read_with_context::<Stream<'_>>(&ReaderContext::dummy())
                 .unwrap();
-            let (result, budget) = run(data, Limits::default());
+            // 確保上限を比べる検査では、損傷時の内部表の保守的な予約も通す。
+            let limits = Limits::default()
+                .with(Kind::Work, Limit::Finite(u64::MAX))
+                .with(Kind::DecodedBytes, Limit::Finite(u64::MAX));
+            let (result, budget) = run(data, limits);
             assert_eq!(result, Ok(()));
             let actual = stream.decoded_data().unwrap().len() as u64;
             assert!(
