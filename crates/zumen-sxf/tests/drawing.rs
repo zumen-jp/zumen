@@ -472,15 +472,29 @@ fn moves_raster_groups_as_underlays() {
 /// せず、次の 4 点以上の折れ線を範囲にする。飛ばした折れ線は、読めない折れ線として診断する（推定。#651）
 #[test]
 fn raster_frames_skip_polylines_with_unreadable_points() {
-    for unreadable in [
-        &b"polyline_feature('1','1','1','1','5',(0,x,20,20,0),(0,10,10,0,0))"[..],
-        b"polyline_feature('1','1','1','1','5',(0,0,20,20,0),(0,10,10,0,y))",
-        b"polyline_feature('1','1','1','1','5',(0,0,20,20,0),(0,10,10,0))",
+    for (unreadable, invalid) in [
+        // 3 点の折れ線は、読めても範囲にしない（決定 0125）
+        (
+            &b"polyline_feature('1','1','1','1','3',(0,0,20),(0,10,10))"[..],
+            false,
+        ),
+        (
+            &b"polyline_feature('1','1','1','1','5',(0,x,20,20,0),(0,10,10,0,0))"[..],
+            true,
+        ),
+        (
+            &b"polyline_feature('1','1','1','1','5',(0,0,20,20,0),(0,10,10,0,y))"[..],
+            true,
+        ),
+        (
+            &b"polyline_feature('1','1','1','1','5',(0,0,20,20,0),(0,10,10,0))"[..],
+            true,
+        ),
     ] {
         let src = sfc(&[
             b"layer_feature(\'L\','1')",
             unreadable,
-            b"polyline_feature('1','1','1','1','5',(0,0,30,30,0),(0,10,10,0,0))",
+            &b"polyline_feature('1','1','1','1','5',(0,0,30,30,0),(0,10,10,0,0))"[..],
             b"sfig_org_feature(\'$$RASTER$$a.tif\','3')",
             b"sfig_locate_feature('1',\'$$RASTER$$a.tif\','0','0','0','1','1')",
             b"drawing_sheet_feature(\'S\','3','1','0','0')",
@@ -509,7 +523,18 @@ fn raster_frames_skip_polylines_with_unreadable_points() {
             diag.iter()
                 .all(|d| d.code() != codes::SXF_RASTER_FRAME_MISSING)
         );
-        find(&diag, codes::SXF_LIFT_INVALID);
+        // 読めない折れ線（レコード 7）は、読めない折れ線として知らせる
+        if !invalid {
+            continue;
+        }
+        let invalid = find(&diag, codes::SXF_LIFT_INVALID);
+        assert!(
+            invalid
+                .places()
+                .iter()
+                .any(|place| place.key() == Some(Key::Instance(20))),
+            "{invalid:?}"
+        );
     }
 }
 
