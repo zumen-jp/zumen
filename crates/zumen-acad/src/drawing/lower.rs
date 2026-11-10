@@ -95,7 +95,8 @@ fn declared<P>(shape: Shape<P>) -> Shape<P> {
 /// # Errors
 ///
 /// 予算の上限か中断の合図で止めたときは [`Error::Stopped`]。ひな形を読めないなどの内部の失敗は、
-/// `internal.panic.caught` を報告して [`Error::Invalid`]。どちらも診断は報告済み
+/// `internal.panic.caught` を報告して [`Error::Invalid`]。この `Invalid` は入力の誤りではなく内部の不具合で、
+/// 診断の code で見分ける。どちらも診断は報告済み
 pub fn lower_to_dxf(drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<Lowered, Error> {
     lower_to_dxf_with(drawing, &Reseat, cx)
 }
@@ -502,19 +503,22 @@ impl Maps<'_> {
             }
             _ => {}
         }
+        // 書かない定義（外部参照など）を指す記号は、形を移せるかによらず `external_symbol` で落とす
+        let block = match &element.shape {
+            Shape::Symbol(source) => {
+                let Some(name) = self.blocks.block(&source.key) else {
+                    report_dropped(cx, "external_symbol", &element.source);
+                    return;
+                };
+                Some(name)
+            }
+            _ => None,
+        };
         let Some(mut shape) = P::relocate(self.relocate, &shape, place.origin) else {
             report_dropped(cx, kind, &element.source);
             return;
         };
-        if let Shape::Symbol(symbol) = &mut shape {
-            let Shape::Symbol(source) = &element.shape else {
-                report_dropped(cx, kind, &element.source);
-                return;
-            };
-            let Some(name) = self.blocks.block(&source.key) else {
-                report_dropped(cx, "external_symbol", &element.source);
-                return;
-            };
+        if let (Shape::Symbol(symbol), Some(name)) = (&mut shape, block) {
             name.clone_into(&mut symbol.key.name);
         }
         let Some(layer) = self.layer(element.layer) else {
@@ -1135,7 +1139,7 @@ fn reseat_symbol<P: Copy>(
 mod tests {
     use super::*;
     use crate::db::{Data, Section};
-    use zumen_base::{Budget, CancelToken, Limits, Ref};
+    use zumen_base::{Budget, CancelToken, Limit, Limits, Ref};
     use zumen_civil::{Alignment, CivilModel, Horizontal, HorizontalKind, Vertical, VerticalKind};
     use zumen_crs::MapPoint;
     use zumen_drawing::{Axes, ModelSpace, Symbol, SymbolDefinition, SymbolKey, Unit};
@@ -1338,6 +1342,72 @@ mod tests {
                         .all(|(a, b)| (a[0] - b[0]).abs() < 1e-9 && (a[1] - b[1]).abs() < 1e-9)
             };
             assert!(written.iter().any(same), "{shape:?}");
+        }
+    }
+
+    /// 作業量の上限をどこにしても、途中で止めたときは `Stopped` を返し、止めた理由を 1 件だけ最後に報告する。
+    /// 中断の合図でも `Stopped` を返す
+    #[test]
+    fn stopping_anywhere_returns_stopped_with_one_reason() {
+        let drawing = {
+            let mut budget = Budget::new(Limits::default());
+            let mut diag = Diagnostics::new();
+            let cancel = CancelToken::new();
+            let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+            let model = model();
+            zumen_civil_drawing::drawing(
+                &model,
+                &model.alignments[0],
+                &zumen_civil_drawing::Options::default(),
+                &mut cx,
+            )
+            .unwrap()
+        };
+        let run = |limit: Limit, cancelled: bool| {
+            let mut budget = Budget::new(Limits::default().with(Kind::Work, limit));
+            let mut diag = Diagnostics::new();
+            let cancel = CancelToken::new();
+            if cancelled {
+                cancel.cancel();
+            }
+            let result = lower_to_dxf(&drawing, &mut Cx::new(&mut budget, &mut diag, &cancel))
+                .map(|lowered| lowered.bytes);
+            (result, budget.used(Kind::Work), diag.into_vec())
+        };
+        let (full, used, _) = run(Limit::Unlimited, false);
+        let full = full.unwrap();
+        assert_eq!(run(Limit::Finite(used), false).0.unwrap(), full);
+        let stops = [codes::BUDGET_WORK_EXCEEDED, codes::CALL_REQUEST_CANCELLED];
+        let step = (used / 97).max(1);
+        let limits = (0..used)
+            .step_by(usize::try_from(step).unwrap())
+            .chain([used - 1]);
+        for (limit, cancelled) in limits
+            .map(|limit| (Limit::Finite(limit), false))
+            .chain([(Limit::Unlimited, true)])
+        {
+            let (result, _, diagnostics) = run(limit, cancelled);
+            assert!(matches!(result, Err(Error::Stopped(_))), "{limit:?}");
+            let reasons: Vec<_> = diagnostics
+                .iter()
+                .filter(|d| stops.contains(&d.code()))
+                .collect();
+            assert_eq!(reasons.len(), 1, "{limit:?} {diagnostics:?}");
+            assert_eq!(
+                diagnostics.last().map(Diagnostic::code),
+                Some(reasons[0].code())
+            );
+            assert!(
+                !diagnostics
+                    .iter()
+                    .any(|d| d.code() == codes::INTERNAL_PANIC_CAUGHT)
+            );
+            let expected = if cancelled {
+                codes::CALL_REQUEST_CANCELLED
+            } else {
+                codes::BUDGET_WORK_EXCEEDED
+            };
+            assert_eq!(reasons[0].code(), expected);
         }
     }
 
