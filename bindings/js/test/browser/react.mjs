@@ -1,6 +1,5 @@
 // 決定 0199・0267。ローカルのビルドを配り、ページと Worker が要求したものを確認する。
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
@@ -9,22 +8,12 @@ import { fileURLToPath } from "node:url";
 import { chromium, firefox, webkit } from "playwright";
 import { build } from "vite";
 import { checkBoundaries, checkInteractions, installWorkerGate } from "./react-interactions.mjs";
-import { installResizeTrace } from "./react-resize.mjs";
+import { checkPlaygroundResize, installResizeTrace } from "./react-resize.mjs";
 import { loadSync } from "../../src/index.js";
 
 const [product, wasm] = process.argv.slice(2);
 const browsers = { chromium, firefox, webkit, chrome: chromium, msedge: chromium };
 if (!browsers[product] || !wasm) throw new Error("使い方: node react.mjs <chromium|firefox|webkit|chrome|msedge> <drawing.wasm>");
-// 診断用 draft で旧製品コードの失敗を採取する。失敗した回で停止し、通過で上書きしない。
-if (product === "webkit" && !process.env.ZUMEN_RESIZE_PROBE_ONCE) {
-  for (let attempt = 1; attempt <= 5; attempt++) {
-    console.log("ResizeObserver diagnostic attempt " + attempt);
-    execFileSync(process.execPath, [fileURLToPath(import.meta.url), product, wasm], {
-      stdio: "inherit", env: { ...process.env, ZUMEN_RESIZE_PROBE_ONCE: "1" },
-    });
-  }
-  process.exit(0);
-}
 const root = fileURLToPath(new URL("../../../../", import.meta.url));
 const app = join(root, "playground");
 process.env.ZUMEN_DRAWING_WASM = resolve(wasm);
@@ -338,10 +327,11 @@ try {
   assert.equal(await status.textContent(), "図面を選んでください。");
   assert.ok(await file.evaluate((el) => el === document.activeElement));
 
-  await checkInteractions(page, ready);
+  const resizeInput = await checkInteractions(page, ready);
   assert.deepEqual(await page.evaluate(() => window.blockedRequests), []);
   await page.goto(origin + "/production/test/lifecycle.html");
   await checkBoundaries(page, inputs.jww, "本番");
+  await checkPlaygroundResize(page, resizeInput, "本番");
   await page.goto(origin + "/strict/test/lifecycle.html");
   await page.evaluate((bytes) => probe.render(bytes, true), [...inputs.dxf]);
   assert.ok(await page.evaluate(() => probe.delayed.length === 2 && probe.delayed[0].signal.aborted && !probe.delayed[1].signal.aborted));
@@ -368,9 +358,10 @@ try {
   const counts = await page.evaluate(() => probe.counts);
   assert.deepEqual([counts.workers, counts.starts, counts.ends, counts.transferred, counts.state, counts.events, counts.destroyed], [0, 3, 3, 3, 0, 0, 2]);
   await checkBoundaries(page, inputs.jww, "StrictMode");
+  await checkPlaygroundResize(page, resizeInput, "StrictMode");
   assert.ok([...seen].some((p) => p.includes("/app/assets/worker-")) && [...seen].some((p) => p.endsWith(".wasm")));
   assert.deepEqual(failures, []);
-  const summary = product + " " + browser.version() + " で DXF・JWW・SXF と公開サンプルの DWG（R2000・R2004・R2018）、初回の表示範囲・倍率の両端、用紙の連続切り替え・レイヤ・40 要素の選択・配置別の診断、DXF で保存（合成の DWG・JWW・SFC・P21 と公開サンプルの DWG をネイティブと同じバイト列で）、本番用 React・StrictMode の再接続中の状態と出所、ローカルの配布物だけの GET を確認";
+  const summary = product + " " + browser.version() + " で DXF・JWW・SXF と公開サンプルの DWG（R2000・R2004・R2018）、初回の表示範囲・倍率の両端、用紙の連続切り替え・レイヤ・40 要素の選択・配置別の診断、DXF で保存（合成の DWG・JWW・SFC・P21 と公開サンプルの DWG をネイティブと同じバイト列で）、本番用 React・StrictMode の再接続中の状態と出所、リサイズの8フレーム以内の収束と予約取消、ローカルの配布物だけの GET を確認";
   console.log(summary);
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, "\n" + summary + "\n");
 } finally {

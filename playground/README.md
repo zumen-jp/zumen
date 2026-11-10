@@ -40,4 +40,6 @@ node bindings/js/test/browser/react.mjs chromium target/wasm32-unknown-unknown/r
 
 合成した DXF・JWW・SXF と、公開サンプルの DWG（R2000・R2004・R2018）と本番用ビルドで、ファイル選択・用紙・レイヤ・キーボード・出所・診断を操作します。「DXF で保存」は、適合テストの `convert_playground.json` と同じ合成の DWG・JWW・SFC・P21 と公開サンプルの DWG で保存し、保存したバイト列の SHA-256 が、ネイティブの `convert` が書いたもの（`hashes.txt` の blob の行）と、Node.js で同じ wasm が書いたものに一致することを確かめます。変換の診断の件数と code は、画面と応答で比べます。保存した DXF は開き直してもう一度変換し、同じ数の要素を書き、新しい診断の code が出ないことを確かめます。ネットワークではローカル配布物を取得する GET だけを認めます。本番用 React と開発用 StrictMode の両方で Activity・Suspense の表示を再開し、読み込みを保留した間と新しい Worker の準備後に、利用側の effect が受け取る状態と出所を確かめます。遅い読み込みの差し替え、アンマウント後の Worker・購読と未完了の問い合わせも検査します。`chromium` の代わりに `firefox`・`webkit`、インストール済みの製品版を使う `chrome`・`msedge` も指定できます。
 
+ResizeObserver の通知中に Canvas の寸法を書き換えず、次のフレームにまとめることも検査します。本番用 React と StrictMode で、詳細パネルが並んだ初回の表示範囲を確かめ、viewport の変更後は 8 フレーム以内に CSS/backing 寸法・描画・通知が収束することを検査します。リサイズ後の移動と全体表示、通知直後のアンマウントで予約したフレーム・observer・入力・Worker・購読を片づけること、再マウント後の後始末も確かめます。未処理エラーの収集は維持し、失敗時だけ直前の操作と寸法をログに残します。
+
 React から組み込む手順は[フックの README](../packages/react/README.md)にあります。赤入れは [#589](https://github.com/zumen-jp/zumen/issues/589) で進めます。

@@ -116,4 +116,5 @@ export async function checkInteractions(page, ready) {
     assert.ok(await button.isDisabled(), "一回の操作でも上限・下限に収める");
     await back.press("Enter"); assert.ok(await button.isEnabled());
   }
+  return wide;
 }
