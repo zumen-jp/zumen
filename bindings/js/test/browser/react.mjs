@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { chromium, firefox, webkit } from "playwright";
 import { build } from "vite";
 import { checkBoundaries, checkInteractions, installWorkerGate } from "./react-interactions.mjs";
+import { installResizeTrace } from "./react-resize.mjs";
 import { loadSync } from "../../src/index.js";
 
 const [product, wasm] = process.argv.slice(2);
@@ -121,6 +122,8 @@ try {
     return route.continue();
   });
   const page = await context.newPage();
+  await page.exposeFunction("captureResizeFailure", (record) => console.log("ResizeObserver diagnostic: " + JSON.stringify(record)));
+  await page.addInitScript(installResizeTrace);
   await page.addInitScript(installWorkerGate);
   await page.addInitScript(() => {
     window.blockedRequests = [];
