@@ -63,7 +63,7 @@ target/debug/zumen entities samples/dwg/zumen-layout-r2000.dwg --limit 2
 | 2 | VBA | C の DLL を `Declare` で呼ぶ（[bindings/c](bindings/c/README.md)） |
 | 3 | Ruby・PHP・PowerShell など | C ABI・CLI・HTTP で呼ぶ（[docs/tier3.md](docs/tier3.md)） |
 
-- Tier は、言語ごとの対応の約束です（[決定 0006](docs/decisions/0006-language-tiers.md)）。下限と、確かめる頻度は [docs/support.md](docs/support.md) にあります。
+- Tier は、言語ごとの対応の約束です（[対応する環境](docs/support.md)）。下限と、確かめる頻度は [docs/support.md](docs/support.md) にあります。
 - CLI の `zumen` は、同じ要求を標準入出力と HTTP で受け、MCP のサーバーにもなります。AI のアプリからも使えます。
 
 ## 方針
@@ -85,7 +85,7 @@ target/debug/zumen entities samples/dwg/zumen-layout-r2000.dwg --limit 2
 | [docs/render.md](docs/render.md) | 図面から SVG・PNG を作る API と、Node.js の例 |
 | [schema](schema/README.md) | API の関数とメッセージのスキーマ |
 | [catalog](catalog/README.md) | 診断の code と、日本語・英語の文 |
-| [docs/decisions](docs/decisions/README.md) | 決定の記録 |
+| [コアの設計](docs/architecture.md) | モデルの層、書き出しの経路、決定性、予算 |
 | [#1](https://github.com/zumen-jp/zumen/issues/1) | 設計と計画（子 issue に分けている） |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | 開発への参加。エージェント向けの規則は [AGENTS.md](AGENTS.md) |
 | [docs/style.md](docs/style.md) | 表記と用語の基準 |

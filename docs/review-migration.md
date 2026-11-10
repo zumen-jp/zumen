@@ -1,6 +1,6 @@
 # 旧版の赤入れをレビュー文書に移す
 
-旧版の `zumen-markup` バージョン 1 の JSON、その JSON が指す図面、対象とビューの対応表を用意します。コマンドは手元で図面の SHA-256 を旧版の記録と比較し、一致した図面の `v2:` ハッシュを新しい文書の対象に記録します。[旧版の書式](https://github.com/zumen-jp/zumen-legacy/blob/7c1c400e9791bd60f4a5bba355ca90362ad607c2/docs/markup.md)・[現行の書式](decisions/0218-review-document-and-ops.md)
+旧版の `zumen-markup` バージョン 1 の JSON、その JSON が指す図面、対象とビューの対応表を用意します。コマンドは手元で図面の SHA-256 を旧版の記録と比較し、一致した図面の `v2:` ハッシュを新しい文書の対象に記録します。[旧版の書式](https://github.com/zumen-jp/zumen-legacy/blob/7c1c400e9791bd60f4a5bba355ca90362ad607c2/docs/markup.md)・[レビューの文書](formats/review.md)
 
 受け取った図面と旧版の JSON は、リポジトリの外のフォルダー（例: `../review-work/`）に置いてください。対応表と移した文書も同じフォルダーに置きます。
 
@@ -72,4 +72,4 @@ cargo xtask migrate-markup ../review-work/markup.json ../review-work/drawing.dxf
 
 コマンドが報告した各フィールドの元の値は、対応する文書・対象・図形・指摘の `legacy.` で始まるキーにあります。たとえば `/items/0/entities` は、その項目の `legacy.entities` です。旧版の要素 ID・引き継ぎの記録・線幅・矢印・撮影方向などの固有の値は、用途に応じてこの報告から照合できます。線幅・文字の高さなど用紙の mm の大きさは、写さずに元の値で残ります。
 
-図面の SHA-256 は対象の `legacy.sha256` でも確認できます。`sfc`・`p21`・`sfz`・`p2z` は現行の形式名 `sxf` に合わせ、元の形式名を `legacy.format` に保ちます。ツールの 1 回の入力上限は図面 256 MiB、旧版の JSON 8 MiB、対応表 1 MiB、項目 16,384 件です。対応表に指定する対象とビューの ID は UTF-8 の 1〜1024 バイトです。[決定 0282](decisions/0282-legacy-markup-review-identity.md)
+図面の SHA-256 は対象の `legacy.sha256` でも確認できます。`sfc`・`p21`・`sfz`・`p2z` は現行の形式名 `sxf` に合わせ、元の形式名を `legacy.format` に保ちます。ツールの 1 回の入力上限は図面 256 MiB、旧版の JSON 8 MiB、対応表 1 MiB、項目 16,384 件です。対応表に指定する対象とビューの ID は UTF-8 の 1〜1024 バイトです。

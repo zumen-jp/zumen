@@ -1,6 +1,6 @@
 # シーンからの SVG・PNG
 
-`zumen_render::svg` は、ZMSC のバイト列と `Options`・`Cx` を受け取り、SVG 1.1 全体のバイト列を返します。各言語の API からは [render op](../../docs/render.md) を使えます。`zumen_render::png` は同じ引数から PNG のバイト列を返します（決定 0277）。
+`zumen_render::svg` は、ZMSC のバイト列と `Options`・`Cx` を受け取り、SVG 1.1 全体のバイト列を返します。各言語の API からは [render op](../../docs/render.md) を使えます。`zumen_render::png` は同じ引数から PNG のバイト列を返します（[シーンの描画](../../docs/render.md)）。
 
 `Options` の `region` はシーンの起点と同じ座標系です。縦横同率で中央に収め、その範囲の外を切ります。縦横比の違いによる余白にも背景を塗ります。`width`・`height` はピクセル、`dpi` は用紙 mm の線幅の換算にだけ使います。背景・前景は RGBA で明示します。座標の単位を mm と推測しません。
 
@@ -44,4 +44,4 @@ PR の CI と、既存の `nightly.yml` の読み取り専用の `svg` job で�
 
 `fuzz` の `svg`・`png` target は ZMSC を入力にし、それぞれの画像を 2 回作って出力・診断・停止・予算が一致することを確かめます。`cargo xtask fuzz-seeds` が、線と列の参照を持つ合成シーンを種に足します。
 
-PNG の仕様と外部照合は [PNG の文書](../../docs/formats/png.md)にあります。SVG の仕様・対応の範囲は [SVG の文書](../../docs/formats/svg.md)、判断は[決定 0272](../../docs/decisions/0272-scene-svg-rendering.md)にあります。
+PNG の仕様と外部照合は [PNG の文書](../../docs/formats/png.md)にあります。SVG の仕様・対応の範囲は [SVG の文書](../../docs/formats/svg.md)、判断は[シーンの描画](../../docs/render.md)にあります。

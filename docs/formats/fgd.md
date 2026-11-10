@@ -1,6 +1,6 @@
 # 基盤地図情報（GML）
 
-国土地理院の基盤地図情報ダウンロードデータ（台帳の `fgd_dl_5_3`・`fgd_dl_5_2`）の GML を読み、地理の領域モデル（[決定 0233](../decisions/0233-geo-model-features.md)）に移す規則を記録します。実装は `crates/zumen-fgd`、モデルは `crates/zumen-geo` です。API では、`open` が XML の根の `Dataset` と名前空間で見分けて開き、`geo` の op に `doc`（と、中身を見る地物の `id`）を渡して、地物の型ごとの数と地物の属性・形の要約を返します。仕様書の本文とスキーマは写しません（`formats/ledger.toml`）。節の番号は、ファイル仕様書の第 5.3 版のものです。
+国土地理院の基盤地図情報ダウンロードデータ（台帳の `fgd_dl_5_3`・`fgd_dl_5_2`）の GML を読み、地理の領域モデルに移す規則を記録します。実装は `crates/zumen-fgd`、モデルは `crates/zumen-geo` です。API では、`open` が XML の根の `Dataset` と名前空間で見分けて開き、`geo` の op に `doc`（と、中身を見る地物の `id`）を渡して、地物の型ごとの数と地物の属性・形の要約を返します。仕様書の本文とスキーマは写しません（`formats/ledger.toml`）。節の番号は、ファイル仕様書の第 5.3 版のものです。
 
 ## 対象
 
@@ -13,7 +13,7 @@
 ## 判定
 
 - 最初の要素が基盤地図情報の名前空間（`http://fgd.gsi.go.jp/spec/2008/FGD_GMLSchema`、4.2.4 節の表 4-2）の `Dataset` なら、基盤地図情報とする（`Signature::XmlRoot`）。
-- ZIP のアーカイブで、フォルダーを除いた名前が `FG-GML-` で始まり `.xml` か `.zip` で終わる項目を持てば、基盤地図情報のアーカイブとする（`Signature::ZipName`、[決定 0251](../decisions/0251-fgd-archives.md)）。open は、SFZ・P2Z の後、ifcZIP の前に試す。
+- ZIP のアーカイブで、フォルダーを除いた名前が `FG-GML-` で始まり `.xml` か `.zip` で終わる項目を持てば、基盤地図情報のアーカイブとする（`Signature::ZipName`）。open は、SFZ・P2Z の後、ifcZIP の前に試す。
 
 ## 座標系
 
@@ -71,11 +71,11 @@ DEM 区画の被覆（`coverage`、2.2.2 節の `CV_DiscreteGridPointCoverage` �
 - 隣り合う 4 つのセルの四角形を、北西・北東・南西と、北東・南東・南西の 2 つの三角形にする。どちらかの 3 点のうち 1 つでもなければ、その三角形を作らない。三角形は、（緯度・経度・標高）の空間で上から見て反時計回り。
 - DEM 構成点の種別（地表面・表層面・海水面など）は、点ごとには移さず、種別ごとの点の数を属性 `fgd:coverage/<種別>`（整数）にする。データなし以外の種別が 2 つ以上あれば `fgd.point-kind.dropped` を返す。
 - 並びの規則が `+x -y` の `Linear` でなければ `fgd.element.unsupported` を、範囲・格子・値の列が読めないか、値が格子より多ければ `fgd.value.invalid` を返す。
-- DGHM 区画・HRCV 区画の被覆は、値が標高でないので `fgd.element.unsupported` を返して移さない。ジオイド・モデルは、利用者が `zumen-crs` に渡して使う（[決定 0019](../decisions/0019-coordinate-systems-and-gsi-data.md)）。
+- DGHM 区画・HRCV 区画の被覆は、値が標高でないので `fgd.element.unsupported` を返して移さない。ジオイド・モデルは、利用者が `zumen-crs` に渡して使う。
 
 ## アーカイブ
 
-配布のアーカイブ（[決定 0251](../decisions/0251-fgd-archives.md)、`crates/zumen-fgd/src/archive.rs`）の中の GML を、1 つの地理の領域モデルにまとめる。名前の規則は「基盤地図情報データのファイル名について」（2025-07-31）による。
+配布のアーカイブ（`crates/zumen-fgd/src/archive.rs`）の中の GML を、1 つの地理の領域モデルにまとめる。名前の規則は「基盤地図情報データのファイル名について」（2025-07-31）による。
 
 - `FG-GML-` で始まる `.xml` の項目を、アーカイブの順に GML として読む。`FG-GML-` で始まる `.zip` の項目（全項目のアーカイブの中の、提供クラスごとのアーカイブ）は、1 段だけ開く。全項目のアーカイブが中にアーカイブを入れるかは確かめていない（推定）。ほかの項目は `fgd.entry.unsupported` を返す。
 - 地物の ID は、項目の名前と `#` と、GML を 1 つで開いたときの ID（`FG-GML-533945-RdEdg-20250801-0001.xml#K1_1`）。入れ子のアーカイブの項目は、外の項目の名前と `/` でつなぐ。
@@ -93,7 +93,7 @@ DEM 区画の被覆（`coverage`、2.2.2 節の `CV_DiscreteGridPointCoverage` �
 | --- | --- | --- |
 | `fgd` | 読み | `synthetic` |
 
-段の意味は[決定 0254](../decisions/0254-parallel-agents-and-cross-review.md) に、根拠は[形式と権利の一覧](README.md#format-fgd)にあります。この文書の規則は、仕様と、テストの中で作ったファイルだけで確かめたものです。公開サンプル・受け取った図面・外部の実装・基準になるソフトとは、まだ照らしていません。実際のファイルでは、ここに書いた扱いと違うことがあります。
+段の意味は[形式台帳の書き方](../../formats/README.md#確かめた度合い)に、根拠は[形式と権利の一覧](README.md#format-fgd)にあります。この文書の規則は、仕様と、テストの中で作ったファイルだけで確かめたものです。公開サンプル・受け取った図面・外部の実装・基準になるソフトとは、まだ照らしていません。実際のファイルでは、ここに書いた扱いと違うことがあります。
 
 - テストは、テストの中で作った小さな GML とアーカイブ（`crates/zumen-fgd/tests/lift.rs`・`archive.rs`）と、適合テストの組（`bindings/conformance/cases/fgd.json`・`fgd_zip.json`）。国土地理院のデータは、Git・パッケージ・テストに入れない。
 - 基盤地図情報ビューアーと QGIS で開いたデータとの照合は、まだしていない（#504）。

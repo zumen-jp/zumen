@@ -1,10 +1,14 @@
 # BCF
 
-BCF（BIM Collaboration Format）2.1・3.0 の bcfzip を読み書きし、レビューの文書に写す規則は、決定の記録にあります。実装は `crates/zumen-bcf` です。XSD は同梱しません（`formats/ledger.toml`）。
+BCF（BIM Collaboration Format）の bcfzip を [レビューの文書](review.md) と相互に変換します。XSD は同梱しません。
 
-- レビューの文書と、BCF との対応: [決定 0214](../decisions/0214-review-model-and-bcf.md)
-- BCF 3.0 の読み書き: [決定 0220](../decisions/0220-bcf-3-0.md)
-- BCF 2.1 の読み書き: [決定 0248](../decisions/0248-bcf-2-1.md)
+## 読み書き
+
+- `bcf_read` は `bcf.version` の `VersionId` で 2.1 と 3.0 を判別する。topic を指摘、comment をコメント、viewpoint を 3D の場所に写す。Guid は小文字にそろえる。対応表にない状態は `open` とし、元の文字列を `status_label` に残す。
+- `bcf_write` の版は、引数、元の bcfzip の版、3.0 の順に選ぶ。元と違う版への書き戻しは `bcf.conversion.unsupported` で断る。別の版を新しく作るときは元の bcfzip を渡さない。
+- 同じ Guid の変えていない topic は元のフォルダーをそのまま書く。変えた topic でも未知の要素・属性、文書の参照、変えていないコメントと viewpoint を残す。カメラを変えた viewpoint は新しいファイルにし、合わなくなったスナップショットを引き継がない。
+- 書けない場所・図形・要素・照合の由来は診断にする。作者や日時などの必須値は呼び出し側から受け取り、補った値を報告する。値が足りなければ失敗する。
+- 2.1 はコメントの本文が空でも書き、カメラの縦横比を書かない。元がないとき、2.1 は拡張を省き、3.0 は書き出した値から `extensions.xml` を作る。往復と欠落の診断は [適合テスト](../../bindings/conformance/cases/bcf.json) で確かめる。
 
 ## 確かめた度合い
 
@@ -13,7 +17,7 @@ BCF（BIM Collaboration Format）2.1・3.0 の bcfzip を読み書きし、レ�
 | `bcf` | 読み | `synthetic` |
 | `bcf` | 書き | `synthetic` |
 
-段の意味は[決定 0254](../decisions/0254-parallel-agents-and-cross-review.md) に、根拠は[形式と権利の一覧](README.md#format-bcf)にあります。BCF の読み書きの規則は、仕様と、テストの中で作ったファイルだけで確かめたものです。公開サンプル・受け取った図面・外部の実装・基準になるソフトとは、まだ照らしていません。実際のファイルでは、ここに書いた扱いと違うことがあります。
+段の意味は[形式台帳の書き方](../../formats/README.md#確かめた度合い)に、根拠は[形式と権利の一覧](README.md#format-bcf)にあります。BCF の読み書きの規則は、仕様と、テストの中で作ったファイルだけで確かめたものです。公開サンプル・受け取った図面・外部の実装・基準になるソフトとは、まだ照らしていません。実際のファイルでは、ここに書いた扱いと違うことがあります。
 
 - 書いた bcfzip は読み直して確かめたが、外部の実装や BCF を読むソフトでは読ませていない。
 - 公開サンプルと外部の実装での照合は #522 で行う。
