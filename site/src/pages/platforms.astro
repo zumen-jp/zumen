@@ -1,13 +1,13 @@
 ---
 import PageHeader from '../components/PageHeader.astro';
 import SectionHead from '../components/SectionHead.astro';
-import { hostApps, repo } from '../data/site';
+import { hostApps, releasedSource, releaseUrl, releaseVersion, repo } from '../data/site';
 import Base from '../layouts/Base.astro';
 
 const os = [
   ['Windows', 'Windows 10、Windows Server 2016（x64・x86・ARM64）'],
   ['macOS', 'macOS 11（arm64）、macOS 10.12（x64）'],
-  ['Linux', 'glibc 2.28（x64・arm64）。それより古いものは musl の静的な CLI'],
+  ['Linux', '目標は glibc 2.28（x64・arm64）。v0.2.0 の配布物の条件は下の注記を参照'],
   ['iOS・iPadOS', 'iOS 15'],
   ['Android', 'Android 7.0（API 24）'],
   ['ブラウザー', 'Chrome・Edge 96、Firefox 91、Safari 15.1'],
@@ -17,13 +17,12 @@ const os = [
 ];
 
 const packages = [
-  ['crates.io', 'zumen・zumen-*'],
-  ['PyPI', 'zumen'],
-  ['npm', '@zumen-jp/*'],
-  ['NuGet', 'Zumen・Zumen.*'],
-  ['Maven', 'dev.zumen'],
-  ['Go', 'zumen.dev/go'],
-  ['CLI', 'zumen（Homebrew は zumen-jp/tap/zumen）'],
+  { language: 'Rust', name: 'zumen', url: 'https://crates.io/crates/zumen/0.2.0', guide: 'https://docs.rs/zumen/0.2.0/zumen/' },
+  { language: 'TypeScript・JavaScript', name: '@zumen-jp/zumen', url: 'https://www.npmjs.com/package/@zumen-jp/zumen/v/0.2.0', guide: releasedSource('bindings/js/README.md') },
+  { language: 'Python', name: 'zumen', url: 'https://pypi.org/project/zumen/0.2.0/', guide: releasedSource('bindings/python/README.md') },
+  { language: '.NET', name: 'Zumen', url: 'https://www.nuget.org/packages/Zumen/0.2.0', guide: releasedSource('bindings/dotnet/README.md') },
+  { language: 'C・C++', name: 'C ABI・ヘッダー', url: releaseUrl, guide: releasedSource('bindings/c/README.md') },
+  { language: 'CLI・MCP', name: 'zumen', url: releaseUrl, guide: releasedSource('bindings/cli/README.md') },
 ];
 ---
 
@@ -41,7 +40,7 @@ const packages = [
         </div>
         <div class="card">
           <h3>Tier 2</h3>
-          <p>生成したパッケージを作り、適合テストを毎晩走らせます。</p>
+          <p>生成したパッケージを作り、適合テストを毎晩走らせます。パッケージの公開は準備中です。</p>
           <ul class="chips"><li>Java・Kotlin</li><li>Swift</li><li>Go</li><li>Dart</li><li>VBA</li></ul>
         </div>
         <div class="card">
@@ -63,6 +62,8 @@ const packages = [
         </table>
       </div>
       <p class="note">ブラウザーの下限は wasm と JavaScript の互換性の資料に基づきます。下限の実機は未確認です。根拠と CI での確かめ方は<a href={`${repo}/blob/main/docs/support.md`}>対応する環境</a>にあります。</p>
+      <p class="note">表はプロジェクトが対象にする環境です。v{releaseVersion} のネイティブ配布物は Windows（x86・x64・ARM64）・macOS（x64・arm64）・GNU Linux（x64・arm64）向けです。musl・iOS・Android のバイナリはまだ配布していません。</p>
+      <p class="note">Linux の Python wheel は glibc 2.35 以降が必要です。CLI・共有ライブラリは glibc 2.34 以降が必要で、2.28 では動きません。2.34 の実環境での動作は未確認です。計画の下限に合わせる修正は<a href={`${repo}/issues/789`}>#789</a>で進めています。ブラウザーや Node.js の wasm は、この glibc の制約を受けません。</p>
     </div>
   </section>
 
@@ -73,15 +74,15 @@ const packages = [
     </div>
   </section>
 
-  <section class="section section-alt">
+  <section id="packages" class="section section-alt">
     <div class="wrap">
-      <SectionHead title="配布の名前（予定）" en="Packages" />
+      <SectionHead title={`公開済みのパッケージ（v${releaseVersion}）`} en="Packages" />
       <div class="table-scroll">
         <table class="table spec">
-          <tbody>{packages.map(([k, v]) => <tr><th scope="row">{k}</th><td><code>{v}</code></td></tr>)}</tbody>
+          <tbody>{packages.map((item) => <tr><th scope="row">{item.language}</th><td><a href={item.url}><code>{item.name}</code></a>（<a href={item.guide}>使い方</a>）</td></tr>)}</tbody>
         </table>
       </div>
-      <p class="note">まだどれも公開していません。npm の素の <code>zumen</code> はほかの人のパッケージなので、<code>npx zumen</code> を使わないでください。</p>
+      <p class="note">導入手順は公開版のソースに固定しています。npm は <code>@zumen-jp/zumen</code> を使います。素の <code>zumen</code> はほかの人のパッケージなので、<code>npx zumen</code> を使わないでください。React の表示部品など、リポジトリの中だけのパッケージは公開していません。</p>
     </div>
   </section>
 </Base>
