@@ -4,6 +4,7 @@ mod allocation;
 mod ascii;
 mod chain;
 mod lzw;
+mod metadata;
 mod run_length;
 mod source;
 mod stages;
@@ -41,7 +42,8 @@ pub(crate) fn before(
 ) -> Result<bool, Stop> {
     // filters() も全段の引数を解析してから捨てる。同じ解析を 1 回だけ行い、
     // 単独の圧縮でも、元の位置と参照の文脈を保った引数を使う。
-    let stages = stages::read(stream.dict(), cx)?;
+    let copies = if source.metadata_encrypted() { 5 } else { 3 };
+    let stages = stages::read(stream.dict(), metadata::Metadata::new(source, copies), cx)?;
     // hayro-syntax 0.9.0 の `Stream::decoded_data` は、どこかに画像のフィルターがあれば、どの段も当てずに失敗する
     if stages.iter().any(|stage| {
         matches!(
@@ -155,6 +157,55 @@ fn compressed(data: &[u8], stage: Stage, cx: &mut Cx<'_>) -> Result<(), Stop> {
 #[cfg(test)]
 fn count(data: &[u8], cx: &mut Cx<'_>) -> Result<(), Stop> {
     compressed(data, Stage::new(Filter::FlateDecode, None), cx)
+}
+
+/// 壊れた内容の診断で読む引数も、展開の予約とは別に数える。
+/// 既存の診断は最初の引数の i64 の Predictor を見るため、u8 の Stage の値で代えない。
+pub(crate) fn plain_flate(
+    stream: &Stream<'_>,
+    source: Source<'_>,
+    cx: &mut Cx<'_>,
+) -> Result<bool, Stop> {
+    use hayro_syntax::object::Object;
+    let dict = stream.dict();
+    let metadata = metadata::Metadata::new(source, 1);
+    let name = match metadata.name(dict, b"F", cx)? {
+        Some(name) => Some(name),
+        None => metadata.name(dict, b"Filter", cx)?,
+    };
+    let params = if name.is_some() {
+        match metadata.dict(dict, b"DP", cx)? {
+            Some(params) => Some(params),
+            None => metadata.dict(dict, b"DecodeParms", cx)?,
+        }
+    } else {
+        let array = match metadata.array(dict, b"DP", cx)? {
+            Some(params) => Some(params),
+            None => metadata.array(dict, b"DecodeParms", cx)?,
+        };
+        if let Some(array) = &array {
+            metadata.objects(array, 1, cx)?;
+        }
+        array
+            .and_then(|array| array.iter::<Object<'_>>().next())
+            .and_then(Object::into_dict)
+    };
+    if params
+        .and_then(|params| params.get::<i64>(b"Predictor"))
+        .is_some_and(|p| p > 1)
+    {
+        return Ok(false);
+    }
+    // raw_data が Crypt Name を読む分も含める。暗号化していなければ追加の解析はない。
+    let copies = if source.metadata_encrypted() { 2 } else { 1 };
+    let stages = stages::read(dict, metadata::Metadata::new(source, copies), cx)?;
+    Ok(matches!(
+        stages.as_slice(),
+        [Stage {
+            filter: Filter::FlateDecode,
+            ..
+        }]
+    ))
 }
 
 /// 伸長の予約前の出力量を数え、寛容な展開が必要かも返す。系列は、この量を次の段にも使う。
