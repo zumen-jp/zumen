@@ -10,6 +10,7 @@
 cargo build -p zumen-cli
 python -I xtask/verify/acc/make.py make target/debug/zumen.exe ../acc-check
 python -I -m unittest discover -s xtask/verify/acc -p "test_*.py"
+python -I xtask/verify/acc/check_status.py target/debug/zumen.exe ../acc-check
 ```
 
 Windows 以外では実行ファイルの `.exe` を外してください。別の checkout の中に worktree を作った場合は、`..` がその checkout の中になることがあるため、出力先にリポジトリの外の絶対パスを指定してください。
@@ -60,7 +61,7 @@ Windows 以外では実行ファイルの `.exe` を外してください。別�
 python -I xtask/verify/acc/make.py observe target/debug/zumen.exe ../acc-check ../acc-check/exported.bcf
 ```
 
-`observed/` に、読み直したレビュー・API の応答と診断・項目ごとの比較を置きます。同じ出力先への上書きはしません。比較用の BCF は入力・展開後の合計とも 64 MiB、ZIP の項目は 4,096 件までです。題で指摘を対応させ、製品が GUID を付け直しても比較します。文字、コメント、選択要素、カメラの値、画像のハッシュを照らし、差があった項目はそのまま残します。カメラの値が丸められた場合も違いとして記録するため、その違いを人が評価してください。検証 04 を飛ばした場合は、件数とその指摘がないという違いが出ます。
+`observed/` に、読み直したレビュー・API の応答と診断・元 XML の状態・項目ごとの比較を置きます。同じ出力先への上書きはしません。比較用の BCF は入力・展開後の合計とも 64 MiB、ZIP の項目と画像の参照はそれぞれ 4,096 件までです。同名の ZIP 項目は拒否し、同じ項目を繰り返し参照しても展開とハッシュは各 1 回だけ行います。題で指摘を対応させ、製品が GUID を付け直しても比較します。元 XML の `TopicStatus` の存在と値も照らし、未知・欠落・空の状態を、正規化された Open が同じという理由で一致にはしません。文字、コメント、選択要素、カメラの値、画像のハッシュを照らし、差があった項目はそのまま残します。カメラの値が丸められた場合も違いとして記録するため、その違いを人が評価してください。検証 04 を飛ばした場合は、件数とその指摘がないという違いが出ます。
 
 製品の出力や画面にはアカウント・プロジェクトなどの情報が入ることがあります。出力・画面・`observed/` の JSON をそのまま Git・公開 issue・PR に貼らないでください。`report.md` の項目ごとの結果と、診断の code・件数・ハッシュだけを共有します。入力の読み取りが落ちる・終わらないなどのときは、`AGENTS.md` と決定 0283 に従って入力と詳細を非公開で扱います。
 

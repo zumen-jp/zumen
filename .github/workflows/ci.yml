@@ -78,6 +78,7 @@ jobs:
           python -I -m unittest discover -s xtask/verify/acc -p 'test_*.py'
           cargo build --package zumen-cli --locked
           python -I xtask/verify/acc/make.py make target/debug/zumen "$RUNNER_TEMP/acc-check"
+          python -I xtask/verify/acc/check_status.py target/debug/zumen "$RUNNER_TEMP/acc-check"
 
   text:
     name: 表記の検査

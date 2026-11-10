@@ -23,6 +23,10 @@ ELEMENT = "13v5x2IG0HxwZGA6irHSbP"
 PROJECT = "1HvDjhIG0HxwZGA6irHSbP"
 AUTHOR = "zumen-verification@example.invalid"
 DATE = "2026-11-10T00:00:00Z"
+MAX_EXPANDED_BYTES = 64 * 1024 * 1024
+MAX_ZIP_ENTRIES = 4096
+MAX_SNAPSHOT_REFERENCES = 4096
+ASCII_LOWER = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")
 CAMERA = {"projection": "perspective", "position": [-5, 1.5, 1.5], "direction": [1, 0, 0], "up": [0, 0, 1], "field_of_view": 60}
 CASES = [
     ("open-selected", "open", True, "Open", "選択要素あり・未解決"),
@@ -131,7 +135,7 @@ def expected_cases(element_hash):
             for number, (key, status, selected, acc_status, label) in enumerate(CASES, 1)]
 
 
-def differences(review, expected, *, product=False):
+def differences(review, expected, raw_topics, *, product=False):
     """期待値は変更のレシピ。製品の export では GUID の再採番を許し、題で指摘を結ぶ。"""
     topics = review.get("topics", [])
     result = []
@@ -148,6 +152,11 @@ def differences(review, expected, *, product=False):
         for field in ["title", "description", "status", "comment"]:
             expected_value = True if field == "comment" else want["acc_status"].lower() if product and field == "status" else want[field]
             result.append({"case": want["key"], "field": field, "equal": values[field] == expected_value})
+        raw = [item for item in raw_topics if item["guid"] == topic["id"].strip().translate(ASCII_LOWER)]
+        status = want["acc_status"] if product else want["status"].title()
+        result.append({"case": want["key"], "field": "topic_status", "equal": len(raw) == 1 and raw[0]["status_present"] and raw[0]["topic_status"] == status})
+        # 未知の状態は open と status_label に写る。正規化された open だけでは一致としない。
+        result.append({"case": want["key"], "field": "status_label", "equal": topic.get("status_label") is None})
         locations = topic.get("locations", [])
         result.append({"case": want["key"], "field": "location", "equal": len(locations) == 1})
         if len(locations) == 1:
@@ -160,31 +169,65 @@ def differences(review, expected, *, product=False):
     return result
 
 
-def xml_snapshots(data):
-    """展開せずに画像を読む。製品の export は利用者の外部入力なので、展開する総量にも上限を付ける。"""
-    result = {}
+def xml_topics(data):
+    """元 XML の状態と画像を読む。各 ZIP 項目は一度だけ展開し、画像も一度だけハッシュする。"""
+    result, references = [], 0
     with zipfile.ZipFile(io.BytesIO(data)) as archive:
         entries = archive.infolist()
-        if len(entries) > 4096 or sum(item.file_size for item in entries) > 64 * 1024 * 1024:
+        if len(entries) > MAX_ZIP_ENTRIES or sum(item.file_size for item in entries) > MAX_EXPANDED_BYTES:
             raise ValueError("BCF の比較用の展開量の上限を超えました")
+        by_name = {item.filename: item for item in entries}
+        if len(by_name) != len(entries):
+            raise ValueError("BCF の ZIP に同じ名前の項目があります")
+        expanded, hashes = {}, {}
+
+        def read_entry(name):
+            if name not in expanded:
+                expanded[name] = archive.read(by_name[name])
+            return expanded[name]
+
         for item in entries:
             if not item.filename.endswith("/markup.bcf"):
                 continue
-            markup = ET.fromstring(archive.read(item))
+            markup = ET.fromstring(read_entry(item.filename))
             # XML の名前空間の有無は製品による。比較ではローカル名だけを使う。
             for element in markup.iter():
                 element.tag = element.tag.rsplit("}", 1)[-1]
-            title = markup.findtext("Topic/Title")
+            topics = markup.findall("Topic")
+            if len(topics) != 1:
+                raise ValueError("BCF の Markup の Topic が 1 件ではありません")
+            topic = topics[0]
+            title = topic.findtext("Title")
             folder = item.filename.rsplit("/", 1)[0]
             images = []
-            for node in markup.findall(".//Snapshot"):
+            for node in markup.iter("Snapshot"):
+                references += 1
+                if references > MAX_SNAPSHOT_REFERENCES:
+                    raise ValueError("BCF の画像の参照数の上限を超えました")
                 if not node.text:
                     continue
                 name = folder + "/" + node.text
                 # 参照だけが残り、画像が欠けた出力も、比較できる欠落として残す。
-                images.append(sha(archive.read(name)) if name in archive.namelist() else None)
-            result[title] = images
+                if name in by_name and name not in hashes:
+                    hashes[name] = sha(read_entry(name))
+                images.append(hashes.get(name))
+            # 属性の名前空間は取り除かない。無名前空間の TopicStatus の存在と値をそのまま残す。
+            result.append({"guid": topic.get("Guid", "").strip().translate(ASCII_LOWER), "title": title,
+                           "status_present": "TopicStatus" in topic.attrib, "topic_status": topic.get("TopicStatus"), "snapshots": images})
     return result
+
+
+def images_by_title(raw_topics):
+    result = {}
+    for topic in raw_topics:
+        if topic["title"] in result:
+            raise ValueError("BCF の比較対象に同じ題の指摘が複数あります")
+        result[topic["title"]] = topic["snapshots"]
+    return result
+
+
+def xml_snapshots(data):
+    return images_by_title(xml_topics(data))
 
 
 def open_model(z, data, records):
@@ -227,9 +270,10 @@ def make(exe, output):
         written = call(z, {"op": "bcf_write", "review": "edited.json", "target": TARGET, "original": "seed.bcf", "version": "2.1"}, records)
         bcf = blob(z, written)
         reread = read_review(z, "for-acc.bcf", bcf, records)
-        checks = differences(reread, expected)
+        raw_topics = xml_topics(bcf)
+        checks = differences(reread, expected, raw_topics)
         expected_images = {item["title"]: [sha(image)] for item in expected}
-        if any(not check["equal"] for check in checks) or xml_snapshots(bcf) != expected_images:
+        if any(not check["equal"] for check in checks) or images_by_title(raw_topics) != expected_images:
             raise ValueError("書き戻した値か画像が期待と違います")
         if any(record["response"].get("diagnostics") for record in records if record["request"]["op"] != "open"):
             raise ValueError("BCF の往復か要素の確認で診断が出ました")
@@ -267,19 +311,21 @@ def observe(exe, kit, exported):
     try:
         open_model(z, (kit / MODEL).read_bytes(), records)
         with exported.open("rb") as stream:
-            data = stream.read(64 * 1024 * 1024 + 1)
-        if len(data) > 64 * 1024 * 1024:
+            data = stream.read(MAX_EXPANDED_BYTES + 1)
+        if len(data) > MAX_EXPANDED_BYTES:
             raise ValueError("BCF の比較用の入力の上限を超えました")
-        images = xml_snapshots(data)
+        raw_topics = xml_topics(data)
+        images = images_by_title(raw_topics)
         z.push("exported.bcf", data)
         response = call(z, {"op": "bcf_read", "doc": MODEL, "input": "exported.bcf", "target": TARGET}, records)
         review = json.loads(blob(z, response))
-        checks = differences(review, expected, product=True)
+        checks = differences(review, expected, raw_topics, product=True)
         original_images = xml_snapshots((kit / "for-acc.bcf").read_bytes())
         checks += [{"case": item["key"], "field": "snapshot", "equal": images.get(item["title"]) == original_images[item["title"]]} for item in expected]
         (out / "review.json").write_bytes(json_bytes(review))
         (out / "api.json").write_bytes(json_bytes(records))
-        (out / "comparison.json").write_bytes(json_bytes({"version": response["result"]["version"], "topics": response["result"]["topics"], "checks": checks, "failed": sum(not check["equal"] for check in checks)}))
+        (out / "comparison.json").write_bytes(json_bytes({"version": response["result"]["version"], "topics": response["result"]["topics"], "xml_topics": raw_topics,
+                                                        "checks": checks, "failed": sum(not check["equal"] for check in checks)}))
         print("製品の出力の比較: " + str(len(checks)) + " 項目、違い " + str(sum(not check["equal"] for check in checks)) + " 件。詳細はリポジトリの外の observed に記録しました。")
     finally:
         if records:
