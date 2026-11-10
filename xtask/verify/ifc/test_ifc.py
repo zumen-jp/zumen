@@ -4,6 +4,8 @@ import copy
 import importlib.util
 import json
 import os
+import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -42,6 +44,10 @@ class ComparisonTests(unittest.TestCase):
                                     {"code": "ifc.entity.dropped", "count": 4},
                                     {"code": "ifc.unit.missing", "count": 1}]}
         self.assertEqual(kit.diagnostic_counts(response), {"ifc.entity.dropped": 29, "ifc.unit.missing": 1})
+        before, after, expected = models()
+        before["diagnostics"] = kit.diagnostic_counts({"diagnostics": [{"code": "ifc.entity.dropped", "count": 3}]})
+        after["diagnostics"] = kit.diagnostic_counts({"diagnostics": [{"code": "ifc.entity.dropped", "count": 4}]})
+        self.assertIn("diagnostics", kit.differences(before, after, expected))
 
     def test_changed_values_and_unchanged_control_match(self):
         before, after, expected = models()
@@ -173,6 +179,18 @@ class CliTests(unittest.TestCase):
                 failures = json.loads((second / "observed" / schema / "comparison.json").read_bytes())["failures"]
                 self.assertIn("identity", failures)
                 self.assertTrue(any(item.startswith("property:") for item in failures))
+            # 属性は同じで、集約された診断だけが増えた出力も一致にはしない。
+            third = root / "third"
+            shutil.copytree(first, third, ignore=shutil.ignore_patterns("observed"))
+            for schema in kit.CASES:
+                data = (first / schema / "edited.ifc").read_bytes()
+                number = max(map(int, re.findall(rb"(?m)^#([0-9]+)\s*=", data))) + 1
+                end = data.rfind(b"ENDSEC;")
+                changed = root / (schema + ".extra.ifc")
+                changed.write_bytes(data[:end] + f"#{number}=IFCCARTESIANPOINT((0.,0.,0.));\n".encode() + data[end:])
+                self.run_command("observe", exe, third, schema, changed, expected_status=1)
+                comparison = json.loads((third / "observed" / schema / "comparison.json").read_bytes())
+                self.assertEqual(comparison["failures"], ["diagnostics"])
             self.run_command("make", exe, first, expected_status=1)
 
 
