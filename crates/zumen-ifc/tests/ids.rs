@@ -266,15 +266,19 @@ fn attribute_lookups_count_the_values_and_names() {
     assert_eq!(statuses(&report), [("扉", Status::Failed)]);
     assert_eq!(report.findings.len() as u64, doors * facets);
     let calls = doors * facets;
-    let (value, suffix, chain, units) = (10_000, 100, 50, 30);
+    let (value, suffix, chain, units) = (10_000, 160, 50, 30);
     // 扉の名前の値を長くすると、引くたびに読むインスタンスのバイトが増える
     let (longer, _, work) = run((value, 0, 0, 0), Limits::default());
     assert_eq!(longer.unwrap(), report);
     assert_eq!(work - base, calls * value as u64);
-    // 属性の名前を長くすると、引くたびに写す 13 の名前が長くなる
+    // 属性の名前を長くすると、引くたびに写す 13 の名前が長くなる。照合は、名前を比べるときに、名前の文字を読む手間
+    // （16 バイトで 1）も数える（#732）
     let (renamed, _, work) = run((0, suffix, 0, 0), Limits::default());
     assert_eq!(renamed.unwrap(), report);
-    assert_eq!(work - base, calls * 13 * suffix as u64);
+    assert_eq!(
+        work - base,
+        calls * 13 * (suffix as u64 + suffix as u64 / 16)
+    );
     // 扉と IfcRoot の間に上位の型を足すと、属性の数を求める歩数と、並びを作る行きと帰りの歩数と、上位の型の並びの
     // 名前が、1 度だけ増える
     let (chained, _, work) = run((0, 0, chain, 0), Limits::default());

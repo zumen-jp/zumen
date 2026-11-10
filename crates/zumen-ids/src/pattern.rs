@@ -1,6 +1,8 @@
 //! IDS の `xs:pattern` の正規表現（XML Schema Part 2 の附属書 F）。文字列の全体に合うかを見る。
 //!
-//! 照合は状態の集まりを 1 文字ずつ進めるので、入力の長さと式の大きさの積の手間で終わる。
+//! 照合は状態の集まりを 1 文字ずつ進めるので、入力の長さと式の大きさの積の手間で終わる。その手間は
+//! [`Pattern::work`] で、照合の前に予算に数える（#732）。読むときは、入れ子の深さと、展開する手間に上限を
+//! 付ける。
 //! `\p{…}`・`\P{…}` は読まない。`\d`・`\w`・`\i`・`\c` とその否定は、ASCII の文字だけを決め、
 //! ほかの文字では決められないとする。
 
@@ -8,7 +10,11 @@
 #[derive(Clone, Debug, PartialEq)]
 pub struct Pattern {
     nodes: Vec<Node>,
+    /// 文字の集まり。`{n,m}` で同じ集まりを何度も展開しても、写さずに番号で指す
+    sets: Vec<Set>,
     start: usize,
+    /// 1 文字を進める手間の上限。状態の数と、文字の集まりの項目の数の和
+    cost: u64,
 }
 
 /// 文字の集まりの 1 つの項目
@@ -44,8 +50,8 @@ struct Set {
 
 #[derive(Clone, Debug, PartialEq)]
 enum Node {
-    /// 1 文字に合えば `next` へ
-    Char(Set, usize),
+    /// 1 文字が集まり（`sets` の番号）に合えば `next` へ
+    Char(usize, usize),
     /// 2 つに分かれる
     Split(usize, usize),
     /// 合った
@@ -55,7 +61,8 @@ enum Node {
 /// 式の木
 #[derive(Clone, Debug)]
 enum Ast {
-    Set(Set),
+    /// 文字の集まり（`sets` の番号）
+    Set(usize),
     Concat(Vec<Ast>),
     Alt(Vec<Ast>),
     Repeat(Box<Ast>, u32, Option<u32>),
@@ -64,25 +71,66 @@ enum Ast {
 /// 展開した後の状態の数の上限。`{n,m}` の大きな数で、式が膨らみすぎないようにする
 const MAX_NODES: usize = 10_000;
 
+/// 展開する手間（式の木の節を展開する回数）の上限。空の式を `{n,m}` で重ねても、状態を足さずに回り続けない
+/// ようにする。括弧を重ねた式も、状態の上限までは読めるように、入れ子の深さの分の余裕を持たせる（#732）
+const MAX_STEPS: usize = (MAX_DEPTH + 2) * MAX_NODES;
+
+/// 括弧と、文字の集まりの引き算（`[a-z-[aeiou]]`）の入れ子の深さの上限。読む・展開する・照合する再帰が、
+/// スタックを使い切らないようにする（#732）
+const MAX_DEPTH: usize = 64;
+
 impl Pattern {
     /// 式を読む。読めない式か、読まない書き方（`\p{…}` など）を含めば `None`
-    pub fn new(src: &str) -> Option<Self> {
+    #[cfg(test)]
+    fn new(src: &str) -> Option<Self> {
+        Self::read(src).0
+    }
+
+    /// 式を読み、読んだ手間（式の文字の数と、展開した回数）も返す。手間は、式の文字の数と [`MAX_STEPS`] + 1 の和を
+    /// 超えない（#732）
+    pub fn read(src: &str) -> (Option<Self>, u64) {
         let chars: Vec<char> = src.chars().collect();
         let mut parser = Parser {
             chars: &chars,
             at: 0,
+            depth: 0,
+            sets: Vec::new(),
         };
-        let ast = parser.alternation()?;
-        if parser.at != chars.len() {
-            return None;
-        }
+        let read = chars.len() as u64;
+        let ast = match parser.alternation() {
+            Some(ast) if parser.at == chars.len() => ast,
+            _ => return (None, read),
+        };
         let mut pattern = Self {
             nodes: Vec::new(),
+            sets: parser.sets,
             start: 0,
+            cost: 0,
         };
-        let end = pattern.push(Node::Match)?;
-        pattern.start = pattern.compile(&ast, end)?;
-        Some(pattern)
+        let mut steps = 0;
+        let compiled = pattern
+            .push(Node::Match)
+            .and_then(|end| pattern.compile(&ast, end, &mut steps));
+        let work = read + steps as u64;
+        let Some(start) = compiled else {
+            return (None, work);
+        };
+        pattern.start = start;
+        pattern.cost = pattern
+            .nodes
+            .iter()
+            .map(|node| match node {
+                Node::Char(set, _) => 1 + pattern.sets.get(*set).map_or(0, Set::cost),
+                _ => 1,
+            })
+            .fold(0u64, u64::saturating_add);
+        (Some(pattern), work)
+    }
+
+    /// `chars` 文字の文字列に [`matches`](Self::matches) を呼ぶ手間の上限。1 文字ごとに、すべての状態と、
+    /// その文字の集まりの項目を見る（#732）
+    pub fn work(&self, chars: u64) -> u64 {
+        chars.saturating_add(1).saturating_mul(self.cost)
     }
 
     /// 文字列の全体が式に合うか。決められない文字があれば `None`
@@ -96,6 +144,9 @@ impl Pattern {
             let mut seen = vec![false; self.nodes.len()];
             for &state in &current {
                 if let Some(Node::Char(set, to)) = self.nodes.get(state) {
+                    let Some(set) = self.sets.get(*set) else {
+                        continue;
+                    };
                     match set.contains(c) {
                         Some(true) => self.close(*to, &mut next, &mut seen),
                         Some(false) => {}
@@ -145,21 +196,26 @@ impl Pattern {
         Some(self.nodes.len() - 1)
     }
 
-    /// `ast` を、終わりが `next` へ続く状態にする。初めの状態を返す
-    fn compile(&mut self, ast: &Ast, next: usize) -> Option<usize> {
+    /// `ast` を、終わりが `next` へ続く状態にする。初めの状態を返す。展開した回数を `steps` に数え、
+    /// [`MAX_STEPS`] を超えたら `None`
+    fn compile(&mut self, ast: &Ast, next: usize, steps: &mut usize) -> Option<usize> {
+        *steps += 1;
+        if *steps > MAX_STEPS {
+            return None;
+        }
         match ast {
-            Ast::Set(set) => self.push(Node::Char(set.clone(), next)),
+            Ast::Set(set) => self.push(Node::Char(*set, next)),
             Ast::Concat(parts) => {
                 let mut at = next;
                 for part in parts.iter().rev() {
-                    at = self.compile(part, at)?;
+                    at = self.compile(part, at, steps)?;
                 }
                 Some(at)
             }
             Ast::Alt(branches) => {
                 let mut starts = Vec::with_capacity(branches.len());
                 for branch in branches {
-                    starts.push(self.compile(branch, next)?);
+                    starts.push(self.compile(branch, next, steps)?);
                 }
                 let mut at = starts.pop()?;
                 while let Some(start) = starts.pop() {
@@ -173,7 +229,7 @@ impl Pattern {
                 match max {
                     None => {
                         let split = self.push(Node::Split(0, next))?;
-                        let body = self.compile(inner, split)?;
+                        let body = self.compile(inner, split, steps)?;
                         if let Some(Node::Split(first, _)) = self.nodes.get_mut(split) {
                             *first = body;
                         }
@@ -182,13 +238,13 @@ impl Pattern {
                     Some(max) => {
                         // 任意の分の 1 つを省けば、残りも省いて `next` へ
                         for _ in *min..*max {
-                            let body = self.compile(inner, at)?;
+                            let body = self.compile(inner, at, steps)?;
                             at = self.push(Node::Split(body, next))?;
                         }
                     }
                 }
                 for _ in 0..*min {
-                    at = self.compile(inner, at)?;
+                    at = self.compile(inner, at, steps)?;
                 }
                 Some(at)
             }
@@ -197,6 +253,17 @@ impl Pattern {
 }
 
 impl Set {
+    /// 1 文字を確かめる手間。項目の数と、引く集まりの手間の和
+    fn cost(&self) -> u64 {
+        let mut cost = 0u64;
+        let mut set = Some(self);
+        while let Some(this) = set {
+            cost = cost.saturating_add(1 + this.items.len() as u64);
+            set = this.subtract.as_deref();
+        }
+        cost
+    }
+
     fn contains(&self, c: char) -> Option<bool> {
         let mut found = Some(false);
         for (item, negated) in &self.items {
@@ -245,6 +312,10 @@ impl Class {
 struct Parser<'c> {
     chars: &'c [char],
     at: usize,
+    /// 括弧と引き算の入れ子の深さ
+    depth: usize,
+    /// 読んだ文字の集まり
+    sets: Vec<Set>,
 }
 
 impl Parser<'_> {
@@ -256,6 +327,23 @@ impl Parser<'_> {
         let c = self.peek()?;
         self.at += 1;
         Some(c)
+    }
+
+    /// 文字の集まりを足し、その番号の木を返す
+    fn set(&mut self, set: Set) -> Ast {
+        self.sets.push(set);
+        Ast::Set(self.sets.len() - 1)
+    }
+
+    /// 入れ子を 1 段深くして `f` を呼ぶ。[`MAX_DEPTH`] を超えたら `None`
+    fn nested<T>(&mut self, f: impl FnOnce(&mut Self) -> Option<T>) -> Option<T> {
+        if self.depth >= MAX_DEPTH {
+            return None;
+        }
+        self.depth += 1;
+        let out = f(self);
+        self.depth -= 1;
+        out
     }
 
     fn eat(&mut self, c: char) -> bool {
@@ -332,17 +420,20 @@ impl Parser<'_> {
     fn atom(&mut self) -> Option<Ast> {
         match self.bump()? {
             '(' => {
-                let inner = self.alternation()?;
+                let inner = self.nested(Self::alternation)?;
                 self.eat(')').then_some(inner)
             }
-            '[' => Some(Ast::Set(self.class_body()?)),
-            '.' => Some(Ast::Set(single(Item::Class(Class::Any), false))),
+            '[' => {
+                let set = self.class_body()?;
+                Some(self.set(set))
+            }
+            '.' => Some(self.set(single(Item::Class(Class::Any), false))),
             '\\' => {
                 let (item, negated) = self.escape()?;
-                Some(Ast::Set(single(item, negated)))
+                Some(self.set(single(item, negated)))
             }
             '?' | '*' | '+' | '{' | '}' | ']' | ')' => None,
-            c => Some(Ast::Set(single(Item::Range(c, c), false))),
+            c => Some(self.set(single(Item::Range(c, c), false))),
         }
     }
 
@@ -385,7 +476,7 @@ impl Parser<'_> {
                 }
                 '-' if self.chars.get(self.at + 1) == Some(&'[') && !items.is_empty() => {
                     self.at += 2;
-                    subtract = Some(Box::new(self.class_body()?));
+                    subtract = Some(Box::new(self.nested(Self::class_body)?));
                     if !self.eat(']') {
                         return None;
                     }
@@ -443,7 +534,7 @@ fn single(item: Item, negated: bool) -> Set {
 
 #[cfg(test)]
 mod tests {
-    use super::Pattern;
+    use super::{MAX_DEPTH, MAX_STEPS, Pattern};
 
     fn check(pattern: &str, text: &str) -> Option<bool> {
         Pattern::new(pattern).and_then(|p| p.matches(text))
@@ -490,6 +581,47 @@ mod tests {
             "[]",
         ] {
             assert!(Pattern::new(broken).is_none(), "{broken}");
+        }
+    }
+
+    /// 深い入れ子は、スタックを使い切る前に読めない式にする（#732）
+    #[test]
+    fn rejects_deep_nesting() {
+        let depth = 100_000;
+        let groups = format!("{}a{}", "(".repeat(depth), ")".repeat(depth));
+        assert!(Pattern::new(&groups).is_none());
+        let subtract = format!("{}{}", "[a-".repeat(depth), "]".repeat(depth));
+        assert!(Pattern::new(&subtract).is_none());
+        // 上限までの深さは読む
+        let within = format!("{}a{}", "(".repeat(MAX_DEPTH), ")".repeat(MAX_DEPTH));
+        assert_eq!(
+            Pattern::new(&within).and_then(|p| p.matches("a")),
+            Some(true)
+        );
+    }
+
+    /// 状態を足さない空の式を `{n,m}` で重ねても、展開の上限で止まる（#732）
+    #[test]
+    fn stops_expanding_empty_repeats() {
+        let (pattern, work) = Pattern::read("((){10000}){10000}");
+        assert!(pattern.is_none());
+        assert!(work <= 18 + MAX_STEPS as u64 + 1, "{work}");
+    }
+
+    /// 文字の集まりは、展開しても写さない。照合の手間は、文字の数 + 1 と、状態と集まりの項目の数の積
+    #[test]
+    fn shares_sets_and_counts_the_work_of_matching() {
+        let (pattern, work) = Pattern::read("[a-z0-9_]{2000}");
+        let pattern = pattern.unwrap();
+        assert_eq!(pattern.sets.len(), 1);
+        assert!(work >= 2000, "{work}");
+        // 合った状態と、2,000 個の 1 文字の状態（それぞれ 1 と、集まりの手間 4）
+        assert_eq!(pattern.work(0), 1 + 2000 * 5);
+        assert_eq!(pattern.work(9), 10 * (1 + 2000 * 5));
+        assert_eq!(pattern.matches(&"a".repeat(2000)), Some(true));
+        // 括弧を重ねても、状態の上限までは読む
+        for nested in ["((((a)))){8000}", "((((((a)))))){6000}"] {
+            assert!(Pattern::new(nested).is_some(), "{nested}");
         }
     }
 }
