@@ -4,8 +4,8 @@ import { clipParts, primitiveParts, transparentStyle, unitStyle, viewportPart } 
 
 const EMPTY = Object.freeze([]);
 const EPSILON = 16 * Number.EPSILON;
-const lessEqual = (a, b) => a <= b || a - b <= EPSILON * Math.max(1, Math.abs(a), Math.abs(b));
-const between = (n, a, b) => lessEqual(a, n) && lessEqual(n, b);
+const lessEqual = (a, b, error = 0) => a <= b || a - b <= error + EPSILON * Math.max(1, Math.abs(a), Math.abs(b));
+const between = (n, a, b, error = 0) => lessEqual(a, n, error) && lessEqual(n, b, error);
 const pointInBox = (p, b) => between(p.x, b.min_x, b.max_x) && between(p.y, b.min_y, b.max_y);
 const overlap = (a, b) => a.min_x <= b.max_x && b.min_x <= a.max_x && a.min_y <= b.max_y && b.min_y <= a.max_y;
 const segmentBounds = (a, b) => ({ min_x: Math.min(a.x, b.x), min_y: Math.min(a.y, b.y), max_x: Math.max(a.x, b.x), max_y: Math.max(a.y, b.y) });
@@ -13,8 +13,8 @@ const circleBounds = ({ x, y, radius }) => ({ min_x: x - radius, min_y: y - radi
 const sign = (value, scale = 1) => Math.abs(value) <= EPSILON * scale ? 0 : Math.sign(value);
 const coordinateSign = (first, second, secondScale) => sign(first) || sign(second, secondScale);
 
-function compareToward(value, boundary, first, second, secondScale) {
-  return lessEqual(value, boundary) && lessEqual(boundary, value) ? coordinateSign(first, second, secondScale) : Math.sign(value - boundary);
+function compareToward(value, boundary, first, second, secondScale, error = 0) {
+  return lessEqual(value, boundary, error) && lessEqual(boundary, value, error) ? coordinateSign(first, second, secondScale) : Math.sign(value - boundary);
 }
 
 function circleToward(p, center, radius, direction) {
@@ -41,14 +41,24 @@ function segmentContains(a, b, p, radius, direction) {
   const dx = b.x - a.x, dy = b.y - a.y, scale = Math.max(Math.abs(dx), Math.abs(dy));
   if (scale === 0) return false; // butt の端だけを持つ線は描かれない。
   const nx = dx / scale, ny = dy / scale, px = p.x - a.x, py = p.y - a.y;
-  const t = (px / scale * nx + py / scale * ny) / (nx * nx + ny * ny);
-  const normal = (px * ny - py * nx) / Math.hypot(nx, ny);
-  if (!direction) return between(t, 0, 1) && lessEqual(Math.abs(normal), radius);
-  const along = direction.x * nx + direction.y * ny, across = (direction.x * ny - direction.y * nx) / Math.hypot(nx, ny);
-  const secondAlong = direction.ax * nx + direction.ay * ny, secondAcross = (direction.ax * ny - direction.ay * nx) / Math.hypot(nx, ny);
+  const tx = px / scale * nx, ty = py / scale * ny, squaredLength = nx * nx + ny * ny;
+  const t = (tx + ty) / squaredLength;
+  const length = Math.hypot(nx, ny), normal = (px * ny - py * nx) / length;
+  // stroke の角を CSS 座標へ足す 1 回の丸めは ε/2、法線 offset の
+  // 正規化と積には既存の 16ε の余裕を使い、各軸から距離へ伝播する。
+  // offset がゼロの軸には加算がない。t は線分長で割るので距離の誤差も割る。
+  const offsetX = Math.abs(ny) / length * radius, offsetY = Math.abs(nx) / length * radius;
+  const errorX = offsetX === 0 ? 0 : Number.EPSILON / 2 * Math.max(Math.abs(a.x), Math.abs(b.x), Math.abs(p.x)) + EPSILON * offsetX;
+  const errorY = offsetY === 0 ? 0 : Number.EPSILON / 2 * Math.max(Math.abs(a.y), Math.abs(b.y), Math.abs(p.y)) + EPSILON * offsetY;
+  // 内積・外積の 2 積が相殺するときも、結果ではなく各項から丸めを数える。
+  const errorT = ((Math.abs(nx) * errorX + Math.abs(ny) * errorY) / scale + Number.EPSILON * (Math.abs(tx) + Math.abs(ty))) / squaredLength;
+  const errorNormal = (Math.abs(ny) * errorX + Math.abs(nx) * errorY + Number.EPSILON * (Math.abs(px * ny) + Math.abs(py * nx))) / length;
+  if (!direction) return between(t, 0, 1, errorT) && lessEqual(Math.abs(normal), radius, errorNormal);
+  const along = direction.x * nx + direction.y * ny, across = (direction.x * ny - direction.y * nx) / length;
+  const secondAlong = direction.ax * nx + direction.ay * ny, secondAcross = (direction.ax * ny - direction.ay * nx) / length;
   const secondScale = Math.max(Math.abs(direction.ax), Math.abs(direction.ay));
-  return compareToward(t, 0, along, secondAlong, secondScale) > 0 && compareToward(t, 1, along, secondAlong, secondScale) < 0 &&
-    compareToward(normal, -radius, across, secondAcross, secondScale) > 0 && compareToward(normal, radius, across, secondAcross, secondScale) < 0;
+  return compareToward(t, 0, along, secondAlong, secondScale, errorT) > 0 && compareToward(t, 1, along, secondAlong, secondScale, errorT) < 0 &&
+    compareToward(normal, -radius, across, secondAcross, secondScale, errorNormal) > 0 && compareToward(normal, radius, across, secondAcross, secondScale, errorNormal) < 0;
 }
 
 function roundJoin(previous, center, next) {
