@@ -161,6 +161,10 @@ jobs:
         run: ZUMEN_IFC_CURVES_OUT="$RUNNER_TEMP/curves" cargo test --locked -p zumen-ifc --all-features --test curves writes_curves_for_other_readers
       - name: 曲線の定義を IfcOpenShell で読んだ値と照らす
         run: python -I crates/zumen-ifc/tests/ifcopenshell/curves.py "$RUNNER_TEMP/curves"
+      - name: 要素の形状表現と共有写像の参照を書く
+        run: ZUMEN_IFC_SHAPES_OUT="$RUNNER_TEMP/shapes" cargo test --locked -p zumen-ifc --all-features --test product_shapes writes_product_shapes_for_other_readers
+      - name: 形状表現の参照と元の配置・写像の属性を IfcOpenShell と照らす
+        run: python -I crates/zumen-ifc/tests/ifcopenshell/product_shapes.py "$RUNNER_TEMP/shapes"
 
   laspy:
     name: 非圧縮 LAS の読みを laspy と照らす

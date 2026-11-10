@@ -1175,6 +1175,31 @@ group-by = ["kind"]
 since = "0.2.1"
 status = "active"
 
+[codes."ifc.shape.invalid"]
+description = "要素の形状表現の参照か構造に読めない値か循環があり、ビューを返さなかった"
+severity = "error"
+params = { reason = "key" }
+group-by = ["reason"]
+since = "0.2.1"
+status = "active"
+
+[codes."ifc.shape.unsupported"]
+description = "形の項目は展開せず、元の L1 レコードへの参照だけを残した"
+severity = "warning"
+fidelity = "dropped"
+params = { kind = "key" }
+group-by = ["kind"]
+since = "0.2.1"
+status = "active"
+
+[codes."ifc.shape.missing"]
+description = "形状表現の取得で省略された属性を None として保持した"
+severity = "warning"
+params = { field = "key" }
+group-by = ["field"]
+since = "0.2.1"
+status = "active"
+
 [codes."ifc.parent.exists"]
 description = "要素の親がもうあるので、後の集約・入れ子・空間への包含を写さなかった"
 severity = "warning"

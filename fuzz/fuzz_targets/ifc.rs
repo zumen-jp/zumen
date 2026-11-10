@@ -12,6 +12,20 @@ use zumen_sdk::{Codec, Cx, Error, Lift};
 /// 建物モデルと土木の領域モデルに移す。土木の領域モデルは IFC4X3 からだけ作るので、ほかのバージョンの `Unsupported` は
 /// 失敗にしない。止めたときだけ失敗を返す
 fn lift(file: &IfcFile, cx: &mut Cx) -> Result<(), Error> {
+    // 要素から共有写像をたどる入口。値を写す範囲は 16 要素まで、曲線の取得とも予算を共有する
+    let mut shapes = 0;
+    for id in file.ids() {
+        cx.check(zumen_base::Kind::Work, 1)?;
+        if file.instance(id).is_some_and(|r| {
+            [b"IFCWALL".as_slice(), b"IFCCOLUMN", b"IFCBEAM", b"IFCSLAB", b"IFCGRID", b"IFCSPACE", b"IFCBUILDINGELEMENTPROXY"].iter().any(|kind| file.kind(r).eq_ignore_ascii_case(kind))
+        }) {
+            if let Err(Error::Stopped(stop)) = file.product_shape(id, cx) {
+                return Err(Error::Stopped(stop));
+            }
+            shapes += 1;
+            if shapes == 16 { break; }
+        }
+    }
     // 必要時の曲線の入口も通す。全体を 16 度まで写し、共有する予算で探索と確保を止める
     let mut curves = 0;
     for id in file.ids() {
