@@ -2286,6 +2286,28 @@ pub const IFC_CIVIL_UNIT_ASSUMED: Code = Code::new(
     &["type"],
 );
 
+/// 曲線の定義に読めない値か循環があるので、曲線のグラフを返さなかった
+///
+/// `ifc.curve.invalid`（0.2.1 から）
+pub const IFC_CURVE_INVALID: Code = Code::new(
+    "ifc.curve.invalid",
+    Severity::Error,
+    None,
+    &[Param::new("reason", ParamType::Key)],
+    &["reason"],
+);
+
+/// 型を持たない曲線なので、種類と出所だけを持った
+///
+/// `ifc.curve.unsupported`（0.2.1 から）
+pub const IFC_CURVE_UNSUPPORTED: Code = Code::new(
+    "ifc.curve.unsupported",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("kind", ParamType::Key)],
+    &["kind"],
+);
+
 /// 同じ番号のインスタンスが複数あるので、番号で引くときは初めのものを使う
 ///
 /// `ifc.duplicate.dropped`（0.2.0 から）
@@ -4846,6 +4868,8 @@ pub const ALL: &[Code] = &[
     IFC_ATTRIBUTE_INVALID,
     IFC_CIVIL_GEOMETRY_DROPPED,
     IFC_CIVIL_UNIT_ASSUMED,
+    IFC_CURVE_INVALID,
+    IFC_CURVE_UNSUPPORTED,
     IFC_DUPLICATE_DROPPED,
     IFC_ENTITY_DROPPED,
     IFC_ENTRY_MISSING,

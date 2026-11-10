@@ -8,12 +8,14 @@ use std::collections::BTreeMap;
 use zumen_base::{Cx, Diagnostic, Ref, codes};
 
 mod component;
+mod curve;
 mod hash;
 mod id;
 mod placement;
 mod relations;
 
 pub use component::*;
+pub use curve::*;
 pub use hash::{Canon, Encode, Hash};
 pub use id::{GlobalId, Id};
 pub use placement::Transform;

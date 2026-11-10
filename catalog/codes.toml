@@ -1158,6 +1158,23 @@ group-by = ["kind", "position"]
 since = "0.2.0"
 status = "active"
 
+[codes."ifc.curve.invalid"]
+description = "曲線の定義に読めない値か循環があるので、曲線のグラフを返さなかった"
+severity = "error"
+params = { reason = "key" }
+group-by = ["reason"]
+since = "0.2.1"
+status = "active"
+
+[codes."ifc.curve.unsupported"]
+description = "型を持たない曲線なので、種類と出所だけを持った"
+severity = "warning"
+fidelity = "dropped"
+params = { kind = "key" }
+group-by = ["kind"]
+since = "0.2.1"
+status = "active"
+
 [codes."ifc.parent.exists"]
 description = "要素の親がもうあるので、後の集約・入れ子・空間への包含を写さなかった"
 severity = "warning"
