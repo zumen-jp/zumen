@@ -376,11 +376,11 @@ fn huge_station_numbers_end() {
 }
 
 /// 測点の番号の診断の（件数・飛ばした数・丸まりうる数・場所）
-#[cfg(test)]
 fn approximated(diag: &Diagnostics) -> Vec<(u64, u64, u64, Vec<Ref>)> {
     let uint = |d: &zumen_base::Diagnostic, name: &str| match d.param(name) {
         Some(Value::UInt(n)) => *n,
-        _ => u64::MAX,
+        // 値がなければ 0 にして、0 より大きいことの確かめで落とす
+        _ => 0,
     };
     diag.iter()
         .filter(|d| d.code() == codes::CIVIL_STATION_APPROXIMATED)
@@ -396,7 +396,6 @@ fn approximated(diag: &Diagnostics) -> Vec<(u64, u64, u64, Vec<Ref>)> {
 }
 
 /// 間隔 1 m で、測点の値を `start` から始めた線形を描いたときの、測点の番号の診断
-#[cfg(test)]
 fn approximated_from(start: f64) -> Vec<(u64, u64, u64, Vec<Ref>)> {
     let mut line = alignment();
     line.stations.start = start;
