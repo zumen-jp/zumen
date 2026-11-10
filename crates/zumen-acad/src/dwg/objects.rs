@@ -2061,15 +2061,19 @@ fn table_record(bits: &mut Bits, type_code: u16, handles: &mut Vec<i16>) -> Opti
             // 表示しない画層は、DXF と同じく色を負にする
             // 真の色は 420 に置き、色見本帳の色なら名前（430）も置く。真の色の番号（BS）は、AutoCAD では 0 で（ODS 5.4.1 の
             // 2.11）、zumen が書いた画層は番号を持つ（#723）。DXF は真の色の画層にも 62 に近い番号を置くが、近さの決まりが
-            // 分からないので、番号が 1〜255 でなければ 7 を置き、表示しない状態を 62 の符号で持つ（#743）
+            // 分からないので、番号が 1〜255 でない画層は、表示しないときだけ 62 に -7 を置き、表示しない状態を移す。
+            // 表示する画層に 7 を置くと、描くときに ACI 7 の前景の色になり、真の色を失うので置かない（#743）
             let (color, name) = bits.cmc_named()?;
             let index = i64::from(color.index);
-            let index = match color.rgb {
-                Some(_) if !(1..=255).contains(&index) => 7,
-                _ => index,
-            };
-            let signed = if flags & 2 != 0 { -index } else { index };
-            values.push(int(62, signed));
+            let hidden = flags & 2 != 0;
+            match color.rgb {
+                Some(_) if !(1..=255).contains(&index) => {
+                    if hidden {
+                        values.push(int(62, -7));
+                    }
+                }
+                _ => values.push(int(62, if hidden { -index } else { index })),
+            }
             if let Some(rgb) = color.rgb {
                 values.push(int(420, i64::from(rgb)));
             }
@@ -4767,13 +4771,13 @@ mod tests {
             .collect()
     }
 
-    /// 真の色の画層は、番号が 0（AutoCAD が書く）でも 62 に 7 を置き、表示しない状態を符号で持つ。番号を持つ画層
-    /// （zumen が書いた画層）は、その番号を置く（#743）
+    /// 真の色の画層は、番号が 0（AutoCAD が書く）でも、表示しないなら 62 に -7 を置く。表示するなら 62 を置かず、
+    /// 描く色を真の色のままにする。番号を持つ画層（zumen が書いた画層）は、その番号を置く（#743）
     #[test]
     fn true_color_layers_keep_their_visibility() {
         // 表示しない 2・印刷 16
         assert_eq!(color_of_layer(2 | 16, 0), [(62, -7), (420, 0x12_34_56)]);
-        assert_eq!(color_of_layer(16, 0), [(62, 7), (420, 0x12_34_56)]);
+        assert_eq!(color_of_layer(16, 0), [(420, 0x12_34_56)]);
         assert_eq!(color_of_layer(2 | 16, 3), [(62, -3), (420, 0x12_34_56)]);
         assert_eq!(color_of_layer(16, 3), [(62, 3), (420, 0x12_34_56)]);
     }

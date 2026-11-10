@@ -282,6 +282,14 @@ fn dwg_and_dxf_of_the_same_drawing_give_the_same_table() {
                     .nth(*nth)
                     .map(|v| &v.data);
                 *nth += 1;
+                // 真の色の画層の 62 は、DXF が近い番号を置くが、DWG は表示しない状態だけを -7 で置く（#743）。符号だけを比べる
+                let true_color_layer = |data: &Data, theirs: &Data| {
+                    object.kind == b"LAYER"
+                        && value.code == 62
+                        && object.first(420).is_some()
+                        && matches!((data, theirs), (Data::Int(ours), Data::Int(theirs))
+                            if ours.signum() == theirs.signum())
+                };
                 // R2000 の MULTILEADER の色は番号だけを持つ（0xC3）。DXF が RGB の色（0xC2）を持つときは比べない
                 let nearest = |data: &Data, theirs: &Data| {
                     matches!((data, theirs), (Data::Int(ours), Data::Int(theirs))
@@ -330,6 +338,7 @@ fn dwg_and_dxf_of_the_same_drawing_give_the_same_table() {
                         || (object.kind == b"TABLESTYLE"
                             && value.code == 7
                             && style_name(&value.data, theirs))
+                        || true_color_layer(&value.data, theirs)
                         || (object.kind == b"ACAD_TABLE"
                             && value.code == 340
                             && anonymous(&value.data, theirs))
@@ -2282,9 +2291,11 @@ fn table_records_are_taken_back(version: &[u8; 6]) {
             if object.section != Section::Tables {
                 continue;
             }
+            // 色見本帳の色（430）の画層は、番号の色を書けないので、色を変えない（#743）
+            let named = object.values.iter().any(|v| v.code == 430);
             for value in object.values.iter_mut() {
                 match (object.kind.as_slice(), value.code, &mut value.data) {
-                    (b"LAYER", 62, Data::Int(v)) => *v = v.signum() * (v.abs() % 255 + 1),
+                    (b"LAYER", 62, Data::Int(v)) if !named => *v = v.signum() * (v.abs() % 255 + 1),
                     (b"STYLE", 41, Data::Real(v)) => *v *= 2.0,
                     (b"LTYPE", 49, Data::Real(v)) => *v *= 2.0,
                     (b"VIEW" | b"VPORT", 40, Data::Real(v)) => *v *= 2.0,

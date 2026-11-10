@@ -3423,7 +3423,7 @@ fn layer(
     fields.bs(flags);
     match integer(object, 420)? {
         // 真の色（R2004 から、#723）。番号（BS）も書き、読むときに 62 に戻す。番号を持たない（AutoCAD の）真の色の画層は、
-        // 読むときに 62 を 7 にするので、7 のままなら元の CMC を写す（#743）
+        // 表示しないときは 62 を -7 に読み、図面モデルからは 7 で書くので、7 のままなら元の CMC を写す（#743）
         Some(rgb)
             if old_color.rgb.map(i64::from) == Some(rgb)
                 && (old_color.index == color

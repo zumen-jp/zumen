@@ -289,6 +289,69 @@ fn color_book_names_follow_true_colors() {
     assert!(written.contains("430\nBOOK$RED\n"));
 }
 
+/// 番号を持たない真の色の画層（AutoCAD の DWG の真の色の画層を、62 なしで読んだ形）も、表示しない画層に変えられる。
+/// 番号は 7 にし、真の色は残す。読み直すと、表示しない画層になる（#743）
+#[test]
+fn true_color_layers_without_numbers_can_be_hidden() {
+    let text = String::from_utf8(src())
+        .unwrap()
+        .replace("AC1015", "AC1018")
+        .replace(
+            "  2
+A
+ 70
+0
+ 62
+1
+",
+            "  2
+A
+ 70
+0
+420
+16711680
+",
+        );
+    let mut file = testkit::read::<Dxf>(text.as_bytes()).0.unwrap();
+    let drawing = lift(&file);
+    let was = layer(&drawing, "A");
+    let red = Some(Color {
+        code: None,
+        rgb: Some([255, 0, 0]),
+    });
+    assert_eq!(was.style.unwrap().color, red);
+    let state = was.state.unwrap();
+    assert!(state.visible);
+    let mut new = was.clone();
+    new.state = Some(LayerState {
+        visible: false,
+        ..state
+    });
+    let (result, codes) = apply(
+        &mut file,
+        vec![Edit::ReplaceLayer {
+            target: seen(was),
+            layer: Box::new(new),
+        }],
+    );
+    result.unwrap();
+    assert!(codes.is_empty(), "{codes:?}");
+    let written = testkit::write::<Dxf>(&file).unwrap();
+    let after = lift(&testkit::read::<Dxf>(&written).0.unwrap());
+    let hidden = layer(&after, "A");
+    assert!(!hidden.state.unwrap().visible);
+    assert_eq!(
+        hidden.style.unwrap().color,
+        Some(Color {
+            code: Some(ColorCode {
+                system: ColorSystem::Aci,
+                value: 7,
+            }),
+            rgb: Some([255, 0, 0]),
+        })
+    );
+}
+
 #[test]
 fn layers_are_added_from_the_zero_layer() {
     let mut file = testkit::read::<Dxf>(&src()).0.unwrap();
