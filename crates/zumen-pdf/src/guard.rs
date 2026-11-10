@@ -1127,6 +1127,9 @@ struct Tokens {
 /// 文字列と配列と辞書の覚えの 1 つのメモリ（位置の組と、表の木の節）
 const TOKEN_BYTES: u64 = 48;
 
+/// 配列と辞書の覚えを 1 つ足す手間を、読んだバイト数として数える量（`Work` の 20）
+const INSERT_BYTES: usize = 20 * LOOKUP_BYTES as usize;
+
 /// hayro-syntax 0.9.0 の、配列と辞書の入れ子の深さの上限（`MAX_OBJECT_NESTING_DEPTH`）
 const NESTING: usize = 512;
 
@@ -1303,6 +1306,9 @@ impl Tokens {
                 .is_some_and(|gap| gap.iter().any(|&byte| matches!(byte, b'\n' | b'\r' | b'%')));
             if lines {
                 cx.check(Kind::DecodedBytes, TOKEN_BYTES)?;
+                // 覚えを足す手間（大きな表で 1 つ数百 ns）も数える。深さの違う辞書が同じ項目に着く形では、辞書ごとに
+                // 深さの上限まで覚えを足す（PR #750 の確かめ）
+                *read += INSERT_BYTES;
                 items.push(item);
             }
             // 項目ごとに覚えを引くので、覚えから飛ばした項目も、1 つを 2 として `Work` に数える

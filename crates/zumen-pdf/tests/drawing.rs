@@ -4546,7 +4546,11 @@ fn reads_names_in_comments_in_linear_work() {
         let src = document.bytes();
         let size = (line.len() * count) as u64;
         let work = used(&src, Kind::Work);
-        assert!(work < plain + size, "{line:?} {plain} {work}");
+        // 行ごとに覚えを 1 つ足すので、その手間（`Work` の 20）も数える
+        assert!(
+            work < plain + size + 32 * count as u64,
+            "{line:?} {plain} {work}"
+        );
         let decoded = used(&src, Kind::DecodedBytes);
         assert!(decoded < 64 * size, "{line:?} {decoded}");
     }
@@ -4604,6 +4608,12 @@ fn counts_reads_that_grow_faster_than_the_file() {
         let work = used(&document.bytes(), Kind::Work);
         assert!(work >= (count * count) as u64, "{name} {work}");
     }
+    // 入れ子が行ごとに 1 段ずつ深くなる形は、辞書ごとに深さの上限まで覚えを足すので、足す手間を数える（PR #750 の
+    // 確かめの形）
+    let mut document = Document::new(vec![Page::new("0 0 m 10 10 l S")]);
+    document.objects = vec![format!("[{}]", "[ %obj<< [\n".repeat(count)).into_bytes()];
+    let work = used(&document.bytes(), Kind::Work);
+    assert!(work >= 20 * 400 * count as u64, "{work}");
     // 読み直す閉じない文字列の中の、覚えた括弧の組も、引くたびに数える（PR #745 の 2 回目の確かめの形）
     let (lines, pairs) = (200, 10_000);
     let mut document = Document::new(vec![Page::new("0 0 m 10 10 l S")]);
