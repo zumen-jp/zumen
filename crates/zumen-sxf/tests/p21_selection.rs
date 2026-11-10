@@ -282,7 +282,7 @@ fn sfc_returns_diagnostics_in_record_order() {
         "/*SXF3\n#10=future_feature()\nSXF3*/\n",
         "/*SXF3\n#20=layer_feature()\nSXF3*/\n",
         "/*SXF3\n#40=future_feature()\nSXF3*/\n",
-        "/*SXF3\n#30=drawing_sheet_feature(\'S\','3','1','0','0')\nSXF3*/\n",
+        "/*SXF3\n#30=drawing_sheet_feature(\\'S\\','3','1','0','0')\nSXF3*/\n",
     )))
     .unwrap()
     .replace("AP202_mode", "feature_mode");
@@ -329,6 +329,48 @@ fn sfc_returns_diagnostics_in_record_order() {
         assert!(matches!(cancelled, Err(Error::Stopped(_))));
     }
     assert_eq!(testkit::write::<Sxf>(&file).unwrap(), src.as_bytes());
+}
+
+/// 1 つのレコードが続けて報告する診断は、そのレコードの中で報告した順を保ち、後ろのレコードを表の段階で
+/// 報告した診断より前に並ぶ（#624）。SFC の各段階は、それぞれレコードの順に報告するので、同じ code と値の
+/// 診断の場所が後ろから届く入力は作れなかった。場所の先頭を残すことは、`zumen-base` の単体の試験と、P21 の
+/// 試験（#620）で確かめている
+#[test]
+fn sfc_keeps_the_report_order_within_one_record() {
+    let src = String::from_utf8(p21(concat!(
+        "/*SXF3\n#10=composite_curve_org_feature('x')\nSXF3*/\n",
+        "/*SXF3\n#20=layer_feature()\nSXF3*/\n",
+        "/*SXF3\n#30=drawing_sheet_feature(\\'S\\','3','1','0','0')\nSXF3*/\n",
+    )))
+    .unwrap()
+    .replace("AP202_mode", "feature_mode");
+    let file = read(src.as_bytes());
+    let text = |value: &str| Value::Text(value.into());
+    for max_places in [usize::MAX, 0, 1] {
+        let (drawing, _, diagnostics) = run_with_places(&file, Limit::Unlimited, false, max_places);
+        assert!(drawing.is_ok());
+        let found: Vec<_> = diagnostics
+            .iter()
+            .map(|d| {
+                (
+                    d.code(),
+                    d.params().first().map(|(_, v)| v.clone()),
+                    d.places().to_vec(),
+                )
+            })
+            .collect();
+        let at = |id| places(&file, id)[..max_places.min(1)].to_vec();
+        assert_eq!(
+            found,
+            [
+                (codes::SXF_CODE_MISSING, Some(text("colour")), at(10)),
+                (codes::SXF_CODE_MISSING, Some(text("line type")), at(10)),
+                (codes::SXF_CODE_MISSING, Some(text("width")), at(10)),
+                (codes::SXF_LIFT_INVALID, Some(text("layer_feature")), at(20)),
+            ],
+            "{max_places}"
+        );
+    }
 }
 
 #[test]
