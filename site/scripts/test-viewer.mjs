@@ -65,6 +65,8 @@ try {
   const csp = response.headers()["content-security-policy"];
   assert.equal(csp, headers["Content-Security-Policy"]);
   assert.equal(response.headers()["referrer-policy"], "no-referrer");
+  assert.match(response.headers()["cache-control"], /(?:^|,\s*)no-transform(?:,|$)/);
+  assert.match(response.headers()["cache-control"], /(?:^|,\s*)max-age=0(?:,|$)/);
   const picker = page.getByLabel("図面ファイル"), samples = page.getByLabel("公開サンプル");
   async function ready(format) {
     await page.waitForFunction((value) => document.querySelector(".status")?.textContent.includes("表示しました。 " + value), format);
