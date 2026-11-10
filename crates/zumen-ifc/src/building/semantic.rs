@@ -244,10 +244,10 @@ impl Lifter<'_> {
     }
 
     /// 実体自体を落とす場合は既存の entity.dropped だけにする。別成分で使った対象への関係の欠落だけを診断する。
-    pub(super) fn report_unmapped_relations(&mut self, cx: &mut Cx) {
+    pub(super) fn report_unmapped_relations(&mut self, cx: &mut Cx) -> Result<(), Error> {
         for (relation, target, position) in core::mem::take(&mut self.unmapped_relations) {
             if !self.charge(cx, Kind::Work, 1) {
-                return;
+                return self.halted(cx, self.file.instance(relation).map(Record::span));
             }
             if !self.used.contains(&target) {
                 continue;
@@ -271,9 +271,10 @@ impl Lifter<'_> {
                     .at(at_bytes(relation.span())),
             );
             if !self.charge(cx, Kind::Work, 0) {
-                return;
+                return self.halted(cx, Some(relation.span()));
             }
         }
+        Ok(())
     }
 
     /// IfcClassificationReference の 2 ItemReference（IFC4 から Identification）・3 Name・4 ReferencedSource。

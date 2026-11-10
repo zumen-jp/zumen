@@ -525,3 +525,51 @@ fn pending_relation_targets_use_budgets() {
     assert!(b.is_err());
     assert!(has(&diag, codes::BUDGET_DECODED_BYTES_EXCEEDED));
 }
+
+#[test]
+fn pending_relation_targets_keep_the_relation_span_when_work_stops() {
+    for schema in VERSIONS {
+        let src = resource_source(schema, 2, true, false);
+        let cancel = CancelToken::new();
+        let mut budget = Budget::new(Limits::default());
+        let mut diag = Diagnostics::new();
+        let file = Ifc::read(
+            src.as_bytes(),
+            &mut Cx::new(&mut budget, &mut diag, &cancel),
+        )
+        .unwrap();
+        let span = file.instance(32).unwrap().span();
+        let mut budget = Budget::new(Limits::default());
+        let mut diag = Diagnostics::new();
+        let result: Result<Building, Error> =
+            file.lift(&mut Cx::new(&mut budget, &mut diag, &cancel));
+        assert!(result.is_ok());
+        let work = budget.used(Kind::Work);
+
+        // 最後の構成員の後処理だけを止める。最初の構成員の診断が、後処理に達したことを示す。
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(work - 1)));
+        let mut diag = Diagnostics::new();
+        let result: Result<Building, Error> =
+            file.lift(&mut Cx::new(&mut budget, &mut diag, &cancel));
+        assert!(result.is_err());
+        assert_eq!(
+            diag.iter()
+                .filter(|d| d.code() == codes::IFC_RELATION_TARGET_UNSUPPORTED)
+                .map(|d| d.count())
+                .sum::<u64>(),
+            1
+        );
+        let stops: Vec<_> = diag
+            .iter()
+            .filter(|d| d.code() == codes::BUDGET_WORK_EXCEEDED)
+            .collect();
+        assert_eq!(stops.len(), 1);
+        assert_eq!(stops[0].count(), 1);
+        assert_eq!(stops[0].places().len(), 1, "{schema}");
+        assert_eq!(
+            stops[0].places()[0].bytes().map(|r| (r.start, r.end)),
+            Some((span.start as u64, span.end as u64)),
+            "{schema}"
+        );
+    }
+}

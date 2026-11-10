@@ -622,8 +622,7 @@ impl<'f> Lifter<'f> {
             self.placement(element, id, cx)?;
         }
         self.halted(cx, None)?;
-        self.report_unmapped_relations(cx);
-        self.halted(cx, None)?;
+        self.report_unmapped_relations(cx)?;
         for &id in &ids {
             if self.used.contains(&id) {
                 continue;
