@@ -370,6 +370,47 @@ A
     );
     assert_eq!(result.unwrap_err(), Error::Rejected);
     assert!(codes.contains(&codes::CHANGE_EDIT_UNSUPPORTED), "{codes:?}");
+    // 7 でない番号と同じ真の色を持つ画層を、番号のない同じ真の色に変えることも、書かない
+    let text = String::from_utf8(src())
+        .unwrap()
+        .replace("AC1015", "AC1018")
+        .replace(
+            "  2
+A
+ 70
+0
+ 62
+1
+",
+            "  2
+A
+ 70
+0
+ 62
+5
+420
+16711680
+",
+        );
+    let mut file = testkit::read::<Dxf>(text.as_bytes()).0.unwrap();
+    let drawing = lift(&file);
+    let was = layer(&drawing, "A");
+    let mut new = was.clone();
+    let mut style = new.style.unwrap();
+    style.color = Some(Color {
+        code: None,
+        rgb: Some([255, 0, 0]),
+    });
+    new.style = Some(style);
+    let (result, codes) = apply(
+        &mut file,
+        vec![Edit::ReplaceLayer {
+            target: seen(was),
+            layer: Box::new(new),
+        }],
+    );
+    assert_eq!(result.unwrap_err(), Error::Rejected);
+    assert!(codes.contains(&codes::CHANGE_EDIT_UNSUPPORTED), "{codes:?}");
     // 番号の色の画層を、番号のない真の色に変えることも、書かない
     let text = String::from_utf8(src())
         .unwrap()
