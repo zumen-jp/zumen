@@ -21,6 +21,8 @@ use crate::{IfcFile, IfcZipFile, Record, Value, at_bytes, stopped};
 
 mod curve;
 mod semantic;
+mod shape;
+pub use shape::{ProductShape, ShapeLinks, ShapeNode, ShapeRef};
 
 /// 建物モデルを作るバージョン
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -33,12 +35,17 @@ enum Version {
 impl Version {
     /// `FILE_SCHEMA` の名前から。IFC4X1・IFC4X2 は正式のバージョンでないので読まない
     fn of(schema: &[u8]) -> Option<Self> {
-        let upper = schema.to_ascii_uppercase();
-        if upper.starts_with(b"IFC2X3") {
+        if schema
+            .get(..6)
+            .is_some_and(|s| s.eq_ignore_ascii_case(b"IFC2X3"))
+        {
             Some(Self::Ifc2x3)
-        } else if upper.starts_with(b"IFC4X3") {
+        } else if schema
+            .get(..6)
+            .is_some_and(|s| s.eq_ignore_ascii_case(b"IFC4X3"))
+        {
             Some(Self::Ifc4x3)
-        } else if upper == b"IFC4" {
+        } else if schema.eq_ignore_ascii_case(b"IFC4") {
             Some(Self::Ifc4)
         } else {
             None

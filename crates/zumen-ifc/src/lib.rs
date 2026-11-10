@@ -28,6 +28,8 @@ mod ids;
 mod zip;
 
 #[cfg(feature = "building")]
+pub use building::{ProductShape, ShapeLinks, ShapeNode, ShapeRef};
+#[cfg(feature = "building")]
 pub use edit::{Applied, Edit, NewLiteral, NewValue, RootAttribute, apply};
 pub use express::{Express, Findings, check, check_range};
 #[cfg(feature = "ids")]

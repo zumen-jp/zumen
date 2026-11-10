@@ -2456,6 +2456,39 @@ pub const IFC_SCHEMA_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
+/// 要素の形状表現の参照か構造に読めない値か循環があり、ビューを返さなかった
+///
+/// `ifc.shape.invalid`（0.2.1 から）
+pub const IFC_SHAPE_INVALID: Code = Code::new(
+    "ifc.shape.invalid",
+    Severity::Error,
+    None,
+    &[Param::new("reason", ParamType::Key)],
+    &["reason"],
+);
+
+/// 形状表現の取得で省略された属性を None として保持した
+///
+/// `ifc.shape.missing`（0.2.1 から）
+pub const IFC_SHAPE_MISSING: Code = Code::new(
+    "ifc.shape.missing",
+    Severity::Warning,
+    None,
+    &[Param::new("field", ParamType::Key)],
+    &["field"],
+);
+
+/// 形の項目は展開せず、元の L1 レコードへの参照だけを残した
+///
+/// `ifc.shape.unsupported`（0.2.1 から）
+pub const IFC_SHAPE_UNSUPPORTED: Code = Code::new(
+    "ifc.shape.unsupported",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("kind", ParamType::Key)],
+    &["kind"],
+);
+
 /// 線形に測点の IfcReferent がないので、初めの測点を 0 にした
 ///
 /// `ifc.station.missing`（0.2.0 から）
@@ -4886,6 +4919,9 @@ pub const ALL: &[Code] = &[
     IFC_REFERENCE_MISSING,
     IFC_RELATION_TARGET_UNSUPPORTED,
     IFC_SCHEMA_UNSUPPORTED,
+    IFC_SHAPE_INVALID,
+    IFC_SHAPE_MISSING,
+    IFC_SHAPE_UNSUPPORTED,
     IFC_STATION_MISSING,
     IFC_TEXT_INVALID,
     IFC_UNIT_MISSING,
