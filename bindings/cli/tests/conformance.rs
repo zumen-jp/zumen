@@ -21,6 +21,13 @@ use zumen_json::{Value, Writer};
 /// MCP のツールの結果の `_meta` の、API の状態のキー
 const STATUS_KEY: &str = "io.github.zumen-jp~1status";
 
+/// 配布物の検査では、梱包したものと同じ CLI を指定できる。
+#[allow(clippy::disallowed_methods)] // テストの実行対象だけを選ぶ。コアの結果には影響しない。
+fn cli_path() -> String {
+    std::env::var("ZUMEN_CONFORMANCE_CLI")
+        .unwrap_or_else(|_| env!("CARGO_BIN_EXE_zumen").to_owned())
+}
+
 const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 fn base64(bytes: &[u8]) -> String {
@@ -80,7 +87,7 @@ struct Child2 {
 
 impl Child2 {
     fn spawn(args: &[&str]) -> Self {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_zumen"))
+        let mut child = Command::new(cli_path())
             .args(args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -303,7 +310,7 @@ struct HttpServer {
 
 impl HttpServer {
     fn spawn() -> Self {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_zumen"))
+        let mut child = Command::new(cli_path())
             .args(["serve", "--http", "--listen", "127.0.0.1:0"])
             .stdout(Stdio::piped())
             .spawn()
@@ -480,7 +487,7 @@ fn with_process(options: &[u8]) -> Vec<u8> {
     out.key("engine");
     out.string("process");
     out.key("process_path");
-    out.string(env!("CARGO_BIN_EXE_zumen"));
+    out.string(&cli_path());
     out.end_object();
     out.into_bytes()
 }
