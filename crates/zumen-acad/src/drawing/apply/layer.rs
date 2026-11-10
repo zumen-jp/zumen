@@ -178,7 +178,9 @@ pub(super) fn write(
     Some(())
 }
 
-/// 色（62）と真の色（420）。番号の色が要る。表示しない画層は、番号を負にする
+/// 色（62）と真の色（420）。番号の色が要る。表示しない画層は、番号を負にする。番号を持たない真の色（AutoCAD の
+/// DWG の真の色の画層）は、元のレコードに同じ 420 があり、62 がないか ±7 のとき（真の色を変えずに、表示の状態などを
+/// 変えるとき）だけ、番号を 7 にする。ほかは、近い番号の決まりが分からないので書かない（#743）
 fn color(
     born: &Born,
     values: &mut Vec<Value>,
@@ -187,9 +189,19 @@ fn color(
     true_color: bool,
 ) -> Option<()> {
     let color = style.color?;
-    let code = color.code?;
-    (code.system == ColorSystem::Aci && (1..=255).contains(&code.value)).then_some(())?;
-    let index = i64::from(code.value);
+    let index = match (color.code, color.rgb) {
+        (Some(code), _) => {
+            (code.system == ColorSystem::Aci && (1..=255).contains(&code.value)).then_some(())?;
+            i64::from(code.value)
+        }
+        (None, Some([r, g, b])) => {
+            let rgb = i64::from(u32::from_be_bytes([0, r, g, b]));
+            let kept = find(values, 420) == Some(&Data::Int(rgb));
+            let unnumbered = matches!(find(values, 62), None | Some(Data::Int(7 | -7)));
+            (kept && unnumbered).then_some(7)?
+        }
+        (None, None) => return None,
+    };
     let index = if !state.visible && !state.frozen {
         -index
     } else {
