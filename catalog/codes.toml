@@ -2803,9 +2803,15 @@ since = "0.2.0"
 status = "active"
 
 [codes."las.laz.invalid"]
-description = "LAZ の圧縮の記述（laszip の VLR）がないか、点を展開できなかった"
+description = "LAZ の圧縮の記述（laszip の VLR）がないか、点を展開できなかった。LAZ の展開を止めている間は返さず、展開を戻したら返す（決定 0289）"
 severity = "error"
 params = { reason = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."las.laz.unsupported"]
+description = "LAZ の展開を止めているので、点を読まなかった（決定 0289・#510）"
+severity = "error"
 since = "0.2.0"
 status = "active"
 

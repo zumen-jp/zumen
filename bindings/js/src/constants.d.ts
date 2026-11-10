@@ -37,7 +37,7 @@ export type ModuleName =
   | "bim"
   /** 土木の線形（J-LandXML）と、地理の地物（CityGML・基盤地図情報・拡張 DM） */
   | "civil"
-  /** 点群（LAS・LAZ・PLY・XYZ・E57）と、設計の TIN（J-LandXML）との差 */
+  /** 点群（LAS・PLY・XYZ・E57）と、設計の TIN（J-LandXML）との差 */
   | "pointcloud"
   /** プラグインの図面の形式を読み、図面モデルのバイナリにする */
   | "plugin";
