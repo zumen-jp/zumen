@@ -327,3 +327,4 @@
 - [0293: DWG の今ある図形のレイヤ・線種・線幅・RGB の色と、画層のレコードの線種と真の色を書き戻す](0293-dwg-restyle-and-layer-style-write-back.md)（2026-11-10、採用）
 - [0294: npm の公開だけを、元のタグと配布物を検証して main のワークフローから再試行する](0294-npm-release-retry.md)（2026-11-10、採用）
 - [0295: レビューの図形は zumen-scene で別のシーンにし、対象と起点を照合し、元の図形と場所へ戻れる ID を付ける](0295-review-scene-generation.md)（2026-11-10、採用）
+- [0296: サイトの viewer だけで JavaScript を動かし、公開済みの wasm と共通のプレイグラウンドを同一オリジンから配る](0296-site-viewer-and-content-security-policy.md)（2026-11-10、採用）

@@ -9,18 +9,26 @@
   },
   "scripts": {
     "dev": "astro dev --port 24150",
-    "build": "astro build",
+    "build": "astro build && node scripts/build-viewer.mjs && node scripts/check-output.mjs",
     "preview": "astro preview --port 24150",
+    "test:browser": "node scripts/test-viewer.mjs",
     "check": "astro check"
   },
   "dependencies": {
     "@digital-go-jp/design-tokens": "2.1.0",
     "@fontsource-variable/noto-sans-jp": "5.3.1",
     "@fontsource/noto-sans-mono": "5.3.0",
-    "astro": "7.4.2"
+    "astro": "7.4.2",
+    "@zumen-jp/zumen": "0.2.0",
+    "@zumen-jp/react": "file:../packages/react",
+    "@zumen-jp/view2d": "file:../packages/view2d",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
   },
   "devDependencies": {
     "@astrojs/check": "0.9.12",
-    "typescript": "6.0.3"
+    "typescript": "6.0.3",
+    "vite": "8.3.5",
+    "playwright": "1.64.1"
   }
 }

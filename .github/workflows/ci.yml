@@ -108,6 +108,10 @@ jobs:
         run: npx --no-install tsc -p ../packages/react/tsconfig.json
       - name: zumen.dev のページを作る
         run: npm run build
+      - name: サイトのビューアーを Chromium で確かめる（決定 0296）
+        run: |
+          npx --no-install playwright install --with-deps chromium
+          npm run test:browser
 
   test:
     name: 試験（${{ matrix.name }}）
