@@ -805,6 +805,7 @@ fn leniently_inflated(
     if !inflate::plain_flate(stream, source, cx)? {
         return Ok(false);
     }
+    source.reserve_raw(stream, 1, cx)?;
     let raw = stream.raw_data();
     let raw = raw.as_ref();
     // 空白だけのデータは、hayro-syntax が空のバイト列にするので、何も失わない

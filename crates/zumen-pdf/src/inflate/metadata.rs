@@ -120,6 +120,76 @@ impl<'a> Metadata<'a> {
         Ok(dict.get(key))
     }
 
+    /// Object として読む F。Name は既存の追加予約で数え、呼ぶ側はほかの候補だけを渡す。
+    pub(super) fn reserve_object_key(
+        self,
+        dict: &Dict<'_>,
+        key: &[u8],
+        cx: &mut Cx<'_>,
+    ) -> Result<(), Stop> {
+        lookup(dict, cx)?;
+        let Some(raw) = dict.get_raw::<Tail<'_>>(key) else {
+            return Ok(());
+        };
+        match raw {
+            MaybeRef::Ref(_) => {
+                self.crypto_work(self.source.metadata_bound().saturating_mul(2), 2, cx)?;
+                self.reserve(
+                    self.reference(Reference::Object),
+                    self.source.metadata_bound(),
+                    cx,
+                )
+            }
+            MaybeRef::NotRef(Tail(tail)) => {
+                if string_like(tail) {
+                    self.crypto_work(tail.len() as u64, 1, cx)?;
+                }
+                let stats = Stats::read(tail, cx)?;
+                self.reserve(self.object_bytes(&stats), stats.bytes, cx)
+            }
+        }
+    }
+
+    /// raw_data の Type は String として読む。文字列の展開と復号の双方の全伸長を含む。
+    pub(super) fn reserve_string_key(
+        self,
+        dict: &Dict<'_>,
+        key: &[u8],
+        cx: &mut Cx<'_>,
+    ) -> Result<(), Stop> {
+        lookup(dict, cx)?;
+        let Some(raw) = dict.get_raw::<Tail<'_>>(key) else {
+            return Ok(());
+        };
+        let (bytes, read, operations) = match raw {
+            MaybeRef::Ref(_) => (
+                self.reference(Reference::String),
+                self.source.metadata_bound().saturating_mul(2),
+                2,
+            ),
+            MaybeRef::NotRef(Tail(tail)) => {
+                if !string_like(tail) {
+                    return Ok(());
+                }
+                let size = tail.len() as u64;
+                let bytes = size
+                    .saturating_mul(if self.source.metadata_encrypted() {
+                        8
+                    } else {
+                        4
+                    })
+                    .saturating_add(if self.source.metadata_encrypted() {
+                        2 * FIXED
+                    } else {
+                        0
+                    });
+                (bytes, size, 1)
+            }
+        };
+        self.crypto_work(read, operations, cx)?;
+        self.reserve(bytes, read, cx)
+    }
+
     /// 名前の走査と、上流の Filter・Dict の SmallVec。Stage Vec の予約とは別。
     pub(super) fn names(self, array: &Array<'_>, cx: &mut Cx<'_>) -> Result<u64, Stop> {
         let stats = Stats::read(array.data(), cx)?;
@@ -148,17 +218,23 @@ impl<'a> Metadata<'a> {
         }
         let stats = Stats::read(array.data(), cx)?;
         // Object の直接 stream は、Dict と Stream で同じ辞書を 2 回読む。
-        let local = stats
-            .names
-            .saturating_mul(KEY)
-            .saturating_mul(2)
-            .saturating_add(stats.bytes.saturating_mul(8))
-            .saturating_add(FIXED.saturating_mul(2))
-            .saturating_add(stats.refs.saturating_mul(self.value_reference()));
+        let local = self.object_bytes(&stats);
         // 参照の解析が成功すれば、解決が失敗しても Reader は先へ進む。
         // 対象の確保を attempts 倍にはしない。R の候補の数は解く回数以上になる。
         let targets = stats.refs.saturating_mul(self.reference(Reference::Object));
+        // String として読めれば必ず先へ進む。復号の固定費は失敗項目の再試行とは分ける。
+        self.crypto_work(stats.bytes, stats.strings, cx)?;
+        self.crypto_work(
+            self.source
+                .metadata_bound()
+                .saturating_mul(stats.refs)
+                .saturating_mul(2),
+            stats.refs.saturating_mul(2),
+            cx,
+        )?;
         self.reserve(
+            // 各 Object の既存の固定 4,096 バイトに鍵の一時確保も収まる。
+            // 成功した String は試行数以下なので、固定のバイト数を重ねて足さない。
             local.saturating_mul(attempts).saturating_add(targets),
             stats
                 .bytes
@@ -178,6 +254,27 @@ impl<'a> Metadata<'a> {
         })
     }
 
+    fn object_bytes(self, stats: &Stats) -> u64 {
+        stats
+            .names
+            .saturating_mul(KEY)
+            .saturating_mul(2)
+            .saturating_add(stats.bytes.saturating_mul(8))
+            .saturating_add(FIXED.saturating_mul(2))
+            .saturating_add(stats.refs.saturating_mul(self.value_reference()))
+    }
+
+    fn crypto_work(self, bytes: u64, operations: u64, cx: &mut Cx<'_>) -> Result<(), Stop> {
+        if self.source.metadata_encrypted() && operations > 0 {
+            // RC4 の初期化・MD5 と AES の固定手間、本文の各バイトの復号を別に数える。
+            let work = bytes
+                .saturating_mul(4)
+                .saturating_add(operations.saturating_mul(FIXED));
+            cx.check(Kind::Work, work.saturating_mul(self.copies))?;
+        }
+        Ok(())
+    }
+
     fn reference(self, kind: Reference) -> u64 {
         let bound = self.source.metadata_bound();
         let bytes = match kind {
@@ -189,6 +286,7 @@ impl<'a> Metadata<'a> {
                 .saturating_mul(2)
                 .saturating_add(bound.saturating_mul(8))
                 .saturating_add(16 * FIXED),
+            Reference::String => bound.saturating_mul(8).saturating_add(2 * FIXED),
         };
         // XRef は未修復なら同じ型をもう 1 回読む。参照の鎖を解くこととは別。
         bytes.saturating_mul(2)
@@ -209,6 +307,7 @@ enum Reference {
     Name,
     Dict,
     Object,
+    String,
 }
 
 #[derive(Default)]
@@ -216,6 +315,7 @@ struct Stats {
     bytes: u64,
     names: u64,
     refs: u64,
+    strings: u64,
 }
 
 impl Stats {
@@ -225,12 +325,20 @@ impl Stats {
             ..Self::default()
         };
         let mut last = None;
-        for chunk in bytes.chunks(256) {
+        for (chunk_index, chunk) in bytes.chunks(256).enumerate() {
             cx.check(Kind::Work, (chunk.len() as u64).div_ceil(16))?;
             stats.names = stats
                 .names
                 .saturating_add(chunk.iter().filter(|&&b| b == b'/').count() as u64);
-            for &byte in chunk {
+            for (index, &byte) in chunk.iter().enumerate() {
+                let at = chunk_index * 256 + index;
+                if byte == b'('
+                    || (byte == b'<'
+                        && bytes.get(at.wrapping_sub(1)) != Some(&b'<')
+                        && bytes.get(at + 1) != Some(&b'<'))
+                {
+                    stats.strings = stats.strings.saturating_add(1);
+                }
                 // ObjRef::read は世代の符号だけも 0 と読む。直前の空白は 0 個でもよい。
                 // 数字の read/skip の区切りを確定せず、名前や文字列内の候補も残す。
                 if byte == b'R'
@@ -249,6 +357,10 @@ impl Stats {
 }
 
 struct Tail<'a>(&'a [u8]);
+
+fn string_like(bytes: &[u8]) -> bool {
+    matches!(bytes.first(), Some(b'(' | b'<')) && !bytes.starts_with(b"<<")
+}
 
 fn lookup(dict: &Dict<'_>, cx: &mut Cx<'_>) -> Result<(), Stop> {
     // get_raw の MaybeRef も、長い数を ObjRef として試す。表や値を作らない最初の取得も先に数える。
