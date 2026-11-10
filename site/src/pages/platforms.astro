@@ -1,7 +1,7 @@
 ---
 import PageHeader from '../components/PageHeader.astro';
 import SectionHead from '../components/SectionHead.astro';
-import { decision, hostApps, releasedSource, releaseUrl, releaseVersion, repo } from '../data/site';
+import { hostApps, releasedSource, releaseUrl, releaseVersion, repo } from '../data/site';
 import Base from '../layouts/Base.astro';
 
 const os = [
@@ -49,7 +49,7 @@ const packages = [
           <ul class="chips"><li>Ruby</li><li>PHP</li><li>R</li><li>Julia</li><li>MATLAB</li><li>AutoLISP</li><li>PowerShell</li><li>ほか</li></ul>
         </div>
       </div>
-      <p class="note">Tier の決め方は<a href={decision('0006-language-tiers.md')}>決定 0006</a>にあります。</p>
+      <p class="note">Tier の決め方は<a href={`${repo}/blob/main/docs/support.md`}>対応する環境</a>にあります。</p>
     </div>
   </section>
 

@@ -1,6 +1,6 @@
 # PDF の読みを pdf.js と照らす
 
-PDF のページ寸法・文字の内容と位置・経路と画像の数を、外部の実装である pdf.js 6.5.438 と照らします（#519、決定 0256）。pdf.js は Apache-2.0 の別のプログラムとして呼び、zumen の依存や成果物には入れません。Node.js は 22.13.0 以降を使います。
+PDF のページ寸法・文字の内容と位置・経路と画像の数を、外部の実装である pdf.js 6.5.438 と照らします（#519）。pdf.js は Apache-2.0 の別のプログラムとして呼び、zumen の依存や成果物には入れません。Node.js は 22.13.0 以降を使います。
 
 ```bash
 npm ci --ignore-scripts --no-audit --no-fund --prefix xtask/verify/pdfjs

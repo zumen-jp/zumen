@@ -1,6 +1,6 @@
 # レビューの文書と 2D の図形
 
-レビューの JSON 文書は、対象・指摘・場所・図形を持ちます。文書の規則は[決定 0214](../decisions/0214-review-model-and-bcf.md)・[0218](../decisions/0218-review-document-and-ops.md)、空間の上の座標は[0282](../decisions/0282-legacy-markup-review-identity.md)、シーンの生成入口と出所の ID は[0295](../decisions/0295-review-scene-generation.md)にあります。
+レビューの JSON 文書は、対象・指摘・場所・図形を持ちます。以前の図面から場所を引き継ぐ方法は [レビューの移行](../review-migration.md) にあります。
 
 文書の読み書きは `zumen-review`、2D のシーンは `zumen-scene` が扱います。この文書は #589 のシーンの生成で使う図形と検査の規則を示します。
 
@@ -92,5 +92,5 @@ Windows のネイティブと `wasm32-unknown-unknown` では、6 種の起点�
 
 ## 参照
 
-- [決定 0214](../decisions/0214-review-model-and-bcf.md)・[0218](../decisions/0218-review-document-and-ops.md)・[0267](../decisions/0267-view2d-on-scene-columns.md)・[0282](../decisions/0282-legacy-markup-review-identity.md)・[0295](../decisions/0295-review-scene-generation.md)
+- [レビューの移行](../review-migration.md)・[2D の表示部品](../view2d.md)
 - [旧版の赤入れの移行手順](../review-migration.md)、#589

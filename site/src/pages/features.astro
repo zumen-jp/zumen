@@ -1,14 +1,14 @@
 ---
 import PageHeader from '../components/PageHeader.astro';
 import SectionHead from '../components/SectionHead.astro';
-import { decision, releaseUrl, releaseVersion, repo } from '../data/site';
+import { releaseUrl, releaseVersion, repo } from '../data/site';
 import Base from '../layouts/Base.astro';
 
 const policies = [
-  { title: 'どこでも同じ結果', body: 'ブラウザー・サーバー・Python・.NET などで、同じファイルから同じ結果を返します。', link: decision('0007-single-rust-implementation.md') },
-  { title: '黙って捨てない', body: '読めなかったもの、形を変えて書いたものは、種類と件数と場所を報告します。', link: decision('0009-diagnostics-and-catalog.md') },
+  { title: 'どこでも同じ結果', body: 'ブラウザー・サーバー・Python・.NET などで、同じファイルから同じ結果を返します。', link: `${repo}/blob/main/docs/architecture.md#決定性` },
+  { title: '黙って捨てない', body: '読めなかったもの、形を変えて書いたものは、種類と件数と場所を報告します。', link: `${repo}/blob/main/catalog/README.md` },
   { title: 'ID は契約', body: '同じバイト列からは、どのバージョンでも同じ ID を返します。' },
-  { title: 'ファイルを信用しない', body: '大きさ・数・作業量に上限を付けて読みます。壊れた図面でも止まりません。', link: decision('0010-budget-by-work.md') },
+  { title: 'ファイルを信用しない', body: '大きさ・数・作業量に上限を付けて読みます。壊れた図面でも止まりません。', link: `${repo}/blob/main/docs/architecture.md#予算と中断` },
   { title: '日本の実務を優先', body: '電子納品の SXF、Jw_cad、日本語の文字、国土交通省の基準を先に扱います。' },
 ];
 ---
@@ -46,7 +46,7 @@ const policies = [
               <span class="card-no">{String(i + 1).padStart(2, '0')}</span>
               <h3>{p.title}</h3>
               <p>{p.body}</p>
-              {p.link && <a class="small-link" href={p.link}>決定の記録</a>}
+              {p.link && <a class="small-link" href={p.link}>詳しい説明</a>}
             </li>
           ))
         }

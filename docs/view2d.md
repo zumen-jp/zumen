@@ -1,6 +1,6 @@
 # 2D の表示部品と、旧版からの置き換え
 
-表示部品は、コアが作る 2D のシーンを利用側の Canvas に描く部品です。方針は[決定 0267](decisions/0267-view2d-on-scene-columns.md)、実装の進み具合と完了条件は [#507](https://github.com/zumen-jp/zumen/issues/507) とその子 issue にあります。この文書は機能の対応表です。描画・カメラ・レイヤ・選択・状態の購読・操作・吸着と計測・資源の解決の使用案内は [@zumen-jp/view2d](../packages/view2d/README.md) にあります。React・赤入れは後続の issue で扱います。
+表示部品は、コアが作る 2D のシーンを利用側の Canvas に描く部品です。実装の進み具合と完了条件は [#507](https://github.com/zumen-jp/zumen/issues/507) とその子 issue にあります。この文書は機能の対応表です。描画・カメラ・レイヤ・選択・状態の購読・操作・吸着と計測・資源の解決の使用案内は [@zumen-jp/view2d](../packages/view2d/README.md) にあります。React・赤入れは後続の issue で扱います。
 
 ## 比べたもの
 
@@ -34,7 +34,7 @@
 | `useDrawingViewer`・`useViewerState`・`useViewerEvent` | 表示部品と購読の作成・破棄を [React のフック](../packages/react/README.md)で管理します | [#588](https://github.com/zumen-jp/zumen/issues/588) |
 | `useDrawing` | 既存の wasm のラッパーを Worker で呼び、古い要求を中断し、診断とシーンを受け取ります | [#588](https://github.com/zumen-jp/zumen/issues/588) |
 | ファイル・用紙・レイヤ・要素の一覧を持つプレイグラウンド | [日本語の画面](../playground/README.md)でファイルを開き、診断と選択した要素の出所を確認します | [#588](https://github.com/zumen-jp/zumen/issues/588) |
-| `MarkupLayer`、赤入れ・変更雲・注記・写真位置・指摘のツール | 決定 0214・0218 のレビューの文書を使います。未実装の図形の生成処理と API をコアに足し、そのシーンを描きます | [#589](https://github.com/zumen-jp/zumen/issues/589) |
+| `MarkupLayer`、赤入れ・変更雲・注記・写真位置・指摘のツール | [レビューの文書](formats/review.md) のレビューの文書を使います。未実装の図形の生成処理と API をコアに足し、そのシーンを描きます | [#589](https://github.com/zumen-jp/zumen/issues/589) |
 | 赤入れの選択・フィルター・変更イベント・取り消し・やり直し | レビュー文書の対象と場所を保ち、利用側へ変更を返します | [#589](https://github.com/zumen-jp/zumen/issues/589) |
 | `useMarkupLayer`・`useMarkupState`・`useMarkupEvent` と赤入れのプレイグラウンド | レビューの層と購読のフック、保存・再読込の画面を用意します | [#589](https://github.com/zumen-jp/zumen/issues/589) |
 

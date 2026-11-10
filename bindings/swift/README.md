@@ -1,6 +1,6 @@
 # Swift のラッパー
 
-zumen の C ABI を、Swift から呼ぶラッパーです（[決定 0225](../../docs/decisions/0225-swift-wrapper.md)）。下限は iOS・iPadOS 15 と macOS 12 です（[docs/support.md](../../docs/support.md)）。まだ公開していません。SwiftPM のミラーのリポジトリに出すことは、別の issue で扱います。
+zumen の C ABI を、Swift から呼ぶラッパーです。下限は iOS・iPadOS 15 と macOS 12 です（[docs/support.md](../../docs/support.md)）。まだ公開していません。SwiftPM のミラーのリポジトリに出すことは、別の issue で扱います。
 
 ## 使い方
 
