@@ -2118,7 +2118,8 @@ mod tests {
     use super::*;
 
     /// `starts` の位置から順に、同じ覚えを使って [`Tokens::value`] で飛ばした終わりと、hayro-syntax で飛ばした終わり
-    fn skips(src: &[u8], starts: &[(usize, usize, bool)]) -> Vec<(Option<usize>, Option<usize>)> {
+    /// （入口の [`Tokens::skip`] と同じく、参照としては読まない）
+    fn skips(src: &[u8], starts: &[(usize, usize)]) -> Vec<(Option<usize>, Option<usize>)> {
         let mut budget = Budget::default();
         let mut diag = Diagnostics::new();
         let cancel = CancelToken::new();
@@ -2126,42 +2127,34 @@ mod tests {
         let mut tokens = Tokens::default();
         starts
             .iter()
-            .map(|&(at, depth, reference)| {
+            .map(|&(at, depth)| {
                 let mut reader = Reader::new(src);
                 reader.jump(at);
                 let mut read = 0;
                 let ours = tokens
-                    .value(src, &mut reader, depth, reference, &mut read, &mut cx)
+                    .value(src, &mut reader, depth, false, &mut read, &mut cx)
                     .ok()
                     .flatten()
                     .map(|()| reader.offset());
                 let mut reader = Reader::new(src);
                 reader.jump(at);
-                let theirs = if reference {
-                    reader
-                        .skip_with_depth::<MaybeRef<Object<'_>>>(false, depth)
-                        .map(|_| reader.offset())
-                } else {
-                    reader
-                        .skip_with_depth::<Object<'_>>(false, depth)
-                        .map(|_| reader.offset())
-                };
+                let theirs = reader
+                    .skip_with_depth::<Object<'_>>(false, depth)
+                    .map(|_| reader.offset());
                 (ours, theirs)
             })
             .collect()
     }
 
     /// 同じ項目の始まりに違う深さで着いても、深さの上限で読めるかが変わるので、覚えを深さで分ける。外すと、浅く読んだ
-    /// 覚えを深く読むときに使い、hayro-syntax と違う終わりを返す（#752）
+    /// 覚えを深く読むときに使い、hayro-syntax と違う終わりを返す（#752）。ファイルでは、入れ子の配列か辞書の中の
+    /// コメントにある `[` から読み始めた項目が、外の項目と同じ所に違う深さで着く。試験では、深さを変えて直接呼ぶ
     #[test]
     fn memos_depend_on_depth() {
         // 行末の後ろに、505 段の配列を持つ配列。深さ 1 なら上限（512）の内、深さ 10 なら外
         let nested = format!("{}{}", "[".repeat(505), "]".repeat(505));
         let src = format!("[\n{nested}]");
-        let results = skips(
-            src.as_bytes(),
-            &[(0, 1, false), (0, 10, false), (0, 1, false)],
-        );
+        let results = skips(src.as_bytes(), &[(0, 1), (0, 10), (0, 1)]);
         for (ours, theirs) in &results {
             assert_eq!(ours, theirs);
         }
@@ -2177,16 +2170,13 @@ mod tests {
         let src = b"[ %<<\n/a 1 0 R]";
         let dict = 3;
         assert_eq!(&src[dict..dict + 2], b"<<");
-        for order in [
-            [(0, 1, false), (dict, 1, false)],
-            [(dict, 1, false), (0, 1, false)],
-        ] {
+        for order in [[(0, 1), (dict, 1)], [(dict, 1), (0, 1)]] {
             let results = skips(src, &order);
             for (ours, theirs) in &results {
                 assert_eq!(ours, theirs, "{order:?}");
             }
         }
-        let results = skips(src, &[(0, 1, false), (dict, 1, false)]);
+        let results = skips(src, &[(0, 1), (dict, 1)]);
         assert_eq!(results[0].0, Some(src.len()));
         assert_eq!(results[1].0, None);
     }
