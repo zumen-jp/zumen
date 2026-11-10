@@ -97,7 +97,12 @@ impl<'d> Reader<'d, '_, '_> {
     }
 
     fn work(&mut self, element: &Element) -> Result<(), Error> {
-        self.cx.check(Kind::Work, 1).map_err(|stop| {
+        self.spend(element, 1)
+    }
+
+    /// 作業の予算を `amount` 使う。超えたら、要素の場所を添えて止まる
+    fn spend(&mut self, element: &Element, amount: u64) -> Result<(), Error> {
+        self.cx.check(Kind::Work, amount).map_err(|stop| {
             let span = element.span();
             self.cx.report(
                 stop.to_diagnostic()
@@ -423,10 +428,15 @@ impl<'d> Reader<'d, '_, '_> {
             let length = || value.trim().parse::<u64>().ok();
             let parsed = match self.local(constraint) {
                 b"enumeration" => Some(Constraint::Enumeration(value.clone())),
-                b"pattern" => Some(match Pattern::new(&value) {
-                    Some(pattern) => Constraint::Pattern(Box::new(pattern)),
-                    None => Constraint::Unsupported(format!("pattern {value}")),
-                }),
+                b"pattern" => {
+                    // 読む手間は、式の長さと展開の上限の和までで、読んだあとに数える（#732）
+                    let (pattern, work) = Pattern::read(&value);
+                    self.spend(constraint, work)?;
+                    Some(match pattern {
+                        Some(pattern) => Constraint::Pattern(Box::new(pattern)),
+                        None => Constraint::Unsupported(format!("pattern {value}")),
+                    })
+                }
                 b"minInclusive" => number().map(Constraint::MinInclusive),
                 b"maxInclusive" => number().map(Constraint::MaxInclusive),
                 b"minExclusive" => number().map(Constraint::MinExclusive),
