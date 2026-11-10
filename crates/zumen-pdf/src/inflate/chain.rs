@@ -4,119 +4,29 @@ use std::borrow::Cow;
 use std::io::Write;
 
 use hayro_syntax::Filter;
-use hayro_syntax::object::{Array, Dict, Name, Object, Stream};
+use hayro_syntax::object::Stream;
 use hayro_syntax::reader::{Reader, ReaderContext, ReaderExt};
 use zumen_base::{Cx, Kind, Stop};
 
-use super::{Source, allocation, ascii, lzw, run_length};
+use super::{Source, allocation, ascii, lzw, run_length, stages::Stage};
 
 /// 合成する辞書・stream と endstream の最大長。整数はすべて 20 桁以下で、
 /// 名前も固定なので、この長さを超えない。入力の長さと合わせて、確保前に数える。
 const ENVELOPE: usize = 512;
 
-#[derive(Clone, Copy)]
-struct Stage {
-    filter: Filter,
-    predictor: u8,
-    colors: u8,
-    bits: u8,
-    columns: usize,
-    early: bool,
-}
-
-impl Stage {
-    fn new(filter: Filter, params: Option<Dict<'_>>) -> Self {
-        let params = params.unwrap_or_default();
-        // hayro-syntax 0.9.0 の PredictorParams::from_params と同じ型と既定値。
-        // guard は、この処理より前に、環境の大きさの値と予測子の積を確かめる。
-        Self {
-            filter,
-            predictor: params.get(b"Predictor").unwrap_or(1),
-            colors: params.get(b"Colors").unwrap_or(1),
-            bits: params.get(b"BitsPerComponent").unwrap_or(8),
-            columns: params.get(b"Columns").unwrap_or(1),
-            early: params.get::<u8>(b"EarlyChange").is_none_or(|n| n != 0),
-        }
-    }
-
-    fn name(self) -> &'static str {
-        match self.filter {
-            Filter::FlateDecode => "FlateDecode",
-            Filter::LzwDecode => "LZWDecode",
-            Filter::RunLengthDecode => "RunLengthDecode",
-            // ASCII は合成するストリームで展開せず、既存の確認で扱う。
-            _ => "Crypt",
-        }
-    }
-
-    /// 予測子の出力は入力以下。8 ビットの専用経路以外は、小さい列を画素ごとに
-    /// 作るので、その確保も含む。guard が先に整数の積・行の長さを制限している。
-    fn predictor_cost(self, bytes: u64) -> (u64, u64) {
-        if self.predictor == 1 || !matches!(self.filter, Filter::FlateDecode | Filter::LzwDecode) {
-            return (0, 0);
-        }
-        if !matches!(self.bits, 1 | 2 | 4 | 8 | 16) {
-            // 上流も行の長さを計算したあと、バッファーを作る前に失敗する。
-            return (1, 0);
-        }
-        let pixel = u64::from(self.colors).saturating_mul(u64::from(self.bits));
-        let row = (self.columns as u64).saturating_mul(pixel).div_ceil(8);
-        let png = self.predictor >= 10;
-        let chunk = if png {
-            pixel.div_ceil(8)
-        } else {
-            u64::from(self.colors)
-        };
-        if (png || self.bits == 8)
-            && matches!(chunk, 1 | 2 | 3 | 4 | 6 | 8)
-            && row.is_multiple_of(chunk)
-        {
-            // apply_predictor_8bit_png は同じ Vec 内で行を詰め直し、追加の列を作らない。
-            // 行の移動、unfilter と最後の切り詰めを、1 バイトあたり Work の 8 に数える。
-            return (bytes.saturating_mul(8).saturating_add(1), 0);
-        }
-        // BitChunks は 1 成分に u16 を持ち、伸長の全確保は 8 バイト/成分未満。
-        // 各群で現在の行・前の行・出力からの読み直しの 3 列（24 バイト/成分）と、
-        // 行ごとに最初の列を 2 回複製する分（4 バイト/成分）を作る。
-        // 1 入力バイトは最大 8 成分なので、出力と余りも合わせて 256 倍に収まる。
-        let allocated = bytes
-            .saturating_mul(256)
-            .saturating_add(row)
-            .saturating_add(8192);
-        let work = bytes
-            .saturating_mul(128)
-            .saturating_add(row)
-            .saturating_add(256);
-        (work, allocated)
-    }
-}
-
 /// 元のストリームは最後に hayro が展開する。確認用の中間出力も予算に数えてから
 /// 保持し、次の段だけを同じ hayro で展開する。失敗した段から先へは進まない。
 pub(super) fn before(
     stream: &Stream<'_>,
+    stages: &[Stage],
     source: Source<'_>,
     cx: &mut Cx<'_>,
 ) -> Result<bool, Stop> {
     if source.external(stream.dict(), cx)? {
         return Ok(false);
     }
-    let stages = stages(stream.dict(), cx)?;
-    if stages.iter().any(|stage| {
-        matches!(
-            stage.filter,
-            Filter::DctDecode | Filter::JpxDecode | Filter::Jbig2Decode | Filter::CcittFaxDecode
-        )
-    }) {
-        return Ok(false);
-    }
     source.reserve_decryption(stream, cx)?;
     let mut data = stream.raw_data();
-    let stages = if stages.first().is_some_and(|s| s.filter == Filter::Crypt) {
-        stages.get(1..).unwrap_or_default()
-    } else {
-        &stages[..]
-    };
     for (index, &stage) in stages.iter().enumerate() {
         cx.check(Kind::Work, 1)?;
         match stage.filter {
@@ -187,61 +97,6 @@ pub(super) fn before(
 fn reserve(work: u64, bytes: u64, cx: &mut Cx<'_>) -> Result<(), Stop> {
     cx.check(Kind::Work, work)?;
     cx.check(Kind::DecodedBytes, bytes)
-}
-
-/// Stream::filters_and_params と同じ優先順。未知名もパラメーターを 1 つ進め、
-/// 名前でない項目で両方の走査を終える。パラメーター内の参照は元の文脈で解く。
-fn stages(dict: &Dict<'_>, cx: &mut Cx<'_>) -> Result<Vec<Stage>, Stop> {
-    let mut out = Vec::new();
-    if let Some(filter) = dict
-        .get::<Name<'_>>(b"F")
-        .or_else(|| dict.get::<Name<'_>>(b"Filter"))
-        .and_then(|name| filter(&name))
-    {
-        reserve(1, 128, cx)?;
-        out.push(Stage::new(
-            filter,
-            dict.get::<Dict<'_>>(b"DP")
-                .or_else(|| dict.get::<Dict<'_>>(b"DecodeParms")),
-        ));
-    } else if let Some(filters) = dict
-        .get::<Array<'_>>(b"F")
-        .or_else(|| dict.get::<Array<'_>>(b"Filter"))
-    {
-        let mut params = dict
-            .get::<Array<'_>>(b"DP")
-            .or_else(|| dict.get::<Array<'_>>(b"DecodeParms"))
-            .map(|array| array.iter::<Object<'_>>());
-        for name in filters.iter::<Name<'_>>() {
-            cx.check(Kind::Work, 1)?;
-            let params = params
-                .as_mut()
-                .and_then(Iterator::next)
-                .and_then(Object::into_dict);
-            if let Some(filter) = filter(&name) {
-                // Stage はどの環境でも 32 バイト以下。Vec の全伸長を 4 倍で数える。
-                reserve(1, 128, cx)?;
-                out.push(Stage::new(filter, params));
-            }
-        }
-    }
-    Ok(out)
-}
-
-fn filter(name: &Name<'_>) -> Option<Filter> {
-    Some(match name.as_ref() {
-        b"ASCIIHexDecode" | b"AHx" => Filter::AsciiHexDecode,
-        b"ASCII85Decode" | b"A85" => Filter::Ascii85Decode,
-        b"LZWDecode" | b"LZW" => Filter::LzwDecode,
-        b"FlateDecode" | b"Fl" => Filter::FlateDecode,
-        b"RunLengthDecode" | b"RL" => Filter::RunLengthDecode,
-        b"CCITTFaxDecode" | b"CCF" => Filter::CcittFaxDecode,
-        b"JBIG2Decode" => Filter::Jbig2Decode,
-        b"DCTDecode" | b"DCT" => Filter::DctDecode,
-        b"JPXDecode" => Filter::JpxDecode,
-        b"Crypt" => Filter::Crypt,
-        _ => return None,
-    })
 }
 
 /// 元の暗号化と参照を持ち込まない、解決済みの整数だけの 1 段のストリーム。
@@ -332,6 +187,7 @@ fn decode_encoded(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::inflate::stages::read as stages;
     use zumen_base::{Budget, CancelToken, Diagnostics, Limit, Limits};
 
     mod lzw_fixture {
@@ -480,7 +336,7 @@ mod tests {
             let mut budget = Budget::new(Limits::default().with(kind, Limit::Finite(limit)));
             let mut diagnostics = Diagnostics::new();
             let cancel = CancelToken::new();
-            let result = before(
+            let result = super::super::before(
                 &stream,
                 Source::default(),
                 &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
@@ -492,7 +348,7 @@ mod tests {
         let mut diagnostics = Diagnostics::new();
         let cancel = CancelToken::new();
         assert_eq!(
-            before(
+            super::super::before(
                 &stream,
                 Source::default(),
                 &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
