@@ -1,6 +1,6 @@
 # プラグインのひな形
 
-zumen の外部のリポジトリに置く形式（プラグイン）のひな形（[決定 0017](../../docs/decisions/0017-format-rights-ledger-and-plugin-sdk.md)・[決定 0243](../../docs/decisions/0243-plugin-bundling.md)・[決定 0247](../../docs/decisions/0247-drawing-model-binary.md)）。このリポジトリでは、テストのための形式「zumen の線分の一覧」（`zumen_lines`）で、3 つの束ね方を確かめる。
+zumen の外部のリポジトリに置く形式（プラグイン）のひな形（[形式台帳の書き方](../../formats/README.md)・[API のスキーマ](../../schema/README.md)）。このリポジトリでは、テストのための形式「zumen の線分の一覧」（`zumen_lines`）で、3 つの束ね方を確かめる。
 
 | ファイル | 中身 |
 | --- | --- |
@@ -26,8 +26,8 @@ zumen の外部のリポジトリに置く形式（プラグイン）のひな�
 
 ## 今の制約
 
-- プラグインの形式は、図面の形式（`Lift<Drawing2D>`、`Plugin::of`）か建物の形式（`Lift<Building>`、`Plugin::building`、決定 0245）で、読むだけ。apply・building_apply では書き戻せない。建物の形式の wasm のモジュールは、`zumen-abi` の `bim` の feature と一緒に作る。
-- wasm のモジュールから図面のモジュールへの受け渡しは、ラッパーの `Modules.open` が行う（[決定 0250](../../docs/decisions/0250-open-plugin-drawings-in-the-drawing-module.md)）。
-- `.cargo/config.toml` は、wasm のモジュールから名前のセクション（関数の名前）を除く設定（[決定 0252](../../docs/decisions/0252-strip-wasm-names.md)）。ひな形を写したリポジトリの根に置く。
+- プラグインの形式は、図面の形式（`Lift<Drawing2D>`、`Plugin::of`）か建物の形式（`Lift<Building>`、`Plugin::building`）で、読むだけ。apply・building_apply では書き戻せない。建物の形式の wasm のモジュールは、`zumen-abi` の `bim` の feature と一緒に作る。
+- wasm のモジュールから図面のモジュールへの受け渡しは、ラッパーの `Modules.open` が行う（[API のスキーマ](../../schema/README.md)）。
+- `.cargo/config.toml` は、wasm のモジュールから名前のセクション（関数の名前）を除く設定（[wasm のビルド設定](../../.cargo/config.toml)）。ひな形を写したリポジトリの根に置く。
 - 建物の形式のプラグインの wasm のモジュールは、建物モデルのバイナリがまだないので、コアの建物のモジュールを中に持つ（`bim` の feature、[#484](https://github.com/zumen-jp/zumen/issues/484)）。
 - コアのワークスペースで試すため、このフォルダーの crate はワークスペースの一員で、zumen の crate を `path` で指す。

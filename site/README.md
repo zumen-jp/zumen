@@ -1,6 +1,6 @@
 # zumen.dev のサイト
 
-<https://zumen.dev> に置く案内のサイトです。[Astro](https://astro.build/) で作り、静的な HTML として公開します。図面を手元で開く `/viewer/` だけで JavaScript を動かします（[決定 0296](../docs/decisions/0296-site-viewer-and-content-security-policy.md)）。
+<https://zumen.dev> に置く案内のサイトです。[Astro](https://astro.build/) で作り、静的な HTML として公開します。図面を手元で開く `/viewer/` だけで JavaScript を動かします。
 
 ## 見た目の考え方
 

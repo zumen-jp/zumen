@@ -1,6 +1,13 @@
 # 配布物とライセンス・SBOM の検査
 
-`licenses.py` と `sbom.py` は crate・target・feature ごとに依存の本文と CycloneDX SBOM を生成します。`build.py` は依存を埋め込んだバイナリを作り、`package.py` は梱包後のファイルから依存を取り出して照合します（[決定 0269](../../docs/decisions/0269-license-texts-per-artifact.md)・[決定 0279](../../docs/decisions/0279-sbom-per-artifact.md)）。Python 3.11 以降の標準ライブラリを使います。
+`licenses.py` と `sbom.py` は crate・target・feature ごとに依存の本文と CycloneDX SBOM を生成します。`build.py` は依存を埋め込んだバイナリを作り、`package.py` は梱包後のファイルから依存を取り出して照合します。Python 3.11 以降の標準ライブラリを使います。
+
+## リリースの条件と周期
+
+- リリースを止めるのは、[タグの前に利用者に示す一覧](../../fuzz/README.md#初回リリース後の記録先)に載る入力の失敗、公開の試運転の失敗や権利・ライセンスの問題、ID の契約を破る変更です。
+- CI と `release.yml` の試運転が通った main のコミットで区切り、そのコミットのタグの push を利用者に頼み、同じ日に push します。依頼・コミットの変更・取り下げはバージョンごとのリリースの issue に記録します。依頼後に見つけた対象の失敗は非公開で扱い、そのリリースを止めずにパッチで直します。
+- 0.2.0 のあとは 2 週間ごとに main から出します。非公開で扱う入力の失敗を直したら、周期を待たずにパッチを出します。壊す変更や環境の下限を上げる変更ではマイナー、それ以外はパッチを上げ、バージョンの PR をマージしたコミットにタグを打ちます。
+- 0.2.0 で外した PDF の配布は [#521](https://github.com/zumen-jp/zumen/issues/521) などの修正後、LAZ の展開は依存の修正版が出たあとにパッチで戻します（[#510](https://github.com/zumen-jp/zumen/issues/510)）。区切りと除外を決めた利用者の記録は [#317](https://github.com/zumen-jp/zumen/issues/317) にあります。
 
 ## ライセンス本文と SBOM を作る
 
@@ -45,7 +52,7 @@ python xtask/release/package.py npm --artifacts target/release-licenses --out ta
 
 ## npm の公開を再試行する
 
-公開済みの Release のパッケージを検証し、npm だけに公開する経路です（[決定 0294](../../docs/decisions/0294-npm-release-retry.md)）。ワークフローの差分、`release` 環境に `main` ブランチの許可を足す設定変更、手動公開の例外と実際の公開について、利用者の承認を受けてから使います。設定の追加では、既存のタグの許可・承認者・ほかの保護の規則を維持します。
+公開済みの Release のパッケージを検証し、npm だけに公開する経路です。ワークフローの差分、`release` 環境に `main` ブランチの許可を足す設定変更、手動公開の例外と実際の公開について、利用者の承認を受けてから使います。設定の追加では、既存のタグの許可・承認者・ほかの保護の規則を維持します。
 
 ```bash
 gh workflow run release.yml --ref main -f npm_retry_tag=v0.2.0

@@ -1,7 +1,6 @@
 // サイトの中で使い回す文と表。お知らせ・対応形式は、ここを直す。
 
 export const repo = 'https://github.com/zumen-jp/zumen';
-export const decision = (file: string) => `${repo}/blob/main/docs/decisions/${file}`;
 
 export const nav = [
   { href: '/viewer/', label: '図面を試す' },

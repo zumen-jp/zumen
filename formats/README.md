@@ -1,6 +1,6 @@
 # 形式の権利の台帳
 
-形式ごとの仕様の入手先・権利・実装の根拠と、コアの実装を確かめた度合いを、`ledger.toml` に置きます（[決定 0017](../docs/decisions/0017-format-rights-ledger-and-plugin-sdk.md)・[決定 0254](../docs/decisions/0254-parallel-agents-and-cross-review.md)）。公開に第三者の許諾が要る形式と、権利が分からない形式は、このリポジトリのコアに入れず、外部のプラグインにします。
+形式ごとの仕様の入手先・権利・実装の根拠と、コアの実装を確かめた度合いを、`ledger.toml` に置きます（[開発の進め方](../docs/work.md)）。公開に第三者の許諾が要る形式と、権利が分からない形式は、このリポジトリのコアに入れず、外部のプラグインにします。
 
 ## 形式を足す
 
@@ -13,7 +13,7 @@
 
 ## 仕様（`[specs.<ID>]`）
 
-ID は英小文字・数字・`_` にし、版を含めます（`sxf_3_1` など）。診断の `cite`（[決定 0009](../docs/decisions/0009-diagnostics-and-catalog.md)）は、この ID で仕様を指します。
+ID は英小文字・数字・`_` にし、版を含めます（`sxf_3_1` など）。診断の `cite`（[診断のカタログ](../catalog/README.md)）は、この ID で仕様を指します。
 
 | キー | 要るか | 中身 |
 | --- | --- | --- |
@@ -27,12 +27,12 @@ ID は英小文字・数字・`_` にし、版を含めます（`sxf_3_1` など
 
 ## 形式（`[formats.<キー>]`）
 
-キーは英小文字と数字だけにします（`sxf`・`stbridge` など）。API の列挙の値（[決定 0012](../docs/decisions/0012-boundary-functions-and-messages.md)）にも、診断の code の範囲にも、そのまま使えるようにするためです。
+キーは英小文字と数字だけにします（`sxf`・`stbridge` など）。API の列挙の値（[API のスキーマ](../schema/README.md)）にも、診断の code の範囲にも、そのまま使えるようにするためです。
 
 | キー | 要るか | 中身 |
 | --- | --- | --- |
 | `name` | 要る | 形式の名前 |
-| `family` | 要る | L1 の系統（[決定 0008](../docs/decisions/0008-model-layers-and-codecs.md)）。同じ系統の形式は、1 つのファイルモデルを共有する |
+| `family` | 要る | L1 の系統（[コアの設計](../docs/architecture.md)）。同じ系統の形式は、1 つのファイルモデルを共有する |
 | `domains` | 要る | L2 の領域: `drawing`・`building`・`civil`・`geo`・`pointcloud`・`delivery`・`review` |
 | `specs` | 要る | 仕様の ID の並び。公式の仕様がなければ空にする |
 | `rights` | 要る | 下の 3 つの値 |
@@ -42,10 +42,10 @@ ID は英小文字・数字・`_` にし、版を含めます（`sxf_3_1` など
 | `repository` | `plugin` なら要る | プラグインのリポジトリ |
 | `basis` | `none` でなければ要る | 実装の根拠: `spec`（仕様）・`inferred`（推定）・`reference`（参照した実装） |
 | `references` | `reference` なら要る | 参照した実装（`name`・`license`・`url`）。GPL などの実装のソースは読まない |
-| `verify` | | 照合に使う候補の、外部の実装と基準になるソフト。段の根拠にはしない。照らしたら、[確かめた度合い](#確かめた度合い)の `implementations`・`software` にバージョンと一緒に書く（[決定 0255](../docs/decisions/0255-verification-levels-in-the-ledger.md)） |
-| `samples` | | サンプルの出どころ。[決定 0171](../docs/decisions/0171-public-samples-in-git.md) の条件に合う公開サンプルは `samples/` に置ける。置いたら、[公開サンプルの台帳](../samples/ledger.toml)に書く。受け取った図面は Git に入れない |
+| `verify` | | 照合に使う候補の、外部の実装と基準になるソフト。段の根拠にはしない。照らしたら、[確かめた度合い](#確かめた度合い)の `implementations`・`software` にバージョンと一緒に書く |
+| `samples` | | サンプルの出どころ。[公開サンプルの条件](../samples/README.md) の条件に合う公開サンプルは `samples/` に置ける。置いたら、[公開サンプルの台帳](../samples/ledger.toml)に書く。受け取った図面は Git に入れない |
 | `known-crates` | | crates.io にある、この形式を読み書きする crate。権利が `public` でない形式のものは、`deny.toml` で禁じる |
-| `decisions`・`legacy-decisions` | | 関わる決定の番号の配列。`["0008"]` のように 4 桁の文字列にする |
+| `legacy-decisions` | | 旧版のリポジトリにある記録の番号の配列。`["0008"]` のように 4 桁の文字列にする |
 | `issues` | | 関わる issue（`zumen-jp/zumen-legacy#140` の形） |
 | `docs` | 確かめた度合いがあれば要る | 形式の文書のパスの配列。リポジトリの根から `docs/formats/` 内の実在する Markdown を指す |
 | `notes` | | そのほかの補足 |
@@ -53,7 +53,7 @@ ID は英小文字・数字・`_` にし、版を含めます（`sxf_3_1` など
 
 ## 確かめた度合い
 
-コアの実装を、読みと書きに分けて、どこまで確かめたかを `[formats.<キー>.read]`・`[formats.<キー>.write]` に書きます（[決定 0254](../docs/decisions/0254-parallel-agents-and-cross-review.md)・[決定 0255](../docs/decisions/0255-verification-levels-in-the-ledger.md)）。API の `capabilities` には出しません。
+コアの実装を、読みと書きに分けて、どこまで確かめたかを `[formats.<キー>.read]`・`[formats.<キー>.write]` に書きます（[開発の進め方](../docs/work.md)）。API の `capabilities` には出しません。
 
 | 段 | 読む向き | 書く向き |
 | --- | --- | --- |
@@ -106,7 +106,7 @@ formats = ["dxf", "dwg"]
 
 - 要る項目・値の語・キー・空欄・重複、仕様の参照、HTTP または HTTPS の入手先、実在する日付。
 - `core` の権利が `public` であること、`plugin` のリポジトリ、実装の根拠に必要な仕様や参照した実装。
-- 決定の記録と形式の文書があること。旧版の決定は番号の形、issue は `所有者/リポジトリ#番号` の形を確かめる。
+- 参照先の形式の文書があること。旧版の記録は番号の形、issue は `所有者/リポジトリ#番号` の形を確かめる。
 - 確かめた度合いの段が向きと根拠の種類に合うこと、`public-samples` が公開サンプルの台帳にあること、確かめた度合いを持つ形式の文書に節があること。節の表が台帳と過不足なく合い、形の崩れた行がないこと（段を持たない形式の文書も、節があれば照らす）。
 - `cargo metadata --format-version 1 --all-features --locked` に含まれる全パッケージの名乗り。台帳にない形式、`public` の `core` でない形式、確かめた度合いのない形式、不正な名乗りを拒む。通常・build・dev・間接の依存を含み、環境で絞らない。
 - 権利が `public` でない形式の既知の crate に、例外・版の制限のない禁止があること。`"stb-parser"` または `{ crate = "stb-parser", reason = "理由" }` の形を使う。古い `name` の形も読めるが、`wrappers` による例外や、複数の版だけを禁じる指定では代わりにならない。既知の crate が Cargo の依存に現れた場合も拒む。

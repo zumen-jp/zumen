@@ -1,6 +1,6 @@
 # 公開サンプル
 
-再配布を認めるライセンスで公開された図面を、取得したままの形で置きます（[決定 0171](../docs/decisions/0171-public-samples-in-git.md)）。CI は、これらの図面で適合テストを流します。サンプルのテストでの利用は #310 で進めます。
+再配布を認めるライセンスで公開された図面を、取得したままの形で置きます。CI は、これらの図面で適合テストを流します。サンプルのテストでの利用は #310 で進めます。
 
 **ここのファイルは、リポジトリのライセンス（MIT OR Apache-2.0）に従いません。** それぞれ、[`ledger.toml`](ledger.toml) に書いたライセンスに従います。配る crate とパッケージには入れません。
 
@@ -60,7 +60,7 @@
 1. ファイルと、`ledger.toml` のその `[[samples]]` を消します。台帳から参照しなくなった `licenses/` の本文も消します。
 2. PR に、外した理由を書きます。
 
-fuzz が育てた種（actions/cache）のキーは、台帳のハッシュを含みます。台帳が変わると、外す PR の実行も、マージの後の毎晩の実行も、前の種を戻しません。そのため、その後の実行の種と artifact に、外したサンプルとそれを変えた入力は入りません（[決定 0258](../docs/decisions/0258-fuzz-seeds-and-runs.md)・[`fuzz/README.md`](../fuzz/README.md)）。
+fuzz が育てた種（actions/cache）のキーは、台帳のハッシュを含みます。台帳が変わると、外す PR の実行も、マージの後の毎晩の実行も、前の種を戻しません。そのため、その後の実行の種と artifact に、外したサンプルとそれを変えた入力は入りません（[fuzz の手順](../fuzz/README.md)・[`fuzz/README.md`](../fuzz/README.md)）。
 
 前の種のキャッシュは、7 日使われなければ GitHub が消します。早く消すときは、外す PR をマージし、流れている fuzz の実行が終わってから、次のコマンドで消します。消した後に、`gh cache list --key fuzz-corpus-` で何も出ないことを確かめます。
 
@@ -87,6 +87,6 @@ for id in $(gh cache list --key fuzz-corpus- --limit 100 --json id --jq '.[].id'
 | `text2bim/` | dcy0577（Text2BIM） | MIT | Vectorworks Architect 2024 | IFC2X3 |
 
 - ヘッダーに、作った人の名前・手元の機械の名前・手元のフォルダーの道筋があるものは、その値だけを置き換えました。データのセクションは、取得したままのバイト列です。取得したファイルの大きさと SHA-256 は、台帳の `changes` にあります。
-- `text2bim/` の GlobalId はバージョン 1 の UUID で、作った機械の識別子（MAC アドレスと推定）を含みます。氏名・住所・連絡先ではなく（決定 0171）、元のファイルも公開されているので、データのセクションを変えずに残しました。
+- `text2bim/` の GlobalId はバージョン 1 の UUID で、作った機械の識別子（MAC アドレスと推定）を含みます。氏名・住所・連絡先ではなく、元のファイルも公開されているので、データのセクションを変えずに残しました。
 - `nakano/` の形は点群から作った Brep で、要素はすべて `IfcBuildingElementProxy` です。`rinya/` と `gni/` は、公開元が書き出した後に保存し直しています。どちらも、書き出したソフトがそのまま書いたファイルとしては扱いません。
 - `crates/zumen-ifc/tests/samples.rs` が、すべてを読み、建物モデルに写した要約を `samples.txt` と比べます。毎晩の CI は、写した値を IfcOpenShell で読んだ値と照らします（`crates/zumen-ifc/tests/ifcopenshell/samples.py`）。

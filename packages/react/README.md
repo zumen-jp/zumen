@@ -38,7 +38,7 @@ useLayoutEffect(() => {
 
 選択した要素の出所は `await opened.getSource(element)` で問い合わせます。見つかれば ID・配置の道筋と `source`、要素がなければ `null` を返します。出所にあるレコード・ハンドル・インスタンス・バイト範囲をそのまま使います。選択が変わったときは、前の要素の応答を画面へ反映しないようにします。
 
-開いた図面は `await opened.convert()` で DXF に変換できます（`convert`、[決定 0206](../../docs/decisions/0206-convert-to-new-dxf.md)）。同じ Worker のセッションで変換し、書いた DXF のバイト列（`bytes`）、応答の `result`（書いた要素の数など）、変換の診断（`diagnostics`、段階は `convert`）を返します。変換した文書はセッションに残さず、元の文書とシーンは変えません。変換できなければ、`Error` の `diagnostics` に変換の診断を入れて拒みます。保存は利用側が行います。
+開いた図面は `await opened.convert()` で DXF に変換できます（`convert`、[DXF の読み書き](../../docs/formats/dxf.md)）。同じ Worker のセッションで変換し、書いた DXF のバイト列（`bytes`）、応答の `result`（書いた要素の数など）、変換の診断（`diagnostics`、段階は `convert`）を返します。変換した文書はセッションに残さず、元の文書とシーンは変えません。変換できなければ、`Error` の `diagnostics` に変換の診断を入れて拒みます。保存は利用側が行います。
 
 入力は 64 MiB までです。非同期の `FileReader` で読み、専有バッファーを module Worker に転送します。Worker は自分の wasm インスタンス・セッションで `open`・`drawing`・`scene` を呼び、シーンのバッファーを転送します。表示中は同じセッションで出所を問い合わせ、DXF に変換します。同時に応答を待つ要求の上限は 32 件です。
 
@@ -50,4 +50,4 @@ Activity・Suspense が表示を切り離すときも、Worker を終了して�
 
 React は利用側が渡す peer dependency です。プレイグラウンドでは既存の Next.js の検査と同じ React・React DOM 19.3.1（MIT）を固定します。React DOM の scheduler も MIT です。コアと同じ図面用 wasm を使い、ネイティブと共通のシーンを既存のリーダーで読みます。
 
-PR の Chromium と毎晩の Firefox・WebKit のブラウザー検査には、決定 0199 の Playwright を使います。製品の下限バージョンは別の検査です。とくに module Worker は Firefox 114 以降を必要とします（[対応する環境](../../docs/support.md)）。パッケージは未公開です。[決定 0267](../../docs/decisions/0267-view2d-on-scene-columns.md)
+PR の Chromium と毎晩の Firefox・WebKit のブラウザー検査には、[適合テスト](../../bindings/conformance/README.md) の Playwright を使います。製品の下限バージョンは別の検査です。とくに module Worker は Firefox 114 以降を必要とします（[対応する環境](../../docs/support.md)）。パッケージは未公開です。[2D の表示部品](../../docs/view2d.md)

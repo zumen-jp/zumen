@@ -2,8 +2,12 @@
 
 zumen が対象にするプラットフォーム・言語の実行環境・ホストアプリと、その下限です。
 
-- 対象のプラットフォームと確かめ方は [決定 0014](decisions/0014-platforms-signing-and-distribution.md)、下限の決め方と上げ方は [決定 0015](decisions/0015-add-only-boundary-and-version-floors.md) にあります。この表は、その規則で直します。
+- ホストアプリのメーカーがサポートするもっとも古い実行環境に合わせます。単独で動く環境はサポート期間内を対象とします。ホストと実行環境の両方のサポートが終了したら、下限を上げる前のリリースで予告し、次のマイナーバージョンで上げます。
 - 下限の表の初版は、2026-10-24 に確かめた事情によります。ブラウザーは、下の節に更新時の根拠と検査の範囲を書いています。
+
+## 言語ごとの約束
+
+Tier 1 は言語ごとのパッケージをコアと同じ日に公開し、PR ごとに適合テストを流します。Tier 2 は生成したパッケージを毎晩検査します。Tier 3 は C ABI・wasm・CLI・HTTP の使い方とサンプルを共通のテストで確かめます。Tier を上げる PR では、生成テンプレート、API の関数のラッパー、適合テストの通過を確認します。
 
 ## プラットフォーム
 
@@ -22,7 +26,7 @@ zumen が対象にするプラットフォーム・言語の実行環境・ホ�
 | wasm | wasm32 | `wasm32-unknown-unknown` | 下の「ブラウザー」 | PR ごとにテスト |
 
 - OS の下限は、Rust の対象の下限（Windows 10、macOS 11・10.12、glibc 2.17）と、配り方の下限（`manylinux_2_28`、Flutter の iOS 15・Android 7.0）の高いほうです。
-- glibc 2.28 より古い Linux では、musl で静的にリンクした CLI を、プロセスの外か HTTP の形態（[決定 0013](decisions/0013-boundary-in-four-forms.md)）で使います。glibc のプロセスには、musl のライブラリを読み込めません。
+- glibc 2.28 より古い Linux では、musl で静的にリンクした CLI を、プロセスの外か HTTP の形態（[API のスキーマ](../schema/README.md)）で使います。glibc のプロセスには、musl のライブラリを読み込めません。
 - ツールチェーンは Rust 1.99.1 です。1.99.0 は使いません（`bool` を返す `extern "C"` の関数を、x64 で誤ってコンパイルする）。
 
 ## 言語と実行環境
@@ -31,7 +35,7 @@ zumen が対象にするプラットフォーム・言語の実行環境・ホ�
 | --- | --- | --- | --- | --- |
 | 1 | Rust | 1.99（crate の `rust-version`） | 固定したツールチェーン | PR ごと |
 | 1 | TS・JS（ブラウザー） | Chrome・Edge 96、Firefox 91、Safari 15.1 | wasm の機能と、ラッパーの構文・API の両方（下の根拠） | PR ごと（Chromium）、毎晩（Firefox・WebKit）。下限の実機は未確認 |
-| 1 | Node.js | 22 | 20 のサポートは 2026-04-30 に終わった | PR ごと。Next.js（Turbopack・webpack）で組んで使うテストは毎晩（[決定 0259](decisions/0259-javascript-on-node-servers.md)） |
+| 1 | Node.js | 22 | 20 のサポートは 2026-04-30 に終わった | PR ごと。Next.js（Turbopack・webpack）で組んで使うテストは毎晩（[JavaScript の使い方](../bindings/js/README.md)） |
 | 1 | Python | 3.9 | Rhino 8 と Dynamo 3.x の CPython3（どちらも 3.9） | PR ごと（3.9 と最新） |
 | 1 | .NET | .NET Framework 4.8、.NET 8 以降 | Revit・AutoCAD 2024 は .NET Framework 4.8。netstandard2.0 の 1 つのアセンブリで両方に出す | PR ごと（.NET Framework 4.8 と .NET 10） |
 | 1 | C・C++ | C99、C++17 | | PR ごと |
@@ -76,7 +80,7 @@ Rust の [`wasm32-unknown-unknown` が既定で使う機能](https://doc.rust-la
 | [bulk-memory](https://github.com/mdn/browser-compat-data/blob/188707c73f5a93701429eadcdaf35d6e31715c67/webassembly/bulk-memory-operations.json) | 75 | 79 | 79 | 15.1 |
 | [nontrapping-fptoint](https://github.com/mdn/browser-compat-data/blob/188707c73f5a93701429eadcdaf35d6e31715c67/webassembly/non-trapping-float-to-int-conversions.json) | 75 | 18 | 64 | 15.1 |
 
-両方の高いほうから、Chrome・Edge 96、Firefox 91、Safari 15.1 としています。これは互換性の資料から求めた下限で、下限の製品そのもので動かした結果ではありません。[決定 0199](decisions/0199-browser-conformance-with-playwright.md)に従い、CI では固定した Playwright が用意する Chromium・Firefox・WebKit で適合テストを流します。
+両方の高いほうから、Chrome・Edge 96、Firefox 91、Safari 15.1 としています。これは互換性の資料から求めた下限で、下限の製品そのもので動かした結果ではありません。[適合テスト](../bindings/conformance/README.md)に従い、CI では固定した Playwright が用意する Chromium・Firefox・WebKit で適合テストを流します。
 
 利用側のコードには、別の要件が加わることがあります。たとえば、[転送の測定ページ](../bench/transfer/browser.html)が使う [module Worker](https://github.com/mdn/browser-compat-data/blob/188707c73f5a93701429eadcdaf35d6e31715c67/api/Worker.json)は Firefox 114 以降です。ラッパー自身は Worker を作りません。`bindings/js/examples/worker` は Node.js の `worker_threads` の例です。
 
@@ -96,7 +100,7 @@ Rust の [`wasm32-unknown-unknown` が既定で使う機能](https://doc.rust-la
 | SketchUp | 2024 以降 | Ruby 3.2（Tier 3） |
 | Unity | 6 の LTS | .NET Standard 2.1。IL2CPP は、iOS と Web では静的ライブラリをリンクする |
 
-- 32 bit の Excel では、64 bit の子プロセス（[決定 0013](decisions/0013-boundary-in-four-forms.md) の `process`）を使うと、大きな図面を読めます。
+- 32 bit の Excel では、64 bit の子プロセス（[API のスキーマ](../schema/README.md) の `process`）を使うと、大きな図面を読めます。
 
 ## 見直す予定
 
