@@ -713,6 +713,20 @@ pub const CIVIL_SEGMENT_INVALID: Code = Code::new(
     &["field"],
 );
 
+/// 測点の番号が 2^53 を超え、続く番号を f64 で表せないので、skipped 個の番号の測点を描かず、rounded 個の測点を f64 に丸めた番号と位置で描いた（#713）
+///
+/// `civil.station.approximated`（0.2.0 から）
+pub const CIVIL_STATION_APPROXIMATED: Code = Code::new(
+    "civil.station.approximated",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("rounded", ParamType::UInt),
+        Param::new("skipped", ParamType::UInt),
+    ],
+    &[],
+);
+
 /// 測点の値が、測点の不連続のために線形の places 個の所にあり、どれかを指定していないので、最初の所にした
 ///
 /// `civil.station.assumed`（0.2.0 から）
@@ -4595,6 +4609,7 @@ pub const ALL: &[Code] = &[
     CIVIL_PROFILE_MISSING,
     CIVIL_SEGMENT_START_INVALID,
     CIVIL_SEGMENT_INVALID,
+    CIVIL_STATION_APPROXIMATED,
     CIVIL_STATION_ASSUMED,
     CIVIL_STATION_INVALID,
     CIVIL_STATION_MISSING,

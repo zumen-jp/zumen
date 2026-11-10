@@ -487,14 +487,19 @@ fn whole_stations(
         .saturating_add(1);
     let mut found = Vec::new();
     // 大きな番号には 1 を足しても変わらないので、回数で数える。2^53 を超えると、続く回数が同じ番号に丸まるので、
-    // 増えなかった番号は飛ばす
+    // 増えなかった番号は飛ばす。飛ばした番号と、2^53 を超えて丸めた番号で描いた測点は、数を診断で知らせる（#713）
     let mut previous = f64::NEG_INFINITY;
+    let (mut skipped, mut rounded) = (0u64, 0u64);
     for step in 0..count {
         let number = first + step as f64;
         if number <= previous {
+            skipped += 1;
             continue;
         }
         previous = number;
+        if number.abs() > EXACT {
+            rounded += 1;
+        }
         cx.check(Kind::Work, per_number)?;
         let distances = stations.distances(number * pitch, length);
         let extra = u64::try_from(distances.len().saturating_sub(1)).unwrap_or(u64::MAX);
@@ -503,9 +508,19 @@ fn whole_stations(
         }
         found.extend(distances.into_iter().map(|distance| (distance, number)));
     }
+    if skipped > 0 || rounded > 0 {
+        cx.report(
+            Diagnostic::new(codes::CIVIL_STATION_APPROXIMATED)
+                .with("skipped", skipped)
+                .with("rounded", rounded),
+        );
+    }
     found.sort_by(|a, b| a.0.total_cmp(&b.0));
     Ok(found)
 }
+
+/// f64 で続く整数をすべて表せる上限（2^53）。これを超える測点の番号は、隣の番号と同じ値に丸まりうる
+const EXACT: f64 = 9_007_199_254_740_992.0;
 
 /// 平面図の測点。線形に直交する短い線と、番号の文字
 fn stations(

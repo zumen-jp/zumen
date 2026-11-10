@@ -1,7 +1,7 @@
 //! 合成の線形から平面図・縦断図・横断図の図面モデルを作り、シーンに描く（決定 0231）。
 
 use zumen_base::{
-    Budget, CancelToken, Code, Cx, Diagnostics, Kind, Limit, Limits, Ref, Stop, codes,
+    Budget, CancelToken, Code, Cx, Diagnostics, Kind, Limit, Limits, Ref, Stop, Value, codes,
 };
 use zumen_civil::{
     Alignment, CivilModel, CrossSection, CrossSectionLine, Horizontal, HorizontalKind, SurfaceRole,
@@ -366,6 +366,44 @@ fn huge_station_numbers_end() {
     unique.sort_unstable();
     unique.dedup();
     assert_eq!(texts.len(), unique.len(), "{texts:?}");
+    // 飛ばした番号と、丸めた番号で描いた測点を、数で知らせる（#713）
+    let found: Vec<_> = diag
+        .iter()
+        .filter(|d| d.code() == codes::CIVIL_STATION_APPROXIMATED)
+        .collect();
+    assert_eq!(found.len(), 1, "{found:?}");
+    let count = |name: &str| {
+        found
+            .first()
+            .and_then(|d| d.params().iter().find(|(k, _)| *k == name))
+            .and_then(|(_, v)| match v {
+                Value::UInt(n) => Some(*n),
+                _ => None,
+            })
+    };
+    assert!(count("skipped").is_some_and(|n| n > 0), "{found:?}");
+    assert!(count("rounded").is_some_and(|n| n > 0), "{found:?}");
+}
+
+/// 2^53 までの測点の番号では、丸めの診断を出さない（#713）
+#[test]
+fn exact_station_numbers_are_not_reported() {
+    let mut line = alignment();
+    line.stations.start = 9_007_199_254_740_000.0;
+    let model = CivilModel {
+        alignments: vec![line],
+        ..CivilModel::default()
+    };
+    let mut budget = Budget::new(Limits::default());
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+    drawing(&model, &model.alignments[0], &Options::default(), &mut cx).unwrap();
+    let codes: Vec<Code> = diag.iter().map(|d| d.code()).collect();
+    assert!(
+        !codes.contains(&codes::CIVIL_STATION_APPROXIMATED),
+        "{codes:?}"
+    );
 }
 
 /// 測点の番号の範囲が 2^64 を超える不連続でも、件数が桁あふれせず、予算で止まる（#486）
