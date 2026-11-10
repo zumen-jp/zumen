@@ -84,12 +84,18 @@ impl Codes<'_> {
 /// hayro-syntax 0.9.0 の LZW の展開順を長さでたどる。不正な符号では上流も失敗するが、
 /// そこまでに作る分を戻さない。入力が途中で切れた場合は、上流が返す部分の出力まで数える
 pub(super) fn count(data: &[u8], early: bool, cx: &mut Cx<'_>) -> Result<(), Stop> {
+    count_output(data, early, cx).map(|_| ())
+}
+
+/// 辞書の確保とは別に、予測子に渡す出力の長さを返す。失敗する符号なら、そこまでの長さ。
+pub(super) fn count_output(data: &[u8], early: bool, cx: &mut Cx<'_>) -> Result<u64, Stop> {
     cx.check(Kind::Work, (data.len() as u64).div_ceil(16) + 512)?;
     cx.check(Kind::DecodedBytes, FIRST as u64 * ENTRY_BYTES + 256)?;
     let mut lengths = [0u16; ENTRIES];
     lengths[..256].fill(1);
     let mut size = FIRST;
     let mut previous: Option<u16> = None;
+    let mut output = 0u64;
     let mut codes = Codes {
         bytes: data.iter(),
         pending: 0,
@@ -105,30 +111,31 @@ pub(super) fn count(data: &[u8], early: bool, cx: &mut Cx<'_>) -> Result<(), Sto
             _ => 9,
         };
         let Some(code) = codes.next(width) else {
-            return Ok(());
+            return Ok(output);
         };
         match code {
             256 => {
                 size = FIRST;
                 previous = None;
             }
-            257 => return Ok(()),
-            _ if code > size || (code == size && previous.is_none()) => return Ok(()),
+            257 => return Ok(output),
+            _ if code > size || (code == size && previous.is_none()) => return Ok(output),
             _ => {
                 let length = if code < size {
                     let Some(length) = lengths.get(code).copied() else {
-                        return Ok(());
+                        return Ok(output);
                     };
                     length
                 } else {
                     // 次の辞書の番号は、前の語とその先頭の 1 バイト（7.4.4.2）
                     let Some(length) = previous else {
-                        return Ok(());
+                        return Ok(output);
                     };
                     length + 1
                 };
                 cx.check(Kind::Work, u64::from(length).div_ceil(16))?;
                 cx.check(Kind::DecodedBytes, u64::from(length))?;
+                output = output.saturating_add(u64::from(length));
                 if let Some(prev) = previous {
                     let added = prev + 1;
                     // 上流は表が満杯でも、前の語を写した後で追加を断るので、その確保も数える。
