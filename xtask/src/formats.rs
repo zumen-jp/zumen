@@ -133,7 +133,7 @@ struct Reference {
     url: String,
 }
 
-/// 台帳の決定番号と実在するファイル。生成するリンクにも同じ一覧を使う。
+/// 形式の台帳と参照先、依存の条件を確かめ、形式と権利の一覧を生成する。
 pub fn generate(root: &Path) -> Result<String, String> {
     let read = |path: &str| {
         fs::read_to_string(root.join(path)).map_err(|e| format!("{path} を読めない: {e}"))

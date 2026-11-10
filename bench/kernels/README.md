@@ -6,6 +6,10 @@
 
 コアのワークスペースには入れていません。候補は、選ぶまで workspace の依存に入れません（[コアの設計](../../docs/architecture.md)）。
 
+## 3D カーネルの選定条件
+
+ネイティブと wasm で同じ結果を返し、ビルドに C・C++ のツールを必要としないものを選びます。依存のライセンスには [コアの条件](../../AGENTS.md#範囲と権利) を適用します。
+
 ## 候補
 
 | feature | 候補 | ブーリアン |
@@ -16,7 +20,7 @@
 
 - ブーリアンのない形（押し出し・回転・円の断面の掃引・面の集合・三角形の集合・写像・組）は、どの候補でも `src/primitives.rs` の同じコードで三角形にし、ブーリアンだけを候補に任せます。半空間は、manifold-rust は `trim_by_plane`、csgrs は大きな箱とのブーリアンにします。
 - csgrs が依存する `core2` は、crates.io のすべてのバージョンが取り下げられていて、新しく解決できません。`Cargo.toml` で上流のリポジトリの 0.4.0 を当てています。
-- C++ の Manifold を呼ぶ [manifold-csg](https://crates.io/crates/manifold-csg) は、作るときに C++ の Manifold を git で取得し、cmake と C++ のコンパイラーで作ります。wasm32-unknown-unknown では、libc++ のヘッダーを持つ LLVM の clang と wasm-cxx-shim の取得が要ります（`manifold-csg-sys` 3.5.105 の `build.rs`）。[コアの設計](../../docs/architecture.md) の「作るのに C・C++ のツールが要らない」に合わないので、比べていません。
+- C++ の Manifold を呼ぶ [manifold-csg](https://crates.io/crates/manifold-csg) は、作るときに C++ の Manifold を git で取得し、cmake と C++ のコンパイラーで作ります。wasm32-unknown-unknown では、libc++ のヘッダーを持つ LLVM の clang と wasm-cxx-shim の取得が要ります（`manifold-csg-sys` 3.5.105 の `build.rs`）。[ビルドの条件](#3d-カーネルの選定条件)に合わないので、比べていません。
 
 ## 流し方
 
