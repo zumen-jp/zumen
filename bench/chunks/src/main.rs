@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::time::Instant;
 
-use zumen_bench_chunks::{CASES, POLICIES, audit, bytes, prepare, render};
+use zumen_bench_chunks::{CASES, POLICIES, audit, bytes, input, prepare, render};
 
 // 時計を読むのは計測ハーネスだけで、コアには持ち込まない。
 #[allow(clippy::disallowed_methods)]
@@ -20,6 +20,7 @@ fn main() {
     std::fs::create_dir_all(&out).unwrap();
     let mut rows = Vec::new();
     for (case, name) in CASES.iter().enumerate() {
+        std::fs::write(out.join(format!("{name}-input.bin")), input(case)).unwrap();
         prepare(case);
         for (policy, label) in POLICIES.iter().enumerate() {
             render(policy); // ウォームアップと比較元のバイト。準備と監査は時間に含めない。
