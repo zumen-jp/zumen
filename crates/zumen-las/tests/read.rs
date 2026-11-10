@@ -1,6 +1,4 @@
-//! 合成の LAS・LAZ を読み、点群の領域モデルに移す（#371）。
-
-use std::io::Cursor;
+//! 合成の LAS を読み、点群の領域モデルに移す（#371）。LAZ は断る（決定 0289・#510）。
 
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Limits, codes};
 use zumen_crs::{Crs, VerticalCrs, Zone};
@@ -105,26 +103,11 @@ fn las(minor: u8, vlrs: &[Vec<u8>], wkt: bool) -> Vec<u8> {
     out
 }
 
-#[cfg(test)]
+/// LAZ の印（点の形式のビット 7）を立てたファイル。展開しないので、点のレコードは圧縮せずに置く
 fn laz() -> Vec<u8> {
-    let items = laz::LazItemRecordBuilder::default_for_point_format_id(3, 0).unwrap();
-    let vlr = laz::LazVlrBuilder::new(items).build();
-    let mut data = Vec::new();
-    vlr.write_to(&mut data).unwrap();
-    let vlrs = [
-        vlr_record(laz::LazVlr::USER_ID, laz::LazVlr::RECORD_ID, &data),
-        vlr_record("LASF_Projection", 34735, &geo_keys(6677, 6695)),
-    ];
-    let mut out = header(2, 3 | 0x80, 34, 100, &vlrs, false);
-    let start = out.len() as u64;
-    let mut cursor = Cursor::new(std::mem::take(&mut out));
-    cursor.set_position(start);
-    laz::compress_buffer(&mut cursor, &records(), vlr).unwrap();
-    cursor.into_inner()
-}
-
-fn vlr_record(user: &str, record: u16, data: &[u8]) -> Vec<u8> {
-    vlr(user, record, data)
+    let mut out = header(2, 3 | 0x80, 34, 100, &[], false);
+    out.extend(records());
+    out
 }
 
 fn open(bytes: &[u8]) -> Result<(LasFile, PointCloud, Vec<Code>), Error> {
@@ -185,17 +168,30 @@ fn reads_points_with_scale_offset_and_attributes() {
 }
 
 #[test]
-fn reads_laz_like_las() {
-    let (file, cloud, codes) = open(&laz()).unwrap();
-    assert!(file.header.compressed);
-    let (_, plain, _) = open(&las(
-        2,
-        &[vlr("LASF_Projection", 34735, &geo_keys(6677, 6695))],
-        false,
-    ))
-    .unwrap();
-    assert_eq!(cloud.points, plain.points);
-    assert_eq!(codes, dropped());
+fn refuses_laz_after_the_header() {
+    // LAZ の展開は止めている（決定 0289・#510）。ヘッダーで見分け、点の範囲を求めずに断る
+    let bytes = laz();
+    let size = bytes.len() as u64;
+    let mut budget = Budget::new(Limits::default());
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+    let head = (0, &bytes[..375]);
+    let read = Las::read_ranged(
+        &Source {
+            size,
+            parts: &[head],
+        },
+        &mut cx,
+    );
+    assert!(
+        matches!(read, Err(Missing::Failed(Error::Unsupported))),
+        "{read:?}"
+    );
+    let codes: Vec<Code> = diag.iter().map(|d| d.code()).collect();
+    assert_eq!(codes, [codes::LAS_LAZ_UNSUPPORTED]);
+    // 全体を渡しても、同じく断る
+    assert!(matches!(open(&bytes), Err(Error::Unsupported)));
 }
 
 #[test]
@@ -238,7 +234,11 @@ fn tells_unknown_crs_and_short_records() {
 
 #[test]
 fn asks_for_ranges_and_reads_them() {
-    let bytes = laz();
+    let bytes = las(
+        2,
+        &[vlr("LASF_Projection", 34735, &geo_keys(6677, 6695))],
+        false,
+    );
     let mut budget = Budget::new(Limits::default());
     let mut diag = Diagnostics::new();
     let cancel = CancelToken::new();

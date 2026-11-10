@@ -153,7 +153,7 @@ pub const MODULES: &[Module] = &[
         formats: &["landxml", "citygml", "fgd", "extdm"],
         ops: &["capabilities", "open", "close", "describe", "civil", "geo"],
     },
-    // 点群（LAS・LAZ・PLY・XYZ・E57）と、設計の TIN（J-LandXML）との差
+    // 点群（LAS・PLY・XYZ・E57）と、設計の TIN（J-LandXML）との差
     Module {
         name: "pointcloud",
         formats: &["las", "ply", "xyz", "e57", "landxml"],

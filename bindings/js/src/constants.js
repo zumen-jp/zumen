@@ -52,7 +52,7 @@ export const MODULES = Object.freeze({
     ops: Object.freeze(["capabilities", "open", "close", "describe", "civil", "geo"]),
   }),
   pointcloud: Object.freeze({
-    description: "点群（LAS・LAZ・PLY・XYZ・E57）と、設計の TIN（J-LandXML）との差",
+    description: "点群（LAS・PLY・XYZ・E57）と、設計の TIN（J-LandXML）との差",
     formats: Object.freeze(["las", "ply", "xyz", "e57", "landxml"]),
     ops: Object.freeze(["capabilities", "open", "close", "describe", "civil", "pointcloud", "deviation"]),
   }),

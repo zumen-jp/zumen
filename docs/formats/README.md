@@ -847,8 +847,8 @@
 - 参照した実装: [laz-rs](https://github.com/tmontaigu/laz-rs)（Apache-2.0）
 - 照合に使う候補: CloudCompare・PDAL・LAStools の lasinfo
 - サンプルの出どころ: laz-rs の tests/data（Apache-2.0。数十 KB から数百 KB）
-- 読みの確かめた度合い: `synthetic`（確認日: 2026-11-03）
-- 読みの確かめた範囲: LAS 1.4 R15・LAZ 1.4 の仕様と、テストの中で作った LAS・LAZ（crates/zumen-las/tests）で確かめた。LAZ の展開は laz の crate に任せる。公開サンプルと外部の実装との照合はまだ（#371・#504）
+- 読みの確かめた度合い: `synthetic`（確認日: 2026-11-10）
+- 読みの確かめた範囲: LAS 1.4 R15 の仕様と、テストの中で作った LAS（crates/zumen-las/tests）で確かめた。LAZ は展開を止めていて、開くと las.laz.unsupported を返す（#510・決定 0289）。公開サンプルと外部の実装との照合はまだ（#371・#504）
 - 既知の crate: las・laz
 - issue: [zumen-jp/zumen#371](https://github.com/zumen-jp/zumen/issues/371)
 - 形式の文書: [docs/formats/las.md](../../docs/formats/las.md)
@@ -900,9 +900,10 @@
 - 記録: [決定 0008](../decisions/0008-model-layers-and-codecs.md)
 - 記録: [決定 0013](../decisions/0013-boundary-in-four-forms.md)
 - 記録: [決定 0256](../decisions/0256-pdf-with-hayro.md)
+- 記録: [決定 0289](../decisions/0289-release-cut-and-shipped-code.md)
 - 旧版の記録: 旧版の決定 0020、旧版の決定 0030（[旧版の決定の一覧](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/README.md)）
 - 形式の文書: [docs/formats/pdf.md](../../docs/formats/pdf.md)
-- 補足: ページの解釈は hayro-interpret 0.9.0（Apache-2.0 OR MIT）に任せ、バージョンを固定する（決定 0256）
+- 補足: ページの解釈は hayro-interpret 0.9.0（Apache-2.0 OR MIT）に任せ、バージョンを固定する（決定 0256）。zumen-pdf は crates.io に出さず、どのパッケージにも入れない（決定 0289）
 
 ### format-ply
 
