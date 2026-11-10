@@ -15,11 +15,24 @@ const KEY: u64 = 176;
 pub(super) struct Metadata<'a> {
     source: Source<'a>,
     copies: u64,
+    file_name: bool,
 }
 
 impl<'a> Metadata<'a> {
     pub(super) fn new(source: Source<'a>, copies: u64) -> Self {
-        Self { source, copies }
+        Self {
+            source,
+            copies,
+            file_name: false,
+        }
+    }
+
+    pub(super) fn decoding(source: Source<'a>) -> Self {
+        Self {
+            source,
+            copies: if source.metadata_encrypted() { 5 } else { 3 },
+            file_name: true,
+        }
     }
 
     pub(super) fn name<'b>(
@@ -40,7 +53,16 @@ impl<'a> Metadata<'a> {
                     }
                 }
             };
-            self.reserve(bytes, bytes, cx)?;
+            // decoded_image は、外部ファイルの判定でも F を Object として読む。
+            // F が所有する Name なら、引数解析の 3/5 回とは別にもう 1 回確保する。
+            // plain_flate の診断は decoded_image を呼ばないので追加しない。
+            let reservation = Self {
+                copies: self
+                    .copies
+                    .saturating_add(u64::from(self.file_name && key == b"F")),
+                ..self
+            };
+            reservation.reserve(bytes, bytes, cx)?;
         }
         Ok(dict.get(key))
     }
@@ -248,6 +270,30 @@ mod tests {
     use hayro_syntax::object::ObjRef;
     use hayro_syntax::reader::{Reader, ReaderExt};
     use zumen_base::{Budget, CancelToken, Diagnostics, Limit, Limits};
+
+    #[test]
+    fn short_f_key_covers_the_extra_object_name_read_at_capacity_boundaries() {
+        // allocator oracle の stages + 実 decoded_data の観測値。
+        // 未知名は Stage を作らないので、その Vec の余りでは追加の読みを覆えない。
+        for (length, allocated) in [(4097, 65_408), (8193, 130_944)] {
+            let source = format!("<< /F /#41{} >>", "a".repeat(length - 1));
+            let context = ReaderContext::dummy();
+            let dict = Reader::new(source.as_bytes())
+                .read_with_context::<Dict<'_>>(&context)
+                .unwrap();
+            let mut budget = Budget::default();
+            let mut diagnostics = Diagnostics::new();
+            let cancel = CancelToken::new();
+            let stages = super::super::stages::read(
+                &dict,
+                Metadata::decoding(Source::default()),
+                &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+            )
+            .unwrap();
+            assert!(stages.is_empty());
+            assert!(budget.used(Kind::DecodedBytes) >= allocated);
+        }
+    }
 
     #[test]
     fn every_reference_read_by_hayro_is_counted_before_resolution() {

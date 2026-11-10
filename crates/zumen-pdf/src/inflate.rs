@@ -42,8 +42,7 @@ pub(crate) fn before(
 ) -> Result<bool, Stop> {
     // filters() も全段の引数を解析してから捨てる。同じ解析を 1 回だけ行い、
     // 単独の圧縮でも、元の位置と参照の文脈を保った引数を使う。
-    let copies = if source.metadata_encrypted() { 5 } else { 3 };
-    let stages = stages::read(stream.dict(), metadata::Metadata::new(source, copies), cx)?;
+    let stages = stages::read(stream.dict(), metadata::Metadata::decoding(source), cx)?;
     // hayro-syntax 0.9.0 の `Stream::decoded_data` は、どこかに画像のフィルターがあれば、どの段も当てずに失敗する
     if stages.iter().any(|stage| {
         matches!(
