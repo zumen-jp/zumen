@@ -8,9 +8,8 @@ export function installResizeTrace() {
     trace.records.push({ kind, frame, phase: trace.phase, active, ...values });
     if (trace.records.length > 250) trace.records.shift();
   };
-  const box = (target) => ({ client: [target.clientWidth, target.clientHeight], bitmap: [target.width, target.height],
-    rect: [target.getBoundingClientRect().width, target.getBoundingClientRect().height],
-    viewport: [innerWidth, innerHeight], document: [document.documentElement.clientWidth, document.documentElement.scrollHeight] });
+  // 通知中の観測で layout を早めない。CSS の実測は、失敗が発生した後だけにする。
+  const box = (target) => ({ bitmap: [target.width, target.height] });
   document.addEventListener("change", (event) => {
     const target = event.target;
     trace.phase = target.id === "drawing-file" ? "file:" + target.files?.[0]?.name : "change:" + (target.id || target.tagName) + ":" + target.value;
@@ -24,7 +23,10 @@ export function installResizeTrace() {
   addEventListener("resize", () => { trace.phase = "viewport:" + innerWidth + "x" + innerHeight; record("viewport"); });
   addEventListener("pagehide", () => record("pagehide"));
   addEventListener("error", (event) => {
-    window.captureResizeFailure({ message: event.message, phase: trace.phase, frame, path: location.pathname, records: trace.records.slice(-30) });
+    const canvas = document.querySelector("canvas"), rect = canvas?.getBoundingClientRect();
+    window.captureResizeFailure({ message: event.message, phase: trace.phase, frame, path: location.pathname, records: trace.records.slice(-30),
+      current: canvas && { client: [canvas.clientWidth, canvas.clientHeight], rect: [rect.width, rect.height], ...box(canvas) },
+      viewport: [innerWidth, innerHeight], document: [document.documentElement.clientWidth, document.documentElement.scrollHeight] });
   });
   const NativeObserver = ResizeObserver;
   window.ResizeObserver = class extends NativeObserver {

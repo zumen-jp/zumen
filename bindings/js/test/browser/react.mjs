@@ -1,5 +1,6 @@
 // 決定 0199・0267。ローカルのビルドを配り、ページと Worker が要求したものを確認する。
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
@@ -14,6 +15,16 @@ import { loadSync } from "../../src/index.js";
 const [product, wasm] = process.argv.slice(2);
 const browsers = { chromium, firefox, webkit, chrome: chromium, msedge: chromium };
 if (!browsers[product] || !wasm) throw new Error("使い方: node react.mjs <chromium|firefox|webkit|chrome|msedge> <drawing.wasm>");
+// 診断用 draft で旧製品コードの失敗を採取する。失敗した回で停止し、通過で上書きしない。
+if (product === "webkit" && !process.env.ZUMEN_RESIZE_PROBE_ONCE) {
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    console.log("ResizeObserver diagnostic attempt " + attempt);
+    execFileSync(process.execPath, [fileURLToPath(import.meta.url), product, wasm], {
+      stdio: "inherit", env: { ...process.env, ZUMEN_RESIZE_PROBE_ONCE: "1" },
+    });
+  }
+  process.exit(0);
+}
 const root = fileURLToPath(new URL("../../../../", import.meta.url));
 const app = join(root, "playground");
 process.env.ZUMEN_DRAWING_WASM = resolve(wasm);
