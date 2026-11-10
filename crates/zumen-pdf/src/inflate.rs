@@ -6,6 +6,7 @@ mod chain;
 mod lzw;
 mod run_length;
 mod source;
+mod stages;
 
 pub(crate) use source::Source;
 
@@ -14,6 +15,7 @@ use std::io::Read;
 use flate2::read::{DeflateDecoder, ZlibDecoder};
 use hayro_syntax::Filter;
 use hayro_syntax::object::Stream;
+use stages::Stage;
 use zumen_base::{Cx, Kind, Stop};
 
 /// 出力を保持しない確かめの、固定長のバッファー。展開の状態と合わせて入力の大きさによらない
@@ -37,74 +39,79 @@ pub(crate) fn before(
     source: Source<'_>,
     cx: &mut Cx<'_>,
 ) -> Result<bool, Stop> {
-    let filters = stream.filters();
+    // filters() も全段の引数を解析してから捨てる。同じ解析を 1 回だけ行い、
+    // 単独の圧縮でも、元の位置と参照の文脈を保った引数を使う。
+    let stages = stages::read(stream.dict(), cx)?;
     // hayro-syntax 0.9.0 の `Stream::decoded_data` は、どこかに画像のフィルターがあれば、どの段も当てずに失敗する
-    if filters.iter().any(|filter| {
+    if stages.iter().any(|stage| {
         matches!(
-            filter,
+            stage.filter,
             Filter::DctDecode | Filter::JpxDecode | Filter::Jbig2Decode | Filter::CcittFaxDecode
         )
     }) {
         return Ok(false);
     }
     // hayro-syntax の `Stream::decoded_image` と同じく、先頭の Crypt はフィルターとして適用しない
-    let effective = filters.strip_prefix(&[Filter::Crypt]).unwrap_or(&filters);
+    let effective = match stages.as_slice() {
+        [
+            Stage {
+                filter: Filter::Crypt,
+                ..
+            },
+            rest @ ..,
+        ] => rest,
+        other => other,
+    };
     // 単独の段と ASCII 1 段の前置は、出力を保持せずに数え、容量の伸長も予約する。
     // それ以外の系列は、中間出力を予算内で保持して次の段を確かめる（#769）。
     if effective.len() > 1
         && !matches!(
             effective,
             [
-                Filter::AsciiHexDecode | Filter::Ascii85Decode,
-                Filter::FlateDecode | Filter::LzwDecode | Filter::RunLengthDecode
+                Stage {
+                    filter: Filter::AsciiHexDecode | Filter::Ascii85Decode,
+                    ..
+                },
+                Stage {
+                    filter: Filter::FlateDecode | Filter::LzwDecode | Filter::RunLengthDecode,
+                    ..
+                }
             ]
         )
     {
-        return chain::before(stream, source, cx);
+        return chain::before(stream, effective, source, cx);
     }
-    let (ascii, first, rest) = match effective {
-        [
-            first @ (Filter::FlateDecode | Filter::LzwDecode | Filter::RunLengthDecode),
-            rest @ ..,
-        ] => (None, *first, rest),
-        [
-            Filter::AsciiHexDecode,
-            next @ (Filter::FlateDecode | Filter::LzwDecode | Filter::RunLengthDecode),
-            rest @ ..,
-        ] => (Some(ascii::Encoding::Hex), *next, rest),
-        [
-            Filter::Ascii85Decode,
-            next @ (Filter::FlateDecode | Filter::LzwDecode | Filter::RunLengthDecode),
-            rest @ ..,
-        ] => (Some(ascii::Encoding::Base85), *next, rest),
+    let (ascii, stage) = match effective {
+        [stage]
+            if matches!(
+                stage.filter,
+                Filter::FlateDecode | Filter::LzwDecode | Filter::RunLengthDecode
+            ) =>
+        {
+            (None, *stage)
+        }
+        [first, next] if first.filter == Filter::AsciiHexDecode => {
+            (Some(ascii::Encoding::Hex), *next)
+        }
+        [first, next] if first.filter == Filter::Ascii85Decode => {
+            (Some(ascii::Encoding::Base85), *next)
+        }
         _ => return Ok(false),
     };
-    let counted = match ascii {
-        Some(encoding) => sequence(stream, encoding, first, source, cx)?,
+    match ascii {
+        Some(encoding) => sequence(stream, encoding, stage, source, cx),
         None => {
-            // 単独の段は、これまでどおり `F` を見分けずに数える。後ろに段が続く系列は、ASCII の前置と同じく、
-            // 外部ファイルを指して上流が展開しないものを数えない
-            if !rest.is_empty() && source.external(stream.dict(), cx)? {
-                return Ok(false);
-            }
-            match first {
-                // 有効な系列の最初の LZW なので、`lzw::early_change` が引くパラメーターと同じ
-                Filter::LzwDecode => lzw::before(stream, cx)?,
-                Filter::FlateDecode => count(&stream.raw_data(), cx)?,
-                _ => {
-                    run_length::count(&stream.raw_data(), cx)?;
-                }
-            }
-            true
+            // 単独の段は、これまでどおり `F` を見分けずに数える。
+            compressed(&stream.raw_data(), stage, cx)?;
+            Ok(true)
         }
-    };
-    Ok(counted && rest.is_empty())
+    }
 }
 
 fn sequence(
     stream: &Stream<'_>,
     ascii: ascii::Encoding,
-    next: Filter,
+    next: Stage,
     source: Source<'_>,
     cx: &mut Cx<'_>,
 ) -> Result<bool, Stop> {
@@ -118,24 +125,36 @@ fn sequence(
     let Some(data) = ascii::decode(&stream.raw_data(), ascii, cx)? else {
         return Ok(true);
     };
-    match next {
-        Filter::FlateDecode => count(&data, cx)?,
-        Filter::LzwDecode => {
-            let early = lzw::early_change(stream, cx)?;
-            lzw::count(&data, early, cx)?;
-        }
-        _ => {
-            run_length::count(&data, cx)?;
-        }
-    }
+    compressed(&data, next, cx)?;
     Ok(true)
 }
 
+fn compressed(data: &[u8], stage: Stage, cx: &mut Cx<'_>) -> Result<(), Stop> {
+    let (bound, growth) = match stage.filter {
+        Filter::FlateDecode => {
+            let before = cx.budget.used(Kind::DecodedBytes);
+            let fallback = count_fallback(data, cx)?;
+            // 容量を予約する前の量。失敗した試みを含み、予測子への入力以上になる。
+            let bound = cx.budget.used(Kind::DecodedBytes) - before;
+            (bound, allocation::flate(data.len(), bound, fallback))
+        }
+        Filter::LzwDecode => {
+            // 辞書の確保量を混ぜず、実際に出すバイト数から予測子を見積もる。
+            let bound = lzw::count_output(data, stage.early, cx)?;
+            (bound, allocation::lzw(bound))
+        }
+        _ => {
+            run_length::count(data, cx)?;
+            return Ok(());
+        }
+    };
+    allocation::reserve(growth, cx)?;
+    allocation::reserve(stage.predictor_cost(bound), cx)
+}
+
+#[cfg(test)]
 fn count(data: &[u8], cx: &mut Cx<'_>) -> Result<(), Stop> {
-    let before = cx.budget.used(Kind::DecodedBytes);
-    let fallback = count_fallback(data, cx)?;
-    let bound = cx.budget.used(Kind::DecodedBytes) - before;
-    allocation::reserve(allocation::flate(data.len(), bound, fallback), cx)
+    compressed(data, Stage::new(Filter::FlateDecode, None), cx)
 }
 
 /// 伸長の予約前の出力量を数え、寛容な展開が必要かも返す。系列は、この量を次の段にも使う。
