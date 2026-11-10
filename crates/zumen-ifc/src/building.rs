@@ -14,7 +14,7 @@ use zumen_building::{
     Quantity, QuantityKind, QuantitySet, RelationSource, Spatial, SpatialKind, Transform, TypeOf,
     TypedValue, Unit,
 };
-use zumen_sdk::{Cx, Error, Lift};
+use zumen_sdk::{Cx, Error, Lift, Stop};
 
 use crate::{IfcFile, IfcZipFile, Record, Value, at_bytes, stopped};
 
@@ -357,6 +357,111 @@ enum Definition {
     Quantities(QuantitySet),
 }
 
+/// 写す値の 1 つの項目の大きさ（バイト）の目安
+const ITEM: u64 = 32;
+
+/// 要素に写す値の大きさ（バイトの目安）を、予算の展開したバイト（`DecodedBytes`）に数える。同じプロパティの
+/// セット・材料・単位・関係の GlobalId を多くの所に写すと、入力の大きさに比例しないメモリを使うため（#733）。
+/// 超えたら偽を返し、呼ぶ側は写さない。止まったことは、実体を読むループの確かめ（[`halted`]）で返す
+fn copied(cx: &mut Cx, bytes: u64) -> bool {
+    cx.check(Kind::DecodedBytes, bytes).is_ok()
+}
+
+/// 予算を超えていれば、止まったことを `place` の所で返す
+fn halted(cx: &mut Cx, place: Option<core::ops::Range<usize>>) -> Result<(), Error> {
+    match cx.budget.exceeded() {
+        Some(exceeded) => Err(stopped(cx, Stop::Exceeded(exceeded), place)),
+        None => Ok(()),
+    }
+}
+
+fn text_size(text: &str) -> u64 {
+    ITEM + text.len() as u64
+}
+
+fn optional_text_size(text: Option<&str>) -> u64 {
+    text.map_or(0, text_size)
+}
+
+fn unit_size(unit: &Unit) -> u64 {
+    ITEM + text_size(&unit.kind)
+        + optional_text_size(unit.prefix.as_deref())
+        + text_size(&unit.name)
+}
+
+fn measured_size(measured: &Measured) -> u64 {
+    ITEM + measured.unit.as_ref().map_or(0, unit_size)
+}
+
+/// 値の大きさ。並びは、項目を順にたどって数える
+fn literal_size(literal: &Literal) -> u64 {
+    let mut size = 0u64;
+    let mut stack = vec![literal];
+    while let Some(literal) = stack.pop() {
+        size = size.saturating_add(match literal {
+            Literal::Text(text) | Literal::Enumeration(text) => text_size(text),
+            Literal::List(items) => {
+                stack.extend(items);
+                ITEM
+            }
+            _ => ITEM,
+        });
+    }
+    size
+}
+
+fn definition_size(definition: &Definition) -> u64 {
+    match definition {
+        Definition::Properties(set) => set
+            .properties
+            .iter()
+            .map(|property| {
+                text_size(&property.name)
+                    + property.value.as_ref().map_or(0, |typed| {
+                        optional_text_size(typed.type_name.as_deref())
+                            .saturating_add(literal_size(&typed.value))
+                    })
+                    + property.unit.as_ref().map_or(0, unit_size)
+            })
+            .fold(text_size(&set.name), u64::saturating_add),
+        Definition::Quantities(set) => set
+            .quantities
+            .iter()
+            .map(|quantity| {
+                text_size(&quantity.name)
+                    + measured_size(&quantity.value)
+                    + optional_text_size(quantity.formula.as_deref())
+            })
+            .fold(
+                text_size(&set.name) + optional_text_size(set.method.as_deref()),
+                u64::saturating_add,
+            ),
+    }
+}
+
+fn material_size(material: &Material) -> u64 {
+    material
+        .parts
+        .iter()
+        .map(|part| {
+            ITEM + optional_text_size(part.name.as_deref())
+                + part.thickness.as_ref().map_or(0, measured_size)
+        })
+        .fold(
+            ITEM + optional_text_size(material.direction.as_deref())
+                + material.offset.as_ref().map_or(0, measured_size),
+            u64::saturating_add,
+        )
+}
+
+/// 文字の値のバイトの数。文字でなければ 0
+fn raw_text_len(value: Option<&Value>) -> u64 {
+    match value {
+        Some(Value::Text { raw, .. }) => raw.len() as u64,
+        _ => 0,
+    }
+}
+
 struct Lifter<'f> {
     file: &'f IfcFile,
     version: Version,
@@ -435,6 +540,7 @@ impl<'f> Lifter<'f> {
             cx.check(Kind::Work, 1)
                 .map_err(|stop| stopped(cx, stop, Some(record.span())))?;
             self.element(id, record, cx)?;
+            halted(cx, Some(record.span()))?;
         }
         if let Some(project) = project {
             self.document(project, cx);
@@ -447,11 +553,13 @@ impl<'f> Lifter<'f> {
             cx.check(Kind::Work, 1)
                 .map_err(|stop| stopped(cx, stop, Some(record.span())))?;
             self.relation(id, record, cx);
+            halted(cx, Some(record.span()))?;
         }
         for (element, id) in core::mem::take(&mut self.types) {
             if let Some(record) = self.file.instance(id) {
                 let sets = refs(arg(record, 6));
                 self.definitions_of(element, &sets, cx);
+                halted(cx, Some(record.span()))?;
             }
         }
         for (element, id) in core::mem::take(&mut self.grids) {
@@ -460,6 +568,7 @@ impl<'f> Lifter<'f> {
         for (element, id) in core::mem::take(&mut self.placements) {
             self.placement(element, id, cx)?;
         }
+        halted(cx, None)?;
         for &id in &ids {
             if self.used.contains(&id) {
                 continue;
@@ -739,8 +848,10 @@ impl<'f> Lifter<'f> {
     /// `IfcNamedUnit` と `IfcSIUnit` の複合のインスタンス、`IfcConversionBasedUnit`（2 UnitType・3 Name・
     /// 4 ConversionFactor → `IfcMeasureWithUnit` の 1 ValueComponent・2 UnitComponent）を読む
     fn unit(&mut self, id: u64, cx: &mut Cx) -> Option<Unit> {
-        if let Some(unit) = self.units.get(&id) {
-            return unit.clone();
+        if let Some(cached) = self.units.get(&id) {
+            // 写す単位の大きさを数える（#733）
+            let unit = cached.as_ref()?;
+            return copied(cx, unit_size(unit)).then(|| unit.clone());
         }
         let unit = self.read_unit(id, cx);
         if unit.is_some() {
@@ -809,13 +920,18 @@ impl<'f> Lifter<'f> {
         place: &Record,
         cx: &mut Cx,
     ) -> Option<Unit> {
-        let unit = self
+        let found = self
             .building
             .document
             .units
             .iter()
-            .find(|unit| unit.kind == kind)
-            .cloned();
+            .find(|unit| unit.kind == kind);
+        let unit = match found {
+            // 写す単位の大きさを数える（#733）
+            Some(unit) if copied(cx, unit_size(unit)) => Some(unit.clone()),
+            Some(_) => return None,
+            None => None,
+        };
         if unit.is_none() {
             cx.report(
                 Diagnostic::new(codes::IFC_UNIT_MISSING)
@@ -1030,7 +1146,7 @@ impl<'f> Lifter<'f> {
             }
             b"IFCRELREFERENCEDINSPATIALSTRUCTURE" => self.referenced(id, record, cx),
             // 5 RelatedObjects・6 RelatingType
-            b"IFCRELDEFINESBYTYPE" => self.each(id, record, 6, 5, |lifter, element, target| {
+            b"IFCRELDEFINESBYTYPE" => self.each(id, record, 6, 5, cx, |lifter, element, target| {
                 lifter
                     .building
                     .components
@@ -1055,7 +1171,12 @@ impl<'f> Lifter<'f> {
                 let Some(material) = self.material(material, cx) else {
                     return;
                 };
+                let size = material_size(&material);
                 for (position, element) in self.related(record, 5) {
+                    // 要素に写す材料の大きさを数える（#733）
+                    if !copied(cx, size) {
+                        break;
+                    }
                     self.building
                         .components
                         .material
@@ -1065,7 +1186,7 @@ impl<'f> Lifter<'f> {
                 true
             }
             // 5 RelatingBuildingElement・6 RelatedOpeningElement。開口の側に持つ
-            b"IFCRELVOIDSELEMENT" => self.each(id, record, 5, 6, |lifter, opening, host| {
+            b"IFCRELVOIDSELEMENT" => self.each(id, record, 5, 6, cx, |lifter, opening, host| {
                 lifter
                     .building
                     .components
@@ -1073,7 +1194,7 @@ impl<'f> Lifter<'f> {
                     .insert(opening, Opening::Voids(host));
             }),
             // 5 RelatingOpeningElement・6 RelatedBuildingElement。建具の側に持つ
-            b"IFCRELFILLSELEMENT" => self.each(id, record, 5, 6, |lifter, element, opening| {
+            b"IFCRELFILLSELEMENT" => self.each(id, record, 5, 6, cx, |lifter, element, opening| {
                 lifter
                     .building
                     .components
@@ -1081,7 +1202,7 @@ impl<'f> Lifter<'f> {
                     .insert(element, Opening::Fills(opening));
             }),
             // 5 RelatedObjects・6 RelatedObjectsType・7 RelatingGroup
-            b"IFCRELASSIGNSTOGROUP" => self.each(id, record, 7, 5, |lifter, element, group| {
+            b"IFCRELASSIGNSTOGROUP" => self.each(id, record, 7, 5, cx, |lifter, element, group| {
                 let mut groups = lifter
                     .building
                     .components
@@ -1114,7 +1235,7 @@ impl<'f> Lifter<'f> {
                 else {
                     return;
                 };
-                self.each(id, record, 6, 5, |lifter, space, element| {
+                self.each(id, record, 6, 5, cx, |lifter, space, element| {
                     lifter.link(space, name, element);
                 })
             }
@@ -1143,6 +1264,7 @@ impl<'f> Lifter<'f> {
         record: &'f Record,
         target: usize,
         related: usize,
+        cx: &mut Cx,
         mut apply: impl FnMut(&mut Self, ElementRef, ElementRef),
     ) -> bool {
         let Some(target) =
@@ -1153,7 +1275,7 @@ impl<'f> Lifter<'f> {
         let list = matches!(arg(record, related), Some(Value::List(_)));
         for (position, element) in self.related(record, related) {
             apply(self, element, target);
-            self.source_quiet(element, id, record, list.then_some(position));
+            self.source_quiet(element, id, record, list.then_some(position), cx);
         }
         true
     }
@@ -1195,13 +1317,13 @@ impl<'f> Lifter<'f> {
                 });
             }
             self.building.components.parent.insert(element, parent);
-            self.source_quiet(element, id, record, Some(position));
+            self.source_quiet(element, id, record, Some(position), cx);
         }
         true
     }
 
     /// 5 RelatedElements・6 RelatingStructure の、参照する空間
-    fn referenced(&mut self, id: u64, record: &'f Record, _cx: &mut Cx) -> bool {
+    fn referenced(&mut self, id: u64, record: &'f Record, cx: &mut Cx) -> bool {
         let Some(target) = reference(arg(record, 6)).and_then(|t| self.elements.get(&t).copied())
         else {
             return false;
@@ -1215,7 +1337,7 @@ impl<'f> Lifter<'f> {
                 .unwrap_or_default();
             parent.referenced_in.push(target);
             self.building.components.parent.insert(element, parent);
-            self.source_quiet(element, id, record, Some(position));
+            self.source_quiet(element, id, record, Some(position), cx);
         }
         true
     }
@@ -1253,6 +1375,10 @@ impl<'f> Lifter<'f> {
         position: Option<u32>,
         cx: &mut Cx,
     ) {
+        // 要素ごとに写す、関係の GlobalId の大きさを数える（#733）
+        if !copied(cx, ITEM + raw_text_len(arg(record, 1))) {
+            return;
+        }
         let global_id = self.text(arg(record, 1), record, cx);
         if let Some(source) = self.building.source_mut(element) {
             source.relations.push(RelationSource {
@@ -1270,7 +1396,12 @@ impl<'f> Lifter<'f> {
         id: u64,
         record: &Record,
         position: Option<u32>,
+        cx: &mut Cx,
     ) {
+        // 要素ごとに写す、関係の GlobalId の大きさを数える（#733）
+        if !copied(cx, ITEM + raw_text_len(arg(record, 1))) {
+            return;
+        }
         let global_id = match arg(record, 1) {
             Some(Value::Text { raw, .. }) => Some(decode(self.file.bytes(raw.clone())).0),
             _ => None,
@@ -1324,8 +1455,10 @@ impl<'f> Lifter<'f> {
     /// `IfcPropertySet`（3 Name・5 HasProperties）と `IfcElementQuantity`（3 Name・5 MethodOfMeasurement・
     /// 6 Quantities）
     fn definition(&mut self, id: u64, cx: &mut Cx) -> Option<Definition> {
-        if let Some(definition) = self.definitions.get(&id) {
-            return definition.clone();
+        if let Some(cached) = self.definitions.get(&id) {
+            // 要素に写すセットの大きさを数える（#733）
+            let definition = cached.as_ref()?;
+            return copied(cx, definition_size(definition)).then(|| definition.clone());
         }
         let record = self.file.instance(id)?;
         let name = self.text(arg(record, 3), record, cx).unwrap_or_default();
@@ -1357,7 +1490,7 @@ impl<'f> Lifter<'f> {
             self.used.insert(id);
         }
         self.definitions.insert(id, definition.clone());
-        definition
+        definition.filter(|definition| copied(cx, definition_size(definition)))
     }
 
     /// `IfcPropertySingleValue`（1 Name・3 NominalValue・4 Unit）。ほかのプロパティは、まだ写さない
@@ -1531,8 +1664,10 @@ impl<'f> Lifter<'f> {
     /// `IfcMaterialLayerSetUsage`（1 ForLayerSet・2 LayerSetDirection・4 OffsetFromReferenceLine）・
     /// `IfcMaterialList`（1 Materials）。ほかの材料の定義は、まだ写さない
     fn material(&mut self, id: u64, cx: &mut Cx) -> Option<Material> {
-        if let Some(material) = self.materials.get(&id) {
-            return material.clone();
+        if let Some(cached) = self.materials.get(&id) {
+            // 写す材料の大きさを数える（#733）
+            let material = cached.as_ref()?;
+            return copied(cx, material_size(material)).then(|| material.clone());
         }
         let material = self.read_material(id, cx);
         if material.is_some() {
