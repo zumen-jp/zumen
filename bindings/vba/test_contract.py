@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import ctypes as c
 import hashlib
+import os
 from pathlib import Path
 import re
+import subprocess
 import sys
+import tempfile
 import unittest
 
 from prepare import ROOT, rows
@@ -19,6 +22,28 @@ class Buffer(c.Structure):
 
 
 class Contract(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        # CI の Windows x86 と同じ出力のコードページでも、CLI が実ファイルを書けることを確かめる。
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "conformance.tsv"
+            environment = dict(os.environ, PYTHONIOENCODING="cp1252")
+            result = subprocess.run([sys.executable, str(ROOT / "bindings/vba/prepare.py"), str(path)],
+                                    env=environment, capture_output=True, check=True)
+            cls.prepare_output = result.stdout.decode("utf-8")
+            cls.fixture_bytes = path.read_bytes()
+        cls.prepared_rows = [line.decode("ascii").split("\t") for line in cls.fixture_bytes.split(b"\r\n") if line]
+
+    def test_written_fixture_uses_vba_line_endings(self):
+        fixture = rows()
+        self.assertTrue(self.fixture_bytes.endswith(b"\r\n"))
+        self.assertEqual(self.fixture_bytes.count(b"\r\n"), len(fixture))
+        remainder = self.fixture_bytes.replace(b"\r\n", b"")
+        self.assertNotIn(b"\r", remainder)
+        self.assertNotIn(b"\n", remainder)
+        self.assertEqual(self.prepared_rows, fixture)
+        self.assertEqual(self.prepare_output.splitlines(), [f"{len({row[0] for row in fixture})} 組、{sum(bool(row[6]) for row in fixture)} ハッシュ"])
+
     def test_native_declarations(self):
         source = (ROOT / "bindings/vba/ZumenNative.bas").read_text(encoding="ascii")
         boundary = (ROOT / "schema/boundary.toml").read_text(encoding="utf-8")
@@ -45,7 +70,7 @@ class Contract(unittest.TestCase):
                 self.assertTrue(all(len(line) < 1024 for line in text.splitlines()))
 
     def test_fixture_covers_all_hashes_and_cases(self):
-        fixture = rows()
+        fixture = self.prepared_rows
         self.assertEqual(len({row[0] for row in fixture}), len(list((ROOT / "bindings/conformance/cases").glob("*.json"))))
         hashes = [line for line in (ROOT / "bindings/conformance/hashes.txt").read_text(encoding="utf-8").splitlines() if line and not line.startswith("#")]
         self.assertEqual(sum(bool(row[6]) for row in fixture), len(hashes))
@@ -75,7 +100,7 @@ class Contract(unittest.TestCase):
         self.assertEqual(library.zm_abi_version(), 1)
         hashes = scenes = 0
         try:
-            for case, step, command, status, name, content, digest in rows():
+            for case, step, command, status, name, content, digest in self.prepared_rows:
                 data = bytes.fromhex(content)
                 buffer = Buffer()
                 if command == "session":
@@ -107,4 +132,6 @@ class Contract(unittest.TestCase):
 
 
 if __name__ == "__main__":
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
     unittest.main()

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import sys
 
 ROOT = Path(__file__).resolve().parents[2]
 CONFORMANCE = ROOT / "bindings/conformance"
@@ -83,9 +84,12 @@ def main() -> None:
     args = parser.parse_args()
     fixture = rows()
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text("\n".join("\t".join(row) for row in fixture) + "\n", encoding="ascii", newline="\n")
+    # VBA の Line Input # は CR または CRLF で区切る。OS と Python の版によらず同じバイト列にする。
+    args.output.write_bytes(("\r\n".join("\t".join(row) for row in fixture) + "\r\n").encode("ascii"))
     print(f"{len({row[0] for row in fixture})} 組、{sum(bool(row[6]) for row in fixture)} ハッシュ")
 
 
 if __name__ == "__main__":
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
     main()

@@ -65,12 +65,12 @@ python bindings/vba/test_contract.py target/debug/zumen_abi1.dll
 python bindings/vba/prepare.py target/vba-conformance.tsv
 ```
 
-`test_contract.py` は宣言の名前と幅をスキーマに照らし、共通の適合テストの全手順とハッシュが対応することを検査します。DLL を指定すると、その DLL で同じ手順を流し、状態と応答・blob の全ハッシュを比較します。CI は既存の Windows x86/x64 の DLL のビルドと stdcall・公開名の検査に加え、この検査を流します。これは VBA のコンパイル・実行の確認ではありません。
+`test_contract.py` は宣言の名前と幅をスキーマに照らし、共通の適合テストの全手順とハッシュが対応することを検査します。`prepare.py` の CLI を CP1252 の環境で動かし、実際の出力ファイルが ASCII と CRLF で書かれ、全手順を個別の行で読めることも確かめます。両方のツールの表示は UTF-8 です。DLL を指定すると、そのファイルから読んだ手順を DLL で流し、状態と応答・blob の全ハッシュを比較します。CI は既存の Windows x86/x64 の DLL のビルドと stdcall・公開名の検査に加え、この検査を流します。これは VBA のコンパイル・実行の確認ではありません。
 
-Office の実機では、`ZumenConformance.bas` も取り込み、VBE の「デバッグ」→「VBAProject のコンパイル」を実行します。イミディエイトウィンドウから、生成したファイルの絶対パスを指定してください。
+Office の実機では、`ZumenConformance.bas` も取り込み、VBE の「デバッグ」→「VBAProject のコンパイル」を実行します。イミディエイトウィンドウから、生成したファイルの絶対パスを指定してください。モジュールと手続きが同名のため、両方の名前で修飾して呼びます。
 
 ```vb
-ZumenConformance "C:\work\zumen\target\vba-conformance.tsv"
+ZumenConformance.ZumenConformance "C:\work\zumen\target\vba-conformance.tsv"
 ```
 
 マクロは配列の空値・UTF-8 の日本語と補助文字・NUL・TSV のエスケープ・バッファーの配置・失敗の応答・終了後の呼び出しを確かめたあと、共通手順をラッパーで流します。SHA-256 は Windows の BCrypt で計算します。状態と全ハッシュが一致し、シーンの列を読めた場合だけ件数を表示します。入力・応答の中身やパスはログに出しません。
@@ -83,3 +83,4 @@ ZumenConformance "C:\work\zumen\target\vba-conformance.tsv"
 - [Microsoft: LenB とユーザー定義型の配置](https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/len-function)
 - [Microsoft: WideCharToMultiByte](https://learn.microsoft.com/en-us/windows/win32/api/stringapiset/nf-stringapiset-widechartomultibyte)・[MultiByteToWideChar](https://learn.microsoft.com/en-us/windows/win32/api/stringapiset/nf-stringapiset-multibytetowidechar)
 - [Microsoft: BCryptHash](https://learn.microsoft.com/en-us/windows/win32/api/bcrypt/nf-bcrypt-bcrypthash)・[BCryptOpenAlgorithmProvider](https://learn.microsoft.com/en-us/windows/win32/api/bcrypt/nf-bcrypt-bcryptopenalgorithmprovider)
+- [Microsoft: Line Input # の改行](https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/line-inputstatement)・[モジュールと手続きが同名の場合の修飾](https://learn.microsoft.com/en-us/office/vba/access/concepts/error-codes/scoping-and-object-naming-compatibility)
