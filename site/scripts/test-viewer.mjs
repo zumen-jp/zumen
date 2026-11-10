@@ -20,6 +20,8 @@ function collect(folder, prefix = "") {
   }
 }
 collect(dist);
+const missingPath = "/no-such-path-zumen-csp-test/";
+const staticCsp = "script-src 'none'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
 const headers = Object.fromEntries(readFileSync(resolve(dist, "_headers"), "utf8").split(/\r?\n/)
   .filter((line) => /^\s+\S+:/.test(line)).map((line) => {
     const colon = line.indexOf(":"); return [line.slice(0, colon).trim(), line.slice(colon + 1).trim()];
@@ -32,17 +34,23 @@ try {
   if (!origin) {
     server = createServer((request, response) => {
       const url = new URL(request.url, "http://localhost"), path = files.get(url.pathname);
-      if (request.method !== "GET" || url.search || request.headers["content-length"] || request.headers["transfer-encoding"] || !path) {
+      if (request.method !== "GET" || url.search || request.headers["content-length"] || request.headers["transfer-encoding"]) {
         response.writeHead(404).end(); return;
       }
-      response.writeHead(200, { "Content-Type": mime[extname(path)] ?? "application/octet-stream", ...(url.pathname.startsWith("/viewer/") ? headers : {}) }).end(readFileSync(path));
+      if (!path) {
+        // Pages の実配信で観測した 404。_headers の CSP と no-transform がなくても、HTML で拒否する。
+        const html = readFileSync(resolve(dist, "404.html"), "utf8").replace("</body>",
+          '<script>window.staticScriptRan=true</script><script defer src="https://example.invalid/parser-classic.js"></script><script type="module" src="https://example.invalid/parser-module.js"></script></body>');
+        response.writeHead(404, { "Content-Type": mime[".html"], "Cache-Control": "no-store" }).end(html); return;
+      }
+      response.writeHead(200, { "Content-Type": mime[extname(path)] ?? "application/octet-stream", ...(url.pathname.startsWith("/viewer/") ? headers : { "Cache-Control": headers["Cache-Control"] }) }).end(readFileSync(path));
     });
     await new Promise((ok, fail) => server.once("error", fail).listen(24189, "127.0.0.1", ok));
     origin = "http://127.0.0.1:24189";
   }
   browser = await launchers[product].launch(["chrome", "msedge"].includes(product) ? { channel: product } : {});
   const context = await browser.newContext({ viewport: { width: 1360, height: 980 }, serviceWorkers: "block" });
-  const allowed = new Set([...files.keys()]);
+  const allowed = new Set([...files.keys(), missingPath]);
   // リダイレクト先も含め、知らない要求は送信前に止める。失敗として数え、通信がなかったという結果にはしない。
   await context.route("**/*", (route) => {
     const request = route.request(), url = new URL(request.url());
@@ -144,6 +152,52 @@ try {
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "狭い画面で本文が横にはみ出さない");
   if (process.env.ZUMEN_VIEWER_SCREENSHOT) await page.screenshot({ path: process.env.ZUMEN_VIEWER_SCREENSHOT, fullPage: true });
   console.log(product + ": 公開サンプル 3 件・手元の DXF/DWG/JWW/SXF・外部参照・出所・保存・CSP の拒否・同一オリジンの資産への GET のみを確認（要求 " + requests.length + " 件）");
+  await page.close();
+  // 案内ページはビューアーと別の HTML。すべての通常ページと、実際の 404 応答を確かめる。
+  const staticPage = await context.newPage();
+  await staticPage.addInitScript(() => {
+    window.staticCspFailures = [];
+    document.addEventListener("securitypolicyviolation", (event) => window.staticCspFailures.push({ directive: event.effectiveDirective, uri: event.blockedURI }));
+  });
+  staticPage.on("websocket", () => errors.push("websocket"));
+  const staticPaths = [...files.keys()].filter((path) => path.endsWith("/") && !path.startsWith("/viewer/"));
+  for (const path of [...staticPaths, missingPath]) {
+    const result = await staticPage.goto(origin + path);
+    assert.equal(result.status(), path === missingPath ? 404 : 200);
+    assert.equal(await staticPage.locator('meta[http-equiv="Content-Security-Policy"]').getAttribute("content"), staticCsp);
+    if (path !== missingPath) {
+      assert.equal(await staticPage.locator("script").count(), 0, "通常の案内ページに script が注入されていない");
+      assert.deepEqual(await staticPage.evaluate(() => window.staticCspFailures), []);
+    } else {
+      await staticPage.getByRole("heading", { name: "ページが見つかりません", exact: true }).waitFor();
+      if (!publicOrigin) {
+        assert.equal(result.headers()["content-security-policy"], undefined);
+        assert.equal(result.headers()["cache-control"], "no-store");
+        await staticPage.waitForFunction(() => window.staticCspFailures.filter(({ directive }) => directive === "script-src-elem").length === 3);
+      }
+      console.log(product + ": 404 の HTML の script タグ " + await staticPage.locator("script").count() + " 件（注入と通信の拒否を別に確認）");
+    }
+    // 外部・同一オリジン・インラインの実行を拒否する。DevTools 経由の evaluate 自体は CSP の対象外。
+    await staticPage.evaluate(() => {
+      for (const [src, type] of [["https://example.invalid/dynamic-classic.js", ""], ["/csp-dynamic-module.js", "module"], ["", ""]]) {
+        const script = document.createElement("script");
+        script.type = type;
+        if (src) script.src = src;
+        else script.textContent = "window.staticScriptRan=true";
+        document.body.append(script);
+      }
+      fetch("/cdn-cgi/rum", { method: "POST", body: "csp-probe" }).catch(() => {});
+    });
+    await staticPage.waitForFunction(() => ["https://example.invalid/dynamic-classic.js", location.origin + "/csp-dynamic-module.js", "inline"].every((uri) =>
+      window.staticCspFailures.some((failure) => failure.directive === "script-src-elem" && failure.uri === uri)) &&
+      window.staticCspFailures.some((failure) => failure.directive === "connect-src" && failure.uri === location.origin + "/cdn-cgi/rum"));
+    assert.equal(await staticPage.evaluate(() => window.staticScriptRan), undefined);
+  }
+  assert.deepEqual(blocked, [], "CSP が通信前に止める。route で止めたものを成功と数えない");
+  assert.deepEqual(errors, []);
+  assert.equal((await context.cookies()).length, 0);
+  assert.ok(requests.every((request) => request.origin === origin && request.method === "GET" && !request.body));
+  console.log(product + ": 案内 " + staticPaths.length + " ページ・404・スクリプトと解析 POST の CSP による拒否・同一オリジンの資産への GET のみを確認（全要求 " + requests.length + " 件）");
 } finally {
   await browser?.close();
   if (server) await new Promise((ok) => server.close(ok));

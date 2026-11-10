@@ -34,12 +34,16 @@ npm run dev
 
 - wasm・Worker・CSS・公開サンプルは、同一オリジンから配ります。CSP は `public/_headers` にあり、ページと Worker の外部への通信を制限します。案内ページは JavaScript を読み込みません。これをビルドの出力で毎回検査します。
 - `Cache-Control` の `no-transform` で、配信側による解析スクリプトなどの自動注入を止めます。`max-age=0, must-revalidate` で更新時の再検証も保ちます。これは [Cloudflare Web Analytics の公式の方法](https://developers.cloudflare.com/web-analytics/get-started/)で、サイトのビルドの出力に含めます。本番で注入を見つけたら、CSP や通信検査を緩めずに調べます。
+- 案内ページと 404 ページは、HTML の charset の直後に meta CSP を置き、スクリプトと `fetch`・解析 POST などの通信を拒否します。CSS・フォント・画像と通常のリンクは使えます。[CSP3 の 3.3 節](https://www.w3.org/TR/CSP3/#meta-element)に従い、資産を参照する `link` より前にあることもビルドで検査します。meta より前の資産の先読みまで防ぐものではありません。
+- [Pages は見つからないパスに `404.html` を返します](https://developers.cloudflare.com/pages/configuration/serving-pages/)。2026-11-10 の実配信では、この 404 応答に `_headers` の CSP と `no-transform` が付かず、解析の script タグが加わりました。404 で注入がなくなったとは扱わず、meta CSP で読み込みと実行を拒否します。ヘッダーの扱いは観測した結果であり、Pages の仕様として断定しません。
 - サンプルの出所・ライセンス・必要な本文は `viewer/samples.md` に、JavaScript に組み込む依存のライセンスは `viewer/licenses.md` に出します。公開済みでもログイン名を含む 2 件の DWG はサイトに入れません。
 - wasm に入る依存の本文は `viewer/THIRD_PARTY_LICENSES` に、コアのライセンスは `viewer/LICENSE-MIT`・`viewer/LICENSE-APACHE` に、SBOM は `viewer/sboms/` に保ちます。出力した wasm のハッシュと SBOM の一致も検査します。
 - 図面は、公開サンプルか、利用者が手元で選ぶファイルをブラウザーの中だけで読みます。不具合と非公開の報告先もビューアーに案内します。
 - `npm run preview` は `_headers` を HTTP ヘッダーにはしません。CSP の検査では、検証用のサーバーで同じヘッダーを付けてブラウザーを動かし、公開後には実際のレスポンスでも確認します。
 
 ビルド後に `npx playwright install chromium` と `npm run test:browser` を流すと、CSP を付けたローカルのサーバー（24189）で確かめます。Windows の Edge なら、`npm run test:browser -- msedge` でも確かめられます。公開後は `npm run test:browser -- msedge https://zumen.dev` のように URL を渡せます。使う入力は公開サンプルと合成データだけで、`ZUMEN_SAMPLES` は読みません。予期しない通信は送信前に止め、検査の失敗として数えます。
+
+同じブラウザー検査で、全案内ページと存在しないパスへの 404 も開きます。ローカルでは HTTP の CSP がない 404 に、インライン・外部の通常のスクリプト・モジュールのスクリプトを加えて配ります。各ページで同一オリジンのスクリプトと解析 POST の拒否も確かめます。CSP で止まった要求は Playwright の `request` イベントに現れることがあるため、送信前の `route` に届かなかったことと CSP の違反イベントで判定します。実配信でも同じ検査を使い、404 の HTML に残る script タグの数と、通信の有無を分けて記録します。
 
 ## 置き場所
 

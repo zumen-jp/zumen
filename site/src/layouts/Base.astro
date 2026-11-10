@@ -24,6 +24,8 @@ const canonical = new URL(path, Astro.site);
 <html lang="ja">
   <head>
     <meta charset="utf-8" />
+    <!-- CSP3 §3.3。404 で HTTP ヘッダーが付かなくても、後から挿入されたスクリプトを拒否する。資産の link より前に置く。 -->
+    <meta http-equiv="Content-Security-Policy" content="script-src 'none'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{fullTitle}</title>
     <meta name="description" content={description} />
