@@ -5,8 +5,9 @@ import { createRoot } from "react-dom/client";
 import { View2D } from "@zumen-jp/view2d";
 import { useDrawing, useDrawingViewer, useViewerEvent, useViewerState } from "@zumen-jp/react";
 import { loadModule } from "../src/module.js";
+import { Playground } from "../src/playground.jsx";
 
-const counts = { workers: 0, starts: 0, ends: 0, transferred: 0, state: 0, events: 0, destroyed: 0 };
+const counts = { workers: 0, starts: 0, ends: 0, transferred: 0, state: 0, events: 0, destroyed: 0, inputs: 0 };
 const NativeWorker = window.Worker;
 let holdNext = false, reply;
 window.Worker = class extends NativeWorker {
@@ -32,6 +33,12 @@ for (const [name, key] of [["subscribe", "state"], ["on", "events"]]) {
 }
 const destroy = View2D.prototype.destroy;
 View2D.prototype.destroy = function () { counts.destroyed++; return destroy.call(this); };
+const attach = View2D.prototype.attachInput;
+View2D.prototype.attachInput = function (...args) {
+  const detach = attach.apply(this, args); let active = true;
+  counts.inputs++;
+  return () => { if (active) { active = false; counts.inputs--; detach(); } };
+};
 
 const canvas = document.querySelector("canvas");
 let root;
@@ -127,5 +134,24 @@ window.boundary = {
     flushSync(() => boundaryRoot.unmount());
     boundaryRoot = null; connected = previous = null; boundaryFile = null;
     calls.length = 0; events = 0;
+  },
+};
+
+// 同じ本番コンポーネントを切り離し、予約された寸法更新と入力・Worker の所有権も確かめる。
+let playgroundRoot, stylesheet;
+window.resizeFixture = {
+  async mount() {
+    if (!stylesheet) stylesheet = new Promise((resolve, reject) => {
+      const link = document.createElement("link"); link.rel = "stylesheet"; link.href = "../viewer.css";
+      link.onload = resolve; link.onerror = () => reject(new Error("viewer.css")); document.head.append(link);
+    });
+    await stylesheet;
+    canvas.remove();
+    playgroundRoot = createRoot(document.querySelector("#root"));
+    flushSync(() => playgroundRoot.render(<StrictMode><Playground/></StrictMode>));
+  },
+  unmount() {
+    if (!playgroundRoot) return;
+    flushSync(() => playgroundRoot.unmount()); playgroundRoot = null;
   },
 };
