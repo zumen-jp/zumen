@@ -1,6 +1,6 @@
 # 電子納品の成果品
 
-電子納品の成果品（フォルダー・管理ファイル・図面・写真の集まり）を読む規則を記録します（[決定 0241](../decisions/0241-delivery-package-check.md)）。実装は `crates/zumen-delivery` です。API では、`delivery_check` の op に、成果品の起点（`root`）か ZIP の入力（`archive`）を渡し、管理ファイルの要約を返します。要領の本文・DTD・作成例は、転載と改変が禁じられているので写さず、同梱しません（`formats/ledger.toml` の `delivery`）。
+電子納品の成果品（フォルダー・管理ファイル・図面・写真の集まり）を読む規則を記録します。実装は `crates/zumen-delivery` です。API では、`delivery_check` の op に、成果品の起点（`root`）か ZIP の入力（`archive`）を渡し、管理ファイルの要約を返します。要領の本文・DTD・作成例は、転載と改変が禁じられているので写さず、同梱しません（`formats/ledger.toml` の `delivery`）。
 
 文字のチェックが参照する JIS X 0208・JIS X 0201 と、本文の入手条件の確認状況は、[JIS の記録](jis.md)にあります。
 
@@ -31,7 +31,7 @@
 
 ## 照合
 
-プロファイル（`profiles`・`profile`）を渡すと、`delivery-` で始まる照合の種類の規則と照らします（#384）。ほかの種類の規則（図面の照合など）は飛ばし、知らない `delivery-` の種類と読めない規則は `profile.rule.unsupported` を返して照らしません（決定 0179）。照合は `zumen-delivery` の `check` で、規則の値は `zumen-profile` の `rules` で解きます。
+プロファイル（`profiles`・`profile`）を渡すと、`delivery-` で始まる照合の種類の規則と照らします（#384）。ほかの種類の規則（図面の照合など）は飛ばし、知らない `delivery-` の種類と読めない規則は `profile.rule.unsupported` を返して照らしません。照合は `zumen-delivery` の `check` で、規則の値は `zumen-profile` の `rules` で解きます。
 
 どの種類も、`folders`（照らす名前の頭。書かなければすべて）・`except`（照らさない名前の頭）・`when`（この頭の名前のファイルがあるときだけ照らす）を書けます。
 
@@ -59,6 +59,6 @@
 | --- | --- | --- |
 | `delivery` | 読み | `synthetic` |
 
-段の意味は[決定 0254](../decisions/0254-parallel-agents-and-cross-review.md) に、根拠は[形式と権利の一覧](README.md#format-delivery)にあります。この文書の規則は、仕様と、テストの中で作ったファイルだけで確かめたものです。公開サンプル・受け取った図面・外部の実装・基準になるソフトとは、まだ照らしていません。実際のファイルでは、ここに書いた扱いと違うことがあります。
+段の意味は[形式台帳の書き方](../../formats/README.md#確かめた度合い)に、根拠は[形式と権利の一覧](README.md#format-delivery)にあります。この文書の規則は、仕様と、テストの中で作ったファイルだけで確かめたものです。公開サンプル・受け取った図面・外部の実装・基準になるソフトとは、まだ照らしていません。実際のファイルでは、ここに書いた扱いと違うことがあります。
 
 - 要領が配る DTD での検証と、公開サンプルとの照合は #505 で行う。

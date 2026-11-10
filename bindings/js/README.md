@@ -1,8 +1,8 @@
 # TypeScript・JavaScript のラッパー
 
-wasm のモジュール（`zumen_abi1.wasm`）を、ブラウザーと Node.js（22 以降）から呼ぶ薄いラッパーです（[決定 0011](../../docs/decisions/0011-bindings-through-ffi.md)・[決定 0194](../../docs/decisions/0194-typescript-javascript-wrapper.md)・[決定 0259](../../docs/decisions/0259-javascript-on-node-servers.md)）。
+wasm のモジュール（`zumen_abi1.wasm`）を、ブラウザーと Node.js（22 以降）から呼ぶ薄いラッパーです（[依存とツールの条件](../../AGENTS.md#範囲と権利)）。
 
-- npm の `@zumen-jp/zumen` で配ります（[決定 0003](../../docs/decisions/0003-names-and-domain.md)・[決定 0205](../../docs/decisions/0205-release-and-publishing.md)）。パッケージには全体版と 4 つの分割版の wasm を入れます。依存のライセンスの文は `THIRD_PARTY_LICENSES` にあります。
+- npm の `@zumen-jp/zumen` で配ります（[コアの設計](../../docs/architecture.md)・[配布の手順](../../xtask/release/README.md)）。パッケージには全体版と 4 つの分割版の wasm を入れます。依存のライセンスの文は `THIRD_PARTY_LICENSES` にあります。
 - 素の ESM の JavaScript で書き、ビルドも npm の依存もありません。型は `.d.ts` にあります。
 - 各 wasm の依存一覧（CycloneDX SBOM）は `sboms/{wasm のファイル名}.cdx.json` にあります。
 - `src/messages.d.ts`・`src/constants.js`・`src/constants.d.ts` は、`schema/` から `cargo xtask codegen` で生成します。手で直さないでください。
@@ -46,14 +46,14 @@ try {
 
 ### trap のあと
 
-wasm の中のパニックとメモリ不足は trap になり、そのインスタンスはもう使えません（[決定 0010](../../docs/decisions/0010-budget-by-work.md)）。ラッパーは、trap が起きた呼び出しと、それからの呼び出しを、状態が `panicked` の `ZumenError` にし、元の例外（`WebAssembly.RuntimeError` など）を `cause` に入れます。`Zumen.broken` が `true` になったら、モジュールを読み込み直します。`loadModules` の `Modules` は、使えなくなったインスタンスを捨て、次の `get`・`open`・`forOp` で読み込み直します。読み込みに失敗したときも覚えず、次に引いたときにやり直します。`Session.close` と `cancel` は、使えなくなったインスタンスでは何もせず、`finally` の中で呼んでも先に出た例外を隠しません。
+wasm の中のパニックとメモリ不足は trap になり、そのインスタンスはもう使えません（[予算と中断](../../docs/architecture.md#予算と中断)）。ラッパーは、trap が起きた呼び出しと、それからの呼び出しを、状態が `panicked` の `ZumenError` にし、元の例外（`WebAssembly.RuntimeError` など）を `cause` に入れます。`Zumen.broken` が `true` になったら、モジュールを読み込み直します。`loadModules` の `Modules` は、使えなくなったインスタンスを捨て、次の `get`・`open`・`forOp` で読み込み直します。読み込みに失敗したときも覚えず、次に引いたときにやり直します。`Session.close` と `cancel` は、使えなくなったインスタンスでは何もせず、`finally` の中で呼んでも先に出た例外を隠しません。
 
 ### Next.js などのサーバー
 
 - Node.js のランタイムで使います。Next.js の文書は、Edge のランタイムを Proxy で使うものとしています。Vercel では、Next.js 16.3 から route と page の `runtime = 'edge'` が使えず、Node.js で動きます。
 - Turbopack（Next.js 16 の既定）で組むときは、設定は要りません。webpack（`next build --webpack`）で組むときは、`next.config` の `serverExternalPackages` に `"@zumen-jp/zumen"` を入れます。webpack はパッケージの wasm を、ブラウザー向けの URL に書き換えるためです。どちらも、`output: "standalone"` で組んだ出力に wasm が入ります。
 - 要求ごとに `loadBundled` で新しいインスタンスを使います。壊れたファイルで起きた trap がほかの要求に及ばず、wasm のメモリも要求が終われば回収されます。wasm のメモリは縮まないので、1 つのインスタンスを使い回すと、いちばん大きな入力を読んだときの大きさのままになります。
-- 受け取ったファイルを読むときは、要求の `budget` で量に上限を付けます（[決定 0010](../../docs/decisions/0010-budget-by-work.md)）。
+- 受け取ったファイルを読むときは、要求の `budget` で量に上限を付けます（[予算と中断](../../docs/architecture.md#予算と中断)）。
 - 呼び出しは同期で、動いている間は Node.js のイベントループが止まります。大きな図面を受けるサーバーでは、`worker_threads` で動かします。
 - Vercel の関数は、要求と応答の本文が 4.5 MB までです。大きな図面は、ブラウザーからストレージに直接上げ、関数はそこから読みます。
 
@@ -122,9 +122,9 @@ node bindings/js/examples/worker/main.mjs samples/dxf/text_alignments.dxf target
 
 ### 分けたモジュール
 
-図面・BIM・土木地理・点群を分けたモジュール（`zumen_abi1_drawing.wasm`・`zumen_abi1_bim.wasm`・`zumen_abi1_civil.wasm`・`zumen_abi1_pointcloud.wasm`）もあります（[決定 0221](../../docs/decisions/0221-wasm-modules.md)・[決定 0253](../../docs/decisions/0253-wasm-civil-and-pointcloud-modules.md)）。`loadModules` は、要るモジュールだけを、初めて要るときに読み込みます。入っていない op は `call.op.unsupported` の診断で返ります。
+図面・BIM・土木地理・点群を分けたモジュール（`zumen_abi1_drawing.wasm`・`zumen_abi1_bim.wasm`・`zumen_abi1_civil.wasm`・`zumen_abi1_pointcloud.wasm`）もあります（[API のスキーマ](../../schema/README.md)）。`loadModules` は、要るモジュールだけを、初めて要るときに読み込みます。入っていない op は `call.op.unsupported` の診断で返ります。
 
-5 つの wasm は、同じ npm パッケージと GitHub の Release に入っています（[決定 0268](../../docs/decisions/0268-distribute-wasm-modules.md)）。ブラウザー向けに Vite などで組むときは、`@zumen-jp/zumen/wasm` の `wasmUrls` を使います。パッケージの中で静的な相対パスを `new URL(..., import.meta.url)` に渡しているため、bundler が wasm を見つけて出力へ写し、URL を書き換えられます。
+5 つの wasm は、同じ npm パッケージと GitHub の Release に入っています（[配布の手順](../../xtask/release/README.md)）。ブラウザー向けに Vite などで組むときは、`@zumen-jp/zumen/wasm` の `wasmUrls` を使います。パッケージの中で静的な相対パスを `new URL(..., import.meta.url)` に渡しているため、bundler が wasm を見つけて出力へ写し、URL を書き換えられます。
 
 ```js
 import { loadModules } from "@zumen-jp/zumen";
@@ -163,9 +163,9 @@ Node.js で分割版を使うときは、たとえば `readFile(new URL(import.m
 | --- | --- |
 | `detect` | 入力を、`open` と同じ順と規則で判定し、合った `DETECTION` の行（`format`・`module`）を返す（どれでもなければ `undefined`） |
 | `modulesWith` | op を持つモジュールの名前 |
-| `loadModules` | `Modules.get`・`forInput`・`forOp` で、モジュールを読み込んで覚えておく。`Modules.open` で、形式を持つモジュールの新しいセッションで入力を開く（[決定 0250](../../docs/decisions/0250-open-plugin-drawings-in-the-drawing-module.md)） |
+| `loadModules` | `Modules.get`・`forInput`・`forOp` で、モジュールを読み込んで覚えておく。`Modules.open` で、形式を持つモジュールの新しいセッションで入力を開く（[API のスキーマ](../../schema/README.md)） |
 
-外部のプラグインを束ねたモジュール（[決定 0243](../../docs/decisions/0243-plugin-bundling.md)）は、`loadModules` の 2 つ目の引数に、名前・形式ごとの判定の規則（`formats`）・持つ op（`ops`）・読み込む関数（`load`）を渡します。コアのどの形式でもない入力を、その規則で試します。図面の形式のプラグインのモジュールは、プラグインの形式だけを持ちます（[決定 0247](../../docs/decisions/0247-drawing-model-binary.md)）。開いた文書を `lift` の op で図面モデルのバイナリ（blob の種類は `drawing`）にし、図面のモジュールのセッションに `push` して `open` すると、図面を読む op を使えます。`Modules.open` は、この受け渡しをして、図面のモジュールのセッションを返します。`detect` は、図面モデルのバイナリを形式 `drawing` と判定します（`open` は元の文書の形式を返します）。作り方は [templates/plugin](../../templates/plugin/README.md) にあります。
+外部のプラグインを束ねたモジュール（[プラグインの作り方](../../templates/plugin/README.md)）は、`loadModules` の 2 つ目の引数に、名前・形式ごとの判定の規則（`formats`）・持つ op（`ops`）・読み込む関数（`load`）を渡します。コアのどの形式でもない入力を、その規則で試します。図面の形式のプラグインのモジュールは、プラグインの形式だけを持ちます（[API のスキーマ](../../schema/README.md)）。開いた文書を `lift` の op で図面モデルのバイナリ（blob の種類は `drawing`）にし、図面のモジュールのセッションに `push` して `open` すると、図面を読む op を使えます。`Modules.open` は、この受け渡しをして、図面のモジュールのセッションを返します。`detect` は、図面モデルのバイナリを形式 `drawing` と判定します（`open` は元の文書の形式を返します）。作り方は [templates/plugin](../../templates/plugin/README.md) にあります。
 
 要求と応答の形は [schema/messages.json](../../schema/messages.json) にあり、`call` の型は要求の `op` から結果の型を引きます。
 
@@ -178,7 +178,7 @@ node bindings/js/test/conformance.mjs target/wasm32-unknown-unknown/release/zume
 
 `test/conformance.mjs` は、[適合テスト](../conformance/README.md)の組をこのラッパーで流し、ハッシュの一覧が `hashes.txt` と一致することを確かめます。型は、CI がサイトと同じバージョンの TypeScript で `tsconfig.json`（`test/types.ts` を含む）を確かめます。
 
-ブラウザーの中でも、同じ組を流せます（[決定 0199](../../docs/decisions/0199-browser-conformance-with-playwright.md)）。ツールは `test/browser` にバージョンを固定して置いてあり、ブラウザーは Playwright で取ります。CI は、PR ごとに Chromium、毎晩に Firefox と WebKit で流します。
+ブラウザーの中でも、同じ組を流せます（[適合テスト](../conformance/README.md)）。ツールは `test/browser` にバージョンを固定して置いてあり、ブラウザーは Playwright で取ります。CI は、PR ごとに Chromium、毎晩に Firefox と WebKit で流します。
 
 ```bash
 npm ci --prefix bindings/js/test/browser --ignore-scripts
@@ -192,13 +192,13 @@ node bindings/js/test/browser/run.mjs chromium target/wasm32-unknown-unknown/rel
 node bindings/js/test/modules.mjs zumen_abi1.wasm zumen_abi1_drawing.wasm zumen_abi1_bim.wasm zumen_abi1_civil.wasm zumen_abi1_pointcloud.wasm zumen_abi1_plugin.wasm
 ```
 
-`test/server.mjs` は、Node.js の入口・別の realm で作ったモジュール・trap のあとの扱いを確かめます（[決定 0259](../../docs/decisions/0259-javascript-on-node-servers.md)）。CI は PR ごとに流します。
+`test/server.mjs` は、Node.js の入口・別の realm で作ったモジュール・trap のあとの扱いを確かめます。CI は PR ごとに流します。
 
 ```bash
 node bindings/js/test/server.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm
 ```
 
-`Session.push` は、新しい wasm では入力の領域の所有権をコアへ渡します。最初の入力を wasm の中でもう一度写す必要がなくなり、300 MiB の入力を渡す測定では、wasm のメモリが約 602 MiB から 301 MiB に減りました。ホストの入力は引き続き使えます。追記や文書を開く際のメモリは別に必要です。新しい関数がない旧 ABI 1 の wasm では、これまでの入力の渡し方を使います（[決定 0271](../../docs/decisions/0271-transfer-wasm-input-ownership.md)）。
+`Session.push` は、新しい wasm では入力の領域の所有権をコアへ渡します。最初の入力を wasm の中でもう一度写す必要がなくなり、300 MiB の入力を渡す測定では、wasm のメモリが約 602 MiB から 301 MiB に減りました。ホストの入力は引き続き使えます。追記や文書を開く際のメモリは別に必要です。新しい関数がない旧 ABI 1 の wasm では、これまでの入力の渡し方を使います（[API のスキーマ](../../schema/README.md)）。
 
 `test/input.mjs` は、新旧の経路、空の入力と追記、失敗時の解放、同じ wasm のメモリを指す入力、trap の後片付けとメモリの削減を確かめます。CI は PR ごとに 32 MiB の入力で測ります。`measure` を付けると、指定したバイト数を 1 回渡す前後の wasm のメモリを表示します。測定には、ホストの入力と文書の解析は含みません。
 

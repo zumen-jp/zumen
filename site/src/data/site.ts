@@ -4,7 +4,6 @@ export const repo = 'https://github.com/zumen-jp/zumen';
 export const releaseVersion = '0.2.0';
 export const releaseUrl = `${repo}/releases/tag/v${releaseVersion}`;
 export const releasedSource = (file: string) => `${repo}/blob/v${releaseVersion}/${file}`;
-export const decision = (file: string) => `${repo}/blob/main/docs/decisions/${file}`;
 
 export const nav = [
   { href: '/viewer/', label: '図面を試す' },

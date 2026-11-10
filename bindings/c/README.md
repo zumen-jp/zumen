@@ -1,6 +1,6 @@
 # C と C++ のバインディング
 
-C ABI のライブラリ（`zumen_abi1.dll`・`libzumen_abi1.so`・`libzumen_abi1.dylib` と、静的ライブラリ）を、C と C++ から使うためのヘッダーです（[決定 0011](../../docs/decisions/0011-bindings-through-ffi.md)・[決定 0012](../../docs/decisions/0012-boundary-functions-and-messages.md)・[決定 0198](../../docs/decisions/0198-c-and-cpp-wrapper.md)）。
+C ABI のライブラリ（`zumen_abi1.dll`・`libzumen_abi1.so`・`libzumen_abi1.dylib` と、静的ライブラリ）を、C と C++ から使うためのヘッダーです（[依存とツールの条件](../../AGENTS.md#範囲と権利)・[API のスキーマ](../../schema/README.md)）。
 
 | ファイル | 中身 | 作り方 |
 | --- | --- | --- |

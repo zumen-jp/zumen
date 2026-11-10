@@ -1,6 +1,6 @@
 # Java のラッパー
 
-ネイティブのライブラリ（`zumen_abi1.dll`・`libzumen_abi1.so`・`libzumen_abi1.dylib`）の C ABI を、JNA で呼ぶ薄いラッパーです（[決定 0011](../../docs/decisions/0011-bindings-through-ffi.md)・[決定 0224](../../docs/decisions/0224-java-kotlin-wrapper.md)）。下限は Java 8 と Android 7.0（API 24）です。Kotlin からも、同じクラスをそのまま使います。
+ネイティブのライブラリ（`zumen_abi1.dll`・`libzumen_abi1.so`・`libzumen_abi1.dylib`）の C ABI を、JNA で呼ぶ薄いラッパーです（[依存とツールの条件](../../AGENTS.md#範囲と権利)）。下限は Java 8 と Android 7.0（API 24）です。Kotlin からも、同じクラスをそのまま使います。
 
 - パッケージは `dev.zumen` です。Maven Central にはまだ出していません（#435）。
 - 依存は JNA 5.19.1（Apache-2.0 と LGPL-2.1 以降の二重のライセンス。Apache-2.0 で使う）だけです。JSON の読み書きは、ラッパーの中の `Json` で行います。

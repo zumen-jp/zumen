@@ -1,6 +1,6 @@
 # 開発への参加
 
-zumen の計画は、[#1](https://github.com/zumen-jp/zumen/issues/1) の下の issue で進めています。決まったことは [docs/decisions](docs/decisions/README.md) に、リポジトリのどこに何があるかは [AGENTS.md](AGENTS.md) の「リポジトリの地図」にあります。
+zumen の計画は、[#1](https://github.com/zumen-jp/zumen/issues/1) の下の issue で進めています。コアの設計は [docs/architecture.md](docs/architecture.md) に、リポジトリのどこに何があるかは [AGENTS.md](AGENTS.md) の「リポジトリの地図」にあります。
 
 - 大きな変更は、着手する前に issue で相談してください。
 - issue・PR・コメントは日本語を基本にします。
@@ -11,12 +11,14 @@ zumen の計画は、[#1](https://github.com/zumen-jp/zumen/issues/1) の下の 
 図面は、顧客のものであることがあります。
 
 - 機密の図面を issue・PR に添付したり、Git に入れたりしないでください。
-- 公開されている図面は、再配布を認めるライセンスのものだけを `samples/` に入れられます。出所とライセンスを `samples/ledger.toml` に書いてください（[決定 0171](docs/decisions/0171-public-samples-in-git.md)）。`samples/` のファイルは、リポジトリのライセンスではなく、台帳に書いたそれぞれのライセンスに従います。
+- 公開されている図面は、再配布を認めるライセンスのものだけを `samples/` に入れられます。出所とライセンスを `samples/ledger.toml` に書いてください（[公開サンプルの条件](samples/README.md)）。`samples/` のファイルは、リポジトリのライセンスではなく、台帳に書いたそれぞれのライセンスに従います。
 - 不具合を報告するときは、再現する最小の図面を作るか、形式・バージョン・作成ソフトと、表示された診断を書いてください。読み取りが終わらない、落ちる、メモリや CPU を使いすぎる入力は、公開の issue でなく、[SECURITY.md](SECURITY.md) のとおり非公開で報告してください。
 
 ## 貢献のライセンス
 
-明示しない限り、貢献は Apache License 2.0 の定める「貢献」（Contribution）として、追加の条件なしに MIT と Apache-2.0 の 2 つのライセンスで提供されたものとします（[決定 0002](docs/decisions/0002-dual-license.md)）。
+明示しない限り、貢献は Apache License 2.0 の定める「貢献」（Contribution）として、追加の条件なしに MIT と Apache-2.0 の 2 つのライセンスで提供されたものとします（[ライセンス](README.md#ライセンス)）。
+
+旧版のコードを移すときは、元の著作者が MIT から MIT OR Apache-2.0 にライセンスを付け替えます。ほかの人の貢献を含む部分は、その人の同意を確かめてから移してください。
 
 次のものは入れないでください。
 
@@ -62,6 +64,6 @@ Markdown の辞書（`prh.yml`）の指摘の多くは、`npm run fix:text` で�
 
 - 作業を選ぶときは、[作業の選び方](docs/work.md)に沿って、[#1](https://github.com/zumen-jp/zumen/issues/1) の下の issue の並び・ラベル・依存で、優先順と開始条件を確認してください。issue に範囲と完了条件を書き、PR に残る作業を書いてください。
 - 最新の `main` からブランチを作り、PR を出してください。
-- PR は、作った人と別の人か、作った側の会話を引き継がないエージェントが確かめてからマージします。確かめた結果は、PR のレビューのコメントに書きます（[決定 0254](docs/decisions/0254-parallel-agents-and-cross-review.md)）。
+- PR は、作った人と別の人か、作った側の会話を引き継がないエージェントが確かめてからマージします。確かめた結果は、PR のレビューのコメントに書きます（[開発の進め方](docs/work.md)）。
 - コミットと PR のタイトルは Conventional Commits にします（例: `feat(dxf): 外部参照を読む`）。種別とスコープは英語、説明は日本語です。
-- API・ID・層とモデル・依存・権利・形式をまたぐ振る舞い・作業の進め方に関わる設計の判断は、[docs/decisions](docs/decisions/README.md) に記録してください。形式ごとのフィールドや符号化の細部は、[docs/formats](docs/formats/README.md) に書きます。
+- 仕様を変えるときは、該当するスキーマ・台帳・文書とテストを同じ PR で更新してください。層をまたぐ約束の置き場所は [コアの設計](docs/architecture.md) にあります。採用理由は PR に、残る作業は issue に書きます。

@@ -1,6 +1,6 @@
 # Tier 3 の言語から使う
 
-公式のラッパーのない言語（Ruby・PHP・R・Julia・PowerShell・MATLAB・Delphi など、[決定 0006](decisions/0006-language-tiers.md) の Tier 3）から zumen を使う手順です。API は 4 つの形態（[決定 0013](decisions/0013-boundary-in-four-forms.md)）で、どれも同じ要求と応答（[schema/messages.json](../schema/messages.json) の JSON）を運びます。言語の FFI・子プロセス・HTTP のどれが使いやすいかで、形態を選びます。
+公式のラッパーのない言語（Ruby・PHP・R・Julia・PowerShell・MATLAB・Delphi など、[対応する環境](support.md) の Tier 3）から zumen を使う手順です。API は 4 つの形態（[API のスキーマ](../schema/README.md)）で、どれも同じ要求と応答（[schema/messages.json](../schema/messages.json) の JSON）を運びます。言語の FFI・子プロセス・HTTP のどれが使いやすいかで、形態を選びます。
 
 | 形態 | 向く場面 | サンプル |
 | --- | --- | --- |
@@ -45,7 +45,7 @@
 
 - 1 回だけ呼ぶなら、`zumen call --input <名前>=<ファイル> <要求の JSON のファイル>`。応答の JSON を標準出力に書き、終了コードが状態コードです。1 回が 1 つのセッションです。
 - 続けて呼ぶなら、`zumen serve --stdio` を子プロセスで起こし、1 行に 1 つの JSON-RPC 2.0 のメッセージを送ります。メソッドは `session_new`・`push`（`name` と `base64` か `text`）・`call`（`request` に要求の JSON の値）・`take`（`blob`）・`cancel` です。答えは `{"status": "ok", "response": "<応答の JSON の文字列>"}` の形で、id のない行は進み具合の通知です。
-- ネイティブのライブラリを読み込める言語は、セッションの設定を `{"v": 1, "engine": "process"}` にすると、同じ CLI を子プロセスで使えます（[決定 0200](decisions/0200-cli-http-process-engine-and-mcp-resources.md)）。
+- ネイティブのライブラリを読み込める言語は、セッションの設定を `{"v": 1, "engine": "process"}` にすると、同じ CLI を子プロセスで使えます（[CLI の使い方](../bindings/cli/README.md)）。
 
 ## wasm（WASI）
 
@@ -58,7 +58,7 @@ wasmtime run target/wasm32-wasip1/release/zumen.wasm serve --stdio
 - フォルダーを渡さなくても使えます。入力は push で、バイト列のまま送ります。
 - WASI にはスレッドがないので、要求は 1 行ずつ順に処理し、処理の途中の `cancel` は受けません。予算（`budget`）で止めてください。
 - Node.js では、[bindings/conformance/wasi.mjs](../bindings/conformance/wasi.mjs) が node:wasi で動かします。毎晩の CI は、これで適合テストとサンプルを流します。
-- ブラウザーや、wasm のモジュールを直接読み込める環境では、`wasm32-unknown-unknown` のモジュール（`zumen_abi1.wasm`）を使えます。API の関数は C ABI と同じ名前で、メモリは `zm_alloc`・`zm_dealloc` で確保します（[決定 0013](decisions/0013-boundary-in-four-forms.md)）。
+- ブラウザーや、wasm のモジュールを直接読み込める環境では、`wasm32-unknown-unknown` のモジュール（`zumen_abi1.wasm`）を使えます。API の関数は C ABI と同じ名前で、メモリは `zm_alloc`・`zm_dealloc` で確保します（[API のスキーマ](../schema/README.md)）。
 
 ## HTTP
 

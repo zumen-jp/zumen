@@ -6,7 +6,7 @@
 
 - 権利: `public` は実装の公開に第三者の許諾が不要、`permission` は契約・会員・許諾が必要、`unknown` は条件が未確認です。
 - 置き場所: `core` はコア、`plugin` は外部のプラグイン、`none` は実装しない方針です。
-- 読み・書き: コアの実装を確かめた度合い（[決定 0254](../decisions/0254-parallel-agents-and-cross-review.md)・[決定 0255](../decisions/0255-verification-levels-in-the-ledger.md)）です。`synthetic` は、仕様とテストの中で作ったファイル（書きは自前の読み取り）だけで確かめたものです。公開サンプルや受け取った図面を読んでも、値を照らしていなければ `synthetic` です。`external` は、自前で作っていないファイルを読み、外部の実装が読んだ値かファイルに添えられた値と照らしたものです（書きは、書いたファイルを外部の実装が読み、書いた値と合ったもの）。`application` は、その形式の基準になるソフトで開いて確かめたものです。確かめた方法のうちもっとも強いものを示すので、その方法で確かめたのは一部の規則だけのことがあります。範囲は形式ごとの記録と、形式の文書の「確かめた度合い」の節にあります。空欄は、その向きをコアで実装していないことを示します。
+- 読み・書き: コアの実装を確かめた度合い（[台帳の書き方](../../formats/README.md#確かめた度合い)）です。`synthetic` は、仕様とテストの中で作ったファイル（書きは自前の読み取り）だけで確かめたものです。公開サンプルや受け取った図面を読んでも、値を照らしていなければ `synthetic` です。`external` は、自前で作っていないファイルを読み、外部の実装が読んだ値かファイルに添えられた値と照らしたものです（書きは、書いたファイルを外部の実装が読み、書いた値と合ったもの）。`application` は、その形式の基準になるソフトで開いて確かめたものです。確かめた方法のうちもっとも強いものを示すので、その方法で確かめたのは一部の規則だけのことがあります。範囲は形式ごとの記録と、形式の文書の「確かめた度合い」の節にあります。空欄は、その向きをコアで実装していないことを示します。
 - 台帳は判断した時点の記録です。URL の到達や権利の変更は、生成時に再確認していません。
 
 ## 一覧
@@ -502,9 +502,6 @@
 - 読みの確かめた範囲: BCF-XML 2.1・3.0 の文書と、テストの中で作った bcfzip（crates/zumen-bcf/tests）で確かめた。公開サンプル・外部の実装・BCF を読むソフトでの照合はまだ（#522）
 - 書きの確かめた度合い: `synthetic`（確認日: 2026-11-03）
 - 書きの確かめた範囲: 書いた bcfzip を読み直して確かめた。書いたファイルを、外部の実装や BCF を読むソフトで読ませてはいない（#522）
-- 記録: [決定 0214](../decisions/0214-review-model-and-bcf.md)
-- 記録: [決定 0220](../decisions/0220-bcf-3-0.md)
-- 記録: [決定 0248](../decisions/0248-bcf-2-1.md)
 - issue: [zumen-jp/zumen#429](https://github.com/zumen-jp/zumen/issues/429)
 - issue: [zumen-jp/zumen#454](https://github.com/zumen-jp/zumen/issues/454)
 - 形式の文書: [docs/formats/bcf.md](../../docs/formats/bcf.md)
@@ -602,7 +599,6 @@
 - 書きの確かめた範囲: AutoCAD 2027（accoreconsole）で、AutoCAD で作った R2000・R2004・R2010・R2018 の DWG に、引出線の置き換え・変換・追加を当てて書き戻したものを開き、監査の誤りが 0 で、形・矢印・注記が当てた値と合うことを確かめた。R2004 から後は、組み直したコンテナーも開けた（#345）。ほかの規則は、この方法で確かめていない。点・寸法・表と、引出線のほかの変更を書き戻したファイルは開いていない（#342・#314・#503）。書き戻した DWG は、毎晩の CI で ACadSharp 3.8.0 で読み、通知が入力より増えないことと、変更で決めた形・画層・色が ACadSharp の読んだ値と合うことを確かめる（xtask/verify、#528）
 - 書きで照らした外部の実装: ACadSharp 3.8.0
 - 書きで開いたソフト: AutoCAD 2027
-- 記録: [決定 0008](../decisions/0008-model-layers-and-codecs.md)
 - 旧版の記録: 旧版の決定 0003（[旧版の決定の一覧](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/README.md)）
 - 形式の文書: [docs/formats/dwg.md](../../docs/formats/dwg.md)
 
@@ -624,7 +620,6 @@
 - 書きの確かめた範囲: AutoCAD 2027（accoreconsole）で、AutoCAD で作った R2000・R2004・R2010・R2018 の DXF に、引出線の置き換え・変換・追加と MULTILEADER の線の置き換えを当てて書き戻したものを開き、監査の誤りが 0 で、形・矢印・注記が当てた値と合うことを確かめた（#345）。ほかの規則は、AutoCAD では確かめていない。点・寸法・表と、引出線のほかの変更を書き戻したファイルと、convert（決定 0206）で書いた DXF は、AutoCAD で開いていない（#342・#314・#503）。書き戻した DXF は、毎晩の CI で ezdxf で読み、監査の誤りが入力より増えないことと、変更で決めた形・画層・色が ezdxf の読んだ値と合うことを確かめる（xtask/verify、#511）。convert で書いた DXF は、ezdxf で読めないものと監査が誤りを直すものがある（#509）ので、根拠にしない
 - 書きで照らした外部の実装: ezdxf 1.4.5
 - 書きで開いたソフト: AutoCAD 2027
-- 記録: [決定 0008](../decisions/0008-model-layers-and-codecs.md)
 - 形式の文書: [docs/formats/dxf.md](../../docs/formats/dxf.md)
 
 ### format-e57
@@ -654,8 +649,6 @@
 - サンプルの出どころ: buildingSMART International が公開する IFC の EXPRESS のスキーマ。Git・パッケージ・テストに入れない（旧版の決定 0028）。テストの中で小さなスキーマを書く
 - 読みの確かめた度合い: `synthetic`（確認日: 2026-11-09）
 - 読みの確かめた範囲: テストの中で書いた小さな EXPRESS（crates/zumen-ifc/tests/express.rs と、src/express.rs の単体テスト）だけで確かめた。型・実体・属性・集まりを読むこと、評価しない規則の数、読めない書き方・宣言のない名前・同じ名前の宣言・循環の失敗と指す名前、予算（バイトごとの work、集まりの入れ子の depth、長い鎖と循環を調べる手順の work）、既定の深さまでの入れ子を 1 MiB のスタックで読んでチェックできること、その 4 倍まで上限を引き上げても同じスタックで型を読んで写し・比較・表示・破棄できること、1 つの宣言に並べた属性の名前が型を共有すること、切ったり変えたりした EXPRESS で落ちないことを確かめる。buildingSMART が公開する IFC の EXPRESS のスキーマを読むことと、読んだ値とチェックの結果を外部の実装と照らすことはまだ（#663）
-- 記録: [決定 0207](../decisions/0207-building-model-components.md)
-- 記録: [決定 0216](../decisions/0216-express-validate-op.md)
 - 旧版の記録: 旧版の決定 0028（[旧版の決定の一覧](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/README.md)）
 - issue: [zumen-jp/zumen#410](https://github.com/zumen-jp/zumen/issues/410)
 - issue: [zumen-jp/zumen#529](https://github.com/zumen-jp/zumen/issues/529)
@@ -676,7 +669,6 @@
 - サンプルの出どころ: 再配布を認める公開サンプルは見つかっていない。テストの中で作る
 - 読みの確かめた度合い: `synthetic`（確認日: 2026-11-03）
 - 読みの確かめた範囲: 実装規約と、テストの中で組み立てたレコード（crates/zumen-extdm/tests）で確かめた。再配布できる公開サンプルは見つかっていない。基盤地図情報ビューアーが書き出した拡張 DM との照合はまだ（#504）
-- 記録: [決定 0233](../decisions/0233-geo-model-features.md)
 - issue: [zumen-jp/zumen#378](https://github.com/zumen-jp/zumen/issues/378)
 - 形式の文書: [docs/formats/extdm.md](../../docs/formats/extdm.md)
 
@@ -691,9 +683,6 @@
 - サンプルの出どころ: 利用者が国土地理院から入手したデータ。Git・パッケージ・テストに入れない。テストの中で小さな GML を作る
 - 読みの確かめた度合い: `synthetic`（確認日: 2026-11-03）
 - 読みの確かめた範囲: ファイル仕様書と、テストの中で作った小さな GML とアーカイブ（crates/zumen-fgd/tests）で確かめた。データは Git に入れない。基盤地図情報ビューアーと QGIS での照合はまだ（#504）
-- 記録: [決定 0019](../decisions/0019-coordinate-systems-and-gsi-data.md)
-- 記録: [決定 0233](../decisions/0233-geo-model-features.md)
-- 記録: [決定 0251](../decisions/0251-fgd-archives.md)
 - issue: [zumen-jp/zumen#378](https://github.com/zumen-jp/zumen/issues/378)
 - 形式の文書: [docs/formats/fgd.md](../../docs/formats/fgd.md)
 
@@ -706,8 +695,6 @@
 - 権利の根拠にした文書: [IDS のリポジトリのライセンス（LICENSE）](https://github.com/buildingSMART/IDS/blob/development/LICENSE)（確認日: 2026-10-31）
 - 読みの確かめた度合い: `synthetic`（確認日: 2026-11-03）
 - 読みの確かめた範囲: IDS 1.0 の文書と、テストの中で作った IDS（crates/zumen-ids/tests・crates/zumen-ifc/tests/ids.rs）で確かめた。公開サンプルと外部の実装との照合はまだ（#522）
-- 記録: [決定 0207](../decisions/0207-building-model-components.md)
-- 記録: [決定 0217](../decisions/0217-ids-check.md)
 - issue: [zumen-jp/zumen#411](https://github.com/zumen-jp/zumen/issues/411)
 - 形式の文書: [docs/formats/ids.md](../../docs/formats/ids.md)
 
@@ -732,10 +719,6 @@
 - 書きの確かめた度合い: `external`（確認日: 2026-11-02）
 - 書きの確かめた範囲: building\_apply でプロパティ・名前・説明を変えて書いた IFC4 と IFC2X3 を IfcOpenShell で開き、変更が見え、スキーマと EXPRESS の規則の検査の誤りが増えないことを、毎晩の CI で確かめる（#482、決定 0244）。書いたファイルを BIM ソフトで開いてはいない（#526）
 - 書きで照らした外部の実装: IfcOpenShell 0.9.0.post1
-- 記録: [決定 0008](../decisions/0008-model-layers-and-codecs.md)
-- 記録: [決定 0207](../decisions/0207-building-model-components.md)
-- 記録: [決定 0211](../decisions/0211-ifc-l1-instance-graph.md)
-- 記録: [決定 0244](../decisions/0244-ifc-in-place-edit.md)
 - 旧版の記録: 旧版の決定 0028（[旧版の決定の一覧](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/README.md)）
 - 形式の文書: [docs/formats/ifc.md](../../docs/formats/ifc.md)
 
@@ -750,7 +733,6 @@
 - サンプルの出どころ: 利用者が国土地理院から入手したジオイド・モデル。Git・パッケージ・テストに入れない
 - 読みの確かめた度合い: `synthetic`（確認日: 2026-11-03）
 - 読みの確かめた範囲: ISG format 2.0 の例と同じ形の合成の格子（crates/zumen-crs/tests/grid.rs）で確かめた。国土地理院のジオイド・モデルで、ジオイド高計算サービスか内挿計算プログラムと比べる照合は、検証キット（xtask/verify/geoid）を使って #438 で行う
-- 記録: [決定 0019](../decisions/0019-coordinate-systems-and-gsi-data.md)
 - 形式の文書: [docs/formats/crs.md](../../docs/formats/crs.md)
 
 ### format-jpeg
@@ -774,7 +756,6 @@
 - 参照した実装: [ezjww](https://github.com/monozukuri-ai/ezjww)（MIT）
 - 照合に使う候補: Jw\_cad
 - サンプルの出どころ: Jw\_cad 10 で保存したファイル
-- 記録: [決定 0008](../decisions/0008-model-layers-and-codecs.md)
 
 ### format-jws
 
@@ -785,7 +766,6 @@
 - 参照した実装: [ezjww](https://github.com/monozukuri-ai/ezjww)（MIT）
 - 照合に使う候補: Jw\_cad
 - サンプルの出どころ: Jw\_cad 10 で登録した図形
-- 記録: [決定 0008](../decisions/0008-model-layers-and-codecs.md)
 - 補足: 掲示板の説明: <https://www.jwcad.net/log/consult2/consult2-0610-12/thread17752.htm>
 
 ### format-jww
@@ -803,11 +783,6 @@
 - 書きの確かめた度合い: `external`（確認日: 2026-11-10）
 - 書きの確かめた範囲: テストの中で作った JWW と受け取った図面に書き戻し、自前の読み取りで読み直して、変えた要素が求めた値になることを確かめた。毎晩の CI で、テストの中で作った JWW に点・線分・円・円弧を足して書き戻したファイルを ezjww 0.7.6 で読み、変更で決めた形・レイヤ・ペンの番号が、ezjww の読んだ値と合うことを確かめる（xtask/verify、#528・#702）。外部の実装と照らしたのは追加の書き戻しだけで、ほかの変更を書き戻したファイルは、自前の読み取りで読み直しただけ。書いたファイルを Jw\_cad で開いてはいない（#342・#503）
 - 書きで照らした外部の実装: ezjww 0.7.6
-- 記録: [決定 0008](../decisions/0008-model-layers-and-codecs.md)
-- 記録: [決定 0133](../decisions/0133-jww-l1-records.md)
-- 記録: [決定 0134](../decisions/0134-jww-lift-to-drawing.md)
-- 記録: [決定 0135](../decisions/0135-jww-blocks-and-dimensions.md)
-- 記録: [決定 0136](../decisions/0136-jww-images-and-edit-state.md)
 - 形式の文書: [docs/formats/jww.md](../../docs/formats/jww.md)
 
 ### format-kokuban
@@ -868,10 +843,6 @@
 - 読みの確かめた度合い: `synthetic`（確認日: 2026-11-09）
 - 読みの確かめた範囲: TKY2JGD の論文の表 2 と同じ項目の並びの合成の格子（桁の幅と行の終わりが表 2 と違うものと、表 2 の桁の幅のもの）と、行の終わりが CR+LF で長いヘッダーに UTF-8 でない行を含む合成の格子（crates/zumen-crs/tests/datum.rs・jgdtrans.rs）で、ヘッダーの読み飛ばし・壊れた行（初めのデータの行の後の UTF-8 でない行を含む）・格子点を数える予算・隣り合う格子点からの間隔の見分け（3 次メッシュの間隔と、公共測量成果改定マニュアル（令和 7 年 4 月）の 5 倍の間隔。格子点が 1 つだけのものや 15 倍の間隔のものは読まない）・双一次の補間（5 倍の格子の南端を含む）・複数の PatchJGD のファイルを古い順に当てる変換と、その作業量の上限や中断の合図で止まることを確かめた（決定 0286）。テストの中で作った格子を jgdtrans 0.3.1 にも読ませ、読んだ格子点・補間の値・変換した座標を照らした（自前で作った格子なので、段は上げない）。国土地理院のパラメーターのファイルは読んでいない。国土地理院のファイルの間隔とヘッダーと、測量計算サイトの TKY2JGD・PatchJGD との照合は #664 で行う
 - 既知の crate: jgdtrans
-- 記録: [決定 0019](../decisions/0019-coordinate-systems-and-gsi-data.md)
-- 記録: [決定 0233](../decisions/0233-geo-model-features.md)
-- 記録: [決定 0237](../decisions/0237-datum-transformations.md)
-- 記録: [決定 0286](../decisions/0286-datum-grid-spacing-and-patch-order.md)
 - issue: [zumen-jp/zumen#471](https://github.com/zumen-jp/zumen/issues/471)
 - issue: [zumen-jp/zumen#529](https://github.com/zumen-jp/zumen/issues/529)
 - issue: [zumen-jp/zumen#664](https://github.com/zumen-jp/zumen/issues/664)
@@ -897,10 +868,6 @@
 - 読みで照らした外部の実装: pdf.js 6.5.438
 - 書きの確かめた度合い: `synthetic`（確認日: 2026-11-03）
 - 書きの確かめた範囲: 読んだバイト列をそのまま書けることを、自前の読み取りだけで確かめた。書いたファイルを PDF のソフトで開いてはいない
-- 記録: [決定 0008](../decisions/0008-model-layers-and-codecs.md)
-- 記録: [決定 0013](../decisions/0013-boundary-in-four-forms.md)
-- 記録: [決定 0256](../decisions/0256-pdf-with-hayro.md)
-- 記録: [決定 0289](../decisions/0289-release-cut-and-shipped-code.md)
 - 旧版の記録: 旧版の決定 0020、旧版の決定 0030（[旧版の決定の一覧](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/README.md)）
 - 形式の文書: [docs/formats/pdf.md](../../docs/formats/pdf.md)
 - 補足: ページの解釈は hayro-interpret 0.9.0（Apache-2.0 OR MIT）に任せ、バージョンを固定する（決定 0256）。zumen-pdf は crates.io に出さず、どのパッケージにも入れない（決定 0289）
@@ -932,11 +899,6 @@
 - 書きの確かめた度合い: `external`（確認日: 2026-11-06）
 - 書きの確かめた範囲: RGBA 8 bit、非インターレース、非圧縮 DEFLATE の静止画。Chromium と zlib で寸法・RGBA・CRC・Adler-32 を照らした。穴・字形・描画順・通常と反転のクリップ・余白・半透明を含む。Canvas の半透明の RGB の丸めだけ 1 まで認める。外部画像・閲覧側ごとの色管理・アンチエイリアスの一致は対象外。PNG を読む実装は持たない
 - 書きで照らした外部の実装: Chromium 156.0.8078.4・zlib (Node.js) 1.3.2.1-motley-285e94b
-- 記録: [決定 0007](../decisions/0007-single-rust-implementation.md)
-- 記録: [決定 0010](../decisions/0010-budget-by-work.md)
-- 記録: [決定 0272](../decisions/0272-scene-svg-rendering.md)
-- 記録: [決定 0275](../decisions/0275-render-op-from-drawing-scene.md)
-- 記録: [決定 0277](../decisions/0277-bounded-png-rendering.md)
 - issue: [zumen-jp/zumen#604](https://github.com/zumen-jp/zumen/issues/604)
 - 形式の文書: [docs/formats/png.md](../../docs/formats/png.md)
 
@@ -949,7 +911,6 @@
 - 照合に使う候補: SXF ブラウザ
 - 読みの確かめた度合い: `synthetic`（確認日: 2026-11-03）
 - 読みの確かめた範囲: 属性付加機構編と、テストの中で作った SAF とアーカイブ（crates/zumen-sxf/tests/saf.rs）で確かめた。SXF ブラウザでの照合は #494・#505 で行う
-- 記録: [決定 0249](../decisions/0249-sxf-attribute-files.md)
 - issue: [zumen-jp/zumen#386](https://github.com/zumen-jp/zumen/issues/386)
 - 形式の文書: [docs/formats/sxf.md](../../docs/formats/sxf.md)
 
@@ -971,9 +932,6 @@
 - 実装の根拠: spec
 - 権利の根拠にした文書: [STB-KIT の README「ST-Bridge および IFC との関係」](https://github.com/taisei-oss/stb-kit)（確認日: 2026-10-24）
 - 既知の crate: stb-parser
-- 記録: [決定 0017](../decisions/0017-format-rights-ledger-and-plugin-sdk.md)
-- 記録: [決定 0243](../decisions/0243-plugin-bundling.md)
-- 記録: [決定 0245](../decisions/0245-building-format-plugins.md)
 - 旧版の記録: 旧版の決定 0001、旧版の決定 0013、旧版の決定 0028（[旧版の決定の一覧](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/README.md)）
 - issue: [zumen-jp/zumen-legacy#140](https://github.com/zumen-jp/zumen-legacy/issues/140)
 - issue: [zumen-jp/zumen#402](https://github.com/zumen-jp/zumen/issues/402)
@@ -1000,11 +958,6 @@
 - 書きの確かめた度合い: `external`（確認日: 2026-11-06）
 - 書きの確かめた範囲: 合成シーンから書いた SVG を Chromium で読み、寸法・描画順・面の穴・字形・通常と反転の切り抜きを画素と照らした。点記号の細部と閲覧側ごとのアンチエイリアスは照合していない。API 接続は #603、PNG は #604。SVG を読む実装は持たない
 - 書きで照らした外部の実装: Chromium 156.0.8078.4
-- 記録: [決定 0007](../decisions/0007-single-rust-implementation.md)
-- 記録: [決定 0010](../decisions/0010-budget-by-work.md)
-- 記録: [決定 0172](../decisions/0172-scene-sections-and-op.md)
-- 記録: [決定 0188](../decisions/0188-scene-fonts-and-glyph-outlines.md)
-- 記録: [決定 0272](../decisions/0272-scene-svg-rendering.md)
 - issue: [zumen-jp/zumen#602](https://github.com/zumen-jp/zumen/issues/602)
 - issue: [zumen-jp/zumen#603](https://github.com/zumen-jp/zumen/issues/603)
 - issue: [zumen-jp/zumen#604](https://github.com/zumen-jp/zumen/issues/604)
@@ -1027,21 +980,6 @@
 - 書きの確かめた度合い: `external`（確認日: 2026-11-06）
 - 書きの確かめた範囲: テストの中で作った SFC・P21 と受け取った図面に書き戻し、自前の読み取りで読み直して、変えた要素が求めた値になることを確かめた。毎晩の CI で、テストの中で作った SFC・P21 に点を足して書き戻したファイルを ezsxf 0.3.7 で読み、変更で決めた形・レイヤと、SFC の色（既定義色の番号）が、ezsxf の読んだ値と合うことを確かめる（xtask/verify、#528）。P21 では、点マーカーの種類を比べない。ezsxf は P21 の文字列のエスケープを戻さないので、P21 のレイヤの名前は、照合がファイルのバイトから戻す。Shift\_JIS のレイヤ「図枠」へ追加した 2 点の所属を照らし、書き戻したファイルに元の名前のバイトが残ることを確かめた（#552）。外部の実装と照らしたのは点の書き戻しだけで、ほかの変更を書き戻したファイルは、自前の読み取りで読み直しただけ。SFZ・P2Z に書き戻したアーカイブは、外部の実装と照らしていない。書いたファイルを SXF ブラウザなどで開いてはいない（#342・#503）
 - 書きで照らした外部の実装: ezsxf 0.3.7
-- 記録: [決定 0008](../decisions/0008-model-layers-and-codecs.md)
-- 記録: [決定 0120](../decisions/0120-sxf-l1-exchange-structure.md)
-- 記録: [決定 0121](../decisions/0121-sxf-sfc-lift-to-drawing.md)
-- 記録: [決定 0122](../decisions/0122-sxf-text-to-formatted-text.md)
-- 記録: [決定 0123](../decisions/0123-drawing-clothoid-edge.md)
-- 記録: [決定 0124](../decisions/0124-drawing-title-blocks.md)
-- 記録: [決定 0125](../decisions/0125-sxf-raster-underlays.md)
-- 記録: [決定 0126](../decisions/0126-sxf-splines-and-point-markers.md)
-- 記録: [決定 0127](../decisions/0127-sxf-dimensions.md)
-- 記録: [決定 0128](../decisions/0128-sxf-labels-and-balloons.md)
-- 記録: [決定 0129](../decisions/0129-sxf-hatches-and-composite-curves.md)
-- 記録: [決定 0130](../decisions/0130-sxf-parts-symbols-and-nested-views.md)
-- 記録: [決定 0131](../decisions/0131-sxf-attribute-mechanism.md)
-- 記録: [決定 0132](../decisions/0132-sxf-p21-through-sfc-features.md)
-- 記録: [決定 0249](../decisions/0249-sxf-attribute-files.md)
 - issue: [zumen-jp/zumen#385](https://github.com/zumen-jp/zumen/issues/385)
 - 形式の文書: [docs/formats/sxf.md](../../docs/formats/sxf.md)
 
