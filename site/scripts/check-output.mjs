@@ -23,7 +23,11 @@ assert.ok(bom.metadata.component.hashes.some(({ alg, content }) => alg === "SHA-
 for (const name of ["LICENSE-MIT", "LICENSE-APACHE", "THIRD_PARTY_LICENSES"]) assert.ok(readFileSync(resolve(dist, "viewer", name)).length > 0);
 assert.ok(output.some((path) => /[/\\]viewer[/\\]assets[/\\]worker-[^/\\]+\.js$/.test(path)));
 for (const path of output.filter((path) => path.endsWith(".html") && path !== resolve(dist, "viewer/index.html"))) {
-  assert.doesNotMatch(readFileSync(path, "utf8"), /<script\b/i, "案内ページに script がある");
+  const html = readFileSync(path, "utf8");
+  assert.doesNotMatch(html, /<script\b/i, "案内ページに script がある");
+  // CSP3 §3.3。先に現れた link や script の読み込みは meta CSP では止められない。
+  assert.match(html, /<head>\s*<meta charset="utf-8">\s*(?:<!--[\s\S]*?-->\s*)?<meta http-equiv="Content-Security-Policy" content="script-src 'none'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">/i,
+    "案内ページの先頭にスクリプトを拒否する CSP がない");
 }
 const headers = readFileSync(resolve(dist, "_headers"), "utf8");
 assert.match(headers, /^\/\*\r?\n\s+Cache-Control: public, max-age=0, must-revalidate, no-transform/m);
@@ -37,4 +41,4 @@ assert.doesNotMatch(samples, /zumen-(minsert-r2004|xclip-r2018)\.dwg/);
 const pair = readFileSync(new URL("../../samples/dwg/zumen-layout-r2000_ascii.dxf", import.meta.url), "utf8").split(/\r?\n/);
 const savedBy = pair.findIndex((line) => line.trim() === "$LASTSAVEDBY");
 assert.ok(savedBy < 0 || !pair[savedBy + 2]?.trim(), "DWG の対の DXF に保存者のメタデータがある");
-console.log("サイトの出力: 案内ページの script なし・ビューアーの wasm/Worker/CSS/CSP・ライセンスを確認");
+console.log("サイトの出力: 案内ページの script なし・先頭の CSP・ビューアーの wasm/Worker/CSS/CSP・ライセンスを確認");
