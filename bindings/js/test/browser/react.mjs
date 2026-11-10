@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { chromium, firefox, webkit } from "playwright";
 import { build } from "vite";
 import { checkBoundaries, checkInteractions, installWorkerGate } from "./react-interactions.mjs";
+import { checkPlaygroundResize, installResizeTrace } from "./react-resize.mjs";
 import { loadSync } from "../../src/index.js";
 
 const [product, wasm] = process.argv.slice(2);
@@ -121,6 +122,8 @@ try {
     return route.continue();
   });
   const page = await context.newPage();
+  await page.exposeFunction("captureResizeFailure", (record) => console.log("ResizeObserver diagnostic: " + JSON.stringify(record)));
+  await page.addInitScript(installResizeTrace);
   await page.addInitScript(installWorkerGate);
   await page.addInitScript(() => {
     window.blockedRequests = [];
@@ -324,10 +327,11 @@ try {
   assert.equal(await status.textContent(), "図面を選んでください。");
   assert.ok(await file.evaluate((el) => el === document.activeElement));
 
-  await checkInteractions(page, ready);
+  const resizeInput = await checkInteractions(page, ready);
   assert.deepEqual(await page.evaluate(() => window.blockedRequests), []);
   await page.goto(origin + "/production/test/lifecycle.html");
   await checkBoundaries(page, inputs.jww, "本番");
+  await checkPlaygroundResize(page, resizeInput, "本番");
   await page.goto(origin + "/strict/test/lifecycle.html");
   await page.evaluate((bytes) => probe.render(bytes, true), [...inputs.dxf]);
   assert.ok(await page.evaluate(() => probe.delayed.length === 2 && probe.delayed[0].signal.aborted && !probe.delayed[1].signal.aborted));
@@ -354,9 +358,10 @@ try {
   const counts = await page.evaluate(() => probe.counts);
   assert.deepEqual([counts.workers, counts.starts, counts.ends, counts.transferred, counts.state, counts.events, counts.destroyed], [0, 3, 3, 3, 0, 0, 2]);
   await checkBoundaries(page, inputs.jww, "StrictMode");
+  await checkPlaygroundResize(page, resizeInput, "StrictMode");
   assert.ok([...seen].some((p) => p.includes("/app/assets/worker-")) && [...seen].some((p) => p.endsWith(".wasm")));
   assert.deepEqual(failures, []);
-  const summary = product + " " + browser.version() + " で DXF・JWW・SXF と公開サンプルの DWG（R2000・R2004・R2018）、初回の表示範囲・倍率の両端、用紙の連続切り替え・レイヤ・40 要素の選択・配置別の診断、DXF で保存（合成の DWG・JWW・SFC・P21 と公開サンプルの DWG をネイティブと同じバイト列で）、本番用 React・StrictMode の再接続中の状態と出所、ローカルの配布物だけの GET を確認";
+  const summary = product + " " + browser.version() + " で DXF・JWW・SXF と公開サンプルの DWG（R2000・R2004・R2018）、初回の表示範囲・倍率の両端、用紙の連続切り替え・レイヤ・40 要素の選択・配置別の診断、DXF で保存（合成の DWG・JWW・SFC・P21 と公開サンプルの DWG をネイティブと同じバイト列で）、本番用 React・StrictMode の再接続中の状態と出所、リサイズの8フレーム以内の収束と予約取消、ローカルの配布物だけの GET を確認";
   console.log(summary);
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, "\n" + summary + "\n");
 } finally {
