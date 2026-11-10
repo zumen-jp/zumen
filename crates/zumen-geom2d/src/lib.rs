@@ -361,6 +361,25 @@ pub struct ClothoidOrigin {
     pub end: f64,
 }
 
+/// 原点から区間の初め（原点からの長さ `t1`）までを積む刻みの数。[`MAX_STEPS`] で抑える
+fn origin_parts(t1: f64, a2: f64) -> usize {
+    let parts = libm::ceil(t1.abs() / (libm::sqrt(a2) / 4.0)).clamp(1.0, MAX_STEPS as f64);
+    if parts.is_finite() { parts as usize } else { 1 }
+}
+
+/// [`clothoid_origin`] を 1 回呼ぶ手間（向きの式を求める回数の上限）。使う側が、呼ぶ前に予算の作業に数える（#727）
+pub fn clothoid_origin_work(curvatures: [f64; 2], length: f64) -> u64 {
+    let [k1, k2] = curvatures;
+    let change = k2 - k1;
+    if !(change.is_finite() && change != 0.0 && length.is_finite() && length > 0.0) {
+        return 1;
+    }
+    let a2 = length / change.abs();
+    let t1 = change.signum() * k1 * a2;
+    // 刻みごとに、シンプソンの公式で 9 回
+    origin_parts(t1, a2) as u64 * 9 + 1
+}
+
 /// 線形のクロソイドの区間（決定 0230）を、原点の形（決定 0123）に直す。区間は [`along`] と同じく、初めの点・
 /// 初めの向き・初めと終わりの曲率・長さで決める。曲率が変わらないか、値が使えなければ `None`
 pub fn clothoid_origin(
@@ -380,8 +399,7 @@ pub fn clothoid_origin(
     let t1 = turn * k1 * a2;
     let angle = direction - turn * t1 * t1 / (2.0 * a2);
     // 原点から区間の初めまでの変位を、刻んで積む
-    let parts = libm::ceil(t1.abs() / (libm::sqrt(a2) / 4.0)).clamp(1.0, MAX_STEPS as f64);
-    let parts = if parts.is_finite() { parts as usize } else { 1 };
+    let parts = origin_parts(t1, a2);
     let (mut x, mut y) = (0.0, 0.0);
     for i in 0..parts {
         let s0 = t1 * i as f64 / parts as f64;
@@ -480,14 +498,7 @@ pub fn along(
         return cubic_parabola(start, direction, curvatures, length, s);
     }
     let angle = |u: f64| direction + k1 * u + (k2 - k1) * length * ramp.integral(u / length);
-    // 1 つの刻みで向きが変わる量を 0.01 ラジアンより小さくする。刻みの数は偶数にする
-    let turn = s.abs() * k1.abs().max(k2.abs());
-    let steps = libm::ceil(turn / 0.01).max(32.0);
-    let steps = if steps.is_finite() {
-        (steps as usize).min(MAX_STEPS) & !1
-    } else {
-        MAX_STEPS
-    };
+    let steps = along_steps([k1, k2], s);
     let h = s / steps as f64;
     let (mut x, mut y) = (0.0, 0.0);
     for i in 0..=steps {
@@ -502,6 +513,36 @@ pub fn along(
         y += w * libm::sin(phi);
     }
     ([start[0] + x * h / 3.0, start[1] + y * h / 3.0], angle(s))
+}
+
+/// 緩和曲線の、長さ `s` までを積む刻みの数。1 つの刻みで向きが変わる量を 0.01 ラジアンより小さくする。刻みの
+/// 数は偶数にし、[`MAX_STEPS`] で抑える
+fn along_steps([k1, k2]: [f64; 2], s: f64) -> usize {
+    let turn = s.abs() * k1.abs().max(k2.abs());
+    let steps = libm::ceil(turn / 0.01).max(32.0);
+    if steps.is_finite() {
+        (steps as usize).min(MAX_STEPS) & !1
+    } else {
+        MAX_STEPS
+    }
+}
+
+/// [`along`] を 1 回呼ぶ手間（向きの式か、3 次放物線の積む式を求める回数の上限）。使う側が、呼ぶ前に予算の
+/// 作業に数える（#727）。直線と円弧は 1、緩和曲線は刻みの数 + 1（[`MAX_STEPS`] + 1 まで）、3 次放物線は
+/// 反復の上限（終わりの X に 64 回と、点ごとに 64 回を 2 点まで、1 回にシンプソンの公式で 65 回）
+pub fn along_work(curvatures: [f64; 2], length: f64, ramp: Option<Ramp>, s: f64) -> u64 {
+    let [k1, k2] = curvatures;
+    let Some(ramp) = ramp.filter(|_| length > 0.0 && k1 != k2) else {
+        return 1;
+    };
+    if ramp == Ramp::CubicParabola {
+        return if (k1 == 0.0) != (k2 == 0.0) {
+            (64 + 2 * 64) * 65 + 2
+        } else {
+            1
+        };
+    }
+    along_steps([k1, k2], s) as u64 + 1
 }
 
 /// シンプソンの公式で、`f` を 0 から `end` まで積む。刻みの数は 64
@@ -1180,5 +1221,30 @@ mod tests {
             );
         }
         assert_eq!(clothoid_origin([0.0, 0.0], 0.0, [0.01, 0.01], 10.0), None);
+    }
+
+    /// 区間の点を求める手間は、直線と円弧で 1、緩和曲線で刻みの数 + 1、3 次放物線で反復の上限（#727）
+    #[test]
+    fn along_work_follows_the_steps() {
+        let clothoid = Some(Ramp::Clothoid);
+        assert_eq!(along_work([0.0, 0.0], 10.0, None, 10.0), 1);
+        assert_eq!(along_work([0.01, 0.01], 10.0, clothoid, 10.0), 1);
+        // 向きが 0.5 ラジアン変わるので、0.01 ラジアンごとに 50 刻み
+        assert_eq!(along_work([0.0, 0.05], 10.0, clothoid, 10.0), 51);
+        // 刻みは 32 より少なくせず、上限で抑える
+        assert_eq!(along_work([0.0, 0.001], 10.0, clothoid, 10.0), 33);
+        assert_eq!(
+            along_work([0.0, 100.0], 1000.0, clothoid, 1000.0),
+            MAX_STEPS as u64 + 1
+        );
+        assert_eq!(
+            along_work([0.0, f64::MAX], 1.0, clothoid, 1.0),
+            MAX_STEPS as u64 + 1
+        );
+        let cubic = Some(Ramp::CubicParabola);
+        assert_eq!(along_work([0.0, 0.01], 10.0, cubic, 5.0), 192 * 65 + 2);
+        assert_eq!(along_work([0.02, 0.01], 10.0, cubic, 5.0), 1);
+        assert!(clothoid_origin_work([0.0, 0.01], 10.0) > 1);
+        assert_eq!(clothoid_origin_work([0.01, 0.01], 10.0), 1);
     }
 }

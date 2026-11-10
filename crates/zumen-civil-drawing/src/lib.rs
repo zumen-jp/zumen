@@ -287,7 +287,7 @@ fn curve(
     let mut points = Vec::with_capacity(steps + 1);
     for step in 0..=steps {
         let u = segment.length * step as f64 / steps as f64;
-        match zumen_civil::elevation(index, segment, u) {
+        match zumen_civil::elevation_within(index, segment, u, cx)? {
             Ok((height, _)) => points.push([segment.start_distance + u, height]),
             Err(diagnostic) => {
                 cx.report(*diagnostic);
@@ -340,6 +340,9 @@ fn plan(
         };
         let start = [segment.start.northing, segment.start.easting];
         let ([k1, k2], ramp) = curvatures;
+        // 区間の終わりの点と、折れ線にする点を求める手間を、求める前に数える（#727）
+        let along = zumen_geom2d::along_work([k1, k2], segment.length, ramp, segment.length);
+        cx.check(Kind::Work, along)?;
         let (end, _) = zumen_geom2d::along(
             start,
             segment.direction,
@@ -372,8 +375,13 @@ fn plan(
                 counterclockwise: k1 < 0.0,
             })
         } else if ramp == Some(Ramp::Clothoid)
-            && let Some(form) =
+            && let Some(form) = {
+                cx.check(
+                    Kind::Work,
+                    zumen_geom2d::clothoid_origin_work([k1, k2], segment.length),
+                )?;
                 zumen_geom2d::clothoid_origin(start, segment.direction, [k1, k2], segment.length)
+            }
         {
             // 地図の点の向き（北から東へ）を、図面の向き（x から反時計回り）にする
             Shape::Curve(Edge::Clothoid {
@@ -387,6 +395,8 @@ fn plan(
         } else {
             let steps = steps(segment.length, k1.abs().max(k2.abs()), tolerance);
             cx.check(Kind::Elements, steps as u64)?;
+            // 点ごとに、区間の初めから積むので、終わりまで積む手間で数える
+            cx.check(Kind::Work, (steps as u64 + 1).saturating_mul(along))?;
             let points = (0..=steps)
                 .map(|step| {
                     let s = segment.length * step as f64 / steps as f64;
@@ -516,7 +526,7 @@ fn stations(
     )?;
     cx.check(Kind::Elements, count.saturating_mul(2))?;
     for (distance, number) in found {
-        let Ok(placed) = quiet(cx, |cx| zumen_civil::place(alignment, distance, cx)) else {
+        let Ok(placed) = quiet(cx, |cx| zumen_civil::place_within(alignment, distance, cx))? else {
             continue;
         };
         let MapPoint { northing, easting } = placed.point;
