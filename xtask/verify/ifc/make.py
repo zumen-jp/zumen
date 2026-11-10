@@ -79,6 +79,13 @@ def call(z, request, records):
     return response
 
 
+def diagnostic_counts(response):
+    counts = Counter()
+    for item in response["diagnostics"]:
+        counts[item["code"]] += item["count"]
+    return dict(counts)
+
+
 def read_model(z, name, data, records):
     z.push(name, data)
     opened = call(z, {"op": "open", "input": name}, records)
@@ -97,7 +104,7 @@ def read_model(z, name, data, records):
     else:
         raise ValueError("要素の一覧が 1000 ページを超えました")
     return {"schema": summary["schema"], "hash": summary["hash"], "units": summary["units"],
-            "elements": elements, "diagnostics": dict(Counter(item["code"] for item in opened["diagnostics"]))}
+            "elements": elements, "diagnostics": diagnostic_counts(opened)}
 
 
 def recipe(schema):

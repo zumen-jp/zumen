@@ -37,6 +37,12 @@ def models():
 
 
 class ComparisonTests(unittest.TestCase):
+    def test_sums_diagnostic_occurrences_instead_of_entries(self):
+        response = {"diagnostics": [{"code": "ifc.entity.dropped", "count": 25},
+                                    {"code": "ifc.entity.dropped", "count": 4},
+                                    {"code": "ifc.unit.missing", "count": 1}]}
+        self.assertEqual(kit.diagnostic_counts(response), {"ifc.entity.dropped": 29, "ifc.unit.missing": 1})
+
     def test_changed_values_and_unchanged_control_match(self):
         before, after, expected = models()
         self.assertEqual(kit.differences(before, after, expected), [])
