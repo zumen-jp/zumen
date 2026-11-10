@@ -132,6 +132,53 @@ cargo test -p zumen-ifc --locked --test extrusions --target wasm32-wasip1 -- --t
 
 WASI の出力先は `target/extrusion-comparison-wasm` です。4 件の JSON で、定義と元の単位・出所・曲線・Kind 別の予算使用量がネイティブと一致します。1 MiB のスタックで 1,024 段の曲線の停止とエラーの破棄を検査するテストだけはネイティブで流します。fuzz の `ifc` target も、既存の形の葉から 16 件までこの取得へ渡します。毎晩の CI でも export と外部照合を流します。
 
+## 形の項目から面の表示を取得する
+
+`IfcFile::surface_styles(&ShapeNode, cx)` は、既存の `ProductShape` の項目に直接結びつく `IfcStyledItem` から、面の色・透明度・反射の元の値を取得します。`building` の feature が必要です。ifcZIP では `file.ifc()` から同じ操作を呼びます。同じファイルの node だけを受け付け、別のファイルや clone したファイルの node は `ifc.style.invalid` にします。
+
+```rust,ignore
+let shape = file.product_shape(element_instance, cx)?;
+for node in &shape.nodes {
+    let appearance = file.surface_styles(node, cx)?;
+    for binding in &appearance.styles {
+        let shading = &binding.definition.shading;
+        // RGB と透明度、任意の Rendering の指定を元の値で読む
+        // 元の SurfaceStyle / Shading / Colour のレコードは binding.source
+    }
+}
+```
+
+公開サンプル `gni/model_9.ifc` の柱 `#131` から、既存の表現・写像の経路で得た葉 `#114` を渡すと、StyledItem `#118` → SurfaceStyle `#117` → Rendering `#116` → Colour `#115` を取得できます。スタイル名は `StB - Ortbeton`、Side は BOTH、RGB は各成分 0.968627450980392、透明度は明示した 0、鏡面反射の係数は 0.5、指数は 128、反射モデルは NOTDEFINED です。利用側で STEP の引数の位置を読む必要はありません。
+
+- 意味の値は L1 に依存しない `zumen_building::SurfaceStyle`・`SurfaceShading`・`SurfaceRendering` に、借用する元の Record は `ItemStyleSource`・`SurfaceStyleSource` に分けます。StyledItem と SurfaceStyle の名前、面の側、色の名前も保持します。色の出所は属性を読んだ順で、重複も残します。比較は `definition` に対して行い、出所を含む全体には等価性・ハッシュを定義しません。
+- Rendering の 9 属性をすべて保持します。SurfaceColour・Transparency に加え、DiffuseColour・TransmissionColour・DiffuseTransmissionColour・ReflectionColour・SpecularColour は色か係数、SpecularHighlight は指数か粗さ、ReflectanceMethod は列挙の元値を持ちます。省略は `None` のままとし、既定値・係数の掛け算・透明度から不透明度への変換・反射の式を適用しません。
+- IFC2X3 の StyledItem は PresentationStyleAssignment を 1 件経由します。IFC4 ADD2 では直接指定と旧式の Assignment を受け付け、IFC4.3 ADD2 では削除された Assignment を拒みます。Shading は IFC2X3 では色だけ、IFC4 ADD2 以降では任意の透明度を持ちます。Rendering の引数の位置は 3 版とも共通です。PHYSICAL は IFC4.3 だけで受け付けます。
+- RGB・透明度・色の係数・粗さは有限な 0〜1、指数は有限な実数として読みます。集合の空・重複、Shading と Rendering の併記、複数の直接の StyledItem、不正な参照・型・列挙・次元は `ifc.style.invalid` と `Error::Invalid` にします。診断に種類または理由と元の場所を持たせます。
+- CurveStyle・FillAreaStyle・TextStyle、NullStyle、SurfaceStyleLighting・Textures・Refraction・ExternallyDefinedSurfaceStyle など、合法でも保持しない種類は `ifc.style.unsupported` と `Error::Unsupported` にします。ほかの値だけを返す部分成功にはしません。元のレコードは既存の L1 で参照できます。
+- 直接の StyledItem がなければ空の成功です。写像元・材質・レイヤからの継承や優先順位は調べません。写像元の葉に付く指定は、その葉を別に渡して取得します。表示色・材質・面への適用・法線・形を評価した結果には数えません。
+- ファイルの全レコードの走査、参照・数・文字列・集合の検査を共有の `Cx` の Work で数えます。確保前の DecodedBytes は、文字列を元の長さの 12 倍と 32、集合を 256 と項目ごと 64、結果の容量を項目ごと 1024 とし、ネイティブと wasm32 で共通にします。結果の容量には 2,097,151 項目の共通上限も置きます。入った深さは成功・不正・未対応・停止のすべてで戻します。
+
+Building の既存の `Style` 成分への統合、形の意味値の Hash は未実装です。既存の Hash v1・ID・公開 0.2 の API・境界 op・スキーマは変えません。
+
+根拠は buildingSMART の [StyledItem](https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcStyledItem.htm)、[SurfaceStyle](https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcSurfaceStyle.htm)、[Shading](https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcSurfaceStyleShading.htm)、[Rendering](https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcSurfaceStyleRendering.htm)、[IFC4 の PresentationStyleAssignment](https://standards.buildingsmart.org/IFC/RELEASE/IFC4/ADD2/HTML/schema/ifcpresentationappearanceresource/lexical/ifcpresentationstyleassignment.htm)、[IFC2X3 の StyledItem](https://standards.buildingsmart.org/IFC/RELEASE/IFC2x3/TC1/HTML/ifcpresentationappearanceresource/lexical/ifcstyleditem.htm) です。スキーマや第三者の実装は同梱しません。
+
+### 面の表示の確かめ方
+
+`crates/zumen-ifc/tests/styles.rs` は合成の IFC2X3・IFC4・IFC4X3 と公開の柱で、代表要素からの取得、全 Rendering 属性、出所・意味値の分離、取得前後の Building の ID・Hash v1 を確認します。文字列・符号付きの 0・省略・不正・未対応・共有・循環・別のファイルの node、確保前の予算、全 Kind の境界・中断・深さの復元と変異した入力も検査します。
+
+IfcOpenShell 0.9.0.post1 との照合は、合成各版 2 件と公開 1 件の計 7 件です。保持する全属性と参照を、許容差なしの有限な数値の等値と列の厳密な一致で比較します。公開 1 件が `external`、合成 6 件は `synthetic` の範囲で外部の実装とも照合したものです。診断・予算・表示の評価・継承はこの外部照合に含めません。
+
+```powershell
+$env:ZUMEN_IFC_STYLES_OUT = Join-Path (Get-Location) 'target/style-comparison'
+cargo test -p zumen-ifc --locked --test styles
+python -X utf8 -I crates/zumen-ifc/tests/ifcopenshell/styles.py target/style-comparison
+$env:CARGO_TARGET_WASM32_WASIP1_RUNNER = 'node --no-warnings tests/wasi-styles.mjs'
+cargo test -p zumen-ifc --locked --test styles --target wasm32-wasip1 -- --test-threads 1
+node crates/zumen-ifc/tests/wasi-styles.mjs --compare target/style-comparison target/style-comparison-wasm
+```
+
+同じテストを WASI でも流し、4 件の JSON と診断・全 Kind の予算使用量を記録する `contract.txt` を、ネイティブとバイト列で比較します。WASI の出力先は `target/style-comparison-wasm` です。fuzz の `ifc` target は既存の形の項目から 16 件までこの取得へ渡し、全レコードの走査を含めて予算を共有します。毎晩の CI でも export と外部照合を流します。
+
 ## 曲線を必要なときに取り出す
 
 Rust の `IfcFile::curve(instance, cx)` は、曲線のインスタンスを指定し、`zumen_building::CurveGraph` を返します。`building` の feature（既定で有効）が必要です。`IfcZipFile` では `file.ifc().curve(instance, cx)` と呼びます。要素の番号や `IfcGridAxis` の番号ではなく、それらから参照する曲線の番号を渡します。
@@ -217,5 +264,6 @@ cargo test -p zumen-ifc --locked --test curves --target wasm32-wasip1 -- --test-
 - 曲線の必要時の取得: [曲線の確かめ方](#曲線の確かめ方)のうち、公開サンプルの IndexedPolyCurve 1 件が `external` の範囲です。自作した 29 件は `synthetic` とし、IfcOpenShell との元の属性値の照合も行いました。ネイティブと wasm の JSON は、曲線の定義と予算の使用量まで一致しました。幾何の評価と BIM ソフトで開く確認は含みません。
 - 要素から形状表現をたどる L1 の取得: [形状表現の確かめ方](#形状表現の確かめ方)に従い、公開の柱の表現・写像と元の配置の参照・属性は `external`、合成の 3 版は `synthetic` の範囲で IfcOpenShell とも照合しました。曲線の取得へ渡す経路を確認しています。配置や写像を適用した形、立体・断面の型への変換は含みません。
 - 押し出しと閉じた外輪の断面: [押し出しの確かめ方](#押し出しの確かめ方)の公開 1 件が `external` です。合成の 3 版の 6 件は `synthetic` の範囲で IfcOpenShell とも照合しました。局所の値と SI 単位の保持の範囲で、配置・写像・単位の適用や形の評価は含みません。ほかの立体・断面、未検証の境界と Building への統合は残っています。
+- 面の表示の必要時の取得: [面の表示の確かめ方](#面の表示の確かめ方)の公開 1 件が `external` です。合成の 3 版の 6 件は `synthetic` の範囲で IfcOpenShell とも照合しました。色・透明度・Rendering の元の値と参照だけを比較し、表示・材質・レイヤ・写像による継承と反射の式は評価しません。Building の Style 成分と形の意味値の Hash は未実装です。
 - 書き: `building_apply` でプロパティ・名前・説明を変えて書いた IFC4 と IFC2X3 を、毎晩の CI で IfcOpenShell 0.9.0.post1 で開く。変更が見え、スキーマと EXPRESS の規則の検査の誤りが増えないことを確かめる（`crates/zumen-ifc/tests/ifcopenshell/check.py`、#482）。BIM ソフトでは開いていない。BIM ソフトで開く確認は #526 で行う。[検証キット](../../xtask/verify/ifc/README.md)は公開 IFC4・IFC2X3 を CLI で編集し、期待値・対照の壁・元の形の行の保持を比較する。キットの生成と再読み込みは `synthetic` で、製品での `application` の確認には数えない。
 - 判定・インスタンスのグラフ・壊れた所の扱いと、上に記した属性以外の値は、外部の実装と照らしていない（IfcOpenShell と照らしたのは、上の値だけ）。公開サンプル 12 件は、自前のテストでも L1 で読み、変えずに書くと元のバイト列に戻ることと、写さない値の診断の code・実体のクラス・件数を確かめる（`crates/zumen-ifc/tests/samples.rs`）。壊れた所の扱いと ifcZIP は、仕様とテストの中で作ったファイルだけで確かめた。

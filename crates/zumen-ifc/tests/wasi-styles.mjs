@@ -18,12 +18,12 @@ if (file === "--compare") {
   }
   console.log(`面の表示: JSON 4 件と診断・全 Kind の契約記録が一致（${bytes} バイト）`);
 } else {
-const { WASI } = await import("node:wasi");
-const wasi = new WASI({
-  version: "preview1", args: [file, ...args],
-  env: { ZUMEN_IFC_STYLES_OUT: "/repo/target/style-comparison-wasm" },
-  preopens: { "/repo": fileURLToPath(new URL("../../../", import.meta.url)) }, returnOnExit: true,
-});
-const { instance } = await WebAssembly.instantiate(readFileSync(file), wasi.getImportObject());
-process.exitCode = wasi.start(instance);
+  const { WASI } = await import("node:wasi");
+  const wasi = new WASI({
+    version: "preview1", args: [file, ...args],
+    env: { ZUMEN_IFC_STYLES_OUT: "/repo/target/style-comparison-wasm" },
+    preopens: { "/repo": fileURLToPath(new URL("../../../", import.meta.url)) }, returnOnExit: true,
+  });
+  const { instance } = await WebAssembly.instantiate(readFileSync(file), wasi.getImportObject());
+  process.exitCode = wasi.start(instance);
 }

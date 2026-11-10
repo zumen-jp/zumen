@@ -60,7 +60,7 @@ impl IfcFile {
     ///
     /// 同じ IfcFile から取得した ShapeNode を渡す。Shading / Rendering の全属性を元の値のまま持ち、
     /// 色の係数・反射式・既定値は適用しない。材質・レイヤ・写像からの継承や上書きも行わない。
-    /// 直接の StyledItem がなければ空の成功。他の表示の種類が混じれば Unsupported、使う値や参照の不正は Invalid。
+    /// 直接の StyledItem がなければ空の成功。ほかの表示の種類が混じれば Unsupported、使う値や参照の不正は Invalid。
     /// 予算と中断は Cx を共有し、エラー時に部分結果を返さない。Building と Hash v1 は変更しない。
     pub fn surface_styles<'f>(
         &'f self,
