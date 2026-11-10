@@ -100,10 +100,8 @@ impl SxfFile {
         attributes: Option<&AttributeFile>,
         cx: &mut Cx,
     ) -> Result<Drawing2D, Error> {
-        if self.mode() == Mode::P21 {
-            return cx.with_diagnostics_in_record_order(|cx| self.lift_records(attributes, cx));
-        }
-        self.lift_records(attributes, cx)
+        // 表・複合曲線・複合図形・用紙の段階をまたいで、診断を元のレコードの順に返す（決定 0009、#624）
+        cx.with_diagnostics_in_record_order(|cx| self.lift_records(attributes, cx))
     }
 
     fn lift_records(

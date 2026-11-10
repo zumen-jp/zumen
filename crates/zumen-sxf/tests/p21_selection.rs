@@ -275,30 +275,60 @@ fn selection_reference_and_lifter_diagnostics_share_input_order_and_first_places
     assert_eq!(testkit::write::<Sxf>(&file).unwrap(), src);
 }
 
+/// SFC も、表と図形の変換の段階をまたいで、診断を元のレコードの順に返す。同じ診断の場所も入力の先頭から残す（#624）
 #[test]
-fn sfc_keeps_its_diagnostic_order_and_work_cost() {
+fn sfc_returns_diagnostics_in_record_order() {
     let src = String::from_utf8(p21(concat!(
         "/*SXF3\n#10=future_feature()\nSXF3*/\n",
         "/*SXF3\n#20=layer_feature()\nSXF3*/\n",
-        "/*SXF3\n#30=drawing_sheet_feature(\\'S\\','3','1','0','0')\nSXF3*/\n",
+        "/*SXF3\n#40=future_feature()\nSXF3*/\n",
+        "/*SXF3\n#30=drawing_sheet_feature(\'S\','3','1','0','0')\nSXF3*/\n",
     )))
     .unwrap()
     .replace("AP202_mode", "feature_mode");
     let file = read(src.as_bytes());
+    let (drawing, _, full) = run_with_places(&file, Limit::Unlimited, false, usize::MAX);
+    let drawing = drawing.unwrap();
+    assert_eq!(
+        full.iter()
+            .map(|d| (d.code(), d.count(), d.places().to_vec()))
+            .collect::<Vec<_>>(),
+        [
+            (
+                codes::SXF_LIFT_DROPPED,
+                2,
+                [places(&file, 10), places(&file, 40)].concat()
+            ),
+            (codes::SXF_LIFT_INVALID, 1, places(&file, 20)),
+        ]
+    );
     for max_places in [0, 1] {
-        let (drawing, used, diagnostics) =
-            run_with_places(&file, Limit::Finite(4), false, max_places);
-        assert!(drawing.is_ok());
-        assert_eq!(used, 4);
-        assert_eq!(
-            diagnostics.iter().map(Diagnostic::code).collect::<Vec<_>>(),
-            [codes::SXF_LIFT_INVALID, codes::SXF_LIFT_DROPPED]
-        );
-        for (d, id) in diagnostics.iter().zip([20, 10]) {
-            assert_eq!(d.count(), 1);
-            assert_eq!(d.places(), &places(&file, id)[..max_places]);
+        // 集める手間は、残す場所の数で変わる
+        let (limited, used, diagnostics) =
+            run_with_places(&file, Limit::Unlimited, false, max_places);
+        assert_eq!(limited.unwrap(), drawing);
+        assert_eq!(diagnostics.len(), full.len());
+        for (limited, original) in diagnostics.iter().zip(&full) {
+            assert_eq!(limited.code(), original.code());
+            assert_eq!(limited.params(), original.params());
+            assert_eq!(limited.count(), original.count());
+            assert_eq!(limited.places(), &original.places()[..max_places]);
         }
+        let (exact, exact_used, _) = run_with_places(&file, Limit::Finite(used), false, max_places);
+        assert!(exact.is_ok());
+        assert_eq!(exact_used, used);
+        let (short, _, stopped) =
+            run_with_places(&file, Limit::Finite(used - 1), false, max_places);
+        assert!(matches!(short, Err(Error::Stopped(_))));
+        assert!(
+            stopped
+                .iter()
+                .any(|d| d.code() == codes::BUDGET_WORK_EXCEEDED)
+        );
+        let (cancelled, _, _) = run_with_places(&file, Limit::Unlimited, true, max_places);
+        assert!(matches!(cancelled, Err(Error::Stopped(_))));
     }
+    assert_eq!(testkit::write::<Sxf>(&file).unwrap(), src.as_bytes());
 }
 
 #[test]
