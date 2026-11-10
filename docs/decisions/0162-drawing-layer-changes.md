@@ -53,6 +53,10 @@ AutoCAD では、画層 0 と Defpoints の名前は変えられない。名前�
 - 続く PR で、レイヤの除去と API の `remove_layer`（マイナーバージョン 24）を作った。サンプルの DXF と、R2010 の前と後の DWG で、どこからも指されない画層を除いて書き戻し、読み直して、ほかの画層の ID・名前・状態・スタイルと、要素ごとの画層の名前が変わらないことを確かめた。サンプルの多くの画層は、拡張辞書かリアクターを持つか、ほかのオブジェクトが指すので除けなかった。
 - 続く PR で、R2010 から後の DWG のレイヤの名前の変更を作った。サンプルの R2010 から後の DWG で、レイヤを日本語の名前に変えて書き戻し、読み直して一致した。
 
+## 後の記録
+
+- 2026-11-10: [0293](0293-dwg-restyle-and-layer-style-write-back.md) で、今ある DWG の画層のレコードの線種と真の色（R2004 から）も書き戻すことにした（#723）。
+
 ## 参照
 
 - [決定 0094](0094-dwg-r2010-write-back-table-record-addition.md)、[決定 0105](0105-drawing-layers-and-order.md)、[決定 0139](0139-drawing-apply.md)、[決定 0141](0141-drawing-layer-frozen.md)、[決定 0156](0156-drawing-stable-ids-and-preconditions.md)

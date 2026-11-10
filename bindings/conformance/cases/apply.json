@@ -603,6 +603,26 @@
       }
     },
     {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "doc": "b.sfc",
+        "edits": [
+          { "kind": "add", "place": "sheet/0", "layer": "L", "color": {"sxf": 1}, "line_type": {"id": "line-type/1"}, "geometry": {"shape": "line", "start": [0, 0], "end": [10, 20]} }
+        ]
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "change.style.unsupported",
+        "/diagnostics/0/params/field": "line_weight",
+        "/diagnostics/0/params/format": "SFC",
+        "/blobs": []
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
       "push": {
         "name": "c.p21",
         "text": "ISO-10303-21;\nHEADER;\nFILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));\nENDSEC;\nDATA;\n#1=CARTESIAN_POINT(' ',(0.,0.));\n#2=CARTESIAN_POINT(' ',(10.,0.));\n#3=POLYLINE(' ',(#1,#2));\n#4=DRAUGHTING_PRE_DEFINED_COLOUR('red');\n#5=DRAUGHTING_PRE_DEFINED_CURVE_FONT('continuous');\n#6=CURVE_STYLE(' ',#5,POSITIVE_LENGTH_MEASURE(0.25),#4);\n#7=PRESENTATION_STYLE_ASSIGNMENT((#6));\n#8=ANNOTATION_CURVE_OCCURRENCE(' ',(#7),#3);\n#9=PRESENTATION_LAYER_ASSIGNMENT('A',' ',(#8));\n#10=DRAWING_SHEET_REVISION('A3_horizontal',(#8),' ',' ');\nENDSEC;\nEND-ISO-10303-21;\n"
@@ -635,6 +655,26 @@
       "expect": {
         "/result/applied/0/id": "sheet/0/i8"
       }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "doc": "c.p21",
+        "edits": [
+          { "kind": "add", "place": "sheet/0", "layer": "A", "geometry": {"shape": "line", "start": [0, 0], "end": [10, 20]} }
+        ]
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "change.style.unsupported",
+        "/diagnostics/0/params/field": "color",
+        "/diagnostics/0/params/format": "P21",
+        "/blobs": []
+      },
+      "absent": [
+        "/result"
+      ]
     },
     {
       "push": {

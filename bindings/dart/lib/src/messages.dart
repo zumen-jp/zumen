@@ -1660,7 +1660,7 @@ class ApplyResult extends Message {
   String? get hash => readField('hash', asString);
   set hash(String? value) => writeField('hash', value);
 
-  /// true なら、変えていない要素の ID がずれた。キーを持たない形式（JWW）で、前の図形を除くか足したとき。ID を使う前に entities で読み直す。ずれないときは持たない。マイナーバージョン 30 から
+  /// true なら、変えていない要素の ID がずれた。キーを持たない形式（JWW）か、ハンドルを持たない DXF（R12 など）で、前の図形か表のレコードを除くか足したとき。ID を使う前に entities で読み直す。ずれないときは持たない。マイナーバージョン 30 から
   bool? get idsShifted => readField('ids_shifted', asBool);
   set idsShifted(bool? value) => writeField('ids_shifted', value);
 }
@@ -1815,7 +1815,7 @@ class Edit extends Message {
   PointStyleEdit? get asPointStyleEdit => taggedView('kind', 'point_style', PointStyleEdit.fromJson);
 }
 
-/// 要素のレイヤ・色・線種・線種の倍率・線幅のうち、書いたものだけを変える。形は変えない
+/// 要素のレイヤ・色・線種・線種の倍率・線幅のうち、書いたものだけを変える。形は変えない。RGB の色は、DXF と DWG の R2004 から、線幅は R2000 から書ける（DWG の今ある図形のレイヤ・線種・線幅・RGB の色は、決定 0293 から変えられる）
 class RestyleEdit extends Message {
   /// 読んだ JSON のオブジェクトを包む
   RestyleEdit.fromJson(super.json);
@@ -1931,7 +1931,7 @@ class ReplaceEdit extends Message {
   set geometry(Geometry? value) => writeField('geometry', value);
 }
 
-/// 空間か用紙に要素を足す。書かない色・線種・線幅はレイヤに従う。JWW はレイヤに従う色と線種を持たないので、色と線種を書く（点は色を書き、線種と線幅は書かない）。書かなければ change.style.unsupported で断る。JWW の書かない線幅は、ペンの印刷の線幅に従う。足せる形は、形の値のどの種類も。マイナーバージョン 10 から
+/// 空間か用紙に要素を足す。書かない色・線種・線幅はレイヤに従う。JWW と SXF の図形は色・線種・線幅を自分で持ち、レイヤかブロックに従う値を持たないので、JWW は色と線種を書き（点は色だけ）、SXF は色・線種・線幅を書く（点マーカーは色だけ）。書かないか、レイヤかブロックに従う値なら change.style.unsupported で断る。JWW の書かないかレイヤに従う線幅は、ペンの印刷の線幅に従う。足せる形は、形の値のどの種類も。マイナーバージョン 10 から
 class AddEdit extends Message {
   /// 読んだ JSON のオブジェクトを包む
   AddEdit.fromJson(super.json);
@@ -1972,7 +1972,7 @@ class AddEdit extends Message {
   set geometry(Geometry? value) => writeField('geometry', value);
 }
 
-/// レイヤの名前・状態・色・線種・線幅のうち、書いたものだけを変える（決定 0162）。DXF は、名前を変えると、図形と今のレイヤ（$CLAYER）も新しい名前で指す。DWG は、今あるレイヤの線種と真の色を変えられない。マイナーバージョン 22 から
+/// レイヤの名前・状態・色・線種・線幅のうち、書いたものだけを変える（決定 0162）。DXF は、名前を変えると、図形と今のレイヤ（$CLAYER）も新しい名前で指す。DWG の真の色は R2004 から書ける（今あるレイヤの線種と真の色は、決定 0293 から変えられる）。マイナーバージョン 22 から
 class LayerEdit extends Message {
   /// 読んだ JSON のオブジェクトを包む
   LayerEdit.fromJson(super.json);

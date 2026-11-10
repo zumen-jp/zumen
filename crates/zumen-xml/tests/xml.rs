@@ -122,6 +122,46 @@ fn resolves_namespaces_by_scope() {
     assert_eq!(lang.name().namespace(), Some(&Namespace::Xml));
 }
 
+/// 宣言が多くても、名前はいちばん内側の宣言で引く。内側で宣言し直した接頭辞は、閉じたら外の宣言に戻り、空要素の
+/// 宣言は次の兄弟に残らない。`xmlns=''` は、既定の名前空間を外す（#721）
+#[test]
+fn resolves_namespaces_among_many_declarations() {
+    let mut src = b"<r".to_vec();
+    for i in 0..1000 {
+        src.extend(format!(" xmlns:p{i}='urn:{i}'").bytes());
+    }
+    src.extend(b"><p0:a/><p999:b/><c/>");
+    src.extend(b"<p0:d xmlns:p0='urn:inner' xmlns='urn:default'><p0:e/><f/><k xmlns=''/></p0:d>");
+    src.extend(b"<p0:g xmlns:p0='urn:empty'/><p0:h/><i/><j xmlns=''/></r>");
+    let (doc, diag) = read(&src);
+    let doc = doc.unwrap();
+    assert!(diag.is_empty(), "{diag:?}");
+    let names: Vec<_> = doc
+        .elements()
+        .iter()
+        .map(|e| doc.namespace(e.name()))
+        .collect();
+    let expected = [
+        None,
+        Some("urn:0"),
+        Some("urn:999"),
+        None,
+        Some("urn:inner"),
+        Some("urn:inner"),
+        Some("urn:default"),
+        // `xmlns=''` は、既定の名前空間を外す
+        None,
+        Some("urn:empty"),
+        Some("urn:0"),
+        None,
+        None,
+    ];
+    assert_eq!(
+        names.iter().map(Option::as_deref).collect::<Vec<_>>(),
+        expected
+    );
+}
+
 #[test]
 fn normalizes_line_ends_and_attribute_spaces() {
     let (doc, _) = read(b"<a v=\"x\r\ny\tz&#10;\">l1\r\nl2\rl3</a>");
@@ -239,6 +279,9 @@ fn broken_documents_are_invalid_at_the_place() {
         (b"<a x='<'/>", b"x='<'"),
         (b"<a>&#xZZ;</a>", b"&#xZZ;"),
         (b"<a>&amp</a>", b"&amp"),
+        // 参照の `;` は、値か文字の範囲の外にあっても認めない（#721）
+        (b"<a x='&amp'>;</a>", b"&amp"),
+        (b"<a>&amp<b/>;</a>", b"&amp"),
         (b"<a>&#0;</a>", b"&#0;"),
         (b"<a:b:c/>", b"a:b:c"),
         (b"<a xmlns:p=''/>", b"xmlns:p"),
