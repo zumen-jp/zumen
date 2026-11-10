@@ -366,44 +366,73 @@ fn huge_station_numbers_end() {
     unique.sort_unstable();
     unique.dedup();
     assert_eq!(texts.len(), unique.len(), "{texts:?}");
-    // 飛ばした番号と、丸めた番号で描いた測点を、数で知らせる（#713）
-    let found: Vec<_> = diag
-        .iter()
-        .filter(|d| d.code() == codes::CIVIL_STATION_APPROXIMATED)
-        .collect();
+    // 飛ばした番号と、丸まりうる番号で描いた測点を、平面図で 1 回だけ、線形の出所を付けて知らせる（#713）
+    let found = approximated(&diag);
     assert_eq!(found.len(), 1, "{found:?}");
-    let count = |name: &str| {
-        found
-            .first()
-            .and_then(|d| d.params().iter().find(|(k, _)| *k == name))
-            .and_then(|(_, v)| match v {
-                Value::UInt(n) => Some(*n),
-                _ => None,
-            })
-    };
-    assert!(count("skipped").is_some_and(|n| n > 0), "{found:?}");
-    assert!(count("rounded").is_some_and(|n| n > 0), "{found:?}");
+    let (count, skipped, rounded, places) = found.first().cloned().unwrap();
+    assert_eq!(count, 1);
+    assert!(skipped > 0 && rounded > 0, "{found:?}");
+    assert_eq!(places, vec![model.alignments[0].source.clone()]);
 }
 
-/// 2^53 までの測点の番号では、丸めの診断を出さない（#713）
-#[test]
-fn exact_station_numbers_are_not_reported() {
+/// 測点の番号の診断の（件数・飛ばした数・丸まりうる数・場所）
+#[cfg(test)]
+fn approximated(diag: &Diagnostics) -> Vec<(u64, u64, u64, Vec<Ref>)> {
+    let uint = |d: &zumen_base::Diagnostic, name: &str| match d.param(name) {
+        Some(Value::UInt(n)) => *n,
+        _ => u64::MAX,
+    };
+    diag.iter()
+        .filter(|d| d.code() == codes::CIVIL_STATION_APPROXIMATED)
+        .map(|d| {
+            (
+                d.count(),
+                uint(d, "skipped"),
+                uint(d, "rounded"),
+                d.places().to_vec(),
+            )
+        })
+        .collect()
+}
+
+/// 間隔 1 m で、測点の値を `start` から始めた線形を描いたときの、測点の番号の診断
+#[cfg(test)]
+fn approximated_from(start: f64) -> Vec<(u64, u64, u64, Vec<Ref>)> {
     let mut line = alignment();
-    line.stations.start = 9_007_199_254_740_000.0;
+    line.stations.start = start;
     let model = CivilModel {
         alignments: vec![line],
         ..CivilModel::default()
     };
+    let mut options = Options::default();
+    options.notation.pitch = 1.0;
     let mut budget = Budget::new(Limits::default());
     let mut diag = Diagnostics::new();
     let cancel = CancelToken::new();
     let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
-    drawing(&model, &model.alignments[0], &Options::default(), &mut cx).unwrap();
-    let codes: Vec<Code> = diag.iter().map(|d| d.code()).collect();
-    assert!(
-        !codes.contains(&codes::CIVIL_STATION_APPROXIMATED),
-        "{codes:?}"
-    );
+    let drawn = model
+        .alignments
+        .first()
+        .map(|line| drawing(&model, line, &options, &mut cx).is_ok());
+    assert_eq!(drawn, Some(true));
+    approximated(&diag)
+}
+
+/// 番号が 2^53 ちょうどまでなら知らせず、2^53 を超えれば知らせる。負の番号も同じ（#713）
+#[test]
+fn station_numbers_are_reported_beyond_2_pow_53() {
+    const EXACT: f64 = 9_007_199_254_740_992.0;
+    let length = libm::ceil(zumen_civil::length(&alignment()));
+    // 終わりの番号が 2^53 以下
+    assert!(approximated_from(EXACT - length).is_empty());
+    // 終わりの番号が 2^53 を超える
+    let found = approximated_from(EXACT - 50.0);
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert!(found.iter().all(|f| f.1 > 0 && f.2 > 0), "{found:?}");
+    // 始まりの番号が -2^53 より小さい
+    let found = approximated_from(-EXACT - 100.0);
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert!(found.iter().all(|f| f.1 > 0 && f.2 > 0), "{found:?}");
 }
 
 /// 測点の番号の範囲が 2^64 を超える不連続でも、件数が桁あふれせず、予算で止まる（#486）

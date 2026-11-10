@@ -713,7 +713,7 @@ pub const CIVIL_SEGMENT_INVALID: Code = Code::new(
     &["field"],
 );
 
-/// 測点の番号が 2^53 を超え、続く番号を f64 で表せないので、skipped 個の番号の測点を描かず、rounded 個の測点を f64 に丸めた番号と位置で描いた（#713）
+/// 測点の番号が 2^53 を超え、続く番号を f64 で表せないので、skipped 個の番号の測点を描かず、2^53 を超え丸まりうる番号の rounded 個の測点を、その番号と位置で描いた。平面図で 1 回だけ知らせる（#713）
 ///
 /// `civil.station.approximated`（0.2.0 から）
 pub const CIVIL_STATION_APPROXIMATED: Code = Code::new(
