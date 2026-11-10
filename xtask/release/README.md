@@ -43,6 +43,20 @@ python xtask/release/package.py npm --artifacts target/release-licenses --out ta
 
 全体版と 4 つの分割版の wasm に、それぞれ同じ名前で対応する SBOM を `*-wasm-sboms.tar.gz` と npm の `sboms/` に入れます。tgz の中の wasm からも埋込情報を読み取ります。
 
+## npm の公開を再試行する
+
+公開済みの Release のパッケージを検証し、npm だけに公開する経路です（[決定 0294](../../docs/decisions/0294-npm-release-retry.md)）。ワークフローの差分、`release` 環境に `main` ブランチの許可を足す設定変更、手動公開の例外と実際の公開について、利用者の承認を受けてから使います。設定の追加では、既存のタグの許可・承認者・ほかの保護の規則を維持します。
+
+```bash
+gh workflow run release.yml --ref main -f npm_retry_tag=v0.2.0
+```
+
+このコマンドは、検証後に npm への公開を始めます。今回は、許可リストに固定した `v0.2.0` だけが対象です。元のタグのコミット、Release の状態、asset と取得したファイルの SHA-256、パッケージの名前・バージョン・リポジトリ、元の GitHub attestation を確かめます。ファイルの展開・再ビルド・パッケージのスクリプトの実行はしません。npm に同じバージョンがすでにあれば断り、ほかのレジストリには出し直しません。
+
+npm の provenance は、再試行した main のワークフローとコミットを参照します。元のタグの配布物と同じことは、固定した digest と元の GitHub attestation の検証で、別に確かめます。
+
+`npm_retry_tag` を空にした手動実行は、公開せずにビルドと `cargo publish --dry-run` までを確かめます。手動でタグを指定した場合も、公開しません。通常の公開は、これまでどおり `v*` のタグの push で行います。
+
 ## NuGet を作る
 
 7 target の `native/{rid}/` と、生成した `licenses/` を同じディレクトリに集め、.NET 10 SDK で実行します。

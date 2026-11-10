@@ -45,3 +45,4 @@
 - [0003](0003-names-and-domain.md)・[0014](0014-platforms-signing-and-distribution.md)・[0015](0015-add-only-boundary-and-version-floors.md)
 - #317
 - リリースの区切りと周期、0.2.0 で配らないもの（`zumen-pdf`）は、[0289](0289-release-cut-and-shipped-code.md) で定めた。
+- npm だけを手動で再試行する例外は、[0294](0294-npm-release-retry.md) で定めた。
