@@ -2355,6 +2355,28 @@ pub const IFC_ENTRY_MISSING: Code = Code::new("ifc.entry.missing", Severity::Err
 pub const IFC_ENTRY_UNSUPPORTED: Code =
     Code::new("ifc.entry.unsupported", Severity::Error, None, &[], &[]);
 
+/// 押し出し・断面・境界の必要な値か閉鎖に不正があり、結果を返さなかった
+///
+/// `ifc.extrusion.invalid`（0.3.0 から）
+pub const IFC_EXTRUSION_INVALID: Code = Code::new(
+    "ifc.extrusion.invalid",
+    Severity::Error,
+    None,
+    &[Param::new("reason", ParamType::Key)],
+    &["reason"],
+);
+
+/// 押し出し・断面か境界の閉鎖を扱えないため、結果を返さなかった
+///
+/// `ifc.extrusion.unsupported`（0.3.0 から）
+pub const IFC_EXTRUSION_UNSUPPORTED: Code = Code::new(
+    "ifc.extrusion.unsupported",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("reason", ParamType::Key)],
+    &["reason"],
+);
+
 /// ISO 10303-21 の始まり・DATA のセクション・終わりのどれかがない
 ///
 /// `ifc.file.invalid`（0.2.0 から）
@@ -4922,6 +4944,8 @@ pub const ALL: &[Code] = &[
     IFC_ENTITY_DROPPED,
     IFC_ENTRY_MISSING,
     IFC_ENTRY_UNSUPPORTED,
+    IFC_EXTRUSION_INVALID,
+    IFC_EXTRUSION_UNSUPPORTED,
     IFC_FILE_INVALID,
     IFC_GLOBAL_ID_MISSING,
     IFC_HEIGHT_DATUM_UNSUPPORTED,

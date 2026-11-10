@@ -14,13 +14,24 @@ use zumen_sdk::{Codec, Cx, Error, Lift};
 fn lift(file: &IfcFile, cx: &mut Cx) -> Result<(), Error> {
     // 要素から共有写像をたどる入口。値を写す範囲は 16 要素まで、曲線の取得とも予算を共有する
     let mut shapes = 0;
+    let mut extrusions = 0;
     for id in file.ids() {
         cx.check(zumen_base::Kind::Work, 1)?;
         if file.instance(id).is_some_and(|r| {
             [b"IFCWALL".as_slice(), b"IFCCOLUMN", b"IFCBEAM", b"IFCSLAB", b"IFCGRID", b"IFCSPACE", b"IFCBUILDINGELEMENTPROXY"].iter().any(|kind| file.kind(r).eq_ignore_ascii_case(kind))
         }) {
-            if let Err(Error::Stopped(stop)) = file.product_shape(id, cx) {
-                return Err(Error::Stopped(stop));
+            match file.product_shape(id, cx) {
+                Ok(shape) => {
+                    for node in &shape.nodes {
+                        cx.check(zumen_base::Kind::Work, 1)?;
+                        if file.kind(node.source).eq_ignore_ascii_case(b"IFCEXTRUDEDAREASOLID") && extrusions < 16 {
+                            if let Err(Error::Stopped(stop)) = file.extruded_area(node, cx) { return Err(Error::Stopped(stop)); }
+                            extrusions += 1;
+                        }
+                    }
+                }
+                Err(Error::Stopped(stop)) => return Err(Error::Stopped(stop)),
+                _ => {}
             }
             shapes += 1;
             if shapes == 16 { break; }
