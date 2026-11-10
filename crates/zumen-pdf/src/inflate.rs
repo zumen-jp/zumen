@@ -1,6 +1,7 @@
-//! Flate・LZW・RunLength と、それに ASCII を前置した系列の展開量を先に数える（決定 0266・0270・0273）。
+//! Flate・LZW・RunLength と ASCII の系列の展開量を先に数える（決定 0266・0270・0273）。
 
 mod ascii;
+mod chain;
 mod lzw;
 mod run_length;
 mod source;
@@ -26,10 +27,10 @@ const MAX_EXPANSION: u64 = 1032;
 /// hayro-syntax と同じ flate2 のリーダーを、同じ順（zlib、raw deflate）で試す。読めなければ、
 /// 寛容な展開の出力の上限を先に数える。失敗した試みの分も戻さない。予測子の出力は、その入力より長くならない。
 ///
-/// その後ろに別のフィルターが続く系列（`[/RL /AHx]`・`[/AHx /Fl /Crypt]` など）も、ここまでの段を確保前に数える。
+/// その後ろに別のフィルターが続く系列（`[/RL /AHx]`・`[/AHx /Fl /Crypt]` など）も、各段を確保前に数える。
 /// hayro-syntax 0.9.0 はフィルターを順に当て、前の段の出力の全量を確保してから次を当てるので、後ろの段が失敗しても
-/// 縮めても、前の段の確保は起きる。後ろの段の出力はここでは数えないので `false` を返し、呼ぶ側が展開の後に最終の
-/// 出力の長さを数える（#521）。ただし、系列のどこかに画像のフィルターがあるか、`F` が外部ファイルを指せば、どの段も当てずに失敗するので数えない。
+/// 縮めても、前の段の確保は起きる。中間出力は予算内でだけ保持し、次の段は予測子を当てた後のバイト列から数える。
+/// ただし、系列のどこかに画像のフィルターがあるか、`F` が外部ファイルを指せば、どの段も当てずに失敗するので数えない。
 pub(crate) fn before(
     stream: &Stream<'_>,
     source: Source<'_>,
@@ -47,6 +48,19 @@ pub(crate) fn before(
     }
     // hayro-syntax の `Stream::decoded_image` と同じく、先頭の Crypt はフィルターとして適用しない
     let effective = filters.strip_prefix(&[Filter::Crypt]).unwrap_or(&filters);
+    // 単独の段と、従来の ASCII 1 段の前置は同じ予算で確かめる。
+    // それ以外の系列は、中間出力を予算内で保持して次の段を確かめる（#769）。
+    if effective.len() > 1
+        && !matches!(
+            effective,
+            [
+                Filter::AsciiHexDecode | Filter::Ascii85Decode,
+                Filter::FlateDecode | Filter::LzwDecode | Filter::RunLengthDecode
+            ]
+        )
+    {
+        return chain::before(stream, source, cx);
+    }
     let (ascii, first, rest) = match effective {
         [
             first @ (Filter::FlateDecode | Filter::LzwDecode | Filter::RunLengthDecode),
