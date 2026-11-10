@@ -133,3 +133,62 @@ fn a_zip_package_reads_the_same() {
     assert_eq!(found.unwrap(), expected.unwrap());
     assert!(diag.contains(&codes::DELIVERY_FILE_INVALID), "{diag:?}");
 }
+
+#[test]
+fn utf16_management_files_keep_japanese_records_and_dtd_standard_checks() {
+    let text = INDEX
+        .replace("encoding=\"UTF-8\"", "encoding=\"UTF-16\"")
+        .replace("INDE_C05.DTD", "INDE_C09.DTD")
+        .replace("土木 202603-01", "土木202602-01");
+    for little in [true, false] {
+        let mut src = if little {
+            vec![0xff, 0xfe]
+        } else {
+            vec![0xfe, 0xff]
+        };
+        for unit in text.encode_utf16() {
+            src.extend(if little {
+                unit.to_le_bytes()
+            } else {
+                unit.to_be_bytes()
+            });
+        }
+        let (package, diag) = with_cx(|cx| read(&[("INDEX_C.XML", &src)], cx));
+        assert!(diag.is_empty(), "{diag:?}");
+        let package = package.unwrap();
+        assert_eq!(package.managed.len(), 1);
+        let index = &package.managed[0];
+        assert_eq!(index.doctype.as_deref(), Some("INDE_C09.DTD"));
+        assert_eq!(index.root.name, "constdata");
+        let standard = find(&index.root, "適用要領基準");
+        assert_eq!(standard[0].value.as_deref(), Some("土木202602-01"));
+        let start = 2 + text
+            .get(..text.find("<適用要領基準>").unwrap())
+            .unwrap()
+            .encode_utf16()
+            .count()
+            * 2;
+        assert_eq!(
+            standard[0].source.bytes().map(|r| r.start),
+            Some(start as u64)
+        );
+        let (report, diag) = with_cx(|cx| {
+            let (_, rules) = zumen_profile::rules(
+                &[(
+                    "profile.json",
+                    include_bytes!("../../../profiles/mlit-delivery-const/2026-02/profile.json"),
+                )],
+                "mlit-delivery-const",
+                "2026-02",
+                cx,
+            )
+            .unwrap();
+            zumen_delivery::check(&package, &rules, cx).unwrap()
+        });
+        assert!(diag.is_empty(), "{diag:?}");
+        for id in ["standard", "doctype-index"] {
+            let rule = report.rules.iter().find(|r| r.id == id).unwrap();
+            assert_eq!((rule.findings, rule.unsupported), (0, 0));
+        }
+    }
+}

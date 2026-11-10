@@ -1200,6 +1200,23 @@ group-by = ["field"]
 since = "0.2.1"
 status = "active"
 
+[codes."ifc.extrusion.invalid"]
+description = "押し出し・断面・境界の必要な値か閉鎖に不正があり、結果を返さなかった"
+severity = "error"
+params = { reason = "key" }
+group-by = ["reason"]
+since = "0.3.0"
+status = "active"
+
+[codes."ifc.extrusion.unsupported"]
+description = "押し出し・断面か境界の閉鎖を扱えないため、結果を返さなかった"
+severity = "warning"
+fidelity = "dropped"
+params = { reason = "key" }
+group-by = ["reason"]
+since = "0.3.0"
+status = "active"
+
 [codes."ifc.parent.exists"]
 description = "要素の親がもうあるので、後の集約・入れ子・空間への包含を写さなかった"
 severity = "warning"
@@ -2433,6 +2450,14 @@ description = "読まない BCF のバージョン。読むのは 2.1 と 3.0（
 severity = "error"
 params = { version = "text" }
 since = "0.2.0"
+status = "active"
+
+[codes."bcf.encoding.unsupported"]
+description = "変更する topic の元の markup が UTF-8 でないため、未知の要素と属性を保って書き戻せない。変えていない topic は元のバイト列のまま保つ"
+severity = "error"
+params = { topic = "text", encoding = "text" }
+group-by = ["encoding"]
+since = "0.3.0"
 status = "active"
 
 [codes."bcf.location.unsupported"]

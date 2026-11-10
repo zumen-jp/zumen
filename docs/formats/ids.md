@@ -18,6 +18,8 @@ IDS（Information Delivery Specification）1.0 を読み、建物モデルで照
 
 ## 確かめた度合い
 
+自作の UTF-16LE・UTF-16BE で IDS を読み、名前の要件をモデルに照合します。[XML の規則](xml.md)を使います。この追加の確認は `synthetic` で、IDS の外部照合はしていません。
+
 | 形式 | 向き | 段 |
 | --- | --- | --- |
 | `ids` | 読み | `synthetic` |

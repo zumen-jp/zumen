@@ -1,0 +1,81 @@
+case utf8
+document Utf8 3c21444f435459504520703a723e3c703a7220786d6c6e733a703d2775726e3a726f6f742720613d27e697a5e69cac26237831463630303b273ee697a5f09f98803c703ae5ad902f3e3c215b43444154415be69cac0d0a5d5d3e26756e7265736f6c7665643b3c2f703a723e Some(0..14)
+element 0 14..108 None 15..18 17..18 Some(15..16) Some(Declared(28..36)) 72 Some("urn:root")
+attribute 19..26 25..26 Some(19..24) Some(Xmlns) 70 Some("http://www.w3.org/2000/xmlns/") 28..36 "urn:root"
+attribute 38..39 38..39 None None 61 None 41..56 "日本😀"
+text 58..65 "日😀"
+child 1
+cdata 82..87 "本\n"
+text 90..102 "&unresolved;"
+element 1 65..73 Some(0) 66..71 68..71 Some(66..67) Some(Declared(28..36)) e5ad90 Some("urn:root")
+diagnostic xml.dtd.dropped 1 Info None [Ref { id: None, record: None, bytes: Some(ByteRange { start: 0, end: 14 }), key: None }] None
+diagnostic xml.entity.unsupported 1 Warning None [Ref { id: None, record: None, bytes: Some(ByteRange { start: 90, end: 102 }), key: None }] None
+param name Text("unresolved")
+budget input-bytes 108
+budget decoded-bytes 0
+budget records 2
+budget elements 0
+budget depth 0
+budget segments 0
+budget work 11
+case shift-jis
+document ShiftJis 3c3f786d6c2076657273696f6e3d27312e302720656e636f64696e673d2753686966745f4a4953273f3e3c703a7220786d6c6e733a703d2775726e3a722720613d2793fa967b273e93fa3c703a93fa2f3e3c215b43444154415b967b0d0a5d5d3e3c2f703a723e None
+element 0 42..103 None 43..46 45..46 Some(43..44) Some(Declared(56..61)) 72 Some("urn:r")
+attribute 47..54 53..54 Some(47..52) Some(Xmlns) 70 Some("http://www.w3.org/2000/xmlns/") 56..61 "urn:r"
+attribute 63..64 63..64 None None 61 None 66..70 "日本"
+text 72..74 "日"
+child 1
+cdata 90..94 "本\n"
+element 1 74..81 Some(0) 75..79 77..79 Some(75..76) Some(Declared(56..61)) 93fa Some("urn:r")
+budget input-bytes 103
+budget decoded-bytes 0
+budget records 2
+budget elements 0
+budget depth 0
+budget segments 0
+budget work 9
+case landxml
+document Utf8 3c4c616e64584d4c20786d6c6e733d27687474703a2f2f7777772e6c616e64786d6c2e6f72672f736368656d612f4c616e64584d4c2d312e32272076657273696f6e3d27312e32273e3c436f6f7264696e61746553797374656d20686f72697a6f6e74616c446174756d3d274a4744323031312720766572746963616c446174756d3d27542e502720686f72697a6f6e74616c436f6f7264696e61746553797374656d4e616d653d273928582c5929272f3e3c416c69676e6d656e74733e3c416c69676e6d656e74206e616d653d27e69cace7b79a272073746153746172743d273130303027206c656e6774683d273130273e3c436f6f726447656f6d3e3c4c696e65206c656e6774683d273130273e3c53746172743e3020303c2f53746172743e3c456e643e313020303c2f456e643e3c2f4c696e653e3c2f436f6f726447656f6d3e3c2f416c69676e6d656e743e3c2f416c69676e6d656e74733e3c2f4c616e64584d4c3e None
+element 0 0..359 None 1..8 1..8 None Some(Declared(16..57)) 4c616e64584d4c Some("http://www.landxml.org/schema/LandXML-1.2")
+attribute 9..14 9..14 None Some(Xmlns) 786d6c6e73 Some("http://www.w3.org/2000/xmlns/") 16..57 "http://www.landxml.org/schema/LandXML-1.2"
+attribute 59..66 59..66 None None 76657273696f6e None 68..71 "1.2"
+child 1
+child 2
+element 1 73..178 Some(0) 74..90 74..90 None Some(Declared(16..57)) 436f6f7264696e61746553797374656d Some("http://www.landxml.org/schema/LandXML-1.2")
+attribute 91..106 91..106 None None 686f72697a6f6e74616c446174756d None 108..115 "JGD2011"
+attribute 117..130 117..130 None None 766572746963616c446174756d None 132..135 "T.P"
+attribute 137..167 137..167 None None 686f72697a6f6e74616c436f6f7264696e61746553797374656d4e616d65 None 169..175 "9(X,Y)"
+element 2 178..349 Some(0) 179..189 179..189 None Some(Declared(16..57)) 416c69676e6d656e7473 Some("http://www.landxml.org/schema/LandXML-1.2")
+child 3
+element 3 190..336 Some(2) 191..200 191..200 None Some(Declared(16..57)) 416c69676e6d656e74 Some("http://www.landxml.org/schema/LandXML-1.2")
+attribute 201..205 201..205 None None 6e616d65 None 207..213 "本線"
+attribute 215..223 215..223 None None 7374615374617274 None 225..229 "1000"
+attribute 231..237 231..237 None None 6c656e677468 None 239..241 "10"
+child 4
+element 4 243..324 Some(3) 244..253 244..253 None Some(Declared(16..57)) 436f6f726447656f6d Some("http://www.landxml.org/schema/LandXML-1.2")
+child 5
+element 5 254..312 Some(4) 255..259 255..259 None Some(Declared(16..57)) 4c696e65 Some("http://www.landxml.org/schema/LandXML-1.2")
+attribute 260..266 260..266 None None 6c656e677468 None 268..270 "10"
+child 6
+child 7
+element 6 272..290 Some(5) 273..278 273..278 None Some(Declared(16..57)) 5374617274 Some("http://www.landxml.org/schema/LandXML-1.2")
+text 279..282 "0 0"
+element 7 290..305 Some(5) 291..294 291..294 None Some(Declared(16..57)) 456e64 Some("http://www.landxml.org/schema/LandXML-1.2")
+text 295..299 "10 0"
+model CivilModel { alignments: [Alignment { id: "本線", name: Some("本線"), usage: None, horizontal: [Horizontal { start: MapPoint { northing: 0.0, easting: 0.0 }, direction: 0.0, length: 10.0, kind: Line, source: Ref { id: None, record: None, bytes: Some(ByteRange { start: 254, end: 312 }), key: None } }], vertical: [], cant: [], stations: Stationing { start: 1000.0, breaks: [], pitch: None }, cross_sections: [], source: Ref { id: None, record: None, bytes: Some(ByteRange { start: 190, end: 336 }), key: None } }], surfaces: [], crs: Some(Plane(Zone(9))), height_datum: Some(TokyoBay), realization: Some(Survey2011) }
+written 3c4c616e64584d4c20786d6c6e733d27687474703a2f2f7777772e6c616e64786d6c2e6f72672f736368656d612f4c616e64584d4c2d312e32272076657273696f6e3d27312e32273e3c436f6f7264696e61746553797374656d20686f72697a6f6e74616c446174756d3d274a4744323031312720766572746963616c446174756d3d27542e502720686f72697a6f6e74616c436f6f7264696e61746553797374656d4e616d653d273928582c5929272f3e3c416c69676e6d656e74733e3c416c69676e6d656e74206e616d653d27e69cace7b79a272073746153746172743d273130303027206c656e6774683d273130273e3c436f6f726447656f6d3e3c4c696e65206c656e6774683d273130273e3c53746172743e3020303c2f53746172743e3c456e643e313020303c2f456e643e3c2f4c696e653e3c2f436f6f726447656f6d3e3c2f416c69676e6d656e743e3c2f416c69676e6d656e74733e3c2f4c616e64584d4c3e
+record 4c616e64584d4c Some(ByteRange { start: 0, end: 359 })
+record 436f6f7264696e61746553797374656d Some(ByteRange { start: 73, end: 178 })
+record 416c69676e6d656e7473 Some(ByteRange { start: 178, end: 349 })
+record 416c69676e6d656e74 Some(ByteRange { start: 190, end: 336 })
+record 436f6f726447656f6d Some(ByteRange { start: 243, end: 324 })
+record 4c696e65 Some(ByteRange { start: 254, end: 312 })
+record 5374617274 Some(ByteRange { start: 272, end: 290 })
+record 456e64 Some(ByteRange { start: 290, end: 305 })
+budget input-bytes 718
+budget decoded-bytes 0
+budget records 8
+budget elements 2
+budget depth 0
+budget segments 0
+budget work 35

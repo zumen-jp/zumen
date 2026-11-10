@@ -33,6 +33,20 @@ pub const BCF_ELEMENT_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
+/// 変更する topic の元の markup が UTF-8 でないため、未知の要素と属性を保って書き戻せない。変えていない topic は元のバイト列のまま保つ
+///
+/// `bcf.encoding.unsupported`（0.3.0 から）
+pub const BCF_ENCODING_UNSUPPORTED: Code = Code::new(
+    "bcf.encoding.unsupported",
+    Severity::Error,
+    None,
+    &[
+        Param::new("encoding", ParamType::Text),
+        Param::new("topic", ParamType::Text),
+    ],
+    &["encoding"],
+);
+
 /// bcfzip の中の項目が、そのバージョンの BCF の形に合わない。name は項目の名前、near は合わなかった要素か属性
 ///
 /// `bcf.file.invalid`（0.2.0 から）
@@ -2340,6 +2354,28 @@ pub const IFC_ENTRY_MISSING: Code = Code::new("ifc.entry.missing", Severity::Err
 /// `ifc.entry.unsupported`（0.2.0 から）
 pub const IFC_ENTRY_UNSUPPORTED: Code =
     Code::new("ifc.entry.unsupported", Severity::Error, None, &[], &[]);
+
+/// 押し出し・断面・境界の必要な値か閉鎖に不正があり、結果を返さなかった
+///
+/// `ifc.extrusion.invalid`（0.3.0 から）
+pub const IFC_EXTRUSION_INVALID: Code = Code::new(
+    "ifc.extrusion.invalid",
+    Severity::Error,
+    None,
+    &[Param::new("reason", ParamType::Key)],
+    &["reason"],
+);
+
+/// 押し出し・断面か境界の閉鎖を扱えないため、結果を返さなかった
+///
+/// `ifc.extrusion.unsupported`（0.3.0 から）
+pub const IFC_EXTRUSION_UNSUPPORTED: Code = Code::new(
+    "ifc.extrusion.unsupported",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("reason", ParamType::Key)],
+    &["reason"],
+);
 
 /// ISO 10303-21 の始まり・DATA のセクション・終わりのどれかがない
 ///
@@ -4709,6 +4745,7 @@ pub const ZIP_SPLIT_UNSUPPORTED: Code =
 pub const ALL: &[Code] = &[
     BCF_CONVERSION_UNSUPPORTED,
     BCF_ELEMENT_UNSUPPORTED,
+    BCF_ENCODING_UNSUPPORTED,
     BCF_FILE_INVALID,
     BCF_LOCATION_UNSUPPORTED,
     BCF_MARKUP_UNSUPPORTED,
@@ -4907,6 +4944,8 @@ pub const ALL: &[Code] = &[
     IFC_ENTITY_DROPPED,
     IFC_ENTRY_MISSING,
     IFC_ENTRY_UNSUPPORTED,
+    IFC_EXTRUSION_INVALID,
+    IFC_EXTRUSION_UNSUPPORTED,
     IFC_FILE_INVALID,
     IFC_GLOBAL_ID_MISSING,
     IFC_HEIGHT_DATUM_UNSUPPORTED,

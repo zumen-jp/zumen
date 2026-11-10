@@ -6,6 +6,7 @@
   "codes": {
     "bcf.conversion.unsupported": "元の bcfzip は BCF {original} なので、BCF {version} では書き戻せません。",
     "bcf.element.unsupported": "指摘「{topic}」の要素「{id}」は GlobalId を持たないので、BCF の参照から除きました。",
+    "bcf.encoding.unsupported": "指摘 {topic} の元の XML は {encoding} で、未知の要素と属性を保って変更できないため、書き戻しを止めました。",
     "bcf.file.invalid": "bcfzip の「{name}」が、BCF の形に合いません（{near}）。",
     "bcf.location.unsupported": "指摘「{topic}」の場所「{location}」は BCF に表せないので、書きませんでした（{reason}）。",
     "bcf.markup.unsupported": "図形「{id}」は BCF に表せないので、書きませんでした。",
@@ -204,6 +205,8 @@
     "ifc.entity.dropped": "「{kind}」は建物モデルに写さず、L1 に残しました（{count} 件）。",
     "ifc.entry.missing": "ifcZIP のアーカイブに、IFC のファイル（.ifc）がありません（{count} 件）。",
     "ifc.entry.unsupported": "IFC のファイル（.ifc）が複数ある ifcZIP のアーカイブは読みません（{count} 件）。",
+    "ifc.extrusion.invalid": "押し出し・断面・境界に不正な値があるので、結果を返しませんでした（理由: {reason}、{count} 件）。",
+    "ifc.extrusion.unsupported": "押し出し・断面か境界の閉鎖を扱えないので、結果を返しませんでした（理由: {reason}、{count} 件）。",
     "ifc.file.invalid": "IFC のファイルとして読めませんでした。ISO 10303-21 の始まり・DATA のセクション・終わりのどれかがありません（{count} 件）。",
     "ifc.global-id.missing": "GlobalId がないので、インスタンスの番号で ID を作りました（{count} 件）。",
     "ifc.height-datum.unsupported": "高さの基準「{datum}」は扱えないので、不明にしました（{count} 件）。",

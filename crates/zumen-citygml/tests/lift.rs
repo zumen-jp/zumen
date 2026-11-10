@@ -206,3 +206,62 @@ fn without_a_known_crs_no_shapes_are_moved() {
     };
     assert_eq!(faces[0].outer[2], [139.001, 35.0, 9.5]);
 }
+
+#[test]
+fn utf16_buildings_keep_names_shapes_and_original_source_ranges() {
+    let text = BUILDING
+        .replace("encoding=\"UTF-8\"", "encoding=\"UTF-16\"")
+        .replace(
+            "<bldg:measuredHeight",
+            "<独自:注記 xmlns:独自=\"urn:zumen:test\">検査</独自:注記><bldg:measuredHeight",
+        );
+    for little in [true, false] {
+        let mut src = if little {
+            vec![0xff, 0xfe]
+        } else {
+            vec![0xfe, 0xff]
+        };
+        for unit in text.encode_utf16() {
+            src.extend(if little {
+                unit.to_le_bytes()
+            } else {
+                unit.to_be_bytes()
+            });
+        }
+        assert!(CityGml::SIGNATURES.iter().any(|s| s.matches(&src)));
+        let mut budget = Budget::default();
+        let mut diag = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        let file = CityGml::read(&src, &mut cx).unwrap();
+        let model = file.lift(&mut cx).unwrap();
+        assert_eq!(file.document().src(), src);
+        assert_eq!(model.features.len(), 3);
+        let building = &model.features[0];
+        assert_eq!(building.name.as_deref(), Some("庁舎"));
+        assert!(building.attributes.iter().any(|a| {
+            a.name == "gen:建物ID" && a.value == Value::Text("13101-bldg-1".into())
+        }));
+        assert!(
+            building
+                .attributes
+                .iter()
+                .any(|a| { a.name == "独自:注記" && a.value == Value::Text("検査".into()) })
+        );
+        let Form::Solid(Shape::FaceSet { faces, .. }) = &building.geometries[1].form else {
+            panic!();
+        };
+        assert_eq!(faces[0].outer[2], [35.0, 139.001, 9.5]);
+        let start = 2 + text
+            .get(..text.find("<bldg:Building ").unwrap())
+            .unwrap()
+            .encode_utf16()
+            .count()
+            * 2;
+        assert_eq!(building.source.bytes().map(|r| r.start), Some(start as u64));
+        assert_eq!(
+            diag.iter().map(|d| d.code()).collect::<Vec<_>>(),
+            [codes::CITYGML_REFERENCE_UNSUPPORTED]
+        );
+    }
+}

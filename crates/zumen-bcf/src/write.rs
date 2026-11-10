@@ -28,6 +28,7 @@ fn work(cx: &mut Cx) -> Result<(), Error> {
 /// - 要素の参照は、IFC の GlobalId（22 字）の ID だけを書く。ほかの ID（`i` と番号）は除いて診断する。
 /// - `original` に同じ Guid の topic があり、写した指摘が同じなら、フォルダーを元のバイト列のまま書く。変えた
 ///   topic でも、レビューの文書に写さない要素と、知らない要素・属性は、元の topic から写す。
+///   元の markup が UTF-8 でない場合は、これらを保って変更できないため `bcf.encoding.unsupported` で断る。
 /// - 種類・作者・日時のない指摘とコメントには、`options` の値を書いて診断する。値がなければ失敗する。
 pub fn write(
     review: &Review,
@@ -472,6 +473,24 @@ fn markup(
         Some(folder) => Some(zumen_xml::read(&folder.markup, cx)?),
         None => None,
     };
+    // 未知の要素と属性は UTF-8 の出力へ原本のバイト列を写す。変えていない topic は上で
+    // フォルダーごと保つが、ほかの文字コードの markup を書き直すと、これらを失ってしまう。
+    if let Some(doc) = &doc
+        && doc.encoding() != zumen_xml::Encoding::Utf8
+    {
+        let encoding = match doc.encoding() {
+            zumen_xml::Encoding::ShiftJis => "Shift_JIS",
+            zumen_xml::Encoding::Utf16Le => "UTF-16LE",
+            zumen_xml::Encoding::Utf16Be => "UTF-16BE",
+            _ => "unknown",
+        };
+        cx.report(
+            Diagnostic::new(codes::BCF_ENCODING_UNSUPPORTED)
+                .with("topic", id)
+                .with("encoding", encoding),
+        );
+        return Err(Error::Unsupported);
+    }
     let xml = doc.as_ref().map(|doc| Xml { doc });
     let markup_element = xml.as_ref().and_then(|x| x.root());
     let topic_element = match (&xml, markup_element) {
