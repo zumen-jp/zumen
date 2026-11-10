@@ -260,7 +260,7 @@ fn classification_depth_and_copies_use_budgets() {
 
 #[test]
 fn shared_classification_copies_are_charged_for_each_element() {
-    let src = |count| {
+    let src = |count: u32| {
         let objects: String = (100..100 + count)
             .map(|n| format!("#{}=IFCZONE('{}',$,$,$,$,$);\n", n, gid(n)))
             .collect();
