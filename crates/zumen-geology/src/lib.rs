@@ -177,7 +177,7 @@ pub fn read(src: &[u8], cx: &mut Cx) -> Result<Boring, Error> {
     };
     let Some(root) = doc
         .element(doc.root())
-        .filter(|root| doc.local_name(root.name()) == ROOT.as_bytes())
+        .filter(|root| doc.parsed_local_name(root.name()) == ROOT.as_bytes())
     else {
         cx.report(Diagnostic::new(codes::BORING_FILE_INVALID));
         return Err(Error::Invalid);
@@ -240,7 +240,8 @@ impl<'d> Reader<'d> {
                 _ => None,
             })
             .map(|child| {
-                let name = String::from_utf8_lossy(doc.local_name(child.name())).into_owned();
+                let name =
+                    String::from_utf8_lossy(doc.parsed_local_name(child.name())).into_owned();
                 (name, child)
             })
             .collect()

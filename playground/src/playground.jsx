@@ -70,10 +70,23 @@ export function Playground() {
   useLayoutEffect(() => {
     if (!viewer || !canvas) return;
     const detach = viewer.attachInput();
-    const observer = new ResizeObserver(() => resize(viewer, canvas));
+    let frame = null, stopped = false;
+    // Resize Observer §3.4.6: https://drafts.csswg.org/resize-observer/#deliver-resize-loop-error
+    // 状態通知で詳細パネルの有無も変わる。配送中には書かず、次のフレームで最新の CSS 寸法を読む。
+    const observer = new ResizeObserver(() => {
+      if (stopped || frame !== null) return;
+      frame = requestAnimationFrame(() => {
+        frame = null;
+        if (!stopped) resize(viewer, canvas);
+      });
+    });
     observer.observe(canvas);
     resize(viewer, canvas);
-    return () => { observer.disconnect(); detach(); };
+    return () => {
+      stopped = true; observer.disconnect();
+      if (frame !== null) cancelAnimationFrame(frame);
+      detach();
+    };
   }, [viewer, canvas]);
   useLayoutEffect(() => {
     if (!viewer) return;

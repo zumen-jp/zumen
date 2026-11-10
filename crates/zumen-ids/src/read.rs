@@ -51,7 +51,7 @@ type Read<T> = Result<Result<T, Bad>, Error>;
 
 impl<'d> Reader<'d, '_, '_> {
     fn local(&self, element: &Element) -> &'d [u8] {
-        self.doc.local_name(element.name())
+        self.doc.parsed_local_name(element.name())
     }
 
     fn is_ids(&self, element: &Element, local: &[u8]) -> bool {

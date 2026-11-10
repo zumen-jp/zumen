@@ -5,7 +5,7 @@ J-LandXML（LandXML 1.2 に準じた 3 次元設計データ交換標準、台�
 ## 対象
 
 - J-LandXML Ver.1.8（令和 8 年 7 月）。LandXML 1.2 の名前空間の文書で、交換標準のバージョンは `Project` の `Feature` の `applicationCriterion`（`MlitLandXmlVer.1.8` など）に書く。バージョンの違いでは読み方を変えない。
-- 文字コードは UTF-8 と Shift_JIS を読む（`zumen-xml`）。交換標準が認める UTF-16 は、まだ読まずに `xml.encoding.unsupported` を返す。
+- 文字コードは UTF-8・Shift_JIS・UTF-16LE・UTF-16BE を読む。BOM と宣言の組、原本の範囲と予算は [XML の規則](xml.md)に従う。
 - 書き戻しはしない。書き出すと、読んだバイト列をそのまま書く。
 
 ## 判定
@@ -36,6 +36,15 @@ J-LandXML（LandXML 1.2 に準じた 3 次元設計データ交換標準、台�
 - 線形の最初の `Profile` の最初の `ProfAlign` を縦断線形にする。`PVI`（縦断曲線のない変化点）と `ParaCurve`（縦断曲線のある変化点。`length` が縦断曲線の長さ）の並びを、変化点の間の一定の勾配の区間と、変化点を中心にした 2 次放物線の区間に直す。区間の出所は、区間の初めの変化点の要素にする。
 - 2 つ目からの `ProfAlign`、縦断地盤線（`ProfSurf`）、円の縦断曲線（`CircCurve`）と対称でない放物線は、`landxml.element.unsupported` を返す。追加距離が増えない変化点と、重なる縦断曲線は、縦断線形を移さずに `landxml.value.invalid` を返す。
 
+## 片勾配
+
+- Ver.1.8 の 4-3-24・27〜29 に従い、`Superelevation` の最大片勾配が一定の区間だけを、Rust の `Alignment.cant` に移す。初めの累加距離標は `FullSuperSta`、終わりは `RunoffSta` を優先し、それぞれの子要素がないときだけ `staStart`・`staEnd` を使う。追加距離は線形の `staStart` を引いた値、区間長は終わりから初めを引いた値にする。
+- `FullSuperelev` は % のまま、左下がりを負、右下がりを正として保持する。`CantKind::Superelevation` の初めと終わりの左右は、すべて同じ値にする。正規化や単位換算はしない。区間の出所は元の `Superelevation` のバイト範囲とし、`transition` は指定しない。
+- すりつけの開始・終了、待ち勾配、`ReverseCrown`・`FlatSta` などの子の `Feature` は、要素ごとに `landxml.element.unsupported` で種類・件数・元の場所を返す。区間の外の勾配や、初めと終わりの間の変化を補わない。
+- `FullSuperSta`・`RunoffSta`・`FullSuperelev` の同種の子要素が複数あるものは、対応を推定せず、親の `Superelevation` を `landxml.element.unsupported` にする。初めか終わりを省略したものと、長さ 0 の区間も同じく移さない。明記した数が不正・非有限、区間が逆順、追加距離や長さの計算が非有限なら、`landxml.value.invalid` を返す。優先する子要素が不正でも、属性へ戻らない。
+- 4-3-12・24 の任意横断勾配リストは未対応とする。線形の `Feature` に `SlopeList` があれば、文書の順によらず、その線形の `Superelevation` を移さない。`SuperelevationConfig` の `useSlopeList` が `true`、または値を判別できない場合も同じとする。`false`・`0` 以外を保守的に置換の指定として扱う。これらの `Feature` と、移さない `Superelevation` を診断する。直線部のおがみ勾配や車線数もまだ移さない。
+- API の `civil` の応答には片勾配の値をまだ含めない。今回の値の取得は `LandXmlFile::lift` が返す Rust の L2 モデルで行う。API への値の公開、すりつけ区間、任意横断勾配リストは #468 に残す。
+
 ## 横断
 
 - `CrossSects` の `CrossSect` を、`sta` の追加距離の横断にし、`name`（`No.10+0.0000` など）を名前にする。
@@ -53,15 +62,18 @@ J-LandXML（LandXML 1.2 に準じた 3 次元設計データ交換標準、台�
 
 ## 移さない要素
 
-- 片勾配すりつけ（`Superelevation`）、IP 点のリスト（`AlignPIs`）、座標点セット（`CgPoints`）、`Roadways` は、まだ移さず、`landxml.element.unsupported` を返す。
+- IP 点のリスト（`AlignPIs`）、座標点セット（`CgPoints`）、`Roadways` は、まだ移さず、`landxml.element.unsupported` を返す。
 - 単位（`Units`）は、交換標準がメートルと決めているので読まない。方向角の属性は交換標準にないので、角の単位は使わない。
 
 ## 上限
 
 - 入力のバイト数と、移す要素（区間・変化点・横断・点・面）の数を `elements` で予算で数える。
+- 片勾配の置換の指定を調べる線形の子の数と、片勾配の子・数の文字の処理を `work` で数える。片勾配の一時の文字列と区間を確保する前に、元の要素のバイト数の 8 倍に 512 バイトを足した量を `decoded-bytes` に数える。置換の指定を調べる `Feature` は、元の要素のバイト数の 4 倍を先に数える。これらはネイティブと wasm32 で共通の量とする。上限で止まれば元の要素を指し、部分結果を返さない。
 - `PI` のない `Spiral` は、前の区間の終わりの向きを、平面線形を初めからたどって求める。そのたどる区間の数を `work` で数える（#560）。区間の終わりの点を求める手間（緩和曲線の向きの式を積む刻みの数。1 つの区間で 65,538 まで）も、求める前に `work` で数え、上限で止まれば `Spiral` の所で予算の診断を返す（#727）。
 
 ## 確かめた度合い
+
+UTF-16 は自作の XML と J-LandXML で、原本範囲・未変更の書き出し・線形と一定の片勾配・診断と予算を検査します。[独立検査](../../xtask/verify/xml/README.md)で、ネイティブと WASI の公開値を比較します。Expat との比較は XML の値と要素の位置だけで、J-LandXML の領域モデルの外部照合には含めません。
 
 | 形式 | 向き | 段 |
 | --- | --- | --- |
@@ -70,3 +82,5 @@ J-LandXML（LandXML 1.2 に準じた 3 次元設計データ交換標準、台�
 段の意味は[形式台帳の書き方](../../formats/README.md#確かめた度合い)に、根拠は[形式と権利の一覧](README.md#format-landxml)にあります。この文書の規則は、仕様と、テストの中で作ったファイルだけで確かめたものです。公開サンプル・受け取った図面・外部の実装・基準になるソフトとは、まだ照らしていません。実際のファイルでは、ここに書いた扱いと違うことがあります。
 
 - 再配布を認める公開サンプルは、見つかっていない（#368）。公開サンプルと外部の実装での照合は #504 で行う。
+- 片勾配の一定区間は自作の小さな入力で、優先順位・符号・単位・出所と、移さない要素の診断を確かめる。外部の実装や実際のファイルとの一致は、まだ確認していない。
+- [実行環境間の比較](../../xtask/verify/landxml/README.md)では、自作の 9 入力について、片勾配の値のビット列・出所・診断・全 `Kind` の予算と停止結果を、ネイティブと `wasm32-wasip1` で比較する。API の適合テストは、開いたときの未対応要素の診断と `civil` の応答を別に比較する。

@@ -35,10 +35,10 @@
 | [jww](#format-jww) | JWW（Jw\_cad for Windows の図面） | jwcad | drawing | `public` | `core` | `synthetic` | `external` |
 | [kokuban](#format-kokuban) | 電子小黒板の情報と信憑性確認（改ざん検知） | jpeg | delivery | `permission` | `none` |  |  |
 | [landxml](#format-landxml) | J-LandXML（LandXML 1.2 に準じた 3 次元設計データ交換標準） | landxml | civil | `public` | `core` | `synthetic` |  |
-| [las](#format-las) | LAS・LAZ | las | pointcloud | `public` | `core` | `synthetic` |  |
+| [las](#format-las) | LAS・LAZ | las | pointcloud | `public` | `core` | `external` |  |
 | [par](#format-par) | TKY2JGD・PatchJGD のパラメーターのファイル（座標の補正量の格子） | par | geo | `public` | `core` | `synthetic` |  |
 | [pdf](#format-pdf) | PDF | pdf | drawing | `public` | `core` | `external` | `synthetic` |
-| [ply](#format-ply) | PLY（点群） | ply | pointcloud | `public` | `core` | `synthetic` |  |
+| [ply](#format-ply) | PLY（点群） | ply | pointcloud | `public` | `core` | `external` |  |
 | [png](#format-png) | PNG | png | drawing | `public` | `core` |  | `external` |
 | [saf](#format-saf) | SXF の属性ファイル（SAF） | sxf | drawing・delivery | `public` | `core` | `synthetic` |  |
 | [sima](#format-sima) | SIMA 共通フォーマット | sima | civil | `unknown` | `none` |  |  |
@@ -712,8 +712,8 @@
 - 権利の根拠にした文書: [buildingSMART International の検証のツール（validate）](https://github.com/buildingSMART/validate)（確認日: 2026-10-24）
 - 照合に使う候補: IfcOpenShell（依存にせず、毎晩の CI で別に入れて使う）
 - サンプルの出どころ: 公開サンプルの IFC 12 件（samples/ifc。林野庁・中野区・GNI BIM Dataset・BIM Whale・Text2BIM。出所とライセンスは samples/ledger.toml、#412）・許諾の要る国内の BIM ソフトの書き出しは #513 で足す（zumen-jp/zumen-legacy#128）
-- 読みの確かめた度合い: `external`（確認日: 2026-11-03）
-- 読みの確かめた範囲: 公開サンプルの IFC 12 件（samples/ifc）を建物モデルに写し、毎晩の CI で IfcOpenShell が同じファイルから読んだ値と照らす。照らすのは、実体のクラス・GlobalId・名前・所属の先と型・プロジェクトの空間への変換・開口・プロパティと数量の値（crates/zumen-ifc/tests/ifcopenshell/samples.py、#412・#512）。手元の照合では、12 件とも食い違いは 0。判定・インスタンスのグラフ・壊れた所の扱いと、写さない値は、外部の実装と照らしていない。公開サンプル 12 件は、自前のテストでも L1 で読み、変えずに書くと元のバイト列に戻ることと、写さない値の診断の code・実体のクラス・件数を確かめる（crates/zumen-ifc/tests/samples.rs）。壊れた所の扱いと ifcZIP は、仕様とテストの中で作った IFC-SPF と ifcZIP（crates/zumen-ifc/tests）だけで確かめた。許諾の要る国内の BIM ソフトの書き出しは #513 で足す
+- 読みの確かめた度合い: `external`（確認日: 2026-11-11）
+- 読みの確かめた範囲: 公開サンプルの IFC 12 件（samples/ifc）を建物モデルに写し、毎晩の CI で IfcOpenShell が同じファイルから読んだ値と照らす。照らすのは、実体のクラス・GlobalId・名前・所属の先と型・プロジェクトの空間への変換・開口・プロパティと数量の値（crates/zumen-ifc/tests/ifcopenshell/samples.py、#412・#512）。手元の照合では、12 件とも食い違いは 0。必要時の曲線の getter は、合成の IFC2X3 の 9 曲線・IFC4 と IFC4X3 の各 10 曲線、公開サンプル gni/model\_9 の 1 曲線で、元の属性の座標・方向の比・半径・ベクトルの大きさ・添字・区間の向き・切る位置を IfcOpenShell と照らし、食い違いは 0（crates/zumen-ifc/tests/ifcopenshell/curves.py、#419）。公開サンプルの IndexedPolyCurve 1 件を読みの external とし、自作した 29 件は synthetic の範囲で外部の実装とも照合したものとする。単位・診断・予算・幾何の評価は、この外部の曲線の照合には含めない。要素から形状表現・共有写像元をたどる L1 の getter は、合成 3 版の各 9 項目と補助レコード各 8 件、公開サンプルの柱の 6 項目と補助レコード 16 件で、参照と元の配置・写像の属性、曲線の点を IfcOpenShell と照らした（product\_shapes.py、#419）。公開の表現と写像は external、合成は synthetic の範囲で外部の実装とも照合したものとする。配置・写像・単位の適用と立体・断面の型への変換はしていない。既存の形の葉から押し出し・閉じた断面・外輪を取得する経路は、合成各版 2 件と公開の柱 1 件、計 7 件で、未適用の深さ・方向・配置と断面の名前・参照・外輪、SI 単位の名前・接頭辞を IfcOpenShell と照らし、食い違いは 0（extrusions.py、#419）。公開 1 件は external、合成 6 件は synthetic とする。配置・写像・単位の適用や自己交差・面積・形の評価、ほかの立体・断面の対応を検証した結果ではない。判定・インスタンスのグラフ・壊れた所の扱いと、上に記した属性以外の値は、外部の実装と照らしていない。公開サンプル 12 件は、自前のテストでも L1 で読み、変えずに書くと元のバイト列に戻ることと、写さない値の診断の code・実体のクラス・件数を確かめる（crates/zumen-ifc/tests/samples.rs）。壊れた所の扱いと ifcZIP は、仕様とテストの中で作った IFC-SPF と ifcZIP（crates/zumen-ifc/tests）だけで確かめた。許諾の要る国内の BIM ソフトの書き出しは #513 で足す
 - 読みで使った公開サンプル: [samples/ifc/](../../samples/ifc/)
 - 読みで照らした外部の実装: IfcOpenShell 0.9.0.post1
 - 書きの確かめた度合い: `external`（確認日: 2026-11-02）
@@ -803,8 +803,8 @@
 - 実装の根拠: spec
 - 照合に使う候補: 国土交通省の基準に対応した 3 次元設計データの閲覧ソフト（iLEX など。手元でだけ使う）
 - サンプルの出どころ: 再配布を認める公開サンプルは見つかっていない。テストの中で小さな J-LandXML を作る
-- 読みの確かめた度合い: `synthetic`（確認日: 2026-11-03）
-- 読みの確かめた範囲: J-LandXML Ver.1.8 の文書と、テストの中で作った J-LandXML（crates/zumen-landxml/tests）で確かめた。再配布できる公開サンプルは見つかっていない（#368・#504）
+- 読みの確かめた度合い: `synthetic`（確認日: 2026-11-11）
+- 読みの確かめた範囲: J-LandXML Ver.1.8 の文書と、テストの中で作った J-LandXML（crates/zumen-landxml/tests）で確かめた。片勾配は最大片勾配が一定の区間だけを Rust の L2 モデルへ移す。再配布できる公開サンプルは見つかっていない（#368・#504）
 - issue: [zumen-jp/zumen#366](https://github.com/zumen-jp/zumen/issues/366)
 - issue: [zumen-jp/zumen#368](https://github.com/zumen-jp/zumen/issues/368)
 - 形式の文書: [docs/formats/landxml.md](../../docs/formats/landxml.md)
@@ -820,12 +820,16 @@
 - 文書の補足: GitHub のライセンスの判定は Apache-2.0
 - 参照した実装: [LASzip](https://github.com/LASzip/LASzip)（Apache-2.0）
 - 参照した実装: [laz-rs](https://github.com/tmontaigu/laz-rs)（Apache-2.0）
-- 照合に使う候補: CloudCompare・PDAL・LAStools の lasinfo
-- サンプルの出どころ: laz-rs の tests/data（Apache-2.0。数十 KB から数百 KB）
-- 読みの確かめた度合い: `synthetic`（確認日: 2026-11-10）
-- 読みの確かめた範囲: LAS 1.4 R15 の仕様と、テストの中で作った LAS（crates/zumen-las/tests）で確かめた。LAZ は展開を止めていて、開くと las.laz.unsupported を返す（#510・決定 0289）。公開サンプルと外部の実装との照合はまだ（#371・#504）
+- 照合に使う候補: CloudCompare・PDAL・LAStools の lasinfo・laspy
+- サンプルの出どころ: PDAL の test/data/las/synthetic\_test.las（BSD-3-Clause、合成の 1 点。samples/las/pdal-synthetic.las）
+- 読みの確かめた度合い: `external`（確認日: 2026-11-11）
+- 読みの確かめた範囲: PDAL が作った公開サンプル 1 件（非圧縮 LAS 1.2、点形式 3、synthetic フラグを持つ 1 点）を laspy 2.7.0 と照合した。ヘッダーの点数・尺度・原点・範囲と、座標・強度・分類・反射・GPS 時刻・RGB を比較した。実測の点群は使っていない。自前の合成 LAS 1.2 の点形式 0〜3、1.3 の 4・5、1.4 の 6〜10 も同じ値を比較したが、external の根拠は PDAL のサンプルだけ。公開サンプルの応答・診断は適合テストでネイティブと wasm のハッシュを比較する。座標系・VLR/EVLR の内容・落とす属性・波形の外部データ・実データ・基準になるアプリとの照合はまだ（#371・#504）。LAZ は las.laz.unsupported で断る（#510）
+- 読みで使った公開サンプル: [samples/las/](../../samples/las/)
+- 読みで照らした外部の実装: laspy 2.7.0
 - 既知の crate: las・laz
 - issue: [zumen-jp/zumen#371](https://github.com/zumen-jp/zumen/issues/371)
+- issue: [zumen-jp/zumen#504](https://github.com/zumen-jp/zumen/issues/504)
+- issue: [zumen-jp/zumen#804](https://github.com/zumen-jp/zumen/issues/804)
 - 形式の文書: [docs/formats/las.md](../../docs/formats/las.md)
 
 ### format-par
@@ -880,10 +884,13 @@
 - 実装の根拠: inferred
 - 権利の根拠にした文書: [Paul Bourke「PLY - Polygon File Format」](https://paulbourke.net/dataformats/ply/)（確認日: 2026-11-01）
 - 照合に使う候補: CloudCompare・MeshLab
-- サンプルの出どころ: テストの中で作る
-- 読みの確かめた度合い: `synthetic`（確認日: 2026-11-03）
-- 読みの確かめた範囲: 公開の解説と、テストの中で作った PLY（crates/zumen-ply/tests）で確かめた。CloudCompare・MeshLab が書いた PLY との照合はまだ（#504）
+- サンプルの出どころ: samples/ply/（PDAL の 4 頂点・2 面の公開サンプル）・テストの中で作る
+- 読みの確かめた度合い: `external`（確認日: 2026-11-11）
+- 読みの確かめた範囲: PDAL が作った公開サンプル 1 件（ASCII、float64 の 4 頂点・2 面）を ply-rs 0.1.3 と照合した。全頂点の順と座標をビットで比較し、面を移さない診断と座標系が不明なことを確かめた。自前の合成の ASCII・両バイト順の座標・色・強度・分類と float/float32 の丸めも照合したが、external の根拠は公開サンプルだけ。公開サンプルと float32 の応答・診断をネイティブと wasm で比較する。実測点群、公開サンプルのバイナリと属性、法線や面のモデル化、CloudCompare・MeshLab との照合はまだ（#504）
+- 読みで使った公開サンプル: [samples/ply/](../../samples/ply/)
+- 読みで照らした外部の実装: ply-rs 0.1.3
 - issue: [zumen-jp/zumen#373](https://github.com/zumen-jp/zumen/issues/373)
+- issue: [zumen-jp/zumen#809](https://github.com/zumen-jp/zumen/issues/809)
 - 形式の文書: [docs/formats/ply.md](../../docs/formats/ply.md)
 
 ### format-png

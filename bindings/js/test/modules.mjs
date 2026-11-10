@@ -19,6 +19,7 @@ import { brotliCompressSync } from "node:zlib";
 import { compareHashes, loadCases, moduleOf, pushOf, readSample } from "../../conformance/cases.mjs";
 import { MODULES, ZumenError, detect, load, loadModules } from "../src/index.js";
 import { runConformance } from "./run.mjs";
+import "./xml-root.mjs";
 
 const [fullPath, ...paths] = process.argv.slice(2);
 const names = Object.keys(MODULES);

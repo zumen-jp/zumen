@@ -1,0 +1,19 @@
+{
+  "description": "PDAL が 4 頂点・2 面から作った ASCII PLY を開き、点数・範囲・座標と面を移さない診断を比較する。全頂点の順と座標は ply-rs 0.1.3 と別に照合する（#809）。",
+  "module": "pointcloud",
+  "steps": [
+    { "push": { "name": "pdal.ply", "file": "samples/ply/pdal-mesh-fixed.ply" } },
+    { "call": { "v": 1, "op": "open", "input": "pdal.ply" }, "expect": { "/result/format": "ply" } },
+    {
+      "call": { "v": 1, "op": "pointcloud", "doc": "pdal.ply", "limit": 4 },
+      "expect": {
+        "/result/points": 4,
+        "/result/attributes": ["position"],
+        "/result/bounds/min": [1, 1, 0],
+        "/result/bounds/max": [2, 2, 2],
+        "/result/selected/truncated": false
+      },
+      "absent": ["/result/crs", "/result/vertical", "/result/selected/color"]
+    }
+  ]
+}

@@ -193,7 +193,7 @@ impl<'d> Reader<'d, '_, '_> {
     // 要素をたどるツール
 
     fn local(&self, element: &Element) -> &'d [u8] {
-        self.doc.local_name(element.name())
+        self.doc.parsed_local_name(element.name())
     }
 
     fn children(&self, element: &Element) -> Vec<&'d Element> {

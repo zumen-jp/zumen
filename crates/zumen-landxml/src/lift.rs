@@ -8,8 +8,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use zumen_base::{Diagnostic, Kind, Ref, Stop, codes};
 use zumen_civil::{
-    Alignment, CivilModel, CrossSection, CrossSectionLine, Horizontal, HorizontalKind,
-    StationBreak, Stationing, SurfaceRole, Tin, TransitionCurve, Vertical, VerticalKind,
+    Alignment, Cant, CantKind, CivilModel, CrossSection, CrossSectionLine, Horizontal,
+    HorizontalKind, StationBreak, Stationing, SurfaceRole, Tin, TransitionCurve, Vertical,
+    VerticalKind,
 };
 use zumen_crs::{Crs, HeightDatum, MapPoint, Realization, Zone};
 use zumen_sdk::{Cx, Error};
@@ -138,6 +139,7 @@ impl<'d> Reader<'d, '_, '_> {
         };
         let mut profiled = false;
         let mut breaks = Vec::new();
+        let slope_list = self.uses_slope_list(element)?;
         for child in self.children(element) {
             match self.local(child) {
                 b"CoordGeom" => self.coord_geom(child, &mut alignment)?,
@@ -160,12 +162,192 @@ impl<'d> Reader<'d, '_, '_> {
                         }
                     }
                 }
-                b"Feature" => self.alignment_feature(child, &mut alignment),
+                b"Feature" => {
+                    if matches!(
+                        self.attribute(child, b"name").as_deref(),
+                        Some("SlopeList" | "SuperelevationConfig")
+                    ) {
+                        self.unsupported(child);
+                    } else {
+                        self.alignment_feature(child, &mut alignment);
+                    }
+                }
+                b"Superelevation" => {
+                    if slope_list {
+                        self.unsupported(child);
+                    } else if let Some(cant) = self.superelevation(child, start)? {
+                        alignment.cant.push(cant);
+                    }
+                }
                 _ => self.unsupported(child),
             }
         }
         alignment.stations.breaks = station_breaks(breaks, start);
         Ok(alignment)
+    }
+
+    /// 4-3-12・24。SlopeList が Superelevation を置き換える場合は、一定区間も推定しない。
+    fn uses_slope_list(&mut self, element: &Element) -> Result<bool, Error> {
+        let doc = self.doc;
+        let mut uses_list = false;
+        // 置換の指定が見つかっても、後段で診断する全要素の走査を先に数える。
+        for node in element.children() {
+            self.charge(element, Kind::Work, 1)?;
+            let Node::Element(index) = node else { continue };
+            let Some(child) = doc.element(*index) else {
+                continue;
+            };
+            if self.local(child) == b"Feature" {
+                self.charge(
+                    child,
+                    Kind::DecodedBytes,
+                    (child.span().len() as u64).saturating_mul(4),
+                )?;
+                match self.attribute(child, b"name").as_deref() {
+                    Some("SlopeList") => uses_list = true,
+                    Some("SuperelevationConfig") => {
+                        for property in child.children() {
+                            self.charge(child, Kind::Work, 1)?;
+                            let Node::Element(index) = property else {
+                                continue;
+                            };
+                            let Some(property) = doc.element(*index) else {
+                                continue;
+                            };
+                            if self.local(property) == b"Property"
+                                && self.attribute(property, b"label").as_deref().map(str::trim)
+                                    == Some("useSlopeList")
+                                && !matches!(
+                                    self.attribute(property, b"value").as_deref().map(str::trim),
+                                    Some("false" | "0")
+                                )
+                            {
+                                uses_list = true;
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        Ok(uses_list)
+    }
+
+    /// J-LandXML Ver.1.8 4-3-24・27〜29。最大片勾配が一定の区間だけを移す。
+    /// FullSuperSta / RunoffSta は staStart / staEnd より優先する。
+    fn superelevation(&mut self, element: &Element, origin: f64) -> Result<Option<Cant>, Error> {
+        // 一時の文字列と区間の確保を先に予算化する。文字コードの変換・連結の余裕を
+        // 含む入力幅の 8 倍と、区間の 512 バイトを、32/64 bit で同じ量として数える。
+        let span = element.span();
+        self.charge(
+            element,
+            Kind::DecodedBytes,
+            ((span.end - span.start) as u64)
+                .saturating_mul(8)
+                .saturating_add(512),
+        )?;
+        let mut begin = None;
+        let mut end = None;
+        let mut slope = None;
+        let mut invalid = false;
+        let mut duplicate = false;
+        let doc = self.doc;
+        for node in element.children() {
+            self.charge(element, Kind::Work, 1)?;
+            let Node::Element(index) = node else { continue };
+            let Some(child) = doc.element(*index) else {
+                continue;
+            };
+            let slot = match self.local(child) {
+                b"FullSuperSta" => &mut begin,
+                b"RunoffSta" => &mut end,
+                b"FullSuperelev" => &mut slope,
+                // すりつけ・待ち勾配などは一定区間に含めず、元の要素を知らせる。
+                _ => {
+                    self.unsupported(child);
+                    continue;
+                }
+            };
+            if slot.is_some() {
+                duplicate = true;
+                continue;
+            }
+            let value = self.scalar_text(child)?;
+            if value.is_none() {
+                self.invalid(child, "text");
+                invalid = true;
+            }
+            *slot = Some(value);
+        }
+        if duplicate {
+            // 仕様が許す複数の値は、区間との対応をまだ扱わない。値不正とはしない。
+            self.unsupported(element);
+            return Ok(None);
+        }
+        if invalid {
+            return Ok(None);
+        }
+        let Some(slope) = slope.flatten() else {
+            self.invalid(element, "FullSuperelev");
+            return Ok(None);
+        };
+        let Some(begin) = begin.unwrap_or_else(|| self.number(element, b"staStart")) else {
+            if self.attribute(element, b"staStart").is_some() {
+                self.invalid(element, "staStart");
+            } else {
+                self.unsupported(element);
+            }
+            return Ok(None);
+        };
+        let Some(end) = end.unwrap_or_else(|| self.number(element, b"staEnd")) else {
+            if self.attribute(element, b"staEnd").is_some() {
+                self.invalid(element, "staEnd");
+            } else {
+                self.unsupported(element);
+            }
+            return Ok(None);
+        };
+        let distance = begin - origin;
+        let length = end - begin;
+        if !distance.is_finite() || !length.is_finite() || length < 0.0 {
+            self.invalid(element, "range");
+            return Ok(None);
+        }
+        if length == 0.0 {
+            self.unsupported(element);
+            return Ok(None);
+        }
+        self.spend(element, 1)?;
+        Ok(Some(Cant {
+            start_distance: distance,
+            length,
+            // 4-3-28。% のまま、左下がりが負・右下がりが正の同じ勾配を左右に持つ。
+            kind: CantKind::Superelevation {
+                start: [slope; 2],
+                end: [slope; 2],
+            },
+            transition: None,
+            source: self.at(element),
+        }))
+    }
+
+    /// 単純な数の文字。CDATA を含む隣接テキストを、XML の文字として連結する。
+    fn scalar_text(&mut self, element: &Element) -> Result<Option<f64>, Error> {
+        self.charge(element, Kind::Work, element.span().len() as u64)?;
+        let mut text = String::new();
+        for node in element.children() {
+            self.charge(element, Kind::Work, 1)?;
+            match node {
+                Node::Text(range) => text.push_str(&self.doc.text(range.clone())),
+                Node::CData(range) => text.push_str(&self.doc.cdata(range.clone())),
+                Node::Element(_) => return Ok(None),
+            }
+        }
+        Ok(text
+            .trim()
+            .parse::<f64>()
+            .ok()
+            .filter(|value| value.is_finite()))
     }
 
     /// 線形の `Feature`。測点の間隔（`Interval` の `main`）だけを読む
@@ -687,7 +869,7 @@ impl<'d> Reader<'d, '_, '_> {
     // 要素をたどるツール
 
     fn local(&self, element: &Element) -> &'d [u8] {
-        self.doc.local_name(element.name())
+        self.doc.parsed_local_name(element.name())
     }
 
     fn children(&self, element: &Element) -> Vec<&'d Element> {

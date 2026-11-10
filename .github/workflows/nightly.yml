@@ -13,6 +13,16 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  ply:
+    name: PLY の読みを ply-rs と照らす
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: rust-toolchain.toml のバージョンの Rust を入れる
+        run: rustup toolchain install
+      - name: 公開サンプルと合成の座標・属性、診断と予算を照らす
+        run: cargo test --package zumen-ply --test external --locked
+
   browser:
     name: ブラウザーで適合テスト（${{ matrix.browser }}）
     # PR ごとの Chromium は ci.yml の wasm の job で流す。毎晩は Firefox と WebKit（docs/support.md、決定 0199）
@@ -147,6 +157,36 @@ jobs:
         run: ZUMEN_IFC_SAMPLES_OUT="$RUNNER_TEMP/samples" cargo test --locked -p zumen-ifc --all-features --test samples writes_the_sample_models_for_other_readers
       - name: 同じ IFC を IfcOpenShell で読み、写した値が同じことを確かめる
         run: python -I crates/zumen-ifc/tests/ifcopenshell/samples.py samples "$RUNNER_TEMP/samples"
+      - name: 合成の 3 バージョンと公開サンプルの曲線の値を書く
+        run: ZUMEN_IFC_CURVES_OUT="$RUNNER_TEMP/curves" cargo test --locked -p zumen-ifc --all-features --test curves writes_curves_for_other_readers
+      - name: 曲線の定義を IfcOpenShell で読んだ値と照らす
+        run: python -I crates/zumen-ifc/tests/ifcopenshell/curves.py "$RUNNER_TEMP/curves"
+      - name: 要素の形状表現と共有写像の参照を書く
+        run: ZUMEN_IFC_SHAPES_OUT="$RUNNER_TEMP/shapes" cargo test --locked -p zumen-ifc --all-features --test product_shapes writes_product_shapes_for_other_readers
+      - name: 形状表現の参照と元の配置・写像の属性を IfcOpenShell と照らす
+        run: python -I crates/zumen-ifc/tests/ifcopenshell/product_shapes.py "$RUNNER_TEMP/shapes"
+      - name: 形の葉から取得した押し出しと断面の値を書く
+        run: ZUMEN_IFC_EXTRUSIONS_OUT="$RUNNER_TEMP/extrusions" cargo test --locked -p zumen-ifc --all-features --test extrusions writes_extrusions_for_other_readers
+      - name: 未適用の押し出し・断面・外輪を IfcOpenShell の元属性と照らす
+        run: python -I crates/zumen-ifc/tests/ifcopenshell/extrusions.py "$RUNNER_TEMP/extrusions"
+
+  laspy:
+    name: 非圧縮 LAS の読みを laspy と照らす
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: rust-toolchain.toml のバージョンの Rust を入れる
+        run: rustup toolchain install
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.14'
+      - name: laspy と NumPy をテストのツールとして入れる
+        run: |
+          python -m pip install --only-binary :all: laspy==2.7.0 numpy==2.5.4
+      - name: 既知値の全点形式と公開サンプルのヘッダー・全点を照らす
+        env:
+          ZUMEN_LASPY_REQUIRED: '1'
+        run: cargo test --locked -p zumen-las --test external
 
   pdf:
     name: PDF の読みを pdf.js と照らす

@@ -33,6 +33,20 @@ pub const BCF_ELEMENT_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
+/// 変更する topic の元の markup が UTF-8 でないため、未知の要素と属性を保って書き戻せない。変えていない topic は元のバイト列のまま保つ
+///
+/// `bcf.encoding.unsupported`（0.3.0 から）
+pub const BCF_ENCODING_UNSUPPORTED: Code = Code::new(
+    "bcf.encoding.unsupported",
+    Severity::Error,
+    None,
+    &[
+        Param::new("encoding", ParamType::Text),
+        Param::new("topic", ParamType::Text),
+    ],
+    &["encoding"],
+);
+
 /// bcfzip の中の項目が、そのバージョンの BCF の形に合わない。name は項目の名前、near は合わなかった要素か属性
 ///
 /// `bcf.file.invalid`（0.2.0 から）
@@ -2286,6 +2300,28 @@ pub const IFC_CIVIL_UNIT_ASSUMED: Code = Code::new(
     &["type"],
 );
 
+/// 曲線の定義に読めない値か循環があるので、曲線のグラフを返さなかった
+///
+/// `ifc.curve.invalid`（0.2.1 から）
+pub const IFC_CURVE_INVALID: Code = Code::new(
+    "ifc.curve.invalid",
+    Severity::Error,
+    None,
+    &[Param::new("reason", ParamType::Key)],
+    &["reason"],
+);
+
+/// 型を持たない曲線なので、種類と出所だけを持った
+///
+/// `ifc.curve.unsupported`（0.2.1 から）
+pub const IFC_CURVE_UNSUPPORTED: Code = Code::new(
+    "ifc.curve.unsupported",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("kind", ParamType::Key)],
+    &["kind"],
+);
+
 /// 同じ番号のインスタンスが複数あるので、番号で引くときは初めのものを使う
 ///
 /// `ifc.duplicate.dropped`（0.2.0 から）
@@ -2318,6 +2354,28 @@ pub const IFC_ENTRY_MISSING: Code = Code::new("ifc.entry.missing", Severity::Err
 /// `ifc.entry.unsupported`（0.2.0 から）
 pub const IFC_ENTRY_UNSUPPORTED: Code =
     Code::new("ifc.entry.unsupported", Severity::Error, None, &[], &[]);
+
+/// 押し出し・断面・境界の必要な値か閉鎖に不正があり、結果を返さなかった
+///
+/// `ifc.extrusion.invalid`（0.3.0 から）
+pub const IFC_EXTRUSION_INVALID: Code = Code::new(
+    "ifc.extrusion.invalid",
+    Severity::Error,
+    None,
+    &[Param::new("reason", ParamType::Key)],
+    &["reason"],
+);
+
+/// 押し出し・断面か境界の閉鎖を扱えないため、結果を返さなかった
+///
+/// `ifc.extrusion.unsupported`（0.3.0 から）
+pub const IFC_EXTRUSION_UNSUPPORTED: Code = Code::new(
+    "ifc.extrusion.unsupported",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("reason", ParamType::Key)],
+    &["reason"],
+);
 
 /// ISO 10303-21 の始まり・DATA のセクション・終わりのどれかがない
 ///
@@ -2408,6 +2466,21 @@ pub const IFC_REFERENCE_MISSING: Code = Code::new(
     &[],
 );
 
+/// 別の成分に写した対象が建物モデルの要素でないので、関係を成分に写せなかった。集合内の位置は 0 から
+///
+/// `ifc.relation-target.unsupported`（0.2.1 から）
+pub const IFC_RELATION_TARGET_UNSUPPORTED: Code = Code::new(
+    "ifc.relation-target.unsupported",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[
+        Param::new("kind", ParamType::Key),
+        Param::new("position", ParamType::UInt),
+        Param::new("target_kind", ParamType::Key),
+    ],
+    &["kind", "target_kind", "position"],
+);
+
 /// FILE_SCHEMA がないか、最初のスキーマの名前が IFC で始まらない
 ///
 /// `ifc.schema.unsupported`（0.2.0 から）
@@ -2417,6 +2490,39 @@ pub const IFC_SCHEMA_UNSUPPORTED: Code = Code::new(
     None,
     &[Param::new("schema", ParamType::Text)],
     &[],
+);
+
+/// 要素の形状表現の参照か構造に読めない値か循環があり、ビューを返さなかった
+///
+/// `ifc.shape.invalid`（0.2.1 から）
+pub const IFC_SHAPE_INVALID: Code = Code::new(
+    "ifc.shape.invalid",
+    Severity::Error,
+    None,
+    &[Param::new("reason", ParamType::Key)],
+    &["reason"],
+);
+
+/// 形状表現の取得で省略された属性を None として保持した
+///
+/// `ifc.shape.missing`（0.2.1 から）
+pub const IFC_SHAPE_MISSING: Code = Code::new(
+    "ifc.shape.missing",
+    Severity::Warning,
+    None,
+    &[Param::new("field", ParamType::Key)],
+    &["field"],
+);
+
+/// 形の項目は展開せず、元の L1 レコードへの参照だけを残した
+///
+/// `ifc.shape.unsupported`（0.2.1 から）
+pub const IFC_SHAPE_UNSUPPORTED: Code = Code::new(
+    "ifc.shape.unsupported",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("kind", ParamType::Key)],
+    &["kind"],
 );
 
 /// 線形に測点の IfcReferent がないので、初めの測点を 0 にした
@@ -4639,6 +4745,7 @@ pub const ZIP_SPLIT_UNSUPPORTED: Code =
 pub const ALL: &[Code] = &[
     BCF_CONVERSION_UNSUPPORTED,
     BCF_ELEMENT_UNSUPPORTED,
+    BCF_ENCODING_UNSUPPORTED,
     BCF_FILE_INVALID,
     BCF_LOCATION_UNSUPPORTED,
     BCF_MARKUP_UNSUPPORTED,
@@ -4831,10 +4938,14 @@ pub const ALL: &[Code] = &[
     IFC_ATTRIBUTE_INVALID,
     IFC_CIVIL_GEOMETRY_DROPPED,
     IFC_CIVIL_UNIT_ASSUMED,
+    IFC_CURVE_INVALID,
+    IFC_CURVE_UNSUPPORTED,
     IFC_DUPLICATE_DROPPED,
     IFC_ENTITY_DROPPED,
     IFC_ENTRY_MISSING,
     IFC_ENTRY_UNSUPPORTED,
+    IFC_EXTRUSION_INVALID,
+    IFC_EXTRUSION_UNSUPPORTED,
     IFC_FILE_INVALID,
     IFC_GLOBAL_ID_MISSING,
     IFC_HEIGHT_DATUM_UNSUPPORTED,
@@ -4845,7 +4956,11 @@ pub const ALL: &[Code] = &[
     IFC_PLACEMENT_UNSUPPORTED,
     IFC_RECORD_INVALID,
     IFC_REFERENCE_MISSING,
+    IFC_RELATION_TARGET_UNSUPPORTED,
     IFC_SCHEMA_UNSUPPORTED,
+    IFC_SHAPE_INVALID,
+    IFC_SHAPE_MISSING,
+    IFC_SHAPE_UNSUPPORTED,
     IFC_STATION_MISSING,
     IFC_TEXT_INVALID,
     IFC_UNIT_MISSING,

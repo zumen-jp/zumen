@@ -19,3 +19,9 @@ zumen-sdk = { version = "0.2.1", path = "../zumen-sdk" }
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+# 独立した PLY の読みと照合する（#809）。MIT、crates.io。wasm の tests も組み立てられる。
+# 公開・合成の有限の値だけを、頂点の順と列名で比較し、HashMap の列挙順を使わない。
+# build の skeptic と間接依存も寛容なライセンス。配布物の実装にはリンクしない。
+ply-rs = "=0.1.3"
