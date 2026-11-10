@@ -898,4 +898,32 @@ fn counts_the_work_of_long_names() {
     };
     let (short, long) = (named("N"), named(&"N".repeat(160_000)));
     assert!(long - short >= 2 * 10_000, "{short} {long}");
+
+    // 分類の体系の名前を、重ねないための表で引き、名前で比べる
+    let parsed = read(&ids(&spec(
+        "分類",
+        &entity("IFCWALL"),
+        "<classification><system><simpleValue>Other</simpleValue></system></classification>",
+    )))
+    .0
+    .unwrap();
+    let system = |name: &str| {
+        let mut model = building().unwrap();
+        model.components.classification.insert(
+            ElementRef(0),
+            Classification {
+                references: vec![ClassificationReference {
+                    system: Some(name.to_owned()),
+                    edition: None,
+                    code: None,
+                    name: None,
+                }],
+            },
+        );
+        let (result, used) = used_work(|cx| check(&model, &parsed, &model, cx).map(|_| ()));
+        result.unwrap();
+        used
+    };
+    let (short, long) = (system("N"), system(&"N".repeat(160_000)));
+    assert!(long - short >= 2 * 10_000, "{short} {long}");
 }
