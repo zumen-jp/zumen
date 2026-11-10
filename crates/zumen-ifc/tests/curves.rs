@@ -385,6 +385,134 @@ fn retrieval_order_renumbering_and_changes_keep_sources_separate_from_meaning_an
 }
 
 #[test]
+fn composite_segment_sources_are_separate_from_semantics() {
+    for schema in VERSIONS {
+        let src = source(schema, "");
+        let original = graph(&read(&src), 42);
+        let renumbered = graph(&read(&src.replace("#40", "#940")), 42);
+        assert_eq!(
+            original
+                .items
+                .iter()
+                .map(|item| &item.kind)
+                .collect::<Vec<_>>(),
+            renumbered
+                .items
+                .iter()
+                .map(|item| &item.kind)
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(original.items[0].source.records, [40, 41]);
+        assert_eq!(renumbered.items[0].source.records, [940, 41]);
+        assert_ne!(original.items[0].source, renumbered.items[0].source);
+        let changed = graph(
+            &read(&src.replace(".CONTINUOUS.,.T.,#30", ".CONTINUOUS.,.F.,#30")),
+            42,
+        );
+        assert_ne!(original.items[0].kind, changed.items[0].kind);
+    }
+}
+
+#[test]
+fn rejects_inconsistent_dimensions_through_nested_children_and_trim_points() {
+    let extra = "#80=IFCPOLYLINE((#60,#81));\n\
+        #81=IFCCARTESIANPOINT((1.,0.,4.));\n\
+        #82=IFCCOMPOSITECURVESEGMENT(.DISCONTINUOUS.,.T.,#80);\n\
+        #83=IFCCOMPOSITECURVE((#40,#82),.F.);\n\
+        #84=IFCTRIMMEDCURVE(#22,(#60),(#81),.T.,.CARTESIAN.);\n\
+        #85=IFCTRIMMEDCURVE(#64,(#10),(#11),.T.,.CARTESIAN.);\n\
+        #86=IFCTRIMMEDCURVE(#22,(IFCPARAMETERVALUE(0.)),(#81),.T.,.PARAMETER.);\n\
+        #90=IFCCOMPOSITECURVE((#91,#92),.F.);\n\
+        #91=IFCCOMPOSITECURVESEGMENT(.CONTINUOUS.,.T.,#42);\n\
+        #92=IFCCOMPOSITECURVESEGMENT(.DISCONTINUOUS.,.T.,#96);\n\
+        #94=IFCCOMPOSITECURVESEGMENT(.CONTINUOUS.,.T.,#80);\n\
+        #95=IFCCOMPOSITECURVE((#94,#92),.F.);\n\
+        #96=IFCTRIMMEDCURVE(#64,(#97),(#98),.T.,.CARTESIAN.);\n\
+        #97=IFCCARTESIANPOINT((2.,0.,4.));\n\
+        #98=IFCCARTESIANPOINT((0.,2.,4.));\n\
+        #99=IFCTRIMMEDCURVE(#70,(#10),(#60),.T.,.CARTESIAN.);\n\
+        #100=IFCCOMPOSITECURVE((#40,#101),.F.);\n\
+        #101=IFCCOMPOSITECURVESEGMENT(.DISCONTINUOUS.,.T.,#70);";
+    for schema in VERSIONS {
+        let file = read(&source(schema, extra));
+        for id in [83, 84, 85, 86, 90, 99] {
+            let (result, diag, budget) = with(Limits::default(), |cx| file.curve(id, cx));
+            assert_eq!(result, Err(Error::Invalid), "{schema} #{id}");
+            assert!(diag.iter().any(|d| d.code() == codes::IFC_CURVE_INVALID));
+            assert_eq!(budget.used(Kind::Depth), 0);
+        }
+        for id in [42, 95, 96] {
+            graph(&file, id);
+        }
+        let (result, diag, _) = with(Limits::default(), |cx| file.curve(100, cx));
+        assert!(result.is_ok());
+        assert!(
+            diag.iter()
+                .any(|d| d.code() == codes::IFC_CURVE_UNSUPPORTED)
+        );
+        assert!(!diag.iter().any(|d| d.code() == codes::IFC_CURVE_INVALID));
+    }
+}
+
+#[test]
+fn validates_3d_axes_without_changing_or_rounding_the_ratios() {
+    let extra = "#80=IFCDIRECTION((0.,0.,1.));\n\
+        #81=IFCDIRECTION((0.,0.,-1.));\n\
+        #82=IFCAXIS2PLACEMENT3D(#60,#61,#80);\n\
+        #83=IFCCIRCLE(#82,2.);\n\
+        #84=IFCAXIS2PLACEMENT3D(#60,#61,#81);\n\
+        #85=IFCCIRCLE(#84,2.);\n\
+        #86=IFCAXIS2PLACEMENT3D(#60,#61,$);\n\
+        #87=IFCCIRCLE(#86,2.);\n\
+        #88=IFCAXIS2PLACEMENT3D(#60,$,#62);\n\
+        #89=IFCCIRCLE(#88,2.);\n\
+        #90=IFCAXIS2PLACEMENT3D(#60,$,$);\n\
+        #91=IFCCIRCLE(#90,2.);\n\
+        #92=IFCDIRECTION((1.,0.,1.));\n\
+        #93=IFCAXIS2PLACEMENT3D(#60,#61,#92);\n\
+        #94=IFCCIRCLE(#93,2.);\n\
+        #95=IFCDIRECTION((1.E300,1.E300,1.E-300));\n\
+        #96=IFCDIRECTION((2.E300,2.E300,2.E-300));\n\
+        #97=IFCDIRECTION((2.E300,2.E300,3.E-300));\n\
+        #98=IFCDIRECTION((5.E-324,0.,0.));\n\
+        #99=IFCDIRECTION((0.,5.E-324,0.));\n\
+        #100=IFCDIRECTION((1.E-323,0.,0.));\n\
+        #101=IFCAXIS2PLACEMENT3D(#60,#95,#96);\n\
+        #102=IFCCIRCLE(#101,2.);\n\
+        #103=IFCAXIS2PLACEMENT3D(#60,#95,#97);\n\
+        #104=IFCCIRCLE(#103,2.);\n\
+        #105=IFCAXIS2PLACEMENT3D(#60,#98,#99);\n\
+        #106=IFCCIRCLE(#105,2.);\n\
+        #107=IFCAXIS2PLACEMENT3D(#60,#98,#100);\n\
+        #108=IFCCIRCLE(#107,2.);\n\
+        #109=IFCDIRECTION((1.,1.,0.));\n\
+        #110=IFCDIRECTION((1.,1.0000000000000002,0.));\n\
+        #111=IFCAXIS2PLACEMENT3D(#60,#109,#110);\n\
+        #112=IFCCIRCLE(#111,2.);";
+    for schema in VERSIONS {
+        let file = read(&source(schema, extra));
+        for id in [83, 85, 87, 89, 102, 108] {
+            let (result, diag, budget) = with(Limits::default(), |cx| file.curve(id, cx));
+            assert_eq!(result, Err(Error::Invalid), "{schema} #{id}");
+            assert!(diag.iter().any(|d| d.code() == codes::IFC_CURVE_INVALID));
+            assert_eq!(budget.used(Kind::Depth), 0);
+        }
+        for id in [64, 91, 94, 104, 106, 112] {
+            graph(&file, id);
+        }
+        let curve = graph(&file, 94);
+        let CurveKind::Circle { position, .. } = &curve.items[0].kind else {
+            panic!()
+        };
+        assert_eq!(position.axis, Some([0., 0., 2.]));
+        assert_eq!(
+            position.reference_direction,
+            Some(Coordinates::Three([1., 0., 1.]))
+        );
+    }
+}
+
+#[test]
 fn follows_public_column_mapping_to_its_profile_curve() {
     let file = read(include_str!("../../../samples/ifc/gni/model_9.ifc"));
     let column = file.instance(131).unwrap();
@@ -580,10 +708,10 @@ fn write_graph(out: &mut Writer, graph: &CurveGraph) {
                 out.string("composite");
                 out.key("segments");
                 out.begin_array();
-                for segment in segments {
+                for (at, segment) in segments.iter().enumerate() {
                     out.begin_object();
                     out.key("instance");
-                    out.uint(segment.instance.unwrap());
+                    out.uint(item.source.records[at]);
                     out.key("curve");
                     out.uint(graph.item(segment.curve).unwrap().source.instance.unwrap());
                     out.key("same_sense");

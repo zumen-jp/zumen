@@ -39,6 +39,41 @@ enum Frame {
     Leave(u64),
 }
 
+/// 有限な binary64 の積を、符号・奇数の仮数・2 の指数に分ける。仮数の積は 106 bit 以内。
+/// 平行の検査で、積の overflow・underflow や、正規化の丸めによって向きの違いを失わない
+fn exact_product(a: f64, b: f64) -> (bool, u128, i32) {
+    fn parts(value: f64) -> (bool, u64, i32) {
+        let bits = value.to_bits();
+        let exponent = ((bits >> 52) & 0x7ff) as i32;
+        let fraction = bits & ((1u64 << 52) - 1);
+        if exponent == 0 {
+            (bits >> 63 != 0, fraction, -1074)
+        } else {
+            (bits >> 63 != 0, fraction | (1u64 << 52), exponent - 1075)
+        }
+    }
+    let (negative_a, a, exponent_a) = parts(a);
+    let (negative_b, b, exponent_b) = parts(b);
+    let product = u128::from(a) * u128::from(b);
+    if product == 0 {
+        return (false, 0, 0);
+    }
+    let shift = product.trailing_zeros();
+    (
+        negative_a != negative_b,
+        product >> shift,
+        exponent_a + exponent_b + shift as i32,
+    )
+}
+
+fn parallel(a: [f64; 3], b: [f64; 3]) -> bool {
+    let [ax, ay, az] = a;
+    let [bx, by, bz] = b;
+    exact_product(ax, by) == exact_product(ay, bx)
+        && exact_product(ax, bz) == exact_product(az, bx)
+        && exact_product(ay, bz) == exact_product(az, by)
+}
+
 struct Reader<'f, 'c, 'b> {
     file: &'f IfcFile,
     version: Version,
@@ -46,6 +81,7 @@ struct Reader<'f, 'c, 'b> {
     current: u64,
     sources: Vec<u64>,
     nodes: Vec<Option<CurveItem>>,
+    dimensions: Vec<Option<u8>>,
     references: BTreeMap<u64, CurveRef>,
     active: BTreeSet<u64>,
     children: Vec<u64>,
@@ -61,6 +97,7 @@ impl<'f, 'c, 'b> Reader<'f, 'c, 'b> {
             current: 0,
             sources: Vec::new(),
             nodes: Vec::new(),
+            dimensions: Vec::new(),
             references: BTreeMap::new(),
             active: BTreeSet::new(),
             children: Vec::new(),
@@ -209,11 +246,13 @@ impl<'f, 'c, 'b> Reader<'f, 'c, 'b> {
             return Ok(reference);
         }
         self.alloc(1, 256)?;
+        self.alloc(1, 2)?;
         // 木の索引と探索の状態のための領域も、確保する前に数える。幅の差で環境ごとに量を変えない
         self.check(Kind::DecodedBytes, 256)?;
         let reference =
             CurveRef(u32::try_from(self.nodes.len()).map_err(|_| self.invalid("count"))?);
         self.nodes.push(None);
+        self.dimensions.push(None);
         self.references.insert(id, reference);
         Ok(reference)
     }
@@ -236,6 +275,16 @@ impl<'f, 'c, 'b> Reader<'f, 'c, 'b> {
                 self.check(Kind::Work, 1)?;
                 match frame {
                     Frame::Leave(id) => {
+                        self.current = id;
+                        let reference = self
+                            .references
+                            .get(&id)
+                            .copied()
+                            .ok_or_else(|| self.invalid("reference"))?;
+                        let dimension = self.checked_dimension(reference)?;
+                        if let Some(slot) = self.dimensions.get_mut(reference.0 as usize) {
+                            *slot = dimension;
+                        }
                         self.active.remove(&id);
                         self.cx.leave();
                         entered -= 1;
@@ -312,6 +361,69 @@ impl<'f, 'c, 'b> Reader<'f, 'c, 'b> {
             self.cx.leave();
         }
         result
+    }
+
+    /// IfcCompositeCurve の SameDim と、IfcCurveDim が基の曲線から返す次元を照合する。
+    /// 子をたどり終えた順に確かめ、曲線の評価や再帰は行わない
+    fn checked_dimension(&mut self, reference: CurveRef) -> Result<Option<u8>, Error> {
+        let item = self
+            .nodes
+            .get_mut(reference.0 as usize)
+            .and_then(Option::take)
+            .ok_or_else(|| self.invalid("reference"))?;
+        let dimension = match &item.kind {
+            CurveKind::Polyline(points) | CurveKind::Indexed { points, .. } => {
+                points.first().map(|point| point.dimension())
+            }
+            CurveKind::Line { point, .. } => Some(point.dimension()),
+            CurveKind::Circle { position, .. } => Some(position.location.dimension()),
+            CurveKind::Composite { segments, .. } => {
+                let mut dimension = None;
+                for segment in segments {
+                    self.check(Kind::Work, 1)?;
+                    let child = self
+                        .dimensions
+                        .get(segment.curve.0 as usize)
+                        .copied()
+                        .flatten();
+                    Self::same_dimension(&mut dimension, child)
+                        .map_err(|()| self.invalid("dimension"))?;
+                }
+                dimension
+            }
+            CurveKind::Trimmed {
+                basis,
+                trim1,
+                trim2,
+                ..
+            } => {
+                let mut dimension = self.dimensions.get(basis.0 as usize).copied().flatten();
+                for trim in trim1.iter().chain(trim2) {
+                    self.check(Kind::Work, 1)?;
+                    if let CurveTrim::Point(point) = trim {
+                        Self::same_dimension(&mut dimension, Some(point.dimension()))
+                            .map_err(|()| self.invalid("dimension"))?;
+                    }
+                }
+                dimension
+            }
+            CurveKind::Unsupported(_) => None,
+        };
+        if let Some(slot) = self.nodes.get_mut(reference.0 as usize) {
+            *slot = Some(item);
+        }
+        Ok(dimension)
+    }
+
+    fn same_dimension(dimension: &mut Option<u8>, next: Option<u8>) -> Result<(), ()> {
+        match (*dimension, next) {
+            (Some(a), Some(b)) if a != b => Err(()),
+            (None, Some(value)) => {
+                *dimension = Some(value);
+                Ok(())
+            }
+            _ => Ok(()),
+        }
     }
 
     fn parse(&mut self, id: u64) -> Result<CurveKind, Error> {
@@ -430,6 +542,15 @@ impl<'f, 'c, 'b> Reader<'f, 'c, 'b> {
             }
             Some(direction)
         };
+        // IfcAxis2Placement3D: AxisAndRefDirProvision・AxisToRefDirPosition（IFC2X3: WR5・WR4）
+        if three {
+            match (axis, reference_direction) {
+                (None, None) => {}
+                (Some(axis), Some(Coordinates::Three(reference))) if !parallel(axis, reference) => {
+                }
+                _ => return Err(self.invalid("placement")),
+            }
+        }
         Ok(CurvePosition {
             location,
             axis,
@@ -557,7 +678,6 @@ impl<'f, 'c, 'b> Reader<'f, 'c, 'b> {
                 curve,
                 same_sense,
                 transition,
-                instance: Some(id),
             });
         }
         let self_intersect = self.flag(arg(record, 2), true)?;

@@ -34,6 +34,7 @@ pub struct CurveSource {
     /// 曲線を定義する L1 のインスタンスの番号
     pub instance: Option<u64>,
     /// この曲線が直接使う点・向き・配置・区間などのインスタンス。読んだ順。同じものも残す
+    /// 合成の曲線では、`CurveKind::Composite::segments` と同じ順の区間の出所
     pub records: Vec<u64>,
 }
 
@@ -42,10 +43,10 @@ pub struct CurveSource {
 pub struct CurvePosition {
     /// 中心。2 次元か 3 次元
     pub location: Coordinates,
-    /// 局所の z 軸。3 次元だけ。なければ [0, 0, 1]
+    /// 局所の z 軸。3 次元だけ。参照方向とともに指定するか、ともに省略する。なければ [0, 0, 1]
     pub axis: Option<[f64; 3]>,
     /// 局所の x 軸の参照方向。3 次元では z 軸に垂直な面へ射影して使う。
-    /// なければ X 軸（z 軸と平行なら Y 軸）、2 次元では [1, 0] を使う
+    /// 3 次元では z 軸とともに指定するか、ともに省略する。なければ X 軸、2 次元では [1, 0] を使う
     pub reference_direction: Option<Coordinates>,
 }
 
@@ -80,8 +81,6 @@ pub struct CurveSegment {
     pub same_sense: bool,
     /// 次の区間とのつなぎ方
     pub transition: CurveTransition,
-    /// 区間を定義する L1 のインスタンス。意味の値には含めない
-    pub instance: Option<u64>,
 }
 
 /// 曲線を切る位置。点と媒介変数の両方があれば両方を保持する
