@@ -275,7 +275,10 @@ fn attribute_lookups_count_the_values_and_names() {
     // （16 バイトで 1）も数える（#732）
     let (renamed, _, work) = run((0, suffix, 0, 0), Limits::default());
     assert_eq!(renamed.unwrap(), report);
-    assert_eq!(work - base, calls * 13 * (suffix as u64 + suffix as u64 / 16));
+    assert_eq!(
+        work - base,
+        calls * 13 * (suffix as u64 + suffix as u64 / 16)
+    );
     // 扉と IfcRoot の間に上位の型を足すと、属性の数を求める歩数と、並びを作る行きと帰りの歩数と、上位の型の並びの
     // 名前が、1 度だけ増える
     let (chained, _, work) = run((0, 0, chain, 0), Limits::default());

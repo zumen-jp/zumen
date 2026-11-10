@@ -72,8 +72,8 @@ enum Ast {
 const MAX_NODES: usize = 10_000;
 
 /// 展開する手間（式の木の節を展開する回数）の上限。空の式を `{n,m}` で重ねても、状態を足さずに回り続けない
-/// ようにする（#732）
-const MAX_STEPS: usize = 4 * MAX_NODES;
+/// ようにする。括弧を重ねた式も、状態の上限までは読めるように、入れ子の深さの分の余裕を持たせる（#732）
+const MAX_STEPS: usize = (MAX_DEPTH + 2) * MAX_NODES;
 
 /// 括弧と、文字の集まりの引き算（`[a-z-[aeiou]]`）の入れ子の深さの上限。読む・展開する・照合する再帰が、
 /// スタックを使い切らないようにする（#732）
@@ -619,5 +619,9 @@ mod tests {
         assert_eq!(pattern.work(0), 1 + 2000 * 5);
         assert_eq!(pattern.work(9), 10 * (1 + 2000 * 5));
         assert_eq!(pattern.matches(&"a".repeat(2000)), Some(true));
+        // 括弧を重ねても、状態の上限までは読む
+        for nested in ["((((a)))){8000}", "((((((a)))))){6000}"] {
+            assert!(Pattern::new(nested).is_some(), "{nested}");
+        }
     }
 }

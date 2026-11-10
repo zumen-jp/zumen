@@ -827,3 +827,75 @@ fn counts_the_work_of_gathering_properties() {
     let (few, many) = (work(10), work(2_010));
     assert!(many - few >= 2 * 2_000 + 2_000, "{few} {many}");
 }
+
+/// 名前の長さに比例する手間（プロパティの名前を表で引く、属性の値を写す、指摘に仕様の名前を写す）も数える（#732）
+#[test]
+fn counts_the_work_of_long_names() {
+    let long = "N".repeat(160_000);
+    let parsed = read(&ids(&format!(
+        "{}{}",
+        spec(
+            "プロパティ",
+            &entity("IFCWALL"),
+            "<property><propertySet><simpleValue>Pset_WallCommon</simpleValue></propertySet>\
+             <baseName><simpleValue>Missing</simpleValue></baseName></property>",
+        ),
+        spec(
+            "属性",
+            &entity("IFCWALL"),
+            "<attribute><name><simpleValue>Name</simpleValue></name></attribute>",
+        )
+    )))
+    .0
+    .unwrap();
+    let work = |name: &str| {
+        let mut model = building().unwrap();
+        let property = Property {
+            name: name.to_owned(),
+            value: None,
+            unit: None,
+        };
+        // 壁 i1 と壁の型 i5 のセットに、長い名前のプロパティを足す。壁の名前も長くする
+        for owner in [ElementRef(0), ElementRef(4)] {
+            if let Some(properties) = model.components.properties.get(owner) {
+                let mut properties = properties.clone();
+                properties.sets[0].properties.push(property.clone());
+                model.components.properties.insert(owner, properties);
+            }
+        }
+        model.components.identity.insert(
+            ElementRef(0),
+            Identity {
+                name: Some(name.to_owned()),
+                ..Identity::default()
+            },
+        );
+        let (result, used) = used_work(|cx| check(&model, &parsed, &model, cx).map(|_| ()));
+        result.unwrap();
+        used
+    };
+    // 2 つのプロパティの名前を表で引き、名前で比べる。壁の名前を写し、比べる
+    let (short, long) = (work("N"), work(&long));
+    assert!(long - short >= 4 * 10_000, "{short} {long}");
+
+    // 指摘ごとに、仕様の名前を 2 回写す
+    let named = |name: &str| {
+        let parsed = read(&ids(&spec(
+            name,
+            &entity("IFCWALL"),
+            "<attribute><name><simpleValue>Tag</simpleValue></name></attribute>",
+        )))
+        .0
+        .unwrap();
+        let model = building().unwrap();
+        let (result, used) = used_work(|cx| {
+            let report = check(&model, &parsed, &model, cx)?;
+            assert_eq!(report.findings.len(), 1);
+            Ok(())
+        });
+        result.unwrap();
+        used
+    };
+    let (short, long) = (named("N"), named(&"N".repeat(160_000)));
+    assert!(long - short >= 2 * 10_000, "{short} {long}");
+}
