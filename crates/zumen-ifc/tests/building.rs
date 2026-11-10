@@ -763,7 +763,7 @@ fn copies_count_against_decoded_bytes(shared: impl Fn(u32) -> String, per_wall: 
     let (result, _, used) = lift_decoded(&src, Limits::default());
     assert!(result.is_ok(), "{result:?}");
     assert!(
-        used - base >= (many - few) as u64 * per_wall,
+        used.saturating_sub(base) >= (many - few) as u64 * per_wall,
         "{base} {used}"
     );
     let limits = Limits::default().with(Kind::DecodedBytes, Limit::Finite(base + per_wall * 10));
@@ -880,4 +880,103 @@ fn long_unit_names_count_their_copies() {
         },
         4000,
     );
+}
+
+/// 予算で止まったときに、単位の写しを止めたことを「単位がない」と診断しない（#733）
+#[test]
+fn stopping_does_not_report_missing_units() {
+    let long = "u".repeat(4000);
+    let mut extra = format!(
+        "#900=IFCCONVERSIONBASEDUNIT(#14,.LENGTHUNIT.,'{long}',#902);\n\
+         #902=IFCMEASUREWITHUNIT(IFCLENGTHMEASURE(0.3),#903);\n\
+         #903=IFCSIUNIT(*,.LENGTHUNIT.,$,.METRE.);\n\
+         #904=IFCPROPERTYSET('{}',#2,'Pset_Units',$,(",
+        gid(904)
+    );
+    extra.push_str(
+        &(0..200)
+            .map(|i| format!("#{}", 3000 + i))
+            .collect::<Vec<_>>()
+            .join(","),
+    );
+    extra.push_str("));\n");
+    for i in 0..200 {
+        extra.push_str(&format!(
+            "#{}=IFCPROPERTYSINGLEVALUE('L{i}',$,IFCLENGTHMEASURE(1.),#900);\n",
+            3000 + i
+        ));
+    }
+    extra.push_str(&format!(
+        "#901=IFCRELDEFINESBYPROPERTIES('{}',#2,$,$,(#1000),#904);",
+        gid(901)
+    ));
+    let src = with_walls(1, &extra);
+    let (result, diag, base) = lift_decoded(&src, Limits::default());
+    assert!(result.is_ok(), "{result:?}");
+    assert!(!found(&diag).contains(&codes::IFC_UNIT_MISSING));
+    let limits = Limits::default().with(Kind::DecodedBytes, Limit::Finite(base / 4));
+    let (stopped, diag, _) = lift_decoded(&src, limits);
+    assert!(matches!(stopped, Err(Error::Stopped(_))), "{stopped:?}");
+    assert!(found(&diag).contains(&codes::BUDGET_DECODED_BYTES_EXCEEDED));
+    assert!(!found(&diag).contains(&codes::IFC_UNIT_MISSING), "{diag:?}");
+}
+
+/// 1 つのセットや層の集合が同じ項目を繰り返し参照しても、足すたびに数え、上限で止まる（#733）
+#[test]
+fn repeated_references_count_each_copy() {
+    let long = "n".repeat(4000);
+    let repeated = |count: usize| {
+        let refs = vec!["#2000"; count].join(",");
+        format!(
+            "#2000=IFCPROPERTYSINGLEVALUE('{long}',$,IFCLABEL('x'),$);\n\
+             #900=IFCPROPERTYSET('{}',#2,'Pset_Repeated',$,({refs}));\n\
+             #901=IFCRELDEFINESBYPROPERTIES('{}',#2,$,$,(#1000),#900);\n\
+             #2001=IFCMATERIALLAYER(#73,10.,$,'{long}',$,$,$);\n\
+             #902=IFCMATERIALLAYERSET(({}),'Layers',$);\n\
+             #903=IFCRELASSOCIATESMATERIAL('{}',#2,$,$,(#99999),#902);",
+            gid(900),
+            gid(901),
+            vec!["#2001"; count].join(","),
+            gid(903)
+        )
+    };
+    let (result, _, few) = lift_decoded(&with_walls(1, &repeated(2)), Limits::default());
+    assert!(result.is_ok(), "{result:?}");
+    let src = with_walls(1, &repeated(202));
+    let (result, _, many) = lift_decoded(&src, Limits::default());
+    assert!(result.is_ok(), "{result:?}");
+    // プロパティと層の名前を、200 回ずつ多く写す
+    assert!(many.saturating_sub(few) >= 2 * 200 * 4000, "{few} {many}");
+    let limits = Limits::default().with(Kind::DecodedBytes, Limit::Finite(few + 100_000));
+    let (stopped, diag, _) = lift_decoded(&src, limits);
+    assert!(matches!(stopped, Err(Error::Stopped(_))), "{stopped:?}");
+    assert!(found(&diag).contains(&codes::BUDGET_DECODED_BYTES_EXCEEDED));
+}
+
+/// 要素と、解けない定義の参照の組も、作業に数える（#733）
+#[test]
+fn unresolved_definitions_count_their_work() {
+    let unresolved = |walls: u32, sets: u32| {
+        format!(
+            "#901=IFCRELDEFINESBYPROPERTIES('{}',#2,$,$,({}),({}));",
+            gid(901),
+            wall_refs(walls),
+            (0..sets)
+                .map(|i| format!("#{}", 90_000 + i))
+                .collect::<Vec<_>>()
+                .join(",")
+        )
+    };
+    let work = |walls: u32, sets: u32| {
+        let src = with_walls(walls, &unresolved(walls, sets));
+        let file = read(src.as_bytes()).unwrap();
+        let mut budget = Budget::new(Limits::default());
+        let mut diag = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let result = Lift::<Building>::lift(&file, &mut Cx::new(&mut budget, &mut diag, &cancel));
+        assert!(result.is_ok(), "{result:?}");
+        budget.used(Kind::Work)
+    };
+    let (few, many) = (work(100, 2), work(100, 202));
+    assert!(many - few >= 100 * 200, "{few} {many}");
 }

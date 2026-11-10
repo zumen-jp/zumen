@@ -4,6 +4,7 @@
 //! IFC4 ADD2 TC1・IFC 4.3 ADD2 の 5 章から 8 章の、実体ごとの「属性」の節）による。形状表現・表示の様式・階・区域・
 //! 分類は、まだ作らない（決定 0207 の「サンプルを得てから決めること」）。
 
+use core::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet};
 
 use zumen_base::{Diagnostic, Kind, codes};
@@ -360,21 +361,6 @@ enum Definition {
 /// 写す値の 1 つの項目の大きさ（バイト）の目安
 const ITEM: u64 = 32;
 
-/// 要素に写す値の大きさ（バイトの目安）を、予算の展開したバイト（`DecodedBytes`）に数える。同じプロパティの
-/// セット・材料・単位・関係の GlobalId を多くの所に写すと、入力の大きさに比例しないメモリを使うため（#733）。
-/// 超えたら偽を返し、呼ぶ側は写さない。止まったことは、実体を読むループの確かめ（[`halted`]）で返す
-fn copied(cx: &mut Cx, bytes: u64) -> bool {
-    cx.check(Kind::DecodedBytes, bytes).is_ok()
-}
-
-/// 予算を超えていれば、止まったことを `place` の所で返す
-fn halted(cx: &mut Cx, place: Option<core::ops::Range<usize>>) -> Result<(), Error> {
-    match cx.budget.exceeded() {
-        Some(exceeded) => Err(stopped(cx, Stop::Exceeded(exceeded), place)),
-        None => Ok(()),
-    }
-}
-
 fn text_size(text: &str) -> u64 {
     ITEM + text.len() as u64
 }
@@ -410,28 +396,41 @@ fn literal_size(literal: &Literal) -> u64 {
     size
 }
 
+/// プロパティの大きさ。`unit` が偽なら、単位を除く（単位は、写すときに数えている）
+fn property_size(property: &Property, unit: bool) -> u64 {
+    text_size(&property.name)
+        .saturating_add(property.value.as_ref().map_or(0, |typed| {
+            optional_text_size(typed.type_name.as_deref())
+                .saturating_add(literal_size(&typed.value))
+        }))
+        .saturating_add(match (&property.unit, unit) {
+            (Some(u), true) => unit_size(u),
+            _ => 0,
+        })
+}
+
+/// 数量の大きさ。`unit` が偽なら、単位を除く
+fn quantity_size(quantity: &Quantity, unit: bool) -> u64 {
+    text_size(&quantity.name)
+        + ITEM
+        + optional_text_size(quantity.formula.as_deref())
+        + match (&quantity.value.unit, unit) {
+            (Some(u), true) => unit_size(u),
+            _ => 0,
+        }
+}
+
 fn definition_size(definition: &Definition) -> u64 {
     match definition {
         Definition::Properties(set) => set
             .properties
             .iter()
-            .map(|property| {
-                text_size(&property.name)
-                    + property.value.as_ref().map_or(0, |typed| {
-                        optional_text_size(typed.type_name.as_deref())
-                            .saturating_add(literal_size(&typed.value))
-                    })
-                    + property.unit.as_ref().map_or(0, unit_size)
-            })
+            .map(|property| property_size(property, true))
             .fold(text_size(&set.name), u64::saturating_add),
         Definition::Quantities(set) => set
             .quantities
             .iter()
-            .map(|quantity| {
-                text_size(&quantity.name)
-                    + measured_size(&quantity.value)
-                    + optional_text_size(quantity.formula.as_deref())
-            })
+            .map(|quantity| quantity_size(quantity, true))
             .fold(
                 text_size(&set.name) + optional_text_size(set.method.as_deref()),
                 u64::saturating_add,
@@ -439,14 +438,21 @@ fn definition_size(definition: &Definition) -> u64 {
     }
 }
 
+/// 材料の部分の大きさ。`unit` が偽なら、厚さの単位を除く
+fn part_size(part: &MaterialPart, unit: bool) -> u64 {
+    ITEM + optional_text_size(part.name.as_deref())
+        + match (&part.thickness, unit) {
+            (Some(thickness), true) => measured_size(thickness),
+            (Some(_), false) => ITEM,
+            (None, _) => 0,
+        }
+}
+
 fn material_size(material: &Material) -> u64 {
     material
         .parts
         .iter()
-        .map(|part| {
-            ITEM + optional_text_size(part.name.as_deref())
-                + part.thickness.as_ref().map_or(0, measured_size)
-        })
+        .map(|part| part_size(part, true))
         .fold(
             ITEM + optional_text_size(material.direction.as_deref())
                 + material.offset.as_ref().map_or(0, measured_size),
@@ -482,6 +488,8 @@ struct Lifter<'f> {
     units: BTreeMap<u64, Option<Unit>>,
     definitions: BTreeMap<u64, Option<Definition>>,
     materials: BTreeMap<u64, Option<Material>>,
+    /// 写す値を数えて止まった理由。実体を読むループで返す（#733）
+    halt: Cell<Option<Stop>>,
 }
 
 /// 実体の名前（大文字）の種類。そのバージョンにない実体と、表にない実体は `None`
@@ -523,6 +531,44 @@ impl<'f> Lifter<'f> {
             units: BTreeMap::new(),
             definitions: BTreeMap::new(),
             materials: BTreeMap::new(),
+            halt: Cell::new(None),
+        }
+    }
+
+    /// 要素に写す値の大きさ（バイトの目安）を、予算の展開したバイト（`DecodedBytes`）に数える。同じプロパティの
+    /// セット・材料・単位・関係の GlobalId を多くの所に写すと、入力の大きさに比例しないメモリを使うため（#733）。
+    /// 止まったら偽を返し、呼ぶ側は写さない。止まった理由は、実体を読むループの確かめ（[`Self::halted`]）で返す
+    fn copied(&self, cx: &mut Cx, bytes: u64) -> bool {
+        self.charge(cx, Kind::DecodedBytes, bytes)
+    }
+
+    /// 予算を使う。止まったら（予算・中断の合図・診断の上限）、理由を覚えて偽を返す
+    fn charge(&self, cx: &mut Cx, kind: Kind, amount: u64) -> bool {
+        if self.is_halted() {
+            return false;
+        }
+        match cx.check(kind, amount) {
+            Ok(()) => true,
+            Err(stop) => {
+                self.halt.set(Some(stop));
+                false
+            }
+        }
+    }
+
+    /// 写す値を数えて止まったか
+    fn is_halted(&self) -> bool {
+        let halt = self.halt.take();
+        let halted = halt.is_some();
+        self.halt.set(halt);
+        halted
+    }
+
+    /// 写す値を数えて止まっていれば、止まったことを `place` の所で返す
+    fn halted(&self, cx: &mut Cx, place: Option<core::ops::Range<usize>>) -> Result<(), Error> {
+        match self.halt.take() {
+            Some(stop) => Err(stopped(cx, stop, place)),
+            None => Ok(()),
         }
     }
 
@@ -540,7 +586,7 @@ impl<'f> Lifter<'f> {
             cx.check(Kind::Work, 1)
                 .map_err(|stop| stopped(cx, stop, Some(record.span())))?;
             self.element(id, record, cx)?;
-            halted(cx, Some(record.span()))?;
+            self.halted(cx, Some(record.span()))?;
         }
         if let Some(project) = project {
             self.document(project, cx);
@@ -553,13 +599,13 @@ impl<'f> Lifter<'f> {
             cx.check(Kind::Work, 1)
                 .map_err(|stop| stopped(cx, stop, Some(record.span())))?;
             self.relation(id, record, cx);
-            halted(cx, Some(record.span()))?;
+            self.halted(cx, Some(record.span()))?;
         }
         for (element, id) in core::mem::take(&mut self.types) {
             if let Some(record) = self.file.instance(id) {
                 let sets = refs(arg(record, 6));
                 self.definitions_of(element, &sets, cx);
-                halted(cx, Some(record.span()))?;
+                self.halted(cx, Some(record.span()))?;
             }
         }
         for (element, id) in core::mem::take(&mut self.grids) {
@@ -568,7 +614,7 @@ impl<'f> Lifter<'f> {
         for (element, id) in core::mem::take(&mut self.placements) {
             self.placement(element, id, cx)?;
         }
-        halted(cx, None)?;
+        self.halted(cx, None)?;
         for &id in &ids {
             if self.used.contains(&id) {
                 continue;
@@ -851,7 +897,7 @@ impl<'f> Lifter<'f> {
         if let Some(cached) = self.units.get(&id) {
             // 写す単位の大きさを数える（#733）
             let unit = cached.as_ref()?;
-            return copied(cx, unit_size(unit)).then(|| unit.clone());
+            return self.copied(cx, unit_size(unit)).then(|| unit.clone());
         }
         let unit = self.read_unit(id, cx);
         if unit.is_some() {
@@ -928,7 +974,7 @@ impl<'f> Lifter<'f> {
             .find(|unit| unit.kind == kind);
         let unit = match found {
             // 写す単位の大きさを数える（#733）
-            Some(unit) if copied(cx, unit_size(unit)) => Some(unit.clone()),
+            Some(unit) if self.copied(cx, unit_size(unit)) => Some(unit.clone()),
             Some(_) => return None,
             None => None,
         };
@@ -1160,6 +1206,9 @@ impl<'f> Lifter<'f> {
                 for (position, element) in &related {
                     self.definitions_of(*element, &sets, cx);
                     self.source(*element, id, record, Some(*position), cx);
+                    if self.is_halted() {
+                        break;
+                    }
                 }
                 true
             }
@@ -1174,7 +1223,7 @@ impl<'f> Lifter<'f> {
                 let size = material_size(&material);
                 for (position, element) in self.related(record, 5) {
                     // 要素に写す材料の大きさを数える（#733）
-                    if !copied(cx, size) {
+                    if !self.copied(cx, size) {
                         break;
                     }
                     self.building
@@ -1376,7 +1425,7 @@ impl<'f> Lifter<'f> {
         cx: &mut Cx,
     ) {
         // 要素ごとに写す、関係の GlobalId の大きさを数える（#733）
-        if !copied(cx, ITEM + raw_text_len(arg(record, 1))) {
+        if !self.copied(cx, ITEM + raw_text_len(arg(record, 1))) {
             return;
         }
         let global_id = self.text(arg(record, 1), record, cx);
@@ -1399,7 +1448,7 @@ impl<'f> Lifter<'f> {
         cx: &mut Cx,
     ) {
         // 要素ごとに写す、関係の GlobalId の大きさを数える（#733）
-        if !copied(cx, ITEM + raw_text_len(arg(record, 1))) {
+        if !self.copied(cx, ITEM + raw_text_len(arg(record, 1))) {
             return;
         }
         let global_id = match arg(record, 1) {
@@ -1419,6 +1468,10 @@ impl<'f> Lifter<'f> {
 
     /// 定義の集合を、要素のプロパティと数量に足す
     fn definitions_of(&mut self, element: ElementRef, sets: &[u64], cx: &mut Cx) {
+        // 要素と集合の組ごとに 1 つ数える。集合が解けなくても回るため（#733）
+        if !self.charge(cx, Kind::Work, sets.len() as u64) {
+            return;
+        }
         for &set in sets {
             match self.definition(set, cx) {
                 Some(Definition::Properties(set)) => {
@@ -1458,14 +1511,24 @@ impl<'f> Lifter<'f> {
         if let Some(cached) = self.definitions.get(&id) {
             // 要素に写すセットの大きさを数える（#733）
             let definition = cached.as_ref()?;
-            return copied(cx, definition_size(definition)).then(|| definition.clone());
+            return self
+                .copied(cx, definition_size(definition))
+                .then(|| definition.clone());
         }
-        let record = self.file.instance(id)?;
+        let Some(record) = self.file.instance(id) else {
+            // 解けない参照も覚え、要素ごとに引き直さない
+            self.definitions.insert(id, None);
+            return None;
+        };
         let name = self.text(arg(record, 3), record, cx).unwrap_or_default();
         let definition = if self.is(id, b"IFCPROPERTYSET") {
             let mut properties = Vec::new();
             for property in refs(arg(record, 5)) {
                 if let Some(property) = self.property(property, cx) {
+                    // 同じプロパティを繰り返し参照しても、足すたびに数える。単位は、写すときに数えている（#733）
+                    if !self.copied(cx, property_size(&property, false)) {
+                        break;
+                    }
                     properties.push(property);
                 }
             }
@@ -1475,6 +1538,10 @@ impl<'f> Lifter<'f> {
             let mut quantities = Vec::new();
             for quantity in refs(arg(record, 6)) {
                 if let Some(quantity) = self.quantity(quantity, cx) {
+                    // 足すたびに数える（#733）
+                    if !self.copied(cx, quantity_size(&quantity, false)) {
+                        break;
+                    }
                     quantities.push(quantity);
                 }
             }
@@ -1489,8 +1556,13 @@ impl<'f> Lifter<'f> {
         if definition.is_some() {
             self.used.insert(id);
         }
+        // 覚えるための写しを、写す前に数える（#733）
+        let size = definition.as_ref().map_or(0, definition_size);
+        if !self.copied(cx, size) {
+            return None;
+        }
         self.definitions.insert(id, definition.clone());
-        definition.filter(|definition| copied(cx, definition_size(definition)))
+        definition
     }
 
     /// `IfcPropertySingleValue`（1 Name・3 NominalValue・4 Unit）。ほかのプロパティは、まだ写さない
@@ -1513,7 +1585,8 @@ impl<'f> Lifter<'f> {
         let unit = match reference(arg(record, 4)) {
             Some(unit) => {
                 let resolved = self.unit(unit, cx);
-                if resolved.is_none() {
+                // 写す値を数えて止まったときは、単位がないとは言わない
+                if resolved.is_none() && !self.is_halted() {
                     let type_name = value
                         .as_ref()
                         .and_then(|v| v.type_name.clone())
@@ -1667,11 +1740,18 @@ impl<'f> Lifter<'f> {
         if let Some(cached) = self.materials.get(&id) {
             // 写す材料の大きさを数える（#733）
             let material = cached.as_ref()?;
-            return copied(cx, material_size(material)).then(|| material.clone());
+            return self
+                .copied(cx, material_size(material))
+                .then(|| material.clone());
         }
         let material = self.read_material(id, cx);
         if material.is_some() {
             self.used.insert(id);
+        }
+        // 覚えるための写しを、写す前に数える（#733）
+        let size = material.as_ref().map_or(0, material_size);
+        if !self.copied(cx, size) {
+            return None;
         }
         self.materials.insert(id, material.clone());
         material
@@ -1732,14 +1812,19 @@ impl<'f> Lifter<'f> {
             let Some(record) = self.take(layer) else {
                 continue;
             };
-            parts.push(MaterialPart {
+            let part = MaterialPart {
                 material: reference(arg(record, 1)).and_then(|m| self.elements.get(&m).copied()),
                 name: match self.version {
                     Version::Ifc2x3 => None,
                     _ => self.text(arg(record, 4), record, cx),
                 },
                 thickness: self.length(arg(record, 2), record, cx),
-            });
+            };
+            // 同じ層を繰り返し参照しても、足すたびに数える。厚さの単位は、写すときに数えている（#733）
+            if !self.copied(cx, part_size(&part, false)) {
+                break;
+            }
+            parts.push(part);
         }
         parts
     }
