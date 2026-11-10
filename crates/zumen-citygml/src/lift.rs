@@ -664,7 +664,7 @@ impl<'d> Reader<'d, '_, '_> {
     // 要素をたどるツール
 
     fn local(&self, element: &Element) -> &'d [u8] {
-        self.doc.local_name(element.name())
+        self.doc.parsed_local_name(element.name())
     }
 
     /// 接頭辞をつけた名前。名前空間の接頭辞は `PREFIXES` から決め、知らない名前空間は文書の接頭辞を使う
@@ -679,10 +679,10 @@ impl<'d> Reader<'d, '_, '_> {
         });
         let prefix = match known {
             Some(prefix) => Some(prefix.to_string()),
-            None => element
-                .name()
-                .prefix()
-                .map(|range| String::from_utf8_lossy(doc.bytes(range)).into_owned()),
+            None => element.name().prefix().map(|range| match doc.encoding() {
+                zumen_xml::Encoding::Utf16Le | zumen_xml::Encoding::Utf16Be => doc.cdata(range),
+                _ => String::from_utf8_lossy(doc.bytes(range)).into_owned(),
+            }),
         };
         match prefix {
             Some(prefix) => format!("{prefix}:{local}"),

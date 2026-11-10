@@ -202,3 +202,44 @@ fn other_documents_are_rejected() {
     assert!(boring.is_err());
     assert!(diag.contains(&(codes::BORING_FILE_INVALID, None)));
 }
+
+#[test]
+fn utf16_borings_keep_japanese_element_names_values_and_diagnostics() {
+    let text = bed("02", "2026-10-20");
+    let (_, expected_diag) = with_cx(|cx| read(text.as_bytes(), cx));
+    let text = text.replace("encoding=\"UTF-8\"", "encoding=\"UTF-16\"");
+    for little in [true, false] {
+        let mut src = if little {
+            vec![0xff, 0xfe]
+        } else {
+            vec![0xfe, 0xff]
+        };
+        for unit in text.encode_utf16() {
+            src.extend(if little {
+                unit.to_le_bytes()
+            } else {
+                unit.to_be_bytes()
+            });
+        }
+        let (boring, diag) = with_cx(|cx| read(&src, cx));
+        assert_eq!(diag, expected_diag);
+        let boring = boring.unwrap();
+        assert_eq!(boring.survey.as_deref(), Some("試験の地質調査"));
+        assert_eq!(boring.address.as_deref(), Some("試験県試験市"));
+        assert_eq!(boring.elevation.unwrap().value, 12.3);
+        assert_eq!(boring.datum, Some(Datum::Jgd2011));
+        assert_eq!(
+            boring
+                .layers
+                .iter()
+                .map(|l| (l.bottom, l.name.as_str()))
+                .collect::<Vec<_>>(),
+            [(1.8, "盛土"), (10.0, "砂")]
+        );
+        assert_eq!(
+            (boring.penetrations[0].depth, boring.penetrations[0].blows),
+            (1.15, 3)
+        );
+        assert_eq!(boring.water_levels[0].note.as_deref(), Some("自噴"));
+    }
+}

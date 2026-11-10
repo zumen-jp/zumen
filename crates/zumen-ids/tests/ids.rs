@@ -242,6 +242,42 @@ fn reads_specifications() {
 }
 
 #[test]
+fn utf16_specifications_keep_names_and_apply_their_requirements() {
+    let source = ids(&spec(
+        "壁の名前",
+        &entity("IFCWALL"),
+        "<attribute><name><simpleValue>Name</simpleValue></name><value><simpleValue>W1</simpleValue></value></attribute>",
+    )).replace("encoding=\"UTF-8\"", "encoding=\"UTF-16\"");
+    for little in [true, false] {
+        let mut src = if little {
+            vec![0xff, 0xfe]
+        } else {
+            vec![0xfe, 0xff]
+        };
+        for unit in source.encode_utf16() {
+            src.extend(if little {
+                unit.to_le_bytes()
+            } else {
+                unit.to_be_bytes()
+            });
+        }
+        let (parsed, diag) = with(|cx| Ids::read(&src, cx));
+        assert!(diag.is_empty(), "{diag:?}");
+        let parsed = parsed.unwrap();
+        assert_eq!(parsed.title(), Some("テスト"));
+        assert_eq!(parsed.specifications()[0].name(), "壁の名前");
+        assert_eq!(parsed.specifications()[0].versions(), ["IFC4"]);
+        let model = building().unwrap();
+        let (report, diag) = with(|cx| check(&model, &parsed, &model, cx));
+        assert!(diag.is_empty(), "{diag:?}");
+        let report = report.unwrap();
+        assert_eq!(statuses(&report), [("壁の名前", Status::Passed)]);
+        assert_eq!(report.specifications[0].applicable, 1);
+        assert!(report.findings.is_empty());
+    }
+}
+
+#[test]
 fn entity_and_predefined_type() {
     let typed = |predefined: &str| {
         format!(

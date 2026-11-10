@@ -187,11 +187,7 @@ impl Signature {
                         .is_some_and(|line| line.trim_ascii() == *expected)
                 })
             }
-            Signature::XmlRoot { name, namespace } => {
-                root::root(head).is_some_and(|(found, declared)| {
-                    found == name && namespace.is_none_or(|namespace| declared == Some(namespace))
-                })
-            }
+            Signature::XmlRoot { name, namespace } => root::matches(head, name, namespace),
             Signature::StepSchema { prefix } => schema::schema(head).is_some_and(|name| {
                 name.get(..prefix.len())
                     .is_some_and(|start| start.eq_ignore_ascii_case(prefix))

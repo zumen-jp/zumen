@@ -2469,6 +2469,14 @@ params = { version = "text" }
 since = "0.2.0"
 status = "active"
 
+[codes."bcf.encoding.unsupported"]
+description = "変更する topic の元の markup が UTF-8 でないため、未知の要素と属性を保って書き戻せない。変えていない topic は元のバイト列のまま保つ"
+severity = "error"
+params = { topic = "text", encoding = "text" }
+group-by = ["encoding"]
+since = "0.3.0"
+status = "active"
+
 [codes."bcf.location.unsupported"]
 description = "BCF に表せない場所なので、書かなかった。reason は plane（2D の場所）・target（ほかの対象）・camera（カメラがない）"
 severity = "warning"

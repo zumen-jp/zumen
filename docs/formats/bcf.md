@@ -7,10 +7,13 @@ BCF（BIM Collaboration Format）の bcfzip を [レビューの文書](review.m
 - `bcf_read` は `bcf.version` の `VersionId` で 2.1 と 3.0 を判別する。topic を指摘、comment をコメント、viewpoint を 3D の場所に写す。Guid は小文字にそろえる。対応表にない状態は `open` とし、元の文字列を `status_label` に残す。
 - `bcf_write` の版は、引数、元の bcfzip の版、3.0 の順に選ぶ。元と違う版への書き戻しは `bcf.conversion.unsupported` で断る。別の版を新しく作るときは元の bcfzip を渡さない。
 - 同じ Guid の変えていない topic は元のフォルダーをそのまま書く。変えた topic でも未知の要素・属性、文書の参照、変えていないコメントと viewpoint を残す。カメラを変えた viewpoint は新しいファイルにし、合わなくなったスナップショットを引き継がない。
+- [XML の規則](xml.md)で UTF-16 の部品も読む。元の markup が UTF-8 でない topic を変更すると、未知の要素と属性を保って書き戻せないため、`bcf.encoding.unsupported` で止める。変更しない topic は、Shift_JIS・UTF-16 とも原本のまま書く。
 - 書けない場所・図形・要素・照合の由来は診断にする。作者や日時などの必須値は呼び出し側から受け取り、補った値を報告する。値が足りなければ失敗する。
 - 2.1 はコメントの本文が空でも書き、カメラの縦横比を書かない。元がないとき、2.1 は拡張を省き、3.0 は書き出した値から `extensions.xml` を作る。往復と欠落の診断は [適合テスト](../../bindings/conformance/cases/bcf.json) で確かめる。
 
 ## 確かめた度合い
+
+自作の UTF-16LE・UTF-16BE と Shift_JIS の markup で、未変更の topic のバイト保持と、題を変えたときの保存拒否を検査します。UTF-8 の未知の要素・属性の保持も既存の回帰テストで確かめます。文字コードを変えた BCF の外部照合はしていません。
 
 | 形式 | 向き | 段 |
 | --- | --- | --- |

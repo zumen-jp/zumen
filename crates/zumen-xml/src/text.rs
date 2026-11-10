@@ -47,6 +47,8 @@ pub(crate) fn decode(encoding: Encoding, raw: &[u8], mode: Mode) -> String {
     let decoded = match encoding {
         Encoding::Utf8 => String::from_utf8_lossy(raw),
         Encoding::ShiftJis => encoding_rs::SHIFT_JIS.decode_without_bom_handling(raw).0,
+        Encoding::Utf16Le => encoding_rs::UTF_16LE.decode_without_bom_handling(raw).0,
+        Encoding::Utf16Be => encoding_rs::UTF_16BE.decode_without_bom_handling(raw).0,
     };
     let mut out = String::with_capacity(decoded.len());
     let mut rest = decoded.as_ref();
