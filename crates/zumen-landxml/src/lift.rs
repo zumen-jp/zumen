@@ -230,7 +230,11 @@ impl<'d> Reader<'d, '_, '_> {
                         let work = before.saturating_add(zumen_civil::place_work(alignment));
                         self.charge(child, Kind::Work, work)?;
                     }
-                    self.spiral(child, pi, alignment)
+                    let previous = match pi {
+                        Some(_) => None,
+                        None => self.end_direction(child, alignment)?,
+                    };
+                    self.spiral(child, pi, previous)
                 }
                 _ => {
                     self.unsupported(child);
@@ -306,13 +310,33 @@ impl<'d> Reader<'d, '_, '_> {
         })
     }
 
+    /// 平面線形の終わりの向き。区間の上の点を求める手間は予算に数え（#727）、止まれば `element` の所で知らせる。
+    /// 求められなければ `None`
+    fn end_direction(
+        &mut self,
+        element: &Element,
+        alignment: &Alignment,
+    ) -> Result<Option<f64>, Error> {
+        let before = zumen_civil::length(alignment);
+        let mut quiet = zumen_base::Diagnostics::new();
+        let mut cx = Cx::new(self.cx.budget, &mut quiet, self.cx.cancel);
+        match zumen_civil::place_within(alignment, before, &mut cx) {
+            Ok(found) => Ok(found.ok().map(|placed| placed.direction)),
+            Err(stop) => {
+                let at = self.at(element);
+                self.cx.report(stop.to_diagnostic().at(at));
+                Err(Error::Stopped(stop))
+            }
+        }
+    }
+
     /// 緩和曲線。初めの向きは、初めの点から交点（`PI` の点 `pi`）への向きにし、交点がなければ前の区間の終わりの
-    /// 向きにする
+    /// 向き（`previous`）にする
     fn spiral(
         &mut self,
         element: &Element,
         pi: Option<MapPoint>,
-        alignment: &Alignment,
+        previous: Option<f64>,
     ) -> Result<Horizontal, Invalid> {
         let right = self.right(element)?;
         let start = self.point_of(element, b"Start").ok_or(Invalid("Start"))?;
@@ -338,14 +362,7 @@ impl<'d> Reader<'d, '_, '_> {
         let end_radius = radius(self, b"radiusEnd", "radiusEnd")?;
         let direction = match pi {
             Some(pi) => azimuth(start, pi),
-            None => {
-                let before = zumen_civil::length(alignment);
-                let mut quiet = zumen_base::Diagnostics::new();
-                let mut cx = Cx::new(self.cx.budget, &mut quiet, self.cx.cancel);
-                zumen_civil::place(alignment, before, &mut cx)
-                    .map(|placed| placed.direction)
-                    .map_err(|_| Invalid("PI"))?
-            }
+            None => previous.ok_or(Invalid("PI"))?,
         };
         let kind = self.attribute(element, b"spiType").unwrap_or_default();
         let curve = match kind.trim() {
