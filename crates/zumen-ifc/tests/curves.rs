@@ -224,6 +224,7 @@ fn reports_unsupported_kinds_and_rejects_invalid_values_without_partial_graphs()
         "IFCTRIMMEDCURVE(#24,(),(IFCPARAMETERVALUE(1.)),.T.,.PARAMETER.)",
         "IFCTRIMMEDCURVE(#24,(IFCPARAMETERVALUE(0.),IFCPARAMETERVALUE(1.)),(#12),.T.,.PARAMETER.)",
         "IFCCOMPOSITECURVE((#91),.F.)",
+        "IFCCOMPOSITECURVE((#40),$)",
     ] {
         let file = read(&source(
             "IFC4",

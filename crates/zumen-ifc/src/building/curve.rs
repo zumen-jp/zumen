@@ -160,9 +160,6 @@ impl<'f, 'c, 'b> Reader<'f, 'c, 'b> {
     }
 
     fn flag(&mut self, value: Option<&Value>, unknown: bool) -> Result<Option<bool>, Error> {
-        if unknown && matches!(value, Some(Value::Null)) {
-            return Ok(None);
-        }
         match self.enumeration(value)? {
             b"T" => Ok(Some(true)),
             b"F" => Ok(Some(false)),
