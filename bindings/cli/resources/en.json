@@ -238,6 +238,7 @@
     "las.crs.unsupported": "EPSG:{epsg} is not supported, so the CRS is unknown.",
     "las.file.invalid": "The LAS header cannot be read.",
     "las.laz.invalid": "The LAZ points cannot be decompressed ({reason}).",
+    "las.laz.unsupported": "The LAZ points were not read because LAZ decompression is disabled. Decompress the file to LAS before opening it.",
     "las.point-format.unsupported": "The point format {format} is not supported.",
     "las.points.invalid": "The point records are short, so only {found} of {expected} points were read.",
     "las.vertical-crs.unsupported": "The vertical CRS EPSG:{epsg} is not supported, so the vertical CRS is unknown.",

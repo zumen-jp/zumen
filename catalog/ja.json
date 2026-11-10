@@ -238,6 +238,7 @@
     "las.crs.unsupported": "座標系 EPSG:{epsg} を扱えないので、座標系を不明にしました。",
     "las.file.invalid": "LAS のヘッダーが読めません。",
     "las.laz.invalid": "LAZ の点を展開できません（{reason}）。",
+    "las.laz.unsupported": "LAZ の点の展開を止めているので、読みませんでした。LAS に展開してから開いてください。",
     "las.point-format.unsupported": "点の形式 {format} は扱えません。",
     "las.points.invalid": "点のレコードが短いので、{expected} 点のうち {found} 点だけを読みました。",
     "las.vertical-crs.unsupported": "高さの座標系 EPSG:{epsg} を扱えないので、高さの座標系を不明にしました。",

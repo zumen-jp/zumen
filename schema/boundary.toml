@@ -189,7 +189,7 @@ ops = ["capabilities", "open", "close", "describe", "civil", "geo"]
 # 点群のモジュール（決定 0232・0253）。設計の TIN との差のために、J-LandXML も読む
 [[modules]]
 name = "pointcloud"
-description = "点群（LAS・LAZ・PLY・XYZ・E57）と、設計の TIN（J-LandXML）との差"
+description = "点群（LAS・PLY・XYZ・E57）と、設計の TIN（J-LandXML）との差"
 formats = ["las", "ply", "xyz", "e57", "landxml"]
 ops = ["capabilities", "open", "close", "describe", "civil", "pointcloud", "deviation"]
 
@@ -212,7 +212,7 @@ format = "ifc"
 module = "bim"
 rules = [{ step-schema = "IFC" }]
 
-# LAS・LAZ。範囲で読むので、入力の初めの部分だけで見分ける（決定 0232）
+# LAS・LAZ。範囲で読むので、入力の初めの部分だけで見分ける（決定 0232）。LAZ は、開くと las.laz.unsupported で断る（決定 0289）
 [[detection]]
 format = "las"
 module = "pointcloud"
