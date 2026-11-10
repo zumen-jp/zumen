@@ -20,8 +20,10 @@ use zumen_sdk::{Cx, Error, Lift, Stop};
 use crate::{IfcFile, IfcZipFile, Record, Value, at_bytes, stopped};
 
 mod curve;
+mod extrusion;
 mod semantic;
 mod shape;
+pub use extrusion::{ExtrudedArea, ExtrusionSource};
 pub use shape::{ProductShape, ShapeLinks, ShapeNode, ShapeRef};
 
 /// 建物モデルを作るバージョン

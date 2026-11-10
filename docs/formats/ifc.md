@@ -87,6 +87,51 @@ WASI の出力は `target/shape-comparison-wasm` に書きます。同じ 4 件�
 
 Building の representation・style・grid への統合、立体・断面の型、形の意味値を含む要素ハッシュは [#419](https://github.com/zumen-jp/zumen/issues/419) に残ります。
 
+## 形の葉から押し出しと断面を取得する
+
+`IfcFile::extruded_area(&ShapeNode, cx)` は、既存の `ProductShape` の葉から `IfcExtrudedAreaSolid`・`IfcArbitraryClosedProfileDef`・外輪の `CurveGraph` をまとめて取得します。L1 の引数の位置を利用側で読む必要はありません。同じ `IfcFile` の node を渡し、別のファイルや clone したファイルの node は `ifc.extrusion.invalid` にします。ifcZIP でも `file.ifc()` の同じ取得経路を使います。
+
+```rust,ignore
+let shape = file.product_shape(element_instance, cx)?;
+for node in &shape.nodes {
+    if file.kind(node.source).eq_ignore_ascii_case(b"IFCEXTRUDEDAREASOLID") {
+        let area = file.extruded_area(node, cx)?;
+        let profile = &area.definition.profile;
+        let curve = area.boundary.item(profile.boundary);
+        // 深さ・方向・配置・断面名は definition、外輪と単位は boundary、出所は source
+    }
+}
+```
+
+既存の `product_shape()` の結果と `ShapeLinks` は変えません。その L1 ビューの `Unsupported` と診断は、そのビューでは値を展開しないことを表します。同じ葉をこの操作で型に取得しても、先の診断を消しません。新しい境界 op、Building の成分、既存の ID・Hash v1・公開型の変更はありません。
+
+- 値は `zumen_building::Extrusion`・`ClosedProfile`・`AxisPlacement3`、出所は `zumen_ifc::ExtrusionSource` に分けます。`ExtrudedArea` 全体には意味値の等価性やハッシュを定義しません。比較するときは定義・曲線の `kind`・単位を使い、元の Record・STEP 番号・CurveSource を含めません。`CurveRef` は同じ取得結果の `boundary` 内だけの参照です。
+- 配置の原点・軸と参照方向の比、押し出す局所方向の比・深さ、断面名を元の値で保持します。軸や方向は正規化せず、要素の配置・写像・単位換算を適用しません。深さと立体の原点の単位も `boundary.length_unit` です。単位が解けない場合は `None` と `ifc.unit.missing` を返し、メートルなどを仮定しません。
+- 立体の Position は IFC2X3 では必須、IFC4 以降で省略されていれば `None` にします。配置の位置は 3D の有限な数とし、軸と参照方向は同時指定か同時省略、指定時は非零・非平行であることを検査します。省略した軸や配置を既定の値で補いません。
+- 断面は AREA の `IfcArbitraryClosedProfileDef` だけです。外輪の取得は既存 `curve()` に任せ、点・区間・共有・出所・単位を保持します。2D の Polyline は 4 点以上と始点・終点の一致、IndexedPolyCurve は添字の構造・接続と端点の座標の一致、完全な Circle は 2D の円の定義を検査します。点の追加や反転・近似は行いません。
+- IndexedPolyCurve の区間がない場合は 4 点以上、区間がある場合は点の列が 3 点以上必要です。使わない点や重複した点も元の列のまま保持します。自己交差・面積・弧の非共線性などを評価して有効な面と認めた結果ではありません。自己交差の申告値も `CurveGraph` にそのまま残します。
+- 深さは正の有限な数、押し出す方向は 3D の有限な比とし、局所 z 成分が 0 の方向を拒みます。元の配置の軸へ方向を変換してから検査することはしません。閉じていない輪、次元・参照・方向・配置・深さなどの不正は `ifc.extrusion.invalid` と `Error::Invalid` にします。`reason` は `source`・`type`・`reference`・`number`・`list`・`dimension`・`direction`・`placement`・`text`・`profile-type`・`count`・`closure`・`depth` です。曲線内部の不正は既存の曲線の診断も返します。
+- ほかの立体・断面、CompositeCurve・TrimmedCurve など、この取得で閉鎖を検証しない境界は `ifc.extrusion.unsupported` と `Error::Unsupported` にします。`reason` は `solid`・`profile`・`boundary` です。未検証を閉じた面と仮定して値を返しません。元のレコードは L1 のビューから引けます。
+- 立体・断面・曲線の深さ、参照・数・文字列・閉鎖の検査の手間、曲線・出所・文字列の確保前の予約量を共有の `Cx` で数えます。予約量はネイティブと wasm32 で共通です。中断・予算・不正・未対応では部分結果を返さず、入った深さを戻します。
+
+### 押し出しの確かめ方
+
+`crates/zumen-ifc/tests/extrusions.rs` は合成の IFC2X3・IFC4・IFC4X3 から既存の要素・共有写像の経路を使い、押し出し・閉じた断面・曲線を取得します。閉鎖・次元・方向・深さ・位置の不正、別のファイルの node、未知・循環・深さ・確保前の予算・中断と変異した入力を検査します。元の STEP 番号を変えたときの定義と出所の分離、取得前後の既存 Building の ID/hash も確認します。
+
+公開の柱は `#131` → 表現/写像 → `#114` の葉を既存の `product_shape()` から引き、この取得で断面 `#112` と外輪 `#111` へ進みます。利用側で STEP の引数を読む箇所はありません。深さ 8.8・方向・未適用の配置・断面名・外輪の 5 点を型付きで持ちます。全立体・断面の対応、配置や写像を適用した形、メッシュや体積の検証には数えません。
+
+IfcOpenShell 0.9.0.post1 との照合は、合成各版 2 件と公開 1 件の計 7 件です。押し出しの深さ・方向・未適用の配置、断面名と参照、外輪の定義、SI 単位の名前・接頭辞を比べます。数値は有限であることと等値を許容差なしで比較し、参照と列も厳密に比較します。公開の 1 件が `external`、合成 6 件は `synthetic` の範囲で外部の実装とも照合したものです。診断・予算、単位や配置・写像の適用、自己交差・面積・形の評価はこの外部照合に含めません。
+
+```powershell
+$env:ZUMEN_IFC_EXTRUSIONS_OUT = Join-Path (Get-Location) 'target/extrusion-comparison'
+cargo test -p zumen-ifc --locked --test extrusions
+python -I crates/zumen-ifc/tests/ifcopenshell/extrusions.py target/extrusion-comparison
+$env:CARGO_TARGET_WASM32_WASIP1_RUNNER = 'node --no-warnings tests/wasi-extrusions.mjs'
+cargo test -p zumen-ifc --locked --test extrusions --target wasm32-wasip1 -- --test-threads 1
+```
+
+WASI の出力先は `target/extrusion-comparison-wasm` です。4 件の JSON で、定義と元の単位・出所・曲線・Kind 別の予算使用量がネイティブと一致します。1 MiB のスタックで 1,024 段の曲線の停止とエラーの破棄を検査するテストだけはネイティブで流します。fuzz の `ifc` target も、既存の形の葉から 16 件までこの取得へ渡します。毎晩の CI でも export と外部照合を流します。
+
 ## 曲線を必要なときに取り出す
 
 Rust の `IfcFile::curve(instance, cx)` は、曲線のインスタンスを指定し、`zumen_building::CurveGraph` を返します。`building` の feature（既定で有効）が必要です。`IfcZipFile` では `file.ifc().curve(instance, cx)` と呼びます。要素の番号や `IfcGridAxis` の番号ではなく、それらから参照する曲線の番号を渡します。
@@ -171,5 +216,6 @@ cargo test -p zumen-ifc --locked --test curves --target wasm32-wasip1 -- --test-
 - 読み: 公開サンプルの IFC 12 件（`samples/ifc`）を建物モデルに写し、毎晩の CI で、IfcOpenShell 0.9.0.post1 が同じファイルから読んだ値と照らす（`crates/zumen-ifc/tests/ifcopenshell/samples.py`、#412・#512）。照らすのは、実体のクラス・GlobalId・名前・所属の先と型・プロジェクトの空間への変換・開口・プロパティと数量の値。手元の照合では、12 件とも食い違いは 0。許諾の要る国内の BIM ソフトの書き出しは #513 で足す。
 - 曲線の必要時の取得: [曲線の確かめ方](#曲線の確かめ方)のうち、公開サンプルの IndexedPolyCurve 1 件が `external` の範囲です。自作した 29 件は `synthetic` とし、IfcOpenShell との元の属性値の照合も行いました。ネイティブと wasm の JSON は、曲線の定義と予算の使用量まで一致しました。幾何の評価と BIM ソフトで開く確認は含みません。
 - 要素から形状表現をたどる L1 の取得: [形状表現の確かめ方](#形状表現の確かめ方)に従い、公開の柱の表現・写像と元の配置の参照・属性は `external`、合成の 3 版は `synthetic` の範囲で IfcOpenShell とも照合しました。曲線の取得へ渡す経路を確認しています。配置や写像を適用した形、立体・断面の型への変換は含みません。
+- 押し出しと閉じた外輪の断面: [押し出しの確かめ方](#押し出しの確かめ方)の公開 1 件が `external` です。合成の 3 版の 6 件は `synthetic` の範囲で IfcOpenShell とも照合しました。局所の値と SI 単位の保持の範囲で、配置・写像・単位の適用や形の評価は含みません。ほかの立体・断面、未検証の境界と Building への統合は残っています。
 - 書き: `building_apply` でプロパティ・名前・説明を変えて書いた IFC4 と IFC2X3 を、毎晩の CI で IfcOpenShell 0.9.0.post1 で開く。変更が見え、スキーマと EXPRESS の規則の検査の誤りが増えないことを確かめる（`crates/zumen-ifc/tests/ifcopenshell/check.py`、#482）。BIM ソフトでは開いていない。BIM ソフトで開く確認は #526 で行う。[検証キット](../../xtask/verify/ifc/README.md)は公開 IFC4・IFC2X3 を CLI で編集し、期待値・対照の壁・元の形の行の保持を比較する。キットの生成と再読み込みは `synthetic` で、製品での `application` の確認には数えない。
 - 判定・インスタンスのグラフ・壊れた所の扱いと、上に記した属性以外の値は、外部の実装と照らしていない（IfcOpenShell と照らしたのは、上の値だけ）。公開サンプル 12 件は、自前のテストでも L1 で読み、変えずに書くと元のバイト列に戻ることと、写さない値の診断の code・実体のクラス・件数を確かめる（`crates/zumen-ifc/tests/samples.rs`）。壊れた所の扱いと ifcZIP は、仕様とテストの中で作ったファイルだけで確かめた。

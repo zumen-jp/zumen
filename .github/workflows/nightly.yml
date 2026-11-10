@@ -165,6 +165,10 @@ jobs:
         run: ZUMEN_IFC_SHAPES_OUT="$RUNNER_TEMP/shapes" cargo test --locked -p zumen-ifc --all-features --test product_shapes writes_product_shapes_for_other_readers
       - name: 形状表現の参照と元の配置・写像の属性を IfcOpenShell と照らす
         run: python -I crates/zumen-ifc/tests/ifcopenshell/product_shapes.py "$RUNNER_TEMP/shapes"
+      - name: 形の葉から取得した押し出しと断面の値を書く
+        run: ZUMEN_IFC_EXTRUSIONS_OUT="$RUNNER_TEMP/extrusions" cargo test --locked -p zumen-ifc --all-features --test extrusions writes_extrusions_for_other_readers
+      - name: 未適用の押し出し・断面・外輪を IfcOpenShell の元属性と照らす
+        run: python -I crates/zumen-ifc/tests/ifcopenshell/extrusions.py "$RUNNER_TEMP/extrusions"
 
   laspy:
     name: 非圧縮 LAS の読みを laspy と照らす
