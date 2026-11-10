@@ -21,6 +21,7 @@ from pathlib import Path
 import sbom
 from build import read_receipt
 from licenses import MODULES, ROOT, TARGETS, WASM, license_expression, read_info, wasm_name
+from linux_abi import verify_linux
 
 OWN_LICENSES = ("LICENSE-MIT", "LICENSE-APACHE")
 VERSION = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))["workspace"]["package"]["version"]
@@ -67,6 +68,8 @@ def read_archive(path):
 
 
 def verify_wheel(path, target, library, notice, expression, abi_bom):
+    verify_linux(library, target)
+    require(path.name == f"zumen-{VERSION}-py3-none-{target['wheel']}.whl", "wheel のファイル名のタグが違う")
     with zipfile.ZipFile(path) as archive:
         names = archive.namelist()
         require(len(names) == len(set(names)), "wheel に同じ名前のファイルが複数ある")
@@ -106,6 +109,8 @@ def package_native(rid, built, licenses, output):
     cli_info, cli_notice = read_info(notice_root / "cli", "zumen-cli", target["target"])
     library = (built / target["library"]).read_bytes()
     executable = (built / target["exe"]).read_bytes()
+    verify_linux(library, target)
+    verify_linux(executable, target)
     read_receipt(built, notice_root / "abi", abi_info, target["library"], library)
     read_receipt(built, notice_root / "cli", cli_info, target["exe"], executable)
     abi_name, cli_name = target["library"] + ".cdx.json", target["exe"] + ".cdx.json"
@@ -157,6 +162,7 @@ def verify_nuget(path, expected, expression):
             require(f"lib/{framework}/Zumen.dll" in names, "NuGet のアセンブリに抜けがある")
         for target in TARGETS:
             binary = f"runtimes/{target['rid']}/native/{target['library']}"
+            verify_linux(archive.read(binary), target)
             sbom.verify(archive.read(binary), archive.read(binary + ".cdx.json"), expected[binary + ".cdx.json"])
 
 
@@ -172,6 +178,7 @@ def package_nuget(artifacts, output):
         expected[f"runtimes/{rid}/native/THIRD_PARTY_LICENSES"] = notice
         expected[f"runtimes/{rid}/native/{target['library']}"] = (native / target["library"]).read_bytes()
         binary = expected[f"runtimes/{rid}/native/{target['library']}"]
+        verify_linux(binary, target)
         bom = sbom.bind(artifacts / "licenses" / "native" / rid / "abi", info, target["library"], binary)
         name = target["library"] + ".cdx.json"
         require((native / name).read_bytes() == bom, f"{rid} の native の SBOM が違う")

@@ -40,6 +40,35 @@ python xtask/release/package.py native --rid win-x64 --built target/release-buil
 
 `out` の下に、ライセンス本文と SBOM を添えた `native/{rid}/`、CLI の zip か tar.gz、`wheels/*.whl` ができます。依存の区分や辺、ビルド時の記録、梱包後のバイナリや本文が違えば止まります。wheel は `.dist-info/sboms/` と `RECORD`、`License-File` も確かめます。
 
+### GNU Linux の下限を確かめる
+
+Linux の x64 と arm64 は、[対応するプラットフォーム](../../docs/support.md#プラットフォーム)に従い glibc 2.28 で作ります。`targets.json` は、[PyPA の manylinux_2_28](https://github.com/pypa/manylinux#manylinux_2_28-almalinux-8-based) の公式イメージを digest で固定します。Linux のビルドだけをコンテナーに置き、x64 と arm64 はそれぞれのアーキテクチャの runner で動かします。`build.py` は実環境の glibc とアーキテクチャも確認するので、通常の Ubuntu 上でそのまま配布用の GNU Linux バイナリを作ることはできません。
+
+manylinux と、Rust を入れる [dtolnay/rust-toolchain](https://github.com/dtolnay/rust-toolchain/tree/683b588c487a69d01f6c6ddf40f036ff682cc2c8) は MIT のビルドツールとして使います。Rust のバージョンは `rust-toolchain.toml` から読みます。コンテナーとその GCC などのソース・イメージは成果物に同梱せず、実行時の依存は追加しません。ELF の検査は Python の標準ライブラリだけで行います。
+
+コンテナーでは、checkout の一時 HOME にある Git の許可に依存せず、CI の workspace の正確なパスだけを `safe.directory` に指定します。設定は `GIT_CONFIG_COUNT` の command scope でこの job に渡し、既存の項目も保ちます。個人のグローバル設定は変更せず、`*` や親フォルダー全体は指定しません。ビルドの前に、同じ Git でリポジトリの場所と状態を読めることを確かめます。
+
+`linux_abi.py` は ELF64 のアーキテクチャ、GNU のバージョン要求、wheel のタグを確かめます。ELF のバージョン要求が壊れている場合と、glibc 2.28 を超える要求がある場合は拒みます。`build.py` のコピー前、ネイティブ・CLI・wheel・NuGet の梱包で同じ検査を使います。単独でも、バイナリを実行せずに確認できます。
+
+```bash
+python xtask/release/linux_abi.py --rid linux-x64 built/libzumen_abi1.so built/zumen
+```
+
+`package-check.yml` と `release.yml` の Linux のビルドは、梱包後に同じコンテナー内で次を実行します。
+
+```bash
+python xtask/release/check_linux_runtime.py --rid linux-x64 --built built --packages out
+```
+
+- 梱包対象の共有ライブラリを、Python 3.9・3.14 のソースのラッパーから開き、既存の適合テストのハッシュと比べる。
+- wheel を通信なしで一時フォルダーへインストールし、wheel 自体の import と同梱ライブラリの読み込みを確かめる。
+- `ZUMEN_CONFORMANCE_CLI` に梱包対象の CLI を指定し、既存の stdio・HTTP・process・MCP の適合テストを流す。テストで作る別の CLI に置き換えて確かめたことにはしない。
+- .NET 10 のソースのラッパーから、梱包対象の共有ライブラリの適合テストを流す。.NET の実行だけに使う ICU・Kerberos のライブラリはコンテナーに入れ、配布物には加えない。
+
+コンテナーで実際の glibc 2.28 を使いますが、カーネルは runner と共有するので、古いカーネルの下限で動かしたことにはなりません。静的な検査の通過と、x64・arm64 の実行結果は分けて記録します。公開済み v0.2.0 はこの検査を満たさず、同じ版の配布物を置き換えません。修正した新しい版の公開までの残件は [#789](https://github.com/zumen-jp/zumen/issues/789) にあります。
+
+ELF の参照先は [gABI のヘッダーと節](https://gabi.xinuos.com/elf/02-eheader.html)、[LSB の Symbol Versioning](https://refspecs.linuxfoundation.org/LSB_3.1.1/LSB-Core-generic/LSB-Core-generic/symversion.html)、[GNU ld のバージョンの照合](https://sourceware.org/binutils/docs/ld/VERSION.html)です。wheel の下限の意味は [Python Packaging の manylinux](https://packaging.python.org/en/latest/specifications/platform-compatibility-tags/#manylinux) に従います。
+
 ## wasm と npm のパッケージを作る
 
 ```bash
