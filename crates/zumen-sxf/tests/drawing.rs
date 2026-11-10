@@ -468,6 +468,43 @@ fn moves_raster_groups_as_underlays() {
     );
 }
 
+/// 座標を読めない点を持つ折れ線は、範囲の角を求められないので飛ばし、次の 4 点以上の折れ線を範囲にする（推定、#651）
+#[test]
+fn raster_frames_skip_polylines_with_unreadable_points() {
+    let src = sfc(&[
+        b"layer_feature(\'L\','1')",
+        b"polyline_feature('1','1','1','1','5',(0,x,20,20,0),(0,10,10,0,0))",
+        b"polyline_feature('1','1','1','1','5',(0,0,30,30,0),(0,10,10,0,0))",
+        b"sfig_org_feature(\'$$RASTER$$a.tif\','3')",
+        b"sfig_locate_feature('1',\'$$RASTER$$a.tif\','0','0','0','1','1')",
+        b"drawing_sheet_feature(\'S\','3','1','0','0')",
+    ]);
+    let (drawing, diag) = lift(&src);
+    let underlays: Vec<_> = drawing.sheets[0]
+        .elements
+        .iter()
+        .filter_map(|element| match &element.shape {
+            Shape::Underlay(underlay) => Some((underlay, &element.source)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(underlays.len(), 1, "{:?}", drawing.sheets[0].elements);
+    let (underlay, source) = underlays[0];
+    assert_eq!(
+        underlay.frame,
+        UnderlayFrame::Corners {
+            origin: paper(0.0, 0.0),
+            right: paper(30.0, 0.0),
+            top: paper(0.0, 10.0),
+        }
+    );
+    assert_eq!(source, &Ref::at_record(8).with_key(Key::Instance(30)));
+    assert!(
+        diag.iter()
+            .all(|d| d.code() != codes::SXF_RASTER_FRAME_MISSING)
+    );
+}
+
 #[test]
 fn moves_splines_as_joined_bezier_curves() {
     let src = sfc(&[

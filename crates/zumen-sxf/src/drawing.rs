@@ -1077,7 +1077,8 @@ impl<'f> Lifter<'f> {
     }
 
     /// 画像の作図グループなら、その画像。名前の `$$RASTER$$` か、属性の `$$ATRU$$番号$$名称$$画像$$` の後が
-    /// ファイルの名前で、グループの中の最初の 4 点以上の折れ線が範囲を示す（推定。docs/formats/sxf.md）
+    /// ファイルの名前で、グループの中の最初の 4 点以上の折れ線が範囲を示す（推定。docs/formats/sxf.md）。座標を読めない
+    /// 点を持つ折れ線は、角を求められないので飛ばす（推定、#651）
     fn raster(&self, name: &str, definition: &Definition, cx: &mut Cx) -> Option<Raster> {
         let path = raster_path(name)?;
         let outline = definition.members.iter().copied().find(|index| {
