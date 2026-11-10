@@ -712,8 +712,8 @@
 - 権利の根拠にした文書: [buildingSMART International の検証のツール（validate）](https://github.com/buildingSMART/validate)（確認日: 2026-10-24）
 - 照合に使う候補: IfcOpenShell（依存にせず、毎晩の CI で別に入れて使う）
 - サンプルの出どころ: 公開サンプルの IFC 12 件（samples/ifc。林野庁・中野区・GNI BIM Dataset・BIM Whale・Text2BIM。出所とライセンスは samples/ledger.toml、#412）・許諾の要る国内の BIM ソフトの書き出しは #513 で足す（zumen-jp/zumen-legacy#128）
-- 読みの確かめた度合い: `external`（確認日: 2026-11-03）
-- 読みの確かめた範囲: 公開サンプルの IFC 12 件（samples/ifc）を建物モデルに写し、毎晩の CI で IfcOpenShell が同じファイルから読んだ値と照らす。照らすのは、実体のクラス・GlobalId・名前・所属の先と型・プロジェクトの空間への変換・開口・プロパティと数量の値（crates/zumen-ifc/tests/ifcopenshell/samples.py、#412・#512）。手元の照合では、12 件とも食い違いは 0。判定・インスタンスのグラフ・壊れた所の扱いと、写さない値は、外部の実装と照らしていない。公開サンプル 12 件は、自前のテストでも L1 で読み、変えずに書くと元のバイト列に戻ることと、写さない値の診断の code・実体のクラス・件数を確かめる（crates/zumen-ifc/tests/samples.rs）。壊れた所の扱いと ifcZIP は、仕様とテストの中で作った IFC-SPF と ifcZIP（crates/zumen-ifc/tests）だけで確かめた。許諾の要る国内の BIM ソフトの書き出しは #513 で足す
+- 読みの確かめた度合い: `external`（確認日: 2026-11-11）
+- 読みの確かめた範囲: 公開サンプルの IFC 12 件（samples/ifc）を建物モデルに写し、毎晩の CI で IfcOpenShell が同じファイルから読んだ値と照らす。照らすのは、実体のクラス・GlobalId・名前・所属の先と型・プロジェクトの空間への変換・開口・プロパティと数量の値（crates/zumen-ifc/tests/ifcopenshell/samples.py、#412・#512）。手元の照合では、12 件とも食い違いは 0。必要時の曲線の getter は、合成の IFC2X3 の 9 曲線・IFC4 と IFC4X3 の各 10 曲線、公開サンプル gni/model\_9 の 1 曲線で、元の属性の座標・方向の比・半径・ベクトルの大きさ・添字・区間の向き・切る位置を IfcOpenShell と照らし、食い違いは 0（crates/zumen-ifc/tests/ifcopenshell/curves.py、#419）。単位・診断・予算・幾何の評価は、この外部の曲線の照合には含めない。判定・インスタンスのグラフ・壊れた所の扱いと、上に記した属性以外の値は、外部の実装と照らしていない。公開サンプル 12 件は、自前のテストでも L1 で読み、変えずに書くと元のバイト列に戻ることと、写さない値の診断の code・実体のクラス・件数を確かめる（crates/zumen-ifc/tests/samples.rs）。壊れた所の扱いと ifcZIP は、仕様とテストの中で作った IFC-SPF と ifcZIP（crates/zumen-ifc/tests）だけで確かめた。許諾の要る国内の BIM ソフトの書き出しは #513 で足す
 - 読みで使った公開サンプル: [samples/ifc/](../../samples/ifc/)
 - 読みで照らした外部の実装: IfcOpenShell 0.9.0.post1
 - 書きの確かめた度合い: `external`（確認日: 2026-11-02）
