@@ -350,6 +350,49 @@ A
             rgb: Some([255, 0, 0]),
         })
     );
+    // 真の色を変えるなら、番号を決められないので、前と同じく書かない
+    let mut file = testkit::read::<Dxf>(text.as_bytes()).0.unwrap();
+    let drawing = lift(&file);
+    let was = layer(&drawing, "A");
+    let mut new = was.clone();
+    let mut style = new.style.unwrap();
+    style.color = Some(Color {
+        code: None,
+        rgb: Some([0, 0, 255]),
+    });
+    new.style = Some(style);
+    let (result, codes) = apply(
+        &mut file,
+        vec![Edit::ReplaceLayer {
+            target: seen(was),
+            layer: Box::new(new),
+        }],
+    );
+    assert_eq!(result.unwrap_err(), Error::Rejected);
+    assert!(codes.contains(&codes::CHANGE_EDIT_UNSUPPORTED), "{codes:?}");
+    // 番号の色の画層を、番号のない真の色に変えることも、書かない
+    let text = String::from_utf8(src())
+        .unwrap()
+        .replace("AC1015", "AC1018");
+    let mut file = testkit::read::<Dxf>(text.as_bytes()).0.unwrap();
+    let drawing = lift(&file);
+    let was = layer(&drawing, "A");
+    let mut new = was.clone();
+    let mut style = new.style.unwrap();
+    style.color = Some(Color {
+        code: None,
+        rgb: Some([0, 0, 255]),
+    });
+    new.style = Some(style);
+    let (result, codes) = apply(
+        &mut file,
+        vec![Edit::ReplaceLayer {
+            target: seen(was),
+            layer: Box::new(new),
+        }],
+    );
+    assert_eq!(result.unwrap_err(), Error::Rejected);
+    assert!(codes.contains(&codes::CHANGE_EDIT_UNSUPPORTED), "{codes:?}");
 }
 
 #[test]
