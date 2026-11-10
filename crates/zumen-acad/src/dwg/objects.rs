@@ -2060,18 +2060,18 @@ fn table_record(bits: &mut Bits, type_code: u16, handles: &mut Vec<i16>) -> Opti
             values.push(int(70, dxf));
             // 表示しない画層は、DXF と同じく色を負にする
             // 真の色は 420 に置き、色見本帳の色なら名前（430）も置く。真の色の番号（BS）は、AutoCAD では 0 で（ODS 5.4.1 の
-            // 2.11）、0 でなければ（zumen が書いた画層）62 にも置く（#723）
+            // 2.11）、zumen が書いた画層は番号を持つ（#723）。DXF は真の色の画層にも 62 に近い番号を置くが、近さの決まりが
+            // 分からないので、番号が 1〜255 でなければ 7 を置き、表示しない状態を 62 の符号で持つ（#743）
             let (color, name) = bits.cmc_named()?;
             let index = i64::from(color.index);
+            let index = match color.rgb {
+                Some(_) if !(1..=255).contains(&index) => 7,
+                _ => index,
+            };
             let signed = if flags & 2 != 0 { -index } else { index };
-            match color.rgb {
-                Some(rgb) => {
-                    if (1..=255).contains(&index) {
-                        values.push(int(62, signed));
-                    }
-                    values.push(int(420, i64::from(rgb)));
-                }
-                None => values.push(int(62, signed)),
+            values.push(int(62, signed));
+            if let Some(rgb) = color.rgb {
+                values.push(int(420, i64::from(rgb)));
             }
             if let Some(name) = name {
                 values.push(text_value(430, &name));
@@ -4731,6 +4731,51 @@ mod tests {
             &mut handles,
         );
         (values, handles)
+    }
+
+    /// R2004 の LAYER の、色までのフィールド。名前は A、フラグは `flags`、色は番号 `index` と真の色 `rgb`（決め方の
+    /// 0xC2）。並びは [`table_record`] の読む順
+    fn layer_fields(flags: i16, index: i16, rgb: u32) -> Vec<u8> {
+        let mut w = BitWriter::default();
+        w.text(b"A").unwrap();
+        // 参照されるフラグ・外部参照の番号（R2010 より前）・外部参照に依るフラグ
+        w.bit(false);
+        w.bs(0);
+        w.bit(false);
+        w.bs(flags);
+        w.bs(index);
+        w.bl(i32::from_ne_bytes(((0xC2_u32 << 24) | rgb).to_ne_bytes()));
+        w.rc(0);
+        w.into_bytes()
+    }
+
+    fn color_of_layer(flags: i16, index: i16) -> Vec<(i16, i64)> {
+        let src = layer_fields(flags, index, 0x12_34_56);
+        let values = table_record(
+            &mut Bits::with_release(&src, Release::R2004),
+            LAYER,
+            &mut Vec::new(),
+        )
+        .unwrap();
+        values
+            .iter()
+            .filter(|value| matches!(value.code, 62 | 420))
+            .map(|value| match value.data {
+                Data::Int(int) => (value.code, int),
+                _ => (value.code, i64::MIN),
+            })
+            .collect()
+    }
+
+    /// 真の色の画層は、番号が 0（AutoCAD が書く）でも 62 に 7 を置き、表示しない状態を符号で持つ。番号を持つ画層
+    /// （zumen が書いた画層）は、その番号を置く（#743）
+    #[test]
+    fn true_color_layers_keep_their_visibility() {
+        // 表示しない 2・印刷 16
+        assert_eq!(color_of_layer(2 | 16, 0), [(62, -7), (420, 0x12_34_56)]);
+        assert_eq!(color_of_layer(16, 0), [(62, 7), (420, 0x12_34_56)]);
+        assert_eq!(color_of_layer(2 | 16, 3), [(62, -3), (420, 0x12_34_56)]);
+        assert_eq!(color_of_layer(16, 3), [(62, 3), (420, 0x12_34_56)]);
     }
 
     /// R2000 の GROUP のフィールド。説明は空、フラグは 0 にし、終わりに図形の数を置く。並びは [`group`] の読む順
