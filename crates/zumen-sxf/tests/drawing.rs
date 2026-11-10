@@ -1216,6 +1216,70 @@ fn identified(drawing: &Drawing2D) -> Vec<(String, String)> {
 }
 
 #[test]
+fn keeps_extreme_values_that_stay_finite() {
+    // 値が有限のまま、極端な値で黙って変わっていたもの（#728）
+    let layer = b"layer_feature(\'L\','1')".as_slice();
+    let sheet = b"drawing_sheet_feature(\'S\','3','1','0','0')".as_slice();
+    // 長さ寸法。寸法線（`start` から `end`）は横、補助線は (0, 0) から (`to`, `to`) で、傾きは 45°
+    let linear = |start: &str, end: &str, to: &str| {
+        format!(
+            "linear_dim_feature('1','1','1','1','{start}','0','{end}','0','1','0','0','0','0','{to}','{to}','1','0','0','0','0','{to}','{to}','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0')"
+        )
+    };
+    let oblique = |src: &[u8]| {
+        let (drawing, diag) = lift(src);
+        assert!(diag.is_empty(), "{diag:?}");
+        match &drawing.sheets[0].elements[0].shape {
+            Shape::Dimension(d) => match d.kind {
+                DimensionKind::Linear { oblique, .. } => oblique,
+                ref other => panic!("{other:?}"),
+            },
+            other => panic!("{other:?}"),
+        }
+    };
+    for (start, end, to) in [
+        ("0", "100", "1"),
+        // 寸法線の端の差があふれる
+        ("-1e308", "1e308", "1"),
+        // 差はあふれないが、内積と長さの積があふれる
+        ("0", "1e200", "1e200"),
+        // 内積と長さの積が潰れる
+        ("0", "1e-200", "1e-200"),
+    ] {
+        let dimension = linear(start, end, to);
+        let src = sfc(&[layer, dimension.as_bytes(), sheet]);
+        assert_eq!(oblique(&src), 45.0, "{start} {end} {to}");
+    }
+    // 正常な値で垂直な補助線は、前と同じく 0
+    let upright = b"linear_dim_feature('1','1','1','1','0','10','100','10','1','0','0','0','2','0','12','1','100','0','100','2','100','12','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0')";
+    assert_eq!(oblique(&sfc(&[layer, upright, sheet])), 0.0);
+
+    // 楕円。半径の比が 0 に丸められるものは、潰れた楕円にせず、楕円のフィーチャを指す `sxf.lift.invalid` にする
+    let line = b"line_feature('1','1','1','1','0','0','1','0')".as_slice();
+    let ellipse =
+        |rx: &str, ry: &str| format!("ellipse_feature('1','1','1','1','0','0','{rx}','{ry}','0')");
+    let (thin, normal) = (ellipse("1e300", "1e-300"), ellipse("2", "1"));
+    let (drawing, diag) = lift(&sfc(&[layer, line, thin.as_bytes(), sheet]));
+    let (expected, normal_diag) = lift(&sfc(&[layer, line, normal.as_bytes(), sheet]));
+    assert!(normal_diag.is_empty(), "{normal_diag:?}");
+    assert_eq!(diag.len(), 1, "{diag:?}");
+    let invalid = find(&diag, codes::SXF_LIFT_INVALID);
+    assert_eq!(invalid.places()[0].key(), Some(Key::Instance(30)));
+    // 楕円を 1 つ作らないだけで、ほかの要素の値と ID は変わらない
+    let ids = identified(&drawing);
+    let normal_ids = identified(&expected);
+    assert_eq!(ids.len() + 1, normal_ids.len(), "{ids:?}");
+    assert!(ids.iter().all(|id| normal_ids.contains(id)), "{ids:?}");
+    // 小さくても 0 にならない比は、そのまま楕円にする
+    let (drawing, diag) = lift(&sfc(&[layer, ellipse("1e300", "1e-7").as_bytes(), sheet]));
+    assert!(diag.is_empty(), "{diag:?}");
+    assert!(matches!(
+        drawing.sheets[0].elements[0].shape,
+        Shape::Curve(Edge::Elliptic { ratio, .. }) if ratio > 0.0
+    ));
+}
+
+#[test]
 fn reports_computed_values_that_are_not_finite() {
     // 有限の入力から、計算で無限大か NaN になる値（#595）。正常な値の組と、図形の位置（レコード）をそろえて比べる
     let line = b"line_feature('1','1','1','1','0','0','1','0')".as_slice();
