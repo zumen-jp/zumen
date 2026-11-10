@@ -282,6 +282,13 @@ function testStrokeRoundoff(assert) {
     assert(query(240, 160, 720, 480) === 1, "原点を分けて拡大した encoded f32 の単線も範囲から欠けない");
     viewer.resize(200, 200, 1);
 
+    viewer.jumpTo({ center: { x: 0, y: 0 }, scale: 1, rotation: 0 });
+    const crossing = line([-1000, 200, 1000, -200]); crossing.unit_weights = [0];
+    viewer.setScene(bundle(clipped(crossing, [{ xy: square(0, -1, 2, 1) }])));
+    assert(query(90.5, 100.1, 110.5, 110.1) === 1, "矩形との交点から切り抜き内の斜線を選べる");
+    viewer.setScene(bundle(clipped(crossing, [{ xy: square(0, -1, 1, 1) }, { xy: square(1, -1, 2, 1) }])));
+    assert(query(90.5, 100.1, 110.5, 110.1) === 0, "交点が正確でも共通部分が辺だけの clip は選ばない");
+
     for (const scale of [1000, 1000000, 1000000000, 1000000000000]) for (const pixelRatio of [1, 2]) {
       viewer.resize(200, 200, pixelRatio);
       for (const weight of [0, 2]) for (const rotation of [0, Math.PI / 6]) {
@@ -386,12 +393,18 @@ function compareLargeStrokeRaster(output, assert) {
   const direct = draw({ x: 100 - 2e15, y: 100 - 2e15 }, { x: 100 + 2e15, y: 100 + 2e15 });
   const bounded = draw({ x: -100, y: -100 }, { x: 300, y: 300 });
   const expected = direct.getImageData(0, 0, 200, 200).data, actual = output.getContext("2d").getImageData(0, 0, 200, 200).data;
-  assert(expected.every((value, i) => value === actual[i]), "巨大パスの実描画は同じ backend の独立 Canvas と全画素一致する");
-  const boundedCenter = Array.from(bounded.getImageData(100, 100, 1, 1).data);
-  assert(boundedCenter.slice(0, 3).every((value) => value === 0), "画面近傍の端点で描く同じ直線の中心は黒になる");
-  let ink = 0;
-  for (let i = 0; i < actual.length; i += 4) if (actual[i] !== 255 || actual[i + 1] !== 255 || actual[i + 2] !== 255) ink++;
+  const samePixels = expected.every((value, i) => value === actual[i]);
+  const boundedCenter = Array.from(bounded.getImageData(100, 100, 1, 1).data), boundedPixels = bounded.getImageData(0, 0, 200, 200).data;
+  let ink = 0, boundedInk = 0;
+  for (let i = 0; i < actual.length; i += 4) {
+    if (actual[i] !== 255 || actual[i + 1] !== 255 || actual[i + 2] !== 255) ink++;
+    if (boundedPixels[i] !== 255 || boundedPixels[i + 1] !== 255 || boundedPixels[i + 2] !== 255) boundedInk++;
+  }
+  const observation = { canvasCenter: Array.from(direct.getImageData(100, 100, 1, 1).data),
+    viewerCenter: Array.from(output.getContext("2d").getImageData(100, 100, 1, 1).data), boundedCenter, ink, boundedInk };
+  assert(samePixels, `巨大パスの実描画は同じ backend の独立 Canvas と全画素一致する: ${JSON.stringify(observation)}`);
+  assert(boundedCenter.slice(0, 3).some((value) => value < 255) && boundedInk > 0,
+    `画面近傍の端点で描く同じ直線は中心を含めて描かれる: ${JSON.stringify(observation)}`);
   // 一致が両方とも無描画の場合も記録する。描画できたという意味にはしない。
-  return { canvasCenter: Array.from(direct.getImageData(100, 100, 1, 1).data),
-    viewerCenter: Array.from(output.getContext("2d").getImageData(100, 100, 1, 1).data), boundedCenter, ink };
+  return observation;
 }

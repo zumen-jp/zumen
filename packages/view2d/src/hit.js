@@ -55,6 +55,60 @@ function addExact(a, b, subtract = false) {
 }
 
 const multiplyExact = (a, b) => ({ integer: a.integer * b.integer, exponent: a.exponent + b.exponent });
+const crossExact = (ax, ay, bx, by) => addExact(multiplyExact(ax, by), multiplyExact(ay, bx), true);
+
+/** 有理数を最後に一度だけ binary64 へ丸める（最も近い値、同距離なら偶数）。 */
+function divideExact(a, b) {
+  if (b.integer === 0n) return NaN;
+  const negative = (a.integer < 0n) !== (b.integer < 0n), n = a.integer < 0n ? -a.integer : a.integer, d = b.integer < 0n ? -b.integer : b.integer;
+  if (n === 0n) return 0;
+  let magnitude = n.toString(2).length - d.toString(2).length;
+  if (magnitude >= 0 ? n < (d << BigInt(magnitude)) : (n << BigInt(-magnitude)) < d) magnitude--;
+  const exponent = magnitude + a.exponent - b.exponent;
+  if (exponent > 1023) return negative ? -Infinity : Infinity;
+  const unit = Math.max(-1074, exponent - 52), shift = a.exponent - b.exponent - unit;
+  const numerator = shift >= 0 ? n << BigInt(shift) : n, denominator = shift < 0 ? d << BigInt(-shift) : d;
+  let quotient = numerator / denominator;
+  const twiceRemainder = (numerator % denominator) * 2n;
+  if (twiceRemainder > denominator || (twiceRemainder === denominator && (quotient & 1n))) quotient++;
+  const result = scaleBinary(Number(quotient), unit);
+  return negative ? -result : result;
+}
+
+function exactPoint(p) {
+  if (![p.x, p.y, ...(p.anchor ? [p.anchor.x, p.anchor.y, p.offsetX, p.offsetY] : [])].every(Number.isFinite)) return null;
+  return p.anchor ? { x: addExact(dyadic(p.anchor.x), dyadic(p.offsetX)), y: addExact(dyadic(p.anchor.y), dyadic(p.offsetY)) } : { x: dyadic(p.x), y: dyadic(p.y) };
+}
+
+function exactIntersection(first, second) {
+  const a = exactPoint(first.a), b = exactPoint(first.b), c = exactPoint(second.a), d = exactPoint(second.b);
+  if (!a || !b || !c || !d) return null;
+  const rx = addExact(b.x, a.x, true), ry = addExact(b.y, a.y, true), sx = addExact(d.x, c.x, true), sy = addExact(d.y, c.y, true);
+  const qx = addExact(c.x, a.x, true), qy = addExact(c.y, a.y, true), denominator = crossExact(rx, ry, sx, sy);
+  if (denominator.integer === 0n) return null;
+  const t = crossExact(qx, qy, sx, sy), u = crossExact(qx, qy, rx, ry);
+  const within = (n) => denominator.integer > 0n ? n.integer >= 0n && addExact(n, denominator, true).integer <= 0n : n.integer <= 0n && addExact(n, denominator, true).integer >= 0n;
+  if (!within(t) || !within(u)) return null;
+  // 端点 + 法線 offset も、交点の比も、最後の座標まで丸めない。
+  // 固定個数の有限 binary64 の差と 3 積までなので、整数は約 6,400 bit 以下。
+  return { x: divideExact(addExact(multiplyExact(a.x, denominator), multiplyExact(rx, t)), denominator),
+    y: divideExact(addExact(multiplyExact(a.y, denominator), multiplyExact(ry, t)), denominator) };
+}
+
+function exactNearestPoint(circle, edge) {
+  const a = exactPoint(edge.a), b = exactPoint(edge.b);
+  if (!a || !b || !Number.isFinite(circle.x) || !Number.isFinite(circle.y)) return null;
+  const dx = addExact(b.x, a.x, true), dy = addExact(b.y, a.y, true);
+  const px = addExact(dyadic(circle.x), a.x, true), py = addExact(dyadic(circle.y), a.y, true);
+  const squared = addExact(multiplyExact(dx, dx), multiplyExact(dy, dy));
+  if (squared.integer === 0n) return null;
+  const dot = addExact(multiplyExact(px, dx), multiplyExact(py, dy));
+  if (dot.integer < 0n || addExact(dot, squared, true).integer > 0n) return null;
+  // 円周との二交点だけでなく、辺上の最近点も有効な候補。
+  // 長い辺の端点から t*差を足して相殺せず、有理数のまま最終座標を求める。
+  return { x: divideExact(addExact(multiplyExact(a.x, squared), multiplyExact(dx, dot)), squared),
+    y: divideExact(addExact(multiplyExact(a.y, squared), multiplyExact(dy, dot)), squared) };
+}
 
 function leading(value) {
   const negative = value.integer < 0n, integer = negative ? -value.integer : value.integer;
@@ -224,7 +278,8 @@ function compile(part, charge) {
       const dx = b.x - a.x, dy = b.y - a.y, length = Math.hypot(dx, dy);
       if (length === 0) continue;
       const nx = -dy / length * radius, ny = dx / length * radius;
-      const corners = [{ x: a.x + nx, y: a.y + ny }, { x: b.x + nx, y: b.y + ny }, { x: b.x - nx, y: b.y - ny }, { x: a.x - nx, y: a.y - ny }];
+      const corner = (anchor, offsetX, offsetY) => ({ x: anchor.x + offsetX, y: anchor.y + offsetY, anchor, offsetX, offsetY });
+      const corners = [corner(a, nx, ny), corner(b, nx, ny), corner(b, -nx, -ny), corner(a, -nx, -ny)];
       for (let i = 0; i < 4; i++) yield { a: corners[i], b: corners[(i + 1) % 4] };
     }
     // 円弧の候補は全円から出し、contains で扇形に絞る。半径方向の二辺は
@@ -256,9 +311,13 @@ function intersectSegments(first, second, accept) {
   if (scale === 0) return accept(first.a);
   const rX = rx / scale, rY = ry / scale, sX = sx / scale, sY = sy / scale, qX = qx / scale, qY = qy / scale;
   const cross = rX * sY - rY * sX;
-  if (cross === 0) return false; // 共線の重なりは、端点かほかの境界との交点で調べられる。
-  const t = (qX * sY - qY * sX) / cross, u = (qX * rY - qY * rX) / cross;
-  return between(t, 0, 1) && between(u, 0, 1) && accept({ x: first.a.x + t * rx, y: first.a.y + t * ry });
+  if (cross !== 0) {
+    const t = (qX * sY - qY * sX) / cross, u = (qX * rY - qY * rX) / cross;
+    if (between(t, 0, 1) && between(u, 0, 1) && accept({ x: first.a.x + t * rx, y: first.a.y + t * ry })) return true;
+  }
+  const point = exactIntersection(first, second);
+  // 共線の重なりは、端点かほかの境界との交点で調べられる。
+  return point !== null && accept(point);
 }
 
 function intersectCircleSegment(circle, edge, accept) {
@@ -275,7 +334,8 @@ function intersectCircleSegment(circle, edge, accept) {
   for (const t of [center - offset, center + offset]) {
     if (between(t, 0, 1) && accept({ x: edge.a.x + t * dx, y: edge.a.y + t * dy })) return true;
   }
-  return false;
+  const nearest = exactNearestPoint(circle, edge);
+  return nearest !== null && accept(nearest);
 }
 
 function intersectCircles(first, second, accept) {
