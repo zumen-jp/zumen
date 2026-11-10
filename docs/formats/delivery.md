@@ -2,6 +2,8 @@
 
 電子納品の成果品（フォルダー・管理ファイル・図面・写真の集まり）を読む規則を記録します（[決定 0241](../decisions/0241-delivery-package-check.md)）。実装は `crates/zumen-delivery` です。API では、`delivery_check` の op に、成果品の起点（`root`）か ZIP の入力（`archive`）を渡し、管理ファイルの要約を返します。要領の本文・DTD・作成例は、転載と改変が禁じられているので写さず、同梱しません（`formats/ledger.toml` の `delivery`）。
 
+文字のチェックが参照する JIS X 0208・JIS X 0201 と、本文の入手条件の確認状況は、[JIS の記録](jis.md)にあります。
+
 ## 対象
 
 - 工事完成図書・土木設計業務などの電子納品要領の成果品。要領の版では読み方を変えない。
