@@ -198,6 +198,8 @@
     "ifc.attribute.invalid": "「{kind}」の {position} 番目の値が読めないので、写しませんでした（{count} 件）。",
     "ifc.civil-geometry.dropped": "「{kind}」は、まだ土木の領域モデルに写しません（{count} 件）。",
     "ifc.civil-unit.assumed": "値の型「{type}」の単位が解けないので、メートルかラジアンとしました（{count} 件）。",
+    "ifc.curve.invalid": "曲線の定義が読めないので、曲線のグラフを返しませんでした（理由: {reason}、{count} 件）。",
+    "ifc.curve.unsupported": "曲線「{kind}」は種類と出所だけを持ち、定義は L1 に残しました（{count} 件）。",
     "ifc.duplicate.dropped": "同じ番号 #{id} のインスタンスが複数あるので、番号で引くときは初めのものを使います（{count} 件）。",
     "ifc.entity.dropped": "「{kind}」は建物モデルに写さず、L1 に残しました（{count} 件）。",
     "ifc.entry.missing": "ifcZIP のアーカイブに、IFC のファイル（.ifc）がありません（{count} 件）。",

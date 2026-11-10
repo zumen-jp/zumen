@@ -198,6 +198,8 @@
     "ifc.attribute.invalid": "The value at position {position} of \"{kind}\" could not be read, so it was not lifted ({count}).",
     "ifc.civil-geometry.dropped": "\"{kind}\" is not yet copied to the civil model ({count}).",
     "ifc.civil-unit.assumed": "The unit of \"{type}\" cannot be resolved, so metres or radians were assumed ({count}).",
+    "ifc.curve.invalid": "The curve definition could not be read; no curve graph was returned (reason: {reason}, {count}).",
+    "ifc.curve.unsupported": "Only the kind and source of curve {kind} were kept; its definition remains in L1 ({count}).",
     "ifc.duplicate.dropped": "Several instances have the number #{id}; looking up by number uses the first ({count}).",
     "ifc.entity.dropped": "\"{kind}\" was not lifted into the building model and was kept in L1 ({count}).",
     "ifc.entry.missing": "The ifcZIP archive has no IFC file (.ifc) ({count}).",

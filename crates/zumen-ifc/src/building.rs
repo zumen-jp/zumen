@@ -19,6 +19,7 @@ use zumen_sdk::{Cx, Error, Lift, Stop};
 
 use crate::{IfcFile, IfcZipFile, Record, Value, at_bytes, stopped};
 
+mod curve;
 mod semantic;
 
 /// 建物モデルを作るバージョン
