@@ -8,19 +8,11 @@ use hayro_syntax::object::{Array, Dict, Name, Object, Stream};
 use hayro_syntax::reader::{Reader, ReaderContext, ReaderExt};
 use zumen_base::{Cx, Kind, Stop};
 
-use super::{Source, ascii, lzw, run_length};
+use super::{Source, allocation, ascii, lzw, run_length};
 
 /// 合成する辞書・stream と endstream の最大長。整数はすべて 20 桁以下で、
 /// 名前も固定なので、この長さを超えない。入力の長さと合わせて、確保前に数える。
 const ENVELOPE: usize = 512;
-
-/// hayro の寛容な Flate がブロックごとに作る表と一時の列。動的な表は最大 2^15 個の u32 が 2 つ、
-/// 符号長の表は最大 128 個の u32、長さの列は 320 + 19 バイト。非圧縮ブロックの写し（65,535 バイト）と、
-/// 固定の表の写しも含めて 512 KiB で上から数える。出力の Vec は別に数える。
-const FLATE_BLOCK_BYTES: u64 = 1 << 19;
-/// 表の生成は最大 320 個の符号について 2^15 個の項目を埋め、15 回の長さの走査と初期化も行う。
-/// 非圧縮ブロックの写しを含め、ブロックごとに 2^24 の作業で上から数える。
-const FLATE_BLOCK_WORK: u64 = 1 << 24;
 
 #[derive(Clone, Copy)]
 struct Stage {
@@ -163,25 +155,14 @@ pub(super) fn before(
                 let work = cx.budget.used(Kind::Work) - work_before;
                 // RunLength は既存の count が伸長も数える。Flate は最大 3 回の試み、
                 // LZW は 1 回の出力の Vec の、全確保の合計を数える。
-                let growth = match stage.filter {
-                    Filter::FlateDecode => output_bound.saturating_mul(4).saturating_add(96),
-                    Filter::LzwDecode => output_bound.saturating_mul(4).saturating_add(32),
-                    _ => 0,
+                let (growth_work, growth_bytes) = match stage.filter {
+                    Filter::FlateDecode => allocation::flate(data.len(), output_bound, fallback),
+                    Filter::LzwDecode => allocation::lzw(output_bound),
+                    _ => (0, 0),
                 };
                 let (predictor_work, predictor_bytes) = stage.predictor_cost(output_bound);
-                // ブロックは最低 3 ビットのヘッダーを使う。表は出力が空でも作るため、出力量では数えない。
-                let blocks = if fallback {
-                    (data.len() as u64).saturating_mul(8).div_ceil(3)
-                } else {
-                    0
-                };
-                let extra_bytes = growth
-                    .saturating_add(predictor_bytes)
-                    .saturating_add(blocks.saturating_mul(FLATE_BLOCK_BYTES));
-                let extra_work = growth
-                    .div_ceil(16)
-                    .saturating_add(predictor_work)
-                    .saturating_add(blocks.saturating_mul(FLATE_BLOCK_WORK));
+                let extra_bytes = growth_bytes.saturating_add(predictor_bytes);
+                let extra_work = growth_work.saturating_add(predictor_work);
                 reserve(extra_work, extra_bytes, cx)?;
                 if index + 1 == stages.len() {
                     return Ok(true);
@@ -518,6 +499,6 @@ mod tests {
             ),
             Ok(true)
         );
-        assert!(budget.used(Kind::DecodedBytes) >= FLATE_BLOCK_BYTES);
+        assert!(budget.used(Kind::DecodedBytes) >= allocation::FLATE_BLOCK_BYTES);
     }
 }

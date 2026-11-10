@@ -84,7 +84,8 @@ impl Codes<'_> {
 /// hayro-syntax 0.9.0 の LZW の展開順を長さでたどる。不正な符号では上流も失敗するが、
 /// そこまでに作る分を戻さない。入力が途中で切れた場合は、上流が返す部分の出力まで数える
 pub(super) fn count(data: &[u8], early: bool, cx: &mut Cx<'_>) -> Result<(), Stop> {
-    count_output(data, early, cx).map(|_| ())
+    let output = count_output(data, early, cx)?;
+    super::allocation::reserve(super::allocation::lzw(output), cx)
 }
 
 /// 辞書の確保とは別に、予測子に渡す出力の長さを返す。失敗する符号なら、そこまでの長さ。
