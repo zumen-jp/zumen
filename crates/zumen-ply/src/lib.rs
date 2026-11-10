@@ -250,7 +250,15 @@ fn ascii(
         let mut words = line.split_ascii_whitespace();
         let mut row = Vec::with_capacity(width);
         for property in &element.properties {
-            let Some(value) = words.next().and_then(|word| word.parse::<f64>().ok()) else {
+            // ASCII でも宣言された float の精度で読む。PLY の型を f64 に広げる前に
+            // f32 で丸め、同じ float を格納したバイナリと同じ値にする（#809）。
+            let Some(value) = words.next().and_then(|word| {
+                if property.scalar == Scalar::F32 && property.list.is_none() {
+                    word.parse::<f32>().ok().map(f64::from)
+                } else {
+                    word.parse::<f64>().ok()
+                }
+            }) else {
                 return Ok(false);
             };
             match property.list {

@@ -38,7 +38,7 @@
 | [las](#format-las) | LAS・LAZ | las | pointcloud | `public` | `core` | `external` |  |
 | [par](#format-par) | TKY2JGD・PatchJGD のパラメーターのファイル（座標の補正量の格子） | par | geo | `public` | `core` | `synthetic` |  |
 | [pdf](#format-pdf) | PDF | pdf | drawing | `public` | `core` | `external` | `synthetic` |
-| [ply](#format-ply) | PLY（点群） | ply | pointcloud | `public` | `core` | `synthetic` |  |
+| [ply](#format-ply) | PLY（点群） | ply | pointcloud | `public` | `core` | `external` |  |
 | [png](#format-png) | PNG | png | drawing | `public` | `core` |  | `external` |
 | [saf](#format-saf) | SXF の属性ファイル（SAF） | sxf | drawing・delivery | `public` | `core` | `synthetic` |  |
 | [sima](#format-sima) | SIMA 共通フォーマット | sima | civil | `unknown` | `none` |  |  |
@@ -884,10 +884,13 @@
 - 実装の根拠: inferred
 - 権利の根拠にした文書: [Paul Bourke「PLY - Polygon File Format」](https://paulbourke.net/dataformats/ply/)（確認日: 2026-11-01）
 - 照合に使う候補: CloudCompare・MeshLab
-- サンプルの出どころ: テストの中で作る
-- 読みの確かめた度合い: `synthetic`（確認日: 2026-11-03）
-- 読みの確かめた範囲: 公開の解説と、テストの中で作った PLY（crates/zumen-ply/tests）で確かめた。CloudCompare・MeshLab が書いた PLY との照合はまだ（#504）
+- サンプルの出どころ: samples/ply/（PDAL の 4 頂点・2 面の公開サンプル）・テストの中で作る
+- 読みの確かめた度合い: `external`（確認日: 2026-11-11）
+- 読みの確かめた範囲: PDAL が作った公開サンプル 1 件（ASCII、float64 の 4 頂点・2 面）を ply-rs 0.1.3 と照合した。全頂点の順と座標をビットで比較し、面を移さない診断と座標系が不明なことを確かめた。自前の合成の ASCII・両バイト順の座標・色・強度・分類と float/float32 の丸めも照合したが、external の根拠は公開サンプルだけ。公開サンプルと float32 の応答・診断をネイティブと wasm で比較する。実測点群、公開サンプルのバイナリと属性、法線や面のモデル化、CloudCompare・MeshLab との照合はまだ（#504）
+- 読みで使った公開サンプル: [samples/ply/](../../samples/ply/)
+- 読みで照らした外部の実装: ply-rs 0.1.3
 - issue: [zumen-jp/zumen#373](https://github.com/zumen-jp/zumen/issues/373)
+- issue: [zumen-jp/zumen#809](https://github.com/zumen-jp/zumen/issues/809)
 - 形式の文書: [docs/formats/ply.md](../../docs/formats/ply.md)
 
 ### format-png
