@@ -355,3 +355,46 @@ fn spirals_without_points_of_intersection_count_their_work() {
     let (given, _) = lift_with(&spirals(true), limits);
     given.unwrap();
 }
+
+/// 交点のない緩和曲線の前の区間の終わりの向きを求める手間（曲率の大きい緩和曲線の、向きの式を積む刻み）も予算に
+/// 数え、上限で止まれば、交点のない `Spiral` の所に予算の診断を付けて止まる（#727、PR #751 の 1 回目の確かめの
+/// 軽微 3）
+#[test]
+fn spirals_without_points_of_intersection_stop_at_steep_transitions() {
+    let steep = r#"<Spiral length="1000" radiusStart="INF" radiusEnd="0.01" rot="cw" spiType="clothoid"><Start>10 0</Start><PI>500 0</PI></Spiral>"#;
+    let next = r#"<Spiral length="1" radiusStart="INF" radiusEnd="1000" rot="cw" spiType="clothoid"><Start>0 0</Start></Spiral>"#;
+    let src = format!(
+        r#"<LandXML xmlns="http://www.landxml.org/schema/LandXML-1.2" version="1.2">
+      <Alignments><Alignment name="a" length="1011" staStart="0"><CoordGeom>
+        <Line><Start>0 0</Start><End>10 0</End></Line>{steep}{next}
+      </CoordGeom></Alignment></Alignments>
+    </LandXML>"#
+    );
+    let (found, used) = lift_with(&src, Limits::default());
+    assert_eq!(found.unwrap().alignments[0].horizontal.len(), 3);
+    // 緩和曲線の終わりの向きを求めるのに、刻みの上限に近い手間を数える
+    assert!(used >= 60_000, "{used}");
+    let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(30_000)));
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let stopped = {
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        LandXml::read(src.as_bytes(), &mut cx).and_then(|file| file.lift(&mut cx))
+    };
+    assert!(
+        matches!(stopped, Err(Error::Stopped(Stop::Exceeded(ref e))) if e.kind == Kind::Work),
+        "{stopped:?}"
+    );
+    let start = src.find(next).unwrap() as u64;
+    let exceeded = diag
+        .iter()
+        .find(|d| d.code() == codes::BUDGET_WORK_EXCEEDED)
+        .expect("予算の診断");
+    assert!(
+        exceeded
+            .places()
+            .iter()
+            .any(|place| place.bytes().is_some_and(|bytes| bytes.start == start)),
+        "{exceeded:?}"
+    );
+}

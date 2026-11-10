@@ -583,3 +583,27 @@ fn steep_transitions_count_the_work_of_their_points() {
         "{stopped:?}"
     );
 }
+
+/// 縦断図で、曲率の大きい縦断のクロソイドを点にするときも、点ごとの高さを求める手間（向きの式を積む刻み）を予算に
+/// 数え、上限で止まる（#727、PR #751 の 1 回目の確かめの軽微 2）
+#[test]
+fn steep_vertical_clothoids_count_the_work_of_their_points() {
+    let (plain, few, _) = draw_line(alignment(), Limits::default());
+    plain.unwrap();
+    // 初めの 2 % の勾配 100 m を、半径が無限から 50 m（下に凸）へ変わるクロソイドに替える。勾配の角が 1 ラジアン
+    // 変わるので、高さを 1 つ求めるたびに、向きの式を 100 刻みずつ 129 回積む。点は 20 より多い
+    let mut line = alignment();
+    line.vertical[0].kind = VerticalKind::Clothoid {
+        start_radius: None,
+        end_radius: Some(-50.0),
+    };
+    let (steep, many, _) = draw_line(line.clone(), Limits::default());
+    steep.unwrap();
+    assert!(many >= few + 20 * 129 * 100, "{few} {many}");
+    let limits = Limits::default().with(Kind::Work, Limit::Finite(few + 10_000));
+    let (stopped, _, _) = draw_line(line, limits);
+    assert!(
+        matches!(stopped, Err(Stop::Exceeded(ref e)) if e.kind == Kind::Work),
+        "{stopped:?}"
+    );
+}
