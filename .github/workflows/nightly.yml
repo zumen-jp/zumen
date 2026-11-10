@@ -13,6 +13,16 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  ply:
+    name: PLY の読みを ply-rs と照らす
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: rust-toolchain.toml のバージョンの Rust を入れる
+        run: rustup toolchain install
+      - name: 公開サンプルと合成の座標・属性、診断と予算を照らす
+        run: cargo test --package zumen-ply --test external --locked
+
   browser:
     name: ブラウザーで適合テスト（${{ matrix.browser }}）
     # PR ごとの Chromium は ci.yml の wasm の job で流す。毎晩は Firefox と WebKit（docs/support.md、決定 0199）
