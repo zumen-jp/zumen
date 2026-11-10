@@ -80,6 +80,12 @@ for id in $(gh cache list --key fuzz-corpus- --limit 100 --json id --jq '.[].id'
 
 `crates/zumen-las/tests/external.rs` が全体と範囲で読み、点群モデルを比較します。laspy がある環境と毎晩の CI では、ヘッダーと全点の保持属性も照合します。`bindings/conformance/cases/pointcloud_samples.json` は同じサンプルの応答をネイティブと wasm で照らします。外部照合の範囲と手順は [LAS の外部照合](../xtask/verify/laspy/README.md)にあります。
 
+## PLY
+
+`ply/pdal-mesh-fixed.ply` は PDAL の公開サンプルです（#809）。[追加コミット](https://github.com/PDAL/PDAL/commit/f65c92beb523de0d70119c1fab2dc295933e9398)の `PlyWriterTest.cpp` は、テストの中で座標を決めた 4 頂点・2 面を、小数点以下 3 桁の ASCII で書き、このファイルと比較します。実測の点群ではありません。同コミットの `LICENSE.txt` は、別記のない全ファイルを BSD とし、このファイルへの別条件はありません。出所・帰属とライセンスの全文は台帳と `licenses/pdal-2017.txt` にあります。取得した 277 バイトを変更していません。
+
+`crates/zumen-ply/tests/external.rs` は ply-rs の読みと全頂点の座標を比較し、面を移さない診断と予算の停止も確認します。`bindings/conformance/cases/pointcloud_ply_sample.json` は同じ公開サンプルの応答・診断をネイティブと wasm で照らします。確認した範囲と残りは [PLY の文書](../docs/formats/ply.md#確かめた度合い)にあります。
+
 ## IFC
 
 `ifc/` は、再配布を認める公開の IFC です（#412）。出所・ライセンス・表示の文・変えた内容は、台帳にあります。
