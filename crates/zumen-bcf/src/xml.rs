@@ -13,7 +13,7 @@ impl<'d> Xml<'d> {
     }
 
     pub(crate) fn local(&self, element: &Element) -> &'d [u8] {
-        self.doc.local_name(element.name())
+        self.doc.parsed_local_name(element.name())
     }
 
     /// 子の要素。書いた順
@@ -67,7 +67,9 @@ impl<'d> Xml<'d> {
         element
             .attributes()
             .iter()
-            .find(|a| a.name().namespace().is_none() && self.doc.local_name(a.name()) == local)
+            .find(|a| {
+                a.name().namespace().is_none() && self.doc.parsed_local_name(a.name()) == local
+            })
             .map(|a| self.doc.value(a).trim().to_string())
     }
 
@@ -85,7 +87,7 @@ impl<'d> Xml<'d> {
             .attributes()
             .iter()
             .filter(|a| {
-                let local = self.doc.local_name(a.name());
+                let local = self.doc.parsed_local_name(a.name());
                 // 名前空間の宣言と、書き直す属性は写さない
                 a.name()
                     .prefix()

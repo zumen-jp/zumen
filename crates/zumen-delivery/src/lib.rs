@@ -226,7 +226,16 @@ fn managed(
     let root = reader.record(root, cx)?;
     Ok(Some(Managed {
         name: name.to_string(),
-        doctype: doc.doctype().and_then(|range| system_id(doc.bytes(range))),
+        doctype: doc.doctype().and_then(|range| {
+            if matches!(
+                doc.encoding(),
+                zumen_xml::Encoding::Utf16Le | zumen_xml::Encoding::Utf16Be
+            ) {
+                system_id(doc.cdata(range).as_bytes())
+            } else {
+                system_id(doc.bytes(range))
+            }
+        }),
         root,
     }))
 }

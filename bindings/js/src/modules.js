@@ -173,75 +173,150 @@ function firstName(head, at) {
   return end === -1 ? undefined : head.subarray(at, end);
 }
 
-/** `pattern` の後の位置。なければ -1 */
-function afterPattern(head, at, pattern) {
-  for (let i = at; i + pattern.length <= head.length; i++) {
-    if (matchBytes(head, i, pattern)) {
-      return i + pattern.length;
+/** XML の署名に従って、原本を 1 バイトか UTF-16 のコード単位でたどる。UTF-32 は受け取らない */
+function xmlInput(head) {
+  const four = [
+    [0, 0, 0xfe, 0xff], [0xff, 0xfe, 0, 0], [0, 0, 0xff, 0xfe], [0xfe, 0xff, 0, 0],
+    [0, 0, 0, 0x3c], [0x3c, 0, 0, 0], [0, 0, 0x3c, 0], [0, 0x3c, 0, 0],
+  ];
+  if (four.some((pattern) => matchBytes(head, 0, pattern))) {
+    return undefined;
+  }
+  let width = 1;
+  let little = false;
+  let start = matchBytes(head, 0, [0xef, 0xbb, 0xbf]) ? 3 : 0;
+  if (matchBytes(head, 0, [0xff, 0xfe]) || matchBytes(head, 0, [0xfe, 0xff])) {
+    width = 2;
+    little = head[0] === 0xff;
+    start = 2;
+  } else if (matchBytes(head, 0, [0x3c, 0, 0x3f, 0]) || matchBytes(head, 0, [0, 0x3c, 0, 0x3f])) {
+    width = 2;
+    little = head[0] === 0x3c;
+  }
+  const unit = (at) => {
+    if (at + width > head.length) {
+      return undefined;
+    }
+    return width === 1 ? head[at] : little ? head[at] | (head[at + 1] << 8) : (head[at] << 8) | head[at + 1];
+  };
+  const starts = (at, pattern) => {
+    for (let i = 0; i < pattern.length; i++) {
+      if (unit(at + i * width) !== pattern.charCodeAt(i)) {
+        return false;
+      }
+    }
+    return true;
+  };
+  const find = (at, value) => {
+    for (; unit(at) !== undefined; at += width) {
+      if (unit(at) === value) {
+        return at;
+      }
+    }
+    return -1;
+  };
+  return { head, width, start, unit, starts, find };
+}
+
+/** XML の原本の範囲と規則を比べる。UTF-16 のときも文字列のコピーは作らない */
+function xmlEquals(input, range, expected) {
+  const [start, end] = range;
+  if (input.width === 1) {
+    return sameBytes(input.head.subarray(start, end), encoder.encode(expected));
+  }
+  if (end - start !== expected.length * 2) {
+    return false;
+  }
+  for (let i = 0; i < expected.length; i++) {
+    const unit = input.unit(start + i * 2);
+    if (unit !== expected.charCodeAt(i)) {
+      return false;
+    }
+    if (unit >= 0xd800 && unit <= 0xdbff) {
+      const next = input.unit(start + (i + 1) * 2);
+      if (i + 1 >= expected.length || next < 0xdc00 || next > 0xdfff) {
+        return false;
+      }
+    } else if (unit >= 0xdc00 && unit <= 0xdfff) {
+      const previous = input.unit(start + (i - 1) * 2);
+      if (i === 0 || previous < 0xd800 || previous > 0xdbff) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+/** pattern の後の位置。なければ -1 */
+function afterPattern(input, at, pattern) {
+  for (; input.unit(at) !== undefined; at += input.width) {
+    if (input.starts(at, pattern)) {
+      return at + pattern.length * input.width;
     }
   }
   return -1;
 }
 
 /** 文書型宣言の後の位置。なければ -1 */
-function afterDoctype(head, at) {
+function afterDoctype(input, at) {
   let depth = 0;
-  while (at < head.length) {
-    const byte = head[at];
-    if (byte === 0x22 || byte === 0x27) {
-      const end = head.indexOf(byte, at + 1);
+  for (; input.unit(at) !== undefined; at += input.width) {
+    const unit = input.unit(at);
+    if (unit === 0x22 || unit === 0x27) {
+      const end = input.find(at + input.width, unit);
       if (end === -1) {
         return -1;
       }
-      at = end + 1;
-      continue;
-    }
-    if (byte === 0x5b) {
+      at = end;
+    } else if (unit === 0x5b) {
       depth++;
-    } else if (byte === 0x5d) {
+    } else if (unit === 0x5d) {
       if (depth === 0) {
         return -1;
       }
       depth--;
-    } else if (byte === 0x3e && depth === 0) {
-      return at + 1;
+    } else if (unit === 0x3e && depth === 0) {
+      return at + input.width;
     }
-    at++;
   }
   return -1;
 }
 
-function isName(byte) {
-  return !isSpace(byte) && ![0x3c, 0x3e, 0x2f, 0x3d, 0x21, 0x3f, 0x22, 0x27, 0x26, 0x3b, 0x5b, 0x5d].includes(byte);
+function isName(unit) {
+  return !isSpace(unit) && ![0x3c, 0x3e, 0x2f, 0x3d, 0x21, 0x3f, 0x22, 0x27, 0x26, 0x3b, 0x5b, 0x5d].includes(unit);
 }
 
-function skipSpace(head, at) {
-  while (at < head.length && isSpace(head[at])) {
-    at++;
+function skipSpace(input, at) {
+  while (input.unit(at) !== undefined && isSpace(input.unit(at))) {
+    at += input.width;
   }
   return at;
 }
 
-function nameEnd(head, at) {
-  while (at < head.length && isName(head[at])) {
-    at++;
+function nameEnd(input, at) {
+  while (input.unit(at) !== undefined && isName(input.unit(at))) {
+    at += input.width;
   }
-  return at < head.length ? at : -1;
+  return input.unit(at) === undefined ? -1 : at;
 }
 
-/** XML の最初の要素の、接頭辞を除いた名前と名前空間の名前（バイト列）。読めなければ undefined */
+/** 最初の開始タグの名前と名前空間の原本の範囲。宣言の正否と後の本文はコーデックで検査する */
 function xmlRoot(head) {
-  let at = matchBytes(head, 0, [0xef, 0xbb, 0xbf]) ? 3 : 0;
+  const input = xmlInput(head);
+  if (input === undefined) {
+    return undefined;
+  }
+  let at = input.start;
   for (;;) {
-    at = skipSpace(head, at);
-    if (matchBytes(head, at, encoder.encode("<?"))) {
-      at = afterPattern(head, at + 2, encoder.encode("?>"));
-    } else if (matchBytes(head, at, encoder.encode("<!--"))) {
-      at = afterPattern(head, at + 4, encoder.encode("-->"));
-    } else if (matchBytes(head, at, encoder.encode("<!DOCTYPE"))) {
-      at = afterDoctype(head, at + 9);
-    } else if (head[at] === 0x3c) {
-      return startTag(head, at + 1);
+    at = skipSpace(input, at);
+    if (input.starts(at, "<?")) {
+      at = afterPattern(input, at + 2 * input.width, "?>");
+    } else if (input.starts(at, "<!--")) {
+      at = afterPattern(input, at + 4 * input.width, "-->");
+    } else if (input.starts(at, "<!DOCTYPE")) {
+      at = afterDoctype(input, at + 9 * input.width);
+    } else if (input.starts(at, "<")) {
+      return startTag(input, at + input.width);
     } else {
       return undefined;
     }
@@ -251,49 +326,57 @@ function xmlRoot(head) {
   }
 }
 
-function startTag(head, at) {
-  const end = nameEnd(head, at);
+function startTag(input, at) {
+  const end = nameEnd(input, at);
   if (end === -1 || end === at) {
     return undefined;
   }
-  const name = head.subarray(at, end);
-  const colon = name.indexOf(0x3a);
-  const prefix = colon === -1 ? undefined : name.subarray(0, colon);
-  const local = colon === -1 ? name : name.subarray(colon + 1);
-  if (local.length === 0) {
+  let colon = -1;
+  for (let cursor = at; cursor < end; cursor += input.width) {
+    if (input.unit(cursor) === 0x3a) {
+      colon = cursor;
+      break;
+    }
+  }
+  const prefix = colon === -1 ? undefined : [at, colon];
+  const local = [colon === -1 ? at : colon + input.width, end];
+  if (local[0] === local[1]) {
     return undefined;
   }
   let namespace;
   at = end;
   for (;;) {
-    at = skipSpace(head, at);
-    if (head[at] === 0x3e || (head[at] === 0x2f && head[at + 1] === 0x3e)) {
-      return { local, namespace };
+    at = skipSpace(input, at);
+    if (input.starts(at, ">") || input.starts(at, "/>")) {
+      return { input, local, namespace };
     }
-    const attributeEnd = nameEnd(head, at);
+    const attributeEnd = nameEnd(input, at);
     if (attributeEnd === -1 || attributeEnd === at) {
       return undefined;
     }
-    const attribute = head.subarray(at, attributeEnd);
-    at = skipSpace(head, attributeEnd);
-    if (head[at] !== 0x3d) {
+    const attribute = [at, attributeEnd];
+    at = skipSpace(input, attributeEnd);
+    if (!input.starts(at, "=")) {
       return undefined;
     }
-    at = skipSpace(head, at + 1);
-    const quote = head[at];
+    at = skipSpace(input, at + input.width);
+    const quote = input.unit(at);
     if (quote !== 0x22 && quote !== 0x27) {
       return undefined;
     }
-    const valueEnd = head.indexOf(quote, at + 1);
+    const valueStart = at + input.width;
+    const valueEnd = input.find(valueStart, quote);
     if (valueEnd === -1) {
       return undefined;
     }
-    const value = head.subarray(at + 1, valueEnd);
-    const expected = prefix === undefined ? encoder.encode("xmlns") : new Uint8Array([...encoder.encode("xmlns:"), ...prefix]);
-    if (sameBytes(attribute, expected) && value.length > 0) {
-      namespace = value;
+    const declares = prefix === undefined
+      ? xmlEquals(input, attribute, "xmlns")
+      : input.starts(attribute[0], "xmlns:") &&
+        sameBytes(input.head.subarray(attribute[0] + 6 * input.width, attribute[1]), input.head.subarray(...prefix));
+    if (declares && valueStart < valueEnd) {
+      namespace = [valueStart, valueEnd];
     }
-    at = valueEnd + 1;
+    at = valueEnd + input.width;
   }
 }
 
@@ -360,8 +443,8 @@ function matches(head, rule) {
       const root = xmlRoot(head);
       return (
         root !== undefined &&
-        sameBytes(root.local, encoder.encode(rule.name)) &&
-        (rule.namespace === null || (root.namespace !== undefined && sameBytes(root.namespace, encoder.encode(rule.namespace))))
+        xmlEquals(root.input, root.local, rule.name) &&
+        (rule.namespace === null || (root.namespace !== undefined && xmlEquals(root.input, root.namespace, rule.namespace)))
       );
     }
     case "zip_entry":

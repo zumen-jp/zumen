@@ -196,3 +196,48 @@ fn lifts_without_an_attribute_file_as_before() {
     assert!(codes.is_empty(), "{codes:?}");
     assert!(drawing.extensions.iter().all(|e| e.namespace != "sxf.saf"));
 }
+
+#[test]
+fn utf16_sidecars_keep_grouped_attributes_and_bind_to_the_drawing() {
+    let text = SAF.replace("encoding=\"UTF-8\"", "encoding=\"UTF-16\"");
+    for little in [true, false] {
+        let mut src = if little {
+            vec![0xff, 0xfe]
+        } else {
+            vec![0xfe, 0xff]
+        };
+        for unit in text.encode_utf16() {
+            src.extend(if little {
+                unit.to_le_bytes()
+            } else {
+                unit.to_be_bytes()
+            });
+        }
+        let mut budget = Budget::default();
+        let mut diag = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let file = saf::read(&src, &mut Cx::new(&mut budget, &mut diag, &cancel)).unwrap();
+        assert!(diag.is_empty(), "{diag:?}");
+        assert_eq!(file.sets[1].designed_by, "△△協会");
+        assert_eq!(file.figures[0].attributes[1].groups, ["測点"]);
+        let (drawing, diag) = lift(Some(&file));
+        assert_eq!(
+            diag,
+            [codes::SXF_SAF_FIGURE_MISSING, codes::SXF_SAF_FIGURE_DROPPED]
+        );
+        let attributes: Vec<_> = drawing
+            .extensions
+            .iter()
+            .filter(|e| e.namespace == "sxf.saf")
+            .collect();
+        assert_eq!(attributes.len(), 8);
+        assert_eq!(attributes[1].name, "現地盤高");
+        assert!(
+            attributes[1]
+                .fields
+                .iter()
+                .any(|f| f.key == "value" && f.value == FieldValue::Text("102.0400".into()))
+        );
+        assert!(attributes.iter().all(|e| e.is_current(&drawing)));
+    }
+}

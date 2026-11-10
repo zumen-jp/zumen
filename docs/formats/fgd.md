@@ -89,6 +89,8 @@ DEM 区画の被覆（`coverage`、2.2.2 節の `CV_DiscreteGridPointCoverage` �
 
 ## 確かめた度合い
 
+自作の UTF-16LE・UTF-16BE で、地物の名前・形と原本の出所、未知の名前空間の日本語の接頭辞を検査します。[XML の規則](xml.md)を使います。この追加の確認は `synthetic` で、基盤地図情報の外部照合はしていません。
+
 | 形式 | 向き | 段 |
 | --- | --- | --- |
 | `fgd` | 読み | `synthetic` |
