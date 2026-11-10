@@ -4,6 +4,7 @@ import { bundle, fixture } from "./fixtures.mjs";
 import { testFallbackText } from "./fallback.mjs";
 import { testPlacedSelection, testState } from "./state.mjs";
 import { testHit } from "./hit.mjs";
+import { testStrokeSat, testStrokeTolerance } from "./stroke-sat.mjs";
 import { testSnap } from "./snap.mjs";
 import { testTools } from "./tools.mjs";
 import { testUnderlays } from "./underlays.mjs";
@@ -15,7 +16,9 @@ export async function testView2D(wasmPath, inputs) {
   const throws = (fn, message) => { let caught = false; try { fn(); } catch (error) { caught = error instanceof RangeError || error instanceof Error; } assert(caught, message); };
   testFallbackText({ assert, near });
   testState({ assert, throws });
-  testHit({ assert, near });
+  const largeStrokeRaster = testHit({ assert, near });
+  const strokeSat = testStrokeSat(assert);
+  const strokeTolerance = testStrokeTolerance(assert);
   testSnap({ assert, near });
   testTools({ assert, near, throws });
   await testUnderlays({ assert, near, throws });
@@ -189,5 +192,5 @@ export async function testView2D(wasmPath, inputs) {
   viewer.destroy(); viewer.destroy();
   assert(ctx.getImageData(0, 0, 1, 1).data[3] === 0, "破棄で画面を消す");
   throws(() => viewer.render(), "破棄後の描画"); throws(() => viewer.setScene(input), "破棄後の差し替え");
-  return { assertions, formats };
+  return { assertions, formats, largeStrokeRaster, strokeSat, strokeTolerance };
 }
