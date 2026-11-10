@@ -28,7 +28,6 @@ evidence = [
 ]
 place = "core"
 basis = ["spec"]
-decisions = ["0007", "0010", "0272", "0275", "0277"]
 docs = ["docs/formats/png.md"]
 issues = ["zumen-jp/zumen#604"]
 
@@ -60,7 +59,6 @@ evidence = [
 ]
 place = "core"
 basis = ["spec"]
-decisions = ["0007", "0010", "0172", "0188", "0272"]
 docs = ["docs/formats/svg.md"]
 issues = ["zumen-jp/zumen#602", "zumen-jp/zumen#603", "zumen-jp/zumen#604"]
 
@@ -459,7 +457,6 @@ basis = ["spec", "inferred", "reference"]
 references = [{ name = "ezsxf", license = "MIT", url = "https://github.com/monozukuri-ai/ezsxf" }]
 verify = ["Jw_cad", "SXF ブラウザ"]
 samples = ["ezsxf のリポジトリにある公開の図面"]
-decisions = ["0008", "0120", "0121", "0122", "0123", "0124", "0125", "0126", "0127", "0128", "0129", "0130", "0131", "0132", "0249"]
 docs = ["docs/formats/sxf.md"]
 issues = ["zumen-jp/zumen#385"]
 
@@ -493,7 +490,6 @@ basis = ["spec", "reference"]
 references = [{ name = "ezjww", license = "MIT", url = "https://github.com/monozukuri-ai/ezjww" }]
 verify = ["Jw_cad"]
 samples = ["Jw_cad に付くサンプル", "ezjww のリポジトリにある図面"]
-decisions = ["0008", "0133", "0134", "0135", "0136"]
 docs = ["docs/formats/jww.md"]
 
 [formats.jww.read]
@@ -520,7 +516,6 @@ basis = ["inferred", "reference"]
 references = [{ name = "ezjww", license = "MIT", url = "https://github.com/monozukuri-ai/ezjww" }]
 verify = ["Jw_cad"]
 samples = ["Jw_cad 10 で保存したファイル"]
-decisions = ["0008"]
 
 [formats.jws]
 name = "JWS（Jw_cad の図形）"
@@ -534,7 +529,6 @@ basis = ["inferred", "reference"]
 references = [{ name = "ezjww", license = "MIT", url = "https://github.com/monozukuri-ai/ezjww" }]
 verify = ["Jw_cad"]
 samples = ["Jw_cad 10 で登録した図形"]
-decisions = ["0008"]
 notes = "掲示板の説明: https://www.jwcad.net/log/consult2/consult2-0610-12/thread17752.htm"
 
 [formats.dxf]
@@ -549,7 +543,6 @@ basis = ["spec", "inferred", "reference"]
 references = [{ name = "ezdxf", license = "MIT", url = "https://ezdxf.mozman.at/" }]
 verify = ["ezdxf", "ODA File Converter", "DWG TrueView"]
 samples = ["公開サンプルの DXF（samples/dxf・samples/dwg）。ezdxf の例は MIT、zumen-jp が AutoCAD 2027 で作った図面は CC0 1.0。出所とライセンスは samples/ledger.toml", "ACadSharp のテストの図面（MIT）", "ezdwg のテストの図面（MIT）", "自治体などが公開する図面。再配布できるかは確かめていない"]
-decisions = ["0008"]
 docs = ["docs/formats/dxf.md"]
 
 [formats.dxf.read]
@@ -582,7 +575,6 @@ references = [
 ]
 verify = ["ODA File Converter", "DWG TrueView"]
 samples = ["公開サンプルの DWG（samples/dwg）。zumen-jp が AutoCAD 2027 で作った図面で、CC0 1.0。同じ図面を AutoCAD で書いた DXF と比べる。出所とライセンスは samples/ledger.toml", "ACadSharp のテストの図面（MIT）。同じ図面を DXF にしたものと比べる", "ezdwg のテストの図面（MIT）"]
-decisions = ["0008"]
 legacy-decisions = ["0003"]
 docs = ["docs/formats/dwg.md"]
 
@@ -612,7 +604,6 @@ place = "core"
 basis = ["spec"]
 verify = ["pdf.js"]
 samples = ["PDFium の公開サンプル（Type 3・OCG・ソフトマスク・LZW と JPX）。CAD が出力した図面はまだない"]
-decisions = ["0008", "0013", "0256", "0289"]
 legacy-decisions = ["0020", "0030"]
 docs = ["docs/formats/pdf.md"]
 notes = "ページの解釈は hayro-interpret 0.9.0（Apache-2.0 OR MIT）に任せ、バージョンを固定する（決定 0256）。zumen-pdf は crates.io に出さず、どのパッケージにも入れない（決定 0289）"
@@ -646,7 +637,6 @@ place = "core"
 basis = ["spec"]
 verify = ["IfcOpenShell（依存にせず、毎晩の CI で別に入れて使う）"]
 samples = ["公開サンプルの IFC 12 件（samples/ifc。林野庁・中野区・GNI BIM Dataset・BIM Whale・Text2BIM。出所とライセンスは samples/ledger.toml、#412）", "許諾の要る国内の BIM ソフトの書き出しは #513 で足す（zumen-jp/zumen-legacy#128）"]
-decisions = ["0008", "0207", "0211", "0244"]
 legacy-decisions = ["0028"]
 docs = ["docs/formats/ifc.md"]
 
@@ -696,7 +686,6 @@ place = "core"
 basis = ["inferred"]
 verify = ["IfcOpenShell（依存にせず、別に入れて使う）"]
 samples = ["buildingSMART International が公開する IFC の EXPRESS のスキーマ。Git・パッケージ・テストに入れない（旧版の決定 0028）。テストの中で小さなスキーマを書く"]
-decisions = ["0207", "0216"]
 legacy-decisions = ["0028"]
 docs = ["docs/formats/express.md"]
 issues = ["zumen-jp/zumen#410", "zumen-jp/zumen#529", "zumen-jp/zumen#663", "zumen-jp/zumen#668", "zumen-jp/zumen#669"]
@@ -718,7 +707,6 @@ place = "core"
 basis = ["spec"]
 verify = ["国土地理院のジオイド高計算サービス（ジオイド2024日本とその周辺）", "国土地理院の内挿計算プログラム（geoidcalc。ISG 形式のモデルと一緒に配られる）"]
 samples = ["利用者が国土地理院から入手したジオイド・モデル。Git・パッケージ・テストに入れない"]
-decisions = ["0019"]
 docs = ["docs/formats/crs.md"]
 
 [formats.isg.read]
@@ -743,7 +731,6 @@ basis = ["spec", "inferred"]
 known-crates = ["jgdtrans"]
 verify = ["国土地理院の測量計算サイト（TKY2JGD・PatchJGD）", "jgdtrans 0.3.1（dev の依存。テストの中で作った格子で、読んだ格子点・補間の値・変換した座標を照らす。決定 0286）"]
 samples = ["利用者が国土地理院から入手したパラメーターのファイル。Git・パッケージ・テストに入れない。テストの中で合成の格子を作る"]
-decisions = ["0019", "0233", "0237", "0286"]
 docs = ["docs/formats/crs.md"]
 issues = ["zumen-jp/zumen#471", "zumen-jp/zumen#529", "zumen-jp/zumen#664", "zumen-jp/zumen#670", "zumen-jp/zumen#678", "zumen-jp/zumen#679"]
 notes = "PatchJGD のファイルのヘッダーの行数と文字コード（UTF-8・Shift_JIS）は、ファイルのバージョンで違う。2026-11-09 に確かめた国土地理院の座標補正パラメータファイルの更新の履歴では、noto2024_BL.par の Ver.1.0.1 がヘッダーを 14 行から 15 行に、noto2024_02BL.par の Ver.1.0.1 が文字コードを UTF-8 から Shift_JIS に直した。初めのデータの行の前をヘッダーとして読まないのは、これに合わせた推定。更新の履歴と、ファイルと各ファイルのヘッダーの一覧へのリンクは、docs/formats/crs.md の「座標の補正量の格子」にある"
@@ -774,7 +761,6 @@ rights = "public"
 rights-note = "文書と XSD は CC BY-ND 4.0 で、実装についての記述はない（IFC 4.3 の文書と同じ扱い）。XSD と、そこから生成したコードは同梱しない。照合は文書の記述から書く"
 place = "core"
 basis = ["spec"]
-decisions = ["0207", "0217"]
 docs = ["docs/formats/ids.md"]
 issues = ["zumen-jp/zumen#411"]
 
@@ -797,7 +783,6 @@ rights = "public"
 rights-note = "3.0 の文書と XSD・JSON のスキーマは CC BY-ND 4.0 で、実装についての記述はない（IFC 4.3 の文書と同じ扱い）。スキーマは同梱しない。2.1 にはライセンスの記述がないが、3.0 と同じ扱いにする（zumen-jp/zumen#440）。商標の注記（buildingSMART・openBIM・IFC）は BCF を挙げていない"
 place = "core"
 basis = ["spec"]
-decisions = ["0214", "0220", "0248"]
 docs = ["docs/formats/bcf.md"]
 issues = ["zumen-jp/zumen#429", "zumen-jp/zumen#454"]
 
@@ -827,7 +812,6 @@ place = "plugin"
 repository = "zumen-jp/stbridge（非公開）"
 basis = ["spec"]
 known-crates = ["stb-parser"]
-decisions = ["0017", "0243", "0245"]
 legacy-decisions = ["0001", "0013", "0028"]
 issues = ["zumen-jp/zumen-legacy#140", "zumen-jp/zumen#402"]
 
@@ -931,7 +915,6 @@ place = "core"
 basis = ["spec"]
 verify = ["基盤地図情報ビューアー（拡張 DM で書き出せる。手元でだけ使う）"]
 samples = ["再配布を認める公開サンプルは見つかっていない。テストの中で作る"]
-decisions = ["0233"]
 docs = ["docs/formats/extdm.md"]
 issues = ["zumen-jp/zumen#378"]
 
@@ -956,7 +939,6 @@ place = "core"
 basis = ["spec"]
 verify = ["基盤地図情報ビューアー", "QGIS"]
 samples = ["利用者が国土地理院から入手したデータ。Git・パッケージ・テストに入れない。テストの中で小さな GML を作る"]
-decisions = ["0019", "0233", "0251"]
 docs = ["docs/formats/fgd.md"]
 issues = ["zumen-jp/zumen#378"]
 
@@ -1133,7 +1115,6 @@ rights-note = "SXF Ver.3.1 仕様書の附属書（属性付加機構）に含�
 place = "core"
 basis = ["spec"]
 verify = ["SXF ブラウザ"]
-decisions = ["0249"]
 docs = ["docs/formats/sxf.md"]
 issues = ["zumen-jp/zumen#386"]
 
