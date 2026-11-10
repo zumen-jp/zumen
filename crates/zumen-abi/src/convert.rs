@@ -983,14 +983,14 @@ mod tests {
                 value,
             })
         };
-        // 原点から 1000 m 先の短いクロソイドは、点は 2 つでも、原点から刻んで積む手間が要る
+        // 区間が原点から離れたクロソイドは、原点から区間の初めまで刻んで積む手間も要る
         let clothoid = Shape::Curve(Edge::Clothoid {
             origin: at(0.0, 0.0),
-            parameter: length(1.0),
+            parameter: length(50.0),
             angle: 0.0,
             counterclockwise: true,
-            start: length(1000.0),
-            end: length(1000.0001),
+            start: length(35.0),
+            end: length(50.0),
         });
         // 半径 50 m の円を、膨らみを持つ 2 つの区間で描く
         let bulged = Shape::Polyline(Polyline {

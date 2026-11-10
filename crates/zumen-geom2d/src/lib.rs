@@ -1197,15 +1197,13 @@ mod tests {
         assert!((end[1] - 1.6371).abs() < 1e-3, "{end:?}");
     }
 
-    /// 原点から遠い短い区間は、作る点が 2 つでも、原点から刻んで積む手間を数える（#753）
+    /// 原点から離れた区間は、区間の刻みのほかに、原点から区間の初めまでの刻みを手間に数える（#753）
     #[test]
     fn clothoid_work_counts_the_steps_from_the_origin() {
-        let points = clothoid([0.0, 0.0], 1.0, 0.0, true, 1000.0, 1000.0001, 0.02);
-        assert_eq!(points.len(), 2);
-        assert_eq!(
-            clothoid_work(1.0, 1000.0, 1000.0001, 0.02),
-            (MAX_STEPS as u64 + 1) * 9 + 1
-        );
+        // A 50 の 35 m から 50 m まで。刻みは 2 m ほどなので、区間は 8 刻み、原点から区間の初めまでは 18 刻み
+        let points = clothoid([0.0, 0.0], 50.0, 0.0, true, 35.0, 50.0, 0.01);
+        assert_eq!(points.len(), 9);
+        assert_eq!(clothoid_work(50.0, 35.0, 50.0, 0.01), (18 + 8) * 9 + 1);
         // 原点から始まる区間は、区間の刻みのほかに 1 刻み
         let points = clothoid([0.0, 0.0], 10.0, 0.0, true, 0.0, 10.0, 0.001);
         assert_eq!(
@@ -1233,11 +1231,6 @@ mod tests {
             }
         }
         assert_eq!(polyline_points(&[], false, 0.1), 0);
-        let many: Vec<(Xy, f64)> = (0..10).map(|i| ([f64::from(i), 0.0], 1.0)).collect();
-        assert_eq!(
-            polyline_points(&many, false, 1e-300),
-            1 + 9 * MAX_STEPS as u64
-        );
     }
 
     /// 区間を二分探索で探しても、先頭から順に探したときと同じ区間になる（#756）

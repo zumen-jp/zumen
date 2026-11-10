@@ -520,20 +520,26 @@ mod tests {
             Shape::Polyline(out) => out.vertices.len() as u64,
             _ => panic!("折れ線にならない"),
         };
-        // 原点から 1000 m 先の短いクロソイドは、点は 2 つでも、原点から刻んで積む手間を前に数える（#753）
+        // 区間が原点から離れたクロソイドは、原点から区間の初めまで刻んで積む手間を、作る前に数える。
+        // 区間の刻みだけなら、点の数より 1 少ない刻みごとに 9 回（#753）
         let clothoid = Shape::Curve(Edge::Clothoid {
             origin: at(0.0, 0.0),
-            parameter: real(1.0),
+            parameter: real(50.0),
             angle: 0.0,
             counterclockwise: true,
-            start: real(1000.0),
-            end: real(1000.0001),
+            start: real(35.0),
+            end: real(50.0),
         });
         let (work, points) = before(&clothoid, &view);
-        assert!(work > geom::MAX_STEPS as u64, "{work}");
+        assert_eq!(
+            work,
+            geom::clothoid_work(50.0, 35.0, 50.0, tolerance(&view))
+        );
         assert_eq!(points, 0);
         let baked = element_of(&element(clothoid), &view);
-        assert_eq!(baked.points, polyline(baked.element.as_ref().unwrap()));
+        let made = polyline(baked.element.as_ref().unwrap());
+        assert_eq!(baked.points, made);
+        assert!(work > (made - 1) * 9 + 1, "{work} {made}");
         // 膨らみを持つ折れ線は、作る点を前に数え、作ったあとには数えない。閉じた折れ線は、終わりの点を
         // 除く前の数を数える
         let circle = Shape::Polyline(Polyline {

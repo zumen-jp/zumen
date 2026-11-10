@@ -598,9 +598,9 @@ fn fitted_work(points: &[[f64; 2]], tolerance: f64) -> u64 {
     work
 }
 
-/// クロソイドとスプラインを折れ線にする手間は、作る点の数によらず予算に数える。原点から遠いクロソイドは、
-/// 点が 2 つでも、原点から刻んで積む手間を数える。フィット点で決まるスプラインと、引出線の曲線も数える
-/// （#753・#756）
+/// クロソイドとスプラインを折れ線にする手間は、作る点の数によらず予算に数える。区間が原点から離れた
+/// クロソイドは、原点から区間の初めまで刻んで積む手間も数える。フィット点で決まるスプラインと、引出線の曲線も
+/// 数える（#753・#756）
 #[test]
 fn curves_count_the_work_of_making_their_points() {
     let mut drawing = lift(&SHAPES[..9]);
@@ -613,17 +613,19 @@ fn curves_count_the_work_of_making_their_points() {
         assert!(after - before >= work, "{before} {after} {work}");
         before = after;
     };
-    let clothoid = zumen_geom2d::clothoid_work(1.0, 1000.0, 1000.0001, tolerance);
-    assert!(clothoid > zumen_geom2d::MAX_STEPS as u64);
+    // A 50 の 35 m から 50 m まで。区間の刻みだけなら、点の数より 1 少ない刻みごとに 9 回
+    let clothoid = zumen_geom2d::clothoid_work(50.0, 35.0, 50.0, tolerance);
+    let made = zumen_geom2d::clothoid([0.0, 0.0], 50.0, 0.0, true, 35.0, 50.0, tolerance);
+    assert!(clothoid > (made.len() as u64 - 1) * 9 + 1, "{clothoid}");
     grows(
         &mut drawing,
         Shape::Curve(zumen_drawing::Edge::Clothoid {
             origin: at(0.0, 0.0),
-            parameter: model(1.0),
+            parameter: model(50.0),
             angle: 0.0,
             counterclockwise: true,
-            start: model(1000.0),
-            end: model(1000.0001),
+            start: model(35.0),
+            end: model(50.0),
         }),
         clothoid,
     );

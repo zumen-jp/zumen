@@ -1030,7 +1030,7 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
                 start,
                 end,
             } => {
-                // 作る点とは別に、原点から区間の初めまで刻んで積むので、求める前に数える（#756）
+                // 作る点とは別に、原点から区間の初めまで刻んで積むので、求める前に数える（#753）
                 let work =
                     geom::clothoid_work(length(*parameter), length(*start), length(*end), local);
                 self.work(work, source)?;
