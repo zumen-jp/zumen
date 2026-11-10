@@ -392,8 +392,9 @@ function compareLargeStrokeRaster(output, assert) {
   };
   const direct = draw({ x: 100 - 2e15, y: 100 - 2e15 }, { x: 100 + 2e15, y: 100 + 2e15 });
   const bounded = draw({ x: -100, y: -100 }, { x: 300, y: 300 });
-  const expected = direct.getImageData(0, 0, 200, 200).data, actual = output.getContext("2d").getImageData(0, 0, 200, 200).data;
-  const samePixels = expected.every((value, i) => value === actual[i]);
+  const expected = bounded.getImageData(0, 0, 200, 200).data, actual = output.getContext("2d").getImageData(0, 0, 200, 200).data;
+  let sameMask = true;
+  for (let i = 0; i < expected.length; i += 4) if ((expected[i] !== 255) !== (actual[i] !== 255)) sameMask = false;
   const boundedCenter = Array.from(bounded.getImageData(100, 100, 1, 1).data), boundedPixels = bounded.getImageData(0, 0, 200, 200).data;
   let ink = 0, boundedInk = 0;
   for (let i = 0; i < actual.length; i += 4) {
@@ -402,9 +403,10 @@ function compareLargeStrokeRaster(output, assert) {
   }
   const observation = { canvasCenter: Array.from(direct.getImageData(100, 100, 1, 1).data),
     viewerCenter: Array.from(output.getContext("2d").getImageData(100, 100, 1, 1).data), boundedCenter, ink, boundedInk };
-  assert(samePixels, `巨大パスの実描画は同じ backend の独立 Canvas と全画素一致する: ${JSON.stringify(observation)}`);
+  assert(sameMask && ink > 0 && observation.viewerCenter.slice(0, 3).some((value) => value < 255),
+    `巨大な線は中心を含めて描かれ、近傍の独立 Canvas と非白の画素が一致する: ${JSON.stringify(observation)}`);
   assert(boundedCenter.slice(0, 3).some((value) => value < 255) && boundedInk > 0,
     `画面近傍の端点で描く同じ直線は中心を含めて描かれる: ${JSON.stringify(observation)}`);
-  // 一致が両方とも無描画の場合も記録する。描画できたという意味にはしない。
+  // 巨大な生のパス自体の browser/backend の違いは、製品の実描画とは別に記録する。
   return observation;
 }

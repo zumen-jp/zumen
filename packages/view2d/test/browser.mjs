@@ -5,6 +5,8 @@ import { testFallbackText } from "./fallback.mjs";
 import { testPlacedSelection, testState } from "./state.mjs";
 import { testHit } from "./hit.mjs";
 import { testStrokeSat, testStrokeTolerance } from "./stroke-sat.mjs";
+import { testRasterClipping } from "./raster.mjs";
+import { testLargeStrokes } from "./large-strokes.mjs";
 import { testSnap } from "./snap.mjs";
 import { testTools } from "./tools.mjs";
 import { testUnderlays } from "./underlays.mjs";
@@ -19,6 +21,8 @@ export async function testView2D(wasmPath, inputs) {
   const largeStrokeRaster = testHit({ assert, near });
   const strokeSat = testStrokeSat(assert);
   const strokeTolerance = testStrokeTolerance(assert);
+  testRasterClipping(assert);
+  testLargeStrokes(assert);
   testSnap({ assert, near });
   testTools({ assert, near, throws });
   await testUnderlays({ assert, near, throws });
