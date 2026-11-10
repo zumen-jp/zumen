@@ -1,7 +1,7 @@
 ---
 import PageHeader from '../components/PageHeader.astro';
 import SectionHead from '../components/SectionHead.astro';
-import { decision, repo } from '../data/site';
+import { decision, releaseUrl, releaseVersion, repo } from '../data/site';
 import Base from '../layouts/Base.astro';
 
 const policies = [
@@ -28,7 +28,7 @@ const policies = [
             <tr><th scope="row">使い方の形</th><td>ネイティブのライブラリ・ブラウザーの wasm・プロセスの外・HTTP の 4 つから、用途に合わせて選べます。</td></tr>
             <tr><th scope="row">ファイルの扱い</th><td>図面を外部のサービスへ送らず、手元の環境で読みます。</td></tr>
             <tr><th scope="row">ライセンス</th><td>MIT License または Apache License 2.0（選んで使えます）</td></tr>
-            <tr><th scope="row">状態</th><td>開発中です。パッケージはまだ公開していません。</td></tr>
+            <tr><th scope="row">状態</th><td><a href={releaseUrl}>v{releaseVersion}</a> を公開しています。配布先と制約は<a href="/platforms/#packages">対応環境</a>で案内しています。</td></tr>
             <tr><th scope="row">リポジトリ</th><td><a href={repo}>github.com/zumen-jp/zumen</a></td></tr>
           </tbody>
         </table>
@@ -75,7 +75,7 @@ const policies = [
         <div class="flow-arrow" aria-hidden="true">⇄</div>
         <div class="flow-box">
           <h3>形式</h3>
-          <ul><li>SXF（SFC・P21）</li><li>JWW・JWC・JWS</li><li>DXF・DWG</li><li>IFC・PDF ほか</li></ul>
+          <ul><li>SXF・JWW</li><li>DXF・DWG</li><li>IFC</li><li>土木・地理・点群</li></ul>
         </div>
       </div>
       <p class="note">文言はコアに持たせず、日本語と英語のカタログから引きます。各言語への約束は、適合テストのハッシュで確かめます。</p>
