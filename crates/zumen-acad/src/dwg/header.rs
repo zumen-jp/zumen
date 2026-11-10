@@ -453,7 +453,7 @@ pub(super) fn handle_seed(src: &[u8], start: usize, release: Release) -> Option<
 }
 
 /// `src` のヘッダーの変数の HANDSEED を `value` にし、セクションの CRC を直す。HANDSEED の大きさ（バイト）が
-/// 変わる値なら `None`
+/// 変わる値なら `None`（[`grow_handle_seed`] で書き直す）
 pub(super) fn set_handle_seed(src: &mut [u8], seed: &HandleSeed, value: u64) -> Option<()> {
     let size = (u64::BITS - value.leading_zeros()).div_ceil(8);
     if size != u32::from(seed.counter) {
@@ -468,6 +468,53 @@ pub(super) fn set_handle_seed(src: &mut [u8], seed: &HandleSeed, value: u64) -> 
         seed.at + 8 + usize::from(seed.counter) * 8..data.len() * 8,
     )?;
     store(src, seed.start, seed.data_at, seed.crc_at, out)
+}
+
+/// `src` のヘッダーの変数の HANDSEED を、大きさ（バイト）の変わる `value` にしたセクション（始まりのマーカーから終わりの
+/// マーカーまで）と、元のセクションの範囲を返す（#701）。HANDSEED の後ろのビットをそのままずらし、PDMODE・PDSIZE の
+/// ビットの数が変わるときと同じく、セクションの大きさと、R2010 からの文字列のストリームの終わりの位置を書き直す（決定 0193）
+pub(super) fn grow_handle_seed(
+    src: &[u8],
+    seed: &HandleSeed,
+    release: Release,
+    value: u64,
+) -> Option<(Range<usize>, Vec<u8>)> {
+    let data = src.get(seed.data_at..seed.crc_at)?;
+    let old_end = seed.at + 8 + usize::from(seed.counter) * 8;
+    let mut out = BitWriter::default();
+    out.copy(data, 0..seed.at)?;
+    out.handle(seed.code, value);
+    let shift = out.len() as i64 - old_end as i64;
+    out.copy(data, old_end..data.len() * 8)?;
+    wrap(src, seed.start, release, out, shift)
+}
+
+/// 書き直したデータ `out`（元より `shift` ビット長い）から、ヘッダーの変数のセクションを作る。R2010 からは、データの初めの
+/// 文字列のストリームの終わりの位置（RL）を `shift` だけずらす。大きさ（RL）と CRC は計算し直す（決定 0193）
+fn wrap(
+    src: &[u8],
+    start: usize,
+    release: Release,
+    out: BitWriter,
+    shift: i64,
+) -> Option<(Range<usize>, Vec<u8>)> {
+    let (old, crc_at) = section(src, start, release)?;
+    let data_at = crc_at - old.len();
+    let mut data = out.into_bytes();
+    if release >= Release::R2010 && shift != 0 {
+        let end = i64::from(le32(&data, 0)?).checked_add(shift)?;
+        data.get_mut(..4)?
+            .copy_from_slice(&u32::try_from(end).ok()?.to_le_bytes());
+    }
+    // 始まりのマーカー・大きさ（RL）・R2010 からの上位の RL・データ・CRC・終わりのマーカー
+    let mut section = src.get(start..start + 16)?.to_vec();
+    section.extend_from_slice(&u32::try_from(data.len()).ok()?.to_le_bytes());
+    section.extend_from_slice(src.get(start + 20..data_at)?);
+    section.extend_from_slice(&data);
+    let crc = crc16(OBJECT_CRC_SEED, section.get(16..)?);
+    section.extend_from_slice(&crc.to_le_bytes());
+    section.extend_from_slice(&END);
+    Some((start..crc_at + 18, section))
 }
 
 /// 書き直すヘッダーの変数。`None` の変数は変えない
@@ -506,8 +553,7 @@ pub(super) fn set_values(
     values: Values,
 ) -> Option<(Range<usize>, Vec<u8>)> {
     first_fields(release)?;
-    let (data, crc_at) = section(src, start, release)?;
-    let data_at = crc_at - data.len();
+    let (data, _) = section(src, start, release)?;
     let found = variables(&mut streams(data, release)?)?;
     let mut bits = Bits::with_release(data, release);
     let mut out = BitWriter::default();
@@ -543,21 +589,7 @@ pub(super) fn set_values(
     }
     let shift = out.len() as i64 - bits.pos() as i64;
     out.copy(data, bits.pos()..data.len() * 8)?;
-    let mut data = out.into_bytes();
-    if release >= Release::R2010 && shift != 0 {
-        let end = i64::from(le32(&data, 0)?).checked_add(shift)?;
-        data.get_mut(..4)?
-            .copy_from_slice(&u32::try_from(end).ok()?.to_le_bytes());
-    }
-    // 始まりのマーカー・大きさ（RL）・R2010 からの上位の RL・データ・CRC・終わりのマーカー
-    let mut section = src.get(start..start + 16)?.to_vec();
-    section.extend_from_slice(&u32::try_from(data.len()).ok()?.to_le_bytes());
-    section.extend_from_slice(src.get(start + 20..data_at)?);
-    section.extend_from_slice(&data);
-    let crc = crc16(OBJECT_CRC_SEED, section.get(16..)?);
-    section.extend_from_slice(&crc.to_le_bytes());
-    section.extend_from_slice(&END);
-    Some((start..crc_at + 18, section))
+    wrap(src, start, release, out, shift)
 }
 
 /// ヘッダーの変数のセクションのデータを、同じ大きさ（バイト）の `out` に置き換え、CRC を直す。大きさが違えば `None`

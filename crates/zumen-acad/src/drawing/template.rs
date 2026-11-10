@@ -4,9 +4,9 @@
 //! モデルと用紙のレイアウト、用紙のビューポートと、それらのハンドルを持つ。図面モデルの表の項目と要素は、ひな形を
 //! 読んだあとに書き戻し（apply）の追加で足し、表の件数は `AcadDb::finish_new_dxf_tables` で仕上げる。
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
-use zumen_drawing::{Drawing2D, Sheet, SymbolKey, Unit, View};
+use zumen_drawing::{Drawing2D, Sheet, SymbolDefinition, SymbolKey, Unit, View};
 
 use crate::charset::Charset;
 
@@ -15,18 +15,23 @@ use crate::charset::Charset;
 pub struct NewDxfTemplate {
     bytes: Vec<u8>,
     blocks: BTreeMap<(String, String), String>,
+    duplicates: BTreeSet<usize>,
 }
 
 impl NewDxfTemplate {
     /// 図面モデル `drawing` のひな形を作る。最初の空間の単位、1 枚目の用紙の大きさとビュー、記号の定義を使う。
-    /// キーが重ならない定義では、外部参照の記号の定義（`external` を持つもの）は書かず、診断にもしない。書かなかった
-    /// 定義と、それを置いた記号（[`Self::block`] が `None` を返すもの）は、呼び出し側が診断にする。キーが重なる定義は、
-    /// そのキーで外部参照でない最後の定義に付けた名前で、外部参照のものも含めてすべて書く（同じ名前の部品が重なる。
-    /// 扱いは #656 で決める）
+    /// 記号の定義は、キーごとに先の定義だけを使う（置いた記号の形を決める [`Drawing2D::symbol`] と同じ）。先の定義が
+    /// 外部参照の記号の定義（`external` を持つもの）なら、そのキーの部品は書かない。キーが同じあとの定義
+    /// （[`Self::duplicate`]）も書かない。どちらも診断にはしないので、書かなかった定義と、それを置いた記号
+    /// （[`Self::block`] が `None` を返すもの）は、呼び出し側が診断にする（#656）
     pub fn new(drawing: &Drawing2D) -> Self {
-        let blocks = block_names(drawing);
-        let bytes = template(drawing, &blocks);
-        Self { bytes, blocks }
+        let names = block_names(drawing);
+        let bytes = template(drawing, &names.blocks, &names.duplicates);
+        Self {
+            bytes,
+            blocks: names.blocks,
+            duplicates: names.duplicates,
+        }
     }
 
     /// ひな形の DXF。文字は ANSI_932（Shift_JIS）で書く。符号化できなかったとき（不具合）は空なので、呼び出し側は
@@ -35,10 +40,14 @@ impl NewDxfTemplate {
         &self.bytes
     }
 
-    /// 記号の定義 `key` を書いた部品の名前。そのキーに外部参照でない定義がないとき（図面にない定義と、キーが
-    /// 重ならない外部参照の定義）は `None`
+    /// 記号の定義 `key` を書いた部品の名前。図面にないキーと、先の定義が外部参照のキーは `None`
     pub fn block(&self, key: &SymbolKey) -> Option<&str> {
         self.blocks.get(&key_of(key)).map(String::as_str)
+    }
+
+    /// 図面モデルの `index` 番目の記号の定義が、先の定義とキーが同じなので、書かないものか
+    pub fn duplicate(&self, index: usize) -> bool {
+        self.duplicates.contains(&index)
     }
 
     /// 用紙 `sheet` のビュー `view` を、ひな形の用紙空間に VIEWPORT で書くか（決定 0240）。ひな形は 1 枚目の用紙の
@@ -53,56 +62,105 @@ fn key_of(key: &SymbolKey) -> (String, String) {
     (key.namespace.to_string(), key.name.clone())
 }
 
-/// 記号の定義ごとの、書いた先の部品の名前。外部参照の定義は書かない。無名の定義と、ANSI_932 に戻せない名前には
-/// 名前を付ける
-fn block_names(drawing: &Drawing2D) -> BTreeMap<(String, String), String> {
+/// 部品の名前を決めた結果
+struct Names {
+    /// キーごとの、書いた先の部品の名前
+    blocks: BTreeMap<(String, String), String>,
+    /// 先の定義とキーが同じ定義の位置
+    duplicates: BTreeSet<usize>,
+    /// 試した名前の数。試験で、手間が定義の数に比例することを確かめるのに使う
+    #[cfg_attr(not(test), allow(dead_code))]
+    tries: usize,
+}
+
+/// 記号の定義ごとの、書いた先の部品の名前と、試した名前の数。キーごとに先の定義だけを使い、それが外部参照の定義なら
+/// 書かない（#656）。無名の定義と、ANSI_932 に
+/// 戻せない名前には名前を付ける。名前が（大文字と小文字を区別せずに）重なれば、基の名前に `_1`・`_2`… を付けた名前の
+/// うち、まだ使っていない最初のものにする。小文字にした基の名前ごとに、次に試す番号を覚える。使った名前は増えるだけ
+/// なので、覚えた番号より前の名前は、1 から探しても使われている。
+///
+/// 試す名前の数は定義の数に比例する（#655）。使った名前（小文字）が候補になる系列は、それ自身を基の名前とする系列と、
+/// 末尾の `_数字` を除いた名前を基の名前とする系列の、多くても 2 つで、どの系列も番号を戻さないので、使った名前を
+/// 飛ばすのは系列ごとに 1 回である。そのため、試す名前の数は、定義の数の 3 倍と 2 つの予約名の和を超えない
+fn block_names(drawing: &Drawing2D) -> Names {
     let mut names = BTreeMap::new();
-    let mut used: BTreeMap<String, ()> = BTreeMap::new();
-    for reserved in ["*model_space", "*paper_space"] {
-        used.insert(reserved.to_string(), ());
-    }
+    let mut keys = BTreeSet::new();
+    let mut duplicates = BTreeSet::new();
+    let mut used = BTreeSet::from(["*model_space".to_owned(), "*paper_space".to_owned()]);
+    let mut next = BTreeMap::<String, usize>::new();
+    let mut tries = 0;
     for (index, definition) in drawing.symbols.iter().enumerate() {
+        if !keys.insert(key_of(&definition.key)) {
+            duplicates.insert(index);
+            continue;
+        }
         if definition.external.is_some() {
             continue;
         }
-        let base = if definition.anonymous || definition.key.name.starts_with('*') {
-            format!("zumen_{index}")
-        } else {
-            definition
-                .key
-                .name
-                .chars()
-                .map(|c| {
-                    if "<>/\\\":;?*|=,`".contains(c) || c.is_control() {
-                        '_'
-                    } else {
-                        c
-                    }
-                })
-                .collect()
-        };
-        // 読む側と同じ型で符号化し、同じ名前に戻るものだけを使う（決定 0192）
-        let base = if base.is_empty() || Charset::ShiftJis.encode(&base).is_err() {
-            format!("zumen_{index}")
-        } else {
-            base
-        };
-        let mut name = base.clone();
-        let mut repeat = 1;
-        while used.contains_key(&name.to_lowercase()) {
-            name = format!("{base}_{repeat}");
+        let base = base_name(index, definition);
+        // 番号 0 は基の名前そのもの。小文字にした `基の名前_番号` は、小文字にした基の名前に `_番号` を足したものに
+        // なる。`_` と数字は大文字と小文字の区別がなく、前の字の小文字も変えない（語末の `Σ` が `ς` になる規則は、
+        // 後ろに `_` が続いても語末のまま）。そのため、小文字にした基の名前が同じなら候補の並びも同じになり、覚えた
+        // 番号を共に使える
+        let lower = base.to_lowercase();
+        let mut repeat = next.get(&lower).copied().unwrap_or(0);
+        let name = loop {
+            tries += 1;
+            let name = if repeat == 0 {
+                base.clone()
+            } else {
+                format!("{base}_{repeat}")
+            };
             repeat += 1;
-        }
-        used.insert(name.to_lowercase(), ());
+            if used.insert(name.to_lowercase()) {
+                break name;
+            }
+        };
+        next.insert(lower, repeat);
         names.insert(key_of(&definition.key), name);
     }
-    names
+    Names {
+        blocks: names,
+        duplicates,
+        tries,
+    }
+}
+
+/// 記号の定義の、連番を付ける前の部品の名前。無名の定義と `*` で始まる名前、記号に使えない文字を `_` にした名前が
+/// 空か ANSI_932 で同じ名前に戻らないものは `zumen_番号`（番号は図面モデルの定義の位置）
+fn base_name(index: usize, definition: &SymbolDefinition) -> String {
+    let base = if definition.anonymous || definition.key.name.starts_with('*') {
+        format!("zumen_{index}")
+    } else {
+        definition
+            .key
+            .name
+            .chars()
+            .map(|c| {
+                if "<>/\\\":;?*|=,`".contains(c) || c.is_control() {
+                    '_'
+                } else {
+                    c
+                }
+            })
+            .collect()
+    };
+    // 読む側と同じ型で符号化し、同じ名前に戻るものだけを使う（決定 0192）
+    if base.is_empty() || Charset::ShiftJis.encode(&base).is_err() {
+        format!("zumen_{index}")
+    } else {
+        base
+    }
 }
 
 /// ひな形の DXF（R2004）。DXF Reference「TABLES Section」「Common Group Codes for
 /// Symbol Table Entries」「BLOCK」「ENDBLK」「BLOCK_RECORD」「DICTIONARY」「LAYOUT」に従い、
 /// 表とブロックの所有者・サブクラスと、モデル・用紙のレイアウトを持つ。用紙への追加には空の LAYOUT を使う。
-fn template(drawing: &Drawing2D, blocks: &BTreeMap<(String, String), String>) -> Vec<u8> {
+fn template(
+    drawing: &Drawing2D,
+    blocks: &BTreeMap<(String, String), String>,
+    duplicates: &BTreeSet<usize>,
+) -> Vec<u8> {
     let mut handle = 0x10_u64;
     let mut next = || {
         handle += 1;
@@ -166,7 +224,10 @@ fn template(drawing: &Drawing2D, blocks: &BTreeMap<(String, String), String>) ->
             Some(&paper_layout),
         ),
     ];
-    for definition in &drawing.symbols {
+    for (index, definition) in drawing.symbols.iter().enumerate() {
+        if duplicates.contains(&index) {
+            continue;
+        }
         if let Some(name) = blocks.get(&key_of(&definition.key)) {
             let base = definition.base.map_or([0.0, 0.0], |base| [base.x, base.y]);
             parts.push((name.clone(), base, next(), None));
@@ -820,6 +881,166 @@ mod tests {
         );
         // 同じ図面からは同じバイト列
         assert_eq!(NewDxfTemplate::new(&drawing).bytes(), template.bytes());
+    }
+
+    #[test]
+    fn meeting_names_take_tries_in_proportion_to_the_definitions() {
+        // `a?1`…`a?n`（`a_1`…`a_n` に直る）のあとに、名前空間だけが違い、小文字にすると同じ `a`・`A` を交互に
+        // n 個置く。2 つ目は連番の名前をすべて飛ばして `A_{n+1}` になり、3 つ目からは覚えた番号の名前を 1 回で
+        // 使う。1 から探すと、k 個目は n + k 個の名前を試すので、全体で n の 2 乗になる
+        let variant = |index: usize| if index.is_multiple_of(2) { "a" } else { "A" };
+        let place = |count: usize| {
+            let drawing = Drawing2D {
+                symbols: (1..=count)
+                    .map(|repeat| definition(0, &format!("a?{repeat}"), false, false))
+                    .chain((0..count).map(|index| SymbolDefinition {
+                        key: SymbolKey {
+                            namespace: format!("ns{index}").into(),
+                            name: variant(index).to_owned(),
+                        },
+                        ..definition(0, "a", false, false)
+                    }))
+                    .collect(),
+                ..Drawing2D::default()
+            };
+            let Names {
+                blocks: names,
+                tries,
+                ..
+            } = block_names(&drawing);
+            let names: Vec<_> = drawing
+                .symbols
+                .iter()
+                .map(|definition| names.get(&key_of(&definition.key)).cloned())
+                .collect();
+            (names, tries)
+        };
+        let count = 1_000;
+        let (names, tries) = place(count);
+        let expected: Vec<_> = (1..=count)
+            .map(|repeat| format!("a_{repeat}"))
+            .chain(std::iter::once("a".to_owned()))
+            .chain((1..count).map(|index| format!("{}_{}", variant(index), count + index)))
+            .map(Some)
+            .collect();
+        assert_eq!(names, expected);
+        assert_eq!(tries, 3 * count);
+        // 定義の数を倍にすると、試す名前の数も倍になる
+        assert_eq!(place(2 * count).1, 2 * tries);
+    }
+
+    /// 前の探し方（重なれば、毎回 1 から番号を試す）で付けた名前
+    fn names_searched_from_one(drawing: &Drawing2D) -> BTreeMap<(String, String), String> {
+        let mut names = BTreeMap::new();
+        let mut used = BTreeSet::from(["*model_space".to_owned(), "*paper_space".to_owned()]);
+        for (index, definition) in drawing.symbols.iter().enumerate() {
+            if definition.external.is_some() {
+                continue;
+            }
+            let base = base_name(index, definition);
+            let mut name = base.clone();
+            let mut repeat = 1;
+            while used.contains(&name.to_lowercase()) {
+                name = format!("{base}_{repeat}");
+                repeat += 1;
+            }
+            used.insert(name.to_lowercase());
+            names.insert(key_of(&definition.key), name);
+        }
+        names
+    }
+
+    #[test]
+    fn remembered_numbers_give_the_names_searched_from_one() {
+        // 基の名前がほかの連番と重なるもの・`_` が重なるもの・全角の英字・語末で小文字が変わる `Σ`・`zumen_番号` と
+        // 重なるものの並びを、すべて前の探し方と比べる（PR #716 の確かめ）
+        let words = [
+            "a", "A", "a_1", "A_1", "a_2", "a__1", "a_", "Ａ", "ａ", "AΣ", "aς_1", "aσ", "zumen_1",
+            "*x",
+        ];
+        let mut sequences = vec![vec![]];
+        let mut compared = 0;
+        for _ in 0..4 {
+            let mut longer = Vec::new();
+            for sequence in &sequences {
+                for word in words {
+                    let mut next: Vec<&str> = sequence.clone();
+                    next.push(word);
+                    let drawing = Drawing2D {
+                        symbols: next
+                            .iter()
+                            .enumerate()
+                            .map(|(at, name)| SymbolDefinition {
+                                key: SymbolKey {
+                                    namespace: format!("ns{at}").into(),
+                                    name: (*name).to_owned(),
+                                },
+                                ..definition(0, name, false, false)
+                            })
+                            .collect(),
+                        ..Drawing2D::default()
+                    };
+                    let Names {
+                        blocks: names,
+                        tries,
+                        ..
+                    } = block_names(&drawing);
+                    assert_eq!(names, names_searched_from_one(&drawing), "{next:?}");
+                    assert!(tries <= 3 * next.len() + 2, "{next:?} {tries}");
+                    compared += 1;
+                    longer.push(next);
+                }
+            }
+            sequences = longer;
+        }
+        assert_eq!(compared, 14 + 14 * 14 + 14 * 14 * 14 + 14 * 14 * 14 * 14);
+    }
+
+    /// ひな形の BLOCK_RECORD の名前（順に）
+    fn record_names(template: &NewDxfTemplate) -> Vec<String> {
+        let text = String::from_utf8_lossy(template.bytes()).into_owned();
+        text.split("AcDbBlockTableRecord\n2\n")
+            .skip(1)
+            .filter_map(|rest| rest.split('\n').next())
+            .map(str::to_owned)
+            .collect()
+    }
+
+    #[test]
+    fn definitions_with_the_same_key_write_one_part_for_the_first() {
+        // K・K（外部参照）・L（外部参照）・L・M・M（PR #654 の確かめで、K・K・L・L・M_1・M_1 になった並び）
+        let drawing = Drawing2D {
+            symbols: vec![
+                definition(1, "K", false, false),
+                definition(2, "K", false, true),
+                definition(3, "L", false, true),
+                definition(4, "L", false, false),
+                definition(5, "M", false, false),
+                definition(6, "M", false, false),
+            ],
+            ..Drawing2D::default()
+        };
+        let template = NewDxfTemplate::new(&drawing);
+        assert_eq!(
+            record_names(&template),
+            ["*Model_Space", "*Paper_Space", "K", "M"]
+        );
+        assert_eq!(template.block(&key("K")), Some("K"));
+        assert_eq!(template.block(&key("L")), None);
+        assert_eq!(template.block(&key("M")), Some("M"));
+        let duplicates: Vec<_> = (0..6).filter(|at| template.duplicate(*at)).collect();
+        assert_eq!(duplicates, [1, 3, 5]);
+        // 外部参照の定義どうしが重なっても、部品は書かない
+        let drawing = Drawing2D {
+            symbols: vec![
+                definition(1, "X", false, true),
+                definition(2, "X", false, true),
+            ],
+            ..Drawing2D::default()
+        };
+        let template = NewDxfTemplate::new(&drawing);
+        assert_eq!(record_names(&template), ["*Model_Space", "*Paper_Space"]);
+        assert!(template.duplicate(1));
     }
 
     #[test]

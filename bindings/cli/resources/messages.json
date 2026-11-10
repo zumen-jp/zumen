@@ -852,7 +852,7 @@
           "type": "string"
         },
         "ids_shifted": {
-          "description": "true なら、変えていない要素の ID がずれた。キーを持たない形式（JWW）で、前の図形を除くか足したとき。ID を使う前に entities で読み直す。ずれないときは持たない。マイナーバージョン 30 から",
+          "description": "true なら、変えていない要素の ID がずれた。キーを持たない形式（JWW）か、ハンドルを持たない DXF（R12 など）で、前の図形か表のレコードを除くか足したとき。ID を使う前に entities で読み直す。ずれないときは持たない。マイナーバージョン 30 から",
           "type": "boolean"
         }
       },
@@ -923,7 +923,7 @@
       ]
     },
     "restyle_edit": {
-      "description": "要素のレイヤ・色・線種・線種の倍率・線幅のうち、書いたものだけを変える。形は変えない",
+      "description": "要素のレイヤ・色・線種・線種の倍率・線幅のうち、書いたものだけを変える。形は変えない。RGB の色は、DXF と DWG の R2004 から、線幅は R2000 から書ける（DWG の今ある図形のレイヤ・線種・線幅・RGB の色は、決定 0293 から変えられる）",
       "type": "object",
       "properties": {
         "kind": { "description": "変更の種類", "const": "restyle" },
@@ -979,14 +979,14 @@
       "additionalProperties": false
     },
     "add_edit": {
-      "description": "空間か用紙に要素を足す。書かない色・線種・線幅はレイヤに従う。足せる形は、形の値のどの種類も。マイナーバージョン 10 から",
+      "description": "空間か用紙に要素を足す。書かない色・線種・線幅はレイヤに従う。JWW と SXF の図形は色・線種・線幅を自分で持ち、レイヤかブロックに従う値を持たないので、JWW は色と線種を書き（点は色だけ）、SXF は色・線種・線幅を書く（点マーカーは色だけ）。書かないか、レイヤかブロックに従う値なら change.style.unsupported で断る。JWW の書かないかレイヤに従う線幅は、ペンの印刷の線幅に従う。足せる形は、形の値のどの種類も。マイナーバージョン 10 から",
       "type": "object",
       "properties": {
         "kind": { "description": "変更の種類", "const": "add" },
         "place": { "description": "足す先の空間か用紙の ID（space/0・sheet/h22 など）。entities の ID の先頭の部分。マイナーバージョン 31 から、記号の定義の空間（space/h1F など）も指せる（決定 0177）", "type": "string" },
         "layer": { "description": "レイヤの元の名前。図面にあるレイヤで、名前が 1 つに決まるもの。layer_id と一緒には書かない。どちらも書かなければレイヤ 0", "type": "string" },
         "layer_id": { "description": "レイヤの ID。tables が返したもの", "type": "string" },
-        "color": { "description": "色。SXF はレイヤに従う色を書けないので、書く。マイナーバージョン 29 から", "$ref": "#/$defs/color_change" },
+        "color": { "description": "色。SXF と JWW はレイヤに従う色を書けないので、書く。SXF は、sxf の番号か、利用者定義色と同じ RGB を受ける。JWW は、jww の番号（0〜9 と、バージョン 420 からの拡張色 100〜356）か、ペン 1〜9 と、バージョン 420 からの 100〜356 のどれかと同じ RGB を受ける。書かないか、受けられない色なら断る。マイナーバージョン 29 から", "$ref": "#/$defs/color_change" },
         "line_type": { "description": "線種。マイナーバージョン 29 から", "$ref": "#/$defs/line_type_change" },
         "line_weight": { "description": "線幅。マイナーバージョン 29 から", "$ref": "#/$defs/line_weight_change" },
         "geometry": { "description": "足す形", "$ref": "#/$defs/geometry" }
@@ -995,7 +995,7 @@
       "additionalProperties": false
     },
     "layer_edit": {
-      "description": "レイヤの名前・状態・色・線種・線幅のうち、書いたものだけを変える（決定 0162）。DXF は、名前を変えると、図形と今のレイヤ（$CLAYER）も新しい名前で指す。DWG は、今あるレイヤの線種と真の色を変えられない。マイナーバージョン 22 から",
+      "description": "レイヤの名前・状態・色・線種・線幅のうち、書いたものだけを変える（決定 0162）。DXF は、名前を変えると、図形と今のレイヤ（$CLAYER）も新しい名前で指す。DWG の真の色は R2004 から書ける（今あるレイヤの線種と真の色は、決定 0293 から変えられる）。マイナーバージョン 22 から",
       "type": "object",
       "properties": {
         "kind": { "description": "変更の種類", "const": "layer" },

@@ -803,8 +803,8 @@
 - 読みの確かめた度合い: `synthetic`（確認日: 2026-11-03）
 - 読みの確かめた範囲: 受け取った図面（JWW 10 件）を読んで図面モデルに移し、書き戻して読み直せることをテスト（crates/zumen-jww/tests/samples.rs）で確かめた（#289）。読んだ値を外部の実装や Jw\_cad の表示と照らしていないので、段は synthetic。ほかの規則は、Jw\_cad のデータ形式の説明と、テストの中で作った JWW で確かめた。毎晩の CI で、テストの中で作った JWW を ezjww 0.7.6 でも読んで照らす（xtask/verify、#528）が、自前で作ったファイルなので読みの段に数えない。公開サンプルと受け取った図面を外部の実装と照らすことと、Jw\_cad での照合はまだ（#503）
 - 読みで使った受け取った図面: JWW 10 件
-- 書きの確かめた度合い: `external`（確認日: 2026-11-03）
-- 書きの確かめた範囲: テストの中で作った JWW と受け取った図面に書き戻し、自前の読み取りで読み直して、変えた要素が求めた値になることを確かめた。毎晩の CI で、テストの中で作った JWW に点を足して書き戻したファイルを ezjww 0.7.6 で読み、変更で決めた形・レイヤ・ペンの番号が、ezjww の読んだ値と合うことを確かめる（xtask/verify、#528）。外部の実装と照らしたのは点の書き戻しだけで、ほかの変更を書き戻したファイルは、自前の読み取りで読み直しただけ。書いたファイルを Jw\_cad で開いてはいない（#342・#503）
+- 書きの確かめた度合い: `external`（確認日: 2026-11-10）
+- 書きの確かめた範囲: テストの中で作った JWW と受け取った図面に書き戻し、自前の読み取りで読み直して、変えた要素が求めた値になることを確かめた。毎晩の CI で、テストの中で作った JWW に点・線分・円・円弧を足して書き戻したファイルを ezjww 0.7.6 で読み、変更で決めた形・レイヤ・ペンの番号が、ezjww の読んだ値と合うことを確かめる（xtask/verify、#528・#702）。外部の実装と照らしたのは追加の書き戻しだけで、ほかの変更を書き戻したファイルは、自前の読み取りで読み直しただけ。書いたファイルを Jw\_cad で開いてはいない（#342・#503）
 - 書きで照らした外部の実装: ezjww 0.7.6
 - 記録: [決定 0008](../decisions/0008-model-layers-and-codecs.md)
 - 記録: [決定 0133](../decisions/0133-jww-l1-records.md)
@@ -842,10 +842,12 @@
 - 名前: LAS・LAZ
 - 権利の根拠: ASPRS が LAS の仕様を、OGC が LAZ の仕様を無償で公開している。OGC は LAZ を誰でも実装できるとする。LAZ を展開する LASzip と Rust の laz は、どちらも Apache-2.0
 - 仕様: [las\_1\_4\_r15](#spec-las_1_4_r15)、[laz\_1\_4](#spec-laz_1_4)
-- 実装の根拠: spec
+- 実装の根拠: spec・inferred・reference
 - 権利の根拠にした文書: [OGC の LAZ 1.4 コミュニティ標準の公表](https://www.ogc.org/announcement/ogc-announces-publication-of-the-laz-1-4-community-standard/)（確認日: 2026-11-01）
 - 権利の根拠にした文書: [LASzip のリポジトリ（ライセンス）](https://github.com/LASzip/LASzip)（確認日: 2026-11-01）
 - 文書の補足: GitHub のライセンスの判定は Apache-2.0
+- 参照した実装: [LASzip](https://github.com/LASzip/LASzip)（Apache-2.0）
+- 参照した実装: [laz-rs](https://github.com/tmontaigu/laz-rs)（Apache-2.0）
 - 照合に使う候補: CloudCompare・PDAL・LAStools の lasinfo
 - サンプルの出どころ: laz-rs の tests/data（Apache-2.0。数十 KB から数百 KB）
 - 読みの確かめた度合い: `synthetic`（確認日: 2026-11-03）

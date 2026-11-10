@@ -1,5 +1,8 @@
 //! PDF から図面モデル（L2）とシーンへの移し（決定 0256）。入力は、どれもテストの中で作る。
 
+// 図面モデルへの移しは 機能 `drawing` で作る（#613）
+#![cfg(feature = "drawing")]
+
 use zumen_base::{Budget, CancelToken, Cx, Diagnostics, codes};
 use zumen_drawing::{
     Boundary, Color, Drawing2D, Edge, Element, FieldValue, Fill, HeightMeaning, Horizontal,
@@ -4516,6 +4519,36 @@ fn reads_names_in_comments_in_linear_work() {
         let work = used(&document.bytes(), Kind::Work);
         assert!(work < plain + 8 * count as u64, "{line:?} {plain} {work}");
     }
+    // コメントの行ごとの `obj<<` から読む辞書の最初の字句が、後ろの行をまたぐ文字列か配列でも、辞書ごとに読み直さない。
+    // 後ろの同じ辞書がオブジェクトのストリームになりうるときも、同じストリームを辞書ごとに読み直さない（#657）
+    for (open, line, close) in [
+        ("[", "%obj<< (\n", "]"),
+        ("[", "%obj<< [\n/a ", "]"),
+        (
+            "<<",
+            "/K 1 %obj<<\n",
+            "/N 1/First 0/Length 0>>stream\n\nendstream",
+        ),
+    ] {
+        let mut document = Document::new(vec![Page::new("0 0 m 10 10 l S")]);
+        document.objects = vec![format!("{open}{}{close}", line.repeat(count)).into_bytes()];
+        let src = document.bytes();
+        let size = (line.len() * count) as u64;
+        let work = used(&src, Kind::Work);
+        assert!(work < plain + size, "{line:?} {plain} {work}");
+        let decoded = used(&src, Kind::DecodedBytes);
+        assert!(decoded < 64 * size, "{line:?} {decoded}");
+    }
+    // 閉じない辞書が後ろのオブジェクトの字句を最後まで読んでも、後ろの `obj` の辞書が着きえない境目は覚えないので、
+    // 覚える量が閉じた辞書と同じ程度になる（#657）
+    let content = "0 0 m ".repeat(count);
+    let decoded = |first: &[u8]| {
+        let mut document = Document::new(vec![Page::new("0 0 m 10 10 l S")]);
+        document.objects = vec![first.to_vec(), common::stream("", &content)];
+        used(&document.bytes(), Kind::DecodedBytes)
+    };
+    let (open, closed) = (decoded(b"<<"), decoded(b"<< >>"));
+    assert!(open < closed + 4096, "{open} {closed}");
     // 次の `obj` の辞書の後ろのコメントの中の `obj<<` の辞書も、前の辞書が覚えた歩みに着いたら読み直さない（PR #658 の
     // 2 回目の確かめで、覚えるのをやめると 2 乗になった形）
     let mut document = Document::new(vec![Page::new("0 0 m 10 10 l S")]);
@@ -4547,6 +4580,29 @@ fn counts_reads_that_grow_faster_than_the_file() {
     document.objects = vec![container(count, header.len(), &data)];
     let work = used(&document.bytes(), Kind::Work);
     assert!(work >= count as u64 * 99_000 / 4, "{work}");
+    // 辞書の最初の字句が、閉じない文字列か配列で、覚えに着かずに後ろを読み直す形は、読み直す分を数える（PR #745 の
+    // 確かめで、数えないと予算で止まらなかった形）。エスケープした括弧から始まる文字列と、配列の中の入れ子の字句
+    let count = 2_000;
+    for (name, objects) in [
+        ("A", format!("[{}", r"(obj<< [\( ) /a ".repeat(count))),
+        ("B", format!("[({}", r"obj<< \( ".repeat(count))),
+        ("C", format!("[{}]", "%obj<< [ [\n/a ".repeat(count))),
+        ("D", format!("[{}]", "%obj<< [ <<\n/a 1 ".repeat(count))),
+        ("E", format!("[{}]", "%obj<< [ [(\n/a ".repeat(count))),
+    ] {
+        let mut document = Document::new(vec![Page::new("0 0 m 10 10 l S")]);
+        document.objects = vec![objects.into_bytes()];
+        let work = used(&document.bytes(), Kind::Work);
+        assert!(work >= (count * count) as u64, "{name} {work}");
+    }
+    // 読み直す閉じない文字列の中の、覚えた括弧の組も、引くたびに数える（PR #745 の 2 回目の確かめの形）
+    let (lines, pairs) = (200, 10_000);
+    let mut document = Document::new(vec![Page::new("0 0 m 10 10 l S")]);
+    document.objects =
+        vec![format!("[({}{}", r"obj<< \( ".repeat(lines), "()".repeat(pairs)).into_bytes()];
+    let work = used(&document.bytes(), Kind::Work);
+    assert!(work >= 2 * (lines * pairs) as u64, "{work}");
+    let count = 1_000;
     // `Length` が合わないストリームは、hayro-syntax が `endstream` を探して、後ろを読む
     let line = "9 0 obj << /N 1 /First 0 /Length 0 >>\nstream\n";
     let mut document = Document::new(vec![Page::new("0 0 m 10 10 l S")]);
@@ -5053,4 +5109,110 @@ fn finds_object_streams_whose_entries_come_from_a_remembered_suffix() {
     // 中の辞書が着いた歩みから後ろが読めない（閉じない）辞書は、コンテナーにならない
     let broken = "<< /K 1 %obj<< /N 1\n/First 0 /Length 5 0 R";
     assert!(!unsupported(vec![broken.as_bytes().to_vec()]));
+}
+
+/// ページの木の `Kids` の、ページにも節にも読めない項目と、同じページをもう一度指す項目は、hayro-syntax が黙って
+/// 飛ばすので、その項目を持つ節を場所にした `pdf.page-tree.dropped` にする（#555）
+#[test]
+fn unreadable_page_tree_items_are_reported() {
+    let deep = format!(
+        "<< /Type /Page /Parent 2 0 R /X {}{} >>",
+        "[".repeat(600),
+        "]".repeat(600)
+    );
+    let page = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>";
+    let cases: [(&str, &str, u64); 5] = [
+        ("[3 0 R 4 0 R]", deep.as_str(), 1),
+        ("[3 0 R 4 0 R]", "42", 1),
+        ("[3 0 R 4 0 R]", "null", 1),
+        // 直接書いた数と、同じページをもう一度指す参照
+        ("[3 0 R 4 0 R 7 4 0 R]", "null", 3),
+        // 読める項目だけなら、診断を返さない
+        ("[3 0 R 4 0 R]", page, 0),
+    ];
+    for (kids, third, dropped) in cases {
+        let mut builder = common::Builder::default();
+        builder.object(b"<< /Type /Catalog /Pages 2 0 R >>");
+        builder.object(format!("<< /Type /Pages /Kids {kids} /Count 2 >>"));
+        builder.object(third);
+        builder.object(page);
+        let src = builder.bytes(1);
+        let (drawing, diagnostics) = lift(&src);
+        // 飛ばした項目はページにならず、読める 4 番のページだけが用紙になる
+        let sheets = if dropped == 0 { 2 } else { 1 };
+        assert_eq!(drawing.sheets.len(), sheets, "{kids} {third:.20}");
+        let found: Vec<_> = diagnostics
+            .iter()
+            .filter(|d| d.code() == codes::PDF_PAGE_TREE_DROPPED)
+            .collect();
+        if dropped == 0 {
+            assert!(found.is_empty(), "{kids} {third:.20} {diagnostics:?}");
+            continue;
+        }
+        assert_eq!(found.len(), 1, "{kids} {third:.20} {diagnostics:?}");
+        assert_eq!(found[0].count(), dropped, "{kids} {third:.20}");
+        // 場所は、項目を持つページの木の節（2 番のオブジェクト）のレコード
+        let record = found[0].places()[0].record().unwrap();
+        let file = testkit::read::<Pdf>(&src).0.unwrap();
+        let node = &file.records()[usize::try_from(record).unwrap()];
+        assert_eq!(node.object, Some((2, 0)), "{kids} {third:.20}");
+    }
+}
+
+#[test]
+fn page_tree_items_are_reported_at_the_node_that_holds_them() {
+    let page = "<< /Type /Page /Parent 3 0 R /MediaBox [0 0 100 100] >>";
+    // ルートの Kids、3 番の節、用紙の数、診断の場所（節の番号）
+    let cases: [(&str, &str, usize, u32); 5] = [
+        // Kids を配列に読めない中間の節は、下のページごと飛ばされるので、その節で数える
+        (
+            "[3 0 R 4 0 R]",
+            "<< /Type /Pages /Kids 42 /Count 1 >>",
+            1,
+            3,
+        ),
+        ("[3 0 R 4 0 R]", "<< /Type /Pages /Count 1 >>", 1, 3),
+        (
+            "[3 0 R 4 0 R]",
+            "<< /Type /Pages /Kids 6 0 R /Count 1 >>",
+            1,
+            3,
+        ),
+        // 子の節がルートをもう一度指す参照は、その子の節で数える
+        (
+            "[3 0 R 4 0 R]",
+            "<< /Type /Pages /Kids [2 0 R 5 0 R] /Count 1 >>",
+            2,
+            3,
+        ),
+        // 直接書いた節の項目は、それを含む間接オブジェクトの節で数える
+        (
+            "[<< /Type /Pages /Kids [42] /Count 0 >> 4 0 R]",
+            "<< /Type /Pages /Kids [5 0 R] /Count 1 >>",
+            1,
+            2,
+        ),
+    ];
+    for (kids, third, sheets, owner) in cases {
+        let mut builder = common::Builder::default();
+        builder.object(b"<< /Type /Catalog /Pages 2 0 R >>");
+        builder.object(format!("<< /Type /Pages /Kids {kids} /Count 2 >>"));
+        builder.object(third);
+        builder.object("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>");
+        builder.object(page);
+        builder.object("null");
+        let src = builder.bytes(1);
+        let (drawing, diagnostics) = lift(&src);
+        assert_eq!(drawing.sheets.len(), sheets, "{kids} {third}");
+        let found: Vec<_> = diagnostics
+            .iter()
+            .filter(|d| d.code() == codes::PDF_PAGE_TREE_DROPPED)
+            .collect();
+        assert_eq!(found.len(), 1, "{kids} {third} {diagnostics:?}");
+        assert_eq!(found[0].count(), 1, "{kids} {third}");
+        let record = found[0].places()[0].record().unwrap();
+        let file = testkit::read::<Pdf>(&src).0.unwrap();
+        let node = &file.records()[usize::try_from(record).unwrap()];
+        assert_eq!(node.object, Some((owner, 0)), "{kids} {third}");
+    }
 }

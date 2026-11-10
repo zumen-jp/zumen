@@ -240,15 +240,27 @@ impl Apply<Changes> for SxfFile {
                     })
                 }
                 Edit::Add { place, element } => {
+                    // SXF のフィーチャは色・線種・線幅を自分で持ち、レイヤかブロックに従う値を持たないので、書かない値は
+                    // 何を書けばよいかが分かる診断で断る（決定 0292）
+                    let mut unset = None;
                     let added = match element.as_ref() {
                         Placed::Paper(element)
                             if before.sheets.get(place) == Some(&element.shape_sheet()) =>
                         {
                             work(cx, tables.style_work(&element.style, None), &Ref::default())?;
-                            plan.add(element, &tables, cx)?
+                            plan.add(element, &tables, &mut unset, cx)?
                         }
                         _ => None,
                     };
+                    if let Some(field) = unset {
+                        cx.report(
+                            Diagnostic::new(codes::CHANGE_STYLE_UNSUPPORTED)
+                                .with("field", field)
+                                .with("format", format),
+                        );
+                        rejected = true;
+                        continue;
+                    }
                     added
                         .map(|(instance, element)| {
                             Expected::Element(instance, Box::new(Placed::Paper(element)))
@@ -387,6 +399,21 @@ enum Expected {
     /// このインスタンスの要素が、この値になる
     Element(u64, Box<Placed>),
 }
+/// 足す要素のうち、書いていない（レイヤかブロックに従う）ので書き戻せない色・線種・線幅のフィールドの名前。点マーカー
+/// （`marker`）は線種と線幅を持たないので、色だけを見る
+fn unset_field(style: &Style, marker: bool) -> Option<&'static str> {
+    if !matches!(style.color, Inherit::Own(_)) {
+        return Some("color");
+    }
+    if marker {
+        return None;
+    }
+    if !matches!(style.line_type, Inherit::Own(_)) {
+        return Some("line_type");
+    }
+    (!matches!(style.line_weight, Some(Inherit::Own(_)))).then_some("line_weight")
+}
+
 /// 当てられない変更の診断
 fn unsupported(format: &str, edit: &str, kind: &str) -> Diagnostic {
     Diagnostic::new(codes::CHANGE_EDIT_UNSUPPORTED)
@@ -1056,11 +1083,13 @@ impl<'f> Plan<'f> {
         }
     }
 
-    /// 用紙に要素を足す。足したインスタンスの番号と、読み直したときの要素を返す
+    /// 用紙に要素を足す。足したインスタンスの番号と、読み直したときの要素を返す。書ける形で、色・線種・線幅を
+    /// 書いていない（レイヤかブロックに従う）なら、そのフィールドの名前を `unset` に入れて `None` を返す（決定 0292）
     fn add(
         &mut self,
         element: &Element<PaperPoint>,
         tables: &Tables,
+        unset: &mut Option<&'static str>,
         cx: &mut Cx,
     ) -> Result<Option<(u64, Element<PaperPoint>)>, Error> {
         count_element_copy(element, cx, 1)?;
@@ -1069,10 +1098,15 @@ impl<'f> Plan<'f> {
         let computed = (|| -> Option<(u64, Element<PaperPoint>)> {
             let mut element = element.clone();
             let style = element.style;
+            let mut args = arguments(&element.shape)?;
+            // 書かない値を、ほかの理由より先に示す（JWW と同じ順、決定 0292）
+            if let Some(field) = unset_field(&style, args.name == MARKER) {
+                *unset = Some(field);
+                return None;
+            }
             if style.line_type_scale != 1.0 || style.transparency != Inherit::Layer {
                 return None;
             }
-            let mut args = arguments(&element.shape)?;
             let (color, read) = tables.color(style.color)?;
             element.style.color = Inherit::Own(read);
             let codes = if args.name == MARKER {
