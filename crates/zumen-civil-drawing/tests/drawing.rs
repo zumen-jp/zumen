@@ -525,3 +525,85 @@ fn many_ground_points_count_the_work_of_the_profile_band() {
         "{stopped:?}"
     );
 }
+
+/// 縦断線形の区間の多い線形では、平面図と縦断図の欄の測点ごとに、縦断線形の区間をたどる作業を予算に数え、上限で
+/// 止まる（#727、PR #714 の 3 回目の確かめの指摘 2）
+#[test]
+fn many_vertical_segments_count_the_work_of_placing_stations() {
+    let (plain, few, _) = draw_line(alignment(), Limits::default());
+    plain.unwrap();
+    // 初めの 2 % の勾配 100 m を、0.125 m の勾配 800 個に替える。平面図の測点（0〜11 番）と縦断図の欄の測点
+    // （0〜11 番）ごとに、799 回多くたどる
+    let mut line = alignment();
+    line.vertical.remove(0);
+    let pieces = (0..800).map(|i| {
+        let start = 0.125 * f64::from(i);
+        Vertical {
+            start_distance: start,
+            start_height: 50.0 + 0.02 * start,
+            start_gradient: 0.02,
+            length: 0.125,
+            kind: VerticalKind::ConstantGradient,
+            source: Ref::default(),
+        }
+    });
+    line.vertical.splice(0..0, pieces);
+    let (many_result, many, _) = draw_line(line.clone(), Limits::default());
+    many_result.unwrap();
+    assert!(many >= few + (12 + 12) * 799, "{few} {many}");
+    let limits = Limits::default().with(Kind::Work, Limit::Finite(few + 1000));
+    let (stopped, _, _) = draw_line(line, limits);
+    assert!(
+        matches!(stopped, Err(Stop::Exceeded(ref e)) if e.kind == Kind::Work),
+        "{stopped:?}"
+    );
+}
+
+/// 曲率の大きい緩和曲線は、折れ線にする点と区間の終わりの点を求める手間を予算に数え、上限で止まる（#727）
+#[test]
+fn steep_transitions_count_the_work_of_their_points() {
+    let (plain, few, _) = draw_line(alignment(), Limits::default());
+    plain.unwrap();
+    // 終わりのブロス曲線（30 m）の初めの半径を 200 m から 1 m にする。向きの式を積む刻みが 3,000 になる
+    let mut line = alignment();
+    let last = line.horizontal.len() - 1;
+    line.horizontal[last].kind = HorizontalKind::Transition {
+        start_radius: Some(1.0),
+        end_radius: None,
+        curve: TransitionCurve::Bloss,
+    };
+    let (steep, many, _) = draw_line(line.clone(), Limits::default());
+    steep.unwrap();
+    // 折れ線の点（50 個ほど）ごとに、3,000 刻みを積む
+    assert!(many >= few + 50 * 3_000, "{few} {many}");
+    let limits = Limits::default().with(Kind::Work, Limit::Finite(few + 10_000));
+    let (stopped, _, _) = draw_line(line, limits);
+    assert!(
+        matches!(stopped, Err(Stop::Exceeded(ref e)) if e.kind == Kind::Work),
+        "{stopped:?}"
+    );
+}
+
+/// 縦断図で、曲率の大きい縦断のクロソイドを点にするときも、点ごとの高さを求める手間（向きの式を積む刻み）を予算に
+/// 数え、上限で止まる（#727、PR #751 の 1 回目の確かめの軽微 2）
+#[test]
+fn steep_vertical_clothoids_count_the_work_of_their_points() {
+    let (plain, few, _) = draw_line(alignment(), Limits::default());
+    plain.unwrap();
+    // 初めの 2 % の勾配 100 m を、半径が無限から 50 m（下に凸）へ変わるクロソイドに替える。勾配の角が 1 ラジアン
+    // 変わるので、高さを 1 つ求めるたびに、向きの式を 100 刻みずつ 129 回積む。点は 20 より多い
+    let mut line = alignment();
+    line.vertical[0].kind = VerticalKind::Clothoid {
+        start_radius: None,
+        end_radius: Some(-50.0),
+    };
+    let (steep, many, _) = draw_line(line.clone(), Limits::default());
+    steep.unwrap();
+    assert!(many >= few + 20 * 129 * 100, "{few} {many}");
+    let limits = Limits::default().with(Kind::Work, Limit::Finite(few + 10_000));
+    let (stopped, _, _) = draw_line(line, limits);
+    assert!(
+        matches!(stopped, Err(Stop::Exceeded(ref e)) if e.kind == Kind::Work),
+        "{stopped:?}"
+    );
+}
