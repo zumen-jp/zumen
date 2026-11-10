@@ -1099,6 +1099,66 @@ fn glyph_captions_outside_the_f32_relative_range_are_rejected() {
     ));
 }
 
+#[test]
+fn normalized_text_height_must_fit_f32_even_for_an_empty_glyph() {
+    let drawing = drawing();
+    let mut review = review_document(vec![markup(
+        "large-space",
+        MarkupKind::Text,
+        Some("space/0"),
+        &[[0.0, 0.0]],
+    )]);
+    review.markups[0].text = Some(" ".into());
+    let mut bytes = font_bytes();
+    // hhea のアセンダーを 1、ディセンダーを 0 にする。OS/2 の大文字高 700 は保つ。
+    bytes[0x1f0..0x1f4].copy_from_slice(&[0, 1, 0, 0]);
+    let mut fonts = FontSet::default();
+    fonts.add(Some("synthetic"), Face::parse(&bytes, 0).unwrap());
+    let mut options = options(Origin::Space(MODEL));
+    options.style.font = Some("synthetic".into());
+    options.style.text_height = 1e38;
+    let mut budget = Budget::default();
+    let mut diagnostics = Diagnostics::new();
+    let result = build_review_with(
+        &drawing,
+        &review,
+        &target(),
+        &options,
+        &fonts,
+        &mut Cx::new(&mut budget, &mut diagnostics, &CancelToken::new()),
+    );
+    assert!(matches!(result, Err((ReviewError::Invalid, _))));
+}
+
+#[test]
+fn text_and_empty_glyph_origins_must_fit_the_relative_f32_range() {
+    let drawing = drawing();
+    let mut review = review_document(vec![markup(
+        "distant-origins",
+        MarkupKind::Redline,
+        Some("space/0"),
+        &[[0.0, 0.0], [1.0, 0.0]],
+    )]);
+    review.markups[0].text = Some(format!("{}H", " ".repeat(30)));
+    let bytes = font_bytes();
+    let mut fonts = FontSet::default();
+    fonts.add(Some("synthetic"), Face::parse(&bytes, 0).unwrap());
+    let mut options = options(Origin::Space(MODEL));
+    options.style.font = Some("synthetic".into());
+    options.style.text_height = 1e38;
+    let mut budget = Budget::default();
+    let mut diagnostics = Diagnostics::new();
+    let result = build_review_with(
+        &drawing,
+        &review,
+        &target(),
+        &options,
+        &fonts,
+        &mut Cx::new(&mut budget, &mut diagnostics, &CancelToken::new()),
+    );
+    assert!(matches!(result, Err((ReviewError::Invalid, _))));
+}
+
 /// 既存の scene.rs と同じ合成 TrueType。.notdef・H・g・空白・I だけを持つ。
 const FONT: &[&str] = &[
     "0001000000080000000000004f532f32000000000000008c00000060636d617000000000000000ec0000004c676c7966",

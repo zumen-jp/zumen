@@ -1009,14 +1009,33 @@ impl Emitter<'_, '_, '_> {
             self.builder
                 .lay_review_text(&visit, &text, self.style.font.as_deref(), &mut item)
                 .map_err(|(stop, at)| stopped(self.builder.cx, stop, &at))?;
+            if !(item.height.is_finite() && item.height > 0.0 && item.height <= f64::from(f32::MAX))
+            {
+                return geometry(self.builder.cx, "text_height", at);
+            }
             let mut line_bounds = Bounds::default();
+            let mut stored_bounds = Bounds::default();
+            stored_bounds.add(item.at);
             for glyph in &item.glyphs {
                 spend(self.builder.cx, Kind::Work, 1, at)?;
+                let [a, b, c, d, e, f] = glyph.transform;
+                if [a, b, c, d]
+                    .iter()
+                    .any(|value| !value.is_finite() || value.abs() > f64::from(f32::MAX))
+                {
+                    return geometry(self.builder.cx, "glyph_axes", at);
+                }
+                self.check_points(&[[e, f]], at)?;
+                stored_bounds.add([e, f]);
                 if let Some(rings) = self.builder.shapes.get(glyph.shape as usize) {
                     for ring in rings {
                         for &[x, y] in ring {
                             spend(self.builder.cx, Kind::Work, 1, at)?;
-                            let [a, b, c, d, e, f] = glyph.transform;
+                            if [x, y].iter().any(|value| {
+                                !value.is_finite() || value.abs() > f64::from(f32::MAX)
+                            }) {
+                                return geometry(self.builder.cx, "glyph_coordinates", at);
+                            }
                             let point = [a * x + c * y + e, b * x + d * y + f];
                             if point.iter().any(|v| !v.is_finite()) {
                                 return geometry(self.builder.cx, "text_bounds", at);
@@ -1036,14 +1055,15 @@ impl Emitter<'_, '_, '_> {
                 line_bounds.add(point);
                 line_bounds.add(end);
             }
-            if let Some([x0, y0, x1, y1]) = line_bounds.get() {
+            stored_bounds = stored_bounds.union(line_bounds);
+            if let Some([x0, y0, x1, y1]) = stored_bounds.get() {
                 self.check_points(&[[x0, y0], [x1, y1]], at)?;
             }
             bounds = bounds.union(line_bounds);
-            // 文字の基点だけで塊を絞ると、範囲に重なる字形が落ちる。レビューで求めた
-            // 字形（なければ概算）の範囲を、塊と文字の両方に使う。
+            // 塊には、字形の範囲と、相対座標で格納する文字・空白を含む字形の原点を含める。
+            // 個々の文字の絞り込みと枠には、描く字形（なければ概算）の範囲を使う。
             item.bounds = line_bounds;
-            self.builder.place(line_bounds);
+            self.builder.place(stored_bounds);
             self.builder.current.texts.push(item);
         }
         if frame {
