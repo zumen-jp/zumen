@@ -47,7 +47,7 @@ target/debug/zumen entities samples/dwg/zumen-layout-r2000.dwg --limit 2
 | 2 | Swift | [bindings/swift](bindings/swift/README.md) |
 | 2 | Go | [bindings/go](bindings/go/README.md) |
 | 2 | Dart | [bindings/dart](bindings/dart/README.md) |
-| 2 | VBA | C の DLL を `Declare` で呼ぶ（[bindings/c](bindings/c/README.md)） |
+| 2 | VBA7（Windows、32 bit・64 bit） | [bindings/vba](bindings/vba/README.md)（Office の実機は未確認） |
 | 3 | Ruby・PHP・PowerShell など | C ABI・CLI・HTTP で呼ぶ（[docs/tier3.md](docs/tier3.md)） |
 
 - Tier は、言語ごとの対応の約束です（[対応する環境](docs/support.md)）。下限と、確かめる頻度は [docs/support.md](docs/support.md) にあります。
