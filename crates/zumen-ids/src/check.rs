@@ -3,7 +3,7 @@
 //! facet の結果は、満たす・満たさない・確かめられないの 3 つにする。建物モデルが持たない値（呼び手が
 //! [`Lookup::missing`] で示す）に掛かる facet と、決められない値の比べ方は、確かめられないとする。
 
-use std::collections::{BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use zumen_base::{Diagnostic, Kind, Ref, Severity, codes};
 use zumen_building::{
@@ -194,6 +194,19 @@ pub fn check(
     Ok(report)
 }
 
+/// 照合の手間を、作業の予算に数える。超えたら止まる
+fn spend(cx: &mut Cx, amount: u64) -> Result<(), Error> {
+    cx.check(Kind::Work, amount).map_err(|stop| {
+        cx.report(stop.to_diagnostic());
+        Error::Stopped(stop)
+    })
+}
+
+/// 文字列を読む手間。16 バイトで 1 と数える
+fn read_work(bytes: usize) -> u64 {
+    1 + bytes as u64 / 16
+}
+
 struct Checker<'a> {
     building: &'a Building,
     source: &'a dyn Lookup,
@@ -239,10 +252,7 @@ impl Checker<'_> {
         let mut applicable_unknown = false;
         for (index, _) in self.building.elements().iter().enumerate() {
             let element = ElementRef(index as u32);
-            cx.check(Kind::Work, 1).map_err(|stop| {
-                cx.report(stop.to_diagnostic());
-                Error::Stopped(stop)
-            })?;
+            spend(cx, 1)?;
             if self.building.components.class.get(element).is_none() {
                 continue;
             }
@@ -269,7 +279,8 @@ impl Checker<'_> {
                         Diagnostic::new(codes::IDS_APPLICABILITY_UNSUPPORTED)
                             .with("specification", spec.name.as_str()),
                         element,
-                    );
+                        cx,
+                    )?;
                     continue;
                 }
                 Tri::Yes => {}
@@ -284,7 +295,8 @@ impl Checker<'_> {
                     Diagnostic::new(codes::IDS_APPLICABILITY_EXISTS)
                         .with("specification", spec.name.as_str()),
                     element,
-                );
+                    cx,
+                )?;
                 continue;
             }
             let mut failed = false;
@@ -313,7 +325,8 @@ impl Checker<'_> {
                                 .with("facet", outcome.facet)
                                 .with("cardinality", outcome.cardinality.name()),
                             element,
-                        );
+                            cx,
+                        )?;
                     }
                     Tri::Unknown => {
                         unknown = true;
@@ -325,7 +338,8 @@ impl Checker<'_> {
                                 .with("specification", spec.name.as_str())
                                 .with("facet", outcome.facet),
                             element,
-                        );
+                            cx,
+                        )?;
                     }
                 }
             }
@@ -356,6 +370,7 @@ impl Checker<'_> {
         Ok(())
     }
 
+    /// 指摘を足す。指摘ごとに仕様の名前を写す手間を数える（#732）
     fn find(
         &self,
         report: &mut Report,
@@ -363,7 +378,9 @@ impl Checker<'_> {
         level: Severity,
         diagnostic: Diagnostic,
         element: ElementRef,
-    ) {
+        cx: &mut Cx,
+    ) -> Result<(), Error> {
+        spend(cx, 2 * read_work(spec.name.len()))?;
         let place = match self.building.id(element) {
             Some(id) => Ref::default().with_id(id.to_string()),
             None => Ref::default(),
@@ -373,6 +390,7 @@ impl Checker<'_> {
             level,
             diagnostic: diagnostic.at(place),
         });
+        Ok(())
     }
 
     /// facet の値のありさまと、facet の名前
@@ -382,13 +400,10 @@ impl Checker<'_> {
         element: ElementRef,
         cx: &mut Cx,
     ) -> Result<(State, &'static str), Error> {
-        cx.check(Kind::Work, 1).map_err(|stop| {
-            cx.report(stop.to_diagnostic());
-            Error::Stopped(stop)
-        })?;
+        spend(cx, 1)?;
         Ok(match facet {
             Facet::Entity { name, predefined } => (
-                State::Present(self.entity(name, predefined.as_ref(), element)),
+                State::Present(self.entity(name, predefined.as_ref(), element, cx)?),
                 "entity",
             ),
             Facet::Attribute { name, value, .. } => (
@@ -396,7 +411,7 @@ impl Checker<'_> {
                 "attribute",
             ),
             Facet::Classification { value, system, .. } => (
-                self.classification(value.as_ref(), system.as_ref(), element),
+                self.classification(value.as_ref(), system.as_ref(), element, cx)?,
                 "classification",
             ),
             Facet::Property {
@@ -406,10 +421,12 @@ impl Checker<'_> {
                 value,
                 ..
             } => (
-                self.property(set, name, data_type.as_deref(), value.as_ref(), element),
+                self.property(set, name, data_type.as_deref(), value.as_ref(), element, cx)?,
                 "property",
             ),
-            Facet::Material { value, .. } => (self.material(value.as_ref(), element), "material"),
+            Facet::Material { value, .. } => {
+                (self.material(value.as_ref(), element, cx)?, "material")
+            }
             Facet::PartOf {
                 entity, relation, ..
             } => (self.part_of(entity, *relation, element, cx)?, "partOf"),
@@ -419,12 +436,19 @@ impl Checker<'_> {
 
     // entity
 
-    fn entity(&self, name: &Value, predefined: Option<&Value>, element: ElementRef) -> Tri {
+    fn entity(
+        &self,
+        name: &Value,
+        predefined: Option<&Value>,
+        element: ElementRef,
+        cx: &mut Cx,
+    ) -> Result<Tri, Error> {
         let Some(class) = self.building.components.class.get(element) else {
-            return Tri::No;
+            return Ok(Tri::No);
         };
+        spend(cx, read_work(class.original.len()))?;
         let class_name = class.original.to_ascii_uppercase();
-        let named = text_matches(name, &class_name);
+        let named = text_matches(name, &class_name, cx)?;
         // IFC2X3 の総称のクラスは、型と組んで IFC4 のクラスに当たる。その対応の表は持たない
         let named = if named == Tri::No
             && self.schema.starts_with("IFC2X3")
@@ -435,22 +459,25 @@ impl Checker<'_> {
             named
         };
         let Some(predefined) = predefined else {
-            return named;
+            return Ok(named);
         };
         let effective = self.predefined(element);
         let literal = class.predefined.as_deref();
         let typed = match (effective.as_deref(), literal) {
             (None, None) => Tri::No,
             (effective, literal) => {
-                let by_effective = effective.map_or(Tri::No, |e| text_matches(predefined, e));
+                let by_effective = match effective {
+                    Some(effective) => text_matches(predefined, effective, cx)?,
+                    None => Tri::No,
+                };
                 let by_literal = match literal {
-                    Some("USERDEFINED") => text_matches(predefined, "USERDEFINED"),
+                    Some("USERDEFINED") => text_matches(predefined, "USERDEFINED", cx)?,
                     _ => Tri::No,
                 };
                 by_effective.or(by_literal)
             }
         };
-        named.and(typed)
+        Ok(named.and(typed))
     }
 
     /// 型が決める種類を先に、なければ要素の種類。`USERDEFINED` なら利用者の付けた種類
@@ -499,8 +526,11 @@ impl Checker<'_> {
                 let Value::Simple(simple) = name else {
                     return Ok(State::Unknown);
                 };
-                match self.known_attribute(simple, element) {
-                    Some(found) => vec![(simple.clone(), found)],
+                match self.known_attribute(simple, element, cx)? {
+                    Some(found) => {
+                        spend(cx, read_work(simple.len()))?;
+                        vec![(simple.clone(), found)]
+                    }
                     None => return Ok(State::Unknown),
                 }
             }
@@ -509,7 +539,7 @@ impl Checker<'_> {
         let mut state = State::Absent;
         let mut absent = false;
         for (attribute, found) in &list {
-            let named = text_matches(name, attribute);
+            let named = text_matches(name, attribute, cx)?;
             if named == Tri::No {
                 continue;
             }
@@ -520,10 +550,10 @@ impl Checker<'_> {
                 AttributeValue::Literal(Literal::List(_)) if value.is_some() => {
                     State::Present(Tri::No)
                 }
-                AttributeValue::Literal(literal) => literal_state(value, literal, Some(1.0)),
+                AttributeValue::Literal(literal) => literal_state(value, literal, Some(1.0), cx)?,
                 AttributeValue::Measured(measured) => {
                     let scale = measured.unit.as_ref().and_then(si_factor);
-                    literal_state(value, &Literal::Real(measured.value), scale)
+                    literal_state(value, &Literal::Real(measured.value), scale, cx)?
                 }
             };
             if named == Tri::Unknown {
@@ -540,34 +570,43 @@ impl Checker<'_> {
         })
     }
 
-    /// コンポーネントにある属性。コンポーネントにない名前なら `None`
-    fn known_attribute(&self, name: &str, element: ElementRef) -> Option<AttributeValue> {
+    /// コンポーネントにある属性。コンポーネントにない名前なら `None`。写す文字を読む手間を、写す前に数える（#732）
+    fn known_attribute(
+        &self,
+        name: &str,
+        element: ElementRef,
+        cx: &mut Cx,
+    ) -> Result<Option<AttributeValue>, Error> {
         let components = &self.building.components;
-        let text = |value: Option<&String>| match value {
-            Some(text) => AttributeValue::Literal(Literal::Text(text.clone())),
-            None => AttributeValue::Null,
-        };
         let identity = components.identity.get(element);
-        Some(match name {
-            "GlobalId" => text(
+        let (text, enumeration) = match name {
+            "GlobalId" => (
                 self.building
                     .element(element)
                     .and_then(|e| e.source().global_id.as_ref()),
+                false,
             ),
-            "Name" => text(identity.and_then(|i| i.name.as_ref())),
-            "Description" => text(identity.and_then(|i| i.description.as_ref())),
-            "Tag" => text(identity.and_then(|i| i.tag.as_ref())),
-            "LongName" => text(identity.and_then(|i| i.long_name.as_ref())),
-            "PredefinedType" => match components
-                .class
-                .get(element)
-                .and_then(|c| c.predefined.as_ref())
-            {
-                Some(value) => AttributeValue::Literal(Literal::Enumeration(value.clone())),
-                None => AttributeValue::Null,
-            },
-            _ => return None,
-        })
+            "Name" => (identity.and_then(|i| i.name.as_ref()), false),
+            "Description" => (identity.and_then(|i| i.description.as_ref()), false),
+            "Tag" => (identity.and_then(|i| i.tag.as_ref()), false),
+            "LongName" => (identity.and_then(|i| i.long_name.as_ref()), false),
+            "PredefinedType" => (
+                components
+                    .class
+                    .get(element)
+                    .and_then(|c| c.predefined.as_ref()),
+                true,
+            ),
+            _ => return Ok(None),
+        };
+        spend(cx, read_work(text.map_or(0, String::len)))?;
+        Ok(Some(match text {
+            Some(text) if enumeration => {
+                AttributeValue::Literal(Literal::Enumeration(text.clone()))
+            }
+            Some(text) => AttributeValue::Literal(Literal::Text(text.clone())),
+            None => AttributeValue::Null,
+        }))
     }
 
     // classification
@@ -577,9 +616,10 @@ impl Checker<'_> {
         value: Option<&Value>,
         system: Option<&Value>,
         element: ElementRef,
-    ) -> State {
+        cx: &mut Cx,
+    ) -> Result<State, Error> {
         if self.source.missing(Missing::Classification) {
-            return State::Unknown;
+            return Ok(State::Unknown);
         }
         let components = &self.building.components;
         let own = components.classification.get(element);
@@ -587,39 +627,49 @@ impl Checker<'_> {
             .r#type
             .get(element)
             .and_then(|t| components.classification.get(t.target));
+        // 参照ごとに、体系の名前を読む手間を数える（#732）
+        let count = [own, inherited]
+            .into_iter()
+            .flatten()
+            .flat_map(|c| &c.references)
+            .map(|r| read_work(r.system.as_deref().map_or(0, str::len)))
+            .fold(0, u64::saturating_add);
+        spend(cx, count)?;
         // 要素の参照が、同じ体系の型の参照に代わる
         let mut references: Vec<_> = own
             .map(|c| c.references.iter().collect())
             .unwrap_or_default();
+        let mut systems: BTreeSet<Option<&str>> =
+            references.iter().map(|r| r.system.as_deref()).collect();
         if let Some(inherited) = inherited {
             for reference in &inherited.references {
-                if !references.iter().any(|r| r.system == reference.system) {
+                if systems.insert(reference.system.as_deref()) {
                     references.push(reference);
                 }
             }
         }
         if references.is_empty() {
-            return State::Absent;
+            return Ok(State::Absent);
         }
         let mut any = Tri::No;
         for reference in references {
             let by_system = match (system, reference.system.as_deref()) {
                 (None, _) => Tri::Yes,
                 (Some(_), None) => Tri::No,
-                (Some(system), Some(name)) => text_matches(system, name),
+                (Some(system), Some(name)) => text_matches(system, name, cx)?,
             };
             // 上位の参照のコードは持たないので、合わなければ決められない
             let by_value = match (value, reference.code.as_deref()) {
                 (None, _) => Tri::Yes,
                 (Some(_), None) => Tri::Unknown,
-                (Some(value), Some(code)) => match text_matches(value, code) {
+                (Some(value), Some(code)) => match text_matches(value, code, cx)? {
                     Tri::No => Tri::Unknown,
                     other => other,
                 },
             };
             any = any.or(by_system.and(by_value));
         }
-        State::Present(any)
+        Ok(State::Present(any))
     }
 
     // property
@@ -631,31 +681,61 @@ impl Checker<'_> {
         data_type: Option<&str>,
         value: Option<&Value>,
         element: ElementRef,
-    ) -> State {
+        cx: &mut Cx,
+    ) -> Result<State, Error> {
         let components = &self.building.components;
         let type_of = components.r#type.get(element).map(|t| t.target);
+        let owners = [(Some(element), false), (type_of, true)];
+        // セットと項目ごとに、名前を読む手間（表で引くときに比べる手間）を数える（#732）
+        let mut count = 0u64;
+        for owner in owners.iter().filter_map(|(owner, _)| *owner) {
+            if let Some(properties) = components.properties.get(owner) {
+                for pset in &properties.sets {
+                    count = pset
+                        .properties
+                        .iter()
+                        .map(|p| read_work(p.name.len()))
+                        .fold(
+                            count.saturating_add(read_work(pset.name.len())),
+                            u64::saturating_add,
+                        );
+                }
+            }
+            if let Some(quantities) = components.quantities.get(owner) {
+                for qset in &quantities.sets {
+                    count = qset
+                        .quantities
+                        .iter()
+                        .map(|q| read_work(q.name.len()))
+                        .fold(
+                            count.saturating_add(read_work(qset.name.len())),
+                            u64::saturating_add,
+                        );
+                }
+            }
+        }
+        spend(cx, count)?;
         // セットの名前ごとに、プロパティの名前で要素の値が型の値に代わる
-        let mut sets: Vec<(String, Vec<Item>)> = Vec::new();
-        for (owner, from_type) in [(Some(element), false), (type_of, true)] {
+        let mut sets = Sets::default();
+        for (owner, from_type) in owners {
             let Some(owner) = owner else { continue };
             if let Some(properties) = components.properties.get(owner) {
                 for pset in &properties.sets {
-                    let Some(items) = set_items(&mut sets, &pset.name) else {
+                    let Some(group) = sets.group(&pset.name) else {
                         continue;
                     };
                     for property in &pset.properties {
-                        add_item(items, Item::Property(property), from_type);
+                        group.add(Item::Property(property), from_type);
                     }
                 }
             }
             if let Some(quantities) = components.quantities.get(owner) {
                 for qset in &quantities.sets {
-                    let Some(items) = set_items(&mut sets, &qset.name) else {
+                    let Some(group) = sets.group(&qset.name) else {
                         continue;
                     };
                     for quantity in &qset.quantities {
-                        add_item(
-                            items,
+                        group.add(
                             Item::Quantity(&quantity.name, quantity.kind, &quantity.value),
                             from_type,
                         );
@@ -666,20 +746,20 @@ impl Checker<'_> {
         let dropped = self.source.missing(Missing::PropertyKinds);
         let mut state = State::Absent;
         let mut set_matched = false;
-        for (set_name, items) in &sets {
-            let set_named = text_matches(set, set_name);
+        for group in &sets.groups {
+            let set_named = text_matches(set, group.name, cx)?;
             if set_named == Tri::No {
                 continue;
             }
             set_matched = true;
             let mut found = false;
-            for item in items {
-                let named = text_matches(name, item.name());
+            for item in &group.items {
+                let named = text_matches(name, item.name(), cx)?;
                 if named == Tri::No {
                     continue;
                 }
                 found = true;
-                let this = item.state(data_type, value);
+                let this = item.state(data_type, value, cx)?;
                 state = combine(
                     state,
                     if named == Tri::Unknown || set_named == Tri::Unknown {
@@ -703,14 +783,19 @@ impl Checker<'_> {
         }
         if !set_matched && dropped {
             // 単一の値でないプロパティだけのセットは、建物モデルにない
-            return State::Unknown;
+            return Ok(State::Unknown);
         }
-        state
+        Ok(state)
     }
 
     // material
 
-    fn material(&self, value: Option<&Value>, element: ElementRef) -> State {
+    fn material(
+        &self,
+        value: Option<&Value>,
+        element: ElementRef,
+        cx: &mut Cx,
+    ) -> Result<State, Error> {
         let components = &self.building.components;
         let material = components.material.get(element).or_else(|| {
             components
@@ -719,28 +804,30 @@ impl Checker<'_> {
                 .and_then(|t| components.material.get(t.target))
         });
         let Some(material) = material else {
-            return State::Absent;
+            return Ok(State::Absent);
         };
         let Some(value) = value else {
-            return State::Present(Tri::Yes);
+            return Ok(State::Present(Tri::Yes));
         };
+        // 部分ごとに 1 つ数える（#732）
+        spend(cx, material.parts.len() as u64)?;
         let mut any = Tri::No;
         for part in &material.parts {
             if let Some(name) = &part.name {
-                any = any.or(text_matches(value, name));
+                any = any.or(text_matches(value, name, cx)?);
             }
             let named = part
                 .material
                 .and_then(|m| components.identity.get(m))
                 .and_then(|i| i.name.as_deref());
             if let Some(name) = named {
-                any = any.or(text_matches(value, name));
+                any = any.or(text_matches(value, name, cx)?);
             }
         }
         if any == Tri::No && self.source.missing(Missing::MaterialNames) {
             any = Tri::Unknown;
         }
-        State::Present(any)
+        Ok(State::Present(any))
     }
 
     // partOf
@@ -760,10 +847,7 @@ impl Checker<'_> {
         let mut queue = VecDeque::from([element]);
         let mut any = Tri::No;
         while let Some(part) = queue.pop_front() {
-            cx.check(Kind::Work, 1).map_err(|stop| {
-                cx.report(stop.to_diagnostic());
-                Error::Stopped(stop)
-            })?;
+            spend(cx, 1)?;
             let mut wholes = Vec::new();
             if let Some(membership) = components.parent.get(part).and_then(|p| p.of.as_ref()) {
                 let kind = match membership.kind {
@@ -786,9 +870,11 @@ impl Checker<'_> {
             {
                 wholes.push(*host);
             }
+            // 全体ごとに 1 つ数える（#732）
+            spend(cx, wholes.len() as u64)?;
             for whole in wholes {
                 if seen.insert(whole) {
-                    any = any.or(self.entity(name, predefined.as_ref(), whole));
+                    any = any.or(self.entity(name, predefined.as_ref(), whole, cx)?);
                     queue.push_back(whole);
                 }
             }
@@ -803,25 +889,30 @@ enum Item<'a> {
     Quantity(&'a str, QuantityKind, &'a Measured),
 }
 
-impl Item<'_> {
-    fn name(&self) -> &str {
+impl<'a> Item<'a> {
+    fn name(&self) -> &'a str {
         match self {
             Self::Property(property) => &property.name,
             Self::Quantity(name, ..) => name,
         }
     }
 
-    fn state(&self, data_type: Option<&str>, value: Option<&Value>) -> State {
+    fn state(
+        &self,
+        data_type: Option<&str>,
+        value: Option<&Value>,
+        cx: &mut Cx,
+    ) -> Result<State, Error> {
         match self {
             Self::Property(property) => {
                 let Some(typed) = &property.value else {
-                    return State::Absent;
+                    return Ok(State::Absent);
                 };
                 let type_name = typed.type_name.as_deref().map(str::to_ascii_uppercase);
                 if let Some(data_type) = data_type
                     && type_name.as_deref() != Some(data_type)
                 {
-                    return State::Present(Tri::No);
+                    return Ok(State::Present(Tri::No));
                 }
                 let scale = match (&typed.value, type_name.as_deref()) {
                     (Literal::Real(_) | Literal::Integer(_), Some(name)) if needs_unit(name) => {
@@ -829,41 +920,62 @@ impl Item<'_> {
                     }
                     _ => Some(1.0),
                 };
-                literal_state(value, &typed.value, scale)
+                literal_state(value, &typed.value, scale, cx)
             }
             Self::Quantity(_, kind, measured) => {
                 if let Some(data_type) = data_type
                     && quantity_type(*kind) != data_type
                 {
-                    return State::Present(Tri::No);
+                    return Ok(State::Present(Tri::No));
                 }
                 let scale = match kind {
                     QuantityKind::Count => Some(1.0),
                     _ => measured.unit.as_ref().and_then(si_factor),
                 };
-                literal_state(value, &Literal::Real(measured.value), scale)
+                literal_state(value, &Literal::Real(measured.value), scale, cx)
             }
         }
     }
 }
 
-/// セットの名前の項目の列。なければ足す
-fn set_items<'s, 'a>(
-    sets: &'s mut Vec<(String, Vec<Item<'a>>)>,
-    name: &str,
-) -> Option<&'s mut Vec<Item<'a>>> {
-    if !sets.iter().any(|(n, _)| n == name) {
-        sets.push((name.to_owned(), Vec::new()));
-    }
-    sets.iter_mut()
-        .find(|(n, _)| n == name)
-        .map(|(_, items)| items)
+/// セットの名前ごとの項目。名前で引く表を持ち、項目の数の二乗の手間にしない（#732）
+#[derive(Default)]
+struct Sets<'a> {
+    /// 初めて現れた順
+    groups: Vec<Group<'a>>,
+    index: BTreeMap<&'a str, usize>,
 }
 
-/// 項目を足す。型の項目は、要素に同じ名前の項目があれば足さない
-fn add_item<'a>(items: &mut Vec<Item<'a>>, item: Item<'a>, from_type: bool) {
-    if !(from_type && items.iter().any(|i| i.name() == item.name())) {
-        items.push(item);
+/// 1 つのセットの名前の項目
+struct Group<'a> {
+    name: &'a str,
+    items: Vec<Item<'a>>,
+    /// 足した項目の名前
+    names: BTreeSet<&'a str>,
+}
+
+impl<'a> Sets<'a> {
+    /// セットの名前の項目の列。なければ足す
+    fn group(&mut self, name: &'a str) -> Option<&mut Group<'a>> {
+        let at = *self.index.entry(name).or_insert_with(|| {
+            self.groups.push(Group {
+                name,
+                items: Vec::new(),
+                names: BTreeSet::new(),
+            });
+            self.groups.len() - 1
+        });
+        self.groups.get_mut(at)
+    }
+}
+
+impl<'a> Group<'a> {
+    /// 項目を足す。型の項目は、同じ名前の項目がすでにあれば足さない
+    fn add(&mut self, item: Item<'a>, from_type: bool) {
+        let fresh = self.names.insert(item.name());
+        if fresh || !from_type {
+            self.items.push(item);
+        }
     }
 }
 
@@ -963,22 +1075,29 @@ fn combine(a: State, b: State) -> State {
 }
 
 /// 値の決まりと、建物モデルの値。`scale` は SI の単位への倍率で、決められなければ `None`
-fn literal_state(value: Option<&Value>, literal: &Literal, scale: Option<f64>) -> State {
+fn literal_state(
+    value: Option<&Value>,
+    literal: &Literal,
+    scale: Option<f64>,
+    cx: &mut Cx,
+) -> Result<State, Error> {
     match literal {
-        Literal::Logical(None) => return State::Absent,
-        Literal::Text(text) if text.is_empty() => return State::Present(Tri::No),
-        Literal::List(items) if items.is_empty() => return State::Present(Tri::No),
+        Literal::Logical(None) => return Ok(State::Absent),
+        Literal::Text(text) if text.is_empty() => return Ok(State::Present(Tri::No)),
+        Literal::List(items) if items.is_empty() => return Ok(State::Present(Tri::No)),
         _ => {}
     }
     let Some(value) = value else {
-        return State::Present(Tri::Yes);
+        return Ok(State::Present(Tri::Yes));
     };
-    State::Present(match literal {
+    Ok(State::Present(match literal {
         Literal::List(items) => {
+            // 並びの項目ごとに 1 つ数える（#732）
+            spend(cx, items.len() as u64)?;
             let bounds = matches!(value, Value::Restriction(r) if r.constraints.iter().any(Constraint::is_bound));
             let mut result = if bounds { Tri::Yes } else { Tri::No };
             for item in items {
-                let this = match literal_state(Some(value), item, scale) {
+                let this = match literal_state(Some(value), item, scale, cx)? {
                     State::Present(tri) => tri,
                     State::Absent => Tri::No,
                     State::Unknown => Tri::Unknown,
@@ -991,19 +1110,37 @@ fn literal_state(value: Option<&Value>, literal: &Literal, scale: Option<f64>) -
             }
             result
         }
-        Literal::Text(text) | Literal::Enumeration(text) => text_matches(value, text),
-        Literal::Boolean(b) | Literal::Logical(Some(b)) => boolean_matches(value, *b),
+        Literal::Text(text) | Literal::Enumeration(text) => text_matches(value, text, cx)?,
+        Literal::Boolean(b) | Literal::Logical(Some(b)) => boolean_matches(value, *b, cx)?,
         Literal::Integer(i) => match scale {
-            Some(1.0) => integer_matches(value, *i),
-            Some(scale) => number_matches(value, *i as f64 * scale),
+            Some(1.0) => integer_matches(value, *i, cx)?,
+            Some(scale) => number_matches(value, *i as f64 * scale, cx)?,
             None => Tri::Unknown,
         },
         Literal::Real(x) => match scale {
-            Some(scale) => number_matches(value, x * scale),
+            Some(scale) => number_matches(value, x * scale, cx)?,
             None => Tri::Unknown,
         },
         Literal::Element(_) | Literal::Logical(None) => Tri::No,
-    })
+    }))
+}
+
+/// 値の決まりを、`chars` 文字の文字列に当てる手間。値の文字を読む手間（[`read_work`]）と、制約ごとの 1 と、
+/// 式の照合の手間（[`pattern::Pattern::work`](crate::pattern::Pattern::work)）の和（#732）。数の値のように
+/// 式を当てないなら、`chars` を `None` にする
+fn value_work(value: &Value, chars: Option<u64>) -> u64 {
+    match value {
+        Value::Simple(simple) => read_work(simple.len()),
+        Value::Restriction(r) => r
+            .constraints
+            .iter()
+            .map(|constraint| match constraint {
+                Constraint::Enumeration(e) => read_work(e.len()),
+                Constraint::Pattern(p) => chars.map_or(1, |chars| p.work(chars)),
+                _ => 1,
+            })
+            .fold(1, u64::saturating_add),
+    }
 }
 
 impl Constraint {
@@ -1061,12 +1198,14 @@ fn restriction(restriction: &Restriction, check: impl Fn(&Constraint) -> Tri) ->
         .and(pattern.unwrap_or(Tri::Yes))
 }
 
-/// 文字の値。大文字と小文字を区別する
-fn text_matches(value: &Value, text: &str) -> Tri {
-    match value {
+/// 文字の値。大文字と小文字を区別する。照合の手間は、照合の前に予算に数える（#732）
+fn text_matches(value: &Value, text: &str, cx: &mut Cx) -> Result<Tri, Error> {
+    spend(cx, read_work(text.len()))?;
+    let length = text.chars().count() as u64;
+    spend(cx, value_work(value, Some(length)))?;
+    Ok(match value {
         Value::Simple(simple) => Tri::of(simple == text),
         Value::Restriction(r) => restriction(r, |constraint| {
-            let length = text.chars().count() as u64;
             match constraint {
                 Constraint::Enumeration(e) => Tri::of(e == text),
                 Constraint::Pattern(p) => Tri::from(p.matches(text)),
@@ -1078,17 +1217,18 @@ fn text_matches(value: &Value, text: &str) -> Tri {
                 _ => Tri::No,
             }
         }),
-    }
+    })
 }
 
-fn boolean_matches(value: &Value, b: bool) -> Tri {
+fn boolean_matches(value: &Value, b: bool, cx: &mut Cx) -> Result<Tri, Error> {
     let text = if b { "true" } else { "false" };
+    spend(cx, value_work(value, Some(text.len() as u64)))?;
     let parse = |s: &str| match s {
         "true" | "1" => Some(true),
         "false" | "0" => Some(false),
         _ => None,
     };
-    match value {
+    Ok(match value {
         Value::Simple(simple) => Tri::of(parse(simple) == Some(b)),
         Value::Restriction(r) => restriction(r, |constraint| match constraint {
             Constraint::Enumeration(e) => Tri::of(parse(e) == Some(b)),
@@ -1096,11 +1236,12 @@ fn boolean_matches(value: &Value, b: bool) -> Tri {
             Constraint::Unsupported(_) => Tri::Unknown,
             _ => Tri::No,
         }),
-    }
+    })
 }
 
 /// 数の値。等しさは、IDS の値 v に対し `|v|·1e-6 + 1e-6` の幅の内側（端を含まない）。範囲は幅なしで比べる
-fn number_matches(value: &Value, x: f64) -> Tri {
+fn number_matches(value: &Value, x: f64, cx: &mut Cx) -> Result<Tri, Error> {
+    spend(cx, value_work(value, None))?;
     let equal = |text: &str| match parse_double(text) {
         Some(v) => {
             let width = v.abs() * 1e-6 + 1e-6;
@@ -1108,7 +1249,7 @@ fn number_matches(value: &Value, x: f64) -> Tri {
         }
         None => Tri::No,
     };
-    match value {
+    Ok(match value {
         Value::Simple(simple) => equal(simple),
         Value::Restriction(r) => restriction(r, |constraint| match constraint {
             Constraint::Enumeration(e) => equal(e),
@@ -1120,12 +1261,13 @@ fn number_matches(value: &Value, x: f64) -> Tri {
             // 数に式と長さは当てない
             _ => Tri::No,
         }),
-    }
+    })
 }
 
-fn integer_matches(value: &Value, i: i64) -> Tri {
+fn integer_matches(value: &Value, i: i64, cx: &mut Cx) -> Result<Tri, Error> {
+    spend(cx, value_work(value, None))?;
     let equal = |text: &str| Tri::of(text.trim().parse::<i64>().ok() == Some(i));
-    match value {
+    Ok(match value {
         Value::Simple(simple) => equal(simple),
         Value::Restriction(r) => restriction(r, |constraint| {
             let x = i as f64;
@@ -1139,7 +1281,7 @@ fn integer_matches(value: &Value, i: i64) -> Tri {
                 _ => Tri::No,
             }
         }),
-    }
+    })
 }
 
 /// `xs:double` の字句。桁の区切りと小数点のコンマは受けない
