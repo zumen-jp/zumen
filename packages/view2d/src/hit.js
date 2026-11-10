@@ -4,8 +4,8 @@ import { clipParts, primitiveParts, transparentStyle, unitStyle, viewportPart } 
 
 const EMPTY = Object.freeze([]);
 const EPSILON = 16 * Number.EPSILON;
-const lessEqual = (a, b, error = 0) => a <= b || a - b <= error + EPSILON * Math.max(1, Math.abs(a), Math.abs(b));
-const between = (n, a, b, error = 0) => lessEqual(a, n, error) && lessEqual(n, b, error);
+const lessEqual = (a, b) => a <= b || a - b <= EPSILON * Math.max(1, Math.abs(a), Math.abs(b));
+const between = (n, a, b) => lessEqual(a, n) && lessEqual(n, b);
 const pointInBox = (p, b) => between(p.x, b.min_x, b.max_x) && between(p.y, b.min_y, b.max_y);
 const overlap = (a, b) => a.min_x <= b.max_x && b.min_x <= a.max_x && a.min_y <= b.max_y && b.min_y <= a.max_y;
 const segmentBounds = (a, b) => ({ min_x: Math.min(a.x, b.x), min_y: Math.min(a.y, b.y), max_x: Math.max(a.x, b.x), max_y: Math.max(a.y, b.y) });
@@ -13,8 +13,8 @@ const circleBounds = ({ x, y, radius }) => ({ min_x: x - radius, min_y: y - radi
 const sign = (value, scale = 1) => Math.abs(value) <= EPSILON * scale ? 0 : Math.sign(value);
 const coordinateSign = (first, second, secondScale) => sign(first) || sign(second, secondScale);
 
-function compareToward(value, boundary, first, second, secondScale, error = 0) {
-  return lessEqual(value, boundary, error) && lessEqual(boundary, value, error) ? coordinateSign(first, second, secondScale) : Math.sign(value - boundary);
+function compareToward(value, boundary, first, second, secondScale) {
+  return lessEqual(value, boundary) && lessEqual(boundary, value) ? coordinateSign(first, second, secondScale) : Math.sign(value - boundary);
 }
 
 function circleToward(p, center, radius, direction) {
@@ -37,28 +37,106 @@ function crossAt(a, b, p) {
   return Math.abs(cross) <= EPSILON * (Math.abs(left) + Math.abs(right)) ? 0 : cross;
 }
 
+const floatBits = new DataView(new ArrayBuffer(8));
+
+/** 有限な binary64 を整数と 2 の指数へ分ける。差と積は数千 bit の範囲に収まる。 */
+function dyadic(value) {
+  floatBits.setFloat64(0, value);
+  const high = floatBits.getUint32(0), low = floatBits.getUint32(4), exponent = high >>> 20 & 2047;
+  let integer = BigInt(high & 0xfffff) << 32n | BigInt(low);
+  if (exponent) integer |= 1n << 52n;
+  return { integer: high >>> 31 ? -integer : integer, exponent: exponent ? exponent - 1075 : -1074 };
+}
+
+function addExact(a, b, subtract = false) {
+  const exponent = Math.min(a.exponent, b.exponent);
+  const left = a.integer << BigInt(a.exponent - exponent), right = b.integer << BigInt(b.exponent - exponent);
+  return { integer: subtract ? left - right : left + right, exponent };
+}
+
+const multiplyExact = (a, b) => ({ integer: a.integer * b.integer, exponent: a.exponent + b.exponent });
+
+function leading(value) {
+  const negative = value.integer < 0n, integer = negative ? -value.integer : value.integer;
+  if (integer === 0n) return { fraction: 0, exponent: 0 };
+  const bits = integer.toString(2).length, shift = Math.max(0, bits - 53);
+  const fraction = Number(integer >> BigInt(shift)) / 2 ** (bits - shift - 1);
+  return { fraction: negative ? -fraction : fraction, exponent: value.exponent + bits - 1 };
+}
+
+function scaleBinary(value, exponent) {
+  if (value === 0) return 0;
+  // 中間の 2 の累乗だけが桁あふれ・underflow するのを避ける。
+  const first = Math.max(-1022, Math.min(1023, exponent));
+  return value * 2 ** first * 2 ** (exponent - first);
+}
+
+function exactSegmentPosition(a, b, p) {
+  if (![a.x, a.y, b.x, b.y, p.x, p.y].every(Number.isFinite)) return { t: NaN, normal: NaN };
+  const ax = dyadic(a.x), ay = dyadic(a.y);
+  const dx = addExact(dyadic(b.x), ax, true), dy = addExact(dyadic(b.y), ay, true);
+  if (dx.integer === 0n && dy.integer === 0n) return { t: NaN, normal: NaN };
+  const px = addExact(dyadic(p.x), ax, true), py = addExact(dyadic(p.y), ay, true);
+  const squared = leading(addExact(multiplyExact(dx, dx), multiplyExact(dy, dy)));
+  const dot = leading(addExact(multiplyExact(px, dx), multiplyExact(py, dy)));
+  const cross = leading(addExact(multiplyExact(px, dy), multiplyExact(py, dx), true));
+  const odd = squared.exponent & 1, length = Math.sqrt(squared.fraction * (odd ? 2 : 1));
+  // 相殺は整数のまま終える。上位 53 bit・平方根・比の丸めだけを既存の guard が担う。
+  return { t: scaleBinary(dot.fraction / squared.fraction, dot.exponent - squared.exponent),
+    normal: scaleBinary(cross.fraction / length, cross.exponent - (squared.exponent - odd) / 2) };
+}
+
+/** 差の計算で失った下位桁。演算の誤差は形の幅に足さず、再計算の要否に使う。 */
+function subtractionError(a, b, difference) {
+  const virtual = a - difference;
+  return (a - (difference + virtual)) + (virtual - b);
+}
+
+function filteredCompare(value, boundary, rounding, evaluationError) {
+  const delta = value - boundary, tolerance = rounding + EPSILON * Math.max(1, Math.abs(value), Math.abs(boundary));
+  if (!Number.isFinite(value) || !Number.isFinite(evaluationError)) return undefined;
+  if (Math.abs(delta) + evaluationError <= tolerance) return 0;
+  if (delta > tolerance + evaluationError) return 1;
+  if (delta < -tolerance - evaluationError) return -1;
+  return undefined;
+}
+
 function segmentContains(a, b, p, radius, direction) {
   const dx = b.x - a.x, dy = b.y - a.y, scale = Math.max(Math.abs(dx), Math.abs(dy));
   if (scale === 0) return false; // butt の端だけを持つ線は描かれない。
   const nx = dx / scale, ny = dy / scale, px = p.x - a.x, py = p.y - a.y;
   const tx = px / scale * nx, ty = py / scale * ny, squaredLength = nx * nx + ny * ny;
-  const t = (tx + ty) / squaredLength;
-  const length = Math.hypot(nx, ny), normal = (px * ny - py * nx) / length;
+  let t = (tx + ty) / squaredLength;
+  const length = Math.hypot(nx, ny);
+  let normal = (px * ny - py * nx) / length;
   // stroke の角を CSS 座標へ足す 1 回の丸めは ε/2、法線 offset の
   // 正規化と積には既存の 16ε の余裕を使い、各軸から距離へ伝播する。
   // offset がゼロの軸には加算がない。t は線分長で割るので距離の誤差も割る。
   const offsetX = Math.abs(ny) / length * radius, offsetY = Math.abs(nx) / length * radius;
-  const errorX = offsetX === 0 ? 0 : Number.EPSILON / 2 * Math.max(Math.abs(a.x), Math.abs(b.x), Math.abs(p.x)) + EPSILON * offsetX;
-  const errorY = offsetY === 0 ? 0 : Number.EPSILON / 2 * Math.max(Math.abs(a.y), Math.abs(b.y), Math.abs(p.y)) + EPSILON * offsetY;
-  // 内積・外積の 2 積が相殺するときも、結果ではなく各項から丸めを数える。
-  const errorT = ((Math.abs(nx) * errorX + Math.abs(ny) * errorY) / scale + Number.EPSILON * (Math.abs(tx) + Math.abs(ty))) / squaredLength;
-  const errorNormal = (Math.abs(ny) * errorX + Math.abs(nx) * errorY + Number.EPSILON * (Math.abs(px * ny) + Math.abs(py * nx))) / length;
-  if (!direction) return between(t, 0, 1, errorT) && lessEqual(Math.abs(normal), radius, errorNormal);
+  const errorX = offsetX === 0 ? 0 : Number.EPSILON / 2 * Math.abs(p.x) + EPSILON * offsetX;
+  const errorY = offsetY === 0 ? 0 : Number.EPSILON / 2 * Math.abs(p.y) + EPSILON * offsetY;
+  let errorT = (Math.abs(nx) * errorX + Math.abs(ny) * errorY) / scale / squaredLength;
+  let errorNormal = (Math.abs(ny) * errorX + Math.abs(nx) * errorY) / length;
+  // 両端・両側を同時に境界とする誤差帯は使わず、丸めた点自体の位置を調べる。
+  if (errorT >= 0.5) errorT = 0;
+  if (errorNormal >= radius) errorNormal = 0;
+  const pxError = Math.abs(subtractionError(p.x, a.x, px)), pyError = Math.abs(subtractionError(p.y, a.y, py));
+  const evaluationT = ((Math.abs(nx) * pxError + Math.abs(ny) * pyError) / scale + EPSILON * (Math.abs(tx) + Math.abs(ty))) / squaredLength;
+  const evaluationNormal = (Math.abs(ny) * pxError + Math.abs(nx) * pyError + EPSILON * (Math.abs(px * ny) + Math.abs(py * nx))) / length;
+  let comparisons = [filteredCompare(t, 0, errorT, evaluationT), filteredCompare(t, 1, errorT, evaluationT),
+    filteredCompare(normal, -radius, errorNormal, evaluationNormal), filteredCompare(normal, radius, errorNormal, evaluationNormal)];
+  if (comparisons.some((value) => value === undefined)) {
+    ({ t, normal } = exactSegmentPosition(a, b, p));
+    comparisons = [filteredCompare(t, 0, errorT, 0), filteredCompare(t, 1, errorT, 0),
+      filteredCompare(normal, -radius, errorNormal, 0), filteredCompare(normal, radius, errorNormal, 0)];
+  }
+  if (comparisons.some((value) => value === undefined)) return false;
+  if (!direction) return comparisons[0] >= 0 && comparisons[1] <= 0 && comparisons[2] >= 0 && comparisons[3] <= 0;
   const along = direction.x * nx + direction.y * ny, across = (direction.x * ny - direction.y * nx) / length;
   const secondAlong = direction.ax * nx + direction.ay * ny, secondAcross = (direction.ax * ny - direction.ay * nx) / length;
   const secondScale = Math.max(Math.abs(direction.ax), Math.abs(direction.ay));
-  return compareToward(t, 0, along, secondAlong, secondScale, errorT) > 0 && compareToward(t, 1, along, secondAlong, secondScale, errorT) < 0 &&
-    compareToward(normal, -radius, across, secondAcross, secondScale, errorNormal) > 0 && compareToward(normal, radius, across, secondAcross, secondScale, errorNormal) < 0;
+  return (comparisons[0] || coordinateSign(along, secondAlong, secondScale)) > 0 && (comparisons[1] || coordinateSign(along, secondAlong, secondScale)) < 0 &&
+    (comparisons[2] || coordinateSign(across, secondAcross, secondScale)) > 0 && (comparisons[3] || coordinateSign(across, secondAcross, secondScale)) < 0;
 }
 
 function roundJoin(previous, center, next) {

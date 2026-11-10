@@ -280,6 +280,27 @@ function testStrokeRoundoff(assert) {
     assert(query(240, 160, 720, 480) === 1, "原点を分けて拡大した encoded f32 の単線も範囲から欠けない");
     viewer.resize(200, 200, 1);
 
+    for (const scale of [1000, 1000000, 1000000000, 1000000000000]) for (const pixelRatio of [1, 2]) {
+      viewer.resize(200, 200, pixelRatio);
+      for (const weight of [0, 2]) for (const rotation of [0, Math.PI / 6]) {
+        viewer.jumpTo({ center: { x: 0, y: 0 }, scale, rotation });
+        const [start, finish] = set([-2000, 2000, 2000, -2000], weight);
+        const dx = finish.x - start.x, dy = finish.y - start.y, length = Math.hypot(dx, dy);
+        const radius = Math.max(1 / pixelRatio, weight) / 2;
+        assert(viewer.hitTest({ x: 100, y: 100 }, 0).length === 1 && atPoint({ x: 100, y: 100 }) === 1 && query(70, 70, 130, 130) === 1,
+          "大きく拡大した長い斜線の中心と範囲を選べる");
+        for (const side of [-1, 1]) {
+          const p = (distance) => ({ x: 100 - side * dy / length * distance, y: 100 + side * dx / length * distance });
+          assert(viewer.hitTest(p(radius / 2), 0).length === 1 && atPoint(p(radius / 2)) === 1, "演算誤差で線幅の内側を消さない");
+          assert(viewer.hitTest(p(radius + 0.5), 0).length === 0 && atPoint(p(radius + 0.5)) === 0, "演算誤差を足して線幅の外側を拾わない");
+          assert(atPoint(p(radius - 0.000001)) === 1 && atPoint(p(radius + 0.000001)) === 0, "大拡大でも幅の縁の内外を微小な隙間で区別する");
+        }
+        if (scale === 1e12 && pixelRatio === 1 && weight === 0 && rotation === 0) {
+          assert(canvas.getContext("2d").getImageData(100, 100, 1, 1).data.slice(0, 3).every((v) => v === 0), "指摘の大拡大線の中心は実描画でも黒になる");
+        }
+      }
+    }
+
     reference.lineCap = "butt"; reference.lineJoin = "round";
     for (const pixelRatio of [1, 1.5, 2, 8]) for (const weight of [0, 0.125, 2]) {
       viewer.resize(200, 200, pixelRatio);
