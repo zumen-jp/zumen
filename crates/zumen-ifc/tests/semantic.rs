@@ -294,3 +294,234 @@ fn incorrectly_typed_classification_text_is_not_silently_dropped() {
         }
     }
 }
+
+#[test]
+fn related_objects_keep_original_positions_and_diagnose_invalid_values() {
+    for schema in VERSIONS {
+        let src = source(schema, "")
+            .replace("(#20),$,#21", "(7,#20),$,#21")
+            .replace("(#11,#20),#31", "(7,#11,.BAD.,#20),#31");
+        let (b, diag, _) = lift(&src, Limits::default());
+        let b = b.unwrap();
+        assert_eq!(
+            b.components.zone.get(element(&b, 21)).unwrap().members,
+            [element(&b, 20)]
+        );
+        for (id, relation, position) in [(21, 22, 1), (20, 22, 1), (11, 32, 1), (20, 32, 3)] {
+            let source = b.element(element(&b, id)).unwrap().source();
+            assert_eq!(
+                source
+                    .relations
+                    .iter()
+                    .find(|r| r.instance == relation)
+                    .unwrap()
+                    .position,
+                Some(position)
+            );
+        }
+        assert_eq!(
+            diag.iter()
+                .filter(|d| d.code() == codes::IFC_ATTRIBUTE_INVALID)
+                .map(|d| d.count())
+                .sum::<u64>(),
+            3
+        );
+        for invalid in ["$", "42", "()", "(42)", "#20", "(#999)"] {
+            let src = source(schema, "")
+                .replace("(#20),$,#21", &format!("{invalid},$,#21"))
+                .replace("(#11,#20),#31", &format!("{invalid},#31"));
+            let (b, diag, _) = lift(&src, Limits::default());
+            let b = b.unwrap();
+            assert!(
+                b.components.zone.get(element(&b, 21)).is_none(),
+                "{schema}: {invalid}"
+            );
+            assert!(
+                b.components.classification.is_empty(),
+                "{schema}: {invalid}"
+            );
+            assert!(has(&diag, codes::IFC_ATTRIBUTE_INVALID));
+        }
+    }
+}
+
+#[cfg(feature = "ids")]
+#[test]
+fn ids_checks_all_classifications_of_a_type_and_respects_instance_overrides() {
+    use zumen_ids::{Ids, Status, check};
+    use zumen_ifc::IdsLookup;
+
+    for schema in VERSIONS {
+        for own in [false, true] {
+            let later = |value: &str| if schema == "IFC2X3" { "" } else { value }.to_owned();
+            let mut extra = format!(
+                "#40=IFCWALLTYPE('{}',$,'Type',$,$,$,$,$,$,.STANDARD.);\n\
+                #41=IFCRELDEFINESBYTYPE('{}',$,$,$,(#50),#40);\n\
+                #43=IFCCLASSIFICATIONREFERENCE($,'B-2','Second',#30{});\n\
+                #44=IFCRELASSOCIATESCLASSIFICATION('{}',$,$,$,(#40),#31);\n\
+                #45=IFCRELASSOCIATESCLASSIFICATION('{}',$,$,$,(#40),#43);\n\
+                #50=IFCWALL('{}',$,'Wall',$,$,$,$,${});\n\
+                #60=IFCCLASSIFICATION('Source','2026',$,'Other'{});\n\
+                #61=IFCCLASSIFICATIONREFERENCE($,'C-3','Other item',#60{});\n\
+                #62=IFCRELASSOCIATESCLASSIFICATION('{}',$,$,$,(#40),#61);\n",
+                gid(40),
+                gid(41),
+                later(",$,$"),
+                gid(44),
+                gid(45),
+                gid(50),
+                later(",.STANDARD."),
+                later(",$,$,$"),
+                later(",$,$"),
+                gid(62)
+            );
+            if own {
+                extra.push_str(&format!(
+                    "#46=IFCCLASSIFICATIONREFERENCE($,'Own','Own item',#30{});\n\
+                    #47=IFCRELASSOCIATESCLASSIFICATION('{}',$,$,$,(#50),#46);",
+                    later(",$,$"),
+                    gid(47)
+                ));
+            }
+            let mut specs = vec![
+                ("first", "A-1", "Test"),
+                ("second", "B-2", "Test"),
+                ("other", "C-3", "Other"),
+            ];
+            if own {
+                specs.push(("own", "Own", "Test"));
+            }
+            let specs:String=specs.iter().map(|(name,value,system)|format!(
+                "<specification name=\"{name}\" ifcVersion=\"{schema}\"><applicability maxOccurs=\"unbounded\"><entity><name><simpleValue>IFCWALL</simpleValue></name></entity></applicability><requirements><classification><value><simpleValue>{value}</simpleValue></value><system><simpleValue>{system}</simpleValue></system></classification></requirements></specification>"
+            )).collect();
+            let xml = format!(
+                "<ids xmlns=\"http://standards.buildingsmart.org/IDS\"><info><title>type classifications</title></info><specifications>{specs}</specifications></ids>"
+            );
+            let cancel = CancelToken::new();
+            let mut budget = Budget::new(Limits::default());
+            let mut diag = Diagnostics::new();
+            let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+            let file = Ifc::read(source(schema, &extra).as_bytes(), &mut cx).unwrap();
+            let building: Building = file.lift(&mut cx).unwrap();
+            let ids = Ids::read(xml.as_bytes(), &mut cx).unwrap();
+            let report = check(&building, &ids, &IdsLookup::new(&file, None), &mut cx).unwrap();
+            let statuses: Vec<_> = report.specifications.iter().map(|s| s.status).collect();
+            assert_eq!(
+                statuses,
+                if own {
+                    vec![
+                        Status::Unknown,
+                        Status::Unknown,
+                        Status::Passed,
+                        Status::Passed,
+                    ]
+                } else {
+                    vec![Status::Passed; 3]
+                },
+                "{schema}"
+            );
+        }
+    }
+}
+
+fn resource_source(schema: &str, count: u32, on_type: bool, omitted: bool) -> String {
+    let mut extra = format!(
+        "#101=IFCPROPERTYSET('{}',$,'Set',$,(#102));\n\
+        #102=IFCPROPERTYSINGLEVALUE('Value',$,IFCLABEL('Text'),$);\n",
+        gid(101)
+    );
+    if on_type {
+        extra.push_str(&format!(
+            "#110=IFCWALLTYPE('{}',$,'Type',$,$,(#101),$,$,$,.STANDARD.);\n",
+            gid(110)
+        ));
+    } else {
+        extra.push_str(&format!(
+            "#103=IFCRELDEFINESBYPROPERTIES('{}',$,$,$,(#11),#101);\n",
+            gid(103)
+        ));
+    }
+    let mut related = vec!["#11".to_owned()];
+    if omitted {
+        extra.push_str(&format!(
+            "#100=IFCDISTRIBUTIONFLOWELEMENT('{}',$,'Element',$,$,$,$,$);\n",
+            gid(100)
+        ));
+        related.push("#100".to_owned());
+    }
+    related.extend((0..count).map(|_| "#101".to_owned()));
+    source(schema, &extra).replace("(#11,#20),#31", &format!("({}),#31", related.join(",")))
+}
+
+#[test]
+fn unmapped_relation_targets_are_reported_once_with_original_positions() {
+    for schema in VERSIONS {
+        for on_type in [false, true] {
+            let src = resource_source(schema, 1, on_type, true);
+            let (b, diag, _) = lift(&src, Limits::default());
+            let b = b.unwrap();
+            assert!(!has(&diag, codes::IFC_ATTRIBUTE_INVALID));
+            let warnings: Vec<_> = diag
+                .iter()
+                .filter(|d| d.code() == codes::IFC_RELATION_TARGET_UNSUPPORTED)
+                .collect();
+            assert_eq!(warnings.len(), 1);
+            let d = warnings[0];
+            assert_eq!(d.count(), 1);
+            assert_eq!(
+                d.param("kind"),
+                Some(&zumen_base::Value::Text(
+                    "IFCRELASSOCIATESCLASSIFICATION".to_owned()
+                ))
+            );
+            assert_eq!(
+                d.param("target_kind"),
+                Some(&zumen_base::Value::Text("IFCPROPERTYSET".to_owned()))
+            );
+            assert_eq!(d.param("position"), Some(&zumen_base::Value::UInt(2)));
+            assert_eq!(
+                d.places()[0].bytes().unwrap().start,
+                src.find("#32=").unwrap() as u64
+            );
+            let dropped: Vec<_> = diag
+                .iter()
+                .filter(|d| d.code() == codes::IFC_ENTITY_DROPPED)
+                .collect();
+            assert_eq!(dropped.len(), 1);
+            assert_eq!(
+                dropped[0].param("kind"),
+                Some(&zumen_base::Value::Text(
+                    "IFCDISTRIBUTIONFLOWELEMENT".to_owned()
+                ))
+            );
+            assert_eq!(dropped[0].count(), 1);
+            let owner = element(&b, if on_type { 110 } else { 11 });
+            assert_eq!(
+                b.components.properties.get(owner).unwrap().sets[0].name,
+                "Set"
+            );
+        }
+    }
+}
+
+#[test]
+fn pending_relation_targets_use_budgets() {
+    let (_, _, few) = lift(&resource_source("IFC4", 2, true, false), Limits::default());
+    let src = resource_source("IFC4", 202, true, false);
+    let (b, diag, many) = lift(&src, Limits::default());
+    assert!(b.is_ok());
+    assert_eq!(
+        diag.iter()
+            .filter(|d| d.code() == codes::IFC_RELATION_TARGET_UNSUPPORTED)
+            .map(|d| d.count())
+            .sum::<u64>(),
+        202
+    );
+    assert!(many - few >= 200 * 32);
+    let (b, diag, _) = lift(
+        &src,
+        Limits::default().with(Kind::DecodedBytes, Limit::Finite(few + 10 * 32)),
+    );
+    assert!(b.is_err());
+    assert!(has(&diag, codes::BUDGET_DECODED_BYTES_EXCEEDED));
+}

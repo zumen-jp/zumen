@@ -490,6 +490,8 @@ struct Lifter<'f> {
     units: BTreeMap<u64, Option<Unit>>,
     definitions: BTreeMap<u64, Option<Definition>>,
     materials: BTreeMap<u64, Option<Material>>,
+    /// L1 に存在するが L2 の要素でない関係の対象。ほかの成分で使ったかを最後に確かめる
+    unmapped_relations: Vec<(u64, u64, u32)>,
     /// 写す値を数えて止まった理由。実体を読むループで返す（#733）
     halt: Cell<Option<Stop>>,
 }
@@ -533,6 +535,7 @@ impl<'f> Lifter<'f> {
             units: BTreeMap::new(),
             definitions: BTreeMap::new(),
             materials: BTreeMap::new(),
+            unmapped_relations: Vec::new(),
             halt: Cell::new(None),
         }
     }
@@ -618,6 +621,8 @@ impl<'f> Lifter<'f> {
         for (element, id) in core::mem::take(&mut self.placements) {
             self.placement(element, id, cx)?;
         }
+        self.halted(cx, None)?;
+        self.report_unmapped_relations(cx);
         self.halted(cx, None)?;
         for &id in &ids {
             if self.used.contains(&id) {
@@ -1320,10 +1325,16 @@ impl<'f> Lifter<'f> {
 
     /// 位置 `related` の要素の列（または 1 つ）と、列の中の位置
     fn related(&self, record: &Record, related: usize) -> Vec<(u32, ElementRef)> {
-        refs(arg(record, related))
-            .into_iter()
+        let values = match arg(record, related) {
+            Some(Value::List(values)) => values.as_slice(),
+            Some(value) => core::slice::from_ref(value),
+            None => &[],
+        };
+        values
+            .iter()
             .enumerate()
-            .filter_map(|(at, id)| {
+            .filter_map(|(at, value)| {
+                let id = reference(Some(value))?;
                 let element = *self.elements.get(&id)?;
                 Some((u32::try_from(at).ok()?, element))
             })

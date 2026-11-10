@@ -134,7 +134,8 @@ impl Lifter<'_> {
         {
             return;
         }
-        for (position, member) in self.related(record, 5) {
+        let (related, mut incomplete) = self.semantic_related(record, cx);
+        for (position, member) in related {
             if !self.charge(cx, Kind::Work, 1) {
                 return;
             }
@@ -145,17 +146,32 @@ impl Lifter<'_> {
                 // 空間の参照は物理の要素も持てる。それらは既存の parent.referenced_in に残る。
                 if group {
                     self.invalid(record, 5, cx);
+                    incomplete = true;
                 }
                 continue;
             }
             if !self.copied(cx, ITEM) {
                 return;
             }
-            if let Some(mut value) = self.building.components.zone.remove(zone) {
-                value.members.push(member);
-                self.building.components.zone.insert(zone, value);
-                self.source(zone, id, record, Some(position), cx);
-            }
+            let mut value = self
+                .building
+                .components
+                .zone
+                .remove(zone)
+                .unwrap_or_default();
+            value.members.push(member);
+            self.building.components.zone.insert(zone, value);
+            self.source(zone, id, record, Some(position), cx);
+        }
+        if incomplete
+            && self
+                .building
+                .components
+                .zone
+                .get(zone)
+                .is_some_and(|zone| zone.members.is_empty())
+        {
+            self.building.components.zone.remove(zone);
         }
     }
 
@@ -169,7 +185,8 @@ impl Lifter<'_> {
         let Some(value) = self.classification_reference(target, record, cx) else {
             return true;
         };
-        for (position, element) in self.related(record, 5) {
+        let (related, _) = self.semantic_related(record, cx);
+        for (position, element) in related {
             if !self.charge(cx, Kind::Work, 1) || !self.copied(cx, classification_size(&value)) {
                 return true;
             }
@@ -187,6 +204,76 @@ impl Lifter<'_> {
             self.source(element, id, record, Some(position), cx);
         }
         true
+    }
+
+    /// 集合を元の位置のまま検査する。参照でない値と存在しない参照を診断し、有効だが要素でない対象は最後に確かめる。
+    fn semantic_related(&mut self, record: &Record, cx: &mut Cx) -> (Vec<(u32, ElementRef)>, bool) {
+        let Some(Value::List(values)) = arg(record, 5) else {
+            self.invalid(record, 5, cx);
+            return (Vec::new(), true);
+        };
+        let mut incomplete = values.is_empty();
+        if incomplete {
+            self.invalid(record, 5, cx);
+        }
+        for (position, value) in values.iter().enumerate() {
+            if !self.charge(cx, Kind::Work, 1) {
+                return (Vec::new(), incomplete);
+            }
+            let Some(target) =
+                reference(Some(value)).filter(|&id| self.file.instance(id).is_some())
+            else {
+                self.invalid(record, 5, cx);
+                incomplete = true;
+                continue;
+            };
+            if !self.elements.contains_key(&target) {
+                incomplete = true;
+                let Ok(position) = u32::try_from(position) else {
+                    self.invalid(record, 5, cx);
+                    continue;
+                };
+                if !self.copied(cx, ITEM) {
+                    return (Vec::new(), incomplete);
+                }
+                self.unmapped_relations
+                    .push((record_id(record), target, position));
+            }
+        }
+        (self.related(record, 5), incomplete)
+    }
+
+    /// 実体自体を落とす場合は既存の entity.dropped だけにする。別成分で使った対象への関係の欠落だけを診断する。
+    pub(super) fn report_unmapped_relations(&mut self, cx: &mut Cx) {
+        for (relation, target, position) in core::mem::take(&mut self.unmapped_relations) {
+            if !self.charge(cx, Kind::Work, 1) {
+                return;
+            }
+            if !self.used.contains(&target) {
+                continue;
+            }
+            let (Some(relation), Some(target)) =
+                (self.file.instance(relation), self.file.instance(target))
+            else {
+                continue;
+            };
+            cx.report(
+                Diagnostic::new(codes::IFC_RELATION_TARGET_UNSUPPORTED)
+                    .with(
+                        "kind",
+                        String::from_utf8_lossy(self.file.kind(relation)).into_owned(),
+                    )
+                    .with(
+                        "target_kind",
+                        String::from_utf8_lossy(self.file.kind(target)).into_owned(),
+                    )
+                    .with("position", u64::from(position))
+                    .at(at_bytes(relation.span())),
+            );
+            if !self.charge(cx, Kind::Work, 0) {
+                return;
+            }
+        }
     }
 
     /// IfcClassificationReference の 2 ItemReference（IFC4 から Identification）・3 Name・4 ReferencedSource。

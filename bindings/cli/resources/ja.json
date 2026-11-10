@@ -212,6 +212,7 @@
     "ifc.placement.unsupported": "配置「{kind}」は解けないので、種類だけを持ちました（{count} 件）。",
     "ifc.record.invalid": "形の読めない文を飛ばして、次の文から読みました（{count} 件）。",
     "ifc.reference.missing": "参照 #{id} が、ファイルにない番号を指しています（{count} 件）。",
+    "ifc.relation-target.unsupported": "「{kind}」の対象「{target_kind}」（集合内の位置 {position}、0 から）に建物モデルの要素がないので、関係を成分に写しませんでした（{count} 件）。",
     "ifc.schema.unsupported": "スキーマ「{schema}」は IFC のスキーマではないので、読みませんでした（{count} 件）。",
     "ifc.station.missing": "線形に測点（IfcReferent の STATION）がないので、初めの測点を 0 にしました（{count} 件）。",
     "ifc.text.invalid": "文字列の読めない所を、置き換えの文字にしました（{count} 件）。",
