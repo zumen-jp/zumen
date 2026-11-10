@@ -33,6 +33,7 @@ npm run dev
 `npm run build` は、案内の HTML のあと、既存の `playground/` を Vite で `dist/viewer/` に組みます。wasm とラッパーは npm の `@zumen-jp/zumen@0.2.0` から取り、非公開の表示部品は `packages/` を使います。Rust と手元の `target/` は使いません。
 
 - wasm・Worker・CSS・公開サンプルは、同一オリジンから配ります。CSP は `public/_headers` にあり、ページと Worker の外部への通信を制限します。案内ページは JavaScript を読み込みません。これをビルドの出力で毎回検査します。
+- `Cache-Control` の `no-transform` で、配信側による解析スクリプトなどの自動注入を止めます。`max-age=0, must-revalidate` で更新時の再検証も保ちます。これは [Cloudflare Web Analytics の公式の方法](https://developers.cloudflare.com/web-analytics/get-started/)で、サイトのビルドの出力に含めます。本番で注入を見つけたら、CSP や通信検査を緩めずに調べます。
 - サンプルの出所・ライセンス・必要な本文は `viewer/samples.md` に、JavaScript に組み込む依存のライセンスは `viewer/licenses.md` に出します。公開済みでもログイン名を含む 2 件の DWG はサイトに入れません。
 - wasm に入る依存の本文は `viewer/THIRD_PARTY_LICENSES` に、コアのライセンスは `viewer/LICENSE-MIT`・`viewer/LICENSE-APACHE` に、SBOM は `viewer/sboms/` に保ちます。出力した wasm のハッシュと SBOM の一致も検査します。
 - 図面は、公開サンプルか、利用者が手元で選ぶファイルをブラウザーの中だけで読みます。不具合と非公開の報告先もビューアーに案内します。

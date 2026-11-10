@@ -26,6 +26,7 @@ for (const path of output.filter((path) => path.endsWith(".html") && path !== re
   assert.doesNotMatch(readFileSync(path, "utf8"), /<script\b/i, "案内ページに script がある");
 }
 const headers = readFileSync(resolve(dist, "_headers"), "utf8");
+assert.match(headers, /^\/\*\r?\n\s+Cache-Control: public, max-age=0, must-revalidate, no-transform/m);
 assert.match(headers, /\/viewer\/\*/);
 assert.match(headers, /connect-src 'self'/);
 assert.match(headers, /frame-ancestors 'none'/);
