@@ -71,3 +71,4 @@ J-LandXML は選択肢 1、IFC4.3 の線形も選択肢 1 を採る。土木・�
 
 - [決定 0013](0013-boundary-in-four-forms.md)・[決定 0221](0221-wasm-modules.md)・[決定 0232](0232-point-clouds.md)・[決定 0233](0233-geo-model-features.md)・[決定 0235](0235-ifc-alignments.md)・[決定 0239](0239-civil-drawing-op.md)
 - #380・#416
+- 0.2.0 で LAZ の展開を止めたことは、[0289](0289-release-cut-and-shipped-code.md) で定めた。

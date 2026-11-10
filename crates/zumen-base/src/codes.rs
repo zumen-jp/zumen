@@ -2636,7 +2636,7 @@ pub const LAS_CRS_UNSUPPORTED: Code = Code::new(
 /// `las.file.invalid`（0.2.0 から）
 pub const LAS_FILE_INVALID: Code = Code::new("las.file.invalid", Severity::Error, None, &[], &[]);
 
-/// LAZ の圧縮の記述（laszip の VLR）がないか、点を展開できなかった
+/// LAZ の圧縮の記述（laszip の VLR）がないか、点を展開できなかった。LAZ の展開を止めている間は返さず、展開を戻したら返す（決定 0289）
 ///
 /// `las.laz.invalid`（0.2.0 から）
 pub const LAS_LAZ_INVALID: Code = Code::new(
@@ -2646,6 +2646,12 @@ pub const LAS_LAZ_INVALID: Code = Code::new(
     &[Param::new("reason", ParamType::Text)],
     &[],
 );
+
+/// LAZ の展開を止めているので、点を読まなかった（決定 0289・#510）
+///
+/// `las.laz.unsupported`（0.2.0 から）
+pub const LAS_LAZ_UNSUPPORTED: Code =
+    Code::new("las.laz.unsupported", Severity::Error, None, &[], &[]);
 
 /// 点の形式が 0〜10 のどれでもない
 ///
@@ -4763,6 +4769,7 @@ pub const ALL: &[Code] = &[
     LAS_CRS_UNSUPPORTED,
     LAS_FILE_INVALID,
     LAS_LAZ_INVALID,
+    LAS_LAZ_UNSUPPORTED,
     LAS_POINT_FORMAT_UNSUPPORTED,
     LAS_POINTS_INVALID,
     LAS_VERTICAL_CRS_UNSUPPORTED,
