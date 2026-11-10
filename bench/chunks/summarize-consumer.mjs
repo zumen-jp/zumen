@@ -14,7 +14,7 @@ const text = `# シーンを使う側の測定結果
 
 ${date} JST の 1 台の結果です。[測定手順と境界](CONSUMERS.md)、[機械可読の記録](${snapshot})を参照してください。各項目は 1 回ウォームアップ後、${r.repeats} 回の中央値です。基準のソースは \`${r.source_commit}\` で、計測中のハーネスの SHA-256 も JSON にあります。
 
-${r.environment.cpu.trim()}、${r.environment.logical_cpus} 論理 CPU、${r.environment.os} ${r.environment.release} ${r.environment.arch}、${r.environment.rustc}、Node.js ${r.environment.node}、Playwright ${r.environment.playwright}、headless Chromium ${r.environment.chromium} です。画面は 960 × 640 CSS px、pixel ratio 1 です。GPU・ドライバーの情報は JSON にあり、今回は SwANGLE・SwiftShader、GPU 合成なしでした。ほかの環境への速さの保証ではありません。
+${r.environment.cpu.trim()}、${r.environment.logical_cpus} 論理 CPU、${r.environment.os} ${r.environment.release} ${r.environment.arch}、${r.environment.rustc}、Node.js ${r.environment.node}、Playwright ${r.environment.playwright}、headless Chromium ${r.environment.chromium} です。画面は 960 × 640 CSS px、pixel ratio 1 です。GPU・ドライバーの情報は JSON を参照してください。ほかの環境への速さの保証ではありません。
 
 ## 正しさの結果
 

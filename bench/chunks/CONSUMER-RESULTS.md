@@ -2,7 +2,7 @@
 
 2026-11-11 JST の 1 台の結果です。[測定手順と境界](CONSUMERS.md)、[機械可読の記録](consumer-results-2026-11-11.json)を参照してください。各項目は 1 回ウォームアップ後、7 回の中央値です。基準のソースは `97f05dfc32f66220b120e147cf64c1d6ed0894fc` で、計測中のハーネスの SHA-256 も JSON にあります。
 
-AMD Ryzen 5 3600XT 6-Core Processor、12 論理 CPU、win32 10.0.26300 x64、rustc 1.99.1 (58cf8f9c3 2026-10-13)、Node.js v24.22.2、Playwright 1.64.1、headless Chromium 156.0.8078.4 です。画面は 960 × 640 CSS px、pixel ratio 1 です。GPU・ドライバーの情報は JSON にあり、今回は SwANGLE・SwiftShader、GPU 合成なしでした。ほかの環境への速さの保証ではありません。
+AMD Ryzen 5 3600XT 6-Core Processor、12 論理 CPU、win32 10.0.26300 x64、rustc 1.99.1 (58cf8f9c3 2026-10-13)、Node.js v24.22.2、Playwright 1.64.1、headless Chromium 156.0.8078.4 です。画面は 960 × 640 CSS px、pixel ratio 1 です。GPU・ドライバーの情報は JSON を参照してください。ほかの環境への速さの保証ではありません。
 
 ## 正しさの結果
 
