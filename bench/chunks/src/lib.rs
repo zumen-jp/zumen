@@ -100,19 +100,23 @@ fn line_ends<P: Point>(shape: &Shape<P>) -> Option<[[f64; 2]; 2]> {
     }
 }
 
-fn make_case(index: usize) -> Case {
-    let generated;
-    let input = if index < INPUTS.len() {
-        INPUTS[index]
+/// 計測用に固定した入力。利用者のフォルダーは読まない。
+pub fn input(index: usize) -> Vec<u8> {
+    assert!(index < CASES.len());
+    if index < INPUTS.len() {
+        INPUTS[index].to_vec()
     } else {
-        generated = synthetic(if index == 3 { 10_000 } else { 100_000 });
-        &generated
-    };
+        synthetic(if index == 3 { 10_000 } else { 100_000 })
+    }
+}
+
+fn make_case(index: usize) -> Case {
+    let input = input(index);
     let drawing = if index == 0 {
-        let file = testkit::read::<Dwg>(input).0.unwrap();
+        let file = testkit::read::<Dwg>(&input).0.unwrap();
         context(|cx| file.lift(cx).unwrap())
     } else {
-        let file = testkit::read::<Dxf>(input).0.unwrap();
+        let file = testkit::read::<Dxf>(&input).0.unwrap();
         context(|cx| file.lift(cx).unwrap())
     };
     let visits = context(|cx| drawing.walk_parts(Origin::Space(SpaceId(0)), cx).unwrap());
