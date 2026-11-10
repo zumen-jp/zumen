@@ -97,6 +97,7 @@ ACadSharp のツールは、.NET 10 の SDK で動かします。ACadSharp の�
 | JWW | [ezjww](https://github.com/monozukuri-ai/ezjww) 0.7.6 | MIT | 照らす（`check_ezjww.py`） |
 | SFC・P21 | [ezsxf](https://github.com/monozukuri-ai/ezsxf) 0.3.7 | MIT | 照らす（`check_ezsxf.py`） |
 | PDF | [pdf.js](https://github.com/mozilla/pdf.js) 6.5.438 | Apache-2.0 | 別のプログラムとして呼び、読みを照らす（`pdfjs/`）。Node.js 22.13.0 以降 |
+| LAS | [laspy](https://github.com/laspy/laspy) 2.7.0 | BSD-2-Clause | 非圧縮 LAS のヘッダーと全点を照らす（[`laspy/`](laspy/README.md)）。NumPy 2.5.4 を別に導入 |
 
 次のものは使いません。
 

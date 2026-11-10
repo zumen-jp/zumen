@@ -158,6 +158,24 @@ jobs:
       - name: 同じ IFC を IfcOpenShell で読み、写した値が同じことを確かめる
         run: python -I crates/zumen-ifc/tests/ifcopenshell/samples.py samples "$RUNNER_TEMP/samples"
 
+  laspy:
+    name: 非圧縮 LAS の読みを laspy と照らす
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: rust-toolchain.toml のバージョンの Rust を入れる
+        run: rustup toolchain install
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.14'
+      - name: laspy と NumPy をテストのツールとして入れる
+        run: |
+          python -m pip install --only-binary :all: laspy==2.7.0 numpy==2.5.4
+      - name: 既知値の全点形式と公開サンプルのヘッダー・全点を照らす
+        env:
+          ZUMEN_LASPY_REQUIRED: '1'
+        run: cargo test --locked -p zumen-las --test external
+
   pdf:
     name: PDF の読みを pdf.js と照らす
     runs-on: ubuntu-latest

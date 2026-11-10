@@ -575,3 +575,15 @@ license = "MIT"
 license-url = "https://github.com/andrewisen/bim-whale-ifc-samples/blob/595fa90e3af7120d004fcb37a79d8657f1d1c9c2/LICENSE"
 attribution = "Copyright (c) 2020 André \"MG\" Wisén. bim-whale-ifc-samples の IFC。MIT License の本文は licenses/bim-whale-MIT.txt"
 changes = "ヘッダーのコメントの Host と Database（作った人の手元の機械の名前とフォルダー）を `[redacted]` にした。取得したファイルは 1,292,595 バイト、SHA-256 は 102f8123f85eae5e237d7f6a9dcbc364bd5f1c0cfb94b40a7eeb2d7eac9bb725。データのセクションは変えていない"
+
+[[samples]]
+path = "las/pdal-synthetic.las"
+sha256 = "0599bed087a3eb4dca76bb6d305e0e43fef58a9228c3bd30f50a8e49b8f7d2af"
+bytes = 261
+title = "PDAL の分類の synthetic フラグを持つ 1 点の LAS"
+publisher = "Hobu, Inc.（PDAL）"
+url = "https://raw.githubusercontent.com/PDAL/PDAL/afbe6f7794bfe40394f27f46b2a6da0da3f1afb2/test/data/las/synthetic_test.las"
+retrieved = "2026-11-11"
+license = "BSD-3-Clause"
+license-url = "https://github.com/PDAL/PDAL/blob/afbe6f7794bfe40394f27f46b2a6da0da3f1afb2/LICENSE.txt"
+attribution = "Copyright (c) 2019, Hobu, Inc. ライセンスの全文は licenses/pdal.txt。PDAL/PDAL#2925 で合成の 1 点の読み書きのテストと共に追加された。LICENSE.txt は別記のない全ファイルを BSD とし、このファイルへの別条件はない"

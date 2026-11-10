@@ -35,7 +35,7 @@
 | [jww](#format-jww) | JWW（Jw\_cad for Windows の図面） | jwcad | drawing | `public` | `core` | `synthetic` | `external` |
 | [kokuban](#format-kokuban) | 電子小黒板の情報と信憑性確認（改ざん検知） | jpeg | delivery | `permission` | `none` |  |  |
 | [landxml](#format-landxml) | J-LandXML（LandXML 1.2 に準じた 3 次元設計データ交換標準） | landxml | civil | `public` | `core` | `synthetic` |  |
-| [las](#format-las) | LAS・LAZ | las | pointcloud | `public` | `core` | `synthetic` |  |
+| [las](#format-las) | LAS・LAZ | las | pointcloud | `public` | `core` | `external` |  |
 | [par](#format-par) | TKY2JGD・PatchJGD のパラメーターのファイル（座標の補正量の格子） | par | geo | `public` | `core` | `synthetic` |  |
 | [pdf](#format-pdf) | PDF | pdf | drawing | `public` | `core` | `external` | `synthetic` |
 | [ply](#format-ply) | PLY（点群） | ply | pointcloud | `public` | `core` | `external` |  |
@@ -820,12 +820,16 @@
 - 文書の補足: GitHub のライセンスの判定は Apache-2.0
 - 参照した実装: [LASzip](https://github.com/LASzip/LASzip)（Apache-2.0）
 - 参照した実装: [laz-rs](https://github.com/tmontaigu/laz-rs)（Apache-2.0）
-- 照合に使う候補: CloudCompare・PDAL・LAStools の lasinfo
-- サンプルの出どころ: laz-rs の tests/data（Apache-2.0。数十 KB から数百 KB）
-- 読みの確かめた度合い: `synthetic`（確認日: 2026-11-10）
-- 読みの確かめた範囲: LAS 1.4 R15 の仕様と、テストの中で作った LAS（crates/zumen-las/tests）で確かめた。LAZ は展開を止めていて、開くと las.laz.unsupported を返す（#510・決定 0289）。公開サンプルと外部の実装との照合はまだ（#371・#504）
+- 照合に使う候補: CloudCompare・PDAL・LAStools の lasinfo・laspy
+- サンプルの出どころ: PDAL の test/data/las/synthetic\_test.las（BSD-3-Clause、合成の 1 点。samples/las/pdal-synthetic.las）
+- 読みの確かめた度合い: `external`（確認日: 2026-11-11）
+- 読みの確かめた範囲: PDAL が作った公開サンプル 1 件（非圧縮 LAS 1.2、点形式 3、synthetic フラグを持つ 1 点）を laspy 2.7.0 と照合した。ヘッダーの点数・尺度・原点・範囲と、座標・強度・分類・反射・GPS 時刻・RGB を比較した。実測の点群は使っていない。自前の合成 LAS 1.2 の点形式 0〜3、1.3 の 4・5、1.4 の 6〜10 も同じ値を比較したが、external の根拠は PDAL のサンプルだけ。公開サンプルの応答・診断は適合テストでネイティブと wasm のハッシュを比較する。座標系・VLR/EVLR の内容・落とす属性・波形の外部データ・実データ・基準になるアプリとの照合はまだ（#371・#504）。LAZ は las.laz.unsupported で断る（#510）
+- 読みで使った公開サンプル: [samples/las/](../../samples/las/)
+- 読みで照らした外部の実装: laspy 2.7.0
 - 既知の crate: las・laz
 - issue: [zumen-jp/zumen#371](https://github.com/zumen-jp/zumen/issues/371)
+- issue: [zumen-jp/zumen#504](https://github.com/zumen-jp/zumen/issues/504)
+- issue: [zumen-jp/zumen#804](https://github.com/zumen-jp/zumen/issues/804)
 - 形式の文書: [docs/formats/las.md](../../docs/formats/las.md)
 
 ### format-par
