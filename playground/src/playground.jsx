@@ -114,10 +114,12 @@ export function Playground() {
   const drawing = opened.status === "ready" ? opened.drawing : place?.drawing;
   const failed = opened.status === "error" || renderError || fetchError;
   const status = fetchError ? "サンプルを取れませんでした。" : failed ? opened.error?.message === "drawing.input.limit" ? "64 MiB 以下のファイルを選んでください。" : "図面を表示できませんでした。"
-    : ready ? "表示しました。" : file || sample ? "図面を読んでいます。" : "図面を選んでください。";
+    : ready ? viewer.getElements().length ? "表示しました。" : "表示できる要素がありません。診断を確認してください。" : file || sample ? "図面を読んでいます。" : "図面を選んでください。";
   return <main>
     <header><div className="heading"><span className="wordmark">zumen</span><h1>図面ビューア</h1></div>
       <p>選んだ図面をこのブラウザーで開きます。</p></header>
+    <p>図面のバイト列を外へ送らず、読み取りはこのブラウザーの中で行います。PDF・JWC・JWS・LAZ は対象外です。</p>
+    {import.meta.env.VITE_ZUMEN_CORE_VERSION && <p>zumen {import.meta.env.VITE_ZUMEN_CORE_VERSION} で読みます。未対応の文字や図形は、診断をご確認ください。</p>}
     <div className="file-bar">
       <label htmlFor="drawing-file">図面ファイル</label>
       <input ref={picker} id="drawing-file" type="file" accept=".dxf,.dwg,.jww,.sfc,.p21,.sfz,.p2z" aria-describedby="file-help"
@@ -166,5 +168,11 @@ export function Playground() {
     {failed && !opened.diagnostics?.length && <details><summary>エラーの詳細</summary><p>{(fetchError ?? renderError ?? opened.error)?.message}</p></details>}
     {(ready || failed) && <Diagnostics entries={opened.diagnostics ?? []} issues={ready ? viewer.getReport().issues : []}/>}
     {ready && <Export key={opened.input.document.hash} opened={opened} name={file?.name}/>}
+    <section aria-labelledby="report-title" className="export">
+      <h2 id="report-title">不具合を知らせる</h2>
+      <p><a href="/">zumen の案内に戻る</a></p>
+      <p>操作や表示の不具合は <a href="https://github.com/zumen-jp/zumen/issues">GitHub の issue</a> にお知らせください。受け取った図面・顧客の名前・図面の中身は、公開の issue に貼らないでください。</p>
+      <p>読み取りが終わらない・落ちる・メモリを使いすぎる入力は、<a href="https://github.com/zumen-jp/zumen/security/advisories/new">非公開の報告窓口</a>へお知らせください。機密の図面は添付せず、<a href="https://github.com/zumen-jp/zumen/blob/main/SECURITY.md">報告の手順</a>をご確認ください。</p>
+    </section>
   </main>;
 }

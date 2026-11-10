@@ -4,6 +4,7 @@ export const repo = 'https://github.com/zumen-jp/zumen';
 export const decision = (file: string) => `${repo}/blob/main/docs/decisions/${file}`;
 
 export const nav = [
+  { href: '/viewer/', label: '図面を試す' },
   { href: '/features/', label: '特長' },
   { href: '/formats/', label: '対応形式' },
   { href: '/platforms/', label: '対応環境' },

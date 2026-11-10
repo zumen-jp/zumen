@@ -138,7 +138,7 @@ try {
   async function ready(text) {
     await page.waitForFunction((value) => {
       const status = document.querySelector(".status")?.textContent;
-      return status?.includes("表示しました。 " + value) || status?.includes("表示できません");
+      return status?.includes("表示しました。 " + value) || (status?.includes("表示できる要素がありません") && status.includes(value)) || status?.includes("表示できません");
     }, text);
     assert.ok((await status.textContent()).includes(text), await page.locator("main").textContent());
   }
@@ -282,12 +282,14 @@ try {
   await ready("DXF");
   assert.equal(await samplePicker.inputValue(), "dxf/opendxfviewer-latin1.dxf");
   assert.match(await sampleSource.innerText(), /ANSI_1252/);
+  assert.match(await status.textContent(), /表示できる要素がありません/);
+  assert.match(await page.getByRole("region", { name: /^診断/ }).textContent(), /dxf.code-page.unsupported/);
   // 先に選んだ DWG が遅れて届いても、差し替えない
   const late = page.waitForResponse(slow);
   release();
   await late;
   await page.waitForTimeout(500);
-  assert.match(await status.textContent(), /表示しました。 DXF/);
+  assert.match(await status.textContent(), /表示できる要素がありません.*DXF/);
   assert.equal(await samplePicker.inputValue(), "dxf/opendxfviewer-latin1.dxf");
   await page.unroute(slow);
   // 開いたサンプルを閉じる

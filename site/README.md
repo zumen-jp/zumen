@@ -1,6 +1,6 @@
 # zumen.dev のサイト
 
-<https://zumen.dev> に置く案内のサイトです。[Astro](https://astro.build/) で作り、静的な HTML として公開します。ページの中で JavaScript を動かしません。
+<https://zumen.dev> に置く案内のサイトです。[Astro](https://astro.build/) で作り、静的な HTML として公開します。図面を手元で開く `/viewer/` だけで JavaScript を動かします（[決定 0296](../docs/decisions/0296-site-viewer-and-content-security-policy.md)）。
 
 ## 見た目の考え方
 
@@ -25,6 +25,20 @@ npm run dev
 ```
 
 <http://localhost:24150/> を開きます。`npm run check` で型を、`npm run build` で `site/dist` への出力を確かめます。CI の「サイト」でも同じことを確かめます。
+
+`/viewer/` も見るときは、先に `npm run build` を流し、`npm run preview` で開きます。Astro の開発サーバーでは、別に組むビューアーは表示しません。
+
+## 図面ビューアー
+
+`npm run build` は、案内の HTML のあと、既存の `playground/` を Vite で `dist/viewer/` に組みます。wasm とラッパーは npm の `@zumen-jp/zumen@0.2.0` から取り、非公開の表示部品は `packages/` を使います。Rust と手元の `target/` は使いません。
+
+- wasm・Worker・CSS・公開サンプルは、同一オリジンから配ります。CSP は `public/_headers` にあり、ページと Worker の外部への通信を制限します。案内ページは JavaScript を読み込みません。これをビルドの出力で毎回検査します。
+- サンプルの出所・ライセンス・必要な本文は `viewer/samples.md` に、JavaScript に組み込む依存のライセンスは `viewer/licenses.md` に出します。公開済みでもログイン名を含む 2 件の DWG はサイトに入れません。
+- wasm に入る依存の本文は `viewer/THIRD_PARTY_LICENSES` に、コアのライセンスは `viewer/LICENSE-MIT`・`viewer/LICENSE-APACHE` に、SBOM は `viewer/sboms/` に保ちます。出力した wasm のハッシュと SBOM の一致も検査します。
+- 図面は、公開サンプルか、利用者が手元で選ぶファイルをブラウザーの中だけで読みます。不具合と非公開の報告先もビューアーに案内します。
+- `npm run preview` は `_headers` を HTTP ヘッダーにはしません。CSP の検査では、検証用のサーバーで同じヘッダーを付けてブラウザーを動かし、公開後には実際のレスポンスでも確認します。
+
+ビルド後に `npx playwright install chromium` と `npm run test:browser` を流すと、CSP を付けたローカルのサーバー（24189）で確かめます。Windows の Edge なら、`npm run test:browser -- msedge` でも確かめられます。公開後は `npm run test:browser -- msedge https://zumen.dev` のように URL を渡せます。使う入力は公開サンプルと合成データだけで、`ZUMEN_SAMPLES` は読みません。予期しない通信は送信前に止め、検査の失敗として数えます。
 
 ## 置き場所
 
