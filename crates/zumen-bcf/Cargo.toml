@@ -13,11 +13,11 @@ formats = ["bcf"]
 [dependencies]
 # レビューの文書の ID が UUID でないとき、BCF の Guid を入力から決める
 blake3 = { version = "1.8.2", default-features = false, features = ["pure"] }
-zumen-base = { version = "0.2.0", path = "../zumen-base" }
-zumen-review = { version = "0.2.0", path = "../zumen-review" }
-zumen-sdk = { version = "0.2.0", path = "../zumen-sdk" }
-zumen-xml = { version = "0.2.0", path = "../zumen-xml" }
-zumen-zip = { version = "0.2.0", path = "../zumen-zip" }
+zumen-base = { version = "0.2.1", path = "../zumen-base" }
+zumen-review = { version = "0.2.1", path = "../zumen-review" }
+zumen-sdk = { version = "0.2.1", path = "../zumen-sdk" }
+zumen-xml = { version = "0.2.1", path = "../zumen-xml" }
+zumen-zip = { version = "0.2.1", path = "../zumen-zip" }
 
 [lints]
 workspace = true

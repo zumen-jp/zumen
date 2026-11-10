@@ -8,7 +8,7 @@ repository.workspace = true
 publish = true
 
 [dependencies]
-zumen-base = { version = "0.2.0", path = "../zumen-base" }
+zumen-base = { version = "0.2.1", path = "../zumen-base" }
 # 要素のハッシュ（決定 0156）。C と asm を使わない pure の機能だけを使う
 blake3 = { version = "1.8.2", default-features = false, features = ["pure"] }
 

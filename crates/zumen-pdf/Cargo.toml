@@ -12,9 +12,9 @@ publish = false
 formats = ["pdf"]
 
 [dependencies]
-zumen-base = { version = "0.2.0", path = "../zumen-base" }
-zumen-sdk = { version = "0.2.0", path = "../zumen-sdk" }
-zumen-drawing = { version = "0.2.0", path = "../zumen-drawing", optional = true }
+zumen-base = { version = "0.2.1", path = "../zumen-base" }
+zumen-sdk = { version = "0.2.1", path = "../zumen-sdk" }
+zumen-drawing = { version = "0.2.1", path = "../zumen-drawing", optional = true }
 # ページの内容の解釈（決定 0256）。塗った順に要素の ID を振り、色空間の Debug の表記で系統を見分けるので、バージョンを固定する。
 # 上げるのは読み取りの変更として扱う。埋め込みのないフォントと CMap は、同梱のもの（既定の機能）で読む
 hayro-interpret = { version = "=0.9.0", optional = true }

@@ -4,7 +4,7 @@
 /// API のバージョンと、シーンの配置（決定 0012・0137・0227）
 abstract final class Constants {
   /// パッケージのバージョン（決定 0015）
-  static const version = '0.2.0';
+  static const version = '0.2.1';
 
   /// ABI のメジャーバージョン
   static const abiVersion = 1;

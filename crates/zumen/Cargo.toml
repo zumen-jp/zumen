@@ -10,10 +10,10 @@ publish = true
 rust-version = "1.99"
 
 [dependencies]
-zumen-abi = { version = "0.2.0", path = "../zumen-abi" }
-zumen-base = { version = "0.2.0", path = "../zumen-base" }
-zumen-json = { version = "0.2.0", path = "../zumen-json" }
-zumen-scene = { version = "0.2.0", path = "../zumen-scene" }
+zumen-abi = { version = "0.2.1", path = "../zumen-abi" }
+zumen-base = { version = "0.2.1", path = "../zumen-base" }
+zumen-json = { version = "0.2.1", path = "../zumen-json" }
+zumen-scene = { version = "0.2.1", path = "../zumen-scene" }
 
 [lints]
 workspace = true

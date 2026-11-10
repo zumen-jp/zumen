@@ -13,8 +13,8 @@ formats = ["isg", "par"]
 [dependencies]
 # 換算の三角関数と双曲線関数（決定 0007）。どの対象でも同じ値にする
 libm = { version = "0.2.16", default-features = false }
-zumen-base = { version = "0.2.0", path = "../zumen-base" }
-zumen-sdk = { version = "0.2.0", path = "../zumen-sdk" }
+zumen-base = { version = "0.2.1", path = "../zumen-base" }
+zumen-sdk = { version = "0.2.1", path = "../zumen-sdk" }
 
 [dev-dependencies]
 # TKY2JGD・PatchJGD の格子の読みと補間を、テストの中で作った格子で照らす外部の実装（決定 0286、#670）。

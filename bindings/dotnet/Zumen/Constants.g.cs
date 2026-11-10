@@ -13,7 +13,7 @@ namespace Zumen
     public static class Versions
     {
         /// <summary>パッケージのバージョン</summary>
-        public const string Package = "0.2.0";
+        public const string Package = "0.2.1";
 
         /// <summary>ABI のメジャーバージョン</summary>
         public const uint Abi = 1;
