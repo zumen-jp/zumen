@@ -332,9 +332,7 @@ fn sfc_returns_diagnostics_in_record_order() {
 }
 
 /// 1 つのレコードが続けて報告する診断は、そのレコードの中で報告した順を保ち、後ろのレコードを表の段階で
-/// 報告した診断より前に並ぶ（#624）。SFC の各段階は、それぞれレコードの順に報告するので、同じ code と値の
-/// 診断の場所が後ろから届く入力は作れなかった。場所の先頭を残すことは、`zumen-base` の単体の試験と、P21 の
-/// 試験（#620）で確かめている
+/// 報告した診断より前に並ぶ（#624）
 #[test]
 fn sfc_keeps_the_report_order_within_one_record() {
     let src = String::from_utf8(p21(concat!(
@@ -367,6 +365,94 @@ fn sfc_keeps_the_report_order_within_one_record() {
                 (codes::SXF_CODE_MISSING, Some(text("line type")), at(10)),
                 (codes::SXF_CODE_MISSING, Some(text("width")), at(10)),
                 (codes::SXF_LIFT_INVALID, Some(text("layer_feature")), at(20)),
+            ],
+            "{max_places}"
+        );
+    }
+}
+
+/// 作図グループの要素は配置した所で、部分図の要素は用紙の要素より先に変換するので、同じ code と値の診断の
+/// 場所が後ろのレコードから先に届く。場所は入力順に並び、`max_places` が 0・1 でも入力の先頭を残す（#624）
+#[test]
+fn sfc_keeps_the_first_places_when_later_records_report_first() {
+    let sfc = |body: &str| {
+        let src = String::from_utf8(p21(body))
+            .unwrap()
+            .replace("AP202_mode", "feature_mode");
+        (read(src.as_bytes()), src)
+    };
+    let inputs = [
+        // 作図グループの #30 は、配置（#40）の所で変換するので、用紙に直接ある #10 より先に届く
+        concat!(
+            "/*SXF3\n#10=future_feature()\nSXF3*/\n",
+            "/*SXF3\n#20=sfig_org_feature(\'G\','3')\nSXF3*/\n",
+            "/*SXF3\n#30=future_feature()\nSXF3*/\n",
+            "/*SXF3\n#40=sfig_locate_feature('1',\'G\','0','0','0','1','1')\nSXF3*/\n",
+            "/*SXF3\n#50=drawing_sheet_feature(\'S\','3','1','0','0')\nSXF3*/\n",
+        ),
+        // 部分図の #30 は、それより前に書いた用紙の #10 より先に変換する
+        concat!(
+            "/*SXF3\n#10=future_feature()\nSXF3*/\n",
+            "/*SXF3\n#20=drawing_sheet_feature(\'S\','3','1','0','0')\nSXF3*/\n",
+            "/*SXF3\n#30=future_feature()\nSXF3*/\n",
+            "/*SXF3\n#40=sfig_org_feature(\'A\','1')\nSXF3*/\n",
+        ),
+    ];
+    for body in inputs {
+        let (file, src) = sfc(body);
+        let (drawing, _, full) = run_with_places(&file, Limit::Unlimited, false, usize::MAX);
+        let drawing = drawing.unwrap();
+        let dropped: Vec<_> = full
+            .iter()
+            .filter(|d| d.code() == codes::SXF_LIFT_DROPPED)
+            .collect();
+        assert_eq!(dropped.len(), 1, "{full:?}");
+        assert_eq!(dropped[0].count(), 2);
+        assert_eq!(
+            dropped[0].places(),
+            [places(&file, 10), places(&file, 30)].concat()
+        );
+        for max_places in [0, 1] {
+            let (limited, _, diagnostics) =
+                run_with_places(&file, Limit::Unlimited, false, max_places);
+            assert_eq!(limited.unwrap(), drawing);
+            assert_eq!(diagnostics.len(), full.len());
+            for (limited, original) in diagnostics.iter().zip(&full) {
+                assert_eq!(limited.code(), original.code());
+                assert_eq!(limited.params(), original.params());
+                assert_eq!(limited.count(), original.count());
+                assert_eq!(limited.places(), &original.places()[..max_places]);
+            }
+        }
+        assert_eq!(testkit::write::<Sxf>(&file).unwrap(), src.as_bytes());
+    }
+}
+
+/// 1 つのレコードが 2 つの段階で報告する診断も、報告した順を保つ。用紙より後ろの #20 は、表の段階で
+/// `sxf.member.assumed`、図形の段階で `sxf.lift.dropped` を報告する（#624）
+#[test]
+fn sfc_keeps_the_order_of_one_record_across_stages() {
+    let src = String::from_utf8(p21(concat!(
+        "/*SXF3\n#10=drawing_sheet_feature(\'S\','3','1','0','0')\nSXF3*/\n",
+        "/*SXF3\n#20=future_feature()\nSXF3*/\n",
+        "/*SXF3\n#30=layer_feature()\nSXF3*/\n",
+    )))
+    .unwrap()
+    .replace("AP202_mode", "feature_mode");
+    let file = read(src.as_bytes());
+    for max_places in [usize::MAX, 0, 1] {
+        let (drawing, _, diagnostics) = run_with_places(&file, Limit::Unlimited, false, max_places);
+        assert!(drawing.is_ok());
+        let at = |id| places(&file, id)[..max_places.min(1)].to_vec();
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|d| (d.code(), d.places().to_vec()))
+                .collect::<Vec<_>>(),
+            [
+                (codes::SXF_MEMBER_ASSUMED, at(20)),
+                (codes::SXF_LIFT_DROPPED, at(20)),
+                (codes::SXF_LIFT_INVALID, at(30)),
             ],
             "{max_places}"
         );
