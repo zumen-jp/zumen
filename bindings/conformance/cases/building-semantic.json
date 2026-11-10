@@ -1,0 +1,266 @@
+{
+  "description": "IFC2X3・IFC4・IFC4X3 の階・区域・分類を lift し、種類を推定せず、基準の建物 ID と室の参照を返す。分類の facet を IDS で照合する。入力は合成の最小の IFC。",
+  "steps": [
+    {
+      "push": {
+        "name": "IFC2X3.ifc",
+        "text": "ISO-10303-21;\nHEADER;\nFILE_SCHEMA(('IFC2X3'));\nENDSEC;\nDATA;\n#1=IFCPROJECT('0000000000000000000001',$,'Project',$,$,$,$,$,#2);\n#2=IFCUNITASSIGNMENT((#3));\n#3=IFCSIUNIT(*,.LENGTHUNIT.,.MILLI.,.METRE.);\n#10=IFCBUILDING('0000000000000000000010',$,'Building',$,$,$,$,$,.ELEMENT.,100.,$,$);\n#11=IFCBUILDINGSTOREY('0000000000000000000011',$,'1FL',$,$,$,$,$,.ELEMENT.,3000.);\n#12=IFCRELAGGREGATES('0000000000000000000012',$,$,$,#10,(#11));\n#20=IFCSPACE('0000000000000000000020',$,'Room',$,$,$,$,$,.ELEMENT.,.INTERNAL.,$);\n#21=IFCZONE('0000000000000000000021',$,'Zone',$,$);\n#22=IFCRELASSIGNSTOGROUP('0000000000000000000022',$,$,$,(#20),$,#21);\n#30=IFCCLASSIFICATION('Source','2026',$,'Test');\n#31=IFCCLASSIFICATIONREFERENCE($,'A-1','Item',#30);\n#32=IFCRELASSOCIATESCLASSIFICATION('0000000000000000000032',$,$,$,(#11),#31);\nENDSEC;\nEND-ISO-10303-21;\n"
+      }
+    },
+    {
+      "push": {
+        "name": "IFC2X3.ids",
+        "text": "<ids xmlns=\"http://standards.buildingsmart.org/IDS\"><info><title>classification</title></info><specifications><specification name=\"classification\" ifcVersion=\"IFC2X3\"><applicability maxOccurs=\"unbounded\"><entity><name><simpleValue>IFCBUILDINGSTOREY</simpleValue></name></entity></applicability><requirements><classification><value><simpleValue>A-1</simpleValue></value><system><simpleValue>Test</simpleValue></system></classification></requirements></specification></specifications></ids>"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "IFC2X3.ifc"
+      },
+      "expect": {
+        "/diagnostics": []
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_elements",
+        "doc": "IFC2X3.ifc",
+        "class": "IfcBuildingStorey",
+        "components": [
+          "level",
+          "classification"
+        ]
+      },
+      "expect": {
+        "/result/elements/0/id": "0000000000000000000011",
+        "/result/elements/0/level": {
+          "name": "1FL",
+          "height": {
+            "value": 3000,
+            "unit": {
+              "kind": "LENGTHUNIT",
+              "prefix": "MILLI",
+              "name": "METRE"
+            }
+          },
+          "datum": "0000000000000000000010"
+        },
+        "/result/elements/0/classification": [
+          {
+            "system": "Test",
+            "edition": "2026",
+            "code": "A-1",
+            "name": "Item"
+          }
+        ]
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_elements",
+        "doc": "IFC2X3.ifc",
+        "class": "IfcZone",
+        "components": [
+          "zone"
+        ]
+      },
+      "expect": {
+        "/result/elements/0/zone": {
+          "members": [
+            "0000000000000000000020"
+          ]
+        }
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "ids_check",
+        "doc": "IFC2X3.ifc",
+        "ids": "IFC2X3.ids"
+      },
+      "expect": {
+        "/result/specifications/0/status": "passed",
+        "/result/findings": []
+      }
+    },
+    {
+      "push": {
+        "name": "IFC4.ifc",
+        "text": "ISO-10303-21;\nHEADER;\nFILE_SCHEMA(('IFC4'));\nENDSEC;\nDATA;\n#1=IFCPROJECT('0000000000000000000001',$,'Project',$,$,$,$,$,#2);\n#2=IFCUNITASSIGNMENT((#3));\n#3=IFCSIUNIT(*,.LENGTHUNIT.,.MILLI.,.METRE.);\n#10=IFCBUILDING('0000000000000000000010',$,'Building',$,$,$,$,$,.ELEMENT.,100.,$,$);\n#11=IFCBUILDINGSTOREY('0000000000000000000011',$,'1FL',$,$,$,$,$,.ELEMENT.,3000.);\n#12=IFCRELAGGREGATES('0000000000000000000012',$,$,$,#10,(#11));\n#20=IFCSPACE('0000000000000000000020',$,'Room',$,$,$,$,$,.ELEMENT.,.SPACE.,$);\n#21=IFCZONE('0000000000000000000021',$,'Zone',$,$,$);\n#22=IFCRELASSIGNSTOGROUP('0000000000000000000022',$,$,$,(#20),$,#21);\n#30=IFCCLASSIFICATION('Source','2026',$,'Test',$,$,$);\n#31=IFCCLASSIFICATIONREFERENCE($,'A-1','Item',#30,$,$);\n#32=IFCRELASSOCIATESCLASSIFICATION('0000000000000000000032',$,$,$,(#11),#31);\nENDSEC;\nEND-ISO-10303-21;\n"
+      }
+    },
+    {
+      "push": {
+        "name": "IFC4.ids",
+        "text": "<ids xmlns=\"http://standards.buildingsmart.org/IDS\"><info><title>classification</title></info><specifications><specification name=\"classification\" ifcVersion=\"IFC4\"><applicability maxOccurs=\"unbounded\"><entity><name><simpleValue>IFCBUILDINGSTOREY</simpleValue></name></entity></applicability><requirements><classification><value><simpleValue>A-1</simpleValue></value><system><simpleValue>Test</simpleValue></system></classification></requirements></specification></specifications></ids>"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "IFC4.ifc"
+      },
+      "expect": {
+        "/diagnostics": []
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_elements",
+        "doc": "IFC4.ifc",
+        "class": "IfcBuildingStorey",
+        "components": [
+          "level",
+          "classification"
+        ]
+      },
+      "expect": {
+        "/result/elements/0/id": "0000000000000000000011",
+        "/result/elements/0/level": {
+          "name": "1FL",
+          "height": {
+            "value": 3000,
+            "unit": {
+              "kind": "LENGTHUNIT",
+              "prefix": "MILLI",
+              "name": "METRE"
+            }
+          },
+          "datum": "0000000000000000000010"
+        },
+        "/result/elements/0/classification": [
+          {
+            "system": "Test",
+            "edition": "2026",
+            "code": "A-1",
+            "name": "Item"
+          }
+        ]
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_elements",
+        "doc": "IFC4.ifc",
+        "class": "IfcZone",
+        "components": [
+          "zone"
+        ]
+      },
+      "expect": {
+        "/result/elements/0/zone": {
+          "members": [
+            "0000000000000000000020"
+          ]
+        }
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "ids_check",
+        "doc": "IFC4.ifc",
+        "ids": "IFC4.ids"
+      },
+      "expect": {
+        "/result/specifications/0/status": "passed",
+        "/result/findings": []
+      }
+    },
+    {
+      "push": {
+        "name": "IFC4X3_ADD2.ifc",
+        "text": "ISO-10303-21;\nHEADER;\nFILE_SCHEMA(('IFC4X3_ADD2'));\nENDSEC;\nDATA;\n#1=IFCPROJECT('0000000000000000000001',$,'Project',$,$,$,$,$,#2);\n#2=IFCUNITASSIGNMENT((#3));\n#3=IFCSIUNIT(*,.LENGTHUNIT.,.MILLI.,.METRE.);\n#10=IFCBUILDING('0000000000000000000010',$,'Building',$,$,$,$,$,.ELEMENT.,100.,$,$);\n#11=IFCBUILDINGSTOREY('0000000000000000000011',$,'1FL',$,$,$,$,$,.ELEMENT.,3000.);\n#12=IFCRELAGGREGATES('0000000000000000000012',$,$,$,#10,(#11));\n#20=IFCSPACE('0000000000000000000020',$,'Room',$,$,$,$,$,.ELEMENT.,.SPACE.,$);\n#21=IFCZONE('0000000000000000000021',$,'Zone',$,$,$);\n#22=IFCRELASSIGNSTOGROUP('0000000000000000000022',$,$,$,(#20),$,#21);\n#30=IFCCLASSIFICATION('Source','2026',$,'Test',$,$,$);\n#31=IFCCLASSIFICATIONREFERENCE($,'A-1','Item',#30,$,$);\n#32=IFCRELASSOCIATESCLASSIFICATION('0000000000000000000032',$,$,$,(#11),#31);\nENDSEC;\nEND-ISO-10303-21;\n"
+      }
+    },
+    {
+      "push": {
+        "name": "IFC4X3_ADD2.ids",
+        "text": "<ids xmlns=\"http://standards.buildingsmart.org/IDS\"><info><title>classification</title></info><specifications><specification name=\"classification\" ifcVersion=\"IFC4X3_ADD2\"><applicability maxOccurs=\"unbounded\"><entity><name><simpleValue>IFCBUILDINGSTOREY</simpleValue></name></entity></applicability><requirements><classification><value><simpleValue>A-1</simpleValue></value><system><simpleValue>Test</simpleValue></system></classification></requirements></specification></specifications></ids>"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "IFC4X3_ADD2.ifc"
+      },
+      "expect": {
+        "/diagnostics": []
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_elements",
+        "doc": "IFC4X3_ADD2.ifc",
+        "class": "IfcBuildingStorey",
+        "components": [
+          "level",
+          "classification"
+        ]
+      },
+      "expect": {
+        "/result/elements/0/id": "0000000000000000000011",
+        "/result/elements/0/level": {
+          "name": "1FL",
+          "height": {
+            "value": 3000,
+            "unit": {
+              "kind": "LENGTHUNIT",
+              "prefix": "MILLI",
+              "name": "METRE"
+            }
+          },
+          "datum": "0000000000000000000010"
+        },
+        "/result/elements/0/classification": [
+          {
+            "system": "Test",
+            "edition": "2026",
+            "code": "A-1",
+            "name": "Item"
+          }
+        ]
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_elements",
+        "doc": "IFC4X3_ADD2.ifc",
+        "class": "IfcZone",
+        "components": [
+          "zone"
+        ]
+      },
+      "expect": {
+        "/result/elements/0/zone": {
+          "members": [
+            "0000000000000000000020"
+          ]
+        }
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "ids_check",
+        "doc": "IFC4X3_ADD2.ifc",
+        "ids": "IFC4X3_ADD2.ids"
+      },
+      "expect": {
+        "/result/specifications/0/status": "passed",
+        "/result/findings": []
+      }
+    }
+  ]
+}
