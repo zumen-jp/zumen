@@ -28,7 +28,7 @@
 
 同じ符号化・版・文字コードへの編集では、変更と、それに伴って更新する参照や件数だけを書き戻します。未知のレコードを含むほかの部分は元のバイトを保ちます。出力先で表せない値は、出所・種類・件数・忠実度を診断で返します。
 
-DXF の編集では、[DXF の書き戻し](formats/dxf.md) と [図面モデルの対応表](formats/drawing2d-mapping.md) で、残す値と診断を確認します。API の操作と期待する結果は [適合テストの `apply`](../bindings/conformance/cases/apply.json) と [`convert`](../bindings/conformance/cases/convert.json) にあります。外部の実装との照合は [検証キット](../xtask/verify/README.md) に従います。
+DXF の編集では、[DXF の編集](formats/dxf.md#編集) と [図面モデルの対応表](formats/drawing2d-mapping.md) で、残す値と診断を確認します。API の操作と期待する結果は [適合テストの `apply`](../bindings/conformance/cases/apply.json) と [`convert`](../bindings/conformance/cases/convert.json) にあります。外部の実装との照合は [検証キット](../xtask/verify/README.md) に従います。
 
 ## 幾何と許容差
 
