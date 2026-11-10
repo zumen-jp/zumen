@@ -204,6 +204,8 @@
     "ifc.entity.dropped": "「{kind}」は建物モデルに写さず、L1 に残しました（{count} 件）。",
     "ifc.entry.missing": "ifcZIP のアーカイブに、IFC のファイル（.ifc）がありません（{count} 件）。",
     "ifc.entry.unsupported": "IFC のファイル（.ifc）が複数ある ifcZIP のアーカイブは読みません（{count} 件）。",
+    "ifc.extrusion.invalid": "押し出し・断面・境界に不正な値があるので、結果を返しませんでした（理由: {reason}、{count} 件）。",
+    "ifc.extrusion.unsupported": "押し出し・断面か境界の閉鎖を扱えないので、結果を返しませんでした（理由: {reason}、{count} 件）。",
     "ifc.file.invalid": "IFC のファイルとして読めませんでした。ISO 10303-21 の始まり・DATA のセクション・終わりのどれかがありません（{count} 件）。",
     "ifc.global-id.missing": "GlobalId がないので、インスタンスの番号で ID を作りました（{count} 件）。",
     "ifc.height-datum.unsupported": "高さの基準「{datum}」は扱えないので、不明にしました（{count} 件）。",

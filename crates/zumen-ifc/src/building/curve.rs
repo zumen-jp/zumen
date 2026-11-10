@@ -66,7 +66,7 @@ fn exact_product(a: f64, b: f64) -> (bool, u128, i32) {
     )
 }
 
-fn parallel(a: [f64; 3], b: [f64; 3]) -> bool {
+pub(super) fn parallel(a: [f64; 3], b: [f64; 3]) -> bool {
     let [ax, ay, az] = a;
     let [bx, by, bz] = b;
     exact_product(ax, by) == exact_product(ay, bx)
