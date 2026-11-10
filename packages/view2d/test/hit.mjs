@@ -38,7 +38,7 @@ function clipped(source, polygons) {
 
 /** 合成のシーンで、描画の形と可視領域に対する問い合わせを確かめる。 */
 export function testHit({ assert }) {
-  testStrokeRoundoff(assert);
+  const largeStrokeRaster = testStrokeRoundoff(assert);
   const canvas = document.createElement("canvas");
   const viewer = new View2D(canvas, { width: 200, height: 200, pixelRatio: 2, pixelsPerMillimeter: 2 });
   const view = { center: { x: 0, y: 0 }, scale: 2, rotation: 0 };
@@ -251,6 +251,7 @@ export function testHit({ assert }) {
     assert(failed, "輪と境界の反復を問い合わせの作業量に数える");
     assert(limited.getState() === state && limitedCanvas.getContext("2d").getImageData(100, 100, 1, 1).data.join(",") === before, "作業量を超えた問い合わせは画面と状態を変えない");
   } finally { limited.destroy(); }
+  return largeStrokeRaster;
 }
 
 /** 元の f64 式ではなく、公開列の f32 から描いた短い stroke を問い合わせる。 */
@@ -265,6 +266,7 @@ function testStrokeRoundoff(assert) {
     const values = input.scene.columns.line_xy;
     return [0, 2].map((i) => viewer.toScreen({ x: values[i], y: values[i + 1] }));
   };
+  let largeStrokeRaster;
   try {
     const [a, b] = set([-16.5, -25, -16.739795684814453, -24.990083694458008]);
     viewer.render();
@@ -296,7 +298,7 @@ function testStrokeRoundoff(assert) {
           assert(atPoint(p(radius - 0.000001)) === 1 && atPoint(p(radius + 0.000001)) === 0, "大拡大でも幅の縁の内外を微小な隙間で区別する");
         }
         if (scale === 1e12 && pixelRatio === 1 && weight === 0 && rotation === 0) {
-          assert(canvas.getContext("2d").getImageData(100, 100, 1, 1).data.slice(0, 3).every((v) => v === 0), "指摘の大拡大線の中心は実描画でも黒になる");
+          largeStrokeRaster = compareLargeStrokeRaster(canvas, assert);
         }
       }
     }
@@ -368,4 +370,28 @@ function testStrokeRoundoff(assert) {
     const hits = viewer.hitTestRect({ min_x: 70, min_y: 70, max_x: 130, max_y: 130 });
     assert(hits.length === count && new Set(hits.map(({ id }) => id)).size === count, "全体を十分含む矩形は encoded f32 の短線 10,000 本をすべて返す");
   } finally { viewer.destroy(); }
+  return largeStrokeRaster;
+}
+
+/** 巨大パスの backend の制約（#812）と、選択の幾何の回帰を分ける。 */
+function compareLargeStrokeRaster(output, assert) {
+  // View2D のパス・投影・判定の関数を使わず、同じ端点を Canvas へ直接渡す。
+  const draw = (a, b) => {
+    const canvas = document.createElement("canvas"); canvas.width = canvas.height = 200;
+    const ctx = canvas.getContext("2d"); ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, 200, 200);
+    ctx.strokeStyle = "#000000"; ctx.lineWidth = 1; ctx.lineCap = "butt"; ctx.lineJoin = "round"; ctx.setLineDash([]);
+    const path = new Path2D(); path.moveTo(a.x, a.y); path.lineTo(b.x, b.y); ctx.stroke(path);
+    return ctx;
+  };
+  const direct = draw({ x: 100 - 2e15, y: 100 - 2e15 }, { x: 100 + 2e15, y: 100 + 2e15 });
+  const bounded = draw({ x: -100, y: -100 }, { x: 300, y: 300 });
+  const expected = direct.getImageData(0, 0, 200, 200).data, actual = output.getContext("2d").getImageData(0, 0, 200, 200).data;
+  assert(expected.every((value, i) => value === actual[i]), "巨大パスの実描画は同じ backend の独立 Canvas と全画素一致する");
+  const boundedCenter = Array.from(bounded.getImageData(100, 100, 1, 1).data);
+  assert(boundedCenter.slice(0, 3).every((value) => value === 0), "画面近傍の端点で描く同じ直線の中心は黒になる");
+  let ink = 0;
+  for (let i = 0; i < actual.length; i += 4) if (actual[i] !== 255 || actual[i + 1] !== 255 || actual[i + 2] !== 255) ink++;
+  // 一致が両方とも無描画の場合も記録する。描画できたという意味にはしない。
+  return { canvasCenter: Array.from(direct.getImageData(100, 100, 1, 1).data),
+    viewerCenter: Array.from(output.getContext("2d").getImageData(100, 100, 1, 1).data), boundedCenter, ink };
 }

@@ -15,7 +15,7 @@ export async function testView2D(wasmPath, inputs) {
   const throws = (fn, message) => { let caught = false; try { fn(); } catch (error) { caught = error instanceof RangeError || error instanceof Error; } assert(caught, message); };
   testFallbackText({ assert, near });
   testState({ assert, throws });
-  testHit({ assert, near });
+  const largeStrokeRaster = testHit({ assert, near });
   testSnap({ assert, near });
   testTools({ assert, near, throws });
   await testUnderlays({ assert, near, throws });
@@ -189,5 +189,5 @@ export async function testView2D(wasmPath, inputs) {
   viewer.destroy(); viewer.destroy();
   assert(ctx.getImageData(0, 0, 1, 1).data[3] === 0, "破棄で画面を消す");
   throws(() => viewer.render(), "破棄後の描画"); throws(() => viewer.setScene(input), "破棄後の差し替え");
-  return { assertions, formats };
+  return { assertions, formats, largeStrokeRaster };
 }

@@ -154,6 +154,8 @@ try {
   await page.waitForFunction(() => document.querySelector("#selection").textContent.includes('"record"'));
   if (failures.length) throw new Error(failures.join("\n"));
   const summary = `${name} ${browser.version()}: view2d の検査 ${result.assertions} 件、コアから ${result.formats.join("・")} を描画、利用例も成功`;
+  const raster = `${name}: 巨大パスの Canvas 単独・View2D と近傍パスの画素: ${JSON.stringify(result.largeStrokeRaster)}`;
   console.log(summary);
-  if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n${summary}\n`);
+  console.log(raster);
+  if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n${summary}\n\n${raster}\n`);
 } finally { await browser.close(); }
