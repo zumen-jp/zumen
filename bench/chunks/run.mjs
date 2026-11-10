@@ -12,8 +12,13 @@ const root = fileURLToPath(new URL("../../", import.meta.url));
 const out = resolve(process.argv[2]);
 const modulePath = resolve(process.argv[3]);
 const repeats = Number(process.argv[4] ?? 7);
-assert(Number.isInteger(repeats) && repeats >= 3 && repeats <= 99);
-const native = JSON.parse(await readFile(resolve(out,"native.json"),"utf8"));
+assert(Number.isInteger(repeats) && repeats >= 3 && repeats <= 99 && repeats % 2 === 1,"repeats must be an odd integer between 3 and 99");
+const nativeRun = JSON.parse(await readFile(resolve(out,"native.json"),"utf8"));
+assert.equal(nativeRun.schema,1,"native result schema differs; run the native measurement again");
+assert.equal(nativeRun.repeats,repeats,"native/wasm repeat counts differ");
+assert.equal(nativeRun.warmups,1,"native/wasm warmup counts differ");
+assert(Array.isArray(nativeRun.results));
+const native = nativeRun.results;
 const moduleBytes = await readFile(modulePath);
 const { instance } = await WebAssembly.instantiate(moduleBytes, {});
 const e = instance.exports;
@@ -64,7 +69,7 @@ const result={
   source_commit:execFileSync("git",["rev-parse","HEAD"],{cwd:root,encoding:"utf8"}).trim(),
   harness_sha256: Object.fromEntries(await Promise.all(["Cargo.toml","Cargo.lock","src/lib.rs","src/main.rs","run.mjs"].map(async path=>[path,sha256(await readFile(new URL(path,import.meta.url)))]))),
   environment:{cpu:cpus()[0].model.trim(),logical_cpus:cpus().length,os:platform(),os_release:release(),arch:arch(),rustc:execFileSync("rustc",["-V"],{cwd:root,encoding:"utf8"}).trim(),cargo:execFileSync("cargo",["-V"],{cwd:root,encoding:"utf8"}).trim(),node:process.version},
-  repeats,warmups:1,wasm_bytes:moduleBytes.length,wasm_sha256:sha256(moduleBytes),inputs,
+  repeats,native_repeats:nativeRun.repeats,wasm_repeats:repeats,warmups:1,wasm_bytes:moduleBytes.length,wasm_sha256:sha256(moduleBytes),inputs,
   settings:{tolerance:0.01,origin:"model space",fonts:"none",region:null},
   results,
 };

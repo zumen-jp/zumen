@@ -13,7 +13,10 @@ fn main() {
     let mut args = std::env::args().skip(1);
     let out = PathBuf::from(args.next().expect("output directory"));
     let repeats: usize = args.next().unwrap_or_else(|| "7".into()).parse().unwrap();
-    assert!((3..=99).contains(&repeats));
+    assert!(
+        (3..=99).contains(&repeats) && repeats % 2 == 1,
+        "repeats must be odd and between 3 and 99"
+    );
     std::fs::create_dir_all(&out).unwrap();
     let mut rows = Vec::new();
     for (case, name) in CASES.iter().enumerate() {
@@ -35,5 +38,12 @@ fn main() {
             rows.push(format!("{{\"case\":\"{name}\",\"policy\":\"{label}\",\"median_ms\":{},\"metrics\":{metrics}}}",times[times.len()/2]));
         }
     }
-    std::fs::write(out.join("native.json"), format!("[{}]\n", rows.join(","))).unwrap();
+    std::fs::write(
+        out.join("native.json"),
+        format!(
+            "{{\"schema\":1,\"repeats\":{repeats},\"warmups\":1,\"results\":[{}]}}\n",
+            rows.join(",")
+        ),
+    )
+    .unwrap();
 }
