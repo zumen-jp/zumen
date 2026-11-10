@@ -2472,6 +2472,13 @@ params = { station = "text" }
 since = "0.2.0"
 status = "active"
 
+[codes."civil.station.approximated"]
+description = "測点の番号が 2^53 を超え、続く番号を f64 で表せないので、skipped 個の番号の測点を描かず、2^53 を超え丸まりうる番号の rounded 個の測点を、その番号と位置で描いた。平面図で 1 回だけ知らせる（#713）"
+severity = "warning"
+params = { skipped = "uint", rounded = "uint" }
+since = "0.2.0"
+status = "active"
+
 [codes."civil.station.assumed"]
 description = "測点の値が、測点の不連続のために線形の places 個の所にあり、どれかを指定していないので、最初の所にした"
 severity = "info"

@@ -459,10 +459,12 @@ fn curve_name(curve: &TransitionCurve) -> String {
     .to_string()
 }
 
-/// 測点の間隔の倍数の測点の、追加距離と番号。測点の不連続の先も数える
+/// 測点の間隔の倍数の測点の、追加距離と番号。測点の不連続の先も数える。`report` なら、2^53 を超える番号の扱いを
+/// 診断で知らせる（平面図と縦断図で同じ番号を求めるので、平面図だけで知らせる）
 fn whole_stations(
     alignment: &Alignment,
     pitch: f64,
+    report: bool,
     cx: &mut Cx<'_>,
 ) -> Result<Vec<(f64, f64)>, Stop> {
     let length = zumen_civil::length(alignment);
@@ -487,14 +489,21 @@ fn whole_stations(
         .saturating_add(1);
     let mut found = Vec::new();
     // 大きな番号には 1 を足しても変わらないので、回数で数える。2^53 を超えると、続く回数が同じ番号に丸まるので、
-    // 増えなかった番号は飛ばす
+    // 増えなかった番号は飛ばす。飛ばした番号と、2^53 を超えて丸まりうる番号で描いた測点は、数を診断で知らせる（#713）。
+    // 数えるのは番号で、番号が 2^53 以下でも測点の値（番号 × 間隔）が 2^53 m を超えて位置が丸まる場合は、ありえない
+    // 長さなので知らせない
     let mut previous = f64::NEG_INFINITY;
+    let (mut skipped, mut rounded) = (0u64, 0u64);
     for step in 0..count {
         let number = first + step as f64;
         if number <= previous {
+            skipped += 1;
             continue;
         }
         previous = number;
+        if number.abs() > EXACT {
+            rounded += 1;
+        }
         cx.check(Kind::Work, per_number)?;
         let distances = stations.distances(number * pitch, length);
         let extra = u64::try_from(distances.len().saturating_sub(1)).unwrap_or(u64::MAX);
@@ -503,9 +512,20 @@ fn whole_stations(
         }
         found.extend(distances.into_iter().map(|distance| (distance, number)));
     }
+    if report && (skipped > 0 || rounded > 0) {
+        cx.report(
+            Diagnostic::new(codes::CIVIL_STATION_APPROXIMATED)
+                .with("skipped", skipped)
+                .with("rounded", rounded)
+                .at(alignment.source.clone()),
+        );
+    }
     found.sort_by(|a, b| a.0.total_cmp(&b.0));
     Ok(found)
 }
+
+/// f64 で続く整数をすべて表せる上限（2^53）。これを超える測点の番号は、隣の番号と同じ値に丸まりうる
+const EXACT: f64 = 9_007_199_254_740_992.0;
 
 /// 平面図の測点。線形に直交する短い線と、番号の文字
 fn stations(
@@ -516,7 +536,7 @@ fn stations(
     cx: &mut Cx<'_>,
 ) -> Result<(), Stop> {
     let half = 2.0 * unit;
-    let found = whole_stations(alignment, options.notation.pitch, cx)?;
+    let found = whole_stations(alignment, options.notation.pitch, true, cx)?;
     // 測点ごとに、平面線形と縦断線形を初めからたどって所を求めるので、その作業を数える。積む要素も、測点ごとの
     // 線と文字の 2 つを、積む前に数える（#560）
     let count = u64::try_from(found.len()).unwrap_or(u64::MAX);
@@ -775,7 +795,7 @@ fn profile(alignment: &Alignment, options: &Options, cx: &mut Cx<'_>) -> Result<
     ));
     // 測点ごとの縦の線と、測点・地盤高・計画高。測点ごとに、縦断線形と地盤線を初めからたどって高さを求めるので、
     // その作業を数える。積む要素も、測点ごとの線と多くて 3 つの文字を、積む前に数える（#560）
-    let found = whole_stations(alignment, options.notation.pitch, cx)?;
+    let found = whole_stations(alignment, options.notation.pitch, false, cx)?;
     let count = u64::try_from(found.len()).unwrap_or(u64::MAX);
     let per_station = u64::try_from(alignment.vertical.len().saturating_add(ground.len()))
         .unwrap_or(u64::MAX)
