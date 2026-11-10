@@ -212,6 +212,7 @@
     "ifc.placement.unsupported": "The placement \"{kind}\" cannot be resolved, so only its kind was kept ({count}).",
     "ifc.record.invalid": "Skipped statements that could not be read and read on from the next statement ({count}).",
     "ifc.reference.missing": "The reference #{id} points to a number that is not in the file ({count}).",
+    "ifc.relation-target.unsupported": "The {target_kind} target at position {position} (zero-based) of {kind} is not a building element, so the relationship component was not lifted ({count}).",
     "ifc.schema.unsupported": "Did not read the schema \"{schema}\", because it is not an IFC schema ({count}).",
     "ifc.station.missing": "The alignment has no station referent (IfcReferent STATION), so the start station is 0 ({count}).",
     "ifc.text.invalid": "Unreadable parts of strings were replaced with the replacement character ({count}).",

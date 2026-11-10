@@ -1166,6 +1166,15 @@ params = { id = "text" }
 since = "0.2.0"
 status = "active"
 
+[codes."ifc.relation-target.unsupported"]
+description = "別の成分に写した対象が建物モデルの要素でないので、関係を成分に写せなかった。集合内の位置は 0 から"
+severity = "warning"
+fidelity = "dropped"
+params = { kind = "key", target_kind = "key", position = "uint" }
+group-by = ["kind", "target_kind", "position"]
+since = "0.2.1"
+status = "active"
+
 [codes."ifc.placement.invalid"]
 description = "配置の連鎖が循環するか、参照が欠けるか、軸を作れないので、配置なしにした"
 severity = "warning"

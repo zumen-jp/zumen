@@ -2408,6 +2408,21 @@ pub const IFC_REFERENCE_MISSING: Code = Code::new(
     &[],
 );
 
+/// 別の成分に写した対象が建物モデルの要素でないので、関係を成分に写せなかった。集合内の位置は 0 から
+///
+/// `ifc.relation-target.unsupported`（0.2.1 から）
+pub const IFC_RELATION_TARGET_UNSUPPORTED: Code = Code::new(
+    "ifc.relation-target.unsupported",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[
+        Param::new("kind", ParamType::Key),
+        Param::new("position", ParamType::UInt),
+        Param::new("target_kind", ParamType::Key),
+    ],
+    &["kind", "target_kind", "position"],
+);
+
 /// FILE_SCHEMA がないか、最初のスキーマの名前が IFC で始まらない
 ///
 /// `ifc.schema.unsupported`（0.2.0 から）
@@ -4845,6 +4860,7 @@ pub const ALL: &[Code] = &[
     IFC_PLACEMENT_UNSUPPORTED,
     IFC_RECORD_INVALID,
     IFC_REFERENCE_MISSING,
+    IFC_RELATION_TARGET_UNSUPPORTED,
     IFC_SCHEMA_UNSUPPORTED,
     IFC_STATION_MISSING,
     IFC_TEXT_INVALID,
