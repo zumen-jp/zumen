@@ -25,4 +25,4 @@
 
 DXF の MTEXT の色の再使用と、文字の後に寸法を置いて領域で絞る経路から、unit の列が昇順でないシーンを作り、元の ID と診断件数のまま SVG に書けることも確かめています。順序索引の確保前の要素数・容量と、並べ替えの途中の作業量の予算を検査しています。
 
-`crates/zumen-render/tests/browser.mjs` は既存の Playwright 1.64.1 を使い、ブラウザーからのネットワーク要求を拒否して実行します。PR の CI と `nightly.yml` の毎晩・手動実行で同じように照合します。再現の手順は[描画部品の README](../../crates/zumen-render/README.md)にあります。native/wasm の照合は、同じ組の SVG 全体・診断・予算・停止の記録をバイト単位で比べます。
+`crates/zumen-render/tests/browser.mjs` は既存の Playwright 1.65.0 を使い、ブラウザーからのネットワーク要求を拒否して実行します。PR の CI と `nightly.yml` の毎晩・手動実行で同じように照合します。再現の手順は[描画部品の README](../../crates/zumen-render/README.md)にあります。native/wasm の照合は、同じ組の SVG 全体・診断・予算・停止の記録をバイト単位で比べます。
