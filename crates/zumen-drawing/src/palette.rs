@@ -22,7 +22,8 @@ impl Palette {
     }
 }
 
-/// 表のキーに使う、系統の並び
+/// 表のキーに使う、系統の並び。この表の中だけで使い、外に出さない。シーンのバッファーに書く系統の符号
+/// （`zumen-scene` の `layout::color_system`）とは別に持つ
 fn rank(system: ColorSystem) -> u8 {
     match system {
         ColorSystem::Aci => 1,

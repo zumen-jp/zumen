@@ -24,7 +24,7 @@ crate は、層の構成（[コアの設計](docs/architecture.md)）に沿っ�
 
 | 層 | crate |
 | --- | --- |
-| 横断の部品 | `zumen-base`（診断・予算・中断の合図）・`zumen-json`・`zumen-crs`（座標系と標高）・`zumen-geom3d`（3D の幾何） |
+| 横断の部品 | `zumen-base`（診断・予算・中断の合図・失敗の理由）・`zumen-json`・`zumen-crs`（座標系と標高）・`zumen-geom3d`（3D の幾何） |
 | L0（字句・コンテナー） | `zumen-step`（ISO 10303-21）・`zumen-xml`・`zumen-zip` |
 | L1（ファイルモデルとコーデック） | `zumen-acad`（DXF・DWG）・`zumen-sxf`・`zumen-jww`・`zumen-ifc`・`zumen-pdf`（PDF、crates.io には出していない） |
 | L2（領域モデル） | `zumen-drawing`（図面）・`zumen-building`（建物）・`zumen-civil`（土木）・`zumen-geo`（地理）・`zumen-pointcloud`（点群） |
