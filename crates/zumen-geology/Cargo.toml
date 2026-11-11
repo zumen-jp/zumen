@@ -20,4 +20,5 @@ zumen-xml = { version = "0.2.0", path = "../zumen-xml" }
 workspace = true
 
 [dev-dependencies]
+encoding_rs = "0.8.35"
 zumen-base = { path = "../zumen-base" }

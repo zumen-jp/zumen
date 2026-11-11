@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use zumen_base::{Diagnostic, Kind, Ref, codes};
 use zumen_sdk::{Cx, Error, Stop};
 
-use crate::{Attribute, Document, Element, Encoding, Name, Namespace, Node, text, utf16};
+use crate::{Attribute, Document, Element, Encoding, Name, Namespace, Node, name, text, utf16};
 
 /// 読めない理由
 enum Fail {
@@ -201,6 +201,7 @@ type Declared = Option<Range<usize>>;
 struct Parser<'s> {
     src: &'s [u8],
     mapping: Option<&'s utf16::Decoded>,
+    shift_jis: bool,
     pos: usize,
     elements: Vec<Element>,
     /// 開いている要素の名前空間の宣言を、接頭辞ごとに積む。内側の宣言が後。名前を引く手間は、宣言の数に比例せず、
@@ -218,6 +219,7 @@ impl<'s> Parser<'s> {
         Self {
             src,
             mapping: None,
+            shift_jis: false,
             pos: 0,
             elements: Vec::new(),
             namespaces: BTreeMap::new(),
@@ -290,7 +292,9 @@ impl<'s> Parser<'s> {
 
     /// バイト順マークと XML 宣言から、文字コードを決める
     fn encoding(&mut self, cx: &mut Cx) -> Result<Encoding, Error> {
-        self.encoding_expected(cx, None)
+        let encoding = self.encoding_expected(cx, None)?;
+        self.shift_jis = encoding == Encoding::ShiftJis;
+        Ok(encoding)
     }
 
     fn encoding_expected(
@@ -427,6 +431,11 @@ impl<'s> Parser<'s> {
         let mut depth = 0usize;
         loop {
             let byte = self.peek().ok_or(Fail::Invalid(start..self.src.len()))?;
+            if self.shift_jis && matches!(byte, 0x81..=0x9f | 0xe0..=0xfc) {
+                self.pos += name::shift_jis_width(self.src, self.pos)
+                    .ok_or(Fail::Invalid(self.pos..(self.pos + 2).min(self.src.len())))?;
+                continue;
+            }
             match byte {
                 b'"' | b'\'' => {
                     let end = self
@@ -458,7 +467,12 @@ impl<'s> Parser<'s> {
     fn name(&mut self, cx: &mut Cx) -> Result<(Range<usize>, usize), Fail> {
         let start = self.pos;
         while self.peek().is_some_and(|b| !is_delimiter(b)) {
-            self.pos += 1;
+            self.pos += if self.shift_jis {
+                name::shift_jis_width(self.src, self.pos)
+                    .ok_or(Fail::Invalid(self.pos..(self.pos + 2).min(self.src.len())))?
+            } else {
+                1
+            };
         }
         let raw = start..self.pos;
         let bytes = self.bytes(raw.clone());
@@ -467,6 +481,9 @@ impl<'s> Parser<'s> {
             if !utf16::valid_name(bytes) {
                 return Err(Fail::Invalid(raw));
             }
+        }
+        if self.shift_jis && !name::valid_shift_jis(bytes) {
+            return Err(Fail::Invalid(raw));
         }
         let first = bytes.first().copied();
         if first.is_none_or(|b| b.is_ascii_digit() || matches!(b, b'-' | b'.' | b':')) {
@@ -541,7 +558,17 @@ impl<'s> Parser<'s> {
             None => {
                 cx.report(
                     Diagnostic::new(codes::XML_NAMESPACE_MISSING)
-                        .with("prefix", String::from_utf8_lossy(prefix).into_owned())
+                        .with(
+                            "prefix",
+                            if self.shift_jis {
+                                encoding_rs::SHIFT_JIS
+                                    .decode_without_bom_handling(prefix)
+                                    .0
+                                    .into_owned()
+                            } else {
+                                String::from_utf8_lossy(prefix).into_owned()
+                            },
+                        )
                         .at(self.place(raw.clone())),
                 );
                 None

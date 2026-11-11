@@ -49,33 +49,7 @@ pub(crate) fn detect(src: &[u8]) -> Option<Detection> {
 
 /// XML 1.0 の NameStartChar / NameChar と、名前空間 1.0 の QName。
 pub(crate) fn valid_name(bytes: &[u8]) -> bool {
-    let Ok(name) = core::str::from_utf8(bytes) else {
-        return false;
-    };
-    let mut initial = true;
-    let mut colon = false;
-    for value in name.chars() {
-        if value == ':' {
-            if initial || colon {
-                return false;
-            }
-            colon = true;
-            initial = true;
-            continue;
-        }
-        let start = matches!(value as u32,
-            0x41..=0x5a | 0x5f | 0x61..=0x7a | 0xc0..=0xd6 | 0xd8..=0xf6
-            | 0xf8..=0x2ff | 0x370..=0x37d | 0x37f..=0x1fff | 0x200c..=0x200d
-            | 0x2070..=0x218f | 0x2c00..=0x2fef | 0x3001..=0xd7ff
-            | 0xf900..=0xfdcf | 0xfdf0..=0xfffd | 0x10000..=0xeffff);
-        let character = start
-            || matches!(value as u32, 0x2d | 0x2e | 0x30..=0x39 | 0xb7 | 0x300..=0x36f | 0x203f..=0x2040);
-        if (initial && !start) || !character {
-            return false;
-        }
-        initial = false;
-    }
-    !initial
+    crate::name::valid_utf8(bytes)
 }
 
 /// 幅が等しい文字の並び。予算ではプラットフォームによらず 1 区間を 32 バイトと数える。

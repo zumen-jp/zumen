@@ -5,7 +5,7 @@
 ## 判定
 
 - `zumen-xml` で読む。UTF-8・Shift_JIS・UTF-16 を [XML の規則](xml.md)で受け付ける。DTD は処理しないので、`xml.dtd.dropped` は返さない。
-- Shift_JIS の日本語の要素名は、現在の名前の走査と根の判定で読めない場合がある。`ボーリング情報` の自作の最小例も失敗するため、実用の Shift_JIS 対応の修正は [#824](https://github.com/zumen-jp/zumen/issues/824) で追う。
+- 日本語の要素名は Unicode で比べる。Shift_JIS の `ボーリング情報` とその子も、UTF-8 と同じ値へ読む。
 - XML として読めないか、根の要素が `ボーリング情報` でなければ、`boring.file.invalid` を返して失敗する。
 
 ## 読む要素
@@ -38,6 +38,8 @@
 ## 確かめた度合い
 
 自作の UTF-16LE・UTF-16BE で、日本語の根の要素・地層の値と診断の要素名を検査します。[XML の規則](xml.md)を使います。この追加の確認は `synthetic` で、ボーリング交換用データの外部照合はしていません。
+
+自作の Shift_JIS（`Shift_JIS`・`windows-31j`・`ms932`）で、UTF-8 とボーリングの全値・診断が一致することを検査します。[API の適合テスト](../../bindings/conformance/cases/xml_shift_jis.json)でも位置・標高・地層・貫入試験・孔内水位を比較します。この確認も `synthetic` です。
 
 | 形式 | 向き | 段 |
 | --- | --- | --- |

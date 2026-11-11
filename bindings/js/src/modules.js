@@ -215,13 +215,91 @@ function xmlInput(head) {
     }
     return -1;
   };
-  return { head, width, start, unit, starts, find };
+  return { head, width, start, unit, starts, find, shiftJis: false };
+}
+
+const shiftJisLabels = ["csshiftjis", "ms932", "ms_kanji", "shift-jis", "shift_jis", "sjis", "windows-31j", "x-sjis"];
+let shiftJisDecoder;
+
+// SDK の XML の署名と同じ空白。署名は XML の構文全体の検査を担当しない。
+function isXmlSpace(unit) {
+  return unit === 0x20 || unit === 0x09 || unit === 0x0a || unit === 0x0c || unit === 0x0d;
+}
+
+function shiftJisLead(unit) {
+  return (unit >= 0x81 && unit <= 0x9f) || (unit >= 0xe0 && unit <= 0xfc);
+}
+
+/** WHATWG Shift_JIS 12.3.1 の文字境界。原本の [・] と2バイト目を区別する。 */
+function afterXmlCharacter(input, at) {
+  if (input.shiftJis && shiftJisLead(input.unit(at))) {
+    const trail = input.unit(at + 1);
+    return ((trail >= 0x40 && trail <= 0x7e) || (trail >= 0x80 && trail <= 0xfc)) ? at + 2 : -1;
+  }
+  return at + input.width;
+}
+
+function decodeShiftJis(bytes) {
+  shiftJisDecoder ??= new TextDecoder("shift_jis", { fatal: true, ignoreBOM: true });
+  let result = "";
+  let start = 0;
+  for (let at = 0; at < bytes.length; at++) {
+    if (shiftJisLead(bytes[at])) { at++; }
+    else if (bytes[at] === 0x80) {
+      // WHATWG 12.3.1 の単独 0x80。ICU を使う Node.js では不正として扱う版もある。
+      result += shiftJisDecoder.decode(bytes.subarray(start, at)) + "\u0080";
+      start = at + 1;
+    }
+  }
+  return result + shiftJisDecoder.decode(bytes.subarray(start));
+}
+
+/** 宣言のラベルを固定の候補と比較する。入力のラベルを文字列へ確保しない。 */
+function declarationEncoding(input, start, end) {
+  if (input.width !== 1 || !input.starts(start, "<?xml") || !isXmlSpace(input.unit(start + 5))) {
+    return;
+  }
+  let at = start + 5;
+  while (at < end) {
+    at = skipSpace(input, at);
+    const nameEndAt = nameEnd(input, at);
+    if (nameEndAt === -1) { return; }
+    const attribute = [at, nameEndAt];
+    at = skipSpace(input, nameEndAt);
+    if (!input.starts(at, "=")) { return; }
+    at = skipSpace(input, at + 1);
+    const quote = input.unit(at);
+    if (quote !== 0x22 && quote !== 0x27) { return; }
+    const value = at + 1;
+    const valueEnd = input.find(value, quote);
+    if (valueEnd === -1 || valueEnd > end) { return; }
+    if (xmlEquals(input, attribute, "encoding")) {
+      let from = value;
+      let to = valueEnd;
+      while (from < to && isXmlSpace(input.unit(from))) { from++; }
+      while (to > from && isXmlSpace(input.unit(to - 1))) { to--; }
+      input.shiftJis = shiftJisLabels.some((label) => equalsIgnoreCase(input.head, from, to, label));
+      return;
+    }
+    at = valueEnd + 1;
+  }
 }
 
 /** XML の原本の範囲と規則を比べる。UTF-16 のときも文字列のコピーは作らない */
 function xmlEquals(input, range, expected) {
   const [start, end] = range;
   if (input.width === 1) {
+    if (input.shiftJis) {
+      const want = encoder.encode(expected);
+      if (want.every((byte) => byte <= 0x7f)) { return sameBytes(input.head.subarray(start, end), want); }
+      // Shift_JIS の一文字は最大2バイト。確保を期待名の長さで抑えてから復号する。
+      if (end - start > expected.length * 2) { return false; }
+      try {
+        return decodeShiftJis(input.head.subarray(start, end)) === expected;
+      } catch {
+        return false;
+      }
+    }
     return sameBytes(input.head.subarray(start, end), encoder.encode(expected));
   }
   if (end - start !== expected.length * 2) {
@@ -262,6 +340,12 @@ function afterDoctype(input, at) {
   let depth = 0;
   for (; input.unit(at) !== undefined; at += input.width) {
     const unit = input.unit(at);
+    if (input.shiftJis && shiftJisLead(unit)) {
+      const after = afterXmlCharacter(input, at);
+      if (after === -1) { return -1; }
+      at = after - input.width;
+      continue;
+    }
     if (unit === 0x22 || unit === 0x27) {
       const end = input.find(at + input.width, unit);
       if (end === -1) {
@@ -283,11 +367,11 @@ function afterDoctype(input, at) {
 }
 
 function isName(unit) {
-  return !isSpace(unit) && ![0x3c, 0x3e, 0x2f, 0x3d, 0x21, 0x3f, 0x22, 0x27, 0x26, 0x3b, 0x5b, 0x5d].includes(unit);
+  return !isXmlSpace(unit) && ![0x3c, 0x3e, 0x2f, 0x3d, 0x21, 0x3f, 0x22, 0x27, 0x26, 0x3b, 0x5b, 0x5d].includes(unit);
 }
 
 function skipSpace(input, at) {
-  while (input.unit(at) !== undefined && isSpace(input.unit(at))) {
+  while (input.unit(at) !== undefined && isXmlSpace(input.unit(at))) {
     at += input.width;
   }
   return at;
@@ -295,7 +379,8 @@ function skipSpace(input, at) {
 
 function nameEnd(input, at) {
   while (input.unit(at) !== undefined && isName(input.unit(at))) {
-    at += input.width;
+    at = afterXmlCharacter(input, at);
+    if (at === -1) { return -1; }
   }
   return input.unit(at) === undefined ? -1 : at;
 }
@@ -310,7 +395,9 @@ function xmlRoot(head) {
   for (;;) {
     at = skipSpace(input, at);
     if (input.starts(at, "<?")) {
+      const start = at;
       at = afterPattern(input, at + 2 * input.width, "?>");
+      if (start === 0 && at !== -1) { declarationEncoding(input, start, at - 2 * input.width); }
     } else if (input.starts(at, "<!--")) {
       at = afterPattern(input, at + 4 * input.width, "-->");
     } else if (input.starts(at, "<!DOCTYPE")) {

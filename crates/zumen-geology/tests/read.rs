@@ -243,3 +243,15 @@ fn utf16_borings_keep_japanese_element_names_values_and_diagnostics() {
         assert_eq!(boring.water_levels[0].note.as_deref(), Some("自噴"));
     }
 }
+
+#[test]
+fn shift_jis_borings_keep_japanese_names_values_and_diagnostics() {
+    let text = bed("02", "2026-10-20");
+    let expected = with_cx(|cx| read(text.as_bytes(), cx));
+    for label in ["Shift_JIS", "windows-31j", "ms932"] {
+        let text = text.replace("encoding=\"UTF-8\"", &format!("encoding=\"{label}\""));
+        let (bytes, _, error) = encoding_rs::SHIFT_JIS.encode(&text);
+        assert!(!error);
+        assert_eq!(with_cx(|cx| read(&bytes, cx)), expected);
+    }
+}

@@ -8,6 +8,36 @@ use zumen_crs::{Crs, HeightDatum, Realization, Zone};
 use zumen_landxml::LandXml;
 use zumen_sdk::{Codec, Cx, Error, Lift, Signature};
 
+#[test]
+fn shift_jis_unknown_elements_keep_decoded_names_and_original_locations() {
+    let text = ALIGNMENT
+        .replace("encoding=\"UTF-8\"", "encoding=\"Shift_JIS\"")
+        .replace("</LandXML>", "<ゼー/></LandXML>");
+    let (src, _, error) = encoding_rs::SHIFT_JIS.encode(&text);
+    assert!(!error);
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+    let file = LandXml::read(&src, &mut cx).unwrap();
+    let model = file.lift(&mut cx).unwrap();
+    assert_eq!(model.alignments[0].id, "本線");
+    let d = diag
+        .iter()
+        .find(|d| {
+            d.code() == codes::LANDXML_ELEMENT_UNSUPPORTED
+                && d.params()
+                    .iter()
+                    .any(|(key, value)| *key == "element" && *value == Value::Text("ゼー".into()))
+        })
+        .unwrap();
+    let prefix = text.get(..text.find("<ゼー/>").unwrap()).unwrap();
+    let (prefix, _, error) = encoding_rs::SHIFT_JIS.encode(prefix);
+    assert!(!error);
+    assert_eq!(d.places()[0].bytes().unwrap().start, prefix.len() as u64);
+    assert_eq!(file.document().src(), src.as_ref());
+}
+
 /// 北へ 100 m の直線、半径 200 m へ右に曲がるクロソイド（A = 100、50 m）、半径 200 m の円弧 40 m、直線 60 m。
 /// 点は、クロソイドの式と円弧の中心から求めた値
 const ALIGNMENT: &str = r#"<?xml version="1.0" encoding="UTF-8"?>

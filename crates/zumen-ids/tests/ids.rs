@@ -18,6 +18,43 @@ fn with<T>(f: impl FnOnce(&mut Cx) -> T) -> (T, Diagnostics) {
     (result, diag)
 }
 
+#[test]
+fn shift_jis_invalid_element_names_are_decoded_in_diagnostics() {
+    let mut src = b"<?xml version='1.0' encoding='Shift_JIS'?><".to_vec();
+    src.extend_from_slice(&[0x83, 0x5b, 0x81, 0x5b]); // ゼー
+    src.extend_from_slice(b"/>");
+    let (result, diag) = with(|cx| Ids::read(&src, cx));
+    assert!(matches!(result, Err(Error::Invalid)));
+    let diagnostic = diag.iter().next().unwrap();
+    assert_eq!(diagnostic.code(), codes::IDS_FILE_INVALID);
+    assert!(diagnostic.params().iter().any(|(key, value)| {
+        *key == "near" && value == &zumen_base::Value::Text("ゼー".into())
+    }));
+
+    let text = ids(&spec("x", &entity("IFCWALL"),
+        "<@/><attribute><name><simpleValue>Name</simpleValue></name><value><xs:restriction base='xs:string'><xs:# value='2'/></xs:restriction></value></attribute>"))
+        .replace("テスト", "test").replace("UTF-8", "Shift_JIS");
+    let src: Vec<_> = text
+        .bytes()
+        .flat_map(|byte| match byte {
+            b'@' => vec![0x83, 0x5b, 0x81, 0x5b], // ゼー
+            b'#' => vec![0x83, 0x5d],             // ゾ
+            _ => vec![byte],
+        })
+        .collect();
+    let (result, diag) = with(|cx| Ids::read(&src, cx));
+    assert!(result.is_ok(), "{diag:?}");
+    for (code, kind) in [
+        (codes::IDS_FACET_UNSUPPORTED, "ゼー"),
+        (codes::IDS_RESTRICTION_UNSUPPORTED, "ゾ"),
+    ] {
+        assert!(diag.iter().any(|d| d.code() == code
+            && d.params().iter().any(|(key, value)| {
+                *key == "kind" && value == &zumen_base::Value::Text(kind.into())
+            })));
+    }
+}
+
 fn ids(specifications: &str) -> String {
     format!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
