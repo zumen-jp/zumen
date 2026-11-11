@@ -191,6 +191,7 @@ pub fn seeds(root: &Path) -> Result<(), String> {
         .chain(schemas())
         .chain(grids())
         .chain(std::iter::once(ifc_grid()))
+        .chain(std::iter::once(ifc_profiles()))
         .chain(std::iter::once(scene::seed()))
     {
         seeds.insert(sha256::hex(&data), data);
@@ -224,6 +225,23 @@ fn ifc_grid() -> Vec<u8> {
     #200=IFCPOLYLINE((#210,#211));\n#201=IFCPOLYLINE((#210,#212));\n\
     #210=IFCCARTESIANPOINT((0.,0.));\n#211=IFCCARTESIANPOINT((10.,0.));\n#212=IFCCARTESIANPOINT((0.,10.));\n\
     #300=IFCGRIDAXIS('U',#200,.T.);\n#301=IFCGRIDAXIS('V',#201,.F.);\n\
+    ENDSEC;\nEND-ISO-10303-21;\n".to_vec()
+}
+
+fn ifc_profiles() -> Vec<u8> {
+    // 要素の葉から矩形・円・任意断面まで、小さい入力で通す自作の IFC4。
+    b"ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('profiles'),'2;1');\nFILE_NAME('','',(''),(''),'','','');\nFILE_SCHEMA(('IFC4'));\nENDSEC;\nDATA;\n\
+    #1=IFCPROJECT('0000000000000000000001',$,$,$,$,$,$,$,#2);\n\
+    #2=IFCUNITASSIGNMENT((#3));\n#3=IFCSIUNIT(*,.LENGTHUNIT.,$,.METRE.);\n\
+    #8=IFCGEOMETRICREPRESENTATIONCONTEXT($,'Model',3,1.E-5,#20,$);\n\
+    #10=IFCCARTESIANPOINT((0.,0.));\n#12=IFCAXIS2PLACEMENT2D(#10,$);\n\
+    #13=IFCRECTANGLEPROFILEDEF(.AREA.,'R',#12,3.,2.);\n#14=IFCCIRCLEPROFILEDEF(.AREA.,'C',#12,1.);\n\
+    #15=IFCCARTESIANPOINT((1.,0.));\n#16=IFCCARTESIANPOINT((0.,1.));\n\
+    #18=IFCPOLYLINE((#10,#15,#16,#10));\n#19=IFCARBITRARYCLOSEDPROFILEDEF(.AREA.,'A',#18);\n\
+    #20=IFCAXIS2PLACEMENT3D(#21,$,$);\n#21=IFCCARTESIANPOINT((0.,0.,0.));\n#24=IFCDIRECTION((0.,0.,1.));\n\
+    #30=IFCEXTRUDEDAREASOLID(#13,$,#24,2.);\n#31=IFCEXTRUDEDAREASOLID(#14,$,#24,2.);\n#32=IFCEXTRUDEDAREASOLID(#19,$,#24,2.);\n\
+    #100=IFCWALL('0000000000000000000002',$,$,$,$,$,#101,$,.NOTDEFINED.);\n\
+    #101=IFCPRODUCTDEFINITIONSHAPE($,$,(#102));\n#102=IFCSHAPEREPRESENTATION(#8,'Body','SweptSolid',(#30,#31,#32));\n\
     ENDSEC;\nEND-ISO-10303-21;\n".to_vec()
 }
 
