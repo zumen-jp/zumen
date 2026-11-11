@@ -86,3 +86,97 @@ function ringIntersection(edge, boundary) {
   // 元辺の差と二積の和まで。四段を通しても次数は増えず、整数幅は約4,300bit以下。
   return { [axis]: x, [other]: y, w: denominator.integer < 0n ? negate(denominator) : denominator };
 }
+
+const squareExact = (a) => multiplyExact(a, a);
+const dotExact = (ax, ay, bx, by) => addExact(multiplyExact(ax, bx), multiplyExact(ay, by));
+const planeAt = (p, dx, dy, reverse = false) => {
+  const x = reverse ? negate(dx) : dx, y = reverse ? negate(dy) : dy;
+  return { x, y, c: negate(dotExact(x, y, dyadic(p.x), dyadic(p.y))) };
+};
+const planeValue = (plane, p) => addExact(dotExact(plane.x, plane.y, p.x, p.y), multiplyExact(plane.c, p.w));
+
+/** 近傍矩形と二つの半平面の凸交差。辺の由来から交点を求め、途中では丸めない。 */
+function clipPlanes(box, planes) {
+  const points = [{ x: box.min_x, y: box.min_y }, { x: box.max_x, y: box.min_y },
+    { x: box.max_x, y: box.max_y }, { x: box.min_x, y: box.max_y }];
+  const edges = [
+    { x: one, y: zero, c: negate(dyadic(box.min_x)) }, { x: zero, y: one, c: negate(dyadic(box.min_y)) },
+    { x: one, y: zero, c: negate(dyadic(box.max_x)) }, { x: zero, y: one, c: negate(dyadic(box.max_y)) },
+  ];
+  // 凸輪の入出は各平面で二回まで。重複した境界頂点も含め、最後まで最大8頂点。
+  // 元の境界係数から毎回交点を作るので、後の二乗検査まで最大8積、整数幅は約17,000bit以下。
+  let vertices = points.map((p, i) => ({ ...pointExact(p), incoming: edges[i] }));
+  for (const plane of planes) {
+    if (!vertices.length) break;
+    const output = [];
+    let previousInside = planeValue(plane, vertices[vertices.length - 1]).integer >= 0n;
+    for (const p of vertices) {
+      const currentInside = planeValue(plane, p).integer >= 0n;
+      if (currentInside !== previousInside) {
+        const edge = p.incoming;
+        let x = addExact(multiplyExact(edge.y, plane.c), multiplyExact(edge.c, plane.y), true);
+        let y = addExact(multiplyExact(edge.c, plane.x), multiplyExact(edge.x, plane.c), true);
+        let w = addExact(multiplyExact(edge.x, plane.y), multiplyExact(edge.y, plane.x), true);
+        if (w.integer < 0n) { x = negate(x); y = negate(y); w = negate(w); }
+        output.push({ x, y, w, incoming: previousInside ? edge : plane });
+      }
+      if (currentInside) output.push(p);
+      previousInside = currentInside;
+    }
+    vertices = output;
+  }
+  return vertices;
+}
+
+const roundedPoints = (vertices) => vertices.map((p) => ({ x: divideExact(p.x, p.w), y: divideExact(p.y, p.w) }));
+const finiteRegion = (box, radius, points) => Number.isFinite(radius) && radius > 0 &&
+  Object.values(box).every(Number.isFinite) && points.every((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
+const relativePoint = (p, anchor) => ({ x: addExact(p.x, multiplyExact(dyadic(anchor.x), p.w), true),
+  y: addExact(p.y, multiplyExact(dyadic(anchor.y), p.w), true) });
+
+/** 明示的な閉輪の round stroke は、折れ線への距離<=radius の領域。全包する元頂点があれば枠全体を返す。 */
+export function wideClosedStroke(points, radius, box) {
+  if (!finiteRegion(box, radius, points) || points.length < 2 || !points.some((p) => p.x !== points[0].x || p.y !== points[0].y)) return null;
+  const corners = [{ x: box.min_x, y: box.min_y }, { x: box.max_x, y: box.min_y },
+    { x: box.max_x, y: box.max_y }, { x: box.min_x, y: box.max_y }];
+  const squared = squareExact(dyadic(radius));
+  for (const center of points) {
+    if (corners.every((p) => {
+      const x = addExact(dyadic(p.x), dyadic(center.x), true), y = addExact(dyadic(p.y), dyadic(center.y), true);
+      return addExact(dotExact(x, y, x, y), squared, true).integer <= 0n;
+    })) return corners;
+  }
+  return null;
+}
+
+/** 幅の側面が凸領域を全包すると証明できる場合だけ、butt の領域を近傍の塗りにする。 */
+export function wideSegment(a, b, radius, box) {
+  if (!finiteRegion(box, radius, [a, b])) return null;
+  const dx = addExact(dyadic(b.x), dyadic(a.x), true), dy = addExact(dyadic(b.y), dyadic(a.y), true);
+  if (dx.integer === 0n && dy.integer === 0n) return [];
+  const vertices = clipPlanes(box, [planeAt(a, dx, dy), planeAt(b, dx, dy, true)]);
+  const limit = multiplyExact(squareExact(dyadic(radius)), dotExact(dx, dy, dx, dy));
+  for (const p of vertices) {
+    const q = relativePoint(p, a), cross = addExact(multiplyExact(dx, q.y), multiplyExact(dy, q.x), true);
+    if (addExact(squareExact(cross), multiplyExact(limit, squareExact(p.w)), true).integer > 0n) return null;
+  }
+  // |cross| は凸関数なので、頂点がすべて幅内なら領域全体も幅内である。
+  return roundedPoints(vertices);
+}
+
+/** 円盤が扇形の近傍を全包すると証明できる round join。円弧が来る場合は従来経路に戻す。 */
+export function wideJoin(previous, center, next, radius, box) {
+  if (!finiteRegion(box, radius, [previous, center, next])) return null;
+  const ix = addExact(dyadic(center.x), dyadic(previous.x), true), iy = addExact(dyadic(center.y), dyadic(previous.y), true);
+  const ox = addExact(dyadic(next.x), dyadic(center.x), true), oy = addExact(dyadic(next.y), dyadic(center.y), true);
+  if (ix.integer === 0n && iy.integer === 0n || ox.integer === 0n && oy.integer === 0n) return [];
+  const cross = addExact(multiplyExact(ix, oy), multiplyExact(iy, ox), true);
+  if (cross.integer === 0n && dotExact(ix, iy, ox, oy).integer > 0n) return [];
+  const vertices = clipPlanes(box, [planeAt(center, ix, iy), planeAt(center, ox, oy, true)]);
+  const squared = squareExact(dyadic(radius));
+  for (const p of vertices) {
+    const q = relativePoint(p, center);
+    if (addExact(dotExact(q.x, q.y, q.x, q.y), multiplyExact(squared, squareExact(p.w)), true).integer > 0n) return null;
+  }
+  return roundedPoints(vertices);
+}

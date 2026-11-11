@@ -1,4 +1,4 @@
-import { clipRing, clipSegment } from "../src/raster.js";
+import { clipRing, clipSegment, wideClosedStroke, wideJoin, wideSegment } from "../src/raster.js";
 
 /** 原本の binary64 の線分から、桁の相殺なしに画面近傍へ切る。 */
 export function testRasterClipping(assert) {
@@ -25,6 +25,38 @@ export function testRasterClipping(assert) {
       `画面近傍の線分の交点: ${JSON.stringify({ points, actual, wanted })}`);
   }
   testRingClipping(assert);
+  testWideGeometry(assert);
+}
+
+function testWideGeometry(assert) {
+  const box = { min_x: 0, min_y: 0, max_x: 200, max_y: 200 }, a = { x: 98, y: 98 }, b = { x: 102, y: 102 };
+  const signedArea = (points) => points.reduce((sum, p, i) => {
+    const q = points[(i + 1) % points.length]; return sum + p.x * q.y - p.y * q.x;
+  }, 0);
+  for (const radius of [1e9, 1e15, 1e38]) for (const [start, finish] of [[a, b], [b, a]]) {
+    const polygon = wideSegment(start, finish, radius, box), sums = polygon.map((p) => p.x + p.y);
+    assert(polygon.length <= 8 && Math.min(...sums) === 196 && Math.max(...sums) === 204 && signedArea(polygon) > 0,
+      "巨大な法線 offset を作らず、向きを反転しても斜めの両 cap と凸輪の向きを保つ");
+  }
+  assert(wideSegment(a, b, 1, box) === null, "幅の側面が近傍を横切るときは証明せず従来経路へ戻す");
+  assert(wideSegment(a, a, 1e38, box).length === 0, "ゼロ長の butt から領域を作らない");
+  assert(wideSegment({ x: 400, y: 100 }, { x: 500, y: 100 }, 1, box).length === 0,
+    "cap だけで共通部分が空なら、幅の側面を作る必要がない");
+  assert(wideSegment(a, b, Infinity, box) === null && wideSegment(a, b, 1e38, { ...box, min_x: -Infinity }) === null,
+    "有限でない派生値は新しい領域へ変えず、従来経路を保つ");
+  const fold = wideJoin(a, b, a, 1e38, box);
+  assert(fold.length <= 8 && Math.min(...fold.map((p) => p.x + p.y)) === 204 && signedArea(fold) > 0,
+    "全包する円の折返し join は、前方の半平面だけを残す");
+  assert(wideJoin(a, b, a, 1, box) === null, "join の円弧が近傍に来るときは従来経路へ戻す");
+  assert(wideJoin(a, { x: 100, y: 100 }, b, 1e38, box).length === 0,
+    "同じ向きの共線に円全体を足さない");
+  const distant = wideSegment({ x: -1e150, y: 100 }, { x: 1e150, y: 100 }, 1e150, box);
+  assert(distant.length === 4 && signedArea(distant) === 80000, "遠い両端でも近傍の矩形をそのまま覆う");
+  const closed = [a, { x: 102, y: 98 }, b, { x: 98, y: 102 }];
+  assert(signedArea(wideClosedStroke(closed, 1e38, box)) === 80000,
+    "明示的な閉輪の元頂点の円盤が全包するときは単一矩形にする");
+  assert(wideClosedStroke(closed, 1, box) === null && wideClosedStroke([a, a], 1e38, box) === null,
+    "円盤の全包が不成立、または非ゼロ辺がない閉輪は従来経路を保つ");
 }
 
 function testRingClipping(assert) {

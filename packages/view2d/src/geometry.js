@@ -1,6 +1,6 @@
 import { SCENE_NONE, SCENE_VALUES as V } from "@zumen-jp/zumen";
 import { end, rows } from "./validate.js";
-import { clipRing, clipSegment, inside } from "./raster.js";
+import { clipRing, clipSegment, inside, wideClosedStroke, wideJoin, wideSegment } from "./raster.js";
 
 const decoder = new TextDecoder();
 const noCharge = () => {};
@@ -106,7 +106,10 @@ class Path {
   }
 }
 
-/** stroke の画面内の領域を変えず、Canvas に渡す直線の座標を画面近傍へ収める。 */
+/** HTML の line styles / trace a path の butt・round・同一 stroke の union を保つ。
+ * https://html.spec.whatwg.org/multipage/canvas.html#line-styles
+ * 画面内の領域を変えず、Canvas に渡す直線や塗りの座標を画面近傍へ収める。
+ */
 class StrokePath extends Path {
   constructor(charge, size, width) {
     super(false, charge);
@@ -114,9 +117,16 @@ class StrokePath extends Path {
     const margin = width / 2 + 2 / size.pixelRatio;
     this.box = { min_x: -margin, min_y: -margin, max_x: size.width + margin, max_y: size.height + margin };
     this.previous = null; this.tip = null;
+    const padding = 2 / size.pixelRatio;
+    this.wideBox = { min_x: -padding, min_y: -padding, max_x: size.width + padding, max_y: size.height + padding };
+    this.widePath = new Path2D(); this.strokePoints = null; this.radius = width / 2; this.wideCovered = false;
   }
-  move(p) { this.previous = p; this.tip = null; this.addPoint(p); }
+  move(p) {
+    this.flushStroke(); if (this.widePath && !this.wideCovered) this.strokePoints = [p];
+    this.previous = p; this.tip = null; this.addPoint(p);
+  }
   line(p) {
+    if (this.widePath && !this.wideCovered && !equal(this.strokePoints[this.strokePoints.length - 1], p)) this.strokePoints.push(p);
     const segment = clipSegment(this.previous, p, this.box);
     if (segment) {
       const [a, b] = segment;
@@ -127,6 +137,17 @@ class StrokePath extends Path {
   }
   rectangle(minX, minY, maxX, maxY, at = (x, y) => ({ x, y })) {
     const points = [at(minX, minY), at(maxX, minY), at(maxX, maxY), at(minX, maxY)];
+    if (this.widePath && !this.wideCovered) {
+      const polygon = wideClosedStroke(points, this.radius, this.wideBox);
+      // 明示的な閉輪だけを扱う。open な輪の先終端が一致しても closed とはみなさない。
+      // 凸片の内部 AA を作らず、全包を証明できる場合だけ単一の近傍矩形を塗る。
+      this.widePath = polygon ? new Path2D() : null;
+      if (polygon) {
+        for (let i = 0; i < polygon.length; i++) this.widePath[i ? "lineTo" : "moveTo"](polygon[i].x, polygon[i].y);
+        this.widePath.closePath(); this.wideCovered = true;
+      }
+    }
+    this.strokePoints = null;
     const outside = points.findIndex((p) => !inside(p, this.box));
     if (outside < 0) {
       super.move(points[0]); for (let i = 1; i < points.length; i++) super.line(points[i]); super.close();
@@ -136,6 +157,30 @@ class StrokePath extends Path {
       for (let i = 1; i <= points.length; i++) this.line(points[(outside + i) % points.length]);
     }
     this.previous = null; this.tip = null;
+  }
+  circle(p, radius) {
+    // 同じ part の一部だけ別に塗ると alpha が重なる。円を含む part はすべて従来経路にする。
+    this.widePath = null; this.strokePoints = null; super.circle(p, radius);
+  }
+  flushStroke() {
+    const points = this.strokePoints; this.strokePoints = null;
+    if (!this.widePath || !points?.length) return;
+    const append = (polygon) => {
+      if (polygon === null) { this.widePath = null; return false; }
+      // 凸輪の向きはすべて同じ。nonzero の一度の塗りで、重なる部分も union とする。
+      for (let i = 0; i < polygon.length; i++) this.widePath[i ? "lineTo" : "moveTo"](polygon[i].x, polygon[i].y);
+      if (polygon.length) this.widePath.closePath();
+      return true;
+    };
+    for (let i = 0; i < points.length - 1; i++) if (!append(wideSegment(points[i], points[i + 1], this.radius, this.wideBox))) return;
+    for (let i = 1; i < points.length - 1; i++) {
+      if (!append(wideJoin(points[(i + points.length - 1) % points.length], points[i], points[(i + 1) % points.length], this.radius, this.wideBox))) return;
+    }
+  }
+  finish(fill, width = 0) {
+    this.flushStroke();
+    const part = super.finish(fill, width);
+    return this.widePath ? { ...part, path: this.widePath, fill: "nonzero", width: 0 } : part;
   }
 }
 
