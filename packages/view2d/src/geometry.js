@@ -1,6 +1,6 @@
 import { SCENE_NONE, SCENE_VALUES as V } from "@zumen-jp/zumen";
 import { end, rows } from "./validate.js";
-import { clipRing, clipSegment, inside } from "./raster.js";
+import { clipRing, clipSegment, diskCoversBox, inside, wideClosedStroke, wideJoin, wideSegment } from "./raster.js";
 
 const decoder = new TextDecoder();
 const noCharge = () => {};
@@ -106,7 +106,10 @@ class Path {
   }
 }
 
-/** stroke の画面内の領域を変えず、Canvas に渡す直線の座標を画面近傍へ収める。 */
+/** HTML の line styles / trace a path の butt・round・同一 stroke の union を保つ。
+ * https://html.spec.whatwg.org/multipage/canvas.html#line-styles
+ * 画面内の領域を変えず、Canvas に渡す直線や塗りの座標を画面近傍へ収める。
+ */
 class StrokePath extends Path {
   constructor(charge, size, width) {
     super(false, charge);
@@ -114,9 +117,25 @@ class StrokePath extends Path {
     const margin = width / 2 + 2 / size.pixelRatio;
     this.box = { min_x: -margin, min_y: -margin, max_x: size.width + margin, max_y: size.height + margin };
     this.previous = null; this.tip = null;
+    const padding = 2 / size.pixelRatio;
+    this.wideBox = { min_x: -padding, min_y: -padding, max_x: size.width + padding, max_y: size.height + padding };
+    this.widePath = new Path2D(); this.strokePoints = null; this.radius = width / 2; this.wideCovered = false;
+    // B の L1 直径に由来する幅。全元頂点の両円盤が B を覆う場合だけ、一度の局所 stroke に使う。
+    this.localWidth = Math.min(width, 2 * (this.wideBox.max_x - this.wideBox.min_x + this.wideBox.max_y - this.wideBox.min_y));
+    this.localStroke = Number.isFinite(this.localWidth); this.widePieces = 0;
   }
-  move(p) { this.previous = p; this.tip = null; this.addPoint(p); }
+  certifyPoint(p) {
+    if (this.localStroke && (!inside(p, this.wideBox) || !diskCoversBox(p, this.radius, this.wideBox) ||
+      !diskCoversBox(p, this.localWidth / 2, this.wideBox))) this.localStroke = false;
+  }
+  move(p) {
+    this.certifyPoint(p);
+    this.flushStroke(); if (this.widePath && !this.wideCovered) this.strokePoints = [p];
+    this.previous = p; this.tip = null; this.addPoint(p);
+  }
   line(p) {
+    this.certifyPoint(p);
+    if (this.widePath && !this.wideCovered && !equal(this.strokePoints[this.strokePoints.length - 1], p)) this.strokePoints.push(p);
     const segment = clipSegment(this.previous, p, this.box);
     if (segment) {
       const [a, b] = segment;
@@ -127,6 +146,18 @@ class StrokePath extends Path {
   }
   rectangle(minX, minY, maxX, maxY, at = (x, y) => ({ x, y })) {
     const points = [at(minX, minY), at(maxX, minY), at(maxX, maxY), at(minX, maxY)];
+    for (const p of points) this.certifyPoint(p);
+    if (this.widePath && !this.wideCovered) {
+      const polygon = wideClosedStroke(points, this.radius, this.wideBox);
+      // 明示的な閉輪だけを扱う。open な輪の先終端が一致しても closed とはみなさない。
+      // 凸片の内部 AA を作らず、全包を証明できる場合だけ単一の近傍矩形を塗る。
+      this.widePath = polygon ? new Path2D() : null;
+      if (polygon) {
+        for (let i = 0; i < polygon.length; i++) this.widePath[i ? "lineTo" : "moveTo"](polygon[i].x, polygon[i].y);
+        this.widePath.closePath(); this.wideCovered = true;
+      }
+    }
+    this.strokePoints = null;
     const outside = points.findIndex((p) => !inside(p, this.box));
     if (outside < 0) {
       super.move(points[0]); for (let i = 1; i < points.length; i++) super.line(points[i]); super.close();
@@ -136,6 +167,40 @@ class StrokePath extends Path {
       for (let i = 1; i <= points.length; i++) this.line(points[(outside + i) % points.length]);
     }
     this.previous = null; this.tip = null;
+  }
+  circle(p, radius) {
+    // 同じ part の一部だけ別に塗ると alpha が重なる。円を含む part はすべて従来経路にする。
+    this.widePath = null; this.strokePoints = null; this.localStroke = false; super.circle(p, radius);
+  }
+  flushStroke() {
+    const points = this.strokePoints; this.strokePoints = null;
+    if (!this.widePath || !points?.length) return;
+    const append = (polygon) => {
+      if (this.wideCovered) return true;
+      if (polygon === null) { this.widePath = null; return false; }
+      if (!polygon.length) return true;
+      if (polygon.coversBox) {
+        this.widePath = new Path2D(); this.wideCovered = true;
+      } else if (this.widePieces++) {
+        // 複数の凸片の内部境界には backend の AA の差が残る。局所 stroke の証明も不成立なら従来へ戻す。
+        this.widePath = null; return false;
+      }
+      for (let i = 0; i < polygon.length; i++) this.widePath[i ? "lineTo" : "moveTo"](polygon[i].x, polygon[i].y);
+      if (polygon.length) this.widePath.closePath();
+      return true;
+    };
+    for (let i = 0; i < points.length - 1; i++) {
+      if (!append(wideSegment(points[i], points[i + 1], this.radius, this.wideBox)) || this.wideCovered) return;
+    }
+    for (let i = 1; i < points.length - 1; i++) {
+      if (!append(wideJoin(points[i - 1], points[i], points[i + 1], this.radius, this.wideBox)) || this.wideCovered) return;
+    }
+  }
+  finish(fill, width = 0) {
+    this.flushStroke();
+    const part = super.finish(fill, width);
+    if (!this.wideCovered && this.localStroke) return { ...part, width: this.localWidth };
+    return this.widePath ? { ...part, path: this.widePath, fill: "nonzero", width: 0 } : part;
   }
 }
 

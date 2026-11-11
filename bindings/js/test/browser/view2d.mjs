@@ -159,11 +159,13 @@ try {
   const tolerance = `${name}: 許容距離つき点選択と独立距離の照合: ${JSON.stringify(result.strokeTolerance)}`;
   const butt = `${name}: butt の両端と巨大な線の隙間: ${JSON.stringify(result.buttEnds)}`;
   const fills = `${name}: 巨大な閉輪と近傍の独立 Canvas の照合: ${JSON.stringify(result.largeFills)}`;
+  const wide = `${name}: 巨大な線幅の cap・join と近傍の独立 Canvas の照合: ${JSON.stringify(result.wideStrokes)}`;
   console.log(summary);
   console.log(raster);
   console.log(sat);
   console.log(tolerance);
   console.log(butt);
   console.log(fills);
-  if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n${summary}\n\n${raster}\n\n${sat}\n\n${tolerance}\n\n${butt}\n\n${fills}\n`);
+  console.log(wide);
+  if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n${summary}\n\n${raster}\n\n${sat}\n\n${tolerance}\n\n${butt}\n\n${fills}\n\n${wide}\n`);
 } finally { await browser.close(); }
