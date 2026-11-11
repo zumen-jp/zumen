@@ -67,6 +67,30 @@ jobs:
           npm ci --ignore-scripts --no-audit --no-fund --prefix playground
           node bindings/js/test/browser/react.mjs ${{ matrix.browser }} modules/zumen_abi1_drawing.wasm
 
+  site:
+    name: サイトをブラウザーで確認（${{ matrix.browser }}）
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [firefox, webkit]
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: site
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: サイトの検査用の依存を、インストールのスクリプトを走らせずに入れる
+        run: npm ci --ignore-scripts
+      - name: サイトのページとビューアーを組む
+        run: npm run build
+      - name: サイトの Playwright に合うブラウザーと OS のライブラリを入れる
+        run: npx --no-install playwright install --with-deps ${{ matrix.browser }}
+      - name: サイトの表示・保存・CSP による通信の拒否を確かめる
+        run: npm run test:browser -- ${{ matrix.browser }}
+
   svg:
     name: SVG・PNG を Chromium で開いて照らす
     runs-on: ubuntu-latest

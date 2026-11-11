@@ -45,6 +45,8 @@ npm run dev
 
 同じブラウザー検査で、全案内ページと存在しないパスへの 404 も開きます。ローカルでは HTTP の CSP がない 404 に、インライン・外部の通常のスクリプト・モジュールのスクリプトを加えて配ります。各ページで同一オリジンのスクリプトと解析 POST の拒否も確かめます。CSP で止まった要求は Playwright の `request` イベントに現れることがあるため、送信前の `route` に届かなかったことと CSP の違反イベントで判定します。実配信でも同じ検査を使い、404 の HTML に残る script タグの数と、通信の有無を分けて記録します。
 
+サイトの検査は `site/package.json` の Playwright 1.65.0 を使い、CI では Chromium、毎晩は Firefox・WebKit で流します。JS・React・View2D の `bindings/js/test/browser` の検査環境とは分けています。
+
 ## 置き場所
 
 | 場所 | 中身 |
