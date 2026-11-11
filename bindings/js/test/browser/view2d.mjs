@@ -157,9 +157,11 @@ try {
   const raster = `${name}: 巨大パスの Canvas 単独・View2D と近傍パスの画素: ${JSON.stringify(result.largeStrokeRaster)}`;
   const sat = `${name}: encoded f32 の stroke と独立 SAT の照合: ${JSON.stringify(result.strokeSat)}`;
   const tolerance = `${name}: 許容距離つき点選択と独立距離の照合: ${JSON.stringify(result.strokeTolerance)}`;
+  const butt = `${name}: butt の両端と巨大な線の隙間: ${JSON.stringify(result.buttEnds)}`;
   console.log(summary);
   console.log(raster);
   console.log(sat);
   console.log(tolerance);
-  if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n${summary}\n\n${raster}\n\n${sat}\n\n${tolerance}\n`);
+  console.log(butt);
+  if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n${summary}\n\n${raster}\n\n${sat}\n\n${tolerance}\n\n${butt}\n`);
 } finally { await browser.close(); }

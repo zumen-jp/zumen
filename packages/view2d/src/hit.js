@@ -84,17 +84,21 @@ function leading(value) {
 }
 
 function exactSegmentPosition(a, b, p) {
-  if (![a.x, a.y, b.x, b.y, p.x, p.y].every(Number.isFinite)) return { t: NaN, normal: NaN };
+  if (![a.x, a.y, b.x, b.y, p.x, p.y].every(Number.isFinite)) return { start: NaN, finish: NaN, normal: NaN };
   const ax = dyadic(a.x), ay = dyadic(a.y);
   const dx = addExact(dyadic(b.x), ax, true), dy = addExact(dyadic(b.y), ay, true);
-  if (dx.integer === 0n && dy.integer === 0n) return { t: NaN, normal: NaN };
+  if (dx.integer === 0n && dy.integer === 0n) return { start: NaN, finish: NaN, normal: NaN };
   const px = addExact(dyadic(p.x), ax, true), py = addExact(dyadic(p.y), ay, true);
+  const qx = addExact(dyadic(p.x), dyadic(b.x), true), qy = addExact(dyadic(p.y), dyadic(b.y), true);
   const squared = leading(addExact(multiplyExact(dx, dx), multiplyExact(dy, dy)));
   const dot = leading(addExact(multiplyExact(px, dx), multiplyExact(py, dy)));
+  const endDot = leading(addExact(multiplyExact(qx, dx), multiplyExact(qy, dy)));
   const cross = leading(addExact(multiplyExact(px, dy), multiplyExact(py, dx), true));
   const odd = squared.exponent & 1, length = Math.sqrt(squared.fraction * (odd ? 2 : 1));
   // 相殺は整数のまま終える。上位 53 bit・平方根・比の丸めだけを既存の guard が担う。
-  return { t: scaleBinary(dot.fraction / squared.fraction, dot.exponent - squared.exponent),
+  // 各端から別々に測る。t-1 や始点からの距離-全長では、終点近傍の差が消える。
+  return { start: scaleBinary(dot.fraction / length, dot.exponent - (squared.exponent - odd) / 2),
+    finish: scaleBinary(endDot.fraction / length, endDot.exponent - (squared.exponent - odd) / 2),
     normal: scaleBinary(cross.fraction / length, cross.exponent - (squared.exponent - odd) / 2) };
 }
 
@@ -104,8 +108,8 @@ function subtractionError(a, b, difference) {
   return (a - (difference + virtual)) + (virtual - b);
 }
 
-function filteredCompare(value, boundary, rounding, evaluationError) {
-  const delta = value - boundary, tolerance = rounding + EPSILON * Math.max(1, Math.abs(value), Math.abs(boundary));
+function filteredCompare(value, boundary, rounding, evaluationError, minimumScale = 1) {
+  const delta = value - boundary, tolerance = rounding + EPSILON * Math.max(minimumScale, Math.abs(value), Math.abs(boundary));
   if (!Number.isFinite(value) || !Number.isFinite(evaluationError)) return undefined;
   if (Math.abs(delta) + evaluationError <= tolerance) return 0;
   if (delta > tolerance + evaluationError) return 1;
@@ -116,30 +120,33 @@ function filteredCompare(value, boundary, rounding, evaluationError) {
 function segmentContains(a, b, p, radius, direction) {
   const dx = b.x - a.x, dy = b.y - a.y, scale = Math.max(Math.abs(dx), Math.abs(dy));
   if (scale === 0) return false; // butt の端だけを持つ線は描かれない。
-  const nx = dx / scale, ny = dy / scale, px = p.x - a.x, py = p.y - a.y;
-  const tx = px / scale * nx, ty = py / scale * ny, squaredLength = nx * nx + ny * ny;
-  let t = (tx + ty) / squaredLength;
+  const nx = dx / scale, ny = dy / scale, px = p.x - a.x, py = p.y - a.y, qx = p.x - b.x, qy = p.y - b.y;
   const length = Math.hypot(nx, ny);
+  let start = (px * nx + py * ny) / length, finish = (qx * nx + qy * ny) / length;
   let normal = (px * ny - py * nx) / length;
   // stroke の角を CSS 座標へ足す 1 回の丸めは ε/2、法線 offset の
   // 正規化と積には既存の 16ε の余裕を使い、各軸から距離へ伝播する。
-  // offset がゼロの軸には加算がない。t は線分長で割るので距離の誤差も割る。
+  // offset がゼロの軸には加算がない。端は全長の比でなく CSS px で比べる。
   const offsetX = Math.abs(ny) / length * radius, offsetY = Math.abs(nx) / length * radius;
   const errorX = offsetX === 0 ? 0 : Number.EPSILON / 2 * Math.abs(p.x) + EPSILON * offsetX;
   const errorY = offsetY === 0 ? 0 : Number.EPSILON / 2 * Math.abs(p.y) + EPSILON * offsetY;
-  let errorT = (Math.abs(nx) * errorX + Math.abs(ny) * errorY) / scale / squaredLength;
+  let errorAlong = (Math.abs(nx) * errorX + Math.abs(ny) * errorY) / length;
   let errorNormal = (Math.abs(ny) * errorX + Math.abs(nx) * errorY) / length;
   // 両端・両側を同時に境界とする誤差帯は使わず、丸めた点自体の位置を調べる。
-  if (errorT >= 0.5) errorT = 0;
+  if (errorAlong >= scale * length / 2) errorAlong = 0;
   if (errorNormal >= radius) errorNormal = 0;
   const pxError = Math.abs(subtractionError(p.x, a.x, px)), pyError = Math.abs(subtractionError(p.y, a.y, py));
-  const evaluationT = ((Math.abs(nx) * pxError + Math.abs(ny) * pyError) / scale + EPSILON * (Math.abs(tx) + Math.abs(ty))) / squaredLength;
+  const qxError = Math.abs(subtractionError(p.x, b.x, qx)), qyError = Math.abs(subtractionError(p.y, b.y, qy));
+  const evaluationStart = (Math.abs(nx) * pxError + Math.abs(ny) * pyError + EPSILON * (Math.abs(px * nx) + Math.abs(py * ny))) / length;
+  const evaluationFinish = (Math.abs(nx) * qxError + Math.abs(ny) * qyError + EPSILON * (Math.abs(qx * nx) + Math.abs(qy * ny))) / length;
   const evaluationNormal = (Math.abs(ny) * pxError + Math.abs(nx) * pyError + EPSILON * (Math.abs(px * ny) + Math.abs(py * nx))) / length;
-  let comparisons = [filteredCompare(t, 0, errorT, evaluationT), filteredCompare(t, 1, errorT, evaluationT),
+  // 1 CSS px 未満では線分長まで縮め、極短線の両端を同じ境界帯にしない。
+  const endpointScale = Math.min(1, scale * length);
+  let comparisons = [filteredCompare(start, 0, errorAlong, evaluationStart, endpointScale), filteredCompare(finish, 0, errorAlong, evaluationFinish, endpointScale),
     filteredCompare(normal, -radius, errorNormal, evaluationNormal), filteredCompare(normal, radius, errorNormal, evaluationNormal)];
   if (comparisons.some((value) => value === undefined)) {
-    ({ t, normal } = exactSegmentPosition(a, b, p));
-    comparisons = [filteredCompare(t, 0, errorT, 0), filteredCompare(t, 1, errorT, 0),
+    ({ start, finish, normal } = exactSegmentPosition(a, b, p));
+    comparisons = [filteredCompare(start, 0, errorAlong, 0, endpointScale), filteredCompare(finish, 0, errorAlong, 0, endpointScale),
       filteredCompare(normal, -radius, errorNormal, 0), filteredCompare(normal, radius, errorNormal, 0)];
   }
   if (comparisons.some((value) => value === undefined)) return false;
