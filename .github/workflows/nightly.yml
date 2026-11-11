@@ -280,6 +280,15 @@ jobs:
         run: |
           python -I xtask/verify/check_ezdxf.py "$RUNNER_TEMP/verify"
           python -I xtask/verify/test_dxf_layer_fields.py target/release/zumen
+      - name: Rust と API の共用 lower から合成 DXF を作る
+        env:
+          ZUMEN_DXF_LOWER_OUT: ${{ runner.temp }}/dxf-lower
+          CARGO_PROFILE_DEV_DEBUG: '0'
+          CARGO_PROFILE_TEST_DEBUG: '0'
+          CARGO_INCREMENTAL: '0'
+        run: cargo test --locked -p zumen-abi --lib convert::tests::the_api_writes_what_the_rust_lower_writes -- --exact
+      - name: Rust と API の DXF の要素・表・用紙を ezdxf と照らす
+        run: python -I xtask/verify/test_dxf_lower.py "$RUNNER_TEMP/dxf-lower"
       - name: 検証キットの JWW を ezjww で読み、zumen の読みと照らす
         if: ${{ !cancelled() && steps.make.outcome != 'skipped' }}
         run: python -I xtask/verify/check_ezjww.py "$RUNNER_TEMP/verify"

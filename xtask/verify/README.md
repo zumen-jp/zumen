@@ -90,6 +90,8 @@ ACadSharp のツールは、.NET 10 の SDK で動かします。ACadSharp の�
 
 #643 の共用部分は、合成の土木図面を Rust の `lower_to_dxf` と、`convert`・`civil_drawing` が呼ぶ API の経路で書き、ezdxf 1.4.5 で照合します。`ZUMEN_DXF_LOWER_OUT` に出力先のフォルダーを指定して、`cargo test -p zumen-abi --lib the_api_writes_what_the_rust_lower_writes` を流します。そのフォルダーを `python -I xtask/verify/test_dxf_lower.py <出力先>` に渡します。検査後は環境変数を外します。
 
+毎晩の CI でも、同じ合成ファイルを作り、このスクリプトで照合します。
+
 出力はこのテストが作る小さい合成図面だけです。画層・線種・用紙とモデル空間の図形・LAYOUT の値と参照、監査の誤りと修復がないことを照らします。API の形の値が持たない TEXT の位置合わせだけを比較から除き、その差が実際にあることも確かめます（#763）。API の応答と診断、ネイティブと wasm の一致は、適合テストと Rust のテストで別に確かめます。
 
 ## 外部の実装
