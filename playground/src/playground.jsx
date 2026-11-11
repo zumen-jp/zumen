@@ -161,12 +161,13 @@ export function Playground() {
   <a className="skip" href="#viewer-main">本文へ移動</a>
   <Masthead/>
   <main id="viewer-main">
-    <div className="page-header">
-      <nav className="breadcrumbs" aria-label="現在位置"><ol><li><a href="/">トップ</a></li><li aria-current="page">図面ビューアー</li></ol></nav>
+    <div className="page-header"><div className="wrap">
+      <nav className="breadcrumbs" aria-label="現在の位置"><ol><li><a href="/">トップ</a></li><li aria-current="page">図面ビューアー</li></ol></nav>
       <h1>図面ビューアー</h1>
       <p className="page-lead">選んだ図面をこのブラウザーで開きます。図面のバイト列を外へ送らず、読み取りはこのブラウザーの中で行います。PDF・JWC・JWS・LAZ は対象外です。
-        {import.meta.env.VITE_ZUMEN_CORE_VERSION && <> zumen {import.meta.env.VITE_ZUMEN_CORE_VERSION} で読みます。未対応の文字や図形は、診断をご確認ください。</>}</p>
-    </div>
+        {import.meta.env.VITE_ZUMEN_CORE_VERSION && <>zumen {import.meta.env.VITE_ZUMEN_CORE_VERSION} で読みます。未対応の文字や図形は、診断をご確認ください。</>}</p>
+    </div></div>
+    <div className="wrap">
     <div className="file-bar">
       <label htmlFor="drawing-file">図面ファイル</label>
       <input ref={picker} id="drawing-file" type="file" accept=".dxf,.dwg,.jww,.sfc,.p21,.sfz,.p2z" aria-describedby="file-help"
@@ -220,9 +221,11 @@ export function Playground() {
       <p>操作や表示の不具合は <a href="https://github.com/zumen-jp/zumen/issues">GitHub の issue</a> にお知らせください。受け取った図面・顧客の名前・図面の中身は、公開の issue に貼らないでください。</p>
       <p>読み取りが終わらない・落ちる・メモリを使いすぎる入力は、<a href="https://github.com/zumen-jp/zumen/security/advisories/new">非公開の報告窓口</a>へお知らせください。機密の図面は添付せず、<a href="https://github.com/zumen-jp/zumen/blob/main/SECURITY.md">報告の手順</a>をご確認ください。</p>
     </section>
+    </div>
   </main>
   <footer className="footer">
-    <p><a href="/">zumen の案内に戻る</a> ・ zumen は MIT License または Apache License 2.0 で提供します。</p>
+    <p><a href="/">zumen の案内に戻る</a></p>
+    <p>zumen は MIT License または Apache License 2.0 で提供します。</p>
   </footer>
   </>;
 }
