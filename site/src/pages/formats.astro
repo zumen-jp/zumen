@@ -1,25 +1,71 @@
 ---
+import Profile from '../components/drawings/Profile.astro';
 import FormatTable from '../components/FormatTable.astro';
-import PageHeader from '../components/PageHeader.astro';
 import SectionHead from '../components/SectionHead.astro';
 import { formats, releasedSource, releaseVersion, repo } from '../data/site';
-import Base from '../layouts/Base.astro';
+import Page from '../layouts/Page.astro';
+
+// 実装を置く所ごとの考え方。対応形式の表の「置き場所」と同じ言葉で、形式を振り分ける。
+// 定義は形式の権利の台帳（formats/ledger.toml の rights と place）に合わせる。
+const places = [
+  {
+    title: 'コア',
+    place: 'コア',
+    body: '実装を公開するのに第三者の許諾が要らない形式です。このリポジトリで作ります。読む・書くが「○」のものは、どの言語からも同じように使えます。',
+  },
+  {
+    title: '外部のプラグイン',
+    place: '外部のプラグイン',
+    body: '権利を持つ団体と利用許諾を結べば、実装を公開できる形式です。コアと同じ SDK で、別のリポジトリに作ります。',
+  },
+  {
+    title: '扱わない',
+    place: '扱わない',
+    body: '権利の持ち主が分からない形式と、持ち主が公開の実装を認めていない形式です。コアにもプラグインにも入れません。',
+  },
+].map((p) => ({ ...p, names: formats.filter((f) => f.place === p.place).map((f) => f.name) }));
 ---
 
-<Base title="対応形式" description="形式ごとの、読む・書くの状況と、実装を置く所です。">
-  <PageHeader title="対応形式" lead="形式ごとの、読む・書くの状況と、実装を置く所です。" />
+<Page
+  description="形式ごとの、読む・書くの状況と、実装を置く所です。"
+  toc={[
+    { id: 'status', label: '形式の一覧' },
+    { id: 'rights', label: '権利と置き場所' },
+  ]}
+>
+  <Profile slot="drawing" />
 
-  <section class="section">
+  <section class="section" id="status" aria-labelledby="status-title">
     <div class="wrap">
-      <SectionHead title="形式の一覧" en="Status" />
+      <SectionHead id="status-title" title="形式の一覧" en="Status" />
       <FormatTable items={formats} />
       <p class="note">v{releaseVersion} の配布物で扱う範囲です。対応する版・図形・操作には制限があります。詳しくは<a href={releasedSource('docs/formats/README.md')}>公開版の形式ごとの文書</a>をご覧ください。</p>
       <p>SXF・JWW・DWG の「書く」は、開いた同じ形式への書き戻しです。DXF は書き戻しと DXF への変換、IFC は Name・Description・単一値のプロパティなどの書き戻しに対応します。新規作成や別形式への変換で保つ値は、操作と出力先によって異なります。</p>
-
-      <h3>権利の考え方</h3>
-      <p>
-        実装を公開するのに第三者の許諾が要る形式は、コアに入れず、同じ SDK で作る外部のプラグインにします（<a href={`${repo}/blob/main/formats/README.md`}>形式台帳の書き方</a>）。形式ごとの仕様の入手先と権利の根拠は、<a href={releasedSource('docs/formats/README.md')}>公開版の形式と権利の一覧</a>にあります。
-      </p>
     </div>
   </section>
-</Base>
+
+  <section class="section section-alt" id="rights" aria-labelledby="rights-title">
+    <div class="wrap">
+      <SectionHead id="rights-title" title="権利と置き場所" en="Rights" />
+      <p>
+        実装を置く所は、形式ごとの権利で決め、形式の権利の台帳に書きます（<a href={`${repo}/blob/main/formats/README.md`}>形式台帳の書き方</a>）。形式ごとの仕様の入手先と権利の根拠は、<a href={releasedSource('docs/formats/README.md')}>公開版の形式と権利の一覧</a>にあります。
+      </p>
+      <ol class="cards">
+        {
+          places.map((p, i) => (
+            <li class="card">
+              <span class="card-no">{String(i + 1).padStart(2, '0')}</span>
+              <h3>{p.title}</h3>
+              <p>{p.body}</p>
+              <ul class="chips">
+                {p.names.map((name) => (
+                  <li>{name}</li>
+                ))}
+              </ul>
+            </li>
+          ))
+        }
+      </ol>
+    </div>
+  </section>
+</Page>
