@@ -218,6 +218,79 @@ impl<'f> Reader<'f, '_, '_> {
 
     // 単位の意味の読み取りは既存 Lifter と共有し、走査・参照・文字の確保を先に数える。
     // 再帰する換算は対象にせず、既存の SI または一段の正の換算だけを保持する。
+    // IfcSIUnit の派生 Dimensions・IfcSIPrefix、および IfcNamedUnit.WR1 と
+    // IfcDimensionsForSIUnit/IfcCorrectDimensions に従い、長さの候補を採用前に検査する。
+    fn si_length(&mut self, record: &Record) -> Result<(), Error> {
+        self.check(Kind::Work, record.span().len() as u64)?;
+        if record.parts().first().map_or(0, |p| p.args().len()) != 4 {
+            return Err(self.invalid("attributes"));
+        }
+        if !matches!(arg(record, 1), Some(Value::Derived))
+            || !matches!(arg(record,2),Some(Value::Enum(raw)) if self.file.bytes(raw.clone())==b"LENGTHUNIT")
+            || !matches!(arg(record,4),Some(Value::Enum(raw)) if self.file.bytes(raw.clone())==b"METRE")
+        {
+            return Err(self.invalid("unit-dimensions"));
+        }
+        match arg(record, 3) {
+            Some(Value::Null) => Ok(()),
+            Some(Value::Enum(raw))
+                if matches!(
+                    self.file.bytes(raw.clone()),
+                    b"EXA"
+                        | b"PETA"
+                        | b"TERA"
+                        | b"GIGA"
+                        | b"MEGA"
+                        | b"KILO"
+                        | b"HECTO"
+                        | b"DECA"
+                        | b"DECI"
+                        | b"CENTI"
+                        | b"MILLI"
+                        | b"MICRO"
+                        | b"NANO"
+                        | b"PICO"
+                        | b"FEMTO"
+                        | b"ATTO"
+                ) =>
+            {
+                Ok(())
+            }
+            _ => Err(self.invalid("unit-prefix")),
+        }
+    }
+
+    fn length_dimensions(&mut self, unit: &Record) -> Result<(), Error> {
+        let id = reference(arg(unit, 1)).ok_or_else(|| self.invalid("unit-dimensions"))?;
+        // 参照先がないときは参照元の単位に診断を置く。参照を引く手間も先に数える。
+        self.check(Kind::Work, 1)?;
+        if self.file.instance(id).is_none() {
+            return Err(self.invalid("unit-dimensions"));
+        }
+        self.current = id;
+        let record = self.take_typed(id)?;
+        self.check(Kind::Work, record.span().len() as u64)?;
+        if !self.is(record, b"IFCDIMENSIONALEXPONENTS")
+            || record.parts().first().map_or(0, |p| p.args().len()) != 7
+        {
+            return Err(self.invalid("unit-dimensions"));
+        }
+        let args = record.parts().first().map(|p| p.args()).unwrap_or_default();
+        for (value, expected) in args.iter().zip([1i64, 0, 0, 0, 0, 0, 0]) {
+            let Value::Number(raw) = value else {
+                return Err(self.invalid("unit-dimensions"));
+            };
+            self.check(Kind::Work, raw.len() as u64)?;
+            let integer = std::str::from_utf8(self.file.bytes(raw.clone()))
+                .ok()
+                .and_then(|text| text.parse::<i64>().ok());
+            if integer != Some(expected) {
+                return Err(self.invalid("unit-dimensions"));
+            }
+        }
+        Ok(())
+    }
+
     fn length_unit(&mut self, version: Version, solid: &'f Record) -> Result<Option<Unit>, Error> {
         let mut project = None;
         for record in self.file.records() {
@@ -291,10 +364,18 @@ impl<'f> Reader<'f, '_, '_> {
                 continue;
             }
             self.check(Kind::DecodedBytes, 256 + record.span().len() as u64 * 12)?;
-            if self.is(record, b"IFCCONVERSIONBASEDUNIT") {
+            if self.is(record, b"IFCSIUNIT") {
+                self.si_length(record)?;
+            } else if self.is(record, b"IFCCONVERSIONBASEDUNIT") {
                 if record.parts().first().map_or(0, |p| p.args().len()) != 4 {
                     return Err(self.invalid("attributes"));
                 }
+                if !matches!(arg(record,2),Some(Value::Enum(raw)) if self.file.bytes(raw.clone())==b"LENGTHUNIT")
+                {
+                    return Err(self.invalid("unit-dimensions"));
+                }
+                self.length_dimensions(record)?;
+                self.current = id;
                 let factor_id = self.target(record, 4)?;
                 self.current = factor_id;
                 let factor = self.take_typed(factor_id)?;
@@ -316,10 +397,7 @@ impl<'f> Reader<'f, '_, '_> {
                 if !self.is(base, b"IFCSIUNIT") {
                     return Err(self.unsupported_kind("unit-base"));
                 }
-                if !matches!(arg(base,2),Some(Value::Enum(raw)) if self.file.bytes(raw.clone()).eq_ignore_ascii_case(b"LENGTHUNIT"))
-                {
-                    return Err(self.invalid("unit"));
-                }
+                self.si_length(base)?;
                 let bytes = (factor.span().len() as u64).saturating_add(base.span().len() as u64);
                 self.check(Kind::Work, bytes)?;
                 self.check(Kind::DecodedBytes, 512 + bytes.saturating_mul(12))?;

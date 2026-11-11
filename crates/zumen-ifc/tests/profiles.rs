@@ -38,12 +38,14 @@ ENDSEC;\nEND-ISO-10303-21;\n",
     )
 }
 fn comparison_source(version: &str) -> String {
-    let src = source(version);
     if version == "IFC4" {
-        src.replace("#3=IFCSIUNIT(*,.LENGTHUNIT.,.MILLI.,.METRE.);", "#3=IFCCONVERSIONBASEDUNIT($,.LENGTHUNIT.,'scaled_length',#4);\n#4=IFCMEASUREWITHUNIT(IFCLENGTHMEASURE(0.3048),#5);\n#5=IFCSIUNIT(*,.LENGTHUNIT.,.MILLI.,.METRE.);")
+        conversion_source(version)
     } else {
-        src
+        source(version)
     }
+}
+fn conversion_source(version: &str) -> String {
+    source(version).replace("#3=IFCSIUNIT(*,.LENGTHUNIT.,.MILLI.,.METRE.);", "#3=IFCCONVERSIONBASEDUNIT(#6,.LENGTHUNIT.,'scaled_length',#4);\n#4=IFCMEASUREWITHUNIT(IFCLENGTHMEASURE(0.3048),#5);\n#5=IFCSIUNIT(*,.LENGTHUNIT.,.MILLI.,.METRE.);\n#6=IFCDIMENSIONALEXPONENTS(1,0,0,0,0,0,0);")
 }
 fn with<T>(limits: Limits, f: impl FnOnce(&mut Cx) -> T) -> (T, Diagnostics, Budget) {
     let mut budget = Budget::new(limits);
@@ -254,62 +256,64 @@ fn unsupported_subtypes_and_complex_instances_report_the_kind_and_place() {
 
 #[test]
 fn budgets_all_kinds_before_allocations_and_restores_the_incoming_depth() {
-    for id in [30, 31, 32] {
-        let file = read(&source("IFC4"));
-        let shape = product(&file, 100);
-        let node = leaf(&shape, id);
-        let (_, _, full) = with(Limits::default(), |cx| file.extrusion(node, cx));
-        for kind in Kind::ALL {
-            let limit = if kind == Kind::Depth {
-                (0..16)
-                    .find(|&n| {
-                        with(Limits::default().with(kind, Limit::Finite(n)), |cx| {
-                            file.extrusion(node, cx)
+    for src in [source("IFC4"), conversion_source("IFC4")] {
+        for id in [30, 31, 32] {
+            let file = read(&src);
+            let shape = product(&file, 100);
+            let node = leaf(&shape, id);
+            let (_, _, full) = with(Limits::default(), |cx| file.extrusion(node, cx));
+            for kind in Kind::ALL {
+                let limit = if kind == Kind::Depth {
+                    (0..16)
+                        .find(|&n| {
+                            with(Limits::default().with(kind, Limit::Finite(n)), |cx| {
+                                file.extrusion(node, cx)
+                            })
+                            .0
+                            .is_ok()
                         })
-                        .0
-                        .is_ok()
-                    })
-                    .unwrap()
-            } else {
-                full.used(kind)
-            };
-            assert!(
-                with(Limits::default().with(kind, Limit::Finite(limit)), |cx| {
-                    file.extrusion(node, cx)
-                })
-                .0
-                .is_ok()
-            );
-            if limit > 0 {
-                let (r, _, b) = with(
-                    Limits::default().with(kind, Limit::Finite(limit - 1)),
-                    |cx| {
-                        cx.enter().unwrap();
-                        file.extrusion(node, cx)
-                    },
-                );
-                assert!(matches!(r, Err(Error::Stopped(_))), "{id}/{kind:?}");
-                assert_eq!(b.used(Kind::Depth), 1);
-            }
-        }
-        for expired in [false, true] {
-            let (r, _, b) = with(Limits::default(), |cx| {
-                if expired {
-                    cx.cancel.expire()
+                        .unwrap()
                 } else {
-                    cx.cancel.cancel()
+                    full.used(kind)
                 };
-                file.extrusion(node, cx)
+                assert!(
+                    with(Limits::default().with(kind, Limit::Finite(limit)), |cx| {
+                        file.extrusion(node, cx)
+                    })
+                    .0
+                    .is_ok()
+                );
+                if limit > 0 {
+                    let (r, _, b) = with(
+                        Limits::default().with(kind, Limit::Finite(limit - 1)),
+                        |cx| {
+                            cx.enter().unwrap();
+                            file.extrusion(node, cx)
+                        },
+                    );
+                    assert!(matches!(r, Err(Error::Stopped(_))), "{id}/{kind:?}");
+                    assert_eq!(b.used(Kind::Depth), 1);
+                }
+            }
+            for expired in [false, true] {
+                let (r, _, b) = with(Limits::default(), |cx| {
+                    if expired {
+                        cx.cancel.expire()
+                    } else {
+                        cx.cancel.cancel()
+                    };
+                    file.extrusion(node, cx)
+                });
+                assert!(matches!(r, Err(Error::Stopped(_))));
+                assert_eq!(b.used(Kind::Work), 0);
+                assert_eq!(b.used(Kind::DecodedBytes), 0);
+            }
+            let (_, _, b) = with(Limits::default(), |cx| {
+                cx.enter().unwrap();
+                file.extrusion(node, cx).unwrap()
             });
-            assert!(matches!(r, Err(Error::Stopped(_))));
-            assert_eq!(b.used(Kind::Work), 0);
-            assert_eq!(b.used(Kind::DecodedBytes), 0);
+            assert_eq!(b.used(Kind::Depth), 1);
         }
-        let (_, _, b) = with(Limits::default(), |cx| {
-            cx.enter().unwrap();
-            file.extrusion(node, cx).unwrap()
-        });
-        assert_eq!(b.used(Kind::Depth), 1);
     }
     let huge = source("IFC4").replace("'Rectangle'", &format!("'{}'", "x".repeat(100_000)));
     let file = read(&huge);
@@ -383,7 +387,7 @@ fn rejects_foreign_nodes_curve_cycles_and_nested_unit_factors() {
     let (r, _, b) = with(Limits::default(), |cx| file.extrusion(leaf(&shape, 32), cx));
     assert!(r.is_err());
     assert_eq!(b.used(Kind::Depth), 0);
-    let src=source("IFC4").replace("#3=IFCSIUNIT(*,.LENGTHUNIT.,.MILLI.,.METRE.);","#3=IFCCONVERSIONBASEDUNIT($,.LENGTHUNIT.,'foot',#4);\n#4=IFCMEASUREWITHUNIT(IFCLENGTHMEASURE(IFCLENGTHMEASURE(0.3048)),#5);\n#5=IFCSIUNIT(*,.LENGTHUNIT.,$,.METRE.);");
+    let src=source("IFC4").replace("#3=IFCSIUNIT(*,.LENGTHUNIT.,.MILLI.,.METRE.);","#3=IFCCONVERSIONBASEDUNIT(#6,.LENGTHUNIT.,'foot',#4);\n#4=IFCMEASUREWITHUNIT(IFCLENGTHMEASURE(IFCLENGTHMEASURE(0.3048)),#5);\n#5=IFCSIUNIT(*,.LENGTHUNIT.,$,.METRE.);\n#6=IFCDIMENSIONALEXPONENTS(1,0,0,0,0,0,0);");
     let file = read(&src);
     let shape = product(&file, 100);
     assert!(matches!(
@@ -465,7 +469,7 @@ fn public_cases() -> [(&'static str, u64, u64, u64, &'static str, &'static str);
 fn keeps_length_units_and_does_not_evaluate_unrequested_units() {
     let base = source("IFC4");
     let src=base.replace("#2=IFCUNITASSIGNMENT((#3));", "#2=IFCUNITASSIGNMENT((#3,#7));\n#7=IFCDERIVEDUNIT((),.THERMALTRANSMITTANCEUNIT.,$);")
-        .replace("#3=IFCSIUNIT(*,.LENGTHUNIT.,.MILLI.,.METRE.);", "#3=IFCCONVERSIONBASEDUNIT($,.LENGTHUNIT.,'foot',#4);\n#4=IFCMEASUREWITHUNIT(IFCLENGTHMEASURE(0.3048),#5);\n#5=IFCSIUNIT(*,.LENGTHUNIT.,$,.METRE.);");
+        .replace("#3=IFCSIUNIT(*,.LENGTHUNIT.,.MILLI.,.METRE.);", "#3=IFCCONVERSIONBASEDUNIT(#6,.LENGTHUNIT.,'foot',#4);\n#4=IFCMEASUREWITHUNIT(IFCLENGTHMEASURE(0.3048),#5);\n#5=IFCSIUNIT(*,.LENGTHUNIT.,$,.METRE.);\n#6=IFCDIMENSIONALEXPONENTS(1,0,0,0,0,0,0);");
     let file = read(&src);
     let result = value(&file, 30);
     let unit = result.length_unit.unwrap();
@@ -493,6 +497,228 @@ fn keeps_length_units_and_does_not_evaluate_unrequested_units() {
         with(Limits::default(), |cx| file.extrusion(leaf(&shape, 30), cx)).0,
         Err(Error::Unsupported)
     ));
+}
+
+fn invalid_unit_cases(version: &str) -> Vec<(&'static str, String, u64)> {
+    let src = source(version);
+    let conversion=src.replace("#3=IFCSIUNIT(*,.LENGTHUNIT.,.MILLI.,.METRE.);", "#3=IFCCONVERSIONBASEDUNIT(#6,.LENGTHUNIT.,'length',#4);\n#4=IFCMEASUREWITHUNIT(IFCLENGTHMEASURE(0.3048),#5);\n#5=IFCSIUNIT(*,.LENGTHUNIT.,.MILLI.,.METRE.);\n#6=IFCDIMENSIONALEXPONENTS(1,0,0,0,0,0,0);");
+    vec![
+        ("si-unknown-prefix", src.replace(".MILLI.", ".BOGUS."), 3),
+        ("si-numeric-prefix", src.replace(".MILLI.", "1."), 3),
+        (
+            "si-missing-prefix",
+            src.replace("*,.LENGTHUNIT.,.MILLI.,.METRE.)", "*,.LENGTHUNIT.,.METRE.)"),
+            3,
+        ),
+        ("si-derived-prefix", src.replace(".MILLI.", "*"), 3),
+        ("si-lower-prefix", src.replace(".MILLI.", ".milli."), 3),
+        ("si-area-name", src.replace(".METRE.", ".SQUARE_METRE."), 3),
+        ("si-unknown-name", src.replace(".METRE.", ".BOGUS."), 3),
+        ("si-numeric-name", src.replace(".METRE.", "1."), 3),
+        (
+            "si-explicit-dimensions",
+            src.replace("IFCSIUNIT(*,", "IFCSIUNIT($,"),
+            3,
+        ),
+        (
+            "base-unknown-prefix",
+            conversion.replace(".MILLI.", ".BOGUS."),
+            5,
+        ),
+        (
+            "base-numeric-prefix",
+            conversion.replace(".MILLI.", "1."),
+            5,
+        ),
+        ("base-derived-prefix", conversion.replace(".MILLI.", "*"), 5),
+        (
+            "base-missing-prefix",
+            conversion.replace("*,.LENGTHUNIT.,.MILLI.,.METRE.)", "*,.LENGTHUNIT.,.METRE.)"),
+            5,
+        ),
+        (
+            "base-area-name",
+            conversion.replace(".METRE.", ".SQUARE_METRE."),
+            5,
+        ),
+        (
+            "conversion-no-dimensions",
+            conversion.replace("IFCCONVERSIONBASEDUNIT(#6,", "IFCCONVERSIONBASEDUNIT($,"),
+            3,
+        ),
+        (
+            "conversion-missing-dimensions-reference",
+            conversion.replace("IFCCONVERSIONBASEDUNIT(#6,", "IFCCONVERSIONBASEDUNIT(#999,"),
+            3,
+        ),
+        (
+            "conversion-numeric-dimensions-reference",
+            conversion.replace("IFCCONVERSIONBASEDUNIT(#6,", "IFCCONVERSIONBASEDUNIT(1,"),
+            3,
+        ),
+        (
+            "conversion-area-dimensions",
+            conversion.replace("EXPONENTS(1,0,0,0,0,0,0)", "EXPONENTS(2,0,0,0,0,0,0)"),
+            6,
+        ),
+        (
+            "conversion-mass-dimensions",
+            conversion.replace("EXPONENTS(1,0,0,0,0,0,0)", "EXPONENTS(1,1,0,0,0,0,0)"),
+            6,
+        ),
+        (
+            "conversion-last-dimension",
+            conversion.replace("EXPONENTS(1,0,0,0,0,0,0)", "EXPONENTS(1,0,0,0,0,0,1)"),
+            6,
+        ),
+        (
+            "conversion-short-dimensions",
+            conversion.replace("EXPONENTS(1,0,0,0,0,0,0)", "EXPONENTS(1,0,0)"),
+            6,
+        ),
+        (
+            "conversion-real-dimensions",
+            conversion.replace("EXPONENTS(1,0,0,0,0,0,0)", "EXPONENTS(1.,0,0,0,0,0,0)"),
+            6,
+        ),
+        (
+            "conversion-cyclic-dimensions",
+            conversion.replace("IFCCONVERSIONBASEDUNIT(#6,", "IFCCONVERSIONBASEDUNIT(#3,"),
+            3,
+        ),
+    ]
+}
+
+#[test]
+fn rejects_invalid_si_prefix_names_and_conversion_dimensions_in_three_versions() {
+    let mut unexpected = Vec::new();
+    for version in VERSIONS {
+        for (label, src, place) in invalid_unit_cases(version) {
+            let file = read(&src);
+            let shape = product(&file, 100);
+            for id in [30, 31, 32] {
+                let (result, diag, budget) =
+                    with(Limits::default(), |cx| file.extrusion(leaf(&shape, id), cx));
+                if !matches!(result, Err(Error::Invalid)) {
+                    unexpected.push(format!("{version}/{id}/{label}"));
+                    continue;
+                }
+                assert_eq!(budget.used(Kind::Depth), 0);
+                let span = file.instance(place).unwrap().span();
+                let expected = zumen_base::Ref::at_bytes(span.start as u64, span.end as u64);
+                assert!(
+                    diag.iter()
+                        .filter(|d| d.code() == codes::IFC_EXTRUSION_INVALID)
+                        .flat_map(|d| d.places())
+                        .any(|p| p.bytes() == expected.bytes()),
+                    "{label}/{diag:?}"
+                );
+            }
+        }
+    }
+    assert!(
+        unexpected.is_empty(),
+        "不正単位の拒否が契約と異なる: {unexpected:?}"
+    );
+}
+
+#[test]
+fn keeps_all_sixteen_si_prefixes_and_null_for_direct_and_conversion_base_units() {
+    for version in VERSIONS {
+        for prefix in [
+            "$", ".EXA.", ".PETA.", ".TERA.", ".GIGA.", ".MEGA.", ".KILO.", ".HECTO.", ".DECA.",
+            ".DECI.", ".CENTI.", ".MILLI.", ".MICRO.", ".NANO.", ".PICO.", ".FEMTO.", ".ATTO.",
+        ] {
+            let direct = read(&source(version).replace(".MILLI.", prefix));
+            let converted = read(&conversion_source(version).replace(".MILLI.", prefix));
+            for id in [30, 31, 32] {
+                let direct = value(&direct, id).length_unit.unwrap();
+                assert_eq!(
+                    direct.prefix.as_deref(),
+                    if prefix == "$" {
+                        None
+                    } else {
+                        Some(prefix.trim_matches('.'))
+                    }
+                );
+                assert_eq!(direct.name, "METRE");
+                assert_eq!(direct.scale, None);
+                let converted = value(&converted, id);
+                let unit = converted.length_unit.as_ref().unwrap();
+                assert_eq!(unit.name, "scaled_length");
+                assert_eq!(unit.prefix, None);
+                assert!(unit.scale.is_some_and(|s| s.is_finite() && s > 0.));
+                assert!(
+                    converted
+                        .source
+                        .records
+                        .iter()
+                        .any(|r| r.id() == Some(6) && converted.source.solid.id() == Some(id))
+                );
+            }
+        }
+    }
+}
+
+fn dimension_stop_trace(file: &IfcFile, id: u64) -> String {
+    let shape = product(file, 100);
+    let node = leaf(&shape, id);
+    let span = file.instance(6).unwrap().span();
+    let place = zumen_base::Ref::at_bytes(span.start as u64, span.end as u64);
+    let mut trace = String::new();
+    for kind in [Kind::Work, Kind::DecodedBytes] {
+        let mut limit = 0;
+        let mut finished = false;
+        let mut dimension_stops = 0;
+        for checkpoint in 0..256 {
+            let (result, diag, budget) =
+                with(Limits::default().with(kind, Limit::Finite(limit)), |cx| {
+                    file.extrusion(node, cx)
+                });
+            assert_eq!(budget.used(Kind::Depth), 0);
+            match result {
+                Ok(result) => {
+                    assert!(result.source.records.iter().any(|r| r.id() == Some(6)));
+                    finished = true;
+                    break;
+                }
+                Err(Error::Stopped(zumen_base::Stop::Exceeded(exceeded)))
+                    if exceeded.kind == kind =>
+                {
+                    assert!(exceeded.requested > limit);
+                    if diag
+                        .iter()
+                        .flat_map(|d| d.places())
+                        .any(|p| p.bytes() == place.bytes())
+                    {
+                        dimension_stops += 1;
+                        if kind == Kind::DecodedBytes {
+                            assert_eq!(exceeded.requested, budget.used(kind) + 32);
+                        }
+                        trace += &format!(
+                            "{kind:?}/{checkpoint}/{limit}/{exceeded:?}\t{diag:?}\t{:?}\n",
+                            Kind::ALL.map(|k| budget.used(k))
+                        );
+                    }
+                    limit = exceeded.requested;
+                }
+                other => panic!("次元参照の停止: {other:?}/{diag:?}"),
+            }
+        }
+        assert!(finished);
+        assert!(dimension_stops > 0, "{id}/{kind:?}");
+    }
+    trace
+}
+
+#[test]
+fn reserves_conversion_dimensions_before_reading_and_reports_their_stop_span() {
+    for version in VERSIONS {
+        let file = read(&conversion_source(version));
+        for id in [30, 32] {
+            assert!(!dimension_stop_trace(&file, id).is_empty());
+        }
+    }
 }
 
 fn scan_limits(version: &str) -> Vec<(usize, u64)> {
@@ -850,6 +1076,36 @@ fn contract_export() -> String {
             Limits::default(),
             0,
         );
+    }
+    for version in VERSIONS {
+        for (label, src, _) in invalid_unit_cases(version) {
+            for id in [30, 31, 32] {
+                out += &contract_line(
+                    &src,
+                    &format!("{version}/unit/{label}/{id}"),
+                    id,
+                    Limits::default(),
+                    0,
+                );
+            }
+        }
+        let src = conversion_source(version);
+        let file = read(&src);
+        for id in [30, 32] {
+            out += &format!(
+                "{version}/dimensions/{id}\n{}",
+                dimension_stop_trace(&file, id)
+            );
+            for signal in 1..=2 {
+                out += &contract_line(
+                    &src,
+                    &format!("{version}/converted/{id}/signal{signal}"),
+                    id,
+                    Limits::default(),
+                    signal,
+                );
+            }
+        }
     }
     out
 }

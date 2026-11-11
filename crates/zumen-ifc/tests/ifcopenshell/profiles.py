@@ -48,6 +48,9 @@ def compare(path):
             leaves.add(item.id())
     length = next(u for u in model.by_type("IfcProject")[0].UnitsInContext.Units
                   if getattr(u, "UnitType", None) == "LENGTHUNIT")
+    exponents = ("LengthExponent", "MassExponent", "TimeExponent", "ElectricCurrentExponent",
+                 "ThermodynamicTemperatureExponent", "AmountOfSubstanceExponent", "LuminousIntensityExponent")
+    assert tuple(getattr(length.Dimensions, key) for key in exponents) == (1, 0, 0, 0, 0, 0, 0)
     if length.is_a() == "IfcSIUnit":
         unit = {"kind": length.UnitType, "name": length.Name, "prefix": length.Prefix, "scale": None}
     else:
@@ -55,6 +58,7 @@ def compare(path):
         factor = length.ConversionFactor
         base = factor.UnitComponent
         assert base.is_a() == "IfcSIUnit" and base.UnitType == "LENGTHUNIT"
+        assert base.Name == "METRE"
         assert base.Prefix in (None, "MILLI"), "この照合が使う接頭辞だけ"
         unit = {"kind": length.UnitType, "name": length.Name, "prefix": None,
                 "scale": factor.ValueComponent.wrappedValue * (0.001 if base.Prefix == "MILLI" else 1.0)}
