@@ -1,22 +1,42 @@
 ---
-// 下層のページの、パンくずと見出し。
+// 下層のページの見出し。パンくず・英語の肩書き・見出し・説明・ページ内の案内を左に、図面の飾りを右に置く。
 interface Props {
   title: string;
+  en: string;
   lead?: string;
+  // ページ内の節。節へ飛ぶリンクを、説明の下に並べる。
+  toc?: { id: string; label: string }[];
 }
 
-const { title, lead } = Astro.props;
+const { title, en, lead, toc } = Astro.props;
 ---
 
 <div class="page-header">
-  <div class="wrap">
-    <nav class="breadcrumbs" aria-label="現在の位置">
-      <ol>
-        <li><a href="/">トップ</a></li>
-        <li aria-current="page">{title}</li>
-      </ol>
-    </nav>
-    <h1>{title}</h1>
-    {lead && <p class="page-lead">{lead}</p>}
+  <div class="wrap page-header-body">
+    <div>
+      <nav class="breadcrumbs" aria-label="現在の位置">
+        <ol>
+          <li><a href="/">トップ</a></li>
+          <li aria-current="page">{title}</li>
+        </ol>
+      </nav>
+      <span class="shoulder" lang="en">{en}</span>
+      <h1>{title}</h1>
+      {lead && <p class="page-lead">{lead}</p>}
+      {
+        toc && (
+          <nav class="toc" aria-label="このページの内容">
+            <ul>
+              {toc.map((item) => (
+                <li>
+                  <a href={`#${item.id}`}>{item.label}</a>
+                </li>
+              ))}
+            </ul>
+          </nav>
+        )
+      }
+    </div>
+    <slot />
   </div>
 </div>

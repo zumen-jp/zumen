@@ -1,8 +1,8 @@
 ---
-import PageHeader from '../components/PageHeader.astro';
+import Elevation from '../components/drawings/Elevation.astro';
 import SectionHead from '../components/SectionHead.astro';
 import { decision, repo } from '../data/site';
-import Base from '../layouts/Base.astro';
+import Page from '../layouts/Page.astro';
 
 const policies = [
   { title: 'どこでも同じ結果', body: 'ブラウザー・サーバー・Python・.NET などで、同じファイルから同じ結果を返します。', link: decision('0007-single-rust-implementation.md') },
@@ -13,12 +13,19 @@ const policies = [
 ];
 ---
 
-<Base title="特長" description="zumen の特長・5 つの方針・仕組みを説明します。">
-  <PageHeader title="特長" lead="zumen が何をするライブラリ群か、どのように作っているかを説明します。" />
+<Page
+  description="zumen の特長・5 つの方針・仕組みを説明します。"
+  toc={[
+    { id: 'about', label: '概要' },
+    { id: 'principles', label: '5 つの方針' },
+    { id: 'architecture', label: '仕組み' },
+  ]}
+>
+  <Elevation slot="drawing" />
 
-  <section class="section">
+  <section class="section" id="about" aria-labelledby="about-title">
     <div class="wrap">
-      <SectionHead title="zumen の概要" en="About" />
+      <SectionHead id="about-title" title="zumen の概要" en="About" />
       <div class="table-scroll">
         <table class="table spec">
           <tbody>
@@ -36,9 +43,9 @@ const policies = [
     </div>
   </section>
 
-  <section class="section section-alt">
+  <section class="section section-alt" id="principles" aria-labelledby="principles-title">
     <div class="wrap">
-      <SectionHead title="5 つの方針" en="Principles" />
+      <SectionHead id="principles-title" title="5 つの方針" en="Principles" />
       <ol class="cards">
         {
           policies.map((p, i) => (
@@ -54,9 +61,9 @@ const policies = [
     </div>
   </section>
 
-  <section class="section">
+  <section class="section" id="architecture" aria-labelledby="architecture-title">
     <div class="wrap">
-      <SectionHead title="仕組み" en="Architecture" />
+      <SectionHead id="architecture-title" title="仕組み" en="Architecture" />
       <div class="flow">
         <div class="flow-box">
           <h3>使う所</h3>
@@ -81,4 +88,4 @@ const policies = [
       <p class="note">文言はコアに持たせず、日本語と英語のカタログから引きます。各言語への約束は、適合テストのハッシュで確かめます。</p>
     </div>
   </section>
-</Base>
+</Page>

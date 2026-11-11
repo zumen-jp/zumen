@@ -3,12 +3,22 @@
 export const repo = 'https://github.com/zumen-jp/zumen';
 export const decision = (file: string) => `${repo}/blob/main/docs/decisions/${file}`;
 
-export const nav = [
-  { href: '/features/', label: '特長' },
-  { href: '/formats/', label: '対応形式' },
-  { href: '/platforms/', label: '対応環境' },
-  { href: '/news/', label: 'お知らせ' },
-  { href: '/faq/', label: 'よくある質問' },
+// 下層のページ。ナビ・ページの見出し・ページの終わりの「ほかのページ」に使う。
+export interface Page {
+  href: string;
+  label: string;
+  // 見出しの上に添える英語の肩書き
+  en: string;
+  // 見出しの下と、ほかのページからの案内に出す説明
+  lead: string;
+}
+
+export const nav: Page[] = [
+  { href: '/features/', label: '特長', en: 'Features', lead: 'zumen が何をするライブラリ群か、どのように作っているかを説明します。' },
+  { href: '/formats/', label: '対応形式', en: 'Formats', lead: '形式ごとの、読む・書くの状況と、実装を置く所です。' },
+  { href: '/platforms/', label: '対応環境', en: 'Platforms', lead: '言語ごとの約束、OS とブラウザーの下限、使えるホストアプリです。' },
+  { href: '/news/', label: 'お知らせ', en: 'News', lead: 'リリースと、開発の大きな節目を知らせます。' },
+  { href: '/faq/', label: 'よくある質問', en: 'FAQ', lead: 'zumen について、よくいただく質問と答えです。' },
 ];
 
 // お知らせは、リリースと大きな節目だけを書く。日々の変更は GitHub の PR とリリースノートに任せる。

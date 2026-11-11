@@ -1,0 +1,36 @@
+---
+// 下層のページの枠。見出しに図面の飾りを添え、本文のあとに、ほかのページへの案内と GitHub への誘いを置く。
+import GithubCta from '../components/GithubCta.astro';
+import MorePages from '../components/MorePages.astro';
+import PageHeader from '../components/PageHeader.astro';
+import SectionHead from '../components/SectionHead.astro';
+import { nav } from '../data/site';
+import Base from './Base.astro';
+
+interface Props {
+  description: string;
+  toc?: { id: string; label: string }[];
+}
+
+const { description, toc } = Astro.props;
+const page = nav.find((item) => item.href === Astro.url.pathname);
+if (!page) {
+  throw new Error(`site.ts の nav にないページです: ${Astro.url.pathname}`);
+}
+---
+
+<Base title={page.label} description={description}>
+  <PageHeader title={page.label} en={page.en} lead={page.lead} toc={toc}>
+    <slot name="drawing" />
+  </PageHeader>
+
+  <slot />
+
+  <section class="section page-end" aria-labelledby="more-title">
+    <div class="wrap">
+      <SectionHead id="more-title" title="ほかのページ" en="More" />
+      <MorePages current={page.href} />
+    </div>
+  </section>
+  <GithubCta />
+</Base>

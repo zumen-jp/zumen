@@ -1,0 +1,26 @@
+---
+// ほかの下層のページへの案内。下層のページの終わりに置く。
+import { nav } from '../data/site';
+
+interface Props {
+  current: string;
+}
+
+const { current } = Astro.props;
+---
+
+<ul class="page-links">
+  {
+    nav
+      .filter((page) => page.href !== current)
+      .map((page) => (
+        <li>
+          <a href={page.href}>
+            <span class="shoulder" lang="en">{page.en}</span>
+            <strong>{page.label}</strong>
+            <span class="page-links-lead">{page.lead}</span>
+          </a>
+        </li>
+      ))
+  }
+</ul>

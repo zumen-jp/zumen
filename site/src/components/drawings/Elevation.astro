@@ -1,0 +1,80 @@
+---
+// 南立面図の例。トップの平面図と同じ住戸を南から見る（単位は 10 mm、GL を 0 にする）。
+import Sheet from './Sheet.astro';
+
+const axes = [
+  { x: 0, name: 'X1' },
+  { x: 364, name: 'X2' },
+  { x: 637, name: 'X3' },
+];
+const levels = [
+  { y: 0, name: 'GL' },
+  { y: -50, name: '1FL' },
+  { y: -320, name: '軒高' },
+  { y: -470, name: '最高高さ' },
+];
+// 外壁の横張りの目地と、地盤の斜線
+const siding = Array.from({ length: 13 }, (_, i) => `M-6 ${-72 - i * 30}H643`).join('');
+const ground = Array.from({ length: 38 }, (_, i) => `M${-226 + i * 26} 0l-13 13`).join('');
+---
+
+<Sheet viewBox="-260 -515 1110 650" caption="南立面図（例）　S=1/100">
+  <defs>
+    <clipPath id="elevation-wall"><path d="M-6 -40V-320L318.5 -452L643 -320V-40Z" /></clipPath>
+  </defs>
+
+  <!-- 通り芯。建物の後ろを通し、屋根の上と地盤の下に見せる -->
+  <path class="d-axis" d={axes.map((a) => `M${a.x} -505V78`).join('')} />
+
+  <!-- 植栽 -->
+  <rect class="d-paper" x="-184" y="-150" width="12" height="150" />
+  <circle class="d-paper" cx="-178" cy="-214" r="70" />
+  <path class="d-faint" d="M-222 -230a40 40 0 0 1 34 -36M-150 -170a36 36 0 0 0 20 -40" />
+
+  <!-- 外壁と基礎 -->
+  <path class="d-paper" d="M-6 -40V-320L318.5 -452L643 -320V-40Z" />
+  <path class="d-faint" d={siding} clip-path="url(#elevation-wall)" />
+  <rect class="d-paper" x="-12" y="-40" width="661" height="40" />
+
+  <!-- 屋根と換気口 -->
+  <path class="d-solid" d="M-51.5 -320L318.5 -470L688.5 -320V-302L318.5 -452L-51.5 -302Z" />
+  <rect class="d-paper" x="298.5" y="-412" width="40" height="28" />
+  <path class="d-line" d="M298.5 -402.7H338.5M298.5 -393.3H338.5" />
+
+  <!-- 窓 -->
+  <rect class="d-paper" x="80" y="-250" width="220" height="200" />
+  <path class="d-line" d="M88 -242H292V-58H88ZM190 -242V-58" />
+  <rect class="d-paper" x="380" y="-250" width="180" height="110" />
+  <path class="d-line" d="M388 -242H552V-148H388ZM470 -242V-148" />
+  <path class="d-faint" d="M112 -150l44 -44M126 -116l30 -30M216 -150l44 -44M412 -168l30 -30M494 -168l30 -30" />
+
+  <!-- 地盤 -->
+  <path class="d-bold" d="M-250 0H800" />
+  <path class="d-line" d={ground} />
+
+  <!-- 寸法 -->
+  <path class="d-dim" d="M0 46H637" />
+  <path class="d-tick" d="M-7 53L7 39M357 53L371 39M630 53L644 39" />
+  <text class="d-dim-t" x="182" y="34">3,640</text>
+  <text class="d-dim-t" x="500.5" y="34">2,730</text>
+
+  <!-- 通り芯の符号 -->
+  {
+    axes.map((a) => (
+      <>
+        <circle class="d-bubble" cx={a.x} cy="104" r="26" />
+        <text class="d-bubble-t" x={a.x} y="104">{a.name}</text>
+      </>
+    ))
+  }
+
+  <!-- 高さ -->
+  {
+    levels.map((l) => (
+      <>
+        <path class="d-line" d={`M700 ${l.y}H836M716 ${l.y - 18}h24l-12 18z`} />
+        <text class="d-text" x="748" y={l.y - 8}>{l.name}</text>
+      </>
+    ))
+  }
+</Sheet>

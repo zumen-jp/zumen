@@ -1,15 +1,19 @@
 ---
+import Schedule from '../components/drawings/Schedule.astro';
 import NewsList from '../components/NewsList.astro';
-import PageHeader from '../components/PageHeader.astro';
-import { news } from '../data/site';
-import Base from '../layouts/Base.astro';
+import { news, repo } from '../data/site';
+import Page from '../layouts/Page.astro';
 ---
 
-<Base title="お知らせ" description="zumen の開発の進み具合と、決めたことです。">
-  <PageHeader title="お知らせ" />
+<Page description="zumen の開発の進み具合と、決めたことです。">
+  <Schedule slot="drawing" />
+
   <section class="section">
     <div class="wrap">
       <NewsList items={news} />
+      <p class="note">
+        日々の変更は、GitHub の<a href={`${repo}/pulls?q=is%3Apr+is%3Amerged`}>マージした PR</a> で見られます。これからの作業は、<a href={`${repo}/issues/1`}>計画の issue</a> にまとめています。
+      </p>
     </div>
   </section>
-</Base>
+</Page>

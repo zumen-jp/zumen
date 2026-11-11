@@ -1,8 +1,8 @@
 ---
-import PageHeader from '../components/PageHeader.astro';
+import SitePlan from '../components/drawings/SitePlan.astro';
 import SectionHead from '../components/SectionHead.astro';
 import { decision, hostApps, repo } from '../data/site';
-import Base from '../layouts/Base.astro';
+import Page from '../layouts/Page.astro';
 
 const os = [
   ['Windows', 'Windows 10、Windows Server 2016（x64・x86・ARM64）'],
@@ -27,12 +27,20 @@ const packages = [
 ];
 ---
 
-<Base title="対応環境" description="言語の Tier、OS とブラウザーの下限、使えるホストアプリ、配布の名前です。">
-  <PageHeader title="対応環境" lead="言語ごとの約束、OS とブラウザーの下限、使えるホストアプリです。" />
+<Page
+  description="言語の Tier、OS とブラウザーの下限、使えるホストアプリ、配布の名前です。"
+  toc={[
+    { id: 'languages', label: '言語の Tier' },
+    { id: 'requirements', label: 'OS とブラウザー' },
+    { id: 'host-apps', label: 'ホストアプリ' },
+    { id: 'packages', label: '配布の名前' },
+  ]}
+>
+  <SitePlan slot="drawing" />
 
-  <section class="section">
+  <section class="section" id="languages" aria-labelledby="languages-title">
     <div class="wrap">
-      <SectionHead title="言語の Tier" en="Languages" />
+      <SectionHead id="languages-title" title="言語の Tier" en="Languages" />
       <div class="cards">
         <div class="card">
           <h3>Tier 1</h3>
@@ -54,9 +62,9 @@ const packages = [
     </div>
   </section>
 
-  <section class="section section-alt">
+  <section class="section section-alt" id="requirements" aria-labelledby="requirements-title">
     <div class="wrap">
-      <SectionHead title="OS とブラウザー" en="Requirements" />
+      <SectionHead id="requirements-title" title="OS とブラウザー" en="Requirements" />
       <div class="table-scroll">
         <table class="table spec">
           <tbody>{os.map(([k, v]) => <tr><th scope="row">{k}</th><td>{v}</td></tr>)}</tbody>
@@ -66,16 +74,16 @@ const packages = [
     </div>
   </section>
 
-  <section class="section">
+  <section class="section" id="host-apps" aria-labelledby="host-apps-title">
     <div class="wrap">
-      <SectionHead title="使えるホストアプリ（予定）" en="Host apps" />
+      <SectionHead id="host-apps-title" title="使えるホストアプリ（予定）" en="Host apps" />
       <ul class="chips chips-lg">{hostApps.map((a) => <li>{a}</li>)}</ul>
     </div>
   </section>
 
-  <section class="section section-alt">
+  <section class="section section-alt" id="packages" aria-labelledby="packages-title">
     <div class="wrap">
-      <SectionHead title="配布の名前（予定）" en="Packages" />
+      <SectionHead id="packages-title" title="配布の名前（予定）" en="Packages" />
       <div class="table-scroll">
         <table class="table spec">
           <tbody>{packages.map(([k, v]) => <tr><th scope="row">{k}</th><td><code>{v}</code></td></tr>)}</tbody>
@@ -84,4 +92,4 @@ const packages = [
       <p class="note">まだどれも公開していません。npm の素の <code>zumen</code> はほかの人のパッケージなので、<code>npx zumen</code> を使わないでください。</p>
     </div>
   </section>
-</Base>
+</Page>

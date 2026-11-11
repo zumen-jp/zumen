@@ -1,24 +1,69 @@
 ---
+import Profile from '../components/drawings/Profile.astro';
 import FormatTable from '../components/FormatTable.astro';
-import PageHeader from '../components/PageHeader.astro';
 import SectionHead from '../components/SectionHead.astro';
 import { decision, formats, repo } from '../data/site';
-import Base from '../layouts/Base.astro';
+import Page from '../layouts/Page.astro';
+
+// 実装を置く所ごとの考え方。対応形式の表の「置き場所」と同じ言葉で、形式を振り分ける（決定 0017）。
+const places = [
+  {
+    title: 'コア',
+    place: 'コア',
+    body: '実装を公開するのに第三者の許諾が要らない形式です。このリポジトリで作り、どの言語からも同じように使えます。',
+  },
+  {
+    title: '外部のプラグイン',
+    place: '外部のプラグイン',
+    body: '実装を公開するのに第三者の許諾が要る形式です。コアと同じ SDK で、別のリポジトリに作ります。',
+  },
+  {
+    title: '扱わない',
+    place: '権利を確かめられるまで扱わない',
+    body: '権利を確かめられるまで、コアにもプラグインにも入れません。',
+  },
+].map((p) => ({ ...p, names: formats.filter((f) => f.place === p.place).map((f) => f.name) }));
 ---
 
-<Base title="対応形式" description="形式ごとの、読む・書くの状況と、実装を置く所です。">
-  <PageHeader title="対応形式" lead="形式ごとの、読む・書くの状況と、実装を置く所です。" />
+<Page
+  description="形式ごとの、読む・書くの状況と、実装を置く所です。"
+  toc={[
+    { id: 'status', label: '形式の一覧' },
+    { id: 'rights', label: '権利と置き場所' },
+  ]}
+>
+  <Profile slot="drawing" />
 
-  <section class="section">
+  <section class="section" id="status" aria-labelledby="status-title">
     <div class="wrap">
-      <SectionHead title="形式の一覧" en="Status" />
+      <SectionHead id="status-title" title="形式の一覧" en="Status" />
       <FormatTable items={formats} />
       <p class="note">2026 年 10 月の時点の状況です。まだどの形式も、パッケージとして公開していません。</p>
+    </div>
+  </section>
 
-      <h3>権利の考え方</h3>
+  <section class="section section-alt" id="rights" aria-labelledby="rights-title">
+    <div class="wrap">
+      <SectionHead id="rights-title" title="権利と置き場所" en="Rights" />
       <p>
         実装を公開するのに第三者の許諾が要る形式は、コアに入れず、同じ SDK で作る外部のプラグインにします（<a href={decision('0017-format-rights-ledger-and-plugin-sdk.md')}>決定 0017</a>）。形式ごとの仕様の入手先と権利の根拠は、<a href={`${repo}/blob/main/docs/formats/README.md`}>形式と権利の一覧</a>にあります。
       </p>
+      <ol class="cards places">
+        {
+          places.map((p, i) => (
+            <li class="card">
+              <span class="card-no">{String(i + 1).padStart(2, '0')}</span>
+              <h3>{p.title}</h3>
+              <p>{p.body}</p>
+              <ul class="chips">
+                {p.names.map((name) => (
+                  <li>{name}</li>
+                ))}
+              </ul>
+            </li>
+          ))
+        }
+      </ol>
     </div>
   </section>
-</Base>
+</Page>
