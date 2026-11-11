@@ -20,6 +20,8 @@ use zumen_sdk::{Apply, Codec, Error, Lift};
 
 use super::bake;
 use super::template::NewDxfTemplate;
+use crate::conversion_report::Report;
+use crate::{ConversionFidelity, ConversionReport};
 use crate::{Dxf, DxfFile};
 
 /// 図面モデルから書いたファイルと、そのバイト列、足した要素の数
@@ -31,6 +33,8 @@ pub struct Lowered {
     pub bytes: Vec<u8>,
     /// 足した要素の数
     pub elements: u64,
+    /// 書き手が採用・棄却した項目の集計と、指定した上限までの明細
+    pub report: ConversionReport,
 }
 
 /// 要素の形を、書く先の空間か用紙に移す方法。移せない形は `None` で、その要素は落として診断にする
@@ -50,6 +54,22 @@ pub trait Relocate {
     fn model(&self, shape: &Shape<ModelPoint>, origin: ModelPoint) -> Option<Shape<ModelPoint>>;
     /// 用紙に書く形
     fn paper(&self, shape: &Shape<PaperPoint>, origin: PaperPoint) -> Option<Shape<PaperPoint>>;
+    /// 実寸の形の移し方が保つ忠実度。独自の移し方は、既定では見た目だけとする
+    fn fidelity_model(
+        &self,
+        _source: &Shape<ModelPoint>,
+        _output: &Shape<ModelPoint>,
+    ) -> ConversionFidelity {
+        ConversionFidelity::Drawn
+    }
+    /// 用紙の形の移し方が保つ忠実度。既定の扱いは [`Self::fidelity_model`] と同じ
+    fn fidelity_paper(
+        &self,
+        _source: &Shape<PaperPoint>,
+        _output: &Shape<PaperPoint>,
+    ) -> ConversionFidelity {
+        ConversionFidelity::Drawn
+    }
 }
 
 /// 点と実寸の長さの空間（用紙の点なら用紙）を、書く先のものに付け替える。座標と値は変えない。表・下絵・ハッチングは、
@@ -59,6 +79,21 @@ pub trait Relocate {
 pub struct Reseat;
 
 impl Relocate for Reseat {
+    fn fidelity_model(
+        &self,
+        _source: &Shape<ModelPoint>,
+        _output: &Shape<ModelPoint>,
+    ) -> ConversionFidelity {
+        ConversionFidelity::Equivalent
+    }
+
+    fn fidelity_paper(
+        &self,
+        _source: &Shape<PaperPoint>,
+        _output: &Shape<PaperPoint>,
+    ) -> ConversionFidelity {
+        ConversionFidelity::Equivalent
+    }
     fn model(&self, shape: &Shape<ModelPoint>, origin: ModelPoint) -> Option<Shape<ModelPoint>> {
         reseat(
             shape,
@@ -120,14 +155,47 @@ pub fn lower_to_dxf_with(
     relocate: &dyn Relocate,
     cx: &mut Cx<'_>,
 ) -> Result<Lowered, Error> {
+    lower_to_dxf_with_report(drawing, relocate, 0, cx)
+}
+
+/// 図面モデルを DXF に書き、全件の集計と `limit` 件までの明細を返す
+///
+/// 明細の上限は出力と診断に影響しない。同じ出所を持つ別の項目も、それぞれ数える。
+///
+/// # Errors
+///
+/// [`lower_to_dxf`] と同じ
+pub fn lower_to_dxf_with_report(
+    drawing: &Drawing2D,
+    relocate: &dyn Relocate,
+    limit: u64,
+    cx: &mut Cx<'_>,
+) -> Result<Lowered, Error> {
+    let mut record = Report::new(limit);
+    let report = &mut record;
     let template = NewDxfTemplate::new(drawing);
     // ひな形は、キーごとに先の定義だけを書き、それが外部参照なら書かない（`NewDxfTemplate::new`、#656）。書かない
     // 定義をここで報告する。外部参照の定義を置いた記号は、下の要素で報告する
     for (index, definition) in drawing.symbols.iter().enumerate() {
         if template.duplicate(index) {
-            report_dropped(cx, "duplicate_symbol_definition", &definition.source);
+            report_dropped(
+                cx,
+                report,
+                "duplicate_symbol_definition",
+                &definition.source,
+            )?;
         } else if definition.external.is_some() {
-            report_dropped(cx, "external_symbol_definition", &definition.source);
+            report_dropped(cx, report, "external_symbol_definition", &definition.source)?;
+        } else {
+            report
+                .record(
+                    "symbol_definition",
+                    ConversionFidelity::Equivalent,
+                    &definition.source,
+                    0,
+                    cx,
+                )
+                .map_err(|error| failed(cx, error))?;
         }
     }
     // ひな形を符号化できなかったとき（不具合）は空。空のバイト列も読めてしまうので、ここで内部の失敗にする
@@ -152,6 +220,17 @@ pub fn lower_to_dxf_with(
                 "line_type",
                 &line_type.source,
             ));
+        } else {
+            report
+                .record_with_reasons(
+                    "line_type",
+                    ConversionFidelity::Drawn,
+                    &line_type.source,
+                    0,
+                    &["template_definition"],
+                    cx,
+                )
+                .map_err(|error| failed(cx, error))?;
         }
     }
     for style in &drawing.text_styles {
@@ -168,6 +247,17 @@ pub fn lower_to_dxf_with(
                 "text_style",
                 &style.source,
             ));
+        } else {
+            report
+                .record_with_reasons(
+                    "text_style",
+                    ConversionFidelity::Drawn,
+                    &style.source,
+                    0,
+                    &["template_definition"],
+                    cx,
+                )
+                .map_err(|error| failed(cx, error))?;
         }
     }
     for style in &drawing.dimension_styles {
@@ -187,9 +277,20 @@ pub fn lower_to_dxf_with(
                 "dimension_style",
                 &style.source,
             ));
+        } else {
+            report
+                .record_with_reasons(
+                    "dimension_style",
+                    ConversionFidelity::Drawn,
+                    &style.source,
+                    0,
+                    &["template_definition"],
+                    cx,
+                )
+                .map_err(|error| failed(cx, error))?;
         }
     }
-    add_all(&mut file, edits, None, cx)?;
+    add_all(&mut file, edits, None, report, cx)?;
 
     // 2. レイヤ。線種は、書いた先の ID に直す
     let target = lift(&file, cx)?;
@@ -199,9 +300,19 @@ pub fn lower_to_dxf_with(
     for layer in &drawing.layers {
         cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
         if let Some(existing) = find_layer(&target, &layer.name) {
+            report
+                .record_with_reasons(
+                    "layer",
+                    ConversionFidelity::Drawn,
+                    &layer.source,
+                    0,
+                    &["template_definition"],
+                    cx,
+                )
+                .map_err(|error| failed(cx, error))?;
             // 同じひな形の画層を指す入力が複数あれば先の画層を使う。
             if !reused.insert(existing.id) {
-                report_layer_fields(layer, cx);
+                report_layer_fields(layer, report, cx)?;
             } else if has_layer_fields(layer) {
                 fields.push(layer);
             }
@@ -260,10 +371,25 @@ pub fn lower_to_dxf_with(
             "layer",
             &layer.source,
         );
+        if style
+            .line_type
+            .is_some_and(|id| map_line_type(drawing, &target, id).is_none())
+        {
+            addition.reasons.push("line_type_default");
+        }
+        if style.color.is_some_and(|original| original != color) {
+            addition.reasons.push("color_code");
+        }
+        if layer.state.is_some_and(|original| original != state) {
+            addition.reasons.push("layer_state");
+        }
+        if !addition.reasons.is_empty() {
+            addition.fidelity = ConversionFidelity::Drawn;
+        }
         addition.layer_fields = has_layer_fields(layer).then_some(layer);
         edits.push(addition);
     }
-    fields.extend(add_all(&mut file, edits, None, cx)?.layer_fields);
+    fields.extend(add_all(&mut file, edits, None, report, cx)?.layer_fields);
 
     // 3. 要素。記号の定義の中身を先に、実寸の空間の要素を後に足す
     let target = lift(&file, cx)?;
@@ -294,7 +420,7 @@ pub fn lower_to_dxf_with(
         };
         for element in &definition.space.elements {
             cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
-            maps.element(element, place, &mut edits, cx);
+            maps.element(element, place, &mut edits, report, cx)?;
         }
         for attribute in &definition.attributes {
             cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
@@ -305,9 +431,14 @@ pub fn lower_to_dxf_with(
                     style: attribute.attribute.style,
                     shape: Shape::Text(attribute.attribute.text.clone()),
                 };
-                maps.element(&text, place, &mut edits, cx);
+                maps.element(&text, place, &mut edits, report, cx)?;
             } else {
-                report_dropped(cx, "attribute_definition", &attribute.attribute.source);
+                report_dropped(
+                    cx,
+                    report,
+                    "attribute_definition",
+                    &attribute.attribute.source,
+                )?;
             }
         }
     }
@@ -318,7 +449,7 @@ pub fn lower_to_dxf_with(
     {
         for element in &space.elements {
             cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
-            maps.element(element, &model, &mut edits, cx);
+            maps.element(element, &model, &mut edits, report, cx)?;
         }
     }
     // 用紙は 1 つだけ書ける（DXF の Paper_Space）。ほかの用紙は落とす
@@ -334,12 +465,34 @@ pub fn lower_to_dxf_with(
     for (index, sheet) in drawing.sheets.iter().enumerate() {
         cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
         let Some(paper) = paper.as_ref().filter(|_| index == 0) else {
-            report_dropped(cx, "sheet", &sheet.source);
+            report_dropped(cx, report, "sheet", &sheet.source)?;
             for view in &sheet.views {
-                report_dropped(cx, "view", &view.source);
+                report_dropped(cx, report, "view", &view.source)?;
+            }
+            for element in &sheet.elements {
+                report
+                    .record_with_reasons(
+                        kind_of(&element.shape),
+                        ConversionFidelity::Dropped,
+                        &element.source,
+                        0,
+                        &["sheet"],
+                        cx,
+                    )
+                    .map_err(|error| failed(cx, error))?;
             }
             continue;
         };
+        report
+            .record_with_reasons(
+                "sheet",
+                ConversionFidelity::Drawn,
+                &sheet.source,
+                0,
+                &["template_sheet"],
+                cx,
+            )
+            .map_err(|error| failed(cx, error))?;
         // 要素とビューを描く順に書く。横と縦の尺度の違うビューは、用紙の要素に焼き込む（決定 0238）。
         // ほかのビューは書けない
         let items: Vec<SheetItem> = if sheet.order.len() == sheet.elements.len() + sheet.views.len()
@@ -356,7 +509,7 @@ pub fn lower_to_dxf_with(
             match item {
                 SheetItem::Element(index) => {
                     if let Some(element) = sheet.elements.get(index) {
-                        maps.element(element, paper, &mut edits, cx);
+                        maps.element(element, paper, &mut edits, report, cx)?;
                     }
                 }
                 SheetItem::View(index) => {
@@ -364,11 +517,14 @@ pub fn lower_to_dxf_with(
                         continue;
                     };
                     if NewDxfTemplate::writes_viewport(view, sheet) {
+                        report
+                            .record("view", ConversionFidelity::Equivalent, &view.source, 0, cx)
+                            .map_err(|error| failed(cx, error))?;
                         continue;
                     }
                     let space = drawing.spaces.iter().find(|space| space.id == view.space);
                     let Some(space) = space.filter(|_| bake::bakes(view)) else {
-                        report_dropped(cx, "view", &view.source);
+                        report_dropped(cx, report, "view", &view.source)?;
                         continue;
                     };
                     cx.report(
@@ -376,6 +532,16 @@ pub fn lower_to_dxf_with(
                             .with("format", "DXF")
                             .at(view.source.clone()),
                     );
+                    report
+                        .record_with_reasons(
+                            "view",
+                            ConversionFidelity::Approximated,
+                            &view.source,
+                            0,
+                            &["baked_view"],
+                            cx,
+                        )
+                        .map_err(|error| failed(cx, error))?;
                     for element in bake::elements(space, view) {
                         // 曲線を折れ線にする手間と作る点を、作る前に数えられるものは前に、ほかは作ったあとに
                         // 数える（#753・#756）
@@ -390,8 +556,21 @@ pub fn lower_to_dxf_with(
                         cx.check(Kind::Segments, baked.points)
                             .map_err(|stop| stopped(cx, stop))?;
                         match baked.element {
-                            Some(baked) => maps.element(&baked, paper, &mut edits, cx),
-                            None => report_dropped(cx, kind_of(&element.shape), &element.source),
+                            Some(baked) => {
+                                let before = edits.len();
+                                maps.element(&baked, paper, &mut edits, report, cx)?;
+                                for addition in edits.iter_mut().skip(before) {
+                                    addition.fidelity =
+                                        addition.fidelity.max(ConversionFidelity::Drawn);
+                                    addition.reasons.push("baked_view");
+                                }
+                            }
+                            None => report_dropped(
+                                cx,
+                                report,
+                                kind_of(&element.shape),
+                                &element.source,
+                            )?,
                         }
                     }
                 }
@@ -399,42 +578,107 @@ pub fn lower_to_dxf_with(
         }
     }
     let paper = paper.map(|place| (place.id, place.origin.sheet));
-    let elements = add_all(&mut file, edits, paper, cx)?.elements;
+    let elements = add_all(&mut file, edits, paper, report, cx)?.elements;
     let db = quiet(cx, |cx| file.objects(cx)).map_err(|error| failed(cx, error))?;
     let db = db
-        .finish_new_dxf_tables(&fields, cx)
+        .finish_new_dxf_tables_with_report(&fields, report, cx)
         .map_err(|error| failed(cx, error))?;
     quiet(cx, |cx| file.write_back(&db, cx)).map_err(|error| failed(cx, error))?;
     let mut bytes = Vec::new();
     // 止めたときは、書き出しが報告する
     Dxf::write(&file, &mut bytes, cx)?;
+    // lower は形式固有の拡張や表題欄の意味、文書の既定値を書かない。図形の成功と別の項目にして、
+    // 図形が書けたことを、これらの値も保てたという結果にしない。
+    for extension in &drawing.extensions {
+        report
+            .record_with_reasons(
+                "extension",
+                ConversionFidelity::Dropped,
+                &extension.source,
+                0,
+                &["format_extension"],
+                cx,
+            )
+            .map_err(|error| failed(cx, error))?;
+    }
+    for title in &drawing.title_blocks {
+        report
+            .record_with_reasons(
+                "title_block",
+                ConversionFidelity::Dropped,
+                &title.source,
+                0,
+                &["semantic_fields"],
+                cx,
+            )
+            .map_err(|error| failed(cx, error))?;
+    }
+    for (kind, present) in [
+        ("line_type_scale", drawing.line_type_scale.is_some()),
+        ("default_line_weight", drawing.default_line_weight.is_some()),
+        ("default_color", drawing.default_color.is_some()),
+        ("default_line_type", drawing.default_line_type.is_some()),
+        ("point_style", drawing.point_style.is_some()),
+    ] {
+        if present {
+            report
+                .record_with_reasons(
+                    kind,
+                    ConversionFidelity::Dropped,
+                    &Ref::default(),
+                    0,
+                    &["document_default"],
+                    cx,
+                )
+                .map_err(|error| failed(cx, error))?;
+        }
+    }
     Ok(Lowered {
         file,
         bytes,
         elements,
+        report: record.finish(cx).map_err(|error| failed(cx, error))?,
     })
 }
 
-fn report_dropped(cx: &mut Cx<'_>, kind: &'static str, source: &Ref) {
+fn report_dropped(
+    cx: &mut Cx<'_>,
+    report: &mut Report,
+    kind: &'static str,
+    source: &Ref,
+) -> Result<(), Error> {
+    report
+        .record(kind, ConversionFidelity::Dropped, source, 0, cx)
+        .map_err(|error| failed(cx, error))?;
     cx.report(
         Diagnostic::new(codes::CONVERT_ELEMENT_UNSUPPORTED)
             .with("kind", Value::Key(kind))
             .with("format", "DXF")
             .at(source.clone()),
     );
+    Ok(())
 }
 
 fn has_layer_fields(layer: &Layer) -> bool {
     layer.description.is_some() || layer.style.and_then(|style| style.transparency).is_some()
 }
 
-fn report_layer_fields(layer: &Layer, cx: &mut Cx<'_>) {
+fn report_layer_fields(layer: &Layer, report: &mut Report, cx: &mut Cx<'_>) -> Result<(), Error> {
     let transparency = layer.style.and_then(|style| style.transparency);
     for (field, present) in [
         ("description", layer.description.is_some()),
         ("transparency", transparency.is_some()),
     ] {
         if present {
+            report
+                .record(
+                    &format!("layer_{field}"),
+                    ConversionFidelity::Dropped,
+                    &layer.source,
+                    0,
+                    cx,
+                )
+                .map_err(|error| failed(cx, error))?;
             cx.report(
                 Diagnostic::new(codes::CONVERT_LAYER_FIELD_DROPPED)
                     .with("field", Value::Key(field))
@@ -443,6 +687,7 @@ fn report_layer_fields(layer: &Layer, cx: &mut Cx<'_>) {
             );
         }
     }
+    Ok(())
 }
 
 /// 追加と、失敗したときに返す元の種類・場所。属性の描画は、追加が通ってから数える。
@@ -452,6 +697,8 @@ struct Addition<'a> {
     source: Ref,
     detached: bool,
     layer_fields: Option<&'a Layer>,
+    fidelity: ConversionFidelity,
+    reasons: Vec<&'static str>,
 }
 
 impl Addition<'_> {
@@ -462,6 +709,8 @@ impl Addition<'_> {
             source: source.clone(),
             detached: false,
             layer_fields: None,
+            fidelity: ConversionFidelity::Equivalent,
+            reasons: Vec::new(),
         }
     }
 }
@@ -470,9 +719,21 @@ impl Addition<'_> {
 trait Spot: zumen_drawing::transform::Point {
     fn accepts_symbol(relocate: &dyn Relocate, symbol: &Symbol<Self>) -> bool;
     fn relocate(relocate: &dyn Relocate, shape: &Shape<Self>, origin: Self) -> Option<Shape<Self>>;
+    fn fidelity(
+        relocate: &dyn Relocate,
+        source: &Shape<Self>,
+        output: &Shape<Self>,
+    ) -> ConversionFidelity;
 }
 
 impl Spot for ModelPoint {
+    fn fidelity(
+        relocate: &dyn Relocate,
+        source: &Shape<Self>,
+        output: &Shape<Self>,
+    ) -> ConversionFidelity {
+        relocate.fidelity_model(source, output)
+    }
     fn accepts_symbol(relocate: &dyn Relocate, symbol: &Symbol<Self>) -> bool {
         relocate.accepts_model_symbol(symbol)
     }
@@ -483,6 +744,13 @@ impl Spot for ModelPoint {
 }
 
 impl Spot for PaperPoint {
+    fn fidelity(
+        relocate: &dyn Relocate,
+        source: &Shape<Self>,
+        output: &Shape<Self>,
+    ) -> ConversionFidelity {
+        relocate.fidelity_paper(source, output)
+    }
     fn accepts_symbol(relocate: &dyn Relocate, symbol: &Symbol<Self>) -> bool {
         relocate.accepts_paper_symbol(symbol)
     }
@@ -508,14 +776,15 @@ impl Maps<'_> {
         element: &Element<P>,
         place: &Place<P>,
         edits: &mut Vec<Addition<'_>>,
+        report: &mut Report,
         cx: &mut Cx<'_>,
-    ) {
+    ) -> Result<(), Error> {
         let kind = kind_of(&element.shape);
         if let Shape::Symbol(symbol) = &element.shape
             && !P::accepts_symbol(self.relocate, symbol)
         {
-            report_dropped(cx, kind, &element.source);
-            return;
+            report_dropped(cx, report, kind, &element.source)?;
+            return Ok(());
         }
         let mut shape = element.shape.clone();
         let mut detached = Vec::new();
@@ -540,44 +809,86 @@ impl Maps<'_> {
         let block = match &element.shape {
             Shape::Symbol(source) => {
                 let Some(name) = self.blocks.block(&source.key) else {
-                    report_dropped(cx, "external_symbol", &element.source);
-                    return;
+                    report_dropped(cx, report, "external_symbol", &element.source)?;
+                    return Ok(());
                 };
                 Some(name)
             }
             _ => None,
         };
         let Some(mut shape) = P::relocate(self.relocate, &shape, place.origin) else {
-            report_dropped(cx, kind, &element.source);
-            return;
+            report_dropped(cx, report, kind, &element.source)?;
+            return Ok(());
         };
+        let mut reasons = Vec::new();
+        let mut fidelity = P::fidelity(self.relocate, &element.shape, &shape);
+        if matches!(
+            fidelity,
+            ConversionFidelity::Drawn | ConversionFidelity::Approximated
+        ) {
+            reasons.push("relocated_shape");
+        }
+        match &element.shape {
+            Shape::Text(text)
+                if text.height.meaning != HeightMeaning::Declared("dxf.TEXT.40".into()) =>
+            {
+                reasons.push("text_height_meaning");
+                fidelity = fidelity.max(ConversionFidelity::Drawn);
+            }
+            Shape::Formatted(text)
+                if text.height.meaning != HeightMeaning::Declared("dxf.MTEXT.40".into()) =>
+            {
+                reasons.push("text_height_meaning");
+                fidelity = fidelity.max(ConversionFidelity::Drawn);
+            }
+            _ => {}
+        }
+        if let (Shape::Curve(Edge::Spline(before)), Shape::Curve(Edge::Spline(after))) =
+            (&element.shape, &shape)
+        {
+            if before.fit_tolerance != after.fit_tolerance {
+                reasons.push("spline_fit_tolerance");
+            }
+            if before.knot_parameterization != after.knot_parameterization {
+                reasons.push("spline_knot_parameterization");
+            }
+        }
         if let (Shape::Symbol(symbol), Some(name)) = (&mut shape, block) {
             name.clone_into(&mut symbol.key.name);
         }
         let Some(layer) = self.layer(element.layer) else {
-            report_dropped(cx, kind, &element.source);
-            return;
+            report_dropped(cx, report, kind, &element.source)?;
+            return Ok(());
         };
-        edits.push(Addition::new(
+        let style = self.style(&element.style);
+        if self.style_loses_values(&element.style, &style) {
+            reasons.push("style_default");
+            fidelity = fidelity.max(ConversionFidelity::Drawn);
+        }
+        let mut addition = Addition::new(
             Edit::Add {
                 place: place.id.clone(),
                 element: Box::new((place.wrap)(Element {
                     source: Ref::default(),
                     layer,
-                    style: self.style(&element.style),
+                    style,
                     shape,
                 })),
             },
             kind,
             &element.source,
-        ));
+        );
+        addition.fidelity = fidelity;
+        addition.reasons = reasons;
+        edits.push(addition);
         for text in detached {
             let before = edits.len();
-            self.element(&text, place, edits, cx);
+            self.element(&text, place, edits, report, cx)?;
             if let Some(addition) = edits.get_mut(before) {
                 addition.detached = true;
             }
         }
+        Ok(())
     }
 
     fn layer(&self, layer: LayerId) -> Option<LayerId> {
@@ -612,6 +923,16 @@ impl Maps<'_> {
             line_type,
             ..*style
         }
+    }
+
+    fn style_loses_values(
+        &self,
+        before: &zumen_drawing::Style,
+        after: &zumen_drawing::Style,
+    ) -> bool {
+        before.color != after.color
+            || matches!(before.line_type, Inherit::Own(id)
+                if map_line_type(self.source, self.target, id).is_none())
     }
 
     /// 文字スタイルは名前で指す。書いた先にないものは、Standard にする
@@ -657,6 +978,7 @@ fn add_all<'a>(
     file: &mut DxfFile,
     edits: Vec<Addition<'a>>,
     mut paper: Option<(String, SheetId)>,
+    report: &mut Report,
     cx: &mut Cx<'_>,
 ) -> Result<Added<'a>, Error> {
     let mut added = Added::default();
@@ -673,6 +995,23 @@ fn add_all<'a>(
         };
         match quiet(cx, |cx| file.apply(&changes, cx)) {
             Ok(_) => {
+                for addition in &edits {
+                    let (fidelity, reasons) = if addition.detached {
+                        (ConversionFidelity::Drawn, ["detached_attribute"].as_slice())
+                    } else {
+                        (addition.fidelity, addition.reasons.as_slice())
+                    };
+                    report
+                        .record_with_reasons(
+                            addition.kind,
+                            fidelity,
+                            &addition.source,
+                            u64::from(matches!(addition.edit, Edit::Add { .. })),
+                            reasons,
+                            cx,
+                        )
+                        .map_err(|error| failed(cx, error))?;
+                }
                 added
                     .layer_fields
                     .extend(edits.iter().filter_map(|a| a.layer_fields));
@@ -696,9 +1035,9 @@ fn add_all<'a>(
             }
             Err(Error::Rejected | Error::Invalid | Error::Unsupported) => {
                 if let [addition] = edits.as_slice() {
-                    report_dropped(cx, addition.kind, &addition.source);
+                    report_dropped(cx, report, addition.kind, &addition.source)?;
                     if let Some(layer) = addition.layer_fields {
-                        report_layer_fields(layer, cx);
+                        report_layer_fields(layer, report, cx)?;
                     }
                 } else {
                     let mut first = edits;
@@ -1176,6 +1515,116 @@ mod tests {
     use zumen_civil::{Alignment, CivilModel, Horizontal, HorizontalKind, Vertical, VerticalKind};
     use zumen_crs::MapPoint;
     use zumen_drawing::{Axes, ModelSpace, Symbol, SymbolDefinition, SymbolKey, Unit};
+
+    #[test]
+    fn a_remapped_line_type_remains_equivalent_and_layer_defaults_are_exposed() {
+        let mut budget = Budget::default();
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+        let template = NewDxfTemplate::new(&Drawing2D::default());
+        let mut drawing = Dxf::read(template.bytes(), &mut cx)
+            .unwrap()
+            .lift(&mut cx)
+            .unwrap();
+        let continuous = drawing
+            .line_types
+            .iter()
+            .position(|line_type| line_type.name.eq_ignore_ascii_case("Continuous"))
+            .unwrap();
+        drawing.line_types.swap(0, continuous);
+        for (index, line_type) in drawing.line_types.iter_mut().enumerate() {
+            line_type.id = LineTypeId(index.try_into().unwrap());
+        }
+        let mut fallback = drawing.layers.first().unwrap().clone();
+        fallback.id = LayerId(drawing.layers.len().try_into().unwrap());
+        fallback.name = "Fallback".into();
+        fallback.source = Ref::at_record(901);
+        let style = fallback.style.as_mut().unwrap();
+        style.line_type = Some(LineTypeId(999));
+        style.color = Some(Color {
+            code: Some(ColorCode {
+                system: ColorSystem::Jww,
+                value: 1,
+            }),
+            rgb: None,
+        });
+        drawing.layers.push(fallback);
+        let layer = drawing.layers.first().unwrap().id;
+        let space = drawing.spaces.first_mut().unwrap();
+        let point = ModelPoint {
+            space: space.id,
+            x: 0.0,
+            y: 0.0,
+        };
+        space.elements.push(Element {
+            source: Ref::at_record(900),
+            layer,
+            style: zumen_drawing::Style {
+                line_type: Inherit::Own(LineTypeId(0)),
+                transparency: Inherit::Layer,
+                ..zumen_drawing::Style::BLOCK
+            },
+            shape: Shape::Line {
+                start: point,
+                end: point.at([10.0, 0.0]),
+            },
+        });
+        let written = lower_to_dxf_with_report(&drawing, &Reseat, 1000, &mut cx).unwrap();
+        let line = written
+            .report
+            .details
+            .iter()
+            .find(|row| row.source.record() == Some(900))
+            .unwrap();
+        assert_eq!(line.fidelity, ConversionFidelity::Equivalent);
+        assert!(line.reasons.is_empty());
+        let layer = written
+            .report
+            .details
+            .iter()
+            .find(|row| row.source.record() == Some(901) && row.kind == "layer")
+            .unwrap();
+        assert_eq!(layer.fidelity, ConversionFidelity::Drawn);
+        assert!(
+            layer
+                .reasons
+                .iter()
+                .any(|reason| reason == "line_type_default")
+        );
+        assert!(layer.reasons.iter().any(|reason| reason == "color_code"));
+        let read = written.file.lift(&mut cx).unwrap();
+        let element = read
+            .spaces
+            .iter()
+            .flat_map(|space| &space.elements)
+            .find(|element| matches!(element.shape, Shape::Line { .. }))
+            .unwrap();
+        let Inherit::Own(line_type) = element.style.line_type else {
+            panic!()
+        };
+        assert_ne!(line_type, LineTypeId(0));
+        assert!(
+            read.line_type(line_type)
+                .unwrap()
+                .name
+                .eq_ignore_ascii_case("Continuous")
+        );
+        let fallback = read
+            .layers
+            .iter()
+            .find(|layer| layer.name == "Fallback")
+            .unwrap()
+            .style
+            .unwrap();
+        assert_eq!(fallback.color.unwrap().code, Some(ACI_WHITE));
+        assert!(
+            read.line_type(fallback.line_type.unwrap())
+                .unwrap()
+                .name
+                .eq_ignore_ascii_case("Continuous")
+        );
+    }
 
     /// R2004 の表・図形・レイアウトを結ぶ参照は、すべてファイルの中の正しい種類を指す。
     fn r2004_structure(file: &DxfFile, cx: &mut Cx<'_>) {

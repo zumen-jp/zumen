@@ -14,6 +14,7 @@ export type Request =
   | EntitiesRequest
   | ApplyRequest
   | ConvertRequest
+  | ConvertEstimateRequest
   | TablesRequest
   | SceneRequest
   | CheckRequest
@@ -784,6 +785,83 @@ export interface ConvertResult {
   /** 書いた要素の数。記号から離した属性の文字を含む */
   elements: number;
 }
+
+/** 開いた図面を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。今は DXF への変換だけ。マイナーバージョン 66 から */
+export interface ConvertEstimateRequest extends RequestCommon {
+  /** op の名前 */
+  op: "convert_estimate";
+  /** 書く元の文書の名前 */
+  doc: string;
+  /** 書く形式の名前。今は dxf だけ */
+  format: string;
+  /** 予定する文書の名前。convert と同じ条件で検査するが、名前を確保しない */
+  to: string;
+  /** 返す明細の最大件数。省略時は 100。総数と種類・忠実度ごとの集計はこの上限によらない */
+  limit?: number;
+}
+
+/** 予定する変換の結果。元の文書・ID を保ち、ファイルの blob を返さない */
+export interface ConvertEstimateResult {
+  /** 予定する出力と忠実度の全件集計・上限付き明細 */
+  estimate: ConversionEstimate;
+}
+
+/** 実変換と同じ処理で準備した出力。doc と hash は未登録の予定値。元の入力・設定・予算が同じなら convert の値と一致する */
+export interface ConversionEstimate {
+  /** 予定する文書の名前 */
+  doc: string;
+  /** 予定する形式の名前 */
+  format: string;
+  /** 予定する出力バイト列のハッシュ。未登録なので apply の前提条件には使えない */
+  hash: string;
+  /** 予定する出力の要素数。記号から離す属性の文字を含む */
+  elements: number;
+  /** 処理対象の出現数。同じ出所を持つ別の入力は別々に数え、診断の数では増やさない */
+  total: number;
+  /** 種類と忠実度ごとの全件集計 */
+  counts: ConversionCount[];
+  /** 処理順の明細。limit 件まで返す */
+  details: ConversionDetail[];
+  /** 明細の上限で返さなかった対象がある */
+  truncated: boolean;
+}
+
+/** 処理対象の種類と忠実度ごとの集計 */
+export interface ConversionCount {
+  /** 処理対象の種類のキー */
+  kind: string;
+  /** その対象を移した結果の忠実度 */
+  fidelity: ConversionFidelity;
+  /** 入力の出現数。1 つの入力が複数の出力になっても 1 件 */
+  count: number;
+  /** この対象から書いた図形の数。表や参照だけを移した場合は 0 */
+  output_elements: number;
+}
+
+/** 処理対象の出現 1 つ。複数の欠落の診断が出ても 1 件として数える */
+export interface ConversionDetail {
+  /** 処理対象の種類のキー */
+  kind: string;
+  /** その対象を移した結果の忠実度 */
+  fidelity: ConversionFidelity;
+  /** 値や参照を変えた理由のキー。text_height_meaning は文字高の意味、relocated_shape は形の値、style_default はスタイルの既定値、detached_attribute は属性の文字への分離、baked_view はビューの焼き込み、reference_dropped は参照の欠落 */
+  reasons: string[];
+  /** 元の要素の ID。持つ対象だけで返す */
+  id?: string;
+  /** 元の対象のレコード・バイト範囲・キー */
+  source: Source;
+  /** この対象から書いた図形の数。表や参照だけを移した場合は 0 */
+  output_elements: number;
+}
+
+/** 忠実度。`native` は元の値・参照を保持、`equivalent` は別の表現で同じ意味、`approximated` は近似、`drawn` は見た目だけ、`dropped` は欠落 */
+export type ConversionFidelity =
+  | "native"
+  | "equivalent"
+  | "approximated"
+  | "drawn"
+  | "dropped"
+  | (string & {});
 
 /** 当てた変更 1 つの結果 */
 export interface Applied {
@@ -3287,6 +3365,7 @@ export interface Operations {
   entities: { request: EntitiesRequest; result: EntitiesResult };
   apply: { request: ApplyRequest; result: ApplyResult };
   convert: { request: ConvertRequest; result: ConvertResult };
+  convert_estimate: { request: ConvertEstimateRequest; result: ConvertEstimateResult };
   tables: { request: TablesRequest; result: TablesResult };
   scene: { request: SceneRequest; result: SceneResult };
   check: { request: CheckRequest; result: CheckResult };

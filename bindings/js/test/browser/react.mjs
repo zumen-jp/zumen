@@ -57,13 +57,18 @@ function convertInNode(module, input, saved) {
   try {
     session.push("input", input);
     session.call({ v: 1, op: "open", input: "input" });
+    const estimated = session.call({ v: 1, op: "convert_estimate", doc: "input", format: "dxf", to: "converted.dxf" });
+    assert.deepEqual(estimated.blobs, [], "見積もりではファイルを返さない");
     const converted = session.call({ v: 1, op: "convert", doc: "input", format: "dxf", to: "converted.dxf" });
+    assert.equal(estimated.result.estimate.hash, converted.result.hash, "見積もりと保存するバイト列のハッシュ");
+    assert.equal(estimated.result.estimate.elements, converted.result.elements, "見積もりと保存する要素数");
+    assert.deepEqual(estimated.diagnostics, converted.diagnostics, "見積もりと保存の診断");
     const written = session.take(0);
     session.push("saved", saved);
     const reopened = session.call({ v: 1, op: "open", input: "saved" });
     const drawing = session.call({ v: 1, op: "drawing", doc: reopened.result.doc });
     const again = session.call({ v: 1, op: "convert", doc: reopened.result.doc, format: "dxf", to: "again.dxf" });
-    return { converted, written, reopened, drawing, again };
+    return { estimated, converted, written, reopened, drawing, again };
   } finally { session.close(); }
 }
 // 記録されたフォント・画像・PDF の参照名を、ブラウザーの要求先として使わない。
@@ -206,12 +211,23 @@ try {
   // ネイティブの convert が書いたもの（適合テスト）と同じであることを確かめる。変換の診断の件数は、画面と応答で比べる
   const module = new WebAssembly.Module(readFileSync(wasm));
   const exportPanel = page.getByRole("region", { name: /^DXF で保存/ });
+  const downloads = [];
+  const collectDownload = (download) => downloads.push(download);
+  page.on("download", collectDownload);
   for (const { name, bytes, sha256 } of conversions()) {
     await file.setInputFiles({ name, mimeType: "application/octet-stream", buffer: bytes });
     await ready(name.endsWith(".dwg") ? "DWG" : name.endsWith(".jww") ? "JWW" : "SXF");
     // 文書ごとに新しい欄になる（前の図面の結果を見ない）
     const shown = exportPanel.getByRole("status");
     assert.equal(await shown.innerText(), "", name);
+    assert.equal(await exportPanel.getByRole("button", { name: "DXF で保存", exact: true }).count(), 0, "見積もり前には保存しない");
+    const before = downloads.length;
+    const estimate = exportPanel.getByRole("button", { name: "保存前の見積もりを確認", exact: true });
+    await estimate.click();
+    await shown.getByText("見積もりを確認して、DXF で保存してください。", { exact: true }).waitFor();
+    assert.equal(downloads.length, before, "見積もりだけではダウンロードしない");
+    const preview = exportPanel.getByRole("region", { name: "保存前の見積もり", exact: true });
+    await preview.waitFor();
     const saving = page.waitForEvent("download");
     const save = exportPanel.getByRole("button", { name: "DXF で保存", exact: true });
     await save.focus();
@@ -223,6 +239,13 @@ try {
     const node = convertInNode(module, bytes, saved);
     assert.deepEqual(Buffer.from(node.written), saved, name + ": Node.js の wasm と同じバイト列");
     const { elements } = node.converted.result;
+    const report = node.estimated.result.estimate;
+    assert.match(await preview.innerText(), new RegExp("対象 " + report.total + " 件から、DXF に要素 " + elements + " 件"));
+    const labels = { native: "保持", equivalent: "等価", approximated: "近似", drawn: "見た目だけ", dropped: "欠落" };
+    for (const [fidelity, label] of Object.entries(labels)) {
+      const count = report.counts.filter((row) => row.fidelity === fidelity).reduce((sum, row) => sum + row.count, 0);
+      assert.equal(await preview.getByText(label, { exact: true }).locator("xpath=following-sibling::dd[1]").innerText(), count + " 件", name + ": " + label);
+    }
     await shown.getByText(/のダウンロードを始めました/).waitFor();
     assert.ok(await save.evaluate((el) => el === document.activeElement), name + ": 押したあともフォーカスを保つ");
     assert.match(await shown.innerText(), new RegExp("要素 " + elements + " 件・変換の診断 " + node.converted.diagnostics.length + " 件"), name);
@@ -242,9 +265,33 @@ try {
   // DXF を開いて保存するときは、元のファイルと分かる名前にする
   await file.setInputFiles({ name: "local.dxf", mimeType: "application/octet-stream", buffer: inputs.dxf });
   await ready("DXF");
+  assert.equal(await exportPanel.getByRole("region", { name: "保存前の見積もり", exact: true }).count(), 0, "切り替え前の見積もりは残さない");
+  await exportPanel.getByRole("button", { name: "保存前の見積もりを確認", exact: true }).click();
+  await exportPanel.getByRole("status").getByText("見積もりを確認して、DXF で保存してください。", { exact: true }).waitFor();
   const savingDxf = page.waitForEvent("download");
   await exportPanel.getByRole("button", { name: "DXF で保存", exact: true }).click();
   assert.equal((await savingDxf).suggestedFilename(), "local-zumen.dxf");
+  // 見積もり・保存の応答待ちに入力を切り替えても、前の見積もりやダウンロードを採用しない。
+  for (const op of ["convert_estimate", "convert"]) {
+    await file.setInputFiles({ name: "changed.dxf", mimeType: "application/octet-stream", buffer: inputs.dxf });
+    await ready("DXF");
+    if (op === "convert") {
+      await exportPanel.getByRole("button", { name: "保存前の見積もりを確認", exact: true }).click();
+      await exportPanel.getByRole("status").getByText("見積もりを確認して、DXF で保存してください。", { exact: true }).waitFor();
+    }
+    await page.evaluate((op) => exportGate.defer(op), op);
+    const before = downloads.length;
+    await exportPanel.getByRole("button", { name: op === "convert" ? "DXF で保存" : "保存前の見積もりを確認", exact: true }).click();
+    await page.waitForFunction(() => exportGate.waiting);
+    await file.setInputFiles({ name: "changed.jww", mimeType: "application/octet-stream", buffer: inputs.jww });
+    await ready("JWW");
+    await page.evaluate(() => exportGate.release());
+    await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+    assert.equal(downloads.length, before, op + ": 前の入力の結果を保存しない");
+    assert.equal(await exportPanel.getByRole("region", { name: "保存前の見積もり", exact: true }).count(), 0, op + ": 前の入力の見積もりを表示しない");
+    assert.equal(await exportPanel.getByRole("button", { name: "DXF で保存", exact: true }).count(), 0);
+  }
+  page.off("download", collectDownload);
   // 公開サンプル（#689）。DWG の R2000・R2004・R2018 を選んで開き、表示・レイヤ・選択・出所・診断を操作する。
   // サンプルは配布物の中のファイルで、取るのはローカルの GET だけ（下の failures で確かめる）
   const samplePicker = page.getByLabel("公開サンプル");

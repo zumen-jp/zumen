@@ -7,8 +7,10 @@ use zumen_base::{Cx, Diagnostic, Kind, Ref, codes};
 use zumen_sdk::Error;
 
 use crate::charset::{Charset, charset_of};
+use crate::conversion_report::Report;
 use crate::db::{AcadDb, Data, Object, Origin, Section, Value};
 use crate::dwg::{DwgFile, reencode::DxfSource};
+use crate::{ConversionFidelity, ConversionReport};
 
 mod tags;
 use tags::Writer;
@@ -22,6 +24,8 @@ pub struct ReencodedDxf {
     pub bytes: Vec<u8>,
     /// モデル空間・用紙・ブロックの定義に書いた図形の合計。
     pub elements: u64,
+    /// 書いたレコードと落としたレコードの全件集計と、指定した上限までの明細。
+    pub report: ConversionReport,
 }
 
 /// R2004 DWG の同系統の変換結果。対象外のときは、既に読んだ表を図面モデルへ渡せる。
@@ -35,8 +39,23 @@ pub enum R2004Conversion {
 impl DwgFile {
     /// 同系統で扱える図面を DXF にする。必要な参照を解けないときは、図面モデルの変換に渡す。
     pub fn reencode_r2004_dxf(&self, cx: &mut Cx<'_>) -> Result<R2004Conversion, Error> {
+        self.reencode_r2004_dxf_with_report(0, cx)
+    }
+
+    /// 同系統の値と参照を使って DXF を書き、`limit` 件までの明細を返す。
+    ///
+    /// # Errors
+    ///
+    /// [`Self::reencode_r2004_dxf`] と同じ。
+    pub fn reencode_r2004_dxf_with_report(
+        &self,
+        limit: u64,
+        cx: &mut Cx<'_>,
+    ) -> Result<R2004Conversion, Error> {
         let db = self.objects(cx)?;
-        let encoded = try_reencode(&db, cx, |plan, cx| self.dxf_source(&db, &plan.kept, cx))?;
+        let encoded = try_reencode(&db, limit, cx, |plan, cx| {
+            self.dxf_source(&db, &plan.kept, cx)
+        })?;
         Ok(match encoded {
             Some(file) => R2004Conversion::Dxf(file),
             None => R2004Conversion::DrawingSource(db),
@@ -46,6 +65,7 @@ impl DwgFile {
 
 fn try_reencode<'a>(
     db: &AcadDb,
+    limit: u64,
     cx: &mut Cx<'_>,
     source: impl FnOnce(&Plan<'_>, &mut Cx<'_>) -> Result<DxfSource<'a>, Error>,
 ) -> Result<Option<ReencodedDxf>, Error> {
@@ -53,7 +73,7 @@ fn try_reencode<'a>(
         let mut plan = Plan::new(db, cx)?;
         let source = source(&plan, cx)?;
         plan.order_blocks(&source, cx)?;
-        encode(db, &plan, &source, cx)
+        encode(db, &plan, &source, limit, cx)
     })();
     match result {
         Ok(out) => Ok(Some(out)),
@@ -427,6 +447,7 @@ fn encode<'a>(
     db: &'a AcadDb,
     plan: &Plan<'a>,
     input: &DxfSource<'_>,
+    limit: u64,
     cx: &mut Cx<'_>,
 ) -> Result<ReencodedDxf, Error> {
     let mut w = Writer::new(plan, input, cx);
@@ -523,11 +544,37 @@ fn encode<'a>(
     w.end()?;
     w.tag(0, b"EOF")?;
     let (bytes, references) = w.finish();
+    let mut report = Report::new(limit);
+    let lost_references = lost_reference_handles(&references, cx)?;
     // ここからは対象外への切り替えをしない。書けた範囲だけについて減ったものを報告する。
     for obj in db.objects() {
         cx.check(Kind::Work, 1)?;
         // 種類の名前を持たないレコードは、DWG のリーダーが元の型番号・場所で既に診断した。
-        if !obj.kind.is_empty() && !obj.handle().is_some_and(|h| plan.kept.contains(&h)) {
+        let kept = obj.handle().is_some_and(|h| plan.kept.contains(&h));
+        let changed = obj.handle().is_some_and(|h| lost_references.contains(&h));
+        let fidelity = if !kept {
+            ConversionFidelity::Dropped
+        } else if changed {
+            ConversionFidelity::Drawn
+        } else {
+            ConversionFidelity::Native
+        };
+        let geometry = kept
+            && matches!(obj.section, Section::Blocks | Section::Entities)
+            && !matches!(obj.kind.as_slice(), b"BLOCK" | b"ENDBLK");
+        let mut report_source = source(obj);
+        if let Some(handle) = obj.handle() {
+            report_source = report_source.with_key(zumen_base::Key::Handle(handle));
+        }
+        report.record_with_reasons(
+            report_kind(&obj.kind),
+            fidelity,
+            &report_source,
+            u64::from(geometry),
+            if changed { &["reference_dropped"] } else { &[] },
+            cx,
+        )?;
+        if !obj.kind.is_empty() && !kept {
             cx.report(
                 Diagnostic::new(codes::DWG_DXF_RECORD_DROPPED)
                     .with("kind", String::from_utf8_lossy(&obj.kind).as_ref())
@@ -544,15 +591,72 @@ fn encode<'a>(
         );
     }
     cx.report(Diagnostic::new(codes::DWG_DXF_HEADER_DROPPED));
+    report.record_with_reasons(
+        "header",
+        ConversionFidelity::Dropped,
+        &Ref::default(),
+        0,
+        &["unmapped_header"],
+        cx,
+    )?;
     Ok(ReencodedDxf {
         bytes,
         elements: plan.elements,
+        report: report.finish(cx)?,
     })
+}
+
+fn lost_reference_handles(
+    references: &[(&Object, i16)],
+    cx: &mut Cx<'_>,
+) -> Result<BTreeSet<u64>, Error> {
+    let mut handles = BTreeSet::new();
+    for (object, _) in references {
+        let search = u64::from(handles.len().saturating_add(1).ilog2()).saturating_add(1);
+        cx.check(Kind::Work, search)?;
+        if let Some(handle) = object.handle()
+            && !handles.contains(&handle)
+        {
+            // ハンドルの索引は、環境によらない固定の論理量で確保前に数える。
+            cx.check(Kind::DecodedBytes, 128)?;
+            handles.insert(handle);
+        }
+    }
+    Ok(handles)
 }
 
 fn source(object: &Object) -> Ref {
     match object.origin {
         Origin::Dwg { offset, end } => Ref::at_bytes(offset as u64, end as u64),
         _ => Ref::default(),
+    }
+}
+
+// 集計の種類は固定する。未知の型名は既存の欠落の診断で返し、入力ごとに集計のキーを増やさない。
+fn report_kind(kind: &[u8]) -> &'static str {
+    match kind {
+        b"TABLE" => "TABLE",
+        b"VPORT" => "VPORT",
+        b"LTYPE" => "LTYPE",
+        b"LAYER" => "LAYER",
+        b"STYLE" => "STYLE",
+        b"APPID" => "APPID",
+        b"DIMSTYLE" => "DIMSTYLE",
+        b"BLOCK_RECORD" => "BLOCK_RECORD",
+        b"BLOCK" => "BLOCK",
+        b"ENDBLK" => "ENDBLK",
+        b"ARC_DIMENSION" => "ARC_DIMENSION",
+        b"ARC" => "ARC",
+        b"CIRCLE" => "CIRCLE",
+        b"LINE" => "LINE",
+        b"SOLID" => "SOLID",
+        b"TRACE" => "TRACE",
+        b"POINT" => "POINT",
+        b"MTEXT" => "MTEXT",
+        b"DICTIONARY" => "DICTIONARY",
+        b"ACDBDICTIONARYWDFLT" => "ACDBDICTIONARYWDFLT",
+        b"LAYOUT" => "LAYOUT",
+        b"ACDBPLACEHOLDER" => "ACDBPLACEHOLDER",
+        _ => "record",
     }
 }

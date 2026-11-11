@@ -8,7 +8,7 @@ pub const ABI_VERSION: u32 = 1;
 /// メッセージのスキーマのメジャーバージョン。要求と応答の `v`
 pub const SCHEMA_MAJOR: u64 = 1;
 /// メッセージのスキーマのマイナーバージョン。`capabilities` が返す
-pub const SCHEMA_MINOR: u64 = 65;
+pub const SCHEMA_MINOR: u64 = 66;
 
 /// 状態コード。理由は応答の診断で返す
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -111,6 +111,7 @@ pub const MODULES: &[Module] = &[
             "entities",
             "apply",
             "convert",
+            "convert_estimate",
             "tables",
             "scene",
             "check",
@@ -188,6 +189,7 @@ pub fn has_op(op: &str) -> bool {
                 | "entities"
                 | "apply"
                 | "convert"
+                | "convert_estimate"
                 | "tables"
                 | "scene"
                 | "check"

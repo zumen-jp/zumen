@@ -4,7 +4,7 @@ const pageSize = 25;
 const pathLabel = (path) => path.map(({ id, column, row }) => id + "（列 " + column + "・行 " + row + "）").join(" → ");
 
 // 大きい図面でも、一覧の DOM は現在のページだけ作る。
-function Pages({ count, label, className = "", children }) {
+export function Pages({ count, label, className = "", children }) {
   const [page, setPage] = useState(0);
   const last = Math.max(0, Math.ceil(count / pageSize) - 1);
   const current = Math.min(page, last), start = current * pageSize;
@@ -95,7 +95,7 @@ export function Inspector({ viewer, state, opened }) {
   </aside>;
 }
 
-const stages = { open: "読み込み", drawing: "図面モデル", scene: "表示", convert: "変換" };
+const stages = { open: "読み込み", drawing: "図面モデル", scene: "表示", convert: "変換", convert_estimate: "見積もり" };
 const severity = { error: "エラー", warning: "警告", info: "情報" };
 export function Diagnostics({ entries, issues, title = "診断", id = "diagnostics-title" }) {
   const total = entries.length + issues.length;

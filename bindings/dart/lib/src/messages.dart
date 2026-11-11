@@ -40,6 +40,9 @@ class Request extends Message {
   /// op が convert の形なら、そのビュー。違えば null
   ConvertRequest? get asConvertRequest => taggedView('op', 'convert', ConvertRequest.fromJson);
 
+  /// op が convert_estimate の形なら、そのビュー。違えば null
+  ConvertEstimateRequest? get asConvertEstimateRequest => taggedView('op', 'convert_estimate', ConvertEstimateRequest.fromJson);
+
   /// op が tables の形なら、そのビュー。違えば null
   TablesRequest? get asTablesRequest => taggedView('op', 'tables', TablesRequest.fromJson);
 
@@ -1733,6 +1736,178 @@ class ConvertResult extends Message {
   /// 書いた要素の数。記号から離した属性の文字を含む
   int? get elements => readField('elements', asInt);
   set elements(int? value) => writeField('elements', value);
+}
+
+/// 開いた図面を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。今は DXF への変換だけ。マイナーバージョン 66 から
+class ConvertEstimateRequest extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  ConvertEstimateRequest.fromJson(super.json);
+
+  /// タグのフィールドだけを持つオブジェクトから作る
+  ConvertEstimateRequest() : super({'op': 'convert_estimate'});
+
+  /// メッセージのスキーマのメジャーバージョン。今は 1
+  int? get v => readField('v', asInt);
+  set v(int? value) => writeField('v', value);
+
+  /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+  Budget? get budget => readField('budget', objectOf(Budget.fromJson));
+  set budget(Budget? value) => writeField('budget', value);
+
+  /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+  bool? get partial => readField('partial', asBool);
+  set partial(bool? value) => writeField('partial', value);
+
+  /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+  int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(int? value) => writeField('max_places', value);
+
+  /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(int? value) => writeField('time_limit_ms', value);
+
+  /// op の名前
+  String? get op => readField('op', asString);
+  set op(String? value) => writeField('op', value);
+
+  /// 書く元の文書の名前
+  String? get doc => readField('doc', asString);
+  set doc(String? value) => writeField('doc', value);
+
+  /// 書く形式の名前。今は dxf だけ
+  String? get format => readField('format', asString);
+  set format(String? value) => writeField('format', value);
+
+  /// 予定する文書の名前。convert と同じ条件で検査するが、名前を確保しない
+  String? get to => readField('to', asString);
+  set to(String? value) => writeField('to', value);
+
+  /// 返す明細の最大件数。省略時は 100。総数と種類・忠実度ごとの集計はこの上限によらない
+  int? get limit => readField('limit', asInt);
+  set limit(int? value) => writeField('limit', value);
+}
+
+/// 予定する変換の結果。元の文書・ID を保ち、ファイルの blob を返さない
+class ConvertEstimateResult extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  ConvertEstimateResult.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  ConvertEstimateResult() : super({});
+
+  /// 予定する出力と忠実度の全件集計・上限付き明細
+  ConversionEstimate? get estimate => readField('estimate', objectOf(ConversionEstimate.fromJson));
+  set estimate(ConversionEstimate? value) => writeField('estimate', value);
+}
+
+/// 実変換と同じ処理で準備した出力。doc と hash は未登録の予定値。元の入力・設定・予算が同じなら convert の値と一致する
+class ConversionEstimate extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  ConversionEstimate.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  ConversionEstimate() : super({});
+
+  /// 予定する文書の名前
+  String? get doc => readField('doc', asString);
+  set doc(String? value) => writeField('doc', value);
+
+  /// 予定する形式の名前
+  String? get format => readField('format', asString);
+  set format(String? value) => writeField('format', value);
+
+  /// 予定する出力バイト列のハッシュ。未登録なので apply の前提条件には使えない
+  String? get hash => readField('hash', asString);
+  set hash(String? value) => writeField('hash', value);
+
+  /// 予定する出力の要素数。記号から離す属性の文字を含む
+  int? get elements => readField('elements', asInt);
+  set elements(int? value) => writeField('elements', value);
+
+  /// 処理対象の出現数。同じ出所を持つ別の入力は別々に数え、診断の数では増やさない
+  int? get total => readField('total', asInt);
+  set total(int? value) => writeField('total', value);
+
+  /// 種類と忠実度ごとの全件集計
+  List<ConversionCount>? get counts => readField('counts', listOf(objectOf(ConversionCount.fromJson)));
+  set counts(List<ConversionCount>? value) => writeField('counts', value);
+
+  /// 処理順の明細。limit 件まで返す
+  List<ConversionDetail>? get details => readField('details', listOf(objectOf(ConversionDetail.fromJson)));
+  set details(List<ConversionDetail>? value) => writeField('details', value);
+
+  /// 明細の上限で返さなかった対象がある
+  bool? get truncated => readField('truncated', asBool);
+  set truncated(bool? value) => writeField('truncated', value);
+}
+
+/// 処理対象の種類と忠実度ごとの集計
+class ConversionCount extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  ConversionCount.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  ConversionCount() : super({});
+
+  /// 処理対象の種類のキー
+  String? get kind => readField('kind', asString);
+  set kind(String? value) => writeField('kind', value);
+
+  /// その対象を移した結果の忠実度
+  String? get fidelity => readField('fidelity', asString);
+  set fidelity(String? value) => writeField('fidelity', value);
+
+  /// 入力の出現数。1 つの入力が複数の出力になっても 1 件
+  int? get count => readField('count', asInt);
+  set count(int? value) => writeField('count', value);
+
+  /// この対象から書いた図形の数。表や参照だけを移した場合は 0
+  int? get outputElements => readField('output_elements', asInt);
+  set outputElements(int? value) => writeField('output_elements', value);
+}
+
+/// 処理対象の出現 1 つ。複数の欠落の診断が出ても 1 件として数える
+class ConversionDetail extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  ConversionDetail.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  ConversionDetail() : super({});
+
+  /// 処理対象の種類のキー
+  String? get kind => readField('kind', asString);
+  set kind(String? value) => writeField('kind', value);
+
+  /// その対象を移した結果の忠実度
+  String? get fidelity => readField('fidelity', asString);
+  set fidelity(String? value) => writeField('fidelity', value);
+
+  /// 値や参照を変えた理由のキー。text_height_meaning は文字高の意味、relocated_shape は形の値、style_default はスタイルの既定値、detached_attribute は属性の文字への分離、baked_view はビューの焼き込み、reference_dropped は参照の欠落
+  List<String>? get reasons => readField('reasons', listOf(asString));
+  set reasons(List<String>? value) => writeField('reasons', value);
+
+  /// 元の要素の ID。持つ対象だけで返す
+  String? get id => readField('id', asString);
+  set id(String? value) => writeField('id', value);
+
+  /// 元の対象のレコード・バイト範囲・キー
+  Source? get source => readField('source', objectOf(Source.fromJson));
+  set source(Source? value) => writeField('source', value);
+
+  /// この対象から書いた図形の数。表や参照だけを移した場合は 0
+  int? get outputElements => readField('output_elements', asInt);
+  set outputElements(int? value) => writeField('output_elements', value);
+}
+
+/// 忠実度。`native` は元の値・参照を保持、`equivalent` は別の表現で同じ意味、`approximated` は近似、`drawn` は見た目だけ、`dropped` は欠落
+///
+/// 列挙の値。知らない値も受け取る
+abstract final class ConversionFidelity {
+  static const native = 'native';
+  static const equivalent = 'equivalent';
+  static const approximated = 'approximated';
+  static const drawn = 'drawn';
+  static const dropped = 'dropped';
 }
 
 /// 当てた変更 1 つの結果
@@ -7179,6 +7354,7 @@ abstract final class Operations {
   static const entities = 'entities';
   static const apply = 'apply';
   static const convert = 'convert';
+  static const convertEstimate = 'convert_estimate';
   static const tables = 'tables';
   static const scene = 'scene';
   static const check = 'check';

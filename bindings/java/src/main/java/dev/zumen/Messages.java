@@ -102,6 +102,11 @@ public final class Messages {
             return "convert".equals(json.get("op")) ? new ConvertRequest(json) : null;
         }
 
+        /** op が convert_estimate の形なら、そのビュー。違えば null */
+        public ConvertEstimateRequest asConvertEstimateRequest() {
+            return "convert_estimate".equals(json.get("op")) ? new ConvertEstimateRequest(json) : null;
+        }
+
         /** op が tables の形なら、そのビュー。違えば null */
         public TablesRequest asTablesRequest() {
             return "tables".equals(json.get("op")) ? new TablesRequest(json) : null;
@@ -4273,6 +4278,440 @@ public final class Messages {
             put("elements", value);
             return this;
         }
+    }
+
+    /** 開いた図面を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。今は DXF への変換だけ。マイナーバージョン 66 から */
+    public static final class ConvertEstimateRequest extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public ConvertEstimateRequest(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static ConvertEstimateRequest of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new ConvertEstimateRequest(json);
+        }
+
+        /** タグのフィールドだけを持つオブジェクトから作る */
+        public ConvertEstimateRequest() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("op", "convert_estimate");
+        }
+
+        /** メッセージのスキーマのメジャーバージョン。今は 1 */
+        public Long getV() {
+            return Json.read(json.get("v"), Json::integer);
+        }
+
+        /** {@link #getV()} を書く。null ならフィールドを除く */
+        public ConvertEstimateRequest withV(Long value) {
+            put("v", value);
+            return this;
+        }
+
+        /** 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010） */
+        public Budget getBudget() {
+            return Json.read(json.get("budget"), Budget::of);
+        }
+
+        /** {@link #getBudget()} を書く。null ならフィールドを除く */
+        public ConvertEstimateRequest withBudget(Budget value) {
+            put("budget", value);
+            return this;
+        }
+
+        /** 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010） */
+        public Boolean getPartial() {
+            return Json.read(json.get("partial"), Json::bool);
+        }
+
+        /** {@link #getPartial()} を書く。null ならフィールドを除く */
+        public ConvertEstimateRequest withPartial(Boolean value) {
+            put("partial", value);
+            return this;
+        }
+
+        /** 診断ごとに返す場所の数。書かなければ 16（決定 0009） */
+        public Long getMaxPlaces() {
+            return Json.read(json.get("max_places"), Json::integer);
+        }
+
+        /** {@link #getMaxPlaces()} を書く。null ならフィールドを除く */
+        public ConvertEstimateRequest withMaxPlaces(Long value) {
+            put("max_places", value);
+            return this;
+        }
+
+        /** 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        public Long getTimeLimitMs() {
+            return Json.read(json.get("time_limit_ms"), Json::integer);
+        }
+
+        /** {@link #getTimeLimitMs()} を書く。null ならフィールドを除く */
+        public ConvertEstimateRequest withTimeLimitMs(Long value) {
+            put("time_limit_ms", value);
+            return this;
+        }
+
+        /** op の名前 */
+        public String getOp() {
+            return Json.read(json.get("op"), Json::string);
+        }
+
+        /** {@link #getOp()} を書く。null ならフィールドを除く */
+        public ConvertEstimateRequest withOp(String value) {
+            put("op", value);
+            return this;
+        }
+
+        /** 書く元の文書の名前 */
+        public String getDoc() {
+            return Json.read(json.get("doc"), Json::string);
+        }
+
+        /** {@link #getDoc()} を書く。null ならフィールドを除く */
+        public ConvertEstimateRequest withDoc(String value) {
+            put("doc", value);
+            return this;
+        }
+
+        /** 書く形式の名前。今は dxf だけ */
+        public String getFormat() {
+            return Json.read(json.get("format"), Json::string);
+        }
+
+        /** {@link #getFormat()} を書く。null ならフィールドを除く */
+        public ConvertEstimateRequest withFormat(String value) {
+            put("format", value);
+            return this;
+        }
+
+        /** 予定する文書の名前。convert と同じ条件で検査するが、名前を確保しない */
+        public String getTo() {
+            return Json.read(json.get("to"), Json::string);
+        }
+
+        /** {@link #getTo()} を書く。null ならフィールドを除く */
+        public ConvertEstimateRequest withTo(String value) {
+            put("to", value);
+            return this;
+        }
+
+        /** 返す明細の最大件数。省略時は 100。総数と種類・忠実度ごとの集計はこの上限によらない */
+        public Long getLimit() {
+            return Json.read(json.get("limit"), Json::integer);
+        }
+
+        /** {@link #getLimit()} を書く。null ならフィールドを除く */
+        public ConvertEstimateRequest withLimit(Long value) {
+            put("limit", value);
+            return this;
+        }
+    }
+
+    /** 予定する変換の結果。元の文書・ID を保ち、ファイルの blob を返さない */
+    public static final class ConvertEstimateResult extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public ConvertEstimateResult(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static ConvertEstimateResult of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new ConvertEstimateResult(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public ConvertEstimateResult() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 予定する出力と忠実度の全件集計・上限付き明細 */
+        public ConversionEstimate getEstimate() {
+            return Json.read(json.get("estimate"), ConversionEstimate::of);
+        }
+
+        /** {@link #getEstimate()} を書く。null ならフィールドを除く */
+        public ConvertEstimateResult withEstimate(ConversionEstimate value) {
+            put("estimate", value);
+            return this;
+        }
+    }
+
+    /** 実変換と同じ処理で準備した出力。doc と hash は未登録の予定値。元の入力・設定・予算が同じなら convert の値と一致する */
+    public static final class ConversionEstimate extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public ConversionEstimate(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static ConversionEstimate of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new ConversionEstimate(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public ConversionEstimate() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 予定する文書の名前 */
+        public String getDoc() {
+            return Json.read(json.get("doc"), Json::string);
+        }
+
+        /** {@link #getDoc()} を書く。null ならフィールドを除く */
+        public ConversionEstimate withDoc(String value) {
+            put("doc", value);
+            return this;
+        }
+
+        /** 予定する形式の名前 */
+        public String getFormat() {
+            return Json.read(json.get("format"), Json::string);
+        }
+
+        /** {@link #getFormat()} を書く。null ならフィールドを除く */
+        public ConversionEstimate withFormat(String value) {
+            put("format", value);
+            return this;
+        }
+
+        /** 予定する出力バイト列のハッシュ。未登録なので apply の前提条件には使えない */
+        public String getHash() {
+            return Json.read(json.get("hash"), Json::string);
+        }
+
+        /** {@link #getHash()} を書く。null ならフィールドを除く */
+        public ConversionEstimate withHash(String value) {
+            put("hash", value);
+            return this;
+        }
+
+        /** 予定する出力の要素数。記号から離す属性の文字を含む */
+        public Long getElements() {
+            return Json.read(json.get("elements"), Json::integer);
+        }
+
+        /** {@link #getElements()} を書く。null ならフィールドを除く */
+        public ConversionEstimate withElements(Long value) {
+            put("elements", value);
+            return this;
+        }
+
+        /** 処理対象の出現数。同じ出所を持つ別の入力は別々に数え、診断の数では増やさない */
+        public Long getTotal() {
+            return Json.read(json.get("total"), Json::integer);
+        }
+
+        /** {@link #getTotal()} を書く。null ならフィールドを除く */
+        public ConversionEstimate withTotal(Long value) {
+            put("total", value);
+            return this;
+        }
+
+        /** 種類と忠実度ごとの全件集計 */
+        public List<ConversionCount> getCounts() {
+            return Json.read(json.get("counts"), v0 -> Json.list(v0, ConversionCount::of));
+        }
+
+        /** {@link #getCounts()} を書く。null ならフィールドを除く */
+        public ConversionEstimate withCounts(List<ConversionCount> value) {
+            put("counts", value);
+            return this;
+        }
+
+        /** 処理順の明細。limit 件まで返す */
+        public List<ConversionDetail> getDetails() {
+            return Json.read(json.get("details"), v0 -> Json.list(v0, ConversionDetail::of));
+        }
+
+        /** {@link #getDetails()} を書く。null ならフィールドを除く */
+        public ConversionEstimate withDetails(List<ConversionDetail> value) {
+            put("details", value);
+            return this;
+        }
+
+        /** 明細の上限で返さなかった対象がある */
+        public Boolean getTruncated() {
+            return Json.read(json.get("truncated"), Json::bool);
+        }
+
+        /** {@link #getTruncated()} を書く。null ならフィールドを除く */
+        public ConversionEstimate withTruncated(Boolean value) {
+            put("truncated", value);
+            return this;
+        }
+    }
+
+    /** 処理対象の種類と忠実度ごとの集計 */
+    public static final class ConversionCount extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public ConversionCount(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static ConversionCount of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new ConversionCount(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public ConversionCount() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 処理対象の種類のキー */
+        public String getKind() {
+            return Json.read(json.get("kind"), Json::string);
+        }
+
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
+        public ConversionCount withKind(String value) {
+            put("kind", value);
+            return this;
+        }
+
+        /** その対象を移した結果の忠実度 */
+        public String getFidelity() {
+            return Json.read(json.get("fidelity"), Json::string);
+        }
+
+        /** {@link #getFidelity()} を書く。null ならフィールドを除く */
+        public ConversionCount withFidelity(String value) {
+            put("fidelity", value);
+            return this;
+        }
+
+        /** 入力の出現数。1 つの入力が複数の出力になっても 1 件 */
+        public Long getCount() {
+            return Json.read(json.get("count"), Json::integer);
+        }
+
+        /** {@link #getCount()} を書く。null ならフィールドを除く */
+        public ConversionCount withCount(Long value) {
+            put("count", value);
+            return this;
+        }
+
+        /** この対象から書いた図形の数。表や参照だけを移した場合は 0 */
+        public Long getOutputElements() {
+            return Json.read(json.get("output_elements"), Json::integer);
+        }
+
+        /** {@link #getOutputElements()} を書く。null ならフィールドを除く */
+        public ConversionCount withOutputElements(Long value) {
+            put("output_elements", value);
+            return this;
+        }
+    }
+
+    /** 処理対象の出現 1 つ。複数の欠落の診断が出ても 1 件として数える */
+    public static final class ConversionDetail extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public ConversionDetail(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static ConversionDetail of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new ConversionDetail(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public ConversionDetail() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 処理対象の種類のキー */
+        public String getKind() {
+            return Json.read(json.get("kind"), Json::string);
+        }
+
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
+        public ConversionDetail withKind(String value) {
+            put("kind", value);
+            return this;
+        }
+
+        /** その対象を移した結果の忠実度 */
+        public String getFidelity() {
+            return Json.read(json.get("fidelity"), Json::string);
+        }
+
+        /** {@link #getFidelity()} を書く。null ならフィールドを除く */
+        public ConversionDetail withFidelity(String value) {
+            put("fidelity", value);
+            return this;
+        }
+
+        /** 値や参照を変えた理由のキー。text_height_meaning は文字高の意味、relocated_shape は形の値、style_default はスタイルの既定値、detached_attribute は属性の文字への分離、baked_view はビューの焼き込み、reference_dropped は参照の欠落 */
+        public List<String> getReasons() {
+            return Json.read(json.get("reasons"), v0 -> Json.list(v0, Json::string));
+        }
+
+        /** {@link #getReasons()} を書く。null ならフィールドを除く */
+        public ConversionDetail withReasons(List<String> value) {
+            put("reasons", value);
+            return this;
+        }
+
+        /** 元の要素の ID。持つ対象だけで返す */
+        public String getId() {
+            return Json.read(json.get("id"), Json::string);
+        }
+
+        /** {@link #getId()} を書く。null ならフィールドを除く */
+        public ConversionDetail withId(String value) {
+            put("id", value);
+            return this;
+        }
+
+        /** 元の対象のレコード・バイト範囲・キー */
+        public Source getSource() {
+            return Json.read(json.get("source"), Source::of);
+        }
+
+        /** {@link #getSource()} を書く。null ならフィールドを除く */
+        public ConversionDetail withSource(Source value) {
+            put("source", value);
+            return this;
+        }
+
+        /** この対象から書いた図形の数。表や参照だけを移した場合は 0 */
+        public Long getOutputElements() {
+            return Json.read(json.get("output_elements"), Json::integer);
+        }
+
+        /** {@link #getOutputElements()} を書く。null ならフィールドを除く */
+        public ConversionDetail withOutputElements(Long value) {
+            put("output_elements", value);
+            return this;
+        }
+    }
+
+    /**
+     * 忠実度。`native` は元の値・参照を保持、`equivalent` は別の表現で同じ意味、`approximated` は近似、`drawn` は見た目だけ、`dropped` は欠落
+     *
+     * 列挙の値。知らない値も受け取る
+     */
+    public static final class ConversionFidelity {
+        private ConversionFidelity() {}
+
+        public static final String NATIVE = "native";
+
+        public static final String EQUIVALENT = "equivalent";
+
+        public static final String APPROXIMATED = "approximated";
+
+        public static final String DRAWN = "drawn";
+
+        public static final String DROPPED = "dropped";
     }
 
     /** 当てた変更 1 つの結果 */
@@ -17965,6 +18404,8 @@ public final class Messages {
         public static final String APPLY = "apply";
 
         public static final String CONVERT = "convert";
+
+        public static final String CONVERT_ESTIMATE = "convert_estimate";
 
         public static final String TABLES = "tables";
 

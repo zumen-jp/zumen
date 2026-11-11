@@ -38,7 +38,17 @@ useLayoutEffect(() => {
 
 選択した要素の出所は `await opened.getSource(element)` で問い合わせます。見つかれば ID・配置の道筋と `source`、要素がなければ `null` を返します。出所にあるレコード・ハンドル・インスタンス・バイト範囲をそのまま使います。選択が変わったときは、前の要素の応答を画面へ反映しないようにします。
 
-開いた図面は `await opened.convert()` で DXF に変換できます（`convert`、[DXF の読み書き](../../docs/formats/dxf.md)）。同じ Worker のセッションで変換し、書いた DXF のバイト列（`bytes`）、応答の `result`（書いた要素の数など）、変換の診断（`diagnostics`、段階は `convert`）を返します。変換した文書はセッションに残さず、元の文書とシーンは変えません。変換できなければ、`Error` の `diagnostics` に変換の診断を入れて拒みます。保存は利用側が行います。
+`opened.canEstimate` は、その wasm の `capabilities` が `convert_estimate` を提供するかを示します。対応する wasm なら `await opened.estimate({ limit: 100 })` で、DXF に保存する前の忠実度と欠落を確認できます。`result.estimate` に予定の要素数、種類と忠実度ごとの全件集計、上限付きの明細と元の場所を返します。`limit` は明細の件数で、省略時は 100 件、最大は 1000 件です。文書や配布するファイルは登録しません。診断の段階は `convert_estimate` です。
+
+確認した見積もりを `await opened.convert(preview)` に渡すと、その予定文書名で変換し、見積もりと出力のハッシュ・要素数を比べてから DXF のバイト列を返します。渡せるのは同じ読み込みで最後に得た見積もりです。もう一度見積もるか、入力・起点を切り替えると、前の見積もりでは保存できません。
+
+```js
+const preview = await opened.estimate();
+// 利用側で集計と診断を表示し、保存の操作を受けてから呼ぶ。
+const { bytes, result, diagnostics } = await opened.convert(preview);
+```
+
+見積もりを渡さず `await opened.convert()` で直接 DXF に変換する使い方も維持します（`convert`、[DXF の読み書き](../../docs/formats/dxf.md)）。同じ Worker のセッションで変換し、書いた DXF のバイト列（`bytes`）、応答の `result`（書いた要素の数など）、変換の診断（`diagnostics`、段階は `convert`）を返します。変換した文書はセッションに残さず、元の文書とシーンは変えません。変換できなければ、`Error` の `diagnostics` に変換の診断を入れて拒みます。保存は利用側が行います。
 
 入力は 64 MiB までです。非同期の `FileReader` で読み、専有バッファーを module Worker に転送します。Worker は自分の wasm インスタンス・セッションで `open`・`drawing`・`scene` を呼び、シーンのバッファーを転送します。表示中は同じセッションで出所を問い合わせ、DXF に変換します。同時に応答を待つ要求の上限は 32 件です。
 
