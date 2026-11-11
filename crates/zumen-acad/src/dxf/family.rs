@@ -545,10 +545,7 @@ fn encode<'a>(
     w.tag(0, b"EOF")?;
     let (bytes, references) = w.finish();
     let mut report = Report::new(limit);
-    let lost_references: BTreeSet<_> = references
-        .iter()
-        .filter_map(|(object, _)| object.handle())
-        .collect();
+    let lost_references = lost_reference_handles(&references, cx)?;
     // ここからは対象外への切り替えをしない。書けた範囲だけについて減ったものを報告する。
     for obj in db.objects() {
         cx.check(Kind::Work, 1)?;
@@ -605,8 +602,27 @@ fn encode<'a>(
     Ok(ReencodedDxf {
         bytes,
         elements: plan.elements,
-        report: report.finish(),
+        report: report.finish(cx)?,
     })
+}
+
+fn lost_reference_handles(
+    references: &[(&Object, i16)],
+    cx: &mut Cx<'_>,
+) -> Result<BTreeSet<u64>, Error> {
+    let mut handles = BTreeSet::new();
+    for (object, _) in references {
+        let search = u64::from(handles.len().saturating_add(1).ilog2()).saturating_add(1);
+        cx.check(Kind::Work, search)?;
+        if let Some(handle) = object.handle()
+            && !handles.contains(&handle)
+        {
+            // ハンドルの索引は、環境によらない固定の論理量で確保前に数える。
+            cx.check(Kind::DecodedBytes, 128)?;
+            handles.insert(handle);
+        }
+    }
+    Ok(handles)
 }
 
 fn source(object: &Object) -> Ref {

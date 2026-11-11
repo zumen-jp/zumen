@@ -62,6 +62,7 @@ const reasons = {
   semantic_fields: "表題欄の項目を欠落", document_default: "文書の既定値を欠落", unmapped_header: "移せないヘッダーの値を欠落",
   sheet: "対応しない用紙の要素を欠落",
   spline_fit_tolerance: "スプラインのフィット許容差を変更", spline_knot_parameterization: "スプラインのノットの取り方を変更",
+  line_type_default: "既定の線種に変更", color_code: "色の符号を変更", layer_state: "レイヤの表示状態を変更",
 };
 const kinds = {
   line: "線", polyline: "折れ線", curve: "曲線", arc: "円弧", circle: "円", ellipse: "楕円", spline: "スプライン", point: "点",

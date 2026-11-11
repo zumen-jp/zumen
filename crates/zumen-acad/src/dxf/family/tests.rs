@@ -17,6 +17,46 @@ fn fixture_source() -> DxfSource<'static> {
 }
 
 #[test]
+fn lost_reference_index_checks_each_visit_and_each_new_allocation() {
+    let db = fixture();
+    let object = db.get(50).unwrap();
+    let references = [(object, 350), (object, 360)];
+    let mut budget = Budget::default();
+    let mut diagnostics = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let handles = lost_reference_handles(
+        &references,
+        &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+    )
+    .unwrap();
+    assert_eq!(handles, BTreeSet::from([50]));
+    assert_eq!(budget.used(Kind::DecodedBytes), 128);
+    assert_eq!(budget.used(Kind::Work), 3);
+    for limits in [
+        Limits::default().with(Kind::DecodedBytes, Limit::Finite(127)),
+        Limits::default().with(Kind::Work, Limit::Finite(0)),
+    ] {
+        let mut budget = Budget::new(limits);
+        assert!(matches!(
+            lost_reference_handles(
+                &references,
+                &mut Cx::new(&mut budget, &mut diagnostics, &cancel)
+            ),
+            Err(Error::Stopped(_))
+        ));
+        assert_eq!(budget.used(Kind::DecodedBytes), 0);
+    }
+    cancel.cancel();
+    assert!(matches!(
+        lost_reference_handles(
+            &references,
+            &mut Cx::new(&mut budget, &mut diagnostics, &cancel)
+        ),
+        Err(Error::Stopped(zumen_base::Stop::Cancelled))
+    ));
+}
+
+#[test]
 fn report_counts_each_record_once_and_keeps_the_source_handle() {
     let db = fixture();
     let run = |limit| {

@@ -371,6 +371,21 @@ pub fn lower_to_dxf_with_report(
             "layer",
             &layer.source,
         );
+        if style
+            .line_type
+            .is_some_and(|id| map_line_type(drawing, &target, id).is_none())
+        {
+            addition.reasons.push("line_type_default");
+        }
+        if style.color.is_some_and(|original| original != color) {
+            addition.reasons.push("color_code");
+        }
+        if layer.state.is_some_and(|original| original != state) {
+            addition.reasons.push("layer_state");
+        }
+        if !addition.reasons.is_empty() {
+            addition.fidelity = ConversionFidelity::Drawn;
+        }
         addition.layer_fields = has_layer_fields(layer).then_some(layer);
         edits.push(addition);
     }
@@ -622,7 +637,7 @@ pub fn lower_to_dxf_with_report(
         file,
         bytes,
         elements,
-        report: record.finish(),
+        report: record.finish(cx).map_err(|error| failed(cx, error))?,
     })
 }
 
@@ -846,7 +861,7 @@ impl Maps<'_> {
             return Ok(());
         };
         let style = self.style(&element.style);
-        if style != element.style {
+        if self.style_loses_values(&element.style, &style) {
             reasons.push("style_default");
             fidelity = fidelity.max(ConversionFidelity::Drawn);
         }
@@ -908,6 +923,16 @@ impl Maps<'_> {
             line_type,
             ..*style
         }
+    }
+
+    fn style_loses_values(
+        &self,
+        before: &zumen_drawing::Style,
+        after: &zumen_drawing::Style,
+    ) -> bool {
+        before.color != after.color
+            || matches!(before.line_type, Inherit::Own(id)
+                if map_line_type(self.source, self.target, id).is_none())
     }
 
     /// 文字スタイルは名前で指す。書いた先にないものは、Standard にする
@@ -1490,6 +1515,116 @@ mod tests {
     use zumen_civil::{Alignment, CivilModel, Horizontal, HorizontalKind, Vertical, VerticalKind};
     use zumen_crs::MapPoint;
     use zumen_drawing::{Axes, ModelSpace, Symbol, SymbolDefinition, SymbolKey, Unit};
+
+    #[test]
+    fn a_remapped_line_type_remains_equivalent_and_layer_defaults_are_exposed() {
+        let mut budget = Budget::default();
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+        let template = NewDxfTemplate::new(&Drawing2D::default());
+        let mut drawing = Dxf::read(template.bytes(), &mut cx)
+            .unwrap()
+            .lift(&mut cx)
+            .unwrap();
+        let continuous = drawing
+            .line_types
+            .iter()
+            .position(|line_type| line_type.name.eq_ignore_ascii_case("Continuous"))
+            .unwrap();
+        drawing.line_types.swap(0, continuous);
+        for (index, line_type) in drawing.line_types.iter_mut().enumerate() {
+            line_type.id = LineTypeId(index.try_into().unwrap());
+        }
+        let mut fallback = drawing.layers.first().unwrap().clone();
+        fallback.id = LayerId(drawing.layers.len().try_into().unwrap());
+        fallback.name = "Fallback".into();
+        fallback.source = Ref::at_record(901);
+        let style = fallback.style.as_mut().unwrap();
+        style.line_type = Some(LineTypeId(999));
+        style.color = Some(Color {
+            code: Some(ColorCode {
+                system: ColorSystem::Jww,
+                value: 1,
+            }),
+            rgb: None,
+        });
+        drawing.layers.push(fallback);
+        let layer = drawing.layers.first().unwrap().id;
+        let space = drawing.spaces.first_mut().unwrap();
+        let point = ModelPoint {
+            space: space.id,
+            x: 0.0,
+            y: 0.0,
+        };
+        space.elements.push(Element {
+            source: Ref::at_record(900),
+            layer,
+            style: zumen_drawing::Style {
+                line_type: Inherit::Own(LineTypeId(0)),
+                transparency: Inherit::Layer,
+                ..zumen_drawing::Style::BLOCK
+            },
+            shape: Shape::Line {
+                start: point,
+                end: point.at([10.0, 0.0]),
+            },
+        });
+        let written = lower_to_dxf_with_report(&drawing, &Reseat, 1000, &mut cx).unwrap();
+        let line = written
+            .report
+            .details
+            .iter()
+            .find(|row| row.source.record() == Some(900))
+            .unwrap();
+        assert_eq!(line.fidelity, ConversionFidelity::Equivalent);
+        assert!(line.reasons.is_empty());
+        let layer = written
+            .report
+            .details
+            .iter()
+            .find(|row| row.source.record() == Some(901) && row.kind == "layer")
+            .unwrap();
+        assert_eq!(layer.fidelity, ConversionFidelity::Drawn);
+        assert!(
+            layer
+                .reasons
+                .iter()
+                .any(|reason| reason == "line_type_default")
+        );
+        assert!(layer.reasons.iter().any(|reason| reason == "color_code"));
+        let read = written.file.lift(&mut cx).unwrap();
+        let element = read
+            .spaces
+            .iter()
+            .flat_map(|space| &space.elements)
+            .find(|element| matches!(element.shape, Shape::Line { .. }))
+            .unwrap();
+        let Inherit::Own(line_type) = element.style.line_type else {
+            panic!()
+        };
+        assert_ne!(line_type, LineTypeId(0));
+        assert!(
+            read.line_type(line_type)
+                .unwrap()
+                .name
+                .eq_ignore_ascii_case("Continuous")
+        );
+        let fallback = read
+            .layers
+            .iter()
+            .find(|layer| layer.name == "Fallback")
+            .unwrap()
+            .style
+            .unwrap();
+        assert_eq!(fallback.color.unwrap().code, Some(ACI_WHITE));
+        assert!(
+            read.line_type(fallback.line_type.unwrap())
+                .unwrap()
+                .name
+                .eq_ignore_ascii_case("Continuous")
+        );
+    }
 
     /// R2004 の表・図形・レイアウトを結ぶ参照は、すべてファイルの中の正しい種類を指す。
     fn r2004_structure(file: &DxfFile, cx: &mut Cx<'_>) {
