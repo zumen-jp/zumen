@@ -5,7 +5,7 @@
 //! `civil_drawing` が同じ値を書くようにする。
 
 use zumen_acad::{Dxf, DxfFile, Relocate};
-use zumen_base::Cx;
+use zumen_base::{Cx, DiagnosticEvents};
 use zumen_drawing::{Drawing2D, ModelPoint, PaperPoint, Shape, Symbol};
 use zumen_sdk::Codec;
 
@@ -18,18 +18,29 @@ pub(crate) struct Converted {
     pub(crate) bytes: Vec<u8>,
     pub(crate) elements: u64,
     pub(crate) report: zumen_acad::ConversionReport,
+    pub(crate) input_diagnostics: DiagnosticEvents,
 }
 
 /// R2004 DWG は共有の表を一度だけ読む。再符号化の範囲外なら同じ表から図面モデルを作る。
 pub(crate) fn from_r2004(
     source: &zumen_acad::DwgFile,
     limit: u64,
+    collect_input: bool,
     cx: &mut Cx<'_>,
 ) -> Result<Converted, Failed> {
-    match source
-        .reencode_r2004_dxf_with_report(limit, cx)
-        .map_err(|_| Failed)?
-    {
+    let (conversion, input_diagnostics) = if collect_input {
+        source
+            .reencode_r2004_dxf_with_input_diagnostics(limit, cx)
+            .map_err(|_| Failed)?
+    } else {
+        (
+            source
+                .reencode_r2004_dxf_with_report(limit, cx)
+                .map_err(|_| Failed)?,
+            DiagnosticEvents::default(),
+        )
+    };
+    match conversion {
         zumen_acad::dxf::R2004Conversion::Dxf(encoded) => {
             let file = Dxf::read(&encoded.bytes, cx).map_err(|_| Failed)?;
             Ok(Converted {
@@ -37,11 +48,22 @@ pub(crate) fn from_r2004(
                 bytes: encoded.bytes,
                 elements: encoded.elements,
                 report: encoded.report,
+                input_diagnostics,
             })
         }
         zumen_acad::dxf::R2004Conversion::DrawingSource(db) => {
-            let drawing = zumen_acad::lift_drawing(&db, cx).map_err(|_| Failed)?;
-            to_dxf_with_report(&drawing, limit, cx)
+            if !collect_input {
+                let drawing = zumen_acad::lift_drawing(&db, cx).map_err(|_| Failed)?;
+                return to_dxf_with_report(&drawing, limit, cx);
+            }
+            let (drawing, lift_diagnostics) = cx
+                .with_diagnostic_events(limit, |cx| zumen_acad::lift_drawing(&db, cx))
+                .map_err(|_| Failed)?;
+            let mut converted = to_dxf_with_report(&drawing, limit, cx)?;
+            converted.input_diagnostics = input_diagnostics
+                .merge(lift_diagnostics, limit, cx)
+                .map_err(|_| Failed)?;
+            Ok(converted)
         }
     }
 }
@@ -64,6 +86,7 @@ pub(crate) fn to_dxf_with_report(
         bytes: lowered.bytes,
         elements: lowered.elements,
         report: lowered.report,
+        input_diagnostics: DiagnosticEvents::default(),
     })
 }
 

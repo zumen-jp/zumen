@@ -4398,7 +4398,7 @@ public final class Messages {
             return this;
         }
 
-        /** 返す明細の最大件数。省略時は 100。総数と種類・忠実度ごとの集計はこの上限によらない */
+        /** 書き手と読み取り段階のそれぞれで返す明細の最大件数。省略時は 100。総数と全件集計はこの上限によらない */
         public Long getLimit() {
             return Json.read(json.get("limit"), Json::integer);
         }
@@ -4543,6 +4543,121 @@ public final class Messages {
         /** {@link #getTruncated()} を書く。null ならフィールドを除く */
         public ConversionEstimate withTruncated(Boolean value) {
             put("truncated", value);
+            return this;
+        }
+
+        /** 入力の表の読み取りと lift 中の、集約前の診断発生記録。書き手の項目の集計には含めない。マイナーバージョン 67 から */
+        public ConversionInputDiagnostics getInputDiagnostics() {
+            return Json.read(json.get("input_diagnostics"), ConversionInputDiagnostics::of);
+        }
+
+        /** {@link #getInputDiagnostics()} を書く。null ならフィールドを除く */
+        public ConversionEstimate withInputDiagnostics(ConversionInputDiagnostics value) {
+            put("input_diagnostics", value);
+            return this;
+        }
+    }
+
+    /** 読み取り段階の診断発生数。失った要素数ではなく、同じ要素の複数の診断もそれぞれ数える。忠実度を持たない診断も含む。open 時や書き手の診断は含まない */
+    public static final class ConversionInputDiagnostics extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public ConversionInputDiagnostics(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static ConversionInputDiagnostics of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new ConversionInputDiagnostics(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public ConversionInputDiagnostics() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 診断の発生件数の合計。max_places と limit によらない */
+        public Long getTotal() {
+            return Json.read(json.get("total"), Json::integer);
+        }
+
+        /** {@link #getTotal()} を書く。null ならフィールドを除く */
+        public ConversionInputDiagnostics withTotal(Long value) {
+            put("total", value);
+            return this;
+        }
+
+        /** 診断の code とカタログの group_by の値による全件集計。場所は持たず、値は最も早い入力位置の報告から取る */
+        public List<Diagnostic> getCounts() {
+            return Json.read(json.get("counts"), v0 -> Json.list(v0, Diagnostic::of));
+        }
+
+        /** {@link #getCounts()} を書く。null ならフィールドを除く */
+        public ConversionInputDiagnostics withCounts(List<Diagnostic> value) {
+            put("counts", value);
+            return this;
+        }
+
+        /** 集約前の報告を入力位置順に limit 件まで返す。同じ位置は報告順。診断の場所は max_places で制限しない */
+        public List<ConversionInputDiagnostic> getDetails() {
+            return Json.read(json.get("details"), v0 -> Json.list(v0, ConversionInputDiagnostic::of));
+        }
+
+        /** {@link #getDetails()} を書く。null ならフィールドを除く */
+        public ConversionInputDiagnostics withDetails(List<ConversionInputDiagnostic> value) {
+            put("details", value);
+            return this;
+        }
+
+        /** 明細の上限で返さなかった報告がある */
+        public Boolean getTruncated() {
+            return Json.read(json.get("truncated"), Json::bool);
+        }
+
+        /** {@link #getTruncated()} を書く。null ならフィールドを除く */
+        public ConversionInputDiagnostics withTruncated(Boolean value) {
+            put("truncated", value);
+            return this;
+        }
+    }
+
+    /** 集約前の診断と、その場所と同じ順序の出所。種類や失った値は診断の code と params からたどる */
+    public static final class ConversionInputDiagnostic extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public ConversionInputDiagnostic(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static ConversionInputDiagnostic of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new ConversionInputDiagnostic(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public ConversionInputDiagnostic() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 集約前の診断。元の値と場所を保つ */
+        public Diagnostic getDiagnostic() {
+            return Json.read(json.get("diagnostic"), Diagnostic::of);
+        }
+
+        /** {@link #getDiagnostic()} を書く。null ならフィールドを除く */
+        public ConversionInputDiagnostic withDiagnostic(Diagnostic value) {
+            put("diagnostic", value);
+            return this;
+        }
+
+        /** diagnostic.at と同じ順序のレコード・バイト範囲・ハンドル・インスタンス番号。ID は diagnostic.at にある */
+        public List<Source> getSources() {
+            return Json.read(json.get("sources"), v0 -> Json.list(v0, Source::of));
+        }
+
+        /** {@link #getSources()} を書く。null ならフィールドを除く */
+        public ConversionInputDiagnostic withSources(List<Source> value) {
+            put("sources", value);
             return this;
         }
     }

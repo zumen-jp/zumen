@@ -796,7 +796,7 @@ export interface ConvertEstimateRequest extends RequestCommon {
   format: string;
   /** 予定する文書の名前。convert と同じ条件で検査するが、名前を確保しない */
   to: string;
-  /** 返す明細の最大件数。省略時は 100。総数と種類・忠実度ごとの集計はこの上限によらない */
+  /** 書き手と読み取り段階のそれぞれで返す明細の最大件数。省略時は 100。総数と全件集計はこの上限によらない */
   limit?: number;
 }
 
@@ -824,6 +824,28 @@ export interface ConversionEstimate {
   details: ConversionDetail[];
   /** 明細の上限で返さなかった対象がある */
   truncated: boolean;
+  /** 入力の表の読み取りと lift 中の、集約前の診断発生記録。書き手の項目の集計には含めない。マイナーバージョン 67 から */
+  input_diagnostics?: ConversionInputDiagnostics;
+}
+
+/** 読み取り段階の診断発生数。失った要素数ではなく、同じ要素の複数の診断もそれぞれ数える。忠実度を持たない診断も含む。open 時や書き手の診断は含まない */
+export interface ConversionInputDiagnostics {
+  /** 診断の発生件数の合計。max_places と limit によらない */
+  total: number;
+  /** 診断の code とカタログの group_by の値による全件集計。場所は持たず、値は最も早い入力位置の報告から取る */
+  counts: Diagnostic[];
+  /** 集約前の報告を入力位置順に limit 件まで返す。同じ位置は報告順。診断の場所は max_places で制限しない */
+  details: ConversionInputDiagnostic[];
+  /** 明細の上限で返さなかった報告がある */
+  truncated: boolean;
+}
+
+/** 集約前の診断と、その場所と同じ順序の出所。種類や失った値は診断の code と params からたどる */
+export interface ConversionInputDiagnostic {
+  /** 集約前の診断。元の値と場所を保つ */
+  diagnostic: Diagnostic;
+  /** diagnostic.at と同じ順序のレコード・バイト範囲・ハンドル・インスタンス番号。ID は diagnostic.at にある */
+  sources: Source[];
 }
 
 /** 処理対象の種類と忠実度ごとの集計 */

@@ -1367,7 +1367,7 @@ _ConvertEstimateRequestOptional = TypedDict(
         "max_places": int,
         # 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
         "time_limit_ms": int,
-        # 返す明細の最大件数。省略時は 100。総数と種類・忠実度ごとの集計はこの上限によらない
+        # 書き手と読み取り段階のそれぞれで返す明細の最大件数。省略時は 100。総数と全件集計はこの上限によらない
         "limit": int,
     },
     total=False,
@@ -1389,8 +1389,8 @@ ConvertEstimateResult = TypedDict(
 
 
 # 実変換と同じ処理で準備した出力。doc と hash は未登録の予定値。元の入力・設定・予算が同じなら convert の値と一致する
-ConversionEstimate = TypedDict(
-    "ConversionEstimate",
+_ConversionEstimateRequired = TypedDict(
+    "_ConversionEstimateRequired",
     {
         # 予定する文書の名前
         "doc": str,
@@ -1408,6 +1408,46 @@ ConversionEstimate = TypedDict(
         "details": List["ConversionDetail"],
         # 明細の上限で返さなかった対象がある
         "truncated": bool,
+    },
+)
+_ConversionEstimateOptional = TypedDict(
+    "_ConversionEstimateOptional",
+    {
+        # 入力の表の読み取りと lift 中の、集約前の診断発生記録。書き手の項目の集計には含めない。マイナーバージョン 67 から
+        "input_diagnostics": "ConversionInputDiagnostics",
+    },
+    total=False,
+)
+
+
+class ConversionEstimate(_ConversionEstimateRequired, _ConversionEstimateOptional):
+    "実変換と同じ処理で準備した出力。doc と hash は未登録の予定値。元の入力・設定・予算が同じなら convert の値と一致する"
+
+
+# 読み取り段階の診断発生数。失った要素数ではなく、同じ要素の複数の診断もそれぞれ数える。忠実度を持たない診断も含む。open 時や書き手の診断は含まない
+ConversionInputDiagnostics = TypedDict(
+    "ConversionInputDiagnostics",
+    {
+        # 診断の発生件数の合計。max_places と limit によらない
+        "total": int,
+        # 診断の code とカタログの group_by の値による全件集計。場所は持たず、値は最も早い入力位置の報告から取る
+        "counts": List["Diagnostic"],
+        # 集約前の報告を入力位置順に limit 件まで返す。同じ位置は報告順。診断の場所は max_places で制限しない
+        "details": List["ConversionInputDiagnostic"],
+        # 明細の上限で返さなかった報告がある
+        "truncated": bool,
+    },
+)
+
+
+# 集約前の診断と、その場所と同じ順序の出所。種類や失った値は診断の code と params からたどる
+ConversionInputDiagnostic = TypedDict(
+    "ConversionInputDiagnostic",
+    {
+        # 集約前の診断。元の値と場所を保つ
+        "diagnostic": "Diagnostic",
+        # diagnostic.at と同じ順序のレコード・バイト範囲・ハンドル・インスタンス番号。ID は diagnostic.at にある
+        "sources": List["Source"],
     },
 )
 

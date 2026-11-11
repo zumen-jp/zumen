@@ -1181,7 +1181,7 @@ impl Session {
         cx: &mut Cx<'_>,
     ) -> Result<ConvertResult, Failed> {
         let (converted, hash) =
-            self.prepare_conversion(&request.doc, &request.format, &request.to, 0, cx)?;
+            self.prepare_conversion(&request.doc, &request.format, &request.to, 0, false, cx)?;
         self.docs.insert(
             request.to.clone(),
             Document::Drawing {
@@ -1210,7 +1210,8 @@ impl Session {
     ) -> Result<messages::ConvertEstimateResult, Failed> {
         let limit = request.limit.unwrap_or(100);
         let (converted, hash) =
-            self.prepare_conversion(&request.doc, &request.format, &request.to, limit, cx)?;
+            self.prepare_conversion(&request.doc, &request.format, &request.to, limit, true, cx)?;
+        let input_diagnostics = conversion_input_diagnostics(&converted.input_diagnostics, cx)?;
         let report = converted.report;
         Ok(messages::ConvertEstimateResult {
             estimate: messages::ConversionEstimate {
@@ -1242,6 +1243,7 @@ impl Session {
                     })
                     .collect(),
                 truncated: report.truncated,
+                input_diagnostics: Some(input_diagnostics),
             },
         })
     }
@@ -1254,6 +1256,7 @@ impl Session {
         format: &str,
         to: &str,
         limit: u64,
+        collect_input: bool,
         cx: &mut Cx<'_>,
     ) -> Result<(convert::Converted, Hash), Failed> {
         if !name::is_safe(to) {
@@ -1271,10 +1274,19 @@ impl Session {
             if let DrawingFile::Dwg(file) = source
                 && file.version() == b"AC1018"
             {
-                return convert::from_r2004(file, limit, cx);
+                return convert::from_r2004(file, limit, collect_input, cx);
             }
-            let drawing = source.lift(cx).map_err(|_| Failed)?;
-            convert::to_dxf_with_report(&drawing, limit, cx)
+            if !collect_input {
+                let drawing = source.lift(cx).map_err(|_| Failed)?;
+                return convert::to_dxf_with_report(&drawing, limit, cx);
+            }
+            let (drawing, input_diagnostics) = cx
+                .with_diagnostic_events(limit, |cx| Ok::<_, Stop>(source.lift(cx)))
+                .map_err(|_| Failed)?;
+            let drawing = drawing.map_err(|_| Failed)?;
+            let mut converted = convert::to_dxf_with_report(&drawing, limit, cx)?;
+            converted.input_diagnostics = input_diagnostics;
+            Ok(converted)
         })?;
         let hash =
             Hash::document_checked(&converted.bytes, cx).map_err(|stop| stopped(cx, stop))?;
@@ -2360,6 +2372,58 @@ fn respond(
 }
 
 /// コアの診断を、メッセージの診断にする
+#[cfg(feature = "drawing")]
+fn conversion_input_diagnostics(
+    events: &zumen_base::DiagnosticEvents,
+    cx: &mut Cx<'_>,
+) -> Result<messages::ConversionInputDiagnostics, Failed> {
+    // 公開の値への複製も、文字列と場所を確保する前に固定の論理量で数える。
+    for diagnostic in events.counts.iter().chain(&events.details) {
+        let work = 1_u64
+            .saturating_add(diagnostic.params().len() as u64)
+            .saturating_add(diagnostic.places().len() as u64);
+        cx.check(Kind::Work, work)
+            .map_err(|stop| stopped(cx, stop))?;
+        let mut bytes = 64_u64
+            .saturating_add(diagnostic.code().name().len() as u64)
+            .saturating_add((diagnostic.params().len() as u64).saturating_mul(48))
+            .saturating_add((diagnostic.places().len() as u64).saturating_mul(128));
+        if let Some(spec) = diagnostic.spec() {
+            bytes = bytes
+                .saturating_add(spec.spec.len() as u64)
+                .saturating_add(spec.section.len() as u64);
+        }
+        for (name, value) in diagnostic.params() {
+            bytes = bytes.saturating_add(name.len() as u64);
+            bytes = bytes.saturating_add(match value {
+                zumen_base::Value::Text(text) => text.len() as u64,
+                zumen_base::Value::Key(key) => key.len() as u64,
+                _ => 32,
+            });
+        }
+        for place in diagnostic.places() {
+            bytes = bytes.saturating_add(place.id().map_or(0, |id| id.len() as u64));
+        }
+        cx.check(Kind::DecodedBytes, bytes)
+            .map_err(|stop| stopped(cx, stop))?;
+    }
+    let result = messages::ConversionInputDiagnostics {
+        total: events.total,
+        counts: events.counts.iter().map(message_of).collect(),
+        details: events
+            .details
+            .iter()
+            .map(|diagnostic| messages::ConversionInputDiagnostic {
+                diagnostic: message_of(diagnostic),
+                sources: diagnostic.places().iter().map(source_of).collect(),
+            })
+            .collect(),
+        truncated: events.truncated,
+    };
+    cx.check(Kind::Work, 0).map_err(|stop| stopped(cx, stop))?;
+    Ok(result)
+}
+
 pub(crate) fn message_of(diagnostic: &Diagnostic) -> messages::Diagnostic {
     messages::Diagnostic {
         code: diagnostic.code().name().to_string(),
@@ -2872,7 +2936,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":66}},"ops":["capabilities","open","close","describe","drawing","entities","apply","convert","convert_estimate","tables","scene","check","validate","review_carry","review_adopt","building","building_elements","ids_check","review_adopt_ids","bcf_read","bcf_write","civil","pointcloud","deviation","civil_drawing","geo","delivery_check","photo","sheet","boring","building_apply","lift","render"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}},{{"id":"landxml","family":"landxml","read":true,"write":false,"id_rules":1}},{{"id":"citygml","family":"citygml","read":true,"write":false,"id_rules":1}},{{"id":"fgd","family":"fgd","read":true,"write":false,"id_rules":1}},{{"id":"extdm","family":"extdm","read":true,"write":false,"id_rules":1}},{{"id":"las","family":"las","read":true,"write":false,"id_rules":1}},{{"id":"ply","family":"ply","read":true,"write":false,"id_rules":1}},{{"id":"xyz","family":"xyz","read":true,"write":false,"id_rules":1}},{{"id":"e57","family":"e57","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":67}},"ops":["capabilities","open","close","describe","drawing","entities","apply","convert","convert_estimate","tables","scene","check","validate","review_carry","review_adopt","building","building_elements","ids_check","review_adopt_ids","bcf_read","bcf_write","civil","pointcloud","deviation","civil_drawing","geo","delivery_check","photo","sheet","boring","building_apply","lift","render"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}},{{"id":"landxml","family":"landxml","read":true,"write":false,"id_rules":1}},{{"id":"citygml","family":"citygml","read":true,"write":false,"id_rules":1}},{{"id":"fgd","family":"fgd","read":true,"write":false,"id_rules":1}},{{"id":"extdm","family":"extdm","read":true,"write":false,"id_rules":1}},{{"id":"las","family":"las","read":true,"write":false,"id_rules":1}},{{"id":"ply","family":"ply","read":true,"write":false,"id_rules":1}},{{"id":"xyz","family":"xyz","read":true,"write":false,"id_rules":1}},{{"id":"e57","family":"e57","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);

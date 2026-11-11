@@ -1782,7 +1782,7 @@ class ConvertEstimateRequest extends Message {
   String? get to => readField('to', asString);
   set to(String? value) => writeField('to', value);
 
-  /// 返す明細の最大件数。省略時は 100。総数と種類・忠実度ごとの集計はこの上限によらない
+  /// 書き手と読み取り段階のそれぞれで返す明細の最大件数。省略時は 100。総数と全件集計はこの上限によらない
   int? get limit => readField('limit', asInt);
   set limit(int? value) => writeField('limit', value);
 }
@@ -1839,6 +1839,52 @@ class ConversionEstimate extends Message {
   /// 明細の上限で返さなかった対象がある
   bool? get truncated => readField('truncated', asBool);
   set truncated(bool? value) => writeField('truncated', value);
+
+  /// 入力の表の読み取りと lift 中の、集約前の診断発生記録。書き手の項目の集計には含めない。マイナーバージョン 67 から
+  ConversionInputDiagnostics? get inputDiagnostics => readField('input_diagnostics', objectOf(ConversionInputDiagnostics.fromJson));
+  set inputDiagnostics(ConversionInputDiagnostics? value) => writeField('input_diagnostics', value);
+}
+
+/// 読み取り段階の診断発生数。失った要素数ではなく、同じ要素の複数の診断もそれぞれ数える。忠実度を持たない診断も含む。open 時や書き手の診断は含まない
+class ConversionInputDiagnostics extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  ConversionInputDiagnostics.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  ConversionInputDiagnostics() : super({});
+
+  /// 診断の発生件数の合計。max_places と limit によらない
+  int? get total => readField('total', asInt);
+  set total(int? value) => writeField('total', value);
+
+  /// 診断の code とカタログの group_by の値による全件集計。場所は持たず、値は最も早い入力位置の報告から取る
+  List<Diagnostic>? get counts => readField('counts', listOf(objectOf(Diagnostic.fromJson)));
+  set counts(List<Diagnostic>? value) => writeField('counts', value);
+
+  /// 集約前の報告を入力位置順に limit 件まで返す。同じ位置は報告順。診断の場所は max_places で制限しない
+  List<ConversionInputDiagnostic>? get details => readField('details', listOf(objectOf(ConversionInputDiagnostic.fromJson)));
+  set details(List<ConversionInputDiagnostic>? value) => writeField('details', value);
+
+  /// 明細の上限で返さなかった報告がある
+  bool? get truncated => readField('truncated', asBool);
+  set truncated(bool? value) => writeField('truncated', value);
+}
+
+/// 集約前の診断と、その場所と同じ順序の出所。種類や失った値は診断の code と params からたどる
+class ConversionInputDiagnostic extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  ConversionInputDiagnostic.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  ConversionInputDiagnostic() : super({});
+
+  /// 集約前の診断。元の値と場所を保つ
+  Diagnostic? get diagnostic => readField('diagnostic', objectOf(Diagnostic.fromJson));
+  set diagnostic(Diagnostic? value) => writeField('diagnostic', value);
+
+  /// diagnostic.at と同じ順序のレコード・バイト範囲・ハンドル・インスタンス番号。ID は diagnostic.at にある
+  List<Source>? get sources => readField('sources', listOf(objectOf(Source.fromJson)));
+  set sources(List<Source>? value) => writeField('sources', value);
 }
 
 /// 処理対象の種類と忠実度ごとの集計

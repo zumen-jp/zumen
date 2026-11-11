@@ -3,7 +3,7 @@
 use crate::budget::{Budget, Exceeded, Kind};
 use crate::cancel::CancelToken;
 use crate::codes;
-use crate::diag::{Diagnostic, Diagnostics};
+use crate::diag::{Diagnostic, DiagnosticEvents, Diagnostics, EventCapture};
 
 /// 作業をする関数すべてに、明示的に渡す文脈。thread_local の上限の代わり
 #[derive(Debug)]
@@ -56,7 +56,7 @@ impl<'a> Cx<'a> {
 
     /// コードの決まった所で呼ぶ。中断の合図を確かめてから、予算を使う
     pub fn check(&mut self, kind: Kind, amount: u64) -> Result<(), Stop> {
-        if let Some(stop) = self.diag.record_order_stop() {
+        if let Some(stop) = self.diag.collection_stop() {
             return Err(stop);
         }
         if let Some(stop) = self.cancel.stop() {
@@ -77,7 +77,14 @@ impl<'a> Cx<'a> {
 
     /// 診断を足す
     pub fn report(&mut self, diagnostic: Diagnostic) {
-        if self.diag.record_order_stop().is_some() {
+        if self.diag.collection_stop().is_some() {
+            return;
+        }
+        if let Err(stop) = self
+            .diag
+            .preflight_event(&diagnostic, self.budget, self.cancel)
+        {
+            self.diag.stop_record_order(stop, diagnostic);
             return;
         }
         if let Some(amount) = self.diag.record_order_work(&diagnostic)
@@ -86,7 +93,59 @@ impl<'a> Cx<'a> {
             self.diag.stop_record_order(stop, diagnostic);
             return;
         }
+        self.diag.record_event(&diagnostic);
         self.diag.report(diagnostic);
+    }
+
+    /// 処理中に報告した診断を、集約前の明細と場所を持たない集計として受け取る。
+    ///
+    /// [`Cx::report`] の報告を捕捉し、`diag` の `max_places` によらず元の値と場所を保つ。
+    /// 明細は入力位置順の先頭 `limit` 件とし、同じ位置は報告順にする。
+    /// 集計の代表値はもっとも早い入力位置の報告から採り、発生件数は診断の `count` を足す。
+    /// 入れ子の呼び出しでは、内外がそれぞれの処理中の報告を捕捉する。
+    /// 深さ・収集・整列・確保を予算で数え、明細の上限に達しても集計と中断の確認を続ける。
+    /// 停止は処理の最後に報告された場合も返す。集約済みの診断の転送は重ねて捕捉しない。
+    pub fn with_diagnostic_events<T, E: From<Stop>>(
+        &mut self,
+        limit: u64,
+        operation: impl FnOnce(&mut Cx<'_>) -> Result<T, E>,
+    ) -> Result<(T, DiagnosticEvents), E> {
+        if let Err(stop) = self.enter() {
+            if self.diag.collection_stop().is_none() {
+                self.diag.stop_record_order(stop, stop.to_diagnostic());
+            }
+            return Err(stop.into());
+        }
+        let allocation = self.check(Kind::DecodedBytes, EventCapture::LOGICAL_BYTES);
+        if let Err(stop) = allocation {
+            self.leave();
+            if self.diag.collection_stop().is_none() {
+                self.diag.stop_record_order(stop, stop.to_diagnostic());
+            }
+            return Err(stop.into());
+        }
+        let parent = self.diag.events.take();
+        self.diag.events = Some(Box::new(EventCapture::new(limit, parent)));
+        let result = operation(self);
+        let stop = self.diag.collection_stop();
+        let capture = self.diag.events.take();
+        self.leave();
+        let Some(mut capture) = capture else {
+            // 処理が収集先そのものを置き換えた場合にも、パニックしない。
+            return result.map(|value| (value, DiagnosticEvents::default()));
+        };
+        self.diag.events = capture.parent.take();
+        if let Some(stop) = stop {
+            return Err(stop.into());
+        }
+        let value = result?;
+        match capture.finish(self.budget, self.cancel) {
+            Ok(events) => Ok((value, events)),
+            Err(stop) => {
+                self.diag.stop_record_order(stop, stop.to_diagnostic());
+                Err(stop.into())
+            }
+        }
     }
 
     /// 処理中の診断を、レコードの入力順でまとめてから届ける（決定 0009）。
@@ -101,22 +160,26 @@ impl<'a> Cx<'a> {
         &mut self,
         operation: impl FnOnce(&mut Cx<'_>) -> Result<T, E>,
     ) -> Result<T, E> {
-        if let Some(stop) = self.diag.record_order_stop() {
+        if let Some(stop) = self.diag.collection_stop() {
             return Err(stop.into());
         }
         if self.diag.is_collecting_in_record_order() {
             let result = operation(self);
-            return match self.diag.record_order_stop() {
+            return match self.diag.collection_stop() {
                 Some(stop) => Err(stop.into()),
                 None => result,
             };
         }
         let mut diagnostics = Diagnostics::in_record_order(self.diag.max_places());
+        diagnostics.events = self.diag.events.take();
         let result = operation(&mut Cx::new(self.budget, &mut diagnostics, self.cancel));
-        let stop = diagnostics.record_order_stop();
+        let stop = diagnostics.collection_stop();
+        let events = diagnostics.events.take();
         for diagnostic in diagnostics.into_vec() {
-            self.report(diagnostic);
+            // 収集と転送の予算は支払ってあり、元の報告もすでに捕捉している。
+            self.diag.report(diagnostic);
         }
+        self.diag.events = events;
         match stop {
             Some(stop) => Err(stop.into()),
             None => result,
@@ -128,6 +191,407 @@ impl<'a> Cx<'a> {
 mod tests {
     use super::*;
     use crate::budget::{Limit, Limits};
+    use crate::{Ref, Value};
+
+    fn event_at(record: u64) -> Diagnostic {
+        Diagnostic::new(codes::ZIP_PATH_UNSAFE)
+            .with("name", record.to_string())
+            .at(Ref::at_record(record))
+    }
+
+    fn capture_events(limit: u64, records: &[u64]) -> DiagnosticEvents {
+        let mut budget = Budget::default();
+        let mut diag = Diagnostics::with_max_places(0);
+        let cancel = CancelToken::new();
+        Cx::new(&mut budget, &mut diag, &cancel)
+            .with_diagnostic_events(limit, |cx| {
+                for &record in records {
+                    cx.report(event_at(record));
+                }
+                Ok::<(), Stop>(())
+            })
+            .unwrap()
+            .1
+    }
+
+    #[test]
+    fn event_limits_only_cut_details_and_preserve_the_earliest_summary_without_places() {
+        let full = capture_events(10, &[9, 3, 1, 3]);
+        assert_eq!(full.total, 4);
+        assert_eq!(full.counts.len(), 1);
+        assert_eq!(full.counts[0].count(), 4);
+        assert_eq!(full.counts[0].param("name"), Some(&Value::from("1")));
+        assert!(full.counts[0].places().is_empty());
+        assert!(!full.truncated);
+        for limit in [0, 1, 2] {
+            let events = capture_events(limit, &[9, 3, 1, 3]);
+            assert_eq!(events.total, full.total);
+            assert_eq!(events.counts, full.counts);
+            assert_eq!(events.details, full.details[..limit as usize]);
+            assert!(events.truncated);
+        }
+    }
+
+    #[test]
+    fn events_preserve_raw_places_and_same_place_reports_in_input_order() {
+        let mut budget = Budget::default();
+        let mut diag = Diagnostics::with_max_places(0);
+        let cancel = CancelToken::new();
+        let (_, events) = Cx::new(&mut budget, &mut diag, &cancel)
+            .with_diagnostic_events(8, |cx| {
+                cx.report(Diagnostic::new(codes::SXF_CODE_MISSING));
+                cx.report(Diagnostic::new(codes::ZIP_PATH_UNSAFE).at(Ref::at_bytes(2, 5)));
+                cx.report(
+                    event_at(5)
+                        .at(Ref::at_record(2).with_id("first"))
+                        .at(Ref::at_bytes(1, 3)),
+                );
+                cx.report(
+                    Diagnostic::new(codes::SXF_P21_INSTANCE_DROPPED)
+                        .with("id", 2_u64)
+                        .at(Ref::at_record(2).with_id("first")),
+                );
+                Ok::<(), Stop>(())
+            })
+            .unwrap();
+        assert_eq!(events.total, 4);
+        assert_eq!(events.details.len(), 4);
+        assert_eq!(events.details[0].places().len(), 3);
+        assert_eq!(events.details[0].places()[0].record(), Some(5));
+        assert_eq!(events.details[0].places()[1].id(), Some("first"));
+        assert_eq!(events.details[1].code(), codes::SXF_P21_INSTANCE_DROPPED);
+        assert_eq!(events.details[2].places()[0].bytes().unwrap().start, 2);
+        assert_eq!(events.details[3].code(), codes::SXF_CODE_MISSING);
+        assert!(events.details[3].fidelity().is_none());
+        assert!(events.counts.iter().all(|entry| entry.places().is_empty()));
+        let codes: Vec<_> = events
+            .counts
+            .iter()
+            .map(|entry| entry.code().name())
+            .collect();
+        assert!(codes.windows(2).all(|pair| pair[0] <= pair[1]));
+        assert!(diag.iter().all(|entry| entry.places().is_empty()));
+    }
+
+    #[test]
+    fn nested_event_scopes_capture_each_raw_report_once_through_record_order() {
+        for max_places in [0, 1] {
+            let mut budget = Budget::default();
+            let mut diag = Diagnostics::with_max_places(max_places);
+            let cancel = CancelToken::new();
+            let (inner, outer) = Cx::new(&mut budget, &mut diag, &cancel)
+                .with_diagnostic_events(10, |cx| {
+                    cx.report(event_at(9));
+                    let inner = cx.with_diagnostics_in_record_order(|cx| {
+                        cx.report(event_at(8));
+                        let (_, inner) = cx.with_diagnostic_events(10, |cx| {
+                            cx.report(event_at(5));
+                            cx.with_diagnostics_in_record_order(|cx| {
+                                cx.report(event_at(1));
+                                Ok::<(), Stop>(())
+                            })
+                        })?;
+                        cx.report(event_at(7));
+                        Ok::<_, Stop>(inner)
+                    })?;
+                    cx.report(event_at(6));
+                    Ok::<_, Stop>(inner)
+                })
+                .unwrap();
+            assert_eq!(outer.total, 6);
+            assert_eq!(outer.counts[0].count(), 6);
+            assert_eq!(outer.details.len(), 6);
+            assert_eq!(inner.total, 2);
+            assert_eq!(inner.counts[0].count(), 2);
+            assert_eq!(inner.details.len(), 2);
+            assert_eq!(diag.iter().next().unwrap().count(), 6);
+            assert_eq!(budget.used(Kind::Depth), 0);
+        }
+    }
+
+    #[test]
+    fn capture_inside_record_order_is_not_charged_for_reports_outside_the_scope() {
+        let mut budget = Budget::default();
+        let mut diag = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let events = Cx::new(&mut budget, &mut diag, &cancel)
+            .with_diagnostics_in_record_order(|cx| {
+                cx.report(event_at(8));
+                let (_, events) = cx.with_diagnostic_events(1, |cx| {
+                    cx.report(event_at(2));
+                    Ok::<(), Stop>(())
+                })?;
+                cx.report(event_at(1));
+                Ok::<_, Stop>(events)
+            })
+            .unwrap();
+        assert_eq!(events.total, 1);
+        assert_eq!(events.details[0].places()[0].record(), Some(2));
+        assert_eq!(diag.iter().next().unwrap().count(), 3);
+    }
+
+    #[test]
+    fn event_totals_add_diagnostic_counts_without_inventing_more_detail_rows() {
+        let mut grouped = Diagnostics::new();
+        for _ in 0..3 {
+            grouped.report(event_at(4));
+        }
+        let mut budget = Budget::default();
+        let mut diag = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let (_, events) = Cx::new(&mut budget, &mut diag, &cancel)
+            .with_diagnostic_events(1, |cx| {
+                for diagnostic in grouped.into_vec() {
+                    cx.report(diagnostic);
+                }
+                Ok::<(), Stop>(())
+            })
+            .unwrap();
+        assert_eq!(events.total, 3);
+        assert_eq!(events.details.len(), 1);
+        assert_eq!(events.details[0].count(), 3);
+        assert!(!events.truncated);
+    }
+
+    #[test]
+    fn event_scope_entry_stops_before_allocating_or_running_the_operation() {
+        for (kind, limit, cancelled) in [
+            (Kind::Depth, 0, false),
+            (Kind::DecodedBytes, EventCapture::LOGICAL_BYTES - 1, false),
+            (Kind::Work, 0, true),
+        ] {
+            let mut budget = Budget::new(Limits::default().with(kind, Limit::Finite(limit)));
+            let mut diag = Diagnostics::new();
+            let cancel = CancelToken::new();
+            if cancelled {
+                cancel.cancel();
+            }
+            let mut entered = false;
+            let stop = Cx::new(&mut budget, &mut diag, &cancel)
+                .with_diagnostic_events(1, |_| {
+                    entered = true;
+                    Ok::<(), Stop>(())
+                })
+                .unwrap_err();
+            assert!(!entered);
+            assert!(diag.events.is_none());
+            assert_eq!(diag.len(), 1);
+            assert_eq!(
+                diag.iter().next().unwrap().code(),
+                stop.to_diagnostic().code()
+            );
+            assert_eq!(budget.used(Kind::Depth), 0);
+            assert_eq!(budget.used(Kind::DecodedBytes), 0);
+        }
+    }
+
+    #[test]
+    fn the_last_report_keeps_a_sticky_stop_before_copying_the_event() {
+        for kind in [Kind::Work, Kind::DecodedBytes] {
+            let limit = if kind == Kind::DecodedBytes {
+                EventCapture::LOGICAL_BYTES
+            } else {
+                0
+            };
+            let mut budget = Budget::new(Limits::default().with(kind, Limit::Finite(limit)));
+            let mut diag = Diagnostics::new();
+            let cancel = CancelToken::new();
+            let stop = Cx::new(&mut budget, &mut diag, &cancel)
+                .with_diagnostic_events(1, |cx| {
+                    cx.report(event_at(7));
+                    let stop = cx.check(Kind::Work, 0).unwrap_err();
+                    cx.report(stop.to_diagnostic());
+                    Ok::<(), Stop>(())
+                })
+                .unwrap_err();
+            assert!(matches!(stop, Stop::Exceeded(exceeded) if exceeded.kind == kind));
+            assert_eq!(diag.len(), 1);
+            assert_eq!(diag.iter().next().unwrap().code(), kind.exceeded_code());
+            assert_eq!(diag.iter().next().unwrap().count(), 1);
+            assert_eq!(diag.iter().next().unwrap().places(), [Ref::at_record(7)]);
+            assert_eq!(budget.used(Kind::DecodedBytes), EventCapture::LOGICAL_BYTES);
+        }
+    }
+
+    #[test]
+    fn a_scope_stop_is_returned_even_if_the_operation_ignores_its_inner_result() {
+        let mut budget = Budget::new(Limits::default().with(Kind::Depth, Limit::Finite(1)));
+        let mut diag = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let stop = Cx::new(&mut budget, &mut diag, &cancel)
+            .with_diagnostic_events(1, |cx| {
+                let inner = cx.with_diagnostic_events(1, |_| Ok::<(), Stop>(()));
+                assert!(inner.is_err());
+                Ok::<(), Stop>(())
+            })
+            .unwrap_err();
+        assert!(matches!(stop, Stop::Exceeded(exceeded) if exceeded.kind == Kind::Depth));
+        assert_eq!(diag.len(), 1);
+        assert_eq!(budget.used(Kind::Depth), 0);
+    }
+
+    #[test]
+    fn capture_checks_cancellation_and_work_after_reaching_the_detail_limit() {
+        for limit in [0, 1] {
+            let mut budget = Budget::default();
+            let mut diag = Diagnostics::with_max_places(0);
+            let cancel = CancelToken::new();
+            let stop = Cx::new(&mut budget, &mut diag, &cancel)
+                .with_diagnostic_events(limit, |cx| {
+                    cx.report(event_at(9));
+                    let before = cx.budget.used(Kind::Work);
+                    cx.report(event_at(8));
+                    assert!(cx.budget.used(Kind::Work) > before);
+                    cancel.cancel();
+                    cx.report(event_at(7));
+                    Ok::<(), Stop>(())
+                })
+                .unwrap_err();
+            assert_eq!(stop, Stop::Cancelled);
+            assert_eq!(diag.len(), 2);
+            assert_eq!(diag.iter().next().unwrap().count(), 2);
+        }
+    }
+
+    #[test]
+    fn final_sorting_checks_the_budget_and_reports_its_stop() {
+        let mut before_finish = 0;
+        let mut budget = Budget::default();
+        let mut diag = Diagnostics::new();
+        let cancel = CancelToken::new();
+        Cx::new(&mut budget, &mut diag, &cancel)
+            .with_diagnostic_events(1, |cx| {
+                cx.report(event_at(1));
+                before_finish = cx.budget.used(Kind::Work);
+                Ok::<(), Stop>(())
+            })
+            .unwrap();
+        let mut budget =
+            Budget::new(Limits::default().with(Kind::Work, Limit::Finite(before_finish)));
+        let mut diag = Diagnostics::new();
+        let stop = Cx::new(&mut budget, &mut diag, &cancel)
+            .with_diagnostic_events(1, |cx| {
+                cx.report(event_at(1));
+                Ok::<(), Stop>(())
+            })
+            .unwrap_err();
+        assert!(matches!(stop, Stop::Exceeded(exceeded) if exceeded.kind == Kind::Work));
+        assert_eq!(diag.len(), 2);
+        assert_eq!(
+            diag.iter().last().unwrap().code(),
+            codes::BUDGET_WORK_EXCEEDED
+        );
+    }
+
+    #[test]
+    fn merging_captures_keeps_counts_and_the_earliest_summary_without_recapturing() {
+        for limit in [0, 1, 4] {
+            let first = capture_events(limit, &[9, 5]);
+            let second = capture_events(limit, &[1, 5]);
+            let mut budget = Budget::default();
+            let mut diag = Diagnostics::new();
+            let cancel = CancelToken::new();
+            let (merged, surrounding) = Cx::new(&mut budget, &mut diag, &cancel)
+                .with_diagnostic_events(10, |cx| first.merge(second, limit, cx))
+                .unwrap();
+            assert_eq!(merged.total, 4);
+            assert_eq!(merged.counts[0].count(), 4);
+            assert_eq!(merged.counts[0].param("name"), Some(&Value::from("1")));
+            assert!(merged.counts[0].places().is_empty());
+            assert_eq!(merged.details.len(), (limit as usize).min(4));
+            assert_eq!(merged.truncated, limit < 4);
+            assert_eq!(surrounding.total, 0);
+            assert!(diag.is_empty());
+        }
+    }
+
+    #[test]
+    fn merging_captures_checks_its_budget_before_allocating_and_does_not_restore_cut_details() {
+        let first = capture_events(0, &[9]);
+        let second = capture_events(0, &[1]);
+        let mut budget = Budget::default();
+        let mut diag = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let merged = first
+            .merge(second, 10, &mut Cx::new(&mut budget, &mut diag, &cancel))
+            .unwrap();
+        assert_eq!(merged.total, 2);
+        assert!(merged.details.is_empty());
+        assert!(merged.truncated);
+        let mut budget = Budget::new(Limits::default().with(Kind::DecodedBytes, Limit::Finite(0)));
+        let first = capture_events(1, &[9]);
+        let second = capture_events(1, &[1]);
+        let stop = first
+            .merge(second, 1, &mut Cx::new(&mut budget, &mut diag, &cancel))
+            .unwrap_err();
+        assert!(matches!(stop, Stop::Exceeded(exceeded) if exceeded.kind == Kind::DecodedBytes));
+        assert_eq!(budget.used(Kind::DecodedBytes), 0);
+        assert_eq!(
+            diag.iter().next().unwrap().code(),
+            codes::BUDGET_DECODED_BYTES_EXCEEDED
+        );
+    }
+
+    #[test]
+    fn event_counts_use_catalog_keys_and_input_position_for_representative_values() {
+        let mut budget = Budget::default();
+        let mut diag = Diagnostics::with_max_places(0);
+        let cancel = CancelToken::new();
+        let (_, events) = Cx::new(&mut budget, &mut diag, &cancel)
+            .with_diagnostic_events(0, |cx| {
+                for (kind, code, record, value) in [
+                    ("line", 2_i64, 9, "late"),
+                    ("line", 2, 1, "early"),
+                    ("line", 1, 4, "one"),
+                    ("circle", 4, 5, "circle"),
+                ] {
+                    cx.report(
+                        Diagnostic::new(codes::SXF_CODE_MISSING)
+                            .with("kind", kind)
+                            .with("code", code)
+                            .with("value", value)
+                            .at(Ref::at_record(record)),
+                    );
+                }
+                Ok::<(), Stop>(())
+            })
+            .unwrap();
+        assert_eq!(events.total, 4);
+        assert_eq!(events.counts.len(), 3);
+        assert_eq!(events.counts[0].param("kind"), Some(&Value::from("circle")));
+        assert_eq!(events.counts[1].param("code"), Some(&Value::Int(1)));
+        assert_eq!(events.counts[2].count(), 2);
+        assert_eq!(events.counts[2].param("value"), Some(&Value::from("early")));
+        assert!(events.details.is_empty());
+    }
+
+    #[test]
+    fn merging_same_position_reports_preserves_the_phase_order_and_representative() {
+        let mut budget = Budget::default();
+        let mut diag = Diagnostics::with_max_places(0);
+        let cancel = CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        let mut phase = |name: &str| {
+            cx.with_diagnostic_events(2, |cx| {
+                cx.report(event_at(1).with("name", name));
+                Ok::<(), Stop>(())
+            })
+            .unwrap()
+            .1
+        };
+        let first = phase("first");
+        let second = phase("second");
+        let merged = first.merge(second, 2, &mut cx).unwrap();
+        assert_eq!(merged.total, 2);
+        assert_eq!(merged.counts[0].count(), 2);
+        assert_eq!(merged.counts[0].param("name"), Some(&Value::from("first")));
+        assert_eq!(merged.details[0].param("name"), Some(&Value::from("first")));
+        assert_eq!(
+            merged.details[1].param("name"),
+            Some(&Value::from("second"))
+        );
+        assert!(!merged.truncated);
+    }
 
     #[test]
     fn checks_the_signal_before_the_budget() {

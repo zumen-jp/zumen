@@ -2209,7 +2209,7 @@ namespace Zumen.Messages
         public string To { get; init; } = default!;
 
         /// <summary>
-        /// 返す明細の最大件数。省略時は 100。総数と種類・忠実度ごとの集計はこの上限によらない
+        /// 書き手と読み取り段階のそれぞれで返す明細の最大件数。省略時は 100。総数と全件集計はこの上限によらない
         /// </summary>
         [JsonPropertyName("limit")]
         public uint? Limit { get; init; }
@@ -2279,6 +2279,60 @@ namespace Zumen.Messages
         /// </summary>
         [JsonPropertyName("truncated")]
         public bool Truncated { get; init; }
+
+        /// <summary>
+        /// 入力の表の読み取りと lift 中の、集約前の診断発生記録。書き手の項目の集計には含めない。マイナーバージョン 67 から
+        /// </summary>
+        [JsonPropertyName("input_diagnostics")]
+        public ConversionInputDiagnostics? InputDiagnostics { get; init; }
+    }
+
+    /// <summary>
+    /// 読み取り段階の診断発生数。失った要素数ではなく、同じ要素の複数の診断もそれぞれ数える。忠実度を持たない診断も含む。open 時や書き手の診断は含まない
+    /// </summary>
+    public sealed record ConversionInputDiagnostics
+    {
+        /// <summary>
+        /// 診断の発生件数の合計。max_places と limit によらない
+        /// </summary>
+        [JsonPropertyName("total")]
+        public ulong Total { get; init; }
+
+        /// <summary>
+        /// 診断の code とカタログの group_by の値による全件集計。場所は持たず、値は最も早い入力位置の報告から取る
+        /// </summary>
+        [JsonPropertyName("counts")]
+        public IReadOnlyList<Diagnostic> Counts { get; init; } = default!;
+
+        /// <summary>
+        /// 集約前の報告を入力位置順に limit 件まで返す。同じ位置は報告順。診断の場所は max_places で制限しない
+        /// </summary>
+        [JsonPropertyName("details")]
+        public IReadOnlyList<ConversionInputDiagnostic> Details { get; init; } = default!;
+
+        /// <summary>
+        /// 明細の上限で返さなかった報告がある
+        /// </summary>
+        [JsonPropertyName("truncated")]
+        public bool Truncated { get; init; }
+    }
+
+    /// <summary>
+    /// 集約前の診断と、その場所と同じ順序の出所。種類や失った値は診断の code と params からたどる
+    /// </summary>
+    public sealed record ConversionInputDiagnostic
+    {
+        /// <summary>
+        /// 集約前の診断。元の値と場所を保つ
+        /// </summary>
+        [JsonPropertyName("diagnostic")]
+        public Diagnostic Diagnostic { get; init; } = default!;
+
+        /// <summary>
+        /// diagnostic.at と同じ順序のレコード・バイト範囲・ハンドル・インスタンス番号。ID は diagnostic.at にある
+        /// </summary>
+        [JsonPropertyName("sources")]
+        public IReadOnlyList<Source> Sources { get; init; } = default!;
     }
 
     /// <summary>

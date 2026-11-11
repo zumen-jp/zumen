@@ -3974,7 +3974,7 @@ pub struct ConvertEstimateRequest {
     pub format: String,
     /// 予定する文書の名前。convert と同じ条件で検査するが、名前を確保しない
     pub to: String,
-    /// 返す明細の最大件数。省略時は 100。総数と種類・忠実度ごとの集計はこの上限によらない
+    /// 書き手と読み取り段階のそれぞれで返す明細の最大件数。省略時は 100。総数と全件集計はこの上限によらない
     pub limit: Option<u64>,
 }
 
@@ -4084,6 +4084,8 @@ pub struct ConversionEstimate {
     pub details: Vec<ConversionDetail>,
     /// 明細の上限で返さなかった対象がある
     pub truncated: bool,
+    /// 入力の表の読み取りと lift 中の、集約前の診断発生記録。書き手の項目の集計には含めない。マイナーバージョン 67 から
+    pub input_diagnostics: Option<ConversionInputDiagnostics>,
 }
 
 impl ConversionEstimate {
@@ -4101,6 +4103,8 @@ impl ConversionEstimate {
             json::array(value, ConversionDetail::from_json)
         })?;
         let truncated = object.required("truncated", json::boolean)?;
+        let input_diagnostics =
+            object.optional("input_diagnostics", ConversionInputDiagnostics::from_json)?;
         Ok(Self {
             doc,
             format,
@@ -4110,6 +4114,7 @@ impl ConversionEstimate {
             counts,
             details,
             truncated,
+            input_diagnostics,
         })
     }
 
@@ -4130,6 +4135,10 @@ impl ConversionEstimate {
         out.array(&self.details, |out, item| item.to_json(out));
         out.key("truncated");
         out.bool(self.truncated);
+        if let Some(value) = &self.input_diagnostics {
+            out.key("input_diagnostics");
+            value.to_json(out);
+        }
     }
 }
 
@@ -4143,6 +4152,109 @@ impl FromJson for ConversionEstimate {
 }
 
 impl ToJson for ConversionEstimate {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 読み取り段階の診断発生数。失った要素数ではなく、同じ要素の複数の診断もそれぞれ数える。忠実度を持たない診断も含む。open 時や書き手の診断は含まない
+#[derive(Clone, Debug, PartialEq)]
+pub struct ConversionInputDiagnostics {
+    /// 診断の発生件数の合計。max_places と limit によらない
+    pub total: u64,
+    /// 診断の code とカタログの group_by の値による全件集計。場所は持たず、値は最も早い入力位置の報告から取る
+    pub counts: Vec<Diagnostic>,
+    /// 集約前の報告を入力位置順に limit 件まで返す。同じ位置は報告順。診断の場所は max_places で制限しない
+    pub details: Vec<ConversionInputDiagnostic>,
+    /// 明細の上限で返さなかった報告がある
+    pub truncated: bool,
+}
+
+impl ConversionInputDiagnostics {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let total = object.required("total", |value| json::uint(value, 0, 9007199254740991))?;
+        let counts =
+            object.required("counts", |value| json::array(value, Diagnostic::from_json))?;
+        let details = object.required("details", |value| {
+            json::array(value, ConversionInputDiagnostic::from_json)
+        })?;
+        let truncated = object.required("truncated", json::boolean)?;
+        Ok(Self {
+            total,
+            counts,
+            details,
+            truncated,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("total");
+        out.uint(self.total);
+        out.key("counts");
+        out.array(&self.counts, |out, item| item.to_json(out));
+        out.key("details");
+        out.array(&self.details, |out, item| item.to_json(out));
+        out.key("truncated");
+        out.bool(self.truncated);
+    }
+}
+
+impl FromJson for ConversionInputDiagnostics {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for ConversionInputDiagnostics {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 集約前の診断と、その場所と同じ順序の出所。種類や失った値は診断の code と params からたどる
+#[derive(Clone, Debug, PartialEq)]
+pub struct ConversionInputDiagnostic {
+    /// 集約前の診断。元の値と場所を保つ
+    pub diagnostic: Diagnostic,
+    /// diagnostic.at と同じ順序のレコード・バイト範囲・ハンドル・インスタンス番号。ID は diagnostic.at にある
+    pub sources: Vec<Source>,
+}
+
+impl ConversionInputDiagnostic {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let diagnostic = object.required("diagnostic", Diagnostic::from_json)?;
+        let sources = object.required("sources", |value| json::array(value, Source::from_json))?;
+        Ok(Self {
+            diagnostic,
+            sources,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("diagnostic");
+        self.diagnostic.to_json(out);
+        out.key("sources");
+        out.array(&self.sources, |out, item| item.to_json(out));
+    }
+}
+
+impl FromJson for ConversionInputDiagnostic {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for ConversionInputDiagnostic {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);

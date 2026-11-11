@@ -19,6 +19,15 @@ fn estimate_source(session: &mut Session, bytes: &[u8], name: &str) {
 }
 
 fn estimate_matches_conversion(bytes: &[u8], name: &str) -> Value {
+    estimate_matches_conversion_with_places(bytes, name, None)
+}
+
+fn estimate_matches_conversion_with_places(
+    bytes: &[u8],
+    name: &str,
+    max_places: Option<u64>,
+) -> Value {
+    let places = max_places.map_or(String::new(), |limit| format!(",\"max_places\":{limit}"));
     let mut session = Session::new(b"").unwrap();
     estimate_source(&mut session, bytes, name);
     let before = seen(&mut session, name);
@@ -32,7 +41,7 @@ fn estimate_matches_conversion(bytes: &[u8], name: &str) -> Value {
         let (status, response) = call(
             &mut session,
             &format!(
-                r#"{{"v":1,"op":"convert_estimate","doc":"{name}","format":"dxf","to":"out.dxf","limit":{limit}}}"#
+                r#"{{"v":1,"op":"convert_estimate","doc":"{name}","format":"dxf","to":"out.dxf","limit":{limit}{places}}}"#
             ),
         );
         assert_eq!(status, Status::Ok, "{response:?}");
@@ -85,7 +94,9 @@ fn estimate_matches_conversion(bytes: &[u8], name: &str) -> Value {
     let estimate = estimates.pop().unwrap();
     let (status, converted) = call(
         &mut session,
-        &format!(r#"{{"v":1,"op":"convert","doc":"{name}","format":"dxf","to":"out.dxf"}}"#),
+        &format!(
+            r#"{{"v":1,"op":"convert","doc":"{name}","format":"dxf","to":"out.dxf"{places}}}"#
+        ),
     );
     assert_eq!(status, Status::Ok, "{converted:?}");
     for field in ["doc", "format", "hash", "elements"] {
@@ -96,8 +107,8 @@ fn estimate_matches_conversion(bytes: &[u8], name: &str) -> Value {
         );
     }
     assert_eq!(
-        estimate.pointer("/diagnostics"),
-        converted.pointer("/diagnostics")
+        estimate_diagnostics_json(&estimate),
+        estimate_diagnostics_json(&converted)
     );
     assert!(session.take(0).is_some());
     assert_eq!(seen(&mut session, name), before);
@@ -324,4 +335,327 @@ fn estimate_keeps_lift_losses_in_diagnostics_outside_the_writer_counts() {
             "{pointer}"
         );
     }
+}
+
+// 同じ LINE の拡張データを五つ落とす。1099 は異なる登録名で二度現れ、
+// 診断の code・params・source が同じでも、別々の報告として残す。
+const ESTIMATE_XDATA_LOSSES: &str = "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1015\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n\
+    0\nSECTION\n2\nENTITIES\n0\nLINE\n5\nA\n8\n0\n10\n0.0\n20\n0.0\n11\n1.0\n21\n0.0\n\
+    1000\norphan\n1001\nA\n1010\n1.0\n1020\n2.0\n1001\nB\n1002\n[\n\
+    1001\nC\n1099\nx\n1001\nE\n1099\ny\n1001\nD\n1070\n1\n0\nENDSEC\n0\nEOF\n";
+
+fn estimate_input_diagnostics(response: &Value) -> &Value {
+    response
+        .pointer("/result/estimate/input_diagnostics")
+        .expect("入力の診断の集計がない")
+}
+
+fn estimate_diagnostics_json(response: &Value) -> Vec<u8> {
+    let mut out = zumen_json::Writer::new();
+    out.value(response.pointer("/diagnostics").unwrap());
+    out.into_bytes()
+}
+
+#[test]
+fn estimate_input_reports_keep_multiple_losses_at_one_source() {
+    let mut session = Session::new(b"").unwrap();
+    estimate_source(&mut session, ESTIMATE_XDATA_LOSSES.as_bytes(), "source.dxf");
+    let (status, estimate) = call(
+        &mut session,
+        r#"{"v":1,"op":"convert_estimate","doc":"source.dxf","format":"dxf","to":"out.dxf","limit":1000,"max_places":0}"#,
+    );
+    assert_eq!(status, Status::Ok, "{estimate:?}");
+    let input = estimate_input_diagnostics(&estimate);
+    assert_eq!(estimate_u64(input, "/total"), 5);
+    assert_eq!(input.pointer("/truncated"), Some(&Value::Bool(false)));
+    let counts = estimate_array(input, "/counts");
+    assert_eq!(counts.len(), 4);
+    assert!(
+        counts
+            .iter()
+            .all(|diagnostic| estimate_array(diagnostic, "/at").is_empty())
+    );
+    let repeated = counts
+        .iter()
+        .find(|diagnostic| estimate_u64(diagnostic, "/params/code") == 1099)
+        .unwrap();
+    assert_eq!(estimate_u64(repeated, "/count"), 2);
+    let details = estimate_array(input, "/details");
+    assert_eq!(details.len(), 5);
+    assert_eq!(
+        details
+            .iter()
+            .map(|detail| estimate_u64(detail, "/diagnostic/params/code"))
+            .collect::<Vec<_>>(),
+        [1000, 1030, 1002, 1099, 1099]
+    );
+    for detail in details {
+        assert_eq!(text(detail, "/diagnostic/code"), "dxf.lift.invalid");
+        assert_eq!(text(detail, "/diagnostic/fidelity"), "dropped");
+        assert_eq!(text(detail, "/diagnostic/params/kind"), "LINE");
+        assert_eq!(estimate_u64(detail, "/diagnostic/count"), 1);
+        assert_eq!(estimate_u64(detail, "/diagnostic/at/0/record"), 3);
+        assert_eq!(estimate_u64(detail, "/sources/0/record"), 3);
+        assert_eq!(text(detail, "/sources/0/handle"), "A");
+    }
+    // 同じ source の二つの報告を、値の一致でまとめ直さない。
+    assert_eq!(details[3], details[4]);
+    assert_eq!(estimate_u64(&estimate, "/result/estimate/elements"), 1);
+    assert!(
+        estimate_array(&estimate, "/diagnostics")
+            .iter()
+            .all(|diagnostic| estimate_array(diagnostic, "/at").is_empty())
+    );
+    let (status, converted) = call(
+        &mut session,
+        r#"{"v":1,"op":"convert","doc":"source.dxf","format":"dxf","to":"out.dxf","max_places":0}"#,
+    );
+    assert_eq!(status, Status::Ok, "{converted:?}");
+    assert_eq!(
+        estimate_diagnostics_json(&estimate),
+        estimate_diagnostics_json(&converted)
+    );
+    assert_eq!(
+        text(&estimate, "/result/estimate/hash"),
+        text(&converted, "/result/hash")
+    );
+    assert!(session.take(0).is_some());
+}
+
+#[test]
+fn estimate_input_report_limits_keep_all_counts_and_original_places() {
+    let mut source = String::from(
+        "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1015\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n",
+    );
+    for index in 0..40 {
+        source.push_str(&format!(
+            "0\nLINE\n5\n{:X}\n8\n0\n10\n0.0\n20\n0.0\n11\n1.0\n21\n0.0\n1000\norphan\n",
+            index + 1
+        ));
+    }
+    source.push_str("0\nENDSEC\n0\nEOF\n");
+    let mut session = Session::new(b"").unwrap();
+    estimate_source(&mut session, source.as_bytes(), "source.dxf");
+    let mut responses: Vec<Value> = Vec::new();
+    for (limit, max_places) in [(0, 0), (2, 0), (1000, 0), (1000, 16)] {
+        let (status, response) = call(
+            &mut session,
+            &format!(
+                r#"{{"v":1,"op":"convert_estimate","doc":"source.dxf","format":"dxf","to":"out.dxf","limit":{limit},"max_places":{max_places}}}"#
+            ),
+        );
+        assert_eq!(status, Status::Ok, "{response:?}");
+        let input = estimate_input_diagnostics(&response);
+        assert_eq!(estimate_u64(input, "/total"), 40);
+        let counts = estimate_array(input, "/counts");
+        assert_eq!(counts.len(), 1);
+        assert_eq!(text(&counts[0], "/code"), "dxf.lift.invalid");
+        assert_eq!(estimate_u64(&counts[0], "/count"), 40);
+        assert!(estimate_array(&counts[0], "/at").is_empty());
+        let details = estimate_array(input, "/details");
+        assert_eq!(details.len(), (limit as usize).min(40));
+        assert_eq!(input.pointer("/truncated"), Some(&Value::Bool(limit < 40)));
+        for (index, detail) in details.iter().enumerate() {
+            assert_eq!(estimate_u64(detail, "/diagnostic/count"), 1);
+            assert_eq!(
+                estimate_u64(detail, "/diagnostic/at/0/record"),
+                3 + index as u64
+            );
+            assert_eq!(estimate_u64(detail, "/sources/0/record"), 3 + index as u64);
+            assert_eq!(
+                text(detail, "/sources/0/handle"),
+                format!("{:X}", index + 1)
+            );
+        }
+        let diagnostic = estimate_array(&response, "/diagnostics")
+            .iter()
+            .find(|diagnostic| text(diagnostic, "/code") == "dxf.lift.invalid")
+            .unwrap();
+        assert_eq!(estimate_array(diagnostic, "/at").len(), max_places);
+        if let Some(first) = responses.first() {
+            for pointer in [
+                "/result/estimate/total",
+                "/result/estimate/counts",
+                "/result/estimate/elements",
+                "/result/estimate/hash",
+                "/result/estimate/input_diagnostics/counts",
+            ] {
+                assert_eq!(
+                    response.pointer(pointer),
+                    first.pointer(pointer),
+                    "{pointer}"
+                );
+            }
+        }
+        responses.push(response);
+    }
+    assert_eq!(
+        estimate_input_diagnostics(&responses[2]),
+        estimate_input_diagnostics(&responses[3])
+    );
+    let (status, converted) = call(
+        &mut session,
+        r#"{"v":1,"op":"convert","doc":"source.dxf","format":"dxf","to":"out.dxf","max_places":0}"#,
+    );
+    assert_eq!(status, Status::Ok, "{converted:?}");
+    assert_eq!(
+        estimate_diagnostics_json(&responses[2]),
+        estimate_diagnostics_json(&converted)
+    );
+}
+
+#[test]
+fn estimate_input_reports_include_diagnostics_without_fidelity_or_source() {
+    let source = CONVERTIBLE.replace("9\n$INSUNITS\n70\n4\n", "");
+    let estimate = estimate_matches_conversion(source.as_bytes(), "source.dxf");
+    let input = estimate_input_diagnostics(&estimate);
+    assert_eq!(estimate_u64(input, "/total"), 1);
+    assert_eq!(estimate_array(input, "/details").len(), 1);
+    assert_eq!(
+        text(input, "/details/0/diagnostic/code"),
+        "dxf.units.missing"
+    );
+    assert!(input.pointer("/details/0/diagnostic/fidelity").is_none());
+    assert!(input.pointer("/details/0/diagnostic/params/kind").is_none());
+    assert!(estimate_array(input, "/details/0/diagnostic/at").is_empty());
+    assert!(estimate_array(input, "/details/0/sources").is_empty());
+}
+
+#[test]
+fn same_family_writer_diagnostics_are_not_input_diagnostics() {
+    let estimate = estimate_matches_conversion(
+        include_bytes!("../../../../samples/dwg/zumen-arcdim-r2004.dwg"),
+        "source.dwg",
+    );
+    assert!(codes_of(&estimate).contains(&"dwg.dxf-reference.dropped".to_string()));
+    let input = estimate_input_diagnostics(&estimate);
+    assert_eq!(estimate_u64(input, "/total"), 0);
+    assert!(estimate_array(input, "/counts").is_empty());
+    assert!(estimate_array(input, "/details").is_empty());
+    assert_eq!(input.pointer("/truncated"), Some(&Value::Bool(false)));
+}
+
+const ESTIMATE_P21_LOSSES: &str = concat!(
+    "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('SCADEC level2 AP202_mode'),'2;1');\n",
+    "FILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));\nENDSEC;\nDATA;\n",
+    "#1=PRESENTATION_STYLE_ASSIGNMENT(());\n",
+    "#2=CARTESIAN_POINT(' ',(1.,2.));\n",
+    "#3=CARTESIAN_POINT(' ',(4.,6.));\n",
+    "#4=POLYLINE(' ',(#2,#3));\n",
+    "#5=ANNOTATION_CURVE_OCCURRENCE(' ',(#1),#4);\n",
+    "#110=ANNOTATION_CURVE_OCCURRENCE(' ',(#1),#999);\n",
+    "#20=PRESENTATION_LAYER_ASSIGNMENT('L',' ',(#5,#110));\n",
+    "#70=DRAWING_SHEET_REVISION('A3_horizontal',(#110,#5),$,'01');\n",
+    "ENDSEC;\nEND-ISO-10303-21;\n",
+);
+
+#[test]
+fn estimate_input_reports_include_p21_reference_and_lift_diagnostics_once() {
+    let estimate = estimate_matches_conversion_with_places(
+        ESTIMATE_P21_LOSSES.as_bytes(),
+        "source.p21",
+        Some(0),
+    );
+    let input = estimate_input_diagnostics(&estimate);
+    assert_eq!(estimate_u64(input, "/total"), 2);
+    assert_eq!(estimate_array(input, "/counts").len(), 2);
+    let details = estimate_array(input, "/details");
+    assert_eq!(details.len(), 2);
+    let reference = details
+        .iter()
+        .find(|detail| text(detail, "/diagnostic/code") == "sxf.p21-reference.missing")
+        .unwrap();
+    let dropped = details
+        .iter()
+        .find(|detail| text(detail, "/diagnostic/code") == "sxf.lift.dropped")
+        .unwrap();
+    assert_eq!(estimate_u64(reference, "/diagnostic/count"), 1);
+    assert_eq!(estimate_u64(reference, "/diagnostic/params/id"), 999);
+    assert!(reference.pointer("/diagnostic/fidelity").is_none());
+    assert_eq!(
+        text(dropped, "/diagnostic/params/kind"),
+        "annotation_curve_occurrence"
+    );
+    assert_eq!(text(dropped, "/diagnostic/fidelity"), "dropped");
+    assert_eq!(text(dropped, "/sources/0/instance"), "110");
+    assert_eq!(
+        reference.pointer("/sources/0/record"),
+        dropped.pointer("/sources/0/record")
+    );
+    assert!(!estimate_array(reference, "/diagnostic/at").is_empty());
+    assert!(!estimate_array(dropped, "/diagnostic/at").is_empty());
+    assert!(
+        estimate_array(&estimate, "/diagnostics")
+            .iter()
+            .all(|diagnostic| estimate_array(diagnostic, "/at").is_empty())
+    );
+    assert_eq!(estimate_u64(&estimate, "/result/estimate/elements"), 1);
+}
+
+fn estimate_jww_with_invalid_and_valid_lines() -> Vec<u8> {
+    // 既存の適合テストの合成入力を再用し、同じクラスの正常な線を後ろへ足す。
+    let case = zumen_json::parse(include_bytes!(
+        "../../../../bindings/conformance/cases/open_jww.json"
+    ))
+    .unwrap();
+    let hex = text(&case, "/steps/0/push/hex");
+    let source: Vec<u8> = hex
+        .as_bytes()
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|pair| u8::from_str_radix(core::str::from_utf8(pair).unwrap(), 16).unwrap())
+        .collect();
+    let mut budget = Budget::default();
+    let mut diagnostics = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let file = <zumen_jww::Jww as zumen_sdk::Codec>::read(
+        &source,
+        &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+    )
+    .unwrap();
+    let entity = file
+        .records()
+        .iter()
+        .find(|record| record.kind() == zumen_jww::RecordKind::Entity)
+        .unwrap();
+    let span = entity.span();
+    let body = entity.body();
+    let mut bad = source[span.clone()].to_vec();
+    let coordinate = bad.len() - 4 * 8;
+    bad[coordinate..coordinate + 8].copy_from_slice(&f64::NAN.to_le_bytes());
+    let mut input = source[..span.start - 2].to_vec();
+    input.extend(2_u16.to_le_bytes());
+    input.extend(bad);
+    // MFC CArchive の既知のクラス 1。新しいクラスの宣言を複製しない。
+    input.extend(0x8001_u16.to_le_bytes());
+    input.extend_from_slice(&source[body]);
+    input.extend_from_slice(&source[span.end..]);
+    input
+}
+
+#[test]
+fn estimate_input_reports_keep_jww_invalid_entities_and_the_following_line() {
+    let source = estimate_jww_with_invalid_and_valid_lines();
+    let estimate = estimate_matches_conversion_with_places(&source, "source.jww", Some(0));
+    let input = estimate_input_diagnostics(&estimate);
+    assert_eq!(estimate_u64(input, "/total"), 1);
+    assert_eq!(estimate_array(input, "/counts").len(), 1);
+    assert_eq!(text(input, "/counts/0/code"), "jww.lift.invalid");
+    assert!(estimate_array(input, "/counts/0/at").is_empty());
+    assert_eq!(estimate_array(input, "/details").len(), 1);
+    assert_eq!(
+        text(input, "/details/0/diagnostic/code"),
+        "jww.lift.invalid"
+    );
+    assert_eq!(text(input, "/details/0/diagnostic/params/kind"), "CDataSen");
+    assert_eq!(text(input, "/details/0/diagnostic/fidelity"), "dropped");
+    assert_eq!(estimate_u64(input, "/details/0/diagnostic/at/0/record"), 1);
+    assert_eq!(estimate_u64(input, "/details/0/sources/0/record"), 1);
+    assert_eq!(estimate_u64(&estimate, "/result/estimate/elements"), 1);
+    assert!(
+        estimate_array(&estimate, "/diagnostics")
+            .iter()
+            .all(|diagnostic| estimate_array(diagnostic, "/at").is_empty())
+    );
 }
