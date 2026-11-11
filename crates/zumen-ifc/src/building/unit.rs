@@ -8,6 +8,13 @@ use zumen_base::{Diagnostic, Kind, codes};
 use zumen_building::Unit;
 use zumen_sdk::Cx;
 
+/// SI がなければほかの種類を読める。拒否や停止の後は、別の種類として再採用しない。
+pub(super) enum SiUnitRead {
+    Absent,
+    Rejected,
+    Value(Unit),
+}
+
 impl Lifter<'_> {
     /// 単位の追加検査は、呼び出したプロパティなどではなく、元の単位で停止する。
     pub(super) fn unit_charge(&self, cx: &mut Cx, kind: Kind, n: u64, record: &Record) -> bool {
@@ -24,21 +31,23 @@ impl Lifter<'_> {
 
     /// 正規の単独・複合の形は最大 2 Part・4 属性。借用値の固定個数の照合には、
     /// 既存の単位を読む Work を使い、正しい入力の予算を変えない。非正規の多 Part は走査前に数える。
-    pub(super) fn si_unit(&mut self, record: &Record, cx: &mut Cx) -> Option<Unit> {
+    pub(super) fn si_unit(&mut self, record: &Record, cx: &mut Cx) -> SiUnitRead {
         if !self.unit_charge(cx, Kind::Work, 0, record) {
-            return None;
+            return SiUnitRead::Rejected;
         }
         if record.id().is_some_and(|id| self.invalid_si.contains(&id)) {
-            return None;
+            return SiUnitRead::Rejected;
         }
         let parts = record.parts();
         if parts.len() > 2 && !self.unit_charge(cx, Kind::Work, parts.len() as u64, record) {
-            return None;
+            return SiUnitRead::Rejected;
         }
         let is = |part: &zumen_step::Part, name: &[u8]| {
             self.file.bytes(part.name()).eq_ignore_ascii_case(name)
         };
-        let si = parts.iter().find(|p| is(p, b"IFCSIUNIT"))?;
+        let Some(si) = parts.iter().find(|p| is(p, b"IFCSIUNIT")) else {
+            return SiUnitRead::Absent;
+        };
         let values = match (parts, si.args()) {
             ([_], [dimensions, kind, prefix, name]) => Some((dimensions, kind, prefix, name)),
             ([a, b], [prefix, name]) => {
@@ -86,20 +95,27 @@ impl Lifter<'_> {
             return self.reject_si(record, reason, cx);
         }
         // 検査した後も元の列挙値を、従来と同じ順で保持する。換算や正規化はしない。
-        Some(Unit {
-            kind: self.enumeration(Some(kind))?,
-            prefix: self.enumeration(Some(prefix)),
-            name: self.enumeration(Some(name))?,
+        let Some(kind) = self.enumeration(Some(kind)) else {
+            return self.reject_si(record, "unit-type", cx);
+        };
+        let prefix = self.enumeration(Some(prefix));
+        let Some(name) = self.enumeration(Some(name)) else {
+            return self.reject_si(record, "name", cx);
+        };
+        SiUnitRead::Value(Unit {
+            kind,
+            prefix,
+            name,
             scale: None,
         })
     }
 
-    fn reject_si(&mut self, record: &Record, reason: &'static str, cx: &mut Cx) -> Option<Unit> {
+    fn reject_si(&mut self, record: &Record, reason: &'static str, cx: &mut Cx) -> SiUnitRead {
         // BTreeSet の節・used の追加・診断の固定長の引数の確保前。正しい単位の経路には加えない。
         if !self.unit_charge(cx, Kind::Work, 1, record)
             || !self.unit_charge(cx, Kind::DecodedBytes, 512, record)
         {
-            return None;
+            return SiUnitRead::Rejected;
         }
         if let Some(id) = record.id() {
             self.invalid_si.insert(id);
@@ -111,7 +127,7 @@ impl Lifter<'_> {
                 .at(at_bytes(record.span())),
         );
         self.unit_charge(cx, Kind::Work, 0, record);
-        None
+        SiUnitRead::Rejected
     }
 }
 

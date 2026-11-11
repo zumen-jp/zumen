@@ -171,6 +171,204 @@ fn invalids() -> Vec<(&'static str, &'static str)> {
     ]
 }
 
+/// SI と換算単位を混ぜた非正規の配置。SI の位置・全属性/ローカル属性を変える。
+fn mixed_units() -> Vec<String> {
+    let conversion = "IFCCONVERSIONBASEDUNIT(#6,.LENGTHUNIT.,'converted',#4)";
+    let named = "IFCNAMEDUNIT(*,.LENGTHUNIT.)";
+    let mut out = Vec::new();
+    for si in [
+        "IFCSIUNIT($,.METRE.)",
+        "IFCSIUNIT(*,.LENGTHUNIT.,$,.METRE.)",
+    ] {
+        out.push(format!("({conversion}{si})"));
+        out.push(format!("({si}{conversion})"));
+        for parts in [
+            [conversion, named, si],
+            [conversion, si, named],
+            [named, conversion, si],
+            [named, si, conversion],
+            [si, conversion, named],
+            [si, named, conversion],
+        ] {
+            out.push(format!("({})", parts.concat()));
+        }
+    }
+    out
+}
+fn mixed_source(version: &str, mixed: &str, base: bool) -> String {
+    if base {
+        source(version, mixed, true)
+    } else {
+        source(version, &si("LENGTHUNIT", "$", "METRE", 0), true).replace(
+            "#3=IFCCONVERSIONBASEDUNIT(#6,.LENGTHUNIT.,'converted',#4);",
+            &format!("#3={mixed};"),
+        )
+    }
+}
+
+#[test]
+fn rejects_si_conversion_mixtures_without_falling_back_or_caching_a_unit() {
+    for version in VERSIONS {
+        for mixed in mixed_units() {
+            for base in [false, true] {
+                let file = read(&mixed_source(version, &mixed, base));
+                let (r, d, _) = with(Limits::default(), 0, |cx| {
+                    cx.with_diagnostics_in_record_order(|cx| file.lift(cx))
+                });
+                let b: Building = r.unwrap();
+                assert!(
+                    b.document.units.is_empty(),
+                    "{version}/{mixed}/base={base}: {:?}",
+                    b.document.units
+                );
+                let invalid: Vec<_> = d
+                    .iter()
+                    .filter(|x| x.code() == codes::IFC_UNIT_INVALID)
+                    .collect();
+                assert_eq!(invalid.len(), 1, "{d:?}");
+                assert_eq!(invalid[0].count(), 1, "{d:?}");
+                assert_eq!(
+                    invalid[0].param("reason"),
+                    Some(&zumen_base::Value::Text("layout".into()))
+                );
+                let span = file.instance(if base { 5 } else { 3 }).unwrap().span();
+                assert_eq!(
+                    invalid[0].places(),
+                    [zumen_base::Ref::at_bytes(
+                        span.start as u64,
+                        span.end as u64
+                    )]
+                );
+                let wall = b
+                    .find(
+                        b.elements()
+                            .iter()
+                            .find(|e| e.source().instance == Some(10))
+                            .unwrap()
+                            .id(),
+                    )
+                    .unwrap();
+                let properties = &b.components.properties.get(wall).unwrap().sets[0].properties;
+                assert_eq!(properties.len(), 2);
+                assert!(
+                    properties
+                        .iter()
+                        .all(|p| p.unit.is_none() && p.value.is_some())
+                );
+                assert!(
+                    b.components.quantities.get(wall).unwrap().sets[0].quantities[0]
+                        .value
+                        .unit
+                        .is_none()
+                );
+                let missing = d
+                    .iter()
+                    .find(|x| x.code() == codes::IFC_UNIT_MISSING)
+                    .unwrap();
+                assert_eq!(missing.count(), 2, "{d:?}");
+                let places: Vec<_> = [12, 13]
+                    .map(|id| {
+                        let s = file.instance(id).unwrap().span();
+                        zumen_base::Ref::at_bytes(s.start as u64, s.end as u64)
+                    })
+                    .into();
+                assert_eq!(missing.places(), places, "{d:?}");
+            }
+        }
+    }
+}
+
+#[test]
+fn mixed_si_stops_before_rejection_and_keeps_its_span() {
+    for version in VERSIONS {
+        for mixed in mixed_units() {
+            for base in [false, true] {
+                let file = read(&mixed_source(version, &mixed, base));
+                let id = if base { 5 } else { 3 };
+                let span = file.instance(id).unwrap().span();
+                for (kind, n) in [(Kind::Work, 0), (Kind::DecodedBytes, 511)] {
+                    let (r, d, _) = lift(&file, Limits::default().with(kind, Limit::Finite(n)), 0);
+                    assert!(matches!(r, Err(Error::Stopped(_))));
+                    assert!(
+                        !d.iter().any(|x| x.code() == codes::IFC_UNIT_INVALID
+                            || x.code() == codes::IFC_UNIT_MISSING),
+                        "{d:?}"
+                    );
+                    assert_eq!(
+                        d.iter().next().unwrap().places(),
+                        [zumen_base::Ref::at_bytes(
+                            span.start as u64,
+                            span.end as u64
+                        )],
+                        "{d:?}"
+                    );
+                }
+                for signal in [1, 2] {
+                    let (r, d, b) = lift(&file, Limits::default(), signal);
+                    assert!(matches!(r, Err(Error::Stopped(_))));
+                    assert_eq!(b.used(Kind::Work), 0);
+                    assert!(
+                        !d.iter().any(|x| x.code() == codes::IFC_UNIT_INVALID
+                            || x.code() == codes::IFC_UNIT_MISSING),
+                        "{d:?}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn an_invalid_mixed_base_cannot_be_reused_as_a_conversion_unit() {
+    for version in VERSIONS {
+        let mixed = "(IFCCONVERSIONBASEDUNIT(#6,.LENGTHUNIT.,'cached',#8)IFCSIUNIT($,.METRE.))";
+        let src=mixed_source(version,mixed,true)
+            .replace("IFCLENGTHMEASURE(3.),#3","IFCLENGTHMEASURE(3.),#5")
+            .replace("#10=","#8=IFCMEASUREWITHUNIT(IFCLENGTHMEASURE(0.25),#9);\n#9=IFCSIUNIT(*,.LENGTHUNIT.,$,.METRE.);\n#10=");
+        let file = read(&src);
+        // 文書単位の基として #5 を拒否した後、別の値が #5 自体を初めて単位として読む。
+        // #5 内の換算部分だけなら、有効な別の基 #9 から倍率を取得できてしまう。
+        let (r, d, _) = lift(&file, Limits::default(), 0);
+        let b = r.unwrap();
+        assert!(b.document.units.is_empty());
+        let wall = b
+            .find(
+                b.elements()
+                    .iter()
+                    .find(|e| e.source().instance == Some(10))
+                    .unwrap()
+                    .id(),
+            )
+            .unwrap();
+        assert!(
+            b.components.properties.get(wall).unwrap().sets[0]
+                .properties
+                .iter()
+                .all(|p| p.unit.is_none())
+        );
+        let invalid = d
+            .iter()
+            .find(|x| x.code() == codes::IFC_UNIT_INVALID)
+            .unwrap();
+        assert_eq!(invalid.count(), 1, "{d:?}");
+        let span = file.instance(5).unwrap().span();
+        assert_eq!(
+            invalid.places(),
+            [zumen_base::Ref::at_bytes(
+                span.start as u64,
+                span.end as u64
+            )]
+        );
+        assert_eq!(
+            d.iter()
+                .find(|x| x.code() == codes::IFC_UNIT_MISSING)
+                .unwrap()
+                .count(),
+            2
+        );
+    }
+}
+
 #[test]
 fn retains_all_names_prefixes_dimensions_and_raw_values_in_three_versions() {
     for version in VERSIONS {
@@ -590,6 +788,22 @@ fn writes_units_for_other_readers() {
         for (bad, _) in invalids() {
             for conversion in [false, true] {
                 let src = source(version, bad, conversion);
+                contract += &snapshot(&src, Limits::default(), 0);
+                let (_, _, b) = lift(&read(&src), Limits::default(), 0);
+                for kind in Kind::ALL {
+                    for limit in [0, b.used(kind).saturating_sub(1), b.used(kind)] {
+                        contract +=
+                            &snapshot(&src, Limits::default().with(kind, Limit::Finite(limit)), 0);
+                    }
+                }
+                for signal in [1, 2] {
+                    contract += &snapshot(&src, Limits::default(), signal);
+                }
+            }
+        }
+        for mixed in mixed_units() {
+            for base in [false, true] {
+                let src = mixed_source(version, &mixed, base);
                 contract += &snapshot(&src, Limits::default(), 0);
                 let (_, _, b) = lift(&read(&src), Limits::default(), 0);
                 for kind in Kind::ALL {

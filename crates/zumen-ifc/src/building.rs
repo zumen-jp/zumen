@@ -946,11 +946,10 @@ impl<'f> Lifter<'f> {
 
     fn read_unit(&mut self, id: u64, cx: &mut Cx) -> Option<Unit> {
         let record = self.file.instance(id)?;
-        if let Some(unit) = self.si_unit(record, cx) {
-            return Some(unit);
-        }
-        if self.is_halted() {
-            return None;
+        match self.si_unit(record, cx) {
+            unit::SiUnitRead::Value(unit) => return Some(unit),
+            unit::SiUnitRead::Rejected => return None,
+            unit::SiUnitRead::Absent => {}
         }
         if !self.is(id, b"IFCCONVERSIONBASEDUNIT") {
             return None;
@@ -960,7 +959,11 @@ impl<'f> Lifter<'f> {
         let factor = reference(arg(record, 4)).filter(|&f| self.is(f, b"IFCMEASUREWITHUNIT"))?;
         let factor_record = self.file.instance(factor)?;
         let value = self.real(arg(factor_record, 1))?;
-        let base = self.si_unit(self.file.instance(reference(arg(factor_record, 2))?)?, cx)?;
+        let unit::SiUnitRead::Value(base) =
+            self.si_unit(self.file.instance(reference(arg(factor_record, 2))?)?, cx)
+        else {
+            return None;
+        };
         self.used.insert(factor);
         if let Some(base) = reference(arg(factor_record, 2)) {
             self.used.insert(base);
