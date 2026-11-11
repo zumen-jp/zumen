@@ -23,8 +23,10 @@ mod curve;
 mod extrusion;
 mod semantic;
 mod shape;
+mod style;
 pub use extrusion::{ExtrudedArea, ExtrusionSource};
 pub use shape::{ProductShape, ShapeLinks, ShapeNode, ShapeRef};
+pub use style::{ItemStyleSource, ItemSurfaceStyles, SurfaceStyleBinding, SurfaceStyleSource};
 
 /// 建物モデルを作るバージョン
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

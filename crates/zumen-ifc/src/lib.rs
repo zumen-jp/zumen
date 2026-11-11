@@ -28,7 +28,10 @@ mod ids;
 mod zip;
 
 #[cfg(feature = "building")]
-pub use building::{ExtrudedArea, ExtrusionSource, ProductShape, ShapeLinks, ShapeNode, ShapeRef};
+pub use building::{
+    ExtrudedArea, ExtrusionSource, ItemStyleSource, ItemSurfaceStyles, ProductShape, ShapeLinks,
+    ShapeNode, ShapeRef, SurfaceStyleBinding, SurfaceStyleSource,
+};
 #[cfg(feature = "building")]
 pub use edit::{Applied, Edit, NewLiteral, NewValue, RootAttribute, apply};
 pub use express::{Express, Findings, check, check_range};

@@ -223,6 +223,8 @@
     "ifc.shape.missing": "Shape attribute {field} was omitted and retained as None ({count}).",
     "ifc.shape.unsupported": "Shape item {kind} was not expanded; a reference to its original L1 record was retained ({count}).",
     "ifc.station.missing": "The alignment has no station referent (IfcReferent STATION), so the start station is 0 ({count}).",
+    "ifc.style.invalid": "A direct item's style has an invalid reference, set, or value; no result was returned (reason: {reason}, {count}).",
+    "ifc.style.unsupported": "A direct item's style kind {kind} is unsupported; no result was returned ({count}).",
     "ifc.text.invalid": "Unreadable parts of strings were replaced with the replacement character ({count}).",
     "ifc.unit.missing": "The unit of a value of the type \"{type}\" could not be resolved, so it was left without a unit ({count}).",
     "ifc.version.unsupported": "Building models are not made from files of the version \"{schema}\" ({count}).",

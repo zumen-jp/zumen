@@ -15,6 +15,7 @@ fn lift(file: &IfcFile, cx: &mut Cx) -> Result<(), Error> {
     // 要素から共有写像をたどる入口。値を写す範囲は 16 要素まで、曲線の取得とも予算を共有する
     let mut shapes = 0;
     let mut extrusions = 0;
+    let mut styles = 0;
     for id in file.ids() {
         cx.check(zumen_base::Kind::Work, 1)?;
         if file.instance(id).is_some_and(|r| {
@@ -24,6 +25,10 @@ fn lift(file: &IfcFile, cx: &mut Cx) -> Result<(), Error> {
                 Ok(shape) => {
                     for node in &shape.nodes {
                         cx.check(zumen_base::Kind::Work, 1)?;
+                        if styles < 16 {
+                            if let Err(Error::Stopped(stop)) = file.surface_styles(node, cx) { return Err(Error::Stopped(stop)); }
+                            styles += 1;
+                        }
                         if file.kind(node.source).eq_ignore_ascii_case(b"IFCEXTRUDEDAREASOLID") && extrusions < 16 {
                             if let Err(Error::Stopped(stop)) = file.extruded_area(node, cx) { return Err(Error::Stopped(stop)); }
                             extrusions += 1;
