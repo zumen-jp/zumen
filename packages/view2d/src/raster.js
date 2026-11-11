@@ -128,7 +128,14 @@ function clipPlanes(box, planes) {
   return vertices;
 }
 
-const roundedPoints = (vertices) => vertices.map((p) => ({ x: divideExact(p.x, p.w), y: divideExact(p.y, p.w) }));
+const roundedPoints = (vertices, box) => {
+  const points = vertices.map((p) => ({ x: divideExact(p.x, p.w), y: divideExact(p.y, p.w) }));
+  // 全包の証明は丸め前の有理点で行う。丸めた交点が枠の角に一致しただけでは採用しない。
+  points.coversBox = boxCorners(box).every((corner) => vertices.some((p) =>
+    addExact(p.x, multiplyExact(dyadic(corner.x), p.w), true).integer === 0n &&
+    addExact(p.y, multiplyExact(dyadic(corner.y), p.w), true).integer === 0n));
+  return points;
+};
 const finiteRegion = (box, radius, points) => Number.isFinite(radius) && radius > 0 &&
   Object.values(box).every(Number.isFinite) && points.every((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
 const relativePoint = (p, anchor) => ({ x: addExact(p.x, multiplyExact(dyadic(anchor.x), p.w), true),
@@ -137,16 +144,20 @@ const relativePoint = (p, anchor) => ({ x: addExact(p.x, multiplyExact(dyadic(an
 /** 明示的な閉輪の round stroke は、折れ線への距離<=radius の領域。全包する元頂点があれば枠全体を返す。 */
 export function wideClosedStroke(points, radius, box) {
   if (!finiteRegion(box, radius, points) || points.length < 2 || !points.some((p) => p.x !== points[0].x || p.y !== points[0].y)) return null;
-  const corners = [{ x: box.min_x, y: box.min_y }, { x: box.max_x, y: box.min_y },
-    { x: box.max_x, y: box.max_y }, { x: box.min_x, y: box.max_y }];
+  return points.some((p) => diskCoversBox(p, radius, box)) ? boxCorners(box) : null;
+}
+
+const boxCorners = (box) => [{ x: box.min_x, y: box.min_y }, { x: box.max_x, y: box.min_y },
+  { x: box.max_x, y: box.max_y }, { x: box.min_x, y: box.max_y }];
+
+/** 円盤の全包を、半径を座標へ足さず、四隅の exact な距離の二乗で確かめる。 */
+export function diskCoversBox(center, radius, box) {
+  if (!finiteRegion(box, radius, [center])) return false;
   const squared = squareExact(dyadic(radius));
-  for (const center of points) {
-    if (corners.every((p) => {
-      const x = addExact(dyadic(p.x), dyadic(center.x), true), y = addExact(dyadic(p.y), dyadic(center.y), true);
-      return addExact(dotExact(x, y, x, y), squared, true).integer <= 0n;
-    })) return corners;
-  }
-  return null;
+  return boxCorners(box).every((p) => {
+    const x = addExact(dyadic(p.x), dyadic(center.x), true), y = addExact(dyadic(p.y), dyadic(center.y), true);
+    return addExact(dotExact(x, y, x, y), squared, true).integer <= 0n;
+  });
 }
 
 /** 幅の側面が凸領域を全包すると証明できる場合だけ、butt の領域を近傍の塗りにする。 */
@@ -161,7 +172,7 @@ export function wideSegment(a, b, radius, box) {
     if (addExact(squareExact(cross), multiplyExact(limit, squareExact(p.w)), true).integer > 0n) return null;
   }
   // |cross| は凸関数なので、頂点がすべて幅内なら領域全体も幅内である。
-  return roundedPoints(vertices);
+  return roundedPoints(vertices, box);
 }
 
 /** 円盤が扇形の近傍を全包すると証明できる round join。円弧が来る場合は従来経路に戻す。 */
@@ -178,5 +189,5 @@ export function wideJoin(previous, center, next, radius, box) {
     const q = relativePoint(p, center);
     if (addExact(dotExact(q.x, q.y, q.x, q.y), multiplyExact(squared, squareExact(p.w)), true).integer > 0n) return null;
   }
-  return roundedPoints(vertices);
+  return roundedPoints(vertices, box);
 }

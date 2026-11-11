@@ -1,4 +1,4 @@
-import { clipRing, clipSegment, wideClosedStroke, wideJoin, wideSegment } from "../src/raster.js";
+import { clipRing, clipSegment, diskCoversBox, wideClosedStroke, wideJoin, wideSegment } from "../src/raster.js";
 
 /** 原本の binary64 の線分から、桁の相殺なしに画面近傍へ切る。 */
 export function testRasterClipping(assert) {
@@ -51,12 +51,19 @@ function testWideGeometry(assert) {
   assert(wideJoin(a, { x: 100, y: 100 }, b, 1e38, box).length === 0,
     "同じ向きの共線に円全体を足さない");
   const distant = wideSegment({ x: -1e150, y: 100 }, { x: 1e150, y: 100 }, 1e150, box);
-  assert(distant.length === 4 && signedArea(distant) === 80000, "遠い両端でも近傍の矩形をそのまま覆う");
+  assert(distant.length === 4 && distant.coversBox && signedArea(distant) === 80000, "遠い両端でも近傍の矩形をそのまま覆う");
+  const cut = wideSegment({ x: Number.MIN_VALUE, y: 0 }, { x: 2 * Number.MIN_VALUE, y: 1e150 }, 1e38, box);
+  assert(cut.some((p) => p.x === 0 && p.y === 0) && !cut.coversBox,
+    "交点が枠の角へ丸められても、丸め前に cap が角を除く場合は全包としない");
   const closed = [a, { x: 102, y: 98 }, b, { x: 98, y: 102 }];
   assert(signedArea(wideClosedStroke(closed, 1e38, box)) === 80000,
     "明示的な閉輪の元頂点の円盤が全包するときは単一矩形にする");
   assert(wideClosedStroke(closed, 1, box) === null && wideClosedStroke([a, a], 1e38, box) === null,
     "円盤の全包が不成立、または非ゼロ辺がない閉輪は従来経路を保つ");
+  assert(diskCoversBox({ x: 100, y: 100 }, 150, box) && !diskCoversBox({ x: 100, y: 100 }, 140, box),
+    "局所 stroke も、全頂点の元半径と代替半径の円盤を同じ exact な距離で検査する");
+  assert(!diskCoversBox(a, Infinity, box) && !diskCoversBox(a, 1e38, { ...box, min_x: -Infinity }),
+    "局所 stroke の半径と枠は有限の場合だけ証明する");
 }
 
 function testRingClipping(assert) {

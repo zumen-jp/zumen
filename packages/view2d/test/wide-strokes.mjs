@@ -32,7 +32,7 @@ function reference(canvas, input, angle, ratio, item) {
   // 1,000 CSS px の半幅でも、ここで使う端・join から viewport 全体を覆う。
   // 通常の幅と fallback の例は元と同じ幅で比較する。
   ctx.lineWidth = Math.min(2000, Math.max(1 / ratio, c.unit_weights[0]));
-  ctx.lineCap = "butt"; ctx.lineJoin = "round"; ctx.strokeStyle = "rgba(0,0,0,0.5019607843137255)";
+  ctx.lineCap = "butt"; ctx.lineJoin = "round"; ctx.strokeStyle = `rgba(0,0,0,${c.color_rgba[3] / 255})`;
   if (item.point) {
     const path = new Path2D();
     const contours = item.point === "plus" ? [[-2, 0, 2, 0], [0, -2, 0, 2]] : [[-2, -2, 2, -2, 2, 2, -2, 2]];
@@ -68,6 +68,11 @@ export function testWideStrokes(assert) {
     { name: "同じ方向の共線", xy: [-2, 0, 0, 0, 2, 0] },
     { name: "折返しの round join", xy: [-2, 2, 2, -2, -2, 2] },
     { name: "曲がる round join", xy: [-20, 0, 0, 0, 0, 20] },
+    // PR #845 の独立レビュー。凸片を一度の nonzero fill にしても、安定内部に明るい AA の筋が出た。
+    { name: "内部境界を作らない半透明の折れ線", xy: [-70, 30, 10, 20, 40, -50], widths: [1000, 2000, 2e38] },
+    { name: "内部境界を作らない不透明の折れ線", xy: [-70, 30, 10, 20, 40, -50], widths: [1000, 2000, 2e38], alpha: 255 },
+    { name: "非局所の複数凸片は part 全体で fallback", xy: [-70, 30, 10, 20, 340, -50], widths: [1000] },
+    { name: "単独 segment の全包は後続と union しても変わらない", xy: [-2000, 0, 2000, 0, 2000, 2000], widths: [1000, 2e38] },
     { name: "重複した頂点", xy: [-2, 0, 0, 0, 0, 0, 2, 0] },
     { name: "別 primitive の重なり", xy: [-2, 2, 2, -2, -2, 2, 2, -2], separate: true },
     { name: "完全に画面外の cap", xy: [-400, 0, -300, 0] },
@@ -80,13 +85,14 @@ export function testWideStrokes(assert) {
     { name: "part 全体の fallback", xy: [-20, 0, 200, 0, 200, 100], widths: [300] },
   ];
   const totals = { scenes: 0, pixels: 0, points: 0, rectangles: 0, boundaryExcluded: 0,
-    pixelRatios: [1, 1.5, 2, 8], rotations: [0, Math.PI / 6, Math.PI / 2], widths: [0, 2, 8, ...huge, 300] };
+    pixelRatios: [1, 1.5, 2, 8], rotations: [0, Math.PI / 6, Math.PI / 2], widths: [0, 2, 8, ...huge, 300, 1000, 2000] };
   for (const item of items) for (const width of item.widths ?? huge) for (const pixelRatio of totals.pixelRatios) for (const rotation of totals.rotations) {
     const canvas = document.createElement("canvas"), near = document.createElement("canvas");
     const viewer = new View2D(canvas, { width: SIZE, height: SIZE, pixelRatio, pixelsPerMillimeter: 1,
       view: { center: { x: 0, y: 0 }, scale: 1, rotation } });
     try {
       const data = source(item.xy, width, item.separate);
+      if (item.alpha) data.color_rgba[3] = item.alpha;
       if (item.point) {
         delete data.line_vertices; delete data.line_units; delete data.line_xy;
         Object.assign(data, { entity_kinds: [V.entity_kind.point], point_xy: [0, 0], point_units: [0], point_rotations: [0],
@@ -106,7 +112,7 @@ export function testWideStrokes(assert) {
       const step = Math.max(1, Math.floor(pixelRatio));
       for (let y = 1; y < canvas.height - 1; y += step) for (let x = 1; x < canvas.width - 1; x += step) {
         const i = (y * canvas.width + x) * 4, value = expected.pixels[i];
-        if (![255, 127, 63].includes(value)) continue;
+        if (![255, 127, 63, 0].includes(value)) continue;
         let stable = true;
         for (let dy = -1; dy <= 1 && stable; dy++) for (let dx = -1; dx <= 1; dx++) {
           if (Math.abs(expected.pixels[((y + dy) * canvas.width + x + dx) * 4] - value) > 1) { stable = false; break; }
