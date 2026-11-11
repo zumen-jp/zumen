@@ -7,6 +7,31 @@ use zumen_geo::{Form, GeoModel, Position, Value};
 use zumen_geom3d::Shape;
 use zumen_sdk::{Codec, Lift};
 
+#[test]
+fn shift_jis_display_names_keep_the_legacy_fallback_id() {
+    let text = "<?xml version='1.0' encoding='Shift_JIS'?><core:CityModel xmlns:core='http://www.opengis.net/citygml/2.0' xmlns:gml='http://www.opengis.net/gml' xmlns:bldg='http://www.opengis.net/citygml/building/2.0' xmlns:ソ='urn:test'><core:cityObjectMember><ソ:Thing><gml:name>test</gml:name><ソ:注記>value</ソ:注記><bldg:lod0FootPrint/></ソ:Thing></core:cityObjectMember></core:CityModel>";
+    let (src, _, error) = encoding_rs::SHIFT_JIS.encode(text);
+    assert!(!error);
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+    let file = CityGml::read(&src, &mut cx).unwrap();
+    let model = file.lift(&mut cx).unwrap();
+    assert_eq!(model.features.len(), 1);
+    let feature = &model.features[0];
+    // b8c101e1 の独立 snapshot で同じ自作入力から得た固定値。新しい名前の処理から作らない。
+    assert_eq!(feature.id, "\u{fffd}\\:Thing/0");
+    assert_eq!(feature.kind, "ソ:Thing");
+    assert_eq!(feature.name.as_deref(), Some("test"));
+    assert!(
+        feature
+            .attributes
+            .iter()
+            .any(|a| a.name == "ソ:注記" && a.value == Value::Text("value".into()))
+    );
+}
+
 const BUILDING: &str = r##"<?xml version="1.0" encoding="UTF-8"?>
 <core:CityModel xmlns:core="http://www.opengis.net/citygml/2.0"
   xmlns:bldg="http://www.opengis.net/citygml/building/2.0"

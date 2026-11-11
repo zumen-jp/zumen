@@ -35,6 +35,8 @@
 
 自作の JPEG の APP1 に UTF-16LE・UTF-16BE の XMP を置き、名前空間・名前・値を検査します。[XML の規則](xml.md)を使います。この追加の確認は `synthetic` で、Exif の読取範囲や外部照合の段は変えません。
 
+自作の APP1 の Shift_JIS XMP でも、日本語の属性名・子の要素名と値を Unicode で返すことを検査します。この確認も `synthetic` です。
+
 | 形式 | 向き | 段 |
 | --- | --- | --- |
 | `jpeg` | 読み | `synthetic` |

@@ -1,4 +1,4 @@
-# XML UTF-16 の独立検査
+# XML の文字コードの独立検査
 
 XML の L0 と J-LandXML の読み取りについて、合成入力の原本・公開値・診断・予算を比較します（#468）。受け取った図面や外部のサンプルは使いません。
 
@@ -48,3 +48,18 @@ node xtask/verify/xml/check_legacy.mjs
 ```
 
 このコマンドは `git archive` で公開コミットの snapshot を `target/` に展開し、その中に同じ probe の example を置いてビルドします。作業中の checkout や未コミット変更は書き換えません。固定値を作り直す `--write` は、公開コミットでの記録だけを書きます。現在の実装の結果を固定値に採りません。
+
+## Shift_JIS の文字境界とホストの比較
+
+```powershell
+$env:CARGO_TARGET_DIR = 'target/xml-shift-jis-824'
+node xtask/verify/xml/compare_shift_jis.mjs
+node xtask/verify/xml/compare_shift_jis.mjs chromium
+node xtask/verify/xml/compare_shift_jis.mjs webkit
+```
+
+ブラウザーを指定するときは、[JS の手順](../../../bindings/js/README.md)に従って `bindings/js/test/browser` の固定した Playwright とブラウザーを用意します。`firefox` も指定できます。
+
+`shift_jis_probe` は全 1 バイトと、0x81–0x9f・0xe0–0xfc を先頭に持つ全 2 バイト、計 15,616 入力を作ります。`n` の後ろへその符号を足した XML について、SDK の期待名は `encoding_rs` の置換しない復号から作り、XML の成否・診断・予算の全使用量も記録します。ネイティブと WASI の各 2 回の全出力を比べ、JS のプラグインの署名を同じ期待名で比べます。これはホスト間の一致の検査で、外部の仕様適合の証明にはしません。名前の正否・原本範囲・全予算の境界・中断は `zumen-xml/tests/shift_jis.rs`、署名の切断と長い入力は SDK と JS の `xml_root` の自作テストで検査します。
+
+実行した Node.js 24.22.2・Chromium 156・WebKit 27.2 は一致しました。Firefox 1555 は Windows の起動時の `spawn UNKNOWN` で実行できず、対応範囲の確認を残しています。単独 0x80 を ICU が拒否する Node.js と WHATWG の差は、名前の比較の復号内で U+0080 にそろえます。

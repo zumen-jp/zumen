@@ -7,6 +7,33 @@ use zumen_geo::{Form, GeoModel, Location, Position, Value};
 use zumen_geom3d::Shape;
 use zumen_sdk::{Codec, Lift};
 
+#[test]
+fn shift_jis_unknown_names_are_decoded_and_feature_ids_are_kept() {
+    let text = BASIC
+        .replace("encoding=\"UTF-8\"", "encoding=\"Shift_JIS\"")
+        .replacen(
+            "<RdEdg gml:id=\"K1_1\">",
+            "<RdEdg gml:id=\"K1_1\"><ソ:ゼー xmlns:ソ='urn:test'>value</ソ:ゼー>",
+            1,
+        );
+    let (src, _, error) = encoding_rs::SHIFT_JIS.encode(&text);
+    assert!(!error);
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+    let file = Fgd::read(&src, &mut cx).unwrap();
+    let model = file.lift(&mut cx).unwrap();
+    assert_eq!(model.features[0].id, "K1_1");
+    assert_eq!(model.features[0].kind, "fgd:RdEdg");
+    assert!(diag.iter().any(|d| {
+        d.code() == codes::FGD_ELEMENT_UNSUPPORTED
+            && d.params().iter().any(|(key, value)| {
+                *key == "element" && *value == zumen_base::Value::Text("ソ:ゼー".into())
+            })
+    }));
+}
+
 /// 基本項目の地物。道路縁（線要素 L）・建築物（面要素 A）・標高点（点要素 P）・測量の基準点と、境界の曲線を
 /// 参照する行政区画
 const BASIC: &str = r##"<?xml version="1.0" encoding="UTF-8"?>

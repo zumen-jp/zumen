@@ -1,0 +1,53 @@
+{
+  "description": "自作 Shift_JIS CityGML の日本語の型と属性名を返し、main b8c101e1 由来の fallback ID を保つ（#824）",
+  "module": "civil",
+  "steps": [
+    {
+      "push": {
+        "name": "names.gml",
+        "hex": "3c3f786d6c2076657273696f6e3d27312e302720656e636f64696e673d2753686966745f4a4953273f3e3c636f72653a436974794d6f64656c20786d6c6e733a636f72653d27687474703a2f2f7777772e6f70656e6769732e6e65742f63697479676d6c2f322e302720786d6c6e733a676d6c3d27687474703a2f2f7777772e6f70656e6769732e6e65742f676d6c2720786d6c6e733a626c64673d27687474703a2f2f7777772e6f70656e6769732e6e65742f63697479676d6c2f6275696c64696e672f322e302720786d6c6e733a835c3d2775726e3a74657374273e3c636f72653a636974794f626a6563744d656d6265723e3c835c3a5468696e673e3c676d6c3a6e616d653e746573743c2f676d6c3a6e616d653e3c835c3a928d8b4c3e76616c75653c2f835c3a928d8b4c3e3c626c64673a6c6f6430466f6f745072696e742f3e3c2f835c3a5468696e673e3c2f636f72653a636974794f626a6563744d656d6265723e3c2f636f72653a436974794d6f64656c3e"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "names.gml"
+      },
+      "expect": {
+        "/result/format": "citygml",
+        "/diagnostics/0/code": "citygml.crs.unsupported"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "geo",
+        "doc": "names.gml"
+      },
+      "expect": {
+        "/result/features": 1,
+        "/result/kinds": [
+          {
+            "kind": "ソ:Thing",
+            "count": 1
+          }
+        ]
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "geo",
+        "doc": "names.gml",
+        "id": "�\\:Thing/0"
+      },
+      "expect": {
+        "/result/feature/id": "�\\:Thing/0",
+        "/result/feature/kind": "ソ:Thing",
+        "/result/feature/attributes/0/name": "ソ:注記",
+        "/result/feature/attributes/0/value": "value"
+      }
+    }
+  ]
+}

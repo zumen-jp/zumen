@@ -244,7 +244,7 @@ impl<'d> Reader<'d, '_, '_> {
     }
 
     fn name(&self, element: &Element) -> String {
-        String::from_utf8_lossy(self.local(element)).into_owned()
+        self.doc.local_name_text(element.name()).into_owned()
     }
 
     fn unsupported(&mut self, element: &Element) {

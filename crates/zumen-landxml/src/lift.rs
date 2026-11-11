@@ -934,7 +934,7 @@ impl<'d> Reader<'d, '_, '_> {
     }
 
     fn unsupported(&mut self, element: &Element) {
-        let name = String::from_utf8_lossy(self.local(element)).into_owned();
+        let name = self.doc.local_name_text(element.name()).into_owned();
         let at = self.at(element);
         self.cx.report(
             Diagnostic::new(codes::LANDXML_ELEMENT_UNSUPPORTED)
@@ -944,7 +944,7 @@ impl<'d> Reader<'d, '_, '_> {
     }
 
     fn invalid(&mut self, element: &Element, field: &'static str) {
-        let name = String::from_utf8_lossy(self.local(element)).into_owned();
+        let name = self.doc.local_name_text(element.name()).into_owned();
         let at = self.at(element);
         self.cx.report(
             Diagnostic::new(codes::LANDXML_VALUE_INVALID)

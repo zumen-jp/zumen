@@ -1159,6 +1159,7 @@ dependencies = [
 name = "zumen-citygml"
 version = "0.3.0"
 dependencies = [
+ "encoding_rs",
  "zumen-base",
  "zumen-crs",
  "zumen-geo",
@@ -1275,6 +1276,7 @@ dependencies = [
 name = "zumen-fgd"
 version = "0.3.0"
 dependencies = [
+ "encoding_rs",
  "zumen-base",
  "zumen-crs",
  "zumen-geo",
@@ -1297,6 +1299,7 @@ dependencies = [
 name = "zumen-geology"
 version = "0.3.0"
 dependencies = [
+ "encoding_rs",
  "zumen-base",
  "zumen-crs",
  "zumen-sdk",
@@ -1366,6 +1369,7 @@ dependencies = [
 name = "zumen-landxml"
 version = "0.3.0"
 dependencies = [
+ "encoding_rs",
  "libm",
  "zumen-base",
  "zumen-civil",
@@ -1409,6 +1413,7 @@ dependencies = [
 name = "zumen-photo"
 version = "0.3.0"
 dependencies = [
+ "encoding_rs",
  "zumen-base",
  "zumen-crs",
  "zumen-sdk",
@@ -1499,6 +1504,7 @@ dependencies = [
 name = "zumen-sdk"
 version = "0.3.0"
 dependencies = [
+ "encoding_rs",
  "zumen-base",
 ]
 
