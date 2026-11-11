@@ -167,6 +167,8 @@ Node.js で分割版を使うときは、たとえば `readFile(new URL(import.m
 
 外部のプラグインを束ねたモジュール（[プラグインの作り方](../../templates/plugin/README.md)）は、`loadModules` の 2 つ目の引数に、名前・形式ごとの判定の規則（`formats`）・持つ op（`ops`）・読み込む関数（`load`）を渡します。コアのどの形式でもない入力を、その規則で試します。図面の形式のプラグインのモジュールは、プラグインの形式だけを持ちます（[API のスキーマ](../../schema/README.md)）。開いた文書を `lift` の op で図面モデルのバイナリ（blob の種類は `drawing`）にし、図面のモジュールのセッションに `push` して `open` すると、図面を読む op を使えます。`Modules.open` は、この受け渡しをして、図面のモジュールのセッションを返します。`detect` は、図面モデルのバイナリを形式 `drawing` と判定します（`open` は元の文書の形式を返します）。作り方は [templates/plugin](../../templates/plugin/README.md) にあります。
 
+`xml_root` の規則の `name` と `namespace` は Unicode の文字列です。UTF-8・Shift_JIS・UTF-16 の原本を同じ期待名で比べます。Rust の `Signature::XmlRoot` の期待名も UTF-8 に統一します。受理条件と移行方法は [XML の規則](../../docs/formats/xml.md)にあります。
+
 要求と応答の形は [schema/messages.json](../../schema/messages.json) にあり、`call` の型は要求の `op` から結果の型を引きます。
 
 ## テスト

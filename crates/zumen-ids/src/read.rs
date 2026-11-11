@@ -61,7 +61,7 @@ impl<'d> Reader<'d, '_, '_> {
     fn bad(&self, element: &Element) -> Bad {
         Bad {
             span: element.span(),
-            near: String::from_utf8_lossy(self.local(element)).into_owned(),
+            near: self.doc.local_name_text(element.name()).into_owned(),
         }
     }
 
@@ -250,7 +250,7 @@ impl<'d> Reader<'d, '_, '_> {
         }
         let mut values = Vec::new();
         for child in self.children(element) {
-            let name = String::from_utf8_lossy(self.local(child)).into_owned();
+            let name = self.doc.local_name_text(child.name()).into_owned();
             values.push((name, child));
         }
         let mut take = |name: &str| -> Option<&'d Element> {
@@ -376,7 +376,7 @@ impl<'d> Reader<'d, '_, '_> {
                 }
             }
             _ => {
-                let kind = String::from_utf8_lossy(local).into_owned();
+                let kind = self.doc.local_name_text(element.name()).into_owned();
                 let span = element.span();
                 self.cx.report(
                     Diagnostic::new(codes::IDS_FACET_UNSUPPORTED)
@@ -444,8 +444,8 @@ impl<'d> Reader<'d, '_, '_> {
                 b"length" => length().map(Constraint::Length),
                 b"minLength" => length().map(Constraint::MinLength),
                 b"maxLength" => length().map(Constraint::MaxLength),
-                other => Some(Constraint::Unsupported(
-                    String::from_utf8_lossy(other).into_owned(),
+                _ => Some(Constraint::Unsupported(
+                    self.doc.local_name_text(constraint.name()).into_owned(),
                 )),
             };
             let Some(parsed) = parsed else {

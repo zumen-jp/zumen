@@ -812,12 +812,14 @@ impl<'d> Reader<'d, '_, '_> {
     /// 接頭辞をつけた名前。基盤地図情報の名前空間は `fgd`、GML は `gml` にし、知らない名前空間は文書の接頭辞を使う
     fn qualified(&self, element: &Element) -> String {
         let doc = self.doc;
-        let local = String::from_utf8_lossy(self.local(element));
+        let local = doc.local_name_text(element.name());
         let prefix = match doc.namespace(element.name()).as_deref() {
             Some(NAMESPACE) => Some("fgd".to_string()),
             Some(GML) => Some("gml".to_string()),
             _ => element.name().prefix().map(|range| match doc.encoding() {
-                zumen_xml::Encoding::Utf16Le | zumen_xml::Encoding::Utf16Be => doc.cdata(range),
+                zumen_xml::Encoding::ShiftJis
+                | zumen_xml::Encoding::Utf16Le
+                | zumen_xml::Encoding::Utf16Be => doc.cdata(range),
                 _ => String::from_utf8_lossy(doc.bytes(range)).into_owned(),
             }),
         };

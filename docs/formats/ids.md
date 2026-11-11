@@ -20,6 +20,8 @@ IDS（Information Delivery Specification）1.0 を読み、建物モデルで照
 
 自作の UTF-16LE・UTF-16BE で IDS を読み、名前の要件をモデルに照合します。[XML の規則](xml.md)を使います。この追加の確認は `synthetic` で、IDS の外部照合はしていません。
 
+自作の Shift_JIS の日本語の根を不正な IDS として断り、診断の `near` に Unicode の名前を返すことを検査します。未知の facet と制約の日本語の名前も、診断の `kind` とモデルに返します。この確認は `synthetic` です。
+
 | 形式 | 向き | 段 |
 | --- | --- | --- |
 | `ids` | 読み | `synthetic` |
