@@ -15,8 +15,7 @@ use core::ops::Range;
 use std::borrow::Cow;
 
 use zumen_base::crc::crc32;
-use zumen_base::{Cx, Diagnostic, Kind, Ref, codes};
-use zumen_sdk::Error;
+use zumen_base::{Cx, Diagnostic, Error, Kind, Ref, codes};
 
 pub use read::read;
 pub use write::write;

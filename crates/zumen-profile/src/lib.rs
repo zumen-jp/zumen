@@ -13,10 +13,9 @@ use zumen_base::{Cx, Diagnostic, Kind, Ref, Severity, Stop, Value as Param, code
 use zumen_drawing::id::{self, DefinitionNamer, SheetNamer};
 use zumen_drawing::{
     Affine, CalloutContent, CellContent, Color, ColorSystem, Drawing2D, Height, HeightMeaning,
-    Item, Label, LayerId, Length, Origin, Shape, VisitRef, WalkVisitor,
+    Item, Label, LayerId, Length, Origin, Palette, Shape, VisitRef, WalkVisitor,
 };
 use zumen_json::Value;
-use zumen_scene::Palette;
 
 pub use crate::civil::{CIVIL_DRAWING, CivilDrawing, civil_drawing};
 pub use crate::profile::{FORMAT_MAJOR, Identity};

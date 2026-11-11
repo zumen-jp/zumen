@@ -5,8 +5,7 @@
 use core::ops::Range;
 use std::collections::{BTreeMap, BTreeSet};
 
-use zumen_base::{Diagnostic, Kind, Ref, codes};
-use zumen_sdk::{Cx, Error, Stop};
+use zumen_base::{Cx, Diagnostic, Error, Kind, Ref, Stop, codes};
 
 use crate::{Attribute, Document, Element, Encoding, Name, Namespace, Node, name, text, utf16};
 

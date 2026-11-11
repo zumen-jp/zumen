@@ -1,9 +1,8 @@
 //! ISG format 2.0 の格子の読み取りと双一次の補間を、合成の格子で確かめる。国土地理院のジオイド・モデルは
 //! 使わない（決定 0019）。
 
-use zumen_base::{Budget, CancelToken, Cx, Diagnostics, Kind, Limit, Limits, Value, codes};
+use zumen_base::{Budget, CancelToken, Cx, Diagnostics, Error, Kind, Limit, Limits, Value, codes};
 use zumen_crs::{GeoPoint, Grid};
-use zumen_sdk::Error;
 
 /// ISG format 2.0 の例（仕様の Example 1・2）と同じ形の、合成の格子。4 行 6 列で、南の 2 行の東の 2 つは無効
 fn isg(units: &str, extra: &str) -> String {
