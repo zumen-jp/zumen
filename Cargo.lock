@@ -968,7 +968,7 @@ checksum = "23b97319f7b8343df12cc98938e5c3eb436064524c8d2b4e30a1d3a36eecdf81"
 
 [[package]]
 name = "xtask"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "serde",
  "syn 3.0.9",
@@ -1044,7 +1044,7 @@ checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
 
 [[package]]
 name = "zumen"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "zumen-abi",
  "zumen-base",
@@ -1054,7 +1054,7 @@ dependencies = [
 
 [[package]]
 name = "zumen-abi"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "libm",
  "zumen-acad",
@@ -1097,7 +1097,7 @@ dependencies = [
 
 [[package]]
 name = "zumen-acad"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "encoding_rs",
  "libm",
@@ -1108,7 +1108,7 @@ dependencies = [
 
 [[package]]
 name = "zumen-asbuilt"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "libm",
  "zumen-base",
@@ -1121,11 +1121,11 @@ dependencies = [
 
 [[package]]
 name = "zumen-base"
-version = "0.2.0"
+version = "0.3.0"
 
 [[package]]
 name = "zumen-bcf"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "blake3",
  "zumen-base",
@@ -1138,7 +1138,7 @@ dependencies = [
 
 [[package]]
 name = "zumen-building"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "blake3",
  "zumen-base",
@@ -1146,7 +1146,7 @@ dependencies = [
 
 [[package]]
 name = "zumen-c"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "cc",
  "zumen-abi",
@@ -1157,7 +1157,7 @@ dependencies = [
 
 [[package]]
 name = "zumen-citygml"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "encoding_rs",
  "zumen-base",
@@ -1170,7 +1170,7 @@ dependencies = [
 
 [[package]]
 name = "zumen-civil"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "libm",
  "zumen-base",
@@ -1180,7 +1180,7 @@ dependencies = [
 
 [[package]]
 name = "zumen-civil-drawing"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "libm",
  "zumen-base",
@@ -1193,7 +1193,7 @@ dependencies = [
 
 [[package]]
 name = "zumen-cli"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "zumen-abi",
  "zumen-base",
@@ -1204,7 +1204,7 @@ dependencies = [
 
 [[package]]
 name = "zumen-conformance"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "zumen",
  "zumen-abi",
@@ -1214,7 +1214,7 @@ dependencies = [
 
 [[package]]
 name = "zumen-crs"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "jgdtrans",
  "libm",
@@ -1224,7 +1224,7 @@ dependencies = [
 
 [[package]]
 name = "zumen-delivery"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "encoding_rs",
  "zumen-base",
@@ -1238,7 +1238,7 @@ dependencies = [
 
 [[package]]
 name = "zumen-drawing"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "blake3",
  "libm",
@@ -1248,7 +1248,7 @@ dependencies = [
 
 [[package]]
 name = "zumen-e57"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "e57",
  "libm",
@@ -1260,7 +1260,7 @@ dependencies = [
 
 [[package]]
 name = "zumen-extdm"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "encoding_rs",
  "libm",
@@ -1274,7 +1274,7 @@ dependencies = [
 
 [[package]]
 name = "zumen-fgd"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "encoding_rs",
  "zumen-base",
@@ -1288,7 +1288,7 @@ dependencies = [
 
 [[package]]
 name = "zumen-geo"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "zumen-base",
  "zumen-crs",
@@ -1297,7 +1297,7 @@ dependencies = [
 
 [[package]]
 name = "zumen-geology"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "encoding_rs",
  "zumen-base",
@@ -1308,14 +1308,14 @@ dependencies = [
 
 [[package]]
 name = "zumen-geom2d"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "libm",
 ]
 
 [[package]]
 name = "zumen-geom3d"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "libm",
  "zumen-base",
@@ -1324,7 +1324,7 @@ dependencies = [
 
 [[package]]
 name = "zumen-ids"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "zumen-base",
  "zumen-building",
@@ -1334,7 +1334,7 @@ dependencies = [
 
 [[package]]
 name = "zumen-ifc"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "libm",
  "zumen-base",
@@ -1352,11 +1352,11 @@ dependencies = [
 
 [[package]]
 name = "zumen-json"
-version = "0.2.0"
+version = "0.3.0"
 
 [[package]]
 name = "zumen-jww"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "encoding_rs",
  "libm",
@@ -1367,7 +1367,7 @@ dependencies = [
 
 [[package]]
 name = "zumen-landxml"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "encoding_rs",
  "libm",
@@ -1380,7 +1380,7 @@ dependencies = [
 
 [[package]]
 name = "zumen-las"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "zumen-base",
  "zumen-crs",
@@ -1390,7 +1390,7 @@ dependencies = [
 
 [[package]]
 name = "zumen-pdf"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "flate2",
  "hayro-cmap",
@@ -1411,7 +1411,7 @@ dependencies = [
 
 [[package]]
 name = "zumen-photo"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "encoding_rs",
  "zumen-base",
@@ -1422,7 +1422,7 @@ dependencies = [
 
 [[package]]
 name = "zumen-plugin-template"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "zumen-abi",
  "zumen-base",
@@ -1434,7 +1434,7 @@ dependencies = [
 
 [[package]]
 name = "zumen-ply"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "libm",
  "ply-rs",
@@ -1445,7 +1445,7 @@ dependencies = [
 
 [[package]]
 name = "zumen-pointcloud"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "libm",
  "zumen-base",
@@ -1454,7 +1454,7 @@ dependencies = [
 
 [[package]]
 name = "zumen-profile"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "libm",
  "zumen-base",
@@ -1465,7 +1465,7 @@ dependencies = [
 
 [[package]]
 name = "zumen-render"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "libm",
  "zumen-acad",
@@ -1477,7 +1477,7 @@ dependencies = [
 
 [[package]]
 name = "zumen-review"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "blake3",
  "zumen-base",
@@ -1489,7 +1489,7 @@ dependencies = [
 
 [[package]]
 name = "zumen-scene"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "libm",
  "zumen-acad",
@@ -1502,7 +1502,7 @@ dependencies = [
 
 [[package]]
 name = "zumen-sdk"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "encoding_rs",
  "zumen-base",
@@ -1510,7 +1510,7 @@ dependencies = [
 
 [[package]]
 name = "zumen-sheet"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "encoding_rs",
  "zumen-base",
@@ -1521,7 +1521,7 @@ dependencies = [
 
 [[package]]
 name = "zumen-step"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "zumen-base",
  "zumen-sdk",
@@ -1529,7 +1529,7 @@ dependencies = [
 
 [[package]]
 name = "zumen-sxf"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "encoding_rs",
  "libm",
@@ -1542,7 +1542,7 @@ dependencies = [
 
 [[package]]
 name = "zumen-xml"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "encoding_rs",
  "zumen-base",
@@ -1551,7 +1551,7 @@ dependencies = [
 
 [[package]]
 name = "zumen-xyz"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "libm",
  "zumen-base",
@@ -1561,7 +1561,7 @@ dependencies = [
 
 [[package]]
 name = "zumen-zip"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "encoding_rs",
  "zumen-base",

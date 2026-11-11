@@ -11,9 +11,9 @@ publish = true
 formats = ["dxf", "dwg"]
 
 [dependencies]
-zumen-base = { version = "0.2.0", path = "../zumen-base" }
-zumen-sdk = { version = "0.2.0", path = "../zumen-sdk" }
-zumen-drawing = { version = "0.2.0", path = "../zumen-drawing", optional = true }
+zumen-base = { version = "0.3.0", path = "../zumen-base" }
+zumen-sdk = { version = "0.3.0", path = "../zumen-sdk" }
+zumen-drawing = { version = "0.3.0", path = "../zumen-drawing", optional = true }
 # 2007 より前のバージョンの Shift_JIS（ANSI_932）の文字を戻し、書くときも同じ表で符号化する（新しい DXF のひな形の
 # 部品の名前など）。WHATWG の Shift_JIS で、環境によらない（決定 0175・0192、#509）
 encoding_rs = { version = "0.8.35", optional = true }

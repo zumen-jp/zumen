@@ -8,9 +8,9 @@ repository.workspace = true
 publish = true
 
 [dependencies]
-zumen-base = { version = "0.2.0", path = "../zumen-base" }
-zumen-crs = { version = "0.2.0", path = "../zumen-crs" }
-zumen-geom3d = { version = "0.2.0", path = "../zumen-geom3d" }
+zumen-base = { version = "0.3.0", path = "../zumen-base" }
+zumen-crs = { version = "0.3.0", path = "../zumen-crs" }
+zumen-geom3d = { version = "0.3.0", path = "../zumen-geom3d" }
 
 [lints]
 workspace = true

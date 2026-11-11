@@ -2302,7 +2302,7 @@ pub const IFC_CIVIL_UNIT_ASSUMED: Code = Code::new(
 
 /// 曲線の定義に読めない値か循環があるので、曲線のグラフを返さなかった
 ///
-/// `ifc.curve.invalid`（0.2.1 から）
+/// `ifc.curve.invalid`（0.3.0 から）
 pub const IFC_CURVE_INVALID: Code = Code::new(
     "ifc.curve.invalid",
     Severity::Error,
@@ -2313,7 +2313,7 @@ pub const IFC_CURVE_INVALID: Code = Code::new(
 
 /// 型を持たない曲線なので、種類と出所だけを持った
 ///
-/// `ifc.curve.unsupported`（0.2.1 から）
+/// `ifc.curve.unsupported`（0.3.0 から）
 pub const IFC_CURVE_UNSUPPORTED: Code = Code::new(
     "ifc.curve.unsupported",
     Severity::Warning,
@@ -2468,7 +2468,7 @@ pub const IFC_REFERENCE_MISSING: Code = Code::new(
 
 /// 別の成分に写した対象が建物モデルの要素でないので、関係を成分に写せなかった。集合内の位置は 0 から
 ///
-/// `ifc.relation-target.unsupported`（0.2.1 から）
+/// `ifc.relation-target.unsupported`（0.3.0 から）
 pub const IFC_RELATION_TARGET_UNSUPPORTED: Code = Code::new(
     "ifc.relation-target.unsupported",
     Severity::Warning,
@@ -2494,7 +2494,7 @@ pub const IFC_SCHEMA_UNSUPPORTED: Code = Code::new(
 
 /// 要素の形状表現の参照か構造に読めない値か循環があり、ビューを返さなかった
 ///
-/// `ifc.shape.invalid`（0.2.1 から）
+/// `ifc.shape.invalid`（0.3.0 から）
 pub const IFC_SHAPE_INVALID: Code = Code::new(
     "ifc.shape.invalid",
     Severity::Error,
@@ -2505,7 +2505,7 @@ pub const IFC_SHAPE_INVALID: Code = Code::new(
 
 /// 形状表現の取得で省略された属性を None として保持した
 ///
-/// `ifc.shape.missing`（0.2.1 から）
+/// `ifc.shape.missing`（0.3.0 から）
 pub const IFC_SHAPE_MISSING: Code = Code::new(
     "ifc.shape.missing",
     Severity::Warning,
@@ -2516,7 +2516,7 @@ pub const IFC_SHAPE_MISSING: Code = Code::new(
 
 /// 形の項目は展開せず、元の L1 レコードへの参照だけを残した
 ///
-/// `ifc.shape.unsupported`（0.2.1 から）
+/// `ifc.shape.unsupported`（0.3.0 から）
 pub const IFC_SHAPE_UNSUPPORTED: Code = Code::new(
     "ifc.shape.unsupported",
     Severity::Warning,
@@ -3934,7 +3934,7 @@ pub const REVIEW_REFERENCE_MISSING: Code = Code::new(
 
 /// 選んだレビューの図形・場所の座標や形を描けない。reason は理由を表すタグ
 ///
-/// `review.scene-geometry.invalid`（0.2.0 から）
+/// `review.scene-geometry.invalid`（0.3.0 から）
 pub const REVIEW_SCENE_GEOMETRY_INVALID: Code = Code::new(
     "review.scene-geometry.invalid",
     Severity::Error,
@@ -3945,7 +3945,7 @@ pub const REVIEW_SCENE_GEOMETRY_INVALID: Code = Code::new(
 
 /// レビューの描画の設定が条件を満たさない。pointer は設定のフィールド
 ///
-/// `review.scene-options.invalid`（0.2.0 から）
+/// `review.scene-options.invalid`（0.3.0 から）
 pub const REVIEW_SCENE_OPTIONS_INVALID: Code = Code::new(
     "review.scene-options.invalid",
     Severity::Error,
@@ -3956,7 +3956,7 @@ pub const REVIEW_SCENE_OPTIONS_INVALID: Code = Code::new(
 
 /// レビューを描く起点が図面にないか、同じ ID の空間を区別できない
 ///
-/// `review.scene-origin.invalid`（0.2.0 から）
+/// `review.scene-origin.invalid`（0.3.0 から）
 pub const REVIEW_SCENE_ORIGIN_INVALID: Code = Code::new(
     "review.scene-origin.invalid",
     Severity::Error,
@@ -3967,7 +3967,7 @@ pub const REVIEW_SCENE_ORIGIN_INVALID: Code = Code::new(
 
 /// 選んだ対象の場所を 2D に置けず描かなかった。reason は 3D・ビューなし・形なしを区別するタグ
 ///
-/// `review.scene-placement.dropped`（0.2.0 から）
+/// `review.scene-placement.dropped`（0.3.0 から）
 pub const REVIEW_SCENE_PLACEMENT_DROPPED: Code = Code::new(
     "review.scene-placement.dropped",
     Severity::Warning,
@@ -3978,7 +3978,7 @@ pub const REVIEW_SCENE_PLACEMENT_DROPPED: Code = Code::new(
 
 /// 注記または写真の位置に使わない、2 点目からの点を描かなかった
 ///
-/// `review.scene-points.dropped`（0.2.0 から）
+/// `review.scene-points.dropped`（0.3.0 から）
 pub const REVIEW_SCENE_POINTS_DROPPED: Code = Code::new(
     "review.scene-points.dropped",
     Severity::Warning,
@@ -3989,7 +3989,7 @@ pub const REVIEW_SCENE_POINTS_DROPPED: Code = Code::new(
 
 /// 拡張フィールドに保った描画の値をシーンに反映しなかった。property はフィールド名
 ///
-/// `review.scene-property.dropped`（0.2.0 から）
+/// `review.scene-property.dropped`（0.3.0 から）
 pub const REVIEW_SCENE_PROPERTY_DROPPED: Code = Code::new(
     "review.scene-property.dropped",
     Severity::Warning,
@@ -4000,7 +4000,7 @@ pub const REVIEW_SCENE_PROPERTY_DROPPED: Code = Code::new(
 
 /// 字形の範囲を得られず、注記の枠を文字の高さと字数から近似した
 ///
-/// `review.scene-text-frame.approximated`（0.2.0 から）
+/// `review.scene-text-frame.approximated`（0.3.0 から）
 pub const REVIEW_SCENE_TEXT_FRAME_APPROXIMATED: Code = Code::new(
     "review.scene-text-frame.approximated",
     Severity::Warning,

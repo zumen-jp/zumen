@@ -10,7 +10,7 @@ Public Type ZmBuf
     length As LongPtr
 End Type
 
-Public Const ZM_PACKAGE_VERSION As String = "0.2.0"
+Public Const ZM_PACKAGE_VERSION As String = "0.3.0"
 Public Const ZM_ABI_VERSION As Long = 1
 Public Const ZM_SCHEMA_VERSION_MAJOR As Long = 1
 Public Const ZM_SCHEMA_VERSION_MINOR As Long = 65

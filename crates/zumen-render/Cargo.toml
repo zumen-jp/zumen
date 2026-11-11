@@ -12,8 +12,8 @@ formats = ["svg", "png"]
 
 [dependencies]
 libm = { version = "0.2.16", default-features = false }
-zumen-base = { version = "0.2.0", path = "../zumen-base" }
-zumen-scene = { version = "0.2.0", path = "../zumen-scene" }
+zumen-base = { version = "0.3.0", path = "../zumen-base" }
+zumen-scene = { version = "0.3.0", path = "../zumen-scene" }
 
 [dev-dependencies]
 zumen-acad = { path = "../zumen-acad" }

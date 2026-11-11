@@ -7,5 +7,5 @@
   "type": "module",
   "exports": { ".": { "types": "./src/index.d.ts", "default": "./src/index.js" } },
   "files": ["src", "README.md"],
-  "peerDependencies": { "@zumen-jp/zumen": "^0.2.0", "@zumen-jp/view2d": "^0.1.0", "react": "^19.3.1" }
+  "peerDependencies": { "@zumen-jp/zumen": "^0.2.0 || ^0.3.0", "@zumen-jp/view2d": "^0.1.0", "react": "^19.3.1" }
 }

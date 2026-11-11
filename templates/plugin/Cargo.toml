@@ -24,13 +24,13 @@ path = "src/main.rs"
 [dependencies]
 # wasm のモジュールは、プラグインの形式だけを持つ（決定 0247）。読んだ図面は、lift で図面モデルのバイナリにして、
 # コアの図面のモジュールに渡す
-zumen-abi = { version = "0.2.0", path = "../../crates/zumen-abi", default-features = false, features = ["plugin"] }
-zumen-base = { version = "0.2.0", path = "../../crates/zumen-base" }
-zumen-drawing = { version = "0.2.0", path = "../../crates/zumen-drawing" }
-zumen-sdk = { version = "0.2.0", path = "../../crates/zumen-sdk" }
+zumen-abi = { version = "0.3.0", path = "../../crates/zumen-abi", default-features = false, features = ["plugin"] }
+zumen-base = { version = "0.3.0", path = "../../crates/zumen-base" }
+zumen-drawing = { version = "0.3.0", path = "../../crates/zumen-drawing" }
+zumen-sdk = { version = "0.3.0", path = "../../crates/zumen-sdk" }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
-zumen-cli = { version = "0.2.0", path = "../../bindings/cli" }
+zumen-cli = { version = "0.3.0", path = "../../bindings/cli" }
 
 [dev-dependencies]
 zumen-json = { path = "../../crates/zumen-json" }
