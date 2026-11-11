@@ -6,7 +6,7 @@
 
 use zumen_acad::{Dxf, DxfFile, Relocate};
 use zumen_base::Cx;
-use zumen_drawing::{Drawing2D, ModelPoint, PaperPoint, Shape};
+use zumen_drawing::{Drawing2D, ModelPoint, PaperPoint, Shape, Symbol};
 use zumen_sdk::Codec;
 
 use crate::geometry;
@@ -54,6 +54,14 @@ pub(crate) fn to_dxf(drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<Converted, 
 struct Geometric;
 
 impl Relocate for Geometric {
+    fn accepts_model_symbol(&self, symbol: &Symbol<ModelPoint>) -> bool {
+        geometry::symbol_grid(symbol).is_some()
+    }
+
+    fn accepts_paper_symbol(&self, symbol: &Symbol<PaperPoint>) -> bool {
+        geometry::symbol_grid(symbol).is_some()
+    }
+
     fn model(&self, shape: &Shape<ModelPoint>, origin: ModelPoint) -> Option<Shape<ModelPoint>> {
         geometry::shape_of(&geometry::geometry_of(shape)?, None, origin).ok()
     }

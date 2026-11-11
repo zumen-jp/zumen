@@ -60,6 +60,134 @@ fn written(source: &binary::Source, drawing: &Drawing2D) -> Option<Vec<u8>> {
     binary::write(source, drawing, &mut cx).ok()
 }
 
+/// 公開の binary open → convert でも、形の値にできない記号と、形に戻せない外部参照を区別する（#643）
+#[test]
+fn converted_binary_symbols_keep_the_diagnostic_kind_and_source() {
+    use zumen_base::Ref;
+    use zumen_drawing::{
+        Element, Grid, Length, ModelLength, ModelPoint, PaperLength, PaperPoint, Shape, Symbol,
+        SymbolKey,
+    };
+
+    fn symbol<P>(point: P, namespace: &str, scale: f64, grid: Option<Grid>) -> Shape<P> {
+        Shape::Symbol(Symbol {
+            key: SymbolKey {
+                namespace: namespace.to_owned().into(),
+                name: "missing".into(),
+            },
+            position: point,
+            scale: [scale, scale],
+            rotation: 0.0,
+            grid,
+            attributes: vec![],
+            clip: None,
+        })
+    }
+
+    let (mut original, status, _) = opened(DXF.as_bytes()).unwrap();
+    assert_eq!(status, Status::Ok);
+    let bytes = lift(&mut original).unwrap();
+    let mut budget = Budget::default();
+    let mut diagnostics = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let (source, base) =
+        binary::read(&bytes, &mut Cx::new(&mut budget, &mut diagnostics, &cancel)).unwrap();
+    for paper in [false, true] {
+        // None: 格子なし、Some(false): 1×1 の格子、Some(true): 間隔の座標の系が違う格子
+        for (namespace, scale, grid, expected) in [
+            ("test.symbol", 1.0, None, "symbol"),
+            ("test.symbol", 0.0, None, "symbol"),
+            ("dxf.block", 1.0, None, "external_symbol"),
+            ("dxf.block", 0.0, None, "external_symbol"),
+            ("dxf.block", 1.0, Some(false), "external_symbol"),
+            ("dxf.block", 1.0, Some(true), "symbol"),
+        ] {
+            let mut drawing = base.clone();
+            for space in &mut drawing.spaces {
+                space.elements.clear();
+                space.order.clear();
+            }
+            for sheet in &mut drawing.sheets {
+                sheet.elements.clear();
+                sheet.views.clear();
+                sheet.order.clear();
+            }
+            drawing.symbols.clear();
+            let space = drawing.spaces[0].id;
+            let model = Length::Model(ModelLength { space, value: 1.0 });
+            let length = |wrong: bool| {
+                if paper != wrong {
+                    Length::Paper(PaperLength(1.0))
+                } else {
+                    model
+                }
+            };
+            let grid = grid.map(|wrong| Grid {
+                columns: 1,
+                rows: 1,
+                column_spacing: length(wrong),
+                row_spacing: length(false),
+            });
+            let reference = Ref::at_record(42).with_bytes(10, 20);
+            let like = &base.spaces[0].elements[0];
+            if paper {
+                let point = PaperPoint {
+                    sheet: drawing.sheets[0].id,
+                    x: 0.0,
+                    y: 0.0,
+                };
+                drawing.sheets[0].elements.push(Element {
+                    shape: symbol(point, namespace, scale, grid),
+                    layer: like.layer,
+                    style: like.style,
+                    source: reference,
+                });
+            } else {
+                let point = ModelPoint {
+                    space,
+                    x: 0.0,
+                    y: 0.0,
+                };
+                drawing.spaces[0].elements.push(Element {
+                    shape: symbol(point, namespace, scale, grid),
+                    source: reference,
+                    ..like.clone()
+                });
+            }
+            let bytes = written(&source, &drawing).unwrap();
+            let (mut session, status, opened) = opened(&bytes).unwrap();
+            assert_eq!(status, Status::Ok, "{opened}");
+            let (status, response) = call(
+                &mut session,
+                r#"{"v":1,"op":"convert","doc":"a","format":"dxf","to":"b"}"#,
+            );
+            assert_eq!(status, Status::Ok, "{response}");
+            let response = zumen_json::parse(response.as_bytes()).unwrap();
+            let Some(Value::Array(diagnostics)) = response.pointer("/diagnostics") else {
+                panic!("診断がない")
+            };
+            assert_eq!(diagnostics.len(), 1, "{response:?}");
+            let expected = zumen_json::parse(
+                format!(r#"{{"result":{{"elements":0}},"diagnostics":[{{"code":"convert.element.unsupported","count":1,"params":{{"format":"DXF","kind":"{expected}"}},"at":[{{"record":42,"bytes":{{"start":10,"end":20}}}}]}}]}}"#).as_bytes(),
+            ).unwrap();
+            for path in [
+                "/result/elements",
+                "/diagnostics/0/code",
+                "/diagnostics/0/count",
+                "/diagnostics/0/params/format",
+                "/diagnostics/0/params/kind",
+                "/diagnostics/0/at",
+            ] {
+                assert_eq!(
+                    response.pointer(path),
+                    expected.pointer(path),
+                    "{paper} {namespace} {path}"
+                );
+            }
+        }
+    }
+}
+
 /// 図面を読む op の応答と、blob
 fn answers(session: &mut Session) -> Vec<(Status, String, Option<Vec<u8>>)> {
     READS

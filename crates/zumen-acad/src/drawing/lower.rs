@@ -37,6 +37,15 @@ pub struct Lowered {
 ///
 /// `origin` は書く先の原点（座標は 0）で、空間か用紙の ID を持つ。形の点と長さを、その空間か用紙のものにして返す。
 pub trait Relocate {
+    /// 実寸の記号を、部品の参照を引く前に受け入れるか。`false` なら `symbol` として落とす。
+    /// 既定はすべて受け入れ、形を移せるかは [`Self::model`] で確かめる
+    fn accepts_model_symbol(&self, _symbol: &Symbol<ModelPoint>) -> bool {
+        true
+    }
+    /// 用紙の記号を、部品の参照を引く前に受け入れるか。既定と診断は [`Self::accepts_model_symbol`] と同じ
+    fn accepts_paper_symbol(&self, _symbol: &Symbol<PaperPoint>) -> bool {
+        true
+    }
     /// 実寸の空間（モデル空間か記号の定義）に書く形
     fn model(&self, shape: &Shape<ModelPoint>, origin: ModelPoint) -> Option<Shape<ModelPoint>>;
     /// 用紙に書く形
@@ -459,16 +468,25 @@ impl Addition<'_> {
 
 /// 書く先の空間か用紙の点。[`Relocate`] の対応する方法を選ぶ
 trait Spot: zumen_drawing::transform::Point {
+    fn accepts_symbol(relocate: &dyn Relocate, symbol: &Symbol<Self>) -> bool;
     fn relocate(relocate: &dyn Relocate, shape: &Shape<Self>, origin: Self) -> Option<Shape<Self>>;
 }
 
 impl Spot for ModelPoint {
+    fn accepts_symbol(relocate: &dyn Relocate, symbol: &Symbol<Self>) -> bool {
+        relocate.accepts_model_symbol(symbol)
+    }
+
     fn relocate(relocate: &dyn Relocate, shape: &Shape<Self>, origin: Self) -> Option<Shape<Self>> {
         relocate.model(shape, origin)
     }
 }
 
 impl Spot for PaperPoint {
+    fn accepts_symbol(relocate: &dyn Relocate, symbol: &Symbol<Self>) -> bool {
+        relocate.accepts_paper_symbol(symbol)
+    }
+
     fn relocate(relocate: &dyn Relocate, shape: &Shape<Self>, origin: Self) -> Option<Shape<Self>> {
         relocate.paper(shape, origin)
     }
@@ -493,6 +511,12 @@ impl Maps<'_> {
         cx: &mut Cx<'_>,
     ) {
         let kind = kind_of(&element.shape);
+        if let Shape::Symbol(symbol) = &element.shape
+            && !P::accepts_symbol(self.relocate, symbol)
+        {
+            report_dropped(cx, kind, &element.source);
+            return;
+        }
         let mut shape = element.shape.clone();
         let mut detached = Vec::new();
         match &mut shape {
@@ -512,7 +536,7 @@ impl Maps<'_> {
             }
             _ => {}
         }
-        // 書かない定義（外部参照など）を指す記号は、形を移せるかによらず `external_symbol` で落とす
+        // 受け入れた記号が書かない定義（外部参照など）を指せば、形を戻せるかによらず `external_symbol` で落とす
         let block = match &element.shape {
             Shape::Symbol(source) => {
                 let Some(name) = self.blocks.block(&source.key) else {

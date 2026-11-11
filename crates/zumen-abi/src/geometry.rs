@@ -203,21 +203,14 @@ pub(crate) fn geometry_of<P: Spot>(shape: &Shape<P>) -> Option<Geometry> {
             style: Some(text.style.clone()),
             style_id: None,
         }),
-        Shape::Symbol(symbol) if symbol.key.namespace == BLOCK => {
+        Shape::Symbol(symbol) => {
+            let grid = symbol_grid(symbol)?;
             Geometry::Symbol(SymbolGeometry {
                 name: symbol.key.name.clone(),
                 position: xy(symbol.position),
                 scale: symbol.scale.to_vec(),
                 rotation: symbol.rotation,
-                grid: match &symbol.grid {
-                    Some(grid) => Some(SymbolGrid {
-                        columns: grid.columns.into(),
-                        rows: grid.rows.into(),
-                        column_spacing: symbol.position.length(grid.column_spacing)?,
-                        row_spacing: symbol.position.length(grid.row_spacing)?,
-                    }),
-                    None => None,
-                },
+                grid,
                 attributes: (!symbol.attributes.is_empty()).then(|| {
                     symbol
                         .attributes
@@ -259,6 +252,22 @@ pub(crate) fn geometry_of<P: Spot>(shape: &Shape<P>) -> Option<Geometry> {
             construction: dot.construction.then_some(true),
         }),
         _ => return None,
+    })
+}
+
+/// 記号の名前空間と格子間隔の座標の系を確かめ、形の値の格子にする。固定のフィールドだけを調べる
+pub(crate) fn symbol_grid<P: Spot>(symbol: &Symbol<P>) -> Option<Option<SymbolGrid>> {
+    if symbol.key.namespace != BLOCK {
+        return None;
+    }
+    Some(match &symbol.grid {
+        Some(grid) => Some(SymbolGrid {
+            columns: grid.columns.into(),
+            rows: grid.rows.into(),
+            column_spacing: symbol.position.length(grid.column_spacing)?,
+            row_spacing: symbol.position.length(grid.row_spacing)?,
+        }),
+        None => None,
     })
 }
 
