@@ -5,6 +5,7 @@ export const releaseVersion = '0.2.0';
 export const releaseUrl = `${repo}/releases/tag/v${releaseVersion}`;
 export const releasedSource = (file: string) => `${repo}/blob/v${releaseVersion}/${file}`;
 
+// ナビの並び。ビューアーのヘッダーとの一致を、組み立ての検査がこの { href, label } の形で読む。
 export const nav = [
   { href: '/viewer/', label: '図面を試す' },
   { href: '/features/', label: '特長' },
@@ -12,7 +13,24 @@ export const nav = [
   { href: '/platforms/', label: '対応環境' },
   { href: '/news/', label: 'お知らせ' },
   { href: '/faq/', label: 'よくある質問' },
-];
+] as const;
+
+export interface PageInfo {
+  // 見出しの上に添える英語の肩書き
+  en: string;
+  // 見出しの下と、ほかのページの終わりの案内に出す説明
+  lead: string;
+}
+
+// ナビの各ページの肩書きと説明。下層のページの見出しと、ページの終わりの「ほかのページ」に使う。
+export const pages: Record<(typeof nav)[number]['href'], PageInfo> = {
+  '/viewer/': { en: 'Viewer', lead: '公開サンプルや手元の図面を、ブラウザーの中だけで開きます。' },
+  '/features/': { en: 'Features', lead: 'zumen が何をするライブラリ群か、どのように作っているかを説明します。' },
+  '/formats/': { en: 'Formats', lead: '形式ごとの、読む・書くの状況と、実装を置く所です。' },
+  '/platforms/': { en: 'Platforms', lead: '言語ごとの約束、OS とブラウザーの下限、公開済みのパッケージです。' },
+  '/news/': { en: 'News', lead: 'リリースと、開発の大きな節目を知らせます。' },
+  '/faq/': { en: 'FAQ', lead: 'zumen について、よくいただく質問と答えです。' },
+};
 
 // お知らせは、リリースと大きな節目だけを書く。日々の変更は GitHub の PR とリリースノートに任せる。
 export type Tag = 'リリース' | 'お知らせ';
