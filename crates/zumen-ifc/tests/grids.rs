@@ -51,6 +51,42 @@ fn source(schema: &str) -> String {
         }
     )
 }
+fn with_foreign_grid(schema: &str, first: bool, local: bool, duplicate: bool) -> String {
+    let axes = if duplicate {
+        "(#300),(#303),$"
+    } else {
+        "(#800),(#801),$"
+    };
+    let layout = if schema == "IFC2X3" {
+        ""
+    } else {
+        ",.NOTDEFINED."
+    };
+    let args = if local {
+        format!("{axes}{layout}")
+    } else {
+        format!("'0000000000000000000003',$,$,$,$,#40,$,{axes}{layout}")
+    };
+    let grid = format!("IFCGRID({args})");
+    let inherited = format!(
+        "IFCROOT('0000000000000000000003',$,$,$) IFCOBJECTDEFINITION() IFCOBJECT($) IFCPRODUCT(#40,$){}",
+        if schema == "IFC4X3_ADD2" {
+            " IFCPOSITIONINGELEMENT()"
+        } else {
+            ""
+        }
+    );
+    let parts = if first {
+        format!("{grid} {inherited}")
+    } else {
+        format!("{inherited} {grid}")
+    };
+    let extra = format!(
+        "#900=({parts});\n#800=IFCGRIDAXIS('OtherU',#200,.T.);\n#801=IFCGRIDAXIS('OtherV',#201,.F.);\n"
+    );
+    source(schema).replace("ENDSEC;\nEND-ISO", &format!("{extra}ENDSEC;\nEND-ISO"))
+}
+
 fn with<T>(limits: Limits, f: impl FnOnce(&mut Cx) -> T) -> (T, Diagnostics, Budget) {
     let mut budget = Budget::new(limits);
     let mut diag = Diagnostics::new();
@@ -224,6 +260,82 @@ fn rejects_invalid_lists_owners_types_dimensions_and_sense_without_partial_resul
         ));
     }
 }
+#[test]
+fn checks_all_parts_and_local_grid_attributes_for_foreign_owners() {
+    for schema in VERSIONS {
+        let baseline = read(&source(schema));
+        let expected = axes(&baseline);
+        for first in [false, true] {
+            for local in [false, true] {
+                let file = read(&with_foreign_grid(schema, first, local, true));
+                let (result, diag, budget) = with(Limits::default(), |cx| file.grid_axes(100, cx));
+                assert!(
+                    matches!(result, Err(Error::Invalid)),
+                    "{schema}/first={first}/local={local}"
+                );
+                let span = file.instance(900).unwrap().span();
+                let expected_place = zumen_base::Ref::at_bytes(span.start as u64, span.end as u64);
+                assert!(diag.iter().any(|d| d.code() == codes::IFC_GRID_INVALID
+                    && d.places() == [expected_place.clone()]));
+                assert_eq!(budget.used(Kind::Depth), 0);
+                let file = read(&with_foreign_grid(schema, first, local, false));
+                let result = axes(&file);
+                assert_eq!(result.layout, expected.layout);
+                for (actual, expected) in result.axes.iter().zip(&expected.axes) {
+                    assert_eq!(actual.definition, expected.definition);
+                    assert_eq!(actual.curve, expected.curve);
+                }
+            }
+        }
+        // 拡張ヘッダーは Grid インスタンスではなく、所属の相手に数えない。
+        let header =
+            read(&source(schema).replace("FILE_SCHEMA(", "IFCGRID('vendor');\nFILE_SCHEMA("));
+        assert_eq!(axes(&header).axes.len(), expected.axes.len());
+    }
+}
+
+#[test]
+fn unknown_owner_layouts_and_lists_fail_closed_and_part_scan_stops_have_a_span() {
+    for schema in VERSIONS {
+        for grid in ["IFCGRID($,$,$,$,$)", "IFCGRID(42,$,$)", "IFCGRID((42),$,$)"] {
+            let extra = format!("#900=(IFCOBJECTDEFINITION() {grid});\n");
+            let file = read(
+                &source(schema).replace("ENDSEC;\nEND-ISO", &format!("{extra}ENDSEC;\nEND-ISO")),
+            );
+            let (result, diag, budget) = with(Limits::default(), |cx| file.grid_axes(100, cx));
+            assert!(matches!(result, Err(Error::Invalid)));
+            assert!(diag.iter().any(|d| d.code() == codes::IFC_GRID_INVALID));
+            assert_eq!(budget.used(Kind::Depth), 0);
+        }
+        let file =
+            read(&with_foreign_grid(schema, false, true, false).replace(",.IRREGULAR.", ",$"));
+        let record = file.instance(900).unwrap();
+        let index = file
+            .records()
+            .iter()
+            .position(|r| std::ptr::eq(r, record))
+            .unwrap();
+        let limit = 4 + if schema == "IFC2X3" { 6 } else { 7 } + index as u64 + 1;
+        let (result, diag, budget) = with(
+            Limits::default().with(Kind::Work, Limit::Finite(limit)),
+            |cx| file.grid_axes(100, cx),
+        );
+        assert!(
+            matches!(result, Err(Error::Stopped(zumen_base::Stop::Exceeded(e))) if e.kind == Kind::Work && e.requested == limit + record.parts().len() as u64 - 1)
+        );
+        let span = record.span();
+        assert_eq!(
+            diag.iter().next().unwrap().places(),
+            &[zumen_base::Ref::at_bytes(
+                span.start as u64,
+                span.end as u64
+            )]
+        );
+        assert_eq!(budget.used(Kind::Work), limit);
+        assert_eq!(budget.used(Kind::Depth), 0);
+    }
+}
+
 #[test]
 fn rejects_unknown_curve_kinds_and_cycles_and_restores_depth() {
     let base = source("IFC4");
@@ -620,6 +732,56 @@ fn contract_export() -> String {
                 ));
             }
         }
+        for first in [false, true] {
+            for local in [false, true] {
+                for duplicate in [false, true] {
+                    let foreign = read(&with_foreign_grid(schema, first, local, duplicate));
+                    output.push_str(&contract_line(
+                        &foreign,
+                        &format!("{schema}/complex-owner/{first}/{local}/{duplicate}"),
+                        Limits::default(),
+                        0,
+                    ));
+                }
+            }
+        }
+        for (label, grid) in [
+            ("layout", "IFCGRID($,$,$,$,$)"),
+            ("list", "IFCGRID(42,$,$)"),
+            ("member", "IFCGRID((42),$,$)"),
+        ] {
+            let extra = format!("#900=(IFCOBJECTDEFINITION() {grid});\n");
+            let foreign =
+                read(&src.replace("ENDSEC;\nEND-ISO", &format!("{extra}ENDSEC;\nEND-ISO")));
+            output.push_str(&contract_line(
+                &foreign,
+                &format!("{schema}/complex-owner/{label}"),
+                Limits::default(),
+                0,
+            ));
+        }
+        let foreign =
+            read(&with_foreign_grid(schema, false, true, false).replace(",.IRREGULAR.", ",$"));
+        let record = foreign.instance(900).unwrap();
+        let index = foreign
+            .records()
+            .iter()
+            .position(|r| std::ptr::eq(r, record))
+            .unwrap();
+        let limit = 4 + if schema == "IFC2X3" { 6 } else { 7 } + index as u64 + 1;
+        output.push_str(&contract_line(
+            &foreign,
+            &format!("{schema}/complex-owner/part-limit"),
+            Limits::default().with(Kind::Work, Limit::Finite(limit)),
+            0,
+        ));
+        let header = read(&src.replace("FILE_SCHEMA(", "IFCGRID('vendor');\nFILE_SCHEMA("));
+        output.push_str(&contract_line(
+            &header,
+            &format!("{schema}/complex-owner/header"),
+            Limits::default(),
+            0,
+        ));
         for signal in [1, 2] {
             output.push_str(&contract_line(
                 &file,

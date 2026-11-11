@@ -95,6 +95,13 @@ impl<'f> Reader<'f, '_, '_> {
         );
         Error::Invalid
     }
+    fn owner_invalid(&mut self, record: &'f Record, reason: &'static str) -> Error {
+        let previous = self.current;
+        self.current = record;
+        let error = self.invalid(reason);
+        self.current = previous;
+        error
+    }
     fn within<T>(
         &mut self,
         id: u64,
@@ -202,22 +209,50 @@ impl<'f> Reader<'f, '_, '_> {
             self.cx
                 .check(Kind::Work, 1)
                 .map_err(|stop| stopped(self.cx, stop, Some(record.span())))?;
-            if std::ptr::eq(record, grid) || !self.is(record, b"IFCGRID") {
+            if std::ptr::eq(record, grid) || record.id().is_none() {
                 continue;
             }
-            for at in 8..=10 {
-                if let Some(Value::List(values)) = arg(record, at) {
-                    self.cx
-                        .check(Kind::Work, values.len() as u64)
-                        .map_err(|stop| stopped(self.cx, stop, Some(record.span())))?;
-                    if values.iter().any(|value| {
-                        reference(Some(value)).is_some_and(|id| selected.contains(&id))
-                    }) {
-                        let previous = self.current;
-                        self.current = record;
-                        let error = self.invalid("owner");
-                        self.current = previous;
-                        return Err(error);
+            // レコードの 1 Work は先頭の Part を含む。複合だけ残りの Part を走査前に数える。
+            let parts = record.parts();
+            if parts.len() > 1 {
+                self.cx
+                    .check(Kind::Work, (parts.len() - 1) as u64)
+                    .map_err(|stop| stopped(self.cx, stop, Some(record.span())))?;
+            }
+            for part in parts {
+                if !self
+                    .file
+                    .bytes(part.name())
+                    .eq_ignore_ascii_case(b"IFCGRID")
+                {
+                    continue;
+                }
+                // Grid の継承する 7 属性を含む配置と、外部マッピングのローカル属性の配置。
+                // 不明な並びを「選んだ軸を含まない」と仮定しない。
+                let values = part.args();
+                let lists = match values.len() {
+                    3 | 4 => values.get(..3),
+                    10 | 11 => values.get(7..10),
+                    _ => None,
+                }
+                .ok_or_else(|| self.owner_invalid(record, "owner-layout"))?;
+                for value in lists {
+                    match value {
+                        Value::Null => {}
+                        Value::List(values) => {
+                            self.cx
+                                .check(Kind::Work, values.len() as u64)
+                                .map_err(|stop| stopped(self.cx, stop, Some(record.span())))?;
+                            for value in values {
+                                let Some(id) = reference(Some(value)) else {
+                                    return Err(self.owner_invalid(record, "owner-list"));
+                                };
+                                if selected.contains(&id) {
+                                    return Err(self.owner_invalid(record, "owner"));
+                                }
+                            }
+                        }
+                        _ => return Err(self.owner_invalid(record, "owner-list")),
                     }
                 }
             }
