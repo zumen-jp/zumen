@@ -5,7 +5,36 @@ import { samples } from "virtual:samples";
 import { catalog, loadModule } from "./module.js";
 import { Diagnostics, Inspector } from "./inspector.jsx";
 
-const viewOptions = Object.freeze({ foreground: "#172d36", selectionColor: "#b35413" });
+// 線は案内のサイトの文字の色（DADS の solid-gray-800）、選択はサイトの主の色の青と見分けられる橙（orange-800）にする。
+const viewOptions = Object.freeze({ foreground: "#333333", selectionColor: "#c74700" });
+// 案内のサイト（site/src/data/site.ts の nav）と同じ並び。ずれは site/scripts/check-output.mjs で確かめる。
+const siteNav = [
+  { href: "/viewer/", label: "図面を試す" },
+  { href: "/features/", label: "特長" },
+  { href: "/formats/", label: "対応形式" },
+  { href: "/platforms/", label: "対応環境" },
+  { href: "/news/", label: "お知らせ" },
+  { href: "/faq/", label: "よくある質問" },
+];
+// サイトの favicon.svg と同じ形。CSP の img-src に頼らず、ひとつのファイルで動くよう SVG を直に置く。
+function LogoMark() {
+  return <svg className="logo-mark" viewBox="0 0 64 64" width="40" height="40" aria-hidden="true" focusable="false">
+    <rect width="64" height="64" rx="14" fill="#0017c1"/>
+    <path d="M18 17H46V24L28.5 40H46V47H18V40L35.5 24H18Z" fill="#fff"/>
+    <g fill="#fff"><rect x="31" y="3" width="2" height="7"/><rect x="31" y="54" width="2" height="7"/><rect x="3" y="31" width="7" height="2"/><rect x="54" y="31" width="7" height="2"/></g>
+  </svg>;
+}
+function Masthead() {
+  return <header className="masthead">
+    <div className="wrap">
+      <a className="logo" href="/" aria-label="zumen トップ"><LogoMark/>
+        <span className="logo-text"><strong>zumen</strong><span>図面の読み書きの基盤</span></span></a>
+      <nav className="gnav" aria-label="サイト内"><ul>
+        {siteNav.map((item) => <li key={item.href}><a href={item.href} aria-current={item.href === "/viewer/" ? "page" : undefined}>{item.label}</a></li>)}
+      </ul></nav>
+    </div>
+  </header>;
+}
 function resize(viewer, canvas) {
   viewer.resize(Math.max(1, canvas.clientWidth), Math.max(1, canvas.clientHeight), Math.min(devicePixelRatio || 1, 2));
 }
@@ -128,11 +157,16 @@ export function Playground() {
   const failed = opened.status === "error" || renderError || fetchError;
   const status = fetchError ? "サンプルを取れませんでした。" : failed ? opened.error?.message === "drawing.input.limit" ? "64 MiB 以下のファイルを選んでください。" : "図面を表示できませんでした。"
     : ready ? viewer.getElements().length ? "表示しました。" : "表示できる要素がありません。診断を確認してください。" : file || sample ? "図面を読んでいます。" : "図面を選んでください。";
-  return <main>
-    <header><div className="heading"><span className="wordmark">zumen</span><h1>図面ビューア</h1></div>
-      <p>選んだ図面をこのブラウザーで開きます。</p></header>
-    <p>図面のバイト列を外へ送らず、読み取りはこのブラウザーの中で行います。PDF・JWC・JWS・LAZ は対象外です。</p>
-    {import.meta.env.VITE_ZUMEN_CORE_VERSION && <p>zumen {import.meta.env.VITE_ZUMEN_CORE_VERSION} で読みます。未対応の文字や図形は、診断をご確認ください。</p>}
+  return <>
+  <a className="skip" href="#viewer-main">本文へ移動</a>
+  <Masthead/>
+  <main id="viewer-main">
+    <div className="page-header">
+      <nav className="breadcrumbs" aria-label="現在位置"><ol><li><a href="/">トップ</a></li><li aria-current="page">図面ビューアー</li></ol></nav>
+      <h1>図面ビューアー</h1>
+      <p className="page-lead">選んだ図面をこのブラウザーで開きます。図面のバイト列を外へ送らず、読み取りはこのブラウザーの中で行います。PDF・JWC・JWS・LAZ は対象外です。
+        {import.meta.env.VITE_ZUMEN_CORE_VERSION && <> zumen {import.meta.env.VITE_ZUMEN_CORE_VERSION} で読みます。未対応の文字や図形は、診断をご確認ください。</>}</p>
+    </div>
     <div className="file-bar">
       <label htmlFor="drawing-file">図面ファイル</label>
       <input ref={picker} id="drawing-file" type="file" accept=".dxf,.dwg,.jww,.sfc,.p21,.sfz,.p2z" aria-describedby="file-help"
@@ -183,9 +217,12 @@ export function Playground() {
     {ready && <Export key={opened.input.document.hash} opened={opened} name={file?.name}/>}
     <section aria-labelledby="report-title" className="export">
       <h2 id="report-title">不具合を知らせる</h2>
-      <p><a href="/">zumen の案内に戻る</a></p>
       <p>操作や表示の不具合は <a href="https://github.com/zumen-jp/zumen/issues">GitHub の issue</a> にお知らせください。受け取った図面・顧客の名前・図面の中身は、公開の issue に貼らないでください。</p>
       <p>読み取りが終わらない・落ちる・メモリを使いすぎる入力は、<a href="https://github.com/zumen-jp/zumen/security/advisories/new">非公開の報告窓口</a>へお知らせください。機密の図面は添付せず、<a href="https://github.com/zumen-jp/zumen/blob/main/SECURITY.md">報告の手順</a>をご確認ください。</p>
     </section>
-  </main>;
+  </main>
+  <footer className="footer">
+    <p><a href="/">zumen の案内に戻る</a> ・ zumen は MIT License または Apache License 2.0 で提供します。</p>
+  </footer>
+  </>;
 }
