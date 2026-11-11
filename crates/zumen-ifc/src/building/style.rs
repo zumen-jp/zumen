@@ -527,7 +527,9 @@ impl<'f> Reader<'f, '_, '_> {
         }
         let mut styled = None;
         for record in self.file.records() {
-            self.check(Kind::Work, 1)?;
+            self.cx
+                .check(Kind::Work, 1)
+                .map_err(|stop| stopped(self.cx, stop, Some(record.span())))?;
             if self.is(record, b"IFCSTYLEDITEM")
                 && reference(arg(record, 1)) == item.id()
                 && styled.replace(record).is_some()

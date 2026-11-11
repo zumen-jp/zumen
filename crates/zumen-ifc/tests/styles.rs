@@ -450,6 +450,45 @@ fn reserves_before_allocation_and_stops_at_every_kind_boundary() {
     }
 }
 
+fn scan_positions(file: &IfcFile) -> [usize; 3] {
+    [0, file.records().len() / 2, file.records().len() - 1]
+}
+
+#[test]
+fn scan_stops_point_to_the_record_being_visited_and_keep_usage() {
+    for schema in VERSIONS {
+        let file = read(&source(schema));
+        let shape = product(&file, 100);
+        let node = leaf(&shape, 30);
+        for index in scan_positions(&file) {
+            // 呼び出し元の確認と within の 2 Work の後、index 件を通って次の走査で止まる。
+            let limit = 2 + index as u64;
+            let (r, diag, budget) = with(
+                Limits::default().with(Kind::Work, Limit::Finite(limit)),
+                |cx| file.surface_styles(node, cx),
+            );
+            assert!(
+                matches!(r, Err(Error::Stopped(zumen_base::Stop::Exceeded(e)))
+                if e.kind == Kind::Work && e.limit == limit && e.requested == limit + 1)
+            );
+            let record = &file.records()[index];
+            assert_ne!(record.span(), node.source.span());
+            let span = record.span();
+            let expected = zumen_base::Ref::at_bytes(span.start as u64, span.end as u64);
+            let diagnostics = diag.into_vec();
+            assert_eq!(diagnostics.len(), 1);
+            assert_eq!(diagnostics[0].code(), codes::BUDGET_WORK_EXCEEDED);
+            assert_eq!(diagnostics[0].places(), &[expected], "{schema}/{index}");
+            for kind in Kind::ALL {
+                assert_eq!(
+                    budget.used(kind),
+                    if kind == Kind::Work { limit } else { 0 }
+                );
+            }
+        }
+    }
+}
+
 #[test]
 fn rejects_typed_reference_cycles_and_stops_long_lists_without_partial_values() {
     for (from, to) in [
@@ -859,6 +898,15 @@ fn contract_export() -> String {
                     0,
                 ));
             }
+        }
+        for index in scan_positions(&file) {
+            output.push_str(&contract_line(
+                &file,
+                node,
+                &format!("{schema}/scan/{index}"),
+                Limits::default().with(Kind::Work, Limit::Finite(2 + index as u64)),
+                0,
+            ));
         }
         for signal in [1, 2] {
             output.push_str(&contract_line(
