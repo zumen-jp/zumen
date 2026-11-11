@@ -7434,6 +7434,9 @@ END_SCHEMA;
         session.push(b"a.dxf", source.as_bytes()).unwrap();
         call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
         let request = r#"{"v":1,"op":"convert","doc":"a.dxf","to":"b.dxf","format":"dxf"}"#;
+        let before = seen(&mut session, "a.dxf");
+        let (_, summary) = call(&mut session, r#"{"v":1,"op":"drawing","doc":"a.dxf"}"#);
+        let document = text(&summary, "/result/hash");
         let cancel = CancelToken::new();
         cancel.cancel();
         let interrupted = session.call(request.as_bytes(), &cancel);
@@ -7441,6 +7444,9 @@ END_SCHEMA;
         let message = zumen_json::parse(&interrupted.response).unwrap();
         assert_eq!(codes_of(&message), ["call.request.cancelled"]);
         assert!(session.take(0).is_none());
+        assert_eq!(seen(&mut session, "a.dxf"), before);
+        let (_, summary) = call(&mut session, r#"{"v":1,"op":"drawing","doc":"a.dxf"}"#);
+        assert_eq!(text(&summary, "/result/hash"), document);
         let (status, response) = call(&mut session, request);
         assert_eq!(status, Status::Ok);
         let Some(Value::Array(diagnostics)) = response.pointer("/diagnostics") else {
@@ -7466,6 +7472,64 @@ END_SCHEMA;
             .unwrap();
         assert_eq!(wall.description, None);
         assert_eq!(wall.style.unwrap().transparency.unwrap().alpha, 0);
+    }
+
+    /// 書く途中（lower）で予算を使い切っても、`Failed` と止めた理由を返し、出力先を登録しない（#643）
+    #[test]
+    fn convert_stopped_by_the_budget_registers_no_output() {
+        // 呼ぶごとに新しいセッションで開き直す。足りた呼び出しは出力先を登録するので、続けて呼べない
+        let failed = |work: u64| {
+            let mut session = Session::new(b"").unwrap();
+            session.push(b"a.dxf", CONVERTIBLE.as_bytes()).unwrap();
+            call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+            let before = seen(&mut session, "a.dxf");
+            let (_, summary) = call(&mut session, r#"{"v":1,"op":"drawing","doc":"a.dxf"}"#);
+            let document = text(&summary, "/result/hash");
+            let request = format!(
+                r#"{{"v":1,"op":"convert","doc":"a.dxf","format":"dxf","to":"b.dxf","budget":{{"work":{work}}}}}"#
+            );
+            let (status, response) = call(&mut session, &request);
+            if status == Status::Ok {
+                return false;
+            }
+            assert_eq!(status, Status::Failed, "{work} {response:?}");
+            let codes = codes_of(&response);
+            assert_eq!(
+                codes.last().map(String::as_str),
+                Some("budget.work.exceeded"),
+                "{work}"
+            );
+            assert!(!codes.iter().any(|code| code == "internal.panic.caught"));
+            let mut budget = zumen_base::Budget::default();
+            let mut diagnostics = zumen_base::Diagnostics::new();
+            let cancel = CancelToken::new();
+            let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+            assert!(session.lift("b.dxf", &mut cx).is_err(), "{work}");
+            assert_eq!(seen(&mut session, "a.dxf"), before, "{work}");
+            let (_, summary) = call(&mut session, r#"{"v":1,"op":"drawing","doc":"a.dxf"}"#);
+            assert_eq!(text(&summary, "/result/hash"), document, "{work}");
+            let (status, _) = call(
+                &mut session,
+                r#"{"v":1,"op":"convert","doc":"a.dxf","format":"dxf","to":"b.dxf"}"#,
+            );
+            assert_eq!(status, Status::Ok, "{work}");
+            true
+        };
+        // 足りる上限を倍にして探し、その手前の半分を刻む
+        let work = (0..32)
+            .map(|shift| 1_u64 << shift)
+            .find(|&work| !failed(work))
+            .unwrap();
+        let low = work / 2;
+        let step = usize::try_from((work - low).div_ceil(16).max(1)).unwrap();
+        // 足りない値はどれも上の確かめを通る。少なくとも 1 つは足りない
+        assert!(
+            (low..work)
+                .step_by(step)
+                .filter(|&limit| failed(limit))
+                .count()
+                > 0
+        );
     }
 
     #[test]
@@ -7576,6 +7640,9 @@ END_SCHEMA;
         let mut session = Session::new(b"").unwrap();
         session.push(b"a.dxf", CONVERTIBLE.as_bytes()).unwrap();
         call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+        let before = seen(&mut session, "a.dxf");
+        let (_, summary) = call(&mut session, r#"{"v":1,"op":"drawing","doc":"a.dxf"}"#);
+        let document = text(&summary, "/result/hash");
         for (request, code) in [
             (
                 r#"{"v":1,"op":"convert","doc":"a.dxf","format":"sxf","to":"b.sfc"}"#,
@@ -7593,6 +7660,10 @@ END_SCHEMA;
             let (status, response) = call(&mut session, request);
             assert_eq!(status, Status::Failed, "{response:?}");
             assert_eq!(codes_of(&response), vec![code.to_string()], "{request}");
+            assert!(session.take(0).is_none());
+            assert_eq!(seen(&mut session, "a.dxf"), before);
+            let (_, summary) = call(&mut session, r#"{"v":1,"op":"drawing","doc":"a.dxf"}"#);
+            assert_eq!(text(&summary, "/result/hash"), document);
         }
     }
 }

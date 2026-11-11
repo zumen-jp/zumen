@@ -32,6 +32,8 @@ XML の原本位置・文字コード・名前の比較と予算は、[XML の�
 
 同じ符号化・版・文字コードへの編集では、変更と、それに伴って更新する参照や件数だけを書き戻します。未知のレコードを含むほかの部分は元のバイトを保ちます。出力先で表せない値は、出所・種類・件数・忠実度を診断で返します。
 
+図面モデルから新しい DXF を作る lower は、`zumen-acad` の `drawing` の feature に置きます。別の形式への `convert` は L1 → `lift` → L2 → lower、新規作図の `civil_drawing` は L2 → lower を通り、`lower_to_dxf_with` を共用します。既存の API は形の値を通す移し方を渡し、Rust の `lower_to_dxf` は元の形の値を保つ移し方を使います。文字の位置合わせなどの違いと保持・損失の範囲は、[DXF への変換](formats/dxf.md#新しい-dxf-への変換)にあります。同系統の L1 の再符号化は、この lower と分けます。
+
 DXF の編集では、[DXF の編集](formats/dxf.md#編集) と [図面モデルの対応表](formats/drawing2d-mapping.md) で、残す値と診断を確認します。API の操作と期待する結果は [適合テストの `apply`](../bindings/conformance/cases/apply.json) と [`convert`](../bindings/conformance/cases/convert.json) にあります。外部の実装との照合は [検証キット](../xtask/verify/README.md) に従います。
 
 ## 幾何と許容差
