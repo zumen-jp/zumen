@@ -7,6 +7,7 @@
 //!
 //! 文書型宣言（DTD）は処理しない。外部の DTD と実体を解決せず、DTD で宣言する実体の参照は戻さない。
 
+mod name;
 mod parse;
 mod text;
 mod utf16;
@@ -232,7 +233,8 @@ impl Document {
         }
     }
 
-    /// 名前の名前空間が `namespace`（URI）で、接頭辞を除いた名前が `local` なら真
+    /// 名前の名前空間が `namespace`（URI）で、接頭辞を除いた名前が `local` なら真。
+    /// `local` は [`Document::parsed_local_name`] とバイトで比べる。非 ASCII の文字列は [`Document::local_name_text`] で比べる
     pub fn is(&self, name: &Name, namespace: Option<&str>, local: &[u8]) -> bool {
         self.parsed_local_name(name) == local && self.namespace(name).as_deref() == namespace
     }

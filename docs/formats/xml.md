@@ -14,15 +14,20 @@ UTF-8・Shift_JIS に加え、UTF-16LE・UTF-16BE を読みます。UTF-16 の�
 | BOM がない | `UTF-16`、encoding なし | 読まない |
 | UTF-16 と検出したバイト列 | 逆のバイト順、`UTF-8` など | `xml.document.invalid` |
 
-BOM のない UTF-16 は、先頭の XML 宣言 `<?xml` から検出します。宣言のない BOM なしのバイト列は UTF-16 と判定しません。UTF-32 の BOM と先頭の並びは `xml.encoding.unsupported` で断ります。奇数バイト、孤立したサロゲート、XML 1.0 の Char に含まれない文字、不正な QName を UTF-16 の入力で受け取った場合は、置換せず `xml.document.invalid` で止めます。既存の UTF-8・Shift_JIS の受理条件は変更しません。
+BOM のない UTF-16 は、先頭の XML 宣言 `<?xml` から検出します。宣言のない BOM なしのバイト列は UTF-16 と判定しません。UTF-32 の BOM と先頭の並びは `xml.encoding.unsupported` で断ります。奇数バイト、孤立したサロゲート、XML 1.0 の Char に含まれない文字、不正な QName を UTF-16 の入力で受け取った場合は、置換せず `xml.document.invalid` で止めます。UTF-8 の受理条件は変更しません。
 
-既存の Shift_JIS は、日本語の名前の 2 バイト目を区切りと取り違える場合があります。ボーリングの根の判定と合わせて [#824](https://github.com/zumen-jp/zumen/issues/824) で修正します。UTF-16 の追加で、この問題も解決したとはしません。
+## Shift_JIS の名前
+
+Shift_JIS の名前と DTD は文字の境界で走査し、`ー`・`ゼ`・`ゾ` などの 2 バイト目を `[`・`]` と取り違えません。文字の対応は [WHATWG Encoding の Shift_JIS decoder](https://encoding.spec.whatwg.org/#shift_jis-decoder)に従います。名前は置換せずに復号し、[XML 1.0 の NameStartChar・NameChar](https://www.w3.org/TR/xml/#NT-Name)と名前空間の QName を検査します。不正な符号化と、有効な符号でも名前に使えない文字は、どちらも `xml.document.invalid` で止めます。
+
+DTD は従来どおり不透明な範囲として保持し、外部の取得や宣言の解釈はしません。文字境界の走査は、DTD 全体の構文検証を意味しません。本文・属性値・CDATA の既存の置換を伴う復号も変えません。Shift_JIS の全文を UTF-8 に変換せず、名前の検査は固定長の復号バッファーを使います。既存の有効な UTF-8・Shift_JIS・UTF-16 の原本・公開範囲と予算の固定値は保ちます。
 
 ## 原本と解析用の名前
 
 - `Document::src`・`bytes` と、名前の `raw`・`local`・`prefix`、要素・属性・文字・CDATA・DTD・診断の範囲は、すべて原本のバイト位置です。ファイルモデルの `RecordInfo.kind` も原本の名前を保ちます。
 - `parsed_local_name` は構造の比較に使います。UTF-16 は解析用の UTF-8、UTF-8・Shift_JIS は従来の名前のバイト列を返します。ASCII の要素名は、このメソッドで比べます。
-- `local_name_text` は文字列の名前を返します。文字・属性値は `text`・`value`、CDATA は `cdata` で復号します。原本の UTF-16 の名前を `from_utf8_lossy` へ渡しません。
+- `local_name_text` は文字列の名前を返します。文字・属性値は `text`・`value`、CDATA は `cdata` で復号します。原本の Shift_JIS・UTF-16 の名前を `from_utf8_lossy` へ渡しません。
+- `is`・`attribute` の名前は、`parsed_local_name` とバイトで比べる契約を保ちます。文字コードによらない ASCII の構造の比較に使い、非 ASCII の文字列の比較は `local_name_text` を使います。
 
 UTF-16 の全文を厳密に UTF-8 にし、既存のパーサーで解析します。UTF-8 と UTF-16 の文字幅の組が続く範囲ごとに位置の対応表を作り、公開する範囲を原本の位置へ戻します。ASCII の文字ごとに表は作りません。
 
@@ -40,6 +45,10 @@ match document.encoding() {
 }
 ```
 
+`zumen-sdk::Signature::XmlRoot` の期待する `name` と `namespace` は、すべて UTF-8 に統一します。Shift_JIS の原本の名前を渡していた Rust の利用側は、`"ボーリング情報".as_bytes()` のような UTF-8 の期待名へ移します。JS の規則は従来どおり Unicode の文字列です。署名は最初の開始タグだけを見て、宣言の正否や本文全体はコーデックで検査します。入力長による新しい上限は設けません。
+
+SDK の復号には、XML ですでに使う `encoding_rs` と同じ 0.8 系（lock は 0.8.42）を直接依存に加えます。ライセンスは `(Apache-2.0 OR MIT) AND BSD-3-Clause`、固定した文字の表を使い、OS・ロケールに依存しません。ネイティブと WASI で同じ出力を確認します。JS は期待名の文字数の 2 倍まで原本の比較範囲を制限してから fatal な `TextDecoder` で復号します。Node.js の ICU が拒否する単独 `0x80` も WHATWG の U+0080 にそろえます。
+
 ## 確かめた範囲
 
 [独立検査の手順](../../xtask/verify/xml/README.md)に、入力・比較する値・予算の境界と停止の検査を記載しています。自作の 39 入力について、XML と J-LandXML の公開値・原本の位置・診断・予算の記録を、ネイティブと WASI の各 2 回でバイト単位で比較します。既存の UTF-8・Shift_JIS は、変更前の main の固定値とも比べます。
@@ -47,3 +56,5 @@ match document.encoding() {
 Expat との照合は、受理済みの自作 10 入力の名前・属性・文字・CDATA と要素の原本位置に限ります。Expat は文字コードの宣言と BOM の組を広く受け付けるため、受理条件の比較先にはしません。J-LandXML の領域モデルの照合や、各形式の外部検証の段を上げる根拠には含めません。
 
 配布する wasm と各言語の API 応答は、[UTF-16 の適合テスト](../../bindings/conformance/cases/xml_utf16.json)で別に比較します。共通の XML を使う各形式の自作の回帰テストも、それぞれの形式の文書に記載します。UTF-16 の読み取りを足しても、その形式のすべての文字コードで編集できるとはしません。[BCF](bcf.md) では、変更しない topic は原本を保ち、UTF-8 以外の markup の変更保存は診断して止めます。
+
+Shift_JIS の全 1 バイトと全 lead/trail の組、計 15,616 入力について、XML の成否・診断・全 `Kind` の使用量と SDK の署名をネイティブ・WASI 各 2 回で比較します。SDK と JS の署名は Node.js 24・Chromium 156・WebKit 27.2 で一致しました。Firefox は手元の起動エラーで未確認です。切断・不正な名前・長いヘッダー・予算の境界と中断は、自作の回帰で別に確かめます。この確認は `synthetic` で、外部の XML 実装と Shift_JIS を照合したものではありません。

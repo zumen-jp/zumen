@@ -143,3 +143,83 @@ fn signatures_keep_byte_encodings_and_do_not_limit_the_header_length() {
         assert!(LANDXML.matches(&utf16(&text, little, true)));
     }
 }
+
+#[test]
+fn shift_jis_names_and_namespaces_use_utf8_rules() {
+    let root = Signature::XmlRoot {
+        name: "ボーリング情報".as_bytes(),
+        namespace: None,
+    };
+    let namespaced = Signature::XmlRoot {
+        name: "ゼー".as_bytes(),
+        namespace: Some("urn:根".as_bytes()),
+    };
+    for label in ["Shift_JIS", "windows-31j", "ms932", "sJiS", " csshiftjis "] {
+        let text = format!(
+            "<?xml version='1.0' encoding='{label}'?><!DOCTYPE ソ:ボーリング情報 SYSTEM 'x.dtd'><ソ:ボーリング情報 xmlns:ソ='urn:根' ゾ='表'>"
+        );
+        let (src, _, error) = encoding_rs::SHIFT_JIS.encode(&text);
+        assert!(!error);
+        assert!(root.matches(&src), "{label}");
+        for end in 0..src.len() {
+            assert!(!root.matches(&src[..end]), "{label} {end}");
+        }
+        let text = format!("<?xml version='1.0' encoding='{label}'?><ソ:ゼー xmlns:ソ='urn:根'/>");
+        let (src, _, error) = encoding_rs::SHIFT_JIS.encode(&text);
+        assert!(!error);
+        assert!(namespaced.matches(&src));
+    }
+    let mut src = b"<?xml version='1.0' encoding='Shift_JIS'?><".to_vec();
+    src.extend([
+        0x83, 0x7b, 0x81, 0x5b, 0x83, 0x8a, 0x83, 0x93, 0x83, 0x4f, 0x8f, 0xee, 0x95, 0xf1,
+    ]);
+    src.extend(b"/>");
+    assert!(root.matches(&src));
+    let old_raw_rule = Signature::XmlRoot {
+        name: b"\x83\x7b\x81\x5b\x83\x8a\x83\x93\x83\x4f\x8f\xee\x95\xf1",
+        namespace: None,
+    };
+    assert!(!old_raw_rule.matches(&src));
+}
+
+#[test]
+fn shift_jis_signatures_reject_bad_names_and_do_not_limit_the_header() {
+    let root = Signature::XmlRoot {
+        name: "根".as_bytes(),
+        namespace: None,
+    };
+    for name in [&[0x81][..], &[0x81, 0x7f], &[0x81, 0xad], &[0xfd], &[0xff]] {
+        let mut src = b"<?xml version='1.0' encoding='Shift_JIS'?><".to_vec();
+        src.extend_from_slice(name);
+        src.extend_from_slice(b"/>");
+        assert!(!root.matches(&src));
+    }
+    let text = format!(
+        "<?xml version='1.0' encoding='Shift_JIS'?><!-- {} --><根 a='{}'/>",
+        "x".repeat(65_536),
+        "y".repeat(65_536)
+    );
+    let (src, _, error) = encoding_rs::SHIFT_JIS.encode(&text);
+    assert!(!error);
+    assert!(root.matches(&src));
+    let text = format!(
+        "<?xml version='1.0' encoding='Shift_JIS'?><{}/>",
+        "根".repeat(65_536)
+    );
+    let (src, _, error) = encoding_rs::SHIFT_JIS.encode(&text);
+    assert!(!error);
+    assert!(!root.matches(&src));
+
+    // 署名は Unicode を比較する。XML の Name の正否はコーデックが検査する。
+    for (byte, expected) in [(0x80, "n\u{0080}"), (0x0b, "n\u{000b}")] {
+        let mut source = b"<?xml version='1.0' encoding='Shift_JIS'?><n".to_vec();
+        source.extend_from_slice(&[byte, b'/', b'>']);
+        assert!(
+            Signature::XmlRoot {
+                name: expected.as_bytes(),
+                namespace: None
+            }
+            .matches(&source)
+        );
+    }
+}

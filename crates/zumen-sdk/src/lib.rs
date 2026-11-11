@@ -143,9 +143,9 @@ pub enum Signature {
     /// XML の文書で、最初の要素の接頭辞を除いた名前が `name` で、その名前空間の名前が `namespace`。`namespace` が
     /// `None` なら、名前空間を問わない。XML 宣言・注記・処理命令・文書型宣言は飛ばす（決定 0209）
     XmlRoot {
-        /// 接頭辞を除いた名前
+        /// 接頭辞を除いた名前。入力の文字コードによらず UTF-8
         name: &'static [u8],
-        /// 名前空間の名前（URI）
+        /// 名前空間の名前（URI）。入力の文字コードによらず UTF-8
         namespace: Option<&'static [u8]>,
     },
     /// ISO 10303-21 の交換構造で、ヘッダーの `FILE_SCHEMA` の最初のスキーマの名前が、ASCII の大文字と小文字を

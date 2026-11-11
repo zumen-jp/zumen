@@ -3,6 +3,29 @@
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, codes};
 use zumen_photo::{Photo, read};
 
+#[test]
+fn shift_jis_xmp_property_names_are_decoded() {
+    let text = "<?xml version='1.0' encoding='Shift_JIS'?><x:xmpmeta xmlns:x='adobe:ns:meta/'><rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'><rdf:Description xmlns:ソ='urn:test' ソ:ゼー='value'><ソ:ゾ>text</ソ:ゾ></rdf:Description></rdf:RDF></x:xmpmeta>";
+    let (encoded, _, error) = encoding_rs::SHIFT_JIS.encode(text);
+    assert!(!error);
+    let mut packet = b"http://ns.adobe.com/xap/1.0/\0".to_vec();
+    packet.extend_from_slice(&encoded);
+    let mut src = jpeg(true);
+    src.splice(2..2, segment(0xe1, &packet));
+    let (photo, diag) = with_cx(|cx| read(&src, cx));
+    assert!(diag.is_empty(), "{diag:?}");
+    let photo = photo.unwrap();
+    assert_eq!(
+        photo
+            .xmp
+            .iter()
+            .filter(|p| p.namespace == "urn:test")
+            .map(|p| (p.name.as_str(), p.value.as_str()))
+            .collect::<Vec<_>>(),
+        [("ゼー", "value"), ("ゾ", "text")]
+    );
+}
+
 /// IFD の項目の値
 #[cfg(test)]
 enum V {

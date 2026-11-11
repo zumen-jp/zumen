@@ -75,6 +75,8 @@ J-LandXML（LandXML 1.2 に準じた 3 次元設計データ交換標準、台�
 
 UTF-16 は自作の XML と J-LandXML で、原本範囲・未変更の書き出し・線形と一定の片勾配・診断と予算を検査します。[独立検査](../../xtask/verify/xml/README.md)で、ネイティブと WASI の公開値を比較します。Expat との比較は XML の値と要素の位置だけで、J-LandXML の領域モデルの外部照合には含めません。
 
+自作の Shift_JIS で、日本語の未知の要素名を診断に返し、原本・診断の範囲・既存の線形の ID を保つことを検査します。原本の `RecordInfo.kind` は復号しません。この確認は `synthetic` です。
+
 | 形式 | 向き | 段 |
 | --- | --- | --- |
 | `landxml` | 読み | `synthetic` |
