@@ -7,6 +7,7 @@ import { testHit } from "./hit.mjs";
 import { testStrokeSat, testStrokeTolerance } from "./stroke-sat.mjs";
 import { testRasterClipping } from "./raster.mjs";
 import { testLargeStrokes } from "./large-strokes.mjs";
+import { testButtEnds } from "./butt-ends.mjs";
 import { testSnap } from "./snap.mjs";
 import { testTools } from "./tools.mjs";
 import { testUnderlays } from "./underlays.mjs";
@@ -23,6 +24,7 @@ export async function testView2D(wasmPath, inputs) {
   const strokeTolerance = testStrokeTolerance(assert);
   testRasterClipping(assert);
   testLargeStrokes(assert);
+  const buttEnds = testButtEnds(assert);
   testSnap({ assert, near });
   testTools({ assert, near, throws });
   await testUnderlays({ assert, near, throws });
@@ -196,5 +198,5 @@ export async function testView2D(wasmPath, inputs) {
   viewer.destroy(); viewer.destroy();
   assert(ctx.getImageData(0, 0, 1, 1).data[3] === 0, "破棄で画面を消す");
   throws(() => viewer.render(), "破棄後の描画"); throws(() => viewer.setScene(input), "破棄後の差し替え");
-  return { assertions, formats, largeStrokeRaster, strokeSat, strokeTolerance };
+  return { assertions, formats, largeStrokeRaster, strokeSat, strokeTolerance, buttEnds };
 }

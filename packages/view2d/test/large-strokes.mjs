@@ -25,9 +25,8 @@ export function testLargeStrokes(assert) {
       paths: [[[[-100, 80], [300, 80]], [[-100, 120], [300, 120]]]], hit: [100, 80], gap: [100, 100] },
     { name: "コアが作った dash の隙間", data: { ...source([-2e9, 0, -2, 0, 2, 0, 2e9, 0]), line_vertices: [0, 2], line_units: [0, 0] },
       paths: [[[[-100, 100], [98, 100]]], [[[102, 100], [300, 100]]]], hit: [90, 100], gap: [100, 100] },
-    // #827 の極大 butt の選択は未解消。ここでは描画が元の隙間を埋めないことを独立に検査する。
-    { name: "極大 dash の描画の隙間（選択は #827）", data: { ...source([-huge, 0, -2, 0, 2, 0, huge, 0]), line_vertices: [0, 2], line_units: [0, 0] },
-      paths: [[[[-100, 100], [98, 100]]], [[[102, 100], [300, 100]]]], hit: [90, 100], gap: [100, 100], unresolvedGap: true },
+    { name: "極大 dash の butt の隙間", data: { ...source([-huge, 0, -2, 0, 2, 0, huge, 0]), line_vertices: [0, 2], line_units: [0, 0] },
+      paths: [[[[-100, 100], [98, 100]]], [[[102, 100], [300, 100]]]], hit: [90, 100], gap: [100, 100] },
   ];
   for (const mark of [V.point_mark.plus, V.point_mark.cross, V.point_mark.tick]) {
     const data = source([]); delete data.line_vertices; delete data.line_units; delete data.line_xy;
@@ -94,7 +93,10 @@ export function testLargeStrokes(assert) {
       if (item.gap) {
         const gapPixel = pixel(...item.gap), gapHits = viewer.hitTest({ x: item.gap[0], y: item.gap[1] }, 0).length;
         assert(gapPixel === 255, `${item.name}: 描画は元の隙間をつながない: pixel=${gapPixel}`);
-        if (!item.unresolvedGap) assert(gapHits === 0, `${item.name}: 隙間を選択しない: hits=${gapHits}`);
+        assert(gapHits === 0, `${item.name}: 隙間を選択しない: hits=${gapHits}`);
+        const [x, y] = item.gap;
+        assert(viewer.hitTestRect({ min_x: x, min_y: y, max_x: x, max_y: y }).length === 0,
+          `${item.name}: 点に縮んだ矩形でも隙間を選択しない`);
       }
     } finally { viewer.destroy(); }
   }
