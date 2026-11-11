@@ -1,6 +1,6 @@
 import { SCENE_NONE, SCENE_VALUES as V } from "@zumen-jp/zumen";
 import { end, rows } from "./validate.js";
-import { clipSegment, inside } from "./raster.js";
+import { clipRing, clipSegment, inside } from "./raster.js";
 
 const decoder = new TextDecoder();
 const noCharge = () => {};
@@ -139,6 +139,30 @@ class StrokePath extends Path {
   }
 }
 
+/** HTML の fill()/clip() の塗り規則と閉じた輪を保ち、描画だけを画面近傍へ切る。
+ * https://html.spec.whatwg.org/multipage/canvas.html#drawing-paths-to-the-canvas
+ * 原本の輪郭を使う選択には使わない。
+ */
+class FillPath extends Path {
+  constructor(charge, size) {
+    super(false, charge);
+    const margin = 2 / size.pixelRatio;
+    this.box = { min_x: -margin, min_y: -margin, max_x: size.width + margin, max_y: size.height + margin };
+  }
+  move(p) { this.flush(); this.points = [p]; this.addPoint(p); }
+  line(p) { this.points.push(p); this.addPoint(p); }
+  close() { this.flush(); }
+  flush() {
+    if (!this.points) return;
+    // 一度に一輪だけ持つ。4回の半平面検査は元頂点ごとの固定上限の作業。
+    // 描画前の列・共有字形・clip の使用回数の上限で、この一時確保も制限する。
+    const points = clipRing(this.points, this.box);
+    for (let i = 0; i < points.length; i++) this.path[i ? "lineTo" : "moveTo"](points[i].x, points[i].y);
+    if (points.length) this.path.closePath();
+    this.points = null;
+  }
+}
+
 const equal = (a, b) => a.x === b.x && a.y === b.y;
 
 function vertices(path, xy, start, finish, at, close) {
@@ -161,7 +185,7 @@ export function* clipParts(c, unit, view, size, collect = false, charge = noChar
   const at = (x, y) => project(view, size.width, size.height, x, y);
   for (let p = c.clip_polygons[clip]; p < end(c.clip_polygons, clip, c.polygon_vertices.length); p++) {
     charge(1);
-    const path = new Path(collect, charge);
+    const path = collect ? new Path(true, charge) : new FillPath(charge, size);
     if (c.polygon_flags[p] === 1) path.rectangle(0, 0, size.width, size.height);
     vertices(path, c.clip_xy, c.polygon_vertices[p], end(c.polygon_vertices, p, rows(c, "clip_xy")), at, true);
     yield path.finish("evenodd");
@@ -214,7 +238,7 @@ export function* primitiveParts(ctx, c, kind, i, chunk, settings, view, size, co
     vertices(path, c.line_xy, c.line_vertices[i], end(c.line_vertices, i, rows(c, "line_xy")), at, false);
     yield path.finish(null, width);
   } else if (kind === "face") {
-    const path = new Path(collect, charge);
+    const path = collect ? new Path(true, charge) : new FillPath(charge, size);
     for (let r = c.face_rings[i]; r < end(c.face_rings, i, c.ring_vertices.length); r++) {
       charge(1); vertices(path, c.face_xy, c.ring_vertices[r], end(c.ring_vertices, r, rows(c, "face_xy")), at, true);
     }
@@ -224,7 +248,7 @@ export function* primitiveParts(ctx, c, kind, i, chunk, settings, view, size, co
     if (last === first) { yield fallbackText(ctx, c, i, settings, view, at, collect, charge); return; }
     for (let g = first; g < last; g++) {
       charge(1);
-      const shape = c.glyph_shapes[g], path = new Path(collect, charge);
+      const shape = c.glyph_shapes[g], path = collect ? new Path(true, charge) : new FillPath(charge, size);
       const glyphAt = (x, y) => at(c.glyph_axes[g * 4] * x + c.glyph_axes[g * 4 + 2] * y + c.glyph_xy[g * 2],
         c.glyph_axes[g * 4 + 1] * x + c.glyph_axes[g * 4 + 3] * y + c.glyph_xy[g * 2 + 1]);
       for (let r = c.shape_rings[shape]; r < end(c.shape_rings, shape, c.outline_vertices.length); r++) {
