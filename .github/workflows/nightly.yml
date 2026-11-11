@@ -193,6 +193,10 @@ jobs:
         run: ZUMEN_IFC_EXTRUSIONS_OUT="$RUNNER_TEMP/extrusions" cargo test --locked -p zumen-ifc --all-features --test extrusions writes_extrusions_for_other_readers
       - name: 未適用の押し出し・断面・外輪を IfcOpenShell の元属性と照らす
         run: python -I crates/zumen-ifc/tests/ifcopenshell/extrusions.py "$RUNNER_TEMP/extrusions"
+      - name: 代表要素から取得した矩形・円・任意断面の値を書く
+        run: ZUMEN_IFC_PROFILES_OUT="$RUNNER_TEMP/profiles" cargo test --locked -p zumen-ifc --all-features --test profiles writes_profiles_for_other_readers
+      - name: 断面の元寸法・配置と押し出しを IfcOpenShell の元属性と照らす
+        run: python -I crates/zumen-ifc/tests/ifcopenshell/profiles.py "$RUNNER_TEMP/profiles"
       - name: 形の葉に直接付いた面の表示の値を書く
         run: ZUMEN_IFC_STYLES_OUT="$RUNNER_TEMP/styles" cargo test --locked -p zumen-ifc --all-features --test styles writes_styles_for_other_readers
       - name: 面の色・透明度・反射の指定を IfcOpenShell の元属性と照らす
