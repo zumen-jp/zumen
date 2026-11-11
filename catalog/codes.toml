@@ -1208,6 +1208,23 @@ group-by = ["reason"]
 since = "0.3.0"
 status = "active"
 
+[codes."ifc.style.invalid"]
+description = "形の項目に直接付いた表示の参照・集合・値に不正があり、結果を返さなかった"
+severity = "error"
+params = { reason = "key" }
+group-by = ["reason"]
+since = "0.3.0"
+status = "active"
+
+[codes."ifc.style.unsupported"]
+description = "形の項目に直接付いた表示に、取得しない種類が含まれるため、結果を返さなかった"
+severity = "warning"
+fidelity = "dropped"
+params = { kind = "text" }
+group-by = ["kind"]
+since = "0.3.0"
+status = "active"
+
 [codes."ifc.extrusion.unsupported"]
 description = "押し出し・断面か境界の閉鎖を扱えないため、結果を返さなかった"
 severity = "warning"

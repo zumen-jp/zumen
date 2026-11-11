@@ -2531,6 +2531,28 @@ pub const IFC_SHAPE_UNSUPPORTED: Code = Code::new(
 pub const IFC_STATION_MISSING: Code =
     Code::new("ifc.station.missing", Severity::Info, None, &[], &[]);
 
+/// 形の項目に直接付いた表示の参照・集合・値に不正があり、結果を返さなかった
+///
+/// `ifc.style.invalid`（0.3.0 から）
+pub const IFC_STYLE_INVALID: Code = Code::new(
+    "ifc.style.invalid",
+    Severity::Error,
+    None,
+    &[Param::new("reason", ParamType::Key)],
+    &["reason"],
+);
+
+/// 形の項目に直接付いた表示に、取得しない種類が含まれるため、結果を返さなかった
+///
+/// `ifc.style.unsupported`（0.3.0 から）
+pub const IFC_STYLE_UNSUPPORTED: Code = Code::new(
+    "ifc.style.unsupported",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("kind", ParamType::Text)],
+    &["kind"],
+);
+
 /// 文字列のエスケープか UTF-8 が読めない所を、置き換えの文字にした
 ///
 /// `ifc.text.invalid`（0.2.0 から）
@@ -4962,6 +4984,8 @@ pub const ALL: &[Code] = &[
     IFC_SHAPE_MISSING,
     IFC_SHAPE_UNSUPPORTED,
     IFC_STATION_MISSING,
+    IFC_STYLE_INVALID,
+    IFC_STYLE_UNSUPPORTED,
     IFC_TEXT_INVALID,
     IFC_UNIT_MISSING,
     IFC_VERSION_UNSUPPORTED,
