@@ -1,0 +1,123 @@
+{
+  "description": "変換の見積もりは、文書と blob を登録せず、明細の上限だけを変えられる。同名で実変換でき、SXF の図面モデルを経る経路と R2004 DWG の共有 L1 の経路で、応答・診断・出力のバイト列をネイティブと wasm で照合する。",
+  "module": "drawing",
+  "steps": [
+    {
+      "push": {
+        "name": "input.sfc",
+        "text": "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('SCADEC level2 feature_mode'),'2;1');\nFILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));\nENDSEC;\nDATA;\n/*SXF3\n#10 = layer_feature(\\'L\\','1')\nSXF3*/\n/*SXF3\n#20 = line_feature('1','1','1','1','0.0','0.0','100.0','50.0')\nSXF3*/\n/*SXF3\n#30 = drawing_sheet_feature(\\'S\\','3','1','0','0')\nSXF3*/\nENDSEC;\nEND-ISO-10303-21;\n"
+      }
+    },
+    {
+      "call": { "v": 1, "op": "open", "input": "input.sfc" },
+      "expect": { "/result/format": "sxf" }
+    },
+    {
+      "call": { "v": 1, "op": "convert_estimate", "doc": "input.sfc", "format": "dxf", "to": "out.dxf", "limit": 0 },
+      "expect": {
+        "/result/estimate/doc": "out.dxf",
+        "/result/estimate/format": "dxf",
+        "/result/estimate/elements": 1,
+        "/result/estimate/details": [],
+        "/result/estimate/truncated": true,
+        "/diagnostics": [],
+        "/blobs": []
+      },
+      "absent": ["/result/doc"]
+    },
+    {
+      "call": { "v": 1, "op": "drawing", "doc": "out.dxf" },
+      "status": "failed",
+      "expect": { "/diagnostics/0/code": "call.document.missing", "/blobs": [] }
+    },
+    {
+      "call": { "v": 1, "op": "convert_estimate", "doc": "input.sfc", "format": "dxf", "to": "out.dxf", "limit": 1 },
+      "expect": { "/result/estimate/elements": 1, "/result/estimate/truncated": true, "/blobs": [] },
+      "absent": ["/result/estimate/details/1"]
+    },
+    {
+      "call": { "v": 1, "op": "convert", "doc": "input.sfc", "format": "dxf", "to": "out.dxf" },
+      "expect": { "/result/doc": "out.dxf", "/result/elements": 1, "/diagnostics": [], "/blobs/0/kind": "file" }
+    },
+    { "take": 0 },
+    {
+      "call": { "v": 1, "op": "convert_estimate", "doc": "input.sfc", "format": "dxf", "to": "out.dxf" },
+      "status": "failed",
+      "expect": { "/diagnostics/0/code": "call.document.exists", "/blobs": [] }
+    },
+    {
+      "call": { "v": 1, "op": "convert_estimate", "doc": "input.sfc", "format": "sxf", "to": "out.sfc" },
+      "status": "failed",
+      "expect": { "/diagnostics/0/code": "convert.format.unsupported", "/blobs": [] }
+    },
+    {
+      "call": { "v": 1, "op": "convert_estimate", "doc": "input.sfc", "format": "dxf", "to": "retry.dxf", "budget": { "work": 1 } },
+      "status": "failed",
+      "expect": { "/diagnostics/0/code": "budget.work.exceeded", "/blobs": [] },
+      "absent": ["/result"]
+    },
+    {
+      "call": { "v": 1, "op": "convert_estimate", "doc": "input.sfc", "format": "dxf", "to": "retry.dxf", "limit": 0 },
+      "expect": { "/result/estimate/elements": 1, "/blobs": [] }
+    },
+    {
+      "push": { "name": "input.dwg", "file": "samples/dwg/zumen-arcdim-r2004.dwg" }
+    },
+    {
+      "call": { "v": 1, "op": "open", "input": "input.dwg" },
+      "expect": { "/result/format": "dwg" }
+    },
+    {
+      "call": { "v": 1, "op": "convert_estimate", "doc": "input.dwg", "format": "dxf", "to": "arcdim.dxf", "limit": 0, "max_places": 1 },
+      "expect": {
+        "/result/estimate/elements": 79,
+        "/result/estimate/details": [],
+        "/result/estimate/truncated": true,
+        "/diagnostics/0/code": "dwg.dxf-reference.dropped",
+        "/diagnostics/0/count": 12,
+        "/diagnostics/1/code": "dwg.dxf-reference.dropped",
+        "/diagnostics/1/count": 12,
+        "/blobs": []
+      }
+    },
+    {
+      "call": { "v": 1, "op": "convert", "doc": "input.dwg", "format": "dxf", "to": "arcdim.dxf", "max_places": 1 },
+      "expect": { "/result/elements": 79, "/diagnostics/0/count": 12, "/diagnostics/1/count": 12, "/blobs/0/kind": "file" }
+    },
+    { "take": 0 },
+    {
+      "call": { "v": 1, "op": "entities", "doc": "input.dwg", "limit": 2 },
+      "expect": { "/result/items/0/id": "space/0/h2D9", "/result/items/1/id": "space/0/h2DA", "/result/items/1/kind": "dimension" }
+    },
+    {
+      "call": { "v": 1, "op": "entities", "doc": "arcdim.dxf", "limit": 2 },
+      "expect": { "/result/items/0/id": "space/0/h2D9", "/result/items/1/id": "space/0/h2DA", "/result/items/1/kind": "dimension" }
+    },
+    {
+      "push": {
+        "name": "spline.dxf",
+        "text": "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1021\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nLAYER\n70\n1\n0\nLAYER\n2\n0\n70\n0\n62\n7\n6\nCONTINUOUS\n0\nENDTAB\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nSPLINE\n5\nA\n8\n0\n70\n1160\n71\n3\n72\n0\n73\n0\n74\n3\n44\n0.25\n11\n0\n21\n0\n31\n0\n11\n10\n21\n3\n31\n0\n11\n20\n21\n0\n31\n0\n0\nENDSEC\n0\nEOF\n"
+      }
+    },
+    {
+      "call": { "v": 1, "op": "open", "input": "spline.dxf" },
+      "expect": { "/result/format": "dxf" }
+    },
+    {
+      "call": { "v": 1, "op": "convert_estimate", "doc": "spline.dxf", "format": "dxf", "to": "spline-out.dxf", "limit": 1000 },
+      "expect": {
+        "/result/estimate/elements": 1,
+        "/result/estimate/counts/0/kind": "curve",
+        "/result/estimate/counts/0/fidelity": "drawn",
+        "/result/estimate/counts/0/count": 1,
+        "/result/estimate/counts/0/output_elements": 1,
+        "/blobs": []
+      }
+    },
+    {
+      "call": { "v": 1, "op": "convert", "doc": "spline.dxf", "format": "dxf", "to": "spline-out.dxf" },
+      "expect": { "/result/elements": 1, "/blobs/0/kind": "file" }
+    },
+    { "take": 0 }
+  ]
+}

@@ -27,6 +27,8 @@ pub enum Request {
     Apply(ApplyRequest),
     /// 開いた文書から別の形式のファイルを作り、新しい文書として開く。対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから書く（決定 0139・0206・0281）。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。今は DXF にだけ書ける。マイナーバージョン 41 から
     Convert(ConvertRequest),
+    /// 開いた図面を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。今は DXF への変換だけ。マイナーバージョン 66 から
+    ConvertEstimate(ConvertEstimateRequest),
     /// 開いた文書を図面モデル（L2）に変換し、レイヤと線種の表の項目を返す（決定 0156）。マイナーバージョン 8 から
     Tables(TablesRequest),
     /// 開いた文書を図面モデル（L2）に変換し、起点から配置をたどって、2D のシーンを blob で返す（決定 0172）。シーンの配置は schema/scene.toml にある。マイナーバージョン 33 から
@@ -88,6 +90,7 @@ impl Request {
         "entities",
         "apply",
         "convert",
+        "convert_estimate",
         "tables",
         "scene",
         "check",
@@ -125,6 +128,7 @@ impl Request {
             Self::Entities(_) => "entities",
             Self::Apply(_) => "apply",
             Self::Convert(_) => "convert",
+            Self::ConvertEstimate(_) => "convert_estimate",
             Self::Tables(_) => "tables",
             Self::Scene(_) => "scene",
             Self::Check(_) => "check",
@@ -165,6 +169,9 @@ impl FromJson for Request {
             "entities" => Self::Entities(EntitiesRequest::read_fields(&mut object)?),
             "apply" => Self::Apply(ApplyRequest::read_fields(&mut object)?),
             "convert" => Self::Convert(ConvertRequest::read_fields(&mut object)?),
+            "convert_estimate" => {
+                Self::ConvertEstimate(ConvertEstimateRequest::read_fields(&mut object)?)
+            }
             "tables" => Self::Tables(TablesRequest::read_fields(&mut object)?),
             "scene" => Self::Scene(SceneRequest::read_fields(&mut object)?),
             "check" => Self::Check(CheckRequest::read_fields(&mut object)?),
@@ -215,6 +222,7 @@ impl ToJson for Request {
             Self::Entities(value) => value.to_json(out),
             Self::Apply(value) => value.to_json(out),
             Self::Convert(value) => value.to_json(out),
+            Self::ConvertEstimate(value) => value.to_json(out),
             Self::Tables(value) => value.to_json(out),
             Self::Scene(value) => value.to_json(out),
             Self::Check(value) => value.to_json(out),
@@ -3952,6 +3960,384 @@ impl ToJson for ConvertResult {
         out.begin_object();
         self.write_fields(out);
         out.end_object();
+    }
+}
+
+/// 開いた図面を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。今は DXF への変換だけ。マイナーバージョン 66 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct ConvertEstimateRequest {
+    /// `request_common` のフィールド
+    pub request_common: RequestCommon,
+    /// 書く元の文書の名前
+    pub doc: String,
+    /// 書く形式の名前。今は dxf だけ
+    pub format: String,
+    /// 予定する文書の名前。convert と同じ条件で検査するが、名前を確保しない
+    pub to: String,
+    /// 返す明細の最大件数。省略時は 100。総数と種類・忠実度ごとの集計はこの上限によらない
+    pub limit: Option<u64>,
+}
+
+impl ConvertEstimateRequest {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let request_common = RequestCommon::read_fields(object)?;
+        object.constant("op", "convert_estimate")?;
+        let doc = object.required("doc", json::string)?;
+        let format = object.required("format", json::string)?;
+        let to = object.required("to", json::string)?;
+        let limit = object.optional("limit", |value| json::uint(value, 0, 1000))?;
+        Ok(Self {
+            request_common,
+            doc,
+            format,
+            to,
+            limit,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        self.request_common.write_fields(out);
+        out.key("op");
+        out.string("convert_estimate");
+        out.key("doc");
+        out.string(&self.doc);
+        out.key("format");
+        out.string(&self.format);
+        out.key("to");
+        out.string(&self.to);
+        if let Some(value) = &self.limit {
+            out.key("limit");
+            out.uint(*value);
+        }
+    }
+}
+
+impl FromJson for ConvertEstimateRequest {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for ConvertEstimateRequest {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 予定する変換の結果。元の文書・ID を保ち、ファイルの blob を返さない
+#[derive(Clone, Debug, PartialEq)]
+pub struct ConvertEstimateResult {
+    /// 予定する出力と忠実度の全件集計・上限付き明細
+    pub estimate: ConversionEstimate,
+}
+
+impl ConvertEstimateResult {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let estimate = object.required("estimate", ConversionEstimate::from_json)?;
+        Ok(Self { estimate })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("estimate");
+        self.estimate.to_json(out);
+    }
+}
+
+impl FromJson for ConvertEstimateResult {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for ConvertEstimateResult {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 実変換と同じ処理で準備した出力。doc と hash は未登録の予定値。元の入力・設定・予算が同じなら convert の値と一致する
+#[derive(Clone, Debug, PartialEq)]
+pub struct ConversionEstimate {
+    /// 予定する文書の名前
+    pub doc: String,
+    /// 予定する形式の名前
+    pub format: String,
+    /// 予定する出力バイト列のハッシュ。未登録なので apply の前提条件には使えない
+    pub hash: String,
+    /// 予定する出力の要素数。記号から離す属性の文字を含む
+    pub elements: u64,
+    /// 処理対象の出現数。同じ出所を持つ別の入力は別々に数え、診断の数では増やさない
+    pub total: u64,
+    /// 種類と忠実度ごとの全件集計
+    pub counts: Vec<ConversionCount>,
+    /// 処理順の明細。limit 件まで返す
+    pub details: Vec<ConversionDetail>,
+    /// 明細の上限で返さなかった対象がある
+    pub truncated: bool,
+}
+
+impl ConversionEstimate {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let doc = object.required("doc", json::string)?;
+        let format = object.required("format", json::string)?;
+        let hash = object.required("hash", json::string)?;
+        let elements =
+            object.required("elements", |value| json::uint(value, 0, 9007199254740991))?;
+        let total = object.required("total", |value| json::uint(value, 0, 9007199254740991))?;
+        let counts = object.required("counts", |value| {
+            json::array(value, ConversionCount::from_json)
+        })?;
+        let details = object.required("details", |value| {
+            json::array(value, ConversionDetail::from_json)
+        })?;
+        let truncated = object.required("truncated", json::boolean)?;
+        Ok(Self {
+            doc,
+            format,
+            hash,
+            elements,
+            total,
+            counts,
+            details,
+            truncated,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("doc");
+        out.string(&self.doc);
+        out.key("format");
+        out.string(&self.format);
+        out.key("hash");
+        out.string(&self.hash);
+        out.key("elements");
+        out.uint(self.elements);
+        out.key("total");
+        out.uint(self.total);
+        out.key("counts");
+        out.array(&self.counts, |out, item| item.to_json(out));
+        out.key("details");
+        out.array(&self.details, |out, item| item.to_json(out));
+        out.key("truncated");
+        out.bool(self.truncated);
+    }
+}
+
+impl FromJson for ConversionEstimate {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for ConversionEstimate {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 処理対象の種類と忠実度ごとの集計
+#[derive(Clone, Debug, PartialEq)]
+pub struct ConversionCount {
+    /// 処理対象の種類のキー
+    pub kind: String,
+    /// その対象を移した結果の忠実度
+    pub fidelity: ConversionFidelity,
+    /// 入力の出現数。1 つの入力が複数の出力になっても 1 件
+    pub count: u64,
+    /// この対象から書いた図形の数。表や参照だけを移した場合は 0
+    pub output_elements: u64,
+}
+
+impl ConversionCount {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let kind = object.required("kind", json::string)?;
+        let fidelity = object.required("fidelity", ConversionFidelity::from_json)?;
+        let count = object.required("count", |value| json::uint(value, 0, 9007199254740991))?;
+        let output_elements = object.required("output_elements", |value| {
+            json::uint(value, 0, 9007199254740991)
+        })?;
+        Ok(Self {
+            kind,
+            fidelity,
+            count,
+            output_elements,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        out.string(&self.kind);
+        out.key("fidelity");
+        self.fidelity.to_json(out);
+        out.key("count");
+        out.uint(self.count);
+        out.key("output_elements");
+        out.uint(self.output_elements);
+    }
+}
+
+impl FromJson for ConversionCount {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for ConversionCount {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 処理対象の出現 1 つ。複数の欠落の診断が出ても 1 件として数える
+#[derive(Clone, Debug, PartialEq)]
+pub struct ConversionDetail {
+    /// 処理対象の種類のキー
+    pub kind: String,
+    /// その対象を移した結果の忠実度
+    pub fidelity: ConversionFidelity,
+    /// 値や参照を変えた理由のキー。text_height_meaning は文字高の意味、relocated_shape は形の値、style_default はスタイルの既定値、detached_attribute は属性の文字への分離、baked_view はビューの焼き込み、reference_dropped は参照の欠落
+    pub reasons: Vec<String>,
+    /// 元の要素の ID。持つ対象だけで返す
+    pub id: Option<String>,
+    /// 元の対象のレコード・バイト範囲・キー
+    pub source: Source,
+    /// この対象から書いた図形の数。表や参照だけを移した場合は 0
+    pub output_elements: u64,
+}
+
+impl ConversionDetail {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let kind = object.required("kind", json::string)?;
+        let fidelity = object.required("fidelity", ConversionFidelity::from_json)?;
+        let reasons = object.required("reasons", |value| json::array(value, json::string))?;
+        let id = object.optional("id", json::string)?;
+        let source = object.required("source", Source::from_json)?;
+        let output_elements = object.required("output_elements", |value| {
+            json::uint(value, 0, 9007199254740991)
+        })?;
+        Ok(Self {
+            kind,
+            fidelity,
+            reasons,
+            id,
+            source,
+            output_elements,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        out.string(&self.kind);
+        out.key("fidelity");
+        self.fidelity.to_json(out);
+        out.key("reasons");
+        out.array(&self.reasons, |out, item| out.string(item));
+        if let Some(value) = &self.id {
+            out.key("id");
+            out.string(value);
+        }
+        out.key("source");
+        self.source.to_json(out);
+        out.key("output_elements");
+        out.uint(self.output_elements);
+    }
+}
+
+impl FromJson for ConversionDetail {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for ConversionDetail {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 忠実度。`native` は元の値・参照を保持、`equivalent` は別の表現で同じ意味、`approximated` は近似、`drawn` は見た目だけ、`dropped` は欠落
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ConversionFidelity {
+    /// `native`
+    Native,
+    /// `equivalent`
+    Equivalent,
+    /// `approximated`
+    Approximated,
+    /// `drawn`
+    Drawn,
+    /// `dropped`
+    Dropped,
+}
+
+impl ConversionFidelity {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[
+        Self::Native,
+        Self::Equivalent,
+        Self::Approximated,
+        Self::Drawn,
+        Self::Dropped,
+    ];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Native => "native",
+            Self::Equivalent => "equivalent",
+            Self::Approximated => "approximated",
+            Self::Drawn => "drawn",
+            Self::Dropped => "dropped",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "native" => Some(Self::Native),
+            "equivalent" => Some(Self::Equivalent),
+            "approximated" => Some(Self::Approximated),
+            "drawn" => Some(Self::Drawn),
+            "dropped" => Some(Self::Dropped),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for ConversionFidelity {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for ConversionFidelity {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
     }
 }
 

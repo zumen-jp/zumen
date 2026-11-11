@@ -8,7 +8,7 @@ export const ABI_VERSION = 1;
 /** メッセージのスキーマのメジャーバージョン（要求と応答の v） */
 export const SCHEMA_MAJOR = 1;
 /** メッセージのスキーマのマイナーバージョン */
-export const SCHEMA_MINOR = 65;
+export const SCHEMA_MINOR = 66;
 
 /** 状態コードの名前。値から引く */
 export const STATUS = Object.freeze({
@@ -39,7 +39,7 @@ export const MODULES = Object.freeze({
   drawing: Object.freeze({
     description: "図面（DXF・DWG・SXF・JWW と、図面モデルのバイナリ）と、図面のレビュー。土木の線形（J-LandXML）と、線形から作る図。電子納品の成果品・工事写真・表・ボーリング交換用データ",
     formats: Object.freeze(["dxf", "dwg", "sxf", "jww", "landxml", "drawing"]),
-    ops: Object.freeze(["capabilities", "open", "close", "describe", "drawing", "entities", "apply", "convert", "tables", "scene", "check", "review_carry", "review_adopt", "civil", "civil_drawing", "delivery_check", "photo", "sheet", "boring", "lift", "render"]),
+    ops: Object.freeze(["capabilities", "open", "close", "describe", "drawing", "entities", "apply", "convert", "convert_estimate", "tables", "scene", "check", "review_carry", "review_adopt", "civil", "civil_drawing", "delivery_check", "photo", "sheet", "boring", "lift", "render"]),
   }),
   bim: Object.freeze({
     description: "IFC と建物モデル、EXPRESS・IDS の照合と BCF。IFC4.3 の線形の上の所（決定 0253）",

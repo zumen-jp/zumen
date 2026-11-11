@@ -827,11 +827,19 @@ def run_convert(z, out, entry, data, baseline, layer=None):
         if status != "ok":
             return {**record, "status": status, "diagnostics": response["diagnostics"]}
         z.take(response["blobs"][0]["id"])
+    estimate_status, estimate = z.call(
+        {"op": "convert_estimate", "doc": source, "format": "dxf", "to": target, "limit": 0}
+    )
+    assert estimate["blobs"] == [], "見積もりがファイルを配った"
     status, response = z.call({"op": "convert", "doc": source, "format": "dxf", "to": target})
+    assert estimate_status == status, "見積もりと実変換の状態が違う"
+    assert estimate["diagnostics"] == response["diagnostics"], "見積もりと実変換の診断が違う"
     record["status"] = status
     record["diagnostics"] = response["diagnostics"]
     if status != "ok":
         return record
+    for field in ("doc", "format", "hash", "elements"):
+        assert estimate["result"]["estimate"][field] == response["result"][field], f"見積もりと実変換の {field} が違う"
     record["elements"] = response["result"]["elements"]
     data = z.take(response["blobs"][0]["id"])
     (out / target).parent.mkdir(parents=True, exist_ok=True)

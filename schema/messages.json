@@ -15,6 +15,7 @@
         { "$ref": "#/$defs/entities_request" },
         { "$ref": "#/$defs/apply_request" },
         { "$ref": "#/$defs/convert_request" },
+        { "$ref": "#/$defs/convert_estimate_request" },
         { "$ref": "#/$defs/tables_request" },
         { "$ref": "#/$defs/scene_request" },
         { "$ref": "#/$defs/check_request" },
@@ -883,6 +884,76 @@
       },
       "required": ["doc", "format", "hash", "elements"],
       "additionalProperties": false
+    },
+    "convert_estimate_request": {
+      "description": "開いた図面を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。今は DXF への変換だけ。マイナーバージョン 66 から",
+      "type": "object",
+      "allOf": [{ "$ref": "#/$defs/request_common" }],
+      "properties": {
+        "op": { "description": "op の名前", "const": "convert_estimate" },
+        "doc": { "description": "書く元の文書の名前", "type": "string" },
+        "format": { "description": "書く形式の名前。今は dxf だけ", "type": "string" },
+        "to": { "description": "予定する文書の名前。convert と同じ条件で検査するが、名前を確保しない", "type": "string" },
+        "limit": { "description": "返す明細の最大件数。省略時は 100。総数と種類・忠実度ごとの集計はこの上限によらない", "type": "integer", "minimum": 0, "maximum": 1000 }
+      },
+      "required": ["op", "doc", "format", "to"],
+      "unevaluatedProperties": false
+    },
+    "convert_estimate_result": {
+      "description": "予定する変換の結果。元の文書・ID を保ち、ファイルの blob を返さない",
+      "type": "object",
+      "properties": {
+        "estimate": { "description": "予定する出力と忠実度の全件集計・上限付き明細", "$ref": "#/$defs/conversion_estimate" }
+      },
+      "required": ["estimate"],
+      "additionalProperties": false
+    },
+    "conversion_estimate": {
+      "description": "実変換と同じ処理で準備した出力。doc と hash は未登録の予定値。元の入力・設定・予算が同じなら convert の値と一致する",
+      "type": "object",
+      "properties": {
+        "doc": { "description": "予定する文書の名前", "type": "string" },
+        "format": { "description": "予定する形式の名前", "type": "string" },
+        "hash": { "description": "予定する出力バイト列のハッシュ。未登録なので apply の前提条件には使えない", "type": "string" },
+        "elements": { "description": "予定する出力の要素数。記号から離す属性の文字を含む", "type": "integer", "minimum": 0 },
+        "total": { "description": "処理対象の出現数。同じ出所を持つ別の入力は別々に数え、診断の数では増やさない", "type": "integer", "minimum": 0 },
+        "counts": { "description": "種類と忠実度ごとの全件集計", "type": "array", "items": { "$ref": "#/$defs/conversion_count" } },
+        "details": { "description": "処理順の明細。limit 件まで返す", "type": "array", "items": { "$ref": "#/$defs/conversion_detail" } },
+        "truncated": { "description": "明細の上限で返さなかった対象がある", "type": "boolean" }
+      },
+      "required": ["doc", "format", "hash", "elements", "total", "counts", "details", "truncated"],
+      "additionalProperties": false
+    },
+    "conversion_count": {
+      "description": "処理対象の種類と忠実度ごとの集計",
+      "type": "object",
+      "properties": {
+        "kind": { "description": "処理対象の種類のキー", "type": "string" },
+        "fidelity": { "description": "その対象を移した結果の忠実度", "$ref": "#/$defs/conversion_fidelity" },
+        "count": { "description": "入力の出現数。1 つの入力が複数の出力になっても 1 件", "type": "integer", "minimum": 0 },
+        "output_elements": { "description": "この対象から書いた図形の数。表や参照だけを移した場合は 0", "type": "integer", "minimum": 0 }
+      },
+      "required": ["kind", "fidelity", "count", "output_elements"],
+      "additionalProperties": false
+    },
+    "conversion_detail": {
+      "description": "処理対象の出現 1 つ。複数の欠落の診断が出ても 1 件として数える",
+      "type": "object",
+      "properties": {
+        "kind": { "description": "処理対象の種類のキー", "type": "string" },
+        "fidelity": { "description": "その対象を移した結果の忠実度", "$ref": "#/$defs/conversion_fidelity" },
+        "reasons": { "description": "値や参照を変えた理由のキー。text_height_meaning は文字高の意味、relocated_shape は形の値、style_default はスタイルの既定値、detached_attribute は属性の文字への分離、baked_view はビューの焼き込み、reference_dropped は参照の欠落", "type": "array", "items": { "type": "string" } },
+        "id": { "description": "元の要素の ID。持つ対象だけで返す", "type": "string" },
+        "source": { "description": "元の対象のレコード・バイト範囲・キー", "$ref": "#/$defs/source" },
+        "output_elements": { "description": "この対象から書いた図形の数。表や参照だけを移した場合は 0", "type": "integer", "minimum": 0 }
+      },
+      "required": ["kind", "fidelity", "reasons", "source", "output_elements"],
+      "additionalProperties": false
+    },
+    "conversion_fidelity": {
+      "description": "忠実度。`native` は元の値・参照を保持、`equivalent` は別の表現で同じ意味、`approximated` は近似、`drawn` は見た目だけ、`dropped` は欠落",
+      "type": "string",
+      "enum": ["native", "equivalent", "approximated", "drawn", "dropped"]
     },
     "applied": {
       "description": "当てた変更 1 つの結果",
