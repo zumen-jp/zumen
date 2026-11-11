@@ -16,6 +16,7 @@
 mod acad_table;
 mod annotation;
 mod apply;
+mod bake;
 mod block;
 mod extension;
 mod finite;
@@ -24,10 +25,12 @@ mod hatch;
 mod image;
 mod layout;
 mod lettering;
+mod lower;
 mod mtext;
 mod style;
 mod template;
 
+pub use lower::{Lowered, Relocate, Reseat, lower_to_dxf, lower_to_dxf_with};
 pub use template::NewDxfTemplate;
 
 use std::collections::{BTreeMap, BTreeSet};

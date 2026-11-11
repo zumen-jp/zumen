@@ -23,7 +23,6 @@
 pub mod abi;
 #[cfg(feature = "pointcloud")]
 mod asbuilt;
-mod bake;
 mod bcf;
 #[cfg(feature = "drawing")]
 mod boring;

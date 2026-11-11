@@ -1073,7 +1073,6 @@ dependencies = [
  "zumen-fgd",
  "zumen-geo",
  "zumen-geology",
- "zumen-geom2d",
  "zumen-geom3d",
  "zumen-ids",
  "zumen-ifc",
@@ -1102,7 +1101,11 @@ dependencies = [
  "encoding_rs",
  "libm",
  "zumen-base",
+ "zumen-civil",
+ "zumen-civil-drawing",
+ "zumen-crs",
  "zumen-drawing",
+ "zumen-geom2d",
  "zumen-sdk",
 ]
 
