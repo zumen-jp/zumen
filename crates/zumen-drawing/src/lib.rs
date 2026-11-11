@@ -37,6 +37,7 @@ mod hash;
 mod hatch;
 pub mod id;
 pub mod layout;
+mod palette;
 mod point;
 mod shape;
 mod space;
@@ -56,6 +57,7 @@ pub use hash::{Canon, Encode, Hash};
 pub use hatch::{
     Boundary, Fill, Gradient, Hatch, HatchLoop, Islands, Pattern, PatternLine, PatternOrigin,
 };
+pub use palette::Palette;
 pub use point::{MarkerKey, Point, PointLook, PointMark, PointSize, PointStyle};
 pub use shape::{Edge, Element, KnotParameterization, Polyline, Shape, Spline, Vertex};
 pub use space::{

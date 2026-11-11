@@ -4,8 +4,7 @@
 
 use core::ops::Range;
 
-use zumen_base::{Diagnostic, Kind, Ref, codes};
-use zumen_sdk::{Cx, Error};
+use zumen_base::{Cx, Diagnostic, Error, Kind, Ref, codes};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Order {

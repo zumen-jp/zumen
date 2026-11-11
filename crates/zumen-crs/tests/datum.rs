@@ -1,11 +1,10 @@
 //! 日本測地系と JGD2000 の座標を、合成の TKY2JGD・PatchJGD の格子で JGD2011 に直す（決定 0233、#471）。
 
-use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Kind, Limit, Limits, codes};
+use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Error, Kind, Limit, Limits, codes};
 use zumen_crs::{
     Crs, Ellipsoid, GeoPoint, MapPoint, ShiftGrid, Shifts, Zone, to_geographic_on, to_jgd2011,
     to_plane, to_plane_on,
 };
-use zumen_sdk::Error;
 
 #[cfg(test)]
 fn with_cx<T>(f: impl FnOnce(&mut Cx<'_>) -> T) -> (T, Vec<Code>) {

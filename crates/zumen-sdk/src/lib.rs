@@ -19,28 +19,9 @@ pub mod testkit;
 mod zip;
 
 pub use register::{Registration, Rights, detect};
-pub use zumen_base::{ByteRange, Cx, Stop};
+pub use zumen_base::{ByteRange, Cx, Error, Stop};
 
 use zumen_base::Diagnostics;
-
-/// 読み書きが失敗した理由。詳しいことは、診断として文脈に足してある
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Error {
-    /// 予算の上限か、中断の合図で止めた
-    Stopped(Stop),
-    /// 入力が壊れていて読めない
-    Invalid,
-    /// 形式は分かったが、このコーデックでは扱えない
-    Unsupported,
-    /// 変更が形式の規則に合わないので、何も反映しなかった
-    Rejected,
-}
-
-impl From<Stop> for Error {
-    fn from(stop: Stop) -> Self {
-        Error::Stopped(stop)
-    }
-}
 
 /// L1 から L2 の領域モデル `M` を作る（決定 0008・0022）。形式と領域の組ごとに 1 つ。
 ///

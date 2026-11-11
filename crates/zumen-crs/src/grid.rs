@@ -7,8 +7,7 @@
 //! 読むのは、ISG format 2.0 の、経緯度（`deg`・`dms`）の格子で、北から南へ行を、西から東へ列を並べ、値が m の
 //! もの。ほかの形（点の並び・投影の座標・フィートの値・ほかの並び）は扱わない。
 
-use zumen_base::{Cx, Diagnostic, Kind, Stop, codes};
-use zumen_sdk::Error;
+use zumen_base::{Cx, Diagnostic, Error, Kind, Stop, codes};
 
 use crate::GeoPoint;
 

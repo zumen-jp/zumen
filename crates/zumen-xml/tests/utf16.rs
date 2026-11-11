@@ -2,8 +2,7 @@
 
 #![cfg(test)]
 
-use zumen_base::{Budget, CancelToken, Diagnostics, Kind, Limit, Limits, Stop, codes};
-use zumen_sdk::{Cx, Error};
+use zumen_base::{Budget, CancelToken, Cx, Diagnostics, Error, Kind, Limit, Limits, Stop, codes};
 use zumen_xml::{Document, Encoding, Node};
 
 fn encode(value: &str, little: bool, bom: bool) -> Vec<u8> {

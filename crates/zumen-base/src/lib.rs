@@ -5,6 +5,7 @@
 //! - [`budget`]: 決まった作業量で数える予算（決定 0010）
 //! - [`cancel`]: 中断の合図（決定 0010）
 //! - [`cx`]: 予算・診断・中断の合図を運ぶ文脈（決定 0008）
+//! - [`error`]: 読み書きが失敗した理由。L0 の読み取りからコーデックまで同じ型で返す
 //! - [`name`]: 入力の名前の規則（決定 0010・0012）
 
 pub mod budget;
@@ -14,6 +15,7 @@ pub mod codes;
 pub mod crc;
 pub mod cx;
 pub mod diag;
+pub mod error;
 pub mod name;
 
 pub use budget::{Budget, Exceeded, Kind, Limit, Limits};
@@ -21,3 +23,4 @@ pub use cancel::CancelToken;
 pub use code::{Code, Fidelity, Param, ParamType, Severity};
 pub use cx::{Cx, Stop};
 pub use diag::{ByteRange, Diagnostic, Diagnostics, Key, Ref, SpecRef, Value};
+pub use error::Error;
