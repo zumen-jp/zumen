@@ -14,6 +14,10 @@ formats = ["dxf", "dwg"]
 zumen-base = { version = "0.2.0", path = "../zumen-base" }
 zumen-sdk = { version = "0.2.0", path = "../zumen-sdk" }
 zumen-drawing = { version = "0.2.0", path = "../zumen-drawing", optional = true }
+# 図面モデルから新しい DXF に書くとき（lower）、横と縦の尺度の違うビューの曲線を用紙の折れ線にする（決定 0238）。
+# 三角関数は環境によらない libm で求める（決定 0007）。どちらも依存を持たない寛容なライセンスの crate
+zumen-geom2d = { version = "0.2.0", path = "../zumen-geom2d", optional = true }
+libm = { version = "0.2.16", default-features = false, optional = true }
 # 2007 より前のバージョンの Shift_JIS（ANSI_932）の文字を戻し、書くときも同じ表で符号化する（新しい DXF のひな形の
 # 部品の名前など）。WHATWG の Shift_JIS で、環境によらない（決定 0175・0192、#509）
 encoding_rs = { version = "0.8.35", optional = true }
@@ -23,10 +27,14 @@ default = ["drawing"]
 # R2004 の同系統の再符号化では、L1 だけでも CP932 の名前を照合できる
 cp932 = ["dep:encoding_rs"]
 # DXF から図面モデル（L2）への変換。L1 だけを使うなら外せる
-drawing = ["dep:zumen-drawing", "cp932"]
+drawing = ["dep:zumen-drawing", "dep:zumen-geom2d", "dep:libm", "cp932"]
 
 [dev-dependencies]
 libm = { version = "0.2.16", default-features = false }
+# 土木の図面（平面図のビューポートと、焼き込む縦断図）を新しい DXF に書く試験
+zumen-civil = { path = "../zumen-civil" }
+zumen-civil-drawing = { path = "../zumen-civil-drawing" }
+zumen-crs = { path = "../zumen-crs" }
 zumen-drawing = { path = "../zumen-drawing" }
 
 [lints]
