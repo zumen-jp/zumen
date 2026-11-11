@@ -78,6 +78,9 @@ const SHIFT_EM: f64 = 0.05;
 /// hayro-interpret が字形の幅を合わせる伸縮だけが違う
 const SAME_SCALE: f64 = 1e-9;
 
+/// 非ゼロ回転数の単一輪について、単純さを確かめる辺の組の上限。超えた輪も未確認として診断する。
+const FILL_EDGE_PAIRS: u64 = 4096;
+
 /// 縦書きの字形の、横の原点から見た縦の原点（字形の空間の単位）。横の幅を 1,000、`DW2` を既定の [880 −1000] と
 /// みなす（9.7.4.3、推定）
 const VERTICAL_ORIGIN: Point = Point::new(500.0, 880.0);
@@ -224,6 +227,59 @@ impl Subpath {
                 .chain(self.segments.iter().flat_map(|segment| segment.points())),
         )
     }
+}
+
+/// 非隣接辺の外接矩形がすべて離れた直線の輪だけを、単純と確認する。曲線と、矩形が重なる辺は未確認にする。
+/// 位相を計算せず、形と ID を保ったまま塗り方の変更を診断するための保守的な確認。閉じる辺も数え、確保しない。
+fn single_fill_is_simple(subpath: &Subpath, mut spend: impl FnMut(u64) -> bool) -> Option<bool> {
+    if !spend(subpath.segments.len() as u64) {
+        return None;
+    }
+    if subpath.curved() {
+        return Some(false);
+    }
+    let count = subpath
+        .segments
+        .len()
+        .saturating_add(usize::from(subpath.end() != subpath.start));
+    let edge = |index: usize| {
+        let start = index
+            .checked_sub(1)
+            .and_then(|index| subpath.segments.get(index))
+            .map_or(subpath.start, |segment| segment.end());
+        let end = subpath
+            .segments
+            .get(index)
+            .map_or(subpath.start, |segment| segment.end());
+        Bounds::of([start, end])
+    };
+    let mut pairs = 0;
+    for first in 0..count {
+        let Some(a) = edge(first) else {
+            return Some(false);
+        };
+        for second in first + 1..count {
+            if pairs == FILL_EDGE_PAIRS {
+                return Some(false);
+            }
+            if !spend(1) {
+                return None;
+            }
+            pairs += 1;
+            // 隣接辺は共有する端点を許す。
+            if second == first + 1 || (first == 0 && second + 1 == count) {
+                continue;
+            }
+            let Some(b) = edge(second) else {
+                return Some(false);
+            };
+            if a.min.x <= b.max.x && b.min.x <= a.max.x && a.min.y <= b.max.y && b.min.y <= a.max.y
+            {
+                return Some(false);
+            }
+        }
+    }
+    Some(true)
 }
 
 /// 経路を部分経路に分ける。閉じた部分経路の後ろの線は、その始点から続く（8.5.2.1）。2 次の曲線は、同じ形の
@@ -797,10 +853,18 @@ impl<'c, 'x, 'd> Collector<'c, 'x, 'd> {
         let Some((color, transparency)) = self.paint(paint, &mut None) else {
             return;
         };
-        // 偶奇の規則は、輪の中の輪を交互に埋めるのと同じ。非ゼロ回転数の規則は、自分と交わらない輪が 1 つなら
-        // 同じになる（8.5.3.3。自分と交わる輪は見ない、推定）
-        if rule == FillRule::NonZero && parts.len() > 1 {
-            self.note_code(codes::PDF_FILL_RULE_APPROXIMATED);
+        // 偶奇の規則は、輪の中の輪を交互に埋めるのと同じ。非ゼロ回転数では、単純な単一輪と確認できたものだけを除く。
+        if rule == FillRule::NonZero {
+            let simple = if let [part] = parts.as_slice() {
+                single_fill_is_simple(part, |amount| self.spend(Kind::Work, amount))
+            } else {
+                Some(false)
+            };
+            match simple {
+                Some(true) => {}
+                Some(false) => self.note_code(codes::PDF_FILL_RULE_APPROXIMATED),
+                None => return,
+            }
         }
         let loops = parts
             .iter()
@@ -1532,6 +1596,61 @@ impl<'a> Device<'a> for Collector<'_, '_, '_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn checks_single_fill_without_unbounded_pairs_or_allocations() {
+        let part = |points: &[(f64, f64)]| Subpath {
+            start: Point::new(points[0].0, points[0].1),
+            segments: points[1..]
+                .iter()
+                .map(|&(x, y)| Segment::Line(Point::new(x, y)))
+                .collect(),
+            closed: false,
+        };
+        // 明示した閉じる辺も、暗黙の閉じる辺も同じように確かめる。
+        for points in [
+            vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)],
+            vec![
+                (0.0, 0.0),
+                (10.0, 0.0),
+                (10.0, 10.0),
+                (0.0, 10.0),
+                (0.0, 0.0),
+            ],
+        ] {
+            assert_eq!(single_fill_is_simple(&part(&points), |_| true), Some(true));
+        }
+        let square = part(&[(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)]);
+        let mut spent = 0;
+        assert_eq!(
+            single_fill_is_simple(&square, |amount| {
+                spent += amount;
+                spent <= 5
+            }),
+            None
+        );
+        assert_eq!(single_fill_is_simple(&square, |_| true), Some(true));
+        // 多すぎる辺は、4,096 組を超えて比較しない。
+        let long = Subpath {
+            start: Point::ZERO,
+            segments: (1..=5000)
+                .map(|x| Segment::Line(Point::new(f64::from(x), 0.0)))
+                .collect(),
+            closed: false,
+        };
+        let mut spent = 0;
+        assert_eq!(
+            single_fill_is_simple(&long, |amount| {
+                spent += amount;
+                true
+            }),
+            Some(false)
+        );
+        assert_eq!(spent, 9096);
+        // 単純な輪でも、非隣接辺の外接矩形が重なれば未確認にする。
+        let diamond = part(&[(0.0, 1.0), (1.0, 2.0), (2.0, 1.0), (1.0, 0.0)]);
+        assert_eq!(single_fill_is_simple(&diamond, |_| true), Some(false));
+    }
 
     #[test]
     fn names_lengths_in_millimeters() {

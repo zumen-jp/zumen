@@ -1984,7 +1984,7 @@ since = "0.2.0"
 status = "active"
 
 [codes."pdf.fill-rule.approximated"]
-description = "非ゼロ回転数の規則で塗った、輪が 2 つ以上の形を、輪の中の輪を交互に埋めるハッチングにした"
+description = "非ゼロ回転数の規則で塗った形を、同じ塗りになると確認できないまま、輪の中の輪を交互に埋めるハッチングにした"
 severity = "warning"
 fidelity = "approximated"
 since = "0.2.0"

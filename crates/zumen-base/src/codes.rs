@@ -2983,7 +2983,7 @@ pub const PDF_ENCRYPTION_UNSUPPORTED: Code = Code::new(
 /// `pdf.file.invalid`（0.2.0 から）
 pub const PDF_FILE_INVALID: Code = Code::new("pdf.file.invalid", Severity::Error, None, &[], &[]);
 
-/// 非ゼロ回転数の規則で塗った、輪が 2 つ以上の形を、輪の中の輪を交互に埋めるハッチングにした
+/// 非ゼロ回転数の規則で塗った形を、同じ塗りになると確認できないまま、輪の中の輪を交互に埋めるハッチングにした
 ///
 /// `pdf.fill-rule.approximated`（0.2.0 から）
 pub const PDF_FILL_RULE_APPROXIMATED: Code = Code::new(

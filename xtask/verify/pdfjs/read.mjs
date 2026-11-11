@@ -43,8 +43,10 @@ function subpaths(data) {
 
 function counts(operators, optional) {
   let paths = 0, images = 0;
+  const fill_rules = [];
   const visibility = [true];
   const fills = new Set([OPS.fill, OPS.eoFill, OPS.fillStroke, OPS.eoFillStroke, OPS.closeFillStroke, OPS.closeEOFillStroke]);
+  const evenOdd = new Set([OPS.eoFill, OPS.eoFillStroke, OPS.closeEOFillStroke]);
   const strokes = new Set([OPS.stroke, OPS.closeStroke, OPS.fillStroke, OPS.eoFillStroke, OPS.closeFillStroke, OPS.closeEOFillStroke]);
   const singles = new Set([OPS.paintImageXObject, OPS.paintInlineImageXObject, OPS.paintImageMaskXObject, OPS.paintSolidColorImageMask]);
   operators.fnArray.forEach((op, index) => {
@@ -58,7 +60,10 @@ function counts(operators, optional) {
     } else if (visibility.at(-1)) {
       if (op === OPS.constructPath) {
         const n = subpaths(args[1]?.[0] ?? []);
-        if (fills.has(args[0]) && n > 0) paths++;
+        if (fills.has(args[0]) && n > 0) {
+          paths++;
+          fill_rules.push(evenOdd.has(args[0]) ? "evenodd" : "nonzero");
+        }
         if (strokes.has(args[0])) paths += n;
       } else if (singles.has(op)) images++;
       else if (op === OPS.paintImageXObjectRepeat) images += args[3].length / 2;
@@ -67,7 +72,7 @@ function counts(operators, optional) {
       else if (op === OPS.paintImageMaskXObjectGroup) images += args[0].length;
     }
   });
-  return { paths, images };
+  return { paths, images, fill_rules };
 }
 
 try {

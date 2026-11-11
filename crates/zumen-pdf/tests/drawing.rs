@@ -182,11 +182,77 @@ fn moves_fills_to_hatches() {
     assert!(matches!(elements[3].shape, Shape::Hatch(_)));
     assert!(matches!(elements[4].shape, Shape::Polyline(_)));
     assert_eq!(rgb(&elements[3]), Some([0, 255, 0]));
-    // 非ゼロ回転数の規則で塗った 2 つの輪だけを診断する
+    // 複数の輪と、単純さを確認しない曲線の輪を診断する。
+    assert_eq!(
+        codes_of(&diag),
+        [(codes::PDF_FILL_RULE_APPROXIMATED.name(), 2)]
+    );
+}
+
+#[test]
+fn reports_unconfirmed_single_fill_without_changing_shapes_or_sources() {
+    let star = "50 90 m 74 10 l 10 58 l 90 58 l 26 10 l h";
+    let src = one_page(Page::new(&format!(
+        "{star} f {star} f* 120 10 40 40 re f \
+         120 80 m 160 80 l 160 120 l 140 120 l 140 100 l 120 100 l h f"
+    )));
+    let (drawing, diag) = lift(&src);
+    assert_eq!(elements(&drawing).len(), 4);
+    assert_eq!(elements(&drawing)[0].shape, elements(&drawing)[1].shape);
+    assert!(
+        elements(&drawing)
+            .iter()
+            .all(|e| matches!(e.shape, Shape::Hatch(_)))
+    );
     assert_eq!(
         codes_of(&diag),
         [(codes::PDF_FILL_RULE_APPROXIMATED.name(), 1)]
     );
+    let place = diag.first().unwrap().places().first().unwrap();
+    assert_eq!(place, &elements(&drawing)[0].source);
+    let (again, repeated) = lift(&src);
+    assert_eq!(drawing, again);
+    assert_eq!(codes_of(&diag), codes_of(&repeated));
+}
+
+#[test]
+fn single_fill_checks_stop_at_the_work_limit_and_allow_retry() {
+    use zumen_base::{Kind, Limit, Limits};
+
+    let src = one_page(Page::new(
+        "10 10 m 90 10 l 90 90 l 50 90 l 50 50 l 10 50 l h f",
+    ));
+    let file = testkit::read::<Pdf>(&src).0.unwrap();
+    let cancel = CancelToken::new();
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let expected = file
+        .lift(&mut Cx::new(&mut budget, &mut diag, &cancel))
+        .unwrap();
+    let work = budget.used(Kind::Work);
+    for limit in [work - 1, work] {
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(limit)));
+        let mut diag = Diagnostics::new();
+        let result = file.lift(&mut Cx::new(&mut budget, &mut diag, &cancel));
+        if limit == work {
+            assert_eq!(result.unwrap(), expected);
+        } else {
+            assert!(matches!(result, Err(Error::Stopped(_))), "{result:?}");
+            assert!(
+                diag.iter()
+                    .any(|diagnostic| diagnostic.code() == codes::BUDGET_WORK_EXCEEDED)
+            );
+        }
+    }
+    cancel.cancel();
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    assert!(matches!(
+        file.lift(&mut Cx::new(&mut budget, &mut diag, &cancel)),
+        Err(Error::Stopped(_))
+    ));
+    let (again, _) = lift(&src);
+    assert_eq!(again, expected);
 }
 
 #[test]

@@ -262,3 +262,27 @@ fn matches_pdfjs() {
         compare(name, &drawing, &diag, &read_external(&oracle, data));
     }
 }
+
+#[test]
+fn compares_single_loop_fill_rules_with_pdfjs() {
+    let Some(oracle) = oracle() else { return };
+    let star = "50 90 m 74 10 l 10 58 l 90 58 l 26 10 l h";
+    let data = common::one_page(Page::new(&format!("{star} f {star} f*")));
+    let external = read_external(&oracle, &data);
+    let page = &array(field(&external, "pages"))[0];
+    assert_eq!(
+        *field(page, "fill_rules"),
+        Value::Array(vec![
+            Value::String("nonzero".into()),
+            Value::String("evenodd".into())
+        ])
+    );
+    let (drawing, diag) = lift(&data);
+    assert_eq!(counts(&drawing), (2, 0, 0));
+    assert_eq!(
+        drawing.sheets[0].elements[0].shape,
+        drawing.sheets[0].elements[1].shape
+    );
+    assert_eq!(common::codes(&diag), [("pdf.fill-rule.approximated", 1)]);
+    // 元の規則が異なるのに、出力はどちらも Nested。描画が等価とは扱わない。
+}
