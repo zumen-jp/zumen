@@ -1149,6 +1149,14 @@ group-by = ["type"]
 since = "0.2.0"
 status = "active"
 
+[codes."ifc.unit.invalid"]
+description = "SI 単位の定義か次元を確認できないので、単位を採用しなかった"
+severity = "warning"
+params = { reason = "key" }
+group-by = ["reason"]
+since = "0.3.0"
+status = "active"
+
 [codes."ifc.attribute.invalid"]
 description = "意味を持つ位置の値が、期待した型でないので読まなかった"
 severity = "warning"
