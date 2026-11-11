@@ -29,6 +29,12 @@ for (const path of output.filter((path) => path.endsWith(".html") && path !== re
   assert.match(html, /<head>\s*<meta charset="utf-8">\s*(?:<!--[\s\S]*?-->\s*)?<meta http-equiv="Content-Security-Policy" content="script-src 'none'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">/i,
     "案内ページの先頭にスクリプトを拒否する CSP がない");
 }
+// ビューアーのヘッダーは、案内のサイトのナビと同じ並びにする（site/src/data/site.ts の nav）。
+const nav = [...readFileSync(new URL("../src/data/site.ts", import.meta.url), "utf8").matchAll(/\{ href: '([^']+)', label: '([^']+)' \}/g)];
+assert.ok(nav.length > 0, "サイトのナビを読めない");
+const bundle = output.filter((path) => /[/\\]viewer[/\\]assets[/\\][^/\\]+\.js$/.test(path)).map((path) => readFileSync(path, "utf8")).join("\n");
+const viewerNav = [...bundle.matchAll(/\{\s*href:\s*(["`])([^"`]+)\1,\s*label:\s*(["`])([^"`]+)\3\s*\}/g)].map(([, , href, , label]) => href + " " + label);
+assert.deepEqual(viewerNav, nav.map(([, href, label]) => href + " " + label), "ビューアーのナビが案内のサイトと違う");
 const headers = readFileSync(resolve(dist, "_headers"), "utf8");
 assert.match(headers, /^\/\*\r?\n\s+Cache-Control: public, max-age=0, must-revalidate, no-transform/m);
 assert.match(headers, /\/viewer\/\*/);
@@ -41,4 +47,4 @@ assert.doesNotMatch(samples, /zumen-(minsert-r2004|xclip-r2018)\.dwg/);
 const pair = readFileSync(new URL("../../samples/dwg/zumen-layout-r2000_ascii.dxf", import.meta.url), "utf8").split(/\r?\n/);
 const savedBy = pair.findIndex((line) => line.trim() === "$LASTSAVEDBY");
 assert.ok(savedBy < 0 || !pair[savedBy + 2]?.trim(), "DWG の対の DXF に保存者のメタデータがある");
-console.log("サイトの出力: 案内ページの script なし・先頭の CSP・ビューアーの wasm/Worker/CSS/CSP・ライセンスを確認");
+console.log("サイトの出力: 案内ページの script なし・先頭の CSP・ビューアーの wasm/Worker/CSS/CSP・ナビ・ライセンスを確認");

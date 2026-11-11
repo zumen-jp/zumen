@@ -152,8 +152,12 @@ try {
     return count;
   });
   assert.equal(await status.getAttribute("role"), "status");
+  // 最初の Tab は「本文へ移動」に止まる（WebKit は既定でリンクに止まらない）。サイトのナビとパンくずのあとに、ファイルの選択へ届く。
   await page.keyboard.press("Tab");
-  assert.ok(await file.evaluate((el) => el === document.activeElement));
+  const first = await page.evaluate(() => document.activeElement?.textContent);
+  assert.ok(first === "本文へ移動" || await file.evaluate((el) => el === document.activeElement), "最初の Tab: " + first);
+  for (let i = 0; i < 12 && !await file.evaluate((el) => el === document.activeElement); i++) await page.keyboard.press("Tab");
+  assert.ok(await file.evaluate((el) => el === document.activeElement), "Tab でファイルの選択に届く");
   for (const [format, id] of [["dxf", "space/0/hA1"], ["jww", "space/0/r1"], ["sxf", "sheet/0/i30"]]) {
     await file.setInputFiles({ name: "local." + (format === "sxf" ? "sfc" : format), mimeType: "application/octet-stream", buffer: inputs[format] });
     await ready(format.toUpperCase());

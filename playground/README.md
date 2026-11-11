@@ -14,7 +14,7 @@ npm run build --prefix playground
 npm start --prefix playground
 ```
 
-[図面ビューア](http://127.0.0.1:24188/)を開きます。図面用 wasm は Vite（8.3.5、MIT）がローカルの配布物に含めます。別の場所にビルドした場合は `ZUMEN_DRAWING_WASM` にそのファイルのパスを指定してから `npm run build` します。
+[図面ビューアー](http://127.0.0.1:24188/)を開きます。図面用 wasm は Vite（8.3.5、MIT）がローカルの配布物に含めます。別の場所にビルドした場合は `ZUMEN_DRAWING_WASM` にそのファイルのパスを指定してから `npm run build` します。
 
 公開サンプルは、`samples.js` の `SAMPLE_PATHS` に挙げたものを配布物に入れます。サンプルは、プレイグラウンドのライセンス（MIT OR Apache-2.0）ではなく、それぞれのライセンスに従います（[公開サンプルの条件](../samples/README.md)）。[公開サンプルの条件](../samples/README.md) は、配る crate とパッケージに `samples/` を入れないとしています。プレイグラウンドは `private` で、パッケージとしては配りません。そのため、配布物に入れても、この決定に反しないと読みます。サイトに載せるとき（#691）も、`samples.md` を一緒に置きます。出所とライセンスは `samples/ledger.toml` から読み、画面と `dist/samples.md` に出します。`samples.md` には、本文の同梱を求めるライセンス（MIT）の本文も入れます。入れているのは、中身の違う DXF 2 つと、DWG の R2000・R2004・R2018 です。SXF・JWW は、再配布できる公開サンプルがないので入れません（`samples/README.md`）。自前で作った小さな図面も、公開サンプルの台帳（[公開サンプルの条件](../samples/README.md)）に載せる手間に比べて、デモで見せられることが少ないので入れません（#689）。
 
