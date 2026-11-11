@@ -4,7 +4,7 @@
 /// API のバージョン・状態コードと、シーンの配置（決定 0012・0137・0225）
 public enum Constants {
     /// パッケージのバージョン（決定 0015）
-    public static let version = "0.2.1"
+    public static let version = "0.3.0"
 
     /// ABI のメジャーバージョン
     public static let abiVersion: UInt32 = 1

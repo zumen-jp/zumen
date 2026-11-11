@@ -10,11 +10,11 @@ publish = true
 [dependencies]
 # 方向角と刻み（決定 0007）。どの対象でも同じ値にする
 libm = { version = "0.2.16", default-features = false }
-zumen-base = { version = "0.2.1", path = "../zumen-base" }
-zumen-civil = { version = "0.2.1", path = "../zumen-civil" }
-zumen-crs = { version = "0.2.1", path = "../zumen-crs" }
-zumen-drawing = { version = "0.2.1", path = "../zumen-drawing" }
-zumen-geom2d = { version = "0.2.1", path = "../zumen-geom2d" }
+zumen-base = { version = "0.3.0", path = "../zumen-base" }
+zumen-civil = { version = "0.3.0", path = "../zumen-civil" }
+zumen-crs = { version = "0.3.0", path = "../zumen-crs" }
+zumen-drawing = { version = "0.3.0", path = "../zumen-drawing" }
+zumen-geom2d = { version = "0.3.0", path = "../zumen-geom2d" }
 
 [lints]
 workspace = true

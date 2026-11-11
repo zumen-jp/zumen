@@ -10,5 +10,5 @@
   },
   "files": ["src", "README.md"],
   "sideEffects": false,
-  "peerDependencies": { "@zumen-jp/zumen": "^0.2.0" }
+  "peerDependencies": { "@zumen-jp/zumen": "^0.2.0 || ^0.3.0" }
 }

@@ -1,7 +1,7 @@
 {
   "v": 1,
   "lang": "en",
-  "package": "0.2.1",
+  "package": "0.3.0",
   "number": { "group_separator": ",", "decimal_separator": "." },
   "codes": {
     "bcf.conversion.unsupported": "The original bcfzip is BCF {original}, so it cannot be written back as BCF {version}.",

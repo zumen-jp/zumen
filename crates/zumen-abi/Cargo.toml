@@ -27,47 +27,47 @@ plugin = []
 [dependencies]
 # 三角関数を、どの環境でも同じ値で求める（決定 0007・0118）。環境ごとの命令を使わない
 libm = { version = "0.2.16", default-features = false }
-zumen-acad = { version = "0.2.1", path = "../zumen-acad" }
-zumen-asbuilt = { version = "0.2.1", path = "../zumen-asbuilt" }
-zumen-base = { version = "0.2.1", path = "../zumen-base" }
+zumen-acad = { version = "0.3.0", path = "../zumen-acad" }
+zumen-asbuilt = { version = "0.3.0", path = "../zumen-asbuilt" }
+zumen-base = { version = "0.3.0", path = "../zumen-base" }
 # 図面モデルのバイナリ（決定 0247）で、プラグインが読んだ図面を文書として受け渡す
-zumen-drawing = { version = "0.2.1", path = "../zumen-drawing", features = ["binary"] }
+zumen-drawing = { version = "0.3.0", path = "../zumen-drawing", features = ["binary"] }
 # 横と縦の尺度の違うビューの曲線を、用紙の折れ線にする（決定 0238）
-zumen-geom2d = { version = "0.2.1", path = "../zumen-geom2d" }
-zumen-json = { version = "0.2.1", path = "../zumen-json" }
-zumen-profile = { version = "0.2.1", path = "../zumen-profile" }
-zumen-review = { version = "0.2.1", path = "../zumen-review" }
+zumen-geom2d = { version = "0.3.0", path = "../zumen-geom2d" }
+zumen-json = { version = "0.3.0", path = "../zumen-json" }
+zumen-profile = { version = "0.3.0", path = "../zumen-profile" }
+zumen-review = { version = "0.3.0", path = "../zumen-review" }
 # 決定 0272 の描画部品を、scene と同じ図面モデルから使う（決定 0275）
-zumen-render = { version = "0.2.1", path = "../zumen-render" }
-zumen-scene = { version = "0.2.1", path = "../zumen-scene" }
-zumen-jww = { version = "0.2.1", path = "../zumen-jww" }
-zumen-bcf = { version = "0.2.1", path = "../zumen-bcf" }
-zumen-civil = { version = "0.2.1", path = "../zumen-civil" }
+zumen-render = { version = "0.3.0", path = "../zumen-render" }
+zumen-scene = { version = "0.3.0", path = "../zumen-scene" }
+zumen-jww = { version = "0.3.0", path = "../zumen-jww" }
+zumen-bcf = { version = "0.3.0", path = "../zumen-bcf" }
+zumen-civil = { version = "0.3.0", path = "../zumen-civil" }
 # 土木の線形から図面モデルを作る（決定 0239）
-zumen-civil-drawing = { version = "0.2.1", path = "../zumen-civil-drawing" }
-zumen-crs = { version = "0.2.1", path = "../zumen-crs" }
-zumen-landxml = { version = "0.2.1", path = "../zumen-landxml" }
-zumen-citygml = { version = "0.2.1", path = "../zumen-citygml" }
-zumen-fgd = { version = "0.2.1", path = "../zumen-fgd" }
-zumen-extdm = { version = "0.2.1", path = "../zumen-extdm" }
-zumen-delivery = { version = "0.2.1", path = "../zumen-delivery" }
-zumen-geo = { version = "0.2.1", path = "../zumen-geo" }
-zumen-geom3d = { version = "0.2.1", path = "../zumen-geom3d" }
-zumen-las = { version = "0.2.1", path = "../zumen-las" }
-zumen-ply = { version = "0.2.1", path = "../zumen-ply" }
-zumen-pointcloud = { version = "0.2.1", path = "../zumen-pointcloud" }
-zumen-e57 = { version = "0.2.1", path = "../zumen-e57" }
-zumen-xyz = { version = "0.2.1", path = "../zumen-xyz" }
-zumen-building = { version = "0.2.1", path = "../zumen-building" }
-zumen-ifc = { version = "0.2.1", path = "../zumen-ifc" }
-zumen-ids = { version = "0.2.1", path = "../zumen-ids" }
-zumen-sxf = { version = "0.2.1", path = "../zumen-sxf" }
-zumen-photo = { version = "0.2.1", path = "../zumen-photo" }
-zumen-sheet = { version = "0.2.1", path = "../zumen-sheet" }
-zumen-geology = { version = "0.2.1", path = "../zumen-geology" }
-zumen-sdk = { version = "0.2.1", path = "../zumen-sdk" }
+zumen-civil-drawing = { version = "0.3.0", path = "../zumen-civil-drawing" }
+zumen-crs = { version = "0.3.0", path = "../zumen-crs" }
+zumen-landxml = { version = "0.3.0", path = "../zumen-landxml" }
+zumen-citygml = { version = "0.3.0", path = "../zumen-citygml" }
+zumen-fgd = { version = "0.3.0", path = "../zumen-fgd" }
+zumen-extdm = { version = "0.3.0", path = "../zumen-extdm" }
+zumen-delivery = { version = "0.3.0", path = "../zumen-delivery" }
+zumen-geo = { version = "0.3.0", path = "../zumen-geo" }
+zumen-geom3d = { version = "0.3.0", path = "../zumen-geom3d" }
+zumen-las = { version = "0.3.0", path = "../zumen-las" }
+zumen-ply = { version = "0.3.0", path = "../zumen-ply" }
+zumen-pointcloud = { version = "0.3.0", path = "../zumen-pointcloud" }
+zumen-e57 = { version = "0.3.0", path = "../zumen-e57" }
+zumen-xyz = { version = "0.3.0", path = "../zumen-xyz" }
+zumen-building = { version = "0.3.0", path = "../zumen-building" }
+zumen-ifc = { version = "0.3.0", path = "../zumen-ifc" }
+zumen-ids = { version = "0.3.0", path = "../zumen-ids" }
+zumen-sxf = { version = "0.3.0", path = "../zumen-sxf" }
+zumen-photo = { version = "0.3.0", path = "../zumen-photo" }
+zumen-sheet = { version = "0.3.0", path = "../zumen-sheet" }
+zumen-geology = { version = "0.3.0", path = "../zumen-geology" }
+zumen-sdk = { version = "0.3.0", path = "../zumen-sdk" }
 # P2Z・SFZ のアーカイブを読み書きする（#385）
-zumen-zip = { version = "0.2.1", path = "../zumen-zip" }
+zumen-zip = { version = "0.3.0", path = "../zumen-zip" }
 
 [dev-dependencies]
 # テストで、乱数の図面モデルをバイナリにして渡す（決定 0247）

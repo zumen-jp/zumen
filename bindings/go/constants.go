@@ -8,7 +8,7 @@ package zumen
 import "strconv"
 
 // Version は、パッケージのバージョン（決定 0015）。
-const Version = "0.2.1"
+const Version = "0.3.0"
 
 // ABIVersion は、ABI のメジャーバージョン。
 const ABIVersion uint32 = 1

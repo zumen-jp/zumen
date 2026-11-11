@@ -11,13 +11,13 @@ publish = true
 formats = ["fgd"]
 
 [dependencies]
-zumen-base = { version = "0.2.1", path = "../zumen-base" }
-zumen-crs = { version = "0.2.1", path = "../zumen-crs" }
-zumen-geo = { version = "0.2.1", path = "../zumen-geo" }
-zumen-geom3d = { version = "0.2.1", path = "../zumen-geom3d" }
-zumen-sdk = { version = "0.2.1", path = "../zumen-sdk" }
-zumen-xml = { version = "0.2.1", path = "../zumen-xml" }
-zumen-zip = { version = "0.2.1", path = "../zumen-zip" }
+zumen-base = { version = "0.3.0", path = "../zumen-base" }
+zumen-crs = { version = "0.3.0", path = "../zumen-crs" }
+zumen-geo = { version = "0.3.0", path = "../zumen-geo" }
+zumen-geom3d = { version = "0.3.0", path = "../zumen-geom3d" }
+zumen-sdk = { version = "0.3.0", path = "../zumen-sdk" }
+zumen-xml = { version = "0.3.0", path = "../zumen-xml" }
+zumen-zip = { version = "0.3.0", path = "../zumen-zip" }
 
 [lints]
 workspace = true

@@ -11,14 +11,14 @@ publish = true
 formats = ["ifc", "express"]
 
 [dependencies]
-zumen-base = { version = "0.2.1", path = "../zumen-base" }
-zumen-sdk = { version = "0.2.1", path = "../zumen-sdk" }
-zumen-step = { version = "0.2.1", path = "../zumen-step" }
-zumen-zip = { version = "0.2.1", path = "../zumen-zip" }
-zumen-building = { version = "0.2.1", path = "../zumen-building", optional = true }
-zumen-ids = { version = "0.2.1", path = "../zumen-ids", optional = true }
-zumen-civil = { version = "0.2.1", path = "../zumen-civil", optional = true }
-zumen-crs = { version = "0.2.1", path = "../zumen-crs", optional = true }
+zumen-base = { version = "0.3.0", path = "../zumen-base" }
+zumen-sdk = { version = "0.3.0", path = "../zumen-sdk" }
+zumen-step = { version = "0.3.0", path = "../zumen-step" }
+zumen-zip = { version = "0.3.0", path = "../zumen-zip" }
+zumen-building = { version = "0.3.0", path = "../zumen-building", optional = true }
+zumen-ids = { version = "0.3.0", path = "../zumen-ids", optional = true }
+zumen-civil = { version = "0.3.0", path = "../zumen-civil", optional = true }
+zumen-crs = { version = "0.3.0", path = "../zumen-crs", optional = true }
 # 配置の軸の長さ。std の数学の関数は環境で値が違いうる（決定 0007）
 libm = { version = "0.2.16", default-features = false, optional = true }
 

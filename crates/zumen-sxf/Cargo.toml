@@ -11,12 +11,12 @@ publish = true
 formats = ["sxf", "saf"]
 
 [dependencies]
-zumen-base = { version = "0.2.1", path = "../zumen-base" }
-zumen-sdk = { version = "0.2.1", path = "../zumen-sdk" }
-zumen-step = { version = "0.2.1", path = "../zumen-step" }
-zumen-drawing = { version = "0.2.1", path = "../zumen-drawing", optional = true }
+zumen-base = { version = "0.3.0", path = "../zumen-base" }
+zumen-sdk = { version = "0.3.0", path = "../zumen-sdk" }
+zumen-step = { version = "0.3.0", path = "../zumen-step" }
+zumen-drawing = { version = "0.3.0", path = "../zumen-drawing", optional = true }
 # 属性ファイル（SAF）の XML（決定 0249）
-zumen-xml = { version = "0.2.1", path = "../zumen-xml", optional = true }
+zumen-xml = { version = "0.3.0", path = "../zumen-xml", optional = true }
 # Shift_JIS の名前と文字を戻す。WHATWG の Shift_JIS で、環境によらない（決定 0121）
 encoding_rs = { version = "0.8.35", optional = true }
 # 部分図の配置の回転。std の三角関数は環境で値が違いうる（決定 0007）

@@ -13,9 +13,9 @@ formats = ["ply"]
 [dependencies]
 # 強度の丸め（決定 0007）。どの対象でも同じ値にする
 libm = { version = "0.2.16", default-features = false }
-zumen-base = { version = "0.2.1", path = "../zumen-base" }
-zumen-pointcloud = { version = "0.2.1", path = "../zumen-pointcloud" }
-zumen-sdk = { version = "0.2.1", path = "../zumen-sdk" }
+zumen-base = { version = "0.3.0", path = "../zumen-base" }
+zumen-pointcloud = { version = "0.3.0", path = "../zumen-pointcloud" }
+zumen-sdk = { version = "0.3.0", path = "../zumen-sdk" }
 
 [lints]
 workspace = true

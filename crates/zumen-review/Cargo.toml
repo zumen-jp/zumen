@@ -10,9 +10,9 @@ publish = true
 [dependencies]
 # 照合の結果から作る指摘の ID（UUID）を、入力から決める
 blake3 = { version = "1.8.2", default-features = false, features = ["pure"] }
-zumen-base = { version = "0.2.1", path = "../zumen-base" }
-zumen-json = { version = "0.2.1", path = "../zumen-json" }
-zumen-sdk = { version = "0.2.1", path = "../zumen-sdk" }
+zumen-base = { version = "0.3.0", path = "../zumen-base" }
+zumen-json = { version = "0.3.0", path = "../zumen-json" }
+zumen-sdk = { version = "0.3.0", path = "../zumen-sdk" }
 
 [lints]
 workspace = true

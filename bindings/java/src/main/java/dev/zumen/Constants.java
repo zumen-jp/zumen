@@ -12,7 +12,7 @@ public final class Constants {
     private Constants() {}
 
     /** パッケージのバージョン（決定 0015） */
-    public static final String VERSION = "0.2.1";
+    public static final String VERSION = "0.3.0";
 
     /** ABI のメジャーバージョン */
     public static final int ABI_VERSION = 1;

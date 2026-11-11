@@ -1,7 +1,7 @@
 {
   "v": 1,
   "lang": "ja",
-  "package": "0.2.1",
+  "package": "0.3.0",
   "number": { "group_separator": ",", "decimal_separator": "." },
   "codes": {
     "zumen_lines.file.invalid": "1 行目が「ZUMEN-LINES 1」でないので、zumen の線分の一覧として読めません。",

@@ -1163,7 +1163,7 @@ description = "曲線の定義に読めない値か循環があるので、曲�
 severity = "error"
 params = { reason = "key" }
 group-by = ["reason"]
-since = "0.2.1"
+since = "0.3.0"
 status = "active"
 
 [codes."ifc.curve.unsupported"]
@@ -1172,7 +1172,7 @@ severity = "warning"
 fidelity = "dropped"
 params = { kind = "key" }
 group-by = ["kind"]
-since = "0.2.1"
+since = "0.3.0"
 status = "active"
 
 [codes."ifc.shape.invalid"]
@@ -1180,7 +1180,7 @@ description = "要素の形状表現の参照か構造に読めない値か循�
 severity = "error"
 params = { reason = "key" }
 group-by = ["reason"]
-since = "0.2.1"
+since = "0.3.0"
 status = "active"
 
 [codes."ifc.shape.unsupported"]
@@ -1189,7 +1189,7 @@ severity = "warning"
 fidelity = "dropped"
 params = { kind = "key" }
 group-by = ["kind"]
-since = "0.2.1"
+since = "0.3.0"
 status = "active"
 
 [codes."ifc.shape.missing"]
@@ -1197,7 +1197,7 @@ description = "形状表現の取得で省略された属性を None として�
 severity = "warning"
 params = { field = "key" }
 group-by = ["field"]
-since = "0.2.1"
+since = "0.3.0"
 status = "active"
 
 [codes."ifc.extrusion.invalid"]
@@ -1231,7 +1231,7 @@ severity = "warning"
 fidelity = "dropped"
 params = { kind = "key", target_kind = "key", position = "uint" }
 group-by = ["kind", "target_kind", "position"]
-since = "0.2.1"
+since = "0.3.0"
 status = "active"
 
 [codes."ifc.placement.invalid"]
@@ -2378,21 +2378,21 @@ status = "active"
 description = "レビューを描く起点が図面にないか、同じ ID の空間を区別できない"
 severity = "error"
 params = { origin = "text" }
-since = "0.2.1"
+since = "0.3.0"
 status = "active"
 
 [codes."review.scene-options.invalid"]
 description = "レビューの描画の設定が条件を満たさない。pointer は設定のフィールド"
 severity = "error"
 params = { pointer = "text" }
-since = "0.2.1"
+since = "0.3.0"
 status = "active"
 
 [codes."review.scene-geometry.invalid"]
 description = "選んだレビューの図形・場所の座標や形を描けない。reason は理由を表すタグ"
 severity = "error"
 params = { reason = "text" }
-since = "0.2.1"
+since = "0.3.0"
 status = "active"
 
 [codes."review.scene-text-frame.approximated"]
@@ -2400,7 +2400,7 @@ description = "字形の範囲を得られず、注記の枠を文字の高さ�
 severity = "warning"
 fidelity = "approximated"
 params = {}
-since = "0.2.1"
+since = "0.3.0"
 status = "active"
 
 [codes."review.scene-points.dropped"]
@@ -2408,7 +2408,7 @@ description = "注記または写真の位置に使わない、2 点目からの
 severity = "warning"
 fidelity = "dropped"
 params = { points = "uint" }
-since = "0.2.1"
+since = "0.3.0"
 status = "active"
 
 [codes."review.scene-placement.dropped"]
@@ -2417,7 +2417,7 @@ severity = "warning"
 fidelity = "dropped"
 params = { reason = "text" }
 group-by = ["reason"]
-since = "0.2.1"
+since = "0.3.0"
 status = "active"
 
 [codes."review.scene-property.dropped"]
@@ -2426,7 +2426,7 @@ severity = "warning"
 fidelity = "dropped"
 params = { property = "text" }
 group-by = ["property"]
-since = "0.2.1"
+since = "0.3.0"
 status = "active"
 
 

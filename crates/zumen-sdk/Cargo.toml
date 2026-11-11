@@ -8,7 +8,7 @@ repository.workspace = true
 publish = true
 
 [dependencies]
-zumen-base = { version = "0.2.1", path = "../zumen-base" }
+zumen-base = { version = "0.3.0", path = "../zumen-base" }
 
 [lints]
 workspace = true
