@@ -1,5 +1,6 @@
 import { SCENE_NONE, SCENE_VALUES as V } from "@zumen-jp/zumen";
 import { end, rows } from "./validate.js";
+import { clipSegment, inside } from "./raster.js";
 
 const decoder = new TextDecoder();
 const noCharge = () => {};
@@ -59,7 +60,7 @@ export function transparentStyle(style) {
   return /^[+-]?(?:\d*\.)?\d+(?:e[+-]?\d+)?%?$/i.test(alpha) && Number(alpha.replace(/%$/, "")) === 0;
 }
 
-/** 描画と当たり判定に同じ CSS px のパスを渡す。輪郭の派生データは問い合わせの間だけ持つ。 */
+/** 描画と当たり判定の元の形を CSS px で作る。輪郭の派生データは問い合わせの間だけ持つ。 */
 class Path {
   constructor(collect, charge) {
     this.path = new Path2D(); this.contours = []; this.circles = [];
@@ -102,6 +103,39 @@ class Path {
   finish(fill, width = 0) {
     this.flush();
     return { path: this.path, contours: this.contours, circles: this.circles, bounds: this.bounds, work: this.work, fill, width };
+  }
+}
+
+/** stroke の画面内の領域を変えず、Canvas に渡す直線の座標を画面近傍へ収める。 */
+class StrokePath extends Path {
+  constructor(charge, size, width) {
+    super(false, charge);
+    // round join の半径と 2 画素を外へ残す。作った butt の端と join は可視領域へ入らない。
+    const margin = width / 2 + 2 / size.pixelRatio;
+    this.box = { min_x: -margin, min_y: -margin, max_x: size.width + margin, max_y: size.height + margin };
+    this.previous = null; this.tip = null;
+  }
+  move(p) { this.previous = p; this.tip = null; this.addPoint(p); }
+  line(p) {
+    const segment = clipSegment(this.previous, p, this.box);
+    if (segment) {
+      const [a, b] = segment;
+      if (!this.tip || !equal(this.tip, a)) this.path.moveTo(a.x, a.y);
+      this.path.lineTo(b.x, b.y); this.tip = b;
+    } else this.tip = null;
+    this.previous = p; this.addPoint(p);
+  }
+  rectangle(minX, minY, maxX, maxY, at = (x, y) => ({ x, y })) {
+    const points = [at(minX, minY), at(maxX, minY), at(maxX, maxY), at(minX, maxY)];
+    const outside = points.findIndex((p) => !inside(p, this.box));
+    if (outside < 0) {
+      super.move(points[0]); for (let i = 1; i < points.length; i++) super.line(points[i]); super.close();
+    } else {
+      // 開始点を画面外へ置けば、見える元の角はすべて途中の頂点として join を保てる。
+      this.move(points[outside]);
+      for (let i = 1; i <= points.length; i++) this.line(points[(outside + i) % points.length]);
+    }
+    this.previous = null; this.tip = null;
   }
 }
 
@@ -176,7 +210,7 @@ export function* primitiveParts(ctx, c, kind, i, chunk, settings, view, size, co
   const at = (x, y) => project(view, size.width, size.height, x, y, ox, oy);
   const width = lineWidth(c, c[`${kind}_units`][i], settings, size);
   if (kind === "line") {
-    const path = new Path(collect, charge);
+    const path = collect ? new Path(true, charge) : new StrokePath(charge, size, width);
     vertices(path, c.line_xy, c.line_vertices[i], end(c.line_vertices, i, rows(c, "line_xy")), at, false);
     yield path.finish(null, width);
   } else if (kind === "face") {
@@ -209,7 +243,7 @@ export function* primitiveParts(ctx, c, kind, i, chunk, settings, view, size, co
     if (mark === V.point_mark.dot) {
       const dot = new Path(collect, charge); dot.circle(p, 1 / size.pixelRatio); yield dot.finish("nonzero");
     }
-    const path = new Path(collect, charge);
+    const path = collect ? new Path(true, charge) : new StrokePath(charge, size, width);
     const segment = (x1, y1, x2, y2) => { path.move(pointAt(x1, y1)); path.line(pointAt(x2, y2)); };
     if (mark === V.point_mark.plus) { segment(-radius, 0, radius, 0); segment(0, -radius, 0, radius); }
     if (mark === V.point_mark.cross) { segment(-radius, -radius, radius, radius); segment(-radius, radius, radius, -radius); }
