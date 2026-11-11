@@ -17,6 +17,8 @@
   --ok: var(--color-primitive-green-800);
   --warn: var(--color-primitive-orange-800);
   --error: var(--color-primitive-red-900);
+  /* 図面の通り芯の赤。トップの平面図と同じ色にする */
+  --axis: #c4161c;
   --font: 'Noto Sans JP Variable', 'Noto Sans JP', 'Hiragino Sans', 'Yu Gothic UI', 'Meiryo', sans-serif;
   --font-mono: 'Noto Sans Mono', 'Noto Sans JP Variable', ui-monospace, monospace;
   --wrap: 1160px;
@@ -315,11 +317,29 @@ caption.skip {
   color: var(--warn);
 }
 
-/* 下層のページの見出し */
+/* 下層のページの見出し。方眼の帯の右に、ページごとの図面を置く */
 .page-header {
-  padding: 24px 0 40px;
+  padding: 24px 0 48px;
   border-bottom: 1px solid var(--line-soft);
-  background: var(--key-tint);
+  background-color: var(--key-tint);
+  background-image:
+    linear-gradient(var(--color-key-200) 1px, transparent 1px),
+    linear-gradient(90deg, var(--color-key-200) 1px, transparent 1px),
+    linear-gradient(var(--color-key-100) 1px, transparent 1px),
+    linear-gradient(90deg, var(--color-key-100) 1px, transparent 1px);
+  background-size:
+    120px 120px,
+    120px 120px,
+    24px 24px,
+    24px 24px;
+  background-position: center top;
+}
+
+.page-header-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 520px);
+  gap: 48px;
+  align-items: center;
 }
 
 .breadcrumbs ol {
@@ -343,13 +363,284 @@ caption.skip {
 }
 
 .page-header h1 {
-  font-size: 32px;
+  font-size: clamp(32px, 1vw + 24px, 40px);
+  letter-spacing: 0.04em;
 }
 
 .page-lead {
   margin: 16px 0 0;
   max-width: 48em;
   font-size: 17px;
+  word-break: auto-phrase;
+}
+
+/* ページ内の節へのリンク */
+.toc ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  list-style: none;
+  margin: 24px 0 0;
+  padding: 0;
+}
+
+.toc a {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 8px 16px;
+  border: 1px solid var(--color-key-200);
+  border-radius: var(--border-radius-8);
+  background: var(--paper);
+  color: var(--key);
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.3;
+  text-decoration: none;
+}
+
+.toc a::after {
+  content: '';
+  width: 7px;
+  height: 7px;
+  margin-top: -4px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(45deg);
+}
+
+.toc a:hover {
+  border-color: var(--key);
+  background: var(--color-key-100);
+  color: var(--key-hover);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+}
+
+/* 見出しの図面。白い紙に描き、下に図名と縮尺を添える */
+.sheet {
+  margin: 0;
+}
+
+.sheet-paper {
+  padding: 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--border-radius-12);
+  background: var(--paper);
+}
+
+.sheet svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 9;
+}
+
+.sheet figcaption {
+  margin-top: 8px;
+  color: var(--ink-sub);
+  font-size: 14px;
+  text-align: center;
+}
+
+/* 図面の線と文字。色と太さはトップの平面図に合わせる */
+.sheet .d-axis {
+  fill: none;
+  stroke: var(--axis);
+  stroke-width: 1.2;
+  stroke-dasharray: 18 5 3 5;
+  opacity: 0.75;
+}
+
+.sheet .d-bubble {
+  fill: var(--paper);
+  stroke: var(--axis);
+  stroke-width: 1.5;
+}
+
+.sheet .d-bubble-t {
+  fill: var(--axis);
+  font: 700 21px var(--font-mono);
+  text-anchor: middle;
+  dominant-baseline: central;
+}
+
+.sheet .d-line,
+.sheet .d-bold,
+.sheet .d-dash,
+.sheet .d-boundary {
+  fill: none;
+  stroke: var(--color-neutral-solid-gray-900);
+  stroke-width: 1.2;
+}
+
+.sheet .d-bold {
+  stroke-width: 3;
+}
+
+.sheet .d-dash {
+  stroke-dasharray: 8 5;
+}
+
+.sheet .d-boundary {
+  stroke-width: 1.6;
+  stroke-dasharray: 22 5 3 5 3 5;
+}
+
+.sheet .d-faint {
+  fill: none;
+  stroke: var(--color-neutral-solid-gray-300);
+  stroke-width: 1;
+}
+
+.sheet .d-paper,
+.sheet .d-solid {
+  fill: var(--paper);
+  stroke: var(--color-neutral-solid-gray-900);
+  stroke-width: 1.2;
+}
+
+.sheet .d-solid {
+  stroke-width: 3;
+}
+
+.sheet .d-tone {
+  fill: var(--color-neutral-solid-gray-50);
+}
+
+.sheet .d-fill {
+  fill: var(--color-neutral-solid-gray-900);
+}
+
+.sheet .d-key {
+  fill: var(--key);
+}
+
+.sheet .d-red {
+  fill: none;
+  stroke: var(--axis);
+  stroke-width: 3;
+  stroke-linejoin: round;
+}
+
+.sheet .d-dot {
+  fill: var(--axis);
+}
+
+.sheet .d-dim {
+  fill: none;
+  stroke: var(--key);
+  stroke-width: 1;
+}
+
+.sheet .d-tick {
+  fill: none;
+  stroke: var(--key);
+  stroke-width: 2;
+}
+
+.sheet .d-dim-t {
+  fill: var(--key);
+  font: 21px var(--font-mono);
+  text-anchor: middle;
+}
+
+.sheet .d-text {
+  fill: var(--color-neutral-solid-gray-900);
+  font: 22px var(--font);
+}
+
+.sheet .d-name {
+  fill: var(--color-neutral-solid-gray-900);
+  font: 700 24px var(--font);
+  text-anchor: middle;
+}
+
+.sheet .d-note {
+  fill: var(--ink-sub);
+  font: 19px var(--font-mono);
+}
+
+.sheet .d-cell {
+  dominant-baseline: central;
+}
+
+.sheet .d-halo {
+  paint-order: stroke;
+  stroke: var(--paper);
+  stroke-width: 8px;
+  stroke-linejoin: round;
+}
+
+/* 下層のページの終わり。ほかのページへの案内と、GitHub への誘い */
+.page-end {
+  border-top: 1px solid var(--line-soft);
+}
+
+.page-end + .section-cta {
+  padding-top: 0;
+}
+
+.page-links {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
+  gap: 16px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.page-links a {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 20px 24px 24px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--border-radius-12);
+  background: var(--paper);
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.page-links a:hover {
+  border-color: var(--key);
+  background: var(--key-tint);
+  color: var(--ink);
+}
+
+.page-links strong {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--key);
+  font-size: 20px;
+  line-height: 1.4;
+}
+
+.page-links strong::after {
+  content: '';
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  margin-right: 4px;
+  border-top: 2px solid currentColor;
+  border-right: 2px solid currentColor;
+  transform: rotate(45deg);
+}
+
+.page-links a:hover strong {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+.page-links-lead {
+  margin-top: 8px;
+  color: var(--ink-sub);
+  font-size: 15px;
+  word-break: auto-phrase;
 }
 
 /* セクション */
@@ -872,6 +1163,11 @@ caption.skip {
     max-width: 560px;
   }
 
+  .page-header-body {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 42%);
+    gap: 32px;
+  }
+
   .flow {
     grid-template-columns: 1fr;
   }
@@ -917,6 +1213,15 @@ caption.skip {
 
   .spec tbody th {
     width: auto;
+  }
+
+  /* 狭い画面では、見出しの図面を出さず、本文を先に見せる */
+  .page-header-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sheet {
+    display: none;
   }
 
   /* 対応形式の表は、1 つの形式を 1 つの塊に積む */
@@ -1009,7 +1314,16 @@ caption.skip {
 @media print {
   .masthead .gnav,
   .header-cta,
+  .toc,
+  .sheet,
+  .page-end,
+  .page-end + .section-cta,
   .footer {
     display: none;
+  }
+
+  /* 図面を出さないので、見出しを 1 列にする */
+  .page-header-body {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
