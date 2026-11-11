@@ -179,6 +179,61 @@ node crates/zumen-ifc/tests/wasi-styles.mjs --compare target/style-comparison ta
 
 同じテストを WASI でも流し、4 件の JSON と診断・全 Kind の予算使用量を記録する `contract.txt` を、ネイティブとバイト列で比較します。WASI の出力先は `target/style-comparison-wasm` です。fuzz の `ifc` target は既存の形の項目から 16 件までこの取得へ渡し、全レコードの走査を含めて予算を共有します。毎晩の CI でも export と外部照合を流します。
 
+## 通り芯から軸と曲線を取得する
+
+`IfcFile::grid_axes(grid_instance, cx)` は、通り芯の L1 番号から U/V/W の軸と既存の `CurveGraph` をまとめて取得します。`building` の feature が必要です。ifcZIP では `file.ifc().grid_axes(...)` を使います。Building の通り芯の要素が持つ `source().instance` からも呼べます。利用側で STEP の引数の位置を読む必要はありません。
+
+```rust,ignore
+let grid = file.grid_axes(grid_instance, cx)?;
+for axis in &grid.axes {
+    let designation = &axis.definition; // set・tag・same_sense
+    let curve = axis.curve.item(axis.curve.root);
+    // 曲線の元の値と単位を取得。配置と向きは未適用
+}
+```
+
+公開の `gni/model_9.ifc` では、GlobalId `2vVYk8VWENmwp2otf5sJ1q` の Grid `#5535` から U 10 軸・V 10 軸・W 1 軸を取得できます。先頭の U 軸は `#5450`、タグは `E`、曲線は `#5449`、元の 2D の点の列は `#5448` です。既存の `product_shape()` の FootPrint の中にも同じ曲線への出所があり、この経路と一致することを検査します。
+
+- 所属・タグ・SameSense は L1 に依存しない `GridAxisDefinition`、任意の PredefinedType は `GridLayout` に保持します。省略したタグと空のタグ、向きの真偽、レイアウトの指定と省略を区別します。U・V・W の順に、各 LIST の記録順を保ちます。
+- 借用する元の Grid・軸・ObjectPlacement・Representation は `GridSource` と各軸の `source` に分けます。配置は参照先の種類を確認するだけで、属性や親の連鎖を展開せず保持します。配置・反転・既定値を適用せず、レイアウトに対する平行・直交・交点の適合も評価しません。
+- 曲線の共有は各軸の `CurveGraph` の中です。同じ曲線を指す複数の軸は、同じ出所を持つ別のグラフとして取得します。グラフを横断する `CurveRef` や重複排除を仮定しません。意味を比べるときは `definition` と曲線の `kind`・単位を使い、CurveSource や元の番号を含めません。出所付きの全体には PartialEq/Hash を定義しません。
+- U/V は必須で空でない unique LIST、W は任意で、指定する場合は空でない unique LIST です。同じ軸の重複・U/V/W 間の重複と、選んだ軸を別の Grid が参照する二重所属を拒みます。ファイル全体を走査して選んだ軸の所属を確認しますが、関係のない Grid 全体の妥当性を検査した結果ではありません。
+- 別の Grid インスタンスの所属確認では、最初の Part だけに頼らず全 Part の IFCGRID を探します。継承した属性を含む 10/11 属性と、外部マッピングのローカルな 3/4 属性の配置から U/V/W を読みます。配置やリストの形を確認できない場合は `ifc.grid.invalid` の `owner-layout`・`owner-list` で拒み、所属なしと仮定しません。ヘッダーの同名の記録はインスタンスとして数えません。取得対象そのものの複合 Grid を型へ写す操作は、この経路には追加していません。
+- AxisCurve は既存の曲線の取得を通し、全体が 2D であることを確認します。未知の曲線を含み次元を確認できない場合は、種類・出所を持つ `ifc.grid.unsupported` と `Error::Unsupported` にし、部分結果を返しません。元の曲線の未対応の診断も保持します。不正な参照・型・属性数・列・所属・次元・真偽は `ifc.grid.invalid` と `Error::Invalid` にします。
+
+| 版 | Grid の属性数 | PredefinedType | ObjectPlacement の省略 |
+| --- | ---: | --- | --- |
+| IFC2X3 TC1 | 10 | 属性なし | 不可（WR41） |
+| IFC4 ADD2 TC1 | 11 | 任意の 6 列挙 | 不可（HasPlacement） |
+| IFC4.3 ADD2 | 11 | 同じ 6 列挙 | ShapeRepresentation を含まなければ可 |
+
+列挙は RECTANGULAR・RADIAL・TRIANGULAR・IRREGULAR・USERDEFINED・NOTDEFINED です。IFC4.3 では Grid の HasPlacement が削除され、Product の PlacementForShapeRepresentation に従います。Representation が省略された場合と、参照先の Representations に ShapeRepresentation がない場合は、配置を `None` として保持します。配置の具体型は LocalPlacement・GridPlacement、4.3 では LinearPlacement も受け付けます。
+
+全走査とほかの Grid のリスト、選んだ軸のリスト、各曲線と追加の次元検査、文字列を共有の `Cx` で数えます。1 レコードの Work に先頭 Part を含め、複合のインスタンスでは後続 Part の数も走査前に予約します。停止診断には処理中のレコードの範囲を残します。確保前の DecodedBytes は、選んだリストごとに 256 と項目ごと 64、結果の容量を軸ごと 1024、文字列を元の長さの 12 倍と 32、未対応の種類の文字列を 6 倍として予約します。結果の容量の共通上限は 2,097,151 軸です。曲線の予約量も同じ予算で数え、入った深さはすべての経路で戻します。
+
+Building の Grid 成分の曲線、形の意味値の Hash、ほかの立体と断面は [#419](https://github.com/zumen-jp/zumen/issues/419) の残件です。公開タグ v0.2.0 と現在の main に追加された未公開 API を区別し、既存 API・ID・Hash v1・境界 op・版数は変えません。
+
+根拠は buildingSMART の [IFC2X3 Grid](https://standards.buildingsmart.org/IFC/RELEASE/IFC2x3/TC1/HTML/ifcproductextension/lexical/ifcgrid.htm)、[IFC4 Grid](https://standards.buildingsmart.org/IFC/RELEASE/IFC4/ADD2/HTML/schema/ifcproductextension/lexical/ifcgrid.htm)、[IFC4.3 Grid](https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcGrid.htm)、[GridAxis](https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcGridAxis.htm)、[Product の配置の条件](https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcProduct.htm) です。公式ページが取得できない場合は buildingSMART の [公式 HTML スナップショット](https://github.com/buildingSMART/Standards-builds/tree/main/IFC/RELEASE) で版を確認できます。スキーマや第三者の実装は同梱しません。
+
+### 通り芯の確かめ方
+
+`crates/zumen-ifc/tests/grids.rs` は合成の 3 版と公開の通り芯から、値・出所・順序・共有の範囲、配置の版差、反転の未適用、取得前後の既存の ID/Hash v1 を検査します。集合・所属・次元・真偽・循環・未対応、長いリストの確保前の予算、全 Kind の境界・中断・深さの復元、複数の走査位置と変異した入力も確認します。曲線と通り芯の外部照合用の JSON の書き方は `tests/support/curve_json.rs` で共有します。
+
+ほかの Grid が複合レコードである場合も、自作の 3 版で IFCGRID の先頭・後続、全属性・ローカル属性、二重所属・無関係の軸を確認します。未知の属性配置とリストの拒否、Part の走査前の予算と停止位置をネイティブと WASI の契約記録に含めます。この複合レコードの所属確認は `synthetic` の範囲です。
+
+IfcOpenShell 0.9.0.post1 との照合は、合成 3 Grid の 20 軸・26 曲線と、公開 1 Grid の 21 軸・21 曲線です。Grid の配置・表現の参照とレイアウト、U/V/W の順序と軸の参照・タグ・向き、曲線の全保持属性を、有限な数値の等値を許容差なしで比較します。共有を含む曲線の探索も外部の実装側で別にたどります。公開の 1 Grid が `external`、合成の 3 Grid は `synthetic` です。単位・曲線の補助レコード・診断・予算、配置・反転・幾何の評価はこの外部照合に含めません。
+
+```powershell
+$env:ZUMEN_IFC_GRIDS_OUT = Join-Path (Get-Location) 'target/grid-comparison'
+cargo test -p zumen-ifc --locked --test grids
+python -X utf8 -I crates/zumen-ifc/tests/ifcopenshell/grids.py target/grid-comparison
+$env:CARGO_TARGET_WASM32_WASIP1_RUNNER = 'node --no-warnings tests/wasi-grids.mjs'
+cargo test -p zumen-ifc --locked --test grids --target wasm32-wasip1 -- --test-threads 1
+node crates/zumen-ifc/tests/wasi-grids.mjs --compare target/grid-comparison target/grid-comparison-wasm
+```
+
+WASI の出力先は `target/grid-comparison-wasm` です。4 JSON と、診断・全 Kind の予算境界・中断・複数の走査位置を含む `contract.txt` のバイト列をネイティブと比較します。fuzz の `ifc` target は 16 Grid までこの経路へ渡し、形状表現の取得と予算を共有します。毎晩の既存 IfcOpenShell job でも export と外部照合を流します。
+
 ## 曲線を必要なときに取り出す
 
 Rust の `IfcFile::curve(instance, cx)` は、曲線のインスタンスを指定し、`zumen_building::CurveGraph` を返します。`building` の feature（既定で有効）が必要です。`IfcZipFile` では `file.ifc().curve(instance, cx)` と呼びます。要素の番号や `IfcGridAxis` の番号ではなく、それらから参照する曲線の番号を渡します。
@@ -265,5 +320,6 @@ cargo test -p zumen-ifc --locked --test curves --target wasm32-wasip1 -- --test-
 - 要素から形状表現をたどる L1 の取得: [形状表現の確かめ方](#形状表現の確かめ方)に従い、公開の柱の表現・写像と元の配置の参照・属性は `external`、合成の 3 版は `synthetic` の範囲で IfcOpenShell とも照合しました。曲線の取得へ渡す経路を確認しています。配置や写像を適用した形、立体・断面の型への変換は含みません。
 - 押し出しと閉じた外輪の断面: [押し出しの確かめ方](#押し出しの確かめ方)の公開 1 件が `external` です。合成の 3 版の 6 件は `synthetic` の範囲で IfcOpenShell とも照合しました。局所の値と SI 単位の保持の範囲で、配置・写像・単位の適用や形の評価は含みません。ほかの立体・断面、未検証の境界と Building への統合は残っています。
 - 面の表示の必要時の取得: [面の表示の確かめ方](#面の表示の確かめ方)の公開 1 件が `external` です。合成の 3 版の 6 件は `synthetic` の範囲で IfcOpenShell とも照合しました。色・透明度・Rendering の元の値と参照だけを比較し、表示・材質・レイヤ・写像による継承と反射の式は評価しません。Building の Style 成分と形の意味値の Hash は未実装です。
+- 通り芯の必要時の取得: [通り芯の確かめ方](#通り芯の確かめ方)の公開 1 Grid・21 軸・21 曲線が `external` です。合成 3 Grid・20 軸・26 曲線は `synthetic` の範囲で IfcOpenShell とも照合しました。元の属性と参照、順序・共有を比較し、配置・反転・幾何の評価と Building/Hash の統合は含みません。
 - 書き: `building_apply` でプロパティ・名前・説明を変えて書いた IFC4 と IFC2X3 を、毎晩の CI で IfcOpenShell 0.9.0.post1 で開く。変更が見え、スキーマと EXPRESS の規則の検査の誤りが増えないことを確かめる（`crates/zumen-ifc/tests/ifcopenshell/check.py`、#482）。BIM ソフトでは開いていない。BIM ソフトで開く確認は #526 で行う。[検証キット](../../xtask/verify/ifc/README.md)は公開 IFC4・IFC2X3 を CLI で編集し、期待値・対照の壁・元の形の行の保持を比較する。キットの生成と再読み込みは `synthetic` で、製品での `application` の確認には数えない。
 - 判定・インスタンスのグラフ・壊れた所の扱いと、上に記した属性以外の値は、外部の実装と照らしていない（IfcOpenShell と照らしたのは、上の値だけ）。公開サンプル 12 件は、自前のテストでも L1 で読み、変えずに書くと元のバイト列に戻ることと、写さない値の診断の code・実体のクラス・件数を確かめる（`crates/zumen-ifc/tests/samples.rs`）。壊れた所の扱いと ifcZIP は、仕様とテストの中で作ったファイルだけで確かめた。

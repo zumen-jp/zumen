@@ -2388,6 +2388,28 @@ pub const IFC_FILE_INVALID: Code = Code::new("ifc.file.invalid", Severity::Error
 pub const IFC_GLOBAL_ID_MISSING: Code =
     Code::new("ifc.global-id.missing", Severity::Warning, None, &[], &[]);
 
+/// 通り芯と軸の参照・所属・値に不正があり、結果を返さなかった
+///
+/// `ifc.grid.invalid`（0.3.0 から）
+pub const IFC_GRID_INVALID: Code = Code::new(
+    "ifc.grid.invalid",
+    Severity::Error,
+    None,
+    &[Param::new("reason", ParamType::Key)],
+    &["reason"],
+);
+
+/// 通り芯の軸に取得しない曲線の種類があり、結果を返さなかった
+///
+/// `ifc.grid.unsupported`（0.3.0 から）
+pub const IFC_GRID_UNSUPPORTED: Code = Code::new(
+    "ifc.grid.unsupported",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("kind", ParamType::Text)],
+    &["kind"],
+);
+
 /// IfcProjectedCRS の VerticalDatum が扱える高さの基準でないので、高さの基準を不明にした
 ///
 /// `ifc.height-datum.unsupported`（0.2.0 から）
@@ -4970,6 +4992,8 @@ pub const ALL: &[Code] = &[
     IFC_EXTRUSION_UNSUPPORTED,
     IFC_FILE_INVALID,
     IFC_GLOBAL_ID_MISSING,
+    IFC_GRID_INVALID,
+    IFC_GRID_UNSUPPORTED,
     IFC_HEIGHT_DATUM_UNSUPPORTED,
     IFC_MAP_CRS_MISSING,
     IFC_MAP_CRS_UNSUPPORTED,

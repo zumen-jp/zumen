@@ -1208,6 +1208,23 @@ group-by = ["reason"]
 since = "0.3.0"
 status = "active"
 
+[codes."ifc.grid.invalid"]
+description = "通り芯と軸の参照・所属・値に不正があり、結果を返さなかった"
+severity = "error"
+params = { reason = "key" }
+group-by = ["reason"]
+since = "0.3.0"
+status = "active"
+
+[codes."ifc.grid.unsupported"]
+description = "通り芯の軸に取得しない曲線の種類があり、結果を返さなかった"
+severity = "warning"
+fidelity = "dropped"
+params = { kind = "text" }
+group-by = ["kind"]
+since = "0.3.0"
+status = "active"
+
 [codes."ifc.style.invalid"]
 description = "形の項目に直接付いた表示の参照・集合・値に不正があり、結果を返さなかった"
 severity = "error"

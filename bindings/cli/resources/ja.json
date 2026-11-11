@@ -209,6 +209,8 @@
     "ifc.extrusion.unsupported": "押し出し・断面か境界の閉鎖を扱えないので、結果を返しませんでした（理由: {reason}、{count} 件）。",
     "ifc.file.invalid": "IFC のファイルとして読めませんでした。ISO 10303-21 の始まり・DATA のセクション・終わりのどれかがありません（{count} 件）。",
     "ifc.global-id.missing": "GlobalId がないので、インスタンスの番号で ID を作りました（{count} 件）。",
+    "ifc.grid.invalid": "通り芯と軸の参照・所属・値が不正なので、結果を返しませんでした（理由: {reason}、{count} 件）。",
+    "ifc.grid.unsupported": "通り芯の軸の曲線の種類 {kind} は扱えないので、結果を返しませんでした（{count} 件）。",
     "ifc.height-datum.unsupported": "高さの基準「{datum}」は扱えないので、不明にしました（{count} 件）。",
     "ifc.map-crs.missing": "IfcMapConversion か IfcProjectedCRS がないので、座標系を不明にし、プロジェクトの空間の点を地図の点として読みました（{count} 件）。",
     "ifc.map-crs.unsupported": "座標系「{name}」は扱えないので、座標系を不明にしました（{count} 件）。",
