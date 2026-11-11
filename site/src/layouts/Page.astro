@@ -18,13 +18,20 @@ const page = nav.find((item) => item.href === Astro.url.pathname);
 if (!page) {
   throw new Error(`site.ts の nav にないページです: ${Astro.url.pathname}`);
 }
-const { en, lead } = pages[page.href];
+const header = { title: page.label, ...pages[page.href], toc };
 ---
 
 <Base title={page.label} description={description}>
-  <PageHeader title={page.label} en={en} lead={lead} toc={toc}>
-    <slot name="drawing" />
-  </PageHeader>
+  {
+    // 図面を渡さないページでは、見出しを 2 列にしない（PageHeader は default の slot の有無で決める）。
+    Astro.slots.has('drawing') ? (
+      <PageHeader {...header}>
+        <slot name="drawing" />
+      </PageHeader>
+    ) : (
+      <PageHeader {...header} />
+    )
+  }
 
   <slot />
 

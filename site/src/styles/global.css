@@ -1321,4 +1321,9 @@ caption.skip {
   .footer {
     display: none;
   }
+
+  /* 図面を出さないので、見出しを 1 列にする */
+  .page-header-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }

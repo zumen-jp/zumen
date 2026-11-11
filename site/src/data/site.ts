@@ -87,7 +87,7 @@ export const formats: Format[] = [
     about: '設備の CAD データ・機器のデータ',
     read: '×',
     write: '×',
-    place: '権利を確かめられるまで扱わない',
+    place: '扱わない',
   },
 ];
 

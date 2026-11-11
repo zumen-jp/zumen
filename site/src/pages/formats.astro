@@ -5,22 +5,23 @@ import SectionHead from '../components/SectionHead.astro';
 import { formats, releasedSource, releaseVersion, repo } from '../data/site';
 import Page from '../layouts/Page.astro';
 
-// 実装を置く所ごとの考え方。対応形式の表の「置き場所」と同じ言葉で、形式を振り分ける（formats/README.md）。
+// 実装を置く所ごとの考え方。対応形式の表の「置き場所」と同じ言葉で、形式を振り分ける。
+// 定義は形式の権利の台帳（formats/ledger.toml の rights と place）に合わせる。
 const places = [
   {
     title: 'コア',
     place: 'コア',
-    body: '実装を公開するのに第三者の許諾が要らない形式です。このリポジトリで作り、どの言語からも同じように使えます。',
+    body: '実装を公開するのに第三者の許諾が要らない形式です。このリポジトリで作ります。読む・書くが「○」のものは、どの言語からも同じように使えます。',
   },
   {
     title: '外部のプラグイン',
     place: '外部のプラグイン',
-    body: '実装を公開するのに第三者の許諾が要る形式です。コアと同じ SDK で、別のリポジトリに作ります。',
+    body: '権利を持つ団体と利用許諾を結べば、実装を公開できる形式です。コアと同じ SDK で、別のリポジトリに作ります。',
   },
   {
     title: '扱わない',
-    place: '権利を確かめられるまで扱わない',
-    body: '権利を確かめられるまで、コアにもプラグインにも入れません。',
+    place: '扱わない',
+    body: '権利の持ち主が分からない形式と、持ち主が公開の実装を認めていない形式です。コアにもプラグインにも入れません。',
   },
 ].map((p) => ({ ...p, names: formats.filter((f) => f.place === p.place).map((f) => f.name) }));
 ---
