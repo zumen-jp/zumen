@@ -236,7 +236,7 @@ fn limited<T>(
 
 /// 同じバイト列から、記録した一覧と同じ ID が出る（ID の契約テスト）。`ids` は、バイト列を読んで ID の一覧を
 /// 作る関数で、2 回呼んで同じになることも確かめる。`recorded` は 1 行に 1 つの ID で、空の行は飛ばす。ID を
-/// 変えるには、実装の前に schema/README.md の ID の契約と移行方法を PR で確認する
+/// 変えるときは、schema/README.md の「ID と編集の前提条件」に従う
 pub fn ids_match(
     src: &[u8],
     recorded: &str,
