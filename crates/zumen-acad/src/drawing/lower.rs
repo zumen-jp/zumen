@@ -828,6 +828,16 @@ impl Maps<'_> {
             }
             _ => {}
         }
+        if let (Shape::Curve(Edge::Spline(before)), Shape::Curve(Edge::Spline(after))) =
+            (&element.shape, &shape)
+        {
+            if before.fit_tolerance != after.fit_tolerance {
+                reasons.push("spline_fit_tolerance");
+            }
+            if before.knot_parameterization != after.knot_parameterization {
+                reasons.push("spline_knot_parameterization");
+            }
+        }
         if let (Shape::Symbol(symbol), Some(name)) = (&mut shape, block) {
             name.clone_into(&mut symbol.key.name);
         }

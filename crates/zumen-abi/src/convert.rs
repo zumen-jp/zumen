@@ -107,6 +107,11 @@ impl Relocate for Geometric {
 /// 基本図形は同じ意味の形へ移す。文字・注記・記号は API の形の値にない意味があるため、見た目だけとする
 fn geometric_fidelity<P>(shape: &Shape<P>) -> zumen_acad::ConversionFidelity {
     match shape {
+        Shape::Curve(zumen_drawing::Edge::Spline(spline))
+            if spline.fit_tolerance.is_some() || spline.knot_parameterization.is_some() =>
+        {
+            zumen_acad::ConversionFidelity::Drawn
+        }
         Shape::Line { .. }
         | Shape::Circle { .. }
         | Shape::Curve(_)
@@ -271,6 +276,94 @@ mod tests {
                 .iter()
                 .take(Diagnostics::DEFAULT_MAX_PLACES)
                 .collect::<Vec<_>>()
+        );
+    }
+
+    /// API の形の値を通すとスプラインの許容差とノットの取り方が失われるため、等価と予告しない
+    #[test]
+    fn the_estimate_exposes_spline_parameters_that_the_api_does_not_write() {
+        use zumen_drawing::{Edge, KnotParameterization, Spline};
+        use zumen_sdk::Lift;
+
+        let mut budget = Budget::default();
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+        let mut drawing = drawing(&mut cx);
+        let space = drawing.spaces.first_mut().unwrap();
+        let mut element = space.elements.first().unwrap().clone();
+        element.source = Ref::at_record(987);
+        element.shape = Shape::Curve(Edge::Spline(Spline {
+            degree: 3,
+            knots: Vec::new(),
+            control: Vec::new(),
+            weights: Vec::new(),
+            fit: vec![
+                ModelPoint {
+                    space: space.id,
+                    x: 0.0,
+                    y: 0.0,
+                },
+                ModelPoint {
+                    space: space.id,
+                    x: 10.0,
+                    y: 3.0,
+                },
+                ModelPoint {
+                    space: space.id,
+                    x: 20.0,
+                    y: 0.0,
+                },
+            ],
+            start_tangent: None,
+            end_tangent: None,
+            closed: false,
+            periodic: false,
+            fit_tolerance: Some(0.25),
+            knot_parameterization: Some(KnotParameterization::Uniform),
+        }));
+        space.elements.push(element);
+        let converted = to_dxf_with_report(&drawing, 1000, &mut cx).ok().unwrap();
+        let detail = converted
+            .report
+            .details
+            .iter()
+            .find(|row| row.kind == "curve" && row.source.record() == Some(987))
+            .unwrap();
+        assert_eq!(detail.fidelity, zumen_acad::ConversionFidelity::Drawn);
+        assert_eq!(detail.output_elements, 1);
+        assert!(
+            detail
+                .reasons
+                .iter()
+                .any(|reason| reason == "relocated_shape")
+        );
+        assert!(
+            detail
+                .reasons
+                .iter()
+                .any(|reason| reason == "spline_fit_tolerance")
+        );
+        assert!(
+            detail
+                .reasons
+                .iter()
+                .any(|reason| reason == "spline_knot_parameterization")
+        );
+        let read = converted.file.lift(&mut cx).unwrap();
+        let written = read
+            .spaces
+            .iter()
+            .flat_map(|space| &space.elements)
+            .find_map(|element| match &element.shape {
+                Shape::Curve(Edge::Spline(spline)) => Some(spline),
+                _ => None,
+            })
+            .unwrap();
+        assert_ne!(written.fit_tolerance, Some(0.25));
+        assert_ne!(
+            written.knot_parameterization,
+            Some(KnotParameterization::Uniform)
         );
     }
 }

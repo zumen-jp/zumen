@@ -55,14 +55,24 @@ function download(bytes, name) {
   setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 const fidelities = { native: "保持", equivalent: "等価", approximated: "近似", drawn: "見た目だけ", dropped: "欠落" };
-const reasons = { text_height_meaning: "文字高の意味を変更", relocated_shape: "形の値を変更", style_default: "既定のスタイルに変更", detached_attribute: "属性を文字に分離", baked_view: "ビューを要素に変換", reference_dropped: "参照を欠落" };
+const reasons = {
+  text_height_meaning: "文字高の意味を変更", relocated_shape: "形の値を変更", style_default: "既定のスタイルに変更",
+  detached_attribute: "属性を文字に分離", baked_view: "ビューを要素に変換", reference_dropped: "参照を欠落",
+  template_definition: "出力先の既定の定義を使用", template_sheet: "用紙の設定を変更", format_extension: "形式固有の情報を欠落",
+  semantic_fields: "表題欄の項目を欠落", document_default: "文書の既定値を欠落", unmapped_header: "移せないヘッダーの値を欠落",
+  sheet: "対応しない用紙の要素を欠落",
+  spline_fit_tolerance: "スプラインのフィット許容差を変更", spline_knot_parameterization: "スプラインのノットの取り方を変更",
+};
 const kinds = {
-  line: "線", polyline: "折れ線", arc: "円弧", circle: "円", ellipse: "楕円", spline: "スプライン", point: "点",
+  line: "線", polyline: "折れ線", curve: "曲線", arc: "円弧", circle: "円", ellipse: "楕円", spline: "スプライン", point: "点",
   text: "文字", formatted: "書式付き文字", formatted_text: "書式付き文字", dimension: "寸法", leader: "引出線", callout: "注記",
-  symbol: "記号", external_symbol: "外部参照の記号", hatch: "ハッチング", table: "表", raster: "下絵", image: "画像",
+  symbol: "記号", external_symbol: "外部参照の記号", hatch: "ハッチング", table: "表", underlay: "下絵", raster: "下絵", image: "画像",
   sheet: "用紙", view: "ビュー", layer: "レイヤ", line_type: "線種", text_style: "文字スタイル", dimension_style: "寸法スタイル",
   attribute: "属性", attribute_definition: "属性定義", symbol_definition: "記号の定義", duplicate_symbol_definition: "重複する記号の定義",
   external_symbol_definition: "外部参照の定義",
+  extension: "形式固有の情報", title_block: "表題欄", layer_description: "レイヤの説明", layer_transparency: "レイヤの透過性",
+  line_type_scale: "文書の線種尺度", default_line_weight: "既定の線幅", default_color: "既定の色", default_line_type: "既定の線種",
+  point_style: "点の表し方", header: "ヘッダー", record: "レコード",
 };
 function Estimate({ estimate }) {
   return <section aria-labelledby="estimate-title">
