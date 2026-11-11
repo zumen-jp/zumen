@@ -173,6 +173,10 @@ jobs:
         run: ZUMEN_IFC_STYLES_OUT="$RUNNER_TEMP/styles" cargo test --locked -p zumen-ifc --all-features --test styles writes_styles_for_other_readers
       - name: 面の色・透明度・反射の指定を IfcOpenShell の元属性と照らす
         run: python -I crates/zumen-ifc/tests/ifcopenshell/styles.py "$RUNNER_TEMP/styles"
+      - name: 通り芯から取得した軸と曲線の値を書く
+        run: ZUMEN_IFC_GRIDS_OUT="$RUNNER_TEMP/grids" cargo test --locked -p zumen-ifc --all-features --test grids writes_grids_for_other_readers
+      - name: 通り芯の所属・向きと曲線の元属性を IfcOpenShell と照らす
+        run: python -I crates/zumen-ifc/tests/ifcopenshell/grids.py "$RUNNER_TEMP/grids"
 
   laspy:
     name: 非圧縮 LAS の読みを laspy と照らす

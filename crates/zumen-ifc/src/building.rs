@@ -21,10 +21,12 @@ use crate::{IfcFile, IfcZipFile, Record, Value, at_bytes, stopped};
 
 mod curve;
 mod extrusion;
+mod grid;
 mod semantic;
 mod shape;
 mod style;
 pub use extrusion::{ExtrudedArea, ExtrusionSource};
+pub use grid::{GridAxes, GridAxisCurve, GridSource};
 pub use shape::{ProductShape, ShapeLinks, ShapeNode, ShapeRef};
 pub use style::{ItemStyleSource, ItemSurfaceStyles, SurfaceStyleBinding, SurfaceStyleSource};
 
