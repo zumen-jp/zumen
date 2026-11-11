@@ -17,6 +17,7 @@ Request = Union[
     "EntitiesRequest",
     "ApplyRequest",
     "ConvertRequest",
+    "ConvertEstimateRequest",
     "TablesRequest",
     "SceneRequest",
     "CheckRequest",
@@ -1337,6 +1338,136 @@ ConvertResult = TypedDict(
         "elements": int,
     },
 )
+
+
+# 開いた図面を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。今は DXF への変換だけ。マイナーバージョン 66 から
+_ConvertEstimateRequestRequired = TypedDict(
+    "_ConvertEstimateRequestRequired",
+    {
+        # メッセージのスキーマのメジャーバージョン。今は 1
+        "v": int,
+        # op の名前
+        "op": Literal["convert_estimate"],
+        # 書く元の文書の名前
+        "doc": str,
+        # 書く形式の名前。今は dxf だけ
+        "format": str,
+        # 予定する文書の名前。convert と同じ条件で検査するが、名前を確保しない
+        "to": str,
+    },
+)
+_ConvertEstimateRequestOptional = TypedDict(
+    "_ConvertEstimateRequestOptional",
+    {
+        # 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        "budget": "Budget",
+        # 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        "partial": bool,
+        # 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        "max_places": int,
+        # 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        "time_limit_ms": int,
+        # 返す明細の最大件数。省略時は 100。総数と種類・忠実度ごとの集計はこの上限によらない
+        "limit": int,
+    },
+    total=False,
+)
+
+
+class ConvertEstimateRequest(_ConvertEstimateRequestRequired, _ConvertEstimateRequestOptional):
+    "開いた図面を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。今は DXF への変換だけ。マイナーバージョン 66 から"
+
+
+# 予定する変換の結果。元の文書・ID を保ち、ファイルの blob を返さない
+ConvertEstimateResult = TypedDict(
+    "ConvertEstimateResult",
+    {
+        # 予定する出力と忠実度の全件集計・上限付き明細
+        "estimate": "ConversionEstimate",
+    },
+)
+
+
+# 実変換と同じ処理で準備した出力。doc と hash は未登録の予定値。元の入力・設定・予算が同じなら convert の値と一致する
+ConversionEstimate = TypedDict(
+    "ConversionEstimate",
+    {
+        # 予定する文書の名前
+        "doc": str,
+        # 予定する形式の名前
+        "format": str,
+        # 予定する出力バイト列のハッシュ。未登録なので apply の前提条件には使えない
+        "hash": str,
+        # 予定する出力の要素数。記号から離す属性の文字を含む
+        "elements": int,
+        # 処理対象の出現数。同じ出所を持つ別の入力は別々に数え、診断の数では増やさない
+        "total": int,
+        # 種類と忠実度ごとの全件集計
+        "counts": List["ConversionCount"],
+        # 処理順の明細。limit 件まで返す
+        "details": List["ConversionDetail"],
+        # 明細の上限で返さなかった対象がある
+        "truncated": bool,
+    },
+)
+
+
+# 処理対象の種類と忠実度ごとの集計
+ConversionCount = TypedDict(
+    "ConversionCount",
+    {
+        # 処理対象の種類のキー
+        "kind": str,
+        # その対象を移した結果の忠実度
+        "fidelity": "ConversionFidelity",
+        # 入力の出現数。1 つの入力が複数の出力になっても 1 件
+        "count": int,
+        # この対象から書いた図形の数。表や参照だけを移した場合は 0
+        "output_elements": int,
+    },
+)
+
+
+# 処理対象の出現 1 つ。複数の欠落の診断が出ても 1 件として数える
+_ConversionDetailRequired = TypedDict(
+    "_ConversionDetailRequired",
+    {
+        # 処理対象の種類のキー
+        "kind": str,
+        # その対象を移した結果の忠実度
+        "fidelity": "ConversionFidelity",
+        # 値や参照を変えた理由のキー。text_height_meaning は文字高の意味、relocated_shape は形の値、style_default はスタイルの既定値、detached_attribute は属性の文字への分離、baked_view はビューの焼き込み、reference_dropped は参照の欠落
+        "reasons": List[str],
+        # 元の対象のレコード・バイト範囲・キー
+        "source": "Source",
+        # この対象から書いた図形の数。表や参照だけを移した場合は 0
+        "output_elements": int,
+    },
+)
+_ConversionDetailOptional = TypedDict(
+    "_ConversionDetailOptional",
+    {
+        # 元の要素の ID。持つ対象だけで返す
+        "id": str,
+    },
+    total=False,
+)
+
+
+class ConversionDetail(_ConversionDetailRequired, _ConversionDetailOptional):
+    "処理対象の出現 1 つ。複数の欠落の診断が出ても 1 件として数える"
+
+# 忠実度。`native` は元の値・参照を保持、`equivalent` は別の表現で同じ意味、`approximated` は近似、`drawn` は見た目だけ、`dropped` は欠落
+ConversionFidelity = Union[
+    Literal[
+        "native",
+        "equivalent",
+        "approximated",
+        "drawn",
+        "dropped",
+    ],
+    str,
+]
 
 
 # 当てた変更 1 つの結果
@@ -5762,6 +5893,7 @@ Operation = Literal[
     "entities",
     "apply",
     "convert",
+    "convert_estimate",
     "tables",
     "scene",
     "check",
@@ -5798,6 +5930,7 @@ OPERATIONS: Dict[str, Any] = {
     "entities": ("EntitiesRequest", "EntitiesResult"),
     "apply": ("ApplyRequest", "ApplyResult"),
     "convert": ("ConvertRequest", "ConvertResult"),
+    "convert_estimate": ("ConvertEstimateRequest", "ConvertEstimateResult"),
     "tables": ("TablesRequest", "TablesResult"),
     "scene": ("SceneRequest", "SceneResult"),
     "check": ("CheckRequest", "CheckResult"),

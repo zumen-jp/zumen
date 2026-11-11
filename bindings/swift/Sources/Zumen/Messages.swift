@@ -54,6 +54,11 @@ public struct Request: Message {
         taggedView("op", "convert")
     }
 
+    /// op が convert_estimate の形なら、そのビュー。違えば nil
+    public var asConvertEstimateRequest: ConvertEstimateRequest? {
+        taggedView("op", "convert_estimate")
+    }
+
     /// op が tables の形なら、そのビュー。違えば nil
     public var asTablesRequest: TablesRequest? {
         taggedView("op", "tables")
@@ -2664,6 +2669,271 @@ public struct ConvertResult: Message {
         get { readField("elements") }
         set { writeField("elements", newValue) }
     }
+}
+
+/// 開いた図面を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。今は DXF への変換だけ。マイナーバージョン 66 から
+public struct ConvertEstimateRequest: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// タグのフィールドだけを持つオブジェクトから作る
+    public init() {
+        json = ["op": .string("convert_estimate")]
+    }
+
+    /// メッセージのスキーマのメジャーバージョン。今は 1
+    public var v: Int64? {
+        get { readField("v") }
+        set { writeField("v", newValue) }
+    }
+
+    /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+    public var budget: Budget? {
+        get { readField("budget") }
+        set { writeField("budget", newValue) }
+    }
+
+    /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+    public var partial: Bool? {
+        get { readField("partial") }
+        set { writeField("partial", newValue) }
+    }
+
+    /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+    public var maxPlaces: Int64? {
+        get { readField("max_places") }
+        set { writeField("max_places", newValue) }
+    }
+
+    /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    public var timeLimitMs: Int64? {
+        get { readField("time_limit_ms") }
+        set { writeField("time_limit_ms", newValue) }
+    }
+
+    /// op の名前
+    public var op: String? {
+        get { readField("op") }
+        set { writeField("op", newValue) }
+    }
+
+    /// 書く元の文書の名前
+    public var doc: String? {
+        get { readField("doc") }
+        set { writeField("doc", newValue) }
+    }
+
+    /// 書く形式の名前。今は dxf だけ
+    public var format: String? {
+        get { readField("format") }
+        set { writeField("format", newValue) }
+    }
+
+    /// 予定する文書の名前。convert と同じ条件で検査するが、名前を確保しない
+    public var to: String? {
+        get { readField("to") }
+        set { writeField("to", newValue) }
+    }
+
+    /// 返す明細の最大件数。省略時は 100。総数と種類・忠実度ごとの集計はこの上限によらない
+    public var limit: Int64? {
+        get { readField("limit") }
+        set { writeField("limit", newValue) }
+    }
+}
+
+/// 予定する変換の結果。元の文書・ID を保ち、ファイルの blob を返さない
+public struct ConvertEstimateResult: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 予定する出力と忠実度の全件集計・上限付き明細
+    public var estimate: ConversionEstimate? {
+        get { readField("estimate") }
+        set { writeField("estimate", newValue) }
+    }
+}
+
+/// 実変換と同じ処理で準備した出力。doc と hash は未登録の予定値。元の入力・設定・予算が同じなら convert の値と一致する
+public struct ConversionEstimate: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 予定する文書の名前
+    public var doc: String? {
+        get { readField("doc") }
+        set { writeField("doc", newValue) }
+    }
+
+    /// 予定する形式の名前
+    public var format: String? {
+        get { readField("format") }
+        set { writeField("format", newValue) }
+    }
+
+    /// 予定する出力バイト列のハッシュ。未登録なので apply の前提条件には使えない
+    public var hash: String? {
+        get { readField("hash") }
+        set { writeField("hash", newValue) }
+    }
+
+    /// 予定する出力の要素数。記号から離す属性の文字を含む
+    public var elements: Int64? {
+        get { readField("elements") }
+        set { writeField("elements", newValue) }
+    }
+
+    /// 処理対象の出現数。同じ出所を持つ別の入力は別々に数え、診断の数では増やさない
+    public var total: Int64? {
+        get { readField("total") }
+        set { writeField("total", newValue) }
+    }
+
+    /// 種類と忠実度ごとの全件集計
+    public var counts: [ConversionCount]? {
+        get { readField("counts") }
+        set { writeField("counts", newValue) }
+    }
+
+    /// 処理順の明細。limit 件まで返す
+    public var details: [ConversionDetail]? {
+        get { readField("details") }
+        set { writeField("details", newValue) }
+    }
+
+    /// 明細の上限で返さなかった対象がある
+    public var truncated: Bool? {
+        get { readField("truncated") }
+        set { writeField("truncated", newValue) }
+    }
+}
+
+/// 処理対象の種類と忠実度ごとの集計
+public struct ConversionCount: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 処理対象の種類のキー
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// その対象を移した結果の忠実度
+    public var fidelity: String? {
+        get { readField("fidelity") }
+        set { writeField("fidelity", newValue) }
+    }
+
+    /// 入力の出現数。1 つの入力が複数の出力になっても 1 件
+    public var count: Int64? {
+        get { readField("count") }
+        set { writeField("count", newValue) }
+    }
+
+    /// この対象から書いた図形の数。表や参照だけを移した場合は 0
+    public var outputElements: Int64? {
+        get { readField("output_elements") }
+        set { writeField("output_elements", newValue) }
+    }
+}
+
+/// 処理対象の出現 1 つ。複数の欠落の診断が出ても 1 件として数える
+public struct ConversionDetail: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 処理対象の種類のキー
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// その対象を移した結果の忠実度
+    public var fidelity: String? {
+        get { readField("fidelity") }
+        set { writeField("fidelity", newValue) }
+    }
+
+    /// 値や参照を変えた理由のキー。text_height_meaning は文字高の意味、relocated_shape は形の値、style_default はスタイルの既定値、detached_attribute は属性の文字への分離、baked_view はビューの焼き込み、reference_dropped は参照の欠落
+    public var reasons: [String]? {
+        get { readField("reasons") }
+        set { writeField("reasons", newValue) }
+    }
+
+    /// 元の要素の ID。持つ対象だけで返す
+    public var id: String? {
+        get { readField("id") }
+        set { writeField("id", newValue) }
+    }
+
+    /// 元の対象のレコード・バイト範囲・キー
+    public var source: Source? {
+        get { readField("source") }
+        set { writeField("source", newValue) }
+    }
+
+    /// この対象から書いた図形の数。表や参照だけを移した場合は 0
+    public var outputElements: Int64? {
+        get { readField("output_elements") }
+        set { writeField("output_elements", newValue) }
+    }
+}
+
+/// 忠実度。`native` は元の値・参照を保持、`equivalent` は別の表現で同じ意味、`approximated` は近似、`drawn` は見た目だけ、`dropped` は欠落
+///
+/// 列挙の値。知らない値も受け取る
+public enum ConversionFidelity {
+    public static let native = "native"
+    public static let equivalent = "equivalent"
+    public static let approximated = "approximated"
+    public static let drawn = "drawn"
+    public static let dropped = "dropped"
 }
 
 /// 当てた変更 1 つの結果
@@ -11043,6 +11313,7 @@ public enum Operations {
     public static let entities = "entities"
     public static let apply = "apply"
     public static let convert = "convert"
+    public static let convertEstimate = "convert_estimate"
     public static let tables = "tables"
     public static let scene = "scene"
     public static let check = "check"

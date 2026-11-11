@@ -134,6 +134,14 @@ fn read_drawing(calls: &mut Calls, doc: &str, summary: &Reply, depth: Depth) {
     }
     // DXF に書く（決定 0139）
     let to = format!("{doc}.dxf");
+    // 見積もりは同じ出力名を確保せず、後の実変換を妨げない（#645）。明細は小さく制限する。
+    calls.call("convert_estimate", |out| {
+        field(out, "doc", doc);
+        field(out, "format", "dxf");
+        field(out, "to", &to);
+        out.key("limit");
+        out.uint(4);
+    });
     if calls
         .call("convert", |out| {
             field(out, "doc", doc);

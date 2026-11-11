@@ -3,7 +3,7 @@ import { useDrawing, useDrawingViewer, useViewerState } from "@zumen-jp/react";
 import { VIEW_SCALE_LIMITS } from "@zumen-jp/view2d";
 import { samples } from "virtual:samples";
 import { catalog, loadModule } from "./module.js";
-import { Diagnostics, Inspector } from "./inspector.jsx";
+import { Diagnostics, Inspector, Pages } from "./inspector.jsx";
 
 // 線は案内のサイトの文字の色（DADS の solid-gray-800）、選択はサイトの主の色の青と見分けられる橙（orange-800）にする。
 const viewOptions = Object.freeze({ foreground: "#333333", selectionColor: "#c74700" });
@@ -54,32 +54,89 @@ function download(bytes, name) {
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 0);
 }
-// 開いた図面を DXF に変換して、ブラウザーのダウンロードで保存する。図面は外へ送らない（決定 0206、#690）。
+const fidelities = { native: "保持", equivalent: "等価", approximated: "近似", drawn: "見た目だけ", dropped: "欠落" };
+const reasons = { text_height_meaning: "文字高の意味を変更", relocated_shape: "形の値を変更", style_default: "既定のスタイルに変更", detached_attribute: "属性を文字に分離", baked_view: "ビューを要素に変換", reference_dropped: "参照を欠落" };
+const kinds = {
+  line: "線", polyline: "折れ線", arc: "円弧", circle: "円", ellipse: "楕円", spline: "スプライン", point: "点",
+  text: "文字", formatted: "書式付き文字", formatted_text: "書式付き文字", dimension: "寸法", leader: "引出線", callout: "注記",
+  symbol: "記号", external_symbol: "外部参照の記号", hatch: "ハッチング", table: "表", raster: "下絵", image: "画像",
+  sheet: "用紙", view: "ビュー", layer: "レイヤ", line_type: "線種", text_style: "文字スタイル", dimension_style: "寸法スタイル",
+  attribute: "属性", attribute_definition: "属性定義", symbol_definition: "記号の定義", duplicate_symbol_definition: "重複する記号の定義",
+  external_symbol_definition: "外部参照の定義",
+};
+function Estimate({ estimate }) {
+  return <section aria-labelledby="estimate-title">
+    <h3 id="estimate-title">保存前の見積もり</h3>
+    <p>対象 {estimate.total} 件から、DXF に要素 {estimate.elements} 件を書きます。属性の文字など、1 件から複数の要素を書く場合があります。</p>
+    <dl className="properties">{Object.entries(fidelities).map(([fidelity, title]) => <React.Fragment key={fidelity}>
+      <dt>{title}</dt><dd>{estimate.counts.filter((row) => row.fidelity === fidelity).reduce((total, row) => total + row.count, 0)} 件</dd>
+    </React.Fragment>)}</dl>
+    <details><summary>種類ごとの見積もり</summary>
+      <Pages count={estimate.counts.length} label="種類">{(i) => {
+        const row = estimate.counts[i];
+        return <>{kinds[row.kind] ?? row.kind}・{fidelities[row.fidelity] ?? row.fidelity}: {row.count} 件（出力 {row.output_elements} 件）</>;
+      }}</Pages>
+    </details>
+    <details><summary>元の場所と見積もり</summary>
+      <Pages count={estimate.details.length} label="明細">{(i) => {
+        const row = estimate.details[i], source = row.source;
+        return <>{kinds[row.kind] ?? row.kind}・{fidelities[row.fidelity] ?? row.fidelity}（出力 {row.output_elements} 件）
+          <span className="detail">{row.id}{source.record != null && " レコード " + source.record}{source.handle && " ハンドル " + source.handle}
+            {source.instance != null && " インスタンス " + source.instance}{source.bytes && " バイト " + source.bytes.start + "〜" + source.bytes.end}</span>
+          {row.reasons.length > 0 && <span className="detail">{row.reasons.map((reason) => reasons[reason] ?? reason).join("・")}</span>}</>;
+      }}</Pages>
+      {estimate.truncated && <p>明細は先頭 {estimate.details.length} 件です。件数の集計はすべての対象を含みます。</p>}
+    </details>
+  </section>;
+}
+// 開いた図面の見積もりを確認してから DXF を保存する。図面は外へ送らない（#645・#690）。
 function Export({ opened, name }) {
   const [state, setState] = useState({ status: "idle" });
-  const busy = state.status === "busy";
+  const active = useRef(null), pending = useRef(false);
+  useLayoutEffect(() => {
+    active.current = opened;
+    setState({ status: "idle" });
+    return () => { active.current = null; };
+  }, [opened]);
+  const busy = state.status === "estimating" || state.status === "saving";
+  async function estimate() {
+    if (pending.current) return;
+    pending.current = true;
+    setState({ status: "estimating" });
+    try {
+      const preview = await opened.estimate();
+      if (active.current === opened) setState({ status: "estimated", preview, diagnostics: preview.diagnostics });
+    } catch (error) {
+      if (active.current === opened) setState({ status: "error", diagnostics: error.diagnostics ?? [], message: error.message });
+    } finally { pending.current = false; }
+  }
   async function save() {
     // 変換の間もボタンのフォーカスを保つよう、disabled にせず、続けて押したものを無視する
-    if (busy) return;
-    setState({ status: "busy" });
+    if (pending.current || !state.preview) return;
+    pending.current = true;
+    const preview = state.preview;
+    setState({ status: "saving", preview, diagnostics: preview.diagnostics });
     try {
-      const { bytes, result, diagnostics } = await opened.convert();
+      const { bytes, result, diagnostics } = await opened.convert(preview);
+      if (active.current !== opened) return;
       download(bytes, dxfName(name));
-      setState({ status: "done", result, diagnostics });
+      setState({ status: "done", preview, result, diagnostics });
     } catch (error) {
-      setState({ status: "error", diagnostics: error.diagnostics ?? [], message: error.message });
-    }
+      if (active.current === opened) setState({ status: "error", diagnostics: error.diagnostics ?? [], message: error.message });
+    } finally { pending.current = false; }
   }
   return <section aria-labelledby="export-title" className="export">
     <h2 id="export-title">DXF で保存</h2>
-    <p>開いた図面を DXF に変換して、このブラウザーのダウンロードで保存します。書けない値は、変換の診断に種類・件数・場所を出します。</p>
-    <button aria-disabled={busy} onClick={save}>DXF で保存</button>
+    <p>保存前に、保てるものと、近似・欠落するものを確認できます。変換と保存は、このブラウザーの中で行います。</p>
+    <button aria-disabled={busy} onClick={estimate}>保存前の見積もりを確認</button>
+    {state.preview && <Estimate estimate={state.preview.result.estimate}/>}
+    {state.status === "estimated" || state.status === "saving" || state.status === "done" ? <button aria-disabled={busy || state.status === "done"} onClick={state.status === "done" ? undefined : save}>DXF で保存</button> : null}
     <div role="status" aria-live="polite" aria-atomic="true">
-      {state.status === "busy" ? "変換しています。" : state.status === "done" ? dxfName(name) + " のダウンロードを始めました（要素 " + state.result.elements + " 件・変換の診断 " + state.diagnostics.length + " 件）。"
+      {state.status === "estimating" ? "見積もりを作っています。" : state.status === "estimated" ? "見積もりを確認して、DXF で保存してください。" : state.status === "saving" ? "変換しています。" : state.status === "done" ? dxfName(name) + " のダウンロードを始めました（要素 " + state.result.elements + " 件・変換の診断 " + state.diagnostics.length + " 件）。"
         : state.status === "error" ? "変換できませんでした。" : ""}
     </div>
     {state.status === "error" && !state.diagnostics.some(({ diagnostic }) => diagnostic.severity === "error") && <details><summary>エラーの詳細</summary><p>{state.message}</p></details>}
-    {(state.status === "done" || state.status === "error") && <Diagnostics entries={state.diagnostics} issues={[]} title="変換の診断" id="export-diagnostics-title"/>}
+    {state.diagnostics && <Diagnostics entries={state.diagnostics} issues={[]} title={state.status === "done" ? "変換の診断" : "見積もりの診断"} id="export-diagnostics-title"/>}
   </section>;
 }
 export function Playground() {
@@ -215,7 +272,7 @@ export function Playground() {
     </div>
     {failed && !opened.diagnostics?.length && <details><summary>エラーの詳細</summary><p>{(fetchError ?? renderError ?? opened.error)?.message}</p></details>}
     {(ready || failed) && <Diagnostics entries={opened.diagnostics ?? []} issues={ready ? viewer.getReport().issues : []}/>}
-    {ready && <Export key={opened.input.document.hash} opened={opened} name={file?.name}/>}
+    {ready && opened.canEstimate && <Export key={opened.input.document.hash} opened={opened} name={file?.name}/>}
     <section aria-labelledby="report-title" className="export">
       <h2 id="report-title">不具合を知らせる</h2>
       <p>操作や表示の不具合は <a href="https://github.com/zumen-jp/zumen/issues">GitHub の issue</a> にお知らせください。受け取った図面・顧客の名前・図面の中身は、公開の issue に貼らないでください。</p>

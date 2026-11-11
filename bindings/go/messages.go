@@ -70,6 +70,11 @@ func (u Request) AsConvertRequest() *ConvertRequest {
 	return asTagged[ConvertRequest](u, "op", "convert")
 }
 
+// AsConvertEstimateRequest は、op が convert_estimate の形なら、その型で読む。違えば nil。
+func (u Request) AsConvertEstimateRequest() *ConvertEstimateRequest {
+	return asTagged[ConvertEstimateRequest](u, "op", "convert_estimate")
+}
+
 // AsTablesRequest は、op が tables の形なら、その型で読む。違えば nil。
 func (u Request) AsTablesRequest() *TablesRequest {
 	return asTagged[TablesRequest](u, "op", "tables")
@@ -1569,6 +1574,135 @@ type ConvertResult struct {
 	// 書いた要素の数。記号から離した属性の文字を含む
 	Elements *int64 `json:"elements,omitempty"`
 }
+
+// ConvertEstimateRequest: 開いた図面を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。今は DXF への変換だけ。マイナーバージョン 66 から
+type ConvertEstimateRequest struct {
+	// メッセージのスキーマのメジャーバージョン。今は 1
+	V *int64 `json:"v,omitempty"`
+
+	// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+	Budget *Budget `json:"budget,omitempty"`
+
+	// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+	Partial *bool `json:"partial,omitempty"`
+
+	// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+	MaxPlaces *int64 `json:"max_places,omitempty"`
+
+	// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+	TimeLimitMs *int64 `json:"time_limit_ms,omitempty"`
+
+	// op の名前
+	Op string `json:"op,omitempty"`
+
+	// 書く元の文書の名前
+	Doc *string `json:"doc,omitempty"`
+
+	// 書く形式の名前。今は dxf だけ
+	Format *string `json:"format,omitempty"`
+
+	// 予定する文書の名前。convert と同じ条件で検査するが、名前を確保しない
+	To *string `json:"to,omitempty"`
+
+	// 返す明細の最大件数。省略時は 100。総数と種類・忠実度ごとの集計はこの上限によらない
+	Limit *int64 `json:"limit,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m ConvertEstimateRequest) MarshalJSON() ([]byte, error) {
+	type plain ConvertEstimateRequest
+	m.Op = "convert_estimate"
+	return json.Marshal(plain(m))
+}
+
+// ConvertEstimateResult: 予定する変換の結果。元の文書・ID を保ち、ファイルの blob を返さない
+type ConvertEstimateResult struct {
+	// 予定する出力と忠実度の全件集計・上限付き明細
+	Estimate *ConversionEstimate `json:"estimate,omitempty"`
+}
+
+// ConversionEstimate: 実変換と同じ処理で準備した出力。doc と hash は未登録の予定値。元の入力・設定・予算が同じなら convert の値と一致する
+type ConversionEstimate struct {
+	// 予定する文書の名前
+	Doc *string `json:"doc,omitempty"`
+
+	// 予定する形式の名前
+	Format *string `json:"format,omitempty"`
+
+	// 予定する出力バイト列のハッシュ。未登録なので apply の前提条件には使えない
+	Hash *string `json:"hash,omitempty"`
+
+	// 予定する出力の要素数。記号から離す属性の文字を含む
+	Elements *int64 `json:"elements,omitempty"`
+
+	// 処理対象の出現数。同じ出所を持つ別の入力は別々に数え、診断の数では増やさない
+	Total *int64 `json:"total,omitempty"`
+
+	// 種類と忠実度ごとの全件集計
+	Counts []ConversionCount `json:"counts,omitempty"`
+
+	// 処理順の明細。limit 件まで返す
+	Details []ConversionDetail `json:"details,omitempty"`
+
+	// 明細の上限で返さなかった対象がある
+	Truncated *bool `json:"truncated,omitempty"`
+}
+
+// ConversionCount: 処理対象の種類と忠実度ごとの集計
+type ConversionCount struct {
+	// 処理対象の種類のキー
+	Kind *string `json:"kind,omitempty"`
+
+	// その対象を移した結果の忠実度
+	Fidelity *ConversionFidelity `json:"fidelity,omitempty"`
+
+	// 入力の出現数。1 つの入力が複数の出力になっても 1 件
+	Count *int64 `json:"count,omitempty"`
+
+	// この対象から書いた図形の数。表や参照だけを移した場合は 0
+	OutputElements *int64 `json:"output_elements,omitempty"`
+}
+
+// ConversionDetail: 処理対象の出現 1 つ。複数の欠落の診断が出ても 1 件として数える
+type ConversionDetail struct {
+	// 処理対象の種類のキー
+	Kind *string `json:"kind,omitempty"`
+
+	// その対象を移した結果の忠実度
+	Fidelity *ConversionFidelity `json:"fidelity,omitempty"`
+
+	// 値や参照を変えた理由のキー。text_height_meaning は文字高の意味、relocated_shape は形の値、style_default はスタイルの既定値、detached_attribute は属性の文字への分離、baked_view はビューの焼き込み、reference_dropped は参照の欠落
+	Reasons []string `json:"reasons,omitempty"`
+
+	// 元の要素の ID。持つ対象だけで返す
+	Id *string `json:"id,omitempty"`
+
+	// 元の対象のレコード・バイト範囲・キー
+	Source *Source `json:"source,omitempty"`
+
+	// この対象から書いた図形の数。表や参照だけを移した場合は 0
+	OutputElements *int64 `json:"output_elements,omitempty"`
+}
+
+// ConversionFidelity: 忠実度。`native` は元の値・参照を保持、`equivalent` は別の表現で同じ意味、`approximated` は近似、`drawn` は見た目だけ、`dropped` は欠落
+//
+// 列挙の値。知らない値も受け取る。
+type ConversionFidelity string
+
+// ConversionFidelityNative は native。
+const ConversionFidelityNative ConversionFidelity = "native"
+
+// ConversionFidelityEquivalent は equivalent。
+const ConversionFidelityEquivalent ConversionFidelity = "equivalent"
+
+// ConversionFidelityApproximated は approximated。
+const ConversionFidelityApproximated ConversionFidelity = "approximated"
+
+// ConversionFidelityDrawn は drawn。
+const ConversionFidelityDrawn ConversionFidelity = "drawn"
+
+// ConversionFidelityDropped は dropped。
+const ConversionFidelityDropped ConversionFidelity = "dropped"
 
 // Applied: 当てた変更 1 つの結果
 type Applied struct {
@@ -5803,6 +5937,9 @@ const OpApply = "apply"
 
 // OpConvert は、op の名前 convert。
 const OpConvert = "convert"
+
+// OpConvertEstimate は、op の名前 convert_estimate。
+const OpConvertEstimate = "convert_estimate"
 
 // OpTables は、op の名前 tables。
 const OpTables = "tables"

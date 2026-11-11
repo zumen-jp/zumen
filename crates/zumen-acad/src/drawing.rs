@@ -30,7 +30,9 @@ mod mtext;
 mod style;
 mod template;
 
-pub use lower::{Lowered, Relocate, Reseat, lower_to_dxf, lower_to_dxf_with};
+pub use lower::{
+    Lowered, Relocate, Reseat, lower_to_dxf, lower_to_dxf_with, lower_to_dxf_with_report,
+};
 pub use template::NewDxfTemplate;
 
 use std::collections::{BTreeMap, BTreeSet};

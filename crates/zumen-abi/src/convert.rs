@@ -17,36 +17,53 @@ pub(crate) struct Converted {
     pub(crate) file: DxfFile,
     pub(crate) bytes: Vec<u8>,
     pub(crate) elements: u64,
+    pub(crate) report: zumen_acad::ConversionReport,
 }
 
 /// R2004 DWG は共有の表を一度だけ読む。再符号化の範囲外なら同じ表から図面モデルを作る。
 pub(crate) fn from_r2004(
     source: &zumen_acad::DwgFile,
+    limit: u64,
     cx: &mut Cx<'_>,
 ) -> Result<Converted, Failed> {
-    match source.reencode_r2004_dxf(cx).map_err(|_| Failed)? {
+    match source
+        .reencode_r2004_dxf_with_report(limit, cx)
+        .map_err(|_| Failed)?
+    {
         zumen_acad::dxf::R2004Conversion::Dxf(encoded) => {
             let file = Dxf::read(&encoded.bytes, cx).map_err(|_| Failed)?;
             Ok(Converted {
                 file,
                 bytes: encoded.bytes,
                 elements: encoded.elements,
+                report: encoded.report,
             })
         }
         zumen_acad::dxf::R2004Conversion::DrawingSource(db) => {
             let drawing = zumen_acad::lift_drawing(&db, cx).map_err(|_| Failed)?;
-            to_dxf(&drawing, cx)
+            to_dxf_with_report(&drawing, limit, cx)
         }
     }
 }
 
 /// 図面モデルを、新しい DXF（R2004）に書く。診断は `zumen-acad` が報告する
 pub(crate) fn to_dxf(drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<Converted, Failed> {
-    let lowered = zumen_acad::lower_to_dxf_with(drawing, &Geometric, cx).map_err(|_| Failed)?;
+    to_dxf_with_report(drawing, 0, cx)
+}
+
+/// 実変換と同じ書き手から、上限付きの明細も受け取る
+pub(crate) fn to_dxf_with_report(
+    drawing: &Drawing2D,
+    limit: u64,
+    cx: &mut Cx<'_>,
+) -> Result<Converted, Failed> {
+    let lowered =
+        zumen_acad::lower_to_dxf_with_report(drawing, &Geometric, limit, cx).map_err(|_| Failed)?;
     Ok(Converted {
         file: lowered.file,
         bytes: lowered.bytes,
         elements: lowered.elements,
+        report: lowered.report,
     })
 }
 
@@ -54,6 +71,22 @@ pub(crate) fn to_dxf(drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<Converted, 
 struct Geometric;
 
 impl Relocate for Geometric {
+    fn fidelity_model(
+        &self,
+        source: &Shape<ModelPoint>,
+        _output: &Shape<ModelPoint>,
+    ) -> zumen_acad::ConversionFidelity {
+        geometric_fidelity(source)
+    }
+
+    fn fidelity_paper(
+        &self,
+        source: &Shape<PaperPoint>,
+        _output: &Shape<PaperPoint>,
+    ) -> zumen_acad::ConversionFidelity {
+        geometric_fidelity(source)
+    }
+
     fn accepts_model_symbol(&self, symbol: &Symbol<ModelPoint>) -> bool {
         geometry::symbol_grid(symbol).is_some()
     }
@@ -68,6 +101,18 @@ impl Relocate for Geometric {
 
     fn paper(&self, shape: &Shape<PaperPoint>, origin: PaperPoint) -> Option<Shape<PaperPoint>> {
         geometry::shape_of(&geometry::geometry_of(shape)?, None, origin).ok()
+    }
+}
+
+/// 基本図形は同じ意味の形へ移す。文字・注記・記号は API の形の値にない意味があるため、見た目だけとする
+fn geometric_fidelity<P>(shape: &Shape<P>) -> zumen_acad::ConversionFidelity {
+    match shape {
+        Shape::Line { .. }
+        | Shape::Circle { .. }
+        | Shape::Curve(_)
+        | Shape::Polyline(_)
+        | Shape::Point(_) => zumen_acad::ConversionFidelity::Equivalent,
+        _ => zumen_acad::ConversionFidelity::Drawn,
     }
 }
 

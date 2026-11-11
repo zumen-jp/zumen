@@ -5,7 +5,7 @@ use zumen_sdk::Codec;
 
 impl AcadDb {
     fn reencode_r2004_dxf(&self, cx: &mut Cx<'_>) -> Result<Option<ReencodedDxf>, Error> {
-        try_reencode(self, cx, |_, _| Ok(fixture_source()))
+        try_reencode(self, 0, cx, |_, _| Ok(fixture_source()))
     }
 }
 
@@ -13,6 +13,62 @@ fn fixture_source() -> DxfSource<'static> {
     DxfSource {
         order: BTreeMap::from([(10, vec![41]), (11, vec![]), (12, vec![40])]),
         ..DxfSource::default()
+    }
+}
+
+#[test]
+fn report_counts_each_record_once_and_keeps_the_source_handle() {
+    let db = fixture();
+    let run = |limit| {
+        let mut budget = Budget::default();
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let output = try_reencode(
+            &db,
+            limit,
+            &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+            |_, _| Ok(fixture_source()),
+        )
+        .unwrap()
+        .unwrap();
+        (output, diagnostics.into_vec())
+    };
+    let (full, diagnostics) = run(1000);
+    assert_eq!(full.report.total, db.objects().len() as u64 + 1);
+    assert_eq!(
+        full.report
+            .counts
+            .iter()
+            .map(|count| count.count)
+            .sum::<u64>(),
+        full.report.total
+    );
+    assert_eq!(
+        full.report
+            .counts
+            .iter()
+            .map(|count| count.output_elements)
+            .sum::<u64>(),
+        full.elements
+    );
+    let dimension = full
+        .report
+        .details
+        .iter()
+        .find(|detail| detail.kind == "ARC_DIMENSION")
+        .unwrap();
+    assert_eq!(dimension.fidelity, ConversionFidelity::Native);
+    assert_eq!(dimension.output_elements, 1);
+    assert_eq!(dimension.source.key(), Some(zumen_base::Key::Handle(41)));
+    for limit in [0, 1] {
+        let (short, notices) = run(limit);
+        assert_eq!(short.bytes, full.bytes);
+        assert_eq!(short.elements, full.elements);
+        assert_eq!(short.report.counts, full.report.counts);
+        assert_eq!(short.report.total, full.report.total);
+        assert_eq!(short.report.details.len(), limit as usize);
+        assert!(short.report.truncated);
+        assert_eq!(notices, diagnostics);
     }
 }
 
@@ -365,7 +421,7 @@ fn writes_owned_order_and_reports_only_reactors_whose_target_was_omitted() {
     let mut diagnostics = Diagnostics::new();
     let cancel = CancelToken::new();
     let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
-    let out = try_reencode(&db, &mut cx, |_, _| Ok(input))
+    let out = try_reencode(&db, 0, &mut cx, |_, _| Ok(input))
         .unwrap()
         .unwrap();
     let read = Dxf::read(&out.bytes, &mut cx)
@@ -432,7 +488,7 @@ fn writes_a_dimension_in_an_inactive_layout_in_its_block() {
     let mut diagnostics = Diagnostics::new();
     let cancel = CancelToken::new();
     let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
-    let out = try_reencode(&db, &mut cx, |_, _| Ok(input))
+    let out = try_reencode(&db, 0, &mut cx, |_, _| Ok(input))
         .unwrap()
         .unwrap();
     let read = Dxf::read(&out.bytes, &mut cx)

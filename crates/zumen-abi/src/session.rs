@@ -547,6 +547,10 @@ impl Session {
             #[cfg(feature = "drawing")]
             Request::Convert(request) => self.convert(request, &mut cx).map(|r| Box::new(r) as _),
             #[cfg(feature = "drawing")]
+            Request::ConvertEstimate(request) => self
+                .convert_estimate(request, &mut cx)
+                .map(|r| Box::new(r) as _),
+            #[cfg(feature = "drawing")]
             Request::Tables(request) => self.tables(request, &mut cx).map(|r| Box::new(r) as _),
             #[cfg(feature = "drawing")]
             Request::Scene(request) => self.scene(request, &mut cx).map(|r| Box::new(r) as _),
@@ -1176,29 +1180,8 @@ impl Session {
         request: &ConvertRequest,
         cx: &mut Cx<'_>,
     ) -> Result<ConvertResult, Failed> {
-        if !name::is_safe(&request.to) {
-            return Err(fail(cx, invalid_value("/to")));
-        }
-        self.check_new_document(&request.to, cx)?;
-        if request.format != Dxf::FORMAT {
-            return Err(fail(
-                cx,
-                Diagnostic::new(codes::CONVERT_FORMAT_UNSUPPORTED)
-                    .with("format", request.format.as_str()),
-            ));
-        }
-        let converted = in_input_order(cx, |cx| {
-            let (source, _) = self.drawing_file(&request.doc, cx)?;
-            if let DrawingFile::Dwg(file) = source
-                && file.version() == b"AC1018"
-            {
-                return convert::from_r2004(file, cx);
-            }
-            let drawing = source.lift(cx).map_err(|_| Failed)?;
-            convert::to_dxf(&drawing, cx)
-        })?;
-        let hash =
-            Hash::document_checked(&converted.bytes, cx).map_err(|stop| stopped(cx, stop))?;
+        let (converted, hash) =
+            self.prepare_conversion(&request.doc, &request.format, &request.to, 0, cx)?;
         self.docs.insert(
             request.to.clone(),
             Document::Drawing {
@@ -1216,6 +1199,86 @@ impl Session {
             hash: hash.to_string(),
             elements: converted.elements,
         })
+    }
+
+    /// 書き手を最後まで実行し、文書・blob を登録する前に予定値を返す
+    #[cfg(feature = "drawing")]
+    fn convert_estimate(
+        &mut self,
+        request: &messages::ConvertEstimateRequest,
+        cx: &mut Cx<'_>,
+    ) -> Result<messages::ConvertEstimateResult, Failed> {
+        let limit = request.limit.unwrap_or(100);
+        let (converted, hash) =
+            self.prepare_conversion(&request.doc, &request.format, &request.to, limit, cx)?;
+        let report = converted.report;
+        Ok(messages::ConvertEstimateResult {
+            estimate: messages::ConversionEstimate {
+                doc: request.to.clone(),
+                format: request.format.clone(),
+                hash: hash.to_string(),
+                elements: converted.elements,
+                total: report.total,
+                counts: report
+                    .counts
+                    .into_iter()
+                    .map(|row| messages::ConversionCount {
+                        kind: row.kind,
+                        fidelity: conversion_fidelity(row.fidelity),
+                        count: row.count,
+                        output_elements: row.output_elements,
+                    })
+                    .collect(),
+                details: report
+                    .details
+                    .into_iter()
+                    .map(|row| messages::ConversionDetail {
+                        kind: row.kind,
+                        fidelity: conversion_fidelity(row.fidelity),
+                        id: row.source.id().map(str::to_string),
+                        reasons: row.reasons,
+                        source: source_of(&row.source),
+                        output_elements: row.output_elements,
+                    })
+                    .collect(),
+                truncated: report.truncated,
+            },
+        })
+    }
+
+    /// 見積もりと実変換で、名前・経路・書き手・ハッシュ計算までを共用する
+    #[cfg(feature = "drawing")]
+    fn prepare_conversion(
+        &mut self,
+        doc: &str,
+        format: &str,
+        to: &str,
+        limit: u64,
+        cx: &mut Cx<'_>,
+    ) -> Result<(convert::Converted, Hash), Failed> {
+        if !name::is_safe(to) {
+            return Err(fail(cx, invalid_value("/to")));
+        }
+        self.check_new_document(to, cx)?;
+        if format != Dxf::FORMAT {
+            return Err(fail(
+                cx,
+                Diagnostic::new(codes::CONVERT_FORMAT_UNSUPPORTED).with("format", format),
+            ));
+        }
+        let converted = in_input_order(cx, |cx| {
+            let (source, _) = self.drawing_file(doc, cx)?;
+            if let DrawingFile::Dwg(file) = source
+                && file.version() == b"AC1018"
+            {
+                return convert::from_r2004(file, limit, cx);
+            }
+            let drawing = source.lift(cx).map_err(|_| Failed)?;
+            convert::to_dxf_with_report(&drawing, limit, cx)
+        })?;
+        let hash =
+            Hash::document_checked(&converted.bytes, cx).map_err(|stop| stopped(cx, stop))?;
+        Ok((converted, hash))
     }
 
     /// 文書を図面モデルに変換し、図面モデルのバイナリ（決定 0247）を blob で返す。元の文書の形式・系統・ハッシュも書く。
@@ -2130,6 +2193,37 @@ fn extent<P: Copy>(elements: &[Element<P>], xy: impl Fn(P) -> (f64, f64)) -> Opt
     })
 }
 
+#[cfg(feature = "drawing")]
+fn conversion_fidelity(value: zumen_acad::ConversionFidelity) -> messages::ConversionFidelity {
+    use zumen_acad::ConversionFidelity as Core;
+    match value {
+        Core::Native => messages::ConversionFidelity::Native,
+        Core::Equivalent => messages::ConversionFidelity::Equivalent,
+        Core::Approximated => messages::ConversionFidelity::Approximated,
+        Core::Drawn => messages::ConversionFidelity::Drawn,
+        Core::Dropped => messages::ConversionFidelity::Dropped,
+    }
+}
+
+#[cfg(feature = "drawing")]
+fn source_of(place: &Ref) -> Source {
+    Source {
+        record: place.record(),
+        bytes: place.bytes().map(|range| ByteRange {
+            start: range.start,
+            end: range.end,
+        }),
+        handle: match place.key() {
+            Some(Key::Handle(handle)) => Some(format!("{handle:X}")),
+            _ => None,
+        },
+        instance: match place.key() {
+            Some(Key::Instance(instance)) => Some(instance.to_string()),
+            _ => None,
+        },
+    }
+}
+
 fn common(request: &Request) -> &RequestCommon {
     match request {
         Request::Capabilities(request) => &request.request_common,
@@ -2140,6 +2234,7 @@ fn common(request: &Request) -> &RequestCommon {
         Request::Entities(request) => &request.request_common,
         Request::Apply(request) => &request.request_common,
         Request::Convert(request) => &request.request_common,
+        Request::ConvertEstimate(request) => &request.request_common,
         Request::Tables(request) => &request.request_common,
         Request::Scene(request) => &request.request_common,
         Request::Render(request) => &request.request_common,
@@ -2777,7 +2872,7 @@ mod tests {
         let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
         assert_eq!(reply.status, Status::Ok);
         let expected = format!(
-            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":65}},"ops":["capabilities","open","close","describe","drawing","entities","apply","convert","tables","scene","check","validate","review_carry","review_adopt","building","building_elements","ids_check","review_adopt_ids","bcf_read","bcf_write","civil","pointcloud","deviation","civil_drawing","geo","delivery_check","photo","sheet","boring","building_apply","lift","render"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}},{{"id":"landxml","family":"landxml","read":true,"write":false,"id_rules":1}},{{"id":"citygml","family":"citygml","read":true,"write":false,"id_rules":1}},{{"id":"fgd","family":"fgd","read":true,"write":false,"id_rules":1}},{{"id":"extdm","family":"extdm","read":true,"write":false,"id_rules":1}},{{"id":"las","family":"las","read":true,"write":false,"id_rules":1}},{{"id":"ply","family":"ply","read":true,"write":false,"id_rules":1}},{{"id":"xyz","family":"xyz","read":true,"write":false,"id_rules":1}},{{"id":"e57","family":"e57","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+            r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":66}},"ops":["capabilities","open","close","describe","drawing","entities","apply","convert","convert_estimate","tables","scene","check","validate","review_carry","review_adopt","building","building_elements","ids_check","review_adopt_ids","bcf_read","bcf_write","civil","pointcloud","deviation","civil_drawing","geo","delivery_check","photo","sheet","boring","building_apply","lift","render"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}},{{"id":"landxml","family":"landxml","read":true,"write":false,"id_rules":1}},{{"id":"citygml","family":"citygml","read":true,"write":false,"id_rules":1}},{{"id":"fgd","family":"fgd","read":true,"write":false,"id_rules":1}},{{"id":"extdm","family":"extdm","read":true,"write":false,"id_rules":1}},{{"id":"las","family":"las","read":true,"write":false,"id_rules":1}},{{"id":"ply","family":"ply","read":true,"write":false,"id_rules":1}},{{"id":"xyz","family":"xyz","read":true,"write":false,"id_rules":1}},{{"id":"e57","family":"e57","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(String::from_utf8(reply.response).unwrap(), expected);
@@ -7666,4 +7761,6 @@ END_SCHEMA;
             assert_eq!(text(&summary, "/result/hash"), document);
         }
     }
+
+    include!("session/convert_estimate_tests.rs");
 }

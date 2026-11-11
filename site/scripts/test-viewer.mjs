@@ -125,10 +125,8 @@ try {
   const first = page.getByRole("region", { name: /^要素/ }).getByRole("button").first();
   await first.click();
   await page.getByRole("region", { name: "出所" }).getByText("ハンドル", { exact: true }).waitFor();
-  // 公開済みの core と共通の表示部品の間で、読み取りだけでなく変換もつながることを見る。
-  const download = page.waitForEvent("download");
-  await page.getByRole("button", { name: "DXF で保存", exact: true }).click();
-  assert.match((await download).suggestedFilename(), /\.dxf$/);
+  // 公開済み 0.2.0 は convert_estimate を持たないので、保存前の見積もりに対応するまでは保存を表示しない。
+  assert.equal(await page.getByRole("region", { name: /^DXF で保存/ }).count(), 0);
   assert.equal(await page.getByRole("link", { name: "非公開の報告窓口" }).count(), 1);
   assert.deepEqual(await page.evaluate(() => window.cspFailures), []);
   assert.deepEqual(blocked, []);
@@ -151,7 +149,7 @@ try {
   await page.setViewportSize({ width: 390, height: 900 });
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "狭い画面で本文が横にはみ出さない");
   if (process.env.ZUMEN_VIEWER_SCREENSHOT) await page.screenshot({ path: process.env.ZUMEN_VIEWER_SCREENSHOT, fullPage: true });
-  console.log(product + ": 公開サンプル 3 件・手元の DXF/DWG/JWW/SXF・外部参照・出所・保存・CSP の拒否・同一オリジンの資産への GET のみを確認（要求 " + requests.length + " 件）");
+  console.log(product + ": 公開サンプル 3 件・手元の DXF/DWG/JWW/SXF・外部参照・出所・見積もり未対応時の保存の非表示・CSP の拒否・同一オリジンの資産への GET のみを確認（要求 " + requests.length + " 件）");
   await page.close();
   // 案内ページはビューアーと別の HTML。すべての通常ページと、実際の 404 応答を確かめる。
   const staticPage = await context.newPage();

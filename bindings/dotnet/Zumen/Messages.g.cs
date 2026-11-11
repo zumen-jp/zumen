@@ -48,6 +48,7 @@ namespace Zumen.Messages
             ["entities"] = typeof(EntitiesRequest),
             ["apply"] = typeof(ApplyRequest),
             ["convert"] = typeof(ConvertRequest),
+            ["convert_estimate"] = typeof(ConvertEstimateRequest),
             ["tables"] = typeof(TablesRequest),
             ["scene"] = typeof(SceneRequest),
             ["check"] = typeof(CheckRequest),
@@ -2146,6 +2147,227 @@ namespace Zumen.Messages
         /// </summary>
         [JsonPropertyName("elements")]
         public ulong Elements { get; init; }
+    }
+
+    /// <summary>
+    /// 開いた図面を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。今は DXF への変換だけ。マイナーバージョン 66 から
+    /// </summary>
+    public sealed record ConvertEstimateRequest
+    {
+        /// <summary>
+        /// メッセージのスキーマのメジャーバージョン。今は 1
+        /// </summary>
+        [JsonPropertyName("v")]
+        public ulong V { get; init; }
+
+        /// <summary>
+        /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        /// </summary>
+        [JsonPropertyName("budget")]
+        public Budget? Budget { get; init; }
+
+        /// <summary>
+        /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        /// </summary>
+        [JsonPropertyName("partial")]
+        public bool? Partial { get; init; }
+
+        /// <summary>
+        /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        /// </summary>
+        [JsonPropertyName("max_places")]
+        public ulong? MaxPlaces { get; init; }
+
+        /// <summary>
+        /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// </summary>
+        [JsonPropertyName("time_limit_ms")]
+        public ulong? TimeLimitMs { get; init; }
+
+        /// <summary>
+        /// op の名前
+        /// </summary>
+        [JsonPropertyName("op")]
+        public string Op { get; init; } = "convert_estimate";
+
+        /// <summary>
+        /// 書く元の文書の名前
+        /// </summary>
+        [JsonPropertyName("doc")]
+        public string Doc { get; init; } = default!;
+
+        /// <summary>
+        /// 書く形式の名前。今は dxf だけ
+        /// </summary>
+        [JsonPropertyName("format")]
+        public string Format { get; init; } = default!;
+
+        /// <summary>
+        /// 予定する文書の名前。convert と同じ条件で検査するが、名前を確保しない
+        /// </summary>
+        [JsonPropertyName("to")]
+        public string To { get; init; } = default!;
+
+        /// <summary>
+        /// 返す明細の最大件数。省略時は 100。総数と種類・忠実度ごとの集計はこの上限によらない
+        /// </summary>
+        [JsonPropertyName("limit")]
+        public uint? Limit { get; init; }
+    }
+
+    /// <summary>
+    /// 予定する変換の結果。元の文書・ID を保ち、ファイルの blob を返さない
+    /// </summary>
+    public sealed record ConvertEstimateResult
+    {
+        /// <summary>
+        /// 予定する出力と忠実度の全件集計・上限付き明細
+        /// </summary>
+        [JsonPropertyName("estimate")]
+        public ConversionEstimate Estimate { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 実変換と同じ処理で準備した出力。doc と hash は未登録の予定値。元の入力・設定・予算が同じなら convert の値と一致する
+    /// </summary>
+    public sealed record ConversionEstimate
+    {
+        /// <summary>
+        /// 予定する文書の名前
+        /// </summary>
+        [JsonPropertyName("doc")]
+        public string Doc { get; init; } = default!;
+
+        /// <summary>
+        /// 予定する形式の名前
+        /// </summary>
+        [JsonPropertyName("format")]
+        public string Format { get; init; } = default!;
+
+        /// <summary>
+        /// 予定する出力バイト列のハッシュ。未登録なので apply の前提条件には使えない
+        /// </summary>
+        [JsonPropertyName("hash")]
+        public string Hash { get; init; } = default!;
+
+        /// <summary>
+        /// 予定する出力の要素数。記号から離す属性の文字を含む
+        /// </summary>
+        [JsonPropertyName("elements")]
+        public ulong Elements { get; init; }
+
+        /// <summary>
+        /// 処理対象の出現数。同じ出所を持つ別の入力は別々に数え、診断の数では増やさない
+        /// </summary>
+        [JsonPropertyName("total")]
+        public ulong Total { get; init; }
+
+        /// <summary>
+        /// 種類と忠実度ごとの全件集計
+        /// </summary>
+        [JsonPropertyName("counts")]
+        public IReadOnlyList<ConversionCount> Counts { get; init; } = default!;
+
+        /// <summary>
+        /// 処理順の明細。limit 件まで返す
+        /// </summary>
+        [JsonPropertyName("details")]
+        public IReadOnlyList<ConversionDetail> Details { get; init; } = default!;
+
+        /// <summary>
+        /// 明細の上限で返さなかった対象がある
+        /// </summary>
+        [JsonPropertyName("truncated")]
+        public bool Truncated { get; init; }
+    }
+
+    /// <summary>
+    /// 処理対象の種類と忠実度ごとの集計
+    /// </summary>
+    public sealed record ConversionCount
+    {
+        /// <summary>
+        /// 処理対象の種類のキー
+        /// </summary>
+        [JsonPropertyName("kind")]
+        public string Kind { get; init; } = default!;
+
+        /// <summary>
+        /// その対象を移した結果の忠実度
+        /// </summary>
+        [JsonPropertyName("fidelity")]
+        public string Fidelity { get; init; } = default!;
+
+        /// <summary>
+        /// 入力の出現数。1 つの入力が複数の出力になっても 1 件
+        /// </summary>
+        [JsonPropertyName("count")]
+        public ulong Count { get; init; }
+
+        /// <summary>
+        /// この対象から書いた図形の数。表や参照だけを移した場合は 0
+        /// </summary>
+        [JsonPropertyName("output_elements")]
+        public ulong OutputElements { get; init; }
+    }
+
+    /// <summary>
+    /// 処理対象の出現 1 つ。複数の欠落の診断が出ても 1 件として数える
+    /// </summary>
+    public sealed record ConversionDetail
+    {
+        /// <summary>
+        /// 処理対象の種類のキー
+        /// </summary>
+        [JsonPropertyName("kind")]
+        public string Kind { get; init; } = default!;
+
+        /// <summary>
+        /// その対象を移した結果の忠実度
+        /// </summary>
+        [JsonPropertyName("fidelity")]
+        public string Fidelity { get; init; } = default!;
+
+        /// <summary>
+        /// 値や参照を変えた理由のキー。text_height_meaning は文字高の意味、relocated_shape は形の値、style_default はスタイルの既定値、detached_attribute は属性の文字への分離、baked_view はビューの焼き込み、reference_dropped は参照の欠落
+        /// </summary>
+        [JsonPropertyName("reasons")]
+        public IReadOnlyList<string> Reasons { get; init; } = default!;
+
+        /// <summary>
+        /// 元の要素の ID。持つ対象だけで返す
+        /// </summary>
+        [JsonPropertyName("id")]
+        public string? Id { get; init; }
+
+        /// <summary>
+        /// 元の対象のレコード・バイト範囲・キー
+        /// </summary>
+        [JsonPropertyName("source")]
+        public Source Source { get; init; } = default!;
+
+        /// <summary>
+        /// この対象から書いた図形の数。表や参照だけを移した場合は 0
+        /// </summary>
+        [JsonPropertyName("output_elements")]
+        public ulong OutputElements { get; init; }
+    }
+
+    /// <summary>
+    /// 忠実度。`native` は元の値・参照を保持、`equivalent` は別の表現で同じ意味、`approximated` は近似、`drawn` は見た目だけ、`dropped` は欠落
+    /// </summary>
+    public static class ConversionFidelity
+    {
+        /// <summary>native</summary>
+        public const string Native = "native";
+        /// <summary>equivalent</summary>
+        public const string Equivalent = "equivalent";
+        /// <summary>approximated</summary>
+        public const string Approximated = "approximated";
+        /// <summary>drawn</summary>
+        public const string Drawn = "drawn";
+        /// <summary>dropped</summary>
+        public const string Dropped = "dropped";
     }
 
     /// <summary>
@@ -9109,6 +9331,7 @@ namespace Zumen.Messages
                 ["entities"] = (typeof(EntitiesRequest), typeof(EntitiesResult)),
                 ["apply"] = (typeof(ApplyRequest), typeof(ApplyResult)),
                 ["convert"] = (typeof(ConvertRequest), typeof(ConvertResult)),
+                ["convert_estimate"] = (typeof(ConvertEstimateRequest), typeof(ConvertEstimateResult)),
                 ["tables"] = (typeof(TablesRequest), typeof(TablesResult)),
                 ["scene"] = (typeof(SceneRequest), typeof(SceneResult)),
                 ["check"] = (typeof(CheckRequest), typeof(CheckResult)),
