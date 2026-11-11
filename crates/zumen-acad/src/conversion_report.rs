@@ -78,6 +78,7 @@ impl Report {
         }
     }
 
+    #[cfg(any(feature = "drawing", test))]
     pub(crate) fn record(
         &mut self,
         kind: &str,
