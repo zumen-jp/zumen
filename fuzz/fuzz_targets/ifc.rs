@@ -41,6 +41,7 @@ fn lift(file: &IfcFile, cx: &mut Cx) -> Result<(), Error> {
                         }
                         if file.kind(node.source).eq_ignore_ascii_case(b"IFCEXTRUDEDAREASOLID") && extrusions < 16 {
                             if let Err(Error::Stopped(stop)) = file.extruded_area(node, cx) { return Err(Error::Stopped(stop)); }
+                            if let Err(Error::Stopped(stop)) = file.extrusion(node, cx) { return Err(Error::Stopped(stop)); }
                             extrusions += 1;
                         }
                     }
