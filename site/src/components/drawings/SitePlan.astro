@@ -1,0 +1,73 @@
+---
+// 配置図の例。トップの平面図と同じ住戸を、東の道路に面した敷地に置く（単位は 25 mm）。
+import Sheet from './Sheet.astro';
+
+// 建物を 45 度の斜線で塗る
+const hatch = Array.from({ length: 32 }, (_, i) => `M${-174.8 + i * 16} 334.8l254.8 -254.8`).join('');
+const trees = [
+  { cx: 430, cy: 118, r: 36 },
+  { cx: 512, cy: 64, r: 24 },
+  { cx: 498, cy: 196, r: 28 },
+  { cx: 40, cy: 400, r: 22 },
+];
+---
+
+<Sheet viewBox="-110 -110 1040 590" caption="配置図 S=1/200（例）">
+  <defs>
+    <clipPath id="site-building"><rect x="80" y="80" width="254.8" height="254.8" /></clipPath>
+  </defs>
+
+  <!-- 道路 -->
+  <path class="d-tone" d="M560 -40H800V480H560Z" />
+  <path class="d-bold" d="M800 -40V480" />
+  <path class="d-dash" d="M680 -40V480" />
+  <text class="d-name d-halo" x="680" y="222">道路</text>
+
+  <!-- 敷地の境界 -->
+  <path class="d-boundary" d="M0 0H560V440H0Z" />
+
+  <!-- 植栽・アプローチ・駐車場 -->
+  {
+    trees.map((t) => (
+      <>
+        <circle class="d-paper" cx={t.cx} cy={t.cy} r={t.r} />
+        <path class="d-faint" d={`M${t.cx - 6} ${t.cy}h12M${t.cx} ${t.cy - 6}v12`} />
+      </>
+    ))
+  }
+  <path class="d-tone" d="M334.8 252H560V288H334.8Z" />
+  <path class="d-line" d="M334.8 252H560M334.8 288H560" />
+  <path class="d-dash" d="M360 316H560V416H360Z" />
+  <text class="d-text d-cell" x="460" y="366" text-anchor="middle">駐車場</text>
+
+  <!-- 建物 -->
+  <rect class="d-paper" x="80" y="80" width="254.8" height="254.8" />
+  <path class="d-faint" d={hatch} clip-path="url(#site-building)" />
+  <rect class="d-bold" x="80" y="80" width="254.8" height="254.8" />
+  <path class="d-fill" d="M334.8 258l18 12l-18 12z" />
+  <text class="d-name d-halo" x="207.4" y="216">住宅</text>
+  <text class="d-text" x="110" y="386">敷地面積 154.00 m²</text>
+  <text class="d-text" x="110" y="418">建築面積 40.58 m²</text>
+
+  <!-- 寸法 -->
+  <path class="d-faint" d="M0 -6V-82M560 -6V-82M80 74V-42M334.8 74V-42M-6 0H-82M-6 440H-82M74 80H-42M74 334.8H-42" />
+  <path class="d-dim" d="M0 -34H800M0 -74H560M-34 0V440M-74 0V440" />
+  <path
+    class="d-tick"
+    d="M-7 -27L7 -41M73 -27L87 -41M327.8 -27L341.8 -41M553 -27L567 -41M793 -27L807 -41M-7 -67L7 -81M553 -67L567 -81M-27 7L-41 -7M-27 87L-41 73M-27 341.8L-41 327.8M-27 447L-41 433M-67 7L-81 -7M-67 447L-81 433"
+  />
+  <text class="d-dim-t" x="40" y="-44">2,000</text>
+  <text class="d-dim-t" x="207.4" y="-44">6,370</text>
+  <text class="d-dim-t" x="447.4" y="-44">5,630</text>
+  <text class="d-dim-t" x="680" y="-44">6,000</text>
+  <text class="d-dim-t" x="280" y="-84">14,000</text>
+  <text class="d-dim-t" transform="translate(-44 40) rotate(-90)">2,000</text>
+  <text class="d-dim-t" transform="translate(-44 207.4) rotate(-90)">6,370</text>
+  <text class="d-dim-t" transform="translate(-44 387.4) rotate(-90)">2,630</text>
+  <text class="d-dim-t" transform="translate(-84 220) rotate(-90)">11,000</text>
+
+  <!-- 方位 -->
+  <circle class="d-line" cx="880" cy="70" r="34" />
+  <path class="d-fill" d="M880 24L891 92L880 82L869 92Z" />
+  <text class="d-name" x="880" y="14">N</text>
+</Sheet>
