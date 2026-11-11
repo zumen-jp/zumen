@@ -2,7 +2,7 @@
 
 zumen の計画は、[#1](https://github.com/zumen-jp/zumen/issues/1) の下の issue で進めています。コアの設計は [docs/architecture.md](docs/architecture.md) に、リポジトリのどこに何があるかは [AGENTS.md](AGENTS.md) の「リポジトリの地図」にあります。
 
-- 大きな変更は、着手する前に issue で相談してください。
+- 誰が担当するか決まっていない大きな変更は、issue で範囲を相談してください。
 - issue・PR・コメントは日本語を基本にします。
 - 参加する人には、[行動規範](CODE_OF_CONDUCT.md)が適用されます。
 
@@ -26,44 +26,26 @@ zumen の計画は、[#1](https://github.com/zumen-jp/zumen/issues/1) の下の 
 - GPL の実装を読んで書いたもの
 - 権利のはっきりしないもの
 
-## 開発の準備
+## 開発の手順
 
-Rust は [rustup](https://rustup.rs/) で入れます。バージョンは `rust-toolchain.toml` で決めてあり、リポジトリの中で `rustup toolchain install` を実行すると入ります。
+書き込み権限のある担当者はローカルの `main` で作業し、変更に応じた検査を通して直接 push できます。外部からの貢献や、取り込み前にレビュー・CI を使う変更は PR で受け付けます。次の仕事の選び方と利用者の承認が要る操作は [開発の進め方](docs/work.md) にあります。
 
-PR を出す前に、CI と同じ検査を手元で通してください。
+コミットと PR の題は `feat(dxf): 外部参照を読む` のように、種別とスコープを英語、説明を日本語にします。設計を変えるときは仕様・テストも更新し、理由はコミットか PR に残してください。
 
-```bash
-cargo fmt --all --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
-cargo xtask codegen --check
-```
+## 変更に応じた検査
 
-API の crate（`zumen-abi`）を変えたときは、wasm32 でも確かめてください。適合テストには Node.js 22 以降が要ります（[bindings/conformance/README.md](bindings/conformance/README.md)）。
+手元では次の表から変更に応じて検査を選びます。Rust は `rust-toolchain.toml` のバージョン、Node.js は 22 以降を使います。Rust を上げるときは CI の cargo-deny のバージョンも合わせます。
 
-```bash
-cargo clippy -p zumen-abi --target wasm32-unknown-unknown -- -D warnings
-cargo build -p zumen-abi --target wasm32-unknown-unknown --release
-node bindings/conformance/wasm.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm
-```
+| 変更したもの | 手元で確かめること |
+| --- | --- |
+| 説明だけの Markdown | 記述とリンクを確認し、`npx --no-install textlint <ファイル>` を実行。依存が未導入か lockfile が変わったときは先に `npm ci` |
+| 表記辞書・表記の設定、コードのコメント・カタログの文 | `npm run lint:text`。[表記の基準](docs/style.md) を参照 |
+| Rust の実装 | `cargo fmt --all --check`、`cargo clippy -p <crate> --all-targets -- -D warnings`、`cargo test -p <crate>`。呼び出す側に影響すればそのテストも実行 |
+| ワークスペース全体に及ぶ変更 | `cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace` |
+| スキーマ・台帳・生成器・生成物 | 元を更新して `cargo xtask codegen`、続けて `cargo xtask codegen --check`。元と生成物を一緒にコミット |
+| API・バインディング | 対象言語のテスト。[適合テスト](bindings/conformance/README.md#流し方)で応答を照合。`zumen-abi` を変えたら wasm32 の clippy と適合テストも実行 |
+| サイト・表示部品・CLI | 変えたパッケージのビルドと、その操作を通るテスト |
 
-文書・コメント・診断の文を変えたときは、表記の検査も通してください。Node.js 22 以降が要ります。表記と用語の規則は [docs/style.md](docs/style.md) にあります。
+文書でもコード生成・ビルド・配布に使うものは、その処理を確かめます。応答が変わったら `cargo run -p zumen-conformance -- --write` でハッシュを更新し、理由を残します。
 
-```bash
-npm ci
-npm run lint:text
-```
-
-Markdown の辞書（`prh.yml`）の指摘の多くは、`npm run fix:text` で直せます。ソースコードと設定は、文字列やテストのデータを書き換えないよう、指摘を見て手で直してください。
-
-診断の code を足すときは [catalog/README.md](catalog/README.md)、API の関数・op・フィールドを変えるときは [schema/README.md](schema/README.md) の手順に従ってください。
-
-形式を足すときは、実装する前に [権利の台帳](formats/README.md)を更新してください。`cargo xtask codegen` は台帳と依存を検査し、形式の一覧も生成します。台帳と生成した文書を同じ PR に入れてください。
-
-## 手順
-
-- 作業を選ぶときは、[作業の選び方](docs/work.md)に沿って、[#1](https://github.com/zumen-jp/zumen/issues/1) の下の issue の並び・ラベル・依存で、優先順と開始条件を確認してください。issue に範囲と完了条件を書き、PR に残る作業を書いてください。
-- 最新の `main` からブランチを作り、PR を出してください。
-- PR は、作った人と別の人か、作った側の会話を引き継がないエージェントが確かめてからマージします。確かめた結果は、PR のレビューのコメントに書きます（[開発の進め方](docs/work.md)）。
-- コミットと PR のタイトルは Conventional Commits にします（例: `feat(dxf): 外部参照を読む`）。種別とスコープは英語、説明は日本語です。
-- 仕様を変えるときは、該当するスキーマ・台帳・文書とテストを同じ PR で更新してください。層をまたぐ約束の置き場所は [コアの設計](docs/architecture.md) にあります。採用理由は PR に、残る作業は issue に書きます。
+[通常の CI](.github/workflows/ci.yml) は `main` への push でも動きます。変更に [fuzz](fuzz/README.md#動かし方) や [配布物の検査](xtask/release/README.md#公開せずに検査する) が必要なら、対応する対象を手元で実行するか、PR のワークフローを使います。
