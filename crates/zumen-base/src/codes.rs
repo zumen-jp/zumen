@@ -2586,6 +2586,17 @@ pub const IFC_TEXT_INVALID: Code = Code::new(
     &[],
 );
 
+/// SI 単位の定義か次元を確認できないので、単位を採用しなかった
+///
+/// `ifc.unit.invalid`（0.3.0 から）
+pub const IFC_UNIT_INVALID: Code = Code::new(
+    "ifc.unit.invalid",
+    Severity::Warning,
+    None,
+    &[Param::new("reason", ParamType::Key)],
+    &["reason"],
+);
+
 /// 値の単位が解けないので、単位なしにした
 ///
 /// `ifc.unit.missing`（0.2.0 から）
@@ -5011,6 +5022,7 @@ pub const ALL: &[Code] = &[
     IFC_STYLE_INVALID,
     IFC_STYLE_UNSUPPORTED,
     IFC_TEXT_INVALID,
+    IFC_UNIT_INVALID,
     IFC_UNIT_MISSING,
     IFC_VERSION_UNSUPPORTED,
     INTERNAL_PANIC_CAUGHT,

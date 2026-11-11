@@ -25,6 +25,7 @@ mod grid;
 mod semantic;
 mod shape;
 mod style;
+mod unit;
 pub use extrusion::{ExtrudedArea, ExtrusionSource, ProfiledExtrusion};
 pub use grid::{GridAxes, GridAxisCurve, GridSource};
 pub use shape::{ProductShape, ShapeLinks, ShapeNode, ShapeRef};
@@ -502,12 +503,16 @@ struct Lifter<'f> {
     /// 型と、そのインスタンス
     types: Vec<(ElementRef, u64)>,
     units: BTreeMap<u64, Option<Unit>>,
+    /// 検査して採用しなかった SI。換算基を共有しても、元の単位は一度だけ診断する
+    invalid_si: BTreeSet<u64>,
     definitions: BTreeMap<u64, Option<Definition>>,
     materials: BTreeMap<u64, Option<Material>>,
     /// L1 に存在するが L2 の要素でない関係の対象。ほかの成分で使ったかを最後に確かめる
     unmapped_relations: Vec<(u64, u64, u32)>,
     /// 写す値を数えて止まった理由。実体を読むループで返す（#733）
     halt: Cell<Option<Stop>>,
+    /// 単位の検査で止まった場合の、参照先の場所
+    unit_halt_place: Cell<Option<core::ops::Range<usize>>>,
 }
 
 /// 実体の名前（大文字）の種類。そのバージョンにない実体と、表にない実体は `None`
@@ -547,10 +552,12 @@ impl<'f> Lifter<'f> {
             grids: Vec::new(),
             types: Vec::new(),
             units: BTreeMap::new(),
+            invalid_si: BTreeSet::new(),
             definitions: BTreeMap::new(),
             materials: BTreeMap::new(),
             unmapped_relations: Vec::new(),
             halt: Cell::new(None),
+            unit_halt_place: Cell::new(None),
         }
     }
 
@@ -586,7 +593,7 @@ impl<'f> Lifter<'f> {
     /// 写す値を数えて止まっていれば、止まったことを `place` の所で返す
     fn halted(&self, cx: &mut Cx, place: Option<core::ops::Range<usize>>) -> Result<(), Error> {
         match self.halt.take() {
-            Some(stop) => Err(stopped(cx, stop, place)),
+            Some(stop) => Err(stopped(cx, stop, self.unit_halt_place.take().or(place))),
             None => Ok(()),
         }
     }
@@ -596,6 +603,7 @@ impl<'f> Lifter<'f> {
         let project = self.find(b"IFCPROJECT");
         if let Some(project) = project {
             self.document_units(project, cx);
+            self.halted(cx, self.file.instance(project).map(Record::span))?;
         }
         let ids: Vec<u64> = self.file.ids().collect();
         for &id in &ids {
@@ -916,12 +924,19 @@ impl<'f> Lifter<'f> {
     /// `IfcNamedUnit` と `IfcSIUnit` の複合のインスタンス、`IfcConversionBasedUnit`（2 UnitType・3 Name・
     /// 4 ConversionFactor → `IfcMeasureWithUnit` の 1 ValueComponent・2 UnitComponent）を読む
     fn unit(&mut self, id: u64, cx: &mut Cx) -> Option<Unit> {
+        let record = self.file.instance(id)?;
+        if !self.unit_charge(cx, Kind::Work, 0, record) {
+            return None;
+        }
         if let Some(cached) = self.units.get(&id) {
             // 写す単位の大きさを数える（#733）
             let unit = cached.as_ref()?;
             return self.copied(cx, unit_size(unit)).then(|| unit.clone());
         }
         let unit = self.read_unit(id, cx);
+        if self.is_halted() {
+            return None;
+        }
         if unit.is_some() {
             self.used.insert(id);
         }
@@ -931,8 +946,11 @@ impl<'f> Lifter<'f> {
 
     fn read_unit(&mut self, id: u64, cx: &mut Cx) -> Option<Unit> {
         let record = self.file.instance(id)?;
-        if let Some(unit) = self.si_unit(record) {
+        if let Some(unit) = self.si_unit(record, cx) {
             return Some(unit);
+        }
+        if self.is_halted() {
+            return None;
         }
         if !self.is(id, b"IFCCONVERSIONBASEDUNIT") {
             return None;
@@ -942,7 +960,7 @@ impl<'f> Lifter<'f> {
         let factor = reference(arg(record, 4)).filter(|&f| self.is(f, b"IFCMEASUREWITHUNIT"))?;
         let factor_record = self.file.instance(factor)?;
         let value = self.real(arg(factor_record, 1))?;
-        let base = self.si_unit(self.file.instance(reference(arg(factor_record, 2))?)?)?;
+        let base = self.si_unit(self.file.instance(reference(arg(factor_record, 2))?)?, cx)?;
         self.used.insert(factor);
         if let Some(base) = reference(arg(factor_record, 2)) {
             self.used.insert(base);
@@ -952,31 +970,6 @@ impl<'f> Lifter<'f> {
             prefix: None,
             name,
             scale: Some(value * prefix_scale(&base)),
-        })
-    }
-
-    /// SI の単位。単独と、`IfcNamedUnit` との複合のインスタンスのどちらも読む
-    fn si_unit(&self, record: &Record) -> Option<Unit> {
-        let part = |name: &[u8]| {
-            record
-                .parts()
-                .iter()
-                .find(|part| self.file.bytes(part.name()).eq_ignore_ascii_case(name))
-        };
-        let si = part(b"IFCSIUNIT")?;
-        let (kind, prefix, name) = match si.args() {
-            [_, kind, prefix, name] => (self.enumeration(Some(kind))?, prefix, name),
-            [prefix, name] => {
-                let named = part(b"IFCNAMEDUNIT")?;
-                (self.enumeration(named.args().get(1))?, prefix, name)
-            }
-            _ => return None,
-        };
-        Some(Unit {
-            kind,
-            prefix: self.enumeration(Some(prefix)),
-            name: self.enumeration(Some(name))?,
-            scale: None,
         })
     }
 

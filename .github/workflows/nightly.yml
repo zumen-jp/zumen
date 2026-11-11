@@ -205,6 +205,10 @@ jobs:
         run: ZUMEN_IFC_GRIDS_OUT="$RUNNER_TEMP/grids" cargo test --locked -p zumen-ifc --all-features --test grids writes_grids_for_other_readers
       - name: 通り芯の所属・向きと曲線の元属性を IfcOpenShell と照らす
         run: python -I crates/zumen-ifc/tests/ifcopenshell/grids.py "$RUNNER_TEMP/grids"
+      - name: 合成 3 版と公開サンプルの SI 単位の元値を書く
+        run: ZUMEN_IFC_UNITS_OUT="$RUNNER_TEMP/units" cargo test --locked -p zumen-ifc --all-features --test units writes_units_for_other_readers
+      - name: SI 単位の種類・名前・接頭辞を IfcOpenShell の元属性と照らす
+        run: python -I crates/zumen-ifc/tests/ifcopenshell/units.py "$RUNNER_TEMP/units"
 
   laspy:
     name: 非圧縮 LAS の読みを laspy と照らす

@@ -228,6 +228,7 @@
     "ifc.style.invalid": "形に直接付いた表示の参照・集合・値が不正なので、結果を返しませんでした（理由: {reason}、{count} 件）。",
     "ifc.style.unsupported": "形に直接付いた表示の種類 {kind} は扱えないので、結果を返しませんでした（{count} 件）。",
     "ifc.text.invalid": "文字列の読めない所を、置き換えの文字にしました（{count} 件）。",
+    "ifc.unit.invalid": "SI 単位の定義か次元を確認できないので、単位を採用しませんでした（理由: {reason}、{count} 件）。",
     "ifc.unit.missing": "値の型「{type}」の単位が解けないので、単位なしにしました（{count} 件）。",
     "ifc.version.unsupported": "バージョン「{schema}」のファイルからは、建物モデルを作りません（{count} 件）。",
     "internal.panic.caught": "内部の不具合で止めました。不具合として報告してください。",
