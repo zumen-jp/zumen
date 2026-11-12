@@ -65,8 +65,6 @@ use crate::plugin;
 use crate::pointcloud;
 use crate::review;
 use crate::scene;
-#[cfg(feature = "drawing")]
-use crate::sheet;
 use crate::tables::{
     StyleIds, dimension_style_item, layer_item, line_type_item, table_id, text_style_item,
 };
@@ -479,11 +477,6 @@ impl Session {
                 .input(&request.input, "/input", &mut cx)
                 .and_then(|bytes| photo::photo(bytes, &mut cx))
                 .map(|r| Box::new(r) as _),
-            #[cfg(feature = "drawing")]
-            Request::Sheet(request) => self
-                .input(&request.input, "/input", &mut cx)
-                .and_then(|bytes| sheet::sheet(request, bytes, &mut cx))
-                .map(|r| Box::new(r) as _),
             #[cfg(any(feature = "drawing", feature = "plugin"))]
             Request::Lift(request) => self.lift_binary(request, &mut cx).map(|r| Box::new(r) as _),
             #[cfg(feature = "drawing")]
@@ -682,7 +675,6 @@ fn common(request: &Request) -> &RequestCommon {
         Request::Geo(request) => &request.request_common,
         Request::DeliveryCheck(request) => &request.request_common,
         Request::Photo(request) => &request.request_common,
-        Request::Sheet(request) => &request.request_common,
         Request::Boring(request) => &request.request_common,
         Request::Lift(request) => &request.request_common,
     }

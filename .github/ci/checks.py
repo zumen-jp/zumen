@@ -12,7 +12,7 @@ WASM = {"wasm", "view2d", "react", "go"}
 CORE = WASM | {"rust", "native", "abi", "acc", "codegen"}
 ALL = CORE | {"site", "deny", "workflows", "selector", "text"}
 NATIVE = {"zumen-abi", "zumen-c", "zumen-cli", "zumen-conformance"}
-CODECS = {"zumen-acad", "zumen-pdf", "zumen-ifc", "zumen-jww", "zumen-sxf"}
+CODECS = {"zumen-acad", "zumen-ifc", "zumen-jww", "zumen-sxf"}
 TEXT_CONFIG = {
     ".textlintignore", ".textlint-allow.yml", ".textlintrc.yml", ".textlintrc.code.yml",
     "prh.yml", "package.json", "package-lock.json",
@@ -23,7 +23,7 @@ PROSE_READMES = {
     "catalog/README.md", "formats/README.md", "fuzz/README.md", "profiles/README.md", "schema/README.md",
     "packages/react/README.md", "packages/view2d/README.md", "playground/README.md", "site/README.md",
     "xtask/release/README.md", "xtask/verify/README.md",
-    "xtask/verify/pdfjs/README.md", "xtask/verify/pdfmeasure/README.md",
+    "xtask/verify/pdfjs/README.md",
 }
 
 
@@ -127,10 +127,8 @@ def select(paths, event):
                 sources.add(directory)
             else:
                 tests.add(directory)
-        elif path.startswith(("xtask/verify/pdfjs/", "xtask/verify/pdfmeasure/")) and not path.endswith(".md"):
-            tests.add("crates/zumen-pdf")
-            if path.startswith("xtask/verify/pdfjs/") and path != "xtask/verify/pdfjs/read.mjs":
-                checks.add("view2d")  # Canvas 2D は同じ pdf.js をブラウザーへ直接読み込む。
+        elif path.startswith("xtask/verify/pdfjs/") and not path.endswith(".md"):
+            checks.add("view2d")  # Canvas 2D は同じ pdf.js をブラウザーへ直接読み込む。
         else:
             checks.update(checks_for(path))
         if path.endswith((".md", *CODE_EXTENSIONS)) and Path(path).is_file():

@@ -36,7 +36,6 @@ zumen-ifc = { path = "../crates/zumen-ifc" }
 zumen-jww = { path = "../crates/zumen-jww" }
 zumen-landxml = { path = "../crates/zumen-landxml" }
 zumen-las = { path = "../crates/zumen-las" }
-zumen-pdf = { path = "../crates/zumen-pdf" }
 zumen-photo = { path = "../crates/zumen-photo" }
 zumen-ply = { path = "../crates/zumen-ply" }
 zumen-pointcloud = { path = "../crates/zumen-pointcloud" }
@@ -44,7 +43,6 @@ zumen-sdk = { path = "../crates/zumen-sdk" }
 zumen-render = { path = "../crates/zumen-render" }
 zumen-review = { path = "../crates/zumen-review" }
 zumen-scene = { path = "../crates/zumen-scene" }
-zumen-sheet = { path = "../crates/zumen-sheet" }
 zumen-step = { path = "../crates/zumen-step" }
 zumen-sxf = { path = "../crates/zumen-sxf" }
 zumen-xml = { path = "../crates/zumen-xml" }
@@ -123,13 +121,6 @@ bench = false
 [[bin]]
 name = "jww"
 path = "fuzz_targets/jww.rs"
-test = false
-doc = false
-bench = false
-
-[[bin]]
-name = "pdf"
-path = "fuzz_targets/pdf.rs"
 test = false
 doc = false
 bench = false
@@ -242,7 +233,7 @@ test = false
 doc = false
 bench = false
 
-# 納品・写真・帳票
+# 納品・写真・ボーリング
 [[bin]]
 name = "delivery"
 path = "fuzz_targets/delivery.rs"
@@ -260,20 +251,6 @@ bench = false
 [[bin]]
 name = "boring"
 path = "fuzz_targets/boring.rs"
-test = false
-doc = false
-bench = false
-
-[[bin]]
-name = "xlsx"
-path = "fuzz_targets/xlsx.rs"
-test = false
-doc = false
-bench = false
-
-[[bin]]
-name = "csv"
-path = "fuzz_targets/csv.rs"
 test = false
 doc = false
 bench = false

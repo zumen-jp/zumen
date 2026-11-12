@@ -61,8 +61,6 @@ mod render;
 mod review;
 mod scene;
 mod session;
-#[cfg(feature = "drawing")]
-mod sheet;
 mod tables;
 mod validate;
 

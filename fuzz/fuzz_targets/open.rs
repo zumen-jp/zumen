@@ -273,12 +273,6 @@ fn read_other(calls: &mut Calls) {
         read(calls, "drawing.sfc", Depth::Copy);
     }
     calls.call("photo", |out| field(out, "input", "input"));
-    for format in ["xlsx", "csv"] {
-        calls.call("sheet", |out| {
-            field(out, "input", "input");
-            field(out, "format", format);
-        });
-    }
     calls.call("boring", |out| field(out, "input", "input"));
     calls.call("delivery_check", |out| field(out, "archive", "input"));
 }

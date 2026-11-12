@@ -520,12 +520,9 @@ family = "jwcad"
 domains = ["drawing"]
 specs = []
 rights = "public"
-rights-note = "公式の説明は見つからない。今の Jw_cad も開いて保存できる形式を、保存したファイルどうしを比べて読む。実装を制限する記述はない"
-place = "core"
-basis = ["inferred", "reference"]
-references = [{ name = "ezjww", license = "MIT", url = "https://github.com/monozukuri-ai/ezjww" }]
-verify = ["Jw_cad"]
-samples = ["Jw_cad 10 で保存したファイル"]
+rights-note = "公式の説明は見つからない。今の Jw_cad も開いて保存できる形式。実装を制限する記述はない"
+place = "none"
+notes = "今の Jw_cad で JWW に変換できるため、コアでは実装しない"
 
 [formats.jws]
 name = "JWS（Jw_cad の図形）"
@@ -533,13 +530,9 @@ family = "jwcad"
 domains = ["drawing"]
 specs = []
 rights = "public"
-rights-note = "公式の説明は見つからない。Jw_cad の掲示板に投稿された説明（版 2.30）と、登録した図形と元の図面を比べた結果で読む。実装を制限する記述はない"
-place = "core"
-basis = ["inferred", "reference"]
-references = [{ name = "ezjww", license = "MIT", url = "https://github.com/monozukuri-ai/ezjww" }]
-verify = ["Jw_cad"]
-samples = ["Jw_cad 10 で登録した図形"]
-notes = "掲示板の説明: https://www.jwcad.net/log/consult2/consult2-0610-12/thread17752.htm"
+rights-note = "公式の説明は見つからない。Jw_cad の掲示板に投稿された説明（版 2.30）がある。実装を制限する記述はない"
+place = "none"
+notes = "単体の図面交換形式ではなく Jw_cad 内の登録図形のため、コアでは実装しない。掲示板の説明: https://www.jwcad.net/log/consult2/consult2-0610-12/thread17752.htm"
 
 [formats.dxf]
 name = "DXF"
@@ -608,28 +601,12 @@ name = "PDF"
 family = "pdf"
 domains = ["drawing"]
 specs = ["iso_32000_2_2020"]
-rights = "public"
-rights-note = "ISO の規格で、PDF Association が無償で配っている。配るページと店の EULA に、実装を制限する記述はない。ISO の利用許諾（ECLA）は、4 節で、組み込み・デジタルの統合・派生物を作る権利を許す使い方に含めず、6(b) で、出版物をソフトウェア・データモデル・AI のツールなどに統合・符号化・構造化・運用化することに別の許諾を求める。無償版に ECLA が当たるか、当たるなら仕様に従って形式を実装して公開することがこれに当たるかは分からない（言葉の範囲は広い）。formats/README.md の権利の定義どおりなら unknown になりうるが、zumen-jp/zumen#674 で無償版の条件（ECLA が当たるか）が分かるまで public のままにするのは、利用者の判断による（zumen-jp/zumen#677）。分かったら、権利の定義に照らして rights を見直す。エージェントは、それまで本文を読まない"
-place = "core"
-basis = ["spec"]
-verify = ["pdf.js"]
-samples = ["PDFium の公開サンプル（Type 3・OCG・ソフトマスク・LZW と JPX）。CAD が出力した図面はまだない"]
+rights = "unknown"
+rights-note = "ISO の規格で、PDF Association が無償で配っている。配るページと店の EULA に、実装を制限する記述はない。ISO の利用許諾（ECLA）は、4 節で、組み込み・デジタルの統合・派生物を作る権利を許す使い方に含めず、6(b) で、出版物をソフトウェア・データモデル・AI のツールなどに統合・符号化・構造化・運用化することに別の許諾を求め、7(b) で AI での利用を禁じる。無償版に ECLA が当たるかは未確認で、コアでは PDF を実装しない"
+place = "none"
 legacy-decisions = ["0020", "0030"]
-docs = ["docs/formats/pdf.md"]
 issues = ["zumen-jp/zumen#674"]
-notes = "ページの解釈は hayro-interpret 0.9.0（Apache-2.0 OR MIT）に任せ、バージョンを固定する（決定 0256）。zumen-pdf は crates.io に出さず、どのパッケージにも入れない（決定 0289）"
-
-[formats.pdf.read]
-level = "external"
-scope = "PDFium の公開サンプル 4 個と合成の 2 ページを pdf.js 6.5.438 で読み、ページ寸法・文字の内容と位置・経路と画像の数を照らす（crates/zumen-pdf/tests/external.rs、#519）。回転・クロップ・単位、フォーム、表示しない OCG を含む。Type 3 の Unicode の補い方と、ソフトマスクの経路の数は、両方の値と zumen の診断を固定して確認する（#520）。色・透明度・字形の見え方、一般の PDF の文字列の分け方は照らしていない。シーンは、図面モデルから zumen-scene で作れることだけを確かめた"
-public-samples = ["samples/pdf/"]
-implementations = [{ name = "pdf.js", version = "6.5.438" }]
-checked = "2026-11-06"
-
-[formats.pdf.write]
-level = "synthetic"
-scope = "読んだバイト列をそのまま書けることを、自前の読み取りだけで確かめた。書いたファイルを PDF のソフトで開いてはいない"
-checked = "2026-11-03"
+notes = "PDF 単体の閲覧・読み取りはアプリの側（pdf.js など）で扱い、DXF・DWG の PDFUNDERLAY の描画は @zumen-jp/view2d が呼び出し側から受け取る pdf.js に任せる"
 
 [[formats.pdf.evidence]]
 title = "PDF Association の告知「ISO 32000-2（PDF 2.0）を無償で入手できる」（2023-04-05）"
@@ -712,7 +689,7 @@ samples = ["buildingSMART International が公開する IFC の EXPRESS のス�
 legacy-decisions = ["0028"]
 docs = ["docs/formats/express.md"]
 issues = ["zumen-jp/zumen#410", "zumen-jp/zumen#529", "zumen-jp/zumen#663", "zumen-jp/zumen#668", "zumen-jp/zumen#669"]
-notes = "読み取りを足した PR（zumen-jp/zumen#450）は、参照した実装を記録していないので、実装の根拠は推定にする。寛容なライセンスの実装を参照したら、basis に reference を、references にその実装を足す"
+notes = "IFC をスキーマに照らしてチェックする validate と IDS の属性解決のためだけに読み、汎用 STEP・EXPRESS 処理系へは拡張しない。読み取りを足した PR（zumen-jp/zumen#450）は、参照した実装を記録していないので、実装の根拠は推定にする。寛容なライセンスの実装を参照したら、basis に reference を、references にその実装を足す"
 
 [formats.express.read]
 level = "synthetic"
@@ -1225,16 +1202,9 @@ domains = ["delivery"]
 specs = ["ecma_376_5"]
 rights = "public"
 rights-note = "Ecma International が ECMA-376 を無償で公開している。実装を制限する記述はない"
-place = "core"
-basis = ["spec"]
-samples = ["テストの中で作る"]
-docs = ["docs/formats/sheet.md"]
+place = "none"
 issues = ["zumen-jp/zumen#391"]
-
-[formats.xlsx.read]
-level = "synthetic"
-scope = "ECMA-376 と、テストの中で作った xlsx（crates/zumen-sheet/tests）で確かめた。表計算のソフトが書いた xlsx と、外部の実装との照合はまだ（#505）"
-checked = "2026-11-03"
+notes = "汎用の表計算形式は各言語・アプリの側のライブラリに任せ、コアでは実装しない"
 
 [formats.csv]
 name = "CSV"
@@ -1243,13 +1213,6 @@ domains = ["delivery"]
 specs = ["rfc_4180"]
 rights = "public"
 rights-note = "IETF の RFC で、誰でも読める。実装を制限する記述はない"
-place = "core"
-basis = ["spec"]
-samples = ["テストの中で作る"]
-docs = ["docs/formats/sheet.md"]
+place = "none"
 issues = ["zumen-jp/zumen#391"]
-
-[formats.csv.read]
-level = "synthetic"
-scope = "RFC 4180 と、テストの中で作った CSV（crates/zumen-sheet/tests）で確かめた。表計算のソフトが書いた CSV との照合はまだ（#505）"
-checked = "2026-11-03"
+notes = "汎用の区切りテキストは各言語・アプリの側で扱い、コアでは実装しない"

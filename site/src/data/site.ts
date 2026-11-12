@@ -71,10 +71,10 @@ export interface Format {
 export const formats: Format[] = [
   { name: 'SXF', about: '電子納品の CAD データ（SFC・P21・SFZ・P2Z）', read: '○', write: '○', place: 'コア', top: true },
   { name: 'JWW', about: 'Jw_cad for Windows の図面', read: '○', write: '○', place: 'コア', top: true },
-  { name: 'JWC・JWS', about: 'Jw_cad for DOS の図面、Jw_cad の図形', read: '―', write: '―', place: 'コア' },
+  { name: 'JWC・JWS', about: 'Jw_cad for DOS の図面、Jw_cad の図形', read: '×', write: '×', place: '扱わない' },
   { name: 'DXF', about: 'AutoCAD の交換形式', read: '○', write: '○', place: 'コア', top: true },
   { name: 'DWG', about: 'AutoCAD の図面', read: '○', write: '○', place: 'コア', top: true },
-  { name: 'PDF', about: '図面の PDF', read: '―', write: '―', place: 'コア', top: true },
+  { name: 'PDF', about: '図面の PDF（PDFUNDERLAY の表示は呼び出し側の pdf.js を使う）', read: '×', write: '×', place: '扱わない', top: true },
   { name: 'IFC', about: 'BIM・土木のモデル（IFC-SPF・ifcZIP）', read: '○', write: '○', place: 'コア', top: true },
   { name: 'LandXML', about: '線形・地表面などの土木のデータ', read: '○', write: '―', place: 'コア' },
   { name: 'CityGML', about: '都市の 3D モデル', read: '○', write: '―', place: 'コア' },

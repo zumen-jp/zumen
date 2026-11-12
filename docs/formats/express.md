@@ -1,6 +1,6 @@
 # EXPRESS
 
-利用者が渡す EXPRESS のスキーマ（ISO 10303-11）を読む規則を記録します。読んだスキーマは、IFC をスキーマに照らしてチェックする `validate` の op で使います。実装は `crates/zumen-ifc` の `Express` です。
+利用者が渡す EXPRESS のスキーマ（ISO 10303-11）を読む規則を記録します。読んだスキーマは、IFC をスキーマに照らしてチェックする `validate` の op と IDS の属性解決だけで使い、汎用の STEP・EXPRESS 処理系（`WHERE`・`FUNCTION`・`RULE` の評価や IFC 以外の製品モデル）へは広げません。実装は `crates/zumen-ifc` の `Express` です。
 
 ISO の本文は買わず、OBP のプレビューも読みません（[資料を読む条件](../../formats/README.md#資料を読む条件)）。公開された EXPRESS のスキーマ（IFC など）と、寛容なライセンスの実装から読みます。zumen は EXPRESS のスキーマを同梱しません（旧版の決定 0028）。権利の根拠は[形式と権利の一覧](README.md#format-express)にあります。
 

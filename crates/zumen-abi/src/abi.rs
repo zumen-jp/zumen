@@ -8,7 +8,7 @@ pub const ABI_VERSION: u32 = 1;
 /// メッセージのスキーマのメジャーバージョン。要求と応答の `v`
 pub const SCHEMA_MAJOR: u64 = 1;
 /// メッセージのスキーマのマイナーバージョン。`capabilities` が返す
-pub const SCHEMA_MINOR: u64 = 69;
+pub const SCHEMA_MINOR: u64 = 70;
 
 /// 状態コード。理由は応答の診断で返す
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -98,7 +98,7 @@ pub struct Module {
 
 /// wasm のモジュール
 pub const MODULES: &[Module] = &[
-    // 図面（DXF・DWG・SXF・JWW と、図面モデルのバイナリ）と、図面のレビュー。土木の線形（J-LandXML）と、線形から作る図。電子納品の成果品・工事写真・表・ボーリング交換用データ
+    // 図面（DXF・DWG・SXF・JWW と、図面モデルのバイナリ）と、図面のレビュー。土木の線形（J-LandXML）と、線形から作る図。電子納品の成果品・工事写真・ボーリング交換用データ
     Module {
         name: "drawing",
         formats: &["dxf", "dwg", "sxf", "jww", "landxml", "drawing"],
@@ -121,7 +121,6 @@ pub const MODULES: &[Module] = &[
             "civil_drawing",
             "delivery_check",
             "photo",
-            "sheet",
             "boring",
             "lift",
             "render",
@@ -201,7 +200,6 @@ pub fn has_op(op: &str) -> bool {
                 | "civil_drawing"
                 | "delivery_check"
                 | "photo"
-                | "sheet"
                 | "boring"
                 | "lift"
                 | "render"

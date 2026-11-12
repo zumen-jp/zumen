@@ -981,6 +981,7 @@ pub const CRS_PROJECTION_UNSUPPORTED: Code = Code::new(
 /// CSV に、その文字コードで直せないバイトがあるので、置き換えの字にした（#391）
 ///
 /// `csv.encoding.invalid`（0.2.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const CSV_ENCODING_INVALID: Code = Code::new(
     "csv.encoding.invalid",
     Severity::Warning,
@@ -992,6 +993,7 @@ pub const CSV_ENCODING_INVALID: Code = Code::new(
 /// CSV の引用符が閉じていないので、終わりまでを 1 つの値にした（#391）。line は引用符の始まりの行
 ///
 /// `csv.quote.invalid`（0.2.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const CSV_QUOTE_INVALID: Code = Code::new(
     "csv.quote.invalid",
     Severity::Warning,
@@ -2909,6 +2911,7 @@ pub const LAS_VLR_INVALID: Code = Code::new(
 /// 注釈の通常外観だけを図形へ移し、内容・返信・操作などの情報を移さなかった。kind は注釈の種類（Subtype）
 ///
 /// `pdf.annotation.drawn`（0.2.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const PDF_ANNOTATION_DRAWN: Code = Code::new(
     "pdf.annotation.drawn",
     Severity::Warning,
@@ -2920,6 +2923,7 @@ pub const PDF_ANNOTATION_DRAWN: Code = Code::new(
 /// 注釈を、図面モデルに移さなかった。kind は注釈の種類（Subtype）
 ///
 /// `pdf.annotation.unsupported`（0.2.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const PDF_ANNOTATION_UNSUPPORTED: Code = Code::new(
     "pdf.annotation.unsupported",
     Severity::Warning,
@@ -2931,6 +2935,7 @@ pub const PDF_ANNOTATION_UNSUPPORTED: Code = Code::new(
 /// 切り抜きにかかる要素を、切らずに移した
 ///
 /// `pdf.clip.approximated`（0.2.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const PDF_CLIP_APPROXIMATED: Code = Code::new(
     "pdf.clip.approximated",
     Severity::Warning,
@@ -2942,6 +2947,7 @@ pub const PDF_CLIP_APPROXIMATED: Code = Code::new(
 /// 切り抜きかページの外にあって見えない要素を、移さなかった
 ///
 /// `pdf.clip.dropped`（0.2.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const PDF_CLIP_DROPPED: Code = Code::new(
     "pdf.clip.dropped",
     Severity::Warning,
@@ -2953,6 +2959,7 @@ pub const PDF_CLIP_DROPPED: Code = Code::new(
 /// 装置の CMYK か、装置によらない色空間の色を、四則演算で RGB にした。space は色空間の系統
 ///
 /// `pdf.color.approximated`（0.2.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const PDF_COLOR_APPROXIMATED: Code = Code::new(
     "pdf.color.approximated",
     Severity::Warning,
@@ -2964,6 +2971,7 @@ pub const PDF_COLOR_APPROXIMATED: Code = Code::new(
 /// RGB にしない色空間の色を移さず、レイヤの色にした。space は色空間の系統
 ///
 /// `pdf.color.dropped`（0.2.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const PDF_COLOR_DROPPED: Code = Code::new(
     "pdf.color.dropped",
     Severity::Warning,
@@ -2975,6 +2983,7 @@ pub const PDF_COLOR_DROPPED: Code = Code::new(
 /// 内容のストリーム・フォームの XObject・画像を、展開できないか途中から読めないので、その内容を移さなかった。内容のストリームの配列の展開できない項目、引数の足りない演算子や閉じない文字列から後ろ、BBox のないフォーム、大きさのない画像を含む
 ///
 /// `pdf.content.invalid`（0.2.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const PDF_CONTENT_INVALID: Code = Code::new(
     "pdf.content.invalid",
     Severity::Warning,
@@ -2986,6 +2995,7 @@ pub const PDF_CONTENT_INVALID: Code = Code::new(
 /// 破線の位相を移さなかった
 ///
 /// `pdf.dash.approximated`（0.2.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const PDF_DASH_APPROXIMATED: Code = Code::new(
     "pdf.dash.approximated",
     Severity::Warning,
@@ -2997,6 +3007,7 @@ pub const PDF_DASH_APPROXIMATED: Code = Code::new(
 /// 文書の情報の辞書の日付（CreationDate・ModDate）で省略された要素を既定値で補うか、時差のない日時を +00:00 として ISO 8601 の日時にした。原値と時差の有無は形式固有情報に残す。field は項目名（created・modified）
 ///
 /// `pdf.date.approximated`（0.2.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const PDF_DATE_APPROXIMATED: Code = Code::new(
     "pdf.date.approximated",
     Severity::Warning,
@@ -3008,6 +3019,7 @@ pub const PDF_DATE_APPROXIMATED: Code = Code::new(
 /// 文書の情報の辞書の日付（CreationDate・ModDate）を PDF の日付として読めなかったので、ISO 8601 の日時にしなかった。原値は形式固有情報に残す。field は項目名（created・modified）
 ///
 /// `pdf.date.invalid`（0.2.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const PDF_DATE_INVALID: Code = Code::new(
     "pdf.date.invalid",
     Severity::Warning,
@@ -3019,18 +3031,21 @@ pub const PDF_DATE_INVALID: Code = Code::new(
 /// 相互参照とページの木を、オブジェクトを探し直しても読めない
 ///
 /// `pdf.document.invalid`（0.2.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const PDF_DOCUMENT_INVALID: Code =
     Code::new("pdf.document.invalid", Severity::Error, None, &[], &[]);
 
 /// hayro-syntax がパニックするか、環境（32 ビットと 64 ビット）で違う値に読むおそれのある値があるので、読まなかった。ファイルとオブジェクトのストリームの中身のどこかに、2 の 31 乗以上の Columns・N・First か、予測子を当てる Predictor と、0 の Colors・BitsPerComponent・Columns か、積が 255 を超える Colors と BitsPerComponent か、1 MiB を超える 1 行の値がある（参照の値は、すべての定義の数を候補にする）。または、入力の長さが 2 の 28 乗バイトに届きうる LZW・ASCII85 のフィルターがあるか、フィルターの値に参照があり、参照の先になりうる位置（obj の後ろと、オブジェクトのストリームの中の位置）に LZW・ASCII85 の名前か、それを名前の項目に持つ配列か、最初の参照の項目より前の名前の項目が 64 を超える配列（参照の先になりうる位置に名前があれば、名前と参照の項目が 64 を超える配列）があるか、名前と参照の項目が 64 を超えるフィルターの配列か、フィルターの配列の項目の数より前に、上の段の 2 つ目の参照の項目か、辞書の後ろに stream がある項目か、見る上限（1 KiB）で切れる項目がある展開のパラメーター（DecodeParms・DP）の配列があるか（値が参照なら、参照の先になりうる位置の配列も見る）、オブジェクトのストリームの中の位置が 2 の 31 乗以上か、オブジェクトのストリームの長さ・数・展開の値が参照を含むか、確かめたオブジェクトのストリームの型でない ObjStm の型があるか、暗号化の辞書の名前がある文書が、オブジェクトのストリームを使う。場所は、理由の値を含むレコード
 ///
 /// `pdf.document.unsupported`（0.2.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const PDF_DOCUMENT_UNSUPPORTED: Code =
     Code::new("pdf.document.unsupported", Severity::Error, None, &[], &[]);
 
 /// 空のパスワードで開けないか、扱えない方式の暗号なので、読まなかった
 ///
 /// `pdf.encryption.unsupported`（0.2.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const PDF_ENCRYPTION_UNSUPPORTED: Code = Code::new(
     "pdf.encryption.unsupported",
     Severity::Error,
@@ -3042,11 +3057,13 @@ pub const PDF_ENCRYPTION_UNSUPPORTED: Code = Code::new(
 /// 先頭の 1,024 バイトに、ファイルのヘッダー %PDF- がない
 ///
 /// `pdf.file.invalid`（0.2.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const PDF_FILE_INVALID: Code = Code::new("pdf.file.invalid", Severity::Error, None, &[], &[]);
 
 /// 非ゼロ回転数の規則で塗った形を、同じ塗りになると確認できないまま、輪の中の輪を交互に埋めるハッチングにした
 ///
 /// `pdf.fill-rule.approximated`（0.2.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const PDF_FILL_RULE_APPROXIMATED: Code = Code::new(
     "pdf.fill-rule.approximated",
     Severity::Warning,
@@ -3058,6 +3075,7 @@ pub const PDF_FILL_RULE_APPROXIMATED: Code = Code::new(
 /// hayro-interpret が名前を渡さないフォント（Type 1・埋め込みのない TrueType）と、名前が UTF-8 でないフォントの文字を、文字スタイルを空にして移した
 ///
 /// `pdf.font-name.dropped`（0.2.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const PDF_FONT_NAME_DROPPED: Code = Code::new(
     "pdf.font-name.dropped",
     Severity::Warning,
@@ -3069,6 +3087,7 @@ pub const PDF_FONT_NAME_DROPPED: Code = Code::new(
 /// フォントを選ばずに（Tf の前に）Tj か TJ で描いた文字を、hayro-interpret が Helvetica で読んだ。ページごとに 1 件
 ///
 /// `pdf.font.assumed`（0.2.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const PDF_FONT_ASSUMED: Code = Code::new(
     "pdf.font.assumed",
     Severity::Warning,
@@ -3080,6 +3099,7 @@ pub const PDF_FONT_ASSUMED: Code = Code::new(
 /// 資源にないフォントを選んだ文字を、hayro-interpret が Helvetica で読んだ。ページとフォントの名前ごとに 1 件。name は資源の名前
 ///
 /// `pdf.font.missing`（0.2.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const PDF_FONT_MISSING: Code = Code::new(
     "pdf.font.missing",
     Severity::Warning,
@@ -3091,6 +3111,7 @@ pub const PDF_FONT_MISSING: Code = Code::new(
 /// hayro-interpret が読めないフォントの文字を、Helvetica で読んだ。ページとフォントのオブジェクトごとに 1 件。name はフォントの名前（BaseFont。なければ資源の名前）
 ///
 /// `pdf.font.unsupported`（0.2.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const PDF_FONT_UNSUPPORTED: Code = Code::new(
     "pdf.font.unsupported",
     Severity::Warning,
@@ -3102,6 +3123,7 @@ pub const PDF_FONT_UNSUPPORTED: Code = Code::new(
 /// 座標・線の太さが有限でない要素と、大きさのない文字（0 Tf・0 Tz・特異な行列）を、移さなかった
 ///
 /// `pdf.geometry.dropped`（0.2.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const PDF_GEOMETRY_DROPPED: Code = Code::new(
     "pdf.geometry.dropped",
     Severity::Warning,
@@ -3113,6 +3135,7 @@ pub const PDF_GEOMETRY_DROPPED: Code = Code::new(
 /// 字形の並びの中の、字形ごとの位置の小さなずれ（TJ の数・Tc・Tw による）を移さず、フォントの送りで並べた 1 つの文字にした
 ///
 /// `pdf.glyph-position.approximated`（0.2.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const PDF_GLYPH_POSITION_APPROXIMATED: Code = Code::new(
     "pdf.glyph-position.approximated",
     Severity::Warning,
@@ -3124,6 +3147,7 @@ pub const PDF_GLYPH_POSITION_APPROXIMATED: Code = Code::new(
 /// Unicode に戻せない字形を、U+FFFD にした
 ///
 /// `pdf.glyph.dropped`（0.2.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const PDF_GLYPH_DROPPED: Code = Code::new(
     "pdf.glyph.dropped",
     Severity::Warning,
@@ -3135,6 +3159,7 @@ pub const PDF_GLYPH_DROPPED: Code = Code::new(
 /// 色を塗る画像（ImageMask）の色を移さず、レイヤの色にした
 ///
 /// `pdf.image-mask.approximated`（0.2.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const PDF_IMAGE_MASK_APPROXIMATED: Code = Code::new(
     "pdf.image-mask.approximated",
     Severity::Warning,
@@ -3146,6 +3171,7 @@ pub const PDF_IMAGE_MASK_APPROXIMATED: Code = Code::new(
 /// 矩形計測の距離校正を、既存の紙上の図形を動かさず、用紙上の校正領域として保持した。絶対座標の原点や数値表示書式の復元は含まない
 ///
 /// `pdf.measure-distance.equivalent`（0.2.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const PDF_MEASURE_DISTANCE_EQUIVALENT: Code = Code::new(
     "pdf.measure-distance.equivalent",
     Severity::Info,
@@ -3157,6 +3183,7 @@ pub const PDF_MEASURE_DISTANCE_EQUIVALENT: Code = Code::new(
 /// ビューポートの計測辞書の値を解釈できなかった。field は値の経路、reason は理由。読めた原値は形式固有情報に残す
 ///
 /// `pdf.measure.invalid`（0.2.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const PDF_MEASURE_INVALID: Code = Code::new(
     "pdf.measure.invalid",
     Severity::Warning,
@@ -3171,6 +3198,7 @@ pub const PDF_MEASURE_INVALID: Code = Code::new(
 /// 縮尺の辞書（Measure）を持つビューポートの縮尺を、移さなかった
 ///
 /// `pdf.measure.unsupported`（0.2.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const PDF_MEASURE_UNSUPPORTED: Code = Code::new(
     "pdf.measure.unsupported",
     Severity::Warning,
@@ -3182,6 +3210,7 @@ pub const PDF_MEASURE_UNSUPPORTED: Code = Code::new(
 /// OCMD で、既定の設定で隠れる内容は、hayro-interpret が塗らないので、移さなかった
 ///
 /// `pdf.membership.dropped`（0.2.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const PDF_MEMBERSHIP_DROPPED: Code = Code::new(
     "pdf.membership.dropped",
     Severity::Warning,
@@ -3193,6 +3222,7 @@ pub const PDF_MEMBERSHIP_DROPPED: Code = Code::new(
 /// フォームの XObject の入れ子が、hayro-interpret の上限（50 段）より深いので、その中身を移さなかった
 ///
 /// `pdf.nesting.dropped`（0.2.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const PDF_NESTING_DROPPED: Code = Code::new(
     "pdf.nesting.dropped",
     Severity::Warning,
@@ -3204,12 +3234,14 @@ pub const PDF_NESTING_DROPPED: Code = Code::new(
 /// 間接オブジェクトの終わり（endobj）がないので、次のオブジェクトの前か入力の終わりまでを、そのオブジェクトにした
 ///
 /// `pdf.object.repaired`（0.2.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const PDF_OBJECT_REPAIRED: Code =
     Code::new("pdf.object.repaired", Severity::Warning, None, &[], &[]);
 
 /// OCMD で見える内容を最初の OCG のレイヤに置いたか、OCG を持つ XObject の内容をレイヤに分けなかった
 ///
 /// `pdf.optional-content.approximated`（0.2.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const PDF_OPTIONAL_CONTENT_APPROXIMATED: Code = Code::new(
     "pdf.optional-content.approximated",
     Severity::Warning,
@@ -3221,6 +3253,7 @@ pub const PDF_OPTIONAL_CONTENT_APPROXIMATED: Code = Code::new(
 /// 既定の設定で隠れる OCG の内容は、hayro-interpret が塗らないので、移さなかった。name は OCG の名前
 ///
 /// `pdf.optional-content.dropped`（0.2.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const PDF_OPTIONAL_CONTENT_DROPPED: Code = Code::new(
     "pdf.optional-content.dropped",
     Severity::Warning,
@@ -3232,6 +3265,7 @@ pub const PDF_OPTIONAL_CONTENT_DROPPED: Code = Code::new(
 /// ページの木（Kids）の項目を、ページの辞書にも中間の節にも読めない（数・null・入れ子の深すぎる値を持つ辞書など）か、たどった節かページをもう一度指すので、hayro-syntax が飛ばし、ページにしなかった。Kids を配列に読めない中間の節も、下のページごと飛ばすので数える。場所は、その項目を持つ節（Kids を読めない節は、その節）のレコードで、件数は飛ばした項目の数（#555）
 ///
 /// `pdf.page-tree.dropped`（0.2.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const PDF_PAGE_TREE_DROPPED: Code = Code::new(
     "pdf.page-tree.dropped",
     Severity::Warning,
@@ -3243,6 +3277,7 @@ pub const PDF_PAGE_TREE_DROPPED: Code = Code::new(
 /// hayro-interpret がスタックかメモリを使い切るか、パニックするおそれのあるもの（16 段より深い関数・色空間の入れ子、64 段より深い Type 4 の関数の手続き、26 万個を超える CID フォントの幅の項目、大きさが 16,777,216 を超える Type 0 の関数、行の頂点の数が 0 の格子のメッシュ）があるので、ページを解釈せず、その中身を移さなかった。場所は、理由のオブジェクトのレコード（直接書いたオブジェクトは、それを含む間接オブジェクトのレコード。色空間の入れ子は、ページの内容のストリーム）
 ///
 /// `pdf.page.dropped`（0.2.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const PDF_PAGE_DROPPED: Code = Code::new(
     "pdf.page.dropped",
     Severity::Warning,
@@ -3254,6 +3289,7 @@ pub const PDF_PAGE_DROPPED: Code = Code::new(
 /// タイルのパターンで塗った形を、移さなかった
 ///
 /// `pdf.pattern.dropped`（0.2.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const PDF_PATTERN_DROPPED: Code = Code::new(
     "pdf.pattern.dropped",
     Severity::Warning,
@@ -3265,6 +3301,7 @@ pub const PDF_PATTERN_DROPPED: Code = Code::new(
 /// 軸に平行な長方形の始点と向きが渡されないので、左下の角から反時計回りの折れ線にし、破線の始まる角と向きを確認できなかった
 ///
 /// `pdf.rect-orientation.approximated`（0.2.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const PDF_RECT_ORIENTATION_APPROXIMATED: Code = Code::new(
     "pdf.rect-orientation.approximated",
     Severity::Warning,
@@ -3276,6 +3313,7 @@ pub const PDF_RECT_ORIENTATION_APPROXIMATED: Code = Code::new(
 /// シェーディング（濃淡）で塗った形を、移さなかった
 ///
 /// `pdf.shading.dropped`（0.2.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const PDF_SHADING_DROPPED: Code = Code::new(
     "pdf.shading.dropped",
     Severity::Warning,
@@ -3287,6 +3325,7 @@ pub const PDF_SHADING_DROPPED: Code = Code::new(
 /// 線の端（丸・四角）・つなぎ（丸・面取り）・マイターの限度を移さず、面取りになる角または限度 4 を超える鋭い角の見た目が変わった
 ///
 /// `pdf.stroke.approximated`（0.2.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const PDF_STROKE_APPROXIMATED: Code = Code::new(
     "pdf.stroke.approximated",
     Severity::Warning,
@@ -3298,6 +3337,7 @@ pub const PDF_STROKE_APPROXIMATED: Code = Code::new(
 /// hayro-interpret が描かない文字列を、移さなかった。代わりのフォント（Helvetica）で読む、ASCII でないバイトを含む文字列と、フォントを選ばずに ' か " で描いた文字列
 ///
 /// `pdf.text.dropped`（0.2.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const PDF_TEXT_DROPPED: Code = Code::new(
     "pdf.text.dropped",
     Severity::Warning,
@@ -3309,6 +3349,7 @@ pub const PDF_TEXT_DROPPED: Code = Code::new(
 /// 転送関数（TR・TR2）を使うページの色を移さず、レイヤの色にした。hayro-interpret が関数を当てた色は使わない
 ///
 /// `pdf.transfer.dropped`（0.2.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const PDF_TRANSFER_DROPPED: Code = Code::new(
     "pdf.transfer.dropped",
     Severity::Warning,
@@ -3320,6 +3361,7 @@ pub const PDF_TRANSFER_DROPPED: Code = Code::new(
 /// ソフトマスク・画像のマスク（Mask・SMaskInData）と、通常でない合成の方法を移さなかった
 ///
 /// `pdf.transparency.approximated`（0.2.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const PDF_TRANSPARENCY_APPROXIMATED: Code = Code::new(
     "pdf.transparency.approximated",
     Severity::Warning,
@@ -3331,6 +3373,7 @@ pub const PDF_TRANSPARENCY_APPROXIMATED: Code = Code::new(
 /// Type 3 のフォントの字形（内容のストリームで描く形）を、書体のない文字にした
 ///
 /// `pdf.type3.approximated`（0.2.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const PDF_TYPE3_APPROXIMATED: Code = Code::new(
     "pdf.type3.approximated",
     Severity::Warning,
@@ -3342,6 +3385,7 @@ pub const PDF_TYPE3_APPROXIMATED: Code = Code::new(
 /// 縦書きのフォントの原点の移動（字形の幅・DW2・W2）が既定と違いうるので、文字の基点を、既定の原点の移動で近似した。ページとフォントのオブジェクトごとに 1 件。name はフォントの名前（BaseFont）
 ///
 /// `pdf.vertical-origin.approximated`（0.2.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const PDF_VERTICAL_ORIGIN_APPROXIMATED: Code = Code::new(
     "pdf.vertical-origin.approximated",
     Severity::Warning,
@@ -3353,6 +3397,7 @@ pub const PDF_VERTICAL_ORIGIN_APPROXIMATED: Code = Code::new(
 /// OCMD の表示式（VE）を評価せず、OCGs と P だけで表示を決めた
 ///
 /// `pdf.visibility-expression.approximated`（0.2.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const PDF_VISIBILITY_EXPRESSION_APPROXIMATED: Code = Code::new(
     "pdf.visibility-expression.approximated",
     Severity::Warning,
@@ -3364,6 +3409,7 @@ pub const PDF_VISIBILITY_EXPRESSION_APPROXIMATED: Code = Code::new(
 /// 資源にない XObject を描いた（Do）。hayro-interpret は描かないので、移さなかった。循環する参照で引けない XObject を含む。ページと名前ごとに 1 件。name は資源の名前
 ///
 /// `pdf.xobject.missing`（0.2.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const PDF_XOBJECT_MISSING: Code = Code::new(
     "pdf.xobject.missing",
     Severity::Warning,
@@ -4683,6 +4729,7 @@ pub const SXF_SFIG_MISSING: Code = Code::new(
 /// セルの参照か共有文字列の番号が読めないので、そのセルか結合セルを飛ばした（#391）
 ///
 /// `xlsx.cell.invalid`（0.2.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const XLSX_CELL_INVALID: Code = Code::new(
     "xlsx.cell.invalid",
     Severity::Warning,
@@ -4697,11 +4744,13 @@ pub const XLSX_CELL_INVALID: Code = Code::new(
 /// xlsx のブックの部品（workbook.xml）がないか読めないので、表として読まなかった（#391）
 ///
 /// `xlsx.file.invalid`（0.2.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const XLSX_FILE_INVALID: Code = Code::new("xlsx.file.invalid", Severity::Error, None, &[], &[]);
 
 /// xlsx の部品がないか XML として読めないので、その部品を飛ばした（#391）。name はアーカイブの中の名前かシートの名前
 ///
 /// `xlsx.part.invalid`（0.2.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const XLSX_PART_INVALID: Code = Code::new(
     "xlsx.part.invalid",
     Severity::Warning,
@@ -4713,6 +4762,7 @@ pub const XLSX_PART_INVALID: Code = Code::new(
 /// ワークシートでないシート（グラフのシートなど）なので、読まなかった（#391）
 ///
 /// `xlsx.sheet.unsupported`（0.2.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const XLSX_SHEET_UNSUPPORTED: Code = Code::new(
     "xlsx.sheet.unsupported",
     Severity::Info,

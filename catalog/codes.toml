@@ -1754,65 +1754,65 @@ group-by = ["kind"]
 since = "0.0.0"
 status = "active"
 
-# PDF のファイルモデルと、図面の領域モデルへの変換（決定 0256）
+# PDF のファイルモデルと、図面の領域モデルへの変換（決定 0256。コアから外したため retired）
 
 [codes."pdf.file.invalid"]
 description = "先頭の 1,024 バイトに、ファイルのヘッダー %PDF- がない"
 severity = "error"
 since = "0.2.0"
-status = "active"
+status = "retired"
 
 [codes."pdf.document.invalid"]
 description = "相互参照とページの木を、オブジェクトを探し直しても読めない"
 severity = "error"
 since = "0.2.0"
-status = "active"
+status = "retired"
 
 [codes."pdf.document.unsupported"]
 description = "hayro-syntax がパニックするか、環境（32 ビットと 64 ビット）で違う値に読むおそれのある値があるので、読まなかった。ファイルとオブジェクトのストリームの中身のどこかに、2 の 31 乗以上の Columns・N・First か、予測子を当てる Predictor と、0 の Colors・BitsPerComponent・Columns か、積が 255 を超える Colors と BitsPerComponent か、1 MiB を超える 1 行の値がある（参照の値は、すべての定義の数を候補にする）。または、入力の長さが 2 の 28 乗バイトに届きうる LZW・ASCII85 のフィルターがあるか、フィルターの値に参照があり、参照の先になりうる位置（obj の後ろと、オブジェクトのストリームの中の位置）に LZW・ASCII85 の名前か、それを名前の項目に持つ配列か、最初の参照の項目より前の名前の項目が 64 を超える配列（参照の先になりうる位置に名前があれば、名前と参照の項目が 64 を超える配列）があるか、名前と参照の項目が 64 を超えるフィルターの配列か、フィルターの配列の項目の数より前に、上の段の 2 つ目の参照の項目か、辞書の後ろに stream がある項目か、見る上限（1 KiB）で切れる項目がある展開のパラメーター（DecodeParms・DP）の配列があるか（値が参照なら、参照の先になりうる位置の配列も見る）、オブジェクトのストリームの中の位置が 2 の 31 乗以上か、オブジェクトのストリームの長さ・数・展開の値が参照を含むか、確かめたオブジェクトのストリームの型でない ObjStm の型があるか、暗号化の辞書の名前がある文書が、オブジェクトのストリームを使う。場所は、理由の値を含むレコード"
 severity = "error"
 since = "0.2.0"
-status = "active"
+status = "retired"
 
 [codes."pdf.encryption.unsupported"]
 description = "空のパスワードで開けないか、扱えない方式の暗号なので、読まなかった"
 severity = "error"
 since = "0.2.0"
-status = "active"
+status = "retired"
 
 [codes."pdf.object.repaired"]
 description = "間接オブジェクトの終わり（endobj）がないので、次のオブジェクトの前か入力の終わりまでを、そのオブジェクトにした"
 severity = "warning"
 since = "0.2.0"
-status = "active"
+status = "retired"
 
 [codes."pdf.content.invalid"]
 description = "内容のストリーム・フォームの XObject・画像を、展開できないか途中から読めないので、その内容を移さなかった。内容のストリームの配列の展開できない項目、引数の足りない演算子や閉じない文字列から後ろ、BBox のないフォーム、大きさのない画像を含む"
 severity = "warning"
 fidelity = "dropped"
 since = "0.2.0"
-status = "active"
+status = "retired"
 
 [codes."pdf.nesting.dropped"]
 description = "フォームの XObject の入れ子が、hayro-interpret の上限（50 段）より深いので、その中身を移さなかった"
 severity = "warning"
 fidelity = "dropped"
 since = "0.2.0"
-status = "active"
+status = "retired"
 
 [codes."pdf.page.dropped"]
 description = "hayro-interpret がスタックかメモリを使い切るか、パニックするおそれのあるもの（16 段より深い関数・色空間の入れ子、64 段より深い Type 4 の関数の手続き、26 万個を超える CID フォントの幅の項目、大きさが 16,777,216 を超える Type 0 の関数、行の頂点の数が 0 の格子のメッシュ）があるので、ページを解釈せず、その中身を移さなかった。場所は、理由のオブジェクトのレコード（直接書いたオブジェクトは、それを含む間接オブジェクトのレコード。色空間の入れ子は、ページの内容のストリーム）"
 severity = "warning"
 fidelity = "dropped"
 since = "0.2.0"
-status = "active"
+status = "retired"
 
 [codes."pdf.page-tree.dropped"]
 description = "ページの木（Kids）の項目を、ページの辞書にも中間の節にも読めない（数・null・入れ子の深すぎる値を持つ辞書など）か、たどった節かページをもう一度指すので、hayro-syntax が飛ばし、ページにしなかった。Kids を配列に読めない中間の節も、下のページごと飛ばすので数える。場所は、その項目を持つ節（Kids を読めない節は、その節）のレコードで、件数は飛ばした項目の数（#555）"
 severity = "warning"
 fidelity = "dropped"
 since = "0.2.0"
-status = "active"
+status = "retired"
 
 [codes."pdf.xobject.missing"]
 description = "資源にない XObject を描いた（Do）。hayro-interpret は描かないので、移さなかった。循環する参照で引けない XObject を含む。ページと名前ごとに 1 件。name は資源の名前"
@@ -1821,7 +1821,7 @@ fidelity = "dropped"
 params = { name = "text" }
 group-by = ["name"]
 since = "0.2.0"
-status = "active"
+status = "retired"
 
 [codes."pdf.optional-content.dropped"]
 description = "既定の設定で隠れる OCG の内容は、hayro-interpret が塗らないので、移さなかった。name は OCG の名前"
@@ -1830,28 +1830,28 @@ fidelity = "dropped"
 params = { name = "text" }
 group-by = ["name"]
 since = "0.2.0"
-status = "active"
+status = "retired"
 
 [codes."pdf.optional-content.approximated"]
 description = "OCMD で見える内容を最初の OCG のレイヤに置いたか、OCG を持つ XObject の内容をレイヤに分けなかった"
 severity = "warning"
 fidelity = "approximated"
 since = "0.2.0"
-status = "active"
+status = "retired"
 
 [codes."pdf.membership.dropped"]
 description = "OCMD で、既定の設定で隠れる内容は、hayro-interpret が塗らないので、移さなかった"
 severity = "warning"
 fidelity = "dropped"
 since = "0.2.0"
-status = "active"
+status = "retired"
 
 [codes."pdf.visibility-expression.approximated"]
 description = "OCMD の表示式（VE）を評価せず、OCGs と P だけで表示を決めた"
 severity = "warning"
 fidelity = "approximated"
 since = "0.2.0"
-status = "active"
+status = "retired"
 
 [codes."pdf.annotation.drawn"]
 description = "注釈の通常外観だけを図形へ移し、内容・返信・操作などの情報を移さなかった。kind は注釈の種類（Subtype）"
@@ -1860,7 +1860,7 @@ fidelity = "drawn"
 params = { kind = "text" }
 group-by = ["kind"]
 since = "0.2.0"
-status = "active"
+status = "retired"
 
 [codes."pdf.annotation.unsupported"]
 description = "注釈を、図面モデルに移さなかった。kind は注釈の種類（Subtype）"
@@ -1869,7 +1869,7 @@ fidelity = "dropped"
 params = { kind = "text" }
 group-by = ["kind"]
 since = "0.2.0"
-status = "active"
+status = "retired"
 
 [codes."drawing.calibration.invalid"]
 description = "用紙上の校正領域を、契約・値・付く先が不正か ID が重複していたため使わなかった。id は校正の ID、reason は理由"
@@ -1895,7 +1895,7 @@ fidelity = "approximated"
 params = { field = "text" }
 group-by = ["field"]
 since = "0.2.0"
-status = "active"
+status = "retired"
 
 [codes."pdf.date.invalid"]
 description = "文書の情報の辞書の日付（CreationDate・ModDate）を PDF の日付として読めなかったので、ISO 8601 の日時にしなかった。原値は形式固有情報に残す。field は項目名（created・modified）"
@@ -1904,7 +1904,7 @@ fidelity = "dropped"
 params = { field = "text" }
 group-by = ["field"]
 since = "0.2.0"
-status = "active"
+status = "retired"
 
 [codes."pdf.measure.invalid"]
 description = "ビューポートの計測辞書の値を解釈できなかった。field は値の経路、reason は理由。読めた原値は形式固有情報に残す"
@@ -1913,84 +1913,84 @@ fidelity = "dropped"
 params = { field = "text", reason = "text" }
 group-by = ["field", "reason"]
 since = "0.2.0"
-status = "active"
+status = "retired"
 
 [codes."pdf.measure-distance.equivalent"]
 description = "矩形計測の距離校正を、既存の紙上の図形を動かさず、用紙上の校正領域として保持した。絶対座標の原点や数値表示書式の復元は含まない"
 severity = "info"
 fidelity = "equivalent"
 since = "0.2.0"
-status = "active"
+status = "retired"
 
 [codes."pdf.measure.unsupported"]
 description = "縮尺の辞書（Measure）を持つビューポートの縮尺を、移さなかった"
 severity = "warning"
 fidelity = "dropped"
 since = "0.2.0"
-status = "active"
+status = "retired"
 
 [codes."pdf.shading.dropped"]
 description = "シェーディング（濃淡）で塗った形を、移さなかった"
 severity = "warning"
 fidelity = "dropped"
 since = "0.2.0"
-status = "active"
+status = "retired"
 
 [codes."pdf.pattern.dropped"]
 description = "タイルのパターンで塗った形を、移さなかった"
 severity = "warning"
 fidelity = "dropped"
 since = "0.2.0"
-status = "active"
+status = "retired"
 
 [codes."pdf.clip.dropped"]
 description = "切り抜きかページの外にあって見えない要素を、移さなかった"
 severity = "warning"
 fidelity = "dropped"
 since = "0.2.0"
-status = "active"
+status = "retired"
 
 [codes."pdf.clip.approximated"]
 description = "切り抜きにかかる要素を、切らずに移した"
 severity = "warning"
 fidelity = "approximated"
 since = "0.2.0"
-status = "active"
+status = "retired"
 
 [codes."pdf.geometry.dropped"]
 description = "座標・線の太さが有限でない要素と、大きさのない文字（0 Tf・0 Tz・特異な行列）を、移さなかった"
 severity = "warning"
 fidelity = "dropped"
 since = "0.2.0"
-status = "active"
+status = "retired"
 
 [codes."pdf.glyph.dropped"]
 description = "Unicode に戻せない字形を、U+FFFD にした"
 severity = "warning"
 fidelity = "dropped"
 since = "0.2.0"
-status = "active"
+status = "retired"
 
 [codes."pdf.glyph-position.approximated"]
 description = "字形の並びの中の、字形ごとの位置の小さなずれ（TJ の数・Tc・Tw による）を移さず、フォントの送りで並べた 1 つの文字にした"
 severity = "warning"
 fidelity = "approximated"
 since = "0.2.0"
-status = "active"
+status = "retired"
 
 [codes."pdf.text.dropped"]
 description = "hayro-interpret が描かない文字列を、移さなかった。代わりのフォント（Helvetica）で読む、ASCII でないバイトを含む文字列と、フォントを選ばずに ' か \" で描いた文字列"
 severity = "warning"
 fidelity = "dropped"
 since = "0.2.0"
-status = "active"
+status = "retired"
 
 [codes."pdf.font.assumed"]
 description = "フォントを選ばずに（Tf の前に）Tj か TJ で描いた文字を、hayro-interpret が Helvetica で読んだ。ページごとに 1 件"
 severity = "warning"
 fidelity = "approximated"
 since = "0.2.0"
-status = "active"
+status = "retired"
 
 [codes."pdf.font.missing"]
 description = "資源にないフォントを選んだ文字を、hayro-interpret が Helvetica で読んだ。ページとフォントの名前ごとに 1 件。name は資源の名前"
@@ -1999,7 +1999,7 @@ fidelity = "approximated"
 params = { name = "text" }
 group-by = ["name"]
 since = "0.2.0"
-status = "active"
+status = "retired"
 
 [codes."pdf.font.unsupported"]
 description = "hayro-interpret が読めないフォントの文字を、Helvetica で読んだ。ページとフォントのオブジェクトごとに 1 件。name はフォントの名前（BaseFont。なければ資源の名前）"
@@ -2008,7 +2008,7 @@ fidelity = "approximated"
 params = { name = "text" }
 group-by = ["name"]
 since = "0.2.0"
-status = "active"
+status = "retired"
 
 [codes."pdf.vertical-origin.approximated"]
 description = "縦書きのフォントの原点の移動（字形の幅・DW2・W2）が既定と違いうるので、文字の基点を、既定の原点の移動で近似した。ページとフォントのオブジェクトごとに 1 件。name はフォントの名前（BaseFont）"
@@ -2017,14 +2017,14 @@ fidelity = "approximated"
 params = { name = "text" }
 group-by = ["name"]
 since = "0.2.0"
-status = "active"
+status = "retired"
 
 [codes."pdf.font-name.dropped"]
 description = "hayro-interpret が名前を渡さないフォント（Type 1・埋め込みのない TrueType）と、名前が UTF-8 でないフォントの文字を、文字スタイルを空にして移した"
 severity = "warning"
 fidelity = "dropped"
 since = "0.2.0"
-status = "active"
+status = "retired"
 
 [codes."pdf.color.approximated"]
 description = "装置の CMYK か、装置によらない色空間の色を、四則演算で RGB にした。space は色空間の系統"
@@ -2033,7 +2033,7 @@ fidelity = "approximated"
 params = { space = "text" }
 group-by = ["space"]
 since = "0.2.0"
-status = "active"
+status = "retired"
 
 [codes."pdf.color.dropped"]
 description = "RGB にしない色空間の色を移さず、レイヤの色にした。space は色空間の系統"
@@ -2042,63 +2042,63 @@ fidelity = "dropped"
 params = { space = "text" }
 group-by = ["space"]
 since = "0.2.0"
-status = "active"
+status = "retired"
 
 [codes."pdf.transfer.dropped"]
 description = "転送関数（TR・TR2）を使うページの色を移さず、レイヤの色にした。hayro-interpret が関数を当てた色は使わない"
 severity = "warning"
 fidelity = "dropped"
 since = "0.2.0"
-status = "active"
+status = "retired"
 
 [codes."pdf.fill-rule.approximated"]
 description = "非ゼロ回転数の規則で塗った形を、同じ塗りになると確認できないまま、輪の中の輪を交互に埋めるハッチングにした"
 severity = "warning"
 fidelity = "approximated"
 since = "0.2.0"
-status = "active"
+status = "retired"
 
 [codes."pdf.stroke.approximated"]
 description = "線の端（丸・四角）・つなぎ（丸・面取り）・マイターの限度を移さず、面取りになる角または限度 4 を超える鋭い角の見た目が変わった"
 severity = "warning"
 fidelity = "approximated"
 since = "0.2.0"
-status = "active"
+status = "retired"
 
 [codes."pdf.rect-orientation.approximated"]
 description = "軸に平行な長方形の始点と向きが渡されないので、左下の角から反時計回りの折れ線にし、破線の始まる角と向きを確認できなかった"
 severity = "warning"
 fidelity = "approximated"
 since = "0.2.0"
-status = "active"
+status = "retired"
 
 [codes."pdf.dash.approximated"]
 description = "破線の位相を移さなかった"
 severity = "warning"
 fidelity = "approximated"
 since = "0.2.0"
-status = "active"
+status = "retired"
 
 [codes."pdf.transparency.approximated"]
 description = "ソフトマスク・画像のマスク（Mask・SMaskInData）と、通常でない合成の方法を移さなかった"
 severity = "warning"
 fidelity = "approximated"
 since = "0.2.0"
-status = "active"
+status = "retired"
 
 [codes."pdf.image-mask.approximated"]
 description = "色を塗る画像（ImageMask）の色を移さず、レイヤの色にした"
 severity = "warning"
 fidelity = "approximated"
 since = "0.2.0"
-status = "active"
+status = "retired"
 
 [codes."pdf.type3.approximated"]
 description = "Type 3 のフォントの字形（内容のストリームで描く形）を、書体のない文字にした"
 severity = "warning"
 fidelity = "approximated"
 since = "0.2.0"
-status = "active"
+status = "retired"
 
 # プロファイルの照合（決定 0173・0179）。照合を始められないときの診断と、check の結果の指摘。
 # 指摘の重要度は規則の level を使い、ここの severity は使わない（決定 0173）
@@ -2775,42 +2775,42 @@ status = "active"
 description = "xlsx のブックの部品（workbook.xml）がないか読めないので、表として読まなかった（#391）"
 severity = "error"
 since = "0.2.0"
-status = "active"
+status = "retired"
 
 [codes."xlsx.part.invalid"]
 description = "xlsx の部品がないか XML として読めないので、その部品を飛ばした（#391）。name はアーカイブの中の名前かシートの名前"
 severity = "warning"
 params = { name = "text" }
 since = "0.2.0"
-status = "active"
+status = "retired"
 
 [codes."xlsx.sheet.unsupported"]
 description = "ワークシートでないシート（グラフのシートなど）なので、読まなかった（#391）"
 severity = "info"
 params = { name = "text" }
 since = "0.2.0"
-status = "active"
+status = "retired"
 
 [codes."xlsx.cell.invalid"]
 description = "セルの参照か共有文字列の番号が読めないので、そのセルか結合セルを飛ばした（#391）"
 severity = "warning"
 params = { sheet = "text", reference = "text" }
 since = "0.2.0"
-status = "active"
+status = "retired"
 
 [codes."csv.encoding.invalid"]
 description = "CSV に、その文字コードで直せないバイトがあるので、置き換えの字にした（#391）"
 severity = "warning"
 params = { encoding = "text" }
 since = "0.2.0"
-status = "active"
+status = "retired"
 
 [codes."csv.quote.invalid"]
 description = "CSV の引用符が閉じていないので、終わりまでを 1 つの値にした（#391）。line は引用符の始まりの行"
 severity = "warning"
 params = { line = "uint" }
 since = "0.2.0"
-status = "active"
+status = "retired"
 
 [codes."boring.file.invalid"]
 description = "XML として読めないか、根の要素がボーリング情報でないので、ボーリング交換用データとして読まなかった（#390）"

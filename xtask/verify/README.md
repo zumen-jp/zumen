@@ -16,8 +16,7 @@ IFC4・IFC2X3 の名前・説明・プロパティを書き戻し、BIM ソフ�
 | `check_ezsxf.py` | キットの SFC・P21 を ezsxf で読み、zumen の読みと照らす |
 | `test_ezsxf.py` | 合成 P21 の追加点のレイヤ所属と、同じ番号を持つ合成 SFC の各要素の形・種類・レイヤ・出所・欠落を個別に変え、`check_ezsxf.py` が食い違いを検出することを確かめる。合成 P21 の画像枠と折れ線の取り違え、枠のない画像の作図グループの診断の欠落、引数の中にコメントを持つ文の実体のレイヤの違いも検出することを確かめる |
 | `test_source_kinds.py` | キットの読みの要素の種類を変え、`check_ezdxf.py`・`check_acadsharp.py`・`check_ezjww.py` が、形を返さない要素の種類の違いを検出することを確かめる。JWW では、文字と画像の範囲の取り違え、描かない文字を要素にした読み、診断の欠落も検出することを確かめる。DWG は `acadsharp-dump.json` があるときだけ確かめる |
-| `pdfjs/` | PDF の寸法・文字・経路と画像の数を pdf.js と照らす。手順は [README](pdfjs/README.md) |
-| `pdfmeasure/` | PDF の計測辞書の原値を pdf-lib、距離の算術を PDF4QT の固定した関数と照らす。手順と範囲は [README](pdfmeasure/README.md) |
+| `pdfjs/` | `@zumen-jp/view2d` の PDF アンダーレイのブラウザーテストが使う固定版の pdf.js。手順は [README](pdfjs/README.md) |
 | `geoid/` | ジオイドの格子の補間を、国土地理院のジオイド高計算サービスか内挿計算プログラムの結果と照らす（#438）。利用者が入手したモデルで、`cargo xtask geoid` を使う。手順は [README](geoid/README.md) |
 | `acc/` | 公開 IFC と BCF 2.1 のオフライン検証キットを作り、Autodesk Build の取り込み・書き出しを利用者が確認する（#686・#787）。手順と期待値は [README](acc/README.md) |
 | `dump.lsp` | AutoCAD で開いた図面の図形を、ハンドルごとに 1 行で書き出す。キットの README の手順で使う |
@@ -105,8 +104,7 @@ ACadSharp のツールは、.NET 10 の SDK で動かします。ACadSharp の�
 | DWG | [ACadSharp](https://github.com/DomCR/ACadSharp) 3.8.0 | MIT | 照らす（`acadsharp/`・`check_acadsharp.py`）。.NET のツールで読み、値を JSON に書き出す |
 | JWW | [ezjww](https://github.com/monozukuri-ai/ezjww) 0.7.6 | MIT | 照らす（`check_ezjww.py`） |
 | SFC・P21 | [ezsxf](https://github.com/monozukuri-ai/ezsxf) 0.3.7 | MIT | 照らす（`check_ezsxf.py`） |
-| PDF | [pdf.js](https://github.com/mozilla/pdf.js) 6.5.438 | Apache-2.0 | 別のプログラムとして呼び、読みを照らす（`pdfjs/`）。Node.js 22.13.0 以降 |
-| PDF の計測 | [pdf-lib](https://github.com/Hopding/pdf-lib) 1.17.1・[PDF4QT](https://github.com/JakubMelka/PDF4QT) の固定した関数 | MIT | 原値の読みと距離の算術を別々に照らす（`pdfmeasure/`）。全パーサー・表示書式の一致は扱わない |
+| PDF アンダーレイ | [pdf.js](https://github.com/mozilla/pdf.js) 6.5.438 | Apache-2.0 | `@zumen-jp/view2d` のブラウザーテストで使う（`pdfjs/`） |
 | LAS | [laspy](https://github.com/laspy/laspy) 2.7.0 | BSD-2-Clause | 非圧縮 LAS のヘッダーと全点を照らす（[`laspy/`](laspy/README.md)）。NumPy 2.5.4 を別に導入 |
 
 次のものは使いません。

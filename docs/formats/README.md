@@ -18,7 +18,7 @@
 | [boring](#format-boring) | ボーリング交換用データ（BED） | boring | delivery | `public` | `core` | `synthetic` |  |
 | [cedxm](#format-cedxm) | CEDXM | cedxm | building | `permission` | `none` |  |  |
 | [citygml](#format-citygml) | CityGML（PLATEAU の 3D 都市モデルと i-UR を含む） | citygml | geo | `public` | `core` | `synthetic` |  |
-| [csv](#format-csv) | CSV | csv | delivery | `public` | `core` | `synthetic` |  |
+| [csv](#format-csv) | CSV | csv | delivery | `public` | `none` |  |  |
 | [delivery](#format-delivery) | 電子納品の管理ファイル（INDEX\_C.XML・PHOTO.XML など） | delivery | delivery | `public` | `core` | `synthetic` |  |
 | [dwg](#format-dwg) | DWG | acad | drawing | `public` | `core` | `application` | `application` |
 | [dxf](#format-dxf) | DXF | acad | drawing | `public` | `core` | `application` | `application` |
@@ -30,14 +30,14 @@
 | [ifc](#format-ifc) | IFC | ifc | building・civil | `public` | `core` | `external` | `external` |
 | [isg](#format-isg) | ISG 形式（ジオイド高と基準面補正量の格子） | isg | geo | `public` | `core` | `synthetic` |  |
 | [jpeg](#format-jpeg) | 工事写真（JPEG と Exif・XMP） | jpeg | delivery | `public` | `core` | `synthetic` |  |
-| [jwc](#format-jwc) | JWC（Jw\_cad for DOS の図面） | jwcad | drawing | `public` | `core` |  |  |
-| [jws](#format-jws) | JWS（Jw\_cad の図形） | jwcad | drawing | `public` | `core` |  |  |
+| [jwc](#format-jwc) | JWC（Jw\_cad for DOS の図面） | jwcad | drawing | `public` | `none` |  |  |
+| [jws](#format-jws) | JWS（Jw\_cad の図形） | jwcad | drawing | `public` | `none` |  |  |
 | [jww](#format-jww) | JWW（Jw\_cad for Windows の図面） | jwcad | drawing | `public` | `core` | `synthetic` | `external` |
 | [kokuban](#format-kokuban) | 電子小黒板の情報と信憑性確認（改ざん検知） | jpeg | delivery | `permission` | `none` |  |  |
 | [landxml](#format-landxml) | J-LandXML（LandXML 1.2 に準じた 3 次元設計データ交換標準） | landxml | civil | `public` | `core` | `synthetic` |  |
 | [las](#format-las) | LAS・LAZ | las | pointcloud | `public` | `core` | `external` |  |
 | [par](#format-par) | TKY2JGD・PatchJGD のパラメーターのファイル（座標の補正量の格子） | par | geo | `public` | `core` | `synthetic` |  |
-| [pdf](#format-pdf) | PDF | pdf | drawing | `public` | `core` | `external` | `synthetic` |
+| [pdf](#format-pdf) | PDF | pdf | drawing | `unknown` | `none` |  |  |
 | [ply](#format-ply) | PLY（点群） | ply | pointcloud | `public` | `core` | `external` |  |
 | [png](#format-png) | PNG | png | drawing | `public` | `core` |  | `external` |
 | [saf](#format-saf) | SXF の属性ファイル（SAF） | sxf | drawing・delivery | `public` | `core` | `synthetic` |  |
@@ -46,7 +46,7 @@
 | [stem](#format-stem) | Stem（設備機器ライブラリデータ交換仕様） | stem | building | `unknown` | `none` |  |  |
 | [svg](#format-svg) | SVG | svg | drawing | `public` | `core` |  | `external` |
 | [sxf](#format-sxf) | SXF（SFC・P21 と、それを ZIP に入れた SFZ・P2Z） | sxf | drawing | `public` | `core` | `synthetic` | `external` |
-| [xlsx](#format-xlsx) | Excel の表（xlsx） | xlsx | delivery | `public` | `core` | `synthetic` |  |
+| [xlsx](#format-xlsx) | Excel の表（xlsx） | xlsx | delivery | `public` | `none` |  |  |
 | [xyz](#format-xyz) | XYZ（座標を並べた点群のテキスト） | xyz | pointcloud | `public` | `core` | `synthetic` |  |
 
 ## 仕様の入手先
@@ -568,12 +568,8 @@
 - 名前: CSV
 - 権利の根拠: IETF の RFC で、誰でも読める。実装を制限する記述はない
 - 仕様: [rfc\_4180](#spec-rfc_4180)
-- 実装の根拠: spec
-- サンプルの出どころ: テストの中で作る
-- 読みの確かめた度合い: `synthetic`（確認日: 2026-11-03）
-- 読みの確かめた範囲: RFC 4180 と、テストの中で作った CSV（crates/zumen-sheet/tests）で確かめた。表計算のソフトが書いた CSV との照合はまだ（#505）
 - issue: [zumen-jp/zumen#391](https://github.com/zumen-jp/zumen/issues/391)
-- 形式の文書: [docs/formats/sheet.md](../../docs/formats/sheet.md)
+- 補足: 汎用の区切りテキストは各言語・アプリの側で扱い、コアでは実装しない
 
 ### format-delivery
 
@@ -669,7 +665,7 @@
 - issue: [zumen-jp/zumen#668](https://github.com/zumen-jp/zumen/issues/668)
 - issue: [zumen-jp/zumen#669](https://github.com/zumen-jp/zumen/issues/669)
 - 形式の文書: [docs/formats/express.md](../../docs/formats/express.md)
-- 補足: 読み取りを足した PR（zumen-jp/zumen#450）は、参照した実装を記録していないので、実装の根拠は推定にする。寛容なライセンスの実装を参照したら、basis に reference を、references にその実装を足す
+- 補足: IFC をスキーマに照らしてチェックする validate と IDS の属性解決のためだけに読み、汎用 STEP・EXPRESS 処理系へは拡張しない。読み取りを足した PR（zumen-jp/zumen#450）は、参照した実装を記録していないので、実装の根拠は推定にする。寛容なライセンスの実装を参照したら、basis に reference を、references にその実装を足す
 
 ### format-extdm
 
@@ -763,23 +759,16 @@
 ### format-jwc
 
 - 名前: JWC（Jw\_cad for DOS の図面）
-- 権利の根拠: 公式の説明は見つからない。今の Jw\_cad も開いて保存できる形式を、保存したファイルどうしを比べて読む。実装を制限する記述はない
+- 権利の根拠: 公式の説明は見つからない。今の Jw\_cad も開いて保存できる形式。実装を制限する記述はない
 - 仕様: 登録なし
-- 実装の根拠: inferred・reference
-- 参照した実装: [ezjww](https://github.com/monozukuri-ai/ezjww)（MIT）
-- 照合に使う候補: Jw\_cad
-- サンプルの出どころ: Jw\_cad 10 で保存したファイル
+- 補足: 今の Jw\_cad で JWW に変換できるため、コアでは実装しない
 
 ### format-jws
 
 - 名前: JWS（Jw\_cad の図形）
-- 権利の根拠: 公式の説明は見つからない。Jw\_cad の掲示板に投稿された説明（版 2.30）と、登録した図形と元の図面を比べた結果で読む。実装を制限する記述はない
+- 権利の根拠: 公式の説明は見つからない。Jw\_cad の掲示板に投稿された説明（版 2.30）がある。実装を制限する記述はない
 - 仕様: 登録なし
-- 実装の根拠: inferred・reference
-- 参照した実装: [ezjww](https://github.com/monozukuri-ai/ezjww)（MIT）
-- 照合に使う候補: Jw\_cad
-- サンプルの出どころ: Jw\_cad 10 で登録した図形
-- 補足: 掲示板の説明: <https://www.jwcad.net/log/consult2/consult2-0610-12/thread17752.htm>
+- 補足: 単体の図面交換形式ではなく Jw\_cad 内の登録図形のため、コアでは実装しない。掲示板の説明: <https://www.jwcad.net/log/consult2/consult2-0610-12/thread17752.htm>
 
 ### format-jww
 
@@ -872,27 +861,17 @@
 ### format-pdf
 
 - 名前: PDF
-- 権利の根拠: ISO の規格で、PDF Association が無償で配っている。配るページと店の EULA に、実装を制限する記述はない。ISO の利用許諾（ECLA）は、4 節で、組み込み・デジタルの統合・派生物を作る権利を許す使い方に含めず、6(b) で、出版物をソフトウェア・データモデル・AI のツールなどに統合・符号化・構造化・運用化することに別の許諾を求める。無償版に ECLA が当たるか、当たるなら仕様に従って形式を実装して公開することがこれに当たるかは分からない（言葉の範囲は広い）。formats/README.md の権利の定義どおりなら unknown になりうるが、zumen-jp/zumen#674 で無償版の条件（ECLA が当たるか）が分かるまで public のままにするのは、利用者の判断による（zumen-jp/zumen#677）。分かったら、権利の定義に照らして rights を見直す。エージェントは、それまで本文を読まない
+- 権利の根拠: ISO の規格で、PDF Association が無償で配っている。配るページと店の EULA に、実装を制限する記述はない。ISO の利用許諾（ECLA）は、4 節で、組み込み・デジタルの統合・派生物を作る権利を許す使い方に含めず、6(b) で、出版物をソフトウェア・データモデル・AI のツールなどに統合・符号化・構造化・運用化することに別の許諾を求め、7(b) で AI での利用を禁じる。無償版に ECLA が当たるかは未確認で、コアでは PDF を実装しない
 - 仕様: [iso\_32000\_2\_2020](#spec-iso_32000_2_2020)
-- 実装の根拠: spec
 - 権利の根拠にした文書: [PDF Association の告知「ISO 32000-2（PDF 2.0）を無償で入手できる」（2023-04-05）](https://pdfa.org/announcing-no-cost-access-to-iso-32000-2-pdf-2-0/)（確認日: 2026-11-09）
 - 文書の補足: Adobe・Apryse・Foxit の後援で、PDF Association が店の 0 ドルの手続きで配る。自動の取得は拒まれるので、2026-11-09 にブラウザーの拡張で開いて確かめた。配るページと告知に、利用の条件は書かれていない。店の条件は EULA にある（手続きの画面のほかの条件と PDF の表紙の注記は確かめていない）
 - 権利の根拠にした文書: [PDF Association の店の End User License Agreement](https://www.pdfa-inc.org/eula/)（確認日: 2026-11-09）
 - 文書の補足: ANSI の推奨の文に基づく。ダウンロードかアクセスで同意したとする。個人の、非独占の、譲渡できないライセンスで、1 台のコンピューターでだけ使え、複数のコンピューターやネットワークでの使用を許さない。結合・翻案・翻訳・改変を禁じ、権利は表紙に書かれた著作権者が持つとする。AI・機械学習を名指しする条項と、実装を制限する条項はない。手続きの画面のほかの条件と PDF の表紙の注記は確かめていない（zumen-jp/zumen#674）
 - 権利の根拠にした文書: [ISO の Licence Agreement（2026-05-29 の改定）](https://www.iso.org/terms-conditions-licence-agreement.html)（確認日: 2026-11-09）
 - 文書の補足: 出版物の使用は End Customer Licence Agreement に従い、出版物（一部を含む）へのアクセス・ダウンロード・使用でも同意したとする。4 節は、許す使い方に、読み・参照することと、中身を社内の業務・製品・サービスで理解・評価・適用することを含めるとし、別の許諾がなければ、複製・配布・翻案・組み込み・デジタルの統合・派生物を作る権利は含まない。6(b) は、出版物をソフトウェア・データモデル・AI のツールなどに統合・埋め込み・符号化・構造化・変換・運用化することに、別の許諾を求める。7(b) は、別の許諾がなければ、出版物を AI・機械学習のために読み・使い・処理することを禁じ、法定のテキスト・データマイニングの例外にも頼れないとする。無償版に当たるかは確かめていない（zumen-jp/zumen#674）
-- 照合に使う候補: pdf.js
-- サンプルの出どころ: PDFium の公開サンプル（Type 3・OCG・ソフトマスク・LZW と JPX）。CAD が出力した図面はまだない
-- 読みの確かめた度合い: `external`（確認日: 2026-11-06）
-- 読みの確かめた範囲: PDFium の公開サンプル 4 個と合成の 2 ページを pdf.js 6.5.438 で読み、ページ寸法・文字の内容と位置・経路と画像の数を照らす（crates/zumen-pdf/tests/external.rs、#519）。回転・クロップ・単位、フォーム、表示しない OCG を含む。Type 3 の Unicode の補い方と、ソフトマスクの経路の数は、両方の値と zumen の診断を固定して確認する（#520）。色・透明度・字形の見え方、一般の PDF の文字列の分け方は照らしていない。シーンは、図面モデルから zumen-scene で作れることだけを確かめた
-- 読みで使った公開サンプル: [samples/pdf/](../../samples/pdf/)
-- 読みで照らした外部の実装: pdf.js 6.5.438
-- 書きの確かめた度合い: `synthetic`（確認日: 2026-11-03）
-- 書きの確かめた範囲: 読んだバイト列をそのまま書けることを、自前の読み取りだけで確かめた。書いたファイルを PDF のソフトで開いてはいない
 - 旧版の記録: 旧版の決定 0020、旧版の決定 0030（[旧版の決定の一覧](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/README.md)）
 - issue: [zumen-jp/zumen#674](https://github.com/zumen-jp/zumen/issues/674)
-- 形式の文書: [docs/formats/pdf.md](../../docs/formats/pdf.md)
-- 補足: ページの解釈は hayro-interpret 0.9.0（Apache-2.0 OR MIT）に任せ、バージョンを固定する（決定 0256）。zumen-pdf は crates.io に出さず、どのパッケージにも入れない（決定 0289）
+- 補足: PDF 単体の閲覧・読み取りはアプリの側（pdf.js など）で扱い、DXF・DWG の PDFUNDERLAY の描画は @zumen-jp/view2d が呼び出し側から受け取る pdf.js に任せる
 
 ### format-ply
 
@@ -1013,12 +992,8 @@
 - 名前: Excel の表（xlsx）
 - 権利の根拠: Ecma International が ECMA-376 を無償で公開している。実装を制限する記述はない
 - 仕様: [ecma\_376\_5](#spec-ecma_376_5)
-- 実装の根拠: spec
-- サンプルの出どころ: テストの中で作る
-- 読みの確かめた度合い: `synthetic`（確認日: 2026-11-03）
-- 読みの確かめた範囲: ECMA-376 と、テストの中で作った xlsx（crates/zumen-sheet/tests）で確かめた。表計算のソフトが書いた xlsx と、外部の実装との照合はまだ（#505）
 - issue: [zumen-jp/zumen#391](https://github.com/zumen-jp/zumen/issues/391)
-- 形式の文書: [docs/formats/sheet.md](../../docs/formats/sheet.md)
+- 補足: 汎用の表計算形式は各言語・アプリの側のライブラリに任せ、コアでは実装しない
 
 ### format-xyz
 
