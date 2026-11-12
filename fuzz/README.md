@@ -96,7 +96,7 @@ cargo "+$NIGHTLY" fuzz run -O --debug-assertions zip
 - パニック、30 秒を超える入力、3 GB を超えるメモリを見つけたら失敗します。種を縮めるときに見つけたときと、1 つの target を縮めるのに 20 分を超えたときも、縮めずに失敗します。その target の種は、キャッシュに残しません。注釈（`::error::`）には、通らなかった target と失敗の種類（`crash`・`timeout`・`oom`・`leak`。入力を残さずに落ちたときは「入力なし」）だけを書きます。libFuzzer のログ（誤りの文と、入力のバイト列が出る）は、公開の log に出しません。
 - 見つけた入力と、1 秒以上かかった入力のうち target ごとにそれまでの最長を超えたものと、通らなかった target（縮める手順を含む）のログを、1 つにまとめて暗号にし、artifact の `fuzz-private`（`fuzz-private.tar.gz.age`）に 14 日残します。公開サンプルの出所とライセンス（`samples/README.md`・`samples/ledger.toml`・`licenses/`）と、種を作ったコミットと実行の ID（`NOTICE.txt`）を添えます。平文は artifact に置きません。暗号にできなければ、何も置かずに落ちます。開き方は、下の「暗号にした入力を開く」にあります。
 - 公開サンプルを台帳から外すと、台帳のハッシュが変わるので、外したサンプルとそれを変えた入力を含む前の種は戻りません。前の種のキャッシュを早く消す手順は、[`samples/README.md`](../samples/README.md) の「外し方」にあります。
-- crate・種の元（`samples/`・`bindings/conformance/cases/`）・fuzz の target・このワークフローを変えた PR では、1 つ 20 秒ずつ流します。Markdown（`*.md`）だけの変更では流しません。種や実装に使う Markdown を足すときは、パスの除外条件の後ろにそのパスを足し、実行の対象に戻します。
+- レビュー可能な PR で crate の実装・種の元（`samples/`・`bindings/conformance/cases/`）・種の生成器・fuzz の target・このワークフローを変えたら、1 つ 20 秒ずつ流します。ドラフトはレビュー可能にしたときに検査します。crate の `tests/`・`examples/` と Markdown（`*.md`）だけの変更は対象外です。これらを種や実装に使うときは、パスの除外条件の後ろにそのパスを足します。
 - fuzz の crate はワークスペースの外にあるので、PR の fuzz で組み立ても確かめます。台帳が同じなら main の育てた種も戻すので、20 秒のうち新しい入力を試す時間が減ります。種を流すのに 20 秒より長くかかる target は、その分長くかかります。
 - 落ちたときの扱いは、下の「落ちたとき」にあります。
 

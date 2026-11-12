@@ -8,8 +8,9 @@ import sys
 import tomllib
 
 
-CORE = {"rust", "native", "wasm", "abi", "acc", "codegen"}
-ALL = CORE | {"site", "deny", "workflows", "text"}
+WASM = {"wasm", "view2d", "react", "go"}
+CORE = WASM | {"rust", "native", "abi", "acc", "codegen"}
+ALL = CORE | {"site", "deny", "workflows", "selector", "text"}
 NATIVE = {"zumen-abi", "zumen-c", "zumen-cli", "zumen-conformance"}
 CODECS = {"zumen-acad", "zumen-pdf", "zumen-ifc", "zumen-jww", "zumen-sxf"}
 TEXT_CONFIG = {
@@ -19,9 +20,10 @@ TEXT_CONFIG = {
 CODE_EXTENSIONS = (".rs", ".toml", ".yml")
 # パッケージに同梱して照合する bindings/js や、キットに写す acc の README は個別に扱う。
 PROSE_READMES = {
-    "catalog/README.md", "formats/README.md", "profiles/README.md", "schema/README.md",
+    "catalog/README.md", "formats/README.md", "fuzz/README.md", "profiles/README.md", "schema/README.md",
     "packages/react/README.md", "packages/view2d/README.md", "playground/README.md", "site/README.md",
-    "xtask/verify/README.md", "xtask/verify/pdfjs/README.md", "xtask/verify/pdfmeasure/README.md",
+    "xtask/release/README.md", "xtask/verify/README.md",
+    "xtask/verify/pdfjs/README.md", "xtask/verify/pdfmeasure/README.md",
 }
 
 
@@ -34,6 +36,8 @@ def checks_for(path):
         return set()
     if path in PROSE_READMES:
         return set()
+    if path in {".github/ci/checks.py", ".github/ci/test_checks.py"}:
+        return {"selector"}
     if path.startswith(".github/workflows/") and path != ".github/workflows/ci.yml":
         # xtask はリリースで配る crate の一覧も読む。
         return {"workflows", "codegen"} if path.endswith("/release.yml") else {"workflows"}
@@ -41,12 +45,25 @@ def checks_for(path):
         return CORE | {"deny"}
     if path.startswith("site/"):
         return {"site"}
-    if path.startswith(("playground/", "packages/")):
-        return {"site", "wasm"}
+    if path == "bindings/js/test/browser/view2d.mjs" or path.startswith("packages/view2d/example/"):
+        return {"view2d"}
+    if path.startswith("packages/view2d/test/") and path.endswith(".mjs"):
+        return {"view2d"}
+    if path.startswith("packages/view2d/"):
+        return {"site", "view2d", "react"}  # React とサイトも表示部品を使う。
+    if path in {"bindings/js/test/browser/react.mjs", "bindings/js/test/browser/react-interactions.mjs",
+                "bindings/js/test/browser/react-resize.mjs"} or path.startswith("playground/test/"):
+        return {"react"}
+    if path.startswith(("playground/", "packages/react/")):
+        return {"site", "react"}
+    if path.startswith("packages/"):
+        return WASM | {"site"}
     if path.startswith("bindings/js/"):
-        return {"site", "wasm", "codegen"}
+        return {"site", "wasm", "view2d", "react", "codegen"}
     if path.startswith("bindings/go/"):
-        return {"wasm", "codegen"}
+        if path in {"bindings/go/constants.go", "bindings/go/messages.go"}:
+            return {"go", "codegen"}
+        return {"go"}
     if path.startswith(("bindings/python/", "bindings/dotnet/", "bindings/vba/")):
         return {"native", "codegen"}
     if path.startswith(("samples/", "licenses/", "bindings/conformance/")):
@@ -113,7 +130,7 @@ def select(paths, event):
         elif path.startswith(("xtask/verify/pdfjs/", "xtask/verify/pdfmeasure/")) and not path.endswith(".md"):
             tests.add("crates/zumen-pdf")
             if path.startswith("xtask/verify/pdfjs/") and path != "xtask/verify/pdfjs/read.mjs":
-                checks.add("wasm")  # Canvas 2D は同じ pdf.js をブラウザーへ直接読み込む。
+                checks.add("view2d")  # Canvas 2D は同じ pdf.js をブラウザーへ直接読み込む。
         else:
             checks.update(checks_for(path))
         if path.endswith((".md", *CODE_EXTENSIONS)) and Path(path).is_file():
@@ -133,7 +150,7 @@ def select(paths, event):
             if packages & NATIVE:
                 checks.add("native")
             if packages & {"zumen-abi", "zumen-render", "zumen-plugin-template"}:
-                checks.add("wasm")
+                checks.update(WASM)
             if "zumen-abi" in packages:
                 checks.add("abi")
             if "zumen-cli" in packages:
@@ -141,9 +158,17 @@ def select(paths, event):
 
     codecs = CODECS if packages is None else CODECS & packages
     if event == "pull_request":
-        checks.update({"native", "wasm", "codegen", "deny"})
+        checks.update(WASM | {"native", "codegen", "deny"})
+    modules = ""
+    if "wasm" in checks:
+        modules = "drawing bim civil pointcloud plugin"
+    elif "react" in checks:
+        modules = "drawing"
     return {
         "checks": sorted(checks),
+        "wasm_modules": modules,
+        "wasm_full": bool(checks & {"wasm", "view2d", "go"}),
+        "wasm_browser": bool(checks & {"wasm", "view2d", "react"}),
         "cargo_args": "--workspace" if packages is None else cargo_args(packages),
         "codecs": " ".join(sorted(codecs)),
         "native_args": "--workspace" if full_run else cargo_args(NATIVE),
