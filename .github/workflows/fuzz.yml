@@ -19,14 +19,19 @@ on:
         description: target ごとに流す秒数
         default: '180'
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - 'crates/**'
+      # crate の結合テストと例は fuzz のバイナリにも種にも入らない。
+      - '!crates/*/tests/**'
+      - '!crates/*/examples/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'fuzz/**'
       - 'samples/**'
       - 'bindings/conformance/cases/**'
       - 'xtask/src/fuzz.rs'
+      - 'xtask/src/fuzz/**'
       - '.github/workflows/fuzz.yml'
       # 文書だけの変更では流さない。種や実装に使う Markdown を足すときは、後ろにそのパスを足す（決定 0263）
       - '!**/*.md'
@@ -47,6 +52,7 @@ env:
 jobs:
   fuzz:
     name: 全 target を流す
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:

@@ -1,24 +1,31 @@
 ---
-import PageHeader from '../components/PageHeader.astro';
+import Elevation from '../components/drawings/Elevation.astro';
 import SectionHead from '../components/SectionHead.astro';
-import { decision, repo } from '../data/site';
-import Base from '../layouts/Base.astro';
+import { releaseUrl, releaseVersion, repo } from '../data/site';
+import Page from '../layouts/Page.astro';
 
 const policies = [
-  { title: 'どこでも同じ結果', body: 'ブラウザー・サーバー・Python・.NET などで、同じファイルから同じ結果を返します。', link: decision('0007-single-rust-implementation.md') },
-  { title: '黙って捨てない', body: '読めなかったもの、形を変えて書いたものは、種類と件数と場所を報告します。', link: decision('0009-diagnostics-and-catalog.md') },
+  { title: 'どこでも同じ結果', body: 'ブラウザー・サーバー・Python・.NET などで、同じファイルから同じ結果を返します。', link: `${repo}/blob/main/docs/architecture.md#決定性` },
+  { title: '黙って捨てない', body: '読めなかったもの、形を変えて書いたものは、種類と件数と場所を報告します。', link: `${repo}/blob/main/catalog/README.md` },
   { title: 'ID は契約', body: '同じバイト列からは、どのバージョンでも同じ ID を返します。' },
-  { title: 'ファイルを信用しない', body: '大きさ・数・作業量に上限を付けて読みます。壊れた図面でも止まりません。', link: decision('0010-budget-by-work.md') },
+  { title: 'ファイルを信用しない', body: '大きさ・数・作業量に上限を付けて読みます。壊れた図面でも止まりません。', link: `${repo}/blob/main/docs/architecture.md#予算と中断` },
   { title: '日本の実務を優先', body: '電子納品の SXF、Jw_cad、日本語の文字、国土交通省の基準を先に扱います。' },
 ];
 ---
 
-<Base title="特長" description="zumen の特長・5 つの方針・仕組みを説明します。">
-  <PageHeader title="特長" lead="zumen が何をするライブラリ群か、どのように作っているかを説明します。" />
+<Page
+  description="zumen の特長・5 つの方針・仕組みを説明します。"
+  toc={[
+    { id: 'about', label: '概要' },
+    { id: 'principles', label: '5 つの方針' },
+    { id: 'architecture', label: '仕組み' },
+  ]}
+>
+  <Elevation slot="drawing" />
 
-  <section class="section">
+  <section class="section" id="about" aria-labelledby="about-title">
     <div class="wrap">
-      <SectionHead title="zumen の概要" en="About" />
+      <SectionHead id="about-title" title="zumen の概要" en="About" />
       <div class="table-scroll">
         <table class="table spec">
           <tbody>
@@ -28,7 +35,7 @@ const policies = [
             <tr><th scope="row">使い方の形</th><td>ネイティブのライブラリ・ブラウザーの wasm・プロセスの外・HTTP の 4 つから、用途に合わせて選べます。</td></tr>
             <tr><th scope="row">ファイルの扱い</th><td>図面を外部のサービスへ送らず、手元の環境で読みます。</td></tr>
             <tr><th scope="row">ライセンス</th><td>MIT License または Apache License 2.0（選んで使えます）</td></tr>
-            <tr><th scope="row">状態</th><td>開発中です。パッケージはまだ公開していません。</td></tr>
+            <tr><th scope="row">状態</th><td><a href={releaseUrl}>v{releaseVersion}</a> を公開しています。配布先と制約は<a href="/platforms/#packages">対応環境</a>で案内しています。</td></tr>
             <tr><th scope="row">リポジトリ</th><td><a href={repo}>github.com/zumen-jp/zumen</a></td></tr>
           </tbody>
         </table>
@@ -36,9 +43,9 @@ const policies = [
     </div>
   </section>
 
-  <section class="section section-alt">
+  <section class="section section-alt" id="principles" aria-labelledby="principles-title">
     <div class="wrap">
-      <SectionHead title="5 つの方針" en="Principles" />
+      <SectionHead id="principles-title" title="5 つの方針" en="Principles" />
       <ol class="cards">
         {
           policies.map((p, i) => (
@@ -46,7 +53,7 @@ const policies = [
               <span class="card-no">{String(i + 1).padStart(2, '0')}</span>
               <h3>{p.title}</h3>
               <p>{p.body}</p>
-              {p.link && <a class="small-link" href={p.link}>決定の記録</a>}
+              {p.link && <a class="small-link" href={p.link}>詳しい説明</a>}
             </li>
           ))
         }
@@ -54,9 +61,9 @@ const policies = [
     </div>
   </section>
 
-  <section class="section">
+  <section class="section" id="architecture" aria-labelledby="architecture-title">
     <div class="wrap">
-      <SectionHead title="仕組み" en="Architecture" />
+      <SectionHead id="architecture-title" title="仕組み" en="Architecture" />
       <div class="flow">
         <div class="flow-box">
           <h3>使う所</h3>
@@ -75,10 +82,10 @@ const policies = [
         <div class="flow-arrow" aria-hidden="true">⇄</div>
         <div class="flow-box">
           <h3>形式</h3>
-          <ul><li>SXF（SFC・P21）</li><li>JWW・JWC・JWS</li><li>DXF・DWG</li><li>IFC・PDF ほか</li></ul>
+          <ul><li>SXF・JWW</li><li>DXF・DWG</li><li>IFC</li><li>土木・地理・点群</li></ul>
         </div>
       </div>
       <p class="note">文言はコアに持たせず、日本語と英語のカタログから引きます。各言語への約束は、適合テストのハッシュで確かめます。</p>
     </div>
   </section>
-</Base>
+</Page>

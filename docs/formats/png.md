@@ -1,6 +1,6 @@
 # PNG
 
-[PNG 第 3 版](https://www.w3.org/TR/png-3/) に従い、シーンから静止画を書く。描画の判断は[決定 0277](../decisions/0277-bounded-png-rendering.md)、設定と API は[描画](../render.md)にある。
+[PNG 第 3 版](https://www.w3.org/TR/png-3/) に従い、シーンから静止画を書く。描画の判断は[シーンの描画](../render.md)、設定と API は[描画](../render.md)にある。
 
 ## 符号化
 

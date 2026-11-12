@@ -1,12 +1,19 @@
 //! 2D の幾何（L3、決定 0018）。曲線を弦の誤差で折れ線にし、線種の列を線と間に展開する（決定 0172）。
 //!
 //! 点は `[x, y]`、角度は度で反時計回り（線形の区間の [`along`] はラジアン）。三角関数は、どの環境でも同じ値になる `libm` で求める（決定 0007）。
-//! 1 つの曲線で作る点の数は [`MAX_STEPS`] で抑える。使う側は、作った点を予算の `segments` で数える。
+//! 1 つの曲線で作る点の数は [`MAX_STEPS`]（スプラインは、それとノットの区間の数）で抑える。使う側は、作った点を
+//! 予算の `segments` で数える。膨らみを持つ折れ線は区間ごとに抑えるので、[`polyline_points`] で作る前に数える。
+//! 作る点の数に比例しない手間（クロソイドの原点からの刻みと、スプラインの点の計算）は、[`clothoid_work`] と
+//! [`spline_with_work`] で求めて、予算の `work` に数える（#753・#756）。
 
 use std::f64::consts::PI;
 
 /// 1 つの曲線で作る区間の数の上限
 pub const MAX_STEPS: usize = 1 << 16;
+
+/// 折れ線にするスプラインの次数の上限。点を 1 つ求める手間は次数の 2 乗に比例するので、超えたものは
+/// 折れ線にしない（#756）
+pub const MAX_DEGREE: u32 = 32;
 
 /// 点
 pub type Xy = [f64; 2];
@@ -105,17 +112,14 @@ pub fn ellipse(
     }
 }
 
-/// ふくらみ `bulge`（中心角の 1/4 の正接、正なら反時計回り）で結んだ `from` から `to` までを折れ線にし、
+/// 膨らみ `bulge`（中心角の 1/4 の正接、正なら反時計回り）で結んだ `from` から `to` までを折れ線にし、
 /// `from` の次から `to` までの点を `out` に足す
 pub fn bulge(from: Xy, to: Xy, bulge: f64, tolerance: f64, out: &mut Vec<Xy>) {
-    let chord = distance(from, to);
-    if bulge == 0.0 || !bulge.is_finite() || chord == 0.0 || !chord.is_finite() {
+    let Some((chord, angle, radius)) = bulge_arc(from, to, bulge) else {
         out.push(to);
         return;
-    }
-    let angle = 4.0 * libm::atan(bulge);
+    };
     let half = angle / 2.0;
-    let radius = (chord / 2.0 / libm::sin(half)).abs();
     // 中心は、弦の中点から左の法線の向きへ (d/2)/tan(θ/2)
     let h = chord / 2.0 / libm::tan(half);
     let [dx, dy] = [(to[0] - from[0]) / chord, (to[1] - from[1]) / chord];
@@ -137,7 +141,47 @@ pub fn bulge(from: Xy, to: Xy, bulge: f64, tolerance: f64, out: &mut Vec<Xy>) {
     out.push(to);
 }
 
-/// ふくらみを持つ頂点の列を折れ線にする。`closed` なら終点から始点へも結び、始点を最後に繰り返す
+/// 膨らみ `bulge` で `from` から `to` まで結ぶ円弧の、弦の長さ・中心角（ラジアン）・半径。弦で結ぶなら `None`
+fn bulge_arc(from: Xy, to: Xy, bulge: f64) -> Option<(f64, f64, f64)> {
+    let chord = distance(from, to);
+    if bulge == 0.0 || !bulge.is_finite() || chord == 0.0 || !chord.is_finite() {
+        return None;
+    }
+    let angle = 4.0 * libm::atan(bulge);
+    let radius = (chord / 2.0 / libm::sin(angle / 2.0)).abs();
+    Some((chord, angle, radius))
+}
+
+/// [`bulge`] が `out` に足す点の数
+fn bulge_points(from: Xy, to: Xy, bulge: f64, tolerance: f64) -> u64 {
+    match bulge_arc(from, to, bulge) {
+        Some((_, angle, radius)) => arc_steps(radius, angle, tolerance) as u64,
+        None => 1,
+    }
+}
+
+/// [`polyline`] が作る点の数。膨らみのある区間ごとに [`MAX_STEPS`] 区間まで点を作り、1 つの折れ線の点の数は
+/// 頂点の数に比例して増えるので、使う側が、作る前に予算の `segments` で数える（#756）
+pub fn polyline_points(vertices: &[(Xy, f64)], closed: bool, tolerance: f64) -> u64 {
+    let Some(&(first, _)) = vertices.first() else {
+        return 0;
+    };
+    let mut count: u64 = 1;
+    for pair in vertices.windows(2) {
+        if let [(from, b), (to, _)] = pair {
+            count = count.saturating_add(bulge_points(*from, *to, *b, tolerance));
+        }
+    }
+    if closed
+        && vertices.len() > 1
+        && let Some(&(last, b)) = vertices.last()
+    {
+        count = count.saturating_add(bulge_points(last, first, b, tolerance));
+    }
+    count
+}
+
+/// 膨らみを持つ頂点の列を折れ線にする。`closed` なら終点から始点へも結び、始点を最後に繰り返す
 pub fn polyline(vertices: &[(Xy, f64)], closed: bool, tolerance: f64) -> Vec<Xy> {
     let mut out = Vec::with_capacity(vertices.len() + usize::from(closed));
     let Some(&(first, _)) = vertices.first() else {
@@ -158,14 +202,16 @@ pub fn polyline(vertices: &[(Xy, f64)], closed: bool, tolerance: f64) -> Vec<Xy>
     out
 }
 
+/// `t` を含むノットの区間 [k_s, k_{s+1}) の番号 s を、制御点 `n` 個の定義域の中で探す。ノットは減らないので、
+/// `t` 以下のノットは前にまとまる。先頭から順に探すと、点ごとに制御点の数だけ手間がかかるので、二分探索で
+/// 探す（#756）
+fn span_of(degree: usize, knots: &[f64], n: usize, t: f64) -> Option<usize> {
+    Some(degree + knots.get(degree + 1..n)?.partition_point(|k| *k <= t))
+}
+
 /// 有理か非有理の B スプラインの、パラメーター `t` の点。de Boor の方法で求める
 fn de_boor(degree: usize, knots: &[f64], control: &[[f64; 3]], t: f64) -> Option<Xy> {
-    let n = control.len();
-    // t を含むノットの区間 [k_s, k_{s+1}) を、定義域の中で探す
-    let mut span = degree;
-    while span + 1 < n && *knots.get(span + 1)? <= t {
-        span += 1;
-    }
+    let span = span_of(degree, knots, control.len(), t)?;
     let mut d: Vec<[f64; 3]> = (0..=degree)
         .map(|j| control.get(j + span - degree).copied())
         .collect::<Option<_>>()?;
@@ -201,7 +247,8 @@ fn deviation(p: Xy, a: Xy, b: Xy) -> f64 {
     ((p[0] - a[0]) * dy - (p[1] - a[1]) * dx).abs() / length
 }
 
-/// 制御点とノットで決まるスプラインを折れ線にする。定義が合わなければ `None`
+/// 制御点とノットで決まるスプラインを折れ線にする。定義が合わないか、次数が [`MAX_DEGREE`] を超えれば `None`。
+/// 点を求める手間を予算に数えるなら、[`spline_with_work`] を使う
 pub fn spline(
     degree: u32,
     knots: &[f64],
@@ -209,6 +256,39 @@ pub fn spline(
     weights: &[f64],
     tolerance: f64,
 ) -> Option<Vec<Xy>> {
+    spline_with_work(degree, knots, control, weights, tolerance).0
+}
+
+/// [`spline`] と同じく折れ線にし、点を求めた手間も返す。手間は、点を求めた回数に 1 回の手間（次数に 1 を
+/// 足した数の 2 乗と、区間を探す二分探索の段の数の和）を掛けたもの。作る点の数とは比例しないので、使う側が、
+/// 呼んだあとに予算の作業に数える。折れ線にできなくても、それまでの手間を返す（#756）
+pub fn spline_with_work(
+    degree: u32,
+    knots: &[f64],
+    control: &[Xy],
+    weights: &[f64],
+    tolerance: f64,
+) -> (Option<Vec<Xy>>, u64) {
+    let evaluations = std::cell::Cell::new(0_u64);
+    let out = flatten_spline(degree, knots, control, weights, tolerance, &evaluations);
+    let depth = u64::from(usize::BITS - control.len().leading_zeros());
+    let each = (u64::from(degree) + 1)
+        .saturating_mul(u64::from(degree) + 1)
+        .saturating_add(depth);
+    (out, evaluations.get().saturating_mul(each))
+}
+
+fn flatten_spline(
+    degree: u32,
+    knots: &[f64],
+    control: &[Xy],
+    weights: &[f64],
+    tolerance: f64,
+    evaluations: &std::cell::Cell<u64>,
+) -> Option<Vec<Xy>> {
+    if degree > MAX_DEGREE {
+        return None;
+    }
     let degree = usize::try_from(degree).ok()?;
     let n = control.len();
     if degree == 0
@@ -234,7 +314,10 @@ pub fn spline(
     if lo.partial_cmp(&hi) != Some(std::cmp::Ordering::Less) {
         return None;
     }
-    let eval = |t: f64| de_boor(degree, knots, &homogeneous, t.min(hi));
+    let eval = |t: f64| {
+        evaluations.set(evaluations.get().saturating_add(1));
+        de_boor(degree, knots, &homogeneous, t.min(hi))
+    };
     let mut out = vec![eval(lo)?];
     // ノットの区間ごとに、中点の弦からのずれが許容差に入るまで 2 つに分ける
     let mut stack: Vec<(f64, f64, Xy, Xy, u32)> = Vec::new();
@@ -288,22 +371,12 @@ fn clothoid_step(angle: f64, a2: f64, turn: f64, s0: f64, s1: f64) -> Xy {
     [x * h / 3.0, y * h / 3.0]
 }
 
-/// クロソイドを折れ線にする。`angle` は原点での接線の向き（度）、`parameter` は A、`start` と `end` は
-/// 原点からの長さ
-pub fn clothoid(
-    origin: Xy,
-    parameter: f64,
-    angle: f64,
-    counterclockwise: bool,
-    start: f64,
-    end: f64,
-    tolerance: f64,
-) -> Vec<Xy> {
+/// クロソイドを折れ線にするときの、原点から区間の初めまでを積む刻みの数と、区間の刻みの数。値が使えなければ
+/// `None`
+fn clothoid_steps(parameter: f64, start: f64, end: f64, tolerance: f64) -> Option<(usize, usize)> {
     let a2 = parameter * parameter;
-    let angle = radians(angle);
-    let turn = if counterclockwise { 1.0 } else { -1.0 };
     if !(a2 > 0.0 && a2.is_finite() && start.is_finite() && end.is_finite()) {
-        return Vec::new();
+        return None;
     }
     // 弦の誤差は h²κ/8。いちばん曲がる所の曲率 κ = |s|/A² で刻みを決める
     let curvature = start.abs().max(end.abs()) / a2;
@@ -324,6 +397,36 @@ pub fn clothoid(
         lead.clamp(1.0, MAX_STEPS as f64) as usize
     } else {
         MAX_STEPS
+    };
+    Some((lead, steps))
+}
+
+/// [`clothoid`] を 1 回呼ぶ手間（向きの式を求める回数）。作る点の数と別に、原点から区間の初めまでを
+/// [`MAX_STEPS`] 回まで刻んで積むので、使う側が、呼ぶ前に予算の作業に数える（#753）
+pub fn clothoid_work(parameter: f64, start: f64, end: f64, tolerance: f64) -> u64 {
+    match clothoid_steps(parameter, start, end, tolerance) {
+        // 刻みごとに、シンプソンの公式で 9 回
+        Some((lead, steps)) => (lead as u64 + steps as u64) * 9 + 1,
+        None => 1,
+    }
+}
+
+/// クロソイドを折れ線にする。`angle` は原点での接線の向き（度）、`parameter` は A、`start` と `end` は
+/// 原点からの長さ
+pub fn clothoid(
+    origin: Xy,
+    parameter: f64,
+    angle: f64,
+    counterclockwise: bool,
+    start: f64,
+    end: f64,
+    tolerance: f64,
+) -> Vec<Xy> {
+    let a2 = parameter * parameter;
+    let angle = radians(angle);
+    let turn = if counterclockwise { 1.0 } else { -1.0 };
+    let Some((lead, steps)) = clothoid_steps(parameter, start, end, tolerance) else {
+        return Vec::new();
     };
     let mut point = origin;
     for i in 0..lead {
@@ -361,6 +464,25 @@ pub struct ClothoidOrigin {
     pub end: f64,
 }
 
+/// 原点から区間の初め（原点からの長さ `t1`）までを積む刻みの数。[`MAX_STEPS`] で抑える
+fn origin_parts(t1: f64, a2: f64) -> usize {
+    let parts = libm::ceil(t1.abs() / (libm::sqrt(a2) / 4.0)).clamp(1.0, MAX_STEPS as f64);
+    if parts.is_finite() { parts as usize } else { 1 }
+}
+
+/// [`clothoid_origin`] を 1 回呼ぶ手間（向きの式を求める回数の上限）。使う側が、呼ぶ前に予算の作業に数える（#727）
+pub fn clothoid_origin_work(curvatures: [f64; 2], length: f64) -> u64 {
+    let [k1, k2] = curvatures;
+    let change = k2 - k1;
+    if !(change.is_finite() && change != 0.0 && length.is_finite() && length > 0.0) {
+        return 1;
+    }
+    let a2 = length / change.abs();
+    let t1 = change.signum() * k1 * a2;
+    // 刻みごとに、シンプソンの公式で 9 回
+    origin_parts(t1, a2) as u64 * 9 + 1
+}
+
 /// 線形のクロソイドの区間（決定 0230）を、原点の形（決定 0123）に直す。区間は [`along`] と同じく、初めの点・
 /// 初めの向き・初めと終わりの曲率・長さで決める。曲率が変わらないか、値が使えなければ `None`
 pub fn clothoid_origin(
@@ -380,8 +502,7 @@ pub fn clothoid_origin(
     let t1 = turn * k1 * a2;
     let angle = direction - turn * t1 * t1 / (2.0 * a2);
     // 原点から区間の初めまでの変位を、刻んで積む
-    let parts = libm::ceil(t1.abs() / (libm::sqrt(a2) / 4.0)).clamp(1.0, MAX_STEPS as f64);
-    let parts = if parts.is_finite() { parts as usize } else { 1 };
+    let parts = origin_parts(t1, a2);
     let (mut x, mut y) = (0.0, 0.0);
     for i in 0..parts {
         let s0 = t1 * i as f64 / parts as f64;
@@ -480,14 +601,7 @@ pub fn along(
         return cubic_parabola(start, direction, curvatures, length, s);
     }
     let angle = |u: f64| direction + k1 * u + (k2 - k1) * length * ramp.integral(u / length);
-    // 1 つの刻みで向きが変わる量を 0.01 ラジアンより小さくする。刻みの数は偶数にする
-    let turn = s.abs() * k1.abs().max(k2.abs());
-    let steps = libm::ceil(turn / 0.01).max(32.0);
-    let steps = if steps.is_finite() {
-        (steps as usize).min(MAX_STEPS) & !1
-    } else {
-        MAX_STEPS
-    };
+    let steps = along_steps([k1, k2], s);
     let h = s / steps as f64;
     let (mut x, mut y) = (0.0, 0.0);
     for i in 0..=steps {
@@ -502,6 +616,36 @@ pub fn along(
         y += w * libm::sin(phi);
     }
     ([start[0] + x * h / 3.0, start[1] + y * h / 3.0], angle(s))
+}
+
+/// 緩和曲線の、長さ `s` までを積む刻みの数。1 つの刻みで向きが変わる量を 0.01 ラジアンより小さくする。刻みの
+/// 数は偶数にし、[`MAX_STEPS`] で抑える
+fn along_steps([k1, k2]: [f64; 2], s: f64) -> usize {
+    let turn = s.abs() * k1.abs().max(k2.abs());
+    let steps = libm::ceil(turn / 0.01).max(32.0);
+    if steps.is_finite() {
+        (steps as usize).min(MAX_STEPS) & !1
+    } else {
+        MAX_STEPS
+    }
+}
+
+/// [`along`] を 1 回呼ぶ手間（向きの式か、3 次放物線の積む式を求める回数の上限）。使う側が、呼ぶ前に予算の
+/// 作業に数える（#727）。直線と円弧は 1、緩和曲線は刻みの数 + 2（積む点と終わりの向き。[`MAX_STEPS`] + 2 まで）、
+/// 3 次放物線は反復の上限（終わりの X に 64 回で 1 回に 65 回、点ごとに 64 回を 2 点までで 1 回に 66 回）
+pub fn along_work(curvatures: [f64; 2], length: f64, ramp: Option<Ramp>, s: f64) -> u64 {
+    let [k1, k2] = curvatures;
+    let Some(ramp) = ramp.filter(|_| length > 0.0 && k1 != k2) else {
+        return 1;
+    };
+    if ramp == Ramp::CubicParabola {
+        return if (k1 == 0.0) != (k2 == 0.0) {
+            64 * 65 + 2 * 64 * 66 + 2
+        } else {
+            1
+        };
+    }
+    along_steps([k1, k2], s) as u64 + 2
 }
 
 /// シンプソンの公式で、`f` を 0 から `end` まで積む。刻みの数は 64
@@ -1053,6 +1197,83 @@ mod tests {
         assert!((end[1] - 1.6371).abs() < 1e-3, "{end:?}");
     }
 
+    /// 原点から離れた区間は、区間の刻みのほかに、原点から区間の初めまでの刻みを手間に数える（#753）
+    #[test]
+    fn clothoid_work_counts_the_steps_from_the_origin() {
+        // A 50 の 35 m から 50 m まで。刻みは 2 m ほどなので、区間は 8 刻み、原点から区間の初めまでは 18 刻み
+        let points = clothoid([0.0, 0.0], 50.0, 0.0, true, 35.0, 50.0, 0.01);
+        assert_eq!(points.len(), 9);
+        assert_eq!(clothoid_work(50.0, 35.0, 50.0, 0.01), (18 + 8) * 9 + 1);
+        // 原点から始まる区間は、区間の刻みのほかに 1 刻み
+        let points = clothoid([0.0, 0.0], 10.0, 0.0, true, 0.0, 10.0, 0.001);
+        assert_eq!(
+            clothoid_work(10.0, 0.0, 10.0, 0.001),
+            (1 + points.len() as u64 - 1) * 9 + 1
+        );
+        assert_eq!(clothoid_work(0.0, 0.0, 10.0, 0.001), 1);
+    }
+
+    /// 作る前に求める点の数は、作った点の数と同じ。膨らみのある区間ごとに増える（#756）
+    #[test]
+    fn polyline_points_match_the_points() {
+        let vertices = [
+            ([0.0, 0.0], 1.0),
+            ([2.0, 0.0], 0.0),
+            ([2.0, 2.0], -0.5),
+            ([0.0, 2.0], 0.0),
+        ];
+        for closed in [false, true] {
+            for tolerance in [0.1, 1e-3, 1e-9] {
+                assert_eq!(
+                    polyline_points(&vertices, closed, tolerance),
+                    polyline(&vertices, closed, tolerance).len() as u64
+                );
+            }
+        }
+        assert_eq!(polyline_points(&[], false, 0.1), 0);
+    }
+
+    /// 区間を二分探索で探しても、先頭から順に探したときと同じ区間になる（#756）
+    #[test]
+    fn spans_found_by_bisection_match_the_linear_search() {
+        let knots = [0.0, 0.0, 0.0, 1.0, 1.0, 2.0, 3.0, 3.0, 3.0, 3.0];
+        let degree = 2;
+        let n = knots.len() - degree - 1;
+        for t in [-1.0, 0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, f64::NAN] {
+            let mut linear = degree;
+            while linear + 1 < n && knots[linear + 1] <= t {
+                linear += 1;
+            }
+            assert_eq!(span_of(degree, &knots, n, t), Some(linear), "{t}");
+        }
+    }
+
+    /// 次数が上限を超えるスプラインは、点を求めずに `None` にする。手間は、点を求めた回数に比例する（#756）
+    #[test]
+    fn spline_work_counts_each_evaluation() {
+        let straight = |degree: u32| {
+            let n = degree as usize + 1;
+            let control: Vec<Xy> = (0..n).map(|i| [i as f64, 0.0]).collect();
+            let mut knots = vec![0.0; n];
+            knots.extend(vec![1.0; n]);
+            spline_with_work(degree, &knots, &control, &[], 0.1)
+        };
+        assert!(straight(MAX_DEGREE).0.is_some());
+        assert_eq!(straight(MAX_DEGREE + 1), (None, 0));
+        let (points, work) = spline_with_work(
+            2,
+            &[0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+            &[[0.0, 0.0], [1.0, 2.0], [2.0, 0.0]],
+            &[],
+            0.001,
+        );
+        let points = points.unwrap().len() as u64;
+        // 1 回の手間は (2 + 1)² と、制御点 3 個を探す二分探索の 2 段の和。求める回数は、作った点の 6 倍を超えない
+        let each = 9 + 2;
+        assert_eq!(work % each, 0);
+        assert!(work / each >= points && work / each <= 6 * points, "{work}");
+    }
+
     #[test]
     fn dashes_continue_across_vertices() {
         let lines = dashes(
@@ -1180,5 +1401,33 @@ mod tests {
             );
         }
         assert_eq!(clothoid_origin([0.0, 0.0], 0.0, [0.01, 0.01], 10.0), None);
+    }
+
+    /// 区間の点を求める手間は、直線と円弧で 1、緩和曲線で刻みの数 + 2、3 次放物線で反復の上限（#727）
+    #[test]
+    fn along_work_follows_the_steps() {
+        let clothoid = Some(Ramp::Clothoid);
+        assert_eq!(along_work([0.0, 0.0], 10.0, None, 10.0), 1);
+        assert_eq!(along_work([0.01, 0.01], 10.0, clothoid, 10.0), 1);
+        // 向きが 0.5 ラジアン変わるので、0.01 ラジアンごとに 50 刻み
+        assert_eq!(along_work([0.0, 0.05], 10.0, clothoid, 10.0), 52);
+        // 刻みは 32 より少なくせず、上限で抑える
+        assert_eq!(along_work([0.0, 0.001], 10.0, clothoid, 10.0), 34);
+        assert_eq!(
+            along_work([0.0, 100.0], 1000.0, clothoid, 1000.0),
+            MAX_STEPS as u64 + 2
+        );
+        assert_eq!(
+            along_work([0.0, f64::MAX], 1.0, clothoid, 1.0),
+            MAX_STEPS as u64 + 2
+        );
+        let cubic = Some(Ramp::CubicParabola);
+        assert_eq!(
+            along_work([0.0, 0.01], 10.0, cubic, 5.0),
+            64 * 65 + 2 * 64 * 66 + 2
+        );
+        assert_eq!(along_work([0.02, 0.01], 10.0, cubic, 5.0), 1);
+        assert!(clothoid_origin_work([0.0, 0.01], 10.0) > 1);
+        assert_eq!(clothoid_origin_work([0.01, 0.01], 10.0), 1);
     }
 }

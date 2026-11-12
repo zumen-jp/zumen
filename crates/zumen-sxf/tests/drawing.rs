@@ -468,6 +468,76 @@ fn moves_raster_groups_as_underlays() {
     );
 }
 
+/// どれかの点の座標を読めない折れ線（数として読めない値がある、x と y の数が違う）は、角に使わない点であっても範囲に
+/// せず、次の 4 点以上の折れ線を範囲にする。飛ばした折れ線は、読めない折れ線として診断する（推定。#651）
+#[test]
+fn raster_frames_skip_polylines_with_unreadable_points() {
+    for (unreadable, invalid) in [
+        // 3 点の折れ線は、読めても範囲にしない（決定 0125）
+        (
+            &b"polyline_feature('1','1','1','1','3',(0,0,20),(0,10,10))"[..],
+            false,
+        ),
+        (
+            &b"polyline_feature('1','1','1','1','5',(0,x,20,20,0),(0,10,10,0,0))"[..],
+            true,
+        ),
+        (
+            &b"polyline_feature('1','1','1','1','5',(0,0,20,20,0),(0,10,10,0,y))"[..],
+            true,
+        ),
+        (
+            &b"polyline_feature('1','1','1','1','5',(0,0,20,20,0),(0,10,10,0))"[..],
+            true,
+        ),
+    ] {
+        let src = sfc(&[
+            b"layer_feature(\'L\','1')",
+            unreadable,
+            &b"polyline_feature('1','1','1','1','5',(0,0,30,30,0),(0,10,10,0,0))"[..],
+            b"sfig_org_feature(\'$$RASTER$$a.tif\','3')",
+            b"sfig_locate_feature('1',\'$$RASTER$$a.tif\','0','0','0','1','1')",
+            b"drawing_sheet_feature(\'S\','3','1','0','0')",
+        ]);
+        let (drawing, diag) = lift(&src);
+        let underlays: Vec<_> = drawing.sheets[0]
+            .elements
+            .iter()
+            .filter_map(|element| match &element.shape {
+                Shape::Underlay(underlay) => Some((underlay, &element.source)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(underlays.len(), 1, "{:?}", drawing.sheets[0].elements);
+        let (underlay, source) = underlays[0];
+        assert_eq!(
+            underlay.frame,
+            UnderlayFrame::Corners {
+                origin: paper(0.0, 0.0),
+                right: paper(30.0, 0.0),
+                top: paper(0.0, 10.0),
+            }
+        );
+        assert_eq!(source, &Ref::at_record(8).with_key(Key::Instance(30)));
+        assert!(
+            diag.iter()
+                .all(|d| d.code() != codes::SXF_RASTER_FRAME_MISSING)
+        );
+        // 読めない折れ線（レコード 7）は、読めない折れ線として知らせる
+        if !invalid {
+            continue;
+        }
+        let invalid = find(&diag, codes::SXF_LIFT_INVALID);
+        assert!(
+            invalid
+                .places()
+                .iter()
+                .any(|place| place.key() == Some(Key::Instance(20))),
+            "{invalid:?}"
+        );
+    }
+}
+
 #[test]
 fn moves_splines_as_joined_bezier_curves() {
     let src = sfc(&[
@@ -929,8 +999,9 @@ fn composite_diagnostics_obey_work_limits_and_cancellation() {
         run(Limit::Unlimited, true).0,
         Err(Error::Stopped(_))
     ));
-    // メンバーに加え、先頭と後続の複合曲線を探す走査も、探索中の複合曲線で止まる。
-    for (extra, record, instance) in [(1, 8, 30), (2, 7, 20), (5, 9, 31)] {
+    // メンバーに加え、先頭と後続の複合曲線を探す走査も、探索中の複合曲線で止まる。診断を入力の順に集める
+    // 手間も数えるので、#31 で止まる予算は、集めなかったときより大きい（#624）
+    for (extra, record, instance) in [(1, 8, 30), (2, 7, 20), (8, 9, 31)] {
         let scanning = run(Limit::Finite(features.len() as u64 + extra), false);
         assert!(matches!(scanning.0, Err(Error::Stopped(_))));
         assert_eq!(

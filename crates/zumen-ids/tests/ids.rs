@@ -18,6 +18,43 @@ fn with<T>(f: impl FnOnce(&mut Cx) -> T) -> (T, Diagnostics) {
     (result, diag)
 }
 
+#[test]
+fn shift_jis_invalid_element_names_are_decoded_in_diagnostics() {
+    let mut src = b"<?xml version='1.0' encoding='Shift_JIS'?><".to_vec();
+    src.extend_from_slice(&[0x83, 0x5b, 0x81, 0x5b]); // ゼー
+    src.extend_from_slice(b"/>");
+    let (result, diag) = with(|cx| Ids::read(&src, cx));
+    assert!(matches!(result, Err(Error::Invalid)));
+    let diagnostic = diag.iter().next().unwrap();
+    assert_eq!(diagnostic.code(), codes::IDS_FILE_INVALID);
+    assert!(diagnostic.params().iter().any(|(key, value)| {
+        *key == "near" && value == &zumen_base::Value::Text("ゼー".into())
+    }));
+
+    let text = ids(&spec("x", &entity("IFCWALL"),
+        "<@/><attribute><name><simpleValue>Name</simpleValue></name><value><xs:restriction base='xs:string'><xs:# value='2'/></xs:restriction></value></attribute>"))
+        .replace("テスト", "test").replace("UTF-8", "Shift_JIS");
+    let src: Vec<_> = text
+        .bytes()
+        .flat_map(|byte| match byte {
+            b'@' => vec![0x83, 0x5b, 0x81, 0x5b], // ゼー
+            b'#' => vec![0x83, 0x5d],             // ゾ
+            _ => vec![byte],
+        })
+        .collect();
+    let (result, diag) = with(|cx| Ids::read(&src, cx));
+    assert!(result.is_ok(), "{diag:?}");
+    for (code, kind) in [
+        (codes::IDS_FACET_UNSUPPORTED, "ゼー"),
+        (codes::IDS_RESTRICTION_UNSUPPORTED, "ゾ"),
+    ] {
+        assert!(diag.iter().any(|d| d.code() == code
+            && d.params().iter().any(|(key, value)| {
+                *key == "kind" && value == &zumen_base::Value::Text(kind.into())
+            })));
+    }
+}
+
 fn ids(specifications: &str) -> String {
     format!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
@@ -239,6 +276,42 @@ fn reads_specifications() {
     assert_eq!(parsed.specifications()[0].name(), "壁");
     assert_eq!(parsed.specifications()[0].versions(), ["IFC4"]);
     assert!(diag.is_empty());
+}
+
+#[test]
+fn utf16_specifications_keep_names_and_apply_their_requirements() {
+    let source = ids(&spec(
+        "壁の名前",
+        &entity("IFCWALL"),
+        "<attribute><name><simpleValue>Name</simpleValue></name><value><simpleValue>W1</simpleValue></value></attribute>",
+    )).replace("encoding=\"UTF-8\"", "encoding=\"UTF-16\"");
+    for little in [true, false] {
+        let mut src = if little {
+            vec![0xff, 0xfe]
+        } else {
+            vec![0xfe, 0xff]
+        };
+        for unit in source.encode_utf16() {
+            src.extend(if little {
+                unit.to_le_bytes()
+            } else {
+                unit.to_be_bytes()
+            });
+        }
+        let (parsed, diag) = with(|cx| Ids::read(&src, cx));
+        assert!(diag.is_empty(), "{diag:?}");
+        let parsed = parsed.unwrap();
+        assert_eq!(parsed.title(), Some("テスト"));
+        assert_eq!(parsed.specifications()[0].name(), "壁の名前");
+        assert_eq!(parsed.specifications()[0].versions(), ["IFC4"]);
+        let model = building().unwrap();
+        let (report, diag) = with(|cx| check(&model, &parsed, &model, cx));
+        assert!(diag.is_empty(), "{diag:?}");
+        let report = report.unwrap();
+        assert_eq!(statuses(&report), [("壁の名前", Status::Passed)]);
+        assert_eq!(report.specifications[0].applicable, 1);
+        assert!(report.findings.is_empty());
+    }
 }
 
 #[test]
@@ -698,6 +771,232 @@ fn counts_each_attribute_the_lookup_returns() {
         assert_eq!(statuses(&report), [("属性", Status::Failed)]);
         budget.used(Kind::Work)
     };
-    // 壁は 1 つで、属性の facet も 1 つ
-    assert_eq!(work(&Wide(1000)) - work(&Wide(10)), 990);
+    // 壁は 1 つで、属性の facet も 1 つ。属性ごとに、比べる手間の 1 と、名前の文字を読む手間と値の決まりを当てる
+    // 手間（どちらも 1。#732）を数える
+    assert_eq!(work(&Wide(1000)) - work(&Wide(10)), 990 * 3);
+}
+
+/// 照合と読み取りに使った作業の予算
+fn used_work(f: impl FnOnce(&mut Cx) -> Result<(), Error>) -> (Result<(), Error>, u64) {
+    let mut budget = Budget::new(Limits::default());
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let result = f(&mut Cx::new(&mut budget, &mut diag, &cancel));
+    (result, budget.used(Kind::Work))
+}
+
+/// 式（`xs:pattern`）の照合は、文字列の文字の数と式の大きさの積の手間を、照合の前に予算に数える（#732）
+#[test]
+fn counts_the_work_of_matching_patterns() {
+    let parsed = read(&ids(&spec(
+        "名前",
+        &entity("IFCWALL"),
+        "<attribute><name><simpleValue>Name</simpleValue></name><value>\
+         <xs:restriction base=\"xs:string\"><xs:pattern value=\"W*\"/></xs:restriction>\
+         </value></attribute>",
+    )))
+    .0
+    .unwrap();
+    let named = |length: usize| {
+        let mut model = building().unwrap();
+        let wall = ElementRef(0);
+        model.components.identity.insert(
+            wall,
+            Identity {
+                name: Some("W".repeat(length)),
+                ..Identity::default()
+            },
+        );
+        model
+    };
+    let work = |length: usize| {
+        let model = named(length);
+        let (result, used) = used_work(|cx| {
+            let report = check(&model, &parsed, &model, cx)?;
+            assert_eq!(statuses(&report), [("名前", Status::Passed)]);
+            Ok(())
+        });
+        result.unwrap();
+        used
+    };
+    // 式 `W*` は、合った・分かれ目・1 文字の 3 つの状態と、1 文字の集まりの手間 2 で、1 文字に 5 を数える
+    let (few, many) = (work(10), work(10_010));
+    assert!(many - few >= 10_000 * 5, "{few} {many}");
+    let model = named(10_010);
+    let mut budget =
+        Budget::new(Limits::default().with(Kind::Work, zumen_base::Limit::Finite(few + 10_000)));
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let result = check(
+        &model,
+        &parsed,
+        &model,
+        &mut Cx::new(&mut budget, &mut diag, &cancel),
+    );
+    assert!(matches!(result, Err(Error::Stopped(_))), "{result:?}");
+}
+
+/// 式を読む手間（`{n,m}` を展開する回数）も、読み取りの予算に数える（#732）
+#[test]
+fn counts_the_work_of_reading_patterns() {
+    let work = |count: usize| {
+        let text = ids(&spec(
+            "式",
+            &entity("IFCWALL"),
+            &format!(
+                "<attribute><name><simpleValue>Name</simpleValue></name><value>\
+                 <xs:restriction base=\"xs:string\"><xs:pattern value=\"(ab){{{count}}}\"/>\
+                 </xs:restriction></value></attribute>"
+            ),
+        ));
+        let (result, used) = used_work(|cx| Ids::read(text.as_bytes(), cx).map(|_| ()));
+        result.unwrap();
+        used
+    };
+    let (few, many) = (work(10), work(2_010));
+    assert!(many - few >= 2_000 * 2, "{few} {many}");
+}
+
+/// プロパティの facet は、要素と型のセットと項目ごとに手間を数える（#732）
+#[test]
+fn counts_the_work_of_gathering_properties() {
+    let parsed = read(&ids(&spec(
+        "プロパティ",
+        &entity("IFCWALL"),
+        "<property><propertySet><simpleValue>Pset_Many</simpleValue></propertySet>\
+         <baseName><simpleValue>P0</simpleValue></baseName></property>",
+    )))
+    .0
+    .unwrap();
+    let wide = |count: usize| {
+        let mut model = building().unwrap();
+        let set = || Properties {
+            sets: vec![PropertySet {
+                name: "Pset_Many".to_owned(),
+                properties: (0..count)
+                    .map(|i| Property {
+                        name: format!("P{i}"),
+                        value: Some(TypedValue {
+                            type_name: Some("IfcLabel".to_owned()),
+                            value: Literal::Text("x".to_owned()),
+                        }),
+                        unit: None,
+                    })
+                    .collect(),
+            }],
+        };
+        // 壁 i1 と、壁の型 i5 に、同じ名前のプロパティを置く
+        model.components.properties.insert(ElementRef(0), set());
+        model.components.properties.insert(ElementRef(4), set());
+        model
+    };
+    let work = |count: usize| {
+        let model = wide(count);
+        let (result, used) = used_work(|cx| check(&model, &parsed, &model, cx).map(|_| ()));
+        result.unwrap();
+        used
+    };
+    // 要素と型の項目ごとに 1 を数え、要素の項目ごとに名前を比べる
+    let (few, many) = (work(10), work(2_010));
+    assert!(many - few >= 2 * 2_000 + 2_000, "{few} {many}");
+}
+
+/// 名前の長さに比例する手間（プロパティの名前を表で引く、属性の値を写す、指摘に仕様の名前を写す）も数える（#732）
+#[test]
+fn counts_the_work_of_long_names() {
+    let long = "N".repeat(160_000);
+    let parsed = read(&ids(&format!(
+        "{}{}",
+        spec(
+            "プロパティ",
+            &entity("IFCWALL"),
+            "<property><propertySet><simpleValue>Pset_WallCommon</simpleValue></propertySet>\
+             <baseName><simpleValue>Missing</simpleValue></baseName></property>",
+        ),
+        spec(
+            "属性",
+            &entity("IFCWALL"),
+            "<attribute><name><simpleValue>Name</simpleValue></name></attribute>",
+        )
+    )))
+    .0
+    .unwrap();
+    let work = |name: &str| {
+        let mut model = building().unwrap();
+        let property = Property {
+            name: name.to_owned(),
+            value: None,
+            unit: None,
+        };
+        // 壁 i1 と壁の型 i5 のセットに、長い名前のプロパティを足す。壁の名前も長くする
+        for owner in [ElementRef(0), ElementRef(4)] {
+            if let Some(properties) = model.components.properties.get(owner) {
+                let mut properties = properties.clone();
+                properties.sets[0].properties.push(property.clone());
+                model.components.properties.insert(owner, properties);
+            }
+        }
+        model.components.identity.insert(
+            ElementRef(0),
+            Identity {
+                name: Some(name.to_owned()),
+                ..Identity::default()
+            },
+        );
+        let (result, used) = used_work(|cx| check(&model, &parsed, &model, cx).map(|_| ()));
+        result.unwrap();
+        used
+    };
+    // 2 つのプロパティの名前を表で引き、名前で比べる。壁の名前を写し、比べる
+    let (short, long) = (work("N"), work(&long));
+    assert!(long - short >= 4 * 10_000, "{short} {long}");
+
+    // 指摘ごとに、仕様の名前を 2 回写す
+    let named = |name: &str| {
+        let parsed = read(&ids(&spec(
+            name,
+            &entity("IFCWALL"),
+            "<attribute><name><simpleValue>Tag</simpleValue></name></attribute>",
+        )))
+        .0
+        .unwrap();
+        let model = building().unwrap();
+        let (result, used) = used_work(|cx| {
+            let report = check(&model, &parsed, &model, cx)?;
+            assert_eq!(report.findings.len(), 1);
+            Ok(())
+        });
+        result.unwrap();
+        used
+    };
+    let (short, long) = (named("N"), named(&"N".repeat(160_000)));
+    assert!(long - short >= 2 * 10_000, "{short} {long}");
+
+    // 分類の体系の名前を、重ねないための表で引き、名前で比べる
+    let parsed = read(&ids(&spec(
+        "分類",
+        &entity("IFCWALL"),
+        "<classification><system><simpleValue>Other</simpleValue></system></classification>",
+    )))
+    .0
+    .unwrap();
+    let system = |name: &str| {
+        let mut model = building().unwrap();
+        model.components.classification.insert(
+            ElementRef(0),
+            Classification {
+                references: vec![ClassificationReference {
+                    system: Some(name.to_owned()),
+                    edition: None,
+                    code: None,
+                    name: None,
+                }],
+            },
+        );
+        let (result, used) = used_work(|cx| check(&model, &parsed, &model, cx).map(|_| ()));
+        result.unwrap();
+        used
+    };
+    let (short, long) = (system("N"), system(&"N".repeat(160_000)));
+    assert!(long - short >= 2 * 10_000, "{short} {long}");
 }

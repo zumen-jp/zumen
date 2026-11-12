@@ -548,6 +548,212 @@ fn splines_with_only_fit_points_pass_through_them() {
     assert!((top - 5.0).abs() < 0.02, "{top}");
 }
 
+/// シーンを作るのに使った予算の量
+#[cfg(test)]
+fn used_by(drawing: &Drawing2D, kind: Kind) -> u64 {
+    let mut budget = Budget::new(Limits::default());
+    let mut diag = Diagnostics::new();
+    let built = build(
+        drawing,
+        &options(),
+        &mut Cx::new(&mut budget, &mut diag, &CancelToken::new()),
+    );
+    assert!(built.is_ok());
+    budget.used(kind)
+}
+
+/// `degree` 次のスプライン。ノットは両端を締めて等間隔にする。制御点がなければ、ノットも持たない
+#[cfg(test)]
+fn spline(degree: u32, control: &[[f64; 2]], fit: Vec<ModelPoint>) -> Shape<ModelPoint> {
+    let (n, d) = (control.len(), degree as usize);
+    let knots: Vec<f64> = if n > d {
+        (0..n + d + 1)
+            .map(|i| i.saturating_sub(d).min(n - d) as f64)
+            .collect()
+    } else {
+        Vec::new()
+    };
+    Shape::Curve(zumen_drawing::Edge::Spline(zumen_drawing::Spline {
+        degree,
+        knots,
+        control: control.iter().map(|&[x, y]| at(x, y)).collect(),
+        weights: Vec::new(),
+        fit,
+        start_tangent: None,
+        end_tangent: None,
+        closed: false,
+        periodic: false,
+        fit_tolerance: None,
+        knot_parameterization: None,
+    }))
+}
+
+/// 点を通る 3 次のスプラインを、弦の長さでノットを取って折れ線にする手間
+#[cfg(test)]
+fn fitted_work(points: &[[f64; 2]], tolerance: f64) -> u64 {
+    let (knots, control) =
+        zumen_geom2d::interpolate(points, None, None, zumen_geom2d::Spacing::Chord, false).unwrap();
+    let (found, work) = zumen_geom2d::spline_with_work(3, &knots, &control, &[], tolerance);
+    assert!(found.is_some() && work > 0);
+    work
+}
+
+/// クロソイドとスプラインを折れ線にする手間は、作る点の数によらず予算に数える。区間が原点から離れた
+/// クロソイドは、原点から区間の初めまで刻んで積む手間も数える。フィット点で決まるスプラインと、引出線の曲線も
+/// 数える（#753・#756）
+#[test]
+fn curves_count_the_work_of_making_their_points() {
+    let mut drawing = lift(&SHAPES[..9]);
+    drawing.spaces[0].order.clear();
+    let tolerance = options().tolerance.unwrap();
+    let mut before = used_by(&drawing, Kind::Work);
+    let mut grows = |drawing: &mut Drawing2D, shape, work: u64| {
+        push(drawing, shape);
+        let after = used_by(drawing, Kind::Work);
+        assert!(after - before >= work, "{before} {after} {work}");
+        before = after;
+    };
+    // A 50 の 35 m から 50 m まで。区間の刻みだけなら、点の数より 1 少ない刻みごとに 9 回
+    let clothoid = zumen_geom2d::clothoid_work(50.0, 35.0, 50.0, tolerance);
+    let made = zumen_geom2d::clothoid([0.0, 0.0], 50.0, 0.0, true, 35.0, 50.0, tolerance);
+    assert!(clothoid > (made.len() as u64 - 1) * 9 + 1, "{clothoid}");
+    grows(
+        &mut drawing,
+        Shape::Curve(zumen_drawing::Edge::Clothoid {
+            origin: at(0.0, 0.0),
+            parameter: model(50.0),
+            angle: 0.0,
+            counterclockwise: true,
+            start: model(35.0),
+            end: model(50.0),
+        }),
+        clothoid,
+    );
+    // 200 の制御点を持つ 3 次のスプライン
+    let control: Vec<[f64; 2]> = (0..200).map(|i| [f64::from(i), f64::from(i % 7)]).collect();
+    let Shape::Curve(zumen_drawing::Edge::Spline(made)) = spline(3, &control, Vec::new()) else {
+        panic!("スプラインを作れなかった")
+    };
+    let (points, work) = zumen_geom2d::spline_with_work(3, &made.knots, &control, &[], tolerance);
+    assert!(points.is_some() && work > 0);
+    grows(&mut drawing, spline(3, &control, Vec::new()), work);
+    // フィット点だけで決まるスプラインと、点を通る曲線の引出線
+    let fit: Vec<[f64; 2]> = (0..50).map(|i| [f64::from(i), f64::from(i % 5)]).collect();
+    let work = fitted_work(&fit, tolerance);
+    let points: Vec<ModelPoint> = fit.iter().map(|&[x, y]| at(x, y)).collect();
+    grows(&mut drawing, spline(3, &[], points.clone()), work);
+    grows(
+        &mut drawing,
+        Shape::Leader(zumen_drawing::Leader {
+            path: points,
+            spline: true,
+            arrow: Some(false),
+            annotation: None,
+            style: "STANDARD".to_string(),
+        }),
+        work,
+    );
+}
+
+/// 膨らみを持つ折れ線の点は、作る前に予算の `segments` に数える。線は描くときにも同じ数を数えるので、
+/// 2 回分を数える。ハッチングの輪は、作る前の 1 回だけ数える（#756）
+#[test]
+fn bulged_polylines_count_their_points_before_they_are_made() {
+    let mut drawing = lift(&SHAPES[..9]);
+    drawing.spaces[0].order.clear();
+    let tolerance = options().tolerance.unwrap();
+    let base = used_by(&drawing, Kind::Segments);
+    // 半径 50 の円を、膨らみを持つ 2 つの区間で描く
+    let circle = vec![
+        Vertex {
+            point: at(0.0, 0.0),
+            bulge: 1.0,
+        },
+        Vertex {
+            point: at(100.0, 0.0),
+            bulge: 1.0,
+        },
+    ];
+    let vertices: Vec<([f64; 2], f64)> = circle
+        .iter()
+        .map(|v| ([v.point.x, v.point.y], v.bulge))
+        .collect();
+    let points = zumen_geom2d::polyline_points(&vertices, true, tolerance);
+    assert!(points > 100, "{points}");
+    let limits = |extra: u64| Limits::default().with(Kind::Segments, Limit::Finite(base + extra));
+    let stops = |drawing: &Drawing2D, extra: u64| {
+        let (result, _) = scene_with(drawing, &options(), limits(extra));
+        match result {
+            Ok(_) => false,
+            Err(Stop::Exceeded(e)) => e.kind == Kind::Segments,
+            Err(stop) => panic!("{stop:?}"),
+        }
+    };
+    let mut line = drawing.clone();
+    push(
+        &mut line,
+        Shape::Polyline(zumen_drawing::Polyline {
+            vertices: circle.clone(),
+            closed: true,
+            width: None,
+            vertex_widths: Vec::new(),
+            line_type_generation: false,
+        }),
+    );
+    assert!(!stops(&line, 2 * points));
+    assert!(stops(&line, points + points / 2));
+    let mut hatch = drawing.clone();
+    push(
+        &mut hatch,
+        Shape::Hatch(Hatch {
+            loops: vec![HatchLoop {
+                boundary: zumen_drawing::Boundary::Polyline {
+                    vertices: circle,
+                    closed: true,
+                },
+                external: true,
+                outermost: true,
+                derived: false,
+                text_box: false,
+                sources: Vec::new(),
+            }],
+            islands: Islands::Nested,
+            fill: Fill::Solid,
+            associative: false,
+            seeds: Vec::new(),
+        }),
+    );
+    assert!(!stops(&hatch, points));
+    assert!(stops(&hatch, points / 2));
+}
+
+/// 次数が上限を超えるスプラインは、制御点で描かず、そのことを知らせる。フィット点があれば、点を通る曲線で
+/// 描く（#756）
+#[test]
+fn splines_above_the_degree_limit_say_so() {
+    let degree = zumen_geom2d::MAX_DEGREE + 1;
+    let control: Vec<[f64; 2]> = (0..=degree)
+        .map(|i| [f64::from(i), f64::from(i % 2)])
+        .collect();
+    for fit in [Vec::new(), vec![at(0.0, 0.0), at(5.0, 5.0), at(10.0, 0.0)]] {
+        let mut drawing = lift(&SHAPES[..9]);
+        drawing.spaces[0].order.clear();
+        let fitted = !fit.is_empty();
+        push(&mut drawing, spline(degree, &control, fit));
+        let (_, found) = made(&drawing, &options());
+        assert!(
+            found.contains(&codes::SCENE_SPLINE_DEGREE_APPROXIMATED),
+            "{found:?}"
+        );
+        // 点を結ぶ折れ線にしても、フィット点だけで決まるスプラインの知らせは返さない
+        assert!(
+            !found.contains(&codes::SCENE_SPLINE_APPROXIMATED),
+            "{found:?}"
+        );
+        assert_eq!(found.contains(&codes::SCENE_CURVE_APPROXIMATED), fitted);
+    }
+}
+
 #[test]
 fn dimensions_without_parts_draw_lines_and_their_value() {
     let mut drawing = lift(&SHAPES[..9]);

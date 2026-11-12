@@ -1,0 +1,63 @@
+---
+// 縦断図の例。道路の中心に沿った地盤と計画の高さを描き、測点ごとの値を表にする。
+// 横は 1 m を 6.6、縦は 1 m を 66 にして（H=1/1000・V=1/100 の比）、高さを 10 倍に強調する。DL=10.000 を y=0 にする。
+import Sheet from './Sheet.astro';
+
+const x = (m: number) => Math.round(m * 66) / 10;
+const y = (h: number) => Math.round(-(h - 10) * 660) / 10;
+
+// 地盤高（10 m ごと）
+const ground = [12.1, 12.4, 12.85, 13.3, 13.6, 13.45, 13.1, 12.8, 12.55, 12.6, 12.35];
+const groundLine = ground.map((h, i) => `${i ? 'L' : 'M'}${x(i * 10)} ${y(h)}`).join('');
+
+// 計画高。+2.50% で上り、50 m を頂点に、長さ 20 m の縦断曲線を挟んで -2.00% で下る
+const plan = (m: number) => (m <= 50 ? 12.5 + m * 0.025 : 13.75 - (m - 50) * 0.02);
+const pvi = { x: x(50), y: y(13.75) };
+const planLine = `M0 ${y(12.5)}L${x(40)} ${y(13.5)}Q${pvi.x} ${pvi.y} ${x(60)} ${y(13.55)}L${x(100)} ${y(12.75)}`;
+
+const stations = [0, 20, 40, 60, 80, 100].map((m, i) => ({
+  x: x(m),
+  top: Math.min(y(ground[m / 10]), y(plan(m))),
+  values: [`No.${i}`, ground[m / 10].toFixed(2), plan(m).toFixed(2)],
+}));
+const rows = ['測点', '地盤高', '計画高'];
+const cells = [-66, 66, 198, 330, 462, 594, 726];
+---
+
+<Sheet viewBox="-240 -310 980 462" caption="縦断図 H=1/1000 V=1/100（例）">
+  <!-- 測点の線と地盤 -->
+  <path class="d-faint" d={stations.map((s) => `M${s.x} 0V${s.top}`).join('')} />
+  <path class="d-tone" d={`${groundLine}V0H0Z`} />
+  <path class="d-line" d={groundLine} />
+
+  <!-- 計画線と縦断曲線 -->
+  <path class="d-dash" d={`M${x(40)} ${y(13.5)}L${pvi.x} ${pvi.y}L${x(60)} ${y(13.55)}`} />
+  <path class="d-red" d={planLine} />
+  <circle class="d-bubble" cx={pvi.x} cy={pvi.y} r="6" />
+  <text class="d-dim-t" x={pvi.x} y={pvi.y - 20}>VCL=20m</text>
+  <text class="d-dim-t" x={x(22)} y={y(plan(22)) - 24}>+2.50%</text>
+  <text class="d-dim-t" x={x(80)} y={y(plan(80)) - 24}>-2.00%</text>
+
+  <!-- 基準の高さ -->
+  <path class="d-bold" d="M-230 0H726" />
+  <text class="d-note" x="-224" y="-12">DL=10.000</text>
+
+  <!-- 測点ごとの表 -->
+  <path class="d-line" d={`M-230 24H726V144H-230ZM-230 64H726M-230 104H726${cells.map((c) => `M${c} 24V144`).join('')}`} />
+  {
+    rows.map((name, r) => (
+      <text class="d-name d-cell" x="-148" y={44 + r * 40}>
+        {name}
+      </text>
+    ))
+  }
+  {
+    stations.map((s) =>
+      s.values.map((v, r) => (
+        <text class="d-dim-t d-cell" x={s.x} y={44 + r * 40}>
+          {v}
+        </text>
+      )),
+    )
+  }
+</Sheet>

@@ -13,8 +13,10 @@ fuzz_target!(|data: &[u8]| {
         // ときの 3 倍を超えない
         let mut decoded = 0;
         for element in doc.elements() {
+            let _ = doc.local_name_text(element.name());
             let _ = doc.namespace(element.name());
             for attribute in element.attributes() {
+                let _ = doc.local_name_text(attribute.name());
                 let _ = doc.namespace(attribute.name());
                 decoded += doc.value(attribute).len();
             }

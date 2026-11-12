@@ -1,7 +1,8 @@
 name: Release
 
 # v で始まるタグ（例: v0.2.0）を push すると、対象ごとに作り、GitHub の Release に置き、
-# crates.io・npm・PyPI・NuGet に出す（決定 0205）。手で走らせると、作るところまでを確かめる（出さない）。
+# crates.io・npm・PyPI・NuGet に出す（決定 0205）。入力なしの手動実行は、作るところまでを確かめる。
+# npm_retry_tag を指定した手動実行は、許可した既存の npm 配布物だけを再公開する（決定 0294）。
 # 出すところは、それぞれのレジストリの trusted publishing（OIDC）で認証する。NuGet だけは、
 # アカウントの名前を変数 NUGET_USER に置く。
 
@@ -9,6 +10,12 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      npm_retry_tag:
+        description: 'npm だけを再試行する既存タグ（空なら公開しない試運転）'
+        type: string
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -19,11 +26,12 @@ env:
   # 足し忘れは cargo xtask codegen --check が確かめる
   CRATES: >-
     -p zumen-json -p zumen-base -p zumen-sdk -p zumen-crs -p zumen-step -p zumen-geom2d -p zumen-geom3d -p zumen-drawing -p zumen-acad
-    -p zumen-jww -p zumen-sxf -p zumen-pdf -p zumen-xml -p zumen-zip -p zumen-photo -p zumen-sheet -p zumen-geology -p zumen-building -p zumen-ids -p zumen-civil -p zumen-ifc -p zumen-review -p zumen-bcf -p zumen-civil-drawing -p zumen-landxml -p zumen-geo -p zumen-citygml -p zumen-extdm -p zumen-fgd -p zumen-pointcloud -p zumen-las -p zumen-ply -p zumen-xyz -p zumen-e57
+    -p zumen-jww -p zumen-sxf -p zumen-xml -p zumen-zip -p zumen-photo -p zumen-sheet -p zumen-geology -p zumen-building -p zumen-ids -p zumen-civil -p zumen-ifc -p zumen-review -p zumen-bcf -p zumen-civil-drawing -p zumen-landxml -p zumen-geo -p zumen-citygml -p zumen-extdm -p zumen-fgd -p zumen-pointcloud -p zumen-las -p zumen-ply -p zumen-xyz -p zumen-e57
     -p zumen-scene -p zumen-render -p zumen-profile -p zumen-delivery -p zumen-asbuilt -p zumen-abi -p zumen -p zumen-cli
 
 jobs:
   version:
+    if: inputs.npm_retry_tag == ''
     name: タグとバージョンを合わせる
     runs-on: ubuntu-latest
     outputs:
@@ -48,17 +56,42 @@ jobs:
       matrix:
         include: ${{ fromJSON(needs.licenses.outputs.targets) }}
     runs-on: ${{ matrix.os }}
+    container: ${{ matrix.container || '' }}
     defaults:
       run:
         shell: bash
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - id: linux-tools
+        if: matrix.container
+        name: manylinux の Python と、固定した Rust のバージョンを選ぶ
+        run: |
+          # checkout の一時 HOME とは別に、この job へ CI の workspace の許可を渡す。
+          taskGitConfigCount=${GIT_CONFIG_COUNT:-0}
+          echo "GIT_CONFIG_KEY_$taskGitConfigCount=safe.directory" >> "$GITHUB_ENV"
+          echo "GIT_CONFIG_VALUE_$taskGitConfigCount=$GITHUB_WORKSPACE" >> "$GITHUB_ENV"
+          echo "GIT_CONFIG_COUNT=$((taskGitConfigCount + 1))" >> "$GITHUB_ENV"
+          echo /opt/python/cp314-cp314/bin >> "$GITHUB_PATH"
+          /opt/python/cp314-cp314/bin/python -c 'import tomllib; print("toolchain=" + tomllib.load(open("rust-toolchain.toml", "rb"))["toolchain"]["channel"])' >> "$GITHUB_OUTPUT"
+      - name: manylinux の Git が作業フォルダーを読めることを確かめる
+        if: matrix.container
+        run: |
+          git --version
+          test "$(git rev-parse --show-toplevel)" = "$GITHUB_WORKSPACE"
+          git --no-optional-locks status --porcelain --untracked-files=no
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        if: matrix.container
+        with:
+          toolchain: ${{ steps.linux-tools.outputs.toolchain }}
+          targets: ${{ matrix.target }}
       - name: rust-toolchain.toml のバージョンの Rust と、作る target を入れる
+        if: ${{ !matrix.container }}
         run: |
           rustup toolchain install
           rustup target add ${{ matrix.target }}
       - run: cargo install --locked cargo-auditable@0.7.7 rust-audit-info@0.5.4
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        if: ${{ !matrix.container }}
         with:
           python-version: '3.x'
       - run: python xtask/release/build.py --rid ${{ matrix.rid }} --out built
@@ -70,6 +103,16 @@ jobs:
         run: >-
           python xtask/release/package.py native --rid ${{ matrix.rid }}
           --built built --licenses licenses --out out
+      - name: manylinux の .NET の実行に使うライブラリを入れる
+        if: matrix.container
+        run: dnf -y install libicu krb5-libs
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        if: matrix.container
+        with:
+          dotnet-version: '10.0.x'
+      - name: glibc 2.28 で、梱包対象のライブラリ・CLI・wheel の実行を確かめる
+        if: matrix.container
+        run: python xtask/release/check_linux_runtime.py --rid ${{ matrix.rid }} --built built --packages out
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: native-${{ matrix.rid }}
@@ -164,7 +207,7 @@ jobs:
 
   release:
     name: GitHub の Release に置く
-    if: github.ref_type == 'tag'
+    if: github.event_name == 'push' && github.ref_type == 'tag'
     needs: [version, native, wasm, packages]
     runs-on: ubuntu-latest
     permissions:
@@ -193,7 +236,7 @@ jobs:
 
   crates-io:
     name: crates.io に出す
-    if: github.ref_type == 'tag'
+    if: github.event_name == 'push' && github.ref_type == 'tag'
     needs: release
     runs-on: ubuntu-latest
     environment: release
@@ -211,7 +254,7 @@ jobs:
 
   npm:
     name: npm に出す
-    if: github.ref_type == 'tag'
+    if: github.event_name == 'push' && github.ref_type == 'tag'
     needs: release
     runs-on: ubuntu-latest
     environment: release
@@ -227,11 +270,11 @@ jobs:
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
-      - run: npm publish packages/*.tgz --access public --provenance
+      - run: npm publish ./packages/*.tgz --access public --provenance
 
   pypi:
     name: PyPI に出す
-    if: github.ref_type == 'tag'
+    if: github.event_name == 'push' && github.ref_type == 'tag'
     needs: release
     runs-on: ubuntu-latest
     environment: release
@@ -249,7 +292,7 @@ jobs:
 
   nuget:
     name: NuGet に出す
-    if: github.ref_type == 'tag'
+    if: github.event_name == 'push' && github.ref_type == 'tag'
     needs: release
     runs-on: ubuntu-latest
     environment: release
@@ -268,3 +311,34 @@ jobs:
         with:
           user: ${{ vars.NUGET_USER }}
       - run: dotnet nuget push packages/*.nupkg --api-key "${{ steps.login.outputs.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json
+
+  npm-retry:
+    name: 既存の npm 配布物を再公開する
+    if: github.event_name == 'workflow_dispatch' && inputs.npm_retry_tag != ''
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+      attestations: read
+      id-token: write
+    steps:
+      - name: main からの再試行だけを許す
+        run: |
+          test "$GITHUB_REF" = refs/heads/main
+          test "$GITHUB_REPOSITORY" = zumen-jp/zumen
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.x'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - name: 元のタグ・配布物・来歴を照合し、未公開であることを確かめる
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NPM_RETRY_TAG: ${{ inputs.npm_retry_tag }}
+        run: python xtask/release/retry_npm.py "$NPM_RETRY_TAG" --out ./packages
+      - run: npm publish ./packages/zumen-jp-zumen-0.2.0.tgz --ignore-scripts --access public --provenance

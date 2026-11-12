@@ -92,6 +92,16 @@ public final class Messages {
             return "entities".equals(json.get("op")) ? new EntitiesRequest(json) : null;
         }
 
+        /** op が calibrations の形なら、そのビュー。違えば null */
+        public CalibrationsRequest asCalibrationsRequest() {
+            return "calibrations".equals(json.get("op")) ? new CalibrationsRequest(json) : null;
+        }
+
+        /** op が measure_distance の形なら、そのビュー。違えば null */
+        public MeasureDistanceRequest asMeasureDistanceRequest() {
+            return "measure_distance".equals(json.get("op")) ? new MeasureDistanceRequest(json) : null;
+        }
+
         /** op が apply の形なら、そのビュー。違えば null */
         public ApplyRequest asApplyRequest() {
             return "apply".equals(json.get("op")) ? new ApplyRequest(json) : null;
@@ -100,6 +110,11 @@ public final class Messages {
         /** op が convert の形なら、そのビュー。違えば null */
         public ConvertRequest asConvertRequest() {
             return "convert".equals(json.get("op")) ? new ConvertRequest(json) : null;
+        }
+
+        /** op が convert_estimate の形なら、そのビュー。違えば null */
+        public ConvertEstimateRequest asConvertEstimateRequest() {
+            return "convert_estimate".equals(json.get("op")) ? new ConvertEstimateRequest(json) : null;
         }
 
         /** op が tables の形なら、そのビュー。違えば null */
@@ -775,7 +790,7 @@ public final class Messages {
             return this;
         }
 
-        /** 入力の全体の大きさ（バイト）。渡した入力より大きければ、入力を全体の初めの部分とみなし、足りない範囲を needs で求める。範囲で読める形式（LAS・LAZ）だけが使う（決定 0232）。マイナーバージョン 48 から */
+        /** 入力の全体の大きさ（バイト）。渡した入力より大きければ、入力を全体の初めの部分とみなし、足りない範囲を needs で求める。範囲で読める形式（LAS）だけが使う。LAZ は、ヘッダーを読んで las.laz.unsupported で断る（決定 0232・0289）。マイナーバージョン 48 から */
         public Long getSize() {
             return Json.read(json.get("size"), Json::integer);
         }
@@ -1356,6 +1371,636 @@ public final class Messages {
         /** {@link #getPointStyle()} を書く。null ならフィールドを除く */
         public DrawingResult withPointStyle(PointStyleSummary value) {
             put("point_style", value);
+            return this;
+        }
+    }
+
+    /** 2 次元の座標 */
+    public static final class Point2 extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public Point2(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static Point2 of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new Point2(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public Point2() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** X 座標 */
+        public Double getX() {
+            return Json.read(json.get("x"), Json::number);
+        }
+
+        /** {@link #getX()} を書く。null ならフィールドを除く */
+        public Point2 withX(Double value) {
+            put("x", value);
+            return this;
+        }
+
+        /** Y 座標 */
+        public Double getY() {
+            return Json.read(json.get("y"), Json::number);
+        }
+
+        /** {@link #getY()} を書く。null ならフィールドを除く */
+        public Point2 withY(Double value) {
+            put("y", value);
+            return this;
+        }
+    }
+
+    /** 原点と相対座標を分けた用紙の点。両成分の正確な和を位置とし、先に足して丸めない。座標の単位は用紙の mm */
+    public static final class SplitPoint2 extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public SplitPoint2(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static SplitPoint2 of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new SplitPoint2(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public SplitPoint2() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 用紙の原点 */
+        public Point2 getOrigin() {
+            return Json.read(json.get("origin"), Point2::of);
+        }
+
+        /** {@link #getOrigin()} を書く。null ならフィールドを除く */
+        public SplitPoint2 withOrigin(Point2 value) {
+            put("origin", value);
+            return this;
+        }
+
+        /** 原点からの相対座標 */
+        public Point2 getOffset() {
+            return Json.read(json.get("offset"), Point2::of);
+        }
+
+        /** {@link #getOffset()} を書く。null ならフィールドを除く */
+        public SplitPoint2 withOffset(Point2 value) {
+            put("offset", value);
+            return this;
+        }
+    }
+
+    /** 用紙の閉じた矩形で使う距離の校正。重なる領域は ID で明示的に選ぶ。マイナーバージョン 68 から */
+    public static final class CalibrationItem extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public CalibrationItem(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static CalibrationItem of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new CalibrationItem(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public CalibrationItem() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 文書内で重複しない校正の ID */
+        public String getId() {
+            return Json.read(json.get("id"), Json::string);
+        }
+
+        /** {@link #getId()} を書く。null ならフィールドを除く */
+        public CalibrationItem withId(String value) {
+            put("id", value);
+            return this;
+        }
+
+        /** 元の校正の名前。翻訳しない。なければ持たない */
+        public String getName() {
+            return Json.read(json.get("name"), Json::string);
+        }
+
+        /** {@link #getName()} を書く。null ならフィールドを除く */
+        public CalibrationItem withName(String value) {
+            put("name", value);
+            return this;
+        }
+
+        /** 校正を使える公開用紙の ID。drawing が返すもの */
+        public String getFrom() {
+            return Json.read(json.get("from"), Json::string);
+        }
+
+        /** {@link #getFrom()} を書く。null ならフィールドを除く */
+        public CalibrationItem withFrom(String value) {
+            put("from", value);
+            return this;
+        }
+
+        /** 用紙の mm の閉じた矩形。[X の最小, Y の最小, X の最大, Y の最大] の 4 値で、幅と高さは正 */
+        public List<Double> getBounds() {
+            return Json.read(json.get("bounds"), v0 -> Json.list(v0, Json::number));
+        }
+
+        /** {@link #getBounds()} を書く。null ならフィールドを除く */
+        public CalibrationItem withBounds(List<Double> value) {
+            put("bounds", value);
+            return this;
+        }
+
+        /** 用紙の mm の変位から校正単位の変位へ写す行優先の 2×2 行列。[a, b, c, d] の 4 値で、[dx, dy] を [a*dx+b*dy, c*dx+d*dy] に写す */
+        public List<Double> getMatrix() {
+            return Json.read(json.get("matrix"), v0 -> Json.list(v0, Json::number));
+        }
+
+        /** {@link #getMatrix()} を書く。null ならフィールドを除く */
+        public CalibrationItem withMatrix(List<Double> value) {
+            put("matrix", value);
+            return this;
+        }
+
+        /** 校正後の長さの単位。ラベルだけから推定しない */
+        public String getUnit() {
+            return Json.read(json.get("unit"), Json::string);
+        }
+
+        /** {@link #getUnit()} を書く。null ならフィールドを除く */
+        public CalibrationItem withUnit(String value) {
+            put("unit", value);
+            return this;
+        }
+
+        /** 元の単位ラベル。未知の単位でも原文を保つ */
+        public String getUnitLabel() {
+            return Json.read(json.get("unit_label"), Json::string);
+        }
+
+        /** {@link #getUnitLabel()} を書く。null ならフィールドを除く */
+        public CalibrationItem withUnitLabel(String value) {
+            put("unit_label", value);
+            return this;
+        }
+
+        /** 元の形式のレコード */
+        public Source getSource() {
+            return Json.read(json.get("source"), Source::of);
+        }
+
+        /** {@link #getSource()} を書く。null ならフィールドを除く */
+        public CalibrationItem withSource(Source value) {
+            put("source", value);
+            return this;
+        }
+    }
+
+    /** 開いた文書を図面モデルに変換し、用紙の距離の校正をモデルの順に返す。マイナーバージョン 68 から */
+    public static final class CalibrationsRequest extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public CalibrationsRequest(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static CalibrationsRequest of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new CalibrationsRequest(json);
+        }
+
+        /** タグのフィールドだけを持つオブジェクトから作る */
+        public CalibrationsRequest() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("op", "calibrations");
+        }
+
+        /** メッセージのスキーマのメジャーバージョン。今は 1 */
+        public Long getV() {
+            return Json.read(json.get("v"), Json::integer);
+        }
+
+        /** {@link #getV()} を書く。null ならフィールドを除く */
+        public CalibrationsRequest withV(Long value) {
+            put("v", value);
+            return this;
+        }
+
+        /** 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010） */
+        public Budget getBudget() {
+            return Json.read(json.get("budget"), Budget::of);
+        }
+
+        /** {@link #getBudget()} を書く。null ならフィールドを除く */
+        public CalibrationsRequest withBudget(Budget value) {
+            put("budget", value);
+            return this;
+        }
+
+        /** 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010） */
+        public Boolean getPartial() {
+            return Json.read(json.get("partial"), Json::bool);
+        }
+
+        /** {@link #getPartial()} を書く。null ならフィールドを除く */
+        public CalibrationsRequest withPartial(Boolean value) {
+            put("partial", value);
+            return this;
+        }
+
+        /** 診断ごとに返す場所の数。書かなければ 16（決定 0009） */
+        public Long getMaxPlaces() {
+            return Json.read(json.get("max_places"), Json::integer);
+        }
+
+        /** {@link #getMaxPlaces()} を書く。null ならフィールドを除く */
+        public CalibrationsRequest withMaxPlaces(Long value) {
+            put("max_places", value);
+            return this;
+        }
+
+        /** 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        public Long getTimeLimitMs() {
+            return Json.read(json.get("time_limit_ms"), Json::integer);
+        }
+
+        /** {@link #getTimeLimitMs()} を書く。null ならフィールドを除く */
+        public CalibrationsRequest withTimeLimitMs(Long value) {
+            put("time_limit_ms", value);
+            return this;
+        }
+
+        /** op の名前 */
+        public String getOp() {
+            return Json.read(json.get("op"), Json::string);
+        }
+
+        /** {@link #getOp()} を書く。null ならフィールドを除く */
+        public CalibrationsRequest withOp(String value) {
+            put("op", value);
+            return this;
+        }
+
+        /** 文書の名前。open で作ったもの */
+        public String getDoc() {
+            return Json.read(json.get("doc"), Json::string);
+        }
+
+        /** {@link #getDoc()} を書く。null ならフィールドを除く */
+        public CalibrationsRequest withDoc(String value) {
+            put("doc", value);
+            return this;
+        }
+
+        /** 公開用紙の ID。drawing が返すもの。書けばその用紙の校正だけを返し、書かなければすべての校正を返す */
+        public String getFrom() {
+            return Json.read(json.get("from"), Json::string);
+        }
+
+        /** {@link #getFrom()} を書く。null ならフィールドを除く */
+        public CalibrationsRequest withFrom(String value) {
+            put("from", value);
+            return this;
+        }
+
+        /** 返す最初の校正の位置。from で絞った後の位置で、前の応答の next_offset を渡す。書かなければ 0 */
+        public Long getOffset() {
+            return Json.read(json.get("offset"), Json::integer);
+        }
+
+        /** {@link #getOffset()} を書く。null ならフィールドを除く */
+        public CalibrationsRequest withOffset(Long value) {
+            put("offset", value);
+            return this;
+        }
+
+        /** 返す校正の数の上限。書かなければ 1000 */
+        public Long getLimit() {
+            return Json.read(json.get("limit"), Json::integer);
+        }
+
+        /** {@link #getLimit()} を書く。null ならフィールドを除く */
+        public CalibrationsRequest withLimit(Long value) {
+            put("limit", value);
+            return this;
+        }
+
+        /** 期待する元の文書のハッシュ。open に渡したバイト列のハッシュと照合する。図面モデルへ変換した ZMDR 自身のハッシュではない */
+        public String getExpectedHash() {
+            return Json.read(json.get("expected_hash"), Json::string);
+        }
+
+        /** {@link #getExpectedHash()} を書く。null ならフィールドを除く */
+        public CalibrationsRequest withExpectedHash(String value) {
+            put("expected_hash", value);
+            return this;
+        }
+    }
+
+    /** 距離の校正の一覧の一部 */
+    public static final class CalibrationsResult extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public CalibrationsResult(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static CalibrationsResult of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new CalibrationsResult(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public CalibrationsResult() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 元の文書のハッシュ。ZMDR から開いたときは、埋め込まれた元の文書のハッシュ（Source.hash） */
+        public String getHash() {
+            return Json.read(json.get("hash"), Json::string);
+        }
+
+        /** {@link #getHash()} を書く。null ならフィールドを除く */
+        public CalibrationsResult withHash(String value) {
+            put("hash", value);
+            return this;
+        }
+
+        /** from で絞った一覧の offset から limit 個までの校正 */
+        public List<CalibrationItem> getItems() {
+            return Json.read(json.get("items"), v0 -> Json.list(v0, CalibrationItem::of));
+        }
+
+        /** {@link #getItems()} を書く。null ならフィールドを除く */
+        public CalibrationsResult withItems(List<CalibrationItem> value) {
+            put("items", value);
+            return this;
+        }
+
+        /** from で絞った後の校正の総数 */
+        public Long getTotal() {
+            return Json.read(json.get("total"), Json::integer);
+        }
+
+        /** {@link #getTotal()} を書く。null ならフィールドを除く */
+        public CalibrationsResult withTotal(Long value) {
+            put("total", value);
+            return this;
+        }
+
+        /** 続きの最初の校正の位置。続きがなければ持たない */
+        public Long getNextOffset() {
+            return Json.read(json.get("next_offset"), Json::integer);
+        }
+
+        /** {@link #getNextOffset()} を書く。null ならフィールドを除く */
+        public CalibrationsResult withNextOffset(Long value) {
+            put("next_offset", value);
+            return this;
+        }
+    }
+
+    /** 用紙と校正を明示的に選び、始点と終点の校正後の距離を求める。両点は校正の閉領域内にある必要がある。マイナーバージョン 68 から */
+    public static final class MeasureDistanceRequest extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public MeasureDistanceRequest(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static MeasureDistanceRequest of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new MeasureDistanceRequest(json);
+        }
+
+        /** タグのフィールドだけを持つオブジェクトから作る */
+        public MeasureDistanceRequest() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("op", "measure_distance");
+        }
+
+        /** メッセージのスキーマのメジャーバージョン。今は 1 */
+        public Long getV() {
+            return Json.read(json.get("v"), Json::integer);
+        }
+
+        /** {@link #getV()} を書く。null ならフィールドを除く */
+        public MeasureDistanceRequest withV(Long value) {
+            put("v", value);
+            return this;
+        }
+
+        /** 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010） */
+        public Budget getBudget() {
+            return Json.read(json.get("budget"), Budget::of);
+        }
+
+        /** {@link #getBudget()} を書く。null ならフィールドを除く */
+        public MeasureDistanceRequest withBudget(Budget value) {
+            put("budget", value);
+            return this;
+        }
+
+        /** 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010） */
+        public Boolean getPartial() {
+            return Json.read(json.get("partial"), Json::bool);
+        }
+
+        /** {@link #getPartial()} を書く。null ならフィールドを除く */
+        public MeasureDistanceRequest withPartial(Boolean value) {
+            put("partial", value);
+            return this;
+        }
+
+        /** 診断ごとに返す場所の数。書かなければ 16（決定 0009） */
+        public Long getMaxPlaces() {
+            return Json.read(json.get("max_places"), Json::integer);
+        }
+
+        /** {@link #getMaxPlaces()} を書く。null ならフィールドを除く */
+        public MeasureDistanceRequest withMaxPlaces(Long value) {
+            put("max_places", value);
+            return this;
+        }
+
+        /** 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        public Long getTimeLimitMs() {
+            return Json.read(json.get("time_limit_ms"), Json::integer);
+        }
+
+        /** {@link #getTimeLimitMs()} を書く。null ならフィールドを除く */
+        public MeasureDistanceRequest withTimeLimitMs(Long value) {
+            put("time_limit_ms", value);
+            return this;
+        }
+
+        /** op の名前 */
+        public String getOp() {
+            return Json.read(json.get("op"), Json::string);
+        }
+
+        /** {@link #getOp()} を書く。null ならフィールドを除く */
+        public MeasureDistanceRequest withOp(String value) {
+            put("op", value);
+            return this;
+        }
+
+        /** 文書の名前。open で作ったもの */
+        public String getDoc() {
+            return Json.read(json.get("doc"), Json::string);
+        }
+
+        /** {@link #getDoc()} を書く。null ならフィールドを除く */
+        public MeasureDistanceRequest withDoc(String value) {
+            put("doc", value);
+            return this;
+        }
+
+        /** 公開用紙の ID。drawing が返すもので、選んだ校正と同じ用紙 */
+        public String getFrom() {
+            return Json.read(json.get("from"), Json::string);
+        }
+
+        /** {@link #getFrom()} を書く。null ならフィールドを除く */
+        public MeasureDistanceRequest withFrom(String value) {
+            put("from", value);
+            return this;
+        }
+
+        /** 使う校正の ID。calibrations が返すもの */
+        public String getCalibration() {
+            return Json.read(json.get("calibration"), Json::string);
+        }
+
+        /** {@link #getCalibration()} を書く。null ならフィールドを除く */
+        public MeasureDistanceRequest withCalibration(String value) {
+            put("calibration", value);
+            return this;
+        }
+
+        /** 始点。原点と相対座標を分けた用紙の mm の点 */
+        public SplitPoint2 getStart() {
+            return Json.read(json.get("start"), SplitPoint2::of);
+        }
+
+        /** {@link #getStart()} を書く。null ならフィールドを除く */
+        public MeasureDistanceRequest withStart(SplitPoint2 value) {
+            put("start", value);
+            return this;
+        }
+
+        /** 終点。原点と相対座標を分けた用紙の mm の点 */
+        public SplitPoint2 getEnd() {
+            return Json.read(json.get("end"), SplitPoint2::of);
+        }
+
+        /** {@link #getEnd()} を書く。null ならフィールドを除く */
+        public MeasureDistanceRequest withEnd(SplitPoint2 value) {
+            put("end", value);
+            return this;
+        }
+
+        /** 期待する元の文書のハッシュ。open に渡したバイト列のハッシュと照合する。図面モデルへ変換した ZMDR 自身のハッシュではない */
+        public String getExpectedHash() {
+            return Json.read(json.get("expected_hash"), Json::string);
+        }
+
+        /** {@link #getExpectedHash()} を書く。null ならフィールドを除く */
+        public MeasureDistanceRequest withExpectedHash(String value) {
+            put("expected_hash", value);
+            return this;
+        }
+    }
+
+    /** 選んだ用紙と校正による距離 */
+    public static final class MeasureDistanceResult extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public MeasureDistanceResult(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static MeasureDistanceResult of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new MeasureDistanceResult(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public MeasureDistanceResult() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 元の文書のハッシュ。ZMDR から開いたときは、埋め込まれた元の文書のハッシュ（Source.hash） */
+        public String getHash() {
+            return Json.read(json.get("hash"), Json::string);
+        }
+
+        /** {@link #getHash()} を書く。null ならフィールドを除く */
+        public MeasureDistanceResult withHash(String value) {
+            put("hash", value);
+            return this;
+        }
+
+        /** 計測した公開用紙の ID */
+        public String getFrom() {
+            return Json.read(json.get("from"), Json::string);
+        }
+
+        /** {@link #getFrom()} を書く。null ならフィールドを除く */
+        public MeasureDistanceResult withFrom(String value) {
+            put("from", value);
+            return this;
+        }
+
+        /** 使った校正の ID */
+        public String getCalibration() {
+            return Json.read(json.get("calibration"), Json::string);
+        }
+
+        /** {@link #getCalibration()} を書く。null ならフィールドを除く */
+        public MeasureDistanceResult withCalibration(String value) {
+            put("calibration", value);
+            return this;
+        }
+
+        /** 校正後の距離。unit と unit_label が示す単位 */
+        public Double getDistance() {
+            return Json.read(json.get("distance"), Json::number);
+        }
+
+        /** {@link #getDistance()} を書く。null ならフィールドを除く */
+        public MeasureDistanceResult withDistance(Double value) {
+            put("distance", value);
+            return this;
+        }
+
+        /** 校正後の長さの単位 */
+        public String getUnit() {
+            return Json.read(json.get("unit"), Json::string);
+        }
+
+        /** {@link #getUnit()} を書く。null ならフィールドを除く */
+        public MeasureDistanceResult withUnit(String value) {
+            put("unit", value);
+            return this;
+        }
+
+        /** 元の単位ラベル。未知の単位でも原文を保つ */
+        public String getUnitLabel() {
+            return Json.read(json.get("unit_label"), Json::string);
+        }
+
+        /** {@link #getUnitLabel()} を書く。null ならフィールドを除く */
+        public MeasureDistanceResult withUnitLabel(String value) {
+            put("unit_label", value);
             return this;
         }
     }
@@ -2440,7 +3085,7 @@ public final class Messages {
         }
     }
 
-    /** 1 点か 2 点の間に置く文字。置き換えるときは、位置合わせ・幅の倍率・斜体・反転・文字スタイルを元の値のままにする。足すときは、2 点目がなければ左の基準線に合わせ、幅の倍率 1・斜体なし・反転なしにする */
+    /** 1 点か 2 点の間に置く文字。置き換えるときは、位置合わせ・文字スタイルを元の値のままにし、書かない幅の倍率・斜体・反転も元の値を受け継ぐ。足すときは、2 点目がなければ書かない位置合わせを左の基準線にし、幅の倍率 1・斜体なし・反転なしにする */
     public static final class TextGeometry extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public TextGeometry(Map<String, Object> json) {
@@ -2514,6 +3159,28 @@ public final class Messages {
             return this;
         }
 
+        /** 1 点に置く文字の水平の位置合わせ。left のときは entities が省き、足すときも省けば left。2 点の間に合わせる文字には書けない。置き換えるときは元と同じ値だけを受ける。マイナーバージョン 69 から */
+        public String getHorizontal() {
+            return Json.read(json.get("horizontal"), Json::string);
+        }
+
+        /** {@link #getHorizontal()} を書く。null ならフィールドを除く */
+        public TextGeometry withHorizontal(String value) {
+            put("horizontal", value);
+            return this;
+        }
+
+        /** 1 点に置く文字の垂直の位置合わせ。baseline のときは entities が省き、足すときも省けば baseline。2 点の間に合わせる文字には書けない。置き換えるときは元と同じ値だけを受ける。マイナーバージョン 69 から */
+        public String getVertical() {
+            return Json.read(json.get("vertical"), Json::string);
+        }
+
+        /** {@link #getVertical()} を書く。null ならフィールドを除く */
+        public TextGeometry withVertical(String value) {
+            put("vertical", value);
+            return this;
+        }
+
         /** 高さ。0 より大きい */
         public Double getHeight() {
             return Json.read(json.get("height"), Json::number);
@@ -2533,6 +3200,50 @@ public final class Messages {
         /** {@link #getRotation()} を書く。null ならフィールドを除く */
         public TextGeometry withRotation(Double value) {
             put("rotation", value);
+            return this;
+        }
+
+        /** 幅の倍率。0 より大きい。1 のときは entities が省き、足すときも省けば 1、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から */
+        public Double getWidthFactor() {
+            return Json.read(json.get("width_factor"), Json::number);
+        }
+
+        /** {@link #getWidthFactor()} を書く。null ならフィールドを除く */
+        public TextGeometry withWidthFactor(Double value) {
+            put("width_factor", value);
+            return this;
+        }
+
+        /** 斜体の角度（度）。0 のときは entities が省き、足すときも省けば 0、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から */
+        public Double getOblique() {
+            return Json.read(json.get("oblique"), Json::number);
+        }
+
+        /** {@link #getOblique()} を書く。null ならフィールドを除く */
+        public TextGeometry withOblique(Double value) {
+            put("oblique", value);
+            return this;
+        }
+
+        /** 左右を裏返すか。偽のときは entities が省き、足すときも省けば偽、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から */
+        public Boolean getBackward() {
+            return Json.read(json.get("backward"), Json::bool);
+        }
+
+        /** {@link #getBackward()} を書く。null ならフィールドを除く */
+        public TextGeometry withBackward(Boolean value) {
+            put("backward", value);
+            return this;
+        }
+
+        /** 上下を反転するか。偽のときは entities が省き、足すときも省けば偽、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から */
+        public Boolean getUpsideDown() {
+            return Json.read(json.get("upside_down"), Json::bool);
+        }
+
+        /** {@link #getUpsideDown()} を書く。null ならフィールドを除く */
+        public TextGeometry withUpsideDown(Boolean value) {
+            put("upside_down", value);
             return this;
         }
 
@@ -2557,6 +3268,40 @@ public final class Messages {
             put("style_id", value);
             return this;
         }
+    }
+
+    /**
+     * 1 点に置く文字の水平の位置合わせ。middle は水平と垂直の両方を外形の中央に合わせる（DXF の 72 = 4）
+     *
+     * 列挙の値。知らない値も受け取る
+     */
+    public static final class TextHorizontal {
+        private TextHorizontal() {}
+
+        public static final String LEFT = "left";
+
+        public static final String CENTER = "center";
+
+        public static final String RIGHT = "right";
+
+        public static final String MIDDLE = "middle";
+    }
+
+    /**
+     * 1 点に置く文字の垂直の位置合わせ
+     *
+     * 列挙の値。知らない値も受け取る
+     */
+    public static final class TextVertical {
+        private TextVertical() {}
+
+        public static final String BASELINE = "baseline";
+
+        public static final String BOTTOM = "bottom";
+
+        public static final String MIDDLE = "middle";
+
+        public static final String TOP = "top";
     }
 
     /**
@@ -4273,6 +5018,555 @@ public final class Messages {
             put("elements", value);
             return this;
         }
+    }
+
+    /** 開いた図面を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。今は DXF への変換だけ。マイナーバージョン 66 から */
+    public static final class ConvertEstimateRequest extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public ConvertEstimateRequest(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static ConvertEstimateRequest of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new ConvertEstimateRequest(json);
+        }
+
+        /** タグのフィールドだけを持つオブジェクトから作る */
+        public ConvertEstimateRequest() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("op", "convert_estimate");
+        }
+
+        /** メッセージのスキーマのメジャーバージョン。今は 1 */
+        public Long getV() {
+            return Json.read(json.get("v"), Json::integer);
+        }
+
+        /** {@link #getV()} を書く。null ならフィールドを除く */
+        public ConvertEstimateRequest withV(Long value) {
+            put("v", value);
+            return this;
+        }
+
+        /** 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010） */
+        public Budget getBudget() {
+            return Json.read(json.get("budget"), Budget::of);
+        }
+
+        /** {@link #getBudget()} を書く。null ならフィールドを除く */
+        public ConvertEstimateRequest withBudget(Budget value) {
+            put("budget", value);
+            return this;
+        }
+
+        /** 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010） */
+        public Boolean getPartial() {
+            return Json.read(json.get("partial"), Json::bool);
+        }
+
+        /** {@link #getPartial()} を書く。null ならフィールドを除く */
+        public ConvertEstimateRequest withPartial(Boolean value) {
+            put("partial", value);
+            return this;
+        }
+
+        /** 診断ごとに返す場所の数。書かなければ 16（決定 0009） */
+        public Long getMaxPlaces() {
+            return Json.read(json.get("max_places"), Json::integer);
+        }
+
+        /** {@link #getMaxPlaces()} を書く。null ならフィールドを除く */
+        public ConvertEstimateRequest withMaxPlaces(Long value) {
+            put("max_places", value);
+            return this;
+        }
+
+        /** 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        public Long getTimeLimitMs() {
+            return Json.read(json.get("time_limit_ms"), Json::integer);
+        }
+
+        /** {@link #getTimeLimitMs()} を書く。null ならフィールドを除く */
+        public ConvertEstimateRequest withTimeLimitMs(Long value) {
+            put("time_limit_ms", value);
+            return this;
+        }
+
+        /** op の名前 */
+        public String getOp() {
+            return Json.read(json.get("op"), Json::string);
+        }
+
+        /** {@link #getOp()} を書く。null ならフィールドを除く */
+        public ConvertEstimateRequest withOp(String value) {
+            put("op", value);
+            return this;
+        }
+
+        /** 書く元の文書の名前 */
+        public String getDoc() {
+            return Json.read(json.get("doc"), Json::string);
+        }
+
+        /** {@link #getDoc()} を書く。null ならフィールドを除く */
+        public ConvertEstimateRequest withDoc(String value) {
+            put("doc", value);
+            return this;
+        }
+
+        /** 書く形式の名前。今は dxf だけ */
+        public String getFormat() {
+            return Json.read(json.get("format"), Json::string);
+        }
+
+        /** {@link #getFormat()} を書く。null ならフィールドを除く */
+        public ConvertEstimateRequest withFormat(String value) {
+            put("format", value);
+            return this;
+        }
+
+        /** 予定する文書の名前。convert と同じ条件で検査するが、名前を確保しない */
+        public String getTo() {
+            return Json.read(json.get("to"), Json::string);
+        }
+
+        /** {@link #getTo()} を書く。null ならフィールドを除く */
+        public ConvertEstimateRequest withTo(String value) {
+            put("to", value);
+            return this;
+        }
+
+        /** 書き手と読み取り段階のそれぞれで返す明細の最大件数。省略時は 100。総数と全件集計はこの上限によらない */
+        public Long getLimit() {
+            return Json.read(json.get("limit"), Json::integer);
+        }
+
+        /** {@link #getLimit()} を書く。null ならフィールドを除く */
+        public ConvertEstimateRequest withLimit(Long value) {
+            put("limit", value);
+            return this;
+        }
+    }
+
+    /** 予定する変換の結果。元の文書・ID を保ち、ファイルの blob を返さない */
+    public static final class ConvertEstimateResult extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public ConvertEstimateResult(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static ConvertEstimateResult of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new ConvertEstimateResult(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public ConvertEstimateResult() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 予定する出力と忠実度の全件集計・上限付き明細 */
+        public ConversionEstimate getEstimate() {
+            return Json.read(json.get("estimate"), ConversionEstimate::of);
+        }
+
+        /** {@link #getEstimate()} を書く。null ならフィールドを除く */
+        public ConvertEstimateResult withEstimate(ConversionEstimate value) {
+            put("estimate", value);
+            return this;
+        }
+    }
+
+    /** 実変換と同じ処理で準備した出力。doc と hash は未登録の予定値。元の入力・設定・予算が同じなら convert の値と一致する */
+    public static final class ConversionEstimate extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public ConversionEstimate(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static ConversionEstimate of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new ConversionEstimate(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public ConversionEstimate() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 予定する文書の名前 */
+        public String getDoc() {
+            return Json.read(json.get("doc"), Json::string);
+        }
+
+        /** {@link #getDoc()} を書く。null ならフィールドを除く */
+        public ConversionEstimate withDoc(String value) {
+            put("doc", value);
+            return this;
+        }
+
+        /** 予定する形式の名前 */
+        public String getFormat() {
+            return Json.read(json.get("format"), Json::string);
+        }
+
+        /** {@link #getFormat()} を書く。null ならフィールドを除く */
+        public ConversionEstimate withFormat(String value) {
+            put("format", value);
+            return this;
+        }
+
+        /** 予定する出力バイト列のハッシュ。未登録なので apply の前提条件には使えない */
+        public String getHash() {
+            return Json.read(json.get("hash"), Json::string);
+        }
+
+        /** {@link #getHash()} を書く。null ならフィールドを除く */
+        public ConversionEstimate withHash(String value) {
+            put("hash", value);
+            return this;
+        }
+
+        /** 予定する出力の要素数。記号から離す属性の文字を含む */
+        public Long getElements() {
+            return Json.read(json.get("elements"), Json::integer);
+        }
+
+        /** {@link #getElements()} を書く。null ならフィールドを除く */
+        public ConversionEstimate withElements(Long value) {
+            put("elements", value);
+            return this;
+        }
+
+        /** 処理対象の出現数。同じ出所を持つ別の入力は別々に数え、診断の数では増やさない */
+        public Long getTotal() {
+            return Json.read(json.get("total"), Json::integer);
+        }
+
+        /** {@link #getTotal()} を書く。null ならフィールドを除く */
+        public ConversionEstimate withTotal(Long value) {
+            put("total", value);
+            return this;
+        }
+
+        /** 種類と忠実度ごとの全件集計 */
+        public List<ConversionCount> getCounts() {
+            return Json.read(json.get("counts"), v0 -> Json.list(v0, ConversionCount::of));
+        }
+
+        /** {@link #getCounts()} を書く。null ならフィールドを除く */
+        public ConversionEstimate withCounts(List<ConversionCount> value) {
+            put("counts", value);
+            return this;
+        }
+
+        /** 処理順の明細。limit 件まで返す */
+        public List<ConversionDetail> getDetails() {
+            return Json.read(json.get("details"), v0 -> Json.list(v0, ConversionDetail::of));
+        }
+
+        /** {@link #getDetails()} を書く。null ならフィールドを除く */
+        public ConversionEstimate withDetails(List<ConversionDetail> value) {
+            put("details", value);
+            return this;
+        }
+
+        /** 明細の上限で返さなかった対象がある */
+        public Boolean getTruncated() {
+            return Json.read(json.get("truncated"), Json::bool);
+        }
+
+        /** {@link #getTruncated()} を書く。null ならフィールドを除く */
+        public ConversionEstimate withTruncated(Boolean value) {
+            put("truncated", value);
+            return this;
+        }
+
+        /** 入力の表の読み取りと lift 中の、集約前の診断発生記録。書き手の項目の集計には含めない。マイナーバージョン 67 から */
+        public ConversionInputDiagnostics getInputDiagnostics() {
+            return Json.read(json.get("input_diagnostics"), ConversionInputDiagnostics::of);
+        }
+
+        /** {@link #getInputDiagnostics()} を書く。null ならフィールドを除く */
+        public ConversionEstimate withInputDiagnostics(ConversionInputDiagnostics value) {
+            put("input_diagnostics", value);
+            return this;
+        }
+    }
+
+    /** 読み取り段階の診断発生数。失った要素数ではなく、同じ要素の複数の診断もそれぞれ数える。忠実度を持たない診断も含む。open 時や書き手の診断は含まない */
+    public static final class ConversionInputDiagnostics extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public ConversionInputDiagnostics(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static ConversionInputDiagnostics of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new ConversionInputDiagnostics(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public ConversionInputDiagnostics() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 診断の発生件数の合計。max_places と limit によらない */
+        public Long getTotal() {
+            return Json.read(json.get("total"), Json::integer);
+        }
+
+        /** {@link #getTotal()} を書く。null ならフィールドを除く */
+        public ConversionInputDiagnostics withTotal(Long value) {
+            put("total", value);
+            return this;
+        }
+
+        /** 診断の code とカタログの group_by の値による全件集計。場所は持たず、値は最も早い入力位置の報告から取る */
+        public List<Diagnostic> getCounts() {
+            return Json.read(json.get("counts"), v0 -> Json.list(v0, Diagnostic::of));
+        }
+
+        /** {@link #getCounts()} を書く。null ならフィールドを除く */
+        public ConversionInputDiagnostics withCounts(List<Diagnostic> value) {
+            put("counts", value);
+            return this;
+        }
+
+        /** 集約前の報告を入力位置順に limit 件まで返す。同じ位置は報告順。診断の場所は max_places で制限しない */
+        public List<ConversionInputDiagnostic> getDetails() {
+            return Json.read(json.get("details"), v0 -> Json.list(v0, ConversionInputDiagnostic::of));
+        }
+
+        /** {@link #getDetails()} を書く。null ならフィールドを除く */
+        public ConversionInputDiagnostics withDetails(List<ConversionInputDiagnostic> value) {
+            put("details", value);
+            return this;
+        }
+
+        /** 明細の上限で返さなかった報告がある */
+        public Boolean getTruncated() {
+            return Json.read(json.get("truncated"), Json::bool);
+        }
+
+        /** {@link #getTruncated()} を書く。null ならフィールドを除く */
+        public ConversionInputDiagnostics withTruncated(Boolean value) {
+            put("truncated", value);
+            return this;
+        }
+    }
+
+    /** 集約前の診断と、その場所と同じ順序の出所。種類や失った値は診断の code と params からたどる */
+    public static final class ConversionInputDiagnostic extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public ConversionInputDiagnostic(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static ConversionInputDiagnostic of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new ConversionInputDiagnostic(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public ConversionInputDiagnostic() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 集約前の診断。元の値と場所を保つ */
+        public Diagnostic getDiagnostic() {
+            return Json.read(json.get("diagnostic"), Diagnostic::of);
+        }
+
+        /** {@link #getDiagnostic()} を書く。null ならフィールドを除く */
+        public ConversionInputDiagnostic withDiagnostic(Diagnostic value) {
+            put("diagnostic", value);
+            return this;
+        }
+
+        /** diagnostic.at と同じ順序のレコード・バイト範囲・ハンドル・インスタンス番号。ID は diagnostic.at にある */
+        public List<Source> getSources() {
+            return Json.read(json.get("sources"), v0 -> Json.list(v0, Source::of));
+        }
+
+        /** {@link #getSources()} を書く。null ならフィールドを除く */
+        public ConversionInputDiagnostic withSources(List<Source> value) {
+            put("sources", value);
+            return this;
+        }
+    }
+
+    /** 処理対象の種類と忠実度ごとの集計 */
+    public static final class ConversionCount extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public ConversionCount(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static ConversionCount of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new ConversionCount(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public ConversionCount() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 処理対象の種類のキー */
+        public String getKind() {
+            return Json.read(json.get("kind"), Json::string);
+        }
+
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
+        public ConversionCount withKind(String value) {
+            put("kind", value);
+            return this;
+        }
+
+        /** その対象を移した結果の忠実度 */
+        public String getFidelity() {
+            return Json.read(json.get("fidelity"), Json::string);
+        }
+
+        /** {@link #getFidelity()} を書く。null ならフィールドを除く */
+        public ConversionCount withFidelity(String value) {
+            put("fidelity", value);
+            return this;
+        }
+
+        /** 入力の出現数。1 つの入力が複数の出力になっても 1 件 */
+        public Long getCount() {
+            return Json.read(json.get("count"), Json::integer);
+        }
+
+        /** {@link #getCount()} を書く。null ならフィールドを除く */
+        public ConversionCount withCount(Long value) {
+            put("count", value);
+            return this;
+        }
+
+        /** この対象から書いた図形の数。表や参照だけを移した場合は 0 */
+        public Long getOutputElements() {
+            return Json.read(json.get("output_elements"), Json::integer);
+        }
+
+        /** {@link #getOutputElements()} を書く。null ならフィールドを除く */
+        public ConversionCount withOutputElements(Long value) {
+            put("output_elements", value);
+            return this;
+        }
+    }
+
+    /** 処理対象の出現 1 つ。複数の欠落の診断が出ても 1 件として数える */
+    public static final class ConversionDetail extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public ConversionDetail(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static ConversionDetail of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new ConversionDetail(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public ConversionDetail() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 処理対象の種類のキー */
+        public String getKind() {
+            return Json.read(json.get("kind"), Json::string);
+        }
+
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
+        public ConversionDetail withKind(String value) {
+            put("kind", value);
+            return this;
+        }
+
+        /** その対象を移した結果の忠実度 */
+        public String getFidelity() {
+            return Json.read(json.get("fidelity"), Json::string);
+        }
+
+        /** {@link #getFidelity()} を書く。null ならフィールドを除く */
+        public ConversionDetail withFidelity(String value) {
+            put("fidelity", value);
+            return this;
+        }
+
+        /** 値や参照を変えた理由のキー。text_height_meaning は文字高の意味、relocated_shape は形の値、style_default はスタイルの既定値、detached_attribute は属性の文字への分離、baked_view はビューの焼き込み、reference_dropped は参照の欠落 */
+        public List<String> getReasons() {
+            return Json.read(json.get("reasons"), v0 -> Json.list(v0, Json::string));
+        }
+
+        /** {@link #getReasons()} を書く。null ならフィールドを除く */
+        public ConversionDetail withReasons(List<String> value) {
+            put("reasons", value);
+            return this;
+        }
+
+        /** 元の要素の ID。持つ対象だけで返す */
+        public String getId() {
+            return Json.read(json.get("id"), Json::string);
+        }
+
+        /** {@link #getId()} を書く。null ならフィールドを除く */
+        public ConversionDetail withId(String value) {
+            put("id", value);
+            return this;
+        }
+
+        /** 元の対象のレコード・バイト範囲・キー */
+        public Source getSource() {
+            return Json.read(json.get("source"), Source::of);
+        }
+
+        /** {@link #getSource()} を書く。null ならフィールドを除く */
+        public ConversionDetail withSource(Source value) {
+            put("source", value);
+            return this;
+        }
+
+        /** この対象から書いた図形の数。表や参照だけを移した場合は 0 */
+        public Long getOutputElements() {
+            return Json.read(json.get("output_elements"), Json::integer);
+        }
+
+        /** {@link #getOutputElements()} を書く。null ならフィールドを除く */
+        public ConversionDetail withOutputElements(Long value) {
+            put("output_elements", value);
+            return this;
+        }
+    }
+
+    /**
+     * 忠実度。`native` は元の値・参照を保持、`equivalent` は別の表現で同じ意味、`approximated` は近似、`drawn` は見た目だけ、`dropped` は欠落
+     *
+     * 列挙の値。知らない値も受け取る
+     */
+    public static final class ConversionFidelity {
+        private ConversionFidelity() {}
+
+        public static final String NATIVE = "native";
+
+        public static final String EQUIVALENT = "equivalent";
+
+        public static final String APPROXIMATED = "approximated";
+
+        public static final String DRAWN = "drawn";
+
+        public static final String DROPPED = "dropped";
     }
 
     /** 当てた変更 1 つの結果 */
@@ -14211,7 +15505,7 @@ public final class Messages {
         }
     }
 
-    /** open で開いた点群（LAS・LAZ）の要約と、条件に合う点を返す。点は八分木の浅い段のノードから順に選ぶ（決定 0232）。点群のモジュールに置く（決定 0253）。マイナーバージョン 48 から */
+    /** open で開いた点群（LAS・PLY・XYZ・E57）の要約と、条件に合う点を返す。点は八分木の浅い段のノードから順に選ぶ（決定 0232）。点群のモジュールに置く（決定 0253）。マイナーバージョン 48 から */
     public static final class PointcloudRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public PointcloudRequest(Map<String, Object> json) {
@@ -17962,9 +19256,15 @@ public final class Messages {
 
         public static final String ENTITIES = "entities";
 
+        public static final String CALIBRATIONS = "calibrations";
+
+        public static final String MEASURE_DISTANCE = "measure_distance";
+
         public static final String APPLY = "apply";
 
         public static final String CONVERT = "convert";
+
+        public static final String CONVERT_ESTIMATE = "convert_estimate";
 
         public static final String TABLES = "tables";
 

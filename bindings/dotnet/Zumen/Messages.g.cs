@@ -46,8 +46,11 @@ namespace Zumen.Messages
             ["describe"] = typeof(DescribeRequest),
             ["drawing"] = typeof(DrawingRequest),
             ["entities"] = typeof(EntitiesRequest),
+            ["calibrations"] = typeof(CalibrationsRequest),
+            ["measure_distance"] = typeof(MeasureDistanceRequest),
             ["apply"] = typeof(ApplyRequest),
             ["convert"] = typeof(ConvertRequest),
+            ["convert_estimate"] = typeof(ConvertEstimateRequest),
             ["tables"] = typeof(TablesRequest),
             ["scene"] = typeof(SceneRequest),
             ["check"] = typeof(CheckRequest),
@@ -358,7 +361,7 @@ namespace Zumen.Messages
         public string? Doc { get; init; }
 
         /// <summary>
-        /// 入力の全体の大きさ（バイト）。渡した入力より大きければ、入力を全体の初めの部分とみなし、足りない範囲を needs で求める。範囲で読める形式（LAS・LAZ）だけが使う（決定 0232）。マイナーバージョン 48 から
+        /// 入力の全体の大きさ（バイト）。渡した入力より大きければ、入力を全体の初めの部分とみなし、足りない範囲を needs で求める。範囲で読める形式（LAS）だけが使う。LAZ は、ヘッダーを読んで las.laz.unsupported で断る（決定 0232・0289）。マイナーバージョン 48 から
         /// </summary>
         [JsonPropertyName("size")]
         public ulong? Size { get; init; }
@@ -639,6 +642,318 @@ namespace Zumen.Messages
         /// </summary>
         [JsonPropertyName("point_style")]
         public PointStyleSummary? PointStyle { get; init; }
+    }
+
+    /// <summary>
+    /// 2 次元の座標
+    /// </summary>
+    public sealed record Point2
+    {
+        /// <summary>
+        /// X 座標
+        /// </summary>
+        [JsonPropertyName("x")]
+        public double X { get; init; }
+
+        /// <summary>
+        /// Y 座標
+        /// </summary>
+        [JsonPropertyName("y")]
+        public double Y { get; init; }
+    }
+
+    /// <summary>
+    /// 原点と相対座標を分けた用紙の点。両成分の正確な和を位置とし、先に足して丸めない。座標の単位は用紙の mm
+    /// </summary>
+    public sealed record SplitPoint2
+    {
+        /// <summary>
+        /// 用紙の原点
+        /// </summary>
+        [JsonPropertyName("origin")]
+        public Point2 Origin { get; init; } = default!;
+
+        /// <summary>
+        /// 原点からの相対座標
+        /// </summary>
+        [JsonPropertyName("offset")]
+        public Point2 Offset { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 用紙の閉じた矩形で使う距離の校正。重なる領域は ID で明示的に選ぶ。マイナーバージョン 68 から
+    /// </summary>
+    public sealed record CalibrationItem
+    {
+        /// <summary>
+        /// 文書内で重複しない校正の ID
+        /// </summary>
+        [JsonPropertyName("id")]
+        public string Id { get; init; } = default!;
+
+        /// <summary>
+        /// 元の校正の名前。翻訳しない。なければ持たない
+        /// </summary>
+        [JsonPropertyName("name")]
+        public string? Name { get; init; }
+
+        /// <summary>
+        /// 校正を使える公開用紙の ID。drawing が返すもの
+        /// </summary>
+        [JsonPropertyName("from")]
+        public string From { get; init; } = default!;
+
+        /// <summary>
+        /// 用紙の mm の閉じた矩形。[X の最小, Y の最小, X の最大, Y の最大] の 4 値で、幅と高さは正
+        /// </summary>
+        [JsonPropertyName("bounds")]
+        public IReadOnlyList<double> Bounds { get; init; } = default!;
+
+        /// <summary>
+        /// 用紙の mm の変位から校正単位の変位へ写す行優先の 2×2 行列。[a, b, c, d] の 4 値で、[dx, dy] を [a*dx+b*dy, c*dx+d*dy] に写す
+        /// </summary>
+        [JsonPropertyName("matrix")]
+        public IReadOnlyList<double> Matrix { get; init; } = default!;
+
+        /// <summary>
+        /// 校正後の長さの単位。ラベルだけから推定しない
+        /// </summary>
+        [JsonPropertyName("unit")]
+        public string Unit { get; init; } = default!;
+
+        /// <summary>
+        /// 元の単位ラベル。未知の単位でも原文を保つ
+        /// </summary>
+        [JsonPropertyName("unit_label")]
+        public string UnitLabel { get; init; } = default!;
+
+        /// <summary>
+        /// 元の形式のレコード
+        /// </summary>
+        [JsonPropertyName("source")]
+        public Source? Source { get; init; }
+    }
+
+    /// <summary>
+    /// 開いた文書を図面モデルに変換し、用紙の距離の校正をモデルの順に返す。マイナーバージョン 68 から
+    /// </summary>
+    public sealed record CalibrationsRequest
+    {
+        /// <summary>
+        /// メッセージのスキーマのメジャーバージョン。今は 1
+        /// </summary>
+        [JsonPropertyName("v")]
+        public ulong V { get; init; }
+
+        /// <summary>
+        /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        /// </summary>
+        [JsonPropertyName("budget")]
+        public Budget? Budget { get; init; }
+
+        /// <summary>
+        /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        /// </summary>
+        [JsonPropertyName("partial")]
+        public bool? Partial { get; init; }
+
+        /// <summary>
+        /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        /// </summary>
+        [JsonPropertyName("max_places")]
+        public ulong? MaxPlaces { get; init; }
+
+        /// <summary>
+        /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// </summary>
+        [JsonPropertyName("time_limit_ms")]
+        public ulong? TimeLimitMs { get; init; }
+
+        /// <summary>
+        /// op の名前
+        /// </summary>
+        [JsonPropertyName("op")]
+        public string Op { get; init; } = "calibrations";
+
+        /// <summary>
+        /// 文書の名前。open で作ったもの
+        /// </summary>
+        [JsonPropertyName("doc")]
+        public string Doc { get; init; } = default!;
+
+        /// <summary>
+        /// 公開用紙の ID。drawing が返すもの。書けばその用紙の校正だけを返し、書かなければすべての校正を返す
+        /// </summary>
+        [JsonPropertyName("from")]
+        public string? From { get; init; }
+
+        /// <summary>
+        /// 返す最初の校正の位置。from で絞った後の位置で、前の応答の next_offset を渡す。書かなければ 0
+        /// </summary>
+        [JsonPropertyName("offset")]
+        public ulong? Offset { get; init; }
+
+        /// <summary>
+        /// 返す校正の数の上限。書かなければ 1000
+        /// </summary>
+        [JsonPropertyName("limit")]
+        public uint? Limit { get; init; }
+
+        /// <summary>
+        /// 期待する元の文書のハッシュ。open に渡したバイト列のハッシュと照合する。図面モデルへ変換した ZMDR 自身のハッシュではない
+        /// </summary>
+        [JsonPropertyName("expected_hash")]
+        public string? ExpectedHash { get; init; }
+    }
+
+    /// <summary>
+    /// 距離の校正の一覧の一部
+    /// </summary>
+    public sealed record CalibrationsResult
+    {
+        /// <summary>
+        /// 元の文書のハッシュ。ZMDR から開いたときは、埋め込まれた元の文書のハッシュ（Source.hash）
+        /// </summary>
+        [JsonPropertyName("hash")]
+        public string Hash { get; init; } = default!;
+
+        /// <summary>
+        /// from で絞った一覧の offset から limit 個までの校正
+        /// </summary>
+        [JsonPropertyName("items")]
+        public IReadOnlyList<CalibrationItem> Items { get; init; } = default!;
+
+        /// <summary>
+        /// from で絞った後の校正の総数
+        /// </summary>
+        [JsonPropertyName("total")]
+        public ulong Total { get; init; }
+
+        /// <summary>
+        /// 続きの最初の校正の位置。続きがなければ持たない
+        /// </summary>
+        [JsonPropertyName("next_offset")]
+        public ulong? NextOffset { get; init; }
+    }
+
+    /// <summary>
+    /// 用紙と校正を明示的に選び、始点と終点の校正後の距離を求める。両点は校正の閉領域内にある必要がある。マイナーバージョン 68 から
+    /// </summary>
+    public sealed record MeasureDistanceRequest
+    {
+        /// <summary>
+        /// メッセージのスキーマのメジャーバージョン。今は 1
+        /// </summary>
+        [JsonPropertyName("v")]
+        public ulong V { get; init; }
+
+        /// <summary>
+        /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        /// </summary>
+        [JsonPropertyName("budget")]
+        public Budget? Budget { get; init; }
+
+        /// <summary>
+        /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        /// </summary>
+        [JsonPropertyName("partial")]
+        public bool? Partial { get; init; }
+
+        /// <summary>
+        /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        /// </summary>
+        [JsonPropertyName("max_places")]
+        public ulong? MaxPlaces { get; init; }
+
+        /// <summary>
+        /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// </summary>
+        [JsonPropertyName("time_limit_ms")]
+        public ulong? TimeLimitMs { get; init; }
+
+        /// <summary>
+        /// op の名前
+        /// </summary>
+        [JsonPropertyName("op")]
+        public string Op { get; init; } = "measure_distance";
+
+        /// <summary>
+        /// 文書の名前。open で作ったもの
+        /// </summary>
+        [JsonPropertyName("doc")]
+        public string Doc { get; init; } = default!;
+
+        /// <summary>
+        /// 公開用紙の ID。drawing が返すもので、選んだ校正と同じ用紙
+        /// </summary>
+        [JsonPropertyName("from")]
+        public string From { get; init; } = default!;
+
+        /// <summary>
+        /// 使う校正の ID。calibrations が返すもの
+        /// </summary>
+        [JsonPropertyName("calibration")]
+        public string Calibration { get; init; } = default!;
+
+        /// <summary>
+        /// 始点。原点と相対座標を分けた用紙の mm の点
+        /// </summary>
+        [JsonPropertyName("start")]
+        public SplitPoint2 Start { get; init; } = default!;
+
+        /// <summary>
+        /// 終点。原点と相対座標を分けた用紙の mm の点
+        /// </summary>
+        [JsonPropertyName("end")]
+        public SplitPoint2 End { get; init; } = default!;
+
+        /// <summary>
+        /// 期待する元の文書のハッシュ。open に渡したバイト列のハッシュと照合する。図面モデルへ変換した ZMDR 自身のハッシュではない
+        /// </summary>
+        [JsonPropertyName("expected_hash")]
+        public string? ExpectedHash { get; init; }
+    }
+
+    /// <summary>
+    /// 選んだ用紙と校正による距離
+    /// </summary>
+    public sealed record MeasureDistanceResult
+    {
+        /// <summary>
+        /// 元の文書のハッシュ。ZMDR から開いたときは、埋め込まれた元の文書のハッシュ（Source.hash）
+        /// </summary>
+        [JsonPropertyName("hash")]
+        public string Hash { get; init; } = default!;
+
+        /// <summary>
+        /// 計測した公開用紙の ID
+        /// </summary>
+        [JsonPropertyName("from")]
+        public string From { get; init; } = default!;
+
+        /// <summary>
+        /// 使った校正の ID
+        /// </summary>
+        [JsonPropertyName("calibration")]
+        public string Calibration { get; init; } = default!;
+
+        /// <summary>
+        /// 校正後の距離。unit と unit_label が示す単位
+        /// </summary>
+        [JsonPropertyName("distance")]
+        public double Distance { get; init; }
+
+        /// <summary>
+        /// 校正後の長さの単位
+        /// </summary>
+        [JsonPropertyName("unit")]
+        public string Unit { get; init; } = default!;
+
+        /// <summary>
+        /// 元の単位ラベル。未知の単位でも原文を保つ
+        /// </summary>
+        [JsonPropertyName("unit_label")]
+        public string UnitLabel { get; init; } = default!;
     }
 
     /// <summary>
@@ -1171,7 +1486,7 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 1 点か 2 点の間に置く文字。置き換えるときは、位置合わせ・幅の倍率・斜体・反転・文字スタイルを元の値のままにする。足すときは、2 点目がなければ左の基準線に合わせ、幅の倍率 1・斜体なし・反転なしにする
+    /// 1 点か 2 点の間に置く文字。置き換えるときは、位置合わせ・文字スタイルを元の値のままにし、書かない幅の倍率・斜体・反転も元の値を受け継ぐ。足すときは、2 点目がなければ書かない位置合わせを左の基準線にし、幅の倍率 1・斜体なし・反転なしにする
     /// </summary>
     public sealed record TextGeometry
     {
@@ -1206,6 +1521,18 @@ namespace Zumen.Messages
         public string? Fit { get; init; }
 
         /// <summary>
+        /// 1 点に置く文字の水平の位置合わせ。left のときは entities が省き、足すときも省けば left。2 点の間に合わせる文字には書けない。置き換えるときは元と同じ値だけを受ける。マイナーバージョン 69 から
+        /// </summary>
+        [JsonPropertyName("horizontal")]
+        public string? Horizontal { get; init; }
+
+        /// <summary>
+        /// 1 点に置く文字の垂直の位置合わせ。baseline のときは entities が省き、足すときも省けば baseline。2 点の間に合わせる文字には書けない。置き換えるときは元と同じ値だけを受ける。マイナーバージョン 69 から
+        /// </summary>
+        [JsonPropertyName("vertical")]
+        public string? Vertical { get; init; }
+
+        /// <summary>
         /// 高さ。0 より大きい
         /// </summary>
         [JsonPropertyName("height")]
@@ -1218,6 +1545,30 @@ namespace Zumen.Messages
         public double Rotation { get; init; }
 
         /// <summary>
+        /// 幅の倍率。0 より大きい。1 のときは entities が省き、足すときも省けば 1、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から
+        /// </summary>
+        [JsonPropertyName("width_factor")]
+        public double? WidthFactor { get; init; }
+
+        /// <summary>
+        /// 斜体の角度（度）。0 のときは entities が省き、足すときも省けば 0、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から
+        /// </summary>
+        [JsonPropertyName("oblique")]
+        public double? Oblique { get; init; }
+
+        /// <summary>
+        /// 左右を裏返すか。偽のときは entities が省き、足すときも省けば偽、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から
+        /// </summary>
+        [JsonPropertyName("backward")]
+        public bool? Backward { get; init; }
+
+        /// <summary>
+        /// 上下を反転するか。偽のときは entities が省き、足すときも省けば偽、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から
+        /// </summary>
+        [JsonPropertyName("upside_down")]
+        public bool? UpsideDown { get; init; }
+
+        /// <summary>
         /// 文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。DXF に文字スタイルの定義がないときは Standard だけを受ける。置き換えるときは、元と同じ名前だけを受ける。style_id と一緒に書くなら、同じ文字スタイルを指す。マイナーバージョン 12 から
         /// </summary>
         [JsonPropertyName("style")]
@@ -1228,6 +1579,36 @@ namespace Zumen.Messages
         /// </summary>
         [JsonPropertyName("style_id")]
         public string? StyleId { get; init; }
+    }
+
+    /// <summary>
+    /// 1 点に置く文字の水平の位置合わせ。middle は水平と垂直の両方を外形の中央に合わせる（DXF の 72 = 4）
+    /// </summary>
+    public static class TextHorizontal
+    {
+        /// <summary>left</summary>
+        public const string Left = "left";
+        /// <summary>center</summary>
+        public const string Center = "center";
+        /// <summary>right</summary>
+        public const string Right = "right";
+        /// <summary>middle</summary>
+        public const string Middle = "middle";
+    }
+
+    /// <summary>
+    /// 1 点に置く文字の垂直の位置合わせ
+    /// </summary>
+    public static class TextVertical
+    {
+        /// <summary>baseline</summary>
+        public const string Baseline = "baseline";
+        /// <summary>bottom</summary>
+        public const string Bottom = "bottom";
+        /// <summary>middle</summary>
+        public const string Middle = "middle";
+        /// <summary>top</summary>
+        public const string Top = "top";
     }
 
     /// <summary>
@@ -2146,6 +2527,281 @@ namespace Zumen.Messages
         /// </summary>
         [JsonPropertyName("elements")]
         public ulong Elements { get; init; }
+    }
+
+    /// <summary>
+    /// 開いた図面を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。今は DXF への変換だけ。マイナーバージョン 66 から
+    /// </summary>
+    public sealed record ConvertEstimateRequest
+    {
+        /// <summary>
+        /// メッセージのスキーマのメジャーバージョン。今は 1
+        /// </summary>
+        [JsonPropertyName("v")]
+        public ulong V { get; init; }
+
+        /// <summary>
+        /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        /// </summary>
+        [JsonPropertyName("budget")]
+        public Budget? Budget { get; init; }
+
+        /// <summary>
+        /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        /// </summary>
+        [JsonPropertyName("partial")]
+        public bool? Partial { get; init; }
+
+        /// <summary>
+        /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        /// </summary>
+        [JsonPropertyName("max_places")]
+        public ulong? MaxPlaces { get; init; }
+
+        /// <summary>
+        /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// </summary>
+        [JsonPropertyName("time_limit_ms")]
+        public ulong? TimeLimitMs { get; init; }
+
+        /// <summary>
+        /// op の名前
+        /// </summary>
+        [JsonPropertyName("op")]
+        public string Op { get; init; } = "convert_estimate";
+
+        /// <summary>
+        /// 書く元の文書の名前
+        /// </summary>
+        [JsonPropertyName("doc")]
+        public string Doc { get; init; } = default!;
+
+        /// <summary>
+        /// 書く形式の名前。今は dxf だけ
+        /// </summary>
+        [JsonPropertyName("format")]
+        public string Format { get; init; } = default!;
+
+        /// <summary>
+        /// 予定する文書の名前。convert と同じ条件で検査するが、名前を確保しない
+        /// </summary>
+        [JsonPropertyName("to")]
+        public string To { get; init; } = default!;
+
+        /// <summary>
+        /// 書き手と読み取り段階のそれぞれで返す明細の最大件数。省略時は 100。総数と全件集計はこの上限によらない
+        /// </summary>
+        [JsonPropertyName("limit")]
+        public uint? Limit { get; init; }
+    }
+
+    /// <summary>
+    /// 予定する変換の結果。元の文書・ID を保ち、ファイルの blob を返さない
+    /// </summary>
+    public sealed record ConvertEstimateResult
+    {
+        /// <summary>
+        /// 予定する出力と忠実度の全件集計・上限付き明細
+        /// </summary>
+        [JsonPropertyName("estimate")]
+        public ConversionEstimate Estimate { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 実変換と同じ処理で準備した出力。doc と hash は未登録の予定値。元の入力・設定・予算が同じなら convert の値と一致する
+    /// </summary>
+    public sealed record ConversionEstimate
+    {
+        /// <summary>
+        /// 予定する文書の名前
+        /// </summary>
+        [JsonPropertyName("doc")]
+        public string Doc { get; init; } = default!;
+
+        /// <summary>
+        /// 予定する形式の名前
+        /// </summary>
+        [JsonPropertyName("format")]
+        public string Format { get; init; } = default!;
+
+        /// <summary>
+        /// 予定する出力バイト列のハッシュ。未登録なので apply の前提条件には使えない
+        /// </summary>
+        [JsonPropertyName("hash")]
+        public string Hash { get; init; } = default!;
+
+        /// <summary>
+        /// 予定する出力の要素数。記号から離す属性の文字を含む
+        /// </summary>
+        [JsonPropertyName("elements")]
+        public ulong Elements { get; init; }
+
+        /// <summary>
+        /// 処理対象の出現数。同じ出所を持つ別の入力は別々に数え、診断の数では増やさない
+        /// </summary>
+        [JsonPropertyName("total")]
+        public ulong Total { get; init; }
+
+        /// <summary>
+        /// 種類と忠実度ごとの全件集計
+        /// </summary>
+        [JsonPropertyName("counts")]
+        public IReadOnlyList<ConversionCount> Counts { get; init; } = default!;
+
+        /// <summary>
+        /// 処理順の明細。limit 件まで返す
+        /// </summary>
+        [JsonPropertyName("details")]
+        public IReadOnlyList<ConversionDetail> Details { get; init; } = default!;
+
+        /// <summary>
+        /// 明細の上限で返さなかった対象がある
+        /// </summary>
+        [JsonPropertyName("truncated")]
+        public bool Truncated { get; init; }
+
+        /// <summary>
+        /// 入力の表の読み取りと lift 中の、集約前の診断発生記録。書き手の項目の集計には含めない。マイナーバージョン 67 から
+        /// </summary>
+        [JsonPropertyName("input_diagnostics")]
+        public ConversionInputDiagnostics? InputDiagnostics { get; init; }
+    }
+
+    /// <summary>
+    /// 読み取り段階の診断発生数。失った要素数ではなく、同じ要素の複数の診断もそれぞれ数える。忠実度を持たない診断も含む。open 時や書き手の診断は含まない
+    /// </summary>
+    public sealed record ConversionInputDiagnostics
+    {
+        /// <summary>
+        /// 診断の発生件数の合計。max_places と limit によらない
+        /// </summary>
+        [JsonPropertyName("total")]
+        public ulong Total { get; init; }
+
+        /// <summary>
+        /// 診断の code とカタログの group_by の値による全件集計。場所は持たず、値は最も早い入力位置の報告から取る
+        /// </summary>
+        [JsonPropertyName("counts")]
+        public IReadOnlyList<Diagnostic> Counts { get; init; } = default!;
+
+        /// <summary>
+        /// 集約前の報告を入力位置順に limit 件まで返す。同じ位置は報告順。診断の場所は max_places で制限しない
+        /// </summary>
+        [JsonPropertyName("details")]
+        public IReadOnlyList<ConversionInputDiagnostic> Details { get; init; } = default!;
+
+        /// <summary>
+        /// 明細の上限で返さなかった報告がある
+        /// </summary>
+        [JsonPropertyName("truncated")]
+        public bool Truncated { get; init; }
+    }
+
+    /// <summary>
+    /// 集約前の診断と、その場所と同じ順序の出所。種類や失った値は診断の code と params からたどる
+    /// </summary>
+    public sealed record ConversionInputDiagnostic
+    {
+        /// <summary>
+        /// 集約前の診断。元の値と場所を保つ
+        /// </summary>
+        [JsonPropertyName("diagnostic")]
+        public Diagnostic Diagnostic { get; init; } = default!;
+
+        /// <summary>
+        /// diagnostic.at と同じ順序のレコード・バイト範囲・ハンドル・インスタンス番号。ID は diagnostic.at にある
+        /// </summary>
+        [JsonPropertyName("sources")]
+        public IReadOnlyList<Source> Sources { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 処理対象の種類と忠実度ごとの集計
+    /// </summary>
+    public sealed record ConversionCount
+    {
+        /// <summary>
+        /// 処理対象の種類のキー
+        /// </summary>
+        [JsonPropertyName("kind")]
+        public string Kind { get; init; } = default!;
+
+        /// <summary>
+        /// その対象を移した結果の忠実度
+        /// </summary>
+        [JsonPropertyName("fidelity")]
+        public string Fidelity { get; init; } = default!;
+
+        /// <summary>
+        /// 入力の出現数。1 つの入力が複数の出力になっても 1 件
+        /// </summary>
+        [JsonPropertyName("count")]
+        public ulong Count { get; init; }
+
+        /// <summary>
+        /// この対象から書いた図形の数。表や参照だけを移した場合は 0
+        /// </summary>
+        [JsonPropertyName("output_elements")]
+        public ulong OutputElements { get; init; }
+    }
+
+    /// <summary>
+    /// 処理対象の出現 1 つ。複数の欠落の診断が出ても 1 件として数える
+    /// </summary>
+    public sealed record ConversionDetail
+    {
+        /// <summary>
+        /// 処理対象の種類のキー
+        /// </summary>
+        [JsonPropertyName("kind")]
+        public string Kind { get; init; } = default!;
+
+        /// <summary>
+        /// その対象を移した結果の忠実度
+        /// </summary>
+        [JsonPropertyName("fidelity")]
+        public string Fidelity { get; init; } = default!;
+
+        /// <summary>
+        /// 値や参照を変えた理由のキー。text_height_meaning は文字高の意味、relocated_shape は形の値、style_default はスタイルの既定値、detached_attribute は属性の文字への分離、baked_view はビューの焼き込み、reference_dropped は参照の欠落
+        /// </summary>
+        [JsonPropertyName("reasons")]
+        public IReadOnlyList<string> Reasons { get; init; } = default!;
+
+        /// <summary>
+        /// 元の要素の ID。持つ対象だけで返す
+        /// </summary>
+        [JsonPropertyName("id")]
+        public string? Id { get; init; }
+
+        /// <summary>
+        /// 元の対象のレコード・バイト範囲・キー
+        /// </summary>
+        [JsonPropertyName("source")]
+        public Source Source { get; init; } = default!;
+
+        /// <summary>
+        /// この対象から書いた図形の数。表や参照だけを移した場合は 0
+        /// </summary>
+        [JsonPropertyName("output_elements")]
+        public ulong OutputElements { get; init; }
+    }
+
+    /// <summary>
+    /// 忠実度。`native` は元の値・参照を保持、`equivalent` は別の表現で同じ意味、`approximated` は近似、`drawn` は見た目だけ、`dropped` は欠落
+    /// </summary>
+    public static class ConversionFidelity
+    {
+        /// <summary>native</summary>
+        public const string Native = "native";
+        /// <summary>equivalent</summary>
+        public const string Equivalent = "equivalent";
+        /// <summary>approximated</summary>
+        public const string Approximated = "approximated";
+        /// <summary>drawn</summary>
+        public const string Drawn = "drawn";
+        /// <summary>dropped</summary>
+        public const string Dropped = "dropped";
     }
 
     /// <summary>
@@ -7194,7 +7850,7 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// open で開いた点群（LAS・LAZ）の要約と、条件に合う点を返す。点は八分木の浅い段のノードから順に選ぶ（決定 0232）。点群のモジュールに置く（決定 0253）。マイナーバージョン 48 から
+    /// open で開いた点群（LAS・PLY・XYZ・E57）の要約と、条件に合う点を返す。点は八分木の浅い段のノードから順に選ぶ（決定 0232）。点群のモジュールに置く（決定 0253）。マイナーバージョン 48 から
     /// </summary>
     public sealed record PointcloudRequest
     {
@@ -9107,8 +9763,11 @@ namespace Zumen.Messages
                 ["describe"] = (typeof(DescribeRequest), typeof(DescribeResult)),
                 ["drawing"] = (typeof(DrawingRequest), typeof(DrawingResult)),
                 ["entities"] = (typeof(EntitiesRequest), typeof(EntitiesResult)),
+                ["calibrations"] = (typeof(CalibrationsRequest), typeof(CalibrationsResult)),
+                ["measure_distance"] = (typeof(MeasureDistanceRequest), typeof(MeasureDistanceResult)),
                 ["apply"] = (typeof(ApplyRequest), typeof(ApplyResult)),
                 ["convert"] = (typeof(ConvertRequest), typeof(ConvertResult)),
+                ["convert_estimate"] = (typeof(ConvertEstimateRequest), typeof(ConvertEstimateResult)),
                 ["tables"] = (typeof(TablesRequest), typeof(TablesResult)),
                 ["scene"] = (typeof(SceneRequest), typeof(SceneResult)),
                 ["check"] = (typeof(CheckRequest), typeof(CheckResult)),

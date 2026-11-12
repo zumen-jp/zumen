@@ -13,8 +13,11 @@
         { "$ref": "#/$defs/describe_request" },
         { "$ref": "#/$defs/drawing_request" },
         { "$ref": "#/$defs/entities_request" },
+        { "$ref": "#/$defs/calibrations_request" },
+        { "$ref": "#/$defs/measure_distance_request" },
         { "$ref": "#/$defs/apply_request" },
         { "$ref": "#/$defs/convert_request" },
+        { "$ref": "#/$defs/convert_estimate_request" },
         { "$ref": "#/$defs/tables_request" },
         { "$ref": "#/$defs/scene_request" },
         { "$ref": "#/$defs/check_request" },
@@ -155,7 +158,7 @@
         "input": { "description": "読む入力の名前。zm_push で渡したもの", "type": "string" },
         "doc": { "description": "作る文書の名前。書かなければ入力の名前", "type": "string" },
         "size": {
-          "description": "入力の全体の大きさ（バイト）。渡した入力より大きければ、入力を全体の初めの部分とみなし、足りない範囲を needs で求める。範囲で読める形式（LAS・LAZ）だけが使う（決定 0232）。マイナーバージョン 48 から",
+          "description": "入力の全体の大きさ（バイト）。渡した入力より大きければ、入力を全体の初めの部分とみなし、足りない範囲を needs で求める。範囲で読める形式（LAS）だけが使う。LAZ は、ヘッダーを読んで las.laz.unsupported で断る（決定 0232・0289）。マイナーバージョン 48 から",
           "type": "integer",
           "minimum": 0
         },
@@ -300,6 +303,130 @@
         }
       },
       "required": ["spaces", "sheets"],
+      "additionalProperties": false
+    },
+    "point2": {
+      "description": "2 次元の座標",
+      "type": "object",
+      "properties": {
+        "x": { "description": "X 座標", "type": "number" },
+        "y": { "description": "Y 座標", "type": "number" }
+      },
+      "required": ["x", "y"],
+      "additionalProperties": false
+    },
+    "split_point2": {
+      "description": "原点と相対座標を分けた用紙の点。両成分の正確な和を位置とし、先に足して丸めない。座標の単位は用紙の mm",
+      "type": "object",
+      "properties": {
+        "origin": { "description": "用紙の原点", "$ref": "#/$defs/point2" },
+        "offset": { "description": "原点からの相対座標", "$ref": "#/$defs/point2" }
+      },
+      "required": ["origin", "offset"],
+      "additionalProperties": false
+    },
+    "calibration_item": {
+      "description": "用紙の閉じた矩形で使う距離の校正。重なる領域は ID で明示的に選ぶ。マイナーバージョン 68 から",
+      "type": "object",
+      "properties": {
+        "id": { "description": "文書内で重複しない校正の ID", "type": "string" },
+        "name": { "description": "元の校正の名前。翻訳しない。なければ持たない", "type": "string" },
+        "from": { "description": "校正を使える公開用紙の ID。drawing が返すもの", "type": "string" },
+        "bounds": {
+          "description": "用紙の mm の閉じた矩形。[X の最小, Y の最小, X の最大, Y の最大] の 4 値で、幅と高さは正",
+          "type": "array",
+          "items": { "type": "number" }
+        },
+        "matrix": {
+          "description": "用紙の mm の変位から校正単位の変位へ写す行優先の 2×2 行列。[a, b, c, d] の 4 値で、[dx, dy] を [a*dx+b*dy, c*dx+d*dy] に写す",
+          "type": "array",
+          "items": { "type": "number" }
+        },
+        "unit": { "description": "校正後の長さの単位。ラベルだけから推定しない", "$ref": "#/$defs/unit" },
+        "unit_label": { "description": "元の単位ラベル。未知の単位でも原文を保つ", "type": "string" },
+        "source": { "description": "元の形式のレコード", "$ref": "#/$defs/source" }
+      },
+      "required": ["id", "from", "bounds", "matrix", "unit", "unit_label"],
+      "additionalProperties": false
+    },
+    "calibrations_request": {
+      "description": "開いた文書を図面モデルに変換し、用紙の距離の校正をモデルの順に返す。マイナーバージョン 68 から",
+      "type": "object",
+      "allOf": [{ "$ref": "#/$defs/request_common" }],
+      "properties": {
+        "op": { "description": "op の名前", "const": "calibrations" },
+        "doc": { "description": "文書の名前。open で作ったもの", "type": "string" },
+        "from": { "description": "公開用紙の ID。drawing が返すもの。書けばその用紙の校正だけを返し、書かなければすべての校正を返す", "type": "string" },
+        "offset": {
+          "description": "返す最初の校正の位置。from で絞った後の位置で、前の応答の next_offset を渡す。書かなければ 0",
+          "type": "integer",
+          "minimum": 0
+        },
+        "limit": {
+          "description": "返す校正の数の上限。書かなければ 1000",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000
+        },
+        "expected_hash": {
+          "description": "期待する元の文書のハッシュ。open に渡したバイト列のハッシュと照合する。図面モデルへ変換した ZMDR 自身のハッシュではない",
+          "type": "string"
+        }
+      },
+      "required": ["op", "doc"],
+      "unevaluatedProperties": false
+    },
+    "calibrations_result": {
+      "description": "距離の校正の一覧の一部",
+      "type": "object",
+      "properties": {
+        "hash": { "description": "元の文書のハッシュ。ZMDR から開いたときは、埋め込まれた元の文書のハッシュ（Source.hash）", "type": "string" },
+        "items": {
+          "description": "from で絞った一覧の offset から limit 個までの校正",
+          "type": "array",
+          "items": { "$ref": "#/$defs/calibration_item" }
+        },
+        "total": { "description": "from で絞った後の校正の総数", "type": "integer", "minimum": 0 },
+        "next_offset": {
+          "description": "続きの最初の校正の位置。続きがなければ持たない",
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": ["hash", "items", "total"],
+      "additionalProperties": false
+    },
+    "measure_distance_request": {
+      "description": "用紙と校正を明示的に選び、始点と終点の校正後の距離を求める。両点は校正の閉領域内にある必要がある。マイナーバージョン 68 から",
+      "type": "object",
+      "allOf": [{ "$ref": "#/$defs/request_common" }],
+      "properties": {
+        "op": { "description": "op の名前", "const": "measure_distance" },
+        "doc": { "description": "文書の名前。open で作ったもの", "type": "string" },
+        "from": { "description": "公開用紙の ID。drawing が返すもので、選んだ校正と同じ用紙", "type": "string" },
+        "calibration": { "description": "使う校正の ID。calibrations が返すもの", "type": "string" },
+        "start": { "description": "始点。原点と相対座標を分けた用紙の mm の点", "$ref": "#/$defs/split_point2" },
+        "end": { "description": "終点。原点と相対座標を分けた用紙の mm の点", "$ref": "#/$defs/split_point2" },
+        "expected_hash": {
+          "description": "期待する元の文書のハッシュ。open に渡したバイト列のハッシュと照合する。図面モデルへ変換した ZMDR 自身のハッシュではない",
+          "type": "string"
+        }
+      },
+      "required": ["op", "doc", "from", "calibration", "start", "end"],
+      "unevaluatedProperties": false
+    },
+    "measure_distance_result": {
+      "description": "選んだ用紙と校正による距離",
+      "type": "object",
+      "properties": {
+        "hash": { "description": "元の文書のハッシュ。ZMDR から開いたときは、埋め込まれた元の文書のハッシュ（Source.hash）", "type": "string" },
+        "from": { "description": "計測した公開用紙の ID", "type": "string" },
+        "calibration": { "description": "使った校正の ID", "type": "string" },
+        "distance": { "description": "校正後の距離。unit と unit_label が示す単位", "type": "number" },
+        "unit": { "description": "校正後の長さの単位", "$ref": "#/$defs/unit" },
+        "unit_label": { "description": "元の単位ラベル。未知の単位でも原文を保つ", "type": "string" }
+      },
+      "required": ["hash", "from", "calibration", "distance", "unit", "unit_label"],
       "additionalProperties": false
     },
     "point_style_summary": {
@@ -559,7 +686,7 @@
       "additionalProperties": false
     },
     "text_geometry": {
-      "description": "1 点か 2 点の間に置く文字。置き換えるときは、位置合わせ・幅の倍率・斜体・反転・文字スタイルを元の値のままにする。足すときは、2 点目がなければ左の基準線に合わせ、幅の倍率 1・斜体なし・反転なしにする",
+      "description": "1 点か 2 点の間に置く文字。置き換えるときは、位置合わせ・文字スタイルを元の値のままにし、書かない幅の倍率・斜体・反転も元の値を受け継ぐ。足すときは、2 点目がなければ書かない位置合わせを左の基準線にし、幅の倍率 1・斜体なし・反転なしにする",
       "type": "object",
       "properties": {
         "shape": { "description": "形の種類", "const": "text" },
@@ -567,13 +694,29 @@
         "position": { "description": "基点 [X, Y]。2 点の間に合わせる文字では 1 点目", "type": "array", "items": { "type": "number" } },
         "end": { "description": "2 点の間に合わせる文字の 2 点目 [X, Y]。合わせ方（fit）と一緒に書く。置き換えでは、1 点に置く文字と 2 点の間に合わせる文字を入れ替えられない。マイナーバージョン 17 から", "type": "array", "items": { "type": "number" } },
         "fit": { "description": "2 点の間への合わせ方。2 点目（end）と一緒に書く。マイナーバージョン 17 から", "$ref": "#/$defs/text_fit" },
+        "horizontal": { "description": "1 点に置く文字の水平の位置合わせ。left のときは entities が省き、足すときも省けば left。2 点の間に合わせる文字には書けない。置き換えるときは元と同じ値だけを受ける。マイナーバージョン 69 から", "$ref": "#/$defs/text_horizontal" },
+        "vertical": { "description": "1 点に置く文字の垂直の位置合わせ。baseline のときは entities が省き、足すときも省けば baseline。2 点の間に合わせる文字には書けない。置き換えるときは元と同じ値だけを受ける。マイナーバージョン 69 から", "$ref": "#/$defs/text_vertical" },
         "height": { "description": "高さ。0 より大きい", "type": "number" },
         "rotation": { "description": "回転（度）。2 点の間に合わせる文字では、1 点目から 2 点目への向きと同じでなければならない", "type": "number" },
+        "width_factor": { "description": "幅の倍率。0 より大きい。1 のときは entities が省き、足すときも省けば 1、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から", "type": "number" },
+        "oblique": { "description": "斜体の角度（度）。0 のときは entities が省き、足すときも省けば 0、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から", "type": "number" },
+        "backward": { "description": "左右を裏返すか。偽のときは entities が省き、足すときも省けば偽、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から", "type": "boolean" },
+        "upside_down": { "description": "上下を反転するか。偽のときは entities が省き、足すときも省けば偽、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から", "type": "boolean" },
         "style": { "description": "文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。DXF に文字スタイルの定義がないときは Standard だけを受ける。置き換えるときは、元と同じ名前だけを受ける。style_id と一緒に書くなら、同じ文字スタイルを指す。マイナーバージョン 12 から", "type": "string" },
         "style_id": { "description": "文字スタイルの ID。tables が返したもの。entities は、名前で引いた文字スタイルの ID を返す。足す・置き換えるときは、名前の代わりに書ける（名前より先に使う）。同じ名前（大文字と小文字を区別しない）の項目が複数あれば書き戻せない。マイナーバージョン 23 から", "type": "string" }
       },
       "required": ["shape", "content", "position", "height", "rotation"],
       "additionalProperties": false
+    },
+    "text_horizontal": {
+      "description": "1 点に置く文字の水平の位置合わせ。middle は水平と垂直の両方を外形の中央に合わせる（DXF の 72 = 4）",
+      "type": "string",
+      "enum": ["left", "center", "right", "middle"]
+    },
+    "text_vertical": {
+      "description": "1 点に置く文字の垂直の位置合わせ",
+      "type": "string",
+      "enum": ["baseline", "bottom", "middle", "top"]
     },
     "text_fit": {
       "description": "2 点の間への合わせ方。aligned は縦横の比を保って高さも変え、fit は高さを保って幅だけを変える",
@@ -883,6 +1026,99 @@
       },
       "required": ["doc", "format", "hash", "elements"],
       "additionalProperties": false
+    },
+    "convert_estimate_request": {
+      "description": "開いた図面を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。今は DXF への変換だけ。マイナーバージョン 66 から",
+      "type": "object",
+      "allOf": [{ "$ref": "#/$defs/request_common" }],
+      "properties": {
+        "op": { "description": "op の名前", "const": "convert_estimate" },
+        "doc": { "description": "書く元の文書の名前", "type": "string" },
+        "format": { "description": "書く形式の名前。今は dxf だけ", "type": "string" },
+        "to": { "description": "予定する文書の名前。convert と同じ条件で検査するが、名前を確保しない", "type": "string" },
+        "limit": { "description": "書き手と読み取り段階のそれぞれで返す明細の最大件数。省略時は 100。総数と全件集計はこの上限によらない", "type": "integer", "minimum": 0, "maximum": 1000 }
+      },
+      "required": ["op", "doc", "format", "to"],
+      "unevaluatedProperties": false
+    },
+    "convert_estimate_result": {
+      "description": "予定する変換の結果。元の文書・ID を保ち、ファイルの blob を返さない",
+      "type": "object",
+      "properties": {
+        "estimate": { "description": "予定する出力と忠実度の全件集計・上限付き明細", "$ref": "#/$defs/conversion_estimate" }
+      },
+      "required": ["estimate"],
+      "additionalProperties": false
+    },
+    "conversion_estimate": {
+      "description": "実変換と同じ処理で準備した出力。doc と hash は未登録の予定値。元の入力・設定・予算が同じなら convert の値と一致する",
+      "type": "object",
+      "properties": {
+        "doc": { "description": "予定する文書の名前", "type": "string" },
+        "format": { "description": "予定する形式の名前", "type": "string" },
+        "hash": { "description": "予定する出力バイト列のハッシュ。未登録なので apply の前提条件には使えない", "type": "string" },
+        "elements": { "description": "予定する出力の要素数。記号から離す属性の文字を含む", "type": "integer", "minimum": 0 },
+        "total": { "description": "処理対象の出現数。同じ出所を持つ別の入力は別々に数え、診断の数では増やさない", "type": "integer", "minimum": 0 },
+        "counts": { "description": "種類と忠実度ごとの全件集計", "type": "array", "items": { "$ref": "#/$defs/conversion_count" } },
+        "details": { "description": "処理順の明細。limit 件まで返す", "type": "array", "items": { "$ref": "#/$defs/conversion_detail" } },
+        "truncated": { "description": "明細の上限で返さなかった対象がある", "type": "boolean" },
+        "input_diagnostics": { "description": "入力の表の読み取りと lift 中の、集約前の診断発生記録。書き手の項目の集計には含めない。マイナーバージョン 67 から", "$ref": "#/$defs/conversion_input_diagnostics" }
+      },
+      "required": ["doc", "format", "hash", "elements", "total", "counts", "details", "truncated"],
+      "additionalProperties": false
+    },
+    "conversion_input_diagnostics": {
+      "description": "読み取り段階の診断発生数。失った要素数ではなく、同じ要素の複数の診断もそれぞれ数える。忠実度を持たない診断も含む。open 時や書き手の診断は含まない",
+      "type": "object",
+      "properties": {
+        "total": { "description": "診断の発生件数の合計。max_places と limit によらない", "type": "integer", "minimum": 0 },
+        "counts": { "description": "診断の code とカタログの group_by の値による全件集計。場所は持たず、値は最も早い入力位置の報告から取る", "type": "array", "items": { "$ref": "#/$defs/diagnostic" } },
+        "details": { "description": "集約前の報告を入力位置順に limit 件まで返す。同じ位置は報告順。診断の場所は max_places で制限しない", "type": "array", "items": { "$ref": "#/$defs/conversion_input_diagnostic" } },
+        "truncated": { "description": "明細の上限で返さなかった報告がある", "type": "boolean" }
+      },
+      "required": ["total", "counts", "details", "truncated"],
+      "additionalProperties": false
+    },
+    "conversion_input_diagnostic": {
+      "description": "集約前の診断と、その場所と同じ順序の出所。種類や失った値は診断の code と params からたどる",
+      "type": "object",
+      "properties": {
+        "diagnostic": { "description": "集約前の診断。元の値と場所を保つ", "$ref": "#/$defs/diagnostic" },
+        "sources": { "description": "diagnostic.at と同じ順序のレコード・バイト範囲・ハンドル・インスタンス番号。ID は diagnostic.at にある", "type": "array", "items": { "$ref": "#/$defs/source" } }
+      },
+      "required": ["diagnostic", "sources"],
+      "additionalProperties": false
+    },
+    "conversion_count": {
+      "description": "処理対象の種類と忠実度ごとの集計",
+      "type": "object",
+      "properties": {
+        "kind": { "description": "処理対象の種類のキー", "type": "string" },
+        "fidelity": { "description": "その対象を移した結果の忠実度", "$ref": "#/$defs/conversion_fidelity" },
+        "count": { "description": "入力の出現数。1 つの入力が複数の出力になっても 1 件", "type": "integer", "minimum": 0 },
+        "output_elements": { "description": "この対象から書いた図形の数。表や参照だけを移した場合は 0", "type": "integer", "minimum": 0 }
+      },
+      "required": ["kind", "fidelity", "count", "output_elements"],
+      "additionalProperties": false
+    },
+    "conversion_detail": {
+      "description": "処理対象の出現 1 つ。複数の欠落の診断が出ても 1 件として数える",
+      "type": "object",
+      "properties": {
+        "kind": { "description": "処理対象の種類のキー", "type": "string" },
+        "fidelity": { "description": "その対象を移した結果の忠実度", "$ref": "#/$defs/conversion_fidelity" },
+        "reasons": { "description": "値や参照を変えた理由のキー。text_height_meaning は文字高の意味、relocated_shape は形の値、style_default はスタイルの既定値、detached_attribute は属性の文字への分離、baked_view はビューの焼き込み、reference_dropped は参照の欠落", "type": "array", "items": { "type": "string" } },
+        "id": { "description": "元の要素の ID。持つ対象だけで返す", "type": "string" },
+        "source": { "description": "元の対象のレコード・バイト範囲・キー", "$ref": "#/$defs/source" },
+        "output_elements": { "description": "この対象から書いた図形の数。表や参照だけを移した場合は 0", "type": "integer", "minimum": 0 }
+      },
+      "required": ["kind", "fidelity", "reasons", "source", "output_elements"],
+      "additionalProperties": false
+    },
+    "conversion_fidelity": {
+      "description": "忠実度。`native` は元の値・参照を保持、`equivalent` は別の表現で同じ意味、`approximated` は近似、`drawn` は見た目だけ、`dropped` は欠落",
+      "type": "string",
+      "enum": ["native", "equivalent", "approximated", "drawn", "dropped"]
     },
     "applied": {
       "description": "当てた変更 1 つの結果",
@@ -3555,7 +3791,7 @@
       "additionalProperties": false
     },
     "pointcloud_request": {
-      "description": "open で開いた点群（LAS・LAZ）の要約と、条件に合う点を返す。点は八分木の浅い段のノードから順に選ぶ（決定 0232）。点群のモジュールに置く（決定 0253）。マイナーバージョン 48 から",
+      "description": "open で開いた点群（LAS・PLY・XYZ・E57）の要約と、条件に合う点を返す。点は八分木の浅い段のノードから順に選ぶ（決定 0232）。点群のモジュールに置く（決定 0253）。マイナーバージョン 48 から",
       "type": "object",
       "allOf": [{ "$ref": "#/$defs/request_common" }],
       "properties": {

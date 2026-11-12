@@ -100,10 +100,8 @@ impl SxfFile {
         attributes: Option<&AttributeFile>,
         cx: &mut Cx,
     ) -> Result<Drawing2D, Error> {
-        if self.mode() == Mode::P21 {
-            return cx.with_diagnostics_in_record_order(|cx| self.lift_records(attributes, cx));
-        }
-        self.lift_records(attributes, cx)
+        // 表・複合曲線・複合図形・用紙の段階をまたいで、診断を元のレコードの順に返す（決定 0009、#624）
+        cx.with_diagnostics_in_record_order(|cx| self.lift_records(attributes, cx))
     }
 
     fn lift_records(
@@ -1077,15 +1075,18 @@ impl<'f> Lifter<'f> {
     }
 
     /// 画像の作図グループなら、その画像。名前の `$$RASTER$$` か、属性の `$$ATRU$$番号$$名称$$画像$$` の後が
-    /// ファイルの名前で、グループの中の最初の 4 点以上の折れ線が範囲を示す（推定。docs/formats/sxf.md）
+    /// ファイルの名前で、グループの中の最初の 4 点以上の折れ線が範囲を示す（推定。docs/formats/sxf.md）。どれかの点の
+    /// 座標を読めない折れ線（数として読めない値がある、x と y の数が違う）は、角に使わない点であっても飛ばす（推定。#651）
     fn raster(&self, name: &str, definition: &Definition, cx: &mut Cx) -> Option<Raster> {
         let path = raster_path(name)?;
         let outline = definition.members.iter().copied().find(|index| {
             self.features.get(*index).is_some_and(|feature| {
                 let args = self.args(*feature);
                 feature.is(b"polyline")
-                    && args.nums(5).is_some_and(|xs| xs.len() >= 4)
-                    && args.nums(6).is_some_and(|ys| ys.len() >= 4)
+                    && args
+                        .nums(5)
+                        .zip(args.nums(6))
+                        .is_some_and(|(xs, ys)| xs.len() >= 4 && xs.len() == ys.len())
             })
         });
         let Some(outline) = outline else {

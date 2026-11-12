@@ -1,6 +1,5 @@
 //! LZW（7.4.4）の出力と辞書を、バイト列を保持せず長さだけで先に数える（#616）。
 
-use hayro_syntax::object::{Array, Dict, Name, Object, Stream};
 use zumen_base::{Cx, Kind, Stop};
 
 /// 12 ビットの辞書。長さだけを持つので、確認自身の表は 8 KiB で一定
@@ -10,56 +9,6 @@ const FIRST: usize = 258;
 /// 64 ビットの項目は 24 バイト。容量を倍にする表の、それまでの確保の合計は項目数の 4 倍未満。
 /// 環境によらず 24 * 4 バイトを数え、文字列の中身は別に足す
 const ENTRY_BYTES: u64 = 96;
-
-pub(super) fn before(stream: &Stream<'_>, cx: &mut Cx<'_>) -> Result<(), Stop> {
-    let early = early_change(stream, cx)?;
-    count(&stream.raw_data(), early, cx)
-}
-
-/// hayro-syntax 0.9.0 の Stream::filters_and_params と同じ優先順で、LZW のパラメーターを引く。
-/// 名前として読めない項目で止まり、知らない名前もパラメーターの位置を 1 つ進める。
-/// 最初の LZW のパラメーターを返す。呼ぶ側は、有効な系列の最初の LZW の段だけを数える
-pub(super) fn early_change(stream: &Stream<'_>, cx: &mut Cx<'_>) -> Result<bool, Stop> {
-    let dict = stream.dict();
-    let is_lzw = |name: &Name<'_>| matches!(name.as_ref(), b"LZWDecode" | b"LZW");
-    let early = |params: Option<Dict<'_>>| {
-        params
-            .and_then(|dict| dict.get::<u8>(b"EarlyChange"))
-            .is_none_or(|value| value != 0)
-    };
-    if dict
-        .get::<Name<'_>>(b"F")
-        .or_else(|| dict.get::<Name<'_>>(b"Filter"))
-        .as_ref()
-        .is_some_and(is_lzw)
-    {
-        return Ok(early(
-            dict.get::<Dict<'_>>(b"DP")
-                .or_else(|| dict.get::<Dict<'_>>(b"DecodeParms")),
-        ));
-    }
-    let Some(filters) = dict
-        .get::<Array<'_>>(b"F")
-        .or_else(|| dict.get::<Array<'_>>(b"Filter"))
-    else {
-        return Ok(true);
-    };
-    let mut params = dict
-        .get::<Array<'_>>(b"DP")
-        .or_else(|| dict.get::<Array<'_>>(b"DecodeParms"))
-        .map(|array| array.iter::<Object<'_>>());
-    for name in filters.iter::<Name<'_>>() {
-        cx.check(Kind::Work, 1)?;
-        let param = params
-            .as_mut()
-            .and_then(Iterator::next)
-            .and_then(Object::into_dict);
-        if is_lzw(&name) {
-            return Ok(early(param));
-        }
-    }
-    Ok(true)
-}
 
 /// 符号の位置をバイトと残ったビットで持つ。入力長を 8 倍せず、32 ビットでも同じ符号を読む
 struct Codes<'a> {
@@ -83,13 +32,21 @@ impl Codes<'_> {
 
 /// hayro-syntax 0.9.0 の LZW の展開順を長さでたどる。不正な符号では上流も失敗するが、
 /// そこまでに作る分を戻さない。入力が途中で切れた場合は、上流が返す部分の出力まで数える
-pub(super) fn count(data: &[u8], early: bool, cx: &mut Cx<'_>) -> Result<(), Stop> {
+#[cfg(test)]
+fn count(data: &[u8], early: bool, cx: &mut Cx<'_>) -> Result<(), Stop> {
+    let output = count_output(data, early, cx)?;
+    super::allocation::reserve(super::allocation::lzw(output), cx)
+}
+
+/// 辞書の確保とは別に、予測子に渡す出力の長さを返す。失敗する符号なら、そこまでの長さ。
+pub(super) fn count_output(data: &[u8], early: bool, cx: &mut Cx<'_>) -> Result<u64, Stop> {
     cx.check(Kind::Work, (data.len() as u64).div_ceil(16) + 512)?;
     cx.check(Kind::DecodedBytes, FIRST as u64 * ENTRY_BYTES + 256)?;
     let mut lengths = [0u16; ENTRIES];
     lengths[..256].fill(1);
     let mut size = FIRST;
     let mut previous: Option<u16> = None;
+    let mut output = 0u64;
     let mut codes = Codes {
         bytes: data.iter(),
         pending: 0,
@@ -105,30 +62,31 @@ pub(super) fn count(data: &[u8], early: bool, cx: &mut Cx<'_>) -> Result<(), Sto
             _ => 9,
         };
         let Some(code) = codes.next(width) else {
-            return Ok(());
+            return Ok(output);
         };
         match code {
             256 => {
                 size = FIRST;
                 previous = None;
             }
-            257 => return Ok(()),
-            _ if code > size || (code == size && previous.is_none()) => return Ok(()),
+            257 => return Ok(output),
+            _ if code > size || (code == size && previous.is_none()) => return Ok(output),
             _ => {
                 let length = if code < size {
                     let Some(length) = lengths.get(code).copied() else {
-                        return Ok(());
+                        return Ok(output);
                     };
                     length
                 } else {
                     // 次の辞書の番号は、前の語とその先頭の 1 バイト（7.4.4.2）
                     let Some(length) = previous else {
-                        return Ok(());
+                        return Ok(output);
                     };
                     length + 1
                 };
                 cx.check(Kind::Work, u64::from(length).div_ceil(16))?;
                 cx.check(Kind::DecodedBytes, u64::from(length))?;
+                output = output.saturating_add(u64::from(length));
                 if let Some(prev) = previous {
                     let added = prev + 1;
                     // 上流は表が満杯でも、前の語を写した後で追加を断るので、その確保も数える。
@@ -152,6 +110,7 @@ pub(super) fn count(data: &[u8], early: bool, cx: &mut Cx<'_>) -> Result<(), Sto
 #[cfg(test)]
 mod tests {
     use super::*;
+    use hayro_syntax::object::Stream;
     use hayro_syntax::reader::{Reader, ReaderContext, ReaderExt};
     use zumen_base::{Budget, CancelToken, Diagnostics, Limit, Limits};
 

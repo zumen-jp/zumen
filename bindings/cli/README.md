@@ -1,8 +1,8 @@
 # CLI と MCP のサーバー
 
-zumen のコアを同じプロセスで動かす実行ファイル `zumen` です（[決定 0013](../../docs/decisions/0013-boundary-in-four-forms.md)・[決定 0197](../../docs/decisions/0197-cli-and-mcp-server.md)・[決定 0200](../../docs/decisions/0200-cli-http-process-engine-and-mcp-resources.md)）。API と同じ要求と応答（[schema/messages.json](../../schema/messages.json)）を、書き換えずに運びます。
+zumen のコアを同じプロセスで動かす実行ファイル `zumen` です（[API のスキーマ](../../schema/README.md)）。API と同じ要求と応答（[schema/messages.json](../../schema/messages.json)）を、書き換えずに運びます。
 
-- crates.io の `zumen-cli` で配り（`cargo install zumen-cli`）、対象ごとの実行ファイルを GitHub の Release に置きます（[決定 0205](../../docs/decisions/0205-release-and-publishing.md)）。
+- crates.io の `zumen-cli` で配り（`cargo install zumen-cli`）、対象ごとの実行ファイルを GitHub の Release に置きます（[配布の手順](../../xtask/release/README.md)）。
 - 依存はワークスペースの crate だけです。引数は標準ライブラリで読み、JSON-RPC と MCP も自前で書きます。
 - `src/tools.json`（MCP の op のツールの一覧）は、`schema/messages.json` から `cargo xtask codegen` で生成します。手で直さないでください。
 
@@ -54,7 +54,7 @@ target/debug/zumen call --input a.dxf=samples/dxf/text_alignments.dxf request.js
 
 ## 子プロセスの形態
 
-ネイティブのライブラリは、セッションの設定を `{"v":1,"engine":"process"}` にすると、この CLI を `serve --stdio` で子プロセスとして起こし、同じメッセージを送ります。実行ファイルは `process_path` で渡すか、ライブラリと同じフォルダーに置きます。子プロセスのメモリには 8 GiB の上限を付けます（Linux と Windows。macOS では付けられません、[決定 0201](../../docs/decisions/0201-process-engine-memory-limit-and-host-safety.md)）。
+ネイティブのライブラリは、セッションの設定を `{"v":1,"engine":"process"}` にすると、この CLI を `serve --stdio` で子プロセスとして起こし、同じメッセージを送ります。実行ファイルは `process_path` で渡すか、ライブラリと同じフォルダーに置きます。子プロセスのメモリには 8 GiB の上限を付けます（Linux と Windows。macOS では付けられません）。
 
 ## MCP
 

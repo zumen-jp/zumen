@@ -19,28 +19,9 @@ pub mod testkit;
 mod zip;
 
 pub use register::{Registration, Rights, detect};
-pub use zumen_base::{ByteRange, Cx, Stop};
+pub use zumen_base::{ByteRange, Cx, Error, Stop};
 
 use zumen_base::Diagnostics;
-
-/// 読み書きが失敗した理由。詳しいことは、診断として文脈に足してある
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Error {
-    /// 予算の上限か、中断の合図で止めた
-    Stopped(Stop),
-    /// 入力が壊れていて読めない
-    Invalid,
-    /// 形式は分かったが、このコーデックでは扱えない
-    Unsupported,
-    /// 変更が形式の規則に合わないので、何も反映しなかった
-    Rejected,
-}
-
-impl From<Stop> for Error {
-    fn from(stop: Stop) -> Self {
-        Error::Stopped(stop)
-    }
-}
 
 /// L1 から L2 の領域モデル `M` を作る（決定 0008・0022）。形式と領域の組ごとに 1 つ。
 ///
@@ -143,9 +124,9 @@ pub enum Signature {
     /// XML の文書で、最初の要素の接頭辞を除いた名前が `name` で、その名前空間の名前が `namespace`。`namespace` が
     /// `None` なら、名前空間を問わない。XML 宣言・注記・処理命令・文書型宣言は飛ばす（決定 0209）
     XmlRoot {
-        /// 接頭辞を除いた名前
+        /// 接頭辞を除いた名前。入力の文字コードによらず UTF-8
         name: &'static [u8],
-        /// 名前空間の名前（URI）
+        /// 名前空間の名前（URI）。入力の文字コードによらず UTF-8
         namespace: Option<&'static [u8]>,
     },
     /// ISO 10303-21 の交換構造で、ヘッダーの `FILE_SCHEMA` の最初のスキーマの名前が、ASCII の大文字と小文字を
@@ -187,11 +168,7 @@ impl Signature {
                         .is_some_and(|line| line.trim_ascii() == *expected)
                 })
             }
-            Signature::XmlRoot { name, namespace } => {
-                root::root(head).is_some_and(|(found, declared)| {
-                    found == name && namespace.is_none_or(|namespace| declared == Some(namespace))
-                })
-            }
+            Signature::XmlRoot { name, namespace } => root::matches(head, name, namespace),
             Signature::StepSchema { prefix } => schema::schema(head).is_some_and(|name| {
                 name.get(..prefix.len())
                     .is_some_and(|start| start.eq_ignore_ascii_case(prefix))

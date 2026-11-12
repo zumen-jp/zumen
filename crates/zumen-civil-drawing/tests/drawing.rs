@@ -1,7 +1,7 @@
 //! 合成の線形から平面図・縦断図・横断図の図面モデルを作り、シーンに描く（決定 0231）。
 
 use zumen_base::{
-    Budget, CancelToken, Code, Cx, Diagnostics, Kind, Limit, Limits, Ref, Stop, codes,
+    Budget, CancelToken, Code, Cx, Diagnostics, Kind, Limit, Limits, Ref, Stop, Value, codes,
 };
 use zumen_civil::{
     Alignment, CivilModel, CrossSection, CrossSectionLine, Horizontal, HorizontalKind, SurfaceRole,
@@ -366,6 +366,72 @@ fn huge_station_numbers_end() {
     unique.sort_unstable();
     unique.dedup();
     assert_eq!(texts.len(), unique.len(), "{texts:?}");
+    // 飛ばした番号と、丸まりうる番号で描いた測点を、平面図で 1 回だけ、線形の出所を付けて知らせる（#713）
+    let found = approximated(&diag);
+    assert_eq!(found.len(), 1, "{found:?}");
+    let (count, skipped, rounded, places) = found.first().cloned().unwrap();
+    assert_eq!(count, 1);
+    assert!(skipped > 0 && rounded > 0, "{found:?}");
+    assert_eq!(places, vec![model.alignments[0].source.clone()]);
+}
+
+/// 測点の番号の診断の（件数・飛ばした数・丸まりうる数・場所）
+fn approximated(diag: &Diagnostics) -> Vec<(u64, u64, u64, Vec<Ref>)> {
+    let uint = |d: &zumen_base::Diagnostic, name: &str| match d.param(name) {
+        Some(Value::UInt(n)) => *n,
+        // 値がなければ 0 にして、0 より大きいことの確かめで落とす
+        _ => 0,
+    };
+    diag.iter()
+        .filter(|d| d.code() == codes::CIVIL_STATION_APPROXIMATED)
+        .map(|d| {
+            (
+                d.count(),
+                uint(d, "skipped"),
+                uint(d, "rounded"),
+                d.places().to_vec(),
+            )
+        })
+        .collect()
+}
+
+/// 間隔 1 m で、測点の値を `start` から始めた線形を描いたときの、測点の番号の診断
+fn approximated_from(start: f64) -> Vec<(u64, u64, u64, Vec<Ref>)> {
+    let mut line = alignment();
+    line.stations.start = start;
+    let model = CivilModel {
+        alignments: vec![line],
+        ..CivilModel::default()
+    };
+    let mut options = Options::default();
+    options.notation.pitch = 1.0;
+    let mut budget = Budget::new(Limits::default());
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+    let drawn = model
+        .alignments
+        .first()
+        .map(|line| drawing(&model, line, &options, &mut cx).is_ok());
+    assert_eq!(drawn, Some(true));
+    approximated(&diag)
+}
+
+/// 番号が 2^53 ちょうどまでなら知らせず、2^53 を超えれば知らせる。負の番号も同じ（#713）
+#[test]
+fn station_numbers_are_reported_beyond_2_pow_53() {
+    const EXACT: f64 = 9_007_199_254_740_992.0;
+    let length = libm::ceil(zumen_civil::length(&alignment()));
+    // 終わりの番号が 2^53 以下
+    assert!(approximated_from(EXACT - length).is_empty());
+    // 終わりの番号が 2^53 を超える
+    let found = approximated_from(EXACT - 50.0);
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert!(found.iter().all(|f| f.1 > 0 && f.2 > 0), "{found:?}");
+    // 始まりの番号が -2^53 より小さい
+    let found = approximated_from(-EXACT - 100.0);
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert!(found.iter().all(|f| f.1 > 0 && f.2 > 0), "{found:?}");
 }
 
 /// 測点の番号の範囲が 2^64 を超える不連続でも、件数が桁あふれせず、予算で止まる（#486）
@@ -519,6 +585,88 @@ fn many_ground_points_count_the_work_of_the_profile_band() {
     many_result.unwrap();
     assert!(many >= few + 12 * 1000, "{few} {many}");
     let limits = Limits::default().with(Kind::Work, Limit::Finite(few + 1000));
+    let (stopped, _, _) = draw_line(line, limits);
+    assert!(
+        matches!(stopped, Err(Stop::Exceeded(ref e)) if e.kind == Kind::Work),
+        "{stopped:?}"
+    );
+}
+
+/// 縦断線形の区間の多い線形では、平面図と縦断図の欄の測点ごとに、縦断線形の区間をたどる作業を予算に数え、上限で
+/// 止まる（#727、PR #714 の 3 回目の確かめの指摘 2）
+#[test]
+fn many_vertical_segments_count_the_work_of_placing_stations() {
+    let (plain, few, _) = draw_line(alignment(), Limits::default());
+    plain.unwrap();
+    // 初めの 2 % の勾配 100 m を、0.125 m の勾配 800 個に替える。平面図の測点（0〜11 番）と縦断図の欄の測点
+    // （0〜11 番）ごとに、799 回多くたどる
+    let mut line = alignment();
+    line.vertical.remove(0);
+    let pieces = (0..800).map(|i| {
+        let start = 0.125 * f64::from(i);
+        Vertical {
+            start_distance: start,
+            start_height: 50.0 + 0.02 * start,
+            start_gradient: 0.02,
+            length: 0.125,
+            kind: VerticalKind::ConstantGradient,
+            source: Ref::default(),
+        }
+    });
+    line.vertical.splice(0..0, pieces);
+    let (many_result, many, _) = draw_line(line.clone(), Limits::default());
+    many_result.unwrap();
+    assert!(many >= few + (12 + 12) * 799, "{few} {many}");
+    let limits = Limits::default().with(Kind::Work, Limit::Finite(few + 1000));
+    let (stopped, _, _) = draw_line(line, limits);
+    assert!(
+        matches!(stopped, Err(Stop::Exceeded(ref e)) if e.kind == Kind::Work),
+        "{stopped:?}"
+    );
+}
+
+/// 曲率の大きい緩和曲線は、折れ線にする点と区間の終わりの点を求める手間を予算に数え、上限で止まる（#727）
+#[test]
+fn steep_transitions_count_the_work_of_their_points() {
+    let (plain, few, _) = draw_line(alignment(), Limits::default());
+    plain.unwrap();
+    // 終わりのブロス曲線（30 m）の初めの半径を 200 m から 1 m にする。向きの式を積む刻みが 3,000 になる
+    let mut line = alignment();
+    let last = line.horizontal.len() - 1;
+    line.horizontal[last].kind = HorizontalKind::Transition {
+        start_radius: Some(1.0),
+        end_radius: None,
+        curve: TransitionCurve::Bloss,
+    };
+    let (steep, many, _) = draw_line(line.clone(), Limits::default());
+    steep.unwrap();
+    // 折れ線の点（50 個ほど）ごとに、3,000 刻みを積む
+    assert!(many >= few + 50 * 3_000, "{few} {many}");
+    let limits = Limits::default().with(Kind::Work, Limit::Finite(few + 10_000));
+    let (stopped, _, _) = draw_line(line, limits);
+    assert!(
+        matches!(stopped, Err(Stop::Exceeded(ref e)) if e.kind == Kind::Work),
+        "{stopped:?}"
+    );
+}
+
+/// 縦断図で、曲率の大きい縦断のクロソイドを点にするときも、点ごとの高さを求める手間（向きの式を積む刻み）を予算に
+/// 数え、上限で止まる（#727、PR #751 の 1 回目の確かめの軽微 2）
+#[test]
+fn steep_vertical_clothoids_count_the_work_of_their_points() {
+    let (plain, few, _) = draw_line(alignment(), Limits::default());
+    plain.unwrap();
+    // 初めの 2 % の勾配 100 m を、半径が無限から 50 m（下に凸）へ変わるクロソイドに替える。勾配の角が 1 ラジアン
+    // 変わるので、高さを 1 つ求めるたびに、向きの式を 100 刻みずつ 129 回積む。点は 20 より多い
+    let mut line = alignment();
+    line.vertical[0].kind = VerticalKind::Clothoid {
+        start_radius: None,
+        end_radius: Some(-50.0),
+    };
+    let (steep, many, _) = draw_line(line.clone(), Limits::default());
+    steep.unwrap();
+    assert!(many >= few + 20 * 129 * 100, "{few} {many}");
+    let limits = Limits::default().with(Kind::Work, Limit::Finite(few + 10_000));
     let (stopped, _, _) = draw_line(line, limits);
     assert!(
         matches!(stopped, Err(Stop::Exceeded(ref e)) if e.kind == Kind::Work),

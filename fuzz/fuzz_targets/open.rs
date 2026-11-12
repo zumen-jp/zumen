@@ -45,13 +45,6 @@ const BUILDING_COMPONENTS: &[&str] = &[
     "relations",
 ];
 
-/// LAZ か。`las` の target と同じく、展開を任せる laz 0.13.0 の中のパニックを直すまで飛ばす（#510）。LAS 1.4 R15 の
-/// 表 3 の 104 バイト目（Point Data Record Format）のビット 7 か 6 が立っていれば LAZ とする（zumen-las のヘッダーと
-/// 同じ条件）
-fn is_laz(data: &[u8]) -> bool {
-    data.starts_with(b"LASF") && data.get(104).is_some_and(|id| id & 0xc0 != 0)
-}
-
 /// 文書をどこまで読むか
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Depth {
@@ -141,6 +134,14 @@ fn read_drawing(calls: &mut Calls, doc: &str, summary: &Reply, depth: Depth) {
     }
     // DXF に書く（決定 0139）
     let to = format!("{doc}.dxf");
+    // 見積もりは同じ出力名を確保せず、後の実変換を妨げない（#645）。明細は小さく制限する。
+    calls.call("convert_estimate", |out| {
+        field(out, "doc", doc);
+        field(out, "format", "dxf");
+        field(out, "to", &to);
+        out.key("limit");
+        out.uint(4);
+    });
     if calls
         .call("convert", |out| {
             field(out, "doc", doc);
@@ -283,9 +284,6 @@ fn read_other(calls: &mut Calls) {
 }
 
 fuzz_target!(|data: &[u8]| {
-    if is_laz(data) {
-        return;
-    }
     let survived = zumen_sdk::testkit::survives_calls(|limits| {
         let mut calls = Calls::new(limits);
         calls.push("input", data);

@@ -1,0 +1,28 @@
+{
+  "description": "J-LandXML の最大片勾配が一定の区間を L2 へ移す。civil 応答は片勾配の値をまだ含めないため、ここでは移さないすりつけの種類・件数・場所の診断を比較する。L2 の値と予算使用量のネイティブ/wasm 一致は zumen-landxml の検査で確かめる（#468）",
+  "module": "drawing",
+  "steps": [
+    {
+      "push": {
+        "name": "cant.xml",
+        "text": "<LandXML xmlns=\"http://www.landxml.org/schema/LandXML-1.2\" version=\"1.2\"><CoordinateSystem horizontalDatum=\"JGD2011\" verticalDatum=\"T.P\" horizontalCoordinateSystemName=\"9(X,Y)\"/><Alignments><Alignment name=\"a\" length=\"200\" staStart=\"1000\"><CoordGeom><Line><Start>0 0</Start><End>200 0</End></Line></CoordGeom><Superelevation staStart=\"1010\" staEnd=\"1090\"><BeginRunoutSta>1005</BeginRunoutSta><FullSuperSta>1020</FullSuperSta><FullSuperelev>-4.5</FullSuperelev><RunoffSta>1060</RunoffSta></Superelevation></Alignment></Alignments></LandXML>"
+      }
+    },
+    {
+      "call": { "v": 1, "op": "open", "input": "cant.xml" },
+      "expect": {
+        "/result/format": "landxml",
+        "/diagnostics/0/code": "landxml.element.unsupported",
+        "/diagnostics/0/count": 1,
+        "/diagnostics/0/params/element": "BeginRunoutSta"
+      }
+    },
+    {
+      "call": { "v": 1, "op": "civil", "doc": "cant.xml", "distances": [30] },
+      "expect": {
+        "/result/alignment": "a",
+        "/result/positions/0/northing": 30
+      }
+    }
+  ]
+}

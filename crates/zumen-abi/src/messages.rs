@@ -23,10 +23,16 @@ pub enum Request {
     Drawing(DrawingRequest),
     /// 開いた文書を図面モデル（L2、決定 0022）に変換し、要素の一覧を返す。実寸の空間、用紙の順に、それぞれの要素を入力の順に並べる（決定 0117）
     Entities(EntitiesRequest),
+    /// 開いた文書を図面モデルに変換し、用紙の距離の校正をモデルの順に返す。マイナーバージョン 68 から
+    Calibrations(CalibrationsRequest),
+    /// 用紙と校正を明示的に選び、始点と終点の校正後の距離を求める。両点は校正の閉領域内にある必要がある。マイナーバージョン 68 から
+    MeasureDistance(MeasureDistanceRequest),
     /// 開いた文書に、変更の一覧を当てて書き戻す（決定 0139・0156）。要素は、entities が返す ID とハッシュで指す。どれか 1 つでも当てられなければ、何も変えない。当てたら、文書を書き戻したものに替え、書き戻したファイルを blobs で返す。マイナーバージョン 7 から
     Apply(ApplyRequest),
     /// 開いた文書から別の形式のファイルを作り、新しい文書として開く。対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから書く（決定 0139・0206・0281）。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。今は DXF にだけ書ける。マイナーバージョン 41 から
     Convert(ConvertRequest),
+    /// 開いた図面を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。今は DXF への変換だけ。マイナーバージョン 66 から
+    ConvertEstimate(ConvertEstimateRequest),
     /// 開いた文書を図面モデル（L2）に変換し、レイヤと線種の表の項目を返す（決定 0156）。マイナーバージョン 8 から
     Tables(TablesRequest),
     /// 開いた文書を図面モデル（L2）に変換し、起点から配置をたどって、2D のシーンを blob で返す（決定 0172）。シーンの配置は schema/scene.toml にある。マイナーバージョン 33 から
@@ -53,7 +59,7 @@ pub enum Request {
     BcfWrite(BcfWriteRequest),
     /// 線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。線形は、要求に書く（alignment）か、open で開いた J-LandXML の文書（doc）の線形を id で指す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。doc を渡せば、文書の線形と地表面の要約も返す。図面・BIM・土木地理・点群のモジュールに置く（決定 0253）。マイナーバージョン 46 から（doc と id はマイナーバージョン 47 から）
     Civil(CivilRequest),
-    /// open で開いた点群（LAS・LAZ）の要約と、条件に合う点を返す。点は八分木の浅い段のノードから順に選ぶ（決定 0232）。点群のモジュールに置く（決定 0253）。マイナーバージョン 48 から
+    /// open で開いた点群（LAS・PLY・XYZ・E57）の要約と、条件に合う点を返す。点は八分木の浅い段のノードから順に選ぶ（決定 0232）。点群のモジュールに置く（決定 0253）。マイナーバージョン 48 から
     Pointcloud(PointcloudRequest),
     /// 開いた点群と、土木の文書の TIN の標高の差を求め、プロファイルの surface-elevation の規則の区分ごとに集計して、規格値と比べる（決定 0234）。点群のモジュールに置く（決定 0253）。マイナーバージョン 50 から
     Deviation(DeviationRequest),
@@ -86,8 +92,11 @@ impl Request {
         "describe",
         "drawing",
         "entities",
+        "calibrations",
+        "measure_distance",
         "apply",
         "convert",
+        "convert_estimate",
         "tables",
         "scene",
         "check",
@@ -123,8 +132,11 @@ impl Request {
             Self::Describe(_) => "describe",
             Self::Drawing(_) => "drawing",
             Self::Entities(_) => "entities",
+            Self::Calibrations(_) => "calibrations",
+            Self::MeasureDistance(_) => "measure_distance",
             Self::Apply(_) => "apply",
             Self::Convert(_) => "convert",
+            Self::ConvertEstimate(_) => "convert_estimate",
             Self::Tables(_) => "tables",
             Self::Scene(_) => "scene",
             Self::Check(_) => "check",
@@ -163,8 +175,15 @@ impl FromJson for Request {
             "describe" => Self::Describe(DescribeRequest::read_fields(&mut object)?),
             "drawing" => Self::Drawing(DrawingRequest::read_fields(&mut object)?),
             "entities" => Self::Entities(EntitiesRequest::read_fields(&mut object)?),
+            "calibrations" => Self::Calibrations(CalibrationsRequest::read_fields(&mut object)?),
+            "measure_distance" => {
+                Self::MeasureDistance(MeasureDistanceRequest::read_fields(&mut object)?)
+            }
             "apply" => Self::Apply(ApplyRequest::read_fields(&mut object)?),
             "convert" => Self::Convert(ConvertRequest::read_fields(&mut object)?),
+            "convert_estimate" => {
+                Self::ConvertEstimate(ConvertEstimateRequest::read_fields(&mut object)?)
+            }
             "tables" => Self::Tables(TablesRequest::read_fields(&mut object)?),
             "scene" => Self::Scene(SceneRequest::read_fields(&mut object)?),
             "check" => Self::Check(CheckRequest::read_fields(&mut object)?),
@@ -213,8 +232,11 @@ impl ToJson for Request {
             Self::Describe(value) => value.to_json(out),
             Self::Drawing(value) => value.to_json(out),
             Self::Entities(value) => value.to_json(out),
+            Self::Calibrations(value) => value.to_json(out),
+            Self::MeasureDistance(value) => value.to_json(out),
             Self::Apply(value) => value.to_json(out),
             Self::Convert(value) => value.to_json(out),
+            Self::ConvertEstimate(value) => value.to_json(out),
             Self::Tables(value) => value.to_json(out),
             Self::Scene(value) => value.to_json(out),
             Self::Check(value) => value.to_json(out),
@@ -631,7 +653,7 @@ pub struct OpenRequest {
     pub input: String,
     /// 作る文書の名前。書かなければ入力の名前
     pub doc: Option<String>,
-    /// 入力の全体の大きさ（バイト）。渡した入力より大きければ、入力を全体の初めの部分とみなし、足りない範囲を needs で求める。範囲で読める形式（LAS・LAZ）だけが使う（決定 0232）。マイナーバージョン 48 から
+    /// 入力の全体の大きさ（バイト）。渡した入力より大きければ、入力を全体の初めの部分とみなし、足りない範囲を needs で求める。範囲で読める形式（LAS）だけが使う。LAZ は、ヘッダーを読んで las.laz.unsupported で断る（決定 0232・0289）。マイナーバージョン 48 から
     pub size: Option<u64>,
     /// 見分けるマーカーのない形式（xyz・extdm）を名指して読む。書かなければ、入力から判定する（決定 0232）。マイナーバージョン 49 から。extdm はマイナーバージョン 62 から
     pub format: Option<String>,
@@ -1094,6 +1116,458 @@ impl FromJson for DrawingResult {
 }
 
 impl ToJson for DrawingResult {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 2 次元の座標
+#[derive(Clone, Debug, PartialEq)]
+pub struct Point2 {
+    /// X 座標
+    pub x: f64,
+    /// Y 座標
+    pub y: f64,
+}
+
+impl Point2 {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let x = object.required("x", json::number)?;
+        let y = object.required("y", json::number)?;
+        Ok(Self { x, y })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("x");
+        out.float(self.x);
+        out.key("y");
+        out.float(self.y);
+    }
+}
+
+impl FromJson for Point2 {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for Point2 {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 原点と相対座標を分けた用紙の点。両成分の正確な和を位置とし、先に足して丸めない。座標の単位は用紙の mm
+#[derive(Clone, Debug, PartialEq)]
+pub struct SplitPoint2 {
+    /// 用紙の原点
+    pub origin: Point2,
+    /// 原点からの相対座標
+    pub offset: Point2,
+}
+
+impl SplitPoint2 {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let origin = object.required("origin", Point2::from_json)?;
+        let offset = object.required("offset", Point2::from_json)?;
+        Ok(Self { origin, offset })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("origin");
+        self.origin.to_json(out);
+        out.key("offset");
+        self.offset.to_json(out);
+    }
+}
+
+impl FromJson for SplitPoint2 {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for SplitPoint2 {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 用紙の閉じた矩形で使う距離の校正。重なる領域は ID で明示的に選ぶ。マイナーバージョン 68 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct CalibrationItem {
+    /// 文書内で重複しない校正の ID
+    pub id: String,
+    /// 元の校正の名前。翻訳しない。なければ持たない
+    pub name: Option<String>,
+    /// 校正を使える公開用紙の ID。drawing が返すもの
+    pub from: String,
+    /// 用紙の mm の閉じた矩形。[X の最小, Y の最小, X の最大, Y の最大] の 4 値で、幅と高さは正
+    pub bounds: Vec<f64>,
+    /// 用紙の mm の変位から校正単位の変位へ写す行優先の 2×2 行列。[a, b, c, d] の 4 値で、[dx, dy] を [a*dx+b*dy, c*dx+d*dy] に写す
+    pub matrix: Vec<f64>,
+    /// 校正後の長さの単位。ラベルだけから推定しない
+    pub unit: Unit,
+    /// 元の単位ラベル。未知の単位でも原文を保つ
+    pub unit_label: String,
+    /// 元の形式のレコード
+    pub source: Option<Source>,
+}
+
+impl CalibrationItem {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let id = object.required("id", json::string)?;
+        let name = object.optional("name", json::string)?;
+        let from = object.required("from", json::string)?;
+        let bounds = object.required("bounds", |value| json::array(value, json::number))?;
+        let matrix = object.required("matrix", |value| json::array(value, json::number))?;
+        let unit = object.required("unit", Unit::from_json)?;
+        let unit_label = object.required("unit_label", json::string)?;
+        let source = object.optional("source", Source::from_json)?;
+        Ok(Self {
+            id,
+            name,
+            from,
+            bounds,
+            matrix,
+            unit,
+            unit_label,
+            source,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("id");
+        out.string(&self.id);
+        if let Some(value) = &self.name {
+            out.key("name");
+            out.string(value);
+        }
+        out.key("from");
+        out.string(&self.from);
+        out.key("bounds");
+        out.array(&self.bounds, |out, item| out.float(*item));
+        out.key("matrix");
+        out.array(&self.matrix, |out, item| out.float(*item));
+        out.key("unit");
+        self.unit.to_json(out);
+        out.key("unit_label");
+        out.string(&self.unit_label);
+        if let Some(value) = &self.source {
+            out.key("source");
+            value.to_json(out);
+        }
+    }
+}
+
+impl FromJson for CalibrationItem {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for CalibrationItem {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 開いた文書を図面モデルに変換し、用紙の距離の校正をモデルの順に返す。マイナーバージョン 68 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct CalibrationsRequest {
+    /// `request_common` のフィールド
+    pub request_common: RequestCommon,
+    /// 文書の名前。open で作ったもの
+    pub doc: String,
+    /// 公開用紙の ID。drawing が返すもの。書けばその用紙の校正だけを返し、書かなければすべての校正を返す
+    pub from: Option<String>,
+    /// 返す最初の校正の位置。from で絞った後の位置で、前の応答の next_offset を渡す。書かなければ 0
+    pub offset: Option<u64>,
+    /// 返す校正の数の上限。書かなければ 1000
+    pub limit: Option<u64>,
+    /// 期待する元の文書のハッシュ。open に渡したバイト列のハッシュと照合する。図面モデルへ変換した ZMDR 自身のハッシュではない
+    pub expected_hash: Option<String>,
+}
+
+impl CalibrationsRequest {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let request_common = RequestCommon::read_fields(object)?;
+        object.constant("op", "calibrations")?;
+        let doc = object.required("doc", json::string)?;
+        let from = object.optional("from", json::string)?;
+        let offset = object.optional("offset", |value| json::uint(value, 0, 9007199254740991))?;
+        let limit = object.optional("limit", |value| json::uint(value, 1, 10000))?;
+        let expected_hash = object.optional("expected_hash", json::string)?;
+        Ok(Self {
+            request_common,
+            doc,
+            from,
+            offset,
+            limit,
+            expected_hash,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        self.request_common.write_fields(out);
+        out.key("op");
+        out.string("calibrations");
+        out.key("doc");
+        out.string(&self.doc);
+        if let Some(value) = &self.from {
+            out.key("from");
+            out.string(value);
+        }
+        if let Some(value) = &self.offset {
+            out.key("offset");
+            out.uint(*value);
+        }
+        if let Some(value) = &self.limit {
+            out.key("limit");
+            out.uint(*value);
+        }
+        if let Some(value) = &self.expected_hash {
+            out.key("expected_hash");
+            out.string(value);
+        }
+    }
+}
+
+impl FromJson for CalibrationsRequest {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for CalibrationsRequest {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 距離の校正の一覧の一部
+#[derive(Clone, Debug, PartialEq)]
+pub struct CalibrationsResult {
+    /// 元の文書のハッシュ。ZMDR から開いたときは、埋め込まれた元の文書のハッシュ（Source.hash）
+    pub hash: String,
+    /// from で絞った一覧の offset から limit 個までの校正
+    pub items: Vec<CalibrationItem>,
+    /// from で絞った後の校正の総数
+    pub total: u64,
+    /// 続きの最初の校正の位置。続きがなければ持たない
+    pub next_offset: Option<u64>,
+}
+
+impl CalibrationsResult {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let hash = object.required("hash", json::string)?;
+        let items = object.required("items", |value| {
+            json::array(value, CalibrationItem::from_json)
+        })?;
+        let total = object.required("total", |value| json::uint(value, 0, 9007199254740991))?;
+        let next_offset = object.optional("next_offset", |value| {
+            json::uint(value, 0, 9007199254740991)
+        })?;
+        Ok(Self {
+            hash,
+            items,
+            total,
+            next_offset,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("hash");
+        out.string(&self.hash);
+        out.key("items");
+        out.array(&self.items, |out, item| item.to_json(out));
+        out.key("total");
+        out.uint(self.total);
+        if let Some(value) = &self.next_offset {
+            out.key("next_offset");
+            out.uint(*value);
+        }
+    }
+}
+
+impl FromJson for CalibrationsResult {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for CalibrationsResult {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 用紙と校正を明示的に選び、始点と終点の校正後の距離を求める。両点は校正の閉領域内にある必要がある。マイナーバージョン 68 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct MeasureDistanceRequest {
+    /// `request_common` のフィールド
+    pub request_common: RequestCommon,
+    /// 文書の名前。open で作ったもの
+    pub doc: String,
+    /// 公開用紙の ID。drawing が返すもので、選んだ校正と同じ用紙
+    pub from: String,
+    /// 使う校正の ID。calibrations が返すもの
+    pub calibration: String,
+    /// 始点。原点と相対座標を分けた用紙の mm の点
+    pub start: SplitPoint2,
+    /// 終点。原点と相対座標を分けた用紙の mm の点
+    pub end: SplitPoint2,
+    /// 期待する元の文書のハッシュ。open に渡したバイト列のハッシュと照合する。図面モデルへ変換した ZMDR 自身のハッシュではない
+    pub expected_hash: Option<String>,
+}
+
+impl MeasureDistanceRequest {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let request_common = RequestCommon::read_fields(object)?;
+        object.constant("op", "measure_distance")?;
+        let doc = object.required("doc", json::string)?;
+        let from = object.required("from", json::string)?;
+        let calibration = object.required("calibration", json::string)?;
+        let start = object.required("start", SplitPoint2::from_json)?;
+        let end = object.required("end", SplitPoint2::from_json)?;
+        let expected_hash = object.optional("expected_hash", json::string)?;
+        Ok(Self {
+            request_common,
+            doc,
+            from,
+            calibration,
+            start,
+            end,
+            expected_hash,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        self.request_common.write_fields(out);
+        out.key("op");
+        out.string("measure_distance");
+        out.key("doc");
+        out.string(&self.doc);
+        out.key("from");
+        out.string(&self.from);
+        out.key("calibration");
+        out.string(&self.calibration);
+        out.key("start");
+        self.start.to_json(out);
+        out.key("end");
+        self.end.to_json(out);
+        if let Some(value) = &self.expected_hash {
+            out.key("expected_hash");
+            out.string(value);
+        }
+    }
+}
+
+impl FromJson for MeasureDistanceRequest {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for MeasureDistanceRequest {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 選んだ用紙と校正による距離
+#[derive(Clone, Debug, PartialEq)]
+pub struct MeasureDistanceResult {
+    /// 元の文書のハッシュ。ZMDR から開いたときは、埋め込まれた元の文書のハッシュ（Source.hash）
+    pub hash: String,
+    /// 計測した公開用紙の ID
+    pub from: String,
+    /// 使った校正の ID
+    pub calibration: String,
+    /// 校正後の距離。unit と unit_label が示す単位
+    pub distance: f64,
+    /// 校正後の長さの単位
+    pub unit: Unit,
+    /// 元の単位ラベル。未知の単位でも原文を保つ
+    pub unit_label: String,
+}
+
+impl MeasureDistanceResult {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let hash = object.required("hash", json::string)?;
+        let from = object.required("from", json::string)?;
+        let calibration = object.required("calibration", json::string)?;
+        let distance = object.required("distance", json::number)?;
+        let unit = object.required("unit", Unit::from_json)?;
+        let unit_label = object.required("unit_label", json::string)?;
+        Ok(Self {
+            hash,
+            from,
+            calibration,
+            distance,
+            unit,
+            unit_label,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("hash");
+        out.string(&self.hash);
+        out.key("from");
+        out.string(&self.from);
+        out.key("calibration");
+        out.string(&self.calibration);
+        out.key("distance");
+        out.float(self.distance);
+        out.key("unit");
+        self.unit.to_json(out);
+        out.key("unit_label");
+        out.string(&self.unit_label);
+    }
+}
+
+impl FromJson for MeasureDistanceResult {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for MeasureDistanceResult {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);
@@ -1774,7 +2248,7 @@ pub enum Geometry {
     Ellipse(EllipseGeometry),
     /// 頂点を結んだ折れ線。幅は持たない
     Polyline(PolylineGeometry),
-    /// 1 点か 2 点の間に置く文字。置き換えるときは、位置合わせ・幅の倍率・斜体・反転・文字スタイルを元の値のままにする。足すときは、2 点目がなければ左の基準線に合わせ、幅の倍率 1・斜体なし・反転なしにする
+    /// 1 点か 2 点の間に置く文字。置き換えるときは、位置合わせ・文字スタイルを元の値のままにし、書かない幅の倍率・斜体・反転も元の値を受け継ぐ。足すときは、2 点目がなければ書かない位置合わせを左の基準線にし、幅の倍率 1・斜体なし・反転なしにする
     Text(TextGeometry),
     /// 書式つきの文字（DXF の MTEXT）。置き換えるときは、枠の高さ・書き進める向き・行送り・背景・高さの意味・文字スタイルを元の値のままにする。足すときは、枠の高さなし・左から右・行送り 1 倍・背景なしにする。マイナーバージョン 13 から
     FormattedText(FormattedTextGeometry),
@@ -2147,7 +2621,7 @@ impl ToJson for PolylineGeometry {
     }
 }
 
-/// 1 点か 2 点の間に置く文字。置き換えるときは、位置合わせ・幅の倍率・斜体・反転・文字スタイルを元の値のままにする。足すときは、2 点目がなければ左の基準線に合わせ、幅の倍率 1・斜体なし・反転なしにする
+/// 1 点か 2 点の間に置く文字。置き換えるときは、位置合わせ・文字スタイルを元の値のままにし、書かない幅の倍率・斜体・反転も元の値を受け継ぐ。足すときは、2 点目がなければ書かない位置合わせを左の基準線にし、幅の倍率 1・斜体なし・反転なしにする
 #[derive(Clone, Debug, PartialEq)]
 pub struct TextGeometry {
     /// 内容。1 行
@@ -2158,10 +2632,22 @@ pub struct TextGeometry {
     pub end: Option<Vec<f64>>,
     /// 2 点の間への合わせ方。2 点目（end）と一緒に書く。マイナーバージョン 17 から
     pub fit: Option<TextFit>,
+    /// 1 点に置く文字の水平の位置合わせ。left のときは entities が省き、足すときも省けば left。2 点の間に合わせる文字には書けない。置き換えるときは元と同じ値だけを受ける。マイナーバージョン 69 から
+    pub horizontal: Option<TextHorizontal>,
+    /// 1 点に置く文字の垂直の位置合わせ。baseline のときは entities が省き、足すときも省けば baseline。2 点の間に合わせる文字には書けない。置き換えるときは元と同じ値だけを受ける。マイナーバージョン 69 から
+    pub vertical: Option<TextVertical>,
     /// 高さ。0 より大きい
     pub height: f64,
     /// 回転（度）。2 点の間に合わせる文字では、1 点目から 2 点目への向きと同じでなければならない
     pub rotation: f64,
+    /// 幅の倍率。0 より大きい。1 のときは entities が省き、足すときも省けば 1、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から
+    pub width_factor: Option<f64>,
+    /// 斜体の角度（度）。0 のときは entities が省き、足すときも省けば 0、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から
+    pub oblique: Option<f64>,
+    /// 左右を裏返すか。偽のときは entities が省き、足すときも省けば偽、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から
+    pub backward: Option<bool>,
+    /// 上下を反転するか。偽のときは entities が省き、足すときも省けば偽、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から
+    pub upside_down: Option<bool>,
     /// 文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。DXF に文字スタイルの定義がないときは Standard だけを受ける。置き換えるときは、元と同じ名前だけを受ける。style_id と一緒に書くなら、同じ文字スタイルを指す。マイナーバージョン 12 から
     pub style: Option<String>,
     /// 文字スタイルの ID。tables が返したもの。entities は、名前で引いた文字スタイルの ID を返す。足す・置き換えるときは、名前の代わりに書ける（名前より先に使う）。同じ名前（大文字と小文字を区別しない）の項目が複数あれば書き戻せない。マイナーバージョン 23 から
@@ -2175,8 +2661,14 @@ impl TextGeometry {
         let position = object.required("position", |value| json::array(value, json::number))?;
         let end = object.optional("end", |value| json::array(value, json::number))?;
         let fit = object.optional("fit", TextFit::from_json)?;
+        let horizontal = object.optional("horizontal", TextHorizontal::from_json)?;
+        let vertical = object.optional("vertical", TextVertical::from_json)?;
         let height = object.required("height", json::number)?;
         let rotation = object.required("rotation", json::number)?;
+        let width_factor = object.optional("width_factor", json::number)?;
+        let oblique = object.optional("oblique", json::number)?;
+        let backward = object.optional("backward", json::boolean)?;
+        let upside_down = object.optional("upside_down", json::boolean)?;
         let style = object.optional("style", json::string)?;
         let style_id = object.optional("style_id", json::string)?;
         Ok(Self {
@@ -2184,8 +2676,14 @@ impl TextGeometry {
             position,
             end,
             fit,
+            horizontal,
+            vertical,
             height,
             rotation,
+            width_factor,
+            oblique,
+            backward,
+            upside_down,
             style,
             style_id,
         })
@@ -2206,10 +2704,34 @@ impl TextGeometry {
             out.key("fit");
             value.to_json(out);
         }
+        if let Some(value) = &self.horizontal {
+            out.key("horizontal");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.vertical {
+            out.key("vertical");
+            value.to_json(out);
+        }
         out.key("height");
         out.float(self.height);
         out.key("rotation");
         out.float(self.rotation);
+        if let Some(value) = &self.width_factor {
+            out.key("width_factor");
+            out.float(*value);
+        }
+        if let Some(value) = &self.oblique {
+            out.key("oblique");
+            out.float(*value);
+        }
+        if let Some(value) = &self.backward {
+            out.key("backward");
+            out.bool(*value);
+        }
+        if let Some(value) = &self.upside_down {
+            out.key("upside_down");
+            out.bool(*value);
+        }
         if let Some(value) = &self.style {
             out.key("style");
             out.string(value);
@@ -2235,6 +2757,108 @@ impl ToJson for TextGeometry {
         out.begin_object();
         self.write_fields(out);
         out.end_object();
+    }
+}
+
+/// 1 点に置く文字の水平の位置合わせ。middle は水平と垂直の両方を外形の中央に合わせる（DXF の 72 = 4）
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum TextHorizontal {
+    /// `left`
+    Left,
+    /// `center`
+    Center,
+    /// `right`
+    Right,
+    /// `middle`
+    Middle,
+}
+
+impl TextHorizontal {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[Self::Left, Self::Center, Self::Right, Self::Middle];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Left => "left",
+            Self::Center => "center",
+            Self::Right => "right",
+            Self::Middle => "middle",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "left" => Some(Self::Left),
+            "center" => Some(Self::Center),
+            "right" => Some(Self::Right),
+            "middle" => Some(Self::Middle),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for TextHorizontal {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for TextHorizontal {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
+    }
+}
+
+/// 1 点に置く文字の垂直の位置合わせ
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum TextVertical {
+    /// `baseline`
+    Baseline,
+    /// `bottom`
+    Bottom,
+    /// `middle`
+    Middle,
+    /// `top`
+    Top,
+}
+
+impl TextVertical {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[Self::Baseline, Self::Bottom, Self::Middle, Self::Top];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Baseline => "baseline",
+            Self::Bottom => "bottom",
+            Self::Middle => "middle",
+            Self::Top => "top",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "baseline" => Some(Self::Baseline),
+            "bottom" => Some(Self::Bottom),
+            "middle" => Some(Self::Middle),
+            "top" => Some(Self::Top),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for TextVertical {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for TextVertical {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
     }
 }
 
@@ -3952,6 +4576,496 @@ impl ToJson for ConvertResult {
         out.begin_object();
         self.write_fields(out);
         out.end_object();
+    }
+}
+
+/// 開いた図面を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。今は DXF への変換だけ。マイナーバージョン 66 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct ConvertEstimateRequest {
+    /// `request_common` のフィールド
+    pub request_common: RequestCommon,
+    /// 書く元の文書の名前
+    pub doc: String,
+    /// 書く形式の名前。今は dxf だけ
+    pub format: String,
+    /// 予定する文書の名前。convert と同じ条件で検査するが、名前を確保しない
+    pub to: String,
+    /// 書き手と読み取り段階のそれぞれで返す明細の最大件数。省略時は 100。総数と全件集計はこの上限によらない
+    pub limit: Option<u64>,
+}
+
+impl ConvertEstimateRequest {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let request_common = RequestCommon::read_fields(object)?;
+        object.constant("op", "convert_estimate")?;
+        let doc = object.required("doc", json::string)?;
+        let format = object.required("format", json::string)?;
+        let to = object.required("to", json::string)?;
+        let limit = object.optional("limit", |value| json::uint(value, 0, 1000))?;
+        Ok(Self {
+            request_common,
+            doc,
+            format,
+            to,
+            limit,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        self.request_common.write_fields(out);
+        out.key("op");
+        out.string("convert_estimate");
+        out.key("doc");
+        out.string(&self.doc);
+        out.key("format");
+        out.string(&self.format);
+        out.key("to");
+        out.string(&self.to);
+        if let Some(value) = &self.limit {
+            out.key("limit");
+            out.uint(*value);
+        }
+    }
+}
+
+impl FromJson for ConvertEstimateRequest {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for ConvertEstimateRequest {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 予定する変換の結果。元の文書・ID を保ち、ファイルの blob を返さない
+#[derive(Clone, Debug, PartialEq)]
+pub struct ConvertEstimateResult {
+    /// 予定する出力と忠実度の全件集計・上限付き明細
+    pub estimate: ConversionEstimate,
+}
+
+impl ConvertEstimateResult {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let estimate = object.required("estimate", ConversionEstimate::from_json)?;
+        Ok(Self { estimate })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("estimate");
+        self.estimate.to_json(out);
+    }
+}
+
+impl FromJson for ConvertEstimateResult {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for ConvertEstimateResult {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 実変換と同じ処理で準備した出力。doc と hash は未登録の予定値。元の入力・設定・予算が同じなら convert の値と一致する
+#[derive(Clone, Debug, PartialEq)]
+pub struct ConversionEstimate {
+    /// 予定する文書の名前
+    pub doc: String,
+    /// 予定する形式の名前
+    pub format: String,
+    /// 予定する出力バイト列のハッシュ。未登録なので apply の前提条件には使えない
+    pub hash: String,
+    /// 予定する出力の要素数。記号から離す属性の文字を含む
+    pub elements: u64,
+    /// 処理対象の出現数。同じ出所を持つ別の入力は別々に数え、診断の数では増やさない
+    pub total: u64,
+    /// 種類と忠実度ごとの全件集計
+    pub counts: Vec<ConversionCount>,
+    /// 処理順の明細。limit 件まで返す
+    pub details: Vec<ConversionDetail>,
+    /// 明細の上限で返さなかった対象がある
+    pub truncated: bool,
+    /// 入力の表の読み取りと lift 中の、集約前の診断発生記録。書き手の項目の集計には含めない。マイナーバージョン 67 から
+    pub input_diagnostics: Option<ConversionInputDiagnostics>,
+}
+
+impl ConversionEstimate {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let doc = object.required("doc", json::string)?;
+        let format = object.required("format", json::string)?;
+        let hash = object.required("hash", json::string)?;
+        let elements =
+            object.required("elements", |value| json::uint(value, 0, 9007199254740991))?;
+        let total = object.required("total", |value| json::uint(value, 0, 9007199254740991))?;
+        let counts = object.required("counts", |value| {
+            json::array(value, ConversionCount::from_json)
+        })?;
+        let details = object.required("details", |value| {
+            json::array(value, ConversionDetail::from_json)
+        })?;
+        let truncated = object.required("truncated", json::boolean)?;
+        let input_diagnostics =
+            object.optional("input_diagnostics", ConversionInputDiagnostics::from_json)?;
+        Ok(Self {
+            doc,
+            format,
+            hash,
+            elements,
+            total,
+            counts,
+            details,
+            truncated,
+            input_diagnostics,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("doc");
+        out.string(&self.doc);
+        out.key("format");
+        out.string(&self.format);
+        out.key("hash");
+        out.string(&self.hash);
+        out.key("elements");
+        out.uint(self.elements);
+        out.key("total");
+        out.uint(self.total);
+        out.key("counts");
+        out.array(&self.counts, |out, item| item.to_json(out));
+        out.key("details");
+        out.array(&self.details, |out, item| item.to_json(out));
+        out.key("truncated");
+        out.bool(self.truncated);
+        if let Some(value) = &self.input_diagnostics {
+            out.key("input_diagnostics");
+            value.to_json(out);
+        }
+    }
+}
+
+impl FromJson for ConversionEstimate {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for ConversionEstimate {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 読み取り段階の診断発生数。失った要素数ではなく、同じ要素の複数の診断もそれぞれ数える。忠実度を持たない診断も含む。open 時や書き手の診断は含まない
+#[derive(Clone, Debug, PartialEq)]
+pub struct ConversionInputDiagnostics {
+    /// 診断の発生件数の合計。max_places と limit によらない
+    pub total: u64,
+    /// 診断の code とカタログの group_by の値による全件集計。場所は持たず、値は最も早い入力位置の報告から取る
+    pub counts: Vec<Diagnostic>,
+    /// 集約前の報告を入力位置順に limit 件まで返す。同じ位置は報告順。診断の場所は max_places で制限しない
+    pub details: Vec<ConversionInputDiagnostic>,
+    /// 明細の上限で返さなかった報告がある
+    pub truncated: bool,
+}
+
+impl ConversionInputDiagnostics {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let total = object.required("total", |value| json::uint(value, 0, 9007199254740991))?;
+        let counts =
+            object.required("counts", |value| json::array(value, Diagnostic::from_json))?;
+        let details = object.required("details", |value| {
+            json::array(value, ConversionInputDiagnostic::from_json)
+        })?;
+        let truncated = object.required("truncated", json::boolean)?;
+        Ok(Self {
+            total,
+            counts,
+            details,
+            truncated,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("total");
+        out.uint(self.total);
+        out.key("counts");
+        out.array(&self.counts, |out, item| item.to_json(out));
+        out.key("details");
+        out.array(&self.details, |out, item| item.to_json(out));
+        out.key("truncated");
+        out.bool(self.truncated);
+    }
+}
+
+impl FromJson for ConversionInputDiagnostics {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for ConversionInputDiagnostics {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 集約前の診断と、その場所と同じ順序の出所。種類や失った値は診断の code と params からたどる
+#[derive(Clone, Debug, PartialEq)]
+pub struct ConversionInputDiagnostic {
+    /// 集約前の診断。元の値と場所を保つ
+    pub diagnostic: Diagnostic,
+    /// diagnostic.at と同じ順序のレコード・バイト範囲・ハンドル・インスタンス番号。ID は diagnostic.at にある
+    pub sources: Vec<Source>,
+}
+
+impl ConversionInputDiagnostic {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let diagnostic = object.required("diagnostic", Diagnostic::from_json)?;
+        let sources = object.required("sources", |value| json::array(value, Source::from_json))?;
+        Ok(Self {
+            diagnostic,
+            sources,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("diagnostic");
+        self.diagnostic.to_json(out);
+        out.key("sources");
+        out.array(&self.sources, |out, item| item.to_json(out));
+    }
+}
+
+impl FromJson for ConversionInputDiagnostic {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for ConversionInputDiagnostic {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 処理対象の種類と忠実度ごとの集計
+#[derive(Clone, Debug, PartialEq)]
+pub struct ConversionCount {
+    /// 処理対象の種類のキー
+    pub kind: String,
+    /// その対象を移した結果の忠実度
+    pub fidelity: ConversionFidelity,
+    /// 入力の出現数。1 つの入力が複数の出力になっても 1 件
+    pub count: u64,
+    /// この対象から書いた図形の数。表や参照だけを移した場合は 0
+    pub output_elements: u64,
+}
+
+impl ConversionCount {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let kind = object.required("kind", json::string)?;
+        let fidelity = object.required("fidelity", ConversionFidelity::from_json)?;
+        let count = object.required("count", |value| json::uint(value, 0, 9007199254740991))?;
+        let output_elements = object.required("output_elements", |value| {
+            json::uint(value, 0, 9007199254740991)
+        })?;
+        Ok(Self {
+            kind,
+            fidelity,
+            count,
+            output_elements,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        out.string(&self.kind);
+        out.key("fidelity");
+        self.fidelity.to_json(out);
+        out.key("count");
+        out.uint(self.count);
+        out.key("output_elements");
+        out.uint(self.output_elements);
+    }
+}
+
+impl FromJson for ConversionCount {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for ConversionCount {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 処理対象の出現 1 つ。複数の欠落の診断が出ても 1 件として数える
+#[derive(Clone, Debug, PartialEq)]
+pub struct ConversionDetail {
+    /// 処理対象の種類のキー
+    pub kind: String,
+    /// その対象を移した結果の忠実度
+    pub fidelity: ConversionFidelity,
+    /// 値や参照を変えた理由のキー。text_height_meaning は文字高の意味、relocated_shape は形の値、style_default はスタイルの既定値、detached_attribute は属性の文字への分離、baked_view はビューの焼き込み、reference_dropped は参照の欠落
+    pub reasons: Vec<String>,
+    /// 元の要素の ID。持つ対象だけで返す
+    pub id: Option<String>,
+    /// 元の対象のレコード・バイト範囲・キー
+    pub source: Source,
+    /// この対象から書いた図形の数。表や参照だけを移した場合は 0
+    pub output_elements: u64,
+}
+
+impl ConversionDetail {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let kind = object.required("kind", json::string)?;
+        let fidelity = object.required("fidelity", ConversionFidelity::from_json)?;
+        let reasons = object.required("reasons", |value| json::array(value, json::string))?;
+        let id = object.optional("id", json::string)?;
+        let source = object.required("source", Source::from_json)?;
+        let output_elements = object.required("output_elements", |value| {
+            json::uint(value, 0, 9007199254740991)
+        })?;
+        Ok(Self {
+            kind,
+            fidelity,
+            reasons,
+            id,
+            source,
+            output_elements,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        out.string(&self.kind);
+        out.key("fidelity");
+        self.fidelity.to_json(out);
+        out.key("reasons");
+        out.array(&self.reasons, |out, item| out.string(item));
+        if let Some(value) = &self.id {
+            out.key("id");
+            out.string(value);
+        }
+        out.key("source");
+        self.source.to_json(out);
+        out.key("output_elements");
+        out.uint(self.output_elements);
+    }
+}
+
+impl FromJson for ConversionDetail {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for ConversionDetail {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 忠実度。`native` は元の値・参照を保持、`equivalent` は別の表現で同じ意味、`approximated` は近似、`drawn` は見た目だけ、`dropped` は欠落
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ConversionFidelity {
+    /// `native`
+    Native,
+    /// `equivalent`
+    Equivalent,
+    /// `approximated`
+    Approximated,
+    /// `drawn`
+    Drawn,
+    /// `dropped`
+    Dropped,
+}
+
+impl ConversionFidelity {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[
+        Self::Native,
+        Self::Equivalent,
+        Self::Approximated,
+        Self::Drawn,
+        Self::Dropped,
+    ];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Native => "native",
+            Self::Equivalent => "equivalent",
+            Self::Approximated => "approximated",
+            Self::Drawn => "drawn",
+            Self::Dropped => "dropped",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "native" => Some(Self::Native),
+            "equivalent" => Some(Self::Equivalent),
+            "approximated" => Some(Self::Approximated),
+            "drawn" => Some(Self::Drawn),
+            "dropped" => Some(Self::Dropped),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for ConversionFidelity {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for ConversionFidelity {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
     }
 }
 
@@ -12962,7 +14076,7 @@ impl ToJson for CivilPosition {
     }
 }
 
-/// open で開いた点群（LAS・LAZ）の要約と、条件に合う点を返す。点は八分木の浅い段のノードから順に選ぶ（決定 0232）。点群のモジュールに置く（決定 0253）。マイナーバージョン 48 から
+/// open で開いた点群（LAS・PLY・XYZ・E57）の要約と、条件に合う点を返す。点は八分木の浅い段のノードから順に選ぶ（決定 0232）。点群のモジュールに置く（決定 0253）。マイナーバージョン 48 から
 #[derive(Clone, Debug, PartialEq)]
 pub struct PointcloudRequest {
     /// `request_common` のフィールド

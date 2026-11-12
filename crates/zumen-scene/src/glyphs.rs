@@ -266,6 +266,142 @@ pub(crate) fn flatten(contours: &[Contour], tolerance: f64) -> Vec<Vec<Xy>> {
 }
 
 impl Builder<'_, '_, '_> {
+    /// レビュー専用の事前予約。通常のシーンの予算と字形キャッシュの規則は変えない（決定 0295）。
+    pub(crate) fn lay_review_text<P: Spot>(
+        &mut self,
+        visit: &VisitRef<'_, '_>,
+        text: &Text<P>,
+        font: Option<&str>,
+        item: &mut TextItem,
+    ) -> Result<(), (Stop, Ref)> {
+        use zumen_base::Kind;
+
+        if self.fonts.is_empty() {
+            return Ok(());
+        }
+        let source = source(visit);
+        let lookup = (self.fonts.named.len() as u64)
+            .saturating_mul(font.map_or(1, |s| s.len() as u64 + 1))
+            .saturating_mul(4);
+        self.cx
+            .check(Kind::Work, lookup)
+            .map_err(|s| (s, source.clone()))?;
+        let Some(index) = self.typeface(font, &source) else {
+            return Ok(());
+        };
+        // glyf の点と部品、CFF/CFF2 の数と命令は 2^16 以下。字形の探索と寸法の読み直しも含め、
+        // 1 文字につきその 256 倍の作業を、配置する前に予約する。キャッシュした輪郭の量はここに重ねない。
+        self.cx
+            .check(
+                Kind::Work,
+                (text.content.len() as u64).saturating_mul(1 << 24),
+            )
+            .map_err(|s| (s, source.clone()))?;
+        self.cx
+            .check(
+                Kind::DecodedBytes,
+                (text.content.len() as u64).saturating_mul(256),
+            )
+            .map_err(|s| (s, source.clone()))?;
+        let reference = self.reference(&text.height, &source);
+        let fonts = self.fonts;
+        let Some(face) = fonts.at(index) else {
+            return Ok(());
+        };
+        let Ok(laid) = layout::place(text, |p| p.xy(), face, |_| Some(reference)) else {
+            self.unplaced(&source);
+            return Ok(());
+        };
+        if laid.missing > 0 {
+            self.report(codes::SCENE_GLYPH_MISSING, &source);
+        }
+        self.segments(laid.pens.len(), &source)?;
+        let mut glyphs = Vec::with_capacity(laid.pens.len());
+        for (ch, pen) in text.content.chars().zip(&laid.pens) {
+            let id = face.glyph_id(ch).unwrap_or(0);
+            let transform = compose(visit.transform.m, advanced(laid.transform, *pen));
+            let shape = self.review_glyph_shape(index, id, transform, &source)?;
+            glyphs.push(GlyphItem { shape, transform });
+        }
+        item.glyphs = glyphs;
+        item.height *= face.metrics().cap_height / layout::unit(reference, face);
+        item.flags &= !(text_flag::HEIGHT_FRAME | text_flag::HEIGHT_EM);
+        Ok(())
+    }
+
+    fn review_glyph_shape(
+        &mut self,
+        face: usize,
+        id: u16,
+        transform: [f64; 6],
+        source: &Ref,
+    ) -> Result<u32, (Stop, Ref)> {
+        use zumen_base::Kind;
+
+        let [a, b, c, d, ..] = transform;
+        let scale = libm::hypot(a, b).max(libm::hypot(c, d));
+        let level = level(self.tolerance / scale);
+        let key = (face, id, level);
+        self.cx
+            .check(
+                Kind::Work,
+                (u64::from(self.shape_rows.len().max(1).ilog2()) + 1) * 4,
+            )
+            .map_err(|s| (s, source.clone()))?;
+        if let Some(row) = self.shape_rows.get(&key) {
+            return Ok(*row);
+        }
+        // drawing::font の glyf/CFF/CFF2 は、1 字形の点・部品または数・命令を 2^16 に制限する。
+        // 輪郭を読む前に、その 256 バイト/項目を予約する。glyf の端点・旗・座標・点・輪郭の Vec、
+        // CFF のスタックと輪郭、深さ 8 の glyf と深さ 10 の CFF の一時の列を含める。
+        self.cx
+            .check(Kind::Work, 1 << 24)
+            .map_err(|s| (s, source.clone()))?;
+        self.cx
+            .check(Kind::DecodedBytes, (1 << 24) + (1 << 20))
+            .map_err(|s| (s, source.clone()))?;
+        let outline = self.fonts.at(face).and_then(|font| font.outline(id));
+        let rings = if let Some(contours) = outline {
+            let mut upper = 0u64;
+            for contour in &contours {
+                self.cx
+                    .check(Kind::Work, 1 + contour.segments.len() as u64)
+                    .map_err(|s| (s, source.clone()))?;
+                // flatten は 1 区間を最大 64 分割し、輪の始点を 1 つ足す。
+                upper =
+                    upper.saturating_add(1 + (contour.segments.len() as u64).saturating_mul(64));
+                if contour
+                    .segments
+                    .iter()
+                    .any(|s| !matches!(s, Segment::Line(_)))
+                {
+                    self.approximated = true;
+                }
+            }
+            self.cx
+                .check(Kind::Work, upper.saturating_mul(64))
+                .map_err(|s| (s, source.clone()))?;
+            self.cx
+                .check(Kind::Segments, upper)
+                .map_err(|s| (s, source.clone()))?;
+            // 輪郭の列の容量の増加と、列・最終のバッファーへ写す分も含める。
+            self.cx
+                .check(
+                    Kind::DecodedBytes,
+                    upper.saturating_mul(128).saturating_add(1024),
+                )
+                .map_err(|s| (s, source.clone()))?;
+            flatten(&contours, power(level))
+        } else {
+            self.report(codes::SCENE_GLYPH_OUTLINE_INVALID, source);
+            Vec::new()
+        };
+        let row = u32::try_from(self.shapes.len()).unwrap_or(crate::layout::NONE);
+        self.shapes.push(rings);
+        self.shape_rows.insert(key, row);
+        Ok(row)
+    }
+
     /// 高さの意味に当たる寸法。決めていない宣言値は、表示と比べて決めた意味か、大文字の高さとみなす
     fn reference(&mut self, height: &Height, source: &Ref) -> Reference {
         match &height.meaning {

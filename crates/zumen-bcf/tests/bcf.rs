@@ -323,6 +323,74 @@ fn writes_unchanged_topics_back_byte_for_byte() {
     );
 }
 
+/// UTF-16 の原本は未変更ならそのまま保ち、未知の XML を落とす更新は成功扱いしない。
+#[test]
+fn preserves_utf16_topics_and_rejects_updates_that_cannot_keep_opaque_xml() {
+    for little in [true, false] {
+        let (mut bcf, mut review) = read(&sample()).unwrap();
+        let text = markup().replace("encoding=\"UTF-8\"", "encoding=\"UTF-16\"");
+        let mut encoded = if little {
+            vec![0xff, 0xfe]
+        } else {
+            vec![0xfe, 0xff]
+        };
+        for unit in text.encode_utf16() {
+            encoded.extend_from_slice(&if little {
+                unit.to_le_bytes()
+            } else {
+                unit.to_be_bytes()
+            });
+        }
+        bcf.topics[0].markup = encoded.clone();
+        let (bytes, diag) = write(&review, Some(&bcf), &options()).unwrap();
+        assert!(diag.is_empty(), "{diag:?}");
+        assert_eq!(
+            entry(&bytes, &format!("{TOPIC}/markup.bcf")).unwrap(),
+            encoded
+        );
+        review.topics[0].title = "変更後".into();
+        let (result, diag) = with(Limits::default(), |cx| {
+            zumen_bcf::write(&review, Some(&bcf), &options(), cx)
+        });
+        assert!(matches!(result, Err(Error::Unsupported)), "{diag:?}");
+        assert!(
+            diag.iter()
+                .any(|d| d.code().name() == "bcf.encoding.unsupported"),
+            "{diag:?}"
+        );
+    }
+}
+
+#[test]
+fn preserves_shift_jis_topics_and_rejects_opaque_updates() {
+    // ASCII の値だけで、追加の符号化の依存なしに Shift_JIS の文書を作る。
+    let text = markup()
+        .replace("encoding=\"UTF-8\"", "encoding=\"Shift_JIS\"")
+        .replace("扉の幅がない", "Door width")
+        .replace("OverallWidth がない", "Missing OverallWidth")
+        .replace("直します", "Will fix");
+    assert!(text.is_ascii());
+    let mut bcf = read(&sample()).unwrap().0;
+    bcf.topics[0].markup = text.as_bytes().to_vec();
+    let (review, diag) = with(Limits::default(), |cx| {
+        zumen_bcf::review(&bcf, &target(), &Statuses::default(), Some(&Model), cx)
+    });
+    assert!(diag.is_empty(), "{diag:?}");
+    let mut review = review.unwrap();
+    let (bytes, diag) = write(&review, Some(&bcf), &options()).unwrap();
+    assert!(diag.is_empty(), "{diag:?}");
+    assert_eq!(
+        entry(&bytes, &format!("{TOPIC}/markup.bcf")).unwrap(),
+        text.as_bytes()
+    );
+    review.topics[0].title = "Changed".into();
+    let (result, diag) = with(Limits::default(), |cx| {
+        zumen_bcf::write(&review, Some(&bcf), &options(), cx)
+    });
+    assert!(matches!(result, Err(Error::Unsupported)), "{diag:?}");
+    assert_eq!(found(&diag), [codes::BCF_ENCODING_UNSUPPORTED]);
+}
+
 #[test]
 fn keeps_unmapped_and_unknown_parts_of_changed_topics() {
     let (bcf, mut review) = read(&sample()).unwrap();

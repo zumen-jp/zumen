@@ -1,10 +1,42 @@
 //! テストの中で書いた小さな J-LandXML を読み、線形・縦断・横断・地表面を土木の領域モデルに移す（#368）。
 
-use zumen_base::{Budget, CancelToken, Diagnostics, Kind, Limit, Limits, Stop, codes};
-use zumen_civil::{CivilModel, HorizontalKind, SurfaceRole, TransitionCurve, VerticalKind};
+use zumen_base::{Budget, CancelToken, Diagnostics, Kind, Limit, Limits, Stop, Value, codes};
+use zumen_civil::{
+    CantKind, CivilModel, HorizontalKind, SurfaceRole, TransitionCurve, VerticalKind,
+};
 use zumen_crs::{Crs, HeightDatum, Realization, Zone};
 use zumen_landxml::LandXml;
 use zumen_sdk::{Codec, Cx, Error, Lift, Signature};
+
+#[test]
+fn shift_jis_unknown_elements_keep_decoded_names_and_original_locations() {
+    let text = ALIGNMENT
+        .replace("encoding=\"UTF-8\"", "encoding=\"Shift_JIS\"")
+        .replace("</LandXML>", "<ゼー/></LandXML>");
+    let (src, _, error) = encoding_rs::SHIFT_JIS.encode(&text);
+    assert!(!error);
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+    let file = LandXml::read(&src, &mut cx).unwrap();
+    let model = file.lift(&mut cx).unwrap();
+    assert_eq!(model.alignments[0].id, "本線");
+    let d = diag
+        .iter()
+        .find(|d| {
+            d.code() == codes::LANDXML_ELEMENT_UNSUPPORTED
+                && d.params()
+                    .iter()
+                    .any(|(key, value)| *key == "element" && *value == Value::Text("ゼー".into()))
+        })
+        .unwrap();
+    let prefix = text.get(..text.find("<ゼー/>").unwrap()).unwrap();
+    let (prefix, _, error) = encoding_rs::SHIFT_JIS.encode(prefix);
+    assert!(!error);
+    assert_eq!(d.places()[0].bytes().unwrap().start, prefix.len() as u64);
+    assert_eq!(file.document().src(), src.as_ref());
+}
 
 /// 北へ 100 m の直線、半径 200 m へ右に曲がるクロソイド（A = 100、50 m）、半径 200 m の円弧 40 m、直線 60 m。
 /// 点は、クロソイドの式と円弧の中心から求めた値
@@ -144,12 +176,256 @@ fn alignments_move_with_their_segments_stations_and_coordinate_system() {
         .filter(|d| d.code() == codes::LANDXML_ELEMENT_UNSUPPORTED)
         .map(|d| format!("{d:?}"))
         .collect();
-    for element in ["CgPoints", "ProfSurf", "Superelevation"] {
+    for element in ["CgPoints", "ProfSurf"] {
         assert!(
             unsupported.iter().any(|d| d.contains(element)),
             "{element} {unsupported:?}"
         );
     }
+    let [cant] = alignment.cant.as_slice() else {
+        panic!()
+    };
+    assert_eq!((cant.start_distance, cant.length), (110.0, 30.0));
+    assert_eq!(
+        cant.kind,
+        CantKind::Superelevation {
+            start: [-6.0; 2],
+            end: [-6.0; 2]
+        }
+    );
+}
+
+fn superelevation_document(content: &str) -> String {
+    format!(
+        r#"<LandXML xmlns="http://www.landxml.org/schema/LandXML-1.2" version="1.2">
+<CoordinateSystem horizontalDatum="JGD2011" verticalDatum="T.P" horizontalCoordinateSystemName="9(X,Y)"/>
+<Alignments><Alignment name="a" length="200" staStart="1000">{content}</Alignment></Alignments></LandXML>"#
+    )
+}
+
+fn has_element_diagnostic(diag: &Diagnostics, code: zumen_base::Code, element: &str) -> bool {
+    diag.iter().any(|d| {
+        d.code() == code
+            && d.params().iter().any(|(name, value)| {
+                *name == "element" && matches!(value, Value::Text(value) if value == element)
+            })
+    })
+}
+
+/// 4-3-27〜29。最大区間の子要素が属性より優先し、符号と単位を変えずに左右へ移す。
+#[test]
+fn maximum_superelevation_preserves_priority_percent_and_source() {
+    for (slope, expected) in [("6.25", 6.25_f64), ("-3.5", -3.5), ("-0", -0.0)] {
+        let content = format!(
+            r#"<Superelevation staStart="bad" staEnd="NaN"><FullSuperSta>1020</FullSuperSta><FullSuperelev>{slope}</FullSuperelev><RunoffSta>1045</RunoffSta></Superelevation>"#
+        );
+        let src = superelevation_document(&content);
+        let (model, diag) = read(&src).unwrap();
+        assert!(diag.is_empty(), "{diag:?}");
+        let [cant] = model.alignments[0].cant.as_slice() else {
+            panic!()
+        };
+        assert_eq!((cant.start_distance, cant.length), (20.0, 25.0));
+        let CantKind::Superelevation { start, end } = cant.kind else {
+            panic!()
+        };
+        for value in start.into_iter().chain(end) {
+            assert_eq!(value.to_bits(), expected.to_bits());
+        }
+        assert!(cant.transition.is_none());
+        let bytes = cant.source.bytes().unwrap();
+        assert_eq!(
+            src.get(bytes.start as usize..bytes.end as usize),
+            Some(content.as_str())
+        );
+    }
+    let content = r#"<Superelevation staStart="1010" staEnd="1030"><FullSuperelev>2<![CDATA[.]]>5</FullSuperelev></Superelevation>"#;
+    let (model, diag) = read(&superelevation_document(content)).unwrap();
+    assert!(diag.is_empty(), "{diag:?}");
+    let cant = &model.alignments[0].cant[0];
+    assert_eq!((cant.start_distance, cant.length), (10.0, 20.0));
+    assert_eq!(
+        cant.kind,
+        CantKind::Superelevation {
+            start: [2.5; 2],
+            end: [2.5; 2]
+        }
+    );
+}
+
+/// 最大区間だけを読み、すりつけや勾配変化点は種類・数・元の場所を診断する。
+#[test]
+fn omitted_superelevation_phases_are_reported_at_their_elements() {
+    let phases = [
+        "<BeginRunoutSta>1001</BeginRunoutSta>",
+        "<BeginRunoffSta>1002</BeginRunoffSta>",
+        "<StartofRunoutSta>1070</StartofRunoutSta>",
+        "<EndofRunoutSta>1080</EndofRunoutSta>",
+        "<AdverseSE>non-adverse</AdverseSE>",
+        r#"<Feature name="ReverseCrown"><Property label="sta" value="1005"/></Feature>"#,
+        r#"<Feature name="FlatSta"><Property label="sta" value="1075"/></Feature>"#,
+    ];
+    let content = format!(
+        r#"<Superelevation staStart="1020" staEnd="1060"><FullSuperelev>-4</FullSuperelev>{}</Superelevation>"#,
+        phases.concat()
+    );
+    let src = superelevation_document(&content);
+    let (model, diag) = read(&src).unwrap();
+    assert_eq!(model.alignments[0].cant.len(), 1);
+    assert_eq!(
+        diag.iter().map(|d| d.count()).sum::<u64>(),
+        phases.len() as u64
+    );
+    for phase in phases {
+        let start = src.find(phase).unwrap() as u64;
+        assert!(
+            diag.iter()
+                .any(|d| d.code() == codes::LANDXML_ELEMENT_UNSUPPORTED
+                    && d.places().iter().any(|place| place
+                        .bytes()
+                        .is_some_and(
+                            |bytes| bytes.start == start && bytes.end == start + phase.len() as u64
+                        ))),
+            "{phase}: {diag:?}"
+        );
+    }
+}
+
+/// 4-3-12・24。置換する任意横断勾配や、値の対応が不明な複数指定からは一定勾配を推定しない。
+#[test]
+fn ambiguous_or_replaced_superelevations_are_not_invented() {
+    let super_element = r#"<Superelevation staStart="1020" staEnd="1060"><FullSuperelev>4</FullSuperelev></Superelevation>"#;
+    for feature in [
+        r#"<Feature name="SlopeList"><Property label="slopeValue" value="1020 -2 2"/></Feature>"#,
+        r#"<Feature name="SuperelevationConfig"><Property label="useSlopeList" value="true"/></Feature>"#,
+        r#"<Feature name="SuperelevationConfig"><Property label="useSlopeList" value="unknown"/></Feature>"#,
+    ] {
+        for content in [
+            format!("{feature}{super_element}"),
+            format!("{super_element}{feature}"),
+        ] {
+            let (model, diag) = read(&superelevation_document(&content)).unwrap();
+            assert!(model.alignments[0].cant.is_empty());
+            assert!(!has_element_diagnostic(
+                &diag,
+                codes::LANDXML_VALUE_INVALID,
+                "Superelevation"
+            ));
+            assert!(has_element_diagnostic(
+                &diag,
+                codes::LANDXML_ELEMENT_UNSUPPORTED,
+                "Superelevation"
+            ));
+            assert!(has_element_diagnostic(
+                &diag,
+                codes::LANDXML_ELEMENT_UNSUPPORTED,
+                "Feature"
+            ));
+        }
+    }
+    for disabled in ["false", "0"] {
+        let config = format!(
+            r#"<Feature name="SuperelevationConfig"><Property label="useSlopeList" value="{disabled}"/></Feature>"#
+        );
+        let (model, diag) = read(&superelevation_document(&format!(
+            "{config}{super_element}"
+        )))
+        .unwrap();
+        assert_eq!(model.alignments[0].cant.len(), 1);
+        assert!(has_element_diagnostic(
+            &diag,
+            codes::LANDXML_ELEMENT_UNSUPPORTED,
+            "Feature"
+        ));
+        assert!(!has_element_diagnostic(
+            &diag,
+            codes::LANDXML_ELEMENT_UNSUPPORTED,
+            "Superelevation"
+        ));
+        let slope_list = r#"<Feature name="SlopeList"><Property label="slopeValue" value="1020 -2 2"/></Feature>"#;
+        let (model, diag) = read(&superelevation_document(&format!(
+            "{config}{super_element}{slope_list}"
+        )))
+        .unwrap();
+        assert!(model.alignments[0].cant.is_empty());
+        assert!(has_element_diagnostic(
+            &diag,
+            codes::LANDXML_ELEMENT_UNSUPPORTED,
+            "Superelevation"
+        ));
+    }
+    for repeated in [
+        "<FullSuperSta>1020</FullSuperSta><FullSuperSta>1030</FullSuperSta>",
+        "<RunoffSta>1060</RunoffSta><RunoffSta>1070</RunoffSta>",
+        "<FullSuperelev>4</FullSuperelev>",
+    ] {
+        let content =
+            super_element.replace("</Superelevation>", &format!("{repeated}</Superelevation>"));
+        let (model, diag) = read(&superelevation_document(&content)).unwrap();
+        assert!(model.alignments[0].cant.is_empty());
+        assert!(has_element_diagnostic(
+            &diag,
+            codes::LANDXML_ELEMENT_UNSUPPORTED,
+            "Superelevation"
+        ));
+        assert!(
+            !diag
+                .iter()
+                .any(|d| d.code() == codes::LANDXML_VALUE_INVALID),
+            "{diag:?}"
+        );
+    }
+    for content in [
+        "<Superelevation><FullSuperelev>4</FullSuperelev></Superelevation>",
+        r#"<Superelevation staStart="1020" staEnd="1020"><FullSuperelev>4</FullSuperelev></Superelevation>"#,
+    ] {
+        let (model, diag) = read(&superelevation_document(content)).unwrap();
+        assert!(model.alignments[0].cant.is_empty());
+        assert!(has_element_diagnostic(
+            &diag,
+            codes::LANDXML_ELEMENT_UNSUPPORTED,
+            "Superelevation"
+        ));
+        assert!(
+            !diag
+                .iter()
+                .any(|d| d.code() == codes::LANDXML_VALUE_INVALID),
+            "{diag:?}"
+        );
+    }
+}
+
+#[test]
+fn broken_superelevation_values_do_not_fall_back_or_return_partial_intervals() {
+    for content in [
+        r#"<Superelevation staStart="1020" staEnd="1060"><FullSuperSta>NaN</FullSuperSta><FullSuperelev>4</FullSuperelev></Superelevation>"#,
+        r#"<Superelevation staStart="1020" staEnd="1060"><RunoffSta>bad</RunoffSta><FullSuperelev>4</FullSuperelev></Superelevation>"#,
+        r#"<Superelevation staStart="1020" staEnd="1060"><FullSuperelev>INF</FullSuperelev></Superelevation>"#,
+        r#"<Superelevation staStart="1020" staEnd="1060"><FullSuperelev>4<P>5</P></FullSuperelev></Superelevation>"#,
+        r#"<Superelevation staStart="1020" staEnd="1060"/>"#,
+        r#"<Superelevation staStart="1060" staEnd="1020"><FullSuperelev>4</FullSuperelev></Superelevation>"#,
+        r#"<Superelevation staStart="-1e308" staEnd="1e308"><FullSuperelev>4</FullSuperelev></Superelevation>"#,
+        r#"<Superelevation staStart="NaN" staEnd="1060"><FullSuperelev>4</FullSuperelev></Superelevation>"#,
+    ] {
+        let (model, diag) = read(&superelevation_document(content)).unwrap();
+        assert!(model.alignments[0].cant.is_empty(), "{content}");
+        assert!(
+            diag.iter()
+                .any(|d| d.code() == codes::LANDXML_VALUE_INVALID),
+            "{content}: {diag:?}"
+        );
+    }
+}
+
+/// L1 のレコードと元のバイト列は変えず、L2 と診断も繰り返して一致する。
+#[test]
+fn superelevation_keeps_the_file_and_passes_the_codec_contracts() {
+    let src = superelevation_document(
+        r#"<Superelevation staStart="1020" staEnd="1060"><BeginRunoutSta>1005</BeginRunoutSta><FullSuperelev>-4.5</FullSuperelev></Superelevation>"#,
+    );
+    zumen_sdk::testkit::roundtrip::<LandXml>(src.as_bytes()).unwrap();
+    zumen_sdk::testkit::deterministic::<LandXml>(src.as_bytes()).unwrap();
+    zumen_sdk::testkit::survives_lift::<LandXml, CivilModel>(src.as_bytes()).unwrap();
 }
 
 #[test]
@@ -354,4 +630,47 @@ fn spirals_without_points_of_intersection_count_their_work() {
     );
     let (given, _) = lift_with(&spirals(true), limits);
     given.unwrap();
+}
+
+/// 交点のない緩和曲線の前の区間の終わりの向きを求める手間（曲率の大きい緩和曲線の、向きの式を積む刻み）も予算に
+/// 数え、上限で止まれば、交点のない `Spiral` の所に予算の診断を付けて止まる（#727、PR #751 の 1 回目の確かめの
+/// 軽微 3）
+#[test]
+fn spirals_without_points_of_intersection_stop_at_steep_transitions() {
+    let steep = r#"<Spiral length="1000" radiusStart="INF" radiusEnd="0.01" rot="cw" spiType="clothoid"><Start>10 0</Start><PI>500 0</PI></Spiral>"#;
+    let next = r#"<Spiral length="1" radiusStart="INF" radiusEnd="1000" rot="cw" spiType="clothoid"><Start>0 0</Start></Spiral>"#;
+    let src = format!(
+        r#"<LandXML xmlns="http://www.landxml.org/schema/LandXML-1.2" version="1.2">
+      <Alignments><Alignment name="a" length="1011" staStart="0"><CoordGeom>
+        <Line><Start>0 0</Start><End>10 0</End></Line>{steep}{next}
+      </CoordGeom></Alignment></Alignments>
+    </LandXML>"#
+    );
+    let (found, used) = lift_with(&src, Limits::default());
+    assert_eq!(found.unwrap().alignments[0].horizontal.len(), 3);
+    // 緩和曲線の終わりの向きを求めるのに、刻みの上限に近い手間を数える
+    assert!(used >= 60_000, "{used}");
+    let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(30_000)));
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let stopped = {
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        LandXml::read(src.as_bytes(), &mut cx).and_then(|file| file.lift(&mut cx))
+    };
+    assert!(
+        matches!(stopped, Err(Error::Stopped(Stop::Exceeded(ref e))) if e.kind == Kind::Work),
+        "{stopped:?}"
+    );
+    let start = src.find(next).unwrap() as u64;
+    let exceeded = diag
+        .iter()
+        .find(|d| d.code() == codes::BUDGET_WORK_EXCEEDED)
+        .expect("予算の診断");
+    assert!(
+        exceeded
+            .places()
+            .iter()
+            .any(|place| place.bytes().is_some_and(|bytes| bytes.start == start)),
+        "{exceeded:?}"
+    );
 }

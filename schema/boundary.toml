@@ -10,7 +10,7 @@ abi = 1
 # メッセージのスキーマ（schema/messages.json）のメジャーバージョン。要求と応答の v
 schema-major = 1
 # メッセージのスキーマのマイナーバージョン。op・フィールド・列挙の値を足すたびに上げる
-schema-minor = 65
+schema-minor = 69
 
 # 状態コード。理由は応答の診断で返す
 
@@ -165,9 +165,9 @@ name = "drawing"
 description = "図面（DXF・DWG・SXF・JWW と、図面モデルのバイナリ）と、図面のレビュー。土木の線形（J-LandXML）と、線形から作る図。電子納品の成果品・工事写真・表・ボーリング交換用データ"
 formats = ["dxf", "dwg", "sxf", "jww", "landxml", "drawing"]
 ops = [
-    "capabilities", "open", "close", "describe", "drawing", "entities", "apply", "convert", "tables", "scene",
+    "capabilities", "open", "close", "describe", "drawing", "entities", "apply", "convert", "convert_estimate", "tables", "scene",
     "check", "review_carry", "review_adopt", "civil", "civil_drawing", "delivery_check", "photo", "sheet", "boring",
-    "lift", "render",
+    "lift", "render", "calibrations", "measure_distance",
 ]
 
 [[modules]]
@@ -189,7 +189,7 @@ ops = ["capabilities", "open", "close", "describe", "civil", "geo"]
 # 点群のモジュール（決定 0232・0253）。設計の TIN との差のために、J-LandXML も読む
 [[modules]]
 name = "pointcloud"
-description = "点群（LAS・LAZ・PLY・XYZ・E57）と、設計の TIN（J-LandXML）との差"
+description = "点群（LAS・PLY・XYZ・E57）と、設計の TIN（J-LandXML）との差"
 formats = ["las", "ply", "xyz", "e57", "landxml"]
 ops = ["capabilities", "open", "close", "describe", "civil", "pointcloud", "deviation"]
 
@@ -212,7 +212,7 @@ format = "ifc"
 module = "bim"
 rules = [{ step-schema = "IFC" }]
 
-# LAS・LAZ。範囲で読むので、入力の初めの部分だけで見分ける（決定 0232）
+# LAS・LAZ。範囲で読むので、入力の初めの部分だけで見分ける（決定 0232）。LAZ は、開くと las.laz.unsupported で断る（決定 0289）
 [[detection]]
 format = "las"
 module = "pointcloud"

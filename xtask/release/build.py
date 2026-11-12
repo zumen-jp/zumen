@@ -9,6 +9,7 @@ import tomllib
 from pathlib import Path
 
 from licenses import MANIFESTS, MODULES, ROOT, TARGETS, WASM, feature_args, wasm_name
+from linux_abi import verify_environment, verify_linux
 from sbom import DRAFT, bom_ref, check, digest, document_graph, encode, metadata_for, properties, raw_command, source_of, source_revision
 
 
@@ -96,6 +97,8 @@ def build(kind, target, module, filename, shipped, output):
                            for path in message["filenames"] if Path(path).name == filename)
     check(len(matches) == 1, "コンパイラーの出力に対象のバイナリがないか複数ある")
     source, enabled, root_id = matches[0]
+    if target.endswith("-linux-gnu"):
+        verify_linux(source.read_bytes(), next(item for item in TARGETS if item["target"] == target))
     declared = tomllib.loads(manifest.read_text(encoding="utf-8")).get("features", {})
     if module == "default" and "default" in declared:
         check("default" in enabled, "既定の feature が有効でない")
@@ -103,7 +106,8 @@ def build(kind, target, module, filename, shipped, output):
         check(set(MODULES).intersection(enabled) == {module}, "分けた wasm の feature が違う")
     graph = build_graph(ROOT, manifest, target, module, messages, root_id, enabled)
     output.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(source, output / shipped)
+    # CLI を同じファイルから実行して検査するため、実行の権限も保つ。時刻はコピーしない。
+    shutil.copy(source, output / shipped)
     receipt = {"package": "zumen-" + kind, "target": target, "features": module, "enabled": sorted(enabled),
                "artifact": shipped, "sha256": digest((output / shipped).read_bytes()), "commit": revision, "lock": lock_hash,
                **graph}
@@ -120,5 +124,6 @@ if __name__ == "__main__":
             build("abi", WASM, module, "zumen_abi1.wasm", wasm_name(module), args.out)
     else:
         target = next(t for t in TARGETS if t["rid"] == args.rid)
+        verify_environment(target)
         for kind, filename in (("abi", target["library"]), ("cli", target["exe"])):
             build(kind, target["target"], "default", filename, filename, args.out)

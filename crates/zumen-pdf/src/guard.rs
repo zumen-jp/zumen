@@ -463,14 +463,12 @@ fn container_fits(
     cx: &mut Cx<'_>,
 ) -> Result<Option<usize>, Stop> {
     let dict = stream.dict();
-    // hayro-syntax は、展開するときに `F`・`DP`・`DecodeParms` の辞書の表を作る。表は、値のキーの数に比例するので、
-    // 値の名前の数で多めに数える（項目の辞書の表は、フィルターの数の上限から、ファイルの大きさによらない）
-    for key in [b"F".as_slice(), b"DP", b"DecodeParms"] {
-        if let Some(MaybeRef::NotRef(Raw(value))) = dict.get_raw::<Raw<'_>>(key) {
-            cx.check(Kind::Work, lookup_work(value))?;
-            let names = value.iter().filter(|&&byte| byte == b'/').count() as u64;
-            cx.check(Kind::DecodedBytes, names.saturating_mul(KEY_BYTES))?;
-        }
+    // 外部ファイルを指す F の表は残す。DP・DecodeParms の型失敗や読み直しは、
+    // 共通の inflate の入口で予約し、コンテナーだけで重ねて数えない。
+    if let Some(MaybeRef::NotRef(Raw(value))) = dict.get_raw::<Raw<'_>>(b"F") {
+        cx.check(Kind::Work, lookup_work(value))?;
+        let names = value.iter().filter(|&&byte| byte == b'/').count() as u64;
+        cx.check(Kind::DecodedBytes, names.saturating_mul(KEY_BYTES))?;
     }
     // hayro-syntax は、中の位置を読む前に展開する。`N` と `First` が読めなくても、展開の上限は先に確かめる
     // 参照のあるフィルターと暗号化したコンテナーは、ここへ来る前に断っている。
@@ -2108,5 +2106,76 @@ mod table_tests {
             );
             assert_eq!(seen.table_bytes, keys * KEY_BYTES);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use zumen_base::{Budget, CancelToken, Diagnostics};
+
+    use super::*;
+
+    /// `starts` の位置から順に、同じ覚えを使って [`Tokens::value`] で飛ばした終わりと、hayro-syntax で飛ばした終わり
+    /// （入口の [`Tokens::skip`] と同じく、参照としては読まない）
+    fn skips(src: &[u8], starts: &[(usize, usize)]) -> Vec<(Option<usize>, Option<usize>)> {
+        let mut budget = Budget::default();
+        let mut diag = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        let mut tokens = Tokens::default();
+        starts
+            .iter()
+            .map(|&(at, depth)| {
+                let mut reader = Reader::new(src);
+                reader.jump(at);
+                let mut read = 0;
+                let ours = tokens
+                    .value(src, &mut reader, depth, false, &mut read, &mut cx)
+                    .ok()
+                    .flatten()
+                    .map(|()| reader.offset());
+                let mut reader = Reader::new(src);
+                reader.jump(at);
+                let theirs = reader
+                    .skip_with_depth::<Object<'_>>(false, depth)
+                    .map(|_| reader.offset());
+                (ours, theirs)
+            })
+            .collect()
+    }
+
+    /// 同じ項目の始まりに違う深さで着いても、深さの上限で読めるかが変わるので、覚えを深さで分ける。外すと、浅く読んだ
+    /// 覚えを深く読むときに使い、hayro-syntax と違う終わりを返す（#752）。ファイルでは、入れ子の配列か辞書の中の
+    /// コメントにある `[` から読み始めた項目が、外の項目と同じ所に違う深さで着く。試験では、深さを変えて直接呼ぶ
+    #[test]
+    fn memos_depend_on_depth() {
+        // 行末の後ろに、505 段の配列を持つ配列。深さ 1 なら上限（512）の内、深さ 10 なら外
+        let nested = format!("{}{}", "[".repeat(505), "]".repeat(505));
+        let src = format!("[\n{nested}]");
+        let results = skips(src.as_bytes(), &[(0, 1), (0, 10), (0, 1)]);
+        for (ours, theirs) in &results {
+            assert_eq!(ours, theirs);
+        }
+        assert_eq!(results[0].0, Some(src.len()));
+        assert_eq!(results[1].0, None);
+    }
+
+    /// 同じ項目の始まりに、配列と辞書から着いても、項目の読み方（配列の項目か、辞書のキーと値か）が違うので、覚えを
+    /// 種類で分ける（#752）
+    #[test]
+    fn memos_depend_on_the_kind_of_container() {
+        // 配列の中のコメントの `<<` から読む辞書は、配列と同じ `/a` に着く。配列は閉じ、辞書は `]` で読めない
+        let src = b"[ %<<\n/a 1 0 R]";
+        let dict = 3;
+        assert_eq!(&src[dict..dict + 2], b"<<");
+        for order in [[(0, 1), (dict, 1)], [(dict, 1), (0, 1)]] {
+            let results = skips(src, &order);
+            for (ours, theirs) in &results {
+                assert_eq!(ours, theirs, "{order:?}");
+            }
+        }
+        let results = skips(src, &[(0, 1), (dict, 1)]);
+        assert_eq!(results[0].0, Some(src.len()));
+        assert_eq!(results[1].0, None);
     }
 }

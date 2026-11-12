@@ -4,6 +4,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::add::{Target, int, next_free_handle, text};
 use super::layer::{is_layer, name_of, record, table_end};
+use crate::ConversionFidelity;
+use crate::conversion_report::Report;
 use crate::db::{AcadDb, Data, Section, Value};
 use crate::drawing::style::{LAYER_DESCRIPTION_APP, LAYER_TRANSPARENCY_APP};
 use crate::drawing::{Charset, charset_of};
@@ -14,13 +16,18 @@ use zumen_sdk::Error;
 impl AcadDb {
     /// 新しい R2004 DXF の表を仕上げる。`layers` は、ひな形または変換で実際に作れた画層のうち、
     /// 説明・透過性を持つ元のレイヤ。元の文書の出所で欠落を診断する（決定 0206）。
-    pub fn finish_new_dxf_tables(
+    pub fn finish_new_dxf_tables(self, layers: &[&Layer], cx: &mut Cx<'_>) -> Result<Self, Error> {
+        self.finish_new_dxf_tables_with_report(layers, &mut Report::new(0), cx)
+    }
+
+    pub(crate) fn finish_new_dxf_tables_with_report(
         mut self,
         layers: &[&Layer],
+        report: &mut Report,
         cx: &mut Cx<'_>,
     ) -> Result<Self, Error> {
         if !layers.is_empty() {
-            self.write_new_layer_fields(layers, cx)?;
+            self.write_new_layer_fields(layers, report, cx)?;
         }
         // DXF Reference「Symbol Table Group Codes」。TABLE の 70 には実際に書く項目数を置く。
         let mut current = None;
@@ -52,7 +59,12 @@ impl AcadDb {
         Ok(self)
     }
 
-    fn write_new_layer_fields(&mut self, layers: &[&Layer], cx: &mut Cx<'_>) -> Result<(), Error> {
+    fn write_new_layer_fields(
+        &mut self,
+        layers: &[&Layer],
+        report: &mut Report,
+        cx: &mut Cx<'_>,
+    ) -> Result<(), Error> {
         let charset = charset_of(self);
         let mut sources = BTreeMap::new();
         for &layer in layers {
@@ -82,6 +94,13 @@ impl AcadDb {
             if let Some(description) = &layer.description {
                 cx.check(Kind::Work, 1 + description.len() as u64)?;
                 if let Some(bytes) = description_bytes(charset, description) {
+                    report.record(
+                        "layer_description",
+                        ConversionFidelity::Equivalent,
+                        &layer.source,
+                        0,
+                        cx,
+                    )?;
                     apps.insert(LAYER_DESCRIPTION_APP);
                     row.values.extend([
                         text(1001, LAYER_DESCRIPTION_APP),
@@ -92,6 +111,13 @@ impl AcadDb {
                         },
                     ]);
                 } else {
+                    report.record(
+                        "layer_description",
+                        ConversionFidelity::Dropped,
+                        &layer.source,
+                        0,
+                        cx,
+                    )?;
                     cx.report(
                         Diagnostic::new(codes::CONVERT_LAYER_FIELD_DROPPED)
                             .with("field", zumen_base::Value::Key("description"))
@@ -101,6 +127,13 @@ impl AcadDb {
                 }
             }
             if let Some(t) = layer.style.and_then(|style| style.transparency) {
+                report.record(
+                    "layer_transparency",
+                    ConversionFidelity::Equivalent,
+                    &layer.source,
+                    0,
+                    cx,
+                )?;
                 apps.insert(LAYER_TRANSPARENCY_APP);
                 row.values.extend([
                     text(1001, LAYER_TRANSPARENCY_APP),

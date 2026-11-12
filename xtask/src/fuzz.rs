@@ -9,7 +9,7 @@
 //! `cargo xtask fuzz-seeds` は、公開サンプル、適合テストの組の合成の入力と要求、L0 の攻撃の形（ZIP 爆弾・膨らむ
 //! deflate・アーカイブの入れ子・パスの走査・XML の外部実体と深い入れ子・ISO 10303-21 の深い入れ子）、EXPRESS の攻撃の
 //! 形（集まりの型の深い入れ子・定義された型と上位の型の長い鎖）、合成の格子（ISG・TKY2JGD・PatchJGD の形）、線と列の
-//! 参照を持つ合成シーン（ZMSC）を、どの target にも種として書く（決定 0258・0262）。
+//! 参照を持つ合成シーン（ZMSC）と通り芯（IFC）を、どの target にも種として書く（決定 0258・0262）。
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
@@ -180,7 +180,7 @@ fn check_targets(
     errors
 }
 
-/// 公開サンプル、適合テストの組の合成の入力、L0 と EXPRESS の攻撃の形、合成の格子、合成シーンを、どの target にも
+/// 公開サンプル、適合テストの組の合成の入力、L0 と EXPRESS の攻撃の形、合成の格子・シーン・通り芯を、どの target にも
 /// `fuzz/corpus/<target>/` の種として書く。ファイルの名前は、中身の SHA-256 にする
 pub fn seeds(root: &Path) -> Result<(), String> {
     let mut seeds = BTreeMap::new();
@@ -190,6 +190,8 @@ pub fn seeds(root: &Path) -> Result<(), String> {
         .chain(attacks()?)
         .chain(schemas())
         .chain(grids())
+        .chain(std::iter::once(ifc_grid()))
+        .chain(std::iter::once(ifc_profiles()))
         .chain(std::iter::once(scene::seed()))
     {
         seeds.insert(sha256::hex(&data), data);
@@ -209,6 +211,38 @@ pub fn seeds(root: &Path) -> Result<(), String> {
         seeds.len()
     );
     Ok(())
+}
+
+/// 通り芯の必要時の取得まで、小さい入力で確実に通す自作の IFC4。
+fn ifc_grid() -> Vec<u8> {
+    b"ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('grid'),'2;1');\nFILE_NAME('','',(''),(''),'','','');\nFILE_SCHEMA(('IFC4'));\nENDSEC;\nDATA;\n\
+    #1=IFCPROJECT('0000000000000000000001',$,$,$,$,$,$,(#8),#9);\n\
+    #8=IFCGEOMETRICREPRESENTATIONCONTEXT($,'Model',3,1.E-5,#20,$);\n\
+    #9=IFCUNITASSIGNMENT((#10));\n#10=IFCSIUNIT(*,.LENGTHUNIT.,$,.METRE.);\n\
+    #20=IFCAXIS2PLACEMENT3D(#21,$,$);\n#21=IFCCARTESIANPOINT((0.,0.,0.));\n\
+    #30=IFCLOCALPLACEMENT($,#20);\n\
+    #100=IFCGRID('0000000000000000000002',$,$,$,$,#30,$,(#300),(#301),$,.RECTANGULAR.);\n\
+    #200=IFCPOLYLINE((#210,#211));\n#201=IFCPOLYLINE((#210,#212));\n\
+    #210=IFCCARTESIANPOINT((0.,0.));\n#211=IFCCARTESIANPOINT((10.,0.));\n#212=IFCCARTESIANPOINT((0.,10.));\n\
+    #300=IFCGRIDAXIS('U',#200,.T.);\n#301=IFCGRIDAXIS('V',#201,.F.);\n\
+    ENDSEC;\nEND-ISO-10303-21;\n".to_vec()
+}
+
+fn ifc_profiles() -> Vec<u8> {
+    // 要素の葉から矩形・円・任意断面まで、小さい入力で通す自作の IFC4。
+    b"ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('profiles'),'2;1');\nFILE_NAME('','',(''),(''),'','','');\nFILE_SCHEMA(('IFC4'));\nENDSEC;\nDATA;\n\
+    #1=IFCPROJECT('0000000000000000000001',$,$,$,$,$,$,$,#2);\n\
+    #2=IFCUNITASSIGNMENT((#3));\n#3=IFCSIUNIT(*,.LENGTHUNIT.,$,.METRE.);\n\
+    #8=IFCGEOMETRICREPRESENTATIONCONTEXT($,'Model',3,1.E-5,#20,$);\n\
+    #10=IFCCARTESIANPOINT((0.,0.));\n#12=IFCAXIS2PLACEMENT2D(#10,$);\n\
+    #13=IFCRECTANGLEPROFILEDEF(.AREA.,'R',#12,3.,2.);\n#14=IFCCIRCLEPROFILEDEF(.AREA.,'C',#12,1.);\n\
+    #15=IFCCARTESIANPOINT((1.,0.));\n#16=IFCCARTESIANPOINT((0.,1.));\n\
+    #18=IFCPOLYLINE((#10,#15,#16,#10));\n#19=IFCARBITRARYCLOSEDPROFILEDEF(.AREA.,'A',#18);\n\
+    #20=IFCAXIS2PLACEMENT3D(#21,$,$);\n#21=IFCCARTESIANPOINT((0.,0.,0.));\n#24=IFCDIRECTION((0.,0.,1.));\n\
+    #30=IFCEXTRUDEDAREASOLID(#13,$,#24,2.);\n#31=IFCEXTRUDEDAREASOLID(#14,$,#24,2.);\n#32=IFCEXTRUDEDAREASOLID(#19,$,#24,2.);\n\
+    #100=IFCWALL('0000000000000000000002',$,$,$,$,$,#101,$,.NOTDEFINED.);\n\
+    #101=IFCPRODUCTDEFINITIONSHAPE($,$,(#102));\n#102=IFCSHAPEREPRESENTATION(#8,'Body','SweptSolid',(#30,#31,#32));\n\
+    ENDSEC;\nEND-ISO-10303-21;\n".to_vec()
 }
 
 /// `samples/ledger.toml` に載せた公開サンプル

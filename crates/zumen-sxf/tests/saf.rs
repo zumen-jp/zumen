@@ -10,6 +10,23 @@ use zumen_sdk::testkit;
 use zumen_sxf::saf::{self, AttributeFile};
 use zumen_sxf::{Sxf, SxfFile};
 
+#[test]
+fn shift_jis_unknown_element_names_keep_diagnostics_and_figure_ids() {
+    let mut src = b"<?xml version='1.0' encoding='Shift_JIS'?><SxfAttributeXML version='3.1' date='2026-11-11' sxfFile='x.sfc' application='test'><Figure id='10' name='n'/><".to_vec();
+    src.extend_from_slice(&[0x83, 0x5b, 0x81, 0x5b]); // ゼー
+    src.extend_from_slice(b"/></SxfAttributeXML>");
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let file = saf::read(&src, &mut Cx::new(&mut budget, &mut diag, &cancel)).unwrap();
+    assert_eq!(file.figures[0].id, "10");
+    let diagnostic = diag.iter().next().unwrap();
+    assert_eq!(diagnostic.code(), codes::SXF_SAF_ELEMENT_UNSUPPORTED);
+    assert!(diagnostic.params().iter().any(|(key, value)| {
+        *key == "element" && value == &zumen_base::Value::Text("ゼー".into())
+    }));
+}
+
 /// 附属書の付録 A の形の属性ファイル。図形 10 は 2 つの属性セットとグループを、図形 21 は図面にない
 const SAF: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE SxfAttributeXML SYSTEM "SXFV31.DTD">
@@ -195,4 +212,49 @@ fn lifts_without_an_attribute_file_as_before() {
     let (drawing, codes) = lift(None);
     assert!(codes.is_empty(), "{codes:?}");
     assert!(drawing.extensions.iter().all(|e| e.namespace != "sxf.saf"));
+}
+
+#[test]
+fn utf16_sidecars_keep_grouped_attributes_and_bind_to_the_drawing() {
+    let text = SAF.replace("encoding=\"UTF-8\"", "encoding=\"UTF-16\"");
+    for little in [true, false] {
+        let mut src = if little {
+            vec![0xff, 0xfe]
+        } else {
+            vec![0xfe, 0xff]
+        };
+        for unit in text.encode_utf16() {
+            src.extend(if little {
+                unit.to_le_bytes()
+            } else {
+                unit.to_be_bytes()
+            });
+        }
+        let mut budget = Budget::default();
+        let mut diag = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let file = saf::read(&src, &mut Cx::new(&mut budget, &mut diag, &cancel)).unwrap();
+        assert!(diag.is_empty(), "{diag:?}");
+        assert_eq!(file.sets[1].designed_by, "△△協会");
+        assert_eq!(file.figures[0].attributes[1].groups, ["測点"]);
+        let (drawing, diag) = lift(Some(&file));
+        assert_eq!(
+            diag,
+            [codes::SXF_SAF_FIGURE_MISSING, codes::SXF_SAF_FIGURE_DROPPED]
+        );
+        let attributes: Vec<_> = drawing
+            .extensions
+            .iter()
+            .filter(|e| e.namespace == "sxf.saf")
+            .collect();
+        assert_eq!(attributes.len(), 8);
+        assert_eq!(attributes[1].name, "現地盤高");
+        assert!(
+            attributes[1]
+                .fields
+                .iter()
+                .any(|f| f.key == "value" && f.value == FieldValue::Text("102.0400".into()))
+        );
+        assert!(attributes.iter().all(|e| e.is_current(&drawing)));
+    }
 }

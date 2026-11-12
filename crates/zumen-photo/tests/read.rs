@@ -3,6 +3,29 @@
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, codes};
 use zumen_photo::{Photo, read};
 
+#[test]
+fn shift_jis_xmp_property_names_are_decoded() {
+    let text = "<?xml version='1.0' encoding='Shift_JIS'?><x:xmpmeta xmlns:x='adobe:ns:meta/'><rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'><rdf:Description xmlns:ソ='urn:test' ソ:ゼー='value'><ソ:ゾ>text</ソ:ゾ></rdf:Description></rdf:RDF></x:xmpmeta>";
+    let (encoded, _, error) = encoding_rs::SHIFT_JIS.encode(text);
+    assert!(!error);
+    let mut packet = b"http://ns.adobe.com/xap/1.0/\0".to_vec();
+    packet.extend_from_slice(&encoded);
+    let mut src = jpeg(true);
+    src.splice(2..2, segment(0xe1, &packet));
+    let (photo, diag) = with_cx(|cx| read(&src, cx));
+    assert!(diag.is_empty(), "{diag:?}");
+    let photo = photo.unwrap();
+    assert_eq!(
+        photo
+            .xmp
+            .iter()
+            .filter(|p| p.namespace == "urn:test")
+            .map(|p| (p.name.as_str(), p.value.as_str()))
+            .collect::<Vec<_>>(),
+        [("ゼー", "value"), ("ゾ", "text")]
+    );
+}
+
 /// IFD の項目の値
 #[cfg(test)]
 enum V {
@@ -210,6 +233,44 @@ fn exif_and_xmp_are_read_in_both_byte_orders() {
                 ("Rating", "3")
             ]
         );
+        assert_eq!(photo.xmp[1].namespace, "http://purl.org/dc/elements/1.1/");
+    }
+}
+
+#[test]
+fn utf16_xmp_packets_keep_namespaces_property_names_and_japanese_values() {
+    let text = format!("<?xml version=\"1.0\" encoding=\"UTF-16\"?>{XMP}");
+    for little in [true, false] {
+        let mut packet = b"http://ns.adobe.com/xap/1.0/\0".to_vec();
+        packet.extend(if little { [0xff, 0xfe] } else { [0xfe, 0xff] });
+        for unit in text.encode_utf16() {
+            packet.extend(if little {
+                unit.to_le_bytes()
+            } else {
+                unit.to_be_bytes()
+            });
+        }
+        let mut src = vec![0xff, 0xd8];
+        src.extend(segment(0xe1, &packet));
+        src.extend(segment(0xc0, &[8, 0x01, 0xe0, 0x02, 0x80, 1, 1, 0x11, 0]));
+        src.extend([0xff, 0xd9]);
+        let (photo, diag) = with_cx(|cx| read(&src, cx));
+        assert!(diag.is_empty(), "{diag:?}");
+        let photo = photo.unwrap();
+        assert_eq!((photo.width, photo.height), (Some(640), Some(480)));
+        assert_eq!(
+            photo
+                .xmp
+                .iter()
+                .map(|p| (p.name.as_str(), p.value.as_str()))
+                .collect::<Vec<_>>(),
+            [
+                ("CreatorTool", "テスト"),
+                ("title", "工事写真"),
+                ("Rating", "3")
+            ]
+        );
+        assert_eq!(photo.xmp[0].namespace, "http://ns.adobe.com/xap/1.0/");
         assert_eq!(photo.xmp[1].namespace, "http://purl.org/dc/elements/1.1/");
     }
 }
