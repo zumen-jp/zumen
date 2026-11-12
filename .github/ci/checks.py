@@ -17,6 +17,12 @@ TEXT_CONFIG = {
     "prh.yml", "package.json", "package-lock.json",
 }
 CODE_EXTENSIONS = (".rs", ".toml", ".yml")
+# パッケージに同梱して照合する bindings/js や、キットに写す acc の README は個別に扱う。
+PROSE_READMES = {
+    "catalog/README.md", "formats/README.md", "profiles/README.md", "schema/README.md",
+    "packages/react/README.md", "packages/view2d/README.md", "playground/README.md", "site/README.md",
+    "xtask/verify/README.md", "xtask/verify/pdfjs/README.md", "xtask/verify/pdfmeasure/README.md",
+}
 
 
 def checks_for(path):
@@ -26,8 +32,7 @@ def checks_for(path):
         return {"codegen"}  # 台帳から参照する文書と、生成する一覧
     if path.endswith(".md") and ("/" not in path or path.startswith(("docs/", ".github/"))):
         return set()
-    if path in {"catalog/README.md", "formats/README.md", "profiles/README.md", "schema/README.md",
-                "xtask/verify/README.md", "xtask/verify/pdfjs/README.md", "xtask/verify/pdfmeasure/README.md"}:
+    if path in PROSE_READMES:
         return set()
     if path.startswith(".github/workflows/") and path != ".github/workflows/ci.yml":
         # xtask はリリースで配る crate の一覧も読む。

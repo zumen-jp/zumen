@@ -20,7 +20,9 @@ class SelectionTest(unittest.TestCase):
     def test_shared_inputs_and_required_pr_checks(self):
         for path in ["crates/zumen-render/tests/fixtures/mod.rs", "bindings/c/include/zumen.h"]:
             self.assertIn("wasm", select([path], "push")["checks"])
-        self.assertEqual(select(["CONTRIBUTING.md"], "push")["checks"], ["text"])
+        docs = ["CONTRIBUTING.md", "packages/view2d/README.md"]
+        self.assertEqual(select(docs, "push")["checks"], ["text"])
+        self.assertIn("site", select([*docs, "packages/view2d/src/index.js"], "push")["checks"])
         pr = select(["CONTRIBUTING.md"], "pull_request")
         self.assertTrue({"native", "wasm", "codegen", "deny"} <= set(pr["checks"]))
         self.assertEqual(pr["linux_args"], pr["native_args"])
