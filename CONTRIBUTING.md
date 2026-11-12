@@ -46,6 +46,7 @@ Cargo の外で動き、成果物に何も残さないツールはライセン�
 | --- | --- |
 | 説明だけの Markdown | 記述とリンクを確認し、`npx --no-install textlint <ファイル>` を実行。依存が未導入か lockfile が変わったときは先に `npm ci` |
 | 表記辞書・表記の設定、コードのコメント・カタログの文 | `npm run lint:text`。[表記の基準](docs/style.md) を参照 |
+| Rust の `tests/` のテストだけ | `cargo test -p <crate> --test <テスト名>`。共通の入力を変えたときは、その入力を使うテストも実行 |
 | Rust の実装 | `cargo fmt --all --check`、`cargo clippy -p <crate> --all-targets -- -D warnings`、`cargo test -p <crate>`。呼び出す側に影響すればそのテストも実行 |
 | ワークスペース全体に及ぶ変更 | `cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace` |
 | スキーマ・台帳・生成器・生成物 | 元を更新して `cargo xtask codegen`、続けて `cargo xtask codegen --check`。元と生成物を一緒にコミット |
@@ -54,4 +55,8 @@ Cargo の外で動き、成果物に何も残さないツールはライセン�
 
 文書でもコード生成・ビルド・配布に使うものは、その処理を確かめます。応答が変わったら `cargo run -p zumen-conformance -- --write` でハッシュを更新し、理由を残します。
 
-[通常の CI](.github/workflows/ci.yml) は `main` への push でも動きます。変更に [fuzz](fuzz/README.md#動かし方) や [配布物の検査](xtask/release/README.md#公開せずに検査する) が必要なら、対応する対象を手元で実行するか、PR のワークフローを使います。
+[通常の CI](.github/workflows/ci.yml) は `main` への push と PR の差分から検査を選びます。たとえば `CONTRIBUTING.md` だけを push したときは、その文書の表記を検査します。`docs/formats/` の文書は台帳と照合し、サイトの入力を変えたときはビルドとブラウザーテストも実行します。表記の設定を変えたときは全文を検査します。
+
+コアを変えたときは Linux x64 で Rust のワークスペース全体をテストします。Windows x86・x64 と macOS arm64 では ABI・CLI・C/C++ と各言語のラッパーをテストします。PR では変更の種類にかかわらず、[対応する環境](docs/support.md)に従ってネイティブと wasm の適合テストを実行します。週に 1 回と CI の手動実行では、4 環境すべてでワークスペース全体をテストします。
+
+変更に [fuzz](fuzz/README.md#動かし方) や [配布物の検査](xtask/release/README.md#公開せずに検査する) が必要なら、対応する対象を手元で実行するか、PR のワークフローを使います。

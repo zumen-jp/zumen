@@ -24,12 +24,7 @@ jobs:
         run: cargo test --package zumen-ply --test external --locked
 
   browser:
-    name: ブラウザーで適合テスト（${{ matrix.browser }}）
-    # PR ごとの Chromium は ci.yml の wasm の job で流す。毎晩は Firefox と WebKit（docs/support.md、決定 0199）
-    strategy:
-      fail-fast: false
-      matrix:
-        browser: [firefox, webkit]
+    name: ブラウザーで適合テスト（Firefox・WebKit）
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -53,26 +48,27 @@ jobs:
         run: npm ci --ignore-scripts
       - name: Playwright のバージョンに合うブラウザーと、それが使う OS のライブラリを入れる
         working-directory: bindings/js/test/browser
-        run: npx --no-install playwright install --with-deps ${{ matrix.browser }}
-      - name: ブラウザーの中でラッパーを通しても、ネイティブと同じハッシュの一覧になることを確かめる（決定 0199）
-        run: node bindings/js/test/browser/run.mjs ${{ matrix.browser }} target/wasm32-unknown-unknown/release/zumen_abi1.wasm modules/zumen_abi1_drawing.wasm modules/zumen_abi1_bim.wasm modules/zumen_abi1_civil.wasm modules/zumen_abi1_pointcloud.wasm modules/zumen_abi1_plugin.wasm
-      - name: Canvas 2D で合成シーンと DXF・JWW・SXF を描く（決定 0267）
+        run: npx --no-install playwright install --with-deps firefox webkit
+      - name: Canvas 2D とプレイグラウンドのテストに使う依存を入れる
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund --prefix xtask/verify/pdfjs
+          npm ci --ignore-scripts --no-audit --no-fund --prefix playground
+      - name: 同じ wasm で両ブラウザーの適合テスト・Canvas 2D・React を確かめる
         env:
           ZUMEN_PDFJS_REQUIRED: '1'
         run: |
-          npm ci --ignore-scripts --no-audit --no-fund --prefix xtask/verify/pdfjs
-          node bindings/js/test/browser/view2d.mjs ${{ matrix.browser }} target/wasm32-unknown-unknown/release/zumen_abi1.wasm
-      - name: React のフックとプレイグラウンドをブラウザーで確かめる
-        run: |
-          npm ci --ignore-scripts --no-audit --no-fund --prefix playground
-          node bindings/js/test/browser/react.mjs ${{ matrix.browser }} modules/zumen_abi1_drawing.wasm
+          wasm=target/wasm32-unknown-unknown/release/zumen_abi1.wasm
+          modules=(modules/zumen_abi1_{drawing,bim,civil,pointcloud,plugin}.wasm)
+          status=0
+          for browser in firefox webkit; do
+            node bindings/js/test/browser/run.mjs "$browser" "$wasm" "${modules[@]}" || status=1
+            node bindings/js/test/browser/view2d.mjs "$browser" "$wasm" || status=1
+            node bindings/js/test/browser/react.mjs "$browser" modules/zumen_abi1_drawing.wasm || status=1
+          done
+          exit "$status"
 
   site:
-    name: サイトをブラウザーで確認（${{ matrix.browser }}）
-    strategy:
-      fail-fast: false
-      matrix:
-        browser: [firefox, webkit]
+    name: サイトをブラウザーで確認（Firefox・WebKit）
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -87,9 +83,14 @@ jobs:
       - name: サイトのページとビューアーを組む
         run: npm run build
       - name: サイトの Playwright に合うブラウザーと OS のライブラリを入れる
-        run: npx --no-install playwright install --with-deps ${{ matrix.browser }}
+        run: npx --no-install playwright install --with-deps firefox webkit
       - name: サイトの表示・保存・CSP による通信の拒否を確かめる
-        run: npm run test:browser -- ${{ matrix.browser }}
+        run: |
+          status=0
+          for browser in firefox webkit; do
+            npm run test:browser -- "$browser" || status=1
+          done
+          exit "$status"
 
   svg:
     name: SVG・PNG を Chromium で開いて照らす
