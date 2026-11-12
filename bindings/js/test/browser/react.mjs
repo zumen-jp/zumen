@@ -71,6 +71,63 @@ function convertInNode(module, input, saved) {
     return { estimated, converted, written, reopened, drawing, again };
   } finally { session.close(); }
 }
+async function checkInputDiagnostics(page, module, ready) {
+  // 1 本の線と移せない種類を 103 件。単位を持たない入力なので、忠実度のない診断も出る。
+  const bytes = Buffer.from([
+    ...section("HEADER", [9, "$ACADVER", 1, "AC1018", 9, "$DWGCODEPAGE", 3, "ANSI_932"]),
+    ...section("ENTITIES", [0, "LINE", 5, "A0", 8, "0", 10, 0, 20, 0, 11, 100, 21, 100,
+      ...Array.from({ length: 103 }, (_, i) => [0, "ZUMEN_UNKNOWN", 5, (0x100 + i).toString(16).toUpperCase(), 8, "0"]).flat()]),
+    0, "EOF", "",
+  ].join("\n"));
+  const session = loadSync(module).open();
+  let report;
+  try {
+    session.push("input", bytes);
+    session.call({ v: 1, op: "open", input: "input" });
+    report = session.call({ v: 1, op: "convert_estimate", doc: "input", format: "dxf", to: "out.dxf" }).result.estimate.input_diagnostics;
+  } finally { session.close(); }
+  assert.ok(report?.truncated && report.details.length === 100);
+  assert.ok(report.counts.some((diagnostic) => !diagnostic.fidelity), "忠実度のない診断を含む");
+  const lifted = report.counts.find((diagnostic) => diagnostic.code === "dxf.lift.dropped");
+  assert.equal(lifted.count, 103);
+  assert.ok(report.counts.every((diagnostic) => diagnostic.at.length === 0), "全件集計は場所の明細と分ける");
+  await page.getByLabel("図面ファイル").setInputFiles({ name: "input-diagnostics.dxf", mimeType: "application/octet-stream", buffer: bytes });
+  await ready("DXF");
+  const panel = page.getByRole("region", { name: /^DXF で保存/ });
+  await panel.getByRole("button", { name: "保存前の見積もりを確認", exact: true }).click();
+  const input = panel.getByRole("region", { name: "読み取り段階の診断", exact: true });
+  await input.waitFor();
+  assert.match(await input.innerText(), new RegExp("診断を " + report.total + " 件報告しました"));
+  assert.match(await input.innerText(), /件数は診断の発生回数/);
+  await input.getByText("読み取り段階の全件集計", { exact: true }).click();
+  const counts = input.getByRole("region", { name: /^全件集計/ });
+  assert.equal(await counts.locator("li").count(), report.counts.length);
+  for (const diagnostic of report.counts) {
+    assert.ok((await counts.innerText()).includes(diagnostic.code + " · " + diagnostic.count + " 件"));
+    for (const [key, value] of Object.entries(diagnostic.params)) {
+      assert.ok((await counts.innerText()).includes(key) && (await counts.innerText()).includes(String(value)));
+    }
+  }
+  await input.getByText("読み取り段階の場所付き明細", { exact: true }).click();
+  const details = input.getByRole("region", { name: /^場所付き明細/ });
+  // 通常の診断の場所の件数を超えた、100 件目の元のキーまで表示できる。
+  for (let i = 0; i < 3; i++) await details.getByRole("button", { name: "次の診断", exact: true }).click();
+  const last = report.details[99], row = details.locator("li").last();
+  assert.ok((await row.innerText()).includes(last.diagnostic.code));
+  for (const source of last.sources) {
+    for (const [key, label] of [["record", "レコード"], ["handle", "ハンドル"], ["instance", "インスタンス"]]) {
+      if (source[key] != null) assert.ok((await row.innerText()).includes(label + " " + source[key]));
+    }
+    if (source.bytes) assert.ok((await row.innerText()).includes("バイト " + source.bytes.start + "〜" + source.bytes.end));
+  }
+  assert.match(await input.innerText(), /読み取り段階の明細は先頭 100 件/);
+  // この追加フィールドを持たない core の結果でも、書き出しの見積もりは使える。
+  await page.evaluate(() => exportGate.omitInputDiagnostics());
+  await panel.getByRole("button", { name: "保存前の見積もりを確認", exact: true }).click();
+  await panel.getByRole("status").getByText("見積もりを確認して、DXF で保存してください。", { exact: true }).waitFor();
+  assert.equal(await input.count(), 0);
+  assert.equal(await panel.getByRole("button", { name: "DXF で保存", exact: true }).count(), 1);
+}
 // 記録されたフォント・画像・PDF の参照名を、ブラウザーの要求先として使わない。
 const section = (name, pairs) => [0, "SECTION", 2, name, ...pairs, 0, "ENDSEC"];
 const external = "https://example.invalid/";
@@ -292,6 +349,7 @@ try {
     assert.equal(await exportPanel.getByRole("button", { name: "DXF で保存", exact: true }).count(), 0);
   }
   page.off("download", collectDownload);
+  await checkInputDiagnostics(page, module, ready);
   // 公開サンプル（#689）。DWG の R2000・R2004・R2018 を選んで開き、表示・レイヤ・選択・出所・診断を操作する。
   // サンプルは配布物の中のファイルで、取るのはローカルの GET だけ（下の failures で確かめる）
   const samplePicker = page.getByLabel("公開サンプル");

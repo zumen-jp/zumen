@@ -22,5 +22,5 @@ pub use budget::{Budget, Exceeded, Kind, Limit, Limits};
 pub use cancel::CancelToken;
 pub use code::{Code, Fidelity, Param, ParamType, Severity};
 pub use cx::{Cx, Stop};
-pub use diag::{ByteRange, Diagnostic, Diagnostics, Key, Ref, SpecRef, Value};
+pub use diag::{ByteRange, Diagnostic, DiagnosticEvents, Diagnostics, Key, Ref, SpecRef, Value};
 pub use error::Error;

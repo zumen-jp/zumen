@@ -1,6 +1,6 @@
 # 開発への参加
 
-zumen の計画は、[#1](https://github.com/zumen-jp/zumen/issues/1) の下の issue で進めています。コアの設計は [docs/architecture.md](docs/architecture.md) に、リポジトリのどこに何があるかは [AGENTS.md](AGENTS.md) の「リポジトリの地図」にあります。
+zumen の計画は [#1 の子 issue](https://github.com/zumen-jp/zumen/issues/1)、各 crate の担当は[コアの設計](docs/architecture.md#モデルと依存)にあります。
 
 - 誰が担当するか決まっていない大きな変更は、issue で範囲を相談してください。
 - issue・PR・コメントは日本語を基本にします。
@@ -26,11 +26,17 @@ zumen の計画は、[#1](https://github.com/zumen-jp/zumen/issues/1) の下の 
 - GPL の実装を読んで書いたもの
 - 権利のはっきりしないもの
 
+## 依存と照合ツール
+
+実行時・リンク・Cargo の全依存（build・dev を含む）と同梱コードの生成ツールには、[許可した寛容なライセンス](deny.toml)を使います。ルートの Cargo ワークスペースの外部依存は crates.io に限ります。追加前にライセンス・wasm・決定性を確認し、採用理由を記録してください。
+
+Cargo の外で動き、成果物に何も残さないツールはライセンスを問いません。照合用の外部実装は同梱せず、別に入れたプログラムか寛容なライセンスの dev 依存を使います。外部プログラムは指定時と毎晩の CI で実行します。ソースを読めるのは寛容なライセンスの実装に限ります。
+
 ## 開発の手順
 
-書き込み権限のある担当者はローカルの `main` で作業し、変更に応じた検査を通して直接 push できます。外部からの貢献は PR で受け付けます。レビューには手元のコミットも PR も使えます。仕事の選び方と利用者の承認が要る操作は [開発の進め方](docs/work.md) にあります。
+書き込み権限のある担当者は[直接 push の手順](docs/work.md#直接-push)を使えます。外部からの貢献は [PR](docs/work.md#pr-とレビュー) で受け付けます。
 
-コミットと PR の題は `feat(dxf): 外部参照を読む` のように、種別とスコープを英語、説明を日本語にします。設計を変えるときは仕様・テストも更新し、理由はコミットか PR に残してください。
+コミットと PR の題は `feat(dxf): 外部参照を読む` のように、種別とスコープを英語、説明を日本語にします。[設計を変更するとき](docs/architecture.md#設計を変更するとき)は該当する契約とテストを更新してください。
 
 ## 変更に応じた検査
 
@@ -40,6 +46,7 @@ zumen の計画は、[#1](https://github.com/zumen-jp/zumen/issues/1) の下の 
 | --- | --- |
 | 説明だけの Markdown | 記述とリンクを確認し、`npx --no-install textlint <ファイル>` を実行。依存が未導入か lockfile が変わったときは先に `npm ci` |
 | 表記辞書・表記の設定、コードのコメント・カタログの文 | `npm run lint:text`。[表記の基準](docs/style.md) を参照 |
+| Rust の `tests/` のテストだけ | `cargo test -p <crate> --test <テスト名>`。共通の入力を変えたときは、その入力を使うテストも実行 |
 | Rust の実装 | `cargo fmt --all --check`、`cargo clippy -p <crate> --all-targets -- -D warnings`、`cargo test -p <crate>`。呼び出す側に影響すればそのテストも実行 |
 | ワークスペース全体に及ぶ変更 | `cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace` |
 | スキーマ・台帳・生成器・生成物 | 元を更新して `cargo xtask codegen`、続けて `cargo xtask codegen --check`。元と生成物を一緒にコミット |
@@ -48,4 +55,12 @@ zumen の計画は、[#1](https://github.com/zumen-jp/zumen/issues/1) の下の 
 
 文書でもコード生成・ビルド・配布に使うものは、その処理を確かめます。応答が変わったら `cargo run -p zumen-conformance -- --write` でハッシュを更新し、理由を残します。
 
-[通常の CI](.github/workflows/ci.yml) は `main` への push でも動きます。変更に [fuzz](fuzz/README.md#動かし方) や [配布物の検査](xtask/release/README.md#公開せずに検査する) が必要なら、対応する対象を手元で実行するか、PR のワークフローを使います。
+[通常の CI](.github/workflows/ci.yml) は push・PR の[変更パスから検査を選びます](.github/ci/checks.py)。形式の文書は台帳と照合し、サイトの入力はビルドとブラウザーテストでも確かめます。
+
+push では、検査を選ぶ Python だけの変更はその単体テストで確かめます。Go だけなら通常版の wasm で Go を、プレイグラウンドだけなら図面用の wasm で React を検査します。表示部品の実装を変えたときは、部品を使う React とサイトも確かめます。
+
+`crates/` の実装を変えたときは、Linux でその crate と、それを直接・間接に使う crate を lint し、テストします。利用側は `Cargo.lock` の開発用・任意の依存も含めて選びます。テストや例だけの変更は原則としてその crate で確かめます。たとえば PDF の読み取りだけを変えた push では、`zumen-pdf` を既定の機能と領域モデルなしの両方で検査します。
+
+ABI に変更が及ぶ push とすべての PR では、[対応する環境](docs/support.md)の Linux x64・Windows x86・Windows x64・macOS arm64 と wasm で適合テストを実行します。PR ごとに台帳・生成物・依存も検査します。週に 1 回と CI の手動実行では、4 環境でワークスペース全体をテストし、wasm の圧縮後のサイズも記録します。
+
+変更に [fuzz](fuzz/README.md#動かし方) や [配布物の検査](xtask/release/README.md#公開せずに検査する) が必要なら、対応する対象を手元で実行するか、PR のワークフローを使います。ドラフトをレビュー可能にすると、該当する検査が始まります。その後は PR の更新時に実行します。

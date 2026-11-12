@@ -114,4 +114,4 @@ python xtask/release/check_cargo_scope.py
 
 `check_cargo_scope.py` は、上記の固定版のツールを使い、別の member だけが optional な依存を要求する小さな workspace を実際にビルドします。SBOM と埋込情報が同じ余分な crate を返した場合と、部品の数が合って辺だけが余った場合を検出します。該当する feature を有効にしたビルドは通ります。
 
-[package-check.yml](../../.github/workflows/package-check.yml) は、関連する PR でリリースと同じ関数を使い、7 target のネイティブのライブラリ・CLI・wheel・NuGet と、5 組の wasm・npm を実物で検査します。cargo-about と cargo-cyclonedx はバイナリを作る job と分けます。
+[package-check.yml](../../.github/workflows/package-check.yml) は、関連する PR でリリースと同じ関数を使い、7 target のネイティブのライブラリ・CLI・wheel・NuGet と、5 組の wasm・npm を実物で検査します。ドラフトはレビュー可能にしたときに検査します。cargo-about と cargo-cyclonedx はバイナリを作る job と分けます。

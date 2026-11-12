@@ -1,4 +1,4 @@
-import type { ConvertEstimateResult, ConvertResult, Diagnostic, DrawingResult } from "@zumen-jp/zumen";
+import type { ConvertEstimateResult, ConvertResult, Diagnostic, DrawingResult, Source } from "@zumen-jp/zumen";
 import type { ElementRef, ElementSource, SceneInput, View2D, View2DEvent, View2DEventType, View2DOptions, View2DState } from "@zumen-jp/view2d";
 
 export declare function useDrawingViewer(canvas: HTMLCanvasElement | OffscreenCanvas | null, options?: View2DOptions): View2D | null;
@@ -14,9 +14,11 @@ export interface DrawingOptions {
   catalog?: string | null;
 }
 export interface DrawingDiagnostic {
-  stage: "open" | "drawing" | "scene" | "convert" | "convert_estimate";
+  stage: "open" | "drawing" | "scene" | "convert" | "convert_estimate" | "input";
   diagnostic: Diagnostic;
   text: string;
+  /** 読み取り段階の明細が持つ L1 の出所。diagnostic.at と同じ順序。 */
+  sources?: Source[];
 }
 export type DrawingState =
   | { status: "idle" | "loading" }
@@ -45,5 +47,7 @@ export interface DrawingConversion {
 export interface DrawingConversionEstimate {
   result: ConvertEstimateResult;
   diagnostics: DrawingDiagnostic[];
+  /** 読み取り段階の診断の文。対応する core でだけ返す。 */
+  inputDiagnostics?: { counts: DrawingDiagnostic[]; details: DrawingDiagnostic[] };
 }
 export declare function useDrawing(file: Blob | null, options: DrawingOptions): DrawingState;

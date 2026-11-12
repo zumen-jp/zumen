@@ -16,7 +16,7 @@ pub(crate) struct Source<'a> {
 }
 
 impl<'a> Source<'a> {
-    pub(super) fn metadata_bound(self) -> u64 {
+    pub(crate) fn metadata_bound(self) -> u64 {
         (self.file.len() as u64).max(self.largest_container)
     }
 

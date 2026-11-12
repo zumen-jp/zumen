@@ -15,6 +15,8 @@ Request = Union[
     "DescribeRequest",
     "DrawingRequest",
     "EntitiesRequest",
+    "CalibrationsRequest",
+    "MeasureDistanceRequest",
     "ApplyRequest",
     "ConvertRequest",
     "ConvertEstimateRequest",
@@ -404,6 +406,192 @@ class DrawingResult(_DrawingResultRequired, _DrawingResultOptional):
     "図面モデルの要約。移さなかった図形と値は、診断で返す"
 
 
+# 2 次元の座標
+Point2 = TypedDict(
+    "Point2",
+    {
+        # X 座標
+        "x": float,
+        # Y 座標
+        "y": float,
+    },
+)
+
+
+# 原点と相対座標を分けた用紙の点。両成分の正確な和を位置とし、先に足して丸めない。座標の単位は用紙の mm
+SplitPoint2 = TypedDict(
+    "SplitPoint2",
+    {
+        # 用紙の原点
+        "origin": "Point2",
+        # 原点からの相対座標
+        "offset": "Point2",
+    },
+)
+
+
+# 用紙の閉じた矩形で使う距離の校正。重なる領域は ID で明示的に選ぶ。マイナーバージョン 68 から
+_CalibrationItemRequired = TypedDict(
+    "_CalibrationItemRequired",
+    {
+        # 文書内で重複しない校正の ID
+        "id": str,
+        # 校正を使える公開用紙の ID。drawing が返すもの
+        "from": str,
+        # 用紙の mm の閉じた矩形。[X の最小, Y の最小, X の最大, Y の最大] の 4 値で、幅と高さは正
+        "bounds": List[float],
+        # 用紙の mm の変位から校正単位の変位へ写す行優先の 2×2 行列。[a, b, c, d] の 4 値で、[dx, dy] を [a*dx+b*dy, c*dx+d*dy] に写す
+        "matrix": List[float],
+        # 校正後の長さの単位。ラベルだけから推定しない
+        "unit": "Unit",
+        # 元の単位ラベル。未知の単位でも原文を保つ
+        "unit_label": str,
+    },
+)
+_CalibrationItemOptional = TypedDict(
+    "_CalibrationItemOptional",
+    {
+        # 元の校正の名前。翻訳しない。なければ持たない
+        "name": str,
+        # 元の形式のレコード
+        "source": "Source",
+    },
+    total=False,
+)
+
+
+class CalibrationItem(_CalibrationItemRequired, _CalibrationItemOptional):
+    "用紙の閉じた矩形で使う距離の校正。重なる領域は ID で明示的に選ぶ。マイナーバージョン 68 から"
+
+
+# 開いた文書を図面モデルに変換し、用紙の距離の校正をモデルの順に返す。マイナーバージョン 68 から
+_CalibrationsRequestRequired = TypedDict(
+    "_CalibrationsRequestRequired",
+    {
+        # メッセージのスキーマのメジャーバージョン。今は 1
+        "v": int,
+        # op の名前
+        "op": Literal["calibrations"],
+        # 文書の名前。open で作ったもの
+        "doc": str,
+    },
+)
+_CalibrationsRequestOptional = TypedDict(
+    "_CalibrationsRequestOptional",
+    {
+        # 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        "budget": "Budget",
+        # 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        "partial": bool,
+        # 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        "max_places": int,
+        # 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        "time_limit_ms": int,
+        # 公開用紙の ID。drawing が返すもの。書けばその用紙の校正だけを返し、書かなければすべての校正を返す
+        "from": str,
+        # 返す最初の校正の位置。from で絞った後の位置で、前の応答の next_offset を渡す。書かなければ 0
+        "offset": int,
+        # 返す校正の数の上限。書かなければ 1000
+        "limit": int,
+        # 期待する元の文書のハッシュ。open に渡したバイト列のハッシュと照合する。図面モデルへ変換した ZMDR 自身のハッシュではない
+        "expected_hash": str,
+    },
+    total=False,
+)
+
+
+class CalibrationsRequest(_CalibrationsRequestRequired, _CalibrationsRequestOptional):
+    "開いた文書を図面モデルに変換し、用紙の距離の校正をモデルの順に返す。マイナーバージョン 68 から"
+
+
+# 距離の校正の一覧の一部
+_CalibrationsResultRequired = TypedDict(
+    "_CalibrationsResultRequired",
+    {
+        # 元の文書のハッシュ。ZMDR から開いたときは、埋め込まれた元の文書のハッシュ（Source.hash）
+        "hash": str,
+        # from で絞った一覧の offset から limit 個までの校正
+        "items": List["CalibrationItem"],
+        # from で絞った後の校正の総数
+        "total": int,
+    },
+)
+_CalibrationsResultOptional = TypedDict(
+    "_CalibrationsResultOptional",
+    {
+        # 続きの最初の校正の位置。続きがなければ持たない
+        "next_offset": int,
+    },
+    total=False,
+)
+
+
+class CalibrationsResult(_CalibrationsResultRequired, _CalibrationsResultOptional):
+    "距離の校正の一覧の一部"
+
+
+# 用紙と校正を明示的に選び、始点と終点の校正後の距離を求める。両点は校正の閉領域内にある必要がある。マイナーバージョン 68 から
+_MeasureDistanceRequestRequired = TypedDict(
+    "_MeasureDistanceRequestRequired",
+    {
+        # メッセージのスキーマのメジャーバージョン。今は 1
+        "v": int,
+        # op の名前
+        "op": Literal["measure_distance"],
+        # 文書の名前。open で作ったもの
+        "doc": str,
+        # 公開用紙の ID。drawing が返すもので、選んだ校正と同じ用紙
+        "from": str,
+        # 使う校正の ID。calibrations が返すもの
+        "calibration": str,
+        # 始点。原点と相対座標を分けた用紙の mm の点
+        "start": "SplitPoint2",
+        # 終点。原点と相対座標を分けた用紙の mm の点
+        "end": "SplitPoint2",
+    },
+)
+_MeasureDistanceRequestOptional = TypedDict(
+    "_MeasureDistanceRequestOptional",
+    {
+        # 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        "budget": "Budget",
+        # 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        "partial": bool,
+        # 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        "max_places": int,
+        # 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        "time_limit_ms": int,
+        # 期待する元の文書のハッシュ。open に渡したバイト列のハッシュと照合する。図面モデルへ変換した ZMDR 自身のハッシュではない
+        "expected_hash": str,
+    },
+    total=False,
+)
+
+
+class MeasureDistanceRequest(_MeasureDistanceRequestRequired, _MeasureDistanceRequestOptional):
+    "用紙と校正を明示的に選び、始点と終点の校正後の距離を求める。両点は校正の閉領域内にある必要がある。マイナーバージョン 68 から"
+
+
+# 選んだ用紙と校正による距離
+MeasureDistanceResult = TypedDict(
+    "MeasureDistanceResult",
+    {
+        # 元の文書のハッシュ。ZMDR から開いたときは、埋め込まれた元の文書のハッシュ（Source.hash）
+        "hash": str,
+        # 計測した公開用紙の ID
+        "from": str,
+        # 使った校正の ID
+        "calibration": str,
+        # 校正後の距離。unit と unit_label が示す単位
+        "distance": float,
+        # 校正後の長さの単位
+        "unit": "Unit",
+        # 元の単位ラベル。未知の単位でも原文を保つ
+        "unit_label": str,
+    },
+)
+
+
 # 文書の点の表し方。フィールドの意味は point_style_edit と同じ
 PointStyleSummary = TypedDict(
     "PointStyleSummary",
@@ -740,7 +928,7 @@ class PolylineGeometry(_PolylineGeometryRequired, _PolylineGeometryOptional):
     "頂点を結んだ折れ線。幅は持たない"
 
 
-# 1 点か 2 点の間に置く文字。置き換えるときは、位置合わせ・幅の倍率・斜体・反転・文字スタイルを元の値のままにする。足すときは、2 点目がなければ左の基準線に合わせ、幅の倍率 1・斜体なし・反転なしにする
+# 1 点か 2 点の間に置く文字。置き換えるときは、位置合わせ・文字スタイルを元の値のままにし、書かない幅の倍率・斜体・反転も元の値を受け継ぐ。足すときは、2 点目がなければ書かない位置合わせを左の基準線にし、幅の倍率 1・斜体なし・反転なしにする
 _TextGeometryRequired = TypedDict(
     "_TextGeometryRequired",
     {
@@ -763,6 +951,18 @@ _TextGeometryOptional = TypedDict(
         "end": List[float],
         # 2 点の間への合わせ方。2 点目（end）と一緒に書く。マイナーバージョン 17 から
         "fit": "TextFit",
+        # 1 点に置く文字の水平の位置合わせ。left のときは entities が省き、足すときも省けば left。2 点の間に合わせる文字には書けない。置き換えるときは元と同じ値だけを受ける。マイナーバージョン 69 から
+        "horizontal": "TextHorizontal",
+        # 1 点に置く文字の垂直の位置合わせ。baseline のときは entities が省き、足すときも省けば baseline。2 点の間に合わせる文字には書けない。置き換えるときは元と同じ値だけを受ける。マイナーバージョン 69 から
+        "vertical": "TextVertical",
+        # 幅の倍率。0 より大きい。1 のときは entities が省き、足すときも省けば 1、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から
+        "width_factor": float,
+        # 斜体の角度（度）。0 のときは entities が省き、足すときも省けば 0、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から
+        "oblique": float,
+        # 左右を裏返すか。偽のときは entities が省き、足すときも省けば偽、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から
+        "backward": bool,
+        # 上下を反転するか。偽のときは entities が省き、足すときも省けば偽、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から
+        "upside_down": bool,
         # 文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。DXF に文字スタイルの定義がないときは Standard だけを受ける。置き換えるときは、元と同じ名前だけを受ける。style_id と一緒に書くなら、同じ文字スタイルを指す。マイナーバージョン 12 から
         "style": str,
         # 文字スタイルの ID。tables が返したもの。entities は、名前で引いた文字スタイルの ID を返す。足す・置き換えるときは、名前の代わりに書ける（名前より先に使う）。同じ名前（大文字と小文字を区別しない）の項目が複数あれば書き戻せない。マイナーバージョン 23 から
@@ -773,7 +973,29 @@ _TextGeometryOptional = TypedDict(
 
 
 class TextGeometry(_TextGeometryRequired, _TextGeometryOptional):
-    "1 点か 2 点の間に置く文字。置き換えるときは、位置合わせ・幅の倍率・斜体・反転・文字スタイルを元の値のままにする。足すときは、2 点目がなければ左の基準線に合わせ、幅の倍率 1・斜体なし・反転なしにする"
+    "1 点か 2 点の間に置く文字。置き換えるときは、位置合わせ・文字スタイルを元の値のままにし、書かない幅の倍率・斜体・反転も元の値を受け継ぐ。足すときは、2 点目がなければ書かない位置合わせを左の基準線にし、幅の倍率 1・斜体なし・反転なしにする"
+
+# 1 点に置く文字の水平の位置合わせ。middle は水平と垂直の両方を外形の中央に合わせる（DXF の 72 = 4）
+TextHorizontal = Union[
+    Literal[
+        "left",
+        "center",
+        "right",
+        "middle",
+    ],
+    str,
+]
+
+# 1 点に置く文字の垂直の位置合わせ
+TextVertical = Union[
+    Literal[
+        "baseline",
+        "bottom",
+        "middle",
+        "top",
+    ],
+    str,
+]
 
 # 2 点の間への合わせ方。aligned は縦横の比を保って高さも変え、fit は高さを保って幅だけを変える
 TextFit = Union[
@@ -1367,7 +1589,7 @@ _ConvertEstimateRequestOptional = TypedDict(
         "max_places": int,
         # 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
         "time_limit_ms": int,
-        # 返す明細の最大件数。省略時は 100。総数と種類・忠実度ごとの集計はこの上限によらない
+        # 書き手と読み取り段階のそれぞれで返す明細の最大件数。省略時は 100。総数と全件集計はこの上限によらない
         "limit": int,
     },
     total=False,
@@ -1389,8 +1611,8 @@ ConvertEstimateResult = TypedDict(
 
 
 # 実変換と同じ処理で準備した出力。doc と hash は未登録の予定値。元の入力・設定・予算が同じなら convert の値と一致する
-ConversionEstimate = TypedDict(
-    "ConversionEstimate",
+_ConversionEstimateRequired = TypedDict(
+    "_ConversionEstimateRequired",
     {
         # 予定する文書の名前
         "doc": str,
@@ -1408,6 +1630,46 @@ ConversionEstimate = TypedDict(
         "details": List["ConversionDetail"],
         # 明細の上限で返さなかった対象がある
         "truncated": bool,
+    },
+)
+_ConversionEstimateOptional = TypedDict(
+    "_ConversionEstimateOptional",
+    {
+        # 入力の表の読み取りと lift 中の、集約前の診断発生記録。書き手の項目の集計には含めない。マイナーバージョン 67 から
+        "input_diagnostics": "ConversionInputDiagnostics",
+    },
+    total=False,
+)
+
+
+class ConversionEstimate(_ConversionEstimateRequired, _ConversionEstimateOptional):
+    "実変換と同じ処理で準備した出力。doc と hash は未登録の予定値。元の入力・設定・予算が同じなら convert の値と一致する"
+
+
+# 読み取り段階の診断発生数。失った要素数ではなく、同じ要素の複数の診断もそれぞれ数える。忠実度を持たない診断も含む。open 時や書き手の診断は含まない
+ConversionInputDiagnostics = TypedDict(
+    "ConversionInputDiagnostics",
+    {
+        # 診断の発生件数の合計。max_places と limit によらない
+        "total": int,
+        # 診断の code とカタログの group_by の値による全件集計。場所は持たず、値は最も早い入力位置の報告から取る
+        "counts": List["Diagnostic"],
+        # 集約前の報告を入力位置順に limit 件まで返す。同じ位置は報告順。診断の場所は max_places で制限しない
+        "details": List["ConversionInputDiagnostic"],
+        # 明細の上限で返さなかった報告がある
+        "truncated": bool,
+    },
+)
+
+
+# 集約前の診断と、その場所と同じ順序の出所。種類や失った値は診断の code と params からたどる
+ConversionInputDiagnostic = TypedDict(
+    "ConversionInputDiagnostic",
+    {
+        # 集約前の診断。元の値と場所を保つ
+        "diagnostic": "Diagnostic",
+        # diagnostic.at と同じ順序のレコード・バイト範囲・ハンドル・インスタンス番号。ID は diagnostic.at にある
+        "sources": List["Source"],
     },
 )
 
@@ -5891,6 +6153,8 @@ Operation = Literal[
     "describe",
     "drawing",
     "entities",
+    "calibrations",
+    "measure_distance",
     "apply",
     "convert",
     "convert_estimate",
@@ -5928,6 +6192,8 @@ OPERATIONS: Dict[str, Any] = {
     "describe": ("DescribeRequest", "DescribeResult"),
     "drawing": ("DrawingRequest", "DrawingResult"),
     "entities": ("EntitiesRequest", "EntitiesResult"),
+    "calibrations": ("CalibrationsRequest", "CalibrationsResult"),
+    "measure_distance": ("MeasureDistanceRequest", "MeasureDistanceResult"),
     "apply": ("ApplyRequest", "ApplyResult"),
     "convert": ("ConvertRequest", "ConvertResult"),
     "convert_estimate": ("ConvertEstimateRequest", "ConvertEstimateResult"),

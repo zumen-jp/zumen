@@ -60,6 +60,16 @@ func (u Request) AsEntitiesRequest() *EntitiesRequest {
 	return asTagged[EntitiesRequest](u, "op", "entities")
 }
 
+// AsCalibrationsRequest は、op が calibrations の形なら、その型で読む。違えば nil。
+func (u Request) AsCalibrationsRequest() *CalibrationsRequest {
+	return asTagged[CalibrationsRequest](u, "op", "calibrations")
+}
+
+// AsMeasureDistanceRequest は、op が measure_distance の形なら、その型で読む。違えば nil。
+func (u Request) AsMeasureDistanceRequest() *MeasureDistanceRequest {
+	return asTagged[MeasureDistanceRequest](u, "op", "measure_distance")
+}
+
 // AsApplyRequest は、op が apply の形なら、その型で読む。違えば nil。
 func (u Request) AsApplyRequest() *ApplyRequest {
 	return asTagged[ApplyRequest](u, "op", "apply")
@@ -507,6 +517,176 @@ type DrawingResult struct {
 	PointStyle *PointStyleSummary `json:"point_style,omitempty"`
 }
 
+// Point2: 2 次元の座標
+type Point2 struct {
+	// X 座標
+	X *float64 `json:"x,omitempty"`
+
+	// Y 座標
+	Y *float64 `json:"y,omitempty"`
+}
+
+// SplitPoint2: 原点と相対座標を分けた用紙の点。両成分の正確な和を位置とし、先に足して丸めない。座標の単位は用紙の mm
+type SplitPoint2 struct {
+	// 用紙の原点
+	Origin *Point2 `json:"origin,omitempty"`
+
+	// 原点からの相対座標
+	Offset *Point2 `json:"offset,omitempty"`
+}
+
+// CalibrationItem: 用紙の閉じた矩形で使う距離の校正。重なる領域は ID で明示的に選ぶ。マイナーバージョン 68 から
+type CalibrationItem struct {
+	// 文書内で重複しない校正の ID
+	Id *string `json:"id,omitempty"`
+
+	// 元の校正の名前。翻訳しない。なければ持たない
+	Name *string `json:"name,omitempty"`
+
+	// 校正を使える公開用紙の ID。drawing が返すもの
+	From *string `json:"from,omitempty"`
+
+	// 用紙の mm の閉じた矩形。[X の最小, Y の最小, X の最大, Y の最大] の 4 値で、幅と高さは正
+	Bounds []float64 `json:"bounds,omitempty"`
+
+	// 用紙の mm の変位から校正単位の変位へ写す行優先の 2×2 行列。[a, b, c, d] の 4 値で、[dx, dy] を [a*dx+b*dy, c*dx+d*dy] に写す
+	Matrix []float64 `json:"matrix,omitempty"`
+
+	// 校正後の長さの単位。ラベルだけから推定しない
+	Unit *Unit `json:"unit,omitempty"`
+
+	// 元の単位ラベル。未知の単位でも原文を保つ
+	UnitLabel *string `json:"unit_label,omitempty"`
+
+	// 元の形式のレコード
+	Source *Source `json:"source,omitempty"`
+}
+
+// CalibrationsRequest: 開いた文書を図面モデルに変換し、用紙の距離の校正をモデルの順に返す。マイナーバージョン 68 から
+type CalibrationsRequest struct {
+	// メッセージのスキーマのメジャーバージョン。今は 1
+	V *int64 `json:"v,omitempty"`
+
+	// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+	Budget *Budget `json:"budget,omitempty"`
+
+	// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+	Partial *bool `json:"partial,omitempty"`
+
+	// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+	MaxPlaces *int64 `json:"max_places,omitempty"`
+
+	// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+	TimeLimitMs *int64 `json:"time_limit_ms,omitempty"`
+
+	// op の名前
+	Op string `json:"op,omitempty"`
+
+	// 文書の名前。open で作ったもの
+	Doc *string `json:"doc,omitempty"`
+
+	// 公開用紙の ID。drawing が返すもの。書けばその用紙の校正だけを返し、書かなければすべての校正を返す
+	From *string `json:"from,omitempty"`
+
+	// 返す最初の校正の位置。from で絞った後の位置で、前の応答の next_offset を渡す。書かなければ 0
+	Offset *int64 `json:"offset,omitempty"`
+
+	// 返す校正の数の上限。書かなければ 1000
+	Limit *int64 `json:"limit,omitempty"`
+
+	// 期待する元の文書のハッシュ。open に渡したバイト列のハッシュと照合する。図面モデルへ変換した ZMDR 自身のハッシュではない
+	ExpectedHash *string `json:"expected_hash,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m CalibrationsRequest) MarshalJSON() ([]byte, error) {
+	type plain CalibrationsRequest
+	m.Op = "calibrations"
+	return json.Marshal(plain(m))
+}
+
+// CalibrationsResult: 距離の校正の一覧の一部
+type CalibrationsResult struct {
+	// 元の文書のハッシュ。ZMDR から開いたときは、埋め込まれた元の文書のハッシュ（Source.hash）
+	Hash *string `json:"hash,omitempty"`
+
+	// from で絞った一覧の offset から limit 個までの校正
+	Items []CalibrationItem `json:"items,omitempty"`
+
+	// from で絞った後の校正の総数
+	Total *int64 `json:"total,omitempty"`
+
+	// 続きの最初の校正の位置。続きがなければ持たない
+	NextOffset *int64 `json:"next_offset,omitempty"`
+}
+
+// MeasureDistanceRequest: 用紙と校正を明示的に選び、始点と終点の校正後の距離を求める。両点は校正の閉領域内にある必要がある。マイナーバージョン 68 から
+type MeasureDistanceRequest struct {
+	// メッセージのスキーマのメジャーバージョン。今は 1
+	V *int64 `json:"v,omitempty"`
+
+	// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+	Budget *Budget `json:"budget,omitempty"`
+
+	// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+	Partial *bool `json:"partial,omitempty"`
+
+	// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+	MaxPlaces *int64 `json:"max_places,omitempty"`
+
+	// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+	TimeLimitMs *int64 `json:"time_limit_ms,omitempty"`
+
+	// op の名前
+	Op string `json:"op,omitempty"`
+
+	// 文書の名前。open で作ったもの
+	Doc *string `json:"doc,omitempty"`
+
+	// 公開用紙の ID。drawing が返すもので、選んだ校正と同じ用紙
+	From *string `json:"from,omitempty"`
+
+	// 使う校正の ID。calibrations が返すもの
+	Calibration *string `json:"calibration,omitempty"`
+
+	// 始点。原点と相対座標を分けた用紙の mm の点
+	Start *SplitPoint2 `json:"start,omitempty"`
+
+	// 終点。原点と相対座標を分けた用紙の mm の点
+	End *SplitPoint2 `json:"end,omitempty"`
+
+	// 期待する元の文書のハッシュ。open に渡したバイト列のハッシュと照合する。図面モデルへ変換した ZMDR 自身のハッシュではない
+	ExpectedHash *string `json:"expected_hash,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m MeasureDistanceRequest) MarshalJSON() ([]byte, error) {
+	type plain MeasureDistanceRequest
+	m.Op = "measure_distance"
+	return json.Marshal(plain(m))
+}
+
+// MeasureDistanceResult: 選んだ用紙と校正による距離
+type MeasureDistanceResult struct {
+	// 元の文書のハッシュ。ZMDR から開いたときは、埋め込まれた元の文書のハッシュ（Source.hash）
+	Hash *string `json:"hash,omitempty"`
+
+	// 計測した公開用紙の ID
+	From *string `json:"from,omitempty"`
+
+	// 使った校正の ID
+	Calibration *string `json:"calibration,omitempty"`
+
+	// 校正後の距離。unit と unit_label が示す単位
+	Distance *float64 `json:"distance,omitempty"`
+
+	// 校正後の長さの単位
+	Unit *Unit `json:"unit,omitempty"`
+
+	// 元の単位ラベル。未知の単位でも原文を保つ
+	UnitLabel *string `json:"unit_label,omitempty"`
+}
+
 // PointStyleSummary: 文書の点の表し方。フィールドの意味は point_style_edit と同じ
 type PointStyleSummary struct {
 	// 基本の形
@@ -916,7 +1096,7 @@ func (m PolylineGeometry) MarshalJSON() ([]byte, error) {
 	return json.Marshal(plain(m))
 }
 
-// TextGeometry: 1 点か 2 点の間に置く文字。置き換えるときは、位置合わせ・幅の倍率・斜体・反転・文字スタイルを元の値のままにする。足すときは、2 点目がなければ左の基準線に合わせ、幅の倍率 1・斜体なし・反転なしにする
+// TextGeometry: 1 点か 2 点の間に置く文字。置き換えるときは、位置合わせ・文字スタイルを元の値のままにし、書かない幅の倍率・斜体・反転も元の値を受け継ぐ。足すときは、2 点目がなければ書かない位置合わせを左の基準線にし、幅の倍率 1・斜体なし・反転なしにする
 type TextGeometry struct {
 	// 形の種類
 	Shape string `json:"shape,omitempty"`
@@ -933,11 +1113,29 @@ type TextGeometry struct {
 	// 2 点の間への合わせ方。2 点目（end）と一緒に書く。マイナーバージョン 17 から
 	Fit *TextFit `json:"fit,omitempty"`
 
+	// 1 点に置く文字の水平の位置合わせ。left のときは entities が省き、足すときも省けば left。2 点の間に合わせる文字には書けない。置き換えるときは元と同じ値だけを受ける。マイナーバージョン 69 から
+	Horizontal *TextHorizontal `json:"horizontal,omitempty"`
+
+	// 1 点に置く文字の垂直の位置合わせ。baseline のときは entities が省き、足すときも省けば baseline。2 点の間に合わせる文字には書けない。置き換えるときは元と同じ値だけを受ける。マイナーバージョン 69 から
+	Vertical *TextVertical `json:"vertical,omitempty"`
+
 	// 高さ。0 より大きい
 	Height *float64 `json:"height,omitempty"`
 
 	// 回転（度）。2 点の間に合わせる文字では、1 点目から 2 点目への向きと同じでなければならない
 	Rotation *float64 `json:"rotation,omitempty"`
+
+	// 幅の倍率。0 より大きい。1 のときは entities が省き、足すときも省けば 1、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から
+	WidthFactor *float64 `json:"width_factor,omitempty"`
+
+	// 斜体の角度（度）。0 のときは entities が省き、足すときも省けば 0、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から
+	Oblique *float64 `json:"oblique,omitempty"`
+
+	// 左右を裏返すか。偽のときは entities が省き、足すときも省けば偽、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から
+	Backward *bool `json:"backward,omitempty"`
+
+	// 上下を反転するか。偽のときは entities が省き、足すときも省けば偽、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から
+	UpsideDown *bool `json:"upside_down,omitempty"`
 
 	// 文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。DXF に文字スタイルの定義がないときは Standard だけを受ける。置き換えるときは、元と同じ名前だけを受ける。style_id と一緒に書くなら、同じ文字スタイルを指す。マイナーバージョン 12 から
 	Style *string `json:"style,omitempty"`
@@ -952,6 +1150,40 @@ func (m TextGeometry) MarshalJSON() ([]byte, error) {
 	m.Shape = "text"
 	return json.Marshal(plain(m))
 }
+
+// TextHorizontal: 1 点に置く文字の水平の位置合わせ。middle は水平と垂直の両方を外形の中央に合わせる（DXF の 72 = 4）
+//
+// 列挙の値。知らない値も受け取る。
+type TextHorizontal string
+
+// TextHorizontalLeft は left。
+const TextHorizontalLeft TextHorizontal = "left"
+
+// TextHorizontalCenter は center。
+const TextHorizontalCenter TextHorizontal = "center"
+
+// TextHorizontalRight は right。
+const TextHorizontalRight TextHorizontal = "right"
+
+// TextHorizontalMiddle は middle。
+const TextHorizontalMiddle TextHorizontal = "middle"
+
+// TextVertical: 1 点に置く文字の垂直の位置合わせ
+//
+// 列挙の値。知らない値も受け取る。
+type TextVertical string
+
+// TextVerticalBaseline は baseline。
+const TextVerticalBaseline TextVertical = "baseline"
+
+// TextVerticalBottom は bottom。
+const TextVerticalBottom TextVertical = "bottom"
+
+// TextVerticalMiddle は middle。
+const TextVerticalMiddle TextVertical = "middle"
+
+// TextVerticalTop は top。
+const TextVerticalTop TextVertical = "top"
 
 // TextFit: 2 点の間への合わせ方。aligned は縦横の比を保って高さも変え、fit は高さを保って幅だけを変える
 //
@@ -1604,7 +1836,7 @@ type ConvertEstimateRequest struct {
 	// 予定する文書の名前。convert と同じ条件で検査するが、名前を確保しない
 	To *string `json:"to,omitempty"`
 
-	// 返す明細の最大件数。省略時は 100。総数と種類・忠実度ごとの集計はこの上限によらない
+	// 書き手と読み取り段階のそれぞれで返す明細の最大件数。省略時は 100。総数と全件集計はこの上限によらない
 	Limit *int64 `json:"limit,omitempty"`
 }
 
@@ -1646,6 +1878,33 @@ type ConversionEstimate struct {
 
 	// 明細の上限で返さなかった対象がある
 	Truncated *bool `json:"truncated,omitempty"`
+
+	// 入力の表の読み取りと lift 中の、集約前の診断発生記録。書き手の項目の集計には含めない。マイナーバージョン 67 から
+	InputDiagnostics *ConversionInputDiagnostics `json:"input_diagnostics,omitempty"`
+}
+
+// ConversionInputDiagnostics: 読み取り段階の診断発生数。失った要素数ではなく、同じ要素の複数の診断もそれぞれ数える。忠実度を持たない診断も含む。open 時や書き手の診断は含まない
+type ConversionInputDiagnostics struct {
+	// 診断の発生件数の合計。max_places と limit によらない
+	Total *int64 `json:"total,omitempty"`
+
+	// 診断の code とカタログの group_by の値による全件集計。場所は持たず、値は最も早い入力位置の報告から取る
+	Counts []Diagnostic `json:"counts,omitempty"`
+
+	// 集約前の報告を入力位置順に limit 件まで返す。同じ位置は報告順。診断の場所は max_places で制限しない
+	Details []ConversionInputDiagnostic `json:"details,omitempty"`
+
+	// 明細の上限で返さなかった報告がある
+	Truncated *bool `json:"truncated,omitempty"`
+}
+
+// ConversionInputDiagnostic: 集約前の診断と、その場所と同じ順序の出所。種類や失った値は診断の code と params からたどる
+type ConversionInputDiagnostic struct {
+	// 集約前の診断。元の値と場所を保つ
+	Diagnostic *Diagnostic `json:"diagnostic,omitempty"`
+
+	// diagnostic.at と同じ順序のレコード・バイト範囲・ハンドル・インスタンス番号。ID は diagnostic.at にある
+	Sources []Source `json:"sources,omitempty"`
 }
 
 // ConversionCount: 処理対象の種類と忠実度ごとの集計
@@ -5931,6 +6190,12 @@ const OpDrawing = "drawing"
 
 // OpEntities は、op の名前 entities。
 const OpEntities = "entities"
+
+// OpCalibrations は、op の名前 calibrations。
+const OpCalibrations = "calibrations"
+
+// OpMeasureDistance は、op の名前 measure_distance。
+const OpMeasureDistance = "measure_distance"
 
 // OpApply は、op の名前 apply。
 const OpApply = "apply"

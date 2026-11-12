@@ -28,6 +28,7 @@ use zumen_base::{Cx, Kind, Ref, Stop};
 
 #[cfg(feature = "binary")]
 pub mod binary;
+mod calibration;
 mod callout;
 mod change;
 mod dimension;
@@ -49,6 +50,7 @@ pub mod transform;
 mod underlay;
 mod walk;
 
+pub use calibration::{Calibration, MeasurementError, SplitPaperPoint};
 pub use callout::{AttributeValue, Branch, Callout, CalloutContent, Dogleg, PathKind};
 pub use change::{Applied, Changes, Edit, Placed, Restyle, Seen};
 pub use dimension::{Axis, Dimension, DimensionKind, DimensionText, Label, Leader, Measured};

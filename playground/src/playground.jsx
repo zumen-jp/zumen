@@ -75,7 +75,23 @@ const kinds = {
   line_type_scale: "文書の線種尺度", default_line_weight: "既定の線幅", default_color: "既定の色", default_line_type: "既定の線種",
   point_style: "点の表し方", header: "ヘッダー", record: "レコード",
 };
-function Estimate({ estimate }) {
+function InputDiagnostics({ input, described }) {
+  if (!input) return null;
+  const counts = described?.counts ?? input.counts.map((diagnostic) => ({ stage: "input", diagnostic, text: diagnostic.code }));
+  const details = described?.details ?? input.details.map(({ diagnostic, sources }) => ({ stage: "input", diagnostic, sources, text: diagnostic.code }));
+  return <section aria-labelledby="input-diagnostics-title">
+    <h4 id="input-diagnostics-title">読み取り段階の診断</h4>
+    <p>読み取りと図面モデルへの変換で、診断を {input.total} 件報告しました。件数は診断の発生回数です。1 つの要素に複数の診断が出る場合があります。書き出しの対象と忠実度は、上の集計で確認できます。</p>
+    <details><summary>読み取り段階の全件集計</summary>
+      <Diagnostics entries={counts} issues={[]} title="全件集計" id="input-diagnostics-counts-title" heading="h5" countUnit=" 行" showParams/>
+    </details>
+    <details><summary>読み取り段階の場所付き明細</summary>
+      <Diagnostics entries={details} issues={[]} title="場所付き明細" id="input-diagnostics-details-title" heading="h5" countUnit=" 行" showParams/>
+      {input.truncated && <p>読み取り段階の明細は先頭 {input.details.length} 件です。全件集計は明細の上限によらず、すべての診断を含みます。</p>}
+    </details>
+  </section>;
+}
+function Estimate({ estimate, inputDiagnostics }) {
   return <section aria-labelledby="estimate-title">
     <h3 id="estimate-title">保存前の見積もり</h3>
     <p>対象 {estimate.total} 件から、DXF に要素 {estimate.elements} 件を書きます。属性の文字など、1 件から複数の要素を書く場合があります。</p>
@@ -98,6 +114,7 @@ function Estimate({ estimate }) {
       }}</Pages>
       {estimate.truncated && <p>明細は先頭 {estimate.details.length} 件です。件数の集計はすべての対象を含みます。</p>}
     </details>
+    <InputDiagnostics input={estimate.input_diagnostics} described={inputDiagnostics}/>
   </section>;
 }
 // 開いた図面の見積もりを確認してから DXF を保存する。図面は外へ送らない（#645・#690）。
@@ -140,7 +157,7 @@ function Export({ opened, name }) {
     <h2 id="export-title">DXF で保存</h2>
     <p>保存前に、保てるものと、近似・欠落するものを確認できます。変換と保存は、このブラウザーの中で行います。</p>
     <button aria-disabled={busy} onClick={estimate}>保存前の見積もりを確認</button>
-    {state.preview && <Estimate estimate={state.preview.result.estimate}/>}
+    {state.preview && <Estimate estimate={state.preview.result.estimate} inputDiagnostics={state.preview.inputDiagnostics}/>}
     {state.status === "estimated" || state.status === "saving" || state.status === "done" ? <button aria-disabled={busy || state.status === "done"} onClick={state.status === "done" ? undefined : save}>DXF で保存</button> : null}
     <div role="status" aria-live="polite" aria-atomic="true">
       {state.status === "estimating" ? "見積もりを作っています。" : state.status === "estimated" ? "見積もりを確認して、DXF で保存してください。" : state.status === "saving" ? "変換しています。" : state.status === "done" ? dxfName(name) + " のダウンロードを始めました（要素 " + state.result.elements + " 件・変換の診断 " + state.diagnostics.length + " 件）。"

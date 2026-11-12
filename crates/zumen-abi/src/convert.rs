@@ -5,7 +5,7 @@
 //! `civil_drawing` が同じ値を書くようにする。
 
 use zumen_acad::{Dxf, DxfFile, Relocate};
-use zumen_base::Cx;
+use zumen_base::{Cx, DiagnosticEvents};
 use zumen_drawing::{Drawing2D, ModelPoint, PaperPoint, Shape, Symbol};
 use zumen_sdk::Codec;
 
@@ -18,18 +18,29 @@ pub(crate) struct Converted {
     pub(crate) bytes: Vec<u8>,
     pub(crate) elements: u64,
     pub(crate) report: zumen_acad::ConversionReport,
+    pub(crate) input_diagnostics: DiagnosticEvents,
 }
 
 /// R2004 DWG は共有の表を一度だけ読む。再符号化の範囲外なら同じ表から図面モデルを作る。
 pub(crate) fn from_r2004(
     source: &zumen_acad::DwgFile,
     limit: u64,
+    collect_input: bool,
     cx: &mut Cx<'_>,
 ) -> Result<Converted, Failed> {
-    match source
-        .reencode_r2004_dxf_with_report(limit, cx)
-        .map_err(|_| Failed)?
-    {
+    let (conversion, input_diagnostics) = if collect_input {
+        source
+            .reencode_r2004_dxf_with_input_diagnostics(limit, cx)
+            .map_err(|_| Failed)?
+    } else {
+        (
+            source
+                .reencode_r2004_dxf_with_report(limit, cx)
+                .map_err(|_| Failed)?,
+            DiagnosticEvents::default(),
+        )
+    };
+    match conversion {
         zumen_acad::dxf::R2004Conversion::Dxf(encoded) => {
             let file = Dxf::read(&encoded.bytes, cx).map_err(|_| Failed)?;
             Ok(Converted {
@@ -37,11 +48,22 @@ pub(crate) fn from_r2004(
                 bytes: encoded.bytes,
                 elements: encoded.elements,
                 report: encoded.report,
+                input_diagnostics,
             })
         }
         zumen_acad::dxf::R2004Conversion::DrawingSource(db) => {
-            let drawing = zumen_acad::lift_drawing(&db, cx).map_err(|_| Failed)?;
-            to_dxf_with_report(&drawing, limit, cx)
+            if !collect_input {
+                let drawing = zumen_acad::lift_drawing(&db, cx).map_err(|_| Failed)?;
+                return to_dxf_with_report(&drawing, limit, cx);
+            }
+            let (drawing, lift_diagnostics) = cx
+                .with_diagnostic_events(limit, |cx| zumen_acad::lift_drawing(&db, cx))
+                .map_err(|_| Failed)?;
+            let mut converted = to_dxf_with_report(&drawing, limit, cx)?;
+            converted.input_diagnostics = input_diagnostics
+                .merge(lift_diagnostics, limit, cx)
+                .map_err(|_| Failed)?;
+            Ok(converted)
         }
     }
 }
@@ -64,6 +86,7 @@ pub(crate) fn to_dxf_with_report(
         bytes: lowered.bytes,
         elements: lowered.elements,
         report: lowered.report,
+        input_diagnostics: DiagnosticEvents::default(),
     })
 }
 
@@ -104,7 +127,8 @@ impl Relocate for Geometric {
     }
 }
 
-/// 基本図形は同じ意味の形へ移す。文字・注記・記号は API の形の値にない意味があるため、見た目だけとする
+/// 基本図形と 1 行の文字は同じ意味の形へ移す（高さの意味の違いは lower が `text_height_meaning` で記録する）。
+/// 書式つきの文字・注記・記号は API の形の値にない意味があるため、見た目だけとする
 fn geometric_fidelity<P>(shape: &Shape<P>) -> zumen_acad::ConversionFidelity {
     match shape {
         Shape::Curve(zumen_drawing::Edge::Spline(spline))
@@ -116,6 +140,7 @@ fn geometric_fidelity<P>(shape: &Shape<P>) -> zumen_acad::ConversionFidelity {
         | Shape::Circle { .. }
         | Shape::Curve(_)
         | Shape::Polyline(_)
+        | Shape::Text(_)
         | Shape::Point(_) => zumen_acad::ConversionFidelity::Equivalent,
         _ => zumen_acad::ConversionFidelity::Drawn,
     }
@@ -163,28 +188,8 @@ mod tests {
         .unwrap()
     }
 
-    /// DXF の組（グループコードと値）から、TEXT の位置合わせの第 2 点（11・21・31）と位置合わせ（72・73）を除く
-    fn without_alignment(bytes: &[u8]) -> Vec<(String, String)> {
-        let text = String::from_utf8_lossy(bytes);
-        let lines: Vec<&str> = text.lines().collect();
-        let mut entity = String::new();
-        let mut pairs = Vec::new();
-        for pair in lines.chunks(2) {
-            let (code, value) = (pair[0].trim(), pair[1]);
-            if code == "0" {
-                entity = value.to_string();
-            }
-            if entity == "TEXT" && matches!(code, "11" | "21" | "31" | "72" | "73") {
-                continue;
-            }
-            pairs.push((code.to_string(), value.to_string()));
-        }
-        pairs
-    }
-
     /// `convert` と `civil_drawing` が書く経路（[`to_dxf`]）は、`zumen-acad` の lower に形の移し方を渡すだけで、
-    /// 土木の図面では Rust から直接呼んだ lower と同じ要素の数・診断になる。バイト列は、API の形の値が文字の
-    /// 位置合わせを持たないため、文字の位置合わせ（11・21・31・72・73）だけが違う（#763）
+    /// 土木の図面では文字の位置合わせも含めて Rust から直接呼んだ lower と同じ要素数・診断・バイト列になる（#763）
     #[test]
     #[allow(clippy::disallowed_methods)] // 外部照合の出力先だけを受け取る
     fn the_api_writes_what_the_rust_lower_writes() {
@@ -211,10 +216,7 @@ mod tests {
         assert!(api.1 > 0);
         assert_eq!(api.1, rust.1);
         assert_eq!(api.2, rust.2);
-        assert!(
-            without_alignment(&api.0) == without_alignment(&rust.0),
-            "位置合わせのほかの値が違う"
-        );
+        assert_eq!(api.0, rust.0);
         if let Some(folder) = std::env::var_os("ZUMEN_DXF_LOWER_OUT") {
             let folder = std::path::PathBuf::from(folder);
             std::fs::create_dir_all(&folder).unwrap();

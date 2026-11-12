@@ -3,7 +3,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use zumen_base::{Cx, Diagnostic, Kind, Ref, codes};
+use zumen_base::{Cx, Diagnostic, DiagnosticEvents, Kind, Ref, codes};
 use zumen_sdk::Error;
 
 use crate::charset::{Charset, charset_of};
@@ -53,6 +53,32 @@ impl DwgFile {
         cx: &mut Cx<'_>,
     ) -> Result<R2004Conversion, Error> {
         let db = self.objects(cx)?;
+        self.reencode_r2004_db(db, limit, cx)
+    }
+
+    /// 入力の表を読むときの診断を、書き手の診断とは別に集計する。
+    ///
+    /// `limit` は入力の診断と書き手のそれぞれの明細の上限。入力側の件数は診断の発生数で、
+    /// 図形数ではない。図面モデルへ渡す場合は、返した表の lift の報告を呼び出す側で足す。
+    ///
+    /// # Errors
+    ///
+    /// [`Self::reencode_r2004_dxf`] と同じ。診断の記録も予算で数える。
+    pub fn reencode_r2004_dxf_with_input_diagnostics(
+        &self,
+        limit: u64,
+        cx: &mut Cx<'_>,
+    ) -> Result<(R2004Conversion, DiagnosticEvents), Error> {
+        let (db, diagnostics) = cx.with_diagnostic_events(limit, |cx| self.objects(cx))?;
+        Ok((self.reencode_r2004_db(db, limit, cx)?, diagnostics))
+    }
+
+    fn reencode_r2004_db(
+        &self,
+        db: AcadDb,
+        limit: u64,
+        cx: &mut Cx<'_>,
+    ) -> Result<R2004Conversion, Error> {
         let encoded = try_reencode(&db, limit, cx, |plan, cx| {
             self.dxf_source(&db, &plan.kept, cx)
         })?;

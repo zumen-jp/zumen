@@ -1,7 +1,9 @@
+import { SCENE_NONE } from "@zumen-jp/zumen";
 import { bounds, finite, valid } from "./validate.js";
 import { unitVisible } from "./interaction.js";
 import { clipParts, primitiveParts, transparentStyle, unitStyle, viewportPart } from "./geometry.js";
 import { addExact, divideExact, dyadic, multiplyExact, scaleBinary } from "./exact.js";
+import { circleIntersects } from "./circle.js";
 
 const EMPTY = Object.freeze([]);
 const EPSILON = 16 * Number.EPSILON;
@@ -255,7 +257,8 @@ function compile(part, charge) {
       if (circle.radius > radius) yield { ...circle, radius: circle.radius - radius };
     }
   }
-  return { bounds: box, contains, edges };
+  return { bounds: box, contains, edges, circleQuery: part.circles.length === 1 && !segments.length && !joins.length ?
+    (query) => { charge(work); return circleIntersects(part.circles[0], radius, part.fill, query); } : null };
 }
 
 function rectangle(rect) {
@@ -266,7 +269,7 @@ function rectangle(rect) {
 
 function circleQuery(point, radius) {
   const circle = { ...point, radius };
-  return { bounds: circleBounds(circle), center: point, contains: (p) => lessEqual(Math.hypot(p.x - point.x, p.y - point.y), radius), *edges() { yield circle; } };
+  return { bounds: circleBounds(circle), center: point, circle, contains: (p) => lessEqual(Math.hypot(p.x - point.x, p.y - point.y), radius), *edges() { yield circle; } };
 }
 
 function intersectSegments(first, second, accept) {
@@ -405,6 +408,7 @@ function hit(ctx, prepared, settings, view, size, display, index, limits, query)
   let work = 0;
   const charge = (count) => { work += count; valid(Number.isSafeInteger(work) && work <= limits.work, "limits.work"); };
   const viewport = compile(viewportPart(size, charge), charge), result = [], seen = new Set();
+  const internalQuery = query.bounds.min_x > 0 && query.bounds.max_x < size.width && query.bounds.min_y > 0 && query.bounds.max_y < size.height;
   const { columns: c, order, omitted } = prepared;
   ctx.save();
   try {
@@ -418,9 +422,17 @@ function hit(ctx, prepared, settings, view, size, display, index, limits, query)
         let clips;
         for (const part of primitiveParts(ctx, c, kind, i, chunk, settings, view, size, true, charge)) {
           const shape = compile(part, charge);
-          if (!overlap(shape.bounds, query.bounds) || !overlap(shape.bounds, viewport.bounds)) continue;
-          if (!clips) clips = [viewport, ...Array.from(clipParts(c, unit, view, size, true, charge), (clip) => compile(clip, charge))];
-          if (intersects(shape, clips, query, charge)) {
+          let intersection;
+          if (shape.circleQuery && c.unit_clips[unit] === SCENE_NONE && internalQuery) {
+            // 問い合わせ全体が viewport 内部にある単独の円だけは、可視領域を直接証明できる。
+            // 二度丸めた bounds で先に除外せず、shape/viewport の課金と元の円の work を保つ。
+            charge(2); intersection = shape.circleQuery(query);
+          } else {
+            if (!overlap(shape.bounds, query.bounds) || !overlap(shape.bounds, viewport.bounds)) continue;
+            if (!clips) clips = [viewport, ...Array.from(clipParts(c, unit, view, size, true, charge), (clip) => compile(clip, charge))];
+            intersection = intersects(shape, clips, query, charge);
+          }
+          if (intersection) {
             valid(result.length < limits.stateItems, "limits.stateItems");
             result.push(element); seen.add(element); break;
           }

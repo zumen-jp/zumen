@@ -32,7 +32,12 @@ self.onmessage = ({ data }) => {
       converting = false;
       for (const diagnostic of response.diagnostics) entries.push({ stage, diagnostic });
       preview = { from: document.hash, estimate: response.result.estimate };
-      self.postMessage({ id, value: { result: response.result, diagnostics: describe(entries) } });
+      const input = response.result.estimate.input_diagnostics;
+      const inputDiagnostics = input && {
+        counts: describe(input.counts.map((diagnostic) => ({ stage: "input", diagnostic }))),
+        details: describe(input.details.map(({ diagnostic, sources }) => ({ stage: "input", diagnostic, sources }))),
+      };
+      self.postMessage({ id, value: { result: response.result, diagnostics: describe(entries), ...(inputDiagnostics && { inputDiagnostics }) } });
       return;
     }
     if (op === "convert") {
