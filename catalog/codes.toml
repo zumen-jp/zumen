@@ -1846,6 +1846,13 @@ fidelity = "dropped"
 since = "0.2.0"
 status = "active"
 
+[codes."pdf.visibility-expression.approximated"]
+description = "OCMD の表示式（VE）を評価せず、OCGs と P だけで表示を決めた"
+severity = "warning"
+fidelity = "approximated"
+since = "0.2.0"
+status = "active"
+
 [codes."pdf.annotation.drawn"]
 description = "注釈の通常外観だけを図形へ移し、内容・返信・操作などの情報を移さなかった。kind は注釈の種類（Subtype）"
 severity = "warning"

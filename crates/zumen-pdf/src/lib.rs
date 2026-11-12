@@ -25,6 +25,8 @@ mod page;
 mod strings;
 #[cfg(feature = "drawing")]
 mod walk;
+#[cfg(feature = "drawing")]
+mod xref;
 
 use zumen_base::{Diagnostic, Kind, Ref, codes};
 use zumen_sdk::{ByteRange, Codec, Cx, Error, FileModel, RecordInfo, Signature, Stop};

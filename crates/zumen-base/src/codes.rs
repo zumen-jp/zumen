@@ -3350,6 +3350,17 @@ pub const PDF_VERTICAL_ORIGIN_APPROXIMATED: Code = Code::new(
     &["name"],
 );
 
+/// OCMD の表示式（VE）を評価せず、OCGs と P だけで表示を決めた
+///
+/// `pdf.visibility-expression.approximated`（0.2.0 から）
+pub const PDF_VISIBILITY_EXPRESSION_APPROXIMATED: Code = Code::new(
+    "pdf.visibility-expression.approximated",
+    Severity::Warning,
+    Some(Fidelity::Approximated),
+    &[],
+    &[],
+);
+
 /// 資源にない XObject を描いた（Do）。hayro-interpret は描かないので、移さなかった。循環する参照で引けない XObject を含む。ページと名前ごとに 1 件。name は資源の名前
 ///
 /// `pdf.xobject.missing`（0.2.0 から）
@@ -5193,6 +5204,7 @@ pub const ALL: &[Code] = &[
     PDF_TRANSPARENCY_APPROXIMATED,
     PDF_TYPE3_APPROXIMATED,
     PDF_VERTICAL_ORIGIN_APPROXIMATED,
+    PDF_VISIBILITY_EXPRESSION_APPROXIMATED,
     PDF_XOBJECT_MISSING,
     PLY_CRS_MISSING,
     PLY_ELEMENT_DROPPED,

@@ -6,6 +6,7 @@
 //! 既知のキーと任意項目は Arlington 603c174b024d1d2bb15a33686af83800d5c41269 の
 //! MeasureRL/NumberFormat に照らす。CYX は任意で、PDF4QT と同じく Y があれば既定 1 とする。
 
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 
 use hayro_syntax::object::{Array, Dict, MaybeRef, Object, ObjectIdentifier};
@@ -63,7 +64,7 @@ struct Value<'a> {
     object: Option<Object<'a>>,
     raw: Option<&'a [u8]>,
     reference: Option<ObjectIdentifier>,
-    number_raw: Option<&'a [u8]>,
+    number_raw: Option<Cow<'a, [u8]>>,
     number: Option<Number>,
 }
 
@@ -557,13 +558,13 @@ impl<'a, 'x> Parser<'a, 'x, '_, '_> {
             return Ok(());
         }
         value.number_raw = if let Some(raw) = value.raw {
-            Some(raw)
+            Some(Cow::Borrowed(raw))
         } else if let Some(reference) = value.reference {
             self.input.numbers.raw(reference, self.cx)?
         } else {
             None
         };
-        if let Some(raw) = value.number_raw {
+        if let Some(raw) = value.number_raw.as_deref() {
             self.cx.check(Kind::Work, (raw.len() as u64).div_ceil(16))?;
             value.number = parse_number(raw);
         }
@@ -608,7 +609,7 @@ impl<'a, 'x> Parser<'a, 'x, '_, '_> {
         match &value.object {
             Some(Object::Number(_)) => {
                 if value.reference.is_some()
-                    && let Some(raw) = value.number_raw
+                    && let Some(raw) = value.number_raw.as_deref()
                 {
                     self.bytes(fields, &format!("{prefix}/resolved_raw"), raw)?;
                 }

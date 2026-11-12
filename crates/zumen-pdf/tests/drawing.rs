@@ -1164,6 +1164,8 @@ fn preserves_raw_dates_timezone_presence_and_reports_approximations_and_invalid_
         approx[0].param("field"),
         Some(&zumen_base::Value::Text("created".to_owned()))
     );
+    // ObjStm 内の Info 辞書（30 番）の出所は、格納する ObjStm（5 番、L1 レコード 4）を指す。
+    assert_eq!(approx[0].places()[0].record(), Some(4));
 }
 
 #[test]
@@ -5626,4 +5628,116 @@ fn reports_miter_limit_and_dashed_rectangle_orientation() {
         ],
         "{rect_diag:?}"
     );
+}
+
+#[test]
+fn reports_ocmd_visibility_expressions_and_objstm_provenance() {
+    // 1. OCMD の /VE は BDC と XObject の両方で pdf.visibility-expression.approximated を返し、表示は OCGs と P で決まる。
+    let mut document = Document::new(vec![
+        Page::new(
+            "/OC /Vis BDC 10 10 m 20 20 l S EMC \
+             /OC /Hid BDC 30 30 m 40 40 l S EMC \
+             /Fm Do",
+        )
+        .resources("/Properties << /Vis 5 0 R /Hid 6 0 R >> /XObject << /Fm 7 0 R >>"),
+    ]);
+    document.catalog = "/OCProperties << /OCGs [3 0 R 4 0 R] /D << /OFF [4 0 R] >> >>";
+    document.objects = vec![
+        b"<< /Type /OCG /Name (On) >>".to_vec(),
+        b"<< /Type /OCG /Name (Off) >>".to_vec(),
+        b"<< /Type /OCMD /OCGs [3 0 R] /P /AnyOn /VE [/Not 3 0 R] >>".to_vec(),
+        b"<< /Type /OCMD /OCGs [4 0 R] /P /AllOn /VE [/Not 4 0 R] >>".to_vec(),
+        common::stream(
+            "/Type /XObject /Subtype /Form /BBox [0 0 100 100] \
+             /OC << /Type /OCMD /OCGs [3 0 R] /P /AnyOn /VE [/Or 3 0 R 4 0 R] >>",
+            "50 50 m 60 60 l S",
+        ),
+    ];
+    let (drawing, diag) = lift(&document.bytes());
+    assert_eq!(elements(&drawing).len(), 2, "{diag:?}");
+    let mut found = codes_of(&diag);
+    found.sort();
+    assert_eq!(
+        found,
+        [
+            (codes::PDF_MEMBERSHIP_DROPPED.name(), 1),
+            (codes::PDF_OPTIONAL_CONTENT_APPROXIMATED.name(), 2),
+            (codes::PDF_OPTIONAL_CONTENT_DROPPED.name(), 1),
+            (codes::PDF_VISIBILITY_EXPRESSION_APPROXIMATED.name(), 3),
+        ],
+        "{diag:?}"
+    );
+
+    // 2. ObjStm 内のページ・OCG・注釈の出所が、それぞれ格納する ObjStm の L1 レコードを指す。
+    let mut raw_pdf = b"%PDF-1.7\n".to_vec();
+    let mut entries = std::collections::BTreeMap::new();
+    let members = [
+        (
+            1u32,
+            "<< /Type /Catalog /Pages 2 0 R /OCProperties << /OCGs [20 0 R] /D << >> >> >>",
+        ),
+        (2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>"),
+        (
+            3,
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Annots [21 0 R] >>",
+        ),
+        (20, "<< /Type /OCG /Name (InObjStm) >>"),
+        (
+            21,
+            "<< /Type /Annot /Subtype /Stamp /Rect [0 0 10 10] /AP << /N 6 0 R >> >>",
+        ),
+    ];
+    let mut header_part = String::new();
+    let mut body_part = String::new();
+    for (num, text) in members {
+        header_part.push_str(&format!("{num} {} ", body_part.len()));
+        body_part.push_str(text);
+        body_part.push('\n');
+    }
+    let obj_stm_bytes = common::stream(
+        &format!(
+            "/Type /ObjStm /N {} /First {}",
+            members.len(),
+            header_part.len()
+        ),
+        format!("{header_part}{body_part}").into_bytes(),
+    );
+    let ap_stream = common::stream("/BBox [0 0 10 10]", "0 0 m 10 10 l S");
+    for (num, body) in [(5u32, obj_stm_bytes), (6, ap_stream)] {
+        entries.insert(num, (1u8, raw_pdf.len() as u32, 0u16));
+        raw_pdf.extend(format!("{num} 0 obj\n").as_bytes());
+        raw_pdf.extend(body);
+        raw_pdf.extend(b"\nendobj\n");
+    }
+    for (idx, (num, _)) in members.iter().enumerate() {
+        entries.insert(*num, (2, 5, idx as u16));
+    }
+    let xref_pos = raw_pdf.len();
+    entries.insert(99, (1, xref_pos as u32, 0));
+    let mut index = String::new();
+    let mut table = Vec::new();
+    for (num, (kind, f1, f2)) in entries {
+        index.push_str(&format!("{num} 1 "));
+        table.push(kind);
+        table.extend(f1.to_be_bytes());
+        table.extend(f2.to_be_bytes());
+    }
+    raw_pdf.extend(b"99 0 obj\n");
+    raw_pdf.extend(common::stream(
+        &format!("/Type /XRef /Size 100 /W [1 4 2] /Index [{index}] /Root 1 0 R"),
+        table,
+    ));
+    raw_pdf.extend(format!("\nendobj\nstartxref\n{xref_pos}\n%%EOF\n").as_bytes());
+
+    let (stm_drawing, stm_diag) = lift(&raw_pdf);
+    // L1 レコード 0 は %PDF-1.7、レコード 1 が 5 0 obj（ObjStm）。
+    assert_eq!(stm_drawing.sheets[0].source.record(), Some(1));
+    assert_eq!(stm_drawing.layers[1].source.record(), Some(1));
+    assert_eq!(elements(&stm_drawing).len(), 1);
+    assert_eq!(elements(&stm_drawing)[0].source.record(), Some(1));
+    let drawn = stm_diag
+        .iter()
+        .find(|d| d.code() == codes::PDF_ANNOTATION_DRAWN)
+        .unwrap();
+    assert_eq!(drawn.places()[0].record(), Some(1));
 }

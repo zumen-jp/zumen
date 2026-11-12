@@ -209,6 +209,13 @@ const TABLE: u64 = 256;
 /// 内容のストリームの後ろに足す、終わりのマーカーの演算子
 const END: &[u8] = b"zumen-end";
 
+/// 注釈の描画期で、解釈器が実際に `FormXObject::draw` の本体を実行する 1 件分の条件。
+#[derive(Clone, Debug)]
+pub(crate) struct AnnotationStep {
+    pub(crate) source: Ref,
+    pub(crate) visible: bool,
+}
+
 /// 走査の結果
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Survey {
@@ -221,6 +228,8 @@ pub(crate) struct Survey {
     pub(crate) refused: Option<Ref>,
     /// すべての可視の配置で同じ単一 OCG に従う画像。画像の stream の番号 → OCG の番号。
     pub(crate) image_layers: BTreeMap<(u32, i32), (u32, i32)>,
+    /// 注釈の描画期で `FormXObject::draw` の切り抜き区間ごとに切り替える出所と可視性。
+    pub(crate) annotation_steps: Vec<AnnotationStep>,
 }
 
 /// hayro-interpret がする作業の量。同じ呼ばれ方のフォームの手間を、まとめて数えるために覚える
@@ -1629,6 +1638,7 @@ impl<'a, 'o> Walker<'a, 'o> {
             transfer: self.transfer,
             refused: self.refused.take(),
             image_layers,
+            annotation_steps: Vec::new(),
         })
     }
 
@@ -3232,6 +3242,7 @@ impl<'a, 'o> Walker<'a, 'o> {
                     optional::Context::Unknown
                 };
                 if parent && ocmd {
+                    self.visibility_expression_report(&dict, place, cx)?;
                     self.membership_report(shown, place, cx)?;
                 }
                 parent && shown
@@ -3240,6 +3251,27 @@ impl<'a, 'o> Walker<'a, 'o> {
         };
         self.optional_content.push(context, cx)?;
         self.visible.push(visible);
+        Ok(())
+    }
+
+    /// OCMD の `VE`（8.11.2.2）は評価せず `OCGs` と `P` だけで表示を決めるため、あれば診断する
+    fn visibility_expression_report(
+        &mut self,
+        ocmd: &Dict<'_>,
+        place: &Ref,
+        cx: &mut Cx<'_>,
+    ) -> Result<(), Stop> {
+        cx.check(
+            Kind::Work,
+            self.reads.value_work(ocmd, b"VE").saturating_add(1),
+        )?;
+        if ocmd.contains_key(b"VE") {
+            self.report(
+                codes::PDF_VISIBILITY_EXPRESSION_APPROXIMATED,
+                place.clone(),
+                cx,
+            );
+        }
         Ok(())
     }
 
@@ -3345,6 +3377,9 @@ impl<'a, 'o> Walker<'a, 'o> {
                 .saturating_add(1),
         )?;
         let context = self.group_context(&properties, dict.get_ref(b"OC").map(key));
+        if ocmd {
+            self.visibility_expression_report(&properties, place, cx)?;
+        }
         if shown {
             self.optional_report(image, place, cx)?;
         } else if ocmd {
