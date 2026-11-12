@@ -1,9 +1,8 @@
 //! XML の L0 の読み取り（決定 0209）。入力は、どれもテストの中で作る。
 
 use zumen_base::{
-    Budget, CancelToken, Code, Cx, Diagnostics, Kind, Limit, Limits, Ref, Stop, codes,
+    Budget, CancelToken, Code, Cx, Diagnostics, Error, Kind, Limit, Limits, Ref, Stop, codes,
 };
-use zumen_sdk::Error;
 use zumen_xml::{Document, Encoding, Namespace, Node};
 
 fn read_with(src: &[u8], limits: Limits) -> (Result<Document, Error>, Diagnostics) {
@@ -204,7 +203,7 @@ fn other_encodings_are_not_read() {
             &b"<?xml version=\"1.0\" encoding=\"EUC-JP\"?><a/>"[..],
             "EUC-JP",
         ),
-        (b"\xff\xfe<\0a\0/\0>\0", "UTF-16"),
+        (b"\xff\xfe\0\0<\0\0\0", "UTF-32"),
         (b"<\0a\0/\0>\0", "UTF-16"),
         (
             b"\xef\xbb\xbf<?xml version=\"1.0\" encoding=\"Shift_JIS\"?><a/>",

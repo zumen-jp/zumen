@@ -1,6 +1,6 @@
 # ライセンス
 
-`profiles/` のデータは、CC BY 4.0（Creative Commons Attribution 4.0 International）で提供します（決定 0002）。
+`profiles/` のデータは、CC BY 4.0（Creative Commons Attribution 4.0 International）で提供します（[ライセンス](../README.md#ライセンス)）。
 
 - 本文: https://creativecommons.org/licenses/by/4.0/legalcode
 - 表示: zumen の貢献者

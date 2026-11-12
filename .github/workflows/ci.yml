@@ -4,24 +4,53 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+  schedule:
+    # 日曜 5:15（日本時間）に、全環境のテストと依存の新しい勧告も確かめる。
+    - cron: '15 20 * * 6'
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  # PR は差分全体を取り直す。main は後続の文書の push で実装の検査を打ち切らない。
+  group: ci-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
+  # 使い捨てのランナーに増分ビルド用のファイルとデバッグ情報を残さない。
+  CARGO_INCREMENTAL: '0'
+  CARGO_PROFILE_DEV_DEBUG: '0'
 
 jobs:
-  workflows:
-    name: ワークフローの検査
+  # main の必須チェックはジョブ名を参照する。
+  checks:
+    name: 表記の検査
     runs-on: ubuntu-latest
+    outputs:
+      plan: ${{ steps.select.outputs.plan }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: actionlint の配布物をハッシュで確かめ、すべてのワークフローを検査する
+        with:
+          fetch-depth: 2
+      - name: push 全体または PR のマージ結果で変わる入力を調べる
+        id: select
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          paths="$RUNNER_TEMP/ci-paths"
+          if [[ -n "$BASE" && ! "$BASE" =~ ^0+$ ]]; then
+            if git cat-file -e "$BASE^{commit}" 2>/dev/null || git fetch --no-tags --depth=1 origin "$BASE"; then
+              git diff --name-only --no-renames -z "$BASE" HEAD -- > "$paths"
+            fi
+          fi
+          python3 .github/ci/checks.py select "$paths" >> "$GITHUB_OUTPUT"
+      - name: CI の検査の選び方を確かめる
+        if: contains(fromJSON(steps.select.outputs.plan).checks, 'selector')
+        run: python3 -m unittest discover -s .github/ci
+      - name: ワークフローの記述を確かめる
+        if: contains(fromJSON(steps.select.outputs.plan).checks, 'workflows')
         shell: bash
         run: |
           # actionlint 1.7.12（MIT）。バージョンと配布物の SHA-256 を固定する
@@ -33,59 +62,81 @@ jobs:
           tar -xzf "$RUNNER_TEMP/actionlint.tar.gz" -C "$RUNNER_TEMP" actionlint
           # シェルと Python は対象にせず、環境によらず同じワークフローの規則を検査する
           "$RUNNER_TEMP/actionlint" -color -shellcheck= -pyflakes=
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: contains(fromJSON(steps.select.outputs.plan).checks, 'text')
+        with:
+          node-version: 22
+      - name: 変更した文書・コメントの表記を確かめる
+        if: contains(fromJSON(steps.select.outputs.plan).checks, 'text')
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          python3 .github/ci/checks.py text "$RUNNER_TEMP/ci-paths"
 
   lint:
     name: 書式・lint・生成物
+    needs: checks
+    if: contains(fromJSON(needs.checks.outputs.plan).checks, 'codegen') || contains(fromJSON(needs.checks.outputs.plan).checks, 'acc')
     runs-on: ubuntu-latest
+    env:
+      CARGO_ARGS: ${{ fromJSON(needs.checks.outputs.plan).cargo_args }}
+      CODECS: ${{ fromJSON(needs.checks.outputs.plan).codecs }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: rust-toolchain.toml のバージョンの Rust を入れる
         run: rustup toolchain install
-      - run: cargo fmt --all --check
-      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
-      - name: L1 だけを使う組（図面モデルなし）も、CP932 の照合のありとなしで lint する
+      - name: 書式と、変更が及ぶ crate の lint を確かめる
+        if: contains(fromJSON(needs.checks.outputs.plan).checks, 'rust')
         run: |
-          cargo clippy --package zumen-acad --no-default-features --all-targets --locked -- -D warnings
-          cargo clippy --package zumen-acad --no-default-features --features cp932 --all-targets --locked -- -D warnings
-      - name: 領域モデルなしの DXF・DWG・PDF・IFC・JWW・SXF も、lint し、試験を組み立てて流す（#718・#735）
+          cargo fmt --all --check
+          read -ra packages <<< "$CARGO_ARGS"
+          cargo clippy "${packages[@]}" --all-targets --locked -- -D warnings
+      - name: ネイティブの適合テストを使わない変更はここでテストする
+        if: contains(fromJSON(needs.checks.outputs.plan).checks, 'rust') && !contains(fromJSON(needs.checks.outputs.plan).checks, 'native')
         run: |
-          cargo clippy --package zumen-pdf --no-default-features --all-targets --locked -- -D warnings
-          cargo clippy --package zumen-ifc --no-default-features --all-targets --locked -- -D warnings
-          cargo clippy --package zumen-jww --no-default-features --all-targets --locked -- -D warnings
-          cargo clippy --package zumen-sxf --no-default-features --all-targets --locked -- -D warnings
-          cargo test --package zumen-acad --no-default-features --locked
-          cargo test --package zumen-acad --no-default-features --features cp932 --locked
-          cargo test --package zumen-pdf --no-default-features --locked
-          cargo test --package zumen-ifc --no-default-features --locked
-          cargo test --package zumen-jww --no-default-features --locked
-          cargo test --package zumen-sxf --no-default-features --locked
+          read -ra packages <<< "$CARGO_ARGS"
+          cargo test --locked "${packages[@]}"
+      - name: 対象の形式を領域モデルなしでも lint し、テストする（#718・#735）
+        if: env.CODECS != ''
+        run: |
+          for crate in $CODECS; do
+            cargo clippy --package "$crate" --no-default-features --all-targets --locked -- -D warnings
+            cargo test --package "$crate" --no-default-features --locked
+            if [[ "$crate" == zumen-acad ]]; then
+              cargo clippy --package "$crate" --no-default-features --features cp932 --all-targets --locked -- -D warnings
+              cargo test --package "$crate" --no-default-features --features cp932 --locked
+            fi
+          done
       - name: wasm32 でだけ使うコードも lint する
+        if: contains(fromJSON(needs.checks.outputs.plan).checks, 'abi')
         run: cargo clippy --package zumen-abi --target wasm32-unknown-unknown --locked -- -D warnings
-      - name: 分けた wasm のモジュール（feature を 1 つだけ入れたもの）も lint する（決定 0221）
+      - name: 分けた wasm のモジュールを lint し、各 feature の Rust テストを流す（決定 0221）
+        if: contains(fromJSON(needs.checks.outputs.plan).checks, 'abi')
         run: |
           for module in drawing bim civil pointcloud plugin; do
             cargo clippy --package zumen-abi --target wasm32-unknown-unknown --locked --no-default-features --features $module -- -D warnings
             cargo clippy --package zumen-abi --all-targets --locked --no-default-features --features $module -- -D warnings
+            cargo test --package zumen-abi --locked --no-default-features --features $module --test modules
           done
-      - name: 形式の権利と依存・診断・スキーマ・公開サンプルの台帳を確かめ、生成した文書とコードの更新漏れを調べる
+      - name: 台帳と生成物の更新漏れを確かめる
+        if: contains(fromJSON(needs.checks.outputs.plan).checks, 'codegen')
         run: cargo xtask codegen --check
-
-  text:
-    name: 表記の検査
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      - name: BCF のオフライン検証キットに使う Python を入れる
+        if: contains(fromJSON(needs.checks.outputs.plan).checks, 'acc')
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          # docs/support.md の Node.js の下限
-          node-version: 22
-      - name: バージョンを固定したツールを、インストールのスクリプトを走らせずに入れる
-        run: npm ci --ignore-scripts
-      - name: 文書・コメント・カタログが表記の基準（docs/style.md）に合うかを確かめる（決定 0021）
-        run: npm run lint:text
+          python-version: '3.14'
+      - name: BCF 2.1 のキットと、値・画像・出力先の比較器を確かめる（#787）
+        if: contains(fromJSON(needs.checks.outputs.plan).checks, 'acc')
+        run: |
+          python -I -m unittest discover -s xtask/verify/acc -p 'test_*.py'
+          cargo build --package zumen-cli --locked
+          python -I xtask/verify/acc/make.py make target/debug/zumen "$RUNNER_TEMP/acc-check"
+          python -I xtask/verify/acc/check_status.py target/debug/zumen "$RUNNER_TEMP/acc-check"
 
   site:
     name: サイト
+    needs: checks
+    if: contains(fromJSON(needs.checks.outputs.plan).checks, 'site')
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -108,9 +159,16 @@ jobs:
         run: npx --no-install tsc -p ../packages/react/tsconfig.json
       - name: zumen.dev のページを作る
         run: npm run build
+      - name: サイトのビューアーを Chromium で確かめる（決定 0296）
+        run: |
+          npx --no-install playwright install --with-deps --only-shell chromium
+          npm run test:browser
 
   test:
     name: 試験（${{ matrix.name }}）
+    needs: checks
+    # Tier 1 のネイティブと wasm の適合テストは、PR ごとに流す（docs/support.md）。
+    if: contains(fromJSON(needs.checks.outputs.plan).checks, 'native')
     strategy:
       fail-fast: false
       matrix:
@@ -150,7 +208,15 @@ jobs:
       - name: テストする target を入れる
         if: matrix.target
         run: rustup target add ${{ matrix.target }}
-      - run: cargo test --workspace --locked ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
+      - name: Rust のテストと、OS・呼び出し規約ごとの適合テストを流す
+        if: github.event_name == 'pull_request' || contains(fromJSON(needs.checks.outputs.plan).checks, 'rust')
+        shell: bash
+        env:
+          CARGO_ARGS: ${{ runner.os == 'Linux' && fromJSON(needs.checks.outputs.plan).linux_args || fromJSON(needs.checks.outputs.plan).native_args }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          read -ra packages <<< "$CARGO_ARGS"
+          cargo test --locked "${packages[@]}" ${TARGET:+--target "$TARGET"}
       - name: Python のラッパーの適合テストに使う Python を入れる
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
@@ -165,6 +231,10 @@ jobs:
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: '10.0.x'
+      - name: VBA の宣言と実機用の手順を Windows の DLL と照らす（Office の実行は含まない）
+        if: runner.os == 'Windows'
+        shell: bash
+        run: python bindings/vba/test_contract.py "target/${{ matrix.target && format('{0}/', matrix.target) || '' }}debug/${{ matrix.library }}"
       - name: .NET のラッパーを通しても、ネイティブと同じハッシュの一覧になることを確かめる（決定 0196）
         shell: bash
         env:
@@ -178,7 +248,6 @@ jobs:
         if: matrix.target == 'i686-pc-windows-msvc'
         shell: pwsh
         run: |
-          cargo build --package zumen-abi --target ${{ matrix.target }} --locked
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
           $dumpbin = & $vswhere -latest -products * -find "VC\Tools\MSVC\**\bin\Hostx64\x64\dumpbin.exe" | Select-Object -First 1
           $exports = & $dumpbin /nologo /exports "target\${{ matrix.target }}\debug\zumen_abi1.dll"
@@ -206,83 +275,115 @@ jobs:
 
   wasm:
     name: wasm32 で適合試験
+    needs: checks
+    if: fromJSON(needs.checks.outputs.plan).wasm_full || fromJSON(needs.checks.outputs.plan).wasm_modules != ''
     runs-on: ubuntu-latest
+    env:
+      TEST_CORE: ${{ contains(fromJSON(needs.checks.outputs.plan).checks, 'wasm') }}
+      TEST_VIEW2D: ${{ contains(fromJSON(needs.checks.outputs.plan).checks, 'view2d') }}
+      TEST_REACT: ${{ contains(fromJSON(needs.checks.outputs.plan).checks, 'react') }}
+      TEST_GO: ${{ contains(fromJSON(needs.checks.outputs.plan).checks, 'go') }}
+      TEST_BROWSER: ${{ fromJSON(needs.checks.outputs.plan).wasm_browser }}
+      WASM_MODULES: ${{ fromJSON(needs.checks.outputs.plan).wasm_modules }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: rust-toolchain.toml のバージョンの Rust を入れる
         run: rustup toolchain install
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: env.TEST_BROWSER == 'true'
         with:
           # docs/support.md の Node.js の下限
           node-version: 22
-      - name: 分けた wasm のモジュールを作り、持つ op と形式だけに答えることを確かめる（決定 0013・0221）
+      - name: 分けた wasm のモジュールを作る（決定 0013・0221）
+        if: env.WASM_MODULES != ''
         run: |
           mkdir -p modules
-          for module in drawing bim civil pointcloud plugin; do
-            cargo test --package zumen-abi --locked --no-default-features --features $module --test modules
+          for module in $WASM_MODULES; do
             cargo build --package zumen-abi --target wasm32-unknown-unknown --release --locked --no-default-features --features $module
             cp target/wasm32-unknown-unknown/release/zumen_abi1.wasm modules/zumen_abi1_$module.wasm
           done
       - name: ブラウザーに配るのと同じ形で作る（決定 0007）
+        if: fromJSON(needs.checks.outputs.plan).wasm_full
         run: cargo build --package zumen-abi --target wasm32-unknown-unknown --release --locked
       - name: ネイティブと同じハッシュの一覧になることを確かめる
+        if: env.TEST_CORE == 'true'
         run: node bindings/conformance/wasm.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm
       - name: シーンからの SVG・PNG のバイト列・診断・予算・停止が wasm とネイティブで同じことを確かめる（決定 0272・0277）
+        if: env.TEST_CORE == 'true'
         run: |
           cargo run --package zumen-render --example export --locked -- target/svg-check
           cargo build --package zumen-render --example parity --target wasm32-unknown-unknown --locked
           node crates/zumen-render/tests/wasm.mjs target/wasm32-unknown-unknown/debug/examples/parity.wasm target/svg-check/transcript.bin
           node crates/zumen-render/tests/api.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm
       - name: 分けたモジュールをラッパーで読み込み、組に合うモジュールで流しても、同じハッシュの一覧になることを確かめる（決定 0221）
+        if: env.TEST_CORE == 'true'
+        env:
+          ZUMEN_MEASURE_BROTLI: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
         run: node bindings/js/test/modules.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm modules/zumen_abi1_drawing.wasm modules/zumen_abi1_bim.wasm modules/zumen_abi1_civil.wasm modules/zumen_abi1_pointcloud.wasm modules/zumen_abi1_plugin.wasm
       - name: プラグインの形式だけを持つ wasm のモジュールを作り、読んだ図面を図面のモジュールで使えることを確かめる（決定 0243・0247）
+        if: env.TEST_CORE == 'true'
         run: |
           cargo build --package zumen-plugin-template --lib --target wasm32-unknown-unknown --release --locked
           node templates/plugin/tests/wasm.mjs target/wasm32-unknown-unknown/release/zumen_plugin_template.wasm modules/zumen_abi1_drawing.wasm
       - name: TypeScript・JavaScript のラッパーを通しても、同じハッシュの一覧になることを確かめる（決定 0194）
+        if: env.TEST_CORE == 'true'
         run: node bindings/js/test/conformance.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm
       - name: Node.js の入口・別の realm のモジュール・trap のあとの扱いを、パッケージで確かめる（決定 0259）
+        if: env.TEST_CORE == 'true'
         run: node bindings/js/test/server.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm
       - name: 入力の所有権・旧モジュールへの互換・メモリの削減を確かめる（決定 0271）
+        if: env.TEST_CORE == 'true'
         run: node bindings/js/test/input.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm
       - name: Go の入力の所有権と適合テストに使う下限の Go を入れる（決定 0271）
+        if: env.TEST_GO == 'true'
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26'
           cache-dependency-path: bindings/go/go.sum
       - name: Go の新旧の入力の経路・メモリの削減・適合ハッシュを確かめる
+        if: env.TEST_GO == 'true'
         run: |
           cp target/wasm32-unknown-unknown/release/zumen_abi1.wasm bindings/go/
           test -z "$(gofmt -l bindings/go)"
           go -C bindings/go vet ./...
           go -C bindings/go test -count=1 -v ./...
       - name: worker で大きな図面を読む間のタイマーと、入力・blob の転送を確かめる
+        if: env.TEST_CORE == 'true'
         run: node bindings/js/test/worker.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm
       - name: ブラウザーを動かすツール（Playwright）を、インストールのスクリプトを走らせずに入れる（決定 0199）
+        if: env.TEST_BROWSER == 'true'
         working-directory: bindings/js/test/browser
         run: npm ci --ignore-scripts
       - name: Playwright のバージョンに合う Chromium と、それが使う OS のライブラリを入れる
+        if: env.TEST_BROWSER == 'true'
         working-directory: bindings/js/test/browser
         run: npx --no-install playwright install --with-deps --only-shell chromium
       - name: ブラウザー（Chromium）の中でラッパーを通しても、同じハッシュの一覧になることを確かめる（決定 0199）
+        if: env.TEST_CORE == 'true'
         run: node bindings/js/test/browser/run.mjs chromium target/wasm32-unknown-unknown/release/zumen_abi1.wasm modules/zumen_abi1_drawing.wasm modules/zumen_abi1_bim.wasm modules/zumen_abi1_civil.wasm modules/zumen_abi1_pointcloud.wasm modules/zumen_abi1_plugin.wasm
       - name: 書いた SVG の描画順・字形・切り抜きを Chromium で照合する
+        if: env.TEST_CORE == 'true'
         run: node crates/zumen-render/tests/browser.mjs target/svg-check/drawing.svg target/svg-check/region.svg
       - name: Canvas 2D で合成シーンと DXF・JWW・SXF を描く（決定 0267）
+        if: env.TEST_VIEW2D == 'true'
         env:
           ZUMEN_PDFJS_REQUIRED: '1'
         run: |
           npm ci --ignore-scripts --no-audit --no-fund --prefix xtask/verify/pdfjs
           node bindings/js/test/browser/view2d.mjs chromium target/wasm32-unknown-unknown/release/zumen_abi1.wasm
       - name: React のフックの寿命とプレイグラウンドの操作・通信を Chromium で確かめる
+        if: env.TEST_REACT == 'true'
         run: |
           npm ci --ignore-scripts --no-audit --no-fund --prefix playground
           node bindings/js/test/browser/react.mjs chromium modules/zumen_abi1_drawing.wasm
       - name: npm のパッケージを Vite で組み、必要な wasm だけをブラウザーで読み込むことを確かめる（決定 0268）
+        if: env.TEST_CORE == 'true'
         run: node bindings/js/test/browser/bundle.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm modules/zumen_abi1_drawing.wasm modules/zumen_abi1_bim.wasm modules/zumen_abi1_civil.wasm modules/zumen_abi1_pointcloud.wasm
 
   deny:
     name: 依存の検査
+    needs: checks
+    if: contains(fromJSON(needs.checks.outputs.plan).checks, 'deny')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

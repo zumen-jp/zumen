@@ -78,6 +78,9 @@ const SHIFT_EM: f64 = 0.05;
 /// hayro-interpret が字形の幅を合わせる伸縮だけが違う
 const SAME_SCALE: f64 = 1e-9;
 
+/// 非ゼロ回転数の単一輪について、単純さを確かめる辺の組の上限。超えた輪も未確認として診断する。
+const FILL_EDGE_PAIRS: u64 = 4096;
+
 /// 縦書きの字形の、横の原点から見た縦の原点（字形の空間の単位）。横の幅を 1,000、`DW2` を既定の [880 −1000] と
 /// みなす（9.7.4.3、推定）
 const VERTICAL_ORIGIN: Point = Point::new(500.0, 880.0);
@@ -224,6 +227,59 @@ impl Subpath {
                 .chain(self.segments.iter().flat_map(|segment| segment.points())),
         )
     }
+}
+
+/// 非隣接辺の外接矩形がすべて離れた直線の輪だけを、単純と確認する。曲線と、矩形が重なる辺は未確認にする。
+/// 位相を計算せず、形と ID を保ったまま塗り方の変更を診断するための保守的な確認。閉じる辺も数え、確保しない。
+fn single_fill_is_simple(subpath: &Subpath, mut spend: impl FnMut(u64) -> bool) -> Option<bool> {
+    if !spend(subpath.segments.len() as u64) {
+        return None;
+    }
+    if subpath.curved() {
+        return Some(false);
+    }
+    let count = subpath
+        .segments
+        .len()
+        .saturating_add(usize::from(subpath.end() != subpath.start));
+    let edge = |index: usize| {
+        let start = index
+            .checked_sub(1)
+            .and_then(|index| subpath.segments.get(index))
+            .map_or(subpath.start, |segment| segment.end());
+        let end = subpath
+            .segments
+            .get(index)
+            .map_or(subpath.start, |segment| segment.end());
+        Bounds::of([start, end])
+    };
+    let mut pairs = 0;
+    for first in 0..count {
+        let Some(a) = edge(first) else {
+            return Some(false);
+        };
+        for second in first + 1..count {
+            if pairs == FILL_EDGE_PAIRS {
+                return Some(false);
+            }
+            if !spend(1) {
+                return None;
+            }
+            pairs += 1;
+            // 隣接辺は共有する端点を許す。
+            if second == first + 1 || (first == 0 && second + 1 == count) {
+                continue;
+            }
+            let Some(b) = edge(second) else {
+                return Some(false);
+            };
+            if a.min.x <= b.max.x && b.min.x <= a.max.x && a.min.y <= b.max.y && b.min.y <= a.max.y
+            {
+                return Some(false);
+            }
+        }
+    }
+    Some(true)
 }
 
 /// 経路を部分経路に分ける。閉じた部分経路の後ろの線は、その始点から続く（8.5.2.1）。2 次の曲線は、同じ形の
@@ -555,6 +611,12 @@ struct Group {
 }
 
 /// ページの内容を集める
+pub(crate) struct Collected {
+    pub(crate) elements: Vec<Element<PaperPoint>>,
+    placed: BTreeSet<(&'static str, String)>,
+}
+
+/// ページ本体か、注釈の描画期の内容を集める。
 pub(crate) struct Collector<'c, 'x, 'd> {
     cx: &'c mut Cx<'x>,
     /// 要素の出所（ページの最初の内容のストリームか、ページのオブジェクト）
@@ -562,6 +624,8 @@ pub(crate) struct Collector<'c, 'x, 'd> {
     sheet: SheetId,
     /// OCG のオブジェクト → レイヤ
     ocgs: &'c BTreeMap<(u32, i32), LayerId>,
+    /// 同じ描画期の全可視呼び出しで同じ単一 OCG を持つ、原本の画像ストリーム → OCG
+    image_layers: &'c BTreeMap<(u32, i32), (u32, i32)>,
     /// 間接オブジェクト → L1 のレコードの出所
     objects: &'c BTreeMap<(u32, i32), Ref>,
     /// 画像が、それ自身の間接オブジェクトかを見る（[`own_stream`]）。引いたコンテナーは、走査と同じ表に覚える
@@ -581,6 +645,8 @@ pub(crate) struct Collector<'c, 'x, 'd> {
     transfer: bool,
     /// 直前の塗りの字形の並び。続く同じ並びの線（描画モード 2）は、同じ文字にする
     last_fill_run: Option<RunKey>,
+    /// 注釈の描画期では、外観や内部フォームの切り抜きの境界をまたいで文字を統合しない。
+    annotation_phase: bool,
     /// 場所を添えた診断。同じ code と値の 2 つ目からは場所を添えない
     placed: BTreeSet<(&'static str, String)>,
     /// 予算か中断の合図で止めた理由
@@ -595,6 +661,7 @@ impl<'c, 'x, 'd> Collector<'c, 'x, 'd> {
         sheet: SheetId,
         page: Rect,
         ocgs: &'c BTreeMap<(u32, i32), LayerId>,
+        image_layers: &'c BTreeMap<(u32, i32), (u32, i32)>,
         objects: &'c BTreeMap<(u32, i32), Ref>,
         xref: &'d XRef,
         owned: &'c mut Owned<'d>,
@@ -606,6 +673,7 @@ impl<'c, 'x, 'd> Collector<'c, 'x, 'd> {
             source,
             sheet,
             ocgs,
+            image_layers,
             objects,
             xref,
             owned,
@@ -617,8 +685,35 @@ impl<'c, 'x, 'd> Collector<'c, 'x, 'd> {
             blended: false,
             transfer,
             last_fill_run: None,
+            annotation_phase: false,
             placed: BTreeSet::new(),
             stopped: None,
+        }
+    }
+
+    /// ページ本体の要素・様式・診断の場所を保ち、独立した Context で注釈の外観を追加する。
+    pub(crate) fn begin_annotations(&mut self, content: Collected, diagnostics: Vec<Diagnostic>) {
+        if self.stopped.is_some() {
+            return;
+        }
+        self.marks.clear();
+        self.groups.clear();
+        self.clips.truncate(1);
+        self.blended = false;
+        self.last_fill_run = None;
+        self.annotation_phase = true;
+        self.elements = content.elements;
+        self.placed = content.placed;
+        for diagnostic in diagnostics {
+            self.cx.report(diagnostic);
+        }
+    }
+
+    /// 要素と、場所を添えた診断の集合を、注釈の描画期まで移譲する。配列や集合は写さない。
+    pub(crate) fn finish(self) -> Collected {
+        Collected {
+            elements: self.elements,
+            placed: self.placed,
         }
     }
 
@@ -692,6 +787,11 @@ impl<'c, 'x, 'd> Collector<'c, 'x, 'd> {
     /// 要素を足す。ソフトマスクと合成の方法は移さないので、かかっていれば診断する。要素と、形が持つ配列のメモリ
     /// （[`shape_bytes`]）を数える
     fn add(&mut self, shape: Shape<PaperPoint>, style: Style) {
+        self.add_on_layer(shape, style, self.layer());
+    }
+
+    /// 事前走査で確定したレイヤで要素を足す。通常の追加と同じ予算・診断・順序を使う。
+    fn add_on_layer(&mut self, shape: Shape<PaperPoint>, style: Style, layer: LayerId) {
         if self.blended || self.groups.iter().any(|group| group.blended) {
             self.note_code(codes::PDF_TRANSPARENCY_APPROXIMATED);
         }
@@ -703,7 +803,7 @@ impl<'c, 'x, 'd> Collector<'c, 'x, 'd> {
         }
         self.elements.push(Element {
             source: self.source.clone(),
-            layer: self.layer(),
+            layer,
             style,
             shape,
         });
@@ -797,10 +897,18 @@ impl<'c, 'x, 'd> Collector<'c, 'x, 'd> {
         let Some((color, transparency)) = self.paint(paint, &mut None) else {
             return;
         };
-        // 偶奇の規則は、輪の中の輪を交互に埋めるのと同じ。非ゼロ回転数の規則は、自分と交わらない輪が 1 つなら
-        // 同じになる（8.5.3.3。自分と交わる輪は見ない、推定）
-        if rule == FillRule::NonZero && parts.len() > 1 {
-            self.note_code(codes::PDF_FILL_RULE_APPROXIMATED);
+        // 偶奇の規則は、輪の中の輪を交互に埋めるのと同じ。非ゼロ回転数では、単純な単一輪と確認できたものだけを除く。
+        if rule == FillRule::NonZero {
+            let simple = if let [part] = parts.as_slice() {
+                single_fill_is_simple(part, |amount| self.spend(Kind::Work, amount))
+            } else {
+                Some(false)
+            };
+            match simple {
+                Some(true) => {}
+                Some(false) => self.note_code(codes::PDF_FILL_RULE_APPROXIMATED),
+                None => return,
+            }
         }
         let loops = parts
             .iter()
@@ -1313,13 +1421,29 @@ impl<'c, 'x, 'd> Collector<'c, 'x, 'd> {
                 .is_some_and(|value| value != 0);
         // 画像の XObject は、間接オブジェクトの参照（`n g R`）を名前にする。内容の中に書いた画像（BI … EI）と、辞書の
         // 値に直接書いた画像（7.3.8.1 に反する）は、名前を持たない
-        let (path, definition) = match own_stream(self.xref, self.owned, stream) {
+        let id = own_stream(self.xref, self.owned, stream);
+        let (path, definition) = match id {
             Some(id) => match self.objects.get(&id) {
                 Some(record) => (format!("{} {} R", id.0, id.1), record.clone()),
                 None => (String::new(), self.source.clone()),
             },
             None => (String::new(), self.source.clone()),
         };
+        // 呼び出す順に対応付けず、原本の画像と、その全呼び出しで確定した表示条件から引く。
+        // OC 辞書は装置で読み直さず、事前走査の結果だけを使う。
+        let mut layer = self.layer();
+        if let Some(id) = id
+            && !self.image_layers.is_empty()
+        {
+            if !self.spend(Kind::Work, 2) {
+                return;
+            }
+            if let Some(group) = self.image_layers.get(&id)
+                && let Some(found) = self.ocgs.get(group)
+            {
+                layer = *found;
+            }
+        }
         let style = Style {
             color: Inherit::Layer,
             line_type: Inherit::Layer,
@@ -1340,7 +1464,7 @@ impl<'c, 'x, 'd> Collector<'c, 'x, 'd> {
             clip: None,
             visible: true,
         };
-        self.add(Shape::Underlay(underlay), style);
+        self.add_on_layer(Shape::Underlay(underlay), style, layer);
     }
 }
 
@@ -1448,6 +1572,9 @@ impl<'a> Device<'a> for Collector<'_, '_, '_> {
     }
 
     fn push_clip_path(&mut self, clip_path: &ClipPath) {
+        if self.annotation_phase {
+            self.last_fill_run = None;
+        }
         // 切り抜きの経路は装置の座標
         let clip = match path_bounds(&(to_mm() * clip_path.path.clone())) {
             Some(bounds) => self.clip().intersect(bounds.rect()),
@@ -1457,6 +1584,9 @@ impl<'a> Device<'a> for Collector<'_, '_, '_> {
     }
 
     fn push_clip_rect(&mut self, rect: &Rect) {
+        if self.annotation_phase {
+            self.last_fill_run = None;
+        }
         let clip = self.clip().intersect(to_mm().transform_rect_bbox(*rect));
         self.clips.push(clip);
     }
@@ -1504,6 +1634,9 @@ impl<'a> Device<'a> for Collector<'_, '_, '_> {
     }
 
     fn pop_clip(&mut self) {
+        if self.annotation_phase {
+            self.last_fill_run = None;
+        }
         // ページの切り抜きは残す
         if self.clips.len() > 1 {
             self.clips.pop();
@@ -1532,6 +1665,61 @@ impl<'a> Device<'a> for Collector<'_, '_, '_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn checks_single_fill_without_unbounded_pairs_or_allocations() {
+        let part = |points: &[(f64, f64)]| Subpath {
+            start: Point::new(points[0].0, points[0].1),
+            segments: points[1..]
+                .iter()
+                .map(|&(x, y)| Segment::Line(Point::new(x, y)))
+                .collect(),
+            closed: false,
+        };
+        // 明示した閉じる辺も、暗黙の閉じる辺も同じように確かめる。
+        for points in [
+            vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)],
+            vec![
+                (0.0, 0.0),
+                (10.0, 0.0),
+                (10.0, 10.0),
+                (0.0, 10.0),
+                (0.0, 0.0),
+            ],
+        ] {
+            assert_eq!(single_fill_is_simple(&part(&points), |_| true), Some(true));
+        }
+        let square = part(&[(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)]);
+        let mut spent = 0;
+        assert_eq!(
+            single_fill_is_simple(&square, |amount| {
+                spent += amount;
+                spent <= 5
+            }),
+            None
+        );
+        assert_eq!(single_fill_is_simple(&square, |_| true), Some(true));
+        // 多すぎる辺は、4,096 組を超えて比較しない。
+        let long = Subpath {
+            start: Point::ZERO,
+            segments: (1..=5000)
+                .map(|x| Segment::Line(Point::new(f64::from(x), 0.0)))
+                .collect(),
+            closed: false,
+        };
+        let mut spent = 0;
+        assert_eq!(
+            single_fill_is_simple(&long, |amount| {
+                spent += amount;
+                true
+            }),
+            Some(false)
+        );
+        assert_eq!(spent, 9096);
+        // 単純な輪でも、非隣接辺の外接矩形が重なれば未確認にする。
+        let diamond = part(&[(0.0, 1.0), (1.0, 2.0), (2.0, 1.0), (1.0, 0.0)]);
+        assert_eq!(single_fill_is_simple(&diamond, |_| true), Some(false));
+    }
 
     #[test]
     fn names_lengths_in_millimeters() {

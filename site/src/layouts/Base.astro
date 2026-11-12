@@ -3,7 +3,7 @@ import '@digital-go-jp/design-tokens/dist/tokens.css';
 import '@fontsource-variable/noto-sans-jp/wght.css';
 import '@fontsource/noto-sans-mono/400.css';
 import '../styles/global.css';
-import { nav, repo } from '../data/site';
+import { nav, releaseVersion, repo } from '../data/site';
 
 interface Props {
   // 下層のページの名前。トップでは渡さない。
@@ -24,6 +24,8 @@ const canonical = new URL(path, Astro.site);
 <html lang="ja">
   <head>
     <meta charset="utf-8" />
+    <!-- CSP3 §3.3。404 で HTTP ヘッダーが付かなくても、後から挿入されたスクリプトを拒否する。資産の link より前に置く。 -->
+    <meta http-equiv="Content-Security-Policy" content="script-src 'none'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{fullTitle}</title>
     <meta name="description" content={description} />
@@ -40,7 +42,7 @@ const canonical = new URL(path, Astro.site);
     <a class="skip" href="#main">本文へ移動</a>
 
     <p class="notice">
-      <span class="wrap"><strong>開発中</strong>パッケージはまだ公開していません。進み具合は <a href={repo}>GitHub</a> で公開しています。</span>
+      <span class="wrap"><strong>v{releaseVersion} 公開</strong>配布先と使い方は<a href="/platforms/#packages">対応環境</a>、機能の範囲は<a href="/formats/">対応形式</a>で案内しています。</span>
     </p>
 
     <header class="masthead">

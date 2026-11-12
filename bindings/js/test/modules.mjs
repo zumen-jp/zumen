@@ -13,12 +13,13 @@
 // - ラッパーの Modules.open が、判定したモジュールのセッションで、すべてを入れたコアの open と同じ形式で開く
 
 import { createHash } from "node:crypto";
-import { appendFileSync, readFileSync } from "node:fs";
+import { appendFileSync, readFileSync, statSync } from "node:fs";
 import { brotliCompressSync } from "node:zlib";
 
 import { compareHashes, loadCases, moduleOf, pushOf, readSample } from "../../conformance/cases.mjs";
 import { MODULES, ZumenError, detect, load, loadModules } from "../src/index.js";
 import { runConformance } from "./run.mjs";
+import "./xml-root.mjs";
 
 const [fullPath, ...paths] = process.argv.slice(2);
 const names = Object.keys(MODULES);
@@ -120,14 +121,18 @@ const { hashes, scenes, failures: found } = await runConformance({
 failures.push(...found);
 compareHashes(hashes, failures, chosen.map((testCase) => testCase.name));
 
-// モジュールごとの大きさ（決定 0013 の「CI で測って記録する」）
+// push・PR では配る wasm のバイト数を記録する。週次・手動では同じファイルの Brotli 圧縮後の大きさも測る。
+const measureBrotli = process.env.ZUMEN_MEASURE_BROTLI !== "false";
+const columns = ["モジュール", "バイト"];
+if (measureBrotli) columns.push("brotli で");
 const sizes = [["すべて", fullPath], ...names.map((name, index) => [name, paths[index]])]
   .map(([label, path]) => {
-    const bytes = readFileSync(path);
-    return `| ${label} | ${bytes.length} | ${brotliCompressSync(bytes).length} |`;
+    const row = [label, statSync(path).size];
+    if (measureBrotli) row.push(brotliCompressSync(readFileSync(path)).length);
+    return `| ${row.join(" | ")} |`;
   })
   .join("\n");
-const table = `| モジュール | バイト | brotli で |\n| --- | --- | --- |\n${sizes}`;
+const table = `| ${columns.join(" | ")} |\n| ${columns.map(() => "---").join(" | ")} |\n${sizes}`;
 console.log(table);
 const counts = names.map((name) => `${name} ${chosen.filter((testCase) => testCase.module === name).length} 件`).join("・");
 const summary = `分けたモジュールで流した組 ${chosen.length} 件（${counts}）、ハッシュ ${hashes.length} 件、読んだシーン ${scenes} 件、判定した入力 ${inputs} 件`;

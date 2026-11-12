@@ -16,6 +16,18 @@ pub(crate) struct Source<'a> {
 }
 
 impl<'a> Source<'a> {
+    pub(crate) fn metadata_bound(self) -> u64 {
+        (self.file.len() as u64).max(self.largest_container)
+    }
+
+    pub(super) fn metadata_table(self) -> u64 {
+        self.table_bytes
+    }
+
+    pub(super) fn metadata_encrypted(self) -> bool {
+        self.encrypted
+    }
+
     pub(crate) fn new(file: &'a [u8], encrypted: bool, largest_container: u64) -> Self {
         Self {
             file,

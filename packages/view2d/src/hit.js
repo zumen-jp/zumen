@@ -1,6 +1,9 @@
+import { SCENE_NONE } from "@zumen-jp/zumen";
 import { bounds, finite, valid } from "./validate.js";
 import { unitVisible } from "./interaction.js";
 import { clipParts, primitiveParts, transparentStyle, unitStyle, viewportPart } from "./geometry.js";
+import { addExact, divideExact, dyadic, multiplyExact, scaleBinary } from "./exact.js";
+import { circleIntersects } from "./circle.js";
 
 const EMPTY = Object.freeze([]);
 const EPSILON = 16 * Number.EPSILON;
@@ -37,18 +40,124 @@ function crossAt(a, b, p) {
   return Math.abs(cross) <= EPSILON * (Math.abs(left) + Math.abs(right)) ? 0 : cross;
 }
 
+const crossExact = (ax, ay, bx, by) => addExact(multiplyExact(ax, by), multiplyExact(ay, bx), true);
+
+function exactPoint(p) {
+  if (![p.x, p.y, ...(p.anchor ? [p.anchor.x, p.anchor.y, p.offsetX, p.offsetY] : [])].every(Number.isFinite)) return null;
+  return p.anchor ? { x: addExact(dyadic(p.anchor.x), dyadic(p.offsetX)), y: addExact(dyadic(p.anchor.y), dyadic(p.offsetY)) } : { x: dyadic(p.x), y: dyadic(p.y) };
+}
+
+function exactIntersection(first, second) {
+  const a = exactPoint(first.a), b = exactPoint(first.b), c = exactPoint(second.a), d = exactPoint(second.b);
+  if (!a || !b || !c || !d) return null;
+  const rx = addExact(b.x, a.x, true), ry = addExact(b.y, a.y, true), sx = addExact(d.x, c.x, true), sy = addExact(d.y, c.y, true);
+  const qx = addExact(c.x, a.x, true), qy = addExact(c.y, a.y, true), denominator = crossExact(rx, ry, sx, sy);
+  if (denominator.integer === 0n) return null;
+  const t = crossExact(qx, qy, sx, sy), u = crossExact(qx, qy, rx, ry);
+  const within = (n) => denominator.integer > 0n ? n.integer >= 0n && addExact(n, denominator, true).integer <= 0n : n.integer <= 0n && addExact(n, denominator, true).integer >= 0n;
+  if (!within(t) || !within(u)) return null;
+  // 端点 + 法線 offset も、交点の比も、最後の座標まで丸めない。
+  // 固定個数の有限 binary64 の差と 3 積までなので、整数は約 6,400 bit 以下。
+  return { x: divideExact(addExact(multiplyExact(a.x, denominator), multiplyExact(rx, t)), denominator),
+    y: divideExact(addExact(multiplyExact(a.y, denominator), multiplyExact(ry, t)), denominator) };
+}
+
+function exactNearestPoint(circle, edge) {
+  const a = exactPoint(edge.a), b = exactPoint(edge.b);
+  if (!a || !b || !Number.isFinite(circle.x) || !Number.isFinite(circle.y)) return null;
+  const dx = addExact(b.x, a.x, true), dy = addExact(b.y, a.y, true);
+  const px = addExact(dyadic(circle.x), a.x, true), py = addExact(dyadic(circle.y), a.y, true);
+  const squared = addExact(multiplyExact(dx, dx), multiplyExact(dy, dy));
+  if (squared.integer === 0n) return null;
+  const dot = addExact(multiplyExact(px, dx), multiplyExact(py, dy));
+  if (dot.integer < 0n || addExact(dot, squared, true).integer > 0n) return null;
+  // 円周との二交点だけでなく、辺上の最近点も有効な候補。
+  // 長い辺の端点から t*差を足して相殺せず、有理数のまま最終座標を求める。
+  return { x: divideExact(addExact(multiplyExact(a.x, squared), multiplyExact(dx, dot)), squared),
+    y: divideExact(addExact(multiplyExact(a.y, squared), multiplyExact(dy, dot)), squared) };
+}
+
+function leading(value) {
+  const negative = value.integer < 0n, integer = negative ? -value.integer : value.integer;
+  if (integer === 0n) return { fraction: 0, exponent: 0 };
+  const bits = integer.toString(2).length, shift = Math.max(0, bits - 53);
+  const fraction = Number(integer >> BigInt(shift)) / 2 ** (bits - shift - 1);
+  return { fraction: negative ? -fraction : fraction, exponent: value.exponent + bits - 1 };
+}
+
+function exactSegmentPosition(a, b, p) {
+  if (![a.x, a.y, b.x, b.y, p.x, p.y].every(Number.isFinite)) return { start: NaN, finish: NaN, normal: NaN };
+  const ax = dyadic(a.x), ay = dyadic(a.y);
+  const dx = addExact(dyadic(b.x), ax, true), dy = addExact(dyadic(b.y), ay, true);
+  if (dx.integer === 0n && dy.integer === 0n) return { start: NaN, finish: NaN, normal: NaN };
+  const px = addExact(dyadic(p.x), ax, true), py = addExact(dyadic(p.y), ay, true);
+  const qx = addExact(dyadic(p.x), dyadic(b.x), true), qy = addExact(dyadic(p.y), dyadic(b.y), true);
+  const squared = leading(addExact(multiplyExact(dx, dx), multiplyExact(dy, dy)));
+  const dot = leading(addExact(multiplyExact(px, dx), multiplyExact(py, dy)));
+  const endDot = leading(addExact(multiplyExact(qx, dx), multiplyExact(qy, dy)));
+  const cross = leading(addExact(multiplyExact(px, dy), multiplyExact(py, dx), true));
+  const odd = squared.exponent & 1, length = Math.sqrt(squared.fraction * (odd ? 2 : 1));
+  // 相殺は整数のまま終える。上位 53 bit・平方根・比の丸めだけを既存の guard が担う。
+  // 各端から別々に測る。t-1 や始点からの距離-全長では、終点近傍の差が消える。
+  return { start: scaleBinary(dot.fraction / length, dot.exponent - (squared.exponent - odd) / 2),
+    finish: scaleBinary(endDot.fraction / length, endDot.exponent - (squared.exponent - odd) / 2),
+    normal: scaleBinary(cross.fraction / length, cross.exponent - (squared.exponent - odd) / 2) };
+}
+
+/** 差の計算で失った下位桁。演算の誤差は形の幅に足さず、再計算の要否に使う。 */
+function subtractionError(a, b, difference) {
+  const virtual = a - difference;
+  return (a - (difference + virtual)) + (virtual - b);
+}
+
+function filteredCompare(value, boundary, rounding, evaluationError, minimumScale = 1) {
+  const delta = value - boundary, tolerance = rounding + EPSILON * Math.max(minimumScale, Math.abs(value), Math.abs(boundary));
+  if (!Number.isFinite(value) || !Number.isFinite(evaluationError)) return undefined;
+  if (Math.abs(delta) + evaluationError <= tolerance) return 0;
+  if (delta > tolerance + evaluationError) return 1;
+  if (delta < -tolerance - evaluationError) return -1;
+  return undefined;
+}
+
 function segmentContains(a, b, p, radius, direction) {
   const dx = b.x - a.x, dy = b.y - a.y, scale = Math.max(Math.abs(dx), Math.abs(dy));
   if (scale === 0) return false; // butt の端だけを持つ線は描かれない。
-  const nx = dx / scale, ny = dy / scale, px = p.x - a.x, py = p.y - a.y;
-  const t = (px / scale * nx + py / scale * ny) / (nx * nx + ny * ny);
-  const normal = (px * ny - py * nx) / Math.hypot(nx, ny);
-  if (!direction) return between(t, 0, 1) && lessEqual(Math.abs(normal), radius);
-  const along = direction.x * nx + direction.y * ny, across = (direction.x * ny - direction.y * nx) / Math.hypot(nx, ny);
-  const secondAlong = direction.ax * nx + direction.ay * ny, secondAcross = (direction.ax * ny - direction.ay * nx) / Math.hypot(nx, ny);
+  const nx = dx / scale, ny = dy / scale, px = p.x - a.x, py = p.y - a.y, qx = p.x - b.x, qy = p.y - b.y;
+  const length = Math.hypot(nx, ny);
+  let start = (px * nx + py * ny) / length, finish = (qx * nx + qy * ny) / length;
+  let normal = (px * ny - py * nx) / length;
+  // stroke の角を CSS 座標へ足す 1 回の丸めは ε/2、法線 offset の
+  // 正規化と積には既存の 16ε の余裕を使い、各軸から距離へ伝播する。
+  // offset がゼロの軸には加算がない。端は全長の比でなく CSS px で比べる。
+  const offsetX = Math.abs(ny) / length * radius, offsetY = Math.abs(nx) / length * radius;
+  const errorX = offsetX === 0 ? 0 : Number.EPSILON / 2 * Math.abs(p.x) + EPSILON * offsetX;
+  const errorY = offsetY === 0 ? 0 : Number.EPSILON / 2 * Math.abs(p.y) + EPSILON * offsetY;
+  let errorAlong = (Math.abs(nx) * errorX + Math.abs(ny) * errorY) / length;
+  let errorNormal = (Math.abs(ny) * errorX + Math.abs(nx) * errorY) / length;
+  // 両端・両側を同時に境界とする誤差帯は使わず、丸めた点自体の位置を調べる。
+  if (errorAlong >= scale * length / 2) errorAlong = 0;
+  if (errorNormal >= radius) errorNormal = 0;
+  const pxError = Math.abs(subtractionError(p.x, a.x, px)), pyError = Math.abs(subtractionError(p.y, a.y, py));
+  const qxError = Math.abs(subtractionError(p.x, b.x, qx)), qyError = Math.abs(subtractionError(p.y, b.y, qy));
+  const evaluationStart = (Math.abs(nx) * pxError + Math.abs(ny) * pyError + EPSILON * (Math.abs(px * nx) + Math.abs(py * ny))) / length;
+  const evaluationFinish = (Math.abs(nx) * qxError + Math.abs(ny) * qyError + EPSILON * (Math.abs(qx * nx) + Math.abs(qy * ny))) / length;
+  const evaluationNormal = (Math.abs(ny) * pxError + Math.abs(nx) * pyError + EPSILON * (Math.abs(px * ny) + Math.abs(py * nx))) / length;
+  // 1 CSS px 未満では線分長まで縮め、極短線の両端を同じ境界帯にしない。
+  const endpointScale = Math.min(1, scale * length);
+  let comparisons = [filteredCompare(start, 0, errorAlong, evaluationStart, endpointScale), filteredCompare(finish, 0, errorAlong, evaluationFinish, endpointScale),
+    filteredCompare(normal, -radius, errorNormal, evaluationNormal), filteredCompare(normal, radius, errorNormal, evaluationNormal)];
+  if (comparisons.some((value) => value === undefined)) {
+    ({ start, finish, normal } = exactSegmentPosition(a, b, p));
+    comparisons = [filteredCompare(start, 0, errorAlong, 0, endpointScale), filteredCompare(finish, 0, errorAlong, 0, endpointScale),
+      filteredCompare(normal, -radius, errorNormal, 0), filteredCompare(normal, radius, errorNormal, 0)];
+  }
+  if (comparisons.some((value) => value === undefined)) return false;
+  if (!direction) return comparisons[0] >= 0 && comparisons[1] <= 0 && comparisons[2] >= 0 && comparisons[3] <= 0;
+  const along = direction.x * nx + direction.y * ny, across = (direction.x * ny - direction.y * nx) / length;
+  const secondAlong = direction.ax * nx + direction.ay * ny, secondAcross = (direction.ax * ny - direction.ay * nx) / length;
   const secondScale = Math.max(Math.abs(direction.ax), Math.abs(direction.ay));
-  return compareToward(t, 0, along, secondAlong, secondScale) > 0 && compareToward(t, 1, along, secondAlong, secondScale) < 0 &&
-    compareToward(normal, -radius, across, secondAcross, secondScale) > 0 && compareToward(normal, radius, across, secondAcross, secondScale) < 0;
+  return (comparisons[0] || coordinateSign(along, secondAlong, secondScale)) > 0 && (comparisons[1] || coordinateSign(along, secondAlong, secondScale)) < 0 &&
+    (comparisons[2] || coordinateSign(across, secondAcross, secondScale)) > 0 && (comparisons[3] || coordinateSign(across, secondAcross, secondScale)) < 0;
 }
 
 function roundJoin(previous, center, next) {
@@ -136,7 +245,8 @@ function compile(part, charge) {
       const dx = b.x - a.x, dy = b.y - a.y, length = Math.hypot(dx, dy);
       if (length === 0) continue;
       const nx = -dy / length * radius, ny = dx / length * radius;
-      const corners = [{ x: a.x + nx, y: a.y + ny }, { x: b.x + nx, y: b.y + ny }, { x: b.x - nx, y: b.y - ny }, { x: a.x - nx, y: a.y - ny }];
+      const corner = (anchor, offsetX, offsetY) => ({ x: anchor.x + offsetX, y: anchor.y + offsetY, anchor, offsetX, offsetY });
+      const corners = [corner(a, nx, ny), corner(b, nx, ny), corner(b, -nx, -ny), corner(a, -nx, -ny)];
       for (let i = 0; i < 4; i++) yield { a: corners[i], b: corners[(i + 1) % 4] };
     }
     // 円弧の候補は全円から出し、contains で扇形に絞る。半径方向の二辺は
@@ -147,7 +257,8 @@ function compile(part, charge) {
       if (circle.radius > radius) yield { ...circle, radius: circle.radius - radius };
     }
   }
-  return { bounds: box, contains, edges };
+  return { bounds: box, contains, edges, circleQuery: part.circles.length === 1 && !segments.length && !joins.length ?
+    (query) => { charge(work); return circleIntersects(part.circles[0], radius, part.fill, query); } : null };
 }
 
 function rectangle(rect) {
@@ -158,7 +269,7 @@ function rectangle(rect) {
 
 function circleQuery(point, radius) {
   const circle = { ...point, radius };
-  return { bounds: circleBounds(circle), center: point, contains: (p) => lessEqual(Math.hypot(p.x - point.x, p.y - point.y), radius), *edges() { yield circle; } };
+  return { bounds: circleBounds(circle), center: point, circle, contains: (p) => lessEqual(Math.hypot(p.x - point.x, p.y - point.y), radius), *edges() { yield circle; } };
 }
 
 function intersectSegments(first, second, accept) {
@@ -168,9 +279,13 @@ function intersectSegments(first, second, accept) {
   if (scale === 0) return accept(first.a);
   const rX = rx / scale, rY = ry / scale, sX = sx / scale, sY = sy / scale, qX = qx / scale, qY = qy / scale;
   const cross = rX * sY - rY * sX;
-  if (cross === 0) return false; // 共線の重なりは、端点かほかの境界との交点で調べられる。
-  const t = (qX * sY - qY * sX) / cross, u = (qX * rY - qY * rX) / cross;
-  return between(t, 0, 1) && between(u, 0, 1) && accept({ x: first.a.x + t * rx, y: first.a.y + t * ry });
+  if (cross !== 0) {
+    const t = (qX * sY - qY * sX) / cross, u = (qX * rY - qY * rX) / cross;
+    if (between(t, 0, 1) && between(u, 0, 1) && accept({ x: first.a.x + t * rx, y: first.a.y + t * ry })) return true;
+  }
+  const point = exactIntersection(first, second);
+  // 共線の重なりは、端点かほかの境界との交点で調べられる。
+  return point !== null && accept(point);
 }
 
 function intersectCircleSegment(circle, edge, accept) {
@@ -187,7 +302,8 @@ function intersectCircleSegment(circle, edge, accept) {
   for (const t of [center - offset, center + offset]) {
     if (between(t, 0, 1) && accept({ x: edge.a.x + t * dx, y: edge.a.y + t * dy })) return true;
   }
-  return false;
+  const nearest = exactNearestPoint(circle, edge);
+  return nearest !== null && accept(nearest);
 }
 
 function intersectCircles(first, second, accept) {
@@ -292,6 +408,7 @@ function hit(ctx, prepared, settings, view, size, display, index, limits, query)
   let work = 0;
   const charge = (count) => { work += count; valid(Number.isSafeInteger(work) && work <= limits.work, "limits.work"); };
   const viewport = compile(viewportPart(size, charge), charge), result = [], seen = new Set();
+  const internalQuery = query.bounds.min_x > 0 && query.bounds.max_x < size.width && query.bounds.min_y > 0 && query.bounds.max_y < size.height;
   const { columns: c, order, omitted } = prepared;
   ctx.save();
   try {
@@ -305,9 +422,17 @@ function hit(ctx, prepared, settings, view, size, display, index, limits, query)
         let clips;
         for (const part of primitiveParts(ctx, c, kind, i, chunk, settings, view, size, true, charge)) {
           const shape = compile(part, charge);
-          if (!overlap(shape.bounds, query.bounds) || !overlap(shape.bounds, viewport.bounds)) continue;
-          if (!clips) clips = [viewport, ...Array.from(clipParts(c, unit, view, size, true, charge), (clip) => compile(clip, charge))];
-          if (intersects(shape, clips, query, charge)) {
+          let intersection;
+          if (shape.circleQuery && c.unit_clips[unit] === SCENE_NONE && internalQuery) {
+            // 問い合わせ全体が viewport 内部にある単独の円だけは、可視領域を直接証明できる。
+            // 二度丸めた bounds で先に除外せず、shape/viewport の課金と元の円の work を保つ。
+            charge(2); intersection = shape.circleQuery(query);
+          } else {
+            if (!overlap(shape.bounds, query.bounds) || !overlap(shape.bounds, viewport.bounds)) continue;
+            if (!clips) clips = [viewport, ...Array.from(clipParts(c, unit, view, size, true, charge), (clip) => compile(clip, charge))];
+            intersection = intersects(shape, clips, query, charge);
+          }
+          if (intersection) {
             valid(result.length < limits.stateItems, "limits.stateItems");
             result.push(element); seen.add(element); break;
           }

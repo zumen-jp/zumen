@@ -28,7 +28,6 @@ evidence = [
 ]
 place = "core"
 basis = ["spec"]
-decisions = ["0007", "0010", "0272", "0275", "0277"]
 docs = ["docs/formats/png.md"]
 issues = ["zumen-jp/zumen#604"]
 
@@ -60,7 +59,6 @@ evidence = [
 ]
 place = "core"
 basis = ["spec"]
-decisions = ["0007", "0010", "0172", "0188", "0272"]
 docs = ["docs/formats/svg.md"]
 issues = ["zumen-jp/zumen#602", "zumen-jp/zumen#603", "zumen-jp/zumen#604"]
 
@@ -459,7 +457,6 @@ basis = ["spec", "inferred", "reference"]
 references = [{ name = "ezsxf", license = "MIT", url = "https://github.com/monozukuri-ai/ezsxf" }]
 verify = ["Jw_cad", "SXF ブラウザ"]
 samples = ["ezsxf のリポジトリにある公開の図面"]
-decisions = ["0008", "0120", "0121", "0122", "0123", "0124", "0125", "0126", "0127", "0128", "0129", "0130", "0131", "0132", "0249"]
 docs = ["docs/formats/sxf.md"]
 issues = ["zumen-jp/zumen#385"]
 
@@ -493,7 +490,6 @@ basis = ["spec", "reference"]
 references = [{ name = "ezjww", license = "MIT", url = "https://github.com/monozukuri-ai/ezjww" }]
 verify = ["Jw_cad"]
 samples = ["Jw_cad に付くサンプル", "ezjww のリポジトリにある図面"]
-decisions = ["0008", "0133", "0134", "0135", "0136"]
 docs = ["docs/formats/jww.md"]
 
 [formats.jww.read]
@@ -520,7 +516,6 @@ basis = ["inferred", "reference"]
 references = [{ name = "ezjww", license = "MIT", url = "https://github.com/monozukuri-ai/ezjww" }]
 verify = ["Jw_cad"]
 samples = ["Jw_cad 10 で保存したファイル"]
-decisions = ["0008"]
 
 [formats.jws]
 name = "JWS（Jw_cad の図形）"
@@ -534,7 +529,6 @@ basis = ["inferred", "reference"]
 references = [{ name = "ezjww", license = "MIT", url = "https://github.com/monozukuri-ai/ezjww" }]
 verify = ["Jw_cad"]
 samples = ["Jw_cad 10 で登録した図形"]
-decisions = ["0008"]
 notes = "掲示板の説明: https://www.jwcad.net/log/consult2/consult2-0610-12/thread17752.htm"
 
 [formats.dxf]
@@ -549,7 +543,6 @@ basis = ["spec", "inferred", "reference"]
 references = [{ name = "ezdxf", license = "MIT", url = "https://ezdxf.mozman.at/" }]
 verify = ["ezdxf", "ODA File Converter", "DWG TrueView"]
 samples = ["公開サンプルの DXF（samples/dxf・samples/dwg）。ezdxf の例は MIT、zumen-jp が AutoCAD 2027 で作った図面は CC0 1.0。出所とライセンスは samples/ledger.toml", "ACadSharp のテストの図面（MIT）", "ezdwg のテストの図面（MIT）", "自治体などが公開する図面。再配布できるかは確かめていない"]
-decisions = ["0008"]
 docs = ["docs/formats/dxf.md"]
 
 [formats.dxf.read]
@@ -582,7 +575,6 @@ references = [
 ]
 verify = ["ODA File Converter", "DWG TrueView"]
 samples = ["公開サンプルの DWG（samples/dwg）。zumen-jp が AutoCAD 2027 で作った図面で、CC0 1.0。同じ図面を AutoCAD で書いた DXF と比べる。出所とライセンスは samples/ledger.toml", "ACadSharp のテストの図面（MIT）。同じ図面を DXF にしたものと比べる", "ezdwg のテストの図面（MIT）"]
-decisions = ["0008"]
 legacy-decisions = ["0003"]
 docs = ["docs/formats/dwg.md"]
 
@@ -612,7 +604,6 @@ place = "core"
 basis = ["spec"]
 verify = ["pdf.js"]
 samples = ["PDFium の公開サンプル（Type 3・OCG・ソフトマスク・LZW と JPX）。CAD が出力した図面はまだない"]
-decisions = ["0008", "0013", "0256", "0289"]
 legacy-decisions = ["0020", "0030"]
 docs = ["docs/formats/pdf.md"]
 notes = "ページの解釈は hayro-interpret 0.9.0（Apache-2.0 OR MIT）に任せ、バージョンを固定する（決定 0256）。zumen-pdf は crates.io に出さず、どのパッケージにも入れない（決定 0289）"
@@ -646,16 +637,15 @@ place = "core"
 basis = ["spec"]
 verify = ["IfcOpenShell（依存にせず、毎晩の CI で別に入れて使う）"]
 samples = ["公開サンプルの IFC 12 件（samples/ifc。林野庁・中野区・GNI BIM Dataset・BIM Whale・Text2BIM。出所とライセンスは samples/ledger.toml、#412）", "許諾の要る国内の BIM ソフトの書き出しは #513 で足す（zumen-jp/zumen-legacy#128）"]
-decisions = ["0008", "0207", "0211", "0244"]
 legacy-decisions = ["0028"]
 docs = ["docs/formats/ifc.md"]
 
 [formats.ifc.read]
 level = "external"
-scope = "公開サンプルの IFC 12 件（samples/ifc）を建物モデルに写し、毎晩の CI で IfcOpenShell が同じファイルから読んだ値と照らす。照らすのは、実体のクラス・GlobalId・名前・所属の先と型・プロジェクトの空間への変換・開口・プロパティと数量の値（crates/zumen-ifc/tests/ifcopenshell/samples.py、#412・#512）。手元の照合では、12 件とも食い違いは 0。判定・インスタンスのグラフ・壊れた所の扱いと、写さない値は、外部の実装と照らしていない。公開サンプル 12 件は、自前のテストでも L1 で読み、変えずに書くと元のバイト列に戻ることと、写さない値の診断の code・実体のクラス・件数を確かめる（crates/zumen-ifc/tests/samples.rs）。壊れた所の扱いと ifcZIP は、仕様とテストの中で作った IFC-SPF と ifcZIP（crates/zumen-ifc/tests）だけで確かめた。許諾の要る国内の BIM ソフトの書き出しは #513 で足す"
+scope = "公開サンプルの IFC 12 件（samples/ifc）を建物モデルに写し、毎晩の CI で IfcOpenShell が同じファイルから読んだ値と照らす。照らすのは、実体のクラス・GlobalId・名前・所属の先と型・プロジェクトの空間への変換・開口・プロパティと数量の値（crates/zumen-ifc/tests/ifcopenshell/samples.py、#412・#512）。手元の照合では、12 件とも食い違いは 0。必要時の曲線の getter は、合成の IFC2X3 の 9 曲線・IFC4 と IFC4X3 の各 10 曲線、公開サンプル gni/model_9 の 1 曲線で、元の属性の座標・方向の比・半径・ベクトルの大きさ・添字・区間の向き・切る位置を IfcOpenShell と照らし、食い違いは 0（crates/zumen-ifc/tests/ifcopenshell/curves.py、#419）。公開サンプルの IndexedPolyCurve 1 件を読みの external とし、自作した 29 件は synthetic の範囲で外部の実装とも照合したものとする。単位・診断・予算・幾何の評価は、この外部の曲線の照合には含めない。要素から形状表現・共有写像元をたどる L1 の getter は、合成 3 版の各 9 項目と補助レコード各 8 件、公開サンプルの柱の 6 項目と補助レコード 16 件で、参照と元の配置・写像の属性、曲線の点を IfcOpenShell と照らした（product_shapes.py、#419）。公開の表現と写像は external、合成は synthetic の範囲で外部の実装とも照合したものとする。配置・写像・単位の適用と立体・断面の型への変換はしていない。既存の形の葉から押し出し・閉じた断面・外輪を取得する経路は、合成各版 2 件と公開の柱 1 件、計 7 件で、未適用の深さ・方向・配置と断面の名前・参照・外輪、SI 単位の名前・接頭辞を IfcOpenShell と照らし、食い違いは 0（extrusions.py、#419）。公開 1 件は external、合成 6 件は synthetic とする。配置・写像・単位の適用や自己交差・面積・形の評価、ほかの立体・断面の対応を検証した結果ではない。形の項目に直接付く面の表示は、合成各版 2 件と公開の柱 1 件、計 7 件で、色・透明度・Rendering の全属性と出所の参照を IfcOpenShell と照らし、食い違いは 0（styles.py、#419）。公開 1 件は external、合成 6 件は synthetic とする。表示・材質・レイヤ・写像による継承と反射の式は評価しない。診断と全 Kind の予算使用量はネイティブと WASI のバイト列を比較する。Building の Style 成分と形の意味値の Hash は未実装。通り芯から U/V/W 軸と曲線を取得する経路は、合成 3 Grid の 20 軸・26 曲線と公開 1 Grid の 21 軸・21 曲線で、配置と表現の参照・レイアウト・所属と順序・タグ・SameSense・曲線の元属性と共有を IfcOpenShell と照らし、食い違いは 0（grids.py、#419）。公開 1 Grid は external、合成 3 Grid は synthetic とする。単位・補助レコード・診断・予算と、配置・反転・幾何の評価は外部照合に含めない。各軸の CurveGraph 内の共有と複数軸間の同一出所を区別し、Building/Hash は未統合。別の複合 Grid の全 Part とローカル属性の所属確認、未知の属性配置の拒否、追加 Part の予算と停止位置は、合成の 3 版で native/WASI の記録を照合する synthetic の範囲。判定・インスタンスのグラフ・壊れた所の扱いと、上に記した属性以外の値は、外部の実装と照らしていない。公開サンプル 12 件は、自前のテストでも L1 で読み、変えずに書くと元のバイト列に戻ることと、写さない値の診断の code・実体のクラス・件数を確かめる（crates/zumen-ifc/tests/samples.rs）。壊れた所の扱いと ifcZIP は、仕様とテストの中で作った IFC-SPF と ifcZIP（crates/zumen-ifc/tests）だけで確かめた。許諾の要る国内の BIM ソフトの書き出しは #513 で足す"
 public-samples = ["samples/ifc/"]
 implementations = [{ name = "IfcOpenShell", version = "0.9.0.post1" }]
-checked = "2026-11-03"
+checked = "2026-11-11"
 
 [formats.ifc.write]
 level = "external"
@@ -696,7 +686,6 @@ place = "core"
 basis = ["inferred"]
 verify = ["IfcOpenShell（依存にせず、別に入れて使う）"]
 samples = ["buildingSMART International が公開する IFC の EXPRESS のスキーマ。Git・パッケージ・テストに入れない（旧版の決定 0028）。テストの中で小さなスキーマを書く"]
-decisions = ["0207", "0216"]
 legacy-decisions = ["0028"]
 docs = ["docs/formats/express.md"]
 issues = ["zumen-jp/zumen#410", "zumen-jp/zumen#529", "zumen-jp/zumen#663", "zumen-jp/zumen#668", "zumen-jp/zumen#669"]
@@ -718,7 +707,6 @@ place = "core"
 basis = ["spec"]
 verify = ["国土地理院のジオイド高計算サービス（ジオイド2024日本とその周辺）", "国土地理院の内挿計算プログラム（geoidcalc。ISG 形式のモデルと一緒に配られる）"]
 samples = ["利用者が国土地理院から入手したジオイド・モデル。Git・パッケージ・テストに入れない"]
-decisions = ["0019"]
 docs = ["docs/formats/crs.md"]
 
 [formats.isg.read]
@@ -743,7 +731,6 @@ basis = ["spec", "inferred"]
 known-crates = ["jgdtrans"]
 verify = ["国土地理院の測量計算サイト（TKY2JGD・PatchJGD）", "jgdtrans 0.3.1（dev の依存。テストの中で作った格子で、読んだ格子点・補間の値・変換した座標を照らす。決定 0286）"]
 samples = ["利用者が国土地理院から入手したパラメーターのファイル。Git・パッケージ・テストに入れない。テストの中で合成の格子を作る"]
-decisions = ["0019", "0233", "0237", "0286"]
 docs = ["docs/formats/crs.md"]
 issues = ["zumen-jp/zumen#471", "zumen-jp/zumen#529", "zumen-jp/zumen#664", "zumen-jp/zumen#670", "zumen-jp/zumen#678", "zumen-jp/zumen#679"]
 notes = "PatchJGD のファイルのヘッダーの行数と文字コード（UTF-8・Shift_JIS）は、ファイルのバージョンで違う。2026-11-09 に確かめた国土地理院の座標補正パラメータファイルの更新の履歴では、noto2024_BL.par の Ver.1.0.1 がヘッダーを 14 行から 15 行に、noto2024_02BL.par の Ver.1.0.1 が文字コードを UTF-8 から Shift_JIS に直した。初めのデータの行の前をヘッダーとして読まないのは、これに合わせた推定。更新の履歴と、ファイルと各ファイルのヘッダーの一覧へのリンクは、docs/formats/crs.md の「座標の補正量の格子」にある"
@@ -774,7 +761,6 @@ rights = "public"
 rights-note = "文書と XSD は CC BY-ND 4.0 で、実装についての記述はない（IFC 4.3 の文書と同じ扱い）。XSD と、そこから生成したコードは同梱しない。照合は文書の記述から書く"
 place = "core"
 basis = ["spec"]
-decisions = ["0207", "0217"]
 docs = ["docs/formats/ids.md"]
 issues = ["zumen-jp/zumen#411"]
 
@@ -797,7 +783,6 @@ rights = "public"
 rights-note = "3.0 の文書と XSD・JSON のスキーマは CC BY-ND 4.0 で、実装についての記述はない（IFC 4.3 の文書と同じ扱い）。スキーマは同梱しない。2.1 にはライセンスの記述がないが、3.0 と同じ扱いにする（zumen-jp/zumen#440）。商標の注記（buildingSMART・openBIM・IFC）は BCF を挙げていない"
 place = "core"
 basis = ["spec"]
-decisions = ["0214", "0220", "0248"]
 docs = ["docs/formats/bcf.md"]
 issues = ["zumen-jp/zumen#429", "zumen-jp/zumen#454"]
 
@@ -827,7 +812,6 @@ place = "plugin"
 repository = "zumen-jp/stbridge（非公開）"
 basis = ["spec"]
 known-crates = ["stb-parser"]
-decisions = ["0017", "0243", "0245"]
 legacy-decisions = ["0001", "0013", "0028"]
 issues = ["zumen-jp/zumen-legacy#140", "zumen-jp/zumen#402"]
 
@@ -897,8 +881,8 @@ issues = ["zumen-jp/zumen#366", "zumen-jp/zumen#368"]
 
 [formats.landxml.read]
 level = "synthetic"
-scope = "J-LandXML Ver.1.8 の文書と、テストの中で作った J-LandXML（crates/zumen-landxml/tests）で確かめた。再配布できる公開サンプルは見つかっていない（#368・#504）"
-checked = "2026-11-03"
+scope = "J-LandXML Ver.1.8 の文書と、テストの中で作った J-LandXML（crates/zumen-landxml/tests）で確かめた。片勾配は最大片勾配が一定の区間だけを Rust の L2 モデルへ移す。再配布できる公開サンプルは見つかっていない（#368・#504）"
+checked = "2026-11-11"
 
 [formats.sima]
 name = "SIMA 共通フォーマット"
@@ -931,7 +915,6 @@ place = "core"
 basis = ["spec"]
 verify = ["基盤地図情報ビューアー（拡張 DM で書き出せる。手元でだけ使う）"]
 samples = ["再配布を認める公開サンプルは見つかっていない。テストの中で作る"]
-decisions = ["0233"]
 docs = ["docs/formats/extdm.md"]
 issues = ["zumen-jp/zumen#378"]
 
@@ -956,7 +939,6 @@ place = "core"
 basis = ["spec"]
 verify = ["基盤地図情報ビューアー", "QGIS"]
 samples = ["利用者が国土地理院から入手したデータ。Git・パッケージ・テストに入れない。テストの中で小さな GML を作る"]
-decisions = ["0019", "0233", "0251"]
 docs = ["docs/formats/fgd.md"]
 issues = ["zumen-jp/zumen#378"]
 
@@ -1006,15 +988,17 @@ place = "core"
 basis = ["spec", "inferred", "reference"]
 references = [{ name = "LASzip", license = "Apache-2.0", url = "https://github.com/LASzip/LASzip" }, { name = "laz-rs", license = "Apache-2.0", url = "https://github.com/tmontaigu/laz-rs" }]
 known-crates = ["las", "laz"]
-verify = ["CloudCompare", "PDAL", "LAStools の lasinfo"]
-samples = ["laz-rs の tests/data（Apache-2.0。数十 KB から数百 KB）"]
+verify = ["CloudCompare", "PDAL", "LAStools の lasinfo", "laspy"]
+samples = ["PDAL の test/data/las/synthetic_test.las（BSD-3-Clause、合成の 1 点。samples/las/pdal-synthetic.las）"]
 docs = ["docs/formats/las.md"]
-issues = ["zumen-jp/zumen#371"]
+issues = ["zumen-jp/zumen#371", "zumen-jp/zumen#504", "zumen-jp/zumen#804"]
 
 [formats.las.read]
-level = "synthetic"
-scope = "LAS 1.4 R15 の仕様と、テストの中で作った LAS（crates/zumen-las/tests）で確かめた。LAZ は展開を止めていて、開くと las.laz.unsupported を返す（#510・決定 0289）。公開サンプルと外部の実装との照合はまだ（#371・#504）"
-checked = "2026-11-10"
+level = "external"
+scope = "PDAL が作った公開サンプル 1 件（非圧縮 LAS 1.2、点形式 3、synthetic フラグを持つ 1 点）を laspy 2.7.0 と照合した。ヘッダーの点数・尺度・原点・範囲と、座標・強度・分類・反射・GPS 時刻・RGB を比較した。実測の点群は使っていない。自前の合成 LAS 1.2 の点形式 0〜3、1.3 の 4・5、1.4 の 6〜10 も同じ値を比較したが、external の根拠は PDAL のサンプルだけ。公開サンプルの応答・診断は適合テストでネイティブと wasm のハッシュを比較する。座標系・VLR/EVLR の内容・落とす属性・波形の外部データ・実データ・基準になるアプリとの照合はまだ（#371・#504）。LAZ は las.laz.unsupported で断る（#510）"
+checked = "2026-11-11"
+public-samples = ["samples/las/"]
+implementations = [{ name = "laspy", version = "2.7.0" }]
 
 [[formats.las.evidence]]
 title = "OGC の LAZ 1.4 コミュニティ標準の公表"
@@ -1066,14 +1050,16 @@ rights-note = "持ち主の公式の仕様はない。Greg Turk の説明と、�
 place = "core"
 basis = ["inferred"]
 verify = ["CloudCompare", "MeshLab"]
-samples = ["テストの中で作る"]
+samples = ["samples/ply/（PDAL の 4 頂点・2 面の公開サンプル）", "テストの中で作る"]
 docs = ["docs/formats/ply.md"]
-issues = ["zumen-jp/zumen#373"]
+issues = ["zumen-jp/zumen#373", "zumen-jp/zumen#809"]
 
 [formats.ply.read]
-level = "synthetic"
-scope = "公開の解説と、テストの中で作った PLY（crates/zumen-ply/tests）で確かめた。CloudCompare・MeshLab が書いた PLY との照合はまだ（#504）"
-checked = "2026-11-03"
+level = "external"
+scope = "PDAL が作った公開サンプル 1 件（ASCII、float64 の 4 頂点・2 面）を ply-rs 0.1.3 と照合した。全頂点の順と座標をビットで比較し、面を移さない診断と座標系が不明なことを確かめた。自前の合成の ASCII・両バイト順の座標・色・強度・分類と float/float32 の丸めも照合したが、external の根拠は公開サンプルだけ。公開サンプルと float32 の応答・診断をネイティブと wasm で比較する。実測点群、公開サンプルのバイナリと属性、法線や面のモデル化、CloudCompare・MeshLab との照合はまだ（#504）"
+checked = "2026-11-11"
+public-samples = ["samples/ply/"]
+implementations = [{ name = "ply-rs", version = "0.1.3" }]
 
 [[formats.ply.evidence]]
 title = "Paul Bourke「PLY - Polygon File Format」"
@@ -1133,7 +1119,6 @@ rights-note = "SXF Ver.3.1 仕様書の附属書（属性付加機構）に含�
 place = "core"
 basis = ["spec"]
 verify = ["SXF ブラウザ"]
-decisions = ["0249"]
 docs = ["docs/formats/sxf.md"]
 issues = ["zumen-jp/zumen#386"]
 

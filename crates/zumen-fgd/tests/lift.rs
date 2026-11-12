@@ -7,6 +7,33 @@ use zumen_geo::{Form, GeoModel, Location, Position, Value};
 use zumen_geom3d::Shape;
 use zumen_sdk::{Codec, Lift};
 
+#[test]
+fn shift_jis_unknown_names_are_decoded_and_feature_ids_are_kept() {
+    let text = BASIC
+        .replace("encoding=\"UTF-8\"", "encoding=\"Shift_JIS\"")
+        .replacen(
+            "<RdEdg gml:id=\"K1_1\">",
+            "<RdEdg gml:id=\"K1_1\"><ソ:ゼー xmlns:ソ='urn:test'>value</ソ:ゼー>",
+            1,
+        );
+    let (src, _, error) = encoding_rs::SHIFT_JIS.encode(&text);
+    assert!(!error);
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+    let file = Fgd::read(&src, &mut cx).unwrap();
+    let model = file.lift(&mut cx).unwrap();
+    assert_eq!(model.features[0].id, "K1_1");
+    assert_eq!(model.features[0].kind, "fgd:RdEdg");
+    assert!(diag.iter().any(|d| {
+        d.code() == codes::FGD_ELEMENT_UNSUPPORTED
+            && d.params().iter().any(|(key, value)| {
+                *key == "element" && *value == zumen_base::Value::Text("ソ:ゼー".into())
+            })
+    }));
+}
+
 /// 基本項目の地物。道路縁（線要素 L）・建築物（面要素 A）・標高点（点要素 P）・測量の基準点と、境界の曲線を
 /// 参照する行政区画
 const BASIC: &str = r##"<?xml version="1.0" encoding="UTF-8"?>
@@ -476,4 +503,59 @@ fn stops_at_the_budget_for_the_grid() {
     let (model, codes) = lift_with(DEM, budget);
     assert!(model.is_err());
     assert_eq!(codes, [codes::BUDGET_SEGMENTS_EXCEEDED]);
+}
+
+#[test]
+fn utf16_features_keep_japanese_attributes_coordinates_and_source_ranges() {
+    let text = BASIC
+        .replace("encoding=\"UTF-8\"", "encoding=\"UTF-16\"")
+        .replacen(
+            "<type>真幅道路",
+            "<独自:注記 xmlns:独自=\"urn:zumen:test\">検査</独自:注記><type>真幅道路",
+            1,
+        );
+    for little in [true, false] {
+        let mut src = if little {
+            vec![0xff, 0xfe]
+        } else {
+            vec![0xfe, 0xff]
+        };
+        for unit in text.encode_utf16() {
+            src.extend(if little {
+                unit.to_le_bytes()
+            } else {
+                unit.to_be_bytes()
+            });
+        }
+        assert!(Fgd::SIGNATURES.iter().any(|s| s.matches(&src)));
+        let mut budget = Budget::default();
+        let mut diag = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        let file = Fgd::read(&src, &mut cx).unwrap();
+        let model = file.lift(&mut cx).unwrap();
+        assert_eq!(
+            diag.iter().map(|d| d.code()).collect::<Vec<_>>(),
+            [codes::FGD_ELEMENT_UNSUPPORTED]
+        );
+        assert!(
+            matches!(diag.iter().next().unwrap().param("element"), Some(zumen_base::Value::Text(name)) if name == "独自:注記")
+        );
+        assert_eq!(model.features.len(), 7);
+        let road = &model.features[0];
+        assert_eq!(road.code.as_deref(), Some("真幅道路"));
+        let Form::Line(points) = &road.geometries[0].form else {
+            panic!()
+        };
+        assert_eq!(points[1].position, geo(35.0, 139.001));
+        assert_eq!(model.features[3].name.as_deref(), Some("千代田区"));
+        assert_eq!(model.features[6].name.as_deref(), Some("丸の内"));
+        let start = 2 + text
+            .get(..text.find("<RdEdg ").unwrap())
+            .unwrap()
+            .encode_utf16()
+            .count()
+            * 2;
+        assert_eq!(road.source.bytes().map(|r| r.start), Some(start as u64));
+    }
 }

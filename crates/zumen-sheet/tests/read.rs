@@ -117,6 +117,62 @@ fn xlsx_values_formulas_and_merged_cells_are_read() {
 }
 
 #[test]
+fn utf16_xml_parts_keep_sheet_names_cells_formulas_and_relationships() {
+    let original = xlsx();
+    let (expected, expected_diag) = with_cx(|cx| read_xlsx(&original, cx));
+    let expected = expected.unwrap();
+    for little in [true, false] {
+        let (parts, diag) = with_cx(|cx| {
+            let archive = zumen_zip::read(&original, cx).unwrap();
+            archive
+                .entries()
+                .iter()
+                .map(|entry| {
+                    let bytes = archive.extract(entry, cx).unwrap();
+                    let text = format!(
+                        "<?xml version=\"1.0\" encoding=\"UTF-16\"?>{}",
+                        std::str::from_utf8(&bytes).unwrap()
+                    );
+                    let mut encoded = if little {
+                        vec![0xff, 0xfe]
+                    } else {
+                        vec![0xfe, 0xff]
+                    };
+                    for unit in text.encode_utf16() {
+                        encoded.extend(if little {
+                            unit.to_le_bytes()
+                        } else {
+                            unit.to_be_bytes()
+                        });
+                    }
+                    (entry.name().to_owned(), encoded)
+                })
+                .collect::<Vec<_>>()
+        });
+        assert!(diag.is_empty(), "{diag:?}");
+        let borrowed: Vec<_> = parts
+            .iter()
+            .map(|(name, bytes)| (name.as_str(), bytes.as_slice()))
+            .collect();
+        let zip = zumen_zip::write(&borrowed).unwrap();
+        let (book, diag) = with_cx(|cx| read_xlsx(&zip, cx));
+        assert_eq!(diag, expected_diag);
+        let book = book.unwrap();
+        assert_eq!(
+            book.sheets
+                .iter()
+                .map(|s| s.name.as_str())
+                .collect::<Vec<_>>(),
+            ["内訳", "数量"]
+        );
+        assert_eq!(cells(&book, 0), cells(&expected, 0));
+        assert_eq!(cells(&book, 1), cells(&expected, 1));
+        assert_eq!(book.sheets[0].merged, expected.sheets[0].merged);
+        assert_eq!((book.sheets[1].rows, book.sheets[1].columns), (2, 27));
+    }
+}
+
+#[test]
 fn not_a_workbook_fails() {
     let (book, diag) = with_cx(|cx| {
         read_xlsx(

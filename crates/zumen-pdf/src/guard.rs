@@ -463,14 +463,12 @@ fn container_fits(
     cx: &mut Cx<'_>,
 ) -> Result<Option<usize>, Stop> {
     let dict = stream.dict();
-    // hayro-syntax は、展開するときに `F`・`DP`・`DecodeParms` の辞書の表を作る。表は、値のキーの数に比例するので、
-    // 値の名前の数で多めに数える（項目の辞書の表は、フィルターの数の上限から、ファイルの大きさによらない）
-    for key in [b"F".as_slice(), b"DP", b"DecodeParms"] {
-        if let Some(MaybeRef::NotRef(Raw(value))) = dict.get_raw::<Raw<'_>>(key) {
-            cx.check(Kind::Work, lookup_work(value))?;
-            let names = value.iter().filter(|&&byte| byte == b'/').count() as u64;
-            cx.check(Kind::DecodedBytes, names.saturating_mul(KEY_BYTES))?;
-        }
+    // 外部ファイルを指す F の表は残す。DP・DecodeParms の型失敗や読み直しは、
+    // 共通の inflate の入口で予約し、コンテナーだけで重ねて数えない。
+    if let Some(MaybeRef::NotRef(Raw(value))) = dict.get_raw::<Raw<'_>>(b"F") {
+        cx.check(Kind::Work, lookup_work(value))?;
+        let names = value.iter().filter(|&&byte| byte == b'/').count() as u64;
+        cx.check(Kind::DecodedBytes, names.saturating_mul(KEY_BYTES))?;
     }
     // hayro-syntax は、中の位置を読む前に展開する。`N` と `First` が読めなくても、展開の上限は先に確かめる
     // 参照のあるフィルターと暗号化したコンテナーは、ここへ来る前に断っている。

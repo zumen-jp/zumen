@@ -1,25 +1,34 @@
 //! XML の L0（決定 0008・0209）。
 //!
-//! 形式の意味を知らずに、要素・属性・文字と名前空間を、元のバイト範囲のまま読む。UTF-8 と Shift_JIS の文書を、
-//! 元のバイト列のまま読み、文字にするのは [`Document::text`] と [`Document::value`] で行う。Shift_JIS の 2 バイト目は
-//! 0x40 以上なので、マークアップの文字（`<`・`>`・`&`・`"`・`'`・`=`・`/`）と取り違えない。
+//! 形式の意味を知らずに、要素・属性・文字と名前空間を、元のバイト範囲のまま読む。
+//! UTF-8・Shift_JIS・UTF-16LE・UTF-16BE に対応する。UTF-16 の解析用の UTF-8 と原本の位置を
+//! 対応づけ、公開する範囲と [`Document::src`] は原本を保つ。文字にするのは [`Document::text`] と
+//! [`Document::value`] で行う。名前の比較には [`Document::parsed_local_name`] を使う。
 //!
 //! 文書型宣言（DTD）は処理しない。外部の DTD と実体を解決せず、DTD で宣言する実体の参照は戻さない。
 
+mod name;
 mod parse;
 mod text;
+mod utf16;
 
 use core::ops::Range;
+use std::borrow::Cow;
 
 pub use parse::read;
 
 /// 文書の文字コード
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Encoding {
     /// UTF-8。XML 宣言がないか、宣言が `UTF-8` のもの
     Utf8,
     /// Shift_JIS（WHATWG の Shift_JIS。`Shift_JIS`・`windows-31j` などの名前）
     ShiftJis,
+    /// UTF-16 のリトルエンディアン
+    Utf16Le,
+    /// UTF-16 のビッグエンディアン
+    Utf16Be,
 }
 
 /// 名前空間
@@ -38,6 +47,7 @@ pub enum Namespace {
 pub struct Name {
     raw: Range<usize>,
     local: usize,
+    prefix_end: Option<usize>,
     namespace: Option<Namespace>,
 }
 
@@ -49,7 +59,7 @@ impl Name {
 
     /// 接頭辞の範囲。なければ `None`
     pub fn prefix(&self) -> Option<Range<usize>> {
-        (self.local > self.raw.start).then(|| self.raw.start..self.local - 1)
+        self.prefix_end.map(|end| self.raw.start..end)
     }
 
     /// 接頭辞を除いた名前の範囲
@@ -137,6 +147,7 @@ pub struct Document {
     encoding: Encoding,
     elements: Vec<Element>,
     doctype: Option<Range<usize>>,
+    decoded: Option<utf16::Decoded>,
 }
 
 impl Document {
@@ -180,6 +191,39 @@ impl Document {
         self.bytes(name.local())
     }
 
+    /// 字句解析に使う名前。UTF-16 は UTF-8、UTF-8 と Shift_JIS は元の文字コードのまま。
+    /// ASCII の要素名の比較に使う。原本の取得は [`Self::local_name`]、文字は [`Self::local_name_text`]。
+    pub fn parsed_local_name(&self, name: &Name) -> &[u8] {
+        match &self.decoded {
+            Some(decoded) => decoded
+                .bytes
+                .get(decoded.decoded_range(name.local()))
+                .unwrap_or_default(),
+            None => self.local_name(name),
+        }
+    }
+
+    /// 接頭辞を除いた名前を文字にする。原本の範囲を返す [`Self::local_name`] と区別する。
+    pub fn local_name_text(&self, name: &Name) -> Cow<'_, str> {
+        if let Some(decoded) = &self.decoded {
+            return String::from_utf8_lossy(
+                decoded
+                    .bytes
+                    .get(decoded.decoded_range(name.local()))
+                    .unwrap_or_default(),
+            );
+        }
+        match self.encoding {
+            Encoding::Utf8 => String::from_utf8_lossy(self.local_name(name)),
+            Encoding::ShiftJis => {
+                encoding_rs::SHIFT_JIS
+                    .decode_without_bom_handling(self.local_name(name))
+                    .0
+            }
+            Encoding::Utf16Le | Encoding::Utf16Be => Cow::Owned(self.text(name.local())),
+        }
+    }
+
     /// 名前空間の名前（URI）。名前空間がなければ `None`
     pub fn namespace(&self, name: &Name) -> Option<String> {
         match name.namespace()? {
@@ -189,9 +233,10 @@ impl Document {
         }
     }
 
-    /// 名前の名前空間が `namespace`（URI）で、接頭辞を除いた名前が `local` なら真
+    /// 名前の名前空間が `namespace`（URI）で、接頭辞を除いた名前が `local` なら真。
+    /// `local` は [`Document::parsed_local_name`] とバイトで比べる。非 ASCII の文字列は [`Document::local_name_text`] で比べる
     pub fn is(&self, name: &Name, namespace: Option<&str>, local: &[u8]) -> bool {
-        self.local_name(name) == local && self.namespace(name).as_deref() == namespace
+        self.parsed_local_name(name) == local && self.namespace(name).as_deref() == namespace
     }
 
     /// 文字の範囲を文字にする。文字コードを戻し、改行を `\n` にそろえ、定義済みの実体と文字の参照を戻す。

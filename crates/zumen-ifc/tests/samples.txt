@@ -30,7 +30,7 @@ class IfcWindow 42
 class IfcWindowStyle 1
 storey "Level 1" 0
 storey "Level 2" 4000
-components identity 228 class 228 classification 0 spatial 12 parent 127 placement 187 representation 0 style 0 type 122 properties 146 quantities 155 material 111 opening 120 group 0 connection 18 grid 0 level 0 zone 0 extension 0
+components identity 228 class 228 classification 79 spatial 12 parent 127 placement 187 representation 0 style 0 type 122 properties 146 quantities 155 material 111 opening 120 group 0 connection 18 grid 0 level 2 zone 0 extension 0
 world-placement 187 of 187
 lift ifc.entity.dropped IFCARBITRARYCLOSEDPROFILEDEF 12
 lift ifc.entity.dropped IFCARBITRARYPROFILEDEFWITHVOIDS 17
@@ -39,8 +39,6 @@ lift ifc.entity.dropped IFCAXIS2PLACEMENT3D 233
 lift ifc.entity.dropped IFCBOOLEANCLIPPINGRESULT 6
 lift ifc.entity.dropped IFCCARTESIANPOINT 4178
 lift ifc.entity.dropped IFCCARTESIANTRANSFORMATIONOPERATOR3D 1
-lift ifc.entity.dropped IFCCLASSIFICATION 1
-lift ifc.entity.dropped IFCCLASSIFICATIONREFERENCE 4
 lift ifc.entity.dropped IFCCLOSEDSHELL 57
 lift ifc.entity.dropped IFCCOLOURRGB 13
 lift ifc.entity.dropped IFCCONNECTEDFACESET 1
@@ -70,7 +68,6 @@ lift ifc.entity.dropped IFCPRESENTATIONLAYERASSIGNMENT 10
 lift ifc.entity.dropped IFCPRESENTATIONSTYLEASSIGNMENT 25
 lift ifc.entity.dropped IFCPRODUCTDEFINITIONSHAPE 182
 lift ifc.entity.dropped IFCRECTANGLEPROFILEDEF 108
-lift ifc.entity.dropped IFCRELASSOCIATESCLASSIFICATION 4
 lift ifc.entity.dropped IFCREPRESENTATIONMAP 6
 lift ifc.entity.dropped IFCSHAPEREPRESENTATION 206
 lift ifc.entity.dropped IFCSIUNIT 3
@@ -80,7 +77,7 @@ lift ifc.entity.dropped IFCSURFACESTYLE 13
 lift ifc.entity.dropped IFCSURFACESTYLERENDERING 13
 lift ifc.entity.dropped IFCWINDOWLININGPROPERTIES 1
 lift ifc.unit.missing IFCTHERMALTRANSMITTANCEMEASURE 61
-hashes elements v1:a1f1767e95251888092414cd7b37885d document-values v1:40c21fd51b8c4a01834ac478fdadc975
+hashes elements v1:687c2b603bdb2224f505b16a05e76554 document-values v1:40c21fd51b8c4a01834ac478fdadc975
 == ifc/bim-whale/TallBuilding.ifc
 schema IFC2X3 records 9934 bytes 616411
 application "Autodesk Revit 2021 (ENU)" "2021"
@@ -108,7 +105,7 @@ storey "Level 2" 4000
 storey "Level 4" 8000
 storey "Level 5" 12000
 storey "Level 6" 16000
-components identity 117 class 117 classification 0 spatial 10 parent 66 placement 92 representation 0 style 0 type 58 properties 78 quantities 84 material 66 opening 52 group 0 connection 24 grid 0 level 0 zone 0 extension 0
+components identity 117 class 117 classification 51 spatial 10 parent 66 placement 92 representation 0 style 0 type 58 properties 78 quantities 84 material 66 opening 52 group 0 connection 24 grid 0 level 5 zone 0 extension 0
 world-placement 92 of 92
 lift ifc.entity.dropped IFCARBITRARYCLOSEDPROFILEDEF 6
 lift ifc.entity.dropped IFCARBITRARYPROFILEDEFWITHVOIDS 3
@@ -117,8 +114,6 @@ lift ifc.entity.dropped IFCAXIS2PLACEMENT3D 136
 lift ifc.entity.dropped IFCBOOLEANCLIPPINGRESULT 28
 lift ifc.entity.dropped IFCCARTESIANPOINT 1357
 lift ifc.entity.dropped IFCCARTESIANTRANSFORMATIONOPERATOR3D 1
-lift ifc.entity.dropped IFCCLASSIFICATION 1
-lift ifc.entity.dropped IFCCLASSIFICATIONREFERENCE 5
 lift ifc.entity.dropped IFCCLOSEDSHELL 39
 lift ifc.entity.dropped IFCCOLOURRGB 9
 lift ifc.entity.dropped IFCDERIVEDUNIT 9
@@ -147,7 +142,6 @@ lift ifc.entity.dropped IFCPRESENTATIONLAYERASSIGNMENT 6
 lift ifc.entity.dropped IFCPRESENTATIONSTYLEASSIGNMENT 18
 lift ifc.entity.dropped IFCPRODUCTDEFINITIONSHAPE 84
 lift ifc.entity.dropped IFCRECTANGLEPROFILEDEF 62
-lift ifc.entity.dropped IFCRELASSOCIATESCLASSIFICATION 5
 lift ifc.entity.dropped IFCREPRESENTATIONMAP 5
 lift ifc.entity.dropped IFCSHAPEREPRESENTATION 113
 lift ifc.entity.dropped IFCSIUNIT 3
@@ -157,7 +151,7 @@ lift ifc.entity.dropped IFCSURFACESTYLE 9
 lift ifc.entity.dropped IFCSURFACESTYLERENDERING 9
 lift ifc.entity.dropped IFCWINDOWLININGPROPERTIES 1
 lift ifc.unit.missing IFCTHERMALTRANSMITTANCEMEASURE 29
-hashes elements v1:fd751e4a7eea940f4853b6751a2df5d4 document-values v1:cbb4aabf5d84764a311453a3ae24038b
+hashes elements v1:f971e99da10246077ec68e5dac523d97 document-values v1:cbb4aabf5d84764a311453a3ae24038b
 == ifc/gni/model_125.ifc
 schema IFC4 records 39824 bytes 3480656
 application "Archicad" "28.0.0"
@@ -189,15 +183,13 @@ storey "Ground Floor" 0
 storey "2. Story" 6000
 storey "1. Story" 3000
 storey "Story" 9000
-components identity 642 class 642 classification 0 spatial 6 parent 422 placement 617 representation 0 style 0 type 416 properties 416 quantities 0 material 42 opening 390 group 0 connection 73 grid 0 level 0 zone 0 extension 0
+components identity 642 class 642 classification 416 spatial 6 parent 422 placement 617 representation 0 style 0 type 416 properties 416 quantities 0 material 42 opening 390 group 0 connection 73 grid 0 level 4 zone 0 extension 0
 world-placement 617 of 617
 lift ifc.entity.dropped IFCAXIS2PLACEMENT3D 36
 lift ifc.entity.dropped IFCCARTESIANPOINT 368
 lift ifc.entity.dropped IFCCARTESIANPOINTLIST2D 78
 lift ifc.entity.dropped IFCCARTESIANPOINTLIST3D 1872
 lift ifc.entity.dropped IFCCARTESIANTRANSFORMATIONOPERATOR3D 332
-lift ifc.entity.dropped IFCCLASSIFICATION 1
-lift ifc.entity.dropped IFCCLASSIFICATIONREFERENCE 9
 lift ifc.entity.dropped IFCCOLOURRGB 19
 lift ifc.entity.dropped IFCCOLOURRGBLIST 59
 lift ifc.entity.dropped IFCDERIVEDUNIT 3
@@ -227,7 +219,6 @@ lift ifc.entity.dropped IFCPROPERTYENUMERATEDVALUE 291
 lift ifc.entity.dropped IFCPROPERTYENUMERATION 1
 lift ifc.entity.dropped IFCPROPERTYSET 54
 lift ifc.entity.dropped IFCPROPERTYSINGLEVALUE 90
-lift ifc.entity.dropped IFCRELASSOCIATESCLASSIFICATION 9
 lift ifc.entity.dropped IFCRELASSOCIATESMATERIAL 54
 lift ifc.entity.dropped IFCRELDEFINESBYTYPE 2
 lift ifc.entity.dropped IFCREPRESENTATIONMAP 18
@@ -242,7 +233,7 @@ lift ifc.entity.dropped IFCVALVETYPE 2
 lift ifc.entity.dropped IFCWINDOWLININGPROPERTIES 2
 lift ifc.entity.dropped IFCWINDOWPANELPROPERTIES 3
 lift ifc.unit.missing IFCTHERMALTRANSMITTANCEMEASURE 195
-hashes elements v1:77eb55b1b39f9fc6fa1c2951f442beb7 document-values v1:3c6c5e8ba150005762a7c20e073efee8
+hashes elements v1:2be6b75ef8bfce50cf0b6918051de5a5 document-values v1:3c6c5e8ba150005762a7c20e073efee8
 == ifc/gni/model_18.ifc
 schema IFC2X3 records 32101 bytes 1707831
 application "Autodesk Revit 2024 (ENU)" "2024"
@@ -290,7 +281,7 @@ storey "OK OG3" 13.8
 storey "OK OG4" 18.4
 storey "OK OG5" 23
 storey "OK OG6" 27.6
-components identity 351 class 391 classification 0 spatial 24 parent 210 placement 294 representation 0 style 0 type 186 properties 220 quantities 0 material 192 opening 164 group 0 connection 24 grid 42 level 0 zone 0 extension 0
+components identity 351 class 391 classification 6 spatial 24 parent 210 placement 294 representation 0 style 0 type 186 properties 220 quantities 0 material 192 opening 164 group 0 connection 24 grid 42 level 7 zone 0 extension 0
 world-placement 294 of 294
 lift ifc.entity.dropped IFCARBITRARYCLOSEDPROFILEDEF 34
 lift ifc.entity.dropped IFCAXIS2PLACEMENT2D 216
@@ -301,8 +292,6 @@ lift ifc.entity.dropped IFCCARTESIANPOINT 7395
 lift ifc.entity.dropped IFCCARTESIANTRANSFORMATIONOPERATOR3D 1
 lift ifc.entity.dropped IFCCIRCLE 9
 lift ifc.entity.dropped IFCCIRCLEPROFILEDEF 4
-lift ifc.entity.dropped IFCCLASSIFICATION 1
-lift ifc.entity.dropped IFCCLASSIFICATIONREFERENCE 1
 lift ifc.entity.dropped IFCCLOSEDSHELL 90
 lift ifc.entity.dropped IFCCOLOURRGB 62
 lift ifc.entity.dropped IFCCOMPOSITECURVE 6
@@ -334,7 +323,6 @@ lift ifc.entity.dropped IFCPRESENTATIONLAYERASSIGNMENT 14
 lift ifc.entity.dropped IFCPRESENTATIONSTYLEASSIGNMENT 82
 lift ifc.entity.dropped IFCPRODUCTDEFINITIONSHAPE 280
 lift ifc.entity.dropped IFCRECTANGLEPROFILEDEF 203
-lift ifc.entity.dropped IFCRELASSOCIATESCLASSIFICATION 1
 lift ifc.entity.dropped IFCRELDEFINESBYTYPE 2
 lift ifc.entity.dropped IFCREPRESENTATIONMAP 11
 lift ifc.entity.dropped IFCSHAPEREPRESENTATION 320
@@ -345,7 +333,7 @@ lift ifc.entity.dropped IFCSURFACESTYLERENDERING 22
 lift ifc.entity.dropped IFCTRIMMEDCURVE 9
 lift ifc.entity.dropped IFCTYPEPRODUCT 2
 lift ifc.entity.dropped IFCWINDOWLININGPROPERTIES 1
-hashes elements v1:4bbab672c6b5c49c76ab22fb65ccb35c document-values v1:5c7391dd0f2f519ccd18cf133bd82338
+hashes elements v1:a2dadc6f1abd5dced87147479ae891b4 document-values v1:5c7391dd0f2f519ccd18cf133bd82338
 == ifc/gni/model_9.ifc
 schema IFC4 records 6569 bytes 601356
 application "Autodesk Revit 2025 (ENG)" "2025"
@@ -384,7 +372,7 @@ storey "EG" 0
 storey "1. OG" 4.4
 storey "2. OG" 8.8
 storey "3. OG" 13.2
-components identity 245 class 320 classification 0 spatial 9 parent 164 placement 216 representation 0 style 0 type 152 properties 168 quantities 0 material 96 opening 104 group 0 connection 0 grid 80 level 0 zone 0 extension 0
+components identity 245 class 320 classification 0 spatial 9 parent 164 placement 216 representation 0 style 0 type 152 properties 168 quantities 0 material 96 opening 104 group 0 connection 0 grid 80 level 5 zone 0 extension 0
 world-placement 216 of 216
 lift ifc.entity.dropped IFCARBITRARYCLOSEDPROFILEDEF 201
 lift ifc.entity.dropped IFCAXIS2PLACEMENT2D 6
@@ -430,7 +418,7 @@ lift ifc.entity.dropped IFCSURFACESTYLE 12
 lift ifc.entity.dropped IFCSURFACESTYLERENDERING 12
 lift ifc.entity.dropped IFCWINDOWLININGPROPERTIES 1
 lift ifc.unit.missing IFCTHERMALTRANSMITTANCEMEASURE 1
-hashes elements v1:5e404857ab3c3b91fdf80c0c5c67a89b document-values v1:861aeb29d88ec8fea42d6cb0a5977bf1
+hashes elements v1:eef91b5e8d737f1631aa2742f4281e35 document-values v1:861aeb29d88ec8fea42d6cb0a5977bf1
 == ifc/nakano/nakano_20F_Restaurant.ifc
 schema IFC2X3 records 7200 bytes 407149
 application "Autodesk Civil 3D 2024 - 日本語 (Japanese)" "13.6.342.0"
@@ -622,7 +610,7 @@ storey "2FL" 4300
 storey "3FL" 8000
 storey "RFL" 11470
 storey "最高高さ" 12320
-components identity 627 class 711 classification 0 spatial 39 parent 362 placement 540 representation 0 style 0 type 348 properties 438 quantities 0 material 212 opening 302 group 0 connection 176 grid 90 level 0 zone 0 extension 0
+components identity 627 class 711 classification 0 spatial 39 parent 362 placement 540 representation 0 style 0 type 348 properties 438 quantities 0 material 212 opening 302 group 0 connection 176 grid 90 level 6 zone 0 extension 0
 world-placement 540 of 540
 lift ifc.entity.dropped IFCACTORROLE 1
 lift ifc.entity.dropped IFCAPPLICATION 1
@@ -684,7 +672,7 @@ lift ifc.entity.dropped IFCSURFACESTYLERENDERING 14
 lift ifc.entity.dropped IFCTELECOMADDRESS 1
 lift ifc.entity.dropped IFCWINDOWLININGPROPERTIES 11
 lift ifc.unit.missing IFCTHERMALTRANSMITTANCEMEASURE 9
-hashes elements v1:ed075bca0be0a7c63764fa9e7a8dc427 document-values v1:b27faef22e4099a2347d0641e4ca4f78
+hashes elements v1:7f552cf0ccf13b649cf3912f70c234c0 document-values v1:b27faef22e4099a2347d0641e4ca4f78
 == ifc/text2bim/sample_model.ifc
 schema IFC2X3 records 5780 bytes 258353
 application "Vectorworks Architect 2024 Update 4 (Build 750359) by Vectorworks, Inc." "29_0_4_1"
@@ -707,7 +695,7 @@ class IfcWindow 6
 class IfcWindowStyle 2
 storey "Ground Floor-1" 0
 storey "First Floor-2" 3000
-components identity 68 class 82 classification 0 spatial 4 parent 30 placement 39 representation 0 style 0 type 10 properties 30 quantities 0 material 17 opening 18 group 0 connection 8 grid 0 level 0 zone 0 extension 0
+components identity 68 class 82 classification 9 spatial 4 parent 30 placement 39 representation 0 style 0 type 10 properties 30 quantities 0 material 17 opening 18 group 0 connection 8 grid 0 level 2 zone 0 extension 0
 world-placement 39 of 39
 lift ifc.entity.dropped IFCACTOR 3
 lift ifc.entity.dropped IFCACTORROLE 2
@@ -715,8 +703,7 @@ lift ifc.entity.dropped IFCARBITRARYCLOSEDPROFILEDEF 6
 lift ifc.entity.dropped IFCAXIS2PLACEMENT3D 4
 lift ifc.entity.dropped IFCBUILDINGELEMENTPART 6
 lift ifc.entity.dropped IFCCARTESIANPOINT 2348
-lift ifc.entity.dropped IFCCLASSIFICATION 4
-lift ifc.entity.dropped IFCCLASSIFICATIONREFERENCE 9
+lift ifc.entity.dropped IFCCLASSIFICATION 1
 lift ifc.entity.dropped IFCCLOSEDSHELL 18
 lift ifc.entity.dropped IFCCOLOURRGB 103
 lift ifc.entity.dropped IFCCURVESTYLE 37
@@ -746,7 +733,6 @@ lift ifc.entity.dropped IFCPOSTALADDRESS 3
 lift ifc.entity.dropped IFCPRESENTATIONLAYERASSIGNMENT 12
 lift ifc.entity.dropped IFCPRESENTATIONSTYLEASSIGNMENT 66
 lift ifc.entity.dropped IFCPRODUCTDEFINITIONSHAPE 40
-lift ifc.entity.dropped IFCRELASSOCIATESCLASSIFICATION 9
 lift ifc.entity.dropped IFCSHAPEREPRESENTATION 42
 lift ifc.entity.dropped IFCSHELLBASEDSURFACEMODEL 16
 lift ifc.entity.dropped IFCSIUNIT 1
@@ -758,4 +744,4 @@ lift ifc.entity.dropped IFCTELECOMADDRESS 2
 lift ifc.entity.dropped IFCWINDOWLININGPROPERTIES 2
 lift ifc.entity.dropped IFCWINDOWPANELPROPERTIES 2
 lift ifc.unit.missing IFCTHERMALTRANSMITTANCEMEASURE 11
-hashes elements v1:d648d6f6f00f84d50370e502b108a271 document-values v1:53eec7796ada344a8c0f56f4965d2b6e
+hashes elements v1:b2af7788ab64db2d67c2a8708e1a0c2f document-values v1:53eec7796ada344a8c0f56f4965d2b6e

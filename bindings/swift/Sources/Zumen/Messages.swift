@@ -44,6 +44,16 @@ public struct Request: Message {
         taggedView("op", "entities")
     }
 
+    /// op が calibrations の形なら、そのビュー。違えば nil
+    public var asCalibrationsRequest: CalibrationsRequest? {
+        taggedView("op", "calibrations")
+    }
+
+    /// op が measure_distance の形なら、そのビュー。違えば nil
+    public var asMeasureDistanceRequest: MeasureDistanceRequest? {
+        taggedView("op", "measure_distance")
+    }
+
     /// op が apply の形なら、そのビュー。違えば nil
     public var asApplyRequest: ApplyRequest? {
         taggedView("op", "apply")
@@ -52,6 +62,11 @@ public struct Request: Message {
     /// op が convert の形なら、そのビュー。違えば nil
     public var asConvertRequest: ConvertRequest? {
         taggedView("op", "convert")
+    }
+
+    /// op が convert_estimate の形なら、そのビュー。違えば nil
+    public var asConvertEstimateRequest: ConvertEstimateRequest? {
+        taggedView("op", "convert_estimate")
     }
 
     /// op が tables の形なら、そのビュー。違えば nil
@@ -877,6 +892,388 @@ public struct DrawingResult: Message {
     }
 }
 
+/// 2 次元の座標
+public struct Point2: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// X 座標
+    public var x: Double? {
+        get { readField("x") }
+        set { writeField("x", newValue) }
+    }
+
+    /// Y 座標
+    public var y: Double? {
+        get { readField("y") }
+        set { writeField("y", newValue) }
+    }
+}
+
+/// 原点と相対座標を分けた用紙の点。両成分の正確な和を位置とし、先に足して丸めない。座標の単位は用紙の mm
+public struct SplitPoint2: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 用紙の原点
+    public var origin: Point2? {
+        get { readField("origin") }
+        set { writeField("origin", newValue) }
+    }
+
+    /// 原点からの相対座標
+    public var offset: Point2? {
+        get { readField("offset") }
+        set { writeField("offset", newValue) }
+    }
+}
+
+/// 用紙の閉じた矩形で使う距離の校正。重なる領域は ID で明示的に選ぶ。マイナーバージョン 68 から
+public struct CalibrationItem: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 文書内で重複しない校正の ID
+    public var id: String? {
+        get { readField("id") }
+        set { writeField("id", newValue) }
+    }
+
+    /// 元の校正の名前。翻訳しない。なければ持たない
+    public var name: String? {
+        get { readField("name") }
+        set { writeField("name", newValue) }
+    }
+
+    /// 校正を使える公開用紙の ID。drawing が返すもの
+    public var from: String? {
+        get { readField("from") }
+        set { writeField("from", newValue) }
+    }
+
+    /// 用紙の mm の閉じた矩形。[X の最小, Y の最小, X の最大, Y の最大] の 4 値で、幅と高さは正
+    public var bounds: [Double]? {
+        get { readField("bounds") }
+        set { writeField("bounds", newValue) }
+    }
+
+    /// 用紙の mm の変位から校正単位の変位へ写す行優先の 2×2 行列。[a, b, c, d] の 4 値で、[dx, dy] を [a*dx+b*dy, c*dx+d*dy] に写す
+    public var matrix: [Double]? {
+        get { readField("matrix") }
+        set { writeField("matrix", newValue) }
+    }
+
+    /// 校正後の長さの単位。ラベルだけから推定しない
+    public var unit: String? {
+        get { readField("unit") }
+        set { writeField("unit", newValue) }
+    }
+
+    /// 元の単位ラベル。未知の単位でも原文を保つ
+    public var unitLabel: String? {
+        get { readField("unit_label") }
+        set { writeField("unit_label", newValue) }
+    }
+
+    /// 元の形式のレコード
+    public var source: Source? {
+        get { readField("source") }
+        set { writeField("source", newValue) }
+    }
+}
+
+/// 開いた文書を図面モデルに変換し、用紙の距離の校正をモデルの順に返す。マイナーバージョン 68 から
+public struct CalibrationsRequest: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// タグのフィールドだけを持つオブジェクトから作る
+    public init() {
+        json = ["op": .string("calibrations")]
+    }
+
+    /// メッセージのスキーマのメジャーバージョン。今は 1
+    public var v: Int64? {
+        get { readField("v") }
+        set { writeField("v", newValue) }
+    }
+
+    /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+    public var budget: Budget? {
+        get { readField("budget") }
+        set { writeField("budget", newValue) }
+    }
+
+    /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+    public var partial: Bool? {
+        get { readField("partial") }
+        set { writeField("partial", newValue) }
+    }
+
+    /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+    public var maxPlaces: Int64? {
+        get { readField("max_places") }
+        set { writeField("max_places", newValue) }
+    }
+
+    /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    public var timeLimitMs: Int64? {
+        get { readField("time_limit_ms") }
+        set { writeField("time_limit_ms", newValue) }
+    }
+
+    /// op の名前
+    public var op: String? {
+        get { readField("op") }
+        set { writeField("op", newValue) }
+    }
+
+    /// 文書の名前。open で作ったもの
+    public var doc: String? {
+        get { readField("doc") }
+        set { writeField("doc", newValue) }
+    }
+
+    /// 公開用紙の ID。drawing が返すもの。書けばその用紙の校正だけを返し、書かなければすべての校正を返す
+    public var from: String? {
+        get { readField("from") }
+        set { writeField("from", newValue) }
+    }
+
+    /// 返す最初の校正の位置。from で絞った後の位置で、前の応答の next_offset を渡す。書かなければ 0
+    public var offset: Int64? {
+        get { readField("offset") }
+        set { writeField("offset", newValue) }
+    }
+
+    /// 返す校正の数の上限。書かなければ 1000
+    public var limit: Int64? {
+        get { readField("limit") }
+        set { writeField("limit", newValue) }
+    }
+
+    /// 期待する元の文書のハッシュ。open に渡したバイト列のハッシュと照合する。図面モデルへ変換した ZMDR 自身のハッシュではない
+    public var expectedHash: String? {
+        get { readField("expected_hash") }
+        set { writeField("expected_hash", newValue) }
+    }
+}
+
+/// 距離の校正の一覧の一部
+public struct CalibrationsResult: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 元の文書のハッシュ。ZMDR から開いたときは、埋め込まれた元の文書のハッシュ（Source.hash）
+    public var hash: String? {
+        get { readField("hash") }
+        set { writeField("hash", newValue) }
+    }
+
+    /// from で絞った一覧の offset から limit 個までの校正
+    public var items: [CalibrationItem]? {
+        get { readField("items") }
+        set { writeField("items", newValue) }
+    }
+
+    /// from で絞った後の校正の総数
+    public var total: Int64? {
+        get { readField("total") }
+        set { writeField("total", newValue) }
+    }
+
+    /// 続きの最初の校正の位置。続きがなければ持たない
+    public var nextOffset: Int64? {
+        get { readField("next_offset") }
+        set { writeField("next_offset", newValue) }
+    }
+}
+
+/// 用紙と校正を明示的に選び、始点と終点の校正後の距離を求める。両点は校正の閉領域内にある必要がある。マイナーバージョン 68 から
+public struct MeasureDistanceRequest: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// タグのフィールドだけを持つオブジェクトから作る
+    public init() {
+        json = ["op": .string("measure_distance")]
+    }
+
+    /// メッセージのスキーマのメジャーバージョン。今は 1
+    public var v: Int64? {
+        get { readField("v") }
+        set { writeField("v", newValue) }
+    }
+
+    /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+    public var budget: Budget? {
+        get { readField("budget") }
+        set { writeField("budget", newValue) }
+    }
+
+    /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+    public var partial: Bool? {
+        get { readField("partial") }
+        set { writeField("partial", newValue) }
+    }
+
+    /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+    public var maxPlaces: Int64? {
+        get { readField("max_places") }
+        set { writeField("max_places", newValue) }
+    }
+
+    /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    public var timeLimitMs: Int64? {
+        get { readField("time_limit_ms") }
+        set { writeField("time_limit_ms", newValue) }
+    }
+
+    /// op の名前
+    public var op: String? {
+        get { readField("op") }
+        set { writeField("op", newValue) }
+    }
+
+    /// 文書の名前。open で作ったもの
+    public var doc: String? {
+        get { readField("doc") }
+        set { writeField("doc", newValue) }
+    }
+
+    /// 公開用紙の ID。drawing が返すもので、選んだ校正と同じ用紙
+    public var from: String? {
+        get { readField("from") }
+        set { writeField("from", newValue) }
+    }
+
+    /// 使う校正の ID。calibrations が返すもの
+    public var calibration: String? {
+        get { readField("calibration") }
+        set { writeField("calibration", newValue) }
+    }
+
+    /// 始点。原点と相対座標を分けた用紙の mm の点
+    public var start: SplitPoint2? {
+        get { readField("start") }
+        set { writeField("start", newValue) }
+    }
+
+    /// 終点。原点と相対座標を分けた用紙の mm の点
+    public var end: SplitPoint2? {
+        get { readField("end") }
+        set { writeField("end", newValue) }
+    }
+
+    /// 期待する元の文書のハッシュ。open に渡したバイト列のハッシュと照合する。図面モデルへ変換した ZMDR 自身のハッシュではない
+    public var expectedHash: String? {
+        get { readField("expected_hash") }
+        set { writeField("expected_hash", newValue) }
+    }
+}
+
+/// 選んだ用紙と校正による距離
+public struct MeasureDistanceResult: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 元の文書のハッシュ。ZMDR から開いたときは、埋め込まれた元の文書のハッシュ（Source.hash）
+    public var hash: String? {
+        get { readField("hash") }
+        set { writeField("hash", newValue) }
+    }
+
+    /// 計測した公開用紙の ID
+    public var from: String? {
+        get { readField("from") }
+        set { writeField("from", newValue) }
+    }
+
+    /// 使った校正の ID
+    public var calibration: String? {
+        get { readField("calibration") }
+        set { writeField("calibration", newValue) }
+    }
+
+    /// 校正後の距離。unit と unit_label が示す単位
+    public var distance: Double? {
+        get { readField("distance") }
+        set { writeField("distance", newValue) }
+    }
+
+    /// 校正後の長さの単位
+    public var unit: String? {
+        get { readField("unit") }
+        set { writeField("unit", newValue) }
+    }
+
+    /// 元の単位ラベル。未知の単位でも原文を保つ
+    public var unitLabel: String? {
+        get { readField("unit_label") }
+        set { writeField("unit_label", newValue) }
+    }
+}
+
 /// 文書の点の表し方。フィールドの意味は point_style_edit と同じ
 public struct PointStyleSummary: Message {
     /// 包んでいる JSON のオブジェクト
@@ -1570,7 +1967,7 @@ public struct PolylineGeometry: Message {
     }
 }
 
-/// 1 点か 2 点の間に置く文字。置き換えるときは、位置合わせ・幅の倍率・斜体・反転・文字スタイルを元の値のままにする。足すときは、2 点目がなければ左の基準線に合わせ、幅の倍率 1・斜体なし・反転なしにする
+/// 1 点か 2 点の間に置く文字。置き換えるときは、位置合わせ・文字スタイルを元の値のままにし、書かない幅の倍率・斜体・反転も元の値を受け継ぐ。足すときは、2 点目がなければ書かない位置合わせを左の基準線にし、幅の倍率 1・斜体なし・反転なしにする
 public struct TextGeometry: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -1615,6 +2012,18 @@ public struct TextGeometry: Message {
         set { writeField("fit", newValue) }
     }
 
+    /// 1 点に置く文字の水平の位置合わせ。left のときは entities が省き、足すときも省けば left。2 点の間に合わせる文字には書けない。置き換えるときは元と同じ値だけを受ける。マイナーバージョン 69 から
+    public var horizontal: String? {
+        get { readField("horizontal") }
+        set { writeField("horizontal", newValue) }
+    }
+
+    /// 1 点に置く文字の垂直の位置合わせ。baseline のときは entities が省き、足すときも省けば baseline。2 点の間に合わせる文字には書けない。置き換えるときは元と同じ値だけを受ける。マイナーバージョン 69 から
+    public var vertical: String? {
+        get { readField("vertical") }
+        set { writeField("vertical", newValue) }
+    }
+
     /// 高さ。0 より大きい
     public var height: Double? {
         get { readField("height") }
@@ -1625,6 +2034,30 @@ public struct TextGeometry: Message {
     public var rotation: Double? {
         get { readField("rotation") }
         set { writeField("rotation", newValue) }
+    }
+
+    /// 幅の倍率。0 より大きい。1 のときは entities が省き、足すときも省けば 1、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から
+    public var widthFactor: Double? {
+        get { readField("width_factor") }
+        set { writeField("width_factor", newValue) }
+    }
+
+    /// 斜体の角度（度）。0 のときは entities が省き、足すときも省けば 0、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から
+    public var oblique: Double? {
+        get { readField("oblique") }
+        set { writeField("oblique", newValue) }
+    }
+
+    /// 左右を裏返すか。偽のときは entities が省き、足すときも省けば偽、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から
+    public var backward: Bool? {
+        get { readField("backward") }
+        set { writeField("backward", newValue) }
+    }
+
+    /// 上下を反転するか。偽のときは entities が省き、足すときも省けば偽、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から
+    public var upsideDown: Bool? {
+        get { readField("upside_down") }
+        set { writeField("upside_down", newValue) }
     }
 
     /// 文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。DXF に文字スタイルの定義がないときは Standard だけを受ける。置き換えるときは、元と同じ名前だけを受ける。style_id と一緒に書くなら、同じ文字スタイルを指す。マイナーバージョン 12 から
@@ -1638,6 +2071,26 @@ public struct TextGeometry: Message {
         get { readField("style_id") }
         set { writeField("style_id", newValue) }
     }
+}
+
+/// 1 点に置く文字の水平の位置合わせ。middle は水平と垂直の両方を外形の中央に合わせる（DXF の 72 = 4）
+///
+/// 列挙の値。知らない値も受け取る
+public enum TextHorizontal {
+    public static let left = "left"
+    public static let center = "center"
+    public static let right = "right"
+    public static let middle = "middle"
+}
+
+/// 1 点に置く文字の垂直の位置合わせ
+///
+/// 列挙の値。知らない値も受け取る
+public enum TextVertical {
+    public static let baseline = "baseline"
+    public static let bottom = "bottom"
+    public static let middle = "middle"
+    public static let top = "top"
 }
 
 /// 2 点の間への合わせ方。aligned は縦横の比を保って高さも変え、fit は高さを保って幅だけを変える
@@ -2664,6 +3117,345 @@ public struct ConvertResult: Message {
         get { readField("elements") }
         set { writeField("elements", newValue) }
     }
+}
+
+/// 開いた図面を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。今は DXF への変換だけ。マイナーバージョン 66 から
+public struct ConvertEstimateRequest: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// タグのフィールドだけを持つオブジェクトから作る
+    public init() {
+        json = ["op": .string("convert_estimate")]
+    }
+
+    /// メッセージのスキーマのメジャーバージョン。今は 1
+    public var v: Int64? {
+        get { readField("v") }
+        set { writeField("v", newValue) }
+    }
+
+    /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+    public var budget: Budget? {
+        get { readField("budget") }
+        set { writeField("budget", newValue) }
+    }
+
+    /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+    public var partial: Bool? {
+        get { readField("partial") }
+        set { writeField("partial", newValue) }
+    }
+
+    /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+    public var maxPlaces: Int64? {
+        get { readField("max_places") }
+        set { writeField("max_places", newValue) }
+    }
+
+    /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    public var timeLimitMs: Int64? {
+        get { readField("time_limit_ms") }
+        set { writeField("time_limit_ms", newValue) }
+    }
+
+    /// op の名前
+    public var op: String? {
+        get { readField("op") }
+        set { writeField("op", newValue) }
+    }
+
+    /// 書く元の文書の名前
+    public var doc: String? {
+        get { readField("doc") }
+        set { writeField("doc", newValue) }
+    }
+
+    /// 書く形式の名前。今は dxf だけ
+    public var format: String? {
+        get { readField("format") }
+        set { writeField("format", newValue) }
+    }
+
+    /// 予定する文書の名前。convert と同じ条件で検査するが、名前を確保しない
+    public var to: String? {
+        get { readField("to") }
+        set { writeField("to", newValue) }
+    }
+
+    /// 書き手と読み取り段階のそれぞれで返す明細の最大件数。省略時は 100。総数と全件集計はこの上限によらない
+    public var limit: Int64? {
+        get { readField("limit") }
+        set { writeField("limit", newValue) }
+    }
+}
+
+/// 予定する変換の結果。元の文書・ID を保ち、ファイルの blob を返さない
+public struct ConvertEstimateResult: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 予定する出力と忠実度の全件集計・上限付き明細
+    public var estimate: ConversionEstimate? {
+        get { readField("estimate") }
+        set { writeField("estimate", newValue) }
+    }
+}
+
+/// 実変換と同じ処理で準備した出力。doc と hash は未登録の予定値。元の入力・設定・予算が同じなら convert の値と一致する
+public struct ConversionEstimate: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 予定する文書の名前
+    public var doc: String? {
+        get { readField("doc") }
+        set { writeField("doc", newValue) }
+    }
+
+    /// 予定する形式の名前
+    public var format: String? {
+        get { readField("format") }
+        set { writeField("format", newValue) }
+    }
+
+    /// 予定する出力バイト列のハッシュ。未登録なので apply の前提条件には使えない
+    public var hash: String? {
+        get { readField("hash") }
+        set { writeField("hash", newValue) }
+    }
+
+    /// 予定する出力の要素数。記号から離す属性の文字を含む
+    public var elements: Int64? {
+        get { readField("elements") }
+        set { writeField("elements", newValue) }
+    }
+
+    /// 処理対象の出現数。同じ出所を持つ別の入力は別々に数え、診断の数では増やさない
+    public var total: Int64? {
+        get { readField("total") }
+        set { writeField("total", newValue) }
+    }
+
+    /// 種類と忠実度ごとの全件集計
+    public var counts: [ConversionCount]? {
+        get { readField("counts") }
+        set { writeField("counts", newValue) }
+    }
+
+    /// 処理順の明細。limit 件まで返す
+    public var details: [ConversionDetail]? {
+        get { readField("details") }
+        set { writeField("details", newValue) }
+    }
+
+    /// 明細の上限で返さなかった対象がある
+    public var truncated: Bool? {
+        get { readField("truncated") }
+        set { writeField("truncated", newValue) }
+    }
+
+    /// 入力の表の読み取りと lift 中の、集約前の診断発生記録。書き手の項目の集計には含めない。マイナーバージョン 67 から
+    public var inputDiagnostics: ConversionInputDiagnostics? {
+        get { readField("input_diagnostics") }
+        set { writeField("input_diagnostics", newValue) }
+    }
+}
+
+/// 読み取り段階の診断発生数。失った要素数ではなく、同じ要素の複数の診断もそれぞれ数える。忠実度を持たない診断も含む。open 時や書き手の診断は含まない
+public struct ConversionInputDiagnostics: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 診断の発生件数の合計。max_places と limit によらない
+    public var total: Int64? {
+        get { readField("total") }
+        set { writeField("total", newValue) }
+    }
+
+    /// 診断の code とカタログの group_by の値による全件集計。場所は持たず、値は最も早い入力位置の報告から取る
+    public var counts: [Diagnostic]? {
+        get { readField("counts") }
+        set { writeField("counts", newValue) }
+    }
+
+    /// 集約前の報告を入力位置順に limit 件まで返す。同じ位置は報告順。診断の場所は max_places で制限しない
+    public var details: [ConversionInputDiagnostic]? {
+        get { readField("details") }
+        set { writeField("details", newValue) }
+    }
+
+    /// 明細の上限で返さなかった報告がある
+    public var truncated: Bool? {
+        get { readField("truncated") }
+        set { writeField("truncated", newValue) }
+    }
+}
+
+/// 集約前の診断と、その場所と同じ順序の出所。種類や失った値は診断の code と params からたどる
+public struct ConversionInputDiagnostic: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 集約前の診断。元の値と場所を保つ
+    public var diagnostic: Diagnostic? {
+        get { readField("diagnostic") }
+        set { writeField("diagnostic", newValue) }
+    }
+
+    /// diagnostic.at と同じ順序のレコード・バイト範囲・ハンドル・インスタンス番号。ID は diagnostic.at にある
+    public var sources: [Source]? {
+        get { readField("sources") }
+        set { writeField("sources", newValue) }
+    }
+}
+
+/// 処理対象の種類と忠実度ごとの集計
+public struct ConversionCount: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 処理対象の種類のキー
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// その対象を移した結果の忠実度
+    public var fidelity: String? {
+        get { readField("fidelity") }
+        set { writeField("fidelity", newValue) }
+    }
+
+    /// 入力の出現数。1 つの入力が複数の出力になっても 1 件
+    public var count: Int64? {
+        get { readField("count") }
+        set { writeField("count", newValue) }
+    }
+
+    /// この対象から書いた図形の数。表や参照だけを移した場合は 0
+    public var outputElements: Int64? {
+        get { readField("output_elements") }
+        set { writeField("output_elements", newValue) }
+    }
+}
+
+/// 処理対象の出現 1 つ。複数の欠落の診断が出ても 1 件として数える
+public struct ConversionDetail: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 処理対象の種類のキー
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// その対象を移した結果の忠実度
+    public var fidelity: String? {
+        get { readField("fidelity") }
+        set { writeField("fidelity", newValue) }
+    }
+
+    /// 値や参照を変えた理由のキー。text_height_meaning は文字高の意味、relocated_shape は形の値、style_default はスタイルの既定値、detached_attribute は属性の文字への分離、baked_view はビューの焼き込み、reference_dropped は参照の欠落
+    public var reasons: [String]? {
+        get { readField("reasons") }
+        set { writeField("reasons", newValue) }
+    }
+
+    /// 元の要素の ID。持つ対象だけで返す
+    public var id: String? {
+        get { readField("id") }
+        set { writeField("id", newValue) }
+    }
+
+    /// 元の対象のレコード・バイト範囲・キー
+    public var source: Source? {
+        get { readField("source") }
+        set { writeField("source", newValue) }
+    }
+
+    /// この対象から書いた図形の数。表や参照だけを移した場合は 0
+    public var outputElements: Int64? {
+        get { readField("output_elements") }
+        set { writeField("output_elements", newValue) }
+    }
+}
+
+/// 忠実度。`native` は元の値・参照を保持、`equivalent` は別の表現で同じ意味、`approximated` は近似、`drawn` は見た目だけ、`dropped` は欠落
+///
+/// 列挙の値。知らない値も受け取る
+public enum ConversionFidelity {
+    public static let native = "native"
+    public static let equivalent = "equivalent"
+    public static let approximated = "approximated"
+    public static let drawn = "drawn"
+    public static let dropped = "dropped"
 }
 
 /// 当てた変更 1 つの結果
@@ -11041,8 +11833,11 @@ public enum Operations {
     public static let describe = "describe"
     public static let drawing = "drawing"
     public static let entities = "entities"
+    public static let calibrations = "calibrations"
+    public static let measureDistance = "measure_distance"
     public static let apply = "apply"
     public static let convert = "convert"
+    public static let convertEstimate = "convert_estimate"
     public static let tables = "tables"
     public static let scene = "scene"
     public static let check = "check"

@@ -1,0 +1,81 @@
+---
+// 工程表の例。工種ごとの予定と実績の棒、基準日、出来高の曲線を描く。
+import Sheet from './Sheet.astro';
+
+const left = 170;
+const month = 110;
+const head = 44;
+const row = 56;
+// d は旬の番号（4 月上旬を 0 にする）
+const at = (d: number) => Math.round((left + (d * month) / 3) * 10) / 10;
+const today = at(9);
+const months = ['4 月', '5 月', '6 月', '7 月', '8 月', '9 月'];
+const tasks = [
+  { name: '準備工', from: 0, to: 3 },
+  { name: '土工', from: 1, to: 8 },
+  { name: '擁壁工', from: 4, to: 11 },
+  { name: '排水工', from: 8, to: 13 },
+  { name: '舗装工', from: 11, to: 16 },
+  { name: '片付け工', from: 16, to: 18 },
+].map((t, i) => {
+  const x0 = at(t.from);
+  const x1 = at(t.to);
+  return { name: t.name, cy: head + row * i + row / 2, x0, x1, done: Math.max(0, Math.min(x1, today) - x0) };
+});
+const bottom = head + row * tasks.length;
+const right = left + month * months.length;
+
+const dekads = months.flatMap((_, i) => [1, 2].map((k) => `M${at(i * 3 + k)} ${head}V${bottom}`)).join('');
+const rules = [
+  ...months.slice(1).map((_, i) => `M${left + month * (i + 1)} 0V${bottom}`),
+  ...tasks.slice(1).map((t) => `M0 ${t.cy - row / 2}H${right}`),
+].join('');
+---
+
+<Sheet viewBox="-20 -80 940 548" caption="工程表（例）">
+  <!-- 罫線 -->
+  <path class="d-faint" d={dekads} />
+  <path class="d-line" d={rules} />
+  <path class="d-bold" d={`M0 0H${right}V${bottom}H0ZM0 ${head}H${right}M${left} 0V${bottom}`} />
+  <text class="d-name d-cell" x={left / 2} y={head / 2}>工種</text>
+  {
+    months.map((m, i) => (
+      <text class="d-name d-cell" x={left + month * i + month / 2} y={head / 2}>
+        {m}
+      </text>
+    ))
+  }
+
+  <!-- 予定と実績 -->
+  {
+    tasks.map((t) => (
+      <>
+        <text class="d-text d-cell" x="20" y={t.cy}>
+          {t.name}
+        </text>
+        <rect class="d-paper" x={t.x0} y={t.cy - 9} width={t.x1 - t.x0} height="18" />
+        {t.done > 0 && <rect class="d-key" x={t.x0} y={t.cy - 9} width={t.done} height="18" />}
+      </>
+    ))
+  }
+
+  <!-- 出来高の曲線（予定は破線、実績は実線） -->
+  <path class="d-dash" d={`M${left} ${bottom}C420 ${bottom} 580 ${head} ${right} ${head}`} />
+  <path class="d-bold" d={`M${left} ${bottom}C330 ${bottom} 420 262 ${today} 222`} />
+  <text class="d-note" x={right + 10} y={head + 6}>100%</text>
+  <text class="d-note" x={right + 10} y={(head + bottom) / 2 + 6}>50%</text>
+  <text class="d-note" x={right + 10} y={bottom + 6}>0%</text>
+
+  <!-- 基準日 -->
+  <path class="d-axis" d={`M${today} -26V${bottom + 14}`} />
+  <rect class="d-bubble" x={today - 56} y="-70" width="112" height="40" rx="20" />
+  <text class="d-bubble-t" x={today} y="-50">基準日</text>
+
+  <!-- 凡例 -->
+  <rect class="d-paper" x="0" y={bottom + 38} width="44" height="18" />
+  <text class="d-text d-cell" x="56" y={bottom + 47}>予定</text>
+  <rect class="d-key" x="140" y={bottom + 38} width="44" height="18" />
+  <text class="d-text d-cell" x="196" y={bottom + 47}>実績</text>
+  <path class="d-bold" d={`M280 ${bottom + 47}h44`} />
+  <text class="d-text d-cell" x="336" y={bottom + 47}>出来高</text>
+</Sheet>
