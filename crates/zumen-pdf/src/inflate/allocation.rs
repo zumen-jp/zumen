@@ -1,6 +1,16 @@
-//! 展開する出力の Vec と、寛容な Flate の一時の表を、確保前に予約する（#772）。
+//! 展開する出力の Vec と、Flate の固定のデコーダー・バッファー・一時の表を、確保前に予約する（#772・#779）。
 
 use zumen_base::{Cx, Kind, Stop};
+
+/// flate2 1.1.10（zlib-rs 0.6.8）の `Decompress::new` が初期化で確保する展開の状態と 32 KiB 窓の組
+/// （64 ビット環境で 47,552 バイト、32 ビット環境でそれ以下）。固定の初期化の手間と合わせて予約する。
+pub(crate) const FLATE_DECODER_BYTES: u64 = 49_152;
+pub(crate) const FLATE_DECODER_WORK: u64 = FLATE_DECODER_BYTES.div_ceil(16);
+
+/// `flate2::read::{ZlibDecoder, DeflateDecoder}::new` が初期化で確保する `Decompress` と 32 KiB の
+/// `BufReader` の組（47,552 + 32,768 = 80,320 バイト）。hayro-syntax 0.9.0 の厳しい展開が 1 試行ごとに作る。
+pub(super) const FLATE_READER_BYTES: u64 = 81_920;
+const FLATE_READER_WORK: u64 = FLATE_READER_BYTES.div_ceil(16);
 
 /// hayro の寛容な Flate がブロックごとに作る表と一時の列。動的な表は最大 2^15 個の u32 が 2 つ、
 /// 符号長の表は最大 128 個の u32、長さの列は 320 + 19 バイト。非圧縮ブロックの写し（65,535 バイト）と、
@@ -33,6 +43,15 @@ pub(super) fn flate(input: usize, bound: u64, fallback: bool) -> (u64, u64) {
             .div_ceil(16)
             .saturating_add(blocks.saturating_mul(FLATE_BLOCK_WORK)),
         growth.saturating_add(blocks.saturating_mul(FLATE_BLOCK_BYTES)),
+    )
+}
+
+/// 上流の `flate::decode` が厳しい `flate2::read` のデコーダーを初期化する分（1 または 2 試行）。
+/// 出力の Vec の容量予約とは分けて予約する。
+pub(super) fn flate_readers(strict_attempts: u64) -> (u64, u64) {
+    (
+        strict_attempts.saturating_mul(FLATE_READER_WORK),
+        strict_attempts.saturating_mul(FLATE_READER_BYTES),
     )
 }
 
@@ -151,7 +170,11 @@ mod tests {
     fn maximum_lengths_saturate_and_still_stop_before_reserving() {
         use zumen_base::{Budget, CancelToken, Diagnostics, Limits};
 
-        for cost in [flate(usize::MAX, u64::MAX, true), lzw(u64::MAX)] {
+        for cost in [
+            flate(usize::MAX, u64::MAX, true),
+            flate_readers(u64::MAX),
+            lzw(u64::MAX),
+        ] {
             let mut budget = Budget::new(Limits::default());
             let mut diagnostics = Diagnostics::new();
             let cancel = CancelToken::new();

@@ -28,6 +28,71 @@ mod walk;
 #[cfg(feature = "drawing")]
 mod xref;
 
+#[cfg(all(test, feature = "drawing"))]
+#[allow(unsafe_code)]
+mod test_alloc {
+    use std::alloc::{GlobalAlloc, Layout, System};
+    use std::cell::Cell;
+
+    pub(crate) struct CountingAlloc;
+
+    thread_local! {
+        static STATE: Cell<(bool, u64, u64)> = const { Cell::new((false, 0, 0)) };
+    }
+
+    unsafe impl GlobalAlloc for CountingAlloc {
+        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+            let _ = STATE.try_with(|s| {
+                let (on, bytes, calls) = s.get();
+                if on {
+                    s.set((on, bytes.saturating_add(layout.size() as u64), calls + 1));
+                }
+            });
+            unsafe { System.alloc(layout) }
+        }
+
+        unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+            let _ = STATE.try_with(|s| {
+                let (on, bytes, calls) = s.get();
+                if on {
+                    s.set((on, bytes.saturating_add(layout.size() as u64), calls + 1));
+                }
+            });
+            unsafe { System.alloc_zeroed(layout) }
+        }
+
+        unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+            let _ = STATE.try_with(|s| {
+                let (on, bytes, calls) = s.get();
+                if on {
+                    s.set((on, bytes.saturating_add(new_size as u64), calls + 1));
+                }
+            });
+            unsafe { System.realloc(ptr, layout, new_size) }
+        }
+
+        unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+            unsafe { System.dealloc(ptr, layout) }
+        }
+    }
+
+    #[global_allocator]
+    static ALLOC: CountingAlloc = CountingAlloc;
+
+    pub(crate) fn measure<T>(f: impl FnOnce() -> T) -> (T, u64, u64) {
+        let _ = STATE.try_with(|s| s.set((true, 0, 0)));
+        let out = f();
+        let (_, bytes, calls) = STATE
+            .try_with(|s| {
+                let current = s.get();
+                s.set((false, 0, 0));
+                current
+            })
+            .unwrap_or((false, 0, 0));
+        (out, bytes, calls)
+    }
+}
+
 use zumen_base::{Diagnostic, Kind, Ref, codes};
 use zumen_sdk::{ByteRange, Codec, Cx, Error, FileModel, RecordInfo, Signature, Stop};
 

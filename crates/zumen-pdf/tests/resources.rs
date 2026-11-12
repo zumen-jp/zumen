@@ -20,8 +20,13 @@ fn compressed(data: &[u8]) -> Vec<u8> {
 
 #[test]
 fn bounds_resource_flate_before_allocating_the_whole_output() {
-    // 修正前も手元で安全に失敗する 64 KiB に限定する。
-    let data = compressed(&vec![0; 64 * 1024]);
+    // 修正前も手元で安全に失敗する 128 KiB に限定する。
+    let data = compressed(&vec![b'H'; 128 * 1024]);
+    assert!(
+        !data
+            .iter()
+            .any(|b| matches!(b, b'(' | b')' | b'<' | b'>' | b'[' | b']'))
+    );
     assert!(data.len() < 256);
     for filter in [
         "/Filter /FlateDecode",
@@ -38,14 +43,14 @@ fn bounds_resource_flate_before_allocating_the_whole_output() {
                 let file = testkit::read::<Pdf>(&source).0.unwrap();
                 let run = || {
                     let mut budget = Budget::new(
-                        Limits::default().with(Kind::DecodedBytes, Limit::Finite(32 * 1024)),
+                        Limits::default().with(Kind::DecodedBytes, Limit::Finite(80 * 1024)),
                     );
                     let mut diagnostics = Diagnostics::new();
                     let cancel = CancelToken::new();
                     let result = file.lift(&mut Cx::new(&mut budget, &mut diagnostics, &cancel));
                     assert!(
                         matches!(result, Err(Error::Stopped(Stop::Exceeded(e)))
-                        if e.kind == Kind::DecodedBytes && e.requested < 48 * 1024),
+                        if e.kind == Kind::DecodedBytes && e.requested < 96 * 1024),
                         "{filter}, {kind}, {direct}: {result:?}"
                     );
                     let diagnostics = diagnostics.into_vec();

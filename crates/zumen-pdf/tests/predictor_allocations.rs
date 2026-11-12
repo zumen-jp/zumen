@@ -254,27 +254,43 @@ fn generic_predictors_reserve_their_own_cost_at_every_entry() {
             for prefix in 0..3 {
                 let data = wrapped(&compressed, prefix);
                 let filter = compression.filter(prefix, prefix != 0, predictor);
-                for case in 0..cases::COUNT {
-                    let source = cases::document(case, &filter, &data, false, 1);
-                    let inactive = Predictor {
-                        number: 1,
-                        ..predictor
-                    };
-                    let baseline = cases::document(
-                        case,
+                let inactive = Predictor {
+                    number: 1,
+                    ..predictor
+                };
+                // 前段の費用は内容入口で確認する。資源の後段の解析費用は、この停止とは分ける。
+                let case0_baseline = run(
+                    &cases::document(
+                        0,
                         &compression.filter(prefix, prefix != 0, inactive),
                         &data,
                         false,
                         1,
-                    );
+                    ),
+                    Limits::default(),
+                    false,
+                );
+                assert!(
+                    case0_baseline.0.is_ok(),
+                    "baseline: {compression:?}, {prefix}, {predictor:?}"
+                );
+                for case in 0..cases::COUNT {
+                    let source = cases::document(case, &filter, &data, false, 1);
                     for kind in [Kind::DecodedBytes, Kind::Work] {
                         let limit = if kind == Kind::DecodedBytes {
                             192 * 1024
                         } else {
                             64 * 1024
-                        };
-                        // 前段の費用は内容入口で確認する。資源の後段の解析費用は、この停止とは分ける。
+                        }
+                        .max(case0_baseline.1.used(kind));
                         if case == 0 {
+                            let baseline = cases::document(
+                                0,
+                                &compression.filter(prefix, prefix != 0, inactive),
+                                &data,
+                                false,
+                                1,
+                            );
                             assert!(
                                 run(
                                     &baseline,
@@ -291,7 +307,7 @@ fn generic_predictors_reserve_their_own_cost_at_every_entry() {
                         let reservation = exceeded.requested - budget.used(kind);
                         assert!(
                             reservation >= 128 * 1024,
-                            "{case}, {compression:?}, {prefix}, {predictor:?}, {kind:?}"
+                            "{case}, {compression:?}, {prefix}, {predictor:?}, {kind:?}: {reservation}"
                         );
                         // LZW の辞書や Flate の出力容量を、予測子の入力長に含めない。
                         let per_byte = if kind == Kind::DecodedBytes { 512 } else { 256 };
@@ -513,12 +529,15 @@ fn typed_priority_unknown_names_and_array_positions_choose_the_same_params() {
                 );
                 let actual = run(&source, Limits::default(), false);
                 assert!(actual.0.is_ok());
+                let baseline_result = run(&baseline, Limits::default(), false);
+                assert!(baseline_result.0.is_ok());
                 for kind in [Kind::DecodedBytes, Kind::Work] {
                     let limit = if kind == Kind::DecodedBytes {
                         256 * 1024
                     } else {
                         64 * 1024
-                    };
+                    }
+                    .max(baseline_result.1.used(kind));
                     assert!(
                         run(
                             &baseline,
@@ -704,12 +723,18 @@ fn empty_and_short_data_still_reserve_large_generic_rows() {
                             false,
                             1,
                         );
+                        let baseline_result = run(&baseline, Limits::default(), false);
+                        assert!(
+                            baseline_result.0.is_ok(),
+                            "baseline: {case}, {compression:?}, {prefix}, {predictor:?}"
+                        );
                         for kind in [Kind::DecodedBytes, Kind::Work] {
                             let limit = if kind == Kind::DecodedBytes {
                                 256 * 1024
                             } else {
                                 64 * 1024
-                            };
+                            }
+                            .max(baseline_result.1.used(kind));
                             assert!(
                                 run(
                                     &baseline,
@@ -866,10 +891,15 @@ fn unsafe_parameters_keep_the_existing_guard_and_inactive_params_stay_inactive()
         let filter = format!("/Filter /Fl /DP {params}");
         let source = cases::document(0, &filter, &compressed, false, 1);
         for kind in [Kind::DecodedBytes, Kind::Work] {
+            let limit = if kind == Kind::DecodedBytes {
+                256 * 1024
+            } else {
+                32 * 1024
+            };
             assert!(
                 run(
                     &source,
-                    Limits::default().with(kind, Limit::Finite(32 * 1024)),
+                    Limits::default().with(kind, Limit::Finite(limit)),
                     false
                 )
                 .0

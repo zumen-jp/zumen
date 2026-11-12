@@ -42,8 +42,13 @@ fn run(
 
 #[test]
 fn bounds_font_and_icc_flate_before_allocating_the_whole_output() {
-    let data = compressed(&vec![0; 64 * 1024]);
-    assert!(data.len() < 256);
+    let data = compressed(&vec![b'H'; 128 * 1024]);
+    assert!(
+        !data
+            .iter()
+            .any(|b| matches!(b, b'(' | b')' | b'<' | b'>' | b'[' | b']'))
+    );
+    assert!(data.len() < 256, "{}", data.len());
     for filter in [
         "/Filter /FlateDecode",
         "/F /Fl",
@@ -65,12 +70,12 @@ fn bounds_font_and_icc_flate_before_allocating_the_whole_output() {
                 );
                 let result = run(
                     &source,
-                    Limits::default().with(Kind::DecodedBytes, Limit::Finite(32 * 1024)),
+                    Limits::default().with(Kind::DecodedBytes, Limit::Finite(80 * 1024)),
                     false,
                 );
                 assert!(
                     matches!(result.0, Err(Error::Stopped(Stop::Exceeded(e)))
-                    if e.kind == Kind::DecodedBytes && e.requested < 48 * 1024),
+                    if e.kind == Kind::DecodedBytes && e.requested < 96 * 1024),
                     "{kind:?}, {direct}, {filter}: {result:?}"
                 );
             }
@@ -290,7 +295,7 @@ fn stops_font_and_icc_flate_for_work_before_the_whole_output() {
 
 #[test]
 fn does_not_merge_a_direct_icc_profile_with_its_container() {
-    let data = compressed(&vec![0; 64 * 1024]);
+    let data = compressed(&vec![b'H'; 128 * 1024]);
     let inner = common::stream("/N 3 /Filter /FlateDecode", &data);
     let mut outer = b"<< /N 3 /Alternate [/ICCBased ".to_vec();
     outer.extend(inner);
@@ -304,9 +309,9 @@ fn does_not_merge_a_direct_icc_profile_with_its_container() {
     // 内側の直接のストリームにも obj_id=3 が付く。外側を数えたことだけで内側を飛ばしてはいけない。
     let result = run(
         &document.bytes(),
-        Limits::default().with(Kind::DecodedBytes, Limit::Finite(32 * 1024)),
+        Limits::default().with(Kind::DecodedBytes, Limit::Finite(80 * 1024)),
         false,
     );
     assert!(matches!(result.0, Err(Error::Stopped(Stop::Exceeded(e)))
-        if e.kind == Kind::DecodedBytes && e.requested < 48 * 1024));
+        if e.kind == Kind::DecodedBytes && e.requested < 96 * 1024));
 }

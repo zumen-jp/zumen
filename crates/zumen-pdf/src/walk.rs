@@ -814,7 +814,7 @@ fn transfer(state: &Dict<'_>) -> bool {
 /// 厳しい展開でも、展開できた所までを返す。フィルターが Flate だけで予測子のないストリームを、同じ順と、zlib の
 /// ヘッダーを除いた deflate の形（Adler-32 が違うか、ないもの）で厳しく展開し直し、deflate の終わりまで読めて、
 /// hayro-syntax が返した長さ `length` になるかを見る
-fn leniently_inflated(
+pub(crate) fn leniently_inflated(
     stream: &Stream<'_>,
     length: usize,
     source: inflate::Source<'_>,
@@ -830,39 +830,53 @@ fn leniently_inflated(
     if length == 0 && raw.iter().all(u8::is_ascii_whitespace) {
         return Ok(false);
     }
-    Ok(!(inflates_to(raw, true, length)
-        || inflates_to(raw, false, length)
-        || raw
-            .get(2..)
-            .is_some_and(|data| inflates_to(data, false, length))))
+    if inflates_to(raw, true, length, cx)? {
+        return Ok(false);
+    }
+    if inflates_to(raw, false, length, cx)? {
+        return Ok(false);
+    }
+    if let Some(data) = raw.get(2..)
+        && inflates_to(data, false, length, cx)?
+    {
+        return Ok(false);
+    }
+    Ok(true)
 }
 
 /// 厳しく展開して、deflate の終わりまで読め、ちょうど `length` バイトになるか。`zlib` は、zlib の形（ヘッダーと
-/// Adler-32）で読むか。書き出すのは、その長さより 1 バイト多い所まで
-fn inflates_to(data: &[u8], zlib: bool, length: usize) -> bool {
+/// Adler-32）で読むか。固定のデコーダーの確保・初期化の手間と入力を読む量を先に数え、書き出すのはその長さより
+/// 1 バイト多い所までスタック上の固定長バッファーに受ける
+fn inflates_to(data: &[u8], zlib: bool, length: usize, cx: &mut Cx<'_>) -> Result<bool, Stop> {
+    cx.check(
+        Kind::Work,
+        inflate::FLATE_DECODER_WORK.saturating_add((data.len() as u64).div_ceil(16)),
+    )?;
+    cx.check(Kind::DecodedBytes, inflate::FLATE_DECODER_BYTES)?;
     let length = u64::try_from(length).unwrap_or(u64::MAX);
     let limit = length.saturating_add(1);
     let mut inflater = Decompress::new(zlib);
-    let mut buffer = vec![0; INFLATE_CHUNK];
+    let mut buffer = [0; INFLATE_CHUNK];
     loop {
         let consumed = usize::try_from(inflater.total_in()).unwrap_or(usize::MAX);
         let room = usize::try_from(limit.saturating_sub(inflater.total_out()))
             .unwrap_or(usize::MAX)
             .min(INFLATE_CHUNK);
         let (Some(input), Some(output)) = (data.get(consumed..), buffer.get_mut(..room)) else {
-            return false;
+            return Ok(false);
         };
+        cx.check(Kind::Work, 1 + (room as u64).div_ceil(16))?;
         let before = (inflater.total_in(), inflater.total_out());
         match inflater.decompress(input, output, FlushDecompress::None) {
-            Ok(Status::StreamEnd) => return inflater.total_out() == length,
+            Ok(Status::StreamEnd) => return Ok(inflater.total_out() == length),
             // 書き出す所がなくなったか、入力が尽きて進まない（途中で切れた）
             Ok(Status::Ok | Status::BufError)
                 if (inflater.total_in(), inflater.total_out()) == before =>
             {
-                return false;
+                return Ok(false);
             }
             Ok(_) => {}
-            Err(_) => return false,
+            Err(_) => return Ok(false),
         }
     }
 }

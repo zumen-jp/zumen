@@ -9,11 +9,12 @@ mod run_length;
 mod source;
 mod stages;
 
+pub(crate) use allocation::{FLATE_DECODER_BYTES, FLATE_DECODER_WORK};
 pub(crate) use source::Source;
 
 use std::io::Read;
 
-use flate2::read::{DeflateDecoder, ZlibDecoder};
+use flate2::bufread::{DeflateDecoder, ZlibDecoder};
 use hayro_syntax::Filter;
 use hayro_syntax::object::Stream;
 use stages::Stage;
@@ -141,10 +142,8 @@ fn sequence(
 fn compressed(data: &[u8], stage: Stage, cx: &mut Cx<'_>) -> Result<(), Stop> {
     let (bound, growth) = match stage.filter {
         Filter::FlateDecode => {
-            let before = cx.budget.used(Kind::DecodedBytes);
-            let fallback = count_fallback(data, cx)?;
-            // 容量を予約する前の量。失敗した試みを含み、予測子への入力以上になる。
-            let bound = cx.budget.used(Kind::DecodedBytes) - before;
+            let (bound, strict_attempts, fallback) = count_fallback(data, cx)?;
+            allocation::reserve(allocation::flate_readers(strict_attempts), cx)?;
             (bound, allocation::flate(data.len(), bound, fallback))
         }
         Filter::LzwDecode => {
@@ -215,42 +214,55 @@ pub(crate) fn plain_flate(
     ))
 }
 
-/// 伸長の予約前の出力量を数え、寛容な展開が必要かも返す。系列は、この量を次の段にも使う。
-fn count_fallback(data: &[u8], cx: &mut Cx<'_>) -> Result<bool, Stop> {
-    if strict(
-        ZlibDecoder::new(data),
+/// 伸長の予約前の出力量、厳しい展開の試行回数（1 または 2）、寛容な展開が必要かを返す。
+/// 出力量には固定のデコーダーの予約量を混ぜず、予測子や系列の次の段にも使う。
+fn count_fallback(data: &[u8], cx: &mut Cx<'_>) -> Result<(u64, u64, bool), Stop> {
+    let (zlib_ok, zlib_out) = strict(
+        || ZlibDecoder::new(data),
         ZlibDecoder::total_out,
         data.len(),
         cx,
-    )? || strict(
-        DeflateDecoder::new(data),
+    )?;
+    if zlib_ok {
+        return Ok((zlib_out, 1, false));
+    }
+    let (raw_ok, raw_out) = strict(
+        || DeflateDecoder::new(data),
         DeflateDecoder::total_out,
         data.len(),
         cx,
-    )? {
-        return Ok(false);
+    )?;
+    let produced = zlib_out.saturating_add(raw_out);
+    if raw_ok {
+        return Ok((produced, 2, false));
     }
     let bound = (data.len() as u64).saturating_mul(MAX_EXPANSION);
     cx.check(Kind::Work, bound.div_ceil(16))?;
     cx.check(Kind::DecodedBytes, bound)?;
-    Ok(true)
+    Ok((produced.saturating_add(bound), 2, true))
 }
 
-/// 入力を読む量は先に、出力を作る手間は 1 回の読みの前に数える。読んだ出力は固定長のバッファーにしか持たず、
-/// バイト数を数えてから次を読む。`read_to_end` と同じく、途中で切れていてもリーダーがエラーを返さなければ成功
+/// 固定のデコーダーの確保・初期化の手間と入力を読む量は、リーダーを作る前に数える。
+/// 出力を作る手間は 1 回の読みの前に数え、読んだ出力は固定長のスタック上のバッファーにしか持たず、
+/// バイト数を数えてから次を読む。`read_to_end` と同じく、途中で切れていてもリーダーがエラーを返さなければ成功。
 fn strict<R: Read>(
-    mut reader: R,
+    make: impl FnOnce() -> R,
     total_out: impl Fn(&R) -> u64,
     input: usize,
     cx: &mut Cx<'_>,
-) -> Result<bool, Stop> {
-    cx.check(Kind::Work, (input as u64).div_ceil(16))?;
+) -> Result<(bool, u64), Stop> {
+    cx.check(
+        Kind::Work,
+        FLATE_DECODER_WORK.saturating_add((input as u64).div_ceil(16)),
+    )?;
+    cx.check(Kind::DecodedBytes, FLATE_DECODER_BYTES)?;
+    let mut reader = make();
     let mut buffer = [0; CHUNK];
     let mut counted = 0u64;
     loop {
         cx.check(Kind::Work, 1 + CHUNK as u64 / 16)?;
         match reader.read(&mut buffer) {
-            Ok(0) => return Ok(true),
+            Ok(0) => return Ok((true, counted)),
             Ok(length) => {
                 cx.check(Kind::DecodedBytes, length as u64)?;
                 counted = counted.saturating_add(length as u64);
@@ -258,11 +270,9 @@ fn strict<R: Read>(
             Err(_) => {
                 // flate2 は、出力を書いた後でも Read に Err を返す。read_to_end の小刻みな
                 // 読みでは保持済みになる分を、公開の総出力量から数える。上流と同じ backend を使う。
-                cx.check(
-                    Kind::DecodedBytes,
-                    total_out(&reader).saturating_sub(counted),
-                )?;
-                return Ok(false);
+                let extra = total_out(&reader).saturating_sub(counted);
+                cx.check(Kind::DecodedBytes, extra)?;
+                return Ok((false, counted.saturating_add(extra)));
             }
         }
     }
@@ -292,13 +302,21 @@ mod tests {
     fn stops_small_compressed_inputs_without_retaining_the_output() {
         let data = encoded(&vec![b' '; 2 * 1024 * 1024]);
         assert!(data.len() < 4096);
-        let limits = Limits::default().with(Kind::DecodedBytes, Limit::Finite(32 * 1024));
+        let before_init =
+            Limits::default().with(Kind::DecodedBytes, Limit::Finite(FLATE_DECODER_BYTES - 1));
+        let (result, budget) = run(&data, before_init);
+        assert!(matches!(result, Err(Stop::Exceeded(e)) if e.kind == Kind::DecodedBytes));
+        assert_eq!(budget.used(Kind::DecodedBytes), 0);
+        assert_eq!(budget.exceeded().unwrap().requested, FLATE_DECODER_BYTES);
+
+        let mid_stream = FLATE_DECODER_BYTES + 32 * 1024;
+        let limits = Limits::default().with(Kind::DecodedBytes, Limit::Finite(mid_stream));
         let (result, budget) = run(&data, limits);
         assert!(matches!(result, Err(Stop::Exceeded(e)) if e.kind == Kind::DecodedBytes));
-        assert_eq!(budget.used(Kind::DecodedBytes), 32 * 1024);
+        assert_eq!(budget.used(Kind::DecodedBytes), mid_stream);
         assert_eq!(
             budget.exceeded().unwrap().requested,
-            32 * 1024 + CHUNK as u64
+            mid_stream + CHUNK as u64
         );
         assert_eq!((result, budget), run(&data, limits));
     }
@@ -346,16 +364,14 @@ mod tests {
             let mut budget = Budget::default();
             let mut diagnostics = Diagnostics::new();
             let cancel = CancelToken::new();
-            assert_eq!(
-                strict(
-                    ZlibDecoder::new(data.as_slice()),
-                    ZlibDecoder::total_out,
-                    data.len(),
-                    &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
-                ),
-                Ok(false),
+            let result = strict(
+                || ZlibDecoder::new(data.as_slice()),
+                ZlibDecoder::total_out,
+                data.len(),
+                &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
             );
-            assert!(budget.used(Kind::DecodedBytes) >= retained.len() as u64);
+            assert!(matches!(result, Ok((false, out)) if out >= retained.len() as u64));
+            assert!(budget.used(Kind::DecodedBytes) >= FLATE_DECODER_BYTES + retained.len() as u64);
             let limit = budget.used(Kind::DecodedBytes);
             if limit > 0 {
                 let mut small = Budget::new(
@@ -363,7 +379,7 @@ mod tests {
                 );
                 assert!(matches!(
                     strict(
-                        ZlibDecoder::new(data.as_slice()),
+                        || ZlibDecoder::new(data.as_slice()),
                         ZlibDecoder::total_out,
                         data.len(),
                         &mut Cx::new(&mut small, &mut diagnostics, &cancel),
@@ -439,11 +455,14 @@ mod tests {
         let (result, budget) = run(&data, limits);
         assert!(matches!(result, Err(Stop::Exceeded(e)) if e.kind == Kind::Work));
         assert_eq!(budget.used(Kind::DecodedBytes), 0);
-        let work = (data.len() as u64).div_ceil(16) + 1 + CHUNK as u64 / 16;
+        let work = FLATE_DECODER_WORK + (data.len() as u64).div_ceil(16) + 1 + CHUNK as u64 / 16;
         let limits = Limits::default().with(Kind::Work, Limit::Finite(work));
         let (result, budget) = run(&data, limits);
         assert!(matches!(result, Err(Stop::Exceeded(e)) if e.kind == Kind::Work));
-        assert_eq!(budget.used(Kind::DecodedBytes), CHUNK as u64);
+        assert_eq!(
+            budget.used(Kind::DecodedBytes),
+            FLATE_DECODER_BYTES + CHUNK as u64
+        );
         let mut budget = Budget::default();
         let mut diagnostics = Diagnostics::new();
         let cancel = CancelToken::new();
@@ -453,5 +472,365 @@ mod tests {
             Err(Stop::Cancelled)
         );
         assert_eq!(budget.used(Kind::DecodedBytes), 0);
+    }
+
+    #[test]
+    fn cumulative_non_refunded_allocations_across_preflight_decoded_data_and_reinflate_stay_within_reservation()
+     {
+        use hayro_syntax::Pdf as HayroPdf;
+        use hayro_syntax::object::ObjectIdentifier;
+        use std::collections::BTreeSet;
+        use std::sync::Arc;
+
+        fn deflate_encoded(data: &[u8]) -> Vec<u8> {
+            let mut encoder =
+                flate2::write::DeflateEncoder::new(Vec::new(), flate2::Compression::best());
+            encoder.write_all(data).unwrap();
+            encoder.finish().unwrap()
+        }
+
+        fn hex_encoded(data: &[u8]) -> Vec<u8> {
+            let mut out: Vec<u8> = data
+                .iter()
+                .flat_map(|b| format!("{b:02x}").into_bytes())
+                .collect();
+            out.push(b'>');
+            out
+        }
+
+        fn a85_encoded(data: &[u8]) -> Vec<u8> {
+            let mut out = Vec::new();
+            for chunk in data.chunks(4) {
+                let mut padded = [0u8; 4];
+                padded[..chunk.len()].copy_from_slice(chunk);
+                let mut value = u32::from_be_bytes(padded);
+                let mut digits = [0u8; 5];
+                for slot in digits.iter_mut().rev() {
+                    *slot = (value % 85) as u8 + b'!';
+                    value /= 85;
+                }
+                out.extend_from_slice(&digits[..chunk.len() + 1]);
+            }
+            out.extend_from_slice(b"~>");
+            out
+        }
+
+        fn rle_encoded(data: &[u8]) -> Vec<u8> {
+            let mut out = Vec::new();
+            for chunk in data.chunks(128) {
+                out.push((chunk.len() - 1) as u8);
+                out.extend_from_slice(chunk);
+            }
+            out.push(128);
+            out
+        }
+
+        fn unhex(text: &str) -> Vec<u8> {
+            text.as_bytes()
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|s| u8::from_str_radix(core::str::from_utf8(s).unwrap(), 16).unwrap())
+                .collect()
+        }
+
+        fn build_pdf(
+            stream_dict: &str,
+            stored: &[u8],
+            encrypt_obj: Option<&str>,
+            form: bool,
+        ) -> Vec<u8> {
+            let mut objects: Vec<Vec<u8>> = Vec::new();
+            objects.push(b"<< /Type /Catalog /Pages 2 0 R >>".to_vec());
+            objects.push(b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec());
+            if form {
+                objects.push(
+                    b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Resources << /XObject << /Fm 4 0 R >> >> /Contents 6 0 R >>".to_vec(),
+                );
+            } else {
+                objects.push(
+                    b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 4 0 R >>"
+                        .to_vec(),
+                );
+            }
+            let kind = if form {
+                "/Type /XObject /Subtype /Form /BBox [0 0 100 100]"
+            } else {
+                ""
+            };
+            let mut stm = format!(
+                "<< {kind} {stream_dict} /Length {} >>\nstream\n",
+                stored.len()
+            )
+            .into_bytes();
+            stm.extend_from_slice(stored);
+            stm.extend_from_slice(b"\nendstream");
+            objects.push(stm);
+            objects.push(encrypt_obj.unwrap_or("null").as_bytes().to_vec());
+            if form {
+                let ops = b"/Fm Do\n";
+                let mut c = format!("<< /Length {} >>\nstream\n", ops.len()).into_bytes();
+                c.extend_from_slice(ops);
+                c.extend_from_slice(b"\nendstream");
+                objects.push(c);
+            }
+
+            let mut pdf = b"%PDF-1.7\n".to_vec();
+            let mut offsets = vec![0usize];
+            for (idx, body) in objects.iter().enumerate() {
+                offsets.push(pdf.len());
+                pdf.extend_from_slice(format!("{} 0 obj\n", idx + 1).as_bytes());
+                pdf.extend_from_slice(body);
+                pdf.extend_from_slice(b"\nendobj\n");
+            }
+            let xref_pos = pdf.len();
+            pdf.extend_from_slice(format!("xref\n0 {}\n", offsets.len()).as_bytes());
+            pdf.extend_from_slice(b"0000000000 65535 f \n");
+            for off in &offsets[1..] {
+                pdf.extend_from_slice(format!("{off:010} 00000 n \n").as_bytes());
+            }
+            let enc = if encrypt_obj.is_some() {
+                "/Encrypt 5 0 R /ID [<30303030303030303030303030303030> <30303030303030303030303030303030>]"
+            } else {
+                ""
+            };
+            pdf.extend_from_slice(
+                format!(
+                    "trailer\n<< /Size {} /Root 1 0 R {enc} >>\nstartxref\n{xref_pos}\n%%EOF\n",
+                    offsets.len()
+                )
+                .as_bytes(),
+            );
+            pdf
+        }
+
+        let line = b"0 0 m 1 1 l S\n";
+        let good_zlib = encoded(line);
+        let good_raw = deflate_encoded(line);
+        let truncated_zlib = good_zlib[..good_zlib.len() - 5].to_vec();
+        let mut bad_adler = good_zlib.clone();
+        *bad_adler.last_mut().unwrap() ^= 1;
+        let mut corrupt = good_zlib.clone();
+        corrupt[0] = 0xff;
+        corrupt[1] = 0xff;
+
+        let mut cases: Vec<(&str, Vec<u8>, bool, bool)> = vec![
+            (
+                "valid_zlib_content",
+                build_pdf("/Filter /FlateDecode", &good_zlib, None, false),
+                false,
+                true,
+            ),
+            (
+                "valid_raw_content",
+                build_pdf("/Filter /FlateDecode", &good_raw, None, false),
+                false,
+                true,
+            ),
+            (
+                "truncated_zlib_content",
+                build_pdf("/Filter /FlateDecode", &truncated_zlib, None, false),
+                false,
+                true,
+            ),
+            (
+                "bad_adler_content",
+                build_pdf("/Filter /FlateDecode", &bad_adler, None, false),
+                false,
+                true,
+            ),
+            (
+                "corrupt_fallback_content",
+                build_pdf("/Filter /FlateDecode", &corrupt, None, false),
+                false,
+                true,
+            ),
+            (
+                "whitespace_empty_content",
+                build_pdf("/Filter /FlateDecode", b" \t\r\n", None, false),
+                false,
+                true,
+            ),
+            (
+                "ahx_zlib",
+                build_pdf("/Filter [/AHx /Fl]", &hex_encoded(&good_zlib), None, false),
+                false,
+                false,
+            ),
+            (
+                "a85_raw",
+                build_pdf("/Filter [/A85 /Fl]", &a85_encoded(&good_raw), None, false),
+                false,
+                false,
+            ),
+            (
+                "chain_fl_rl",
+                build_pdf(
+                    "/Filter [/Fl /RL]",
+                    &encoded(&rle_encoded(line)),
+                    None,
+                    false,
+                ),
+                false,
+                false,
+            ),
+            (
+                "chain_rl_fl",
+                build_pdf("/Filter [/RL /Fl]", &rle_encoded(&good_zlib), None, false),
+                false,
+                false,
+            ),
+            (
+                "chain_fallback_fl_rl",
+                {
+                    let mut d = encoded(&rle_encoded(line));
+                    *d.last_mut().unwrap() ^= 1;
+                    build_pdf("/Filter [/Fl /RL]", &d, None, false)
+                },
+                false,
+                false,
+            ),
+            (
+                "resource_only_zlib",
+                build_pdf("/Filter /FlateDecode", &good_zlib, None, false),
+                false,
+                false,
+            ),
+            (
+                "resource_only_raw",
+                build_pdf("/Filter /FlateDecode", &good_raw, None, false),
+                false,
+                false,
+            ),
+        ];
+
+        // #778 で厳しい Flate の固定確保を含めると 8 文書中 7 文書で超過した平文・RC4・AESV2 ×
+        // 単独 Flate / ASCIIHex+Flate × 内容 / フォームの組も直接確かめる。
+        const RC4_DICT: &str = "<< /Filter /Standard /V 1 /R 2 /P -4 /O <2055c756c72e1ad702608e8196acad447ad32d17cff583235f6dd15fed7dab67> /U <92c034164f1ef00c9edf3ba7595c16b11c50ff99a474b82f495eabb623e302f8> >>";
+        const AES_DICT: &str = "<< /Filter /Standard /V 4 /R 4 /Length 128 /P -4 /O <36451bd39d753b7c1d10922c28e6665aa4f3353fb0348b536893e3b1db5c579b> /U <acf99d8614017dd73cbe2bc3c79b668c00000000000000000000000000000000> /EncryptMetadata true /StmF /StdCF /StrF /StdCF /CF << /StdCF << /CFM /AESV2 /Length 16 >> >> >>";
+        const MASK4: &str = "0e2030bbbfaf55ac6d99bd277e57b9511bf2c89378aa7cd909f60049d3695daa5690faced25007a6a2e844038f8fa960c5b8a298cdaa1c334229d50fa2ba2fcd56263a401271adba4c3cc853dd98b63b287fa73943bdfd521784d2ed15fb7623b992270f3c2a59b81b72ca9fa0cdd557d38a0512d1b763d9f8add1abf6fecb6bbe1a9ca8529f262134a8db396f9b602f5933250ba2e13f7b2c476407d0782cace24d1fc8695cdea2062d018416eee9fed264bbce0992c9d295d66fcd8bf45b0201515a9dfd6fee217e6a2939c47db985b7d50630b57e8db14a7b53506c86ac4e38fdf398cf036e99324147fc190ae11e";
+        const AES_FLATE: &str = "0405060708090a0b0c0d0e0f10111213870d7a396736892523f4600752838846a7c9d0ae30e8b1bd8f83d2000b75b59c";
+        const AES_AHX_FLATE: &str = "0405060708090a0b0c0d0e0f10111213e98f74943257b7034ccaac38f51af952e69f0ababc9a75975faae6299e1165c356fe6da7de95587a81fa2c9653f70741";
+        let clear_flate = unhex("78da33503050c85530543054c85108e60200143e02b9");
+        let clear_ahx_flate = unhex(
+            "37386461333335303330353063383535333035343330353463383531303865363032303031343365303262393e",
+        );
+        let mask4 = unhex(MASK4);
+        for (tag, filter, clear, aes, reinflate) in [
+            (
+                "enc_fl",
+                "/Filter /Fl",
+                clear_flate.as_slice(),
+                AES_FLATE,
+                true,
+            ),
+            (
+                "enc_ahx_fl",
+                "/Filter [/AHx /Fl] /DP [null null]",
+                clear_ahx_flate.as_slice(),
+                AES_AHX_FLATE,
+                false,
+            ),
+        ] {
+            for (mode_name, mode, dict) in [
+                ("plain", 0, None),
+                ("rc4", 1, Some(RC4_DICT)),
+                ("aes", 2, Some(AES_DICT)),
+            ] {
+                for form in [false, true] {
+                    let stored: Vec<u8> = match mode {
+                        0 => clear.to_vec(),
+                        1 => clear.iter().zip(&mask4).map(|(&a, &b)| a ^ b).collect(),
+                        _ => unhex(aes),
+                    };
+                    let label: &'static str = Box::leak(
+                        format!(
+                            "{tag}_{mode_name}_{}",
+                            if form { "form" } else { "content" }
+                        )
+                        .into_boxed_str(),
+                    );
+                    cases.push((
+                        label,
+                        build_pdf(filter, &stored, dict, form),
+                        mode != 0,
+                        reinflate,
+                    ));
+                }
+            }
+        }
+
+        let empty_refs = BTreeSet::new();
+        for (label, pdf_bytes, encrypted, check_reinflate) in &cases {
+            let pdf = HayroPdf::new(Arc::new(pdf_bytes.clone())).unwrap();
+            let stream = pdf
+                .xref()
+                .get::<Stream<'_>>(ObjectIdentifier::new(4, 0))
+                .unwrap();
+            let source = Source::new(pdf_bytes, *encrypted, 0).with_file_refs(&empty_refs, 2048);
+
+            // Work=0・DecodedBytes=0・開始前の中断では確保 0 バイトで止まる。
+            for (limits, cancelled) in [
+                (Limits::default().with(Kind::Work, Limit::Finite(0)), false),
+                (
+                    Limits::default().with(Kind::DecodedBytes, Limit::Finite(0)),
+                    false,
+                ),
+                (Limits::default(), true),
+            ] {
+                let mut budget = Budget::new(limits);
+                let mut diagnostics = Diagnostics::new();
+                let cancel = CancelToken::new();
+                if cancelled {
+                    cancel.cancel();
+                }
+                let (res, alloc_bytes, alloc_calls) = crate::test_alloc::measure(|| {
+                    before(
+                        &stream,
+                        source,
+                        &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+                    )
+                });
+                assert!(res.is_err(), "{label}");
+                assert_eq!(
+                    (alloc_bytes, alloc_calls),
+                    (0, 0),
+                    "{label}: allocated before first Cx check"
+                );
+            }
+
+            // 実際の before + decoded_data (+ 内容・フォームの leniently_inflated) の
+            // 解放を戻さない累積確保量が DecodedBytes 予約内にあることを確かめる。
+            let limits = Limits::default()
+                .with(Kind::Work, Limit::Unlimited)
+                .with(Kind::DecodedBytes, Limit::Unlimited);
+            let mut budget = Budget::new(limits);
+            let mut diagnostics = Diagnostics::new();
+            let cancel = CancelToken::new();
+            let (res, alloc_bytes, _) = crate::test_alloc::measure(|| -> Result<(), Stop> {
+                let counted = before(
+                    &stream,
+                    source,
+                    &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+                )?;
+                assert!(counted, "{label}");
+                let decoded = stream.decoded_data();
+                if *check_reinflate && let Ok(bytes) = &decoded {
+                    let _ = crate::walk::leniently_inflated(
+                        &stream,
+                        bytes.len(),
+                        source,
+                        &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+                    )?;
+                }
+                Ok(())
+            });
+            assert_eq!(res, Ok(()), "{label}");
+            let reserved = budget.used(Kind::DecodedBytes);
+            assert!(
+                alloc_bytes <= reserved,
+                "{label}: cumulative non-refunded {alloc_bytes} > reserved {reserved}"
+            );
+        }
     }
 }
