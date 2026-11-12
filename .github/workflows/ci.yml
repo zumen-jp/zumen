@@ -24,8 +24,9 @@ env:
   CARGO_PROFILE_DEV_DEBUG: '0'
 
 jobs:
+  # main の必須チェックはジョブ名を参照する。
   checks:
-    name: 変更範囲・表記・ワークフロー
+    name: 表記の検査
     runs-on: ubuntu-latest
     outputs:
       checks: ${{ steps.select.outputs.checks }}
@@ -71,7 +72,7 @@ jobs:
   lint:
     name: 書式・lint・生成物
     needs: checks
-    if: contains(fromJSON(needs.checks.outputs.checks), 'codegen')
+    if: github.event_name == 'pull_request' || contains(fromJSON(needs.checks.outputs.checks), 'codegen')
     runs-on: ubuntu-latest
     env:
       CHECK_RUST: ${{ contains(fromJSON(needs.checks.outputs.checks), 'rust') }}
@@ -150,7 +151,7 @@ jobs:
           npm run test:browser
 
   test:
-    name: テスト（${{ matrix.name }}）
+    name: 試験（${{ matrix.name }}）
     needs: checks
     # Tier 1 のネイティブと wasm の適合テストは、PR ごとに流す（docs/support.md）。
     if: github.event_name == 'pull_request' || contains(fromJSON(needs.checks.outputs.checks), 'native')
@@ -260,7 +261,7 @@ jobs:
           }
 
   wasm:
-    name: wasm32 で適合テスト
+    name: wasm32 で適合試験
     needs: checks
     if: github.event_name == 'pull_request' || contains(fromJSON(needs.checks.outputs.checks), 'wasm')
     runs-on: ubuntu-latest
@@ -341,7 +342,7 @@ jobs:
   deny:
     name: 依存の検査
     needs: checks
-    if: contains(fromJSON(needs.checks.outputs.checks), 'deny')
+    if: github.event_name == 'pull_request' || contains(fromJSON(needs.checks.outputs.checks), 'deny')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
