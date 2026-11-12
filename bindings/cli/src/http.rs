@@ -40,7 +40,7 @@ use crate::serve::{Form, blob_param, bytes, call_result, status_only, take_resul
 pub const DEFAULT_LISTEN: &str = "127.0.0.1:24180";
 
 /// 上限が足りないときの JSON-RPC の誤りの番号（実装が決める -32000 から -32099 の範囲）
-const LIMIT_EXCEEDED: i64 = -32000;
+pub(crate) const LIMIT_EXCEEDED: i64 = -32000;
 
 /// 上限
 #[derive(Clone, Copy, Debug)]
@@ -104,7 +104,6 @@ struct State {
     seeds: [RandomState; 2],
     next: AtomicU64,
     input_bytes: AtomicU64,
-    connections: AtomicUsize,
 }
 
 impl State {
@@ -116,7 +115,6 @@ impl State {
             seeds: [RandomState::new(), RandomState::new()],
             next: AtomicU64::new(0),
             input_bytes: AtomicU64::new(0),
-            connections: AtomicUsize::new(0),
         }
     }
 
@@ -342,15 +340,15 @@ impl State {
 }
 
 /// 読んだ要求
-struct Request {
-    method: String,
-    path: String,
-    headers: Vec<(String, String)>,
-    body: Vec<u8>,
+pub(crate) struct Request {
+    pub(crate) method: String,
+    pub(crate) path: String,
+    pub(crate) headers: Vec<(String, String)>,
+    pub(crate) body: Vec<u8>,
 }
 
 impl Request {
-    fn header(&self, name: &str) -> Option<&str> {
+    pub(crate) fn header(&self, name: &str) -> Option<&str> {
         self.headers
             .iter()
             .find(|(key, _)| key.eq_ignore_ascii_case(name))
@@ -358,7 +356,7 @@ impl Request {
     }
 
     /// `Content-Type` の、引数を除いた種類
-    fn content_type(&self) -> Option<String> {
+    pub(crate) fn content_type(&self) -> Option<String> {
         self.header("content-type").map(|value| {
             value
                 .split(';')
@@ -371,22 +369,33 @@ impl Request {
 }
 
 /// 返す答え
-struct Reply {
-    code: u16,
-    content_type: &'static str,
-    body: Vec<u8>,
+pub(crate) struct Reply {
+    pub(crate) code: u16,
+    pub(crate) content_type: &'static str,
+    pub(crate) allow: Option<&'static str>,
+    pub(crate) body: Vec<u8>,
 }
 
 impl Reply {
-    fn json(code: u16, body: Vec<u8>) -> Self {
+    pub(crate) fn json(code: u16, body: Vec<u8>) -> Self {
         Self {
             code,
             content_type: "application/json",
+            allow: None,
             body,
         }
     }
 
-    fn problem(code: u16, text: &str) -> Self {
+    pub(crate) fn empty(code: u16) -> Self {
+        Self {
+            code,
+            content_type: "application/json",
+            allow: None,
+            body: Vec::new(),
+        }
+    }
+
+    pub(crate) fn problem(code: u16, text: &str) -> Self {
         let mut out = Writer::new();
         out.begin_object();
         out.key("error");
@@ -394,11 +403,18 @@ impl Reply {
         out.end_object();
         Self::json(code, out.into_bytes())
     }
+
+    pub(crate) fn method_not_allowed(allow: &'static str, text: &str) -> Self {
+        let mut reply = Self::problem(405, text);
+        reply.allow = Some(allow);
+        reply
+    }
 }
 
 fn reason(code: u16) -> &'static str {
     match code {
         200 => "OK",
+        202 => "Accepted",
         204 => "No Content",
         400 => "Bad Request",
         403 => "Forbidden",
@@ -415,8 +431,12 @@ fn reason(code: u16) -> &'static str {
 }
 
 fn write_reply(stream: &mut TcpStream, reply: &Reply) -> io::Result<()> {
+    let allow = match reply.allow {
+        Some(methods) => format!("Allow: {methods}\r\n"),
+        None => String::new(),
+    };
     let head = format!(
-        "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n",
+        "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\n{allow}Cache-Control: no-store\r\nConnection: close\r\n\r\n",
         reply.code,
         reason(reply.code),
         reply.content_type,
@@ -524,7 +544,7 @@ fn read_request(
 }
 
 /// `Host` がループバックの名前か
-fn loopback_host(host: &str) -> bool {
+pub(crate) fn loopback_host(host: &str) -> bool {
     let name = if let Some(rest) = host.strip_prefix('[') {
         rest.split(']').next().unwrap_or_default()
     } else {
@@ -565,11 +585,7 @@ fn rpc(state: &State, request: &Request) -> Reply {
         Err(outcome) => outcome,
     };
     let Some(id) = &message.id else {
-        return Reply {
-            code: 204,
-            content_type: "application/json",
-            body: Vec::new(),
-        };
+        return Reply::empty(204);
     };
     Reply::json(
         200,
@@ -589,7 +605,7 @@ fn route(state: &State, request: &Request) -> Reply {
     }
     if request.path == "/" {
         if request.method != "POST" {
-            return Reply::problem(405, "POST で JSON-RPC を送る");
+            return Reply::method_not_allowed("POST", "POST で JSON-RPC を送る");
         }
         return rpc(state, request);
     }
@@ -604,7 +620,7 @@ fn route(state: &State, request: &Request) -> Reply {
     };
     if let Some(name) = rest.strip_prefix("inputs/") {
         if request.method != "POST" {
-            return Reply::problem(405, "POST で本文を送る");
+            return Reply::method_not_allowed("POST", "POST で本文を送る");
         }
         if request.content_type().as_deref() != Some("application/octet-stream") {
             return Reply::problem(415, "Content-Type は application/octet-stream にする");
@@ -619,7 +635,7 @@ fn route(state: &State, request: &Request) -> Reply {
     }
     if let Some(blob) = rest.strip_prefix("blobs/") {
         if request.method != "GET" {
-            return Reply::problem(405, "GET で取り出す");
+            return Reply::method_not_allowed("GET", "GET で取り出す");
         }
         let Ok(blob) = blob.parse::<u32>() else {
             return Reply::problem(404, "blob の番号が読めない");
@@ -628,6 +644,7 @@ fn route(state: &State, request: &Request) -> Reply {
             Ok(Some(data)) => Reply {
                 code: 200,
                 content_type: "application/octet-stream",
+                allow: None,
                 body: data,
             },
             Ok(None) => Reply::json(404, status_only(Status::Invalid)),
@@ -637,24 +654,15 @@ fn route(state: &State, request: &Request) -> Reply {
     Reply::problem(404, "ない")
 }
 
-fn connection(state: &State, mut stream: TcpStream) {
-    let _ = stream.set_read_timeout(Some(state.limits.read_timeout));
-    let reply = match stream.try_clone() {
-        Ok(read) => {
-            let mut reader = BufReader::new(read);
-            match read_request(&mut stream, &mut reader, &state.limits) {
-                Ok(request) => route(state, &request),
-                Err(reply) => reply,
-            }
-        }
-        Err(_) => return,
-    };
-    let _ = write_reply(&mut stream, &reply);
-    let _ = stream.shutdown(std::net::Shutdown::Both);
-}
-
-/// 待ち受けを始める。待ち受けたアドレスを標準出力の 1 行目に書き、止められるまで答える
-pub fn serve(listen: &str, limits: Limits) -> Result<(), String> {
+/// HTTP/1.1 の待ち受けを始め、要求ごとに `handle` を呼ぶ。`handle` が `None` を返したときは、すでに `stream` に
+/// 応答を書き終えたものとして閉じる
+pub(crate) fn listen_and_serve<S: Send + Sync + 'static>(
+    listen: &str,
+    limits: Limits,
+    thread_name: &'static str,
+    make_state: impl FnOnce(bool) -> S,
+    handle: fn(&S, &Request, &mut TcpStream) -> Option<Reply>,
+) -> Result<(), String> {
     let listener =
         TcpListener::bind(listen).map_err(|e| format!("{listen} で待ち受けられない: {e}"))?;
     let address: SocketAddr = listener
@@ -673,11 +681,12 @@ pub fn serve(listen: &str, limits: Limits) -> Result<(), String> {
             "{address} で待ち受ける。TLS と認証を持たないので、認証のある前段の後ろに置く"
         );
     }
-    let state = Arc::new(State::new(limits, loopback));
+    let state = Arc::new(make_state(loopback));
+    let connections = Arc::new(AtomicUsize::new(0));
     for stream in listener.incoming() {
         let Ok(mut stream) = stream else { continue };
-        if state.connections.fetch_add(1, Ordering::AcqRel) >= state.limits.connections {
-            state.connections.fetch_sub(1, Ordering::AcqRel);
+        if connections.fetch_add(1, Ordering::AcqRel) >= limits.connections {
+            connections.fetch_sub(1, Ordering::AcqRel);
             let _ = write_reply(
                 &mut stream,
                 &Reply::problem(503, "同時のつながりが多すぎる"),
@@ -685,18 +694,47 @@ pub fn serve(listen: &str, limits: Limits) -> Result<(), String> {
             continue;
         }
         let shared = Arc::clone(&state);
+        let active = Arc::clone(&connections);
         let spawned = thread::Builder::new()
-            .name("zumen-http".to_string())
+            .name(thread_name.to_string())
             .spawn(move || {
-                connection(&shared, stream);
-                shared.connections.fetch_sub(1, Ordering::AcqRel);
+                let _ = stream.set_read_timeout(Some(limits.read_timeout));
+                let reply = match stream.try_clone() {
+                    Ok(read) => {
+                        let mut reader = BufReader::new(read);
+                        match read_request(&mut stream, &mut reader, &limits) {
+                            Ok(request) => handle(&shared, &request, &mut stream),
+                            Err(reply) => Some(reply),
+                        }
+                    }
+                    Err(_) => {
+                        active.fetch_sub(1, Ordering::AcqRel);
+                        return;
+                    }
+                };
+                if let Some(reply) = reply {
+                    let _ = write_reply(&mut stream, &reply);
+                }
+                let _ = stream.shutdown(std::net::Shutdown::Both);
+                active.fetch_sub(1, Ordering::AcqRel);
             });
         if spawned.is_err() {
             // スレッドを作れなければ、つながりは閉じる（閉じたものは数えない）
-            state.connections.fetch_sub(1, Ordering::AcqRel);
+            connections.fetch_sub(1, Ordering::AcqRel);
         }
     }
     Ok(())
+}
+
+/// 待ち受けを始める。待ち受けたアドレスを標準出力の 1 行目に書き、止められるまで答える
+pub fn serve(listen: &str, limits: Limits) -> Result<(), String> {
+    listen_and_serve(
+        listen,
+        limits,
+        "zumen-http",
+        |loopback| State::new(limits, loopback),
+        |state, request, _| Some(route(state, request)),
+    )
 }
 
 #[cfg(test)]

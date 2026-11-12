@@ -3,8 +3,8 @@
 //! - `zumen serve --stdio`: すべての組を流し、ハッシュの一覧が `hashes.txt` と一致することを確かめる
 //! - `zumen serve --http`: すべての組を、HTTP の JSON-RPC と本文のままの push・take で流す
 //! - 実行の形態 `process`: すべての組を、子プロセスの CLI に送るセッションで流す
-//! - `zumen mcp`: ツールで表せる組（セッションの設定を JSON の値で渡し、要求が知っている op のオブジェクトで、
-//!   入力の名前が文字列のもの）だけを流し、その組の行が `hashes.txt` と一致することを確かめる
+//! - `zumen mcp` と `zumen mcp --http`: ツールで表せる組（セッションの設定を JSON の値で渡し、要求が知っている op の
+//!   オブジェクトで、入力の名前が文字列のもの）だけを流し、その組の行が `hashes.txt` と一致することを確かめる
 
 // テストのツールの関数の中でも、テストと同じく unwrap・panic・添字を使う
 #![allow(clippy::unwrap_used, clippy::panic, clippy::indexing_slicing)]
@@ -295,10 +295,21 @@ impl Engine for Mcp {
         };
         let result = self.tool("take", &arguments);
         let status = text(&result, &format!("/_meta/{STATUS_KEY}")).unwrap();
-        (
-            code(&status),
-            text(&result, "/content/1/resource/blob").map(|data| unbase64(&data)),
-        )
+        (code(&status), extract_taken_blob(&result))
+    }
+}
+
+fn extract_taken_blob(result: &Value) -> Option<Vec<u8>> {
+    match text(result, "/content/1/type").as_deref() {
+        Some("image") => {
+            assert_eq!(
+                text(result, "/content/1/mimeType").as_deref(),
+                Some("image/png")
+            );
+            text(result, "/content/1/data").map(|data| unbase64(&data))
+        }
+        Some("resource") => text(result, "/content/1/resource/blob").map(|data| unbase64(&data)),
+        _ => None,
     }
 }
 
@@ -614,8 +625,7 @@ fn http_refuses_browsers_and_other_hosts() {
     assert_eq!(code, 404);
 }
 
-#[test]
-fn through_mcp_tools() {
+fn mcp_cases_and_hashes() -> (Vec<Case>, Vec<String>) {
     let tools = zumen_json::parse(include_bytes!("../src/tools.json")).unwrap();
     let Value::Array(tools) = tools else {
         panic!("tools.json が配列でない");
@@ -640,6 +650,342 @@ fn through_mcp_tools() {
                 .is_some_and(|name| names.contains(&name))
         })
         .collect();
+    (cases, expected)
+}
+
+#[test]
+fn through_mcp_tools() {
+    let (cases, expected) = mcp_cases_and_hashes();
     let report = run(&cases, || Box::new(Mcp::new()) as Box<dyn Engine>);
     check(&report, &expected);
+}
+
+/// `zumen mcp --http` を待ち受けのアドレスで起こしたもの
+struct McpHttpServer {
+    child: Child,
+    address: String,
+}
+
+impl McpHttpServer {
+    fn spawn() -> Self {
+        let mut child = Command::new(cli_path())
+            .args(["mcp", "--http", "--listen", "127.0.0.1:0"])
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut line = String::new();
+        BufReader::new(child.stdout.take().unwrap())
+            .read_line(&mut line)
+            .unwrap();
+        let address = line
+            .trim()
+            .strip_prefix("http://")
+            .unwrap()
+            .trim_end_matches('/')
+            .to_string();
+        Self { child, address }
+    }
+
+    fn send(
+        &self,
+        method: &str,
+        path: &str,
+        headers: &[(&str, &str)],
+        body: &[u8],
+    ) -> (u16, String, Vec<u8>) {
+        let mut stream = TcpStream::connect(&self.address).unwrap();
+        let mut head = format!("{method} {path} HTTP/1.1\r\n");
+        if !headers.iter().any(|(k, _)| k.eq_ignore_ascii_case("host")) {
+            head.push_str(&format!("Host: {}\r\n", self.address));
+        }
+        for (k, v) in headers {
+            head.push_str(&format!("{k}: {v}\r\n"));
+        }
+        head.push_str(&format!("Content-Length: {}\r\n\r\n", body.len()));
+        stream.write_all(head.as_bytes()).unwrap();
+        stream.write_all(body).unwrap();
+        let mut reply = Vec::new();
+        stream.read_to_end(&mut reply).unwrap();
+        let split = reply.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
+        let raw_head = String::from_utf8(reply[..split].to_vec()).unwrap();
+        let code = raw_head.split(' ').nth(1).unwrap().parse().unwrap();
+        (code, raw_head, reply[split + 4..].to_vec())
+    }
+
+    fn tool_2026(&self, name: &str, arguments: &[u8]) -> Value {
+        let mut body = format!(
+            r#"{{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{{"_meta":{{"io.modelcontextprotocol/protocolVersion":"2026-07-28"}},"name":"{name}","arguments":"#
+        )
+        .into_bytes();
+        body.extend_from_slice(arguments);
+        body.extend_from_slice(b"}}");
+        let (code, _, reply) = self.send(
+            "POST",
+            "/mcp",
+            &[
+                ("Content-Type", "application/json"),
+                ("MCP-Protocol-Version", "2026-07-28"),
+                ("Mcp-Method", "tools/call"),
+                ("Mcp-Name", name),
+            ],
+            &body,
+        );
+        assert_eq!(
+            code,
+            200,
+            "HTTP {code}: {}",
+            String::from_utf8_lossy(&reply)
+        );
+        let reply = zumen_json::parse(&reply).unwrap();
+        reply
+            .pointer("/result")
+            .unwrap_or_else(|| panic!("tools/call {name} が誤りを返した: {reply:?}"))
+            .clone()
+    }
+}
+
+impl Drop for McpHttpServer {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+struct McpHttp {
+    server: Rc<McpHttpServer>,
+    session: Option<String>,
+}
+
+impl McpHttp {
+    fn new(server: Rc<McpHttpServer>) -> Self {
+        let mut client = Self {
+            server,
+            session: None,
+        };
+        client.session_new(b"");
+        client
+    }
+
+    fn close(&mut self) {
+        if let Some(session) = self.session.take() {
+            self.server
+                .tool_2026("session_close", &params(&[("session", &session)]));
+        }
+    }
+
+    fn arguments(&self, fields: &[(&str, Value)]) -> Option<Vec<u8>> {
+        let session = self.session.as_ref()?;
+        let mut out = Writer::new();
+        out.begin_object();
+        out.key("session");
+        out.string(session);
+        for (key, value) in fields {
+            out.key(key);
+            out.value(value);
+        }
+        out.end_object();
+        Some(out.into_bytes())
+    }
+}
+
+impl Drop for McpHttp {
+    fn drop(&mut self) {
+        self.close();
+    }
+}
+
+impl Engine for McpHttp {
+    fn session_new(&mut self, options: &[u8]) -> i32 {
+        self.close();
+        let arguments = if options.is_empty() {
+            b"{}".to_vec()
+        } else {
+            let mut arguments = br#"{"options":"#.to_vec();
+            arguments.extend_from_slice(options);
+            arguments.push(b'}');
+            arguments
+        };
+        let result = self.server.tool_2026("session_new", &arguments);
+        let status = text(&result, &format!("/_meta/{STATUS_KEY}")).unwrap();
+        if status == "ok" {
+            let reply = zumen_json::parse(text(&result, "/content/0/text").unwrap().as_bytes());
+            self.session = text(&reply.unwrap(), "/session");
+        }
+        code(&status)
+    }
+
+    fn push(&mut self, name: &[u8], data: &[u8]) -> i32 {
+        let name = Value::String(String::from_utf8(name.to_vec()).unwrap());
+        let data = Value::String(base64(data));
+        let Some(arguments) = self.arguments(&[("name", name), ("base64", data)]) else {
+            return Status::Invalid.code();
+        };
+        let result = self.server.tool_2026("push", &arguments);
+        code(&text(&result, &format!("/_meta/{STATUS_KEY}")).unwrap())
+    }
+
+    fn call(&mut self, request: &[u8]) -> (i32, Option<Vec<u8>>) {
+        let Ok(Value::Object(request)) = zumen_json::parse(request) else {
+            panic!("ツールで表せない要求");
+        };
+        let Some(Value::String(op)) = request.get("op") else {
+            panic!("op のない要求");
+        };
+        let fields: Vec<(&str, Value)> = request
+            .iter()
+            .filter(|(key, _)| *key != "op")
+            .map(|(key, value)| (key, value.clone()))
+            .collect();
+        let Some(arguments) = self.arguments(&fields) else {
+            return (Status::Invalid.code(), None);
+        };
+        let result = self.server.tool_2026(op, &arguments);
+        let status = text(&result, &format!("/_meta/{STATUS_KEY}")).unwrap();
+        let response = (status != "invalid" && status != "busy")
+            .then(|| text(&result, "/content/0/text").unwrap().into_bytes());
+        (code(&status), response)
+    }
+
+    fn take(&mut self, blob: u32) -> (i32, Option<Vec<u8>>) {
+        let Some(arguments) = self.arguments(&[(
+            "blob",
+            zumen_json::parse(blob.to_string().as_bytes()).unwrap(),
+        )]) else {
+            return (Status::Invalid.code(), None);
+        };
+        let result = self.server.tool_2026("take", &arguments);
+        let status = text(&result, &format!("/_meta/{STATUS_KEY}")).unwrap();
+        (code(&status), extract_taken_blob(&result))
+    }
+}
+
+#[test]
+fn through_mcp_http() {
+    let (cases, expected) = mcp_cases_and_hashes();
+    let server = Rc::new(McpHttpServer::spawn());
+    let report = run(&cases, || {
+        Box::new(McpHttp::new(Rc::clone(&server))) as Box<dyn Engine>
+    });
+    check(&report, &expected);
+}
+
+#[test]
+fn mcp_http_streamable_protocol() {
+    let server = McpHttpServer::spawn();
+
+    // 1. 前のバージョンの initialize と、通知に対する 202 Accepted
+    let (code, _, init_body) = server.send(
+        "POST",
+        "/mcp",
+        &[("Content-Type", "application/json")],
+        br#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25"}}"#,
+    );
+    assert_eq!(code, 200);
+    let init = zumen_json::parse(&init_body).unwrap();
+    assert_eq!(
+        text(&init, "/result/protocolVersion").as_deref(),
+        Some("2025-11-25")
+    );
+    assert!(init.pointer("/result/capabilities/prompts").is_some());
+
+    let (code, _, notif_body) = server.send(
+        "POST",
+        "/mcp",
+        &[("Content-Type", "application/json")],
+        br#"{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}"#,
+    );
+    assert_eq!(code, 202);
+    assert!(notif_body.is_empty());
+
+    // 2. GET と DELETE は 405 Method Not Allowed（Allow: POST）
+    let (code, head, _) = server.send("GET", "/mcp", &[], b"");
+    assert_eq!(code, 405);
+    assert!(head.contains("Allow: POST"), "{head}");
+    let (code, head, _) = server.send("DELETE", "/mcp", &[], b"");
+    assert_eq!(code, 405);
+    assert!(head.contains("Allow: POST"), "{head}");
+
+    // 3. ループバックでない Host と Origin は 403
+    let (code, _, _) = server.send(
+        "POST",
+        "/mcp",
+        &[
+            ("Host", "example.com"),
+            ("Content-Type", "application/json"),
+        ],
+        b"{}",
+    );
+    assert_eq!(code, 403);
+    let (code, _, _) = server.send(
+        "POST",
+        "/mcp",
+        &[
+            ("Origin", "https://example.com"),
+            ("Content-Type", "application/json"),
+        ],
+        b"{}",
+    );
+    assert_eq!(code, 403);
+
+    // 4. 2026-07-28 のヘッダー不一致（-32020）と未対応バージョン（-32022）
+    let (code, _, mismatch_body) = server.send(
+        "POST",
+        "/mcp",
+        &[
+            ("Content-Type", "application/json"),
+            ("MCP-Protocol-Version", "2026-07-28"),
+            ("Mcp-Method", "prompts/list"),
+        ],
+        br#"{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}"#,
+    );
+    assert_eq!(code, 400);
+    let mismatch = zumen_json::parse(&mismatch_body).unwrap();
+    assert_eq!(compact(mismatch.pointer("/error/code").unwrap()), b"-32020");
+
+    let (code, _, unsup_body) = server.send(
+        "POST",
+        "/mcp",
+        &[
+            ("Content-Type", "application/json"),
+            ("MCP-Protocol-Version", "1999-01-01"),
+        ],
+        br#"{"jsonrpc":"2.0","id":3,"method":"tools/list","params":{}}"#,
+    );
+    assert_eq!(code, 400);
+    let unsup = zumen_json::parse(&unsup_body).unwrap();
+    assert_eq!(compact(unsup.pointer("/error/code").unwrap()), b"-32022");
+
+    // 5. Accept: text/event-stream + progressToken のときは SSE で進み具合と結果を流す
+    let (code, head, sse_body) = server.send(
+        "POST",
+        "/",
+        &[
+            ("Content-Type", "application/json"),
+            ("Accept", "application/json, text/event-stream"),
+        ],
+        br#"{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"_meta":{"progressToken":"t1"},"name":"session_new","arguments":{}}}"#,
+    );
+    assert_eq!(code, 200);
+    assert!(head.contains("Content-Type: text/event-stream"), "{head}");
+    let events: Vec<&str> = std::str::from_utf8(&sse_body)
+        .unwrap()
+        .split("\n\n")
+        .filter(|chunk| !chunk.is_empty())
+        .collect();
+    assert!(events.len() >= 2, "SSE イベントが少ない: {events:?}");
+    assert!(events[0].starts_with("data: "));
+    assert!(events[0].contains("notifications/progress"));
+    let last = events.last().unwrap().strip_prefix("data: ").unwrap();
+    let parsed_last = zumen_json::parse(last.as_bytes()).unwrap();
+    let session = text(
+        &zumen_json::parse(
+            text(&parsed_last, "/result/content/0/text")
+                .unwrap()
+                .as_bytes(),
+        )
+        .unwrap(),
+        "/session",
+    )
+    .unwrap();
+    server.tool_2026("session_close", &params(&[("session", &session)]));
 }

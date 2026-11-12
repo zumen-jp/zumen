@@ -6,7 +6,7 @@
 //! - `zumen <op> [ファイル]`: よく使う op の短い形。ファイルを入力にして open し、その文書で op を呼ぶ
 //! - `zumen serve --stdio`: API の関数を、標準入出力の JSON-RPC で出す（`serve.rs`）
 //! - `zumen serve --http`: 同じ JSON-RPC を HTTP で受ける（`http.rs`）
-//! - `zumen mcp`: MCP のサーバー（`mcp.rs`）
+//! - `zumen mcp`: MCP のサーバー（標準入出力と `--http`。`mcp.rs`）
 //! - `zumen scene-info`: シーンの blob のセクションを要約する（`scene.rs`）
 //!
 //! 実行ファイルの `zumen` は [`run`] を呼ぶだけ。
@@ -35,7 +35,8 @@ const USAGE: &str = "\
   zumen <op> [ファイル] [--フィールド 値]... [--blobs フォルダー]
   zumen serve --stdio
   zumen serve --http [--listen アドレス:ポート]
-  zumen mcp [--root フォルダー]
+  zumen mcp [--stdio] [--root フォルダー]
+  zumen mcp --http [--listen アドレス:ポート] [--root フォルダー]
   zumen scene-info <シーンの blob のファイル | ->
   zumen --version
 
@@ -44,7 +45,7 @@ const USAGE: &str = "\
 <op> の短い形は、ファイルを入力にして open し、その文書を doc に入れて op を呼ぶ。open と capabilities は
 それだけを呼ぶ。--フィールド の値は JSON として読み、読めなければ文字列にする。v は 1 にする。
 --blobs を書くと、応答の blobs を <フォルダー>/<id>.<kind> に書き出す。
-serve --http は既定で 127.0.0.1:24180 で待ち受け、待ち受けたアドレスを 1 行目に書く。
+serve --http は既定で 127.0.0.1:24180、mcp --http は 127.0.0.1:24181 で待ち受け、アドレスを 1 行目に書く。
 scene-info は、scene の op が返すシーンの blob の、セクションごとの行の数を JSON で書く。";
 
 /// 引数とファイルの誤り
@@ -94,14 +95,18 @@ fn dispatch(args: &[String]) -> Result<u8, String> {
             _ => Err(USAGE.to_string()),
         },
         "mcp" => {
-            let root = match rest {
-                [] => None,
-                [flag, root] if flag == "--root" => {
-                    Some(fs::canonicalize(root).map_err(|e| format!("{root} を開けない: {e}"))?)
+            let parsed = parse_mcp_args(rest)?;
+            let root = match parsed.root {
+                Some(root) => {
+                    Some(fs::canonicalize(&root).map_err(|e| format!("{root} を開けない: {e}"))?)
                 }
-                _ => return Err(USAGE.to_string()),
+                None => None,
             };
-            rpc::serve(mcp::Mcp::new(root, mcp::Limits::default()));
+            if let Some(listen) = parsed.http_listen {
+                mcp::http::serve(&listen, root, http::Limits::default())?;
+            } else {
+                rpc::serve(mcp::Mcp::new(root, mcp::Limits::default()));
+            }
             Ok(0)
         }
         "call" => call(rest),
@@ -117,6 +122,56 @@ fn dispatch(args: &[String]) -> Result<u8, String> {
         op if !op.starts_with('-') => short(op, rest),
         _ => Err(USAGE.to_string()),
     }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct McpArgs {
+    http_listen: Option<String>,
+    root: Option<String>,
+}
+
+fn parse_mcp_args(args: &[String]) -> Result<McpArgs, String> {
+    let mut stdio = false;
+    let mut http = false;
+    let mut listen: Option<String> = None;
+    let mut root: Option<String> = None;
+    let mut iter = args.iter();
+    while let Some(arg) = iter.next() {
+        match arg.as_str() {
+            "--stdio" => {
+                if stdio || http {
+                    return Err(USAGE.to_string());
+                }
+                stdio = true;
+            }
+            "--http" => {
+                if http || stdio {
+                    return Err(USAGE.to_string());
+                }
+                http = true;
+            }
+            "--listen" => {
+                if listen.is_some() {
+                    return Err(USAGE.to_string());
+                }
+                listen = Some(flag_value(&mut iter, arg)?.clone());
+            }
+            "--root" => {
+                if root.is_some() {
+                    return Err(USAGE.to_string());
+                }
+                root = Some(flag_value(&mut iter, arg)?.clone());
+            }
+            _ => return Err(USAGE.to_string()),
+        }
+    }
+    if !http && listen.is_some() {
+        return Err(USAGE.to_string());
+    }
+    Ok(McpArgs {
+        http_listen: http.then(|| listen.unwrap_or_else(|| mcp::http::DEFAULT_LISTEN.to_string())),
+        root,
+    })
 }
 
 fn write_out(bytes: &[u8]) -> Result<(), String> {
@@ -330,5 +385,42 @@ mod tests {
             br#"{"v":1,"op":"entities","limit":2,"from":"space/0"}"#
         );
         assert_eq!(compact(&flag_json(r#"["bbox"]"#)), br#"["bbox"]"#);
+    }
+
+    #[test]
+    fn parses_mcp_flags() {
+        let s =
+            |items: &[&str]| -> Vec<String> { items.iter().map(|i| (*i).to_string()).collect() };
+        assert_eq!(
+            parse_mcp_args(&s(&[])),
+            Ok(McpArgs {
+                http_listen: None,
+                root: None,
+            })
+        );
+        assert_eq!(
+            parse_mcp_args(&s(&["--stdio", "--root", "dir"])),
+            Ok(McpArgs {
+                http_listen: None,
+                root: Some("dir".to_string()),
+            })
+        );
+        assert_eq!(
+            parse_mcp_args(&s(&["--http"])),
+            Ok(McpArgs {
+                http_listen: Some(mcp::http::DEFAULT_LISTEN.to_string()),
+                root: None,
+            })
+        );
+        assert_eq!(
+            parse_mcp_args(&s(&["--root", "a", "--http", "--listen", "127.0.0.1:0"])),
+            Ok(McpArgs {
+                http_listen: Some("127.0.0.1:0".to_string()),
+                root: Some("a".to_string()),
+            })
+        );
+        assert!(parse_mcp_args(&s(&["--stdio", "--http"])).is_err());
+        assert!(parse_mcp_args(&s(&["--listen", "127.0.0.1:0"])).is_err());
+        assert!(parse_mcp_args(&s(&["--unknown"])).is_err());
     }
 }
