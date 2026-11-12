@@ -1,0 +1,27 @@
+[package]
+name = "zumen-bench-chunks"
+version = "0.0.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+
+# 計測だけの独立した workspace。コアと公開パッケージには入れない。
+[workspace]
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "measure"
+path = "src/main.rs"
+
+[dependencies]
+zumen-acad = { path = "../../crates/zumen-acad" }
+zumen-base = { path = "../../crates/zumen-base" }
+zumen-drawing = { path = "../../crates/zumen-drawing" }
+zumen-scene = { path = "../../crates/zumen-scene" }
+zumen-sdk = { path = "../../crates/zumen-sdk" }
+
+[profile.release]
+lto = true
+codegen-units = 1

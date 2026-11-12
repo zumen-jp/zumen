@@ -55,10 +55,11 @@ fn bounds_lzw_at_every_preflight_entry_before_whole_output_allocation() {
                 let limits = Limits::default().with(Kind::DecodedBytes, Limit::Finite(32 * 1024));
                 let result = run(&input, limits, false);
                 assert!(
-                    matches!(result.0, Err(Error::Stopped(Stop::Exceeded(e))) if e.kind == Kind::DecodedBytes && e.requested < 48 * 1024),
+                    matches!(result.0, Err(Error::Stopped(Stop::Exceeded(e))) if e.kind == Kind::DecodedBytes),
                     "{case}, {filter}: {:?}",
                     result.0
                 );
+                assert!(result.1.used(Kind::DecodedBytes) <= 32 * 1024);
                 assert_eq!(
                     format!("{result:?}"),
                     format!("{:?}", run(&input, limits, false))

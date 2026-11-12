@@ -1,4 +1,4 @@
-# エディターの設計（#693・決定 0288）のために、open・scene・entities・apply の時間と作業量をネイティブで測る。
+# エディターの設計（#693・docs/editor.md）のために、open・scene・entities・apply の時間と作業量をネイティブで測る。
 # コアのワークスペースには入れない。
 [package]
 name = "zumen-bench-editor"

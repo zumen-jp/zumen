@@ -255,20 +255,6 @@
         "/result/total": 2,
         "/diagnostics": [
           {
-            "code": "sxf.lift.invalid",
-            "severity": "warning",
-            "fidelity": "dropped",
-            "count": 1,
-            "at": [
-              {
-                "record": 12
-              }
-            ],
-            "params": {
-              "kind": "composite_curve_org_feature"
-            }
-          },
-          {
             "code": "sxf.lift.dropped",
             "severity": "warning",
             "fidelity": "dropped",
@@ -308,6 +294,20 @@
             ],
             "params": {
               "kind": "future_feature"
+            }
+          },
+          {
+            "code": "sxf.lift.invalid",
+            "severity": "warning",
+            "fidelity": "dropped",
+            "count": 1,
+            "at": [
+              {
+                "record": 12
+              }
+            ],
+            "params": {
+              "kind": "composite_curve_org_feature"
             }
           },
           {

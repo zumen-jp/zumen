@@ -15,8 +15,7 @@
 
 use std::collections::BTreeMap;
 
-use zumen_base::{Cx, Diagnostic, Kind, Stop, codes};
-use zumen_sdk::Error;
+use zumen_base::{Cx, Diagnostic, Error, Kind, Stop, codes};
 
 use crate::projection::{Ellipsoid, to_geographic_on, to_plane};
 use crate::{Crs, GeoPoint, MapPoint};

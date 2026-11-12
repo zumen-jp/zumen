@@ -1,6 +1,6 @@
 //! 登録した図面の形式で、テストキットの予算と ID の契約テストを流す（#398、決定 0010・0156・0017）。
 //! 入力は、公開サンプルの `samples/dwg` と、適合テストの組（`bindings/conformance/cases`）の合成のもの。
-//! ID の記録は `tests/ids/` に 1 行に 1 つ置く。ID を変えるには、先に決定の記録が要る。
+//! ID の記録は `tests/ids/` に 1 行に 1 つ置く。ID を変えるときは、schema/README.md の「ID と編集の前提条件」に従う。
 
 use zumen_acad::{Dwg, Dxf};
 use zumen_base::{Budget, CancelToken, Cx, Diagnostics};

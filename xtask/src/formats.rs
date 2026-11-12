@@ -55,8 +55,6 @@ struct Format {
     #[serde(default)]
     known_crates: Vec<String>,
     #[serde(default)]
-    decisions: Vec<String>,
-    #[serde(default)]
     legacy_decisions: Vec<String>,
     #[serde(default)]
     issues: Vec<String>,
@@ -135,9 +133,7 @@ struct Reference {
     url: String,
 }
 
-/// 台帳の決定番号と実在するファイル。生成するリンクにも同じ一覧を使う。
-type Decisions = BTreeMap<String, String>;
-
+/// 形式の台帳と参照先、依存の条件を確かめ、形式と権利の一覧を生成する。
 pub fn generate(root: &Path) -> Result<String, String> {
     let read = |path: &str| {
         fs::read_to_string(root.join(path)).map_err(|e| format!("{path} を読めない: {e}"))
@@ -146,9 +142,8 @@ pub fn generate(root: &Path) -> Result<String, String> {
         .map_err(|e| format!("formats/ledger.toml: {e}"))?;
     let deny: toml::Value =
         toml::from_str(&read("deny.toml")?).map_err(|e| format!("deny.toml: {e}"))?;
-    let decisions = decision_files(root)?;
     let samples = crate::samples::paths(root)?;
-    let mut errors = check(&ledger, root, &decisions, &samples);
+    let mut errors = check(&ledger, root, &samples);
     errors.extend(check_bans(&ledger, &deny));
     if errors.is_empty() {
         let metadata = metadata(root)?;
@@ -156,33 +151,13 @@ pub fn generate(root: &Path) -> Result<String, String> {
         errors.extend(check_layers(&metadata));
     }
     if errors.is_empty() {
-        Ok(render::render(&ledger, &decisions))
+        Ok(render::render(&ledger))
     } else {
         Err(format!(
             "形式の権利と層の向きの検査で問題がある:\n- {}",
             errors.join("\n- ")
         ))
     }
-}
-
-fn decision_files(root: &Path) -> Result<Decisions, String> {
-    let mut decisions = Decisions::new();
-    for entry in fs::read_dir(root.join("docs/decisions"))
-        .map_err(|e| format!("決定の記録を読めない: {e}"))?
-    {
-        let entry = entry.map_err(|e| format!("決定の記録を読めない: {e}"))?;
-        let name = entry.file_name().to_string_lossy().into_owned();
-        let Some((number, _)) = name.split_once('-') else {
-            continue;
-        };
-        if !is_decision(number) || !name.ends_with(".md") || !entry.path().is_file() {
-            continue;
-        }
-        if decisions.insert(number.to_string(), name.clone()).is_some() {
-            return Err(format!("決定 {number} のファイルが重なっている"));
-        }
-    }
-    Ok(decisions)
 }
 
 /// Cargo の全パッケージを読む。バージョンを固定し、任意の機能や別環境向けの依存を省かない。
@@ -210,12 +185,7 @@ fn metadata(root: &Path) -> Result<Value, String> {
 }
 
 /// `samples` は、公開サンプルの台帳にあるファイルの `samples/` からの道筋
-fn check(
-    ledger: &Ledger,
-    root: &Path,
-    decisions: &Decisions,
-    samples: &BTreeSet<String>,
-) -> Vec<String> {
+fn check(ledger: &Ledger, root: &Path, samples: &BTreeSet<String>) -> Vec<String> {
     let mut errors = Vec::new();
     for (id, spec) in &ledger.specs {
         let at = format!("specs.{id}");
@@ -253,7 +223,6 @@ fn check(
             ("specs", &format.specs),
             ("basis", &format.basis),
             ("known-crates", &format.known_crates),
-            ("decisions", &format.decisions),
             ("legacy-decisions", &format.legacy_decisions),
             ("issues", &format.issues),
             ("docs", &format.docs),
@@ -350,11 +319,6 @@ fn check(
                 errors.push(format!(
                     "{at}: known-crates の `{name}` は crate の名前だけにする"
                 ));
-            }
-        }
-        for number in &format.decisions {
-            if !is_decision(number) || !decisions.contains_key(number) {
-                errors.push(format!("{at}: 決定 `{number}` のファイルがない"));
             }
         }
         for number in &format.legacy_decisions {

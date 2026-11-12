@@ -28,6 +28,12 @@ mod ids;
 mod zip;
 
 #[cfg(feature = "building")]
+pub use building::{
+    ExtrudedArea, ExtrusionSource, GridAxes, GridAxisCurve, GridSource, ItemStyleSource,
+    ItemSurfaceStyles, ProductShape, ProfiledExtrusion, ShapeLinks, ShapeNode, ShapeRef,
+    SurfaceStyleBinding, SurfaceStyleSource,
+};
+#[cfg(feature = "building")]
 pub use edit::{Applied, Edit, NewLiteral, NewValue, RootAttribute, apply};
 pub use express::{Express, Findings, check, check_range};
 #[cfg(feature = "ids")]

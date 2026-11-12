@@ -1,4 +1,4 @@
-// エディターの設計（#693・決定 0288）のための測りの準備。公開サンプルと適合テストの合成の図面を土台にし、apply の add で
+// エディターの設計（#693・docs/editor.md）のための測りの準備。公開サンプルと適合テストの合成の図面を土台にし、apply の add で
 // 要素を足した図面を作り、測る場合の一覧（plan.txt）を書く。使うのはこのリポジトリの wasm と公開の API だけ。
 //
 //   node prepare.mjs <図面用の wasm> <出力のフォルダー>
@@ -181,12 +181,12 @@ function casesFor(label, file, base) {
     const open = { v: 1, op: "open", input, doc };
     const opener = [`push\t${input}\t${file}`, "call\t" + JSON.stringify(open)];
     const timed = (name, request, setup = opener) => ({ name: `${label}/${name}`, setup, request });
-    // エディターと同じく、apply には文書のハッシュを付ける（決定 0288）
+    // エディターと同じく、apply には文書のハッシュを付ける（docs/editor.md）
     const apply = (edits, docHash = hash) => ({ v: 1, op: "apply", doc, hash: docHash, edits });
     const scene = { v: 1, op: "scene", doc, from: place };
     const closeInput = (name) => ({ v: 1, op: "close", inputs: [name] });
     const call = (request) => "call\t" + JSON.stringify(request);
-    // エディターが開いたときと同じく、open のあとに入力を捨て、scene を流しておく（決定 0288）
+    // エディターが開いたときと同じく、open のあとに入力を捨て、scene を流しておく（docs/editor.md）
     const shown = [...opener, call(closeInput(input)), call(scene)];
     // 1 つの要素を選んだときに読む要素。選んだ範囲は、選ぶ要素（足した図面では、格子の最後の要素）の範囲にする
     const select = {
@@ -232,7 +232,7 @@ function casesFor(label, file, base) {
         timed("apply_add_1", apply([addOne])),
         timed("apply_remove_1", apply([removeOne])),
         timed("scene_after_apply", scene, [...opener, call(apply(transform(pick(1))))]),
-        // ここからは、エディターの流れ（決定 0288）。開く・変換・操作・選択・取り消し
+        // ここからは、エディターの流れ（docs/editor.md）。開く・変換・操作・選択・取り消し
         timed("show", [open, closeInput(input), scene], [`push\t${input}\t${file}`]),
         timed("drawing_next", { v: 1, op: "drawing", doc }, shown),
         timed("op_first", [first, scene], shown),

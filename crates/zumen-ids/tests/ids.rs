@@ -18,6 +18,43 @@ fn with<T>(f: impl FnOnce(&mut Cx) -> T) -> (T, Diagnostics) {
     (result, diag)
 }
 
+#[test]
+fn shift_jis_invalid_element_names_are_decoded_in_diagnostics() {
+    let mut src = b"<?xml version='1.0' encoding='Shift_JIS'?><".to_vec();
+    src.extend_from_slice(&[0x83, 0x5b, 0x81, 0x5b]); // ゼー
+    src.extend_from_slice(b"/>");
+    let (result, diag) = with(|cx| Ids::read(&src, cx));
+    assert!(matches!(result, Err(Error::Invalid)));
+    let diagnostic = diag.iter().next().unwrap();
+    assert_eq!(diagnostic.code(), codes::IDS_FILE_INVALID);
+    assert!(diagnostic.params().iter().any(|(key, value)| {
+        *key == "near" && value == &zumen_base::Value::Text("ゼー".into())
+    }));
+
+    let text = ids(&spec("x", &entity("IFCWALL"),
+        "<@/><attribute><name><simpleValue>Name</simpleValue></name><value><xs:restriction base='xs:string'><xs:# value='2'/></xs:restriction></value></attribute>"))
+        .replace("テスト", "test").replace("UTF-8", "Shift_JIS");
+    let src: Vec<_> = text
+        .bytes()
+        .flat_map(|byte| match byte {
+            b'@' => vec![0x83, 0x5b, 0x81, 0x5b], // ゼー
+            b'#' => vec![0x83, 0x5d],             // ゾ
+            _ => vec![byte],
+        })
+        .collect();
+    let (result, diag) = with(|cx| Ids::read(&src, cx));
+    assert!(result.is_ok(), "{diag:?}");
+    for (code, kind) in [
+        (codes::IDS_FACET_UNSUPPORTED, "ゼー"),
+        (codes::IDS_RESTRICTION_UNSUPPORTED, "ゾ"),
+    ] {
+        assert!(diag.iter().any(|d| d.code() == code
+            && d.params().iter().any(|(key, value)| {
+                *key == "kind" && value == &zumen_base::Value::Text(kind.into())
+            })));
+    }
+}
+
 fn ids(specifications: &str) -> String {
     format!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
@@ -239,6 +276,42 @@ fn reads_specifications() {
     assert_eq!(parsed.specifications()[0].name(), "壁");
     assert_eq!(parsed.specifications()[0].versions(), ["IFC4"]);
     assert!(diag.is_empty());
+}
+
+#[test]
+fn utf16_specifications_keep_names_and_apply_their_requirements() {
+    let source = ids(&spec(
+        "壁の名前",
+        &entity("IFCWALL"),
+        "<attribute><name><simpleValue>Name</simpleValue></name><value><simpleValue>W1</simpleValue></value></attribute>",
+    )).replace("encoding=\"UTF-8\"", "encoding=\"UTF-16\"");
+    for little in [true, false] {
+        let mut src = if little {
+            vec![0xff, 0xfe]
+        } else {
+            vec![0xfe, 0xff]
+        };
+        for unit in source.encode_utf16() {
+            src.extend(if little {
+                unit.to_le_bytes()
+            } else {
+                unit.to_be_bytes()
+            });
+        }
+        let (parsed, diag) = with(|cx| Ids::read(&src, cx));
+        assert!(diag.is_empty(), "{diag:?}");
+        let parsed = parsed.unwrap();
+        assert_eq!(parsed.title(), Some("テスト"));
+        assert_eq!(parsed.specifications()[0].name(), "壁の名前");
+        assert_eq!(parsed.specifications()[0].versions(), ["IFC4"]);
+        let model = building().unwrap();
+        let (report, diag) = with(|cx| check(&model, &parsed, &model, cx));
+        assert!(diag.is_empty(), "{diag:?}");
+        let report = report.unwrap();
+        assert_eq!(statuses(&report), [("壁の名前", Status::Passed)]);
+        assert_eq!(report.specifications[0].applicable, 1);
+        assert!(report.findings.is_empty());
+    }
 }
 
 #[test]

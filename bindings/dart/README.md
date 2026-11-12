@@ -1,6 +1,6 @@
 # Dart のラッパー
 
-ネイティブのライブラリ（`zumen_abi1.dll`・`libzumen_abi1.so`・`libzumen_abi1.dylib`）の C ABI を、dart:ffi で呼ぶ薄いラッパーです（[決定 0011](../../docs/decisions/0011-bindings-through-ffi.md)・[決定 0227](../../docs/decisions/0227-dart-wrapper.md)）。下限は Dart 3（Flutter 3）です。
+ネイティブのライブラリ（`zumen_abi1.dll`・`libzumen_abi1.so`・`libzumen_abi1.dylib`）の C ABI を、dart:ffi で呼ぶ薄いラッパーです（[依存とツールの条件](../../AGENTS.md#範囲と権利)）。下限は Dart 3（Flutter 3）です。
 
 - パッケージは `zumen` です。pub.dev にはまだ出していません。
 - 依存は `ffi`（BSD-3-Clause）だけです。

@@ -152,20 +152,31 @@ impl Builder<'_, '_, '_> {
         );
     }
 
-    /// 要素の空間の点を通る線。`curve` なら、点を通る 3 次のスプラインにする
-    fn path(&mut self, points: Vec<Xy>, curve: bool, local: f64) -> Vec<Xy> {
+    /// 要素の空間の点を通る線。`curve` なら、点を通る 3 次のスプラインにし、点を求める手間を数える（#756）
+    fn path(
+        &mut self,
+        points: Vec<Xy>,
+        curve: bool,
+        local: f64,
+        source: &Ref,
+    ) -> Result<Vec<Xy>, (Stop, Ref)> {
         if !curve || points.len() < 3 {
-            return points;
+            return Ok(points);
         }
-        match geom::interpolate(&points, None, None, geom::Spacing::Chord, false)
-            .and_then(|(knots, control)| geom::spline(3, &knots, &control, &[], local))
-        {
+        let Some((knots, control)) =
+            geom::interpolate(&points, None, None, geom::Spacing::Chord, false)
+        else {
+            return Ok(points);
+        };
+        let (found, work) = geom::spline_with_work(3, &knots, &control, &[], local);
+        self.work(work, source)?;
+        Ok(match found {
             Some(found) => {
                 self.approximated = true;
                 found
             }
             None => points,
-        }
+        })
     }
 
     /// 変換の、面積の倍率の平方根（長さの平均の倍率）
@@ -370,7 +381,7 @@ impl Builder<'_, '_, '_> {
         };
         let unit = self.unit(visit, entity_kind::LEADER, unit)?;
         let t = visit.transform;
-        let line = self.path(points, leader.spline, local);
+        let line = self.path(points, leader.spline, local, source)?;
         self.segments(line.len(), source)?;
         let line = line.into_iter().map(|p| map(&t, p)).collect();
         self.stroke(visit, line, unit, source)?;
@@ -424,7 +435,7 @@ impl Builder<'_, '_, '_> {
                 let (Some(&tip), Some(&next)) = (points.first(), points.get(1)) else {
                     continue;
                 };
-                let drawn = self.path(points, callout.path == PathKind::Spline, local);
+                let drawn = self.path(points, callout.path == PathKind::Spline, local, source)?;
                 self.segments(drawn.len(), source)?;
                 let drawn = drawn.into_iter().map(|p| map(&t, p)).collect();
                 self.stroke(visit, drawn, line_unit, source)?;

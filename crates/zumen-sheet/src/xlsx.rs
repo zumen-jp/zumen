@@ -64,7 +64,7 @@ fn children<'d>(
         .filter_map(move |node| match node {
             Node::Element(index) => doc
                 .element(*index)
-                .filter(|child| doc.local_name(child.name()) == local),
+                .filter(|child| doc.parsed_local_name(child.name()) == local),
             _ => None,
         })
 }
@@ -74,7 +74,7 @@ fn attribute(doc: &Document, element: &Element, local: &[u8]) -> Option<String> 
     element
         .attributes()
         .iter()
-        .find(|attribute| doc.local_name(attribute.name()) == local)
+        .find(|attribute| doc.parsed_local_name(attribute.name()) == local)
         .map(|attribute| doc.value(attribute))
 }
 
@@ -84,7 +84,8 @@ fn qualified(doc: &Document, element: &Element, local: &[u8]) -> Option<String> 
         .attributes()
         .iter()
         .find(|attribute| {
-            doc.local_name(attribute.name()) == local && doc.namespace(attribute.name()).is_some()
+            doc.parsed_local_name(attribute.name()) == local
+                && doc.namespace(attribute.name()).is_some()
         })
         .map(|attribute| doc.value(attribute))
 }
@@ -139,7 +140,7 @@ fn rich(doc: &Document, element: &Element) -> String {
         let Some(child) = doc.element(*index) else {
             continue;
         };
-        match doc.local_name(child.name()) {
+        match doc.parsed_local_name(child.name()) {
             b"t" => out.push_str(&text(doc, child)),
             b"r" => {
                 for t in children(doc, child, b"t") {

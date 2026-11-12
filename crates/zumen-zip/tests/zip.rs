@@ -3,8 +3,9 @@
 //! deflate のデータは、zlib（`compressobj(9, DEFLATED, -15)`）で `TEXT` を圧縮したもの。
 
 use zumen_base::crc::crc32;
-use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Kind, Limit, Limits, Value, codes};
-use zumen_sdk::Error;
+use zumen_base::{
+    Budget, CancelToken, Code, Cx, Diagnostics, Error, Kind, Limit, Limits, Value, codes,
+};
 use zumen_zip::{Archive, Method};
 
 /// 動的なハフマン符号のブロック 1 つ

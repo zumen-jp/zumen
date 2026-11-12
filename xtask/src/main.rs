@@ -29,6 +29,7 @@ mod samples;
 mod scene;
 mod schema;
 mod swift;
+mod vba;
 // 適合テストと同じ SHA-256 を使う
 #[path = "../../bindings/conformance/src/sha256.rs"]
 mod sha256;
@@ -200,6 +201,10 @@ fn codegen(mode: Mode) -> Result<(), String> {
         (drawing::GENERATED, rustfmt(&root, &drawing.rust)?),
         (HEADER, boundary::render_header(&boundary)),
         (SCENE_HEADER, scene::render_c_header(&scene)),
+        (
+            vba::OUTPUT,
+            vba::render(PACKAGE_VERSION, &boundary, &scene)?,
+        ),
         (JS_MESSAGES, javascript::render_types(&schema)),
         (
             JS_CONSTANTS,

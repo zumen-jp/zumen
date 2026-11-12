@@ -1,6 +1,6 @@
 # エディターの設計のための測り
 
-[#693](https://github.com/zumen-jp/zumen/issues/693) の測りです。エディター（[#692](https://github.com/zumen-jp/zumen/issues/692)）で、1 回の操作ごとに `apply` してシーンを作り直せるか、取り消しをどう持つかを決めるために、`open`・`drawing`・`scene`・`entities`・`apply` の時間と作業量を、ネイティブと wasm で測ります。結果と判断は[決定 0288](../../docs/decisions/0288-editor-placement-edit-flow-and-history.md) にあります。
+[#693](https://github.com/zumen-jp/zumen/issues/693) の測りです。エディター（[#692](https://github.com/zumen-jp/zumen/issues/692)）で、1 回の操作ごとに `apply` してシーンを作り直せるか、取り消しをどう持つかを決めるために、`open`・`drawing`・`scene`・`entities`・`apply` の時間と作業量を、ネイティブと wasm で測ります。結果と判断は[図面のエディターの設計](../../docs/editor.md) にあります。
 
 コアのワークスペースには入れていません。依存は、このリポジトリの `zumen` の crate だけです。`Cargo.lock` は、ワークスペースの `Cargo.lock` から同じバージョンを引き継いでいます。
 
@@ -46,12 +46,12 @@
 | `select` | 開いて `scene` を流したあとに、1 つの要素を選んだときの `entities`。範囲（`region`）は、空間か用紙の最後の線・折れ線・点（足した図面では、格子の最後の要素）の範囲にし、起点（`place`）で絞って、`kind`・`layer`・`hash`・`geometry` を読む |
 | `undo` | 最初の操作のあとに、元のバイト列を新しい名前で `push` し（準備に入れる）、文書を閉じ、同じセッションで開き直して、入力を捨て、`scene` を流す |
 
-- `show` から `undo` までは、エディターの流れです。エディターと同じく、`open` のあとに入力を `close` で捨てます（決定 0288）。
+- `show` から `undo` までは、エディターの流れです。エディターと同じく、`open` のあとに入力を `close` で捨てます（`docs/editor.md`）。
 - `open` から `scene_after_apply` までは、新しいセッションでの最初の呼び出しを測ります。エディターが Worker を保って操作を続けるときの時間は、`drawing_next`・`op_next`・`select`・`undo` で見ます。
 - `select` で読む要素の数は、`inputs.tsv` に書きます。
 - 土台の P21 は要素が 1 つなので、`apply_remove_1` はレイヤの並びを空にする除去として断られ、`failed` になります（`docs/formats/sxf.md`）。
 
-作業量は、通る最小の予算です。土台のままの図面を除き、`open`・`scene`・`apply_transform_1` について、予算の単位（`work`・`records`・`elements`・`segments`）ごとに、その単位の上限だけを変えて、通るかどうかで二分探索します。5 万要素を超える図面では、時間がかかるので `work` だけを探します。予算は決まった作業量で数えるので（[決定 0010](../../docs/decisions/0010-budget-by-work.md)）、ネイティブと wasm で同じ値になります。
+作業量は、通る最小の予算です。土台のままの図面を除き、`open`・`scene`・`apply_transform_1` について、予算の単位（`work`・`records`・`elements`・`segments`）ごとに、その単位の上限だけを変えて、通るかどうかで二分探索します。5 万要素を超える図面では、時間がかかるので `work` だけを探します。予算は決まった作業量で数えるので（[予算と中断](../../docs/architecture.md#予算と中断)）、ネイティブと wasm で同じ値になります。
 
 ## 流し方
 

@@ -42,6 +42,8 @@ zumen-ply = { path = "../crates/zumen-ply" }
 zumen-pointcloud = { path = "../crates/zumen-pointcloud" }
 zumen-sdk = { path = "../crates/zumen-sdk" }
 zumen-render = { path = "../crates/zumen-render" }
+zumen-review = { path = "../crates/zumen-review" }
+zumen-scene = { path = "../crates/zumen-scene" }
 zumen-sheet = { path = "../crates/zumen-sheet" }
 zumen-step = { path = "../crates/zumen-step" }
 zumen-sxf = { path = "../crates/zumen-sxf" }
@@ -301,6 +303,13 @@ bench = false
 [[bin]]
 name = "review"
 path = "fuzz_targets/review.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "review_scene"
+path = "fuzz_targets/review_scene.rs"
 test = false
 doc = false
 bench = false

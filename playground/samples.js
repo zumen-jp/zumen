@@ -3,7 +3,7 @@
 // SXF・JWW は、再配布できる公開サンプルがないので入れない（samples/README.md）。
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { normalizePath } from "vite";
+const normalizePath = (path) => path.replaceAll("\\", "/");
 
 export const SAMPLE_PATHS = [
   "dxf/text_alignments.dxf",
@@ -32,9 +32,9 @@ export function readLedger(text) {
 }
 
 /** 入れるサンプルの出所と、同梱を求めるライセンスの本文のファイル（`licenses/`） */
-export function selectSamples(root) {
+export function selectSamples(root, paths = SAMPLE_PATHS) {
   const ledger = readLedger(readFileSync(resolve(root, "samples/ledger.toml"), "utf8"));
-  return SAMPLE_PATHS.map((path) => {
+  return paths.map((path) => {
     const entry = ledger.find((item) => item.path === path);
     if (!entry) throw new Error("samples/ledger.toml にないサンプル: " + path);
     for (const field of FIELDS) if (!entry[field]) throw new Error(path + " の " + field + " がない");
@@ -45,9 +45,9 @@ export function selectSamples(root) {
 }
 
 /** サンプルの出所を、画面に渡す仮想のモジュール（`virtual:samples`）と、配布物の `samples.md` にする Vite のプラグイン */
-export function samplesPlugin(root) {
+export function samplesPlugin(root, paths = SAMPLE_PATHS) {
   const id = "virtual:samples", resolved = "\0" + id;
-  const samples = selectSamples(root);
+  const samples = selectSamples(root, paths);
   return {
     name: "zumen-samples",
     resolveId(source) { return source === id ? resolved : null; },

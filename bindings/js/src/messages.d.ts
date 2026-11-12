@@ -12,8 +12,11 @@ export type Request =
   | DescribeRequest
   | DrawingRequest
   | EntitiesRequest
+  | CalibrationsRequest
+  | MeasureDistanceRequest
   | ApplyRequest
   | ConvertRequest
+  | ConvertEstimateRequest
   | TablesRequest
   | SceneRequest
   | CheckRequest
@@ -208,6 +211,104 @@ export interface DrawingResult {
   sheets: SheetSummary[];
   /** 文書の点の表し方（marker を持たない点の見え方、決定 0160）。point_style の変更で変える。文書が持たなければ（JWW・SXF）持たない。マイナーバージョン 39 から */
   point_style?: PointStyleSummary;
+}
+
+/** 2 次元の座標 */
+export interface Point2 {
+  /** X 座標 */
+  x: number;
+  /** Y 座標 */
+  y: number;
+}
+
+/** 原点と相対座標を分けた用紙の点。両成分の正確な和を位置とし、先に足して丸めない。座標の単位は用紙の mm */
+export interface SplitPoint2 {
+  /** 用紙の原点 */
+  origin: Point2;
+  /** 原点からの相対座標 */
+  offset: Point2;
+}
+
+/** 用紙の閉じた矩形で使う距離の校正。重なる領域は ID で明示的に選ぶ。マイナーバージョン 68 から */
+export interface CalibrationItem {
+  /** 文書内で重複しない校正の ID */
+  id: string;
+  /** 元の校正の名前。翻訳しない。なければ持たない */
+  name?: string;
+  /** 校正を使える公開用紙の ID。drawing が返すもの */
+  from: string;
+  /** 用紙の mm の閉じた矩形。[X の最小, Y の最小, X の最大, Y の最大] の 4 値で、幅と高さは正 */
+  bounds: number[];
+  /** 用紙の mm の変位から校正単位の変位へ写す行優先の 2×2 行列。[a, b, c, d] の 4 値で、[dx, dy] を [a*dx+b*dy, c*dx+d*dy] に写す */
+  matrix: number[];
+  /** 校正後の長さの単位。ラベルだけから推定しない */
+  unit: Unit;
+  /** 元の単位ラベル。未知の単位でも原文を保つ */
+  unit_label: string;
+  /** 元の形式のレコード */
+  source?: Source;
+}
+
+/** 開いた文書を図面モデルに変換し、用紙の距離の校正をモデルの順に返す。マイナーバージョン 68 から */
+export interface CalibrationsRequest extends RequestCommon {
+  /** op の名前 */
+  op: "calibrations";
+  /** 文書の名前。open で作ったもの */
+  doc: string;
+  /** 公開用紙の ID。drawing が返すもの。書けばその用紙の校正だけを返し、書かなければすべての校正を返す */
+  from?: string;
+  /** 返す最初の校正の位置。from で絞った後の位置で、前の応答の next_offset を渡す。書かなければ 0 */
+  offset?: number;
+  /** 返す校正の数の上限。書かなければ 1000 */
+  limit?: number;
+  /** 期待する元の文書のハッシュ。open に渡したバイト列のハッシュと照合する。図面モデルへ変換した ZMDR 自身のハッシュではない */
+  expected_hash?: string;
+}
+
+/** 距離の校正の一覧の一部 */
+export interface CalibrationsResult {
+  /** 元の文書のハッシュ。ZMDR から開いたときは、埋め込まれた元の文書のハッシュ（Source.hash） */
+  hash: string;
+  /** from で絞った一覧の offset から limit 個までの校正 */
+  items: CalibrationItem[];
+  /** from で絞った後の校正の総数 */
+  total: number;
+  /** 続きの最初の校正の位置。続きがなければ持たない */
+  next_offset?: number;
+}
+
+/** 用紙と校正を明示的に選び、始点と終点の校正後の距離を求める。両点は校正の閉領域内にある必要がある。マイナーバージョン 68 から */
+export interface MeasureDistanceRequest extends RequestCommon {
+  /** op の名前 */
+  op: "measure_distance";
+  /** 文書の名前。open で作ったもの */
+  doc: string;
+  /** 公開用紙の ID。drawing が返すもので、選んだ校正と同じ用紙 */
+  from: string;
+  /** 使う校正の ID。calibrations が返すもの */
+  calibration: string;
+  /** 始点。原点と相対座標を分けた用紙の mm の点 */
+  start: SplitPoint2;
+  /** 終点。原点と相対座標を分けた用紙の mm の点 */
+  end: SplitPoint2;
+  /** 期待する元の文書のハッシュ。open に渡したバイト列のハッシュと照合する。図面モデルへ変換した ZMDR 自身のハッシュではない */
+  expected_hash?: string;
+}
+
+/** 選んだ用紙と校正による距離 */
+export interface MeasureDistanceResult {
+  /** 元の文書のハッシュ。ZMDR から開いたときは、埋め込まれた元の文書のハッシュ（Source.hash） */
+  hash: string;
+  /** 計測した公開用紙の ID */
+  from: string;
+  /** 使った校正の ID */
+  calibration: string;
+  /** 校正後の距離。unit と unit_label が示す単位 */
+  distance: number;
+  /** 校正後の長さの単位 */
+  unit: Unit;
+  /** 元の単位ラベル。未知の単位でも原文を保つ */
+  unit_label: string;
 }
 
 /** 文書の点の表し方。フィールドの意味は point_style_edit と同じ */
@@ -417,7 +518,7 @@ export interface PolylineGeometry {
   closed: boolean;
 }
 
-/** 1 点か 2 点の間に置く文字。置き換えるときは、位置合わせ・幅の倍率・斜体・反転・文字スタイルを元の値のままにする。足すときは、2 点目がなければ左の基準線に合わせ、幅の倍率 1・斜体なし・反転なしにする */
+/** 1 点か 2 点の間に置く文字。置き換えるときは、位置合わせ・文字スタイルを元の値のままにし、書かない幅の倍率・斜体・反転も元の値を受け継ぐ。足すときは、2 点目がなければ書かない位置合わせを左の基準線にし、幅の倍率 1・斜体なし・反転なしにする */
 export interface TextGeometry {
   /** 形の種類 */
   shape: "text";
@@ -429,15 +530,43 @@ export interface TextGeometry {
   end?: number[];
   /** 2 点の間への合わせ方。2 点目（end）と一緒に書く。マイナーバージョン 17 から */
   fit?: TextFit;
+  /** 1 点に置く文字の水平の位置合わせ。left のときは entities が省き、足すときも省けば left。2 点の間に合わせる文字には書けない。置き換えるときは元と同じ値だけを受ける。マイナーバージョン 69 から */
+  horizontal?: TextHorizontal;
+  /** 1 点に置く文字の垂直の位置合わせ。baseline のときは entities が省き、足すときも省けば baseline。2 点の間に合わせる文字には書けない。置き換えるときは元と同じ値だけを受ける。マイナーバージョン 69 から */
+  vertical?: TextVertical;
   /** 高さ。0 より大きい */
   height: number;
   /** 回転（度）。2 点の間に合わせる文字では、1 点目から 2 点目への向きと同じでなければならない */
   rotation: number;
+  /** 幅の倍率。0 より大きい。1 のときは entities が省き、足すときも省けば 1、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から */
+  width_factor?: number;
+  /** 斜体の角度（度）。0 のときは entities が省き、足すときも省けば 0、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から */
+  oblique?: number;
+  /** 左右を裏返すか。偽のときは entities が省き、足すときも省けば偽、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から */
+  backward?: boolean;
+  /** 上下を反転するか。偽のときは entities が省き、足すときも省けば偽、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から */
+  upside_down?: boolean;
   /** 文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。DXF に文字スタイルの定義がないときは Standard だけを受ける。置き換えるときは、元と同じ名前だけを受ける。style_id と一緒に書くなら、同じ文字スタイルを指す。マイナーバージョン 12 から */
   style?: string;
   /** 文字スタイルの ID。tables が返したもの。entities は、名前で引いた文字スタイルの ID を返す。足す・置き換えるときは、名前の代わりに書ける（名前より先に使う）。同じ名前（大文字と小文字を区別しない）の項目が複数あれば書き戻せない。マイナーバージョン 23 から */
   style_id?: string;
 }
+
+/** 1 点に置く文字の水平の位置合わせ。middle は水平と垂直の両方を外形の中央に合わせる（DXF の 72 = 4） */
+export type TextHorizontal =
+  | "left"
+  | "center"
+  | "right"
+  | "middle"
+  | (string & {});
+
+/** 1 点に置く文字の垂直の位置合わせ */
+export type TextVertical =
+  | "baseline"
+  | "bottom"
+  | "middle"
+  | "top"
+  | (string & {});
 
 /** 2 点の間への合わせ方。aligned は縦横の比を保って高さも変え、fit は高さを保って幅だけを変える */
 export type TextFit =
@@ -784,6 +913,105 @@ export interface ConvertResult {
   /** 書いた要素の数。記号から離した属性の文字を含む */
   elements: number;
 }
+
+/** 開いた図面を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。今は DXF への変換だけ。マイナーバージョン 66 から */
+export interface ConvertEstimateRequest extends RequestCommon {
+  /** op の名前 */
+  op: "convert_estimate";
+  /** 書く元の文書の名前 */
+  doc: string;
+  /** 書く形式の名前。今は dxf だけ */
+  format: string;
+  /** 予定する文書の名前。convert と同じ条件で検査するが、名前を確保しない */
+  to: string;
+  /** 書き手と読み取り段階のそれぞれで返す明細の最大件数。省略時は 100。総数と全件集計はこの上限によらない */
+  limit?: number;
+}
+
+/** 予定する変換の結果。元の文書・ID を保ち、ファイルの blob を返さない */
+export interface ConvertEstimateResult {
+  /** 予定する出力と忠実度の全件集計・上限付き明細 */
+  estimate: ConversionEstimate;
+}
+
+/** 実変換と同じ処理で準備した出力。doc と hash は未登録の予定値。元の入力・設定・予算が同じなら convert の値と一致する */
+export interface ConversionEstimate {
+  /** 予定する文書の名前 */
+  doc: string;
+  /** 予定する形式の名前 */
+  format: string;
+  /** 予定する出力バイト列のハッシュ。未登録なので apply の前提条件には使えない */
+  hash: string;
+  /** 予定する出力の要素数。記号から離す属性の文字を含む */
+  elements: number;
+  /** 処理対象の出現数。同じ出所を持つ別の入力は別々に数え、診断の数では増やさない */
+  total: number;
+  /** 種類と忠実度ごとの全件集計 */
+  counts: ConversionCount[];
+  /** 処理順の明細。limit 件まで返す */
+  details: ConversionDetail[];
+  /** 明細の上限で返さなかった対象がある */
+  truncated: boolean;
+  /** 入力の表の読み取りと lift 中の、集約前の診断発生記録。書き手の項目の集計には含めない。マイナーバージョン 67 から */
+  input_diagnostics?: ConversionInputDiagnostics;
+}
+
+/** 読み取り段階の診断発生数。失った要素数ではなく、同じ要素の複数の診断もそれぞれ数える。忠実度を持たない診断も含む。open 時や書き手の診断は含まない */
+export interface ConversionInputDiagnostics {
+  /** 診断の発生件数の合計。max_places と limit によらない */
+  total: number;
+  /** 診断の code とカタログの group_by の値による全件集計。場所は持たず、値は最も早い入力位置の報告から取る */
+  counts: Diagnostic[];
+  /** 集約前の報告を入力位置順に limit 件まで返す。同じ位置は報告順。診断の場所は max_places で制限しない */
+  details: ConversionInputDiagnostic[];
+  /** 明細の上限で返さなかった報告がある */
+  truncated: boolean;
+}
+
+/** 集約前の診断と、その場所と同じ順序の出所。種類や失った値は診断の code と params からたどる */
+export interface ConversionInputDiagnostic {
+  /** 集約前の診断。元の値と場所を保つ */
+  diagnostic: Diagnostic;
+  /** diagnostic.at と同じ順序のレコード・バイト範囲・ハンドル・インスタンス番号。ID は diagnostic.at にある */
+  sources: Source[];
+}
+
+/** 処理対象の種類と忠実度ごとの集計 */
+export interface ConversionCount {
+  /** 処理対象の種類のキー */
+  kind: string;
+  /** その対象を移した結果の忠実度 */
+  fidelity: ConversionFidelity;
+  /** 入力の出現数。1 つの入力が複数の出力になっても 1 件 */
+  count: number;
+  /** この対象から書いた図形の数。表や参照だけを移した場合は 0 */
+  output_elements: number;
+}
+
+/** 処理対象の出現 1 つ。複数の欠落の診断が出ても 1 件として数える */
+export interface ConversionDetail {
+  /** 処理対象の種類のキー */
+  kind: string;
+  /** その対象を移した結果の忠実度 */
+  fidelity: ConversionFidelity;
+  /** 値や参照を変えた理由のキー。text_height_meaning は文字高の意味、relocated_shape は形の値、style_default はスタイルの既定値、detached_attribute は属性の文字への分離、baked_view はビューの焼き込み、reference_dropped は参照の欠落 */
+  reasons: string[];
+  /** 元の要素の ID。持つ対象だけで返す */
+  id?: string;
+  /** 元の対象のレコード・バイト範囲・キー */
+  source: Source;
+  /** この対象から書いた図形の数。表や参照だけを移した場合は 0 */
+  output_elements: number;
+}
+
+/** 忠実度。`native` は元の値・参照を保持、`equivalent` は別の表現で同じ意味、`approximated` は近似、`drawn` は見た目だけ、`dropped` は欠落 */
+export type ConversionFidelity =
+  | "native"
+  | "equivalent"
+  | "approximated"
+  | "drawn"
+  | "dropped"
+  | (string & {});
 
 /** 当てた変更 1 つの結果 */
 export interface Applied {
@@ -3285,8 +3513,11 @@ export interface Operations {
   describe: { request: DescribeRequest; result: DescribeResult };
   drawing: { request: DrawingRequest; result: DrawingResult };
   entities: { request: EntitiesRequest; result: EntitiesResult };
+  calibrations: { request: CalibrationsRequest; result: CalibrationsResult };
+  measure_distance: { request: MeasureDistanceRequest; result: MeasureDistanceResult };
   apply: { request: ApplyRequest; result: ApplyResult };
   convert: { request: ConvertRequest; result: ConvertResult };
+  convert_estimate: { request: ConvertEstimateRequest; result: ConvertEstimateResult };
   tables: { request: TablesRequest; result: TablesResult };
   scene: { request: SceneRequest; result: SceneResult };
   check: { request: CheckRequest; result: CheckResult };

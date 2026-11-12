@@ -6,6 +6,8 @@ use hayro_syntax::object::{Dict, MaybeRef, Object, ObjectIdentifier, Stream};
 use hayro_syntax::reader::{Readable, Reader, ReaderContext, ReaderExt};
 use zumen_base::{Cx, Kind, Stop};
 
+use super::metadata::Metadata;
+
 #[derive(Clone, Copy, Default)]
 pub(crate) struct Source<'a> {
     file: &'a [u8],
@@ -16,6 +18,18 @@ pub(crate) struct Source<'a> {
 }
 
 impl<'a> Source<'a> {
+    pub(crate) fn metadata_bound(self) -> u64 {
+        (self.file.len() as u64).max(self.largest_container)
+    }
+
+    pub(super) fn metadata_table(self) -> u64 {
+        self.table_bytes
+    }
+
+    pub(super) fn metadata_encrypted(self) -> bool {
+        self.encrypted
+    }
+
     pub(crate) fn new(file: &'a [u8], encrypted: bool, largest_container: u64) -> Self {
         Self {
             file,
@@ -53,7 +67,12 @@ impl<'a> Source<'a> {
 
     /// 相互参照の修復前後の 2 回、文字列の展開と復号の余りも含めて数える。
     pub(crate) fn reserve_scalar(self, bound: u64, cx: &mut Cx<'_>) -> Result<(), Stop> {
-        reserve_metadata(bound.max(24).saturating_mul(16), cx)
+        // 暗号化した空文字列でも、2 回の鍵生成には固定の確保と手間がある。
+        let fixed = if self.encrypted { 4096 } else { 0 };
+        if self.encrypted {
+            cx.check(Kind::Work, bound.saturating_mul(8).saturating_add(fixed))?;
+        }
+        reserve_metadata(bound.max(24).saturating_mul(16).saturating_add(fixed), cx)
     }
 
     /// 参照を調べるための直接の F。文字列は参照を持たず、辞書は表を作らず元の範囲を使う。
@@ -113,15 +132,40 @@ impl<'a> Source<'a> {
         Some(data.len() as u64)
     }
 
-    /// ASCII の確認と hayro の本来の展開で 2 回復号する。AES の 16 バイトずつ伸びる Vec も含める。
-    pub(super) fn reserve_decryption(
+    /// raw_data が読む Type の文字列、本文の Vec の全伸長、鍵生成の固定費を先に数える。
+    /// 単独圧縮・系列は確認と本来の展開の 2 回、ほかの段は本来の 1 回。診断の再読も別に渡す。
+    pub(crate) fn reserve_raw(
         self,
         stream: &Stream<'_>,
+        copies: u64,
         cx: &mut Cx<'_>,
     ) -> Result<(), Stop> {
+        if self.encrypted {
+            // ciphertext_bound の Length の型付き取得と、固定長の境界確認も予約より先に行わない。
+            cx.check(
+                Kind::Work,
+                32 + (stream.dict().data().len() as u64)
+                    .div_ceil(16)
+                    .saturating_mul(4),
+            )?;
+        }
         if let Some(bytes) = self.ciphertext_bound(stream) {
-            let allocated = bytes.max(16).saturating_mul(4).saturating_mul(2);
-            cx.check(Kind::Work, allocated.div_ceil(16))?;
+            Metadata::new(self, copies).reserve_string_key(stream.dict(), b"Type", cx)?;
+            // RC4/AES の object key と MD5 の一時 Vec も含める。AES-CBC は 16 バイトずつ
+            // Vec を伸ばすため、出力長だけでなく全確保を数える。Type が文字列 XRef の
+            // 場合や Identity でも、ここでは復号しうる上限を予約し、値を読む回数を増やさない。
+            let allocated = bytes
+                .max(16)
+                .saturating_mul(4)
+                .saturating_add(2048)
+                .saturating_mul(copies);
+            cx.check(
+                Kind::Work,
+                bytes
+                    .saturating_mul(4)
+                    .saturating_add(2048)
+                    .saturating_mul(copies),
+            )?;
             cx.check(Kind::DecodedBytes, allocated)?;
         }
         Ok(())
@@ -129,53 +173,37 @@ impl<'a> Source<'a> {
 
     /// F が外部ファイルを表す場合、hayro は Filter の前に失敗する。文字列の中身を型の判定のために作らない。
     pub(super) fn external(self, dict: &Dict<'_>, cx: &mut Cx<'_>) -> Result<bool, Stop> {
-        cx.check(Kind::Work, 1)?;
+        // get_raw 自体も、長い数を ObjRef として試す。
+        cx.check(
+            Kind::Work,
+            1 + (dict.data().len() as u64).div_ceil(16).saturating_mul(4),
+        )?;
         match dict.get_raw::<Tail<'_>>(b"F") {
             None => Ok(false),
             Some(MaybeRef::NotRef(Tail(tail))) if matches!(tail.first(), Some(b'(' | b'<')) => {
-                // この範囲は辞書の読み取りで既に値として飛ばせている。上流と同じ境界を確かめる。
-                cx.check(Kind::Work, (tail.len() as u64).div_ceil(16))?;
-                let mut r = Reader::new(tail);
-                let Some(raw) = r.skip::<Object<'_>>(false) else {
-                    return Ok(false);
-                };
-                let len = raw.len() as u64;
-                if raw.starts_with(b"<<") {
-                    // Object::read は辞書の後ろが stream なら Stream を読む。元の判定と同じ型を使う。
-                    let names = names_bound(raw, cx)?;
-                    let bytes = dict_bytes(len, names);
-                    reserve_metadata(bytes, cx)?;
+                // Object が辞書を Stream として再読する分も含め、skip の成功範囲に縮めない。
+                let dictionary = tail.starts_with(b"<<");
+                Metadata::new(self, if dictionary { 2 } else { 1 })
+                    .reserve_object_key(dict, b"F", cx)?;
+                if dictionary {
                     return Ok(matches!(
                         dict.get::<Object<'_>>(b"F"),
                         Some(Object::Dict(_))
                     ));
                 }
-                // 上流が実際に F の文字列を読む 1 回分。通常の非暗号のリテラルは元の列を借りる。
-                let bytes = if raw.first() == Some(&b'<') {
-                    len.div_ceil(2)
-                } else if raw.iter().any(|b| matches!(b, b'\\' | b'\n' | b'\r')) {
-                    len.max(24).saturating_mul(4)
-                } else {
-                    0
-                };
-                let decrypt = if self.encrypted {
-                    len.max(16).saturating_mul(4)
-                } else {
-                    0
-                };
-                reserve_metadata(bytes.saturating_add(decrypt), cx)?;
-                Ok(true)
+                // 直接の文字列は中身を作らず型を確かめる。上流が実体化する 1 回分は予約済み。
+                cx.check(Kind::Work, (tail.len() as u64).div_ceil(16))?;
+                let mut r = Reader::new(tail);
+                Ok(r.skip::<Object<'_>>(false).is_some())
             }
-            Some(MaybeRef::NotRef(_)) => Ok(false),
+            Some(MaybeRef::NotRef(Tail(tail))) => {
+                // Name の所有は Metadata::decoding の追加 1 回分に含める。Array は範囲を借りる。
+                cx.check(Kind::Work, (tail.len() as u64).div_ceil(16))?;
+                Ok(false)
+            }
             Some(MaybeRef::Ref(_)) => {
-                // 上流の API は参照を解く前の対象範囲を公開しない。元のファイルか展開した ObjStm の最大長、
-                // 辞書のキー、文字列を読む余りで上限を決め、確認と本来の展開を両方数えてから解く。
-                let size = (self.file.len() as u64).max(self.largest_container);
-                let names = names_bound(self.file, cx)?.max(self.largest_container);
-                reserve_metadata(
-                    dict_bytes(size, names).max(size.max(24).saturating_mul(16)),
-                    cx,
-                )?;
+                // 確認と本来の展開の 2 回。型の再試行は Metadata が別に含める。
+                Metadata::new(self, 2).reserve_object_key(dict, b"F", cx)?;
                 Ok(matches!(
                     dict.get::<Object<'_>>(b"F"),
                     Some(Object::String(_) | Object::Dict(_))
@@ -185,27 +213,9 @@ impl<'a> Source<'a> {
     }
 }
 
-// 1 キー 176 バイト（guard.rs）、最初の表、エスケープした名前と、確認・上流の 2 回の読み。
-fn dict_bytes(size: u64, names: u64) -> u64 {
-    names
-        .saturating_mul(176)
-        .saturating_add(2048)
-        .saturating_add(size.saturating_mul(4))
-        .saturating_mul(2)
-}
-
 fn reserve_metadata(bytes: u64, cx: &mut Cx<'_>) -> Result<(), Stop> {
     cx.check(Kind::Work, bytes.div_ceil(16))?;
     cx.check(Kind::DecodedBytes, bytes)
-}
-
-fn names_bound(bytes: &[u8], cx: &mut Cx<'_>) -> Result<u64, Stop> {
-    let mut names = 0;
-    for chunk in bytes.chunks(256) {
-        cx.check(Kind::Work, (chunk.len() as u64).div_ceil(16))?;
-        names += chunk.iter().filter(|&&b| b == b'/').count() as u64;
-    }
-    Ok(names)
 }
 
 struct Tail<'a>(&'a [u8]);
@@ -213,5 +223,60 @@ struct Tail<'a>(&'a [u8]);
 impl<'a> Readable<'a> for Tail<'a> {
     fn read(r: &mut Reader<'a>, _: &ReaderContext<'a>) -> Option<Self> {
         r.tail().map(Tail)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use zumen_base::{Budget, CancelToken, Diagnostics, Limit, Limits};
+
+    fn reserve(input: &[u8], copies: u64, limits: Limits) -> (Result<(), Stop>, Budget) {
+        let stream = Reader::new(input)
+            .read_with_context::<Stream<'_>>(&ReaderContext::dummy())
+            .unwrap();
+        let source = Source::new(input, true, u64::MAX);
+        let mut budget = Budget::new(limits);
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let result = source.reserve_raw(
+            &stream,
+            copies,
+            &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+        );
+        (result, budget)
+    }
+
+    #[test]
+    fn empty_ciphertext_still_reserves_key_allocations_for_each_read() {
+        let input = b"<< /Length 0 >>\nstream\n\nendstream";
+        for copies in [1, 2, 3] {
+            let (result, budget) = reserve(input, copies, Limits::default());
+            assert_eq!(result, Ok(()));
+            // 実 raw_data の allocator 観測値は、本文が空でも RC4 229、AESV2 287 バイト。
+            assert!(budget.used(Kind::DecodedBytes) >= 287 * copies);
+            assert!(budget.used(Kind::Work) >= 2048 * copies);
+        }
+    }
+
+    #[test]
+    fn unknown_ciphertext_and_type_reference_bounds_saturate_before_reading() {
+        for input in [
+            b"<< >>\nstream\n\nendstream".as_slice(),
+            b"<< /Length 0 /Type 1 0 R >>\nstream\n\nendstream",
+        ] {
+            for kind in [Kind::Work, Kind::DecodedBytes] {
+                let limit = if kind == Kind::Work { 1024 } else { 8 };
+                let limits = Limits::default()
+                    .with(Kind::Work, Limit::Unlimited)
+                    .with(Kind::DecodedBytes, Limit::Unlimited)
+                    .with(kind, Limit::Finite(limit));
+                let (result, budget) = reserve(input, u64::MAX, limits);
+                assert!(
+                    matches!(result, Err(Stop::Exceeded(e)) if e.kind == kind && e.requested > u64::from(u32::MAX))
+                );
+                assert!(budget.used(kind) <= limit);
+            }
+        }
     }
 }

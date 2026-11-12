@@ -450,7 +450,7 @@ fn xmp(packet: &[u8], photo: &mut Photo, cx: &mut Cx) -> Result<(), Error> {
             }
             photo.xmp.push(Property {
                 namespace,
-                name: String::from_utf8_lossy(doc.local_name(attribute.name())).into_owned(),
+                name: doc.local_name_text(attribute.name()).into_owned(),
                 value: doc.value(attribute),
             });
         }
@@ -469,7 +469,7 @@ fn xmp(packet: &[u8], photo: &mut Photo, cx: &mut Cx) -> Result<(), Error> {
             };
             photo.xmp.push(Property {
                 namespace,
-                name: String::from_utf8_lossy(doc.local_name(child.name())).into_owned(),
+                name: doc.local_name_text(child.name()).into_owned(),
                 value,
             });
         }

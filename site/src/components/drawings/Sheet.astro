@@ -1,0 +1,16 @@
+---
+// 下層のページの見出しに置く図面の飾り。トップの平面図と同じ線と色で描き、読み上げからは外す。
+interface Props {
+  viewBox: string;
+  caption: string;
+}
+
+const { viewBox, caption } = Astro.props;
+---
+
+<figure class="sheet" aria-hidden="true">
+  <div class="sheet-paper">
+    <svg viewBox={viewBox}><slot /></svg>
+  </div>
+  <figcaption>{caption}</figcaption>
+</figure>

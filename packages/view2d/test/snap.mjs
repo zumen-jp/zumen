@@ -171,6 +171,12 @@ export function testSnap({ assert, near }) {
   assert(Object.isFrozen(distance) && Object.isFrozen(distance.delta) && Object.isFrozen(distance.real) && Object.isFrozen(distance.start), "計測結果も入れ子を凍結する");
   const shifted = { origin: { x: origin + 2, y: origin }, offset: { x: -1.25, y: 0 }, element: index.elements[0] };
   assert(measure(first.position, shifted).distance === 0.5, "別の原点を持つ位置どうしでも差を先に取る");
+  const split = (x, dx) => ({ origin: { x, y: 0 }, offset: { x: dx, y: 0 } });
+  assert(measure(split(0, 1), split(1e16, -1e16 + 2)).delta.x === 1, "異なる原点と相対座標の正確な和から差を一度だけ丸める");
+  assert(measure(split(Number.MAX_VALUE, -Number.MAX_VALUE), split(-Number.MAX_VALUE, Number.MAX_VALUE)).distance === 0, "有限成分の相殺を途中の桁あふれで失わない");
+  assert(measure(split(0, 0), split(1, 2 ** -53)).delta.x === 1, "紙上の差も最も近い偶数へ丸める");
+  assert(measure(split(Number.MIN_VALUE, -Number.MIN_VALUE), split(0, Number.MIN_VALUE)).distance === Number.MIN_VALUE, "最小の非正規数の差を保つ");
+  rejects(() => measure(split(0, 0), split(Number.MAX_VALUE, Number.MAX_VALUE)), "最終的な紙距離の桁あふれは拒否する");
 
   view = { center: { x: 0, y: 0 }, scale: 2, rotation: 0 };
   const start = { origin: { x: 0, y: 0 }, offset: { x: 0, y: 0 }, element: { id: "space/0/h0", path: [] } };

@@ -1,0 +1,71 @@
+{
+  "description": "Shift_JIS の日本語の名前と DTD を持つ自作 BED の位置・標高・地層・貫入試験・孔内水位を、各 API とバインディングで比較する（#824）",
+  "module": "drawing",
+  "steps": [
+    {
+      "push": {
+        "name": "BED0001.XML",
+        "hex": "3c3f786d6c2076657273696f6e3d22312e302220656e636f64696e673d2253686966745f4a4953223f3e0a3c21444f435459504520837b815b838a8393834f8fee95f12053595354454d2022424544303530302e445444223e0a3c837b815b838a8393834f8fee95f1204454445f76657273696f6e3d22352e3030223e0a3c8aee91628fee95f13e3c934b97708b4b8a693e4a4953204120303230352d323031393c2f934b97708b4b8a693e3c2f8aee91628fee95f13e0a3c955791e88fee95f13e0a3c92b28db88aee967b8fee95f13e3c92b28db896bc3e8e8e8cb182cc92b28db83c2f92b28db896bc3e3c837b815b838a8393834f96bc3e4e6f2e313c2f837b815b838a8393834f96bc3e3c837b815b838a8393834f918d90943e313c2f837b815b838a8393834f918d90943e3c837b815b838a8393834f984194d43e313c2f837b815b838a8393834f984194d43e3c2f92b28db88aee967b8fee95f13e0a3c8c6f937888dc93788fee95f13e3c8c6f93785f93783e3133393c2f8c6f93785f93783e3c8c6f93785f95aa3e34353c2f8c6f93785f95aa3e3c8c6f93785f95623e303c2f8c6f93785f95623e3c88dc93785f93783e33353c2f88dc93785f93783e3c88dc93785f95aa3e33303c2f88dc93785f95aa3e3c88dc93785f95623e303c2f88dc93785f95623e3c91aa926e8c6e3e30333c2f91aa926e8c6e3e3c2f8c6f937888dc93788fee95f13e0a3c92b28db88afa8ad43e3c92b28db88afa8ad45f8a4a8e6e944e8c8e93fa3e323032362d31302d30313c2f92b28db88afa8ad45f8a4a8e6e944e8c8e93fa3e3c92b28db88afa8ad45f8f4997b9944e8c8e93fa3e323032362d31302d30353c2f92b28db88afa8ad45f8f4997b9944e8c8e93fa3e3c2f92b28db88afa8ad43e0a3c837b815b838a8393834f8aee967b8fee95f13e3c8d458cfb95578d823e352e35303c2f8d458cfb95578d823e3c918d8ded8d4592b73e382e30303c2f918d8ded8d4592b73e3c2f837b815b838a8393834f8aee967b8fee95f13e0a3c2f955791e88fee95f13e0a3c835283418fee95f13e0a3c8d488a779349926e8ebf8be695aa96bc8cbb8fea93798ebf96bc3e3c8d488a779349926e8ebf8be695aa96bc8cbb8fea93798ebf96bc5f89ba925b905b93783e382e30303c2f8d488a779349926e8ebf8be695aa96bc8cbb8fea93798ebf96bc5f89ba925b905b93783e3c8d488a779349926e8ebf8be695aa96bc8cbb8fea93798ebf96bc5f8d488a779349926e8ebf8be695aa96bc8cbb8fea93798ebf96bc3e8dbb3c2f8d488a779349926e8ebf8be695aa96bc8cbb8fea93798ebf96bc5f8d488a779349926e8ebf8be695aa96bc8cbb8fea93798ebf96bc3e3c2f8d488a779349926e8ebf8be695aa96bc8cbb8fea93798ebf96bc3e0a3c95578f808ad193fc8e8e8cb13e3c95578f808ad193fc8e8e8cb15f8a4a8e6e905b93783e312e31353c2f95578f808ad193fc8e8e8cb15f8a4a8e6e905b93783e3c95578f808ad193fc8e8e8cb15f8d878c7691c58c8289f190943e31303c2f95578f808ad193fc8e8e8cb15f8d878c7691c58c8289f190943e3c95578f808ad193fc8e8e8cb15f8d878c768ad193fc97ca3e3330303c2f95578f808ad193fc8e8e8cb15f8d878c768ad193fc97ca3e3c2f95578f808ad193fc8e8e8cb13e0a3c8d4593e0908588ca3e3c8d4593e0908588ca5f91aa92e8944e8c8e93fa3e323032362d31302d30323c2f8d4593e0908588ca5f91aa92e8944e8c8e93fa3e3c8d4593e0908588ca5f8d4593e0908588ca3e322e34303c2f8d4593e0908588ca5f8d4593e0908588ca3e3c2f8d4593e0908588ca3e0a3c2f835283418fee95f13e0a3c2f837b815b838a8393834f8fee95f13e0a"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "boring",
+        "input": "BED0001.XML"
+      },
+      "expect": {
+        "/result/standards": [
+          "JIS A 0205-2019"
+        ],
+        "/result/name": "No.1",
+        "/result/position/longitude": 139.75,
+        "/result/position/latitude": 35.5,
+        "/result/datum": "jgd2024",
+        "/result/elevation": {
+          "value": 5.5,
+          "datum": "tokyo_bay",
+          "realization": "survey_2024"
+        },
+        "/result/length": 8,
+        "/result/layers": [
+          {
+            "bottom": 8,
+            "name": "砂"
+          }
+        ],
+        "/result/penetrations": [
+          {
+            "depth": 1.15,
+            "blows": 10,
+            "penetration": 300
+          }
+        ],
+        "/result/water_levels": [
+          {
+            "date": "2026-10-02",
+            "depth": 2.4
+          }
+        ],
+        "/diagnostics": []
+      }
+    },
+    {
+      "push": {
+        "name": "b.xml",
+        "text": "<BORING DTD_version=\"2.00\"/>"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "boring",
+        "input": "b.xml"
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "boring.file.invalid"
+      }
+    }
+  ]
+}
