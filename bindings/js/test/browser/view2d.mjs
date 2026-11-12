@@ -13,6 +13,7 @@ const pdfjs = existsSync(join(root, "xtask/verify/pdfjs/node_modules/pdfjs-dist/
 if (!pdfjs && process.env.ZUMEN_PDFJS_REQUIRED) throw new Error("PDF の検査には xtask/verify/pdfjs の npm ci が必要です");
 const inputs = ["scene", "open_jww", "open_sxf"].map((test) =>
   JSON.parse(readFileSync(join(root, `bindings/conformance/cases/${test}.json`), "utf8")).steps.find((s) => s.push).push);
+const calibrationInput = JSON.parse(readFileSync(join(root, "bindings/conformance/cases/calibration.json"), "utf8")).steps.find((s) => s.push).push;
 const browser = await browsers[name].launch();
 try {
   const page = await browser.newPage({ hasTouch: true });
@@ -29,19 +30,19 @@ try {
   });
   page.on("pageerror", (error) => failures.push(error.message));
   await page.goto(origin);
-  const result = await page.evaluate(async ({ inputs }) => {
+  const result = await page.evaluate(async ({ inputs, calibrationInput }) => {
     // 本体の下限を Safari 15.4 や Firefox 92 まで上げない。下限の実機の検査の代わりではない。
     const hasOwn = Object.hasOwn, at = Array.prototype.at;
     Object.hasOwn = undefined;
     Array.prototype.at = undefined;
     try {
       const { testView2D } = await import("/packages/view2d/test/browser.mjs");
-      return await testView2D("/zumen_abi1.wasm", inputs);
+      return await testView2D("/zumen_abi1.wasm", inputs, calibrationInput);
     } finally {
       Object.hasOwn = hasOwn;
       Array.prototype.at = at;
     }
-  }, { inputs });
+  }, { inputs, calibrationInput });
   // 外部の pdf.js の下限と、表示部品自身の下限の検査を分ける。
   if (pdfjs) result.assertions += await page.evaluate(async () => {
     const { testPdfUnderlays } = await import("/packages/view2d/test/pdf.mjs");
@@ -154,6 +155,18 @@ try {
   await page.waitForFunction(() => document.querySelector("#selection").textContent.includes('"record"'));
   if (failures.length) throw new Error(failures.join("\n"));
   const summary = `${name} ${browser.version()}: view2d の検査 ${result.assertions} 件、コアから ${result.formats.join("・")} を描画、利用例も成功`;
+  const raster = `${name}: 巨大パスの Canvas 単独・View2D と近傍パスの画素: ${JSON.stringify(result.largeStrokeRaster)}`;
+  const sat = `${name}: encoded f32 の stroke と独立 SAT の照合: ${JSON.stringify(result.strokeSat)}`;
+  const tolerance = `${name}: 許容距離つき点選択と独立距離の照合: ${JSON.stringify(result.strokeTolerance)}`;
+  const butt = `${name}: butt の両端と巨大な線の隙間: ${JSON.stringify(result.buttEnds)}`;
+  const fills = `${name}: 巨大な閉輪と近傍の独立 Canvas の照合: ${JSON.stringify(result.largeFills)}`;
+  const wide = `${name}: 巨大な線幅の cap・join と近傍の独立 Canvas の照合: ${JSON.stringify(result.wideStrokes)}`;
   console.log(summary);
-  if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n${summary}\n`);
+  console.log(raster);
+  console.log(sat);
+  console.log(tolerance);
+  console.log(butt);
+  console.log(fills);
+  console.log(wide);
+  if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n${summary}\n\n${raster}\n\n${sat}\n\n${tolerance}\n\n${butt}\n\n${fills}\n\n${wide}\n`);
 } finally { await browser.close(); }

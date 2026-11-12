@@ -7,6 +7,31 @@ use zumen_geo::{Form, GeoModel, Position, Value};
 use zumen_geom3d::Shape;
 use zumen_sdk::{Codec, Lift};
 
+#[test]
+fn shift_jis_display_names_keep_the_legacy_fallback_id() {
+    let text = "<?xml version='1.0' encoding='Shift_JIS'?><core:CityModel xmlns:core='http://www.opengis.net/citygml/2.0' xmlns:gml='http://www.opengis.net/gml' xmlns:bldg='http://www.opengis.net/citygml/building/2.0' xmlns:ソ='urn:test'><core:cityObjectMember><ソ:Thing><gml:name>test</gml:name><ソ:注記>value</ソ:注記><bldg:lod0FootPrint/></ソ:Thing></core:cityObjectMember></core:CityModel>";
+    let (src, _, error) = encoding_rs::SHIFT_JIS.encode(text);
+    assert!(!error);
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+    let file = CityGml::read(&src, &mut cx).unwrap();
+    let model = file.lift(&mut cx).unwrap();
+    assert_eq!(model.features.len(), 1);
+    let feature = &model.features[0];
+    // b8c101e1 の独立 snapshot で同じ自作入力から得た固定値。新しい名前の処理から作らない。
+    assert_eq!(feature.id, "\u{fffd}\\:Thing/0");
+    assert_eq!(feature.kind, "ソ:Thing");
+    assert_eq!(feature.name.as_deref(), Some("test"));
+    assert!(
+        feature
+            .attributes
+            .iter()
+            .any(|a| a.name == "ソ:注記" && a.value == Value::Text("value".into()))
+    );
+}
+
 const BUILDING: &str = r##"<?xml version="1.0" encoding="UTF-8"?>
 <core:CityModel xmlns:core="http://www.opengis.net/citygml/2.0"
   xmlns:bldg="http://www.opengis.net/citygml/building/2.0"
@@ -205,4 +230,63 @@ fn without_a_known_crs_no_shapes_are_moved() {
         panic!();
     };
     assert_eq!(faces[0].outer[2], [139.001, 35.0, 9.5]);
+}
+
+#[test]
+fn utf16_buildings_keep_names_shapes_and_original_source_ranges() {
+    let text = BUILDING
+        .replace("encoding=\"UTF-8\"", "encoding=\"UTF-16\"")
+        .replace(
+            "<bldg:measuredHeight",
+            "<独自:注記 xmlns:独自=\"urn:zumen:test\">検査</独自:注記><bldg:measuredHeight",
+        );
+    for little in [true, false] {
+        let mut src = if little {
+            vec![0xff, 0xfe]
+        } else {
+            vec![0xfe, 0xff]
+        };
+        for unit in text.encode_utf16() {
+            src.extend(if little {
+                unit.to_le_bytes()
+            } else {
+                unit.to_be_bytes()
+            });
+        }
+        assert!(CityGml::SIGNATURES.iter().any(|s| s.matches(&src)));
+        let mut budget = Budget::default();
+        let mut diag = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        let file = CityGml::read(&src, &mut cx).unwrap();
+        let model = file.lift(&mut cx).unwrap();
+        assert_eq!(file.document().src(), src);
+        assert_eq!(model.features.len(), 3);
+        let building = &model.features[0];
+        assert_eq!(building.name.as_deref(), Some("庁舎"));
+        assert!(building.attributes.iter().any(|a| {
+            a.name == "gen:建物ID" && a.value == Value::Text("13101-bldg-1".into())
+        }));
+        assert!(
+            building
+                .attributes
+                .iter()
+                .any(|a| { a.name == "独自:注記" && a.value == Value::Text("検査".into()) })
+        );
+        let Form::Solid(Shape::FaceSet { faces, .. }) = &building.geometries[1].form else {
+            panic!();
+        };
+        assert_eq!(faces[0].outer[2], [35.0, 139.001, 9.5]);
+        let start = 2 + text
+            .get(..text.find("<bldg:Building ").unwrap())
+            .unwrap()
+            .encode_utf16()
+            .count()
+            * 2;
+        assert_eq!(building.source.bytes().map(|r| r.start), Some(start as u64));
+        assert_eq!(
+            diag.iter().map(|d| d.code()).collect::<Vec<_>>(),
+            [codes::CITYGML_REFERENCE_UNSUPPORTED]
+        );
+    }
 }

@@ -18,6 +18,7 @@ exceeded = "予算の上限を超えた"
 cancelled = "中断の合図で止めた"
 caught = "API で捕まえた"
 missing = "名指ししたものがない"
+failed = "入力・設定・状態から、操作を完了できなかった"
 exists = "名指しした名前が、もう使われている"
 stale = "読んだときと今とで、名指ししたものが違う"
 mixed = "基準・成果の違う値を一緒に使った"
@@ -775,7 +776,7 @@ status = "active"
 # 2D のシーン（決定 0172）
 
 [codes."scene.curve.approximated"]
-description = "曲線・ふくらみのある折れ線を、弦の誤差が許容差以下の折れ線にした（決定 0172）。許容差は起点の長さ"
+description = "曲線・膨らみのある折れ線を、弦の誤差が許容差以下の折れ線にした（決定 0172）。許容差は起点の長さ"
 severity = "info"
 fidelity = "approximated"
 params = { tolerance = "float" }
@@ -788,6 +789,15 @@ description = "フィット点だけで決まるスプラインを、フィッ�
 severity = "warning"
 fidelity = "approximated"
 since = "0.0.0"
+status = "active"
+
+[codes."scene.spline-degree.approximated"]
+description = "次数が上限（`zumen-geom2d` の `MAX_DEGREE`）を超えるスプラインを、制御点で決まる曲線として描かず、フィット点を通る曲線か、点を結ぶ折れ線で描いた（#756）"
+severity = "warning"
+fidelity = "approximated"
+params = { limit = "uint" }
+group-by = ["limit"]
+since = "0.2.0"
 status = "active"
 
 [codes."scene.gradient.approximated"]
@@ -1140,6 +1150,14 @@ group-by = ["type"]
 since = "0.2.0"
 status = "active"
 
+[codes."ifc.unit.invalid"]
+description = "SI 単位の定義か次元を確認できないので、単位を採用しなかった"
+severity = "warning"
+params = { reason = "key" }
+group-by = ["reason"]
+since = "0.3.0"
+status = "active"
+
 [codes."ifc.attribute.invalid"]
 description = "意味を持つ位置の値が、期待した型でないので読まなかった"
 severity = "warning"
@@ -1149,12 +1167,114 @@ group-by = ["kind", "position"]
 since = "0.2.0"
 status = "active"
 
+[codes."ifc.curve.invalid"]
+description = "曲線の定義に読めない値か循環があるので、曲線のグラフを返さなかった"
+severity = "error"
+params = { reason = "key" }
+group-by = ["reason"]
+since = "0.2.1"
+status = "active"
+
+[codes."ifc.curve.unsupported"]
+description = "型を持たない曲線なので、種類と出所だけを持った"
+severity = "warning"
+fidelity = "dropped"
+params = { kind = "key" }
+group-by = ["kind"]
+since = "0.2.1"
+status = "active"
+
+[codes."ifc.shape.invalid"]
+description = "要素の形状表現の参照か構造に読めない値か循環があり、ビューを返さなかった"
+severity = "error"
+params = { reason = "key" }
+group-by = ["reason"]
+since = "0.2.1"
+status = "active"
+
+[codes."ifc.shape.unsupported"]
+description = "形の項目は展開せず、元の L1 レコードへの参照だけを残した"
+severity = "warning"
+fidelity = "dropped"
+params = { kind = "key" }
+group-by = ["kind"]
+since = "0.2.1"
+status = "active"
+
+[codes."ifc.shape.missing"]
+description = "形状表現の取得で省略された属性を None として保持した"
+severity = "warning"
+params = { field = "key" }
+group-by = ["field"]
+since = "0.2.1"
+status = "active"
+
+[codes."ifc.extrusion.invalid"]
+description = "押し出し・断面・境界の必要な値か閉鎖に不正があり、結果を返さなかった"
+severity = "error"
+params = { reason = "key" }
+group-by = ["reason"]
+since = "0.3.0"
+status = "active"
+
+[codes."ifc.grid.invalid"]
+description = "通り芯と軸の参照・所属・値に不正があり、結果を返さなかった"
+severity = "error"
+params = { reason = "key" }
+group-by = ["reason"]
+since = "0.3.0"
+status = "active"
+
+[codes."ifc.grid.unsupported"]
+description = "通り芯の軸に取得しない曲線の種類があり、結果を返さなかった"
+severity = "warning"
+fidelity = "dropped"
+params = { kind = "text" }
+group-by = ["kind"]
+since = "0.3.0"
+status = "active"
+
+[codes."ifc.style.invalid"]
+description = "形の項目に直接付いた表示の参照・集合・値に不正があり、結果を返さなかった"
+severity = "error"
+params = { reason = "key" }
+group-by = ["reason"]
+since = "0.3.0"
+status = "active"
+
+[codes."ifc.style.unsupported"]
+description = "形の項目に直接付いた表示に、取得しない種類が含まれるため、結果を返さなかった"
+severity = "warning"
+fidelity = "dropped"
+params = { kind = "text" }
+group-by = ["kind"]
+since = "0.3.0"
+status = "active"
+
+[codes."ifc.extrusion.unsupported"]
+description = "押し出し・断面か境界の閉鎖を扱えないため、結果を返さなかった"
+severity = "warning"
+fidelity = "dropped"
+params = { reason = "key" }
+group-by = ["reason"]
+since = "0.3.0"
+status = "active"
+
 [codes."ifc.parent.exists"]
 description = "要素の親がもうあるので、後の集約・入れ子・空間への包含を写さなかった"
 severity = "warning"
 fidelity = "dropped"
 params = { id = "text" }
 since = "0.2.0"
+status = "active"
+
+[codes."ifc.relation-target.unsupported"]
+description = "別の成分に写した対象が建物モデルの要素でないので、関係を成分に写せなかった。集合内の位置は 0 から"
+severity = "warning"
+fidelity = "dropped"
+params = { kind = "key", target_kind = "key", position = "uint" }
+group-by = ["kind", "target_kind", "position"]
+since = "0.2.1"
 status = "active"
 
 [codes."ifc.placement.invalid"]
@@ -1726,12 +1846,54 @@ fidelity = "dropped"
 since = "0.2.0"
 status = "active"
 
+[codes."pdf.annotation.drawn"]
+description = "注釈の通常外観だけを図形へ移し、内容・返信・操作などの情報を移さなかった。kind は注釈の種類（Subtype）"
+severity = "warning"
+fidelity = "drawn"
+params = { kind = "text" }
+group-by = ["kind"]
+since = "0.2.0"
+status = "active"
+
 [codes."pdf.annotation.unsupported"]
 description = "注釈を、図面モデルに移さなかった。kind は注釈の種類（Subtype）"
 severity = "warning"
 fidelity = "dropped"
 params = { kind = "text" }
 group-by = ["kind"]
+since = "0.2.0"
+status = "active"
+
+[codes."drawing.calibration.invalid"]
+description = "用紙上の校正領域を、契約・値・付く先が不正か ID が重複していたため使わなかった。id は校正の ID、reason は理由"
+severity = "warning"
+fidelity = "dropped"
+params = { id = "text", reason = "text" }
+group-by = ["id", "reason"]
+since = "0.2.0"
+status = "active"
+
+[codes."drawing.measurement.failed"]
+description = "選んだ校正で用紙上の距離を測れなかった。id は校正の ID、reason は領域・用紙・座標・計算を使えない理由"
+severity = "error"
+params = { id = "text", reason = "text" }
+group-by = ["id", "reason"]
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.measure.invalid"]
+description = "ビューポートの計測辞書の値を解釈できなかった。field は値の経路、reason は理由。読めた原値は形式固有情報に残す"
+severity = "warning"
+fidelity = "dropped"
+params = { field = "text", reason = "text" }
+group-by = ["field", "reason"]
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.measure-distance.equivalent"]
+description = "矩形計測の距離校正を、既存の紙上の図形を動かさず、用紙上の校正領域として保持した。絶対座標の原点や数値表示書式の復元は含まない"
+severity = "info"
+fidelity = "equivalent"
 since = "0.2.0"
 status = "active"
 
@@ -1865,7 +2027,7 @@ since = "0.2.0"
 status = "active"
 
 [codes."pdf.fill-rule.approximated"]
-description = "非ゼロ回転数の規則で塗った、輪が 2 つ以上の形を、輪の中の輪を交互に埋めるハッチングにした"
+description = "非ゼロ回転数の規則で塗った形を、同じ塗りになると確認できないまま、輪の中の輪を交互に埋めるハッチングにした"
 severity = "warning"
 fidelity = "approximated"
 since = "0.2.0"
@@ -2297,6 +2459,61 @@ params = { target = "text" }
 since = "0.2.0"
 status = "active"
 
+[codes."review.scene-origin.invalid"]
+description = "レビューを描く起点が図面にないか、同じ ID の空間を区別できない"
+severity = "error"
+params = { origin = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."review.scene-options.invalid"]
+description = "レビューの描画の設定が条件を満たさない。pointer は設定のフィールド"
+severity = "error"
+params = { pointer = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."review.scene-geometry.invalid"]
+description = "選んだレビューの図形・場所の座標や形を描けない。reason は理由を表すタグ"
+severity = "error"
+params = { reason = "text" }
+since = "0.2.0"
+status = "active"
+
+[codes."review.scene-text-frame.approximated"]
+description = "字形の範囲を得られず、注記の枠を文字の高さと字数から近似した"
+severity = "warning"
+fidelity = "approximated"
+params = {}
+since = "0.2.0"
+status = "active"
+
+[codes."review.scene-points.dropped"]
+description = "注記または写真の位置に使わない、2 点目からの点を描かなかった"
+severity = "warning"
+fidelity = "dropped"
+params = { points = "uint" }
+since = "0.2.0"
+status = "active"
+
+[codes."review.scene-placement.dropped"]
+description = "選んだ対象の場所を 2D に置けず描かなかった。reason は 3D・ビューなし・形なしを区別するタグ"
+severity = "warning"
+fidelity = "dropped"
+params = { reason = "text" }
+group-by = ["reason"]
+since = "0.2.0"
+status = "active"
+
+[codes."review.scene-property.dropped"]
+description = "拡張フィールドに保った描画の値をシーンに反映しなかった。property はフィールド名"
+severity = "warning"
+fidelity = "dropped"
+params = { property = "text" }
+group-by = ["property"]
+since = "0.2.0"
+status = "active"
+
 
 [codes."bcf.file.invalid"]
 description = "bcfzip の中の項目が、そのバージョンの BCF の形に合わない。name は項目の名前、near は合わなかった要素か属性"
@@ -2318,6 +2535,14 @@ description = "読まない BCF のバージョン。読むのは 2.1 と 3.0（
 severity = "error"
 params = { version = "text" }
 since = "0.2.0"
+status = "active"
+
+[codes."bcf.encoding.unsupported"]
+description = "変更する topic の元の markup が UTF-8 でないため、未知の要素と属性を保って書き戻せない。変えていない topic は元のバイト列のまま保つ"
+severity = "error"
+params = { topic = "text", encoding = "text" }
+group-by = ["encoding"]
+since = "0.3.0"
 status = "active"
 
 [codes."bcf.location.unsupported"]

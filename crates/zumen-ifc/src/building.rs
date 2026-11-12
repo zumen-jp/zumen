@@ -1,8 +1,8 @@
 //! IFC から建物モデルを作る（決定 0207・0215）。
 //!
 //! 意味を持つ実体ごとに、バージョンごとの属性の位置を手で書いた表で読む。位置は、各バージョンの仕様の実体の定義（IFC2X3 TC1・
-//! IFC4 ADD2 TC1・IFC 4.3 ADD2 の 5 章から 8 章の、実体ごとの「属性」の節）による。形状表現・表示の様式・階・区域・
-//! 分類は、まだ作らない（決定 0207 の「サンプルを得てから決めること」）。
+//! IFC4 ADD2 TC1・IFC 4.3 ADD2 の 5 章から 8 章の、実体ごとの「属性」の節）による。階・区域・分類の規則は docs/formats/ifc.md にある。
+//! 形状表現と表示の様式は、まだ作らない（#419）。
 
 use core::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet};
@@ -19,6 +19,18 @@ use zumen_sdk::{Cx, Error, Lift, Stop};
 
 use crate::{IfcFile, IfcZipFile, Record, Value, at_bytes, stopped};
 
+mod curve;
+mod extrusion;
+mod grid;
+mod semantic;
+mod shape;
+mod style;
+mod unit;
+pub use extrusion::{ExtrudedArea, ExtrusionSource, ProfiledExtrusion};
+pub use grid::{GridAxes, GridAxisCurve, GridSource};
+pub use shape::{ProductShape, ShapeLinks, ShapeNode, ShapeRef};
+pub use style::{ItemStyleSource, ItemSurfaceStyles, SurfaceStyleBinding, SurfaceStyleSource};
+
 /// 建物モデルを作るバージョン
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Version {
@@ -30,12 +42,17 @@ enum Version {
 impl Version {
     /// `FILE_SCHEMA` の名前から。IFC4X1・IFC4X2 は正式のバージョンでないので読まない
     fn of(schema: &[u8]) -> Option<Self> {
-        let upper = schema.to_ascii_uppercase();
-        if upper.starts_with(b"IFC2X3") {
+        if schema
+            .get(..6)
+            .is_some_and(|s| s.eq_ignore_ascii_case(b"IFC2X3"))
+        {
             Some(Self::Ifc2x3)
-        } else if upper.starts_with(b"IFC4X3") {
+        } else if schema
+            .get(..6)
+            .is_some_and(|s| s.eq_ignore_ascii_case(b"IFC4X3"))
+        {
             Some(Self::Ifc4x3)
-        } else if upper == b"IFC4" {
+        } else if schema.eq_ignore_ascii_case(b"IFC4") {
             Some(Self::Ifc4)
         } else {
             None
@@ -486,10 +503,16 @@ struct Lifter<'f> {
     /// 型と、そのインスタンス
     types: Vec<(ElementRef, u64)>,
     units: BTreeMap<u64, Option<Unit>>,
+    /// 検査して採用しなかった SI。換算基を共有しても、元の単位は一度だけ診断する
+    invalid_si: BTreeSet<u64>,
     definitions: BTreeMap<u64, Option<Definition>>,
     materials: BTreeMap<u64, Option<Material>>,
+    /// L1 に存在するが L2 の要素でない関係の対象。ほかの成分で使ったかを最後に確かめる
+    unmapped_relations: Vec<(u64, u64, u32)>,
     /// 写す値を数えて止まった理由。実体を読むループで返す（#733）
     halt: Cell<Option<Stop>>,
+    /// 単位の検査で止まった場合の、参照先の場所
+    unit_halt_place: Cell<Option<core::ops::Range<usize>>>,
 }
 
 /// 実体の名前（大文字）の種類。そのバージョンにない実体と、表にない実体は `None`
@@ -529,9 +552,12 @@ impl<'f> Lifter<'f> {
             grids: Vec::new(),
             types: Vec::new(),
             units: BTreeMap::new(),
+            invalid_si: BTreeSet::new(),
             definitions: BTreeMap::new(),
             materials: BTreeMap::new(),
+            unmapped_relations: Vec::new(),
             halt: Cell::new(None),
+            unit_halt_place: Cell::new(None),
         }
     }
 
@@ -567,7 +593,7 @@ impl<'f> Lifter<'f> {
     /// 写す値を数えて止まっていれば、止まったことを `place` の所で返す
     fn halted(&self, cx: &mut Cx, place: Option<core::ops::Range<usize>>) -> Result<(), Error> {
         match self.halt.take() {
-            Some(stop) => Err(stopped(cx, stop, place)),
+            Some(stop) => Err(stopped(cx, stop, self.unit_halt_place.take().or(place))),
             None => Ok(()),
         }
     }
@@ -577,6 +603,7 @@ impl<'f> Lifter<'f> {
         let project = self.find(b"IFCPROJECT");
         if let Some(project) = project {
             self.document_units(project, cx);
+            self.halted(cx, self.file.instance(project).map(Record::span))?;
         }
         let ids: Vec<u64> = self.file.ids().collect();
         for &id in &ids {
@@ -601,6 +628,8 @@ impl<'f> Lifter<'f> {
             self.relation(id, record, cx);
             self.halted(cx, Some(record.span()))?;
         }
+        self.levels(cx);
+        self.halted(cx, None)?;
         for (element, id) in core::mem::take(&mut self.types) {
             if let Some(record) = self.file.instance(id) {
                 let sets = refs(arg(record, 6));
@@ -615,6 +644,7 @@ impl<'f> Lifter<'f> {
             self.placement(element, id, cx)?;
         }
         self.halted(cx, None)?;
+        self.report_unmapped_relations(cx)?;
         for &id in &ids {
             if self.used.contains(&id) {
                 continue;
@@ -894,12 +924,19 @@ impl<'f> Lifter<'f> {
     /// `IfcNamedUnit` と `IfcSIUnit` の複合のインスタンス、`IfcConversionBasedUnit`（2 UnitType・3 Name・
     /// 4 ConversionFactor → `IfcMeasureWithUnit` の 1 ValueComponent・2 UnitComponent）を読む
     fn unit(&mut self, id: u64, cx: &mut Cx) -> Option<Unit> {
+        let record = self.file.instance(id)?;
+        if !self.unit_charge(cx, Kind::Work, 0, record) {
+            return None;
+        }
         if let Some(cached) = self.units.get(&id) {
             // 写す単位の大きさを数える（#733）
             let unit = cached.as_ref()?;
             return self.copied(cx, unit_size(unit)).then(|| unit.clone());
         }
         let unit = self.read_unit(id, cx);
+        if self.is_halted() {
+            return None;
+        }
         if unit.is_some() {
             self.used.insert(id);
         }
@@ -909,8 +946,10 @@ impl<'f> Lifter<'f> {
 
     fn read_unit(&mut self, id: u64, cx: &mut Cx) -> Option<Unit> {
         let record = self.file.instance(id)?;
-        if let Some(unit) = self.si_unit(record) {
-            return Some(unit);
+        match self.si_unit(record, cx) {
+            unit::SiUnitRead::Value(unit) => return Some(unit),
+            unit::SiUnitRead::Rejected => return None,
+            unit::SiUnitRead::Absent => {}
         }
         if !self.is(id, b"IFCCONVERSIONBASEDUNIT") {
             return None;
@@ -920,7 +959,11 @@ impl<'f> Lifter<'f> {
         let factor = reference(arg(record, 4)).filter(|&f| self.is(f, b"IFCMEASUREWITHUNIT"))?;
         let factor_record = self.file.instance(factor)?;
         let value = self.real(arg(factor_record, 1))?;
-        let base = self.si_unit(self.file.instance(reference(arg(factor_record, 2))?)?)?;
+        let unit::SiUnitRead::Value(base) =
+            self.si_unit(self.file.instance(reference(arg(factor_record, 2))?)?, cx)
+        else {
+            return None;
+        };
         self.used.insert(factor);
         if let Some(base) = reference(arg(factor_record, 2)) {
             self.used.insert(base);
@@ -930,31 +973,6 @@ impl<'f> Lifter<'f> {
             prefix: None,
             name,
             scale: Some(value * prefix_scale(&base)),
-        })
-    }
-
-    /// SI の単位。単独と、`IfcNamedUnit` との複合のインスタンスのどちらも読む
-    fn si_unit(&self, record: &Record) -> Option<Unit> {
-        let part = |name: &[u8]| {
-            record
-                .parts()
-                .iter()
-                .find(|part| self.file.bytes(part.name()).eq_ignore_ascii_case(name))
-        };
-        let si = part(b"IFCSIUNIT")?;
-        let (kind, prefix, name) = match si.args() {
-            [_, kind, prefix, name] => (self.enumeration(Some(kind))?, prefix, name),
-            [prefix, name] => {
-                let named = part(b"IFCNAMEDUNIT")?;
-                (self.enumeration(named.args().get(1))?, prefix, name)
-            }
-            _ => return None,
-        };
-        Some(Unit {
-            kind,
-            prefix: self.enumeration(Some(prefix)),
-            name: self.enumeration(Some(name))?,
-            scale: None,
         })
     }
 
@@ -1095,6 +1113,12 @@ impl<'f> Lifter<'f> {
             _ => self.text(arg(record, 5), record, cx),
         };
         self.class(element, entity.class, predefined, user_defined, entity.name);
+        if matches!(entity.name, "IfcZone" | "IfcSpatialZone") && self.copied(cx, ITEM) {
+            self.building
+                .components
+                .zone
+                .insert(element, zumen_building::Zone::default());
+        }
         match entity.category {
             Category::Spatial => self.spatial(element, record, entity, cx),
             Category::Element | Category::Grid => self.owns_placement(element, record),
@@ -1191,6 +1215,8 @@ impl<'f> Lifter<'f> {
                 self.parents(id, record, 6, 5, ParentKind::Contained, cx)
             }
             b"IFCRELREFERENCEDINSPATIALSTRUCTURE" => self.referenced(id, record, cx),
+            // 5 RelatedObjects・6 RelatingClassification
+            b"IFCRELASSOCIATESCLASSIFICATION" => self.classification(id, record, cx),
             // 5 RelatedObjects・6 RelatingType
             b"IFCRELDEFINESBYTYPE" => self.each(id, record, 6, 5, cx, |lifter, element, target| {
                 lifter
@@ -1257,16 +1283,22 @@ impl<'f> Lifter<'f> {
                     .insert(element, Opening::Fills(opening));
             }),
             // 5 RelatedObjects・6 RelatedObjectsType・7 RelatingGroup
-            b"IFCRELASSIGNSTOGROUP" => self.each(id, record, 7, 5, cx, |lifter, element, group| {
-                let mut groups = lifter
-                    .building
-                    .components
-                    .group
-                    .remove(element)
-                    .unwrap_or_default();
-                groups.groups.push(group);
-                lifter.building.components.group.insert(element, groups);
-            }),
+            b"IFCRELASSIGNSTOGROUP" => {
+                self.zone_members(id, record, 7, true, cx);
+                if self.is_halted() {
+                    return;
+                }
+                self.each(id, record, 7, 5, cx, |lifter, element, group| {
+                    let mut groups = lifter
+                        .building
+                        .components
+                        .group
+                        .remove(element)
+                        .unwrap_or_default();
+                    groups.groups.push(group);
+                    lifter.building.components.group.insert(element, groups);
+                })
+            }
             // 5 ConnectionGeometry・6 RelatingElement・7 RelatedElement。両方の側に持つ
             b"IFCRELCONNECTSPATHELEMENTS" => {
                 let pair = (
@@ -1302,10 +1334,16 @@ impl<'f> Lifter<'f> {
 
     /// 位置 `related` の要素の列（または 1 つ）と、列の中の位置
     fn related(&self, record: &Record, related: usize) -> Vec<(u32, ElementRef)> {
-        refs(arg(record, related))
-            .into_iter()
+        let values = match arg(record, related) {
+            Some(Value::List(values)) => values.as_slice(),
+            Some(value) => core::slice::from_ref(value),
+            None => &[],
+        };
+        values
+            .iter()
             .enumerate()
-            .filter_map(|(at, id)| {
+            .filter_map(|(at, value)| {
+                let id = reference(Some(value))?;
                 let element = *self.elements.get(&id)?;
                 Some((u32::try_from(at).ok()?, element))
             })
@@ -1379,6 +1417,10 @@ impl<'f> Lifter<'f> {
 
     /// 5 RelatedElements・6 RelatingStructure の、参照する空間
     fn referenced(&mut self, id: u64, record: &'f Record, cx: &mut Cx) -> bool {
+        self.zone_members(id, record, 6, false, cx);
+        if self.is_halted() {
+            return false;
+        }
         let Some(target) = reference(arg(record, 6)).and_then(|t| self.elements.get(&t).copied())
         else {
             return false;

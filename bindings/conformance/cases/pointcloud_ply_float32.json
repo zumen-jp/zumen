@@ -1,0 +1,17 @@
+{
+  "description": "ASCII の float32 の小数は宣言された f32 の精度で読んでから f64 に広げる。同じ値を格納した両バイト順と外部実装の照合は crates/zumen-ply/tests/external.rs で行う。pointcloud の位置は北・東・高さで返す（#809）。",
+  "module": "pointcloud",
+  "steps": [
+    { "push": { "name": "float.ply", "text": "ply\nformat ascii 1.0\nelement vertex 1\nproperty float32 x\nproperty float32 y\nproperty float32 z\nend_header\n0.1 -0.2 0.3\n" } },
+    { "call": { "v": 1, "op": "open", "input": "float.ply" }, "expect": { "/result/format": "ply" } },
+    {
+      "call": { "v": 1, "op": "pointcloud", "doc": "float.ply", "limit": 1 },
+      "expect": {
+        "/result/points": 1,
+        "/result/attributes": ["position"],
+        "/result/selected/positions": [[-0.20000000298023224, 0.10000000149011612, 0.30000001192092896]],
+        "/result/selected/truncated": false
+      }
+    }
+  ]
+}

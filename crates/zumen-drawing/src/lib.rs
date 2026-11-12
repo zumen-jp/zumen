@@ -28,6 +28,7 @@ use zumen_base::{Cx, Kind, Ref, Stop};
 
 #[cfg(feature = "binary")]
 pub mod binary;
+mod calibration;
 mod callout;
 mod change;
 mod dimension;
@@ -37,6 +38,7 @@ mod hash;
 mod hatch;
 pub mod id;
 pub mod layout;
+mod palette;
 mod point;
 mod shape;
 mod space;
@@ -48,6 +50,7 @@ pub mod transform;
 mod underlay;
 mod walk;
 
+pub use calibration::{Calibration, MeasurementError, SplitPaperPoint};
 pub use callout::{AttributeValue, Branch, Callout, CalloutContent, Dogleg, PathKind};
 pub use change::{Applied, Changes, Edit, Placed, Restyle, Seen};
 pub use dimension::{Axis, Dimension, DimensionKind, DimensionText, Label, Leader, Measured};
@@ -56,6 +59,7 @@ pub use hash::{Canon, Encode, Hash};
 pub use hatch::{
     Boundary, Fill, Gradient, Hatch, HatchLoop, Islands, Pattern, PatternLine, PatternOrigin,
 };
+pub use palette::Palette;
 pub use point::{MarkerKey, Point, PointLook, PointMark, PointSize, PointStyle};
 pub use shape::{Edge, Element, KnotParameterization, Polyline, Shape, Spline, Vertex};
 pub use space::{

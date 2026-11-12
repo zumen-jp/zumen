@@ -1,10 +1,11 @@
 # ボーリング交換用データ（BED）
 
-地質・土質調査の成果のボーリング交換用データ（BED0500.DTD の XML）を読む規則を記録します（#390、[決定 0242](../decisions/0242-geology-boring-data.md)）。実装は `crates/zumen-geology` です。API では、`boring` の op に入力の名前を渡し、ボーリング 1 本の位置・標高と、深さごとの記録を返します。要素の名前は、要領の付属資料の構造図によります。DTD と記入例は同梱も転載もしません（`formats/ledger.toml` の `boring`）。
+地質・土質調査の成果のボーリング交換用データ（BED0500.DTD の XML）を読む規則を記録します（#390）。実装は `crates/zumen-geology` です。API では、`boring` の op に入力の名前を渡し、ボーリング 1 本の位置・標高と、深さごとの記録を返します。要素の名前は、要領の付属資料の構造図によります。DTD と記入例は同梱も転載もしません（`formats/ledger.toml` の `boring`）。
 
 ## 判定
 
-- `zumen-xml` で読む。UTF-8 と Shift_JIS を受け付ける。DTD は処理しないので、`xml.dtd.dropped` は返さない。
+- `zumen-xml` で読む。UTF-8・Shift_JIS・UTF-16 を [XML の規則](xml.md)で受け付ける。DTD は処理しないので、`xml.dtd.dropped` は返さない。
+- 日本語の要素名は Unicode で比べる。Shift_JIS の `ボーリング情報` とその子も、UTF-8 と同じ値へ読む。
 - XML として読めないか、根の要素が `ボーリング情報` でなければ、`boring.file.invalid` を返して失敗する。
 
 ## 読む要素
@@ -36,10 +37,14 @@
 
 ## 確かめた度合い
 
+自作の UTF-16LE・UTF-16BE で、日本語の根の要素・地層の値と診断の要素名を検査します。[XML の規則](xml.md)を使います。この追加の確認は `synthetic` で、ボーリング交換用データの外部照合はしていません。
+
+自作の Shift_JIS（`Shift_JIS`・`windows-31j`・`ms932`）で、UTF-8 とボーリングの全値・診断が一致することを検査します。[API の適合テスト](../../bindings/conformance/cases/xml_shift_jis.json)でも位置・標高・地層・貫入試験・孔内水位を比較します。この確認も `synthetic` です。
+
 | 形式 | 向き | 段 |
 | --- | --- | --- |
 | `boring` | 読み | `synthetic` |
 
-段の意味は[決定 0254](../decisions/0254-parallel-agents-and-cross-review.md) に、根拠は[形式と権利の一覧](README.md#format-boring)にあります。この文書の規則は、仕様と、テストの中で作ったファイルだけで確かめたものです。公開サンプル・受け取った図面・外部の実装・基準になるソフトとは、まだ照らしていません。実際のファイルでは、ここに書いた扱いと違うことがあります。
+段の意味は[形式台帳の書き方](../../formats/README.md#確かめた度合い)に、根拠は[形式と権利の一覧](README.md#format-boring)にあります。この文書の規則は、仕様と、テストの中で作ったファイルだけで確かめたものです。公開サンプル・受け取った図面・外部の実装・基準になるソフトとは、まだ照らしていません。実際のファイルでは、ここに書いた扱いと違うことがあります。
 
 - 要領が配る DTD での検証と、KuniJiban の柱状図との照合は #505 で行う。

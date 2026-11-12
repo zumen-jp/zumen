@@ -4,7 +4,7 @@ const pageSize = 25;
 const pathLabel = (path) => path.map(({ id, column, row }) => id + "（列 " + column + "・行 " + row + "）").join(" → ");
 
 // 大きい図面でも、一覧の DOM は現在のページだけ作る。
-function Pages({ count, label, className = "", children }) {
+export function Pages({ count, label, className = "", children }) {
   const [page, setPage] = useState(0);
   const last = Math.max(0, Math.ceil(count / pageSize) - 1);
   const current = Math.min(page, last), start = current * pageSize;
@@ -95,12 +95,12 @@ export function Inspector({ viewer, state, opened }) {
   </aside>;
 }
 
-const stages = { open: "読み込み", drawing: "図面モデル", scene: "表示", convert: "変換" };
+const stages = { open: "読み込み", drawing: "図面モデル", scene: "表示", convert: "変換", convert_estimate: "見積もり", input: "読み取り" };
 const severity = { error: "エラー", warning: "警告", info: "情報" };
-export function Diagnostics({ entries, issues, title = "診断", id = "diagnostics-title" }) {
+export function Diagnostics({ entries, issues, title = "診断", id = "diagnostics-title", showParams = false, countUnit = "", heading: Heading = "h2" }) {
   const total = entries.length + issues.length;
   return <section aria-labelledby={id} className="diagnostics">
-    <h2 id={id}>{title} <small>{total}</small></h2>
+    <Heading id={id}>{title} <small>{total}{countUnit}</small></Heading>
     {!total && <p>診断はありません。</p>}
     <Pages count={total} label="診断">{(i) => {
       if (i >= entries.length) {
@@ -109,11 +109,17 @@ export function Diagnostics({ entries, issues, title = "診断", id = "diagnosti
           {issue.element.path.length > 0 && <span className="detail">配置 {pathLabel(issue.element.path)}</span>}
           <span className="detail">{issue.reason}</span></>;
       }
-      const { stage, diagnostic, text } = entries[i];
+      const { stage, diagnostic, text, sources } = entries[i];
       return <>
       <strong>{severity[diagnostic.severity] ?? diagnostic.severity}・{stages[stage]}</strong> {text}
       <div className="detail">{diagnostic.code} · {diagnostic.count} 件
-        {diagnostic.at.map((at, j) => <span key={j}> {at.id} {at.record != null && "レコード " + at.record}{at.bytes && " バイト " + at.bytes.start + "〜" + at.bytes.end}</span>)}</div>
+        {diagnostic.at.map((at, j) => {
+          const source = sources?.[j] ?? at;
+          return <span key={j}> {at.id} {source.record != null && "レコード " + source.record}{source.bytes && " バイト " + source.bytes.start + "〜" + source.bytes.end}
+            {source.handle && " ハンドル " + source.handle}{source.instance != null && " インスタンス " + source.instance}</span>;
+        })}</div>
+      {showParams && Object.keys(diagnostic.params).length > 0 && <dl className="properties detail">{Object.entries(diagnostic.params).map(([name, value]) =>
+        <React.Fragment key={name}><dt>{name}</dt><dd>{String(value)}</dd></React.Fragment>)}</dl>}
       </>;
     }}</Pages>
   </section>;

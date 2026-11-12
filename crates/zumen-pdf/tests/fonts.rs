@@ -80,6 +80,22 @@ fn bounds_font_and_icc_flate_before_allocating_the_whole_output() {
 
 #[test]
 fn preserves_font_and_icc_results_with_damage_and_predictors() {
+    // 寛容な Flate の表を含む保守的な上限は既定予算を超えうる。この検査では内容を比べる。
+    let lift = |source: &[u8]| {
+        let (file, mut diagnostics) = testkit::read::<Pdf>(source);
+        let limits = Limits::default()
+            .with(Kind::Work, Limit::Unlimited)
+            .with(Kind::DecodedBytes, Limit::Unlimited);
+        let mut budget = Budget::new(limits);
+        let mut lifted = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let drawing = file
+            .unwrap()
+            .lift(&mut Cx::new(&mut budget, &mut lifted, &cancel))
+            .unwrap();
+        diagnostics.extend(lifted.into_vec());
+        (drawing, diagnostics)
+    };
     for kind in fonts::KINDS {
         let plain = fonts::plain(kind);
         let good = compressed(&plain);
@@ -111,7 +127,7 @@ fn preserves_font_and_icc_results_with_damage_and_predictors() {
                 (predictor.as_str(), compressed(&predicted)),
             ] {
                 let source = fonts::document(kind, filter, &data, uses);
-                let actual = common::lift(&source);
+                let actual = lift(&source);
                 let shapes = |drawing: &Drawing2D| {
                     drawing
                         .sheets
@@ -126,7 +142,7 @@ fn preserves_font_and_icc_results_with_damage_and_predictors() {
                     assert_eq!(common::codes(&actual.1), common::codes(&expected.1));
                 }
                 // 直接のストリームは仕様外なので、同じバイト列の出所と ID も含めた再現性を比べる。
-                assert_eq!(actual, common::lift(&source));
+                assert_eq!(actual, lift(&source));
             }
         }
     }

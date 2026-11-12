@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { chromium, firefox, webkit } from "playwright";
 import { build } from "vite";
 import { checkBoundaries, checkInteractions, installWorkerGate } from "./react-interactions.mjs";
+import { checkPlaygroundResize, installResizeTrace } from "./react-resize.mjs";
 import { loadSync } from "../../src/index.js";
 
 const [product, wasm] = process.argv.slice(2);
@@ -56,14 +57,76 @@ function convertInNode(module, input, saved) {
   try {
     session.push("input", input);
     session.call({ v: 1, op: "open", input: "input" });
+    const estimated = session.call({ v: 1, op: "convert_estimate", doc: "input", format: "dxf", to: "converted.dxf" });
+    assert.deepEqual(estimated.blobs, [], "見積もりではファイルを返さない");
     const converted = session.call({ v: 1, op: "convert", doc: "input", format: "dxf", to: "converted.dxf" });
+    assert.equal(estimated.result.estimate.hash, converted.result.hash, "見積もりと保存するバイト列のハッシュ");
+    assert.equal(estimated.result.estimate.elements, converted.result.elements, "見積もりと保存する要素数");
+    assert.deepEqual(estimated.diagnostics, converted.diagnostics, "見積もりと保存の診断");
     const written = session.take(0);
     session.push("saved", saved);
     const reopened = session.call({ v: 1, op: "open", input: "saved" });
     const drawing = session.call({ v: 1, op: "drawing", doc: reopened.result.doc });
     const again = session.call({ v: 1, op: "convert", doc: reopened.result.doc, format: "dxf", to: "again.dxf" });
-    return { converted, written, reopened, drawing, again };
+    return { estimated, converted, written, reopened, drawing, again };
   } finally { session.close(); }
+}
+async function checkInputDiagnostics(page, module, ready) {
+  // 1 本の線と移せない種類を 103 件。単位を持たない入力なので、忠実度のない診断も出る。
+  const bytes = Buffer.from([
+    ...section("HEADER", [9, "$ACADVER", 1, "AC1018", 9, "$DWGCODEPAGE", 3, "ANSI_932"]),
+    ...section("ENTITIES", [0, "LINE", 5, "A0", 8, "0", 10, 0, 20, 0, 11, 100, 21, 100,
+      ...Array.from({ length: 103 }, (_, i) => [0, "ZUMEN_UNKNOWN", 5, (0x100 + i).toString(16).toUpperCase(), 8, "0"]).flat()]),
+    0, "EOF", "",
+  ].join("\n"));
+  const session = loadSync(module).open();
+  let report;
+  try {
+    session.push("input", bytes);
+    session.call({ v: 1, op: "open", input: "input" });
+    report = session.call({ v: 1, op: "convert_estimate", doc: "input", format: "dxf", to: "out.dxf" }).result.estimate.input_diagnostics;
+  } finally { session.close(); }
+  assert.ok(report?.truncated && report.details.length === 100);
+  assert.ok(report.counts.some((diagnostic) => !diagnostic.fidelity), "忠実度のない診断を含む");
+  const lifted = report.counts.find((diagnostic) => diagnostic.code === "dxf.lift.dropped");
+  assert.equal(lifted.count, 103);
+  assert.ok(report.counts.every((diagnostic) => diagnostic.at.length === 0), "全件集計は場所の明細と分ける");
+  await page.getByLabel("図面ファイル").setInputFiles({ name: "input-diagnostics.dxf", mimeType: "application/octet-stream", buffer: bytes });
+  await ready("DXF");
+  const panel = page.getByRole("region", { name: /^DXF で保存/ });
+  await panel.getByRole("button", { name: "保存前の見積もりを確認", exact: true }).click();
+  const input = panel.getByRole("region", { name: "読み取り段階の診断", exact: true });
+  await input.waitFor();
+  assert.match(await input.innerText(), new RegExp("診断を " + report.total + " 件報告しました"));
+  assert.match(await input.innerText(), /件数は診断の発生回数/);
+  await input.getByText("読み取り段階の全件集計", { exact: true }).click();
+  const counts = input.getByRole("region", { name: /^全件集計/ });
+  assert.equal(await counts.locator("li").count(), report.counts.length);
+  for (const diagnostic of report.counts) {
+    assert.ok((await counts.innerText()).includes(diagnostic.code + " · " + diagnostic.count + " 件"));
+    for (const [key, value] of Object.entries(diagnostic.params)) {
+      assert.ok((await counts.innerText()).includes(key) && (await counts.innerText()).includes(String(value)));
+    }
+  }
+  await input.getByText("読み取り段階の場所付き明細", { exact: true }).click();
+  const details = input.getByRole("region", { name: /^場所付き明細/ });
+  // 通常の診断の場所の件数を超えた、100 件目の元のキーまで表示できる。
+  for (let i = 0; i < 3; i++) await details.getByRole("button", { name: "次の診断", exact: true }).click();
+  const last = report.details[99], row = details.locator("li").last();
+  assert.ok((await row.innerText()).includes(last.diagnostic.code));
+  for (const source of last.sources) {
+    for (const [key, label] of [["record", "レコード"], ["handle", "ハンドル"], ["instance", "インスタンス"]]) {
+      if (source[key] != null) assert.ok((await row.innerText()).includes(label + " " + source[key]));
+    }
+    if (source.bytes) assert.ok((await row.innerText()).includes("バイト " + source.bytes.start + "〜" + source.bytes.end));
+  }
+  assert.match(await input.innerText(), /読み取り段階の明細は先頭 100 件/);
+  // この追加フィールドを持たない core の結果でも、書き出しの見積もりは使える。
+  await page.evaluate(() => exportGate.omitInputDiagnostics());
+  await panel.getByRole("button", { name: "保存前の見積もりを確認", exact: true }).click();
+  await panel.getByRole("status").getByText("見積もりを確認して、DXF で保存してください。", { exact: true }).waitFor();
+  assert.equal(await input.count(), 0);
+  assert.equal(await panel.getByRole("button", { name: "DXF で保存", exact: true }).count(), 1);
 }
 // 記録されたフォント・画像・PDF の参照名を、ブラウザーの要求先として使わない。
 const section = (name, pairs) => [0, "SECTION", 2, name, ...pairs, 0, "ENDSEC"];
@@ -121,6 +184,8 @@ try {
     return route.continue();
   });
   const page = await context.newPage();
+  await page.exposeFunction("captureResizeFailure", (record) => console.log("ResizeObserver diagnostic: " + JSON.stringify(record)));
+  await page.addInitScript(installResizeTrace);
   await page.addInitScript(installWorkerGate);
   await page.addInitScript(() => {
     window.blockedRequests = [];
@@ -138,7 +203,7 @@ try {
   async function ready(text) {
     await page.waitForFunction((value) => {
       const status = document.querySelector(".status")?.textContent;
-      return status?.includes("表示しました。 " + value) || status?.includes("表示できません");
+      return status?.includes("表示しました。 " + value) || (status?.includes("表示できる要素がありません") && status.includes(value)) || status?.includes("表示できません");
     }, text);
     assert.ok((await status.textContent()).includes(text), await page.locator("main").textContent());
   }
@@ -149,8 +214,12 @@ try {
     return count;
   });
   assert.equal(await status.getAttribute("role"), "status");
+  // 最初の Tab は「本文へ移動」に止まる（WebKit は既定でリンクに止まらない）。サイトのナビとパンくずのあとに、ファイルの選択へ届く。
   await page.keyboard.press("Tab");
-  assert.ok(await file.evaluate((el) => el === document.activeElement));
+  const first = await page.evaluate(() => document.activeElement?.textContent);
+  assert.ok(first === "本文へ移動" || await file.evaluate((el) => el === document.activeElement), "最初の Tab: " + first);
+  for (let i = 0; i < 12 && !await file.evaluate((el) => el === document.activeElement); i++) await page.keyboard.press("Tab");
+  assert.ok(await file.evaluate((el) => el === document.activeElement), "Tab でファイルの選択に届く");
   for (const [format, id] of [["dxf", "space/0/hA1"], ["jww", "space/0/r1"], ["sxf", "sheet/0/i30"]]) {
     await file.setInputFiles({ name: "local." + (format === "sxf" ? "sfc" : format), mimeType: "application/octet-stream", buffer: inputs[format] });
     await ready(format.toUpperCase());
@@ -199,12 +268,23 @@ try {
   // ネイティブの convert が書いたもの（適合テスト）と同じであることを確かめる。変換の診断の件数は、画面と応答で比べる
   const module = new WebAssembly.Module(readFileSync(wasm));
   const exportPanel = page.getByRole("region", { name: /^DXF で保存/ });
+  const downloads = [];
+  const collectDownload = (download) => downloads.push(download);
+  page.on("download", collectDownload);
   for (const { name, bytes, sha256 } of conversions()) {
     await file.setInputFiles({ name, mimeType: "application/octet-stream", buffer: bytes });
     await ready(name.endsWith(".dwg") ? "DWG" : name.endsWith(".jww") ? "JWW" : "SXF");
     // 文書ごとに新しい欄になる（前の図面の結果を見ない）
     const shown = exportPanel.getByRole("status");
     assert.equal(await shown.innerText(), "", name);
+    assert.equal(await exportPanel.getByRole("button", { name: "DXF で保存", exact: true }).count(), 0, "見積もり前には保存しない");
+    const before = downloads.length;
+    const estimate = exportPanel.getByRole("button", { name: "保存前の見積もりを確認", exact: true });
+    await estimate.click();
+    await shown.getByText("見積もりを確認して、DXF で保存してください。", { exact: true }).waitFor();
+    assert.equal(downloads.length, before, "見積もりだけではダウンロードしない");
+    const preview = exportPanel.getByRole("region", { name: "保存前の見積もり", exact: true });
+    await preview.waitFor();
     const saving = page.waitForEvent("download");
     const save = exportPanel.getByRole("button", { name: "DXF で保存", exact: true });
     await save.focus();
@@ -216,6 +296,13 @@ try {
     const node = convertInNode(module, bytes, saved);
     assert.deepEqual(Buffer.from(node.written), saved, name + ": Node.js の wasm と同じバイト列");
     const { elements } = node.converted.result;
+    const report = node.estimated.result.estimate;
+    assert.match(await preview.innerText(), new RegExp("対象 " + report.total + " 件から、DXF に要素 " + elements + " 件"));
+    const labels = { native: "保持", equivalent: "等価", approximated: "近似", drawn: "見た目だけ", dropped: "欠落" };
+    for (const [fidelity, label] of Object.entries(labels)) {
+      const count = report.counts.filter((row) => row.fidelity === fidelity).reduce((sum, row) => sum + row.count, 0);
+      assert.equal(await preview.getByText(label, { exact: true }).locator("xpath=following-sibling::dd[1]").innerText(), count + " 件", name + ": " + label);
+    }
     await shown.getByText(/のダウンロードを始めました/).waitFor();
     assert.ok(await save.evaluate((el) => el === document.activeElement), name + ": 押したあともフォーカスを保つ");
     assert.match(await shown.innerText(), new RegExp("要素 " + elements + " 件・変換の診断 " + node.converted.diagnostics.length + " 件"), name);
@@ -235,9 +322,34 @@ try {
   // DXF を開いて保存するときは、元のファイルと分かる名前にする
   await file.setInputFiles({ name: "local.dxf", mimeType: "application/octet-stream", buffer: inputs.dxf });
   await ready("DXF");
+  assert.equal(await exportPanel.getByRole("region", { name: "保存前の見積もり", exact: true }).count(), 0, "切り替え前の見積もりは残さない");
+  await exportPanel.getByRole("button", { name: "保存前の見積もりを確認", exact: true }).click();
+  await exportPanel.getByRole("status").getByText("見積もりを確認して、DXF で保存してください。", { exact: true }).waitFor();
   const savingDxf = page.waitForEvent("download");
   await exportPanel.getByRole("button", { name: "DXF で保存", exact: true }).click();
   assert.equal((await savingDxf).suggestedFilename(), "local-zumen.dxf");
+  // 見積もり・保存の応答待ちに入力を切り替えても、前の見積もりやダウンロードを採用しない。
+  for (const op of ["convert_estimate", "convert"]) {
+    await file.setInputFiles({ name: "changed.dxf", mimeType: "application/octet-stream", buffer: inputs.dxf });
+    await ready("DXF");
+    if (op === "convert") {
+      await exportPanel.getByRole("button", { name: "保存前の見積もりを確認", exact: true }).click();
+      await exportPanel.getByRole("status").getByText("見積もりを確認して、DXF で保存してください。", { exact: true }).waitFor();
+    }
+    await page.evaluate((op) => exportGate.defer(op), op);
+    const before = downloads.length;
+    await exportPanel.getByRole("button", { name: op === "convert" ? "DXF で保存" : "保存前の見積もりを確認", exact: true }).click();
+    await page.waitForFunction(() => exportGate.waiting);
+    await file.setInputFiles({ name: "changed.jww", mimeType: "application/octet-stream", buffer: inputs.jww });
+    await ready("JWW");
+    await page.evaluate(() => exportGate.release());
+    await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+    assert.equal(downloads.length, before, op + ": 前の入力の結果を保存しない");
+    assert.equal(await exportPanel.getByRole("region", { name: "保存前の見積もり", exact: true }).count(), 0, op + ": 前の入力の見積もりを表示しない");
+    assert.equal(await exportPanel.getByRole("button", { name: "DXF で保存", exact: true }).count(), 0);
+  }
+  page.off("download", collectDownload);
+  await checkInputDiagnostics(page, module, ready);
   // 公開サンプル（#689）。DWG の R2000・R2004・R2018 を選んで開き、表示・レイヤ・選択・出所・診断を操作する。
   // サンプルは配布物の中のファイルで、取るのはローカルの GET だけ（下の failures で確かめる）
   const samplePicker = page.getByLabel("公開サンプル");
@@ -282,12 +394,14 @@ try {
   await ready("DXF");
   assert.equal(await samplePicker.inputValue(), "dxf/opendxfviewer-latin1.dxf");
   assert.match(await sampleSource.innerText(), /ANSI_1252/);
+  assert.match(await status.textContent(), /表示できる要素がありません/);
+  assert.match(await page.getByRole("region", { name: /^診断/ }).textContent(), /dxf.code-page.unsupported/);
   // 先に選んだ DWG が遅れて届いても、差し替えない
   const late = page.waitForResponse(slow);
   release();
   await late;
   await page.waitForTimeout(500);
-  assert.match(await status.textContent(), /表示しました。 DXF/);
+  assert.match(await status.textContent(), /表示できる要素がありません.*DXF/);
   assert.equal(await samplePicker.inputValue(), "dxf/opendxfviewer-latin1.dxf");
   await page.unroute(slow);
   // 開いたサンプルを閉じる
@@ -322,10 +436,11 @@ try {
   assert.equal(await status.textContent(), "図面を選んでください。");
   assert.ok(await file.evaluate((el) => el === document.activeElement));
 
-  await checkInteractions(page, ready);
+  const resizeInput = await checkInteractions(page, ready);
   assert.deepEqual(await page.evaluate(() => window.blockedRequests), []);
   await page.goto(origin + "/production/test/lifecycle.html");
   await checkBoundaries(page, inputs.jww, "本番");
+  await checkPlaygroundResize(page, resizeInput, "本番");
   await page.goto(origin + "/strict/test/lifecycle.html");
   await page.evaluate((bytes) => probe.render(bytes, true), [...inputs.dxf]);
   assert.ok(await page.evaluate(() => probe.delayed.length === 2 && probe.delayed[0].signal.aborted && !probe.delayed[1].signal.aborted));
@@ -352,9 +467,10 @@ try {
   const counts = await page.evaluate(() => probe.counts);
   assert.deepEqual([counts.workers, counts.starts, counts.ends, counts.transferred, counts.state, counts.events, counts.destroyed], [0, 3, 3, 3, 0, 0, 2]);
   await checkBoundaries(page, inputs.jww, "StrictMode");
+  await checkPlaygroundResize(page, resizeInput, "StrictMode");
   assert.ok([...seen].some((p) => p.includes("/app/assets/worker-")) && [...seen].some((p) => p.endsWith(".wasm")));
   assert.deepEqual(failures, []);
-  const summary = product + " " + browser.version() + " で DXF・JWW・SXF と公開サンプルの DWG（R2000・R2004・R2018）、初回の表示範囲・倍率の両端、用紙の連続切り替え・レイヤ・40 要素の選択・配置別の診断、DXF で保存（合成の DWG・JWW・SFC・P21 と公開サンプルの DWG をネイティブと同じバイト列で）、本番用 React・StrictMode の再接続中の状態と出所、ローカルの配布物だけの GET を確認";
+  const summary = product + " " + browser.version() + " で DXF・JWW・SXF と公開サンプルの DWG（R2000・R2004・R2018）、初回の表示範囲・倍率の両端、用紙の連続切り替え・レイヤ・40 要素の選択・配置別の診断、DXF で保存（合成の DWG・JWW・SFC・P21 と公開サンプルの DWG をネイティブと同じバイト列で）、本番用 React・StrictMode の再接続中の状態と出所、リサイズの8フレーム以内の収束と予約取消、ローカルの配布物だけの GET を確認";
   console.log(summary);
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, "\n" + summary + "\n");
 } finally {

@@ -10,5 +10,9 @@ if (opened.status === "ready" && state?.selection[0]) {
 }
 if (opened.status === "ready") {
   void opened.convert().then(({ bytes, result, diagnostics }) => [bytes.byteLength, result.elements, diagnostics[0]?.stage]);
+  void opened.estimate({ limit: 25 }).then((preview) => {
+    void preview.result.estimate.counts[0]?.fidelity;
+    return opened.convert(preview);
+  });
 }
 if (opened.status === "error") void opened.diagnostics[0]?.text;

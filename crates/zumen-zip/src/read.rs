@@ -5,8 +5,7 @@ use std::borrow::Cow;
 use std::collections::BTreeSet;
 
 use zumen_base::name::is_safe;
-use zumen_base::{Code, Cx, Diagnostic, Kind, Ref, codes};
-use zumen_sdk::Error;
+use zumen_base::{Code, Cx, Diagnostic, Error, Kind, Ref, codes};
 
 use crate::{Archive, Entry, Method};
 

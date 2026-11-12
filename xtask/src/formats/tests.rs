@@ -51,7 +51,6 @@ rights = "public"
 rights-note = "テスト用の根拠"
 place = "core"
 basis = ["spec"]
-decisions = ["0008"]
 legacy-decisions = ["0003"]
 issues = ["zumen-jp/zumen-legacy#140"]
 docs = ["docs/formats/dxf.md"]
@@ -75,29 +74,27 @@ fn document(rows: &str) -> String {
     )
 }
 
-fn fixture() -> (TempDir, Ledger, Decisions) {
+fn fixture() -> (TempDir, Ledger) {
     let dir = TempDir::new();
-    dir.write("docs/decisions/0008-model.md", "# テスト用の決定\n");
     dir.write(
         "docs/formats/dxf.md",
         &document("| `dxf` | 読み | `synthetic` |\n"),
     );
-    let decisions = decision_files(&dir.0).unwrap();
-    (dir, toml::from_str(LEDGER).unwrap(), decisions)
+    (dir, toml::from_str(LEDGER).unwrap())
 }
 
 /// 公開サンプルの台帳にあるとする道筋で検査する
-fn check(ledger: &Ledger, root: &Path, decisions: &Decisions) -> Vec<String> {
+fn check(ledger: &Ledger, root: &Path) -> Vec<String> {
     let samples = ["dwg/a.dwg", "dwg/a_ascii.dxf", "dxf/b.dxf"]
         .map(String::from)
         .into();
-    super::check(ledger, root, decisions, &samples)
+    super::check(ledger, root, &samples)
 }
 
 #[test]
 fn accepts_public_core_and_restricted_none() {
-    let (dir, ledger, decisions) = fixture();
-    assert_eq!(check(&ledger, &dir.0, &decisions), Vec::<String>::new());
+    let (dir, ledger) = fixture();
+    assert_eq!(check(&ledger, &dir.0), Vec::<String>::new());
 }
 
 #[test]
@@ -124,7 +121,7 @@ fn rejects_missing_required_fields_unknown_fields_and_wrong_types() {
 
 #[test]
 fn rejects_invalid_values_and_inconsistent_references() {
-    let (dir, _, decisions) = fixture();
+    let (dir, _) = fixture();
     for (from, to, expected) in [
         ("[specs.dxf_1]", "[specs.DXF]", "ID"),
         ("[formats.dxf]", "[formats.dxf-file]", "キー"),
@@ -169,11 +166,6 @@ fn rejects_invalid_values_and_inconsistent_references() {
         ),
         ("https://example.com/spec", "https:///spec", "url"),
         (
-            "decisions = [\"0008\"]",
-            "decisions = [\"9999\"]",
-            "決定 `9999`",
-        ),
-        (
             "legacy-decisions = [\"0003\"]",
             "legacy-decisions = [\"3\"]",
             "旧版の決定",
@@ -209,7 +201,7 @@ fn rejects_invalid_values_and_inconsistent_references() {
         ),
     ] {
         let ledger: Ledger = toml::from_str(&LEDGER.replace(from, to)).unwrap();
-        let errors = check(&ledger, &dir.0, &decisions);
+        let errors = check(&ledger, &dir.0);
         assert!(
             errors.iter().any(|e| e.contains(expected)),
             "{from}: {errors:?}"
@@ -219,7 +211,7 @@ fn rejects_invalid_values_and_inconsistent_references() {
 
 #[test]
 fn checks_evidence_and_implementation_sources() {
-    let (dir, mut ledger, decisions) = fixture();
+    let (dir, mut ledger) = fixture();
     let f = ledger.formats.get_mut("dxf").unwrap();
     f.place = "plugin".into();
     f.read = None;
@@ -238,13 +230,13 @@ fn checks_evidence_and_implementation_sources() {
         checked: "2026-10-25".into(),
         note: None,
     });
-    assert!(check(&ledger, &dir.0, &decisions).is_empty());
+    assert!(check(&ledger, &dir.0).is_empty());
     let f = ledger.formats.get_mut("dxf").unwrap();
     f.references[0].license.clear();
     f.evidence[0].checked.clear();
     f.evidence[0].url = "file:///private".into();
     f.repository = Some(" ".into());
-    let errors = check(&ledger, &dir.0, &decisions);
+    let errors = check(&ledger, &dir.0);
     for key in ["license", "checked", "url", "repository"] {
         assert!(errors.iter().any(|e| e.contains(key)), "{errors:?}");
     }
@@ -261,7 +253,7 @@ fn derives_the_level_from_the_strongest_evidence() {
             .as_mut()
             .unwrap()
     }
-    let (dir, mut ledger, decisions) = fixture();
+    let (dir, mut ledger) = fixture();
     let tool = |name: &str| Tool {
         name: name.into(),
         version: "1.0".into(),
@@ -288,7 +280,7 @@ fn derives_the_level_from_the_strongest_evidence() {
                 ledger.formats["dxf"].read.as_ref().unwrap().level
             )),
         );
-        check(ledger, &dir.0, &decisions)
+        check(ledger, &dir.0)
     };
     // 公開サンプルを読んだだけでは、synthetic のまま
     let sample = &["samples/dxf/b.dxf"][..];
@@ -413,7 +405,7 @@ fn derives_the_level_from_the_strongest_evidence() {
 
 #[test]
 fn counts_only_readers_of_the_written_file_for_writing() {
-    let (dir, mut ledger, decisions) = fixture();
+    let (dir, mut ledger) = fixture();
     let errors = |ledger: &Ledger| {
         let found = ledger.formats["dxf"].write.as_ref().unwrap();
         dir.write(
@@ -423,7 +415,7 @@ fn counts_only_readers_of_the_written_file_for_writing() {
                 found.level
             )),
         );
-        check(ledger, &dir.0, &decisions)
+        check(ledger, &dir.0)
     };
     let write = |level: &str, samples: Vec<String>, received, attached_values, implementations| {
         Verification {
@@ -477,10 +469,10 @@ fn counts_only_readers_of_the_written_file_for_writing() {
 
 #[test]
 fn checks_the_section_of_each_document_against_the_ledger() {
-    let (dir, mut ledger, decisions) = fixture();
+    let (dir, mut ledger) = fixture();
     let errors = |dir: &TempDir, ledger: &Ledger, text: &str| {
         dir.write("docs/formats/dxf.md", text);
-        check(ledger, &dir.0, &decisions)
+        check(ledger, &dir.0)
     };
     assert!(
         errors(&dir, &ledger, "# 文書\n\n## 確かめた度合いの考え方\n")
@@ -564,7 +556,7 @@ write = { level = "synthetic", scope = "範囲", checked = "2026-11-03" }
     // あるのに読めない文書は、黙って飛ばさない
     std::fs::write(dir.0.join("docs/formats/dxf.md"), [0xff, 0xfe]).unwrap();
     assert!(
-        check(&ledger, &dir.0, &decisions)
+        check(&ledger, &dir.0)
             .iter()
             .any(|e| e.contains("dxf.md: 確かめた度合いの節を照らす文書を読めない"))
     );
@@ -618,10 +610,10 @@ fn validates_dates_without_using_the_current_clock() {
 }
 
 #[test]
-fn rejects_paths_outside_format_documents_and_duplicate_decisions() {
-    let (dir, _, _) = fixture();
+fn rejects_paths_outside_format_documents() {
+    let (dir, _) = fixture();
     for doc in [
-        "docs/formats/../decisions/0008-model.md",
+        "docs/formats/../../formats/README.md",
         "/docs/formats/dxf.md",
         "docs\\formats\\dxf.md",
         "docs/formats/./dxf.md",
@@ -629,13 +621,11 @@ fn rejects_paths_outside_format_documents_and_duplicate_decisions() {
     ] {
         assert!(!is_doc(&dir.0, doc), "{doc}");
     }
-    dir.write("docs/decisions/0008-other.md", "# 重複\n");
-    assert!(decision_files(&dir.0).unwrap_err().contains("重なって"));
 }
 
 #[test]
 fn requires_an_unconditional_ban_for_every_known_restricted_crate() {
-    let (_, ledger, _) = fixture();
+    let (_, ledger) = fixture();
     for entry in [
         "\"restricted-reader\"",
         "{ crate = \"restricted-reader\", reason = \"理由\" }",
@@ -666,7 +656,7 @@ fn packages(source: &str) -> Value {
 
 #[test]
 fn checks_all_packages_and_rejects_malformed_declarations() {
-    let (_, ledger, _) = fixture();
+    let (_, ledger) = fixture();
     assert!(check_packages(&ledger, &packages(r#"{"packages":[{"name":"app","metadata":{"zumen":{"formats":["dxf"]}}},{"name":"other","metadata":{"tool":{}}}]}"#)).is_empty());
     for (declaration, expected) in [
         (r#"["missing"]"#, "台帳にない"),
@@ -737,12 +727,12 @@ fn building_model_does_not_reach_ifc() {
 
 #[test]
 fn renders_records_in_key_order_with_working_links() {
-    let (_, ledger, decisions) = fixture();
-    let output = render::render(&ledger, &decisions);
+    let (_, ledger) = fixture();
+    let output = render::render(&ledger);
     assert!(output.find("### format-dxf").unwrap() < output.find("### format-restricted").unwrap());
     for expected in [
         "[dxf\\_1](#spec-dxf_1)",
-        "[決定 0008](../decisions/0008-model.md)",
+        "旧版の決定 0003",
         "https://github.com/zumen-jp/zumen-legacy/issues/140",
         "../../docs/formats/dxf.md",
         "テスト用の根拠",
@@ -756,12 +746,12 @@ fn renders_records_in_key_order_with_working_links() {
     ] {
         assert!(output.contains(expected), "{expected}");
     }
-    assert_eq!(output, render::render(&ledger, &decisions));
+    assert_eq!(output, render::render(&ledger));
 }
 
 #[test]
 fn renders_urls_in_prose_without_escaping() {
-    let (_, mut ledger, decisions) = fixture();
+    let (_, mut ledger) = fixture();
     let spec = ledger.specs.values_mut().next().unwrap();
     spec.note = Some(
         "DTD は https://example.com/cri_dtdxml/ の boring_R8.2.zip にある。\
@@ -777,7 +767,7 @@ fn renders_urls_in_prose_without_escaping() {
     f.name = "表の https://example.com/t_u|v の名前".into();
     let read = f.read.as_mut().unwrap();
     read.public_samples = vec!["https://example.com/l_m".into()];
-    let output = render::render(&ledger, &decisions);
+    let output = render::render(&ledger);
     for expected in [
         "DTD は <https://example.com/cri_dtdxml/> の boring\\_R8.2.zip にある。",
         "一覧は <https://example.com/a_b?x=1&y=*2*%7Cz>。",
@@ -797,7 +787,7 @@ fn renders_urls_in_prose_without_escaping() {
 
 #[test]
 fn renders_the_evidence_of_each_direction() {
-    let (_, mut ledger, decisions) = fixture();
+    let (_, mut ledger) = fixture();
     let f = ledger.formats.get_mut("dxf").unwrap();
     let read = f.read.as_mut().unwrap();
     read.level = "external".into();
@@ -823,7 +813,7 @@ fn renders_the_evidence_of_each_direction() {
             version: "2027".into(),
         }],
     });
-    let output = render::render(&ledger, &decisions);
+    let output = render::render(&ledger);
     for expected in [
         "`public` | `core` | `external` | `application` |",
         "- 読みで使った公開サンプル: [samples/dwg/](../../samples/dwg/)・[https://example.com/a.dxf](https://example.com/a.dxf)",
@@ -892,7 +882,7 @@ dev = { path = "../deps/dev" }
         panic!("workspace_members がない")
     };
     assert_eq!(members.len(), 1);
-    let (_, ledger, _) = fixture();
+    let (_, ledger) = fixture();
     let errors = check_packages(&ledger, &metadata);
     assert_eq!(errors.len(), 6, "{errors:?}");
     for name in ["direct", "optional", "target", "build", "dev", "transitive"] {

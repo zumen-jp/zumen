@@ -22,7 +22,7 @@ use crate::messages::{
     CircleGeometry, DimensionAxis, DimensionGeometry, DimensionKind, DimensionLabel,
     EllipseGeometry, FormattedTextGeometry, Geometry, LeaderGeometry, LineGeometry, PointGeometry,
     PointMarker, PolylineGeometry, SplineGeometry, SymbolAttribute, SymbolGeometry, SymbolGrid,
-    TextFit, TextGeometry,
+    TextFit, TextGeometry, TextHorizontal, TextVertical,
 };
 
 /// API の apply が書き戻す DXF と DWG の、ブロックの記号の名前空間
@@ -160,8 +160,32 @@ pub(crate) fn geometry_of<P: Spot>(shape: &Shape<P>) -> Option<Geometry> {
             })
         }
         Shape::Text(text) => {
-            let (point, end, fit, rotation) = match text.placement {
-                Placement::Anchor { point, .. } => (point, None, None, text.rotation),
+            if !text.width_factor.is_finite() || text.width_factor <= 0.0 {
+                return None;
+            }
+            let (point, end, fit, horizontal, vertical, rotation) = match text.placement {
+                Placement::Anchor {
+                    point,
+                    horizontal,
+                    vertical,
+                } => (
+                    point,
+                    None,
+                    None,
+                    match horizontal {
+                        Horizontal::Left => None,
+                        Horizontal::Center => Some(TextHorizontal::Center),
+                        Horizontal::Right => Some(TextHorizontal::Right),
+                        Horizontal::Middle => Some(TextHorizontal::Middle),
+                    },
+                    match vertical {
+                        Vertical::Baseline => None,
+                        Vertical::Bottom => Some(TextVertical::Bottom),
+                        Vertical::Middle => Some(TextVertical::Middle),
+                        Vertical::Top => Some(TextVertical::Top),
+                    },
+                    text.rotation,
+                ),
                 Placement::Between { first, second, fit } => {
                     let ([x0, y0], [x1, y1]) = (Point::xy(first), Point::xy(second));
                     if x0 == x1 && y0 == y1 {
@@ -175,6 +199,8 @@ pub(crate) fn geometry_of<P: Spot>(shape: &Shape<P>) -> Option<Geometry> {
                             Fit::Aligned => TextFit::Aligned,
                             Fit::Fit => TextFit::Fit,
                         }),
+                        None,
+                        None,
                         rotation,
                     )
                 }
@@ -184,8 +210,14 @@ pub(crate) fn geometry_of<P: Spot>(shape: &Shape<P>) -> Option<Geometry> {
                 position: xy(point),
                 end,
                 fit,
+                horizontal,
+                vertical,
                 height: point.length(text.height.value)?,
                 rotation,
+                width_factor: (text.width_factor != 1.0).then_some(text.width_factor),
+                oblique: (text.oblique != 0.0).then_some(text.oblique),
+                backward: text.backward.then_some(true),
+                upside_down: text.upside_down.then_some(true),
                 style: Some(text.style.clone()),
                 style_id: None,
             })
@@ -203,21 +235,14 @@ pub(crate) fn geometry_of<P: Spot>(shape: &Shape<P>) -> Option<Geometry> {
             style: Some(text.style.clone()),
             style_id: None,
         }),
-        Shape::Symbol(symbol) if symbol.key.namespace == BLOCK => {
+        Shape::Symbol(symbol) => {
+            let grid = symbol_grid(symbol)?;
             Geometry::Symbol(SymbolGeometry {
                 name: symbol.key.name.clone(),
                 position: xy(symbol.position),
                 scale: symbol.scale.to_vec(),
                 rotation: symbol.rotation,
-                grid: match &symbol.grid {
-                    Some(grid) => Some(SymbolGrid {
-                        columns: grid.columns.into(),
-                        rows: grid.rows.into(),
-                        column_spacing: symbol.position.length(grid.column_spacing)?,
-                        row_spacing: symbol.position.length(grid.row_spacing)?,
-                    }),
-                    None => None,
-                },
+                grid,
                 attributes: (!symbol.attributes.is_empty()).then(|| {
                     symbol
                         .attributes
@@ -259,6 +284,22 @@ pub(crate) fn geometry_of<P: Spot>(shape: &Shape<P>) -> Option<Geometry> {
             construction: dot.construction.then_some(true),
         }),
         _ => return None,
+    })
+}
+
+/// 記号の名前空間と格子間隔の座標の系を確かめ、形の値の格子にする。固定のフィールドだけを調べる
+pub(crate) fn symbol_grid<P: Spot>(symbol: &Symbol<P>) -> Option<Option<SymbolGrid>> {
+    if symbol.key.namespace != BLOCK {
+        return None;
+    }
+    Some(match &symbol.grid {
+        Some(grid) => Some(SymbolGrid {
+            columns: grid.columns.into(),
+            rows: grid.rows.into(),
+            column_spacing: symbol.position.length(grid.column_spacing)?,
+            row_spacing: symbol.position.length(grid.row_spacing)?,
+        }),
+        None => None,
     })
 }
 
@@ -898,25 +939,41 @@ pub(crate) fn shape_of<P: Spot>(
             if text.content.contains(['\n', '\r']) {
                 return Err("geometry/content".to_string());
             }
+            let placement = match between(text)? {
+                Some((first, second, fit)) => {
+                    if text.horizontal.is_some() {
+                        return Err("geometry/horizontal".to_string());
+                    }
+                    if text.vertical.is_some() {
+                        return Err("geometry/vertical".to_string());
+                    }
+                    Placement::Between { first, second, fit }
+                }
+                None => Placement::Anchor {
+                    point: point(&text.position, "position")?,
+                    horizontal: text.horizontal.map_or(Horizontal::Left, text_horizontal_of),
+                    vertical: text.vertical.map_or(Vertical::Baseline, text_vertical_of),
+                },
+            };
             Shape::Text(Text {
                 content: text.content.clone(),
-                placement: match between(text)? {
-                    Some((first, second, fit)) => Placement::Between { first, second, fit },
-                    None => Placement::Anchor {
-                        point: point(&text.position, "position")?,
-                        horizontal: Horizontal::Left,
-                        vertical: Vertical::Baseline,
-                    },
-                },
+                placement,
                 height: zumen_drawing::Height {
                     value: positive(text.height, "height")?,
                     meaning: HeightMeaning::Declared("dxf.TEXT.40".into()),
                 },
                 rotation: finite(text.rotation, "rotation")?,
-                width_factor: 1.0,
-                oblique: 0.0,
-                backward: false,
-                upside_down: false,
+                width_factor: match text.width_factor {
+                    Some(value) if value.is_finite() && value > 0.0 => value,
+                    Some(_) => return Err("geometry/width_factor".to_string()),
+                    None => 1.0,
+                },
+                oblique: match text.oblique {
+                    Some(value) => finite(value, "oblique")?,
+                    None => 0.0,
+                },
+                backward: text.backward.unwrap_or(false),
+                upside_down: text.upside_down.unwrap_or(false),
                 style: text.style.clone().unwrap_or_else(|| "Standard".to_string()),
             })
         }
@@ -939,14 +996,34 @@ pub(crate) fn shape_of<P: Spot>(
                         ..
                     },
                     None,
-                ) => Placement::Anchor {
-                    point: point(&text.position, "position")?,
-                    horizontal,
-                    vertical,
-                },
+                ) => {
+                    if text
+                        .horizontal
+                        .is_some_and(|given| text_horizontal_of(given) != horizontal)
+                    {
+                        return Err("geometry/horizontal".to_string());
+                    }
+                    if text
+                        .vertical
+                        .is_some_and(|given| text_vertical_of(given) != vertical)
+                    {
+                        return Err("geometry/vertical".to_string());
+                    }
+                    Placement::Anchor {
+                        point: point(&text.position, "position")?,
+                        horizontal,
+                        vertical,
+                    }
+                }
                 (Placement::Between { fit: was, .. }, Some((first, second, fit))) => {
                     if fit != was {
                         return Err("geometry/fit".to_string());
+                    }
+                    if text.horizontal.is_some() {
+                        return Err("geometry/horizontal".to_string());
+                    }
+                    if text.vertical.is_some() {
+                        return Err("geometry/vertical".to_string());
                     }
                     Placement::Between { first, second, fit }
                 }
@@ -965,10 +1042,17 @@ pub(crate) fn shape_of<P: Spot>(
                     meaning: old.height.meaning.clone(),
                 },
                 rotation: finite(text.rotation, "rotation")?,
-                width_factor: old.width_factor,
-                oblique: old.oblique,
-                backward: old.backward,
-                upside_down: old.upside_down,
+                width_factor: match text.width_factor {
+                    Some(value) if value.is_finite() && value > 0.0 => value,
+                    Some(_) => return Err("geometry/width_factor".to_string()),
+                    None => old.width_factor,
+                },
+                oblique: match text.oblique {
+                    Some(value) => finite(value, "oblique")?,
+                    None => old.oblique,
+                },
+                backward: text.backward.unwrap_or(old.backward),
+                upside_down: text.upside_down.unwrap_or(old.upside_down),
                 style: old.style.clone(),
             })
         }
@@ -1464,6 +1548,26 @@ fn degrees(rotation: Rotation) -> f64 {
     match rotation {
         Rotation::Angle(angle) => angle,
         Rotation::Direction([x, y]) => libm::atan2(y, x).to_degrees(),
+    }
+}
+
+/// 1 点に置く文字の水平の位置合わせ
+fn text_horizontal_of(horizontal: TextHorizontal) -> Horizontal {
+    match horizontal {
+        TextHorizontal::Left => Horizontal::Left,
+        TextHorizontal::Center => Horizontal::Center,
+        TextHorizontal::Right => Horizontal::Right,
+        TextHorizontal::Middle => Horizontal::Middle,
+    }
+}
+
+/// 1 点に置く文字の垂直の位置合わせ
+fn text_vertical_of(vertical: TextVertical) -> Vertical {
+    match vertical {
+        TextVertical::Baseline => Vertical::Baseline,
+        TextVertical::Bottom => Vertical::Bottom,
+        TextVertical::Middle => Vertical::Middle,
+        TextVertical::Top => Vertical::Top,
     }
 }
 

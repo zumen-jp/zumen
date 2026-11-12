@@ -1,6 +1,9 @@
 # 表記の検査から外すもの（決定 0021）
 node_modules/
 target/
+target/**
+# サイトのビルド出力（依存のライセンスの原文を含む）。正本は site/ と playground/ のソース。
+site/dist/**
 # 揺れの辞書と許す語の一覧は、直す前の書き方を例として持つ
 prh.yml
 .textlint-allow.yml

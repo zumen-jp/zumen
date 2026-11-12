@@ -8,16 +8,24 @@ use std::collections::BTreeMap;
 use zumen_base::{Cx, Diagnostic, Ref, codes};
 
 mod component;
+mod curve;
+mod extrusion;
+mod grid;
 mod hash;
 mod id;
 mod placement;
 mod relations;
+mod surface_style;
 
 pub use component::*;
+pub use curve::*;
+pub use extrusion::*;
+pub use grid::*;
 pub use hash::{Canon, Encode, Hash};
 pub use id::{GlobalId, Id};
 pub use placement::Transform;
 pub use relations::Relations;
+pub use surface_style::*;
 
 /// 要素の番号。ファイルに書いた順
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
