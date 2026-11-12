@@ -34,6 +34,12 @@ class Request extends Message {
   /// op が entities の形なら、そのビュー。違えば null
   EntitiesRequest? get asEntitiesRequest => taggedView('op', 'entities', EntitiesRequest.fromJson);
 
+  /// op が calibrations の形なら、そのビュー。違えば null
+  CalibrationsRequest? get asCalibrationsRequest => taggedView('op', 'calibrations', CalibrationsRequest.fromJson);
+
+  /// op が measure_distance の形なら、そのビュー。違えば null
+  MeasureDistanceRequest? get asMeasureDistanceRequest => taggedView('op', 'measure_distance', MeasureDistanceRequest.fromJson);
+
   /// op が apply の形なら、そのビュー。違えば null
   ApplyRequest? get asApplyRequest => taggedView('op', 'apply', ApplyRequest.fromJson);
 
@@ -557,6 +563,249 @@ class DrawingResult extends Message {
   /// 文書の点の表し方（marker を持たない点の見え方、決定 0160）。point_style の変更で変える。文書が持たなければ（JWW・SXF）持たない。マイナーバージョン 39 から
   PointStyleSummary? get pointStyle => readField('point_style', objectOf(PointStyleSummary.fromJson));
   set pointStyle(PointStyleSummary? value) => writeField('point_style', value);
+}
+
+/// 2 次元の座標
+class Point2 extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  Point2.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  Point2() : super({});
+
+  /// X 座標
+  double? get x => readField('x', asDouble);
+  set x(double? value) => writeField('x', value);
+
+  /// Y 座標
+  double? get y => readField('y', asDouble);
+  set y(double? value) => writeField('y', value);
+}
+
+/// 原点と相対座標を分けた用紙の点。両成分の正確な和を位置とし、先に足して丸めない。座標の単位は用紙の mm
+class SplitPoint2 extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  SplitPoint2.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  SplitPoint2() : super({});
+
+  /// 用紙の原点
+  Point2? get origin => readField('origin', objectOf(Point2.fromJson));
+  set origin(Point2? value) => writeField('origin', value);
+
+  /// 原点からの相対座標
+  Point2? get offset => readField('offset', objectOf(Point2.fromJson));
+  set offset(Point2? value) => writeField('offset', value);
+}
+
+/// 用紙の閉じた矩形で使う距離の校正。重なる領域は ID で明示的に選ぶ。マイナーバージョン 68 から
+class CalibrationItem extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  CalibrationItem.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  CalibrationItem() : super({});
+
+  /// 文書内で重複しない校正の ID
+  String? get id => readField('id', asString);
+  set id(String? value) => writeField('id', value);
+
+  /// 元の校正の名前。翻訳しない。なければ持たない
+  String? get name => readField('name', asString);
+  set name(String? value) => writeField('name', value);
+
+  /// 校正を使える公開用紙の ID。drawing が返すもの
+  String? get from => readField('from', asString);
+  set from(String? value) => writeField('from', value);
+
+  /// 用紙の mm の閉じた矩形。[X の最小, Y の最小, X の最大, Y の最大] の 4 値で、幅と高さは正
+  List<double>? get bounds => readField('bounds', listOf(asDouble));
+  set bounds(List<double>? value) => writeField('bounds', value);
+
+  /// 用紙の mm の変位から校正単位の変位へ写す行優先の 2×2 行列。[a, b, c, d] の 4 値で、[dx, dy] を [a*dx+b*dy, c*dx+d*dy] に写す
+  List<double>? get matrix => readField('matrix', listOf(asDouble));
+  set matrix(List<double>? value) => writeField('matrix', value);
+
+  /// 校正後の長さの単位。ラベルだけから推定しない
+  String? get unit => readField('unit', asString);
+  set unit(String? value) => writeField('unit', value);
+
+  /// 元の単位ラベル。未知の単位でも原文を保つ
+  String? get unitLabel => readField('unit_label', asString);
+  set unitLabel(String? value) => writeField('unit_label', value);
+
+  /// 元の形式のレコード
+  Source? get source => readField('source', objectOf(Source.fromJson));
+  set source(Source? value) => writeField('source', value);
+}
+
+/// 開いた文書を図面モデルに変換し、用紙の距離の校正をモデルの順に返す。マイナーバージョン 68 から
+class CalibrationsRequest extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  CalibrationsRequest.fromJson(super.json);
+
+  /// タグのフィールドだけを持つオブジェクトから作る
+  CalibrationsRequest() : super({'op': 'calibrations'});
+
+  /// メッセージのスキーマのメジャーバージョン。今は 1
+  int? get v => readField('v', asInt);
+  set v(int? value) => writeField('v', value);
+
+  /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+  Budget? get budget => readField('budget', objectOf(Budget.fromJson));
+  set budget(Budget? value) => writeField('budget', value);
+
+  /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+  bool? get partial => readField('partial', asBool);
+  set partial(bool? value) => writeField('partial', value);
+
+  /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+  int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(int? value) => writeField('max_places', value);
+
+  /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(int? value) => writeField('time_limit_ms', value);
+
+  /// op の名前
+  String? get op => readField('op', asString);
+  set op(String? value) => writeField('op', value);
+
+  /// 文書の名前。open で作ったもの
+  String? get doc => readField('doc', asString);
+  set doc(String? value) => writeField('doc', value);
+
+  /// 公開用紙の ID。drawing が返すもの。書けばその用紙の校正だけを返し、書かなければすべての校正を返す
+  String? get from => readField('from', asString);
+  set from(String? value) => writeField('from', value);
+
+  /// 返す最初の校正の位置。from で絞った後の位置で、前の応答の next_offset を渡す。書かなければ 0
+  int? get offset => readField('offset', asInt);
+  set offset(int? value) => writeField('offset', value);
+
+  /// 返す校正の数の上限。書かなければ 1000
+  int? get limit => readField('limit', asInt);
+  set limit(int? value) => writeField('limit', value);
+
+  /// 期待する元の文書のハッシュ。open に渡したバイト列のハッシュと照合する。図面モデルへ変換した ZMDR 自身のハッシュではない
+  String? get expectedHash => readField('expected_hash', asString);
+  set expectedHash(String? value) => writeField('expected_hash', value);
+}
+
+/// 距離の校正の一覧の一部
+class CalibrationsResult extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  CalibrationsResult.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  CalibrationsResult() : super({});
+
+  /// 元の文書のハッシュ。ZMDR から開いたときは、埋め込まれた元の文書のハッシュ（Source.hash）
+  String? get hash => readField('hash', asString);
+  set hash(String? value) => writeField('hash', value);
+
+  /// from で絞った一覧の offset から limit 個までの校正
+  List<CalibrationItem>? get items => readField('items', listOf(objectOf(CalibrationItem.fromJson)));
+  set items(List<CalibrationItem>? value) => writeField('items', value);
+
+  /// from で絞った後の校正の総数
+  int? get total => readField('total', asInt);
+  set total(int? value) => writeField('total', value);
+
+  /// 続きの最初の校正の位置。続きがなければ持たない
+  int? get nextOffset => readField('next_offset', asInt);
+  set nextOffset(int? value) => writeField('next_offset', value);
+}
+
+/// 用紙と校正を明示的に選び、始点と終点の校正後の距離を求める。両点は校正の閉領域内にある必要がある。マイナーバージョン 68 から
+class MeasureDistanceRequest extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  MeasureDistanceRequest.fromJson(super.json);
+
+  /// タグのフィールドだけを持つオブジェクトから作る
+  MeasureDistanceRequest() : super({'op': 'measure_distance'});
+
+  /// メッセージのスキーマのメジャーバージョン。今は 1
+  int? get v => readField('v', asInt);
+  set v(int? value) => writeField('v', value);
+
+  /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+  Budget? get budget => readField('budget', objectOf(Budget.fromJson));
+  set budget(Budget? value) => writeField('budget', value);
+
+  /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+  bool? get partial => readField('partial', asBool);
+  set partial(bool? value) => writeField('partial', value);
+
+  /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+  int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(int? value) => writeField('max_places', value);
+
+  /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(int? value) => writeField('time_limit_ms', value);
+
+  /// op の名前
+  String? get op => readField('op', asString);
+  set op(String? value) => writeField('op', value);
+
+  /// 文書の名前。open で作ったもの
+  String? get doc => readField('doc', asString);
+  set doc(String? value) => writeField('doc', value);
+
+  /// 公開用紙の ID。drawing が返すもので、選んだ校正と同じ用紙
+  String? get from => readField('from', asString);
+  set from(String? value) => writeField('from', value);
+
+  /// 使う校正の ID。calibrations が返すもの
+  String? get calibration => readField('calibration', asString);
+  set calibration(String? value) => writeField('calibration', value);
+
+  /// 始点。原点と相対座標を分けた用紙の mm の点
+  SplitPoint2? get start => readField('start', objectOf(SplitPoint2.fromJson));
+  set start(SplitPoint2? value) => writeField('start', value);
+
+  /// 終点。原点と相対座標を分けた用紙の mm の点
+  SplitPoint2? get end => readField('end', objectOf(SplitPoint2.fromJson));
+  set end(SplitPoint2? value) => writeField('end', value);
+
+  /// 期待する元の文書のハッシュ。open に渡したバイト列のハッシュと照合する。図面モデルへ変換した ZMDR 自身のハッシュではない
+  String? get expectedHash => readField('expected_hash', asString);
+  set expectedHash(String? value) => writeField('expected_hash', value);
+}
+
+/// 選んだ用紙と校正による距離
+class MeasureDistanceResult extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  MeasureDistanceResult.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  MeasureDistanceResult() : super({});
+
+  /// 元の文書のハッシュ。ZMDR から開いたときは、埋め込まれた元の文書のハッシュ（Source.hash）
+  String? get hash => readField('hash', asString);
+  set hash(String? value) => writeField('hash', value);
+
+  /// 計測した公開用紙の ID
+  String? get from => readField('from', asString);
+  set from(String? value) => writeField('from', value);
+
+  /// 使った校正の ID
+  String? get calibration => readField('calibration', asString);
+  set calibration(String? value) => writeField('calibration', value);
+
+  /// 校正後の距離。unit と unit_label が示す単位
+  double? get distance => readField('distance', asDouble);
+  set distance(double? value) => writeField('distance', value);
+
+  /// 校正後の長さの単位
+  String? get unit => readField('unit', asString);
+  set unit(String? value) => writeField('unit', value);
+
+  /// 元の単位ラベル。未知の単位でも原文を保つ
+  String? get unitLabel => readField('unit_label', asString);
+  set unitLabel(String? value) => writeField('unit_label', value);
 }
 
 /// 文書の点の表し方。フィールドの意味は point_style_edit と同じ
@@ -7398,6 +7647,8 @@ abstract final class Operations {
   static const describe = 'describe';
   static const drawing = 'drawing';
   static const entities = 'entities';
+  static const calibrations = 'calibrations';
+  static const measureDistance = 'measure_distance';
   static const apply = 'apply';
   static const convert = 'convert';
   static const convertEstimate = 'convert_estimate';

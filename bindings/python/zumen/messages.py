@@ -15,6 +15,8 @@ Request = Union[
     "DescribeRequest",
     "DrawingRequest",
     "EntitiesRequest",
+    "CalibrationsRequest",
+    "MeasureDistanceRequest",
     "ApplyRequest",
     "ConvertRequest",
     "ConvertEstimateRequest",
@@ -402,6 +404,192 @@ _DrawingResultOptional = TypedDict(
 
 class DrawingResult(_DrawingResultRequired, _DrawingResultOptional):
     "図面モデルの要約。移さなかった図形と値は、診断で返す"
+
+
+# 2 次元の座標
+Point2 = TypedDict(
+    "Point2",
+    {
+        # X 座標
+        "x": float,
+        # Y 座標
+        "y": float,
+    },
+)
+
+
+# 原点と相対座標を分けた用紙の点。両成分の正確な和を位置とし、先に足して丸めない。座標の単位は用紙の mm
+SplitPoint2 = TypedDict(
+    "SplitPoint2",
+    {
+        # 用紙の原点
+        "origin": "Point2",
+        # 原点からの相対座標
+        "offset": "Point2",
+    },
+)
+
+
+# 用紙の閉じた矩形で使う距離の校正。重なる領域は ID で明示的に選ぶ。マイナーバージョン 68 から
+_CalibrationItemRequired = TypedDict(
+    "_CalibrationItemRequired",
+    {
+        # 文書内で重複しない校正の ID
+        "id": str,
+        # 校正を使える公開用紙の ID。drawing が返すもの
+        "from": str,
+        # 用紙の mm の閉じた矩形。[X の最小, Y の最小, X の最大, Y の最大] の 4 値で、幅と高さは正
+        "bounds": List[float],
+        # 用紙の mm の変位から校正単位の変位へ写す行優先の 2×2 行列。[a, b, c, d] の 4 値で、[dx, dy] を [a*dx+b*dy, c*dx+d*dy] に写す
+        "matrix": List[float],
+        # 校正後の長さの単位。ラベルだけから推定しない
+        "unit": "Unit",
+        # 元の単位ラベル。未知の単位でも原文を保つ
+        "unit_label": str,
+    },
+)
+_CalibrationItemOptional = TypedDict(
+    "_CalibrationItemOptional",
+    {
+        # 元の校正の名前。翻訳しない。なければ持たない
+        "name": str,
+        # 元の形式のレコード
+        "source": "Source",
+    },
+    total=False,
+)
+
+
+class CalibrationItem(_CalibrationItemRequired, _CalibrationItemOptional):
+    "用紙の閉じた矩形で使う距離の校正。重なる領域は ID で明示的に選ぶ。マイナーバージョン 68 から"
+
+
+# 開いた文書を図面モデルに変換し、用紙の距離の校正をモデルの順に返す。マイナーバージョン 68 から
+_CalibrationsRequestRequired = TypedDict(
+    "_CalibrationsRequestRequired",
+    {
+        # メッセージのスキーマのメジャーバージョン。今は 1
+        "v": int,
+        # op の名前
+        "op": Literal["calibrations"],
+        # 文書の名前。open で作ったもの
+        "doc": str,
+    },
+)
+_CalibrationsRequestOptional = TypedDict(
+    "_CalibrationsRequestOptional",
+    {
+        # 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        "budget": "Budget",
+        # 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        "partial": bool,
+        # 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        "max_places": int,
+        # 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        "time_limit_ms": int,
+        # 公開用紙の ID。drawing が返すもの。書けばその用紙の校正だけを返し、書かなければすべての校正を返す
+        "from": str,
+        # 返す最初の校正の位置。from で絞った後の位置で、前の応答の next_offset を渡す。書かなければ 0
+        "offset": int,
+        # 返す校正の数の上限。書かなければ 1000
+        "limit": int,
+        # 期待する元の文書のハッシュ。open に渡したバイト列のハッシュと照合する。図面モデルへ変換した ZMDR 自身のハッシュではない
+        "expected_hash": str,
+    },
+    total=False,
+)
+
+
+class CalibrationsRequest(_CalibrationsRequestRequired, _CalibrationsRequestOptional):
+    "開いた文書を図面モデルに変換し、用紙の距離の校正をモデルの順に返す。マイナーバージョン 68 から"
+
+
+# 距離の校正の一覧の一部
+_CalibrationsResultRequired = TypedDict(
+    "_CalibrationsResultRequired",
+    {
+        # 元の文書のハッシュ。ZMDR から開いたときは、埋め込まれた元の文書のハッシュ（Source.hash）
+        "hash": str,
+        # from で絞った一覧の offset から limit 個までの校正
+        "items": List["CalibrationItem"],
+        # from で絞った後の校正の総数
+        "total": int,
+    },
+)
+_CalibrationsResultOptional = TypedDict(
+    "_CalibrationsResultOptional",
+    {
+        # 続きの最初の校正の位置。続きがなければ持たない
+        "next_offset": int,
+    },
+    total=False,
+)
+
+
+class CalibrationsResult(_CalibrationsResultRequired, _CalibrationsResultOptional):
+    "距離の校正の一覧の一部"
+
+
+# 用紙と校正を明示的に選び、始点と終点の校正後の距離を求める。両点は校正の閉領域内にある必要がある。マイナーバージョン 68 から
+_MeasureDistanceRequestRequired = TypedDict(
+    "_MeasureDistanceRequestRequired",
+    {
+        # メッセージのスキーマのメジャーバージョン。今は 1
+        "v": int,
+        # op の名前
+        "op": Literal["measure_distance"],
+        # 文書の名前。open で作ったもの
+        "doc": str,
+        # 公開用紙の ID。drawing が返すもので、選んだ校正と同じ用紙
+        "from": str,
+        # 使う校正の ID。calibrations が返すもの
+        "calibration": str,
+        # 始点。原点と相対座標を分けた用紙の mm の点
+        "start": "SplitPoint2",
+        # 終点。原点と相対座標を分けた用紙の mm の点
+        "end": "SplitPoint2",
+    },
+)
+_MeasureDistanceRequestOptional = TypedDict(
+    "_MeasureDistanceRequestOptional",
+    {
+        # 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        "budget": "Budget",
+        # 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        "partial": bool,
+        # 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        "max_places": int,
+        # 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        "time_limit_ms": int,
+        # 期待する元の文書のハッシュ。open に渡したバイト列のハッシュと照合する。図面モデルへ変換した ZMDR 自身のハッシュではない
+        "expected_hash": str,
+    },
+    total=False,
+)
+
+
+class MeasureDistanceRequest(_MeasureDistanceRequestRequired, _MeasureDistanceRequestOptional):
+    "用紙と校正を明示的に選び、始点と終点の校正後の距離を求める。両点は校正の閉領域内にある必要がある。マイナーバージョン 68 から"
+
+
+# 選んだ用紙と校正による距離
+MeasureDistanceResult = TypedDict(
+    "MeasureDistanceResult",
+    {
+        # 元の文書のハッシュ。ZMDR から開いたときは、埋め込まれた元の文書のハッシュ（Source.hash）
+        "hash": str,
+        # 計測した公開用紙の ID
+        "from": str,
+        # 使った校正の ID
+        "calibration": str,
+        # 校正後の距離。unit と unit_label が示す単位
+        "distance": float,
+        # 校正後の長さの単位
+        "unit": "Unit",
+        # 元の単位ラベル。未知の単位でも原文を保つ
+        "unit_label": str,
+    },
+)
 
 
 # 文書の点の表し方。フィールドの意味は point_style_edit と同じ
@@ -5931,6 +6119,8 @@ Operation = Literal[
     "describe",
     "drawing",
     "entities",
+    "calibrations",
+    "measure_distance",
     "apply",
     "convert",
     "convert_estimate",
@@ -5968,6 +6158,8 @@ OPERATIONS: Dict[str, Any] = {
     "describe": ("DescribeRequest", "DescribeResult"),
     "drawing": ("DrawingRequest", "DrawingResult"),
     "entities": ("EntitiesRequest", "EntitiesResult"),
+    "calibrations": ("CalibrationsRequest", "CalibrationsResult"),
+    "measure_distance": ("MeasureDistanceRequest", "MeasureDistanceResult"),
     "apply": ("ApplyRequest", "ApplyResult"),
     "convert": ("ConvertRequest", "ConvertResult"),
     "convert_estimate": ("ConvertEstimateRequest", "ConvertEstimateResult"),

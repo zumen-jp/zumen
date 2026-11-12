@@ -12,6 +12,8 @@ export type Request =
   | DescribeRequest
   | DrawingRequest
   | EntitiesRequest
+  | CalibrationsRequest
+  | MeasureDistanceRequest
   | ApplyRequest
   | ConvertRequest
   | ConvertEstimateRequest
@@ -209,6 +211,104 @@ export interface DrawingResult {
   sheets: SheetSummary[];
   /** 文書の点の表し方（marker を持たない点の見え方、決定 0160）。point_style の変更で変える。文書が持たなければ（JWW・SXF）持たない。マイナーバージョン 39 から */
   point_style?: PointStyleSummary;
+}
+
+/** 2 次元の座標 */
+export interface Point2 {
+  /** X 座標 */
+  x: number;
+  /** Y 座標 */
+  y: number;
+}
+
+/** 原点と相対座標を分けた用紙の点。両成分の正確な和を位置とし、先に足して丸めない。座標の単位は用紙の mm */
+export interface SplitPoint2 {
+  /** 用紙の原点 */
+  origin: Point2;
+  /** 原点からの相対座標 */
+  offset: Point2;
+}
+
+/** 用紙の閉じた矩形で使う距離の校正。重なる領域は ID で明示的に選ぶ。マイナーバージョン 68 から */
+export interface CalibrationItem {
+  /** 文書内で重複しない校正の ID */
+  id: string;
+  /** 元の校正の名前。翻訳しない。なければ持たない */
+  name?: string;
+  /** 校正を使える公開用紙の ID。drawing が返すもの */
+  from: string;
+  /** 用紙の mm の閉じた矩形。[X の最小, Y の最小, X の最大, Y の最大] の 4 値で、幅と高さは正 */
+  bounds: number[];
+  /** 用紙の mm の変位から校正単位の変位へ写す行優先の 2×2 行列。[a, b, c, d] の 4 値で、[dx, dy] を [a*dx+b*dy, c*dx+d*dy] に写す */
+  matrix: number[];
+  /** 校正後の長さの単位。ラベルだけから推定しない */
+  unit: Unit;
+  /** 元の単位ラベル。未知の単位でも原文を保つ */
+  unit_label: string;
+  /** 元の形式のレコード */
+  source?: Source;
+}
+
+/** 開いた文書を図面モデルに変換し、用紙の距離の校正をモデルの順に返す。マイナーバージョン 68 から */
+export interface CalibrationsRequest extends RequestCommon {
+  /** op の名前 */
+  op: "calibrations";
+  /** 文書の名前。open で作ったもの */
+  doc: string;
+  /** 公開用紙の ID。drawing が返すもの。書けばその用紙の校正だけを返し、書かなければすべての校正を返す */
+  from?: string;
+  /** 返す最初の校正の位置。from で絞った後の位置で、前の応答の next_offset を渡す。書かなければ 0 */
+  offset?: number;
+  /** 返す校正の数の上限。書かなければ 1000 */
+  limit?: number;
+  /** 期待する元の文書のハッシュ。open に渡したバイト列のハッシュと照合する。図面モデルへ変換した ZMDR 自身のハッシュではない */
+  expected_hash?: string;
+}
+
+/** 距離の校正の一覧の一部 */
+export interface CalibrationsResult {
+  /** 元の文書のハッシュ。ZMDR から開いたときは、埋め込まれた元の文書のハッシュ（Source.hash） */
+  hash: string;
+  /** from で絞った一覧の offset から limit 個までの校正 */
+  items: CalibrationItem[];
+  /** from で絞った後の校正の総数 */
+  total: number;
+  /** 続きの最初の校正の位置。続きがなければ持たない */
+  next_offset?: number;
+}
+
+/** 用紙と校正を明示的に選び、始点と終点の校正後の距離を求める。両点は校正の閉領域内にある必要がある。マイナーバージョン 68 から */
+export interface MeasureDistanceRequest extends RequestCommon {
+  /** op の名前 */
+  op: "measure_distance";
+  /** 文書の名前。open で作ったもの */
+  doc: string;
+  /** 公開用紙の ID。drawing が返すもので、選んだ校正と同じ用紙 */
+  from: string;
+  /** 使う校正の ID。calibrations が返すもの */
+  calibration: string;
+  /** 始点。原点と相対座標を分けた用紙の mm の点 */
+  start: SplitPoint2;
+  /** 終点。原点と相対座標を分けた用紙の mm の点 */
+  end: SplitPoint2;
+  /** 期待する元の文書のハッシュ。open に渡したバイト列のハッシュと照合する。図面モデルへ変換した ZMDR 自身のハッシュではない */
+  expected_hash?: string;
+}
+
+/** 選んだ用紙と校正による距離 */
+export interface MeasureDistanceResult {
+  /** 元の文書のハッシュ。ZMDR から開いたときは、埋め込まれた元の文書のハッシュ（Source.hash） */
+  hash: string;
+  /** 計測した公開用紙の ID */
+  from: string;
+  /** 使った校正の ID */
+  calibration: string;
+  /** 校正後の距離。unit と unit_label が示す単位 */
+  distance: number;
+  /** 校正後の長さの単位 */
+  unit: Unit;
+  /** 元の単位ラベル。未知の単位でも原文を保つ */
+  unit_label: string;
 }
 
 /** 文書の点の表し方。フィールドの意味は point_style_edit と同じ */
@@ -3385,6 +3485,8 @@ export interface Operations {
   describe: { request: DescribeRequest; result: DescribeResult };
   drawing: { request: DrawingRequest; result: DrawingResult };
   entities: { request: EntitiesRequest; result: EntitiesResult };
+  calibrations: { request: CalibrationsRequest; result: CalibrationsResult };
+  measure_distance: { request: MeasureDistanceRequest; result: MeasureDistanceResult };
   apply: { request: ApplyRequest; result: ApplyResult };
   convert: { request: ConvertRequest; result: ConvertResult };
   convert_estimate: { request: ConvertEstimateRequest; result: ConvertEstimateResult };

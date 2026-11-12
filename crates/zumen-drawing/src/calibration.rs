@@ -3,6 +3,7 @@
 //! 描画用の空間やビューは作らず、既存の Document 拡張に保存する。
 //! `drawing.calibration` の schema 1 は、平行移動や実座標の原点を定義しない。
 
+use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::fmt;
 
@@ -37,6 +38,20 @@ pub struct Calibration {
     pub unit_label: String,
     /// 元のレコード。
     pub source: Ref,
+}
+
+/// 原点と相対座標を分けた用紙の点。各成分の正確な和を位置とする。
+///
+/// シーンの大きい原点へ相対座標を先に足す丸めを避けて、校正へ渡せる。
+/// 両配列の X・Y は紙の mm。個々の原点や相対座標が校正の領域内にある必要はない。
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SplitPaperPoint {
+    /// 属する用紙。
+    pub sheet: SheetId,
+    /// 用紙の原点の `[x,y]`。
+    pub origin: [f64; 2],
+    /// 原点からの相対座標の `[x,y]`。
+    pub offset: [f64; 2],
 }
 
 /// 校正を使えなかった理由。図面や校正の値は変更しない。
@@ -146,6 +161,173 @@ impl Calibration {
             Ok(distance)
         } else {
             Err(MeasurementError::Overflow)
+        }
+    }
+
+    /// 分離した紙の点を、原点へ相対座標を足して丸めずに測る。
+    ///
+    /// 両端の閉領域への包含は正確に比べ、差分4項の正確な和を一度だけ binary64 の
+    /// 最近接・偶数丸めにする。分割の仕方や途中の桁消去によって距離を変えない。
+    /// 確保はせず、固定長の整数を固定回数たどる。正確に同じ点の距離は正のゼロ。
+    pub fn measure_split(
+        &self,
+        start: SplitPaperPoint,
+        end: SplitPaperPoint,
+    ) -> Result<f64, MeasurementError> {
+        validate(self.bounds, self.matrix)?;
+        if start.sheet != self.sheet || end.sheet != self.sheet {
+            return Err(MeasurementError::SheetMismatch);
+        }
+        if !start
+            .origin
+            .iter()
+            .chain(&start.offset)
+            .chain(&end.origin)
+            .chain(&end.offset)
+            .all(|value| value.is_finite())
+        {
+            return Err(MeasurementError::NonFinitePoint);
+        }
+        let [min_x, min_y, max_x, max_y] = self.bounds;
+        for point in [start, end] {
+            let [x, y] = point.origin;
+            let [dx, dy] = point.offset;
+            for (origin, offset, min, max) in [(x, dx, min_x, max_x), (y, dy, min_y, max_y)] {
+                if Exact::sum([origin, offset, -min, 0.0]).sign() == Ordering::Less
+                    || Exact::sum([origin, offset, -max, 0.0]).sign() == Ordering::Greater
+                {
+                    return Err(MeasurementError::OutsideBounds);
+                }
+            }
+        }
+        let [sx, sy] = start.origin;
+        let [sdx, sdy] = start.offset;
+        let [ex, ey] = end.origin;
+        let [edx, edy] = end.offset;
+        let dx = Exact::sum([ex, edx, -sx, -sdx]).rounded();
+        let dy = Exact::sum([ey, edy, -sy, -sdy]).rounded();
+        let [a, b, c, d] = self.matrix;
+        let (x, y) = (a * dx + b * dy, c * dx + d * dy);
+        let distance = libm::hypot(x, y);
+        if [dx, dy, x, y, distance]
+            .iter()
+            .all(|value| value.is_finite())
+        {
+            Ok(distance)
+        } else {
+            Err(MeasurementError::Overflow)
+        }
+    }
+}
+
+// 有限な binary64 は 2^-1074 の整数倍。最大4項の和に必要な2100ビットと符号を、
+// 34ワード（2176ビット）の二の補数で保つ。値に応じた確保・再帰・反復の伸長はない。
+const WORDS: usize = 34;
+const FRACTION: u64 = (1_u64 << 52) - 1;
+
+struct Exact([u64; WORDS]);
+
+impl Exact {
+    /// 有限な4項だけを受け取る。呼出側が先に有限性を検証する。
+    fn sum(values: [f64; 4]) -> Self {
+        let mut exact = Self([0; WORDS]);
+        for value in values {
+            let bits = value.to_bits();
+            let exponent = ((bits >> 52) & 0x7ff) as usize;
+            let (mantissa, shift) = if exponent == 0 {
+                (bits & FRACTION, 0)
+            } else {
+                ((bits & FRACTION) | (1_u64 << 52), exponent - 1)
+            };
+            let (first, offset) = (shift / 64, shift % 64);
+            let negative = bits >> 63 != 0;
+            let mut carry = false;
+            for (index, word) in exact.0.iter_mut().enumerate() {
+                let part = if index == first {
+                    mantissa << offset
+                } else if offset != 0 && index == first + 1 {
+                    mantissa >> (64 - offset)
+                } else {
+                    0
+                };
+                let (partial, c1) = if negative {
+                    word.overflowing_sub(part)
+                } else {
+                    word.overflowing_add(part)
+                };
+                let (next, c2) = if negative {
+                    partial.overflowing_sub(u64::from(carry))
+                } else {
+                    partial.overflowing_add(u64::from(carry))
+                };
+                *word = next;
+                carry = c1 || c2;
+            }
+        }
+        exact
+    }
+
+    fn negative(&self) -> bool {
+        self.0.last().is_some_and(|word| word >> 63 != 0)
+    }
+
+    fn sign(&self) -> Ordering {
+        if self.negative() {
+            Ordering::Less
+        } else if self.0.iter().any(|word| *word != 0) {
+            Ordering::Greater
+        } else {
+            Ordering::Equal
+        }
+    }
+
+    /// 絶対値を最近接・偶数へ丸めて符号を戻す。正確なゼロは正のゼロへそろえる。
+    fn rounded(mut self) -> f64 {
+        let negative = self.negative();
+        if negative {
+            let mut carry = true;
+            for word in &mut self.0 {
+                let (next, overflow) = (!*word).overflowing_add(u64::from(carry));
+                *word = next;
+                carry = overflow;
+            }
+        }
+        let Some(mut highest) = self.0.iter().enumerate().rev().find_map(|(index, word)| {
+            (*word != 0).then(|| index * 64 + 63 - word.leading_zeros() as usize)
+        }) else {
+            return 0.0;
+        };
+        let sign = u64::from(negative) << 63;
+        if highest < 52 {
+            // 非正規数は整数のまま全桁が収まり、最小非正規数より小さい非ゼロ値は生じない。
+            return f64::from_bits(sign | self.0.first().copied().unwrap_or_default());
+        }
+        let shift = highest - 52;
+        let (index, offset) = (shift / 64, shift % 64);
+        let mut mantissa = self.0.get(index).copied().unwrap_or_default() >> offset;
+        if offset != 0 {
+            mantissa |= self.0.get(index + 1).copied().unwrap_or_default() << (64 - offset);
+        }
+        if shift != 0 {
+            let (index, bit) = ((shift - 1) / 64, (shift - 1) % 64);
+            let word = self.0.get(index).copied().unwrap_or_default();
+            let guard = word & (1_u64 << bit) != 0;
+            let sticky = word & ((1_u64 << bit) - 1) != 0
+                || self.0.iter().take(index).any(|word| *word != 0);
+            if guard && (sticky || mantissa & 1 != 0) {
+                mantissa += 1;
+                if mantissa == 1_u64 << 53 {
+                    mantissa >>= 1;
+                    highest += 1;
+                }
+            }
+        }
+        if highest >= 2098 {
+            // 最大有限値と 2^1024 の中点も、偶数側の 2^1024 へ丸めて overflow にする。
+            f64::from_bits(sign | 0x7ff0_0000_0000_0000)
+        } else {
+            let exponent = (highest - 51) as u64;
+            f64::from_bits(sign | (exponent << 52) | (mantissa & FRACTION))
         }
     }
 }
@@ -416,6 +598,14 @@ mod tests {
         }
     }
 
+    fn split(origin: [f64; 2], offset: [f64; 2]) -> SplitPaperPoint {
+        SplitPaperPoint {
+            sheet: SheetId(0),
+            origin,
+            offset,
+        }
+    }
+
     fn calibration() -> Calibration {
         Calibration {
             id: "vp/0".to_owned(),
@@ -488,6 +678,319 @@ mod tests {
         let mut diag = Diagnostics::new();
         let result = drawing.calibrations(&mut Cx::new(&mut budget, &mut diag, cancel));
         (result, budget, diag.into_vec())
+    }
+
+    #[test]
+    fn exact_sum_rounds_ties_sticky_bits_subnormals_and_overflow_symmetrically() {
+        let tiny = f64::from_bits(1);
+        let half = f64::from_bits(970_u64 << 52); // 2^-53、1 の半 ulp。
+        let next = f64::from_bits(1.0_f64.to_bits() + 1);
+        let even = f64::from_bits(1.0_f64.to_bits() + 2);
+        let threshold = f64::from_bits(1993_u64 << 52); // 2^970、MAX の半 ulp。
+        for (terms, expected) in [
+            ([1.0, half, 0.0, 0.0], 1.0),
+            ([next, half, 0.0, 0.0], even),
+            ([f64::from_bits(2.0_f64.to_bits() - 1), half, 0.0, 0.0], 2.0),
+            ([1.0, half, tiny, 0.0], next),
+            ([1.0, half, -tiny, 0.0], 1.0),
+            (
+                [f64::MIN_POSITIVE, -tiny, 0.0, 0.0],
+                f64::from_bits((1_u64 << 52) - 1),
+            ),
+            (
+                [f64::from_bits((1_u64 << 52) - 1), tiny, 0.0, 0.0],
+                f64::MIN_POSITIVE,
+            ),
+            ([f64::MAX, tiny, -f64::MAX, tiny], f64::from_bits(2)),
+            (
+                [9_007_199_254_740_992.0, 1.0, -9_007_199_254_740_992.0, 0.0],
+                1.0,
+            ),
+            ([f64::MAX, f64::MAX, -f64::MAX, -f64::MAX], 0.0),
+            (
+                [f64::MAX, f64::from_bits(threshold.to_bits() - 1), 0.0, 0.0],
+                f64::MAX,
+            ),
+            ([f64::MAX, threshold, 0.0, 0.0], f64::INFINITY),
+            ([f64::MAX; 4], f64::INFINITY),
+            ([-0.0, -0.0, 0.0, 0.0], 0.0),
+        ] {
+            assert_eq!(
+                Exact::sum(terms).rounded().to_bits(),
+                expected.to_bits(),
+                "{terms:?}"
+            );
+            let opposite = if expected == 0.0 { 0.0 } else { -expected };
+            assert_eq!(
+                Exact::sum(terms.map(|term| -term)).rounded().to_bits(),
+                opposite.to_bits(),
+                "負側: {terms:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn exact_sum_preserves_every_binades_edges_and_integer_carry_boundaries() {
+        // 各指数の端、仮数の端・中央を、丸めずに往復する。非正規数と MAX も含む。
+        for exponent in 0..=2046_u64 {
+            for fraction in [0, 1, FRACTION / 2, FRACTION] {
+                for sign in [0, 1_u64 << 63] {
+                    let value = f64::from_bits(sign | (exponent << 52) | fraction);
+                    let expected = if value == 0.0 { 0.0 } else { value };
+                    assert_eq!(
+                        Exact::sum([value, 0.0, 0.0, 0.0]).rounded().to_bits(),
+                        expected.to_bits(),
+                        "{value:?}"
+                    );
+                }
+            }
+        }
+        // ワードをまたぐ借りと繰り上がりを、下位全ビットが1の値でも確かめる。
+        let tiny = f64::from_bits(1);
+        for word in 1..=32_u64 {
+            let edge = f64::from_bits((64 * word - 51) << 52);
+            assert_eq!(
+                Exact::sum([edge, -tiny, tiny, -edge]).sign(),
+                Ordering::Equal
+            );
+        }
+    }
+
+    #[test]
+    fn split_points_preserve_ordinary_measurements_and_original_drawing_values() {
+        for matrix in [
+            [1.0, 0.0, 0.0, 1.0],
+            [2.0, 0.0, 0.0, 3.0],
+            [0.0, -2.0, 3.0, 0.0],
+            [1.0, 1.0, 0.0, 1.0],
+            [-1.0, 0.0, 0.0, 1.0],
+        ] {
+            let value = Calibration {
+                matrix,
+                ..calibration()
+            };
+            for (start, end) in [
+                ([0.0, 0.0], [3.0, 4.0]),
+                ([42.0; 2], [42.0; 2]),
+                ([100.0; 2], [0.0; 2]),
+            ] {
+                assert_eq!(
+                    value
+                        .measure_split(split(start, [0.0; 2]), split(end, [0.0; 2]))
+                        .unwrap()
+                        .to_bits(),
+                    value
+                        .measure(point(start[0], start[1]), point(end[0], end[1]))
+                        .unwrap()
+                        .to_bits()
+                );
+            }
+        }
+        let drawing = drawing(vec![extension(calibration())]);
+        let original = drawing.clone();
+        let element = &drawing.sheets[0].elements[0];
+        let before_hash = Hash::element(element);
+        let before_id = id::Namer::new("sheet/0").next(0, element);
+        let (loaded, _, diagnostics) = loaded(&drawing, Limits::default(), &CancelToken::new());
+        assert!(diagnostics.is_empty());
+        assert_eq!(
+            loaded.unwrap()[0]
+                .measure_split(split([1.0, 2.0], [2.0; 2]), split([5.0, 7.0], [1.0; 2])),
+            Ok(5.0)
+        );
+        assert_eq!(drawing, original);
+        assert_eq!(Hash::element(element), before_hash);
+        assert_eq!(id::Namer::new("sheet/0").next(0, element), before_id);
+    }
+
+    #[test]
+    fn split_points_keep_small_displacements_and_ignore_the_choice_of_origin() {
+        let value = Calibration {
+            bounds: [1e16, 0.0, 1e16 + 4.0, 10.0],
+            ..calibration()
+        };
+        let start = split([1e16, 0.0], [0.25, 1.0]);
+        for end in [
+            split([1e16, 0.0], [0.75, 1.0]),
+            split([1e16 + 2.0, 1.0], [-1.25, 0.0]),
+        ] {
+            assert_eq!(value.measure_split(start, end), Ok(0.5));
+        }
+        let value = calibration();
+        // 原点どうし・offsetどうしの差を先に丸めても、1 の差を消してしまう例。
+        assert_eq!(
+            value.measure_split(
+                split([0.0; 2], [1.0, 0.0]),
+                split([1e16, 0.0], [-1e16 + 2.0, 0.0])
+            ),
+            Ok(1.0)
+        );
+        // 各端点は正確に0。元成分の差に現れる ±inf は作らない。
+        assert_eq!(
+            value.measure_split(
+                split([f64::MAX; 2], [-f64::MAX; 2]),
+                split([-f64::MAX; 2], [f64::MAX; 2])
+            ),
+            Ok(0.0)
+        );
+        assert_eq!(
+            value
+                .measure_split(split([-0.0; 2], [-0.0; 2]), split([0.0; 2], [0.0; 2]))
+                .unwrap()
+                .to_bits(),
+            0
+        );
+    }
+
+    #[test]
+    fn split_points_check_the_exact_closed_region_before_rounding_the_displacement() {
+        let origin = 1e16;
+        let max = origin + 2.0;
+        let tiny = f64::from_bits(1);
+        let value = Calibration {
+            bounds: [origin, origin, max, max],
+            ..calibration()
+        };
+        let start = split([origin; 2], [0.0; 2]);
+        for point in [
+            split([origin; 2], [-tiny, 0.0]),
+            split([origin; 2], [0.0, -tiny]),
+            split([max; 2], [tiny, 0.0]),
+            split([max; 2], [0.0, tiny]),
+        ] {
+            assert_eq!(
+                value.measure_split(start, point),
+                Err(MeasurementError::OutsideBounds)
+            );
+            assert_eq!(
+                value.measure_split(point, start),
+                Err(MeasurementError::OutsideBounds)
+            );
+        }
+        assert_eq!(
+            value
+                .measure_split(start, split([origin; 2], [tiny, 0.0]))
+                .unwrap()
+                .to_bits(),
+            tiny.to_bits()
+        );
+        assert_eq!(
+            value
+                .measure_split(split([max; 2], [-tiny, 0.0]), split([max; 2], [0.0; 2]))
+                .unwrap()
+                .to_bits(),
+            tiny.to_bits()
+        );
+        assert!(
+            value
+                .measure_split(start, split([max; 2], [0.0; 2]))
+                .is_ok()
+        );
+        let value = calibration();
+        // 差分だけが領域内に見えても、領域外の二点は採用しない。
+        assert_eq!(
+            value.measure_split(
+                split([f64::MAX, 0.0], [f64::MAX, 0.0]),
+                split([f64::MAX, 0.0], [f64::MAX, 0.0])
+            ),
+            Err(MeasurementError::OutsideBounds)
+        );
+    }
+
+    #[test]
+    fn split_points_distinguish_nonfinite_sheet_matrix_region_and_arithmetic_errors() {
+        let zero = split([0.0; 2], [0.0; 2]);
+        let value = calibration();
+        let other = SplitPaperPoint {
+            sheet: SheetId(1),
+            ..zero
+        };
+        assert_eq!(
+            value.measure_split(other, zero),
+            Err(MeasurementError::SheetMismatch)
+        );
+        assert_eq!(
+            value.measure_split(zero, other),
+            Err(MeasurementError::SheetMismatch)
+        );
+        for invalid in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            for point in [
+                split([invalid, 0.0], [0.0; 2]),
+                split([0.0, invalid], [0.0; 2]),
+                split([0.0; 2], [invalid, 0.0]),
+                split([0.0; 2], [0.0, invalid]),
+            ] {
+                assert_eq!(
+                    value.measure_split(point, zero),
+                    Err(MeasurementError::NonFinitePoint)
+                );
+                assert_eq!(
+                    value.measure_split(zero, point),
+                    Err(MeasurementError::NonFinitePoint)
+                );
+            }
+        }
+        for (bounds, matrix, expected) in [
+            (
+                [0.0; 4],
+                [1.0, 0.0, 0.0, 1.0],
+                MeasurementError::InvalidBounds,
+            ),
+            (
+                [0.0, 0.0, 100.0, 100.0],
+                [f64::NAN, 0.0, 0.0, 1.0],
+                MeasurementError::NonFiniteMatrix,
+            ),
+            (
+                [0.0, 0.0, 100.0, 100.0],
+                [1.0, 2.0, 2.0, 4.0],
+                MeasurementError::SingularMatrix,
+            ),
+        ] {
+            assert_eq!(
+                Calibration {
+                    bounds,
+                    matrix,
+                    ..calibration()
+                }
+                .measure_split(zero, zero),
+                Err(expected)
+            );
+        }
+        let wide = Calibration {
+            bounds: [-f64::MAX, 0.0, f64::MAX, 10.0],
+            ..calibration()
+        };
+        assert_eq!(
+            wide.measure_split(
+                split([-f64::MAX, 0.0], [0.0; 2]),
+                split([f64::MAX, 0.0], [0.0; 2])
+            ),
+            Err(MeasurementError::Overflow)
+        );
+        let threshold = f64::from_bits(1993_u64 << 52);
+        assert_eq!(
+            wide.measure_split(
+                split([-threshold, 0.0], [0.0; 2]),
+                split([f64::MAX, 0.0], [0.0; 2])
+            ),
+            Err(MeasurementError::Overflow)
+        );
+        assert_eq!(
+            wide.measure_split(
+                split([-f64::from_bits(threshold.to_bits() - 1), 0.0], [0.0; 2]),
+                split([f64::MAX, 0.0], [0.0; 2])
+            ),
+            Ok(f64::MAX)
+        );
+        let scaled = Calibration {
+            matrix: [f64::MAX, 0.0, 0.0, 1.0],
+            ..calibration()
+        };
+        assert_eq!(
+            scaled.measure_split(zero, split([2.0, 0.0], [0.0; 2])),
+            Err(MeasurementError::Overflow)
+        );
     }
 
     #[test]

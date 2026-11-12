@@ -60,6 +60,16 @@ func (u Request) AsEntitiesRequest() *EntitiesRequest {
 	return asTagged[EntitiesRequest](u, "op", "entities")
 }
 
+// AsCalibrationsRequest は、op が calibrations の形なら、その型で読む。違えば nil。
+func (u Request) AsCalibrationsRequest() *CalibrationsRequest {
+	return asTagged[CalibrationsRequest](u, "op", "calibrations")
+}
+
+// AsMeasureDistanceRequest は、op が measure_distance の形なら、その型で読む。違えば nil。
+func (u Request) AsMeasureDistanceRequest() *MeasureDistanceRequest {
+	return asTagged[MeasureDistanceRequest](u, "op", "measure_distance")
+}
+
 // AsApplyRequest は、op が apply の形なら、その型で読む。違えば nil。
 func (u Request) AsApplyRequest() *ApplyRequest {
 	return asTagged[ApplyRequest](u, "op", "apply")
@@ -505,6 +515,176 @@ type DrawingResult struct {
 
 	// 文書の点の表し方（marker を持たない点の見え方、決定 0160）。point_style の変更で変える。文書が持たなければ（JWW・SXF）持たない。マイナーバージョン 39 から
 	PointStyle *PointStyleSummary `json:"point_style,omitempty"`
+}
+
+// Point2: 2 次元の座標
+type Point2 struct {
+	// X 座標
+	X *float64 `json:"x,omitempty"`
+
+	// Y 座標
+	Y *float64 `json:"y,omitempty"`
+}
+
+// SplitPoint2: 原点と相対座標を分けた用紙の点。両成分の正確な和を位置とし、先に足して丸めない。座標の単位は用紙の mm
+type SplitPoint2 struct {
+	// 用紙の原点
+	Origin *Point2 `json:"origin,omitempty"`
+
+	// 原点からの相対座標
+	Offset *Point2 `json:"offset,omitempty"`
+}
+
+// CalibrationItem: 用紙の閉じた矩形で使う距離の校正。重なる領域は ID で明示的に選ぶ。マイナーバージョン 68 から
+type CalibrationItem struct {
+	// 文書内で重複しない校正の ID
+	Id *string `json:"id,omitempty"`
+
+	// 元の校正の名前。翻訳しない。なければ持たない
+	Name *string `json:"name,omitempty"`
+
+	// 校正を使える公開用紙の ID。drawing が返すもの
+	From *string `json:"from,omitempty"`
+
+	// 用紙の mm の閉じた矩形。[X の最小, Y の最小, X の最大, Y の最大] の 4 値で、幅と高さは正
+	Bounds []float64 `json:"bounds,omitempty"`
+
+	// 用紙の mm の変位から校正単位の変位へ写す行優先の 2×2 行列。[a, b, c, d] の 4 値で、[dx, dy] を [a*dx+b*dy, c*dx+d*dy] に写す
+	Matrix []float64 `json:"matrix,omitempty"`
+
+	// 校正後の長さの単位。ラベルだけから推定しない
+	Unit *Unit `json:"unit,omitempty"`
+
+	// 元の単位ラベル。未知の単位でも原文を保つ
+	UnitLabel *string `json:"unit_label,omitempty"`
+
+	// 元の形式のレコード
+	Source *Source `json:"source,omitempty"`
+}
+
+// CalibrationsRequest: 開いた文書を図面モデルに変換し、用紙の距離の校正をモデルの順に返す。マイナーバージョン 68 から
+type CalibrationsRequest struct {
+	// メッセージのスキーマのメジャーバージョン。今は 1
+	V *int64 `json:"v,omitempty"`
+
+	// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+	Budget *Budget `json:"budget,omitempty"`
+
+	// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+	Partial *bool `json:"partial,omitempty"`
+
+	// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+	MaxPlaces *int64 `json:"max_places,omitempty"`
+
+	// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+	TimeLimitMs *int64 `json:"time_limit_ms,omitempty"`
+
+	// op の名前
+	Op string `json:"op,omitempty"`
+
+	// 文書の名前。open で作ったもの
+	Doc *string `json:"doc,omitempty"`
+
+	// 公開用紙の ID。drawing が返すもの。書けばその用紙の校正だけを返し、書かなければすべての校正を返す
+	From *string `json:"from,omitempty"`
+
+	// 返す最初の校正の位置。from で絞った後の位置で、前の応答の next_offset を渡す。書かなければ 0
+	Offset *int64 `json:"offset,omitempty"`
+
+	// 返す校正の数の上限。書かなければ 1000
+	Limit *int64 `json:"limit,omitempty"`
+
+	// 期待する元の文書のハッシュ。open に渡したバイト列のハッシュと照合する。図面モデルへ変換した ZMDR 自身のハッシュではない
+	ExpectedHash *string `json:"expected_hash,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m CalibrationsRequest) MarshalJSON() ([]byte, error) {
+	type plain CalibrationsRequest
+	m.Op = "calibrations"
+	return json.Marshal(plain(m))
+}
+
+// CalibrationsResult: 距離の校正の一覧の一部
+type CalibrationsResult struct {
+	// 元の文書のハッシュ。ZMDR から開いたときは、埋め込まれた元の文書のハッシュ（Source.hash）
+	Hash *string `json:"hash,omitempty"`
+
+	// from で絞った一覧の offset から limit 個までの校正
+	Items []CalibrationItem `json:"items,omitempty"`
+
+	// from で絞った後の校正の総数
+	Total *int64 `json:"total,omitempty"`
+
+	// 続きの最初の校正の位置。続きがなければ持たない
+	NextOffset *int64 `json:"next_offset,omitempty"`
+}
+
+// MeasureDistanceRequest: 用紙と校正を明示的に選び、始点と終点の校正後の距離を求める。両点は校正の閉領域内にある必要がある。マイナーバージョン 68 から
+type MeasureDistanceRequest struct {
+	// メッセージのスキーマのメジャーバージョン。今は 1
+	V *int64 `json:"v,omitempty"`
+
+	// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+	Budget *Budget `json:"budget,omitempty"`
+
+	// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+	Partial *bool `json:"partial,omitempty"`
+
+	// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+	MaxPlaces *int64 `json:"max_places,omitempty"`
+
+	// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+	TimeLimitMs *int64 `json:"time_limit_ms,omitempty"`
+
+	// op の名前
+	Op string `json:"op,omitempty"`
+
+	// 文書の名前。open で作ったもの
+	Doc *string `json:"doc,omitempty"`
+
+	// 公開用紙の ID。drawing が返すもので、選んだ校正と同じ用紙
+	From *string `json:"from,omitempty"`
+
+	// 使う校正の ID。calibrations が返すもの
+	Calibration *string `json:"calibration,omitempty"`
+
+	// 始点。原点と相対座標を分けた用紙の mm の点
+	Start *SplitPoint2 `json:"start,omitempty"`
+
+	// 終点。原点と相対座標を分けた用紙の mm の点
+	End *SplitPoint2 `json:"end,omitempty"`
+
+	// 期待する元の文書のハッシュ。open に渡したバイト列のハッシュと照合する。図面モデルへ変換した ZMDR 自身のハッシュではない
+	ExpectedHash *string `json:"expected_hash,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m MeasureDistanceRequest) MarshalJSON() ([]byte, error) {
+	type plain MeasureDistanceRequest
+	m.Op = "measure_distance"
+	return json.Marshal(plain(m))
+}
+
+// MeasureDistanceResult: 選んだ用紙と校正による距離
+type MeasureDistanceResult struct {
+	// 元の文書のハッシュ。ZMDR から開いたときは、埋め込まれた元の文書のハッシュ（Source.hash）
+	Hash *string `json:"hash,omitempty"`
+
+	// 計測した公開用紙の ID
+	From *string `json:"from,omitempty"`
+
+	// 使った校正の ID
+	Calibration *string `json:"calibration,omitempty"`
+
+	// 校正後の距離。unit と unit_label が示す単位
+	Distance *float64 `json:"distance,omitempty"`
+
+	// 校正後の長さの単位
+	Unit *Unit `json:"unit,omitempty"`
+
+	// 元の単位ラベル。未知の単位でも原文を保つ
+	UnitLabel *string `json:"unit_label,omitempty"`
 }
 
 // PointStyleSummary: 文書の点の表し方。フィールドの意味は point_style_edit と同じ
@@ -5958,6 +6138,12 @@ const OpDrawing = "drawing"
 
 // OpEntities は、op の名前 entities。
 const OpEntities = "entities"
+
+// OpCalibrations は、op の名前 calibrations。
+const OpCalibrations = "calibrations"
+
+// OpMeasureDistance は、op の名前 measure_distance。
+const OpMeasureDistance = "measure_distance"
 
 // OpApply は、op の名前 apply。
 const OpApply = "apply"

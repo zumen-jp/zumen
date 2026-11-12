@@ -195,7 +195,7 @@ viewer.setMeasurement({ start, end });
 console.log(viewer.getState().measurement);
 ```
 
-`setMeasurement` は両端の位置と、あれば現在のシーンの要素参照を検査します。結果には始点・終点・差 `delta`・シーン上の `distance` と、応答の `from`・`view`・`unit`・`tolerance` を保ちます。原点どうしと相対座標どうしの差を先に取り、大きな原点の丸めを減らします。`tolerance` はコアが曲線を展開したときの許容差で、計測の誤差保証ではありません。
+`setMeasurement` は両端の位置と、あれば現在のシーンの要素参照を検査します。結果には始点・終点・差 `delta`・シーン上の `distance` と、応答の `from`・`view`・`unit`・`tolerance` を保ちます。原点と相対座標の 4 項から差を正確に集計し、最後に一度だけ丸めるため、大きな原点でも小さな差を保ちます。`tolerance` はコアが曲線を展開したときの許容差で、計測の誤差保証ではありません。
 
 実寸の扱いは `real` で区別します。起点が空間で `view` がなく、単位が既知で、両端に配置の道筋が空の要素参照がある場合だけ、`{ status: "known", distance, unit }` を返します。ほかは `{ status: "unknown", reason }` です。理由は次の表の上から優先します。利用側から要素参照を渡す場合も、その位置が参照する要素上にあることは利用側で確かめてください。
 
@@ -208,6 +208,20 @@ console.log(viewer.getState().measurement);
 | `unbound` | 少なくとも片方が要素への吸着のない自由な位置 |
 
 計測は表示の補助です。曲線を含む精密な距離や、配置前の実寸には L2 の API を使います。`setMeasurement(null)` で消せます。部品は計測の線と選択範囲だけを `overlayColor`（既定 `#cc0066`）で描き、数値・単位名・不明な理由のラベルは利用側へ残します。
+
+用紙上の校正を使うときは、`calibrations` API の一覧から利用側が ID を選び、同期の resolver を設定します。
+
+```js
+import { measureDistance } from "@zumen-jp/view2d";
+
+const id = "sheet/0/vp/0";
+viewer.setMeasurementCalibration({
+  id,
+  resolve: (measurement, document) => measureDistance(session, document, id, measurement),
+});
+```
+
+`measurement.calibrated` は成功時に `status: "measured"` と距離・単位・原ラベルを持ち、未知の単位も保ちます。領域外・停止・失敗では `status: "unavailable"` と理由を持ち、紙上の距離・計測線と `real` は残ります。校正の距離はコアが計算します。`setMeasurementCalibration(null)`、シーンの交換・消去、破棄で選択を解除します。`setMeasurement(null)` は同じシーンの選択を保ちます。Promise は採用せず、resolver 中の状態変更もできません。原点の精度・ハッシュの照合・診断と予算の受け取り方は [距離校正の契約](../../docs/calibration.md) にあります。
 
 ## 独自ツールと重ね描きの寿命
 

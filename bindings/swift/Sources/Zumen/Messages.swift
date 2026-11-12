@@ -44,6 +44,16 @@ public struct Request: Message {
         taggedView("op", "entities")
     }
 
+    /// op が calibrations の形なら、そのビュー。違えば nil
+    public var asCalibrationsRequest: CalibrationsRequest? {
+        taggedView("op", "calibrations")
+    }
+
+    /// op が measure_distance の形なら、そのビュー。違えば nil
+    public var asMeasureDistanceRequest: MeasureDistanceRequest? {
+        taggedView("op", "measure_distance")
+    }
+
     /// op が apply の形なら、そのビュー。違えば nil
     public var asApplyRequest: ApplyRequest? {
         taggedView("op", "apply")
@@ -879,6 +889,388 @@ public struct DrawingResult: Message {
     public var pointStyle: PointStyleSummary? {
         get { readField("point_style") }
         set { writeField("point_style", newValue) }
+    }
+}
+
+/// 2 次元の座標
+public struct Point2: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// X 座標
+    public var x: Double? {
+        get { readField("x") }
+        set { writeField("x", newValue) }
+    }
+
+    /// Y 座標
+    public var y: Double? {
+        get { readField("y") }
+        set { writeField("y", newValue) }
+    }
+}
+
+/// 原点と相対座標を分けた用紙の点。両成分の正確な和を位置とし、先に足して丸めない。座標の単位は用紙の mm
+public struct SplitPoint2: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 用紙の原点
+    public var origin: Point2? {
+        get { readField("origin") }
+        set { writeField("origin", newValue) }
+    }
+
+    /// 原点からの相対座標
+    public var offset: Point2? {
+        get { readField("offset") }
+        set { writeField("offset", newValue) }
+    }
+}
+
+/// 用紙の閉じた矩形で使う距離の校正。重なる領域は ID で明示的に選ぶ。マイナーバージョン 68 から
+public struct CalibrationItem: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 文書内で重複しない校正の ID
+    public var id: String? {
+        get { readField("id") }
+        set { writeField("id", newValue) }
+    }
+
+    /// 元の校正の名前。翻訳しない。なければ持たない
+    public var name: String? {
+        get { readField("name") }
+        set { writeField("name", newValue) }
+    }
+
+    /// 校正を使える公開用紙の ID。drawing が返すもの
+    public var from: String? {
+        get { readField("from") }
+        set { writeField("from", newValue) }
+    }
+
+    /// 用紙の mm の閉じた矩形。[X の最小, Y の最小, X の最大, Y の最大] の 4 値で、幅と高さは正
+    public var bounds: [Double]? {
+        get { readField("bounds") }
+        set { writeField("bounds", newValue) }
+    }
+
+    /// 用紙の mm の変位から校正単位の変位へ写す行優先の 2×2 行列。[a, b, c, d] の 4 値で、[dx, dy] を [a*dx+b*dy, c*dx+d*dy] に写す
+    public var matrix: [Double]? {
+        get { readField("matrix") }
+        set { writeField("matrix", newValue) }
+    }
+
+    /// 校正後の長さの単位。ラベルだけから推定しない
+    public var unit: String? {
+        get { readField("unit") }
+        set { writeField("unit", newValue) }
+    }
+
+    /// 元の単位ラベル。未知の単位でも原文を保つ
+    public var unitLabel: String? {
+        get { readField("unit_label") }
+        set { writeField("unit_label", newValue) }
+    }
+
+    /// 元の形式のレコード
+    public var source: Source? {
+        get { readField("source") }
+        set { writeField("source", newValue) }
+    }
+}
+
+/// 開いた文書を図面モデルに変換し、用紙の距離の校正をモデルの順に返す。マイナーバージョン 68 から
+public struct CalibrationsRequest: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// タグのフィールドだけを持つオブジェクトから作る
+    public init() {
+        json = ["op": .string("calibrations")]
+    }
+
+    /// メッセージのスキーマのメジャーバージョン。今は 1
+    public var v: Int64? {
+        get { readField("v") }
+        set { writeField("v", newValue) }
+    }
+
+    /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+    public var budget: Budget? {
+        get { readField("budget") }
+        set { writeField("budget", newValue) }
+    }
+
+    /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+    public var partial: Bool? {
+        get { readField("partial") }
+        set { writeField("partial", newValue) }
+    }
+
+    /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+    public var maxPlaces: Int64? {
+        get { readField("max_places") }
+        set { writeField("max_places", newValue) }
+    }
+
+    /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    public var timeLimitMs: Int64? {
+        get { readField("time_limit_ms") }
+        set { writeField("time_limit_ms", newValue) }
+    }
+
+    /// op の名前
+    public var op: String? {
+        get { readField("op") }
+        set { writeField("op", newValue) }
+    }
+
+    /// 文書の名前。open で作ったもの
+    public var doc: String? {
+        get { readField("doc") }
+        set { writeField("doc", newValue) }
+    }
+
+    /// 公開用紙の ID。drawing が返すもの。書けばその用紙の校正だけを返し、書かなければすべての校正を返す
+    public var from: String? {
+        get { readField("from") }
+        set { writeField("from", newValue) }
+    }
+
+    /// 返す最初の校正の位置。from で絞った後の位置で、前の応答の next_offset を渡す。書かなければ 0
+    public var offset: Int64? {
+        get { readField("offset") }
+        set { writeField("offset", newValue) }
+    }
+
+    /// 返す校正の数の上限。書かなければ 1000
+    public var limit: Int64? {
+        get { readField("limit") }
+        set { writeField("limit", newValue) }
+    }
+
+    /// 期待する元の文書のハッシュ。open に渡したバイト列のハッシュと照合する。図面モデルへ変換した ZMDR 自身のハッシュではない
+    public var expectedHash: String? {
+        get { readField("expected_hash") }
+        set { writeField("expected_hash", newValue) }
+    }
+}
+
+/// 距離の校正の一覧の一部
+public struct CalibrationsResult: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 元の文書のハッシュ。ZMDR から開いたときは、埋め込まれた元の文書のハッシュ（Source.hash）
+    public var hash: String? {
+        get { readField("hash") }
+        set { writeField("hash", newValue) }
+    }
+
+    /// from で絞った一覧の offset から limit 個までの校正
+    public var items: [CalibrationItem]? {
+        get { readField("items") }
+        set { writeField("items", newValue) }
+    }
+
+    /// from で絞った後の校正の総数
+    public var total: Int64? {
+        get { readField("total") }
+        set { writeField("total", newValue) }
+    }
+
+    /// 続きの最初の校正の位置。続きがなければ持たない
+    public var nextOffset: Int64? {
+        get { readField("next_offset") }
+        set { writeField("next_offset", newValue) }
+    }
+}
+
+/// 用紙と校正を明示的に選び、始点と終点の校正後の距離を求める。両点は校正の閉領域内にある必要がある。マイナーバージョン 68 から
+public struct MeasureDistanceRequest: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// タグのフィールドだけを持つオブジェクトから作る
+    public init() {
+        json = ["op": .string("measure_distance")]
+    }
+
+    /// メッセージのスキーマのメジャーバージョン。今は 1
+    public var v: Int64? {
+        get { readField("v") }
+        set { writeField("v", newValue) }
+    }
+
+    /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+    public var budget: Budget? {
+        get { readField("budget") }
+        set { writeField("budget", newValue) }
+    }
+
+    /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+    public var partial: Bool? {
+        get { readField("partial") }
+        set { writeField("partial", newValue) }
+    }
+
+    /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+    public var maxPlaces: Int64? {
+        get { readField("max_places") }
+        set { writeField("max_places", newValue) }
+    }
+
+    /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    public var timeLimitMs: Int64? {
+        get { readField("time_limit_ms") }
+        set { writeField("time_limit_ms", newValue) }
+    }
+
+    /// op の名前
+    public var op: String? {
+        get { readField("op") }
+        set { writeField("op", newValue) }
+    }
+
+    /// 文書の名前。open で作ったもの
+    public var doc: String? {
+        get { readField("doc") }
+        set { writeField("doc", newValue) }
+    }
+
+    /// 公開用紙の ID。drawing が返すもので、選んだ校正と同じ用紙
+    public var from: String? {
+        get { readField("from") }
+        set { writeField("from", newValue) }
+    }
+
+    /// 使う校正の ID。calibrations が返すもの
+    public var calibration: String? {
+        get { readField("calibration") }
+        set { writeField("calibration", newValue) }
+    }
+
+    /// 始点。原点と相対座標を分けた用紙の mm の点
+    public var start: SplitPoint2? {
+        get { readField("start") }
+        set { writeField("start", newValue) }
+    }
+
+    /// 終点。原点と相対座標を分けた用紙の mm の点
+    public var end: SplitPoint2? {
+        get { readField("end") }
+        set { writeField("end", newValue) }
+    }
+
+    /// 期待する元の文書のハッシュ。open に渡したバイト列のハッシュと照合する。図面モデルへ変換した ZMDR 自身のハッシュではない
+    public var expectedHash: String? {
+        get { readField("expected_hash") }
+        set { writeField("expected_hash", newValue) }
+    }
+}
+
+/// 選んだ用紙と校正による距離
+public struct MeasureDistanceResult: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 元の文書のハッシュ。ZMDR から開いたときは、埋め込まれた元の文書のハッシュ（Source.hash）
+    public var hash: String? {
+        get { readField("hash") }
+        set { writeField("hash", newValue) }
+    }
+
+    /// 計測した公開用紙の ID
+    public var from: String? {
+        get { readField("from") }
+        set { writeField("from", newValue) }
+    }
+
+    /// 使った校正の ID
+    public var calibration: String? {
+        get { readField("calibration") }
+        set { writeField("calibration", newValue) }
+    }
+
+    /// 校正後の距離。unit と unit_label が示す単位
+    public var distance: Double? {
+        get { readField("distance") }
+        set { writeField("distance", newValue) }
+    }
+
+    /// 校正後の長さの単位
+    public var unit: String? {
+        get { readField("unit") }
+        set { writeField("unit", newValue) }
+    }
+
+    /// 元の単位ラベル。未知の単位でも原文を保つ
+    public var unitLabel: String? {
+        get { readField("unit_label") }
+        set { writeField("unit_label", newValue) }
     }
 }
 
@@ -11385,6 +11777,8 @@ public enum Operations {
     public static let describe = "describe"
     public static let drawing = "drawing"
     public static let entities = "entities"
+    public static let calibrations = "calibrations"
+    public static let measureDistance = "measure_distance"
     public static let apply = "apply"
     public static let convert = "convert"
     public static let convertEstimate = "convert_estimate"

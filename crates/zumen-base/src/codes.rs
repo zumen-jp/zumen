@@ -1143,6 +1143,20 @@ pub const DRAWING_MARK_HEIGHT_DROPPED: Code = Code::new(
     &["name"],
 );
 
+/// 選んだ校正で用紙上の距離を測れなかった。id は校正の ID、reason は領域・用紙・座標・計算を使えない理由
+///
+/// `drawing.measurement.failed`（0.2.0 から）
+pub const DRAWING_MEASUREMENT_FAILED: Code = Code::new(
+    "drawing.measurement.failed",
+    Severity::Error,
+    None,
+    &[
+        Param::new("id", ParamType::Text),
+        Param::new("reason", ParamType::Text),
+    ],
+    &["id", "reason"],
+);
+
 /// 記号の配置が、道筋の外側の配置と同じ定義を置く（循環）ので、中をたどらなかった
 ///
 /// `drawing.placement.invalid`（0.0.0 から）
@@ -4942,6 +4956,7 @@ pub const ALL: &[Code] = &[
     DRAWING_BINARY_INVALID,
     DRAWING_CALIBRATION_INVALID,
     DRAWING_MARK_HEIGHT_DROPPED,
+    DRAWING_MEASUREMENT_FAILED,
     DRAWING_PLACEMENT_INVALID,
     DWG_CHANGE_UNSUPPORTED,
     DWG_CRC_INVALID,

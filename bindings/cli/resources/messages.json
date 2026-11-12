@@ -13,6 +13,8 @@
         { "$ref": "#/$defs/describe_request" },
         { "$ref": "#/$defs/drawing_request" },
         { "$ref": "#/$defs/entities_request" },
+        { "$ref": "#/$defs/calibrations_request" },
+        { "$ref": "#/$defs/measure_distance_request" },
         { "$ref": "#/$defs/apply_request" },
         { "$ref": "#/$defs/convert_request" },
         { "$ref": "#/$defs/convert_estimate_request" },
@@ -301,6 +303,130 @@
         }
       },
       "required": ["spaces", "sheets"],
+      "additionalProperties": false
+    },
+    "point2": {
+      "description": "2 次元の座標",
+      "type": "object",
+      "properties": {
+        "x": { "description": "X 座標", "type": "number" },
+        "y": { "description": "Y 座標", "type": "number" }
+      },
+      "required": ["x", "y"],
+      "additionalProperties": false
+    },
+    "split_point2": {
+      "description": "原点と相対座標を分けた用紙の点。両成分の正確な和を位置とし、先に足して丸めない。座標の単位は用紙の mm",
+      "type": "object",
+      "properties": {
+        "origin": { "description": "用紙の原点", "$ref": "#/$defs/point2" },
+        "offset": { "description": "原点からの相対座標", "$ref": "#/$defs/point2" }
+      },
+      "required": ["origin", "offset"],
+      "additionalProperties": false
+    },
+    "calibration_item": {
+      "description": "用紙の閉じた矩形で使う距離の校正。重なる領域は ID で明示的に選ぶ。マイナーバージョン 68 から",
+      "type": "object",
+      "properties": {
+        "id": { "description": "文書内で重複しない校正の ID", "type": "string" },
+        "name": { "description": "元の校正の名前。翻訳しない。なければ持たない", "type": "string" },
+        "from": { "description": "校正を使える公開用紙の ID。drawing が返すもの", "type": "string" },
+        "bounds": {
+          "description": "用紙の mm の閉じた矩形。[X の最小, Y の最小, X の最大, Y の最大] の 4 値で、幅と高さは正",
+          "type": "array",
+          "items": { "type": "number" }
+        },
+        "matrix": {
+          "description": "用紙の mm の変位から校正単位の変位へ写す行優先の 2×2 行列。[a, b, c, d] の 4 値で、[dx, dy] を [a*dx+b*dy, c*dx+d*dy] に写す",
+          "type": "array",
+          "items": { "type": "number" }
+        },
+        "unit": { "description": "校正後の長さの単位。ラベルだけから推定しない", "$ref": "#/$defs/unit" },
+        "unit_label": { "description": "元の単位ラベル。未知の単位でも原文を保つ", "type": "string" },
+        "source": { "description": "元の形式のレコード", "$ref": "#/$defs/source" }
+      },
+      "required": ["id", "from", "bounds", "matrix", "unit", "unit_label"],
+      "additionalProperties": false
+    },
+    "calibrations_request": {
+      "description": "開いた文書を図面モデルに変換し、用紙の距離の校正をモデルの順に返す。マイナーバージョン 68 から",
+      "type": "object",
+      "allOf": [{ "$ref": "#/$defs/request_common" }],
+      "properties": {
+        "op": { "description": "op の名前", "const": "calibrations" },
+        "doc": { "description": "文書の名前。open で作ったもの", "type": "string" },
+        "from": { "description": "公開用紙の ID。drawing が返すもの。書けばその用紙の校正だけを返し、書かなければすべての校正を返す", "type": "string" },
+        "offset": {
+          "description": "返す最初の校正の位置。from で絞った後の位置で、前の応答の next_offset を渡す。書かなければ 0",
+          "type": "integer",
+          "minimum": 0
+        },
+        "limit": {
+          "description": "返す校正の数の上限。書かなければ 1000",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000
+        },
+        "expected_hash": {
+          "description": "期待する元の文書のハッシュ。open に渡したバイト列のハッシュと照合する。図面モデルへ変換した ZMDR 自身のハッシュではない",
+          "type": "string"
+        }
+      },
+      "required": ["op", "doc"],
+      "unevaluatedProperties": false
+    },
+    "calibrations_result": {
+      "description": "距離の校正の一覧の一部",
+      "type": "object",
+      "properties": {
+        "hash": { "description": "元の文書のハッシュ。ZMDR から開いたときは、埋め込まれた元の文書のハッシュ（Source.hash）", "type": "string" },
+        "items": {
+          "description": "from で絞った一覧の offset から limit 個までの校正",
+          "type": "array",
+          "items": { "$ref": "#/$defs/calibration_item" }
+        },
+        "total": { "description": "from で絞った後の校正の総数", "type": "integer", "minimum": 0 },
+        "next_offset": {
+          "description": "続きの最初の校正の位置。続きがなければ持たない",
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": ["hash", "items", "total"],
+      "additionalProperties": false
+    },
+    "measure_distance_request": {
+      "description": "用紙と校正を明示的に選び、始点と終点の校正後の距離を求める。両点は校正の閉領域内にある必要がある。マイナーバージョン 68 から",
+      "type": "object",
+      "allOf": [{ "$ref": "#/$defs/request_common" }],
+      "properties": {
+        "op": { "description": "op の名前", "const": "measure_distance" },
+        "doc": { "description": "文書の名前。open で作ったもの", "type": "string" },
+        "from": { "description": "公開用紙の ID。drawing が返すもので、選んだ校正と同じ用紙", "type": "string" },
+        "calibration": { "description": "使う校正の ID。calibrations が返すもの", "type": "string" },
+        "start": { "description": "始点。原点と相対座標を分けた用紙の mm の点", "$ref": "#/$defs/split_point2" },
+        "end": { "description": "終点。原点と相対座標を分けた用紙の mm の点", "$ref": "#/$defs/split_point2" },
+        "expected_hash": {
+          "description": "期待する元の文書のハッシュ。open に渡したバイト列のハッシュと照合する。図面モデルへ変換した ZMDR 自身のハッシュではない",
+          "type": "string"
+        }
+      },
+      "required": ["op", "doc", "from", "calibration", "start", "end"],
+      "unevaluatedProperties": false
+    },
+    "measure_distance_result": {
+      "description": "選んだ用紙と校正による距離",
+      "type": "object",
+      "properties": {
+        "hash": { "description": "元の文書のハッシュ。ZMDR から開いたときは、埋め込まれた元の文書のハッシュ（Source.hash）", "type": "string" },
+        "from": { "description": "計測した公開用紙の ID", "type": "string" },
+        "calibration": { "description": "使った校正の ID", "type": "string" },
+        "distance": { "description": "校正後の距離。unit と unit_label が示す単位", "type": "number" },
+        "unit": { "description": "校正後の長さの単位", "$ref": "#/$defs/unit" },
+        "unit_label": { "description": "元の単位ラベル。未知の単位でも原文を保つ", "type": "string" }
+      },
+      "required": ["hash", "from", "calibration", "distance", "unit", "unit_label"],
       "additionalProperties": false
     },
     "point_style_summary": {

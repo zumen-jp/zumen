@@ -23,6 +23,10 @@ pub enum Request {
     Drawing(DrawingRequest),
     /// 開いた文書を図面モデル（L2、決定 0022）に変換し、要素の一覧を返す。実寸の空間、用紙の順に、それぞれの要素を入力の順に並べる（決定 0117）
     Entities(EntitiesRequest),
+    /// 開いた文書を図面モデルに変換し、用紙の距離の校正をモデルの順に返す。マイナーバージョン 68 から
+    Calibrations(CalibrationsRequest),
+    /// 用紙と校正を明示的に選び、始点と終点の校正後の距離を求める。両点は校正の閉領域内にある必要がある。マイナーバージョン 68 から
+    MeasureDistance(MeasureDistanceRequest),
     /// 開いた文書に、変更の一覧を当てて書き戻す（決定 0139・0156）。要素は、entities が返す ID とハッシュで指す。どれか 1 つでも当てられなければ、何も変えない。当てたら、文書を書き戻したものに替え、書き戻したファイルを blobs で返す。マイナーバージョン 7 から
     Apply(ApplyRequest),
     /// 開いた文書から別の形式のファイルを作り、新しい文書として開く。対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから書く（決定 0139・0206・0281）。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。今は DXF にだけ書ける。マイナーバージョン 41 から
@@ -88,6 +92,8 @@ impl Request {
         "describe",
         "drawing",
         "entities",
+        "calibrations",
+        "measure_distance",
         "apply",
         "convert",
         "convert_estimate",
@@ -126,6 +132,8 @@ impl Request {
             Self::Describe(_) => "describe",
             Self::Drawing(_) => "drawing",
             Self::Entities(_) => "entities",
+            Self::Calibrations(_) => "calibrations",
+            Self::MeasureDistance(_) => "measure_distance",
             Self::Apply(_) => "apply",
             Self::Convert(_) => "convert",
             Self::ConvertEstimate(_) => "convert_estimate",
@@ -167,6 +175,10 @@ impl FromJson for Request {
             "describe" => Self::Describe(DescribeRequest::read_fields(&mut object)?),
             "drawing" => Self::Drawing(DrawingRequest::read_fields(&mut object)?),
             "entities" => Self::Entities(EntitiesRequest::read_fields(&mut object)?),
+            "calibrations" => Self::Calibrations(CalibrationsRequest::read_fields(&mut object)?),
+            "measure_distance" => {
+                Self::MeasureDistance(MeasureDistanceRequest::read_fields(&mut object)?)
+            }
             "apply" => Self::Apply(ApplyRequest::read_fields(&mut object)?),
             "convert" => Self::Convert(ConvertRequest::read_fields(&mut object)?),
             "convert_estimate" => {
@@ -220,6 +232,8 @@ impl ToJson for Request {
             Self::Describe(value) => value.to_json(out),
             Self::Drawing(value) => value.to_json(out),
             Self::Entities(value) => value.to_json(out),
+            Self::Calibrations(value) => value.to_json(out),
+            Self::MeasureDistance(value) => value.to_json(out),
             Self::Apply(value) => value.to_json(out),
             Self::Convert(value) => value.to_json(out),
             Self::ConvertEstimate(value) => value.to_json(out),
@@ -1102,6 +1116,458 @@ impl FromJson for DrawingResult {
 }
 
 impl ToJson for DrawingResult {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 2 次元の座標
+#[derive(Clone, Debug, PartialEq)]
+pub struct Point2 {
+    /// X 座標
+    pub x: f64,
+    /// Y 座標
+    pub y: f64,
+}
+
+impl Point2 {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let x = object.required("x", json::number)?;
+        let y = object.required("y", json::number)?;
+        Ok(Self { x, y })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("x");
+        out.float(self.x);
+        out.key("y");
+        out.float(self.y);
+    }
+}
+
+impl FromJson for Point2 {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for Point2 {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 原点と相対座標を分けた用紙の点。両成分の正確な和を位置とし、先に足して丸めない。座標の単位は用紙の mm
+#[derive(Clone, Debug, PartialEq)]
+pub struct SplitPoint2 {
+    /// 用紙の原点
+    pub origin: Point2,
+    /// 原点からの相対座標
+    pub offset: Point2,
+}
+
+impl SplitPoint2 {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let origin = object.required("origin", Point2::from_json)?;
+        let offset = object.required("offset", Point2::from_json)?;
+        Ok(Self { origin, offset })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("origin");
+        self.origin.to_json(out);
+        out.key("offset");
+        self.offset.to_json(out);
+    }
+}
+
+impl FromJson for SplitPoint2 {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for SplitPoint2 {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 用紙の閉じた矩形で使う距離の校正。重なる領域は ID で明示的に選ぶ。マイナーバージョン 68 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct CalibrationItem {
+    /// 文書内で重複しない校正の ID
+    pub id: String,
+    /// 元の校正の名前。翻訳しない。なければ持たない
+    pub name: Option<String>,
+    /// 校正を使える公開用紙の ID。drawing が返すもの
+    pub from: String,
+    /// 用紙の mm の閉じた矩形。[X の最小, Y の最小, X の最大, Y の最大] の 4 値で、幅と高さは正
+    pub bounds: Vec<f64>,
+    /// 用紙の mm の変位から校正単位の変位へ写す行優先の 2×2 行列。[a, b, c, d] の 4 値で、[dx, dy] を [a*dx+b*dy, c*dx+d*dy] に写す
+    pub matrix: Vec<f64>,
+    /// 校正後の長さの単位。ラベルだけから推定しない
+    pub unit: Unit,
+    /// 元の単位ラベル。未知の単位でも原文を保つ
+    pub unit_label: String,
+    /// 元の形式のレコード
+    pub source: Option<Source>,
+}
+
+impl CalibrationItem {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let id = object.required("id", json::string)?;
+        let name = object.optional("name", json::string)?;
+        let from = object.required("from", json::string)?;
+        let bounds = object.required("bounds", |value| json::array(value, json::number))?;
+        let matrix = object.required("matrix", |value| json::array(value, json::number))?;
+        let unit = object.required("unit", Unit::from_json)?;
+        let unit_label = object.required("unit_label", json::string)?;
+        let source = object.optional("source", Source::from_json)?;
+        Ok(Self {
+            id,
+            name,
+            from,
+            bounds,
+            matrix,
+            unit,
+            unit_label,
+            source,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("id");
+        out.string(&self.id);
+        if let Some(value) = &self.name {
+            out.key("name");
+            out.string(value);
+        }
+        out.key("from");
+        out.string(&self.from);
+        out.key("bounds");
+        out.array(&self.bounds, |out, item| out.float(*item));
+        out.key("matrix");
+        out.array(&self.matrix, |out, item| out.float(*item));
+        out.key("unit");
+        self.unit.to_json(out);
+        out.key("unit_label");
+        out.string(&self.unit_label);
+        if let Some(value) = &self.source {
+            out.key("source");
+            value.to_json(out);
+        }
+    }
+}
+
+impl FromJson for CalibrationItem {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for CalibrationItem {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 開いた文書を図面モデルに変換し、用紙の距離の校正をモデルの順に返す。マイナーバージョン 68 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct CalibrationsRequest {
+    /// `request_common` のフィールド
+    pub request_common: RequestCommon,
+    /// 文書の名前。open で作ったもの
+    pub doc: String,
+    /// 公開用紙の ID。drawing が返すもの。書けばその用紙の校正だけを返し、書かなければすべての校正を返す
+    pub from: Option<String>,
+    /// 返す最初の校正の位置。from で絞った後の位置で、前の応答の next_offset を渡す。書かなければ 0
+    pub offset: Option<u64>,
+    /// 返す校正の数の上限。書かなければ 1000
+    pub limit: Option<u64>,
+    /// 期待する元の文書のハッシュ。open に渡したバイト列のハッシュと照合する。図面モデルへ変換した ZMDR 自身のハッシュではない
+    pub expected_hash: Option<String>,
+}
+
+impl CalibrationsRequest {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let request_common = RequestCommon::read_fields(object)?;
+        object.constant("op", "calibrations")?;
+        let doc = object.required("doc", json::string)?;
+        let from = object.optional("from", json::string)?;
+        let offset = object.optional("offset", |value| json::uint(value, 0, 9007199254740991))?;
+        let limit = object.optional("limit", |value| json::uint(value, 1, 10000))?;
+        let expected_hash = object.optional("expected_hash", json::string)?;
+        Ok(Self {
+            request_common,
+            doc,
+            from,
+            offset,
+            limit,
+            expected_hash,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        self.request_common.write_fields(out);
+        out.key("op");
+        out.string("calibrations");
+        out.key("doc");
+        out.string(&self.doc);
+        if let Some(value) = &self.from {
+            out.key("from");
+            out.string(value);
+        }
+        if let Some(value) = &self.offset {
+            out.key("offset");
+            out.uint(*value);
+        }
+        if let Some(value) = &self.limit {
+            out.key("limit");
+            out.uint(*value);
+        }
+        if let Some(value) = &self.expected_hash {
+            out.key("expected_hash");
+            out.string(value);
+        }
+    }
+}
+
+impl FromJson for CalibrationsRequest {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for CalibrationsRequest {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 距離の校正の一覧の一部
+#[derive(Clone, Debug, PartialEq)]
+pub struct CalibrationsResult {
+    /// 元の文書のハッシュ。ZMDR から開いたときは、埋め込まれた元の文書のハッシュ（Source.hash）
+    pub hash: String,
+    /// from で絞った一覧の offset から limit 個までの校正
+    pub items: Vec<CalibrationItem>,
+    /// from で絞った後の校正の総数
+    pub total: u64,
+    /// 続きの最初の校正の位置。続きがなければ持たない
+    pub next_offset: Option<u64>,
+}
+
+impl CalibrationsResult {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let hash = object.required("hash", json::string)?;
+        let items = object.required("items", |value| {
+            json::array(value, CalibrationItem::from_json)
+        })?;
+        let total = object.required("total", |value| json::uint(value, 0, 9007199254740991))?;
+        let next_offset = object.optional("next_offset", |value| {
+            json::uint(value, 0, 9007199254740991)
+        })?;
+        Ok(Self {
+            hash,
+            items,
+            total,
+            next_offset,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("hash");
+        out.string(&self.hash);
+        out.key("items");
+        out.array(&self.items, |out, item| item.to_json(out));
+        out.key("total");
+        out.uint(self.total);
+        if let Some(value) = &self.next_offset {
+            out.key("next_offset");
+            out.uint(*value);
+        }
+    }
+}
+
+impl FromJson for CalibrationsResult {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for CalibrationsResult {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 用紙と校正を明示的に選び、始点と終点の校正後の距離を求める。両点は校正の閉領域内にある必要がある。マイナーバージョン 68 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct MeasureDistanceRequest {
+    /// `request_common` のフィールド
+    pub request_common: RequestCommon,
+    /// 文書の名前。open で作ったもの
+    pub doc: String,
+    /// 公開用紙の ID。drawing が返すもので、選んだ校正と同じ用紙
+    pub from: String,
+    /// 使う校正の ID。calibrations が返すもの
+    pub calibration: String,
+    /// 始点。原点と相対座標を分けた用紙の mm の点
+    pub start: SplitPoint2,
+    /// 終点。原点と相対座標を分けた用紙の mm の点
+    pub end: SplitPoint2,
+    /// 期待する元の文書のハッシュ。open に渡したバイト列のハッシュと照合する。図面モデルへ変換した ZMDR 自身のハッシュではない
+    pub expected_hash: Option<String>,
+}
+
+impl MeasureDistanceRequest {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let request_common = RequestCommon::read_fields(object)?;
+        object.constant("op", "measure_distance")?;
+        let doc = object.required("doc", json::string)?;
+        let from = object.required("from", json::string)?;
+        let calibration = object.required("calibration", json::string)?;
+        let start = object.required("start", SplitPoint2::from_json)?;
+        let end = object.required("end", SplitPoint2::from_json)?;
+        let expected_hash = object.optional("expected_hash", json::string)?;
+        Ok(Self {
+            request_common,
+            doc,
+            from,
+            calibration,
+            start,
+            end,
+            expected_hash,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        self.request_common.write_fields(out);
+        out.key("op");
+        out.string("measure_distance");
+        out.key("doc");
+        out.string(&self.doc);
+        out.key("from");
+        out.string(&self.from);
+        out.key("calibration");
+        out.string(&self.calibration);
+        out.key("start");
+        self.start.to_json(out);
+        out.key("end");
+        self.end.to_json(out);
+        if let Some(value) = &self.expected_hash {
+            out.key("expected_hash");
+            out.string(value);
+        }
+    }
+}
+
+impl FromJson for MeasureDistanceRequest {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for MeasureDistanceRequest {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 選んだ用紙と校正による距離
+#[derive(Clone, Debug, PartialEq)]
+pub struct MeasureDistanceResult {
+    /// 元の文書のハッシュ。ZMDR から開いたときは、埋め込まれた元の文書のハッシュ（Source.hash）
+    pub hash: String,
+    /// 計測した公開用紙の ID
+    pub from: String,
+    /// 使った校正の ID
+    pub calibration: String,
+    /// 校正後の距離。unit と unit_label が示す単位
+    pub distance: f64,
+    /// 校正後の長さの単位
+    pub unit: Unit,
+    /// 元の単位ラベル。未知の単位でも原文を保つ
+    pub unit_label: String,
+}
+
+impl MeasureDistanceResult {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let hash = object.required("hash", json::string)?;
+        let from = object.required("from", json::string)?;
+        let calibration = object.required("calibration", json::string)?;
+        let distance = object.required("distance", json::number)?;
+        let unit = object.required("unit", Unit::from_json)?;
+        let unit_label = object.required("unit_label", json::string)?;
+        Ok(Self {
+            hash,
+            from,
+            calibration,
+            distance,
+            unit,
+            unit_label,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("hash");
+        out.string(&self.hash);
+        out.key("from");
+        out.string(&self.from);
+        out.key("calibration");
+        out.string(&self.calibration);
+        out.key("distance");
+        out.float(self.distance);
+        out.key("unit");
+        self.unit.to_json(out);
+        out.key("unit_label");
+        out.string(&self.unit_label);
+    }
+}
+
+impl FromJson for MeasureDistanceResult {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for MeasureDistanceResult {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);

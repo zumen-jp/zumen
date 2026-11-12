@@ -46,6 +46,8 @@ namespace Zumen.Messages
             ["describe"] = typeof(DescribeRequest),
             ["drawing"] = typeof(DrawingRequest),
             ["entities"] = typeof(EntitiesRequest),
+            ["calibrations"] = typeof(CalibrationsRequest),
+            ["measure_distance"] = typeof(MeasureDistanceRequest),
             ["apply"] = typeof(ApplyRequest),
             ["convert"] = typeof(ConvertRequest),
             ["convert_estimate"] = typeof(ConvertEstimateRequest),
@@ -640,6 +642,318 @@ namespace Zumen.Messages
         /// </summary>
         [JsonPropertyName("point_style")]
         public PointStyleSummary? PointStyle { get; init; }
+    }
+
+    /// <summary>
+    /// 2 次元の座標
+    /// </summary>
+    public sealed record Point2
+    {
+        /// <summary>
+        /// X 座標
+        /// </summary>
+        [JsonPropertyName("x")]
+        public double X { get; init; }
+
+        /// <summary>
+        /// Y 座標
+        /// </summary>
+        [JsonPropertyName("y")]
+        public double Y { get; init; }
+    }
+
+    /// <summary>
+    /// 原点と相対座標を分けた用紙の点。両成分の正確な和を位置とし、先に足して丸めない。座標の単位は用紙の mm
+    /// </summary>
+    public sealed record SplitPoint2
+    {
+        /// <summary>
+        /// 用紙の原点
+        /// </summary>
+        [JsonPropertyName("origin")]
+        public Point2 Origin { get; init; } = default!;
+
+        /// <summary>
+        /// 原点からの相対座標
+        /// </summary>
+        [JsonPropertyName("offset")]
+        public Point2 Offset { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 用紙の閉じた矩形で使う距離の校正。重なる領域は ID で明示的に選ぶ。マイナーバージョン 68 から
+    /// </summary>
+    public sealed record CalibrationItem
+    {
+        /// <summary>
+        /// 文書内で重複しない校正の ID
+        /// </summary>
+        [JsonPropertyName("id")]
+        public string Id { get; init; } = default!;
+
+        /// <summary>
+        /// 元の校正の名前。翻訳しない。なければ持たない
+        /// </summary>
+        [JsonPropertyName("name")]
+        public string? Name { get; init; }
+
+        /// <summary>
+        /// 校正を使える公開用紙の ID。drawing が返すもの
+        /// </summary>
+        [JsonPropertyName("from")]
+        public string From { get; init; } = default!;
+
+        /// <summary>
+        /// 用紙の mm の閉じた矩形。[X の最小, Y の最小, X の最大, Y の最大] の 4 値で、幅と高さは正
+        /// </summary>
+        [JsonPropertyName("bounds")]
+        public IReadOnlyList<double> Bounds { get; init; } = default!;
+
+        /// <summary>
+        /// 用紙の mm の変位から校正単位の変位へ写す行優先の 2×2 行列。[a, b, c, d] の 4 値で、[dx, dy] を [a*dx+b*dy, c*dx+d*dy] に写す
+        /// </summary>
+        [JsonPropertyName("matrix")]
+        public IReadOnlyList<double> Matrix { get; init; } = default!;
+
+        /// <summary>
+        /// 校正後の長さの単位。ラベルだけから推定しない
+        /// </summary>
+        [JsonPropertyName("unit")]
+        public string Unit { get; init; } = default!;
+
+        /// <summary>
+        /// 元の単位ラベル。未知の単位でも原文を保つ
+        /// </summary>
+        [JsonPropertyName("unit_label")]
+        public string UnitLabel { get; init; } = default!;
+
+        /// <summary>
+        /// 元の形式のレコード
+        /// </summary>
+        [JsonPropertyName("source")]
+        public Source? Source { get; init; }
+    }
+
+    /// <summary>
+    /// 開いた文書を図面モデルに変換し、用紙の距離の校正をモデルの順に返す。マイナーバージョン 68 から
+    /// </summary>
+    public sealed record CalibrationsRequest
+    {
+        /// <summary>
+        /// メッセージのスキーマのメジャーバージョン。今は 1
+        /// </summary>
+        [JsonPropertyName("v")]
+        public ulong V { get; init; }
+
+        /// <summary>
+        /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        /// </summary>
+        [JsonPropertyName("budget")]
+        public Budget? Budget { get; init; }
+
+        /// <summary>
+        /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        /// </summary>
+        [JsonPropertyName("partial")]
+        public bool? Partial { get; init; }
+
+        /// <summary>
+        /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        /// </summary>
+        [JsonPropertyName("max_places")]
+        public ulong? MaxPlaces { get; init; }
+
+        /// <summary>
+        /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// </summary>
+        [JsonPropertyName("time_limit_ms")]
+        public ulong? TimeLimitMs { get; init; }
+
+        /// <summary>
+        /// op の名前
+        /// </summary>
+        [JsonPropertyName("op")]
+        public string Op { get; init; } = "calibrations";
+
+        /// <summary>
+        /// 文書の名前。open で作ったもの
+        /// </summary>
+        [JsonPropertyName("doc")]
+        public string Doc { get; init; } = default!;
+
+        /// <summary>
+        /// 公開用紙の ID。drawing が返すもの。書けばその用紙の校正だけを返し、書かなければすべての校正を返す
+        /// </summary>
+        [JsonPropertyName("from")]
+        public string? From { get; init; }
+
+        /// <summary>
+        /// 返す最初の校正の位置。from で絞った後の位置で、前の応答の next_offset を渡す。書かなければ 0
+        /// </summary>
+        [JsonPropertyName("offset")]
+        public ulong? Offset { get; init; }
+
+        /// <summary>
+        /// 返す校正の数の上限。書かなければ 1000
+        /// </summary>
+        [JsonPropertyName("limit")]
+        public uint? Limit { get; init; }
+
+        /// <summary>
+        /// 期待する元の文書のハッシュ。open に渡したバイト列のハッシュと照合する。図面モデルへ変換した ZMDR 自身のハッシュではない
+        /// </summary>
+        [JsonPropertyName("expected_hash")]
+        public string? ExpectedHash { get; init; }
+    }
+
+    /// <summary>
+    /// 距離の校正の一覧の一部
+    /// </summary>
+    public sealed record CalibrationsResult
+    {
+        /// <summary>
+        /// 元の文書のハッシュ。ZMDR から開いたときは、埋め込まれた元の文書のハッシュ（Source.hash）
+        /// </summary>
+        [JsonPropertyName("hash")]
+        public string Hash { get; init; } = default!;
+
+        /// <summary>
+        /// from で絞った一覧の offset から limit 個までの校正
+        /// </summary>
+        [JsonPropertyName("items")]
+        public IReadOnlyList<CalibrationItem> Items { get; init; } = default!;
+
+        /// <summary>
+        /// from で絞った後の校正の総数
+        /// </summary>
+        [JsonPropertyName("total")]
+        public ulong Total { get; init; }
+
+        /// <summary>
+        /// 続きの最初の校正の位置。続きがなければ持たない
+        /// </summary>
+        [JsonPropertyName("next_offset")]
+        public ulong? NextOffset { get; init; }
+    }
+
+    /// <summary>
+    /// 用紙と校正を明示的に選び、始点と終点の校正後の距離を求める。両点は校正の閉領域内にある必要がある。マイナーバージョン 68 から
+    /// </summary>
+    public sealed record MeasureDistanceRequest
+    {
+        /// <summary>
+        /// メッセージのスキーマのメジャーバージョン。今は 1
+        /// </summary>
+        [JsonPropertyName("v")]
+        public ulong V { get; init; }
+
+        /// <summary>
+        /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        /// </summary>
+        [JsonPropertyName("budget")]
+        public Budget? Budget { get; init; }
+
+        /// <summary>
+        /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        /// </summary>
+        [JsonPropertyName("partial")]
+        public bool? Partial { get; init; }
+
+        /// <summary>
+        /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        /// </summary>
+        [JsonPropertyName("max_places")]
+        public ulong? MaxPlaces { get; init; }
+
+        /// <summary>
+        /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// </summary>
+        [JsonPropertyName("time_limit_ms")]
+        public ulong? TimeLimitMs { get; init; }
+
+        /// <summary>
+        /// op の名前
+        /// </summary>
+        [JsonPropertyName("op")]
+        public string Op { get; init; } = "measure_distance";
+
+        /// <summary>
+        /// 文書の名前。open で作ったもの
+        /// </summary>
+        [JsonPropertyName("doc")]
+        public string Doc { get; init; } = default!;
+
+        /// <summary>
+        /// 公開用紙の ID。drawing が返すもので、選んだ校正と同じ用紙
+        /// </summary>
+        [JsonPropertyName("from")]
+        public string From { get; init; } = default!;
+
+        /// <summary>
+        /// 使う校正の ID。calibrations が返すもの
+        /// </summary>
+        [JsonPropertyName("calibration")]
+        public string Calibration { get; init; } = default!;
+
+        /// <summary>
+        /// 始点。原点と相対座標を分けた用紙の mm の点
+        /// </summary>
+        [JsonPropertyName("start")]
+        public SplitPoint2 Start { get; init; } = default!;
+
+        /// <summary>
+        /// 終点。原点と相対座標を分けた用紙の mm の点
+        /// </summary>
+        [JsonPropertyName("end")]
+        public SplitPoint2 End { get; init; } = default!;
+
+        /// <summary>
+        /// 期待する元の文書のハッシュ。open に渡したバイト列のハッシュと照合する。図面モデルへ変換した ZMDR 自身のハッシュではない
+        /// </summary>
+        [JsonPropertyName("expected_hash")]
+        public string? ExpectedHash { get; init; }
+    }
+
+    /// <summary>
+    /// 選んだ用紙と校正による距離
+    /// </summary>
+    public sealed record MeasureDistanceResult
+    {
+        /// <summary>
+        /// 元の文書のハッシュ。ZMDR から開いたときは、埋め込まれた元の文書のハッシュ（Source.hash）
+        /// </summary>
+        [JsonPropertyName("hash")]
+        public string Hash { get; init; } = default!;
+
+        /// <summary>
+        /// 計測した公開用紙の ID
+        /// </summary>
+        [JsonPropertyName("from")]
+        public string From { get; init; } = default!;
+
+        /// <summary>
+        /// 使った校正の ID
+        /// </summary>
+        [JsonPropertyName("calibration")]
+        public string Calibration { get; init; } = default!;
+
+        /// <summary>
+        /// 校正後の距離。unit と unit_label が示す単位
+        /// </summary>
+        [JsonPropertyName("distance")]
+        public double Distance { get; init; }
+
+        /// <summary>
+        /// 校正後の長さの単位
+        /// </summary>
+        [JsonPropertyName("unit")]
+        public string Unit { get; init; } = default!;
+
+        /// <summary>
+        /// 元の単位ラベル。未知の単位でも原文を保つ
+        /// </summary>
+        [JsonPropertyName("unit_label")]
+        public string UnitLabel { get; init; } = default!;
     }
 
     /// <summary>
@@ -9383,6 +9697,8 @@ namespace Zumen.Messages
                 ["describe"] = (typeof(DescribeRequest), typeof(DescribeResult)),
                 ["drawing"] = (typeof(DrawingRequest), typeof(DrawingResult)),
                 ["entities"] = (typeof(EntitiesRequest), typeof(EntitiesResult)),
+                ["calibrations"] = (typeof(CalibrationsRequest), typeof(CalibrationsResult)),
+                ["measure_distance"] = (typeof(MeasureDistanceRequest), typeof(MeasureDistanceResult)),
                 ["apply"] = (typeof(ApplyRequest), typeof(ApplyResult)),
                 ["convert"] = (typeof(ConvertRequest), typeof(ConvertResult)),
                 ["convert_estimate"] = (typeof(ConvertEstimateRequest), typeof(ConvertEstimateResult)),

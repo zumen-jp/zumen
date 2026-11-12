@@ -247,6 +247,12 @@ hayro-syntax 0.9.0 は相互参照の表を作り直す際、文字列やコメ�
 - L1 は `stops_at_same_place`・`survives`・`ids_match`、図面への変換は停止位置と ID を検査する。注釈と画像の OCG は既存要素・様式・ID、診断の場所、中断後の再試行も比べる。[ID の期待値](../../crates/zumen-pdf/tests/ids/pdf.txt)、[注釈](../../crates/zumen-pdf/tests/appearance.rs)、[画像の OCG](../../crates/zumen-pdf/tests/image_ocg.rs)、[読み取りから変換までの fuzz](../../fuzz/fuzz_targets/pdf.rs)
 - 計測辞書では、型と参照、全 NumberFormat、非等方・負の係数・未知単位、回転・クロップ・UserUnit、長い小数を調べる。既存の紙上図形・様式・出所・ID・ハッシュは保持し、Work と DecodedBytes の全量・1 不足、中断・再試行を比べる。原字句を確定できない数値参照も明示的に拒む。[計測のテスト](../../crates/zumen-pdf/tests/measure.rs)、[数値参照](../../crates/zumen-pdf/src/measure_numbers.rs)
 
+### 長い小数の読み取りに残る環境差
+
+hayro-syntax 0.9.0 は、長い小数で使う `powi` の精度が環境に依存します。UserUnit・CropBox・MediaBox・内容の座標・線幅・変換係数に置いた合成入力で、ネイティブと wasm の図面の値とハッシュに差を確認しました。今回の合成入力では要素の数・順・ID・出所は一致しましたが、任意の入力で分岐や後続の ID への影響がないとは扱いません。上記の計測辞書自身の数値は原字句から読むため、この経路を通りません。
+
+上流では [96bccd1（#1652）](https://github.com/LaurenzV/hayro/commit/96bccd19993edfe12c9bc422ce80ed2d11e62651) で正確に丸めた binary64 を読む修正が入りました。2026-11-12 時点の crates.io の公開版は 0.9.0 で、この修正は未収録です。ルートの外部依存を crates.io に限る規則に従い、修正版の公開後に更新・ID・予算・対応環境を再検査します。PDF の未配布・ABI 未接続を保ち、修正前の一致を一般の PDF に広げて主張しません。
+
 ### ネイティブと wasm の一致
 
 公開 PDF 336 個でネイティブと wasm32-wasip1 の図面のハッシュ・診断・予算が一致した。合成入力では wasm32-unknown-unknown と図面・診断・予算・停止を比較した。出力容量は 6,192 件、予測子は 10,564 件、展開引数は 9,792 件。十分な予算では変更前の図面・診断・ID も照合した。これらは手元での測定で、API の適合テストは [#518](https://github.com/zumen-jp/zumen/issues/518)、実図面での速度と予算の既定値は [#521](https://github.com/zumen-jp/zumen/issues/521) で追う。[入力・実測値・ハッシュ](https://github.com/zumen-jp/zumen/blob/252b878dc53338c648b35f13ba2366134bf94dae/docs/formats/pdf.md?plain=1#L217)

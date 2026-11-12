@@ -2,6 +2,7 @@ import { end, finite, rows, valid } from "./validate.js";
 import { project, unproject } from "./geometry.js";
 import { visiblePointTest } from "./hit.js";
 import { elementKey, references } from "./interaction.js";
+import { addExact, divideExact, dyadic } from "./exact.js";
 
 const UNITS = new Set(["millimeter", "centimeter", "meter", "inch", "foot"]);
 
@@ -74,10 +75,16 @@ export function snapPoint(ctx, prepared, settings, view, size, display, index, l
 /** 測定値はシーンの座標で返し、配置や用紙の尺度を列から復元しない。 */
 export function measurementOf(prepared, start, end, index, limits) {
   valid(prepared, "measurement.scene");
+  const coordinate = (value, name) => {
+    valid(value && typeof value === "object", name);
+    const { x, y } = value;
+    valid([x, y].every((v) => typeof v === "number" && Number.isFinite(v)), name);
+    return Object.freeze({ x, y });
+  };
   const positions = [start, end].map((value, i) => {
     const name = i === 0 ? "measurement.start" : "measurement.end";
     valid(value && typeof value === "object", name);
-    return { origin: point(value.origin, `${name}.origin`), offset: point(value.offset, `${name}.offset`),
+    return { origin: coordinate(value.origin, `${name}.origin`), offset: coordinate(value.offset, `${name}.offset`),
       ...(value.element === undefined ? {} : { element: value.element }) };
   });
   // 二つの参照の検査に一つの作業量上限を使う。利用側の参照自体は保管しない。
@@ -87,9 +94,13 @@ export function measurementOf(prepared, start, end, index, limits) {
     Object.freeze(value);
   }
   const [first, second] = positions;
-  const delta = point({ x: (second.origin.x - first.origin.x) + (second.offset.x - first.offset.x),
-    y: (second.origin.y - first.origin.y) + (second.offset.y - first.offset.y) }, "measurement.delta");
-  const distance = finite(Math.hypot(delta.x, delta.y), "measurement.distance");
+  // 有限な f64 の 4 項だけなので、整数幅は約 2100 bit、演算回数は固定。
+  const difference = (axis) => divideExact(addExact(
+    addExact(dyadic(second.origin[axis]), dyadic(second.offset[axis])),
+    addExact(dyadic(first.origin[axis]), dyadic(first.offset[axis])), true), { integer: 1n, exponent: 0 });
+  const delta = coordinate({ x: difference("x"), y: difference("y") }, "measurement.delta");
+  const distance = Math.hypot(delta.x, delta.y);
+  valid(Number.isFinite(distance), "measurement.distance");
   const { from, view, unit, tolerance } = prepared.metadata.result;
   const reason = from.startsWith("sheet/") || view !== undefined ? "paper" : !from.startsWith("space/") ? "definition" :
     !UNITS.has(unit) ? "unit-unknown" : positions.some((p) => p.element?.path.length) ? "placement-scale" :

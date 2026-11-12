@@ -98,6 +98,7 @@
     "drawing.binary.invalid": "図面モデルのバイナリが {position} バイト目で壊れているので（{reason}）、読めませんでした（{count} 件）。",
     "drawing.calibration.invalid": "校正領域「{id}」が不正なため、使いませんでした（理由: {reason}、{count} 件）。",
     "drawing.mark-height.dropped": "線種「{name}」に添える文字の高さを有限の実数で表せないので、結果に含めませんでした（{count} 件）。",
+    "drawing.measurement.failed": "校正領域「{id}」で距離を測れませんでした（理由: {reason}、{count} 件）。",
     "drawing.placement.invalid": "記号の配置「{id}」は、外側の配置と同じ定義を置いて循環するので、中をたどりませんでした（{count} 件）。",
     "dwg.change.unsupported": "「{kind}」の変更は、まだ DWG に書き戻せません。変更を反映しませんでした。",
     "dwg.crc.invalid": "DWG の{part}の CRC が合いません（{count} 件）。読むのは続けました。",

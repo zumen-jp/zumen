@@ -98,6 +98,7 @@
     "drawing.binary.invalid": "Could not read the drawing model binary, because it is broken at byte {position} ({reason}) ({count}).",
     "drawing.calibration.invalid": "Did not use calibration \"{id}\" because it is invalid (reason: {reason}; {count}).",
     "drawing.mark-height.dropped": "Omitted the height of text in line type \"{name}\" because it cannot be represented as a finite number ({count}).",
+    "drawing.measurement.failed": "Could not measure distance with calibration \"{id}\" (reason: {reason}; {count}).",
     "drawing.placement.invalid": "Did not walk into the symbol placement \"{id}\", because it places the same definition as an outer placement and forms a cycle ({count}).",
     "dwg.change.unsupported": "Cannot write back the change to \"{kind}\" to DWG yet. The changes were not applied.",
     "dwg.crc.invalid": "The CRC of the DWG {part} does not match in {count} places. Reading continued.",

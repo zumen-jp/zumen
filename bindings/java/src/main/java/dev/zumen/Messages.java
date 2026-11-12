@@ -92,6 +92,16 @@ public final class Messages {
             return "entities".equals(json.get("op")) ? new EntitiesRequest(json) : null;
         }
 
+        /** op が calibrations の形なら、そのビュー。違えば null */
+        public CalibrationsRequest asCalibrationsRequest() {
+            return "calibrations".equals(json.get("op")) ? new CalibrationsRequest(json) : null;
+        }
+
+        /** op が measure_distance の形なら、そのビュー。違えば null */
+        public MeasureDistanceRequest asMeasureDistanceRequest() {
+            return "measure_distance".equals(json.get("op")) ? new MeasureDistanceRequest(json) : null;
+        }
+
         /** op が apply の形なら、そのビュー。違えば null */
         public ApplyRequest asApplyRequest() {
             return "apply".equals(json.get("op")) ? new ApplyRequest(json) : null;
@@ -1361,6 +1371,636 @@ public final class Messages {
         /** {@link #getPointStyle()} を書く。null ならフィールドを除く */
         public DrawingResult withPointStyle(PointStyleSummary value) {
             put("point_style", value);
+            return this;
+        }
+    }
+
+    /** 2 次元の座標 */
+    public static final class Point2 extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public Point2(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static Point2 of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new Point2(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public Point2() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** X 座標 */
+        public Double getX() {
+            return Json.read(json.get("x"), Json::number);
+        }
+
+        /** {@link #getX()} を書く。null ならフィールドを除く */
+        public Point2 withX(Double value) {
+            put("x", value);
+            return this;
+        }
+
+        /** Y 座標 */
+        public Double getY() {
+            return Json.read(json.get("y"), Json::number);
+        }
+
+        /** {@link #getY()} を書く。null ならフィールドを除く */
+        public Point2 withY(Double value) {
+            put("y", value);
+            return this;
+        }
+    }
+
+    /** 原点と相対座標を分けた用紙の点。両成分の正確な和を位置とし、先に足して丸めない。座標の単位は用紙の mm */
+    public static final class SplitPoint2 extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public SplitPoint2(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static SplitPoint2 of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new SplitPoint2(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public SplitPoint2() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 用紙の原点 */
+        public Point2 getOrigin() {
+            return Json.read(json.get("origin"), Point2::of);
+        }
+
+        /** {@link #getOrigin()} を書く。null ならフィールドを除く */
+        public SplitPoint2 withOrigin(Point2 value) {
+            put("origin", value);
+            return this;
+        }
+
+        /** 原点からの相対座標 */
+        public Point2 getOffset() {
+            return Json.read(json.get("offset"), Point2::of);
+        }
+
+        /** {@link #getOffset()} を書く。null ならフィールドを除く */
+        public SplitPoint2 withOffset(Point2 value) {
+            put("offset", value);
+            return this;
+        }
+    }
+
+    /** 用紙の閉じた矩形で使う距離の校正。重なる領域は ID で明示的に選ぶ。マイナーバージョン 68 から */
+    public static final class CalibrationItem extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public CalibrationItem(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static CalibrationItem of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new CalibrationItem(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public CalibrationItem() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 文書内で重複しない校正の ID */
+        public String getId() {
+            return Json.read(json.get("id"), Json::string);
+        }
+
+        /** {@link #getId()} を書く。null ならフィールドを除く */
+        public CalibrationItem withId(String value) {
+            put("id", value);
+            return this;
+        }
+
+        /** 元の校正の名前。翻訳しない。なければ持たない */
+        public String getName() {
+            return Json.read(json.get("name"), Json::string);
+        }
+
+        /** {@link #getName()} を書く。null ならフィールドを除く */
+        public CalibrationItem withName(String value) {
+            put("name", value);
+            return this;
+        }
+
+        /** 校正を使える公開用紙の ID。drawing が返すもの */
+        public String getFrom() {
+            return Json.read(json.get("from"), Json::string);
+        }
+
+        /** {@link #getFrom()} を書く。null ならフィールドを除く */
+        public CalibrationItem withFrom(String value) {
+            put("from", value);
+            return this;
+        }
+
+        /** 用紙の mm の閉じた矩形。[X の最小, Y の最小, X の最大, Y の最大] の 4 値で、幅と高さは正 */
+        public List<Double> getBounds() {
+            return Json.read(json.get("bounds"), v0 -> Json.list(v0, Json::number));
+        }
+
+        /** {@link #getBounds()} を書く。null ならフィールドを除く */
+        public CalibrationItem withBounds(List<Double> value) {
+            put("bounds", value);
+            return this;
+        }
+
+        /** 用紙の mm の変位から校正単位の変位へ写す行優先の 2×2 行列。[a, b, c, d] の 4 値で、[dx, dy] を [a*dx+b*dy, c*dx+d*dy] に写す */
+        public List<Double> getMatrix() {
+            return Json.read(json.get("matrix"), v0 -> Json.list(v0, Json::number));
+        }
+
+        /** {@link #getMatrix()} を書く。null ならフィールドを除く */
+        public CalibrationItem withMatrix(List<Double> value) {
+            put("matrix", value);
+            return this;
+        }
+
+        /** 校正後の長さの単位。ラベルだけから推定しない */
+        public String getUnit() {
+            return Json.read(json.get("unit"), Json::string);
+        }
+
+        /** {@link #getUnit()} を書く。null ならフィールドを除く */
+        public CalibrationItem withUnit(String value) {
+            put("unit", value);
+            return this;
+        }
+
+        /** 元の単位ラベル。未知の単位でも原文を保つ */
+        public String getUnitLabel() {
+            return Json.read(json.get("unit_label"), Json::string);
+        }
+
+        /** {@link #getUnitLabel()} を書く。null ならフィールドを除く */
+        public CalibrationItem withUnitLabel(String value) {
+            put("unit_label", value);
+            return this;
+        }
+
+        /** 元の形式のレコード */
+        public Source getSource() {
+            return Json.read(json.get("source"), Source::of);
+        }
+
+        /** {@link #getSource()} を書く。null ならフィールドを除く */
+        public CalibrationItem withSource(Source value) {
+            put("source", value);
+            return this;
+        }
+    }
+
+    /** 開いた文書を図面モデルに変換し、用紙の距離の校正をモデルの順に返す。マイナーバージョン 68 から */
+    public static final class CalibrationsRequest extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public CalibrationsRequest(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static CalibrationsRequest of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new CalibrationsRequest(json);
+        }
+
+        /** タグのフィールドだけを持つオブジェクトから作る */
+        public CalibrationsRequest() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("op", "calibrations");
+        }
+
+        /** メッセージのスキーマのメジャーバージョン。今は 1 */
+        public Long getV() {
+            return Json.read(json.get("v"), Json::integer);
+        }
+
+        /** {@link #getV()} を書く。null ならフィールドを除く */
+        public CalibrationsRequest withV(Long value) {
+            put("v", value);
+            return this;
+        }
+
+        /** 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010） */
+        public Budget getBudget() {
+            return Json.read(json.get("budget"), Budget::of);
+        }
+
+        /** {@link #getBudget()} を書く。null ならフィールドを除く */
+        public CalibrationsRequest withBudget(Budget value) {
+            put("budget", value);
+            return this;
+        }
+
+        /** 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010） */
+        public Boolean getPartial() {
+            return Json.read(json.get("partial"), Json::bool);
+        }
+
+        /** {@link #getPartial()} を書く。null ならフィールドを除く */
+        public CalibrationsRequest withPartial(Boolean value) {
+            put("partial", value);
+            return this;
+        }
+
+        /** 診断ごとに返す場所の数。書かなければ 16（決定 0009） */
+        public Long getMaxPlaces() {
+            return Json.read(json.get("max_places"), Json::integer);
+        }
+
+        /** {@link #getMaxPlaces()} を書く。null ならフィールドを除く */
+        public CalibrationsRequest withMaxPlaces(Long value) {
+            put("max_places", value);
+            return this;
+        }
+
+        /** 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        public Long getTimeLimitMs() {
+            return Json.read(json.get("time_limit_ms"), Json::integer);
+        }
+
+        /** {@link #getTimeLimitMs()} を書く。null ならフィールドを除く */
+        public CalibrationsRequest withTimeLimitMs(Long value) {
+            put("time_limit_ms", value);
+            return this;
+        }
+
+        /** op の名前 */
+        public String getOp() {
+            return Json.read(json.get("op"), Json::string);
+        }
+
+        /** {@link #getOp()} を書く。null ならフィールドを除く */
+        public CalibrationsRequest withOp(String value) {
+            put("op", value);
+            return this;
+        }
+
+        /** 文書の名前。open で作ったもの */
+        public String getDoc() {
+            return Json.read(json.get("doc"), Json::string);
+        }
+
+        /** {@link #getDoc()} を書く。null ならフィールドを除く */
+        public CalibrationsRequest withDoc(String value) {
+            put("doc", value);
+            return this;
+        }
+
+        /** 公開用紙の ID。drawing が返すもの。書けばその用紙の校正だけを返し、書かなければすべての校正を返す */
+        public String getFrom() {
+            return Json.read(json.get("from"), Json::string);
+        }
+
+        /** {@link #getFrom()} を書く。null ならフィールドを除く */
+        public CalibrationsRequest withFrom(String value) {
+            put("from", value);
+            return this;
+        }
+
+        /** 返す最初の校正の位置。from で絞った後の位置で、前の応答の next_offset を渡す。書かなければ 0 */
+        public Long getOffset() {
+            return Json.read(json.get("offset"), Json::integer);
+        }
+
+        /** {@link #getOffset()} を書く。null ならフィールドを除く */
+        public CalibrationsRequest withOffset(Long value) {
+            put("offset", value);
+            return this;
+        }
+
+        /** 返す校正の数の上限。書かなければ 1000 */
+        public Long getLimit() {
+            return Json.read(json.get("limit"), Json::integer);
+        }
+
+        /** {@link #getLimit()} を書く。null ならフィールドを除く */
+        public CalibrationsRequest withLimit(Long value) {
+            put("limit", value);
+            return this;
+        }
+
+        /** 期待する元の文書のハッシュ。open に渡したバイト列のハッシュと照合する。図面モデルへ変換した ZMDR 自身のハッシュではない */
+        public String getExpectedHash() {
+            return Json.read(json.get("expected_hash"), Json::string);
+        }
+
+        /** {@link #getExpectedHash()} を書く。null ならフィールドを除く */
+        public CalibrationsRequest withExpectedHash(String value) {
+            put("expected_hash", value);
+            return this;
+        }
+    }
+
+    /** 距離の校正の一覧の一部 */
+    public static final class CalibrationsResult extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public CalibrationsResult(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static CalibrationsResult of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new CalibrationsResult(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public CalibrationsResult() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 元の文書のハッシュ。ZMDR から開いたときは、埋め込まれた元の文書のハッシュ（Source.hash） */
+        public String getHash() {
+            return Json.read(json.get("hash"), Json::string);
+        }
+
+        /** {@link #getHash()} を書く。null ならフィールドを除く */
+        public CalibrationsResult withHash(String value) {
+            put("hash", value);
+            return this;
+        }
+
+        /** from で絞った一覧の offset から limit 個までの校正 */
+        public List<CalibrationItem> getItems() {
+            return Json.read(json.get("items"), v0 -> Json.list(v0, CalibrationItem::of));
+        }
+
+        /** {@link #getItems()} を書く。null ならフィールドを除く */
+        public CalibrationsResult withItems(List<CalibrationItem> value) {
+            put("items", value);
+            return this;
+        }
+
+        /** from で絞った後の校正の総数 */
+        public Long getTotal() {
+            return Json.read(json.get("total"), Json::integer);
+        }
+
+        /** {@link #getTotal()} を書く。null ならフィールドを除く */
+        public CalibrationsResult withTotal(Long value) {
+            put("total", value);
+            return this;
+        }
+
+        /** 続きの最初の校正の位置。続きがなければ持たない */
+        public Long getNextOffset() {
+            return Json.read(json.get("next_offset"), Json::integer);
+        }
+
+        /** {@link #getNextOffset()} を書く。null ならフィールドを除く */
+        public CalibrationsResult withNextOffset(Long value) {
+            put("next_offset", value);
+            return this;
+        }
+    }
+
+    /** 用紙と校正を明示的に選び、始点と終点の校正後の距離を求める。両点は校正の閉領域内にある必要がある。マイナーバージョン 68 から */
+    public static final class MeasureDistanceRequest extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public MeasureDistanceRequest(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static MeasureDistanceRequest of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new MeasureDistanceRequest(json);
+        }
+
+        /** タグのフィールドだけを持つオブジェクトから作る */
+        public MeasureDistanceRequest() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("op", "measure_distance");
+        }
+
+        /** メッセージのスキーマのメジャーバージョン。今は 1 */
+        public Long getV() {
+            return Json.read(json.get("v"), Json::integer);
+        }
+
+        /** {@link #getV()} を書く。null ならフィールドを除く */
+        public MeasureDistanceRequest withV(Long value) {
+            put("v", value);
+            return this;
+        }
+
+        /** 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010） */
+        public Budget getBudget() {
+            return Json.read(json.get("budget"), Budget::of);
+        }
+
+        /** {@link #getBudget()} を書く。null ならフィールドを除く */
+        public MeasureDistanceRequest withBudget(Budget value) {
+            put("budget", value);
+            return this;
+        }
+
+        /** 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010） */
+        public Boolean getPartial() {
+            return Json.read(json.get("partial"), Json::bool);
+        }
+
+        /** {@link #getPartial()} を書く。null ならフィールドを除く */
+        public MeasureDistanceRequest withPartial(Boolean value) {
+            put("partial", value);
+            return this;
+        }
+
+        /** 診断ごとに返す場所の数。書かなければ 16（決定 0009） */
+        public Long getMaxPlaces() {
+            return Json.read(json.get("max_places"), Json::integer);
+        }
+
+        /** {@link #getMaxPlaces()} を書く。null ならフィールドを除く */
+        public MeasureDistanceRequest withMaxPlaces(Long value) {
+            put("max_places", value);
+            return this;
+        }
+
+        /** 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        public Long getTimeLimitMs() {
+            return Json.read(json.get("time_limit_ms"), Json::integer);
+        }
+
+        /** {@link #getTimeLimitMs()} を書く。null ならフィールドを除く */
+        public MeasureDistanceRequest withTimeLimitMs(Long value) {
+            put("time_limit_ms", value);
+            return this;
+        }
+
+        /** op の名前 */
+        public String getOp() {
+            return Json.read(json.get("op"), Json::string);
+        }
+
+        /** {@link #getOp()} を書く。null ならフィールドを除く */
+        public MeasureDistanceRequest withOp(String value) {
+            put("op", value);
+            return this;
+        }
+
+        /** 文書の名前。open で作ったもの */
+        public String getDoc() {
+            return Json.read(json.get("doc"), Json::string);
+        }
+
+        /** {@link #getDoc()} を書く。null ならフィールドを除く */
+        public MeasureDistanceRequest withDoc(String value) {
+            put("doc", value);
+            return this;
+        }
+
+        /** 公開用紙の ID。drawing が返すもので、選んだ校正と同じ用紙 */
+        public String getFrom() {
+            return Json.read(json.get("from"), Json::string);
+        }
+
+        /** {@link #getFrom()} を書く。null ならフィールドを除く */
+        public MeasureDistanceRequest withFrom(String value) {
+            put("from", value);
+            return this;
+        }
+
+        /** 使う校正の ID。calibrations が返すもの */
+        public String getCalibration() {
+            return Json.read(json.get("calibration"), Json::string);
+        }
+
+        /** {@link #getCalibration()} を書く。null ならフィールドを除く */
+        public MeasureDistanceRequest withCalibration(String value) {
+            put("calibration", value);
+            return this;
+        }
+
+        /** 始点。原点と相対座標を分けた用紙の mm の点 */
+        public SplitPoint2 getStart() {
+            return Json.read(json.get("start"), SplitPoint2::of);
+        }
+
+        /** {@link #getStart()} を書く。null ならフィールドを除く */
+        public MeasureDistanceRequest withStart(SplitPoint2 value) {
+            put("start", value);
+            return this;
+        }
+
+        /** 終点。原点と相対座標を分けた用紙の mm の点 */
+        public SplitPoint2 getEnd() {
+            return Json.read(json.get("end"), SplitPoint2::of);
+        }
+
+        /** {@link #getEnd()} を書く。null ならフィールドを除く */
+        public MeasureDistanceRequest withEnd(SplitPoint2 value) {
+            put("end", value);
+            return this;
+        }
+
+        /** 期待する元の文書のハッシュ。open に渡したバイト列のハッシュと照合する。図面モデルへ変換した ZMDR 自身のハッシュではない */
+        public String getExpectedHash() {
+            return Json.read(json.get("expected_hash"), Json::string);
+        }
+
+        /** {@link #getExpectedHash()} を書く。null ならフィールドを除く */
+        public MeasureDistanceRequest withExpectedHash(String value) {
+            put("expected_hash", value);
+            return this;
+        }
+    }
+
+    /** 選んだ用紙と校正による距離 */
+    public static final class MeasureDistanceResult extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public MeasureDistanceResult(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static MeasureDistanceResult of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new MeasureDistanceResult(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public MeasureDistanceResult() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 元の文書のハッシュ。ZMDR から開いたときは、埋め込まれた元の文書のハッシュ（Source.hash） */
+        public String getHash() {
+            return Json.read(json.get("hash"), Json::string);
+        }
+
+        /** {@link #getHash()} を書く。null ならフィールドを除く */
+        public MeasureDistanceResult withHash(String value) {
+            put("hash", value);
+            return this;
+        }
+
+        /** 計測した公開用紙の ID */
+        public String getFrom() {
+            return Json.read(json.get("from"), Json::string);
+        }
+
+        /** {@link #getFrom()} を書く。null ならフィールドを除く */
+        public MeasureDistanceResult withFrom(String value) {
+            put("from", value);
+            return this;
+        }
+
+        /** 使った校正の ID */
+        public String getCalibration() {
+            return Json.read(json.get("calibration"), Json::string);
+        }
+
+        /** {@link #getCalibration()} を書く。null ならフィールドを除く */
+        public MeasureDistanceResult withCalibration(String value) {
+            put("calibration", value);
+            return this;
+        }
+
+        /** 校正後の距離。unit と unit_label が示す単位 */
+        public Double getDistance() {
+            return Json.read(json.get("distance"), Json::number);
+        }
+
+        /** {@link #getDistance()} を書く。null ならフィールドを除く */
+        public MeasureDistanceResult withDistance(Double value) {
+            put("distance", value);
+            return this;
+        }
+
+        /** 校正後の長さの単位 */
+        public String getUnit() {
+            return Json.read(json.get("unit"), Json::string);
+        }
+
+        /** {@link #getUnit()} を書く。null ならフィールドを除く */
+        public MeasureDistanceResult withUnit(String value) {
+            put("unit", value);
+            return this;
+        }
+
+        /** 元の単位ラベル。未知の単位でも原文を保つ */
+        public String getUnitLabel() {
+            return Json.read(json.get("unit_label"), Json::string);
+        }
+
+        /** {@link #getUnitLabel()} を書く。null ならフィールドを除く */
+        public MeasureDistanceResult withUnitLabel(String value) {
+            put("unit_label", value);
             return this;
         }
     }
@@ -18515,6 +19155,10 @@ public final class Messages {
         public static final String DRAWING = "drawing";
 
         public static final String ENTITIES = "entities";
+
+        public static final String CALIBRATIONS = "calibrations";
+
+        public static final String MEASURE_DISTANCE = "measure_distance";
 
         public static final String APPLY = "apply";
 

@@ -13,8 +13,9 @@ import { testWideStrokes } from "./wide-strokes.mjs";
 import { testSnap } from "./snap.mjs";
 import { testTools } from "./tools.mjs";
 import { testUnderlays } from "./underlays.mjs";
+import { testCalibration, testCalibrationCore } from "./calibration.mjs";
 
-export async function testView2D(wasmPath, inputs) {
+export async function testView2D(wasmPath, inputs, calibrationInput) {
   let assertions = 0;
   const assert = (ok, message) => { assertions++; if (!ok) throw new Error(message); };
   const near = (a, b, message, tolerance = 1e-8) => assert(Math.abs(a - b) <= tolerance, `${message}: ${a} / ${b}`);
@@ -31,6 +32,7 @@ export async function testView2D(wasmPath, inputs) {
   const wideStrokes = testWideStrokes(assert);
   testSnap({ assert, near });
   testTools({ assert, near, throws });
+  testCalibration({ assert, throws });
   await testUnderlays({ assert, near, throws });
   const canvas = document.createElement("canvas");
   document.body.append(canvas);
@@ -177,6 +179,7 @@ export async function testView2D(wasmPath, inputs) {
 
   // 実際の wasm の読み取りと scene の応答を、そのまま受け取る。
   const zumen = await load(fetch(wasmPath));
+  testCalibrationCore(zumen, calibrationInput, { assert });
   testPlacedSelection(zumen, { assert, throws });
   const formats = [];
   for (const source of inputs) {

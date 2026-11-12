@@ -1,6 +1,8 @@
 //! セッション: 名前のついた入力を持ち、要求を受けて応答を返す（決定 0012）。
 
 mod building_ops;
+#[cfg(feature = "drawing")]
+mod calibration_ops;
 mod civil_ops;
 mod conversion_ops;
 mod delivery_ops;
@@ -396,6 +398,14 @@ impl Session {
             #[cfg(feature = "drawing")]
             Request::Tables(request) => self.tables(request, &mut cx).map(|r| Box::new(r) as _),
             #[cfg(feature = "drawing")]
+            Request::Calibrations(request) => self
+                .calibrations(request, &mut cx)
+                .map(|r| Box::new(r) as _),
+            #[cfg(feature = "drawing")]
+            Request::MeasureDistance(request) => self
+                .measure_distance(request, &mut cx)
+                .map(|r| Box::new(r) as _),
+            #[cfg(feature = "drawing")]
             Request::Scene(request) => self.scene(request, &mut cx).map(|r| Box::new(r) as _),
             #[cfg(feature = "drawing")]
             Request::Render(request) => self.render(request, &mut cx).map(|r| Box::new(r) as _),
@@ -650,6 +660,8 @@ fn common(request: &Request) -> &RequestCommon {
         Request::Convert(request) => &request.request_common,
         Request::ConvertEstimate(request) => &request.request_common,
         Request::Tables(request) => &request.request_common,
+        Request::Calibrations(request) => &request.request_common,
+        Request::MeasureDistance(request) => &request.request_common,
         Request::Scene(request) => &request.request_common,
         Request::Render(request) => &request.request_common,
         Request::Check(request) => &request.request_common,
@@ -890,5 +902,7 @@ mod watchdog {
     }
 }
 
+#[cfg(all(test, feature = "drawing"))]
+mod calibration_tests;
 #[cfg(test)]
 mod tests;
