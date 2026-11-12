@@ -1,8 +1,8 @@
 # Python のラッパー
 
-ネイティブのライブラリ（`zumen_abi1.dll`・`libzumen_abi1.so`・`libzumen_abi1.dylib`）の C ABI を、標準ライブラリの ctypes で呼ぶ薄いラッパーです（[決定 0011](../../docs/decisions/0011-bindings-through-ffi.md)・[決定 0195](../../docs/decisions/0195-python-wrapper.md)）。Python 3.9 以降で動きます。
+ネイティブのライブラリ（`zumen_abi1.dll`・`libzumen_abi1.so`・`libzumen_abi1.dylib`）の C ABI を、標準ライブラリの ctypes で呼ぶ薄いラッパーです（[依存とツールの条件](../../AGENTS.md#範囲と権利)）。Python 3.9 以降で動きます。
 
-- PyPI の `zumen` で配ります（[決定 0003](../../docs/decisions/0003-names-and-domain.md)・[決定 0205](../../docs/decisions/0205-release-and-publishing.md)）。wheel は、対象ごとにネイティブのライブラリを `zumen/_native` に入れ、`load()` が道筋なしでそれを読みます。wheel は `build_wheel.py`（標準ライブラリだけ）で作ります。
+- PyPI の `zumen` で配ります（[コアの設計](../../docs/architecture.md)・[配布の手順](../../xtask/release/README.md)）。wheel は、対象ごとにネイティブのライブラリを `zumen/_native` に入れ、`load()` が道筋なしでそれを読みます。wheel は `build_wheel.py`（標準ライブラリだけ）で作ります。
 - 依存はなく、ネイティブの拡張も作りません。手元で作ったライブラリを使うときは、`load` に道筋を渡します。
 - `zumen/messages.py`・`zumen/constants.py` は、`schema/` から `cargo xtask codegen` で生成します。手で直さないでください。
 - wheel の `.dist-info/licenses/` に、`LICENSE-MIT`・`LICENSE-APACHE` と、対象の ABI の依存の本文 `THIRD_PARTY_LICENSES` を入れます。作成と検査の手順は [xtask/release](../../xtask/release/README.md) にあります。

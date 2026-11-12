@@ -1,6 +1,6 @@
 # 公開サンプル
 
-再配布を認めるライセンスで公開された図面を、取得したままの形で置きます（[決定 0171](../docs/decisions/0171-public-samples-in-git.md)）。CI は、これらの図面で適合テストを流します。サンプルのテストでの利用は #310 で進めます。
+再配布を認めるライセンスで公開された図面を、取得したままの形で置きます。CI は、これらの図面で適合テストを流します。サンプルのテストでの利用は #310 で進めます。
 
 **ここのファイルは、リポジトリのライセンス（MIT OR Apache-2.0）に従いません。** それぞれ、[`ledger.toml`](ledger.toml) に書いたライセンスに従います。配る crate とパッケージには入れません。
 
@@ -27,7 +27,7 @@
 - 個人の氏名・住所・連絡先が読めるもの
 - 1 つで 5 MB を超えるもの。`samples/` の全体は 100 MB までです
 
-ライセンスがはっきりしないものは、入れずに利用者に尋ねます。
+ライセンスがはっきりしないものは入れず、見送った理由を issue に書きます。どうしても必要なときは、権利者への問い合わせを利用者に頼みます。
 
 ## 足し方
 
@@ -60,7 +60,7 @@
 1. ファイルと、`ledger.toml` のその `[[samples]]` を消します。台帳から参照しなくなった `licenses/` の本文も消します。
 2. PR に、外した理由を書きます。
 
-fuzz が育てた種（actions/cache）のキーは、台帳のハッシュを含みます。台帳が変わると、外す PR の実行も、マージの後の毎晩の実行も、前の種を戻しません。そのため、その後の実行の種と artifact に、外したサンプルとそれを変えた入力は入りません（[決定 0258](../docs/decisions/0258-fuzz-seeds-and-runs.md)・[`fuzz/README.md`](../fuzz/README.md)）。
+fuzz が育てた種（actions/cache）のキーは、台帳のハッシュを含みます。台帳が変わると、外す PR の実行も、マージの後の毎晩の実行も、前の種を戻しません。そのため、その後の実行の種と artifact に、外したサンプルとそれを変えた入力は入りません（[fuzz の手順](../fuzz/README.md)・[`fuzz/README.md`](../fuzz/README.md)）。
 
 前の種のキャッシュは、7 日使われなければ GitHub が消します。早く消すときは、外す PR をマージし、流れている fuzz の実行が終わってから、次のコマンドで消します。消した後に、`gh cache list --key fuzz-corpus-` で何も出ないことを確かめます。
 
@@ -73,6 +73,18 @@ for id in $(gh cache list --key fuzz-corpus- --limit 100 --json id --jq '.[].id'
 `dwg/zumen-*` は、zumen-jp が AutoCAD 2027 で作った図面です（#316）。ライセンスは CC0 1.0 です。主題ごとに 1 つの図面を作り、バージョンごとに DWG と、同じ図面の DXF（`_ascii.dxf`）を対で置きます。テストは、この対の表と図面モデルを比べます。
 
 作り直すときは、`xtask/autocad/make.sh` を使います。SSH でつなぐ Windows の AutoCAD の accoreconsole で `xtask/autocad/samples.lsp` を流し、できた図面を `dwg/` に置きます。そのあと、台帳のハッシュとバイト数を直します。AutoCAD は保存のたびに、Windows のログイン名を図面の DWGPROPS に書きます。
+
+## LAS
+
+`las/pdal-synthetic.las` は PDAL が作った公開サンプルです（#804）。分類の synthetic フラグを持つ 1 点の LAS 1.2（点形式 3）で、実測の点群ではありません。[PDAL #2925](https://github.com/PDAL/PDAL/pull/2925) で合成の 1 点の読み書きのテストと共に追加され、作ったソフトはヘッダーの PDAL 2.0.0 でも確認できます。同じリビジョンの `LICENSE.txt` は、別記のない全ファイルを BSD としています。このファイルへの別条件はありません。出所・BSD-3-Clause のライセンスと著作権表示は台帳と `licenses/pdal.txt` にあります。ファイルは変更していません。
+
+`crates/zumen-las/tests/external.rs` が全体と範囲で読み、点群モデルを比較します。laspy がある環境と毎晩の CI では、ヘッダーと全点の保持属性も照合します。`bindings/conformance/cases/pointcloud_samples.json` は同じサンプルの応答をネイティブと wasm で照らします。外部照合の範囲と手順は [LAS の外部照合](../xtask/verify/laspy/README.md)にあります。
+
+## PLY
+
+`ply/pdal-mesh-fixed.ply` は PDAL の公開サンプルです（#809）。[追加コミット](https://github.com/PDAL/PDAL/commit/f65c92beb523de0d70119c1fab2dc295933e9398)の `PlyWriterTest.cpp` は、テストの中で座標を決めた 4 頂点・2 面を、小数点以下 3 桁の ASCII で書き、このファイルと比較します。実測の点群ではありません。同コミットの `LICENSE.txt` は、別記のない全ファイルを BSD とし、このファイルへの別条件はありません。出所・帰属とライセンスの全文は台帳と `licenses/pdal-2017.txt` にあります。取得した 277 バイトを変更していません。
+
+`crates/zumen-ply/tests/external.rs` は ply-rs の読みと全頂点の座標を比較し、面を移さない診断と予算の停止も確認します。`bindings/conformance/cases/pointcloud_ply_sample.json` は同じ公開サンプルの応答・診断をネイティブと wasm で照らします。確認した範囲と残りは [PLY の文書](../docs/formats/ply.md#確かめた度合い)にあります。
 
 ## IFC
 
@@ -87,6 +99,6 @@ for id in $(gh cache list --key fuzz-corpus- --limit 100 --json id --jq '.[].id'
 | `text2bim/` | dcy0577（Text2BIM） | MIT | Vectorworks Architect 2024 | IFC2X3 |
 
 - ヘッダーに、作った人の名前・手元の機械の名前・手元のフォルダーの道筋があるものは、その値だけを置き換えました。データのセクションは、取得したままのバイト列です。取得したファイルの大きさと SHA-256 は、台帳の `changes` にあります。
-- `text2bim/` の GlobalId はバージョン 1 の UUID で、作った機械の識別子（MAC アドレスと推定）を含みます。氏名・住所・連絡先ではなく（決定 0171）、元のファイルも公開されているので、データのセクションを変えずに残しました。
+- `text2bim/` の GlobalId はバージョン 1 の UUID で、作った機械の識別子（MAC アドレスと推定）を含みます。氏名・住所・連絡先ではなく、元のファイルも公開されているので、データのセクションを変えずに残しました。
 - `nakano/` の形は点群から作った Brep で、要素はすべて `IfcBuildingElementProxy` です。`rinya/` と `gni/` は、公開元が書き出した後に保存し直しています。どちらも、書き出したソフトがそのまま書いたファイルとしては扱いません。
 - `crates/zumen-ifc/tests/samples.rs` が、すべてを読み、建物モデルに写した要約を `samples.txt` と比べます。毎晩の CI は、写した値を IfcOpenShell で読んだ値と照らします（`crates/zumen-ifc/tests/ifcopenshell/samples.py`）。

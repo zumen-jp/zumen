@@ -49,4 +49,4 @@ node examples/render-svg.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wa
 node examples/render-png.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm a.dxf drawing.png render-options.json
 ```
 
-判断は[決定 0275](decisions/0275-render-op-from-drawing-scene.md)・[0277](decisions/0277-bounded-png-rendering.md)、対応と検証は [SVG](formats/svg.md)・[PNG](formats/png.md) の文書にあります。
+対応と検証は [SVG](formats/svg.md)・[PNG](formats/png.md) の文書にあります。

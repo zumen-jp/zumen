@@ -9,7 +9,6 @@ publish = true
 
 [dependencies]
 zumen-base = { version = "0.2.0", path = "../zumen-base" }
-zumen-sdk = { version = "0.2.0", path = "../zumen-sdk" }
 # UTF-8 のフラグのない名前を Shift_JIS として戻す。WHATWG の定義で、環境によらない（決定 0121）
 encoding_rs = "0.8.35"
 

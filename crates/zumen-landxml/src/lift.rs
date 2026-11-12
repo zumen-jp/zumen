@@ -8,8 +8,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use zumen_base::{Diagnostic, Kind, Ref, Stop, codes};
 use zumen_civil::{
-    Alignment, CivilModel, CrossSection, CrossSectionLine, Horizontal, HorizontalKind,
-    StationBreak, Stationing, SurfaceRole, Tin, TransitionCurve, Vertical, VerticalKind,
+    Alignment, Cant, CantKind, CivilModel, CrossSection, CrossSectionLine, Horizontal,
+    HorizontalKind, StationBreak, Stationing, SurfaceRole, Tin, TransitionCurve, Vertical,
+    VerticalKind,
 };
 use zumen_crs::{Crs, HeightDatum, MapPoint, Realization, Zone};
 use zumen_sdk::{Cx, Error};
@@ -137,10 +138,12 @@ impl<'d> Reader<'d, '_, '_> {
             ..Alignment::default()
         };
         let mut profiled = false;
+        let mut breaks = Vec::new();
+        let slope_list = self.uses_slope_list(element)?;
         for child in self.children(element) {
             match self.local(child) {
                 b"CoordGeom" => self.coord_geom(child, &mut alignment)?,
-                b"StaEquation" => self.station_break(child, &mut alignment),
+                b"StaEquation" => breaks.extend(self.station_break(child, start)),
                 b"Profile" => {
                     for profile in self.children(child) {
                         if self.local(profile) == b"ProfAlign" && !profiled {
@@ -159,15 +162,192 @@ impl<'d> Reader<'d, '_, '_> {
                         }
                     }
                 }
-                b"Feature" => self.alignment_feature(child, &mut alignment),
+                b"Feature" => {
+                    if matches!(
+                        self.attribute(child, b"name").as_deref(),
+                        Some("SlopeList" | "SuperelevationConfig")
+                    ) {
+                        self.unsupported(child);
+                    } else {
+                        self.alignment_feature(child, &mut alignment);
+                    }
+                }
+                b"Superelevation" => {
+                    if slope_list {
+                        self.unsupported(child);
+                    } else if let Some(cant) = self.superelevation(child, start)? {
+                        alignment.cant.push(cant);
+                    }
+                }
                 _ => self.unsupported(child),
             }
         }
-        alignment
-            .stations
-            .breaks
-            .sort_by(|a, b| a.distance.total_cmp(&b.distance));
+        alignment.stations.breaks = station_breaks(breaks, start);
         Ok(alignment)
+    }
+
+    /// 4-3-12・24。SlopeList が Superelevation を置き換える場合は、一定区間も推定しない。
+    fn uses_slope_list(&mut self, element: &Element) -> Result<bool, Error> {
+        let doc = self.doc;
+        let mut uses_list = false;
+        // 置換の指定が見つかっても、後段で診断する全要素の走査を先に数える。
+        for node in element.children() {
+            self.charge(element, Kind::Work, 1)?;
+            let Node::Element(index) = node else { continue };
+            let Some(child) = doc.element(*index) else {
+                continue;
+            };
+            if self.local(child) == b"Feature" {
+                self.charge(
+                    child,
+                    Kind::DecodedBytes,
+                    (child.span().len() as u64).saturating_mul(4),
+                )?;
+                match self.attribute(child, b"name").as_deref() {
+                    Some("SlopeList") => uses_list = true,
+                    Some("SuperelevationConfig") => {
+                        for property in child.children() {
+                            self.charge(child, Kind::Work, 1)?;
+                            let Node::Element(index) = property else {
+                                continue;
+                            };
+                            let Some(property) = doc.element(*index) else {
+                                continue;
+                            };
+                            if self.local(property) == b"Property"
+                                && self.attribute(property, b"label").as_deref().map(str::trim)
+                                    == Some("useSlopeList")
+                                && !matches!(
+                                    self.attribute(property, b"value").as_deref().map(str::trim),
+                                    Some("false" | "0")
+                                )
+                            {
+                                uses_list = true;
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        Ok(uses_list)
+    }
+
+    /// J-LandXML Ver.1.8 4-3-24・27〜29。最大片勾配が一定の区間だけを移す。
+    /// FullSuperSta / RunoffSta は staStart / staEnd より優先する。
+    fn superelevation(&mut self, element: &Element, origin: f64) -> Result<Option<Cant>, Error> {
+        // 一時の文字列と区間の確保を先に予算化する。文字コードの変換・連結の余裕を
+        // 含む入力幅の 8 倍と、区間の 512 バイトを、32/64 bit で同じ量として数える。
+        let span = element.span();
+        self.charge(
+            element,
+            Kind::DecodedBytes,
+            ((span.end - span.start) as u64)
+                .saturating_mul(8)
+                .saturating_add(512),
+        )?;
+        let mut begin = None;
+        let mut end = None;
+        let mut slope = None;
+        let mut invalid = false;
+        let mut duplicate = false;
+        let doc = self.doc;
+        for node in element.children() {
+            self.charge(element, Kind::Work, 1)?;
+            let Node::Element(index) = node else { continue };
+            let Some(child) = doc.element(*index) else {
+                continue;
+            };
+            let slot = match self.local(child) {
+                b"FullSuperSta" => &mut begin,
+                b"RunoffSta" => &mut end,
+                b"FullSuperelev" => &mut slope,
+                // すりつけ・待ち勾配などは一定区間に含めず、元の要素を知らせる。
+                _ => {
+                    self.unsupported(child);
+                    continue;
+                }
+            };
+            if slot.is_some() {
+                duplicate = true;
+                continue;
+            }
+            let value = self.scalar_text(child)?;
+            if value.is_none() {
+                self.invalid(child, "text");
+                invalid = true;
+            }
+            *slot = Some(value);
+        }
+        if duplicate {
+            // 仕様が許す複数の値は、区間との対応をまだ扱わない。値不正とはしない。
+            self.unsupported(element);
+            return Ok(None);
+        }
+        if invalid {
+            return Ok(None);
+        }
+        let Some(slope) = slope.flatten() else {
+            self.invalid(element, "FullSuperelev");
+            return Ok(None);
+        };
+        let Some(begin) = begin.unwrap_or_else(|| self.number(element, b"staStart")) else {
+            if self.attribute(element, b"staStart").is_some() {
+                self.invalid(element, "staStart");
+            } else {
+                self.unsupported(element);
+            }
+            return Ok(None);
+        };
+        let Some(end) = end.unwrap_or_else(|| self.number(element, b"staEnd")) else {
+            if self.attribute(element, b"staEnd").is_some() {
+                self.invalid(element, "staEnd");
+            } else {
+                self.unsupported(element);
+            }
+            return Ok(None);
+        };
+        let distance = begin - origin;
+        let length = end - begin;
+        if !distance.is_finite() || !length.is_finite() || length < 0.0 {
+            self.invalid(element, "range");
+            return Ok(None);
+        }
+        if length == 0.0 {
+            self.unsupported(element);
+            return Ok(None);
+        }
+        self.spend(element, 1)?;
+        Ok(Some(Cant {
+            start_distance: distance,
+            length,
+            // 4-3-28。% のまま、左下がりが負・右下がりが正の同じ勾配を左右に持つ。
+            kind: CantKind::Superelevation {
+                start: [slope; 2],
+                end: [slope; 2],
+            },
+            transition: None,
+            source: self.at(element),
+        }))
+    }
+
+    /// 単純な数の文字。CDATA を含む隣接テキストを、XML の文字として連結する。
+    fn scalar_text(&mut self, element: &Element) -> Result<Option<f64>, Error> {
+        self.charge(element, Kind::Work, element.span().len() as u64)?;
+        let mut text = String::new();
+        for node in element.children() {
+            self.charge(element, Kind::Work, 1)?;
+            match node {
+                Node::Text(range) => text.push_str(&self.doc.text(range.clone())),
+                Node::CData(range) => text.push_str(&self.doc.cdata(range.clone())),
+                Node::Element(_) => return Ok(None),
+            }
+        }
+        Ok(text
+            .trim()
+            .parse::<f64>()
+            .ok()
+            .filter(|value| value.is_finite()))
     }
 
     /// 線形の `Feature`。測点の間隔（`Interval` の `main`）だけを読む
@@ -185,7 +365,8 @@ impl<'d> Reader<'d, '_, '_> {
         }
     }
 
-    fn station_break(&mut self, element: &Element, alignment: &mut Alignment) {
+    /// 測点の不連続と、戻りの値（`staBack`）を読めたか。読めなければ、[`station_breaks`] が埋める
+    fn station_break(&mut self, element: &Element, start: f64) -> Option<(StationBreak, bool)> {
         let internal = self.number(element, b"staInternal");
         let ahead = self.number(element, b"staAhead");
         let (Some(internal), Some(ahead)) = (internal, ahead) else {
@@ -197,18 +378,22 @@ impl<'d> Reader<'d, '_, '_> {
                     "staAhead"
                 },
             );
-            return;
+            return None;
         };
-        let distance = internal - alignment.stations.start;
-        let back = self
-            .number(element, b"staBack")
-            .unwrap_or_else(|| alignment.stations.value(distance));
-        alignment.stations.breaks.push(StationBreak {
-            distance,
-            back,
-            ahead,
-            source: self.at(element),
-        });
+        let back = self.number(element, b"staBack");
+        if back.is_none() && self.attribute(element, b"staBack").is_some() {
+            // 読めない戻りの値は、知らせてから、書いていないものと同じく求める
+            self.invalid(element, "staBack");
+        }
+        Some((
+            StationBreak {
+                distance: internal - start,
+                back: back.unwrap_or_default(),
+                ahead,
+                source: self.at(element),
+            },
+            back.is_some(),
+        ))
     }
 
     /// 平面線形。要素の点から、区間の初めの点・向き・長さを求める
@@ -218,7 +403,21 @@ impl<'d> Reader<'d, '_, '_> {
             let segment = match self.local(child) {
                 b"Line" => self.line(child),
                 b"Curve" => self.curve(child),
-                b"Spiral" => self.spiral(child, alignment),
+                b"Spiral" => {
+                    let pi = self.point_of(child, b"PI");
+                    if pi.is_none() {
+                        // 交点がなければ、前の区間の終わりの向きを、平面線形を初めからたどって求めるので、その作業を
+                        // 数える（#560）
+                        let before = u64::try_from(alignment.horizontal.len()).unwrap_or(u64::MAX);
+                        let work = before.saturating_add(zumen_civil::place_work(alignment));
+                        self.charge(child, Kind::Work, work)?;
+                    }
+                    let previous = match pi {
+                        Some(_) => None,
+                        None => self.end_direction(child, alignment)?,
+                    };
+                    self.spiral(child, pi, previous)
+                }
                 _ => {
                     self.unsupported(child);
                     continue;
@@ -293,8 +492,34 @@ impl<'d> Reader<'d, '_, '_> {
         })
     }
 
-    /// 緩和曲線。初めの向きは、初めの点から交点（`PI`）への向きにし、交点がなければ前の区間の終わりの向きにする
-    fn spiral(&mut self, element: &Element, alignment: &Alignment) -> Result<Horizontal, Invalid> {
+    /// 平面線形の終わりの向き。区間の上の点を求める手間は予算に数え（#727）、止まれば `element` の所で知らせる。
+    /// 求められなければ `None`
+    fn end_direction(
+        &mut self,
+        element: &Element,
+        alignment: &Alignment,
+    ) -> Result<Option<f64>, Error> {
+        let before = zumen_civil::length(alignment);
+        let mut quiet = zumen_base::Diagnostics::new();
+        let mut cx = Cx::new(self.cx.budget, &mut quiet, self.cx.cancel);
+        match zumen_civil::place_within(alignment, before, &mut cx) {
+            Ok(found) => Ok(found.ok().map(|placed| placed.direction)),
+            Err(stop) => {
+                let at = self.at(element);
+                self.cx.report(stop.to_diagnostic().at(at));
+                Err(Error::Stopped(stop))
+            }
+        }
+    }
+
+    /// 緩和曲線。初めの向きは、初めの点から交点（`PI` の点 `pi`）への向きにし、交点がなければ前の区間の終わりの
+    /// 向き（`previous`）にする
+    fn spiral(
+        &mut self,
+        element: &Element,
+        pi: Option<MapPoint>,
+        previous: Option<f64>,
+    ) -> Result<Horizontal, Invalid> {
         let right = self.right(element)?;
         let start = self.point_of(element, b"Start").ok_or(Invalid("Start"))?;
         let length = self
@@ -317,16 +542,9 @@ impl<'d> Reader<'d, '_, '_> {
         };
         let start_radius = radius(self, b"radiusStart", "radiusStart")?;
         let end_radius = radius(self, b"radiusEnd", "radiusEnd")?;
-        let direction = match self.point_of(element, b"PI") {
+        let direction = match pi {
             Some(pi) => azimuth(start, pi),
-            None => {
-                let before = zumen_civil::length(alignment);
-                let mut quiet = zumen_base::Diagnostics::new();
-                let mut cx = Cx::new(self.cx.budget, &mut quiet, self.cx.cancel);
-                zumen_civil::place(alignment, before, &mut cx)
-                    .map(|placed| placed.direction)
-                    .map_err(|_| Invalid("PI"))?
-            }
+            None => previous.ok_or(Invalid("PI"))?,
         };
         let kind = self.attribute(element, b"spiType").unwrap_or_default();
         let curve = match kind.trim() {
@@ -651,7 +869,7 @@ impl<'d> Reader<'d, '_, '_> {
     // 要素をたどるツール
 
     fn local(&self, element: &Element) -> &'d [u8] {
-        self.doc.local_name(element.name())
+        self.doc.parsed_local_name(element.name())
     }
 
     fn children(&self, element: &Element) -> Vec<&'d Element> {
@@ -716,7 +934,7 @@ impl<'d> Reader<'d, '_, '_> {
     }
 
     fn unsupported(&mut self, element: &Element) {
-        let name = String::from_utf8_lossy(self.local(element)).into_owned();
+        let name = self.doc.local_name_text(element.name()).into_owned();
         let at = self.at(element);
         self.cx.report(
             Diagnostic::new(codes::LANDXML_ELEMENT_UNSUPPORTED)
@@ -726,7 +944,7 @@ impl<'d> Reader<'d, '_, '_> {
     }
 
     fn invalid(&mut self, element: &Element, field: &'static str) {
-        let name = String::from_utf8_lossy(self.local(element)).into_owned();
+        let name = self.doc.local_name_text(element.name()).into_owned();
         let at = self.at(element);
         self.cx.report(
             Diagnostic::new(codes::LANDXML_VALUE_INVALID)
@@ -737,7 +955,12 @@ impl<'d> Reader<'d, '_, '_> {
     }
 
     fn spend(&mut self, element: &Element, amount: u64) -> Result<(), Error> {
-        self.cx.check(Kind::Elements, amount).map_err(|stop: Stop| {
+        self.charge(element, Kind::Elements, amount)
+    }
+
+    /// 予算を使う。超えたら、要素の場所を添えて止まる
+    fn charge(&mut self, element: &Element, kind: Kind, amount: u64) -> Result<(), Error> {
+        self.cx.check(kind, amount).map_err(|stop: Stop| {
             let at = self.at(element);
             self.cx.report(stop.to_diagnostic().at(at));
             Error::Stopped(stop)
@@ -771,6 +994,24 @@ fn azimuth(from: MapPoint, to: MapPoint) -> f64 {
 
 fn positive(value: f64) -> Option<f64> {
     (value.is_finite() && value > 0.0).then_some(value)
+}
+
+/// 測点の不連続を追加距離の順に並べ、戻りの値を読めなかったもの（`false`）は、手前の不連続の進みの値（なければ
+/// 初めの測点の値 `start`）から数えて埋める。`Stationing::value` と同じ式で、作業は不連続の数に比例する（#560）。
+/// 追加距離が違う不連続は文書の順によらず、同じ追加距離の不連続は書いた順に並べる
+fn station_breaks(mut breaks: Vec<(StationBreak, bool)>, start: f64) -> Vec<StationBreak> {
+    breaks.sort_by(|a, b| a.0.distance.total_cmp(&b.0.distance));
+    let mut base = (0.0, start);
+    breaks
+        .into_iter()
+        .map(|(mut at, given)| {
+            if !given {
+                at.back = base.1 + (at.distance - base.0);
+            }
+            base = (at.distance, at.ahead);
+            at
+        })
+        .collect()
 }
 
 fn numbers(text: &str) -> Vec<f64> {

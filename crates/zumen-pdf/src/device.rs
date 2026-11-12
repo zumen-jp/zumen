@@ -29,7 +29,7 @@ use zumen_drawing::{
 use zumen_sdk::Cx;
 
 use crate::color::{self, Mapped};
-use crate::walk::{Owned, own_stream};
+use crate::walk::{AnnotationStep, Owned, own_stream};
 
 /// 用紙の 1 mm の装置の単位の数。2 の累乗なので、装置の座標を mm に戻しても値は変わらない。面積のない塗りを
 /// hayro-interpret は 1 装置単位の幅の線にするので、その線は 1/1024 mm の細い線になる
@@ -77,6 +77,15 @@ const SHIFT_EM: f64 = 0.05;
 /// 字形の x 軸の長さが、これ（比）より違わなければ同じとみなす。同じ並びの字形の変換は、平行移動と、
 /// hayro-interpret が字形の幅を合わせる伸縮だけが違う
 const SAME_SCALE: f64 = 1e-9;
+
+/// 非ゼロ回転数の単一輪について、単純さを確かめる辺の組の上限。超えた輪も未確認として診断する。
+const FILL_EDGE_PAIRS: u64 = 4096;
+
+/// `zumen-render`（SVG 1.1 の 11.4 と同じ規則）がマイターを面取りに切る限度
+const SCENE_MITER_LIMIT: f64 = 4.0;
+
+/// 2 つの接線ベクトルを平行とみなす外積の比
+const COLLINEAR_CROSS_TOLERANCE: f64 = 1e-12;
 
 /// 縦書きの字形の、横の原点から見た縦の原点（字形の空間の単位）。横の幅を 1,000、`DW2` を既定の [880 −1000] と
 /// みなす（9.7.4.3、推定）
@@ -224,6 +233,163 @@ impl Subpath {
                 .chain(self.segments.iter().flat_map(|segment| segment.points())),
         )
     }
+}
+
+/// 区間の始点での接線ベクトル。長さのない区間と縮退した制御点を飛ばす
+fn start_tangent(from: Point, segment: Segment) -> Option<Vec2> {
+    let candidates = match segment {
+        Segment::Line(end) => [end - from, Vec2::ZERO, Vec2::ZERO],
+        Segment::Cubic(first, second, end) => [first - from, second - from, end - from],
+    };
+    candidates.into_iter().find(|delta| {
+        let len2 = delta.hypot2();
+        len2.is_finite() && len2 > 0.0
+    })
+}
+
+/// 区間の終点での接線ベクトル。長さのない区間と縮退した制御点を飛ばす
+fn end_tangent(from: Point, segment: Segment) -> Option<Vec2> {
+    let candidates = match segment {
+        Segment::Line(end) => [end - from, Vec2::ZERO, Vec2::ZERO],
+        Segment::Cubic(first, second, end) => [end - second, end - first, end - from],
+    };
+    candidates.into_iter().find(|delta| {
+        let len2 = delta.hypot2();
+        len2.is_finite() && len2 > 0.0
+    })
+}
+
+/// 部分経路の区間の（始点の接線, 終点の接線）を順に集める。閉じた部分経路で終点と始点が離れていれば、
+/// 閉じる線分も足す。長さのない区間は除く
+fn subpath_tangents(subpath: &Subpath) -> Vec<(Vec2, Vec2)> {
+    let mut out = Vec::with_capacity(subpath.segments.len() + 1);
+    let mut from = subpath.start;
+    for &segment in &subpath.segments {
+        if let (Some(enter), Some(leave)) =
+            (start_tangent(from, segment), end_tangent(from, segment))
+        {
+            out.push((enter, leave));
+        }
+        from = segment.end();
+    }
+    if subpath.closed && from != subpath.start {
+        let closing = Segment::Line(subpath.start);
+        if let (Some(enter), Some(leave)) =
+            (start_tangent(from, closing), end_tangent(from, closing))
+        {
+            out.push((enter, leave));
+        }
+    }
+    out
+}
+
+/// 入る接線 `incoming` と出る接線 `outgoing` の角で、マイターの長さと線幅の比が `limit` を超えるか。
+/// 同一直線上の継続と 180 度の折り返し（外積が 0）はマイターの突起を作らないので超えないとする
+fn join_exceeds_miter_limit(incoming: Vec2, outgoing: Vec2, limit: f64) -> bool {
+    let len1 = libm::hypot(incoming.x, incoming.y);
+    let len2 = libm::hypot(outgoing.x, outgoing.y);
+    if !(len1.is_finite() && len2.is_finite()) || len1 == 0.0 || len2 == 0.0 {
+        return false;
+    }
+    let u1 = incoming / len1;
+    let u2 = outgoing / len2;
+    let cross = u1.x * u2.y - u1.y * u2.x;
+    if cross.abs() <= COLLINEAR_CROSS_TOLERANCE {
+        return false;
+    }
+    if !limit.is_finite() || limit <= 1.0 {
+        return true;
+    }
+    // 内角 θ は -u1 と u2 のなす角（cos θ = -u1 . u2）。
+    // 1 / sin(θ / 2) = sqrt(2 / (1 + cos θ)) = sqrt(2 / (1 - (-u1 . u2))) = sqrt(2 / (1 + u1 . u2))。
+    // ただし u1 = u2（θ = π）なら 1 + dot = 2（比 1）、u1 = -u2（θ = 0 の鋭い折り返し）なら 1 + dot = 0（比 ∞）。
+    let dot = (u1.dot(u2)).clamp(-1.0, 1.0);
+    2.0 > limit * limit * (1.0 + dot)
+}
+
+/// マイターのつなぎ（8.4.3.5）で、PDF のユーザー空間での面取りと、用紙の mm での描画（限度 4）とが食い違う角があるか
+fn miter_limit_approximated(user: &Subpath, paper: &Subpath, miter_limit: f32) -> bool {
+    let pdf_limit = f64::from(miter_limit);
+    let user_tangents = subpath_tangents(user);
+    let paper_tangents = subpath_tangents(paper);
+    if user_tangents.len() != paper_tangents.len() {
+        return user_tangents.len() >= 2 || paper_tangents.len() >= 2;
+    }
+    let count = user_tangents.len();
+    if count < 2 {
+        return false;
+    }
+    let joins = if paper.closed { count } else { count - 1 };
+    for index in 0..joins {
+        let next = (index + 1) % count;
+        let (Some(&(_, u_in)), Some(&(u_out, _)), Some(&(_, p_in)), Some(&(p_out, _))) = (
+            user_tangents.get(index),
+            user_tangents.get(next),
+            paper_tangents.get(index),
+            paper_tangents.get(next),
+        ) else {
+            continue;
+        };
+        let pdf_bevels = join_exceeds_miter_limit(u_in, u_out, pdf_limit);
+        let scene_bevels = join_exceeds_miter_limit(p_in, p_out, SCENE_MITER_LIMIT);
+        if pdf_bevels != scene_bevels {
+            return true;
+        }
+    }
+    false
+}
+
+/// 非隣接辺の外接矩形がすべて離れた直線の輪だけを、単純と確認する。曲線と、矩形が重なる辺は未確認にする。
+/// 位相を計算せず、形と ID を保ったまま塗り方の変更を診断するための保守的な確認。閉じる辺も数え、確保しない。
+fn single_fill_is_simple(subpath: &Subpath, mut spend: impl FnMut(u64) -> bool) -> Option<bool> {
+    if !spend(subpath.segments.len() as u64) {
+        return None;
+    }
+    if subpath.curved() {
+        return Some(false);
+    }
+    let count = subpath
+        .segments
+        .len()
+        .saturating_add(usize::from(subpath.end() != subpath.start));
+    let edge = |index: usize| {
+        let start = index
+            .checked_sub(1)
+            .and_then(|index| subpath.segments.get(index))
+            .map_or(subpath.start, |segment| segment.end());
+        let end = subpath
+            .segments
+            .get(index)
+            .map_or(subpath.start, |segment| segment.end());
+        Bounds::of([start, end])
+    };
+    let mut pairs = 0;
+    for first in 0..count {
+        let Some(a) = edge(first) else {
+            return Some(false);
+        };
+        for second in first + 1..count {
+            if pairs == FILL_EDGE_PAIRS {
+                return Some(false);
+            }
+            if !spend(1) {
+                return None;
+            }
+            pairs += 1;
+            // 隣接辺は共有する端点を許す。
+            if second == first + 1 || (first == 0 && second + 1 == count) {
+                continue;
+            }
+            let Some(b) = edge(second) else {
+                return Some(false);
+            };
+            if a.min.x <= b.max.x && b.min.x <= a.max.x && a.min.y <= b.max.y && b.min.y <= a.max.y
+            {
+                return Some(false);
+            }
+        }
+    }
+    Some(true)
 }
 
 /// 経路を部分経路に分ける。閉じた部分経路の後ろの線は、その始点から続く（8.5.2.1）。2 次の曲線は、同じ形の
@@ -555,13 +721,23 @@ struct Group {
 }
 
 /// ページの内容を集める
+pub(crate) struct Collected {
+    pub(crate) elements: Vec<Element<PaperPoint>>,
+    placed: BTreeSet<(Ref, &'static str, String)>,
+}
+
+/// ページ本体か、注釈の描画期の内容を集める。
 pub(crate) struct Collector<'c, 'x, 'd> {
     cx: &'c mut Cx<'x>,
-    /// 要素の出所（ページの最初の内容のストリームか、ページのオブジェクト）
+    /// 要素の出所（ページの最初の内容のストリームか、ページのオブジェクト、または注釈の辞書）
     source: Ref,
+    /// 注釈の描画期で区間外に戻すための既定の出所
+    default_source: Ref,
     sheet: SheetId,
     /// OCG のオブジェクト → レイヤ
     ocgs: &'c BTreeMap<(u32, i32), LayerId>,
+    /// 同じ描画期の全可視呼び出しで同じ単一 OCG を持つ、原本の画像ストリーム → OCG
+    image_layers: &'c BTreeMap<(u32, i32), (u32, i32)>,
     /// 間接オブジェクト → L1 のレコードの出所
     objects: &'c BTreeMap<(u32, i32), Ref>,
     /// 画像が、それ自身の間接オブジェクトかを見る（[`own_stream`]）。引いたコンテナーは、走査と同じ表に覚える
@@ -581,8 +757,14 @@ pub(crate) struct Collector<'c, 'x, 'd> {
     transfer: bool,
     /// 直前の塗りの字形の並び。続く同じ並びの線（描画モード 2）は、同じ文字にする
     last_fill_run: Option<RunKey>,
-    /// 場所を添えた診断。同じ code と値の 2 つ目からは場所を添えない
-    placed: BTreeSet<(&'static str, String)>,
+    /// 注釈の描画期では、外観や内部フォームの切り抜きの境界をまたいで文字を統合しない。
+    annotation_phase: bool,
+    /// 注釈ごとの出所と可視性の列、その現在位置、いま注釈自身の `OC` で描画を抑止しているか
+    annotation_steps: Vec<AnnotationStep>,
+    annotation_cursor: usize,
+    suppress_annotation: bool,
+    /// 場所を添えた診断。同じ出所・code・値の 2 つ目からは場所を添えない
+    placed: BTreeSet<(Ref, &'static str, String)>,
     /// 予算か中断の合図で止めた理由
     pub(crate) stopped: Option<Stop>,
 }
@@ -595,17 +777,21 @@ impl<'c, 'x, 'd> Collector<'c, 'x, 'd> {
         sheet: SheetId,
         page: Rect,
         ocgs: &'c BTreeMap<(u32, i32), LayerId>,
+        image_layers: &'c BTreeMap<(u32, i32), (u32, i32)>,
         objects: &'c BTreeMap<(u32, i32), Ref>,
         xref: &'d XRef,
         owned: &'c mut Owned<'d>,
         styles: &'c mut Styles,
         transfer: bool,
     ) -> Self {
+        let default_source = source.clone();
         Self {
             cx,
             source,
+            default_source,
             sheet,
             ocgs,
+            image_layers,
             objects,
             xref,
             owned,
@@ -617,8 +803,46 @@ impl<'c, 'x, 'd> Collector<'c, 'x, 'd> {
             blended: false,
             transfer,
             last_fill_run: None,
+            annotation_phase: false,
+            annotation_steps: Vec::new(),
+            annotation_cursor: 0,
+            suppress_annotation: false,
             placed: BTreeSet::new(),
             stopped: None,
+        }
+    }
+
+    /// ページ本体の要素・様式・診断の場所を保ち、独立した Context で注釈の外観を追加する。
+    pub(crate) fn begin_annotations(
+        &mut self,
+        content: Collected,
+        diagnostics: Vec<Diagnostic>,
+        steps: Vec<AnnotationStep>,
+    ) {
+        if self.stopped.is_some() {
+            return;
+        }
+        self.marks.clear();
+        self.groups.clear();
+        self.clips.truncate(1);
+        self.blended = false;
+        self.last_fill_run = None;
+        self.annotation_phase = true;
+        self.annotation_steps = steps;
+        self.annotation_cursor = 0;
+        self.suppress_annotation = false;
+        self.elements = content.elements;
+        self.placed = content.placed;
+        for diagnostic in diagnostics {
+            self.cx.report(diagnostic);
+        }
+    }
+
+    /// 要素と、場所を添えた診断の集合を、注釈の描画期まで移譲する。配列や集合は写さない。
+    pub(crate) fn finish(self) -> Collected {
+        Collected {
+            elements: self.elements,
+            placed: self.placed,
         }
     }
 
@@ -657,12 +881,16 @@ impl<'c, 'x, 'd> Collector<'c, 'x, 'd> {
         }
     }
 
-    /// 診断を足す。ページの出所は、同じ code と値の最初の 1 件にだけ添える
+    /// 診断を足す。出所は、同じ出所・code・値の最初の 1 件にだけ添える
     fn note(&mut self, diagnostic: Diagnostic, value: &str) {
-        let diagnostic = if self
-            .placed
-            .insert((diagnostic.code().name(), value.to_owned()))
-        {
+        if self.suppress_annotation {
+            return;
+        }
+        let diagnostic = if self.placed.insert((
+            self.source.clone(),
+            diagnostic.code().name(),
+            value.to_owned(),
+        )) {
             diagnostic.at(self.source.clone())
         } else {
             diagnostic
@@ -692,6 +920,11 @@ impl<'c, 'x, 'd> Collector<'c, 'x, 'd> {
     /// 要素を足す。ソフトマスクと合成の方法は移さないので、かかっていれば診断する。要素と、形が持つ配列のメモリ
     /// （[`shape_bytes`]）を数える
     fn add(&mut self, shape: Shape<PaperPoint>, style: Style) {
+        self.add_on_layer(shape, style, self.layer());
+    }
+
+    /// 事前走査で確定したレイヤで要素を足す。通常の追加と同じ予算・診断・順序を使う。
+    fn add_on_layer(&mut self, shape: Shape<PaperPoint>, style: Style, layer: LayerId) {
         if self.blended || self.groups.iter().any(|group| group.blended) {
             self.note_code(codes::PDF_TRANSPARENCY_APPROXIMATED);
         }
@@ -703,7 +936,7 @@ impl<'c, 'x, 'd> Collector<'c, 'x, 'd> {
         }
         self.elements.push(Element {
             source: self.source.clone(),
-            layer: self.layer(),
+            layer,
             style,
             shape,
         });
@@ -797,10 +1030,18 @@ impl<'c, 'x, 'd> Collector<'c, 'x, 'd> {
         let Some((color, transparency)) = self.paint(paint, &mut None) else {
             return;
         };
-        // 偶奇の規則は、輪の中の輪を交互に埋めるのと同じ。非ゼロ回転数の規則は、自分と交わらない輪が 1 つなら
-        // 同じになる（8.5.3.3。自分と交わる輪は見ない、推定）
-        if rule == FillRule::NonZero && parts.len() > 1 {
-            self.note_code(codes::PDF_FILL_RULE_APPROXIMATED);
+        // 偶奇の規則は、輪の中の輪を交互に埋めるのと同じ。非ゼロ回転数では、単純な単一輪と確認できたものだけを除く。
+        if rule == FillRule::NonZero {
+            let simple = if let [part] = parts.as_slice() {
+                single_fill_is_simple(part, |amount| self.spend(Kind::Work, amount))
+            } else {
+                Some(false)
+            };
+            match simple {
+                Some(true) => {}
+                Some(false) => self.note_code(codes::PDF_FILL_RULE_APPROXIMATED),
+                None => return,
+            }
         }
         let loops = parts
             .iter()
@@ -905,19 +1146,21 @@ impl<'c, 'x, 'd> Collector<'c, 'x, 'd> {
 
     fn stroke(
         &mut self,
+        user_path: &BezPath,
         path: &BezPath,
         transform: Affine,
         paint: &Paint<'_>,
         stroke: &StrokeProps,
+        from_rect: bool,
     ) {
         // 線の太さと破線はユーザー空間の長さ。用紙の mm には、変換の平均の倍率を掛ける（推定。斜めに伸ばした
         // 変換では、向きで太さが変わる）
         let scale = libm::sqrt(transform.determinant().abs());
         let width = f64::from(stroke.line_width) * scale;
         // 破線の線種と色は、経路ごとに 1 度だけ作る
-        let mut dashed: Option<(LineTypeId, bool)> = None;
+        let mut dashed: Option<(LineTypeId, bool, bool)> = None;
         let mut mapped = None;
-        for subpath in subpaths(path) {
+        for (user_subpath, subpath) in subpaths(user_path).into_iter().zip(subpaths(path)) {
             if subpath.segments.is_empty() {
                 continue;
             }
@@ -935,15 +1178,17 @@ impl<'c, 'x, 'd> Collector<'c, 'x, 'd> {
             let Some((color, transparency)) = self.paint(paint, &mut mapped) else {
                 continue;
             };
-            // 線の端（開いた部分経路）とつなぎ（線分が 2 つ以上か、閉じた部分経路）の形は、図面モデルが持たない
-            // （8.4.3.3・8.4.3.4）。突き合わせの端と、マイターのつなぎのほかは診断する
+            // 線の端（開いた部分経路）、つなぎ（線分が 2 つ以上か、閉じた部分経路）、マイターの限度は、図面モデルが
+            // 持たない（8.4.3.3・8.4.3.4・8.4.3.5）。突き合わせの端と、限度 4 と一致するマイターのつなぎのほかは診断する
             let capped = !subpath.closed && stroke.line_cap != Cap::Butt;
-            let joined =
-                (subpath.closed || subpath.segments.len() > 1) && stroke.line_join != Join::Miter;
+            let has_join = subpath.closed || subpath.segments.len() > 1;
+            let joined = has_join
+                && (stroke.line_join != Join::Miter
+                    || miter_limit_approximated(&user_subpath, &subpath, stroke.miter_limit));
             if capped || joined {
                 self.note_code(codes::PDF_STROKE_APPROXIMATED);
             }
-            let (line_type, phased) = match dashed {
+            let (line_type, has_dash, phased) = match dashed {
                 Some(dashed) => dashed,
                 None => {
                     // 線種を作る手間は、破線の配列の長さに比例する
@@ -957,6 +1202,9 @@ impl<'c, 'x, 'd> Collector<'c, 'x, 'd> {
             };
             if phased {
                 self.note_code(codes::PDF_DASH_APPROXIMATED);
+            }
+            if from_rect && has_dash {
+                self.note_code(codes::PDF_RECT_ORIENTATION_APPROXIMATED);
             }
             let style = Style {
                 color,
@@ -1026,14 +1274,14 @@ impl<'c, 'x, 'd> Collector<'c, 'x, 'd> {
         })
     }
 
-    /// 破線（8.4.3.6）の線種と、位相を落とすか。数が奇数の列は、2 回並べて線と間をそろえる。位相は持てないので、
-    /// 0 でなければ、描く要素ごとに診断する
-    fn dash(&mut self, stroke: &StrokeProps, scale: f64) -> (LineTypeId, bool) {
+    /// 破線（8.4.3.6）の線種と、破線であるか、位相を落とすか。数が奇数の列は、2 回並べて線と間をそろえる。位相は
+    /// 持てないので、0 でなければ、描く要素ごとに診断する
+    fn dash(&mut self, stroke: &StrokeProps, scale: f64) -> (LineTypeId, bool, bool) {
         let lengths: &[f32] = &stroke.dash_array;
         let dash = |length: f32| length.is_finite() && length > DASH_ZERO;
         // 長さがすべて 0 の列は、実線とみなす（推定。仕様は、すべてが 0 の列を認めない）
         if !lengths.iter().any(|length| dash(*length)) {
-            return (self.styles.line_type(Vec::new()), false);
+            return (self.styles.line_type(Vec::new()), false, false);
         }
         let phased = stroke.dash_offset != 0.0;
         let repeat = if lengths.len() % 2 == 1 { 2 } else { 1 };
@@ -1051,7 +1299,7 @@ impl<'c, 'x, 'd> Collector<'c, 'x, 'd> {
                 if index % 2 == 0 { mm } else { -mm }
             })
             .collect();
-        (self.styles.line_type(pattern), phased)
+        (self.styles.line_type(pattern), true, phased)
     }
 
     /// OCG の辞書のレイヤ。OCMD（8.11.2.2）は、最初の OCG のレイヤにする
@@ -1313,13 +1561,29 @@ impl<'c, 'x, 'd> Collector<'c, 'x, 'd> {
                 .is_some_and(|value| value != 0);
         // 画像の XObject は、間接オブジェクトの参照（`n g R`）を名前にする。内容の中に書いた画像（BI … EI）と、辞書の
         // 値に直接書いた画像（7.3.8.1 に反する）は、名前を持たない
-        let (path, definition) = match own_stream(self.xref, self.owned, stream) {
+        let id = own_stream(self.xref, self.owned, stream);
+        let (path, definition) = match id {
             Some(id) => match self.objects.get(&id) {
                 Some(record) => (format!("{} {} R", id.0, id.1), record.clone()),
                 None => (String::new(), self.source.clone()),
             },
             None => (String::new(), self.source.clone()),
         };
+        // 呼び出す順に対応付けず、原本の画像と、その全呼び出しで確定した表示条件から引く。
+        // OC 辞書は装置で読み直さず、事前走査の結果だけを使う。
+        let mut layer = self.layer();
+        if let Some(id) = id
+            && !self.image_layers.is_empty()
+        {
+            if !self.spend(Kind::Work, 2) {
+                return;
+            }
+            if let Some(group) = self.image_layers.get(&id)
+                && let Some(found) = self.ocgs.get(group)
+            {
+                layer = *found;
+            }
+        }
         let style = Style {
             color: Inherit::Layer,
             line_type: Inherit::Layer,
@@ -1340,7 +1604,39 @@ impl<'c, 'x, 'd> Collector<'c, 'x, 'd> {
             clip: None,
             visible: true,
         };
-        self.add(Shape::Underlay(underlay), style);
+        self.add_on_layer(Shape::Underlay(underlay), style, layer);
+    }
+
+    fn draw_path_from(
+        &mut self,
+        user_path: &BezPath,
+        props: DrawProps<'_>,
+        draw_mode: &DrawMode,
+        from_rect: bool,
+    ) {
+        let count = u64::try_from(user_path.elements().len()).unwrap_or(u64::MAX);
+        if !self.spend(Kind::Work, count.saturating_add(1)) {
+            return;
+        }
+        if self.suppress_annotation {
+            return;
+        }
+        self.last_fill_run = None;
+        self.blended = blended(props.soft_mask.is_some(), props.blend_mode);
+        let transform = to_mm() * props.transform;
+        let path = transform * user_path.clone();
+        match draw_mode {
+            DrawMode::Fill(rule) => self.fill(&path, &props.paint, *rule),
+            DrawMode::Stroke(stroke) => {
+                self.stroke(user_path, &path, transform, &props.paint, stroke, from_rect);
+            }
+            DrawMode::FillAndStroke(rule, stroke) => {
+                self.fill(&path, &props.paint, *rule);
+                self.stroke(user_path, &path, transform, &props.paint, stroke, from_rect);
+            }
+            DrawMode::Invisible => {}
+        }
+        self.blended = false;
     }
 }
 
@@ -1415,24 +1711,7 @@ fn edge_bytes(edge: &Edge<PaperPoint>) -> u64 {
 
 impl<'a> Device<'a> for Collector<'_, '_, '_> {
     fn draw_path(&mut self, path: &BezPath, props: DrawProps<'a>, draw_mode: &DrawMode) {
-        let count = u64::try_from(path.elements().len()).unwrap_or(u64::MAX);
-        if !self.spend(Kind::Work, count.saturating_add(1)) {
-            return;
-        }
-        self.last_fill_run = None;
-        self.blended = blended(props.soft_mask.is_some(), props.blend_mode);
-        let transform = to_mm() * props.transform;
-        let path = transform * path.clone();
-        match draw_mode {
-            DrawMode::Fill(rule) => self.fill(&path, &props.paint, *rule),
-            DrawMode::Stroke(stroke) => self.stroke(&path, transform, &props.paint, stroke),
-            DrawMode::FillAndStroke(rule, stroke) => {
-                self.fill(&path, &props.paint, *rule);
-                self.stroke(&path, transform, &props.paint, stroke);
-            }
-            DrawMode::Invisible => {}
-        }
-        self.blended = false;
+        self.draw_path_from(path, props, draw_mode, false);
     }
 
     fn draw_rect(&mut self, rect: &Rect, props: DrawProps<'a>, draw_mode: &DrawMode) {
@@ -1444,10 +1723,20 @@ impl<'a> Device<'a> for Collector<'_, '_, '_> {
         path.line_to((rect.x1, rect.y1));
         path.line_to((rect.x0, rect.y1));
         path.close_path();
-        self.draw_path(&path, props, draw_mode);
+        self.draw_path_from(&path, props, draw_mode, true);
     }
 
     fn push_clip_path(&mut self, clip_path: &ClipPath) {
+        if self.annotation_phase {
+            self.last_fill_run = None;
+            if self.clips.len() == 1 {
+                if let Some(step) = self.annotation_steps.get(self.annotation_cursor) {
+                    self.source = step.source.clone();
+                    self.suppress_annotation = !step.visible;
+                }
+                self.annotation_cursor += 1;
+            }
+        }
         // 切り抜きの経路は装置の座標
         let clip = match path_bounds(&(to_mm() * clip_path.path.clone())) {
             Some(bounds) => self.clip().intersect(bounds.rect()),
@@ -1457,6 +1746,9 @@ impl<'a> Device<'a> for Collector<'_, '_, '_> {
     }
 
     fn push_clip_rect(&mut self, rect: &Rect) {
+        if self.annotation_phase {
+            self.last_fill_run = None;
+        }
         let clip = self.clip().intersect(to_mm().transform_rect_bbox(*rect));
         self.clips.push(clip);
     }
@@ -1488,6 +1780,9 @@ impl<'a> Device<'a> for Collector<'_, '_, '_> {
         if !self.spend(Kind::Work, count.saturating_add(1)) {
             return;
         }
+        if self.suppress_annotation {
+            return;
+        }
         self.blended = blended(props.soft_mask.is_some(), props.blend_mode);
         self.glyph_run(glyph_run, &props, draw_mode);
         self.blended = false;
@@ -1497,6 +1792,9 @@ impl<'a> Device<'a> for Collector<'_, '_, '_> {
         if !self.spend(Kind::Work, 1) {
             return;
         }
+        if self.suppress_annotation {
+            return;
+        }
         self.last_fill_run = None;
         // 画像の状態のソフトマスクと合成の方法は、hayro-interpret が透明のグループにして渡す。`props` には残らない
         self.image(&image, props.transform);
@@ -1504,9 +1802,16 @@ impl<'a> Device<'a> for Collector<'_, '_, '_> {
     }
 
     fn pop_clip(&mut self) {
+        if self.annotation_phase {
+            self.last_fill_run = None;
+        }
         // ページの切り抜きは残す
         if self.clips.len() > 1 {
             self.clips.pop();
+            if self.annotation_phase && self.clips.len() == 1 {
+                self.suppress_annotation = false;
+                self.source = self.default_source.clone();
+            }
         }
     }
 
@@ -1532,6 +1837,61 @@ impl<'a> Device<'a> for Collector<'_, '_, '_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn checks_single_fill_without_unbounded_pairs_or_allocations() {
+        let part = |points: &[(f64, f64)]| Subpath {
+            start: Point::new(points[0].0, points[0].1),
+            segments: points[1..]
+                .iter()
+                .map(|&(x, y)| Segment::Line(Point::new(x, y)))
+                .collect(),
+            closed: false,
+        };
+        // 明示した閉じる辺も、暗黙の閉じる辺も同じように確かめる。
+        for points in [
+            vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)],
+            vec![
+                (0.0, 0.0),
+                (10.0, 0.0),
+                (10.0, 10.0),
+                (0.0, 10.0),
+                (0.0, 0.0),
+            ],
+        ] {
+            assert_eq!(single_fill_is_simple(&part(&points), |_| true), Some(true));
+        }
+        let square = part(&[(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)]);
+        let mut spent = 0;
+        assert_eq!(
+            single_fill_is_simple(&square, |amount| {
+                spent += amount;
+                spent <= 5
+            }),
+            None
+        );
+        assert_eq!(single_fill_is_simple(&square, |_| true), Some(true));
+        // 多すぎる辺は、4,096 組を超えて比較しない。
+        let long = Subpath {
+            start: Point::ZERO,
+            segments: (1..=5000)
+                .map(|x| Segment::Line(Point::new(f64::from(x), 0.0)))
+                .collect(),
+            closed: false,
+        };
+        let mut spent = 0;
+        assert_eq!(
+            single_fill_is_simple(&long, |amount| {
+                spent += amount;
+                true
+            }),
+            Some(false)
+        );
+        assert_eq!(spent, 9096);
+        // 単純な輪でも、非隣接辺の外接矩形が重なれば未確認にする。
+        let diamond = part(&[(0.0, 1.0), (1.0, 2.0), (2.0, 1.0), (1.0, 0.0)]);
+        assert_eq!(single_fill_is_simple(&diamond, |_| true), Some(false));
+    }
 
     #[test]
     fn names_lengths_in_millimeters() {
@@ -1592,5 +1952,44 @@ mod tests {
         assert_eq!(found, [(0..1, false)]);
         assert_eq!(median(vec![3.0, 1.0, 2.0, 4.0]), Some(3.0));
         assert_eq!(median(Vec::new()), None);
+    }
+
+    #[test]
+    fn detects_miter_limit_differences_without_flagging_collinear_reversals() {
+        let open = |points: &[(f64, f64)]| Subpath {
+            start: Point::new(points[0].0, points[0].1),
+            segments: points[1..]
+                .iter()
+                .map(|&(x, y)| Segment::Line(Point::new(x, y)))
+                .collect(),
+            closed: false,
+        };
+        let closed = |points: &[(f64, f64)]| Subpath {
+            closed: true,
+            ..open(points)
+        };
+
+        // 90 度の角（比 √2 ≒ 1.414）は、既定の限度 10 でも描画の限度 4 でもマイターのまま一致する
+        let right = open(&[(0.0, 0.0), (10.0, 0.0), (10.0, 10.0)]);
+        assert!(!miter_limit_approximated(&right, &right, 10.0));
+        // 限度 1 では PDF が面取りにし、描画（限度 4）と食い違う
+        assert!(miter_limit_approximated(&right, &right, 1.0));
+
+        // 鋭い折り返しの角（比 > 4, <= 10）は、PDF がマイター、描画（限度 4）が面取りで食い違う
+        let sharp = open(&[(0.0, 0.0), (50.0, 0.0), (0.0, 20.0)]);
+        assert!(miter_limit_approximated(&sharp, &sharp, 10.0));
+        // PDF でも面取りになる限度 2 なら、どちらも面取りで一致する
+        assert!(!miter_limit_approximated(&sharp, &sharp, 2.0));
+
+        // 同一直線上の継続と 180 度の折り返しはマイターの突起を作らないので食い違わない
+        let collinear = open(&[(0.0, 0.0), (10.0, 0.0), (20.0, 0.0)]);
+        assert!(!miter_limit_approximated(&collinear, &collinear, 1.0));
+        let foldback = closed(&[(0.0, 0.0), (72.0, 0.0)]);
+        assert!(!miter_limit_approximated(&foldback, &foldback, 10.0));
+        assert!(!miter_limit_approximated(&foldback, &foldback, 1.0));
+
+        // 閉じた部分経路の終点と始点の角も確かめる
+        let closed_sharp = closed(&[(0.0, 0.0), (50.0, 0.0), (50.0, 20.0)]);
+        assert!(miter_limit_approximated(&closed_sharp, &closed_sharp, 10.0));
     }
 }

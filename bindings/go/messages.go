@@ -60,6 +60,16 @@ func (u Request) AsEntitiesRequest() *EntitiesRequest {
 	return asTagged[EntitiesRequest](u, "op", "entities")
 }
 
+// AsCalibrationsRequest は、op が calibrations の形なら、その型で読む。違えば nil。
+func (u Request) AsCalibrationsRequest() *CalibrationsRequest {
+	return asTagged[CalibrationsRequest](u, "op", "calibrations")
+}
+
+// AsMeasureDistanceRequest は、op が measure_distance の形なら、その型で読む。違えば nil。
+func (u Request) AsMeasureDistanceRequest() *MeasureDistanceRequest {
+	return asTagged[MeasureDistanceRequest](u, "op", "measure_distance")
+}
+
 // AsApplyRequest は、op が apply の形なら、その型で読む。違えば nil。
 func (u Request) AsApplyRequest() *ApplyRequest {
 	return asTagged[ApplyRequest](u, "op", "apply")
@@ -68,6 +78,11 @@ func (u Request) AsApplyRequest() *ApplyRequest {
 // AsConvertRequest は、op が convert の形なら、その型で読む。違えば nil。
 func (u Request) AsConvertRequest() *ConvertRequest {
 	return asTagged[ConvertRequest](u, "op", "convert")
+}
+
+// AsConvertEstimateRequest は、op が convert_estimate の形なら、その型で読む。違えば nil。
+func (u Request) AsConvertEstimateRequest() *ConvertEstimateRequest {
+	return asTagged[ConvertEstimateRequest](u, "op", "convert_estimate")
 }
 
 // AsTablesRequest は、op が tables の形なら、その型で読む。違えば nil。
@@ -331,7 +346,7 @@ type OpenRequest struct {
 	// 作る文書の名前。書かなければ入力の名前
 	Doc *string `json:"doc,omitempty"`
 
-	// 入力の全体の大きさ（バイト）。渡した入力より大きければ、入力を全体の初めの部分とみなし、足りない範囲を needs で求める。範囲で読める形式（LAS・LAZ）だけが使う（決定 0232）。マイナーバージョン 48 から
+	// 入力の全体の大きさ（バイト）。渡した入力より大きければ、入力を全体の初めの部分とみなし、足りない範囲を needs で求める。範囲で読める形式（LAS）だけが使う。LAZ は、ヘッダーを読んで las.laz.unsupported で断る（決定 0232・0289）。マイナーバージョン 48 から
 	Size *int64 `json:"size,omitempty"`
 
 	// 見分けるマーカーのない形式（xyz・extdm）を名指して読む。書かなければ、入力から判定する（決定 0232）。マイナーバージョン 49 から。extdm はマイナーバージョン 62 から
@@ -500,6 +515,176 @@ type DrawingResult struct {
 
 	// 文書の点の表し方（marker を持たない点の見え方、決定 0160）。point_style の変更で変える。文書が持たなければ（JWW・SXF）持たない。マイナーバージョン 39 から
 	PointStyle *PointStyleSummary `json:"point_style,omitempty"`
+}
+
+// Point2: 2 次元の座標
+type Point2 struct {
+	// X 座標
+	X *float64 `json:"x,omitempty"`
+
+	// Y 座標
+	Y *float64 `json:"y,omitempty"`
+}
+
+// SplitPoint2: 原点と相対座標を分けた用紙の点。両成分の正確な和を位置とし、先に足して丸めない。座標の単位は用紙の mm
+type SplitPoint2 struct {
+	// 用紙の原点
+	Origin *Point2 `json:"origin,omitempty"`
+
+	// 原点からの相対座標
+	Offset *Point2 `json:"offset,omitempty"`
+}
+
+// CalibrationItem: 用紙の閉じた矩形で使う距離の校正。重なる領域は ID で明示的に選ぶ。マイナーバージョン 68 から
+type CalibrationItem struct {
+	// 文書内で重複しない校正の ID
+	Id *string `json:"id,omitempty"`
+
+	// 元の校正の名前。翻訳しない。なければ持たない
+	Name *string `json:"name,omitempty"`
+
+	// 校正を使える公開用紙の ID。drawing が返すもの
+	From *string `json:"from,omitempty"`
+
+	// 用紙の mm の閉じた矩形。[X の最小, Y の最小, X の最大, Y の最大] の 4 値で、幅と高さは正
+	Bounds []float64 `json:"bounds,omitempty"`
+
+	// 用紙の mm の変位から校正単位の変位へ写す行優先の 2×2 行列。[a, b, c, d] の 4 値で、[dx, dy] を [a*dx+b*dy, c*dx+d*dy] に写す
+	Matrix []float64 `json:"matrix,omitempty"`
+
+	// 校正後の長さの単位。ラベルだけから推定しない
+	Unit *Unit `json:"unit,omitempty"`
+
+	// 元の単位ラベル。未知の単位でも原文を保つ
+	UnitLabel *string `json:"unit_label,omitempty"`
+
+	// 元の形式のレコード
+	Source *Source `json:"source,omitempty"`
+}
+
+// CalibrationsRequest: 開いた文書を図面モデルに変換し、用紙の距離の校正をモデルの順に返す。マイナーバージョン 68 から
+type CalibrationsRequest struct {
+	// メッセージのスキーマのメジャーバージョン。今は 1
+	V *int64 `json:"v,omitempty"`
+
+	// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+	Budget *Budget `json:"budget,omitempty"`
+
+	// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+	Partial *bool `json:"partial,omitempty"`
+
+	// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+	MaxPlaces *int64 `json:"max_places,omitempty"`
+
+	// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+	TimeLimitMs *int64 `json:"time_limit_ms,omitempty"`
+
+	// op の名前
+	Op string `json:"op,omitempty"`
+
+	// 文書の名前。open で作ったもの
+	Doc *string `json:"doc,omitempty"`
+
+	// 公開用紙の ID。drawing が返すもの。書けばその用紙の校正だけを返し、書かなければすべての校正を返す
+	From *string `json:"from,omitempty"`
+
+	// 返す最初の校正の位置。from で絞った後の位置で、前の応答の next_offset を渡す。書かなければ 0
+	Offset *int64 `json:"offset,omitempty"`
+
+	// 返す校正の数の上限。書かなければ 1000
+	Limit *int64 `json:"limit,omitempty"`
+
+	// 期待する元の文書のハッシュ。open に渡したバイト列のハッシュと照合する。図面モデルへ変換した ZMDR 自身のハッシュではない
+	ExpectedHash *string `json:"expected_hash,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m CalibrationsRequest) MarshalJSON() ([]byte, error) {
+	type plain CalibrationsRequest
+	m.Op = "calibrations"
+	return json.Marshal(plain(m))
+}
+
+// CalibrationsResult: 距離の校正の一覧の一部
+type CalibrationsResult struct {
+	// 元の文書のハッシュ。ZMDR から開いたときは、埋め込まれた元の文書のハッシュ（Source.hash）
+	Hash *string `json:"hash,omitempty"`
+
+	// from で絞った一覧の offset から limit 個までの校正
+	Items []CalibrationItem `json:"items,omitempty"`
+
+	// from で絞った後の校正の総数
+	Total *int64 `json:"total,omitempty"`
+
+	// 続きの最初の校正の位置。続きがなければ持たない
+	NextOffset *int64 `json:"next_offset,omitempty"`
+}
+
+// MeasureDistanceRequest: 用紙と校正を明示的に選び、始点と終点の校正後の距離を求める。両点は校正の閉領域内にある必要がある。マイナーバージョン 68 から
+type MeasureDistanceRequest struct {
+	// メッセージのスキーマのメジャーバージョン。今は 1
+	V *int64 `json:"v,omitempty"`
+
+	// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+	Budget *Budget `json:"budget,omitempty"`
+
+	// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+	Partial *bool `json:"partial,omitempty"`
+
+	// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+	MaxPlaces *int64 `json:"max_places,omitempty"`
+
+	// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+	TimeLimitMs *int64 `json:"time_limit_ms,omitempty"`
+
+	// op の名前
+	Op string `json:"op,omitempty"`
+
+	// 文書の名前。open で作ったもの
+	Doc *string `json:"doc,omitempty"`
+
+	// 公開用紙の ID。drawing が返すもので、選んだ校正と同じ用紙
+	From *string `json:"from,omitempty"`
+
+	// 使う校正の ID。calibrations が返すもの
+	Calibration *string `json:"calibration,omitempty"`
+
+	// 始点。原点と相対座標を分けた用紙の mm の点
+	Start *SplitPoint2 `json:"start,omitempty"`
+
+	// 終点。原点と相対座標を分けた用紙の mm の点
+	End *SplitPoint2 `json:"end,omitempty"`
+
+	// 期待する元の文書のハッシュ。open に渡したバイト列のハッシュと照合する。図面モデルへ変換した ZMDR 自身のハッシュではない
+	ExpectedHash *string `json:"expected_hash,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m MeasureDistanceRequest) MarshalJSON() ([]byte, error) {
+	type plain MeasureDistanceRequest
+	m.Op = "measure_distance"
+	return json.Marshal(plain(m))
+}
+
+// MeasureDistanceResult: 選んだ用紙と校正による距離
+type MeasureDistanceResult struct {
+	// 元の文書のハッシュ。ZMDR から開いたときは、埋め込まれた元の文書のハッシュ（Source.hash）
+	Hash *string `json:"hash,omitempty"`
+
+	// 計測した公開用紙の ID
+	From *string `json:"from,omitempty"`
+
+	// 使った校正の ID
+	Calibration *string `json:"calibration,omitempty"`
+
+	// 校正後の距離。unit と unit_label が示す単位
+	Distance *float64 `json:"distance,omitempty"`
+
+	// 校正後の長さの単位
+	Unit *Unit `json:"unit,omitempty"`
+
+	// 元の単位ラベル。未知の単位でも原文を保つ
+	UnitLabel *string `json:"unit_label,omitempty"`
 }
 
 // PointStyleSummary: 文書の点の表し方。フィールドの意味は point_style_edit と同じ
@@ -911,7 +1096,7 @@ func (m PolylineGeometry) MarshalJSON() ([]byte, error) {
 	return json.Marshal(plain(m))
 }
 
-// TextGeometry: 1 点か 2 点の間に置く文字。置き換えるときは、位置合わせ・幅の倍率・斜体・反転・文字スタイルを元の値のままにする。足すときは、2 点目がなければ左の基準線に合わせ、幅の倍率 1・斜体なし・反転なしにする
+// TextGeometry: 1 点か 2 点の間に置く文字。置き換えるときは、位置合わせ・文字スタイルを元の値のままにし、書かない幅の倍率・斜体・反転も元の値を受け継ぐ。足すときは、2 点目がなければ書かない位置合わせを左の基準線にし、幅の倍率 1・斜体なし・反転なしにする
 type TextGeometry struct {
 	// 形の種類
 	Shape string `json:"shape,omitempty"`
@@ -928,11 +1113,29 @@ type TextGeometry struct {
 	// 2 点の間への合わせ方。2 点目（end）と一緒に書く。マイナーバージョン 17 から
 	Fit *TextFit `json:"fit,omitempty"`
 
+	// 1 点に置く文字の水平の位置合わせ。left のときは entities が省き、足すときも省けば left。2 点の間に合わせる文字には書けない。置き換えるときは元と同じ値だけを受ける。マイナーバージョン 69 から
+	Horizontal *TextHorizontal `json:"horizontal,omitempty"`
+
+	// 1 点に置く文字の垂直の位置合わせ。baseline のときは entities が省き、足すときも省けば baseline。2 点の間に合わせる文字には書けない。置き換えるときは元と同じ値だけを受ける。マイナーバージョン 69 から
+	Vertical *TextVertical `json:"vertical,omitempty"`
+
 	// 高さ。0 より大きい
 	Height *float64 `json:"height,omitempty"`
 
 	// 回転（度）。2 点の間に合わせる文字では、1 点目から 2 点目への向きと同じでなければならない
 	Rotation *float64 `json:"rotation,omitempty"`
+
+	// 幅の倍率。0 より大きい。1 のときは entities が省き、足すときも省けば 1、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から
+	WidthFactor *float64 `json:"width_factor,omitempty"`
+
+	// 斜体の角度（度）。0 のときは entities が省き、足すときも省けば 0、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から
+	Oblique *float64 `json:"oblique,omitempty"`
+
+	// 左右を裏返すか。偽のときは entities が省き、足すときも省けば偽、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から
+	Backward *bool `json:"backward,omitempty"`
+
+	// 上下を反転するか。偽のときは entities が省き、足すときも省けば偽、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から
+	UpsideDown *bool `json:"upside_down,omitempty"`
 
 	// 文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。DXF に文字スタイルの定義がないときは Standard だけを受ける。置き換えるときは、元と同じ名前だけを受ける。style_id と一緒に書くなら、同じ文字スタイルを指す。マイナーバージョン 12 から
 	Style *string `json:"style,omitempty"`
@@ -947,6 +1150,40 @@ func (m TextGeometry) MarshalJSON() ([]byte, error) {
 	m.Shape = "text"
 	return json.Marshal(plain(m))
 }
+
+// TextHorizontal: 1 点に置く文字の水平の位置合わせ。middle は水平と垂直の両方を外形の中央に合わせる（DXF の 72 = 4）
+//
+// 列挙の値。知らない値も受け取る。
+type TextHorizontal string
+
+// TextHorizontalLeft は left。
+const TextHorizontalLeft TextHorizontal = "left"
+
+// TextHorizontalCenter は center。
+const TextHorizontalCenter TextHorizontal = "center"
+
+// TextHorizontalRight は right。
+const TextHorizontalRight TextHorizontal = "right"
+
+// TextHorizontalMiddle は middle。
+const TextHorizontalMiddle TextHorizontal = "middle"
+
+// TextVertical: 1 点に置く文字の垂直の位置合わせ
+//
+// 列挙の値。知らない値も受け取る。
+type TextVertical string
+
+// TextVerticalBaseline は baseline。
+const TextVerticalBaseline TextVertical = "baseline"
+
+// TextVerticalBottom は bottom。
+const TextVerticalBottom TextVertical = "bottom"
+
+// TextVerticalMiddle は middle。
+const TextVerticalMiddle TextVertical = "middle"
+
+// TextVerticalTop は top。
+const TextVerticalTop TextVertical = "top"
 
 // TextFit: 2 点の間への合わせ方。aligned は縦横の比を保って高さも変え、fit は高さを保って幅だけを変える
 //
@@ -1514,7 +1751,7 @@ type ApplyResult struct {
 	// 書き戻した文書のハッシュ。次の apply の前提条件に使う
 	Hash *string `json:"hash,omitempty"`
 
-	// true なら、変えていない要素の ID がずれた。キーを持たない形式（JWW）で、前の図形を除くか足したとき。ID を使う前に entities で読み直す。ずれないときは持たない。マイナーバージョン 30 から
+	// true なら、変えていない要素の ID がずれた。キーを持たない形式（JWW）か、ハンドルを持たない DXF（R12 など）で、前の図形か表のレコードを除くか足したとき。ID を使う前に entities で読み直す。ずれないときは持たない。マイナーバージョン 30 から
 	IdsShifted *bool `json:"ids_shifted,omitempty"`
 }
 
@@ -1569,6 +1806,162 @@ type ConvertResult struct {
 	// 書いた要素の数。記号から離した属性の文字を含む
 	Elements *int64 `json:"elements,omitempty"`
 }
+
+// ConvertEstimateRequest: 開いた図面を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。今は DXF への変換だけ。マイナーバージョン 66 から
+type ConvertEstimateRequest struct {
+	// メッセージのスキーマのメジャーバージョン。今は 1
+	V *int64 `json:"v,omitempty"`
+
+	// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+	Budget *Budget `json:"budget,omitempty"`
+
+	// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+	Partial *bool `json:"partial,omitempty"`
+
+	// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+	MaxPlaces *int64 `json:"max_places,omitempty"`
+
+	// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+	TimeLimitMs *int64 `json:"time_limit_ms,omitempty"`
+
+	// op の名前
+	Op string `json:"op,omitempty"`
+
+	// 書く元の文書の名前
+	Doc *string `json:"doc,omitempty"`
+
+	// 書く形式の名前。今は dxf だけ
+	Format *string `json:"format,omitempty"`
+
+	// 予定する文書の名前。convert と同じ条件で検査するが、名前を確保しない
+	To *string `json:"to,omitempty"`
+
+	// 書き手と読み取り段階のそれぞれで返す明細の最大件数。省略時は 100。総数と全件集計はこの上限によらない
+	Limit *int64 `json:"limit,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m ConvertEstimateRequest) MarshalJSON() ([]byte, error) {
+	type plain ConvertEstimateRequest
+	m.Op = "convert_estimate"
+	return json.Marshal(plain(m))
+}
+
+// ConvertEstimateResult: 予定する変換の結果。元の文書・ID を保ち、ファイルの blob を返さない
+type ConvertEstimateResult struct {
+	// 予定する出力と忠実度の全件集計・上限付き明細
+	Estimate *ConversionEstimate `json:"estimate,omitempty"`
+}
+
+// ConversionEstimate: 実変換と同じ処理で準備した出力。doc と hash は未登録の予定値。元の入力・設定・予算が同じなら convert の値と一致する
+type ConversionEstimate struct {
+	// 予定する文書の名前
+	Doc *string `json:"doc,omitempty"`
+
+	// 予定する形式の名前
+	Format *string `json:"format,omitempty"`
+
+	// 予定する出力バイト列のハッシュ。未登録なので apply の前提条件には使えない
+	Hash *string `json:"hash,omitempty"`
+
+	// 予定する出力の要素数。記号から離す属性の文字を含む
+	Elements *int64 `json:"elements,omitempty"`
+
+	// 処理対象の出現数。同じ出所を持つ別の入力は別々に数え、診断の数では増やさない
+	Total *int64 `json:"total,omitempty"`
+
+	// 種類と忠実度ごとの全件集計
+	Counts []ConversionCount `json:"counts,omitempty"`
+
+	// 処理順の明細。limit 件まで返す
+	Details []ConversionDetail `json:"details,omitempty"`
+
+	// 明細の上限で返さなかった対象がある
+	Truncated *bool `json:"truncated,omitempty"`
+
+	// 入力の表の読み取りと lift 中の、集約前の診断発生記録。書き手の項目の集計には含めない。マイナーバージョン 67 から
+	InputDiagnostics *ConversionInputDiagnostics `json:"input_diagnostics,omitempty"`
+}
+
+// ConversionInputDiagnostics: 読み取り段階の診断発生数。失った要素数ではなく、同じ要素の複数の診断もそれぞれ数える。忠実度を持たない診断も含む。open 時や書き手の診断は含まない
+type ConversionInputDiagnostics struct {
+	// 診断の発生件数の合計。max_places と limit によらない
+	Total *int64 `json:"total,omitempty"`
+
+	// 診断の code とカタログの group_by の値による全件集計。場所は持たず、値は最も早い入力位置の報告から取る
+	Counts []Diagnostic `json:"counts,omitempty"`
+
+	// 集約前の報告を入力位置順に limit 件まで返す。同じ位置は報告順。診断の場所は max_places で制限しない
+	Details []ConversionInputDiagnostic `json:"details,omitempty"`
+
+	// 明細の上限で返さなかった報告がある
+	Truncated *bool `json:"truncated,omitempty"`
+}
+
+// ConversionInputDiagnostic: 集約前の診断と、その場所と同じ順序の出所。種類や失った値は診断の code と params からたどる
+type ConversionInputDiagnostic struct {
+	// 集約前の診断。元の値と場所を保つ
+	Diagnostic *Diagnostic `json:"diagnostic,omitempty"`
+
+	// diagnostic.at と同じ順序のレコード・バイト範囲・ハンドル・インスタンス番号。ID は diagnostic.at にある
+	Sources []Source `json:"sources,omitempty"`
+}
+
+// ConversionCount: 処理対象の種類と忠実度ごとの集計
+type ConversionCount struct {
+	// 処理対象の種類のキー
+	Kind *string `json:"kind,omitempty"`
+
+	// その対象を移した結果の忠実度
+	Fidelity *ConversionFidelity `json:"fidelity,omitempty"`
+
+	// 入力の出現数。1 つの入力が複数の出力になっても 1 件
+	Count *int64 `json:"count,omitempty"`
+
+	// この対象から書いた図形の数。表や参照だけを移した場合は 0
+	OutputElements *int64 `json:"output_elements,omitempty"`
+}
+
+// ConversionDetail: 処理対象の出現 1 つ。複数の欠落の診断が出ても 1 件として数える
+type ConversionDetail struct {
+	// 処理対象の種類のキー
+	Kind *string `json:"kind,omitempty"`
+
+	// その対象を移した結果の忠実度
+	Fidelity *ConversionFidelity `json:"fidelity,omitempty"`
+
+	// 値や参照を変えた理由のキー。text_height_meaning は文字高の意味、relocated_shape は形の値、style_default はスタイルの既定値、detached_attribute は属性の文字への分離、baked_view はビューの焼き込み、reference_dropped は参照の欠落
+	Reasons []string `json:"reasons,omitempty"`
+
+	// 元の要素の ID。持つ対象だけで返す
+	Id *string `json:"id,omitempty"`
+
+	// 元の対象のレコード・バイト範囲・キー
+	Source *Source `json:"source,omitempty"`
+
+	// この対象から書いた図形の数。表や参照だけを移した場合は 0
+	OutputElements *int64 `json:"output_elements,omitempty"`
+}
+
+// ConversionFidelity: 忠実度。`native` は元の値・参照を保持、`equivalent` は別の表現で同じ意味、`approximated` は近似、`drawn` は見た目だけ、`dropped` は欠落
+//
+// 列挙の値。知らない値も受け取る。
+type ConversionFidelity string
+
+// ConversionFidelityNative は native。
+const ConversionFidelityNative ConversionFidelity = "native"
+
+// ConversionFidelityEquivalent は equivalent。
+const ConversionFidelityEquivalent ConversionFidelity = "equivalent"
+
+// ConversionFidelityApproximated は approximated。
+const ConversionFidelityApproximated ConversionFidelity = "approximated"
+
+// ConversionFidelityDrawn は drawn。
+const ConversionFidelityDrawn ConversionFidelity = "drawn"
+
+// ConversionFidelityDropped は dropped。
+const ConversionFidelityDropped ConversionFidelity = "dropped"
 
 // Applied: 当てた変更 1 つの結果
 type Applied struct {
@@ -1691,7 +2084,7 @@ func (u Edit) AsPointStyleEdit() *PointStyleEdit {
 	return asTagged[PointStyleEdit](u, "kind", "point_style")
 }
 
-// RestyleEdit: 要素のレイヤ・色・線種・線種の倍率・線幅のうち、書いたものだけを変える。形は変えない
+// RestyleEdit: 要素のレイヤ・色・線種・線種の倍率・線幅のうち、書いたものだけを変える。形は変えない。RGB の色は、DXF と DWG の R2004 から、線幅は R2000 から書ける（DWG の今ある図形のレイヤ・線種・線幅・RGB の色は、決定 0293 から変えられる）
 type RestyleEdit struct {
 	// 変更の種類
 	Kind string `json:"kind,omitempty"`
@@ -1791,7 +2184,7 @@ func (m ReplaceEdit) MarshalJSON() ([]byte, error) {
 	return json.Marshal(plain(m))
 }
 
-// AddEdit: 空間か用紙に要素を足す。書かない色・線種・線幅はレイヤに従う。足せる形は、形の値のどの種類も。マイナーバージョン 10 から
+// AddEdit: 空間か用紙に要素を足す。書かない色・線種・線幅はレイヤに従う。JWW と SXF の図形は色・線種・線幅を自分で持ち、レイヤかブロックに従う値を持たないので、JWW は色と線種を書き（点は色だけ）、SXF は色・線種・線幅を書く（点マーカーは色だけ）。書かないか、レイヤかブロックに従う値なら change.style.unsupported で断る。JWW の書かないかレイヤに従う線幅は、ペンの印刷の線幅に従う。足せる形は、形の値のどの種類も。マイナーバージョン 10 から
 type AddEdit struct {
 	// 変更の種類
 	Kind string `json:"kind,omitempty"`
@@ -1805,7 +2198,7 @@ type AddEdit struct {
 	// レイヤの ID。tables が返したもの
 	LayerId *string `json:"layer_id,omitempty"`
 
-	// 色。SXF はレイヤに従う色を書けないので、書く。マイナーバージョン 29 から
+	// 色。SXF と JWW はレイヤに従う色を書けないので、書く。SXF は、sxf の番号か、利用者定義色と同じ RGB を受ける。JWW は、jww の番号（0〜9 と、バージョン 420 からの拡張色 100〜356）か、ペン 1〜9 と、バージョン 420 からの 100〜356 のどれかと同じ RGB を受ける。書かないか、受けられない色なら断る。マイナーバージョン 29 から
 	Color *ColorChange `json:"color,omitempty"`
 
 	// 線種。マイナーバージョン 29 から
@@ -1825,7 +2218,7 @@ func (m AddEdit) MarshalJSON() ([]byte, error) {
 	return json.Marshal(plain(m))
 }
 
-// LayerEdit: レイヤの名前・状態・色・線種・線幅のうち、書いたものだけを変える（決定 0162）。DXF は、名前を変えると、図形と今のレイヤ（$CLAYER）も新しい名前で指す。DWG は、今あるレイヤの線種と真の色を変えられない。マイナーバージョン 22 から
+// LayerEdit: レイヤの名前・状態・色・線種・線幅のうち、書いたものだけを変える（決定 0162）。DXF は、名前を変えると、図形と今のレイヤ（$CLAYER）も新しい名前で指す。DWG の真の色は R2004 から書ける（今あるレイヤの線種と真の色は、決定 0293 から変えられる）。マイナーバージョン 22 から
 type LayerEdit struct {
 	// 変更の種類
 	Kind string `json:"kind,omitempty"`
@@ -4698,7 +5091,7 @@ type CivilPosition struct {
 	Gradient *float64 `json:"gradient,omitempty"`
 }
 
-// PointcloudRequest: open で開いた点群（LAS・LAZ）の要約と、条件に合う点を返す。点は八分木の浅い段のノードから順に選ぶ（決定 0232）。点群のモジュールに置く（決定 0253）。マイナーバージョン 48 から
+// PointcloudRequest: open で開いた点群（LAS・PLY・XYZ・E57）の要約と、条件に合う点を返す。点は八分木の浅い段のノードから順に選ぶ（決定 0232）。点群のモジュールに置く（決定 0253）。マイナーバージョン 48 から
 type PointcloudRequest struct {
 	// メッセージのスキーマのメジャーバージョン。今は 1
 	V *int64 `json:"v,omitempty"`
@@ -5798,11 +6191,20 @@ const OpDrawing = "drawing"
 // OpEntities は、op の名前 entities。
 const OpEntities = "entities"
 
+// OpCalibrations は、op の名前 calibrations。
+const OpCalibrations = "calibrations"
+
+// OpMeasureDistance は、op の名前 measure_distance。
+const OpMeasureDistance = "measure_distance"
+
 // OpApply は、op の名前 apply。
 const OpApply = "apply"
 
 // OpConvert は、op の名前 convert。
 const OpConvert = "convert"
+
+// OpConvertEstimate は、op の名前 convert_estimate。
+const OpConvertEstimate = "convert_estimate"
 
 // OpTables は、op の名前 tables。
 const OpTables = "tables"

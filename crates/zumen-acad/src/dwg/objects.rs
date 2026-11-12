@@ -1057,6 +1057,117 @@ pub(super) fn entity_fields(data: &[u8], release: Release) -> Option<[usize; 4]>
     (start <= handles_at).then_some([size_at, common.color_at, start, handles_at])
 }
 
+/// 図形のハンドルのストリームの、画層と線種のハンドルのビットの範囲（#723）
+#[derive(Default)]
+pub(super) struct StyleHandles {
+    /// 画層のハンドル
+    pub(super) layer: Range<usize>,
+    /// 線種のハンドル。線種のフラグが 3 でなければ `None`
+    pub(super) ltype: Option<Range<usize>>,
+    /// 色を DBCOLOR のハンドルで指すか（R2004 から）
+    pub(super) color_handle: bool,
+}
+
+/// バージョン `release` の図形のデータ `data` の、画層と線種のハンドルの位置（#723）。ハンドルの並びは、所有者（entmode が 0）・
+/// リアクター・拡張辞書・前後の図形・色（DBCOLOR）・画層・線種（フラグが 3）の順（ODS 5.4.1 の 20.4.1、[`read`] と同じ）。
+/// R2010 からは、`data` はハンドルのストリームの大きさ（MC）の後で、`handles_at` がハンドルのストリームの始まり
+pub(super) fn style_handles(
+    data: &[u8],
+    release: Release,
+    handles_at: Option<usize>,
+) -> Option<StyleHandles> {
+    let mut bits = Bits::with_release(data, release);
+    let handles_at = match handles_at {
+        Some(at) => {
+            bits.bot()?;
+            bits.split_strings(at)?;
+            at
+        }
+        None => {
+            bits.bs()?;
+            usize::try_from(bits.rl()?).ok()?
+        }
+    };
+    bits.handle()?;
+    skip_extended_data(&mut bits)?;
+    let common = entity_data(&mut bits)?;
+    bits.seek(handles_at);
+    if common.entmode == 0 {
+        bits.handle()?;
+    }
+    for _ in 0..common.reactors {
+        bits.handle()?;
+    }
+    if common.xdic {
+        bits.handle()?;
+    }
+    if !common.no_links {
+        bits.handle()?;
+        bits.handle()?;
+    }
+    if common.color_handle {
+        bits.handle()?;
+    }
+    let start = bits.pos();
+    bits.handle()?;
+    let layer = start..bits.pos();
+    let ltype = if common.ltype_flags == 3 {
+        let start = bits.pos();
+        bits.handle()?;
+        Some(start..bits.pos())
+    } else {
+        None
+    };
+    Some(StyleHandles {
+        layer,
+        ltype,
+        color_handle: common.color_handle,
+    })
+}
+
+/// バージョン `release` の LAYER のレコードのデータ `data` の、線種のハンドルのビットの範囲（#723）。ハンドルの並びは、
+/// 所有者・リアクター・拡張辞書・外部参照のブロック・印刷スタイル・材質（R2010 から）・線種（[`table_record`] と同じ）。
+/// R2010 からは、`data` はハンドルのストリームの大きさ（MC）の後で、`handles_at` がハンドルのストリームの始まり
+pub(super) fn layer_line_type(
+    data: &[u8],
+    release: Release,
+    handles_at: Option<usize>,
+) -> Option<Range<usize>> {
+    let mut bits = Bits::with_release(data, release);
+    let handles_at = match handles_at {
+        Some(at) => {
+            bits.bot()?;
+            bits.split_strings(at)?;
+            at
+        }
+        None => {
+            bits.bs()?;
+            usize::try_from(bits.rl()?).ok()?
+        }
+    };
+    bits.handle()?;
+    skip_extended_data(&mut bits)?;
+    let reactors = u32::try_from(bits.bl()?).ok()?;
+    // R2004 からは、拡張辞書を持たないフラグ（B）がある
+    let xdic = release < Release::R2004 || !bits.bit()?;
+    bits.seek(handles_at);
+    bits.handle()?;
+    for _ in 0..reactors {
+        bits.handle()?;
+    }
+    if xdic {
+        bits.handle()?;
+    }
+    // 外部参照のブロックと印刷スタイル。R2010 からは材質も
+    let skipped = if release >= Release::R2010 { 3 } else { 2 };
+    for _ in 0..skipped {
+        bits.handle()?;
+    }
+    let start = bits.pos();
+    bits.handle()?;
+    Some(start..bits.pos())
+}
+
 /// R2000 の図形の、図形の並びをたどるのに要るもの（決定 0051）
 pub(super) struct Links {
     /// 前後の図形のハンドルを持たないことを表す B のビットの位置
@@ -1948,14 +2059,23 @@ fn table_record(bits: &mut Bits, type_code: u16, handles: &mut Vec<i16>) -> Opti
                 .fold(xdep, |sum, (_, dxf)| sum | dxf);
             values.push(int(70, dxf));
             // 表示しない画層は、DXF と同じく色を負にする
-            // 真の色は、図形と同じく 420 だけを置き、色見本帳の色なら名前（430）も置く
+            // 真の色は 420 に置き、色見本帳の色なら名前（430）も置く。真の色の番号（BS）は、AutoCAD では 0 で（ODS 5.4.1 の
+            // 2.11）、zumen が書いた画層は番号を持つ（#723）。DXF は真の色の画層にも 62 に近い番号を置くが、近さの決まりが
+            // 分からないので、番号が 1〜255 でない画層は、表示しないときだけ 62 に -7 を置き、表示しない状態を移す。
+            // 表示する画層に 7 を置くと、描くときに ACI 7 の前景の色になり、真の色を失うので置かない（#743）
             let (color, name) = bits.cmc_named()?;
+            let index = i64::from(color.index);
+            let hidden = flags & 2 != 0;
             match color.rgb {
-                Some(rgb) => values.push(int(420, i64::from(rgb))),
-                None => {
-                    let index = i64::from(color.index);
-                    values.push(int(62, if flags & 2 != 0 { -index } else { index }));
+                Some(_) if !(1..=255).contains(&index) => {
+                    if hidden {
+                        values.push(int(62, -7));
+                    }
                 }
+                _ => values.push(int(62, if hidden { -index } else { index })),
+            }
+            if let Some(rgb) = color.rgb {
+                values.push(int(420, i64::from(rgb)));
             }
             if let Some(name) = name {
                 values.push(text_value(430, &name));
@@ -4615,6 +4735,51 @@ mod tests {
             &mut handles,
         );
         (values, handles)
+    }
+
+    /// R2004 の LAYER の、色までのフィールド。名前は A、フラグは `flags`、色は番号 `index` と真の色 `rgb`（決め方の
+    /// 0xC2）。並びは [`table_record`] の読む順
+    fn layer_fields(flags: i16, index: i16, rgb: u32) -> Vec<u8> {
+        let mut w = BitWriter::default();
+        w.text(b"A").unwrap();
+        // 参照されるフラグ・外部参照の番号（R2010 より前）・外部参照に依るフラグ
+        w.bit(false);
+        w.bs(0);
+        w.bit(false);
+        w.bs(flags);
+        w.bs(index);
+        w.bl(i32::from_ne_bytes(((0xC2_u32 << 24) | rgb).to_ne_bytes()));
+        w.rc(0);
+        w.into_bytes()
+    }
+
+    fn color_of_layer(flags: i16, index: i16) -> Vec<(i16, i64)> {
+        let src = layer_fields(flags, index, 0x12_34_56);
+        let values = table_record(
+            &mut Bits::with_release(&src, Release::R2004),
+            LAYER,
+            &mut Vec::new(),
+        )
+        .unwrap();
+        values
+            .iter()
+            .filter(|value| matches!(value.code, 62 | 420))
+            .map(|value| match value.data {
+                Data::Int(int) => (value.code, int),
+                _ => (value.code, i64::MIN),
+            })
+            .collect()
+    }
+
+    /// 真の色の画層は、番号が 0（AutoCAD が書く）でも、表示しないなら 62 に -7 を置く。表示するなら 62 を置かず、
+    /// 描く色を真の色のままにする。番号を持つ画層（zumen が書いた画層）は、その番号を置く（#743）
+    #[test]
+    fn true_color_layers_keep_their_visibility() {
+        // 表示しない 2・印刷 16
+        assert_eq!(color_of_layer(2 | 16, 0), [(62, -7), (420, 0x12_34_56)]);
+        assert_eq!(color_of_layer(16, 0), [(420, 0x12_34_56)]);
+        assert_eq!(color_of_layer(2 | 16, 3), [(62, -3), (420, 0x12_34_56)]);
+        assert_eq!(color_of_layer(16, 3), [(62, 3), (420, 0x12_34_56)]);
     }
 
     /// R2000 の GROUP のフィールド。説明は空、フラグは 0 にし、終わりに図形の数を置く。並びは [`group`] の読む順

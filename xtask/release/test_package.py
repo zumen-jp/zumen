@@ -13,6 +13,7 @@ from unittest.mock import patch
 import licenses
 import package
 import sbom
+from test_linux_abi import elf_fixture
 
 
 def notice(directory, kind, target):
@@ -75,9 +76,10 @@ class PackageTests(unittest.TestCase):
                 target = package.target_for(rid)
                 built = root / "built"
                 built.mkdir()
-                library = b"synthetic library for packaging tests"
+                library = elf_fixture() if rid == "linux-x64" else b"synthetic library for packaging tests"
                 (built / target["library"]).write_bytes(library)
-                (built / target["exe"]).write_bytes(b"synthetic CLI for packaging tests")
+                executable = elf_fixture(executable=True) if rid == "linux-x64" else b"synthetic CLI for packaging tests"
+                (built / target["exe"]).write_bytes(executable)
                 notices = root / "licenses" / "native" / rid
                 info, abi = notice(notices / "abi", "abi", target["target"])
                 _, cli = notice(notices / "cli", "cli", target["target"])
@@ -127,6 +129,35 @@ class PackageTests(unittest.TestCase):
                                      str(library), "win_amd64", str(root / "out"), "--licenses", str(root / "notice")],
                                     capture_output=True)
             self.assertNotEqual(result.returncode, 0)
+            self.assertFalse((root / "out").exists())
+
+    def test_linux_libraries_and_cli_above_the_floor_are_not_packaged(self):
+        for rid, machine in (("linux-x64", 62), ("linux-arm64", 183)):
+            for newer in ("abi", "cli"):
+                with self.subTest(rid=rid, newer=newer), tempfile.TemporaryDirectory() as temporary:
+                    root = Path(temporary)
+                    target = package.target_for(rid)
+                    built = root / "built"
+                    built.mkdir()
+                    for kind, filename in (("abi", target["library"]), ("cli", target["exe"])):
+                        versions = ("GLIBC_2.34",) if kind == newer else ("GLIBC_2.28",)
+                        (built / filename).write_bytes(elf_fixture(versions, machine, executable=kind == "cli"))
+                        notice(root / "licenses" / "native" / rid / kind, kind, target["target"])
+                    with self.assertRaisesRegex(ValueError, "GLIBC_2.34"):
+                        package.package_native(rid, built, root, root / "out")
+                    self.assertFalse((root / "out").exists())
+
+    def test_standalone_linux_wheel_does_not_hide_a_newer_runtime_with_an_old_tag(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            library = root / "libzumen_abi1.so"
+            library.write_bytes(elf_fixture(("GLIBC_2.34",)))
+            notice(root / "notice", "abi", "x86_64-unknown-linux-gnu")
+            result = subprocess.run([sys.executable, str(licenses.ROOT / "bindings/python/build_wheel.py"),
+                                     str(library), "manylinux_2_28_x86_64", str(root / "out"),
+                                     "--licenses", str(root / "notice")], capture_output=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(b"GLIBC_2.34", result.stderr)
             self.assertFalse((root / "out").exists())
 
 

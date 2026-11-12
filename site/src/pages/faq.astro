@@ -1,15 +1,16 @@
 ---
+import RetainingWall from '../components/drawings/RetainingWall.astro';
 import FaqList from '../components/FaqList.astro';
-import PageHeader from '../components/PageHeader.astro';
 import { faqs } from '../data/site';
-import Base from '../layouts/Base.astro';
+import Page from '../layouts/Page.astro';
 ---
 
-<Base title="よくある質問" description="zumen について、よくいただく質問と答えです。">
-  <PageHeader title="よくある質問" />
+<Page description="zumen について、よくいただく質問と答えです。">
+  <RetainingWall slot="drawing" />
+
   <section class="section">
     <div class="wrap">
       <FaqList items={faqs} />
     </div>
   </section>
-</Base>
+</Page>

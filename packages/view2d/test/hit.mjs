@@ -38,6 +38,7 @@ function clipped(source, polygons) {
 
 /** 合成のシーンで、描画の形と可視領域に対する問い合わせを確かめる。 */
 export function testHit({ assert }) {
+  const largeStrokeRaster = testStrokeRoundoff(assert);
   const canvas = document.createElement("canvas");
   const viewer = new View2D(canvas, { width: 200, height: 200, pixelRatio: 2, pixelsPerMillimeter: 2 });
   const view = { center: { x: 0, y: 0 }, scale: 2, rotation: 0 };
@@ -250,4 +251,162 @@ export function testHit({ assert }) {
     assert(failed, "輪と境界の反復を問い合わせの作業量に数える");
     assert(limited.getState() === state && limitedCanvas.getContext("2d").getImageData(100, 100, 1, 1).data.join(",") === before, "作業量を超えた問い合わせは画面と状態を変えない");
   } finally { limited.destroy(); }
+  return largeStrokeRaster;
+}
+
+/** 元の f64 式ではなく、公開列の f32 から描いた短い stroke を問い合わせる。 */
+function testStrokeRoundoff(assert) {
+  const canvas = document.createElement("canvas"), reference = document.createElement("canvas").getContext("2d");
+  const viewer = new View2D(canvas, { width: 200, height: 200, pixelRatio: 1, pixelsPerMillimeter: 1 });
+  const query = (min_x, min_y, max_x, max_y) => viewer.hitTestRect({ min_x, min_y, max_x, max_y }).length;
+  const atPoint = (p) => query(p.x, p.y, p.x, p.y);
+  const set = (xy, weight = 0) => {
+    const source = line(xy); source.unit_weights = [weight];
+    const input = bundle(source); viewer.setScene(input);
+    const values = input.scene.columns.line_xy;
+    return [0, 2].map((i) => viewer.toScreen({ x: values[i], y: values[i + 1] }));
+  };
+  let largeStrokeRaster;
+  try {
+    const [a, b] = set([-16.5, -25, -16.739795684814453, -24.990083694458008]);
+    viewer.render();
+    assert(query(70, 70, 130, 130) === 1, "#806: 四隅の丸めで内部の短い線を落とさない");
+    assert(viewer.hitTest({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, 0).length === 1, "同じ短い線の中点も選べる");
+    assert(canvas.getContext("2d").getImageData(81, 123, 5, 5).data.some((v, i) => i % 4 !== 3 && v < 255), "最小再現の線は実際に描かれる");
+
+    const offset = line([0.25631603598594666, 0, 0.2564395070075989, 0.00023456788039766252]);
+    offset.chunk_origins = [100000, 50000]; offset.unit_weights = [0];
+    viewer.resize(960, 640, 1);
+    viewer.jumpTo({ center: { x: 100000.5001783967, y: 50000.04456172845 }, scale: 895.6804271318429, rotation: 0 });
+    viewer.setScene(bundle(offset));
+    assert(query(240, 160, 720, 480) === 1, "原点を分けて拡大した encoded f32 の単線も範囲から欠けない");
+    viewer.resize(200, 200, 1);
+
+    viewer.jumpTo({ center: { x: 0, y: 0 }, scale: 1, rotation: 0 });
+    const crossing = line([-1000, 200, 1000, -200]); crossing.unit_weights = [0];
+    viewer.setScene(bundle(clipped(crossing, [{ xy: square(0, -1, 2, 1) }])));
+    assert(query(90.5, 100.1, 110.5, 110.1) === 1, "矩形との交点から切り抜き内の斜線を選べる");
+    viewer.setScene(bundle(clipped(crossing, [{ xy: square(0, -1, 1, 1) }, { xy: square(1, -1, 2, 1) }])));
+    assert(query(90.5, 100.1, 110.5, 110.1) === 0, "交点が正確でも共通部分が辺だけの clip は選ばない");
+
+    for (const scale of [1000, 1000000, 1000000000, 1000000000000]) for (const pixelRatio of [1, 2]) {
+      viewer.resize(200, 200, pixelRatio);
+      for (const weight of [0, 2]) for (const rotation of [0, Math.PI / 6]) {
+        viewer.jumpTo({ center: { x: 0, y: 0 }, scale, rotation });
+        const [start, finish] = set([-2000, 2000, 2000, -2000], weight);
+        const dx = finish.x - start.x, dy = finish.y - start.y, length = Math.hypot(dx, dy);
+        const radius = Math.max(1 / pixelRatio, weight) / 2;
+        assert(viewer.hitTest({ x: 100, y: 100 }, 0).length === 1 && atPoint({ x: 100, y: 100 }) === 1 && query(70, 70, 130, 130) === 1,
+          "大きく拡大した長い斜線の中心と範囲を選べる");
+        for (const side of [-1, 1]) {
+          const p = (distance) => ({ x: 100 - side * dy / length * distance, y: 100 + side * dx / length * distance });
+          assert(viewer.hitTest(p(radius / 2), 0).length === 1 && atPoint(p(radius / 2)) === 1, "演算誤差で線幅の内側を消さない");
+          assert(viewer.hitTest(p(radius + 0.5), 0).length === 0 && atPoint(p(radius + 0.5)) === 0, "演算誤差を足して線幅の外側を拾わない");
+          assert(atPoint(p(radius - 0.000001)) === 1 && atPoint(p(radius + 0.000001)) === 0, "大拡大でも幅の縁の内外を微小な隙間で区別する");
+        }
+        if (scale === 1e12 && pixelRatio === 1 && weight === 0 && rotation === 0) {
+          largeStrokeRaster = compareLargeStrokeRaster(canvas, assert);
+        }
+      }
+    }
+
+    reference.lineCap = "butt"; reference.lineJoin = "round";
+    for (const pixelRatio of [1, 1.5, 2, 8]) for (const weight of [0, 0.125, 2]) {
+      viewer.resize(200, 200, pixelRatio);
+      const radius = Math.max(1 / pixelRatio, weight) / 2;
+      reference.lineWidth = radius * 2;
+      for (const length of [0.00001, 0.24, 1, 8, 64]) for (let angle = 0; angle < 12; angle++) {
+        for (const [x, y] of length === 64 ? [[100, 100]] : [[15.125, 25.75], [83.5, 125], [174.625, 169.25]]) {
+          viewer.jumpTo({ center: { x: 0, y: 0 }, scale: 1, rotation: angle * Math.PI / 6 });
+          viewer.panBy(x - 100, y - 100);
+          const [start, finish] = set([0, 0, length, 0], weight);
+          const dx = finish.x - start.x, dy = finish.y - start.y, size = Math.hypot(dx, dy), ux = dx / size, uy = dy / size;
+          const mid = { x: start.x + dx / 2, y: start.y + dy / 2 };
+          const side = { x: mid.x - uy * radius, y: mid.y + ux * radius };
+          const path = new Path2D(); path.moveTo(start.x, start.y); path.lineTo(finish.x, finish.y);
+          // Canvas 内部の座標の丸めで消える極小の線は、f32 列からの幾何だけを検査する。
+          assert((length < 0.001 || reference.isPointInStroke(path, mid.x, mid.y)) && viewer.hitTest(mid, 0).length === 1, "位置・角度・長さ・画素比・幅を変えても中点を選べる");
+          assert(query(Math.min(start.x, finish.x) - radius - 1, Math.min(start.y, finish.y) - radius - 1,
+            Math.max(start.x, finish.x) + radius + 1, Math.max(start.y, finish.y) + radius + 1) === 1, "短い stroke 全体を含む矩形で選べる");
+          assert(atPoint(start) === 1 && atPoint(side) === 1, "butt の端と幅の縁への接触を拾う");
+          const gap = 0.000001;
+          const beyond = { x: finish.x + ux * gap, y: finish.y + uy * gap };
+          assert(query(beyond.x - gap / 4, beyond.y - gap / 4, beyond.x + gap / 4, beyond.y + gap / 4) === 0 &&
+            atPoint({ x: mid.x - uy * (radius + gap), y: mid.y + ux * (radius + gap) }) === 0, "丸めの許容を端や幅の外側への選択距離にしない");
+        }
+      }
+    }
+
+    viewer.resize(200, 200, 1);
+    viewer.jumpTo({ center: { x: 100 - 0.000001, y: 100 - 1 }, scale: 1, rotation: 0 });
+    const [tinyA, tinyB] = set([0, 0, 0.00000001, 0], 2);
+    assert(atPoint({ x: tinyB.x + 0.000000001, y: tinyB.y }) === 0 && atPoint(tinyA) === 1, "原点に近い極短線へ線幅由来の端方向の許容を加えない");
+    viewer.jumpTo({ center: { x: 100 - 1, y: 100 - 0.000001 }, scale: 1, rotation: 0 });
+    const [verticalA, verticalB] = set([0, 0, 0, -0.00000001], 2);
+    assert(atPoint({ x: verticalB.x, y: verticalB.y + 0.000000001 }) === 0 && atPoint(verticalA) === 1, "軸を入れ替えても大きい他軸の誤差を端方向へ混ぜない");
+
+    viewer.jumpTo({ center: { x: 0, y: 0 }, scale: 1, rotation: 0 });
+    const short = line([-16.5, -25, -16.739795684814453, -24.990083694458008]); short.unit_weights = [0];
+    viewer.setScene(bundle(clipped(short, [{ xy: square(-17, -25.1, -16.4, -24.9) }])));
+    assert(query(70, 70, 130, 130) === 1, "短い線の一部が切り抜きに残れば選ぶ");
+    const horizontal = line([0, 0, 0.24, 0]); horizontal.unit_weights = [0];
+    viewer.setScene(bundle(clipped(horizontal, [{ xy: square(-1, 0.5, 1, 2) }])));
+    assert(query(90, 90, 110, 110) === 0, "stroke と clip が接するだけで可視領域がなければ選ばない");
+    viewer.setScene(bundle(clipped(horizontal, [{ xy: square(-1, 0.499999, 1, 2) }])));
+    assert(query(90, 90, 110, 110) === 1, "clip の内側に残る細い stroke を落とさない");
+    viewer.setScene(bundle(clipped(horizontal, [{ xy: square(-1, 0.500001, 1, 2) }])));
+    assert(query(90, 90, 110, 110) === 0, "clip の外側の隙間を丸めの許容で埋めない");
+    const dashed = line([-0.36, 0, -0.12, 0, 0.12, 0, 0.36, 0]);
+    dashed.line_vertices = [0, 2]; dashed.line_units = [0, 0]; dashed.unit_weights = [0];
+    viewer.setScene(bundle(dashed));
+    assert(query(99, 99, 101, 101) === 1 && query(99.95, 99, 100.05, 101) === 0, "別々の短い dash の間を線でつながない");
+    set([0, 0, 0, 0]); assert(query(90, 90, 110, 110) === 0, "ゼロ長の butt は引き続き描かれない");
+    const [ulpA, ulpB] = set([0, 0, 0.00000000000001, 0]);
+    assert(ulpA.x !== ulpB.x && atPoint(ulpA) === 1 && query(90, 90, 110, 110) === 1, "区別できる極短の水平線に最小長を設けない");
+
+    const many = line([]), count = 10000, strings = [], ids = [];
+    for (let i = 0; i < count; i++) {
+      const text = [...new TextEncoder().encode(`space/0/h${i}`)]; ids.push(strings.length, text.length); strings.push(...text);
+      const x = i % 100 * 0.5 - 25, y = Math.floor(i / 100) * 0.5 - 25, angle = i * 2.399963229728653;
+      many.line_xy.push(x, y, x + 0.24 * Math.cos(angle), y + 0.24 * Math.sin(angle));
+    }
+    many.strings = strings; many.entity_ids = ids; many.entity_kinds = Array(count).fill(V.entity_kind.line); many.entity_paths = Array(count).fill(0);
+    many.line_vertices = Array.from({ length: count }, (_, i) => i * 2); many.line_units = many.unit_entities = Array.from({ length: count }, (_, i) => i);
+    many.unit_colors = many.unit_weights = Array(count).fill(0); many.unit_clips = many.unit_layers = Array(count).fill(SCENE_NONE);
+    viewer.setScene(bundle(many));
+    const hits = viewer.hitTestRect({ min_x: 70, min_y: 70, max_x: 130, max_y: 130 });
+    assert(hits.length === count && new Set(hits.map(({ id }) => id)).size === count, "全体を十分含む矩形は encoded f32 の短線 10,000 本をすべて返す");
+  } finally { viewer.destroy(); }
+  return largeStrokeRaster;
+}
+
+/** 巨大パスの backend の制約（#812）と、選択の幾何の回帰を分ける。 */
+function compareLargeStrokeRaster(output, assert) {
+  // View2D のパス・投影・判定の関数を使わず、同じ端点を Canvas へ直接渡す。
+  const draw = (a, b) => {
+    const canvas = document.createElement("canvas"); canvas.width = canvas.height = 200;
+    const ctx = canvas.getContext("2d"); ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, 200, 200);
+    ctx.strokeStyle = "#000000"; ctx.lineWidth = 1; ctx.lineCap = "butt"; ctx.lineJoin = "round"; ctx.setLineDash([]);
+    const path = new Path2D(); path.moveTo(a.x, a.y); path.lineTo(b.x, b.y); ctx.stroke(path);
+    return ctx;
+  };
+  const direct = draw({ x: 100 - 2e15, y: 100 - 2e15 }, { x: 100 + 2e15, y: 100 + 2e15 });
+  const bounded = draw({ x: -100, y: -100 }, { x: 300, y: 300 });
+  const expected = bounded.getImageData(0, 0, 200, 200).data, actual = output.getContext("2d").getImageData(0, 0, 200, 200).data;
+  let sameMask = true;
+  for (let i = 0; i < expected.length; i += 4) if ((expected[i] !== 255) !== (actual[i] !== 255)) sameMask = false;
+  const boundedCenter = Array.from(bounded.getImageData(100, 100, 1, 1).data), boundedPixels = bounded.getImageData(0, 0, 200, 200).data;
+  let ink = 0, boundedInk = 0;
+  for (let i = 0; i < actual.length; i += 4) {
+    if (actual[i] !== 255 || actual[i + 1] !== 255 || actual[i + 2] !== 255) ink++;
+    if (boundedPixels[i] !== 255 || boundedPixels[i + 1] !== 255 || boundedPixels[i + 2] !== 255) boundedInk++;
+  }
+  const observation = { canvasCenter: Array.from(direct.getImageData(100, 100, 1, 1).data),
+    viewerCenter: Array.from(output.getContext("2d").getImageData(100, 100, 1, 1).data), boundedCenter, ink, boundedInk };
+  assert(sameMask && ink > 0 && observation.viewerCenter.slice(0, 3).some((value) => value < 255),
+    `巨大な線は中心を含めて描かれ、近傍の独立 Canvas と非白の画素が一致する: ${JSON.stringify(observation)}`);
+  assert(boundedCenter.slice(0, 3).some((value) => value < 255) && boundedInk > 0,
+    `画面近傍の端点で描く同じ直線は中心を含めて描かれる: ${JSON.stringify(observation)}`);
+  // 巨大な生のパス自体の browser/backend の違いは、製品の実描画とは別に記録する。
+  return observation;
 }

@@ -1,5 +1,5 @@
 {
-  "description": "apply は、entities が返す ID とハッシュで要素を指す変更の一覧を、開いた DXF に当てて書き戻す。変更ごとに書き戻した後の ID とハッシュを返し、文書を書き戻したものに替え、書き戻したファイルを blobs で返す。読み直した要素は、apply が返したものと同じになる。読んだときのハッシュが今と違う変更・形の合わない値・まだ書き戻せない形式は、何も変えずに失敗する（決定 0139・0156）。replace と add は、形の値（geometry）で要素の形を置き換え、空間か用紙に要素を足す（決定 0139）。tables は、レイヤと線種の表の項目を ID・名前・ハッシュで返す（決定 0156）",
+  "description": "apply は、entities が返す ID とハッシュで要素を指す変更の一覧を、開いた DXF に当てて書き戻す。変更ごとに書き戻した後の ID とハッシュを返し、文書を書き戻したものに替え、書き戻したファイルを blobs で返す。読み直した要素は、apply が返したものと同じになる。読んだときのハッシュが今と違う変更・形の合わない値・まだ書き戻せない形式は、何も変えずに失敗する（決定 0139・0156）。replace と add は、形の値（geometry）で要素の形を置き換え、空間か用紙に要素を足す（決定 0139）。tables は、レイヤと線種の表の項目を ID・名前・ハッシュで返す（決定 0156）。JWW はレイヤに従う色と線種を持たないので、add で色と線種を書く。書かない線幅は、ペンの印刷の幅に従う（#702）",
   "steps": [
     {
       "push": {
@@ -603,6 +603,26 @@
       }
     },
     {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "doc": "b.sfc",
+        "edits": [
+          { "kind": "add", "place": "sheet/0", "layer": "L", "color": {"sxf": 1}, "line_type": {"id": "line-type/1"}, "geometry": {"shape": "line", "start": [0, 0], "end": [10, 20]} }
+        ]
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "change.style.unsupported",
+        "/diagnostics/0/params/field": "line_weight",
+        "/diagnostics/0/params/format": "SFC",
+        "/blobs": []
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
       "push": {
         "name": "c.p21",
         "text": "ISO-10303-21;\nHEADER;\nFILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));\nENDSEC;\nDATA;\n#1=CARTESIAN_POINT(' ',(0.,0.));\n#2=CARTESIAN_POINT(' ',(10.,0.));\n#3=POLYLINE(' ',(#1,#2));\n#4=DRAUGHTING_PRE_DEFINED_COLOUR('red');\n#5=DRAUGHTING_PRE_DEFINED_CURVE_FONT('continuous');\n#6=CURVE_STYLE(' ',#5,POSITIVE_LENGTH_MEASURE(0.25),#4);\n#7=PRESENTATION_STYLE_ASSIGNMENT((#6));\n#8=ANNOTATION_CURVE_OCCURRENCE(' ',(#7),#3);\n#9=PRESENTATION_LAYER_ASSIGNMENT('A',' ',(#8));\n#10=DRAWING_SHEET_REVISION('A3_horizontal',(#8),' ',' ');\nENDSEC;\nEND-ISO-10303-21;\n"
@@ -635,6 +655,26 @@
       "expect": {
         "/result/applied/0/id": "sheet/0/i8"
       }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "doc": "c.p21",
+        "edits": [
+          { "kind": "add", "place": "sheet/0", "layer": "A", "geometry": {"shape": "line", "start": [0, 0], "end": [10, 20]} }
+        ]
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "change.style.unsupported",
+        "/diagnostics/0/params/field": "color",
+        "/diagnostics/0/params/format": "P21",
+        "/blobs": []
+      },
+      "absent": [
+        "/result"
+      ]
     },
     {
       "push": {
@@ -671,6 +711,67 @@
       },
       "absent": [
         "/result/ids_shifted"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "doc": "d.jww",
+        "edits": [
+          { "kind": "add", "place": "space/0", "layer": "0-0", "color": {"jww": 2}, "line_type": {"id": "line-type/1"}, "geometry": {"shape": "line", "start": [0, 0], "end": [10, 20]} },
+          { "kind": "add", "place": "space/0", "layer": "0-0", "color": {"jww": 2}, "line_type": {"id": "line-type/1"}, "geometry": {"shape": "circle", "center": [5, 5], "radius": 3} },
+          { "kind": "add", "place": "space/0", "layer": "0-0", "color": {"jww": 2}, "line_type": {"id": "line-type/1"}, "geometry": {"shape": "arc", "center": [-5, 0], "radius": 4, "start_angle": 0, "end_angle": 90} }
+        ]
+      },
+      "expect": {
+        "/result/applied/0/id": "space/0/r2",
+        "/result/applied/2/id": "space/0/r4",
+        "/blobs/0/kind": "file",
+        "/diagnostics": []
+      },
+      "absent": [
+        "/result/ids_shifted"
+      ]
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "d.jww",
+        "fields": ["id", "layer", "geometry"]
+      },
+      "expect": {
+        "/result/total": 4,
+        "/result/items/0/id": "space/0/r1",
+        "/result/items/1/layer": "0-0",
+        "/result/items/2/layer": "0-0",
+        "/result/items/3/layer": "0-0",
+        "/result/items/1/geometry": {"shape": "line", "start": [0, 0], "end": [10, 20]},
+        "/result/items/2/geometry": {"shape": "circle", "center": [5, 5], "radius": 3},
+        "/result/items/3/geometry": {"shape": "arc", "center": [-5, 0], "radius": 4, "start_angle": 0, "end_angle": 90}
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "doc": "d.jww",
+        "edits": [
+          { "kind": "add", "place": "space/0", "layer": "0-0", "color": {"jww": 2}, "geometry": {"shape": "line", "start": [0, 0], "end": [10, 20]} }
+        ]
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "change.style.unsupported",
+        "/diagnostics/0/params/field": "line_type",
+        "/blobs": []
+      },
+      "absent": [
+        "/result"
       ]
     }
   ]

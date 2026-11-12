@@ -28,7 +28,6 @@ evidence = [
 ]
 place = "core"
 basis = ["spec"]
-decisions = ["0007", "0010", "0272", "0275", "0277"]
 docs = ["docs/formats/png.md"]
 issues = ["zumen-jp/zumen#604"]
 
@@ -60,7 +59,6 @@ evidence = [
 ]
 place = "core"
 basis = ["spec"]
-decisions = ["0007", "0010", "0172", "0188", "0272"]
 docs = ["docs/formats/svg.md"]
 issues = ["zumen-jp/zumen#602", "zumen-jp/zumen#603", "zumen-jp/zumen#604"]
 
@@ -115,11 +113,11 @@ checked = "2026-10-24"
 [specs.iso_32000_2_2020]
 title = "ISO 32000-2:2020（PDF 2.0）"
 publisher = "ISO"
-version = "2020"
+version = "第 2 版（2020-12）。2026 年の見直しで確認され、今も有効"
 access = "public"
 url = "https://pdfa.org/sponsored-standards/"
-checked = "2026-10-24"
-note = "PDF Association が、後援の企業の費用で無償で配っている。ISO からは買う"
+checked = "2026-11-09"
+note = "PDF Association が、Adobe・Apryse・Foxit の後援で、無償で配っている（pdfa-inc.org の店の 0 ドルの手続きで受け取る。Errata Collection 3 を含む版と、ISO/TS 32001〜32005、PDF Association の文書の束）。ISO からは買う。店の EULA は、ダウンロードかアクセスで同意したとし、個人の、1 台のコンピューターでだけ使えるライセンスで、ネットワークでの使用と、結合・翻案・翻訳・改変を禁じる。AI を名指しする条項はない。中身は ISO の出版物で、ISO の利用許諾（End Customer Licence Agreement、2026-05-29 の改定）の 7(b) は、別の許諾がなければ、出版物を AI・機械学習のために読み・使い・処理することを禁じる。無償版に ISO の利用許諾が当たるかと、手続きの画面のほかの条件、PDF の表紙の注記は確かめていない。エージェントは、利用者が条件を確かめて決めるまで本文を読まない（zumen-jp/zumen#674・zumen-jp/zumen#677）。ISO の出版物なので、ISO の OBP のプレビューも読まない（zumen-jp/zumen#677）。書誌の事実は、2026-11-09 に www.iso.org のページで確かめた"
 
 [specs.ifc_4_3_2]
 title = "IFC 4.3.2 Documentation"
@@ -162,7 +160,7 @@ version = "第 2 版（2004-11）。2025 年の見直しで確認され、今も
 access = "paid"
 url = "https://www.iso.org/standard/38047.html"
 checked = "2026-11-09"
-note = "ISO が PDF と冊子で売る（CHF 227）。販売のページに、実装を制限する記述はない。ISO のサイトに共通の注記は、ISO Open data のものを除き、ISO の内容を機械学習・AI に使うこと（モデルの学習と、AI のツールに入れて応答を作らせること）を禁じ、出版物の使用と複製に書面の許諾が要るとする。本文は買わず、読まない（zumen-jp/zumen#529）。この項の書誌の事実と注記の中身は、2026-11-09 にエージェントが AI のツールで ISO のページを読んで得た（作った側が www.iso.org をブラウザーの拡張で、zumen-jp/zumen#666 の確かめる側が committee.iso.org を取得のツールで。www.iso.org は自動の取得を拒む）。エージェントが ISO のページを読むことの扱いは zumen-jp/zumen#669 で決め、読まないと決まれば、この項も #669 の判断に従って直す"
+note = "ISO が PDF と冊子で売る（CHF 227）。販売のページに、実装を制限する記述はない。ISO の利用許諾（End Customer Licence Agreement、2026-05-29 の改定）は、出版物（一部を含む）へのアクセスでも同意したとし、7(b) で、別の許諾がなければ、出版物を AI・機械学習のために読み・使い・処理することを禁じる。法定のテキスト・データマイニングの例外（EU の指令 2019/790 の 4 条など）にも頼れないとする。そのため、本文は買わず（買えば利用許諾に同意する）、OBP のプレビューも読まない（zumen-jp/zumen#529・zumen-jp/zumen#677）。ISO のサイトの注記（ページの下の折りたたまれた部分）は、使う者が ISO の著作権の条件を受け入れることを前提とし、ISO Open data のものを除き、ISO の内容を機械学習・AI に使うこと（モデルの学習と、AI のツールに応答を作らせるためのアクセスと使用）を禁じ、出版物の使用と複製に書面の許諾が要るとする。販売のページなどのサイトのページは、formats/README.md の「資料を読む条件」（zumen-jp/zumen#677）のとおり、この注記によらず読む。書誌の事実は、2026-11-09 に www.iso.org のページで確かめた"
 
 [specs.iso_10303_21_2016]
 title = "ISO 10303-21:2016 Industrial automation systems and integration — Product data representation and exchange — Part 21: Implementation methods: Clear text encoding of the exchange structure"
@@ -171,7 +169,7 @@ version = "第 3 版（2016-03）。2022 年の見直しで確認され、今も
 access = "paid"
 url = "https://www.iso.org/standard/63141.html"
 checked = "2026-11-10"
-note = "交換構造（STEP のファイル）の書き方。zumen-step が字句を読み書きし、SXF の SFC・P21 と IFC の IFC-SPF の土台にする（決定 0120・0207）。ISO が売る（販売のページの形式は HTML だけで、CHF 44）。ISO の無償の規格の一覧（standards.iso.org/ittf）は閉じ、無償のものは ISO の店で 0 の価格で配るとするが、この規格は有償。販売のページに、実装を制限する記述はない。ISO の利用許諾（End Customer Licence Agreement）は、出版物（一部を含む）へのアクセスでも同意したとし、7(b) で AI・機械学習のために読むことを禁じるので、本文は買わず、プレビュー（Read sample）を含めて読まない（決定 0287）。ページの下の注記は、iso_10303_11_2004 の項と同じ。読む元は、学習済みの知識、SXF の仕様書（STEP AP202 サブセット編・SFC 編）と IFC の文書（IFC-SPF の説明）、寛容なライセンスの実装。zumen-step を作ったときに何を読んだかの記録はない。SXF と IFC の形式の項の specs には入れない。両形式の権利は、それぞれの仕様で判断していて、この項を足しても変えない（zumen-jp/zumen#675）。書誌の事実と注記は、2026-11-10 に www.iso.org のページを利用者のブラウザーの拡張で開いて確かめた"
+note = "交換構造（STEP のファイル）の書き方。zumen-step が字句を読み書きし、SXF の SFC・P21 と IFC の IFC-SPF の土台にする（docs/formats/sxf.md・docs/formats/ifc.md）。ISO が売る（販売のページの形式は HTML だけで、CHF 44）。ISO の無償の規格の一覧（standards.iso.org/ittf）は閉じ、無償のものは ISO の店で 0 の価格で配るとするが、この規格は有償。販売のページに、実装を制限する記述はない。ISO の利用許諾（End Customer Licence Agreement）は、出版物（一部を含む）へのアクセスでも同意したとし、7(b) で AI・機械学習のために読むことを禁じるので、本文は買わず、プレビュー（Read sample）を含めて読まない（zumen-jp/zumen#677）。ページの下の注記は、iso_10303_11_2004 の項と同じ。読む元は、学習済みの知識、SXF の仕様書（STEP AP202 サブセット編・SFC 編）と IFC の文書（IFC-SPF の説明）、寛容なライセンスの実装。zumen-step を作ったときに何を読んだかの記録はない。SXF と IFC の形式の項の specs には入れない。両形式の権利は、それぞれの仕様で判断していて、この項を足しても変えない（zumen-jp/zumen#675）。書誌の事実と注記は、2026-11-10 に www.iso.org のページを利用者のブラウザーの拡張で開いて確かめた"
 
 [specs.ids_1_0]
 title = "Information Delivery Specification（IDS）"
@@ -224,7 +222,7 @@ version = "Ver. 10.00（2024-03 更新）"
 access = "members"
 url = "https://www.cedxm.com/"
 checked = "2026-11-10"
-note = "入会案内のページは、最新版のダウンロードを会員の特典とし、非会員には配らないとする。入会は法人が主で、入会申込書を出し、入会金と年会費（それぞれ 8 万円）を払う。会員の条件（定款・会則など）は公開のページに見当たらず、入会でその条件に同意するかと、その条件が AI での利用を禁じるかは確かめられない。そのため、エージェントは本文を読まない（決定 0287）。形式は place = none で、入手もしていない（zumen-jp/zumen#675）"
+note = "入会案内のページは、最新版のダウンロードを会員の特典とし、非会員には配らないとする。入会は法人が主で、入会申込書を出し、入会金と年会費（それぞれ 8 万円）を払う。会員の条件（定款・会則など）は公開のページに見当たらず、入会でその条件に同意するかと、その条件が AI での利用を禁じるかは確かめられない。そのため、エージェントは本文を読まない（zumen-jp/zumen#677）。形式は place = none で、入手もしていない（zumen-jp/zumen#675）"
 
 [specs.bebridge_6_1]
 title = "設備 CAD データ交換仕様 BE-Bridge"
@@ -410,7 +408,7 @@ version = "09/92"
 access = "paid"
 url = "https://www.itu.int/rec/T-REC-T.81"
 checked = "2026-11-10"
-note = "ITU のページは、ISO・IEC との共同の文書（ISO/IEC 10918-1 と同じ）で、取り決めにより有償でだけ配る（sales@itu.int に問い合わせる）とする。無償で配る ITU-T の勧告には当たらない。訂正 1（2004-01）も有効。ITU のサイトの著作権のページは、複製に許諾が要るとするが、AI での利用を名指しする記述はない。買うときの条件は公開のページに見当たらず、AI での利用を禁じるかは確かめられないので、エージェントは本文を読まない（決定 0287、zumen-jp/zumen#675）。JPEG の展開は寛容なライセンスの crate に任せ、zumen は Exif と XMP のセグメントだけを読むので、本文は要らない"
+note = "ITU のページは、ISO・IEC との共同の文書（ISO/IEC 10918-1 と同じ）で、取り決めにより有償でだけ配る（sales@itu.int に問い合わせる）とする。無償で配る ITU-T の勧告には当たらない。訂正 1（2004-01）も有効。ITU のサイトの著作権のページは、複製に許諾が要るとするが、AI での利用を名指しする記述はない。買うときの条件は公開のページに見当たらず、AI での利用を禁じるかは確かめられないので、エージェントは本文を読まない（zumen-jp/zumen#675・zumen-jp/zumen#677）。JPEG の展開は寛容なライセンスの crate に任せ、zumen は Exif と XMP のセグメントだけを読むので、本文は要らない"
 
 [specs.exif_3_1]
 title = "CIPA DC-008 Exchangeable image file format for digital still cameras: Exif"
@@ -453,7 +451,7 @@ version = "Ver.1.1（版の日付は確かめられない）"
 access = "members"
 url = "https://www.jcomsia.org/kokuban"
 checked = "2026-11-10"
-note = "公開の文書は見つからない。協会が検定を受けるソフトの作り手に出すものとみられる（推定）。入会案内のページは、入会に定款 6 条による入会申込書と誓約書兼同意書の提出と理事会の承認が要り、部会（年 10 万円）に参加すると部会の成果物を使えるとする（年会費は 10 万円）。誓約書兼同意書は開いておらず、成果物の利用の条件も公開のページに見当たらないので、AI での利用を禁じるかは確かめられない。そのため、エージェントは本文を読まない（決定 0287）。形式は place = none で、入手もしていない（zumen-jp/zumen#675）"
+note = "公開の文書は見つからない。協会が検定を受けるソフトの作り手に出すものとみられる（推定）。入会案内のページは、入会に定款 6 条による入会申込書と誓約書兼同意書の提出と理事会の承認が要り、部会（年 10 万円）に参加すると部会の成果物を使えるとする（年会費は 10 万円）。誓約書兼同意書は開いておらず、成果物の利用の条件も公開のページに見当たらないので、AI での利用を禁じるかは確かめられない。そのため、エージェントは本文を読まない（zumen-jp/zumen#677）。形式は place = none で、入手もしていない（zumen-jp/zumen#675）"
 
 # 形式。キーは英小文字と数字だけにする。
 
@@ -469,7 +467,6 @@ basis = ["spec", "inferred", "reference"]
 references = [{ name = "ezsxf", license = "MIT", url = "https://github.com/monozukuri-ai/ezsxf" }]
 verify = ["Jw_cad", "SXF ブラウザ"]
 samples = ["ezsxf のリポジトリにある公開の図面"]
-decisions = ["0008", "0120", "0121", "0122", "0123", "0124", "0125", "0126", "0127", "0128", "0129", "0130", "0131", "0132", "0249"]
 docs = ["docs/formats/sxf.md"]
 issues = ["zumen-jp/zumen#385"]
 
@@ -503,7 +500,6 @@ basis = ["spec", "reference"]
 references = [{ name = "ezjww", license = "MIT", url = "https://github.com/monozukuri-ai/ezjww" }]
 verify = ["Jw_cad"]
 samples = ["Jw_cad に付くサンプル", "ezjww のリポジトリにある図面"]
-decisions = ["0008", "0133", "0134", "0135", "0136"]
 docs = ["docs/formats/jww.md"]
 
 [formats.jww.read]
@@ -514,9 +510,9 @@ checked = "2026-11-03"
 
 [formats.jww.write]
 level = "external"
-scope = "テストの中で作った JWW と受け取った図面に書き戻し、自前の読み取りで読み直して、変えた要素が求めた値になることを確かめた。毎晩の CI で、テストの中で作った JWW に点を足して書き戻したファイルを ezjww 0.7.6 で読み、変更で決めた形・レイヤ・ペンの番号が、ezjww の読んだ値と合うことを確かめる（xtask/verify、#528）。外部の実装と照らしたのは点の書き戻しだけで、ほかの変更を書き戻したファイルは、自前の読み取りで読み直しただけ。書いたファイルを Jw_cad で開いてはいない（#342・#503）"
+scope = "テストの中で作った JWW と受け取った図面に書き戻し、自前の読み取りで読み直して、変えた要素が求めた値になることを確かめた。毎晩の CI で、テストの中で作った JWW に点・線分・円・円弧を足して書き戻したファイルを ezjww 0.7.6 で読み、変更で決めた形・レイヤ・ペンの番号が、ezjww の読んだ値と合うことを確かめる（xtask/verify、#528・#702）。外部の実装と照らしたのは追加の書き戻しだけで、ほかの変更を書き戻したファイルは、自前の読み取りで読み直しただけ。書いたファイルを Jw_cad で開いてはいない（#342・#503）"
 implementations = [{ name = "ezjww", version = "0.7.6" }]
-checked = "2026-11-03"
+checked = "2026-11-10"
 
 [formats.jwc]
 name = "JWC（Jw_cad for DOS の図面）"
@@ -530,7 +526,6 @@ basis = ["inferred", "reference"]
 references = [{ name = "ezjww", license = "MIT", url = "https://github.com/monozukuri-ai/ezjww" }]
 verify = ["Jw_cad"]
 samples = ["Jw_cad 10 で保存したファイル"]
-decisions = ["0008"]
 
 [formats.jws]
 name = "JWS（Jw_cad の図形）"
@@ -544,7 +539,6 @@ basis = ["inferred", "reference"]
 references = [{ name = "ezjww", license = "MIT", url = "https://github.com/monozukuri-ai/ezjww" }]
 verify = ["Jw_cad"]
 samples = ["Jw_cad 10 で登録した図形"]
-decisions = ["0008"]
 notes = "掲示板の説明: https://www.jwcad.net/log/consult2/consult2-0610-12/thread17752.htm"
 
 [formats.dxf]
@@ -559,7 +553,6 @@ basis = ["spec", "inferred", "reference"]
 references = [{ name = "ezdxf", license = "MIT", url = "https://ezdxf.mozman.at/" }]
 verify = ["ezdxf", "ODA File Converter", "DWG TrueView"]
 samples = ["公開サンプルの DXF（samples/dxf・samples/dwg）。ezdxf の例は MIT、zumen-jp が AutoCAD 2027 で作った図面は CC0 1.0。出所とライセンスは samples/ledger.toml", "ACadSharp のテストの図面（MIT）", "ezdwg のテストの図面（MIT）", "自治体などが公開する図面。再配布できるかは確かめていない"]
-decisions = ["0008"]
 docs = ["docs/formats/dxf.md"]
 
 [formats.dxf.read]
@@ -592,7 +585,6 @@ references = [
 ]
 verify = ["ODA File Converter", "DWG TrueView"]
 samples = ["公開サンプルの DWG（samples/dwg）。zumen-jp が AutoCAD 2027 で作った図面で、CC0 1.0。同じ図面を AutoCAD で書いた DXF と比べる。出所とライセンスは samples/ledger.toml", "ACadSharp のテストの図面（MIT）。同じ図面を DXF にしたものと比べる", "ezdwg のテストの図面（MIT）"]
-decisions = ["0008"]
 legacy-decisions = ["0003"]
 docs = ["docs/formats/dwg.md"]
 
@@ -617,15 +609,15 @@ family = "pdf"
 domains = ["drawing"]
 specs = ["iso_32000_2_2020"]
 rights = "public"
-rights-note = "ISO の規格で、PDF Association が無償で配っている。実装を制限する記述はない"
+rights-note = "ISO の規格で、PDF Association が無償で配っている。配るページと店の EULA に、実装を制限する記述はない。ISO の利用許諾（ECLA）は、4 節で、組み込み・デジタルの統合・派生物を作る権利を許す使い方に含めず、6(b) で、出版物をソフトウェア・データモデル・AI のツールなどに統合・符号化・構造化・運用化することに別の許諾を求める。無償版に ECLA が当たるか、当たるなら仕様に従って形式を実装して公開することがこれに当たるかは分からない（言葉の範囲は広い）。formats/README.md の権利の定義どおりなら unknown になりうるが、zumen-jp/zumen#674 で無償版の条件（ECLA が当たるか）が分かるまで public のままにするのは、利用者の判断による（zumen-jp/zumen#677）。分かったら、権利の定義に照らして rights を見直す。エージェントは、それまで本文を読まない"
 place = "core"
 basis = ["spec"]
 verify = ["pdf.js"]
 samples = ["PDFium の公開サンプル（Type 3・OCG・ソフトマスク・LZW と JPX）。CAD が出力した図面はまだない"]
-decisions = ["0008", "0013", "0256"]
 legacy-decisions = ["0020", "0030"]
 docs = ["docs/formats/pdf.md"]
-notes = "ページの解釈は hayro-interpret 0.9.0（Apache-2.0 OR MIT）に任せ、バージョンを固定する（決定 0256）"
+issues = ["zumen-jp/zumen#674"]
+notes = "ページの解釈は hayro-interpret 0.9.0（Apache-2.0 OR MIT）に任せ、バージョンを固定する（決定 0256）。zumen-pdf は crates.io に出さず、どのパッケージにも入れない（決定 0289）"
 
 [formats.pdf.read]
 level = "external"
@@ -642,8 +634,20 @@ checked = "2026-11-03"
 [[formats.pdf.evidence]]
 title = "PDF Association の告知「ISO 32000-2（PDF 2.0）を無償で入手できる」（2023-04-05）"
 url = "https://pdfa.org/announcing-no-cost-access-to-iso-32000-2-pdf-2-0/"
-checked = "2026-11-03"
-note = "Adobe・Apryse・Foxit の後援で、PDF Association が登録した人に無償で配る。ページは自動の取得では開けない（HTTP 403）ので、検索の結果の要約で確かめた。無償版の利用の条件までは確かめていない"
+checked = "2026-11-09"
+note = "Adobe・Apryse・Foxit の後援で、PDF Association が店の 0 ドルの手続きで配る。自動の取得は拒まれるので、2026-11-09 にブラウザーの拡張で開いて確かめた。配るページと告知に、利用の条件は書かれていない。店の条件は EULA にある（手続きの画面のほかの条件と PDF の表紙の注記は確かめていない）"
+
+[[formats.pdf.evidence]]
+title = "PDF Association の店の End User License Agreement"
+url = "https://www.pdfa-inc.org/eula/"
+checked = "2026-11-09"
+note = "ANSI の推奨の文に基づく。ダウンロードかアクセスで同意したとする。個人の、非独占の、譲渡できないライセンスで、1 台のコンピューターでだけ使え、複数のコンピューターやネットワークでの使用を許さない。結合・翻案・翻訳・改変を禁じ、権利は表紙に書かれた著作権者が持つとする。AI・機械学習を名指しする条項と、実装を制限する条項はない。手続きの画面のほかの条件と PDF の表紙の注記は確かめていない（zumen-jp/zumen#674）"
+
+[[formats.pdf.evidence]]
+title = "ISO の Licence Agreement（2026-05-29 の改定）"
+url = "https://www.iso.org/terms-conditions-licence-agreement.html"
+checked = "2026-11-09"
+note = "出版物の使用は End Customer Licence Agreement に従い、出版物（一部を含む）へのアクセス・ダウンロード・使用でも同意したとする。4 節は、許す使い方に、読み・参照することと、中身を社内の業務・製品・サービスで理解・評価・適用することを含めるとし、別の許諾がなければ、複製・配布・翻案・組み込み・デジタルの統合・派生物を作る権利は含まない。6(b) は、出版物をソフトウェア・データモデル・AI のツールなどに統合・埋め込み・符号化・構造化・変換・運用化することに、別の許諾を求める。7(b) は、別の許諾がなければ、出版物を AI・機械学習のために読み・使い・処理することを禁じ、法定のテキスト・データマイニングの例外にも頼れないとする。無償版に当たるかは確かめていない（zumen-jp/zumen#674）"
 
 [formats.ifc]
 name = "IFC"
@@ -656,16 +660,15 @@ place = "core"
 basis = ["spec"]
 verify = ["IfcOpenShell（依存にせず、毎晩の CI で別に入れて使う）"]
 samples = ["公開サンプルの IFC 12 件（samples/ifc。林野庁・中野区・GNI BIM Dataset・BIM Whale・Text2BIM。出所とライセンスは samples/ledger.toml、#412）", "許諾の要る国内の BIM ソフトの書き出しは #513 で足す（zumen-jp/zumen-legacy#128）"]
-decisions = ["0008", "0207", "0211", "0244"]
 legacy-decisions = ["0028"]
 docs = ["docs/formats/ifc.md"]
 
 [formats.ifc.read]
 level = "external"
-scope = "公開サンプルの IFC 12 件（samples/ifc）を建物モデルに写し、毎晩の CI で IfcOpenShell が同じファイルから読んだ値と照らす。照らすのは、実体のクラス・GlobalId・名前・所属の先と型・プロジェクトの空間への変換・開口・プロパティと数量の値（crates/zumen-ifc/tests/ifcopenshell/samples.py、#412・#512）。手元の照合では、12 件とも食い違いは 0。判定・インスタンスのグラフ・壊れた所の扱いと、写さない値は、外部の実装と照らしていない。公開サンプル 12 件は、自前のテストでも L1 で読み、変えずに書くと元のバイト列に戻ることと、写さない値の診断の code・実体のクラス・件数を確かめる（crates/zumen-ifc/tests/samples.rs）。壊れた所の扱いと ifcZIP は、仕様とテストの中で作った IFC-SPF と ifcZIP（crates/zumen-ifc/tests）だけで確かめた。許諾の要る国内の BIM ソフトの書き出しは #513 で足す"
+scope = "公開サンプルの IFC 12 件（samples/ifc）を建物モデルに写し、毎晩の CI で IfcOpenShell が同じファイルから読んだ値と照らす。照らすのは、実体のクラス・GlobalId・名前・所属の先と型・プロジェクトの空間への変換・開口・プロパティと数量の値（crates/zumen-ifc/tests/ifcopenshell/samples.py、#412・#512）。手元の照合では、12 件とも食い違いは 0。必要時の曲線の getter は、合成の IFC2X3 の 9 曲線・IFC4 と IFC4X3 の各 10 曲線、公開サンプル gni/model_9 の 1 曲線で、元の属性の座標・方向の比・半径・ベクトルの大きさ・添字・区間の向き・切る位置を IfcOpenShell と照らし、食い違いは 0（crates/zumen-ifc/tests/ifcopenshell/curves.py、#419）。公開サンプルの IndexedPolyCurve 1 件を読みの external とし、自作した 29 件は synthetic の範囲で外部の実装とも照合したものとする。単位・診断・予算・幾何の評価は、この外部の曲線の照合には含めない。要素から形状表現・共有写像元をたどる L1 の getter は、合成 3 版の各 9 項目と補助レコード各 8 件、公開サンプルの柱の 6 項目と補助レコード 16 件で、参照と元の配置・写像の属性、曲線の点を IfcOpenShell と照らした（product_shapes.py、#419）。公開の表現と写像は external、合成は synthetic の範囲で外部の実装とも照合したものとする。配置・写像・単位の適用と立体・断面の型への変換はしていない。既存の形の葉から押し出し・閉じた断面・外輪を取得する経路は、合成各版 2 件と公開の柱 1 件、計 7 件で、未適用の深さ・方向・配置と断面の名前・参照・外輪、SI 単位の名前・接頭辞を IfcOpenShell と照らし、食い違いは 0（extrusions.py、#419）。公開 1 件は external、合成 6 件は synthetic とする。配置・写像・単位の適用や自己交差・面積・形の評価、ほかの立体・断面の対応を検証した結果ではない。形の項目に直接付く面の表示は、合成各版 2 件と公開の柱 1 件、計 7 件で、色・透明度・Rendering の全属性と出所の参照を IfcOpenShell と照らし、食い違いは 0（styles.py、#419）。公開 1 件は external、合成 6 件は synthetic とする。表示・材質・レイヤ・写像による継承と反射の式は評価しない。診断と全 Kind の予算使用量はネイティブと WASI のバイト列を比較する。Building の Style 成分と形の意味値の Hash は未実装。通り芯から U/V/W 軸と曲線を取得する経路は、合成 3 Grid の 20 軸・26 曲線と公開 1 Grid の 21 軸・21 曲線で、配置と表現の参照・レイアウト・所属と順序・タグ・SameSense・曲線の元属性と共有を IfcOpenShell と照らし、食い違いは 0（grids.py、#419）。公開 1 Grid は external、合成 3 Grid は synthetic とする。単位・補助レコード・診断・予算と、配置・反転・幾何の評価は外部照合に含めない。各軸の CurveGraph 内の共有と複数軸間の同一出所を区別し、Building/Hash は未統合。別の複合 Grid の全 Part とローカル属性の所属確認、未知の属性配置の拒否、追加 Part の予算と停止位置は、合成の 3 版で native/WASI の記録を照合する synthetic の範囲。判定・インスタンスのグラフ・壊れた所の扱いと、上に記した属性以外の値は、外部の実装と照らしていない。公開サンプル 12 件は、自前のテストでも L1 で読み、変えずに書くと元のバイト列に戻ることと、写さない値の診断の code・実体のクラス・件数を確かめる（crates/zumen-ifc/tests/samples.rs）。壊れた所の扱いと ifcZIP は、仕様とテストの中で作った IFC-SPF と ifcZIP（crates/zumen-ifc/tests）だけで確かめた。許諾の要る国内の BIM ソフトの書き出しは #513 で足す"
 public-samples = ["samples/ifc/"]
 implementations = [{ name = "IfcOpenShell", version = "0.9.0.post1" }]
-checked = "2026-11-03"
+checked = "2026-11-11"
 
 [formats.ifc.write]
 level = "external"
@@ -701,12 +704,11 @@ family = "express"
 domains = ["building"]
 specs = ["iso_10303_11_2004"]
 rights = "public"
-rights-note = "ISO が規格を売っていて、販売のページに実装を制限する記述はない。実装を制限しないと示す ISO の公式の文書は見つからなかったので、利用者が権利を判断した（zumen-jp/zumen#529、2026-11-09）。ISO のサイトに共通の注記が、ISO の内容を AI で扱うこと（学習と、AI のツールに入れて応答を作らせること）を禁じるので、台帳の e57 と同じく、ISO の本文は買わず、読まない。公開された EXPRESS のスキーマ（IFC など）と、寛容なライセンスの実装から読む。EXPRESS のスキーマは同梱しない（旧版の決定 0028）。ISO のページと仕様の扱いは、zumen-jp/zumen#669 で利用者が決める"
+rights-note = "ISO が規格を売っていて、販売のページに実装を制限する記述はない。実装を制限しないと示す ISO の公式の文書は見つからなかったので、利用者が権利を判断した（zumen-jp/zumen#529、2026-11-09）。ISO の利用許諾が出版物を AI で扱うことを禁じ、出版物の一部へのアクセスでも同意したとするので、台帳の e57 と同じく、ISO の本文は買わず、OBP のプレビューも読まない（zumen-jp/zumen#677）。この台帳の作業（zumen-jp/zumen#529・zumen-jp/zumen#666・zumen-jp/zumen#677）では、本文を買わず、プレビューも読んでいないので、利用許諾（組み込みなどの権利を含めない 4 節と 6(b) を含む）に同意していない。読み取りを足した zumen-jp/zumen#450 が何を読んだかの記録はない。公開された EXPRESS のスキーマ（IFC など）と、寛容なライセンスの実装から読む。EXPRESS のスキーマは同梱しない（旧版の決定 0028）"
 place = "core"
 basis = ["inferred"]
 verify = ["IfcOpenShell（依存にせず、別に入れて使う）"]
 samples = ["buildingSMART International が公開する IFC の EXPRESS のスキーマ。Git・パッケージ・テストに入れない（旧版の決定 0028）。テストの中で小さなスキーマを書く"]
-decisions = ["0207", "0216"]
 legacy-decisions = ["0028"]
 docs = ["docs/formats/express.md"]
 issues = ["zumen-jp/zumen#410", "zumen-jp/zumen#529", "zumen-jp/zumen#663", "zumen-jp/zumen#668", "zumen-jp/zumen#669"]
@@ -714,8 +716,14 @@ notes = "読み取りを足した PR（zumen-jp/zumen#450）は、参照した�
 
 [formats.express.read]
 level = "synthetic"
-scope = "テストの中で書いた小さな EXPRESS（crates/zumen-ifc/tests/express.rs）だけで確かめた。型・実体・属性・集まりを読むこと、評価しない規則の数、読めない書き方と宣言のない名前の失敗、予算、切ったり変えたりした EXPRESS で落ちないことを確かめる。buildingSMART が公開する IFC の EXPRESS のスキーマを読むことと、読んだ値とチェックの結果を外部の実装と照らすことはまだ（#663）"
+scope = "テストの中で書いた小さな EXPRESS（crates/zumen-ifc/tests/express.rs と、src/express.rs の単体テスト）だけで確かめた。型・実体・属性・集まりを読むこと、評価しない規則の数、読めない書き方・宣言のない名前・同じ名前の宣言・循環の失敗と指す名前、予算（バイトごとの work、集まりの入れ子の depth、長い鎖と循環を調べる手順の work）、既定の深さまでの入れ子を 1 MiB のスタックで読んでチェックできること、その 4 倍まで上限を引き上げても同じスタックで型を読んで写し・比較・表示・破棄できること、1 つの宣言に並べた属性の名前が型を共有すること、切ったり変えたりした EXPRESS で落ちないことを確かめる。buildingSMART が公開する IFC の EXPRESS のスキーマを読むことと、読んだ値とチェックの結果を外部の実装と照らすことはまだ（#663）"
 checked = "2026-11-09"
+
+[[formats.express.evidence]]
+title = "ISO の Licence Agreement（2026-05-29 の改定）"
+url = "https://www.iso.org/terms-conditions-licence-agreement.html"
+checked = "2026-11-09"
+note = "出版物の使用は End Customer Licence Agreement に従い、出版物（一部を含む）へのアクセス・ダウンロード・使用でも同意したとする。4 節は、許す使い方に、読み・参照することと、中身を社内の業務・製品・サービスで理解・評価・適用することを含めるとし、別の許諾がなければ、複製・配布・翻案・組み込み・デジタルの統合・派生物を作る権利は含まない。6(b) は、出版物をソフトウェア・データモデル・AI のツールなどに統合・埋め込み・符号化・構造化・変換・運用化することに、別の許諾を求める。7(b) は、別の許諾がなければ、出版物を AI・機械学習のために読み・使い・処理することを禁じ、法定のテキスト・データマイニングの例外にも頼れないとする"
 
 [formats.isg]
 name = "ISG 形式（ジオイド高と基準面補正量の格子）"
@@ -728,7 +736,6 @@ place = "core"
 basis = ["spec"]
 verify = ["国土地理院のジオイド高計算サービス（ジオイド2024日本とその周辺）", "国土地理院の内挿計算プログラム（geoidcalc。ISG 形式のモデルと一緒に配られる）"]
 samples = ["利用者が国土地理院から入手したジオイド・モデル。Git・パッケージ・テストに入れない"]
-decisions = ["0019"]
 docs = ["docs/formats/crs.md"]
 
 [formats.isg.read]
@@ -753,7 +760,6 @@ basis = ["spec", "inferred"]
 known-crates = ["jgdtrans"]
 verify = ["国土地理院の測量計算サイト（TKY2JGD・PatchJGD）", "jgdtrans 0.3.1（dev の依存。テストの中で作った格子で、読んだ格子点・補間の値・変換した座標を照らす。決定 0286）"]
 samples = ["利用者が国土地理院から入手したパラメーターのファイル。Git・パッケージ・テストに入れない。テストの中で合成の格子を作る"]
-decisions = ["0019", "0233", "0237", "0286"]
 docs = ["docs/formats/crs.md"]
 issues = ["zumen-jp/zumen#471", "zumen-jp/zumen#529", "zumen-jp/zumen#664", "zumen-jp/zumen#670", "zumen-jp/zumen#678", "zumen-jp/zumen#679"]
 notes = "PatchJGD のファイルのヘッダーの行数と文字コード（UTF-8・Shift_JIS）は、ファイルのバージョンで違う。2026-11-09 に確かめた国土地理院の座標補正パラメータファイルの更新の履歴では、noto2024_BL.par の Ver.1.0.1 がヘッダーを 14 行から 15 行に、noto2024_02BL.par の Ver.1.0.1 が文字コードを UTF-8 から Shift_JIS に直した。初めのデータの行の前をヘッダーとして読まないのは、これに合わせた推定。更新の履歴と、ファイルと各ファイルのヘッダーの一覧へのリンクは、docs/formats/crs.md の「座標の補正量の格子」にある"
@@ -784,7 +790,6 @@ rights = "public"
 rights-note = "文書と XSD は CC BY-ND 4.0 で、実装についての記述はない（IFC 4.3 の文書と同じ扱い）。XSD と、そこから生成したコードは同梱しない。照合は文書の記述から書く"
 place = "core"
 basis = ["spec"]
-decisions = ["0207", "0217"]
 docs = ["docs/formats/ids.md"]
 issues = ["zumen-jp/zumen#411"]
 
@@ -807,7 +812,6 @@ rights = "public"
 rights-note = "3.0 の文書と XSD・JSON のスキーマは CC BY-ND 4.0 で、実装についての記述はない（IFC 4.3 の文書と同じ扱い）。スキーマは同梱しない。2.1 にはライセンスの記述がないが、3.0 と同じ扱いにする（zumen-jp/zumen#440）。商標の注記（buildingSMART・openBIM・IFC）は BCF を挙げていない"
 place = "core"
 basis = ["spec"]
-decisions = ["0214", "0220", "0248"]
 docs = ["docs/formats/bcf.md"]
 issues = ["zumen-jp/zumen#429", "zumen-jp/zumen#454"]
 
@@ -837,7 +841,6 @@ place = "plugin"
 repository = "zumen-jp/stbridge（非公開）"
 basis = ["spec"]
 known-crates = ["stb-parser"]
-decisions = ["0017", "0243", "0245"]
 legacy-decisions = ["0001", "0013", "0028"]
 issues = ["zumen-jp/zumen-legacy#140", "zumen-jp/zumen#402"]
 
@@ -907,8 +910,8 @@ issues = ["zumen-jp/zumen#366", "zumen-jp/zumen#368"]
 
 [formats.landxml.read]
 level = "synthetic"
-scope = "J-LandXML Ver.1.8 の文書と、テストの中で作った J-LandXML（crates/zumen-landxml/tests）で確かめた。再配布できる公開サンプルは見つかっていない（#368・#504）"
-checked = "2026-11-03"
+scope = "J-LandXML Ver.1.8 の文書と、テストの中で作った J-LandXML（crates/zumen-landxml/tests）で確かめた。片勾配は最大片勾配が一定の区間だけを Rust の L2 モデルへ移す。再配布できる公開サンプルは見つかっていない（#368・#504）"
+checked = "2026-11-11"
 
 [formats.sima]
 name = "SIMA 共通フォーマット"
@@ -941,7 +944,6 @@ place = "core"
 basis = ["spec"]
 verify = ["基盤地図情報ビューアー（拡張 DM で書き出せる。手元でだけ使う）"]
 samples = ["再配布を認める公開サンプルは見つかっていない。テストの中で作る"]
-decisions = ["0233"]
 docs = ["docs/formats/extdm.md"]
 issues = ["zumen-jp/zumen#378"]
 
@@ -966,7 +968,6 @@ place = "core"
 basis = ["spec"]
 verify = ["基盤地図情報ビューアー", "QGIS"]
 samples = ["利用者が国土地理院から入手したデータ。Git・パッケージ・テストに入れない。テストの中で小さな GML を作る"]
-decisions = ["0019", "0233", "0251"]
 docs = ["docs/formats/fgd.md"]
 issues = ["zumen-jp/zumen#378"]
 
@@ -1013,17 +1014,20 @@ specs = ["las_1_4_r15", "laz_1_4"]
 rights = "public"
 rights-note = "ASPRS が LAS の仕様を、OGC が LAZ の仕様を無償で公開している。OGC は LAZ を誰でも実装できるとする。LAZ を展開する LASzip と Rust の laz は、どちらも Apache-2.0"
 place = "core"
-basis = ["spec"]
+basis = ["spec", "inferred", "reference"]
+references = [{ name = "LASzip", license = "Apache-2.0", url = "https://github.com/LASzip/LASzip" }, { name = "laz-rs", license = "Apache-2.0", url = "https://github.com/tmontaigu/laz-rs" }]
 known-crates = ["las", "laz"]
-verify = ["CloudCompare", "PDAL", "LAStools の lasinfo"]
-samples = ["laz-rs の tests/data（Apache-2.0。数十 KB から数百 KB）"]
+verify = ["CloudCompare", "PDAL", "LAStools の lasinfo", "laspy"]
+samples = ["PDAL の test/data/las/synthetic_test.las（BSD-3-Clause、合成の 1 点。samples/las/pdal-synthetic.las）"]
 docs = ["docs/formats/las.md"]
-issues = ["zumen-jp/zumen#371"]
+issues = ["zumen-jp/zumen#371", "zumen-jp/zumen#504", "zumen-jp/zumen#804"]
 
 [formats.las.read]
-level = "synthetic"
-scope = "LAS 1.4 R15・LAZ 1.4 の仕様と、テストの中で作った LAS・LAZ（crates/zumen-las/tests）で確かめた。LAZ の展開は laz の crate に任せる。公開サンプルと外部の実装との照合はまだ（#371・#504）"
-checked = "2026-11-03"
+level = "external"
+scope = "PDAL が作った公開サンプル 1 件（非圧縮 LAS 1.2、点形式 3、synthetic フラグを持つ 1 点）を laspy 2.7.0 と照合した。ヘッダーの点数・尺度・原点・範囲と、座標・強度・分類・反射・GPS 時刻・RGB を比較した。実測の点群は使っていない。自前の合成 LAS 1.2 の点形式 0〜3、1.3 の 4・5、1.4 の 6〜10 も同じ値を比較したが、external の根拠は PDAL のサンプルだけ。公開サンプルの応答・診断は適合テストでネイティブと wasm のハッシュを比較する。座標系・VLR/EVLR の内容・落とす属性・波形の外部データ・実データ・基準になるアプリとの照合はまだ（#371・#504）。LAZ は las.laz.unsupported で断る（#510）"
+checked = "2026-11-11"
+public-samples = ["samples/las/"]
+implementations = [{ name = "laspy", version = "2.7.0" }]
 
 [[formats.las.evidence]]
 title = "OGC の LAZ 1.4 コミュニティ標準の公表"
@@ -1075,14 +1079,16 @@ rights-note = "持ち主の公式の仕様はない。Greg Turk の説明と、�
 place = "core"
 basis = ["inferred"]
 verify = ["CloudCompare", "MeshLab"]
-samples = ["テストの中で作る"]
+samples = ["samples/ply/（PDAL の 4 頂点・2 面の公開サンプル）", "テストの中で作る"]
 docs = ["docs/formats/ply.md"]
-issues = ["zumen-jp/zumen#373"]
+issues = ["zumen-jp/zumen#373", "zumen-jp/zumen#809"]
 
 [formats.ply.read]
-level = "synthetic"
-scope = "公開の解説と、テストの中で作った PLY（crates/zumen-ply/tests）で確かめた。CloudCompare・MeshLab が書いた PLY との照合はまだ（#504）"
-checked = "2026-11-03"
+level = "external"
+scope = "PDAL が作った公開サンプル 1 件（ASCII、float64 の 4 頂点・2 面）を ply-rs 0.1.3 と照合した。全頂点の順と座標をビットで比較し、面を移さない診断と座標系が不明なことを確かめた。自前の合成の ASCII・両バイト順の座標・色・強度・分類と float/float32 の丸めも照合したが、external の根拠は公開サンプルだけ。公開サンプルと float32 の応答・診断をネイティブと wasm で比較する。実測点群、公開サンプルのバイナリと属性、法線や面のモデル化、CloudCompare・MeshLab との照合はまだ（#504）"
+checked = "2026-11-11"
+public-samples = ["samples/ply/"]
+implementations = [{ name = "ply-rs", version = "0.1.3" }]
 
 [[formats.ply.evidence]]
 title = "Paul Bourke「PLY - Polygon File Format」"
@@ -1142,7 +1148,6 @@ rights-note = "SXF Ver.3.1 仕様書の附属書（属性付加機構）に含�
 place = "core"
 basis = ["spec"]
 verify = ["SXF ブラウザ"]
-decisions = ["0249"]
 docs = ["docs/formats/sxf.md"]
 issues = ["zumen-jp/zumen#386"]
 

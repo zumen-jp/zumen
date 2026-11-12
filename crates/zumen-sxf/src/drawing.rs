@@ -100,10 +100,8 @@ impl SxfFile {
         attributes: Option<&AttributeFile>,
         cx: &mut Cx,
     ) -> Result<Drawing2D, Error> {
-        if self.mode() == Mode::P21 {
-            return cx.with_diagnostics_in_record_order(|cx| self.lift_records(attributes, cx));
-        }
-        self.lift_records(attributes, cx)
+        // 表・複合曲線・複合図形・用紙の段階をまたいで、診断を元のレコードの順に返す（決定 0009、#624）
+        cx.with_diagnostics_in_record_order(|cx| self.lift_records(attributes, cx))
     }
 
     fn lift_records(
@@ -1042,7 +1040,14 @@ impl<'f> Lifter<'f> {
                     let Some(placed) = placed else {
                         continue;
                     };
-                    compose(outer, placed)
+                    // それぞれの配置が有限でも、重ねた尺度があふれうる。重ねた変換が有限でなければ、ビューにせず、
+                    // その配置の中も置かない（#595）
+                    let composed = compose(outer, placed);
+                    if !composed.m.iter().all(|v| v.is_finite()) {
+                        invalid(cx, feature);
+                        continue;
+                    }
+                    composed
                 }
                 _ => continue,
             };
@@ -1070,15 +1075,18 @@ impl<'f> Lifter<'f> {
     }
 
     /// 画像の作図グループなら、その画像。名前の `$$RASTER$$` か、属性の `$$ATRU$$番号$$名称$$画像$$` の後が
-    /// ファイルの名前で、グループの中の最初の 4 点以上の折れ線が範囲を示す（推定。docs/formats/sxf.md）
+    /// ファイルの名前で、グループの中の最初の 4 点以上の折れ線が範囲を示す（推定。docs/formats/sxf.md）。どれかの点の
+    /// 座標を読めない折れ線（数として読めない値がある、x と y の数が違う）は、角に使わない点であっても飛ばす（推定。#651）
     fn raster(&self, name: &str, definition: &Definition, cx: &mut Cx) -> Option<Raster> {
         let path = raster_path(name)?;
         let outline = definition.members.iter().copied().find(|index| {
             self.features.get(*index).is_some_and(|feature| {
                 let args = self.args(*feature);
                 feature.is(b"polyline")
-                    && args.nums(5).is_some_and(|xs| xs.len() >= 4)
-                    && args.nums(6).is_some_and(|ys| ys.len() >= 4)
+                    && args
+                        .nums(5)
+                        .zip(args.nums(6))
+                        .is_some_and(|(xs, ys)| xs.len() >= 4 && xs.len() == ys.len())
             })
         });
         let Some(outline) = outline else {
@@ -1459,6 +1467,14 @@ impl<'f> Lifter<'f> {
             };
             let [first, second] = [first.unwrap_or(on(from)), second.unwrap_or(on(to))];
             let arc = on(from + sweep / 2.0);
+            // 角度の差があふれると、弧の点が NaN になる。中心と半径の和があふれると無限大になる（#595）
+            if [first, second, arc]
+                .iter()
+                .flatten()
+                .any(|v| !v.is_finite())
+            {
+                return None;
+            }
             let [center, first, second, arc] =
                 [center, first, second, arc].map(|[x, y]| at.point(x, y));
             let kind = if feature.is(b"curve_dim") {
@@ -2182,10 +2198,19 @@ fn ellipse<C: Place>(
     } else {
         (ry, rx / ry, 90.0)
     };
+    // 半径の比が小さすぎて 0 に丸められた楕円は、潰れた楕円にしない（#728）
+    if ratio <= 0.0 {
+        return None;
+    }
     let angle = (rotation + shift).to_radians();
+    // 中心と半径の和があふれた長軸の端の点は、楕円にしない（#595）
+    let tip = [cx + major * libm::cos(angle), cy + major * libm::sin(angle)];
+    if !tip.iter().all(|v| v.is_finite()) {
+        return None;
+    }
     Some(Shape::Curve(Edge::Elliptic {
         center: at.point(cx, cy),
-        major: at.point(cx + major * libm::cos(angle), cy + major * libm::sin(angle)),
+        major: at.point(tip[0], tip[1]),
         ratio,
         start: start - shift,
         end: end - shift,
@@ -2496,16 +2521,46 @@ fn degrees(x: f64, y: f64) -> Option<f64> {
 
 /// 補助線の傾き（度）。寸法線に垂直なら 0（決定 0127）
 fn oblique(start: [f64; 2], end: [f64; 2], from: [f64; 2], to: [f64; 2]) -> f64 {
-    let (u, v) = (
+    let plain = (
         [end[0] - start[0], end[1] - start[1]],
         [to[0] - from[0], to[1] - from[1]],
     );
-    let dot = u[0] * v[0] + u[1] * v[1];
-    let scale = libm::hypot(u[0], u[1]) * libm::hypot(v[0], v[1]);
-    match degrees(v[0], v[1]) {
-        Some(angle) if dot.abs() > 1.0e-9 * scale => angle.rem_euclid(180.0),
+    // あふれも潰れもしない値は、前と同じ式で求める。そうでなければ、2 の冪で割った向きで求める（#728）
+    let (u, v) = match judged(plain.0, plain.1) {
+        Some(_) => plain,
+        None => (direction(start, end), direction(from, to)),
+    };
+    match (degrees(v[0], v[1]), judged(u, v)) {
+        (Some(angle), Some(true)) => angle.rem_euclid(180.0),
         _ => 0.0,
     }
+}
+
+/// 寸法線の向き `u` と補助線の向き `v` が垂直でないか（内積が長さの積の 1e-9 倍より大きいか）。内積か、比べる
+/// 値が、あふれるか非正規数に潰れるなら `None`。向きの長さが 0 のときも、比べる値が 0 になるので `None`
+fn judged(u: [f64; 2], v: [f64; 2]) -> Option<bool> {
+    let dot = u[0] * v[0] + u[1] * v[1];
+    // 前と同じ順に掛ける
+    let limit = 1.0e-9 * (libm::hypot(u[0], u[1]) * libm::hypot(v[0], v[1]));
+    (limit.is_normal() && (dot == 0.0 || dot.is_normal())).then(|| dot.abs() > limit)
+}
+
+/// `from` から `to` への向き。内積と長さの積があふれも潰れもしないよう、大きいほうの成分の指数を 0 にする 2 の冪で
+/// 割る（#728）。割ったあとの成分が非正規数にならなければ、向きの角度と、垂直かを決める比は割る前と同じになる
+fn direction(from: [f64; 2], to: [f64; 2]) -> [f64; 2] {
+    let difference = [to[0] - from[0], to[1] - from[1]];
+    // 差があふれれば、半分どうしの差から求める（有限の値の半分の差はあふれない）
+    let difference = if difference.iter().all(|v| v.is_finite()) {
+        difference
+    } else {
+        [to[0] * 0.5 - from[0] * 0.5, to[1] * 0.5 - from[1] * 0.5]
+    };
+    let largest = difference[0].abs().max(difference[1].abs());
+    if !(largest > 0.0 && largest.is_finite()) {
+        return difference;
+    }
+    let exponent = libm::frexp(largest).1;
+    difference.map(|v| libm::scalbn(v, -exponent))
 }
 
 fn dropped(cx: &mut Cx, feature: Feature) {

@@ -7,7 +7,9 @@ import { measurementOf, positionAt, snapPoint } from "./snap.js";
 import { inputOptions, normalizeInput, Tools } from "./tools.js";
 import { bindInput } from "./controls.js";
 import { Underlays } from "./underlays.js";
+import { calibratedMeasurement, calibrationOf } from "./calibration.js";
 export { findSource } from "./source.js";
+export { measureDistance } from "./calibration.js";
 export { VIEW_SCALE_LIMITS };
 
 const EMPTY_REPORT = Object.freeze({ drawn: Object.freeze({ lines: 0, faces: 0, texts: 0, points: 0, images: 0, glyphs: 0 }), issues: Object.freeze([]) });
@@ -60,6 +62,8 @@ export class View2D {
   #tools;
   #binding = null;
   #measurement = null;
+  #measurementCalibration = null;
+  #resolvingMeasurement = false;
   #overlays = new Map();
   #nextOverlay = 0;
   #underlays;
@@ -92,7 +96,7 @@ export class View2D {
   }
 
   #live() { if (!this.#ctx) throw new Error("View2D は破棄済み"); }
-  #mutable() { this.#live(); valid(!this.#notifying, "state.notification"); valid(!this.#drawing && !this.#underlays?.calling, "render.reentrant"); }
+  #mutable() { this.#live(); valid(!this.#resolvingMeasurement, "measurement.reentrant"); valid(!this.#notifying, "state.notification"); valid(!this.#drawing && !this.#underlays?.calling, "render.reentrant"); }
   #structural() { this.#mutable(); this.#tools.idle(); }
 
   #state() {
@@ -131,11 +135,12 @@ export class View2D {
 
   #listen(type, listener) {
     this.#live();
+    valid(!this.#resolvingMeasurement, "measurement.reentrant");
     valid(typeof listener === "function", "listener");
     valid(this.#listeners.size < this.#limits.stateItems, "limits.stateItems");
     const entry = { type, listener };
     this.#listeners.add(entry);
-    return () => { this.#listeners.delete(entry); };
+    return () => { valid(!this.#resolvingMeasurement, "measurement.reentrant"); this.#listeners.delete(entry); };
   }
 
   subscribe(listener) { return this.#listen(null, listener); }
@@ -154,6 +159,7 @@ export class View2D {
     }
     const cleanup = this.#tools.reset("scene");
     this.#measurement = null;
+    this.#measurementCalibration = null;
     for (const [id, overlay] of this.#overlays) if (overlay.scope === "scene") this.#overlays.delete(id);
     this.#prepared = next;
     this.#index = index;
@@ -251,7 +257,22 @@ export class View2D {
     valid(value === null || (value && typeof value === "object" && this.#prepared), "measurement");
     const next = value === null ? null : measurementOf(this.#prepared, value.start, value.end, this.#index, this.#limits);
     if (next === null && this.#measurement === null) return this.getReport();
-    this.#measurement = next;
+    this.#measurement = this.#calibrate(next);
+    return this.#refresh("measurement");
+  }
+
+  #calibrate(measurement) {
+    this.#resolvingMeasurement = true;
+    try { return calibratedMeasurement(measurement, this.#prepared?.metadata.document, this.#measurementCalibration); }
+    finally { this.#resolvingMeasurement = false; }
+  }
+
+  setMeasurementCalibration(value) {
+    this.#mutable();
+    valid(value === null || this.#prepared, "measurement.scene");
+    const next = calibrationOf(value);
+    this.#measurementCalibration = next;
+    this.#measurement = this.#calibrate(this.#measurement);
     return this.#refresh("measurement");
   }
 
@@ -341,6 +362,7 @@ export class View2D {
 
   render() {
     this.#live();
+    valid(!this.#resolvingMeasurement, "measurement.reentrant");
     valid(!this.#drawing && !this.#underlays.calling, "render.reentrant"); this.#drawing = true;
     let failed = false, first;
     try {
@@ -462,6 +484,7 @@ export class View2D {
     const cleanup = this.#tools.reset("destroy");
     this.#underlays.destroy();
     this.#binding?.disconnect(); this.#binding = null; this.#measurement = null; this.#overlays.clear(); this.#tools.definitions.clear();
+    this.#measurementCalibration = null;
     this.#ctx.setTransform(1, 0, 0, 1, 0, 0);
     this.#ctx.clearRect(0, 0, this.#canvas.width, this.#canvas.height);
     this.#prepared = null;

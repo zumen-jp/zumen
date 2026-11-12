@@ -1,7 +1,8 @@
 //! ISO 10303-21 の交換構造の読み取りと、文字列のエスケープの戻し方（決定 0120・0207）。入力は、どれもテストの中で作る。
 
-use zumen_base::{Budget, CancelToken, Cx, Diagnostics, Kind, Limit, Limits, Ref, Stop, codes};
-use zumen_sdk::Error;
+use zumen_base::{
+    Budget, CancelToken, Cx, Diagnostics, Error, Kind, Limit, Limits, Ref, Stop, codes,
+};
 use zumen_step::{Dialect, Exchange, Form, Quote, Record, Value, decode};
 
 /// フィーチャのコメントを読まない読み方。診断は、どの形式のものでもよいので SXF のものを借りる

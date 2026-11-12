@@ -34,11 +34,20 @@ class Request extends Message {
   /// op が entities の形なら、そのビュー。違えば null
   EntitiesRequest? get asEntitiesRequest => taggedView('op', 'entities', EntitiesRequest.fromJson);
 
+  /// op が calibrations の形なら、そのビュー。違えば null
+  CalibrationsRequest? get asCalibrationsRequest => taggedView('op', 'calibrations', CalibrationsRequest.fromJson);
+
+  /// op が measure_distance の形なら、そのビュー。違えば null
+  MeasureDistanceRequest? get asMeasureDistanceRequest => taggedView('op', 'measure_distance', MeasureDistanceRequest.fromJson);
+
   /// op が apply の形なら、そのビュー。違えば null
   ApplyRequest? get asApplyRequest => taggedView('op', 'apply', ApplyRequest.fromJson);
 
   /// op が convert の形なら、そのビュー。違えば null
   ConvertRequest? get asConvertRequest => taggedView('op', 'convert', ConvertRequest.fromJson);
+
+  /// op が convert_estimate の形なら、そのビュー。違えば null
+  ConvertEstimateRequest? get asConvertEstimateRequest => taggedView('op', 'convert_estimate', ConvertEstimateRequest.fromJson);
 
   /// op が tables の形なら、そのビュー。違えば null
   TablesRequest? get asTablesRequest => taggedView('op', 'tables', TablesRequest.fromJson);
@@ -327,7 +336,7 @@ class OpenRequest extends Message {
   String? get doc => readField('doc', asString);
   set doc(String? value) => writeField('doc', value);
 
-  /// 入力の全体の大きさ（バイト）。渡した入力より大きければ、入力を全体の初めの部分とみなし、足りない範囲を needs で求める。範囲で読める形式（LAS・LAZ）だけが使う（決定 0232）。マイナーバージョン 48 から
+  /// 入力の全体の大きさ（バイト）。渡した入力より大きければ、入力を全体の初めの部分とみなし、足りない範囲を needs で求める。範囲で読める形式（LAS）だけが使う。LAZ は、ヘッダーを読んで las.laz.unsupported で断る（決定 0232・0289）。マイナーバージョン 48 から
   int? get size => readField('size', asInt);
   set size(int? value) => writeField('size', value);
 
@@ -554,6 +563,249 @@ class DrawingResult extends Message {
   /// 文書の点の表し方（marker を持たない点の見え方、決定 0160）。point_style の変更で変える。文書が持たなければ（JWW・SXF）持たない。マイナーバージョン 39 から
   PointStyleSummary? get pointStyle => readField('point_style', objectOf(PointStyleSummary.fromJson));
   set pointStyle(PointStyleSummary? value) => writeField('point_style', value);
+}
+
+/// 2 次元の座標
+class Point2 extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  Point2.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  Point2() : super({});
+
+  /// X 座標
+  double? get x => readField('x', asDouble);
+  set x(double? value) => writeField('x', value);
+
+  /// Y 座標
+  double? get y => readField('y', asDouble);
+  set y(double? value) => writeField('y', value);
+}
+
+/// 原点と相対座標を分けた用紙の点。両成分の正確な和を位置とし、先に足して丸めない。座標の単位は用紙の mm
+class SplitPoint2 extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  SplitPoint2.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  SplitPoint2() : super({});
+
+  /// 用紙の原点
+  Point2? get origin => readField('origin', objectOf(Point2.fromJson));
+  set origin(Point2? value) => writeField('origin', value);
+
+  /// 原点からの相対座標
+  Point2? get offset => readField('offset', objectOf(Point2.fromJson));
+  set offset(Point2? value) => writeField('offset', value);
+}
+
+/// 用紙の閉じた矩形で使う距離の校正。重なる領域は ID で明示的に選ぶ。マイナーバージョン 68 から
+class CalibrationItem extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  CalibrationItem.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  CalibrationItem() : super({});
+
+  /// 文書内で重複しない校正の ID
+  String? get id => readField('id', asString);
+  set id(String? value) => writeField('id', value);
+
+  /// 元の校正の名前。翻訳しない。なければ持たない
+  String? get name => readField('name', asString);
+  set name(String? value) => writeField('name', value);
+
+  /// 校正を使える公開用紙の ID。drawing が返すもの
+  String? get from => readField('from', asString);
+  set from(String? value) => writeField('from', value);
+
+  /// 用紙の mm の閉じた矩形。[X の最小, Y の最小, X の最大, Y の最大] の 4 値で、幅と高さは正
+  List<double>? get bounds => readField('bounds', listOf(asDouble));
+  set bounds(List<double>? value) => writeField('bounds', value);
+
+  /// 用紙の mm の変位から校正単位の変位へ写す行優先の 2×2 行列。[a, b, c, d] の 4 値で、[dx, dy] を [a*dx+b*dy, c*dx+d*dy] に写す
+  List<double>? get matrix => readField('matrix', listOf(asDouble));
+  set matrix(List<double>? value) => writeField('matrix', value);
+
+  /// 校正後の長さの単位。ラベルだけから推定しない
+  String? get unit => readField('unit', asString);
+  set unit(String? value) => writeField('unit', value);
+
+  /// 元の単位ラベル。未知の単位でも原文を保つ
+  String? get unitLabel => readField('unit_label', asString);
+  set unitLabel(String? value) => writeField('unit_label', value);
+
+  /// 元の形式のレコード
+  Source? get source => readField('source', objectOf(Source.fromJson));
+  set source(Source? value) => writeField('source', value);
+}
+
+/// 開いた文書を図面モデルに変換し、用紙の距離の校正をモデルの順に返す。マイナーバージョン 68 から
+class CalibrationsRequest extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  CalibrationsRequest.fromJson(super.json);
+
+  /// タグのフィールドだけを持つオブジェクトから作る
+  CalibrationsRequest() : super({'op': 'calibrations'});
+
+  /// メッセージのスキーマのメジャーバージョン。今は 1
+  int? get v => readField('v', asInt);
+  set v(int? value) => writeField('v', value);
+
+  /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+  Budget? get budget => readField('budget', objectOf(Budget.fromJson));
+  set budget(Budget? value) => writeField('budget', value);
+
+  /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+  bool? get partial => readField('partial', asBool);
+  set partial(bool? value) => writeField('partial', value);
+
+  /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+  int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(int? value) => writeField('max_places', value);
+
+  /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(int? value) => writeField('time_limit_ms', value);
+
+  /// op の名前
+  String? get op => readField('op', asString);
+  set op(String? value) => writeField('op', value);
+
+  /// 文書の名前。open で作ったもの
+  String? get doc => readField('doc', asString);
+  set doc(String? value) => writeField('doc', value);
+
+  /// 公開用紙の ID。drawing が返すもの。書けばその用紙の校正だけを返し、書かなければすべての校正を返す
+  String? get from => readField('from', asString);
+  set from(String? value) => writeField('from', value);
+
+  /// 返す最初の校正の位置。from で絞った後の位置で、前の応答の next_offset を渡す。書かなければ 0
+  int? get offset => readField('offset', asInt);
+  set offset(int? value) => writeField('offset', value);
+
+  /// 返す校正の数の上限。書かなければ 1000
+  int? get limit => readField('limit', asInt);
+  set limit(int? value) => writeField('limit', value);
+
+  /// 期待する元の文書のハッシュ。open に渡したバイト列のハッシュと照合する。図面モデルへ変換した ZMDR 自身のハッシュではない
+  String? get expectedHash => readField('expected_hash', asString);
+  set expectedHash(String? value) => writeField('expected_hash', value);
+}
+
+/// 距離の校正の一覧の一部
+class CalibrationsResult extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  CalibrationsResult.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  CalibrationsResult() : super({});
+
+  /// 元の文書のハッシュ。ZMDR から開いたときは、埋め込まれた元の文書のハッシュ（Source.hash）
+  String? get hash => readField('hash', asString);
+  set hash(String? value) => writeField('hash', value);
+
+  /// from で絞った一覧の offset から limit 個までの校正
+  List<CalibrationItem>? get items => readField('items', listOf(objectOf(CalibrationItem.fromJson)));
+  set items(List<CalibrationItem>? value) => writeField('items', value);
+
+  /// from で絞った後の校正の総数
+  int? get total => readField('total', asInt);
+  set total(int? value) => writeField('total', value);
+
+  /// 続きの最初の校正の位置。続きがなければ持たない
+  int? get nextOffset => readField('next_offset', asInt);
+  set nextOffset(int? value) => writeField('next_offset', value);
+}
+
+/// 用紙と校正を明示的に選び、始点と終点の校正後の距離を求める。両点は校正の閉領域内にある必要がある。マイナーバージョン 68 から
+class MeasureDistanceRequest extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  MeasureDistanceRequest.fromJson(super.json);
+
+  /// タグのフィールドだけを持つオブジェクトから作る
+  MeasureDistanceRequest() : super({'op': 'measure_distance'});
+
+  /// メッセージのスキーマのメジャーバージョン。今は 1
+  int? get v => readField('v', asInt);
+  set v(int? value) => writeField('v', value);
+
+  /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+  Budget? get budget => readField('budget', objectOf(Budget.fromJson));
+  set budget(Budget? value) => writeField('budget', value);
+
+  /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+  bool? get partial => readField('partial', asBool);
+  set partial(bool? value) => writeField('partial', value);
+
+  /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+  int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(int? value) => writeField('max_places', value);
+
+  /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(int? value) => writeField('time_limit_ms', value);
+
+  /// op の名前
+  String? get op => readField('op', asString);
+  set op(String? value) => writeField('op', value);
+
+  /// 文書の名前。open で作ったもの
+  String? get doc => readField('doc', asString);
+  set doc(String? value) => writeField('doc', value);
+
+  /// 公開用紙の ID。drawing が返すもので、選んだ校正と同じ用紙
+  String? get from => readField('from', asString);
+  set from(String? value) => writeField('from', value);
+
+  /// 使う校正の ID。calibrations が返すもの
+  String? get calibration => readField('calibration', asString);
+  set calibration(String? value) => writeField('calibration', value);
+
+  /// 始点。原点と相対座標を分けた用紙の mm の点
+  SplitPoint2? get start => readField('start', objectOf(SplitPoint2.fromJson));
+  set start(SplitPoint2? value) => writeField('start', value);
+
+  /// 終点。原点と相対座標を分けた用紙の mm の点
+  SplitPoint2? get end => readField('end', objectOf(SplitPoint2.fromJson));
+  set end(SplitPoint2? value) => writeField('end', value);
+
+  /// 期待する元の文書のハッシュ。open に渡したバイト列のハッシュと照合する。図面モデルへ変換した ZMDR 自身のハッシュではない
+  String? get expectedHash => readField('expected_hash', asString);
+  set expectedHash(String? value) => writeField('expected_hash', value);
+}
+
+/// 選んだ用紙と校正による距離
+class MeasureDistanceResult extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  MeasureDistanceResult.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  MeasureDistanceResult() : super({});
+
+  /// 元の文書のハッシュ。ZMDR から開いたときは、埋め込まれた元の文書のハッシュ（Source.hash）
+  String? get hash => readField('hash', asString);
+  set hash(String? value) => writeField('hash', value);
+
+  /// 計測した公開用紙の ID
+  String? get from => readField('from', asString);
+  set from(String? value) => writeField('from', value);
+
+  /// 使った校正の ID
+  String? get calibration => readField('calibration', asString);
+  set calibration(String? value) => writeField('calibration', value);
+
+  /// 校正後の距離。unit と unit_label が示す単位
+  double? get distance => readField('distance', asDouble);
+  set distance(double? value) => writeField('distance', value);
+
+  /// 校正後の長さの単位
+  String? get unit => readField('unit', asString);
+  set unit(String? value) => writeField('unit', value);
+
+  /// 元の単位ラベル。未知の単位でも原文を保つ
+  String? get unitLabel => readField('unit_label', asString);
+  set unitLabel(String? value) => writeField('unit_label', value);
 }
 
 /// 文書の点の表し方。フィールドの意味は point_style_edit と同じ
@@ -1002,7 +1254,7 @@ class PolylineGeometry extends Message {
   set closed(bool? value) => writeField('closed', value);
 }
 
-/// 1 点か 2 点の間に置く文字。置き換えるときは、位置合わせ・幅の倍率・斜体・反転・文字スタイルを元の値のままにする。足すときは、2 点目がなければ左の基準線に合わせ、幅の倍率 1・斜体なし・反転なしにする
+/// 1 点か 2 点の間に置く文字。置き換えるときは、位置合わせ・文字スタイルを元の値のままにし、書かない幅の倍率・斜体・反転も元の値を受け継ぐ。足すときは、2 点目がなければ書かない位置合わせを左の基準線にし、幅の倍率 1・斜体なし・反転なしにする
 class TextGeometry extends Message {
   /// 読んだ JSON のオブジェクトを包む
   TextGeometry.fromJson(super.json);
@@ -1030,6 +1282,14 @@ class TextGeometry extends Message {
   String? get fit => readField('fit', asString);
   set fit(String? value) => writeField('fit', value);
 
+  /// 1 点に置く文字の水平の位置合わせ。left のときは entities が省き、足すときも省けば left。2 点の間に合わせる文字には書けない。置き換えるときは元と同じ値だけを受ける。マイナーバージョン 69 から
+  String? get horizontal => readField('horizontal', asString);
+  set horizontal(String? value) => writeField('horizontal', value);
+
+  /// 1 点に置く文字の垂直の位置合わせ。baseline のときは entities が省き、足すときも省けば baseline。2 点の間に合わせる文字には書けない。置き換えるときは元と同じ値だけを受ける。マイナーバージョン 69 から
+  String? get vertical => readField('vertical', asString);
+  set vertical(String? value) => writeField('vertical', value);
+
   /// 高さ。0 より大きい
   double? get height => readField('height', asDouble);
   set height(double? value) => writeField('height', value);
@@ -1038,6 +1298,22 @@ class TextGeometry extends Message {
   double? get rotation => readField('rotation', asDouble);
   set rotation(double? value) => writeField('rotation', value);
 
+  /// 幅の倍率。0 より大きい。1 のときは entities が省き、足すときも省けば 1、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から
+  double? get widthFactor => readField('width_factor', asDouble);
+  set widthFactor(double? value) => writeField('width_factor', value);
+
+  /// 斜体の角度（度）。0 のときは entities が省き、足すときも省けば 0、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から
+  double? get oblique => readField('oblique', asDouble);
+  set oblique(double? value) => writeField('oblique', value);
+
+  /// 左右を裏返すか。偽のときは entities が省き、足すときも省けば偽、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から
+  bool? get backward => readField('backward', asBool);
+  set backward(bool? value) => writeField('backward', value);
+
+  /// 上下を反転するか。偽のときは entities が省き、足すときも省けば偽、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から
+  bool? get upsideDown => readField('upside_down', asBool);
+  set upsideDown(bool? value) => writeField('upside_down', value);
+
   /// 文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。DXF に文字スタイルの定義がないときは Standard だけを受ける。置き換えるときは、元と同じ名前だけを受ける。style_id と一緒に書くなら、同じ文字スタイルを指す。マイナーバージョン 12 から
   String? get style => readField('style', asString);
   set style(String? value) => writeField('style', value);
@@ -1045,6 +1321,26 @@ class TextGeometry extends Message {
   /// 文字スタイルの ID。tables が返したもの。entities は、名前で引いた文字スタイルの ID を返す。足す・置き換えるときは、名前の代わりに書ける（名前より先に使う）。同じ名前（大文字と小文字を区別しない）の項目が複数あれば書き戻せない。マイナーバージョン 23 から
   String? get styleId => readField('style_id', asString);
   set styleId(String? value) => writeField('style_id', value);
+}
+
+/// 1 点に置く文字の水平の位置合わせ。middle は水平と垂直の両方を外形の中央に合わせる（DXF の 72 = 4）
+///
+/// 列挙の値。知らない値も受け取る
+abstract final class TextHorizontal {
+  static const left = 'left';
+  static const center = 'center';
+  static const right = 'right';
+  static const middle = 'middle';
+}
+
+/// 1 点に置く文字の垂直の位置合わせ
+///
+/// 列挙の値。知らない値も受け取る
+abstract final class TextVertical {
+  static const baseline = 'baseline';
+  static const bottom = 'bottom';
+  static const middle = 'middle';
+  static const top = 'top';
 }
 
 /// 2 点の間への合わせ方。aligned は縦横の比を保って高さも変え、fit は高さを保って幅だけを変える
@@ -1660,7 +1956,7 @@ class ApplyResult extends Message {
   String? get hash => readField('hash', asString);
   set hash(String? value) => writeField('hash', value);
 
-  /// true なら、変えていない要素の ID がずれた。キーを持たない形式（JWW）で、前の図形を除くか足したとき。ID を使う前に entities で読み直す。ずれないときは持たない。マイナーバージョン 30 から
+  /// true なら、変えていない要素の ID がずれた。キーを持たない形式（JWW）か、ハンドルを持たない DXF（R12 など）で、前の図形か表のレコードを除くか足したとき。ID を使う前に entities で読み直す。ずれないときは持たない。マイナーバージョン 30 から
   bool? get idsShifted => readField('ids_shifted', asBool);
   set idsShifted(bool? value) => writeField('ids_shifted', value);
 }
@@ -1733,6 +2029,224 @@ class ConvertResult extends Message {
   /// 書いた要素の数。記号から離した属性の文字を含む
   int? get elements => readField('elements', asInt);
   set elements(int? value) => writeField('elements', value);
+}
+
+/// 開いた図面を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。今は DXF への変換だけ。マイナーバージョン 66 から
+class ConvertEstimateRequest extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  ConvertEstimateRequest.fromJson(super.json);
+
+  /// タグのフィールドだけを持つオブジェクトから作る
+  ConvertEstimateRequest() : super({'op': 'convert_estimate'});
+
+  /// メッセージのスキーマのメジャーバージョン。今は 1
+  int? get v => readField('v', asInt);
+  set v(int? value) => writeField('v', value);
+
+  /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+  Budget? get budget => readField('budget', objectOf(Budget.fromJson));
+  set budget(Budget? value) => writeField('budget', value);
+
+  /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+  bool? get partial => readField('partial', asBool);
+  set partial(bool? value) => writeField('partial', value);
+
+  /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+  int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(int? value) => writeField('max_places', value);
+
+  /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(int? value) => writeField('time_limit_ms', value);
+
+  /// op の名前
+  String? get op => readField('op', asString);
+  set op(String? value) => writeField('op', value);
+
+  /// 書く元の文書の名前
+  String? get doc => readField('doc', asString);
+  set doc(String? value) => writeField('doc', value);
+
+  /// 書く形式の名前。今は dxf だけ
+  String? get format => readField('format', asString);
+  set format(String? value) => writeField('format', value);
+
+  /// 予定する文書の名前。convert と同じ条件で検査するが、名前を確保しない
+  String? get to => readField('to', asString);
+  set to(String? value) => writeField('to', value);
+
+  /// 書き手と読み取り段階のそれぞれで返す明細の最大件数。省略時は 100。総数と全件集計はこの上限によらない
+  int? get limit => readField('limit', asInt);
+  set limit(int? value) => writeField('limit', value);
+}
+
+/// 予定する変換の結果。元の文書・ID を保ち、ファイルの blob を返さない
+class ConvertEstimateResult extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  ConvertEstimateResult.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  ConvertEstimateResult() : super({});
+
+  /// 予定する出力と忠実度の全件集計・上限付き明細
+  ConversionEstimate? get estimate => readField('estimate', objectOf(ConversionEstimate.fromJson));
+  set estimate(ConversionEstimate? value) => writeField('estimate', value);
+}
+
+/// 実変換と同じ処理で準備した出力。doc と hash は未登録の予定値。元の入力・設定・予算が同じなら convert の値と一致する
+class ConversionEstimate extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  ConversionEstimate.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  ConversionEstimate() : super({});
+
+  /// 予定する文書の名前
+  String? get doc => readField('doc', asString);
+  set doc(String? value) => writeField('doc', value);
+
+  /// 予定する形式の名前
+  String? get format => readField('format', asString);
+  set format(String? value) => writeField('format', value);
+
+  /// 予定する出力バイト列のハッシュ。未登録なので apply の前提条件には使えない
+  String? get hash => readField('hash', asString);
+  set hash(String? value) => writeField('hash', value);
+
+  /// 予定する出力の要素数。記号から離す属性の文字を含む
+  int? get elements => readField('elements', asInt);
+  set elements(int? value) => writeField('elements', value);
+
+  /// 処理対象の出現数。同じ出所を持つ別の入力は別々に数え、診断の数では増やさない
+  int? get total => readField('total', asInt);
+  set total(int? value) => writeField('total', value);
+
+  /// 種類と忠実度ごとの全件集計
+  List<ConversionCount>? get counts => readField('counts', listOf(objectOf(ConversionCount.fromJson)));
+  set counts(List<ConversionCount>? value) => writeField('counts', value);
+
+  /// 処理順の明細。limit 件まで返す
+  List<ConversionDetail>? get details => readField('details', listOf(objectOf(ConversionDetail.fromJson)));
+  set details(List<ConversionDetail>? value) => writeField('details', value);
+
+  /// 明細の上限で返さなかった対象がある
+  bool? get truncated => readField('truncated', asBool);
+  set truncated(bool? value) => writeField('truncated', value);
+
+  /// 入力の表の読み取りと lift 中の、集約前の診断発生記録。書き手の項目の集計には含めない。マイナーバージョン 67 から
+  ConversionInputDiagnostics? get inputDiagnostics => readField('input_diagnostics', objectOf(ConversionInputDiagnostics.fromJson));
+  set inputDiagnostics(ConversionInputDiagnostics? value) => writeField('input_diagnostics', value);
+}
+
+/// 読み取り段階の診断発生数。失った要素数ではなく、同じ要素の複数の診断もそれぞれ数える。忠実度を持たない診断も含む。open 時や書き手の診断は含まない
+class ConversionInputDiagnostics extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  ConversionInputDiagnostics.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  ConversionInputDiagnostics() : super({});
+
+  /// 診断の発生件数の合計。max_places と limit によらない
+  int? get total => readField('total', asInt);
+  set total(int? value) => writeField('total', value);
+
+  /// 診断の code とカタログの group_by の値による全件集計。場所は持たず、値は最も早い入力位置の報告から取る
+  List<Diagnostic>? get counts => readField('counts', listOf(objectOf(Diagnostic.fromJson)));
+  set counts(List<Diagnostic>? value) => writeField('counts', value);
+
+  /// 集約前の報告を入力位置順に limit 件まで返す。同じ位置は報告順。診断の場所は max_places で制限しない
+  List<ConversionInputDiagnostic>? get details => readField('details', listOf(objectOf(ConversionInputDiagnostic.fromJson)));
+  set details(List<ConversionInputDiagnostic>? value) => writeField('details', value);
+
+  /// 明細の上限で返さなかった報告がある
+  bool? get truncated => readField('truncated', asBool);
+  set truncated(bool? value) => writeField('truncated', value);
+}
+
+/// 集約前の診断と、その場所と同じ順序の出所。種類や失った値は診断の code と params からたどる
+class ConversionInputDiagnostic extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  ConversionInputDiagnostic.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  ConversionInputDiagnostic() : super({});
+
+  /// 集約前の診断。元の値と場所を保つ
+  Diagnostic? get diagnostic => readField('diagnostic', objectOf(Diagnostic.fromJson));
+  set diagnostic(Diagnostic? value) => writeField('diagnostic', value);
+
+  /// diagnostic.at と同じ順序のレコード・バイト範囲・ハンドル・インスタンス番号。ID は diagnostic.at にある
+  List<Source>? get sources => readField('sources', listOf(objectOf(Source.fromJson)));
+  set sources(List<Source>? value) => writeField('sources', value);
+}
+
+/// 処理対象の種類と忠実度ごとの集計
+class ConversionCount extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  ConversionCount.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  ConversionCount() : super({});
+
+  /// 処理対象の種類のキー
+  String? get kind => readField('kind', asString);
+  set kind(String? value) => writeField('kind', value);
+
+  /// その対象を移した結果の忠実度
+  String? get fidelity => readField('fidelity', asString);
+  set fidelity(String? value) => writeField('fidelity', value);
+
+  /// 入力の出現数。1 つの入力が複数の出力になっても 1 件
+  int? get count => readField('count', asInt);
+  set count(int? value) => writeField('count', value);
+
+  /// この対象から書いた図形の数。表や参照だけを移した場合は 0
+  int? get outputElements => readField('output_elements', asInt);
+  set outputElements(int? value) => writeField('output_elements', value);
+}
+
+/// 処理対象の出現 1 つ。複数の欠落の診断が出ても 1 件として数える
+class ConversionDetail extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  ConversionDetail.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  ConversionDetail() : super({});
+
+  /// 処理対象の種類のキー
+  String? get kind => readField('kind', asString);
+  set kind(String? value) => writeField('kind', value);
+
+  /// その対象を移した結果の忠実度
+  String? get fidelity => readField('fidelity', asString);
+  set fidelity(String? value) => writeField('fidelity', value);
+
+  /// 値や参照を変えた理由のキー。text_height_meaning は文字高の意味、relocated_shape は形の値、style_default はスタイルの既定値、detached_attribute は属性の文字への分離、baked_view はビューの焼き込み、reference_dropped は参照の欠落
+  List<String>? get reasons => readField('reasons', listOf(asString));
+  set reasons(List<String>? value) => writeField('reasons', value);
+
+  /// 元の要素の ID。持つ対象だけで返す
+  String? get id => readField('id', asString);
+  set id(String? value) => writeField('id', value);
+
+  /// 元の対象のレコード・バイト範囲・キー
+  Source? get source => readField('source', objectOf(Source.fromJson));
+  set source(Source? value) => writeField('source', value);
+
+  /// この対象から書いた図形の数。表や参照だけを移した場合は 0
+  int? get outputElements => readField('output_elements', asInt);
+  set outputElements(int? value) => writeField('output_elements', value);
+}
+
+/// 忠実度。`native` は元の値・参照を保持、`equivalent` は別の表現で同じ意味、`approximated` は近似、`drawn` は見た目だけ、`dropped` は欠落
+///
+/// 列挙の値。知らない値も受け取る
+abstract final class ConversionFidelity {
+  static const native = 'native';
+  static const equivalent = 'equivalent';
+  static const approximated = 'approximated';
+  static const drawn = 'drawn';
+  static const dropped = 'dropped';
 }
 
 /// 当てた変更 1 つの結果
@@ -1815,7 +2329,7 @@ class Edit extends Message {
   PointStyleEdit? get asPointStyleEdit => taggedView('kind', 'point_style', PointStyleEdit.fromJson);
 }
 
-/// 要素のレイヤ・色・線種・線種の倍率・線幅のうち、書いたものだけを変える。形は変えない
+/// 要素のレイヤ・色・線種・線種の倍率・線幅のうち、書いたものだけを変える。形は変えない。RGB の色は、DXF と DWG の R2004 から、線幅は R2000 から書ける（DWG の今ある図形のレイヤ・線種・線幅・RGB の色は、決定 0293 から変えられる）
 class RestyleEdit extends Message {
   /// 読んだ JSON のオブジェクトを包む
   RestyleEdit.fromJson(super.json);
@@ -1931,7 +2445,7 @@ class ReplaceEdit extends Message {
   set geometry(Geometry? value) => writeField('geometry', value);
 }
 
-/// 空間か用紙に要素を足す。書かない色・線種・線幅はレイヤに従う。足せる形は、形の値のどの種類も。マイナーバージョン 10 から
+/// 空間か用紙に要素を足す。書かない色・線種・線幅はレイヤに従う。JWW と SXF の図形は色・線種・線幅を自分で持ち、レイヤかブロックに従う値を持たないので、JWW は色と線種を書き（点は色だけ）、SXF は色・線種・線幅を書く（点マーカーは色だけ）。書かないか、レイヤかブロックに従う値なら change.style.unsupported で断る。JWW の書かないかレイヤに従う線幅は、ペンの印刷の線幅に従う。足せる形は、形の値のどの種類も。マイナーバージョン 10 から
 class AddEdit extends Message {
   /// 読んだ JSON のオブジェクトを包む
   AddEdit.fromJson(super.json);
@@ -1955,7 +2469,7 @@ class AddEdit extends Message {
   String? get layerId => readField('layer_id', asString);
   set layerId(String? value) => writeField('layer_id', value);
 
-  /// 色。SXF はレイヤに従う色を書けないので、書く。マイナーバージョン 29 から
+  /// 色。SXF と JWW はレイヤに従う色を書けないので、書く。SXF は、sxf の番号か、利用者定義色と同じ RGB を受ける。JWW は、jww の番号（0〜9 と、バージョン 420 からの拡張色 100〜356）か、ペン 1〜9 と、バージョン 420 からの 100〜356 のどれかと同じ RGB を受ける。書かないか、受けられない色なら断る。マイナーバージョン 29 から
   ColorChange? get color => readField('color', objectOf(ColorChange.fromJson));
   set color(ColorChange? value) => writeField('color', value);
 
@@ -1972,7 +2486,7 @@ class AddEdit extends Message {
   set geometry(Geometry? value) => writeField('geometry', value);
 }
 
-/// レイヤの名前・状態・色・線種・線幅のうち、書いたものだけを変える（決定 0162）。DXF は、名前を変えると、図形と今のレイヤ（$CLAYER）も新しい名前で指す。DWG は、今あるレイヤの線種と真の色を変えられない。マイナーバージョン 22 から
+/// レイヤの名前・状態・色・線種・線幅のうち、書いたものだけを変える（決定 0162）。DXF は、名前を変えると、図形と今のレイヤ（$CLAYER）も新しい名前で指す。DWG の真の色は R2004 から書ける（今あるレイヤの線種と真の色は、決定 0293 から変えられる）。マイナーバージョン 22 から
 class LayerEdit extends Message {
   /// 読んだ JSON のオブジェクトを包む
   LayerEdit.fromJson(super.json);
@@ -5695,7 +6209,7 @@ class CivilPosition extends Message {
   set gradient(double? value) => writeField('gradient', value);
 }
 
-/// open で開いた点群（LAS・LAZ）の要約と、条件に合う点を返す。点は八分木の浅い段のノードから順に選ぶ（決定 0232）。点群のモジュールに置く（決定 0253）。マイナーバージョン 48 から
+/// open で開いた点群（LAS・PLY・XYZ・E57）の要約と、条件に合う点を返す。点は八分木の浅い段のノードから順に選ぶ（決定 0232）。点群のモジュールに置く（決定 0253）。マイナーバージョン 48 から
 class PointcloudRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
   PointcloudRequest.fromJson(super.json);
@@ -7177,8 +7691,11 @@ abstract final class Operations {
   static const describe = 'describe';
   static const drawing = 'drawing';
   static const entities = 'entities';
+  static const calibrations = 'calibrations';
+  static const measureDistance = 'measure_distance';
   static const apply = 'apply';
   static const convert = 'convert';
+  static const convertEstimate = 'convert_estimate';
   static const tables = 'tables';
   static const scene = 'scene';
   static const check = 'check';

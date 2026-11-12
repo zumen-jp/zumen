@@ -282,6 +282,14 @@ fn dwg_and_dxf_of_the_same_drawing_give_the_same_table() {
                     .nth(*nth)
                     .map(|v| &v.data);
                 *nth += 1;
+                // 真の色の画層の 62 は、DXF が近い番号を置くが、DWG は表示しない状態だけを -7 で置く（#743）。符号だけを比べる
+                let true_color_layer = |data: &Data, theirs: &Data| {
+                    object.kind == b"LAYER"
+                        && value.code == 62
+                        && object.first(420).is_some()
+                        && matches!((data, theirs), (Data::Int(ours), Data::Int(theirs))
+                            if ours.signum() == theirs.signum())
+                };
                 // R2000 の MULTILEADER の色は番号だけを持つ（0xC3）。DXF が RGB の色（0xC2）を持つときは比べない
                 let nearest = |data: &Data, theirs: &Data| {
                     matches!((data, theirs), (Data::Int(ours), Data::Int(theirs))
@@ -330,6 +338,7 @@ fn dwg_and_dxf_of_the_same_drawing_give_the_same_table() {
                         || (object.kind == b"TABLESTYLE"
                             && value.code == 7
                             && style_name(&value.data, theirs))
+                        || true_color_layer(&value.data, theirs)
                         || (object.kind == b"ACAD_TABLE"
                             && value.code == 340
                             && anonymous(&value.data, theirs))
@@ -792,14 +801,15 @@ fn drawings_changed_by_id_return_the_ids_and_hashes_of_reading_again() {
     assert!(!received_pairs() || checked > 0);
 }
 
-/// サンプルの線のスタイルを ID で変えると、形は変わらず、変えたフィールドだけが読み直したときに変わっている。DWG は
-/// 色と線種の倍率を、DXF はレイヤも変える（決定 0139）
+/// サンプルの実寸の空間の要素（線があれば線）のスタイルを ID で変えると、形は変わらず、変えたフィールドだけが読み直したときに
+/// 変わっている。DWG も DXF も、
+/// レイヤ・色・線種・線種の倍率・線幅を変え、R2004 からは RGB の色も書く（決定 0139、#723）。ほかの要素は変わらない
 #[cfg(feature = "drawing")]
 #[test]
 fn drawings_take_back_restyled_lines() {
     use zumen_drawing::{
         Applied, Changes, Color, ColorCode, ColorSystem, Drawing2D, Edit, Hash, Inherit, LayerId,
-        Restyle, Seen, Shape, id,
+        LineWeight, PaperLength, Restyle, Seen, Shape, id,
     };
     use zumen_sdk::{Apply, Codec, Lift, testkit};
     fn lift<F: Lift<Drawing2D>>(file: &F) -> Drawing2D {
@@ -809,48 +819,108 @@ fn drawings_take_back_restyled_lines() {
         file.lift(&mut Cx::new(&mut budget, &mut diag, &cancel))
             .unwrap()
     }
-    fn check<C: Codec>(path: &Path, relayer: bool) -> bool
+    /// 実寸の空間の要素の ID とハッシュ
+    fn hashes(drawing: &Drawing2D) -> Vec<(String, Hash)> {
+        let space = &drawing.spaces[0];
+        let place = id::space(space.id);
+        let mut namer = id::Namer::new(&place);
+        space
+            .elements
+            .iter()
+            .enumerate()
+            .map(|(index, element)| (namer.next(index, element), Hash::element(element)))
+            .collect()
+    }
+    /// `src` に、線種 ZUMEN_DASH を足したファイル。公開サンプルは名前のある線種を持たないので、図形の線種のハンドルを
+    /// 書き直すために足す
+    fn with_line_type<C: Codec>(src: &[u8]) -> Vec<u8>
     where
         C::File: Lift<Drawing2D> + Apply<Changes, Output = Vec<Applied>>,
     {
-        let src = std::fs::read(path).unwrap();
+        let mut file = testkit::read::<C>(src).0.unwrap();
+        let drawing = lift(&file);
+        let mut added = drawing
+            .line_types
+            .iter()
+            .find(|line_type| line_type.definition.is_some())
+            .unwrap()
+            .clone();
+        added.name = "ZUMEN_DASH".to_owned();
+        added.source = zumen_base::Ref::default();
+        let definition = added.definition.as_mut().unwrap();
+        definition.description = "zumen".to_owned();
+        definition.pattern = vec![1.0, -0.5];
+        definition.marks.clear();
+        let changes = Changes {
+            edits: vec![Edit::AddLineType {
+                line_type: Box::new(added),
+            }],
+            document: None,
+        };
+        let mut diag = Diagnostics::new();
+        let mut budget = Budget::default();
+        let cancel = CancelToken::new();
+        file.apply(&changes, &mut Cx::new(&mut budget, &mut diag, &cancel))
+            .unwrap();
+        testkit::write::<C>(&file).unwrap()
+    }
+    /// `rgb` は RGB の色を書けるバージョンか。`own_line_type` は、線種を足した線種にするか（でなければ ByBlock にする）
+    fn check<C: Codec>(path: &Path, rgb: bool, own_line_type: bool) -> bool
+    where
+        C::File: Lift<Drawing2D> + Apply<Changes, Output = Vec<Applied>>,
+    {
+        let mut src = std::fs::read(path).unwrap();
+        if own_line_type {
+            src = with_line_type::<C>(&src);
+        }
         let mut file = testkit::read::<C>(&src).0.unwrap();
         let drawing = lift(&file);
         let space = &drawing.spaces[0];
         let place = id::space(space.id);
         let mut namer = id::Namer::new(&place);
-        let found = space
+        let found: Vec<_> = space
             .elements
             .iter()
             .enumerate()
             .map(|(index, element)| (namer.next(index, element), element))
-            .find(|(id, element)| {
-                matches!(element.shape, Shape::Line { .. })
-                    && id.starts_with("space/0/h")
-                    && id.matches('/').count() == 2
-            });
-        let Some((target, line)) = found else {
+            .filter(|(id, _)| id.starts_with("space/0/h") && id.matches('/').count() == 2)
+            .collect();
+        let found = found
+            .iter()
+            .find(|(_, element)| matches!(element.shape, Shape::Line { .. }))
+            .or(found.first());
+        let Some((target, line)) = found.cloned() else {
             return false;
         };
-        let layer = relayer
-            .then(|| {
-                (0..drawing.layers.len() as u32)
-                    .map(LayerId)
-                    .find(|layer| *layer != line.layer)
-            })
-            .flatten();
-        let green = Inherit::Own(Color {
-            code: Some(ColorCode {
-                system: ColorSystem::Aci,
-                value: 3,
-            }),
-            rgb: None,
+        let layer = (0..drawing.layers.len() as u32)
+            .map(LayerId)
+            .find(|layer| *layer != line.layer);
+        let line_type = if own_line_type {
+            let added = drawing
+                .line_types
+                .iter()
+                .find(|line_type| line_type.name == "ZUMEN_DASH")
+                .unwrap();
+            Inherit::Own(added.id)
+        } else {
+            Inherit::Block
+        };
+        let color = Inherit::Own(if rgb {
+            Color {
+                code: None,
+                rgb: Some([12, 34, 56]),
+            }
+        } else {
+            Color {
+                code: Some(ColorCode {
+                    system: ColorSystem::Aci,
+                    value: 3,
+                }),
+                rgb: None,
+            }
         });
-        // DWG は、今ある図形のレイヤを書き戻せないので、何も変えずに断る
-        if !relayer && drawing.layers.len() > 1 {
-            let other = (0..drawing.layers.len() as u32)
-                .map(LayerId)
-                .find(|layer| *layer != line.layer);
+        // RGB の色を持てないバージョン（R2004 より前）では、RGB の色への変更を、何も変えずに断る
+        if !rgb {
             let refused = Changes {
                 edits: vec![Edit::Restyle {
                     target: Seen {
@@ -858,7 +928,10 @@ fn drawings_take_back_restyled_lines() {
                         hash: Hash::element(line),
                     },
                     style: Restyle {
-                        layer: other,
+                        color: Some(Inherit::Own(Color {
+                            code: None,
+                            rgb: Some([12, 34, 56]),
+                        })),
                         ..Restyle::default()
                     },
                 }],
@@ -882,6 +955,7 @@ fn drawings_take_back_restyled_lines() {
                 path.display()
             );
         }
+        let weight = Inherit::Own(LineWeight::Width(PaperLength(0.35)));
         let changes = Changes {
             edits: vec![Edit::Restyle {
                 target: Seen {
@@ -890,9 +964,10 @@ fn drawings_take_back_restyled_lines() {
                 },
                 style: Restyle {
                     layer,
-                    color: Some(green),
+                    color: Some(color),
+                    line_type: Some(line_type),
                     line_type_scale: Some(line.style.line_type_scale * 2.0),
-                    ..Restyle::default()
+                    line_weight: Some(weight),
                 },
             }],
             document: Some(Hash::document(&src)),
@@ -921,35 +996,251 @@ fn drawings_take_back_restyled_lines() {
             .map(|(index, element)| (namer.next(index, element), element))
             .find(|(id, _)| *id == target)
             .unwrap();
-        assert_eq!(restyled.shape, line.shape, "{}", path.display());
-        assert_eq!(restyled.style.color, green, "{}", path.display());
+        let name = path.display();
+        assert_eq!(restyled.shape, line.shape, "{name}");
+        assert_eq!(restyled.style.color, color, "{name}");
         assert_eq!(
             restyled.style.line_type_scale,
             line.style.line_type_scale * 2.0,
-            "{}",
-            path.display()
+            "{name}"
         );
+        assert_eq!(restyled.layer, layer.unwrap_or(line.layer), "{name}");
+        assert_eq!(restyled.style.line_type, line_type, "{name}");
+        assert_eq!(restyled.style.line_weight, Some(weight), "{name}");
         assert_eq!(
-            restyled.layer,
-            layer.unwrap_or(line.layer),
-            "{}",
-            path.display()
+            restyled.style.transparency, line.style.transparency,
+            "{name}"
         );
         assert_eq!(applied[0].id.as_deref(), Some(target.as_str()));
-        assert_eq!(
-            applied[0].hash,
-            Some(Hash::element(restyled)),
-            "{}",
-            path.display()
+        assert_eq!(applied[0].hash, Some(Hash::element(restyled)), "{name}");
+        // ほかの要素は変わらない
+        let others = |drawing: &Drawing2D| -> Vec<(String, Hash)> {
+            hashes(drawing)
+                .into_iter()
+                .filter(|(id, _)| *id != target)
+                .collect()
+        };
+        assert_eq!(others(&after), others(&drawing), "{name}");
+        // 線種のハンドルと RGB の色を持つ図形を、ByLayer と番号の色に戻す（ハンドルのストリームから線種のハンドルを
+        // 除き、色の RGB の値を除く）
+        let mut file = testkit::read::<C>(&written).0.unwrap();
+        let aci = Inherit::Own(Color {
+            code: Some(ColorCode {
+                system: ColorSystem::Aci,
+                value: 3,
+            }),
+            rgb: None,
+        });
+        let back = Changes {
+            edits: vec![Edit::Restyle {
+                target: Seen {
+                    id: target.clone(),
+                    hash: Hash::element(restyled),
+                },
+                style: Restyle {
+                    color: Some(aci),
+                    line_type: Some(Inherit::Layer),
+                    ..Restyle::default()
+                },
+            }],
+            document: Some(Hash::document(&written)),
+        };
+        let mut diag = Diagnostics::new();
+        let mut budget = Budget::default();
+        let cancel = CancelToken::new();
+        file.apply(&back, &mut Cx::new(&mut budget, &mut diag, &cancel))
+            .unwrap_or_else(|error| panic!("{name}: {error:?}"));
+        let again = lift(
+            &testkit::read::<C>(&testkit::write::<C>(&file).unwrap())
+                .0
+                .unwrap(),
         );
+        let space = &again.spaces[0];
+        let place = id::space(space.id);
+        let mut namer = id::Namer::new(&place);
+        let (_, back) = space
+            .elements
+            .iter()
+            .enumerate()
+            .map(|(index, element)| (namer.next(index, element), element))
+            .find(|(id, _)| *id == target)
+            .unwrap();
+        assert_eq!(back.shape, line.shape, "{name}");
+        assert_eq!(back.style.color, aci, "{name}");
+        assert_eq!(back.style.line_type, Inherit::Layer, "{name}");
+        assert_eq!(back.layer, restyled.layer, "{name}");
+        assert_eq!(back.style.line_weight, Some(weight), "{name}");
+        assert_eq!(others(&again), others(&drawing), "{name}");
         true
     }
+    let rgb = |path: &Path| {
+        let src = std::fs::read(path).unwrap();
+        let version = if src.starts_with(b"AC10") {
+            src.get(..6).unwrap().to_vec()
+        } else {
+            let text = String::from_utf8_lossy(&src);
+            let at = text.find("$ACADVER").unwrap();
+            text.get(at..)
+                .unwrap()
+                .lines()
+                .nth(2)
+                .unwrap()
+                .trim()
+                .as_bytes()
+                .to_vec()
+        };
+        version.as_slice() >= b"AC1018".as_slice()
+    };
     let mut checked = 0;
     for (dwg, dxf) in pairs() {
-        checked += usize::from(check::<Dwg>(&dwg, false));
-        checked += usize::from(check::<Dxf>(&dxf, true));
+        for own in [true, false] {
+            checked += usize::from(check::<Dwg>(&dwg, rgb(&dwg), own));
+            checked += usize::from(check::<Dxf>(&dxf, rgb(&dxf), own));
+        }
     }
     assert!(!received_pairs() || checked > 0);
+    assert!(checked > 0);
+}
+
+/// DWG のサンプルの画層の線種と色を変えると、読み直した画層の線種と色が変えたものになる。R2004 からは真の色も書き、表示しない
+/// 画層の真の色も、表示しないまま書く（決定 0162、#723）。図形は同じ画層にとどまり、ほかの画層は変わらない
+#[cfg(feature = "drawing")]
+#[test]
+fn dwg_layers_take_back_line_types_and_true_colors() {
+    use zumen_drawing::{
+        Applied, Changes, Color, ColorCode, ColorSystem, Drawing2D, Edit, Hash, LayerStyle, Seen,
+        id,
+    };
+    use zumen_sdk::{Apply, Lift, testkit};
+    fn lift<F: Lift<Drawing2D>>(file: &F) -> Drawing2D {
+        let mut diag = Diagnostics::new();
+        let mut budget = Budget::default();
+        let cancel = CancelToken::new();
+        file.lift(&mut Cx::new(&mut budget, &mut diag, &cancel))
+            .unwrap()
+    }
+    fn apply(file: &mut zumen_acad::DwgFile, edits: Vec<Edit>) -> Vec<Applied> {
+        let mut diag = Diagnostics::new();
+        let mut budget = Budget::default();
+        let cancel = CancelToken::new();
+        let changes = Changes {
+            edits,
+            document: None,
+        };
+        file.apply(&changes, &mut Cx::new(&mut budget, &mut diag, &cancel))
+            .unwrap_or_else(|error| {
+                panic!(
+                    "{error:?} {:?}",
+                    diag.iter().map(|d| d.code()).collect::<Vec<_>>()
+                )
+            })
+    }
+    let mut checked = 0;
+    for (path, _) in pairs() {
+        let name = path.display().to_string();
+        let src = std::fs::read(&path).unwrap();
+        let rgb = src.get(..6).unwrap() >= b"AC1018".as_slice();
+        // 公開サンプルは名前のある線種を持たないので、先に足す
+        let mut file = testkit::read::<Dwg>(&src).0.unwrap();
+        let drawing = lift(&file);
+        let mut dash = drawing
+            .line_types
+            .iter()
+            .find(|line_type| line_type.definition.is_some())
+            .unwrap()
+            .clone();
+        dash.name = "ZUMEN_DASH".to_owned();
+        dash.source = zumen_base::Ref::default();
+        dash.definition.as_mut().unwrap().pattern = vec![1.0, -0.5];
+        dash.definition.as_mut().unwrap().marks.clear();
+        apply(
+            &mut file,
+            vec![Edit::AddLineType {
+                line_type: Box::new(dash),
+            }],
+        );
+        let file = testkit::read::<Dwg>(&testkit::write::<Dwg>(&file).unwrap())
+            .0
+            .unwrap();
+        let drawing = lift(&file);
+        let dash = drawing
+            .line_types
+            .iter()
+            .find(|line_type| line_type.name == "ZUMEN_DASH")
+            .unwrap()
+            .id;
+        let Some(was) = drawing
+            .layers
+            .iter()
+            .find(|layer| layer.source.key().is_some() && layer.style.is_some())
+        else {
+            continue;
+        };
+        for visible in [true, false] {
+            let mut changed = was.clone();
+            changed.state = Some(zumen_drawing::LayerState {
+                visible,
+                ..was.state.unwrap()
+            });
+            changed.style = Some(LayerStyle {
+                line_type: Some(dash),
+                color: Some(Color {
+                    code: Some(ColorCode {
+                        system: ColorSystem::Aci,
+                        value: 5,
+                    }),
+                    rgb: rgb.then_some([200, 100, 50]),
+                }),
+                ..was.style.unwrap()
+            });
+            let mut file = testkit::read::<Dwg>(&testkit::write::<Dwg>(&file).unwrap())
+                .0
+                .unwrap();
+            let applied = apply(
+                &mut file,
+                vec![Edit::ReplaceLayer {
+                    target: Seen {
+                        id: id::layer(was),
+                        hash: Hash::layer(was),
+                    },
+                    layer: Box::new(changed.clone()),
+                }],
+            );
+            let after = lift(
+                &testkit::read::<Dwg>(&testkit::write::<Dwg>(&file).unwrap())
+                    .0
+                    .unwrap(),
+            );
+            let found = after
+                .layers
+                .iter()
+                .find(|layer| id::layer(layer) == id::layer(was))
+                .unwrap();
+            assert_eq!(found.style, changed.style, "{name}");
+            assert_eq!(found.state, changed.state, "{name}");
+            assert_eq!(applied[0].hash, Some(Hash::layer(found)), "{name}");
+            let others = |drawing: &Drawing2D| -> Vec<Hash> {
+                drawing
+                    .layers
+                    .iter()
+                    .filter(|layer| id::layer(layer) != id::layer(was))
+                    .map(Hash::layer)
+                    .collect()
+            };
+            assert_eq!(others(&after), others(&drawing), "{name}");
+            let elements = |drawing: &Drawing2D| -> Vec<Hash> {
+                drawing
+                    .spaces
+                    .iter()
+                    .flat_map(|space| &space.elements)
+                    .map(Hash::element)
+                    .collect()
+            };
+            assert_eq!(elements(&after), elements(&drawing), "{name}");
+            checked += 1;
+        }
+    }
+    assert!(checked > 0);
 }
 
 /// サンプルの線・円・弧・折れ線・文字・記号（INSERT）を、種類ごとに 1 つずつ ID で回して動かすと、読み直した形は変換で
@@ -2000,9 +2291,11 @@ fn table_records_are_taken_back(version: &[u8; 6]) {
             if object.section != Section::Tables {
                 continue;
             }
+            // 色見本帳の色（430）の画層は、番号の色を書けないので、色を変えない（#743）
+            let named = object.values.iter().any(|v| v.code == 430);
             for value in object.values.iter_mut() {
                 match (object.kind.as_slice(), value.code, &mut value.data) {
-                    (b"LAYER", 62, Data::Int(v)) => *v = v.signum() * (v.abs() % 255 + 1),
+                    (b"LAYER", 62, Data::Int(v)) if !named => *v = v.signum() * (v.abs() % 255 + 1),
                     (b"STYLE", 41, Data::Real(v)) => *v *= 2.0,
                     (b"LTYPE", 49, Data::Real(v)) => *v *= 2.0,
                     (b"VIEW" | b"VPORT", 40, Data::Real(v)) => *v *= 2.0,
@@ -3140,6 +3433,52 @@ fn r2000_drawings_take_back_changed_header_variables() {
     header_variables_are_taken_back(b"AC1015");
 }
 
+/// R2000 の補助のヘッダー（セクションの記録の 5 番）の HANDSEED の写しは、ヘッダーの変数のセクションを後ろに移して
+/// 伸ばすときも合わせ、補助のヘッダーの形でなければ元のまま残す（#739）
+#[test]
+fn r2000_aux_headers_follow_grown_handle_seeds() {
+    let path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../samples/dwg/zumen-layout-r2000.dwg");
+    let src = std::fs::read(&path).unwrap();
+    let mut diag = Diagnostics::new();
+    let mut budget = Budget::default();
+    let cancel = CancelToken::new();
+    let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+    let aux = Dwg::read(&src, &mut cx)
+        .unwrap()
+        .locators()
+        .iter()
+        .find(|l| l.number == 5)
+        .copied()
+        .unwrap();
+    let range = aux.seeker as usize..(aux.seeker + aux.size) as usize;
+    // 始まりの 3 バイトを変えたものは、補助のヘッダーの形でない
+    let mut other = src.clone();
+    other[range.start] = 0;
+    for (src, shaped) in [(src, true), (other, false)] {
+        let mut file = Dwg::read(&src, &mut cx).unwrap();
+        assert_eq!(file.aux_handle_seed().is_some(), shaped);
+        let mut txn = file.transaction();
+        // 2 バイトの HANDSEED を 3 バイトに伸ばす
+        txn.set_handle_seed(0x1_0000).unwrap();
+        txn.commit(&mut cx).unwrap();
+        let mut out = Vec::new();
+        Dwg::write(&file, &mut out, &mut cx).unwrap();
+        let again = Dwg::read(&out, &mut cx).unwrap();
+        assert_eq!(again.handle_seed(), Some(0x1_0000));
+        if shaped {
+            assert_eq!(again.aux_handle_seed(), Some(0x1_0000));
+        } else {
+            assert_eq!(again.aux_handle_seed(), None);
+            assert_eq!(out[range.clone()], src[range.clone()]);
+        }
+    }
+    assert!(
+        diag.iter().all(|d| d.code() != codes::DWG_CRC_INVALID),
+        "{diag:?}"
+    );
+}
+
 #[test]
 fn r2004_drawings_take_back_changed_header_variables() {
     header_variables_are_taken_back(b"AC1018");
@@ -3216,6 +3555,12 @@ fn header_variables_are_taken_back(version: &[u8]) {
         let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
         let mut file = Dwg::read(&out, &mut cx).unwrap();
         let seed = file.handle_seed().unwrap();
+        // 補助のヘッダーの HANDSEED の写しは、どの公開サンプルもヘッダーの変数の値と同じ（#739）
+        let copy = |seed: u64| Some(u32::try_from(seed).unwrap());
+        let before = file.aux_handle_seed();
+        if !support::received(&path) {
+            assert_eq!(before, copy(seed), "{}", path.display());
+        }
         let mut txn = file.transaction();
         txn.set_handle_seed(seed + 1).unwrap();
         txn.commit(&mut cx).unwrap();
@@ -3223,6 +3568,12 @@ fn header_variables_are_taken_back(version: &[u8]) {
         Dwg::write(&file, &mut out, &mut cx).unwrap();
         let again = Dwg::read(&out, &mut cx).unwrap();
         assert_eq!(again.handle_seed(), Some(seed + 1), "{}", path.display());
+        assert_eq!(
+            again.aux_handle_seed(),
+            before.and(copy(seed + 1)),
+            "{}",
+            path.display()
+        );
     }
 }
 

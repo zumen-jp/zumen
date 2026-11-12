@@ -715,3 +715,291 @@ fn truncated_and_mutated_files_do_not_panic() {
         }
     }
 }
+
+/// IFC4 の最小のファイルに、壁 `walls` 個と `extra` の行を足す。壁は #1000 から
+fn with_walls(walls: u32, extra: &str) -> String {
+    let lines: String = (0..walls)
+        .map(|i| {
+            format!(
+                "#{}=IFCWALL('{}',#2,'Wall',$,$,$,$,$,.STANDARD.);\n",
+                1000 + i,
+                gid(1000 + i)
+            )
+        })
+        .collect();
+    ifc(V::Ifc4, "IFC4").replace(
+        "\nENDSEC;\nEND-ISO",
+        &format!("\n{lines}{extra}\nENDSEC;\nEND-ISO"),
+    )
+}
+
+/// #1000 から `walls` 個の壁の参照の並び
+fn wall_refs(walls: u32) -> String {
+    (0..walls)
+        .map(|i| format!("#{}", 1000 + i))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// 建物モデルを作り、使った展開のバイト（`DecodedBytes`）も返す
+fn lift_decoded(src: &str, limits: Limits) -> (Result<Building, Error>, Diagnostics, u64) {
+    let Some(file) = read(src.as_bytes()) else {
+        return (Err(Error::Invalid), Diagnostics::new(), 0);
+    };
+    let mut budget = Budget::new(limits);
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let result = file.lift(&mut Cx::new(&mut budget, &mut diag, &cancel));
+    (result, diag, budget.used(Kind::DecodedBytes))
+}
+
+/// 同じ値を多くの要素に写すと、入力の大きさに比例しないメモリを使うので、写す値の大きさを展開のバイトに数え、
+/// 上限で止まる（#733）。`shared` は、壁 `walls` 個に同じ値を写す行を返す
+fn copies_count_against_decoded_bytes(shared: impl Fn(u32) -> String, per_wall: u64) {
+    let (few, many) = (2, 202);
+    let (result, _, base) = lift_decoded(&with_walls(few, &shared(few)), Limits::default());
+    assert!(result.is_ok(), "{result:?}");
+    let src = with_walls(many, &shared(many));
+    let (result, _, used) = lift_decoded(&src, Limits::default());
+    assert!(result.is_ok(), "{result:?}");
+    assert!(
+        used.saturating_sub(base) >= (many - few) as u64 * per_wall,
+        "{base} {used}"
+    );
+    let limits = Limits::default().with(Kind::DecodedBytes, Limit::Finite(base + per_wall * 10));
+    let (stopped, diag, _) = lift_decoded(&src, limits);
+    assert!(matches!(stopped, Err(Error::Stopped(_))), "{stopped:?}");
+    assert!(found(&diag).contains(&codes::BUDGET_DECODED_BYTES_EXCEEDED));
+}
+
+/// 1 つのプロパティのセットを、多くの要素に写す
+#[test]
+fn shared_property_sets_count_their_copies() {
+    let properties = 100;
+    copies_count_against_decoded_bytes(
+        |walls| {
+            let mut extra = format!(
+                "#900=IFCPROPERTYSET('{}',#2,'Pset_Shared',$,({}));\n",
+                gid(900),
+                (0..properties)
+                    .map(|i| format!("#{}", 2000 + i))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            );
+            for i in 0..properties {
+                extra.push_str(&format!(
+                    "#{}=IFCPROPERTYSINGLEVALUE('P{i}',$,IFCLABEL('x'),$);\n",
+                    2000 + i
+                ));
+            }
+            extra.push_str(&format!(
+                "#901=IFCRELDEFINESBYPROPERTIES('{}',#2,$,$,({}),#900);",
+                gid(901),
+                wall_refs(walls)
+            ));
+            extra
+        },
+        properties as u64 * 32,
+    );
+}
+
+/// 1 つの材料の並びを、多くの要素に写す
+#[test]
+fn shared_materials_count_their_copies() {
+    let parts = 100;
+    copies_count_against_decoded_bytes(
+        |walls| {
+            let mut extra = format!(
+                "#900=IFCMATERIALLIST(({}));\n",
+                (0..parts)
+                    .map(|i| format!("#{}", 2000 + i))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            );
+            for i in 0..parts {
+                extra.push_str(&format!("#{}=IFCMATERIAL('M{i}',$,$);\n", 2000 + i));
+            }
+            extra.push_str(&format!(
+                "#901=IFCRELASSOCIATESMATERIAL('{}',#2,$,$,({}),#900);",
+                gid(901),
+                wall_refs(walls)
+            ));
+            extra
+        },
+        parts as u64 * 32,
+    );
+}
+
+/// 長い GlobalId の関係を、多くの要素の出所に写す
+#[test]
+fn long_relation_global_ids_count_their_copies() {
+    let long = "A".repeat(4000);
+    copies_count_against_decoded_bytes(
+        |walls| {
+            format!(
+                "#900=IFCZONE('{}',#2,'Zone',$,$,$);\n\
+                 #901=IFCRELASSIGNSTOGROUP('{long}',#2,$,$,({}),$,#900);",
+                gid(900),
+                wall_refs(walls)
+            )
+        },
+        4000,
+    );
+}
+
+/// 長い名前の単位を、多くのプロパティに写す
+#[test]
+fn long_unit_names_count_their_copies() {
+    let long = "u".repeat(4000);
+    copies_count_against_decoded_bytes(
+        |walls| {
+            let mut extra = format!(
+                "#900=IFCCONVERSIONBASEDUNIT(#14,.LENGTHUNIT.,'{long}',#902);\n\
+                 #902=IFCMEASUREWITHUNIT(IFCLENGTHMEASURE(0.3),#903);\n\
+                 #903=IFCSIUNIT(*,.LENGTHUNIT.,$,.METRE.);\n"
+            );
+            for i in 0..walls {
+                extra.push_str(&format!(
+                    "#{}=IFCPROPERTYSINGLEVALUE('L',$,IFCLENGTHMEASURE(1.),#900);\n\
+                     #{}=IFCPROPERTYSET('{}',#2,'Pset_{i}',$,(#{}));\n",
+                    3000 + i,
+                    4000 + i,
+                    gid(4000 + i),
+                    3000 + i
+                ));
+            }
+            extra.push_str(&format!(
+                "#901=IFCRELDEFINESBYPROPERTIES('{}',#2,$,$,(#1000),({}));",
+                gid(901),
+                (0..walls)
+                    .map(|i| format!("#{}", 4000 + i))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            ));
+            extra
+        },
+        4000,
+    );
+}
+
+/// 予算で止まったときに、単位の写しを止めたことを「単位がない」と診断しない（#733）
+#[test]
+fn stopping_does_not_report_missing_units() {
+    let long = "u".repeat(4000);
+    let mut extra = format!(
+        "#900=IFCCONVERSIONBASEDUNIT(#14,.LENGTHUNIT.,'{long}',#902);\n\
+         #902=IFCMEASUREWITHUNIT(IFCLENGTHMEASURE(0.3),#903);\n\
+         #903=IFCSIUNIT(*,.LENGTHUNIT.,$,.METRE.);\n\
+         #904=IFCPROPERTYSET('{}',#2,'Pset_Units',$,(",
+        gid(904)
+    );
+    extra.push_str(
+        &(0..200)
+            .map(|i| format!("#{}", 3000 + i))
+            .collect::<Vec<_>>()
+            .join(","),
+    );
+    extra.push_str("));\n");
+    for i in 0..200 {
+        extra.push_str(&format!(
+            "#{}=IFCPROPERTYSINGLEVALUE('L{i}',$,IFCLENGTHMEASURE(1.),#900);\n",
+            3000 + i
+        ));
+    }
+    extra.push_str(&format!(
+        "#901=IFCRELDEFINESBYPROPERTIES('{}',#2,$,$,(#1000),#904);",
+        gid(901)
+    ));
+    let src = with_walls(1, &extra);
+    let (result, diag, base) = lift_decoded(&src, Limits::default());
+    assert!(result.is_ok(), "{result:?}");
+    assert!(!found(&diag).contains(&codes::IFC_UNIT_MISSING));
+    let limits = Limits::default().with(Kind::DecodedBytes, Limit::Finite(base / 4));
+    let (stopped, diag, _) = lift_decoded(&src, limits);
+    assert!(matches!(stopped, Err(Error::Stopped(_))), "{stopped:?}");
+    assert!(found(&diag).contains(&codes::BUDGET_DECODED_BYTES_EXCEEDED));
+    assert!(!found(&diag).contains(&codes::IFC_UNIT_MISSING), "{diag:?}");
+}
+
+/// 1 つのセットや層の集合が同じ項目を繰り返し参照しても、足すたびに数え、上限で止まる（#733）
+#[test]
+fn repeated_references_count_each_copy() {
+    let long = "n".repeat(4000);
+    let repeated = |count: usize| {
+        let refs = vec!["#2000"; count].join(",");
+        format!(
+            "#2000=IFCPROPERTYSINGLEVALUE('{long}',$,IFCLABEL('x'),$);\n\
+             #900=IFCPROPERTYSET('{}',#2,'Pset_Repeated',$,({refs}));\n\
+             #901=IFCRELDEFINESBYPROPERTIES('{}',#2,$,$,(#1000),#900);\n\
+             #2001=IFCMATERIALLAYER(#73,10.,$,'{long}',$,$,$);\n\
+             #902=IFCMATERIALLAYERSET(({}),'Layers',$);\n\
+             #903=IFCRELASSOCIATESMATERIAL('{}',#2,$,$,(#99999),#902);",
+            gid(900),
+            gid(901),
+            vec!["#2001"; count].join(","),
+            gid(903)
+        )
+    };
+    let (result, _, few) = lift_decoded(&with_walls(1, &repeated(2)), Limits::default());
+    assert!(result.is_ok(), "{result:?}");
+    let src = with_walls(1, &repeated(202));
+    let (result, _, many) = lift_decoded(&src, Limits::default());
+    assert!(result.is_ok(), "{result:?}");
+    // プロパティと層の名前を、200 回ずつ多く写す
+    assert!(many.saturating_sub(few) >= 2 * 200 * 4000, "{few} {many}");
+    let limits = Limits::default().with(Kind::DecodedBytes, Limit::Finite(few + 100_000));
+    let (stopped, diag, _) = lift_decoded(&src, limits);
+    assert!(matches!(stopped, Err(Error::Stopped(_))), "{stopped:?}");
+    assert!(found(&diag).contains(&codes::BUDGET_DECODED_BYTES_EXCEEDED));
+}
+
+/// 定義でない参照は要素のループの前に除き、要素と定義の組は作業に数える（#733）
+#[test]
+fn definitions_count_their_work_per_element() {
+    let relation = |walls: u32, sets: &str| {
+        format!(
+            "#901=IFCRELDEFINESBYPROPERTIES('{}',#2,$,$,({}),({sets}));",
+            gid(901),
+            wall_refs(walls)
+        )
+    };
+    let refs = |from: u32, count: u32| {
+        (0..count)
+            .map(|i| format!("#{}", from + i))
+            .collect::<Vec<_>>()
+            .join(",")
+    };
+    let work = |src: String| {
+        let Some(file) = read(src.as_bytes()) else {
+            return u64::MAX;
+        };
+        let mut budget = Budget::new(Limits::default());
+        let mut diag = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let result = Lift::<Building>::lift(&file, &mut Cx::new(&mut budget, &mut diag, &cancel));
+        assert!(result.is_ok(), "{result:?}");
+        budget.used(Kind::Work)
+    };
+    // 解けない参照を 200 個増やしても、要素ごとに引き直さない
+    let unresolved = |count: u32| work(with_walls(100, &relation(100, &refs(90_000, count))));
+    let (few, many) = (unresolved(2), unresolved(202));
+    assert!(many.saturating_sub(few) < 1_000, "{few} {many}");
+    // 空のプロパティのセットを 200 個増やすと、要素と定義の組を数える
+    let empty = |count: u32| {
+        let sets: String = (0..count)
+            .map(|i| {
+                format!(
+                    "#{}=IFCPROPERTYSET('{}',#2,'Pset_{i}',$,());\n",
+                    5000 + i,
+                    gid(5000 + i)
+                )
+            })
+            .collect();
+        work(with_walls(
+            100,
+            &format!("{sets}{}", relation(100, &refs(5000, count))),
+        ))
+    };
+    let (few, many) = (empty(2), empty(202));
+    assert!(many.saturating_sub(few) >= 100 * 200, "{few} {many}");
+}

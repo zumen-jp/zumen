@@ -149,8 +149,16 @@ fn positions(
         return Err(fail(cx, invalid_value("/pitch")));
     }
     let length = zumen_civil::length(alignment);
+    // 測点の表記ごとに不連続と平面線形の区間を、追加距離ごとに平面線形と縦断線形の区間と不連続をたどるので、
+    // その作業を数える（#560）
+    let count = |len: usize| u64::try_from(len).unwrap_or(u64::MAX);
+    let breaks = count(alignment.stations.breaks.len()).saturating_add(1);
+    let per_station = breaks.saturating_add(count(alignment.horizontal.len()));
+    let per_distance = breaks.saturating_add(zumen_civil::place_work(alignment));
     let mut distances: Vec<f64> = request.distances.clone().unwrap_or_default();
     for text in request.stations.iter().flatten() {
+        cx.check(Kind::Work, per_station)
+            .map_err(|stop| stopped(cx, stop))?;
         match station::distance(alignment, text, &notation, None, cx) {
             Ok(distance) => distances.push(distance),
             Err(diagnostic) => cx.report(*diagnostic),
@@ -171,9 +179,16 @@ fn positions(
     }
     cx.check(Kind::Elements, distances.len() as u64)
         .map_err(|stop| stopped(cx, stop))?;
+    cx.check(
+        Kind::Work,
+        count(distances.len()).saturating_mul(per_distance),
+    )
+    .map_err(|stop| stopped(cx, stop))?;
     let mut positions = Vec::with_capacity(distances.len());
     for distance in distances {
-        match zumen_civil::place(alignment, distance, cx) {
+        match zumen_civil::place_within(alignment, distance, cx)
+            .map_err(|stop| stopped(cx, stop))?
+        {
             Ok(placed) => {
                 let value = alignment.stations.value(distance);
                 positions.push(CivilPosition {
@@ -276,7 +291,7 @@ fn alignment(request: &CivilAlignment, cx: &mut Cx<'_>) -> Result<Alignment, Fai
         ..Alignment::default()
     };
     // 区間の初めの点の食い違いは、計算をそのまま続けて知らせる
-    zumen_civil::check(&alignment, 1e-3, cx);
+    zumen_civil::check_within(&alignment, 1e-3, cx).map_err(|stop| stopped(cx, stop))?;
     Ok(alignment)
 }
 

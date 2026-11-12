@@ -15,8 +15,7 @@
 
 use std::collections::BTreeMap;
 
-use zumen_base::{Cx, Diagnostic, Kind, Stop, codes};
-use zumen_sdk::Error;
+use zumen_base::{Cx, Diagnostic, Error, Kind, Stop, codes};
 
 use crate::projection::{Ellipsoid, to_geographic_on, to_plane};
 use crate::{Crs, GeoPoint, MapPoint};
@@ -244,8 +243,8 @@ fn shift(
 /// ファイルも当てない（#678）。PatchJGD のファイルは、渡した順（古い順）に、前のファイルで直した経緯度に当てる
 /// （決定 0286）。要る格子がないか、点が格子の範囲の外なら、診断して `None` を返す。診断の `grid` は、PatchJGD の
 /// ファイルが 1 つなら `PatchJGD`、複数なら渡した順の番号を付けた `PatchJGD 1`・`PatchJGD 2` など。平面直角座標と
-/// 経緯度の換算ができない点（補正量の極端な格子で直した点など）は、まだ診断せずに `None` を返す（#679）。呼ぶ側は、
-/// 座標系の違う点を比べない
+/// 経緯度の換算ができない点（補正量の極端な格子で直した点など）と、系の決まらない JGD2011 の経緯度の点は、
+/// `crs.projection.unsupported` を診断して `None` を返す（#679）。呼ぶ側は、座標系の違う点を比べない
 pub fn to_jgd2011(
     crs: Crs,
     point: MapPoint,
@@ -259,17 +258,36 @@ pub fn to_jgd2011(
                 .with("grid", grid),
         );
     };
+    // 平面直角座標と経緯度の換算ができない（値が有限でないか、投影の範囲の外）
+    let unsupported = |cx: &mut Cx| {
+        cx.report(
+            Diagnostic::new(codes::CRS_PROJECTION_UNSUPPORTED).with("crs", u64::from(crs.epsg())),
+        );
+    };
     let (zone, geographic) = match crs {
-        Crs::Geographic => return None,
+        // JGD2011 の経緯度は、どの系の平面直角座標にするかが決まらない
+        Crs::Geographic => {
+            unsupported(cx);
+            return None;
+        }
         Crs::Plane(_) => return Some((crs, point)),
-        Crs::Jgd2000(zone) => (zone, to_geographic_on(Ellipsoid::Grs80, zone, point)?.point),
+        Crs::Jgd2000(zone) => {
+            let Some(geographic) = to_geographic_on(Ellipsoid::Grs80, zone, point) else {
+                unsupported(cx);
+                return None;
+            };
+            (zone, geographic.point)
+        }
         Crs::Tokyo(zone) => {
             let Some(grid) = shifts.tky2jgd else {
                 missing("TKY2JGD", cx);
                 return None;
             };
-            let tokyo = to_geographic_on(Ellipsoid::Bessel, zone, point)?.point;
-            (zone, shift(grid, "TKY2JGD", tokyo, false, cx)?)
+            let Some(tokyo) = to_geographic_on(Ellipsoid::Bessel, zone, point) else {
+                unsupported(cx);
+                return None;
+            };
+            (zone, shift(grid, "TKY2JGD", tokyo.point, false, cx)?)
         }
     };
     if shifts.patch.is_empty() {
@@ -289,5 +307,9 @@ pub fn to_jgd2011(
         };
         jgd2011 = shift(patch, &name, jgd2011, true, cx)?;
     }
-    Some((Crs::Plane(zone), to_plane(zone, jgd2011)?.point))
+    let Some(plane) = to_plane(zone, jgd2011) else {
+        unsupported(cx);
+        return None;
+    };
+    Some((Crs::Plane(zone), plane.point))
 }

@@ -1,5 +1,8 @@
 //! SFC と P21 から図面モデルへの変換（決定 0121・0132）。入力は、どれもテストの中で作る。
 
+// 図面モデルへの変換は、機能 `drawing` で作る（#735）
+#![cfg(feature = "drawing")]
+
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostic, Diagnostics, Key, Ref, codes};
 use zumen_drawing::{
     Arrowhead, Axes, Boundary, CalloutContent, ColorCode, ColorSystem, DimensionKind, Drawing2D,
@@ -465,6 +468,76 @@ fn moves_raster_groups_as_underlays() {
     );
 }
 
+/// どれかの点の座標を読めない折れ線（数として読めない値がある、x と y の数が違う）は、角に使わない点であっても範囲に
+/// せず、次の 4 点以上の折れ線を範囲にする。飛ばした折れ線は、読めない折れ線として診断する（推定。#651）
+#[test]
+fn raster_frames_skip_polylines_with_unreadable_points() {
+    for (unreadable, invalid) in [
+        // 3 点の折れ線は、読めても範囲にしない（決定 0125）
+        (
+            &b"polyline_feature('1','1','1','1','3',(0,0,20),(0,10,10))"[..],
+            false,
+        ),
+        (
+            &b"polyline_feature('1','1','1','1','5',(0,x,20,20,0),(0,10,10,0,0))"[..],
+            true,
+        ),
+        (
+            &b"polyline_feature('1','1','1','1','5',(0,0,20,20,0),(0,10,10,0,y))"[..],
+            true,
+        ),
+        (
+            &b"polyline_feature('1','1','1','1','5',(0,0,20,20,0),(0,10,10,0))"[..],
+            true,
+        ),
+    ] {
+        let src = sfc(&[
+            b"layer_feature(\'L\','1')",
+            unreadable,
+            &b"polyline_feature('1','1','1','1','5',(0,0,30,30,0),(0,10,10,0,0))"[..],
+            b"sfig_org_feature(\'$$RASTER$$a.tif\','3')",
+            b"sfig_locate_feature('1',\'$$RASTER$$a.tif\','0','0','0','1','1')",
+            b"drawing_sheet_feature(\'S\','3','1','0','0')",
+        ]);
+        let (drawing, diag) = lift(&src);
+        let underlays: Vec<_> = drawing.sheets[0]
+            .elements
+            .iter()
+            .filter_map(|element| match &element.shape {
+                Shape::Underlay(underlay) => Some((underlay, &element.source)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(underlays.len(), 1, "{:?}", drawing.sheets[0].elements);
+        let (underlay, source) = underlays[0];
+        assert_eq!(
+            underlay.frame,
+            UnderlayFrame::Corners {
+                origin: paper(0.0, 0.0),
+                right: paper(30.0, 0.0),
+                top: paper(0.0, 10.0),
+            }
+        );
+        assert_eq!(source, &Ref::at_record(8).with_key(Key::Instance(30)));
+        assert!(
+            diag.iter()
+                .all(|d| d.code() != codes::SXF_RASTER_FRAME_MISSING)
+        );
+        // 読めない折れ線（レコード 7）は、読めない折れ線として知らせる
+        if !invalid {
+            continue;
+        }
+        let invalid = find(&diag, codes::SXF_LIFT_INVALID);
+        assert!(
+            invalid
+                .places()
+                .iter()
+                .any(|place| place.key() == Some(Key::Instance(20))),
+            "{invalid:?}"
+        );
+    }
+}
+
 #[test]
 fn moves_splines_as_joined_bezier_curves() {
     let src = sfc(&[
@@ -926,8 +999,9 @@ fn composite_diagnostics_obey_work_limits_and_cancellation() {
         run(Limit::Unlimited, true).0,
         Err(Error::Stopped(_))
     ));
-    // メンバーに加え、先頭と後続の複合曲線を探す走査も、探索中の複合曲線で止まる。
-    for (extra, record, instance) in [(1, 8, 30), (2, 7, 20), (5, 9, 31)] {
+    // メンバーに加え、先頭と後続の複合曲線を探す走査も、探索中の複合曲線で止まる。診断を入力の順に集める
+    // 手間も数えるので、#31 で止まる予算は、集めなかったときより大きい（#624）
+    for (extra, record, instance) in [(1, 8, 30), (2, 7, 20), (8, 9, 31)] {
         let scanning = run(Limit::Finite(features.len() as u64 + extra), false);
         assert!(matches!(scanning.0, Err(Error::Stopped(_))));
         assert_eq!(
@@ -1199,6 +1273,173 @@ fn moves_parts_predefined_symbols_and_nested_views() {
     );
     assert_eq!(symbol.scale, [1.5, 1.5]);
     assert!(matches!(element.style.color, Inherit::Own(_)));
+}
+
+/// 図面の要素の ID と、形・スタイル（出どころを除く）
+#[cfg(test)]
+fn identified(drawing: &Drawing2D) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    let _ = zumen_drawing::id::each_element(drawing, |_, id, element| {
+        out.push((id, format!("{:?}", element.hash())));
+        Ok::<(), ()>(())
+    });
+    out
+}
+
+#[test]
+fn keeps_extreme_values_that_stay_finite() {
+    // 値が有限のまま、極端な値で黙って変わっていたもの（#728）
+    let layer = b"layer_feature(\'L\','1')".as_slice();
+    let sheet = b"drawing_sheet_feature(\'S\','3','1','0','0')".as_slice();
+    // 長さ寸法。寸法線（`start` から `end`）は横、補助線は (0, 0) から (`to`, `to`) で、傾きは 45°
+    let linear = |start: &str, end: &str, to: &str| {
+        format!(
+            "linear_dim_feature('1','1','1','1','{start}','0','{end}','0','1','0','0','0','0','{to}','{to}','1','0','0','0','0','{to}','{to}','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0')"
+        )
+    };
+    let oblique = |src: &[u8]| {
+        let (drawing, diag) = lift(src);
+        assert!(diag.is_empty(), "{diag:?}");
+        match &drawing.sheets[0].elements[0].shape {
+            Shape::Dimension(d) => match d.kind {
+                DimensionKind::Linear { oblique, .. } => oblique,
+                ref other => panic!("{other:?}"),
+            },
+            other => panic!("{other:?}"),
+        }
+    };
+    for (start, end, to) in [
+        ("0", "100", "1"),
+        // 寸法線の端の差があふれる
+        ("-1e308", "1e308", "1"),
+        // 差はあふれないが、内積と長さの積があふれる
+        ("0", "1e200", "1e200"),
+        // 内積と長さの積が潰れる
+        ("0", "1e-200", "1e-200"),
+    ] {
+        let dimension = linear(start, end, to);
+        let src = sfc(&[layer, dimension.as_bytes(), sheet]);
+        assert_eq!(oblique(&src), 45.0, "{start} {end} {to}");
+    }
+    // 正常な値で垂直な補助線は、前と同じく 0
+    let upright = b"linear_dim_feature('1','1','1','1','0','10','100','10','1','0','0','0','2','0','12','1','100','0','100','2','100','12','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0')";
+    assert_eq!(oblique(&sfc(&[layer, upright, sheet])), 0.0);
+
+    // 楕円。半径の比が 0 に丸められるものは、潰れた楕円にせず、楕円のフィーチャを指す `sxf.lift.invalid` にする
+    let line = b"line_feature('1','1','1','1','0','0','1','0')".as_slice();
+    let ellipse =
+        |rx: &str, ry: &str| format!("ellipse_feature('1','1','1','1','0','0','{rx}','{ry}','0')");
+    let (thin, normal) = (ellipse("1e300", "1e-300"), ellipse("2", "1"));
+    let (drawing, diag) = lift(&sfc(&[layer, line, thin.as_bytes(), sheet]));
+    let (expected, normal_diag) = lift(&sfc(&[layer, line, normal.as_bytes(), sheet]));
+    assert!(normal_diag.is_empty(), "{normal_diag:?}");
+    assert_eq!(diag.len(), 1, "{diag:?}");
+    let invalid = find(&diag, codes::SXF_LIFT_INVALID);
+    assert_eq!(invalid.places()[0].key(), Some(Key::Instance(30)));
+    // 楕円を 1 つ作らないだけで、ほかの要素の値と ID は変わらない
+    let ids = identified(&drawing);
+    let normal_ids = identified(&expected);
+    assert_eq!(ids.len() + 1, normal_ids.len(), "{ids:?}");
+    assert!(ids.iter().all(|id| normal_ids.contains(id)), "{ids:?}");
+    // 小さくても 0 にならない比は、そのまま楕円にする
+    let (drawing, diag) = lift(&sfc(&[layer, ellipse("1e300", "1e-7").as_bytes(), sheet]));
+    assert!(diag.is_empty(), "{diag:?}");
+    assert!(matches!(
+        drawing.sheets[0].elements[0].shape,
+        Shape::Curve(Edge::Elliptic { ratio, .. }) if ratio > 0.0
+    ));
+}
+
+#[test]
+fn reports_computed_values_that_are_not_finite() {
+    // 有限の入力から、計算で無限大か NaN になる値（#595）。正常な値の組と、図形の位置（レコード）をそろえて比べる
+    let line = b"line_feature('1','1','1','1','0','0','1','0')".as_slice();
+    let ellipse = |center: &str, radius: &str| {
+        format!("ellipse_feature('1','1','1','1','{center}','0','{radius}','{radius}','0')")
+    };
+    let dimension = |from: &str, to: &str| {
+        let mut values = vec!["1"; 4];
+        values.extend(["0", "0", "1", from, to]);
+        values.extend(["0"; 25]);
+        let values: Vec<_> = values.iter().map(|v| format!("'{v}'")).collect();
+        format!("curve_dim_feature({})", values.join(","))
+    };
+    let nested = |scale: &str| {
+        [
+            line.to_vec(),
+            b"sfig_org_feature(\'B\','1')".to_vec(),
+            format!("sfig_locate_feature('1',\'B\','0','0','0','{scale}','{scale}')").into_bytes(),
+            b"sfig_org_feature(\'A\','1')".to_vec(),
+            format!("sfig_locate_feature('1',\'A\','0','0','0','{scale}','{scale}')").into_bytes(),
+        ]
+    };
+    // 図形と、正常な値の図形と、診断の場所の番号
+    type Case = (Vec<Vec<u8>>, Vec<Vec<u8>>, u64);
+    let cases: [Case; 3] = [
+        (
+            vec![ellipse("1e308", "1e308").into_bytes()],
+            vec![ellipse("1", "1").into_bytes()],
+            30,
+        ),
+        (
+            vec![dimension("-1e308", "1e308").into_bytes()],
+            vec![dimension("0", "90").into_bytes()],
+            30,
+        ),
+        (nested("1e200").to_vec(), nested("2").to_vec(), 50),
+    ];
+    for (bad, good, at) in cases {
+        let features = |shapes: &[Vec<u8>]| {
+            let mut all = vec![b"layer_feature(\'L\','1')".to_vec(), line.to_vec()];
+            all.extend(shapes.iter().cloned());
+            all.push(b"drawing_sheet_feature(\'S\','3','1','0','0')".to_vec());
+            let refs: Vec<&[u8]> = all.iter().map(Vec::as_slice).collect();
+            sfc(&refs)
+        };
+        let (src, normal) = (features(&bad), features(&good));
+        // ファイルのバイト列は変えない
+        testkit::roundtrip::<Sxf>(&src).unwrap();
+        let (drawing, diag) = lift(&src);
+        let (expected, normal_diag) = lift(&normal);
+        assert!(normal_diag.is_empty(), "{normal_diag:?}");
+        assert_eq!(diag.len(), 1, "{diag:?}");
+        let invalid = find(&diag, codes::SXF_LIFT_INVALID);
+        assert_eq!(invalid.places()[0].key(), Some(Key::Instance(at)));
+        // 図形かビューを 1 つ作らないだけで、ほかの要素の値と ID は変わらない
+        let ids = identified(&drawing);
+        let normal_ids = identified(&expected);
+        assert!(ids.iter().all(|id| normal_ids.contains(id)), "{ids:?}");
+        assert!(!ids.is_empty());
+        for view in &drawing.sheets[0].views {
+            assert!(view.transform.m.iter().all(|v| v.is_finite()), "{view:?}");
+        }
+        let text = format!("{drawing:?}");
+        assert!(!text.contains("NaN") && !text.contains("inf"), "{text}");
+    }
+
+    // P21 の楕円も、同じ計算を通る。正常な値の組にない診断は、楕円の表記の実体を指す 1 件だけ
+    let ellipse = |center: &str, radius: &str| {
+        p21(&format!(
+            "#1=PRESENTATION_STYLE_ASSIGNMENT(());
+             #2=CARTESIAN_POINT(' ',({center},0.));
+             #3=DIRECTION(' ',(1.,0.));
+             #4=AXIS2_PLACEMENT_2D(' ',#2,#3);
+             #5=ELLIPSE(' ',#4,{radius},{radius});
+             #6=ANNOTATION_CURVE_OCCURRENCE(' ',(#1),#5);
+             #7=DRAWING_SHEET_REVISION('FREE',(#6),$,'01');
+"
+        ))
+    };
+    let src = ellipse("1.E308", "1.E308");
+    testkit::roundtrip::<Sxf>(&src).unwrap();
+    let (drawing, diag) = lift(&src);
+    let (normal, normal_diag) = lift(&ellipse("1.", "1."));
+    assert!(drawing.sheets[0].elements.is_empty());
+    assert_eq!(normal.sheets[0].elements.len(), 1);
+    let added: Vec<_> = diag.iter().filter(|d| !normal_diag.contains(d)).collect();
+    assert_eq!(added.len(), 1, "{diag:?}");
+    assert_eq!(added[0].code(), codes::SXF_LIFT_INVALID);
+    assert_eq!(added[0].places()[0].key(), Some(Key::Instance(6)));
 }
 
 #[test]

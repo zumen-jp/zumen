@@ -111,6 +111,29 @@
     {
       "call": {
         "v": 1,
+        "op": "entities",
+        "doc": "profile.dxf",
+        "place": "sheet/h14",
+        "fields": [
+          "kind",
+          "geometry"
+        ],
+        "limit": 11
+      },
+      "expect": {
+        "/result/items/1/geometry/content": "測点",
+        "/result/items/1/geometry/vertical": "middle",
+        "/result/items/9/geometry/content": "No.0",
+        "/result/items/9/geometry/horizontal": "center",
+        "/result/items/9/geometry/vertical": "middle"
+      },
+      "absent": [
+        "/result/items/1/geometry/horizontal"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
         "op": "scene",
         "doc": "profile.dxf",
         "from": "sheet/h14"

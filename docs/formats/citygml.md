@@ -1,6 +1,6 @@
 # CityGML
 
-CityGML 2.0（台帳の `citygml_2_0`）の 3D 都市モデル（PLATEAU の製品仕様書と i-UR の拡張を含む、台帳の `plateau_5_1`）を読み、地理の領域モデル（[決定 0233](../decisions/0233-geo-model-features.md)）に移す規則を記録します。実装は `crates/zumen-citygml`、モデルは `crates/zumen-geo` です。API では、`open` が XML の根の `CityModel` と名前空間で見分けて開き、`geo` の op に `doc`（と、中身を見る地物の `id`）を渡して、地物の型ごとの数と地物の属性・形の要約を返します。仕様の本文とスキーマは写しません（`formats/ledger.toml`）。
+CityGML 2.0（台帳の `citygml_2_0`）の 3D 都市モデル（PLATEAU の製品仕様書と i-UR の拡張を含む、台帳の `plateau_5_1`）を読み、地理の領域モデルに移す規則を記録します。実装は `crates/zumen-citygml`、モデルは `crates/zumen-geo` です。API では、`open` が XML の根の `CityModel` と名前空間で見分けて開き、`geo` の op に `doc`（と、中身を見る地物の `id`）を渡して、地物の型ごとの数と地物の属性・形の要約を返します。仕様の本文とスキーマは写しません（`formats/ledger.toml`）。
 
 ## 対象
 
@@ -18,7 +18,7 @@ CityGML 2.0（台帳の `citygml_2_0`）の 3D 都市モデル（PLATEAU の製�
 - 文書で初めに `srsName` を持つ要素（ふつうは `gml:boundedBy` の `gml:Envelope`）の値を、文書の座標系にする。`srsDimension` も、その要素の値を既定にする。
 - PLATEAU の EPSG:6697（JGD2011 の経緯度と JGD2011 の標高の複合）は、経緯度の座標系と JGD2011 の標高にする。ほかは `zumen-crs` の `Crs::from_name` で読む（JGD2011 の経緯度・平面直角座標系の系など）。
 - 座標系がないか読めなければ、`citygml.crs.unsupported` を返し、座標系を不明にして形を移さない。地物と属性は移す。
-- 座標は `srsName` の座標系の軸の順のまま読む。経緯度は（緯度・経度・標高）、平面直角座標系は（X = 北・Y = 東・標高）。3D の形の点は、地図の空間なら（東・北・標高）の順に直す（決定 0233）。
+- 座標は `srsName` の座標系の軸の順のまま読む。経緯度は（緯度・経度・標高）、平面直角座標系は（X = 北・Y = 東・標高）。3D の形の点は、地図の空間なら（東・北・標高）の順に直す。
 
 ## 地物
 
@@ -60,11 +60,15 @@ CityGML 2.0（台帳の `citygml_2_0`）の 3D 都市モデル（PLATEAU の製�
 
 ## 確かめた度合い
 
+自作の UTF-16LE・UTF-16BE で、建物の名前・属性・形と、原本の出所の位置を検査します。未知の名前空間の日本語の接頭辞も比較します。文字コードの扱いは [XML の規則](xml.md)に従います。この追加の確認は `synthetic` で、CityGML の外部照合はしていません。
+
+自作の Shift_JIS で、未知の名前空間の日本語の接頭辞・地物の型・属性名を Unicode で返すことを検査します。`gml:id` がない地物の ID は、従来の名前のバイト表現を ID の入力として保ちます。main `b8c101e1` で同じ自作入力から得た ID を固定値に使い、表示名の修正で ID を変えません。[適合テスト](../../bindings/conformance/cases/xml_shift_jis_geo.json)でも旧 ID から地物を取得します。型と属性名を含む適合テストの応答ハッシュは、修正後の値から決まります。この確認は `synthetic` です。
+
 | 形式 | 向き | 段 |
 | --- | --- | --- |
 | `citygml` | 読み | `synthetic` |
 
-段の意味は[決定 0254](../decisions/0254-parallel-agents-and-cross-review.md) に、根拠は[形式と権利の一覧](README.md#format-citygml)にあります。この文書の規則は、仕様と、テストの中で作ったファイルだけで確かめたものです。公開サンプル・受け取った図面・外部の実装・基準になるソフトとは、まだ照らしていません。実際のファイルでは、ここに書いた扱いと違うことがあります。
+段の意味は[形式台帳の書き方](../../formats/README.md#確かめた度合い)に、根拠は[形式と権利の一覧](README.md#format-citygml)にあります。この文書の規則は、仕様と、テストの中で作ったファイルだけで確かめたものです。公開サンプル・受け取った図面・外部の実装・基準になるソフトとは、まだ照らしていません。実際のファイルでは、ここに書いた扱いと違うことがあります。
 
 - PLATEAU のデータは大きいので Git に入れず、`ZUMEN_SAMPLES` で渡す。再配布できる 5 MB 未満の公式のサンプルは、見つかっていない。
 - PLATEAU のデータと、PLATEAU VIEW・QGIS での照合は #379・#504 で行う。

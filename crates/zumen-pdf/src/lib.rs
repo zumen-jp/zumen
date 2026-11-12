@@ -16,11 +16,17 @@ mod inflate;
 #[cfg(feature = "drawing")]
 mod lift;
 #[cfg(feature = "drawing")]
+mod measure;
+#[cfg(feature = "drawing")]
+mod measure_numbers;
+#[cfg(feature = "drawing")]
 mod page;
 #[cfg(feature = "drawing")]
 mod strings;
 #[cfg(feature = "drawing")]
 mod walk;
+#[cfg(feature = "drawing")]
+mod xref;
 
 use zumen_base::{Diagnostic, Kind, Ref, codes};
 use zumen_sdk::{ByteRange, Codec, Cx, Error, FileModel, RecordInfo, Signature, Stop};

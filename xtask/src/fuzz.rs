@@ -7,8 +7,9 @@
 //! 通す target も、例外にせず、`survives_calls` を呼ぶことで同じ検査を通す（決定 0262）。
 //!
 //! `cargo xtask fuzz-seeds` は、公開サンプル、適合テストの組の合成の入力と要求、L0 の攻撃の形（ZIP 爆弾・膨らむ
-//! deflate・アーカイブの入れ子・パスの走査・XML の外部実体と深い入れ子・ISO 10303-21 の深い入れ子）、合成の格子（ISG・
-//! TKY2JGD・PatchJGD の形）を、どの target にも種として書く（決定 0258・0262）。
+//! deflate・アーカイブの入れ子・パスの走査・XML の外部実体と深い入れ子・ISO 10303-21 の深い入れ子）、EXPRESS の攻撃の
+//! 形（集まりの型の深い入れ子・定義された型と上位の型の長い鎖）、合成の格子（ISG・TKY2JGD・PatchJGD の形）、線と列の
+//! 参照を持つ合成シーン（ZMSC）と通り芯（IFC）を、どの target にも種として書く（決定 0258・0262）。
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
@@ -34,6 +35,8 @@ const L0: &[&str] = &["zip", "xml", "step"];
 const TESTKIT: &str = "zumen_sdk::testkit::survives";
 /// 深い入れ子の種の段の数。fuzz の予算の深さ（既定の 256）を超える
 const DEEP: usize = 1000;
+/// EXPRESS の長い鎖の種の、定義された型と実体のそれぞれの数
+const CHAIN: usize = 1000;
 /// 空の deflate のデータ。固定のハフマン符号の最後のブロックで、ブロックの終わりの符号（256）だけを持つ（RFC 1951 の
 /// 3.2.3・3.2.6）
 const EMPTY_DEFLATE: &[u8] = &[0x03, 0x00];
@@ -177,7 +180,7 @@ fn check_targets(
     errors
 }
 
-/// 公開サンプル、適合テストの組の合成の入力、L0 の攻撃の形、合成の格子を、どの target にも
+/// 公開サンプル、適合テストの組の合成の入力、L0 と EXPRESS の攻撃の形、合成の格子・シーン・通り芯を、どの target にも
 /// `fuzz/corpus/<target>/` の種として書く。ファイルの名前は、中身の SHA-256 にする
 pub fn seeds(root: &Path) -> Result<(), String> {
     let mut seeds = BTreeMap::new();
@@ -185,7 +188,10 @@ pub fn seeds(root: &Path) -> Result<(), String> {
         .into_iter()
         .chain(cases(root)?)
         .chain(attacks()?)
+        .chain(schemas())
         .chain(grids())
+        .chain(std::iter::once(ifc_grid()))
+        .chain(std::iter::once(ifc_profiles()))
         .chain(std::iter::once(scene::seed()))
     {
         seeds.insert(sha256::hex(&data), data);
@@ -205,6 +211,38 @@ pub fn seeds(root: &Path) -> Result<(), String> {
         seeds.len()
     );
     Ok(())
+}
+
+/// 通り芯の必要時の取得まで、小さい入力で確実に通す自作の IFC4。
+fn ifc_grid() -> Vec<u8> {
+    b"ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('grid'),'2;1');\nFILE_NAME('','',(''),(''),'','','');\nFILE_SCHEMA(('IFC4'));\nENDSEC;\nDATA;\n\
+    #1=IFCPROJECT('0000000000000000000001',$,$,$,$,$,$,(#8),#9);\n\
+    #8=IFCGEOMETRICREPRESENTATIONCONTEXT($,'Model',3,1.E-5,#20,$);\n\
+    #9=IFCUNITASSIGNMENT((#10));\n#10=IFCSIUNIT(*,.LENGTHUNIT.,$,.METRE.);\n\
+    #20=IFCAXIS2PLACEMENT3D(#21,$,$);\n#21=IFCCARTESIANPOINT((0.,0.,0.));\n\
+    #30=IFCLOCALPLACEMENT($,#20);\n\
+    #100=IFCGRID('0000000000000000000002',$,$,$,$,#30,$,(#300),(#301),$,.RECTANGULAR.);\n\
+    #200=IFCPOLYLINE((#210,#211));\n#201=IFCPOLYLINE((#210,#212));\n\
+    #210=IFCCARTESIANPOINT((0.,0.));\n#211=IFCCARTESIANPOINT((10.,0.));\n#212=IFCCARTESIANPOINT((0.,10.));\n\
+    #300=IFCGRIDAXIS('U',#200,.T.);\n#301=IFCGRIDAXIS('V',#201,.F.);\n\
+    ENDSEC;\nEND-ISO-10303-21;\n".to_vec()
+}
+
+fn ifc_profiles() -> Vec<u8> {
+    // 要素の葉から矩形・円・任意断面まで、小さい入力で通す自作の IFC4。
+    b"ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('profiles'),'2;1');\nFILE_NAME('','',(''),(''),'','','');\nFILE_SCHEMA(('IFC4'));\nENDSEC;\nDATA;\n\
+    #1=IFCPROJECT('0000000000000000000001',$,$,$,$,$,$,$,#2);\n\
+    #2=IFCUNITASSIGNMENT((#3));\n#3=IFCSIUNIT(*,.LENGTHUNIT.,$,.METRE.);\n\
+    #8=IFCGEOMETRICREPRESENTATIONCONTEXT($,'Model',3,1.E-5,#20,$);\n\
+    #10=IFCCARTESIANPOINT((0.,0.));\n#12=IFCAXIS2PLACEMENT2D(#10,$);\n\
+    #13=IFCRECTANGLEPROFILEDEF(.AREA.,'R',#12,3.,2.);\n#14=IFCCIRCLEPROFILEDEF(.AREA.,'C',#12,1.);\n\
+    #15=IFCCARTESIANPOINT((1.,0.));\n#16=IFCCARTESIANPOINT((0.,1.));\n\
+    #18=IFCPOLYLINE((#10,#15,#16,#10));\n#19=IFCARBITRARYCLOSEDPROFILEDEF(.AREA.,'A',#18);\n\
+    #20=IFCAXIS2PLACEMENT3D(#21,$,$);\n#21=IFCCARTESIANPOINT((0.,0.,0.));\n#24=IFCDIRECTION((0.,0.,1.));\n\
+    #30=IFCEXTRUDEDAREASOLID(#13,$,#24,2.);\n#31=IFCEXTRUDEDAREASOLID(#14,$,#24,2.);\n#32=IFCEXTRUDEDAREASOLID(#19,$,#24,2.);\n\
+    #100=IFCWALL('0000000000000000000002',$,$,$,$,$,#101,$,.NOTDEFINED.);\n\
+    #101=IFCPRODUCTDEFINITIONSHAPE($,$,(#102));\n#102=IFCSHAPEREPRESENTATION(#8,'Body','SweptSolid',(#30,#31,#32));\n\
+    ENDSEC;\nEND-ISO-10303-21;\n".to_vec()
 }
 
 /// `samples/ledger.toml` に載せた公開サンプル
@@ -431,6 +469,42 @@ fn headers(archive: &[u8]) -> Option<(usize, usize)> {
         .then_some((0, central))
 }
 
+/// EXPRESS の攻撃の形（#668）。集まりの型の深い入れ子は、予算の深さで止まる。定義された型と上位の型の長い鎖は、
+/// 型と実体ごとに 1 度だけたどって読む
+fn schemas() -> Vec<Vec<u8>> {
+    let nested = format!(
+        "SCHEMA IFCSEED;
+TYPE T = {}INTEGER;
+END_TYPE;
+END_SCHEMA;
+",
+        "LIST [1:?] OF ".repeat(DEEP)
+    );
+    let mut chains = String::from(
+        "SCHEMA IFCSEED;
+",
+    );
+    for i in 0..CHAIN {
+        let next = i + 1;
+        let _ = writeln!(
+            chains,
+            "TYPE T{i} = T{next};
+END_TYPE;
+ENTITY E{i} SUBTYPE OF (E{next});
+END_ENTITY;"
+        );
+    }
+    let _ = writeln!(
+        chains,
+        "TYPE T{CHAIN} = INTEGER;
+END_TYPE;
+ENTITY E{CHAIN};
+END_ENTITY;
+END_SCHEMA;"
+    );
+    vec![nested.into_bytes(), chains.into_bytes()]
+}
+
 /// 合成の格子。国土地理院のジオイド・モデルと座標の補正量は使わない（決定 0019）。形は `crates/zumen-crs/tests`
 /// の合成の格子に合わせる
 fn grids() -> Vec<Vec<u8>> {
@@ -632,6 +706,19 @@ mod tests {
         let (data, found) = extract(&archive, limits);
         assert_eq!(data, None);
         assert_eq!(found, [codes::BUDGET_DECODED_BYTES_EXCEEDED]);
+    }
+
+    /// EXPRESS の深い入れ子の種は、fuzz の予算の深さで止まり、長い鎖の種は、fuzz の予算の中で読める（#668）
+    #[test]
+    fn the_express_seeds_stop_at_the_depth_and_read_the_chains() {
+        let schemas = schemas();
+        let limits = zumen_sdk::testkit::fuzz_limits();
+        let (nested, found) = run(limits, |cx| zumen_ifc::Express::read(&schemas[0], cx));
+        assert!(nested.is_none());
+        assert_eq!(found, [codes::BUDGET_DEPTH_EXCEEDED]);
+        let (chains, found) = run(limits, |cx| zumen_ifc::Express::read(&schemas[1], cx));
+        assert!(chains.is_some());
+        assert_eq!(found, []);
     }
 
     /// 合成の格子は、ジオイド高と補正量の格子の読み取りで、診断なしに読める

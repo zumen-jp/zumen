@@ -8,7 +8,6 @@
 import { createHash } from "node:crypto";
 import { appendFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { brotliCompressSync } from "node:zlib";
 
 import { ACTIONS, bytesOf, checkResponse, compareHashes, loadCases, pushOf, repository, requestOf } from "./cases.mjs";
 
@@ -188,9 +187,8 @@ for (const { name, steps } of cases) {
 
 compareHashes(hashes, failures);
 
-// モジュールの大きさを記録する。分け方を見直す材料にする（決定 0013）
-const brotli = brotliCompressSync(bytes).length;
-const summary = `モジュール: ${bytes.length} バイト（brotli で ${brotli} バイト）、テストの組 ${cases.length} 件、ハッシュ ${hashes.length} 件`;
+// 圧縮した大きさは、分けたモジュールと一緒に js/test/modules.mjs で記録する。
+const summary = `モジュール: ${bytes.length} バイト、テストの組 ${cases.length} 件、ハッシュ ${hashes.length} 件`;
 console.log(summary);
 if (process.env.GITHUB_STEP_SUMMARY) {
   appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### wasm32 の適合テスト\n\n${summary}\n`);

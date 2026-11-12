@@ -3,12 +3,11 @@
 //! 入れ子は再帰でなく、開いた要素の並びでたどる。要素を予算のレコード、入れ子を深さで数える（決定 0010）。
 
 use core::ops::Range;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
-use zumen_base::{Diagnostic, Kind, Ref, codes};
-use zumen_sdk::{Cx, Error, Stop};
+use zumen_base::{Cx, Diagnostic, Error, Kind, Ref, Stop, codes};
 
-use crate::{Attribute, Document, Element, Encoding, Name, Namespace, Node, text};
+use crate::{Attribute, Document, Element, Encoding, Name, Namespace, Node, name, text, utf16};
 
 /// 読めない理由
 enum Fail {
@@ -18,19 +17,18 @@ enum Fail {
     Stop(Stop, Range<usize>),
 }
 
-/// XML の文書を読む。XML の形になっていなければ `xml.document.invalid`、UTF-8 と Shift_JIS のほかの文字コードなら
+/// XML の文書を読む。XML の形になっていなければ `xml.document.invalid`、UTF-8・Shift_JIS・UTF-16 のほかの文字コードなら
 /// `xml.encoding.unsupported` を報告して読まない。文書型宣言は処理せず `xml.dtd.dropped` を報告する
 pub fn read(src: &[u8], cx: &mut Cx) -> Result<Document, Error> {
     cx.check(Kind::InputBytes, src.len() as u64)
         .map_err(|stop| stopped(cx, stop, None))?;
-    let mut p = Parser {
-        src,
-        pos: 0,
-        elements: Vec::new(),
-        scopes: Vec::new(),
-        marks: Vec::new(),
-        doctype: None,
-    };
+    if utf16::is_utf32(src) {
+        return Err(unsupported(cx, "UTF-32"));
+    }
+    if let Some(detection) = utf16::detect(src) {
+        return read_utf16(src, detection, cx);
+    }
+    let mut p = Parser::new(src);
     let encoding = p.encoding(cx)?;
     match p.document(cx) {
         Ok(()) => Ok(Document {
@@ -38,12 +36,81 @@ pub fn read(src: &[u8], cx: &mut Cx) -> Result<Document, Error> {
             encoding,
             elements: p.elements,
             doctype: p.doctype,
+            decoded: None,
         }),
         Err(Fail::Invalid(range)) => {
             cx.report(Diagnostic::new(codes::XML_DOCUMENT_INVALID).at(at(range)));
             Err(Error::Invalid)
         }
         Err(Fail::Stop(stop, range)) => Err(stopped(cx, stop, Some(range))),
+    }
+}
+
+fn read_utf16(src: &[u8], detection: utf16::Detection, cx: &mut Cx) -> Result<Document, Error> {
+    let decoded = utf16::Decoded::read(src, detection, cx)?;
+    let mut p = Parser::new(&decoded.bytes);
+    p.mapping = Some(&decoded);
+    let encoding = p.encoding_expected(cx, Some(detection))?;
+    match p.document(cx) {
+        Ok(()) => {}
+        Err(Fail::Invalid(range)) => {
+            cx.report(Diagnostic::new(codes::XML_DOCUMENT_INVALID).at(p.place(range)));
+            return Err(Error::Invalid);
+        }
+        Err(Fail::Stop(stop, range)) => {
+            return Err(stopped(cx, stop, Some(decoded.original_range(range))));
+        }
+    }
+    let mut elements = p.elements;
+    let mut doctype = p.doctype;
+    // 全公開範囲を原本へ戻す。要素番号と親子の順は動かさない。
+    for element in &mut elements {
+        let span = element.span.clone();
+        map_charge(cx, &decoded, span.clone())?;
+        element.span = decoded.original_range(span.clone());
+        map_name(&mut element.name, &decoded);
+        for attribute in &mut element.attributes {
+            map_charge(cx, &decoded, attribute.name.raw.clone())?;
+            map_name(&mut attribute.name, &decoded);
+            attribute.value = decoded.original_range(attribute.value.clone());
+        }
+        for node in &mut element.children {
+            let range = match node {
+                Node::Text(range) | Node::CData(range) => range.clone(),
+                Node::Element(_) => span.clone(),
+            };
+            map_charge(cx, &decoded, range)?;
+            if let Node::Text(range) | Node::CData(range) = node {
+                *range = decoded.original_range(range.clone());
+            }
+        }
+    }
+    if let Some(range) = &mut doctype {
+        map_charge(cx, &decoded, range.clone())?;
+        *range = decoded.original_range(range.clone());
+    }
+    Ok(Document {
+        src: src.to_vec(),
+        encoding,
+        elements,
+        doctype,
+        decoded: Some(decoded),
+    })
+}
+
+fn map_charge(cx: &mut Cx, decoded: &utf16::Decoded, range: Range<usize>) -> Result<(), Error> {
+    cx.check(Kind::Work, 1)
+        .map_err(|stop| stopped(cx, stop, Some(decoded.original_range(range))))
+}
+
+fn map_name(name: &mut Name, decoded: &utf16::Decoded) {
+    name.raw = decoded.original_range(name.raw.clone());
+    name.local = decoded.original_range(name.local..name.local).start;
+    name.prefix_end = name
+        .prefix_end
+        .map(|end| decoded.original_range(end..end).start);
+    if let Some(Namespace::Declared(range)) = &mut name.namespace {
+        *range = decoded.original_range(range.clone());
     }
 }
 
@@ -86,6 +153,15 @@ fn find(src: &[u8], pattern: &[u8], from: usize) -> Option<usize> {
         .map(|at| from + at)
 }
 
+/// `src` の `range` の中で、`byte` の最初の位置。見たバイトの数を `seen` に足す
+fn find_in(src: &[u8], byte: u8, range: Range<usize>, seen: &mut usize) -> Option<usize> {
+    let from = range.start;
+    let rest = src.get(range).unwrap_or_default();
+    let found = rest.iter().position(|b| *b == byte);
+    *seen += found.map_or(rest.len(), |at| at + 1);
+    found.map(|at| from + at)
+}
+
 /// XML 宣言の擬似属性（`version="1.0" encoding="…"`）の名前と値。形が違えば `None`
 fn pseudo_attributes(declaration: &[u8]) -> Option<Vec<(&[u8], &[u8])>> {
     let mut pairs = Vec::new();
@@ -115,23 +191,52 @@ fn pseudo_attributes(declaration: &[u8]) -> Option<Vec<(&[u8], &[u8])>> {
     }
 }
 
-/// 名前空間の宣言。接頭辞（既定の名前空間は `None`）と、値の範囲（`xmlns=""` は `None`）
-type Scope = (Option<Range<usize>>, Option<Range<usize>>);
+/// 名前空間の宣言の接頭辞。既定の名前空間は `None`
+type Prefix<'s> = Option<&'s [u8]>;
+
+/// 名前空間の宣言の値の範囲。`xmlns=""` は `None`
+type Declared = Option<Range<usize>>;
 
 struct Parser<'s> {
     src: &'s [u8],
+    mapping: Option<&'s utf16::Decoded>,
+    shift_jis: bool,
     pos: usize,
     elements: Vec<Element>,
-    /// 開いている要素の名前空間の宣言。内側の宣言が後
-    scopes: Vec<Scope>,
+    /// 開いている要素の名前空間の宣言を、接頭辞ごとに積む。内側の宣言が後。名前を引く手間は、宣言の数に比例せず、
+    /// 接頭辞の種類の数の対数になる（#721）
+    namespaces: BTreeMap<Prefix<'s>, Vec<Declared>>,
+    /// 開いている要素の名前空間の宣言の接頭辞。内側の宣言が後
+    scopes: Vec<Prefix<'s>>,
     /// 開いている要素ごとの、`scopes` の長さ。閉じるときに戻す
     marks: Vec<usize>,
     doctype: Option<Range<usize>>,
 }
 
-impl Parser<'_> {
+impl<'s> Parser<'s> {
+    fn new(src: &'s [u8]) -> Self {
+        Self {
+            src,
+            mapping: None,
+            shift_jis: false,
+            pos: 0,
+            elements: Vec::new(),
+            namespaces: BTreeMap::new(),
+            scopes: Vec::new(),
+            marks: Vec::new(),
+            doctype: None,
+        }
+    }
+
     fn peek(&self) -> Option<u8> {
         self.src.get(self.pos).copied()
+    }
+
+    fn place(&self, range: Range<usize>) -> Ref {
+        at(match self.mapping {
+            Some(decoded) => decoded.original_range(range),
+            None => range,
+        })
     }
 
     fn starts(&self, pattern: &[u8]) -> bool {
@@ -140,8 +245,34 @@ impl Parser<'_> {
             .is_some_and(|rest| rest.starts_with(pattern))
     }
 
-    fn bytes(&self, range: Range<usize>) -> &[u8] {
+    fn bytes(&self, range: Range<usize>) -> &'s [u8] {
         self.src.get(range).unwrap_or_default()
+    }
+
+    /// 名前空間を宣言する
+    fn declare(&mut self, prefix: Prefix<'s>, value: Declared) {
+        self.namespaces.entry(prefix).or_default().push(value);
+        self.scopes.push(prefix);
+    }
+
+    /// `scopes` を `mark` の長さに戻し、そのあとの宣言を外す
+    fn unwind(&mut self, mark: usize) {
+        while self.scopes.len() > mark {
+            let Some(prefix) = self.scopes.pop() else {
+                break;
+            };
+            if let Some(stack) = self.namespaces.get_mut(&prefix) {
+                stack.pop();
+                if stack.is_empty() {
+                    self.namespaces.remove(&prefix);
+                }
+            }
+        }
+    }
+
+    /// 接頭辞のいちばん内側の宣言。宣言がなければ `None`
+    fn declared(&self, prefix: Prefix<'s>) -> Option<&Declared> {
+        self.namespaces.get(&prefix).and_then(|stack| stack.last())
     }
 
     /// 空白を飛ばす。飛ばしたら真
@@ -160,7 +291,18 @@ impl Parser<'_> {
 
     /// バイト順マークと XML 宣言から、文字コードを決める
     fn encoding(&mut self, cx: &mut Cx) -> Result<Encoding, Error> {
-        let bom = self.starts(&[0xef, 0xbb, 0xbf]);
+        let encoding = self.encoding_expected(cx, None)?;
+        self.shift_jis = encoding == Encoding::ShiftJis;
+        Ok(encoding)
+    }
+
+    fn encoding_expected(
+        &mut self,
+        cx: &mut Cx,
+        expected: Option<utf16::Detection>,
+    ) -> Result<Encoding, Error> {
+        // UTF-16 の原本の BOM は復号時に除去済み。残る U+FEFF は文書の文字なので除かない。
+        let bom = expected.is_none() && self.starts(&[0xef, 0xbb, 0xbf]);
         if bom {
             self.pos = 3;
         } else if matches!(
@@ -170,24 +312,66 @@ impl Parser<'_> {
             return Err(unsupported(cx, "UTF-16"));
         }
         if !(self.starts(b"<?xml") && self.src.get(self.pos + 5).copied().is_some_and(is_space)) {
+            if let Some(expected) = expected {
+                if !expected.bom {
+                    cx.report(
+                        Diagnostic::new(codes::XML_DOCUMENT_INVALID)
+                            .at(self.place(0..self.src.len().min(1))),
+                    );
+                    return Err(Error::Invalid);
+                }
+                return Ok(match expected.order {
+                    utf16::Order::Little => Encoding::Utf16Le,
+                    utf16::Order::Big => Encoding::Utf16Be,
+                });
+            }
             return Ok(Encoding::Utf8);
         }
         let start = self.pos;
         let Some(end) = find(self.src, b"?>", start) else {
-            cx.report(Diagnostic::new(codes::XML_DOCUMENT_INVALID).at(at(start..self.src.len())));
+            cx.report(
+                Diagnostic::new(codes::XML_DOCUMENT_INVALID).at(self.place(start..self.src.len())),
+            );
             return Err(Error::Invalid);
         };
         let src = self.src;
         let declaration = src.get(start + 5..end).unwrap_or_default();
         let Some(pairs) = pseudo_attributes(declaration) else {
-            cx.report(Diagnostic::new(codes::XML_DOCUMENT_INVALID).at(at(start..end + 2)));
+            cx.report(Diagnostic::new(codes::XML_DOCUMENT_INVALID).at(self.place(start..end + 2)));
             return Err(Error::Invalid);
         };
         if pairs.first().map(|(name, _)| *name) != Some(&b"version"[..]) {
-            cx.report(Diagnostic::new(codes::XML_DOCUMENT_INVALID).at(at(start..end + 2)));
+            cx.report(Diagnostic::new(codes::XML_DOCUMENT_INVALID).at(self.place(start..end + 2)));
             return Err(Error::Invalid);
         }
         self.pos = end + 2;
+        if let Some(expected) = expected {
+            let label = pairs
+                .iter()
+                .find(|(name, _)| *name == b"encoding")
+                .map(|(_, label)| *label);
+            // XML 1.0 4.3.3 と RFC 2781 3.3。generic UTF-16 は BOM、LE/BE ラベルは BOM なし。
+            let valid = if expected.bom {
+                label.is_none_or(|label| label.eq_ignore_ascii_case(b"UTF-16"))
+            } else {
+                label.is_some_and(|label| {
+                    label.eq_ignore_ascii_case(match expected.order {
+                        utf16::Order::Little => b"UTF-16LE",
+                        utf16::Order::Big => b"UTF-16BE",
+                    })
+                })
+            };
+            if !valid {
+                cx.report(
+                    Diagnostic::new(codes::XML_DOCUMENT_INVALID).at(self.place(start..end + 2)),
+                );
+                return Err(Error::Invalid);
+            }
+            return Ok(match expected.order {
+                utf16::Order::Little => Encoding::Utf16Le,
+                utf16::Order::Big => Encoding::Utf16Be,
+            });
+        }
         let Some((_, label)) = pairs.iter().find(|(name, _)| *name == b"encoding") else {
             return Ok(Encoding::Utf8);
         };
@@ -246,6 +430,11 @@ impl Parser<'_> {
         let mut depth = 0usize;
         loop {
             let byte = self.peek().ok_or(Fail::Invalid(start..self.src.len()))?;
+            if self.shift_jis && matches!(byte, 0x81..=0x9f | 0xe0..=0xfc) {
+                self.pos += name::shift_jis_width(self.src, self.pos)
+                    .ok_or(Fail::Invalid(self.pos..(self.pos + 2).min(self.src.len())))?;
+                continue;
+            }
             match byte {
                 b'"' | b'\'' => {
                     let end = self
@@ -269,18 +458,32 @@ impl Parser<'_> {
         }
         self.pos += 1;
         self.doctype = Some(start..self.pos);
-        cx.report(Diagnostic::new(codes::XML_DTD_DROPPED).at(at(start..self.pos)));
+        cx.report(Diagnostic::new(codes::XML_DTD_DROPPED).at(self.place(start..self.pos)));
         Ok(())
     }
 
     /// 名前。`:` で接頭辞と分け、接頭辞を除いた名前の始まりを返す
-    fn name(&mut self) -> Result<(Range<usize>, usize), Fail> {
+    fn name(&mut self, cx: &mut Cx) -> Result<(Range<usize>, usize), Fail> {
         let start = self.pos;
         while self.peek().is_some_and(|b| !is_delimiter(b)) {
-            self.pos += 1;
+            self.pos += if self.shift_jis {
+                name::shift_jis_width(self.src, self.pos)
+                    .ok_or(Fail::Invalid(self.pos..(self.pos + 2).min(self.src.len())))?
+            } else {
+                1
+            };
         }
         let raw = start..self.pos;
         let bytes = self.bytes(raw.clone());
+        if self.mapping.is_some() {
+            self.work(cx, raw.len() as u64, start)?;
+            if !utf16::valid_name(bytes) {
+                return Err(Fail::Invalid(raw));
+            }
+        }
+        if self.shift_jis && !name::valid_shift_jis(bytes) {
+            return Err(Fail::Invalid(raw));
+        }
         let first = bytes.first().copied();
         if first.is_none_or(|b| b.is_ascii_digit() || matches!(b, b'-' | b'.' | b':')) {
             return Err(Fail::Invalid(start..self.pos.max(start + 1)));
@@ -297,12 +500,13 @@ impl Parser<'_> {
         }
     }
 
-    /// 文字か属性の値の参照を確かめる。DTD で宣言する実体の参照は、報告して残す
-    fn references(&self, range: Range<usize>, cx: &mut Cx) -> Result<(), Fail> {
+    /// 文字か属性の値の参照を確かめる。DTD で宣言する実体の参照は、報告して残す。`&` と `;` は `range` の中だけで
+    /// 探すので、手間は範囲の長さに比例する（#721）。見たバイトの数を返す
+    fn references(&self, range: Range<usize>, cx: &mut Cx) -> Result<usize, Fail> {
+        let mut seen = 0;
         let mut at = range.start;
-        while let Some(amp) = find(self.src, b"&", at).filter(|amp| *amp < range.end) {
-            let end = find(self.src, b";", amp)
-                .filter(|end| *end < range.end)
+        while let Some(amp) = find_in(self.src, b'&', at..range.end, &mut seen) {
+            let end = find_in(self.src, b';', amp + 1..range.end, &mut seen)
                 .ok_or(Fail::Invalid(amp..range.end))?;
             let name = core::str::from_utf8(self.bytes(amp + 1..end))
                 .map_err(|_| Fail::Invalid(amp..end + 1))?;
@@ -318,12 +522,12 @@ impl Parser<'_> {
                 cx.report(
                     Diagnostic::new(codes::XML_ENTITY_UNSUPPORTED)
                         .with("name", name)
-                        .at(Ref::at_bytes(amp as u64, end as u64 + 1)),
+                        .at(self.place(amp..end + 1)),
                 );
             }
             at = end + 1;
         }
-        Ok(())
+        Ok(seen)
     }
 
     /// 接頭辞の名前空間。`element` なら、接頭辞のない名前は既定の名前空間に入る
@@ -337,11 +541,8 @@ impl Parser<'_> {
         if local == raw.start {
             if element {
                 return self
-                    .scopes
-                    .iter()
-                    .rev()
-                    .find(|(prefix, _)| prefix.is_none())
-                    .and_then(|(_, value)| value.clone().map(Namespace::Declared));
+                    .declared(None)
+                    .and_then(|value| value.clone().map(Namespace::Declared));
             }
             return (self.bytes(raw.clone()) == b"xmlns").then_some(Namespace::Xmlns);
         }
@@ -351,17 +552,23 @@ impl Parser<'_> {
             b"xmlns" => return Some(Namespace::Xmlns),
             _ => {}
         }
-        let found = self.scopes.iter().rev().find_map(|(declared, value)| {
-            let declared = declared.clone()?;
-            (self.bytes(declared) == prefix).then(|| value.clone())
-        });
-        match found {
-            Some(value) => value.map(Namespace::Declared),
+        match self.declared(Some(prefix)) {
+            Some(value) => value.clone().map(Namespace::Declared),
             None => {
                 cx.report(
                     Diagnostic::new(codes::XML_NAMESPACE_MISSING)
-                        .with("prefix", String::from_utf8_lossy(prefix).into_owned())
-                        .at(at(raw.clone())),
+                        .with(
+                            "prefix",
+                            if self.shift_jis {
+                                encoding_rs::SHIFT_JIS
+                                    .decode_without_bom_handling(prefix)
+                                    .0
+                                    .into_owned()
+                            } else {
+                                String::from_utf8_lossy(prefix).into_owned()
+                            },
+                        )
+                        .at(self.place(raw.clone())),
                 );
                 None
             }
@@ -388,7 +595,7 @@ impl Parser<'_> {
                 self.child(current, Node::Text(start..end));
             } else if self.starts(b"</") {
                 self.pos += 2;
-                let (raw, _) = self.name()?;
+                let (raw, _) = self.name(cx)?;
                 self.skip_space();
                 let expected = self
                     .elements
@@ -403,7 +610,7 @@ impl Parser<'_> {
                     element.span.end = self.pos;
                 }
                 if let Some(mark) = self.marks.pop() {
-                    self.scopes.truncate(mark);
+                    self.unwind(mark);
                 }
                 cx.leave();
                 open.pop();
@@ -439,7 +646,7 @@ impl Parser<'_> {
     fn open(&mut self, parent: Option<usize>, cx: &mut Cx) -> Result<bool, Fail> {
         let start = self.pos;
         self.pos += 1;
-        let (raw, local) = self.name()?;
+        let (raw, local) = self.name(cx)?;
         let mut pairs: Vec<(Range<usize>, usize, Range<usize>)> = Vec::new();
         let empty = loop {
             let spaced = self.skip_space();
@@ -453,7 +660,7 @@ impl Parser<'_> {
                     break true;
                 }
                 Some(_) if spaced => {
-                    let (name, name_local) = self.name()?;
+                    let (name, name_local) = self.name(cx)?;
                     self.skip_space();
                     if self.peek() != Some(b'=') {
                         return Err(Fail::Invalid(name.start..self.pos + 1));
@@ -498,7 +705,7 @@ impl Parser<'_> {
             let bytes = self.bytes(name.clone());
             let declared = (!value.is_empty()).then(|| value.clone());
             if bytes == b"xmlns" {
-                self.scopes.push((None, declared));
+                self.declare(None, declared);
             } else if let Some(prefix) = bytes.strip_prefix(b"xmlns:") {
                 if matches!(prefix, b"xml" | b"xmlns") {
                     continue;
@@ -506,7 +713,7 @@ impl Parser<'_> {
                 if declared.is_none() {
                     return Err(Fail::Invalid(name.clone()));
                 }
-                self.scopes.push((Some(name.start + 6..name.end), declared));
+                self.declare(Some(prefix), declared);
             }
         }
         let namespace = self.resolve(&raw, local, true, cx);
@@ -514,6 +721,7 @@ impl Parser<'_> {
             .into_iter()
             .map(|(name, name_local, value)| Attribute {
                 name: Name {
+                    prefix_end: (name_local > name.start).then_some(name_local.saturating_sub(1)),
                     namespace: self.resolve(&name, name_local, false, cx),
                     raw: name,
                     local: name_local,
@@ -525,6 +733,7 @@ impl Parser<'_> {
         self.elements.push(Element {
             span: start..self.pos,
             name: Name {
+                prefix_end: (local > raw.start).then_some(local.saturating_sub(1)),
                 raw,
                 local,
                 namespace,
@@ -537,11 +746,83 @@ impl Parser<'_> {
             parent.children.push(Node::Element(index));
         }
         if empty {
-            self.scopes.truncate(mark);
+            self.unwind(mark);
             cx.leave();
         } else {
             self.marks.push(mark);
         }
         Ok(!empty)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use zumen_base::{Budget, CancelToken, Diagnostics};
+
+    /// 参照は範囲の中だけで探し、文書の残りを見ない。小さな範囲を多く確かめても、見たバイトの数は範囲の長さの
+    /// 和を超えない（#721）
+    #[test]
+    fn references_look_only_inside_the_range() {
+        let mut src = b"<a>".to_vec();
+        src.extend(std::iter::repeat_n(b'x', 100_000));
+        src.extend(b"&amp;</a>");
+        let parser = Parser::new(&src);
+        let mut budget = Budget::default();
+        let mut diag = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        let mut seen = 0;
+        let mut ranges = 0;
+        for start in (3..100_003).step_by(10) {
+            let Ok(found) = parser.references(start..start + 10, &mut cx) else {
+                panic!("{start}");
+            };
+            seen += found;
+            ranges += 10;
+        }
+        assert_eq!(seen, ranges);
+        // 範囲の中の参照は、前と同じく読む
+        let Ok(found) = parser.references(100_003..100_008, &mut cx) else {
+            panic!("&amp;");
+        };
+        assert_eq!(found, 5);
+        assert!(diag.is_empty());
+    }
+
+    /// 名前空間の宣言は接頭辞ごとに積み、閉じた要素の宣言を外す。読み終えたら、積みは空になる（#721）
+    #[test]
+    fn namespaces_are_stacked_by_prefix_and_unwound() {
+        let src = b"<r xmlns:p='urn:r' xmlns='urn:d' xmlns:q='urn:q'>\
+            <p:a xmlns:p='urn:a'><b xmlns=''/></p:a><c xmlns:s='urn:c'/></r>";
+        let mut budget = Budget::default();
+        let mut diag = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        let mut parser = Parser::new(src);
+        assert!(parser.encoding(&mut cx).is_ok());
+        // ルートの開始タグのあとは、接頭辞ごとに 1 つずつ
+        assert!(matches!(parser.open(None, &mut cx), Ok(true)));
+        assert_eq!(parser.namespaces.len(), 3);
+        assert!(parser.namespaces.values().all(|stack| stack.len() == 1));
+        // `p:a` の中では、`p` の宣言が 2 つ積まれ、内側で引く
+        assert!(matches!(parser.open(Some(0), &mut cx), Ok(true)));
+        let p = Some(&b"p"[..]);
+        assert_eq!(parser.namespaces.get(&p).map(Vec::len), Some(2));
+        let inner = parser.declared(p).cloned().flatten();
+        assert_eq!(inner.map(|value| parser.bytes(value)), Some(&b"urn:a"[..]));
+        assert!(diag.is_empty());
+
+        // 読み終えたら、すべて外れる
+        let mut budget = Budget::default();
+        let mut diag = Diagnostics::new();
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        let mut parser = Parser::new(src);
+        assert!(parser.encoding(&mut cx).is_ok());
+        assert!(parser.document(&mut cx).is_ok());
+        assert!(parser.namespaces.is_empty());
+        assert!(parser.scopes.is_empty());
+        assert!(parser.marks.is_empty());
+        assert!(diag.is_empty());
     }
 }

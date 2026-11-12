@@ -1,5 +1,8 @@
 //! PDF から図面モデル（L2）とシーンへの移し（決定 0256）。入力は、どれもテストの中で作る。
 
+// 図面モデルへの移しは 機能 `drawing` で作る（#613）
+#![cfg(feature = "drawing")]
+
 use zumen_base::{Budget, CancelToken, Cx, Diagnostics, codes};
 use zumen_drawing::{
     Boundary, Color, Drawing2D, Edge, Element, FieldValue, Fill, HeightMeaning, Horizontal,
@@ -179,11 +182,77 @@ fn moves_fills_to_hatches() {
     assert!(matches!(elements[3].shape, Shape::Hatch(_)));
     assert!(matches!(elements[4].shape, Shape::Polyline(_)));
     assert_eq!(rgb(&elements[3]), Some([0, 255, 0]));
-    // 非ゼロ回転数の規則で塗った 2 つの輪だけを診断する
+    // 複数の輪と、単純さを確認しない曲線の輪を診断する。
+    assert_eq!(
+        codes_of(&diag),
+        [(codes::PDF_FILL_RULE_APPROXIMATED.name(), 2)]
+    );
+}
+
+#[test]
+fn reports_unconfirmed_single_fill_without_changing_shapes_or_sources() {
+    let star = "50 90 m 74 10 l 10 58 l 90 58 l 26 10 l h";
+    let src = one_page(Page::new(&format!(
+        "{star} f {star} f* 120 10 40 40 re f \
+         120 80 m 160 80 l 160 120 l 140 120 l 140 100 l 120 100 l h f"
+    )));
+    let (drawing, diag) = lift(&src);
+    assert_eq!(elements(&drawing).len(), 4);
+    assert_eq!(elements(&drawing)[0].shape, elements(&drawing)[1].shape);
+    assert!(
+        elements(&drawing)
+            .iter()
+            .all(|e| matches!(e.shape, Shape::Hatch(_)))
+    );
     assert_eq!(
         codes_of(&diag),
         [(codes::PDF_FILL_RULE_APPROXIMATED.name(), 1)]
     );
+    let place = diag.first().unwrap().places().first().unwrap();
+    assert_eq!(place, &elements(&drawing)[0].source);
+    let (again, repeated) = lift(&src);
+    assert_eq!(drawing, again);
+    assert_eq!(codes_of(&diag), codes_of(&repeated));
+}
+
+#[test]
+fn single_fill_checks_stop_at_the_work_limit_and_allow_retry() {
+    use zumen_base::{Kind, Limit, Limits};
+
+    let src = one_page(Page::new(
+        "10 10 m 90 10 l 90 90 l 50 90 l 50 50 l 10 50 l h f",
+    ));
+    let file = testkit::read::<Pdf>(&src).0.unwrap();
+    let cancel = CancelToken::new();
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let expected = file
+        .lift(&mut Cx::new(&mut budget, &mut diag, &cancel))
+        .unwrap();
+    let work = budget.used(Kind::Work);
+    for limit in [work - 1, work] {
+        let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(limit)));
+        let mut diag = Diagnostics::new();
+        let result = file.lift(&mut Cx::new(&mut budget, &mut diag, &cancel));
+        if limit == work {
+            assert_eq!(result.unwrap(), expected);
+        } else {
+            assert!(matches!(result, Err(Error::Stopped(_))), "{result:?}");
+            assert!(
+                diag.iter()
+                    .any(|diagnostic| diagnostic.code() == codes::BUDGET_WORK_EXCEEDED)
+            );
+        }
+    }
+    cancel.cancel();
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    assert!(matches!(
+        file.lift(&mut Cx::new(&mut budget, &mut diag, &cancel)),
+        Err(Error::Stopped(_))
+    ));
+    let (again, _) = lift(&src);
+    assert_eq!(again, expected);
 }
 
 #[test]
@@ -788,6 +857,7 @@ fn reports_what_is_not_moved() {
             (codes::PDF_ANNOTATION_UNSUPPORTED.name(), 2),
             (codes::PDF_CLIP_APPROXIMATED.name(), 1),
             (codes::PDF_CLIP_DROPPED.name(), 1),
+            (codes::PDF_MEASURE_INVALID.name(), 1),
             (codes::PDF_MEASURE_UNSUPPORTED.name(), 1),
             (codes::PDF_SHADING_DROPPED.name(), 1),
         ]
@@ -811,7 +881,8 @@ fn moves_document_information() {
             .to_vec(),
     ];
     document.trailer = "/Info 3 0 R";
-    let (drawing, _) = lift(&document.bytes());
+    let (drawing, diagnostics) = lift(&document.bytes());
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
     let document = drawing
         .extensions
         .iter()
@@ -832,9 +903,269 @@ fn moves_document_information() {
                 "created",
                 FieldValue::Text("2026-10-23T09:30:00+09:00".to_owned())
             ),
+            (
+                "created/raw",
+                FieldValue::Bytes(b"D:20261023093000+09'00'".to_vec())
+            ),
+            ("created/utc_offset_known", FieldValue::Integer(1)),
             ("pages", FieldValue::Integer(1)),
         ]
     );
+}
+
+#[test]
+fn preserves_raw_dates_timezone_presence_and_reports_approximations_and_invalid_dates() {
+    // 1. 時差なし（UT との関係が不明）と、秒の省略・負の 0 時間オフセット
+    let mut local = Document::new(vec![Page::new("")]);
+    local.objects =
+        vec![b"<< /CreationDate (D:20261023093000) /ModDate (D:199812231952-00'45') >>".to_vec()];
+    local.trailer = "/Info 3 0 R";
+    let bytes = local.bytes();
+    let file = testkit::read::<Pdf>(&bytes).0.unwrap();
+    let info_record = file
+        .records()
+        .iter()
+        .position(|record| record.object == Some((3, 0)))
+        .unwrap() as u64;
+    let (drawing, diagnostics) = lift(&bytes);
+    let doc_ext = drawing
+        .extensions
+        .iter()
+        .find(|extension| extension.namespace == "pdf.document")
+        .unwrap();
+    let fields: Vec<_> = doc_ext
+        .fields
+        .iter()
+        .map(|field| (field.key.as_ref(), field.value.clone()))
+        .collect();
+    assert_eq!(
+        fields,
+        [
+            (
+                "created",
+                FieldValue::Text("2026-10-23T09:30:00+00:00".to_owned())
+            ),
+            (
+                "created/raw",
+                FieldValue::Bytes(b"D:20261023093000".to_vec())
+            ),
+            ("created/utc_offset_known", FieldValue::Integer(0)),
+            (
+                "modified",
+                FieldValue::Text("1998-12-23T19:52:00-00:45".to_owned())
+            ),
+            (
+                "modified/raw",
+                FieldValue::Bytes(b"D:199812231952-00'45'".to_vec())
+            ),
+            ("modified/utc_offset_known", FieldValue::Integer(1)),
+            ("pages", FieldValue::Integer(1)),
+        ]
+    );
+    let approx: Vec<_> = diagnostics
+        .iter()
+        .filter(|d| d.code() == codes::PDF_DATE_APPROXIMATED)
+        .collect();
+    assert_eq!(approx.len(), 2, "{diagnostics:?}");
+    assert_eq!(
+        approx[0].param("field"),
+        Some(&zumen_base::Value::Text("created".to_owned()))
+    );
+    assert_eq!(approx[0].places()[0].record(), Some(info_record));
+    assert_eq!(
+        approx[1].param("field"),
+        Some(&zumen_base::Value::Text("modified".to_owned()))
+    );
+    assert_eq!(approx[1].places()[0].record(), Some(info_record));
+
+    // 2. Z 表記は厳密（近似診断なし、utc_offset_known = 1）、壊れた文字列と非文字列は invalid で原値を保持
+    let mut broken = Document::new(vec![Page::new("")]);
+    broken.objects = vec![b"<< /CreationDate (D:20260229093000Z) /ModDate 12345 >>".to_vec()];
+    broken.trailer = "/Info 3 0 R";
+    let (drawing, diagnostics) = lift(&broken.bytes());
+    let doc_ext = drawing
+        .extensions
+        .iter()
+        .find(|extension| extension.namespace == "pdf.document")
+        .unwrap();
+    let fields: Vec<_> = doc_ext
+        .fields
+        .iter()
+        .map(|field| (field.key.as_ref(), field.value.clone()))
+        .collect();
+    assert_eq!(
+        fields,
+        [
+            (
+                "created/raw",
+                FieldValue::Bytes(b"D:20260229093000Z".to_vec())
+            ),
+            ("modified/raw", FieldValue::Bytes(b"12345".to_vec())),
+            ("pages", FieldValue::Integer(1)),
+        ]
+    );
+    let invalid: Vec<_> = diagnostics
+        .iter()
+        .filter(|d| d.code() == codes::PDF_DATE_INVALID)
+        .map(|d| d.param("field").cloned())
+        .collect();
+    assert_eq!(
+        invalid,
+        [
+            Some(zumen_base::Value::Text("created".to_owned())),
+            Some(zumen_base::Value::Text("modified".to_owned())),
+        ]
+    );
+
+    // 3. トレーラーに直接書いた Info・間接参照の文字列・null 項目、および壊れた xref の走査復元
+    let mut direct_and_repaired = b"%PDF-1.7\n\
+        1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+        2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+        3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>\nendobj\n\
+        4 0 obj\n(D:20261023093000Z)\nendobj\n\
+        trailer\n<< /Root 1 0 R /Info << /CreationDate 4 0 R /ModDate null >> >>\n\
+        startxref\n999999\n%%EOF\n"
+        .to_vec();
+    let (drawing, diagnostics) = lift(&direct_and_repaired);
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    let doc_ext = drawing
+        .extensions
+        .iter()
+        .find(|extension| extension.namespace == "pdf.document")
+        .unwrap();
+    let fields: Vec<_> = doc_ext
+        .fields
+        .iter()
+        .map(|field| (field.key.as_ref(), field.value.clone()))
+        .collect();
+    assert_eq!(
+        fields,
+        [
+            (
+                "created",
+                FieldValue::Text("2026-10-23T09:30:00+00:00".to_owned())
+            ),
+            (
+                "created/raw",
+                FieldValue::Bytes(b"D:20261023093000Z".to_vec())
+            ),
+            ("created/utc_offset_known", FieldValue::Integer(1)),
+            ("pages", FieldValue::Integer(1)),
+        ]
+    );
+
+    // 4. 予算の境界（exact と used - 1）と中断の再現性
+    direct_and_repaired.clear();
+    let budgeted = local.bytes();
+    let file = testkit::read::<Pdf>(&budgeted).0.unwrap();
+    let mut ample = Budget::default();
+    let mut expected_diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let expected = file
+        .lift(&mut Cx::new(&mut ample, &mut expected_diag, &cancel))
+        .unwrap();
+    for kind in [zumen_base::Kind::DecodedBytes, zumen_base::Kind::Work] {
+        let used = ample.used(kind);
+        let mut exact_budget =
+            Budget::new(zumen_base::Limits::default().with(kind, zumen_base::Limit::Finite(used)));
+        let mut exact_diag = Diagnostics::new();
+        let actual = file
+            .lift(&mut Cx::new(&mut exact_budget, &mut exact_diag, &cancel))
+            .unwrap();
+        assert_eq!(actual, expected);
+        assert_eq!(exact_diag.into_vec(), expected_diag.clone().into_vec());
+
+        let mut short_budget = Budget::new(
+            zumen_base::Limits::default().with(kind, zumen_base::Limit::Finite(used - 1)),
+        );
+        let mut short_diag = Diagnostics::new();
+        let err = file.lift(&mut Cx::new(&mut short_budget, &mut short_diag, &cancel));
+        assert!(
+            matches!(err, Err(Error::Stopped(zumen_base::Stop::Exceeded(e))) if e.kind == kind),
+            "{kind:?}: {err:?}"
+        );
+    }
+
+    // 5. 相互参照ストリーム（7.5.8）とオブジェクトストリーム（7.5.7）の中の Info 辞書
+    let mut xref_objstm = b"%PDF-1.7\n".to_vec();
+    let mut entries = std::collections::BTreeMap::new();
+    let packed_info =
+        "30 0 << /CreationDate (D:202610230930) /ModDate (D:20261023093000+09'00') >>";
+    let obj_stm = common::stream("/Type /ObjStm /N 1 /First 5", packed_info.as_bytes());
+    for (num, body) in [
+        (1u32, b"<< /Type /Catalog /Pages 2 0 R >>".to_vec()),
+        (2, b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec()),
+        (
+            3,
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>".to_vec(),
+        ),
+        (5, obj_stm),
+    ] {
+        entries.insert(num, (1u8, xref_objstm.len() as u32));
+        xref_objstm.extend(format!("{num} 0 obj\n").as_bytes());
+        xref_objstm.extend(body);
+        xref_objstm.extend(b"\nendobj\n");
+    }
+    entries.insert(30, (2, 5));
+    let xref_pos = xref_objstm.len();
+    entries.insert(99, (1, xref_pos as u32));
+    let mut index = String::new();
+    let mut table = Vec::new();
+    for (num, (kind, field)) in entries {
+        index.push_str(&format!("{num} 1 "));
+        table.push(kind);
+        table.extend(field.to_be_bytes());
+        table.extend([0, 0]);
+    }
+    xref_objstm.extend(b"99 0 obj\n");
+    xref_objstm.extend(common::stream(
+        &format!("/Type /XRef /Size 100 /W [1 4 2] /Index [{index}] /Root 1 0 R /Info 30 0 R"),
+        table,
+    ));
+    xref_objstm.extend(format!("\nendobj\nstartxref\n{xref_pos}\n%%EOF\n").as_bytes());
+    let (drawing, diagnostics) = lift(&xref_objstm);
+    let doc_ext = drawing
+        .extensions
+        .iter()
+        .find(|extension| extension.namespace == "pdf.document")
+        .unwrap();
+    let fields: Vec<_> = doc_ext
+        .fields
+        .iter()
+        .map(|field| (field.key.as_ref(), field.value.clone()))
+        .collect();
+    assert_eq!(
+        fields,
+        [
+            (
+                "created",
+                FieldValue::Text("2026-10-23T09:30:00+00:00".to_owned())
+            ),
+            ("created/raw", FieldValue::Bytes(b"D:202610230930".to_vec())),
+            ("created/utc_offset_known", FieldValue::Integer(0)),
+            (
+                "modified",
+                FieldValue::Text("2026-10-23T09:30:00+09:00".to_owned())
+            ),
+            (
+                "modified/raw",
+                FieldValue::Bytes(b"D:20261023093000+09'00'".to_vec())
+            ),
+            ("modified/utc_offset_known", FieldValue::Integer(1)),
+            ("pages", FieldValue::Integer(1)),
+        ]
+    );
+    let approx: Vec<_> = diagnostics
+        .iter()
+        .filter(|d| d.code() == codes::PDF_DATE_APPROXIMATED)
+        .collect();
+    assert_eq!(approx.len(), 1, "{diagnostics:?}");
+    assert_eq!(
+        approx[0].param("field"),
+        Some(&zumen_base::Value::Text("created".to_owned()))
+    );
+    // ObjStm 内の Info 辞書（30 番）の出所は、格納する ObjStm（5 番、L1 レコード 4）を指す。
+    assert_eq!(approx[0].places()[0].record(), Some(4));
 }
 
 #[test]
@@ -3915,10 +4246,11 @@ fn counts_the_dictionaries_of_object_streams_before_reading_them() {
     )];
     let own = used(&document.bytes(), Kind::DecodedBytes);
     assert!(own >= 176 * count as u64, "{own}");
-    // 展開するときに hayro-syntax が表を作る `F`・`DP`・`DecodeParms` の値も、展開の前に名前の数で数える
+    // 展開するときに hayro-syntax が表を作る `F`・`DP`・`DecodeParms` の値も、展開の前に名前の数で数える。
+    // Crypt を明示して、DP・DecodeParms が実際に読まれるストリームにする。
     for key in ["F", "DP", "DecodeParms"] {
         document.objects = vec![common::stream(
-            &format!("/Type /ObjStm /N 1 /First 4 /{key} << {keys}>>"),
+            &format!("/Type /ObjStm /N 1 /First 4 /Filter /Crypt /{key} << {keys}>>"),
             "30 0 << >>",
         )];
         let parameters = used(&document.bytes(), Kind::DecodedBytes);
@@ -4018,12 +4350,13 @@ fn bounds_flate_object_streams_after_a_leading_crypt_filter() {
         let mut diagnostics = Diagnostics::new();
         let cancel = CancelToken::new();
         let result = file.lift(&mut Cx::new(&mut budget, &mut diagnostics, &cancel));
-        // 全量の 64 KiB を展開した後ではなく、固定長のバッファーの 1 回目で止まる
+        // 全量の 64 KiB を作る前に、引数の一括予約か、固定長のバッファーの確認で止まる。
         assert!(
             matches!(result, Err(Error::Stopped(Stop::Exceeded(e)))
-            if e.kind == Kind::DecodedBytes && e.requested < 16 * 1024),
+            if e.kind == Kind::DecodedBytes),
             "{filter}: {result:?}"
         );
+        assert!(budget.used(Kind::DecodedBytes) <= 4 * 1024);
     }
 }
 
@@ -4499,7 +4832,8 @@ fn reads_names_in_comments_in_linear_work() {
     let mut document = Document::new(vec![Page::new("0 0 m 10 10 l S")]);
     document.objects = vec![format!("({}{tail})", "%obj<<\n".repeat(count)).into_bytes()];
     let work = used(&document.bytes(), Kind::Work);
-    let most = plain + 8 * count as u64 + tail.len() as u64;
+    // 展開引数を調べる固定回数の読み取りも、同じ辞書の長さに比例して数える。
+    let most = plain + 8 * count as u64 + 4 * tail.len() as u64;
     assert!(work < most, "{plain} {work}");
     // コメントの行の `obj<<` から読む辞書が、`<<` の後ろでそれぞれ違う位置に着いても、前の辞書が読んだ歩み（項目の
     // 始まりか値の位置）に着いたら、そこから後ろを読み直さない（#562）。キーと値の組が前の辞書と入れ替わる並びと、
@@ -4516,6 +4850,51 @@ fn reads_names_in_comments_in_linear_work() {
         let work = used(&document.bytes(), Kind::Work);
         assert!(work < plain + 8 * count as u64, "{line:?} {plain} {work}");
     }
+    // コメントの行ごとの `obj<<` から読む辞書の最初の字句が、後ろの行をまたぐ文字列か配列でも、辞書ごとに読み直さない。
+    // 後ろの同じ辞書がオブジェクトのストリームになりうるときも、同じストリームを辞書ごとに読み直さない（#657）。字句の
+    // 中の入れ子（配列の中の配列・辞書・文字列）と、キーと値の位置の辞書も、辞書ごとに読み直さない（#747）
+    for (open, line, close) in [
+        ("[", "%obj<< (\n", "]"),
+        ("[", "%obj<< [\n/a ", "]"),
+        ("[", "%obj<< [ [\n/a ", "]"),
+        ("[", "%obj<< [ <<\n/a 1 ", "]"),
+        ("[", "%obj<< [ [(\n/a ", "]"),
+        ("[", "%obj<< [ [ [\n/a ", "]"),
+        ("[", "%obj<< [ << /b [\n/a ", "]"),
+        ("[", "%obj<< <<\n/a 1 ", "]"),
+        ("[", "%obj<< /K <<\n/a 1 ", "]"),
+        ("[", "%obj<< /K [ <<\n/a 1 ", "]"),
+        // hayro-syntax の深さの上限（512）を超える入れ子も、上限で止まる
+        ("<< /K ", "[ <<\n/a ", ">>"),
+        (
+            "<<",
+            "/K 1 %obj<<\n",
+            "/N 1/First 0/Length 0>>stream\n\nendstream",
+        ),
+    ] {
+        let mut document = Document::new(vec![Page::new("0 0 m 10 10 l S")]);
+        document.objects = vec![format!("{open}{}{close}", line.repeat(count)).into_bytes()];
+        let src = document.bytes();
+        let size = (line.len() * count) as u64;
+        let work = used(&src, Kind::Work);
+        // 行ごとに覚えを 1 つ足すので、その手間（`Work` の 20）も数える
+        assert!(
+            work < plain + size + 32 * count as u64,
+            "{line:?} {plain} {work}"
+        );
+        let decoded = used(&src, Kind::DecodedBytes);
+        assert!(decoded < 64 * size, "{line:?} {decoded}");
+    }
+    // 閉じない辞書が後ろのオブジェクトの字句を最後まで読んでも、後ろの `obj` の辞書が着きえない境目は覚えないので、
+    // 覚える量が閉じた辞書と同じ程度になる（#657）
+    let content = "0 0 m ".repeat(count);
+    let decoded = |first: &[u8]| {
+        let mut document = Document::new(vec![Page::new("0 0 m 10 10 l S")]);
+        document.objects = vec![first.to_vec(), common::stream("", &content)];
+        used(&document.bytes(), Kind::DecodedBytes)
+    };
+    let (open, closed) = (decoded(b"<<"), decoded(b"<< >>"));
+    assert!(open < closed + 4096, "{open} {closed}");
     // 次の `obj` の辞書の後ろのコメントの中の `obj<<` の辞書も、前の辞書が覚えた歩みに着いたら読み直さない（PR #658 の
     // 2 回目の確かめで、覚えるのをやめると 2 乗になった形）
     let mut document = Document::new(vec![Page::new("0 0 m 10 10 l S")]);
@@ -4547,6 +4926,33 @@ fn counts_reads_that_grow_faster_than_the_file() {
     document.objects = vec![container(count, header.len(), &data)];
     let work = used(&document.bytes(), Kind::Work);
     assert!(work >= count as u64 * 99_000 / 4, "{work}");
+    // 辞書の最初の字句が、閉じない文字列か配列で、覚えに着かずに後ろを読み直す形は、読み直す分を数える（PR #745 の
+    // 確かめで、数えないと予算で止まらなかった形）。エスケープした括弧から始まる文字列。配列の中の入れ子の字句は、
+    // 覚えから飛ばす（#747、`reads_names_in_comments_in_linear_work`）
+    let count = 2_000;
+    for (name, objects) in [
+        ("A", format!("[{}", r"(obj<< [\( ) /a ".repeat(count))),
+        ("B", format!("[({}", r"obj<< \( ".repeat(count))),
+    ] {
+        let mut document = Document::new(vec![Page::new("0 0 m 10 10 l S")]);
+        document.objects = vec![objects.into_bytes()];
+        let work = used(&document.bytes(), Kind::Work);
+        assert!(work >= (count * count) as u64, "{name} {work}");
+    }
+    // 入れ子が行ごとに 1 段ずつ深くなる形は、辞書ごとに深さの上限まで覚えを足すので、足す手間を数える（PR #750 の
+    // 確かめの形）
+    let mut document = Document::new(vec![Page::new("0 0 m 10 10 l S")]);
+    document.objects = vec![format!("[{}]", "[ %obj<< [\n".repeat(count)).into_bytes()];
+    let work = used(&document.bytes(), Kind::Work);
+    assert!(work >= 20 * 400 * count as u64, "{work}");
+    // 読み直す閉じない文字列の中の、覚えた括弧の組も、引くたびに数える（PR #745 の 2 回目の確かめの形）
+    let (lines, pairs) = (200, 10_000);
+    let mut document = Document::new(vec![Page::new("0 0 m 10 10 l S")]);
+    document.objects =
+        vec![format!("[({}{}", r"obj<< \( ".repeat(lines), "()".repeat(pairs)).into_bytes()];
+    let work = used(&document.bytes(), Kind::Work);
+    assert!(work >= 2 * (lines * pairs) as u64, "{work}");
+    let count = 1_000;
     // `Length` が合わないストリームは、hayro-syntax が `endstream` を探して、後ろを読む
     let line = "9 0 obj << /N 1 /First 0 /Length 0 >>\nstream\n";
     let mut document = Document::new(vec![Page::new("0 0 m 10 10 l S")]);
@@ -5053,4 +5459,285 @@ fn finds_object_streams_whose_entries_come_from_a_remembered_suffix() {
     // 中の辞書が着いた歩みから後ろが読めない（閉じない）辞書は、コンテナーにならない
     let broken = "<< /K 1 %obj<< /N 1\n/First 0 /Length 5 0 R";
     assert!(!unsupported(vec![broken.as_bytes().to_vec()]));
+}
+
+/// ページの木の `Kids` の、ページにも節にも読めない項目と、同じページをもう一度指す項目は、hayro-syntax が黙って
+/// 飛ばすので、その項目を持つ節を場所にした `pdf.page-tree.dropped` にする（#555）
+#[test]
+fn unreadable_page_tree_items_are_reported() {
+    let deep = format!(
+        "<< /Type /Page /Parent 2 0 R /X {}{} >>",
+        "[".repeat(600),
+        "]".repeat(600)
+    );
+    let page = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>";
+    let cases: [(&str, &str, u64); 5] = [
+        ("[3 0 R 4 0 R]", deep.as_str(), 1),
+        ("[3 0 R 4 0 R]", "42", 1),
+        ("[3 0 R 4 0 R]", "null", 1),
+        // 直接書いた数と、同じページをもう一度指す参照
+        ("[3 0 R 4 0 R 7 4 0 R]", "null", 3),
+        // 読める項目だけなら、診断を返さない
+        ("[3 0 R 4 0 R]", page, 0),
+    ];
+    for (kids, third, dropped) in cases {
+        let mut builder = common::Builder::default();
+        builder.object(b"<< /Type /Catalog /Pages 2 0 R >>");
+        builder.object(format!("<< /Type /Pages /Kids {kids} /Count 2 >>"));
+        builder.object(third);
+        builder.object(page);
+        let src = builder.bytes(1);
+        let (drawing, diagnostics) = lift(&src);
+        // 飛ばした項目はページにならず、読める 4 番のページだけが用紙になる
+        let sheets = if dropped == 0 { 2 } else { 1 };
+        assert_eq!(drawing.sheets.len(), sheets, "{kids} {third:.20}");
+        let found: Vec<_> = diagnostics
+            .iter()
+            .filter(|d| d.code() == codes::PDF_PAGE_TREE_DROPPED)
+            .collect();
+        if dropped == 0 {
+            assert!(found.is_empty(), "{kids} {third:.20} {diagnostics:?}");
+            continue;
+        }
+        assert_eq!(found.len(), 1, "{kids} {third:.20} {diagnostics:?}");
+        assert_eq!(found[0].count(), dropped, "{kids} {third:.20}");
+        // 場所は、項目を持つページの木の節（2 番のオブジェクト）のレコード
+        let record = found[0].places()[0].record().unwrap();
+        let file = testkit::read::<Pdf>(&src).0.unwrap();
+        let node = &file.records()[usize::try_from(record).unwrap()];
+        assert_eq!(node.object, Some((2, 0)), "{kids} {third:.20}");
+    }
+}
+
+#[test]
+fn page_tree_items_are_reported_at_the_node_that_holds_them() {
+    let page = "<< /Type /Page /Parent 3 0 R /MediaBox [0 0 100 100] >>";
+    // ルートの Kids、3 番の節、用紙の数、診断の場所（節の番号）
+    let cases: [(&str, &str, usize, u32); 5] = [
+        // Kids を配列に読めない中間の節は、下のページごと飛ばされるので、その節で数える
+        (
+            "[3 0 R 4 0 R]",
+            "<< /Type /Pages /Kids 42 /Count 1 >>",
+            1,
+            3,
+        ),
+        ("[3 0 R 4 0 R]", "<< /Type /Pages /Count 1 >>", 1, 3),
+        (
+            "[3 0 R 4 0 R]",
+            "<< /Type /Pages /Kids 6 0 R /Count 1 >>",
+            1,
+            3,
+        ),
+        // 子の節がルートをもう一度指す参照は、その子の節で数える
+        (
+            "[3 0 R 4 0 R]",
+            "<< /Type /Pages /Kids [2 0 R 5 0 R] /Count 1 >>",
+            2,
+            3,
+        ),
+        // 直接書いた節の項目は、それを含む間接オブジェクトの節で数える
+        (
+            "[<< /Type /Pages /Kids [42] /Count 0 >> 4 0 R]",
+            "<< /Type /Pages /Kids [5 0 R] /Count 1 >>",
+            1,
+            2,
+        ),
+    ];
+    for (kids, third, sheets, owner) in cases {
+        let mut builder = common::Builder::default();
+        builder.object(b"<< /Type /Catalog /Pages 2 0 R >>");
+        builder.object(format!("<< /Type /Pages /Kids {kids} /Count 2 >>"));
+        builder.object(third);
+        builder.object("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>");
+        builder.object(page);
+        builder.object("null");
+        let src = builder.bytes(1);
+        let (drawing, diagnostics) = lift(&src);
+        assert_eq!(drawing.sheets.len(), sheets, "{kids} {third}");
+        let found: Vec<_> = diagnostics
+            .iter()
+            .filter(|d| d.code() == codes::PDF_PAGE_TREE_DROPPED)
+            .collect();
+        assert_eq!(found.len(), 1, "{kids} {third} {diagnostics:?}");
+        assert_eq!(found[0].count(), 1, "{kids} {third}");
+        let record = found[0].places()[0].record().unwrap();
+        let file = testkit::read::<Pdf>(&src).0.unwrap();
+        let node = &file.records()[usize::try_from(record).unwrap()];
+        assert_eq!(node.object, Some((owner, 0)), "{kids} {third}");
+    }
+}
+
+#[test]
+fn reports_miter_limit_and_dashed_rectangle_orientation() {
+    // 1 M で描く直角と、既定 10 M で描く限度 4 超の鋭角は pdf.stroke.approximated を返す。
+    // 10 M の直角、面取りが一致する 2 M の鋭角、180 度の折り返しは診断しない。
+    let miter_src = one_page(Page::new(
+        "2 w \
+         10 M 10 10 m 30 10 l 30 30 l S \
+         10 M 10 40 m 70 40 l S \
+         10 M 10 50 m 70 50 l h S \
+         2 M 10 70 m 60 70 l 10 90 l S \
+         1 M 10 110 m 30 110 l 30 130 l S \
+         10 M 10 150 m 60 150 l 10 170 l S \
+         1 M 100 10 20 20 re S",
+    ));
+    let (drawing, diag) = lift(&miter_src);
+    assert_eq!(elements(&drawing).len(), 7);
+    assert_eq!(
+        codes_of(&diag),
+        [(codes::PDF_STROKE_APPROXIMATED.name(), 3)],
+        "{diag:?}"
+    );
+    assert_eq!(
+        diag[0].places(),
+        std::slice::from_ref(&elements(&drawing)[0].source)
+    );
+
+    // 縦横に異なる倍率を掛けた変換で、ユーザー空間と用紙空間の面取り判定が食い違う角も診断する。
+    let anisotropic = one_page(Page::new(
+        "q 10 0 0 1 0 0 cm 2.5 M 2 20 m 12 20 l 2 35 l S Q",
+    ));
+    let (_, aniso_diag) = lift(&anisotropic);
+    assert_eq!(
+        codes_of(&aniso_diag),
+        [(codes::PDF_STROKE_APPROXIMATED.name(), 1)],
+        "{aniso_diag:?}"
+    );
+
+    // 破線で描く軸平行な長方形（re の負の幅・高さ、位相 0、m/l の時計回り）は始点と向きを確認できないため
+    // pdf.rect-orientation.approximated を返す。実線の長方形、塗りの長方形、破線の非長方形は返さない。
+    let rect_src = one_page(Page::new(
+        "2 w \
+         10 10 30 20 re S \
+         10 40 30 20 re f \
+         [6 3] 0 d 50 30 -30 -20 re S \
+         [6 3] 0 d 60 10 m 60 30 l 90 30 l 90 10 l h S \
+         [6 3] 2 d 100 10 30 20 re B \
+         [0 0] 0 d 100 40 30 20 re S \
+         [6 3] 0 d 10 80 m 40 80 l 25 100 l h S",
+    ));
+    let (rect_drawing, rect_diag) = lift(&rect_src);
+    assert_eq!(elements(&rect_drawing).len(), 8);
+    let mut found = codes_of(&rect_diag);
+    found.sort();
+    assert_eq!(
+        found,
+        [
+            (codes::PDF_DASH_APPROXIMATED.name(), 1),
+            (codes::PDF_RECT_ORIENTATION_APPROXIMATED.name(), 3),
+        ],
+        "{rect_diag:?}"
+    );
+}
+
+#[test]
+fn reports_ocmd_visibility_expressions_and_objstm_provenance() {
+    // 1. OCMD の /VE は BDC と XObject の両方で pdf.visibility-expression.approximated を返し、表示は OCGs と P で決まる。
+    let mut document = Document::new(vec![
+        Page::new(
+            "/OC /Vis BDC 10 10 m 20 20 l S EMC \
+             /OC /Hid BDC 30 30 m 40 40 l S EMC \
+             /Fm Do",
+        )
+        .resources("/Properties << /Vis 5 0 R /Hid 6 0 R >> /XObject << /Fm 7 0 R >>"),
+    ]);
+    document.catalog = "/OCProperties << /OCGs [3 0 R 4 0 R] /D << /OFF [4 0 R] >> >>";
+    document.objects = vec![
+        b"<< /Type /OCG /Name (On) >>".to_vec(),
+        b"<< /Type /OCG /Name (Off) >>".to_vec(),
+        b"<< /Type /OCMD /OCGs [3 0 R] /P /AnyOn /VE [/Not 3 0 R] >>".to_vec(),
+        b"<< /Type /OCMD /OCGs [4 0 R] /P /AllOn /VE [/Not 4 0 R] >>".to_vec(),
+        common::stream(
+            "/Type /XObject /Subtype /Form /BBox [0 0 100 100] \
+             /OC << /Type /OCMD /OCGs [3 0 R] /P /AnyOn /VE [/Or 3 0 R 4 0 R] >>",
+            "50 50 m 60 60 l S",
+        ),
+    ];
+    let (drawing, diag) = lift(&document.bytes());
+    assert_eq!(elements(&drawing).len(), 2, "{diag:?}");
+    let mut found = codes_of(&diag);
+    found.sort();
+    assert_eq!(
+        found,
+        [
+            (codes::PDF_MEMBERSHIP_DROPPED.name(), 1),
+            (codes::PDF_OPTIONAL_CONTENT_APPROXIMATED.name(), 2),
+            (codes::PDF_OPTIONAL_CONTENT_DROPPED.name(), 1),
+            (codes::PDF_VISIBILITY_EXPRESSION_APPROXIMATED.name(), 3),
+        ],
+        "{diag:?}"
+    );
+
+    // 2. ObjStm 内のページ・OCG・注釈の出所が、それぞれ格納する ObjStm の L1 レコードを指す。
+    let mut raw_pdf = b"%PDF-1.7\n".to_vec();
+    let mut entries = std::collections::BTreeMap::new();
+    let members = [
+        (
+            1u32,
+            "<< /Type /Catalog /Pages 2 0 R /OCProperties << /OCGs [20 0 R] /D << >> >> >>",
+        ),
+        (2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>"),
+        (
+            3,
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Annots [21 0 R] >>",
+        ),
+        (20, "<< /Type /OCG /Name (InObjStm) >>"),
+        (
+            21,
+            "<< /Type /Annot /Subtype /Stamp /Rect [0 0 10 10] /AP << /N 6 0 R >> >>",
+        ),
+    ];
+    let mut header_part = String::new();
+    let mut body_part = String::new();
+    for (num, text) in members {
+        header_part.push_str(&format!("{num} {} ", body_part.len()));
+        body_part.push_str(text);
+        body_part.push('\n');
+    }
+    let obj_stm_bytes = common::stream(
+        &format!(
+            "/Type /ObjStm /N {} /First {}",
+            members.len(),
+            header_part.len()
+        ),
+        format!("{header_part}{body_part}").into_bytes(),
+    );
+    let ap_stream = common::stream("/BBox [0 0 10 10]", "0 0 m 10 10 l S");
+    for (num, body) in [(5u32, obj_stm_bytes), (6, ap_stream)] {
+        entries.insert(num, (1u8, raw_pdf.len() as u32, 0u16));
+        raw_pdf.extend(format!("{num} 0 obj\n").as_bytes());
+        raw_pdf.extend(body);
+        raw_pdf.extend(b"\nendobj\n");
+    }
+    for (idx, (num, _)) in members.iter().enumerate() {
+        entries.insert(*num, (2, 5, idx as u16));
+    }
+    let xref_pos = raw_pdf.len();
+    entries.insert(99, (1, xref_pos as u32, 0));
+    let mut index = String::new();
+    let mut table = Vec::new();
+    for (num, (kind, f1, f2)) in entries {
+        index.push_str(&format!("{num} 1 "));
+        table.push(kind);
+        table.extend(f1.to_be_bytes());
+        table.extend(f2.to_be_bytes());
+    }
+    raw_pdf.extend(b"99 0 obj\n");
+    raw_pdf.extend(common::stream(
+        &format!("/Type /XRef /Size 100 /W [1 4 2] /Index [{index}] /Root 1 0 R"),
+        table,
+    ));
+    raw_pdf.extend(format!("\nendobj\nstartxref\n{xref_pos}\n%%EOF\n").as_bytes());
+
+    let (stm_drawing, stm_diag) = lift(&raw_pdf);
+    // L1 レコード 0 は %PDF-1.7、レコード 1 が 5 0 obj（ObjStm）。
+    assert_eq!(stm_drawing.sheets[0].source.record(), Some(1));
+    assert_eq!(stm_drawing.layers[1].source.record(), Some(1));
+    assert_eq!(elements(&stm_drawing).len(), 1);
+    assert_eq!(elements(&stm_drawing)[0].source.record(), Some(1));
+    let drawn = stm_diag
+        .iter()
+        .find(|d| d.code() == codes::PDF_ANNOTATION_DRAWN)
+        .unwrap();
+    assert_eq!(drawn.places()[0].record(), Some(1));
 }

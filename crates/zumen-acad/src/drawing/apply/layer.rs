@@ -148,11 +148,11 @@ pub(super) fn write(
     };
     let flags = (flags & !(1 | 4)) | i64::from(state.frozen) | (i64::from(!state.editable) << 2);
     set(values, 70, Some(int(70, flags)));
-    color(born, values, &state, &style)?;
+    // DWG に足す画層は、真の色をまだ書かない
+    color(born, values, &state, &style, !(dwg && was.is_none()))?;
     match was {
-        // DWG の今あるレコードは、線種をハンドルで持つ。線種は変えられない
-        Some((_, old)) if dwg => {
-            (old.style.and_then(|style| style.line_type) == style.line_type).then_some(())?;
+        // DWG の今あるレコードは、線種をハンドルで持つ。変えるときだけ名前を書き、書き戻すときにハンドルに直す（#723）
+        Some((_, old)) if dwg && old.style.and_then(|style| style.line_type) == style.line_type => {
         }
         _ => set(values, 6, Some(born.line_type_value(6, style.line_type?)?)),
     }
@@ -178,17 +178,30 @@ pub(super) fn write(
     Some(())
 }
 
-/// 色（62）と真の色（420）。番号の色が要る。表示しない画層は、番号を負にする
+/// 色（62）と真の色（420）。番号の色が要る。表示しない画層は、番号を負にする。番号を持たない真の色（AutoCAD の
+/// DWG の真の色の画層）は、元のレコードに同じ 420 があり、62 がないか ±7 のとき（真の色を変えずに、表示の状態などを
+/// 変えるとき）だけ、番号を 7 にする。ほかは、近い番号の決まりが分からないので書かない（#743）
 fn color(
     born: &Born,
     values: &mut Vec<Value>,
     state: &LayerState,
     style: &LayerStyle,
+    true_color: bool,
 ) -> Option<()> {
     let color = style.color?;
-    let code = color.code?;
-    (code.system == ColorSystem::Aci && (1..=255).contains(&code.value)).then_some(())?;
-    let index = i64::from(code.value);
+    let index = match (color.code, color.rgb) {
+        (Some(code), _) => {
+            (code.system == ColorSystem::Aci && (1..=255).contains(&code.value)).then_some(())?;
+            i64::from(code.value)
+        }
+        (None, Some([r, g, b])) => {
+            let rgb = i64::from(u32::from_be_bytes([0, r, g, b]));
+            let kept = find(values, 420) == Some(&Data::Int(rgb));
+            let unnumbered = matches!(find(values, 62), None | Some(Data::Int(7 | -7)));
+            (kept && unnumbered).then_some(7)?
+        }
+        (None, None) => return None,
+    };
     let index = if !state.visible && !state.frozen {
         -index
     } else {
@@ -198,12 +211,22 @@ fn color(
     match color.rgb {
         Some([r, g, b]) => {
             let rgb = i64::from(u32::from_be_bytes([0, r, g, b]));
-            // DWG は、真の色を変えずに残すときだけ受ける
+            // 真の色は、R2004 からの DXF と DWG に書く（DWG は #723）
             let kept = find(values, 420) == Some(&Data::Int(rgb));
-            (kept || (born.target() == Target::Dxf && born.dxf_since(b"AC1018"))).then_some(())?;
+            (kept || (true_color && born.since(b"AC1018"))).then_some(())?;
+            // 色見本帳の色の名前（430）は、真の色を変えたら除く。DWG も、名前を持たない真の色を書く
+            if !kept {
+                set(values, 430, None);
+            }
             set(values, 420, Some(int(420, rgb)));
         }
-        None => set(values, 420, None),
+        // 真の色を除いたら、色見本帳の色の名前も除く。真の色のない名前（外れた入力）には触らない
+        None => {
+            if find(values, 420).is_some() {
+                set(values, 420, None);
+                set(values, 430, None);
+            }
+        }
     }
     Some(())
 }

@@ -564,6 +564,122 @@ fn edits_that_cannot_be_written_change_nothing() {
     assert_eq!(result, Err(Error::Rejected));
 }
 
+/// 色・線種・線幅を書かない（レイヤかブロックに従う）追加は、書くフィールドの分かる `change.style.unsupported` で断り、
+/// 何も変えない（決定 0292、#715）
+#[test]
+fn added_elements_need_their_own_color_line_type_and_width() {
+    let src = src();
+    let drawing = lift(&read(&src));
+    let style = Style {
+        color: sxf_color(2),
+        line_type: Inherit::Own(LineTypeId(2)),
+        line_type_scale: 1.0,
+        line_weight: Some(Inherit::Own(LineWeight::Width(PaperLength(0.3)))),
+        transparency: Inherit::Layer,
+    };
+    let circle = |style: Style| Element {
+        source: zumen_base::Ref::default(),
+        layer: LayerId(1),
+        style,
+        shape: Shape::Circle {
+            center: paper(7.0, 8.0),
+            radius: Length::Paper(PaperLength(2.5)),
+        },
+    };
+    let cases = [
+        (
+            Style {
+                color: Inherit::Layer,
+                ..style
+            },
+            "color",
+        ),
+        (
+            Style {
+                color: Inherit::Block,
+                ..style
+            },
+            "color",
+        ),
+        (
+            Style {
+                line_type: Inherit::Layer,
+                ..style
+            },
+            "line_type",
+        ),
+        (
+            Style {
+                line_type: Inherit::Block,
+                ..style
+            },
+            "line_type",
+        ),
+        (
+            Style {
+                line_weight: None,
+                ..style
+            },
+            "line_weight",
+        ),
+        (
+            Style {
+                line_weight: Some(Inherit::Layer),
+                ..style
+            },
+            "line_weight",
+        ),
+        (
+            Style {
+                line_weight: Some(Inherit::Block),
+                ..style
+            },
+            "line_weight",
+        ),
+    ];
+    for (style, field) in cases {
+        let mut file = read(&src);
+        let mut budget = Budget::default();
+        let mut diag = Diagnostics::new();
+        let cancel = CancelToken::new();
+        // 当てられる変更と一緒に送っても、何も変えない
+        let changes = Changes {
+            edits: vec![
+                Edit::Remove {
+                    target: seen(&drawing, 100).0,
+                },
+                Edit::Add {
+                    place: id::sheet(&drawing.sheets[0]),
+                    element: Box::new(Placed::Paper(circle(style))),
+                },
+            ],
+            document: None,
+        };
+        let result = file.apply(&changes, &mut Cx::new(&mut budget, &mut diag, &cancel));
+        assert_eq!(result, Err(Error::Rejected), "{field}");
+        let found: Vec<_> = diag.iter().collect();
+        assert_eq!(found.len(), 1, "{field} {found:?}");
+        assert_eq!(found[0].code(), codes::CHANGE_STYLE_UNSUPPORTED, "{field}");
+        assert_eq!(found[0].param("field"), Some(&field.into()), "{field}");
+        assert_eq!(found[0].param("format"), Some(&"SFC".into()), "{field}");
+        assert_eq!(write(&file), src, "{field}");
+    }
+    // 書いた値で受けられないもの（定義のない色）は、今までどおり change.edit.unsupported で断る
+    let mut file = read(&src);
+    let (result, diag) = apply(
+        &mut file,
+        vec![Edit::Add {
+            place: id::sheet(&drawing.sheets[0]),
+            element: Box::new(Placed::Paper(circle(Style {
+                color: sxf_color(18),
+                ..style
+            }))),
+        }],
+    );
+    assert_eq!(result, Err(Error::Rejected));
+    assert_eq!(diag, [codes::CHANGE_EDIT_UNSUPPORTED]);
+}
+
 #[test]
 fn a_stale_document_is_refused() {
     let src = src();
@@ -766,6 +882,60 @@ fn point_markers_are_replaced_transformed_and_added() {
         assert_eq!(diagnostics, [codes::CHANGE_EDIT_UNSUPPORTED]);
         assert_eq!(write(&file), src);
     }
+    // レイヤに従う色の点マーカーは、色を書くよう断る。線種と線幅は、点マーカーが持たないので見ない（決定 0292）
+    let mut file = read(&src);
+    let (result, diagnostics) = apply(
+        &mut file,
+        vec![Edit::Add {
+            place: id::sheet(&drawing.sheets[0]),
+            element: Box::new(Placed::Paper(Element {
+                style: Style {
+                    color: Inherit::Layer,
+                    ..marker.style
+                },
+                ..with(point.clone())
+            })),
+        }],
+    );
+    assert_eq!(result, Err(Error::Rejected));
+    assert_eq!(diagnostics, [codes::CHANGE_STYLE_UNSUPPORTED]);
+    assert_eq!(write(&file), src);
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let changes = Changes {
+        edits: vec![Edit::Add {
+            place: id::sheet(&drawing.sheets[0]),
+            element: Box::new(Placed::Paper(Element {
+                style: Style {
+                    color: Inherit::Block,
+                    ..marker.style
+                },
+                ..with(point.clone())
+            })),
+        }],
+        document: None,
+    };
+    let result = read(&src).apply(&changes, &mut Cx::new(&mut budget, &mut diag, &cancel));
+    assert_eq!(result, Err(Error::Rejected));
+    let found: Vec<_> = diag
+        .iter()
+        .map(|d| {
+            (
+                d.code(),
+                d.param("field").cloned(),
+                d.param("format").cloned(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        found,
+        [(
+            codes::CHANGE_STYLE_UNSUPPORTED,
+            Some("color".into()),
+            Some("SFC".into())
+        )]
+    );
 }
 
 /// SXF は文書の点の表し方（DXF・DWG の $PDMODE・$PDSIZE）に当たるものを持たない。点は既定義のマーカーだけなので、その

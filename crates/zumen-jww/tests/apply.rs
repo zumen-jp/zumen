@@ -1,5 +1,8 @@
 //! 図面モデルの変更を、JWW の図形の一覧に書き戻す（決定 0168）。入力は、どれもテストの中で作る。
 
+// 図面モデルの変更の書き戻しは、機能 `drawing` で作る（#735）
+#![cfg(feature = "drawing")]
+
 mod common;
 
 use core::f64::consts::PI;
@@ -834,4 +837,191 @@ fn point_styles_are_refused() {
     assert_eq!(result, Err(Error::Rejected));
     assert_eq!(diagnostics, [codes::CHANGE_EDIT_UNSUPPORTED]);
     assert_eq!(write(&file), src);
+}
+
+/// API の add は、書かない線幅をレイヤに従う（`Some(Inherit::Layer)`）として渡す。JWW のレイヤは線幅を持たないので、
+/// 線・円・円弧はペンの印刷の幅に従う 0 で書く。色と線種を書かなければ、`change.style.unsupported` で断る（#702）
+#[test]
+fn lines_circles_and_arcs_are_added_with_the_pen_width_when_weight_follows_the_layer() {
+    let src = src();
+    let drawing = lift(&read(&src));
+    let pen = Inherit::Own(Color {
+        code: Some(ColorCode {
+            system: ColorSystem::Jww,
+            value: 2,
+        }),
+        rgb: None,
+    });
+    let style = Style {
+        color: pen,
+        line_type: Inherit::Own(LineTypeId(2)),
+        line_type_scale: 1.0,
+        line_weight: Some(Inherit::Layer),
+        transparency: Inherit::Layer,
+    };
+    let shapes = [
+        Shape::Line {
+            start: model(0.0, 0.0),
+            end: model(100.0, 200.0),
+        },
+        Shape::Circle {
+            center: model(10.0, 20.0),
+            radius: length(30.0),
+        },
+        Shape::Curve(Edge::Arc {
+            center: model(-10.0, 5.0),
+            radius: length(40.0),
+            start: 0.0,
+            end: 90.0,
+            counterclockwise: true,
+        }),
+    ];
+    let add = |style: Style, shape: &Shape<ModelPoint>| Edit::Add {
+        place: "space/0".to_owned(),
+        element: Box::new(Placed::Model(Element {
+            source: Default::default(),
+            layer: LayerId(2),
+            style,
+            shape: shape.clone(),
+        })),
+    };
+    let mut file = read(&src);
+    let (result, diagnostics) = apply(
+        &mut file,
+        shapes.iter().map(|shape| add(style, shape)).collect(),
+        Some(Hash::document(&src)),
+    );
+    assert!(result.is_ok(), "{result:?} {diagnostics:?}");
+    let out = write(&file);
+    // 前からある要素のバイトと ID は変わらない
+    let before = read(&src);
+    let after = read(&out);
+    for (old, new) in before.records()[1..6].iter().zip(&after.records()[1..6]) {
+        assert_eq!(&src[old.span()], &out[new.span()]);
+    }
+    let lifted = lift(&after);
+    for at in 0..5 {
+        assert_eq!(element(&lifted, at).0, element(&drawing, at).0);
+    }
+    let added = &lifted.spaces[0].elements[5..8];
+    assert_eq!(added.len(), 3);
+    for (element, shape) in added.iter().zip(&shapes) {
+        assert_eq!(element.layer, LayerId(2));
+        assert_eq!(element.style.line_type, Inherit::Own(LineTypeId(2)));
+        let Inherit::Own(color) = element.style.color else {
+            panic!("{:?}", element.style.color);
+        };
+        assert_eq!(color.rgb, Some([0xFF, 0, 0]));
+        // ペン 2 の印刷の幅（1/100 mm で 25）
+        assert_eq!(
+            element.style.line_weight,
+            Some(Inherit::Own(LineWeight::Width(PaperLength(0.25))))
+        );
+        assert_eq!(
+            std::mem::discriminant(&element.shape),
+            std::mem::discriminant(shape)
+        );
+    }
+
+    // 色か線種を書かないか、ブロックに従う色・線種・線幅なら断り、ファイルを変えない（決定 0290・0292）
+    for (style, field) in [
+        (
+            Style {
+                color: Inherit::Layer,
+                ..style
+            },
+            "color",
+        ),
+        (
+            Style {
+                line_type: Inherit::Layer,
+                ..style
+            },
+            "line_type",
+        ),
+        (
+            Style {
+                color: Inherit::Block,
+                ..style
+            },
+            "color",
+        ),
+        (
+            Style {
+                line_type: Inherit::Block,
+                ..style
+            },
+            "line_type",
+        ),
+        (
+            Style {
+                line_weight: Some(Inherit::Block),
+                ..style
+            },
+            "line_weight",
+        ),
+    ] {
+        let mut file = read(&src);
+        let mut budget = Budget::default();
+        let mut diag = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let changes = Changes {
+            edits: vec![add(style, &shapes[0])],
+            document: None,
+        };
+        let result = file.apply(&changes, &mut Cx::new(&mut budget, &mut diag, &cancel));
+        assert!(result.is_err(), "{field}");
+        let found: Vec<_> = diag
+            .iter()
+            .filter(|d| d.code() == codes::CHANGE_STYLE_UNSUPPORTED)
+            .collect();
+        assert_eq!(
+            found.len(),
+            1,
+            "{field} {:?}",
+            diag.iter().collect::<Vec<_>>()
+        );
+        assert_eq!(
+            found[0].param("field"),
+            Some(&zumen_base::Value::Text(field.to_owned()))
+        );
+        assert_eq!(write(&file), src);
+    }
+
+    // 色を書かない点の追加も、同じ診断で断る（前は change.edit.unsupported だった）
+    let point = Shape::Point(zumen_drawing::Point {
+        position: model(1.0, 2.0),
+        rotation: 0.0,
+        look: zumen_drawing::PointLook::Document,
+        construction: false,
+    });
+    let point_style = Style {
+        color: Inherit::Layer,
+        line_type: Inherit::Layer,
+        line_weight: None,
+        ..style
+    };
+    let mut file = read(&src);
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let changes = Changes {
+        edits: vec![add(point_style, &point)],
+        document: None,
+    };
+    assert!(
+        file.apply(&changes, &mut Cx::new(&mut budget, &mut diag, &cancel))
+            .is_err()
+    );
+    let codes: Vec<_> = diag
+        .iter()
+        .map(|d| (d.code(), d.param("field").cloned()))
+        .collect();
+    assert_eq!(
+        codes,
+        [(
+            codes::CHANGE_STYLE_UNSUPPORTED,
+            Some(zumen_base::Value::Text("color".to_owned()))
+        )]
+    );
 }

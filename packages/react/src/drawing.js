@@ -41,11 +41,13 @@ export function useDrawing(file, { loadModule, from = null, catalog = null }) {
         const bytes = await readInput(file, signal);
         if (signal.aborted) return;
         client = connectWorker();
-        const { blob, result, document, drawing, diagnostics } = await client.request({ op: "open", module, bytes, from, catalog }, [bytes]);
+        const { blob, result, document, drawing, canEstimate, diagnostics } = await client.request({ op: "open", module, bytes, from, catalog }, [bytes]);
         if (signal.aborted) return;
         const input = { scene: readScene(blob), result, document };
         const getSource = (element) => client.request({ op: "source", element });
-        setSnapshot({ request, value: { status: "ready", input, drawing, diagnostics, getSource } });
+        const estimate = (options = {}) => client.request({ op: "convert_estimate", limit: options.limit });
+        const convert = (preview) => client.request({ op: "convert", estimate: preview?.result.estimate });
+        setSnapshot({ request, value: { status: "ready", input, drawing, canEstimate, diagnostics, getSource, estimate, convert } });
       } catch (error) {
         client?.dispose();
         if (!signal.aborted) {

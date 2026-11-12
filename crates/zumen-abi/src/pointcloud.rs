@@ -1,4 +1,4 @@
-//! 点群（LAS・LAZ・PLY・XYZ・E57）の `open` と `pointcloud` の op（決定 0232）。
+//! 点群（LAS・PLY・XYZ・E57）の `open` と `pointcloud` の op（決定 0232）。LAZ は、LAS の読み取りが断る（決定 0289）。
 //!
 //! 入力は範囲で読む。`open` の入力を全体の初めの部分とし、`<入力の名前>#<start>-<end>` の名前で渡された入力を
 //! 範囲の表に足す。足りない範囲は `needs` で返す。
@@ -32,7 +32,7 @@ fn range_name(input: &str, range: ByteRange) -> String {
     format!("{input}#{}-{}", range.start, range.end)
 }
 
-/// LAS・LAZ なら、範囲の表から読み、点群の領域モデルに移す。ほかの形式なら `None`
+/// LAS なら、範囲の表から読み、点群の領域モデルに移す。LAZ は、読み取りが断る。ほかの形式なら `None`
 pub(crate) fn read(
     input: &str,
     inputs: &BTreeMap<String, Vec<u8>>,

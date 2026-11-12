@@ -1,11 +1,10 @@
 //! 日本測地系と JGD2000 の座標を、合成の TKY2JGD・PatchJGD の格子で JGD2011 に直す（決定 0233、#471）。
 
-use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Kind, Limit, Limits, codes};
+use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Error, Kind, Limit, Limits, codes};
 use zumen_crs::{
     Crs, Ellipsoid, GeoPoint, MapPoint, ShiftGrid, Shifts, Zone, to_geographic_on, to_jgd2011,
     to_plane, to_plane_on,
 };
-use zumen_sdk::Error;
 
 #[cfg(test)]
 fn with_cx<T>(f: impl FnOnce(&mut Cx<'_>) -> T) -> (T, Vec<Code>) {
@@ -613,9 +612,24 @@ fn shifts_beyond_mesh_codes_do_not_panic() {
         tky2jgd: Some(&huge),
         patch: &[&patch],
     };
-    // 直せなかったことの診断は、まだ返らない（#679）
-    let (found, _) = with_cx(|cx| to_jgd2011(Crs::Tokyo(zone), POINT, &shifts, cx));
+    // 補正量で直した経緯度を平面直角座標に換算できないので、直せなかったことを診断する（#679）
+    let (found, diag) = with_cx(|cx| to_jgd2011(Crs::Tokyo(zone), POINT, &shifts, cx));
     assert_eq!(found, None);
+    assert_eq!(diag, [codes::CRS_PROJECTION_UNSUPPORTED]);
+    // 平面直角座標を経緯度に換算できない点も、日本測地系と JGD2000 のどちらでも診断する
+    let infinite = MapPoint {
+        northing: f64::INFINITY,
+        easting: 0.0,
+    };
+    for crs in [Crs::Tokyo(zone), Crs::Jgd2000(zone)] {
+        let (found, diag) = with_cx(|cx| to_jgd2011(crs, infinite, &shifts, cx));
+        assert_eq!(found, None);
+        assert_eq!(diag, [codes::CRS_PROJECTION_UNSUPPORTED], "{crs:?}");
+    }
+    // JGD2011 の経緯度は、どの系にするかが決まらないので直さず、診断する
+    let (found, diag) = with_cx(|cx| to_jgd2011(Crs::Geographic, POINT, &shifts, cx));
+    assert_eq!(found, None);
+    assert_eq!(diag, [codes::CRS_PROJECTION_UNSUPPORTED]);
     for (latitude, longitude) in [(1e300, 139.0), (35.0, 1e300), (35.0, 180.0), (66.7, 139.0)] {
         assert_eq!(
             patch.correction(GeoPoint {
