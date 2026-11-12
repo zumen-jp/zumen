@@ -175,7 +175,7 @@ hayro-syntax 0.9.0 は相互参照の表を作り直す際、文字列やコメ�
 
 - OCG（optional content group、8.11 節）を、カタログの `OCProperties` の `OCGs` の順にレイヤにする。名前は `Name` の文字列とする。OCG の外の内容は、レイヤ `0` に置く。
 - 既定の設定（`D`）の `BaseState`・`ON`・`OFF` で隠れるグループは、見えない・印刷しないレイヤにする。hayro は隠れたグループの内容を塗らないので、`pdf.optional-content.dropped` をグループの名前とともに返す（#520）。`Locked` のグループは、編集できないレイヤにする。印刷の可否は、表示と同じとみなす（推定。`Usage` の辞書は読まない）。
-- OCMD（optional content membership dictionary、8.11.2.2 節）で見えるかは、hayro と同じく `OCGs` と `P` で決める。`VE`（可視性式）は評価せず、持つ辞書では `pdf.visibility-expression.approximated` を返す。見える内容は、最初の OCG のレイヤに置き、`pdf.optional-content.approximated` を返す。隠れる内容は、hayro が塗らないので移さず、`pdf.membership.dropped` を返す。
+- OCMD（optional content membership dictionary、8.11.2.2 節）で見えるかは、`VE`（可視性式）があれば既定の OCG 状態に対して `And`・`Or`・`Not` を再帰評価して決め、`VE` がなければ `OCGs` と `P` で決める。未知の演算子や評価できない要素、入れ子の上限を超える `VE` は `pdf.visibility-expression.unsupported` を返し、`OCGs` と `P` の判定にフォールバックする。見える内容は、式や `OCGs` が指す最初の登録済み OCG のレイヤに置き、単一 OCG と等価でない場合は `pdf.optional-content.approximated` を返す。隠れる内容は、ページ本体でも注釈でも描かず、`pdf.membership.dropped` を返す。
 - 画像の XObject（`/OC`、8.11.3.3 節）は、ページ本体と注釈の各描画期で、見えるすべての呼び出しが、同じ登録済みの単一 OCG に属すると確認できれば、そのレイヤに置く。画像自身の指定と、外側のマーク付きの内容・フォームの指定を合わせて確かめる。同じ OCG の重なりは単一のまま扱い、フォームの内側の画像も対象にする。画像の境界・数・順序・出所・ID は保ち、レイヤと要素のハッシュは保持した値に応じて変わる。ページ本体と注釈では表を分け、注釈を加えたことでページ本体のレイヤを変えない。
 - 異なる OCG の重なり、OCMD、未登録や解けない指定、同じ画像の異なる表示条件での共用は、単一レイヤで保持できたと扱わない。その画像のレイヤは従来のマーク付きの内容から決め、XObject の指定を保てない診断 `pdf.optional-content.approximated` を残す。原本のストリームを特定できない直接の画像も、この確認の対象にしない。既定で隠れる内容は、引き続き hayro が描かない。
 - フォームの呼び出しのキャッシュには表示条件も含める。同じフォームを別の条件で呼ぶ場合を同じ結果として再利用しない。画像の表示条件の表と診断の記録は、確保する前に作業量と展開量を予算へ数える。後処理で予算が尽きたときも、走査で見つけた診断は返す。装置は走査で確定した表を使い、OC 辞書を読み直さない。
