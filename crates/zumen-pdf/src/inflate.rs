@@ -52,6 +52,9 @@ pub(crate) fn before(
     }) {
         return Ok(false);
     }
+    // 画像のときは decoded_data が F・raw_data に進まない。それ以外は、単独圧縮や
+    // 未対応の段でも decoded_image が F を Object として読むので先に予約する。
+    let external = source.external(stream.dict(), cx)?;
     // hayro-syntax の `Stream::decoded_image` と同じく、先頭の Crypt はフィルターとして適用しない
     let effective = match stages.as_slice() {
         [
@@ -80,6 +83,9 @@ pub(crate) fn before(
             ]
         )
     {
+        if external {
+            return Ok(false);
+        }
         return chain::before(stream, effective, source, cx);
     }
     let (ascii, stage) = match effective {
@@ -97,12 +103,19 @@ pub(crate) fn before(
         [first, next] if first.filter == Filter::Ascii85Decode => {
             (Some(ascii::Encoding::Base85), *next)
         }
-        _ => return Ok(false),
+        _ => {
+            if !external {
+                source.reserve_raw(stream, 1, cx)?;
+            }
+            return Ok(false);
+        }
     };
     match ascii {
+        Some(_) if external => Ok(false),
         Some(encoding) => sequence(stream, encoding, stage, source, cx),
         None => {
-            // 単独の段は、これまでどおり `F` を見分けずに数える。
+            // 外部 F の単独圧縮も、従来どおり確認を 1 回行う。通常は本来の展開も合わせて 2 回。
+            source.reserve_raw(stream, 1 + u64::from(!external), cx)?;
             compressed(&stream.raw_data(), stage, cx)?;
             Ok(true)
         }
@@ -116,12 +129,7 @@ fn sequence(
     source: Source<'_>,
     cx: &mut Cx<'_>,
 ) -> Result<bool, Stop> {
-    // F は短縮した Filter のほかに外部ファイルを指す（7.3.8.2）。後者では filters() が
-    // Filter の配列を返しても、hayro-syntax の decoded_image は適用前に失敗する。
-    if source.external(stream.dict(), cx)? {
-        return Ok(false);
-    }
-    source.reserve_decryption(stream, cx)?;
+    source.reserve_raw(stream, 2, cx)?;
     // 中間の量を先に数え、予算内でだけ保持する。失敗までの確保は戻さず、後段へは進まない。
     let Some(data) = ascii::decode(&stream.raw_data(), ascii, cx)? else {
         return Ok(true);

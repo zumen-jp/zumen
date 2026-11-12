@@ -22,10 +22,7 @@ pub(super) fn before(
     source: Source<'_>,
     cx: &mut Cx<'_>,
 ) -> Result<bool, Stop> {
-    if source.external(stream.dict(), cx)? {
-        return Ok(false);
-    }
-    source.reserve_decryption(stream, cx)?;
+    source.reserve_raw(stream, 2, cx)?;
     let mut data = stream.raw_data();
     for (index, &stage) in stages.iter().enumerate() {
         cx.check(Kind::Work, 1)?;
