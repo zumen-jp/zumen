@@ -18,6 +18,7 @@ exceeded = "予算の上限を超えた"
 cancelled = "中断の合図で止めた"
 caught = "API で捕まえた"
 missing = "名指ししたものがない"
+failed = "入力・設定・状態から、操作を完了できなかった"
 exists = "名指しした名前が、もう使われている"
 stale = "読んだときと今とで、名指ししたものが違う"
 mixed = "基準・成果の違う値を一緒に使った"
@@ -1149,6 +1150,14 @@ group-by = ["type"]
 since = "0.2.0"
 status = "active"
 
+[codes."ifc.unit.invalid"]
+description = "SI 単位の定義か次元を確認できないので、単位を採用しなかった"
+severity = "warning"
+params = { reason = "key" }
+group-by = ["reason"]
+since = "0.3.0"
+status = "active"
+
 [codes."ifc.attribute.invalid"]
 description = "意味を持つ位置の値が、期待した型でないので読まなかった"
 severity = "warning"
@@ -1837,12 +1846,72 @@ fidelity = "dropped"
 since = "0.2.0"
 status = "active"
 
+[codes."pdf.annotation.drawn"]
+description = "注釈の通常外観だけを図形へ移し、内容・返信・操作などの情報を移さなかった。kind は注釈の種類（Subtype）"
+severity = "warning"
+fidelity = "drawn"
+params = { kind = "text" }
+group-by = ["kind"]
+since = "0.2.0"
+status = "active"
+
 [codes."pdf.annotation.unsupported"]
 description = "注釈を、図面モデルに移さなかった。kind は注釈の種類（Subtype）"
 severity = "warning"
 fidelity = "dropped"
 params = { kind = "text" }
 group-by = ["kind"]
+since = "0.2.0"
+status = "active"
+
+[codes."drawing.calibration.invalid"]
+description = "用紙上の校正領域を、契約・値・付く先が不正か ID が重複していたため使わなかった。id は校正の ID、reason は理由"
+severity = "warning"
+fidelity = "dropped"
+params = { id = "text", reason = "text" }
+group-by = ["id", "reason"]
+since = "0.2.0"
+status = "active"
+
+[codes."drawing.measurement.failed"]
+description = "選んだ校正で用紙上の距離を測れなかった。id は校正の ID、reason は領域・用紙・座標・計算を使えない理由"
+severity = "error"
+params = { id = "text", reason = "text" }
+group-by = ["id", "reason"]
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.date.approximated"]
+description = "文書の情報の辞書の日付（CreationDate・ModDate）で省略された要素を既定値で補うか、時差のない日時を +00:00 として ISO 8601 の日時にした。原値と時差の有無は形式固有情報に残す。field は項目名（created・modified）"
+severity = "warning"
+fidelity = "approximated"
+params = { field = "text" }
+group-by = ["field"]
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.date.invalid"]
+description = "文書の情報の辞書の日付（CreationDate・ModDate）を PDF の日付として読めなかったので、ISO 8601 の日時にしなかった。原値は形式固有情報に残す。field は項目名（created・modified）"
+severity = "warning"
+fidelity = "dropped"
+params = { field = "text" }
+group-by = ["field"]
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.measure.invalid"]
+description = "ビューポートの計測辞書の値を解釈できなかった。field は値の経路、reason は理由。読めた原値は形式固有情報に残す"
+severity = "warning"
+fidelity = "dropped"
+params = { field = "text", reason = "text" }
+group-by = ["field", "reason"]
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.measure-distance.equivalent"]
+description = "矩形計測の距離校正を、既存の紙上の図形を動かさず、用紙上の校正領域として保持した。絶対座標の原点や数値表示書式の復元は含まない"
+severity = "info"
+fidelity = "equivalent"
 since = "0.2.0"
 status = "active"
 
@@ -1976,7 +2045,7 @@ since = "0.2.0"
 status = "active"
 
 [codes."pdf.fill-rule.approximated"]
-description = "非ゼロ回転数の規則で塗った、輪が 2 つ以上の形を、輪の中の輪を交互に埋めるハッチングにした"
+description = "非ゼロ回転数の規則で塗った形を、同じ塗りになると確認できないまま、輪の中の輪を交互に埋めるハッチングにした"
 severity = "warning"
 fidelity = "approximated"
 since = "0.2.0"

@@ -22,6 +22,9 @@
 //! フォントで描かない文字列、縦書きの原点の移動が既定と違うフォント、OCMD で隠れる内容、
 //! 転送関数。
 
+mod appearance;
+mod optional;
+
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
@@ -41,6 +44,7 @@ use hayro_syntax::xref::XRef;
 use skrifa::raw::TableProvider;
 use skrifa::{Font as FontProgram, OutlineSource};
 use zumen_base::{Code, Diagnostic, Diagnostics, Kind, Ref, Stop, codes};
+use zumen_drawing::LayerId;
 use zumen_sdk::Cx;
 
 use crate::inflate;
@@ -215,6 +219,8 @@ pub(crate) struct Survey {
     /// 関数、行の頂点の数が 0 の格子のメッシュ）の場所。直接書いたオブジェクトは、それを含む間接オブジェクトの場所
     /// （hayro-syntax の `obj_id`）。色空間の入れ子は、ページの内容のストリーム
     pub(crate) refused: Option<Ref>,
+    /// すべての可視の配置で同じ単一 OCG に従う画像。画像の stream の番号 → OCG の番号。
+    pub(crate) image_layers: BTreeMap<(u32, i32), (u32, i32)>,
 }
 
 /// hayro-interpret がする作業の量。同じ呼ばれ方のフォームの手間を、まとめて数えるために覚える
@@ -374,6 +380,8 @@ struct Call {
     depth: u32,
     /// 呼ぶ所のグラフィックス状態
     state: Graphics,
+    /// フォーム自身の OC も含む表示条件。別の外側の条件で画像を使う場合は、あらためて観測する。
+    optional: optional::Context,
 }
 
 /// 名前で引く色空間（8.6.3）。hayro-interpret は、文書の中で 1 度だけ作る
@@ -401,6 +409,7 @@ enum Role {
 struct Known {
     cost: Cost,
     diagnostics: Rc<[Diagnostic]>,
+    optional: Rc<[optional::Event]>,
 }
 
 fn key(id: impl Into<ObjectIdentifier>) -> (u32, i32) {
@@ -927,6 +936,8 @@ pub(crate) struct Reads<'x> {
     file_targets: Option<&'x FileTargets<'x>>,
     /// ファイルを読み通す手間
     file: u64,
+    /// 注釈の新しい入口では、予算を測るためだけに任意の scalar を展開しない。
+    scalar_free: bool,
 }
 
 impl<'x> Reads<'x> {
@@ -937,6 +948,7 @@ impl<'x> Reads<'x> {
             source: streams,
             file: lookup_work(source),
             file_targets: None,
+            scalar_free: false,
         }
     }
 
@@ -978,6 +990,20 @@ impl<'x> Reads<'x> {
     /// ファイルを読み通す手間とする。ほかの読めない定義（読み飛ばせて読めない数。`5-3.2`）は、読んだバイト数を知れない
     /// ので、0 とする（pdf.md の「予算の外」）
     pub(crate) fn read(self, id: ObjectIdentifier) -> (u64, Option<Object<'x>>) {
+        if self.scalar_free {
+            // 辞書と配列だけで、後続の参照と読量を調べられる。文字列の復号・展開はしない。
+            if let Some(dict) = self.xref.get::<Dict<'x>>(id) {
+                return if let Some(stream) = self.xref.get::<Stream<'x>>(id) {
+                    (self.stream_work(&stream), Some(Object::Stream(stream)))
+                } else {
+                    (lookup_work(dict.data()), Some(Object::Dict(dict)))
+                };
+            }
+            if let Some(array) = self.xref.get::<Array<'x>>(id) {
+                return (lookup_work(array.data()), Some(Object::Array(array)));
+            }
+            return (self.source.metadata_bound().div_ceil(LOOKUP_BYTES), None);
+        }
         if let Some(target) = self.file_targets.and_then(|cache| cache.0.get(&key(id))) {
             return target.clone();
         }
@@ -1058,6 +1084,22 @@ impl<'x> Reads<'x> {
                 add_targets(&mut first, written_references(data), 1);
                 continue;
             }
+            if self.scalar_free {
+                if name.as_ref() == b"Resources" {
+                    work = work.saturating_add(self.safe_resources_work(dict));
+                } else {
+                    match dict.get_raw::<appearance::Raw<'_>>(name.as_ref()) {
+                        Some(MaybeRef::Ref(id)) => {
+                            add_targets(&mut first, core::iter::once(id.into()), 1);
+                        }
+                        Some(MaybeRef::NotRef(raw)) => {
+                            add_targets(&mut first, written_references(raw.0), 1);
+                        }
+                        None => {}
+                    }
+                }
+                continue;
+            }
             let Some(value) = dict.get_raw::<Object<'_>>(name.as_ref()) else {
                 continue;
             };
@@ -1072,6 +1114,16 @@ impl<'x> Reads<'x> {
             }
         }
         work.saturating_add(self.targets(first))
+    }
+
+    /// 資源の種類の辞書も型を絞って読む。任意の値を Object にしない。
+    fn safe_resources_work(self, dict: &Dict<'_>) -> u64 {
+        let Some(resources) = dict.get::<Dict<'_>>(b"Resources") else {
+            return dict
+                .get_ref(b"Resources")
+                .map_or(0, |id| self.read(id.into()).0);
+        };
+        lookup_work(resources.data()).saturating_add(self.resources_targets(&resources))
     }
 
     /// 資源の辞書（`Resources` の値）を読む手間。hayro-syntax は、ストリームのオブジェクトも、辞書として読む
@@ -1114,6 +1166,13 @@ impl<'x> Reads<'x> {
     /// キーの値を読む手間。[`Reads::value_work`] と違い、直接書いた値も数える。hayro-syntax は、ストリームとして引くと、
     /// 直接書いた辞書を読んでから、ストリームでないと分かる
     pub(crate) fn entry_work(self, dict: &Dict<'_>, name: &[u8]) -> u64 {
+        if self.scalar_free {
+            return match dict.get_raw::<appearance::Raw<'_>>(name) {
+                Some(MaybeRef::Ref(id)) => self.read(id.into()).0,
+                Some(MaybeRef::NotRef(raw)) => lookup_work(raw.0),
+                None => 0,
+            };
+        }
         dict.get_raw::<Object<'_>>(name)
             .map_or(0, |value| self.item_work(&value))
     }
@@ -1175,6 +1234,16 @@ impl<'x> Reads<'x> {
             return 0;
         };
         let id = id.into();
+        if self.scalar_free {
+            return if self.xref.get::<u32>(id).is_some() {
+                0
+            } else {
+                self.source
+                    .metadata_bound()
+                    .div_ceil(LOOKUP_BYTES)
+                    .saturating_mul(2)
+            };
+        }
         let read = match self.xref.get::<Dict<'_>>(id) {
             Some(target) => lookup_work(target.data()),
             None => self
@@ -1388,6 +1457,8 @@ pub(crate) struct Walker<'a, 'o> {
     objects: &'o BTreeMap<(u32, i32), Ref>,
     /// 既定の設定で隠れる OCG（hayro-interpret の `OcgState` と同じ決め方）
     inactive: &'o BTreeSet<(u32, i32)>,
+    /// カタログに登録された OCG。表示条件を単一レイヤとして保持できるかを確かめる。
+    ocgs: &'o BTreeMap<(u32, i32), LayerId>,
     settings: &'o InterpreterSettings,
     /// hayro-interpret と同じ読み方でフォントを読む。読めるかを見て、切り抜きにする文字の輪郭を作る
     fonts: FontCache<'a>,
@@ -1449,11 +1520,16 @@ pub(crate) struct Walker<'a, 'o> {
     /// マーク付きの内容の入れ子の、見えるか。hayro-interpret の `OcgState` の重なりと同じく、ページの中で 1 つだけ持ち、
     /// フォームの中と外で分けない
     visible: Vec<bool>,
+    /// 表示の重なりと同じ段数の、単一レイヤとして保持できる条件と画像の使われ方。
+    optional_content: optional::Content,
     /// 入れ子を閉じる前の重なりの数のうち、いちばん小さいもの。たどっている内容のストリームが、始めた所より外の
     /// 入れ子を閉じたかを見る（[`Walker::content`]）
     closed: usize,
     /// ページで 1 度だけ返す診断
     reported: BTreeSet<(&'static str, String)>,
+    /// ページから独立した注釈の外観を、安全に解釈できるかを厳しく確かめる。
+    appearance: bool,
+    appearance_valid: bool,
     transfer: bool,
 }
 
@@ -1462,6 +1538,7 @@ impl<'a, 'o> Walker<'a, 'o> {
         reads: Reads<'a>,
         objects: &'o BTreeMap<(u32, i32), Ref>,
         inactive: &'o BTreeSet<(u32, i32)>,
+        ocgs: &'o BTreeMap<(u32, i32), LayerId>,
         settings: &'o InterpreterSettings,
     ) -> Self {
         Self {
@@ -1469,6 +1546,7 @@ impl<'a, 'o> Walker<'a, 'o> {
             reads,
             objects,
             inactive,
+            ocgs,
             settings,
             fonts: FontCache::new(),
             faces: Vec::new(),
@@ -1496,8 +1574,11 @@ impl<'a, 'o> Walker<'a, 'o> {
             forms: BTreeMap::new(),
             sizes: BTreeMap::new(),
             visible: Vec::new(),
+            optional_content: optional::Content::default(),
             closed: usize::MAX,
             reported: BTreeSet::new(),
+            appearance: false,
+            appearance_valid: true,
             transfer: false,
         }
     }
@@ -1513,19 +1594,45 @@ impl<'a, 'o> Walker<'a, 'o> {
     ) -> Result<Survey, Stop> {
         let mut found = Diagnostics::with_max_places(cx.diag.max_places());
         let surveyed = self.survey(page, place, &mut Cx::new(cx.budget, &mut found, cx.cancel));
-        if surveyed.is_err() || self.refused.is_none() {
+        if let Err(stop) = surveyed {
             for diagnostic in found.into_vec() {
                 cx.report(diagnostic);
             }
+            return Err(stop);
         }
-        surveyed?;
+        let image_layers = if self.refused.is_none() {
+            let finished = self.optional_content.layers(cx).and_then(|image_layers| {
+                let diagnostics =
+                    self.optional_content
+                        .diagnostics(&mut found, &image_layers, cx)?;
+                Ok((image_layers, diagnostics))
+            });
+            let (image_layers, diagnostics) = match finished {
+                Ok(finished) => finished,
+                Err(stop) => {
+                    // 後処理で止まっても、走査で見つけた診断は、途中停止と同じように返す。
+                    for diagnostic in found.into_vec() {
+                        cx.report(diagnostic);
+                    }
+                    return Err(stop);
+                }
+            };
+            for diagnostic in diagnostics {
+                cx.report(diagnostic);
+            }
+            image_layers
+        } else {
+            BTreeMap::new()
+        };
         Ok(Survey {
             transfer: self.transfer,
             refused: self.refused.take(),
+            image_layers,
         })
     }
 
-    fn survey(&mut self, page: &Page<'a>, place: &Ref, cx: &mut Cx<'_>) -> Result<(), Stop> {
+    fn reset(&mut self, place: &Ref) {
+        self.reads.scalar_free = false;
         self.place = place.clone();
         self.calls.clear();
         self.costs.clear();
@@ -1538,9 +1645,16 @@ impl<'a, 'o> Walker<'a, 'o> {
         self.forms.clear();
         self.sizes.clear();
         self.visible.clear();
+        self.optional_content.clear();
         self.closed = usize::MAX;
         self.reported.clear();
+        self.appearance = false;
+        self.appearance_valid = true;
         self.transfer = false;
+    }
+
+    fn survey(&mut self, page: &Page<'a>, place: &Ref, cx: &mut Cx<'_>) -> Result<(), Stop> {
+        self.reset(place);
 
         let raw = page.raw();
         // 内容のストリームを確かめる（7.7.3.3）。hayro-syntax と同じく、単独のストリームを先に見る。
@@ -1683,6 +1797,7 @@ impl<'a, 'o> Walker<'a, 'o> {
     fn end_marked(&mut self) {
         self.closed = self.closed.min(self.visible.len());
         self.visible.pop();
+        self.optional_content.pop();
     }
 
     /// ページを解釈しないことにする（[`Survey::refused`]）。場所は、最初に見つけた理由のオブジェクト
@@ -1709,6 +1824,7 @@ impl<'a, 'o> Walker<'a, 'o> {
         let mut cost = Cost::default();
         // q・Q で保存する、グラフィックス状態の一部
         let mut states = vec![state];
+        let mut balanced_states = true;
         let start = self.visible.len();
         let outer = std::mem::replace(&mut self.closed, usize::MAX);
         let mut ended = false;
@@ -1718,7 +1834,8 @@ impl<'a, 'o> Walker<'a, 'o> {
         let mut ops = TypedIter::new(data);
         while let Some(op) = ops.next() {
             // ページを解釈しないと決めたら、たどるのをやめる
-            if is_end(&op) || self.refused.is_some() {
+            if is_end(&op) || self.refused.is_some() || (self.appearance && !self.appearance_valid)
+            {
                 ended = true;
                 break;
             }
@@ -1728,11 +1845,17 @@ impl<'a, 'o> Walker<'a, 'o> {
                 TypedInstruction::SaveState(_) => {
                     let (work, bytes) = copy(current);
                     spend(&mut cost, work, bytes, cx)?;
+                    if self.appearance {
+                        // 走査の状態列と、解釈器の状態・切り抜きの stack の固定分。伸長中の新旧の列も含む。
+                        spend(&mut cost, 1, 512, cx)?;
+                    }
                     states.push(current);
                 }
                 TypedInstruction::RestoreState(_) => {
                     if states.len() > 1 {
                         states.pop();
+                    } else {
+                        balanced_states = false;
                     }
                 }
                 TypedInstruction::DashPattern(dash) => {
@@ -1760,6 +1883,15 @@ impl<'a, 'o> Walker<'a, 'o> {
                     }
                 }
                 TypedInstruction::SetGraphicsState(name) => {
+                    cost.add(self.ap_scalar_value(
+                        &resources.ext_g_states,
+                        name.0.as_ref(),
+                        TARGET_DEPTH,
+                        cx,
+                    )?);
+                    if !self.appearance_valid {
+                        break;
+                    }
                     spend(&mut cost, STATE_WORK, 0, cx)?;
                     if let Some(state) = resources.get_ext_g_state(name.0) {
                         let reference = resources.ext_g_states.get_ref(name.0.as_ref()).map(key);
@@ -1779,6 +1911,10 @@ impl<'a, 'o> Walker<'a, 'o> {
                     }
                 }
                 TypedInstruction::TextFont(selected) => {
+                    cost.add(self.ap_scalar_value(&resources.fonts, selected.0.as_ref(), 8, cx)?);
+                    if !self.appearance_valid {
+                        break;
+                    }
                     let selected = self.font(resources, selected.0, &mut cost, cx)?;
                     if let Some(last) = states.last_mut() {
                         last.font = selected;
@@ -1864,10 +2000,16 @@ impl<'a, 'o> Walker<'a, 'o> {
                     }
                 }
                 TypedInstruction::BeginMarkedContentWithProperties(marked) => {
-                    self.begin_marked(resources, marked.1, &mut cost, place, cx)?;
+                    self.begin_marked(marked.0, resources, marked.1, &mut cost, place, cx)?;
                 }
-                TypedInstruction::BeginMarkedContent(_) => {
+                TypedInstruction::BeginMarkedContent(marked) => {
                     let visible = self.is_visible();
+                    let context = if marked.0.as_ref() == b"OC" {
+                        optional::Context::Unknown
+                    } else {
+                        optional::Context::None
+                    };
+                    self.optional_content.push(context, cx)?;
                     self.visible.push(visible);
                 }
                 TypedInstruction::EndMarkedContent(_) => self.end_marked(),
@@ -1911,6 +2053,15 @@ impl<'a, 'o> Walker<'a, 'o> {
                     }
                 }
                 TypedInstruction::Shading(name) => {
+                    cost.add(self.ap_scalar_value(
+                        &resources.shadings,
+                        name.0.as_ref(),
+                        TARGET_DEPTH,
+                        cx,
+                    )?);
+                    if !self.appearance_valid {
+                        break;
+                    }
                     if let Some(shading) = resources.get_shading(name.0) {
                         let reference = resources.shadings.get_ref(name.0.as_ref()).map(key);
                         let extra = self.shading(&shading, reference, cx)?;
@@ -1962,6 +2113,12 @@ impl<'a, 'o> Walker<'a, 'o> {
             self.report(codes::PDF_CONTENT_INVALID, place.clone(), cx);
         }
         let balanced = self.closed > start && self.visible.len() == start;
+        if !balanced {
+            self.optional_content.distrust();
+        }
+        if self.appearance && (!ended || !balanced || !balanced_states || states.len() != 1) {
+            self.appearance_valid = false;
+        }
         self.closed = self.closed.min(outer);
         Ok((cost, balanced))
     }
@@ -2067,16 +2224,23 @@ impl<'a, 'o> Walker<'a, 'o> {
         name: &Name<'_>,
         cx: &mut Cx<'_>,
     ) -> Result<Cost, Stop> {
+        let guarded = self.ap_scalar_value(&resources.patterns, name.as_ref(), TARGET_DEPTH, cx)?;
+        if !self.appearance_valid {
+            return Ok(guarded);
+        }
         let Some(pattern) = resources.get_pattern(name) else {
-            return Ok(Cost {
+            let mut cost = Cost {
                 ops: self.reads.value_work(&resources.patterns, name.as_ref()),
                 bytes: 0,
-            });
+            };
+            cost.add(guarded);
+            return Ok(cost);
         };
         let mut cost = Cost {
             ops: self.reads.reread_work(&pattern),
             bytes: 0,
         };
+        cost.add(guarded);
         if let Object::Dict(pattern) = &pattern
             && let Some(shading) = pattern.get::<Object<'_>>(b"Shading")
         {
@@ -2148,15 +2312,22 @@ impl<'a, 'o> Walker<'a, 'o> {
         cx: &mut Cx<'_>,
     ) -> Result<Cost, Stop> {
         let dict = stream.dict();
+        let mut guarded = self.ap_scalar_value(dict, b"CS", TARGET_DEPTH, cx)?;
+        guarded.add(self.ap_scalar_value(dict, b"ColorSpace", TARGET_DEPTH, cx)?);
+        if !self.appearance_valid {
+            return Ok(guarded);
+        }
         let space = dict
             .get::<Object<'_>>(b"CS")
             .or_else(|| dict.get::<Object<'_>>(b"ColorSpace"));
         if let Some(Object::Name(name)) = &space {
-            return Ok(self.named_space(resources, owner, name, cx)?.0);
+            guarded.add(self.named_space(resources, owner, name, cx)?.0);
+            return Ok(guarded);
         }
         let id = self.own(stream);
         if let Some(cost) = id.and_then(|id| self.costs.get(&(Role::Image, id))) {
-            return Ok(*cost);
+            guarded.add(*cost);
+            return Ok(guarded);
         }
         let cost = match space {
             Some(space) => self.color_space(&space, 0, cx)?.0,
@@ -2165,7 +2336,8 @@ impl<'a, 'o> Walker<'a, 'o> {
         if let Some(id) = id {
             self.costs.insert((Role::Image, id), cost);
         }
-        Ok(cost)
+        guarded.add(cost);
+        Ok(guarded)
     }
 
     /// 内容の中の画像（8.9.7）の色空間を作る手間。配列は使うたびに作り、名前は資源で引く
@@ -2193,19 +2365,26 @@ impl<'a, 'o> Walker<'a, 'o> {
         name: &Name<'_>,
         cx: &mut Cx<'_>,
     ) -> Result<(Cost, u64), Stop> {
+        let guarded =
+            self.ap_scalar_value(&resources.color_spaces, name.as_ref(), TARGET_DEPTH, cx)?;
+        if !self.appearance_valid {
+            return Ok((guarded, 0));
+        }
         let Some(space) = resources.get_color_space(name) else {
-            let cost = Cost {
+            let mut cost = Cost {
                 ops: self
                     .reads
                     .value_work(&resources.color_spaces, name.as_ref()),
                 bytes: 0,
             };
+            cost.add(guarded);
             return Ok((cost, 0));
         };
-        let cost = Cost {
+        let mut cost = Cost {
             ops: self.reads.read_work(&space),
             bytes: 0,
         };
+        cost.add(guarded);
         let entry = match resources.color_spaces.get_ref(name.as_ref()) {
             Some(reference) => Some(Space::Object(key(reference))),
             None if owner != Owner::Direct => Some(Space::Entry(owner, name.as_ref().to_vec())),
@@ -2236,10 +2415,15 @@ impl<'a, 'o> Walker<'a, 'o> {
         cx: &mut Cx<'_>,
     ) -> Result<(Cost, u64), Stop> {
         cx.check(Kind::Work, 1)?;
+        let guarded = self.ap_scalar_object(function, TARGET_DEPTH, cx)?;
         let mut cost = Cost {
             ops: 1u64.saturating_add(self.reads.reread_work(function)),
             bytes: 0,
         };
+        cost.add(guarded);
+        if !self.appearance_valid {
+            return Ok((cost, 1));
+        }
         if depth > NESTED_DEPTH {
             let id = match function {
                 Object::Dict(dict) => dict.obj_id(),
@@ -2360,10 +2544,15 @@ impl<'a, 'o> Walker<'a, 'o> {
     ) -> Result<(Cost, Conversion), Stop> {
         cx.check(Kind::Work, 1)?;
         // hayro-interpret は、色空間を作るたびに配列を読み直す（入れ子の配列の中の参照の先も）
+        let guarded = self.ap_scalar_object(space, TARGET_DEPTH, cx)?;
         let mut cost = Cost {
             ops: 1u64.saturating_add(self.reads.reread_work(space)),
             bytes: 0,
         };
+        cost.add(guarded);
+        if !self.appearance_valid {
+            return Ok((cost, Conversion::default()));
+        }
         let mut conversion = Conversion::default();
         let Object::Array(items) = space else {
             return Ok((cost, conversion));
@@ -2789,6 +2978,10 @@ impl<'a, 'o> Walker<'a, 'o> {
         cost: &mut Cost,
         cx: &mut Cx<'_>,
     ) -> Result<Selected, Stop> {
+        cost.add(self.ap_scalar_object(&Object::Dict(dict.clone()), 8, cx)?);
+        if !self.appearance_valid {
+            return Ok(Selected::Fallback);
+        }
         spend(cost, lookup_work(dict.data()), 0, cx)?;
         // 走査は、選ぶたびに `BaseFont` を 1 度、`Subtype` を 2 度読む
         let names = self
@@ -2966,12 +3159,23 @@ impl<'a, 'o> Walker<'a, 'o> {
     /// OCG か OCMD として扱う
     fn begin_marked(
         &mut self,
+        tag: &[u8],
         resources: &Resources<'a>,
         properties: &Object<'_>,
         cost: &mut Cost,
         place: &Ref,
         cx: &mut Cx<'_>,
     ) -> Result<(), Stop> {
+        let guarded = match properties {
+            Object::Name(name) => {
+                self.ap_scalar_value(&resources.properties, name.as_ref(), TARGET_DEPTH, cx)?
+            }
+            other => self.ap_scalar_object(other, TARGET_DEPTH, cx)?,
+        };
+        cost.add(guarded);
+        if !self.appearance_valid {
+            return Ok(());
+        }
         spend(cost, MARKED_WORK, 0, cx)?;
         // hayro-interpret は、名前の性質の辞書を、タグによらず読み直す。別の型のオブジェクトも、読み飛ばして確かめる
         if let Some(name) = properties.clone().into_name() {
@@ -2996,6 +3200,11 @@ impl<'a, 'o> Walker<'a, 'o> {
             Some((dict, key(reference)))
         });
         let parent = self.is_visible();
+        let mut context = if tag == b"OC" {
+            optional::Context::Unknown
+        } else {
+            optional::Context::None
+        };
         let visible = match membership {
             Some((dict, reference)) => {
                 // hayro-interpret は、内容のマークのたびに OCG か OCMD を引き直す。OCMD なら、
@@ -3011,26 +3220,73 @@ impl<'a, 'o> Walker<'a, 'o> {
                     cx,
                 )?;
                 let (shown, ocmd) = self.membership(&dict, reference);
+                // 単一 OCG として保持できる種類の確認を、既存の読み直しとは別に予約する。
+                cx.check(
+                    Kind::Work,
+                    self.reads.value_work(&dict, b"Type").saturating_add(1),
+                )?;
+                context = if tag == b"OC" {
+                    self.group_context(&dict, Some(reference))
+                } else {
+                    optional::Context::Unknown
+                };
                 if parent && ocmd {
-                    self.membership_report(shown, place, cx);
+                    self.membership_report(shown, place, cx)?;
                 }
                 parent && shown
             }
             None => parent,
         };
+        self.optional_content.push(context, cx)?;
         self.visible.push(visible);
         Ok(())
     }
 
     /// OCMD の内容の診断。見える内容は最初の OCG のレイヤに置き、隠れる内容は
     /// hayro-interpret が描かない
-    fn membership_report(&mut self, shown: bool, place: &Ref, cx: &mut Cx<'_>) {
+    fn membership_report(&mut self, shown: bool, place: &Ref, cx: &mut Cx<'_>) -> Result<(), Stop> {
         let code = if shown {
             codes::PDF_OPTIONAL_CONTENT_APPROXIMATED
         } else {
             codes::PDF_MEMBERSHIP_DROPPED
         };
-        self.report(code, place.clone(), cx);
+        if shown {
+            self.optional_report(None, place, cx)?;
+        } else {
+            self.report(code, place.clone(), cx);
+        }
+        Ok(())
+    }
+
+    /// カタログで OCG として登録され、辞書の種類も OCG であるものだけを、単一の表示条件として扱う。
+    fn group_context(
+        &self,
+        properties: &Dict<'_>,
+        reference: Option<(u32, i32)>,
+    ) -> optional::Context {
+        match reference {
+            Some(reference)
+                if self.ocgs.contains_key(&reference)
+                    && properties.get::<Name<'_>>(b"Type").as_deref()
+                        == Some(b"OCG".as_slice()) =>
+            {
+                optional::Context::Single(reference)
+            }
+            _ => optional::Context::Unknown,
+        }
+    }
+
+    fn optional_report(
+        &mut self,
+        image: Option<(u32, i32)>,
+        place: &Ref,
+        cx: &mut Cx<'_>,
+    ) -> Result<(), Stop> {
+        let diagnostic =
+            Diagnostic::new(codes::PDF_OPTIONAL_CONTENT_APPROXIMATED).at(place.clone());
+        self.optional_content.record(image, &diagnostic, cx)?;
+        self.emit(diagnostic, cx);
+        Ok(())
     }
 
     /// OCG か OCMD で、内容が見えるか。2 つ目は、OCMD か（hayro-interpret の
@@ -3065,20 +3321,35 @@ impl<'a, 'o> Walker<'a, 'o> {
         }
     }
 
-    /// XObject の OCG（`OC`、8.11.3.3）で、XObject が見えるか。OCG がなければ `None`。見える内容は、
-    /// XObject の OCG のレイヤに分けない
-    fn optional(&mut self, dict: &Dict<'_>, place: &Ref, cx: &mut Cx<'_>) -> Option<bool> {
-        let properties = dict.get::<Dict<'_>>(b"OC")?;
+    /// XObject の OC（8.11.3.3）の可視性と、単一 OCG として保持できる条件。画像の近似警告は、ページ全体の
+    /// 使われ方を調べた後で、レイヤを保持できた場合だけ省く。OC 辞書がなければ `None`。
+    fn optional(
+        &mut self,
+        dict: &Dict<'_>,
+        image: Option<(u32, i32)>,
+        place: &Ref,
+        cx: &mut Cx<'_>,
+    ) -> Result<Option<(bool, optional::Context)>, Stop> {
+        let Some(properties) = dict.get::<Dict<'_>>(b"OC") else {
+            return Ok(None);
+        };
         let (shown, ocmd) = match dict.get_ref(b"OC") {
             Some(reference) => self.membership(&properties, key(reference)),
             None => (self.ocmd(&properties), true),
         };
+        cx.check(
+            Kind::Work,
+            self.reads
+                .value_work(&properties, b"Type")
+                .saturating_add(1),
+        )?;
+        let context = self.group_context(&properties, dict.get_ref(b"OC").map(key));
         if shown {
-            self.report(codes::PDF_OPTIONAL_CONTENT_APPROXIMATED, place.clone(), cx);
+            self.optional_report(image, place, cx)?;
         } else if ocmd {
             self.report(codes::PDF_MEMBERSHIP_DROPPED, place.clone(), cx);
         }
-        Some(shown)
+        Ok(Some((shown, context)))
     }
 
     /// XObject を描く（`Do`、8.8）。hayro-interpret は、描くたびに XObject を読み直す
@@ -3096,6 +3367,10 @@ impl<'a, 'o> Walker<'a, 'o> {
         let id = self.own(stream);
         let visible = self.is_visible();
         let mut cost = Cost::default();
+        cost.add(self.ap_scalar_value(dict, b"Subtype", TARGET_DEPTH, cx)?);
+        if !self.appearance_valid {
+            return Ok(cost);
+        }
         spend(&mut cost, self.reread_stream(stream), 0, cx)?;
         // hayro-interpret は、描くたびに OCG（`OC`、8.11.3.3）の辞書と、OCMD の `OCGs` を読み直す。
         // 走査も、見えるかを決めるために読む
@@ -3119,7 +3394,25 @@ impl<'a, 'o> Walker<'a, 'o> {
             Some(b"Image") => {
                 if visible {
                     if has_size(dict) {
-                        self.optional(dict, &place, cx);
+                        cost.add(self.ap_scalar_value(dict, b"OC", TARGET_DEPTH, cx)?);
+                        if !self.appearance_valid {
+                            return Ok(cost);
+                        }
+                        let own = self.optional(dict, id, &place, cx)?;
+                        let (shown, context) = own.unwrap_or_else(|| {
+                            (
+                                true,
+                                if dict.contains_key(b"OC") {
+                                    optional::Context::Unknown
+                                } else {
+                                    optional::Context::None
+                                },
+                            )
+                        });
+                        if shown && let Some(id) = id {
+                            let context = self.optional_content.current().and(context);
+                            self.optional_content.observe(id, context, cx)?;
+                        }
                     } else {
                         self.report(codes::PDF_CONTENT_INVALID, place, cx);
                     }
@@ -3182,6 +3475,9 @@ impl<'a, 'o> Walker<'a, 'o> {
             .data
             .filter(|_| dict.get::<[f32; 4]>(b"BBox").is_some())
         else {
+            if self.appearance {
+                self.appearance_valid = false;
+            }
             if visible {
                 self.report(codes::PDF_CONTENT_INVALID, place.clone(), cx);
             }
@@ -3189,23 +3485,47 @@ impl<'a, 'o> Walker<'a, 'o> {
         };
         // 壊れた Flate のフォームは、展開できた所までを描く
         if visible && lenient {
+            if self.appearance {
+                self.appearance_valid = false;
+            }
             self.report(codes::PDF_CONTENT_INVALID, place.clone(), cx);
         }
         if !visible {
             return Ok(cost);
         }
         if depth >= MAX_DEPTH {
+            if self.appearance {
+                self.appearance_valid = false;
+            }
             self.report(codes::PDF_NESTING_DROPPED, place.clone(), cx);
             return Ok(cost);
         }
+        if self.appearance {
+            // TypedIter が literal・名前・配列を展開する分。走査と解釈の写し、列の余りを確保前に含める。
+            // 呼出元の Cost にも残し、外側のフォームの cache hit でも内部の分を失わない。
+            let names = data.iter().filter(|byte| **byte == b'/').count() as u64;
+            // BDC とインライン画像の辞書表も、キー数の上限になる slash 数で、各 176 バイトの 2 回分以上を覆う。
+            let bytes = (data.len() as u64)
+                .saturating_mul(16)
+                .saturating_add(names.saturating_mul(512));
+            spend(&mut cost, bytes.div_ceil(16), bytes, cx)?;
+        }
         // hayro-interpret は、OCG を持つフォームの中身を、その OCG の入れ子の中で解釈する
-        let optional = self.optional(dict, place, cx);
-        if let Some(shown) = optional {
+        cost.add(self.ap_scalar_value(dict, b"OC", TARGET_DEPTH, cx)?);
+        if !self.appearance_valid {
+            return Ok(cost);
+        }
+        let optional = self.optional(dict, None, place, cx)?;
+        if let Some((shown, context)) = optional {
+            self.optional_content.push(context, cx)?;
             self.visible.push(shown);
             if !shown {
                 self.end_marked();
                 return Ok(cost);
             }
+        } else if dict.contains_key(b"OC") {
+            // 解釈器が解けない OC では frame を作らない。重なりの段数を変えず、画像の新しい指定だけを止める。
+            self.optional_content.distrust();
         }
         let owner = match (&own, id) {
             (None, _) => owner,
@@ -3218,6 +3538,7 @@ impl<'a, 'o> Walker<'a, 'o> {
                 owner,
                 depth: depth + 1,
                 state,
+                optional: self.optional_content.current(),
             }),
             _ => None,
         };
@@ -3227,7 +3548,9 @@ impl<'a, 'o> Walker<'a, 'o> {
             for diagnostic in known.diagnostics.iter() {
                 self.emit(diagnostic.clone(), cx);
             }
+            self.optional_content.replay(&known.optional, cx)?;
         } else {
+            self.optional_content.begin_recording(cx)?;
             self.recording.push(Diagnostics::new());
             let walked = self.content(
                 &data,
@@ -3239,7 +3562,14 @@ impl<'a, 'o> Walker<'a, 'o> {
                 cx,
             );
             let recorded = self.recording.pop().unwrap_or_default();
-            let (inner, balanced) = walked?;
+            let (inner, balanced) = match walked {
+                Ok(walked) => walked,
+                Err(stop) => {
+                    self.optional_content.abort_recording();
+                    return Err(stop);
+                }
+            };
+            let optional_events = self.optional_content.end_recording(cx)?;
             if let Some(outer) = self.recording.last_mut() {
                 for diagnostic in recorded.iter() {
                     outer.report(diagnostic.clone());
@@ -3248,9 +3578,11 @@ impl<'a, 'o> Walker<'a, 'o> {
             cost.add(inner);
             // マーク付きの内容の入れ子が釣り合わないフォームは、呼ぶ所の入れ子で中身の見え方が変わるので、覚えない
             if let Some(call) = call.filter(|_| balanced) {
+                optional::Content::cache(&optional_events, cx)?;
                 let known = Known {
                     cost: inner,
                     diagnostics: recorded.into_vec().into(),
+                    optional: optional_events.into(),
                 };
                 self.calls.insert(call, known);
             }

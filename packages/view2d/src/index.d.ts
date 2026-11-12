@@ -1,4 +1,4 @@
-import type { Extent, Scene, SceneCounts, SceneResult, Session, Source } from "@zumen-jp/zumen";
+import type { Budget, Extent, Response, Scene, SceneCounts, SceneResult, Session, Source } from "@zumen-jp/zumen";
 
 export interface Point { readonly x: number; readonly y: number }
 /** 起点の座標の中心、CSS px / 起点の長さ、反時計回りのラジアン。 */
@@ -69,6 +69,19 @@ export interface ElementRef {
 export interface ElementSource extends ElementRef { readonly source: Source | null }
 /** 表示した版を確かめ、配置の道筋を保って entities の出所へたどる。 */
 export declare function findSource(session: Session, document: DocumentIdentity, element: ElementRef, maxPages?: number): ElementSource | null;
+export interface MeasureDistanceOptions { readonly budget?: Budget; readonly max_places?: number }
+/** コアの距離計測の応答。新しい生成型がない公開版の型とも組み合わせられる構造を使う。 */
+export interface CalibratedDistanceResult {
+  readonly hash: string;
+  readonly from: string;
+  readonly calibration: string;
+  readonly distance: number;
+  readonly unit: SceneResult["unit"];
+  readonly unit_label: string;
+}
+/** 分割座標と文書の hash をコアへ渡す。診断と予算停止を含む応答をそのまま返す。 */
+export declare function measureDistance(session: Session, document: DocumentIdentity, calibration: string,
+  measurement: Pick<Measurement, "from" | "start" | "end">, options?: MeasureDistanceOptions): Response<CalibratedDistanceResult>;
 export interface UnderlayDescriptor {
   readonly index: number;
   readonly element: ElementRef;
@@ -130,6 +143,15 @@ export interface Snap {
 }
 export type RealDistance = { readonly status: "known"; readonly distance: number; readonly unit: "millimeter" | "centimeter" | "meter" | "inch" | "foot" }
   | { readonly status: "unknown"; readonly reason: "paper" | "definition" | "unit-unknown" | "placement-scale" | "unbound" };
+export type CalibratedDistance = { readonly status: "measured"; readonly calibration: string; readonly from: string;
+  readonly distance: number; readonly unit: CalibratedDistanceResult["unit"]; readonly unit_label: string }
+  | { readonly status: "unavailable"; readonly calibration: string;
+    readonly reason: "outside-bounds" | "sheet-mismatch" | "overflow" | "calibration-missing" | "document-mismatch" | "stopped" | "failed" };
+export interface MeasurementCalibration {
+  readonly id: string;
+  /** 同期だけ。成功した元ラベルは 4096 文字まで。解決中は View2D の状態を変更しない。 */
+  readonly resolve: (measurement: Measurement, document: DocumentIdentity) => Response<CalibratedDistanceResult>;
+}
 /** シーン上の距離。tolerance はコアの展開時の許容差で、実寸の精度保証ではない。 */
 export interface Measurement {
   readonly start: ScenePosition;
@@ -141,6 +163,8 @@ export interface Measurement {
   readonly unit: SceneResult["unit"];
   readonly tolerance: number;
   readonly real: RealDistance;
+  /** 明示的に校正を選んだときだけ持つ。紙上の距離と real は変更しない。 */
+  readonly calibrated?: CalibratedDistance;
 }
 export interface InputOptions {
   pointer: boolean;
@@ -249,6 +273,8 @@ export declare class View2D {
   /** 可視の線・面の頂点と点の中心。既定の許容半径は 8 CSS px。 */
   snapAt(point: Point, tolerance?: number): Snap | null;
   setMeasurement(value: { readonly start: ScenePosition; readonly end: ScenePosition } | null): RenderReport;
+  /** 明示的な ID と同期の解決関数。null で解除。シーンの差し替え・消去・破棄でも解除する。 */
+  setMeasurementCalibration(value: MeasurementCalibration | null): RenderReport;
   /** select・pan・measure か、addTool で登録した名前。 */
   setTool(name: string): RenderReport;
   addTool(name: string, definition: ToolDefinition): () => void;

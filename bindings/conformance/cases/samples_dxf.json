@@ -109,6 +109,8 @@
               5,
               0
             ],
+            "horizontal": "center",
+            "vertical": "bottom",
             "height": 0.2,
             "rotation": 0,
             "style": "STANDARD",

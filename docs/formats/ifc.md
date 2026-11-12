@@ -42,6 +42,38 @@ IFC-SPF と ifcZIP を、スキーマを知らないインスタンスのグラ�
 - 建具は書かれた 2D の表現を優先し、次に開き方とプロファイルの記号、どちらもなければ切断線と診断を返す。室の輪郭は書かれたまま残す。面積を求めるときは利用者が指定した内法・壁芯を優先し、推定に使った基準を出所に残す。室の面積の作業は [#424](https://github.com/zumen-jp/zumen/issues/424) で追う。
 - スキーマを同梱せず、構文の検査は利用者の [EXPRESS](express.md)、要件の照合は [IDS](ids.md) を受け取る。
 
+## 共有する SI 単位の採用条件
+
+建物モデルへの `Lift<Building>` と、既存の `curve()`・`extruded_area()` は同じ SI の読み取りを使います。文書の単位の割り当て、プロパティ・数量に明示した単位、一段の換算の基の SI を対象に、長さ以外も検査します。値は元の単位のまま保持し、単位換算は適用しません。`extrusion()` の長さ専用の採用前検査は引き続き別に行います。
+
+- 単独は IfcSIUnit の 4 属性、複合は IfcNamedUnit の 2 属性と IfcSIUnit の 2 属性を読みます。複合の Part の順は問いません。重複・余分な Part・未知の属性配置は採用しません。SI を含む不正な配置を拒否したあとは、同じレコードの換算単位の Part としても再採用しません。SI のない正しい単独の換算単位は引き続き読みます。派生する Dimensions は `*` を要求し、参照をたどって代用しません。
+- Prefix は正規の 16 列挙値か省略の `$`、Name は正規の 30 列挙値を要求します。未知値・数値・異型・小文字の列挙値を、接頭辞なしや倍率 1 として扱いません。[ISO 10303-21 第 3 版 6.4.5・12.1.7 と Table 2](https://steptools.com/stds/step/IS_final_p21e3.html) の交換構造の列挙は大文字です。L0 の `Value::Enum` と既存の `enumeration()` は寛容な字句読みで元の綴りを保持します。この契約を変えず、SI の採用時にだけ正規の列挙と照合し、入力の綴りや係数を黙って正規化しません。
+- Name から導かれる 7 次元と UnitType の次元を照合します。名前と種類の独自の一対一対応は課さず、RADIAN/STERADIAN、HERTZ/BECQUEREL、CANDELA/LUMEN、GRAY/SIEVERT、KELVIN/DEGREE_CELSIUS の同次元の組み合わせは元値を保持します。正規の `USERDEFINED` は次元照合の結果が UNKNOWN になります。FALSE の次元不整合とは区別し、配置・Name・Prefix が正規なら元値を保持します。名前や使用文脈が示す単位の種類まで検証したとは扱わず、既存の保持範囲を狭めません。
+- IFC2X3 TC1 の電気容量は、公式の CorrectDimensions が質量指数 +1、DimensionsForSIUnit(FARAD) が -1 で、電流指数はともに +1 と記す不整合があります。IFC4 と IFC4.3 の両関数は（-2、-1、4、2、0、0、0）で一致します。2X3 でも FARAD の自然言語定義「electric capacitance」と整合する後者の次元で読みます。これは読み取りの判断であり、2X3 の形式的検証の実装ではありません。HENRY/INDUCTANCEUNIT は 3 版とも同じ次元です。
+
+採用できない元の SI には `ifc.unit.invalid` と理由・元レコードのバイト範囲を返します。同じ SI を文書・複数の値・換算基から共有しても、1 回の取得内では一度だけ診断します。不正な SI の cache と成功した単位の cache を分け、成功 cache の再取得は従来どおり写す値を予算に数えます。プロパティ・数量の値は残し、単位だけを `None` にします。単位が解けない値の `ifc.unit.missing` も従来どおり返します。予算や中断で採用前に止まったことを、不正や欠落として診断しません。
+
+正規の最大 2 Part・4 属性は固定個数の借用値の照合で、正しい既存入力の値・出所・予算使用量を保ちます。非正規の多 Part は走査前に Part 数を Work に数え、不正 SI の記録前は Work 1 と DecodedBytes 512 を確保します。追加検査の停止位置は参照する値でなく SI の元レコードです。文書の単位の検査で止まった場合は、要素の走査・確保へ進みません。
+
+根拠は [2X3 NamedUnit.WR1](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC2x3/TC1/HTML/ifcmeasureresource/lexical/ifcnamedunit.htm)・[CorrectDimensions](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC2x3/TC1/HTML/ifcmeasureresource/lexical/ifccorrectdimensions.htm)・[DimensionsForSIUnit](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC2x3/TC1/HTML/ifcmeasureresource/lexical/ifcdimensionsforsiunit.htm)・[SIUnitName](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC2x3/TC1/HTML/ifcmeasureresource/lexical/ifcsiunitname.htm)、[IFC4 CorrectDimensions](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4/ADD2_TC1/HTML/schema/ifcmeasureresource/lexical/ifccorrectdimensions.htm)・[DimensionsForSIUnit](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4/ADD2_TC1/HTML/schema/ifcmeasureresource/lexical/ifcdimensionsforsiunit.htm)、[IFC4.3 CorrectDimensions](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4_3/HTML/lexical/IfcCorrectDimensions.htm)・[DimensionsForSIUnit](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4_3/HTML/lexical/IfcDimensionsForSIUnit.htm) です。Prefix と属性の定義は[断面の仕様参照](#断面を共通の経路で取得する)にあります。スキーマ・生成コード・第三者の実装ソースは同梱しません。
+
+換算単位自身の Dimensions、ValueComponent の意味・種類との整合、複数段の換算、文書の単位集合の一意性、派生単位や文脈依存の単位全般は今回の検査に含めず、#419・#539 に残します。ID と Hash の規則、公開 API、Building 全面統合や形の評価は変えません。
+
+### 共有 SI の確かめ方
+
+`tests/units.rs` は合成 3 版で、全 SI 名・同次元の別名・全接頭辞と省略・単独/複合・換算基・成功/不正 cache・診断の元位置と件数・停止前の確保・中断を検査します。公開の `gni/model_9.ifc` を基に単位だけを自作の不正値へ変え、旧押し出しと曲線の取得でも幾何の定義を保って単位を拒否することを確認します。正しい旧入力は変更前後の値・出所・診断・全 Kind の予算と ID/Hash を比較します。
+
+```powershell
+$env:ZUMEN_IFC_UNITS_OUT = Join-Path (Get-Location) 'target/unit-comparison'
+cargo test -p zumen-ifc --locked --test units
+python -I crates/zumen-ifc/tests/ifcopenshell/units.py target/unit-comparison
+$env:CARGO_TARGET_WASM32_WASIP1_RUNNER = 'node --no-warnings tests/wasi-units.mjs'
+cargo test -p zumen-ifc --locked --test units --target wasm32-wasip1 -- --test-threads 1
+node crates/zumen-ifc/tests/wasi-units.mjs --compare target/unit-comparison target/unit-comparison-wasm
+```
+
+WASI は JSON 4 件、正例の値・出所の記録、不正値・全 Kind の予算境界・中断の契約記録をネイティブとバイト単位で比較します。IfcOpenShell 0.9.0.post1 とは、合成 105 件と公開 2 件の元の単位名・種類・接頭辞を照合します。合成は `synthetic`、公開は `external` の範囲です。次元関数・単位換算・ファイル全体の適合性を外部照合したとは扱いません。既存の IFC fuzz が共有 Lifter と各 getter を呼び、毎晩の既存の読み取り専用 job でも export と元属性の照合を流します。
+
 ## 要素から形状表現をたどる
 
 Rust の `IfcFile::product_shape(instance, cx)` は、建物の要素の L1 の番号から形状表現をたどり、`zumen_ifc::ProductShape` を返します。`building` の feature が必要です。`Building::lift` が知る要素・空間・通り芯の実体が対象で、型の要素（`IfcTypeProduct`）は対象外です。ifcZIP は `file.ifc().product_shape(...)` から呼べます。
@@ -160,7 +192,7 @@ match &result.definition.profile.kind {
 
 配置・共有写像・単位換算・輪郭や立体の評価、Building の全面統合と形の意味値を含む要素ハッシュは #419・#420 の残件です。
 
-共有する既存の Lifter と旧 `extruded_area()` の単位の意味検査も #419 の残件です。自作の有限値では、未知や数値の SI 接頭辞、長さと面積の単位名の不整合を含む入力を旧経路が単位の診断なしに採用することを確認しています。本取得の採用前の検査と、既存の正しい入力の値・出所・予算の互換性の確認を分けて扱います。
+共有する既存の Lifter と旧 `extruded_area()` の SI の意味検査は[共有 SI の採用条件](#共有する-si-単位の採用条件)に従います。本取得の長さ専用の採用前検査と、共有経路の正しい旧入力の値・出所・予算の互換性の確認を分けて扱います。
 
 公式仕様は [IFC2X3 ParameterizedProfileDef](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC2x3/TC1/HTML/ifcprofileresource/lexical/ifcparameterizedprofiledef.htm)、[Rectangle](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC2x3/TC1/HTML/ifcprofileresource/lexical/ifcrectangleprofiledef.htm)、[Circle](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC2x3/TC1/HTML/ifcprofileresource/lexical/ifccircleprofiledef.htm)、[IFC4 ParameterizedProfileDef](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4/ADD2_TC1/HTML/schema/ifcprofileresource/lexical/ifcparameterizedprofiledef.htm)、[IFC4.3 ParameterizedProfileDef](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4_3/HTML/lexical/IfcParameterizedProfileDef.htm)です。方向の版差は [IFC2X3 Direction](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC2x3/TC1/HTML/ifcgeometryresource/lexical/ifcdirection.htm)・[Axis2Placement2D](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC2x3/TC1/HTML/ifcgeometryresource/lexical/ifcaxis2placement2d.htm)、[IFC4 Direction](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4/ADD2_TC1/HTML/schema/ifcgeometryresource/lexical/ifcdirection.htm)、[IFC4.3 Direction](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4_3/HTML/lexical/IfcDirection.htm)です。単位は [IFC2X3 SIUnit](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC2x3/TC1/HTML/ifcmeasureresource/lexical/ifcsiunit.htm)・[Prefix](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC2x3/TC1/HTML/ifcmeasureresource/lexical/ifcsiprefix.htm)、[IFC4 SIUnit](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4/ADD2_TC1/HTML/schema/ifcmeasureresource/lexical/ifcsiunit.htm)・[Prefix](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4/ADD2_TC1/HTML/schema/ifcmeasureresource/lexical/ifcsiprefix.htm)、[IFC4.3 SIUnit](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4_3/HTML/lexical/IfcSIUnit.htm)・[Prefix](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4_3/HTML/lexical/IfcSIPrefix.htm) と [NamedUnit.WR1](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4_3/HTML/lexical/IfcNamedUnit.htm)・[CorrectDimensions](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4_3/HTML/lexical/IfcCorrectDimensions.htm) に従います。仕様のスキーマ・生成コードは同梱しません。
 
@@ -355,21 +387,14 @@ cargo test -p zumen-ifc --locked --test curves --target wasm32-wasip1 -- --test-
 
 ## 確かめた度合い
 
-階・区域・分類の成分は、3 つの版の最小の合成 IFC で値・出所・診断・予算を確かめた `synthetic` の範囲です。公開サンプルの階と分類も読みますが、この 3 つの成分を外部の実装とは照らしていません。適合テストは、成分の応答と IDS の分類の照合をネイティブと wasm で比べます。
-
 | 形式 | 向き | 段 |
 | --- | --- | --- |
 | `ifc` | 読み | `external` |
 | `ifc` | 書き | `external` |
 
-段の意味は[形式台帳の書き方](../../formats/README.md#確かめた度合い)に、根拠は[形式と権利の一覧](README.md#format-ifc)にあります。
+段の定義は[形式台帳の書き方](../../formats/README.md#確かめた度合い)に、入力と照合ツールのバージョンは[台帳の IFC](README.md#format-ifc)にあります。
 
-- 読み: 公開サンプルの IFC 12 件（`samples/ifc`）を建物モデルに写し、毎晩の CI で、IfcOpenShell 0.9.0.post1 が同じファイルから読んだ値と照らす（`crates/zumen-ifc/tests/ifcopenshell/samples.py`、#412・#512）。照らすのは、実体のクラス・GlobalId・名前・所属の先と型・プロジェクトの空間への変換・開口・プロパティと数量の値。手元の照合では、12 件とも食い違いは 0。許諾の要る国内の BIM ソフトの書き出しは #513 で足す。
-- 曲線の必要時の取得: [曲線の確かめ方](#曲線の確かめ方)のうち、公開サンプルの IndexedPolyCurve 1 件が `external` の範囲です。自作した 29 件は `synthetic` とし、IfcOpenShell との元の属性値の照合も行いました。ネイティブと wasm の JSON は、曲線の定義と予算の使用量まで一致しました。幾何の評価と BIM ソフトで開く確認は含みません。
-- 要素から形状表現をたどる L1 の取得: [形状表現の確かめ方](#形状表現の確かめ方)に従い、公開の柱の表現・写像と元の配置の参照・属性は `external`、合成の 3 版は `synthetic` の範囲で IfcOpenShell とも照合しました。曲線の取得へ渡す経路を確認しています。配置や写像を適用した形、立体・断面の型への変換は含みません。
-- 押し出しと閉じた外輪の断面: [押し出しの確かめ方](#押し出しの確かめ方)の公開 1 件が `external` です。合成の 3 版の 6 件は `synthetic` の範囲で IfcOpenShell とも照合しました。局所の値と SI 単位の保持の範囲で、配置・写像・単位の適用や形の評価は含みません。ほかの立体・断面、未検証の境界と Building への統合は残っています。
-- 共通の断面の必要時の取得: [断面の共通の取得の確かめ方](#断面の共通の取得の確かめ方)の公開 3 要素が `external`、合成 3 版の 9 件が `synthetic` です。矩形・円・任意断面と押し出しの元の値と参照を比べ、配置・形の評価と Building/Hash への統合は含めません。
-- 面の表示の必要時の取得: [面の表示の確かめ方](#面の表示の確かめ方)の公開 1 件が `external` です。合成の 3 版の 6 件は `synthetic` の範囲で IfcOpenShell とも照合しました。色・透明度・Rendering の元の値と参照だけを比較し、表示・材質・レイヤ・写像による継承と反射の式は評価しません。Building の Style 成分と形の意味値の Hash は未実装です。
-- 通り芯の必要時の取得: [通り芯の確かめ方](#通り芯の確かめ方)の公開 1 Grid・21 軸・21 曲線が `external` です。合成 3 Grid・20 軸・26 曲線は `synthetic` の範囲で IfcOpenShell とも照合しました。元の属性と参照、順序・共有を比較し、配置・反転・幾何の評価と Building/Hash の統合は含みません。
-- 書き: `building_apply` でプロパティ・名前・説明を変えて書いた IFC4 と IFC2X3 を、毎晩の CI で IfcOpenShell 0.9.0.post1 で開く。変更が見え、スキーマと EXPRESS の規則の検査の誤りが増えないことを確かめる（`crates/zumen-ifc/tests/ifcopenshell/check.py`、#482）。BIM ソフトでは開いていない。BIM ソフトで開く確認は #526 で行う。[検証キット](../../xtask/verify/ifc/README.md)は公開 IFC4・IFC2X3 を CLI で編集し、期待値・対照の壁・元の形の行の保持を比較する。キットの生成と再読み込みは `synthetic` で、製品での `application` の確認には数えない。
-- 判定・インスタンスのグラフ・壊れた所の扱いと、上に記した属性以外の値は、外部の実装と照らしていない（IfcOpenShell と照らしたのは、上の値だけ）。公開サンプル 12 件は、自前のテストでも L1 で読み、変えずに書くと元のバイト列に戻ることと、写さない値の診断の code・実体のクラス・件数を確かめる（`crates/zumen-ifc/tests/samples.rs`）。壊れた所の扱いと ifcZIP は、仕様とテストの中で作ったファイルだけで確かめた。
+- **読み**では、公開 IFC の建物モデルを IfcOpenShell と照らします。対象は実体のクラス・GlobalId・名前・所属先と型・空間変換・開口・プロパティ・数量です。国内の BIM ソフトの公開サンプルは [#513](https://github.com/zumen-jp/zumen/issues/513) で許諾を得て追加します。[公開入力の照合](../../crates/zumen-ifc/tests/ifcopenshell/samples.py)
+- **必要時の取得**のうち、公開例の元の属性と参照を IfcOpenShell と照らした範囲が `external` です。[曲線](#曲線の確かめ方)・[形状表現と写像](#形状表現の確かめ方)・[押し出し](#押し出しの確かめ方)・[断面](#断面の共通の取得の確かめ方)・[面の表示](#面の表示の確かめ方)・[通り芯](#通り芯の確かめ方)・[SI 単位](#共有-si-の確かめ方)の各節に、比べた値と手順があります。合成例と IfcOpenShell の照合は `synthetic` です。配置や写像を適用した形、表示や継承の評価は外部照合の範囲外です。
+- **自前の検査**では、公開 IFC の無編集の往復と、写さない値の診断を確かめます。判定・インスタンスのグラフ・壊れた所の扱い・ifcZIP は外部照合していません。壊れた入力と ifcZIP は合成例で検査します。階・区域・分類の値・出所・診断・予算も合成 3 版の `synthetic` です。公開例の階と分類も読みます。成分の応答と IDS の分類の照合はネイティブと wasm で比べます。[公開入力の往復](../../crates/zumen-ifc/tests/samples.rs)
+- **書き**では、名前・説明・プロパティを `building_apply` で変えた IFC4・IFC2X3 を毎晩 IfcOpenShell で開き、変更後の値と、スキーマ・EXPRESS の規則の誤りが増えないことを確かめます。[検証キット](../../xtask/verify/ifc/README.md)の生成と再読み込みは `synthetic` です。BIM ソフトで開く確認は [#526](https://github.com/zumen-jp/zumen/issues/526) に残っています。[書き出しの照合](../../crates/zumen-ifc/tests/ifcopenshell/check.py)

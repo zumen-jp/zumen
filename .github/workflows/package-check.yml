@@ -3,10 +3,12 @@ name: 配布物の検査
 # release.yml と同じ生成・梱包を、公開せずに確かめる（決定 0269）。
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - '.github/workflows/package-check.yml'
       - '.github/workflows/release.yml'
       - 'xtask/release/**'
+      - '!xtask/release/README.md'
       - 'about.*'
       - '**/Cargo.toml'
       - 'Cargo.lock'
@@ -29,6 +31,7 @@ concurrency:
 jobs:
   licenses:
     name: 対象ごとのライセンス
+    if: ${{ !github.event.pull_request.draft }}
     runs-on: ubuntu-latest
     outputs:
       targets: ${{ steps.targets.outputs.targets }}

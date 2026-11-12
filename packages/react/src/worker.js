@@ -4,6 +4,7 @@ import { findSource } from "@zumen-jp/view2d";
 let session, document;
 let catalogName;
 let converted = 0;
+let preview;
 const budget = { input_bytes: 64 * 1024 * 1024, decoded_bytes: 256 * 1024 * 1024 };
 
 function describe(entries) {
@@ -15,28 +16,59 @@ function describe(entries) {
 self.onmessage = ({ data }) => {
   const { id, op } = data;
   let stage = "open";
+  let converting = false;
   const entries = [];
   try {
     if (op === "source") {
       self.postMessage({ id, value: findSource(session, document, data.element) });
       return;
     }
+    if (op === "convert_estimate") {
+      stage = "convert_estimate";
+      preview = null;
+      const to = "converted-" + ++converted + ".dxf";
+      converting = true;
+      const response = session.call({ v: 1, op, doc: document.doc, format: "dxf", to, limit: data.limit, budget });
+      converting = false;
+      for (const diagnostic of response.diagnostics) entries.push({ stage, diagnostic });
+      preview = { from: document.hash, estimate: response.result.estimate };
+      const input = response.result.estimate.input_diagnostics;
+      const inputDiagnostics = input && {
+        counts: describe(input.counts.map((diagnostic) => ({ stage: "input", diagnostic }))),
+        details: describe(input.details.map(({ diagnostic, sources }) => ({ stage: "input", diagnostic, sources }))),
+      };
+      self.postMessage({ id, value: { result: response.result, diagnostics: describe(entries), ...(inputDiagnostics && { inputDiagnostics }) } });
+      return;
+    }
     if (op === "convert") {
       // 開いた文書を新しい DXF の文書にし、書いたファイルを取り出してから閉じる（決定 0206、#690）。
       // 元の文書とシーンは変えないので、表示と出所はそのまま使える。
       stage = "convert";
-      const to = "converted-" + ++converted + ".dxf";
+      const expected = data.estimate;
+      if (expected && (!preview || preview.from !== document.hash ||
+        expected.doc !== preview.estimate.doc || expected.hash !== preview.estimate.hash || expected.elements !== preview.estimate.elements)) {
+        throw new DOMException("drawing.estimate.stale", "InvalidStateError");
+      }
+      const to = expected?.doc ?? "converted-" + ++converted + ".dxf";
       // 失敗した応答の診断は、下の catch で stage を convert にして返す
+      converting = true;
       const response = session.call({ v: 1, op: "convert", doc: document.doc, format: "dxf", to, budget });
       for (const diagnostic of response.diagnostics) entries.push({ stage, diagnostic });
       let bytes;
       try { bytes = session.take(0); }
       finally { session.call({ v: 1, op: "close", docs: [to] }); }
+      converting = false;
+      preview = null;
+      if (expected && (response.result.hash !== expected.hash || response.result.elements !== expected.elements)) {
+        throw new DOMException("drawing.estimate.changed", "InvalidStateError");
+      }
       self.postMessage({ id, value: { bytes, result: response.result, diagnostics: describe(entries) } }, [bytes.buffer]);
       return;
     }
     const { bytes, module, from, catalog } = data;
+    preview = null;
     session = loadSync(module).open();
+    const canEstimate = session.call({ v: 1, op: "capabilities" }).result.ops.includes("convert_estimate");
     if (catalog) { catalogName = "catalog"; session.push(catalogName, catalog); }
     session.push("input", bytes);
     function call(request) {
@@ -52,14 +84,14 @@ self.onmessage = ({ data }) => {
     const result = call({ op: "scene", doc: opened.doc, from: origin });
     // take は次の call より先に行い、wasm のメモリから独立したバッファーだけを移す。
     const blob = session.take(result.blob);
-    self.postMessage({ id, value: { blob, result, document, drawing, diagnostics: describe(entries) } }, [blob.buffer]);
+    self.postMessage({ id, value: { blob, result, document, drawing, canEstimate, diagnostics: describe(entries) } }, [blob.buffer]);
   } catch (error) {
     for (const diagnostic of error.response?.diagnostics ?? []) entries.push({ stage, diagnostic });
     let diagnostics;
     try { diagnostics = describe(entries); }
     catch { diagnostics = entries.map((entry) => ({ ...entry, text: entry.diagnostic.code })); }
     // 開けなかったときと、変換で応答のない失敗（trap など）をしたときは、セッションを閉じる。続く出所と変換も失敗にする
-    if (op === "open" || (op === "convert" && !error.response)) { session?.close(); session = null; }
+    if (op === "open" || (converting && !error.response)) { session?.close(); session = null; preview = null; }
     self.postMessage({ id, error: { name: error.name, message: error.message, diagnostics } });
   }
 };

@@ -24,12 +24,7 @@ jobs:
         run: cargo test --package zumen-ply --test external --locked
 
   browser:
-    name: ブラウザーで適合テスト（${{ matrix.browser }}）
-    # PR ごとの Chromium は ci.yml の wasm の job で流す。毎晩は Firefox と WebKit（docs/support.md、決定 0199）
-    strategy:
-      fail-fast: false
-      matrix:
-        browser: [firefox, webkit]
+    name: ブラウザーで適合テスト（Firefox・WebKit）
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -53,26 +48,27 @@ jobs:
         run: npm ci --ignore-scripts
       - name: Playwright のバージョンに合うブラウザーと、それが使う OS のライブラリを入れる
         working-directory: bindings/js/test/browser
-        run: npx --no-install playwright install --with-deps ${{ matrix.browser }}
-      - name: ブラウザーの中でラッパーを通しても、ネイティブと同じハッシュの一覧になることを確かめる（決定 0199）
-        run: node bindings/js/test/browser/run.mjs ${{ matrix.browser }} target/wasm32-unknown-unknown/release/zumen_abi1.wasm modules/zumen_abi1_drawing.wasm modules/zumen_abi1_bim.wasm modules/zumen_abi1_civil.wasm modules/zumen_abi1_pointcloud.wasm modules/zumen_abi1_plugin.wasm
-      - name: Canvas 2D で合成シーンと DXF・JWW・SXF を描く（決定 0267）
+        run: npx --no-install playwright install --with-deps firefox webkit
+      - name: Canvas 2D とプレイグラウンドのテストに使う依存を入れる
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund --prefix xtask/verify/pdfjs
+          npm ci --ignore-scripts --no-audit --no-fund --prefix playground
+      - name: 同じ wasm で両ブラウザーの適合テスト・Canvas 2D・React を確かめる
         env:
           ZUMEN_PDFJS_REQUIRED: '1'
         run: |
-          npm ci --ignore-scripts --no-audit --no-fund --prefix xtask/verify/pdfjs
-          node bindings/js/test/browser/view2d.mjs ${{ matrix.browser }} target/wasm32-unknown-unknown/release/zumen_abi1.wasm
-      - name: React のフックとプレイグラウンドをブラウザーで確かめる
-        run: |
-          npm ci --ignore-scripts --no-audit --no-fund --prefix playground
-          node bindings/js/test/browser/react.mjs ${{ matrix.browser }} modules/zumen_abi1_drawing.wasm
+          wasm=target/wasm32-unknown-unknown/release/zumen_abi1.wasm
+          modules=(modules/zumen_abi1_{drawing,bim,civil,pointcloud,plugin}.wasm)
+          status=0
+          for browser in firefox webkit; do
+            node bindings/js/test/browser/run.mjs "$browser" "$wasm" "${modules[@]}" || status=1
+            node bindings/js/test/browser/view2d.mjs "$browser" "$wasm" || status=1
+            node bindings/js/test/browser/react.mjs "$browser" modules/zumen_abi1_drawing.wasm || status=1
+          done
+          exit "$status"
 
   site:
-    name: サイトをブラウザーで確認（${{ matrix.browser }}）
-    strategy:
-      fail-fast: false
-      matrix:
-        browser: [firefox, webkit]
+    name: サイトをブラウザーで確認（Firefox・WebKit）
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -87,9 +83,14 @@ jobs:
       - name: サイトのページとビューアーを組む
         run: npm run build
       - name: サイトの Playwright に合うブラウザーと OS のライブラリを入れる
-        run: npx --no-install playwright install --with-deps ${{ matrix.browser }}
+        run: npx --no-install playwright install --with-deps firefox webkit
       - name: サイトの表示・保存・CSP による通信の拒否を確かめる
-        run: npm run test:browser -- ${{ matrix.browser }}
+        run: |
+          status=0
+          for browser in firefox webkit; do
+            npm run test:browser -- "$browser" || status=1
+          done
+          exit "$status"
 
   svg:
     name: SVG・PNG を Chromium で開いて照らす
@@ -133,8 +134,8 @@ jobs:
       - name: Turbopack と webpack で組み、組んだサーバーの API ルートで公開サンプルの DXF を開く
         run: node bindings/js/test/nextjs/run.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm
 
-  cli:
-    name: CLI・HTTP・WASI で適合テスト
+  tier3:
+    name: CLI・HTTP・WASI の適合テストと Tier 3 のサンプル
     # Tier 3 の言語が使う形態を、言語に依らないテストのツール（bindings/conformance/cli.mjs）で流す（決定 0006・0013・0200、#403）
     runs-on: ubuntu-latest
     steps:
@@ -147,9 +148,10 @@ jobs:
         with:
           # docs/support.md の Node.js の下限
           node-version: 22
-      - name: CLI を、ネイティブと WASI の 2 つで作る
+      - name: 適合テストとサンプルで使う C ABI と、ネイティブ・WASI の CLI を作る
+        id: build
         run: |
-          cargo build --release --locked -p zumen-cli
+          cargo build --release --locked -p zumen-abi -p zumen-cli
           cargo build --release --locked -p zumen-cli --target wasm32-wasip1
       - name: zumen call・serve --stdio・serve --http で流し、hashes.txt と一致することを確かめる
         run: |
@@ -158,6 +160,16 @@ jobs:
           done
       - name: WASI のランタイム（node:wasi）の上の serve --stdio で流し、hashes.txt と一致することを確かめる
         run: node bindings/conformance/cli.mjs wasi target/wasm32-wasip1/release/zumen.wasm
+      - name: Tier 3 の 4 つの形のサンプルを流し、expected.txt と照らす
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        shell: bash
+        run: |
+          drawing=samples/dwg/zumen-layout-r2000_ascii.dxf
+          expected=examples/tier3/expected.txt
+          ruby examples/tier3/ruby/c_abi.rb target/release/libzumen_abi1.so $drawing | diff $expected -
+          php examples/tier3/php/stdio.php $drawing target/release/zumen serve --stdio | diff $expected -
+          php examples/tier3/php/stdio.php $drawing node bindings/conformance/wasi.mjs target/wasm32-wasip1/release/zumen.wasm serve --stdio | diff $expected -
+          pwsh examples/tier3/powershell/http.ps1 -Zumen target/release/zumen -Drawing $drawing | diff $expected -
 
   ifcopenshell:
     name: IFC を IfcOpenShell で開いて照らす
@@ -205,6 +217,10 @@ jobs:
         run: ZUMEN_IFC_GRIDS_OUT="$RUNNER_TEMP/grids" cargo test --locked -p zumen-ifc --all-features --test grids writes_grids_for_other_readers
       - name: 通り芯の所属・向きと曲線の元属性を IfcOpenShell と照らす
         run: python -I crates/zumen-ifc/tests/ifcopenshell/grids.py "$RUNNER_TEMP/grids"
+      - name: 合成 3 版と公開サンプルの SI 単位の元値を書く
+        run: ZUMEN_IFC_UNITS_OUT="$RUNNER_TEMP/units" cargo test --locked -p zumen-ifc --all-features --test units writes_units_for_other_readers
+      - name: SI 単位の種類・名前・接頭辞を IfcOpenShell の元属性と照らす
+        run: python -I crates/zumen-ifc/tests/ifcopenshell/units.py "$RUNNER_TEMP/units"
 
   laspy:
     name: 非圧縮 LAS の読みを laspy と照らす
@@ -225,7 +241,7 @@ jobs:
         run: cargo test --locked -p zumen-las --test external
 
   pdf:
-    name: PDF の読みを pdf.js と照らす
+    name: PDF の図形・計測辞書・距離を外部と照らす
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -236,10 +252,18 @@ jobs:
           node-version: 22
       - name: pdf.js をテストのツールとして入れる
         run: npm ci --ignore-scripts --no-audit --no-fund --prefix xtask/verify/pdfjs
+      - name: 計測辞書の照合に使う pdf-lib と固定した PDF4QT の算術を準備する
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund --prefix xtask/verify/pdfmeasure
+          node xtask/verify/pdfmeasure/setup.mjs
       - name: 合成の PDF と公開サンプルを照らす
         env:
           ZUMEN_PDFJS_REQUIRED: '1'
         run: cargo test --locked -p zumen-pdf --test external
+      - name: 計測辞書の原値と距離算術を照らす
+        env:
+          ZUMEN_PDFMEASURE_REQUIRED: '1'
+        run: cargo test --locked -p zumen-pdf --test measure_external
 
   external:
     name: 書き戻し・変換した図面を外部の実装と照らし、検証キットを作る
@@ -316,33 +340,6 @@ jobs:
           path: ${{ runner.temp }}/verify
           retention-days: 30
           if-no-files-found: error
-
-  tier3:
-    name: Tier 3 の言語のサンプル
-    # docs/tier3.md の 4 つの形のサンプルを、ランナーに入っている Ruby・PHP・PowerShell で流す（決定 0006・0013、#404）
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: rust-toolchain.toml のバージョンの Rust と、wasm32-wasip1 の target を入れる
-        run: |
-          rustup toolchain install
-          rustup target add wasm32-wasip1
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          # docs/support.md の Node.js の下限
-          node-version: 22
-      - name: C ABI のライブラリと、ネイティブと WASI の CLI を作る
-        run: |
-          cargo build --release --locked -p zumen-abi -p zumen-cli
-          cargo build --release --locked -p zumen-cli --target wasm32-wasip1
-      - name: 4 つの形のサンプルを流し、書いたものが expected.txt と同じことを確かめる
-        run: |
-          drawing=samples/dwg/zumen-layout-r2000_ascii.dxf
-          expected=examples/tier3/expected.txt
-          ruby examples/tier3/ruby/c_abi.rb target/release/libzumen_abi1.so $drawing | diff $expected -
-          php examples/tier3/php/stdio.php $drawing target/release/zumen serve --stdio | diff $expected -
-          php examples/tier3/php/stdio.php $drawing node bindings/conformance/wasi.mjs target/wasm32-wasip1/release/zumen.wasm serve --stdio | diff $expected -
-          pwsh examples/tier3/powershell/http.ps1 -Zumen target/release/zumen -Drawing $drawing | diff $expected -
 
   go:
     name: Go のラッパーで適合テスト（Go ${{ matrix.go }}）

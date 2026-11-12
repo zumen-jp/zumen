@@ -30,6 +30,8 @@ use zumen_drawing::{
 };
 use zumen_geom2d::{self as geom, Xy};
 
+pub use zumen_drawing::Palette;
+
 pub use crate::glyphs::FontSet;
 use crate::layout::{color_flag, color_system, entity_kind, horizontal, text_flag, vertical};
 pub use crate::review::{
@@ -54,26 +56,6 @@ impl Chunking {
         items: 4096,
         span: 65536.0,
     };
-}
-
-/// 色の表（決定 0172）。系統と符号から RGB を引く
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Palette {
-    entries: BTreeMap<(u8, u32), [u8; 3]>,
-}
-
-impl Palette {
-    /// 系統の符号に RGB を足す。同じ符号があれば、先に足したものを使う
-    pub fn insert(&mut self, system: ColorSystem, code: u32, rgb: [u8; 3]) {
-        self.entries
-            .entry((system_code(system), code))
-            .or_insert(rgb);
-    }
-
-    /// 系統の符号の RGB。表になければ `None`
-    pub fn get(&self, system: ColorSystem, code: u32) -> Option<[u8; 3]> {
-        self.entries.get(&(system_code(system), code)).copied()
-    }
 }
 
 fn system_code(system: ColorSystem) -> u8 {

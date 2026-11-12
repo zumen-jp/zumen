@@ -13,8 +13,6 @@ libm = { version = "0.2.16", default-features = false }
 zumen-base = { version = "0.2.0", path = "../zumen-base" }
 zumen-drawing = { version = "0.2.0", path = "../zumen-drawing" }
 zumen-json = { version = "0.2.0", path = "../zumen-json" }
-# 色の表（決定 0172）。scene の op と同じ形の表で、符号から RGB を引く
-zumen-scene = { version = "0.2.0", path = "../zumen-scene" }
 
 [lints]
 workspace = true

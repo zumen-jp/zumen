@@ -1118,6 +1118,20 @@ pub const DRAWING_BINARY_INVALID: Code = Code::new(
     &[],
 );
 
+/// 用紙上の校正領域を、契約・値・付く先が不正か ID が重複していたため使わなかった。id は校正の ID、reason は理由
+///
+/// `drawing.calibration.invalid`（0.2.0 から）
+pub const DRAWING_CALIBRATION_INVALID: Code = Code::new(
+    "drawing.calibration.invalid",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[
+        Param::new("id", ParamType::Text),
+        Param::new("reason", ParamType::Text),
+    ],
+    &["id", "reason"],
+);
+
 /// 線種に添える文字の高さが有限の実数で表せず、結果に含めなかった
 ///
 /// `drawing.mark-height.dropped`（0.0.0 から）
@@ -1127,6 +1141,20 @@ pub const DRAWING_MARK_HEIGHT_DROPPED: Code = Code::new(
     Some(Fidelity::Dropped),
     &[Param::new("name", ParamType::Text)],
     &["name"],
+);
+
+/// 選んだ校正で用紙上の距離を測れなかった。id は校正の ID、reason は領域・用紙・座標・計算を使えない理由
+///
+/// `drawing.measurement.failed`（0.2.0 から）
+pub const DRAWING_MEASUREMENT_FAILED: Code = Code::new(
+    "drawing.measurement.failed",
+    Severity::Error,
+    None,
+    &[
+        Param::new("id", ParamType::Text),
+        Param::new("reason", ParamType::Text),
+    ],
+    &["id", "reason"],
 );
 
 /// 記号の配置が、道筋の外側の配置と同じ定義を置く（循環）ので、中をたどらなかった
@@ -2586,6 +2614,17 @@ pub const IFC_TEXT_INVALID: Code = Code::new(
     &[],
 );
 
+/// SI 単位の定義か次元を確認できないので、単位を採用しなかった
+///
+/// `ifc.unit.invalid`（0.3.0 から）
+pub const IFC_UNIT_INVALID: Code = Code::new(
+    "ifc.unit.invalid",
+    Severity::Warning,
+    None,
+    &[Param::new("reason", ParamType::Key)],
+    &["reason"],
+);
+
 /// 値の単位が解けないので、単位なしにした
 ///
 /// `ifc.unit.missing`（0.2.0 から）
@@ -2867,6 +2906,17 @@ pub const LAS_VLR_INVALID: Code = Code::new(
     &[],
 );
 
+/// 注釈の通常外観だけを図形へ移し、内容・返信・操作などの情報を移さなかった。kind は注釈の種類（Subtype）
+///
+/// `pdf.annotation.drawn`（0.2.0 から）
+pub const PDF_ANNOTATION_DRAWN: Code = Code::new(
+    "pdf.annotation.drawn",
+    Severity::Warning,
+    Some(Fidelity::Drawn),
+    &[Param::new("kind", ParamType::Text)],
+    &["kind"],
+);
+
 /// 注釈を、図面モデルに移さなかった。kind は注釈の種類（Subtype）
 ///
 /// `pdf.annotation.unsupported`（0.2.0 から）
@@ -2944,6 +2994,28 @@ pub const PDF_DASH_APPROXIMATED: Code = Code::new(
     &[],
 );
 
+/// 文書の情報の辞書の日付（CreationDate・ModDate）で省略された要素を既定値で補うか、時差のない日時を +00:00 として ISO 8601 の日時にした。原値と時差の有無は形式固有情報に残す。field は項目名（created・modified）
+///
+/// `pdf.date.approximated`（0.2.0 から）
+pub const PDF_DATE_APPROXIMATED: Code = Code::new(
+    "pdf.date.approximated",
+    Severity::Warning,
+    Some(Fidelity::Approximated),
+    &[Param::new("field", ParamType::Text)],
+    &["field"],
+);
+
+/// 文書の情報の辞書の日付（CreationDate・ModDate）を PDF の日付として読めなかったので、ISO 8601 の日時にしなかった。原値は形式固有情報に残す。field は項目名（created・modified）
+///
+/// `pdf.date.invalid`（0.2.0 から）
+pub const PDF_DATE_INVALID: Code = Code::new(
+    "pdf.date.invalid",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("field", ParamType::Text)],
+    &["field"],
+);
+
 /// 相互参照とページの木を、オブジェクトを探し直しても読めない
 ///
 /// `pdf.document.invalid`（0.2.0 から）
@@ -2972,7 +3044,7 @@ pub const PDF_ENCRYPTION_UNSUPPORTED: Code = Code::new(
 /// `pdf.file.invalid`（0.2.0 から）
 pub const PDF_FILE_INVALID: Code = Code::new("pdf.file.invalid", Severity::Error, None, &[], &[]);
 
-/// 非ゼロ回転数の規則で塗った、輪が 2 つ以上の形を、輪の中の輪を交互に埋めるハッチングにした
+/// 非ゼロ回転数の規則で塗った形を、同じ塗りになると確認できないまま、輪の中の輪を交互に埋めるハッチングにした
 ///
 /// `pdf.fill-rule.approximated`（0.2.0 から）
 pub const PDF_FILL_RULE_APPROXIMATED: Code = Code::new(
@@ -3069,6 +3141,31 @@ pub const PDF_IMAGE_MASK_APPROXIMATED: Code = Code::new(
     Some(Fidelity::Approximated),
     &[],
     &[],
+);
+
+/// 矩形計測の距離校正を、既存の紙上の図形を動かさず、用紙上の校正領域として保持した。絶対座標の原点や数値表示書式の復元は含まない
+///
+/// `pdf.measure-distance.equivalent`（0.2.0 から）
+pub const PDF_MEASURE_DISTANCE_EQUIVALENT: Code = Code::new(
+    "pdf.measure-distance.equivalent",
+    Severity::Info,
+    Some(Fidelity::Equivalent),
+    &[],
+    &[],
+);
+
+/// ビューポートの計測辞書の値を解釈できなかった。field は値の経路、reason は理由。読めた原値は形式固有情報に残す
+///
+/// `pdf.measure.invalid`（0.2.0 から）
+pub const PDF_MEASURE_INVALID: Code = Code::new(
+    "pdf.measure.invalid",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[
+        Param::new("field", ParamType::Text),
+        Param::new("reason", ParamType::Text),
+    ],
+    &["field", "reason"],
 );
 
 /// 縮尺の辞書（Measure）を持つビューポートの縮尺を、移さなかった
@@ -4879,7 +4976,9 @@ pub const ALL: &[Code] = &[
     DRAWING_BINARY_VALUE_UNSUPPORTED,
     DRAWING_BINARY_VERSION_UNSUPPORTED,
     DRAWING_BINARY_INVALID,
+    DRAWING_CALIBRATION_INVALID,
     DRAWING_MARK_HEIGHT_DROPPED,
+    DRAWING_MEASUREMENT_FAILED,
     DRAWING_PLACEMENT_INVALID,
     DWG_CHANGE_UNSUPPORTED,
     DWG_CRC_INVALID,
@@ -5011,6 +5110,7 @@ pub const ALL: &[Code] = &[
     IFC_STYLE_INVALID,
     IFC_STYLE_UNSUPPORTED,
     IFC_TEXT_INVALID,
+    IFC_UNIT_INVALID,
     IFC_UNIT_MISSING,
     IFC_VERSION_UNSUPPORTED,
     INTERNAL_PANIC_CAUGHT,
@@ -5040,6 +5140,7 @@ pub const ALL: &[Code] = &[
     LAS_POINTS_INVALID,
     LAS_VERTICAL_CRS_UNSUPPORTED,
     LAS_VLR_INVALID,
+    PDF_ANNOTATION_DRAWN,
     PDF_ANNOTATION_UNSUPPORTED,
     PDF_CLIP_APPROXIMATED,
     PDF_CLIP_DROPPED,
@@ -5047,6 +5148,8 @@ pub const ALL: &[Code] = &[
     PDF_COLOR_DROPPED,
     PDF_CONTENT_INVALID,
     PDF_DASH_APPROXIMATED,
+    PDF_DATE_APPROXIMATED,
+    PDF_DATE_INVALID,
     PDF_DOCUMENT_INVALID,
     PDF_DOCUMENT_UNSUPPORTED,
     PDF_ENCRYPTION_UNSUPPORTED,
@@ -5060,6 +5163,8 @@ pub const ALL: &[Code] = &[
     PDF_GLYPH_POSITION_APPROXIMATED,
     PDF_GLYPH_DROPPED,
     PDF_IMAGE_MASK_APPROXIMATED,
+    PDF_MEASURE_DISTANCE_EQUIVALENT,
+    PDF_MEASURE_INVALID,
     PDF_MEASURE_UNSUPPORTED,
     PDF_MEMBERSHIP_DROPPED,
     PDF_NESTING_DROPPED,

@@ -35,9 +35,28 @@ export async function checkBoundaries(page, bytes, mode) {
 // ページに入れる検査用のゲート。応答を待つ間に選択が重なった場合を、入力の大きさや速さに頼らず作る。
 export function installWorkerGate() {
   const held = [], seen = [];
-  let hold = false, deferOpen = false, openReply;
+  let hold = false, deferOpen = false, openReply, deferExport, exportReply, omitInput = false;
   const send = Worker.prototype.postMessage;
   Worker.prototype.postMessage = function (message, ...rest) {
+    if (message.op === "convert_estimate" && omitInput) {
+      omitInput = false;
+      const deliver = this.onmessage;
+      this.onmessage = (event) => {
+        if (event.data.id === message.id && event.data.value?.result?.estimate) {
+          delete event.data.value.result.estimate.input_diagnostics;
+          delete event.data.value.inputDiagnostics;
+        }
+        deliver(event);
+      };
+    }
+    if (message.op === deferExport) {
+      deferExport = null;
+      const deliver = this.onmessage;
+      this.onmessage = (event) => {
+        if (event.data.id === message.id) exportReply = () => deliver(event);
+        else deliver(event);
+      };
+    }
     if (message.op === "open" && deferOpen) {
       deferOpen = false;
       const deliver = this.onmessage;
@@ -53,6 +72,11 @@ export function installWorkerGate() {
   window.placeGate = {
     defer() { deferOpen = true; }, get waiting() { return Boolean(openReply); },
     release() { openReply(); openReply = null; },
+  };
+  window.exportGate = {
+    defer(op) { deferExport = op; }, get waiting() { return Boolean(exportReply); },
+    release() { exportReply(); exportReply = null; },
+    omitInputDiagnostics() { omitInput = true; },
   };
 }
 

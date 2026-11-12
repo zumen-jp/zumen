@@ -2,8 +2,7 @@
 
 use core::ops::Range;
 
-use zumen_base::{Diagnostic, Kind, Ref};
-use zumen_sdk::{Cx, Error, Stop};
+use zumen_base::{Cx, Diagnostic, Error, Kind, Ref, Stop};
 
 use crate::{Dialect, Exchange, Form, Part, Quote, Record, Value};
 
