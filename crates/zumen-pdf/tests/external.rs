@@ -15,6 +15,8 @@ use zumen_drawing::{Drawing2D, Placement, Shape};
 use zumen_json::Value;
 
 mod common;
+#[path = "common/image_ocg.rs"]
+mod image_fixture;
 use common::{Document, Page, lift, mm, stream};
 
 const SAMPLES: [(&str, &[u8], usize, usize, usize); 4] = [
@@ -285,4 +287,204 @@ fn compares_single_loop_fill_rules_with_pdfjs() {
     );
     assert_eq!(common::codes(&diag), [("pdf.fill-rule.approximated", 1)]);
     // 元の規則が異なるのに、出力はどちらも Nested。描画が等価とは扱わない。
+}
+
+#[test]
+fn compares_image_optional_content_groups_and_visibility_with_pdfjs() {
+    let Some(oracle) = oracle() else { return };
+    // expected_layers は保持できない複合条件の既存 fallback も区別する。
+    struct Case {
+        content: &'static str,
+        oc: &'static str,
+        off: bool,
+        layers: Vec<u32>,
+        groups: Vec<Vec<&'static str>>,
+        visible: Vec<bool>,
+    }
+    let case = |content, oc, off, layers, groups, visible| Case {
+        content,
+        oc,
+        off,
+        layers,
+        groups,
+        visible,
+    };
+    let cases = vec![
+        case(
+            "/Im Do",
+            "/OC 3 0 R",
+            false,
+            vec![1],
+            vec![vec!["3R"]],
+            vec![true],
+        ),
+        case(
+            "/Im Do /Same Do",
+            "/OC 3 0 R",
+            false,
+            vec![1, 1],
+            vec![vec!["3R"], vec!["3R"]],
+            vec![true, true],
+        ),
+        case(
+            "/OC /a BDC /Im Do EMC",
+            "/OC 3 0 R",
+            false,
+            vec![1],
+            vec![vec!["3R", "3R"]],
+            vec![true],
+        ),
+        case(
+            "/Grouped Do",
+            "/OC 3 0 R",
+            false,
+            vec![1],
+            vec![vec!["3R", "3R"]],
+            vec![true],
+        ),
+        case(
+            "/Fm Do /Rebound Do",
+            "/OC 3 0 R",
+            false,
+            vec![1, 2],
+            vec![vec!["3R"], vec!["4R"]],
+            vec![true, true],
+        ),
+        case(
+            "/Fm Do /OC /b BDC /Fm Do /Fm Do EMC",
+            "/OC 3 0 R",
+            false,
+            vec![0, 2, 2],
+            vec![vec!["3R"], vec!["4R", "3R"], vec!["4R", "3R"]],
+            vec![true; 3],
+        ),
+        case(
+            "/PlainA Do",
+            "",
+            false,
+            vec![1],
+            vec![vec!["3R"]],
+            vec![true],
+        ),
+        case(
+            "/PlainA Do /PlainB Do",
+            "",
+            false,
+            vec![0, 0],
+            vec![vec!["3R"], vec!["4R"]],
+            vec![true, true],
+        ),
+        case(
+            "/Im Do",
+            "/OC 5 0 R",
+            true,
+            vec![],
+            vec![vec!["5R"]],
+            vec![false],
+        ),
+        case(
+            "/OC /off BDC /Im Do EMC",
+            "/OC 3 0 R",
+            true,
+            vec![],
+            vec![vec!["5R", "3R"]],
+            vec![false],
+        ),
+        case(
+            "/Im Do",
+            "/OC 7 0 R",
+            false,
+            vec![0],
+            vec![vec!["7R"]],
+            vec![true],
+        ),
+    ];
+    for Case {
+        content,
+        oc,
+        off,
+        layers: expected_layers,
+        groups: expected_groups,
+        visible: expected_visible,
+    } in cases
+    {
+        let input = if off {
+            image_fixture::with_off(content, oc)
+        } else {
+            image_fixture::make(content, oc)
+        };
+        let external = read_external(&oracle, &input.bytes);
+        let (drawing, _) = lift(&input.bytes);
+        let groups = array(field(&external, "optional_groups"));
+        assert_eq!(groups.len(), 3);
+        for (index, (group, layer)) in groups.iter().zip(drawing.layers.iter().skip(1)).enumerate()
+        {
+            assert_eq!(
+                *field(group, "id"),
+                Value::String(format!("{}R", index + 3))
+            );
+            assert_eq!(*field(group, "name"), Value::String(layer.name.clone()));
+            assert_eq!(
+                *field(group, "visible"),
+                Value::Bool(layer.state.unwrap().visible)
+            );
+        }
+        let page = &array(field(&external, "pages"))[0];
+        let images = array(field(page, "image_ops"));
+        assert_eq!(images.len(), expected_groups.len(), "{content}");
+        for ((image, expected_groups), expected_visible) in
+            images.iter().zip(expected_groups).zip(expected_visible)
+        {
+            assert!(
+                matches!(field(image, "op"), Value::String(name) if name.starts_with("paintImage")),
+                "{image:?}"
+            );
+            let groups: Vec<_> = array(field(image, "oc"))
+                .iter()
+                .map(|properties| {
+                    assert_eq!(*field(properties, "type"), Value::String("OCG".into()));
+                    let Value::String(id) = field(properties, "id") else {
+                        panic!("OCG の ID がない")
+                    };
+                    id.as_str()
+                })
+                .collect();
+            assert_eq!(groups, expected_groups, "{content}");
+            assert_eq!(
+                *field(image, "visible"),
+                Value::Bool(expected_visible),
+                "{content}"
+            );
+        }
+        let native = &drawing.sheets[0].elements;
+        assert_eq!(
+            native
+                .iter()
+                .map(|element| element.layer.0)
+                .collect::<Vec<_>>(),
+            expected_layers,
+            "{content}"
+        );
+        assert_eq!(
+            native.len(),
+            number(field(page, "images")) as usize,
+            "{content}"
+        );
+    }
+
+    let input = image_fixture::make("/Im Do", "/OC 6 0 R");
+    let external = read_external(&oracle, &input.bytes);
+    let page = &array(field(&external, "pages"))[0];
+    let image = &array(field(page, "image_ops"))[0];
+    let properties = &array(field(image, "oc"))[0];
+    assert_eq!(*field(properties, "type"), Value::String("OCMD".into()));
+    assert_eq!(*field(properties, "policy"), Value::String("AnyOn".into()));
+    assert_eq!(
+        *field(properties, "ids"),
+        Value::Array(vec![Value::String("3R".into()), Value::String("4R".into())])
+    );
+    assert_eq!(*field(image, "visible"), Value::Bool(true));
+    let (drawing, diag) = lift(&input.bytes);
+    assert_eq!(drawing.sheets[0].elements[0].layer.0, 0);
+    assert!(has_code(&diag, "pdf.optional-content.approximated"));
 }

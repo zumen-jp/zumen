@@ -269,7 +269,7 @@ impl Lifter<'_, '_> {
             ..InterpreterSettings::default()
         };
         let cache = InterpreterCache::new();
-        let mut walker = Walker::new(reads, self.objects, &inactive, &settings);
+        let mut walker = Walker::new(reads, self.objects, &inactive, &ocgs, &settings);
         let mut sheets = Vec::with_capacity(pages.len());
         for (index, page) in pages.iter().enumerate() {
             let label = labels.get(index).cloned().flatten();
@@ -323,6 +323,7 @@ impl Lifter<'_, '_> {
                     sheet,
                     paper,
                     &ocgs,
+                    &survey.image_layers,
                     self.objects,
                     xref,
                     walker.owned(),

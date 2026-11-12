@@ -22,6 +22,8 @@
 //! フォントで描かない文字列、縦書きの原点の移動が既定と違うフォント、OCMD で隠れる内容、
 //! 転送関数。
 
+mod optional;
+
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
@@ -41,6 +43,7 @@ use hayro_syntax::xref::XRef;
 use skrifa::raw::TableProvider;
 use skrifa::{Font as FontProgram, OutlineSource};
 use zumen_base::{Code, Diagnostic, Diagnostics, Kind, Ref, Stop, codes};
+use zumen_drawing::LayerId;
 use zumen_sdk::Cx;
 
 use crate::inflate;
@@ -215,6 +218,8 @@ pub(crate) struct Survey {
     /// 関数、行の頂点の数が 0 の格子のメッシュ）の場所。直接書いたオブジェクトは、それを含む間接オブジェクトの場所
     /// （hayro-syntax の `obj_id`）。色空間の入れ子は、ページの内容のストリーム
     pub(crate) refused: Option<Ref>,
+    /// すべての可視の配置で同じ単一 OCG に従う画像。画像の stream の番号 → OCG の番号。
+    pub(crate) image_layers: BTreeMap<(u32, i32), (u32, i32)>,
 }
 
 /// hayro-interpret がする作業の量。同じ呼ばれ方のフォームの手間を、まとめて数えるために覚える
@@ -374,6 +379,8 @@ struct Call {
     depth: u32,
     /// 呼ぶ所のグラフィックス状態
     state: Graphics,
+    /// フォーム自身の OC も含む表示条件。別の外側の条件で画像を使う場合は、あらためて観測する。
+    optional: optional::Context,
 }
 
 /// 名前で引く色空間（8.6.3）。hayro-interpret は、文書の中で 1 度だけ作る
@@ -401,6 +408,7 @@ enum Role {
 struct Known {
     cost: Cost,
     diagnostics: Rc<[Diagnostic]>,
+    optional: Rc<[optional::Event]>,
 }
 
 fn key(id: impl Into<ObjectIdentifier>) -> (u32, i32) {
@@ -1388,6 +1396,8 @@ pub(crate) struct Walker<'a, 'o> {
     objects: &'o BTreeMap<(u32, i32), Ref>,
     /// 既定の設定で隠れる OCG（hayro-interpret の `OcgState` と同じ決め方）
     inactive: &'o BTreeSet<(u32, i32)>,
+    /// カタログに登録された OCG。表示条件を単一レイヤとして保持できるかを確かめる。
+    ocgs: &'o BTreeMap<(u32, i32), LayerId>,
     settings: &'o InterpreterSettings,
     /// hayro-interpret と同じ読み方でフォントを読む。読めるかを見て、切り抜きにする文字の輪郭を作る
     fonts: FontCache<'a>,
@@ -1449,6 +1459,8 @@ pub(crate) struct Walker<'a, 'o> {
     /// マーク付きの内容の入れ子の、見えるか。hayro-interpret の `OcgState` の重なりと同じく、ページの中で 1 つだけ持ち、
     /// フォームの中と外で分けない
     visible: Vec<bool>,
+    /// 表示の重なりと同じ段数の、単一レイヤとして保持できる条件と画像の使われ方。
+    optional_content: optional::Content,
     /// 入れ子を閉じる前の重なりの数のうち、いちばん小さいもの。たどっている内容のストリームが、始めた所より外の
     /// 入れ子を閉じたかを見る（[`Walker::content`]）
     closed: usize,
@@ -1462,6 +1474,7 @@ impl<'a, 'o> Walker<'a, 'o> {
         reads: Reads<'a>,
         objects: &'o BTreeMap<(u32, i32), Ref>,
         inactive: &'o BTreeSet<(u32, i32)>,
+        ocgs: &'o BTreeMap<(u32, i32), LayerId>,
         settings: &'o InterpreterSettings,
     ) -> Self {
         Self {
@@ -1469,6 +1482,7 @@ impl<'a, 'o> Walker<'a, 'o> {
             reads,
             objects,
             inactive,
+            ocgs,
             settings,
             fonts: FontCache::new(),
             faces: Vec::new(),
@@ -1496,6 +1510,7 @@ impl<'a, 'o> Walker<'a, 'o> {
             forms: BTreeMap::new(),
             sizes: BTreeMap::new(),
             visible: Vec::new(),
+            optional_content: optional::Content::default(),
             closed: usize::MAX,
             reported: BTreeSet::new(),
             transfer: false,
@@ -1513,15 +1528,40 @@ impl<'a, 'o> Walker<'a, 'o> {
     ) -> Result<Survey, Stop> {
         let mut found = Diagnostics::with_max_places(cx.diag.max_places());
         let surveyed = self.survey(page, place, &mut Cx::new(cx.budget, &mut found, cx.cancel));
-        if surveyed.is_err() || self.refused.is_none() {
+        if let Err(stop) = surveyed {
             for diagnostic in found.into_vec() {
                 cx.report(diagnostic);
             }
+            return Err(stop);
         }
-        surveyed?;
+        let image_layers = if self.refused.is_none() {
+            let finished = self.optional_content.layers(cx).and_then(|image_layers| {
+                let diagnostics =
+                    self.optional_content
+                        .diagnostics(&mut found, &image_layers, cx)?;
+                Ok((image_layers, diagnostics))
+            });
+            let (image_layers, diagnostics) = match finished {
+                Ok(finished) => finished,
+                Err(stop) => {
+                    // 後処理で止まっても、走査で見つけた診断は、途中停止と同じように返す。
+                    for diagnostic in found.into_vec() {
+                        cx.report(diagnostic);
+                    }
+                    return Err(stop);
+                }
+            };
+            for diagnostic in diagnostics {
+                cx.report(diagnostic);
+            }
+            image_layers
+        } else {
+            BTreeMap::new()
+        };
         Ok(Survey {
             transfer: self.transfer,
             refused: self.refused.take(),
+            image_layers,
         })
     }
 
@@ -1538,6 +1578,7 @@ impl<'a, 'o> Walker<'a, 'o> {
         self.forms.clear();
         self.sizes.clear();
         self.visible.clear();
+        self.optional_content.clear();
         self.closed = usize::MAX;
         self.reported.clear();
         self.transfer = false;
@@ -1683,6 +1724,7 @@ impl<'a, 'o> Walker<'a, 'o> {
     fn end_marked(&mut self) {
         self.closed = self.closed.min(self.visible.len());
         self.visible.pop();
+        self.optional_content.pop();
     }
 
     /// ページを解釈しないことにする（[`Survey::refused`]）。場所は、最初に見つけた理由のオブジェクト
@@ -1864,10 +1906,16 @@ impl<'a, 'o> Walker<'a, 'o> {
                     }
                 }
                 TypedInstruction::BeginMarkedContentWithProperties(marked) => {
-                    self.begin_marked(resources, marked.1, &mut cost, place, cx)?;
+                    self.begin_marked(marked.0, resources, marked.1, &mut cost, place, cx)?;
                 }
-                TypedInstruction::BeginMarkedContent(_) => {
+                TypedInstruction::BeginMarkedContent(marked) => {
                     let visible = self.is_visible();
+                    let context = if marked.0.as_ref() == b"OC" {
+                        optional::Context::Unknown
+                    } else {
+                        optional::Context::None
+                    };
+                    self.optional_content.push(context, cx)?;
                     self.visible.push(visible);
                 }
                 TypedInstruction::EndMarkedContent(_) => self.end_marked(),
@@ -1962,6 +2010,9 @@ impl<'a, 'o> Walker<'a, 'o> {
             self.report(codes::PDF_CONTENT_INVALID, place.clone(), cx);
         }
         let balanced = self.closed > start && self.visible.len() == start;
+        if !balanced {
+            self.optional_content.distrust();
+        }
         self.closed = self.closed.min(outer);
         Ok((cost, balanced))
     }
@@ -2966,6 +3017,7 @@ impl<'a, 'o> Walker<'a, 'o> {
     /// OCG か OCMD として扱う
     fn begin_marked(
         &mut self,
+        tag: &[u8],
         resources: &Resources<'a>,
         properties: &Object<'_>,
         cost: &mut Cost,
@@ -2996,6 +3048,11 @@ impl<'a, 'o> Walker<'a, 'o> {
             Some((dict, key(reference)))
         });
         let parent = self.is_visible();
+        let mut context = if tag == b"OC" {
+            optional::Context::Unknown
+        } else {
+            optional::Context::None
+        };
         let visible = match membership {
             Some((dict, reference)) => {
                 // hayro-interpret は、内容のマークのたびに OCG か OCMD を引き直す。OCMD なら、
@@ -3011,26 +3068,73 @@ impl<'a, 'o> Walker<'a, 'o> {
                     cx,
                 )?;
                 let (shown, ocmd) = self.membership(&dict, reference);
+                // 単一 OCG として保持できる種類の確認を、既存の読み直しとは別に予約する。
+                cx.check(
+                    Kind::Work,
+                    self.reads.value_work(&dict, b"Type").saturating_add(1),
+                )?;
+                context = if tag == b"OC" {
+                    self.group_context(&dict, Some(reference))
+                } else {
+                    optional::Context::Unknown
+                };
                 if parent && ocmd {
-                    self.membership_report(shown, place, cx);
+                    self.membership_report(shown, place, cx)?;
                 }
                 parent && shown
             }
             None => parent,
         };
+        self.optional_content.push(context, cx)?;
         self.visible.push(visible);
         Ok(())
     }
 
     /// OCMD の内容の診断。見える内容は最初の OCG のレイヤに置き、隠れる内容は
     /// hayro-interpret が描かない
-    fn membership_report(&mut self, shown: bool, place: &Ref, cx: &mut Cx<'_>) {
+    fn membership_report(&mut self, shown: bool, place: &Ref, cx: &mut Cx<'_>) -> Result<(), Stop> {
         let code = if shown {
             codes::PDF_OPTIONAL_CONTENT_APPROXIMATED
         } else {
             codes::PDF_MEMBERSHIP_DROPPED
         };
-        self.report(code, place.clone(), cx);
+        if shown {
+            self.optional_report(None, place, cx)?;
+        } else {
+            self.report(code, place.clone(), cx);
+        }
+        Ok(())
+    }
+
+    /// カタログで OCG として登録され、辞書の種類も OCG であるものだけを、単一の表示条件として扱う。
+    fn group_context(
+        &self,
+        properties: &Dict<'_>,
+        reference: Option<(u32, i32)>,
+    ) -> optional::Context {
+        match reference {
+            Some(reference)
+                if self.ocgs.contains_key(&reference)
+                    && properties.get::<Name<'_>>(b"Type").as_deref()
+                        == Some(b"OCG".as_slice()) =>
+            {
+                optional::Context::Single(reference)
+            }
+            _ => optional::Context::Unknown,
+        }
+    }
+
+    fn optional_report(
+        &mut self,
+        image: Option<(u32, i32)>,
+        place: &Ref,
+        cx: &mut Cx<'_>,
+    ) -> Result<(), Stop> {
+        let diagnostic =
+            Diagnostic::new(codes::PDF_OPTIONAL_CONTENT_APPROXIMATED).at(place.clone());
+        self.optional_content.record(image, &diagnostic, cx)?;
+        self.emit(diagnostic, cx);
+        Ok(())
     }
 
     /// OCG か OCMD で、内容が見えるか。2 つ目は、OCMD か（hayro-interpret の
@@ -3065,20 +3169,35 @@ impl<'a, 'o> Walker<'a, 'o> {
         }
     }
 
-    /// XObject の OCG（`OC`、8.11.3.3）で、XObject が見えるか。OCG がなければ `None`。見える内容は、
-    /// XObject の OCG のレイヤに分けない
-    fn optional(&mut self, dict: &Dict<'_>, place: &Ref, cx: &mut Cx<'_>) -> Option<bool> {
-        let properties = dict.get::<Dict<'_>>(b"OC")?;
+    /// XObject の OC（8.11.3.3）の可視性と、単一 OCG として保持できる条件。画像の近似警告は、ページ全体の
+    /// 使われ方を調べた後で、レイヤを保持できた場合だけ省く。OC 辞書がなければ `None`。
+    fn optional(
+        &mut self,
+        dict: &Dict<'_>,
+        image: Option<(u32, i32)>,
+        place: &Ref,
+        cx: &mut Cx<'_>,
+    ) -> Result<Option<(bool, optional::Context)>, Stop> {
+        let Some(properties) = dict.get::<Dict<'_>>(b"OC") else {
+            return Ok(None);
+        };
         let (shown, ocmd) = match dict.get_ref(b"OC") {
             Some(reference) => self.membership(&properties, key(reference)),
             None => (self.ocmd(&properties), true),
         };
+        cx.check(
+            Kind::Work,
+            self.reads
+                .value_work(&properties, b"Type")
+                .saturating_add(1),
+        )?;
+        let context = self.group_context(&properties, dict.get_ref(b"OC").map(key));
         if shown {
-            self.report(codes::PDF_OPTIONAL_CONTENT_APPROXIMATED, place.clone(), cx);
+            self.optional_report(image, place, cx)?;
         } else if ocmd {
             self.report(codes::PDF_MEMBERSHIP_DROPPED, place.clone(), cx);
         }
-        Some(shown)
+        Ok(Some((shown, context)))
     }
 
     /// XObject を描く（`Do`、8.8）。hayro-interpret は、描くたびに XObject を読み直す
@@ -3119,7 +3238,21 @@ impl<'a, 'o> Walker<'a, 'o> {
             Some(b"Image") => {
                 if visible {
                     if has_size(dict) {
-                        self.optional(dict, &place, cx);
+                        let own = self.optional(dict, id, &place, cx)?;
+                        let (shown, context) = own.unwrap_or_else(|| {
+                            (
+                                true,
+                                if dict.contains_key(b"OC") {
+                                    optional::Context::Unknown
+                                } else {
+                                    optional::Context::None
+                                },
+                            )
+                        });
+                        if shown && let Some(id) = id {
+                            let context = self.optional_content.current().and(context);
+                            self.optional_content.observe(id, context, cx)?;
+                        }
                     } else {
                         self.report(codes::PDF_CONTENT_INVALID, place, cx);
                     }
@@ -3199,13 +3332,17 @@ impl<'a, 'o> Walker<'a, 'o> {
             return Ok(cost);
         }
         // hayro-interpret は、OCG を持つフォームの中身を、その OCG の入れ子の中で解釈する
-        let optional = self.optional(dict, place, cx);
-        if let Some(shown) = optional {
+        let optional = self.optional(dict, None, place, cx)?;
+        if let Some((shown, context)) = optional {
+            self.optional_content.push(context, cx)?;
             self.visible.push(shown);
             if !shown {
                 self.end_marked();
                 return Ok(cost);
             }
+        } else if dict.contains_key(b"OC") {
+            // 解釈器が解けない OC では frame を作らない。重なりの段数を変えず、画像の新しい指定だけを止める。
+            self.optional_content.distrust();
         }
         let owner = match (&own, id) {
             (None, _) => owner,
@@ -3218,6 +3355,7 @@ impl<'a, 'o> Walker<'a, 'o> {
                 owner,
                 depth: depth + 1,
                 state,
+                optional: self.optional_content.current(),
             }),
             _ => None,
         };
@@ -3227,7 +3365,9 @@ impl<'a, 'o> Walker<'a, 'o> {
             for diagnostic in known.diagnostics.iter() {
                 self.emit(diagnostic.clone(), cx);
             }
+            self.optional_content.replay(&known.optional, cx)?;
         } else {
+            self.optional_content.begin_recording(cx)?;
             self.recording.push(Diagnostics::new());
             let walked = self.content(
                 &data,
@@ -3239,7 +3379,14 @@ impl<'a, 'o> Walker<'a, 'o> {
                 cx,
             );
             let recorded = self.recording.pop().unwrap_or_default();
-            let (inner, balanced) = walked?;
+            let (inner, balanced) = match walked {
+                Ok(walked) => walked,
+                Err(stop) => {
+                    self.optional_content.abort_recording();
+                    return Err(stop);
+                }
+            };
+            let optional_events = self.optional_content.end_recording(cx)?;
             if let Some(outer) = self.recording.last_mut() {
                 for diagnostic in recorded.iter() {
                     outer.report(diagnostic.clone());
@@ -3248,9 +3395,11 @@ impl<'a, 'o> Walker<'a, 'o> {
             cost.add(inner);
             // マーク付きの内容の入れ子が釣り合わないフォームは、呼ぶ所の入れ子で中身の見え方が変わるので、覚えない
             if let Some(call) = call.filter(|_| balanced) {
+                optional::Content::cache(&optional_events, cx)?;
                 let known = Known {
                     cost: inner,
                     diagnostics: recorded.into_vec().into(),
+                    optional: optional_events.into(),
                 };
                 self.calls.insert(call, known);
             }

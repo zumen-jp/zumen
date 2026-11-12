@@ -618,6 +618,8 @@ pub(crate) struct Collector<'c, 'x, 'd> {
     sheet: SheetId,
     /// OCG のオブジェクト → レイヤ
     ocgs: &'c BTreeMap<(u32, i32), LayerId>,
+    /// ページの全可視呼び出しで同じ単一 OCG を持つ、原本の画像ストリーム → OCG
+    image_layers: &'c BTreeMap<(u32, i32), (u32, i32)>,
     /// 間接オブジェクト → L1 のレコードの出所
     objects: &'c BTreeMap<(u32, i32), Ref>,
     /// 画像が、それ自身の間接オブジェクトかを見る（[`own_stream`]）。引いたコンテナーは、走査と同じ表に覚える
@@ -651,6 +653,7 @@ impl<'c, 'x, 'd> Collector<'c, 'x, 'd> {
         sheet: SheetId,
         page: Rect,
         ocgs: &'c BTreeMap<(u32, i32), LayerId>,
+        image_layers: &'c BTreeMap<(u32, i32), (u32, i32)>,
         objects: &'c BTreeMap<(u32, i32), Ref>,
         xref: &'d XRef,
         owned: &'c mut Owned<'d>,
@@ -662,6 +665,7 @@ impl<'c, 'x, 'd> Collector<'c, 'x, 'd> {
             source,
             sheet,
             ocgs,
+            image_layers,
             objects,
             xref,
             owned,
@@ -748,6 +752,11 @@ impl<'c, 'x, 'd> Collector<'c, 'x, 'd> {
     /// 要素を足す。ソフトマスクと合成の方法は移さないので、かかっていれば診断する。要素と、形が持つ配列のメモリ
     /// （[`shape_bytes`]）を数える
     fn add(&mut self, shape: Shape<PaperPoint>, style: Style) {
+        self.add_on_layer(shape, style, self.layer());
+    }
+
+    /// 事前走査で確定したレイヤで要素を足す。通常の追加と同じ予算・診断・順序を使う。
+    fn add_on_layer(&mut self, shape: Shape<PaperPoint>, style: Style, layer: LayerId) {
         if self.blended || self.groups.iter().any(|group| group.blended) {
             self.note_code(codes::PDF_TRANSPARENCY_APPROXIMATED);
         }
@@ -759,7 +768,7 @@ impl<'c, 'x, 'd> Collector<'c, 'x, 'd> {
         }
         self.elements.push(Element {
             source: self.source.clone(),
-            layer: self.layer(),
+            layer,
             style,
             shape,
         });
@@ -1377,13 +1386,29 @@ impl<'c, 'x, 'd> Collector<'c, 'x, 'd> {
                 .is_some_and(|value| value != 0);
         // 画像の XObject は、間接オブジェクトの参照（`n g R`）を名前にする。内容の中に書いた画像（BI … EI）と、辞書の
         // 値に直接書いた画像（7.3.8.1 に反する）は、名前を持たない
-        let (path, definition) = match own_stream(self.xref, self.owned, stream) {
+        let id = own_stream(self.xref, self.owned, stream);
+        let (path, definition) = match id {
             Some(id) => match self.objects.get(&id) {
                 Some(record) => (format!("{} {} R", id.0, id.1), record.clone()),
                 None => (String::new(), self.source.clone()),
             },
             None => (String::new(), self.source.clone()),
         };
+        // 呼び出す順に対応付けず、原本の画像と、その全呼び出しで確定した表示条件から引く。
+        // OC 辞書は装置で読み直さず、事前走査の結果だけを使う。
+        let mut layer = self.layer();
+        if let Some(id) = id
+            && !self.image_layers.is_empty()
+        {
+            if !self.spend(Kind::Work, 2) {
+                return;
+            }
+            if let Some(group) = self.image_layers.get(&id)
+                && let Some(found) = self.ocgs.get(group)
+            {
+                layer = *found;
+            }
+        }
         let style = Style {
             color: Inherit::Layer,
             line_type: Inherit::Layer,
@@ -1404,7 +1429,7 @@ impl<'c, 'x, 'd> Collector<'c, 'x, 'd> {
             clip: None,
             visible: true,
         };
-        self.add(Shape::Underlay(underlay), style);
+        self.add_on_layer(Shape::Underlay(underlay), style, layer);
     }
 }
 
