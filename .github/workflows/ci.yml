@@ -29,7 +29,7 @@ jobs:
     name: 表記の検査
     runs-on: ubuntu-latest
     outputs:
-      checks: ${{ steps.select.outputs.checks }}
+      plan: ${{ steps.select.outputs.plan }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -46,10 +46,11 @@ jobs:
             fi
           fi
           python3 .github/ci/checks.py select "$paths" >> "$GITHUB_OUTPUT"
-      - name: actionlint の配布物をハッシュで確かめ、すべてのワークフローを検査する
-        if: contains(fromJSON(steps.select.outputs.checks), 'workflows')
+      - name: CI の検査の選び方と、すべてのワークフローを確かめる
+        if: contains(fromJSON(steps.select.outputs.plan).checks, 'workflows')
         shell: bash
         run: |
+          python3 -m unittest discover -s .github/ci
           # actionlint 1.7.12（MIT）。バージョンと配布物の SHA-256 を固定する
           curl --fail --silent --show-error --location \
             --output "$RUNNER_TEMP/actionlint.tar.gz" \
@@ -60,11 +61,11 @@ jobs:
           # シェルと Python は対象にせず、環境によらず同じワークフローの規則を検査する
           "$RUNNER_TEMP/actionlint" -color -shellcheck= -pyflakes=
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        if: contains(fromJSON(steps.select.outputs.checks), 'text')
+        if: contains(fromJSON(steps.select.outputs.plan).checks, 'text')
         with:
           node-version: 22
       - name: 変更した文書・コメントの表記を確かめる
-        if: contains(fromJSON(steps.select.outputs.checks), 'text')
+        if: contains(fromJSON(steps.select.outputs.plan).checks, 'text')
         run: |
           npm ci --ignore-scripts --no-audit --no-fund
           python3 .github/ci/checks.py text "$RUNNER_TEMP/ci-paths"
@@ -72,47 +73,58 @@ jobs:
   lint:
     name: 書式・lint・生成物
     needs: checks
-    if: github.event_name == 'pull_request' || contains(fromJSON(needs.checks.outputs.checks), 'codegen')
+    if: contains(fromJSON(needs.checks.outputs.plan).checks, 'codegen') || contains(fromJSON(needs.checks.outputs.plan).checks, 'acc')
     runs-on: ubuntu-latest
     env:
-      CHECK_RUST: ${{ contains(fromJSON(needs.checks.outputs.checks), 'rust') }}
+      CARGO_ARGS: ${{ fromJSON(needs.checks.outputs.plan).cargo_args }}
+      CODECS: ${{ fromJSON(needs.checks.outputs.plan).codecs }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: rust-toolchain.toml のバージョンの Rust を入れる
         run: rustup toolchain install
-      - name: ワークスペースの書式と lint を確かめる
-        if: env.CHECK_RUST == 'true'
+      - name: 書式と、変更が及ぶ crate の lint を確かめる
+        if: contains(fromJSON(needs.checks.outputs.plan).checks, 'rust')
         run: |
           cargo fmt --all --check
-          cargo clippy --workspace --all-targets --locked -- -D warnings
-      - name: 領域モデルなしの 5 つの crate と CP932 の組も lint し、テストする（#718・#735）
-        if: env.CHECK_RUST == 'true'
+          read -ra packages <<< "$CARGO_ARGS"
+          cargo clippy "${packages[@]}" --all-targets --locked -- -D warnings
+      - name: ネイティブの適合テストを使わない変更はここでテストする
+        if: contains(fromJSON(needs.checks.outputs.plan).checks, 'rust') && !contains(fromJSON(needs.checks.outputs.plan).checks, 'native')
         run: |
-          for crate in zumen-acad zumen-pdf zumen-ifc zumen-jww zumen-sxf; do
+          read -ra packages <<< "$CARGO_ARGS"
+          cargo test --locked "${packages[@]}"
+      - name: 対象の形式を領域モデルなしでも lint し、テストする（#718・#735）
+        if: env.CODECS != ''
+        run: |
+          for crate in $CODECS; do
             cargo clippy --package "$crate" --no-default-features --all-targets --locked -- -D warnings
             cargo test --package "$crate" --no-default-features --locked
+            if [[ "$crate" == zumen-acad ]]; then
+              cargo clippy --package "$crate" --no-default-features --features cp932 --all-targets --locked -- -D warnings
+              cargo test --package "$crate" --no-default-features --features cp932 --locked
+            fi
           done
-          cargo clippy --package zumen-acad --no-default-features --features cp932 --all-targets --locked -- -D warnings
-          cargo test --package zumen-acad --no-default-features --features cp932 --locked
       - name: wasm32 でだけ使うコードも lint する
-        if: env.CHECK_RUST == 'true'
+        if: contains(fromJSON(needs.checks.outputs.plan).checks, 'abi')
         run: cargo clippy --package zumen-abi --target wasm32-unknown-unknown --locked -- -D warnings
-      - name: 分けた wasm のモジュール（feature を 1 つだけ入れたもの）も lint する（決定 0221）
-        if: env.CHECK_RUST == 'true'
+      - name: 分けた wasm のモジュールを lint し、各 feature の Rust テストを流す（決定 0221）
+        if: contains(fromJSON(needs.checks.outputs.plan).checks, 'abi')
         run: |
           for module in drawing bim civil pointcloud plugin; do
             cargo clippy --package zumen-abi --target wasm32-unknown-unknown --locked --no-default-features --features $module -- -D warnings
             cargo clippy --package zumen-abi --all-targets --locked --no-default-features --features $module -- -D warnings
+            cargo test --package zumen-abi --locked --no-default-features --features $module --test modules
           done
       - name: 台帳と生成物の更新漏れを確かめる
+        if: contains(fromJSON(needs.checks.outputs.plan).checks, 'codegen')
         run: cargo xtask codegen --check
       - name: BCF のオフライン検証キットに使う Python を入れる
-        if: env.CHECK_RUST == 'true'
+        if: contains(fromJSON(needs.checks.outputs.plan).checks, 'acc')
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.14'
       - name: BCF 2.1 のキットと、値・画像・出力先の比較器を確かめる（#787）
-        if: env.CHECK_RUST == 'true'
+        if: contains(fromJSON(needs.checks.outputs.plan).checks, 'acc')
         run: |
           python -I -m unittest discover -s xtask/verify/acc -p 'test_*.py'
           cargo build --package zumen-cli --locked
@@ -122,7 +134,7 @@ jobs:
   site:
     name: サイト
     needs: checks
-    if: contains(fromJSON(needs.checks.outputs.checks), 'site')
+    if: contains(fromJSON(needs.checks.outputs.plan).checks, 'site')
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -154,7 +166,7 @@ jobs:
     name: 試験（${{ matrix.name }}）
     needs: checks
     # Tier 1 のネイティブと wasm の適合テストは、PR ごとに流す（docs/support.md）。
-    if: github.event_name == 'pull_request' || contains(fromJSON(needs.checks.outputs.checks), 'native')
+    if: contains(fromJSON(needs.checks.outputs.plan).checks, 'native')
     strategy:
       fail-fast: false
       matrix:
@@ -195,14 +207,13 @@ jobs:
         if: matrix.target
         run: rustup target add ${{ matrix.target }}
       - name: Rust のテストと、OS・呼び出し規約ごとの適合テストを流す
-        if: github.event_name == 'pull_request' || contains(fromJSON(needs.checks.outputs.checks), 'rust')
+        if: github.event_name == 'pull_request' || contains(fromJSON(needs.checks.outputs.plan).checks, 'rust')
         shell: bash
         env:
-          WORKSPACE: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || (runner.os == 'Linux' && contains(fromJSON(needs.checks.outputs.checks), 'rust')) }}
+          CARGO_ARGS: ${{ runner.os == 'Linux' && fromJSON(needs.checks.outputs.plan).linux_args || fromJSON(needs.checks.outputs.plan).native_args }}
           TARGET: ${{ matrix.target }}
         run: |
-          packages=(-p zumen-abi -p zumen-c -p zumen-cli -p zumen-conformance)
-          if [[ "$WORKSPACE" == true ]]; then packages=(--workspace); fi
+          read -ra packages <<< "$CARGO_ARGS"
           cargo test --locked "${packages[@]}" ${TARGET:+--target "$TARGET"}
       - name: Python のラッパーの適合テストに使う Python を入れる
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -263,7 +274,7 @@ jobs:
   wasm:
     name: wasm32 で適合試験
     needs: checks
-    if: github.event_name == 'pull_request' || contains(fromJSON(needs.checks.outputs.checks), 'wasm')
+    if: contains(fromJSON(needs.checks.outputs.plan).checks, 'wasm')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -273,11 +284,10 @@ jobs:
         with:
           # docs/support.md の Node.js の下限
           node-version: 22
-      - name: 分けた wasm のモジュールを作り、持つ op と形式だけに答えることを確かめる（決定 0013・0221）
+      - name: 分けた wasm のモジュールを作る（決定 0013・0221）
         run: |
           mkdir -p modules
           for module in drawing bim civil pointcloud plugin; do
-            cargo test --package zumen-abi --locked --no-default-features --features $module --test modules
             cargo build --package zumen-abi --target wasm32-unknown-unknown --release --locked --no-default-features --features $module
             cp target/wasm32-unknown-unknown/release/zumen_abi1.wasm modules/zumen_abi1_$module.wasm
           done
@@ -292,6 +302,8 @@ jobs:
           node crates/zumen-render/tests/wasm.mjs target/wasm32-unknown-unknown/debug/examples/parity.wasm target/svg-check/transcript.bin
           node crates/zumen-render/tests/api.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm
       - name: 分けたモジュールをラッパーで読み込み、組に合うモジュールで流しても、同じハッシュの一覧になることを確かめる（決定 0221）
+        env:
+          ZUMEN_MEASURE_BROTLI: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
         run: node bindings/js/test/modules.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm modules/zumen_abi1_drawing.wasm modules/zumen_abi1_bim.wasm modules/zumen_abi1_civil.wasm modules/zumen_abi1_pointcloud.wasm modules/zumen_abi1_plugin.wasm
       - name: プラグインの形式だけを持つ wasm のモジュールを作り、読んだ図面を図面のモジュールで使えることを確かめる（決定 0243・0247）
         run: |
@@ -342,7 +354,7 @@ jobs:
   deny:
     name: 依存の検査
     needs: checks
-    if: github.event_name == 'pull_request' || contains(fromJSON(needs.checks.outputs.checks), 'deny')
+    if: contains(fromJSON(needs.checks.outputs.plan).checks, 'deny')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

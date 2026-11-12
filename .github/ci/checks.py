@@ -5,10 +5,13 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import tomllib
 
 
-ALL = {"rust", "native", "wasm", "codegen", "site", "deny", "workflows", "text"}
-CORE = {"rust", "native", "wasm", "codegen"}
+CORE = {"rust", "native", "wasm", "abi", "acc", "codegen"}
+ALL = CORE | {"site", "deny", "workflows", "text"}
+NATIVE = {"zumen-abi", "zumen-c", "zumen-cli", "zumen-conformance"}
+CODECS = {"zumen-acad", "zumen-pdf", "zumen-ifc", "zumen-jww", "zumen-sxf"}
 TEXT_CONFIG = {
     ".textlintignore", ".textlint-allow.yml", ".textlintrc.yml", ".textlintrc.code.yml",
     "prh.yml", "package.json", "package-lock.json",
@@ -23,7 +26,8 @@ def checks_for(path):
         return {"codegen"}  # 台帳から参照する文書と、生成する一覧
     if path.endswith(".md") and ("/" not in path or path.startswith(("docs/", ".github/"))):
         return set()
-    if path in {"catalog/README.md", "formats/README.md", "profiles/README.md", "schema/README.md"}:
+    if path in {"catalog/README.md", "formats/README.md", "profiles/README.md", "schema/README.md",
+                "xtask/verify/README.md", "xtask/verify/pdfjs/README.md", "xtask/verify/pdfmeasure/README.md"}:
         return set()
     if path.startswith(".github/workflows/") and path != ".github/workflows/ci.yml":
         # xtask はリリースで配る crate の一覧も読む。
@@ -43,21 +47,107 @@ def checks_for(path):
     if path.startswith(("samples/", "licenses/", "bindings/conformance/")):
         return CORE | {"site"}  # ビューアーも公開サンプルと適合テストの組を読む。
     if path.startswith(("crates/", "bindings/c/", "bindings/cli/", "templates/plugin/",
-                        "xtask/src/", "xtask/verify/acc/", "xtask/verify/pdfjs/",
-                        "catalog/", "formats/", "profiles/", "schema/")):
+                        "xtask/src/", "catalog/", "formats/", "profiles/", "schema/")):
         return CORE
+    if path.startswith("xtask/verify/acc/"):
+        return {"acc"}
     return ALL
 
 
-def selected_checks(paths):
-    if paths is None:
-        return ALL
+def affected_packages(sources, tests):
+    # Cargo.lock は任意・開発用・対象環境別の依存も持つ。選別だけのために
+    # ランナーへ Rust を入れずに、パス依存の利用側をたどる。
+    with open("Cargo.lock", "rb") as file:
+        locked = tomllib.load(file)["package"]
+    local = {
+        p["name"]: {dep.split(" ", 1)[0] for dep in p.get("dependencies", [])}
+        for p in locked if "source" not in p
+    }
+    names = {}
+    for directory in sources | tests:
+        manifest = Path(directory, "Cargo.toml")
+        if not manifest.is_file():
+            return None
+        with manifest.open("rb") as file:
+            name = tomllib.load(file).get("package", {}).get("name")
+        if name not in local:
+            return None
+        names[directory] = name
+
+    affected = {names[directory] for directory in sources}
+    while True:
+        users = {name for name, dependencies in local.items() if dependencies & affected}
+        if users <= affected:
+            break
+        affected.update(users)
+    return affected | {names[directory] for directory in tests}
+
+
+def select(paths, event):
+    full_run = event in {"schedule", "workflow_dispatch"}
+    if full_run:
+        paths = None
     checks = set()
-    for path in paths:
-        checks.update(checks_for(path))
+    sources, tests = set(), set()
+    for path in paths or []:
+        parts = path.split("/", 3)
+        directory = "/".join(parts[:2])
+        member = parts[0] == "crates" or directory in {"bindings/c", "bindings/cli", "templates/plugin"}
+        if path.startswith("xtask/src/"):
+            sources.add("xtask")
+        elif path.startswith(("bindings/c/include/", "bindings/cli/resources/")):
+            sources.add(directory)
+            if path == "bindings/c/include/zumen.h":
+                checks.add("wasm")  # wasm.mjs はヘッダーから ABI の版と状態コードを読む。
+        elif member and len(parts) == 4 and parts[2] in {"src", "tests", "examples"}:
+            # ABI と図面モデルは、利用側が有効にする feature でもテストする。
+            if parts[2] == "src" or parts[1] in {"zumen-abi", "zumen-drawing"}:
+                sources.add(directory)
+            else:
+                tests.add(directory)
+        elif path.startswith(("xtask/verify/pdfjs/", "xtask/verify/pdfmeasure/")) and not path.endswith(".md"):
+            tests.add("crates/zumen-pdf")
+            if path.startswith("xtask/verify/pdfjs/") and path != "xtask/verify/pdfjs/read.mjs":
+                checks.add("wasm")  # Canvas 2D は同じ pdf.js をブラウザーへ直接読み込む。
+        else:
+            checks.update(checks_for(path))
         if path.endswith((".md", *CODE_EXTENSIONS)) and Path(path).is_file():
             checks.add("text")
-    return checks
+
+    packages = set()
+    if paths is None:
+        checks.update(ALL)
+    if "rust" in checks:
+        packages = None
+    elif sources or tests:
+        packages = affected_packages(sources, tests)
+        checks.update({"rust", "codegen"})
+        if packages is None:
+            checks.update(ALL)
+        else:
+            if packages & NATIVE:
+                checks.add("native")
+            if packages & {"zumen-abi", "zumen-render", "zumen-plugin-template"}:
+                checks.add("wasm")
+            if "zumen-abi" in packages:
+                checks.add("abi")
+            if "zumen-cli" in packages:
+                checks.add("acc")
+
+    codecs = CODECS if packages is None else CODECS & packages
+    if event == "pull_request":
+        checks.update({"native", "wasm", "codegen", "deny"})
+    return {
+        "checks": sorted(checks),
+        "cargo_args": "--workspace" if packages is None else cargo_args(packages),
+        "codecs": " ".join(sorted(codecs)),
+        "native_args": "--workspace" if full_run else cargo_args(NATIVE),
+        "linux_args": "--workspace" if packages is None else cargo_args(packages | NATIVE),
+    }
+
+
+def cargo_args(packages):
+    return " ".join(f"-p {name}" for name in sorted(packages))
 
 
 def lint_text(paths):
@@ -82,7 +172,8 @@ if __name__ == "__main__":
     if diff.exists():
         paths = [os.fsdecode(name) for name in diff.read_bytes().split(b"\0") if name]
     if mode == "select":
-        print("checks=" + json.dumps(sorted(selected_checks(paths))))
+        plan = select(paths, os.environ.get("GITHUB_EVENT_NAME"))
+        print("plan=" + json.dumps(plan))
     elif mode == "text":
         lint_text(paths)
     else:
