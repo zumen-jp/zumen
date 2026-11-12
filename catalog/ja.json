@@ -268,6 +268,8 @@
     "pdf.color.dropped": "色空間「{space}」の色を移さず、レイヤの色にしました（{count} 件）。",
     "pdf.content.invalid": "展開できないか途中から読めない内容のストリームと XObject の内容を、移しませんでした（{count} 件）。",
     "pdf.dash.approximated": "破線の位相を移しませんでした（{count} 件）。",
+    "pdf.date.approximated": "文書の情報の日付「{field}」で省略された要素か時差を補って ISO 8601 の日時にしました（{count} 件）。",
+    "pdf.date.invalid": "文書の情報の日付「{field}」を読めなかったので、ISO 8601 の日時にしませんでした（{count} 件）。",
     "pdf.document.invalid": "相互参照とページの木を読めないので、PDF として読めません。",
     "pdf.document.unsupported": "読むとパニックするか、環境で結果が変わるおそれのある値があるので、読めません。",
     "pdf.encryption.unsupported": "パスワードが要るか、扱えない方式の暗号なので、読めません。",

@@ -268,6 +268,8 @@
     "pdf.color.dropped": "Did not move colours in the colour space \"{space}\" and used the layer colour instead ({count}).",
     "pdf.content.invalid": "Did not move content of content streams and XObjects that cannot be decoded or read to the end ({count}).",
     "pdf.dash.approximated": "Did not move the phase of dash patterns ({count}).",
+    "pdf.date.approximated": "Filled in omitted parts or time zone of the document date \"{field}\" to make an ISO 8601 date-time ({count}).",
+    "pdf.date.invalid": "Could not read the document date \"{field}\" as a PDF date, so no ISO 8601 date-time was made ({count}).",
     "pdf.document.invalid": "Cannot read the file as PDF: the cross-reference and the page tree cannot be read.",
     "pdf.document.unsupported": "Cannot read the PDF: it has values that could make the reader panic or read differently on other platforms.",
     "pdf.encryption.unsupported": "Cannot read the file: it needs a password or uses an unsupported encryption.",

@@ -1881,6 +1881,24 @@ group-by = ["id", "reason"]
 since = "0.2.0"
 status = "active"
 
+[codes."pdf.date.approximated"]
+description = "文書の情報の辞書の日付（CreationDate・ModDate）で省略された要素を既定値で補うか、時差のない日時を +00:00 として ISO 8601 の日時にした。原値と時差の有無は形式固有情報に残す。field は項目名（created・modified）"
+severity = "warning"
+fidelity = "approximated"
+params = { field = "text" }
+group-by = ["field"]
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.date.invalid"]
+description = "文書の情報の辞書の日付（CreationDate・ModDate）を PDF の日付として読めなかったので、ISO 8601 の日時にしなかった。原値は形式固有情報に残す。field は項目名（created・modified）"
+severity = "warning"
+fidelity = "dropped"
+params = { field = "text" }
+group-by = ["field"]
+since = "0.2.0"
+status = "active"
+
 [codes."pdf.measure.invalid"]
 description = "ビューポートの計測辞書の値を解釈できなかった。field は値の経路、reason は理由。読めた原値は形式固有情報に残す"
 severity = "warning"

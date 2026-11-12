@@ -2994,6 +2994,28 @@ pub const PDF_DASH_APPROXIMATED: Code = Code::new(
     &[],
 );
 
+/// 文書の情報の辞書の日付（CreationDate・ModDate）で省略された要素を既定値で補うか、時差のない日時を +00:00 として ISO 8601 の日時にした。原値と時差の有無は形式固有情報に残す。field は項目名（created・modified）
+///
+/// `pdf.date.approximated`（0.2.0 から）
+pub const PDF_DATE_APPROXIMATED: Code = Code::new(
+    "pdf.date.approximated",
+    Severity::Warning,
+    Some(Fidelity::Approximated),
+    &[Param::new("field", ParamType::Text)],
+    &["field"],
+);
+
+/// 文書の情報の辞書の日付（CreationDate・ModDate）を PDF の日付として読めなかったので、ISO 8601 の日時にしなかった。原値は形式固有情報に残す。field は項目名（created・modified）
+///
+/// `pdf.date.invalid`（0.2.0 から）
+pub const PDF_DATE_INVALID: Code = Code::new(
+    "pdf.date.invalid",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("field", ParamType::Text)],
+    &["field"],
+);
+
 /// 相互参照とページの木を、オブジェクトを探し直しても読めない
 ///
 /// `pdf.document.invalid`（0.2.0 から）
@@ -5126,6 +5148,8 @@ pub const ALL: &[Code] = &[
     PDF_COLOR_DROPPED,
     PDF_CONTENT_INVALID,
     PDF_DASH_APPROXIMATED,
+    PDF_DATE_APPROXIMATED,
+    PDF_DATE_INVALID,
     PDF_DOCUMENT_INVALID,
     PDF_DOCUMENT_UNSUPPORTED,
     PDF_ENCRYPTION_UNSUPPORTED,

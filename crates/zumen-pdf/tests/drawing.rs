@@ -881,7 +881,8 @@ fn moves_document_information() {
             .to_vec(),
     ];
     document.trailer = "/Info 3 0 R";
-    let (drawing, _) = lift(&document.bytes());
+    let (drawing, diagnostics) = lift(&document.bytes());
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
     let document = drawing
         .extensions
         .iter()
@@ -902,8 +903,266 @@ fn moves_document_information() {
                 "created",
                 FieldValue::Text("2026-10-23T09:30:00+09:00".to_owned())
             ),
+            (
+                "created/raw",
+                FieldValue::Bytes(b"D:20261023093000+09'00'".to_vec())
+            ),
+            ("created/utc_offset_known", FieldValue::Integer(1)),
             ("pages", FieldValue::Integer(1)),
         ]
+    );
+}
+
+#[test]
+fn preserves_raw_dates_timezone_presence_and_reports_approximations_and_invalid_dates() {
+    // 1. 時差なし（UT との関係が不明）と、秒の省略・負の 0 時間オフセット
+    let mut local = Document::new(vec![Page::new("")]);
+    local.objects =
+        vec![b"<< /CreationDate (D:20261023093000) /ModDate (D:199812231952-00'45') >>".to_vec()];
+    local.trailer = "/Info 3 0 R";
+    let bytes = local.bytes();
+    let file = testkit::read::<Pdf>(&bytes).0.unwrap();
+    let info_record = file
+        .records()
+        .iter()
+        .position(|record| record.object == Some((3, 0)))
+        .unwrap() as u64;
+    let (drawing, diagnostics) = lift(&bytes);
+    let doc_ext = drawing
+        .extensions
+        .iter()
+        .find(|extension| extension.namespace == "pdf.document")
+        .unwrap();
+    let fields: Vec<_> = doc_ext
+        .fields
+        .iter()
+        .map(|field| (field.key.as_ref(), field.value.clone()))
+        .collect();
+    assert_eq!(
+        fields,
+        [
+            (
+                "created",
+                FieldValue::Text("2026-10-23T09:30:00+00:00".to_owned())
+            ),
+            (
+                "created/raw",
+                FieldValue::Bytes(b"D:20261023093000".to_vec())
+            ),
+            ("created/utc_offset_known", FieldValue::Integer(0)),
+            (
+                "modified",
+                FieldValue::Text("1998-12-23T19:52:00-00:45".to_owned())
+            ),
+            (
+                "modified/raw",
+                FieldValue::Bytes(b"D:199812231952-00'45'".to_vec())
+            ),
+            ("modified/utc_offset_known", FieldValue::Integer(1)),
+            ("pages", FieldValue::Integer(1)),
+        ]
+    );
+    let approx: Vec<_> = diagnostics
+        .iter()
+        .filter(|d| d.code() == codes::PDF_DATE_APPROXIMATED)
+        .collect();
+    assert_eq!(approx.len(), 2, "{diagnostics:?}");
+    assert_eq!(
+        approx[0].param("field"),
+        Some(&zumen_base::Value::Text("created".to_owned()))
+    );
+    assert_eq!(approx[0].places()[0].record(), Some(info_record));
+    assert_eq!(
+        approx[1].param("field"),
+        Some(&zumen_base::Value::Text("modified".to_owned()))
+    );
+    assert_eq!(approx[1].places()[0].record(), Some(info_record));
+
+    // 2. Z 表記は厳密（近似診断なし、utc_offset_known = 1）、壊れた文字列と非文字列は invalid で原値を保持
+    let mut broken = Document::new(vec![Page::new("")]);
+    broken.objects = vec![b"<< /CreationDate (D:20260229093000Z) /ModDate 12345 >>".to_vec()];
+    broken.trailer = "/Info 3 0 R";
+    let (drawing, diagnostics) = lift(&broken.bytes());
+    let doc_ext = drawing
+        .extensions
+        .iter()
+        .find(|extension| extension.namespace == "pdf.document")
+        .unwrap();
+    let fields: Vec<_> = doc_ext
+        .fields
+        .iter()
+        .map(|field| (field.key.as_ref(), field.value.clone()))
+        .collect();
+    assert_eq!(
+        fields,
+        [
+            (
+                "created/raw",
+                FieldValue::Bytes(b"D:20260229093000Z".to_vec())
+            ),
+            ("modified/raw", FieldValue::Bytes(b"12345".to_vec())),
+            ("pages", FieldValue::Integer(1)),
+        ]
+    );
+    let invalid: Vec<_> = diagnostics
+        .iter()
+        .filter(|d| d.code() == codes::PDF_DATE_INVALID)
+        .map(|d| d.param("field").cloned())
+        .collect();
+    assert_eq!(
+        invalid,
+        [
+            Some(zumen_base::Value::Text("created".to_owned())),
+            Some(zumen_base::Value::Text("modified".to_owned())),
+        ]
+    );
+
+    // 3. トレーラーに直接書いた Info・間接参照の文字列・null 項目、および壊れた xref の走査復元
+    let mut direct_and_repaired = b"%PDF-1.7\n\
+        1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+        2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+        3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>\nendobj\n\
+        4 0 obj\n(D:20261023093000Z)\nendobj\n\
+        trailer\n<< /Root 1 0 R /Info << /CreationDate 4 0 R /ModDate null >> >>\n\
+        startxref\n999999\n%%EOF\n"
+        .to_vec();
+    let (drawing, diagnostics) = lift(&direct_and_repaired);
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    let doc_ext = drawing
+        .extensions
+        .iter()
+        .find(|extension| extension.namespace == "pdf.document")
+        .unwrap();
+    let fields: Vec<_> = doc_ext
+        .fields
+        .iter()
+        .map(|field| (field.key.as_ref(), field.value.clone()))
+        .collect();
+    assert_eq!(
+        fields,
+        [
+            (
+                "created",
+                FieldValue::Text("2026-10-23T09:30:00+00:00".to_owned())
+            ),
+            (
+                "created/raw",
+                FieldValue::Bytes(b"D:20261023093000Z".to_vec())
+            ),
+            ("created/utc_offset_known", FieldValue::Integer(1)),
+            ("pages", FieldValue::Integer(1)),
+        ]
+    );
+
+    // 4. 予算の境界（exact と used - 1）と中断の再現性
+    direct_and_repaired.clear();
+    let budgeted = local.bytes();
+    let file = testkit::read::<Pdf>(&budgeted).0.unwrap();
+    let mut ample = Budget::default();
+    let mut expected_diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let expected = file
+        .lift(&mut Cx::new(&mut ample, &mut expected_diag, &cancel))
+        .unwrap();
+    for kind in [zumen_base::Kind::DecodedBytes, zumen_base::Kind::Work] {
+        let used = ample.used(kind);
+        let mut exact_budget =
+            Budget::new(zumen_base::Limits::default().with(kind, zumen_base::Limit::Finite(used)));
+        let mut exact_diag = Diagnostics::new();
+        let actual = file
+            .lift(&mut Cx::new(&mut exact_budget, &mut exact_diag, &cancel))
+            .unwrap();
+        assert_eq!(actual, expected);
+        assert_eq!(exact_diag.into_vec(), expected_diag.clone().into_vec());
+
+        let mut short_budget = Budget::new(
+            zumen_base::Limits::default().with(kind, zumen_base::Limit::Finite(used - 1)),
+        );
+        let mut short_diag = Diagnostics::new();
+        let err = file.lift(&mut Cx::new(&mut short_budget, &mut short_diag, &cancel));
+        assert!(
+            matches!(err, Err(Error::Stopped(zumen_base::Stop::Exceeded(e))) if e.kind == kind),
+            "{kind:?}: {err:?}"
+        );
+    }
+
+    // 5. 相互参照ストリーム（7.5.8）とオブジェクトストリーム（7.5.7）の中の Info 辞書
+    let mut xref_objstm = b"%PDF-1.7\n".to_vec();
+    let mut entries = std::collections::BTreeMap::new();
+    let packed_info =
+        "30 0 << /CreationDate (D:202610230930) /ModDate (D:20261023093000+09'00') >>";
+    let obj_stm = common::stream("/Type /ObjStm /N 1 /First 5", packed_info.as_bytes());
+    for (num, body) in [
+        (1u32, b"<< /Type /Catalog /Pages 2 0 R >>".to_vec()),
+        (2, b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec()),
+        (
+            3,
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>".to_vec(),
+        ),
+        (5, obj_stm),
+    ] {
+        entries.insert(num, (1u8, xref_objstm.len() as u32));
+        xref_objstm.extend(format!("{num} 0 obj\n").as_bytes());
+        xref_objstm.extend(body);
+        xref_objstm.extend(b"\nendobj\n");
+    }
+    entries.insert(30, (2, 5));
+    let xref_pos = xref_objstm.len();
+    entries.insert(99, (1, xref_pos as u32));
+    let mut index = String::new();
+    let mut table = Vec::new();
+    for (num, (kind, field)) in entries {
+        index.push_str(&format!("{num} 1 "));
+        table.push(kind);
+        table.extend(field.to_be_bytes());
+        table.extend([0, 0]);
+    }
+    xref_objstm.extend(b"99 0 obj\n");
+    xref_objstm.extend(common::stream(
+        &format!("/Type /XRef /Size 100 /W [1 4 2] /Index [{index}] /Root 1 0 R /Info 30 0 R"),
+        table,
+    ));
+    xref_objstm.extend(format!("\nendobj\nstartxref\n{xref_pos}\n%%EOF\n").as_bytes());
+    let (drawing, diagnostics) = lift(&xref_objstm);
+    let doc_ext = drawing
+        .extensions
+        .iter()
+        .find(|extension| extension.namespace == "pdf.document")
+        .unwrap();
+    let fields: Vec<_> = doc_ext
+        .fields
+        .iter()
+        .map(|field| (field.key.as_ref(), field.value.clone()))
+        .collect();
+    assert_eq!(
+        fields,
+        [
+            (
+                "created",
+                FieldValue::Text("2026-10-23T09:30:00+00:00".to_owned())
+            ),
+            ("created/raw", FieldValue::Bytes(b"D:202610230930".to_vec())),
+            ("created/utc_offset_known", FieldValue::Integer(0)),
+            (
+                "modified",
+                FieldValue::Text("2026-10-23T09:30:00+09:00".to_owned())
+            ),
+            (
+                "modified/raw",
+                FieldValue::Bytes(b"D:20261023093000+09'00'".to_vec())
+            ),
+            ("modified/utc_offset_known", FieldValue::Integer(1)),
+            ("pages", FieldValue::Integer(1)),
+        ]
+    );
+    let approx: Vec<_> = diagnostics
+        .iter()
+        .filter(|d| d.code() == codes::PDF_DATE_APPROXIMATED)
+        .collect();
+    assert_eq!(approx.len(), 1, "{diagnostics:?}");
+    assert_eq!(
+        approx[0].param("field"),
+        Some(&zumen_base::Value::Text("created".to_owned()))
     );
 }
 

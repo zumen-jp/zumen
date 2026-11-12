@@ -213,7 +213,9 @@ hayro-syntax 0.9.0 は相互参照の表を作り直す際、文字列やコメ�
 
 ### 文書の情報
 
-- 文書の情報の辞書（14.3.3 節）の `Title`・`Author`・`Subject`・`Keywords`・`Creator`・`Producer` を文字列に、`CreationDate`・`ModDate` を ISO 8601 の日時に、ページの数を数にして、図面の拡張 `pdf.document`（バージョン 1）に持つ。拡張のバージョンの名前は、PDF のバージョン（ヘッダー（7.5.2 節）と、カタログの `Version`（7.7.2 節）の新しいほう）とする。時差を書かない日時（UT との関係が分からない、7.9.4 節）は、hayro-syntax が `Z` と見分けないので `+00:00` にする（推定）。
+- 文書の情報の辞書（14.3.3 節）の `Title`・`Author`・`Subject`・`Keywords`・`Creator`・`Producer` を文字列に、`CreationDate`・`ModDate` を ISO 8601 の日時に、ページの数を数にして、図面の拡張 `pdf.document`（バージョン 1）に持つ。拡張のバージョンの名前は、PDF のバージョン（ヘッダー（7.5.2 節）と、カタログの `Version`（7.7.2 節）の新しいほう）とする。
+- `CreationDate`（`created`）と `ModDate`（`modified`）は、ISO 8601 の文字列に加えて、元のバイト列を `created/raw`・`modified/raw`（`Bytes`。文字列なら復号・エスケープ解決後のバイト列、文字列以外なら元の字句のバイト列）に、UT との時差（`Z`・`+`・`-`）が書かれていたかを `created/utc_offset_known`・`modified/utc_offset_known`（`Integer` の `1` または `0`）に持つ。
+- 時差を書かない日時（UT との関係が分からない、7.9.4 節）は、`utc_offset_known` を `0` にし、ISO 8601 の文字列は `+00:00` で補って `pdf.date.approximated` を返す。省略された月・日・時・分・秒や時差の分を既定値（`01`・`00`）で補った日時も、`pdf.date.approximated` を返す。暦にない日や範囲外の値、末尾の余り、文字列でない値（`null` を除く）は、ISO 8601 の文字列を作らず原値だけを残して `pdf.date.invalid` を返す。診断の場所は `Info` 辞書のレコード（直接書いた辞書ならトレーラー、なければヘッダー）にする。
 
 ## 書き戻し
 

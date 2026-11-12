@@ -10,8 +10,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use hayro_interpret::{
     Context, InterpreterCache, InterpreterSettings, RenderContent, interpret_page,
 };
-use hayro_syntax::object::{Array, Dict, Name, Object, ObjectIdentifier, String as PdfString};
+use hayro_syntax::object::{
+    Array, Dict, MaybeRef, Name, Object, ObjectIdentifier, String as PdfString,
+};
 use hayro_syntax::page::Page;
+use hayro_syntax::reader::{Readable, Reader, ReaderContext, ReaderExt};
 use hayro_syntax::{LoadPdfError, Pdf as Document, PdfData, PdfVersion};
 use kurbo::{Affine, Rect};
 use zumen_base::{Diagnostic, Diagnostics, Kind, Ref, Stop, codes};
@@ -89,10 +92,12 @@ impl Lift<Drawing2D> for PdfFile {
                 } => (encrypted, largest_container, file_refs, table_bytes),
             };
         // 相互参照・ページの木を読む。壊れた相互参照は、オブジェクトを探し直して読む（hayro-syntax、7.5）
-        let document = load(&self.src).map_err(|error| not_loaded(cx, error, &header))?;
+        let (document, followed_table) =
+            load(&self.src).map_err(|error| not_loaded(cx, error, &header))?;
         let objects = objects(self);
         Lifter {
             document: &document,
+            followed_table,
             source: &self.src,
             original: self,
             has_object_streams: largest_container != 0,
@@ -126,22 +131,19 @@ fn not_loaded(cx: &mut Cx, error: LoadPdfError, place: &Ref) -> Error {
 /// するか、ページがあるかが環境で変わる。そこで、表を作り直さずにページの木を読めた文書だけをそのまま使い、ほかは、
 /// ファイルを走査した表で読み直す。走査した表では、同じ位置の項目のうち読めるものは 1 つで、作り直さないので、順で結果が
 /// 変わらない。読み直す前に 1 度目の文書を放すので、持つのは 1 つだけ。写しはファイルの大きさと数十バイトで、予算には数えない
-fn load(source: &[u8]) -> Result<Document, LoadPdfError> {
+fn load(source: &[u8]) -> Result<(Document, bool), LoadPdfError> {
     let first = Document::new(PdfData::from(with_witness(source)));
-    let keep = match &first {
-        Ok(document) => follows_table(document),
-        Err(LoadPdfError::Decryption(_)) => true,
-        Err(LoadPdfError::Invalid) => false,
-    };
-    if keep {
-        return first;
+    match first {
+        Ok(document) if follows_table(&document) => return Ok((document, true)),
+        Err(error @ LoadPdfError::Decryption(_)) => return Err(error),
+        Ok(first) => drop(first),
+        Err(LoadPdfError::Invalid) => {}
     }
-    drop(first);
     let mut bytes = Vec::with_capacity(source.len() + SEPARATOR.len() + NO_CROSS_REFERENCES.len());
     bytes.extend_from_slice(source);
     bytes.extend_from_slice(SEPARATOR);
     bytes.extend_from_slice(NO_CROSS_REFERENCES);
-    Document::new(PdfData::from(bytes))
+    Document::new(PdfData::from(bytes)).map(|document| (document, false))
 }
 
 /// 表を作り直さずに、ページの木を読めたか。探すのは木を読めないときだけで、作り直していなければ、読み込みのとき
@@ -231,6 +233,8 @@ fn stopped(cx: &mut Cx, stop: Stop, place: &Ref) -> Error {
 
 struct Lifter<'d, 'o> {
     document: &'d Document,
+    /// `root_xref` が表を作り直さずに読めた文書か
+    followed_table: bool,
     /// 読み込んだファイル
     source: &'d [u8],
     original: &'d PdfFile,
@@ -247,7 +251,7 @@ struct Lifter<'d, 'o> {
     drafts: Vec<Draft>,
 }
 
-impl Lifter<'_, '_> {
+impl<'d> Lifter<'d, '_> {
     fn run(mut self, cx: &mut Cx) -> Result<Drawing2D, Error> {
         let document = self.document;
         // 相互参照の表を作り直すなら、ページを読む前に作り直させる
@@ -470,7 +474,7 @@ impl Lifter<'_, '_> {
                 .map_err(|stop| stopped(cx, stop, &pending.source))?;
             sheet.order = (0..sheet.elements.len()).map(SheetItem::Element).collect();
         }
-        self.document_draft(pages.len(), version);
+        self.document_draft(pages.len(), version, cx)?;
 
         let drafts = core::mem::take(&mut self.drafts);
         let mut drawing = Drawing2D {
@@ -707,8 +711,14 @@ impl Lifter<'_, '_> {
         }
     }
 
-    /// 文書の情報の辞書（14.3.3）とページの数を、図面の拡張 `pdf.document` にする。バージョンは拡張のバージョンに持つ
-    fn document_draft(&mut self, pages: usize, version: PdfVersion) {
+    /// 文書の情報の辞書（14.3.3）とページの数を、図面の拡張 `pdf.document` にする。バージョンは拡張のバージョンに持つ。
+    /// `CreationDate`・`ModDate` は、原値のバイト列と時差の有無も保ち、省略された要素の補完と不正な値を診断する
+    fn document_draft(
+        &mut self,
+        pages: usize,
+        version: PdfVersion,
+        cx: &mut Cx<'_>,
+    ) -> Result<(), Error> {
         let info = self.document.metadata();
         let mut fields = Vec::new();
         let texts = [
@@ -728,19 +738,7 @@ impl Lifter<'_, '_> {
                 });
             }
         }
-        let dates = [
-            ("created", &info.creation_date),
-            ("modified", &info.modification_date),
-        ];
-        for (name, value) in dates {
-            if let Some(date) = value {
-                fields.push(Field {
-                    key: name.into(),
-                    code: None,
-                    value: FieldValue::Text(strings::date(date)),
-                });
-            }
-        }
+        self.document_dates(&mut fields, cx)?;
         fields.push(Field {
             key: "pages".into(),
             code: None,
@@ -755,7 +753,346 @@ impl Lifter<'_, '_> {
             fields,
             source: self.header.clone(),
         });
+        Ok(())
     }
+
+    /// アクティブなトレーラーの `Info`（14.3.3）から `CreationDate`・`ModDate` を読み、`pdf.document` の項目と診断にする。
+    /// `Info` を持たない文書では、予算を追加で使わない
+    fn document_dates(&self, fields: &mut Vec<Field>, cx: &mut Cx<'_>) -> Result<(), Error> {
+        let Some(trailer_bytes) = self.active_trailer_bytes() else {
+            return Ok(());
+        };
+        if !trailer_bytes.windows(5).any(|window| window == b"/Info")
+            && !trailer_bytes.windows(2).any(|window| window == b"/#")
+        {
+            return Ok(());
+        }
+        let trailer_place = self.slice_offset(trailer_bytes).map_or_else(
+            || self.header.clone(),
+            |at| place_ref(self.original, at, &self.header),
+        );
+        let run = |cx: &mut Cx<'_>| -> Result<Option<(Dict<'_>, Ref)>, Stop> {
+            self.streams.reserve_tables(2, cx)?;
+            cx.check(Kind::Work, (trailer_bytes.len() as u64).div_ceil(4))?;
+            let Some(trailer) =
+                Reader::new(trailer_bytes).read_with_context::<Dict<'_>>(&ReaderContext::dummy())
+            else {
+                return Ok(None);
+            };
+            let Some(info_entry) = trailer.get_raw::<RawValue<'_>>(b"Info") else {
+                return Ok(None);
+            };
+            let xref = self.document.xref();
+            match info_entry {
+                MaybeRef::Ref(info_ref) => {
+                    let id = ObjectIdentifier::from(info_ref);
+                    let place = self
+                        .objects
+                        .get(&key(id))
+                        .cloned()
+                        .unwrap_or_else(|| trailer_place.clone());
+                    self.streams.reserve_tables(4, cx)?;
+                    self.streams
+                        .reserve_scalar(self.streams.metadata_bound(), cx)?;
+                    let Some(info_dict) = xref.get::<Dict<'_>>(id) else {
+                        return Ok(None);
+                    };
+                    cx.check(Kind::Work, (info_dict.data().len() as u64).div_ceil(4))?;
+                    Ok(Some((info_dict, place)))
+                }
+                MaybeRef::NotRef(raw) => {
+                    self.streams.reserve_tables(2, cx)?;
+                    cx.check(Kind::Work, (raw.0.len() as u64).div_ceil(4))?;
+                    let Some(info_dict) =
+                        Reader::new(raw.0).read_with_context::<Dict<'_>>(&ReaderContext::dummy())
+                    else {
+                        return Ok(None);
+                    };
+                    Ok(Some((info_dict, trailer_place.clone())))
+                }
+            }
+        };
+        let Some((info_dict, info_place)) =
+            run(cx).map_err(|stop| stopped(cx, stop, &trailer_place))?
+        else {
+            return Ok(());
+        };
+        for (pdf_key, field_name) in [
+            (b"CreationDate".as_slice(), "created"),
+            (b"ModDate", "modified"),
+        ] {
+            self.document_date_entry(&info_dict, pdf_key, field_name, &info_place, fields, cx)
+                .map_err(|stop| stopped(cx, stop, &info_place))?;
+        }
+        Ok(())
+    }
+
+    fn document_date_entry(
+        &self,
+        info_dict: &Dict<'_>,
+        pdf_key: &[u8],
+        field_name: &str,
+        info_place: &Ref,
+        fields: &mut Vec<Field>,
+        cx: &mut Cx<'_>,
+    ) -> Result<(), Stop> {
+        if !info_dict.contains_key(pdf_key) {
+            return Ok(());
+        }
+        cx.check(Kind::Work, 1)?;
+        let raw_entry = info_dict.get_raw::<RawValue<'_>>(pdf_key);
+        let xref = self.document.xref();
+        let (object, fallback_raw, place) = match raw_entry {
+            Some(MaybeRef::Ref(val_ref)) => {
+                let id = ObjectIdentifier::from(val_ref);
+                let place = self
+                    .objects
+                    .get(&key(id))
+                    .cloned()
+                    .unwrap_or_else(|| info_place.clone());
+                self.streams.reserve_tables(4, cx)?;
+                self.streams
+                    .reserve_scalar(self.streams.metadata_bound(), cx)?;
+                let object = xref.get::<Object<'_>>(id);
+                let fallback = if matches!(object, None | Some(Object::Null(_))) {
+                    None
+                } else {
+                    crate::measure_numbers::Source::new(self.original, self.has_object_streams)
+                        .raw(id, cx)?
+                        .map(<[u8]>::to_vec)
+                };
+                (object, fallback, place)
+            }
+            Some(MaybeRef::NotRef(raw)) => {
+                self.streams.reserve_tables(2, cx)?;
+                self.streams.reserve_scalar(raw.0.len() as u64, cx)?;
+                let object = if info_dict.obj_id().is_some() {
+                    info_dict.get::<Object<'_>>(pdf_key)
+                } else {
+                    Reader::new(raw.0).read_with_context::<Object<'_>>(&ReaderContext::dummy())
+                };
+                (object, Some(raw.0.to_vec()), info_place.clone())
+            }
+            None => (None, None, info_place.clone()),
+        };
+
+        // 辞書の値が null なら、項目がないものと同じく扱う（7.3.9）
+        if matches!(object, Some(Object::Null(_))) {
+            return Ok(());
+        }
+
+        let Some(Object::String(pdf_str)) = object else {
+            if let Some(raw_bytes) = fallback_raw {
+                push_document_bytes(fields, &format!("{field_name}/raw"), &raw_bytes, cx)?;
+            }
+            cx.report(
+                Diagnostic::new(codes::PDF_DATE_INVALID)
+                    .with("field", field_name)
+                    .at(place),
+            );
+            return Ok(());
+        };
+
+        let bytes = pdf_str.as_bytes();
+        match strings::parse_date(bytes) {
+            Some(parsed) => {
+                push_document_field(fields, field_name, FieldValue::Text(parsed.iso), cx)?;
+                push_document_bytes(fields, &format!("{field_name}/raw"), bytes, cx)?;
+                push_document_field(
+                    fields,
+                    &format!("{field_name}/utc_offset_known"),
+                    FieldValue::Integer(i64::from(parsed.utc_offset_known)),
+                    cx,
+                )?;
+                if parsed.approximated {
+                    cx.report(
+                        Diagnostic::new(codes::PDF_DATE_APPROXIMATED)
+                            .with("field", field_name)
+                            .at(place),
+                    );
+                }
+            }
+            None => {
+                push_document_bytes(fields, &format!("{field_name}/raw"), bytes, cx)?;
+                cx.report(
+                    Diagnostic::new(codes::PDF_DATE_INVALID)
+                        .with("field", field_name)
+                        .at(place),
+                );
+            }
+        }
+        Ok(())
+    }
+
+    /// hayro-syntax が `Metadata` を読んだトレーラー辞書の元のバイト範囲
+    fn active_trailer_bytes(&self) -> Option<&'d [u8]> {
+        if self.followed_table {
+            root_trailer_bytes(self.source)
+        } else {
+            fallback_trailer_bytes(self.source, self.document.xref())
+        }
+    }
+
+    /// `self.source` の部分スライスなら、その先頭のバイト位置
+    fn slice_offset(&self, subslice: &[u8]) -> Option<usize> {
+        let base = self.source.as_ptr().addr();
+        let end = base.checked_add(self.source.len())?;
+        let ptr = subslice.as_ptr().addr();
+        (ptr >= base && ptr <= end).then(|| ptr - base)
+    }
+}
+
+struct RawValue<'a>(&'a [u8]);
+
+impl<'a> Readable<'a> for RawValue<'a> {
+    fn read(reader: &mut Reader<'a>, _: &ReaderContext<'a>) -> Option<Self> {
+        reader.skip::<Object<'_>>(false).map(Self)
+    }
+}
+
+fn push_document_bytes(
+    fields: &mut Vec<Field>,
+    key: &str,
+    bytes: &[u8],
+    cx: &mut Cx<'_>,
+) -> Result<(), Stop> {
+    cx.check(Kind::Work, (bytes.len() as u64).div_ceil(16))?;
+    cx.check(Kind::DecodedBytes, (bytes.len() as u64).saturating_mul(2))?;
+    push_document_field(fields, key, FieldValue::Bytes(bytes.to_vec()), cx)
+}
+
+fn push_document_field(
+    fields: &mut Vec<Field>,
+    key: &str,
+    value: FieldValue,
+    cx: &mut Cx<'_>,
+) -> Result<(), Stop> {
+    cx.check(Kind::Work, 1)?;
+    cx.check(
+        Kind::DecodedBytes,
+        512_u64.saturating_add((key.len() as u64).saturating_mul(2)),
+    )?;
+    fields.push(Field {
+        key: key.to_owned().into(),
+        code: None,
+        value,
+    });
+    Ok(())
+}
+
+/// `root_xref` が使うトレーラーの辞書のバイト列。最後の `startxref` が指す位置の相互参照ストリームの辞書か、
+/// `xref` の後ろの `trailer` の辞書を返す
+fn root_trailer_bytes(source: &[u8]) -> Option<&[u8]> {
+    let needle = b"startxref";
+    let startxref = source
+        .windows(needle.len())
+        .rposition(|window| window == needle)?;
+    let mut finder = Reader::new(source);
+    finder.jump(startxref);
+    finder.forward_tag(needle)?;
+    finder.skip_white_spaces_and_comments();
+    let xref_pos: usize = finder.read_without_context::<i32>()?.try_into().ok()?;
+    let mut reader = Reader::new(source);
+    if xref_pos > source.len() {
+        return None;
+    }
+    reader.jump(xref_pos);
+    reader.skip_white_spaces_and_comments();
+    if reader
+        .clone()
+        .read_without_context::<ObjectIdentifier>()
+        .is_some()
+    {
+        reader.read_without_context::<ObjectIdentifier>()?;
+        reader.skip_white_spaces_and_comments();
+        reader.skip::<Dict<'_>>(false)
+    } else {
+        reader.skip_white_spaces();
+        reader.forward_tag(b"xref")?;
+        reader.skip_white_spaces();
+        loop {
+            reader.skip_white_spaces();
+            let mut probe = reader.clone();
+            let Some(_start) = probe.read_without_context::<u32>() else {
+                break;
+            };
+            probe.skip_white_spaces();
+            let Some(count) = probe.read_without_context::<u32>() else {
+                break;
+            };
+            probe.skip_white_spaces();
+            let len = 20_usize.checked_mul(count as usize)?;
+            let next = probe.offset().checked_add(len)?;
+            if next > source.len() {
+                return None;
+            }
+            probe.jump(next);
+            reader = probe;
+        }
+        reader.skip_white_spaces();
+        reader.forward_tag(b"trailer")?;
+        reader.skip_white_spaces();
+        reader.skip::<Dict<'_>>(false)
+    }
+}
+
+/// `fallback` が選ぶトレーラーの辞書のバイト列。hayro-syntax の `fallback_xref_map_inner` と同じ字句走査で
+/// `Root` を持つ辞書を集め、解決した `Root` が `Pages` を持つ最後の辞書を返す
+fn fallback_trailer_bytes<'a>(
+    source: &'a [u8],
+    xref: &hayro_syntax::xref::XRef,
+) -> Option<&'a [u8]> {
+    let mut reader = Reader::new(source);
+    let dummy = ReaderContext::dummy();
+    let mut chosen = None;
+    while !reader.at_end() {
+        if reader.peek_byte().is_some_and(|byte| byte.is_ascii_digit()) {
+            if reader
+                .read_with_context::<ObjectIdentifier>(&dummy)
+                .is_none()
+            {
+                reader.forward_while(|byte| !is_pdf_white(byte));
+            }
+        } else if reader.peek_bytes(2) == Some(b"<<") {
+            let mut probe = reader.clone();
+            if let Some(dict_bytes) = probe.skip::<Dict<'_>>(false) {
+                reader = probe;
+                if (dict_bytes.windows(5).any(|window| window == b"/Root")
+                    || dict_bytes.windows(2).any(|window| window == b"/#"))
+                    && let Some(dict) =
+                        Reader::new(dict_bytes).read_with_context::<Dict<'_>>(&dummy)
+                    && let Some(root_entry) = dict.get_raw::<Dict<'_>>(b"Root")
+                {
+                    let valid = match root_entry {
+                        MaybeRef::Ref(root_ref) => xref
+                            .get::<Dict<'_>>(root_ref.into())
+                            .is_some_and(|catalog| catalog.contains_key(b"Pages")),
+                        MaybeRef::NotRef(catalog) => catalog.contains_key(b"Pages"),
+                    };
+                    if valid {
+                        chosen = Some(dict_bytes);
+                    }
+                }
+                continue;
+            }
+            step_non_white(&mut reader);
+        } else {
+            step_non_white(&mut reader);
+        }
+    }
+    chosen
+}
+
+fn step_non_white(reader: &mut Reader<'_>) {
+    let before = reader.offset();
+    reader.forward_while(|byte| !is_pdf_white(byte));
+    if reader.offset() == before {
+        let _ = reader.read_byte();
+    }
+}
+
+fn is_pdf_white(byte: u8) -> bool {
+    matches!(byte, 0x00 | 0x09 | 0x0a | 0x0c | 0x0d | 0x20)
 }
 
 /// hayro-interpret がページごとにカタログを読み直す作業の量（`Context::new` が表示の設定を読む）。カタログと、
