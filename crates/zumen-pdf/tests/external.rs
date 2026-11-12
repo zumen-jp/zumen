@@ -14,6 +14,8 @@ use zumen_base::Diagnostic;
 use zumen_drawing::{Drawing2D, Placement, Shape};
 use zumen_json::Value;
 
+#[path = "common/appearance.rs"]
+mod appearance_fixture;
 mod common;
 #[path = "common/image_ocg.rs"]
 mod image_fixture;
@@ -105,8 +107,16 @@ fn oracle() -> Option<PathBuf> {
 }
 
 fn read_external(path: &PathBuf, data: &[u8]) -> Value {
-    let mut child = Command::new("node")
-        .arg(path)
+    read_external_mode(path, data, false)
+}
+
+fn read_external_mode(path: &PathBuf, data: &[u8], annotations: bool) -> Value {
+    let mut command = Command::new("node");
+    command.arg(path);
+    if annotations {
+        command.arg("--annotations");
+    }
+    let mut child = command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -120,6 +130,107 @@ fn read_external(path: &PathBuf, data: &[u8]) -> Value {
         String::from_utf8_lossy(&output.stderr)
     );
     zumen_json::parse(&output.stdout).expect("pdf.js の出力が JSON でない")
+}
+
+#[test]
+fn compares_normal_appearance_selection_and_placement_with_pdfjs() {
+    use appearance_fixture::{Annotation, Appearance, LINE};
+    use kurbo::{Affine, Point};
+
+    let Some(oracle) = oracle() else { return };
+    let mut cases: Vec<_> = appearance_fixture::cases()
+        .into_iter()
+        .filter(|case| matches!(case.name, "placed" | "matrix" | "rotated-page" | "repeated"))
+        .map(|case| (case.name, case.fixture, 1, true))
+        .collect();
+    for selected in [Some("On"), Some("Off"), Some("Missing"), None] {
+        let fixture = appearance_fixture::make(
+            "",
+            &[
+                Appearance::new(LINE),
+                Appearance::new("0 0 m 10 10 l S 0 10 m 10 0 l S"),
+            ],
+            &[Annotation::states(&[("On", 0), ("Off", 1)], selected)],
+        );
+        cases.push((
+            "states",
+            fixture,
+            if selected == Some("On") { 1 } else { 2 },
+            matches!(selected, Some("On" | "Off")),
+        ));
+    }
+    let affine = |value: &Value| {
+        let values = array(value);
+        assert_eq!(values.len(), 6);
+        Affine::new(std::array::from_fn(|i| number(&values[i])))
+    };
+    for (name, fixture, lines_per_appearance, matching_selection) in cases {
+        let external = read_external_mode(&oracle, &fixture.bytes, true);
+        let page = &array(field(&external, "pages"))[0];
+        let annotations = array(field(page, "annotation_ops"));
+        let (drawing, diagnostics) = lift(&fixture.bytes);
+        let (original, _) = lift(&fixture.without_annotations);
+        if !matching_selection {
+            // pinned hayro は AS が選べなくても Off を使う。pdf.js 6.5.438 は何も選ばない。
+            assert!(annotations.is_empty(), "{external:?}");
+            assert_eq!(number(field(page, "paths")), 0.0);
+            assert_eq!(counts(&drawing).0, 2);
+            assert!(has_code(&diagnostics, "pdf.annotation.drawn"));
+            continue;
+        }
+        assert_eq!(
+            annotations.len(),
+            fixture.annotation_objects.len(),
+            "{name}"
+        );
+        assert_eq!(
+            counts(&drawing).0,
+            number(field(page, "paths")) as usize,
+            "{name}"
+        );
+        assert!(has_code(&diagnostics, "pdf.annotation.drawn"));
+        assert!(!has_code(&diagnostics, "pdf.annotation.unsupported"));
+        let native = &drawing.sheets[0].elements[original.sheets[0].elements.len()..];
+        assert_eq!(
+            native.len(),
+            annotations.len() * lines_per_appearance,
+            "{name}"
+        );
+        let viewport = affine(field(page, "page_transform"));
+        let height = number(field(page, "height"));
+        for (annotation, native) in annotations.iter().zip(native.chunks(lines_per_appearance)) {
+            let placed = viewport
+                * affine(field(annotation, "transform"))
+                * affine(field(annotation, "matrix"));
+            let Shape::Line { start, end } = native[0].shape else {
+                panic!("線分でない")
+            };
+            for (actual, local) in [(start, Point::ZERO), (end, Point::new(10.0, 10.0))] {
+                let expected = placed * local;
+                assert!(
+                    (actual.x - mm(expected.x)).abs() < 0.0001,
+                    "{name}: {actual:?}/{expected:?}"
+                );
+                assert!(
+                    (actual.y - mm(height - expected.y)).abs() < 0.0001,
+                    "{name}: {actual:?}/{expected:?}"
+                );
+            }
+        }
+    }
+    // pdf.js は AP 自身の OC を Form の条件として扱わない。hayro は隠れる Form を描かない。
+    let fixture = appearance_fixture::with_off(
+        "",
+        &[Appearance::new(LINE).extra("/OC 6 0 R")],
+        &[Annotation::new(0)],
+    );
+    let external = read_external_mode(&oracle, &fixture.bytes, true);
+    let page = &array(field(&external, "pages"))[0];
+    let (drawing, diagnostics) = lift(&fixture.bytes);
+    assert_eq!(number(field(page, "paths")), 1.0);
+    assert_eq!(array(field(page, "annotation_ops")).len(), 1);
+    assert_eq!(counts(&drawing).0, 0);
+    assert!(has_code(&diagnostics, "pdf.optional-content.dropped"));
 }
 
 fn field<'a>(value: &'a Value, key: &str) -> &'a Value {

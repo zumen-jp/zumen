@@ -9,6 +9,8 @@ cargo test -p zumen-pdf --test external
 
 `read.mjs` は標準入力の PDF を読み、結果を JSON で返します。外部のフォントや URL は取得せず、標準フォント・CMap・wasm は入れたパッケージから読みます。`--check` は起動を確かめ、pdf.js がなければ code 77 で終わります。Rust のテストは Node.js または pdf.js がなければ外部の照合だけを飛ばします。毎晩の CI では `ZUMEN_PDFJS_REQUIRED=1` を指定し、入っていなければ失敗にします。公開サンプルを読むテストは、外部のツールがなくても流れます。
 
+`--annotations` は注釈の通常外観も演算の一覧に含めます。`annotation_ops` の矩形・配置変換・外観の行列を、`page_transform` で用紙へ写し、zumen の線端点と比べます。状態の選択は異なる線の数でも確かめます。省略時は従来どおり注釈を除きます。`getTextContent` はページ本体の文字を返すため、この比較で注釈の文字を外部と照らしたとは扱いません。
+
 ## 比べること
 
 - `getViewport` の寸法と、図面モデルの用紙の寸法。回転・クロップ・`UserUnit` を含みます。
@@ -25,5 +27,7 @@ cargo test -p zumen-pdf --test external
 | --- | --- | --- |
 | `pdfium-type3.pdf` | `ToUnicode` がなく、字形名は `C1`。pdf.js はコード 65 を `A` にし、zumen は U+FFFD と `pdf.glyph.dropped` 3 件を返す（PDF 32000-2 の 9.10.2）。原点は比べる | #520 |
 | `pdfium-smask-blend.pdf` | pdf.js の演算の一覧はソフトマスク用の 2 経路も含むので 4、zumen は描画の 2 経路と `pdf.transparency.approximated` を返す（11.6.5） | #520 |
+| 注釈の状態の合成入力 | `AS` がないか、選べない名前で `Off` があるとき、hayro 0.9.0 と zumen は `Off` の外観を選ぶ。pdf.js 6.5.438 は外観を選ばず、演算が空になる。両方の線の数を固定して検査する | #520 |
+| 注釈の外観自身が非表示 OCG を持つ合成入力 | hayro 0.9.0 と zumen は外観を Form として扱い、隠れる内容を描かない。pdf.js 6.5.438 は外観自身の `OC` を適用せず描く。両方の線の数と zumen の欠落診断を固定して検査する | #520 |
 
 この比較はページを画像にして比べるものではありません。文字列の分け方が違う一般の PDF、切り抜き後の形、色・透明度・Type 3 の字形の見え方は、まだ比べていません。

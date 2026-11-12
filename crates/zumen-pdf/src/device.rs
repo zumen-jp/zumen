@@ -611,6 +611,12 @@ struct Group {
 }
 
 /// ページの内容を集める
+pub(crate) struct Collected {
+    pub(crate) elements: Vec<Element<PaperPoint>>,
+    placed: BTreeSet<(&'static str, String)>,
+}
+
+/// ページ本体か、注釈の描画期の内容を集める。
 pub(crate) struct Collector<'c, 'x, 'd> {
     cx: &'c mut Cx<'x>,
     /// 要素の出所（ページの最初の内容のストリームか、ページのオブジェクト）
@@ -618,7 +624,7 @@ pub(crate) struct Collector<'c, 'x, 'd> {
     sheet: SheetId,
     /// OCG のオブジェクト → レイヤ
     ocgs: &'c BTreeMap<(u32, i32), LayerId>,
-    /// ページの全可視呼び出しで同じ単一 OCG を持つ、原本の画像ストリーム → OCG
+    /// 同じ描画期の全可視呼び出しで同じ単一 OCG を持つ、原本の画像ストリーム → OCG
     image_layers: &'c BTreeMap<(u32, i32), (u32, i32)>,
     /// 間接オブジェクト → L1 のレコードの出所
     objects: &'c BTreeMap<(u32, i32), Ref>,
@@ -639,6 +645,8 @@ pub(crate) struct Collector<'c, 'x, 'd> {
     transfer: bool,
     /// 直前の塗りの字形の並び。続く同じ並びの線（描画モード 2）は、同じ文字にする
     last_fill_run: Option<RunKey>,
+    /// 注釈の描画期では、外観や内部フォームの切り抜きの境界をまたいで文字を統合しない。
+    annotation_phase: bool,
     /// 場所を添えた診断。同じ code と値の 2 つ目からは場所を添えない
     placed: BTreeSet<(&'static str, String)>,
     /// 予算か中断の合図で止めた理由
@@ -677,8 +685,35 @@ impl<'c, 'x, 'd> Collector<'c, 'x, 'd> {
             blended: false,
             transfer,
             last_fill_run: None,
+            annotation_phase: false,
             placed: BTreeSet::new(),
             stopped: None,
+        }
+    }
+
+    /// ページ本体の要素・様式・診断の場所を保ち、独立した Context で注釈の外観を追加する。
+    pub(crate) fn begin_annotations(&mut self, content: Collected, diagnostics: Vec<Diagnostic>) {
+        if self.stopped.is_some() {
+            return;
+        }
+        self.marks.clear();
+        self.groups.clear();
+        self.clips.truncate(1);
+        self.blended = false;
+        self.last_fill_run = None;
+        self.annotation_phase = true;
+        self.elements = content.elements;
+        self.placed = content.placed;
+        for diagnostic in diagnostics {
+            self.cx.report(diagnostic);
+        }
+    }
+
+    /// 要素と、場所を添えた診断の集合を、注釈の描画期まで移譲する。配列や集合は写さない。
+    pub(crate) fn finish(self) -> Collected {
+        Collected {
+            elements: self.elements,
+            placed: self.placed,
         }
     }
 
@@ -1537,6 +1572,9 @@ impl<'a> Device<'a> for Collector<'_, '_, '_> {
     }
 
     fn push_clip_path(&mut self, clip_path: &ClipPath) {
+        if self.annotation_phase {
+            self.last_fill_run = None;
+        }
         // 切り抜きの経路は装置の座標
         let clip = match path_bounds(&(to_mm() * clip_path.path.clone())) {
             Some(bounds) => self.clip().intersect(bounds.rect()),
@@ -1546,6 +1584,9 @@ impl<'a> Device<'a> for Collector<'_, '_, '_> {
     }
 
     fn push_clip_rect(&mut self, rect: &Rect) {
+        if self.annotation_phase {
+            self.last_fill_run = None;
+        }
         let clip = self.clip().intersect(to_mm().transform_rect_bbox(*rect));
         self.clips.push(clip);
     }
@@ -1593,6 +1634,9 @@ impl<'a> Device<'a> for Collector<'_, '_, '_> {
     }
 
     fn pop_clip(&mut self) {
+        if self.annotation_phase {
+            self.last_fill_run = None;
+        }
         // ページの切り抜きは残す
         if self.clips.len() > 1 {
             self.clips.pop();

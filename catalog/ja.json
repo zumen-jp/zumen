@@ -258,6 +258,7 @@
     "las.points.invalid": "点のレコードが短いので、{expected} 点のうち {found} 点だけを読みました。",
     "las.vertical-crs.unsupported": "高さの座標系 EPSG:{epsg} を扱えないので、高さの座標系を不明にしました。",
     "las.vlr.invalid": "可変長のレコードが範囲から外れるので、{expected} 個のうち {found} 個だけを読みました。",
+    "pdf.annotation.drawn": "注釈「{kind}」の通常外観だけを図形にし、内容・返信・操作などの情報は移しませんでした（{count} 件）。",
     "pdf.annotation.unsupported": "注釈「{kind}」を、図面モデルに移しませんでした（{count} 件）。",
     "pdf.clip.approximated": "切り抜きにかかる要素を、切らずに移しました（{count} 件）。",
     "pdf.clip.dropped": "切り抜きかページの外にあって見えない要素を、移しませんでした（{count} 件）。",

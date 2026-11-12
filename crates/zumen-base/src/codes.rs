@@ -2878,6 +2878,17 @@ pub const LAS_VLR_INVALID: Code = Code::new(
     &[],
 );
 
+/// 注釈の通常外観だけを図形へ移し、内容・返信・操作などの情報を移さなかった。kind は注釈の種類（Subtype）
+///
+/// `pdf.annotation.drawn`（0.2.0 から）
+pub const PDF_ANNOTATION_DRAWN: Code = Code::new(
+    "pdf.annotation.drawn",
+    Severity::Warning,
+    Some(Fidelity::Drawn),
+    &[Param::new("kind", ParamType::Text)],
+    &["kind"],
+);
+
 /// 注釈を、図面モデルに移さなかった。kind は注釈の種類（Subtype）
 ///
 /// `pdf.annotation.unsupported`（0.2.0 から）
@@ -5052,6 +5063,7 @@ pub const ALL: &[Code] = &[
     LAS_POINTS_INVALID,
     LAS_VERTICAL_CRS_UNSUPPORTED,
     LAS_VLR_INVALID,
+    PDF_ANNOTATION_DRAWN,
     PDF_ANNOTATION_UNSUPPORTED,
     PDF_CLIP_APPROXIMATED,
     PDF_CLIP_DROPPED,

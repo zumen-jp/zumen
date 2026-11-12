@@ -1845,6 +1845,15 @@ fidelity = "dropped"
 since = "0.2.0"
 status = "active"
 
+[codes."pdf.annotation.drawn"]
+description = "注釈の通常外観だけを図形へ移し、内容・返信・操作などの情報を移さなかった。kind は注釈の種類（Subtype）"
+severity = "warning"
+fidelity = "drawn"
+params = { kind = "text" }
+group-by = ["kind"]
+since = "0.2.0"
+status = "active"
+
 [codes."pdf.annotation.unsupported"]
 description = "注釈を、図面モデルに移さなかった。kind は注釈の種類（Subtype）"
 severity = "warning"

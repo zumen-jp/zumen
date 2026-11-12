@@ -13,6 +13,7 @@ try {
 if (pdfjs.version !== "6.5.438") throw new Error("pdf.js のバージョンが違う");
 if (process.argv[2] === "--check") process.exit(0);
 const { getDocument, OPS, AnnotationMode } = pdfjs;
+const annotations = process.argv.includes("--annotations");
 const operatorNames = new Map(Object.entries(OPS).map(([name, value]) => [value, name]));
 const resources = new URL("node_modules/pdfjs-dist/", import.meta.url);
 const resource = (name) => fileURLToPath(new URL(name, resources)).replaceAll("\\", "/");
@@ -46,6 +47,7 @@ function counts(operators, optional) {
   let paths = 0, images = 0;
   const fill_rules = [];
   const image_ops = [];
+  const annotation_ops = [];
   const visibility = [true];
   const marked = [null];
   const fills = new Set([OPS.fill, OPS.eoFill, OPS.fillStroke, OPS.eoFillStroke, OPS.closeFillStroke, OPS.closeEOFillStroke]);
@@ -54,7 +56,9 @@ function counts(operators, optional) {
   const singles = new Set([OPS.paintImageXObject, OPS.paintInlineImageXObject, OPS.paintImageMaskXObject, OPS.paintSolidColorImageMask]);
   operators.fnArray.forEach((op, index) => {
     const args = operators.argsArray[index];
-    if (op === OPS.beginMarkedContent || op === OPS.beginMarkedContentProps) {
+    if (op === OPS.beginAnnotation) {
+      annotation_ops.push({ id: args[0], rect: args[1], transform: args[2], matrix: args[3] });
+    } else if (op === OPS.beginMarkedContent || op === OPS.beginMarkedContentProps) {
       const visible = op !== OPS.beginMarkedContentProps || args[0] !== "OC" || optional.isVisible(args[1]);
       visibility.push(visibility.at(-1) && visible);
       marked.push(op === OPS.beginMarkedContentProps && args[0] === "OC" ? args[1] : null);
@@ -82,7 +86,7 @@ function counts(operators, optional) {
       } else images += count;
     }
   });
-  return { paths, images, fill_rules, image_ops };
+  return { paths, images, fill_rules, image_ops, annotation_ops };
 }
 
 try {
@@ -94,13 +98,13 @@ try {
     const page = await doc.getPage(i);
     const viewport = page.getViewport({ scale: 1 });
     const content = await page.getTextContent();
-    const operators = await page.getOperatorList({ annotationMode: AnnotationMode.DISABLE });
+    const operators = await page.getOperatorList({ annotationMode: annotations ? AnnotationMode.ENABLE : AnnotationMode.DISABLE });
     // pdf.js の表示の座標（Y が下）を、用紙の左下が原点・Y が上の pt にする。
     const texts = content.items.filter(item => item.str?.trim()).map(item => {
       const [x, y] = viewport.convertToViewportPoint(item.transform[4], item.transform[5]);
       return { text: item.str, x, y: viewport.height - y };
     });
-    pages.push({ width: viewport.width, height: viewport.height, texts, ...counts(operators, optional) });
+    pages.push({ width: viewport.width, height: viewport.height, page_transform: viewport.transform, texts, ...counts(operators, optional) });
     page.cleanup();
   }
   process.stdout.write(JSON.stringify({ version: pdfjs.version, optional_groups, pages }) + "\n");

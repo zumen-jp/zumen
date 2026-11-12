@@ -258,6 +258,7 @@
     "las.points.invalid": "The point records are short, so only {found} of {expected} points were read.",
     "las.vertical-crs.unsupported": "The vertical CRS EPSG:{epsg} is not supported, so the vertical CRS is unknown.",
     "las.vlr.invalid": "The variable length records run out of range, so only {found} of {expected} were read.",
+    "pdf.annotation.drawn": "Moved only the normal appearances of \"{kind}\" annotations as drawing elements; did not move contents, replies, actions, or other annotation information ({count}).",
     "pdf.annotation.unsupported": "Did not move \"{kind}\" annotations to the drawing model ({count}).",
     "pdf.clip.approximated": "Moved elements that cross the clip without cutting them ({count}).",
     "pdf.clip.dropped": "Did not move elements that are hidden outside the clip or the page ({count}).",

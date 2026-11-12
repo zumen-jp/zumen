@@ -2,8 +2,8 @@
 //!
 //! ページを用紙に、OCG（optional content group、8.11）をレイヤにする。ページの内容は、解釈する前に
 //! 走査して予算に数え（[`crate::walk`]）、hayro-interpret で解釈し、塗った経路・字形の並び・画像を要素にする
-//! （[`crate::device`]）。文書の情報とバージョンは、図面の拡張 `pdf.document` に持つ。注釈と縮尺の辞書は、まだ移さずに
-//! 診断する。
+//! （[`crate::device`]）。注釈の通常外観は、全ページ本体の後に追加し、既存の様式と要素の ID を保つ。
+//! 文書の情報とバージョンは、図面の拡張 `pdf.document` に持つ。移さない注釈と縮尺の辞書は診断する。
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -14,17 +14,17 @@ use hayro_syntax::object::{Array, Dict, Name, Object, ObjectIdentifier, String a
 use hayro_syntax::page::Page;
 use hayro_syntax::{LoadPdfError, Pdf as Document, PdfData, PdfVersion};
 use kurbo::{Affine, Rect};
-use zumen_base::{Diagnostic, Kind, Ref, Stop, codes};
+use zumen_base::{Diagnostic, Diagnostics, Kind, Ref, Stop, codes};
 use zumen_drawing::{
     Draft, Drawing2D, Field, FieldValue, Layer, LayerId, LayerState, PaperLength, Position, Sheet,
     SheetId, SheetItem,
 };
 use zumen_sdk::{Cx, Error, Lift};
 
-use crate::device::{Collector, DEVICE_PER_MM, PAGE_LAYER, Styles};
+use crate::device::{Collected, Collector, DEVICE_PER_MM, PAGE_LAYER, Styles};
 use crate::guard;
 use crate::page::{self, Geometry};
-use crate::walk::{self, Reads, Walker};
+use crate::walk::{self, Owned, Reads, Survey, Walker};
 use crate::{MAGIC, PdfFile, RecordKind, strings};
 
 /// 形式固有の情報の値の型の契約のバージョン（決定 0115）
@@ -44,6 +44,19 @@ const WITNESS_BODY: &[u8] = b" 0 obj\n1\nendobj\n";
 
 /// OCG の外の内容を置くレイヤの名前
 const PAGE_LAYER_NAME: &str = "0";
+
+/// 保留するページの値、表のハンドル、Vec が伸びる間の写しと、注釈用 Context の固定部分。
+const PENDING_BYTES: u64 = 8192;
+
+struct Pending<'d> {
+    index: usize,
+    geometry: Geometry,
+    source: Ref,
+    content: Collected,
+    survey: Survey,
+    owned: Owned<'d>,
+    diagnostics: Vec<Diagnostic>,
+}
 
 impl Lift<Drawing2D> for PdfFile {
     fn lift(&self, cx: &mut Cx) -> Result<Drawing2D, Error> {
@@ -264,13 +277,14 @@ impl Lifter<'_, '_> {
 
         // hayro-interpret の警告（読めないフォントなど）は、解釈の前の走査で場所を添えて診断にするので、受けない
         let settings = InterpreterSettings {
-            // 注釈の見た目は描かない（数を診断する）
+            // 全ページの本体を先に描き、既存の様式の ID を保つ。
             render_content: RenderContent::PAGE,
             ..InterpreterSettings::default()
         };
         let cache = InterpreterCache::new();
         let mut walker = Walker::new(reads, self.objects, &inactive, &ocgs, &settings);
         let mut sheets = Vec::with_capacity(pages.len());
+        let mut pending = Vec::new();
         for (index, page) in pages.iter().enumerate() {
             let label = labels.get(index).cloned().flatten();
             let source = page
@@ -283,7 +297,7 @@ impl Lifter<'_, '_> {
                 .map_err(|stop| stopped(cx, stop, &source))?;
             let sheet = SheetId(u32::try_from(index).unwrap_or(u32::MAX));
             let geometry = Geometry::of(page);
-            let elements = {
+            let (elements, annotations) = {
                 let content = self.content_source(page).unwrap_or_else(|| source.clone());
                 // hayro-interpret は、ページごとにカタログと表示の設定を読み直す
                 cx.check(Kind::Work, reread)
@@ -295,7 +309,7 @@ impl Lifter<'_, '_> {
                 // hayro-interpret がスタックかメモリを使い切るおそれのあるページは、解釈しない
                 if let Some(place) = survey.refused {
                     cx.report(Diagnostic::new(codes::PDF_PAGE_DROPPED).at(place));
-                    self.unread(page, reads, &source, cx)?;
+                    self.unread(page, reads, &source, false, cx)?;
                     sheets.push(Sheet {
                         id: sheet,
                         name: label,
@@ -307,8 +321,46 @@ impl Lifter<'_, '_> {
                     });
                     continue;
                 }
-                // 用紙の 1/1024 mm を、hayro-interpret の装置の単位にする
+                // 注釈の拒否や表示条件を、ページ本体へ混ぜない。診断は採用した外観を描くまで保留する。
+                let mut annotation_walk =
+                    Walker::new(reads, self.objects, &inactive, &ocgs, &settings);
+                let mut annotation_diagnostics = Diagnostics::with_max_places(cx.diag.max_places());
                 let device = Affine::scale(DEVICE_PER_MM) * geometry.user_space;
+                let annotations = if (geometry.width * DEVICE_PER_MM).is_finite()
+                    && (geometry.height * DEVICE_PER_MM).is_finite()
+                    && device.as_coeffs().iter().all(|value| value.is_finite())
+                {
+                    annotation_walk.annotations(
+                        page,
+                        &content,
+                        &walker,
+                        &mut Cx::new(cx.budget, &mut annotation_diagnostics, cx.cancel),
+                    )
+                } else {
+                    Ok(None)
+                };
+                let annotations = match annotations {
+                    Ok(annotations) => annotations,
+                    Err(stop) => {
+                        for diagnostic in annotation_diagnostics.into_vec() {
+                            cx.report(diagnostic);
+                        }
+                        return Err(stopped(cx, stop, &content));
+                    }
+                };
+                if annotations.is_some() {
+                    // 別 Context がカタログを再読する分と、保留・再開の固定量を、確保前に数える。
+                    let reserved = cx
+                        .check(Kind::Work, reread.saturating_add(1))
+                        .and_then(|()| cx.check(Kind::DecodedBytes, PENDING_BYTES));
+                    if let Err(stop) = reserved {
+                        for diagnostic in annotation_diagnostics.into_vec() {
+                            cx.report(diagnostic);
+                        }
+                        return Err(stopped(cx, stop, &content));
+                    }
+                }
+                // 用紙の 1/1024 mm を、hayro-interpret の装置の単位にする
                 let paper = Rect::new(0.0, 0.0, geometry.width, geometry.height);
                 let bbox = Rect::new(
                     0.0,
@@ -334,13 +386,26 @@ impl Lifter<'_, '_> {
                 if let Some(stop) = collector.stopped {
                     return Err(Error::Stopped(stop));
                 }
-                let elements = collector.elements;
+                let collected = collector.finish();
                 // 解釈の間に届いた中断の合図は、hayro-interpret が描かない間は見られないので、解釈の後に見る
                 cx.check(Kind::Work, 0)
                     .map_err(|stop| stopped(cx, stop, &content))?;
-                elements
+                if let Some(survey) = annotations {
+                    pending.push(Pending {
+                        index,
+                        geometry,
+                        source: content,
+                        content: collected,
+                        survey,
+                        owned: std::mem::take(annotation_walk.owned()),
+                        diagnostics: annotation_diagnostics.into_vec(),
+                    });
+                    (Vec::new(), true)
+                } else {
+                    (collected.elements, false)
+                }
             };
-            self.unread(page, reads, &source, cx)?;
+            self.unread(page, reads, &source, annotations, cx)?;
             let order = (0..elements.len()).map(SheetItem::Element).collect();
             sheets.push(Sheet {
                 id: sheet,
@@ -351,6 +416,53 @@ impl Lifter<'_, '_> {
                 order,
                 source,
             });
+        }
+        // 新しい線種・文字様式を、全ページ本体の既存の項目より後ろへ足す。
+        // 要素・診断の場所の集合は移譲するので、配列を写さず同じページの末尾へ続けられる。
+        let annotation_settings = InterpreterSettings {
+            render_content: RenderContent::ANNOTATIONS,
+            ..settings.clone()
+        };
+        for mut pending in pending {
+            let Some(page) = pages.get(pending.index) else {
+                continue;
+            };
+            let Some(sheet) = sheets.get_mut(pending.index) else {
+                continue;
+            };
+            cx.check(Kind::Work, 0)
+                .map_err(|stop| stopped(cx, stop, &pending.source))?;
+            let device = Affine::scale(DEVICE_PER_MM) * pending.geometry.user_space;
+            let paper = Rect::new(0.0, 0.0, pending.geometry.width, pending.geometry.height);
+            let bbox = Rect::new(
+                0.0,
+                0.0,
+                pending.geometry.width * DEVICE_PER_MM,
+                pending.geometry.height * DEVICE_PER_MM,
+            );
+            let mut context = Context::new(device, bbox, &cache, xref, annotation_settings.clone());
+            let mut collector = Collector::new(
+                cx,
+                pending.source.clone(),
+                sheet.id,
+                paper,
+                &ocgs,
+                &pending.survey.image_layers,
+                self.objects,
+                xref,
+                &mut pending.owned,
+                &mut self.styles,
+                pending.survey.transfer,
+            );
+            collector.begin_annotations(pending.content, pending.diagnostics);
+            interpret_page(page, &mut context, &mut collector);
+            if let Some(stop) = collector.stopped {
+                return Err(Error::Stopped(stop));
+            }
+            sheet.elements = collector.finish().elements;
+            cx.check(Kind::Work, 0)
+                .map_err(|stop| stopped(cx, stop, &pending.source))?;
+            sheet.order = (0..sheet.elements.len()).map(SheetItem::Element).collect();
         }
         self.document_draft(pages.len(), version);
 
@@ -476,16 +588,27 @@ impl Lifter<'_, '_> {
         Ok((layers, ocgs, inactive))
     }
 
-    /// まだ移さないものを診断する: 注釈（12.5）と、縮尺の辞書を持つビューポート（12.9）。注釈の診断は、注釈の
-    /// 辞書のレコードを場所にする（間接オブジェクトでなければ、ページ）
+    /// 注釈の外観だけを残したこと、未対応の注釈（12.5）と縮尺（12.9）を診断する。
+    /// 注釈の場所は、注釈の辞書のレコードにする（間接オブジェクトでなければページ）。
     fn unread(
         &self,
         page: &Page<'_>,
         reads: Reads<'_>,
         source: &Ref,
+        draw_appearances: bool,
         cx: &mut Cx,
     ) -> Result<(), Error> {
+        let reads = if draw_appearances {
+            reads.for_appearances()
+        } else {
+            reads
+        };
         let raw = page.raw();
+        if draw_appearances && raw.contains_key(b"VP") {
+            self.streams
+                .reserve_tables(8, cx)
+                .map_err(|stop| stopped(cx, stop, source))?;
+        }
         // hayro-syntax は項目を読むたびに参照を解き、型が違っても読み飛ばして確かめるので、辞書でない項目も数える
         let values = reads
             .value_work(raw, b"Annots")
@@ -494,35 +617,63 @@ impl Lifter<'_, '_> {
             .map_err(|stop| stopped(cx, stop, source))?;
         if let Some(annotations) = raw.get::<Array<'_>>(b"Annots") {
             let mut dicts = annotations.iter::<Dict<'_>>();
-            for item in annotations.raw_iter() {
-                cx.check(Kind::Work, reads.item_work(&item).saturating_add(1))
-                    .map_err(|stop| stopped(cx, stop, source))?;
+            let mut items = (!draw_appearances).then(|| annotations.raw_iter());
+            loop {
+                if let Some(items) = items.as_mut() {
+                    let Some(item) = items.next() else { break };
+                    cx.check(Kind::Work, reads.item_work(&item).saturating_add(1))
+                        .map_err(|stop| stopped(cx, stop, source))?;
+                }
                 let Some(annotation) = dicts.next() else {
                     break;
                 };
-                cx.check(Kind::Work, reads.value_work(&annotation, b"Subtype"))
-                    .map_err(|stop| stopped(cx, stop, source))?;
-                let kind = annotation
-                    .get::<Name<'_>>(b"Subtype")
-                    .map(|name| String::from_utf8_lossy(name.as_ref()).into_owned())
-                    .unwrap_or_default();
+                let drawn = if draw_appearances {
+                    // この再読も AP 走査の F の予約に含める。任意の scalar を Object にしない。
+                    annotation.get::<u32>(b"F").unwrap_or(0) & (2 | 32) == 0
+                } else {
+                    false
+                };
+                let kind = if draw_appearances {
+                    reads
+                        .annotation_kind(&annotation, cx)
+                        .map_err(|stop| stopped(cx, stop, source))?
+                } else {
+                    cx.check(Kind::Work, reads.value_work(&annotation, b"Subtype"))
+                        .map_err(|stop| stopped(cx, stop, source))?;
+                    annotation
+                        .get::<Name<'_>>(b"Subtype")
+                        .map(|name| String::from_utf8_lossy(name.as_ref()).into_owned())
+                        .unwrap_or_default()
+                };
                 let place = annotation
                     .obj_id()
                     .and_then(|id| self.objects.get(&key(id)).cloned())
                     .unwrap_or_else(|| source.clone());
-                cx.report(
-                    Diagnostic::new(codes::PDF_ANNOTATION_UNSUPPORTED)
-                        .with("kind", kind)
-                        .at(place),
-                );
+                // 外観を描けても注釈の内容・返信・操作は保持しない。hidden・no-view は従来の診断を残す。
+                let code = if drawn {
+                    codes::PDF_ANNOTATION_DRAWN
+                } else {
+                    codes::PDF_ANNOTATION_UNSUPPORTED
+                };
+                cx.report(Diagnostic::new(code).with("kind", kind).at(place));
             }
         }
         if let Some(viewports) = raw.get::<Array<'_>>(b"VP") {
             let mut measured = false;
             let mut dicts = viewports.iter::<Dict<'_>>();
-            for item in viewports.raw_iter() {
-                cx.check(Kind::Work, reads.item_work(&item).saturating_add(1))
-                    .map_err(|stop| stopped(cx, stop, source))?;
+            let mut items = (!draw_appearances).then(|| viewports.raw_iter());
+            loop {
+                if let Some(items) = items.as_mut() {
+                    let Some(item) = items.next() else { break };
+                    cx.check(Kind::Work, reads.item_work(&item).saturating_add(1))
+                        .map_err(|stop| stopped(cx, stop, source))?;
+                } else {
+                    self.streams
+                        .reserve_tables(4, cx)
+                        .map_err(|stop| stopped(cx, stop, source))?;
+                    cx.check(Kind::Work, 1)
+                        .map_err(|stop| stopped(cx, stop, source))?;
+                }
                 let Some(viewport) = dicts.next() else {
                     break;
                 };
