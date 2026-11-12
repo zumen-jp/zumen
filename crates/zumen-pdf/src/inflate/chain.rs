@@ -43,11 +43,13 @@ pub(super) fn before(
                 let bytes_before = cx.budget.used(Kind::DecodedBytes);
                 let work_before = cx.budget.used(Kind::Work);
                 let mut fallback = false;
+                let mut strict_attempts = 0;
                 let output_bound = match stage.filter {
                     Filter::FlateDecode => {
-                        fallback = super::count_fallback(&data, cx)?;
-                        // 厳しい展開と寛容な展開の試行は、どれも出力量以上を数える。
-                        cx.budget.used(Kind::DecodedBytes) - bytes_before
+                        let (bound, attempts, used_fallback) = super::count_fallback(&data, cx)?;
+                        strict_attempts = attempts;
+                        fallback = used_fallback;
+                        bound
                     }
                     Filter::LzwDecode => lzw::count_output(&data, stage.early, cx)?,
                     _ => {
@@ -57,29 +59,45 @@ pub(super) fn before(
                         length
                     }
                 };
-                // 失敗した試みと辞書を含むので、実際の出力長以上になる。
-                let bytes = cx.budget.used(Kind::DecodedBytes) - bytes_before;
-                let work = cx.budget.used(Kind::Work) - work_before;
-                // RunLength は既存の count が伸長も数える。Flate は最大 3 回の試み、
-                // LZW は 1 回の出力の Vec の、全確保の合計を数える。
+                let preflight_bytes = cx.budget.used(Kind::DecodedBytes) - bytes_before;
+                let preflight_work = cx.budget.used(Kind::Work) - work_before;
+                let (readers_work, readers_bytes) = allocation::flate_readers(strict_attempts);
+                // RunLength は既存の count が伸長も数える。Flate は厳しいリーダーの固定確保と
+                // 最大 3 回の試みの Vec 容量、LZW は 1 回の出力の Vec の全確保の合計を数える。
                 let (growth_work, growth_bytes) = match stage.filter {
                     Filter::FlateDecode => allocation::flate(data.len(), output_bound, fallback),
                     Filter::LzwDecode => allocation::lzw(output_bound),
                     _ => (0, 0),
                 };
                 let (predictor_work, predictor_bytes) = stage.predictor_cost(output_bound);
-                let extra_bytes = growth_bytes.saturating_add(predictor_bytes);
-                let extra_work = growth_work.saturating_add(predictor_work);
-                reserve(extra_work, extra_bytes, cx)?;
+                reserve(readers_work, readers_bytes, cx)?;
+                reserve(growth_work, growth_bytes, cx)?;
+                reserve(predictor_work, predictor_bytes, cx)?;
                 if index + 1 == stages.len() {
                     return Ok(true);
                 }
-                // 確認用の展開をもう 1 回行う分。最終的な hayro の展開の予約とは分ける。
-                reserve(
-                    work.saturating_add(extra_work),
-                    bytes.saturating_add(extra_bytes),
-                    cx,
-                )?;
+                // 確認用の展開をもう 1 回行う分。事前確認のデコーダーではなく、hayro 本展開の
+                // 出力（または辞書）・厳しいリーダー・Vec 容量・予測子の 1 回分を別に予約する。
+                let hayro_once_work = match stage.filter {
+                    Filter::FlateDecode => output_bound
+                        .div_ceil(16)
+                        .saturating_add(readers_work)
+                        .saturating_add(growth_work)
+                        .saturating_add(predictor_work),
+                    _ => preflight_work
+                        .saturating_add(growth_work)
+                        .saturating_add(predictor_work),
+                };
+                let hayro_once_bytes = match stage.filter {
+                    Filter::FlateDecode => output_bound
+                        .saturating_add(readers_bytes)
+                        .saturating_add(growth_bytes)
+                        .saturating_add(predictor_bytes),
+                    _ => preflight_bytes
+                        .saturating_add(growth_bytes)
+                        .saturating_add(predictor_bytes),
+                };
+                reserve(hayro_once_work, hayro_once_bytes, cx)?;
                 let Some(decoded) = decode(stage, &data, cx)? else {
                     return Ok(true);
                 };

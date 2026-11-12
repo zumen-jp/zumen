@@ -4303,7 +4303,7 @@ fn bounds_flate_object_streams_before_allocating_the_whole_output() {
             )];
             let file = testkit::read::<Pdf>(&document.bytes()).0.unwrap();
             let run = || {
-                let limits = Limits::default().with(Kind::DecodedBytes, Limit::Finite(32 * 1024));
+                let limits = Limits::default().with(Kind::DecodedBytes, Limit::Finite(80 * 1024));
                 let mut budget = Budget::new(limits);
                 let mut diagnostics = Diagnostics::new();
                 let cancel = CancelToken::new();
@@ -4311,7 +4311,7 @@ fn bounds_flate_object_streams_before_allocating_the_whole_output() {
                 assert!(
                     matches!(result,
                     Err(Error::Stopped(Stop::Exceeded(e)))
-                        if e.kind == Kind::DecodedBytes && e.requested < 48 * 1024),
+                        if e.kind == Kind::DecodedBytes && e.requested < 96 * 1024),
                     "{fields} {filter}: {result:?}"
                 );
                 let diagnostics = diagnostics.into_vec();
@@ -5312,7 +5312,7 @@ fn bounds_flate_content_and_forms_before_allocating_the_whole_output() {
             let file = testkit::read::<Pdf>(&source).0.unwrap();
             let run = || {
                 let mut budget = Budget::new(
-                    Limits::default().with(Kind::DecodedBytes, Limit::Finite(32 * 1024)),
+                    Limits::default().with(Kind::DecodedBytes, Limit::Finite(80 * 1024)),
                 );
                 let mut diagnostics = Diagnostics::new();
                 let cancel = CancelToken::new();
@@ -5320,7 +5320,7 @@ fn bounds_flate_content_and_forms_before_allocating_the_whole_output() {
                 // 展開後の 2 MiB ではなく、8 KiB ずつの確認の途中で止まる
                 assert!(
                     matches!(result, Err(Error::Stopped(Stop::Exceeded(e)))
-                    if e.kind == Kind::DecodedBytes && e.requested < 48 * 1024),
+                    if e.kind == Kind::DecodedBytes && e.requested < 96 * 1024),
                     "{filter}, {placement}: {result:?}"
                 );
                 let diagnostics = diagnostics.into_vec();

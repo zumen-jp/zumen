@@ -22,8 +22,8 @@ mod lzw;
 #[path = "common/resources.rs"]
 mod resources;
 
-/// 64 KiB の空白。32 KiB の予算を超える
-const PLAIN: usize = 64 * 1024;
+/// 128 KiB の空白。固定デコーダーの予約を含めても全量の確保前に止まる
+const PLAIN: usize = 128 * 1024;
 
 /// 前の段の後ろに続ける段。先頭でない Crypt（失敗する）、ASCIIHex（空白を捨てて縮める）、RunLength（終端で縮める）
 const TRAILING: [&str; 3] = ["/Crypt", "/AHx", "/RL"];
@@ -68,9 +68,9 @@ fn sequences() -> Vec<(String, Vec<u8>)> {
 
 #[test]
 fn counts_the_first_stage_before_trailing_filters_at_every_entry() {
-    let limits = Limits::default().with(Kind::DecodedBytes, Limit::Finite(32 * 1024));
+    let limits = Limits::default().with(Kind::DecodedBytes, Limit::Finite(80 * 1024));
     for (sequence, data) in sequences() {
-        assert!(data.len() < 4 * 1024, "{sequence}");
+        assert!(data.len() < 8 * 1024, "{sequence}");
         for trailing in TRAILING {
             for crypt in ["", "/Crypt "] {
                 let filter = format!("/Filter [{crypt}{sequence} {trailing}]");
@@ -78,7 +78,7 @@ fn counts_the_first_stage_before_trailing_filters_at_every_entry() {
                     let input = cases::document(case, &filter, &data, false, 2);
                     let result = run(&input, limits);
                     assert!(
-                        matches!(&result.0, Err(Error::Stopped(Stop::Exceeded(e))) if e.kind == Kind::DecodedBytes && e.requested < 48 * 1024),
+                        matches!(&result.0, Err(Error::Stopped(Stop::Exceeded(e))) if e.kind == Kind::DecodedBytes && e.requested < 96 * 1024),
                         "{case}, {filter}: {:?}",
                         result.0
                     );
@@ -178,7 +178,7 @@ fn bounds_second_and_third_expanding_stages_at_every_entry() {
         if last == "/LZW" {
             continue;
         }
-        // 第 1 段の出力は 2 KiB 未満。第 2・第 3 段の 64 KiB を確保する前に止める
+        // 第 1 段の出力は 4 KiB 未満。第 2・第 3 段の 128 KiB を確保する前に止める
         let chains = [
             (format!("/RL {last}"), literal_run_length(&inner)),
             (format!("/Fl {last}"), flate(&inner)),
@@ -188,7 +188,7 @@ fn bounds_second_and_third_expanding_stages_at_every_entry() {
             ),
         ];
         for (chain, data) in chains {
-            assert!(data.len() < 4 * 1024, "{chain}");
+            assert!(data.len() < 8 * 1024, "{chain}");
             for (prefix, data) in [
                 ("", data.clone()),
                 ("/Crypt ", data.clone()),
@@ -203,7 +203,7 @@ fn bounds_second_and_third_expanding_stages_at_every_entry() {
                         let result = run(&input, limits);
                         assert!(
                             matches!(&result.0, Err(Error::Stopped(Stop::Exceeded(e)))
-                                if e.kind == Kind::DecodedBytes && e.requested < 48 * 1024),
+                                if e.kind == Kind::DecodedBytes && e.requested < 96 * 1024),
                             "{case}, {filter}: {:?}",
                             result.0
                         );
@@ -253,18 +253,18 @@ fn keeps_rejecting_later_lzw_before_any_expanding_stage() {
 
 #[test]
 fn counts_expanded_stages_before_a_run_length_terminator() {
-    // 第 2 段は 64 KiB に戻すが、第 3 段は先頭の EOD で空にする
+    // 第 2 段は 128 KiB に戻すが、第 3 段は先頭の EOD で空にする
     let plain = vec![128; PLAIN];
     let inner = flate(&plain);
     let data = literal_run_length(&inner);
     let filter = "/Filter [/RL /Fl /RL]";
-    let limits = Limits::default().with(Kind::DecodedBytes, Limit::Finite(32 * 1024));
+    let limits = Limits::default().with(Kind::DecodedBytes, Limit::Finite(80 * 1024));
     for case in 0..cases::COUNT {
         let input = cases::document(case, filter, &data, false, 2);
         let result = run(&input, limits);
         assert!(
             matches!(&result.0, Err(Error::Stopped(Stop::Exceeded(e)))
-                if e.kind == Kind::DecodedBytes && e.requested < 48 * 1024),
+                if e.kind == Kind::DecodedBytes && e.requested < 96 * 1024),
             "{case}: {:?}",
             result.0
         );
