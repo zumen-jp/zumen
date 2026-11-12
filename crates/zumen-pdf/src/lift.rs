@@ -94,7 +94,6 @@ impl Lift<Drawing2D> for PdfFile {
         // 相互参照・ページの木を読む。壊れた相互参照は、オブジェクトを探し直して読む（hayro-syntax、7.5）
         let (document, followed_table) =
             load(&self.src).map_err(|error| not_loaded(cx, error, &header))?;
-        let objects = objects(self);
         Lifter {
             document: &document,
             followed_table,
@@ -107,7 +106,8 @@ impl Lift<Drawing2D> for PdfFile {
                 largest_container,
             )
             .with_file_refs(&file_refs, table_bytes),
-            objects: &objects,
+            active_xref: crate::xref::ActiveXref::default(),
+            objects: BTreeMap::new(),
             header,
             header_version,
             styles: Styles::default(),
@@ -203,18 +203,6 @@ fn place_ref(file: &PdfFile, at: usize, header: &Ref) -> Ref {
         .map_or_else(|| header.clone(), |index| record_ref(file, index))
 }
 
-/// 間接オブジェクトの番号と世代番号 → L1 のレコードの出所。増分の更新で同じ番号が何度も現れれば、後ろのものを使う
-/// （推定。相互参照が指すのは、ふつう最後に書いたもの）。オブジェクトのストリームの中のオブジェクトはない
-fn objects(file: &PdfFile) -> BTreeMap<(u32, i32), Ref> {
-    let mut out = BTreeMap::new();
-    for (index, record) in file.records.iter().enumerate() {
-        if let Some((number, generation)) = record.object {
-            out.insert((number, i32::from(generation)), record_ref(file, index));
-        }
-    }
-    out
-}
-
 /// OCG のオブジェクト → レイヤ
 type Groups = BTreeMap<(u32, i32), LayerId>;
 
@@ -231,7 +219,7 @@ fn stopped(cx: &mut Cx, stop: Stop, place: &Ref) -> Error {
     Error::Stopped(stop)
 }
 
-struct Lifter<'d, 'o> {
+struct Lifter<'d> {
     document: &'d Document,
     /// `root_xref` が表を作り直さずに読めた文書か
     followed_table: bool,
@@ -240,8 +228,10 @@ struct Lifter<'d, 'o> {
     original: &'d PdfFile,
     has_object_streams: bool,
     streams: crate::inflate::Source<'d>,
+    /// アクティブな相互参照表（`settle` 後に確定）
+    active_xref: crate::xref::ActiveXref,
     /// 間接オブジェクト → L1 のレコードの出所
-    objects: &'o BTreeMap<(u32, i32), Ref>,
+    objects: BTreeMap<(u32, i32), Ref>,
     /// ヘッダーのレコード
     header: Ref,
     /// ヘッダーのバージョン
@@ -251,7 +241,7 @@ struct Lifter<'d, 'o> {
     drafts: Vec<Draft>,
 }
 
-impl<'d> Lifter<'d, '_> {
+impl<'d> Lifter<'d> {
     fn run(mut self, cx: &mut Cx) -> Result<Drawing2D, Error> {
         let document = self.document;
         // 相互参照の表を作り直すなら、ページを読む前に作り直させる
@@ -260,8 +250,38 @@ impl<'d> Lifter<'d, '_> {
             walk::settle(document, reads, cx).map_err(|stop| stopped(cx, stop, &self.header))?;
         let reads = reads.with_file_targets(&file_targets);
         let xref = document.xref();
+        let active_followed_table = self.followed_table
+            && xref
+                .get::<Object<'_>>(ObjectIdentifier::new(WITNESS, 0))
+                .is_none();
+        self.followed_table = active_followed_table;
+        self.active_xref = crate::xref::ActiveXref::build(
+            self.original,
+            active_followed_table,
+            self.has_object_streams,
+            self.streams,
+            cx,
+        )
+        .map_err(|stop| stopped(cx, stop, &self.header))?;
+        let objects = self
+            .active_xref
+            .objects(self.original, &self.header, place_ref, record_ref, cx)
+            .map_err(|stop| stopped(cx, stop, &self.header))?;
+        self.objects = objects;
+        let objects = std::mem::take(&mut self.objects);
+        self.run_with_objects(reads, &objects, cx)
+    }
+
+    fn run_with_objects(
+        &mut self,
+        reads: Reads<'_>,
+        objects: &BTreeMap<(u32, i32), Ref>,
+        cx: &mut Cx,
+    ) -> Result<Drawing2D, Error> {
+        let document = self.document;
+        let xref = document.xref();
         let catalog = xref.get::<Dict<'_>>(xref.root_id());
-        let (layers, ocgs, inactive) = self.layers(catalog.as_ref(), cx)?;
+        let (layers, ocgs, inactive) = self.layers(catalog.as_ref(), objects, cx)?;
         let pages = document.pages();
         // ページの木の読めない項目は、hayro-syntax が黙って飛ばすので、診断にする（#555）。カタログの `Pages` の参照の先に
         // `Kids` の配列がなければ、hayro-syntax は木をたどらず、ファイルからページを探すので、数えない
@@ -274,7 +294,7 @@ impl<'d> Lifter<'d, '_> {
             let skipped = page::skipped_kids(reads, key(root), &tree, cx)
                 .map_err(|stop| stopped(cx, stop, &self.header))?;
             for owner in skipped {
-                let place = self.objects.get(&owner).cloned().unwrap_or_default();
+                let place = objects.get(&owner).cloned().unwrap_or_default();
                 cx.report(Diagnostic::new(codes::PDF_PAGE_TREE_DROPPED).at(place));
             }
         }
@@ -290,7 +310,7 @@ impl<'d> Lifter<'d, '_> {
             ..InterpreterSettings::default()
         };
         let cache = InterpreterCache::new();
-        let mut walker = Walker::new(reads, self.objects, &inactive, &ocgs, &settings);
+        let mut walker = Walker::new(reads, objects, &inactive, &ocgs, &settings);
         let mut sheets = Vec::with_capacity(pages.len());
         let mut pending = Vec::new();
         for (index, page) in pages.iter().enumerate() {
@@ -298,7 +318,7 @@ impl<'d> Lifter<'d, '_> {
             let source = page
                 .raw()
                 .obj_id()
-                .and_then(|id| self.objects.get(&key(id)).cloned())
+                .and_then(|id| objects.get(&key(id)).cloned())
                 .unwrap_or_default();
             // ページの値は、読むたびに参照を解く
             cx.check(Kind::Work, reads.dict_targets(page.raw()).saturating_add(1))
@@ -306,7 +326,7 @@ impl<'d> Lifter<'d, '_> {
             let sheet = SheetId(u32::try_from(index).unwrap_or(u32::MAX));
             let geometry = Geometry::of(page);
             let (elements, annotations) = {
-                let content = self.content_source(page).unwrap_or_else(|| source.clone());
+                let content = content_source(page, objects).unwrap_or_else(|| source.clone());
                 // hayro-interpret は、ページごとにカタログと表示の設定を読み直す
                 cx.check(Kind::Work, reread)
                     .map_err(|stop| stopped(cx, stop, &content))?;
@@ -317,8 +337,8 @@ impl<'d> Lifter<'d, '_> {
                 // hayro-interpret がスタックかメモリを使い切るおそれのあるページは、解釈しない
                 if let Some(place) = survey.refused {
                     cx.report(Diagnostic::new(codes::PDF_PAGE_DROPPED).at(place));
-                    self.unread(page, reads, &source, false, cx)?;
-                    self.measurements(page, sheet, geometry, reads, &source, cx)?;
+                    self.unread(page, reads, &source, objects, false, cx)?;
+                    self.measurements(page, sheet, geometry, reads, &source, objects, cx)?;
                     sheets.push(Sheet {
                         id: sheet,
                         name: label,
@@ -331,8 +351,7 @@ impl<'d> Lifter<'d, '_> {
                     continue;
                 }
                 // 注釈の拒否や表示条件を、ページ本体へ混ぜない。診断は採用した外観を描くまで保留する。
-                let mut annotation_walk =
-                    Walker::new(reads, self.objects, &inactive, &ocgs, &settings);
+                let mut annotation_walk = Walker::new(reads, objects, &inactive, &ocgs, &settings);
                 let mut annotation_diagnostics = Diagnostics::with_max_places(cx.diag.max_places());
                 let device = Affine::scale(DEVICE_PER_MM) * geometry.user_space;
                 let annotations = if (geometry.width * DEVICE_PER_MM).is_finite()
@@ -385,7 +404,7 @@ impl<'d> Lifter<'d, '_> {
                     paper,
                     &ocgs,
                     &survey.image_layers,
-                    self.objects,
+                    objects,
                     xref,
                     walker.owned(),
                     &mut self.styles,
@@ -414,8 +433,8 @@ impl<'d> Lifter<'d, '_> {
                     (collected.elements, false)
                 }
             };
-            self.unread(page, reads, &source, annotations, cx)?;
-            self.measurements(page, sheet, geometry, reads, &source, cx)?;
+            self.unread(page, reads, &source, objects, annotations, cx)?;
+            self.measurements(page, sheet, geometry, reads, &source, objects, cx)?;
             let order = (0..elements.len()).map(SheetItem::Element).collect();
             sheets.push(Sheet {
                 id: sheet,
@@ -458,13 +477,17 @@ impl<'d> Lifter<'d, '_> {
                 paper,
                 &ocgs,
                 &pending.survey.image_layers,
-                self.objects,
+                objects,
                 xref,
                 &mut pending.owned,
                 &mut self.styles,
                 pending.survey.transfer,
             );
-            collector.begin_annotations(pending.content, pending.diagnostics);
+            collector.begin_annotations(
+                pending.content,
+                pending.diagnostics,
+                pending.survey.annotation_steps,
+            );
             interpret_page(page, &mut context, &mut collector);
             if let Some(stop) = collector.stopped {
                 return Err(Error::Stopped(stop));
@@ -474,14 +497,15 @@ impl<'d> Lifter<'d, '_> {
                 .map_err(|stop| stopped(cx, stop, &pending.source))?;
             sheet.order = (0..sheet.elements.len()).map(SheetItem::Element).collect();
         }
-        self.document_draft(pages.len(), version, cx)?;
+        self.document_draft(pages.len(), version, objects, cx)?;
 
         let drafts = core::mem::take(&mut self.drafts);
+        let styles = core::mem::take(&mut self.styles);
         let mut drawing = Drawing2D {
             sheets,
             layers,
-            line_types: self.styles.line_type_list,
-            text_styles: self.styles.text_style_list,
+            line_types: styles.line_type_list,
+            text_styles: styles.text_style_list,
             ..Drawing2D::default()
         };
         drawing
@@ -490,22 +514,13 @@ impl<'d> Lifter<'d, '_> {
         Ok(drawing)
     }
 
-    /// ページの最初の内容のストリーム（`Contents`、7.7.3.3）の出所。要素の ID はこのレコードから作る（決定 0156）
-    fn content_source(&self, page: &Page<'_>) -> Option<Ref> {
-        let raw = page.raw();
-        let first = raw.get_ref(b"Contents").or_else(|| {
-            raw.get::<Array<'_>>(b"Contents")
-                .and_then(|streams| streams.raw_iter().find_map(|item| item.as_obj_ref()))
-        });
-        first.and_then(|id| self.objects.get(&key(id)).cloned())
-    }
-
     /// OCG（8.11.2）のレイヤと、既定で隠れる OCG。表示の状態は既定の設定（`OCProperties` の
     /// `D`、8.11.4.3）から決める。hayro-interpret は既定で隠れる OCG の内容を塗らないので、その内容は
     /// 読まずに診断する
     fn layers(
         &mut self,
         catalog: Option<&Dict<'_>>,
+        objects: &BTreeMap<(u32, i32), Ref>,
         cx: &mut Cx,
     ) -> Result<(Vec<Layer>, Groups, Inactive), Error> {
         let mut layers = vec![Layer {
@@ -557,7 +572,7 @@ impl<'d> Lifter<'d, '_> {
         inactive.retain(|group| !on.contains(group));
         inactive.extend(off.iter().copied());
         for id in items {
-            let source = self.objects.get(&key(id)).cloned().unwrap_or_default();
+            let source = objects.get(&key(id)).cloned().unwrap_or_default();
             cx.check(Kind::Work, 1)
                 .map_err(|stop| stopped(cx, stop, &source))?;
             let group = key(id);
@@ -605,6 +620,7 @@ impl<'d> Lifter<'d, '_> {
         page: &Page<'_>,
         reads: Reads<'_>,
         source: &Ref,
+        objects: &BTreeMap<(u32, i32), Ref>,
         draw_appearances: bool,
         cx: &mut Cx,
     ) -> Result<(), Error> {
@@ -620,11 +636,12 @@ impl<'d> Lifter<'d, '_> {
             .map_err(|stop| stopped(cx, stop, source))?;
         if let Some(annotations) = raw.get::<Array<'_>>(b"Annots") {
             let mut dicts = annotations.iter::<Dict<'_>>();
-            let mut items = (!draw_appearances).then(|| annotations.raw_iter());
+            let mut items = annotations.raw_iter();
             loop {
-                if let Some(items) = items.as_mut() {
-                    let Some(item) = items.next() else { break };
-                    cx.check(Kind::Work, reads.item_work(&item).saturating_add(1))
+                let item = items.next();
+                if !draw_appearances {
+                    let Some(item) = &item else { break };
+                    cx.check(Kind::Work, reads.item_work(item).saturating_add(1))
                         .map_err(|stop| stopped(cx, stop, source))?;
                 }
                 let Some(annotation) = dicts.next() else {
@@ -648,9 +665,13 @@ impl<'d> Lifter<'d, '_> {
                         .map(|name| String::from_utf8_lossy(name.as_ref()).into_owned())
                         .unwrap_or_default()
                 };
-                let place = annotation
-                    .obj_id()
-                    .and_then(|id| self.objects.get(&key(id)).cloned())
+                let place = item
+                    .and_then(|raw_item| raw_item.as_obj_ref())
+                    .and_then(|id| objects.get(&key(id)).cloned())
+                    .or_else(|| {
+                        raw.get_ref(b"Annots")
+                            .and_then(|id| objects.get(&key(id)).cloned())
+                    })
                     .unwrap_or_else(|| source.clone());
                 // 外観を描けても注釈の内容・返信・操作は保持しない。hidden・no-view は従来の診断を残す。
                 let code = if drawn {
@@ -673,6 +694,7 @@ impl<'d> Lifter<'d, '_> {
         geometry: Geometry,
         reads: Reads<'_>,
         source: &Ref,
+        objects: &BTreeMap<(u32, i32), Ref>,
         cx: &mut Cx<'_>,
     ) -> Result<(), Error> {
         let drafts = crate::measure::read(
@@ -684,9 +706,10 @@ impl<'d> Lifter<'d, '_> {
                 metadata: self.streams,
                 numbers: crate::measure_numbers::Source::new(
                     self.original,
-                    self.has_object_streams,
+                    &self.active_xref,
+                    self.streams,
                 ),
-                objects: self.objects,
+                objects,
                 source,
             },
             cx,
@@ -717,6 +740,7 @@ impl<'d> Lifter<'d, '_> {
         &mut self,
         pages: usize,
         version: PdfVersion,
+        objects: &BTreeMap<(u32, i32), Ref>,
         cx: &mut Cx<'_>,
     ) -> Result<(), Error> {
         let info = self.document.metadata();
@@ -738,7 +762,7 @@ impl<'d> Lifter<'d, '_> {
                 });
             }
         }
-        self.document_dates(&mut fields, cx)?;
+        self.document_dates(&mut fields, objects, cx)?;
         fields.push(Field {
             key: "pages".into(),
             code: None,
@@ -758,7 +782,12 @@ impl<'d> Lifter<'d, '_> {
 
     /// アクティブなトレーラーの `Info`（14.3.3）から `CreationDate`・`ModDate` を読み、`pdf.document` の項目と診断にする。
     /// `Info` を持たない文書では、予算を追加で使わない
-    fn document_dates(&self, fields: &mut Vec<Field>, cx: &mut Cx<'_>) -> Result<(), Error> {
+    fn document_dates(
+        &self,
+        fields: &mut Vec<Field>,
+        objects: &BTreeMap<(u32, i32), Ref>,
+        cx: &mut Cx<'_>,
+    ) -> Result<(), Error> {
         let Some(trailer_bytes) = self.active_trailer_bytes() else {
             return Ok(());
         };
@@ -786,8 +815,7 @@ impl<'d> Lifter<'d, '_> {
             match info_entry {
                 MaybeRef::Ref(info_ref) => {
                     let id = ObjectIdentifier::from(info_ref);
-                    let place = self
-                        .objects
+                    let place = objects
                         .get(&key(id))
                         .cloned()
                         .unwrap_or_else(|| trailer_place.clone());
@@ -821,18 +849,28 @@ impl<'d> Lifter<'d, '_> {
             (b"CreationDate".as_slice(), "created"),
             (b"ModDate", "modified"),
         ] {
-            self.document_date_entry(&info_dict, pdf_key, field_name, &info_place, fields, cx)
-                .map_err(|stop| stopped(cx, stop, &info_place))?;
+            self.document_date_entry(
+                &info_dict,
+                pdf_key,
+                field_name,
+                &info_place,
+                objects,
+                fields,
+                cx,
+            )
+            .map_err(|stop| stopped(cx, stop, &info_place))?;
         }
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn document_date_entry(
         &self,
         info_dict: &Dict<'_>,
         pdf_key: &[u8],
         field_name: &str,
         info_place: &Ref,
+        objects: &BTreeMap<(u32, i32), Ref>,
         fields: &mut Vec<Field>,
         cx: &mut Cx<'_>,
     ) -> Result<(), Stop> {
@@ -845,8 +883,7 @@ impl<'d> Lifter<'d, '_> {
         let (object, fallback_raw, place) = match raw_entry {
             Some(MaybeRef::Ref(val_ref)) => {
                 let id = ObjectIdentifier::from(val_ref);
-                let place = self
-                    .objects
+                let place = objects
                     .get(&key(id))
                     .cloned()
                     .unwrap_or_else(|| info_place.clone());
@@ -857,9 +894,13 @@ impl<'d> Lifter<'d, '_> {
                 let fallback = if matches!(object, None | Some(Object::Null(_))) {
                     None
                 } else {
-                    crate::measure_numbers::Source::new(self.original, self.has_object_streams)
-                        .raw(id, cx)?
-                        .map(<[u8]>::to_vec)
+                    crate::measure_numbers::Source::new(
+                        self.original,
+                        &self.active_xref,
+                        self.streams,
+                    )
+                    .raw(id, cx)?
+                    .map(std::borrow::Cow::into_owned)
                 };
                 (object, fallback, place)
             }
@@ -940,6 +981,16 @@ impl<'d> Lifter<'d, '_> {
         let ptr = subslice.as_ptr().addr();
         (ptr >= base && ptr <= end).then(|| ptr - base)
     }
+}
+
+/// ページの最初の内容のストリーム（`Contents`、7.7.3.3）の出所。要素の ID はこのレコードから作る（決定 0156）
+fn content_source(page: &Page<'_>, objects: &BTreeMap<(u32, i32), Ref>) -> Option<Ref> {
+    let raw = page.raw();
+    let first = raw.get_ref(b"Contents").or_else(|| {
+        raw.get::<Array<'_>>(b"Contents")
+            .and_then(|streams| streams.raw_iter().find_map(|item| item.as_obj_ref()))
+    });
+    first.and_then(|id| objects.get(&key(id)).cloned())
 }
 
 struct RawValue<'a>(&'a [u8]);

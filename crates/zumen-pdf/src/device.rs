@@ -29,7 +29,7 @@ use zumen_drawing::{
 use zumen_sdk::Cx;
 
 use crate::color::{self, Mapped};
-use crate::walk::{Owned, own_stream};
+use crate::walk::{AnnotationStep, Owned, own_stream};
 
 /// 用紙の 1 mm の装置の単位の数。2 の累乗なので、装置の座標を mm に戻しても値は変わらない。面積のない塗りを
 /// hayro-interpret は 1 装置単位の幅の線にするので、その線は 1/1024 mm の細い線になる
@@ -723,14 +723,16 @@ struct Group {
 /// ページの内容を集める
 pub(crate) struct Collected {
     pub(crate) elements: Vec<Element<PaperPoint>>,
-    placed: BTreeSet<(&'static str, String)>,
+    placed: BTreeSet<(Ref, &'static str, String)>,
 }
 
 /// ページ本体か、注釈の描画期の内容を集める。
 pub(crate) struct Collector<'c, 'x, 'd> {
     cx: &'c mut Cx<'x>,
-    /// 要素の出所（ページの最初の内容のストリームか、ページのオブジェクト）
+    /// 要素の出所（ページの最初の内容のストリームか、ページのオブジェクト、または注釈の辞書）
     source: Ref,
+    /// 注釈の描画期で区間外に戻すための既定の出所
+    default_source: Ref,
     sheet: SheetId,
     /// OCG のオブジェクト → レイヤ
     ocgs: &'c BTreeMap<(u32, i32), LayerId>,
@@ -757,8 +759,12 @@ pub(crate) struct Collector<'c, 'x, 'd> {
     last_fill_run: Option<RunKey>,
     /// 注釈の描画期では、外観や内部フォームの切り抜きの境界をまたいで文字を統合しない。
     annotation_phase: bool,
-    /// 場所を添えた診断。同じ code と値の 2 つ目からは場所を添えない
-    placed: BTreeSet<(&'static str, String)>,
+    /// 注釈ごとの出所と可視性の列、その現在位置、いま注釈自身の `OC` で描画を抑止しているか
+    annotation_steps: Vec<AnnotationStep>,
+    annotation_cursor: usize,
+    suppress_annotation: bool,
+    /// 場所を添えた診断。同じ出所・code・値の 2 つ目からは場所を添えない
+    placed: BTreeSet<(Ref, &'static str, String)>,
     /// 予算か中断の合図で止めた理由
     pub(crate) stopped: Option<Stop>,
 }
@@ -778,9 +784,11 @@ impl<'c, 'x, 'd> Collector<'c, 'x, 'd> {
         styles: &'c mut Styles,
         transfer: bool,
     ) -> Self {
+        let default_source = source.clone();
         Self {
             cx,
             source,
+            default_source,
             sheet,
             ocgs,
             image_layers,
@@ -796,13 +804,21 @@ impl<'c, 'x, 'd> Collector<'c, 'x, 'd> {
             transfer,
             last_fill_run: None,
             annotation_phase: false,
+            annotation_steps: Vec::new(),
+            annotation_cursor: 0,
+            suppress_annotation: false,
             placed: BTreeSet::new(),
             stopped: None,
         }
     }
 
     /// ページ本体の要素・様式・診断の場所を保ち、独立した Context で注釈の外観を追加する。
-    pub(crate) fn begin_annotations(&mut self, content: Collected, diagnostics: Vec<Diagnostic>) {
+    pub(crate) fn begin_annotations(
+        &mut self,
+        content: Collected,
+        diagnostics: Vec<Diagnostic>,
+        steps: Vec<AnnotationStep>,
+    ) {
         if self.stopped.is_some() {
             return;
         }
@@ -812,6 +828,9 @@ impl<'c, 'x, 'd> Collector<'c, 'x, 'd> {
         self.blended = false;
         self.last_fill_run = None;
         self.annotation_phase = true;
+        self.annotation_steps = steps;
+        self.annotation_cursor = 0;
+        self.suppress_annotation = false;
         self.elements = content.elements;
         self.placed = content.placed;
         for diagnostic in diagnostics {
@@ -862,12 +881,16 @@ impl<'c, 'x, 'd> Collector<'c, 'x, 'd> {
         }
     }
 
-    /// 診断を足す。ページの出所は、同じ code と値の最初の 1 件にだけ添える
+    /// 診断を足す。出所は、同じ出所・code・値の最初の 1 件にだけ添える
     fn note(&mut self, diagnostic: Diagnostic, value: &str) {
-        let diagnostic = if self
-            .placed
-            .insert((diagnostic.code().name(), value.to_owned()))
-        {
+        if self.suppress_annotation {
+            return;
+        }
+        let diagnostic = if self.placed.insert((
+            self.source.clone(),
+            diagnostic.code().name(),
+            value.to_owned(),
+        )) {
             diagnostic.at(self.source.clone())
         } else {
             diagnostic
@@ -1595,6 +1618,9 @@ impl<'c, 'x, 'd> Collector<'c, 'x, 'd> {
         if !self.spend(Kind::Work, count.saturating_add(1)) {
             return;
         }
+        if self.suppress_annotation {
+            return;
+        }
         self.last_fill_run = None;
         self.blended = blended(props.soft_mask.is_some(), props.blend_mode);
         let transform = to_mm() * props.transform;
@@ -1703,6 +1729,13 @@ impl<'a> Device<'a> for Collector<'_, '_, '_> {
     fn push_clip_path(&mut self, clip_path: &ClipPath) {
         if self.annotation_phase {
             self.last_fill_run = None;
+            if self.clips.len() == 1 {
+                if let Some(step) = self.annotation_steps.get(self.annotation_cursor) {
+                    self.source = step.source.clone();
+                    self.suppress_annotation = !step.visible;
+                }
+                self.annotation_cursor += 1;
+            }
         }
         // 切り抜きの経路は装置の座標
         let clip = match path_bounds(&(to_mm() * clip_path.path.clone())) {
@@ -1747,6 +1780,9 @@ impl<'a> Device<'a> for Collector<'_, '_, '_> {
         if !self.spend(Kind::Work, count.saturating_add(1)) {
             return;
         }
+        if self.suppress_annotation {
+            return;
+        }
         self.blended = blended(props.soft_mask.is_some(), props.blend_mode);
         self.glyph_run(glyph_run, &props, draw_mode);
         self.blended = false;
@@ -1754,6 +1790,9 @@ impl<'a> Device<'a> for Collector<'_, '_, '_> {
 
     fn draw_image(&mut self, image: Image<'a, '_>, props: ImageDrawProps<'a>) {
         if !self.spend(Kind::Work, 1) {
+            return;
+        }
+        if self.suppress_annotation {
             return;
         }
         self.last_fill_run = None;
@@ -1769,6 +1808,10 @@ impl<'a> Device<'a> for Collector<'_, '_, '_> {
         // ページの切り抜きは残す
         if self.clips.len() > 1 {
             self.clips.pop();
+            if self.annotation_phase && self.clips.len() == 1 {
+                self.suppress_annotation = false;
+                self.source = self.default_source.clone();
+            }
         }
     }
 

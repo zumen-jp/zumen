@@ -302,6 +302,7 @@
     "pdf.transparency.approximated": "ソフトマスク・画像のマスク・合成の方法を、移しませんでした（{count} 件）。",
     "pdf.type3.approximated": "Type 3 のフォントの字形を、書体のない文字にしました（{count} 件）。",
     "pdf.vertical-origin.approximated": "縦書きのフォント「{name}」の文字の基点を、既定の原点の移動で近似しました（{count} 件）。",
+    "pdf.visibility-expression.approximated": "OCMD の表示式（VE）を評価せず、OCGs と P だけで表示を決めました（{count} 件）。",
     "pdf.xobject.missing": "資源にないか、循環する参照で引けない XObject「{name}」を、移しませんでした（{count} 件）。",
     "ply.crs.missing": "PLY は座標系を書かないので、座標系を不明にしました。",
     "ply.element.dropped": "要素「{element}」の {found} 個は、点群のモデルに移しませんでした。",

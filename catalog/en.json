@@ -302,6 +302,7 @@
     "pdf.transparency.approximated": "Did not move soft masks, masks of images, and blend modes ({count}).",
     "pdf.type3.approximated": "Moved glyphs of Type 3 fonts as text without a typeface ({count}).",
     "pdf.vertical-origin.approximated": "Approximated the anchor of text in the vertical font \"{name}\" with the default origin displacement ({count}).",
+    "pdf.visibility-expression.approximated": "Did not evaluate visibility expressions (VE) of membership dictionaries (OCMD), and determined visibility from OCGs and P alone ({count}).",
     "pdf.xobject.missing": "Did not move the XObject \"{name}\", which is missing from the resources or unreachable through a reference cycle ({count}).",
     "ply.crs.missing": "PLY does not write a coordinate system, so the CRS is unknown.",
     "ply.element.dropped": "{found} items of the element \"{element}\" were not moved to the point cloud model.",

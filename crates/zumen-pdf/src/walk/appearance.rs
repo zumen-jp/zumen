@@ -9,6 +9,8 @@ use super::*;
 /// 外観の配置、外側の状態の保存と復元、root transform と切り抜きの固定分。
 const AP_WORK: u64 = 64;
 const AP_BYTES: u64 = 4096;
+/// 描画する注釈 1 件あたりの `AnnotationStep` の固定分。
+const STEP_BYTES: u64 = 256;
 /// BTreeSet の節と String の写しを含む、報告済み診断の 1 項目の固定分。
 const REPORTED_BYTES: u64 = 1024;
 
@@ -68,9 +70,12 @@ impl<'a> Walker<'a, '_> {
         self.reads = self.reads.for_appearances();
 
         let mut found = Diagnostics::with_max_places(cx.diag.max_places());
+        let mut annotation_steps = Vec::new();
         let surveyed = self.survey_annotations(
             page,
+            place,
             page_walk,
+            &mut annotation_steps,
             &mut Cx::new(cx.budget, &mut found, cx.cancel),
         );
         let selected = match surveyed {
@@ -107,13 +112,16 @@ impl<'a> Walker<'a, '_> {
             transfer: self.transfer,
             refused: None,
             image_layers,
+            annotation_steps,
         }))
     }
 
     fn survey_annotations(
         &mut self,
         page: &Page<'a>,
+        default_source: &Ref,
         page_walk: &Self,
+        steps: &mut Vec<AnnotationStep>,
         cx: &mut Cx<'_>,
     ) -> Result<bool, Stop> {
         // interpret::interpret_page は Annots の辞書でない最初の項目で反復を終える。
@@ -163,10 +171,6 @@ impl<'a> Walker<'a, '_> {
             if annotation.get::<u32>(b"F").unwrap_or(0) & 0x22 != 0 {
                 continue;
             }
-            // hayro は注釈自身の OC を見ない。条件を失って描かないよう、群全体を従来の診断へ戻す。
-            if annotation.contains_key(b"OC") {
-                return Ok(false);
-            }
             let Some(stream) = self.ap_stream(&annotation, cx)? else {
                 return Ok(false);
             };
@@ -189,10 +193,43 @@ impl<'a> Walker<'a, '_> {
                 }
                 self.reported.clone_from(&page_walk.reported);
             }
+            let id = self.own(&stream);
+            let annot_source = match item {
+                MaybeRef::Ref(annot_ref) => self
+                    .objects
+                    .get(&key(annot_ref))
+                    .cloned()
+                    .unwrap_or_else(|| default_source.clone()),
+                MaybeRef::NotRef(_) => id
+                    .and_then(|ap_id| self.objects.get(&ap_id).cloned())
+                    .or_else(|| {
+                        page.raw()
+                            .get_ref(b"Annots")
+                            .and_then(|arr_ref| self.objects.get(&key(arr_ref)).cloned())
+                    })
+                    .unwrap_or_else(|| default_source.clone()),
+            };
+            // hayro は注釈自身の OC（12.5.2）を見ない。先に評価し、隠れる場合は解釈器の実行分だけ数えて装置で抑止する。
+            let _ = self.ap_scalar_value(&annotation, b"OC", TARGET_DEPTH, cx)?;
+            if !self.appearance_valid {
+                return Ok(false);
+            }
+            if let Some(group) = annotation.get::<Dict<'_>>(b"OC") {
+                let groups = group
+                    .get::<Array<'_>>(b"OCGs")
+                    .map_or(0, |groups| lookup_work(groups.data()));
+                cx.check(Kind::Work, self.reread_dict(&group).saturating_add(groups))?;
+            }
+            let annot_oc = self.optional(&annotation, None, &annot_source, cx)?;
+            if annot_oc.is_none() && annotation.contains_key(b"OC") {
+                return Ok(false);
+            }
+            let annot_shown = annot_oc.is_none_or(|(shown, _)| shown);
             // FormXObject::new は Subtype を確かめず、選ばれた N を直接 Form として読む。
             // 通常の Do の前段と、注釈にだけある外側の状態・配置の分も、先に数える。
             self.reads.source.reserve_tables(16, cx)?;
             cx.check(Kind::Work, self.reread_stream(&stream))?;
+            let mut ap_shown = true;
             if let Some(group) = stream.dict().get::<Dict<'_>>(b"OC") {
                 let groups = group
                     .get::<Array<'_>>(b"OCGs")
@@ -202,10 +239,17 @@ impl<'a> Walker<'a, '_> {
                     self.reread_dict(&group)
                         .saturating_add(groups.saturating_mul(2)),
                 )?;
+                ap_shown = match stream.dict().get_ref(b"OC") {
+                    Some(reference) => self.membership(&group, key(reference)).0,
+                    None => self.ocmd(&group),
+                };
             }
-            let id = self.own(&stream);
+            if let Some((shown, context)) = annot_oc {
+                self.optional_content.push(context, cx)?;
+                self.visible.push(shown);
+            }
             let place = self.record(stream.dict().obj_id());
-            self.form(
+            let form_result = self.form(
                 &stream,
                 id,
                 &place,
@@ -214,9 +258,23 @@ impl<'a> Walker<'a, '_> {
                 0,
                 Graphics::default(),
                 cx,
-            )?;
+            );
+            if annot_oc.is_some() {
+                self.end_marked();
+            }
+            form_result?;
             if !self.appearance_valid || self.refused.is_some() {
                 return Ok(false);
+            }
+            // AP 自身の OC が既定で非表示なら FormXObject::draw は装置を呼ばずに戻る。
+            // 可視の AP だけ push_clip_path .. pop_clip の 1 区間を作る。
+            if ap_shown {
+                cx.check(Kind::Work, 1)?;
+                cx.check(Kind::DecodedBytes, STEP_BYTES)?;
+                steps.push(AnnotationStep {
+                    source: annot_source,
+                    visible: annot_shown,
+                });
             }
             any = true;
         }

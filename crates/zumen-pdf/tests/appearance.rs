@@ -351,7 +351,8 @@ fn falls_back_as_a_group_for_unsupported_annotations_and_bad_geometry() {
     let page = "1 1 m 2 2 l S";
     let infinite = "9".repeat(400);
     for annotation in [
-        Annotation::new(0).extra("/OC 5 0 R"),
+        Annotation::new(0).extra("/OC 17"),
+        Annotation::new(0).extra("/OC 99 0 R"),
         Annotation::missing(),
         Annotation::raw("99 0 R"),
         Annotation::raw("17"),
@@ -827,4 +828,124 @@ fn reserves_deep_balanced_graphics_stacks_and_can_retry_after_stopping() {
         .unwrap();
     assert_eq!(retried, expected);
     assert_eq!(diagnostics.into_vec(), expected_diagnostics);
+}
+
+#[test]
+fn evaluates_annotation_optional_content_and_records_per_annotation_provenance() {
+    // 2 つの注釈が同じ AP ストリームを共有し、DeviceCMYK を描く。
+    // 要素と装置診断の出所はそれぞれの注釈レコードになり、ページ本体の出所と ID は変わらない。
+    let shared = fixture::make(
+        "1 1 m 2 2 l S",
+        &[Appearance::new("1 0 0 0 K 0 0 m 10 10 l S")],
+        &[
+            Annotation::new(0).rect("[0 0 10 10]"),
+            Annotation::new(0).rect("[20 20 30 30]").extra("/OC 5 0 R"),
+        ],
+    );
+    let (drawing, diagnostics) = adopted(&shared, 3);
+    let (baseline, _) = common::lift(&shared.without_annotations);
+    assert_eq!(ids(&drawing, 0)[0], ids(&baseline, 0)[0]);
+    assert_eq!(
+        elements(&drawing)
+            .iter()
+            .map(|element| element.source.record())
+            .collect::<Vec<_>>(),
+        [
+            Some(u64::from(shared.content_object) + 1),
+            Some(u64::from(shared.annotation_objects[0]) + 1),
+            Some(u64::from(shared.annotation_objects[1]) + 1),
+        ]
+    );
+    assert_eq!(
+        ids(&drawing, 0),
+        vec![
+            format!("sheet/0/r{}", shared.content_object + 1),
+            format!("sheet/0/r{}", shared.annotation_objects[0] + 1),
+            format!("sheet/0/r{}", shared.annotation_objects[1] + 1),
+        ]
+    );
+    let color_diag = diagnostics
+        .iter()
+        .find(|d| d.code().name() == "pdf.color.approximated")
+        .unwrap();
+    assert_eq!(color_diag.count(), 2);
+    assert_eq!(
+        color_diag
+            .places()
+            .iter()
+            .map(|place| place.record())
+            .collect::<Vec<_>>(),
+        [
+            Some(u64::from(shared.annotation_objects[0]) + 1),
+            Some(u64::from(shared.annotation_objects[1]) + 1),
+        ]
+    );
+    let oc_approx = diagnostics
+        .iter()
+        .find(|d| d.code().name() == "pdf.optional-content.approximated")
+        .unwrap();
+    assert_eq!(
+        oc_approx
+            .places()
+            .iter()
+            .map(|place| place.record())
+            .collect::<Vec<_>>(),
+        [Some(u64::from(shared.annotation_objects[1]) + 1)]
+    );
+
+    // 注釈の単一 OCG の下で描く画像は、その OCG のレイヤを引き継ぎ、optional-content.approximated は注釈自身の線等の近似として残す。
+    let image_oc = fixture::make(
+        "/Plain Do",
+        &[Appearance::new("/Plain Do")],
+        &[Annotation::new(0).extra("/OC 6 0 R")],
+    );
+    let (img_drawing, img_diag) = adopted(&image_oc, 2);
+    assert_eq!(
+        elements(&img_drawing)
+            .iter()
+            .map(|e| e.layer.0)
+            .collect::<Vec<_>>(),
+        [0, 2]
+    );
+    assert_eq!(count(&img_diag, "pdf.optional-content.approximated"), 1);
+
+    // 注釈自身の OC が既定で OFF の OCG なら、その注釈の外観だけを抑止し、同じページの別の可視注釈はそのまま描く。
+    let mixed_hidden = fixture::with_off(
+        "1 1 m 2 2 l S",
+        &[Appearance::new("1 0 0 0 K 0 0 m 10 10 l S")],
+        &[
+            Annotation::new(0).rect("[0 0 10 10]").extra("/OC 6 0 R"),
+            Annotation::new(0).rect("[20 20 30 30]"),
+        ],
+    );
+    let (mixed_drawing, mixed_diag) = adopted(&mixed_hidden, 2);
+    line(&elements(&mixed_drawing)[1], [20.0, 20.0], [30.0, 30.0]);
+    assert_eq!(
+        elements(&mixed_drawing)[1].source.record(),
+        Some(u64::from(mixed_hidden.annotation_objects[1]) + 1)
+    );
+    assert_eq!(count(&mixed_diag, "pdf.optional-content.dropped"), 1);
+    assert_eq!(count(&mixed_diag, "pdf.color.approximated"), 1);
+
+    // OCMD と VE: 隠れる OCMD は pdf.membership.dropped、VE を持つ OCMD は pdf.visibility-expression.approximated を返す。
+    let ocmd_annot = fixture::with_off(
+        "1 1 m 2 2 l S",
+        &[Appearance::new(LINE)],
+        &[
+            Annotation::new(0)
+                .rect("[0 0 10 10]")
+                .extra("/OC << /Type /OCMD /OCGs [6 0 R] /P /AllOn /VE [/Not 6 0 R] >>"),
+            Annotation::new(0)
+                .rect("[20 20 30 30]")
+                .extra("/OC << /Type /OCMD /OCGs [5 0 R] /P /AnyOn /VE [/And 5 0 R 6 0 R] >>"),
+        ],
+    );
+    let (ocmd_drawing, ocmd_diag) = adopted(&ocmd_annot, 2);
+    line(&elements(&ocmd_drawing)[1], [20.0, 20.0], [30.0, 30.0]);
+    assert_eq!(count(&ocmd_diag, "pdf.membership.dropped"), 1);
+    assert_eq!(count(&ocmd_diag, "pdf.optional-content.approximated"), 1);
+    assert_eq!(
+        count(&ocmd_diag, "pdf.visibility-expression.approximated"),
+        2
+    );
 }
