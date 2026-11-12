@@ -95,10 +95,11 @@
 
 - 名前: CEDXM ファイルフォーマット
 - 公開元: 特定非営利活動法人シーデクセマ評議会
+- 版: Ver. 10.00（2024-03 更新）
 - 入手の条件: 会員などに限定
 - 入手先: [CEDXM ファイルフォーマット](https://www.cedxm.com/)
-- 確認日: 2026-10-24
-- 補足: 会員にだけ配る。版は確かめられない。会員の条件が AI での利用を禁じるかは確かめていないので、エージェントは本文を読まない（zumen-jp/zumen#675・zumen-jp/zumen#677）
+- 確認日: 2026-11-10
+- 補足: 入会案内のページは、最新版のダウンロードを会員の特典とし、非会員には配らないとする。入会は法人が主で、入会申込書を出し、入会金と年会費（それぞれ 8 万円）を払う。会員の条件（定款・会則など）は公開のページに見当たらず、入会でその条件に同意するかと、その条件が AI での利用を禁じるかは確かめられない。そのため、エージェントは本文を読まない（zumen-jp/zumen#677）。形式は place = none で、入手もしていない（zumen-jp/zumen#675）
 
 ### spec-citygml_2_0
 
@@ -313,6 +314,16 @@
 - 確認日: 2026-11-09
 - 補足: ISO が PDF と冊子で売る（CHF 227）。販売のページに、実装を制限する記述はない。ISO の利用許諾（End Customer Licence Agreement、2026-05-29 の改定）は、出版物（一部を含む）へのアクセスでも同意したとし、7(b) で、別の許諾がなければ、出版物を AI・機械学習のために読み・使い・処理することを禁じる。法定のテキスト・データマイニングの例外（EU の指令 2019/790 の 4 条など）にも頼れないとする。そのため、本文は買わず（買えば利用許諾に同意する）、OBP のプレビューも読まない（zumen-jp/zumen#529・zumen-jp/zumen#677）。ISO のサイトの注記（ページの下の折りたたまれた部分）は、使う者が ISO の著作権の条件を受け入れることを前提とし、ISO Open data のものを除き、ISO の内容を機械学習・AI に使うこと（モデルの学習と、AI のツールに応答を作らせるためのアクセスと使用）を禁じ、出版物の使用と複製に書面の許諾が要るとする。販売のページなどのサイトのページは、formats/README.md の「資料を読む条件」（zumen-jp/zumen#677）のとおり、この注記によらず読む。書誌の事実は、2026-11-09 に www.iso.org のページで確かめた
 
+### spec-iso_10303_21_2016
+
+- 名前: ISO 10303-21:2016 Industrial automation systems and integration — Product data representation and exchange — Part 21: Implementation methods: Clear text encoding of the exchange structure
+- 公開元: ISO
+- 版: 第 3 版（2016-03）。2022 年の見直しで確認され、今も有効。前の版の ISO 10303-21:2002 は廃止
+- 入手の条件: 有償
+- 入手先: [ISO 10303-21:2016 Industrial automation systems and integration — Product data representation and exchange — Part 21: Implementation methods: Clear text encoding of the exchange structure](https://www.iso.org/standard/63141.html)
+- 確認日: 2026-11-10
+- 補足: 交換構造（STEP のファイル）の書き方。zumen-step が字句を読み書きし、SXF の SFC・P21 と IFC の IFC-SPF の土台にする（docs/formats/sxf.md・docs/formats/ifc.md）。ISO が売る（販売のページの形式は HTML だけで、CHF 44）。ISO の無償の規格の一覧（standards.iso.org/ittf）は閉じ、無償のものは ISO の店で 0 の価格で配るとするが、この規格は有償。販売のページに、実装を制限する記述はない。ISO の利用許諾（End Customer Licence Agreement）は、出版物（一部を含む）へのアクセスでも同意したとし、7(b) で AI・機械学習のために読むことを禁じるので、本文は買わず、プレビュー（Read sample）を含めて読まない（zumen-jp/zumen#677）。ページの下の注記は、iso\_10303\_11\_2004 の項と同じ。読む元は、学習済みの知識、SXF の仕様書（STEP AP202 サブセット編・SFC 編）と IFC の文書（IFC-SPF の説明）、寛容なライセンスの実装。zumen-step を作ったときに何を読んだかの記録はない。SXF と IFC の形式の項の specs には入れない。両形式の権利は、それぞれの仕様で判断していて、この項を足しても変えない（zumen-jp/zumen#675）。書誌の事実と注記は、2026-11-10 に www.iso.org のページを利用者のブラウザーの拡張で開いて確かめた
+
 ### spec-iso_32000_2_2020
 
 - 名前: ISO 32000-2:2020（PDF 2.0）
@@ -340,8 +351,8 @@
 - 版: 09/92
 - 入手の条件: 有償
 - 入手先: [ITU-T T.81 Digital compression and coding of continuous-tone still images](https://www.itu.int/rec/T-REC-T.81)
-- 確認日: 2026-11-01
-- 補足: ITU の頁は有償とする。JPEG の展開は許容のライセンスの crate に任せる。入手の条件が AI での利用を禁じるかは確かめていないので、エージェントは本文を読まない（zumen-jp/zumen#675・zumen-jp/zumen#677）
+- 確認日: 2026-11-10
+- 補足: ITU のページは、ISO・IEC との共同の文書（ISO/IEC 10918-1 と同じ）で、取り決めにより有償でだけ配る（sales@itu.int に問い合わせる）とする。無償で配る ITU-T の勧告には当たらない。訂正 1（2004-01）も有効。ITU のサイトの著作権のページは、複製に許諾が要るとするが、AI での利用を名指しする記述はない。買うときの条件は公開のページに見当たらず、AI での利用を禁じるかは確かめられないので、エージェントは本文を読まない（zumen-jp/zumen#675・zumen-jp/zumen#677）。JPEG の展開は寛容なライセンスの crate に任せ、zumen は Exif と XMP のセグメントだけを読むので、本文は要らない
 
 ### spec-jww_7_02
 
@@ -359,8 +370,8 @@
 - 版: Ver.1.1（版の日付は確かめられない）
 - 入手の条件: 会員などに限定
 - 入手先: [デジタル工事写真の小黒板情報連携機能の実装規約と信憑性確認（改ざん検知機能）](https://www.jcomsia.org/kokuban)
-- 確認日: 2026-11-01
-- 補足: 公開の文書は見つからない。協会が検定を受けるソフトの作り手に出すものとみられる（推定）。入手の条件が AI での利用を禁じるかは確かめていないので、エージェントは本文を読まない（zumen-jp/zumen#675・zumen-jp/zumen#677）
+- 確認日: 2026-11-10
+- 補足: 公開の文書は見つからない。協会が検定を受けるソフトの作り手に出すものとみられる（推定）。入会案内のページは、入会に定款 6 条による入会申込書と誓約書兼同意書の提出と理事会の承認が要り、部会（年 10 万円）に参加すると部会の成果物を使えるとする（年会費は 10 万円）。誓約書兼同意書は開いておらず、成果物の利用の条件も公開のページに見当たらないので、AI での利用を禁じるかは確かめられない。そのため、エージェントは本文を読まない（zumen-jp/zumen#677）。形式は place = none で、入手もしていない（zumen-jp/zumen#675）
 
 ### spec-las_1_4_r15
 
@@ -625,7 +636,7 @@
 ### format-e57
 
 - 名前: E57（ASTM E2807）
-- 権利の根拠: 仕様は ASTM が売り、実装を制限する記述はない。販売のページが規格を AI で扱うことを禁じるので、本文は読まず、許容のライセンスの公開の実装とサンプルから読む
+- 権利の根拠: 仕様は ASTM が売り、実装を制限する記述はない。販売のページが規格を AI で扱うことを禁じるので、本文は読まず、寛容なライセンスの公開の実装とサンプルから読む
 - 仕様: [e57\_astm\_e2807](#spec-e57_astm_e2807)
 - 実装の根拠: reference
 - 権利の根拠にした文書: [libE57Format-test-data の README（ライセンス）](https://github.com/asmaloney/libE57Format-test-data)（確認日: 2026-11-01）
@@ -740,7 +751,7 @@
 ### format-jpeg
 
 - 名前: 工事写真（JPEG と Exif・XMP）
-- 権利の根拠: Exif は CIPA が、XMP は Adobe が無償で公開している。JPEG の ITU-T T.81 は有償だが実装の制限はなく、画素の展開は許容のライセンスの crate に任せ、zumen は Exif と XMP のセグメントだけを読む
+- 権利の根拠: Exif は CIPA が、XMP は Adobe が無償で公開している。JPEG の ITU-T T.81 は有償だが実装の制限はなく、画素の展開は寛容なライセンスの crate に任せ、zumen は Exif と XMP のセグメントだけを読む
 - 仕様: [jpeg\_t81](#spec-jpeg_t81)、[exif\_3\_1](#spec-exif_3_1)、[xmp\_2012](#spec-xmp_2012)
 - 実装の根拠: spec
 - サンプルの出どころ: 個人情報（位置・機種の番号など）を含まないよう、テストの中で作るか、zumen-jp が作った写真を CC0 で入れる
