@@ -61,6 +61,8 @@ DXF の編集では、[DXF の編集](formats/dxf.md#編集) と [図面モデ�
 
 ## 設計を変更するとき
 
-API と ID の契約は [スキーマ](../schema/README.md)、診断は [カタログ](../catalog/README.md)、形式ごとの規則は [形式の文書](formats/README.md)、権利と検証の根拠は [形式台帳](../formats/README.md) を更新します。作業手順は [開発の進め方](work.md) にあります。変更する規則とテストを一緒に更新し、選択肢と理由はコミットか PR に、未実装の約束は issue に残します。
+契約・制限・手順は既存の節を書き換え、古い説明を削ります。同じ説明が要る箇所からはその節にリンクします。新しい文書は既存の節で扱えない用途があるときに作ります。
+
+API と ID は[スキーマ](../schema/README.md)、診断は[カタログ](../catalog/README.md)、形式ごとの規則は[形式の文書](formats/README.md)、権利と検証の根拠は[形式台帳](../formats/README.md)、作業手順は[開発の進め方](work.md)にあります。変えた規則とテストを一緒に更新し、選択肢と採用理由はコミットか PR、未実装の約束は担当 issue に残します。個々の検査結果は元の記録を参照します。
 
 過去の PR・issue・ソースのコメントにある決定番号は、[移行前の記録](https://github.com/zumen-jp/zumen/tree/86192aa34daad415a33dc07f92969aef9a3a1c5e/docs/decisions) から引けます。
