@@ -5,7 +5,7 @@
 1. `git status --short --branch` で手元を見る。利用者の指定を優先し、指定がなければ会話・引き継ぎ・ブランチが指す issue の着手記録から自分の残件を再開する。新しく選ぶときだけ[子 issue を順に見る](docs/work.md#選び方)。
 2. 普段の Git 設定でローカルの `main` を使う。`git fetch origin` し、遅れていれば `git merge --ff-only origin/main` する。依頼か担当 issue の残件・完了条件から該当するコード・テスト・仕様の節を読む。再開時は更新分を見る。
 3. [変更に応じた検査](CONTRIBUTING.md#変更に応じた検査) を通す。対象・入力・環境が同じ検査結果は再利用する。生成物は元を直して `cargo xtask codegen` で作り直す。
-4. ステージから push までは一人ずつ行う。`git diff --cached` で自分の差分を確かめてコミットし、`git log --oneline origin/main..main` で送るコミットを確かめ、`git push origin main` する。ほかの人の変更・未送信コミットがあれば順番を合わせる。force push はしない。対象コミットの CI を確認し、失敗を直す。
+4. ステージから push までは一人ずつ行う。ほかの担当の変更・未送信コミットが混ざるときは順番を合わせる。`git diff --cached` で自分の差分を確かめてコミットし、`git log --oneline origin/main..main` を見て `git push origin main` する。force push はしない。対象の CI を確認し、失敗を直す。追跡中の issue は[残件・次の一手と根拠へのリンク](docs/work.md#完了と引き継ぎ)にまとめる。
 
 通常は issue・ブランチ・worktree を新設せず直接 push する。[PR・独立レビューの条件](docs/work.md#pr-とレビュー)と[利用者に頼む操作](docs/work.md#利用者に頼むこと)は該当時に確認する。文書・issue・PR・コミットは[日本語](docs/style.md)、識別子は英語、コミットと PR の題は Conventional Commits にする。ライセンス本文・仕様の引用・図面の表記は原文を保つ。
 
@@ -23,7 +23,7 @@
 
 ## 図面と秘密
 
-受け取った図面はリポジトリ外の `ZUMEN_SAMPLES` で扱う。テストは最小入力を作る。[公開サンプルの条件](samples/README.md)に従い、[国土地理院のモデル・変換パラメーター](docs/formats/crs.md)は利用者から受け取り、同梱しない。図面名・顧客名・中身・秘密・非公開リポジトリの情報を issue・PR・ログに出さない。入力による異常終了・時間や資源の超過は[fuzz の公開範囲](fuzz/README.md#初回リリース後の記録先)を先に確認し、対象か未確認の入力と詳細も非公開で扱う。
+受け取った図面はリポジトリ外の `ZUMEN_SAMPLES` で扱う。テストは最小入力を作る。[公開サンプルの条件](samples/README.md)に従い、[国土地理院のモデル・変換パラメーター](docs/formats/crs.md)は利用者から受け取り、同梱しない。図面名・顧客名・中身・秘密・非公開リポジトリの情報を issue・PR・ログに出さない。漏れたらすぐ利用者に知らせ、公開箇所と編集履歴から除く。入力による異常終了・時間や資源の超過は[fuzz の公開範囲](fuzz/README.md#初回リリース後の記録先)を先に確認し、対象か未確認の入力と詳細も非公開で扱う。
 
 ## リポジトリの地図
 
