@@ -143,7 +143,7 @@ hayro-syntax 0.9.0 は相互参照の表を作り直す際、文字列やコメ�
   - CalGray・CalRGB は、灰色・RGB の成分として読む。ICCBased は、成分の数（1・3・4）の装置の色空間として読む（8.6.5.5 節の `Alternate` の既定と同じ）。どちらも `pdf.color.approximated` を返す。ただし hayro は、sRGB とみなすプロファイル（ヘッダーの機器の型が `sRGB`）を DeviceRGB として、moxcms で読めないプロファイルを `Alternate` か成分の数の装置の色空間として渡すので、それらは装置の色空間と同じ扱いになる（推定）。読めるかは moxcms のバージョンで変わりうるので、moxcms のバージョンも固定する。
   - Lab・Indexed・Separation・DeviceN と、読めない系統は、レイヤの色にして `pdf.color.dropped` を返す。どちらの診断も、系統の名前を `space` に持つ。
 - 不透明度（`ca`・`CA` と、透明のグループの不透明度）は、掛け合わせて透過性にする。不透明ならレイヤに従う。ソフトマスクと、通常でない合成の方法（11.3・11.6.5 節）は、移さず `pdf.transparency.approximated` を返す。パスと文字の状態のもの、透明のグループのもの、画像の `SMask`・`Mask`・`SMaskInData` を含む。
-- 転送関数（`TR`・`TR2`、10.4 節）を持つ拡張グラフィックス状態をページが使うと、hayro は関数を当てた色を DeviceRGB で渡す。その値はバージョンと環境で変わりうるので使わず、そのページの色をすべてレイヤに従わせて `pdf.transfer.dropped` を返す。どの要素に効くかは渡されないので、ページごとに決める。関数を外す名前（`Identity`・`Default`）は、関数を使わないものとみなす。
+- 転送関数（`TR`・`TR2`、10.4 節）を使うと、hayro は関数を当てた色を DeviceRGB で渡す。その値はバージョンと環境で変わりうるので使わず、同じページの同じ描画期（本体または注釈）の色をすべてレイヤに従わせて `pdf.transfer.dropped` を返す。どの要素に効くかは渡されないので、ページと描画期ごとに決める。関数を外す名前（`Identity`・`Default`）は、関数を使わないものとみなす。
 - シェーディング（`sh` と、シェーディングのパターン）とタイルのパターンで塗った形は移さず、`pdf.shading.dropped`・`pdf.pattern.dropped` を返す。
 
 ### 文字
@@ -185,6 +185,7 @@ hayro-syntax 0.9.0 は相互参照の表を作り直す際、文字列やコメ�
 ### 注釈の通常外観
 
 - 注釈の通常外観（`AP/N`、12.5.5 節）は、hayro-interpret 0.9.0 の選択に合わせる。`N` がストリームならそれを使い、状態の辞書なら `AS` の名前が指すストリーム、なければ `Off` のストリームを使う。ロールオーバーと押したときの外観は選ばない。
+- `Annots` の型付き走査は、辞書でない項目で終了する。後続の外観を独自に追加して、hayro の選択と異なる結果にはしない。
 - 外観の `BBox` に `Matrix` を当てた外接矩形を、注釈の `Rect` に合わせて拡大縮小・移動する。ページの回転・クロップ・単位も当てる。資源は外観自身の `Resources`、なければページの資源を使い、内部のフォームの資源の上書きも保つ。これは pinned hayro の実装に合わせた扱いである。
 - 全ページの本体を先に描き、線種・文字様式の既存の ID を確定してから、注釈をページ・`Annots` の配列の順に加える。各ページでは本体の末尾へ足し、既存の図形・スタイル・出所・ID と、様式の順を保つ。要素の出所は、本体と同じページの最初の内容のストリームとする。注釈ごとの詳細な出所の通知は #520 に残る。
 - ページ本体と注釈は別の Context と走査で扱う。本体の不釣り合いな状態や表示条件、注釈の走査拒否は、もう一方へ混ぜない。注釈の描画期では、外観と内部フォームの切り抜きの境界で文字の重複判定を初期化し、別の外観の文字を 1 つにしない。同じ並びを塗りと線で描く文字は、引き続き 1 つにする。
@@ -193,9 +194,16 @@ hayro-syntax 0.9.0 は相互参照の表を作り直す際、文字列やコメ�
 - 追加の Context のカタログ再読、注釈の選択・配置、外観と内部資源の解釈・再展開を予算へ数える。保留するページの固定部分と配列を伸ばす間の写し、再開する Context の固定部分は、ページごとに `DecodedBytes` を 8,192 バイト先に数える。表・scalar・報告済みの診断の写しも確保前に予約し、予算不足と中断は文書全体を止める。外観の診断は本体の描画後まで保留し、採用しなかった外観の診断は返さない。
 - 外観の内容は、scalar の写しとして長さの 16 倍、辞書の表の上限として `/` の数の 512 倍を予約する。`q` は、可変長の状態に加えて、走査と解釈器の状態スタックの固定分を 512 バイトずつ先に数える。使用する資源の scalar は、通常 3 段・フォント 8 段まで型付きで事前確認し、末端に未確認の参照が残れば、そのページの注釈群を見送る。確認できない値を黙って解釈する範囲には広げない。
 
-### 移さないもの
+### 計測辞書
 
-- 計測の辞書を持つビューポート（`VP`・`Measure`、12.9 節）の縮尺は移さず、`pdf.measure.unsupported` を返す（#520）。
+- ビューポート（`VP`）の `Measure`（12.9 節）は、項目の元の順に `pdf.measure`（schema 1、Document）の拡張へ移す。ID は `sheet/{用紙 ID}/vp/{元の添字}` とし、元の `Name` は別に保持する。`BBox`・`Type`・`Subtype`・`R`・`O`・`CYX` と、X・Y・D・A・T・S の全 NumberFormat を、型・数値・文字列・元のバイト列・参照番号と世代とともに保持する。欠落と null、名前と文字列、各配列の順を区別する。未知のキーは辞書の元のバイト列に残す。
+- RL の距離係数を解釈できるときは、[用紙上の距離校正](../calibration.md) `drawing.calibration` も加え、`pdf.measure-distance.equivalent` を返す。既定利用者空間の変位 `(dx, dy)` に対して、距離は `hypot(dx × X[0].C, dy × Y[0].C × CYX)`。Y がなければ X と同じ係数を使い、CYX は使わない。Y があり CYX がなければ 1 とする。R は表示文字列として保持し、縮尺の計算に使わない。これは下記の PDF4QT の算術に合わせた扱いである。
+- 校正の矩形には、BBox へページのクロップ・回転・UserUnit・mm 変換を当てた外接矩形を使う。距離の行列にはその変換の逆を含め、UserUnit を重ねて掛けない。有限で非ゼロの係数、非等方の倍率、負の係数、反転を扱う。単位は X のラベルを保持し、既知の英語の `mm`・`cm`・`m`・`in`・`ft` とその別名だけを対応する Unit に写す（推定）。未知のラベルは Unknown とし、値を mm に置き換えない。
+- 型や値が不正なら `pdf.measure.invalid` を返し、原値を保つ。解釈できない RL、GEO など距離校正を作れない Measure は `pdf.measure.unsupported` を返す。Measure のない VP は校正を作らない。VP は型付きでたどり、辞書でない項目で終了する。紙上の図形・様式・ID・ハッシュ、既存の実寸空間とビューは変えない。
+- 数値は元の字句から決定的に読む。hayro の長い小数の読みで使う `powi` の値は採用しない。数値の間接参照は、ObjStm がなく、同じ番号・世代の定義が元の L1 に 1 個だけあるときに字句を確かめる。字句を確定できなければ `raw-unavailable`、字句が不正か非有限なら `invalid-number` を理由に返し、型と参照を保持して数値を推測しない。必要な係数や領域を読めなければ距離校正を作らない。ObjStm・重複定義の数値参照の厳密な解決は #520 に残る。
+- O は保持するが絶対座標の原点には使わない。面積・角度・勾配、D の書式による単位の分解、桁数・分数・丸め・区切り・前後の文字、地理校正は未実装。公開 ABI・view2d の計測への接続も #520 の残件である。距離の忠実度は、これら全体の保持を意味しない。L1 の書き戻しは引き続き元のバイト列を保ち、変更した校正の PDF への lower は行わない。
+
+`pdf.measure` のフィールドは平らなキーで表します。`sheet` と `viewport/ordinal` は Integer、`viewport/name`・`viewport/bbox`・`viewport/type_name` は VP の値、`measure` と `measure/type_name`・`measure/subtype` は Measure の値です。残りの Measure のキーは小文字、NumberFormat は `x/0/u`・`x/0/c` のように配列名・元の添字・小文字のキーで表す（Type だけは `type_name`）。配列は `/count` と各項目を持ちます。各値は `/present`（Integer の 0/1）・`/type`（Text）を持ち、直接の字句を `/raw`、解決した辞書・配列を `/resolved_raw`、文字列と名前の内容を `/bytes`（いずれも Bytes）に保持します。参照は `/ref/object`・`/ref/generation` に保持します。数値は Integer または Real、名前・文字列は Text、真偽値は Integer の 0/1 とし、型の違いを `/type` で保ちます。`viewport/raw` は VP 辞書全体の Bytes です。
 
 ### ID と出所
 
@@ -227,15 +235,23 @@ hayro-syntax 0.9.0 は相互参照の表を作り直す際、文字列やコメ�
 - 注釈は選んだ通常外観の配置と線を比較した。`AS` で選べないときの `Off` と、外観自身の `OC` で隠れる場合は、両実装の異なる結果を固定した。画像の OCG は表示条件と見える画像数、単一輪の塗りは `f` と `f*` の規則を照合した。zumen は両方の塗りを同じハッチングに写す。
 - Type 3 の字形とソフトマスクでも両者の値と診断を記録している。色・透明度・字形の見え方、一般の PDF の文字列の分け方、基準になるソフトでの表示は未照合。書いた PDF を外部アプリで開く検証も残る。[照合の手順と既知の差](../../xtask/verify/pdfjs/README.md)
 
+### 計測辞書と距離を照らす
+
+- キーと型は Apache-2.0 の [Arlington の固定版](https://github.com/pdf-association/arlington-pdf-model/tree/603c174b024d1d2bb15a33686af83800d5c41269/1.7) の MeasureRL・NumberFormat・Viewport を参照する。CYX の既定値と距離の算術は、MIT の [PDF4QT の固定版](https://github.com/JakubMelka/PDF4QT/blob/0cfea2f280c40d5f5e0d065496704654468390b5/Pdf4QtLibCore/sources/pdfmeasure.cpp) に合わせた推定である。単位ラベルの比から CYX を補ったり、指定した CYX を拒んだりしない。
+- 原値の読みは pdf-lib 1.17.1、距離の算術は未改変で抽出した PDF4QT の関数を別のプログラムとして実行し、別々に照らす。Qt の文字整形と PDF4QT 全体のパーサーは実行しない。[外部照合のテスト](../../crates/zumen-pdf/tests/measure_external.rs)と[固定ソース・手順・範囲](../../xtask/verify/pdfmeasure/README.md)に条件を置き、毎晩の CI で実行する。
+
 ### 予算・ID・中断のテスト
 
 - ObjStm・ページ内容・フォームの Flate は、2 MiB に展開する合成入力を 32 KiB の予算で止める。関数・描画資源・フォント・ICC と、ASCII 前置・LZW・RunLength・複数段の各系列は、64 KiB に展開する入力と 32 KiB の予算を使う。対象の系列は 22 種類の入口で、正常・損傷・再利用、予算の境界と中断を調べる。画像フィルターや外部ファイルを指す系列は展開しない経路も確かめる。[展開・資源・フォントのテスト](../../crates/zumen-pdf/tests/)
 - 出力の容量、予測子の一時配列、展開引数は別々に予約する。それぞれの予約で予算がちょうどのときと 1 不足のときを比べる。実確保は合成入力で観測した範囲に限る。条件と検査は[出力容量](../../crates/zumen-pdf/tests/allocation_growth.rs)、[予測子](../../crates/zumen-pdf/tests/predictor_allocations.rs)、[展開引数](../../crates/zumen-pdf/tests/metadata_allocations.rs)にある。
 - L1 は `stops_at_same_place`・`survives`・`ids_match`、図面への変換は停止位置と ID を検査する。注釈と画像の OCG は既存要素・様式・ID、診断の場所、中断後の再試行も比べる。[ID の期待値](../../crates/zumen-pdf/tests/ids/pdf.txt)、[注釈](../../crates/zumen-pdf/tests/appearance.rs)、[画像の OCG](../../crates/zumen-pdf/tests/image_ocg.rs)、[読み取りから変換までの fuzz](../../fuzz/fuzz_targets/pdf.rs)
+- 計測辞書では、型と参照、全 NumberFormat、非等方・負の係数・未知単位、回転・クロップ・UserUnit、長い小数を調べる。既存の紙上図形・様式・出所・ID・ハッシュは保持し、Work と DecodedBytes の全量・1 不足、中断・再試行を比べる。原字句を確定できない数値参照も明示的に拒む。[計測のテスト](../../crates/zumen-pdf/tests/measure.rs)、[数値参照](../../crates/zumen-pdf/src/measure_numbers.rs)
 
 ### ネイティブと wasm の一致
 
 公開 PDF 336 個でネイティブと wasm32-wasip1 の図面のハッシュ・診断・予算が一致した。合成入力では wasm32-unknown-unknown と図面・診断・予算・停止を比較した。出力容量は 6,192 件、予測子は 10,564 件、展開引数は 9,792 件。十分な予算では変更前の図面・診断・ID も照合した。これらは手元での測定で、API の適合テストは [#518](https://github.com/zumen-jp/zumen/issues/518)、実図面での速度と予算の既定値は [#521](https://github.com/zumen-jp/zumen/issues/521) で追う。[入力・実測値・ハッシュ](https://github.com/zumen-jp/zumen/blob/252b878dc53338c648b35f13ba2366134bf94dae/docs/formats/pdf.md?plain=1#L217)
+
+計測辞書は合成入力 29 通り、診断の場所の上限 0・1・16、上記の予算境界と中断・再試行、校正行列の境界値を含む 784 記録で全バイト一致しました。図面バイナリ・距離のビット列・診断・全予算・停止理由を比べ、変更前の既存要素の値・ID・ハッシュも保ちました。外部実装との意味の照合とは分けた検査です。
 
 ## 公開サンプル
 

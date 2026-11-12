@@ -94,6 +94,8 @@ impl Lift<Drawing2D> for PdfFile {
         Lifter {
             document: &document,
             source: &self.src,
+            original: self,
+            has_object_streams: largest_container != 0,
             streams: crate::inflate::Source::new(
                 document.data().as_ref(),
                 encrypted,
@@ -231,6 +233,8 @@ struct Lifter<'d, 'o> {
     document: &'d Document,
     /// 読み込んだファイル
     source: &'d [u8],
+    original: &'d PdfFile,
+    has_object_streams: bool,
     streams: crate::inflate::Source<'d>,
     /// 間接オブジェクト → L1 のレコードの出所
     objects: &'o BTreeMap<(u32, i32), Ref>,
@@ -310,6 +314,7 @@ impl Lifter<'_, '_> {
                 if let Some(place) = survey.refused {
                     cx.report(Diagnostic::new(codes::PDF_PAGE_DROPPED).at(place));
                     self.unread(page, reads, &source, false, cx)?;
+                    self.measurements(page, sheet, geometry, reads, &source, cx)?;
                     sheets.push(Sheet {
                         id: sheet,
                         name: label,
@@ -406,6 +411,7 @@ impl Lifter<'_, '_> {
                 }
             };
             self.unread(page, reads, &source, annotations, cx)?;
+            self.measurements(page, sheet, geometry, reads, &source, cx)?;
             let order = (0..elements.len()).map(SheetItem::Element).collect();
             sheets.push(Sheet {
                 id: sheet,
@@ -604,15 +610,8 @@ impl Lifter<'_, '_> {
             reads
         };
         let raw = page.raw();
-        if draw_appearances && raw.contains_key(b"VP") {
-            self.streams
-                .reserve_tables(8, cx)
-                .map_err(|stop| stopped(cx, stop, source))?;
-        }
         // hayro-syntax は項目を読むたびに参照を解き、型が違っても読み飛ばして確かめるので、辞書でない項目も数える
-        let values = reads
-            .value_work(raw, b"Annots")
-            .saturating_add(reads.value_work(raw, b"VP"));
+        let values = reads.value_work(raw, b"Annots");
         cx.check(Kind::Work, values)
             .map_err(|stop| stopped(cx, stop, source))?;
         if let Some(annotations) = raw.get::<Array<'_>>(b"Annots") {
@@ -658,31 +657,40 @@ impl Lifter<'_, '_> {
                 cx.report(Diagnostic::new(code).with("kind", kind).at(place));
             }
         }
-        if let Some(viewports) = raw.get::<Array<'_>>(b"VP") {
-            let mut measured = false;
-            let mut dicts = viewports.iter::<Dict<'_>>();
-            let mut items = (!draw_appearances).then(|| viewports.raw_iter());
-            loop {
-                if let Some(items) = items.as_mut() {
-                    let Some(item) = items.next() else { break };
-                    cx.check(Kind::Work, reads.item_work(&item).saturating_add(1))
-                        .map_err(|stop| stopped(cx, stop, source))?;
-                } else {
-                    self.streams
-                        .reserve_tables(4, cx)
-                        .map_err(|stop| stopped(cx, stop, source))?;
-                    cx.check(Kind::Work, 1)
-                        .map_err(|stop| stopped(cx, stop, source))?;
-                }
-                let Some(viewport) = dicts.next() else {
-                    break;
-                };
-                measured |= viewport.contains_key(b"Measure");
-            }
-            if measured {
-                cx.report(Diagnostic::new(codes::PDF_MEASURE_UNSUPPORTED).at(source.clone()));
-            }
-        }
+        Ok(())
+    }
+
+    /// 紙の要素と ID を変えず、既に求めた用紙の変換で、計測の原値と距離校正を追加する。
+    #[allow(clippy::too_many_arguments)]
+    fn measurements(
+        &mut self,
+        page: &Page<'_>,
+        sheet: SheetId,
+        geometry: Geometry,
+        reads: Reads<'_>,
+        source: &Ref,
+        cx: &mut Cx<'_>,
+    ) -> Result<(), Error> {
+        let drafts = crate::measure::read(
+            crate::measure::Context {
+                page,
+                sheet,
+                geometry,
+                reads,
+                metadata: self.streams,
+                numbers: crate::measure_numbers::Source::new(
+                    self.original,
+                    self.has_object_streams,
+                ),
+                objects: self.objects,
+                source,
+            },
+            cx,
+        )
+        .map_err(|stop| stopped(cx, stop, source))?;
+        cx.check(Kind::Work, drafts.len() as u64)
+            .map_err(|stop| stopped(cx, stop, source))?;
+        self.drafts.extend(drafts);
         Ok(())
     }
 

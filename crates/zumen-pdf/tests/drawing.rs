@@ -857,6 +857,7 @@ fn reports_what_is_not_moved() {
             (codes::PDF_ANNOTATION_UNSUPPORTED.name(), 2),
             (codes::PDF_CLIP_APPROXIMATED.name(), 1),
             (codes::PDF_CLIP_DROPPED.name(), 1),
+            (codes::PDF_MEASURE_INVALID.name(), 1),
             (codes::PDF_MEASURE_UNSUPPORTED.name(), 1),
             (codes::PDF_SHADING_DROPPED.name(), 1),
         ]

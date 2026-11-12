@@ -1863,6 +1863,31 @@ group-by = ["kind"]
 since = "0.2.0"
 status = "active"
 
+[codes."drawing.calibration.invalid"]
+description = "用紙上の校正領域を、契約・値・付く先が不正か ID が重複していたため使わなかった。id は校正の ID、reason は理由"
+severity = "warning"
+fidelity = "dropped"
+params = { id = "text", reason = "text" }
+group-by = ["id", "reason"]
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.measure.invalid"]
+description = "ビューポートの計測辞書の値を解釈できなかった。field は値の経路、reason は理由。読めた原値は形式固有情報に残す"
+severity = "warning"
+fidelity = "dropped"
+params = { field = "text", reason = "text" }
+group-by = ["field", "reason"]
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.measure-distance.equivalent"]
+description = "矩形計測の距離校正を、既存の紙上の図形を動かさず、用紙上の校正領域として保持した。絶対座標の原点や数値表示書式の復元は含まない"
+severity = "info"
+fidelity = "equivalent"
+since = "0.2.0"
+status = "active"
+
 [codes."pdf.measure.unsupported"]
 description = "縮尺の辞書（Measure）を持つビューポートの縮尺を、移さなかった"
 severity = "warning"

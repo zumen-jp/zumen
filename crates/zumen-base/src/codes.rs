@@ -1118,6 +1118,20 @@ pub const DRAWING_BINARY_INVALID: Code = Code::new(
     &[],
 );
 
+/// 用紙上の校正領域を、契約・値・付く先が不正か ID が重複していたため使わなかった。id は校正の ID、reason は理由
+///
+/// `drawing.calibration.invalid`（0.2.0 から）
+pub const DRAWING_CALIBRATION_INVALID: Code = Code::new(
+    "drawing.calibration.invalid",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[
+        Param::new("id", ParamType::Text),
+        Param::new("reason", ParamType::Text),
+    ],
+    &["id", "reason"],
+);
+
 /// 線種に添える文字の高さが有限の実数で表せず、結果に含めなかった
 ///
 /// `drawing.mark-height.dropped`（0.0.0 から）
@@ -3093,6 +3107,31 @@ pub const PDF_IMAGE_MASK_APPROXIMATED: Code = Code::new(
     &[],
 );
 
+/// 矩形計測の距離校正を、既存の紙上の図形を動かさず、用紙上の校正領域として保持した。絶対座標の原点や数値表示書式の復元は含まない
+///
+/// `pdf.measure-distance.equivalent`（0.2.0 から）
+pub const PDF_MEASURE_DISTANCE_EQUIVALENT: Code = Code::new(
+    "pdf.measure-distance.equivalent",
+    Severity::Info,
+    Some(Fidelity::Equivalent),
+    &[],
+    &[],
+);
+
+/// ビューポートの計測辞書の値を解釈できなかった。field は値の経路、reason は理由。読めた原値は形式固有情報に残す
+///
+/// `pdf.measure.invalid`（0.2.0 から）
+pub const PDF_MEASURE_INVALID: Code = Code::new(
+    "pdf.measure.invalid",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[
+        Param::new("field", ParamType::Text),
+        Param::new("reason", ParamType::Text),
+    ],
+    &["field", "reason"],
+);
+
 /// 縮尺の辞書（Measure）を持つビューポートの縮尺を、移さなかった
 ///
 /// `pdf.measure.unsupported`（0.2.0 から）
@@ -4901,6 +4940,7 @@ pub const ALL: &[Code] = &[
     DRAWING_BINARY_VALUE_UNSUPPORTED,
     DRAWING_BINARY_VERSION_UNSUPPORTED,
     DRAWING_BINARY_INVALID,
+    DRAWING_CALIBRATION_INVALID,
     DRAWING_MARK_HEIGHT_DROPPED,
     DRAWING_PLACEMENT_INVALID,
     DWG_CHANGE_UNSUPPORTED,
@@ -5084,6 +5124,8 @@ pub const ALL: &[Code] = &[
     PDF_GLYPH_POSITION_APPROXIMATED,
     PDF_GLYPH_DROPPED,
     PDF_IMAGE_MASK_APPROXIMATED,
+    PDF_MEASURE_DISTANCE_EQUIVALENT,
+    PDF_MEASURE_INVALID,
     PDF_MEASURE_UNSUPPORTED,
     PDF_MEMBERSHIP_DROPPED,
     PDF_NESTING_DROPPED,
