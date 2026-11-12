@@ -18,6 +18,8 @@ import zipfile
 from pathlib import Path
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, str(Path(HERE).parents[1] / "xtask/release"))
+from linux_abi import verify_linux
 
 
 def _record(name: str, data: bytes) -> str:
@@ -77,6 +79,7 @@ def main(argv: list) -> None:
     with open(library, "rb") as f:
         files.append((f"zumen/_native/{os.path.basename(library)}", f.read()))
     binary = files[-1][1]
+    verify_linux(binary, target)
     sbom_name = os.path.basename(library) + ".cdx.json"
     document = (args.sbom or Path(library).with_name(sbom_name)).read_bytes()
     meta = json.loads(document)["metadata"]

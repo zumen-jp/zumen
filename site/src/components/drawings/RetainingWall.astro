@@ -1,0 +1,49 @@
+---
+// L 型擁壁の断面図の例（単位は 5 mm）。コンクリートの外形・鉄筋・裏込め砕石・水抜き穴・寸法を描く。
+import Sheet from './Sheet.astro';
+
+// 地盤の斜線
+const front = Array.from({ length: 9 }, (_, i) => `M${-218 + i * 24} -80l-13 13`).join('');
+const back = Array.from({ length: 20 }, (_, i) => `M${70 + i * 28} -300l-13 13`).join('');
+// 裏込め砕石と基礎砕石の粒
+const filter = Array.from({ length: 14 }, (_, r) => [0, 1, 2].map((c) => ({ cx: 60 + c * 16 + (r % 2) * 8, cy: -280 + r * 16 }))).flat();
+const gravel = Array.from({ length: 15 }, (_, i) => ({ cx: -10 + i * 18, cy: 10 }));
+// 配力筋。主筋の内側に点で描く
+const dots = [
+  ...[-270, -234, -198, -162, -90].flatMap((cy) => [{ cx: 19, cy }, { cx: 31, cy }]),
+  ...[70, 100, 130, 160, 190, 220].flatMap((cx) => [{ cx, cy: -21 }, { cx, cy: -39 }]),
+];
+---
+
+<Sheet viewBox="-250 -390 900 480" caption="擁壁の断面図 S=1/30（例）">
+  <!-- 地盤と掘削線 -->
+  <path class="d-bold" d="M-230 -80H0M50 -300H640" />
+  <path class="d-line" d={front + back} />
+  <path class="d-dash" d="M260 20L420 -300" />
+
+  <!-- 基礎砕石と裏込め砕石 -->
+  <rect class="d-paper" x="-20" y="0" width="280" height="20" />
+  {gravel.map((g) => <circle class="d-line" cx={g.cx} cy={g.cy} r="5" />)}
+  <path class="d-line" d="M50 -290H110V-60" />
+  {filter.map((g) => <circle class="d-line" cx={g.cx} cy={g.cy} r="3.5" />)}
+
+  <!-- コンクリートと鉄筋 -->
+  <path class="d-solid" d="M0 0V-300H50V-60H240V0Z" />
+  <path class="d-red" d="M12 -288V-14H228M38 -288V-46H228" />
+  {dots.map((d) => <circle class="d-dot" cx={d.cx} cy={d.cy} r="4" />)}
+  <path class="d-paper" d="M-10 -129L60 -139V-125L-10 -115Z" />
+
+  <!-- 名前 -->
+  <path class="d-line" d="M86 -230L150 -350H170M-10 -122L-60 -170H-80M250 12L300 60H316" />
+  <text class="d-text d-cell" x="176" y="-350">裏込め砕石</text>
+  <text class="d-text d-cell" x="-86" y="-170" text-anchor="end">水抜き穴</text>
+  <text class="d-text d-cell" x="322" y="60">基礎砕石</text>
+
+  <!-- 寸法 -->
+  <path class="d-faint" d="M0 -306V-342M50 -306V-342M0 26V68M240 6V68M-8 0H-224M-8 -300H-224" />
+  <path class="d-dim" d="M0 -330H50M0 56H240M-210 0V-300" />
+  <path class="d-tick" d="M-7 -323L7 -337M43 -323L57 -337M-7 63L7 49M233 63L247 49M-203 7L-217 -7M-203 -293L-217 -307" />
+  <text class="d-dim-t" x="25" y="-342">250</text>
+  <text class="d-dim-t" x="120" y="44">1,200</text>
+  <text class="d-dim-t" transform="translate(-222 -150) rotate(-90)">1,500</text>
+</Sheet>

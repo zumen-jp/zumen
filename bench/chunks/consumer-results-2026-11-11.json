@@ -1,0 +1,1571 @@
+{
+  "schema": 1,
+  "measured_at": "2026-11-10T17:50:29.036Z",
+  "source_commit": "97f05dfc32f66220b120e147cf64c1d6ed0894fc",
+  "repeats": 7,
+  "warmups": 1,
+  "environment": {
+    "cpu": "AMD Ryzen 5 3600XT 6-Core Processor            ",
+    "logical_cpus": 12,
+    "os": "win32",
+    "release": "10.0.26300",
+    "arch": "x64",
+    "node": "v24.22.2",
+    "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
+    "chromium": "156.0.8078.4",
+    "playwright": "1.64.1",
+    "headless": true,
+    "width": 960,
+    "height": 640,
+    "pixel_ratio": 1,
+    "gpu_completion_measured": false,
+    "gpu": {
+      "devices": [
+        {
+          "vendorId": 65535,
+          "deviceId": 65535,
+          "vendorString": "Google Inc. (Google)",
+          "deviceString": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver-5.0.0)",
+          "driverVendor": "SwANGLE",
+          "driverVersion": "5.0.0"
+        }
+      ],
+      "gl_renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver-5.0.0)",
+      "gl_vendor": "Google Inc. (Google)",
+      "gpu_compositing": "disabled_software"
+    }
+  },
+  "producer_results_sha256": "f4fdbf46f77abd9dec63589cd4bba28260cc13b24c67495ca4f19c85b651ff62",
+  "wasm_bytes": 6213357,
+  "wasm_sha256": "1a0287d9eda830d02b9e259ee370b30b41120dfc4ca7e2a6547bafdcedf38b4f",
+  "producer_harness_sha256": {
+    "Cargo.toml": "04259c6785153a534eea709c73d4c10dc7721dac1a48e4ca968766e532fa48ba",
+    "Cargo.lock": "571ca25bef70a9b5f45585cd9ab1f3d988e88c599d04c95bddcfe8c4ad12a49c",
+    "src/lib.rs": "192e731ae94a7a6552198f905177a52a18cf2d0c6be5e76fb17bbe6f8a4f8723",
+    "src/main.rs": "cd4c93d3630fdad0f848d2a7c148657a1157cdd752b3fa286948044654025c88",
+    "run.mjs": "290a0fe223b66ebcd18b9d47f3edbf6c8d27711747202ac06d49bdec14fee0bc"
+  },
+  "producer_inputs": [
+    {
+      "path": "samples/dwg/zumen-layout-r2000.dwg",
+      "bytes": 333633,
+      "sha256": "67c0eb33f14d968324b1c39c58bb3c7650a7ff899be1fea77efbd8fd61dd566e"
+    },
+    {
+      "path": "samples/dwg/zumen-arcdim-r2004_ascii.dxf",
+      "bytes": 266163,
+      "sha256": "39188eedff9992bb2de00666f3f1a9b75248e11931f0a52648792b6712b4dec5"
+    },
+    {
+      "path": "samples/dxf/text_alignments.dxf",
+      "bytes": 21536,
+      "sha256": "cacf3083c17c8d3836c23c6356edcb6f70db2949ed61875c2572911719a61353"
+    }
+  ],
+  "harness_sha256": {
+    "bench/chunks/consumer.mjs": "b32167281aab83f85831b2e52950fe15efdacad4b6a6d58420d3750bba8156a1",
+    "bench/chunks/consumer-page.mjs": "79a47baa2389cdc3cf86d5aefb9da67c4d1570bdfda6ae696f7d530f744b32d9",
+    "bench/chunks/consumer-echo.mjs": "f62a01a38af27926ffa7c4f401761703351c8654b27daec7880603394b47d9f9",
+    "packages/view2d/test/fixtures.mjs": "49688a4eba51e023571651a2778ab6f156ab16bd64b9f4b43c9282e5670a4334",
+    "bindings/js/src/scene.js": "f998c9f793c6bba64ffd6d83810262ea3c10a842ee8ccb74a775374c7532a48d",
+    "bindings/js/src/index.js": "4542c90081f6ce194ac57a4d93ada1a0c65d4d4cee3b13aea523032fe2ff2086",
+    "bindings/js/examples/worker/job.mjs": "b3bc1488f0f14288d173688c1e9d88e4902a3448fdcffdeb8735cef178f97eac",
+    "bindings/js/examples/worker/worker.mjs": "f3c5c56f6ddfb12727f4d62d6cc0d8bf043edcf3cd95c8bd7794ca424547ded8",
+    "bindings/js/test/browser/package-lock.json": "75361cd1ca128ff1a81012e0f6b2da7cee5008b83163a6c390f6185364aa9c0f"
+  },
+  "validation": {
+    "producer_native_wasm_exact_pairs": 25,
+    "node_worker_exact_cases": 5,
+    "synthetic_selection_exact": false,
+    "policy_selection_exact": false
+  },
+  "node_worker": [
+    {
+      "case": "layout-dwg",
+      "input_bytes": 333633,
+      "input_sha256": "67c0eb33f14d968324b1c39c58bb3c7650a7ff899be1fea77efbd8fd61dd566e",
+      "scene_bytes": 2336,
+      "scene_sha256": "685979b1b7debab711adb87ea0584da2ea969b9f2366629fa98e82b939daf688",
+      "counts": {
+        "chunks": 1,
+        "lines": 2,
+        "vertices": 188,
+        "faces": 0,
+        "texts": 0,
+        "points": 0,
+        "images": 0,
+        "glyphs": 0
+      },
+      "tolerance": 0.004472135954999579,
+      "job_to_exit_ms": 39.93669999999997,
+      "memory_before": {
+        "rss": 97894400,
+        "heapTotal": 13156352,
+        "heapUsed": 8802696,
+        "external": 36862198,
+        "arrayBuffers": 29947655
+      },
+      "memory_after": {
+        "rss": 106565632,
+        "heapTotal": 13156352,
+        "heapUsed": 9787664,
+        "external": 36913483,
+        "arrayBuffers": 29947655
+      }
+    },
+    {
+      "case": "arcdim-dxf",
+      "input_bytes": 266163,
+      "input_sha256": "39188eedff9992bb2de00666f3f1a9b75248e11931f0a52648792b6712b4dec5",
+      "scene_bytes": 12616,
+      "scene_sha256": "752cf40ce69f8ce3e528d04ec4957c4e58d6f7463ba77835d6c56c5e0cf87485",
+      "counts": {
+        "chunks": 1,
+        "lines": 30,
+        "vertices": 690,
+        "faces": 13,
+        "texts": 6,
+        "points": 24,
+        "images": 0,
+        "glyphs": 0
+      },
+      "tolerance": 0.01024234567698383,
+      "job_to_exit_ms": 37.60890000000006,
+      "memory_before": {
+        "rss": 110141440,
+        "heapTotal": 13156352,
+        "heapUsed": 10051792,
+        "external": 40208237,
+        "arrayBuffers": 30227753
+      },
+      "memory_after": {
+        "rss": 87678976,
+        "heapTotal": 14204928,
+        "heapUsed": 10042120,
+        "external": 16703819,
+        "arrayBuffers": 6638759
+      }
+    },
+    {
+      "case": "text-dxf",
+      "input_bytes": 21536,
+      "input_sha256": "cacf3083c17c8d3836c23c6356edcb6f70db2949ed61875c2572911719a61353",
+      "scene_bytes": 11464,
+      "scene_sha256": "498afdf4735f3c3eede45275ffe79a5d976714642446a9ab33b0a7be2301ba28",
+      "counts": {
+        "chunks": 1,
+        "lines": 42,
+        "vertices": 820,
+        "faces": 0,
+        "texts": 16,
+        "points": 0,
+        "images": 0,
+        "glyphs": 0
+      },
+      "tolerance": 0.00077876071421201,
+      "job_to_exit_ms": 34.913400000000024,
+      "memory_before": {
+        "rss": 88494080,
+        "heapTotal": 14204928,
+        "heapUsed": 10260192,
+        "external": 18310488,
+        "arrayBuffers": 6672564
+      },
+      "memory_after": {
+        "rss": 91828224,
+        "heapTotal": 18399232,
+        "heapUsed": 8646592,
+        "external": 12140752,
+        "arrayBuffers": 6392940
+      }
+    },
+    {
+      "case": "synthetic-10k",
+      "input_bytes": 1075716,
+      "input_sha256": "615a9ede6ee1e44c2a258e656a20677baedd06d52cdf2e766310359cf96f6873",
+      "scene_bytes": 696440,
+      "scene_sha256": "98d8791112edc5f13a0d1f079d8f78275cb9ba3f77a15ff50926fa32e4f47862",
+      "counts": {
+        "chunks": 3,
+        "lines": 10000,
+        "vertices": 20000,
+        "faces": 0,
+        "texts": 0,
+        "points": 0,
+        "images": 0,
+        "glyphs": 0
+      },
+      "tolerance": 0.00002008638042356639,
+      "job_to_exit_ms": 67.85429999999997,
+      "memory_before": {
+        "rss": 109117440,
+        "heapTotal": 18399232,
+        "heapUsed": 8892544,
+        "external": 35737069,
+        "arrayBuffers": 8165769
+      },
+      "memory_after": {
+        "rss": 115507200,
+        "heapTotal": 18399232,
+        "heapUsed": 9012272,
+        "external": 39667660,
+        "arrayBuffers": 8132096
+      }
+    },
+    {
+      "case": "synthetic-100k",
+      "input_bytes": 10830181,
+      "input_sha256": "7ecbe51b846827f260ebad98c31733908fd2cb19324a8fa36bc1e1c304fab5df",
+      "scene_bytes": 7032048,
+      "scene_sha256": "19ff1aab7186b104ceb1ef1bc5b8eedc36c5c5bbdb7927d502a043077f06a21a",
+      "counts": {
+        "chunks": 25,
+        "lines": 100000,
+        "vertices": 200000,
+        "faces": 0,
+        "texts": 0,
+        "points": 0,
+        "images": 0,
+        "glyphs": 0
+      },
+      "tolerance": 0.027980149063555726,
+      "job_to_exit_ms": 475.15589999999975,
+      "memory_before": {
+        "rss": 268660736,
+        "heapTotal": 11059200,
+        "heapUsed": 7008000,
+        "external": 207039479,
+        "arrayBuffers": 24222528
+      },
+      "memory_after": {
+        "rss": 318873600,
+        "heapTotal": 11059200,
+        "heapUsed": 7639656,
+        "external": 263295812,
+        "arrayBuffers": 24222528
+      }
+    }
+  ],
+  "browser_results": [
+    {
+      "case": "layout-dwg",
+      "policy": "provisional",
+      "scene_sha256": "b0848f42da7e44b4041c2a60c3340e698f831314509b4e3be3122800e309f010",
+      "source_metrics": {
+        "input_bytes": 333633,
+        "walked": 2,
+        "entities": 2,
+        "chunks": 1,
+        "lines": 2,
+        "vertices": 128,
+        "faces": 0,
+        "texts": 0,
+        "points": 0,
+        "images": 0,
+        "scene_bytes": 1856,
+        "tolerance": 0.01,
+        "max_chunk_span": 200,
+        "checked_lines": 0,
+        "max_coordinate_error": null,
+        "error_over_tolerance": null,
+        "identity_order_fnv1a": "46a49b7adffe102a",
+        "diagnostics": "scene.curve.approximated:1"
+      },
+      "reader_ms": 0,
+      "set_scene_ms": 0.20000001788139343,
+      "scene_bytes": 1856,
+      "column_bytes": 1229,
+      "header_and_padding_bytes": 627,
+      "calculated_order_index_bytes": 8,
+      "readback_rgba_bytes": 2457600,
+      "reader_copied_column_bytes": 0,
+      "limits": {
+        "issues": 10000
+      },
+      "default_limit_rejection": null,
+      "view": {
+        "center": {
+          "x": 100,
+          "y": 50
+        },
+        "scale": 4.48,
+        "rotation": 0
+      },
+      "extent": {
+        "min_x": 0,
+        "min_y": 0,
+        "max_x": 200,
+        "max_y": 100
+      },
+      "render_submit_ms": 0.09999999403953552,
+      "select_rect_ms": 0.5,
+      "render_to_next_raf_ms": 16.5,
+      "render_readback_ms": 0.7999999821186066,
+      "selected_count": 1,
+      "full_selected_count": 2,
+      "selection_json_utf8_bytes": 25,
+      "selection_sha256": "0161cbdd50a68e60cc96baf48d4b2f1a7db0292c5d90f5597a2a08226bb03ce5",
+      "full_selection_sha256": "f0896db50606ae0c5d38675567fcccaf46ce466ca5cc7f787f05c70a6a05c795",
+      "pixel_sha256": "5403b21e56983069c4e2a48db164cb66e96705c203c14ead77ee194cf875f9b9",
+      "nonwhite_pixels": 6892,
+      "drawn": {
+        "lines": 2,
+        "faces": 0,
+        "texts": 0,
+        "points": 0,
+        "images": 0,
+        "glyphs": 0
+      },
+      "issue_counts": {},
+      "independent_selection": null,
+      "transfer": {
+        "post_message_ms": 0,
+        "roundtrip_ms": 0,
+        "payload_bytes": 1856
+      },
+      "clone": {
+        "post_message_ms": 0,
+        "roundtrip_ms": 0,
+        "payload_bytes": 1856
+      },
+      "provisional_selection_equal": true,
+      "provisional_full_selection_equal": true,
+      "retained_heap_observations": {
+        "before": {
+          "usedSize": 723080,
+          "totalSize": 1310720,
+          "embedderHeapUsedSize": 327280,
+          "backingStorageSize": 176602
+        },
+        "after_setup": {
+          "usedSize": 1123148,
+          "totalSize": 1835008,
+          "embedderHeapUsedSize": 337984,
+          "backingStorageSize": 178587
+        },
+        "after_measure": {
+          "usedSize": 1346100,
+          "totalSize": 1835008,
+          "embedderHeapUsedSize": 340584,
+          "backingStorageSize": 178617
+        },
+        "after_dispose": {
+          "usedSize": 1331468,
+          "totalSize": 1835008,
+          "embedderHeapUsedSize": 340696,
+          "backingStorageSize": 176714
+        }
+      }
+    },
+    {
+      "case": "arcdim-dxf",
+      "policy": "provisional",
+      "scene_sha256": "d89ad0da664e255b8022e6f0672546d50fcf49ed4c9121ca2a43667f73c1cc03",
+      "source_metrics": {
+        "input_bytes": 266163,
+        "walked": 79,
+        "entities": 73,
+        "chunks": 1,
+        "lines": 30,
+        "vertices": 697,
+        "faces": 13,
+        "texts": 6,
+        "points": 24,
+        "images": 0,
+        "scene_bytes": 12672,
+        "tolerance": 0.01,
+        "max_chunk_span": 397.3741760253906,
+        "checked_lines": 13,
+        "max_coordinate_error": 0.000006975328489033927,
+        "error_over_tolerance": 0.0006975328489033927,
+        "identity_order_fnv1a": "7955ea1adea32573",
+        "diagnostics": "scene.curve.approximated:1"
+      },
+      "reader_ms": 0,
+      "set_scene_ms": 0.9000000059604645,
+      "scene_bytes": 12672,
+      "column_bytes": 12004,
+      "header_and_padding_bytes": 668,
+      "calculated_order_index_bytes": 292,
+      "readback_rgba_bytes": 2457600,
+      "reader_copied_column_bytes": 0,
+      "limits": {
+        "issues": 10000
+      },
+      "default_limit_rejection": null,
+      "view": {
+        "center": {
+          "x": 158.6870880126953,
+          "y": -40.92945861816406
+        },
+        "scale": 2.254801781439238,
+        "rotation": 0
+      },
+      "extent": {
+        "min_x": -40,
+        "min_y": -150,
+        "max_x": 357.3741760253906,
+        "max_y": 68.14108276367188
+      },
+      "render_submit_ms": 0.30000001192092896,
+      "select_rect_ms": 1.199999988079071,
+      "render_to_next_raf_ms": 16.80000001192093,
+      "render_readback_ms": 1.100000023841858,
+      "selected_count": 9,
+      "full_selected_count": 63,
+      "selection_json_utf8_bytes": 392,
+      "selection_sha256": "0d9da0e94edf97afe0c630c63592882c29140f650c64f58dde9230f5f8204902",
+      "full_selection_sha256": "476dcc4de4db374cbe26d5bd0b4a3f6e57490a4a09cb7c33f7cf3fa404f4502e",
+      "pixel_sha256": "2b01cfeeeebc37f66e9c0e76df1950094bd1976dabbe229b4fcd4f6b8be648c0",
+      "nonwhite_pixels": 5573,
+      "drawn": {
+        "lines": 30,
+        "faces": 13,
+        "texts": 0,
+        "points": 24,
+        "images": 0,
+        "glyphs": 0
+      },
+      "issue_counts": {
+        "text-layout-unsupported:omitted": 6
+      },
+      "independent_selection": null,
+      "transfer": {
+        "post_message_ms": 0,
+        "roundtrip_ms": 0.09999999403953552,
+        "payload_bytes": 12672
+      },
+      "clone": {
+        "post_message_ms": 0,
+        "roundtrip_ms": 0.09999999403953552,
+        "payload_bytes": 12672
+      },
+      "provisional_selection_equal": true,
+      "provisional_full_selection_equal": true,
+      "retained_heap_observations": {
+        "before": {
+          "usedSize": 723080,
+          "totalSize": 1310720,
+          "embedderHeapUsedSize": 327280,
+          "backingStorageSize": 176602
+        },
+        "after_setup": {
+          "usedSize": 1175996,
+          "totalSize": 1835008,
+          "embedderHeapUsedSize": 337984,
+          "backingStorageSize": 191136
+        },
+        "after_measure": {
+          "usedSize": 1469552,
+          "totalSize": 2097152,
+          "embedderHeapUsedSize": 339896,
+          "backingStorageSize": 191166
+        },
+        "after_dispose": {
+          "usedSize": 1391136,
+          "totalSize": 2097152,
+          "embedderHeapUsedSize": 334464,
+          "backingStorageSize": 176728
+        }
+      }
+    },
+    {
+      "case": "text-dxf",
+      "policy": "provisional",
+      "scene_sha256": "d95c4bb74f155084573a313bd6d20c1484831cc77c75a0d630de94076183434c",
+      "source_metrics": {
+        "input_bytes": 21536,
+        "walked": 58,
+        "entities": 58,
+        "chunks": 1,
+        "lines": 42,
+        "vertices": 276,
+        "faces": 0,
+        "texts": 16,
+        "points": 0,
+        "images": 0,
+        "scene_bytes": 7112,
+        "tolerance": 0.01,
+        "max_chunk_span": 35.165096282958984,
+        "checked_lines": 10,
+        "max_coordinate_error": 0.0000013667707108311333,
+        "error_over_tolerance": 0.00013667707108311333,
+        "identity_order_fnv1a": "f895cbb630d858eb",
+        "diagnostics": "scene.curve.approximated:1"
+      },
+      "reader_ms": 0,
+      "set_scene_ms": 0.699999988079071,
+      "scene_bytes": 7112,
+      "column_bytes": 6509,
+      "header_and_padding_bytes": 603,
+      "calculated_order_index_bytes": 232,
+      "readback_rgba_bytes": 2457600,
+      "reader_copied_column_bytes": 0,
+      "limits": {
+        "issues": 10000
+      },
+      "default_limit_rejection": null,
+      "view": {
+        "center": {
+          "x": 17.49245125468925,
+          "y": 6.750000380473712
+        },
+        "scale": 25.479810798476382,
+        "rotation": 0
+      },
+      "extent": {
+        "min_x": -0.09009688679024191,
+        "min_y": -1.5974927912181824,
+        "max_x": 35.07499939616874,
+        "max_y": 15.097493552165606
+      },
+      "render_submit_ms": 0.29999998211860657,
+      "select_rect_ms": 0.7999999821186066,
+      "render_to_next_raf_ms": 17,
+      "render_readback_ms": 1.0999999940395355,
+      "selected_count": 14,
+      "full_selected_count": 56,
+      "selection_json_utf8_bytes": 323,
+      "selection_sha256": "b62108d48bbb8d738d4ec5427a0dcbf841f9315972f7ebb5c6c87a3ac8ebecde",
+      "full_selection_sha256": "3ca69e28197a6509434c338803222edb047e3ad3a21b6f9159142a8da7c0d11c",
+      "pixel_sha256": "04190e048863c31034ac5b360ea88d0b4ac30a36ba606006b69cd7bef0351758",
+      "nonwhite_pixels": 12622,
+      "drawn": {
+        "lines": 42,
+        "faces": 0,
+        "texts": 14,
+        "points": 0,
+        "images": 0,
+        "glyphs": 0
+      },
+      "issue_counts": {
+        "browser-text:fallback": 14,
+        "color-unresolved:fallback": 45,
+        "text-layout-unsupported:omitted": 2
+      },
+      "independent_selection": null,
+      "transfer": {
+        "post_message_ms": 0,
+        "roundtrip_ms": 0.09999999403953552,
+        "payload_bytes": 7112
+      },
+      "clone": {
+        "post_message_ms": 0,
+        "roundtrip_ms": 0.09999999403953552,
+        "payload_bytes": 7112
+      },
+      "provisional_selection_equal": true,
+      "provisional_full_selection_equal": true,
+      "retained_heap_observations": {
+        "before": {
+          "usedSize": 723080,
+          "totalSize": 1310720,
+          "embedderHeapUsedSize": 327280,
+          "backingStorageSize": 176602
+        },
+        "after_setup": {
+          "usedSize": 1169016,
+          "totalSize": 1835008,
+          "embedderHeapUsedSize": 419040,
+          "backingStorageSize": 184958
+        },
+        "after_measure": {
+          "usedSize": 1457112,
+          "totalSize": 2097152,
+          "embedderHeapUsedSize": 424024,
+          "backingStorageSize": 184988
+        },
+        "after_dispose": {
+          "usedSize": 1389828,
+          "totalSize": 2097152,
+          "embedderHeapUsedSize": 342360,
+          "backingStorageSize": 176751
+        }
+      }
+    },
+    {
+      "case": "synthetic-10k",
+      "policy": "provisional",
+      "scene_sha256": "98d8791112edc5f13a0d1f079d8f78275cb9ba3f77a15ff50926fa32e4f47862",
+      "source_metrics": {
+        "input_bytes": 1075716,
+        "walked": 10000,
+        "entities": 10000,
+        "chunks": 3,
+        "lines": 10000,
+        "vertices": 20000,
+        "faces": 0,
+        "texts": 0,
+        "points": 0,
+        "images": 0,
+        "scene_bytes": 696440,
+        "tolerance": 0.01,
+        "max_chunk_span": 1.0003567934036255,
+        "checked_lines": 10000,
+        "max_coordinate_error": 3.985769581049681e-8,
+        "error_over_tolerance": 0.000003985769581049681,
+        "identity_order_fnv1a": "476ad143e0f63626",
+        "diagnostics": ""
+      },
+      "reader_ms": 0,
+      "set_scene_ms": 32.900000005960464,
+      "scene_bytes": 696440,
+      "column_bytes": 695820,
+      "header_and_padding_bytes": 620,
+      "calculated_order_index_bytes": 40000,
+      "readback_rgba_bytes": 2457600,
+      "reader_copied_column_bytes": 0,
+      "limits": {
+        "issues": 10000
+      },
+      "default_limit_rejection": null,
+      "view": {
+        "center": {
+          "x": 100000.5001783967,
+          "y": 50000.04456172845
+        },
+        "scale": 895.6804271318429,
+        "rotation": 0
+      },
+      "extent": {
+        "min_x": 100000,
+        "min_y": 50000,
+        "max_x": 100001.0003567934,
+        "max_y": 50000.0891234569
+      },
+      "render_submit_ms": 15.5,
+      "select_rect_ms": 34.39999997615814,
+      "render_to_next_raf_ms": 19.799999982118607,
+      "render_readback_ms": 21.30000001192093,
+      "selected_count": 3275,
+      "full_selected_count": 6032,
+      "selection_json_utf8_bytes": 80522,
+      "selection_sha256": "7569fec791250244adc325b7894497e1829892541193b34617dc0ff30fdf7182",
+      "full_selection_sha256": "071daf1b8ccb4e60de67096584e8401ed07210ab1d7388c7b28985e86dd3a1f3",
+      "pixel_sha256": "6cce0db39526026bb841b656ae5047d90e3ec7e104733064a6cd234d584a81f4",
+      "nonwhite_pixels": 10776,
+      "drawn": {
+        "lines": 10000,
+        "faces": 0,
+        "texts": 0,
+        "points": 0,
+        "images": 0,
+        "glyphs": 0
+      },
+      "issue_counts": {
+        "color-unresolved:fallback": 10000
+      },
+      "independent_selection": {
+        "expected_count": 5360,
+        "actual_only_count": 0,
+        "missing_count": 2085,
+        "exact": false,
+        "expected_sha256": "70c0e495aeabd959168280e4dc20071900e80314b217058998045d238551aaa1",
+        "source_formula_expected_count": 5360,
+        "formula_vs_encoded_difference": 0,
+        "full_expected_count": 10000,
+        "full_exact": false,
+        "first_missing_probe": {
+          "origin": [
+            100000,
+            50000
+          ],
+          "xy": [
+            0.25631603598594666,
+            0,
+            0.2564395070075989,
+            0.00023456788039766252
+          ],
+          "view": {
+            "center": {
+              "x": 100000.5001783967,
+              "y": 50000.04456172845
+            },
+            "scale": 895.6804271318429,
+            "rotation": 0
+          },
+          "rect": {
+            "min_x": 240,
+            "min_y": 160,
+            "max_x": 720,
+            "max_y": 480
+          },
+          "a": {
+            "x": 261.5772565926335,
+            "y": 359.91306797136355
+          },
+          "b": {
+            "x": 261.6878471700454,
+            "y": 359.7029701120576
+          },
+          "midpoint": {
+            "x": 261.63255188133945,
+            "y": 359.80801904171057
+          },
+          "midpoint_inside_rect": true,
+          "canvas_stroke_contains_midpoint": true,
+          "isolated_rect_count": 0,
+          "isolated_point_count": 1
+        }
+      },
+      "transfer": {
+        "post_message_ms": 0,
+        "roundtrip_ms": 0,
+        "payload_bytes": 696440
+      },
+      "clone": {
+        "post_message_ms": 0.10000002384185791,
+        "roundtrip_ms": 0.800000011920929,
+        "payload_bytes": 696440
+      },
+      "provisional_selection_equal": true,
+      "provisional_full_selection_equal": true,
+      "retained_heap_observations": {
+        "before": {
+          "usedSize": 723080,
+          "totalSize": 1310720,
+          "embedderHeapUsedSize": 327280,
+          "backingStorageSize": 176602
+        },
+        "after_setup": {
+          "usedSize": 4130504,
+          "totalSize": 4661248,
+          "embedderHeapUsedSize": 666808,
+          "backingStorageSize": 1078780
+        },
+        "after_measure": {
+          "usedSize": 4700300,
+          "totalSize": 5378048,
+          "embedderHeapUsedSize": 341160,
+          "backingStorageSize": 1078814
+        },
+        "after_dispose": {
+          "usedSize": 1705596,
+          "totalSize": 2813952,
+          "embedderHeapUsedSize": 335728,
+          "backingStorageSize": 176718
+        }
+      }
+    },
+    {
+      "case": "synthetic-10k",
+      "policy": "items-1024",
+      "scene_sha256": "9adc9416e442ce3bb0558dc1884cbf0eb1d2388302b8b4f45698bd0af92830cd",
+      "source_metrics": {
+        "input_bytes": 1075716,
+        "walked": 10000,
+        "entities": 10000,
+        "chunks": 10,
+        "lines": 10000,
+        "vertices": 20000,
+        "faces": 0,
+        "texts": 0,
+        "points": 0,
+        "images": 0,
+        "scene_bytes": 696784,
+        "tolerance": 0.01,
+        "max_chunk_span": 1.0003567934036255,
+        "checked_lines": 10000,
+        "max_coordinate_error": 3.985769581049681e-8,
+        "error_over_tolerance": 0.000003985769581049681,
+        "identity_order_fnv1a": "476ad143e0f63626",
+        "diagnostics": ""
+      },
+      "reader_ms": 0,
+      "set_scene_ms": 33.30000001192093,
+      "scene_bytes": 696784,
+      "column_bytes": 696184,
+      "header_and_padding_bytes": 600,
+      "calculated_order_index_bytes": 40000,
+      "readback_rgba_bytes": 2457600,
+      "reader_copied_column_bytes": 0,
+      "limits": {
+        "issues": 10000
+      },
+      "default_limit_rejection": null,
+      "view": {
+        "center": {
+          "x": 100000.5001783967,
+          "y": 50000.04456172845
+        },
+        "scale": 895.6804271318429,
+        "rotation": 0
+      },
+      "extent": {
+        "min_x": 100000,
+        "min_y": 50000,
+        "max_x": 100001.0003567934,
+        "max_y": 50000.0891234569
+      },
+      "render_submit_ms": 14.800000011920929,
+      "select_rect_ms": 34,
+      "render_to_next_raf_ms": 19.299999982118607,
+      "render_readback_ms": 20.80000001192093,
+      "selected_count": 2322,
+      "full_selected_count": 4578,
+      "selection_json_utf8_bytes": 56905,
+      "selection_sha256": "11b8fbcee9f95460ba9f5418611f6e1640ad3ae510c6f7899c64fe38c04b7be0",
+      "full_selection_sha256": "f0276619a2cedd411345f9362c84f9f7cf5a05a87ec79ee7d34b534b8442e621",
+      "pixel_sha256": "6cce0db39526026bb841b656ae5047d90e3ec7e104733064a6cd234d584a81f4",
+      "nonwhite_pixels": 10776,
+      "drawn": {
+        "lines": 10000,
+        "faces": 0,
+        "texts": 0,
+        "points": 0,
+        "images": 0,
+        "glyphs": 0
+      },
+      "issue_counts": {
+        "color-unresolved:fallback": 10000
+      },
+      "independent_selection": {
+        "expected_count": 5360,
+        "actual_only_count": 0,
+        "missing_count": 3038,
+        "exact": false,
+        "expected_sha256": "70c0e495aeabd959168280e4dc20071900e80314b217058998045d238551aaa1",
+        "source_formula_expected_count": 5360,
+        "formula_vs_encoded_difference": 0,
+        "full_expected_count": 10000,
+        "full_exact": false,
+        "first_missing_probe": {
+          "origin": [
+            100000,
+            50000
+          ],
+          "xy": [
+            0.25631603598594666,
+            0,
+            0.2564395070075989,
+            0.00023456788039766252
+          ],
+          "view": {
+            "center": {
+              "x": 100000.5001783967,
+              "y": 50000.04456172845
+            },
+            "scale": 895.6804271318429,
+            "rotation": 0
+          },
+          "rect": {
+            "min_x": 240,
+            "min_y": 160,
+            "max_x": 720,
+            "max_y": 480
+          },
+          "a": {
+            "x": 261.5772565926335,
+            "y": 359.91306797136355
+          },
+          "b": {
+            "x": 261.6878471700454,
+            "y": 359.7029701120576
+          },
+          "midpoint": {
+            "x": 261.63255188133945,
+            "y": 359.80801904171057
+          },
+          "midpoint_inside_rect": true,
+          "canvas_stroke_contains_midpoint": true,
+          "isolated_rect_count": 0,
+          "isolated_point_count": 1
+        }
+      },
+      "transfer": {
+        "post_message_ms": 0,
+        "roundtrip_ms": 0.09999999403953552,
+        "payload_bytes": 696784
+      },
+      "clone": {
+        "post_message_ms": 0.09999999403953552,
+        "roundtrip_ms": 1,
+        "payload_bytes": 696784
+      },
+      "provisional_selection_equal": false,
+      "provisional_full_selection_equal": false,
+      "retained_heap_observations": {
+        "before": {
+          "usedSize": 723080,
+          "totalSize": 1048576,
+          "embedderHeapUsedSize": 327280,
+          "backingStorageSize": 176602
+        },
+        "after_setup": {
+          "usedSize": 4153796,
+          "totalSize": 4923392,
+          "embedderHeapUsedSize": 697736,
+          "backingStorageSize": 1079124
+        },
+        "after_measure": {
+          "usedSize": 4659328,
+          "totalSize": 5378048,
+          "embedderHeapUsedSize": 341160,
+          "backingStorageSize": 1079158
+        },
+        "after_dispose": {
+          "usedSize": 1705132,
+          "totalSize": 2813952,
+          "embedderHeapUsedSize": 335728,
+          "backingStorageSize": 176718
+        }
+      }
+    },
+    {
+      "case": "synthetic-10k",
+      "policy": "items-16384",
+      "scene_sha256": "3ab41a1afab59abf04110b367be4b7efb19968cb15f71dad866b610b6ee22815",
+      "source_metrics": {
+        "input_bytes": 1075716,
+        "walked": 10000,
+        "entities": 10000,
+        "chunks": 1,
+        "lines": 10000,
+        "vertices": 20000,
+        "faces": 0,
+        "texts": 0,
+        "points": 0,
+        "images": 0,
+        "scene_bytes": 696336,
+        "tolerance": 0.01,
+        "max_chunk_span": 1.0003567934036255,
+        "checked_lines": 10000,
+        "max_coordinate_error": 3.985769581049681e-8,
+        "error_over_tolerance": 0.000003985769581049681,
+        "identity_order_fnv1a": "476ad143e0f63626",
+        "diagnostics": ""
+      },
+      "reader_ms": 0,
+      "set_scene_ms": 33.29999998211861,
+      "scene_bytes": 696336,
+      "column_bytes": 695716,
+      "header_and_padding_bytes": 620,
+      "calculated_order_index_bytes": 40000,
+      "readback_rgba_bytes": 2457600,
+      "reader_copied_column_bytes": 0,
+      "limits": {
+        "issues": 10000
+      },
+      "default_limit_rejection": null,
+      "view": {
+        "center": {
+          "x": 100000.5001783967,
+          "y": 50000.044561728835
+        },
+        "scale": 895.6804271318429,
+        "rotation": 0
+      },
+      "extent": {
+        "min_x": 100000,
+        "min_y": 50000,
+        "max_x": 100001.0003567934,
+        "max_y": 50000.08912345767
+      },
+      "render_submit_ms": 14.5,
+      "select_rect_ms": 34.69999998807907,
+      "render_to_next_raf_ms": 19.30000001192093,
+      "render_readback_ms": 20.700000017881393,
+      "selected_count": 3568,
+      "full_selected_count": 6950,
+      "selection_json_utf8_bytes": 87847,
+      "selection_sha256": "b30360eb8da28484e2dcd2372fa1cc849fd5d1e4981d55649982cbfeff8c40b2",
+      "full_selection_sha256": "f5927865156c6bba3e20ed36871ae5721eae821d8ed381370577b7c654ae45c2",
+      "pixel_sha256": "6cce0db39526026bb841b656ae5047d90e3ec7e104733064a6cd234d584a81f4",
+      "nonwhite_pixels": 10776,
+      "drawn": {
+        "lines": 10000,
+        "faces": 0,
+        "texts": 0,
+        "points": 0,
+        "images": 0,
+        "glyphs": 0
+      },
+      "issue_counts": {
+        "color-unresolved:fallback": 10000
+      },
+      "independent_selection": {
+        "expected_count": 5360,
+        "actual_only_count": 0,
+        "missing_count": 1792,
+        "exact": false,
+        "expected_sha256": "70c0e495aeabd959168280e4dc20071900e80314b217058998045d238551aaa1",
+        "source_formula_expected_count": 5360,
+        "formula_vs_encoded_difference": 0,
+        "full_expected_count": 10000,
+        "full_exact": false,
+        "first_missing_probe": {
+          "origin": [
+            100000,
+            50000
+          ],
+          "xy": [
+            0.25631603598594666,
+            0,
+            0.2564395070075989,
+            0.00023456788039766252
+          ],
+          "view": {
+            "center": {
+              "x": 100000.5001783967,
+              "y": 50000.044561728835
+            },
+            "scale": 895.6804271318429,
+            "rotation": 0
+          },
+          "rect": {
+            "min_x": 240,
+            "min_y": 160,
+            "max_x": 720,
+            "max_y": 480
+          },
+          "a": {
+            "x": 261.5772565926335,
+            "y": 359.913068316761
+          },
+          "b": {
+            "x": 261.6878471700454,
+            "y": 359.702970457455
+          },
+          "midpoint": {
+            "x": 261.63255188133945,
+            "y": 359.808019387108
+          },
+          "midpoint_inside_rect": true,
+          "canvas_stroke_contains_midpoint": true,
+          "isolated_rect_count": 0,
+          "isolated_point_count": 1
+        }
+      },
+      "transfer": {
+        "post_message_ms": 0,
+        "roundtrip_ms": 0.09999999403953552,
+        "payload_bytes": 696336
+      },
+      "clone": {
+        "post_message_ms": 0.10000002384185791,
+        "roundtrip_ms": 0.5999999940395355,
+        "payload_bytes": 696336
+      },
+      "provisional_selection_equal": false,
+      "provisional_full_selection_equal": false,
+      "retained_heap_observations": {
+        "before": {
+          "usedSize": 723080,
+          "totalSize": 1310720,
+          "embedderHeapUsedSize": 327280,
+          "backingStorageSize": 176602
+        },
+        "after_setup": {
+          "usedSize": 4148780,
+          "totalSize": 4923392,
+          "embedderHeapUsedSize": 680576,
+          "backingStorageSize": 1078676
+        },
+        "after_measure": {
+          "usedSize": 4702416,
+          "totalSize": 5378048,
+          "embedderHeapUsedSize": 342312,
+          "backingStorageSize": 1078710
+        },
+        "after_dispose": {
+          "usedSize": 1708456,
+          "totalSize": 2813952,
+          "embedderHeapUsedSize": 336880,
+          "backingStorageSize": 176718
+        }
+      }
+    },
+    {
+      "case": "synthetic-100k",
+      "policy": "provisional",
+      "scene_sha256": "31fe4f08bb4af6574618e8d2cc676da39597406920f06390cbd7d3b357f1a137",
+      "source_metrics": {
+        "input_bytes": 10830181,
+        "walked": 100000,
+        "entities": 100000,
+        "chunks": 200,
+        "lines": 100000,
+        "vertices": 200000,
+        "faces": 0,
+        "texts": 0,
+        "points": 0,
+        "images": 0,
+        "scene_bytes": 7041128,
+        "tolerance": 0.01,
+        "max_chunk_span": 654.9308471679688,
+        "checked_lines": 100000,
+        "max_coordinate_error": 0.000030473442166112363,
+        "error_over_tolerance": 0.0030473442166112363,
+        "identity_order_fnv1a": "2901998d62125c7c",
+        "diagnostics": ""
+      },
+      "reader_ms": 0,
+      "set_scene_ms": 394.10000002384186,
+      "scene_bytes": 7041128,
+      "column_bytes": 7040529,
+      "header_and_padding_bytes": 599,
+      "calculated_order_index_bytes": 400000,
+      "readback_rgba_bytes": 2457600,
+      "reader_copied_column_bytes": 0,
+      "limits": {
+        "issues": 100000
+      },
+      "default_limit_rejection": "limits.issues",
+      "view": {
+        "center": {
+          "x": 100500.17839906164,
+          "y": 50489.00617284277
+        },
+        "scale": 0.5889496206678843,
+        "rotation": 0
+      },
+      "extent": {
+        "min_x": 100000,
+        "min_y": 50000,
+        "max_x": 101000.35679812328,
+        "max_y": 50978.01234568553
+      },
+      "render_submit_ms": 226.2999999821186,
+      "select_rect_ms": 317.5,
+      "render_to_next_raf_ms": 220.09999999403954,
+      "render_readback_ms": 233.69999998807907,
+      "selected_count": 25054,
+      "full_selected_count": 55437,
+      "selection_json_utf8_bytes": 630089,
+      "selection_sha256": "01c060802554ec397d16f442db7a8277ec5e854c1987e048784258f0fa496578",
+      "full_selection_sha256": "cf2c7bbf244dbf526997860cc4741f87cf77f9e63ad45c3586e794a62e6b1c41",
+      "pixel_sha256": "14dc6efe80e776095643df1a938b57a8d8e195045bde4bd3264381a6dc87b638",
+      "nonwhite_pixels": 66198,
+      "drawn": {
+        "lines": 100000,
+        "faces": 0,
+        "texts": 0,
+        "points": 0,
+        "images": 0,
+        "glyphs": 0
+      },
+      "issue_counts": {
+        "color-unresolved:fallback": 100000
+      },
+      "independent_selection": {
+        "expected_count": 45694,
+        "actual_only_count": 0,
+        "missing_count": 20640,
+        "exact": false,
+        "expected_sha256": "cbb2ddd9e310d7422e6e01610696da77604ada761a7949d21a00dd9a8624c6d9",
+        "source_formula_expected_count": 45694,
+        "formula_vs_encoded_difference": 0,
+        "full_expected_count": 100000,
+        "full_exact": false,
+        "first_missing_probe": {
+          "origin": [
+            100000,
+            50641.97530865
+          ],
+          "xy": [
+            535.6605224609375,
+            0,
+            535.783935546875,
+            0.23456789553165436
+          ],
+          "view": {
+            "center": {
+              "x": 100500.17839906164,
+              "y": 50489.00617284277
+            },
+            "scale": 0.5889496206678843,
+            "rotation": 0
+          },
+          "rect": {
+            "min_x": 240,
+            "min_y": 160,
+            "max_x": 720,
+            "max_y": 480
+          },
+          "a": {
+            "x": 500.89718311650813,
+            "y": 229.90888549243755
+          },
+          "b": {
+            "x": 500.9698672066565,
+            "y": 229.7707368193433
+          },
+          "midpoint": {
+            "x": 500.93352516158234,
+            "y": 229.83981115589043
+          },
+          "midpoint_inside_rect": true,
+          "canvas_stroke_contains_midpoint": true,
+          "isolated_rect_count": 0,
+          "isolated_point_count": 1
+        }
+      },
+      "transfer": {
+        "post_message_ms": 0.09999999403953552,
+        "roundtrip_ms": 0.19999998807907104,
+        "payload_bytes": 7041128
+      },
+      "clone": {
+        "post_message_ms": 1,
+        "roundtrip_ms": 4.4000000059604645,
+        "payload_bytes": 7041128
+      },
+      "provisional_selection_equal": true,
+      "provisional_full_selection_equal": true,
+      "retained_heap_observations": {
+        "before": {
+          "usedSize": 723080,
+          "totalSize": 1048576,
+          "embedderHeapUsedSize": 327280,
+          "backingStorageSize": 176602
+        },
+        "after_setup": {
+          "usedSize": 29369604,
+          "totalSize": 30810112,
+          "embedderHeapUsedSize": 480632,
+          "backingStorageSize": 9347933
+        },
+        "after_measure": {
+          "usedSize": 30363816,
+          "totalSize": 31191040,
+          "embedderHeapUsedSize": 346808,
+          "backingStorageSize": 9347967
+        },
+        "after_dispose": {
+          "usedSize": 2179248,
+          "totalSize": 5623808,
+          "embedderHeapUsedSize": 341376,
+          "backingStorageSize": 176718
+        }
+      }
+    },
+    {
+      "case": "synthetic-100k",
+      "policy": "span-16384",
+      "scene_sha256": "3a7da722466b17a2c69bea95204b91670a414fe5cb4bcdc839f5ca4b92c173c1",
+      "source_metrics": {
+        "input_bytes": 10830181,
+        "walked": 100000,
+        "entities": 100000,
+        "chunks": 700,
+        "lines": 100000,
+        "vertices": 200000,
+        "faces": 0,
+        "texts": 0,
+        "points": 0,
+        "images": 0,
+        "scene_bytes": 7067128,
+        "tolerance": 0.01,
+        "max_chunk_span": 163.32469177246094,
+        "checked_lines": 100000,
+        "max_coordinate_error": 0.000007451773853972554,
+        "error_over_tolerance": 0.0007451773853972554,
+        "identity_order_fnv1a": "2901998d62125c7c",
+        "diagnostics": ""
+      },
+      "reader_ms": 0,
+      "set_scene_ms": 390.90000000596046,
+      "scene_bytes": 7067128,
+      "column_bytes": 7066529,
+      "header_and_padding_bytes": 599,
+      "calculated_order_index_bytes": 400000,
+      "readback_rgba_bytes": 2457600,
+      "reader_copied_column_bytes": 0,
+      "limits": {
+        "issues": 100000
+      },
+      "default_limit_rejection": "limits.issues",
+      "view": {
+        "center": {
+          "x": 100500.17839466542,
+          "y": 50489.00617284277
+        },
+        "scale": 0.5889496206678843,
+        "rotation": 0
+      },
+      "extent": {
+        "min_x": 100000,
+        "min_y": 50000,
+        "max_x": 101000.35678933084,
+        "max_y": 50978.01234568553
+      },
+      "render_submit_ms": 229.40000000596046,
+      "select_rect_ms": 306.09999999403954,
+      "render_to_next_raf_ms": 223.30000001192093,
+      "render_readback_ms": 226.69999998807907,
+      "selected_count": 26601,
+      "full_selected_count": 57050,
+      "selection_json_utf8_bytes": 669772,
+      "selection_sha256": "2ef034ca7feb70268fe232d3dda416044619b34161032fb745e967c53b6cef74",
+      "full_selection_sha256": "4696c1117deaf559315138a2d42e1dbbf82a1ce6bf9466a3b75a9966e7fb7d0a",
+      "pixel_sha256": "14dc6efe80e776095643df1a938b57a8d8e195045bde4bd3264381a6dc87b638",
+      "nonwhite_pixels": 66198,
+      "drawn": {
+        "lines": 100000,
+        "faces": 0,
+        "texts": 0,
+        "points": 0,
+        "images": 0,
+        "glyphs": 0
+      },
+      "issue_counts": {
+        "color-unresolved:fallback": 100000
+      },
+      "independent_selection": {
+        "expected_count": 45694,
+        "actual_only_count": 0,
+        "missing_count": 19093,
+        "exact": false,
+        "expected_sha256": "cbb2ddd9e310d7422e6e01610696da77604ada761a7949d21a00dd9a8624c6d9",
+        "source_formula_expected_count": 45694,
+        "formula_vs_encoded_difference": 0,
+        "full_expected_count": 100000,
+        "full_exact": false,
+        "first_missing_probe": {
+          "origin": [
+            100492.607406964,
+            50641.97530865
+          ],
+          "xy": [
+            43.05308532714844,
+            0,
+            43.176544189453125,
+            0.23456789553165436
+          ],
+          "view": {
+            "center": {
+              "x": 100500.17839466542,
+              "y": 50489.00617284277
+            },
+            "scale": 0.5889496206678843,
+            "rotation": 0
+          },
+          "rect": {
+            "min_x": 240,
+            "min_y": 160,
+            "max_x": 720,
+            "max_y": 480
+          },
+          "a": {
+            "x": 500.89716793717594,
+            "y": 229.90888549243755
+          },
+          "b": {
+            "x": 500.9698789872984,
+            "y": 229.7707368193433
+          },
+          "midpoint": {
+            "x": 500.9335234622372,
+            "y": 229.83981115589043
+          },
+          "midpoint_inside_rect": true,
+          "canvas_stroke_contains_midpoint": true,
+          "isolated_rect_count": 0,
+          "isolated_point_count": 1
+        }
+      },
+      "transfer": {
+        "post_message_ms": 0,
+        "roundtrip_ms": 0.09999999403953552,
+        "payload_bytes": 7067128
+      },
+      "clone": {
+        "post_message_ms": 1,
+        "roundtrip_ms": 5.200000017881393,
+        "payload_bytes": 7067128
+      },
+      "provisional_selection_equal": false,
+      "provisional_full_selection_equal": false,
+      "retained_heap_observations": {
+        "before": {
+          "usedSize": 723080,
+          "totalSize": 1048576,
+          "embedderHeapUsedSize": 327280,
+          "backingStorageSize": 176602
+        },
+        "after_setup": {
+          "usedSize": 29676196,
+          "totalSize": 31858688,
+          "embedderHeapUsedSize": 663416,
+          "backingStorageSize": 9361133
+        },
+        "after_measure": {
+          "usedSize": 30703320,
+          "totalSize": 31191040,
+          "embedderHeapUsedSize": 347960,
+          "backingStorageSize": 9361167
+        },
+        "after_dispose": {
+          "usedSize": 2189300,
+          "totalSize": 5623808,
+          "embedderHeapUsedSize": 342528,
+          "backingStorageSize": 176718
+        }
+      }
+    },
+    {
+      "case": "synthetic-100k",
+      "policy": "span-262144",
+      "scene_sha256": "19ff1aab7186b104ceb1ef1bc5b8eedc36c5c5bbdb7927d502a043077f06a21a",
+      "source_metrics": {
+        "input_bytes": 10830181,
+        "walked": 100000,
+        "entities": 100000,
+        "chunks": 25,
+        "lines": 100000,
+        "vertices": 200000,
+        "faces": 0,
+        "texts": 0,
+        "points": 0,
+        "images": 0,
+        "scene_bytes": 7032048,
+        "tolerance": 0.01,
+        "max_chunk_span": 1000.3568115234375,
+        "checked_lines": 100000,
+        "max_coordinate_error": 0.000030480194254778326,
+        "error_over_tolerance": 0.0030480194254778326,
+        "identity_order_fnv1a": "2901998d62125c7c",
+        "diagnostics": ""
+      },
+      "reader_ms": 0,
+      "set_scene_ms": 401.19999998807907,
+      "scene_bytes": 7032048,
+      "column_bytes": 7031429,
+      "header_and_padding_bytes": 619,
+      "calculated_order_index_bytes": 400000,
+      "readback_rgba_bytes": 2457600,
+      "reader_copied_column_bytes": 0,
+      "limits": {
+        "issues": 100000
+      },
+      "default_limit_rejection": "limits.issues",
+      "view": {
+        "center": {
+          "x": 100500.17840576172,
+          "y": 50489.00617263363
+        },
+        "scale": 0.5889496209197642,
+        "rotation": 0
+      },
+      "extent": {
+        "min_x": 100000,
+        "min_y": 50000,
+        "max_x": 101000.35681152344,
+        "max_y": 50978.012345267256
+      },
+      "render_submit_ms": 222.19999998807907,
+      "select_rect_ms": 310.80000001192093,
+      "render_to_next_raf_ms": 229.2999999821186,
+      "render_readback_ms": 228.89999997615814,
+      "selected_count": 25867,
+      "full_selected_count": 60163,
+      "selection_json_utf8_bytes": 653157,
+      "selection_sha256": "0532cd922ab555dbd27789f5c2fef53f2da3dbbf8c442ccc4ce311a0340e3bc6",
+      "full_selection_sha256": "8c0424aa299ac53044e0eafe28d42d2c7de4cf94ddc935dddca52d2d251fc8d7",
+      "pixel_sha256": "14dc6efe80e776095643df1a938b57a8d8e195045bde4bd3264381a6dc87b638",
+      "nonwhite_pixels": 66198,
+      "drawn": {
+        "lines": 100000,
+        "faces": 0,
+        "texts": 0,
+        "points": 0,
+        "images": 0,
+        "glyphs": 0
+      },
+      "issue_counts": {
+        "color-unresolved:fallback": 100000
+      },
+      "independent_selection": {
+        "expected_count": 45694,
+        "actual_only_count": 0,
+        "missing_count": 19827,
+        "exact": false,
+        "expected_sha256": "cbb2ddd9e310d7422e6e01610696da77604ada761a7949d21a00dd9a8624c6d9",
+        "source_formula_expected_count": 45694,
+        "formula_vs_encoded_difference": 0,
+        "full_expected_count": 100000,
+        "full_exact": false,
+        "first_missing_probe": {
+          "origin": [
+            100000,
+            50602.46913581
+          ],
+          "xy": [
+            535.6605224609375,
+            39.50617218017578,
+            535.783935546875,
+            39.74074172973633
+          ],
+          "view": {
+            "center": {
+              "x": 100500.17840576172,
+              "y": 50489.00617263363
+            },
+            "scale": 0.5889496209197642,
+            "rotation": 0
+          },
+          "rect": {
+            "min_x": 240,
+            "min_y": 160,
+            "max_x": 720,
+            "max_y": 480
+          },
+          "a": {
+            "x": 500.89717917943574,
+            "y": 229.90888571933556
+          },
+          "b": {
+            "x": 500.96986326961513,
+            "y": 229.77073607204255
+          },
+          "midpoint": {
+            "x": 500.9335212245254,
+            "y": 229.83981089568906
+          },
+          "midpoint_inside_rect": true,
+          "canvas_stroke_contains_midpoint": true,
+          "isolated_rect_count": 0,
+          "isolated_point_count": 1
+        }
+      },
+      "transfer": {
+        "post_message_ms": 0,
+        "roundtrip_ms": 0.10000002384185791,
+        "payload_bytes": 7032048
+      },
+      "clone": {
+        "post_message_ms": 1,
+        "roundtrip_ms": 4.9000000059604645,
+        "payload_bytes": 7032048
+      },
+      "provisional_selection_equal": false,
+      "provisional_full_selection_equal": false,
+      "retained_heap_observations": {
+        "before": {
+          "usedSize": 723080,
+          "totalSize": 1310720,
+          "embedderHeapUsedSize": 327280,
+          "backingStorageSize": 176602
+        },
+        "after_setup": {
+          "usedSize": 29255656,
+          "totalSize": 31072256,
+          "embedderHeapUsedSize": 676112,
+          "backingStorageSize": 9338853
+        },
+        "after_measure": {
+          "usedSize": 30251904,
+          "totalSize": 30928896,
+          "embedderHeapUsedSize": 346936,
+          "backingStorageSize": 9338887
+        },
+        "after_dispose": {
+          "usedSize": 2176796,
+          "totalSize": 5623808,
+          "embedderHeapUsedSize": 341504,
+          "backingStorageSize": 176718
+        }
+      }
+    }
+  ]
+}

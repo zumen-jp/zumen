@@ -1,5 +1,5 @@
-import type { Scene, SceneResult } from "@zumen-jp/zumen";
-import { View2D, VIEW_SCALE_LIMITS, type Camera, type RenderIssue, type View2DState, type View2DEvent } from "../src/index.js";
+import type { MeasureDistanceResult, Response, Scene, SceneResult, Session } from "@zumen-jp/zumen";
+import { measureDistance, View2D, VIEW_SCALE_LIMITS, type CalibratedDistanceResult, type Camera, type RenderIssue, type View2DState, type View2DEvent } from "../src/index.js";
 
 declare const scene: Scene;
 declare const result: SceneResult;
@@ -56,6 +56,30 @@ viewer.handleInput({ type: "cancel" });
 const start = viewer.snapAt({ x: 0, y: 0 })?.position ?? viewer.positionAt({ x: 0, y: 0 });
 viewer.toScreen(start);
 viewer.setMeasurement({ start, end: viewer.positionAt({ x: 3, y: 4 }) });
+declare const session: Session;
+const identity = { doc: "a.dxf", format: "dxf", hash: "v2:0" };
+const measured: Response<MeasureDistanceResult> = measureDistance(session, identity, "cal/1", {
+  from: "sheet/0", start, end: viewer.positionAt({ x: 3, y: 4 }),
+}, { budget: { work: 1000 }, max_places: 0 });
+viewer.setMeasurementCalibration({ id: "cal/1", resolve: (measurement, document) => measureDistance(session, document, "cal/1", measurement) });
+declare const coreMeasured: Response<MeasureDistanceResult>;
+const componentMeasured: Response<CalibratedDistanceResult> = coreMeasured;
+const compatibleCore: Response<MeasureDistanceResult> = componentMeasured;
+viewer.setMeasurementCalibration({ id: "cal/1", resolve: () => coreMeasured });
+void compatibleCore;
+const calibrated = viewer.getState().measurement?.calibrated;
+if (calibrated?.status === "measured") { const distance: number = calibrated.distance; void distance; void calibrated.unit_label; }
+if (calibrated?.status === "unavailable") { const reason: string = calibrated.reason; void reason; }
+viewer.setMeasurementCalibration(null);
+void measured;
+// @ts-expect-error 校正の解決関数は同期だけ
+viewer.setMeasurementCalibration({ id: "cal/1", resolve: async () => measured });
+// @ts-expect-error 校正後の距離も直接変更しない
+if (calibrated?.status === "measured") calibrated.distance = 0;
+// @ts-expect-error コンポーネントの距離計測結果も直接変更しない
+if (componentMeasured.result) componentMeasured.result.distance = 0;
+// @ts-expect-error 分割座標の origin は省略しない
+measureDistance(session, identity, "cal/1", { from: "sheet/0", start: { offset: { x: 0, y: 0 } }, end: start });
 const removeTool = viewer.addTool("custom", {
   onActivate(context) {
     context.on("measurement", ({ state }) => { void state.measurement?.real; });

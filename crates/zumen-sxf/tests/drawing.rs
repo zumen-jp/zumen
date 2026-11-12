@@ -999,8 +999,9 @@ fn composite_diagnostics_obey_work_limits_and_cancellation() {
         run(Limit::Unlimited, true).0,
         Err(Error::Stopped(_))
     ));
-    // メンバーに加え、先頭と後続の複合曲線を探す走査も、探索中の複合曲線で止まる。
-    for (extra, record, instance) in [(1, 8, 30), (2, 7, 20), (5, 9, 31)] {
+    // メンバーに加え、先頭と後続の複合曲線を探す走査も、探索中の複合曲線で止まる。診断を入力の順に集める
+    // 手間も数えるので、#31 で止まる予算は、集めなかったときより大きい（#624）
+    for (extra, record, instance) in [(1, 8, 30), (2, 7, 20), (8, 9, 31)] {
         let scanning = run(Limit::Finite(features.len() as u64 + extra), false);
         assert!(matches!(scanning.0, Err(Error::Stopped(_))));
         assert_eq!(

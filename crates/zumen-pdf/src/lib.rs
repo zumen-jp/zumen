@@ -16,6 +16,10 @@ mod inflate;
 #[cfg(feature = "drawing")]
 mod lift;
 #[cfg(feature = "drawing")]
+mod measure;
+#[cfg(feature = "drawing")]
+mod measure_numbers;
+#[cfg(feature = "drawing")]
 mod page;
 #[cfg(feature = "drawing")]
 mod strings;

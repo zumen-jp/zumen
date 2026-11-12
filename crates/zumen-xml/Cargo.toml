@@ -9,9 +9,12 @@ publish = true
 
 [dependencies]
 zumen-base = { version = "0.2.0", path = "../zumen-base" }
-zumen-sdk = { version = "0.2.0", path = "../zumen-sdk" }
 # Shift_JIS の文書の文字を戻し、文字コードの名前を引く。WHATWG の定義で、環境によらない（決定 0121）
 encoding_rs = "0.8.35"
+
+[dev-dependencies]
+# 形式の判定と名前の読みを比べる例（examples/shift_jis_probe.rs）
+zumen-sdk = { path = "../zumen-sdk" }
 
 [lints]
 workspace = true

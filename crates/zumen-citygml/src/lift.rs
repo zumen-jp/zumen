@@ -7,7 +7,7 @@
 //! - 性質 `class` は、地物の分類コードにする。
 //! - 形の中の `xlink:href` は、同じ文書の `gml:id` を引く。
 
-use std::collections::BTreeMap;
+use std::{borrow::Cow, collections::BTreeMap};
 
 use zumen_base::{Diagnostic, Kind, Ref, Stop, codes};
 use zumen_crs::{Crs, GeoPoint, MapPoint, VerticalCrs};
@@ -139,7 +139,13 @@ impl<'d> Reader<'d, '_, '_> {
                     .and_then(|index| self.model.features.get(index))
                     .map(|feature| format!("{}/", feature.id))
                     .unwrap_or_default();
-                format!("{parent_id}{kind}/{order}")
+                // 既存 ID は名前の旧表現を含む。表示名の復号を直しても、ID の入力は変えない。
+                let id_kind = if doc.encoding() == zumen_xml::Encoding::ShiftJis {
+                    Cow::Owned(self.qualified_name(element, true))
+                } else {
+                    Cow::Borrowed(kind.as_str())
+                };
+                format!("{parent_id}{id_kind}/{order}")
             }
         };
         let index = self.model.features.len();
@@ -664,13 +670,22 @@ impl<'d> Reader<'d, '_, '_> {
     // 要素をたどるツール
 
     fn local(&self, element: &Element) -> &'d [u8] {
-        self.doc.local_name(element.name())
+        self.doc.parsed_local_name(element.name())
     }
 
     /// 接頭辞をつけた名前。名前空間の接頭辞は `PREFIXES` から決め、知らない名前空間は文書の接頭辞を使う
     fn qualified(&self, element: &Element) -> String {
+        self.qualified_name(element, false)
+    }
+
+    /// `legacy_id` は Shift_JIS の既存 fallback ID にだけ使う。
+    fn qualified_name(&self, element: &Element, legacy_id: bool) -> String {
         let doc = self.doc;
-        let local = String::from_utf8_lossy(self.local(element));
+        let local = if legacy_id {
+            String::from_utf8_lossy(self.local(element))
+        } else {
+            doc.local_name_text(element.name())
+        };
         let known = doc.namespace(element.name()).and_then(|namespace| {
             PREFIXES
                 .iter()
@@ -679,10 +694,11 @@ impl<'d> Reader<'d, '_, '_> {
         });
         let prefix = match known {
             Some(prefix) => Some(prefix.to_string()),
-            None => element
-                .name()
-                .prefix()
-                .map(|range| String::from_utf8_lossy(doc.bytes(range)).into_owned()),
+            None => element.name().prefix().map(|range| match doc.encoding() {
+                zumen_xml::Encoding::ShiftJis if !legacy_id => doc.cdata(range),
+                zumen_xml::Encoding::Utf16Le | zumen_xml::Encoding::Utf16Be => doc.cdata(range),
+                _ => String::from_utf8_lossy(doc.bytes(range)).into_owned(),
+            }),
         };
         match prefix {
             Some(prefix) => format!("{prefix}:{local}"),

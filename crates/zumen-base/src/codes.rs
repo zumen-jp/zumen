@@ -33,6 +33,20 @@ pub const BCF_ELEMENT_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
+/// 変更する topic の元の markup が UTF-8 でないため、未知の要素と属性を保って書き戻せない。変えていない topic は元のバイト列のまま保つ
+///
+/// `bcf.encoding.unsupported`（0.3.0 から）
+pub const BCF_ENCODING_UNSUPPORTED: Code = Code::new(
+    "bcf.encoding.unsupported",
+    Severity::Error,
+    None,
+    &[
+        Param::new("encoding", ParamType::Text),
+        Param::new("topic", ParamType::Text),
+    ],
+    &["encoding"],
+);
+
 /// bcfzip の中の項目が、そのバージョンの BCF の形に合わない。name は項目の名前、near は合わなかった要素か属性
 ///
 /// `bcf.file.invalid`（0.2.0 から）
@@ -1104,6 +1118,20 @@ pub const DRAWING_BINARY_INVALID: Code = Code::new(
     &[],
 );
 
+/// 用紙上の校正領域を、契約・値・付く先が不正か ID が重複していたため使わなかった。id は校正の ID、reason は理由
+///
+/// `drawing.calibration.invalid`（0.2.0 から）
+pub const DRAWING_CALIBRATION_INVALID: Code = Code::new(
+    "drawing.calibration.invalid",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[
+        Param::new("id", ParamType::Text),
+        Param::new("reason", ParamType::Text),
+    ],
+    &["id", "reason"],
+);
+
 /// 線種に添える文字の高さが有限の実数で表せず、結果に含めなかった
 ///
 /// `drawing.mark-height.dropped`（0.0.0 から）
@@ -1113,6 +1141,20 @@ pub const DRAWING_MARK_HEIGHT_DROPPED: Code = Code::new(
     Some(Fidelity::Dropped),
     &[Param::new("name", ParamType::Text)],
     &["name"],
+);
+
+/// 選んだ校正で用紙上の距離を測れなかった。id は校正の ID、reason は領域・用紙・座標・計算を使えない理由
+///
+/// `drawing.measurement.failed`（0.2.0 から）
+pub const DRAWING_MEASUREMENT_FAILED: Code = Code::new(
+    "drawing.measurement.failed",
+    Severity::Error,
+    None,
+    &[
+        Param::new("id", ParamType::Text),
+        Param::new("reason", ParamType::Text),
+    ],
+    &["id", "reason"],
 );
 
 /// 記号の配置が、道筋の外側の配置と同じ定義を置く（循環）ので、中をたどらなかった
@@ -2286,6 +2328,28 @@ pub const IFC_CIVIL_UNIT_ASSUMED: Code = Code::new(
     &["type"],
 );
 
+/// 曲線の定義に読めない値か循環があるので、曲線のグラフを返さなかった
+///
+/// `ifc.curve.invalid`（0.2.1 から）
+pub const IFC_CURVE_INVALID: Code = Code::new(
+    "ifc.curve.invalid",
+    Severity::Error,
+    None,
+    &[Param::new("reason", ParamType::Key)],
+    &["reason"],
+);
+
+/// 型を持たない曲線なので、種類と出所だけを持った
+///
+/// `ifc.curve.unsupported`（0.2.1 から）
+pub const IFC_CURVE_UNSUPPORTED: Code = Code::new(
+    "ifc.curve.unsupported",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("kind", ParamType::Key)],
+    &["kind"],
+);
+
 /// 同じ番号のインスタンスが複数あるので、番号で引くときは初めのものを使う
 ///
 /// `ifc.duplicate.dropped`（0.2.0 から）
@@ -2319,6 +2383,28 @@ pub const IFC_ENTRY_MISSING: Code = Code::new("ifc.entry.missing", Severity::Err
 pub const IFC_ENTRY_UNSUPPORTED: Code =
     Code::new("ifc.entry.unsupported", Severity::Error, None, &[], &[]);
 
+/// 押し出し・断面・境界の必要な値か閉鎖に不正があり、結果を返さなかった
+///
+/// `ifc.extrusion.invalid`（0.3.0 から）
+pub const IFC_EXTRUSION_INVALID: Code = Code::new(
+    "ifc.extrusion.invalid",
+    Severity::Error,
+    None,
+    &[Param::new("reason", ParamType::Key)],
+    &["reason"],
+);
+
+/// 押し出し・断面か境界の閉鎖を扱えないため、結果を返さなかった
+///
+/// `ifc.extrusion.unsupported`（0.3.0 から）
+pub const IFC_EXTRUSION_UNSUPPORTED: Code = Code::new(
+    "ifc.extrusion.unsupported",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("reason", ParamType::Key)],
+    &["reason"],
+);
+
 /// ISO 10303-21 の始まり・DATA のセクション・終わりのどれかがない
 ///
 /// `ifc.file.invalid`（0.2.0 から）
@@ -2329,6 +2415,28 @@ pub const IFC_FILE_INVALID: Code = Code::new("ifc.file.invalid", Severity::Error
 /// `ifc.global-id.missing`（0.2.0 から）
 pub const IFC_GLOBAL_ID_MISSING: Code =
     Code::new("ifc.global-id.missing", Severity::Warning, None, &[], &[]);
+
+/// 通り芯と軸の参照・所属・値に不正があり、結果を返さなかった
+///
+/// `ifc.grid.invalid`（0.3.0 から）
+pub const IFC_GRID_INVALID: Code = Code::new(
+    "ifc.grid.invalid",
+    Severity::Error,
+    None,
+    &[Param::new("reason", ParamType::Key)],
+    &["reason"],
+);
+
+/// 通り芯の軸に取得しない曲線の種類があり、結果を返さなかった
+///
+/// `ifc.grid.unsupported`（0.3.0 から）
+pub const IFC_GRID_UNSUPPORTED: Code = Code::new(
+    "ifc.grid.unsupported",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("kind", ParamType::Text)],
+    &["kind"],
+);
 
 /// IfcProjectedCRS の VerticalDatum が扱える高さの基準でないので、高さの基準を不明にした
 ///
@@ -2408,6 +2516,21 @@ pub const IFC_REFERENCE_MISSING: Code = Code::new(
     &[],
 );
 
+/// 別の成分に写した対象が建物モデルの要素でないので、関係を成分に写せなかった。集合内の位置は 0 から
+///
+/// `ifc.relation-target.unsupported`（0.2.1 から）
+pub const IFC_RELATION_TARGET_UNSUPPORTED: Code = Code::new(
+    "ifc.relation-target.unsupported",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[
+        Param::new("kind", ParamType::Key),
+        Param::new("position", ParamType::UInt),
+        Param::new("target_kind", ParamType::Key),
+    ],
+    &["kind", "target_kind", "position"],
+);
+
 /// FILE_SCHEMA がないか、最初のスキーマの名前が IFC で始まらない
 ///
 /// `ifc.schema.unsupported`（0.2.0 から）
@@ -2419,11 +2542,66 @@ pub const IFC_SCHEMA_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
+/// 要素の形状表現の参照か構造に読めない値か循環があり、ビューを返さなかった
+///
+/// `ifc.shape.invalid`（0.2.1 から）
+pub const IFC_SHAPE_INVALID: Code = Code::new(
+    "ifc.shape.invalid",
+    Severity::Error,
+    None,
+    &[Param::new("reason", ParamType::Key)],
+    &["reason"],
+);
+
+/// 形状表現の取得で省略された属性を None として保持した
+///
+/// `ifc.shape.missing`（0.2.1 から）
+pub const IFC_SHAPE_MISSING: Code = Code::new(
+    "ifc.shape.missing",
+    Severity::Warning,
+    None,
+    &[Param::new("field", ParamType::Key)],
+    &["field"],
+);
+
+/// 形の項目は展開せず、元の L1 レコードへの参照だけを残した
+///
+/// `ifc.shape.unsupported`（0.2.1 から）
+pub const IFC_SHAPE_UNSUPPORTED: Code = Code::new(
+    "ifc.shape.unsupported",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("kind", ParamType::Key)],
+    &["kind"],
+);
+
 /// 線形に測点の IfcReferent がないので、初めの測点を 0 にした
 ///
 /// `ifc.station.missing`（0.2.0 から）
 pub const IFC_STATION_MISSING: Code =
     Code::new("ifc.station.missing", Severity::Info, None, &[], &[]);
+
+/// 形の項目に直接付いた表示の参照・集合・値に不正があり、結果を返さなかった
+///
+/// `ifc.style.invalid`（0.3.0 から）
+pub const IFC_STYLE_INVALID: Code = Code::new(
+    "ifc.style.invalid",
+    Severity::Error,
+    None,
+    &[Param::new("reason", ParamType::Key)],
+    &["reason"],
+);
+
+/// 形の項目に直接付いた表示に、取得しない種類が含まれるため、結果を返さなかった
+///
+/// `ifc.style.unsupported`（0.3.0 から）
+pub const IFC_STYLE_UNSUPPORTED: Code = Code::new(
+    "ifc.style.unsupported",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("kind", ParamType::Text)],
+    &["kind"],
+);
 
 /// 文字列のエスケープか UTF-8 が読めない所を、置き換えの文字にした
 ///
@@ -2434,6 +2612,17 @@ pub const IFC_TEXT_INVALID: Code = Code::new(
     Some(Fidelity::Approximated),
     &[],
     &[],
+);
+
+/// SI 単位の定義か次元を確認できないので、単位を採用しなかった
+///
+/// `ifc.unit.invalid`（0.3.0 から）
+pub const IFC_UNIT_INVALID: Code = Code::new(
+    "ifc.unit.invalid",
+    Severity::Warning,
+    None,
+    &[Param::new("reason", ParamType::Key)],
+    &["reason"],
 );
 
 /// 値の単位が解けないので、単位なしにした
@@ -2717,6 +2906,17 @@ pub const LAS_VLR_INVALID: Code = Code::new(
     &[],
 );
 
+/// 注釈の通常外観だけを図形へ移し、内容・返信・操作などの情報を移さなかった。kind は注釈の種類（Subtype）
+///
+/// `pdf.annotation.drawn`（0.2.0 から）
+pub const PDF_ANNOTATION_DRAWN: Code = Code::new(
+    "pdf.annotation.drawn",
+    Severity::Warning,
+    Some(Fidelity::Drawn),
+    &[Param::new("kind", ParamType::Text)],
+    &["kind"],
+);
+
 /// 注釈を、図面モデルに移さなかった。kind は注釈の種類（Subtype）
 ///
 /// `pdf.annotation.unsupported`（0.2.0 から）
@@ -2794,6 +2994,28 @@ pub const PDF_DASH_APPROXIMATED: Code = Code::new(
     &[],
 );
 
+/// 文書の情報の辞書の日付（CreationDate・ModDate）で省略された要素を既定値で補うか、時差のない日時を +00:00 として ISO 8601 の日時にした。原値と時差の有無は形式固有情報に残す。field は項目名（created・modified）
+///
+/// `pdf.date.approximated`（0.2.0 から）
+pub const PDF_DATE_APPROXIMATED: Code = Code::new(
+    "pdf.date.approximated",
+    Severity::Warning,
+    Some(Fidelity::Approximated),
+    &[Param::new("field", ParamType::Text)],
+    &["field"],
+);
+
+/// 文書の情報の辞書の日付（CreationDate・ModDate）を PDF の日付として読めなかったので、ISO 8601 の日時にしなかった。原値は形式固有情報に残す。field は項目名（created・modified）
+///
+/// `pdf.date.invalid`（0.2.0 から）
+pub const PDF_DATE_INVALID: Code = Code::new(
+    "pdf.date.invalid",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("field", ParamType::Text)],
+    &["field"],
+);
+
 /// 相互参照とページの木を、オブジェクトを探し直しても読めない
 ///
 /// `pdf.document.invalid`（0.2.0 から）
@@ -2822,7 +3044,7 @@ pub const PDF_ENCRYPTION_UNSUPPORTED: Code = Code::new(
 /// `pdf.file.invalid`（0.2.0 から）
 pub const PDF_FILE_INVALID: Code = Code::new("pdf.file.invalid", Severity::Error, None, &[], &[]);
 
-/// 非ゼロ回転数の規則で塗った、輪が 2 つ以上の形を、輪の中の輪を交互に埋めるハッチングにした
+/// 非ゼロ回転数の規則で塗った形を、同じ塗りになると確認できないまま、輪の中の輪を交互に埋めるハッチングにした
 ///
 /// `pdf.fill-rule.approximated`（0.2.0 から）
 pub const PDF_FILL_RULE_APPROXIMATED: Code = Code::new(
@@ -2921,6 +3143,31 @@ pub const PDF_IMAGE_MASK_APPROXIMATED: Code = Code::new(
     &[],
 );
 
+/// 矩形計測の距離校正を、既存の紙上の図形を動かさず、用紙上の校正領域として保持した。絶対座標の原点や数値表示書式の復元は含まない
+///
+/// `pdf.measure-distance.equivalent`（0.2.0 から）
+pub const PDF_MEASURE_DISTANCE_EQUIVALENT: Code = Code::new(
+    "pdf.measure-distance.equivalent",
+    Severity::Info,
+    Some(Fidelity::Equivalent),
+    &[],
+    &[],
+);
+
+/// ビューポートの計測辞書の値を解釈できなかった。field は値の経路、reason は理由。読めた原値は形式固有情報に残す
+///
+/// `pdf.measure.invalid`（0.2.0 から）
+pub const PDF_MEASURE_INVALID: Code = Code::new(
+    "pdf.measure.invalid",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[
+        Param::new("field", ParamType::Text),
+        Param::new("reason", ParamType::Text),
+    ],
+    &["field", "reason"],
+);
+
 /// 縮尺の辞書（Measure）を持つビューポートの縮尺を、移さなかった
 ///
 /// `pdf.measure.unsupported`（0.2.0 から）
@@ -3015,6 +3262,17 @@ pub const PDF_PATTERN_DROPPED: Code = Code::new(
     &[],
 );
 
+/// 軸に平行な長方形の始点と向きが渡されないので、左下の角から反時計回りの折れ線にし、破線の始まる角と向きを確認できなかった
+///
+/// `pdf.rect-orientation.approximated`（0.2.0 から）
+pub const PDF_RECT_ORIENTATION_APPROXIMATED: Code = Code::new(
+    "pdf.rect-orientation.approximated",
+    Severity::Warning,
+    Some(Fidelity::Approximated),
+    &[],
+    &[],
+);
+
 /// シェーディング（濃淡）で塗った形を、移さなかった
 ///
 /// `pdf.shading.dropped`（0.2.0 から）
@@ -3026,7 +3284,7 @@ pub const PDF_SHADING_DROPPED: Code = Code::new(
     &[],
 );
 
-/// 線の端（丸・四角）とつなぎ（丸・面取り）の形を、移さなかった
+/// 線の端（丸・四角）・つなぎ（丸・面取り）・マイターの限度を移さず、面取りになる角または限度 4 を超える鋭い角の見た目が変わった
 ///
 /// `pdf.stroke.approximated`（0.2.0 から）
 pub const PDF_STROKE_APPROXIMATED: Code = Code::new(
@@ -4639,6 +4897,7 @@ pub const ZIP_SPLIT_UNSUPPORTED: Code =
 pub const ALL: &[Code] = &[
     BCF_CONVERSION_UNSUPPORTED,
     BCF_ELEMENT_UNSUPPORTED,
+    BCF_ENCODING_UNSUPPORTED,
     BCF_FILE_INVALID,
     BCF_LOCATION_UNSUPPORTED,
     BCF_MARKUP_UNSUPPORTED,
@@ -4728,7 +4987,9 @@ pub const ALL: &[Code] = &[
     DRAWING_BINARY_VALUE_UNSUPPORTED,
     DRAWING_BINARY_VERSION_UNSUPPORTED,
     DRAWING_BINARY_INVALID,
+    DRAWING_CALIBRATION_INVALID,
     DRAWING_MARK_HEIGHT_DROPPED,
+    DRAWING_MEASUREMENT_FAILED,
     DRAWING_PLACEMENT_INVALID,
     DWG_CHANGE_UNSUPPORTED,
     DWG_CRC_INVALID,
@@ -4831,12 +5092,18 @@ pub const ALL: &[Code] = &[
     IFC_ATTRIBUTE_INVALID,
     IFC_CIVIL_GEOMETRY_DROPPED,
     IFC_CIVIL_UNIT_ASSUMED,
+    IFC_CURVE_INVALID,
+    IFC_CURVE_UNSUPPORTED,
     IFC_DUPLICATE_DROPPED,
     IFC_ENTITY_DROPPED,
     IFC_ENTRY_MISSING,
     IFC_ENTRY_UNSUPPORTED,
+    IFC_EXTRUSION_INVALID,
+    IFC_EXTRUSION_UNSUPPORTED,
     IFC_FILE_INVALID,
     IFC_GLOBAL_ID_MISSING,
+    IFC_GRID_INVALID,
+    IFC_GRID_UNSUPPORTED,
     IFC_HEIGHT_DATUM_UNSUPPORTED,
     IFC_MAP_CRS_MISSING,
     IFC_MAP_CRS_UNSUPPORTED,
@@ -4845,9 +5112,16 @@ pub const ALL: &[Code] = &[
     IFC_PLACEMENT_UNSUPPORTED,
     IFC_RECORD_INVALID,
     IFC_REFERENCE_MISSING,
+    IFC_RELATION_TARGET_UNSUPPORTED,
     IFC_SCHEMA_UNSUPPORTED,
+    IFC_SHAPE_INVALID,
+    IFC_SHAPE_MISSING,
+    IFC_SHAPE_UNSUPPORTED,
     IFC_STATION_MISSING,
+    IFC_STYLE_INVALID,
+    IFC_STYLE_UNSUPPORTED,
     IFC_TEXT_INVALID,
+    IFC_UNIT_INVALID,
     IFC_UNIT_MISSING,
     IFC_VERSION_UNSUPPORTED,
     INTERNAL_PANIC_CAUGHT,
@@ -4877,6 +5151,7 @@ pub const ALL: &[Code] = &[
     LAS_POINTS_INVALID,
     LAS_VERTICAL_CRS_UNSUPPORTED,
     LAS_VLR_INVALID,
+    PDF_ANNOTATION_DRAWN,
     PDF_ANNOTATION_UNSUPPORTED,
     PDF_CLIP_APPROXIMATED,
     PDF_CLIP_DROPPED,
@@ -4884,6 +5159,8 @@ pub const ALL: &[Code] = &[
     PDF_COLOR_DROPPED,
     PDF_CONTENT_INVALID,
     PDF_DASH_APPROXIMATED,
+    PDF_DATE_APPROXIMATED,
+    PDF_DATE_INVALID,
     PDF_DOCUMENT_INVALID,
     PDF_DOCUMENT_UNSUPPORTED,
     PDF_ENCRYPTION_UNSUPPORTED,
@@ -4897,6 +5174,8 @@ pub const ALL: &[Code] = &[
     PDF_GLYPH_POSITION_APPROXIMATED,
     PDF_GLYPH_DROPPED,
     PDF_IMAGE_MASK_APPROXIMATED,
+    PDF_MEASURE_DISTANCE_EQUIVALENT,
+    PDF_MEASURE_INVALID,
     PDF_MEASURE_UNSUPPORTED,
     PDF_MEMBERSHIP_DROPPED,
     PDF_NESTING_DROPPED,
@@ -4906,6 +5185,7 @@ pub const ALL: &[Code] = &[
     PDF_PAGE_TREE_DROPPED,
     PDF_PAGE_DROPPED,
     PDF_PATTERN_DROPPED,
+    PDF_RECT_ORIENTATION_APPROXIMATED,
     PDF_SHADING_DROPPED,
     PDF_STROKE_APPROXIMATED,
     PDF_TEXT_DROPPED,

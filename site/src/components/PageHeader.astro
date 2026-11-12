@@ -1,22 +1,43 @@
 ---
-// 下層のページの、パンくずと見出し。
+// 下層のページの見出し。パンくず・英語の肩書き・見出し・説明・ページ内の案内を左に、図面の飾り（slot）を右に置く。
 interface Props {
   title: string;
+  en?: string;
   lead?: string;
+  // ページ内の節。節へ飛ぶリンクを、説明の下に並べる。
+  toc?: { id: string; label: string }[];
 }
 
-const { title, lead } = Astro.props;
+const { title, en, lead, toc } = Astro.props;
+const drawing = Astro.slots.has('default');
 ---
 
 <div class="page-header">
-  <div class="wrap">
-    <nav class="breadcrumbs" aria-label="現在の位置">
-      <ol>
-        <li><a href="/">トップ</a></li>
-        <li aria-current="page">{title}</li>
-      </ol>
-    </nav>
-    <h1>{title}</h1>
-    {lead && <p class="page-lead">{lead}</p>}
+  <div class:list={['wrap', { 'page-header-body': drawing }]}>
+    <div>
+      <nav class="breadcrumbs" aria-label="現在の位置">
+        <ol>
+          <li><a href="/">トップ</a></li>
+          <li aria-current="page">{title}</li>
+        </ol>
+      </nav>
+      {en && <span class="shoulder" lang="en">{en}</span>}
+      <h1>{title}</h1>
+      {lead && <p class="page-lead">{lead}</p>}
+      {
+        toc && (
+          <nav class="toc" aria-label="このページの内容">
+            <ul>
+              {toc.map((item) => (
+                <li>
+                  <a href={`#${item.id}`}>{item.label}</a>
+                </li>
+              ))}
+            </ul>
+          </nav>
+        )
+      }
+    </div>
+    {drawing && <slot />}
   </div>
 </div>

@@ -9,7 +9,6 @@ publish = true
 
 [dependencies]
 zumen-base = { version = "0.2.0", path = "../zumen-base" }
-zumen-sdk = { version = "0.2.0", path = "../zumen-sdk" }
 
 [lints]
 workspace = true

@@ -1,10 +1,10 @@
 # Go のラッパー
 
-wasm のモジュール（`zumen_abi1.wasm`）を [wazero](https://wazero.io/) で動かす薄いラッパーです（[決定 0011](../../docs/decisions/0011-bindings-through-ffi.md)・[決定 0226](../../docs/decisions/0226-go-wrapper.md)）。cgo を使いません。下限は、Go がサポートする 2 つのメジャーバージョン（今は 1.26・1.27）です。
+wasm のモジュール（`zumen_abi1.wasm`）を [wazero](https://wazero.io/) で動かす薄いラッパーです（[依存とツールの条件](../../AGENTS.md#範囲と権利)）。cgo を使いません。下限は、Go がサポートする 2 つのメジャーバージョン（今は 1.26・1.27）です。
 
 - モジュールは `zumen.dev/go`、パッケージ名は `zumen` です。まだ出していません。
 - 依存は wazero 1.12.0（Apache-2.0）と、それが使う `golang.org/x/sys`（BSD-3-Clause）だけです。
-- すべての形式を入れた `zumen_abi1.wasm` を `go:embed` で埋め込みます（[決定 0221](../../docs/decisions/0221-wasm-modules.md)）。モジュールはコミットしないので、使う前に作って、このフォルダーに写します。
+- すべての形式を入れた `zumen_abi1.wasm` を `go:embed` で埋め込みます（[API のスキーマ](../../schema/README.md)）。モジュールはコミットしないので、使う前に作って、このフォルダーに写します。
 - `messages.go`・`constants.go` は、`schema/` から `cargo xtask codegen` で生成します。手で直さないでください。
 
 ## 使い方
@@ -56,7 +56,7 @@ origins, _ := columns.F64("chunk_origins")
 
 1 つのセッションは、一度に 1 つのゴルーチンで使います。呼び出しは、渡したコンテキストか `Cancel`（どのゴルーチンからも呼べる）で止められます。止めた呼び出しは `failed` の `ZumenError` を返し、セッションは閉じます。子プロセスのエンジン（`engine: "process"`）は、まだありません。CLI の `zumen serve --stdio` を `os/exec` で起こして使えます。
 
-`Push`・`PushBytes` は、新しい wasm では入力の領域の所有権をコアへ渡し、最初の入力を wasm の中でもう一度写すことを避けます。渡した Go のバイト列は引き続き使えます。新しい関数がない旧 ABI 1 の wasm では、従来の `zm_push` を使います。追記と文書の解析には別にメモリが必要です（[決定 0271](../../docs/decisions/0271-transfer-wasm-input-ownership.md)）。
+`Push`・`PushBytes` は、新しい wasm では入力の領域の所有権をコアへ渡し、最初の入力を wasm の中でもう一度写すことを避けます。渡した Go のバイト列は引き続き使えます。新しい関数がない旧 ABI 1 の wasm では、従来の `zm_push` を使います。追記と文書の解析には別にメモリが必要です（[API のスキーマ](../../schema/README.md)）。
 
 ## テスト
 

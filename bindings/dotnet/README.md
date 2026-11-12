@@ -1,8 +1,8 @@
 # .NET のラッパー
 
-ネイティブのライブラリ（`zumen_abi1.dll`・`libzumen_abi1.so`・`libzumen_abi1.dylib`）の C ABI を、P/Invoke で呼ぶ薄いラッパーです（[決定 0011](../../docs/decisions/0011-bindings-through-ffi.md)・[決定 0196](../../docs/decisions/0196-dotnet-wrapper.md)）。.NET Framework 4.8 には netstandard2.0、.NET 8 以降には net8.0 のアセンブリを出します。
+ネイティブのライブラリ（`zumen_abi1.dll`・`libzumen_abi1.so`・`libzumen_abi1.dylib`）の C ABI を、P/Invoke で呼ぶ薄いラッパーです（[依存とツールの条件](../../AGENTS.md#範囲と権利)）。.NET Framework 4.8 には netstandard2.0、.NET 8 以降には net8.0 のアセンブリを出します。
 
-- NuGet の `Zumen` で配ります（[決定 0003](../../docs/decisions/0003-names-and-domain.md)・[決定 0205](../../docs/decisions/0205-release-and-publishing.md)）。パッケージには、対象ごとのネイティブのライブラリを `runtimes/{rid}/native` に入れます。
+- NuGet の `Zumen` で配ります（[コアの設計](../../docs/architecture.md)・[配布の手順](../../xtask/release/README.md)）。パッケージには、対象ごとのネイティブのライブラリを `runtimes/{rid}/native` に入れます。
 - NuGet の依存はありません。型つきの要求と応答（System.Text.Json）は、標準で持つ net8.0 の側にだけあります。netstandard2.0 の側では、JSON の文字列かバイト列で読み書きします。
 - `ZumenLibrary.Load()` は、パッケージに入れたライブラリを読みます。手で作ったライブラリは `Load(道筋)` で読みます。32 bit の Windows では、関数を stdcall で呼びます。
 - `Zumen/Messages.g.cs`・`Zumen/Constants.g.cs` は、`schema/` から `cargo xtask codegen` で生成します。手で直さないでください。

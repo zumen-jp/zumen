@@ -1,6 +1,6 @@
 [package]
 name = "zumen-base"
-description = "zumen の横断の部品: 診断・予算・中断の合図と、それらを運ぶ文脈"
+description = "zumen の横断の部品: 診断・予算・中断の合図と、それらを運ぶ文脈、読み書きの失敗の理由"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
