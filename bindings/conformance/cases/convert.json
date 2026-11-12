@@ -95,6 +95,86 @@
         "/diagnostics/0/code": "convert.format.unsupported"
       },
       "status": "failed"
+    },
+    {
+      "push": {
+        "name": "aligned-text.dxf",
+        "text": "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1021\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nLAYER\n70\n1\n0\nLAYER\n2\n0\n70\n0\n62\n7\n6\nCONTINUOUS\n0\nENDTAB\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nTEXT\n5\n20\n8\n0\n10\n0.0\n20\n0.0\n40\n2.5\n1\nCENTERED\n41\n0.8\n51\n15.0\n71\n6\n72\n1\n11\n10.0\n21\n20.0\n73\n2\n0\nTEXT\n5\n21\n8\n0\n10\n0.0\n20\n0.0\n40\n2.5\n1\nZERO_WIDTH\n41\n0.0\n0\nENDSEC\n0\nEOF\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "aligned-text.dxf"
+      },
+      "expect": {
+        "/result/format": "dxf"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "convert_estimate",
+        "doc": "aligned-text.dxf",
+        "format": "dxf",
+        "to": "aligned-out.dxf",
+        "limit": 10
+      },
+      "expect": {
+        "/result/estimate/elements": 1,
+        "/result/estimate/details/3/kind": "text",
+        "/result/estimate/details/3/fidelity": "dropped",
+        "/result/estimate/details/3/source/handle": "21",
+        "/result/estimate/details/3/output_elements": 0,
+        "/result/estimate/details/4/kind": "text",
+        "/result/estimate/details/4/fidelity": "equivalent",
+        "/result/estimate/details/4/source/handle": "20",
+        "/result/estimate/details/4/output_elements": 1,
+        "/diagnostics/0/code": "convert.element.unsupported",
+        "/diagnostics/0/params/kind": "text",
+        "/diagnostics/0/count": 1,
+        "/diagnostics/0/at/0/record": 9
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "convert",
+        "doc": "aligned-text.dxf",
+        "format": "dxf",
+        "to": "aligned-out.dxf"
+      },
+      "expect": {
+        "/result/elements": 1,
+        "/diagnostics/0/code": "convert.element.unsupported",
+        "/diagnostics/0/params/kind": "text",
+        "/diagnostics/0/count": 1,
+        "/diagnostics/0/at/0/record": 9
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "aligned-out.dxf",
+        "fields": [
+          "geometry"
+        ]
+      },
+      "expect": {
+        "/result/items/0/geometry/content": "CENTERED",
+        "/result/items/0/geometry/position": [
+          10,
+          20
+        ],
+        "/result/items/0/geometry/horizontal": "center",
+        "/result/items/0/geometry/vertical": "middle",
+        "/result/items/0/geometry/width_factor": 0.8,
+        "/result/items/0/geometry/oblique": 15,
+        "/result/items/0/geometry/backward": true,
+        "/result/items/0/geometry/upside_down": true
+      }
     }
   ]
 }

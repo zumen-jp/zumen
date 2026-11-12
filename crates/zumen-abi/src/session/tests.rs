@@ -321,7 +321,7 @@ fn answers_capabilities() {
     let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
     assert_eq!(reply.status, Status::Ok);
     let expected = format!(
-        r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":68}},"ops":["capabilities","open","close","describe","drawing","entities","calibrations","measure_distance","apply","convert","convert_estimate","tables","scene","check","validate","review_carry","review_adopt","building","building_elements","ids_check","review_adopt_ids","bcf_read","bcf_write","civil","pointcloud","deviation","civil_drawing","geo","delivery_check","photo","sheet","boring","building_apply","lift","render"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}},{{"id":"landxml","family":"landxml","read":true,"write":false,"id_rules":1}},{{"id":"citygml","family":"citygml","read":true,"write":false,"id_rules":1}},{{"id":"fgd","family":"fgd","read":true,"write":false,"id_rules":1}},{{"id":"extdm","family":"extdm","read":true,"write":false,"id_rules":1}},{{"id":"las","family":"las","read":true,"write":false,"id_rules":1}},{{"id":"ply","family":"ply","read":true,"write":false,"id_rules":1}},{{"id":"xyz","family":"xyz","read":true,"write":false,"id_rules":1}},{{"id":"e57","family":"e57","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+        r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":69}},"ops":["capabilities","open","close","describe","drawing","entities","calibrations","measure_distance","apply","convert","convert_estimate","tables","scene","check","validate","review_carry","review_adopt","building","building_elements","ids_check","review_adopt_ids","bcf_read","bcf_write","civil","pointcloud","deviation","civil_drawing","geo","delivery_check","photo","sheet","boring","building_apply","lift","render"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}},{{"id":"landxml","family":"landxml","read":true,"write":false,"id_rules":1}},{{"id":"citygml","family":"citygml","read":true,"write":false,"id_rules":1}},{{"id":"fgd","family":"fgd","read":true,"write":false,"id_rules":1}},{{"id":"extdm","family":"extdm","read":true,"write":false,"id_rules":1}},{{"id":"las","family":"las","read":true,"write":false,"id_rules":1}},{{"id":"ply","family":"ply","read":true,"write":false,"id_rules":1}},{{"id":"xyz","family":"xyz","read":true,"write":false,"id_rules":1}},{{"id":"e57","family":"e57","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
         env!("CARGO_PKG_VERSION")
     );
     assert_eq!(String::from_utf8(reply.response).unwrap(), expected);
@@ -2805,6 +2805,84 @@ fn adds_and_replaces_texts_fitted_between_two_points() {
     assert_eq!(
         text(&error(&response), "/params/pointer"),
         "/edits/0/geometry/end"
+    );
+}
+
+#[test]
+fn adds_and_replaces_aligned_and_styled_texts() {
+    let mut session = Session::new(b"").unwrap();
+    session.push(b"a.dxf", EDITABLE).unwrap();
+    call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+    // 2 点の間に合わせる文字には水平・垂直の位置合わせを書けず、幅の倍率は正の有限値に限る
+    for (geometry, pointer) in [
+        (
+            r#"{"shape":"text","content":"X1","position":[0,0],"end":[0,5],"fit":"fit","horizontal":"center","height":1,"rotation":90}"#,
+            "/edits/0/geometry/horizontal",
+        ),
+        (
+            r#"{"shape":"text","content":"X1","position":[0,0],"end":[0,5],"fit":"fit","vertical":"top","height":1,"rotation":90}"#,
+            "/edits/0/geometry/vertical",
+        ),
+        (
+            r#"{"shape":"text","content":"X1","position":[0,0],"height":1,"rotation":0,"width_factor":0}"#,
+            "/edits/0/geometry/width_factor",
+        ),
+    ] {
+        let (status, response) = call(
+            &mut session,
+            &format!(
+                r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"add","place":"space/0","geometry":{geometry}}}]}}"#
+            ),
+        );
+        assert_eq!(status, Status::Failed);
+        assert_eq!(text(&error(&response), "/params/pointer"), pointer);
+    }
+    let added = r#"{"shape":"text","content":"X1","position":[10,20],"horizontal":"right","vertical":"top","height":2.5,"rotation":15,"width_factor":0.75,"oblique":12,"backward":true,"upside_down":true,"style":"Standard"}"#;
+    let (status, response) = call(
+        &mut session,
+        &format!(
+            r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"add","place":"space/0","geometry":{added}}}]}}"#
+        ),
+    );
+    assert_eq!(status, Status::Ok, "{response:?}");
+    let id = text(&response, "/result/applied/0/id");
+    let hash = text(&response, "/result/applied/0/hash");
+    assert_eq!(shapes(&mut session, "a.dxf")[3], with_style_id(added));
+    // 置き換えでは位置合わせを変えず、省いた幅の倍率・斜体・反転は元の値を受け継ぐ
+    let (status, response) = call(
+        &mut session,
+        &format!(
+            r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"replace","id":"{id}","hash":"{hash}","geometry":{{"shape":"text","content":"X2","position":[12,24],"horizontal":"center","height":3,"rotation":0}}}}]}}"#
+        ),
+    );
+    assert_eq!(status, Status::Failed);
+    assert_eq!(
+        text(&error(&response), "/params/pointer"),
+        "/edits/0/geometry/horizontal"
+    );
+    let (status, response) = call(
+        &mut session,
+        &format!(
+            r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"replace","id":"{id}","hash":"{hash}","geometry":{{"shape":"text","content":"X2","position":[12,24],"height":3,"rotation":0}}}}]}}"#
+        ),
+    );
+    assert_eq!(status, Status::Ok, "{response:?}");
+    assert_eq!(
+        shapes(&mut session, "a.dxf")[3],
+        r#"{"shape":"text","content":"X2","position":[12,24],"horizontal":"right","vertical":"top","height":3,"rotation":0,"width_factor":0.75,"oblique":12,"backward":true,"upside_down":true,"style":"Standard","style_id":"text-style/0"}"#
+    );
+    let hash = text(&response, "/result/applied/0/hash");
+    // 明示すれば幅の倍率・斜体・反転を既定値に戻せる
+    let (status, response) = call(
+        &mut session,
+        &format!(
+            r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"replace","id":"{id}","hash":"{hash}","geometry":{{"shape":"text","content":"X3","position":[12,24],"horizontal":"right","vertical":"top","height":3,"rotation":0,"width_factor":1,"oblique":0,"backward":false,"upside_down":false}}}}]}}"#
+        ),
+    );
+    assert_eq!(status, Status::Ok, "{response:?}");
+    assert_eq!(
+        shapes(&mut session, "a.dxf")[3],
+        r#"{"shape":"text","content":"X3","position":[12,24],"horizontal":"right","vertical":"top","height":3,"rotation":0,"style":"Standard","style_id":"text-style/0"}"#
     );
 }
 

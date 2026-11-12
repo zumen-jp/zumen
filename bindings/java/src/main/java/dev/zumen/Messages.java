@@ -3085,7 +3085,7 @@ public final class Messages {
         }
     }
 
-    /** 1 点か 2 点の間に置く文字。置き換えるときは、位置合わせ・幅の倍率・斜体・反転・文字スタイルを元の値のままにする。足すときは、2 点目がなければ左の基準線に合わせ、幅の倍率 1・斜体なし・反転なしにする */
+    /** 1 点か 2 点の間に置く文字。置き換えるときは、位置合わせ・文字スタイルを元の値のままにし、書かない幅の倍率・斜体・反転も元の値を受け継ぐ。足すときは、2 点目がなければ書かない位置合わせを左の基準線にし、幅の倍率 1・斜体なし・反転なしにする */
     public static final class TextGeometry extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public TextGeometry(Map<String, Object> json) {
@@ -3159,6 +3159,28 @@ public final class Messages {
             return this;
         }
 
+        /** 1 点に置く文字の水平の位置合わせ。left のときは entities が省き、足すときも省けば left。2 点の間に合わせる文字には書けない。置き換えるときは元と同じ値だけを受ける。マイナーバージョン 69 から */
+        public String getHorizontal() {
+            return Json.read(json.get("horizontal"), Json::string);
+        }
+
+        /** {@link #getHorizontal()} を書く。null ならフィールドを除く */
+        public TextGeometry withHorizontal(String value) {
+            put("horizontal", value);
+            return this;
+        }
+
+        /** 1 点に置く文字の垂直の位置合わせ。baseline のときは entities が省き、足すときも省けば baseline。2 点の間に合わせる文字には書けない。置き換えるときは元と同じ値だけを受ける。マイナーバージョン 69 から */
+        public String getVertical() {
+            return Json.read(json.get("vertical"), Json::string);
+        }
+
+        /** {@link #getVertical()} を書く。null ならフィールドを除く */
+        public TextGeometry withVertical(String value) {
+            put("vertical", value);
+            return this;
+        }
+
         /** 高さ。0 より大きい */
         public Double getHeight() {
             return Json.read(json.get("height"), Json::number);
@@ -3178,6 +3200,50 @@ public final class Messages {
         /** {@link #getRotation()} を書く。null ならフィールドを除く */
         public TextGeometry withRotation(Double value) {
             put("rotation", value);
+            return this;
+        }
+
+        /** 幅の倍率。0 より大きい。1 のときは entities が省き、足すときも省けば 1、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から */
+        public Double getWidthFactor() {
+            return Json.read(json.get("width_factor"), Json::number);
+        }
+
+        /** {@link #getWidthFactor()} を書く。null ならフィールドを除く */
+        public TextGeometry withWidthFactor(Double value) {
+            put("width_factor", value);
+            return this;
+        }
+
+        /** 斜体の角度（度）。0 のときは entities が省き、足すときも省けば 0、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から */
+        public Double getOblique() {
+            return Json.read(json.get("oblique"), Json::number);
+        }
+
+        /** {@link #getOblique()} を書く。null ならフィールドを除く */
+        public TextGeometry withOblique(Double value) {
+            put("oblique", value);
+            return this;
+        }
+
+        /** 左右を裏返すか。偽のときは entities が省き、足すときも省けば偽、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から */
+        public Boolean getBackward() {
+            return Json.read(json.get("backward"), Json::bool);
+        }
+
+        /** {@link #getBackward()} を書く。null ならフィールドを除く */
+        public TextGeometry withBackward(Boolean value) {
+            put("backward", value);
+            return this;
+        }
+
+        /** 上下を反転するか。偽のときは entities が省き、足すときも省けば偽、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から */
+        public Boolean getUpsideDown() {
+            return Json.read(json.get("upside_down"), Json::bool);
+        }
+
+        /** {@link #getUpsideDown()} を書く。null ならフィールドを除く */
+        public TextGeometry withUpsideDown(Boolean value) {
+            put("upside_down", value);
             return this;
         }
 
@@ -3202,6 +3268,40 @@ public final class Messages {
             put("style_id", value);
             return this;
         }
+    }
+
+    /**
+     * 1 点に置く文字の水平の位置合わせ。middle は水平と垂直の両方を外形の中央に合わせる（DXF の 72 = 4）
+     *
+     * 列挙の値。知らない値も受け取る
+     */
+    public static final class TextHorizontal {
+        private TextHorizontal() {}
+
+        public static final String LEFT = "left";
+
+        public static final String CENTER = "center";
+
+        public static final String RIGHT = "right";
+
+        public static final String MIDDLE = "middle";
+    }
+
+    /**
+     * 1 点に置く文字の垂直の位置合わせ
+     *
+     * 列挙の値。知らない値も受け取る
+     */
+    public static final class TextVertical {
+        private TextVertical() {}
+
+        public static final String BASELINE = "baseline";
+
+        public static final String BOTTOM = "bottom";
+
+        public static final String MIDDLE = "middle";
+
+        public static final String TOP = "top";
     }
 
     /**

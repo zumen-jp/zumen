@@ -1,4 +1,4 @@
-"""合成の土木図面の Rust/API の lower を ezdxf で照合する（#643）。"""
+"""合成の土木図面の Rust/API の lower を ezdxf で照合する（#643・#763）。"""
 
 import sys
 from pathlib import Path
@@ -6,12 +6,8 @@ from pathlib import Path
 from ezdxf import recover
 
 
-def attributes(entity, *, text=False):
-    values = entity.dxf.all_existing_dxf_attribs()
-    if text and entity.dxftype() == "TEXT":
-        for key in ("align_point", "halign", "valign"):
-            values.pop(key, None)
-    return entity.dxftype(), values
+def attributes(entity):
+    return entity.dxftype(), entity.dxf.all_existing_dxf_attribs()
 
 
 def check(folder):
@@ -34,16 +30,15 @@ def check(folder):
     for name in api.layouts.names():
         first, second = api.layouts.get(name), rust.layouts.get(name)
         assert attributes(first.dxf_layout) == attributes(second.dxf_layout)
-        assert [attributes(entity, text=True) for entity in first] == [
-            attributes(entity, text=True) for entity in second
+        assert [attributes(entity) for entity in first] == [
+            attributes(entity) for entity in second
         ]
-        for left, right in zip(first, second, strict=True):
+        for entity in first:
             elements += 1
-            if left.dxftype() == "TEXT" and attributes(left) != attributes(right):
-                assert left.dxf.halign == 0 and left.dxf.valign == 0
+            if entity.dxftype() == "TEXT" and (entity.dxf.halign != 0 or entity.dxf.valign != 0):
                 aligned += 1
     assert elements > 0 and aligned > 0
-    print(f"elements={elements}, text_alignment_differences={aligned}, audit_errors=0, audit_fixes=0")
+    print(f"elements={elements}, aligned_texts={aligned}, audit_errors=0, audit_fixes=0")
 
 
 if __name__ == "__main__":

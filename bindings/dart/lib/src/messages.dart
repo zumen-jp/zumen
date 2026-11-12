@@ -1254,7 +1254,7 @@ class PolylineGeometry extends Message {
   set closed(bool? value) => writeField('closed', value);
 }
 
-/// 1 点か 2 点の間に置く文字。置き換えるときは、位置合わせ・幅の倍率・斜体・反転・文字スタイルを元の値のままにする。足すときは、2 点目がなければ左の基準線に合わせ、幅の倍率 1・斜体なし・反転なしにする
+/// 1 点か 2 点の間に置く文字。置き換えるときは、位置合わせ・文字スタイルを元の値のままにし、書かない幅の倍率・斜体・反転も元の値を受け継ぐ。足すときは、2 点目がなければ書かない位置合わせを左の基準線にし、幅の倍率 1・斜体なし・反転なしにする
 class TextGeometry extends Message {
   /// 読んだ JSON のオブジェクトを包む
   TextGeometry.fromJson(super.json);
@@ -1282,6 +1282,14 @@ class TextGeometry extends Message {
   String? get fit => readField('fit', asString);
   set fit(String? value) => writeField('fit', value);
 
+  /// 1 点に置く文字の水平の位置合わせ。left のときは entities が省き、足すときも省けば left。2 点の間に合わせる文字には書けない。置き換えるときは元と同じ値だけを受ける。マイナーバージョン 69 から
+  String? get horizontal => readField('horizontal', asString);
+  set horizontal(String? value) => writeField('horizontal', value);
+
+  /// 1 点に置く文字の垂直の位置合わせ。baseline のときは entities が省き、足すときも省けば baseline。2 点の間に合わせる文字には書けない。置き換えるときは元と同じ値だけを受ける。マイナーバージョン 69 から
+  String? get vertical => readField('vertical', asString);
+  set vertical(String? value) => writeField('vertical', value);
+
   /// 高さ。0 より大きい
   double? get height => readField('height', asDouble);
   set height(double? value) => writeField('height', value);
@@ -1290,6 +1298,22 @@ class TextGeometry extends Message {
   double? get rotation => readField('rotation', asDouble);
   set rotation(double? value) => writeField('rotation', value);
 
+  /// 幅の倍率。0 より大きい。1 のときは entities が省き、足すときも省けば 1、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から
+  double? get widthFactor => readField('width_factor', asDouble);
+  set widthFactor(double? value) => writeField('width_factor', value);
+
+  /// 斜体の角度（度）。0 のときは entities が省き、足すときも省けば 0、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から
+  double? get oblique => readField('oblique', asDouble);
+  set oblique(double? value) => writeField('oblique', value);
+
+  /// 左右を裏返すか。偽のときは entities が省き、足すときも省けば偽、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から
+  bool? get backward => readField('backward', asBool);
+  set backward(bool? value) => writeField('backward', value);
+
+  /// 上下を反転するか。偽のときは entities が省き、足すときも省けば偽、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から
+  bool? get upsideDown => readField('upside_down', asBool);
+  set upsideDown(bool? value) => writeField('upside_down', value);
+
   /// 文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。DXF に文字スタイルの定義がないときは Standard だけを受ける。置き換えるときは、元と同じ名前だけを受ける。style_id と一緒に書くなら、同じ文字スタイルを指す。マイナーバージョン 12 から
   String? get style => readField('style', asString);
   set style(String? value) => writeField('style', value);
@@ -1297,6 +1321,26 @@ class TextGeometry extends Message {
   /// 文字スタイルの ID。tables が返したもの。entities は、名前で引いた文字スタイルの ID を返す。足す・置き換えるときは、名前の代わりに書ける（名前より先に使う）。同じ名前（大文字と小文字を区別しない）の項目が複数あれば書き戻せない。マイナーバージョン 23 から
   String? get styleId => readField('style_id', asString);
   set styleId(String? value) => writeField('style_id', value);
+}
+
+/// 1 点に置く文字の水平の位置合わせ。middle は水平と垂直の両方を外形の中央に合わせる（DXF の 72 = 4）
+///
+/// 列挙の値。知らない値も受け取る
+abstract final class TextHorizontal {
+  static const left = 'left';
+  static const center = 'center';
+  static const right = 'right';
+  static const middle = 'middle';
+}
+
+/// 1 点に置く文字の垂直の位置合わせ
+///
+/// 列挙の値。知らない値も受け取る
+abstract final class TextVertical {
+  static const baseline = 'baseline';
+  static const bottom = 'bottom';
+  static const middle = 'middle';
+  static const top = 'top';
 }
 
 /// 2 点の間への合わせ方。aligned は縦横の比を保って高さも変え、fit は高さを保って幅だけを変える

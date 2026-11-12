@@ -127,7 +127,8 @@ impl Relocate for Geometric {
     }
 }
 
-/// 基本図形は同じ意味の形へ移す。文字・注記・記号は API の形の値にない意味があるため、見た目だけとする
+/// 基本図形と 1 行の文字は同じ意味の形へ移す（高さの意味の違いは lower が `text_height_meaning` で記録する）。
+/// 書式つきの文字・注記・記号は API の形の値にない意味があるため、見た目だけとする
 fn geometric_fidelity<P>(shape: &Shape<P>) -> zumen_acad::ConversionFidelity {
     match shape {
         Shape::Curve(zumen_drawing::Edge::Spline(spline))
@@ -139,6 +140,7 @@ fn geometric_fidelity<P>(shape: &Shape<P>) -> zumen_acad::ConversionFidelity {
         | Shape::Circle { .. }
         | Shape::Curve(_)
         | Shape::Polyline(_)
+        | Shape::Text(_)
         | Shape::Point(_) => zumen_acad::ConversionFidelity::Equivalent,
         _ => zumen_acad::ConversionFidelity::Drawn,
     }
@@ -186,28 +188,8 @@ mod tests {
         .unwrap()
     }
 
-    /// DXF の組（グループコードと値）から、TEXT の位置合わせの第 2 点（11・21・31）と位置合わせ（72・73）を除く
-    fn without_alignment(bytes: &[u8]) -> Vec<(String, String)> {
-        let text = String::from_utf8_lossy(bytes);
-        let lines: Vec<&str> = text.lines().collect();
-        let mut entity = String::new();
-        let mut pairs = Vec::new();
-        for pair in lines.chunks(2) {
-            let (code, value) = (pair[0].trim(), pair[1]);
-            if code == "0" {
-                entity = value.to_string();
-            }
-            if entity == "TEXT" && matches!(code, "11" | "21" | "31" | "72" | "73") {
-                continue;
-            }
-            pairs.push((code.to_string(), value.to_string()));
-        }
-        pairs
-    }
-
     /// `convert` と `civil_drawing` が書く経路（[`to_dxf`]）は、`zumen-acad` の lower に形の移し方を渡すだけで、
-    /// 土木の図面では Rust から直接呼んだ lower と同じ要素の数・診断になる。バイト列は、API の形の値が文字の
-    /// 位置合わせを持たないため、文字の位置合わせ（11・21・31・72・73）だけが違う（#763）
+    /// 土木の図面では文字の位置合わせも含めて Rust から直接呼んだ lower と同じ要素数・診断・バイト列になる（#763）
     #[test]
     #[allow(clippy::disallowed_methods)] // 外部照合の出力先だけを受け取る
     fn the_api_writes_what_the_rust_lower_writes() {
@@ -234,10 +216,7 @@ mod tests {
         assert!(api.1 > 0);
         assert_eq!(api.1, rust.1);
         assert_eq!(api.2, rust.2);
-        assert!(
-            without_alignment(&api.0) == without_alignment(&rust.0),
-            "位置合わせのほかの値が違う"
-        );
+        assert_eq!(api.0, rust.0);
         if let Some(folder) = std::env::var_os("ZUMEN_DXF_LOWER_OUT") {
             let folder = std::path::PathBuf::from(folder);
             std::fs::create_dir_all(&folder).unwrap();

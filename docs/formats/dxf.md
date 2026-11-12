@@ -71,7 +71,7 @@ AutoCAD の系統のファイルモデル（L1）として DXF を読み書き�
 
 `convert` は、図面モデルを新しい R2004 の DXF（AC1018）に書きます。ひな形は `zumen-acad` の `NewDxfTemplate`（`drawing` の feature）が作り、表の項目と要素を `apply` で足します。
 
-図面モデルから書く処理は `zumen-acad` の `lower_to_dxf_with` にあり、`convert` と `civil_drawing` も、Rust から直接呼ぶ `lower_to_dxf` も、これを使います（#643）。違いは要素の形を書く先に移す方法だけです。API の経路は形を API の形の値（`add` が受けるもの）に写してから戻し、`lower_to_dxf` は値を変えずに点と長さの空間・用紙を移します。API の形の値は文字の位置合わせを持たないので、API の経路では文字が左・ベースラインになり、幅の係数・斜体の角度・裏返しも既定の値になります。この既存の損失と診断は #763 で扱います。 API の記号は、名前空間と格子間隔の座標の系を確かめ、部品の参照を引き、最後に尺度や格子の個数も含む形を戻します。最初の検査で拒む場合は `symbol`、書かない定義や欠けた参照なら形を戻せなくても `external_symbol` として報告し、従来の診断の種類を保ちます。`Relocate` の受理の検査は、Rust の既定ではすべて通します。
+図面モデルから書く処理は `zumen-acad` の `lower_to_dxf_with` にあり、`convert` と `civil_drawing` も、Rust から直接呼ぶ `lower_to_dxf` も、これを使います（#643）。違いは要素の形を書く先に移す方法だけです。API の経路は形を API の形の値（`add` が受けるもの）に写してから戻し、`lower_to_dxf` は値を変えずに点と長さの空間・用紙を移します。API の文字の形（スキーマ 1.69 から）は、位置合わせ・幅の倍率・斜体の角度・裏返しと上下反転も持つため、API の経路でも元の文字の配置と書式を保ち、正の有限値でない幅の倍率など DXF に書けない文字は既定値に変えず `convert.element.unsupported`（`text`）で落とします（#763）。API の記号は、名前空間と格子間隔の座標の系を確かめ、部品の参照を引き、最後に尺度や格子の個数も含む形を戻します。最初の検査で拒む場合は `symbol`、書かない定義や欠けた参照なら形を戻せなくても `external_symbol` として報告し、従来の診断の種類を保ちます。`Relocate` の受理の検査は、Rust の既定ではすべて通します。
 
 - ひな形の TABLE はハンドル（5）と `AcDbSymbolTable`、表の項目は所有者（330）と `AcDbSymbolTableRecord`・種類ごとのサブクラス（100）を持つ。DIMSTYLE のハンドルは 105 に書く（DXF Reference「TABLES Section」「Common Group Codes for Symbol Table Entries」）。BLOCK・ENDBLK と足した図形の所有者は、対応する BLOCK_RECORD にする。これにより、記号の定義の中身も足せる。表の項目を足した後で、各 TABLE の件数（70）を実際の項目数に直す（DXF Reference「Symbol Table Group Codes」）。
 - OBJECTS にルートの DICTIONARY、`ACAD_LAYOUT` の辞書、モデルと用紙の LAYOUT を書く。LAYOUT と BLOCK_RECORD は互いを指す。用紙は最初の 1 枚を `Layout1` にし、入力に用紙がなくても空の `Layout1` を持つ。空の LAYOUT を追加先に使うので、用紙を作るための一時的な POINT は置かない（DXF Reference「DICTIONARY」「LAYOUT」「BLOCK_RECORD」）。
@@ -100,7 +100,7 @@ R2004 の構成は、Autodesk の [DXF Reference](https://images.autodesk.com/ad
 
 明細の場所は診断の場所の上限（`max_places`）とは独立して返します。明細の確保も作業量と展開量の予算で数えるため、予算が少ないと、明細を返す見積もりは実変換より先に止まることがあります。成功した見積もりの予定値と、同じ元の文書・設定で実変換した値を比較します。
 
-忠実度は `native`（値と参照を保持）・`equivalent`（別の表現で同じ意味）・`approximated`（近似）・`drawn`（見た目だけ）・`dropped`（欠落）です。書ける形でも、文字の位置合わせ・高さの意味や、スタイルの既定値への置き換えなどで元の意味を保持できない場合は、保持・等価と扱いません。明細の `reasons` は、`text_height_meaning`・`relocated_shape`・`style_default` など、変えた値や参照の種類を示すキーです。属性の文字への分離と、ビューの用紙への焼き込みも区別して数えます。既存の `convert` のバイト列と診断は維持するため、文字の位置合わせなどの欠落を個別の診断で知らせる #763 の残件は、この見積もりで完了したとは扱いません。
+忠実度は `native`（値と参照を保持）・`equivalent`（別の表現で同じ意味）・`approximated`（近似）・`drawn`（見た目だけ）・`dropped`（欠落）です。書ける形でも、文字の高さの意味や、スプラインの許容差・ノットの取り方、スタイルの既定値への置き換えなどで元の意味を保持できない場合は、保持・等価と扱いません。明細の `reasons` は、`text_height_meaning`・`relocated_shape`・`style_default` など、変えた値や参照の種類を示すキーです。属性の文字への分離と、ビューの用紙への焼き込みも区別して数えます。
 
 見積もりと実変換のネイティブ・wasm の応答は `bindings/conformance/cases/convert_estimate.json` で照合します。API のテストでは、明細の上限、出力名を確保しないこと、元の ID とハッシュ、予算超過・中断後の再試行、複数の診断と出力の件数も確かめます。外部照合では、検証キットを作る `xtask/verify/make.py` が見積もりのハッシュ・要素数・診断を実変換と比較し、書いたファイルを既存の ezdxf の検査へ渡します。R2004 DWG の弧長寸法・描画ブロックの値と参照を照合する範囲は、下の「確かめた度合い」にあります。AutoCAD での表示の確認は、この見積もりの検査には含めません。
 

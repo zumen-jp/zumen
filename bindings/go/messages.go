@@ -1096,7 +1096,7 @@ func (m PolylineGeometry) MarshalJSON() ([]byte, error) {
 	return json.Marshal(plain(m))
 }
 
-// TextGeometry: 1 点か 2 点の間に置く文字。置き換えるときは、位置合わせ・幅の倍率・斜体・反転・文字スタイルを元の値のままにする。足すときは、2 点目がなければ左の基準線に合わせ、幅の倍率 1・斜体なし・反転なしにする
+// TextGeometry: 1 点か 2 点の間に置く文字。置き換えるときは、位置合わせ・文字スタイルを元の値のままにし、書かない幅の倍率・斜体・反転も元の値を受け継ぐ。足すときは、2 点目がなければ書かない位置合わせを左の基準線にし、幅の倍率 1・斜体なし・反転なしにする
 type TextGeometry struct {
 	// 形の種類
 	Shape string `json:"shape,omitempty"`
@@ -1113,11 +1113,29 @@ type TextGeometry struct {
 	// 2 点の間への合わせ方。2 点目（end）と一緒に書く。マイナーバージョン 17 から
 	Fit *TextFit `json:"fit,omitempty"`
 
+	// 1 点に置く文字の水平の位置合わせ。left のときは entities が省き、足すときも省けば left。2 点の間に合わせる文字には書けない。置き換えるときは元と同じ値だけを受ける。マイナーバージョン 69 から
+	Horizontal *TextHorizontal `json:"horizontal,omitempty"`
+
+	// 1 点に置く文字の垂直の位置合わせ。baseline のときは entities が省き、足すときも省けば baseline。2 点の間に合わせる文字には書けない。置き換えるときは元と同じ値だけを受ける。マイナーバージョン 69 から
+	Vertical *TextVertical `json:"vertical,omitempty"`
+
 	// 高さ。0 より大きい
 	Height *float64 `json:"height,omitempty"`
 
 	// 回転（度）。2 点の間に合わせる文字では、1 点目から 2 点目への向きと同じでなければならない
 	Rotation *float64 `json:"rotation,omitempty"`
+
+	// 幅の倍率。0 より大きい。1 のときは entities が省き、足すときも省けば 1、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から
+	WidthFactor *float64 `json:"width_factor,omitempty"`
+
+	// 斜体の角度（度）。0 のときは entities が省き、足すときも省けば 0、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から
+	Oblique *float64 `json:"oblique,omitempty"`
+
+	// 左右を裏返すか。偽のときは entities が省き、足すときも省けば偽、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から
+	Backward *bool `json:"backward,omitempty"`
+
+	// 上下を反転するか。偽のときは entities が省き、足すときも省けば偽、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から
+	UpsideDown *bool `json:"upside_down,omitempty"`
 
 	// 文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。DXF に文字スタイルの定義がないときは Standard だけを受ける。置き換えるときは、元と同じ名前だけを受ける。style_id と一緒に書くなら、同じ文字スタイルを指す。マイナーバージョン 12 から
 	Style *string `json:"style,omitempty"`
@@ -1132,6 +1150,40 @@ func (m TextGeometry) MarshalJSON() ([]byte, error) {
 	m.Shape = "text"
 	return json.Marshal(plain(m))
 }
+
+// TextHorizontal: 1 点に置く文字の水平の位置合わせ。middle は水平と垂直の両方を外形の中央に合わせる（DXF の 72 = 4）
+//
+// 列挙の値。知らない値も受け取る。
+type TextHorizontal string
+
+// TextHorizontalLeft は left。
+const TextHorizontalLeft TextHorizontal = "left"
+
+// TextHorizontalCenter は center。
+const TextHorizontalCenter TextHorizontal = "center"
+
+// TextHorizontalRight は right。
+const TextHorizontalRight TextHorizontal = "right"
+
+// TextHorizontalMiddle は middle。
+const TextHorizontalMiddle TextHorizontal = "middle"
+
+// TextVertical: 1 点に置く文字の垂直の位置合わせ
+//
+// 列挙の値。知らない値も受け取る。
+type TextVertical string
+
+// TextVerticalBaseline は baseline。
+const TextVerticalBaseline TextVertical = "baseline"
+
+// TextVerticalBottom は bottom。
+const TextVerticalBottom TextVertical = "bottom"
+
+// TextVerticalMiddle は middle。
+const TextVerticalMiddle TextVertical = "middle"
+
+// TextVerticalTop は top。
+const TextVerticalTop TextVertical = "top"
 
 // TextFit: 2 点の間への合わせ方。aligned は縦横の比を保って高さも変え、fit は高さを保って幅だけを変える
 //

@@ -2248,7 +2248,7 @@ pub enum Geometry {
     Ellipse(EllipseGeometry),
     /// 頂点を結んだ折れ線。幅は持たない
     Polyline(PolylineGeometry),
-    /// 1 点か 2 点の間に置く文字。置き換えるときは、位置合わせ・幅の倍率・斜体・反転・文字スタイルを元の値のままにする。足すときは、2 点目がなければ左の基準線に合わせ、幅の倍率 1・斜体なし・反転なしにする
+    /// 1 点か 2 点の間に置く文字。置き換えるときは、位置合わせ・文字スタイルを元の値のままにし、書かない幅の倍率・斜体・反転も元の値を受け継ぐ。足すときは、2 点目がなければ書かない位置合わせを左の基準線にし、幅の倍率 1・斜体なし・反転なしにする
     Text(TextGeometry),
     /// 書式つきの文字（DXF の MTEXT）。置き換えるときは、枠の高さ・書き進める向き・行送り・背景・高さの意味・文字スタイルを元の値のままにする。足すときは、枠の高さなし・左から右・行送り 1 倍・背景なしにする。マイナーバージョン 13 から
     FormattedText(FormattedTextGeometry),
@@ -2621,7 +2621,7 @@ impl ToJson for PolylineGeometry {
     }
 }
 
-/// 1 点か 2 点の間に置く文字。置き換えるときは、位置合わせ・幅の倍率・斜体・反転・文字スタイルを元の値のままにする。足すときは、2 点目がなければ左の基準線に合わせ、幅の倍率 1・斜体なし・反転なしにする
+/// 1 点か 2 点の間に置く文字。置き換えるときは、位置合わせ・文字スタイルを元の値のままにし、書かない幅の倍率・斜体・反転も元の値を受け継ぐ。足すときは、2 点目がなければ書かない位置合わせを左の基準線にし、幅の倍率 1・斜体なし・反転なしにする
 #[derive(Clone, Debug, PartialEq)]
 pub struct TextGeometry {
     /// 内容。1 行
@@ -2632,10 +2632,22 @@ pub struct TextGeometry {
     pub end: Option<Vec<f64>>,
     /// 2 点の間への合わせ方。2 点目（end）と一緒に書く。マイナーバージョン 17 から
     pub fit: Option<TextFit>,
+    /// 1 点に置く文字の水平の位置合わせ。left のときは entities が省き、足すときも省けば left。2 点の間に合わせる文字には書けない。置き換えるときは元と同じ値だけを受ける。マイナーバージョン 69 から
+    pub horizontal: Option<TextHorizontal>,
+    /// 1 点に置く文字の垂直の位置合わせ。baseline のときは entities が省き、足すときも省けば baseline。2 点の間に合わせる文字には書けない。置き換えるときは元と同じ値だけを受ける。マイナーバージョン 69 から
+    pub vertical: Option<TextVertical>,
     /// 高さ。0 より大きい
     pub height: f64,
     /// 回転（度）。2 点の間に合わせる文字では、1 点目から 2 点目への向きと同じでなければならない
     pub rotation: f64,
+    /// 幅の倍率。0 より大きい。1 のときは entities が省き、足すときも省けば 1、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から
+    pub width_factor: Option<f64>,
+    /// 斜体の角度（度）。0 のときは entities が省き、足すときも省けば 0、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から
+    pub oblique: Option<f64>,
+    /// 左右を裏返すか。偽のときは entities が省き、足すときも省けば偽、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から
+    pub backward: Option<bool>,
+    /// 上下を反転するか。偽のときは entities が省き、足すときも省けば偽、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から
+    pub upside_down: Option<bool>,
     /// 文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。DXF に文字スタイルの定義がないときは Standard だけを受ける。置き換えるときは、元と同じ名前だけを受ける。style_id と一緒に書くなら、同じ文字スタイルを指す。マイナーバージョン 12 から
     pub style: Option<String>,
     /// 文字スタイルの ID。tables が返したもの。entities は、名前で引いた文字スタイルの ID を返す。足す・置き換えるときは、名前の代わりに書ける（名前より先に使う）。同じ名前（大文字と小文字を区別しない）の項目が複数あれば書き戻せない。マイナーバージョン 23 から
@@ -2649,8 +2661,14 @@ impl TextGeometry {
         let position = object.required("position", |value| json::array(value, json::number))?;
         let end = object.optional("end", |value| json::array(value, json::number))?;
         let fit = object.optional("fit", TextFit::from_json)?;
+        let horizontal = object.optional("horizontal", TextHorizontal::from_json)?;
+        let vertical = object.optional("vertical", TextVertical::from_json)?;
         let height = object.required("height", json::number)?;
         let rotation = object.required("rotation", json::number)?;
+        let width_factor = object.optional("width_factor", json::number)?;
+        let oblique = object.optional("oblique", json::number)?;
+        let backward = object.optional("backward", json::boolean)?;
+        let upside_down = object.optional("upside_down", json::boolean)?;
         let style = object.optional("style", json::string)?;
         let style_id = object.optional("style_id", json::string)?;
         Ok(Self {
@@ -2658,8 +2676,14 @@ impl TextGeometry {
             position,
             end,
             fit,
+            horizontal,
+            vertical,
             height,
             rotation,
+            width_factor,
+            oblique,
+            backward,
+            upside_down,
             style,
             style_id,
         })
@@ -2680,10 +2704,34 @@ impl TextGeometry {
             out.key("fit");
             value.to_json(out);
         }
+        if let Some(value) = &self.horizontal {
+            out.key("horizontal");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.vertical {
+            out.key("vertical");
+            value.to_json(out);
+        }
         out.key("height");
         out.float(self.height);
         out.key("rotation");
         out.float(self.rotation);
+        if let Some(value) = &self.width_factor {
+            out.key("width_factor");
+            out.float(*value);
+        }
+        if let Some(value) = &self.oblique {
+            out.key("oblique");
+            out.float(*value);
+        }
+        if let Some(value) = &self.backward {
+            out.key("backward");
+            out.bool(*value);
+        }
+        if let Some(value) = &self.upside_down {
+            out.key("upside_down");
+            out.bool(*value);
+        }
         if let Some(value) = &self.style {
             out.key("style");
             out.string(value);
@@ -2709,6 +2757,108 @@ impl ToJson for TextGeometry {
         out.begin_object();
         self.write_fields(out);
         out.end_object();
+    }
+}
+
+/// 1 点に置く文字の水平の位置合わせ。middle は水平と垂直の両方を外形の中央に合わせる（DXF の 72 = 4）
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum TextHorizontal {
+    /// `left`
+    Left,
+    /// `center`
+    Center,
+    /// `right`
+    Right,
+    /// `middle`
+    Middle,
+}
+
+impl TextHorizontal {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[Self::Left, Self::Center, Self::Right, Self::Middle];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Left => "left",
+            Self::Center => "center",
+            Self::Right => "right",
+            Self::Middle => "middle",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "left" => Some(Self::Left),
+            "center" => Some(Self::Center),
+            "right" => Some(Self::Right),
+            "middle" => Some(Self::Middle),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for TextHorizontal {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for TextHorizontal {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
+    }
+}
+
+/// 1 点に置く文字の垂直の位置合わせ
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum TextVertical {
+    /// `baseline`
+    Baseline,
+    /// `bottom`
+    Bottom,
+    /// `middle`
+    Middle,
+    /// `top`
+    Top,
+}
+
+impl TextVertical {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[Self::Baseline, Self::Bottom, Self::Middle, Self::Top];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Baseline => "baseline",
+            Self::Bottom => "bottom",
+            Self::Middle => "middle",
+            Self::Top => "top",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "baseline" => Some(Self::Baseline),
+            "bottom" => Some(Self::Bottom),
+            "middle" => Some(Self::Middle),
+            "top" => Some(Self::Top),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for TextVertical {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for TextVertical {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
     }
 }
 

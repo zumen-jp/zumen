@@ -1486,7 +1486,7 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 1 点か 2 点の間に置く文字。置き換えるときは、位置合わせ・幅の倍率・斜体・反転・文字スタイルを元の値のままにする。足すときは、2 点目がなければ左の基準線に合わせ、幅の倍率 1・斜体なし・反転なしにする
+    /// 1 点か 2 点の間に置く文字。置き換えるときは、位置合わせ・文字スタイルを元の値のままにし、書かない幅の倍率・斜体・反転も元の値を受け継ぐ。足すときは、2 点目がなければ書かない位置合わせを左の基準線にし、幅の倍率 1・斜体なし・反転なしにする
     /// </summary>
     public sealed record TextGeometry
     {
@@ -1521,6 +1521,18 @@ namespace Zumen.Messages
         public string? Fit { get; init; }
 
         /// <summary>
+        /// 1 点に置く文字の水平の位置合わせ。left のときは entities が省き、足すときも省けば left。2 点の間に合わせる文字には書けない。置き換えるときは元と同じ値だけを受ける。マイナーバージョン 69 から
+        /// </summary>
+        [JsonPropertyName("horizontal")]
+        public string? Horizontal { get; init; }
+
+        /// <summary>
+        /// 1 点に置く文字の垂直の位置合わせ。baseline のときは entities が省き、足すときも省けば baseline。2 点の間に合わせる文字には書けない。置き換えるときは元と同じ値だけを受ける。マイナーバージョン 69 から
+        /// </summary>
+        [JsonPropertyName("vertical")]
+        public string? Vertical { get; init; }
+
+        /// <summary>
         /// 高さ。0 より大きい
         /// </summary>
         [JsonPropertyName("height")]
@@ -1533,6 +1545,30 @@ namespace Zumen.Messages
         public double Rotation { get; init; }
 
         /// <summary>
+        /// 幅の倍率。0 より大きい。1 のときは entities が省き、足すときも省けば 1、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から
+        /// </summary>
+        [JsonPropertyName("width_factor")]
+        public double? WidthFactor { get; init; }
+
+        /// <summary>
+        /// 斜体の角度（度）。0 のときは entities が省き、足すときも省けば 0、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から
+        /// </summary>
+        [JsonPropertyName("oblique")]
+        public double? Oblique { get; init; }
+
+        /// <summary>
+        /// 左右を裏返すか。偽のときは entities が省き、足すときも省けば偽、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から
+        /// </summary>
+        [JsonPropertyName("backward")]
+        public bool? Backward { get; init; }
+
+        /// <summary>
+        /// 上下を反転するか。偽のときは entities が省き、足すときも省けば偽、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から
+        /// </summary>
+        [JsonPropertyName("upside_down")]
+        public bool? UpsideDown { get; init; }
+
+        /// <summary>
         /// 文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。DXF に文字スタイルの定義がないときは Standard だけを受ける。置き換えるときは、元と同じ名前だけを受ける。style_id と一緒に書くなら、同じ文字スタイルを指す。マイナーバージョン 12 から
         /// </summary>
         [JsonPropertyName("style")]
@@ -1543,6 +1579,36 @@ namespace Zumen.Messages
         /// </summary>
         [JsonPropertyName("style_id")]
         public string? StyleId { get; init; }
+    }
+
+    /// <summary>
+    /// 1 点に置く文字の水平の位置合わせ。middle は水平と垂直の両方を外形の中央に合わせる（DXF の 72 = 4）
+    /// </summary>
+    public static class TextHorizontal
+    {
+        /// <summary>left</summary>
+        public const string Left = "left";
+        /// <summary>center</summary>
+        public const string Center = "center";
+        /// <summary>right</summary>
+        public const string Right = "right";
+        /// <summary>middle</summary>
+        public const string Middle = "middle";
+    }
+
+    /// <summary>
+    /// 1 点に置く文字の垂直の位置合わせ
+    /// </summary>
+    public static class TextVertical
+    {
+        /// <summary>baseline</summary>
+        public const string Baseline = "baseline";
+        /// <summary>bottom</summary>
+        public const string Bottom = "bottom";
+        /// <summary>middle</summary>
+        public const string Middle = "middle";
+        /// <summary>top</summary>
+        public const string Top = "top";
     }
 
     /// <summary>

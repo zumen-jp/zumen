@@ -643,6 +643,16 @@ fn drawings_take_back_texts_fitted_between_two_points() {
             let style = text(&geometry, "/style").unwrap();
             let style_id = text(&geometry, "/style_id").unwrap();
             let moved = format!(
+                r#"{{"shape":"text","content":"GRID X1","position":[{},{}],"end":[{},{}],"fit":"{}","height":{},"rotation":{},"width_factor":1,"oblique":0,"backward":false,"upside_down":false,"style":"{style}","style_id":"{style_id}"}}"#,
+                number("/position/0") + 5.0,
+                number("/position/1") - 2.5,
+                number("/end/0") + 5.0,
+                number("/end/1") - 2.5,
+                text(&geometry, "/fit").unwrap(),
+                number("/height"),
+                number("/rotation"),
+            );
+            let expected = format!(
                 r#"{{"shape":"text","content":"GRID X1","position":[{},{}],"end":[{},{}],"fit":"{}","height":{},"rotation":{},"style":"{style}","style_id":"{style_id}"}}"#,
                 number("/position/0") + 5.0,
                 number("/position/1") - 2.5,
@@ -663,7 +673,7 @@ fn drawings_take_back_texts_fitted_between_two_points() {
                     &mut session,
                     "replaced",
                     &response,
-                    &zumen_json::parse(moved.as_bytes()).unwrap(),
+                    &zumen_json::parse(expected.as_bytes()).unwrap(),
                 );
                 replaced[dwg] += 1;
             } else {

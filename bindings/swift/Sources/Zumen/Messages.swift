@@ -1967,7 +1967,7 @@ public struct PolylineGeometry: Message {
     }
 }
 
-/// 1 点か 2 点の間に置く文字。置き換えるときは、位置合わせ・幅の倍率・斜体・反転・文字スタイルを元の値のままにする。足すときは、2 点目がなければ左の基準線に合わせ、幅の倍率 1・斜体なし・反転なしにする
+/// 1 点か 2 点の間に置く文字。置き換えるときは、位置合わせ・文字スタイルを元の値のままにし、書かない幅の倍率・斜体・反転も元の値を受け継ぐ。足すときは、2 点目がなければ書かない位置合わせを左の基準線にし、幅の倍率 1・斜体なし・反転なしにする
 public struct TextGeometry: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -2012,6 +2012,18 @@ public struct TextGeometry: Message {
         set { writeField("fit", newValue) }
     }
 
+    /// 1 点に置く文字の水平の位置合わせ。left のときは entities が省き、足すときも省けば left。2 点の間に合わせる文字には書けない。置き換えるときは元と同じ値だけを受ける。マイナーバージョン 69 から
+    public var horizontal: String? {
+        get { readField("horizontal") }
+        set { writeField("horizontal", newValue) }
+    }
+
+    /// 1 点に置く文字の垂直の位置合わせ。baseline のときは entities が省き、足すときも省けば baseline。2 点の間に合わせる文字には書けない。置き換えるときは元と同じ値だけを受ける。マイナーバージョン 69 から
+    public var vertical: String? {
+        get { readField("vertical") }
+        set { writeField("vertical", newValue) }
+    }
+
     /// 高さ。0 より大きい
     public var height: Double? {
         get { readField("height") }
@@ -2022,6 +2034,30 @@ public struct TextGeometry: Message {
     public var rotation: Double? {
         get { readField("rotation") }
         set { writeField("rotation", newValue) }
+    }
+
+    /// 幅の倍率。0 より大きい。1 のときは entities が省き、足すときも省けば 1、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から
+    public var widthFactor: Double? {
+        get { readField("width_factor") }
+        set { writeField("width_factor", newValue) }
+    }
+
+    /// 斜体の角度（度）。0 のときは entities が省き、足すときも省けば 0、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から
+    public var oblique: Double? {
+        get { readField("oblique") }
+        set { writeField("oblique", newValue) }
+    }
+
+    /// 左右を裏返すか。偽のときは entities が省き、足すときも省けば偽、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から
+    public var backward: Bool? {
+        get { readField("backward") }
+        set { writeField("backward", newValue) }
+    }
+
+    /// 上下を反転するか。偽のときは entities が省き、足すときも省けば偽、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から
+    public var upsideDown: Bool? {
+        get { readField("upside_down") }
+        set { writeField("upside_down", newValue) }
     }
 
     /// 文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。DXF に文字スタイルの定義がないときは Standard だけを受ける。置き換えるときは、元と同じ名前だけを受ける。style_id と一緒に書くなら、同じ文字スタイルを指す。マイナーバージョン 12 から
@@ -2035,6 +2071,26 @@ public struct TextGeometry: Message {
         get { readField("style_id") }
         set { writeField("style_id", newValue) }
     }
+}
+
+/// 1 点に置く文字の水平の位置合わせ。middle は水平と垂直の両方を外形の中央に合わせる（DXF の 72 = 4）
+///
+/// 列挙の値。知らない値も受け取る
+public enum TextHorizontal {
+    public static let left = "left"
+    public static let center = "center"
+    public static let right = "right"
+    public static let middle = "middle"
+}
+
+/// 1 点に置く文字の垂直の位置合わせ
+///
+/// 列挙の値。知らない値も受け取る
+public enum TextVertical {
+    public static let baseline = "baseline"
+    public static let bottom = "bottom"
+    public static let middle = "middle"
+    public static let top = "top"
 }
 
 /// 2 点の間への合わせ方。aligned は縦横の比を保って高さも変え、fit は高さを保って幅だけを変える
