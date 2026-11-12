@@ -10,6 +10,7 @@ import { testLargeStrokes } from "./large-strokes.mjs";
 import { testButtEnds } from "./butt-ends.mjs";
 import { testLargeFills } from "./large-fills.mjs";
 import { testWideStrokes } from "./wide-strokes.mjs";
+import { testCircles } from "./circles.mjs";
 import { testSnap } from "./snap.mjs";
 import { testTools } from "./tools.mjs";
 import { testUnderlays } from "./underlays.mjs";
@@ -30,6 +31,7 @@ export async function testView2D(wasmPath, inputs, calibrationInput) {
   const buttEnds = testButtEnds(assert);
   const largeFills = testLargeFills(assert);
   const wideStrokes = testWideStrokes(assert);
+  const circles = testCircles(assert);
   testSnap({ assert, near });
   testTools({ assert, near, throws });
   testCalibration({ assert, throws });
@@ -205,5 +207,5 @@ export async function testView2D(wasmPath, inputs, calibrationInput) {
   viewer.destroy(); viewer.destroy();
   assert(ctx.getImageData(0, 0, 1, 1).data[3] === 0, "破棄で画面を消す");
   throws(() => viewer.render(), "破棄後の描画"); throws(() => viewer.setScene(input), "破棄後の差し替え");
-  return { assertions, formats, largeStrokeRaster, strokeSat, strokeTolerance, buttEnds, largeFills, wideStrokes };
+  return { assertions, formats, largeStrokeRaster, strokeSat, strokeTolerance, buttEnds, largeFills, wideStrokes, circles };
 }
