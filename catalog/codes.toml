@@ -2052,7 +2052,14 @@ since = "0.2.0"
 status = "active"
 
 [codes."pdf.stroke.approximated"]
-description = "線の端（丸・四角）とつなぎ（丸・面取り）の形を、移さなかった"
+description = "線の端（丸・四角）・つなぎ（丸・面取り）・マイターの限度を移さず、面取りになる角または限度 4 を超える鋭い角の見た目が変わった"
+severity = "warning"
+fidelity = "approximated"
+since = "0.2.0"
+status = "active"
+
+[codes."pdf.rect-orientation.approximated"]
+description = "軸に平行な長方形の始点と向きが渡されないので、左下の角から反時計回りの折れ線にし、破線の始まる角と向きを確認できなかった"
 severity = "warning"
 fidelity = "approximated"
 since = "0.2.0"

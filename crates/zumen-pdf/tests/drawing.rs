@@ -5564,3 +5564,66 @@ fn page_tree_items_are_reported_at_the_node_that_holds_them() {
         assert_eq!(node.object, Some((owner, 0)), "{kids} {third}");
     }
 }
+
+#[test]
+fn reports_miter_limit_and_dashed_rectangle_orientation() {
+    // 1 M で描く直角と、既定 10 M で描く限度 4 超の鋭角は pdf.stroke.approximated を返す。
+    // 10 M の直角、面取りが一致する 2 M の鋭角、180 度の折り返しは診断しない。
+    let miter_src = one_page(Page::new(
+        "2 w \
+         10 M 10 10 m 30 10 l 30 30 l S \
+         10 M 10 40 m 70 40 l S \
+         10 M 10 50 m 70 50 l h S \
+         2 M 10 70 m 60 70 l 10 90 l S \
+         1 M 10 110 m 30 110 l 30 130 l S \
+         10 M 10 150 m 60 150 l 10 170 l S \
+         1 M 100 10 20 20 re S",
+    ));
+    let (drawing, diag) = lift(&miter_src);
+    assert_eq!(elements(&drawing).len(), 7);
+    assert_eq!(
+        codes_of(&diag),
+        [(codes::PDF_STROKE_APPROXIMATED.name(), 3)],
+        "{diag:?}"
+    );
+    assert_eq!(
+        diag[0].places(),
+        std::slice::from_ref(&elements(&drawing)[0].source)
+    );
+
+    // 縦横に異なる倍率を掛けた変換で、ユーザー空間と用紙空間の面取り判定が食い違う角も診断する。
+    let anisotropic = one_page(Page::new(
+        "q 10 0 0 1 0 0 cm 2.5 M 2 20 m 12 20 l 2 35 l S Q",
+    ));
+    let (_, aniso_diag) = lift(&anisotropic);
+    assert_eq!(
+        codes_of(&aniso_diag),
+        [(codes::PDF_STROKE_APPROXIMATED.name(), 1)],
+        "{aniso_diag:?}"
+    );
+
+    // 破線で描く軸平行な長方形（re の負の幅・高さ、位相 0、m/l の時計回り）は始点と向きを確認できないため
+    // pdf.rect-orientation.approximated を返す。実線の長方形、塗りの長方形、破線の非長方形は返さない。
+    let rect_src = one_page(Page::new(
+        "2 w \
+         10 10 30 20 re S \
+         10 40 30 20 re f \
+         [6 3] 0 d 50 30 -30 -20 re S \
+         [6 3] 0 d 60 10 m 60 30 l 90 30 l 90 10 l h S \
+         [6 3] 2 d 100 10 30 20 re B \
+         [0 0] 0 d 100 40 30 20 re S \
+         [6 3] 0 d 10 80 m 40 80 l 25 100 l h S",
+    ));
+    let (rect_drawing, rect_diag) = lift(&rect_src);
+    assert_eq!(elements(&rect_drawing).len(), 8);
+    let mut found = codes_of(&rect_diag);
+    found.sort();
+    assert_eq!(
+        found,
+        [
+            (codes::PDF_DASH_APPROXIMATED.name(), 1),
+            (codes::PDF_RECT_ORIENTATION_APPROXIMATED.name(), 3),
+        ],
+        "{rect_diag:?}"
+    );
+}

@@ -3262,6 +3262,17 @@ pub const PDF_PATTERN_DROPPED: Code = Code::new(
     &[],
 );
 
+/// 軸に平行な長方形の始点と向きが渡されないので、左下の角から反時計回りの折れ線にし、破線の始まる角と向きを確認できなかった
+///
+/// `pdf.rect-orientation.approximated`（0.2.0 から）
+pub const PDF_RECT_ORIENTATION_APPROXIMATED: Code = Code::new(
+    "pdf.rect-orientation.approximated",
+    Severity::Warning,
+    Some(Fidelity::Approximated),
+    &[],
+    &[],
+);
+
 /// シェーディング（濃淡）で塗った形を、移さなかった
 ///
 /// `pdf.shading.dropped`（0.2.0 から）
@@ -3273,7 +3284,7 @@ pub const PDF_SHADING_DROPPED: Code = Code::new(
     &[],
 );
 
-/// 線の端（丸・四角）とつなぎ（丸・面取り）の形を、移さなかった
+/// 線の端（丸・四角）・つなぎ（丸・面取り）・マイターの限度を移さず、面取りになる角または限度 4 を超える鋭い角の見た目が変わった
 ///
 /// `pdf.stroke.approximated`（0.2.0 から）
 pub const PDF_STROKE_APPROXIMATED: Code = Code::new(
@@ -5174,6 +5185,7 @@ pub const ALL: &[Code] = &[
     PDF_PAGE_TREE_DROPPED,
     PDF_PAGE_DROPPED,
     PDF_PATTERN_DROPPED,
+    PDF_RECT_ORIENTATION_APPROXIMATED,
     PDF_SHADING_DROPPED,
     PDF_STROKE_APPROXIMATED,
     PDF_TEXT_DROPPED,
