@@ -756,7 +756,13 @@ impl Born {
             return None;
         }
         let name = self.blocks.get(&space)?;
-        values.push(text(100, "AcDbBlockReference"));
+        // 格子を持つ INSERT のサブクラスは、AutoCAD が書く DXF と同じく AcDbMInsertBlock とする。AcDbBlockReference の
+        // ままだと、AutoCAD 2027 は DXF の列と行（70・71・44・45）を読まず、格子のない配置にする（#683）
+        let class = match symbol.grid {
+            Some(_) => "AcDbMInsertBlock",
+            None => "AcDbBlockReference",
+        };
+        values.push(text(100, class));
         let attributed = !symbol.attributes.is_empty();
         if attributed {
             values.push(int(66, 1));

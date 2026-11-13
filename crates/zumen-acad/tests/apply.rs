@@ -3898,6 +3898,61 @@ fn additions_reject_grid_counts_that_cannot_round_trip() {
     }
 }
 
+/// 格子を持つ記号を足した INSERT のサブクラスは、AutoCAD が書く DXF と同じく `AcDbMInsertBlock` とする。
+/// `AcDbBlockReference` のままだと、AutoCAD 2027 は列と行を読まず、格子のない配置にする（#683）
+#[test]
+fn additions_mark_symbols_with_a_grid_as_minsert_blocks() {
+    use zumen_drawing::{Grid, Symbol, SymbolKey};
+    let blocks = [
+        (0, "BLOCK"),
+        (5, "30"),
+        (2, "PART"),
+        (70, "0"),
+        (10, "0.0"),
+        (20, "0.0"),
+        (0, "ENDBLK"),
+    ];
+    for (grid, class, other) in [
+        (true, "AcDbMInsertBlock", "AcDbBlockReference"),
+        (false, "AcDbBlockReference", "AcDbMInsertBlock"),
+    ] {
+        let src = addition_source("AC1015", "40", &blocks);
+        let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+        let element = addition_element(Shape::Symbol(Symbol {
+            key: SymbolKey {
+                namespace: "dxf.block".into(),
+                name: "PART".into(),
+            },
+            position: at(0.0, 0.0),
+            scale: [1.0, 1.0],
+            rotation: 0.0,
+            grid: grid.then(|| Grid {
+                columns: 3,
+                rows: 2,
+                column_spacing: model(3.0),
+                row_spacing: model(4.0),
+            }),
+            attributes: vec![],
+            clip: None,
+        }));
+        let (result, _) = apply(&mut file, vec![Edit::Add(Box::new(element))]);
+        assert_eq!(result, Ok(()), "{class}");
+        let written = String::from_utf8(testkit::write::<Dxf>(&file).unwrap()).unwrap();
+        assert!(written.contains(&format!("100\n{class}\n")), "{class}");
+        assert!(!written.contains(other), "{class}");
+        // 読み直すと、格子は当てたとおりになる
+        let drawing = lift(&testkit::read::<Dxf>(written.as_bytes()).0.unwrap());
+        let Shape::Symbol(symbol) = &drawing.spaces[0].elements[0].shape else {
+            panic!();
+        };
+        assert_eq!(
+            symbol.grid.as_ref().map(|grid| (grid.columns, grid.rows)),
+            grid.then_some((3, 2)),
+            "{class}"
+        );
+    }
+}
+
 #[test]
 fn spline_replacement_keeps_existing_control_points_and_fit_points() {
     use zumen_drawing::Edge;
