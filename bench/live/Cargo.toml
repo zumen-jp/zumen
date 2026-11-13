@@ -1,0 +1,20 @@
+# 文書エンジンの試作（docs/live.md）。DXF の縦 1 本を、今の実装の apply と照らして確かめ、速さを測る。
+# コアのワークスペースには入れない。
+[package]
+name = "zumen-bench-live"
+version = "0.0.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[workspace]
+
+[[bin]]
+name = "live"
+path = "src/main.rs"
+
+[dependencies]
+libm = { version = "0.2.16", default-features = false }
+zumen = { path = "../../crates/zumen" }
+zumen-acad = { path = "../../crates/zumen-acad" }
+zumen-drawing = { path = "../../crates/zumen-drawing" }
