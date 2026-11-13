@@ -240,6 +240,24 @@ jobs:
           ZUMEN_LASPY_REQUIRED: '1'
         run: cargo test --locked -p zumen-las --test external
 
+  shapely:
+    name: GeoJSON の読み書きを Shapely と照らす
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: rust-toolchain.toml のバージョンの Rust を入れる
+        run: rustup toolchain install
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - name: Shapely と NumPy をテストのツールとして入れる
+        run: |
+          python -m pip install --only-binary :all: shapely==2.2.0 numpy==2.5.4
+      - name: WGS 84・平面直角逆投影・3D 立体の書き出しと 7 種の幾何の読みを照らす
+        env:
+          ZUMEN_SHAPELY_REQUIRED: '1'
+        run: cargo test --locked -p zumen-geojson --test external
+
   external:
     name: 書き戻し・変換した図面を外部の実装と照らし、検証キットを作る
     # 図面の形式を zumen でない実装で読んで照らし、AutoCAD・Jw_cad・SXF ブラウザで開く検証キットを成果物に置く（決定 0254、#503）。

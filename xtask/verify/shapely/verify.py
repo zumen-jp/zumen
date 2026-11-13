@@ -57,6 +57,16 @@ if fc.get("type") != "FeatureCollection" or not isinstance(fc.get("features"), l
     sys.exit(1)
 
 
+def check_polygon_rings(poly, context):
+    if not poly.exterior.is_ccw:
+        sys.stderr.write(f"{context} exterior is not CCW\n")
+        sys.exit(1)
+    for interior in poly.interiors:
+        if interior.is_ccw:
+            sys.stderr.write(f"{context} hole is not CW\n")
+            sys.exit(1)
+
+
 def check_geom(geom_obj):
     g = shapely.from_geojson(json.dumps(geom_obj))
     if not shapely.is_valid(g):
@@ -64,32 +74,30 @@ def check_geom(geom_obj):
         sys.stderr.write(f"invalid geometry: {reason}: {geom_obj}\n")
         sys.exit(1)
     if g.geom_type == "Polygon":
-        if not g.exterior.is_ccw:
-            sys.stderr.write("polygon exterior is not CCW\n")
-            sys.exit(1)
-        for interior in g.interiors:
-            if interior.is_ccw:
-                sys.stderr.write("polygon hole is not CW\n")
-                sys.exit(1)
+        check_polygon_rings(g, "polygon")
     elif g.geom_type == "MultiPolygon":
         for part in g.geoms:
-            if not part.exterior.is_ccw:
-                sys.stderr.write("multipolygon exterior is not CCW\n")
-                sys.exit(1)
+            check_polygon_rings(part, "multipolygon")
     elif g.geom_type == "GeometryCollection":
         for part in g.geoms:
-            if part.geom_type == "Polygon" and not part.exterior.is_ccw:
-                sys.stderr.write("collection polygon exterior is not CCW\n")
-                sys.exit(1)
+            if part.geom_type == "Polygon":
+                check_polygon_rings(part, "collection polygon")
+            elif part.geom_type == "MultiPolygon":
+                for sub in part.geoms:
+                    check_polygon_rings(sub, "collection multipolygon")
     return g
 
 
 for feat in fc["features"]:
     geom = feat.get("geometry")
     if geom is None:
-        out(f"{feat.get('id', '')}\tNull\t0\n")
+        out(f"{feat.get('id', '')}\tNull\t0\t{{}}\t[]\n")
         continue
     g = check_geom(geom)
     count = len(g.geoms) if hasattr(g, "geoms") else 1
-    props = json.dumps(feat.get("properties", {}), ensure_ascii=False, sort_keys=True)
-    out(f"{feat.get('id', '')}\t{g.geom_type}\t{count}\t{props}\n")
+    props = json.dumps(feat.get("properties", {}), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    coords = json.dumps(
+        shapely.get_coordinates(g, include_z=bool(g.has_z)).tolist(),
+        separators=(",", ":"),
+    )
+    out(f"{feat.get('id', '')}\t{g.geom_type}\t{count}\t{props}\t{coords}\n")
