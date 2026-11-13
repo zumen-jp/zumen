@@ -1,4 +1,6 @@
-//! 合成の LAS を読み、点群の領域モデルに移す（#371）。LAZ は断る（決定 0289・#510）。
+//! 合成の LAS・LAZ を読み、点群の領域モデルに移す（#371・#510）。
+
+#![cfg(test)]
 
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Limits, codes};
 use zumen_crs::{Crs, VerticalCrs, Zone};
@@ -103,11 +105,38 @@ fn las(minor: u8, vlrs: &[Vec<u8>], wkt: bool) -> Vec<u8> {
     out
 }
 
-/// LAZ の印（点の形式のビット 7）を立てたファイル。展開しないので、点のレコードは圧縮せずに置く
+fn decode_hex(hex: &str) -> Vec<u8> {
+    hex.as_bytes()
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|pair| {
+            let s = std::str::from_utf8(pair).unwrap();
+            u8::from_str_radix(s, 16).unwrap()
+        })
+        .collect()
+}
+
+/// `las(2, &[vlr("LASF_Projection", 34735, &geo_keys(6677, 6695))], false)` と同じ 100 点を圧縮した LAZ
 fn laz() -> Vec<u8> {
-    let mut out = header(2, 3 | 0x80, 34, 100, &[], false);
-    out.extend(records());
-    out
+    decode_hex(concat!(
+        "4c415346000000000000000000000000000000000000000001024f5448455200000000000000000000000000000000000000",
+        "00000000000000006c6173707920322e372e300000000000000000000000000000000000000000003d01ea07e3009b010000",
+        "020000008322006400000064000000000000000000000000000000000000007b14ae47e17a843f7b14ae47e17a843f7b14ae",
+        "47e17a843f0000000000408f400000000000409f40000000000000000033333333338f8f400000000000408f403333333333",
+        "8f9f400000000000409f40ae47e17a14aeef3f000000000000000000004c4153465f50726f6a656374696f6e00af87180000",
+        "000000000000000000000000000000000000000000000000000000000000000100010000000200000c00000100151a001000",
+        "000100271a00006c61737a697020656e636f6465640000bc563400687474703a2f2f6c61737a69702e6f7267000000000000",
+        "00000000000000000002000000020200000000000050c30000ffffffffffffffffffffffffffffffff030006001400020007",
+        "0008000200080006000200eb0200000000000000000000000000000000000000001102000000000000000000002940000100",
+        "020004601ea0eb6802b8968a75e9a3d9c953829bf0fbc56dfaa68002c14597ddce63903f40daf91cd99befdb153da1b195fa",
+        "36641764d71a5e53d82434300d63df01328ab0936a7f28846f6e321ccdc90a67f23ce609b33e740db20e1ce6b85679ecb446",
+        "dba8da19a64b4efbb49fd7cddedfe62f53e89f40cfc2aef7dd4529484fd3e038a728170d7cf20d301c9aa35f31fc86810ad8",
+        "c2a8f1e8c95f698c3dbb7c87bb739b3ead930af3cb02e8c6a95df6054d3b340ce26fe440b0d27f08976eb7945ad9e49d967e",
+        "7a9ec29aa233124cdf7e3f154db328406c99a6871a73896fd034d118b0876e2c7f24c861f8b688dbfac98bace8045863f928",
+        "638d80a999ab9ada1358d1a3f45b2514e2092ce507bfda71a6304241982f9e47c53fe5b02bd0d850760f6483980000000000",
+        "00010000004ac4000000",
+    ))
 }
 
 fn open(bytes: &[u8]) -> Result<(LasFile, PointCloud, Vec<Code>), Error> {
@@ -168,30 +197,17 @@ fn reads_points_with_scale_offset_and_attributes() {
 }
 
 #[test]
-fn refuses_laz_after_the_header() {
-    // LAZ の展開は止めている（決定 0289・#510）。ヘッダーで見分け、点の範囲を求めずに断る
-    let bytes = laz();
-    let size = bytes.len() as u64;
-    let mut budget = Budget::new(Limits::default());
-    let mut diag = Diagnostics::new();
-    let cancel = CancelToken::new();
-    let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
-    let head = (0, &bytes[..375]);
-    let read = Las::read_ranged(
-        &Source {
-            size,
-            parts: &[head],
-        },
-        &mut cx,
-    );
-    assert!(
-        matches!(read, Err(Missing::Failed(Error::Unsupported))),
-        "{read:?}"
-    );
-    let codes: Vec<Code> = diag.iter().map(|d| d.code()).collect();
-    assert_eq!(codes, [codes::LAS_LAZ_UNSUPPORTED]);
-    // 全体を渡しても、同じく断る
-    assert!(matches!(open(&bytes), Err(Error::Unsupported)));
+fn reads_laz_like_las() {
+    let (file, cloud, codes) = open(&laz()).unwrap();
+    assert!(file.header.compressed);
+    let (_, plain, _) = open(&las(
+        2,
+        &[vlr("LASF_Projection", 34735, &geo_keys(6677, 6695))],
+        false,
+    ))
+    .unwrap();
+    assert_eq!(cloud.points, plain.points);
+    assert_eq!(codes, dropped());
 }
 
 #[test]
@@ -234,11 +250,7 @@ fn tells_unknown_crs_and_short_records() {
 
 #[test]
 fn asks_for_ranges_and_reads_them() {
-    let bytes = las(
-        2,
-        &[vlr("LASF_Projection", 34735, &geo_keys(6677, 6695))],
-        false,
-    );
+    let bytes = laz();
     let mut budget = Budget::new(Limits::default());
     let mut diag = Diagnostics::new();
     let cancel = CancelToken::new();

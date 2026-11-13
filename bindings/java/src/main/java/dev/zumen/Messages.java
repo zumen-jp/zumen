@@ -785,7 +785,7 @@ public final class Messages {
             return this;
         }
 
-        /** 入力の全体の大きさ（バイト）。渡した入力より大きければ、入力を全体の初めの部分とみなし、足りない範囲を needs で求める。範囲で読める形式（LAS）だけが使う。LAZ は、ヘッダーを読んで las.laz.unsupported で断る（決定 0232・0289）。マイナーバージョン 48 から */
+        /** 入力の全体の大きさ（バイト）。渡した入力より大きければ、入力を全体の初めの部分とみなし、足りない範囲を needs で求める。範囲で読める形式（LAS・LAZ）だけが使う（決定 0232）。マイナーバージョン 48 から */
         public Long getSize() {
             return Json.read(json.get("size"), Json::integer);
         }
@@ -15500,7 +15500,7 @@ public final class Messages {
         }
     }
 
-    /** open で開いた点群（LAS・PLY・XYZ・E57）の要約と、条件に合う点を返す。点は八分木の浅い段のノードから順に選ぶ（決定 0232）。点群のモジュールに置く（決定 0253）。マイナーバージョン 48 から */
+    /** open で開いた点群（LAS・LAZ・PLY・XYZ・E57）の要約と、条件に合う点を返す。点は八分木の浅い段のノードから順に選ぶ（決定 0232）。点群のモジュールに置く（決定 0253）。マイナーバージョン 48 から */
     public static final class PointcloudRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public PointcloudRequest(Map<String, Object> json) {

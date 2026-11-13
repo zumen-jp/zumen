@@ -224,7 +224,7 @@ pub(crate) fn read(
             ReadDocument::Geo(Box::new(model)),
         ));
     }
-    // LAS は範囲で読む（決定 0232）。LAZ は、ヘッダーを読んで断る（決定 0289）
+    // LAS・LAZ は範囲で読む（決定 0232）
     #[cfg(feature = "pointcloud")]
     if let Some(opened) = pointcloud::read(&request.input, inputs, request.size, cx) {
         let format = zumen_las::Las::FORMAT.to_string();

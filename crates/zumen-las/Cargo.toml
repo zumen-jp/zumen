@@ -1,6 +1,6 @@
 [package]
 name = "zumen-las"
-description = "zumen の LAS の点群の読み取りと、点群の領域モデルへの移し（#371）"
+description = "zumen の LAS・LAZ の点群の読み取りと、点群の領域モデルへの移し（#371）"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

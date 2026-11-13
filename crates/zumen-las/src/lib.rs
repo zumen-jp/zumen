@@ -1,9 +1,9 @@
-//! LAS 1.0〜1.4（台帳の `las_1_4_r15`）の点群を読み、点群の領域モデル（決定 0232）に移す。
+//! LAS 1.0〜1.4（台帳の `las_1_4_r15`）と LAZ 1.0〜1.4（`laz_1_4`）の点群を読み、点群の領域モデル（決定 0232）に移す。
 //!
 //! L1 は、ヘッダー・可変長のレコード（VLR・EVLR）と、点のレコードのバイト列で持つ。入力は範囲で読める（[`Ranged`]）。
-//! ヘッダーを読んでから、VLR・点・EVLR の範囲を求める。LAZ（`laz_1_4`）は、ヘッダーで見分けて断る。展開を任せていた
-//! laz 0.13.0 が壊れた入力でパニックするので、直した版が出るまで展開を止める（決定 0289・#510）。
+//! ヘッダーを読んでから、VLR・点・EVLR の範囲を求める。LAZ の点は自前の展開器で展開して持つ（#510）。
 
+mod laz;
 mod lift;
 
 use zumen_base::{ByteRange, Diagnostic, Kind, Ref, codes};
@@ -11,7 +11,7 @@ use zumen_pointcloud::PointCloud;
 use zumen_sdk::ranged::{Missing, Ranged, Source};
 use zumen_sdk::{Codec, Cx, Error, FileModel, Lift, RecordInfo, Signature};
 
-/// LAS のコーデック。LAZ は見分けて断る
+/// LAS・LAZ のコーデック
 pub struct Las;
 
 /// 読んだヘッダー
@@ -71,7 +71,7 @@ pub struct Vlr {
     pub span: ByteRange,
 }
 
-/// 読んだ LAS
+/// 読んだ LAS・LAZ。LAZ の点は展開して持つ
 #[derive(Clone, Debug, PartialEq)]
 pub struct LasFile {
     /// ヘッダー
@@ -180,18 +180,20 @@ impl Ranged for Las {
             cx.report(Diagnostic::new(codes::LAS_FILE_INVALID));
             return Err(Error::Invalid.into());
         }
-        // LAZ は、点の範囲を求めずに断る（決定 0289・#510）。LAZ かは、点の形式の上の 2 ビットで見分ける（`header`）。
-        // LAZ 1.4（OGC 24-070r1）の 6.2・6.3 が定めるのはビット 7 だけで、ビット 6 も見るのは推定（#544）
-        if header.compressed {
-            cx.report(Diagnostic::new(codes::LAS_LAZ_UNSUPPORTED));
-            return Err(Error::Unsupported.into());
-        }
         let point_start = u64::from(header.point_offset);
         let has_evlrs = header.evlr_count > 0 && header.evlr_start >= point_start;
-        let point_end = header
-            .point_count
-            .saturating_mul(u64::from(header.record_length))
-            .saturating_add(point_start);
+        let point_end = if header.compressed {
+            if has_evlrs {
+                header.evlr_start
+            } else {
+                src.size
+            }
+        } else {
+            header
+                .point_count
+                .saturating_mul(u64::from(header.record_length))
+                .saturating_add(point_start)
+        };
         let mut wanted = vec![
             (u64::from(header.header_size), point_start),
             (point_start, point_end.min(src.size)),
@@ -240,23 +242,27 @@ impl Ranged for Las {
                 cx,
             )?);
         }
-        let length = u64::from(header.record_length);
-        let whole = point_bytes.len() as u64 / length * length;
-        if whole < header.point_count.saturating_mul(length) {
-            cx.report(
-                Diagnostic::new(codes::LAS_POINTS_INVALID)
-                    .with("expected", header.point_count)
-                    .with("found", whole / length)
-                    .at(Ref::at_bytes(
-                        point_start,
-                        point_start + point_bytes.len() as u64,
-                    )),
-            );
-        }
-        let points = point_bytes
-            .get(..usize::try_from(whole).unwrap_or(0))
-            .unwrap_or_default()
-            .to_vec();
+        let points = if header.compressed {
+            laz::decompress(&header, &vlrs, point_bytes, cx)?
+        } else {
+            let length = u64::from(header.record_length);
+            let whole = point_bytes.len() as u64 / length * length;
+            if whole < header.point_count.saturating_mul(length) {
+                cx.report(
+                    Diagnostic::new(codes::LAS_POINTS_INVALID)
+                        .with("expected", header.point_count)
+                        .with("found", whole / length)
+                        .at(Ref::at_bytes(
+                            point_start,
+                            point_start + point_bytes.len() as u64,
+                        )),
+                );
+            }
+            point_bytes
+                .get(..usize::try_from(whole).unwrap_or(0))
+                .unwrap_or_default()
+                .to_vec()
+        };
         Ok(LasFile {
             header,
             vlrs,
