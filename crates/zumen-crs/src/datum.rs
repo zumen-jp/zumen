@@ -265,8 +265,8 @@ pub fn to_jgd2011(
         );
     };
     let (zone, geographic) = match crs {
-        // JGD2011 の経緯度は、どの系の平面直角座標にするかが決まらない
-        Crs::Geographic => {
+        // 経緯度は、どの系の平面直角座標にするかが決まらない
+        Crs::Geographic | Crs::Wgs84 => {
             unsupported(cx);
             return None;
         }

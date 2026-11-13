@@ -41,12 +41,13 @@ pub(crate) const DRAWING: &[Registration] = &[
     Registration::of::<Jww>(Rights::Public, "jww", true, 1),
 ];
 
-/// 図面のモジュールが読む、図面でない形式
+/// 図面でない形式（土木・地理・点群）
 pub(crate) const READ_ONLY: &[Registration] = &[
     Registration::of::<zumen_landxml::LandXml>(Rights::Public, "landxml", false, 1),
     Registration::of::<zumen_citygml::CityGml>(Rights::Public, "citygml", false, 1),
     Registration::of::<zumen_fgd::Fgd>(Rights::Public, "fgd", false, 1),
     Registration::of::<zumen_extdm::ExtDm>(Rights::Public, "extdm", false, 1),
+    Registration::of::<zumen_geojson::GeoJson>(Rights::Public, "geojson", true, 1),
     Registration::of::<zumen_las::Las>(Rights::Public, "las", false, 1),
     Registration::of::<zumen_ply::Ply>(Rights::Public, "ply", false, 1),
     Registration::of::<zumen_xyz::Xyz>(Rights::Public, "xyz", false, 1),
@@ -198,11 +199,12 @@ pub(crate) fn read(
     if let Some(model) = building::read_spf(bytes, cx) {
         return Opened::building(name, model?, cx);
     }
-    // 名指せる形式は、見分けるマーカーのない xyz（点群のモジュール）と extdm（土木・地理のモジュール）だけ。ほかの形式は
-    // 入力から判定する
+    // 名指せる形式は、見分けるマーカーのない xyz（点群のモジュール）と extdm・geojson（土木・地理のモジュール）だけ。
+    // ほかの形式は入力から判定する
     if request.format.as_deref().is_some_and(|format| {
         !((format == zumen_xyz::Xyz::FORMAT && cfg!(feature = "pointcloud"))
-            || (format == zumen_extdm::ExtDm::FORMAT && cfg!(feature = "civil")))
+            || ((format == zumen_extdm::ExtDm::FORMAT || format == zumen_geojson::GeoJson::FORMAT)
+                && cfg!(feature = "civil")))
     }) {
         return Err(fail(cx, invalid_value("/format")));
     }
@@ -214,13 +216,22 @@ pub(crate) fn read(
     {
         return Err(fail(cx, invalid_value("/saf")));
     }
-    // 名指した拡張 DM（#378）
+    // 名指した拡張 DM（#378）と GeoJSON（#876）
     #[cfg(feature = "civil")]
     if request.format.as_deref() == Some(zumen_extdm::ExtDm::FORMAT) {
         let model = geo::read_extdm(bytes, cx)?;
         return Ok(Opened::document(
             name,
             zumen_extdm::ExtDm::FORMAT,
+            ReadDocument::Geo(Box::new(model)),
+        ));
+    }
+    #[cfg(feature = "civil")]
+    if request.format.as_deref() == Some(zumen_geojson::GeoJson::FORMAT) {
+        let model = geo::read_geojson(bytes, cx)?;
+        return Ok(Opened::document(
+            name,
+            zumen_geojson::GeoJson::FORMAT,
             ReadDocument::Geo(Box::new(model)),
         ));
     }

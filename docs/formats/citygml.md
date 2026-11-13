@@ -16,7 +16,7 @@ CityGML 2.0（台帳の `citygml_2_0`）の 3D 都市モデル（PLATEAU の製�
 ## 座標系
 
 - 文書で初めに `srsName` を持つ要素（ふつうは `gml:boundedBy` の `gml:Envelope`）の値を、文書の座標系にする。`srsDimension` も、その要素の値を既定にする。
-- PLATEAU の EPSG:6697（JGD2011 の経緯度と JGD2011 の標高の複合）は、経緯度の座標系と JGD2011 の標高にする。ほかは `zumen-crs` の `Crs::from_name` で読む（JGD2011 の経緯度・平面直角座標系の系など）。
+- PLATEAU の EPSG:6697（JGD2011 の経緯度と JGD2011 の標高の複合）は、経緯度の座標系と JGD2011 の標高にする。ほかは `zumen-crs` の `Crs::from_name` で読む（JGD2011 の経緯度・WGS 84 の経緯度・平面直角座標系の系など）。
 - 座標系がないか読めなければ、`citygml.crs.unsupported` を返し、座標系を不明にして形を移さない。地物と属性は移す。
 - 座標は `srsName` の座標系の軸の順のまま読む。経緯度は（緯度・経度・標高）、平面直角座標系は（X = 北・Y = 東・標高）。3D の形の点は、地図の空間なら（東・北・標高）の順に直す。
 

@@ -73,7 +73,20 @@ fn read(calls: &mut Calls, doc: &str, depth: Depth) {
     if civil.ok {
         read_civil(calls, doc, depth);
     }
-    calls.call("geo", |out| field(out, "doc", doc));
+    let geo = calls.call("geo", |out| field(out, "doc", doc));
+    if geo.ok && depth == Depth::Source {
+        let to = format!("{doc}.geojson");
+        if calls
+            .call("convert", |out| {
+                field(out, "doc", doc);
+                field(out, "format", "geojson");
+                field(out, "to", &to);
+            })
+            .ok
+        {
+            read(calls, &to, Depth::Copy);
+        }
+    }
     let cloud = calls.call("pointcloud", |out| field(out, "doc", doc));
     if let Some(bounds) = cloud.result("/bounds") {
         calls.call("pointcloud", |out| {
@@ -251,7 +264,7 @@ fn read_ranged(calls: &mut Calls, data: &[u8]) {
 
 /// 開けない入力を、名指せる形式と、文書にしない op に渡す
 fn read_other(calls: &mut Calls) {
-    for format in ["xyz", "extdm"] {
+    for format in ["xyz", "extdm", "geojson"] {
         let doc = format!("input.{format}");
         let opened = calls.call("open", |out| {
             field(out, "input", "input");

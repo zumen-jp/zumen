@@ -444,6 +444,15 @@ access = "public"
 url = "https://www.rfc-editor.org/rfc/rfc4180"
 checked = "2026-11-01"
 
+[specs.rfc_7946]
+title = "RFC 7946 The GeoJSON Format"
+publisher = "IETF"
+version = "2016-08"
+access = "public"
+url = "https://www.rfc-editor.org/rfc/rfc7946"
+checked = "2026-11-13"
+note = "IETF の標準化過程の RFC（BCP 78・IETF Trust Legal Provisions に従う）。誰でも無償で読め、実装を制限する記述はない。仕様の本文は同梱しない"
+
 [specs.kokuban_jcomsia]
 title = "デジタル工事写真の小黒板情報連携機能の実装規約と信憑性確認（改ざん検知機能）"
 publisher = "一般社団法人施工管理ソフトウェア産業協会（J-COMSIA）"
@@ -986,6 +995,38 @@ checked = "2026-11-03"
 title = "PLATEAU のサイトポリシー"
 url = "https://www.mlit.go.jp/plateau/site-policy/"
 checked = "2026-11-01"
+
+[formats.geojson]
+name = "GeoJSON"
+family = "geojson"
+domains = ["geo"]
+specs = ["rfc_7946"]
+rights = "public"
+rights-note = "IETF の RFC 7946 として無償で公開されており、BCP 78 と IETF Trust Legal Provisions に従い実装を制限する記述はない（2026-11-13 確認）。仕様の本文は同梱しない"
+place = "core"
+basis = ["spec"]
+known-crates = ["geojson"]
+verify = ["Shapely", "QGIS"]
+samples = ["再配布条件と個人情報の不在を確認した第三者の公開サンプルはまだ samples/ に置いていない（#504）。テストの中で組み立てた GeoJSON と、Shapely 2.2.0 に書かせた合成 Geometry で確かめる"]
+docs = ["docs/formats/geojson.md"]
+issues = ["zumen-jp/zumen#504", "zumen-jp/zumen#876"]
+
+[formats.geojson.read]
+level = "synthetic"
+scope = "テストの中で組み立てた GeoJSON（crates/zumen-geojson/tests/geojson.rs）で、7 種の Geometry（Point・MultiPoint・LineString・MultiLineString・Polygon・MultiPolygon・GeometryCollection、Z 座標・穴あき面を含む）・Feature・FeatureCollection、属性（文字列・整数・実数・真偽・入れ子オブジェクトと、移さない null・配列の診断）、旧版の crs メンバーの診断（geojson.crs.dropped）、閉じていない輪や不正な穴・点数不足の診断（geojson.geometry.invalid）、UTF-8 BOM、レコード範囲の非重複・決定性・6 種の予算（InputBytes・DecodedBytes・Records・Elements・Depth・Work）と中断の停止場所診断を確かめた。Shapely 2.2.0（GEOS）が書いた 7 種の合成 Geometry も crates/zumen-geojson/tests/external.rs（xtask/verify/shapely）で読み比べて一致を確かめたが、自前で作った幾何からの生成なので段は synthetic とする。第三者の公開サンプルと QGIS での照合はまだ（#504）"
+checked = "2026-11-13"
+
+[formats.geojson.write]
+level = "external"
+scope = "WGS 84・JGD2011 経緯度・JGD2011 平面直角座標系（逆投影）の GeoModel（点・線・穴あき面・右手の法則による外周反時計回りと穴時計回りの整列・鉛直壁面と底面と上面を持つ 3D 立体の面近似・属性）から書いた GeoJSON を、crates/zumen-geojson/tests/external.rs（xtask/verify/shapely）で Shapely 2.2.0 に読ませ、有効な図形（is_valid）として読めることと、図形種別・座標・外周と穴の向き・属性値が書いた値と一致することを確かめた（#876）。座標系不明・未対応座標系・不正な穴や非有限属性の診断と予算・決定性は単体テスト（synthetic）で確かめた。QGIS で開く照合はまだ（#504）"
+implementations = [{ name = "Shapely", version = "2.2.0" }]
+checked = "2026-11-13"
+
+[[formats.geojson.evidence]]
+title = "IETF Trust Legal Provisions Relating to IETF Documents"
+url = "https://trustee.ietf.org/license-info"
+checked = "2026-11-13"
+note = "RFC 7946 の Copyright Notice が参照する IETF Trust の規定。標準の実装を制限する条項はない"
 
 [formats.las]
 name = "LAS・LAZ"

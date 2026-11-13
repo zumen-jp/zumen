@@ -344,7 +344,7 @@ type OpenRequest struct {
 	// 入力の全体の大きさ（バイト）。渡した入力より大きければ、入力を全体の初めの部分とみなし、足りない範囲を needs で求める。範囲で読める形式（LAS・LAZ）だけが使う（決定 0232）。マイナーバージョン 48 から
 	Size *int64 `json:"size,omitempty"`
 
-	// 見分けるマーカーのない形式（xyz・extdm）を名指して読む。書かなければ、入力から判定する（決定 0232）。マイナーバージョン 49 から。extdm はマイナーバージョン 62 から
+	// 見分けるマーカーのない形式（xyz・extdm・geojson）を名指して読む。書かなければ、入力から判定する（決定 0232）。マイナーバージョン 49 から。extdm はマイナーバージョン 62 から。geojson はマイナーバージョン 71 から
 	Format *string `json:"format,omitempty"`
 
 	// SXF の属性ファイル（SAF）を入れた入力の名前。zm_push で渡したもの。属性ファイル用の属性付加機構（$$ATRF$$）の要素に、属性を sxf.saf の拡張で結ぶ（決定 0249）。書かなければ、P2Z・SFZ の中の、図面と同じ名前の SAF を使う。SXF でない入力には使えない。マイナーバージョン 63 から
@@ -1750,7 +1750,7 @@ type ApplyResult struct {
 	IdsShifted *bool `json:"ids_shifted,omitempty"`
 }
 
-// ConvertRequest: 開いた文書から別の形式のファイルを作り、新しい文書として開く。対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから書く（決定 0139・0206・0281）。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。今は DXF にだけ書ける。マイナーバージョン 41 から
+// ConvertRequest: 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON）からは GeoJSON を書く。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から
 type ConvertRequest struct {
 	// メッセージのスキーマのメジャーバージョン。今は 1
 	V *int64 `json:"v,omitempty"`
@@ -1773,7 +1773,7 @@ type ConvertRequest struct {
 	// 書く元の文書の名前。open で作ったもの
 	Doc *string `json:"doc,omitempty"`
 
-	// 書く形式の名前（capabilities の formats の id）。今は dxf だけ
+	// 書く形式の名前（capabilities の formats の id）。dxf または geojson
 	Format *string `json:"format,omitempty"`
 
 	// 作る文書の名前
@@ -5585,7 +5585,7 @@ type DeliveryManaged struct {
 	Missing []string `json:"missing,omitempty"`
 }
 
-// GeoRequest: open で開いた CityGML・基盤地図情報（GML）・拡張 DM の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。土木・地理のモジュールに置く（決定 0253）。マイナーバージョン 52 から
+// GeoRequest: open で開いた CityGML・基盤地図情報（GML）・拡張 DM・GeoJSON の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。土木・地理のモジュールに置く（決定 0253）。マイナーバージョン 52 から
 type GeoRequest struct {
 	// メッセージのスキーマのメジャーバージョン。今は 1
 	V *int64 `json:"v,omitempty"`
@@ -5605,7 +5605,7 @@ type GeoRequest struct {
 	// op の名前
 	Op string `json:"op,omitempty"`
 
-	// open で開いた CityGML・基盤地図情報（GML）・拡張 DM の文書の名前
+	// open で開いた CityGML・基盤地図情報（GML）・拡張 DM・GeoJSON の文書の名前
 	Doc *string `json:"doc,omitempty"`
 
 	// 中身を返す地物の ID

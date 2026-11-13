@@ -387,7 +387,7 @@ impl Session {
             Request::Entities(request) => self.entities(request, &mut cx).map(|r| Box::new(r) as _),
             #[cfg(feature = "drawing")]
             Request::Apply(request) => self.apply(request, &mut cx).map(|r| Box::new(r) as _),
-            #[cfg(feature = "drawing")]
+            #[cfg(any(feature = "drawing", feature = "civil"))]
             Request::Convert(request) => self.convert(request, &mut cx).map(|r| Box::new(r) as _),
             #[cfg(feature = "drawing")]
             Request::ConvertEstimate(request) => self

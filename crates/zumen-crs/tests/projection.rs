@@ -214,6 +214,11 @@ fn coordinate_systems_are_named_by_epsg_codes() {
     let ix = Crs::Plane(Zone::new(9).unwrap());
     assert_eq!(Crs::from_epsg(6677), Some(ix));
     assert_eq!(ix.epsg(), 6677);
+    assert_eq!(Crs::from_epsg(4326), Some(Crs::Wgs84));
+    assert_eq!(Crs::Wgs84.epsg(), 4326);
+    assert_eq!(Crs::Wgs84.zone(), None);
+    assert_eq!(Crs::from_name("WGS 84"), Some(Crs::Wgs84));
+    assert_eq!(Crs::from_name("EPSG:4326"), Some(Crs::Wgs84));
     assert_eq!(Crs::from_epsg(6668), Some(Crs::Geographic));
     assert_eq!(Crs::from_epsg(6669).map(Crs::epsg), Some(6669));
     assert_eq!(Crs::from_epsg(6687).map(Crs::epsg), Some(6687));

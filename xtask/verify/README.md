@@ -130,6 +130,7 @@ python -I -m unittest discover -s xtask/verify -p 'test_check_autocad.py'
 | SFC・P21 | [ezsxf](https://github.com/monozukuri-ai/ezsxf) 0.3.7 | MIT | 照らす（`check_ezsxf.py`） |
 | PDF アンダーレイ | [pdf.js](https://github.com/mozilla/pdf.js) 6.5.438 | Apache-2.0 | `@zumen-jp/view2d` のブラウザーテストで使う（`pdfjs/`） |
 | LAS | [laspy](https://github.com/laspy/laspy) 2.7.0 | BSD-2-Clause | 非圧縮 LAS のヘッダーと全点を照らす（[`laspy/`](laspy/README.md)）。NumPy 2.5.4 を別に導入 |
+| GeoJSON | [Shapely](https://github.com/shapely/shapely) 2.2.0 | BSD-3-Clause | GeoJSON の書き出しの妥当性（GEOS）・回転方向・座標・属性と、7 種の図形の読みを照らす（[`shapely/`](shapely/README.md)）。NumPy 2.5.4 を別に導入 |
 
 次のものは使いません。
 

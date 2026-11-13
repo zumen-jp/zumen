@@ -217,12 +217,18 @@ fn buildings_and_roads_are_moved_with_attributes_and_shapes() {
 
 #[test]
 fn without_a_known_crs_no_shapes_are_moved() {
-    let text = BUILDING.replace("http://www.opengis.net/def/crs/EPSG/0/6697", "EPSG:4326");
+    let text = BUILDING.replace("http://www.opengis.net/def/crs/EPSG/0/6697", "EPSG:3857");
     let (model, diag) = read(&text);
     assert_eq!(model.crs, None);
     assert!(diag.contains(&codes::CITYGML_CRS_UNSUPPORTED), "{diag:?}");
     assert_eq!(model.features.len(), 3);
     assert!(model.features.iter().all(|f| f.geometries.is_empty()));
+    // WGS 84（EPSG:4326）は経緯度として読む
+    let text = BUILDING.replace("http://www.opengis.net/def/crs/EPSG/0/6697", "EPSG:4326");
+    let (model, diag) = read(&text);
+    assert_eq!(model.crs, Some(Crs::Wgs84));
+    assert!(!diag.contains(&codes::CITYGML_CRS_UNSUPPORTED), "{diag:?}");
+    assert!(!model.features[0].geometries.is_empty());
     // 平面直角座標系の点は（easting・northing・標高）の順
     let text = BUILDING.replace("http://www.opengis.net/def/crs/EPSG/0/6697", "EPSG:6677");
     let (model, _) = read(&text);

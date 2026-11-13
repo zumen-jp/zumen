@@ -391,7 +391,7 @@ impl<'f> Lifter<'f> {
         };
         let name = self.text(arg(crs, 1), crs, cx).unwrap_or_default();
         let datum = self.text(arg(crs, 3), crs, cx).unwrap_or_default();
-        model.crs = Crs::from_name(&name);
+        model.crs = Crs::from_name(&name).filter(|crs| crs.zone().is_some());
         if model.crs.is_none() {
             cx.report(
                 Diagnostic::new(codes::IFC_MAP_CRS_UNSUPPORTED)

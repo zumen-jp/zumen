@@ -2171,6 +2171,125 @@ pub const FGD_VALUE_INVALID: Code = Code::new(
     &["element", "field"],
 );
 
+/// 地理の領域モデルの属性の値（有限でない実数など）が JSON の数値で表せないので、書き出さなかった
+///
+/// `geojson.attribute.dropped`（0.3.0 から）
+pub const GEOJSON_ATTRIBUTE_DROPPED: Code = Code::new(
+    "geojson.attribute.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("name", ParamType::Text)],
+    &["name"],
+);
+
+/// RFC 7946 で廃止された旧版の crs メンバーを無視し、WGS 84（経度・緯度）として読んだ
+///
+/// `geojson.crs.dropped`（0.3.0 から）
+pub const GEOJSON_CRS_DROPPED: Code = Code::new(
+    "geojson.crs.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[],
+    &[],
+);
+
+/// 地理の領域モデルの座標系が不明なため、WGS 84 の GeoJSON に書き出せない
+///
+/// `geojson.crs.missing`（0.3.0 から）
+pub const GEOJSON_CRS_MISSING: Code =
+    Code::new("geojson.crs.missing", Severity::Error, None, &[], &[]);
+
+/// 地理の領域モデルの座標系が補正格子なしに WGS 84 へ換算できないため、GeoJSON に書き出せない
+///
+/// `geojson.crs.unsupported`（0.3.0 から）
+pub const GEOJSON_CRS_UNSUPPORTED: Code = Code::new(
+    "geojson.crs.unsupported",
+    Severity::Error,
+    None,
+    &[Param::new("epsg", ParamType::UInt)],
+    &[],
+);
+
+/// JGD2011（JGD2024）の経緯度（または平面直角座標から逆投影した経緯度）を、そのまま WGS 84 の経緯度として書いた
+///
+/// `geojson.datum.approximated`（0.3.0 から）
+pub const GEOJSON_DATUM_APPROXIMATED: Code = Code::new(
+    "geojson.datum.approximated",
+    Severity::Info,
+    Some(Fidelity::Approximated),
+    &[Param::new("epsg", ParamType::UInt)],
+    &["epsg"],
+);
+
+/// JSON として読めないか、根が RFC 7946 の GeoJSON オブジェクトでない
+///
+/// `geojson.file.invalid`（0.3.0 から）
+pub const GEOJSON_FILE_INVALID: Code = Code::new(
+    "geojson.file.invalid",
+    Severity::Error,
+    None,
+    &[Param::new("offset", ParamType::UInt)],
+    &[],
+);
+
+/// 点数不足や投影範囲外などで GeoJSON の規則を満たさない形を、書き出さなかった
+///
+/// `geojson.geometry.dropped`（0.3.0 から）
+pub const GEOJSON_GEOMETRY_DROPPED: Code = Code::new(
+    "geojson.geometry.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("form", ParamType::Key)],
+    &["form"],
+);
+
+/// GeoJSON の座標配列が RFC 7946 の規則（数値 2 つ以上・緯度の範囲・LineString 2 点以上・線形環 4 点以上で閉合）を満たさないので、その形を移さなかった
+///
+/// `geojson.geometry.invalid`（0.3.0 から）
+pub const GEOJSON_GEOMETRY_INVALID: Code = Code::new(
+    "geojson.geometry.invalid",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[
+        Param::new("kind", ParamType::Text),
+        Param::new("reason", ParamType::Key),
+    ],
+    &["kind", "reason"],
+);
+
+/// properties の値（null や配列など）が地理の領域モデルの属性で表せないので、移さなかった
+///
+/// `geojson.property.dropped`（0.3.0 から）
+pub const GEOJSON_PROPERTY_DROPPED: Code = Code::new(
+    "geojson.property.dropped",
+    Severity::Info,
+    Some(Fidelity::Dropped),
+    &[Param::new("name", ParamType::Text)],
+    &["name"],
+);
+
+/// 地理の領域モデルの立体・面の集まりを、鉛直な退化面を除いて GeoJSON の面（Polygon）に近似して書いた
+///
+/// `geojson.solid.approximated`（0.3.0 から）
+pub const GEOJSON_SOLID_APPROXIMATED: Code = Code::new(
+    "geojson.solid.approximated",
+    Severity::Info,
+    Some(Fidelity::Approximated),
+    &[],
+    &[],
+);
+
+/// FeatureCollection や GeometryCollection の要素の type が、期待する GeoJSON の型でないので移さなかった
+///
+/// `geojson.type.unsupported`（0.3.0 から）
+pub const GEOJSON_TYPE_UNSUPPORTED: Code = Code::new(
+    "geojson.type.unsupported",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("kind", ParamType::Text)],
+    &["kind"],
+);
+
 /// 禁じる仕様の、適用の条件に合う要素がある（指摘）
 ///
 /// `ids.applicability.exists`（0.2.0 から）
@@ -5152,6 +5271,17 @@ pub const ALL: &[Code] = &[
     FGD_POINT_KIND_DROPPED,
     FGD_REFERENCE_UNSUPPORTED,
     FGD_VALUE_INVALID,
+    GEOJSON_ATTRIBUTE_DROPPED,
+    GEOJSON_CRS_DROPPED,
+    GEOJSON_CRS_MISSING,
+    GEOJSON_CRS_UNSUPPORTED,
+    GEOJSON_DATUM_APPROXIMATED,
+    GEOJSON_FILE_INVALID,
+    GEOJSON_GEOMETRY_DROPPED,
+    GEOJSON_GEOMETRY_INVALID,
+    GEOJSON_PROPERTY_DROPPED,
+    GEOJSON_SOLID_APPROXIMATED,
+    GEOJSON_TYPE_UNSUPPORTED,
     IDS_APPLICABILITY_EXISTS,
     IDS_APPLICABILITY_MISSING,
     IDS_APPLICABILITY_UNSUPPORTED,

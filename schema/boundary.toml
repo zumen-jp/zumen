@@ -10,7 +10,7 @@ abi = 1
 # メッセージのスキーマ（schema/messages.json）のメジャーバージョン。要求と応答の v
 schema-major = 1
 # メッセージのスキーマのマイナーバージョン。op・フィールド・列挙の値を足すたびに上げる
-schema-minor = 70
+schema-minor = 71
 
 # 状態コード。理由は応答の診断で返す
 
@@ -182,9 +182,9 @@ ops = [
 # 土木・地理のモジュール（決定 0253）。J-LandXML は図面のモジュールにも置く
 [[modules]]
 name = "civil"
-description = "土木の線形（J-LandXML）と、地理の地物（CityGML・基盤地図情報・拡張 DM）"
-formats = ["landxml", "citygml", "fgd", "extdm"]
-ops = ["capabilities", "open", "close", "describe", "civil", "geo"]
+description = "土木の線形（J-LandXML）と、地理の地物（CityGML・基盤地図情報・拡張 DM・GeoJSON）"
+formats = ["landxml", "citygml", "fgd", "extdm", "geojson"]
+ops = ["capabilities", "open", "close", "describe", "convert", "civil", "geo"]
 
 # 点群のモジュール（決定 0232・0253）。設計の TIN との差のために、J-LandXML も読む
 [[modules]]

@@ -85,6 +85,8 @@ impl Zone {
 pub enum Crs {
     /// JGD2024（JGD2011）の経緯度（EPSG:6668）
     Geographic,
+    /// WGS 84 の経緯度（EPSG:4326）
+    Wgs84,
     /// JGD2024（JGD2011）の平面直角座標系（EPSG:6669〜6687）
     Plane(Zone),
     /// JGD2000 の平面直角座標系（EPSG:2443〜2461）
@@ -98,6 +100,7 @@ impl Crs {
     pub fn from_epsg(code: u32) -> Option<Crs> {
         let zone = |first: u32| u8::try_from(code - first + 1).ok().and_then(Zone::new);
         match code {
+            4326 => Some(Crs::Wgs84),
             6668 => Some(Crs::Geographic),
             6669..=6687 => zone(6669).map(Crs::Plane),
             2443..=2461 => zone(2443).map(Crs::Jgd2000),
@@ -109,6 +112,7 @@ impl Crs {
     /// EPSG のコード
     pub fn epsg(self) -> u32 {
         match self {
+            Crs::Wgs84 => 4326,
             Crs::Geographic => 6668,
             Crs::Plane(zone) => zone.epsg(),
             Crs::Jgd2000(zone) => 2442 + u32::from(zone.number()),
@@ -119,20 +123,23 @@ impl Crs {
     /// 平面直角座標系の系。経緯度なら `None`
     pub fn zone(self) -> Option<Zone> {
         match self {
-            Crs::Geographic => None,
+            Crs::Geographic | Crs::Wgs84 => None,
             Crs::Plane(zone) | Crs::Jgd2000(zone) | Crs::Tokyo(zone) => Some(zone),
         }
     }
 
     /// 名前の座標系。EPSG のコードの書き方（`EPSG:6677`・`urn:ogc:def:crs:EPSG::6677`・
     /// `http://www.opengis.net/def/crs/EPSG/0/6677`）と、EPSG の名前（`JGD2024 / Japan Plane Rectangular CS IX`・
-    /// `JGD2024`・`JGD2000 / Japan Plane Rectangular CS IX`・`Tokyo / Japan Plane Rectangular CS IX`）を受け付ける。
-    /// 名前の `JGD2011` は `JGD2024` と同じに読む
+    /// `JGD2024`・`WGS 84`・`JGD2000 / Japan Plane Rectangular CS IX`・`Tokyo / Japan Plane Rectangular CS IX`）を
+    /// 受け付ける。名前の `JGD2011` は `JGD2024` と同じに読む
     pub fn from_name(name: &str) -> Option<Crs> {
         if let Some(code) = epsg_code(name) {
             return Crs::from_epsg(code);
         }
         let name = name.trim();
+        if matches!(name, "WGS 84" | "WGS84") {
+            return Some(Crs::Wgs84);
+        }
         let (rest, plane): (&str, fn(Zone) -> Crs) = if let Some(rest) = name
             .strip_prefix("JGD2024")
             .or_else(|| name.strip_prefix("JGD2011"))
@@ -271,7 +278,7 @@ pub fn wkt_codes(text: &str) -> (Vec<u32>, Vec<u32>) {
     // 外側の座標系のコードは後ろに書くので、投影の座標系が先に来るよう、後ろから並べる
     horizontal.reverse();
     vertical.reverse();
-    horizontal.sort_by_key(|code| Crs::from_epsg(*code) == Some(Crs::Geographic));
+    horizontal.sort_by_key(|code| Crs::from_epsg(*code).is_some_and(|crs| crs.zone().is_none()));
     (horizontal, vertical)
 }
 

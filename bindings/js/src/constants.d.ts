@@ -35,7 +35,7 @@ export type ModuleName =
   | "drawing"
   /** IFC と建物モデル、EXPRESS・IDS の照合と BCF。IFC4.3 の線形の上の所（決定 0253） */
   | "bim"
-  /** 土木の線形（J-LandXML）と、地理の地物（CityGML・基盤地図情報・拡張 DM） */
+  /** 土木の線形（J-LandXML）と、地理の地物（CityGML・基盤地図情報・拡張 DM・GeoJSON） */
   | "civil"
   /** 点群（LAS・LAZ・PLY・XYZ・E57）と、設計の TIN（J-LandXML）との差 */
   | "pointcloud"

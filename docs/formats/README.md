@@ -26,6 +26,7 @@
 | [express](#format-express) | EXPRESS のスキーマ（ISO 10303-11。IFC のスキーマなど） | express | building | `public` | `core` | `synthetic` |  |
 | [extdm](#format-extdm) | 拡張 DM（公共測量標準図式数値地形図データファイル） | extdm | geo | `public` | `core` | `synthetic` |  |
 | [fgd](#format-fgd) | 基盤地図情報（GML） | fgd | geo | `public` | `core` | `synthetic` |  |
+| [geojson](#format-geojson) | GeoJSON | geojson | geo | `public` | `core` | `synthetic` | `external` |
 | [ids](#format-ids) | IDS（Information Delivery Specification） | ids | building | `public` | `core` | `synthetic` |  |
 | [ifc](#format-ifc) | IFC | ifc | building・civil | `public` | `core` | `external` | `external` |
 | [isg](#format-isg) | ISG 形式（ジオイド高と基準面補正量の格子） | isg | geo | `public` | `core` | `synthetic` |  |
@@ -431,6 +432,16 @@
 - 入手先: [RFC 4180 Common Format and MIME Type for Comma-Separated Values (CSV) Files](https://www.rfc-editor.org/rfc/rfc4180)
 - 確認日: 2026-11-01
 
+### spec-rfc_7946
+
+- 名前: RFC 7946 The GeoJSON Format
+- 公開元: IETF
+- 版: 2016-08
+- 入手の条件: 無償公開
+- 入手先: [RFC 7946 The GeoJSON Format](https://www.rfc-editor.org/rfc/rfc7946)
+- 確認日: 2026-11-13
+- 補足: IETF の標準化過程の RFC（BCP 78・IETF Trust Legal Provisions に従う）。誰でも無償で読め、実装を制限する記述はない。仕様の本文は同梱しない
+
 ### spec-seikakaitei_r7_4
 
 - 名前: 公共測量成果改定マニュアル（国土地理院技術資料 A1-No.337）
@@ -694,6 +705,26 @@
 - 読みの確かめた範囲: ファイル仕様書と、テストの中で作った小さな GML とアーカイブ（crates/zumen-fgd/tests）で確かめた。データは Git に入れない。基盤地図情報ビューアーと QGIS での照合はまだ（#504）
 - issue: [zumen-jp/zumen#378](https://github.com/zumen-jp/zumen/issues/378)
 - 形式の文書: [docs/formats/fgd.md](../../docs/formats/fgd.md)
+
+### format-geojson
+
+- 名前: GeoJSON
+- 権利の根拠: IETF の RFC 7946 として無償で公開されており、BCP 78 と IETF Trust Legal Provisions に従い実装を制限する記述はない（2026-11-13 確認）。仕様の本文は同梱しない
+- 仕様: [rfc\_7946](#spec-rfc_7946)
+- 実装の根拠: spec
+- 権利の根拠にした文書: [IETF Trust Legal Provisions Relating to IETF Documents](https://trustee.ietf.org/license-info)（確認日: 2026-11-13）
+- 文書の補足: RFC 7946 の Copyright Notice が参照する IETF Trust の規定。標準の実装を制限する条項はない
+- 照合に使う候補: Shapely・QGIS
+- サンプルの出どころ: 再配布条件と個人情報の不在を確認した第三者の公開サンプルはまだ samples/ に置いていない（#504）。テストの中で組み立てた GeoJSON と、Shapely 2.2.0 に書かせた合成 Geometry で確かめる
+- 読みの確かめた度合い: `synthetic`（確認日: 2026-11-13）
+- 読みの確かめた範囲: テストの中で組み立てた GeoJSON（crates/zumen-geojson/tests/geojson.rs）で、7 種の Geometry（Point・MultiPoint・LineString・MultiLineString・Polygon・MultiPolygon・GeometryCollection、Z 座標・穴あき面を含む）・Feature・FeatureCollection、属性（文字列・整数・実数・真偽・入れ子オブジェクトと、移さない null・配列の診断）、旧版の crs メンバーの診断（geojson.crs.dropped）、閉じていない輪や不正な穴・点数不足の診断（geojson.geometry.invalid）、UTF-8 BOM、レコード範囲の非重複・決定性・6 種の予算（InputBytes・DecodedBytes・Records・Elements・Depth・Work）と中断の停止場所診断を確かめた。Shapely 2.2.0（GEOS）が書いた 7 種の合成 Geometry も crates/zumen-geojson/tests/external.rs（xtask/verify/shapely）で読み比べて一致を確かめたが、自前で作った幾何からの生成なので段は synthetic とする。第三者の公開サンプルと QGIS での照合はまだ（#504）
+- 書きの確かめた度合い: `external`（確認日: 2026-11-13）
+- 書きの確かめた範囲: WGS 84・JGD2011 経緯度・JGD2011 平面直角座標系（逆投影）の GeoModel（点・線・穴あき面・右手の法則による外周反時計回りと穴時計回りの整列・鉛直壁面と底面と上面を持つ 3D 立体の面近似・属性）から書いた GeoJSON を、crates/zumen-geojson/tests/external.rs（xtask/verify/shapely）で Shapely 2.2.0 に読ませ、有効な図形（is\_valid）として読めることと、図形種別・座標・外周と穴の向き・属性値が書いた値と一致することを確かめた（#876）。座標系不明・未対応座標系・不正な穴や非有限属性の診断と予算・決定性は単体テスト（synthetic）で確かめた。QGIS で開く照合はまだ（#504）
+- 書きで照らした外部の実装: Shapely 2.2.0
+- 既知の crate: geojson
+- issue: [zumen-jp/zumen#504](https://github.com/zumen-jp/zumen/issues/504)
+- issue: [zumen-jp/zumen#876](https://github.com/zumen-jp/zumen/issues/876)
+- 形式の文書: [docs/formats/geojson.md](../../docs/formats/geojson.md)
 
 ### format-ids
 

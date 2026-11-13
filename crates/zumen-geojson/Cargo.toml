@@ -1,0 +1,22 @@
+[package]
+name = "zumen-geojson"
+description = "zumen の GeoJSON（RFC 7946）の読み書きと、地理の領域モデルとの変換（#876）"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = true
+
+[package.metadata.zumen]
+formats = ["geojson"]
+
+[dependencies]
+zumen-base = { version = "0.2.0", path = "../zumen-base" }
+zumen-crs = { version = "0.2.0", path = "../zumen-crs" }
+zumen-geo = { version = "0.2.0", path = "../zumen-geo" }
+zumen-geom3d = { version = "0.2.0", path = "../zumen-geom3d" }
+zumen-json = { version = "0.2.0", path = "../zumen-json" }
+zumen-sdk = { version = "0.2.0", path = "../zumen-sdk" }
+
+[lints]
+workspace = true

@@ -154,7 +154,7 @@ fn lists_only_the_formats_of_the_modules_it_has() {
     }
     // 図面・土木地理・点群の形式（決定 0253）。J-LandXML は 3 つのモジュールが持つ
     for format in [
-        "dxf", "landxml", "citygml", "fgd", "extdm", "las", "ply", "xyz", "e57",
+        "dxf", "landxml", "citygml", "fgd", "extdm", "geojson", "las", "ply", "xyz", "e57",
     ] {
         assert_eq!(
             capabilities.contains(&format!(r#""id":"{format}""#)),
@@ -170,7 +170,11 @@ fn lists_only_the_formats_of_the_modules_it_has() {
 
 #[test]
 fn names_extended_dm_and_xyz_only_in_their_modules() {
-    for (format, module) in [("extdm", "civil"), ("xyz", "pointcloud")] {
+    for (format, module) in [
+        ("extdm", "civil"),
+        ("geojson", "civil"),
+        ("xyz", "pointcloud"),
+    ] {
         let mut session = Session::new(b"").unwrap();
         session.push(b"a.dat", b"").unwrap();
         let (_, response) = call(

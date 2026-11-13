@@ -132,7 +132,7 @@ export interface OpenRequest extends RequestCommon {
   doc?: string;
   /** 入力の全体の大きさ（バイト）。渡した入力より大きければ、入力を全体の初めの部分とみなし、足りない範囲を needs で求める。範囲で読める形式（LAS・LAZ）だけが使う（決定 0232）。マイナーバージョン 48 から */
   size?: number;
-  /** 見分けるマーカーのない形式（xyz・extdm）を名指して読む。書かなければ、入力から判定する（決定 0232）。マイナーバージョン 49 から。extdm はマイナーバージョン 62 から */
+  /** 見分けるマーカーのない形式（xyz・extdm・geojson）を名指して読む。書かなければ、入力から判定する（決定 0232）。マイナーバージョン 49 から。extdm はマイナーバージョン 62 から。geojson はマイナーバージョン 71 から */
   format?: string;
   /** SXF の属性ファイル（SAF）を入れた入力の名前。zm_push で渡したもの。属性ファイル用の属性付加機構（$$ATRF$$）の要素に、属性を sxf.saf の拡張で結ぶ（決定 0249）。書かなければ、P2Z・SFZ の中の、図面と同じ名前の SAF を使う。SXF でない入力には使えない。マイナーバージョン 63 から */
   saf?: string;
@@ -889,13 +889,13 @@ export interface ApplyResult {
   ids_shifted?: boolean;
 }
 
-/** 開いた文書から別の形式のファイルを作り、新しい文書として開く。対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから書く（決定 0139・0206・0281）。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。今は DXF にだけ書ける。マイナーバージョン 41 から */
+/** 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON）からは GeoJSON を書く。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から */
 export interface ConvertRequest extends RequestCommon {
   /** op の名前 */
   op: "convert";
   /** 書く元の文書の名前。open で作ったもの */
   doc: string;
-  /** 書く形式の名前（capabilities の formats の id）。今は dxf だけ */
+  /** 書く形式の名前（capabilities の formats の id）。dxf または geojson */
   format: string;
   /** 作る文書の名前 */
   to: string;
@@ -3150,11 +3150,11 @@ export interface DeliveryManaged {
   missing: string[];
 }
 
-/** open で開いた CityGML・基盤地図情報（GML）・拡張 DM の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。土木・地理のモジュールに置く（決定 0253）。マイナーバージョン 52 から */
+/** open で開いた CityGML・基盤地図情報（GML）・拡張 DM・GeoJSON の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。土木・地理のモジュールに置く（決定 0253）。マイナーバージョン 52 から */
 export interface GeoRequest extends RequestCommon {
   /** op の名前 */
   op: "geo";
-  /** open で開いた CityGML・基盤地図情報（GML）・拡張 DM の文書の名前 */
+  /** open で開いた CityGML・基盤地図情報（GML）・拡張 DM・GeoJSON の文書の名前 */
   doc: string;
   /** 中身を返す地物の ID */
   id?: string;

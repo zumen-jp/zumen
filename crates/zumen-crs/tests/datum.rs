@@ -626,10 +626,12 @@ fn shifts_beyond_mesh_codes_do_not_panic() {
         assert_eq!(found, None);
         assert_eq!(diag, [codes::CRS_PROJECTION_UNSUPPORTED], "{crs:?}");
     }
-    // JGD2011 の経緯度は、どの系にするかが決まらないので直さず、診断する
-    let (found, diag) = with_cx(|cx| to_jgd2011(Crs::Geographic, POINT, &shifts, cx));
-    assert_eq!(found, None);
-    assert_eq!(diag, [codes::CRS_PROJECTION_UNSUPPORTED]);
+    // 経緯度は、どの系にするかが決まらないので直さず、診断する
+    for crs in [Crs::Geographic, Crs::Wgs84] {
+        let (found, diag) = with_cx(|cx| to_jgd2011(crs, POINT, &shifts, cx));
+        assert_eq!(found, None);
+        assert_eq!(diag, [codes::CRS_PROJECTION_UNSUPPORTED], "{crs:?}");
+    }
     for (latitude, longitude) in [(1e300, 139.0), (35.0, 1e300), (35.0, 180.0), (66.7, 139.0)] {
         assert_eq!(
             patch.correction(GeoPoint {

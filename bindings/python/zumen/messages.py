@@ -210,7 +210,7 @@ _OpenRequestOptional = TypedDict(
         "doc": str,
         # 入力の全体の大きさ（バイト）。渡した入力より大きければ、入力を全体の初めの部分とみなし、足りない範囲を needs で求める。範囲で読める形式（LAS・LAZ）だけが使う（決定 0232）。マイナーバージョン 48 から
         "size": int,
-        # 見分けるマーカーのない形式（xyz・extdm）を名指して読む。書かなければ、入力から判定する（決定 0232）。マイナーバージョン 49 から。extdm はマイナーバージョン 62 から
+        # 見分けるマーカーのない形式（xyz・extdm・geojson）を名指して読む。書かなければ、入力から判定する（決定 0232）。マイナーバージョン 49 から。extdm はマイナーバージョン 62 から。geojson はマイナーバージョン 71 から
         "format": str,
         # SXF の属性ファイル（SAF）を入れた入力の名前。zm_push で渡したもの。属性ファイル用の属性付加機構（$$ATRF$$）の要素に、属性を sxf.saf の拡張で結ぶ（決定 0249）。書かなければ、P2Z・SFZ の中の、図面と同じ名前の SAF を使う。SXF でない入力には使えない。マイナーバージョン 63 から
         "saf": str,
@@ -1509,7 +1509,7 @@ class ApplyResult(_ApplyResultRequired, _ApplyResultOptional):
     "当てた変更の結果。書き戻したファイルは blobs の file で返す"
 
 
-# 開いた文書から別の形式のファイルを作り、新しい文書として開く。対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから書く（決定 0139・0206・0281）。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。今は DXF にだけ書ける。マイナーバージョン 41 から
+# 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON）からは GeoJSON を書く。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から
 _ConvertRequestRequired = TypedDict(
     "_ConvertRequestRequired",
     {
@@ -1519,7 +1519,7 @@ _ConvertRequestRequired = TypedDict(
         "op": Literal["convert"],
         # 書く元の文書の名前。open で作ったもの
         "doc": str,
-        # 書く形式の名前（capabilities の formats の id）。今は dxf だけ
+        # 書く形式の名前（capabilities の formats の id）。dxf または geojson
         "format": str,
         # 作る文書の名前
         "to": str,
@@ -1542,7 +1542,7 @@ _ConvertRequestOptional = TypedDict(
 
 
 class ConvertRequest(_ConvertRequestRequired, _ConvertRequestOptional):
-    "開いた文書から別の形式のファイルを作り、新しい文書として開く。対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから書く（決定 0139・0206・0281）。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。今は DXF にだけ書ける。マイナーバージョン 41 から"
+    "開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON）からは GeoJSON を書く。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から"
 
 
 # 書いた文書。書いたファイルは blobs の file で返す
@@ -5519,7 +5519,7 @@ class DeliveryManaged(_DeliveryManagedRequired, _DeliveryManagedOptional):
     "管理ファイルの要約"
 
 
-# open で開いた CityGML・基盤地図情報（GML）・拡張 DM の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。土木・地理のモジュールに置く（決定 0253）。マイナーバージョン 52 から
+# open で開いた CityGML・基盤地図情報（GML）・拡張 DM・GeoJSON の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。土木・地理のモジュールに置く（決定 0253）。マイナーバージョン 52 から
 _GeoRequestRequired = TypedDict(
     "_GeoRequestRequired",
     {
@@ -5527,7 +5527,7 @@ _GeoRequestRequired = TypedDict(
         "v": int,
         # op の名前
         "op": Literal["geo"],
-        # open で開いた CityGML・基盤地図情報（GML）・拡張 DM の文書の名前
+        # open で開いた CityGML・基盤地図情報（GML）・拡張 DM・GeoJSON の文書の名前
         "doc": str,
     },
 )
@@ -5550,7 +5550,7 @@ _GeoRequestOptional = TypedDict(
 
 
 class GeoRequest(_GeoRequestRequired, _GeoRequestOptional):
-    "open で開いた CityGML・基盤地図情報（GML）・拡張 DM の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。土木・地理のモジュールに置く（決定 0253）。マイナーバージョン 52 から"
+    "open で開いた CityGML・基盤地図情報（GML）・拡張 DM・GeoJSON の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。土木・地理のモジュールに置く（決定 0253）。マイナーバージョン 52 から"
 
 
 # 地理の領域モデルの要約

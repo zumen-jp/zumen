@@ -1,0 +1,180 @@
+{
+  "description": "open は、format に geojson を書いて名指した GeoJSON（RFC 7946）を読み、地理の領域モデル（#876）に移す。convert は、地理の領域モデルの文書（GeoJSON・拡張 DM など）から RFC 7946 の GeoJSON を書き出し、新しい文書として開くとともに blobs でバイト列を返す。",
+  "module": "civil",
+  "steps": [
+    {
+      "push": {
+        "name": "site.geojson",
+        "text": "{\"type\":\"FeatureCollection\",\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:4326\"}},\"features\":[{\"type\":\"Feature\",\"id\":\"p1\",\"properties\":{\"name\":\"基準点A\",\"elevation\":12.5,\"meta\":{\"zone\":9},\"ignored\":null},\"geometry\":{\"type\":\"Point\",\"coordinates\":[139.75,35.68,12.5]}},{\"type\":\"Feature\",\"id\":2,\"properties\":{\"active\":true},\"geometry\":{\"type\":\"Polygon\",\"coordinates\":[[[139.7,35.6],[139.8,35.6],[139.8,35.7],[139.7,35.7],[139.7,35.6]],[[139.72,35.62],[139.72,35.68],[139.78,35.68],[139.78,35.62],[139.72,35.62]]]}}]}"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "site.geojson"
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "call.format.unsupported"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "site.geojson",
+        "format": "geojson"
+      },
+      "expect": {
+        "/result/format": "geojson",
+        "/diagnostics/0/code": "geojson.crs.dropped",
+        "/diagnostics/1/code": "geojson.property.dropped",
+        "/diagnostics/1/params/name": "ignored"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "geo",
+        "doc": "site.geojson"
+      },
+      "expect": {
+        "/result/crs": 4326,
+        "/result/features": 2,
+        "/result/kinds": [
+          {
+            "kind": "Feature",
+            "count": 2
+          }
+        ]
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "geo",
+        "doc": "site.geojson",
+        "id": "p1"
+      },
+      "expect": {
+        "/result/feature/name": "基準点A",
+        "/result/feature/attributes": [
+          {
+            "name": "name",
+            "kind": "text",
+            "value": "基準点A"
+          },
+          {
+            "name": "elevation",
+            "kind": "real",
+            "value": "12.5"
+          },
+          {
+            "name": "meta/zone",
+            "kind": "integer",
+            "value": "9"
+          }
+        ],
+        "/result/feature/geometries": [
+          {
+            "form": "point",
+            "points": 1
+          }
+        ]
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "geo",
+        "doc": "site.geojson",
+        "id": "2"
+      },
+      "expect": {
+        "/result/feature/geometries": [
+          {
+            "form": "area",
+            "points": 8
+          }
+        ]
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "convert",
+        "doc": "site.geojson",
+        "format": "geojson",
+        "to": "roundtrip.geojson"
+      },
+      "expect": {
+        "/result/doc": "roundtrip.geojson",
+        "/result/format": "geojson",
+        "/result/elements": 2,
+        "/diagnostics": [],
+        "/blobs/0/kind": "file"
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "geo",
+        "doc": "roundtrip.geojson"
+      },
+      "expect": {
+        "/result/crs": 4326,
+        "/result/features": 2
+      }
+    },
+    {
+      "push": {
+        "name": "map.dm",
+        "text": "I  9テスト市                    1 1   0002008公共測量作業規程      20   \r\n09LD0000                                                                            \r\nM 09LD0000図郭一             500都市計画図                02                \r\n -40000 -20000 -39700 -19600        1      2  1 -39700 -20000 -40000 -19600         \r\n                                                                                    \r\n0803000000図化機                                                   1             \r\nテスト測量                                                                     \r\nH 2100         0 1                                                                  \r\nE57101         1 2  0         0   0      0      0  10000                            \r\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "map.dm",
+        "format": "extdm"
+      },
+      "expect": {
+        "/result/format": "extdm"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "convert",
+        "doc": "map.dm",
+        "format": "geojson",
+        "to": "map.geojson"
+      },
+      "expect": {
+        "/result/format": "geojson",
+        "/result/elements": 4,
+        "/diagnostics/0/code": "geojson.datum.approximated",
+        "/diagnostics/0/params/epsg": 6677
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "geo",
+        "doc": "map.geojson"
+      },
+      "expect": {
+        "/result/crs": 4326,
+        "/result/features": 4
+      }
+    }
+  ]
+}

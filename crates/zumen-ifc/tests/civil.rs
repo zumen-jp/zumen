@@ -472,3 +472,17 @@ fn triangle_flags_are_reported() {
     let codes: Vec<Code> = diag.iter().map(|d| d.code()).collect();
     assert_eq!(codes, [codes::IFC_CIVIL_GEOMETRY_DROPPED]);
 }
+
+#[test]
+fn geographic_projected_crs_is_rejected() {
+    for crs_name in ["EPSG:4326", "WGS 84", "EPSG:6668"] {
+        let text = ifc_tin().replace("EPSG:6677", crs_name);
+        let (model, diag) = from_ifc(&text);
+        assert_eq!(model.crs, None, "projected CRS should reject {crs_name}");
+        assert!(
+            diag.iter()
+                .any(|d| d.code() == codes::IFC_MAP_CRS_UNSUPPORTED),
+            "expected ifc.map-crs.unsupported for {crs_name}"
+        );
+    }
+}

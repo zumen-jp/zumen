@@ -30,6 +30,7 @@ zumen-e57 = { path = "../crates/zumen-e57" }
 zumen-extdm = { path = "../crates/zumen-extdm" }
 zumen-fgd = { path = "../crates/zumen-fgd" }
 zumen-geo = { path = "../crates/zumen-geo" }
+zumen-geojson = { path = "../crates/zumen-geojson" }
 zumen-geology = { path = "../crates/zumen-geology" }
 zumen-ids = { path = "../crates/zumen-ids" }
 zumen-ifc = { path = "../crates/zumen-ifc" }
@@ -187,6 +188,13 @@ bench = false
 [[bin]]
 name = "extdm"
 path = "fuzz_targets/extdm.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "geojson"
+path = "fuzz_targets/geojson.rs"
 test = false
 doc = false
 bench = false

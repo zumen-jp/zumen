@@ -750,7 +750,7 @@ impl<'d> Reader<'d, '_, '_> {
     fn location(&self, point: Coordinate) -> Location {
         let [a, b] = [point.0[0], point.0[1]];
         let position = match self.model.crs {
-            Some(Crs::Geographic) | None => Position::Geo(GeoPoint {
+            Some(Crs::Geographic | Crs::Wgs84) | None => Position::Geo(GeoPoint {
                 latitude: a,
                 longitude: b,
             }),
@@ -921,7 +921,7 @@ impl Coordinate {
     fn xyz(self, crs: Option<Crs>) -> Xyz {
         let [a, b, c] = self.0;
         match crs {
-            Some(Crs::Geographic) | None => [a, b, c],
+            Some(Crs::Geographic | Crs::Wgs84) | None => [a, b, c],
             Some(_) => [b, a, c],
         }
     }

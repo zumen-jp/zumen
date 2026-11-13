@@ -35,6 +35,16 @@ impl Writer {
         self.out.into_bytes()
     }
 
+    /// いままでに書いたバイト数
+    pub fn len(&self) -> usize {
+        self.out.len()
+    }
+
+    /// まだ何も書いていないか
+    pub fn is_empty(&self) -> bool {
+        self.out.is_empty()
+    }
+
     fn separate(&mut self) {
         if self.after_key {
             self.after_key = false;

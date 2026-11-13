@@ -18,6 +18,7 @@ crate `zumen-crs` が持つ、座標の空間の型・座標系の名指し・�
 
 | 座標系 | EPSG | `zumen-crs` |
 | --- | --- | --- |
+| WGS 84 の経緯度 | 4326 | `Crs::Wgs84` |
 | JGD2024（JGD2011）の経緯度 | 6668 | `Crs::Geographic` |
 | JGD2024（JGD2011）の平面直角座標系 I〜XIX | 6669〜6687 | `Crs::Plane(Zone)` |
 | JGD2011 (vertical) height | 6695 | `VerticalCrs::Jgd2011`（測地成果2011） |

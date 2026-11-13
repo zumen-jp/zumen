@@ -8,7 +8,7 @@ pub const ABI_VERSION: u32 = 1;
 /// メッセージのスキーマのメジャーバージョン。要求と応答の `v`
 pub const SCHEMA_MAJOR: u64 = 1;
 /// メッセージのスキーマのマイナーバージョン。`capabilities` が返す
-pub const SCHEMA_MINOR: u64 = 70;
+pub const SCHEMA_MINOR: u64 = 71;
 
 /// 状態コード。理由は応答の診断で返す
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -149,11 +149,19 @@ pub const MODULES: &[Module] = &[
             "civil",
         ],
     },
-    // 土木の線形（J-LandXML）と、地理の地物（CityGML・基盤地図情報・拡張 DM）
+    // 土木の線形（J-LandXML）と、地理の地物（CityGML・基盤地図情報・拡張 DM・GeoJSON）
     Module {
         name: "civil",
-        formats: &["landxml", "citygml", "fgd", "extdm"],
-        ops: &["capabilities", "open", "close", "describe", "civil", "geo"],
+        formats: &["landxml", "citygml", "fgd", "extdm", "geojson"],
+        ops: &[
+            "capabilities",
+            "open",
+            "close",
+            "describe",
+            "convert",
+            "civil",
+            "geo",
+        ],
     },
     // 点群（LAS・LAZ・PLY・XYZ・E57）と、設計の TIN（J-LandXML）との差
     Module {
@@ -227,7 +235,7 @@ pub fn has_op(op: &str) -> bool {
         || (cfg!(feature = "civil")
             && matches!(
                 op,
-                "capabilities" | "open" | "close" | "describe" | "civil" | "geo"
+                "capabilities" | "open" | "close" | "describe" | "convert" | "civil" | "geo"
             ))
         || (cfg!(feature = "pointcloud")
             && matches!(
@@ -252,7 +260,8 @@ pub fn has_format(format: &str) -> bool {
             "dxf" | "dwg" | "sxf" | "jww" | "landxml" | "drawing"
         ))
         || (cfg!(feature = "bim") && matches!(format, "ifc"))
-        || (cfg!(feature = "civil") && matches!(format, "landxml" | "citygml" | "fgd" | "extdm"))
+        || (cfg!(feature = "civil")
+            && matches!(format, "landxml" | "citygml" | "fgd" | "extdm" | "geojson"))
         || (cfg!(feature = "pointcloud")
             && matches!(format, "las" | "ply" | "xyz" | "e57" | "landxml"))
 }

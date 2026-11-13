@@ -3326,3 +3326,93 @@ severity = "error"
 params = { points = "uint", surface = "uint" }
 since = "0.2.0"
 status = "active"
+
+# GeoJSON（#876）
+
+[codes."geojson.file.invalid"]
+description = "JSON として読めないか、根が RFC 7946 の GeoJSON オブジェクトでない"
+severity = "error"
+params = { offset = "uint" }
+since = "0.3.0"
+status = "active"
+
+[codes."geojson.type.unsupported"]
+description = "FeatureCollection や GeometryCollection の要素の type が、期待する GeoJSON の型でないので移さなかった"
+severity = "warning"
+fidelity = "dropped"
+params = { kind = "text" }
+group-by = ["kind"]
+since = "0.3.0"
+status = "active"
+
+[codes."geojson.geometry.invalid"]
+description = "GeoJSON の座標配列が RFC 7946 の規則（数値 2 つ以上・緯度の範囲・LineString 2 点以上・線形環 4 点以上で閉合）を満たさないので、その形を移さなかった"
+severity = "warning"
+fidelity = "dropped"
+params = { kind = "text", reason = "key" }
+group-by = ["kind", "reason"]
+since = "0.3.0"
+status = "active"
+
+[codes."geojson.crs.dropped"]
+description = "RFC 7946 で廃止された旧版の crs メンバーを無視し、WGS 84（経度・緯度）として読んだ"
+severity = "warning"
+fidelity = "dropped"
+since = "0.3.0"
+status = "active"
+
+[codes."geojson.property.dropped"]
+description = "properties の値（null や配列など）が地理の領域モデルの属性で表せないので、移さなかった"
+severity = "info"
+fidelity = "dropped"
+params = { name = "text" }
+group-by = ["name"]
+since = "0.3.0"
+status = "active"
+
+[codes."geojson.crs.missing"]
+description = "地理の領域モデルの座標系が不明なため、WGS 84 の GeoJSON に書き出せない"
+severity = "error"
+since = "0.3.0"
+status = "active"
+
+[codes."geojson.crs.unsupported"]
+description = "地理の領域モデルの座標系が補正格子なしに WGS 84 へ換算できないため、GeoJSON に書き出せない"
+severity = "error"
+params = { epsg = "uint" }
+since = "0.3.0"
+status = "active"
+
+[codes."geojson.datum.approximated"]
+description = "JGD2011（JGD2024）の経緯度（または平面直角座標から逆投影した経緯度）を、そのまま WGS 84 の経緯度として書いた"
+severity = "info"
+fidelity = "approximated"
+params = { epsg = "uint" }
+group-by = ["epsg"]
+since = "0.3.0"
+status = "active"
+
+[codes."geojson.geometry.dropped"]
+description = "点数不足や投影範囲外などで GeoJSON の規則を満たさない形を、書き出さなかった"
+severity = "warning"
+fidelity = "dropped"
+params = { form = "key" }
+group-by = ["form"]
+since = "0.3.0"
+status = "active"
+
+[codes."geojson.solid.approximated"]
+description = "地理の領域モデルの立体・面の集まりを、鉛直な退化面を除いて GeoJSON の面（Polygon）に近似して書いた"
+severity = "info"
+fidelity = "approximated"
+since = "0.3.0"
+status = "active"
+
+[codes."geojson.attribute.dropped"]
+description = "地理の領域モデルの属性の値（有限でない実数など）が JSON の数値で表せないので、書き出さなかった"
+severity = "warning"
+fidelity = "dropped"
+params = { name = "text" }
+group-by = ["name"]
+since = "0.3.0"
+status = "active"

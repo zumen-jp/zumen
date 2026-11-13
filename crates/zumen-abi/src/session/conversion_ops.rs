@@ -1,34 +1,114 @@
-//! セッションの図面の変換と事前の見積もり。
+//! セッションの図面・地理モデルの変換と事前の見積もり。
 
 use super::*;
+#[cfg(feature = "drawing")]
 use zumen_acad::Dxf;
 
 impl Session {
-    /// 開いた図面を別の形式のファイルに変換し、新しい文書として開く（決定 0206・0281）
-    #[cfg(feature = "drawing")]
+    /// 開いた文書を別の形式のファイルに変換し、新しい文書として開く（決定 0206・0281・#876）
+    #[cfg(any(feature = "drawing", feature = "civil"))]
     pub(super) fn convert(
         &mut self,
         request: &ConvertRequest,
         cx: &mut Cx<'_>,
     ) -> Result<ConvertResult, Failed> {
-        let (converted, hash) =
-            self.prepare_conversion(&request.doc, &request.format, &request.to, 0, false, cx)?;
-        self.docs.insert(
-            request.to.clone(),
-            Document::Drawing {
-                file: Box::new(DrawingFile::Dxf(converted.file)),
-                hash,
-            },
-        );
+        if request.format == zumen_geojson::GeoJson::FORMAT {
+            #[cfg(feature = "civil")]
+            {
+                return self.convert_geojson(request, cx);
+            }
+            #[cfg(not(feature = "civil"))]
+            {
+                if !name::is_safe(&request.to) {
+                    return Err(fail(cx, invalid_value("/to")));
+                }
+                self.check_new_document(&request.to, cx)?;
+                return Err(fail(
+                    cx,
+                    Diagnostic::new(codes::CONVERT_FORMAT_UNSUPPORTED)
+                        .with("format", request.format.as_str()),
+                ));
+            }
+        }
+        #[cfg(feature = "drawing")]
+        {
+            let (converted, hash) =
+                self.prepare_conversion(&request.doc, &request.format, &request.to, 0, false, cx)?;
+            self.docs.insert(
+                request.to.clone(),
+                Document::Drawing {
+                    file: Box::new(DrawingFile::Dxf(converted.file)),
+                    hash,
+                },
+            );
+            self.blobs.push(Some(Blob {
+                kind: BlobKind::File,
+                bytes: converted.bytes,
+            }));
+            Ok(ConvertResult {
+                doc: request.to.clone(),
+                format: Dxf::FORMAT.to_string(),
+                hash: hash.to_string(),
+                elements: converted.elements,
+            })
+        }
+        #[cfg(not(feature = "drawing"))]
+        {
+            if !name::is_safe(&request.to) {
+                return Err(fail(cx, invalid_value("/to")));
+            }
+            self.check_new_document(&request.to, cx)?;
+            Err(fail(
+                cx,
+                Diagnostic::new(codes::CONVERT_FORMAT_UNSUPPORTED)
+                    .with("format", request.format.as_str()),
+            ))
+        }
+    }
+
+    #[cfg(feature = "civil")]
+    fn convert_geojson(
+        &mut self,
+        request: &ConvertRequest,
+        cx: &mut Cx<'_>,
+    ) -> Result<ConvertResult, Failed> {
+        if !name::is_safe(&request.to) {
+            return Err(fail(cx, invalid_value("/to")));
+        }
+        if !name::is_safe(&request.doc) {
+            return Err(fail(cx, invalid_value("/doc")));
+        }
+        self.check_new_document(&request.to, cx)?;
+        let model = match self.document(&request.doc, cx)? {
+            Document::Geo(model) => model,
+            _ => return Err(fail(cx, unsupported(&request.doc, "convert"))),
+        };
+        let lowered = in_input_order(cx, |cx| {
+            zumen_geojson::lower_to_geojson(model, cx).map_err(|_| Failed)
+        })?;
+        let reopened = {
+            let mut reread_diag = zumen_base::Diagnostics::new();
+            let mut sub = Cx::new(cx.budget, &mut reread_diag, cx.cancel);
+            match <zumen_geojson::GeoJson as zumen_sdk::Codec>::read(&lowered.bytes, &mut sub)
+                .and_then(|file| zumen_sdk::Lift::lift(&file, &mut sub))
+            {
+                Ok(m) => m,
+                Err(zumen_sdk::Error::Stopped(stop)) => return Err(stopped(cx, stop)),
+                Err(_) => return Err(Failed),
+            }
+        };
+        let hash = Hash::document_checked(&lowered.bytes, cx).map_err(|stop| stopped(cx, stop))?;
+        self.docs
+            .insert(request.to.clone(), Document::Geo(Box::new(reopened)));
         self.blobs.push(Some(Blob {
             kind: BlobKind::File,
-            bytes: converted.bytes,
+            bytes: lowered.bytes,
         }));
         Ok(ConvertResult {
             doc: request.to.clone(),
-            format: Dxf::FORMAT.to_string(),
+            format: zumen_geojson::GeoJson::FORMAT.to_string(),
             hash: hash.to_string(),
-            elements: converted.elements,
+            elements: lowered.features,
         })
     }
 

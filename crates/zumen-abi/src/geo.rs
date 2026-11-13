@@ -8,6 +8,7 @@ use zumen_citygml::CityGml;
 use zumen_extdm::ExtDm;
 use zumen_fgd::Fgd;
 use zumen_geo::{Feature, Form, GeoModel, Value};
+use zumen_geojson::GeoJson;
 use zumen_geom3d::Shape;
 use zumen_sdk::{Codec, Lift};
 
@@ -42,6 +43,13 @@ pub(crate) fn read(
 pub(crate) fn read_extdm(bytes: &[u8], cx: &mut Cx<'_>) -> Result<GeoModel, Failed> {
     // 失敗の理由は、コーデックと移す処理が診断として足してある
     ExtDm::read(bytes, cx)
+        .and_then(|file| file.lift(cx))
+        .map_err(|_| Failed)
+}
+
+/// 名指した GeoJSON を読み、地理の領域モデルに移す。JSON 全般と先頭が重なるので、名指しで開く（#876）
+pub(crate) fn read_geojson(bytes: &[u8], cx: &mut Cx<'_>) -> Result<GeoModel, Failed> {
+    GeoJson::read(bytes, cx)
         .and_then(|file| file.lift(cx))
         .map_err(|_| Failed)
 }

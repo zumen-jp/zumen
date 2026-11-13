@@ -178,6 +178,6 @@ fn key_codes(data: &[u8]) -> (Vec<u32>, Vec<u32>) {
         }
     }
     // 投影の座標系を、経緯度の座標系より先にする
-    horizontal.sort_by_key(|code| Crs::from_epsg(*code) == Some(Crs::Geographic));
+    horizontal.sort_by_key(|code| Crs::from_epsg(*code).is_some_and(|crs| crs.zone().is_none()));
     (horizontal, vertical)
 }

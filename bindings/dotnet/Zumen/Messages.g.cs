@@ -366,7 +366,7 @@ namespace Zumen.Messages
         public ulong? Size { get; init; }
 
         /// <summary>
-        /// 見分けるマーカーのない形式（xyz・extdm）を名指して読む。書かなければ、入力から判定する（決定 0232）。マイナーバージョン 49 から。extdm はマイナーバージョン 62 から
+        /// 見分けるマーカーのない形式（xyz・extdm・geojson）を名指して読む。書かなければ、入力から判定する（決定 0232）。マイナーバージョン 49 から。extdm はマイナーバージョン 62 から。geojson はマイナーバージョン 71 から
         /// </summary>
         [JsonPropertyName("format")]
         public string? Format { get; init; }
@@ -2439,7 +2439,7 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 開いた文書から別の形式のファイルを作り、新しい文書として開く。対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから書く（決定 0139・0206・0281）。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。今は DXF にだけ書ける。マイナーバージョン 41 から
+    /// 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON）からは GeoJSON を書く。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から
     /// </summary>
     public sealed record ConvertRequest
     {
@@ -2486,7 +2486,7 @@ namespace Zumen.Messages
         public string Doc { get; init; } = default!;
 
         /// <summary>
-        /// 書く形式の名前（capabilities の formats の id）。今は dxf だけ
+        /// 書く形式の名前（capabilities の formats の id）。dxf または geojson
         /// </summary>
         [JsonPropertyName("format")]
         public string Format { get; init; } = default!;
@@ -8746,7 +8746,7 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// open で開いた CityGML・基盤地図情報（GML）・拡張 DM の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。土木・地理のモジュールに置く（決定 0253）。マイナーバージョン 52 から
+    /// open で開いた CityGML・基盤地図情報（GML）・拡張 DM・GeoJSON の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。土木・地理のモジュールに置く（決定 0253）。マイナーバージョン 52 から
     /// </summary>
     public sealed record GeoRequest
     {
@@ -8787,7 +8787,7 @@ namespace Zumen.Messages
         public string Op { get; init; } = "geo";
 
         /// <summary>
-        /// open で開いた CityGML・基盤地図情報（GML）・拡張 DM の文書の名前
+        /// open で開いた CityGML・基盤地図情報（GML）・拡張 DM・GeoJSON の文書の名前
         /// </summary>
         [JsonPropertyName("doc")]
         public string Doc { get; init; } = default!;

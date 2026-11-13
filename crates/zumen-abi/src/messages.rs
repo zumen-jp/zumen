@@ -29,7 +29,7 @@ pub enum Request {
     MeasureDistance(MeasureDistanceRequest),
     /// 開いた文書に、変更の一覧を当てて書き戻す（決定 0139・0156）。要素は、entities が返す ID とハッシュで指す。どれか 1 つでも当てられなければ、何も変えない。当てたら、文書を書き戻したものに替え、書き戻したファイルを blobs で返す。マイナーバージョン 7 から
     Apply(ApplyRequest),
-    /// 開いた文書から別の形式のファイルを作り、新しい文書として開く。対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから書く（決定 0139・0206・0281）。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。今は DXF にだけ書ける。マイナーバージョン 41 から
+    /// 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON）からは GeoJSON を書く。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から
     Convert(ConvertRequest),
     /// 開いた図面を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。今は DXF への変換だけ。マイナーバージョン 66 から
     ConvertEstimate(ConvertEstimateRequest),
@@ -65,7 +65,7 @@ pub enum Request {
     Deviation(DeviationRequest),
     /// open で開いた J-LandXML の文書の線形から、平面図・縦断図・横断図の図面モデルを作り（決定 0231）、用紙を 1 枚選んで新しい DXF の文書として開く（決定 0239）。尺度・文字の高さ・測点の間隔は、プロファイルを渡せば語彙 civil-drawing と text-height から読み、渡さなければ作図の慣習の値にする。縦断図は用紙の要素に焼き込む（決定 0238）。書いたファイルは blobs で返す。作った文書は scene と check に渡せる。図面のモジュールに置く。マイナーバージョン 51 から
     CivilDrawing(CivilDrawingRequest),
-    /// open で開いた CityGML・基盤地図情報（GML）・拡張 DM の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。土木・地理のモジュールに置く（決定 0253）。マイナーバージョン 52 から
+    /// open で開いた CityGML・基盤地図情報（GML）・拡張 DM・GeoJSON の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。土木・地理のモジュールに置く（決定 0253）。マイナーバージョン 52 から
     Geo(GeoRequest),
     /// 電子納品の成果品（決定 0241）を読み、管理ファイルの要約を返す。成果品は、zm_push で渡した入力のうち root の下にある名前の集まりか、ZIP の入力（archive）で渡す。profiles と profile を渡せば、プロファイルの delivery- で始まる照合の種類の規則と照らし、指摘を返す（#384）。ほかの種類の規則は飛ばす。図面のモジュールに置く。マイナーバージョン 53 から
     DeliveryCheck(DeliveryCheckRequest),
@@ -649,7 +649,7 @@ pub struct OpenRequest {
     pub doc: Option<String>,
     /// 入力の全体の大きさ（バイト）。渡した入力より大きければ、入力を全体の初めの部分とみなし、足りない範囲を needs で求める。範囲で読める形式（LAS・LAZ）だけが使う（決定 0232）。マイナーバージョン 48 から
     pub size: Option<u64>,
-    /// 見分けるマーカーのない形式（xyz・extdm）を名指して読む。書かなければ、入力から判定する（決定 0232）。マイナーバージョン 49 から。extdm はマイナーバージョン 62 から
+    /// 見分けるマーカーのない形式（xyz・extdm・geojson）を名指して読む。書かなければ、入力から判定する（決定 0232）。マイナーバージョン 49 から。extdm はマイナーバージョン 62 から。geojson はマイナーバージョン 71 から
     pub format: Option<String>,
     /// SXF の属性ファイル（SAF）を入れた入力の名前。zm_push で渡したもの。属性ファイル用の属性付加機構（$$ATRF$$）の要素に、属性を sxf.saf の拡張で結ぶ（決定 0249）。書かなければ、P2Z・SFZ の中の、図面と同じ名前の SAF を使う。SXF でない入力には使えない。マイナーバージョン 63 から
     pub saf: Option<String>,
@@ -4458,14 +4458,14 @@ impl ToJson for ApplyResult {
     }
 }
 
-/// 開いた文書から別の形式のファイルを作り、新しい文書として開く。対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから書く（決定 0139・0206・0281）。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。今は DXF にだけ書ける。マイナーバージョン 41 から
+/// 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON）からは GeoJSON を書く。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から
 #[derive(Clone, Debug, PartialEq)]
 pub struct ConvertRequest {
     /// `request_common` のフィールド
     pub request_common: RequestCommon,
     /// 書く元の文書の名前。open で作ったもの
     pub doc: String,
-    /// 書く形式の名前（capabilities の formats の id）。今は dxf だけ
+    /// 書く形式の名前（capabilities の formats の id）。dxf または geojson
     pub format: String,
     /// 作る文書の名前
     pub to: String,
@@ -15600,12 +15600,12 @@ impl ToJson for DeliveryManaged {
     }
 }
 
-/// open で開いた CityGML・基盤地図情報（GML）・拡張 DM の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。土木・地理のモジュールに置く（決定 0253）。マイナーバージョン 52 から
+/// open で開いた CityGML・基盤地図情報（GML）・拡張 DM・GeoJSON の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。土木・地理のモジュールに置く（決定 0253）。マイナーバージョン 52 から
 #[derive(Clone, Debug, PartialEq)]
 pub struct GeoRequest {
     /// `request_common` のフィールド
     pub request_common: RequestCommon,
-    /// open で開いた CityGML・基盤地図情報（GML）・拡張 DM の文書の名前
+    /// open で開いた CityGML・基盤地図情報（GML）・拡張 DM・GeoJSON の文書の名前
     pub doc: String,
     /// 中身を返す地物の ID
     pub id: Option<String>,

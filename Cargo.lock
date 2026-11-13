@@ -637,6 +637,7 @@ dependencies = [
  "zumen-extdm",
  "zumen-fgd",
  "zumen-geo",
+ "zumen-geojson",
  "zumen-geology",
  "zumen-geom3d",
  "zumen-ids",
@@ -860,6 +861,18 @@ dependencies = [
  "zumen-base",
  "zumen-crs",
  "zumen-geom3d",
+]
+
+[[package]]
+name = "zumen-geojson"
+version = "0.2.0"
+dependencies = [
+ "zumen-base",
+ "zumen-crs",
+ "zumen-geo",
+ "zumen-geom3d",
+ "zumen-json",
+ "zumen-sdk",
 ]
 
 [[package]]
