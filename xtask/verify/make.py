@@ -361,23 +361,61 @@ class Zumen:
         self.child.wait()
 
 
-def read(z, doc):
-    """文書の図面モデルの要約・表・要素の一覧"""
+def read(z, doc, places=None):
+    """文書の図面モデルの要約・表・要素の一覧。places（記号の定義の名前 → 定義の空間の ID）を渡すと、定義の中の要素も
+    読み、definitions に、名前ごとに空間の ID（place）と要素（entities）を置く。entities は、空間を指さなければ、
+    定義の中の要素を返さない"""
     _, drawing = z.call({"op": "drawing", "doc": doc})
     _, tables = z.call({"op": "tables", "doc": doc})
-    items, offset = [], 0
-    while True:
-        _, page = z.call({"op": "entities", "doc": doc, "fields": FIELDS, "offset": offset, "limit": 10000})
-        items += page["result"]["items"]
-        offset = page["result"].get("next_offset")
-        if offset is None:
-            break
-    return {
+
+    def entities(place=None):
+        items, offset = [], 0
+        while True:
+            request = {"op": "entities", "doc": doc, "fields": FIELDS, "offset": offset, "limit": 10000}
+            if place is not None:
+                request["place"] = place
+            _, page = z.call(request)
+            items += page["result"]["items"]
+            offset = page["result"].get("next_offset")
+            if offset is None:
+                return items
+
+    reading = {
         "drawing": drawing.get("result"),
         "diagnostics": drawing["diagnostics"],
         "tables": tables.get("result"),
-        "entities": items,
+        "entities": entities(),
     }
+    if places:
+        reading["definitions"] = {name: {"place": place, "entities": entities(place)} for name, place in sorted(places.items())}
+    return reading
+
+
+def definition_places(data):
+    """ASCII の DXF の BLOCKS 節から、名前のある記号の定義（BLOCK）の名前 → 定義の空間の ID。空間の ID は、BLOCK の
+    ハンドルから決まる（`space/h<ハンドル>`）。公開 API には、定義の空間を名前から引く操作がまだないので、ファイルの
+    タグから読む。空間と匿名の定義（名前が * で始まる）は除く。ASCII の DXF でなければ空"""
+    if data.startswith(b"AutoCAD Binary DXF") or b"\0" in data[:4096]:
+        return {}
+    found, kind, handle = {}, None, None
+    for code, value in tag_lines(data):
+        code, value = code.strip(), value.strip()
+        if code == b"0":
+            kind, handle = value, None
+        elif kind == b"BLOCK" and code == b"5":
+            handle = value.decode("ascii", "replace")
+        elif kind == b"BLOCK" and code == b"2" and handle:
+            try:
+                name = value.decode("utf-8")
+            except UnicodeDecodeError:
+                name = value.decode("cp932", "replace")
+            try:
+                number = int(handle, 16)
+            except ValueError:
+                continue
+            if not name.startswith("*"):
+                found[name] = f"space/h{number:X}"
+    return found
 
 
 def open_file(z, name, data):
@@ -605,6 +643,99 @@ def handseed_steps(_fmt):
     return [lines]
 
 
+def added_steps(_fmt):
+    """#683: 線種・画層・文字スタイルを足し、それを使う図形を、モデル空間と、名前のある記号の定義の中に足す。同じ apply で
+    足した表の項目は、その apply の画層と要素から指せないので、線種、画層と文字スタイル、図形の順に段を分ける"""
+    dash = {"name": "ZUMEN_DASHDOT"}
+
+    def line_type(_reading):
+        # 列は、正が線、負が間、0 が点（一点鎖線）
+        return [{"kind": "add_line_type", "name": "ZUMEN_DASHDOT", "description": "ZUMEN dash dot __ . __ .", "pattern": [6, -2, 0, -2]}]
+
+    def tables(_reading):
+        return [
+            {"kind": "add_layer", "name": "ZUMEN_683", "color": {"aci": 4}, "line_type": dash},
+            # 日本語の名前の、ロックした、印刷しない画層
+            {"kind": "add_layer", "name": "追加_683", "color": {"aci": 30}, "editable": False, "printable": False},
+            # 表示しない画層と、凍結した画層
+            {"kind": "add_layer", "name": "ZUMEN_683_OFF", "color": {"aci": 8}, "visible": False},
+            {"kind": "add_layer", "name": "ZUMEN_683_FROZEN", "color": {"aci": 9}, "visible": False, "frozen": True},
+            # TrueType のファイルを指す文字スタイルと、シェイプのフォントと大きいフォントを指す文字スタイル
+            {"kind": "add_text_style", "name": "ZUMEN_NARROW", "font": {"name": "arial.ttf", "kind": "named"}, "width": 0.8, "oblique": 15},
+            {
+                "kind": "add_text_style",
+                "name": "ZUMEN_SHAPE",
+                "font": {"name": "txt", "kind": "shape"},
+                "big_font": {"name": "bigfont", "kind": "shape"},
+                "height": 2.5,
+                "backward": True,
+            },
+        ]
+
+    def shapes(reading):
+        by_layer = {"inherit": "layer"}
+        edits = [
+            # 画層に従う色と線種（足した画層の水色と一点鎖線）
+            add("space/0", {"shape": "line", "start": [0, -100], "end": [120, -80]}, layer="ZUMEN_683", color=by_layer, line_type=by_layer),
+            # 要素が持つ色（赤）と線種
+            add("space/0", {"shape": "line", "start": [0, -120], "end": [120, -100]}, color={"aci": 1}, line_type=dash),
+            add("space/0", {"shape": "circle", "center": [170, -100], "radius": 18}, layer="ZUMEN_683", color={"aci": 2}, line_type={"name": "Continuous"}),
+            # ロックした、印刷しない画層の上の、0° をまたぐ円弧
+            add("space/0", {"shape": "arc", "center": [230, -100], "radius": 18, "start_angle": 200, "end_angle": 20}, layer="追加_683", line_type=dash),
+            # 表示しない画層の上の、膨らみを持つ閉じたポリライン
+            add("space/0", {"shape": "polyline", "points": [[280, -120], [330, -120], [330, -80], [280, -80]], "bulges": [0, 0.5, 0, -0.25], "closed": True}, layer="ZUMEN_683_OFF"),
+            # 凍結した画層の上
+            add("space/0", {"shape": "circle", "center": [380, -100], "radius": 10}, layer="ZUMEN_683_FROZEN"),
+            # 足した文字スタイルの文字。幅の倍率と傾きは、文字が自分で持つ
+            add("space/0", {"shape": "text", "content": "ZUMEN 683 narrow", "position": [0, -160], "height": 6, "rotation": 0, "width_factor": 0.8, "oblique": 15, "style": "ZUMEN_NARROW"}, layer="ZUMEN_683"),
+            # 中央に寄せて回した、日本語の文字
+            add("space/0", {"shape": "text", "content": "追加した文字", "position": [200, -157], "horizontal": "center", "vertical": "middle", "height": 6, "rotation": 15, "style": "ZUMEN_SHAPE"}, color={"aci": 3}),
+            # 右上に寄せた、裏返しの文字
+            add("space/0", {"shape": "text", "content": "RIGHT TOP", "position": [380, -150], "horizontal": "right", "vertical": "top", "height": 4, "rotation": 0, "backward": True}),
+            add("space/0", {"shape": "formatted_text", "content": "ZUMEN 683\\P書式つきの文字", "position": [0, -200], "height": 5, "rotation": 0, "attachment": "top_center", "width": 80, "style": "ZUMEN_NARROW"}, layer="ZUMEN_683", color={"aci": 6}),
+        ]
+        symbols = {}
+        for e in model(reading, shape="symbol"):
+            symbols.setdefault(e["geometry"]["name"], e["geometry"])
+        symbols = [g for name, g in sorted(symbols.items()) if not name.startswith("*")]
+        plain = [g for g in symbols if not g.get("attributes")]
+        tagged = [g for g in symbols if g.get("attributes")]
+        grid = {"columns": 3, "rows": 2, "column_spacing": 30, "row_spacing": 20}
+        if plain:
+            # 格子を持つ記号と、回して縦横の尺度を変えた記号
+            name = plain[0]["name"]
+            edits.append(add("space/0", {"shape": "symbol", "name": name, "position": [0, -330], "scale": [1, 1], "rotation": 0, "grid": grid}, layer="ZUMEN_683"))
+            edits.append(add("space/0", {"shape": "symbol", "name": name, "position": [150, -330], "scale": [2, 1.5], "rotation": 30}, color={"aci": 5}))
+        if tagged:
+            # 属性を持つ記号。属性は、定義の属性定義から作り、値を変更で渡す。2 つ目は格子も持ち、日本語の値を渡す
+            name, tags = tagged[0]["name"], [a["tag"] for a in tagged[0]["attributes"]]
+            values = [{"tag": tag, "value": f"683-{i + 1}"} for i, tag in enumerate(tags)]
+            edits.append(add("space/0", {"shape": "symbol", "name": name, "position": [300, -330], "scale": [1, 1], "rotation": 0, "attributes": values}))
+            values = [{"tag": tag, "value": f"追加{i + 1}"} for i, tag in enumerate(tags)]
+            symbol = {"shape": "symbol", "name": name, "position": [450, -330], "scale": [2, 2], "rotation": 15, "grid": {**grid, "columns": 2}, "attributes": values}
+            edits.append(add("space/0", symbol, layer="ZUMEN_683"))
+        return edits
+
+    def definition(reading):
+        # 名前のある記号の定義の中（#683）。定義の空間は、要素を読めたもの（空間の ID が当たっているもの）に限る
+        found = [(name, d["place"]) for name, d in sorted(reading.get("definitions", {}).items()) if d["entities"]]
+        if not found:
+            return []
+        name, place = found[0]
+        edits = [
+            add(place, {"shape": "line", "start": [0, 0], "end": [8, 6]}, layer="ZUMEN_683"),
+            # 記号の配置に従う色と線種
+            add(place, {"shape": "circle", "center": [4, 3], "radius": 2}, color={"inherit": "block"}, line_type={"inherit": "block"}),
+            add(place, {"shape": "text", "content": "683", "position": [1, 1], "height": 1.5, "rotation": 0, "style": "ZUMEN_NARROW"}, color={"aci": 1}),
+        ]
+        if len(found) > 1:
+            # 2 つ目の定義の中に、1 つ目の定義の記号を置く（入れ子）
+            edits.append(add(found[1][1], {"shape": "symbol", "name": name, "position": [2, 2], "scale": [0.5, 0.5], "rotation": 45}))
+        return edits
+
+    return [line_type, tables, shapes, definition]
+
+
 def replace(e, geometry):
     return {"kind": "replace", "id": e["id"], "hash": e["hash"], "geometry": geometry, "_expect": geometry}
 
@@ -632,7 +763,11 @@ RECIPES = [
     # R2004 は R2018 と同じく展開したセクションを置き換えるので、R2000 と R2018 だけにしてキットを小さくする
     ("restyle", 723, lambda name, fmt: fmt in ("dxf", "dwg") and "-layout-" in name, restyle_steps),
     ("handseed", 701, lambda name, fmt: fmt == "dwg" and ("-layout-r2000" in name or "-layout-r2018" in name), handseed_steps),
+    # 格子と属性を持つ記号のサンプル（R2000・R2004・R2018）と、切り抜きを持つ記号のサンプル（R2013）
+    ("added", 683, lambda name, fmt: fmt in ("dxf", "dwg") and ("-minsert-" in name or "-xclip-r2013" in name), added_steps),
 ]
+# 記号の定義の中の要素も読む組（read の definitions）。定義の中に足した要素を、書いたファイルの読みに残す
+INSIDE = {"added"}
 
 
 def dropped_dxf():
@@ -760,11 +895,11 @@ def codes(*lists):
     return found
 
 
-def reopen(z, out, record, data, baseline):
+def reopen(z, out, record, data, baseline, places=None):
     """書いたファイルを zumen で読み直して読みを置く。baseline（入力の診断の (code, kind) ごとの件数）より件数の
-    増えた診断があれば、reread に残す"""
+    増えた診断があれば、reread に残す。places は、中の要素も読む記号の定義（read）"""
     record["open"] = open_file(z, record["path"] + ".reopened", data)
-    reading = read(z, record["path"] + ".reopened")
+    reading = read(z, record["path"] + ".reopened", places)
     save_reading(out, record["path"], reading)
     found = codes(record["open"], reading["diagnostics"])
     new = sorted(f"{code}（{kind}）{n}" if kind else f"{code} {n}" for (code, kind), n in found.items() if n > baseline[(code, kind)])
@@ -772,16 +907,18 @@ def reopen(z, out, record, data, baseline):
         record["reread"] = new
 
 
-def run_recipe(z, out, entry, data, recipe, baseline):
-    """入力に変更の段を順に当て、最後に書いたファイルを置く。どれかの段が当たらなければ、その診断を残す"""
+def run_recipe(z, out, entry, data, recipe, baseline, places=None):
+    """入力に変更の段を順に当て、最後に書いたファイルを置く。どれかの段が当たらなければ、その診断を残す。places は、
+    中の要素も読む記号の定義（read）で、INSIDE の組にだけ渡す"""
     name, issue, _, steps = recipe
+    places = places if name in INSIDE else None
     stem, suffix = Path(entry["path"]).stem, Path(entry["path"]).suffix
     doc = f"{issue}/{stem}.{name}{suffix}"
     open_file(z, doc, data)
     record = {"path": doc, "role": "apply", "issue": issue, "recipe": name, "from": entry["path"], "format": entry["format"], "steps": []}
     current = data
     for make in steps(entry["format"]):
-        reading = read(z, doc)
+        reading = read(z, doc, places)
         edits = make(reading)
         if not edits:
             # 当てる候補がない段（例: 膨らみのないポリラインがない図面の移動）も、キットに残して見えるようにする
@@ -809,7 +946,7 @@ def run_recipe(z, out, entry, data, recipe, baseline):
     (out / doc).parent.mkdir(parents=True, exist_ok=True)
     (out / doc).write_bytes(current)
     record["status"] = "ok"
-    reopen(z, out, record, current, baseline)
+    reopen(z, out, record, current, baseline, places)
     return record
 
 
@@ -969,16 +1106,69 @@ def describe(g):
             text += f"・{pt(g['end'])} までの間に置く（{'両端揃え' if g.get('fit') == 'aligned' else 'フィット'}）"
         if "attachment" in g:
             text += f"・寄せ方 {g['attachment']}"
+        if "horizontal" in g or "vertical" in g:
+            # 位置に寄せる所（DXF の TEXT の 72・73）
+            text += f"・寄せ方 {g.get('horizontal', 'left')}/{g.get('vertical', 'baseline')}"
         if "width" in g:
             text += f"・枠の幅 {num(g['width'])}"
+        if "width_factor" in g:
+            text += f"・幅の倍率 {num(g['width_factor'])}"
+        if "oblique" in g:
+            text += f"・傾き {num(g['oblique'])}°"
+        text += "".join(f"・{word}" for key, word in (("backward", "裏返し"), ("upside_down", "上下反転")) if g.get(key))
+        if "style" in g:
+            text += f"・文字スタイル {g['style']}"
         return text
     if s == "symbol":
         text = f"記号「{g['name']}」・位置 {pt(g['position'])}・尺度 {num(g['scale'][0])}×{num(g['scale'][1])}・角度 {num(g['rotation'])}°"
         if "grid" in g:
             grid = g["grid"]
             text += f"・格子 {grid['columns']} 列 {grid['rows']} 行（間隔 {num(grid['column_spacing'])}・{num(grid['row_spacing'])}）"
+        if g.get("attributes"):
+            text += "・属性 " + "/".join(f"{a['tag']}={a['value']}" for a in g["attributes"])
         return text
     return s
+
+
+# 従う色と線種（変更の color・line_type の inherit）
+INHERITS = {"layer": "画層に従う", "block": "記号の配置に従う"}
+
+
+def styled(want, word):
+    """足した要素の画層・色・線種の、期待する値。word は、画層の呼び方（LAYER_WORDS）"""
+    parts = [f"{word} {want['layer']}"] if "layer" in want else []
+    color = want.get("color", {})
+    for key, label in (("jww", "ペン"), ("sxf", "既定義色"), ("aci", "ACI")):
+        if key in color:
+            parts.append(f"{label} {color[key]}")
+    if "inherit" in color:
+        parts.append(f"色は{INHERITS[color['inherit']]}")
+    line_type = want.get("line_type", {})
+    if "name" in line_type:
+        parts.append(f"線種 {line_type['name']}")
+    if "inherit" in line_type:
+        parts.append(f"線種は{INHERITS[line_type['inherit']]}")
+    return "".join(f"・{part}" for part in parts)
+
+
+def table_item(edit):
+    """足した画層・線種・文字スタイルの、期待する値。ほかの変更は None"""
+    kind = edit["kind"]
+    if kind == "add_layer":
+        parts = [f"ACI {edit['color']['aci']}"] if "aci" in edit.get("color", {}) else []
+        if "name" in edit.get("line_type", {}):
+            parts.append(f"線種 {edit['line_type']['name']}")
+        states = (("visible", "表示しない"), ("frozen", "凍結"), ("editable", "ロック"), ("printable", "印刷しない"))
+        parts += [word for key, word in states if key in edit and edit[key] == (key == "frozen")]
+        return f"画層 {edit['name']}" + (f"（{'・'.join(parts)}）" if parts else "")
+    if kind == "add_line_type":
+        return f"線種 {edit['name']}（線と間の列 {'/'.join(num(v) for v in edit.get('pattern', []))}。正は線、負は間、0 は点）"
+    if kind == "add_text_style":
+        parts = [f"{word} {edit[key]['name']}" for key, word in (("font", "フォント"), ("big_font", "大きいフォント")) if key in edit]
+        parts += [f"{word} {num(edit[key])}" for key, word in (("height", "高さ"), ("width", "幅の倍率"), ("oblique", "傾き")) if key in edit]
+        parts += [word for key, word in (("backward", "裏返し"), ("upside_down", "上下反転"), ("vertical", "縦書き")) if edit.get(key)]
+        return f"文字スタイル {edit['name']}（{'・'.join(parts)}）"
+    return None
 
 
 VIEWERS = {"dxf": "AutoCAD", "dwg": "AutoCAD", "jww": "Jw_cad", "sfc": "SXF ブラウザ", "p21": "SXF ブラウザ"}
@@ -992,6 +1182,7 @@ zumen の CLI で、公開サンプル（`samples/`）と適合テストの中�
 - `manifest.json`: ファイルごとの出所・当てた変更・期待する形・診断
 - `zumen/`: zumen が読んだ値（`drawing`・`tables`・`entities` の応答）。入力と書いたファイルのそれぞれ
 - `ezdxf.json`・`acadsharp.json`・`ezjww.json`・`ezsxf.json`: DXF・DWG・JWW・SFC と P21 を、外部の実装で読んで照らした結果（`check_ezdxf.py` など）。`acadsharp-dump.json` は、ACadSharp で読んだ DWG の値
+- `autocad.json`: DXF・DWG を、画面のない AutoCAD（accoreconsole）で開いて照らした結果（`check_autocad.py`）。AutoCAD のある Windows で流したときだけある
 - `input/`: 入力の図面。書いたファイルを開く前に、同じソフトで入力も開き、入力から変わった所だけを比べる
 - `licenses/`: 入力のライセンスの本文。入力ごとのライセンスと表示は、下の「出所とライセンス」と `manifest.json` にある
 
@@ -999,12 +1190,14 @@ zumen の CLI で、公開サンプル（`samples/`）と適合テストの中�
 
 ## AutoCAD の共通の手順
 
+AutoCAD のある Windows では、`python xtask/verify/check_autocad.py <キットのフォルダー>` が、下の 1〜3 をキットの DXF・DWG のすべてに流し、`manifest.json` の期待する値と照らして、結果を `autocad.json` に書きます（`xtask/verify/README.md`）。手で確かめるのは、4 の画面の見え方と、スクリプトが照らさない値です。
+
 1. ファイルを開く（DXF は「開く」でファイルの種類を DXF にする）。開けなければ、出た文を記録して次へ進む。
 2. `AUDIT` を「いいえ」（直さない）で流し、見つかった誤りの数を記録する。期待は 0。
-3. フォルダー `C:/zumen-verify/` を作り、`(load "dump.lsp")` と `(zv-dump "C:/zumen-verify/<ファイルの名前>.txt")` で、図形をハンドルごとに書き出す（`dump.lsp` はキットにある）。下の表のハンドルの行を、期待する値と比べる。角度（50・51）は度に直して書く。楕円の 11（中心から長軸の端への向き）と 41・42（ラジアン）は、ファイルの値のまま書くので、表の「長軸の端」は中心に 11 を足して比べる。
+3. フォルダー `C:/zumen-verify/` を作り、`(load "dump.lsp")` と `(zv-dump "C:/zumen-verify/<ファイルの名前>.txt")` で、画層・線種・文字スタイルの表と、図形をハンドルごとに書き出す（`dump.lsp` はキットにある）。下の表のハンドルの行を、期待する値と比べる。角度（50・51）は度に直して書く。楕円の 11（中心から長軸の端への向き）と 41・42（ラジアン）は、ファイルの値のまま書くので、表の「長軸の端」は中心に 11 を足して比べる。
 4. 画面でも、下の表の形が見えることを確かめる。
 
-画面なしで流すときは、`accoreconsole.exe /i <ファイル> /s <スクリプト>` に、`(load …)`・`_.AUDIT _N`・`(zv-dump …)`・`_.QUIT _Y` のスクリプトを渡す（`xtask/autocad/run.ps1` と同じ）。
+図面は写しを開き、保存しない（AutoCAD は、保存のたびに Windows のログイン名を図面に書く）。
 """
 
 SECTIONS = {
@@ -1047,6 +1240,13 @@ SECTIONS = {
         """公開 API で DXF（R2004）に変換しました。R2004 DWG の弧長寸法は、対応する図形と参照がそろえば共有のオブジェクト表から書きます（決定 0281）。ほかは図面モデルを経ます（決定 0206）。書けない要素と、足せなかった画層の要素は、元の場所を付けて `convert.element.unsupported` で落とします。記号の定義の中身も書き、表・ブロック・VIEWPORT の所有者とサブクラス、レイアウトの辞書を R2004 の形で持ちます（#509）。ezdxf では全変換ファイルを読め、監査の誤りと修復が 0 であることを確かめます。
 
 - **AutoCAD。** 全変換ファイルを共通の手順で開き、開けることと `AUDIT` の誤りの数を記録する。ビューポートを持つもの（layout・points・JWW）は、モデルと `Layout1` の両方を確認し、用紙の大きさとビューの位置・尺度を比べる。記号を持つものは、配置だけでなく定義の中身も描かれることを確かめる。Defpoints などの追加できない画層は、その要素が落ちたことを `manifest.json` の変換の診断と照らし、画層 0 に移っていないことを確かめる。結果にはファイル・ハンドル・期待する値・実際の値を記録する。
+""",
+    ),
+    683: (
+        "#683 図形と画層・線種・文字スタイルを足して書き戻した DWG・DXF",
+        """AutoCAD で作った R2000・R2004・R2013・R2018 の DWG と DXF に、線種（一点鎖線）、画層 4 つ（線種を持つもの・日本語の名前でロックして印刷しないもの・表示しないもの・凍結したもの）、文字スタイル 2 つ（TrueType のファイルを指すもの・シェイプのフォントと大きいフォントを指すもの）を足し、それを使う線分・円・円弧・ポリライン・文字・書式つきの文字・記号（格子と属性を持つものも）を、モデル空間と、名前のある記号の定義の中に足して書き戻しました。表の項目は、足した apply の次の apply から指せるので、線種、画層と文字スタイル、モデル空間の図形、定義の中の図形の順に 4 回に分けて当てています。
+
+- **AutoCAD。** `check_autocad.py` が、開けること・監査の誤りの数と、下の表の形・画層・色・線種、足した画層の色・線種・状態、足した線種の列、足した文字スタイルの値を照らす。画面では、足した図形が Y が -80 より下に並び、一点鎖線・色・文字の寄せ方と傾き・属性の値が、下の表のとおりに見えることを確かめる。属性の文字の位置は、スクリプトでは照らさない。
 """,
     ),
     701: (
@@ -1118,7 +1318,10 @@ def expectation(out, f):
     if f.get("recipe") == "handseed":
         return f"開けて、監査の誤りが 0。モデル空間の下に、長さ 100 の水平な線分が {HANDSEED_LINES} 本並ぶ。HANDSEED（`HANDSEED` 変数）が 10000 より大きい"
     reading = json.loads((out / "zumen" / (f["path"] + ".json")).read_text(encoding="utf-8"))
-    handles = {e["id"]: e.get("source", {}).get("handle") for e in reading["entities"]}
+    # 記号の定義の中の要素（definitions）は、どの定義の中かも書く
+    owners = {e["id"]: name for name, d in reading.get("definitions", {}).items() for e in d["entities"]}
+    inside = [e for d in reading.get("definitions", {}).values() for e in d["entities"]]
+    handles = {e["id"]: e.get("source", {}).get("handle") for e in [*reading["entities"], *inside]}
     word = LAYER_WORDS.get(f["format"], "レイヤ")
     items = []
     for step in f["steps"]:
@@ -1126,17 +1329,17 @@ def expectation(out, f):
             items.append(f"段 {step['step']} は当てる候補がなく、当てていない")
         for want in step.get("expect", []):
             handle = handles.get(want["id"])
-            layer = f"・{word} {want['layer']}" if "layer" in want else ""
-            color = want.get("color", {})
-            pen = f"・ペン {color['jww']}" if "jww" in color else f"・既定義色 {color['sxf']}" if "sxf" in color else ""
-            items.append(f"{'ハンドル ' + handle if handle else want['id']}: {describe(want['geometry'])}{layer}{pen}")
+            owner = f"（記号の定義「{owners[want['id']]}」の中）" if want["id"] in owners else ""
+            items.append(f"{'ハンドル ' + handle if handle else want['id']}{owner}: {describe(want['geometry'])}{styled(want, word)}")
         for edit in step["edits"]:
             if edit["kind"] == "point_style":
                 items.append("点の表し方: $PDMODE 67・$PDSIZE 4")
-            if edit["kind"] == "add_layer":
-                items.append(f"画層 {edit['name']}（ACI {edit['color']['aci']}）")
-            if edit["kind"] == "restyle":
+            if item := table_item(edit):
+                items.append(item)
+            if edit["kind"] == "restyle" and "aci" in edit.get("color", {}):
                 items.append(f"ハンドル {handles.get(edit['id'])} の色が ACI {edit['color']['aci']}")
+            if edit["kind"] == "restyle" and "layer" in edit:
+                items.append(f"ハンドル {handles.get(edit['id'])} の{word}が {edit['layer']}")
     # 監査（AUDIT）は AutoCAD の手順にだけある
     opened = "開けて、監査の誤りが 0。" if VIEWERS.get(f["format"]) == "AutoCAD" else "開ける。"
     return opened + "<br>".join(items)
@@ -1243,8 +1446,13 @@ def main():
     z = Zumen(args.zumen)
     _, capabilities = z.call({"op": "capabilities"})
     files, broken = [], []
-    for path, data, source, terms, attribution in inputs(args.inputs):
+    found = inputs(args.inputs)
+    by_path = {path: data for path, data, *_ in found}
+    for path, data, source, terms, attribution in found:
         fmt = SUFFIXES[Path(path).suffix.lower()]
+        # 記号の定義の空間。DWG は、同じ図面を AutoCAD が書いた ASCII の DXF（<名前>_ascii.dxf。ハンドルが同じ）から当てる
+        twin = path[: -len(Path(path).suffix)] + "_ascii.dxf"
+        places = definition_places(data if fmt == "dxf" else by_path.get(twin, b"")) if fmt in ("dxf", "dwg") else {}
         (out / path).parent.mkdir(parents=True, exist_ok=True)
         (out / path).write_bytes(data)
         entry = {"path": path, "role": "input", "format": fmt, "source": source, "open": open_file(z, path, data)}
@@ -1271,7 +1479,11 @@ def main():
             continue
         for recipe in RECIPES:
             if recipe[2](Path(path).name, fmt):
-                files.append(run_recipe(z, out, entry, data, recipe, baseline))
+                record = run_recipe(z, out, entry, data, recipe, baseline, places)
+                files.append(record)
+                # 定義の中も読む組は、どの段も当てる。定義の空間を当てられずに段を飛ばすと、確かめる範囲が黙って減る
+                if recipe[0] in INSIDE:
+                    broken += [f"{record['path']}: 段 {s['step']} に当てる候補がない" for s in record["steps"] if s.get("skipped")]
         files.append(run_convert(z, out, entry, data, baseline))
         if source == "samples/dwg/zumen-arcdim-r2004.dwg":
             for layer in ("Walls", "外壁"):

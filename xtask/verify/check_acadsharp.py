@@ -161,7 +161,8 @@ def view(dump):
         d = entities.get(handle)
         if d is None:
             return None
-        return {"type": d["type"], "layer": d["layer"], "color": d["color"], "geometry": geometry(d)}
+        # owner は、図形を持つブロックの名前（記号の定義の中の要素を、定義の名前と照らす）
+        return {"type": d["type"], "layer": d["layer"], "color": d["color"], "line_type": d["line_type"], "owner": d["owner"], "geometry": geometry(d)}
 
     return {
         "tool": "ACadSharp",

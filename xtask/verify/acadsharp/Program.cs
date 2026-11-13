@@ -118,6 +118,8 @@ static class Dwg
             ["type"] = e.ObjectName,
             ["layer"] = e.Layer?.Name,
             ["color"] = Index(e.Color),
+            // 線種の名前（画層に従うなら ByLayer、記号の配置に従うなら ByBlock）
+            ["line_type"] = e.LineType?.Name,
             ["owner"] = owner,
         };
         switch (e)

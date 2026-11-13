@@ -307,6 +307,10 @@ jobs:
         # DXF・JWW は ACadSharp の段の成否によらず流す。DWG は acadsharp-dump.json があるときだけ確かめる
         if: ${{ !cancelled() && steps.make.outcome != 'skipped' }}
         run: python -I xtask/verify/test_source_kinds.py "$RUNNER_TEMP/verify"
+      - name: AutoCAD の照合のスクリプトの、出力の読みと値の比べ方を合成の入力で確かめる
+        # AutoCAD は CI にないので、照合そのものは AutoCAD のある端末の手元で流す（xtask/verify/README.md、#683）
+        if: ${{ !cancelled() }}
+        run: python -I -m unittest discover -s xtask/verify -p 'test_check_autocad.py'
       - name: 検証キットを成果物に置く
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

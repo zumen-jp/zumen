@@ -220,20 +220,39 @@ def point_style(edit):
     return mode, size
 
 
+def without_derived(view, want, got):
+    """外部の実装が自分で決め直す値（view の derived が、外部の実装の形 got から返すキー）を、比べる 2 つの形から除く。
+    除いた 2 つの形と、除いたキーの数を返す"""
+    derive = view.get("derived")
+    keys = derive(got) if derive else set()
+    if not keys:
+        return want, got, 0
+    return {k: v for k, v in want.items() if k not in keys}, {k: v for k, v in got.items() if k not in keys}, len(keys)
+
+
 def check_handles(entry, reading, counts, view):
     """DXF・DWG: 要素を出所のハンドルで外部の実装の図形と結び、画層の名前・図形の種類と画層と形と、書き戻した値を
     照らす。食い違いの文の一覧と、結んだハンドルの集まりを返す。
 
     view は外部の実装の読み。tool（名前）、layers（画層の名前の集まり）、layer_colors（小文字の画層の名前 → ACI）、
     entity（ハンドル → {type, layer, color, geometry} か None。geometry は図面モデルの形に直した値で、比べない種類は
-    None）、header（$PDMODE と $PDSIZE）"""
+    None）、header（$PDMODE と $PDSIZE）。次は、外部の実装が読めるときだけ持つ。creates_layers（真なら、図形が指す
+    だけの画層も外部の実装が作るので、zumen が読んだ画層のすべてと比べる）、derived（外部の実装の形 → その実装が自分で
+    決め直すので比べないキーの集まり）、entity の owner（図形を持つブロックの名前）と line_type（線種の名前。画層に
+    従うなら None）、layer_line_types（小文字の画層の名前 → 線種の名前）、layer_states（小文字の画層の名前 →
+    {visible, frozen, editable, printable}）、line_types（小文字の線種の名前 → {description, pattern}）、
+    text_styles（小文字の文字スタイルの名前 → {font, big_font, height, width, oblique, backward, upside_down,
+    vertical}）"""
     tool = view["tool"]
     failures = []
-    defined = {l["name"] for l in reading["tables"]["layers"] if l.get("defined")}
+    defined = {l["name"] for l in reading["tables"]["layers"] if l.get("defined") or view.get("creates_layers")}
     if view["layers"] != defined:
         failures.append(f"画層の名前が違う: zumen だけ {sorted(defined - view['layers'])}、{tool} だけ {sorted(view['layers'] - defined)}")
     seen = set()
-    for element in reading["entities"]:
+    # 記号の定義の中の要素（definitions。make.py が、定義の空間を指して読んだもの）は、種類と画層と、どの定義の中に
+    # あるか（外部の実装が owner で返すとき）を比べる
+    inside = {e["id"]: name for name, d in reading.get("definitions", {}).items() for e in d["entities"]}
+    for element in [*reading["entities"], *(e for d in reading.get("definitions", {}).values() for e in d["entities"])]:
         handle = handle_of(element)
         if handle is None:
             continue
@@ -250,6 +269,9 @@ def check_handles(entry, reading, counts, view):
         # 外部の実装に画層があれば、zumen の要素も持つ
         if e["layer"] is not None and (element.get("layer") or "").lower() != e["layer"].lower():
             failures.append(f"{where}: 画層が {element.get('layer')!r}、{tool} は {e['layer']!r}")
+        # 定義の空間の ID は、make.py が DXF の BLOCK のハンドルから当てたもの。名前の違う定義を読んでいないことを確かめる
+        if where in inside and e.get("owner") is not None and e["owner"].lower() != inside[where].lower():
+            failures.append(f"{where}: 記号の定義 {inside[where]!r} の中の要素が、{tool} では {e['owner']!r} の中にある")
         counts["elements"] += 1
         # 用紙の要素は mm に直しているので、形はモデル空間だけで比べる
         top = where.startswith("space/0/") and "/" not in where[len("space/0/") :]
@@ -257,18 +279,74 @@ def check_handles(entry, reading, counts, view):
             failures.append(f"{where}: {e['type']} {handle} の要素が形を持たない")
         if top and shape in TYPES and e["geometry"] is not None:
             counts["shapes"] += 1
-            for d in differences(element["geometry"], e["geometry"], both=True):
+            want, got, skipped = without_derived(view, element["geometry"], e["geometry"])
+            if skipped:
+                counts["derived"] += skipped
+            for d in differences(want, got, both=True):
                 failures.append(f"{where}（{e['type']} {handle}）{d}")
     if entry["role"] == "apply":
         failures += applied(entry, reading, counts, view)
     return failures, seen
 
 
+# DXF・DWG: 画層か、要素を置いた記号の配置に従う色（62 の 256 と 0）と線種の名前
+INHERITED_COLORS = {"layer": 256, "block": 0}
+INHERITED_LINE_TYPES = {"layer": "ByLayer", "block": "ByBlock"}
+
+
+def style_differences(want, e):
+    """足した要素の色と線種（変更の color・line_type）が、外部の実装の読み e と違う所。番号の色（aci）と、画層か記号の
+    配置に従う色、名前で指した線種と、従う線種だけを比べる。外部の実装の読みが線種を持たなければ、線種は比べない"""
+    out = []
+    color = want.get("color", {})
+    aci = color.get("aci", INHERITED_COLORS.get(color.get("inherit")))
+    if aci is not None and "rgb" not in color and e.get("color") != aci:
+        out.append(f"の色が ACI {e.get('color')}（期待は {aci}）")
+    line_type = want.get("line_type", {})
+    name = line_type.get("name", INHERITED_LINE_TYPES.get(line_type.get("inherit")))
+    if name is not None and "line_type" in e and (e["line_type"] or "ByLayer").lower() != name.lower():
+        out.append(f"の線種が {e['line_type'] or 'ByLayer'!r}（期待は {name!r}）")
+    return out
+
+
+def added_layer(edit, view):
+    """足した画層の線種と状態（表示・凍結・編集・印刷）が、外部の実装の読みと違う所。読みが持つ値だけを比べる"""
+    out = []
+    name = edit["name"].lower()
+    line_type = edit.get("line_type", {}).get("name")
+    got = view.get("layer_line_types", {}).get(name)
+    if line_type is not None and got is not None and got.lower() != line_type.lower():
+        out.append(f"足した画層 {edit['name']!r} の線種が {got!r}（期待は {line_type!r}）")
+    states = view.get("layer_states", {}).get(name, {})
+    for key in ("visible", "frozen", "editable", "printable"):
+        if key in edit and key in states and states[key] != edit[key]:
+            out.append(f"足した画層 {edit['name']!r} の {key} が {states[key]}（期待は {edit[key]}）")
+    return out
+
+
+def added_item(edit, items, word, tool, names=()):
+    """足した表の項目（線種か文字スタイル）の値が、外部の実装の読み items と違う所。変更に書いた値だけを比べる。names は、
+    フォントの指定（名前を、大文字と小文字を区別せずに比べる）のキー"""
+    got = items.get(edit["name"].lower())
+    if got is None:
+        return [f"足した{word} {edit['name']!r} が {tool} にない"]
+    want = {k: v for k, v in edit.items() if k in got and k not in names}
+    out = differences(want, got)
+    for key in names:
+        if key in edit and edit[key]["name"].lower() != got[key].lower():
+            out.append(f"/{key}: {got[key]!r}（期待は {edit[key]['name']!r}）")
+    return [f"足した{word} {edit['name']!r} の {d}" for d in out]
+
+
 def applied(entry, reading, counts, view):
-    """DXF・DWG の書き戻した値: 変更で決めた形と画層、足した画層の色、色と画層を変えた図形の色と画層、点の表し方"""
+    """DXF・DWG の書き戻した値: 変更で決めた形・画層・色・線種、足した画層の色・線種・状態、足した線種と文字スタイルの
+    値、色と画層を変えた図形の色と画層、点の表し方"""
     tool = view["tool"]
     failures = []
     by_id = {e["id"]: e for e in reading["entities"]}
+    # 記号の定義の中に足した要素は、定義の空間の読みにある
+    for d in reading.get("definitions", {}).values():
+        by_id.update((e["id"], e) for e in d["entities"])
     for step in entry["steps"]:
         for want in step.get("expect", []):
             element = by_id.get(want["id"])
@@ -280,10 +358,12 @@ def applied(entry, reading, counts, view):
                 failures.append(f"変更 {want['edit']} の要素 {want['id']} を {tool} で比べられない")
                 continue
             counts["expected"] += 1
-            for d in differences(want["geometry"], e["geometry"]):
+            expected, got, _ = without_derived(view, want["geometry"], e["geometry"])
+            for d in differences(expected, got):
                 failures.append(f"変更 {want['edit']}（{want['id']}）{d}")
             if "layer" in want and (e["layer"] or "").lower() != want["layer"].lower():
                 failures.append(f"変更 {want['edit']}（{want['id']}）の画層が {e['layer']!r}（期待は {want['layer']!r}）")
+            failures += [f"変更 {want['edit']}（{want['id']}）{d}" for d in style_differences(want, e)]
         for edit in step["edits"]:
             aci = edit.get("color", {}).get("aci")
             if edit["kind"] == "add_layer":
@@ -292,6 +372,11 @@ def applied(entry, reading, counts, view):
                     failures.append(f"足した画層 {edit['name']!r} が {tool} にない")
                 elif aci is not None and view["layer_colors"][name] != aci:
                     failures.append(f"足した画層 {edit['name']!r} の色が ACI {view['layer_colors'][name]}（期待は {aci}）")
+                failures += added_layer(edit, view)
+            if edit["kind"] == "add_line_type" and "line_types" in view:
+                failures += added_item(edit, view["line_types"], "線種", tool)
+            if edit["kind"] == "add_text_style" and "text_styles" in view:
+                failures += added_item(edit, view["text_styles"], "文字スタイル", tool, ("font", "big_font"))
             if edit["kind"] == "restyle" and aci is not None:
                 e = view["entity"](handle_of(by_id.get(edit["id"], {})) or "")
                 if e is None:
@@ -312,13 +397,14 @@ def applied(entry, reading, counts, view):
     return failures
 
 
-def run(folder, tool, version, formats, check, known=()):
+def run(folder, tool, version, formats, check, known=(), only=None, extra=None):
     """キットの formats の形式のファイルを check で照らし、<tool>.json に結果を書く。食い違いがあれば 1 を返す。
 
     check(folder, entry, reading, baseline, counts) は、食い違いの文の一覧と、ファイルの監査の結果（入力と
     比べる値）を返す。入力の監査の結果は、その入力から書いたファイルの baseline になる。known は、既知の食い違い
     （ファイルの道筋の初め, 食い違いの文の初め, issue, 当たるファイルの数）の一覧。当たる数が変わったら失敗にする
-    （直ったものと、同じ形で新たに食い違うものを知らせる）"""
+    （直ったものと、同じ形で新たに食い違うものを知らせる）。only は、照らすファイルを選ぶ関数（manifest の項目を
+    受けて真偽を返す）。選んだときは、既知の食い違いの数を確かめない。extra は、結果の JSON に足す項目"""
     manifest = json.loads((folder / "manifest.json").read_text(encoding="utf-8"))
     dropped = dropped_codes()
     # 表の code を書き誤ったら、照らす前に止める
@@ -333,6 +419,8 @@ def run(folder, tool, version, formats, check, known=()):
     for entry in manifest["files"]:
         # probe は apply の応答だけを残し、ファイルを持たない
         if entry["format"] not in formats or entry["role"] == "probe" or entry.get("status") not in (None, "ok"):
+            continue
+        if only is not None and not only(entry):
             continue
         reading_path = folder / "zumen" / (entry["path"] + ".json")
         reading = json.loads(reading_path.read_text(encoding="utf-8")) if reading_path.exists() else None
@@ -361,11 +449,11 @@ def run(folder, tool, version, formats, check, known=()):
         elif failures:
             known_files += 1
             print(f"{entry['path']}: 既知の食い違い（{', '.join(f'#{n}' for n in issues)}）", file=sys.stderr)
-    for k in known:
+    for k in known if only is None else ():
         if matched[k] != k[3]:
             failed += 1
             print(f"既知の食い違い「{k[1]}」（#{k[2]}）が {matched[k]} のファイルに出た（期待は {k[3]}）。直ったなら KNOWN を直す", file=sys.stderr)
-    out = {"tool": tool, "version": version, "counts": counts, "files": report}
+    out = {"tool": tool, "version": version, **(extra or {}), "counts": counts, "files": report}
     (folder / f"{tool}.json").write_text(json.dumps(out, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     shown = "・".join(f"{label} {counts[name]}" for name, label in LABELS.items())
     print(f"{tool} {version} で {len(report)} のファイルを照らした。{shown}。食い違い {failed}、既知の食い違い {known_files}")
