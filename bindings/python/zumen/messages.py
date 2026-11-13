@@ -43,6 +43,7 @@ Request = Union[
     "BuildingApplyRequest",
     "LiftRequest",
     "RenderRequest",
+    "RasterRequest",
 ]
 
 
@@ -1509,7 +1510,7 @@ class ApplyResult(_ApplyResultRequired, _ApplyResultOptional):
     "当てた変更の結果。書き戻したファイルは blobs の file で返す"
 
 
-# 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）または SIMA（.sim）、土木モデル（J-LandXML・IFC4.3・SIMA）からは SIMA（.sim）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA）からは GeoJSON または SIMA（.sim）を書く。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から。sima はマイナーバージョン 72 から
+# 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）または SIMA（.sim）、土木モデル（J-LandXML・IFC4.3・SIMA）からは SIMA（.sim）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA・GeoTIFF）からは GeoJSON または SIMA（.sim）を書く。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から。sima はマイナーバージョン 72 から
 _ConvertRequestRequired = TypedDict(
     "_ConvertRequestRequired",
     {
@@ -1542,7 +1543,7 @@ _ConvertRequestOptional = TypedDict(
 
 
 class ConvertRequest(_ConvertRequestRequired, _ConvertRequestOptional):
-    "開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）または SIMA（.sim）、土木モデル（J-LandXML・IFC4.3・SIMA）からは SIMA（.sim）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA）からは GeoJSON または SIMA（.sim）を書く。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から。sima はマイナーバージョン 72 から"
+    "開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）または SIMA（.sim）、土木モデル（J-LandXML・IFC4.3・SIMA）からは SIMA（.sim）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA・GeoTIFF）からは GeoJSON または SIMA（.sim）を書く。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から。sima はマイナーバージョン 72 から"
 
 
 # 書いた文書。書いたファイルは blobs の file で返す
@@ -2524,6 +2525,64 @@ _RenderResultOptional = TypedDict(
 
 class RenderResult(_RenderResultRequired, _RenderResultOptional):
     "画像の形式・サイズと、シーンの起点・単位・許容差、画像の blob の番号"
+
+
+# 開いた TIFF・GeoTIFF の指定ページの画素を RGBA8・非インターレースの PNG に復号し、画像の blob で返す（#877）。複数ページの TIFF は page で 1 から数えるページ番号を選ぶ（書かなければ 1）。max_side を指定すると、長辺が max_side 以下になるよう縦横比を保って縮小して返す（最大 16777216 画素）。マイナーバージョン 73 から
+_RasterRequestRequired = TypedDict(
+    "_RasterRequestRequired",
+    {
+        # メッセージのスキーマのメジャーバージョン。今は 1
+        "v": int,
+        # op の名前
+        "op": Literal["raster"],
+        # 文書の名前。open で作ったもの
+        "doc": str,
+    },
+)
+_RasterRequestOptional = TypedDict(
+    "_RasterRequestOptional",
+    {
+        # 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        "budget": "Budget",
+        # 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        "partial": bool,
+        # 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        "max_places": int,
+        # 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        "time_limit_ms": int,
+        # ページ番号（IFD の 1 から始まる番号）。書かなければ 1
+        "page": int,
+        # 出力の長辺の最大ピクセル数。元の長辺がこれを超えるときだけ縦横比を保って縮小する
+        "max_side": int,
+    },
+    total=False,
+)
+
+
+class RasterRequest(_RasterRequestRequired, _RasterRequestOptional):
+    "開いた TIFF・GeoTIFF の指定ページの画素を RGBA8・非インターレースの PNG に復号し、画像の blob で返す（#877）。複数ページの TIFF は page で 1 から数えるページ番号を選ぶ（書かなければ 1）。max_side を指定すると、長辺が max_side 以下になるよう縦横比を保って縮小して返す（最大 16777216 画素）。マイナーバージョン 73 から"
+
+
+# 復号した PNG 画像のサイズ・元のページサイズ・総ページ数と、画像の blob の番号
+RasterResult = TypedDict(
+    "RasterResult",
+    {
+        # 出力した PNG の幅（ピクセル）
+        "width": int,
+        # 出力した PNG の高さ（ピクセル）
+        "height": int,
+        # 元のページの幅（ピクセル）
+        "source_width": int,
+        # 元のページの高さ（ピクセル）
+        "source_height": int,
+        # 復号したページ番号（1 から）
+        "page": int,
+        # 文書に含まれる総ページ（IFD）数
+        "pages": int,
+        # PNG 画像の blob の番号（種類は image）。zm_take で取り出す
+        "blob": int,
+    },
+)
 
 
 # シーンの文字を置くフォント（決定 0188）
@@ -4942,7 +5001,7 @@ class CivilPosition(_CivilPositionRequired, _CivilPositionOptional):
     "線形の上の 1 つの所"
 
 
-# open で開いた点群（LAS・LAZ・PLY・XYZ・E57）の要約と、条件に合う点を返す。点は八分木の浅い段のノードから順に選ぶ（決定 0232）。点群のモジュールに置く（決定 0253）。マイナーバージョン 48 から
+# open で開いた点群（LAS・LAZ・PLY・XYZ・E57・GeoTIFF の DEM）の要約と、条件に合う点を返す。点は八分木の浅い段のノードから順に選ぶ（決定 0232）。点群のモジュールに置く（決定 0253）。マイナーバージョン 48 から
 _PointcloudRequestRequired = TypedDict(
     "_PointcloudRequestRequired",
     {
@@ -4977,7 +5036,7 @@ _PointcloudRequestOptional = TypedDict(
 
 
 class PointcloudRequest(_PointcloudRequestRequired, _PointcloudRequestOptional):
-    "open で開いた点群（LAS・LAZ・PLY・XYZ・E57）の要約と、条件に合う点を返す。点は八分木の浅い段のノードから順に選ぶ（決定 0232）。点群のモジュールに置く（決定 0253）。マイナーバージョン 48 から"
+    "open で開いた点群（LAS・LAZ・PLY・XYZ・E57・GeoTIFF の DEM）の要約と、条件に合う点を返す。点は八分木の浅い段のノードから順に選ぶ（決定 0232）。点群のモジュールに置く（決定 0253）。マイナーバージョン 48 から"
 
 
 # 地図の空間の箱。北・東・標高（メートル）の最小と最大
@@ -5519,7 +5578,7 @@ class DeliveryManaged(_DeliveryManagedRequired, _DeliveryManagedOptional):
     "管理ファイルの要約"
 
 
-# open で開いた CityGML・基盤地図情報（GML）・拡張 DM・GeoJSON・SIMA の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。土木・地理のモジュールに置く（決定 0253）。マイナーバージョン 52 から
+# open で開いた CityGML・基盤地図情報（GML）・拡張 DM・GeoJSON・SIMA・GeoTIFF の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。土木・地理のモジュールに置く（決定 0253）。マイナーバージョン 52 から
 _GeoRequestRequired = TypedDict(
     "_GeoRequestRequired",
     {
@@ -5527,7 +5586,7 @@ _GeoRequestRequired = TypedDict(
         "v": int,
         # op の名前
         "op": Literal["geo"],
-        # open で開いた CityGML・基盤地図情報（GML）・拡張 DM・GeoJSON・SIMA の文書の名前
+        # open で開いた CityGML・基盤地図情報（GML）・拡張 DM・GeoJSON・SIMA・GeoTIFF の文書の名前
         "doc": str,
     },
 )
@@ -5550,7 +5609,7 @@ _GeoRequestOptional = TypedDict(
 
 
 class GeoRequest(_GeoRequestRequired, _GeoRequestOptional):
-    "open で開いた CityGML・基盤地図情報（GML）・拡張 DM・GeoJSON・SIMA の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。土木・地理のモジュールに置く（決定 0253）。マイナーバージョン 52 から"
+    "open で開いた CityGML・基盤地図情報（GML）・拡張 DM・GeoJSON・SIMA・GeoTIFF の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。土木・地理のモジュールに置く（決定 0253）。マイナーバージョン 52 から"
 
 
 # 地理の領域モデルの要約
@@ -6017,6 +6076,7 @@ Operation = Literal[
     "building_apply",
     "lift",
     "render",
+    "raster",
 ]
 
 # op ごとの要求と結果の型の名前。結果は応答の result を typing.cast で読む型
@@ -6055,4 +6115,5 @@ OPERATIONS: Dict[str, Any] = {
     "building_apply": ("BuildingApplyRequest", "BuildingApplyResult"),
     "lift": ("LiftRequest", "LiftResult"),
     "render": ("RenderRequest", "RenderResult"),
+    "raster": ("RasterRequest", "RasterResult"),
 }

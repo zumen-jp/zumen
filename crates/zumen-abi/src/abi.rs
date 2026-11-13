@@ -8,7 +8,7 @@ pub const ABI_VERSION: u32 = 1;
 /// メッセージのスキーマのメジャーバージョン。要求と応答の `v`
 pub const SCHEMA_MAJOR: u64 = 1;
 /// メッセージのスキーマのマイナーバージョン。`capabilities` が返す
-pub const SCHEMA_MINOR: u64 = 72;
+pub const SCHEMA_MINOR: u64 = 73;
 
 /// 状態コード。理由は応答の診断で返す
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -98,10 +98,12 @@ pub struct Module {
 
 /// wasm のモジュール
 pub const MODULES: &[Module] = &[
-    // 図面（DXF・DWG・SXF・JWW・SIMA と、図面モデルのバイナリ）と、図面のレビュー。土木の線形（J-LandXML・SIMA）と、線形から作る図。電子納品の成果品・工事写真・ボーリング交換用データ
+    // 図面（DXF・DWG・SXF・JWW・SIMA・TIFF と、図面モデルのバイナリ）と、図面のレビュー。土木の線形（J-LandXML・SIMA）と、線形から作る図。電子納品の成果品・工事写真・ボーリング交換用データ
     Module {
         name: "drawing",
-        formats: &["dxf", "dwg", "sxf", "jww", "sima", "landxml", "drawing"],
+        formats: &[
+            "dxf", "dwg", "sxf", "jww", "sima", "tiff", "landxml", "drawing",
+        ],
         ops: &[
             "capabilities",
             "open",
@@ -126,6 +128,7 @@ pub const MODULES: &[Module] = &[
             "render",
             "calibrations",
             "measure_distance",
+            "raster",
         ],
     },
     // IFC と建物モデル、EXPRESS・IDS の照合と BCF。IFC4.3 の線形の上の所（決定 0253）
@@ -149,10 +152,12 @@ pub const MODULES: &[Module] = &[
             "civil",
         ],
     },
-    // 土木の線形（J-LandXML・SIMA）と、地理の地物（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA）
+    // 土木の線形（J-LandXML・SIMA）と、地理の地物（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA・GeoTIFF）
     Module {
         name: "civil",
-        formats: &["landxml", "citygml", "fgd", "extdm", "geojson", "sima"],
+        formats: &[
+            "landxml", "citygml", "fgd", "extdm", "geojson", "sima", "tiff",
+        ],
         ops: &[
             "capabilities",
             "open",
@@ -163,10 +168,10 @@ pub const MODULES: &[Module] = &[
             "geo",
         ],
     },
-    // 点群（LAS・LAZ・PLY・XYZ・E57）と、設計の TIN（J-LandXML）との差
+    // 点群（LAS・LAZ・PLY・XYZ・E57・GeoTIFF の DEM）と、設計の TIN（J-LandXML）との差
     Module {
         name: "pointcloud",
-        formats: &["las", "ply", "xyz", "e57", "landxml"],
+        formats: &["las", "ply", "xyz", "e57", "tiff", "landxml"],
         ops: &[
             "capabilities",
             "open",
@@ -213,6 +218,7 @@ pub fn has_op(op: &str) -> bool {
                 | "render"
                 | "calibrations"
                 | "measure_distance"
+                | "raster"
         ))
         || (cfg!(feature = "bim")
             && matches!(
@@ -257,16 +263,16 @@ pub fn has_format(format: &str) -> bool {
     (cfg!(feature = "drawing")
         && matches!(
             format,
-            "dxf" | "dwg" | "sxf" | "jww" | "sima" | "landxml" | "drawing"
+            "dxf" | "dwg" | "sxf" | "jww" | "sima" | "tiff" | "landxml" | "drawing"
         ))
         || (cfg!(feature = "bim") && matches!(format, "ifc"))
         || (cfg!(feature = "civil")
             && matches!(
                 format,
-                "landxml" | "citygml" | "fgd" | "extdm" | "geojson" | "sima"
+                "landxml" | "citygml" | "fgd" | "extdm" | "geojson" | "sima" | "tiff"
             ))
         || (cfg!(feature = "pointcloud")
-            && matches!(format, "las" | "ply" | "xyz" | "e57" | "landxml"))
+            && matches!(format, "las" | "ply" | "xyz" | "e57" | "tiff" | "landxml"))
 }
 
 /// 形式の判定。`rules` のどれかに合えば、`format` とする
@@ -400,6 +406,20 @@ pub const DETECTION: &[Detection] = &[
             zumen_sdk::Signature::XmlRoot {
                 name: b"GI",
                 namespace: Some(b"http://www.jsima.or.jp/JSIMASchema/201004"),
+            },
+        ],
+    },
+    Detection {
+        format: "tiff",
+        module: "drawing",
+        rules: &[
+            zumen_sdk::Signature::Bytes {
+                offset: 0,
+                bytes: b"II*\x00",
+            },
+            zumen_sdk::Signature::Bytes {
+                offset: 0,
+                bytes: b"MM\x00*",
             },
         ],
     },

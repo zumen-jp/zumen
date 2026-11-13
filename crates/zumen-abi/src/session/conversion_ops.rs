@@ -98,10 +98,27 @@ impl Session {
                     zumen_geojson::lower_to_geojson(&geo_model, cx).map_err(|_| Failed)
                 })?
             }
+            #[cfg(feature = "drawing")]
+            Document::Drawing { file, .. } if matches!(file.as_ref(), DrawingFile::Tiff(_)) => {
+                let DrawingFile::Tiff(tiff) = file.as_ref() else {
+                    return Err(fail(cx, unsupported(&request.doc, "convert")));
+                };
+                in_input_order(cx, |cx| {
+                    let geo_model: zumen_geo::GeoModel =
+                        zumen_sdk::Lift::lift(tiff, cx).map_err(|_| Failed)?;
+                    zumen_geojson::lower_to_geojson(&geo_model, cx).map_err(|_| Failed)
+                })?
+            }
             #[cfg(all(feature = "civil", not(feature = "drawing")))]
             Document::Sima(sima) => in_input_order(cx, |cx| {
                 let geo_model: zumen_geo::GeoModel =
                     zumen_sdk::Lift::lift(sima.as_ref(), cx).map_err(|_| Failed)?;
+                zumen_geojson::lower_to_geojson(&geo_model, cx).map_err(|_| Failed)
+            })?,
+            #[cfg(all(feature = "civil", not(feature = "drawing")))]
+            Document::Tiff(tiff) => in_input_order(cx, |cx| {
+                let geo_model: zumen_geo::GeoModel =
+                    zumen_sdk::Lift::lift(tiff.as_ref(), cx).map_err(|_| Failed)?;
                 zumen_geojson::lower_to_geojson(&geo_model, cx).map_err(|_| Failed)
             })?,
             _ => return Err(fail(cx, unsupported(&request.doc, "convert"))),
@@ -161,6 +178,11 @@ impl Session {
                 DrawingFile::Sima(sima) => {
                     zumen_sima::lower_sima_to_sima(sima, cx).map_err(|_| Failed)
                 }
+                DrawingFile::Tiff(tiff) => {
+                    let geo_model: zumen_geo::GeoModel =
+                        zumen_sdk::Lift::lift(tiff, cx).map_err(|_| Failed)?;
+                    zumen_sima::lower_geo_to_sima(&geo_model, cx).map_err(|_| Failed)
+                }
                 _ => {
                     let drawing = file.lift(cx).map_err(|_| Failed)?;
                     zumen_sima::lower_drawing_to_sima(&drawing, cx).map_err(|_| Failed)
@@ -169,6 +191,12 @@ impl Session {
             #[cfg(all(feature = "civil", not(feature = "drawing")))]
             Document::Sima(sima) => in_input_order(cx, |cx| {
                 zumen_sima::lower_sima_to_sima(sima.as_ref(), cx).map_err(|_| Failed)
+            })?,
+            #[cfg(all(feature = "civil", not(feature = "drawing")))]
+            Document::Tiff(tiff) => in_input_order(cx, |cx| {
+                let geo_model: zumen_geo::GeoModel =
+                    zumen_sdk::Lift::lift(tiff.as_ref(), cx).map_err(|_| Failed)?;
+                zumen_sima::lower_geo_to_sima(&geo_model, cx).map_err(|_| Failed)
             })?,
             _ => return Err(fail(cx, unsupported(&request.doc, "convert"))),
         };

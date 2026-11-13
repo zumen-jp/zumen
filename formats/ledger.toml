@@ -480,6 +480,33 @@ url = "https://www.gsi.go.jp/GIS/jpgis/standardSchemas2.1_2009-05/jpsRoot.xsd"
 checked = "2026-11-13"
 note = "SIMA の JPGIS 版 XML Schema（jsima102.xsd）が参照する空間・基本型の標準スキーマ。ログインや同意の操作なしに無償で公開されており、実装を制限する記述はない。XSD ファイル自体は同梱しない"
 
+[specs.tiff_6_0]
+title = "TIFF Revision 6.0"
+publisher = "Adobe Developers Association"
+version = "Revision 6.0 Final（1992-06-03）"
+access = "public"
+url = "https://www.itu.int/itudoc/itu-t/com16/tiff-fx/docs/tiff6.pdf"
+checked = "2026-11-13"
+note = "冒頭の TIFF Specification Notice が、仕様に準拠するソフトウェアをロイヤリティなしで作る許諾を示す。ITU-T が無償で公開する PDF で確かめた。仕様の本文は同梱しない"
+
+[specs.geotiff_1_1]
+title = "OGC GeoTIFF Standard（OGC 19-008r4）"
+publisher = "Open Geospatial Consortium"
+version = "1.1（2019-09-14）"
+access = "public"
+url = "https://docs.ogc.org/is/19-008r4/19-008r4.html"
+checked = "2026-11-13"
+note = "OGC の公開の実装標準。ログインや同意なしに無償で読め、誰もがロイヤリティなしで実装できるとする。仕様の本文は同梱しない"
+
+[specs.itu_t_6]
+title = "ITU-T Recommendation T.6 Facsimile coding schemes and coding control functions for Group 4 facsimile apparatus"
+publisher = "ITU-T"
+version = "11/1988"
+access = "public"
+url = "https://www.itu.int/rec/T-REC-T.6"
+checked = "2026-11-13"
+note = "無償で配る ITU-T の勧告（ISO・IEC との共同の有償文書ではない）。TIFF 6.0 の Compression = 4（CCITT Group 4）が参照する 2 次元符号化を定める。仕様の本文は同梱しない"
+
 [specs.kokuban_jcomsia]
 title = "デジタル工事写真の小黒板情報連携機能の実装規約と信憑性確認（改ざん検知機能）"
 publisher = "一般社団法人施工管理ソフトウェア産業協会（J-COMSIA）"
@@ -1303,3 +1330,30 @@ rights-note = "IETF の RFC で、誰でも読める。実装を制限する記�
 place = "none"
 issues = ["zumen-jp/zumen#391"]
 notes = "汎用の区切りテキストは各言語・アプリの側で扱い、コアでは実装しない"
+
+[formats.tiff]
+name = "TIFF・GeoTIFF"
+family = "tiff"
+domains = ["drawing", "geo", "pointcloud"]
+specs = ["tiff_6_0", "geotiff_1_1", "itu_t_6"]
+rights = "public"
+rights-note = "Adobe の TIFF 6.0 は仕様に準拠するソフトウェアをロイヤリティなしで作る許諾を明記し、OGC の GeoTIFF 1.1（19-008r4）と ITU-T T.6 も無償で公開されており実装を制限しない。LZW の基本特許も満了している"
+place = "core"
+basis = ["spec", "inferred"]
+known-crates = ["tiff", "geotiff"]
+verify = ["tifffile", "Pillow", "QGIS"]
+samples = ["再配布条件と個人情報の不在を確認した第三者の公開サンプルはまだ置いていない（#504）。テストの中で組み立てた TIFF・GeoTIFF と、Pillow 13.0.0・tifffile 2026.11.12 が生成した合成画像・DEM 格子で確かめる"]
+docs = ["docs/formats/tiff.md"]
+issues = ["zumen-jp/zumen#504", "zumen-jp/zumen#877"]
+
+[formats.tiff.read]
+level = "synthetic"
+scope = "テストの中で組み立てたリトルエンディアン・ビッグエンディアンのクラシック TIFF と GeoTIFF（crates/zumen-tiff/tests/tiff.rs）で、複数 IFD・循環 IFD の検出、ストリップ・タイル配置、Chunky・Planar 配置、無圧縮・PackBits・LZW（Predictor=2 を含む）・Deflate（8・32946、Predictor=2 を含む）・CCITT Group 4（FillOrder 1・2）、2 値・グレースケール・パレット・RGB・RGBA・単バンド DEM（整数・浮動小数点、GDAL_NODATA 除外）、GeoTIFF 1.1 の GeoKey・アフィン変換（PixelIsArea・PixelIsPoint、平面直角座標系・経緯度）、Drawing2D・GeoModel・PointCloud への持ち上げ、raster による PNG 書き出しと最大辺縮小、展開爆弾に対する DecodedBytes 予算停止・レコード範囲の非重複・決定性を確かめた。Pillow 13.0.0 と tifffile 2026.11.12 が生成した各圧縮方式・タイル・複数ページ・GeoTIFF オルソ・DEM 格子も crates/zumen-tiff/tests/external.rs（xtask/verify/tiff）で全画素・座標・点群標高を照合したが、自前のスクリプトで作った合成ファイルなので段は synthetic とする。第三者の公開サンプルと QGIS での照合はまだ（#504）"
+checked = "2026-11-13"
+
+[[formats.tiff.evidence]]
+title = "OGC GeoTIFF Standard の案内ページ"
+url = "https://www.ogc.org/standards/geotiff/"
+checked = "2026-11-13"
+note = "OGC 19-008r4（GeoTIFF 1.1）を無償の公開標準として案内する"
+

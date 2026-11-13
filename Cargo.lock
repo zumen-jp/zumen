@@ -657,6 +657,7 @@ dependencies = [
  "zumen-sima",
  "zumen-sxf",
  "zumen-text",
+ "zumen-tiff",
  "zumen-xyz",
  "zumen-zip",
 ]
@@ -1112,6 +1113,20 @@ dependencies = [
  "libm",
  "zumen-base",
  "zumen-drawing",
+]
+
+[[package]]
+name = "zumen-tiff"
+version = "0.2.0"
+dependencies = [
+ "libm",
+ "zumen-base",
+ "zumen-crs",
+ "zumen-drawing",
+ "zumen-geo",
+ "zumen-json",
+ "zumen-pointcloud",
+ "zumen-sdk",
 ]
 
 [[package]]

@@ -4962,6 +4962,94 @@ pub const SXF_SFIG_MISSING: Code = Code::new(
     &["name"],
 );
 
+/// 対応していない圧縮方式の IFD なので、そのページの画素を読めなかった
+///
+/// `tiff.compression.unsupported`（0.3.0 から）
+pub const TIFF_COMPRESSION_UNSUPPORTED: Code = Code::new(
+    "tiff.compression.unsupported",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("compression", ParamType::UInt)],
+    &["compression"],
+);
+
+/// GeoTIFF の座標参照系がないので、座標系を不明にし、地理・点群の領域モデルには幾何を持たせなかった
+///
+/// `tiff.crs.missing`（0.3.0 から）
+pub const TIFF_CRS_MISSING: Code = Code::new(
+    "tiff.crs.missing",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[],
+    &[],
+);
+
+/// GeoTIFF の座標参照系 EPSG コードを扱えないので、座標系を不明にした
+///
+/// `tiff.crs.unsupported`（0.3.0 から）
+pub const TIFF_CRS_UNSUPPORTED: Code = Code::new(
+    "tiff.crs.unsupported",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("epsg", ParamType::UInt)],
+    &["epsg"],
+);
+
+/// クラシック TIFF（TIFF 6.0）として読めないか、ヘッダー・IFD・ストリップ・タイル・圧縮列が壊れている
+///
+/// `tiff.file.invalid`（0.3.0 から）
+pub const TIFF_FILE_INVALID: Code = Code::new(
+    "tiff.file.invalid",
+    Severity::Error,
+    None,
+    &[Param::new("offset", ParamType::UInt)],
+    &[],
+);
+
+/// 対応していない色空間・ビット深さ・予測子・配置の IFD なので、そのページまたは要素を移さなかった
+///
+/// `tiff.format.unsupported`（0.3.0 から）
+pub const TIFF_FORMAT_UNSUPPORTED: Code = Code::new(
+    "tiff.format.unsupported",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("reason", ParamType::Key)],
+    &["reason"],
+);
+
+/// 単バンドの数値標高格子または平面直角座標の格子条件を満たさないので、点群モデルに持ち上げなかった
+///
+/// `tiff.grid.unsupported`（0.3.0 から）
+pub const TIFF_GRID_UNSUPPORTED: Code = Code::new(
+    "tiff.grid.unsupported",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("reason", ParamType::Key)],
+    &["reason"],
+);
+
+/// GDAL_NODATA タグの文字列を数値として読めないので、欠損値の除外に使わなかった
+///
+/// `tiff.nodata.invalid`（0.3.0 から）
+pub const TIFF_NODATA_INVALID: Code = Code::new(
+    "tiff.nodata.invalid",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("value", ParamType::Text)],
+    &["value"],
+);
+
+/// 解釈しない TIFF・GeoTIFF タグを読み飛ばした
+///
+/// `tiff.tag.unsupported`（0.3.0 から）
+pub const TIFF_TAG_UNSUPPORTED: Code = Code::new(
+    "tiff.tag.unsupported",
+    Severity::Info,
+    Some(Fidelity::Dropped),
+    &[Param::new("tag", ParamType::UInt)],
+    &["tag"],
+);
+
 /// セルの参照か共有文字列の番号が読めないので、そのセルか結合セルを飛ばした（#391）
 ///
 /// `xlsx.cell.invalid`（0.2.0 から）
@@ -5624,6 +5712,14 @@ pub const ALL: &[Code] = &[
     SXF_SCHEMA_UNSUPPORTED,
     SXF_SFIG_CYCLE_INVALID,
     SXF_SFIG_MISSING,
+    TIFF_COMPRESSION_UNSUPPORTED,
+    TIFF_CRS_MISSING,
+    TIFF_CRS_UNSUPPORTED,
+    TIFF_FILE_INVALID,
+    TIFF_FORMAT_UNSUPPORTED,
+    TIFF_GRID_UNSUPPORTED,
+    TIFF_NODATA_INVALID,
+    TIFF_TAG_UNSUPPORTED,
     XLSX_CELL_INVALID,
     XLSX_FILE_INVALID,
     XLSX_PART_INVALID,

@@ -114,6 +114,11 @@ enum Document {
     Geo(Box<zumen_geo::GeoModel>),
     #[cfg(all(feature = "civil", not(feature = "drawing")))]
     Sima(Box<zumen_sima::SimaFile>),
+    #[cfg(all(
+        any(feature = "civil", feature = "pointcloud"),
+        not(feature = "drawing")
+    ))]
+    Tiff(Box<zumen_tiff::TiffFile>),
     Cloud(Box<zumen_pointcloud::PointCloud>),
 }
 
@@ -133,6 +138,11 @@ impl From<formats::ReadDocument> for Document {
             formats::ReadDocument::Geo(model) => Self::Geo(model),
             #[cfg(all(feature = "civil", not(feature = "drawing")))]
             formats::ReadDocument::Sima(file) => Self::Sima(file),
+            #[cfg(all(
+                any(feature = "civil", feature = "pointcloud"),
+                not(feature = "drawing")
+            ))]
+            formats::ReadDocument::Tiff(file) => Self::Tiff(file),
             formats::ReadDocument::Cloud(cloud) => Self::Cloud(cloud),
         }
     }
@@ -412,6 +422,8 @@ impl Session {
             #[cfg(feature = "drawing")]
             Request::Render(request) => self.render(request, &mut cx).map(|r| Box::new(r) as _),
             #[cfg(feature = "drawing")]
+            Request::Raster(request) => self.raster(request, &mut cx).map(|r| Box::new(r) as _),
+            #[cfg(feature = "drawing")]
             Request::Check(request) => self.check(request, &mut cx).map(|r| Box::new(r) as _),
             #[cfg(feature = "bim")]
             Request::Validate(request) => {
@@ -661,6 +673,7 @@ fn common(request: &Request) -> &RequestCommon {
         Request::MeasureDistance(request) => &request.request_common,
         Request::Scene(request) => &request.request_common,
         Request::Render(request) => &request.request_common,
+        Request::Raster(request) => &request.request_common,
         Request::Check(request) => &request.request_common,
         Request::Validate(request) => &request.request_common,
         Request::ReviewCarry(request) => &request.request_common,

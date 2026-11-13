@@ -29,7 +29,7 @@ pub enum Request {
     MeasureDistance(MeasureDistanceRequest),
     /// 開いた文書に、変更の一覧を当てて書き戻す（決定 0139・0156）。要素は、entities が返す ID とハッシュで指す。どれか 1 つでも当てられなければ、何も変えない。当てたら、文書を書き戻したものに替え、書き戻したファイルを blobs で返す。マイナーバージョン 7 から
     Apply(ApplyRequest),
-    /// 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）または SIMA（.sim）、土木モデル（J-LandXML・IFC4.3・SIMA）からは SIMA（.sim）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA）からは GeoJSON または SIMA（.sim）を書く。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から。sima はマイナーバージョン 72 から
+    /// 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）または SIMA（.sim）、土木モデル（J-LandXML・IFC4.3・SIMA）からは SIMA（.sim）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA・GeoTIFF）からは GeoJSON または SIMA（.sim）を書く。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から。sima はマイナーバージョン 72 から
     Convert(ConvertRequest),
     /// 開いた図面を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。今は DXF への変換だけ。マイナーバージョン 66 から
     ConvertEstimate(ConvertEstimateRequest),
@@ -59,13 +59,13 @@ pub enum Request {
     BcfWrite(BcfWriteRequest),
     /// 線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。線形は、要求に書く（alignment）か、open で開いた J-LandXML・IFC4.3・SIMA の文書（doc）の線形を id で指す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。doc を渡せば、文書の線形と地表面の要約も返す。図面・BIM・土木地理・点群のモジュールに置く（決定 0253）。マイナーバージョン 46 から（doc と id はマイナーバージョン 47 から）
     Civil(CivilRequest),
-    /// open で開いた点群（LAS・LAZ・PLY・XYZ・E57）の要約と、条件に合う点を返す。点は八分木の浅い段のノードから順に選ぶ（決定 0232）。点群のモジュールに置く（決定 0253）。マイナーバージョン 48 から
+    /// open で開いた点群（LAS・LAZ・PLY・XYZ・E57・GeoTIFF の DEM）の要約と、条件に合う点を返す。点は八分木の浅い段のノードから順に選ぶ（決定 0232）。点群のモジュールに置く（決定 0253）。マイナーバージョン 48 から
     Pointcloud(PointcloudRequest),
     /// 開いた点群と、土木の文書の TIN の標高の差を求め、プロファイルの surface-elevation の規則の区分ごとに集計して、規格値と比べる（決定 0234）。点群のモジュールに置く（決定 0253）。マイナーバージョン 50 から
     Deviation(DeviationRequest),
     /// open で開いた J-LandXML・IFC4.3・SIMA の文書の線形から、平面図・縦断図・横断図の図面モデルを作り（決定 0231）、用紙を 1 枚選んで新しい DXF の文書として開く（決定 0239）。尺度・文字の高さ・測点の間隔は、プロファイルを渡せば語彙 civil-drawing と text-height から読み、渡さなければ作図の慣習の値にする。縦断図は用紙の要素に焼き込む（決定 0238）。書いたファイルは blobs で返す。作った文書は scene と check に渡せる。図面のモジュールに置く。マイナーバージョン 51 から
     CivilDrawing(CivilDrawingRequest),
-    /// open で開いた CityGML・基盤地図情報（GML）・拡張 DM・GeoJSON・SIMA の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。土木・地理のモジュールに置く（決定 0253）。マイナーバージョン 52 から
+    /// open で開いた CityGML・基盤地図情報（GML）・拡張 DM・GeoJSON・SIMA・GeoTIFF の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。土木・地理のモジュールに置く（決定 0253）。マイナーバージョン 52 から
     Geo(GeoRequest),
     /// 電子納品の成果品（決定 0241）を読み、管理ファイルの要約を返す。成果品は、zm_push で渡した入力のうち root の下にある名前の集まりか、ZIP の入力（archive）で渡す。profiles と profile を渡せば、プロファイルの delivery- で始まる照合の種類の規則と照らし、指摘を返す（#384）。ほかの種類の規則は飛ばす。図面のモジュールに置く。マイナーバージョン 53 から
     DeliveryCheck(DeliveryCheckRequest),
@@ -79,6 +79,8 @@ pub enum Request {
     Lift(LiftRequest),
     /// 開いた文書を scene と同じ起点・配置・フォントで 2D のシーンにし、画像を blob で返す（決定 0272・0275・0277）。字形の輪郭だけを描き、字形のない空でない文字・外部画像・名前付きの点記号は元の ID と unit を診断して描かない。シーン生成と描画で同じ予算と中断の合図を使い、失敗では画像を返さない。PNG は最大 16777216 画素で、変換後の座標は絶対値 2^31 ピクセル以内。SVG はマイナーバージョン 64、PNG は 65 から
     Render(RenderRequest),
+    /// 開いた TIFF・GeoTIFF の指定ページの画素を RGBA8・非インターレースの PNG に復号し、画像の blob で返す（#877）。複数ページの TIFF は page で 1 から数えるページ番号を選ぶ（書かなければ 1）。max_side を指定すると、長辺が max_side 以下になるよう縦横比を保って縮小して返す（最大 16777216 画素）。マイナーバージョン 73 から
+    Raster(RasterRequest),
 }
 
 impl Request {
@@ -118,6 +120,7 @@ impl Request {
         "building_apply",
         "lift",
         "render",
+        "raster",
     ];
 
     /// タグのフィールド（`op`）の値
@@ -157,6 +160,7 @@ impl Request {
             Self::BuildingApply(_) => "building_apply",
             Self::Lift(_) => "lift",
             Self::Render(_) => "render",
+            Self::Raster(_) => "raster",
         }
     }
 }
@@ -211,6 +215,7 @@ impl FromJson for Request {
             }
             "lift" => Self::Lift(LiftRequest::read_fields(&mut object)?),
             "render" => Self::Render(RenderRequest::read_fields(&mut object)?),
+            "raster" => Self::Raster(RasterRequest::read_fields(&mut object)?),
             other => return Err(Invalid::new(Problem::Tag(other.to_string())).in_key("op")),
         };
         object.finish()?;
@@ -255,6 +260,7 @@ impl ToJson for Request {
             Self::BuildingApply(value) => value.to_json(out),
             Self::Lift(value) => value.to_json(out),
             Self::Render(value) => value.to_json(out),
+            Self::Raster(value) => value.to_json(out),
         }
     }
 }
@@ -4458,7 +4464,7 @@ impl ToJson for ApplyResult {
     }
 }
 
-/// 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）または SIMA（.sim）、土木モデル（J-LandXML・IFC4.3・SIMA）からは SIMA（.sim）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA）からは GeoJSON または SIMA（.sim）を書く。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から。sima はマイナーバージョン 72 から
+/// 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）または SIMA（.sim）、土木モデル（J-LandXML・IFC4.3・SIMA）からは SIMA（.sim）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA・GeoTIFF）からは GeoJSON または SIMA（.sim）を書く。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から。sima はマイナーバージョン 72 から
 #[derive(Clone, Debug, PartialEq)]
 pub struct ConvertRequest {
     /// `request_common` のフィールド
@@ -7374,6 +7380,144 @@ impl FromJson for RenderResult {
 }
 
 impl ToJson for RenderResult {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 開いた TIFF・GeoTIFF の指定ページの画素を RGBA8・非インターレースの PNG に復号し、画像の blob で返す（#877）。複数ページの TIFF は page で 1 から数えるページ番号を選ぶ（書かなければ 1）。max_side を指定すると、長辺が max_side 以下になるよう縦横比を保って縮小して返す（最大 16777216 画素）。マイナーバージョン 73 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct RasterRequest {
+    /// `request_common` のフィールド
+    pub request_common: RequestCommon,
+    /// 文書の名前。open で作ったもの
+    pub doc: String,
+    /// ページ番号（IFD の 1 から始まる番号）。書かなければ 1
+    pub page: Option<u64>,
+    /// 出力の長辺の最大ピクセル数。元の長辺がこれを超えるときだけ縦横比を保って縮小する
+    pub max_side: Option<u64>,
+}
+
+impl RasterRequest {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let request_common = RequestCommon::read_fields(object)?;
+        object.constant("op", "raster")?;
+        let doc = object.required("doc", json::string)?;
+        let page = object.optional("page", |value| json::uint(value, 1, 9007199254740991))?;
+        let max_side = object.optional("max_side", |value| json::uint(value, 1, 16384))?;
+        Ok(Self {
+            request_common,
+            doc,
+            page,
+            max_side,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        self.request_common.write_fields(out);
+        out.key("op");
+        out.string("raster");
+        out.key("doc");
+        out.string(&self.doc);
+        if let Some(value) = &self.page {
+            out.key("page");
+            out.uint(*value);
+        }
+        if let Some(value) = &self.max_side {
+            out.key("max_side");
+            out.uint(*value);
+        }
+    }
+}
+
+impl FromJson for RasterRequest {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for RasterRequest {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 復号した PNG 画像のサイズ・元のページサイズ・総ページ数と、画像の blob の番号
+#[derive(Clone, Debug, PartialEq)]
+pub struct RasterResult {
+    /// 出力した PNG の幅（ピクセル）
+    pub width: u64,
+    /// 出力した PNG の高さ（ピクセル）
+    pub height: u64,
+    /// 元のページの幅（ピクセル）
+    pub source_width: u64,
+    /// 元のページの高さ（ピクセル）
+    pub source_height: u64,
+    /// 復号したページ番号（1 から）
+    pub page: u64,
+    /// 文書に含まれる総ページ（IFD）数
+    pub pages: u64,
+    /// PNG 画像の blob の番号（種類は image）。zm_take で取り出す
+    pub blob: u64,
+}
+
+impl RasterResult {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let width = object.required("width", |value| json::uint(value, 1, 4294967295))?;
+        let height = object.required("height", |value| json::uint(value, 1, 4294967295))?;
+        let source_width =
+            object.required("source_width", |value| json::uint(value, 1, 4294967295))?;
+        let source_height =
+            object.required("source_height", |value| json::uint(value, 1, 4294967295))?;
+        let page = object.required("page", |value| json::uint(value, 1, 9007199254740991))?;
+        let pages = object.required("pages", |value| json::uint(value, 1, 9007199254740991))?;
+        let blob = object.required("blob", |value| json::uint(value, 0, 9007199254740991))?;
+        Ok(Self {
+            width,
+            height,
+            source_width,
+            source_height,
+            page,
+            pages,
+            blob,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("width");
+        out.uint(self.width);
+        out.key("height");
+        out.uint(self.height);
+        out.key("source_width");
+        out.uint(self.source_width);
+        out.key("source_height");
+        out.uint(self.source_height);
+        out.key("page");
+        out.uint(self.page);
+        out.key("pages");
+        out.uint(self.pages);
+        out.key("blob");
+        out.uint(self.blob);
+    }
+}
+
+impl FromJson for RasterResult {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for RasterResult {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);
@@ -14070,7 +14214,7 @@ impl ToJson for CivilPosition {
     }
 }
 
-/// open で開いた点群（LAS・LAZ・PLY・XYZ・E57）の要約と、条件に合う点を返す。点は八分木の浅い段のノードから順に選ぶ（決定 0232）。点群のモジュールに置く（決定 0253）。マイナーバージョン 48 から
+/// open で開いた点群（LAS・LAZ・PLY・XYZ・E57・GeoTIFF の DEM）の要約と、条件に合う点を返す。点は八分木の浅い段のノードから順に選ぶ（決定 0232）。点群のモジュールに置く（決定 0253）。マイナーバージョン 48 から
 #[derive(Clone, Debug, PartialEq)]
 pub struct PointcloudRequest {
     /// `request_common` のフィールド
@@ -15600,12 +15744,12 @@ impl ToJson for DeliveryManaged {
     }
 }
 
-/// open で開いた CityGML・基盤地図情報（GML）・拡張 DM・GeoJSON・SIMA の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。土木・地理のモジュールに置く（決定 0253）。マイナーバージョン 52 から
+/// open で開いた CityGML・基盤地図情報（GML）・拡張 DM・GeoJSON・SIMA・GeoTIFF の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。土木・地理のモジュールに置く（決定 0253）。マイナーバージョン 52 から
 #[derive(Clone, Debug, PartialEq)]
 pub struct GeoRequest {
     /// `request_common` のフィールド
     pub request_common: RequestCommon,
-    /// open で開いた CityGML・基盤地図情報（GML）・拡張 DM・GeoJSON・SIMA の文書の名前
+    /// open で開いた CityGML・基盤地図情報（GML）・拡張 DM・GeoJSON・SIMA・GeoTIFF の文書の名前
     pub doc: String,
     /// 中身を返す地物の ID
     pub id: Option<String>,

@@ -13,6 +13,7 @@ use zumen_sdk::{Codec, Lift, Registration, Rights};
 use zumen_sima::{Sima, SimaFile};
 use zumen_sxf::saf::AttributeFile;
 use zumen_sxf::{Sxf, SxfFile};
+use zumen_tiff::{Tiff, TiffFile};
 
 use crate::building;
 #[cfg(any(
@@ -42,6 +43,7 @@ pub(crate) const DRAWING: &[Registration] = &[
     Registration::of::<Sxf>(Rights::Public, "sxf", true, 2),
     Registration::of::<Jww>(Rights::Public, "jww", true, 1),
     Registration::of::<Sima>(Rights::Public, "sima", true, 1),
+    Registration::of::<Tiff>(Rights::Public, "tiff", false, 1),
 ];
 
 /// 図面でない形式（土木・地理・点群）
@@ -72,6 +74,8 @@ pub(crate) enum DrawingFile {
     Jww(JwwFile),
     #[cfg(feature = "drawing")]
     Sima(SimaFile),
+    #[cfg(feature = "drawing")]
+    Tiff(TiffFile),
     /// プラグインの形式（決定 0243）。読むだけで、図面モデルを持つ
     Plugin(Registration, Drawing2D),
     /// 図面モデルのバイナリ（決定 0247）。lift が書いた図面を、元の文書の形式・系統のまま、読むだけの文書にする
@@ -92,6 +96,8 @@ impl DrawingFile {
             DrawingFile::Jww(_) => Jww::FORMAT,
             #[cfg(feature = "drawing")]
             DrawingFile::Sima(_) => Sima::FORMAT,
+            #[cfg(feature = "drawing")]
+            DrawingFile::Tiff(_) => Tiff::FORMAT,
             DrawingFile::Plugin(registration, _) => registration.format,
             DrawingFile::Lifted(source, _) => &source.format,
         }
@@ -108,6 +114,8 @@ impl DrawingFile {
             DrawingFile::Jww(_) => "jww",
             #[cfg(feature = "drawing")]
             DrawingFile::Sima(_) => "sima",
+            #[cfg(feature = "drawing")]
+            DrawingFile::Tiff(_) => "tiff",
             DrawingFile::Plugin(registration, _) => registration.family,
             DrawingFile::Lifted(source, _) => &source.family,
         }
@@ -128,6 +136,8 @@ impl DrawingFile {
             DrawingFile::Jww(file) => file.lift(cx).map(Cow::Owned),
             #[cfg(feature = "drawing")]
             DrawingFile::Sima(file) => file.lift(cx).map(Cow::Owned),
+            #[cfg(feature = "drawing")]
+            DrawingFile::Tiff(file) => file.lift(cx).map(Cow::Owned),
             DrawingFile::Plugin(_, drawing) | DrawingFile::Lifted(_, drawing) => {
                 Ok(Cow::Borrowed(drawing))
             }
@@ -149,6 +159,11 @@ pub(crate) enum ReadDocument {
     Geo(Box<zumen_geo::GeoModel>),
     #[cfg(all(feature = "civil", not(feature = "drawing")))]
     Sima(Box<SimaFile>),
+    #[cfg(all(
+        any(feature = "civil", feature = "pointcloud"),
+        not(feature = "drawing")
+    ))]
+    Tiff(Box<TiffFile>),
     Cloud(Box<zumen_pointcloud::PointCloud>),
 }
 
@@ -322,6 +337,20 @@ pub(crate) fn read(
             ReadDocument::Sima(Box::new(file)),
         ));
     }
+    // 土木・地理・点群のモジュールだけでも TIFF・GeoTIFF を開けるようにする（#877）
+    #[cfg(all(
+        any(feature = "civil", feature = "pointcloud"),
+        not(feature = "drawing")
+    ))]
+    if Tiff::SIGNATURES.iter().any(|rule| rule.matches(bytes)) {
+        let file = Tiff::read(bytes, cx).map_err(|_| Failed)?;
+        let _ = Hash::document_checked(bytes, cx).map_err(|stop| stopped(cx, stop))?;
+        return Ok(Opened::document(
+            name,
+            Tiff::FORMAT,
+            ReadDocument::Tiff(Box::new(file)),
+        ));
+    }
     // J-LandXML は XML の根で見分ける（決定 0230）。図面・土木地理・点群のどのモジュールも読む（決定 0253）
     #[cfg(any(feature = "drawing", feature = "civil", feature = "pointcloud"))]
     if let Some(model) = civil::read(bytes, cx) {
@@ -416,6 +445,8 @@ fn read_drawing(bytes: &[u8], cx: &mut Cx<'_>) -> Result<Option<DrawingFile>, Fa
         DrawingFile::Jww(Jww::read(bytes, cx).map_err(|_| Failed)?)
     } else if format == Some(Sima::FORMAT) {
         DrawingFile::Sima(Sima::read(bytes, cx).map_err(|_| Failed)?)
+    } else if format == Some(Tiff::FORMAT) {
+        DrawingFile::Tiff(Tiff::read(bytes, cx).map_err(|_| Failed)?)
     } else if let Some((sxf, archive)) = packed::read(bytes, cx)? {
         // P2Z・SFZ（#385）。SXF の項目のない ZIP は、ifcZIP などとして後で試す
         let file = Sxf::read(&sxf, cx).map_err(|_| Failed)?;

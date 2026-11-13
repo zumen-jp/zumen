@@ -74,6 +74,7 @@ namespace Zumen.Messages
             ["building_apply"] = typeof(BuildingApplyRequest),
             ["lift"] = typeof(LiftRequest),
             ["render"] = typeof(RenderRequest),
+            ["raster"] = typeof(RasterRequest),
         };
     }
 
@@ -2439,7 +2440,7 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）または SIMA（.sim）、土木モデル（J-LandXML・IFC4.3・SIMA）からは SIMA（.sim）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA）からは GeoJSON または SIMA（.sim）を書く。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から。sima はマイナーバージョン 72 から
+    /// 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）または SIMA（.sim）、土木モデル（J-LandXML・IFC4.3・SIMA）からは SIMA（.sim）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA・GeoTIFF）からは GeoJSON または SIMA（.sim）を書く。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から。sima はマイナーバージョン 72 から
     /// </summary>
     public sealed record ConvertRequest
     {
@@ -4134,6 +4135,114 @@ namespace Zumen.Messages
 
         /// <summary>
         /// 画像の blob の番号（種類は image）。zm_take で取り出す
+        /// </summary>
+        [JsonPropertyName("blob")]
+        public ulong Blob { get; init; }
+    }
+
+    /// <summary>
+    /// 開いた TIFF・GeoTIFF の指定ページの画素を RGBA8・非インターレースの PNG に復号し、画像の blob で返す（#877）。複数ページの TIFF は page で 1 から数えるページ番号を選ぶ（書かなければ 1）。max_side を指定すると、長辺が max_side 以下になるよう縦横比を保って縮小して返す（最大 16777216 画素）。マイナーバージョン 73 から
+    /// </summary>
+    public sealed record RasterRequest
+    {
+        /// <summary>
+        /// メッセージのスキーマのメジャーバージョン。今は 1
+        /// </summary>
+        [JsonPropertyName("v")]
+        public ulong V { get; init; }
+
+        /// <summary>
+        /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        /// </summary>
+        [JsonPropertyName("budget")]
+        public Budget? Budget { get; init; }
+
+        /// <summary>
+        /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        /// </summary>
+        [JsonPropertyName("partial")]
+        public bool? Partial { get; init; }
+
+        /// <summary>
+        /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        /// </summary>
+        [JsonPropertyName("max_places")]
+        public ulong? MaxPlaces { get; init; }
+
+        /// <summary>
+        /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// </summary>
+        [JsonPropertyName("time_limit_ms")]
+        public ulong? TimeLimitMs { get; init; }
+
+        /// <summary>
+        /// op の名前
+        /// </summary>
+        [JsonPropertyName("op")]
+        public string Op { get; init; } = "raster";
+
+        /// <summary>
+        /// 文書の名前。open で作ったもの
+        /// </summary>
+        [JsonPropertyName("doc")]
+        public string Doc { get; init; } = default!;
+
+        /// <summary>
+        /// ページ番号（IFD の 1 から始まる番号）。書かなければ 1
+        /// </summary>
+        [JsonPropertyName("page")]
+        public ulong? Page { get; init; }
+
+        /// <summary>
+        /// 出力の長辺の最大ピクセル数。元の長辺がこれを超えるときだけ縦横比を保って縮小する
+        /// </summary>
+        [JsonPropertyName("max_side")]
+        public uint? MaxSide { get; init; }
+    }
+
+    /// <summary>
+    /// 復号した PNG 画像のサイズ・元のページサイズ・総ページ数と、画像の blob の番号
+    /// </summary>
+    public sealed record RasterResult
+    {
+        /// <summary>
+        /// 出力した PNG の幅（ピクセル）
+        /// </summary>
+        [JsonPropertyName("width")]
+        public uint Width { get; init; }
+
+        /// <summary>
+        /// 出力した PNG の高さ（ピクセル）
+        /// </summary>
+        [JsonPropertyName("height")]
+        public uint Height { get; init; }
+
+        /// <summary>
+        /// 元のページの幅（ピクセル）
+        /// </summary>
+        [JsonPropertyName("source_width")]
+        public uint SourceWidth { get; init; }
+
+        /// <summary>
+        /// 元のページの高さ（ピクセル）
+        /// </summary>
+        [JsonPropertyName("source_height")]
+        public uint SourceHeight { get; init; }
+
+        /// <summary>
+        /// 復号したページ番号（1 から）
+        /// </summary>
+        [JsonPropertyName("page")]
+        public ulong Page { get; init; }
+
+        /// <summary>
+        /// 文書に含まれる総ページ（IFD）数
+        /// </summary>
+        [JsonPropertyName("pages")]
+        public ulong Pages { get; init; }
+
+        /// <summary>
+        /// PNG 画像の blob の番号（種類は image）。zm_take で取り出す
         /// </summary>
         [JsonPropertyName("blob")]
         public ulong Blob { get; init; }
@@ -7849,7 +7958,7 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// open で開いた点群（LAS・LAZ・PLY・XYZ・E57）の要約と、条件に合う点を返す。点は八分木の浅い段のノードから順に選ぶ（決定 0232）。点群のモジュールに置く（決定 0253）。マイナーバージョン 48 から
+    /// open で開いた点群（LAS・LAZ・PLY・XYZ・E57・GeoTIFF の DEM）の要約と、条件に合う点を返す。点は八分木の浅い段のノードから順に選ぶ（決定 0232）。点群のモジュールに置く（決定 0253）。マイナーバージョン 48 から
     /// </summary>
     public sealed record PointcloudRequest
     {
@@ -8746,7 +8855,7 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// open で開いた CityGML・基盤地図情報（GML）・拡張 DM・GeoJSON・SIMA の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。土木・地理のモジュールに置く（決定 0253）。マイナーバージョン 52 から
+    /// open で開いた CityGML・基盤地図情報（GML）・拡張 DM・GeoJSON・SIMA・GeoTIFF の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。土木・地理のモジュールに置く（決定 0253）。マイナーバージョン 52 から
     /// </summary>
     public sealed record GeoRequest
     {
@@ -8787,7 +8896,7 @@ namespace Zumen.Messages
         public string Op { get; init; } = "geo";
 
         /// <summary>
-        /// open で開いた CityGML・基盤地図情報（GML）・拡張 DM・GeoJSON・SIMA の文書の名前
+        /// open で開いた CityGML・基盤地図情報（GML）・拡張 DM・GeoJSON・SIMA・GeoTIFF の文書の名前
         /// </summary>
         [JsonPropertyName("doc")]
         public string Doc { get; init; } = default!;
@@ -9548,6 +9657,7 @@ namespace Zumen.Messages
                 ["building_apply"] = (typeof(BuildingApplyRequest), typeof(BuildingApplyResult)),
                 ["lift"] = (typeof(LiftRequest), typeof(LiftResult)),
                 ["render"] = (typeof(RenderRequest), typeof(RenderResult)),
+                ["raster"] = (typeof(RasterRequest), typeof(RasterResult)),
             };
     }
 }

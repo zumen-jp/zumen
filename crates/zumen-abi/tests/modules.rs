@@ -19,6 +19,7 @@ use zumen_ply::Ply;
 use zumen_sdk::Codec;
 use zumen_sima::Sima;
 use zumen_sxf::Sxf;
+use zumen_tiff::Tiff;
 
 const DXF: &[u8] = b"0\nSECTION\n2\nENTITIES\n0\nENDSEC\n0\nEOF\n";
 const IFC: &[u8] = b"ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION((''),'2;1');\n\
@@ -65,6 +66,7 @@ fn detection_follows_the_codecs_in_the_order_open_tries() {
         ("sxf", Sxf::SIGNATURES),
         ("jww", Jww::SIGNATURES),
         ("sima", Sima::SIGNATURES),
+        ("tiff", Tiff::SIGNATURES),
         ("landxml", LandXml::SIGNATURES),
         ("citygml", CityGml::SIGNATURES),
         ("fgd", Fgd::SIGNATURES),
@@ -154,9 +156,10 @@ fn lists_only_the_formats_of_the_modules_it_has() {
             assert_eq!(has_format(format), expected, "{format}");
         }
     }
-    // 図面・土木地理・点群の形式（決定 0253）。J-LandXML は 3 つのモジュールが持つ
+    // 図面・土木地理・点群の形式（決定 0253）。J-LandXML と TIFF は 3 つのモジュールが持つ
     for format in [
-        "dxf", "sima", "landxml", "citygml", "fgd", "extdm", "geojson", "las", "ply", "xyz", "e57",
+        "dxf", "sima", "tiff", "landxml", "citygml", "fgd", "extdm", "geojson", "las", "ply",
+        "xyz", "e57",
     ] {
         assert_eq!(
             capabilities.contains(&format!(r#""id":"{format}""#)),
@@ -166,6 +169,10 @@ fn lists_only_the_formats_of_the_modules_it_has() {
     }
     assert_eq!(
         has_format("landxml"),
+        enabled("drawing") || enabled("civil") || enabled("pointcloud")
+    );
+    assert_eq!(
+        has_format("tiff"),
         enabled("drawing") || enabled("civil") || enabled("pointcloud")
     );
     assert_eq!(has_format("sima"), enabled("drawing") || enabled("civil"));
@@ -211,6 +218,67 @@ fn opens_sima_in_drawing_and_civil_modules_and_rejects_elsewhere() {
                 r#"{"v":1,"op":"convert","doc":"a.sim","to":"b.sim","format":"sima"}"#,
             );
             assert_eq!(conv_status, Status::Ok, "{conv_resp}");
+        }
+    } else {
+        assert_eq!(status, Status::Failed, "{response}");
+        assert!(
+            response.contains(r#""code":"call.format.unsupported""#),
+            "{response}"
+        );
+    }
+}
+
+#[test]
+fn opens_tiff_in_drawing_civil_and_pointcloud_modules_and_rejects_elsewhere() {
+    // 1x1 8-bit グレースケールの最小クラシック TIFF (LE)
+    let mut tiff = Vec::from(&b"II*\x00\x0c\x00\x00\x00\x80\x00\x00\x00"[..]);
+    let entries: &[(u16, u16, u32, u32)] = &[
+        (256, 4, 1, 1), // ImageWidth = 1
+        (257, 4, 1, 1), // ImageLength = 1
+        (258, 3, 1, 8), // BitsPerSample = 8
+        (259, 3, 1, 1), // Compression = 1
+        (262, 3, 1, 1), // Photometric = 1
+        (273, 4, 1, 8), // StripOffsets = 8
+        (277, 3, 1, 1), // SamplesPerPixel = 1
+        (278, 4, 1, 1), // RowsPerStrip = 1
+        (279, 4, 1, 1), // StripByteCounts = 1
+    ];
+    tiff.extend_from_slice(&(entries.len() as u16).to_le_bytes());
+    for &(tag, ftype, count, val) in entries {
+        tiff.extend_from_slice(&tag.to_le_bytes());
+        tiff.extend_from_slice(&ftype.to_le_bytes());
+        tiff.extend_from_slice(&count.to_le_bytes());
+        tiff.extend_from_slice(&val.to_le_bytes());
+    }
+    tiff.extend_from_slice(&0u32.to_le_bytes());
+
+    let mut session = Session::new(b"").unwrap();
+    session.push(b"a.tif", &tiff).unwrap();
+    let (status, response) = call(&mut session, r#"{"v":1,"op":"open","input":"a.tif"}"#);
+    if cfg!(any(
+        feature = "drawing",
+        feature = "civil",
+        feature = "pointcloud"
+    )) {
+        assert_eq!(status, Status::Ok, "{response}");
+        assert!(response.contains(r#""format":"tiff""#), "{response}");
+        if cfg!(feature = "drawing") {
+            let (r_status, r_resp) = call(&mut session, r#"{"v":1,"op":"raster","doc":"a.tif"}"#);
+            assert_eq!(r_status, Status::Ok, "{r_resp}");
+        }
+        if cfg!(feature = "civil") {
+            let (g_status, g_resp) = call(&mut session, r#"{"v":1,"op":"geo","doc":"a.tif"}"#);
+            assert_eq!(g_status, Status::Ok, "{g_resp}");
+        }
+        if cfg!(feature = "pointcloud") {
+            // DEM でない TIFF は pointcloud では call.document.unsupported になる
+            let (p_status, p_resp) =
+                call(&mut session, r#"{"v":1,"op":"pointcloud","doc":"a.tif"}"#);
+            assert_eq!(p_status, Status::Failed, "{p_resp}");
+            assert!(
+                p_resp.contains(r#""code":"call.document.unsupported""#),
+                "{p_resp}"
+            );
         }
     } else {
         assert_eq!(status, Status::Failed, "{response}");

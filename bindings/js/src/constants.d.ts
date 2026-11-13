@@ -31,13 +31,13 @@ export declare const WASM_EXPORTS: readonly string[];
 
 /** wasm のモジュールの名前（決定 0013・0221） */
 export type ModuleName =
-  /** 図面（DXF・DWG・SXF・JWW・SIMA と、図面モデルのバイナリ）と、図面のレビュー。土木の線形（J-LandXML・SIMA）と、線形から作る図。電子納品の成果品・工事写真・ボーリング交換用データ */
+  /** 図面（DXF・DWG・SXF・JWW・SIMA・TIFF と、図面モデルのバイナリ）と、図面のレビュー。土木の線形（J-LandXML・SIMA）と、線形から作る図。電子納品の成果品・工事写真・ボーリング交換用データ */
   | "drawing"
   /** IFC と建物モデル、EXPRESS・IDS の照合と BCF。IFC4.3 の線形の上の所（決定 0253） */
   | "bim"
-  /** 土木の線形（J-LandXML・SIMA）と、地理の地物（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA） */
+  /** 土木の線形（J-LandXML・SIMA）と、地理の地物（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA・GeoTIFF） */
   | "civil"
-  /** 点群（LAS・LAZ・PLY・XYZ・E57）と、設計の TIN（J-LandXML）との差 */
+  /** 点群（LAS・LAZ・PLY・XYZ・E57・GeoTIFF の DEM）と、設計の TIN（J-LandXML）との差 */
   | "pointcloud"
   /** プラグインの図面の形式を読み、図面モデルのバイナリにする */
   | "plugin";

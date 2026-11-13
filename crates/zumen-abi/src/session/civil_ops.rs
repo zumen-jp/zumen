@@ -57,7 +57,7 @@ impl Session {
         }
     }
 
-    /// 開いた CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA の地理の領域モデルの要約と、地物の中身（決定 0233）
+    /// 開いた CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA・GeoTIFF の地理の領域モデルの要約と、地物の中身（決定 0233）
     #[cfg(feature = "civil")]
     pub(super) fn geo(
         &self,
@@ -79,10 +79,25 @@ impl Session {
                     zumen_sdk::Lift::lift(sima, cx).map_err(|_| Failed)?;
                 geo::geo(request, &model, cx)
             }
+            #[cfg(feature = "drawing")]
+            Document::Drawing { file, .. } if matches!(file.as_ref(), DrawingFile::Tiff(_)) => {
+                let DrawingFile::Tiff(tiff) = file.as_ref() else {
+                    return Err(fail(cx, unsupported(doc, "geo")));
+                };
+                let model: zumen_geo::GeoModel =
+                    zumen_sdk::Lift::lift(tiff, cx).map_err(|_| Failed)?;
+                geo::geo(request, &model, cx)
+            }
             #[cfg(all(feature = "civil", not(feature = "drawing")))]
             Document::Sima(sima) => {
                 let model: zumen_geo::GeoModel =
                     zumen_sdk::Lift::lift(sima.as_ref(), cx).map_err(|_| Failed)?;
+                geo::geo(request, &model, cx)
+            }
+            #[cfg(all(feature = "civil", not(feature = "drawing")))]
+            Document::Tiff(tiff) => {
+                let model: zumen_geo::GeoModel =
+                    zumen_sdk::Lift::lift(tiff.as_ref(), cx).map_err(|_| Failed)?;
                 geo::geo(request, &model, cx)
             }
             _ => Err(fail(cx, unsupported(doc, "geo"))),

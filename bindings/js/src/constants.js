@@ -8,7 +8,7 @@ export const ABI_VERSION = 1;
 /** メッセージのスキーマのメジャーバージョン（要求と応答の v） */
 export const SCHEMA_MAJOR = 1;
 /** メッセージのスキーマのマイナーバージョン */
-export const SCHEMA_MINOR = 72;
+export const SCHEMA_MINOR = 73;
 
 /** 状態コードの名前。値から引く */
 export const STATUS = Object.freeze({
@@ -37,9 +37,9 @@ export const WASM_EXPORTS = Object.freeze([
 /** wasm のモジュール。名前から、持つ形式と op を引く（決定 0013・0221） */
 export const MODULES = Object.freeze({
   drawing: Object.freeze({
-    description: "図面（DXF・DWG・SXF・JWW・SIMA と、図面モデルのバイナリ）と、図面のレビュー。土木の線形（J-LandXML・SIMA）と、線形から作る図。電子納品の成果品・工事写真・ボーリング交換用データ",
-    formats: Object.freeze(["dxf", "dwg", "sxf", "jww", "sima", "landxml", "drawing"]),
-    ops: Object.freeze(["capabilities", "open", "close", "describe", "drawing", "entities", "apply", "convert", "convert_estimate", "tables", "scene", "check", "review_carry", "review_adopt", "civil", "civil_drawing", "delivery_check", "photo", "boring", "lift", "render", "calibrations", "measure_distance"]),
+    description: "図面（DXF・DWG・SXF・JWW・SIMA・TIFF と、図面モデルのバイナリ）と、図面のレビュー。土木の線形（J-LandXML・SIMA）と、線形から作る図。電子納品の成果品・工事写真・ボーリング交換用データ",
+    formats: Object.freeze(["dxf", "dwg", "sxf", "jww", "sima", "tiff", "landxml", "drawing"]),
+    ops: Object.freeze(["capabilities", "open", "close", "describe", "drawing", "entities", "apply", "convert", "convert_estimate", "tables", "scene", "check", "review_carry", "review_adopt", "civil", "civil_drawing", "delivery_check", "photo", "boring", "lift", "render", "calibrations", "measure_distance", "raster"]),
   }),
   bim: Object.freeze({
     description: "IFC と建物モデル、EXPRESS・IDS の照合と BCF。IFC4.3 の線形の上の所（決定 0253）",
@@ -47,13 +47,13 @@ export const MODULES = Object.freeze({
     ops: Object.freeze(["capabilities", "open", "close", "describe", "validate", "review_carry", "building", "building_elements", "ids_check", "review_adopt_ids", "bcf_read", "bcf_write", "building_apply", "civil"]),
   }),
   civil: Object.freeze({
-    description: "土木の線形（J-LandXML・SIMA）と、地理の地物（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA）",
-    formats: Object.freeze(["landxml", "citygml", "fgd", "extdm", "geojson", "sima"]),
+    description: "土木の線形（J-LandXML・SIMA）と、地理の地物（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA・GeoTIFF）",
+    formats: Object.freeze(["landxml", "citygml", "fgd", "extdm", "geojson", "sima", "tiff"]),
     ops: Object.freeze(["capabilities", "open", "close", "describe", "convert", "civil", "geo"]),
   }),
   pointcloud: Object.freeze({
-    description: "点群（LAS・LAZ・PLY・XYZ・E57）と、設計の TIN（J-LandXML）との差",
-    formats: Object.freeze(["las", "ply", "xyz", "e57", "landxml"]),
+    description: "点群（LAS・LAZ・PLY・XYZ・E57・GeoTIFF の DEM）と、設計の TIN（J-LandXML）との差",
+    formats: Object.freeze(["las", "ply", "xyz", "e57", "tiff", "landxml"]),
     ops: Object.freeze(["capabilities", "open", "close", "describe", "civil", "pointcloud", "deviation"]),
   }),
   plugin: Object.freeze({
@@ -144,6 +144,14 @@ export const DETECTION = Object.freeze([
       Object.freeze({ kind: "bytes", offset: 0, bytes: Object.freeze([0xef, 0xbb, 0xbf, 0x47, 0x30, 0x30, 0x2c]) }),
       Object.freeze({ kind: "xml_root", name: "GI", namespace: "http://www.jsima.or.jp/JSIMASchema/201206" }),
       Object.freeze({ kind: "xml_root", name: "GI", namespace: "http://www.jsima.or.jp/JSIMASchema/201004" }),
+    ]),
+  }),
+  Object.freeze({
+    format: "tiff",
+    module: "drawing",
+    rules: Object.freeze([
+      Object.freeze({ kind: "bytes", offset: 0, bytes: Object.freeze([0x49, 0x49, 0x2a, 0x00]) }),
+      Object.freeze({ kind: "bytes", offset: 0, bytes: Object.freeze([0x4d, 0x4d, 0x00, 0x2a]) }),
     ]),
   }),
   Object.freeze({

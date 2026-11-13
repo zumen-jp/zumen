@@ -1,5 +1,7 @@
 //! セッションの点群と出来形の操作。
 
+use std::borrow::Cow;
+
 use super::*;
 
 impl Session {
@@ -17,7 +19,7 @@ impl Session {
             let bytes = self.input(name, &format!("/profiles/{index}"), cx)?;
             profiles.push((name.as_str(), bytes));
         }
-        asbuilt::deviation(request, cloud, &model, &profiles, cx)
+        asbuilt::deviation(request, &cloud, &model, &profiles, cx)
     }
 
     /// 開いた点群の文書。`pointer` は名前を書いたフィールド
@@ -27,12 +29,31 @@ impl Session {
         doc: &str,
         pointer: &str,
         cx: &mut Cx<'_>,
-    ) -> Result<&zumen_pointcloud::PointCloud, Failed> {
+    ) -> Result<Cow<'_, zumen_pointcloud::PointCloud>, Failed> {
         if !name::is_safe(doc) {
             return Err(fail(cx, invalid_value(pointer)));
         }
         match self.document(doc, cx)? {
-            Document::Cloud(cloud) => Ok(cloud),
+            Document::Cloud(cloud) => Ok(Cow::Borrowed(cloud.as_ref())),
+            #[cfg(feature = "drawing")]
+            Document::Drawing { file, .. } if matches!(file.as_ref(), DrawingFile::Tiff(_)) => {
+                let DrawingFile::Tiff(tiff) = file.as_ref() else {
+                    return Err(fail(cx, unsupported(doc, "pointcloud")));
+                };
+                match zumen_sdk::Lift::lift(tiff, cx) {
+                    Ok(cloud) => Ok(Cow::Owned(cloud)),
+                    Err(zumen_sdk::Error::Unsupported) => {
+                        Err(fail(cx, unsupported(doc, "pointcloud")))
+                    }
+                    Err(_) => Err(Failed),
+                }
+            }
+            #[cfg(all(feature = "pointcloud", not(feature = "drawing")))]
+            Document::Tiff(tiff) => match zumen_sdk::Lift::lift(tiff.as_ref(), cx) {
+                Ok(cloud) => Ok(Cow::Owned(cloud)),
+                Err(zumen_sdk::Error::Unsupported) => Err(fail(cx, unsupported(doc, "pointcloud"))),
+                Err(_) => Err(Failed),
+            },
             _ => Err(fail(cx, unsupported(doc, "pointcloud"))),
         }
     }
@@ -45,6 +66,6 @@ impl Session {
         cx: &mut Cx<'_>,
     ) -> Result<messages::PointcloudResult, Failed> {
         let cloud = self.cloud(&request.doc, "/doc", cx)?;
-        pointcloud::pointcloud(request, cloud, cx)
+        pointcloud::pointcloud(request, &cloud, cx)
     }
 }

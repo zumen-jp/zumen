@@ -39,7 +39,8 @@ export type Request =
   | BoringRequest
   | BuildingApplyRequest
   | LiftRequest
-  | RenderRequest;
+  | RenderRequest
+  | RasterRequest;
 
 /** どの op の要求にも置けるフィールド */
 export interface RequestCommon {
@@ -889,7 +890,7 @@ export interface ApplyResult {
   ids_shifted?: boolean;
 }
 
-/** 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）または SIMA（.sim）、土木モデル（J-LandXML・IFC4.3・SIMA）からは SIMA（.sim）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA）からは GeoJSON または SIMA（.sim）を書く。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から。sima はマイナーバージョン 72 から */
+/** 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）または SIMA（.sim）、土木モデル（J-LandXML・IFC4.3・SIMA）からは SIMA（.sim）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA・GeoTIFF）からは GeoJSON または SIMA（.sim）を書く。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から。sima はマイナーバージョン 72 から */
 export interface ConvertRequest extends RequestCommon {
   /** op の名前 */
   op: "convert";
@@ -1499,6 +1500,36 @@ export interface RenderResult {
   /** シーンで使った弦の誤差（起点の長さ） */
   tolerance: number;
   /** 画像の blob の番号（種類は image）。zm_take で取り出す */
+  blob: number;
+}
+
+/** 開いた TIFF・GeoTIFF の指定ページの画素を RGBA8・非インターレースの PNG に復号し、画像の blob で返す（#877）。複数ページの TIFF は page で 1 から数えるページ番号を選ぶ（書かなければ 1）。max_side を指定すると、長辺が max_side 以下になるよう縦横比を保って縮小して返す（最大 16777216 画素）。マイナーバージョン 73 から */
+export interface RasterRequest extends RequestCommon {
+  /** op の名前 */
+  op: "raster";
+  /** 文書の名前。open で作ったもの */
+  doc: string;
+  /** ページ番号（IFD の 1 から始まる番号）。書かなければ 1 */
+  page?: number;
+  /** 出力の長辺の最大ピクセル数。元の長辺がこれを超えるときだけ縦横比を保って縮小する */
+  max_side?: number;
+}
+
+/** 復号した PNG 画像のサイズ・元のページサイズ・総ページ数と、画像の blob の番号 */
+export interface RasterResult {
+  /** 出力した PNG の幅（ピクセル） */
+  width: number;
+  /** 出力した PNG の高さ（ピクセル） */
+  height: number;
+  /** 元のページの幅（ピクセル） */
+  source_width: number;
+  /** 元のページの高さ（ピクセル） */
+  source_height: number;
+  /** 復号したページ番号（1 から） */
+  page: number;
+  /** 文書に含まれる総ページ（IFD）数 */
+  pages: number;
+  /** PNG 画像の blob の番号（種類は image）。zm_take で取り出す */
   blob: number;
 }
 
@@ -2843,7 +2874,7 @@ export interface CivilPosition {
   gradient?: number;
 }
 
-/** open で開いた点群（LAS・LAZ・PLY・XYZ・E57）の要約と、条件に合う点を返す。点は八分木の浅い段のノードから順に選ぶ（決定 0232）。点群のモジュールに置く（決定 0253）。マイナーバージョン 48 から */
+/** open で開いた点群（LAS・LAZ・PLY・XYZ・E57・GeoTIFF の DEM）の要約と、条件に合う点を返す。点は八分木の浅い段のノードから順に選ぶ（決定 0232）。点群のモジュールに置く（決定 0253）。マイナーバージョン 48 から */
 export interface PointcloudRequest extends RequestCommon {
   /** op の名前 */
   op: "pointcloud";
@@ -3150,11 +3181,11 @@ export interface DeliveryManaged {
   missing: string[];
 }
 
-/** open で開いた CityGML・基盤地図情報（GML）・拡張 DM・GeoJSON・SIMA の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。土木・地理のモジュールに置く（決定 0253）。マイナーバージョン 52 から */
+/** open で開いた CityGML・基盤地図情報（GML）・拡張 DM・GeoJSON・SIMA・GeoTIFF の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。土木・地理のモジュールに置く（決定 0253）。マイナーバージョン 52 から */
 export interface GeoRequest extends RequestCommon {
   /** op の名前 */
   op: "geo";
-  /** open で開いた CityGML・基盤地図情報（GML）・拡張 DM・GeoJSON・SIMA の文書の名前 */
+  /** open で開いた CityGML・基盤地図情報（GML）・拡張 DM・GeoJSON・SIMA・GeoTIFF の文書の名前 */
   doc: string;
   /** 中身を返す地物の ID */
   id?: string;
@@ -3449,4 +3480,5 @@ export interface Operations {
   building_apply: { request: BuildingApplyRequest; result: BuildingApplyResult };
   lift: { request: LiftRequest; result: LiftResult };
   render: { request: RenderRequest; result: RenderResult };
+  raster: { request: RasterRequest; result: RasterResult };
 }

@@ -48,6 +48,7 @@ zumen-sima = { path = "../crates/zumen-sima" }
 zumen-step = { path = "../crates/zumen-step" }
 zumen-sxf = { path = "../crates/zumen-sxf" }
 zumen-text = { path = "../crates/zumen-text" }
+zumen-tiff = { path = "../crates/zumen-tiff" }
 zumen-xml = { path = "../crates/zumen-xml" }
 zumen-xyz = { path = "../crates/zumen-xyz" }
 zumen-zip = { path = "../crates/zumen-zip" }
@@ -203,6 +204,13 @@ bench = false
 [[bin]]
 name = "sima"
 path = "fuzz_targets/sima.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tiff"
+path = "fuzz_targets/tiff.rs"
 test = false
 doc = false
 bench = false

@@ -1,0 +1,26 @@
+[package]
+name = "zumen-tiff"
+description = "zumen の TIFF 6.0・GeoTIFF 1.1 の読み取りと領域モデル変換・PNG 復号（#877）"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = true
+
+[package.metadata.zumen]
+formats = ["tiff"]
+
+[dependencies]
+libm = { version = "0.2.16", default-features = false }
+zumen-base = { version = "0.2.0", path = "../zumen-base" }
+zumen-crs = { version = "0.2.0", path = "../zumen-crs" }
+zumen-drawing = { version = "0.2.0", path = "../zumen-drawing" }
+zumen-geo = { version = "0.2.0", path = "../zumen-geo" }
+zumen-pointcloud = { version = "0.2.0", path = "../zumen-pointcloud" }
+zumen-sdk = { version = "0.2.0", path = "../zumen-sdk" }
+
+[dev-dependencies]
+zumen-json = { path = "../zumen-json" }
+
+[lints]
+workspace = true

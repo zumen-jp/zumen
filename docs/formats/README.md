@@ -47,6 +47,7 @@
 | [stem](#format-stem) | Stem（設備機器ライブラリデータ交換仕様） | stem | building | `unknown` | `none` |  |  |
 | [svg](#format-svg) | SVG | svg | drawing | `public` | `core` |  | `external` |
 | [sxf](#format-sxf) | SXF（SFC・P21 と、それを ZIP に入れた SFZ・P2Z） | sxf | drawing | `public` | `core` | `external` | `external` |
+| [tiff](#format-tiff) | TIFF・GeoTIFF | tiff | drawing・geo・pointcloud | `public` | `core` | `synthetic` |  |
 | [xlsx](#format-xlsx) | Excel の表（xlsx） | xlsx | delivery | `public` | `none` |  |  |
 | [xyz](#format-xyz) | XYZ（座標を並べた点群のテキスト） | xyz | pointcloud | `public` | `core` | `synthetic` |  |
 
@@ -257,6 +258,16 @@
 - 確認日: 2026-11-03
 - 補足: DEM 種別に 1m メッシュ（標高）を、DEM 構成点種別に海水底面・内水底面を足した版。GML のスキーマは Ver5.1（FGD\_GMLSchemaV5.1.zip）のまま。service.gsi.go.jp はこの作業の環境に 403 を返すので、Internet Archive の 2026-10-25 の写しで確かめた
 
+### spec-geotiff_1_1
+
+- 名前: OGC GeoTIFF Standard（OGC 19-008r4）
+- 公開元: Open Geospatial Consortium
+- 版: 1.1（2019-09-14）
+- 入手の条件: 無償公開
+- 入手先: [OGC GeoTIFF Standard（OGC 19-008r4）](https://docs.ogc.org/is/19-008r4/19-008r4.html)
+- 確認日: 2026-11-13
+- 補足: OGC の公開の実装標準。ログインや同意なしに無償で読め、誰もがロイヤリティなしで実装できるとする。仕様の本文は同梱しない
+
 ### spec-ids_1_0
 
 - 名前: Information Delivery Specification（IDS）
@@ -334,6 +345,16 @@
 - 入手先: [ISO 32000-2:2020（PDF 2.0）](https://pdfa.org/sponsored-standards/)
 - 確認日: 2026-11-09
 - 補足: PDF Association が、Adobe・Apryse・Foxit の後援で、無償で配っている（pdfa-inc.org の店の 0 ドルの手続きで受け取る。Errata Collection 3 を含む版と、ISO/TS 32001〜32005、PDF Association の文書の束）。ISO からは買う。店の EULA は、ダウンロードかアクセスで同意したとし、個人の、1 台のコンピューターでだけ使えるライセンスで、ネットワークでの使用と、結合・翻案・翻訳・改変を禁じる。AI を名指しする条項はない。中身は ISO の出版物で、ISO の利用許諾（End Customer Licence Agreement、2026-05-29 の改定）の 7(b) は、別の許諾がなければ、出版物を AI・機械学習のために読み・使い・処理することを禁じる。無償版に ISO の利用許諾が当たるかと、手続きの画面のほかの条件、PDF の表紙の注記は確かめていない。エージェントは、利用者が条件を確かめて決めるまで本文を読まない（zumen-jp/zumen#674・zumen-jp/zumen#677）。ISO の出版物なので、ISO の OBP のプレビューも読まない（zumen-jp/zumen#677）。書誌の事実は、2026-11-09 に www.iso.org のページで確かめた
+
+### spec-itu_t_6
+
+- 名前: ITU-T Recommendation T.6 Facsimile coding schemes and coding control functions for Group 4 facsimile apparatus
+- 公開元: ITU-T
+- 版: 11/1988
+- 入手の条件: 無償公開
+- 入手先: [ITU-T Recommendation T.6 Facsimile coding schemes and coding control functions for Group 4 facsimile apparatus](https://www.itu.int/rec/T-REC-T.6)
+- 確認日: 2026-11-13
+- 補足: 無償で配る ITU-T の勧告（ISO・IEC との共同の有償文書ではない）。TIFF 6.0 の Compression = 4（CCITT Group 4）が参照する 2 次元符号化を定める。仕様の本文は同梱しない
 
 ### spec-jlandxml_1_8
 
@@ -520,6 +541,16 @@
 - 入手先: [SXF 表示機能及び確認機能要件書（案）](https://www.cals-ed.go.jp/sxf_ver3-1_specification_draft/)
 - 確認日: 2026-10-24
 - 補足: 2026-10-24 はサイトにつながらず、Internet Archive の 2026-02-04 の写しで確かめた
+
+### spec-tiff_6_0
+
+- 名前: TIFF Revision 6.0
+- 公開元: Adobe Developers Association
+- 版: Revision 6.0 Final（1992-06-03）
+- 入手の条件: 無償公開
+- 入手先: [TIFF Revision 6.0](https://www.itu.int/itudoc/itu-t/com16/tiff-fx/docs/tiff6.pdf)
+- 確認日: 2026-11-13
+- 補足: 冒頭の TIFF Specification Notice が、仕様に準拠するソフトウェアをロイヤリティなしで作る許諾を示す。ITU-T が無償で公開する PDF で確かめた。仕様の本文は同梱しない
 
 ### spec-tky2jgd_2001
 
@@ -1061,6 +1092,23 @@
 - 書きで照らした外部の実装: ezsxf 0.3.7
 - issue: [zumen-jp/zumen#385](https://github.com/zumen-jp/zumen/issues/385)
 - 形式の文書: [docs/formats/sxf.md](../../docs/formats/sxf.md)
+
+### format-tiff
+
+- 名前: TIFF・GeoTIFF
+- 権利の根拠: Adobe の TIFF 6.0 は仕様に準拠するソフトウェアをロイヤリティなしで作る許諾を明記し、OGC の GeoTIFF 1.1（19-008r4）と ITU-T T.6 も無償で公開されており実装を制限しない。LZW の基本特許も満了している
+- 仕様: [tiff\_6\_0](#spec-tiff_6_0)、[geotiff\_1\_1](#spec-geotiff_1_1)、[itu\_t\_6](#spec-itu_t_6)
+- 実装の根拠: spec・inferred
+- 権利の根拠にした文書: [OGC GeoTIFF Standard の案内ページ](https://www.ogc.org/standards/geotiff/)（確認日: 2026-11-13）
+- 文書の補足: OGC 19-008r4（GeoTIFF 1.1）を無償の公開標準として案内する
+- 照合に使う候補: tifffile・Pillow・QGIS
+- サンプルの出どころ: 再配布条件と個人情報の不在を確認した第三者の公開サンプルはまだ置いていない（#504）。テストの中で組み立てた TIFF・GeoTIFF と、Pillow 13.0.0・tifffile 2026.11.12 が生成した合成画像・DEM 格子で確かめる
+- 読みの確かめた度合い: `synthetic`（確認日: 2026-11-13）
+- 読みの確かめた範囲: テストの中で組み立てたリトルエンディアン・ビッグエンディアンのクラシック TIFF と GeoTIFF（crates/zumen-tiff/tests/tiff.rs）で、複数 IFD・循環 IFD の検出、ストリップ・タイル配置、Chunky・Planar 配置、無圧縮・PackBits・LZW（Predictor=2 を含む）・Deflate（8・32946、Predictor=2 を含む）・CCITT Group 4（FillOrder 1・2）、2 値・グレースケール・パレット・RGB・RGBA・単バンド DEM（整数・浮動小数点、GDAL\_NODATA 除外）、GeoTIFF 1.1 の GeoKey・アフィン変換（PixelIsArea・PixelIsPoint、平面直角座標系・経緯度）、Drawing2D・GeoModel・PointCloud への持ち上げ、raster による PNG 書き出しと最大辺縮小、展開爆弾に対する DecodedBytes 予算停止・レコード範囲の非重複・決定性を確かめた。Pillow 13.0.0 と tifffile 2026.11.12 が生成した各圧縮方式・タイル・複数ページ・GeoTIFF オルソ・DEM 格子も crates/zumen-tiff/tests/external.rs（xtask/verify/tiff）で全画素・座標・点群標高を照合したが、自前のスクリプトで作った合成ファイルなので段は synthetic とする。第三者の公開サンプルと QGIS での照合はまだ（#504）
+- 既知の crate: tiff・geotiff
+- issue: [zumen-jp/zumen#504](https://github.com/zumen-jp/zumen/issues/504)
+- issue: [zumen-jp/zumen#877](https://github.com/zumen-jp/zumen/issues/877)
+- 形式の文書: [docs/formats/tiff.md](../../docs/formats/tiff.md)
 
 ### format-xlsx
 

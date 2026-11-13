@@ -117,6 +117,9 @@ class Request extends Message {
 
   /// op が render の形なら、そのビュー。違えば null
   RenderRequest? get asRenderRequest => taggedView('op', 'render', RenderRequest.fromJson);
+
+  /// op が raster の形なら、そのビュー。違えば null
+  RasterRequest? get asRasterRequest => taggedView('op', 'raster', RasterRequest.fromJson);
 }
 
 /// どの op の要求にも置けるフィールド
@@ -1958,7 +1961,7 @@ class ApplyResult extends Message {
   set idsShifted(bool? value) => writeField('ids_shifted', value);
 }
 
-/// 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）または SIMA（.sim）、土木モデル（J-LandXML・IFC4.3・SIMA）からは SIMA（.sim）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA）からは GeoJSON または SIMA（.sim）を書く。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から。sima はマイナーバージョン 72 から
+/// 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）または SIMA（.sim）、土木モデル（J-LandXML・IFC4.3・SIMA）からは SIMA（.sim）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA・GeoTIFF）からは GeoJSON または SIMA（.sim）を書く。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から。sima はマイナーバージョン 72 から
 class ConvertRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
   ConvertRequest.fromJson(super.json);
@@ -3311,6 +3314,88 @@ class RenderResult extends Message {
   set tolerance(double? value) => writeField('tolerance', value);
 
   /// 画像の blob の番号（種類は image）。zm_take で取り出す
+  int? get blob => readField('blob', asInt);
+  set blob(int? value) => writeField('blob', value);
+}
+
+/// 開いた TIFF・GeoTIFF の指定ページの画素を RGBA8・非インターレースの PNG に復号し、画像の blob で返す（#877）。複数ページの TIFF は page で 1 から数えるページ番号を選ぶ（書かなければ 1）。max_side を指定すると、長辺が max_side 以下になるよう縦横比を保って縮小して返す（最大 16777216 画素）。マイナーバージョン 73 から
+class RasterRequest extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  RasterRequest.fromJson(super.json);
+
+  /// タグのフィールドだけを持つオブジェクトから作る
+  RasterRequest() : super({'op': 'raster'});
+
+  /// メッセージのスキーマのメジャーバージョン。今は 1
+  int? get v => readField('v', asInt);
+  set v(int? value) => writeField('v', value);
+
+  /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+  Budget? get budget => readField('budget', objectOf(Budget.fromJson));
+  set budget(Budget? value) => writeField('budget', value);
+
+  /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+  bool? get partial => readField('partial', asBool);
+  set partial(bool? value) => writeField('partial', value);
+
+  /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+  int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(int? value) => writeField('max_places', value);
+
+  /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(int? value) => writeField('time_limit_ms', value);
+
+  /// op の名前
+  String? get op => readField('op', asString);
+  set op(String? value) => writeField('op', value);
+
+  /// 文書の名前。open で作ったもの
+  String? get doc => readField('doc', asString);
+  set doc(String? value) => writeField('doc', value);
+
+  /// ページ番号（IFD の 1 から始まる番号）。書かなければ 1
+  int? get page => readField('page', asInt);
+  set page(int? value) => writeField('page', value);
+
+  /// 出力の長辺の最大ピクセル数。元の長辺がこれを超えるときだけ縦横比を保って縮小する
+  int? get maxSide => readField('max_side', asInt);
+  set maxSide(int? value) => writeField('max_side', value);
+}
+
+/// 復号した PNG 画像のサイズ・元のページサイズ・総ページ数と、画像の blob の番号
+class RasterResult extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  RasterResult.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  RasterResult() : super({});
+
+  /// 出力した PNG の幅（ピクセル）
+  int? get width => readField('width', asInt);
+  set width(int? value) => writeField('width', value);
+
+  /// 出力した PNG の高さ（ピクセル）
+  int? get height => readField('height', asInt);
+  set height(int? value) => writeField('height', value);
+
+  /// 元のページの幅（ピクセル）
+  int? get sourceWidth => readField('source_width', asInt);
+  set sourceWidth(int? value) => writeField('source_width', value);
+
+  /// 元のページの高さ（ピクセル）
+  int? get sourceHeight => readField('source_height', asInt);
+  set sourceHeight(int? value) => writeField('source_height', value);
+
+  /// 復号したページ番号（1 から）
+  int? get page => readField('page', asInt);
+  set page(int? value) => writeField('page', value);
+
+  /// 文書に含まれる総ページ（IFD）数
+  int? get pages => readField('pages', asInt);
+  set pages(int? value) => writeField('pages', value);
+
+  /// PNG 画像の blob の番号（種類は image）。zm_take で取り出す
   int? get blob => readField('blob', asInt);
   set blob(int? value) => writeField('blob', value);
 }
@@ -6206,7 +6291,7 @@ class CivilPosition extends Message {
   set gradient(double? value) => writeField('gradient', value);
 }
 
-/// open で開いた点群（LAS・LAZ・PLY・XYZ・E57）の要約と、条件に合う点を返す。点は八分木の浅い段のノードから順に選ぶ（決定 0232）。点群のモジュールに置く（決定 0253）。マイナーバージョン 48 から
+/// open で開いた点群（LAS・LAZ・PLY・XYZ・E57・GeoTIFF の DEM）の要約と、条件に合う点を返す。点は八分木の浅い段のノードから順に選ぶ（決定 0232）。点群のモジュールに置く（決定 0253）。マイナーバージョン 48 から
 class PointcloudRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
   PointcloudRequest.fromJson(super.json);
@@ -6905,7 +6990,7 @@ class DeliveryManaged extends Message {
   set missing(List<String>? value) => writeField('missing', value);
 }
 
-/// open で開いた CityGML・基盤地図情報（GML）・拡張 DM・GeoJSON・SIMA の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。土木・地理のモジュールに置く（決定 0253）。マイナーバージョン 52 から
+/// open で開いた CityGML・基盤地図情報（GML）・拡張 DM・GeoJSON・SIMA・GeoTIFF の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。土木・地理のモジュールに置く（決定 0253）。マイナーバージョン 52 から
 class GeoRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
   GeoRequest.fromJson(super.json);
@@ -6937,7 +7022,7 @@ class GeoRequest extends Message {
   String? get op => readField('op', asString);
   set op(String? value) => writeField('op', value);
 
-  /// open で開いた CityGML・基盤地図情報（GML）・拡張 DM・GeoJSON・SIMA の文書の名前
+  /// open で開いた CityGML・基盤地図情報（GML）・拡張 DM・GeoJSON・SIMA・GeoTIFF の文書の名前
   String? get doc => readField('doc', asString);
   set doc(String? value) => writeField('doc', value);
 
@@ -7528,4 +7613,5 @@ abstract final class Operations {
   static const buildingApply = 'building_apply';
   static const lift = 'lift';
   static const render = 'render';
+  static const raster = 'raster';
 }

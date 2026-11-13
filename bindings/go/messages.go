@@ -200,6 +200,11 @@ func (u Request) AsRenderRequest() *RenderRequest {
 	return asTagged[RenderRequest](u, "op", "render")
 }
 
+// AsRasterRequest は、op が raster の形なら、その型で読む。違えば nil。
+func (u Request) AsRasterRequest() *RasterRequest {
+	return asTagged[RasterRequest](u, "op", "raster")
+}
+
 // RequestCommon: どの op の要求にも置けるフィールド
 type RequestCommon struct {
 	// メッセージのスキーマのメジャーバージョン。今は 1
@@ -1750,7 +1755,7 @@ type ApplyResult struct {
 	IdsShifted *bool `json:"ids_shifted,omitempty"`
 }
 
-// ConvertRequest: 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）または SIMA（.sim）、土木モデル（J-LandXML・IFC4.3・SIMA）からは SIMA（.sim）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA）からは GeoJSON または SIMA（.sim）を書く。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から。sima はマイナーバージョン 72 から
+// ConvertRequest: 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）または SIMA（.sim）、土木モデル（J-LandXML・IFC4.3・SIMA）からは SIMA（.sim）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA・GeoTIFF）からは GeoJSON または SIMA（.sim）を書く。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から。sima はマイナーバージョン 72 から
 type ConvertRequest struct {
 	// メッセージのスキーマのメジャーバージョン。今は 1
 	V *int64 `json:"v,omitempty"`
@@ -2894,6 +2899,67 @@ type RenderResult struct {
 	Tolerance *float64 `json:"tolerance,omitempty"`
 
 	// 画像の blob の番号（種類は image）。zm_take で取り出す
+	Blob *int64 `json:"blob,omitempty"`
+}
+
+// RasterRequest: 開いた TIFF・GeoTIFF の指定ページの画素を RGBA8・非インターレースの PNG に復号し、画像の blob で返す（#877）。複数ページの TIFF は page で 1 から数えるページ番号を選ぶ（書かなければ 1）。max_side を指定すると、長辺が max_side 以下になるよう縦横比を保って縮小して返す（最大 16777216 画素）。マイナーバージョン 73 から
+type RasterRequest struct {
+	// メッセージのスキーマのメジャーバージョン。今は 1
+	V *int64 `json:"v,omitempty"`
+
+	// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+	Budget *Budget `json:"budget,omitempty"`
+
+	// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+	Partial *bool `json:"partial,omitempty"`
+
+	// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+	MaxPlaces *int64 `json:"max_places,omitempty"`
+
+	// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+	TimeLimitMs *int64 `json:"time_limit_ms,omitempty"`
+
+	// op の名前
+	Op string `json:"op,omitempty"`
+
+	// 文書の名前。open で作ったもの
+	Doc *string `json:"doc,omitempty"`
+
+	// ページ番号（IFD の 1 から始まる番号）。書かなければ 1
+	Page *int64 `json:"page,omitempty"`
+
+	// 出力の長辺の最大ピクセル数。元の長辺がこれを超えるときだけ縦横比を保って縮小する
+	MaxSide *int64 `json:"max_side,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m RasterRequest) MarshalJSON() ([]byte, error) {
+	type plain RasterRequest
+	m.Op = "raster"
+	return json.Marshal(plain(m))
+}
+
+// RasterResult: 復号した PNG 画像のサイズ・元のページサイズ・総ページ数と、画像の blob の番号
+type RasterResult struct {
+	// 出力した PNG の幅（ピクセル）
+	Width *int64 `json:"width,omitempty"`
+
+	// 出力した PNG の高さ（ピクセル）
+	Height *int64 `json:"height,omitempty"`
+
+	// 元のページの幅（ピクセル）
+	SourceWidth *int64 `json:"source_width,omitempty"`
+
+	// 元のページの高さ（ピクセル）
+	SourceHeight *int64 `json:"source_height,omitempty"`
+
+	// 復号したページ番号（1 から）
+	Page *int64 `json:"page,omitempty"`
+
+	// 文書に含まれる総ページ（IFD）数
+	Pages *int64 `json:"pages,omitempty"`
+
+	// PNG 画像の blob の番号（種類は image）。zm_take で取り出す
 	Blob *int64 `json:"blob,omitempty"`
 }
 
@@ -5086,7 +5152,7 @@ type CivilPosition struct {
 	Gradient *float64 `json:"gradient,omitempty"`
 }
 
-// PointcloudRequest: open で開いた点群（LAS・LAZ・PLY・XYZ・E57）の要約と、条件に合う点を返す。点は八分木の浅い段のノードから順に選ぶ（決定 0232）。点群のモジュールに置く（決定 0253）。マイナーバージョン 48 から
+// PointcloudRequest: open で開いた点群（LAS・LAZ・PLY・XYZ・E57・GeoTIFF の DEM）の要約と、条件に合う点を返す。点は八分木の浅い段のノードから順に選ぶ（決定 0232）。点群のモジュールに置く（決定 0253）。マイナーバージョン 48 から
 type PointcloudRequest struct {
 	// メッセージのスキーマのメジャーバージョン。今は 1
 	V *int64 `json:"v,omitempty"`
@@ -5585,7 +5651,7 @@ type DeliveryManaged struct {
 	Missing []string `json:"missing,omitempty"`
 }
 
-// GeoRequest: open で開いた CityGML・基盤地図情報（GML）・拡張 DM・GeoJSON・SIMA の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。土木・地理のモジュールに置く（決定 0253）。マイナーバージョン 52 から
+// GeoRequest: open で開いた CityGML・基盤地図情報（GML）・拡張 DM・GeoJSON・SIMA・GeoTIFF の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。土木・地理のモジュールに置く（決定 0253）。マイナーバージョン 52 から
 type GeoRequest struct {
 	// メッセージのスキーマのメジャーバージョン。今は 1
 	V *int64 `json:"v,omitempty"`
@@ -5605,7 +5671,7 @@ type GeoRequest struct {
 	// op の名前
 	Op string `json:"op,omitempty"`
 
-	// open で開いた CityGML・基盤地図情報（GML）・拡張 DM・GeoJSON・SIMA の文書の名前
+	// open で開いた CityGML・基盤地図情報（GML）・拡張 DM・GeoJSON・SIMA・GeoTIFF の文書の名前
 	Doc *string `json:"doc,omitempty"`
 
 	// 中身を返す地物の ID
@@ -6113,3 +6179,6 @@ const OpLift = "lift"
 
 // OpRender は、op の名前 render。
 const OpRender = "render"
+
+// OpRaster は、op の名前 raster。
+const OpRaster = "raster"

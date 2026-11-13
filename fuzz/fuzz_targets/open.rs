@@ -122,6 +122,13 @@ fn read_drawing(calls: &mut Calls, doc: &str, summary: &Reply, depth: Depth) {
     if depth == Depth::Copy {
         return;
     }
+    if summary.text("/format") == Some("tiff") {
+        calls.call("raster", |out| {
+            field(out, "doc", doc);
+            out.key("max_side");
+            out.uint(64);
+        });
+    }
     for (index, space) in summary.items("/spaces").iter().take(PLACES).enumerate() {
         let from = text(space, "/id").map_or_else(|| format!("space/{index}"), str::to_string);
         calls.call("scene", |out| {

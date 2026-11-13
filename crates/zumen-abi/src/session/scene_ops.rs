@@ -49,6 +49,62 @@ impl Session {
         Ok(result)
     }
 
+    /// TIFF・GeoTIFF の指定ページを RGBA8 の PNG 画像に復号し、blob で返す（#877）。
+    #[cfg(feature = "drawing")]
+    pub(super) fn raster(
+        &mut self,
+        request: &messages::RasterRequest,
+        cx: &mut Cx<'_>,
+    ) -> Result<messages::RasterResult, Failed> {
+        if !name::is_safe(&request.doc) {
+            return Err(fail(cx, invalid_value("/doc")));
+        }
+        let Document::Drawing { file, .. } = self.document(&request.doc, cx)? else {
+            return Err(fail(cx, unsupported(&request.doc, "raster")));
+        };
+        let DrawingFile::Tiff(tiff) = file.as_ref() else {
+            return Err(fail(cx, unsupported(&request.doc, "raster")));
+        };
+        let page = match request.page {
+            None => 1_usize,
+            Some(p) => match usize::try_from(p) {
+                Ok(p) if p >= 1 && p <= tiff.page_count() => p,
+                _ => return Err(fail(cx, invalid_value("/page"))),
+            },
+        };
+        if page > tiff.page_count() {
+            return Err(fail(cx, invalid_value("/page")));
+        }
+        let max_side = match request.max_side {
+            None => None,
+            Some(s) => match u32::try_from(s) {
+                Ok(s) if (1..=16_384).contains(&s) => Some(s),
+                _ => return Err(fail(cx, invalid_value("/max_side"))),
+            },
+        };
+        let png = in_input_order(cx, |cx| match tiff.encode_raster_png(page, max_side, cx) {
+            Ok(png) => Ok(png),
+            Err(zumen_sdk::Error::Unsupported) => {
+                Err(fail(cx, unsupported(&request.doc, "raster")))
+            }
+            Err(_) => Err(Failed),
+        })?;
+        let blob = self.blobs.len() as u64;
+        self.blobs.push(Some(Blob {
+            kind: BlobKind::Image,
+            bytes: png.bytes,
+        }));
+        Ok(messages::RasterResult {
+            width: u64::from(png.width),
+            height: u64::from(png.height),
+            source_width: u64::from(png.source_width),
+            source_height: u64::from(png.source_height),
+            page: png.page as u64,
+            pages: png.pages as u64,
+            blob,
+        })
+    }
+
     /// シーンの文字を置くフォントの入力を読む（決定 0188）
     pub(super) fn fonts(
         &self,

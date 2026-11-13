@@ -231,6 +231,11 @@ public final class Messages {
         public RenderRequest asRenderRequest() {
             return "render".equals(json.get("op")) ? new RenderRequest(json) : null;
         }
+
+        /** op が raster の形なら、そのビュー。違えば null */
+        public RasterRequest asRasterRequest() {
+            return "raster".equals(json.get("op")) ? new RasterRequest(json) : null;
+        }
     }
 
     /** どの op の要求にも置けるフィールド */
@@ -4833,7 +4838,7 @@ public final class Messages {
         }
     }
 
-    /** 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）または SIMA（.sim）、土木モデル（J-LandXML・IFC4.3・SIMA）からは SIMA（.sim）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA）からは GeoJSON または SIMA（.sim）を書く。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から。sima はマイナーバージョン 72 から */
+    /** 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）または SIMA（.sim）、土木モデル（J-LandXML・IFC4.3・SIMA）からは SIMA（.sim）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA・GeoTIFF）からは GeoJSON または SIMA（.sim）を書く。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から。sima はマイナーバージョン 72 から */
     public static final class ConvertRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public ConvertRequest(Map<String, Object> json) {
@@ -8257,6 +8262,221 @@ public final class Messages {
 
         /** {@link #getBlob()} を書く。null ならフィールドを除く */
         public RenderResult withBlob(Long value) {
+            put("blob", value);
+            return this;
+        }
+    }
+
+    /** 開いた TIFF・GeoTIFF の指定ページの画素を RGBA8・非インターレースの PNG に復号し、画像の blob で返す（#877）。複数ページの TIFF は page で 1 から数えるページ番号を選ぶ（書かなければ 1）。max_side を指定すると、長辺が max_side 以下になるよう縦横比を保って縮小して返す（最大 16777216 画素）。マイナーバージョン 73 から */
+    public static final class RasterRequest extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public RasterRequest(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static RasterRequest of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new RasterRequest(json);
+        }
+
+        /** タグのフィールドだけを持つオブジェクトから作る */
+        public RasterRequest() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("op", "raster");
+        }
+
+        /** メッセージのスキーマのメジャーバージョン。今は 1 */
+        public Long getV() {
+            return Json.read(json.get("v"), Json::integer);
+        }
+
+        /** {@link #getV()} を書く。null ならフィールドを除く */
+        public RasterRequest withV(Long value) {
+            put("v", value);
+            return this;
+        }
+
+        /** 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010） */
+        public Budget getBudget() {
+            return Json.read(json.get("budget"), Budget::of);
+        }
+
+        /** {@link #getBudget()} を書く。null ならフィールドを除く */
+        public RasterRequest withBudget(Budget value) {
+            put("budget", value);
+            return this;
+        }
+
+        /** 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010） */
+        public Boolean getPartial() {
+            return Json.read(json.get("partial"), Json::bool);
+        }
+
+        /** {@link #getPartial()} を書く。null ならフィールドを除く */
+        public RasterRequest withPartial(Boolean value) {
+            put("partial", value);
+            return this;
+        }
+
+        /** 診断ごとに返す場所の数。書かなければ 16（決定 0009） */
+        public Long getMaxPlaces() {
+            return Json.read(json.get("max_places"), Json::integer);
+        }
+
+        /** {@link #getMaxPlaces()} を書く。null ならフィールドを除く */
+        public RasterRequest withMaxPlaces(Long value) {
+            put("max_places", value);
+            return this;
+        }
+
+        /** 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        public Long getTimeLimitMs() {
+            return Json.read(json.get("time_limit_ms"), Json::integer);
+        }
+
+        /** {@link #getTimeLimitMs()} を書く。null ならフィールドを除く */
+        public RasterRequest withTimeLimitMs(Long value) {
+            put("time_limit_ms", value);
+            return this;
+        }
+
+        /** op の名前 */
+        public String getOp() {
+            return Json.read(json.get("op"), Json::string);
+        }
+
+        /** {@link #getOp()} を書く。null ならフィールドを除く */
+        public RasterRequest withOp(String value) {
+            put("op", value);
+            return this;
+        }
+
+        /** 文書の名前。open で作ったもの */
+        public String getDoc() {
+            return Json.read(json.get("doc"), Json::string);
+        }
+
+        /** {@link #getDoc()} を書く。null ならフィールドを除く */
+        public RasterRequest withDoc(String value) {
+            put("doc", value);
+            return this;
+        }
+
+        /** ページ番号（IFD の 1 から始まる番号）。書かなければ 1 */
+        public Long getPage() {
+            return Json.read(json.get("page"), Json::integer);
+        }
+
+        /** {@link #getPage()} を書く。null ならフィールドを除く */
+        public RasterRequest withPage(Long value) {
+            put("page", value);
+            return this;
+        }
+
+        /** 出力の長辺の最大ピクセル数。元の長辺がこれを超えるときだけ縦横比を保って縮小する */
+        public Long getMaxSide() {
+            return Json.read(json.get("max_side"), Json::integer);
+        }
+
+        /** {@link #getMaxSide()} を書く。null ならフィールドを除く */
+        public RasterRequest withMaxSide(Long value) {
+            put("max_side", value);
+            return this;
+        }
+    }
+
+    /** 復号した PNG 画像のサイズ・元のページサイズ・総ページ数と、画像の blob の番号 */
+    public static final class RasterResult extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public RasterResult(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static RasterResult of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new RasterResult(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public RasterResult() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 出力した PNG の幅（ピクセル） */
+        public Long getWidth() {
+            return Json.read(json.get("width"), Json::integer);
+        }
+
+        /** {@link #getWidth()} を書く。null ならフィールドを除く */
+        public RasterResult withWidth(Long value) {
+            put("width", value);
+            return this;
+        }
+
+        /** 出力した PNG の高さ（ピクセル） */
+        public Long getHeight() {
+            return Json.read(json.get("height"), Json::integer);
+        }
+
+        /** {@link #getHeight()} を書く。null ならフィールドを除く */
+        public RasterResult withHeight(Long value) {
+            put("height", value);
+            return this;
+        }
+
+        /** 元のページの幅（ピクセル） */
+        public Long getSourceWidth() {
+            return Json.read(json.get("source_width"), Json::integer);
+        }
+
+        /** {@link #getSourceWidth()} を書く。null ならフィールドを除く */
+        public RasterResult withSourceWidth(Long value) {
+            put("source_width", value);
+            return this;
+        }
+
+        /** 元のページの高さ（ピクセル） */
+        public Long getSourceHeight() {
+            return Json.read(json.get("source_height"), Json::integer);
+        }
+
+        /** {@link #getSourceHeight()} を書く。null ならフィールドを除く */
+        public RasterResult withSourceHeight(Long value) {
+            put("source_height", value);
+            return this;
+        }
+
+        /** 復号したページ番号（1 から） */
+        public Long getPage() {
+            return Json.read(json.get("page"), Json::integer);
+        }
+
+        /** {@link #getPage()} を書く。null ならフィールドを除く */
+        public RasterResult withPage(Long value) {
+            put("page", value);
+            return this;
+        }
+
+        /** 文書に含まれる総ページ（IFD）数 */
+        public Long getPages() {
+            return Json.read(json.get("pages"), Json::integer);
+        }
+
+        /** {@link #getPages()} を書く。null ならフィールドを除く */
+        public RasterResult withPages(Long value) {
+            put("pages", value);
+            return this;
+        }
+
+        /** PNG 画像の blob の番号（種類は image）。zm_take で取り出す */
+        public Long getBlob() {
+            return Json.read(json.get("blob"), Json::integer);
+        }
+
+        /** {@link #getBlob()} を書く。null ならフィールドを除く */
+        public RasterResult withBlob(Long value) {
             put("blob", value);
             return this;
         }
@@ -15500,7 +15720,7 @@ public final class Messages {
         }
     }
 
-    /** open で開いた点群（LAS・LAZ・PLY・XYZ・E57）の要約と、条件に合う点を返す。点は八分木の浅い段のノードから順に選ぶ（決定 0232）。点群のモジュールに置く（決定 0253）。マイナーバージョン 48 から */
+    /** open で開いた点群（LAS・LAZ・PLY・XYZ・E57・GeoTIFF の DEM）の要約と、条件に合う点を返す。点は八分木の浅い段のノードから順に選ぶ（決定 0232）。点群のモジュールに置く（決定 0253）。マイナーバージョン 48 から */
     public static final class PointcloudRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public PointcloudRequest(Map<String, Object> json) {
@@ -17282,7 +17502,7 @@ public final class Messages {
         }
     }
 
-    /** open で開いた CityGML・基盤地図情報（GML）・拡張 DM・GeoJSON・SIMA の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。土木・地理のモジュールに置く（決定 0253）。マイナーバージョン 52 から */
+    /** open で開いた CityGML・基盤地図情報（GML）・拡張 DM・GeoJSON・SIMA・GeoTIFF の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。土木・地理のモジュールに置く（決定 0253）。マイナーバージョン 52 から */
     public static final class GeoRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public GeoRequest(Map<String, Object> json) {
@@ -17367,7 +17587,7 @@ public final class Messages {
             return this;
         }
 
-        /** open で開いた CityGML・基盤地図情報（GML）・拡張 DM・GeoJSON・SIMA の文書の名前 */
+        /** open で開いた CityGML・基盤地図情報（GML）・拡張 DM・GeoJSON・SIMA・GeoTIFF の文書の名前 */
         public String getDoc() {
             return Json.read(json.get("doc"), Json::string);
         }
@@ -18855,5 +19075,7 @@ public final class Messages {
         public static final String LIFT = "lift";
 
         public static final String RENDER = "render";
+
+        public static final String RASTER = "raster";
     }
 }

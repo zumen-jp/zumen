@@ -3493,3 +3493,73 @@ params = { kind = "key", tolerance = "float" }
 group-by = ["kind"]
 since = "0.3.0"
 status = "active"
+
+# TIFF・GeoTIFF（#877）
+
+[codes."tiff.file.invalid"]
+description = "クラシック TIFF（TIFF 6.0）として読めないか、ヘッダー・IFD・ストリップ・タイル・圧縮列が壊れている"
+severity = "error"
+params = { offset = "uint" }
+since = "0.3.0"
+status = "active"
+
+[codes."tiff.compression.unsupported"]
+description = "対応していない圧縮方式の IFD なので、そのページの画素を読めなかった"
+severity = "warning"
+fidelity = "dropped"
+params = { compression = "uint" }
+group-by = ["compression"]
+since = "0.3.0"
+status = "active"
+
+[codes."tiff.format.unsupported"]
+description = "対応していない色空間・ビット深さ・予測子・配置の IFD なので、そのページまたは要素を移さなかった"
+severity = "warning"
+fidelity = "dropped"
+params = { reason = "key" }
+group-by = ["reason"]
+since = "0.3.0"
+status = "active"
+
+[codes."tiff.tag.unsupported"]
+description = "解釈しない TIFF・GeoTIFF タグを読み飛ばした"
+severity = "info"
+fidelity = "dropped"
+params = { tag = "uint" }
+group-by = ["tag"]
+since = "0.3.0"
+status = "active"
+
+[codes."tiff.crs.missing"]
+description = "GeoTIFF の座標参照系がないので、座標系を不明にし、地理・点群の領域モデルには幾何を持たせなかった"
+severity = "warning"
+fidelity = "dropped"
+since = "0.3.0"
+status = "active"
+
+[codes."tiff.crs.unsupported"]
+description = "GeoTIFF の座標参照系 EPSG コードを扱えないので、座標系を不明にした"
+severity = "warning"
+fidelity = "dropped"
+params = { epsg = "uint" }
+group-by = ["epsg"]
+since = "0.3.0"
+status = "active"
+
+[codes."tiff.nodata.invalid"]
+description = "GDAL_NODATA タグの文字列を数値として読めないので、欠損値の除外に使わなかった"
+severity = "warning"
+fidelity = "dropped"
+params = { value = "text" }
+group-by = ["value"]
+since = "0.3.0"
+status = "active"
+
+[codes."tiff.grid.unsupported"]
+description = "単バンドの数値標高格子または平面直角座標の格子条件を満たさないので、点群モデルに持ち上げなかった"
+severity = "warning"
+fidelity = "dropped"
+params = { reason = "key" }
+group-by = ["reason"]
+since = "0.3.0"
+status = "active"
