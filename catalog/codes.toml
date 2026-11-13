@@ -943,6 +943,15 @@ fidelity = "dropped"
 since = "0.0.0"
 status = "active"
 
+[codes."scene.shx-opcode.unsupported"]
+description = "SHX フォントの字形に未対応の命令があるため、その字形のストロークを描かなかった（#875）"
+severity = "warning"
+fidelity = "dropped"
+params = { opcode = "uint" }
+group-by = ["opcode"]
+since = "0.3.0"
+status = "active"
+
 [codes."scene.text-layout.unsupported"]
 description = "文字（縦書きの 1 行の文字、測定値の区間、寸法の決まらない文字など）を字形で置けないので、その部分は文字列だけを返した（決定 0188）"
 severity = "warning"

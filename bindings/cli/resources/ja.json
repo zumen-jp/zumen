@@ -386,6 +386,7 @@
     "scene.leader.dropped": "引出線を、シーンに描きませんでした（{count} 件）。",
     "scene.line-type-mark.dropped": "線種に添える形と文字を、シーンに描きませんでした（{count} 件）。",
     "scene.line-type-shape.dropped": "線種に添える形を、シーンに描きませんでした（{count} 件）。",
+    "scene.shx-opcode.unsupported": "SHX フォントに未対応の命令（{opcode}）があるため、その字形を描きませんでした（{count} 件）。",
     "scene.spline-degree.approximated": "次数が {limit} を超えるスプラインを、フィット点を通る曲線か、点を結ぶ折れ線で描きました（{count} 件）。",
     "scene.spline.approximated": "フィット点だけで決まるスプラインを、点を結ぶ折れ線で描きました（{count} 件）。",
     "scene.table.approximated": "描いた部品がない表を、セルの枠の線とセルの文字で描きました（{count} 件）。",

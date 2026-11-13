@@ -13,6 +13,7 @@ use zumen_scene::{Chunking, FontSet, Options, Palette, Scene, build, build_with}
 use zumen_sdk::{Lift, testkit};
 use zumen_text::font::Font as Face;
 use zumen_text::layout::Reference;
+use zumen_text::shx::ShxFont;
 
 const MODEL: SpaceId = SpaceId(0);
 
@@ -1495,4 +1496,145 @@ fn measure_indexed_clipped_grids_and_layers() {
             scene.bytes.len()
         );
     }
+}
+
+fn build_test_shx_shapes(shapes: &[(u16, &[u8])]) -> Vec<u8> {
+    let mut out = b"AutoCAD-86 shapes 1.0\r\n\x1a".to_vec();
+    out.extend_from_slice(&0u16.to_le_bytes());
+    out.extend_from_slice(&255u16.to_le_bytes());
+    out.extend_from_slice(&((shapes.len() + 1) as u16).to_le_bytes());
+    let info = [b's', b'h', b'x', 0, 10, 2, 2];
+    out.extend_from_slice(&0u16.to_le_bytes());
+    out.extend_from_slice(&(info.len() as u16).to_le_bytes());
+    for &(code, bc) in shapes {
+        out.extend_from_slice(&code.to_le_bytes());
+        out.extend_from_slice(&((1 + bc.len()) as u16).to_le_bytes());
+    }
+    out.extend_from_slice(&info);
+    for &(_, bc) in shapes {
+        out.push(0);
+        out.extend_from_slice(bc);
+    }
+    out
+}
+
+fn build_test_bigfont(shapes: &[(u16, &[u8])]) -> Vec<u8> {
+    let mut out = b"AutoCAD-86 bigfont 1.0\r\n\x1a".to_vec();
+    out.extend_from_slice(&8u16.to_le_bytes());
+    let count = (shapes.len() + 1) as u16;
+    out.extend_from_slice(&count.to_le_bytes());
+    out.extend_from_slice(&2u16.to_le_bytes());
+    out.extend_from_slice(&0x81u16.to_le_bytes());
+    out.extend_from_slice(&0x9fu16.to_le_bytes());
+    out.extend_from_slice(&0xe0u16.to_le_bytes());
+    out.extend_from_slice(&0xfcu16.to_le_bytes());
+    let info = [b'b', b'f', 0, 20, 4, 0, 0];
+    let mut data_off = (out.len() + usize::from(count) * 8) as u32;
+    out.extend_from_slice(&0u16.to_le_bytes());
+    out.extend_from_slice(&(info.len() as u16).to_le_bytes());
+    out.extend_from_slice(&data_off.to_le_bytes());
+    data_off += info.len() as u32;
+    for &(code, bc) in shapes {
+        let len = (3 + bc.len()) as u16;
+        out.extend_from_slice(&code.to_le_bytes());
+        out.extend_from_slice(&len.to_le_bytes());
+        out.extend_from_slice(&data_off.to_le_bytes());
+        data_off += u32::from(len);
+    }
+    out.extend_from_slice(&info);
+    for &(code, bc) in shapes {
+        let [hi, lo] = code.to_be_bytes();
+        out.push(hi);
+        out.push(lo);
+        out.push(0);
+        out.extend_from_slice(bc);
+    }
+    out
+}
+
+#[test]
+fn lays_shx_and_bigfont_strokes_and_reports_diagnostics() {
+    let raw_dxf = "  0\nSECTION\n  2\nHEADER\n  9\n$ACADVER\n  1\nAC1027\n  9\n$INSUNITS\n 70\n4\n  0\nENDSEC\n\
+  0\nSECTION\n  2\nTABLES\n  0\nTABLE\n  2\nSTYLE\n 70\n1\n\
+  0\nSTYLE\n  2\nJP\n 70\n0\n 40\n0.0\n 41\n1.0\n 50\n0.0\n 71\n0\n  3\nsimplex.shx\n  4\nbigfont.shx\n\
+  0\nENDTAB\n  0\nENDSEC\n\
+  0\nSECTION\n  2\nENTITIES\n\
+  0\nTEXT\n  5\n10\n  8\n0\n  7\nJP\n 10\n0.0\n 20\n0.0\n 40\n5.0\n  1\nL図!?\n\
+  0\nENDSEC\n  0\nEOF\n";
+    let file = testkit::read::<Dxf>(raw_dxf.as_bytes()).0.unwrap();
+    let mut budget = Budget::new(Limits::default());
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let drawing = file
+        .lift(&mut Cx::new(&mut budget, &mut diag, &cancel))
+        .unwrap();
+
+    // 'L': 2 頂点の折れ線 1 本（3 点）、'!': 未対応命令 0x0F、'?': 未定義
+    let primary_bytes = build_test_shx_shapes(&[
+        (b'L'.into(), &[0x01, 0xa4, 0xac, 0x60, 0x02, 0x20, 0x00]),
+        (b'!'.into(), &[0x0f, 0x00]),
+    ]);
+    // Shift_JIS '図' (0x907D): above = 20（主フォント above = 10 の 2 倍 → 1/2 に自動縮尺）
+    let big_bytes = build_test_bigfont(&[(
+        0x907d,
+        &[
+            0x01,
+            0x08,
+            0,
+            20,
+            0x08,
+            20,
+            0,
+            0x08,
+            0,
+            (-20i8) as u8,
+            0x08,
+            (-20i8) as u8,
+            0,
+            0x02,
+            0x08,
+            24,
+            0,
+            0x00,
+        ],
+    )]);
+
+    let mut parse_cx = Cx::new(&mut budget, &mut diag, &cancel);
+    let primary_shx = ShxFont::parse(&primary_bytes, &mut parse_cx).unwrap();
+    let big_shx = ShxFont::parse(&big_bytes, &mut parse_cx).unwrap();
+
+    // 拡張子を除いた幹（"simplex" / "bigfont"）で登録しても、DXF の "simplex.shx" / "bigfont.shx" と一致する
+    let mut fonts = FontSet::default();
+    assert!(fonts.add(Some("simplex"), primary_shx));
+    assert!(fonts.add(Some("bigfont"), big_shx));
+
+    let mut scene_diag = Diagnostics::new();
+    let scene = build_with(
+        &drawing,
+        &options(),
+        &fonts,
+        &mut Cx::new(&mut budget, &mut scene_diag, &cancel),
+    )
+    .unwrap();
+
+    // 'L' と '図' のストロークがそれぞれ開いた折れ線としてシーンに出る
+    assert_eq!(scene.counts.lines, 2);
+    assert_eq!(scene.counts.texts, 1);
+
+    let read = Read(&scene.bytes);
+    let line_xy = read.f32s(layout::LINE_XY);
+    // 'L' は height = 5.0（above = 10 → 0.5 倍）で高さ 5.0、'図' は bigfont above = 20 → 0.25 倍で同じ高さ 5.0
+    let max_y = line_xy
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|&[_, y]| y)
+        .fold(f32::NEG_INFINITY, f32::max);
+    assert!((max_y - 5.0).abs() < 1e-4, "max_y = {max_y}");
+
+    let codes_found: Vec<Code> = scene_diag.iter().map(|d| d.code()).collect();
+    assert!(codes_found.contains(&codes::SCENE_GLYPH_MISSING));
+    assert!(codes_found.contains(&codes::SCENE_SHX_OPCODE_UNSUPPORTED));
+    assert!(!codes_found.contains(&codes::SCENE_FONT_ASSUMED));
+    assert!(!codes_found.contains(&codes::SCENE_FONT_MISSING));
 }

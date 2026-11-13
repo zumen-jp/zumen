@@ -4420,6 +4420,17 @@ pub const SCENE_LINE_TYPE_SHAPE_DROPPED: Code = Code::new(
     &[],
 );
 
+/// SHX フォントの字形に未対応の命令があるため、その字形のストロークを描かなかった（#875）
+///
+/// `scene.shx-opcode.unsupported`（0.3.0 から）
+pub const SCENE_SHX_OPCODE_UNSUPPORTED: Code = Code::new(
+    "scene.shx-opcode.unsupported",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("opcode", ParamType::UInt)],
+    &["opcode"],
+);
+
 /// 次数が上限（`zumen-geom2d` の `MAX_DEGREE`）を超えるスプラインを、制御点で決まる曲線として描かず、フィット点を通る曲線か、点を結ぶ折れ線で描いた（#756）
 ///
 /// `scene.spline-degree.approximated`（0.2.0 から）
@@ -5339,6 +5350,7 @@ pub const ALL: &[Code] = &[
     SCENE_LEADER_DROPPED,
     SCENE_LINE_TYPE_MARK_DROPPED,
     SCENE_LINE_TYPE_SHAPE_DROPPED,
+    SCENE_SHX_OPCODE_UNSUPPORTED,
     SCENE_SPLINE_DEGREE_APPROXIMATED,
     SCENE_SPLINE_APPROXIMATED,
     SCENE_TABLE_APPROXIMATED,

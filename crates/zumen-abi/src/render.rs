@@ -465,4 +465,75 @@ mod tests {
             assert!(session.take(0).is_some());
         }
     }
+
+    #[test]
+    fn renders_shx_font_in_svg_and_png_without_text_drop() {
+        let mut shx = b"AutoCAD-86 shapes 1.0\r\n\x1a".to_vec();
+        shx.extend_from_slice(&0u16.to_le_bytes());
+        shx.extend_from_slice(&255u16.to_le_bytes());
+        shx.extend_from_slice(&2u16.to_le_bytes());
+        let info = [b's', b'h', b'x', 0, 10, 2, 0];
+        // 'H' (72): 左縦線・右縦線・横棒 + ペン上げ送り
+        let h_bc: &[u8] = &[
+            0x00,
+            0x01,
+            0xa4,
+            0x02,
+            0x08,
+            6,
+            (-10i8) as u8,
+            0x01,
+            0xa4,
+            0x02,
+            0x08,
+            (-6i8) as u8,
+            (-5i8) as u8,
+            0x01,
+            0x60,
+            0x02,
+            0x08,
+            2,
+            (-5i8) as u8,
+            0x00,
+        ];
+        shx.extend_from_slice(&0u16.to_le_bytes());
+        shx.extend_from_slice(&(info.len() as u16).to_le_bytes());
+        shx.extend_from_slice(&u16::from(b'H').to_le_bytes());
+        shx.extend_from_slice(&(h_bc.len() as u16).to_le_bytes());
+        shx.extend_from_slice(&info);
+        shx.extend_from_slice(h_bc);
+
+        let mut session = session();
+        session.push(b"simplex.shx", &shx).unwrap();
+        for format in [r#""svg""#, r#""png""#] {
+            let req = request(&[
+                ("format", format),
+                ("fonts", r#"[{"input":"simplex.shx"}]"#),
+            ]);
+            let (status, response) = call(&mut session, &req);
+            assert_eq!(status, Status::Ok, "{response:?}");
+            // `.shx` でストローク展開された文字は `render.text.dropped` や `scene.glyph.missing` を出さない
+            let codes: Vec<&str> = match response.pointer("/diagnostics") {
+                Some(Value::Array(items)) => items
+                    .iter()
+                    .filter_map(|item| match item.pointer("/code") {
+                        Some(Value::String(code)) => Some(code.as_str()),
+                        _ => None,
+                    })
+                    .collect(),
+                _ => Vec::new(),
+            };
+            assert!(
+                !codes.contains(&"render.text.dropped") && !codes.contains(&"scene.glyph.missing"),
+                "{codes:?}"
+            );
+            let bytes = session.take(0).unwrap();
+            assert!(!bytes.is_empty());
+            if format == r#""svg""# {
+                let svg = std::str::from_utf8(&bytes).unwrap();
+                assert!(svg.contains("<path"), "{svg}");
+                assert!(!svg.contains("<text"), "{svg}");
+            }
+        }
+    }
 }

@@ -1,13 +1,17 @@
-//! 呼び出し側が渡したフォントで文字を置き、字形の形と変換をシーンに足す（決定 0188）。
+//! 呼び出し側が渡したフォントで文字を置き、字形の形と変換をシーンに足す（決定 0188・#875）。
 //!
-//! - フォントは、文字スタイルと区間のフォントの名前で引く。名前は、まず同じ名前、なければ ASCII の大文字と
-//!   小文字を区別せずに比べる。合うものがなければ、名前のない既定のフォントで置き
-//!   （`scene.font.assumed`）、既定もなければ字形を作らない（`scene.font.missing`）。
-//! - 字形の輪郭は、許容差を字形の単位に直した値を 2 の冪に切り下げた刻みで折れ線にし、フォント・字形・
-//!   刻みの組ごとに 1 つの形として共有する。作った点は予算の `segments` で数える。
+//! - フォントは、文字スタイルと区間のフォントの名前で引く。名前は、同じ名前、ASCII の大文字と小文字を
+//!   区別しない一致、フォント拡張子（`.shx`・`.ttf`・`.otf`・`.ttc`）を除いた幹の一致の順で比べる。
+//!   合うものがなければ、名前のない既定のフォントで置き（`scene.font.assumed`）、既定もなければ字形を作らない
+//!   （`scene.font.missing`）。文字スタイルが大きいフォント（`big_font`）を持てば、主フォントにない文字を
+//!   そちらから引く。
+//! - OpenType の字形の輪郭は、許容差を字形の単位に直した値を 2 の冪に切り下げた刻みで閉じた折れ線にし、
+//!   フォント・字形・刻みの組ごとに 1 つの形として共有する。`.shx` のストロークは開いた折れ線としてシーンの
+//!   線に出す。作った点は予算の `segments` で数える。
 //! - 字形で置いた文字の高さは、フォントの寸法で大文字の高さに直し、高さの意味のフラグを外す。
 
 use std::collections::BTreeMap;
+use std::f64::consts::PI;
 
 use zumen_base::{Diagnostic, Ref, Stop, codes};
 use zumen_drawing::transform::Point as Spot;
@@ -16,8 +20,10 @@ use zumen_drawing::{
     Vertical, VisitRef,
 };
 use zumen_geom2d::Xy;
-use zumen_text::font::{Contour, Font as Face, Segment};
-use zumen_text::layout::{self, Glyphs, Reference};
+use zumen_text::Typeface;
+use zumen_text::font::{Contour, Segment};
+use zumen_text::layout::{self, FontMetrics, Glyph, Glyphs, Reference, VerticalGlyph};
+use zumen_text::shx::{ShxPath, ShxSegment, ShxStrokeError};
 
 use crate::{Builder, GlyphItem, TextItem, layout::text_flag};
 
@@ -25,20 +31,37 @@ use crate::{Builder, GlyphItem, TextItem, layout::text_flag};
 const LEVELS: [i32; 2] = [-8, 16];
 /// 1 つの曲線の区間を分ける数の上限
 const PIECES: f64 = 64.0;
+/// ストロークで描く字形や空の字形が共有する空の形のキー
+const EMPTY_SHAPE_KEY: (usize, u16, i32) = (usize::MAX, u16::MAX, i32::MAX);
+
+fn strip_font_ext(name: &str) -> (&str, bool) {
+    if name.len() > 4
+        && let Some(ext) = name.as_bytes().get(name.len() - 4..)
+        && (ext.eq_ignore_ascii_case(b".shx")
+            || ext.eq_ignore_ascii_case(b".ttf")
+            || ext.eq_ignore_ascii_case(b".otf")
+            || ext.eq_ignore_ascii_case(b".ttc"))
+        && let Some((stem, _)) = name.split_at_checked(name.len() - 4)
+    {
+        return (stem, true);
+    }
+    (name, false)
+}
 
 /// シーンの文字を置くフォント（決定 0188）。名前つきのフォントと、名前の合わない文字に使う既定のフォントと、
 /// 形式の宣言値の高さの意味を持つ
 #[derive(Default)]
 pub struct FontSet<'a> {
-    named: Vec<(String, Face<'a>)>,
-    default: Option<Face<'a>>,
+    named: Vec<(String, Typeface<'a>)>,
+    default: Option<Typeface<'a>>,
     heights: BTreeMap<String, Reference>,
 }
 
 impl<'a> FontSet<'a> {
     /// フォントを足す。`name` が `None` なら既定のフォントにする。同じ名前（既定を含む）がすでにあれば
     /// 足さずに偽を返す
-    pub fn add(&mut self, name: Option<&str>, face: Face<'a>) -> bool {
+    pub fn add(&mut self, name: Option<&str>, face: impl Into<Typeface<'a>>) -> bool {
+        let face = face.into();
         match name {
             None if self.default.is_some() => false,
             None => {
@@ -54,8 +77,8 @@ impl<'a> FontSet<'a> {
     }
 
     /// 形式の宣言値の高さ（`HeightMeaning::Declared` のキー）が、フォントのどの寸法に当たるかを決める。
-    /// 決めないキーは、表示と比べて決めた意味（`dxf.TEXT.40` は `A` の字形の上）にし、それもなければ
-    /// 大文字の高さとみなして `scene.text-height.assumed` を返す
+    /// 決めないキーは、表示と比べて決めた意味（`dxf.TEXT.40` は TrueType で `A` の字形の上、`.shx` で
+    /// 大文字の高さ）にし、それもなければ大文字の高さとみなして `scene.text-height.assumed` を返す
     pub fn declare(&mut self, key: &str, reference: Reference) {
         self.heights.insert(key.to_owned(), reference);
     }
@@ -66,7 +89,7 @@ impl<'a> FontSet<'a> {
     }
 
     /// 番号のフォント
-    fn at(&self, index: usize) -> Option<&Face<'a>> {
+    fn at(&self, index: usize) -> Option<&Typeface<'a>> {
         match self.named.get(index) {
             Some((_, face)) => Some(face),
             None => self.default.as_ref(),
@@ -74,13 +97,26 @@ impl<'a> FontSet<'a> {
     }
 
     /// 名前のフォント。番号（名前つきの並び、既定は最後）・フォント・既定で代えたか
-    fn find(&self, name: Option<&str>) -> Option<(usize, &Face<'a>, bool)> {
+    fn find(&self, name: Option<&str>) -> Option<(usize, &Typeface<'a>, bool)> {
         if let Some(name) = name.filter(|n| !n.is_empty()) {
-            let found = self.named.iter().position(|(n, _)| n == name).or_else(|| {
-                self.named
-                    .iter()
-                    .position(|(n, _)| n.eq_ignore_ascii_case(name))
-            });
+            let (wanted_stem, wanted_has_ext) = strip_font_ext(name);
+            let found = self
+                .named
+                .iter()
+                .position(|(n, _)| n == name)
+                .or_else(|| {
+                    self.named
+                        .iter()
+                        .position(|(n, _)| n.eq_ignore_ascii_case(name))
+                })
+                .or_else(|| {
+                    self.named.iter().position(|(n, _)| {
+                        let (stem, has_ext) = strip_font_ext(n);
+                        (has_ext || wanted_has_ext)
+                            && !stem.is_empty()
+                            && stem.eq_ignore_ascii_case(wanted_stem)
+                    })
+                });
             if let Some(index) = found {
                 return self.named.get(index).map(|(_, face)| (index, face, false));
             }
@@ -91,10 +127,129 @@ impl<'a> FontSet<'a> {
     }
 }
 
+/// 主フォントと大きいフォント（`big_font`）の組。主フォントにない文字を大きいフォントから引き、大文字の高さの
+/// 比で主フォントの単位にそろえる
+struct PairedFace<'s, 'a> {
+    primary_index: usize,
+    primary: &'s Typeface<'a>,
+    big: Option<(usize, &'s Typeface<'a>, f64)>,
+}
+
+impl<'s, 'a> PairedFace<'s, 'a> {
+    fn new(fonts: &'s FontSet<'a>, primary_index: usize, big_index: Option<usize>) -> Option<Self> {
+        let primary = fonts.at(primary_index)?;
+        let big = big_index
+            .filter(|&idx| idx != primary_index)
+            .and_then(|idx| {
+                let bf = fonts.at(idx)?;
+                let p_cap = primary.metrics().cap_height;
+                let b_cap = bf.metrics().cap_height;
+                let ratio = if p_cap > 0.0 && b_cap > 0.0 && (p_cap / b_cap).is_finite() {
+                    p_cap / b_cap
+                } else {
+                    1.0
+                };
+                Some((idx, bf, ratio))
+            });
+        Some(Self {
+            primary_index,
+            primary,
+            big,
+        })
+    }
+
+    fn resolve(&self, ch: char) -> (usize, f64) {
+        if self.primary.glyph(ch).is_some() {
+            return (self.primary_index, 1.0);
+        }
+        if let Some((idx, bf, ratio)) = self.big
+            && bf.glyph(ch).is_some()
+        {
+            return (idx, ratio);
+        }
+        (self.primary_index, 1.0)
+    }
+}
+
+impl Glyphs for PairedFace<'_, '_> {
+    fn metrics(&self) -> FontMetrics {
+        self.primary.metrics()
+    }
+
+    fn glyph(&self, ch: char) -> Option<Glyph> {
+        if let Some(g) = self.primary.glyph(ch) {
+            return Some(g);
+        }
+        let (_, bf, ratio) = self.big?;
+        let g = bf.glyph(ch)?;
+        Some(Glyph {
+            advance: g.advance * ratio,
+            bounds: g
+                .bounds
+                .map(|[x0, y0, x1, y1]| [x0 * ratio, y0 * ratio, x1 * ratio, y1 * ratio]),
+        })
+    }
+
+    fn fallback(&self) -> Glyph {
+        self.primary.fallback()
+    }
+
+    fn kerning(&self, left: char, right: char) -> f64 {
+        if self.primary.glyph(left).is_some() && self.primary.glyph(right).is_some() {
+            return self.primary.kerning(left, right);
+        }
+        if self.primary.glyph(left).is_none()
+            && self.primary.glyph(right).is_none()
+            && let Some((_, bf, ratio)) = self.big
+        {
+            return bf.kerning(left, right) * ratio;
+        }
+        0.0
+    }
+
+    fn vertical_kerning(&self, left: char, right: char) -> f64 {
+        if self.primary.glyph(left).is_some() && self.primary.glyph(right).is_some() {
+            return self.primary.vertical_kerning(left, right);
+        }
+        if self.primary.glyph(left).is_none()
+            && self.primary.glyph(right).is_none()
+            && let Some((_, bf, ratio)) = self.big
+        {
+            return bf.vertical_kerning(left, right) * ratio;
+        }
+        0.0
+    }
+
+    fn vertical(&self, ch: char) -> Option<VerticalGlyph> {
+        if self.primary.glyph(ch).is_some() {
+            return self.primary.vertical(ch);
+        }
+        let (_, bf, ratio) = self.big?;
+        bf.glyph(ch)?;
+        let v = bf.vertical(ch)?;
+        Some(VerticalGlyph {
+            glyph: Glyph {
+                advance: v.glyph.advance * ratio,
+                bounds: v
+                    .glyph
+                    .bounds
+                    .map(|[x0, y0, x1, y1]| [x0 * ratio, y0 * ratio, x1 * ratio, y1 * ratio]),
+            },
+            advance: v.advance * ratio,
+            top: v.top * ratio,
+            substituted: v.substituted,
+        })
+    }
+
+    fn vertical_fallback(&self) -> VerticalGlyph {
+        self.primary.vertical_fallback()
+    }
+}
+
 /// 書式つきの文字を置くのに渡すフォント
 struct SpanFonts<'s, 'a> {
     set: &'s FontSet<'a>,
-    base: &'s Face<'a>,
+    base: &'s PairedFace<'s, 'a>,
     vertical: bool,
 }
 
@@ -114,9 +269,10 @@ impl layout::Fonts for SpanFonts<'_, '_> {
     }
 }
 
-/// 書式つきの文字を置いた結果。区間の位置ごとの字形と、上下に重ねた文字の線
+/// 書式つきの文字を置いた結果。区間の位置ごとの字形・ストロークと、上下に重ねた文字の線
 pub(crate) struct LaidSpans {
     pub glyphs: BTreeMap<usize, Vec<GlyphItem>>,
+    pub strokes: BTreeMap<usize, Vec<Vec<Xy>>>,
     pub lines: BTreeMap<usize, [Xy; 2]>,
     /// 上下に重ねた文字の区間の、上の段の字数
     pub uppers: BTreeMap<usize, usize>,
@@ -154,10 +310,20 @@ fn advanced([a, b, c, d, e, f]: [f64; 6], pen: f64) -> [f64; 6] {
     [a, b, c, d, a * pen + e, b * pen + f]
 }
 
+/// 字形の座標軸を `ratio` 倍に縮尺した変換
+fn scaled_glyph([a, b, c, d, e, f]: [f64; 6], ratio: f64) -> [f64; 6] {
+    if ratio == 1.0 {
+        [a, b, c, d, e, f]
+    } else {
+        [a * ratio, b * ratio, c * ratio, d * ratio, e, f]
+    }
+}
+
 /// 表示と比べて決めた、形式の宣言値の高さの意味。呼び出し側が決めなければこれを使う
-fn known(key: &str) -> Option<Reference> {
+fn known(key: &str, is_shx: bool) -> Option<Reference> {
     match key {
-        // AutoCAD 2027 で、TrueType の TEXT の高さは `A` の字形の上に当たる（決定 0246）
+        // AutoCAD 2027 で、TrueType の TEXT の高さは `A` の字形の上、SHX は `H` の上（above）に当たる（決定 0246）
+        "dxf.TEXT.40" if is_shx => Some(Reference::CapHeight),
         "dxf.TEXT.40" => Some(Reference::CapitalA),
         _ => None,
     }
@@ -265,7 +431,175 @@ pub(crate) fn flatten(contours: &[Contour], tolerance: f64) -> Vec<Vec<Xy>> {
     rings
 }
 
+/// `.shx` のストロークの列を、刻み `tolerance`（字形の単位）の開いた折れ線にする。円弧があれば真を返す
+fn flatten_shx(paths: &[ShxPath], tolerance: f64) -> (Vec<Vec<Xy>>, bool) {
+    let mut out = Vec::with_capacity(paths.len());
+    let mut has_arc = false;
+    for poly in paths {
+        let mut pts = Vec::with_capacity(poly.segments.len() + 1);
+        pts.push(poly.start);
+        for seg in &poly.segments {
+            match *seg {
+                ShxSegment::Line(q) => pts.push(q),
+                ShxSegment::Arc {
+                    center,
+                    radius,
+                    start,
+                    sweep,
+                    end,
+                } => {
+                    let abs_sweep = sweep.abs();
+                    if radius > 0.0
+                        && abs_sweep > 0.0
+                        && radius.is_finite()
+                        && abs_sweep.is_finite()
+                    {
+                        has_arc = true;
+                        let step =
+                            if tolerance.is_finite() && tolerance > 0.0 && tolerance < radius {
+                                2.0 * libm::acos(1.0 - tolerance / radius)
+                            } else {
+                                PI / 2.0
+                            }
+                            .clamp(f64::MIN_POSITIVE, PI / 2.0);
+                        let n = libm::ceil(abs_sweep / step).clamp(1.0, PIECES) as usize;
+                        for i in 1..n {
+                            let a = start + sweep * (i as f64 / n as f64);
+                            pts.push([
+                                center[0] + radius * libm::cos(a),
+                                center[1] + radius * libm::sin(a),
+                            ]);
+                        }
+                        pts.push(end);
+                    }
+                }
+            }
+        }
+        if pts.len() >= 2 {
+            out.push(pts);
+        }
+    }
+    (out, has_arc)
+}
+
+fn transform_polyline(points: &[Xy], [a, b, c, d, e, f]: [f64; 6]) -> Vec<Xy> {
+    points
+        .iter()
+        .map(|&[x, y]| [a * x + c * y + e, b * x + d * y + f])
+        .collect()
+}
+
+struct EmittedShx {
+    row: u32,
+    paths: Vec<Vec<Xy>>,
+}
+
 impl Builder<'_, '_, '_> {
+    fn empty_shape_row(&mut self) -> u32 {
+        if let Some(&row) = self.shape_rows.get(&EMPTY_SHAPE_KEY) {
+            return row;
+        }
+        let row = u32::try_from(self.shapes.len()).unwrap_or(crate::layout::NONE);
+        self.shapes.push(Vec::new());
+        self.shape_rows.insert(EMPTY_SHAPE_KEY, row);
+        row
+    }
+
+    fn emit_shx_glyph(
+        &mut self,
+        face: usize,
+        ch: char,
+        vertical: bool,
+        transform: [f64; 6],
+        review_budget: bool,
+        source: &Ref,
+    ) -> Result<EmittedShx, (Stop, Ref)> {
+        use zumen_base::Kind;
+
+        if review_budget {
+            self.cx
+                .check(Kind::Work, 1 << 20)
+                .map_err(|s| (s, source.clone()))?;
+            self.cx
+                .check(Kind::DecodedBytes, 1 << 20)
+                .map_err(|s| (s, source.clone()))?;
+        }
+        let Some(shx) = self.fonts.at(face).and_then(Typeface::as_shx) else {
+            return Ok(EmittedShx {
+                row: self.empty_shape_row(),
+                paths: Vec::new(),
+            });
+        };
+        let strokes = match shx.strokes(ch, vertical) {
+            Ok(Some(strokes)) => strokes,
+            Ok(None) => {
+                return Ok(EmittedShx {
+                    row: self.empty_shape_row(),
+                    paths: Vec::new(),
+                });
+            }
+            Err(ShxStrokeError::UnsupportedOpcode(op)) => {
+                self.cx.report(
+                    Diagnostic::new(codes::SCENE_SHX_OPCODE_UNSUPPORTED)
+                        .with("opcode", u64::from(op))
+                        .at(source.clone()),
+                );
+                return Ok(EmittedShx {
+                    row: self.empty_shape_row(),
+                    paths: Vec::new(),
+                });
+            }
+            Err(ShxStrokeError::Malformed) => {
+                self.report(codes::SCENE_GLYPH_OUTLINE_INVALID, source);
+                return Ok(EmittedShx {
+                    row: self.empty_shape_row(),
+                    paths: Vec::new(),
+                });
+            }
+        };
+
+        let [a, b, c, d, ..] = transform;
+        let scale = libm::hypot(a, b).max(libm::hypot(c, d));
+        let tol = power(level(self.tolerance / scale));
+        if review_budget {
+            let mut upper = 0u64;
+            for poly in &strokes.paths {
+                self.cx
+                    .check(Kind::Work, 1 + poly.segments.len() as u64)
+                    .map_err(|s| (s, source.clone()))?;
+                upper = upper.saturating_add(1 + (poly.segments.len() as u64).saturating_mul(64));
+            }
+            self.cx
+                .check(Kind::Work, upper.saturating_mul(64))
+                .map_err(|s| (s, source.clone()))?;
+            self.cx
+                .check(Kind::Segments, upper)
+                .map_err(|s| (s, source.clone()))?;
+            self.cx
+                .check(
+                    Kind::DecodedBytes,
+                    upper.saturating_mul(128).saturating_add(1024),
+                )
+                .map_err(|s| (s, source.clone()))?;
+        }
+        let (flat, has_arc) = flatten_shx(&strokes.paths, tol);
+        if has_arc {
+            self.approximated = true;
+        }
+        if !review_budget {
+            let total_points: usize = flat.iter().map(Vec::len).sum();
+            self.segments(total_points, source)?;
+        }
+        let world: Vec<Vec<Xy>> = flat
+            .iter()
+            .map(|pts| transform_polyline(pts, transform))
+            .collect();
+        Ok(EmittedShx {
+            row: self.empty_shape_row(),
+            paths: world,
+        })
+    }
+
     /// レビュー専用の事前予約。通常のシーンの予算と字形キャッシュの規則は変えない（決定 0295）。
     pub(crate) fn lay_review_text<P: Spot>(
         &mut self,
@@ -289,7 +623,7 @@ impl Builder<'_, '_, '_> {
         let Some(index) = self.typeface(font, &source) else {
             return Ok(());
         };
-        // glyf の点と部品、CFF/CFF2 の数と命令は 2^16 以下。字形の探索と寸法の読み直しも含め、
+        // glyf の点と部品、CFF/CFF2 の数と命令、SHX の命令数は 2^16 以下。字形の探索と寸法の読み直しも含め、
         // 1 文字につきその 256 倍の作業を、配置する前に予約する。キャッシュした輪郭の量はここに重ねない。
         self.cx
             .check(
@@ -303,11 +637,11 @@ impl Builder<'_, '_, '_> {
                 (text.content.len() as u64).saturating_mul(256),
             )
             .map_err(|s| (s, source.clone()))?;
-        let reference = self.reference(&text.height, &source);
         let fonts = self.fonts;
         let Some(face) = fonts.at(index) else {
             return Ok(());
         };
+        let reference = self.reference(&text.height, face.is_shx(), &source);
         let Ok(laid) = layout::place(text, |p| p.xy(), face, |_| Some(reference)) else {
             self.unplaced(&source);
             return Ok(());
@@ -318,9 +652,25 @@ impl Builder<'_, '_, '_> {
         self.segments(laid.pens.len(), &source)?;
         let mut glyphs = Vec::with_capacity(laid.pens.len());
         for (ch, pen) in text.content.chars().zip(&laid.pens) {
-            let id = face.glyph_id(ch).unwrap_or(0);
             let transform = compose(visit.transform.m, advanced(laid.transform, *pen));
-            let shape = self.review_glyph_shape(index, id, transform, &source)?;
+            let shape = match fonts.at(index) {
+                Some(Typeface::OpenType(ot)) => {
+                    let id = ot.glyph_id(ch).unwrap_or(0);
+                    self.review_glyph_shape(index, id, transform, &source)?
+                }
+                Some(Typeface::Shx(_)) => {
+                    let emitted =
+                        self.emit_shx_glyph(index, ch, false, transform, true, &source)?;
+                    for path in emitted.paths {
+                        for &pt in &path {
+                            item.bounds.add(pt);
+                        }
+                        self.line(path, item.unit);
+                    }
+                    emitted.row
+                }
+                None => self.empty_shape_row(),
+            };
             glyphs.push(GlyphItem { shape, transform });
         }
         item.glyphs = glyphs;
@@ -360,7 +710,11 @@ impl Builder<'_, '_, '_> {
         self.cx
             .check(Kind::DecodedBytes, (1 << 24) + (1 << 20))
             .map_err(|s| (s, source.clone()))?;
-        let outline = self.fonts.at(face).and_then(|font| font.outline(id));
+        let outline = self
+            .fonts
+            .at(face)
+            .and_then(Typeface::as_opentype)
+            .and_then(|font| font.outline(id));
         let rings = if let Some(contours) = outline {
             let mut upper = 0u64;
             for contour in &contours {
@@ -403,24 +757,28 @@ impl Builder<'_, '_, '_> {
     }
 
     /// 高さの意味に当たる寸法。決めていない宣言値は、表示と比べて決めた意味か、大文字の高さとみなす
-    fn reference(&mut self, height: &Height, source: &Ref) -> Reference {
+    fn reference(&mut self, height: &Height, is_shx: bool, source: &Ref) -> Reference {
         match &height.meaning {
             HeightMeaning::CapHeight => Reference::CapHeight,
             HeightMeaning::Em => Reference::Em,
             HeightMeaning::Frame => Reference::Frame,
-            HeightMeaning::Declared(key) => {
-                match self.fonts.heights.get(key.as_ref()).copied().or(known(key)) {
-                    Some(reference) => reference,
-                    None => {
-                        self.cx.report(
-                            Diagnostic::new(codes::SCENE_TEXT_HEIGHT_ASSUMED)
-                                .with("key", key.as_ref())
-                                .at(source.clone()),
-                        );
-                        Reference::CapHeight
-                    }
+            HeightMeaning::Declared(key) => match self
+                .fonts
+                .heights
+                .get(key.as_ref())
+                .copied()
+                .or_else(|| known(key, is_shx))
+            {
+                Some(reference) => reference,
+                None => {
+                    self.cx.report(
+                        Diagnostic::new(codes::SCENE_TEXT_HEIGHT_ASSUMED)
+                            .with("key", key.as_ref())
+                            .at(source.clone()),
+                    );
+                    Reference::CapHeight
                 }
-            }
+            },
         }
     }
 
@@ -460,7 +818,11 @@ impl Builder<'_, '_, '_> {
         if let Some(row) = self.shape_rows.get(&key) {
             return Ok(*row);
         }
-        let outline = self.fonts.at(face).and_then(|f| f.outline(id));
+        let outline = self
+            .fonts
+            .at(face)
+            .and_then(Typeface::as_opentype)
+            .and_then(|f| f.outline(id));
         let rings = match outline {
             Some(contours) => {
                 if contours
@@ -495,6 +857,7 @@ impl Builder<'_, '_, '_> {
         visit: &VisitRef<'_, '_>,
         text: &Text<P>,
         font: Option<&str>,
+        big_font: Option<&str>,
         vertical: bool,
         item: &mut TextItem,
     ) -> Result<(), (Stop, Ref)> {
@@ -505,33 +868,51 @@ impl Builder<'_, '_, '_> {
         let Some(index) = self.typeface(font, &source) else {
             return Ok(());
         };
+        let big_index = big_font
+            .filter(|n| !n.is_empty())
+            .and_then(|n| self.typeface(Some(n), &source));
         if vertical {
             // 縦書きの 1 行の文字は、置き方（決定 0176）が扱わない
             self.unplaced(&source);
             return Ok(());
         }
-        let reference = self.reference(&text.height, &source);
+        let fonts = self.fonts;
+        let Some(pair) = PairedFace::new(fonts, index, big_index) else {
+            return Ok(());
+        };
+        let reference = self.reference(&text.height, pair.primary.is_shx(), &source);
         let mut laid_text = text.clone();
         laid_text.content = decoded(&text.content, &text.height, true);
-        let fonts = self.fonts;
-        let laid = match fonts.at(index) {
-            Some(face) => layout::place(&laid_text, |p| p.xy(), face, |_| Some(reference))
-                .map(|laid| (laid, layout::unit(reference, face), face.metrics())),
-            None => return Ok(()),
-        };
-        let Ok((laid, unit_value, metrics)) = laid else {
+        let Ok(laid) = layout::place(&laid_text, |p| p.xy(), &pair, |_| Some(reference)) else {
             self.unplaced(&source);
             return Ok(());
         };
+        let unit_value = layout::unit(reference, &pair);
+        let metrics = pair.metrics();
         if laid.missing > 0 {
             self.report(codes::SCENE_GLYPH_MISSING, &source);
         }
         self.segments(laid.pens.len(), &source)?;
         let mut glyphs = Vec::with_capacity(laid.pens.len());
         for (ch, pen) in laid_text.content.chars().zip(&laid.pens) {
-            let id = fonts.at(index).and_then(|f| f.glyph_id(ch)).unwrap_or(0);
-            let transform = compose(visit.transform.m, advanced(laid.transform, *pen));
-            let shape = self.glyph_shape(index, id, transform, &source)?;
+            let (face_idx, ratio) = pair.resolve(ch);
+            let local = scaled_glyph(advanced(laid.transform, *pen), ratio);
+            let transform = compose(visit.transform.m, local);
+            let shape = match fonts.at(face_idx) {
+                Some(Typeface::OpenType(ot)) => {
+                    let id = ot.glyph_id(ch).unwrap_or(0);
+                    self.glyph_shape(face_idx, id, transform, &source)?
+                }
+                Some(Typeface::Shx(_)) => {
+                    let emitted =
+                        self.emit_shx_glyph(face_idx, ch, false, transform, false, &source)?;
+                    for path in emitted.paths {
+                        self.line(path, item.unit);
+                    }
+                    emitted.row
+                }
+                None => self.empty_shape_row(),
+            };
             glyphs.push(GlyphItem { shape, transform });
         }
         item.glyphs = glyphs;
@@ -546,6 +927,7 @@ impl Builder<'_, '_, '_> {
         visit: &VisitRef<'_, '_>,
         text: &FormattedText<P>,
         font: Option<&str>,
+        big_font: Option<&str>,
         vertical: bool,
     ) -> Result<Option<LaidSpans>, (Stop, Ref)> {
         if self.fonts.is_empty() {
@@ -555,28 +937,35 @@ impl Builder<'_, '_, '_> {
         let Some(base) = self.typeface(font, &source) else {
             return Ok(None);
         };
+        let big_index = big_font
+            .filter(|n| !n.is_empty())
+            .and_then(|n| self.typeface(Some(n), &source));
         // 区間で指定されたフォント。合うものがなければ既定で、既定もなければ文字スタイルのフォントで置く
-        let mut faces = Vec::with_capacity(text.spans.len());
+        let mut faces: Vec<Option<usize>> = Vec::with_capacity(text.spans.len());
         for span in &text.spans {
             let face = match &span.format.font {
                 Some(wanted) if matches!(span.piece, Piece::Text(_) | Piece::Stack { .. }) => {
                     match self.fonts.find(Some(&wanted.name)) {
-                        Some((index, _, false)) => index,
+                        Some((index, _, false)) => Some(index),
                         found => {
                             self.cx.report(
                                 Diagnostic::new(codes::SCENE_FONT_ASSUMED)
                                     .with("name", wanted.name.as_str())
                                     .at(source.clone()),
                             );
-                            found.map_or(base, |(index, _, _)| index)
+                            found.map(|(index, _, _)| index)
                         }
                     }
                 }
-                _ => base,
+                _ => None,
             };
             faces.push(face);
         }
-        let reference = self.reference(&text.height, &source);
+        let fonts = self.fonts;
+        let Some(base_pair) = PairedFace::new(fonts, base, big_index) else {
+            return Ok(None);
+        };
+        let reference = self.reference(&text.height, base_pair.primary.is_shx(), &source);
         let mut laid_text = text.clone();
         for span in &mut laid_text.spans {
             match &mut span.piece {
@@ -588,14 +977,10 @@ impl Builder<'_, '_, '_> {
                 _ => {}
             }
         }
-        let fonts = self.fonts;
-        let Some(base_face) = fonts.at(base) else {
-            return Ok(None);
-        };
-        let metrics = base_face.metrics();
+        let metrics = base_pair.metrics();
         let span_fonts = SpanFonts {
             set: fonts,
-            base: base_face,
+            base: &base_pair,
             vertical,
         };
         let Ok(laid) =
@@ -614,6 +999,7 @@ impl Builder<'_, '_, '_> {
         let m = visit.transform.m;
         let mut out = LaidSpans {
             glyphs: BTreeMap::new(),
+            strokes: BTreeMap::new(),
             lines: BTreeMap::new(),
             uppers: laid_text
                 .spans
@@ -624,17 +1010,35 @@ impl Builder<'_, '_, '_> {
                     _ => None,
                 })
                 .collect(),
-            ratio: metrics.cap_height / layout::unit(reference, base_face),
+            ratio: metrics.cap_height / layout::unit(reference, &base_pair),
         };
         for glyph in &laid.glyphs {
-            let index = faces.get(glyph.span).copied().unwrap_or(base);
-            let face = fonts.at(index);
-            let mut id = face.and_then(|f| f.glyph_id(glyph.ch)).unwrap_or(0);
-            if glyph.substituted {
-                id = face.map_or(id, |f| f.vertical_id(id));
-            }
-            let transform = compose(m, glyph.transform);
-            let shape = self.glyph_shape(index, id, transform, &source)?;
+            let (face_idx, ratio) = match faces.get(glyph.span).copied().flatten() {
+                Some(explicit) => (explicit, 1.0),
+                None => base_pair.resolve(glyph.ch),
+            };
+            let transform = compose(m, scaled_glyph(glyph.transform, ratio));
+            let shape = match fonts.at(face_idx) {
+                Some(Typeface::OpenType(ot)) => {
+                    let mut id = ot.glyph_id(glyph.ch).unwrap_or(0);
+                    if glyph.substituted {
+                        id = ot.vertical_id(id);
+                    }
+                    self.glyph_shape(face_idx, id, transform, &source)?
+                }
+                Some(Typeface::Shx(_)) => {
+                    let emitted = self
+                        .emit_shx_glyph(face_idx, glyph.ch, vertical, transform, false, &source)?;
+                    if !emitted.paths.is_empty() {
+                        out.strokes
+                            .entry(glyph.span)
+                            .or_default()
+                            .extend(emitted.paths);
+                    }
+                    emitted.row
+                }
+                None => self.empty_shape_row(),
+            };
             out.glyphs
                 .entry(glyph.span)
                 .or_default()
@@ -661,6 +1065,7 @@ impl Builder<'_, '_, '_> {
         height: f64,
         rotation: f64,
         font: Option<&str>,
+        big_font: Option<&str>,
         item: &mut TextItem,
         source: &Ref,
     ) -> Result<(), (Stop, Ref)> {
@@ -670,12 +1075,19 @@ impl Builder<'_, '_, '_> {
         let Some(index) = self.typeface(font, source) else {
             return Ok(());
         };
+        let big_index = big_font
+            .filter(|n| !n.is_empty())
+            .and_then(|n| self.typeface(Some(n), source));
+        let fonts = self.fonts;
+        let Some(pair) = PairedFace::new(fonts, index, big_index) else {
+            return Ok(());
+        };
         // 線種の文字の高さは、文字スタイルの高さに倍率を掛けた値で、TEXT の高さと同じ意味とみなす（推定）
         let declared = Height {
             value: Length::Paper(PaperLength(height)),
             meaning: HeightMeaning::Declared("dxf.TEXT.40".into()),
         };
-        let reference = self.reference(&declared, source);
+        let reference = self.reference(&declared, pair.primary.is_shx(), source);
         let text = Text {
             content: content.to_owned(),
             height: declared,
@@ -691,25 +1103,35 @@ impl Builder<'_, '_, '_> {
             upside_down: false,
             style: String::new(),
         };
-        let fonts = self.fonts;
-        let laid = match fonts.at(index) {
-            Some(face) => layout::place(&text, |p| *p, face, |_| Some(reference))
-                .map(|laid| (laid, layout::unit(reference, face), face.metrics())),
-            None => return Ok(()),
-        };
-        let Ok((laid, unit_value, metrics)) = laid else {
+        let Ok(laid) = layout::place(&text, |p| *p, &pair, |_| Some(reference)) else {
             self.report(codes::SCENE_TEXT_LAYOUT_UNSUPPORTED, source);
             return Ok(());
         };
+        let unit_value = layout::unit(reference, &pair);
+        let metrics = pair.metrics();
         if laid.missing > 0 {
             self.report(codes::SCENE_GLYPH_MISSING, source);
         }
         self.segments(laid.pens.len(), source)?;
         let mut glyphs = Vec::with_capacity(laid.pens.len());
         for (ch, pen) in content.chars().zip(&laid.pens) {
-            let id = fonts.at(index).and_then(|f| f.glyph_id(ch)).unwrap_or(0);
-            let transform = advanced(laid.transform, *pen);
-            let shape = self.glyph_shape(index, id, transform, source)?;
+            let (face_idx, ratio) = pair.resolve(ch);
+            let transform = scaled_glyph(advanced(laid.transform, *pen), ratio);
+            let shape = match fonts.at(face_idx) {
+                Some(Typeface::OpenType(ot)) => {
+                    let id = ot.glyph_id(ch).unwrap_or(0);
+                    self.glyph_shape(face_idx, id, transform, source)?
+                }
+                Some(Typeface::Shx(_)) => {
+                    let emitted =
+                        self.emit_shx_glyph(face_idx, ch, false, transform, false, source)?;
+                    for path in emitted.paths {
+                        self.line(path, item.unit);
+                    }
+                    emitted.row
+                }
+                None => self.empty_shape_row(),
+            };
             glyphs.push(GlyphItem { shape, transform });
         }
         item.glyphs = glyphs;

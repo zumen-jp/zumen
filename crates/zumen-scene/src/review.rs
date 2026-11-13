@@ -1013,7 +1013,10 @@ impl Emitter<'_, '_, '_> {
             {
                 return geometry(self.builder.cx, "text_height", at);
             }
-            let mut line_bounds = Bounds::default();
+            let mut line_bounds = item.bounds;
+            if let Some([x0, y0, x1, y1]) = line_bounds.get() {
+                self.check_points(&[[x0, y0], [x1, y1]], at)?;
+            }
             let mut stored_bounds = Bounds::default();
             stored_bounds.add(item.at);
             for glyph in &item.glyphs {

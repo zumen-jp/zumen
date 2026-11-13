@@ -65,8 +65,14 @@ impl Session {
                 return Err(fail(cx, input_missing(&font.input)));
             };
             let number = u32::try_from(font.index.unwrap_or(0)).unwrap_or(u32::MAX);
-            let Ok(face) = zumen_text::font::Font::parse(bytes, number) else {
-                return Err(fail(cx, invalid_value(pointer)));
+            let face = match zumen_text::Typeface::parse(bytes, number, cx) {
+                Ok(face) => face,
+                Err(zumen_text::TypefaceError::Budget(stop)) => {
+                    return Err(fail(cx, stop.to_diagnostic()));
+                }
+                Err(zumen_text::TypefaceError::Invalid) => {
+                    return Err(fail(cx, invalid_value(pointer)));
+                }
             };
             if !set.add(font.name.as_deref(), face) {
                 let pointer = match font.name {

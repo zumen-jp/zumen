@@ -1099,11 +1099,15 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
             let places = geom::starts(points, pattern, mark.index);
             self.segments(places.len(), source)?;
             let drawing = self.drawing;
-            let font_name = style
+            let style_def = style
                 .as_deref()
                 .and_then(|name| drawing.text_style(name))
-                .and_then(|s| s.definition.as_ref())
+                .and_then(|s| s.definition.as_ref());
+            let font_name = style_def
                 .and_then(|s| s.font.as_ref())
+                .map(|f| f.name.as_str());
+            let big_font_name = style_def
+                .and_then(|s| s.big_font.as_ref())
                 .map(|f| f.name.as_str());
             let font = self.font(font_name);
             let string = self.strings.add(content);
@@ -1145,6 +1149,7 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
                     height * scale,
                     rotation,
                     font_name,
+                    big_font_name,
                     &mut item,
                     source,
                 )?;
@@ -1279,6 +1284,9 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
             .text_style(&text.style)
             .and_then(|s| s.definition.as_ref());
         let font_name = style.and_then(|s| s.font.as_ref()).map(|f| f.name.as_str());
+        let big_font_name = style
+            .and_then(|s| s.big_font.as_ref())
+            .map(|f| f.name.as_str());
         let font = self.font(font_name);
         let mut flags = 0;
         if text.backward {
@@ -1314,7 +1322,7 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
             glyphs: Vec::new(),
         };
         let vertical = style.is_some_and(|s| s.vertical);
-        self.lay_text(visit, text, font_name, vertical, &mut item)?;
+        self.lay_text(visit, text, font_name, big_font_name, vertical, &mut item)?;
         self.put_text(item);
         Ok(())
     }
@@ -1367,6 +1375,9 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
             .text_style(&text.style)
             .and_then(|s| s.definition.as_ref());
         let base_font = style.and_then(|s| s.font.as_ref()).map(|f| f.name.clone());
+        let big_font = style
+            .and_then(|s| s.big_font.as_ref())
+            .map(|f| f.name.clone());
         let base_height = length(text.height.value) * up;
         let mut flags = text_flag::FORMATTED;
         let vertical = match text.flow {
@@ -1386,7 +1397,13 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
             vertical_code(text.vertical),
         ];
         let box_width = text.width.map_or(0.0, |w| length(w) * along);
-        let mut laid = self.lay_formatted(visit, text, base_font.as_deref(), vertical)?;
+        let mut laid = self.lay_formatted(
+            visit,
+            text,
+            base_font.as_deref(),
+            big_font.as_deref(),
+            vertical,
+        )?;
         if laid.is_some() {
             flags &= !(text_flag::HEIGHT_FRAME | text_flag::HEIGHT_EM);
         }
@@ -1443,9 +1460,21 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
                 .as_mut()
                 .and_then(|laid| laid.glyphs.remove(&index))
                 .unwrap_or_default();
+            let strokes = laid
+                .as_mut()
+                .and_then(|laid| laid.strokes.remove(&index))
+                .unwrap_or_default();
             match &span.piece {
-                Piece::Text(content) => put(self, content, 0, glyphs),
+                Piece::Text(content) => {
+                    for path in strokes {
+                        self.line(path, unit);
+                    }
+                    put(self, content, 0, glyphs);
+                }
                 Piece::Stack { upper, lower, .. } => {
+                    for path in strokes {
+                        self.line(path, unit);
+                    }
                     let count = laid
                         .as_ref()
                         .and_then(|laid| laid.uppers.get(&index))
