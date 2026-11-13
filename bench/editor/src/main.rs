@@ -1,4 +1,4 @@
-//! エディターの設計（#693・docs/editor.md）のための測り。`prepare.mjs` が書いた場合の一覧（plan.txt）を、ネイティブの
+//! 今の実装で図面を直す速さ（docs/editor.md）の測り。`prepare.mjs` が書いた場合の一覧（plan.txt）を、ネイティブの
 //! セッションで流す。`run.mjs` が同じ一覧を wasm で流す。
 //!
 //! ```text

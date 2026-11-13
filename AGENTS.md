@@ -25,4 +25,4 @@
 
 ## リポジトリの地図
 
-[層と crate](docs/architecture.md#モデルと依存)・[言語別の入口](bindings/)・[使い方](README.md)。開発用ポートは 24100〜24199、端末固有のファイルは `.git/info/exclude` で除く。
+[層と crate](docs/architecture.md#モデルと依存)・[対話の編集（文書エンジン）](docs/live.md)・[言語別の入口](bindings/)・[使い方](README.md)。開発用ポートは 24100〜24199、端末固有のファイルは `.git/info/exclude` で除く。

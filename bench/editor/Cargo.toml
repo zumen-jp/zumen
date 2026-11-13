@@ -1,4 +1,4 @@
-# エディターの設計（#693・docs/editor.md）のために、open・scene・entities・apply の時間と作業量をネイティブで測る。
+# 今の実装で図面を直す速さ（docs/editor.md）を見るために、open・scene・entities・apply の時間と作業量をネイティブで測る。
 # コアのワークスペースには入れない。
 [package]
 name = "zumen-bench-editor"

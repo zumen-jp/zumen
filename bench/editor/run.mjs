@@ -1,4 +1,4 @@
-// エディターの設計（#693・docs/editor.md）のための測り。prepare.mjs が書いた場合の一覧（plan.txt）を wasm で流す。
+// 今の実装で図面を直す速さ（docs/editor.md）の測り。prepare.mjs が書いた場合の一覧（plan.txt）を wasm で流す。
 // src/main.rs が同じ一覧をネイティブで流す。
 //
 //   node run.mjs <図面用の wasm> <plan.txt> time [名前に含む文字]
