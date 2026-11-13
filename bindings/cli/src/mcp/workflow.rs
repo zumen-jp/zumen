@@ -332,7 +332,7 @@ fn summary_op_for(format: &str) -> &'static str {
         "ifc" | "ifczip" => "building",
         "landxml" => "civil",
         "citygml" | "fgd" | "extdm" => "geo",
-        "las" | "ply" | "xyz" | "e57" => "pointcloud",
+        "las" | "laz" | "ply" | "xyz" | "e57" => "pointcloud",
         _ => "drawing",
     }
 }
