@@ -715,7 +715,7 @@
 - 権利の根拠にした文書: [IETF Trust Legal Provisions Relating to IETF Documents](https://trustee.ietf.org/license-info)（確認日: 2026-11-13）
 - 文書の補足: RFC 7946 の Copyright Notice が参照する IETF Trust の規定。標準の実装を制限する条項はない
 - 照合に使う候補: Shapely・QGIS
-- サンプルの出どころ: 再配布条件と個人情報の不在を確認した第三者の公開サンプルはまだ samples/ に置いていない（#504）。テストの中で組み立てた GeoJSON と、Shapely 2.2.0 に書かせた合成 Geometry で確かめる
+- サンプルの出どころ: 再配布条件と個人情報の不在を確認した第三者の公開サンプルはまだ置いていない（#504）。テストの中で組み立てた GeoJSON と、Shapely 2.2.0 に書かせた合成 Geometry で確かめる
 - 読みの確かめた度合い: `synthetic`（確認日: 2026-11-13）
 - 読みの確かめた範囲: テストの中で組み立てた GeoJSON（crates/zumen-geojson/tests/geojson.rs）で、7 種の Geometry（Point・MultiPoint・LineString・MultiLineString・Polygon・MultiPolygon・GeometryCollection、Z 座標・穴あき面を含む）・Feature・FeatureCollection、属性（文字列・整数・実数・真偽・入れ子オブジェクトと、移さない null・配列の診断）、旧版の crs メンバーの診断（geojson.crs.dropped）、閉じていない輪や不正な穴・点数不足の診断（geojson.geometry.invalid）、UTF-8 BOM、レコード範囲の非重複・決定性・6 種の予算（InputBytes・DecodedBytes・Records・Elements・Depth・Work）と中断の停止場所診断を確かめた。Shapely 2.2.0（GEOS）が書いた 7 種の合成 Geometry も crates/zumen-geojson/tests/external.rs（xtask/verify/shapely）で読み比べて一致を確かめたが、自前で作った幾何からの生成なので段は synthetic とする。第三者の公開サンプルと QGIS での照合はまだ（#504）
 - 書きの確かめた度合い: `external`（確認日: 2026-11-13）

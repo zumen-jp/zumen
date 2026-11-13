@@ -1007,7 +1007,7 @@ place = "core"
 basis = ["spec"]
 known-crates = ["geojson"]
 verify = ["Shapely", "QGIS"]
-samples = ["再配布条件と個人情報の不在を確認した第三者の公開サンプルはまだ samples/ に置いていない（#504）。テストの中で組み立てた GeoJSON と、Shapely 2.2.0 に書かせた合成 Geometry で確かめる"]
+samples = ["再配布条件と個人情報の不在を確認した第三者の公開サンプルはまだ置いていない（#504）。テストの中で組み立てた GeoJSON と、Shapely 2.2.0 に書かせた合成 Geometry で確かめる"]
 docs = ["docs/formats/geojson.md"]
 issues = ["zumen-jp/zumen#504", "zumen-jp/zumen#876"]
 
