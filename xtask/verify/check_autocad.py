@@ -631,7 +631,10 @@ def check_file(runner, sources, entry, reading, baseline, folder):
     audit = summary(result)
     audit["handles"] = keeps_handles(data, path.suffix)
     if result["status"] != "ok":
-        failed = role in ("apply", "convert")
+        # 入力も開けない図面（$HANDSEED のない R2000 からの DXF など）を書き戻したファイルは、開けなくても、書き戻しの
+        # 食い違いにしない。開けなかったことは、結果の状態に残る
+        unopened_input = role == "apply" and baseline is not None and baseline["status"] != "ok"
+        failed = role in ("apply", "convert") and not unopened_input
         return ([f"AutoCAD が{STATES[result['status']]}（{progress(result)}）"] if failed else []), audit, None
     dump = result["dump"]
     if entry["path"] in sources:

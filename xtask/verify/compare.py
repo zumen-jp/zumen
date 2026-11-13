@@ -16,7 +16,7 @@ ANGLES = {"rotation", "start_angle", "end_angle"}
 # 書き出す AutoCAD の読み（dump.lsp）は既定の値として返す
 DEFAULTS = {"width_factor": 1.0, "oblique": 0.0}
 # 比べた数の名前（結果の JSON のキー）→ 表示
-LABELS = {"elements": "出所で結んだ要素", "shapes": "形を比べた要素", "expected": "変更で決めた形"}
+LABELS = {"elements": "出所で結んだ要素", "shapes": "形を比べた要素", "expected": "変更で決めた形", "removed": "除いた要素"}
 # 図形を図面モデルに移さなかったことを言う診断（catalog/codes.toml）。黙って捨てない照合は、これだけを数える。
 # params の kind は、DXF・DWG では図形の種類（DXF の名前）、JWW ではクラスの名前、SFC ではフィーチャの名前、P21
 # では実体の名前（crates/zumen-sxf/src/drawing.rs の FeatureRecord）。kind を持たない code は、レコードだけで結ぶ
@@ -361,24 +361,38 @@ def applied(entry, reading, counts, view):
     # 記号の定義の中に足した要素は、定義の空間の読みにある
     for d in reading.get("definitions", {}).values():
         by_id.update((e["id"], e) for e in d["entities"])
+    # 変更の列（make.py の run_chain）は、段ごとの期待を持たず、列を通して決まる終わりの値（final）を持つ
+    final = entry.get("final")
+    wants = [(f"変更 {want['edit']}", want) for step in entry["steps"] for want in step.get("expect", [])]
+    wants += [("列の終わり", want) for want in (final or {}).get("expect", [])]
+    for label, want in wants:
+        element = by_id.get(want["id"])
+        if element is None:
+            failures.append(f"{label}の要素 {want['id']} を、書き戻したファイルで zumen が読まない")
+            continue
+        e = view["entity"](handle_of(element) or "")
+        if e is None or e["geometry"] is None:
+            failures.append(f"{label}の要素 {want['id']} を {tool} で比べられない")
+            continue
+        counts["expected"] += 1
+        expected, got, _ = without_derived(view, want["geometry"], e["geometry"])
+        for d in differences(expected, got):
+            failures.append(f"{label}（{want['id']}）{d}")
+        if "layer" in want and (e["layer"] or "").lower() != want["layer"].lower():
+            failures.append(f"{label}（{want['id']}）の画層が {e['layer']!r}（期待は {want['layer']!r}）")
+        failures += [f"{label}（{want['id']}）{d}" for d in style_differences(want, e)]
+    # 除いた要素は、zumen の読みにも、外部の実装の読みにもない。ハンドルをもう一度使った要素は、final の expect にある
+    for gone in (final or {}).get("removed", []):
+        counts["removed"] += 1
+        if gone["id"] in by_id:
+            failures.append(f"除いた要素 {gone['id']} を、書き戻したファイルで zumen が読む")
+        if view["entity"](gone["handle"].upper()) is not None:
+            failures.append(f"除いた要素 {gone['id']} のハンドル {gone['handle']} の図形が {tool} にある")
     for step in entry["steps"]:
-        for want in step.get("expect", []):
-            element = by_id.get(want["id"])
-            if element is None:
-                failures.append(f"変更 {want['edit']} の要素 {want['id']} を、書き戻したファイルで zumen が読まない")
-                continue
-            e = view["entity"](handle_of(element) or "")
-            if e is None or e["geometry"] is None:
-                failures.append(f"変更 {want['edit']} の要素 {want['id']} を {tool} で比べられない")
-                continue
-            counts["expected"] += 1
-            expected, got, _ = without_derived(view, want["geometry"], e["geometry"])
-            for d in differences(expected, got):
-                failures.append(f"変更 {want['edit']}（{want['id']}）{d}")
-            if "layer" in want and (e["layer"] or "").lower() != want["layer"].lower():
-                failures.append(f"変更 {want['edit']}（{want['id']}）の画層が {e['layer']!r}（期待は {want['layer']!r}）")
-            failures += [f"変更 {want['edit']}（{want['id']}）{d}" for d in style_differences(want, e)]
         for edit in step["edits"]:
+            # 列の中で様式を変えた要素は、後の段で除くことがあるので、終わりの値（final）で照らす
+            if edit["kind"] == "restyle" and final is not None:
+                continue
             aci = edit.get("color", {}).get("aci")
             if edit["kind"] == "add_layer":
                 name = edit["name"].lower()

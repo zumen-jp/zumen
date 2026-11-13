@@ -10,12 +10,13 @@
 import sys
 import tempfile
 import unittest
+from collections import Counter
 from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import check_autocad as c  # noqa: E402
-from compare import differences  # noqa: E402
+from compare import applied, differences  # noqa: E402
 
 # 書き出しの行。タブの代わりに「|」で書く
 ROWS = (
@@ -288,6 +289,43 @@ class Dimensions(unittest.TestCase):
         moved = self.changed(*self.BEFORE[:2], "71|LINE|0|10=0.0,0.0|11=12.0,0.0", self.BEFORE[3])
         self.assertIn("値が変わった", moved["changed"]["60"])
         self.assertEqual(self.changed("@BLOCK|70|*D1", *self.BEFORE[2:])["missing"], ["60"])
+
+
+class Chains(unittest.TestCase):
+    """変更を 1 つずつ続けて当てたファイルの、列を通して決まる終わりの値の照らし方（compare.py の applied）"""
+
+    LINE = {"shape": "line", "start": [0, 0], "end": [10, 5]}
+
+    def failures(self, entities, drawn):
+        # entities は zumen の読みのハンドル、drawn は外部の実装の読み（ハンドル → 図形）
+        entry = {
+            "steps": [{"step": "styled", "edits": [{"kind": "restyle", "id": "space/0/h31", "hash": "", "color": {"aci": 2}}]}],
+            "final": {
+                "expect": [{"id": "space/0/h30", "geometry": self.LINE, "layer": "A", "color": {"aci": 1}}],
+                "removed": [{"id": "space/0/h31", "handle": "31"}],
+                "reused": [],
+            },
+        }
+        reading = {"entities": [{"id": f"space/0/h{handle}", "source": {"handle": handle}} for handle in entities]}
+        view = {"tool": "tool", "entity": drawn.get, "layer_colors": {}, "header": (0, 0)}
+        return applied(entry, reading, Counter(), view)
+
+    def test_the_last_values_and_the_removed_handles_are_compared(self):
+        kept = {"type": "LINE", "layer": "a", "color": 1, "geometry": self.LINE}
+        # 様式を変えてから除いた要素（31）は、様式を照らさない
+        self.assertEqual(self.failures(["30"], {"30": kept}), [])
+        moved = {**kept, "color": 3, "geometry": {**self.LINE, "end": [10, 6]}}
+        self.assertEqual(
+            self.failures(["30"], {"30": moved}),
+            ["列の終わり（space/0/h30）/end/1: 6（期待は 5）", "列の終わり（space/0/h30）の色が ACI 3（期待は 1）"],
+        )
+
+    def test_a_removed_element_that_is_still_drawn_is_a_difference(self):
+        kept = {"type": "LINE", "layer": "A", "color": 1, "geometry": self.LINE}
+        self.assertEqual(
+            self.failures(["30", "31"], {"30": kept, "31": kept}),
+            ["除いた要素 space/0/h31 を、書き戻したファイルで zumen が読む", "除いた要素 space/0/h31 のハンドル 31 の図形が tool にある"],
+        )
 
 
 class Results(unittest.TestCase):

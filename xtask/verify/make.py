@@ -25,6 +25,8 @@ from collections import Counter
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+# 隔離モード（python -I）は、スクリプトのフォルダーを探す道筋に足さない
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 FIELDS = ["id", "kind", "layer", "source", "bbox", "hash", "geometry"]
 # 診断ごとに返す場所の数。既定の 16 では、黙って捨てない照合で、場所のない図形を誤って数える
 MAX_PLACES = 100000
@@ -755,6 +757,198 @@ def add(place, geometry, layer=None, color=None, line_type=None):
     return edit
 
 
+def restyle(e, **style):
+    return {"kind": "restyle", "id": e["id"], "hash": e["hash"], **style}
+
+
+def remove(e):
+    return {"kind": "remove", "id": e["id"], "hash": e["hash"]}
+
+
+def named(edit, name):
+    """足す変更に名前を付ける。列（CHAINS）の後の段が、足した要素を memo[名前] の ID で指す"""
+    return {**edit, "_as": name}
+
+
+def kept(reading, memo, name):
+    """前の段で足した要素の、今の読み（ハッシュは、書き戻したファイルを開き直すたびに読み直す）"""
+    return next(e for e in reading["entities"] if e["id"] == memo[name])
+
+
+# 変更の列（#878）。段は、(読み, memo) から変更を作る。memo は、名前を付けて足した要素の ID
+
+
+def lifecycle_steps():
+    """画層を足し、図形を足し、様式を変え、動かし、除く。円はすべての段を通り、線は除かずに残して様式と形を照らす"""
+
+    def tables(_reading, _memo):
+        return [{"kind": "add_layer", "name": "ZUMEN_878", "color": {"aci": 6}}]
+
+    def added(_reading, _memo):
+        return [
+            named(add("space/0", {"shape": "line", "start": [0, -400], "end": [60, -380]}), "line"),
+            named(add("space/0", {"shape": "circle", "center": [100, -390], "radius": 12}), "circle"),
+            named(add("space/0", {"shape": "arc", "center": [150, -390], "radius": 12, "start_angle": 30, "end_angle": 200}), "arc"),
+        ]
+
+    def styled(reading, memo):
+        return [
+            restyle(kept(reading, memo, "line"), layer="ZUMEN_878", color={"aci": 1}),
+            restyle(kept(reading, memo, "circle"), color={"aci": 2}, line_weight={"mm": 0.35}),
+        ]
+
+    def moved(reading, memo):
+        return [
+            transform(kept(reading, memo, "line"), similar(30, 2, 40, -100)),
+            transform(kept(reading, memo, "circle"), similar(0, 1, 0, -60)),
+        ]
+
+    def removed(reading, memo):
+        return [remove(kept(reading, memo, "circle"))]
+
+    return [tables, added, styled, moved, removed]
+
+
+def vanish_steps():
+    """足して、すぐ除く。図形は入力のままで、進めた $HANDSEED と図面の範囲だけが残る"""
+
+    def added(_reading, _memo):
+        return [
+            named(add("space/0", {"shape": "line", "start": [0, -500], "end": [80, -520]}), "line"),
+            named(add("space/0", {"shape": "text", "content": "ZUMEN 878", "position": [100, -510], "height": 5, "rotation": 0}), "text"),
+        ]
+
+    def removed(reading, memo):
+        return [remove(kept(reading, memo, "line")), remove(kept(reading, memo, "text"))]
+
+    return [added, removed]
+
+
+def moves_steps():
+    """元からある初めの要素を、3 回動かす（平行移動、90° の回転、半分の尺度）"""
+
+    def step(matrix):
+        def make(reading, _memo):
+            return [transform(e, matrix) for e in model(reading)[:1]]
+
+        return make
+
+    steps = [step(similar(0, 1, 25, -15)), step(similar(90, 1, 0, 0)), step(similar(0, 0.5, 10, 10))]
+    for make, name in zip(steps, ("shifted", "turned", "halved")):
+        make.__name__ = name
+    return steps
+
+
+def cut_steps():
+    """元からある図形を除く。初めの要素、終わりの要素、初めの文字の順に、1 つずつ。属性を持つ記号は、除く変更を
+    change.edit.unsupported で断るので選ばない。要素が 2 つの図面は、モデル空間が空になる"""
+
+    def plain(reading):
+        return [e for e in model(reading) if not e.get("geometry", {}).get("attributes")]
+
+    def first(reading, _memo):
+        return [remove(e) for e in plain(reading)[:1]]
+
+    def last(reading, _memo):
+        return [remove(e) for e in plain(reading)[-1:]]
+
+    def text(reading, _memo):
+        return [remove(e) for e in model(reading, shape="text")[:1]]
+
+    return [first, last, text]
+
+
+def retext_steps():
+    """文字と書式つきの文字を足し、2 回置き換える"""
+
+    def added(_reading, _memo):
+        return [
+            named(add("space/0", {"shape": "text", "content": "ZUMEN 878", "position": [0, -600], "height": 5, "rotation": 0}), "text"),
+            named(add("space/0", {"shape": "formatted_text", "content": "ZUMEN\\P878", "position": [100, -590], "height": 5, "rotation": 0}), "note"),
+        ]
+
+    def replaced(reading, memo):
+        return [
+            replace(kept(reading, memo, "text"), {"shape": "text", "content": "REPLACED", "position": [10, -610], "height": 4, "rotation": 15}),
+            replace(kept(reading, memo, "note"), {"shape": "formatted_text", "content": "置き換えた\\P文字", "position": [100, -590], "height": 5, "rotation": 0, "width": 60}),
+        ]
+
+    def again(reading, memo):
+        return [replace(kept(reading, memo, "text"), {"shape": "text", "content": "置き換え 2", "position": [10, -610], "height": 6, "rotation": 0})]
+
+    return [added, replaced, again]
+
+
+def generations_steps():
+    """10 回続けて当てる。DWG は、変えたレコードを後ろに足すので、古いレコードが何世代も残る"""
+
+    def line(_reading, _memo):
+        return [named(add("space/0", {"shape": "line", "start": [0, -700], "end": [50, -700]}), "line")]
+
+    def line_moved(reading, memo):
+        return [transform(kept(reading, memo, "line"), similar(0, 1, 0, -10))]
+
+    def line_styled(reading, memo):
+        return [restyle(kept(reading, memo, "line"), color={"aci": 2})]
+
+    def circle(_reading, _memo):
+        return [named(add("space/0", {"shape": "circle", "center": [100, -700], "radius": 8}), "circle")]
+
+    def original_moved(reading, _memo):
+        return [transform(e, similar(0, 1, 5, 5)) for e in model(reading)[:1]]
+
+    def circle_removed(reading, memo):
+        return [remove(kept(reading, memo, "circle"))]
+
+    def line_replaced(reading, memo):
+        return [replace(kept(reading, memo, "line"), {"shape": "line", "start": [0, -720], "end": [80, -740]})]
+
+    def text(_reading, _memo):
+        return [named(add("space/0", {"shape": "text", "content": "GENERATION 1", "position": [0, -760], "height": 5, "rotation": 0}), "text")]
+
+    def text_replaced(reading, memo):
+        return [replace(kept(reading, memo, "text"), {"shape": "text", "content": "GENERATION 2", "position": [0, -760], "height": 5, "rotation": 0})]
+
+    def original_turned(reading, _memo):
+        return [transform(e, similar(45, 1, 0, 0)) for e in model(reading)[:1]]
+
+    return [line, line_moved, line_styled, circle, original_moved, circle_removed, line_replaced, text, text_replaced, original_turned]
+
+
+def reuse_steps():
+    """いちばん大きいハンドルの図形を除いてから、足す。$HANDSEED のない図面では、除いた図形のハンドルをもう一度使う"""
+
+    def removed(reading, _memo):
+        return [remove(max(model(reading), key=lambda e: int(e["source"]["handle"], 16)))]
+
+    def added(_reading, _memo):
+        return [named(add("space/0", {"shape": "circle", "center": [20, 20], "radius": 3}), "circle")]
+
+    return [removed, added]
+
+
+def chained(name):
+    """列を当てる公開サンプル: R2000・R2004・R2018 の layout と、R2013 の xclip（DWG と、同じ図面の ASCII の DXF）"""
+    return "-layout-" in name or "-xclip-r2013" in name
+
+
+# 変更の列（#878）。名前・入力の選び方・段の作り方。段ごとに、書き戻したファイルを開き直して、次の段を当てる
+CHAIN_ISSUE = 878
+CHAINS = [
+    ("lifecycle", lambda name, fmt: chained(name), lifecycle_steps),
+    ("vanish", lambda name, fmt: chained(name), vanish_steps),
+    ("moves", lambda name, fmt: chained(name), moves_steps),
+    # 切り抜きを持つ記号（xclip）は外す。DWG は、除く変更を dwg.change.unsupported で断る。DXF は当たるが、記号の拡張
+    # 辞書とその先（ACAD_FILTER の辞書と SPATIAL_FILTER）が、持ち主のないまま OBJECTS に残り、ezdxf の監査が直す
+    # （INVALID_OWNER_HANDLE）。直したら、ここに戻す。格子を持つ記号（minsert）と、線・円・文字の DXF
+    # （text_alignments）を足す
+    ("cut", lambda name, fmt: "-layout-" in name or "-minsert-" in name or name == "text_alignments.dxf", cut_steps),
+    ("retext", lambda name, fmt: chained(name), retext_steps),
+    ("generations", lambda name, fmt: chained(name), generations_steps),
+    ("reuse", lambda name, fmt: name == "made-seedless.dxf", reuse_steps),
+]
+
+
 # キットの組。名前・対象の issue・入力の選び方・変更の作り方
 RECIPES = [
     ("points", 342, lambda name, fmt: fmt in ("jww", "sfc", "p21") or "points-" in name, points_steps),
@@ -886,6 +1080,17 @@ def japanese_dxf(version, encoding):
     return out.encode(encoding)
 
 
+def seedless_dxf():
+    """$HANDSEED のない R2000 の DXF。表・ブロック・辞書は、AutoCAD が読み込むのに要る最小限（check_autocad.py の対照の
+    図面と同じ）。円（ハンドル 30）と、ファイルでいちばん大きいハンドルを持つ線（31）を置く。除いた図形のハンドルを、
+    後で足す図形がもう一度使う列（CHAINS の reuse）の入力にする"""
+    from check_autocad import CONTROL  # noqa: PLC0415 AutoCAD を探さない。図面の文だけを借りる
+
+    line = "0:LINE 5:31 330:1F 100:AcDbEntity 8:0 100:AcDbLine 10:0.0 20:0.0 30:0.0 11:10.0 21:5.0 31:0.0"
+    tokens = CONTROL.replace("9:$HANDSEED 5:FF ", "").format(circle=line).split()
+    return "".join(f"{code}\n{value}\n" for code, _, value in (token.partition(":") for token in tokens)).encode("ascii")
+
+
 def codes(*lists):
     """診断の (code, kind) ごとの件数"""
     found = Counter()
@@ -947,6 +1152,86 @@ def run_recipe(z, out, entry, data, recipe, baseline, places=None):
     (out / doc).write_bytes(current)
     record["status"] = "ok"
     reopen(z, out, record, current, baseline, places)
+    return record
+
+
+def apply_step(z, doc, make, memo):
+    """文書 doc を読み、段 make の変更を当てる。(読み, 変更, 状態, 応答) を返す。変更がなければ、状態と応答は None。
+    名前を付けて足した要素の ID を memo に置く"""
+    reading = read(z, doc)
+    edits = make(reading, memo)
+    if not edits:
+        return reading, edits, None, None
+    request = [{k: v for k, v in e.items() if not k.startswith("_")} for e in edits]
+    status, response = z.call({"op": "apply", "doc": doc, "edits": request})
+    if status == "ok":
+        memo.update((e["_as"], a["id"]) for e, a in zip(edits, response["result"]["applied"]) if "_as" in e)
+    return reading, edits, status, response
+
+
+def run_chain(z, out, entry, data, chain, baseline):
+    """入力に変更の段を 1 つずつ当て、段ごとに、書き戻したファイルを新しい文書として開き直して次の段を当てる（#878）。
+    終わりのファイルを置き、列を通して決まる終わりの値（final）を残す: 触った要素のうち残るものの形・画層・色
+    （expect）と、除いた要素（removed）。除いた要素のハンドルを、後で足した要素がもう一度使ったら、reused に残す。
+    同じ列を、開いたままの 1 つの文書に続けて当てたバイト列と同じか（session）も残す"""
+    name, _, steps = chain
+    stem, suffix = Path(entry["path"]).stem, Path(entry["path"]).suffix
+    doc = f"{CHAIN_ISSUE}/{stem}.{name}{suffix}"
+    record = {"path": doc, "role": "apply", "issue": CHAIN_ISSUE, "recipe": name, "from": entry["path"], "format": entry["format"], "steps": []}
+    current, memo = data, {}
+    held, held_memo, held_bytes = doc + ".session", {}, data
+    open_file(z, held, data)
+    state, removed, reused = {}, {}, []
+    for n, make in enumerate(steps()):
+        opened = f"{doc}.{n}"
+        open_file(z, opened, current)
+        reading, edits, status, response = apply_step(z, opened, make, memo)
+        if not edits:
+            record["steps"].append({"step": make.__name__, "edits": [], "skipped": True})
+            z.call({"op": "close", "doc": opened})
+            continue
+        request = [{k: v for k, v in e.items() if not k.startswith("_")} for e in edits]
+        record["steps"].append({"step": make.__name__, "edits": request, "status": status, "diagnostics": response["diagnostics"]})
+        if status != "ok":
+            record["status"] = "failed"
+            return record
+        by_id = {e["id"]: e for e in reading["entities"]}
+        for e, a in zip(edits, response["result"]["applied"]):
+            kind = e["kind"]
+            if kind == "add":
+                if a["id"] in removed:
+                    reused.append(removed.pop(a["id"]))
+                state[a["id"]] = {"geometry": e["_expect"], **{k: e[k] for k in ("layer", "color", "line_type") if k in e}}
+            elif kind == "remove":
+                state.pop(e["id"], None)
+                removed[e["id"]] = by_id[e["id"]]["source"]["handle"]
+            elif kind == "transform":
+                # 前の段で決めた形があれば、それを写す。なければ、読んだ形を写す
+                want = state.setdefault(e["id"], {"geometry": by_id[e["id"]]["geometry"]})
+                want["geometry"] = transformed(want["geometry"], e["matrix"])
+            elif kind == "replace":
+                state.setdefault(e["id"], {})["geometry"] = e["_expect"]
+            elif kind == "restyle":
+                want = state.setdefault(e["id"], {"geometry": by_id[e["id"]]["geometry"]})
+                want |= {k: e[k] for k in ("layer", "color", "line_type") if k in e}
+        current = z.take(response["blobs"][0]["id"])
+        z.call({"op": "close", "doc": opened})
+        # 開いたままの文書にも、同じ段を当てる
+        if held_bytes is not None:
+            _, _, held_status, held_response = apply_step(z, held, make, held_memo)
+            held_bytes = z.take(held_response["blobs"][0]["id"]) if held_status == "ok" else None
+    z.call({"op": "close", "doc": held})
+    (out / doc).parent.mkdir(parents=True, exist_ok=True)
+    (out / doc).write_bytes(current)
+    record["status"] = "ok"
+    record["final"] = {
+        "expect": [{"id": i, **want} for i, want in state.items()],
+        "removed": [{"id": i, "handle": handle} for i, handle in removed.items()],
+        "reused": reused,
+    }
+    record["session"] = "same" if held_bytes == current else "different" if held_bytes is not None else "failed"
+    record["sizes"] = {"input": len(data), "written": len(current)}
+    reopen(z, out, record, current, baseline)
     return record
 
 
@@ -1256,6 +1541,13 @@ SECTIONS = {
 - **AutoCAD。** 共通の手順で、開けることと監査の誤りが 0 であることを確かめる。`HANDSEED` を入力して、値が 10000（16 進）より大きいことと、`LINE` を新しく 1 本描くと、そのハンドル（`LIST`）が足した線より大きいことを記録する。R2000 では、ファイルの後ろに置いたヘッダーのセクションを AutoCAD が受け付けるかも記録する。
 """,
     ),
+    878: (
+        "#878 変更を 1 つずつ続けて当てて書き戻した DWG・DXF",
+        """AutoCAD で作った R2000・R2004・R2013・R2018 の DWG と DXF に、短い変更の列を 1 つずつ当てたファイルです。段ごとに、書き戻したファイルを開き直して、次の段を当てています（文書エンジンが等価の比べ先にする「1 つずつ当てた結果」、docs/live.md）。列は、足す・様式を変える・動かす・除く（lifecycle）、足してすぐ除く（vanish）、同じ要素を 3 回動かす（moves）、元からある図形を除く（cut）、足した文字を 2 回置き換える（retext）、10 回続けて当てる（generations）、`$HANDSEED` のない図面でいちばん大きいハンドルの図形を除いてから足す（reuse）の 7 つです。DWG は、変えたレコードを後ろに足すので、古いレコードが何世代も残ります。`manifest.json` の `final` に、列を通して決まる終わりの形・画層・色（`expect`）と、除いた要素（`removed`）、もう一度使ったハンドル（`reused`）を、`session` に、開いたままの 1 つの文書に続けて当てたバイト列と同じか（`same`・`different`）を書きます。
+
+- **AutoCAD。** `check_autocad.py` が、開けること・監査の誤りの数と、下の表の形・画層・色、除いた図形のハンドルが図面にないことを照らす。足して除いただけのファイル（vanish）は、図形が入力と同じに見える。
+""",
+    ),
     174: (
         "#174 DXF から図面モデルへ移す値",
         """入力の DXF と DWG（AutoCAD で作ったサンプル）を zumen が読んだ値は `zumen/input/` に、ezdxf・ACadSharp と照らした結果は `ezdxf.json`・`acadsharp.json` にあります。
@@ -1318,6 +1610,8 @@ def expectation(out, f):
     if f.get("recipe") == "handseed":
         return f"開けて、監査の誤りが 0。モデル空間の下に、長さ 100 の水平な線分が {HANDSEED_LINES} 本並ぶ。HANDSEED（`HANDSEED` 変数）が 10000 より大きい"
     reading = json.loads((out / "zumen" / (f["path"] + ".json")).read_text(encoding="utf-8"))
+    if "final" in f:
+        return chain_expectation(f, reading)
     # 記号の定義の中の要素（definitions）は、どの定義の中かも書く
     owners = {e["id"]: name for name, d in reading.get("definitions", {}).items() for e in d["entities"]}
     inside = [e for d in reading.get("definitions", {}).values() for e in d["entities"]]
@@ -1343,6 +1637,22 @@ def expectation(out, f):
     # 監査（AUDIT）は AutoCAD の手順にだけある
     opened = "開けて、監査の誤りが 0。" if VIEWERS.get(f["format"]) == "AutoCAD" else "開ける。"
     return opened + "<br>".join(items)
+
+
+def chain_expectation(f, reading):
+    """変更の列（#878）の表の 1 行。列を通して決まる終わりの値を書く"""
+    handles = {e["id"]: e.get("source", {}).get("handle") for e in reading["entities"]}
+    word = LAYER_WORDS.get(f["format"], "レイヤ")
+    final = f["final"]
+    items = [f"段 {s['step']} は当てる候補がなく、当てていない" for s in f["steps"] if s.get("skipped")]
+    items += [f"ハンドル {handles.get(want['id'])}: {describe(want['geometry'])}{styled(want, word)}" for want in final["expect"]]
+    items += [f"ハンドル {gone['handle']} の図形がない" for gone in final["removed"]]
+    items += [f"除いた図形のハンドル {handle} を、足した図形が使う" for handle in final["reused"]]
+    items += [item for s in f["steps"] for edit in s["edits"] if (item := table_item(edit))]
+    applied = sum(1 for s in f["steps"] if not s.get("skipped"))
+    # $HANDSEED のない R2000 の DXF は、AutoCAD 2027 が入力も開かない（xtask/verify/README.md）
+    opened = "AutoCAD は、入力も開かない（$HANDSEED がない）。ezdxf で照らす。" if f["recipe"] == "reuse" else "開けて、監査の誤りが 0。"
+    return f"{opened}{applied} 回当てた。" + "<br>".join(items)
 
 
 def non_finite_jww(data):
@@ -1416,6 +1726,7 @@ def inputs(extra):
     found.append(("input/made-shapeless.dxf", shapeless_dxf().encode("ascii"), "xtask/verify/make.py", *REPOSITORY))
     found.append(("input/made-japanese-r2004.dxf", japanese_dxf("AC1018", "cp932"), "xtask/verify/make.py", *REPOSITORY))
     found.append(("input/made-japanese-r2007.dxf", japanese_dxf("AC1021", "utf-8"), "xtask/verify/make.py", *REPOSITORY))
+    found.append(("input/made-seedless.dxf", seedless_dxf(), "xtask/verify/make.py", *REPOSITORY))
     found.append(("input/made-structure.sfc", STRUCTURE_SFC.encode("ascii"), "xtask/verify/make.py", *REPOSITORY))
     found.append(("input/made-structure.p21", STRUCTURE_P21.encode("ascii"), "xtask/verify/make.py", *REPOSITORY))
     if extra:
@@ -1484,6 +1795,13 @@ def main():
                 # 定義の中も読む組は、どの段も当てる。定義の空間を当てられずに段を飛ばすと、確かめる範囲が黙って減る
                 if recipe[0] in INSIDE:
                     broken += [f"{record['path']}: 段 {s['step']} に当てる候補がない" for s in record["steps"] if s.get("skipped")]
+        for chain in CHAINS:
+            if fmt in ("dxf", "dwg") and chain[1](Path(path).name, fmt):
+                record = run_chain(z, out, entry, data, chain, baseline)
+                files.append(record)
+                # 作った入力が役目を果たすこと: $HANDSEED のない図面で、除いた図形のハンドルをもう一度使う
+                if chain[0] == "reuse" and not record.get("final", {}).get("reused"):
+                    broken.append(f"{record['path']}: 除いた図形のハンドルを、足した図形が使っていない")
         files.append(run_convert(z, out, entry, data, baseline))
         if source == "samples/dwg/zumen-arcdim-r2004.dwg":
             for layer in ("Walls", "外壁"):
