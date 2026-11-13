@@ -10,6 +10,7 @@ use zumen_base::{Cx, Diagnostic, Kind, codes, name};
 use zumen_drawing::{Drawing2D, Hash, binary};
 use zumen_jww::{Jww, JwwFile};
 use zumen_sdk::{Codec, Lift, Registration, Rights};
+use zumen_sima::{Sima, SimaFile};
 use zumen_sxf::saf::AttributeFile;
 use zumen_sxf::{Sxf, SxfFile};
 
@@ -33,12 +34,14 @@ use crate::pointcloud;
 use crate::session::{Failed, fail, input_missing, invalid_value, stopped};
 
 /// 図面の形式。判定はこの順に試す。ID の規則は、AutoCAD の系統はハンドルで、SXF はインスタンスの番号で作る 2
-/// （決定 0156）。書けるのは、apply で書き戻せる形式（決定 0139）。SXF は SFC と P21 に書き戻す（決定 0167・0169）
+/// （決定 0156）。`write` は `convert` などでその形式に書き出せるかを表す（`apply` の可否は各形式の編集操作で決まり、
+/// SXF は SFC と P21 に書き戻す: 決定 0139・0167・0169）
 pub(crate) const DRAWING: &[Registration] = &[
     Registration::of::<Dxf>(Rights::Public, "acad", true, 2),
     Registration::of::<Dwg>(Rights::Public, "acad", true, 2),
     Registration::of::<Sxf>(Rights::Public, "sxf", true, 2),
     Registration::of::<Jww>(Rights::Public, "jww", true, 1),
+    Registration::of::<Sima>(Rights::Public, "sima", true, 1),
 ];
 
 /// 図面でない形式（土木・地理・点群）
@@ -67,6 +70,8 @@ pub(crate) enum DrawingFile {
     Sxf(SxfFile, Option<Box<Packed>>, Option<Box<AttributeFile>>),
     #[cfg(feature = "drawing")]
     Jww(JwwFile),
+    #[cfg(feature = "drawing")]
+    Sima(SimaFile),
     /// プラグインの形式（決定 0243）。読むだけで、図面モデルを持つ
     Plugin(Registration, Drawing2D),
     /// 図面モデルのバイナリ（決定 0247）。lift が書いた図面を、元の文書の形式・系統のまま、読むだけの文書にする
@@ -85,6 +90,8 @@ impl DrawingFile {
             DrawingFile::Sxf(..) => Sxf::FORMAT,
             #[cfg(feature = "drawing")]
             DrawingFile::Jww(_) => Jww::FORMAT,
+            #[cfg(feature = "drawing")]
+            DrawingFile::Sima(_) => Sima::FORMAT,
             DrawingFile::Plugin(registration, _) => registration.format,
             DrawingFile::Lifted(source, _) => &source.format,
         }
@@ -99,6 +106,8 @@ impl DrawingFile {
             DrawingFile::Sxf(..) => "sxf",
             #[cfg(feature = "drawing")]
             DrawingFile::Jww(_) => "jww",
+            #[cfg(feature = "drawing")]
+            DrawingFile::Sima(_) => "sima",
             DrawingFile::Plugin(registration, _) => registration.family,
             DrawingFile::Lifted(source, _) => &source.family,
         }
@@ -117,6 +126,8 @@ impl DrawingFile {
             }
             #[cfg(feature = "drawing")]
             DrawingFile::Jww(file) => file.lift(cx).map(Cow::Owned),
+            #[cfg(feature = "drawing")]
+            DrawingFile::Sima(file) => file.lift(cx).map(Cow::Owned),
             DrawingFile::Plugin(_, drawing) | DrawingFile::Lifted(_, drawing) => {
                 Ok(Cow::Borrowed(drawing))
             }
@@ -136,6 +147,8 @@ pub(crate) enum ReadDocument {
     },
     Civil(Box<zumen_civil::CivilModel>),
     Geo(Box<zumen_geo::GeoModel>),
+    #[cfg(all(feature = "civil", not(feature = "drawing")))]
+    Sima(Box<SimaFile>),
     Cloud(Box<zumen_pointcloud::PointCloud>),
 }
 
@@ -298,6 +311,17 @@ pub(crate) fn read(
             }),
         });
     }
+    // 土木・地理のモジュールだけでも SIMA（.sim と JPGIS 版 XML）を開けるようにする（#374）
+    #[cfg(all(feature = "civil", not(feature = "drawing")))]
+    if Sima::SIGNATURES.iter().any(|rule| rule.matches(bytes)) {
+        let file = Sima::read(bytes, cx).map_err(|_| Failed)?;
+        let _ = Hash::document_checked(bytes, cx).map_err(|stop| stopped(cx, stop))?;
+        return Ok(Opened::document(
+            name,
+            Sima::FORMAT,
+            ReadDocument::Sima(Box::new(file)),
+        ));
+    }
     // J-LandXML は XML の根で見分ける（決定 0230）。図面・土木地理・点群のどのモジュールも読む（決定 0253）
     #[cfg(any(feature = "drawing", feature = "civil", feature = "pointcloud"))]
     if let Some(model) = civil::read(bytes, cx) {
@@ -390,6 +414,8 @@ fn read_drawing(bytes: &[u8], cx: &mut Cx<'_>) -> Result<Option<DrawingFile>, Fa
         DrawingFile::Sxf(Sxf::read(bytes, cx).map_err(|_| Failed)?, None, None)
     } else if format == Some(Jww::FORMAT) {
         DrawingFile::Jww(Jww::read(bytes, cx).map_err(|_| Failed)?)
+    } else if format == Some(Sima::FORMAT) {
+        DrawingFile::Sima(Sima::read(bytes, cx).map_err(|_| Failed)?)
     } else if let Some((sxf, archive)) = packed::read(bytes, cx)? {
         // P2Z・SFZ（#385）。SXF の項目のない ZIP は、ifcZIP などとして後で試す
         let file = Sxf::read(&sxf, cx).map_err(|_| Failed)?;

@@ -453,6 +453,33 @@ url = "https://www.rfc-editor.org/rfc/rfc7946"
 checked = "2026-11-13"
 note = "IETF の標準化過程の RFC（BCP 78・IETF Trust Legal Provisions に従う）。誰でも無償で読め、実装を制限する記述はない。仕様の本文は同梱しない"
 
+[specs.jsima_201_2026]
+title = "JSIMA201:2026 SIMA 測量データ共通フォーマット"
+publisher = "一般社団法人日本測量機器工業会（JSIMA）"
+version = "Ver.04.2（2026）"
+access = "paid"
+url = "https://www.jsima.or.jp/jsima/index.html"
+checked = "2026-11-13"
+note = "会員でない人にも書籍として頒布する（申込書を FAX で送り先払い）。頒布のページに実装を制限する記述はない。購入時の利用条件（AI での利用の可否を含む）は未確認のため、エージェントは本文を入手せず読まない（formats/README.md の「資料を読む条件」・zumen-jp/zumen#374）"
+
+[specs.jsima_jpgis_1_0_2]
+title = "測量データ交換フォーマット SIMA XML Schema（JPGIS 版）"
+publisher = "一般社団法人日本測量機器工業会（JSIMA）"
+version = "1.0.2（2012-06、jsima102.xsd）"
+access = "public"
+url = "https://www.jsima.or.jp/JSIMASchema/201004/jsima102.xsd"
+checked = "2026-11-13"
+note = "ログインや同意の操作なしに無償でダウンロードできる XML Schema。実装を制限する記述はない。XSD ファイル自体はリポジトリに同梱しない"
+
+[specs.jpgis_2_1]
+title = "地理情報標準プロファイル（JPGIS）Ver.2.1 標準スキーマ"
+publisher = "国土地理院"
+version = "2.1（2009-05）"
+access = "public"
+url = "https://www.gsi.go.jp/GIS/jpgis/standardSchemas2.1_2009-05/jpsRoot.xsd"
+checked = "2026-11-13"
+note = "SIMA の JPGIS 版 XML Schema（jsima102.xsd）が参照する空間・基本型の標準スキーマ。ログインや同意の操作なしに無償で公開されており、実装を制限する記述はない。XSD ファイル自体は同梱しない"
+
 [specs.kokuban_jcomsia]
 title = "デジタル工事写真の小黒板情報連携機能の実装規約と信憑性確認（改ざん検知機能）"
 publisher = "一般社団法人施工管理ソフトウェア産業協会（J-COMSIA）"
@@ -906,17 +933,32 @@ checked = "2026-11-11"
 [formats.sima]
 name = "SIMA 共通フォーマット"
 family = "sima"
-domains = ["civil"]
-specs = []
-rights = "unknown"
-rights-note = "日本測量機器工業会（JSIMA）は、JSIMA201:2026「SIMA 測量データ共通フォーマット」（Ver.04.2）などの規格を、会員でない人にも書籍として頒布する（申込書を FAX で送り、先払い）。JPGIS 版の XML Schema（jsima102.xsd）は自由にダウンロードできる。実装を制限する記述は見つからず、オープンソースの小さな実装（MIT・Unlicense）もある。書籍を正規に入手し、利用の条項がないことを確かめてから public にする（zumen-jp/zumen#374、2026-11-02）"
-place = "none"
-issues = ["zumen-jp/zumen#374"]
+domains = ["drawing", "civil", "geo"]
+specs = ["jsima_jpgis_1_0_2", "jpgis_2_1", "jsima_201_2026"]
+rights = "public"
+rights-note = "日本測量機器工業会（JSIMA）は JPGIS 版の XML Schema（jsima102.xsd）を無償で公開し、冊子（JSIMA201:2026）の頒布ページにも実装を制限する記述はない。利用者の承認（2026-11-12、zumen-jp/zumen#374）に基づき、有償の冊子は入手・参照せず、無償公開の JPGIS 版スキーマと寛容なライセンスの公開実装（MIT の sima2geojson.rb）・慣用の区切り形式の推定で public としてコアに実装する。スキーマは同梱しない"
+place = "core"
+basis = ["spec", "inferred", "reference"]
+references = [{ name = "sima2geojson.rb", license = "MIT", url = "https://github.com/KMR-zoar/sima2geojson.rb" }]
+verify = ["QGIS"]
+samples = ["再配布条件と個人情報の不在を確認した公開サンプルは見つかっていない（#504）。テストの中で合成の SIMA（カンマ区切り `.sim` と JPGIS 版 XML）を作る"]
+docs = ["docs/formats/sima.md"]
+issues = ["zumen-jp/zumen#374", "zumen-jp/zumen#504"]
+
+[formats.sima.read]
+level = "synthetic"
+scope = "テストの中で組み立てたカンマ区切り `.sim`（Shift_JIS・UTF-8・UTF-8 BOM、G00・Z00・座標 A00/A01/A99・画地 D00/B01/D99 の閉合と開放・路線 F00/B01/C00/C01/C02/C99/F99 の直線と円弧とクロソイド）と JPGIS 版 XML（jsima102.xsd の GenbaJoho・GM_Point・GM_Curve・GM_OrientableCurve・GM_Surface・Sokuten・Kakuchi・KaihouKakuchi・Kijyunten・Suijyunten・Chiban、idref と xlink:href による参照）を crates/zumen-sima/tests/sima.rs で読み、測量の北（X）・東（Y）から地図座標と図面座標への型安全な変換、図面（Drawing2D）・土木（CivilModel）・地理（GeoModel）の 3 領域への変換、座標系未指定時の診断、レコード範囲の非重複・決定性・6 種の予算と中断の停止場所診断を確かめた。公開サンプルと外部ソフト（QGIS や測量 CAD）との照合はまだ（#504）"
+checked = "2026-11-13"
+
+[formats.sima.write]
+level = "synthetic"
+scope = "L1 モデルの無変更往復と、図面（Drawing2D）・土木（CivilModel）・地理（GeoModel）からカンマ区切り `.sim`（G00・A00/A01/A99・D00/B01/D99・F00/C00/C01/C02/C99/F99、東・北から北 X・東 Y への変換）への書き出しを crates/zumen-sima/tests/sima.rs で読み直して確かめた。外部ソフトで開く照合はまだ（#504）"
+checked = "2026-11-13"
 
 [[formats.sima.evidence]]
 title = "JSIMA「規格・書籍紹介」"
 url = "https://www.jsima.or.jp/jsima/index.html"
-checked = "2026-11-02"
+checked = "2026-11-13"
 
 [[formats.sima.evidence]]
 title = "国立国会図書館サーチの「SIMA 共通フォーマット」JSIMA 203:2000（Ver.02）"

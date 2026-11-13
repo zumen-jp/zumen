@@ -4640,6 +4640,111 @@ pub const SCENE_UNDERLAY_DROPPED: Code = Code::new(
     &[],
 );
 
+/// 座標系の記述がないので、座標系を不明にし、地理の領域モデルには幾何を持たせなかった
+///
+/// `sima.crs.missing`（0.3.0 から）
+pub const SIMA_CRS_MISSING: Code = Code::new(
+    "sima.crs.missing",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[],
+    &[],
+);
+
+/// 座標系・測地系の記述を扱えないので、座標系を不明にした
+///
+/// `sima.crs.unsupported`（0.3.0 から）
+pub const SIMA_CRS_UNSUPPORTED: Code = Code::new(
+    "sima.crs.unsupported",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("system", ParamType::Text)],
+    &["system"],
+);
+
+/// 円弧・クロソイド・膨らみのある折れ線を、許容差つきの折れ線に近似して移したか書き出した
+///
+/// `sima.curve.approximated`（0.3.0 から）
+pub const SIMA_CURVE_APPROXIMATED: Code = Code::new(
+    "sima.curve.approximated",
+    Severity::Info,
+    Some(Fidelity::Approximated),
+    &[
+        Param::new("kind", ParamType::Key),
+        Param::new("tolerance", ParamType::Float),
+    ],
+    &["kind"],
+);
+
+/// SIMA のカンマ区切り形式または JPGIS 版 XML として読めない
+///
+/// `sima.file.invalid`（0.3.0 から）
+pub const SIMA_FILE_INVALID: Code = Code::new(
+    "sima.file.invalid",
+    Severity::Error,
+    None,
+    &[Param::new("offset", ParamType::UInt)],
+    &[],
+);
+
+/// 点数不足・退化・非対応の要素により、区画・路線・図形を移さなかったか書き出さなかった
+///
+/// `sima.geometry.dropped`（0.3.0 から）
+pub const SIMA_GEOMETRY_DROPPED: Code = Code::new(
+    "sima.geometry.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("kind", ParamType::Key)],
+    &["kind"],
+);
+
+/// 画地・路線・地物・曲線が参照する測点・幾何 ID が見つからないので、その参照または要素を移さなかった
+///
+/// `sima.point.missing`（0.3.0 から）
+pub const SIMA_POINT_MISSING: Code = Code::new(
+    "sima.point.missing",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("target", ParamType::Text)],
+    &["target"],
+);
+
+/// 対応していないデータ区分または XML 要素を、領域モデルに移さなかった
+///
+/// `sima.record.unsupported`（0.3.0 から）
+pub const SIMA_RECORD_UNSUPPORTED: Code = Code::new(
+    "sima.record.unsupported",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("kind", ParamType::Text)],
+    &["kind"],
+);
+
+/// 座標・半径・パラメーター・数値などの項目を読めないので、その要素または項目を移さなかった
+///
+/// `sima.value.invalid`（0.3.0 から）
+pub const SIMA_VALUE_INVALID: Code = Code::new(
+    "sima.value.invalid",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[
+        Param::new("field", ParamType::Key),
+        Param::new("kind", ParamType::Text),
+    ],
+    &["kind", "field"],
+);
+
+/// 地理の領域モデルの座標系を平面直角座標（メートルの北・東）に換算できないので、SIMA に書き出せない
+///
+/// `sima.write-crs.unsupported`（0.3.0 から）
+pub const SIMA_WRITE_CRS_UNSUPPORTED: Code = Code::new(
+    "sima.write-crs.unsupported",
+    Severity::Error,
+    None,
+    &[Param::new("epsg", ParamType::UInt)],
+    &[],
+);
+
 /// 書き戻す P2Z・SFZ のアーカイブが ZIP64 を要する大きさになる。ZIP64 は書かない（#385）
 ///
 /// `sxf.archive.unsupported`（0.2.0 から）
@@ -5489,6 +5594,15 @@ pub const ALL: &[Code] = &[
     SCENE_TEXT_LAYOUT_UNSUPPORTED,
     SCENE_UNDERLAY_CLIP_DROPPED,
     SCENE_UNDERLAY_DROPPED,
+    SIMA_CRS_MISSING,
+    SIMA_CRS_UNSUPPORTED,
+    SIMA_CURVE_APPROXIMATED,
+    SIMA_FILE_INVALID,
+    SIMA_GEOMETRY_DROPPED,
+    SIMA_POINT_MISSING,
+    SIMA_RECORD_UNSUPPORTED,
+    SIMA_VALUE_INVALID,
+    SIMA_WRITE_CRS_UNSUPPORTED,
     SXF_ARCHIVE_UNSUPPORTED,
     SXF_CODE_MISSING,
     SXF_FILE_INVALID,

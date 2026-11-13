@@ -50,6 +50,7 @@ zumen-citygml = { version = "0.2.0", path = "../zumen-citygml" }
 zumen-fgd = { version = "0.2.0", path = "../zumen-fgd" }
 zumen-extdm = { version = "0.2.0", path = "../zumen-extdm" }
 zumen-geojson = { version = "0.2.0", path = "../zumen-geojson" }
+zumen-sima = { version = "0.2.0", path = "../zumen-sima" }
 zumen-delivery = { version = "0.2.0", path = "../zumen-delivery" }
 zumen-geo = { version = "0.2.0", path = "../zumen-geo" }
 zumen-geom3d = { version = "0.2.0", path = "../zumen-geom3d" }

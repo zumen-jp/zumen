@@ -191,6 +191,7 @@ dependencies = [
  "zumen-review",
  "zumen-scene",
  "zumen-sdk",
+ "zumen-sima",
  "zumen-sxf",
  "zumen-text",
  "zumen-xyz",
@@ -542,6 +543,22 @@ version = "0.2.0"
 dependencies = [
  "encoding_rs",
  "zumen-base",
+]
+
+[[package]]
+name = "zumen-sima"
+version = "0.2.0"
+dependencies = [
+ "encoding_rs",
+ "libm",
+ "zumen-base",
+ "zumen-civil",
+ "zumen-crs",
+ "zumen-drawing",
+ "zumen-geo",
+ "zumen-geom2d",
+ "zumen-sdk",
+ "zumen-xml",
 ]
 
 [[package]]

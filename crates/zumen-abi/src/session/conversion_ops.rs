@@ -5,7 +5,7 @@ use super::*;
 use zumen_acad::Dxf;
 
 impl Session {
-    /// 開いた文書を別の形式のファイルに変換し、新しい文書として開く（決定 0206・0281・#876）
+    /// 開いた文書を別の形式のファイルに変換し、新しい文書として開く（決定 0206・0281・#876・#374）
     #[cfg(any(feature = "drawing", feature = "civil"))]
     pub(super) fn convert(
         &mut self,
@@ -29,6 +29,9 @@ impl Session {
                         .with("format", request.format.as_str()),
                 ));
             }
+        }
+        if request.format == zumen_sima::Sima::FORMAT {
+            return self.convert_sima(request, cx);
         }
         #[cfg(feature = "drawing")]
         {
@@ -79,13 +82,30 @@ impl Session {
             return Err(fail(cx, invalid_value("/doc")));
         }
         self.check_new_document(&request.to, cx)?;
-        let model = match self.document(&request.doc, cx)? {
-            Document::Geo(model) => model,
+        let doc_ref = self.document(&request.doc, cx)?;
+        let lowered = match doc_ref {
+            Document::Geo(model) => in_input_order(cx, |cx| {
+                zumen_geojson::lower_to_geojson(model, cx).map_err(|_| Failed)
+            })?,
+            #[cfg(feature = "drawing")]
+            Document::Drawing { file, .. } if matches!(file.as_ref(), DrawingFile::Sima(_)) => {
+                let DrawingFile::Sima(sima) = file.as_ref() else {
+                    return Err(fail(cx, unsupported(&request.doc, "convert")));
+                };
+                in_input_order(cx, |cx| {
+                    let geo_model: zumen_geo::GeoModel =
+                        zumen_sdk::Lift::lift(sima, cx).map_err(|_| Failed)?;
+                    zumen_geojson::lower_to_geojson(&geo_model, cx).map_err(|_| Failed)
+                })?
+            }
+            #[cfg(all(feature = "civil", not(feature = "drawing")))]
+            Document::Sima(sima) => in_input_order(cx, |cx| {
+                let geo_model: zumen_geo::GeoModel =
+                    zumen_sdk::Lift::lift(sima.as_ref(), cx).map_err(|_| Failed)?;
+                zumen_geojson::lower_to_geojson(&geo_model, cx).map_err(|_| Failed)
+            })?,
             _ => return Err(fail(cx, unsupported(&request.doc, "convert"))),
         };
-        let lowered = in_input_order(cx, |cx| {
-            zumen_geojson::lower_to_geojson(model, cx).map_err(|_| Failed)
-        })?;
         let reopened = {
             let mut reread_diag = zumen_base::Diagnostics::new();
             let mut sub = Cx::new(cx.budget, &mut reread_diag, cx.cancel);
@@ -109,6 +129,83 @@ impl Session {
             format: zumen_geojson::GeoJson::FORMAT.to_string(),
             hash: hash.to_string(),
             elements: lowered.features,
+        })
+    }
+
+    #[cfg(any(feature = "drawing", feature = "civil"))]
+    fn convert_sima(
+        &mut self,
+        request: &ConvertRequest,
+        cx: &mut Cx<'_>,
+    ) -> Result<ConvertResult, Failed> {
+        if !name::is_safe(&request.to) {
+            return Err(fail(cx, invalid_value("/to")));
+        }
+        if !name::is_safe(&request.doc) {
+            return Err(fail(cx, invalid_value("/doc")));
+        }
+        self.check_new_document(&request.to, cx)?;
+        let doc_ref = self.document(&request.doc, cx)?;
+        let lowered = match doc_ref {
+            Document::Geo(model) => in_input_order(cx, |cx| {
+                zumen_sima::lower_geo_to_sima(model, cx).map_err(|_| Failed)
+            })?,
+            Document::Civil(model)
+            | Document::Building {
+                civil: Some(model), ..
+            } => in_input_order(cx, |cx| {
+                zumen_sima::lower_civil_to_sima(model, cx).map_err(|_| Failed)
+            })?,
+            #[cfg(feature = "drawing")]
+            Document::Drawing { file, .. } => in_input_order(cx, |cx| match file.as_ref() {
+                DrawingFile::Sima(sima) => {
+                    zumen_sima::lower_sima_to_sima(sima, cx).map_err(|_| Failed)
+                }
+                _ => {
+                    let drawing = file.lift(cx).map_err(|_| Failed)?;
+                    zumen_sima::lower_drawing_to_sima(&drawing, cx).map_err(|_| Failed)
+                }
+            })?,
+            #[cfg(all(feature = "civil", not(feature = "drawing")))]
+            Document::Sima(sima) => in_input_order(cx, |cx| {
+                zumen_sima::lower_sima_to_sima(sima.as_ref(), cx).map_err(|_| Failed)
+            })?,
+            _ => return Err(fail(cx, unsupported(&request.doc, "convert"))),
+        };
+        let reopened = {
+            let mut reread_diag = zumen_base::Diagnostics::new();
+            let mut sub = Cx::new(cx.budget, &mut reread_diag, cx.cancel);
+            match <zumen_sima::Sima as zumen_sdk::Codec>::read(&lowered.bytes, &mut sub) {
+                Ok(file) => file,
+                Err(zumen_sdk::Error::Stopped(stop)) => return Err(stopped(cx, stop)),
+                Err(_) => return Err(Failed),
+            }
+        };
+        let hash = Hash::document_checked(&lowered.bytes, cx).map_err(|stop| stopped(cx, stop))?;
+        let elements = (lowered.points + lowered.parcels + lowered.routes) as u64;
+        #[cfg(feature = "drawing")]
+        self.docs.insert(
+            request.to.clone(),
+            Document::Drawing {
+                file: Box::new(DrawingFile::Sima(reopened)),
+                hash,
+            },
+        );
+        #[cfg(all(feature = "civil", not(feature = "drawing")))]
+        {
+            let _ = hash;
+            self.docs
+                .insert(request.to.clone(), Document::Sima(Box::new(reopened)));
+        }
+        self.blobs.push(Some(Blob {
+            kind: BlobKind::File,
+            bytes: lowered.bytes,
+        }));
+        Ok(ConvertResult {
+            doc: request.to.clone(),
+            format: zumen_sima::Sima::FORMAT.to_string(),
+            hash: hash.to_string(),
+            elements,
         })
     }
 

@@ -1,6 +1,7 @@
 //! セッションの土木と地理の操作。
 
 use super::*;
+use std::borrow::Cow;
 use zumen_acad::Dxf;
 
 impl Session {
@@ -21,7 +22,7 @@ impl Session {
             .as_deref()
             .map(|doc| self.civil_model(doc, "/doc", "civil", cx))
             .transpose()?;
-        civil::civil(request, model, cx)
+        civil::civil(request, model.as_deref(), cx)
     }
 
     pub(super) fn civil_model(
@@ -30,7 +31,7 @@ impl Session {
         pointer: &str,
         op: &str,
         cx: &mut Cx<'_>,
-    ) -> Result<&zumen_civil::CivilModel, Failed> {
+    ) -> Result<Cow<'_, zumen_civil::CivilModel>, Failed> {
         if !name::is_safe(doc) {
             return Err(fail(cx, invalid_value(pointer)));
         }
@@ -38,12 +39,25 @@ impl Session {
             Document::Civil(model)
             | Document::Building {
                 civil: Some(model), ..
-            } => Ok(model),
+            } => Ok(Cow::Borrowed(model.as_ref())),
+            #[cfg(feature = "drawing")]
+            Document::Drawing { file, .. } if matches!(file.as_ref(), DrawingFile::Sima(_)) => {
+                let DrawingFile::Sima(sima) = file.as_ref() else {
+                    return Err(fail(cx, unsupported(doc, op)));
+                };
+                zumen_sdk::Lift::lift(sima, cx)
+                    .map(Cow::Owned)
+                    .map_err(|_| Failed)
+            }
+            #[cfg(all(feature = "civil", not(feature = "drawing")))]
+            Document::Sima(sima) => zumen_sdk::Lift::lift(sima.as_ref(), cx)
+                .map(Cow::Owned)
+                .map_err(|_| Failed),
             _ => Err(fail(cx, unsupported(doc, op))),
         }
     }
 
-    /// 開いた CityGML の地理の領域モデルの要約と、地物の中身（決定 0233）
+    /// 開いた CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA の地理の領域モデルの要約と、地物の中身（決定 0233）
     #[cfg(feature = "civil")]
     pub(super) fn geo(
         &self,
@@ -56,6 +70,21 @@ impl Session {
         }
         match self.document(doc, cx)? {
             Document::Geo(model) => geo::geo(request, model, cx),
+            #[cfg(feature = "drawing")]
+            Document::Drawing { file, .. } if matches!(file.as_ref(), DrawingFile::Sima(_)) => {
+                let DrawingFile::Sima(sima) = file.as_ref() else {
+                    return Err(fail(cx, unsupported(doc, "geo")));
+                };
+                let model: zumen_geo::GeoModel =
+                    zumen_sdk::Lift::lift(sima, cx).map_err(|_| Failed)?;
+                geo::geo(request, &model, cx)
+            }
+            #[cfg(all(feature = "civil", not(feature = "drawing")))]
+            Document::Sima(sima) => {
+                let model: zumen_geo::GeoModel =
+                    zumen_sdk::Lift::lift(sima.as_ref(), cx).map_err(|_| Failed)?;
+                geo::geo(request, &model, cx)
+            }
             _ => Err(fail(cx, unsupported(doc, "geo"))),
         }
     }
@@ -84,7 +113,7 @@ impl Session {
             profiles.push((name.as_str(), bytes));
         }
         let (converted, mut result) = in_input_order(cx, |cx| {
-            let (drawing, result) = civil::civil_drawing(request, model, &profiles, cx)?;
+            let (drawing, result) = civil::civil_drawing(request, &model, &profiles, cx)?;
             Ok((convert::to_dxf(&drawing, cx)?, result))
         })?;
         let hash =

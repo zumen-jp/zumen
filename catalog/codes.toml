@@ -3416,3 +3416,80 @@ params = { name = "text" }
 group-by = ["name"]
 since = "0.3.0"
 status = "active"
+
+# SIMA（#374）
+
+[codes."sima.file.invalid"]
+description = "SIMA のカンマ区切り形式または JPGIS 版 XML として読めない"
+severity = "error"
+params = { offset = "uint" }
+since = "0.3.0"
+status = "active"
+
+[codes."sima.record.unsupported"]
+description = "対応していないデータ区分または XML 要素を、領域モデルに移さなかった"
+severity = "warning"
+fidelity = "dropped"
+params = { kind = "text" }
+group-by = ["kind"]
+since = "0.3.0"
+status = "active"
+
+[codes."sima.value.invalid"]
+description = "座標・半径・パラメーター・数値などの項目を読めないので、その要素または項目を移さなかった"
+severity = "warning"
+fidelity = "dropped"
+params = { kind = "text", field = "key" }
+group-by = ["kind", "field"]
+since = "0.3.0"
+status = "active"
+
+[codes."sima.point.missing"]
+description = "画地・路線・地物・曲線が参照する測点・幾何 ID が見つからないので、その参照または要素を移さなかった"
+severity = "warning"
+fidelity = "dropped"
+params = { target = "text" }
+group-by = ["target"]
+since = "0.3.0"
+status = "active"
+
+[codes."sima.crs.missing"]
+description = "座標系の記述がないので、座標系を不明にし、地理の領域モデルには幾何を持たせなかった"
+severity = "warning"
+fidelity = "dropped"
+since = "0.3.0"
+status = "active"
+
+[codes."sima.crs.unsupported"]
+description = "座標系・測地系の記述を扱えないので、座標系を不明にした"
+severity = "warning"
+fidelity = "dropped"
+params = { system = "text" }
+group-by = ["system"]
+since = "0.3.0"
+status = "active"
+
+[codes."sima.geometry.dropped"]
+description = "点数不足・退化・非対応の要素により、区画・路線・図形を移さなかったか書き出さなかった"
+severity = "warning"
+fidelity = "dropped"
+params = { kind = "key" }
+group-by = ["kind"]
+since = "0.3.0"
+status = "active"
+
+[codes."sima.write-crs.unsupported"]
+description = "地理の領域モデルの座標系を平面直角座標（メートルの北・東）に換算できないので、SIMA に書き出せない"
+severity = "error"
+params = { epsg = "uint" }
+since = "0.3.0"
+status = "active"
+
+[codes."sima.curve.approximated"]
+description = "円弧・クロソイド・膨らみのある折れ線を、許容差つきの折れ線に近似して移したか書き出した"
+severity = "info"
+fidelity = "approximated"
+params = { kind = "key", tolerance = "float" }
+group-by = ["kind"]
+since = "0.3.0"
+status = "active"

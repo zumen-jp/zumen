@@ -1958,7 +1958,7 @@ class ApplyResult extends Message {
   set idsShifted(bool? value) => writeField('ids_shifted', value);
 }
 
-/// 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON）からは GeoJSON を書く。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から
+/// 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）または SIMA（.sim）、土木モデル（J-LandXML・IFC4.3・SIMA）からは SIMA（.sim）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA）からは GeoJSON または SIMA（.sim）を書く。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から。sima はマイナーバージョン 72 から
 class ConvertRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
   ConvertRequest.fromJson(super.json);
@@ -1994,7 +1994,7 @@ class ConvertRequest extends Message {
   String? get doc => readField('doc', asString);
   set doc(String? value) => writeField('doc', value);
 
-  /// 書く形式の名前（capabilities の formats の id）。dxf または geojson
+  /// 書く形式の名前（capabilities の formats の id）。dxf・geojson・sima のいずれか
   String? get format => readField('format', asString);
   set format(String? value) => writeField('format', value);
 
@@ -5838,7 +5838,7 @@ abstract final class Engine {
   static const wasm = 'wasm';
 }
 
-/// 線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。線形は、要求に書く（alignment）か、open で開いた J-LandXML の文書（doc）の線形を id で指す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。doc を渡せば、文書の線形と地表面の要約も返す。図面・BIM・土木地理・点群のモジュールに置く（決定 0253）。マイナーバージョン 46 から（doc と id はマイナーバージョン 47 から）
+/// 線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。線形は、要求に書く（alignment）か、open で開いた J-LandXML・IFC4.3・SIMA の文書（doc）の線形を id で指す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。doc を渡せば、文書の線形と地表面の要約も返す。図面・BIM・土木地理・点群のモジュールに置く（決定 0253）。マイナーバージョン 46 から（doc と id はマイナーバージョン 47 から）
 class CivilRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
   CivilRequest.fromJson(super.json);
@@ -5874,7 +5874,7 @@ class CivilRequest extends Message {
   CivilAlignment? get alignment => readField('alignment', objectOf(CivilAlignment.fromJson));
   set alignment(CivilAlignment? value) => writeField('alignment', value);
 
-  /// open で開いた J-LandXML の文書の名前。マイナーバージョン 47 から
+  /// open で開いた J-LandXML・IFC4.3・SIMA の文書の名前。マイナーバージョン 47 から
   String? get doc => readField('doc', asString);
   set doc(String? value) => writeField('doc', value);
 
@@ -6905,7 +6905,7 @@ class DeliveryManaged extends Message {
   set missing(List<String>? value) => writeField('missing', value);
 }
 
-/// open で開いた CityGML・基盤地図情報（GML）・拡張 DM・GeoJSON の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。土木・地理のモジュールに置く（決定 0253）。マイナーバージョン 52 から
+/// open で開いた CityGML・基盤地図情報（GML）・拡張 DM・GeoJSON・SIMA の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。土木・地理のモジュールに置く（決定 0253）。マイナーバージョン 52 から
 class GeoRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
   GeoRequest.fromJson(super.json);
@@ -6937,7 +6937,7 @@ class GeoRequest extends Message {
   String? get op => readField('op', asString);
   set op(String? value) => writeField('op', value);
 
-  /// open で開いた CityGML・基盤地図情報（GML）・拡張 DM・GeoJSON の文書の名前
+  /// open で開いた CityGML・基盤地図情報（GML）・拡張 DM・GeoJSON・SIMA の文書の名前
   String? get doc => readField('doc', asString);
   set doc(String? value) => writeField('doc', value);
 
@@ -7110,7 +7110,7 @@ class GeoGeometry extends Message {
   set faces(int? value) => writeField('faces', value);
 }
 
-/// open で開いた J-LandXML の文書の線形から、平面図・縦断図・横断図の図面モデルを作り（決定 0231）、用紙を 1 枚選んで新しい DXF の文書として開く（決定 0239）。尺度・文字の高さ・測点の間隔は、プロファイルを渡せば語彙 civil-drawing と text-height から読み、渡さなければ作図の慣習の値にする。縦断図は用紙の要素に焼き込む（決定 0238）。書いたファイルは blobs で返す。作った文書は scene と check に渡せる。図面のモジュールに置く。マイナーバージョン 51 から
+/// open で開いた J-LandXML・IFC4.3・SIMA の文書の線形から、平面図・縦断図・横断図の図面モデルを作り（決定 0231）、用紙を 1 枚選んで新しい DXF の文書として開く（決定 0239）。尺度・文字の高さ・測点の間隔は、プロファイルを渡せば語彙 civil-drawing と text-height から読み、渡さなければ作図の慣習の値にする。縦断図は用紙の要素に焼き込む（決定 0238）。書いたファイルは blobs で返す。作った文書は scene と check に渡せる。図面のモジュールに置く。マイナーバージョン 51 から
 class CivilDrawingRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
   CivilDrawingRequest.fromJson(super.json);
@@ -7142,7 +7142,7 @@ class CivilDrawingRequest extends Message {
   String? get op => readField('op', asString);
   set op(String? value) => writeField('op', value);
 
-  /// open で開いた J-LandXML の文書の名前
+  /// open で開いた J-LandXML・IFC4.3・SIMA の文書の名前
   String? get doc => readField('doc', asString);
   set doc(String? value) => writeField('doc', value);
 

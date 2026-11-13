@@ -10,7 +10,7 @@ abi = 1
 # メッセージのスキーマ（schema/messages.json）のメジャーバージョン。要求と応答の v
 schema-major = 1
 # メッセージのスキーマのマイナーバージョン。op・フィールド・列挙の値を足すたびに上げる
-schema-minor = 71
+schema-minor = 72
 
 # 状態コード。理由は応答の診断で返す
 
@@ -162,8 +162,8 @@ params = [
 
 [[modules]]
 name = "drawing"
-description = "図面（DXF・DWG・SXF・JWW と、図面モデルのバイナリ）と、図面のレビュー。土木の線形（J-LandXML）と、線形から作る図。電子納品の成果品・工事写真・ボーリング交換用データ"
-formats = ["dxf", "dwg", "sxf", "jww", "landxml", "drawing"]
+description = "図面（DXF・DWG・SXF・JWW・SIMA と、図面モデルのバイナリ）と、図面のレビュー。土木の線形（J-LandXML・SIMA）と、線形から作る図。電子納品の成果品・工事写真・ボーリング交換用データ"
+formats = ["dxf", "dwg", "sxf", "jww", "sima", "landxml", "drawing"]
 ops = [
     "capabilities", "open", "close", "describe", "drawing", "entities", "apply", "convert", "convert_estimate", "tables", "scene",
     "check", "review_carry", "review_adopt", "civil", "civil_drawing", "delivery_check", "photo", "boring",
@@ -179,11 +179,11 @@ ops = [
     "ids_check", "review_adopt_ids", "bcf_read", "bcf_write", "building_apply", "civil",
 ]
 
-# 土木・地理のモジュール（決定 0253）。J-LandXML は図面のモジュールにも置く
+# 土木・地理のモジュール（決定 0253）。J-LandXML・SIMA は図面のモジュールにも置く
 [[modules]]
 name = "civil"
-description = "土木の線形（J-LandXML）と、地理の地物（CityGML・基盤地図情報・拡張 DM・GeoJSON）"
-formats = ["landxml", "citygml", "fgd", "extdm", "geojson"]
+description = "土木の線形（J-LandXML・SIMA）と、地理の地物（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA）"
+formats = ["landxml", "citygml", "fgd", "extdm", "geojson", "sima"]
 ops = ["capabilities", "open", "close", "describe", "convert", "civil", "geo"]
 
 # 点群のモジュール（決定 0232・0253）。設計の TIN との差のために、J-LandXML も読む
@@ -265,6 +265,17 @@ rules = [{ lines = ["ISO-10303-21;"] }]
 format = "jww"
 module = "drawing"
 rules = [{ offset = 0, bytes = "JwwData." }]
+
+# SIMA 共通フォーマット（カンマ区切り .sim と JPGIS 版 XML、#374）。図面と土木・地理の両方のモジュールに置く
+[[detection]]
+format = "sima"
+module = "drawing"
+rules = [
+    { offset = 0, bytes = "G00," },
+    { offset = 0, bytes = "\uFEFFG00," },
+    { xml-root = "GI", namespace = "http://www.jsima.or.jp/JSIMASchema/201206" },
+    { xml-root = "GI", namespace = "http://www.jsima.or.jp/JSIMASchema/201004" },
+]
 
 [[detection]]
 format = "landxml"

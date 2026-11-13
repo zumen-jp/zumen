@@ -112,6 +112,8 @@ enum Document {
     },
     Civil(Box<zumen_civil::CivilModel>),
     Geo(Box<zumen_geo::GeoModel>),
+    #[cfg(all(feature = "civil", not(feature = "drawing")))]
+    Sima(Box<zumen_sima::SimaFile>),
     Cloud(Box<zumen_pointcloud::PointCloud>),
 }
 
@@ -129,6 +131,8 @@ impl From<formats::ReadDocument> for Document {
             formats::ReadDocument::Building { model, civil } => Self::Building { model, civil },
             formats::ReadDocument::Civil(model) => Self::Civil(model),
             formats::ReadDocument::Geo(model) => Self::Geo(model),
+            #[cfg(all(feature = "civil", not(feature = "drawing")))]
+            formats::ReadDocument::Sima(file) => Self::Sima(file),
             formats::ReadDocument::Cloud(cloud) => Self::Cloud(cloud),
         }
     }

@@ -217,8 +217,8 @@ impl Session {
         let mut bytes = Vec::new();
         let mut ids_shifted = false;
         let (applied, hash) = match file.as_mut() {
-            // プラグインの文書と図面モデルのバイナリは、書き戻せない（決定 0243・0247）
-            DrawingFile::Plugin(..) | DrawingFile::Lifted(..) => {
+            // プラグインの文書・図面モデルのバイナリ・SIMA は、apply では書き戻せない（決定 0243・0247・#374）
+            DrawingFile::Plugin(..) | DrawingFile::Lifted(..) | DrawingFile::Sima(..) => {
                 return Err(fail(cx, unsupported(&request.doc, self.op)));
             }
             DrawingFile::Dxf(file) => {

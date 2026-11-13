@@ -1,0 +1,26 @@
+[package]
+name = "zumen-sima"
+description = "zumen の SIMA 共通フォーマット（カンマ区切り .sim と JPGIS 版 XML）の読み書きと領域モデル変換（#374）"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = true
+
+[package.metadata.zumen]
+formats = ["sima"]
+
+[dependencies]
+encoding_rs = "0.8.35"
+libm = { version = "0.2.16", default-features = false }
+zumen-base = { version = "0.2.0", path = "../zumen-base" }
+zumen-civil = { version = "0.2.0", path = "../zumen-civil" }
+zumen-crs = { version = "0.2.0", path = "../zumen-crs" }
+zumen-drawing = { version = "0.2.0", path = "../zumen-drawing" }
+zumen-geo = { version = "0.2.0", path = "../zumen-geo" }
+zumen-geom2d = { version = "0.2.0", path = "../zumen-geom2d" }
+zumen-sdk = { version = "0.2.0", path = "../zumen-sdk" }
+zumen-xml = { version = "0.2.0", path = "../zumen-xml" }
+
+[lints]
+workspace = true

@@ -44,6 +44,7 @@ zumen-sdk = { path = "../crates/zumen-sdk" }
 zumen-render = { path = "../crates/zumen-render" }
 zumen-review = { path = "../crates/zumen-review" }
 zumen-scene = { path = "../crates/zumen-scene" }
+zumen-sima = { path = "../crates/zumen-sima" }
 zumen-step = { path = "../crates/zumen-step" }
 zumen-sxf = { path = "../crates/zumen-sxf" }
 zumen-text = { path = "../crates/zumen-text" }
@@ -195,6 +196,13 @@ bench = false
 [[bin]]
 name = "geojson"
 path = "fuzz_targets/geojson.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sima"
+path = "fuzz_targets/sima.rs"
 test = false
 doc = false
 bench = false

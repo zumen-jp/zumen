@@ -17,6 +17,7 @@ use zumen_landxml::LandXml;
 use zumen_las::Las;
 use zumen_ply::Ply;
 use zumen_sdk::Codec;
+use zumen_sima::Sima;
 use zumen_sxf::Sxf;
 
 const DXF: &[u8] = b"0\nSECTION\n2\nENTITIES\n0\nENDSEC\n0\nEOF\n";
@@ -63,6 +64,7 @@ fn detection_follows_the_codecs_in_the_order_open_tries() {
         ("dwg", Dwg::SIGNATURES),
         ("sxf", Sxf::SIGNATURES),
         ("jww", Jww::SIGNATURES),
+        ("sima", Sima::SIGNATURES),
         ("landxml", LandXml::SIGNATURES),
         ("citygml", CityGml::SIGNATURES),
         ("fgd", Fgd::SIGNATURES),
@@ -154,7 +156,7 @@ fn lists_only_the_formats_of_the_modules_it_has() {
     }
     // 図面・土木地理・点群の形式（決定 0253）。J-LandXML は 3 つのモジュールが持つ
     for format in [
-        "dxf", "landxml", "citygml", "fgd", "extdm", "geojson", "las", "ply", "xyz", "e57",
+        "dxf", "sima", "landxml", "citygml", "fgd", "extdm", "geojson", "las", "ply", "xyz", "e57",
     ] {
         assert_eq!(
             capabilities.contains(&format!(r#""id":"{format}""#)),
@@ -166,6 +168,7 @@ fn lists_only_the_formats_of_the_modules_it_has() {
         has_format("landxml"),
         enabled("drawing") || enabled("civil") || enabled("pointcloud")
     );
+    assert_eq!(has_format("sima"), enabled("drawing") || enabled("civil"));
 }
 
 #[test]
@@ -187,6 +190,33 @@ fn names_extended_dm_and_xyz_only_in_their_modules() {
                 && response.contains(r#""/format""#),
             !enabled(module),
             "{format}: {response}"
+        );
+    }
+}
+
+#[test]
+fn opens_sima_in_drawing_and_civil_modules_and_rejects_elsewhere() {
+    let sim = b"G00,01,\x8b\xab\x8a\x95,EPSG:6677,\r\nA00,\r\nA01,1,P1,10.0,20.0,1.0,\r\nA99,\r\n";
+    let mut session = Session::new(b"").unwrap();
+    session.push(b"a.sim", sim).unwrap();
+    let (status, response) = call(&mut session, r#"{"v":1,"op":"open","input":"a.sim"}"#);
+    if cfg!(any(feature = "drawing", feature = "civil")) {
+        assert_eq!(status, Status::Ok, "{response}");
+        assert!(response.contains(r#""format":"sima""#), "{response}");
+        if cfg!(feature = "civil") {
+            let (geo_status, geo_resp) = call(&mut session, r#"{"v":1,"op":"geo","doc":"a.sim"}"#);
+            assert_eq!(geo_status, Status::Ok, "{geo_resp}");
+            let (conv_status, conv_resp) = call(
+                &mut session,
+                r#"{"v":1,"op":"convert","doc":"a.sim","to":"b.sim","format":"sima"}"#,
+            );
+            assert_eq!(conv_status, Status::Ok, "{conv_resp}");
+        }
+    } else {
+        assert_eq!(status, Status::Failed, "{response}");
+        assert!(
+            response.contains(r#""code":"call.format.unsupported""#),
+            "{response}"
         );
     }
 }

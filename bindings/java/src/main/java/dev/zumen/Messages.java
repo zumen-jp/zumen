@@ -4833,7 +4833,7 @@ public final class Messages {
         }
     }
 
-    /** 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON）からは GeoJSON を書く。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から */
+    /** 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）または SIMA（.sim）、土木モデル（J-LandXML・IFC4.3・SIMA）からは SIMA（.sim）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA）からは GeoJSON または SIMA（.sim）を書く。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から。sima はマイナーバージョン 72 から */
     public static final class ConvertRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public ConvertRequest(Map<String, Object> json) {
@@ -4929,7 +4929,7 @@ public final class Messages {
             return this;
         }
 
-        /** 書く形式の名前（capabilities の formats の id）。dxf または geojson */
+        /** 書く形式の名前（capabilities の formats の id）。dxf・geojson・sima のいずれか */
         public String getFormat() {
             return Json.read(json.get("format"), Json::string);
         }
@@ -14571,7 +14571,7 @@ public final class Messages {
         public static final String WASM = "wasm";
     }
 
-    /** 線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。線形は、要求に書く（alignment）か、open で開いた J-LandXML の文書（doc）の線形を id で指す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。doc を渡せば、文書の線形と地表面の要約も返す。図面・BIM・土木地理・点群のモジュールに置く（決定 0253）。マイナーバージョン 46 から（doc と id はマイナーバージョン 47 から） */
+    /** 線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。線形は、要求に書く（alignment）か、open で開いた J-LandXML・IFC4.3・SIMA の文書（doc）の線形を id で指す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。doc を渡せば、文書の線形と地表面の要約も返す。図面・BIM・土木地理・点群のモジュールに置く（決定 0253）。マイナーバージョン 46 から（doc と id はマイナーバージョン 47 から） */
     public static final class CivilRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public CivilRequest(Map<String, Object> json) {
@@ -14667,7 +14667,7 @@ public final class Messages {
             return this;
         }
 
-        /** open で開いた J-LandXML の文書の名前。マイナーバージョン 47 から */
+        /** open で開いた J-LandXML・IFC4.3・SIMA の文書の名前。マイナーバージョン 47 から */
         public String getDoc() {
             return Json.read(json.get("doc"), Json::string);
         }
@@ -17282,7 +17282,7 @@ public final class Messages {
         }
     }
 
-    /** open で開いた CityGML・基盤地図情報（GML）・拡張 DM・GeoJSON の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。土木・地理のモジュールに置く（決定 0253）。マイナーバージョン 52 から */
+    /** open で開いた CityGML・基盤地図情報（GML）・拡張 DM・GeoJSON・SIMA の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。土木・地理のモジュールに置く（決定 0253）。マイナーバージョン 52 から */
     public static final class GeoRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public GeoRequest(Map<String, Object> json) {
@@ -17367,7 +17367,7 @@ public final class Messages {
             return this;
         }
 
-        /** open で開いた CityGML・基盤地図情報（GML）・拡張 DM・GeoJSON の文書の名前 */
+        /** open で開いた CityGML・基盤地図情報（GML）・拡張 DM・GeoJSON・SIMA の文書の名前 */
         public String getDoc() {
             return Json.read(json.get("doc"), Json::string);
         }
@@ -17789,7 +17789,7 @@ public final class Messages {
         }
     }
 
-    /** open で開いた J-LandXML の文書の線形から、平面図・縦断図・横断図の図面モデルを作り（決定 0231）、用紙を 1 枚選んで新しい DXF の文書として開く（決定 0239）。尺度・文字の高さ・測点の間隔は、プロファイルを渡せば語彙 civil-drawing と text-height から読み、渡さなければ作図の慣習の値にする。縦断図は用紙の要素に焼き込む（決定 0238）。書いたファイルは blobs で返す。作った文書は scene と check に渡せる。図面のモジュールに置く。マイナーバージョン 51 から */
+    /** open で開いた J-LandXML・IFC4.3・SIMA の文書の線形から、平面図・縦断図・横断図の図面モデルを作り（決定 0231）、用紙を 1 枚選んで新しい DXF の文書として開く（決定 0239）。尺度・文字の高さ・測点の間隔は、プロファイルを渡せば語彙 civil-drawing と text-height から読み、渡さなければ作図の慣習の値にする。縦断図は用紙の要素に焼き込む（決定 0238）。書いたファイルは blobs で返す。作った文書は scene と check に渡せる。図面のモジュールに置く。マイナーバージョン 51 から */
     public static final class CivilDrawingRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public CivilDrawingRequest(Map<String, Object> json) {
@@ -17874,7 +17874,7 @@ public final class Messages {
             return this;
         }
 
-        /** open で開いた J-LandXML の文書の名前 */
+        /** open で開いた J-LandXML・IFC4.3・SIMA の文書の名前 */
         public String getDoc() {
             return Json.read(json.get("doc"), Json::string);
         }

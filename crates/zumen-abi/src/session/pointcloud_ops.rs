@@ -17,7 +17,7 @@ impl Session {
             let bytes = self.input(name, &format!("/profiles/{index}"), cx)?;
             profiles.push((name.as_str(), bytes));
         }
-        asbuilt::deviation(request, cloud, model, &profiles, cx)
+        asbuilt::deviation(request, cloud, &model, &profiles, cx)
     }
 
     /// 開いた点群の文書。`pointer` は名前を書いたフィールド

@@ -8,7 +8,7 @@ pub const ABI_VERSION: u32 = 1;
 /// メッセージのスキーマのメジャーバージョン。要求と応答の `v`
 pub const SCHEMA_MAJOR: u64 = 1;
 /// メッセージのスキーマのマイナーバージョン。`capabilities` が返す
-pub const SCHEMA_MINOR: u64 = 71;
+pub const SCHEMA_MINOR: u64 = 72;
 
 /// 状態コード。理由は応答の診断で返す
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -98,10 +98,10 @@ pub struct Module {
 
 /// wasm のモジュール
 pub const MODULES: &[Module] = &[
-    // 図面（DXF・DWG・SXF・JWW と、図面モデルのバイナリ）と、図面のレビュー。土木の線形（J-LandXML）と、線形から作る図。電子納品の成果品・工事写真・ボーリング交換用データ
+    // 図面（DXF・DWG・SXF・JWW・SIMA と、図面モデルのバイナリ）と、図面のレビュー。土木の線形（J-LandXML・SIMA）と、線形から作る図。電子納品の成果品・工事写真・ボーリング交換用データ
     Module {
         name: "drawing",
-        formats: &["dxf", "dwg", "sxf", "jww", "landxml", "drawing"],
+        formats: &["dxf", "dwg", "sxf", "jww", "sima", "landxml", "drawing"],
         ops: &[
             "capabilities",
             "open",
@@ -149,10 +149,10 @@ pub const MODULES: &[Module] = &[
             "civil",
         ],
     },
-    // 土木の線形（J-LandXML）と、地理の地物（CityGML・基盤地図情報・拡張 DM・GeoJSON）
+    // 土木の線形（J-LandXML・SIMA）と、地理の地物（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA）
     Module {
         name: "civil",
-        formats: &["landxml", "citygml", "fgd", "extdm", "geojson"],
+        formats: &["landxml", "citygml", "fgd", "extdm", "geojson", "sima"],
         ops: &[
             "capabilities",
             "open",
@@ -257,11 +257,14 @@ pub fn has_format(format: &str) -> bool {
     (cfg!(feature = "drawing")
         && matches!(
             format,
-            "dxf" | "dwg" | "sxf" | "jww" | "landxml" | "drawing"
+            "dxf" | "dwg" | "sxf" | "jww" | "sima" | "landxml" | "drawing"
         ))
         || (cfg!(feature = "bim") && matches!(format, "ifc"))
         || (cfg!(feature = "civil")
-            && matches!(format, "landxml" | "citygml" | "fgd" | "extdm" | "geojson"))
+            && matches!(
+                format,
+                "landxml" | "citygml" | "fgd" | "extdm" | "geojson" | "sima"
+            ))
         || (cfg!(feature = "pointcloud")
             && matches!(format, "las" | "ply" | "xyz" | "e57" | "landxml"))
 }
@@ -377,6 +380,28 @@ pub const DETECTION: &[Detection] = &[
             offset: 0,
             bytes: b"JwwData.",
         }],
+    },
+    Detection {
+        format: "sima",
+        module: "drawing",
+        rules: &[
+            zumen_sdk::Signature::Bytes {
+                offset: 0,
+                bytes: b"G00,",
+            },
+            zumen_sdk::Signature::Bytes {
+                offset: 0,
+                bytes: b"\xef\xbb\xbfG00,",
+            },
+            zumen_sdk::Signature::XmlRoot {
+                name: b"GI",
+                namespace: Some(b"http://www.jsima.or.jp/JSIMASchema/201206"),
+            },
+            zumen_sdk::Signature::XmlRoot {
+                name: b"GI",
+                namespace: Some(b"http://www.jsima.or.jp/JSIMASchema/201004"),
+            },
+        ],
     },
     Detection {
         format: "landxml",

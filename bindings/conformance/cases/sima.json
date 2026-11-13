@@ -1,0 +1,142 @@
+{
+  "description": "open は、SIMA 共通フォーマット（カンマ区切り .sim と JPGIS 版 XML、#374）を署名・根要素から判定して開き、図面（drawing・tables・scene）・土木（civil）・地理（geo）の各領域モデルに移す。convert は、図面・土木・地理の文書からカンマ区切り .sim を書き出し、また SIMA から DXF・GeoJSON への変換も行う。",
+  "module": "all",
+  "steps": [
+    {
+      "push": {
+        "name": "survey.sim",
+        "text": "G00,01,現場A,EPSG:6677,\r\nA00,\r\nA01,1,P1,100.5,200.25,12.0,\r\nA01,2,P2,110.5,200.25,12.5,\r\nA01,3,P3,110.5,220.25,13.0,\r\nA99,\r\nD00,101,101-1,1,\r\nB01,1,P1,\r\nB01,2,P2,\r\nB01,3,P3,\r\nD99,\r\nF00,1,R1,0.0,\r\nC00,\r\nB01,1,P1,\r\nB01,2,P2,\r\nC99,\r\nF99,\r\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "survey.sim"
+      },
+      "expect": {
+        "/result/format": "sima",
+        "/diagnostics": []
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "drawing",
+        "doc": "survey.sim"
+      },
+      "expect": {
+        "/result/spaces/0/unit": "meter"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "tables",
+        "doc": "survey.sim"
+      },
+      "expect": {
+        "/diagnostics": []
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "civil",
+        "doc": "survey.sim"
+      },
+      "expect": {
+        "/result/crs": 6677,
+        "/result/length": 10.0,
+        "/result/alignments/0/name": "R1",
+        "/result/alignments/0/horizontal": 1
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "geo",
+        "doc": "survey.sim"
+      },
+      "expect": {
+        "/result/crs": 6677,
+        "/result/features": 5
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "convert",
+        "doc": "survey.sim",
+        "format": "geojson",
+        "to": "survey.geojson"
+      },
+      "expect": {
+        "/result/format": "geojson",
+        "/result/elements": 5,
+        "/diagnostics/0/code": "geojson.datum.approximated",
+        "/blobs/0/kind": "file"
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "convert",
+        "doc": "survey.sim",
+        "format": "sima",
+        "to": "roundtrip.sim"
+      },
+      "expect": {
+        "/result/format": "sima",
+        "/blobs/0/kind": "file"
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "convert",
+        "doc": "survey.geojson",
+        "format": "sima",
+        "to": "bad.sim"
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "sima.write-crs.unsupported",
+        "/diagnostics/0/params/epsg": 4326
+      }
+    },
+    {
+      "push": {
+        "name": "xml.sima",
+        "text": "<?xml version=\"1.0\" encoding=\"UTF-8\"?><sima:GI xmlns:sima=\"http://www.jsima.or.jp/JSIMASchema/201206\" xmlns:jps=\"http://www.gsi.go.jp/GIS/jpgis/standardSchemas2.1_2009-05\" version=\"1.0\"><sima:dataset><sima:GenbaJoho><sima:Name>現場XML</sima:Name><sima:CoordinateSystem>9</sima:CoordinateSystem><sima:Crs>3</sima:Crs></sima:GenbaJoho><sima:object><jps:GM_Point id=\"pt1\"><jps:position><jps:coordinate>300.0 400.0</jps:coordinate></jps:position></jps:GM_Point><sima:Sokuten id=\"f1\"><sima:Number>1</sima:Number><sima:Name>K1</sima:Name><sima:RefPoint idref=\"pt1\"/></sima:Sokuten></sima:object></sima:dataset></sima:GI>"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "xml.sima"
+      },
+      "expect": {
+        "/result/format": "sima"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "geo",
+        "doc": "xml.sima"
+      },
+      "expect": {
+        "/result/crs": 6677,
+        "/result/features": 1
+      }
+    }
+  ]
+}

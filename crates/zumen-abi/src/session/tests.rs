@@ -321,7 +321,7 @@ fn answers_capabilities() {
     let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
     assert_eq!(reply.status, Status::Ok);
     let expected = format!(
-        r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":71}},"ops":["capabilities","open","close","describe","drawing","entities","calibrations","measure_distance","apply","convert","convert_estimate","tables","scene","check","validate","review_carry","review_adopt","building","building_elements","ids_check","review_adopt_ids","bcf_read","bcf_write","civil","pointcloud","deviation","civil_drawing","geo","delivery_check","photo","boring","building_apply","lift","render"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}},{{"id":"landxml","family":"landxml","read":true,"write":false,"id_rules":1}},{{"id":"citygml","family":"citygml","read":true,"write":false,"id_rules":1}},{{"id":"fgd","family":"fgd","read":true,"write":false,"id_rules":1}},{{"id":"extdm","family":"extdm","read":true,"write":false,"id_rules":1}},{{"id":"geojson","family":"geojson","read":true,"write":true,"id_rules":1}},{{"id":"las","family":"las","read":true,"write":false,"id_rules":1}},{{"id":"ply","family":"ply","read":true,"write":false,"id_rules":1}},{{"id":"xyz","family":"xyz","read":true,"write":false,"id_rules":1}},{{"id":"e57","family":"e57","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+        r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":72}},"ops":["capabilities","open","close","describe","drawing","entities","calibrations","measure_distance","apply","convert","convert_estimate","tables","scene","check","validate","review_carry","review_adopt","building","building_elements","ids_check","review_adopt_ids","bcf_read","bcf_write","civil","pointcloud","deviation","civil_drawing","geo","delivery_check","photo","boring","building_apply","lift","render"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}},{{"id":"sima","family":"sima","read":true,"write":true,"id_rules":1}},{{"id":"landxml","family":"landxml","read":true,"write":false,"id_rules":1}},{{"id":"citygml","family":"citygml","read":true,"write":false,"id_rules":1}},{{"id":"fgd","family":"fgd","read":true,"write":false,"id_rules":1}},{{"id":"extdm","family":"extdm","read":true,"write":false,"id_rules":1}},{{"id":"geojson","family":"geojson","read":true,"write":true,"id_rules":1}},{{"id":"las","family":"las","read":true,"write":false,"id_rules":1}},{{"id":"ply","family":"ply","read":true,"write":false,"id_rules":1}},{{"id":"xyz","family":"xyz","read":true,"write":false,"id_rules":1}},{{"id":"e57","family":"e57","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
         env!("CARGO_PKG_VERSION")
     );
     assert_eq!(String::from_utf8(reply.response).unwrap(), expected);
@@ -5270,6 +5270,53 @@ fn refuses_conversions_it_cannot_write() {
         let (_, summary) = call(&mut session, r#"{"v":1,"op":"drawing","doc":"a.dxf"}"#);
         assert_eq!(text(&summary, "/result/hash"), document);
     }
+}
+
+#[test]
+fn opens_and_converts_sima_across_drawing_civil_and_geo() {
+    let sim = concat!(
+        "G00,01,現場テスト,EPSG:6677,\r\n",
+        "A00,\r\n",
+        "A01,1,P1,10.0,20.0,1.5,\r\n",
+        "A01,2,P2,30.0,20.0,1.5,\r\n",
+        "A01,3,P3,30.0,50.0,2.0,\r\n",
+        "A99,\r\n",
+        "D00,1,区画1,1,\r\n",
+        "B01,1,P1,\r\n",
+        "B01,2,P2,\r\n",
+        "B01,3,P3,\r\n",
+        "D99,\r\n",
+    );
+    let mut session = Session::new(b"").unwrap();
+    session.push(b"a.sim", sim.as_bytes()).unwrap();
+    let (status, open_res) = call(&mut session, r#"{"v":1,"op":"open","input":"a.sim"}"#);
+    assert_eq!(status, Status::Ok, "{open_res:?}");
+    assert_eq!(text(&open_res, "/result/format"), "sima");
+
+    // apply は SIMA に対して非対応であること
+    let (apply_status, apply_res) = call(
+        &mut session,
+        r#"{"v":1,"op":"apply","doc":"a.sim","edits":[]}"#,
+    );
+    assert_eq!(apply_status, Status::Failed);
+    assert_eq!(codes_of(&apply_res), vec!["call.document.unsupported"]);
+
+    // SIMA -> DXF と DXF -> SIMA の双方向変換
+    let (status, dxf_res) = call(
+        &mut session,
+        r#"{"v":1,"op":"convert","doc":"a.sim","format":"dxf","to":"a.dxf"}"#,
+    );
+    assert_eq!(status, Status::Ok, "{dxf_res:?}");
+    let _ = session.take(0);
+
+    let (status, sim2_res) = call(
+        &mut session,
+        r#"{"v":1,"op":"convert","doc":"a.dxf","format":"sima","to":"b.sim"}"#,
+    );
+    assert_eq!(status, Status::Ok, "{sim2_res:?}");
+    assert_eq!(text(&sim2_res, "/result/format"), "sima");
+    let sim_bytes = session.take(0).expect("sima blob");
+    assert!(sim_bytes.starts_with(b"G00,01,"));
 }
 
 include!("convert_estimate_tests.rs");

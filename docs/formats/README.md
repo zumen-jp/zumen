@@ -42,7 +42,7 @@
 | [ply](#format-ply) | PLY（点群） | ply | pointcloud | `public` | `core` | `external` |  |
 | [png](#format-png) | PNG | png | drawing | `public` | `core` |  | `external` |
 | [saf](#format-saf) | SXF の属性ファイル（SAF） | sxf | drawing・delivery | `public` | `core` | `synthetic` |  |
-| [sima](#format-sima) | SIMA 共通フォーマット | sima | civil | `unknown` | `none` |  |  |
+| [sima](#format-sima) | SIMA 共通フォーマット | sima | drawing・civil・geo | `public` | `core` | `synthetic` | `synthetic` |
 | [stbridge](#format-stbridge) | ST-Bridge | stbridge | building | `permission` | `plugin` |  |  |
 | [stem](#format-stem) | Stem（設備機器ライブラリデータ交換仕様） | stem | building | `unknown` | `none` |  |  |
 | [svg](#format-svg) | SVG | svg | drawing | `public` | `core` |  | `external` |
@@ -354,6 +354,36 @@
 - 入手先: [ITU-T T.81 Digital compression and coding of continuous-tone still images](https://www.itu.int/rec/T-REC-T.81)
 - 確認日: 2026-11-10
 - 補足: ITU のページは、ISO・IEC との共同の文書（ISO/IEC 10918-1 と同じ）で、取り決めにより有償でだけ配る（sales@itu.int に問い合わせる）とする。無償で配る ITU-T の勧告には当たらない。訂正 1（2004-01）も有効。ITU のサイトの著作権のページは、複製に許諾が要るとするが、AI での利用を名指しする記述はない。買うときの条件は公開のページに見当たらず、AI での利用を禁じるかは確かめられないので、エージェントは本文を読まない（zumen-jp/zumen#675・zumen-jp/zumen#677）。JPEG の展開は寛容なライセンスの crate に任せ、zumen は Exif と XMP のセグメントだけを読むので、本文は要らない
+
+### spec-jpgis_2_1
+
+- 名前: 地理情報標準プロファイル（JPGIS）Ver.2.1 標準スキーマ
+- 公開元: 国土地理院
+- 版: 2.1（2009-05）
+- 入手の条件: 無償公開
+- 入手先: [地理情報標準プロファイル（JPGIS）Ver.2.1 標準スキーマ](https://www.gsi.go.jp/GIS/jpgis/standardSchemas2.1_2009-05/jpsRoot.xsd)
+- 確認日: 2026-11-13
+- 補足: SIMA の JPGIS 版 XML Schema（jsima102.xsd）が参照する空間・基本型の標準スキーマ。ログインや同意の操作なしに無償で公開されており、実装を制限する記述はない。XSD ファイル自体は同梱しない
+
+### spec-jsima_201_2026
+
+- 名前: JSIMA201:2026 SIMA 測量データ共通フォーマット
+- 公開元: 一般社団法人日本測量機器工業会（JSIMA）
+- 版: Ver.04.2（2026）
+- 入手の条件: 有償
+- 入手先: [JSIMA201:2026 SIMA 測量データ共通フォーマット](https://www.jsima.or.jp/jsima/index.html)
+- 確認日: 2026-11-13
+- 補足: 会員でない人にも書籍として頒布する（申込書を FAX で送り先払い）。頒布のページに実装を制限する記述はない。購入時の利用条件（AI での利用の可否を含む）は未確認のため、エージェントは本文を入手せず読まない（formats/README.md の「資料を読む条件」・zumen-jp/zumen#374）
+
+### spec-jsima_jpgis_1_0_2
+
+- 名前: 測量データ交換フォーマット SIMA XML Schema（JPGIS 版）
+- 公開元: 一般社団法人日本測量機器工業会（JSIMA）
+- 版: 1.0.2（2012-06、jsima102.xsd）
+- 入手の条件: 無償公開
+- 入手先: [測量データ交換フォーマット SIMA XML Schema（JPGIS 版）](https://www.jsima.or.jp/JSIMASchema/201004/jsima102.xsd)
+- 確認日: 2026-11-13
+- 補足: ログインや同意の操作なしに無償でダウンロードできる XML Schema。実装を制限する記述はない。XSD ファイル自体はリポジトリに同梱しない
 
 ### spec-jww_7_02
 
@@ -954,11 +984,21 @@
 ### format-sima
 
 - 名前: SIMA 共通フォーマット
-- 権利の根拠: 日本測量機器工業会（JSIMA）は、JSIMA201:2026「SIMA 測量データ共通フォーマット」（Ver.04.2）などの規格を、会員でない人にも書籍として頒布する（申込書を FAX で送り、先払い）。JPGIS 版の XML Schema（jsima102.xsd）は自由にダウンロードできる。実装を制限する記述は見つからず、オープンソースの小さな実装（MIT・Unlicense）もある。書籍を正規に入手し、利用の条項がないことを確かめてから public にする（zumen-jp/zumen#374、2026-11-02）
-- 仕様: 登録なし
-- 権利の根拠にした文書: [JSIMA「規格・書籍紹介」](https://www.jsima.or.jp/jsima/index.html)（確認日: 2026-11-02）
+- 権利の根拠: 日本測量機器工業会（JSIMA）は JPGIS 版の XML Schema（jsima102.xsd）を無償で公開し、冊子（JSIMA201:2026）の頒布ページにも実装を制限する記述はない。利用者の承認（2026-11-12、zumen-jp/zumen#374）に基づき、有償の冊子は入手・参照せず、無償公開の JPGIS 版スキーマと寛容なライセンスの公開実装（MIT の sima2geojson.rb）・慣用の区切り形式の推定で public としてコアに実装する。スキーマは同梱しない
+- 仕様: [jsima\_jpgis\_1\_0\_2](#spec-jsima_jpgis_1_0_2)、[jpgis\_2\_1](#spec-jpgis_2_1)、[jsima\_201\_2026](#spec-jsima_201_2026)
+- 実装の根拠: spec・inferred・reference
+- 権利の根拠にした文書: [JSIMA「規格・書籍紹介」](https://www.jsima.or.jp/jsima/index.html)（確認日: 2026-11-13）
 - 権利の根拠にした文書: [国立国会図書館サーチの「SIMA 共通フォーマット」JSIMA 203:2000（Ver.02）](https://iss.ndl.go.jp/books/R100000002-I000009976754-00)（確認日: 2026-11-01）
+- 参照した実装: [sima2geojson.rb](https://github.com/KMR-zoar/sima2geojson.rb)（MIT）
+- 照合に使う候補: QGIS
+- サンプルの出どころ: 再配布条件と個人情報の不在を確認した公開サンプルは見つかっていない（#504）。テストの中で合成の SIMA（カンマ区切り \`.sim\` と JPGIS 版 XML）を作る
+- 読みの確かめた度合い: `synthetic`（確認日: 2026-11-13）
+- 読みの確かめた範囲: テストの中で組み立てたカンマ区切り \`.sim\`（Shift\_JIS・UTF-8・UTF-8 BOM、G00・Z00・座標 A00/A01/A99・画地 D00/B01/D99 の閉合と開放・路線 F00/B01/C00/C01/C02/C99/F99 の直線と円弧とクロソイド）と JPGIS 版 XML（jsima102.xsd の GenbaJoho・GM\_Point・GM\_Curve・GM\_OrientableCurve・GM\_Surface・Sokuten・Kakuchi・KaihouKakuchi・Kijyunten・Suijyunten・Chiban、idref と xlink:href による参照）を crates/zumen-sima/tests/sima.rs で読み、測量の北（X）・東（Y）から地図座標と図面座標への型安全な変換、図面（Drawing2D）・土木（CivilModel）・地理（GeoModel）の 3 領域への変換、座標系未指定時の診断、レコード範囲の非重複・決定性・6 種の予算と中断の停止場所診断を確かめた。公開サンプルと外部ソフト（QGIS や測量 CAD）との照合はまだ（#504）
+- 書きの確かめた度合い: `synthetic`（確認日: 2026-11-13）
+- 書きの確かめた範囲: L1 モデルの無変更往復と、図面（Drawing2D）・土木（CivilModel）・地理（GeoModel）からカンマ区切り \`.sim\`（G00・A00/A01/A99・D00/B01/D99・F00/C00/C01/C02/C99/F99、東・北から北 X・東 Y への変換）への書き出しを crates/zumen-sima/tests/sima.rs で読み直して確かめた。外部ソフトで開く照合はまだ（#504）
 - issue: [zumen-jp/zumen#374](https://github.com/zumen-jp/zumen/issues/374)
+- issue: [zumen-jp/zumen#504](https://github.com/zumen-jp/zumen/issues/504)
+- 形式の文書: [docs/formats/sima.md](../../docs/formats/sima.md)
 
 ### format-stbridge
 

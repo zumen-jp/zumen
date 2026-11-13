@@ -87,6 +87,19 @@ fn read(calls: &mut Calls, doc: &str, depth: Depth) {
             read(calls, &to, Depth::Copy);
         }
     }
+    if (drawing.ok || civil.ok || geo.ok) && depth == Depth::Source {
+        let to = format!("{doc}.sim");
+        if calls
+            .call("convert", |out| {
+                field(out, "doc", doc);
+                field(out, "format", "sima");
+                field(out, "to", &to);
+            })
+            .ok
+        {
+            read(calls, &to, Depth::Copy);
+        }
+    }
     let cloud = calls.call("pointcloud", |out| field(out, "doc", doc));
     if let Some(bounds) = cloud.result("/bounds") {
         calls.call("pointcloud", |out| {

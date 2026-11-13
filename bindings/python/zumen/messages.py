@@ -1509,7 +1509,7 @@ class ApplyResult(_ApplyResultRequired, _ApplyResultOptional):
     "当てた変更の結果。書き戻したファイルは blobs の file で返す"
 
 
-# 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON）からは GeoJSON を書く。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から
+# 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）または SIMA（.sim）、土木モデル（J-LandXML・IFC4.3・SIMA）からは SIMA（.sim）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA）からは GeoJSON または SIMA（.sim）を書く。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から。sima はマイナーバージョン 72 から
 _ConvertRequestRequired = TypedDict(
     "_ConvertRequestRequired",
     {
@@ -1519,7 +1519,7 @@ _ConvertRequestRequired = TypedDict(
         "op": Literal["convert"],
         # 書く元の文書の名前。open で作ったもの
         "doc": str,
-        # 書く形式の名前（capabilities の formats の id）。dxf または geojson
+        # 書く形式の名前（capabilities の formats の id）。dxf・geojson・sima のいずれか
         "format": str,
         # 作る文書の名前
         "to": str,
@@ -1542,7 +1542,7 @@ _ConvertRequestOptional = TypedDict(
 
 
 class ConvertRequest(_ConvertRequestRequired, _ConvertRequestOptional):
-    "開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON）からは GeoJSON を書く。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から"
+    "開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）または SIMA（.sim）、土木モデル（J-LandXML・IFC4.3・SIMA）からは SIMA（.sim）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA）からは GeoJSON または SIMA（.sim）を書く。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から。sima はマイナーバージョン 72 から"
 
 
 # 書いた文書。書いたファイルは blobs の file で返す
@@ -4628,7 +4628,7 @@ Engine = Union[
 ]
 
 
-# 線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。線形は、要求に書く（alignment）か、open で開いた J-LandXML の文書（doc）の線形を id で指す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。doc を渡せば、文書の線形と地表面の要約も返す。図面・BIM・土木地理・点群のモジュールに置く（決定 0253）。マイナーバージョン 46 から（doc と id はマイナーバージョン 47 から）
+# 線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。線形は、要求に書く（alignment）か、open で開いた J-LandXML・IFC4.3・SIMA の文書（doc）の線形を id で指す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。doc を渡せば、文書の線形と地表面の要約も返す。図面・BIM・土木地理・点群のモジュールに置く（決定 0253）。マイナーバージョン 46 から（doc と id はマイナーバージョン 47 から）
 _CivilRequestRequired = TypedDict(
     "_CivilRequestRequired",
     {
@@ -4651,7 +4651,7 @@ _CivilRequestOptional = TypedDict(
         "time_limit_ms": int,
         # 線形。doc と一緒には書かない
         "alignment": "CivilAlignment",
-        # open で開いた J-LandXML の文書の名前。マイナーバージョン 47 から
+        # open で開いた J-LandXML・IFC4.3・SIMA の文書の名前。マイナーバージョン 47 から
         "doc": str,
         # doc の線形の ID。文書に線形が 1 つなら書かなくてよい。マイナーバージョン 47 から
         "id": str,
@@ -4671,7 +4671,7 @@ _CivilRequestOptional = TypedDict(
 
 
 class CivilRequest(_CivilRequestRequired, _CivilRequestOptional):
-    "線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。線形は、要求に書く（alignment）か、open で開いた J-LandXML の文書（doc）の線形を id で指す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。doc を渡せば、文書の線形と地表面の要約も返す。図面・BIM・土木地理・点群のモジュールに置く（決定 0253）。マイナーバージョン 46 から（doc と id はマイナーバージョン 47 から）"
+    "線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。線形は、要求に書く（alignment）か、open で開いた J-LandXML・IFC4.3・SIMA の文書（doc）の線形を id で指す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。doc を渡せば、文書の線形と地表面の要約も返す。図面・BIM・土木地理・点群のモジュールに置く（決定 0253）。マイナーバージョン 46 から（doc と id はマイナーバージョン 47 から）"
 
 
 # 線形。点は地図の空間（北と東、メートル）に置き、方向角は北から時計回りのラジアンにする。半径は、右へ曲がるものを正にする（決定 0230）
@@ -5519,7 +5519,7 @@ class DeliveryManaged(_DeliveryManagedRequired, _DeliveryManagedOptional):
     "管理ファイルの要約"
 
 
-# open で開いた CityGML・基盤地図情報（GML）・拡張 DM・GeoJSON の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。土木・地理のモジュールに置く（決定 0253）。マイナーバージョン 52 から
+# open で開いた CityGML・基盤地図情報（GML）・拡張 DM・GeoJSON・SIMA の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。土木・地理のモジュールに置く（決定 0253）。マイナーバージョン 52 から
 _GeoRequestRequired = TypedDict(
     "_GeoRequestRequired",
     {
@@ -5527,7 +5527,7 @@ _GeoRequestRequired = TypedDict(
         "v": int,
         # op の名前
         "op": Literal["geo"],
-        # open で開いた CityGML・基盤地図情報（GML）・拡張 DM・GeoJSON の文書の名前
+        # open で開いた CityGML・基盤地図情報（GML）・拡張 DM・GeoJSON・SIMA の文書の名前
         "doc": str,
     },
 )
@@ -5550,7 +5550,7 @@ _GeoRequestOptional = TypedDict(
 
 
 class GeoRequest(_GeoRequestRequired, _GeoRequestOptional):
-    "open で開いた CityGML・基盤地図情報（GML）・拡張 DM・GeoJSON の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。土木・地理のモジュールに置く（決定 0253）。マイナーバージョン 52 から"
+    "open で開いた CityGML・基盤地図情報（GML）・拡張 DM・GeoJSON・SIMA の文書（決定 0233）の地理の領域モデルの要約と、id で指した地物の中身を返す。土木・地理のモジュールに置く（決定 0253）。マイナーバージョン 52 から"
 
 
 # 地理の領域モデルの要約
@@ -5706,7 +5706,7 @@ class GeoGeometry(_GeoGeometryRequired, _GeoGeometryOptional):
     "形の要約"
 
 
-# open で開いた J-LandXML の文書の線形から、平面図・縦断図・横断図の図面モデルを作り（決定 0231）、用紙を 1 枚選んで新しい DXF の文書として開く（決定 0239）。尺度・文字の高さ・測点の間隔は、プロファイルを渡せば語彙 civil-drawing と text-height から読み、渡さなければ作図の慣習の値にする。縦断図は用紙の要素に焼き込む（決定 0238）。書いたファイルは blobs で返す。作った文書は scene と check に渡せる。図面のモジュールに置く。マイナーバージョン 51 から
+# open で開いた J-LandXML・IFC4.3・SIMA の文書の線形から、平面図・縦断図・横断図の図面モデルを作り（決定 0231）、用紙を 1 枚選んで新しい DXF の文書として開く（決定 0239）。尺度・文字の高さ・測点の間隔は、プロファイルを渡せば語彙 civil-drawing と text-height から読み、渡さなければ作図の慣習の値にする。縦断図は用紙の要素に焼き込む（決定 0238）。書いたファイルは blobs で返す。作った文書は scene と check に渡せる。図面のモジュールに置く。マイナーバージョン 51 から
 _CivilDrawingRequestRequired = TypedDict(
     "_CivilDrawingRequestRequired",
     {
@@ -5714,7 +5714,7 @@ _CivilDrawingRequestRequired = TypedDict(
         "v": int,
         # op の名前
         "op": Literal["civil_drawing"],
-        # open で開いた J-LandXML の文書の名前
+        # open で開いた J-LandXML・IFC4.3・SIMA の文書の名前
         "doc": str,
         # 作る文書の名前
         "to": str,
@@ -5745,7 +5745,7 @@ _CivilDrawingRequestOptional = TypedDict(
 
 
 class CivilDrawingRequest(_CivilDrawingRequestRequired, _CivilDrawingRequestOptional):
-    "open で開いた J-LandXML の文書の線形から、平面図・縦断図・横断図の図面モデルを作り（決定 0231）、用紙を 1 枚選んで新しい DXF の文書として開く（決定 0239）。尺度・文字の高さ・測点の間隔は、プロファイルを渡せば語彙 civil-drawing と text-height から読み、渡さなければ作図の慣習の値にする。縦断図は用紙の要素に焼き込む（決定 0238）。書いたファイルは blobs で返す。作った文書は scene と check に渡せる。図面のモジュールに置く。マイナーバージョン 51 から"
+    "open で開いた J-LandXML・IFC4.3・SIMA の文書の線形から、平面図・縦断図・横断図の図面モデルを作り（決定 0231）、用紙を 1 枚選んで新しい DXF の文書として開く（決定 0239）。尺度・文字の高さ・測点の間隔は、プロファイルを渡せば語彙 civil-drawing と text-height から読み、渡さなければ作図の慣習の値にする。縦断図は用紙の要素に焼き込む（決定 0238）。書いたファイルは blobs で返す。作った文書は scene と check に渡せる。図面のモジュールに置く。マイナーバージョン 51 から"
 
 
 # 作った文書。書いたファイルは blobs の file で返す
