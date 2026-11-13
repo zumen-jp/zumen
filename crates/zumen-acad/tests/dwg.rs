@@ -10893,7 +10893,7 @@ fn drawing_text_and_names_are_written_back_in_shift_jis_to_a_dwg() {
 
 /// R2007 の 32 バイト単位・端数（1〜31 バイト）の並び替えの逆写像を使って、LZ77 のリテラル列を作る。
 /// 末尾が同じバイトの 3 回以上の繰り返しなら、後方参照の命令も混ぜる
-#[cfg(test)]
+#[cfg(all(test, feature = "drawing"))]
 fn r2007_compress(plain: &[u8]) -> Vec<u8> {
     fn map_indices(len: usize) -> Vec<usize> {
         let src: Vec<usize> = (0..len).collect();
@@ -11122,7 +11122,7 @@ fn r2007_compress(plain: &[u8]) -> Vec<u8> {
     out
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "drawing"))]
 fn rs_encode_cw(msg: &[u8], block_size: usize) -> [u8; 255] {
     let poly: u16 = if block_size == 239 { 0x169 } else { 0x11D };
     let nroots = 255 - block_size;
@@ -11174,7 +11174,7 @@ fn rs_encode_cw(msg: &[u8], block_size: usize) -> [u8; 255] {
     cw
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "drawing"))]
 fn rs_interleave(data: &[u8], factor: usize, block_size: usize) -> Vec<u8> {
     let mut encoded = vec![0u8; factor * 255];
     let mut index = 0usize;
@@ -11192,7 +11192,7 @@ fn rs_interleave(data: &[u8], factor: usize, block_size: usize) -> Vec<u8> {
 }
 
 /// 4 つの必須セクション（展開前の生データ）から R2007（AC1021）のコンテナーを組み立てる
-#[cfg(test)]
+#[cfg(all(test, feature = "drawing"))]
 fn r2007_container(sections: &[(&str, Vec<u8>)]) -> Vec<u8> {
     let mut pages_blob = Vec::new();
     let mut page_map_raw = Vec::new();
@@ -11286,7 +11286,7 @@ fn r2007_container(sections: &[(&str, Vec<u8>)]) -> Vec<u8> {
 }
 
 /// R2007 の UTF-16LE の文字列ストリームを持つオブジェクトを作る
-#[cfg(test)]
+#[cfg(all(test, feature = "drawing"))]
 fn r2007_object(
     type_code: u16,
     handle: u64,
