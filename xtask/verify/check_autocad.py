@@ -71,8 +71,6 @@ from compare import ATTACHMENTS, check_handles, run  # noqa: E402
 ROOT = HERE.parents[1]
 # 既知の食い違い: (ファイルの道筋の初め, 食い違いの文の初め, issue, 当たるファイルの数)。直ったら消す
 KNOWN = [
-    # convert で書いた新しい DXF は、VPORT・VIEW・UCS・APPID の表と、画層の 390 を持たず、AutoCAD が読み込めない
-    ("convert/", "AutoCAD が図面を開けない", 879, 46),
     # 拡張データでつないだ R2007 までの段組みの MTEXT を、AutoCAD は組ごとに 1 つにまとめ、zumen は別々に読む
     ("input/ezdxf-mtext-columns-r2007.dxf", "space/0/h", 174, 1),
 ]

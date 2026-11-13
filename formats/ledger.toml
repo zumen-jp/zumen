@@ -625,7 +625,7 @@ checked = "2026-11-13"
 
 [formats.dxf.write]
 level = "application"
-scope = "AutoCAD 2027（accoreconsole）で、AutoCAD で作った R2000・R2004・R2010・R2018 の DXF に、引出線の置き換え・変換・追加と MULTILEADER の線の置き換えを当てて書き戻したものを開き、監査の誤りが 0 で、形・矢印・注記が当てた値と合うことを確かめた（#345）。ほかの規則は、AutoCAD では確かめていない。点・寸法・表と、引出線のほかの変更を書き戻したファイルと、convert（決定 0206）で書いた DXF は、AutoCAD で開いていない（#342・#314・#503）。書き戻した DXF と convert で書いた DXF は、毎晩の CI で ezdxf 1.4.5 で読み、書き戻しでは監査の誤りが入力より増えず変更で決めた形・画層・色が合い、convert では監査の誤りと修復が 0 で各 TABLE の宣言件数と実件数も合うことを確かめる（xtask/verify、#509・#511・#874）"
+scope = "AutoCAD 2027（accoreconsole）で、AutoCAD で作った R2000・R2004・R2010・R2018 の DXF に、引出線の置き換え・変換・追加と MULTILEADER の線の置き換えを当てて書き戻したものを開き、監査の誤りが 0 で、形・矢印・注記が当てた値と合うことを確かめた（#345）。ほかの規則は、AutoCAD では確かめていない。点・寸法・表と、引出線のほかの変更を書き戻したファイルは、AutoCAD で開いていない（#342・#314・#503）。convert（決定 0206）で書いた DXF は、2026-11-13 に 1 回、検証キットの 46 ファイルを AutoCAD 2027（accoreconsole）で開き、監査の誤りが 0 で、要素の種類・画層・形の値が、書いた DXF の zumen の読みと合うことを確かめた（#879。変換の元の図面と同じに見えるかは、確かめていない）。書き戻した DXF と convert で書いた DXF は、毎晩の CI で ezdxf 1.4.5 で読み、書き戻しでは監査の誤りが入力より増えず変更で決めた形・画層・色が合い、convert では監査の誤りと修復が 0 で各 TABLE の宣言件数と実件数も合うことを確かめる（xtask/verify、#509・#511・#874）"
 implementations = [{ name = "ezdxf", version = "1.4.5" }]
 software = [{ name = "AutoCAD", version = "2027" }]
 checked = "2026-11-13"

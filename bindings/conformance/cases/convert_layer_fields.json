@@ -235,11 +235,11 @@
       },
       "expect": {
         "/result/layers/0/name": "0",
-        "/result/layers/0/hash": "v2:f7a93c70d807efe2193098f010c634f6",
+        "/result/layers/0/hash": "v2:4dfc7d4553e183fb075223f69f65349c",
         "/result/layers/1/name": "A",
-        "/result/layers/1/hash": "v2:b03510577eeeb2e3415b9cf330e70dc3",
+        "/result/layers/1/hash": "v2:77e29cab515bad87fdbce91a75d4200e",
         "/result/layers/3/name": "C",
-        "/result/layers/3/hash": "v2:406a9cbeae82fe40821323ba38af8789",
+        "/result/layers/3/hash": "v2:787e08daecbd8c728fd01b722300f4da",
         "/diagnostics": []
       },
       "absent": [

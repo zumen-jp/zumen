@@ -499,6 +499,119 @@ fn writes_owned_order_and_reports_only_reactors_whose_target_was_omitted() {
     assert_eq!(lost.places(), &[Ref::at_bytes(656, 664)]);
 }
 
+// 項目のない表は、書き手の入力が表の名前を示した表のオブジェクトだけから書く（#879）。
+#[test]
+fn writes_tables_without_entries_from_the_control_objects_named_by_the_source() {
+    let table = |id: u64| Object {
+        kind: b"TABLE".to_vec(),
+        section: Section::Tables,
+        values: vec![h(5, id), h(330, 0)],
+        origin: Origin::Dwg {
+            offset: id as usize * 16,
+            end: id as usize * 16 + 8,
+        },
+    };
+    let mut db = fixture();
+    for id in 60..=64 {
+        db.push(table(id));
+    }
+    let run = |controls: &[(&'static [u8], u64)]| {
+        let mut input = fixture_source();
+        input.controls = controls.iter().copied().collect();
+        let mut budget = Budget::new(Limits::default());
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+        let out = try_reencode(&db, 1000, &mut cx, |_, _| Ok(input)).unwrap();
+        let read = out.as_ref().map(|out| {
+            Dxf::read(&out.bytes, &mut cx)
+                .unwrap()
+                .objects(&mut cx)
+                .unwrap()
+        });
+        (out, read, diagnostics.into_vec())
+    };
+    let named = [
+        (b"VPORT".as_slice(), 60),
+        (b"VIEW", 61),
+        (b"UCS", 62),
+        (b"APPID", 63),
+        // 項目を持つ表は、項目の所有者を表のオブジェクトにする
+        (b"LAYER", 2),
+    ];
+    let (out, read, diagnostics) = run(&named);
+    let (out, read) = (out.unwrap(), read.unwrap());
+    let tables: Vec<_> = read
+        .objects()
+        .iter()
+        .filter(|o| o.kind == b"TABLE")
+        .map(|o| (o.first(2).cloned(), o.handle(), o.first(70).cloned()))
+        .collect();
+    let expected = [
+        (b"VPORT".as_slice(), 60, 0),
+        (b"LTYPE", 1, 1),
+        (b"LAYER", 2, 1),
+        (b"STYLE", 3, 1),
+        (b"VIEW", 61, 0),
+        (b"UCS", 62, 0),
+        (b"APPID", 63, 0),
+        (b"DIMSTYLE", 4, 1),
+        (b"BLOCK_RECORD", 5, 3),
+    ]
+    .map(|(name, id, count)| (Some(s(2, name).data), Some(id), Some(Data::Int(count))));
+    assert_eq!(tables, expected);
+    // 書いた表のオブジェクトは値と参照を保ったものに数え、名前を示されなかった 64 だけを落とす
+    let fidelity = |id| {
+        let detail = out
+            .report
+            .details
+            .iter()
+            .find(|d| d.source.key() == Some(zumen_base::Key::Handle(id)))
+            .unwrap();
+        (detail.kind.as_str(), detail.fidelity)
+    };
+    for id in [1, 60, 61, 62, 63] {
+        assert_eq!(fidelity(id), ("TABLE", ConversionFidelity::Native));
+    }
+    assert_eq!(fidelity(64), ("TABLE", ConversionFidelity::Dropped));
+    let lost: Vec<_> = diagnostics
+        .iter()
+        .filter(|d| {
+            d.code() == codes::DWG_DXF_RECORD_DROPPED && d.param("kind") == Some(&"TABLE".into())
+        })
+        .collect();
+    let [lost] = lost[..] else {
+        panic!("落とした表のオブジェクトの診断が 1 つでない")
+    };
+    assert_eq!(lost.places(), &[Ref::at_bytes(1024, 1032)]);
+
+    // 名前を示されない表のオブジェクトは、これまでどおり書かない
+    let (_, read, _) = run(&[]);
+    let names: Vec<_> = read
+        .unwrap()
+        .objects()
+        .iter()
+        .filter(|o| o.kind == b"TABLE")
+        .map(|o| o.first(2).cloned())
+        .collect();
+    let expected = [
+        b"LTYPE".as_slice(),
+        b"LAYER",
+        b"STYLE",
+        b"DIMSTYLE",
+        b"BLOCK_RECORD",
+    ]
+    .map(|name| Some(s(2, name).data));
+    assert_eq!(names, expected);
+
+    // 項目を持つ表と同じ表のオブジェクト・表でないもの・ないものを指す対応は、図面モデルの経路に渡す
+    for id in [1, 6, 99] {
+        let (out, _, diagnostics) = run(&[(b"VIEW", id)]);
+        assert!(out.is_none());
+        assert!(diagnostics.is_empty());
+    }
+}
+
 #[test]
 fn writes_a_dimension_in_an_inactive_layout_in_its_block() {
     let mut db = fixture();

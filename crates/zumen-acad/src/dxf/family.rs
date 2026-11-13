@@ -99,6 +99,7 @@ fn try_reencode<'a>(
         let mut plan = Plan::new(db, cx)?;
         let source = source(&plan, cx)?;
         plan.order_blocks(&source, cx)?;
+        plan.keep_empty_tables(db, &source, cx)?;
         encode(db, &plan, &source, limit, cx)
     })();
     match result {
@@ -112,14 +113,18 @@ fn try_reencode<'a>(
     }
 }
 
-const TABLES: &[(&[u8], &[u8])] = &[
-    (b"VPORT", b"AcDbViewportTableRecord"),
-    (b"LTYPE", b"AcDbLinetypeTableRecord"),
-    (b"LAYER", b"AcDbLayerTableRecord"),
-    (b"STYLE", b"AcDbTextStyleTableRecord"),
-    (b"APPID", b"AcDbRegAppTableRecord"),
-    (b"DIMSTYLE", b"AcDbDimStyleTableRecord"),
-    (b"BLOCK_RECORD", b"AcDbBlockTableRecord"),
+// 表と、その項目のサブクラス。AutoCAD が書く順に並べる。VIEW・UCS は、項目を持つ図面をこの経路で扱わないので
+// サブクラスを持たず、項目のない表だけを書く。
+const TABLES: &[(&[u8], Option<&[u8]>)] = &[
+    (b"VPORT", Some(b"AcDbViewportTableRecord")),
+    (b"LTYPE", Some(b"AcDbLinetypeTableRecord")),
+    (b"LAYER", Some(b"AcDbLayerTableRecord")),
+    (b"STYLE", Some(b"AcDbTextStyleTableRecord")),
+    (b"VIEW", None),
+    (b"UCS", None),
+    (b"APPID", Some(b"AcDbRegAppTableRecord")),
+    (b"DIMSTYLE", Some(b"AcDbDimStyleTableRecord")),
+    (b"BLOCK_RECORD", Some(b"AcDbBlockTableRecord")),
 ];
 
 fn text(value: &Value) -> Option<&[u8]> {
@@ -196,6 +201,8 @@ struct Block<'a> {
 struct Plan<'a> {
     charset: Charset,
     tables: BTreeMap<&'a [u8], Vec<&'a Object>>,
+    // 項目のない表の、表のオブジェクト
+    empty_tables: BTreeMap<&'static [u8], &'a Object>,
     names: BTreeMap<(&'a [u8], Vec<u8>), &'a Object>,
     blocks: BTreeMap<u64, Block<'a>>,
     layouts: BTreeMap<u64, u64>,
@@ -230,6 +237,7 @@ impl<'a> Plan<'a> {
         let mut plan = Self {
             charset: charset_of(db),
             tables: BTreeMap::new(),
+            empty_tables: BTreeMap::new(),
             names: BTreeMap::new(),
             blocks: BTreeMap::new(),
             layouts: BTreeMap::new(),
@@ -255,7 +263,10 @@ impl<'a> Plan<'a> {
                 .max(id.checked_add(1).ok_or(Error::Unsupported)?);
             match &object.section {
                 Section::Tables if object.kind != b"TABLE" => {
-                    if !TABLES.iter().any(|(name, _)| *name == object.kind) {
+                    if !TABLES
+                        .iter()
+                        .any(|(name, class)| *name == object.kind && class.is_some())
+                    {
                         return Err(Error::Unsupported);
                     }
                     let table = owner(object)?;
@@ -350,6 +361,32 @@ impl<'a> Plan<'a> {
             }
         }
         Ok(plan)
+    }
+
+    // 項目のない表も、DWG に表のオブジェクトがあれば書く。項目のない VPORT・VIEW・UCS の表を欠く DXF を、AutoCAD は
+    // 読み込まない（docs/formats/dxf.md「R2004 DWG の弧長寸法」、#879）。
+    fn keep_empty_tables(
+        &mut self,
+        db: &'a AcadDb,
+        source: &DxfSource<'_>,
+        cx: &mut Cx<'_>,
+    ) -> Result<(), Error> {
+        for &(name, _) in TABLES {
+            cx.check(Kind::Work, 1)?;
+            if self.tables.contains_key(name) {
+                continue;
+            }
+            let Some(&id) = source.controls.get(name) else {
+                continue;
+            };
+            let control = db.get(id).ok_or(Error::Unsupported)?;
+            // 項目を持つ表のオブジェクトと重なると、同じハンドルの TABLE を 2 つ書くことになる。
+            if control.kind != b"TABLE" || control.owner() != Some(0) || !self.kept.insert(id) {
+                return Err(Error::Unsupported);
+            }
+            self.empty_tables.insert(name, control);
+        }
+        Ok(())
     }
 
     // ODS 5.4.1 の BLOCK_HEADER。ハンドルの値と、ブロックが持つ図形の表示順は別に決まる。
@@ -505,15 +542,17 @@ fn encode<'a>(
     w.end()?;
     w.section(b"TABLES")?;
     for &(name, class) in TABLES {
-        let Some(rows) = plan.tables.get(name) else {
-            continue;
+        let rows = plan.tables.get(name).map_or(&[][..], Vec::as_slice);
+        let control = match rows.first() {
+            Some(first) => db.get(owner(first)?).ok_or(Error::Unsupported)?,
+            None => match plan.empty_tables.get(name) {
+                Some(&control) => control,
+                None => continue,
+            },
         };
-        let control = db
-            .get(owner(rows.first().ok_or(Error::Unsupported)?)?)
-            .ok_or(Error::Unsupported)?;
         w.table(control, name, rows.len())?;
         for object in rows {
-            w.table_record(object, class, db)?;
+            w.table_record(object, class.ok_or(Error::Unsupported)?, db)?;
         }
         w.tag(0, b"ENDTAB")?;
     }

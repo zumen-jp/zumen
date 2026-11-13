@@ -11,6 +11,10 @@ from pathlib import Path
 SKIP = {"style_id"}
 # 角度のフィールド。360 度の違いは同じとみなす
 ANGLES = {"rotation", "start_angle", "end_angle"}
+# 既定の値のときに書かないフィールドと、その既定の値（文字の幅の倍率と傾き）。片方の読みだけが持つ値が既定の値と
+# close で同じなら、同じとみなす。計算で終わりの桁が揺れた既定の値（1.0000000000000002 の幅の倍率）を、小数 12 桁で
+# 書き出す AutoCAD の読み（dump.lsp）は既定の値として返す
+DEFAULTS = {"width_factor": 1.0, "oblique": 0.0}
 # 比べた数の名前（結果の JSON のキー）→ 表示
 LABELS = {"elements": "出所で結んだ要素", "shapes": "形を比べた要素", "expected": "変更で決めた形"}
 # 図形を図面モデルに移さなかったことを言う診断（catalog/codes.toml）。黙って捨てない照合は、これだけを数える。
@@ -122,6 +126,11 @@ def close_angle(a, b):
     return min(d, 360.0 - d) <= 1e-9 * max(1.0, abs(a), abs(b))
 
 
+def is_default(key, value):
+    """片方の読みだけが持つフィールド key の値 value が、書かないときの既定の値と同じか"""
+    return key in DEFAULTS and isinstance(value, (int, float)) and not isinstance(value, bool) and close(float(value), DEFAULTS[key])
+
+
 def differences(want, got, path="", both=False):
     """want のフィールドが got と同じでない所。both なら、got にだけあるフィールドも食い違いにする（zumen の読みと外部の実装の読みを
     比べるとき。zumen がフィールドを落としても見つける）。変更で決めた形は、既定の値のフィールドを書かないので both にしない。
@@ -135,12 +144,17 @@ def differences(want, got, path="", both=False):
         if not isinstance(got, dict):
             return [f"{path}: {got!r}（期待は {want!r}）"]
         if both:
-            out += [f"{path}/{key}: zumen の読みにない（外部の実装は {value!r}）" for key, value in got.items() if key not in want and key not in SKIP]
+            out += [
+                f"{path}/{key}: zumen の読みにない（外部の実装は {value!r}）"
+                for key, value in got.items()
+                if key not in want and key not in SKIP and not is_default(key, value)
+            ]
         for key, value in want.items():
             if key in SKIP:
                 continue
             if key not in got:
-                out.append(f"{path}/{key}: ない（期待は {value!r}）")
+                if not is_default(key, value):
+                    out.append(f"{path}/{key}: ない（期待は {value!r}）")
                 continue
             if key in ANGLES and isinstance(value, (int, float)):
                 if not isinstance(got[key], (int, float)) or not close_angle(float(value), float(got[key])):

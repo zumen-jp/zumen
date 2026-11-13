@@ -19,6 +19,25 @@ pub(crate) struct DxfSource<'a> {
     pub(crate) classes: Vec<(&'a Class, u64)>,
     pub(crate) extras: BTreeMap<u64, Extra>,
     pub(crate) order: BTreeMap<u64, Vec<u64>>,
+    /// 表の名前ごとの、表のオブジェクト（CONTROL）のハンドル。共有の表の TABLE は表の名前を持たないので、
+    /// 項目のない表を書くときは、オブジェクトの型で決めたこの対応を使う
+    pub(crate) controls: BTreeMap<&'static [u8], u64>,
+}
+
+// 表のオブジェクト（CONTROL）の型（ODS 5.4.1 の 20.4）から、DXF の TABLE の名前を決める。
+fn control_table(type_code: u16) -> Option<&'static [u8]> {
+    Some(match type_code {
+        kinds::VPORT_CONTROL => b"VPORT",
+        kinds::LTYPE_CONTROL => b"LTYPE",
+        kinds::LAYER_CONTROL => b"LAYER",
+        kinds::STYLE_CONTROL => b"STYLE",
+        kinds::VIEW_CONTROL => b"VIEW",
+        kinds::UCS_CONTROL => b"UCS",
+        kinds::APPID_CONTROL => b"APPID",
+        kinds::DIMSTYLE_CONTROL => b"DIMSTYLE",
+        kinds::BLOCK_RECORD_CONTROL => b"BLOCK_RECORD",
+        _ => return None,
+    })
 }
 
 impl DwgFile {
@@ -32,7 +51,17 @@ impl DwgFile {
         let mut instances = BTreeMap::new();
         for entry in &self.entries {
             cx.check(Kind::Work, 1)?;
-            if !kept.contains(&entry.handle) {
+            // 表のオブジェクトは、項目がなく `kept` に入っていなくても読む。書くかどうかは呼び出し側が決める
+            let control = control_table(entry.type_code).filter(|_| {
+                db.get(entry.handle)
+                    .is_some_and(|o| o.kind == b"TABLE" && o.section == Section::Tables)
+            });
+            if let Some(table) = control
+                && source.controls.insert(table, entry.handle).is_some()
+            {
+                return Err(Error::Unsupported);
+            }
+            if control.is_none() && !kept.contains(&entry.handle) {
                 continue;
             }
             let object = db.get(entry.handle).ok_or(Error::Unsupported)?;
@@ -193,6 +222,63 @@ mod tests {
             .collect();
         assert_eq!(actual, expected);
     }
+
+    // 項目のない VIEW・UCS の表を欠く DXF を、AutoCAD は読み込まない（#879）。
+    #[test]
+    fn tables_without_entries_keep_the_handles_of_their_control_objects() {
+        let mut budget = Budget::default();
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+        let file = public_file(&mut cx);
+        let R2004Conversion::Dxf(output) = file.reencode_r2004_dxf(&mut cx).unwrap() else {
+            panic!("同系統の変換で書けない")
+        };
+        let written = crate::Dxf::read(&output.bytes, &mut cx)
+            .unwrap()
+            .objects(&mut cx)
+            .unwrap();
+        let tables: Vec<_> = written
+            .objects()
+            .iter()
+            .filter(|r| r.kind == b"TABLE")
+            .map(|r| (r.first(2).cloned(), r.handle()))
+            .collect();
+        // AutoCAD が書く順。ハンドルは、DWG の表のオブジェクトのもの
+        let expected = [
+            (b"VPORT".as_slice(), kinds::VPORT_CONTROL),
+            (b"LTYPE", kinds::LTYPE_CONTROL),
+            (b"LAYER", kinds::LAYER_CONTROL),
+            (b"STYLE", kinds::STYLE_CONTROL),
+            (b"VIEW", kinds::VIEW_CONTROL),
+            (b"UCS", kinds::UCS_CONTROL),
+            (b"APPID", kinds::APPID_CONTROL),
+            (b"DIMSTYLE", kinds::DIMSTYLE_CONTROL),
+            (b"BLOCK_RECORD", kinds::BLOCK_RECORD_CONTROL),
+        ]
+        .map(|(name, code)| {
+            let control = file.entries.iter().find(|e| e.type_code == code).unwrap();
+            (Some(crate::Data::Text(name.to_vec())), Some(control.handle))
+        });
+        assert_eq!(tables, expected);
+        for kind in [b"VIEW".as_slice(), b"UCS"] {
+            assert!(written.objects().iter().all(|r| r.kind != kind));
+            let table = written
+                .objects()
+                .iter()
+                .find(|r| {
+                    r.kind == b"TABLE" && r.first(2) == Some(&crate::Data::Text(kind.to_vec()))
+                })
+                .unwrap();
+            assert_eq!(table.first(70), Some(&crate::Data::Int(0)));
+        }
+        // 書いた表のオブジェクトを、落としたレコードとして診断しない
+        assert!(diagnostics.iter().all(|d| {
+            d.code() != zumen_base::codes::DWG_DXF_RECORD_DROPPED
+                || d.param("kind") != Some(&"TABLE".into())
+        }));
+    }
+
     fn convert(file: &DwgFile, limits: Limits) -> (Result<R2004Conversion, Error>, u64) {
         let mut budget = Budget::new(limits);
         let mut diag = Diagnostics::new();

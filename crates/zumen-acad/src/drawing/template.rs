@@ -1,8 +1,9 @@
 //! 図面モデルから新しい DXF（R2004）を作るときのひな形（決定 0206・0240）。
 //!
-//! ひな形は、表の既定の項目（線種 3 つ・画層 0・文字スタイルと寸法スタイルの Standard）、記号の定義ごとの空の部品、
-//! モデルと用紙のレイアウト、用紙のビューポートと、それらのハンドルを持つ。図面モデルの表の項目と要素は、ひな形を
-//! 読んだあとに書き戻し（apply）の追加で足し、表の件数は `AcadDb::finish_new_dxf_tables` で仕上げる。
+//! ひな形は、表の既定の項目（線種 3 つ・画層 0・文字スタイルと寸法スタイルの Standard・アプリケーションの名前の
+//! ACAD）、項目のない VPORT・VIEW・UCS の表、記号の定義ごとの空の部品、モデルと用紙のレイアウト、用紙のビューポートと、
+//! それらのハンドルを持つ。図面モデルの表の項目と要素は、ひな形を読んだあとに書き戻し（apply）の追加で足し、表の件数は
+//! `AcadDb::finish_new_dxf_tables` で仕上げる。
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -171,6 +172,9 @@ fn template(
     let model_layout = next();
     let paper_layout = next();
     let mut tables = String::from("0\nSECTION\n2\nTABLES\n");
+    // 項目のない VPORT・VIEW・UCS の表、ACAD を持つ APPID の表、画層の 390 は、AutoCAD が図面を読み込むのに
+    // 要る（#879、docs/formats/dxf.md「新しい DXF への変換」）。表は AutoCAD が書く順に並べる
+    tables.push_str(&empty_table("VPORT", &next()));
     let table = next();
     tables.push_str(&table_start("LTYPE", &table, 3));
     for name in ["ByBlock", "ByLayer", "Continuous"] {
@@ -187,8 +191,10 @@ fn template(
     tables.push_str("0\nENDTAB\n");
     let table = next();
     tables.push_str(&table_start("LAYER", &table, 1));
+    // 390 は印刷スタイルの名前のオブジェクトへの参照（DXF Reference「LAYER」）。ひな形は印刷スタイルの辞書を
+    // 持たないので、指す先のない 0 を書く。足した画層は、この項目の値を写すので同じ 390 を持つ
     tables.push_str(&format!(
-        "0\nLAYER\n5\n{}\n330\n{table}\n100\nAcDbSymbolTableRecord\n100\nAcDbLayerTableRecord\n2\n0\n70\n0\n62\n7\n6\nContinuous\n290\n1\n370\n-3\n",
+        "0\nLAYER\n5\n{}\n330\n{table}\n100\nAcDbSymbolTableRecord\n100\nAcDbLayerTableRecord\n2\n0\n70\n0\n62\n7\n6\nContinuous\n290\n1\n370\n-3\n390\n0\n",
         next()
     ));
     tables.push_str("0\nENDTAB\n");
@@ -197,6 +203,17 @@ fn template(
     tables.push_str(&table_start("STYLE", &table, 1));
     tables.push_str(&format!(
         "0\nSTYLE\n5\n{style}\n330\n{table}\n100\nAcDbSymbolTableRecord\n100\nAcDbTextStyleTableRecord\n2\nStandard\n70\n0\n40\n0.0\n41\n1.0\n50\n0.0\n71\n0\n42\n2.5\n3\ntxt\n4\n\n"
+    ));
+    tables.push_str("0\nENDTAB\n");
+    tables.push_str(&empty_table("VIEW", &next()));
+    tables.push_str(&empty_table("UCS", &next()));
+    // 拡張データに使う名前の表。ACAD は AutoCAD 自身の名前（DXF Reference「APPID」）。画層の拡張データに使う
+    // 名前は、`AcadDb::finish_new_dxf_tables` がこの表に足す
+    let table = next();
+    tables.push_str(&table_start("APPID", &table, 1));
+    tables.push_str(&format!(
+        "0\nAPPID\n5\n{}\n330\n{table}\n100\nAcDbSymbolTableRecord\n100\nAcDbRegAppTableRecord\n2\nACAD\n70\n0\n",
+        next()
     ));
     tables.push_str("0\nENDTAB\n");
     let table = next();
@@ -318,6 +335,11 @@ fn template(
 
 fn table_start(name: &str, handle: &str, count: usize) -> String {
     format!("0\nTABLE\n2\n{name}\n5\n{handle}\n330\n0\n100\nAcDbSymbolTable\n70\n{count}\n")
+}
+
+/// 項目のない表
+fn empty_table(name: &str, handle: &str) -> String {
+    format!("{}0\nENDTAB\n", table_start(name, handle, 0))
 }
 
 /// DXF Reference「LAYOUT」「PLOTSETTINGS」。印刷する用紙の単位は mm、尺度は mm/図面単位。
@@ -648,7 +670,7 @@ mod tests {
                         Some(&Data::Int(i64::try_from(entries).unwrap()))
                     );
                 }
-                b"LTYPE" | b"LAYER" | b"STYLE" | b"DIMSTYLE" | b"BLOCK_RECORD" => {
+                b"LTYPE" | b"LAYER" | b"STYLE" | b"APPID" | b"DIMSTYLE" | b"BLOCK_RECORD" => {
                     assert!(subclass(b"AcDbSymbolTableRecord"));
                     assert_eq!(db.get(owner).unwrap().kind, b"TABLE");
                 }
@@ -709,7 +731,34 @@ mod tests {
             [&Data::Real(420.0), &Data::Real(297.0)]
         );
 
-        // 線種 3 つと、Continuous の画層 0。寸法スタイルは文字スタイル Standard を指す
+        // 表は AutoCAD が書く順に 9 つ。VPORT・VIEW・UCS は項目を持たず、APPID は ACAD だけを持つ（#879）
+        let tables: Vec<_> = of_kind(&db, b"TABLE").iter().map(|o| o.first(2)).collect();
+        let expected = [
+            "VPORT",
+            "LTYPE",
+            "LAYER",
+            "STYLE",
+            "VIEW",
+            "UCS",
+            "APPID",
+            "DIMSTYLE",
+            "BLOCK_RECORD",
+        ]
+        .map(text);
+        assert_eq!(tables, expected.iter().map(Some).collect::<Vec<_>>());
+        for kind in [b"VPORT".as_slice(), b"VIEW", b"UCS"] {
+            assert!(of_kind(&db, kind).is_empty());
+        }
+        let [app] = of_kind(&db, b"APPID")[..] else {
+            panic!("アプリケーションの名前が 1 つでない")
+        };
+        assert_eq!(
+            (app.first(2), app.first(70)),
+            (Some(&text("ACAD")), Some(&Data::Int(0)))
+        );
+
+        // 線種 3 つと、Continuous の画層 0。画層の印刷スタイルの名前（390）は、指す先のない 0。寸法スタイルは
+        // 文字スタイル Standard を指す
         let line_types: Vec<_> = of_kind(&db, b"LTYPE").iter().map(|o| o.first(2)).collect();
         let expected = [text("ByBlock"), text("ByLayer"), text("Continuous")];
         assert_eq!(line_types, expected.iter().map(Some).collect::<Vec<_>>());
@@ -717,8 +766,12 @@ mod tests {
             panic!("画層が 1 つでない")
         };
         assert_eq!(
-            (layer.first(2), layer.first(6)),
-            (Some(&text("0")), Some(&text("Continuous")))
+            (layer.first(2), layer.first(6), layer.first(390)),
+            (
+                Some(&text("0")),
+                Some(&text("Continuous")),
+                Some(&Data::Handle(0))
+            )
         );
         let [style] = of_kind(&db, b"STYLE")[..] else {
             panic!("文字スタイルが 1 つでない")
@@ -1048,7 +1101,7 @@ mod tests {
         let template = NewDxfTemplate::new(&Drawing2D::default());
         let db = read(&template);
         let handles = check_structure(&db);
-        assert_eq!(handles.len(), 21);
+        assert_eq!(handles.len(), 26);
         assert_eq!(db.variable(b"$INSUNITS").unwrap()[0].data, Data::Int(4));
         assert!(db.variable(b"$PLIMMAX").is_none());
         assert_eq!(of_kind(&db, b"BLOCK_RECORD").len(), 2);

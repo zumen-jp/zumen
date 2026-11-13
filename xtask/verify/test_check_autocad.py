@@ -15,6 +15,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import check_autocad as c  # noqa: E402
+from compare import differences  # noqa: E402
 
 # 書き出しの行。タブの代わりに「|」で書く
 ROWS = (
@@ -242,6 +243,26 @@ class Handles(unittest.TestCase):
         self.assertFalse(c.keeps_handles(b"0\nSECTION\n2\nENTITIES\n0\nENDSEC\n0\nEOF\n", ".dxf"))
         self.assertTrue(c.keeps_handles(b"AC1015", ".dwg"))
         self.assertTrue(c.keeps_handles(b"AutoCAD Binary DXF\r\n\x1a\0", ".dxf"))
+
+
+class Defaults(unittest.TestCase):
+    """既定の値のときに書かないフィールドの比べ方（compare.py の DEFAULTS）"""
+
+    def test_a_value_as_close_as_the_default_is_the_omitted_field(self):
+        # 計算で終わりの桁が揺れた幅の倍率を、AutoCAD の読みは小数 12 桁で書き出すので、既定の 1 として省く
+        computed = {"shape": "text", "content": "abc", "width_factor": 1.0000000000000002, "oblique": 1e-13}
+        plain = {"shape": "text", "content": "abc"}
+        self.assertEqual(differences(computed, plain, both=True), [])
+        self.assertEqual(differences(plain, computed, both=True), [])
+
+    def test_a_value_away_from_the_default_is_a_difference(self):
+        narrow = {"shape": "text", "content": "abc", "width_factor": 0.8}
+        plain = {"shape": "text", "content": "abc"}
+        self.assertEqual(differences(narrow, plain, both=True), ["/width_factor: ない（期待は 0.8）"])
+        self.assertEqual(differences(plain, narrow, both=True), ["/width_factor: zumen の読みにない（外部の実装は 0.8）"])
+        # 既定の値を持たないフィールドは、値によらず食い違いにする
+        self.assertEqual(differences({"height": 0.0}, {}), ["/height: ない（期待は 0.0）"])
+        self.assertEqual(differences({"width_factor": True}, {}), ["/width_factor: ない（期待は True）"])
 
 
 class Dimensions(unittest.TestCase):
