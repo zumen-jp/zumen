@@ -1,5 +1,5 @@
-//! 保存。変えていないレコードは元のバイト列を写し、変えたレコードは、今の実装の書き出し
-//! （`crates/zumen-acad/src/dxf.rs`）と同じ規則で、タグごとに書く。
+//! 保存。変えていないレコードは元のバイト列を写し、変えたレコードと足したレコードは、今の実装の書き出し
+//! （`crates/zumen-acad/src/dxf.rs` と `dxf/write_back.rs`）と同じ規則で、タグごとに書く。除いたレコードは書かない。
 
 use crate::store::{Document, OTag};
 
@@ -31,20 +31,52 @@ fn write_tag(out: &mut Vec<u8>, src: &[u8], tag: &OTag, newline: &[u8]) {
 }
 
 impl Document {
-    /// 文書の全体を DXF のバイト列にする。手間は、ファイルの大きさと、変えたレコードの数による
+    /// 文書の全体を DXF のバイト列にする。手間は、ファイルの大きさと、変えた・足した・除いたレコードの数による
     pub fn save(&self) -> Vec<u8> {
         let src = &self.src;
         let newline = newline(src);
+        let first_added = self.source_records();
         let mut out = Vec::with_capacity(src.len() + self.overlay.len() * 64);
         let mut written = 0;
-        // 変えたレコードは、ファイルの順に並んでいる
-        for (&record, tags) in &self.overlay {
+        // 元のレコードのうち、変えたものと除いたものを、ファイルの順に見る。足したレコードは、今の実装と同じく、
+        // ENTITIES のセクションを閉じる ENDSEC の前に、足した順に書く
+        let mut changed = self.overlay.range(..first_added).peekable();
+        let mut gone = self.gone.range(..first_added).copied().peekable();
+        let added = || {
+            self.overlay
+                .range(first_added..)
+                .filter(|(record, _)| !self.gone.contains(record))
+        };
+        let mut end = self.entities_end.filter(|_| added().next().is_some());
+        loop {
+            let stops = [
+                changed.peek().map(|(record, _)| **record),
+                gone.peek().copied(),
+                end,
+            ];
+            let Some(record) = stops.into_iter().flatten().min() else {
+                break;
+            };
             let range = self.record_range(record);
             out.extend_from_slice(src.get(written..range.start).unwrap_or_default());
-            for tag in tags {
-                write_tag(&mut out, src, tag, newline);
+            written = range.start;
+            if end == Some(record) {
+                for tag in added().flat_map(|(_, tags)| tags) {
+                    write_tag(&mut out, src, tag, newline);
+                }
+                end = None;
             }
-            written = range.end;
+            let tags = changed
+                .next_if(|(at, _)| **at == record)
+                .map(|(_, tags)| tags);
+            if gone.next_if_eq(&record).is_some() {
+                written = range.end;
+            } else if let Some(tags) = tags {
+                for tag in tags {
+                    write_tag(&mut out, src, tag, newline);
+                }
+                written = range.end;
+            }
         }
         out.extend_from_slice(src.get(written..).unwrap_or_default());
         out

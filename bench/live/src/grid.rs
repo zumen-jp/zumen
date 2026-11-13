@@ -157,7 +157,27 @@ impl Grid {
         self.cell[row as usize] = NONE;
     }
 
-    /// 要素の箱が変わった
+    /// 終わりに要素を足す。段の作りは、開いたときのまま
+    pub fn push(&mut self, item: [f64; 4]) {
+        let row = self.cell.len() as u32;
+        self.next.push(NONE);
+        self.prev.push(NONE);
+        self.cell.push(NONE);
+        self.insert(row, item);
+    }
+
+    /// 終わりの要素を除く
+    pub fn pop(&mut self) {
+        let Some(row) = self.cell.len().checked_sub(1) else {
+            return;
+        };
+        self.remove(row as u32);
+        self.next.pop();
+        self.prev.pop();
+        self.cell.pop();
+    }
+
+    /// 要素の箱が変わった。空の箱（除いた要素）は、索引から外す
     pub fn update(&mut self, row: u32, item: [f64; 4]) {
         if row as usize >= self.cell.len() {
             return;

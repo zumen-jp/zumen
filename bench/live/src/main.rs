@@ -19,18 +19,18 @@ use std::time::Duration;
 use zumen_bench_live::store::Document;
 
 const USAGE: &str = "使い方:
-  live compare <DXF>… [--steps 回数] [--seed 種] [--threads 本数] [--budget JSON] [--show]
+  live compare <DXF>… [--steps 回数] [--seed 種] [--threads 本数] [--budget JSON] [--show] [--hashes]
   live measure <DXF>… [--runs 回数] [--seed 種] [--threads 本数] [--region x0,y0,x1,y1] [--current] [--budget JSON]
   live grow <入力の DXF> <出力の DXF> <枚数> [--threads 本数]
-  live cases <入力の DXF> <出力の DXF> [件数] [--seed 種]
+  live cases <入力の DXF> <出力の DXF> [件数] [--seed 種] [--variant plain|loose|no-seed|low-seed|two-sections|no-tables|empty]
   live open <DXF>… [--hold ミリ秒] [--threads 本数] [--current] [--budget JSON]";
 
 /// 値を取るオプション
-const VALUED: [&str; 7] = [
-    "steps", "seed", "threads", "runs", "budget", "region", "hold",
+const VALUED: [&str; 8] = [
+    "steps", "seed", "threads", "runs", "budget", "region", "hold", "variant",
 ];
 /// 値を取らないオプション
-const FLAGS: [&str; 2] = ["current", "show"];
+const FLAGS: [&str; 3] = ["current", "show", "hashes"];
 
 struct Args {
     positional: Vec<String>,
@@ -103,6 +103,7 @@ fn run(args: &[String]) -> Result<bool, String> {
                 threads: args.number("threads")?.unwrap_or(all).max(1),
                 show: args.flag("show"),
                 budget: args.values.get("budget").cloned(),
+                hashes: args.flag("hashes"),
             };
             let mut differences = 0;
             for path in &args.positional {
@@ -156,10 +157,24 @@ fn run(args: &[String]) -> Result<bool, String> {
             };
             let src =
                 std::fs::read(input).map_err(|error| format!("{input} を読めない: {error}"))?;
-            let out = cases::cases(&src, count, seed)?;
+            let variant = match args.values.get("variant") {
+                Some(name) => {
+                    cases::Variant::parse(name).ok_or(format!("変種を読めない: {name}"))?
+                }
+                None => cases::Variant::Plain,
+            };
+            let count = if variant == cases::Variant::Empty {
+                0
+            } else {
+                count
+            };
+            let out = cases::cases(&src, count, seed, variant)?;
             std::fs::write(output, &out)
                 .map_err(|error| format!("{output} に書けない: {error}"))?;
-            println!("{output}: {} バイト（足した図形 {count} 個）", out.len());
+            println!(
+                "{output}: {} バイト（足した図形 {count} 個、変種 {variant:?}）",
+                out.len()
+            );
             Ok(true)
         }
         "open" if !args.positional.is_empty() => {

@@ -3,8 +3,9 @@
 //! 開くときも、変更のあとで読み直すときも、ここを通る。
 
 use zumen_drawing::{
-    Edge, Fit, Height, HeightMeaning, Horizontal, Length, ModelLength, ModelPoint, Placement,
-    Polyline, Shape, SpaceId, Text, Vertex, Vertical,
+    Attribute, Edge, Fit, Grid, Height, HeightMeaning, Horizontal, Inherit, LayerId, Length,
+    ModelLength, ModelPoint, Placement, Polyline, Shape, SpaceId, Style, Symbol, SymbolKey, Text,
+    Vertex, Vertical,
 };
 
 use crate::value::{Val, typed};
@@ -32,16 +33,19 @@ pub enum Kind {
     Polyline = 3,
     /// TEXT
     Text = 4,
+    /// INSERT（ブロックの挿入）。付いた ATTRIB は、この行の属性として持つ
+    Insert = 5,
 }
 
 impl Kind {
     /// すべての種類
-    pub const ALL: [Kind; 5] = [
+    pub const ALL: [Kind; 6] = [
         Kind::Line,
         Kind::Circle,
         Kind::Arc,
         Kind::Polyline,
         Kind::Text,
+        Kind::Insert,
     ];
 
     /// レコードの種類（グループ・コード 0 の値。前後の空白を除いたもの）から
@@ -52,6 +56,7 @@ impl Kind {
             b"ARC" => Kind::Arc,
             b"LWPOLYLINE" => Kind::Polyline,
             b"TEXT" => Kind::Text,
+            b"INSERT" => Kind::Insert,
             _ => return None,
         })
     }
@@ -113,6 +118,137 @@ pub struct TextRow {
     pub style: Option<(u32, u32)>,
 }
 
+/// 定義が見つからない記号の、定義の番号
+pub const NO_DEFINITION: u32 = u32::MAX;
+
+/// 記号（INSERT）の行
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct InsertRow {
+    /// 定義の名前（2）。置き場の中の範囲。符号化のまま
+    pub name: (u32, u32),
+    /// 定義の番号。文書に置くときに名前から引く。なければ `NO_DEFINITION`
+    pub definition: u32,
+    /// 置く点（10・20）
+    pub position: [f64; 2],
+    /// 尺度（41・42）
+    pub scale: [f64; 2],
+    /// 回転（50、度）
+    pub rotation: f64,
+    /// 列と行の数（70・71）。どちらも 1 なら、格子に並べない
+    pub grid: [u32; 2],
+    /// 列と行の間隔（44・45）。格子に並べないときは 0
+    pub spacing: [f64; 2],
+    /// 属性。`Pools::attribs` の中の最初の番号と数
+    pub attribs: (u32, u32),
+    /// 付いた ATTRIB のレコードの数。読めなかったものも数える
+    pub attached: u32,
+    /// 66 が 0 でない整数。今の実装は、この記号を除く変更を受け付けない
+    pub followed: bool,
+}
+
+/// 記号の属性（ATTRIB）
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct AttribRow {
+    /// レコードの番号
+    pub record: u32,
+    /// 文字
+    pub text: TextRow,
+    /// タグ（2）。置き場の中の範囲。符号化のまま
+    pub tag: (u32, u32),
+    /// 表示しない（70 の 1）
+    pub hidden: bool,
+    /// 画層の名前（8）。置き場の中の範囲。符号化のまま
+    pub layer_name: (u32, u32),
+    /// 画層の番号。文書に置くときに名前から引く
+    pub layer: u32,
+    /// 色の指定（`color`）
+    pub color: u32,
+    /// 文字の値の種類（`class`）
+    pub class: u8,
+}
+
+/// 続くレコードを親に付けるときの、レコードの役
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Follow {
+    /// INSERT。`opens` は、66 が 1（続く ATTRIB を、SEQEND まで自分に付ける）
+    Insert {
+        /// 続くレコードを受ける
+        opens: bool,
+    },
+    /// POLYLINE。`opens` は、66 が 0 でない（続く VERTEX を、SEQEND まで自分に付ける）
+    Polyline {
+        /// 続くレコードを受ける
+        opens: bool,
+    },
+    /// ATTRIB
+    Attrib,
+    /// VERTEX
+    Vertex,
+    /// SEQEND
+    Seqend,
+}
+
+/// 続くレコードを親に付けるために見る値。今の実装の `attached`（`crates/zumen-acad/src/drawing.rs`）が
+/// 見るものと同じ
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Followed {
+    /// レコードの役
+    pub kind: Follow,
+    /// ハンドル（5 の、16 進として読める最初の値）
+    pub handle: Option<u64>,
+    /// 所有者（102 の組の外の最初の 330。ハンドルとして読めなければ、ない）
+    pub owner: Option<u64>,
+}
+
+/// レコードの種類とタグから、親に付けるために見る値を読む。INSERT・POLYLINE・ATTRIB・VERTEX・SEQEND で
+/// なければ `None`
+pub fn followed(name: &[u8], tags: &[RawTag<'_>]) -> Option<Followed> {
+    let first = |code: i16| {
+        tags.iter()
+            .find(|tag| tag.code == code)
+            .map(|tag| typed(code, tag.value))
+    };
+    let kind = match name {
+        b"INSERT" => Follow::Insert {
+            opens: first(66) == Some(Val::Int(1)),
+        },
+        b"POLYLINE" => Follow::Polyline {
+            opens: first(66) != Some(Val::Int(0)),
+        },
+        b"ATTRIB" => Follow::Attrib,
+        b"VERTEX" => Follow::Vertex,
+        b"SEQEND" => Follow::Seqend,
+        _ => return None,
+    };
+    let handle =
+        tags.iter()
+            .filter(|tag| tag.code == 5)
+            .find_map(|tag| match typed(5, tag.value) {
+                Val::Handle(handle) => Some(handle),
+                _ => None,
+            });
+    let mut owner = None;
+    let mut depth = 0usize;
+    for tag in tags {
+        match tag.code {
+            102 if tag.value.starts_with(b"{") => depth += 1,
+            102 if tag.value.starts_with(b"}") => depth = depth.saturating_sub(1),
+            330 if depth == 0 => {
+                if let Val::Handle(handle) = typed(330, tag.value) {
+                    owner = Some(handle);
+                }
+                break;
+            }
+            _ => {}
+        }
+    }
+    Some(Followed {
+        kind,
+        handle,
+        owner,
+    })
+}
+
 /// 持ち上げた形。折れ線の頂点と文字の中身は、渡した置き場に足す
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Geom {
@@ -135,11 +271,15 @@ pub enum Geom {
     },
     /// 文字
     Text(TextRow),
+    /// 記号
+    Insert(InsertRow),
 }
 
 /// 折れ線の頂点と、文字の中身の置き場
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Pools {
+    /// 記号の属性。記号ごとに、続けて並ぶ
+    pub attribs: Vec<AttribRow>,
     /// 頂点（x、y、膨らみ）
     pub vertices: Vec<[f64; 3]>,
     /// 頂点ごとの幅（始まり、終わり）。幅を持つ折れ線の頂点だけが、`vertices` と同じ数だけ並ぶ
@@ -193,27 +333,37 @@ impl Pools {
         Some((start, u32::try_from(self.text.len()).ok()?))
     }
 
+    /// 記号の属性
+    pub fn attribs_of(&self, row: &InsertRow) -> &[AttribRow] {
+        let (first, count) = row.attribs;
+        self.attribs
+            .get(first as usize..first as usize + count as usize)
+            .unwrap_or_default()
+    }
+
     /// 足したものを除くための、今の長さ
-    pub fn marks(&self) -> [usize; 4] {
+    pub fn marks(&self) -> [usize; 5] {
         [
             self.vertices.len(),
             self.widths.len(),
             self.width_first.len(),
             self.text.len(),
+            self.attribs.len(),
         ]
     }
 
     /// `marks` のときの長さに戻す
-    pub fn truncate(&mut self, marks: [usize; 4]) {
+    pub fn truncate(&mut self, marks: [usize; 5]) {
         self.vertices.truncate(marks[0]);
         self.widths.truncate(marks[1]);
         self.width_first.truncate(marks[2]);
         self.text.truncate(marks[3]);
+        self.attribs.truncate(marks[4]);
     }
 
     /// 空にする
     pub fn clear(&mut self) {
-        self.truncate([0; 4]);
+        self.truncate([0; 5]);
     }
 }
 
@@ -298,11 +448,18 @@ const fn slot(code: i16) -> usize {
         370 => 28,
         420 => 29,
         440 => 30,
+        2 => 31,
+        42 => 32,
+        44 => 33,
+        45 => 34,
+        66 => 35,
+        74 => 36,
+        101 => 37,
         _ => 0,
     }
 }
 
-const SLOTS: usize = 31;
+const SLOTS: usize = 38;
 
 /// 0〜511 のグループ・コードから置き場の番号を引く表
 const SLOT_TABLE: [u8; 512] = {
@@ -413,12 +570,7 @@ fn lifted<'a>(
     pools: &mut Pools,
 ) -> Option<Lifted<'a>> {
     // 押し出しの向きが既定（0,0,1）の図形だけを読む
-    let normal = [
-        fields.real(210, Some(0.0))?,
-        fields.real(220, Some(0.0))?,
-        fields.real(230, Some(1.0))?,
-    ];
-    if normal != [0.0, 0.0, 1.0] {
+    if !upright(fields)? {
         return None;
     }
     let mut class = class::ASCII;
@@ -455,11 +607,39 @@ fn lifted<'a>(
         }
         Kind::Polyline => polyline(tags, fields, pools)?,
         Kind::Text => {
-            let (row, text_class) = text(fields, pools)?;
+            let (row, text_class) = text(fields, pools, 73)?;
             class = class.max(text_class);
             Geom::Text(row)
         }
+        Kind::Insert => {
+            let (row, name_class) = insert(fields, pools)?;
+            class = class.max(name_class);
+            Geom::Insert(row)
+        }
     };
+    let (layer, color, style_class) = styled(fields)?;
+    Some(Lifted {
+        handle: fields.handle,
+        geom,
+        layer,
+        color,
+        class: class.max(style_class),
+    })
+}
+
+/// 押し出しの向き（210・220・230）が既定（0,0,1）か
+fn upright(fields: &Fields<'_>) -> Option<bool> {
+    let normal = [
+        fields.real(210, Some(0.0))?,
+        fields.real(220, Some(0.0))?,
+        fields.real(230, Some(1.0))?,
+    ];
+    Some(normal == [0.0, 0.0, 1.0])
+}
+
+/// 画層・色・線種・線種の倍率・線幅・透過性を確かめて、画層の名前・色の指定・文字の値の種類を返す
+fn styled<'a>(fields: &Fields<'a>) -> Option<(&'a [u8], u32, u8)> {
+    let mut class = class::ASCII;
     // 色（62・420）
     let rgb = match fields.first(420) {
         None => None,
@@ -498,12 +678,77 @@ fn lifted<'a>(
     // 画層（8）は必ず要る
     let layer = fields.raw(8)?;
     class = class.max(class_of(layer));
-    Some(Lifted {
-        handle: fields.handle,
-        geom,
-        layer,
-        color,
+    Some((layer, color, class))
+}
+
+/// 記号（INSERT）。定義がなくても要素になる。格子に並べないとき（列も行も 1）は、間隔を読まない
+fn insert(fields: &Fields<'_>, pools: &mut Pools) -> Option<(InsertRow, u8)> {
+    let name = fields.raw(2)?;
+    let scale = [fields.real(41, Some(1.0))?, fields.real(42, Some(1.0))?];
+    if scale.contains(&0.0) {
+        return None;
+    }
+    let count = |code: i16| {
+        u32::try_from(fields.int(code, 1)?)
+            .ok()
+            .filter(|count| *count >= 1)
+    };
+    let grid = [count(70)?, count(71)?];
+    let spacing = if grid == [1, 1] {
+        [0.0, 0.0]
+    } else {
+        [fields.real(44, Some(0.0))?, fields.real(45, Some(0.0))?]
+    };
+    let position = planar_point(fields, 10)?;
+    let rotation = fields.real(50, Some(0.0))?;
+    let followed = matches!(fields.first(66), Some(Val::Int(value)) if value != 0);
+    let class = class_of(name);
+    Some((
+        InsertRow {
+            name: pools.push_text(name)?,
+            definition: NO_DEFINITION,
+            position,
+            scale,
+            rotation,
+            grid,
+            spacing,
+            attribs: (0, 0),
+            attached: 0,
+            followed,
+        },
         class,
+    ))
+}
+
+/// ATTRIB を、記号の属性として持ち上げる。空間（67）は見ない。書式つきの中身（101）を持つ属性は読まない
+/// （今の実装は、その属性を持つ記号を動かす変更を受け付けない）。読めなければ、置き場に何も残さない
+pub fn attrib(tags: &[RawTag<'_>], record: u32, pools: &mut Pools) -> Option<AttribRow> {
+    let fields = Fields::new(tags);
+    let marks = pools.marks();
+    let row = attribute(&fields, record, pools);
+    if row.is_none() {
+        pools.truncate(marks);
+    }
+    row
+}
+
+fn attribute(fields: &Fields<'_>, record: u32, pools: &mut Pools) -> Option<AttribRow> {
+    if !upright(fields)? || fields.raw(101).is_some() {
+        return None;
+    }
+    let (text, text_class) = text(fields, pools, 74)?;
+    let tag = fields.raw(2)?;
+    let hidden = fields.int(70, 0)? & 1 != 0;
+    let (layer, color, style_class) = styled(fields)?;
+    Some(AttribRow {
+        record,
+        text,
+        tag: pools.push_text(tag)?,
+        hidden,
+        layer_name: pools.push_text(layer)?,
+        layer: 0,
+        color,
+        class: text_class.max(class_of(tag)).max(style_class),
     })
 }
 
@@ -603,11 +848,12 @@ fn polyline(tags: &[RawTag<'_>], fields: &Fields<'_>, pools: &mut Pools) -> Opti
     })
 }
 
-fn text(fields: &Fields<'_>, pools: &mut Pools) -> Option<(TextRow, u8)> {
+/// 文字。縦の揃えのグループ・コードは、TEXT では 73、ATTRIB では 74
+fn text(fields: &Fields<'_>, pools: &mut Pools, vertical: i16) -> Option<(TextRow, u8)> {
     let at = |x: i16| planar_point(fields, x);
     let first = at(10)?;
     let horizontal = fields.int(72, 0)?;
-    let vertical = fields.int(73, 0)?;
+    let vertical = fields.int(vertical, 0)?;
     let place = match (horizontal, vertical) {
         (0, 0) => Place::Anchor {
             point: first,
@@ -740,40 +986,90 @@ pub fn shape(geom: &Geom, pools: &Pools) -> Option<Shape<ModelPoint>> {
                 line_type_generation: flags & POLY_GENERATION != 0,
             })
         }
-        Geom::Text(row) => Shape::Text(Text {
-            content: core::str::from_utf8(pools.text_of(row.content))
-                .ok()?
-                .to_owned(),
-            height: Height {
-                value: length(row.height),
-                meaning: HeightMeaning::Declared("dxf.TEXT.40".into()),
+        Geom::Text(row) => Shape::Text(lettering(row, pools, "dxf.TEXT.40")?),
+        Geom::Insert(row) => Shape::Symbol(Symbol {
+            key: SymbolKey {
+                namespace: BLOCK.into(),
+                name: core::str::from_utf8(pools.text_of(row.name))
+                    .ok()?
+                    .to_owned(),
             },
-            placement: match row.place {
-                Place::Anchor {
-                    point: at,
-                    horizontal,
-                    vertical,
-                } => Placement::Anchor {
-                    point: point(at),
-                    horizontal,
-                    vertical,
-                },
-                Place::Between { first, second, fit } => Placement::Between {
-                    first: point(first),
-                    second: point(second),
-                    fit,
-                },
-            },
+            position: point(row.position),
+            scale: row.scale,
             rotation: row.rotation,
-            width_factor: row.width_factor,
-            oblique: row.oblique,
-            backward: row.flags & TEXT_BACKWARD != 0,
-            upside_down: row.flags & TEXT_UPSIDE_DOWN != 0,
-            style: match row.style {
-                Some(range) => core::str::from_utf8(pools.text_of(range)).ok()?.to_owned(),
-                None => "STANDARD".to_owned(),
-            },
+            grid: (row.grid != [1, 1]).then(|| Grid {
+                columns: row.grid[0],
+                rows: row.grid[1],
+                column_spacing: length(row.spacing[0]),
+                row_spacing: length(row.spacing[1]),
+            }),
+            attributes: pools
+                .attribs_of(row)
+                .iter()
+                .map(|attrib| {
+                    Some(Attribute {
+                        tag: core::str::from_utf8(pools.text_of(attrib.tag))
+                            .ok()?
+                            .to_owned(),
+                        text: lettering(&attrib.text, pools, "dxf.ATTRIB.40")?,
+                        formatted: None,
+                        hidden: attrib.hidden,
+                        layer: LayerId(attrib.layer),
+                        // 属性のスタイルは、動かす変更では使わない
+                        style: Style {
+                            color: Inherit::Layer,
+                            line_type: Inherit::Layer,
+                            line_type_scale: 1.0,
+                            line_weight: None,
+                            transparency: Inherit::Layer,
+                        },
+                        source: Default::default(),
+                    })
+                })
+                .collect::<Option<Vec<_>>>()?,
+            clip: None,
         }),
+    })
+}
+
+/// 記号の定義の名前空間。今の実装の `BLOCK`（`crates/zumen-acad/src/drawing.rs`）と同じ
+pub const BLOCK: &str = "dxf.block";
+
+/// 文字の行を、図面モデルの文字にする。`meaning` は、高さの意味
+fn lettering(row: &TextRow, pools: &Pools, meaning: &'static str) -> Option<Text<ModelPoint>> {
+    Some(Text {
+        content: core::str::from_utf8(pools.text_of(row.content))
+            .ok()?
+            .to_owned(),
+        height: Height {
+            value: length(row.height),
+            meaning: HeightMeaning::Declared(meaning.into()),
+        },
+        placement: match row.place {
+            Place::Anchor {
+                point: at,
+                horizontal,
+                vertical,
+            } => Placement::Anchor {
+                point: point(at),
+                horizontal,
+                vertical,
+            },
+            Place::Between { first, second, fit } => Placement::Between {
+                first: point(first),
+                second: point(second),
+                fit,
+            },
+        },
+        rotation: row.rotation,
+        width_factor: row.width_factor,
+        oblique: row.oblique,
+        backward: row.flags & TEXT_BACKWARD != 0,
+        upside_down: row.flags & TEXT_UPSIDE_DOWN != 0,
+        style: match row.style {
+            Some(range) => core::str::from_utf8(pools.text_of(range)).ok()?.to_owned(),
+            None => "STANDARD".to_owned(),
+        },
     })
 }
 

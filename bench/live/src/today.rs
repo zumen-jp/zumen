@@ -23,6 +23,18 @@ impl Failure {
     pub fn describe(&self) -> String {
         format!("{} [{}]", self.status, self.codes.join(", "))
     }
+
+    /// 受け付けなかった理由。図面を読んだときの診断（`dxf.`）を除いたもの
+    pub fn reason(&self) -> String {
+        let mut codes: Vec<&str> = self
+            .codes
+            .iter()
+            .map(String::as_str)
+            .filter(|code| !code.starts_with("dxf."))
+            .collect();
+        codes.dedup();
+        format!("{} [{}]", self.status, codes.join(", "))
+    }
 }
 
 fn failure(error: &zumen::Error) -> Failure {
@@ -49,9 +61,21 @@ pub struct Element {
 /// 要素を動かす変更（ID・要素のハッシュ・行列）
 pub type Move = (String, String, [f64; 6]);
 
+/// 要素を動かす変更の JSON
+pub fn transform_json(id: &str, hash: &str, m: &[f64; 6]) -> String {
+    let mut out = String::new();
+    // f64 の表示は、同じ値に読み戻せるいちばん短い 10 進。指数の表記は使わない
+    let _ = write!(
+        out,
+        r#"{{"kind":"transform","id":"{id}","hash":"{hash}","matrix":[{},{},{},{},{},{}]}}"#,
+        m[0], m[1], m[2], m[3], m[4], m[5]
+    );
+    out
+}
+
 /// 受け付けられた変更
 pub struct Applied {
-    /// 変えた要素の ID と、新しいハッシュ
+    /// 変更ごとの、変えた（足した）要素の ID と、新しいハッシュ。除いた要素は、どちらも空
     pub hashes: Vec<(String, String)>,
     /// 書き戻したファイル
     pub file: Option<Vec<u8>>,
@@ -199,17 +223,21 @@ impl Today {
 
     /// 要素を動かす。受け付けられなければ、文書は変わらない
     pub fn apply(&mut self, moves: &[Move]) -> Result<Applied, Failure> {
+        let edits: Vec<String> = moves
+            .iter()
+            .map(|(id, hash, matrix)| transform_json(id, hash, matrix))
+            .collect();
+        self.edit(&edits)
+    }
+
+    /// 変更を当てる。`edits` は、変更ごとの JSON のオブジェクト。受け付けられなければ、文書は変わらない
+    pub fn edit(&mut self, edits: &[String]) -> Result<Applied, Failure> {
         let mut request = format!(r#"{{"v":1,"op":"apply","doc":"{DOC}","edits":["#);
-        for (index, (id, hash, m)) in moves.iter().enumerate() {
+        for (index, edit) in edits.iter().enumerate() {
             if index > 0 {
                 request.push(',');
             }
-            // f64 の表示は、同じ値に読み戻せるいちばん短い 10 進。指数の表記は使わない
-            let _ = write!(
-                request,
-                r#"{{"kind":"transform","id":"{id}","hash":"{hash}","matrix":[{},{},{},{},{},{}]}}"#,
-                m[0], m[1], m[2], m[3], m[4], m[5]
-            );
+            request.push_str(edit);
         }
         request.push_str("]}");
         let response = self.call(&request)?;

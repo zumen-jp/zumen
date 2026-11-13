@@ -1,27 +1,53 @@
-//! 変更・取り消し・やり直し。
+//! 変更（動かす・除く・属性を変える・足す）と、取り消し・やり直し。
 //!
-//! 動かした後のレコードの値は、今の実装の `apply`（`crates/zumen-acad/src/drawing/apply/replace.rs` と
-//! `apply/transform.rs`）と同じ規則で作り、タグの差し替えは、書き戻し（`dxf/write_back.rs`）と同じ規則で決める。
-//! 文書の全体は読み直さない。変えるレコードのタグを直し、その行の列・表示・箱・索引だけを作り直す。
+//! 変えた後のレコードの値は、今の実装の `apply`（`crates/zumen-acad/src/drawing/apply/replace.rs`・
+//! `apply/transform.rs`・`apply/add.rs`）と同じ規則で作り、タグの差し替え・足すレコードの場所・ヘッダーの変数の直し方は、
+//! 書き戻し（`dxf/write_back.rs`）と同じ規則で決める。文書の全体は読み直さない。変えるレコードのタグを直し、
+//! その行の列・表示・箱・索引だけを作り直す。足す要素は行の終わりに足し、除く要素は行を残して印を付ける。
+
+use std::collections::{BTreeMap, BTreeSet};
 
 use zumen_acad::{Data, Value};
 use zumen_drawing::transform::transform as transformed;
-use zumen_drawing::{Affine, Edge, Length, ModelPoint, Placement, Polyline, Shape, SpaceId, Text};
+use zumen_drawing::{
+    Affine, Edge, Length, ModelPoint, Placement, Polyline, Shape, SpaceId, Symbol, Text,
+};
 
-use crate::lift::{self, Geom, Kind, Lift, POLY_WIDTHS, Pools, RawTag, TextRow, class};
+use crate::born::{Add, Restyle};
+use crate::lift::{
+    self, AttribRow, Geom, InsertRow, Kind, Lift, POLY_WIDTHS, Pools, RawTag, TextRow, class,
+};
 use crate::scan::Span;
 use crate::store::{
-    Charset, Document, Locked, OTag, Shapes, Variable, bounds, range_of, tag_value, tokenize,
+    Charset, Document, Locked, NO_BOX, OTag, Row, Shapes, Variable, bounds, range_of, tag_value,
+    tokenize,
 };
 use crate::value::{value, value_bytes};
 
-/// 要素を動かす変更
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Edit {
-    /// 要素のハンドル
-    pub handle: u64,
-    /// 変換の行列（x' = m0·x + m1·y + m2、y' = m3·x + m4·y + m5）
-    pub matrix: [f64; 6],
+/// 文書への変更
+#[derive(Clone, Debug, PartialEq)]
+pub enum Edit {
+    /// 要素を動かす
+    Transform {
+        /// 要素のハンドル
+        handle: u64,
+        /// 変換の行列（x' = m0·x + m1·y + m2、y' = m3·x + m4·y + m5）
+        matrix: [f64; 6],
+    },
+    /// 要素を除く
+    Remove {
+        /// 要素のハンドル
+        handle: u64,
+    },
+    /// 要素の属性（画層・色・線種・線種の尺度・線の太さ）を変える
+    Restyle {
+        /// 要素のハンドル
+        handle: u64,
+        /// 変える属性
+        style: Restyle,
+    },
+    /// モデル空間に要素を足す
+    Add(Box<Add>),
 }
 
 /// 変更を受け付けなかった理由。受け付けなければ、文書は何も変わらない
@@ -33,10 +59,53 @@ pub enum Decline {
     Unknown,
     /// 同じ要素を 2 度指した
     Repeated,
-    /// 種類を保って動かせないか、レコードに書けない（今の実装も拒む）
+    /// 種類を保って変えられないか、レコードに書けない（今の実装も拒む）
     Unsupported,
     /// 書いたレコードを、要素として読み直せない
     Unreadable,
+    /// 試作の範囲の外。今の実装は受け付けることがある
+    Outside(Outside),
+}
+
+/// 試作が範囲の外とする理由
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Outside {
+    /// ATTRIB・VERTEX・SEQEND の付き方が、レコードの並びだけでは決まらない図面で、要素を足すか除く
+    Attachment,
+    /// 画層・線種・文字スタイル・ブロックの名前が、開くときに読んだ名前の表だけでは決まらない
+    Names,
+    /// 記号の定義が、名前で 1 つに決まらないか、属性の定義を持つ
+    Definition,
+    /// 試作が読まない符号化の文字を持つ
+    Charset,
+    /// ENTITIES のセクションが、ちょうど 1 つでない
+    Section,
+    /// 足したレコードを、試作が要素として読めない
+    Unread,
+}
+
+impl Outside {
+    /// すべての理由
+    pub const ALL: [Outside; 6] = [
+        Outside::Attachment,
+        Outside::Names,
+        Outside::Definition,
+        Outside::Charset,
+        Outside::Section,
+        Outside::Unread,
+    ];
+
+    /// 記録に書く名前
+    pub fn name(self) -> &'static str {
+        match self {
+            Outside::Attachment => "attachment",
+            Outside::Names => "names",
+            Outside::Definition => "definition",
+            Outside::Charset => "charset",
+            Outside::Section => "section",
+            Outside::Unread => "unread",
+        }
+    }
 }
 
 /// レコードのタグに行う操作。`at` は、レコードの中のタグの番号
@@ -77,26 +146,33 @@ enum TagOp {
 #[derive(Clone, Debug, PartialEq)]
 struct Change {
     record: u32,
-    /// 作り直す行。HEADER のレコードでは `None`
-    row: Option<u32>,
     /// この変更で、レコードをタグの列に変えたか
     created: bool,
     ops: Vec<TagOp>,
 }
 
+/// 足したレコード
+#[derive(Clone, Debug, PartialEq)]
+struct Fresh {
+    /// レコードの番号。元のレコードの数から先
+    record: u32,
+    /// 取り消している間だけ持つタグ。行があるときは、文書の `overlay` が持つ
+    tags: Vec<OTag>,
+}
+
 /// 取り消せる 1 回の変更
 #[derive(Clone, Debug, PartialEq)]
 pub struct Step {
+    /// タグを変えたレコード。HEADER のレコードも含む
     changes: Vec<Change>,
-}
-
-/// 1 つの要素について決めた変更
-struct Plan {
-    row: u32,
-    record: u32,
-    ops: Vec<Planned>,
-    /// 値が変わる線と円の、動かした後の範囲。図面の範囲（`$EXTMIN`・`$EXTMAX`）を広げるのに使う
-    bounds: Option<[[f64; 3]; 2]>,
+    /// 列・表示・箱・索引を作り直す行
+    rows: Vec<u32>,
+    /// 除いた行
+    removed: Vec<u32>,
+    /// 足したレコード。足した順
+    added: Vec<Fresh>,
+    /// 生きている元の行のハンドルの最大。変更の前と後
+    row_largest: (Option<u64>, Option<u64>),
 }
 
 /// 値の行に書けないバイトがあるか。今の実装のトランザクションも、改行を含む値を拒む
@@ -303,7 +379,7 @@ fn moved(
     let shape = transformed(was, transform)?;
     let mut values = replacement(was, &shape, old, kind)?;
     if let (Shape::Text(before), Shape::Text(after)) = (was, &shape) {
-        aligned_first(&mut values, old, before, after, transform)?;
+        aligned_first(&mut values, old, before, after, transform, 73)?;
     }
     if moving_xdata(old) {
         carried(&mut values, transform)?;
@@ -374,7 +450,10 @@ fn replacement(
             values = lwpolyline(&values, line, was)?;
         }
         (Shape::Text(text), Shape::Text(was), Kind::Text) => {
-            lettering(&mut values, text, was)?;
+            lettering(&mut values, text, was, 73)?;
+        }
+        (Shape::Symbol(symbol), Shape::Symbol(was), Kind::Insert) => {
+            placing(&mut values, symbol, was)?;
         }
         _ => return None,
     }
@@ -458,11 +537,13 @@ fn lwpolyline(
 }
 
 /// TEXT の値を直す。左の基準線に置く文字は 10 を、ほかの位置合わせの文字は 11 を基点とし、10 は 11 と同じだけ動かす。
-/// 位置合わせ（72・73）・2 点の間への収め方・文字スタイル・高さの意味は変えられない
+/// 位置合わせ（72 と、縦の位置合わせ `vertical`。TEXT は 73、ATTRIB は 74）・2 点の間への収め方・文字スタイル・
+/// 高さの意味は変えられない
 fn lettering(
     values: &mut Vec<Value>,
     text: &Text<ModelPoint>,
     was: &Text<ModelPoint>,
+    vertical_code: i16,
 ) -> Option<()> {
     if text.style != was.style || text.height.meaning != was.height.meaning {
         return None;
@@ -482,7 +563,7 @@ fn lettering(
         ) if horizontal == was_horizontal && vertical == was_vertical => {
             let now = at(point)?;
             let before = at(was_point)?;
-            let aligned = [72, 73].iter().any(|code| {
+            let aligned = [72, vertical_code].iter().any(|code| {
                 values
                     .iter()
                     .any(|v| v.code == *code && v.data != Data::Int(0))
@@ -545,8 +626,9 @@ fn aligned_first(
     before: &Text<ModelPoint>,
     after: &Text<ModelPoint>,
     transform: &Affine,
+    vertical: i16,
 ) -> Option<()> {
-    let aligned = [72, 73].iter().any(|code| {
+    let aligned = [72, vertical].iter().any(|code| {
         original
             .iter()
             .any(|v| v.code == *code && v.data != Data::Int(0))
@@ -568,6 +650,113 @@ fn aligned_first(
     put(values, 10, new_x + x, &[])?;
     put(values, 20, new_y + y, &[])?;
     Some(())
+}
+
+/// 0 でない有限の値
+fn nonzero(value: f64) -> Option<f64> {
+    (value.is_finite() && value != 0.0).then_some(value)
+}
+
+/// INSERT の値を直す（今の実装の `replace.rs` の `placing`）。定義・属性・切り抜き・格子の数は変えられない
+fn placing(
+    values: &mut Vec<Value>,
+    symbol: &Symbol<ModelPoint>,
+    was: &Symbol<ModelPoint>,
+) -> Option<()> {
+    let spacing = match (&symbol.grid, &was.grid) {
+        (None, None) => None,
+        (Some(grid), Some(original))
+            if (grid.columns, grid.rows) == (original.columns, original.rows) =>
+        {
+            Some((grid, original))
+        }
+        _ => return None,
+    };
+    if symbol.key != was.key || symbol.attributes != was.attributes || symbol.clip != was.clip {
+        return None;
+    }
+    place(values, [10, 20], &symbol.position, &was.position)?;
+    let [x, y] = symbol.scale;
+    if x != was.scale[0] {
+        optional(values, 41, nonzero(x)?, 1.0, &[30, 20])?;
+    }
+    if y != was.scale[1] {
+        optional(values, 42, nonzero(y)?, 1.0, &[41, 30, 20])?;
+    }
+    if symbol.rotation != was.rotation {
+        optional(values, 50, symbol.rotation, 0.0, &[43, 42, 41, 30, 20])?;
+    }
+    if let Some((grid, original)) = spacing {
+        if grid.column_spacing != original.column_spacing {
+            let spacing = length_of(&grid.column_spacing)?;
+            optional(values, 44, spacing, 0.0, &[71, 70, 50, 43, 42, 41, 30, 20])?;
+        }
+        if grid.row_spacing != original.row_spacing {
+            let spacing = length_of(&grid.row_spacing)?;
+            optional(
+                values,
+                45,
+                spacing,
+                0.0,
+                &[44, 71, 70, 50, 43, 42, 41, 30, 20],
+            )?;
+        }
+    }
+    Some(())
+}
+
+/// 除いた要素への参照を、残るレコードの値から除く（今の実装の `Object::forget`）。102 の組の中の 330・360 を除き、
+/// 空になった組は組ごと除く。ディクショナリは、指している項目（3 と、続く 350 か 360）を除く
+fn forget(kind: &[u8], values: Vec<Value>, handle: u64) -> Vec<Value> {
+    let refers = |value: &Value| matches!(value.data, Data::Handle(target) if target == handle);
+    let dictionary = kind == b"DICTIONARY";
+    let mut out: Vec<Value> = Vec::with_capacity(values.len());
+    let mut groups: Vec<(usize, bool)> = Vec::new();
+    let mut values = values.into_iter().peekable();
+    while let Some(value) = values.next() {
+        let opens =
+            value.code == 102 && matches!(&value.data, Data::Text(text) if text.starts_with(b"{"));
+        let closes =
+            value.code == 102 && matches!(&value.data, Data::Text(text) if text.starts_with(b"}"));
+        if opens {
+            groups.push((out.len(), false));
+            out.push(value);
+        } else if closes {
+            match groups.pop() {
+                Some((start, true)) if out.len() == start + 1 => out.truncate(start),
+                _ => out.push(value),
+            }
+        } else if matches!(value.code, 330 | 360) && refers(&value) && !groups.is_empty() {
+            if let Some(group) = groups.last_mut() {
+                group.1 = true;
+            }
+        } else if value.code == 3
+            && dictionary
+            && groups.is_empty()
+            && values
+                .peek()
+                .is_some_and(|next| matches!(next.code, 350 | 360) && refers(next))
+        {
+            values.next();
+        } else {
+            out.push(value);
+        }
+    }
+    out
+}
+
+/// 足すレコードのタグ。値の行に書けない値があれば `None`
+fn record_tags(kind: &[u8], values: &[Value]) -> Option<Vec<OTag>> {
+    let mut tags = Vec::with_capacity(values.len() + 1);
+    tags.push(fresh(0, kind.into()));
+    for value in values {
+        let bytes = value_bytes(&value.data)?;
+        if value.code == 0 || has_newline(&bytes) {
+            return None;
+        }
+        tags.push(fresh(value.code, bytes.into()));
+    }
+    Some(tags)
 }
 
 /// 図形とともに動く XDATA（点と、距離・倍率）を持つか
@@ -700,13 +889,25 @@ fn max3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
     [a[0].max(b[0]), a[1].max(b[1]), a[2].max(b[2])]
 }
 
-/// 図面の範囲に足す、図形の範囲。今の実装と同じく、線と、押し出しの向きが既定の円だけが範囲を持つ。
-/// 行は ENTITIES のセクションのモデル空間の図形なので、セクションと空間は見ない
-fn model_bounds(kind: Kind, values: &[Value]) -> Option<[[f64; 3]; 2]> {
+/// 図面の範囲に足す、図形の範囲（今の実装の `write_back.rs` の `bounds`）。ENTITIES のセクションの、モデル空間の
+/// 線・点と、押し出しの向きが既定の円だけが範囲を持つ。除いた要素への参照を除いたレコードも値が変わるので、
+/// 行でないレコードも見る
+fn object_bounds(kind: &[u8], in_entities: bool, values: &[Value]) -> Option<[[f64; 3]; 2]> {
+    let paper = values
+        .iter()
+        .find(|v| v.code == 67)
+        .is_some_and(|v| v.data == Data::Int(1));
+    if !in_entities || paper {
+        return None;
+    }
     let corners = |a: [f64; 3], b: [f64; 3]| Some([min3(a, b), max3(a, b)]);
     match kind {
-        Kind::Line => corners(point(values, 10)?, point(values, 11)?),
-        Kind::Circle => {
+        b"LINE" => corners(point(values, 10)?, point(values, 11)?),
+        b"POINT" => {
+            let at = point(values, 10)?;
+            Some([at, at])
+        }
+        b"CIRCLE" => {
             let normal = if values.iter().any(|v| v.code == 210) {
                 point(values, 210)?
             } else {
@@ -722,7 +923,17 @@ fn model_bounds(kind: Kind, values: &[Value]) -> Option<[[f64; 3]; 2]> {
             };
             corners([x - radius, y - radius, z], [x + radius, y + radius, z])
         }
-        Kind::Arc | Kind::Polyline | Kind::Text => None,
+        _ => None,
+    }
+}
+
+/// 図面の範囲に足す箱を、まとめる
+fn widen(found: &mut Option<[[f64; 3]; 2]>, bounds: Option<[[f64; 3]; 2]>) {
+    if let Some([low, high]) = bounds {
+        *found = Some(match *found {
+            Some([a, b]) => [min3(a, low), max3(b, high)],
+            None => [low, high],
+        });
     }
 }
 
@@ -829,85 +1040,240 @@ fn store_geom(shapes: &mut Shapes, at: u32, geom: &Geom, scratch: &Pools) -> Opt
             *shapes.texts.get_mut(at)? = stored;
             Geom::Text(stored)
         }
+        Geom::Insert(insert) => {
+            // 定義と、付いた ATTRIB の置き場は、開いたときのまま
+            let old = *shapes.inserts.get(at)?;
+            let pools = &mut shapes.pools;
+            let name = if pools.text_of(old.name) == scratch.text_of(insert.name) {
+                old.name
+            } else {
+                pools.push_text(scratch.text_of(insert.name))?
+            };
+            let stored = InsertRow {
+                name,
+                definition: old.definition,
+                attribs: old.attribs,
+                attached: old.attached,
+                ..insert
+            };
+            *shapes.inserts.get_mut(at)? = stored;
+            Geom::Insert(stored)
+        }
     })
 }
 
 impl Document {
-    /// 要素を動かす。変更は、すべて受け付けるか、すべて受け付けないかのどちらか。
-    /// 受け付けた 1 回の変更は、1 回の取り消しで戻る
-    pub fn apply(&mut self, edits: &[Edit]) -> Result<(), Decline> {
+    /// 変更を当てる。変更は、すべて受け付けるか、すべて受け付けないかのどちらか。
+    /// 受け付けた 1 回の変更は、1 回の取り消しで戻る。変更ごとに、足した要素のハンドルを返す（ほかの変更は `None`）
+    pub fn apply(&mut self, edits: &[Edit]) -> Result<Vec<Option<u64>>, Decline> {
         if let Some(locked) = self.locked {
             return Err(Decline::Locked(locked));
         }
-        // 先に、すべての変更を決める。ここでは文書を変えない
-        let mut plans = Vec::with_capacity(edits.len());
+        // 足す要素のハンドルは、変更の前の、ハンドルの最大と種から決める。足す変更があるときだけ求める
+        let mut next: Option<Option<u64>> = None;
+        // 先に、すべての変更を決める。ここでは文書を変えない。レコードごとに、変更の前の値と後の値を持つ
+        let mut values: BTreeMap<u32, (Vec<Value>, Vec<Value>)> = BTreeMap::new();
+        let mut targets: Vec<u32> = Vec::new();
+        let mut rows: Vec<u32> = Vec::new();
+        let mut removed: Vec<u32> = Vec::new();
+        let mut born: Vec<(&'static [u8], Vec<Value>)> = Vec::new();
+        let mut handles: Vec<Option<u64>> = Vec::with_capacity(edits.len());
         for edit in edits {
-            let row = self.row_of(edit.handle).ok_or(Decline::Unknown)?;
-            let transform = Affine { m: edit.matrix };
-            plans.push(self.plan(row, &transform).ok_or(Decline::Unsupported)?);
+            let mut added = None;
+            match edit {
+                Edit::Transform { handle, matrix } => {
+                    let at = self.row_of(*handle).ok_or(Decline::Unknown)?;
+                    self.plan_move(at, &Affine { m: *matrix }, &mut values)?;
+                    targets.push(at);
+                    rows.push(at);
+                }
+                Edit::Restyle { handle, style } => {
+                    let at = self.row_of(*handle).ok_or(Decline::Unknown)?;
+                    let row = self.rows.get(at as usize).ok_or(Decline::Unknown)?;
+                    // 属性を変えた行は、付いた ATTRIB も読み直す
+                    if self.foreign.contains(&row.record) {
+                        return Err(Decline::Outside(Outside::Charset));
+                    }
+                    let layer = self
+                        .layers
+                        .list
+                        .get(row.layer as usize)
+                        .ok_or(Decline::Unsupported)?;
+                    let old = self.values(row.record);
+                    let new = self.restyled(&layer.name, &old, style)?;
+                    values.insert(row.record, (old, new));
+                    targets.push(at);
+                    rows.push(at);
+                }
+                Edit::Remove { handle } => {
+                    let at = self.row_of(*handle).ok_or(Decline::Unknown)?;
+                    // 今の実装は、ATTRIB が続く INSERT を除かない
+                    if let Some(Geom::Insert(insert)) = self.geom(at)
+                        && insert.followed
+                    {
+                        return Err(Decline::Unsupported);
+                    }
+                    if !self.plain {
+                        return Err(Decline::Outside(Outside::Attachment));
+                    }
+                    targets.push(at);
+                    removed.push(at);
+                }
+                Edit::Add(add) => {
+                    if !self.plain {
+                        return Err(Decline::Outside(Outside::Attachment));
+                    }
+                    if self.entities_end.is_none() {
+                        return Err(Decline::Outside(Outside::Section));
+                    }
+                    let handle = next
+                        .get_or_insert_with(|| self.next_handle())
+                        .and_then(|next| next.checked_add(born.len() as u64))
+                        .filter(|handle| handle.checked_add(1).is_some())
+                        .ok_or(Decline::Unsupported)?;
+                    born.push(self.born(add, handle)?);
+                    added = Some(handle);
+                }
+            }
+            handles.push(added);
         }
-        // ファイルの順に並べる。今の実装も、変えたレコードをファイルの順に見て図面の範囲を広げる
-        plans.sort_by_key(|plan| plan.row);
-        if plans
-            .windows(2)
-            .any(|pair| pair.first().map(|plan| plan.row) == pair.get(1).map(|plan| plan.row))
-        {
+        targets.sort_unstable();
+        if targets.windows(2).any(|pair| pair.first() == pair.get(1)) {
             return Err(Decline::Repeated);
         }
-        let header = self.extents(&plans)?;
 
-        let mut step = Step {
-            changes: Vec::with_capacity(plans.len() + 1),
-        };
-        let mut scratch = Pools::default();
-        let mut failed = None;
-        for plan in plans {
-            if plan.ops.is_empty() {
+        // 除く要素への参照（102 の組の中のハンドルと、ディクショナリの項目）を、残るレコードから除く。
+        // 今の実装は、除く要素ごとに、すべてのオブジェクトを見る。ここでは、開くときに作った逆引きで、指しているレコードだけを見る
+        removed.sort_unstable();
+        let leaving: BTreeSet<u32> = removed
+            .iter()
+            .filter_map(|at| self.rows.get(*at as usize))
+            .map(|row| row.record)
+            .collect();
+        for at in removed.iter().rev() {
+            let Some(handle) = self.rows.get(*at as usize).map(|row| row.handle) else {
+                continue;
+            };
+            let from = self.refs.partition_point(|(target, _)| *target < handle);
+            let pointing = self
+                .refs
+                .iter()
+                .skip(from)
+                .take_while(|(target, _)| *target == handle);
+            for (_, record) in pointing {
+                if self.gone.contains(record) || leaving.contains(record) {
+                    continue;
+                }
+                let kind = self.kind_name(*record);
+                match values.get_mut(record) {
+                    Some((_, new)) => *new = forget(kind, core::mem::take(new), handle),
+                    None => {
+                        let old = self.values(*record);
+                        let new = forget(kind, old.clone(), handle);
+                        if new != old {
+                            values.insert(*record, (old, new));
+                        }
+                    }
+                }
+            }
+        }
+
+        // 値が変わるレコードの、タグの操作と、図面の範囲に足す箱を決める。レコードは、ファイルの順に並ぶ
+        let mut found = None;
+        let mut plans: Vec<(u32, Vec<Planned>)> = Vec::with_capacity(values.len());
+        for (record, (old, new)) in &values {
+            if new == old {
                 continue;
             }
-            let Some(change) = self.rewrite(plan.record, Some(plan.row), plan.ops) else {
-                failed = Some(Decline::Unsupported);
-                break;
-            };
-            step.changes.push(change);
-            if !self.refresh_row(plan.row, &mut scratch) {
-                failed = Some(Decline::Unreadable);
-                break;
-            }
+            let mut ops = Vec::new();
+            diff(1, old, new, &mut ops).ok_or(Decline::Unsupported)?;
+            let kind = self.kind_name(*record);
+            widen(
+                &mut found,
+                object_bounds(kind, self.in_entities(*record), new),
+            );
+            plans.push((*record, ops));
         }
-        if failed.is_none()
-            && let Some((record, ops)) = header
-        {
-            match self.rewrite(record, None, ops) {
-                Some(change) => step.changes.push(change),
-                None => failed = Some(Decline::Unsupported),
-            }
+        for (kind, new) in &born {
+            widen(&mut found, object_bounds(kind, true, new));
         }
-        if let Some(decline) = failed {
-            self.revert(&step);
+
+        let before = self.row_largest;
+        let mut step = Step {
+            changes: Vec::with_capacity(plans.len() + 1),
+            rows,
+            removed: Vec::with_capacity(removed.len()),
+            added: Vec::with_capacity(born.len()),
+            row_largest: (before, before),
+        };
+        if let Err(decline) = self.carry_out(&mut step, plans, &removed, born, found) {
+            self.revert(&mut step);
             return Err(decline);
         }
+        step.row_largest.1 = self.row_largest;
         self.undo.push(step);
         self.redo.clear();
+        Ok(handles)
+    }
+
+    /// 決めた変更を行う。途中で行えなくなったら、そこまでに行ったことを `step` に残して、理由を返す
+    fn carry_out(
+        &mut self,
+        step: &mut Step,
+        plans: Vec<(u32, Vec<Planned>)>,
+        removed: &[u32],
+        born: Vec<(&'static [u8], Vec<Value>)>,
+        found: Option<[[f64; 3]; 2]>,
+    ) -> Result<(), Decline> {
+        for (record, ops) in plans {
+            let change = self.rewrite(record, ops).ok_or(Decline::Unsupported)?;
+            step.changes.push(change);
+        }
+        let mut scratch = Pools::default();
+        for &at in &step.rows {
+            if !self.refresh_row(at, &mut scratch) {
+                return Err(Decline::Unreadable);
+            }
+        }
+        for &at in removed {
+            self.kill(at, true);
+            step.removed.push(at);
+        }
+        for (kind, values) in born {
+            let tags = record_tags(kind, &values).ok_or(Decline::Unsupported)?;
+            let record = self.next_record().ok_or(Decline::Unsupported)?;
+            if !self.push_row(record, tags) {
+                return Err(Decline::Outside(Outside::Unread));
+            }
+            step.added.push(Fresh {
+                record,
+                tags: Vec::new(),
+            });
+        }
+        // ヘッダーの変数は、除いて足した後のハンドルの最大から直す
+        if let Some((record, ops)) = self.header_ops(found)? {
+            let change = self.rewrite(record, ops).ok_or(Decline::Unsupported)?;
+            step.changes.push(change);
+        }
         Ok(())
     }
 
     /// 直前の変更を取り消す。取り消す変更がなければ `false`
     pub fn undo(&mut self) -> bool {
-        let Some(step) = self.undo.pop() else {
+        let Some(mut step) = self.undo.pop() else {
             return false;
         };
-        self.revert(&step);
+        self.revert(&mut step);
         self.redo.push(step);
         true
     }
 
     /// 取り消した変更をやり直す。やり直す変更がなければ `false`
     pub fn redo(&mut self) -> bool {
-        let Some(step) = self.redo.pop() else {
+        let Some(mut step) = self.redo.pop() else {
             return false;
         };
-        self.replay(&step);
+        self.replay(&mut step);
         self.undo.push(step);
         true
     }
@@ -915,12 +1281,12 @@ impl Document {
     /// 変えたレコードのタグと、取り消し・やり直しの列の、およそのバイト数
     pub fn edit_bytes(&self) -> usize {
         let held = |value: &Option<Box<[u8]>>| value.as_ref().map_or(0, |value| value.len());
-        let overlay: usize = self
-            .overlay
-            .values()
-            .flatten()
-            .map(|tag| core::mem::size_of::<OTag>() + held(&tag.edited))
-            .sum();
+        let tags = |tags: &[OTag]| -> usize {
+            tags.iter()
+                .map(|tag| core::mem::size_of::<OTag>() + held(&tag.edited))
+                .sum()
+        };
+        let overlay: usize = self.overlay.values().map(|record| tags(record)).sum();
         let op = |op: &TagOp| {
             core::mem::size_of::<TagOp>()
                 + match op {
@@ -932,9 +1298,24 @@ impl Document {
         let steps = |steps: &[Step]| -> usize {
             steps
                 .iter()
-                .flat_map(|step| &step.changes)
-                .map(|change| {
-                    core::mem::size_of::<Change>() + change.ops.iter().map(op).sum::<usize>()
+                .map(|step| {
+                    let changes: usize = step
+                        .changes
+                        .iter()
+                        .map(|change| {
+                            core::mem::size_of::<Change>()
+                                + change.ops.iter().map(op).sum::<usize>()
+                        })
+                        .sum();
+                    let added: usize = step
+                        .added
+                        .iter()
+                        .map(|fresh| core::mem::size_of::<Fresh>() + tags(&fresh.tags))
+                        .sum();
+                    core::mem::size_of::<Step>()
+                        + changes
+                        + added
+                        + (step.rows.len() + step.removed.len()) * 4
                 })
                 .sum()
         };
@@ -968,63 +1349,157 @@ impl Document {
         }
     }
 
-    /// 行を `transform` で動かす変更を決める。動かせなければ `None`
-    fn plan(&self, at: u32, transform: &Affine) -> Option<Plan> {
-        let row = self.rows.get(at as usize)?;
-        let old = self.values(row.record);
-        let geom = self.shapes.geom(row.kind, row.geom)?;
-        let was = lift::shape(&geom, &self.shapes.pools)?;
-        let new = moved(&was, &old, row.kind, transform)?;
-        let mut ops = Vec::new();
-        diff(1, &old, &new, &mut ops)?;
-        let bounds = if new == old {
-            None
-        } else {
-            model_bounds(row.kind, &new)
-        };
-        Some(Plan {
-            row: at,
-            record: row.record,
-            ops,
-            bounds,
-        })
+    /// ハンドルの種（`$HANDSEED`）の、変数の値の中の場所と、今の値
+    fn seed(&self) -> Option<(usize, u64)> {
+        let header = self.header.as_ref()?;
+        let variable = header.seed.as_ref()?;
+        self.variable_values(header.record, variable)
+            .iter()
+            .enumerate()
+            .find_map(|(at, value)| match value.data {
+                Data::Handle(seed) if value.code == 5 => Some((at, seed)),
+                _ => None,
+            })
     }
 
-    /// 図面の範囲（`$EXTMIN`・`$EXTMAX`）を、値が変わった線と円を含むように広げる操作。狭めることはない
-    fn extents(&self, plans: &[Plan]) -> Result<Option<(u32, Vec<Planned>)>, Decline> {
+    /// 次に足す要素のハンドル（今の実装の `next_handle`）。ハンドルの最大の次と、種の、大きいほう。
+    /// ハンドルも種もない図面には足せない
+    fn next_handle(&self) -> Option<u64> {
+        let seed = self.seed().map(|(_, seed)| seed);
+        let largest = self.largest_handle();
+        if seed.is_none() && largest.is_none() {
+            return None;
+        }
+        let next = largest.map_or(Some(1), |largest| largest.checked_add(1))?;
+        Some(seed.unwrap_or(0).max(next))
+    }
+
+    /// 次に足すレコードの番号。元のレコードの数から先を、足した順に使う
+    fn next_record(&self) -> Option<u32> {
+        let first = self.source_records();
+        match self.overlay.last_key_value() {
+            Some((last, _)) if *last >= first => last.checked_add(1),
+            _ => Some(first),
+        }
+    }
+
+    /// 行を `transform` で動かした後の、レコードの値を決める。記号は、付いた ATTRIB のレコードも動かす
+    fn plan_move(
+        &self,
+        at: u32,
+        transform: &Affine,
+        out: &mut BTreeMap<u32, (Vec<Value>, Vec<Value>)>,
+    ) -> Result<(), Decline> {
+        const UNSUPPORTED: Decline = Decline::Unsupported;
+        let row = self.rows.get(at as usize).ok_or(Decline::Unknown)?;
+        let geom = self.shapes.geom(row.kind, row.geom).ok_or(UNSUPPORTED)?;
+        let Geom::Insert(insert) = geom else {
+            let was = lift::shape(&geom, &self.shapes.pools).ok_or(UNSUPPORTED)?;
+            let old = self.values(row.record);
+            let new = moved(&was, &old, row.kind, transform).ok_or(UNSUPPORTED)?;
+            out.insert(row.record, (old, new));
+            return Ok(());
+        };
+        if self.foreign.contains(&row.record) {
+            return Err(Decline::Outside(Outside::Charset));
+        }
+        // 今の実装は、付いた ATTRIB のうち、属性として読めないものがある記号を動かさない
+        if insert.attached != insert.attribs.1 {
+            return Err(UNSUPPORTED);
+        }
+        let was = lift::shape(&geom, &self.shapes.pools).ok_or(UNSUPPORTED)?;
+        let now = transformed(&was, transform).ok_or(UNSUPPORTED)?;
+        let (Shape::Symbol(before), Shape::Symbol(after)) = (&was, &now) else {
+            return Err(UNSUPPORTED);
+        };
+        // INSERT のレコードは、属性を元のままにした記号から作る
+        let placed = Shape::Symbol(Symbol {
+            attributes: before.attributes.clone(),
+            ..after.clone()
+        });
+        let old = self.values(row.record);
+        let mut new = replacement(&was, &placed, &old, Kind::Insert).ok_or(UNSUPPORTED)?;
+        if moving_xdata(&old) {
+            carried(&mut new, transform).ok_or(UNSUPPORTED)?;
+        }
+        out.insert(row.record, (old, new));
+        let attribs = self.shapes.pools.attribs_of(&insert);
+        if attribs.len() != before.attributes.len() || attribs.len() != after.attributes.len() {
+            return Err(UNSUPPORTED);
+        }
+        for ((attrib, original), attribute) in attribs
+            .iter()
+            .zip(&before.attributes)
+            .zip(&after.attributes)
+        {
+            let old = self.values(attrib.record);
+            let mut new = old.clone();
+            lettering(&mut new, &attribute.text, &original.text, 74).ok_or(UNSUPPORTED)?;
+            aligned_first(
+                &mut new,
+                &old,
+                &original.text,
+                &attribute.text,
+                transform,
+                74,
+            )
+            .ok_or(UNSUPPORTED)?;
+            if moving_xdata(&old) {
+                carried(&mut new, transform).ok_or(UNSUPPORTED)?;
+            }
+            out.insert(attrib.record, (old, new));
+        }
+        Ok(())
+    }
+
+    /// ヘッダーの変数を直す操作（今の実装の `write_back.rs` の `extents` と `handle_seed`）。図面の範囲
+    /// （`$EXTMIN`・`$EXTMAX`）は、値が変わった線・点・円と、足した線・円を含むように広げる。狭めることはない。
+    /// ハンドルの種（`$HANDSEED`）は、ハンドルの最大より大きくなければ、最大の次にする
+    fn header_ops(
+        &self,
+        found: Option<[[f64; 3]; 2]>,
+    ) -> Result<Option<(u32, Vec<Planned>)>, Decline> {
         let Some(header) = &self.header else {
             return Ok(None);
         };
-        let found = plans
-            .iter()
-            .filter_map(|plan| plan.bounds)
-            .reduce(|[a0, a1], [b0, b1]| [min3(a0, b0), max3(a1, b1)]);
-        let Some([low, high]) = found else {
-            return Ok(None);
-        };
-        type Pick = fn([f64; 3], [f64; 3]) -> [f64; 3];
-        let corners: [(&Option<Variable>, [f64; 3], Pick); 2] =
-            [(&header.extmin, low, min3), (&header.extmax, high, max3)];
         let mut ops = Vec::new();
-        for (variable, corner, pick) in corners {
-            let Some(variable) = variable else {
-                continue;
-            };
-            let values = self.variable_values(header.record, variable);
-            let Some(old) = point(&values, 10) else {
-                continue;
-            };
-            let new = pick(old, corner);
-            if new == old {
-                continue;
-            }
-            let mut fixed = values.clone();
-            for value in &mut fixed {
-                if let Some(axis) = [10, 20, 30].iter().position(|&code| code == value.code)
-                    && let Some(&coordinate) = new.get(axis)
-                {
-                    value.data = Data::Real(coordinate);
+        if let Some([low, high]) = found {
+            type Pick = fn([f64; 3], [f64; 3]) -> [f64; 3];
+            let corners: [(&Option<Variable>, [f64; 3], Pick); 2] =
+                [(&header.extmin, low, min3), (&header.extmax, high, max3)];
+            for (variable, corner, pick) in corners {
+                let Some(variable) = variable else {
+                    continue;
+                };
+                let values = self.variable_values(header.record, variable);
+                let Some(old) = point(&values, 10) else {
+                    continue;
+                };
+                let new = pick(old, corner);
+                if new == old {
+                    continue;
                 }
+                let mut fixed = values.clone();
+                for value in &mut fixed {
+                    if let Some(axis) = [10, 20, 30].iter().position(|&code| code == value.code)
+                        && let Some(&coordinate) = new.get(axis)
+                    {
+                        value.data = Data::Real(coordinate);
+                    }
+                }
+                diff(variable.start, &values, &fixed, &mut ops).ok_or(Decline::Unsupported)?;
+            }
+        }
+        if let Some(variable) = &header.seed
+            && let Some((at, seed)) = self.seed()
+            && let Some(largest) = self.largest_handle()
+            && largest >= seed
+            && let Some(next) = largest.checked_add(1)
+        {
+            let values = self.variable_values(header.record, variable);
+            let mut fixed = values.clone();
+            if let Some(value) = fixed.get_mut(at) {
+                value.data = Data::Handle(next);
             }
             diff(variable.start, &values, &fixed, &mut ops).ok_or(Decline::Unsupported)?;
         }
@@ -1032,7 +1507,7 @@ impl Document {
     }
 
     /// レコードのタグに操作を行う。1 つでも行えなければ、行った分を戻して `None`
-    fn rewrite(&mut self, record: u32, row: Option<u32>, ops: Vec<Planned>) -> Option<Change> {
+    fn rewrite(&mut self, record: u32, ops: Vec<Planned>) -> Option<Change> {
         let created = !self.overlay.contains_key(&record);
         let range = range_of(&self.starts, record);
         let src = &self.src;
@@ -1055,15 +1530,148 @@ impl Document {
         }
         Some(Change {
             record,
-            row,
             created,
             ops: done,
         })
     }
 
-    /// 変更を、後ろから元に戻す
-    fn revert(&mut self, step: &Step) {
-        let mut scratch = Pools::default();
+    /// 行を除く。行と形の場所は残し、表示・箱・索引・ハンドルの表から外す。
+    /// `lower` なら、生きている元の行のハンドルの最大を、たどり直す
+    fn kill(&mut self, at: u32, lower: bool) {
+        let Some(row) = self.rows.get_mut(at as usize) else {
+            return;
+        };
+        row.alive = false;
+        let (handle, record) = (row.handle, row.record);
+        self.gone.insert(record);
+        self.display.hide(at);
+        if let Some(place) = self.boxes.get_mut(at as usize) {
+            *place = NO_BOX;
+        }
+        self.grid.update(at, NO_BOX);
+        if self.added.get(&handle) == Some(&at) {
+            self.added.remove(&handle);
+        } else if lower && self.row_largest == Some(handle) {
+            self.lower_row_largest();
+        }
+    }
+
+    /// 除いた行を戻す。生きている元の行のハンドルの最大は、呼ぶ側が戻す
+    fn revive(&mut self, at: u32) {
+        let Some(row) = self.rows.get_mut(at as usize) else {
+            return;
+        };
+        row.alive = true;
+        let row = *row;
+        self.gone.remove(&row.record);
+        self.display.show(at);
+        if let Some(geom) = self.shapes.geom(row.kind, row.geom)
+            && let Some(place) = self.boxes.get_mut(at as usize)
+        {
+            *place = bounds(&self.shapes.pools, &self.definitions, &geom);
+            self.grid.update(at, *place);
+        }
+        if row.record >= self.source_records() {
+            self.added.insert(row.handle, at);
+        }
+    }
+
+    /// 足したレコードを、行の終わりに足す。開くときと同じ読み方（`lift`）を通す。
+    /// 要素として読めなければ、何も足さずに `false`
+    fn push_row(&mut self, record: u32, tags: Vec<OTag>) -> bool {
+        let src: &[u8] = &self.src;
+        let Some(kind) = tags
+            .first()
+            .and_then(|tag| Kind::of(tag_value(src, tag).trim_ascii()))
+        else {
+            return false;
+        };
+        let marks = self.shapes.pools.marks();
+        let read = {
+            let raw: Vec<RawTag<'_>> = tags
+                .iter()
+                .skip(1)
+                .map(|tag| RawTag {
+                    code: tag.code,
+                    value: tag_value(src, tag),
+                })
+                .collect();
+            match lift::lift(kind, &raw, &mut self.shapes.pools) {
+                Lift::Element(lifted) => {
+                    let readable = lifted.class == class::ASCII
+                        || (lifted.class == class::UTF8 && self.charset == Charset::Utf8);
+                    match lifted.handle {
+                        Some(handle) if readable && handle != 0 => Some((
+                            lifted.geom,
+                            handle,
+                            self.layers.intern(lifted.layer),
+                            lifted.color,
+                            lifted.class,
+                        )),
+                        _ => None,
+                    }
+                }
+                _ => None,
+            }
+        };
+        let Some((geom, handle, layer, color, class)) = read else {
+            self.shapes.pools.truncate(marks);
+            return false;
+        };
+        let geom = match geom {
+            Geom::Insert(insert) => Geom::Insert(InsertRow {
+                definition: self.definition_of(&insert),
+                ..insert
+            }),
+            other => other,
+        };
+        let Ok(at) = u32::try_from(self.rows.len()) else {
+            self.shapes.pools.truncate(marks);
+            return false;
+        };
+        let index = self.shapes.push(geom);
+        self.rows.push(Row {
+            handle,
+            record,
+            geom: index,
+            layer,
+            color,
+            kind,
+            class,
+            alive: true,
+        });
+        self.display.push(&geom, &self.shapes.pools, [layer, color]);
+        let place = bounds(&self.shapes.pools, &self.definitions, &geom);
+        self.boxes.push(place);
+        self.grid.push(place);
+        self.added.insert(handle, at);
+        self.overlay.insert(record, tags);
+        true
+    }
+
+    /// 終わりの行（足した行）を除いて、レコードのタグを返す。頂点と文字の置き場は詰め直さない
+    fn pop_row(&mut self, record: u32) -> Vec<OTag> {
+        if let Some(row) = self.rows.pop() {
+            let at = self.rows.len() as u32;
+            self.shapes.pop(row.kind);
+            self.display.pop();
+            self.boxes.pop();
+            self.grid.pop();
+            if self.added.get(&row.handle) == Some(&at) {
+                self.added.remove(&row.handle);
+            }
+        }
+        self.overlay.remove(&record).unwrap_or_default()
+    }
+
+    /// 変更を、後ろから元に戻す。足したレコードのタグは、やり直しのために `step` へ移す
+    fn revert(&mut self, step: &mut Step) {
+        for fresh in step.added.iter_mut().rev() {
+            fresh.tags = self.pop_row(fresh.record);
+        }
+        for &at in step.removed.iter().rev() {
+            self.revive(at);
+        }
         for change in step.changes.iter().rev() {
             if let Some(tags) = self.overlay.get_mut(&change.record) {
                 for op in change.ops.iter().rev() {
@@ -1073,15 +1681,17 @@ impl Document {
             if change.created {
                 self.overlay.remove(&change.record);
             }
-            if let Some(row) = change.row {
-                self.refresh_row(row, &mut scratch);
-            }
         }
+        // 記号は、INSERT と ATTRIB のレコードがそろってから読み直す
+        let mut scratch = Pools::default();
+        for &at in &step.rows {
+            self.refresh_row(at, &mut scratch);
+        }
+        self.row_largest = step.row_largest.0;
     }
 
     /// 変更を、前からもう一度行う
-    fn replay(&mut self, step: &Step) {
-        let mut scratch = Pools::default();
+    fn replay(&mut self, step: &mut Step) {
         for change in &step.changes {
             let range = range_of(&self.starts, change.record);
             let src = &self.src;
@@ -1092,15 +1702,65 @@ impl Document {
             for op in &change.ops {
                 forward(tags, op);
             }
-            if let Some(row) = change.row {
-                self.refresh_row(row, &mut scratch);
-            }
         }
+        let mut scratch = Pools::default();
+        for &at in &step.rows {
+            self.refresh_row(at, &mut scratch);
+        }
+        for &at in &step.removed {
+            self.kill(at, false);
+        }
+        for fresh in &mut step.added {
+            self.push_row(fresh.record, core::mem::take(&mut fresh.tags));
+        }
+        self.row_largest = step.row_largest.1;
+    }
+
+    /// 記号に付いた ATTRIB を、今のタグから読み直す。文字が前と同じなら、前の置き場を使う
+    fn reread_attribs(&mut self, insert: &InsertRow) -> Option<Vec<AttribRow>> {
+        let (first, count) = insert.attribs;
+        let mut out = Vec::with_capacity(count as usize);
+        for index in first..first.checked_add(count)? {
+            let old = *self.shapes.pools.attribs.get(index as usize)?;
+            let marks = self.shapes.pools.marks();
+            let mut new = self.read_attrib(old.record)?;
+            let pools = &mut self.shapes.pools;
+            let kept = {
+                let same = |a: (u32, u32), b: (u32, u32)| pools.text_of(a) == pools.text_of(b);
+                let style = match (new.text.style, old.text.style) {
+                    (None, None) => true,
+                    (Some(a), Some(b)) => same(a, b),
+                    _ => false,
+                };
+                style
+                    && same(new.text.content, old.text.content)
+                    && same(new.tag, old.tag)
+                    && same(new.layer_name, old.layer_name)
+            };
+            if kept {
+                new.text.content = old.text.content;
+                new.text.style = old.text.style;
+                new.tag = old.tag;
+                new.layer_name = old.layer_name;
+                pools.truncate(marks);
+            }
+            out.push(new);
+        }
+        Some(out)
     }
 
     /// 行の列・表示・箱・索引を、レコードの今のタグから作り直す。開くときと同じ読み方（`lift`）を通すので、
     /// 開き直した文書と同じ値になる。要素として読めなければ、何も変えずに `false` を返す
     fn refresh_row(&mut self, at: u32, scratch: &mut Pools) -> bool {
+        // 記号は、付いた ATTRIB を先に読み直す
+        let attribs = match self.geom(at) {
+            Some(Geom::Insert(insert)) => match self.reread_attribs(&insert) {
+                Some(attribs) => attribs,
+                None => return false,
+            },
+            Some(_) => Vec::new(),
+            None => return false,
+        };
         let Document {
             src,
             starts,
@@ -1112,6 +1772,7 @@ impl Document {
             display,
             boxes,
             grid,
+            definitions,
             ..
         } = self;
         let src: &[u8] = src;
@@ -1146,6 +1807,16 @@ impl Document {
         let Some(geom) = store_geom(shapes, row.geom, &lifted.geom, scratch) else {
             return false;
         };
+        if let Geom::Insert(insert) = &geom {
+            let places = shapes
+                .pools
+                .attribs
+                .iter_mut()
+                .skip(insert.attribs.0 as usize);
+            for (place, attrib) in places.zip(attribs) {
+                *place = attrib;
+            }
+        }
         let same_layer = layers
             .list
             .get(row.layer as usize)
@@ -1157,7 +1828,7 @@ impl Document {
         row.class = lifted.class;
         display.update(at, &geom, &shapes.pools, [row.layer, row.color]);
         if let Some(place) = boxes.get_mut(at as usize) {
-            *place = bounds(&shapes.pools, &geom);
+            *place = bounds(&shapes.pools, definitions, &geom);
             grid.update(at, *place);
         }
         true
@@ -1167,13 +1838,30 @@ impl Document {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::born::{ColorSpec, LineTypeSpec, NewShape};
+
+    const HEADER: &str = "  0\nSECTION\n  2\nHEADER\n  9\n$ACADVER\n  1\nAC1015\n  9\n$HANDSEED\n  5\nFFFF\n\
+                          \x20 9\n$EXTMIN\n 10\n0.0\n 20\n0.0\n 30\n0.0\n  9\n$EXTMAX\n 10\n10.0\n 20\n10.0\n 30\n0.0\n\
+                          \x20 0\nENDSEC\n";
+
+    /// 線種と画層の表
+    const TABLES: &str = "  0\nSECTION\n  2\nTABLES\n  0\nTABLE\n  2\nLTYPE\n  5\n1\n 70\n1\n\
+                          \x20 0\nLTYPE\n  5\n10\n  2\nDASHED\n 70\n0\n  0\nENDTAB\n\
+                          \x20 0\nTABLE\n  2\nLAYER\n  5\n2\n 70\n2\n\
+                          \x20 0\nLAYER\n  5\n11\n  2\n0\n 70\n0\n 62\n7\n  6\nCONTINUOUS\n\
+                          \x20 0\nLAYER\n  5\n12\n  2\nWalls\n 70\n0\n 62\n1\n  6\nCONTINUOUS\n\
+                          \x20 0\nENDTAB\n  0\nENDSEC\n";
 
     /// ハンドルを持つ最小の DXF。`entities` は、ENTITIES のセクションのレコード
     fn dxf(entities: &str) -> Vec<u8> {
-        let head = "  0\nSECTION\n  2\nHEADER\n  9\n$ACADVER\n  1\nAC1015\n  9\n$HANDSEED\n  5\nFFFF\n\
-                    \x20 9\n$EXTMIN\n 10\n0.0\n 20\n0.0\n 30\n0.0\n  9\n$EXTMAX\n 10\n10.0\n 20\n10.0\n 30\n0.0\n\
-                    \x20 0\nENDSEC\n  0\nSECTION\n  2\nENTITIES\n";
-        format!("{head}{entities}  0\nENDSEC\n  0\nEOF\n").into_bytes()
+        format!("{HEADER}  0\nSECTION\n  2\nENTITIES\n{entities}  0\nENDSEC\n  0\nEOF\n")
+            .into_bytes()
+    }
+
+    /// 線種と画層の表も持つ DXF
+    fn tabled(entities: &str) -> Vec<u8> {
+        format!("{HEADER}{TABLES}  0\nSECTION\n  2\nENTITIES\n{entities}  0\nENDSEC\n  0\nEOF\n")
+            .into_bytes()
     }
 
     fn open(entities: &str) -> Document {
@@ -1187,8 +1875,10 @@ mod tests {
     const LINE: &str =
         "  0\nLINE\n  5\n2A\n  8\n0\n 10\n1.0\n 20\n2.0\n 30\n0.0\n 11\n3.0\n 21\n4.0\n 31\n0.0\n";
 
+    const CIRCLE: &str = "  0\nCIRCLE\n  5\n2B\n  8\n0\n 10\n5.0\n 20\n5.0\n 40\n1.5\n";
+
     fn translation(handle: u64, dx: f64, dy: f64) -> Edit {
-        Edit {
+        Edit::Transform {
             handle,
             matrix: [1.0, 0.0, dx, 0.0, 1.0, dy],
         }
@@ -1199,7 +1889,10 @@ mod tests {
         let mut document = open(LINE);
         let before = document.save();
         assert_eq!(before, dxf(LINE));
-        assert_eq!(document.apply(&[translation(0x2A, 10.0, 0.5)]), Ok(()));
+        assert_eq!(
+            document.apply(&[translation(0x2A, 10.0, 0.5)]),
+            Ok(vec![None])
+        );
         let after = text(&document.save());
         assert!(
             after.contains(" 10\n11.0\n 20\n2.5\n 30\n0.0\n 11\n13.0\n 21\n4.5\n"),
@@ -1234,13 +1927,16 @@ mod tests {
         let quarter = Affine::rotation(1.0, 1.0, 90.0).m;
         let edits: Vec<Edit> = [0x2A, 0x2B, 0x2C, 0x2D, 0x2E]
             .into_iter()
-            .map(|handle| Edit {
+            .map(|handle| Edit::Transform {
                 handle,
                 matrix: quarter,
             })
             .collect();
-        assert_eq!(document.apply(&edits), Ok(()));
-        assert_eq!(document.apply(&[translation(0x2D, 0.25, 0.0)]), Ok(()));
+        assert_eq!(document.apply(&edits), Ok(vec![None; 5]));
+        assert_eq!(
+            document.apply(&[translation(0x2D, 0.25, 0.0)]),
+            Ok(vec![None])
+        );
         let saved = document.save();
         let reopened = Document::open(saved.clone(), 1).expect("開き直す");
         assert!(document.same_content(&reopened));
@@ -1256,8 +1952,7 @@ mod tests {
 
     #[test]
     fn declined_edits_change_nothing() {
-        let entities =
-            format!("{LINE}  0\nCIRCLE\n  5\n2B\n  8\n0\n 10\n5.0\n 20\n5.0\n 40\n1.5\n");
+        let entities = format!("{LINE}{CIRCLE}");
         let mut document = open(&entities);
         let before = document.save();
         assert_eq!(
@@ -1268,39 +1963,198 @@ mod tests {
             document.apply(&[translation(0x2A, 1.0, 0.0), translation(0x2A, 2.0, 0.0)]),
             Err(Decline::Repeated)
         );
+        assert_eq!(
+            document.apply(&[translation(0x2A, 1.0, 0.0), Edit::Remove { handle: 0x2A }]),
+            Err(Decline::Repeated)
+        );
         // 逆のない変換と、円を楕円にする変換は、種類を保てない。まとめて受け付けない
-        let flat = Edit {
+        let flat = Edit::Transform {
             handle: 0x2A,
             matrix: [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
         };
         assert_eq!(document.apply(&[flat]), Err(Decline::Unsupported));
-        let stretch = Edit {
+        let stretch = [2.0, 0.0, 0.0, 0.0, 1.0, 0.0];
+        let ellipse = Edit::Transform {
             handle: 0x2B,
-            matrix: [2.0, 0.0, 0.0, 0.0, 1.0, 0.0],
+            matrix: stretch,
         };
         assert_eq!(
-            document.apply(&[translation(0x2A, 1.0, 0.0), stretch]),
+            document.apply(&[
+                translation(0x2A, 1.0, 0.0),
+                Edit::Remove { handle: 0x2B },
+                ellipse
+            ]),
             Err(Decline::Unsupported)
+        );
+        // 表にない画層へは、試作は変えない（今の実装は、図形が指すだけの画層も一覧に持つ）
+        let restyle = Edit::Restyle {
+            handle: 0x2A,
+            style: Restyle {
+                layer: Some("Walls".to_string()),
+                ..Restyle::default()
+            },
+        };
+        assert_eq!(
+            document.apply(&[restyle]),
+            Err(Decline::Outside(Outside::Names))
         );
         assert_eq!(document.save(), before);
         assert_eq!(document.undo_len(), 0);
         // 線は、相似でない変換でも動かせる
-        let line = Edit {
+        let line = Edit::Transform {
             handle: 0x2A,
-            ..stretch
+            matrix: stretch,
         };
-        assert_eq!(document.apply(&[line]), Ok(()));
+        assert_eq!(document.apply(&[line]), Ok(vec![None]));
         assert_eq!(document.geom(0), Some(Geom::Line([2.0, 2.0, 6.0, 4.0])));
     }
 
     #[test]
-    fn a_seed_not_above_the_largest_handle_locks_the_document() {
+    fn a_seed_not_above_the_largest_handle_is_raised_by_any_edit() {
         let entities = LINE.replace("2A", "FFFF");
         let mut document = open(&entities);
-        assert_eq!(document.locked, Some(Locked::HandleSeed));
+        assert_eq!(document.locked, None);
         assert_eq!(
             document.apply(&[translation(0xFFFF, 1.0, 0.0)]),
-            Err(Decline::Locked(Locked::HandleSeed))
+            Ok(vec![None])
         );
+        let after = text(&document.save());
+        assert!(after.contains("$HANDSEED\n  5\n10000\n"), "{after}");
+        assert!(document.undo());
+        assert_eq!(document.save(), dxf(&entities));
+    }
+
+    #[test]
+    fn restyling_rewrites_the_common_values_after_the_layer() {
+        let entities = format!("{LINE}{CIRCLE}");
+        let source = tabled(&entities);
+        let mut document = Document::open(source.clone(), 1).expect("開く");
+        let restyle = Edit::Restyle {
+            handle: 0x2A,
+            style: Restyle {
+                layer: Some("Walls".to_string()),
+                color: Some(ColorSpec::Aci(3)),
+                line_type: Some(LineTypeSpec::Name("DASHED".to_string())),
+                ..Restyle::default()
+            },
+        };
+        assert_eq!(document.apply(&[restyle]), Ok(vec![None]));
+        let saved = document.save();
+        let after = text(&saved);
+        assert!(
+            after.contains("  5\n2A\n  8\nWalls\n  6\nDASHED\n 62\n3\n 10\n1.0\n"),
+            "{after}"
+        );
+        let reopened = Document::open(saved, 1).expect("開き直す");
+        assert!(document.same_content(&reopened));
+        assert_eq!(document.display.canonical(), reopened.display.canonical());
+        // 同じ値への変更は、受け付けて、何も書かない
+        let same = Edit::Restyle {
+            handle: 0x2A,
+            style: Restyle {
+                layer: Some("Walls".to_string()),
+                color: Some(ColorSpec::Aci(3)),
+                ..Restyle::default()
+            },
+        };
+        assert_eq!(document.apply(&[same]), Ok(vec![None]));
+        assert_eq!(text(&document.save()), after);
+        // 色番号 0 と、表にない線種は、受け付けない
+        let zero = Edit::Restyle {
+            handle: 0x2A,
+            style: Restyle {
+                color: Some(ColorSpec::Aci(0)),
+                ..Restyle::default()
+            },
+        };
+        assert_eq!(document.apply(&[zero]), Err(Decline::Unsupported));
+        assert!(document.undo());
+        assert!(document.undo());
+        assert_eq!(document.save(), source);
+    }
+
+    #[test]
+    fn removing_and_adding_elements_can_be_undone_and_redone() {
+        let entities = format!("{LINE}{CIRCLE}");
+        let source = tabled(&entities);
+        let mut document = Document::open(source.clone(), 1).expect("開く");
+        let circle = Edit::Add(Box::new(Add {
+            layer: Some("Walls".to_string()),
+            color: Some(ColorSpec::Aci(1)),
+            line_type: None,
+            line_weight: None,
+            shape: NewShape::Circle {
+                center: [9.0, 6.0],
+                radius: 2.0,
+            },
+        }));
+        // 足す要素のハンドルは、種と、ハンドルの最大の次の、大きいほう
+        assert_eq!(
+            document.apply(&[Edit::Remove { handle: 0x2A }, circle]),
+            Ok(vec![None, Some(0xFFFF)])
+        );
+        assert_eq!(document.row_of(0x2A), None);
+        assert_eq!(document.row_of(0xFFFF), Some(2));
+        let saved = document.save();
+        let after = text(&saved);
+        assert!(!after.contains("LINE"), "{after}");
+        assert!(
+            after.contains(
+                "  0\nCIRCLE\n  5\nFFFF\n100\nAcDbEntity\n  8\nWalls\n 62\n1\n100\nAcDbCircle\n \
+                 10\n9.0\n 20\n6.0\n 30\n0.0\n 40\n2.0\n  0\nENDSEC\n  0\nEOF\n"
+            ),
+            "{after}"
+        );
+        assert!(after.contains("$HANDSEED\n  5\n10000\n"), "{after}");
+        assert!(after.contains("$EXTMAX\n 10\n11.0\n 20\n10.0\n"), "{after}");
+        let reopened = Document::open(saved.clone(), 1).expect("開き直す");
+        assert!(document.same_content(&reopened));
+        let mut found = Vec::new();
+        document.select([8.0, 5.0, 9.0, 6.0], &mut found);
+        assert_eq!(found, [2]);
+        // 足した要素も、動かして除ける
+        assert_eq!(
+            document.apply(&[translation(0xFFFF, 1.0, 0.0)]),
+            Ok(vec![None])
+        );
+        assert_eq!(
+            document.apply(&[Edit::Remove { handle: 0xFFFF }]),
+            Ok(vec![None])
+        );
+        assert_eq!(document.row_of(0xFFFF), None);
+        let emptied = document.save();
+        assert!(!text(&emptied).contains("FFFF"), "{}", text(&emptied));
+        for _ in 0..3 {
+            assert!(document.undo());
+        }
+        assert!(!document.undo());
+        assert_eq!(document.save(), source);
+        assert_eq!(document.rows.len(), 2);
+        assert_eq!(document.row_of(0x2A), Some(0));
+        assert!(document.redo());
+        assert_eq!(document.save(), saved);
+        assert!(document.redo());
+        assert!(document.redo());
+        assert_eq!(document.save(), emptied);
+    }
+
+    #[test]
+    fn removing_an_element_drops_the_references_to_it() {
+        // 円が、リアクターの組で線を指す。線を除くと、組ごとなくなる
+        let circle = "  0\nCIRCLE\n  5\n2B\n102\n{ACAD_REACTORS\n330\n2A\n102\n}\n  8\n0\n 10\n5.0\n 20\n5.0\n 40\n1.5\n";
+        let entities = format!("{LINE}{circle}");
+        let source = tabled(&entities);
+        let mut document = Document::open(source.clone(), 1).expect("開く");
+        assert_eq!(
+            document.apply(&[Edit::Remove { handle: 0x2A }]),
+            Ok(vec![None])
+        );
+        let after = text(&document.save());
+        assert!(
+            after.contains("  0\nCIRCLE\n  5\n2B\n  8\n0\n 10\n5.0\n"),
+            "{after}"
+        );
+        assert!(document.undo());
+        assert_eq!(document.save(), source);
     }
 }

@@ -30,6 +30,11 @@ impl Random {
         items.get(self.below(items.len())).copied().unwrap_or(1.0)
     }
 
+    /// 並びから 1 つ選ぶ。空なら、ない
+    pub fn choose<'a, T>(&mut self, items: &'a [T]) -> Option<&'a T> {
+        items.get(self.below(items.len()))
+    }
+
     /// 桁の多い値・1/8 の倍数・整数のどれかにする
     pub fn rounded(&mut self, value: f64) -> f64 {
         match self.below(3) {

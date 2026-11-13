@@ -2,8 +2,9 @@
 
 use std::time::Instant;
 
+use zumen_bench_live::born::{Add, ColorSpec, NewShape, NewSymbol, NewText, Restyle};
 use zumen_bench_live::edit::Edit;
-use zumen_bench_live::store::{self, Document};
+use zumen_bench_live::store::{self, Document, table};
 use zumen_drawing::Affine;
 
 use crate::random::Random;
@@ -62,6 +63,10 @@ fn spread(values: &mut [f64]) -> [f64; 3] {
 }
 
 fn report(name: &str, values: &mut [f64], declined: usize) {
+    if values.is_empty() {
+        println!("  {name}: 受け付けた回がない（受け付けない {declined} 回）");
+        return;
+    }
     let [middle, high, most] = spread(values);
     let declined = if declined == 0 {
         String::new()
@@ -196,6 +201,35 @@ fn current(
         today.scene().map_err(failed("表示"))?;
         scene.push(ms(start));
     }
+    // 属性を変える・足す・足した要素を除く。どれも、変更のたびに全体を書き戻す
+    let (mut restyle, mut add, mut remove) = (Vec::new(), Vec::new(), Vec::new());
+    for index in 0..options.runs {
+        let edit = format!(
+            r#"{{"kind":"restyle","id":"{}","hash":"{hash}","color":{{"aci":{}}}}}"#,
+            target.id,
+            1 + index % 6
+        );
+        let start = now();
+        let applied = today.edit(&[edit]).map_err(failed("属性の変更"))?;
+        restyle.push(ms(start));
+        if let Some((_, next)) = applied.hashes.into_iter().next() {
+            hash = next;
+        }
+        let edit = format!(
+            r#"{{"kind":"add","place":"space/0","geometry":{{"shape":"line","start":[{},{}],"end":[{},{}]}}}}"#,
+            region[0], region[1], region[2], region[3]
+        );
+        let start = now();
+        let applied = today.edit(&[edit]).map_err(failed("足す変更"))?;
+        add.push(ms(start));
+        let Some((id, made)) = applied.hashes.into_iter().next() else {
+            continue;
+        };
+        let edit = format!(r#"{{"kind":"remove","id":"{id}","hash":"{made}"}}"#);
+        let start = now();
+        today.edit(&[edit]).map_err(failed("除く変更"))?;
+        remove.push(ms(start));
+    }
     let mut select = Vec::new();
     let mut hits = 0;
     for _ in 0..options.runs {
@@ -220,7 +254,390 @@ fn current(
         middle(&mut select),
         middle(&mut undo)
     );
+    println!(
+        "  今の実装（ms、中央値と最小、{} 回）: 1 件の色を変えて書き戻す {}、1 件の線を足して書き戻す {}、足した 1 件を除いて書き戻す {}",
+        options.runs,
+        middle(&mut restyle),
+        middle(&mut add),
+        middle(&mut remove)
+    );
     Ok(())
+}
+
+/// 取り消しとやり直しの時間を分けて出す、変更の種類
+const KINDS: [&str; 7] = [
+    "1 件を動かす変更",
+    "まとめて動かす変更",
+    "1 件の属性を変える変更",
+    "1 件を足す変更",
+    "まとめて足す変更",
+    "1 件を除く変更",
+    "まとめて除く変更",
+];
+
+/// 受け付けた変更の種類を、取り消しの列と同じ順に覚える
+struct Bench {
+    /// 取り消しの列に積んだ変更の種類（`KINDS` の番号）
+    pushed: Vec<usize>,
+}
+
+impl Bench {
+    /// 変更を当てて、時間を測る。受け付ければ、変更ごとの、足した要素のハンドルを返す
+    fn step(
+        &mut self,
+        document: &mut Document,
+        kind: usize,
+        edits: &[Edit],
+        times: &mut Vec<f64>,
+    ) -> Option<Vec<Option<u64>>> {
+        let start = now();
+        let done = document.apply(edits);
+        let elapsed = us(start);
+        let handles = done.ok()?;
+        times.push(elapsed);
+        self.pushed.push(kind);
+        Some(handles)
+    }
+}
+
+/// 属性を付けずに足す要素
+fn plain(shape: NewShape) -> Edit {
+    Edit::Add(Box::new(Add {
+        layer: None,
+        color: None,
+        line_type: None,
+        line_weight: None,
+        shape,
+    }))
+}
+
+/// 全体の保存を測る
+fn saving(document: &Document, runs: usize, when: &str) {
+    let mut times = Vec::with_capacity(runs);
+    let mut saved = 0;
+    for _ in 0..runs {
+        let start = now();
+        let out = document.save();
+        times.push(ms(start));
+        saved = out.len();
+    }
+    println!(
+        "  全体を保存する（{when}）: 中央値 {:.2} ms（{saved} バイト）",
+        median(&mut times)
+    );
+}
+
+/// 変更・保存・取り消し・やり直しを測る
+fn editing(document: &mut Document, handles: &[u64], extent: [f64; 4], options: &Options) {
+    let [x0, y0, x1, y1] = extent;
+    let span = (x1 - x0).max(y1 - y0).max(1.0);
+    let mut random = Random(options.seed);
+    let mut bench = Bench { pushed: Vec::new() };
+    let shift = |random: &mut Random| {
+        [
+            1.0,
+            0.0,
+            random.between(-span, span) / 64.0,
+            0.0,
+            1.0,
+            random.between(-span, span) / 64.0,
+        ]
+    };
+    let pick = |random: &mut Random| {
+        handles
+            .get(random.below(handles.len()))
+            .copied()
+            .unwrap_or(0)
+    };
+    let point = |random: &mut Random| [random.between(x0, x1), random.between(y0, y1)];
+    let group = handles.len().min(100);
+
+    // 動かす
+    let (mut times, mut declined) = (Vec::with_capacity(2000), 0);
+    for _ in 0..2000 {
+        let edit = Edit::Transform {
+            handle: pick(&mut random),
+            matrix: shift(&mut random),
+        };
+        declined += usize::from(bench.step(document, 0, &[edit], &mut times).is_none());
+    }
+    report("1 件を動かす（毎回、別の要素）", &mut times, declined);
+
+    let (mut times, mut declined) = (Vec::with_capacity(2000), 0);
+    let handle = pick(&mut random);
+    for _ in 0..2000 {
+        let edit = Edit::Transform {
+            handle,
+            matrix: [1.0, 0.0, span / 4096.0, 0.0, 1.0, span / 8192.0],
+        };
+        declined += usize::from(bench.step(document, 0, &[edit], &mut times).is_none());
+    }
+    report("1 件を動かす（同じ要素を続けて）", &mut times, declined);
+
+    let (mut times, mut declined) = (Vec::with_capacity(2000), 0);
+    for _ in 0..2000 {
+        let [x, y] = point(&mut random);
+        let edit = Edit::Transform {
+            handle: pick(&mut random),
+            matrix: Affine::rotation(x, y, 90.0).m,
+        };
+        declined += usize::from(bench.step(document, 0, &[edit], &mut times).is_none());
+    }
+    report("1 件を回す", &mut times, declined);
+
+    let (mut times, mut declined) = (Vec::with_capacity(200), 0);
+    for _ in 0..200 {
+        // 続いた 100 件を、同じだけ動かす
+        let first = random.below(handles.len() - group + 1);
+        let matrix = shift(&mut random);
+        let edits: Vec<Edit> = handles
+            .iter()
+            .skip(first)
+            .take(group)
+            .map(|&handle| Edit::Transform { handle, matrix })
+            .collect();
+        declined += usize::from(bench.step(document, 1, &edits, &mut times).is_none());
+    }
+    report(&format!("{group} 件を 1 回で動かす"), &mut times, declined);
+
+    // 属性を変える
+    let (mut times, mut declined) = (Vec::with_capacity(2000), 0);
+    for index in 0..2000usize {
+        let style = Restyle {
+            color: Some(ColorSpec::Aci(1 + (index % 200) as u8)),
+            ..Restyle::default()
+        };
+        let edit = Edit::Restyle {
+            handle: pick(&mut random),
+            style,
+        };
+        declined += usize::from(bench.step(document, 2, &[edit], &mut times).is_none());
+    }
+    report("1 件の色を変える", &mut times, declined);
+
+    // 表にちょうど 1 つある画層の名前を、2 つまで使う
+    let names = document.table_names(table::LAYER);
+    let layers: Vec<&String> = names
+        .iter()
+        .filter(|name| {
+            names
+                .iter()
+                .filter(|other| other.eq_ignore_ascii_case(name))
+                .count()
+                == 1
+        })
+        .take(2)
+        .collect();
+    if layers.is_empty() {
+        println!("  1 件の画層を変える: 表に、指せる画層がない");
+    } else {
+        let (mut times, mut declined) = (Vec::with_capacity(2000), 0);
+        for index in 0..2000usize {
+            let style = Restyle {
+                layer: layers.get(index % layers.len()).map(|name| (*name).clone()),
+                ..Restyle::default()
+            };
+            let edit = Edit::Restyle {
+                handle: pick(&mut random),
+                style,
+            };
+            declined += usize::from(bench.step(document, 2, &[edit], &mut times).is_none());
+        }
+        report("1 件の画層を変える", &mut times, declined);
+    }
+
+    println!(
+        "  動かす・属性を変える変更の後: 変えたレコード {}、取り消せる変更 {} 回、変えたレコードと取り消しの列のメモリ {:.2} MiB",
+        document.edited_records(),
+        document.undo_len(),
+        mib(document.edit_bytes())
+    );
+    saving(document, options.runs, "動かす・属性を変える変更の後");
+
+    // 足す。線は、図面の幅の 64 分の 1 までの長さ
+    let line = |random: &mut Random| {
+        let [x, y] = point(random);
+        let reach = span / 64.0;
+        plain(NewShape::Line {
+            start: [x, y],
+            end: [
+                x + random.between(-reach, reach),
+                y + random.between(-reach, reach),
+            ],
+        })
+    };
+    let (mut times, mut declined) = (Vec::with_capacity(2000), 0);
+    for _ in 0..2000 {
+        let edit = line(&mut random);
+        declined += usize::from(bench.step(document, 3, &[edit], &mut times).is_none());
+    }
+    report("1 件の線を足す", &mut times, declined);
+
+    let (mut times, mut declined) = (Vec::with_capacity(2000), 0);
+    for _ in 0..2000 {
+        let edit = plain(NewShape::Text(NewText {
+            content: "A-101".to_owned(),
+            position: point(&mut random),
+            end: None,
+            horizontal: None,
+            vertical: None,
+            height: span / 400.0,
+            rotation: 0.0,
+            width_factor: None,
+            oblique: None,
+            backward: false,
+            upside_down: false,
+            style: None,
+        }));
+        declined += usize::from(bench.step(document, 3, &[edit], &mut times).is_none());
+    }
+    report("1 件の文字を足す", &mut times, declined);
+
+    let definition = document
+        .definitions
+        .iter()
+        .find(|definition| definition.usable)
+        .map(|definition| String::from_utf8_lossy(&definition.name).into_owned());
+    match definition {
+        None => println!("  1 件の記号を足す: 指せるブロックの定義がない"),
+        Some(name) => {
+            let (mut times, mut declined) = (Vec::with_capacity(2000), 0);
+            for _ in 0..2000 {
+                let edit = plain(NewShape::Symbol(NewSymbol {
+                    name: name.clone(),
+                    position: point(&mut random),
+                    scale: [1.0, 1.0],
+                    rotation: 0.0,
+                    grid: None,
+                }));
+                declined += usize::from(bench.step(document, 3, &[edit], &mut times).is_none());
+            }
+            report("1 件の記号を足す", &mut times, declined);
+        }
+    }
+
+    let (mut times, mut declined) = (Vec::with_capacity(200), 0);
+    for _ in 0..200 {
+        let edits: Vec<Edit> = (0..group).map(|_| line(&mut random)).collect();
+        declined += usize::from(bench.step(document, 4, &edits, &mut times).is_none());
+    }
+    report(
+        &format!("{group} 件の線を 1 回で足す"),
+        &mut times,
+        declined,
+    );
+
+    // 除く。元の要素の 8 分の 1 までを、3 通りに分けて除く
+    let count = (handles.len() / 8).min(2000);
+    // ハンドルの大きい順
+    let mut sorted: Vec<u64> = handles.to_vec();
+    sorted.sort_unstable_by(|a, b| b.cmp(a));
+    let (top, rest) = sorted.split_at(count.min(sorted.len()));
+    // 残りから、乱数で選ぶ
+    let mut pool: Vec<u64> = rest.to_vec();
+    let batches = (handles.len() / 8 / group.max(1)).min(200);
+    let wanted = (count + batches * group).min(pool.len());
+    for at in 0..wanted {
+        let other = at + random.below(pool.len() - at);
+        pool.swap(at, other);
+    }
+    let (singles, many) = pool.split_at(count.min(pool.len()));
+
+    let (mut times, mut declined) = (Vec::with_capacity(count), 0);
+    for &handle in singles {
+        let edit = Edit::Remove { handle };
+        declined += usize::from(bench.step(document, 5, &[edit], &mut times).is_none());
+    }
+    report("1 件を除く（毎回、別の要素）", &mut times, declined);
+
+    // ハンドルの大きい元の要素を、小さい順に除く。最大の 1 件は残す
+    let (largest, below) = match top.split_first() {
+        Some((largest, below)) => (Some(*largest), below),
+        None => (None, top),
+    };
+    let (mut times, mut declined) = (Vec::with_capacity(count), 0);
+    for &handle in below.iter().rev() {
+        let edit = Edit::Remove { handle };
+        declined += usize::from(bench.step(document, 5, &[edit], &mut times).is_none());
+    }
+    report(
+        "1 件を除く（ハンドルの大きい元の要素を、小さい順に）",
+        &mut times,
+        declined,
+    );
+    // 残した最大の 1 件を除く。すぐ下の要素は除いてあるので、生きている要素のハンドルの最大を、下へ探す
+    if let Some(handle) = largest {
+        let edit = [Edit::Remove { handle }];
+        let mut walk = Vec::with_capacity(9);
+        for _ in 0..8 {
+            let start = now();
+            let done = document.apply(&edit).is_ok();
+            let elapsed = us(start);
+            if done {
+                walk.push(elapsed);
+                document.undo();
+            }
+        }
+        let declined = usize::from(bench.step(document, 5, &edit, &mut walk).is_none());
+        report(
+            &format!(
+                "1 件を除く（ハンドルが最大の元の要素。すぐ下の {} 件は除いてある）",
+                times.len()
+            ),
+            &mut walk,
+            declined,
+        );
+    }
+
+    let (mut times, mut declined) = (Vec::with_capacity(batches), 0);
+    for chunk in many.chunks(group.max(1)).take(batches) {
+        let edits: Vec<Edit> = chunk
+            .iter()
+            .map(|&handle| Edit::Remove { handle })
+            .collect();
+        declined += usize::from(bench.step(document, 6, &edits, &mut times).is_none());
+    }
+    report(&format!("{group} 件を 1 回で除く"), &mut times, declined);
+
+    println!(
+        "  足す・除く変更の後: 変えたレコード {}、行 {}（うち、除いて場所を残したもの {}）、取り消せる変更 {} 回、変えたレコードと取り消しの列のメモリ {:.2} MiB",
+        document.edited_records(),
+        document.rows.len(),
+        document.gone_rows(),
+        document.undo_len(),
+        mib(document.edit_bytes())
+    );
+    saving(document, options.runs, "足す・除く変更の後");
+
+    // 取り消しとやり直し。後ろから戻す
+    let mut undone: [Vec<f64>; 7] = Default::default();
+    for &kind in bench.pushed.iter().rev() {
+        let start = now();
+        let done = document.undo();
+        let elapsed = us(start);
+        if done && let Some(times) = undone.get_mut(kind) {
+            times.push(elapsed);
+        }
+    }
+    for (name, times) in KINDS.iter().zip(&mut undone) {
+        if !times.is_empty() {
+            report(&format!("取り消す（{name}）"), times, 0);
+        }
+    }
+    let mut redone: [Vec<f64>; 7] = Default::default();
+    for &kind in &bench.pushed {
+        let start = now();
+        let done = document.redo();
+        let elapsed = us(start);
+        if done && let Some(times) = redone.get_mut(kind) {
+            times.push(elapsed);
+        }
+    }
+    for (name, times) in KINDS.iter().zip(&mut redone) {
+        if !times.is_empty() {
+            report(&format!("やり直す（{name}）"), times, 0);
+        }
+    }
 }
 
 /// 1 つの入力を測る
@@ -305,128 +722,7 @@ pub fn run(path: &str, options: &Options) -> Result<(), String> {
     if let Some(locked) = document.locked {
         println!("  この文書の変更は受け付けない: {locked:?}");
     } else if !handles.is_empty() {
-        let mut random = Random(options.seed);
-        // 取り消しの列に積んだ変更の、要素の数
-        let mut pushed: Vec<usize> = Vec::new();
-        let mut step = |document: &mut Document, edits: &[Edit], times: &mut Vec<f64>| -> bool {
-            let start = now();
-            let done = document.apply(edits).is_ok();
-            let elapsed = us(start);
-            if done {
-                times.push(elapsed);
-                pushed.push(edits.len());
-            }
-            done
-        };
-        let shift = |random: &mut Random| {
-            [
-                1.0,
-                0.0,
-                random.between(-span, span) / 64.0,
-                0.0,
-                1.0,
-                random.between(-span, span) / 64.0,
-            ]
-        };
-        let pick = |random: &mut Random| {
-            handles
-                .get(random.below(handles.len()))
-                .copied()
-                .unwrap_or(0)
-        };
-
-        let (mut times, mut declined) = (Vec::with_capacity(2000), 0);
-        for _ in 0..2000 {
-            let edit = Edit {
-                handle: pick(&mut random),
-                matrix: shift(&mut random),
-            };
-            declined += usize::from(!step(&mut document, &[edit], &mut times));
-        }
-        report("1 件を動かす（毎回、別の要素）", &mut times, declined);
-
-        let (mut times, mut declined) = (Vec::with_capacity(2000), 0);
-        let handle = pick(&mut random);
-        for _ in 0..2000 {
-            let edit = Edit {
-                handle,
-                matrix: [1.0, 0.0, span / 4096.0, 0.0, 1.0, span / 8192.0],
-            };
-            declined += usize::from(!step(&mut document, &[edit], &mut times));
-        }
-        report("1 件を動かす（同じ要素を続けて）", &mut times, declined);
-
-        let (mut times, mut declined) = (Vec::with_capacity(2000), 0);
-        for _ in 0..2000 {
-            let x = random.between(x0, x1);
-            let y = random.between(y0, y1);
-            let edit = Edit {
-                handle: pick(&mut random),
-                matrix: Affine::rotation(x, y, 90.0).m,
-            };
-            declined += usize::from(!step(&mut document, &[edit], &mut times));
-        }
-        report("1 件を回す", &mut times, declined);
-
-        let (mut times, mut declined) = (Vec::with_capacity(200), 0);
-        let group = handles.len().min(100);
-        for _ in 0..200 {
-            // 続いた 100 件を、同じだけ動かす
-            let first = random.below(handles.len() - group + 1);
-            let matrix = shift(&mut random);
-            let edits: Vec<Edit> = handles
-                .iter()
-                .skip(first)
-                .take(group)
-                .map(|&handle| Edit { handle, matrix })
-                .collect();
-            declined += usize::from(!step(&mut document, &edits, &mut times));
-        }
-        report(&format!("{group} 件を 1 回で動かす"), &mut times, declined);
-        println!(
-            "  変更の後: 変えたレコード {}、取り消せる変更 {} 回、変えたレコードと取り消しの列のメモリ {:.2} MiB",
-            document.edited_records(),
-            document.undo_len(),
-            mib(document.edit_bytes())
-        );
-
-        // 保存
-        let mut times = Vec::with_capacity(options.runs);
-        let mut saved = 0;
-        for _ in 0..options.runs {
-            let start = now();
-            let out = document.save();
-            times.push(ms(start));
-            saved = out.len();
-        }
-        println!(
-            "  全体を保存する: 中央値 {:.2} ms（{saved} バイト）",
-            median(&mut times)
-        );
-
-        // 取り消しとやり直し。後ろから戻す
-        let (mut single, mut many) = (Vec::new(), Vec::new());
-        for &size in pushed.iter().rev() {
-            let start = now();
-            let done = document.undo();
-            let elapsed = us(start);
-            if done {
-                if size == 1 { &mut single } else { &mut many }.push(elapsed);
-            }
-        }
-        report("取り消す（1 件の変更）", &mut single, 0);
-        report(&format!("取り消す（{group} 件の変更）"), &mut many, 0);
-        let (mut single, mut many) = (Vec::new(), Vec::new());
-        for &size in &pushed {
-            let start = now();
-            let done = document.redo();
-            let elapsed = us(start);
-            if done {
-                if size == 1 { &mut single } else { &mut many }.push(elapsed);
-            }
-        }
-        report("やり直す（1 件の変更）", &mut single, 0);
-        report(&format!("やり直す（{group} 件の変更）"), &mut many, 0);
+        editing(&mut document, &handles, extent, options);
     }
 
     // 範囲で選ぶ。変更の後
