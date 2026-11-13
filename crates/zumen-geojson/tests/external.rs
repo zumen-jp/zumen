@@ -9,7 +9,7 @@ use std::process::{Command, Stdio};
 use zumen_base::{Budget, CancelToken, Cx, Diagnostics, Ref};
 use zumen_crs::{Crs, GeoPoint, MapPoint, Zone};
 use zumen_geo::{Attribute, Feature, Form, GeoModel, Geometry, Location, Position, Value};
-use zumen_geojson::{lower_to_geojson, GeoJson};
+use zumen_geojson::{GeoJson, lower_to_geojson};
 use zumen_geom3d::{Face, Shape};
 use zumen_sdk::{Codec, Lift};
 
@@ -374,12 +374,16 @@ fn matches_shapely_across_wgs84_plane_and_closed_solid() {
     );
     let solid_coords = parse_coords(solid_cols[4]);
     assert_eq!(solid_coords.len(), 10);
-    assert!(solid_coords[0..5]
-        .iter()
-        .all(|c| (c[2] - 0.0).abs() < 1e-12));
-    assert!(solid_coords[5..10]
-        .iter()
-        .all(|c| (c[2] - 15.0).abs() < 1e-12));
+    assert!(
+        solid_coords[0..5]
+            .iter()
+            .all(|c| (c[2] - 0.0).abs() < 1e-12)
+    );
+    assert!(
+        solid_coords[5..10]
+            .iter()
+            .all(|c| (c[2] - 15.0).abs() < 1e-12)
+    );
 
     // 3. 平面直角座標系 IX 系の逆投影 GeoJSON も Shapely で有効な図形になり、座標が原点（139°50′E, 36°N）と一致すること
     let plane_model = GeoModel {
