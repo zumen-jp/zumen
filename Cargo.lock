@@ -654,6 +654,7 @@ dependencies = [
  "zumen-scene",
  "zumen-sdk",
  "zumen-sxf",
+ "zumen-text",
  "zumen-xyz",
  "zumen-zip",
 ]
@@ -1042,6 +1043,7 @@ dependencies = [
  "zumen-geom2d",
  "zumen-review",
  "zumen-sdk",
+ "zumen-text",
 ]
 
 [[package]]
@@ -1070,6 +1072,15 @@ dependencies = [
  "zumen-sdk",
  "zumen-step",
  "zumen-xml",
+]
+
+[[package]]
+name = "zumen-text"
+version = "0.2.0"
+dependencies = [
+ "libm",
+ "zumen-base",
+ "zumen-drawing",
 ]
 
 [[package]]

@@ -1,10 +1,10 @@
 //! `scene` の op（決定 0172）。起点と色の表を読み、`zumen-scene` でシーンを作る。
 
 use zumen_base::Cx;
-use zumen_drawing::layout::Reference;
 use zumen_drawing::{ColorSystem, Drawing2D, Origin, Unit, id};
 use zumen_json::Value;
 use zumen_scene::{Chunking, FontSet, Options, Palette};
+use zumen_text::layout::Reference;
 
 use crate::messages::{self, Extent, HeightReference, SceneCounts, SceneRequest, SceneResult};
 use crate::session::{Failed, fail, invalid_value};

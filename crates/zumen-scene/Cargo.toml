@@ -15,6 +15,7 @@ zumen-drawing = { version = "0.2.0", path = "../zumen-drawing" }
 zumen-geom2d = { version = "0.2.0", path = "../zumen-geom2d" }
 # レビューの領域モデルから、図面とは別のシーンを作る（決定 0295）。内部の MIT OR Apache-2.0 の crate。
 zumen-review = { version = "0.2.0", path = "../zumen-review" }
+zumen-text = { version = "0.2.0", path = "../zumen-text" }
 
 [dev-dependencies]
 zumen-acad = { path = "../zumen-acad" }

@@ -10,14 +10,14 @@
 use std::collections::BTreeMap;
 
 use zumen_base::{Diagnostic, Ref, Stop, codes};
-use zumen_drawing::font::{Contour, Font as Face, Segment};
-use zumen_drawing::layout::{self, Glyphs, Reference};
 use zumen_drawing::transform::Point as Spot;
 use zumen_drawing::{
     FormattedText, Height, HeightMeaning, Horizontal, Length, PaperLength, Piece, Placement, Text,
     Vertical, VisitRef,
 };
 use zumen_geom2d::Xy;
+use zumen_text::font::{Contour, Font as Face, Segment};
+use zumen_text::layout::{self, Glyphs, Reference};
 
 use crate::{Builder, GlyphItem, TextItem, layout::text_flag};
 
@@ -351,7 +351,7 @@ impl Builder<'_, '_, '_> {
         if let Some(row) = self.shape_rows.get(&key) {
             return Ok(*row);
         }
-        // drawing::font の glyf/CFF/CFF2 は、1 字形の点・部品または数・命令を 2^16 に制限する。
+        // zumen-text の glyf/CFF/CFF2 は、1 字形の点・部品または数・命令を 2^16 に制限する。
         // 輪郭を読む前に、その 256 バイト/項目を予約する。glyf の端点・旗・座標・点・輪郭の Vec、
         // CFF のスタックと輪郭、深さ 8 の glyf と深さ 10 の CFF の一時の列を含める。
         self.cx

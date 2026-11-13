@@ -11,7 +11,7 @@
 | L0 字句・コンテナー | `step`・`xml`・`zip` | 形式の意味に依存しない部品を共有する |
 | L1 ファイルモデル | `acad`（DXF・DWG）・`sxf`・`jww`・`ifc` | 異なる系統同士は依存しない。系統内でモデルを共有し、未知のレコードも元のバイト範囲と結び付ける |
 | L2 領域モデル | `drawing`・`building`・`civil`・`geo`・`pointcloud` | L1 の型に依存しない。系統と領域をつなぐ処理が双方の型を扱う |
-| L3 派生と照合 | `geom2d`・`scene`・`render`・`civil-drawing`・`profile`・`review`・`ids`・`bcf`・`asbuilt` | 領域モデルから作り直せる。元の要素とレコードまで出所をたどれるようにする |
+| L3 派生と照合 | `geom2d`・`text`・`scene`・`render`・`civil-drawing`・`profile`・`review`・`ids`・`bcf`・`asbuilt` | 領域モデルから作り直せる。元の要素とレコードまで出所をたどれるようにする |
 
 形式別のリーダーは `zumen-landxml` など各形式の crate、納品・写真・ボーリングは `zumen-delivery`・`zumen-photo`・`zumen-geology` にあります。共通部品は `zumen-base`・`zumen-json`・`zumen-crs`・`zumen-geom3d`、入口は `zumen`（Rust）・`zumen-abi`（C ABI・wasm）・`zumen-sdk`（形式・プラグインの開発）です。
 

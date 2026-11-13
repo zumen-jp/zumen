@@ -11,7 +11,7 @@ use libfuzzer_sys::fuzz_target;
 use zumen_base::{
     Budget, CancelToken, Cx, Diagnostic, Diagnostics, Kind, Limit, Limits, Ref, Stop,
 };
-use zumen_drawing::font::Font;
+use zumen_text::font::Font;
 use zumen_drawing::{
     Affine, Axes, Drawing2D, ModelSpace, Origin, Sheet, SheetId, SpaceId, Unit, View,
 };

@@ -19,7 +19,7 @@
 
 use std::borrow::Cow;
 
-use crate::{
+use zumen_drawing::{
     Fit, Flow, Font, Format, FormattedText, HeightMeaning, Horizontal, Length, Piece, Placement,
     Rotation, Scaled, StackKind, Text, Vertical,
 };
@@ -1344,7 +1344,7 @@ fn finite(metrics: &FontMetrics) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{FontKind, Height, LineSpacing, PaperLength, Span, StackKind};
+    use zumen_drawing::{FontKind, Height, LineSpacing, PaperLength, Span, StackKind};
 
     /// 合成のフォント。em は 1000、大文字の高さ 700、アセンダー 800、ディセンダー 200。
     /// `A` は送り 600・外形 0〜600 × 0〜700、`g` は送り 500・外形 50〜450 × -200〜500、空白は送り 250

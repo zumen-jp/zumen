@@ -38,6 +38,7 @@ zumen-review = { version = "0.2.0", path = "../zumen-review" }
 # 決定 0272 の描画部品を、scene と同じ図面モデルから使う（決定 0275）
 zumen-render = { version = "0.2.0", path = "../zumen-render" }
 zumen-scene = { version = "0.2.0", path = "../zumen-scene" }
+zumen-text = { version = "0.2.0", path = "../zumen-text" }
 zumen-jww = { version = "0.2.0", path = "../zumen-jww" }
 zumen-bcf = { version = "0.2.0", path = "../zumen-bcf" }
 zumen-civil = { version = "0.2.0", path = "../zumen-civil" }

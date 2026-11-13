@@ -670,7 +670,7 @@ fn u32_at(data: &[u8], at: usize) -> Option<u32> {
 mod tests {
     use super::*;
     use crate::layout::{Reference, place};
-    use crate::{
+    use zumen_drawing::{
         Height, HeightMeaning, Horizontal, Length, PaperLength, Placement, Text, Vertical,
     };
 

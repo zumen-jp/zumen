@@ -1,0 +1,17 @@
+[package]
+name = "zumen-text"
+description = "zumen のフォント読み取りと文字の配置（L3）。図面の領域モデルの文字を字形の寸法で置く"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = true
+
+[dependencies]
+# 角度とカーブの計算（決定 0007）。どの対象でも同じ値にする
+libm = { version = "0.2.16", default-features = false }
+zumen-base = { version = "0.2.0", path = "../zumen-base" }
+zumen-drawing = { version = "0.2.0", path = "../zumen-drawing" }
+
+[lints]
+workspace = true

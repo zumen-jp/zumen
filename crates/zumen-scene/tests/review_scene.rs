@@ -5,7 +5,6 @@ use std::collections::BTreeSet;
 use zumen_base::{
     Budget, CancelToken, Cx, Diagnostic, Diagnostics, Key, Kind, Limit, Limits, Ref, Stop, Value,
 };
-use zumen_drawing::font::Font as Face;
 use zumen_drawing::{
     Affine, Axes, Color, Drawing2D, Element, Inherit, Layer, LayerId, ModelPoint, ModelSpace,
     Origin, Shape, Sheet, SheetId, SpaceId, Style, Unit, View,
@@ -16,6 +15,7 @@ use zumen_scene::{
     Chunking, FontSet, Options, Palette, ReviewArrows, ReviewError, ReviewOptions, ReviewScene,
     ReviewSourceKind, ReviewStyle, build, build_review, build_review_with,
 };
+use zumen_text::font::Font as Face;
 
 const MODEL: SpaceId = SpaceId(0);
 const TOPIC: &str = "11111111-1111-4111-8111-111111111111";

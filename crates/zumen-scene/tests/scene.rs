@@ -2,8 +2,6 @@
 
 use zumen_acad::Dxf;
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Kind, Limit, Limits, Stop, codes};
-use zumen_drawing::font::Font as Face;
-use zumen_drawing::layout::Reference;
 use zumen_drawing::{
     Color, ColorSystem, Dimension, DimensionKind, DimensionText, Drawing2D, Fill, Format, Hatch,
     HatchLoop, Height, HeightMeaning, Inherit, Islands, Label, Length, LineType,
@@ -13,6 +11,8 @@ use zumen_drawing::{
 use zumen_scene::layout::{self, SECTIONS};
 use zumen_scene::{Chunking, FontSet, Options, Palette, Scene, build, build_with};
 use zumen_sdk::{Lift, testkit};
+use zumen_text::font::Font as Face;
+use zumen_text::layout::Reference;
 
 const MODEL: SpaceId = SpaceId(0);
 
@@ -1190,7 +1190,7 @@ fn same_drawing_gives_the_same_bytes() {
     assert!(a.tolerance > 0.0 && a.tolerance < 0.01);
 }
 
-/// テストの中で組み立てた TrueType のフォント（zumen-drawing の font のテストの `outlined` と同じバイト列）。
+/// テストの中で組み立てた TrueType のフォント（zumen-text の font のテストの `outlined` と同じバイト列）。
 /// em 1000・大文字の高さ 700。字形は .notdef（四角）・`H`（2 つの長方形）・`g`（2 次曲線の菱形）・空白・
 /// `I`（`H` と `g` を並べた複合の字形）
 const FONT: &[&str] = &[
