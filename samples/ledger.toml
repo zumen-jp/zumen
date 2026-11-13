@@ -549,3 +549,52 @@ retrieved = "2026-11-11"
 license = "BSD-3-Clause"
 license-url = "https://github.com/PDAL/PDAL/blob/afbe6f7794bfe40394f27f46b2a6da0da3f1afb2/LICENSE.txt"
 attribution = "Copyright (c) 2019, Hobu, Inc. ライセンスの全文は licenses/pdal.txt。PDAL/PDAL#2925 で合成の 1 点の読み書きのテストと共に追加された。LICENSE.txt は別記のない全ファイルを BSD とし、このファイルへの別条件はない"
+
+[[samples]]
+path = "dxf/ezdxf-ascii-r12.dxf"
+sha256 = "b476d3e53fe24c1db3c701d20b2bebd774f7bd7966b12d81891505b9b29e4d21"
+bytes = 6766
+title = "ASCII_R12.dxf（Unicode エスケープを含む R12（AC1009）の DXF）"
+publisher = "Manfred Moitzi（ezdxf）"
+url = "https://raw.githubusercontent.com/mozman/ezdxf/5265e6e6d02388a95f406c26983e5c39452ad003/integration_tests/data/ASCII_R12.dxf"
+retrieved = "2026-11-13"
+license = "MIT"
+license-url = "https://github.com/mozman/ezdxf/blob/5265e6e6d02388a95f406c26983e5c39452ad003/LICENSE"
+attribution = "Copyright (c) 2020 Manfred Moitzi. ezdxf の integration_tests/data/ASCII_R12.dxf。MIT License の本文は licenses/ezdxf-MIT.txt"
+
+[[samples]]
+path = "dxf/ezdxf-mtext-columns-r2007.dxf"
+sha256 = "f0a04b0072986e6623eb9caf2562ef3064ef88ba1f9015724f856fd6937ab2e9"
+bytes = 22331
+title = "mtext_columns_R2007.dxf（段組みの MTEXT を含む R2007（AC1021）の DXF）"
+publisher = "Manfred Moitzi（ezdxf）"
+url = "https://raw.githubusercontent.com/mozman/ezdxf/5265e6e6d02388a95f406c26983e5c39452ad003/examples_dxf/mtext_columns_R2007.dxf"
+retrieved = "2026-11-13"
+license = "MIT"
+license-url = "https://github.com/mozman/ezdxf/blob/5265e6e6d02388a95f406c26983e5c39452ad003/LICENSE"
+attribution = "Copyright (c) 2020 Manfred Moitzi. ezdxf が書き出した examples_dxf/mtext_columns_R2007.dxf。MIT License の本文は licenses/ezdxf-MIT.txt"
+
+[[samples]]
+path = "jww/ezjww-geometry.jww"
+sha256 = "d4d9d889c1ea088fe588fe9d6772deb75ae331999d97a024fb6911d8dbaf836a"
+bytes = 17565
+title = "geometry.jww（線・円・円弧・点・ソリッド・寸法を含む JWW）"
+publisher = "k-tanaka（ezjww）"
+url = "https://raw.githubusercontent.com/monozukuri-ai/ezjww/c88ffeafc0771b337dcb727eb8b7eeb8a4b193d0/jws_samples/inputs/geometry.jww"
+retrieved = "2026-11-13"
+license = "MIT"
+license-url = "https://github.com/monozukuri-ai/ezjww/blob/c88ffeafc0771b337dcb727eb8b7eeb8a4b193d0/LICENSE"
+attribution = "Copyright (c) 2026 k-tanaka. ezjww が生成した公開サンプル（jws_samples/README.md が MIT での提供を明記）。MIT License の本文は licenses/ezjww-MIT.txt"
+
+[[samples]]
+path = "sxf/ezsxf-writer-all-features.sfc"
+sha256 = "b3d90bc02cd5cfafb03d0f3f94976809cef65fe6d7a1e5642ae6a5874afd9b70"
+bytes = 7397
+title = "writer_all_features.sfc（SXF Ver.3.1 の主要フィーチャ・作図部品・作図グループ・属性付加機構を含む SFC）"
+publisher = "nekanat（ezsxf）"
+url = "https://raw.githubusercontent.com/monozukuri-ai/ezsxf/0443a29e5874c9c91d7b9a7ccb84b8515f8f684e/tests/fixtures/writer_all_features.sfc"
+retrieved = "2026-11-13"
+license = "MIT"
+license-url = "https://github.com/monozukuri-ai/ezsxf/blob/0443a29e5874c9c91d7b9a7ccb84b8515f8f684e/LICENSE"
+attribution = "Copyright (c) 2026 nekanat. ezsxf の書き出しテスト用の SFC。MIT License の本文は licenses/ezsxf-MIT.txt"
+changes = "SXF Ver.3.1 の SFC 仕様に合わせて文字コードを UTF-8 から Shift_JIS（cp932）にした。取得したファイルは 7,465 バイト、SHA-256 は 60c5af8ca5a35f58ea95ee692e8e2e30f821e7ce3ad2f0b5c8b00557b9cb1756。フィーチャと値は変えていない"

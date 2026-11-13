@@ -163,6 +163,19 @@ impl DwgFile {
 
     /// 表 `db` を書き戻す変更
     fn changes(&self, db: &AcadDb, base: &AcadDb) -> Result<Changes, Box<Diagnostic>> {
+        if self.release == Release::R2007 {
+            let same_vars = base
+                .variables()
+                .chain(db.variables())
+                .map(|(n, _)| n)
+                .all(|n| base.variable(n) == db.variable(n));
+            if db.objects() == base.objects() && same_vars {
+                return Ok(Changes::default());
+            }
+            return Err(Box::new(
+                Diagnostic::new(codes::DWG_EDIT_UNSUPPORTED).with("version", "AC1021"),
+            ));
+        }
         let r2004 = self.release == Release::R2004;
         let r2010 = self.release >= Release::R2010;
         let records: BTreeMap<usize, usize> = self

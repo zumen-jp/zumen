@@ -253,7 +253,7 @@ def check_handles(entry, reading, counts, view):
         counts["elements"] += 1
         # 用紙の要素は mm に直しているので、形はモデル空間だけで比べる
         top = where.startswith("space/0/") and "/" not in where[len("space/0/") :]
-        if top and shape is None and e["type"] in COMPARABLE:
+        if top and shape is None and e["type"] in COMPARABLE and e["geometry"] is not None:
             failures.append(f"{where}: {e['type']} {handle} の要素が形を持たない")
         if top and shape in TYPES and e["geometry"] is not None:
             counts["shapes"] += 1

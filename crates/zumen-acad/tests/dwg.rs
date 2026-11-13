@@ -3349,7 +3349,7 @@ fn a_missing_layer_is_reported() {
 #[test]
 fn other_versions_are_not_read_yet() {
     let mut src = sample();
-    src[..6].copy_from_slice(b"AC1021");
+    src[..6].copy_from_slice(b"AC1014");
     let (result, diag) = read(&src, Limits::default());
     assert!(matches!(result, Err(Error::Unsupported)));
     assert_eq!(codes_of(&diag), [codes::DWG_VERSION_UNSUPPORTED]);
@@ -10356,20 +10356,20 @@ fn header_with_seed(
     limits: [f64; 4],
     seed: u64,
 ) -> Vec<u8> {
-    let split = release >= 2010;
-    let last = if split {
-        "t2 d9 d2 s1 c1 b6 s3 s1 d9 b1 s1 b4 c3 s11 b2 s4 b1 s1 b2 d1 t1 d1 t1 h5 h3 s2"
-    } else {
-        "t2 d9 b6 s3 d9 b1 s1 b4 c3 s11 b2 s4 b1 s1 h5 s2"
+    let split = release >= 2007;
+    let last = match release {
+        2004 => "t2 d9 b6 s3 d9 b1 s1 b4 c3 s11 b2 s4 b1 s1 h5 s2",
+        2007 => "t2 d9 d2 s1 c1 b6 s3 s1 d9 b1 s1 b4 c3 s11 b2 s4 b1 s1 b1 h5 h3 s2",
+        _ => "t2 d9 d2 s1 c1 b6 s3 s1 d9 b1 s1 b4 c3 s11 b2 s4 b1 s1 b2 d1 t1 d1 t1 h5 h3 s2",
     };
     let tail = match release {
         2004 => "h12 s2 t2 h5 l1",
-        2010 => "h12 s2 t2 h7 l1",
+        2007 | 2010 => "h12 s2 t2 h7 l1",
         _ => "h12 s2 t2 h8 l1",
     };
     let space = "d9 r4 d10 h2 s1 h1 d18";
     let layout = format!(
-        "d4 t4 l2 b21 s7 M1 l3 s19 d7 Z1 d13 t1 l4 l3 l4 c1 S1 h5 d1 d9 P4 d10 h2 s1 h1 d18 \
+        "d4 t4 l2 b21 s7 M1 l3 s19 L1 d6 Z1 d13 t1 l4 l3 l4 c1 S1 h5 d1 d9 P4 d10 h2 s1 h1 d18 \
          {space} {last} {tail} U1 E1 h1 t2 C6 s2 C2 t1 X1 Y1"
     );
     let (mut main, mut strings, mut handles) = (
@@ -10413,6 +10413,7 @@ fn header_with_seed(
                 "P" => main.rd(limits.next().unwrap()),
                 "U" => main.bs(4),
                 "E" => main.bs(3),
+                "L" => main.bd(1.0),
                 "M" => main.bs(point_mode),
                 "Z" => main.bd(point_size),
                 "S" => main.handle(0, seed),
@@ -10888,4 +10889,727 @@ fn drawing_text_and_names_are_written_back_in_shift_jis_to_a_dwg() {
         );
         assert_eq!(written, src);
     }
+}
+
+/// R2007 の 32 バイト単位・端数（1〜31 バイト）の並び替えの逆写像を使って、LZ77 のリテラル列を作る。
+/// 末尾が同じバイトの 3 回以上の繰り返しなら、後方参照の命令も混ぜる
+#[cfg(test)]
+fn r2007_compress(plain: &[u8]) -> Vec<u8> {
+    fn map_indices(len: usize) -> Vec<usize> {
+        let src: Vec<usize> = (0..len).collect();
+        let mut dst = vec![0usize; len];
+        let mut si = 0usize;
+        let mut di = 0usize;
+        let mut rem = len;
+        let c1 = |s: &[usize], si: usize, d: &mut [usize], di: usize| d[di] = s[si];
+        let c2 = |s: &[usize], si: usize, d: &mut [usize], di: usize| {
+            d[di] = s[si + 1];
+            d[di + 1] = s[si];
+        };
+        let c3 = |s: &[usize], si: usize, d: &mut [usize], di: usize| {
+            d[di] = s[si + 2];
+            d[di + 1] = s[si + 1];
+            d[di + 2] = s[si];
+        };
+        let c4 = |s: &[usize], si: usize, d: &mut [usize], di: usize| {
+            d[di..di + 4].copy_from_slice(&s[si..si + 4]);
+        };
+        let c8 = |s: &[usize], si: usize, d: &mut [usize], di: usize| {
+            d[di..di + 8].copy_from_slice(&s[si..si + 8]);
+        };
+        let c16 = |s: &[usize], si: usize, d: &mut [usize], di: usize| {
+            c8(s, si + 8, d, di);
+            c8(s, si, d, di + 8);
+        };
+        while rem >= 32 {
+            c4(&src, si + 24, &mut dst, di);
+            c4(&src, si + 28, &mut dst, di + 4);
+            c4(&src, si + 16, &mut dst, di + 8);
+            c4(&src, si + 20, &mut dst, di + 12);
+            c4(&src, si + 8, &mut dst, di + 16);
+            c4(&src, si + 12, &mut dst, di + 20);
+            c4(&src, si, &mut dst, di + 24);
+            c4(&src, si + 4, &mut dst, di + 28);
+            si += 32;
+            di += 32;
+            rem -= 32;
+        }
+        match rem {
+            0 => {}
+            1 => c1(&src, si, &mut dst, di),
+            2 => c2(&src, si, &mut dst, di),
+            3 => c3(&src, si, &mut dst, di),
+            4 => c4(&src, si, &mut dst, di),
+            5 => {
+                c1(&src, si + 4, &mut dst, di);
+                c4(&src, si, &mut dst, di + 1);
+            }
+            6 => {
+                c1(&src, si + 5, &mut dst, di);
+                c4(&src, si + 1, &mut dst, di + 1);
+                c1(&src, si, &mut dst, di + 5);
+            }
+            7 => {
+                c2(&src, si + 5, &mut dst, di);
+                c4(&src, si + 1, &mut dst, di + 2);
+                c1(&src, si, &mut dst, di + 6);
+            }
+            8 => c8(&src, si, &mut dst, di),
+            9 => {
+                c1(&src, si + 8, &mut dst, di);
+                c8(&src, si, &mut dst, di + 1);
+            }
+            10 => {
+                c1(&src, si + 9, &mut dst, di);
+                c8(&src, si + 1, &mut dst, di + 1);
+                c1(&src, si, &mut dst, di + 9);
+            }
+            11 => {
+                c2(&src, si + 9, &mut dst, di);
+                c8(&src, si + 1, &mut dst, di + 2);
+                c1(&src, si, &mut dst, di + 10);
+            }
+            12 => {
+                c4(&src, si + 8, &mut dst, di);
+                c8(&src, si, &mut dst, di + 4);
+            }
+            13 => {
+                c1(&src, si + 12, &mut dst, di);
+                c4(&src, si + 8, &mut dst, di + 1);
+                c8(&src, si, &mut dst, di + 5);
+            }
+            14 => {
+                c1(&src, si + 13, &mut dst, di);
+                c4(&src, si + 9, &mut dst, di + 1);
+                c8(&src, si + 1, &mut dst, di + 5);
+                c1(&src, si, &mut dst, di + 13);
+            }
+            15 => {
+                c2(&src, si + 13, &mut dst, di);
+                c4(&src, si + 9, &mut dst, di + 2);
+                c8(&src, si + 1, &mut dst, di + 6);
+                c1(&src, si, &mut dst, di + 14);
+            }
+            16 => c16(&src, si, &mut dst, di),
+            17 => {
+                c8(&src, si + 9, &mut dst, di);
+                c1(&src, si + 8, &mut dst, di + 8);
+                c8(&src, si, &mut dst, di + 9);
+            }
+            18 => {
+                c1(&src, si + 17, &mut dst, di);
+                c16(&src, si + 1, &mut dst, di + 1);
+                c1(&src, si, &mut dst, di + 17);
+            }
+            19 => {
+                c3(&src, si + 16, &mut dst, di);
+                c16(&src, si, &mut dst, di + 3);
+            }
+            20 => {
+                c4(&src, si + 16, &mut dst, di);
+                c8(&src, si + 8, &mut dst, di + 4);
+                c8(&src, si, &mut dst, di + 12);
+            }
+            21 => {
+                c1(&src, si + 20, &mut dst, di);
+                c4(&src, si + 16, &mut dst, di + 1);
+                c8(&src, si + 8, &mut dst, di + 5);
+                c8(&src, si, &mut dst, di + 13);
+            }
+            22 => {
+                c2(&src, si + 20, &mut dst, di);
+                c4(&src, si + 16, &mut dst, di + 2);
+                c8(&src, si + 8, &mut dst, di + 6);
+                c8(&src, si, &mut dst, di + 14);
+            }
+            23 => {
+                c3(&src, si + 20, &mut dst, di);
+                c4(&src, si + 16, &mut dst, di + 3);
+                c8(&src, si + 8, &mut dst, di + 7);
+                c8(&src, si, &mut dst, di + 15);
+            }
+            24 => {
+                c8(&src, si + 16, &mut dst, di);
+                c16(&src, si, &mut dst, di + 8);
+            }
+            25 => {
+                c8(&src, si + 17, &mut dst, di);
+                c1(&src, si + 16, &mut dst, di + 8);
+                c16(&src, si, &mut dst, di + 9);
+            }
+            26 => {
+                c1(&src, si + 25, &mut dst, di);
+                c8(&src, si + 17, &mut dst, di + 1);
+                c1(&src, si + 16, &mut dst, di + 9);
+                c16(&src, si, &mut dst, di + 10);
+            }
+            27 => {
+                c2(&src, si + 25, &mut dst, di);
+                c8(&src, si + 17, &mut dst, di + 2);
+                c1(&src, si + 16, &mut dst, di + 10);
+                c16(&src, si, &mut dst, di + 11);
+            }
+            28 => {
+                c4(&src, si + 24, &mut dst, di);
+                c8(&src, si + 16, &mut dst, di + 4);
+                c8(&src, si + 8, &mut dst, di + 12);
+                c8(&src, si, &mut dst, di + 20);
+            }
+            29 => {
+                c1(&src, si + 28, &mut dst, di);
+                c4(&src, si + 24, &mut dst, di + 1);
+                c8(&src, si + 16, &mut dst, di + 5);
+                c8(&src, si + 8, &mut dst, di + 13);
+                c8(&src, si, &mut dst, di + 21);
+            }
+            30 => {
+                c2(&src, si + 28, &mut dst, di);
+                c4(&src, si + 24, &mut dst, di + 2);
+                c8(&src, si + 16, &mut dst, di + 6);
+                c8(&src, si + 8, &mut dst, di + 14);
+                c8(&src, si, &mut dst, di + 22);
+            }
+            _ => {
+                c1(&src, si + 30, &mut dst, di);
+                c4(&src, si + 26, &mut dst, di + 1);
+                c8(&src, si + 18, &mut dst, di + 5);
+                c8(&src, si + 10, &mut dst, di + 13);
+                c8(&src, si + 2, &mut dst, di + 21);
+                c2(&src, si, &mut dst, di + 29);
+            }
+        }
+        dst
+    }
+
+    assert!(plain.len() >= 8);
+    let use_backref = plain.len() >= 12
+        && plain[plain.len() - 4..]
+            .windows(2)
+            .all(|pair| pair[0] == pair[1]);
+    let lit_len = if use_backref {
+        plain.len() - 3
+    } else {
+        plain.len()
+    };
+    let mut out = Vec::new();
+    if lit_len < 0x17 {
+        out.push((lit_len - 8) as u8);
+    } else {
+        out.push(0x0F);
+        let extra = lit_len - 0x17;
+        if extra < 0xFF {
+            out.push(extra as u8);
+        } else {
+            out.push(0xFF);
+            let mut rest = extra - 0xFF;
+            while rest >= 0xFFFF {
+                out.extend_from_slice(&0xFFFFu16.to_le_bytes());
+                rest -= 0xFFFF;
+            }
+            out.extend_from_slice(&(rest as u16).to_le_bytes());
+        }
+    }
+    let mapped = map_indices(lit_len);
+    let mut literals = vec![0u8; lit_len];
+    for (di, &si) in mapped.iter().enumerate() {
+        literals[si] = plain[di];
+    }
+    out.extend_from_slice(&literals);
+    if use_backref {
+        // 長さ 3・オフセット 1 の短い後方参照（op >> 4 == 3, op & 0x0F == 0, b0 == 0）
+        out.extend_from_slice(&[0x30, 0x00]);
+    }
+    out
+}
+
+#[cfg(test)]
+fn rs_encode_cw(msg: &[u8], block_size: usize) -> [u8; 255] {
+    let poly: u16 = if block_size == 239 { 0x169 } else { 0x11D };
+    let nroots = 255 - block_size;
+    let mut exp = [0u8; 512];
+    let mut log = [0u8; 256];
+    let mut x = 1u16;
+    for i in 0..255usize {
+        exp[i] = x as u8;
+        exp[i + 255] = x as u8;
+        log[x as usize] = i as u8;
+        x <<= 1;
+        if (x & 0x100) != 0 {
+            x ^= poly;
+        }
+    }
+    let gf_mul = |a: u8, b: u8| -> u8 {
+        if a == 0 || b == 0 {
+            0
+        } else {
+            exp[usize::from(log[usize::from(a)]) + usize::from(log[usize::from(b)])]
+        }
+    };
+    let mut g = vec![0u8; nroots + 1];
+    g[0] = 1;
+    for (r, &alpha_r) in exp.iter().enumerate().take(nroots + 1).skip(1) {
+        for j in (1..=r).rev() {
+            g[j] = g[j - 1] ^ gf_mul(g[j], alpha_r);
+        }
+        g[0] = gf_mul(g[0], alpha_r);
+    }
+    let mut cw = [0u8; 255];
+    cw[..msg.len()].copy_from_slice(msg);
+    let mut parity = vec![0u8; nroots];
+    for idx in (0..block_size).rev() {
+        let fb = cw[idx] ^ parity[nroots - 1];
+        if fb != 0 {
+            for j in (1..nroots).rev() {
+                parity[j] = parity[j - 1] ^ gf_mul(g[j], fb);
+            }
+            parity[0] = gf_mul(g[0], fb);
+        } else {
+            for j in (1..nroots).rev() {
+                parity[j] = parity[j - 1];
+            }
+            parity[0] = 0;
+        }
+    }
+    cw[block_size..].copy_from_slice(&parity);
+    cw
+}
+
+#[cfg(test)]
+fn rs_interleave(data: &[u8], factor: usize, block_size: usize) -> Vec<u8> {
+    let mut encoded = vec![0u8; factor * 255];
+    let mut index = 0usize;
+    let mut remaining = data.len();
+    for i in 0..factor {
+        let size = remaining.min(block_size);
+        remaining -= size;
+        let cw = rs_encode_cw(&data[index..index + size], block_size);
+        index += size;
+        for (j, &byte) in cw.iter().enumerate() {
+            encoded[i + j * factor] = byte;
+        }
+    }
+    encoded
+}
+
+/// 4 つの必須セクション（展開前の生データ）から R2007（AC1021）のコンテナーを組み立てる
+#[cfg(test)]
+fn r2007_container(sections: &[(&str, Vec<u8>)]) -> Vec<u8> {
+    let mut pages_blob = Vec::new();
+    let mut page_map_raw = Vec::new();
+    let mut sec_map_raw = Vec::new();
+
+    for (idx, (name, plain)) in sections.iter().enumerate() {
+        let page_id = (idx + 1) as i64;
+        let comp = r2007_compress(plain);
+        let aligned = (comp.len() + 7) & !7;
+        let factor = aligned.div_ceil(251);
+        let mut padded = comp.clone();
+        padded.resize(factor * 251, 0);
+        let rs_page = rs_interleave(&padded, factor, 251);
+
+        page_map_raw.extend_from_slice(&(rs_page.len() as i64).to_le_bytes());
+        page_map_raw.extend_from_slice(&page_id.to_le_bytes());
+        pages_blob.extend_from_slice(&rs_page);
+
+        let mut name_utf16: Vec<u8> = name
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .flat_map(u16::to_le_bytes)
+            .collect();
+        while !name_utf16.len().is_multiple_of(4) {
+            name_utf16.push(0);
+        }
+        let mut sec_head = [0u8; 0x40];
+        sec_head[0x00..0x08].copy_from_slice(&(plain.len() as u64).to_le_bytes());
+        sec_head[0x10..0x18].copy_from_slice(&0u64.to_le_bytes());
+        sec_head[0x20..0x28].copy_from_slice(&(name_utf16.len() as u64).to_le_bytes());
+        sec_head[0x30..0x38].copy_from_slice(&4u64.to_le_bytes());
+        sec_head[0x38..0x40].copy_from_slice(&1u64.to_le_bytes());
+        sec_map_raw.extend_from_slice(&sec_head);
+        sec_map_raw.extend_from_slice(&name_utf16);
+
+        let mut local_page = [0u8; 56];
+        local_page[0x00..0x08].copy_from_slice(&0u64.to_le_bytes());
+        local_page[0x10..0x18].copy_from_slice(&page_id.to_le_bytes());
+        local_page[0x18..0x20].copy_from_slice(&(plain.len() as u64).to_le_bytes());
+        local_page[0x20..0x28].copy_from_slice(&(comp.len() as u64).to_le_bytes());
+        sec_map_raw.extend_from_slice(&local_page);
+    }
+
+    let sm_id = (sections.len() + 1) as i64;
+    let sm_comp = r2007_compress(&sec_map_raw);
+    let sm_aligned = (sm_comp.len() + 7) & !7;
+    let sm_factor = sm_aligned.div_ceil(239);
+    let mut sm_padded = sm_comp.clone();
+    sm_padded.resize(sm_aligned, 0);
+    let sm_page = rs_interleave(&sm_padded, sm_factor, 239);
+
+    page_map_raw.extend_from_slice(&(sm_page.len() as i64).to_le_bytes());
+    page_map_raw.extend_from_slice(&sm_id.to_le_bytes());
+    pages_blob.extend_from_slice(&sm_page);
+
+    let pm_offset = pages_blob.len() as u64;
+    let pm_id = sm_id + 1;
+    // 仮の大きさを置いてからページマップ自身の圧縮後の大きさに合わせる
+    page_map_raw.extend_from_slice(&255i64.to_le_bytes());
+    page_map_raw.extend_from_slice(&pm_id.to_le_bytes());
+    let pm_comp = r2007_compress(&page_map_raw);
+    let pm_aligned = (pm_comp.len() + 7) & !7;
+    let pm_factor = pm_aligned.div_ceil(239);
+    let mut pm_padded = pm_comp.clone();
+    pm_padded.resize(pm_aligned, 0);
+    let pm_page = rs_interleave(&pm_padded, pm_factor, 239);
+    pages_blob.extend_from_slice(&pm_page);
+
+    let mut meta = [0u8; 0x110];
+    meta[0x18..0x20].copy_from_slice(&1u64.to_le_bytes());
+    meta[0x38..0x40].copy_from_slice(&pm_offset.to_le_bytes());
+    meta[0x50..0x58].copy_from_slice(&(pm_comp.len() as u64).to_le_bytes());
+    meta[0x58..0x60].copy_from_slice(&(page_map_raw.len() as u64).to_le_bytes());
+    meta[0xB0..0xB8].copy_from_slice(&(sm_comp.len() as u64).to_le_bytes());
+    meta[0xC0..0xC8].copy_from_slice(&(sm_id as u64).to_le_bytes());
+    meta[0xC8..0xD0].copy_from_slice(&(sec_map_raw.len() as u64).to_le_bytes());
+    meta[0xD8..0xE0].copy_from_slice(&1u64.to_le_bytes());
+
+    let meta_comp = r2007_compress(&meta);
+    let mut header_decoded = vec![0u8; 3 * 239];
+    header_decoded[0x18..0x1C].copy_from_slice(&(meta_comp.len() as i32).to_le_bytes());
+    header_decoded[0x20..0x20 + meta_comp.len()].copy_from_slice(&meta_comp);
+    let header_rs = rs_interleave(&header_decoded, 3, 239);
+
+    let mut out = vec![0u8; 0x480];
+    out[..6].copy_from_slice(b"AC1021");
+    out[0x13] = 30;
+    out[0x80..0x80 + header_rs.len()].copy_from_slice(&header_rs);
+    out.extend_from_slice(&pages_blob);
+    out
+}
+
+/// R2007 の UTF-16LE の文字列ストリームを持つオブジェクトを作る
+#[cfg(test)]
+fn r2007_object(
+    type_code: u16,
+    handle: u64,
+    body: impl FnOnce(&mut BitWriter, &mut BitWriter),
+    handles: impl FnOnce(&mut BitWriter),
+) -> Vec<u8> {
+    let mut w = BitWriter::default();
+    w.bs(type_code);
+    let rl_at = w.bits.len();
+    w.rl(0);
+    w.handle(0, handle);
+    w.bs(0);
+    let mut strings = BitWriter::default();
+    body(&mut w, &mut strings);
+    if strings.bits.is_empty() {
+        w.bit(false);
+    } else {
+        let str_bits = strings.bits.len() as u16;
+        w.bits.extend(strings.bits);
+        w.bytes(&str_bits.to_le_bytes());
+        w.bit(true);
+    }
+    let handles_at = w.bits.len();
+    w.patch_rl(rl_at, handles_at as u32);
+    handles(&mut w);
+    let data = w.finish();
+    let mut out = (data.len() as u16).to_le_bytes().to_vec();
+    out.extend(&data);
+    let crc = crc16(0xC0C1, &out);
+    out.extend(crc.to_le_bytes());
+    out
+}
+
+#[cfg(feature = "drawing")]
+#[test]
+fn r2007_containers_lift_unicode_objects_reject_edits_and_respect_budgets() {
+    use zumen_drawing::{Changes, PointMark, PointSize, Shape};
+    use zumen_sdk::{Apply, Lift};
+
+    let write_tu = |strings: &mut BitWriter, s: &str| {
+        let units: Vec<u16> = s.encode_utf16().collect();
+        strings.bs(units.len() as u16);
+        for unit in units {
+            strings.bytes(&unit.to_le_bytes());
+        }
+    };
+    let entity_common_r2007 = |w: &mut BitWriter| {
+        w.bit(false);
+        w.bits(2, 2);
+        w.bl_zero();
+        w.bit(true);
+        w.bs(256);
+        w.bd(1.0);
+        w.bits(0, 2);
+        w.bits(0, 2);
+        w.bits(0, 2); // R2007 材質フラグ
+        w.bytes(&[0]); // R2007 影フラグ
+        w.bs(0);
+        w.bytes(&[29]);
+    };
+
+    let layer = r2007_object(
+        0x33,
+        0x10,
+        |w, strings| {
+            w.bl_zero();
+            w.bit(true);
+            write_tu(strings, "外形");
+            w.bit(false);
+            w.bit(false);
+            w.bs(16 | (31 << 5));
+            w.bs(7);
+            w.bl_zero();
+            w.bytes(&[0]);
+        },
+        |w| {
+            w.handle(4, 2);
+            w.handle(3, 0);
+            w.handle(5, 0);
+            w.handle(5, 0); // R2007 材質ハンドル
+            w.handle(5, 0);
+        },
+    );
+    let style = r2007_object(
+        0x35,
+        0x11,
+        |w, strings| {
+            w.bl_zero();
+            w.bit(true);
+            write_tu(strings, "Standard");
+            w.bit(false);
+            w.bit(false);
+            w.bit(false);
+            w.bit(false);
+            w.bd(0.0);
+            w.bd(1.0);
+            w.bd(0.0);
+            w.bytes(&[0]);
+            w.bd(2.5);
+            write_tu(strings, "txt");
+            write_tu(strings, "");
+        },
+        |w| {
+            w.handle(4, 3);
+            w.handle(3, 0);
+        },
+    );
+    let line = r2007_object(
+        0x13,
+        0x20,
+        |w, _| {
+            entity_common_r2007(w);
+            line_data(w, [0.0, 0.0, 0.0], [12.0, 5.0, 0.0], 0.0);
+        },
+        |w| w.handle(5, 0x10),
+    );
+    let note = r2007_object(
+        0x01,
+        0x21,
+        |w, strings| {
+            entity_common_r2007(w);
+            w.bytes(&[0xFF]);
+            w.rd(3.0);
+            w.rd(4.0);
+            w.bit(true);
+            w.bit(true);
+            w.rd(2.5);
+            write_tu(strings, "図面R2007");
+        },
+        |w| {
+            w.handle(5, 0x10);
+            w.handle(5, 0x11);
+        },
+    );
+
+    let objects = [(0x10u64, layer), (0x11, style), (0x20, line), (0x21, note)];
+    let mut obj_body = 0x0DCAu32.to_le_bytes().to_vec();
+    let mut pairs = Vec::new();
+    let (mut prev_h, mut prev_loc) = (0u64, 0i64);
+    for (h, bytes) in &objects {
+        let offset = obj_body.len() as i64;
+        pairs.extend(modular_char((*h - prev_h) as i64, false));
+        pairs.extend(modular_char(offset - prev_loc, true));
+        (prev_h, prev_loc) = (*h, offset);
+        obj_body.extend_from_slice(bytes);
+    }
+    // 後方参照の命令も通るように末尾に同じバイトを並べる
+    obj_body.extend_from_slice(&[0, 0, 0, 0]);
+    let mut handles_map = ((pairs.len() + 2) as u16).to_be_bytes().to_vec();
+    handles_map.extend_from_slice(&pairs);
+    handles_map.extend(crc16(0xC0C1, &handles_map).to_be_bytes());
+    let mut map_end = vec![0x00, 0x02];
+    map_end.extend(crc16(0xC0C1, &map_end).to_be_bytes());
+    handles_map.extend(map_end);
+    while handles_map.len() < 16 {
+        handles_map.push(0);
+    }
+
+    let head = header_of(2007, (34, 5.0), [0.0, 0.0, 420.0, 297.0]);
+    let classes = r2010_classes(false);
+    let src = r2007_container(&[
+        ("AcDb:Header", head),
+        ("AcDb:Classes", classes),
+        ("AcDb:Handles", handles_map),
+        ("AcDb:AcDbObjects", obj_body),
+    ]);
+
+    let (file, mut diag) = read(&src, Limits::default());
+    let mut file = file.unwrap();
+    assert_eq!(file.version(), b"AC1021");
+    assert_eq!(codes_of(&diag), []);
+
+    let drawing = file
+        .lift(&mut Cx::new(
+            &mut Budget::default(),
+            &mut diag,
+            &CancelToken::new(),
+        ))
+        .unwrap();
+    assert_eq!(codes_of(&diag), []);
+    assert!(drawing.layers.iter().any(|l| l.name == "外形"));
+    assert_eq!(
+        drawing
+            .point_style
+            .as_ref()
+            .map(|p| (p.mark, p.circle, p.size)),
+        Some((PointMark::Plus, true, PointSize::Length(5.0)))
+    );
+    assert_eq!(drawing.spaces[0].elements.len(), 2);
+    assert!(matches!(
+        &drawing.spaces[0].elements[1].shape,
+        Shape::Text(text) if text.content == "図面R2007"
+    ));
+
+    // 編集・書き戻し・変更の適用は dwg.edit.unsupported で拒み、元のバイト列をそのまま保つ
+    {
+        let mut edit_diag = Diagnostics::new();
+        let mut txn = file.transaction();
+        assert_eq!(txn.set_units(5), Err(Error::Rejected));
+        let res = txn.commit(&mut Cx::new(
+            &mut Budget::default(),
+            &mut edit_diag,
+            &CancelToken::new(),
+        ));
+        assert_eq!(res, Err(Error::Rejected));
+        assert_eq!(codes_of(&edit_diag), [codes::DWG_EDIT_UNSUPPORTED]);
+    }
+    {
+        let mut apply_diag = Diagnostics::new();
+        let res = file.apply(
+            &Changes::default(),
+            &mut Cx::new(&mut Budget::default(), &mut apply_diag, &CancelToken::new()),
+        );
+        assert_eq!(res, Err(Error::Unsupported));
+        assert_eq!(codes_of(&apply_diag), [codes::DWG_EDIT_UNSUPPORTED]);
+    }
+    let mut written = Vec::new();
+    Dwg::write(
+        &file,
+        &mut written,
+        &mut Cx::new(
+            &mut Budget::default(),
+            &mut Diagnostics::new(),
+            &CancelToken::new(),
+        ),
+    )
+    .unwrap();
+    assert_eq!(written, src);
+
+    // 予算上限（DecodedBytes・Records・Work）と中断トークンで安全に止まる
+    for kind in [Kind::DecodedBytes, Kind::Records, Kind::Work] {
+        let (stopped, _) = read(&src, Limits::default().with(kind, Limit::Finite(1)));
+        assert!(matches!(stopped, Err(Error::Stopped(_))), "{kind:?}");
+    }
+    let cancel = CancelToken::new();
+    cancel.cancel();
+    let mut cancel_diag = Diagnostics::new();
+    let cancelled = Dwg::read(
+        &src,
+        &mut Cx::new(&mut Budget::default(), &mut cancel_diag, &cancel),
+    );
+    assert!(matches!(cancelled, Err(Error::Stopped(_))));
+
+    // RS 誤り訂正: ヘッダー圧縮部 8 記号・データページ圧縮部 2 記号の破損を訂正して dwg.crc.invalid を出す
+    let mut recoverable = src.clone();
+    for k in 32..40usize {
+        recoverable[0x80 + k * 3] ^= 0xA5;
+    }
+    recoverable[0x480] ^= 0x5A;
+    recoverable[0x480 + 2] ^= 0x3C;
+    let (recovered_file, mut recovered_diag) = read(&recoverable, Limits::default());
+    let recovered_file = recovered_file.unwrap();
+    assert_eq!(
+        codes_of(&recovered_diag),
+        [codes::DWG_CRC_INVALID, codes::DWG_CRC_INVALID]
+    );
+    let recovered_drawing = recovered_file
+        .lift(&mut Cx::new(
+            &mut Budget::default(),
+            &mut recovered_diag,
+            &CancelToken::new(),
+        ))
+        .unwrap();
+    assert_eq!(recovered_drawing, drawing);
+
+    // 訂正能力を超える圧縮部 9 記号の破損は dwg.crc.invalid と dwg.file.invalid で止まる
+    let mut unrecoverable = src.clone();
+    for k in 32..41usize {
+        unrecoverable[0x80 + k * 3] ^= 0xA5;
+    }
+    let (bad_rs, bad_rs_diag) = read(&unrecoverable, Limits::default());
+    assert_eq!(bad_rs, Err(Error::Invalid));
+    assert_eq!(
+        codes_of(&bad_rs_diag),
+        [codes::DWG_CRC_INVALID, codes::DWG_FILE_INVALID]
+    );
+
+    // 無制限の予算でも、過大な展開サイズや負のページ ID 参照は過大確保せず dwg.file.invalid で退ける
+    let make_header_only = |pm_uncomp: u64, sm_id: i64| -> Vec<u8> {
+        let mut page_map_raw = Vec::new();
+        page_map_raw.extend_from_slice(&255i64.to_le_bytes());
+        page_map_raw.extend_from_slice(&(-1i64).to_le_bytes());
+        let pm_comp = r2007_compress(&page_map_raw);
+        let pm_aligned = (pm_comp.len() + 7) & !7;
+        let mut pm_padded = pm_comp.clone();
+        pm_padded.resize(pm_aligned, 0);
+        let pm_page = rs_interleave(&pm_padded, pm_aligned.div_ceil(239), 239);
+
+        let mut meta = [0u8; 0x110];
+        meta[0x18..0x20].copy_from_slice(&1u64.to_le_bytes());
+        meta[0x38..0x40].copy_from_slice(&0u64.to_le_bytes());
+        meta[0x50..0x58].copy_from_slice(&(pm_comp.len() as u64).to_le_bytes());
+        meta[0x58..0x60].copy_from_slice(&pm_uncomp.to_le_bytes());
+        meta[0xB0..0xB8].copy_from_slice(&16u64.to_le_bytes());
+        meta[0xC0..0xC8].copy_from_slice(&(sm_id as u64).to_le_bytes());
+        meta[0xC8..0xD0].copy_from_slice(&16u64.to_le_bytes());
+        meta[0xD8..0xE0].copy_from_slice(&1u64.to_le_bytes());
+
+        let meta_comp = r2007_compress(&meta);
+        let mut header_decoded = vec![0u8; 3 * 239];
+        header_decoded[0x18..0x1C].copy_from_slice(&(meta_comp.len() as i32).to_le_bytes());
+        header_decoded[0x20..0x20 + meta_comp.len()].copy_from_slice(&meta_comp);
+        let header_rs = rs_interleave(&header_decoded, 3, 239);
+
+        let mut out = vec![0u8; 0x480];
+        out[..6].copy_from_slice(b"AC1021");
+        out[0x80..0x80 + header_rs.len()].copy_from_slice(&header_rs);
+        out.extend_from_slice(&pm_page);
+        out
+    };
+
+    let unlimited = Limits::default()
+        .with(Kind::InputBytes, Limit::Unlimited)
+        .with(Kind::DecodedBytes, Limit::Unlimited)
+        .with(Kind::Records, Limit::Unlimited)
+        .with(Kind::Work, Limit::Unlimited);
+    let huge = make_header_only(u64::from(u32::MAX) + 100, 1);
+    let (huge_res, huge_diag) = read(&huge, unlimited);
+    assert_eq!(huge_res, Err(Error::Invalid));
+    assert_eq!(codes_of(&huge_diag), [codes::DWG_FILE_INVALID]);
+
+    let neg_gap = make_header_only(16, -1);
+    let (neg_res, neg_diag) = read(&neg_gap, unlimited);
+    assert_eq!(neg_res, Err(Error::Invalid));
+    assert_eq!(codes_of(&neg_diag), [codes::DWG_FILE_INVALID]);
 }

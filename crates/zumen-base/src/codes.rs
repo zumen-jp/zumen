@@ -1236,7 +1236,7 @@ pub const DWG_DXF_REFERENCE_DROPPED: Code = Code::new(
     &["code"],
 );
 
-/// R2000（AC1015）でないバージョンの DWG は、まだ変えられない
+/// R2007（AC1021）など、まだ書き戻せないバージョンの DWG は変えられない
 ///
 /// `dwg.edit.unsupported`（0.0.0 から）
 pub const DWG_EDIT_UNSUPPORTED: Code = Code::new(
@@ -1327,7 +1327,7 @@ pub const DWG_TYPE_UNSUPPORTED: Code = Code::new(
     &["type"],
 );
 
-/// R2000・R2004・R2010・R2013・R2018 でないバージョンの DWG は、まだ読めない
+/// R2000・R2004・R2007・R2010・R2013・R2018 でないバージョンの DWG は、まだ読めない
 ///
 /// `dwg.version.unsupported`（0.0.0 から）
 pub const DWG_VERSION_UNSUPPORTED: Code = Code::new(

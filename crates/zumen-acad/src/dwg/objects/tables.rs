@@ -767,14 +767,16 @@ pub(super) fn cell(r: &mut Slotted, cells: &mut Vec<Value>) -> Option<()> {
                 code: 344,
                 data: field,
             });
-            let text = r.bits.text()?;
-            let mut rest = text.as_slice();
-            while rest.len() > 250 {
-                let (chunk, tail) = rest.split_at(250);
-                cells.push(text_value(2, chunk));
-                rest = tail;
+            if r.bits.release() < Release::R2007 {
+                let text = r.bits.text()?;
+                let mut rest = text.as_slice();
+                while rest.len() > 250 {
+                    let (chunk, tail) = rest.split_at(250);
+                    cells.push(text_value(2, chunk));
+                    rest = tail;
+                }
+                cells.push(text_value(1, rest));
             }
-            cells.push(text_value(1, rest));
         }
         2 => {
             let block = r.handle();
@@ -799,10 +801,20 @@ pub(super) fn cell(r: &mut Slotted, cells: &mut Vec<Value>) -> Option<()> {
         }
         _ => return None,
     }
+    let flag_code = if r.bits.release() >= Release::R2007 {
+        91
+    } else {
+        177
+    };
     if r.bits.bit()? {
         let flags = r.bits.bl()?;
-        // DXF は、フラグの下位の 16 ビットを符号つきで書く
-        cells.push(int(177, i64::from(flags as i16)));
+        // R2004 の DXF はフラグの下位の 16 ビットを符号つきの 177 で、R2007 からは 32 ビットの 91 で書く
+        let flag_value = if r.bits.release() >= Release::R2007 {
+            i64::from(flags)
+        } else {
+            i64::from(flags as i16)
+        };
+        cells.push(int(flag_code, flag_value));
         cells.push(int(178, i64::from(r.bits.rc()?)));
         let set = |bit: i32| flags & bit != 0;
         if set(0x1) {
@@ -841,8 +853,19 @@ pub(super) fn cell(r: &mut Slotted, cells: &mut Vec<Value>) -> Option<()> {
             }
         }
     } else {
-        // 上書きがないときも、DXF は 177 と 178 を 0 で書く
-        cells.extend([int(177, 0), int(178, 0)]);
+        // 上書きがないときも、DXF はフラグ（177 か 91）と 178 を 0 で書く
+        cells.extend([int(flag_code, 0), int(178, 0)]);
+    }
+    if r.bits.release() >= Release::R2007 {
+        cells.push(r.bl(92)?);
+        let value = table_value(r)?;
+        cells.push(text_value(301, b"CELL_VALUE"));
+        if value.is_empty() {
+            cells.push(text_value(302, b""));
+        } else {
+            cells.extend(value);
+        }
+        cells.push(text_value(304, b"ACVALUE_END"));
     }
     Some(())
 }

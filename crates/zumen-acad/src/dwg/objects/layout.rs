@@ -175,8 +175,8 @@ pub(in crate::dwg) fn layer_line_type(
     if xdic {
         bits.handle()?;
     }
-    // 外部参照のブロックと印刷スタイル。R2010 からは材質も
-    let skipped = if release >= Release::R2010 { 3 } else { 2 };
+    // 外部参照のブロックと印刷スタイル。R2007 からは材質も
+    let skipped = if release >= Release::R2007 { 3 } else { 2 };
     for _ in 0..skipped {
         bits.handle()?;
     }
@@ -343,7 +343,11 @@ pub(super) fn owned_header(
     } else {
         bits.bs()?;
         let size_at = bits.pos();
-        (size_at, usize::try_from(bits.rl()?).ok()?)
+        let at = usize::try_from(bits.rl()?).ok()?;
+        if release == Release::R2007 {
+            bits.split_strings(at)?;
+        }
+        (size_at, at)
     };
     bits.handle()?;
     skip_extended_data(&mut bits)?;
@@ -356,7 +360,7 @@ pub(super) fn owned_header(
     // 名前・参照されるフラグ・外部参照の番号・外部参照に依るフラグ
     bits.text()?;
     bits.bit()?;
-    if !r2010 {
+    if release < Release::R2007 {
         bits.bs()?;
     }
     bits.bit()?;

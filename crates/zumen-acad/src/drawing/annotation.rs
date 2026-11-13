@@ -61,12 +61,12 @@ impl Lifter<'_> {
                 3 => DimensionKind::Diameter {
                     chord: at(15)?,
                     opposite: at(10)?,
-                    leader: length(real(40, None)?),
+                    leader: length(real(40, Some(0.0))?),
                 },
                 4 => DimensionKind::Radius {
                     center: at(10)?,
                     chord: at(15)?,
-                    leader: length(real(40, None)?),
+                    leader: length(real(40, Some(0.0))?),
                 },
                 5 => DimensionKind::Angular {
                     vertex: at(15)?,

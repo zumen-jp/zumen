@@ -171,6 +171,34 @@ const LAST: [(Field, usize); 16] = [
     (Bs, 2),
 ];
 
+/// R2007 の、空間ごとの変数より後の、寸法の変数の並び。R2004 と比べて、DIMTM の後に
+/// DIMFXL・DIMJOGANG・DIMTFILL・DIMTFILLCLR、DIMAZIN の後に DIMARCSYM、DIMATFIT の後に DIMFXLON、
+/// DIMBLK2 の後に DIMLTYPE・DIMLTEX1・DIMLTEX2 がある（ODS 5.4.1 の 9 章）
+const LAST_R2007: [(Field, usize); 22] = [
+    (Tv, 2),
+    (Bd, 9),
+    (Bd, 2),
+    (Bs, 1),
+    (Cmc, 1),
+    (B, 6),
+    (Bs, 3),
+    (Bs, 1),
+    (Bd, 9),
+    (B, 1),
+    (Bs, 1),
+    (B, 4),
+    (Cmc, 3),
+    (Bs, 11),
+    (B, 2),
+    (Bs, 4),
+    (B, 1),
+    (Bs, 1),
+    (B, 1),
+    (H, 5),
+    (H, 3),
+    (Bs, 2),
+];
+
 /// R2010 からの、空間ごとの変数より後の、寸法の変数の並び。R2004 と比べて、DIMTM の後に
 /// DIMFXL・DIMJOGANG・DIMTFILL・DIMTFILLCLR が、DIMAZIN の後に DIMARCSYM が、DIMATFIT の後に
 /// 2 つの B（DIMFXLON・DIMTXTDIRECTION と見る）・DIMALTMZF・DIMALTMZS・DIMMZF・DIMMZS が、
@@ -277,7 +305,7 @@ fn section(src: &[u8], start: usize, release: Release) -> Option<(&[u8], usize)>
         let crc_at = data_at.checked_add(size)?;
         (src.get(crc_at + 2..crc_at + 18)? == END).then_some(crc_at)
     };
-    let data_at = if release >= Release::R2010 && ends_at(start + 24).is_some() {
+    let data_at = if release >= Release::R2007 && ends_at(start + 24).is_some() {
         start + 24
     } else {
         start + 20
@@ -286,13 +314,13 @@ fn section(src: &[u8], start: usize, release: Release) -> Option<(&[u8], usize)>
     Some((src.get(data_at..crc_at)?, crc_at))
 }
 
-/// データを読むビット列を作る。R2010 からは、データの初めに文字列のストリームの終わりまでのビットの数
+/// データを読むビット列を作る。R2007 からは、データの初めに文字列のストリームの終わりまでのビットの数
 /// （RL）があり、その位置からハンドルのストリームが始まる。HANDSEED のほかのハンドルと文字列は、主の
 /// データにない。R2013 からは、変数の前に REQUIREDVERSIONS（BLL）がある（サンプルの DWG と DXF の
 /// 比較で確かめた）
 fn streams(data: &[u8], release: Release) -> Option<Bits<'_>> {
     let mut bits = Bits::with_release(data, release);
-    if release >= Release::R2010 {
+    if release >= Release::R2007 {
         let end = usize::try_from(le32(data, 0)?).ok()?;
         bits.split_strings(end)?;
         bits.split_handles(end);
@@ -349,16 +377,16 @@ fn variables(bits: &mut Bits) -> Option<Header> {
     skip_all(bits, &SPACE)?;
     skip_all(
         bits,
-        if bits.release() >= Release::R2010 {
-            &LAST_R2010
-        } else {
-            &LAST
+        match bits.release() {
+            Release::R2007 => &LAST_R2007,
+            release if release >= Release::R2010 => &LAST_R2010,
+            _ => &LAST,
         },
     )?;
     let tail: &[(Field, usize)] = match bits.release() {
         Release::R2000 => &TAIL,
         Release::R2004 => &TAIL_R2004,
-        Release::R2010 => &TAIL_R2010,
+        Release::R2007 | Release::R2010 => &TAIL_R2010,
         Release::R2013 | Release::R2018 => &TAIL_R2013,
     };
     // 最後の BS が INSUNITS
@@ -501,7 +529,7 @@ fn wrap(
     let (old, crc_at) = section(src, start, release)?;
     let data_at = crc_at - old.len();
     let mut data = out.into_bytes();
-    if release >= Release::R2010 && shift != 0 {
+    if release >= Release::R2007 && shift != 0 {
         let end = i64::from(le32(&data, 0)?).checked_add(shift)?;
         data.get_mut(..4)?
             .copy_from_slice(&u32::try_from(end).ok()?.to_le_bytes());
@@ -664,7 +692,7 @@ mod tests {
     /// 用紙空間の範囲は [`LIMITS`]。R2010 からは文字列とハンドルを別のストリームに書き、`high` なら大きさの後に上位の RL を
     /// 置く
     fn section_of(release: Release, (mode, size): (i16, f64), high: bool) -> Vec<u8> {
-        let split = release >= Release::R2010;
+        let split = release >= Release::R2007;
         let mut s = Streams {
             release,
             main: if split {
@@ -705,11 +733,15 @@ mod tests {
         for &(field, count) in SPACE[2..].iter().chain(&SPACE) {
             s.put(field, count);
         }
-        let last: &[(Field, usize)] = if split { &LAST_R2010 } else { &LAST };
+        let last: &[(Field, usize)] = match release {
+            Release::R2007 => &LAST_R2007,
+            _ if split => &LAST_R2010,
+            _ => &LAST,
+        };
         let tail: &[(Field, usize)] = match release {
             Release::R2000 => &TAIL,
             Release::R2004 => &TAIL_R2004,
-            Release::R2010 => &TAIL_R2010,
+            Release::R2007 | Release::R2010 => &TAIL_R2010,
             Release::R2013 | Release::R2018 => &TAIL_R2013,
         };
         for &(field, count) in last.iter().chain(tail.split_last().unwrap().1) {
@@ -779,6 +811,7 @@ mod tests {
         let releases = [
             (Release::R2000, false),
             (Release::R2004, false),
+            (Release::R2007, false),
             (Release::R2010, false),
             (Release::R2013, true),
             (Release::R2018, false),

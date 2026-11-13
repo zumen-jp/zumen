@@ -6494,3 +6494,133 @@ fn paper_space_polylines_are_placed_on_the_sheet() {
         }
     );
 }
+
+#[test]
+fn r12_drawings_lift_subclassless_tables_polylines_dimensions_and_dos932_text() {
+    let mut raw = Vec::new();
+    let push = |raw: &mut Vec<u8>, code: i16, value: &[u8]| {
+        raw.extend_from_slice(format!("{code:3}\n").as_bytes());
+        raw.extend_from_slice(value);
+        raw.push(b'\n');
+    };
+    for (c, v) in [
+        (0, &b"SECTION"[..]),
+        (2, b"HEADER"),
+        (9, b"$ACADVER"),
+        (1, b"AC1009"),
+        (9, b"$DWGCODEPAGE"),
+        (3, b"DOS932"),
+        (9, b"$INSUNITS"),
+        (70, b"4"),
+        (0, b"ENDSEC"),
+        (0, b"SECTION"),
+        (2, b"TABLES"),
+        // AcDbLayerTableRecord などの 100 を持たない R12 の画層（Shift_JIS「外形」）
+        (0, b"TABLE"),
+        (2, b"LAYER"),
+        (70, b"1"),
+        (0, b"LAYER"),
+        (2, b"\x8a\x4f\x8c\x60"),
+        (70, b"0"),
+        (62, b"1"),
+        (6, b"CONTINUOUS"),
+        (0, b"ENDTAB"),
+        (0, b"TABLE"),
+        (2, b"STYLE"),
+        (70, b"1"),
+        (0, b"STYLE"),
+        (2, b"Standard"),
+        (70, b"0"),
+        (40, b"0.0"),
+        (41, b"1.0"),
+        (50, b"0.0"),
+        (71, b"0"),
+        (42, b"2.5"),
+        (3, b"txt"),
+        (0, b"ENDTAB"),
+        // 105 をハンドル、5 を DIMBLK のブロック名として持つ R12 の DIMSTYLE
+        (0, b"TABLE"),
+        (2, b"DIMSTYLE"),
+        (70, b"1"),
+        (0, b"DIMSTYLE"),
+        (105, b"2A"),
+        (2, b"R12DIM"),
+        (70, b"0"),
+        (5, b"_OPEN"),
+        (40, b"1.0"),
+        (41, b"2.5"),
+        (140, b"2.5"),
+        (0, b"ENDTAB"),
+        (0, b"ENDSEC"),
+        (0, b"SECTION"),
+        (2, b"ENTITIES"),
+        // 66 を省いた R12 の POLYLINE + VERTEX + SEQEND
+        (0, b"POLYLINE"),
+        (8, b"\x8a\x4f\x8c\x60"),
+        (70, b"1"),
+        (0, b"VERTEX"),
+        (8, b"\x8a\x4f\x8c\x60"),
+        (10, b"0.0"),
+        (20, b"0.0"),
+        (0, b"VERTEX"),
+        (8, b"\x8a\x4f\x8c\x60"),
+        (10, b"10.0"),
+        (20, b"0.0"),
+        (0, b"VERTEX"),
+        (8, b"\x8a\x4f\x8c\x60"),
+        (10, b"10.0"),
+        (20, b"5.0"),
+        (0, b"SEQEND"),
+        (8, b"\x8a\x4f\x8c\x60"),
+        // 40（引出線の長さ）を持たない R12 の半径寸法（70 = 4）と直径寸法（70 = 3）
+        (0, b"DIMENSION"),
+        (8, b"\x8a\x4f\x8c\x60"),
+        (3, b"R12DIM"),
+        (10, b"0.0"),
+        (20, b"0.0"),
+        (11, b"2.5"),
+        (21, b"0.0"),
+        (70, b"4"),
+        (15, b"5.0"),
+        (25, b"0.0"),
+        (0, b"DIMENSION"),
+        (8, b"\x8a\x4f\x8c\x60"),
+        (3, b"R12DIM"),
+        (10, b"5.0"),
+        (20, b"0.0"),
+        (11, b"0.0"),
+        (21, b"0.0"),
+        (70, b"3"),
+        (15, b"-5.0"),
+        (25, b"0.0"),
+        // DOS932 の文字（「図面」）
+        (0, b"TEXT"),
+        (8, b"\x8a\x4f\x8c\x60"),
+        (10, b"1.0"),
+        (20, b"2.0"),
+        (40, b"2.5"),
+        (1, b"\x90\x7d\x96\xca"),
+        (0, b"ENDSEC"),
+        (0, b"EOF"),
+    ] {
+        push(&mut raw, c, v);
+    }
+
+    let (drawing, diag) = lift(&raw, &mut Budget::default());
+    assert_eq!(found(&diag), []);
+    let drawing = drawing.unwrap();
+    assert!(drawing.layers.iter().any(|l| l.name == "外形"));
+    assert!(drawing.dimension_styles.iter().any(|d| d.name == "R12DIM"));
+    let elements = &drawing.spaces[0].elements;
+    assert_eq!(elements.len(), 4);
+    assert!(matches!(
+        &elements[0].shape,
+        Shape::Polyline(poly) if poly.closed && poly.vertices.len() == 3
+    ));
+    assert!(matches!(&elements[1].shape, Shape::Dimension(_)));
+    assert!(matches!(&elements[2].shape, Shape::Dimension(_)));
+    assert!(matches!(
+        &elements[3].shape,
+        Shape::Text(text) if text.content == "図面"
+    ));
+}

@@ -94,17 +94,22 @@ impl DxfFile {
     fn typed(&self, tag: &Tag, kind: &[u8], index: usize, report: bool, cx: &mut Cx) -> Value {
         let raw = self.value(tag);
         let text = raw.trim_ascii();
-        let data = match DataType::of(tag.code) {
-            DataType::Text => Some(Data::Text(raw.to_vec())),
-            DataType::Int => parse_int(text).map(Data::Int),
-            DataType::Real => parse_real(raw).map(Data::Real),
-            DataType::Bool => match parse_int(text) {
-                Some(0) => Some(Data::Bool(false)),
-                Some(1) => Some(Data::Bool(true)),
-                _ => None,
-            },
-            DataType::Handle => parse_hex(text).map(Data::Handle),
-            DataType::Binary => parse_binary(text).map(Data::Binary),
+        let data = if kind == b"DIMSTYLE" && tag.code == 5 {
+            // R12 などの DIMSTYLE で 5 は DIMBLK（矢印のブロック名）で、ハンドルは 105 に置く（DXF Reference「DIMSTYLE」）
+            Some(Data::Text(raw.to_vec()))
+        } else {
+            match DataType::of(tag.code) {
+                DataType::Text => Some(Data::Text(raw.to_vec())),
+                DataType::Int => parse_int(text).map(Data::Int),
+                DataType::Real => parse_real(raw).map(Data::Real),
+                DataType::Bool => match parse_int(text) {
+                    Some(0) => Some(Data::Bool(false)),
+                    Some(1) => Some(Data::Bool(true)),
+                    _ => None,
+                },
+                DataType::Handle => parse_hex(text).map(Data::Handle),
+                DataType::Binary => parse_binary(text).map(Data::Binary),
+            }
         };
         let data = data.unwrap_or_else(|| {
             if !report {

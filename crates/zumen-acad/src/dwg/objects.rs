@@ -614,7 +614,11 @@ fn read(
         }
         None => {
             bits.bs()?;
-            usize::try_from(bits.rl()?).ok()?
+            let at = usize::try_from(bits.rl()?).ok()?;
+            if release == Release::R2007 {
+                bits.split_strings(at)?;
+            }
+            at
         }
     };
     bits.handle()?;
@@ -1050,7 +1054,7 @@ fn xdata(bytes: &[u8], release: Release) -> Option<Vec<Xdata>> {
                 .fold(0u64, |sum, byte| sum << 8 | u64::from(*byte))
         };
         match kind {
-            0 if release >= Release::R2010 => {
+            0 if release >= Release::R2007 => {
                 let len = usize::from(u16::from_le_bytes(take(2)?.try_into().ok()?));
                 let units: Vec<u16> = take(len * 2)?
                     .as_chunks::<2>()
@@ -1135,11 +1139,13 @@ fn entity_data(bits: &mut Bits) -> Option<Common> {
     let plotstyle_flags = bits.bb()?;
     // R2007 からは、材質のフラグ（BB）と影のフラグ（RC）、R2010 からは、表示スタイルを持つかの 3 つの B が続く（図面で確かめた）
     let mut styles = 0;
-    if release >= Release::R2010 {
+    if release >= Release::R2007 {
         if bits.bb()? == 3 {
             styles += 1;
         }
         bits.rc()?;
+    }
+    if release >= Release::R2010 {
         for _ in 0..3 {
             if bits.bit()? {
                 styles += 1;

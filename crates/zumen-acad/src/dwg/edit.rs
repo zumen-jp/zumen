@@ -77,9 +77,19 @@ pub struct DwgTxn<'a> {
 }
 
 impl DwgTxn<'_> {
+    fn check_editable(&mut self) -> Result<(), Error> {
+        if self.file.release == Release::R2007 {
+            return Err(
+                self.reject(Diagnostic::new(codes::DWG_EDIT_UNSUPPORTED).with("version", "AC1021"))
+            );
+        }
+        Ok(())
+    }
+
     /// `record` 番目のオブジェクトのデータ（大きさ（MS）の後から CRC の前まで）を置き換える。
     /// 型（BS）を読めないデータは受け付けない
     pub fn set_data(&mut self, record: usize, data: &[u8]) -> Result<(), Error> {
+        self.check_editable()?;
         if record >= self.file.entries.len() {
             return Err(self
                 .reject(Diagnostic::new(codes::DWG_OBJECT_MISSING).with("record", record as u64)));
@@ -96,6 +106,7 @@ impl DwgTxn<'_> {
     /// `record` 番目のオブジェクトを除く。置き換えたデータも捨てる。確定の後は、後ろのオブジェクトの番号が
     /// 詰まる。ほかのオブジェクトが指すハンドルは直さない
     pub fn remove(&mut self, record: usize) -> Result<(), Error> {
+        self.check_editable()?;
         if record >= self.file.entries.len() {
             return Err(self
                 .reject(Diagnostic::new(codes::DWG_OBJECT_MISSING).with("record", record as u64)));
@@ -109,6 +120,7 @@ impl DwgTxn<'_> {
     /// 確定の後は、今のオブジェクトの後ろの番号になる。ほかのオブジェクトと同じハンドルと、型（BS）を
     /// 読めないデータは受け付けない
     pub fn add(&mut self, handle: u64, data: &[u8]) -> Result<(), Error> {
+        self.check_editable()?;
         let taken = self.file.entries.iter().any(|entry| entry.handle == handle)
             || self.added.iter().any(|(h, _)| *h == handle);
         if taken {
@@ -129,6 +141,7 @@ impl DwgTxn<'_> {
     /// ヘッダーの変数の HANDSEED を `seed` にする。大きさ（バイト）が変わる値なら、確定のときにヘッダーの変数の
     /// セクションを伸ばすか縮めて書き直す（#701）
     pub fn set_handle_seed(&mut self, seed: u64) -> Result<(), Error> {
+        self.check_editable()?;
         self.seed = Some(seed);
         Ok(())
     }
@@ -136,12 +149,14 @@ impl DwgTxn<'_> {
     /// ヘッダーの変数の INSUNITS を `units` にする（決定 0069）。大きさ（バイト）が変わる値なら、確定のときに
     /// 失敗する
     pub fn set_units(&mut self, units: i16) -> Result<(), Error> {
+        self.check_editable()?;
         self.values.units = Some(units);
         Ok(())
     }
 
     /// ヘッダーの変数の、用紙空間の PLIMMIN と PLIMMAX（X・Y の順）を `limits` にする（決定 0069）
     pub fn set_paper_limits(&mut self, limits: [f64; 4]) -> Result<(), Error> {
+        self.check_editable()?;
         self.values.limits = Some(limits);
         Ok(())
     }
@@ -149,6 +164,7 @@ impl DwgTxn<'_> {
     /// ヘッダーの変数の PDMODE（点の表し方）を `mode` にする（決定 0190）。書く幅が変われば、ヘッダーのセクションの大きさを
     /// 変える（決定 0193）
     pub fn set_point_mode(&mut self, mode: i16) -> Result<(), Error> {
+        self.check_editable()?;
         self.values.point_mode = Some(mode);
         Ok(())
     }
@@ -156,6 +172,7 @@ impl DwgTxn<'_> {
     /// ヘッダーの変数の PDSIZE（点の大きさ）を `size` にする（決定 0190）。書く幅が変われば、ヘッダーのセクションの大きさを
     /// 変える（決定 0193）
     pub fn set_point_size(&mut self, size: f64) -> Result<(), Error> {
+        self.check_editable()?;
         self.values.point_size = Some(size);
         Ok(())
     }

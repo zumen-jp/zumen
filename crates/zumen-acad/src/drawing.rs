@@ -599,8 +599,13 @@ fn attached(entities: &[&Object]) -> (BTreeMap<usize, Vec<usize>>, BTreeSet<usiz
     let mut open = None;
     for (index, object) in entities.iter().enumerate() {
         match object.kind.as_slice() {
-            b"INSERT" | b"POLYLINE" => {
+            b"INSERT" => {
                 open = matches!(object.first(66), Some(Data::Int(1) | Data::Bool(true)))
+                    .then_some(index);
+            }
+            b"POLYLINE" => {
+                // R12 などの POLYLINE は、66 を省いても直後に VERTEX と SEQEND が並ぶ
+                open = (!matches!(object.first(66), Some(Data::Int(0) | Data::Bool(false))))
                     .then_some(index);
             }
             kind @ (b"ATTRIB" | b"VERTEX" | b"SEQEND") => {

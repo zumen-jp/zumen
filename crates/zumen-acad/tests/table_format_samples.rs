@@ -88,7 +88,7 @@ fn aci(value: u32) -> Option<Inherit<Color>> {
 /// セルが 3 列 2 行に広がる。そのセルは、位置合わせ・文字の色・背景の色（塗らない）・高さと、左と上の枠（色 63、
 /// 0.40 mm）を上書きする。右の列のセルは右の枠も上書きする。どのバージョンの DWG と DXF でも、セルの書式が同じになる。
 /// DXF の表のスタイルは、データ・タイトル・見出しの行の書式を持つ（表を描いたブロックの文字と合う）。
-/// R2004 までの DWG の TABLESTYLE も、DXF と同じ書式になる。R2010 からの DWG のリーダーは、セルのスタイルと
+/// R2007 までの DWG の TABLESTYLE も、DXF と同じ書式になる。R2010 からの DWG のリーダーは、セルのスタイルと
 /// 内容の書式と TABLESTYLE をまだ読まないので、セルの書式は空、表の書式は `None` になる
 #[test]
 fn cell_formats_and_table_styles_are_lifted() {
@@ -196,7 +196,7 @@ fn cell_formats_and_table_styles_are_lifted() {
 }
 
 /// R2010 からの DWG の表は、書式を読まないことを、表ごとに表の出所を指す `dwg.table-format.unsupported` で
-/// 返す。R2004 までの DWG と、DXF の表は返さない
+/// 返す。R2007 までの DWG と、DXF の表は返さない
 #[test]
 fn dwg_tables_from_2010_report_that_their_formats_are_not_read() {
     let mut checked = 0;

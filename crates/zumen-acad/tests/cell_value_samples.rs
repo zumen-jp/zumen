@@ -10,14 +10,14 @@ use zumen_base::{Budget, CancelToken, Cx, Diagnostics};
 use zumen_drawing::{CellData, CellValue, DateTime, Drawing2D, Shape, ValueUnit};
 use zumen_sdk::{Codec, Lift};
 
-/// フォルダーの中の、2007 からのバージョンの ASCII の DXF と、2010 からのバージョンの DWG
+/// フォルダーの中の、2007 からのバージョンの ASCII の DXF と DWG
 #[cfg(test)]
 fn drawings() -> Vec<PathBuf> {
     let mut found: Vec<_> = support::sample_files()
         .into_iter()
         .filter(|path| {
             let name = path.file_name().unwrap().to_string_lossy();
-            ["AC1021_ascii.dxf", "AC1024", "AC1027", "AC1032"]
+            ["AC1021", "AC1024", "AC1027", "AC1032"]
                 .iter()
                 .any(|version| name.starts_with(&format!("sample_{version}")))
                 && (name.ends_with("_ascii.dxf") || name.ends_with(".dwg"))

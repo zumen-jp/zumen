@@ -149,6 +149,8 @@ static class Dwg
                     .Select(v => (JsonNode?)new JsonArray(v.Location.X, v.Location.Y, v.Bulge))
                     .ToArray());
                 d["closed"] = polyline.IsClosed;
+                d["has_width"] = polyline.ConstantWidth != 0.0
+                    || polyline.Vertices.Any(v => v.StartWidth != 0.0 || v.EndWidth != 0.0);
                 break;
             case Point point:
                 d["location"] = Xy(point.Location);
@@ -170,6 +172,9 @@ static class Dwg
                 d["align_point"] = Xy(text.AlignmentPoint);
                 d["height"] = text.Height;
                 d["rotation"] = text.Rotation;
+                d["width_factor"] = text.WidthFactor;
+                d["oblique"] = text.ObliqueAngle;
+                d["mirror"] = (int)text.Mirror;
                 d["halign"] = (int)text.HorizontalAlignment;
                 d["valign"] = (int)text.VerticalAlignment;
                 d["style"] = text.Style?.Name;

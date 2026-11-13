@@ -32,7 +32,7 @@
 | [jpeg](#format-jpeg) | 工事写真（JPEG と Exif・XMP） | jpeg | delivery | `public` | `core` | `synthetic` |  |
 | [jwc](#format-jwc) | JWC（Jw\_cad for DOS の図面） | jwcad | drawing | `public` | `none` |  |  |
 | [jws](#format-jws) | JWS（Jw\_cad の図形） | jwcad | drawing | `public` | `none` |  |  |
-| [jww](#format-jww) | JWW（Jw\_cad for Windows の図面） | jwcad | drawing | `public` | `core` | `synthetic` | `external` |
+| [jww](#format-jww) | JWW（Jw\_cad for Windows の図面） | jwcad | drawing | `public` | `core` | `external` | `external` |
 | [kokuban](#format-kokuban) | 電子小黒板の情報と信憑性確認（改ざん検知） | jpeg | delivery | `permission` | `none` |  |  |
 | [landxml](#format-landxml) | J-LandXML（LandXML 1.2 に準じた 3 次元設計データ交換標準） | landxml | civil | `public` | `core` | `synthetic` |  |
 | [las](#format-las) | LAS・LAZ | las | pointcloud | `public` | `core` | `external` |  |
@@ -45,7 +45,7 @@
 | [stbridge](#format-stbridge) | ST-Bridge | stbridge | building | `permission` | `plugin` |  |  |
 | [stem](#format-stem) | Stem（設備機器ライブラリデータ交換仕様） | stem | building | `unknown` | `none` |  |  |
 | [svg](#format-svg) | SVG | svg | drawing | `public` | `core` |  | `external` |
-| [sxf](#format-sxf) | SXF（SFC・P21 と、それを ZIP に入れた SFZ・P2Z） | sxf | drawing | `public` | `core` | `synthetic` | `external` |
+| [sxf](#format-sxf) | SXF（SFC・P21 と、それを ZIP に入れた SFZ・P2Z） | sxf | drawing | `public` | `core` | `external` | `external` |
 | [xlsx](#format-xlsx) | Excel の表（xlsx） | xlsx | delivery | `public` | `none` |  |  |
 | [xyz](#format-xyz) | XYZ（座標を並べた点群のテキスト） | xyz | pointcloud | `public` | `core` | `synthetic` |  |
 
@@ -597,13 +597,13 @@
 - 参照した実装: [ezdwg](https://github.com/monozukuri-ai/ezdwg)（MIT）
 - 照合に使う候補: ODA File Converter・DWG TrueView
 - サンプルの出どころ: 公開サンプルの DWG（samples/dwg）。zumen-jp が AutoCAD 2027 で作った図面で、CC0 1.0。同じ図面を AutoCAD で書いた DXF と比べる。出所とライセンスは samples/ledger.toml・ACadSharp のテストの図面（MIT）。同じ図面を DXF にしたものと比べる・ezdwg のテストの図面（MIT）
-- 読みの確かめた度合い: `application`（確認日: 2026-11-03）
-- 読みの確かめた範囲: AutoCAD 2027 で作った R2000・R2004・R2013・R2018 の DWG（samples/dwg）を、AutoCAD が同じ図面から書いた DXF と比べ、オブジェクトの種類・所有者・値が合うことをテストで確かめる。ほかの図面で確かめた所と、確かめていない所は docs/formats/dwg.md にある。毎晩の CI で、公開サンプルの DWG（samples/dwg）を ACadSharp 3.8.0 でも読み、画層・図形の種類と画層・モデル空間の形の値が zumen の読みと同じことと、要素にならない図形の数が、移さなかったことを言う診断の件数を超えないことを確かめる（xtask/verify、#528）
+- 読みの確かめた度合い: `application`（確認日: 2026-11-13）
+- 読みの確かめた範囲: AutoCAD 2027 で作った R2000・R2004・R2013・R2018 の DWG（samples/dwg）を、AutoCAD が同じ図面から書いた DXF と比べ、オブジェクトの種類・所有者・値が合うことをテストで確かめる。R2007（AC1021）は、RS 復号・LZ77 展開・UTF-16LE 文字列ストリームの読みを合成テストと手元の AutoCAD R2007 DWG（対の DXF との表・図面モデルの比較と ACadSharp 3.8.0 での照合）で確かめた（#874）。毎晩の CI で、公開サンプルの DWG（samples/dwg）を ACadSharp 3.8.0 でも読み、画層・図形の種類と画層・モデル空間の形の値が zumen の読みと同じことと、要素にならない図形の数が移さなかったことを言う診断の件数を超えないことを確かめる（xtask/verify、#528）
 - 読みで使った公開サンプル: [samples/dwg/](../../samples/dwg/)
 - 読みで照らした外部の実装: ACadSharp 3.8.0
 - 読みで開いたソフト: AutoCAD 2027
-- 書きの確かめた度合い: `application`（確認日: 2026-11-03）
-- 書きの確かめた範囲: AutoCAD 2027（accoreconsole）で、AutoCAD で作った R2000・R2004・R2010・R2018 の DWG に、引出線の置き換え・変換・追加を当てて書き戻したものを開き、監査の誤りが 0 で、形・矢印・注記が当てた値と合うことを確かめた。R2004 から後は、組み直したコンテナーも開けた（#345）。ほかの規則は、この方法で確かめていない。点・寸法・表と、引出線のほかの変更を書き戻したファイルは開いていない（#342・#314・#503）。書き戻した DWG は、毎晩の CI で ACadSharp 3.8.0 で読み、通知が入力より増えないことと、変更で決めた形・画層・色が ACadSharp の読んだ値と合うことを確かめる（xtask/verify、#528）
+- 書きの確かめた度合い: `application`（確認日: 2026-11-13）
+- 書きの確かめた範囲: AutoCAD 2027（accoreconsole）で、AutoCAD で作った R2000・R2004・R2010・R2018 の DWG に、引出線の置き換え・変換・追加を当てて書き戻したものを開き、監査の誤りが 0 で、形・矢印・注記が当てた値と合うことを確かめた。R2004・R2010・R2013・R2018 は組み直したコンテナーも開けた（#345）。R2007（AC1021）は読み取り専用とし、変更と apply は dwg.edit.unsupported で断る（#874）。点・寸法・表と、引出線のほかの変更を書き戻したファイルは AutoCAD で開いていない（#342・#314・#503）。書き戻した DWG は、毎晩の CI で ACadSharp 3.8.0 で読み、通知が入力より増えないことと、変更で決めた形・画層・色が ACadSharp の読んだ値と合うことを確かめる（xtask/verify、#528）
 - 書きで照らした外部の実装: ACadSharp 3.8.0
 - 書きで開いたソフト: AutoCAD 2027
 - 旧版の記録: 旧版の決定 0003（[旧版の決定の一覧](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/README.md)）
@@ -618,13 +618,13 @@
 - 参照した実装: [ezdxf](https://ezdxf.mozman.at/)（MIT）
 - 照合に使う候補: ezdxf・ODA File Converter・DWG TrueView
 - サンプルの出どころ: 公開サンプルの DXF（samples/dxf・samples/dwg）。ezdxf の例は MIT、zumen-jp が AutoCAD 2027 で作った図面は CC0 1.0。出所とライセンスは samples/ledger.toml・ACadSharp のテストの図面（MIT）・ezdwg のテストの図面（MIT）・自治体などが公開する図面。再配布できるかは確かめていない
-- 読みの確かめた度合い: `application`（確認日: 2026-11-03）
-- 読みの確かめた範囲: AutoCAD 2027 で作った R2000〜R2018 の DXF（samples/dwg）で、レイアウトの用紙・弧長寸法・反転した切り抜きを、AutoCAD が書いた値と比べた（決定 0208・0228・0229）。TEXT の高さと位置合わせは、AutoCAD 2027 が計算した置く点と比べた（決定 0246）。ほかの規則は、AutoCAD では確かめていない（docs/formats/dxf.md）。毎晩の CI で、公開サンプルの DXF（samples/dxf・samples/dwg）を ezdxf でも読み、画層・図形の種類・モデル空間の形の値が zumen の読みと同じことと、図形を黙って捨てていないことを確かめる（xtask/verify、#511）
+- 読みの確かめた度合い: `application`（確認日: 2026-11-13）
+- 読みの確かめた範囲: AutoCAD 2027 で作った R2000〜R2018 の DXF（samples/dwg）で、レイアウトの用紙・弧長寸法・反転した切り抜きを、AutoCAD が書いた値と比べた（決定 0208・0228・0229）。TEXT の高さと位置合わせは、AutoCAD 2027 が計算した置く点と比べた（決定 0246）。R12（AC1009）と R2007（AC1021）を含む公開サンプルの DXF（samples/dxf・samples/dwg）と手元の AutoCAD R12・R2007 DXF を ezdxf 1.4.5 でも読み、画層・図形の種類・モデル空間の形の値（TEXT の位置合わせ・幅の倍率・斜体・反転を含む）が zumen の読みと同じことと、図形を黙って捨てていないことを確かめる（xtask/verify、#511・#874）
 - 読みで使った公開サンプル: [samples/dxf/](../../samples/dxf/)・[samples/dwg/](../../samples/dwg/)
 - 読みで照らした外部の実装: ezdxf 1.4.5
 - 読みで開いたソフト: AutoCAD 2027
-- 書きの確かめた度合い: `application`（確認日: 2026-11-03）
-- 書きの確かめた範囲: AutoCAD 2027（accoreconsole）で、AutoCAD で作った R2000・R2004・R2010・R2018 の DXF に、引出線の置き換え・変換・追加と MULTILEADER の線の置き換えを当てて書き戻したものを開き、監査の誤りが 0 で、形・矢印・注記が当てた値と合うことを確かめた（#345）。ほかの規則は、AutoCAD では確かめていない。点・寸法・表と、引出線のほかの変更を書き戻したファイルと、convert（決定 0206）で書いた DXF は、AutoCAD で開いていない（#342・#314・#503）。書き戻した DXF は、毎晩の CI で ezdxf で読み、監査の誤りが入力より増えないことと、変更で決めた形・画層・色が ezdxf の読んだ値と合うことを確かめる（xtask/verify、#511）。convert で書いた DXF は、ezdxf で読めないものと監査が誤りを直すものがある（#509）ので、根拠にしない
+- 書きの確かめた度合い: `application`（確認日: 2026-11-13）
+- 書きの確かめた範囲: AutoCAD 2027（accoreconsole）で、AutoCAD で作った R2000・R2004・R2010・R2018 の DXF に、引出線の置き換え・変換・追加と MULTILEADER の線の置き換えを当てて書き戻したものを開き、監査の誤りが 0 で、形・矢印・注記が当てた値と合うことを確かめた（#345）。ほかの規則は、AutoCAD では確かめていない。点・寸法・表と、引出線のほかの変更を書き戻したファイルと、convert（決定 0206）で書いた DXF は、AutoCAD で開いていない（#342・#314・#503）。書き戻した DXF と convert で書いた DXF は、毎晩の CI で ezdxf 1.4.5 で読み、書き戻しでは監査の誤りが入力より増えず変更で決めた形・画層・色が合い、convert では監査の誤りと修復が 0 で各 TABLE の宣言件数と実件数も合うことを確かめる（xtask/verify、#509・#511・#874）
 - 書きで照らした外部の実装: ezdxf 1.4.5
 - 書きで開いたソフト: AutoCAD 2027
 - 形式の文書: [docs/formats/dxf.md](../../docs/formats/dxf.md)
@@ -779,9 +779,11 @@
 - 参照した実装: [ezjww](https://github.com/monozukuri-ai/ezjww)（MIT）
 - 照合に使う候補: Jw\_cad
 - サンプルの出どころ: Jw\_cad に付くサンプル・ezjww のリポジトリにある図面
-- 読みの確かめた度合い: `synthetic`（確認日: 2026-11-03）
-- 読みの確かめた範囲: 受け取った図面（JWW 10 件）を読んで図面モデルに移し、書き戻して読み直せることをテスト（crates/zumen-jww/tests/samples.rs）で確かめた（#289）。読んだ値を外部の実装や Jw\_cad の表示と照らしていないので、段は synthetic。ほかの規則は、Jw\_cad のデータ形式の説明と、テストの中で作った JWW で確かめた。毎晩の CI で、テストの中で作った JWW を ezjww 0.7.6 でも読んで照らす（xtask/verify、#528）が、自前で作ったファイルなので読みの段に数えない。公開サンプルと受け取った図面を外部の実装と照らすことと、Jw\_cad での照合はまだ（#503）
+- 読みの確かめた度合い: `external`（確認日: 2026-11-13）
+- 読みの確かめた範囲: 公開サンプルの JWW（samples/jww/ezjww-geometry.jww）とテストの中で作った JWW を毎晩の CI で ezjww 0.7.6 でも読み、レイヤ・要素の種類（円ソリッドを含む）・線と点と円と円弧の形・黙って捨てない診断の場所が zumen の読みと合うことを確かめる（xtask/verify、#528・#874）。受け取った図面（JWW 10 件）と公開サンプルを読んで図面モデルに移し、書き戻して読み直せることもテスト（crates/zumen-jww/tests/samples.rs）で確かめた（#289）。Jw\_cad での照合はまだ（#503）
+- 読みで使った公開サンプル: [samples/jww/](../../samples/jww/)
 - 読みで使った受け取った図面: JWW 10 件
+- 読みで照らした外部の実装: ezjww 0.7.6
 - 書きの確かめた度合い: `external`（確認日: 2026-11-10）
 - 書きの確かめた範囲: テストの中で作った JWW と受け取った図面に書き戻し、自前の読み取りで読み直して、変えた要素が求めた値になることを確かめた。毎晩の CI で、テストの中で作った JWW に点・線分・円・円弧を足して書き戻したファイルを ezjww 0.7.6 で読み、変更で決めた形・レイヤ・ペンの番号が、ezjww の読んだ値と合うことを確かめる（xtask/verify、#528・#702）。外部の実装と照らしたのは追加の書き戻しだけで、ほかの変更を書き戻したファイルは、自前の読み取りで読み直しただけ。書いたファイルを Jw\_cad で開いてはいない（#342・#503）
 - 書きで照らした外部の実装: ezjww 0.7.6
@@ -978,9 +980,11 @@
 - 参照した実装: [ezsxf](https://github.com/monozukuri-ai/ezsxf)（MIT）
 - 照合に使う候補: Jw\_cad・SXF ブラウザ
 - サンプルの出どころ: ezsxf のリポジトリにある公開の図面
-- 読みの確かめた度合い: `synthetic`（確認日: 2026-11-06）
-- 読みの確かめた範囲: 受け取った図面（SFC 1 件・P21 1 件）を読み、要素の ID がインスタンスの番号で重ならないことと、書き戻して読み直せることをテスト（crates/zumen-sxf/tests/samples.rs）で確かめた（#288・#290）。読んだ値を外部の実装や SXF ブラウザの表示と照らしていないので、段は synthetic。ほかの規則は、仕様と、テストの中で作った SFC・P21 とアーカイブで確かめた。毎晩の CI で、テストの中で作った SFC・P21 を ezsxf 0.3.7 でも読んで照らす（xtask/verify、#528）が、自前で作ったファイルなので読みの段に数えない。同じ番号の SFC フィーチャも出所のレコードで区別し、線・円の形とレイヤ、要素の欠落と診断を照らす。用紙への所属は元の番号で比べる（#553）。公開サンプルと受け取った図面を外部の実装と照らすことと、SXF ブラウザでの照合はまだ（#503）
+- 読みの確かめた度合い: `external`（確認日: 2026-11-13）
+- 読みの確かめた範囲: 公開サンプルの SFC（samples/sxf/ezsxf-writer-all-features.sfc）とテストの中で作った SFC・P21 を毎晩の CI で ezsxf 0.3.7 でも読み、レイヤ・要素の種類・用紙と属性付加機構の作図グループへの所属・線と円と点マーカーの形・黙って捨てない診断の場所が zumen の読みと合うことを確かめる（xtask/verify、#528・#874）。受け取った図面（SFC 1 件・P21 1 件）と公開サンプルを読み、要素の ID がインスタンスの番号で重ならないことと、書き戻して読み直せることもテスト（crates/zumen-sxf/tests/samples.rs）で確かめた（#288・#290）。同じ番号の SFC フィーチャも出所のレコードで区別し、用紙への所属は元の番号で比べる（#553）。SXF ブラウザでの照合はまだ（#503）
+- 読みで使った公開サンプル: [samples/sxf/](../../samples/sxf/)
 - 読みで使った受け取った図面: SFC 1 件・P21 1 件
+- 読みで照らした外部の実装: ezsxf 0.3.7
 - 書きの確かめた度合い: `external`（確認日: 2026-11-06）
 - 書きの確かめた範囲: テストの中で作った SFC・P21 と受け取った図面に書き戻し、自前の読み取りで読み直して、変えた要素が求めた値になることを確かめた。毎晩の CI で、テストの中で作った SFC・P21 に点を足して書き戻したファイルを ezsxf 0.3.7 で読み、変更で決めた形・レイヤと、SFC の色（既定義色の番号）が、ezsxf の読んだ値と合うことを確かめる（xtask/verify、#528）。P21 では、点マーカーの種類を比べない。ezsxf は P21 の文字列のエスケープを戻さないので、P21 のレイヤの名前は、照合がファイルのバイトから戻す。Shift\_JIS のレイヤ「図枠」へ追加した 2 点の所属を照らし、書き戻したファイルに元の名前のバイトが残ることを確かめた（#552）。外部の実装と照らしたのは点の書き戻しだけで、ほかの変更を書き戻したファイルは、自前の読み取りで読み直しただけ。SFZ・P2Z に書き戻したアーカイブは、外部の実装と照らしていない。書いたファイルを SXF ブラウザなどで開いてはいない（#342・#503）
 - 書きで照らした外部の実装: ezsxf 0.3.7

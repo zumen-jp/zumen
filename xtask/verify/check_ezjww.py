@@ -45,7 +45,7 @@ TYPES = {
 KINDS = {
     **{k: TYPES[k] for k in ("line", "circle", "point", "text", "symbol", "dimension")},
     "curve": TYPES["arc"] | TYPES["ellipse"],
-    "hatch": {"SOLID"},
+    "hatch": {"SOLID", "CIRCLE_SOLID"},
     "underlay": {"TEXT"},
 }
 # 既知の食い違い: (ファイルの道筋の初め, 食い違いの文の初め, issue, 当たるファイルの数)。直ったら消す

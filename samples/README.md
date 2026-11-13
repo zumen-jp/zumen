@@ -74,6 +74,12 @@ for id in $(gh cache list --key fuzz-corpus- --limit 100 --json id --jq '.[].id'
 
 作り直すときは、`xtask/autocad/make.sh` を使います。SSH でつなぐ Windows の AutoCAD の accoreconsole で `xtask/autocad/samples.lsp` を流し、できた図面を `dwg/` に置きます。そのあと、台帳のハッシュとバイト数を直します。AutoCAD は保存のたびに、Windows のログイン名を図面の DWGPROPS に書きます。
 
+## DXF・JWW・SXF
+
+- `dxf/` は、ezdxf（MIT）と opendxfviewer（MIT）が公開する DXF です。R12（`ezdxf-ascii-r12.dxf`）・R2000（`opendxfviewer-latin1.dxf`）・R2004（`text_alignments.dxf`）・R2007（`ezdxf-mtext-columns-r2007.dxf`）を含み、毎晩の CI で ezdxf との照合に流します（#511・#874）。
+- `jww/ezjww-geometry.jww` は、ezjww が生成して MIT で公開する JWW です（#874）。`crates/zumen-jww/tests/samples.rs` で読み書きを確かめ、毎晩の CI で ezjww と照らします。
+- `sxf/ezsxf-writer-all-features.sfc` は、ezsxf が MIT で公開する書き出しテスト用の SFC を、SXF Ver.3.1 の仕様に合わせて Shift_JIS（cp932）にしたものです（#874）。`crates/zumen-sxf/tests/samples.rs` で読み書きを確かめ、毎晩の CI で ezsxf と照らします。
+
 ## LAS
 
 `las/pdal-synthetic.las` は PDAL が作った公開サンプルです（#804）。分類の synthetic フラグを持つ 1 点の LAS 1.2（点形式 3）で、実測の点群ではありません。[PDAL #2925](https://github.com/PDAL/PDAL/pull/2925) で合成の 1 点の読み書きのテストと共に追加され、作ったソフトはヘッダーの PDAL 2.0.0 でも確認できます。同じリビジョンの `LICENSE.txt` は、別記のない全ファイルを BSD としています。このファイルへの別条件はありません。出所・BSD-3-Clause のライセンスと著作権表示は台帳と `licenses/pdal.txt` にあります。ファイルは変更していません。

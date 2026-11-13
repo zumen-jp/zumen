@@ -1,4 +1,4 @@
-//! サンプルの、同じ図面の DWG（R2000・R2004・R2010 以降）と DXF を読み、表を比べる。
+//! サンプルの、同じ図面の DWG（R2000・R2004・R2007・R2010 以降）と DXF を読み、表を比べる。
 //! サンプルは公開サンプルの `samples/` と、受け取った図面を置く `ZUMEN_SAMPLES` のフォルダーから集める。
 //!
 //! `名前.dwg` と `名前_ascii.dxf` の組を探す。
@@ -38,9 +38,11 @@ fn pairs() -> Vec<(PathBuf, PathBuf)> {
         .filter(|path| path.extension().is_some_and(|e| e == "dwg"))
         .filter(|path| {
             let src = std::fs::read(path).unwrap();
-            [b"AC1015", b"AC1018", b"AC1024", b"AC1027", b"AC1032"]
-                .iter()
-                .any(|version| src.starts_with(*version))
+            [
+                b"AC1015", b"AC1018", b"AC1021", b"AC1024", b"AC1027", b"AC1032",
+            ]
+            .iter()
+            .any(|version| src.starts_with(*version))
         })
         .filter_map(|dwg| {
             let stem = dwg.file_stem()?.to_str()?;
@@ -52,11 +54,28 @@ fn pairs() -> Vec<(PathBuf, PathBuf)> {
     found
 }
 
+/// 書き戻せるバージョン（R2007 を除く）の DWG と同じ名前の DXF の組
+#[cfg(test)]
+fn editable_pairs() -> Vec<(PathBuf, PathBuf)> {
+    pairs()
+        .into_iter()
+        .filter(|(dwg, _)| !std::fs::read(dwg).unwrap().starts_with(b"AC1021"))
+        .collect()
+}
+
 /// 受け取った図面（`ZUMEN_SAMPLES`）の組があるか。サンプルの中に、テストが確かめる種類の要素があることは、受け取った
 /// 図面にだけ求める。公開サンプル（`samples/dwg`）は、主題ごとに要素をしぼって作る（#316）
 #[cfg(test)]
 fn received_pairs() -> bool {
     pairs().iter().any(|(dwg, _)| support::received(dwg))
+}
+
+/// 書き戻せるバージョンの受け取った図面（`ZUMEN_SAMPLES`）の組があるか
+#[cfg(test)]
+fn received_editable_pairs() -> bool {
+    editable_pairs()
+        .iter()
+        .any(|(dwg, _)| support::received(dwg))
 }
 
 /// 数を許容差で比べ、ほかの文字は同じであること。用紙の mm を図面の単位に戻すか、DWG のラジアンを度に戻すと、
@@ -205,8 +224,32 @@ fn dwg_and_dxf_of_the_same_drawing_give_the_same_table() {
             // 拡張辞書（`{ACAD_XDICTIONARY` の組）は、DXF を書くときに作り直されて別のハンドルになることが
             // あるので比べない
             copy.values = without_xdictionary(&copy.values);
+            // 表のセルの値（301〜304）の型のある値は、表の上書きと同じコード（91・92・140 など）を使うので、
+            // 表示する文字（302）だけを残して比べ、値は図面モデルの値として比べる（tests/cell_value_samples.rs）
+            let without_cell_typed_values = |values: Vec<Value>| {
+                if object.kind != b"ACAD_TABLE" {
+                    return values;
+                }
+                let mut inside = false;
+                values
+                    .into_iter()
+                    .filter(|v| match v.code {
+                        301 => {
+                            inside = true;
+                            true
+                        }
+                        304 => {
+                            inside = false;
+                            true
+                        }
+                        302 => true,
+                        _ => !inside,
+                    })
+                    .collect()
+            };
+            copy.values = without_cell_typed_values(copy.values);
             let other = &copy;
-            let ours = without_xdictionary(&object.values);
+            let ours = without_cell_typed_values(without_xdictionary(&object.values));
             let mut seen: BTreeMap<i16, usize> = BTreeMap::new();
             // 辞書の項目（名前 3 と指すオブジェクト 350・360 の組）は、組で比べる。DXF にない
             // オブジェクトを指す項目は、DXF を書くときに落とされたか作り直されたものなので比べない
@@ -253,22 +296,10 @@ fn dwg_and_dxf_of_the_same_drawing_give_the_same_table() {
                 values.truncate(start);
             }
             let mut embedded = false;
-            let mut cell_value = false;
             for value in values {
                 embedded |= value.code == 101;
                 if matches!(value.code, 5 | 105 | 330) {
                     continue;
-                }
-                // 表のセルの値（301〜304）の型のある値は、表の上書きと同じコードを使うので、並びの何番目かで比べられない。
-                // 表示する文字（302）だけを比べ、値は図面モデルの値として比べる（tests/cell_value_samples.rs）
-                if object.kind == b"ACAD_TABLE" {
-                    match value.code {
-                        301 => cell_value = true,
-                        304 => cell_value = false,
-                        302 => {}
-                        _ if cell_value => continue,
-                        _ => {}
-                    }
                 }
                 // SPLINE の 70 は、DXF を書くときに平らかどうかから決まるので比べない
                 if object.kind == b"SPLINE" && value.code == 70 {
@@ -332,8 +363,14 @@ fn dwg_and_dxf_of_the_same_drawing_give_the_same_table() {
                 // DXF は 16 桁で 1 になる挿入の尺度（41〜43）を、既定の値として省く。DWG は最後の桁が違う値を持つ
                 let unit_scale = theirs.is_none()
                     && matches!((value.code, &value.data), (41..=43, Data::Real(r)) if (r - 1.0).abs() < 1e-15);
+                // DXF は LEADER の矢印のフラグ（71）が既定の 1 のとき省くことがあり、DWG は必ず持つ
+                let default_arrow = theirs.is_none()
+                    && object.kind == b"LEADER"
+                    && value.code == 71
+                    && value.data == Data::Int(1);
                 assert!(
                     unit_scale
+                        || default_arrow
                         || theirs.is_some_and(|theirs| same(&value.data, theirs)
                         || (object.kind == b"TABLESTYLE"
                             && value.code == 7
@@ -427,6 +464,32 @@ fn lifted(path: &Path) -> (zumen_drawing::Drawing2D, Vec<zumen_base::Code>) {
     } else {
         Dxf::read(&src, &mut cx).unwrap().lift(&mut cx).unwrap()
     };
+    // 表のセルが指す名前のないブロック（`*U`）は、DXF を書くときに別のハンドルで書き直されるので、
+    // その中の要素を指す拡張の ID を定義の順番と要素の順番にそろえる
+    {
+        use zumen_drawing::id;
+        let mut definition_namer = id::DefinitionNamer::default();
+        let mut rewritten_ids = std::collections::BTreeMap::new();
+        for (sym_idx, definition) in drawing.symbols.iter().enumerate() {
+            let place = definition_namer.next(definition);
+            if definition.anonymous && definition.key.name.starts_with("*U") {
+                let mut namer = id::Namer::new(&place);
+                for (elem_idx, element) in definition.space.elements.iter().enumerate() {
+                    rewritten_ids.insert(
+                        namer.next(elem_idx, element),
+                        format!("space/*U/{sym_idx}/{elem_idx}"),
+                    );
+                }
+            }
+        }
+        for extension in &mut drawing.extensions {
+            if let zumen_drawing::Target::Element(target) = &mut extension.target
+                && let Some(mapped) = rewritten_ids.get(target)
+            {
+                *target = mapped.clone();
+            }
+        }
+    }
     support::normalize_extensions(&mut drawing);
     // 要素の ID は出所から作るので、出所を消す前に控える（決定 0156）
     let mut ids = Vec::new();
@@ -554,11 +617,13 @@ fn rewrite<'a>(
 fn without_hooks<P>(ours: &[zumen_drawing::Element<P>], theirs: &mut [zumen_drawing::Element<P>]) {
     use zumen_drawing::Shape;
     for (ours, theirs) in ours.iter().zip(theirs) {
-        if let (Shape::Leader(ours), Shape::Leader(theirs)) = (&ours.shape, &mut theirs.shape)
-            && theirs.path.len() == ours.path.len() + 1
-            && ours.path.len() >= 2
-        {
-            theirs.path.remove(ours.path.len() - 1);
+        if let (Shape::Leader(ours), Shape::Leader(theirs)) = (&ours.shape, &mut theirs.shape) {
+            if theirs.path.len() == ours.path.len() + 1 && ours.path.len() >= 2 {
+                theirs.path.remove(ours.path.len() - 1);
+            }
+            if ours.arrow == Some(true) && theirs.arrow.is_none() {
+                theirs.arrow = Some(true);
+            }
         }
     }
 }
@@ -788,7 +853,7 @@ fn drawings_changed_by_id_return_the_ids_and_hashes_of_reading_again() {
         true
     }
     let mut checked = 0;
-    for (dwg, dxf) in pairs() {
+    for (dwg, dxf) in editable_pairs() {
         checked += usize::from(check::<Dwg>(&dwg));
         checked += usize::from(check::<Dxf>(&dxf));
     }
@@ -798,7 +863,7 @@ fn drawings_changed_by_id_return_the_ids_and_hashes_of_reading_again() {
             assert!(check::<Dxf>(&binary));
         }
     }
-    assert!(!received_pairs() || checked > 0);
+    assert!(!received_editable_pairs() || checked > 0);
 }
 
 /// サンプルの実寸の空間の要素（線があれば線）のスタイルを ID で変えると、形は変わらず、変えたフィールドだけが読み直したときに
@@ -1092,13 +1157,13 @@ fn drawings_take_back_restyled_lines() {
         version.as_slice() >= b"AC1018".as_slice()
     };
     let mut checked = 0;
-    for (dwg, dxf) in pairs() {
+    for (dwg, dxf) in editable_pairs() {
         for own in [true, false] {
             checked += usize::from(check::<Dwg>(&dwg, rgb(&dwg), own));
             checked += usize::from(check::<Dxf>(&dxf, rgb(&dxf), own));
         }
     }
-    assert!(!received_pairs() || checked > 0);
+    assert!(!received_editable_pairs() || checked > 0);
     assert!(checked > 0);
 }
 
@@ -1136,7 +1201,7 @@ fn dwg_layers_take_back_line_types_and_true_colors() {
             })
     }
     let mut checked = 0;
-    for (path, _) in pairs() {
+    for (path, _) in editable_pairs() {
         let name = path.display().to_string();
         let src = std::fs::read(&path).unwrap();
         let rgb = src.get(..6).unwrap() >= b"AC1018".as_slice();
@@ -1525,7 +1590,7 @@ fn drawings_take_back_transformed_elements() {
         (kinds, mirrors)
     }
     let mut lines = 0;
-    for (dwg, dxf) in pairs() {
+    for (dwg, dxf) in editable_pairs() {
         for (kinds, _) in [check::<Dwg>(&dwg), check::<Dxf>(&dxf)] {
             lines += usize::from(kinds.contains(&"line"));
         }
@@ -1538,7 +1603,7 @@ fn drawings_take_back_transformed_elements() {
             assert!(mirrors.contains(&"symbol"));
         }
     }
-    assert!(!received_pairs() || lines > 0);
+    assert!(!received_editable_pairs() || lines > 0);
 }
 
 /// サンプルの記号の定義の中の線を ID で動かすと、読み直した線は動いていて、ID は変わらない（決定 0139・0156）
@@ -1624,11 +1689,11 @@ fn drawings_take_back_lines_moved_inside_symbol_definitions() {
         true
     }
     let mut checked = 0;
-    for (dwg, dxf) in pairs() {
+    for (dwg, dxf) in editable_pairs() {
         checked += usize::from(check::<Dwg>(&dwg));
         checked += usize::from(check::<Dxf>(&dxf));
     }
-    assert!(!received_pairs() || checked > 0);
+    assert!(!received_editable_pairs() || checked > 0);
 }
 
 /// 図面モデルで動かした線を、DWG に書き戻して読み直すと、同じ所に動いている（決定 0139）
@@ -1646,7 +1711,7 @@ fn dwg_drawings_take_back_lines_moved_in_the_drawing_model() {
             .unwrap()
     };
     let mut checked = 0;
-    for (dwg, _) in pairs() {
+    for (dwg, _) in editable_pairs() {
         let src = std::fs::read(&dwg).unwrap();
         let mut file = testkit::read::<Dwg>(&src).0.unwrap();
         let elements = lift(&file).spaces.swap_remove(0).elements;
@@ -1676,7 +1741,7 @@ fn dwg_drawings_take_back_lines_moved_in_the_drawing_model() {
         assert_eq!(after[index].shape, moved.shape, "{}", dwg.display());
         checked += 1;
     }
-    assert!(!received_pairs() || checked > 0);
+    assert!(!received_editable_pairs() || checked > 0);
 }
 
 /// DWG のヘッダーから読んだ変数（INSUNITS・PLIMMIN・PLIMMAX・PDMODE・PDSIZE）は、同じ図面の DXF の HEADER と同じ値を
@@ -1848,7 +1913,7 @@ fn dwg_and_dxf_of_the_same_drawing_lift_to_the_same_drawing() {
 
 #[test]
 fn r2004_and_later_drawings_are_read_without_diagnostics() {
-    let found = [b"AC1018", b"AC1024", b"AC1027", b"AC1032"];
+    let found = [b"AC1018", b"AC1021", b"AC1024", b"AC1027", b"AC1032"];
     for path in found.iter().flat_map(|version| dwgs(*version)) {
         let src = std::fs::read(&path).unwrap();
         let mut diag = Diagnostics::new();
@@ -3781,11 +3846,11 @@ fn drawings_take_back_curves_and_polylines_moved_in_the_drawing_model() {
     }
 
     let mut kinds = BTreeMap::new();
-    for (dwg, dxf) in pairs() {
+    for (dwg, dxf) in editable_pairs() {
         check::<Dwg>(&dwg, &mut kinds);
         check::<Dxf>(&dxf, &mut kinds);
     }
-    assert!(!received_pairs() || kinds.len() == 6, "{kinds:?}");
+    assert!(!received_editable_pairs() || kinds.len() == 6, "{kinds:?}");
 }
 
 /// 図面モデルで足した線分・円・円弧・楕円・軽量の折れ線・文字・記号を、DWG と DXF に書き戻して読み直すと、
@@ -4112,11 +4177,11 @@ fn drawings_take_back_elements_added_in_the_drawing_model() {
         }
     };
     let mut symbols = 0;
-    for (dwg, dxf) in pairs() {
+    for (dwg, dxf) in editable_pairs() {
         check(&dwg, true, &mut symbols);
         check(&dxf, false, &mut symbols);
     }
-    assert!(!received_pairs() || symbols > 0);
+    assert!(!received_editable_pairs() || symbols > 0);
 }
 
 /// 図形とともに動く XDATA（位置・変位・向き・距離・倍率）を持つ図形の形を変えると、DWG も DXF も何も反映しない
@@ -4202,10 +4267,10 @@ fn drawings_refuse_to_move_entities_with_moving_xdata() {
         1
     }
     let mut checked = 0;
-    for (dwg, dxf) in pairs() {
+    for (dwg, dxf) in editable_pairs() {
         checked += check::<Dwg>(&dwg) + check::<Dxf>(&dxf);
     }
-    assert!(!received_pairs() || checked >= 2, "{checked}");
+    assert!(!received_editable_pairs() || checked >= 2, "{checked}");
 }
 
 /// 図面モデルで用紙の要素を動かして、DWG と DXF に書き戻して読み直すと、同じ所に動いている。今のレイアウトの
@@ -4989,7 +5054,7 @@ fn drawings_take_back_renamed_restyled_and_added_layers() {
             }
         }
     }
-    if received_pairs() {
+    if received_editable_pairs() {
         assert!(dxf > 0 && dwg > 0 && modern > 0, "{dxf} {dwg} {modern}");
     }
 }
@@ -5265,7 +5330,7 @@ fn drawings_take_back_removed_layers() {
             with_dwg += usize::from(check::<Dwg>(&path, &src, Some(&held)));
         }
     }
-    if received_pairs() {
+    if received_editable_pairs() {
         assert!(dxf > 0 && dwg > 0 && modern > 0, "{dxf} {dwg} {modern}");
         assert!(with_dxf > 0 && with_dwg > 0, "{with_dxf} {with_dwg}");
     }
@@ -5474,7 +5539,7 @@ fn drawings_take_back_changed_text_styles() {
             *count += found;
         }
     }
-    if received_pairs() {
+    if received_editable_pairs() {
         assert!(counts.iter().all(|[changed, _]| *changed > 0), "{counts:?}");
         assert!(counts.iter().any(|[_, removed]| *removed > 0), "{counts:?}");
     }
@@ -5681,7 +5746,7 @@ fn drawings_take_back_changed_line_types() {
             *count += found;
         }
     }
-    if received_pairs() {
+    if received_editable_pairs() {
         assert!(counts.iter().all(|[changed, _]| *changed > 0), "{counts:?}");
         assert!(counts.iter().any(|[_, removed]| *removed > 0), "{counts:?}");
     }
@@ -5923,7 +5988,7 @@ fn drawings_take_back_changed_dimension_styles() {
             *count += found;
         }
     }
-    if received_pairs() {
+    if received_editable_pairs() {
         assert!(counts.iter().all(|[changed, _]| *changed > 0), "{counts:?}");
         assert!(counts.iter().all(|[_, removed]| *removed > 0), "{counts:?}");
     }

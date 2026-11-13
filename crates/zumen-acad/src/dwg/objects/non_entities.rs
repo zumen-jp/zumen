@@ -153,8 +153,8 @@ pub(super) fn xrecord(bits: &mut Bits) -> Option<Vec<Value>> {
                     data: Data::Binary(raw_bytes(bits, len)?),
                 });
             }
-            // R2007 から（読めるバージョンでは R2010 から）は、RS の文字の数と UTF-16LE。コード・ページを持たない
-            DataType::Text if bits.release() >= Release::R2010 => {
+            // R2007 からは、RS の文字の数と UTF-16LE。コード・ページを持たない
+            DataType::Text if bits.release() >= Release::R2007 => {
                 let len = usize::try_from(bits.rs()?).ok()?;
                 let units: Vec<u16> = raw_bytes(bits, len.checked_mul(2)?)?
                     .as_chunks::<2>()
@@ -274,8 +274,8 @@ pub(super) fn layout(
     if r2004 {
         handles.push(0);
     }
-    // R2007 からは、表示スタイルのハンドルも持つ（読むのは R2010 から）
-    if release >= Release::R2010 {
+    // R2007 からは、表示スタイルのハンドルも持つ
+    if release >= Release::R2007 {
         handles.push(0);
     }
     // 紙空間のブロックのレコード・最後に使ったビューポート・基準の UCS・名前の UCS

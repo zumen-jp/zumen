@@ -23,9 +23,11 @@ fn drawings() -> Vec<PathBuf> {
             };
             let src = std::fs::read(path).unwrap();
             if extension == "dwg" {
-                [b"AC1015", b"AC1018", b"AC1024", b"AC1027", b"AC1032"]
-                    .iter()
-                    .any(|version| src.starts_with(*version))
+                [
+                    b"AC1015", b"AC1018", b"AC1021", b"AC1024", b"AC1027", b"AC1032",
+                ]
+                .iter()
+                .any(|version| src.starts_with(*version))
             } else {
                 extension == "dxf"
             }

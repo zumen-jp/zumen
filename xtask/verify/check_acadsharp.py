@@ -40,6 +40,20 @@ MODEL = "*model_space"
 AFTER_SEED = ("INSUNITS", "PLIMMIN", "PLIMMAX", "CLAYER")
 
 
+def caret(text):
+    """DWG の生の制御文字を、zumen・ASCII DXF と同じ `^` 表記に直す（crates/zumen-acad/src/db.rs の caret）"""
+    out = []
+    for ch in text:
+        code = ord(ch)
+        if code < 0x20:
+            out.append("^" + chr(code + 0x40))
+        elif ch == "^":
+            out.append("^ ")
+        else:
+            out.append(ch)
+    return "".join(out)
+
+
 def geometry(d):
     """ACadSharp の図形の値を、図面モデルの形の値（entities の geometry）の形にする。比べない種類は None。
     ACadSharp の角度はラジアン。値の意味は DXF Reference の同じ名前の図形と同じ"""
@@ -67,6 +81,8 @@ def geometry(d):
             "end_angle": math.degrees(d["end_param"]),
         }
     if t == "LWPOLYLINE":
+        if d.get("has_width", False):
+            return None
         g = {"shape": "polyline", "points": [[p[0], p[1]] for p in d["points"]], "closed": d["closed"]}
         if any(p[2] for p in d["points"]):
             g["bulges"] = [p[2] for p in d["points"]]
@@ -74,22 +90,39 @@ def geometry(d):
     if t == "POINT":
         return {"shape": "point", "position": d["location"], "rotation": math.degrees(d["rotation"])}
     if t == "TEXT":
-        g = {"shape": "text", "content": d["text"], "height": d["height"], "rotation": math.degrees(d["rotation"]), "style": d["style"]}
+        width_factor = d.get("width_factor", 1.0)
+        if not isinstance(width_factor, (int, float)) or not math.isfinite(width_factor) or width_factor <= 0.0:
+            return None
+        g = {"shape": "text", "content": caret(d["text"]), "height": d["height"], "rotation": math.degrees(d["rotation"]), "style": d["style"]}
         # 横の寄せ方が 3（aligned）・5（fit）なら 2 点の間に置き、ほかで寄せ方が 0・0 でなければ 2 点目に寄せる
         h, v = d["halign"], d["valign"]
         if h in (3, 5):
+            if d["insert"] == d["align_point"]:
+                return None
             g["position"], g["end"] = d["insert"], d["align_point"]
             g["fit"] = "aligned" if h == 3 else "fit"
             g["rotation"] = math.degrees(math.atan2(g["end"][1] - g["position"][1], g["end"][0] - g["position"][0]))
-        elif h == 0 and v == 0:
-            g["position"] = d["insert"]
         else:
-            g["position"] = d["align_point"]
+            g["position"] = d["insert"] if h == 0 and v == 0 else d["align_point"]
+            if h_name := {1: "center", 2: "right", 4: "middle"}.get(h):
+                g["horizontal"] = h_name
+            if v_name := {1: "bottom", 2: "middle", 3: "top"}.get(v):
+                g["vertical"] = v_name
+        if width_factor != 1.0:
+            g["width_factor"] = width_factor
+        oblique = math.degrees(d.get("oblique", 0.0))
+        if oblique != 0.0:
+            g["oblique"] = oblique
+        mirror = d.get("mirror", 0)
+        if mirror & 2:
+            g["backward"] = True
+        if mirror & 4:
+            g["upside_down"] = True
         return g
     if t == "MTEXT":
         g = {
             "shape": "formatted_text",
-            "content": d["text"],
+            "content": caret(d["text"]),
             "position": d["insert"],
             "height": d["height"],
             "rotation": math.degrees(d["rotation"]),

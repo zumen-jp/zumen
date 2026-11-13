@@ -116,7 +116,9 @@ pub(crate) fn charset_of(db: &AcadDb) -> Charset {
 pub(crate) fn charset(version: Option<&[u8]>, code_page: Option<&[u8]>) -> Charset {
     if version.is_some_and(|v| v >= UTF8) {
         Charset::Utf8
-    } else if code_page.is_some_and(|page| page.eq_ignore_ascii_case(b"ANSI_932")) {
+    } else if code_page.is_some_and(|page| {
+        page.eq_ignore_ascii_case(b"ANSI_932") || page.eq_ignore_ascii_case(b"DOS932")
+    }) {
         Charset::ShiftJis
     } else {
         Charset::Other

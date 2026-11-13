@@ -231,8 +231,8 @@ pub(super) fn viewport(bits: &mut Bits, frozen: &mut u32) -> Option<Vec<Value>> 
         real(51, twist.to_degrees()),
         int(72, i64::from(bits.bs()?)),
     ]);
-    // R2010 からは、主なグリッドの線の間隔（BS、DXF の 61）が続く
-    if bits.release() >= Release::R2010 {
+    // R2007 からは、主なグリッドの線の間隔（BS、DXF の 61）が続く
+    if bits.release() >= Release::R2007 {
         values.push(int(61, i64::from(bits.bs()?)));
     }
     *frozen = u32::try_from(bits.bl()?).ok()?;
@@ -318,8 +318,8 @@ pub(super) fn mtext(bits: &mut Bits) -> Option<Vec<Value>> {
     let extrusion = point3(bits, 210)?;
     let x_axis = point3(bits, 11)?;
     values.push(real(41, bits.bd()?));
-    // R2010 からは、枠の高さ（46）が続く
-    if bits.release() >= Release::R2010 {
+    // R2007 からは、枠の高さ（46）が続く
+    if bits.release() >= Release::R2007 {
         values.push(real(46, bits.bd()?));
     }
     values.push(real(40, bits.bd()?));
@@ -455,8 +455,8 @@ pub(super) fn dimension(bits: &mut Bits, type_code: u16) -> Option<Vec<Value>> {
     let spacing_style = bits.bs()?;
     let spacing = bits.bd()?;
     let measurement = bits.bd()?;
-    // R2010 からは、3 つの B（DXF の 73 と、矢印を裏返すかの 74・75）が続く
-    let arrows = if r2010 {
+    // R2007 からは、3 つの B（DXF の 73 と、矢印を裏返すかの 74・75）が続く
+    let arrows = if bits.release() >= Release::R2007 {
         Some([bits.bit()?, bits.bit()?, bits.bit()?])
     } else {
         None

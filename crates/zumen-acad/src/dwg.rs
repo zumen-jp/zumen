@@ -1,6 +1,7 @@
 //! DWG（Open Design Specification for .dwg files 5.4.1）。R2000（AC1015）、R2004（AC1018）、
-//! R2010（AC1024）、R2013（AC1027）、R2018（AC1032）を読む。R2004 から後は、コンテナー
-//! （4「R2004 DWG FILE FORMAT ORGANIZATION」）を展開してから読む。R2007（AC1021）は読めない。
+//! R2007（AC1021）、R2010（AC1024）、R2013（AC1027）、R2018（AC1032）を読む。R2004・R2010 から後は
+//! 4「R2004 DWG FILE FORMAT ORGANIZATION」のコンテナー、R2007 は 5「R2007 DWG FILE FORMAT ORGANIZATION」の
+//! コンテナーを展開してから読む。R2007 は変更・書き戻しを受け付けない。
 //!
 //! 読むのは、ファイルのヘッダー（3「R13-R15 DWG FILE FORMAT ORGANIZATION」）と、オブジェクトのマップ
 //! （23「OBJECT MAP」）と、マップが指すオブジェクトのレコードと、クラス（10「Data section AcDb:Classes」）。オブジェクトの中身は、[`DwgFile::objects`] で
@@ -20,6 +21,7 @@ mod header;
 mod kinds;
 mod objects;
 mod r2004;
+mod r2007;
 pub(crate) mod reencode;
 mod write_back;
 
@@ -95,10 +97,12 @@ pub struct DwgFile {
     release: Release,
     code_page: u16,
     locators: Vec<Locator>,
-    /// R2004 のコンテナーのセクション。R2000 は `None`
+    /// R2004 からのコンテナーのセクション。R2000・R2007 は `None`
     container: Option<r2004::Container>,
+    /// R2007 のコンテナーのセクション
+    r2007: Option<r2007::Container>,
     classes: Vec<Class>,
-    /// R2000 は `src` の中、R2004 は `AcDb:AcDbObjects` のセクションの中の位置
+    /// R2000 は `src` の中、R2004 からは `AcDb:AcDbObjects` のセクションの中の位置
     entries: Vec<Entry>,
 }
 
@@ -109,6 +113,8 @@ pub(super) enum Release {
     R2000,
     /// AC1018
     R2004,
+    /// AC1021
+    R2007,
     /// AC1024
     R2010,
     /// AC1027
@@ -170,6 +176,11 @@ impl DwgFile {
             .as_ref()
             .map(|value| value.snapshot(cx))
             .transpose()?;
+        let r2007 = self
+            .r2007
+            .as_ref()
+            .map(|value| value.snapshot(cx))
+            .transpose()?;
         let mut classes = Vec::new();
         for class in &self.classes {
             check(cx)?;
@@ -207,6 +218,7 @@ impl DwgFile {
             code_page: self.code_page,
             locators,
             container,
+            r2007,
             classes,
             entries,
         })
@@ -242,6 +254,9 @@ impl DwgFile {
 
     /// オブジェクトが並ぶバイト列
     fn body(&self) -> &[u8] {
+        if let Some(container) = &self.r2007 {
+            return container.objects();
+        }
         match &self.container {
             Some(container) => container.section(R2004_SECTIONS[3]).unwrap_or_default(),
             None => &self.src,
@@ -250,6 +265,10 @@ impl DwgFile {
 
     /// ヘッダーの変数のセクションを含むバイト列と、セクションの範囲
     fn header_section(&self) -> Option<(&[u8], Range<usize>)> {
+        if let Some(container) = &self.r2007 {
+            let section = container.header();
+            return Some((section, 0..section.len()));
+        }
         match &self.container {
             Some(container) => {
                 let section = container.section(R2004_SECTIONS[0])?;
@@ -331,6 +350,9 @@ impl Codec for Dwg {
         cx.check(Kind::InputBytes, src.len() as u64)
             .map_err(|stop| stopped(cx, stop))?;
         let version = src.get(..6).unwrap_or(src);
+        if version == b"AC1021" {
+            return read_r2007(src, cx);
+        }
         let release = match version {
             b"AC1018" => Some(Release::R2004),
             b"AC1024" => Some(Release::R2010),
@@ -375,6 +397,7 @@ impl Codec for Dwg {
             code_page,
             locators,
             container: None,
+            r2007: None,
             classes,
             entries,
         })
@@ -416,6 +439,31 @@ fn read_r2004(src: &[u8], release: Release, cx: &mut Cx) -> Result<DwgFile, Erro
         code_page,
         locators: Vec::new(),
         container: Some(container),
+        r2007: None,
+        classes,
+        entries,
+    })
+}
+
+/// R2007（AC1021）のコンテナーを読み、展開したセクションからクラスとオブジェクトのマップを読む
+fn read_r2007(src: &[u8], cx: &mut Cx) -> Result<DwgFile, Error> {
+    let sections = r2007::read(src, cx)?;
+    let classes = classes(&sections.classes, 0, Release::R2007, cx)?;
+    let entries = object_map(
+        &sections.handles,
+        0..sections.handles.len(),
+        sections.container.objects(),
+        Release::R2007,
+        cx,
+    )?;
+    let code_page = le16(src, 0x13).ok_or_else(|| invalid(cx, "header", 0..src.len()))?;
+    Ok(DwgFile {
+        src: src.to_vec(),
+        release: Release::R2007,
+        code_page,
+        locators: Vec::new(),
+        container: None,
+        r2007: Some(sections.container),
         classes,
         entries,
     })
@@ -470,7 +518,7 @@ fn classes(src: &[u8], start: usize, release: Release, cx: &mut Cx) -> Result<Ve
         let crc_at = data_at.saturating_add(size);
         src.get(crc_at + 2..crc_at + 18) == Some(&CLASSES_END[..])
     };
-    let data_at = if release >= Release::R2010 && ends_at(start + 24) {
+    let data_at = if release >= Release::R2007 && ends_at(start + 24) {
         start + 24
     } else {
         start + 20
@@ -493,8 +541,8 @@ fn classes(src: &[u8], start: usize, release: Release, cx: &mut Cx) -> Result<Ve
     let mut bits = Bits::with_release(data, release);
     // 大きさはバイトで数えるので、終わりの 8 ビットより短い余りは埋め草
     let mut end = size.saturating_mul(8);
-    // R2010 からは、データの初めに、文字列のストリームの終わりまでのビットの数（RL）がある
-    if release >= Release::R2010 {
+    // R2007 からは、データの初めに、文字列のストリームの終わりまでのビットの数（RL）がある
+    if release >= Release::R2007 {
         let strings_end = le32(data, 0)
             .and_then(|bits| usize::try_from(bits).ok())
             .ok_or_else(|| invalid(cx, "classes", data_at..crc_at))?;

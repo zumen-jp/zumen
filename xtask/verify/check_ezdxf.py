@@ -61,28 +61,50 @@ def geometry(e):
             "end_angle": math.degrees(d.end_param),
         }
     if t == "LWPOLYLINE":
-        points = list(e.get_points("xyb"))
+        if d.get("const_width", 0.0) != 0.0:
+            return None
+        points = list(e.get_points("xyseb"))
+        if any(p[2] != 0.0 or p[3] != 0.0 for p in points):
+            return None
         g = {"shape": "polyline", "points": [[p[0], p[1]] for p in points], "closed": e.closed}
-        if any(p[2] for p in points):
-            g["bulges"] = [p[2] for p in points]
+        if any(p[4] for p in points):
+            g["bulges"] = [p[4] for p in points]
         return g
     if t == "POINT":
         # DXF Reference の POINT: 50 は点を描いたときの X 軸の角度（度）
         return {"shape": "point", "position": xy(d.location), "rotation": d.get("angle", 0.0)}
     if t == "TEXT":
+        width_factor = d.get("width", 1.0)
+        if not math.isfinite(width_factor) or width_factor <= 0.0:
+            return None
         g = {"shape": "text", "content": d.text, "height": d.height, "rotation": d.get("rotation", 0.0), "style": d.get("style", "Standard")}
         # DXF Reference の TEXT: 72 は横、73 は縦の寄せ方。72 が 3（aligned）・5（fit）なら 10 と 11 の 2 点の間に
         # 置き、ほかで 0・0 でなければ 11 に寄せる
         h, v = d.get("halign", 0), d.get("valign", 0)
         if h in (3, 5):
             # 2 点の間に置く文字の向きは、2 点が決める（50 は使わない）
-            g["position"], g["end"] = xy(d.insert), xy(d.align_point)
+            pos, end = xy(d.insert), xy(d.align_point)
+            if pos == end:
+                return None
+            g["position"], g["end"] = pos, end
             g["fit"] = "aligned" if h == 3 else "fit"
-            g["rotation"] = math.degrees(math.atan2(g["end"][1] - g["position"][1], g["end"][0] - g["position"][0]))
-        elif h == 0 and v == 0:
-            g["position"] = xy(d.insert)
+            g["rotation"] = math.degrees(math.atan2(end[1] - pos[1], end[0] - pos[0]))
         else:
-            g["position"] = xy(d.align_point)
+            g["position"] = xy(d.insert) if h == 0 and v == 0 else xy(d.align_point)
+            if h_name := {1: "center", 2: "right", 4: "middle"}.get(h):
+                g["horizontal"] = h_name
+            if v_name := {1: "bottom", 2: "middle", 3: "top"}.get(v):
+                g["vertical"] = v_name
+        if width_factor != 1.0:
+            g["width_factor"] = width_factor
+        oblique = d.get("oblique", 0.0)
+        if oblique != 0.0:
+            g["oblique"] = oblique
+        flags = d.get("text_generation_flag", 0)
+        if flags & 2:
+            g["backward"] = True
+        if flags & 4:
+            g["upside_down"] = True
         return g
     if t == "MTEXT":
         # DXF Reference の MTEXT: 71 は寄せ方、41 は枠の幅（0 なら枠なし）

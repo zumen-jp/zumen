@@ -64,6 +64,10 @@ impl Apply<Changes> for DwgFile {
 
     /// 今のファイルから表を作り、変更を当ててから書き戻す
     fn apply(&mut self, changes: &Changes, cx: &mut Cx) -> Result<Vec<Applied>, Error> {
+        if self.version() == b"AC1021" {
+            cx.report(Diagnostic::new(codes::DWG_EDIT_UNSUPPORTED).with("version", "AC1021"));
+            return Err(Error::Unsupported);
+        }
         let current = document(self, changes, Dwg::write, cx)?;
         let mut db = self.objects(cx)?;
         let seed = self.handle_seed();

@@ -11,10 +11,10 @@ pub(super) fn table_record(
     handles: &mut Vec<i16>,
 ) -> Option<Vec<Value>> {
     let name = bits.text()?;
-    // 参照されるフラグ（64）は、DXF に書かれないので置かない。外部参照の番号は、R2010 の図面には
-    // ない（図面で確かめた）
+    // 参照されるフラグ（64）は、DXF に書かれないので置かない。外部参照の番号は、R2007 からの図面には
+    // ない（ODS 5.4.1）
     bits.bit()?;
-    if bits.release() < Release::R2010 {
+    if bits.release() < Release::R2007 {
         bits.bs()?;
     }
     let xdep = if bits.bit()? { 16 } else { 0 };
@@ -64,8 +64,8 @@ pub(super) fn table_record(
                 370,
                 lineweight(u16::try_from((flags & 0x03E0) >> 5).ok()?)?,
             ));
-            // 印刷スタイル（390）と線種（6）。R2010 からは、その間に材質（347）がある（決定 0094）
-            if bits.release() >= Release::R2010 {
+            // 印刷スタイル（390）と線種（6）。R2007 からは、その間に材質（347）がある（決定 0094）
+            if bits.release() >= Release::R2007 {
                 handles.extend([390, 347, 6]);
             } else {
                 handles.extend([390, 6]);
@@ -102,9 +102,9 @@ pub(super) fn table_record(
                 let flags = bits.bs()?;
                 dashes.push((dash, shape, x, y, scale, rotation, flags));
             }
-            // 文字の要素の文字列は、256 バイトの領域に、形の番号の位置から 0 で終わる。R2010 からは、
+            // 文字の要素の文字列は、256 バイトの領域に、形の番号の位置から 0 で終わる。R2007 からは、
             // 文字の要素があるときだけ 512 バイトの領域があり、文字列は UTF-16LE
-            let unicode = bits.release() >= Release::R2010;
+            let unicode = bits.release() >= Release::R2007;
             let area = if !unicode {
                 raw_bytes(bits, 256)?
             } else if dashes.iter().any(|dash| dash.6 & 2 != 0) {
@@ -169,8 +169,8 @@ pub(super) fn table_record(
         VPORT => {
             values.push(int(70, xdep));
             values.extend(vport(bits)?);
-            // R2010 からは、外部参照のブロックの後に、背景・表示スタイル・太陽のハンドルが続く
-            if bits.release() >= Release::R2010 {
+            // R2007 からは、外部参照のブロックの後に、背景・表示スタイル・太陽のハンドルが続く
+            if bits.release() >= Release::R2007 {
                 handles.extend([0, 0, 0]);
             }
             handles.extend([345, 346]);
@@ -179,8 +179,8 @@ pub(super) fn table_record(
             values.push(int(70, xdep));
             values.extend(dimstyle(bits)?);
             handles.extend([340, 341, 342, 343, 344]);
-            // R2010 からは、寸法線と 2 つの補助線の線種のハンドルが続く
-            if bits.release() >= Release::R2010 {
+            // R2007 からは、寸法線と 2 つの補助線の線種のハンドルが続く
+            if bits.release() >= Release::R2007 {
                 handles.extend([345, 346, 347]);
             }
         }
@@ -219,7 +219,7 @@ pub(super) fn table_record(
                 let size = usize::try_from(bits.bl()?).ok()?;
                 bits.skip_bytes(size)?;
             }
-            if bits.release() >= Release::R2010 {
+            if bits.release() >= Release::R2007 {
                 values.push(int(70, i64::from(bits.bs()?)));
                 values.push(int(280, i64::from(bits.bit()?)));
                 values.push(int(281, i64::from(bits.rc()?)));
@@ -270,9 +270,9 @@ pub(in crate::dwg) fn view(
     let (lens, front, back) = (bits.bd()?, bits.bd()?, bits.bd()?);
     let mode = view_mode(bits)?;
     let render = bits.rc()?;
-    // R2010 からは、既定の照明を使うか（B）・照明の種類（RC）・明るさと対比（BD）・環境の色（CMC）が
+    // R2007 からは、既定の照明を使うか（B）・照明の種類（RC）・明るさと対比（BD）・環境の色（CMC）が
     // 続く（図面で確かめた）
-    if bits.release() >= Release::R2010 {
+    if bits.release() >= Release::R2007 {
         bits.bit()?;
         bits.rc()?;
         bits.bd()?;
@@ -295,8 +295,8 @@ pub(in crate::dwg) fn view(
     ]);
     let associated = bits.bit()?;
     values.push(int(72, i64::from(associated)));
-    // R2010 からは、外部参照のブロックの後に、背景・表示スタイル・太陽のハンドルが続く
-    if bits.release() >= Release::R2010 {
+    // R2007 からは、外部参照のブロックの後に、背景・表示スタイル・太陽のハンドルが続く
+    if bits.release() >= Release::R2007 {
         handles.extend([0, 0, 0]);
     }
     if associated {
@@ -336,8 +336,8 @@ pub(in crate::dwg) fn vport(bits: &mut Bits) -> Option<Vec<Value>> {
     let (lens, front, back) = (bits.bd()?, bits.bd()?, bits.bd()?);
     let mode = view_mode(bits)?;
     let render = bits.rc()?;
-    // R2010 からは、VIEW と同じく照明のフィールドが続く（図面で確かめた、決定 0096）
-    if bits.release() >= Release::R2010 {
+    // R2007 からは、VIEW と同じく照明のフィールドが続く（図面で確かめた、決定 0096）
+    if bits.release() >= Release::R2007 {
         bits.bit()?;
         bits.rc()?;
         bits.bd()?;
@@ -472,11 +472,24 @@ pub(in crate::dwg) const DIM_FIELDS: [(i16, Dim); 59] = {
 
 /// バージョン `release` の DIMSTYLE のフィールドの並び。コードが 0 のフィールドは、DXF に書かれない
 pub(in crate::dwg) fn dim_fields(release: Release) -> Vec<(i16, Dim)> {
-    // R2010 からは、ヘッダーの変数と同じく、DIMTM（48）の後に DIMFXL・DIMJOGANG・DIMTFILL・
-    // DIMTFILLCLR、DIMAZIN（79）の後に DIMARCSYM、DIMATFIT（289）の後に DIMFXLON・
-    // DIMTXTDIRECTION・DIMALTMZF・DIMALTMZS・DIMMZF・DIMMZS が入る（図面で確かめた）
-    let added: &[(i16, &[(i16, Dim)])] = if release >= Release::R2010 {
-        &[
+    // R2007 からは、ヘッダーの変数と同じく、DIMTM（48）の後に DIMFXL・DIMJOGANG・DIMTFILL・
+    // DIMTFILLCLR、DIMAZIN（79）の後に DIMARCSYM、DIMATFIT（289）の後に DIMFXLON が入り、
+    // R2010 からはさらに DIMTXTDIRECTION・DIMALTMZF・DIMALTMZS・DIMMZF・DIMMZS が入る
+    let added: &[(i16, &[(i16, Dim)])] = match release {
+        Release::R2007 => &[
+            (
+                48,
+                &[
+                    (49, Dim::Real(1.0)),
+                    (50, Dim::Real(std::f64::consts::FRAC_PI_4)),
+                    (69, Dim::Short(0)),
+                    (70, Dim::Color(0)),
+                ],
+            ),
+            (79, &[(90, Dim::Short(0))]),
+            (289, &[(290, Dim::Bit(false))]),
+        ],
+        _ if release >= Release::R2010 => &[
             (
                 48,
                 &[
@@ -498,9 +511,8 @@ pub(in crate::dwg) fn dim_fields(release: Release) -> Vec<(i16, Dim)> {
                     (0, Dim::Text),
                 ],
             ),
-        ]
-    } else {
-        &[]
+        ],
+        _ => &[],
     };
     DIM_FIELDS
         .iter()

@@ -166,11 +166,12 @@ pub struct Object {
 impl Object {
     /// ハンドル（5。DIMSTYLE は 105）。なければ `None`
     pub fn handle(&self) -> Option<u64> {
+        let expected = if self.kind == b"DIMSTYLE" { 105 } else { 5 };
         self.values.iter().find_map(|value| match value {
             Value {
-                code: 5 | 105,
+                code,
                 data: Data::Handle(handle),
-            } => Some(*handle),
+            } if *code == expected => Some(*handle),
             _ => None,
         })
     }

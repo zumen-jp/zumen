@@ -381,7 +381,7 @@ impl<'a> Bits<'a> {
     /// T。R2007 からは、文字列のストリームの TU（BS の文字の数と UTF-16LE）を UTF-8 に直して返す。
     /// ストリームがなければ空
     pub(super) fn text(&mut self) -> Option<Vec<u8>> {
-        if self.release < Release::R2010 {
+        if self.release < Release::R2007 {
             return self.code_page_text();
         }
         let Some(at) = self.strings else {

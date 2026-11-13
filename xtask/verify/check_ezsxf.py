@@ -469,6 +469,11 @@ def sheet_members(model, typed):
             groups[d["entity_id"]].update(d.get("component_ids", []))
     for r in model.get("sfig_references", []):
         placed[r["placement_id"]].add(r["definition_id"])
+    for a in model.get("attribute_attachments", []):
+        if a.get("kind_flag") == 3:
+            groups[a["definition_id"]].update(a.get("component_ids", []))
+            for pid in a.get("placement_ids", []):
+                placed[pid].add(a["definition_id"])
     out, todo = set(), list((model.get("sheet") or {}).get("component_ids", []))
     while todo:
         i = todo.pop()
