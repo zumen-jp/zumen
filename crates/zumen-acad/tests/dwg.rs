@@ -8530,6 +8530,7 @@ fn layer_table_with_seed() -> Vec<u8> {
             w.handle(5, 0x12); // 線種
         },
     );
+    // 線種の表。項目の後に、ByBlock と ByLayer の線種のハンドルが続く（#683）
     let ltype_control = object(
         0x38,
         5,
@@ -8542,6 +8543,8 @@ fn layer_table_with_seed() -> Vec<u8> {
             w.handle(4, 0);
             w.handle(3, 0);
             w.handle(2, 0x12);
+            w.handle(3, 0);
+            w.handle(3, 0);
         },
     );
     let ltype = object(0x39, 0x12, record_named(b"Continuous"), record_handles(5));

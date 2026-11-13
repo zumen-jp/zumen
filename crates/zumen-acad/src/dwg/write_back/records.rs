@@ -135,10 +135,11 @@ pub(super) fn add_entry(
     let mut fields = BitWriter::default();
     fields.bl(entry.count(count)?);
     // 寸法スタイルの表は、項目の数の後に RC を持ち、項目の後にその数だけハンドルが続く。ブロックの表は、
-    // 項目の後にモデル空間と用紙空間のハンドルが続く（決定 0068）
+    // 項目の後にモデル空間と用紙空間のハンドルが続く（決定 0068）。線種の表は、項目の後に ByBlock と ByLayer の
+    // 線種のハンドルが続き、項目の数はこの 2 つを数えない（#683）
     let extra = match type_code {
         kinds::DIMSTYLE => bits.rc()?,
-        kinds::BLOCK_RECORD => 2,
+        kinds::BLOCK_RECORD | kinds::LTYPE => 2,
         _ => 0,
     };
     if type_code == kinds::DIMSTYLE {
@@ -194,7 +195,7 @@ pub(super) fn add_entry_r2010(
     let count_end = bits.pos();
     let extra = match type_code {
         kinds::DIMSTYLE => bits.rc()?,
-        kinds::BLOCK_RECORD => 2,
+        kinds::BLOCK_RECORD | kinds::LTYPE => 2,
         _ => 0,
     };
     (bits.pos() == end).then_some(())?;
