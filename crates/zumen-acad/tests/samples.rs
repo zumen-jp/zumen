@@ -55,7 +55,8 @@ fn pairs() -> Vec<(PathBuf, PathBuf)> {
 }
 
 /// 書き戻せるバージョン（R2007 を除く）の DWG と同じ名前の DXF の組
-#[cfg(all(test, feature = "drawing"))]
+#[cfg(test)]
+#[cfg(feature = "drawing")]
 fn editable_pairs() -> Vec<(PathBuf, PathBuf)> {
     pairs()
         .into_iter()
@@ -71,7 +72,8 @@ fn received_pairs() -> bool {
 }
 
 /// 書き戻せるバージョンの受け取った図面（`ZUMEN_SAMPLES`）の組があるか
-#[cfg(all(test, feature = "drawing"))]
+#[cfg(test)]
+#[cfg(feature = "drawing")]
 fn received_editable_pairs() -> bool {
     editable_pairs()
         .iter()
