@@ -9,8 +9,10 @@ const UTF8: &[u8] = b"AC1021";
 
 /// 文字の値の符号化。2007 以降のバージョンは UTF-8 で、それより前のバージョンは `$DWGCODEPAGE` のコード・ページで決まる
 /// （DXF Reference の HEADER Section Group Codes）
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Charset {
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Charset {
+    /// UTF-8（2007 以降のバージョン）
+    #[default]
     Utf8,
     /// ANSI_932。WHATWG の Shift_JIS（Windows の 932 と同じ表）として戻す
     ShiftJis,
@@ -20,7 +22,7 @@ pub(crate) enum Charset {
 
 impl Charset {
     /// 文字の値を戻す。戻せないバイト列と、対応表のないコード・ページの ASCII でない文字は `None`
-    pub(crate) fn decode(self, value: &[u8]) -> Option<String> {
+    pub fn decode(self, value: &[u8]) -> Option<String> {
         match self {
             Charset::Utf8 => core::str::from_utf8(value).ok().map(str::to_owned),
             _ if value.is_ascii() => core::str::from_utf8(value).ok().map(str::to_owned),
@@ -45,14 +47,14 @@ impl Charset {
     }
 
     /// 同系統の変換で、同じバイト列に戻る表の名前だけを使う。
-    pub(crate) fn decode_name(self, bytes: &[u8]) -> Option<String> {
+    pub fn decode_name(self, bytes: &[u8]) -> Option<String> {
         let name = self.decode(bytes)?;
         (self.encoded(&name)?.as_ref() == bytes).then_some(name)
     }
 
     /// 文字列を符号化する。戻すと別の文字になる場合は、その最初の文字を返す（決定 0192）。
     #[cfg(feature = "drawing")]
-    pub(crate) fn encode(self, value: &str) -> Result<Vec<u8>, char> {
+    pub fn encode(self, value: &str) -> Result<Vec<u8>, char> {
         if self == Self::Utf8 || value.is_ascii() {
             return Ok(value.as_bytes().to_vec());
         }
@@ -76,7 +78,7 @@ impl Charset {
 
     /// 名前を、大文字と小文字を区別せずに比べるための形にする。ASCII の文字だけを小文字にし、Shift_JIS の
     /// 2 バイトの文字の 2 バイト目は変えない（読むときに、戻した文字の ASCII だけを小文字にするのと同じ）
-    pub(crate) fn fold(self, name: &[u8]) -> Vec<u8> {
+    pub fn fold(self, name: &[u8]) -> Vec<u8> {
         if self != Charset::ShiftJis {
             return name.to_ascii_lowercase();
         }
@@ -96,7 +98,7 @@ impl Charset {
 
     /// 2 つの名前が、大文字と小文字を区別せずに同じか
     #[cfg(feature = "drawing")]
-    pub(crate) fn same(self, a: &[u8], b: &[u8]) -> bool {
+    pub fn same(self, a: &[u8], b: &[u8]) -> bool {
         a.len() == b.len() && self.fold(a) == self.fold(b)
     }
 }
@@ -113,7 +115,8 @@ pub(crate) fn charset_of(db: &AcadDb) -> Charset {
     charset(variable(b"$ACADVER"), variable(b"$DWGCODEPAGE"))
 }
 
-pub(crate) fn charset(version: Option<&[u8]>, code_page: Option<&[u8]>) -> Charset {
+/// バージョン（`$ACADVER`）とコード・ページ（`$DWGCODEPAGE`）から文字の符号化を決める
+pub fn charset(version: Option<&[u8]>, code_page: Option<&[u8]>) -> Charset {
     if version.is_some_and(|v| v >= UTF8) {
         Charset::Utf8
     } else if code_page.is_some_and(|page| {

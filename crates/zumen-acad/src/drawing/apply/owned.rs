@@ -62,12 +62,20 @@ pub(super) fn owned(
 /// オブジェクトが所有を示すハンドル。辞書の項目（350・360）、組の外の 360、拡張辞書の組の 360。
 /// `record` なら、拡張辞書の組のほかの組か、組の外の 360 があれば `None`
 fn children(object: &Object, record: bool) -> Option<Vec<(u64, bool)>> {
-    let dictionary = object.kind == b"DICTIONARY";
+    children_of_values(&object.kind, &object.values, record)
+}
+
+pub(crate) fn children_of_values(
+    kind: &[u8],
+    values: &[crate::db::Value],
+    record: bool,
+) -> Option<Vec<(u64, bool)>> {
+    let dictionary = kind == b"DICTIONARY";
     let mut out = Vec::new();
     // 開いている組が、拡張辞書の組か
     let mut groups: Vec<(bool, usize)> = Vec::new();
     let mut has_xdictionary = false;
-    for value in &object.values {
+    for value in values {
         match (value.code, &value.data) {
             (102, Data::Text(text)) if text.starts_with(b"{") => {
                 let xdictionary = text.as_slice() == b"{ACAD_XDICTIONARY";

@@ -1,12 +1,19 @@
 //! 足すレコードの値と、属性を変えたレコードの値。
 //!
-//! 今の実装の `apply/add.rs`（足す図形の値）・`apply/transform.rs`（`restyled`）・`drawing/style.rs`（要素のスタイルの読み方）と
-//! 同じ規則で作る。今の実装は、画層と線種の名前を、図面の全体の解釈（定義のない名前も含む一覧）から引く。
-//! 試作は、開くときに読んだ名前の表だけで決められる場合に限って受け付け、ほかは範囲の外（`Decline::Outside`）とする。
+//! 値そのものは `zumen_acad::single`（`restyle_model`・`born_model`）の共通規則で作る。
+//! 試作がまだ範囲の外とする条件（名前の表のレコード 1 つだけでは決まらない名前、Shift_JIS、属性の定義を持つ記号）だけを
+//! 先に確かめ、当てはまれば `Decline::Outside` を返す。
 
-use zumen_acad::{Data, Value};
+use zumen_acad::Value;
+use zumen_acad::single::{self, RestyleLineType};
+use zumen_drawing::{
+    Color, ColorCode, ColorSystem, Edge, Element, Fit, Grid, Height, HeightMeaning, Horizontal,
+    Inherit, LayerId, Length, LineTypeId, LineWeight, ModelLength, ModelPoint, PaperLength,
+    Placement, Polyline, Shape, SpaceId, Style, Symbol, SymbolKey, Text, Vertex, Vertical,
+};
 
 use crate::edit::{Decline, Outside};
+use crate::lift::BLOCK;
 use crate::store::{Charset, Document, table};
 
 /// 色の指定
@@ -178,219 +185,70 @@ pub struct NewGrid {
     pub row_spacing: f64,
 }
 
-/// 色
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Color {
-    Layer,
-    Block,
-    Own {
-        aci: Option<u8>,
-        rgb: Option<[u8; 3]>,
-    },
-}
-
-/// 線種。名前は、符号化のまま
-#[derive(Clone, Copy, Debug)]
-enum Line<'a> {
-    Layer,
-    Block,
-    Own(&'a [u8]),
-}
-
-/// 線の太さ
-#[derive(Clone, Copy, Debug, PartialEq)]
-enum Weight {
-    Layer,
-    Block,
-    Default,
-    Width(f64),
-}
-
-/// 要素のスタイルのうち、変更で変えられるもの
-#[derive(Clone, Copy, Debug)]
-struct Look<'a> {
-    color: Color,
-    line: Line<'a>,
-    weight: Weight,
-    scale: f64,
-}
-
 const UNSUPPORTED: Decline = Decline::Unsupported;
+const MODEL: SpaceId = SpaceId(0);
 
-fn text(code: i16, value: &[u8]) -> Value {
-    Value {
-        code,
-        data: Data::Text(value.to_vec()),
-    }
+fn model_point([x, y]: [f64; 2]) -> ModelPoint {
+    ModelPoint { space: MODEL, x, y }
 }
 
-fn int(code: i16, value: i64) -> Value {
-    Value {
-        code,
-        data: Data::Int(value),
-    }
-}
-
-fn real(code: i16, value: f64) -> Result<Value, Decline> {
-    if value.is_finite() {
-        Ok(Value {
-            code,
-            data: Data::Real(value),
-        })
-    } else {
-        Err(UNSUPPORTED)
-    }
-}
-
-/// 点。Z は 0 を書く
-fn point(values: &mut Vec<Value>, code: i16, [x, y]: [f64; 2]) -> Result<(), Decline> {
-    values.extend([real(code, x)?, real(code + 10, y)?, real(code + 20, 0.0)?]);
-    Ok(())
-}
-
-fn positive(value: f64) -> Result<f64, Decline> {
-    if value.is_finite() && value > 0.0 {
-        Ok(value)
-    } else {
-        Err(UNSUPPORTED)
-    }
-}
-
-fn first(values: &[Value], code: i16) -> Option<&Data> {
-    values.iter().find(|v| v.code == code).map(|v| &v.data)
-}
-
-/// レコードの今のスタイル（`drawing/style.rs`）。要素として読めたレコードなら、読める
-fn look_of(values: &[Value]) -> Option<Look<'_>> {
-    let rgb = match first(values, 420) {
-        None => None,
-        Some(Data::Int(value @ 0..=0xFF_FFFF)) => {
-            let [_, r, g, b] = (*value as u32).to_be_bytes();
-            Some([r, g, b])
-        }
-        Some(_) => return None,
-    };
-    let index = match first(values, 62) {
-        None => 256,
-        Some(Data::Int(index)) => *index,
-        Some(_) => return None,
-    };
-    let color = match (index, rgb) {
-        (1..=255, _) => Color::Own {
-            aci: Some(index as u8),
-            rgb,
-        },
-        (_, Some(rgb)) => Color::Own {
-            aci: None,
-            rgb: Some(rgb),
-        },
-        (0, None) => Color::Block,
-        (256, None) => Color::Layer,
-        _ => return None,
-    };
-    let line = match first(values, 6) {
-        None => Line::Layer,
-        Some(Data::Text(name)) if name.eq_ignore_ascii_case(b"ByLayer") => Line::Layer,
-        Some(Data::Text(name)) if name.eq_ignore_ascii_case(b"ByBlock") => Line::Block,
-        Some(Data::Text(name)) => Line::Own(name),
-        Some(_) => return None,
-    };
-    let scale = match first(values, 48) {
-        None => 1.0,
-        Some(Data::Real(scale)) if *scale > 0.0 => *scale,
-        Some(_) => return None,
-    };
-    let weight = match first(values, 370) {
-        None | Some(Data::Int(-1)) => Weight::Layer,
-        Some(Data::Int(-2)) => Weight::Block,
-        Some(Data::Int(-3)) => Weight::Default,
-        Some(Data::Int(width @ 0..=211)) => Weight::Width(*width as f64 / 100.0),
-        Some(_) => return None,
-    };
-    Some(Look {
-        color,
-        line,
-        weight,
-        scale,
+fn model_length(value: f64) -> Length {
+    Length::Model(ModelLength {
+        space: MODEL,
+        value,
     })
 }
 
-/// 同じ線種か。線種は、名前の ASCII の大小を区別せずに引く
-fn same_line(a: Line<'_>, b: Line<'_>) -> bool {
-    match (a, b) {
-        (Line::Layer, Line::Layer) | (Line::Block, Line::Block) => true,
-        (Line::Own(a), Line::Own(b)) => a.eq_ignore_ascii_case(b),
-        _ => false,
-    }
-}
-
-fn color_from(spec: ColorSpec) -> Result<Color, Decline> {
+fn color_from(spec: ColorSpec) -> Result<Inherit<Color>, Decline> {
     Ok(match spec {
-        ColorSpec::ByLayer => Color::Layer,
-        ColorSpec::ByBlock => Color::Block,
+        ColorSpec::ByLayer => Inherit::Layer,
+        ColorSpec::ByBlock => Inherit::Block,
         ColorSpec::Aci(0) | ColorSpec::AciRgb(0, _) => return Err(UNSUPPORTED),
-        ColorSpec::Aci(aci) => Color::Own {
-            aci: Some(aci),
+        ColorSpec::Aci(aci) => Inherit::Own(Color {
+            code: Some(ColorCode {
+                system: ColorSystem::Aci,
+                value: u32::from(aci),
+            }),
             rgb: None,
-        },
-        ColorSpec::Rgb(rgb) => Color::Own {
-            aci: None,
+        }),
+        ColorSpec::Rgb(rgb) => Inherit::Own(Color {
+            code: None,
             rgb: Some(rgb),
-        },
-        ColorSpec::AciRgb(aci, rgb) => Color::Own {
-            aci: Some(aci),
+        }),
+        ColorSpec::AciRgb(aci, rgb) => Inherit::Own(Color {
+            code: Some(ColorCode {
+                system: ColorSystem::Aci,
+                value: u32::from(aci),
+            }),
             rgb: Some(rgb),
-        },
+        }),
     })
 }
 
-fn weight_from(spec: WeightSpec) -> Result<Weight, Decline> {
+fn weight_from(spec: WeightSpec) -> Result<Inherit<LineWeight>, Decline> {
     Ok(match spec {
-        WeightSpec::ByLayer => Weight::Layer,
-        WeightSpec::ByBlock => Weight::Block,
-        WeightSpec::Default => Weight::Default,
-        WeightSpec::Mm(mm) if mm.is_finite() && mm >= 0.0 => Weight::Width(mm),
+        WeightSpec::ByLayer => Inherit::Layer,
+        WeightSpec::ByBlock => Inherit::Block,
+        WeightSpec::Default => Inherit::Own(LineWeight::Default),
+        WeightSpec::Mm(mm) if mm.is_finite() && mm >= 0.0 => {
+            Inherit::Own(LineWeight::Width(PaperLength(mm)))
+        }
         WeightSpec::Mm(_) => return Err(UNSUPPORTED),
     })
 }
 
-/// 線の太さ（370）。-1 は画層、-2 はブロック、-3 は文書の既定、0〜211 は 1/100 mm
-fn weight_code(weight: Weight) -> Result<i64, Decline> {
-    match weight {
-        Weight::Layer => Ok(-1),
-        Weight::Block => Ok(-2),
-        Weight::Default => Ok(-3),
-        Weight::Width(width) => {
-            let hundredths = width * 100.0;
-            let rounded = hundredths.round();
-            if (hundredths - rounded).abs() < 1e-9 && (0.0..=211.0).contains(&rounded) {
-                Ok(rounded as i64)
-            } else {
-                Err(UNSUPPORTED)
-            }
-        }
-    }
-}
-
 impl Document {
-    /// 図面のバージョンが `release` 以後か
-    fn since(&self, release: &[u8]) -> bool {
-        self.version.as_slice() >= release
-    }
-
-    /// 文字列を、この図面の符号化で書く。試作は、UTF-8 の図面のほかでは ASCII だけを書く
-    fn encoded<'a>(&self, value: &'a str) -> Result<&'a [u8], Decline> {
+    /// 文字列を、この図面の符号化で書けるか確かめる。試作は、UTF-8 の図面のほかでは ASCII だけを書く
+    fn check_encodable(&self, value: &str) -> Result<(), Decline> {
         if value.is_ascii() || self.charset == Charset::Utf8 {
-            Ok(value.as_bytes())
+            Ok(())
         } else {
             Err(Decline::Outside(Outside::Charset))
         }
     }
 
-    /// 画層か線種の名前を、表の綴りで返す。受け付けるのは、その名前（小文字にして同じもの）のレコードが 1 つだけで、
-    /// TABLES にあり、綴りも同じとき。今の実装は、定義のない名前や、綴りの違う定義がいくつかある名前も、
-    /// 図面の全体の解釈から決める
-    fn defined(&self, table: usize, name: &str) -> Result<&[u8], Decline> {
+    /// 画層か線種の名前が、開くときに読んだ表の 1 レコードだけで同じ綴りに決まるか確かめる
+    fn check_defined(&self, table: usize, name: &str) -> Result<(), Decline> {
         let outside = Decline::Outside(Outside::Names);
         if !self.names_exact {
             return Err(outside);
@@ -402,29 +260,32 @@ impl Document {
             .and_then(|names| names.get(&name.to_lowercase()))
             .ok_or(outside)?;
         if spelling.count == 1 && spelling.tables == 1 && *spelling.name == *name.as_bytes() {
-            Ok(&spelling.name)
+            Ok(())
         } else {
             Err(outside)
         }
     }
 
-    /// 文字スタイルの名前（今の実装の `Born::named`）。表があれば、表の綴り。表がなければ、Standard だけを書ける
-    fn text_style(&self, name: &str) -> Result<Vec<u8>, Decline> {
+    /// 文字スタイルの名前を確かめる。表があれば表にあること、なければ Standard で符号化できること
+    fn check_text_style(&self, name: &str) -> Result<(), Decline> {
         if !self.names_exact {
             return Err(Decline::Outside(Outside::Names));
         }
         match self.names.get(table::STYLE).and_then(Option::as_ref) {
-            Some(names) => names
-                .get(&name.to_lowercase())
-                .map(|spelling| spelling.name.to_vec())
-                .ok_or(UNSUPPORTED),
-            None if name.eq_ignore_ascii_case("Standard") => Ok(self.encoded(name)?.to_vec()),
+            Some(names) => {
+                if names.contains_key(&name.to_lowercase()) {
+                    Ok(())
+                } else {
+                    Err(UNSUPPORTED)
+                }
+            }
+            None if name.eq_ignore_ascii_case("Standard") => self.check_encodable(name),
             None => Err(UNSUPPORTED),
         }
     }
 
-    /// 記号の定義の名前（今の実装の `Born::placing`）。指せるのは、名前で 1 つに決まり、属性の定義を持たない定義だけ
-    fn block_name(&self, name: &str) -> Result<Vec<u8>, Decline> {
+    /// 記号の定義の名前を確かめる。名前で 1 つに決まり、属性の定義を持たない定義だけを受け付ける
+    fn check_block_name(&self, name: &str) -> Result<(), Decline> {
         let lower = name.to_lowercase();
         if lower.starts_with("*model_space") || lower.starts_with("*paper_space") {
             return Err(UNSUPPORTED);
@@ -437,246 +298,167 @@ impl Document {
             .get(&lower)
             .and_then(|at| self.definitions.get(*at as usize))
             .ok_or(Decline::Outside(Outside::Definition))?;
-        match self.names.get(table::BLOCK_RECORD).and_then(Option::as_ref) {
-            Some(names) => {
-                let key = self
-                    .decode(&definition.name)
-                    .ok_or(Decline::Outside(Outside::Names))?
-                    .to_lowercase();
-                names
-                    .get(&key)
-                    .map(|spelling| spelling.name.to_vec())
-                    .ok_or(UNSUPPORTED)
+        if let Some(names) = self.names.get(table::BLOCK_RECORD).and_then(Option::as_ref) {
+            let key = self
+                .decode(&definition.name)
+                .ok_or(Decline::Outside(Outside::Names))?
+                .to_lowercase();
+            if !names.contains_key(&key) {
+                return Err(UNSUPPORTED);
             }
-            None => Ok(definition.name.to_vec()),
         }
+        Ok(())
     }
 
-    /// 線種の指定を読む
-    fn line_from<'a>(&'a self, spec: &'a LineTypeSpec) -> Result<Line<'a>, Decline> {
+    /// 線種の指定を共通関数向けの形にする
+    fn restyle_line_type<'a>(
+        &self,
+        spec: &'a LineTypeSpec,
+    ) -> Result<RestyleLineType<'a>, Decline> {
         Ok(match spec {
-            LineTypeSpec::ByLayer => Line::Layer,
-            LineTypeSpec::ByBlock => Line::Block,
-            // 今の実装は、表に ByLayer・ByBlock という名前の線種があれば、それを指す。試作は扱わない
+            LineTypeSpec::ByLayer => RestyleLineType::Layer,
+            LineTypeSpec::ByBlock => RestyleLineType::Block,
             LineTypeSpec::Name(name)
                 if name.eq_ignore_ascii_case("ByLayer") || name.eq_ignore_ascii_case("ByBlock") =>
             {
                 return Err(Decline::Outside(Outside::Names));
             }
-            LineTypeSpec::Name(name) => Line::Own(self.defined(table::LTYPE, name)?),
+            LineTypeSpec::Name(name) => {
+                self.check_defined(table::LTYPE, name)?;
+                RestyleLineType::Named(name.as_str())
+            }
         })
     }
 
-    /// スタイルの値（今の実装の `Born::style_values`）。`changed` にあるグループ・コードの分だけを、
-    /// 線種（6）・色（62）・線の太さ（370）・線種の尺度（48）・RGB（420）の順に並べる
-    fn style_values(&self, look: &Look<'_>, changed: &[i16]) -> Result<Vec<Value>, Decline> {
-        let mut values = Vec::new();
-        let mut last = None;
-        if changed.contains(&6) {
-            match look.line {
-                Line::Layer => {}
-                Line::Block => values.push(text(6, b"ByBlock")),
-                Line::Own(name) => values.push(text(6, name)),
-            }
-        }
-        if changed.contains(&62) {
-            let mut rgb = None;
-            match look.color {
-                Color::Layer => {}
-                Color::Block => values.push(int(62, 0)),
-                Color::Own { aci, rgb: own } => {
-                    match aci {
-                        Some(aci) => values.push(int(62, i64::from(aci))),
-                        None if own.is_none() => return Err(UNSUPPORTED),
-                        None => {}
-                    }
-                    rgb = own;
-                }
-            }
-            if let Some([r, g, b]) = rgb {
-                if !self.since(b"AC1018") {
-                    return Err(UNSUPPORTED);
-                }
-                last = Some(int(420, i64::from(u32::from_be_bytes([0, r, g, b]))));
-            }
-        }
-        if changed.contains(&370) {
-            match look.weight {
-                Weight::Layer => {}
-                weight if self.since(b"AC1015") => values.push(int(370, weight_code(weight)?)),
-                _ => return Err(UNSUPPORTED),
-            }
-        }
-        if changed.contains(&48) && look.scale != 1.0 {
-            values.push(real(48, positive(look.scale)?)?);
-        }
-        values.extend(last);
-        Ok(values)
-    }
-
-    /// 属性を変えた後のレコードの値（今の実装の `restyled`）。`layer` は、今の画層の名前。
+    /// 属性を変えた後のレコードの値（`zumen_acad::single::restyle_model`）。`layer` は、今の画層の名前。
     /// 何も変わらなければ、元の値のまま
     pub(crate) fn restyled(
         &self,
+        kind: &[u8],
         layer: &[u8],
         old: &[Value],
         change: &Restyle,
     ) -> Result<Vec<Value>, Decline> {
-        let was = look_of(old).ok_or(UNSUPPORTED)?;
-        let color = match change.color {
-            Some(spec) => color_from(spec)?,
-            None => was.color,
-        };
-        let line = match &change.line_type {
-            Some(spec) => self.line_from(spec)?,
-            None => was.line,
-        };
-        let weight = match change.line_weight {
-            Some(spec) => weight_from(spec)?,
-            None => was.weight,
-        };
-        let scale = match change.line_type_scale {
-            Some(scale) => positive(scale)?,
-            None => was.scale,
-        };
+        let current_layer = self
+            .decode(layer)
+            .ok_or(Decline::Outside(Outside::Charset))?;
         let new_layer = match &change.layer {
-            Some(name) => Some(self.defined(table::LAYER, name)?),
+            Some(name) => {
+                self.check_defined(table::LAYER, name)?;
+                Some(name.as_str())
+            }
             None => None,
         };
-        let mut changed: Vec<i16> = Vec::new();
-        if new_layer.is_some_and(|name| !name.eq_ignore_ascii_case(layer)) {
-            changed.push(8);
-        }
-        if !same_line(line, was.line) {
-            changed.push(6);
-        }
-        if color != was.color {
-            changed.extend([62, 420, 430]);
-        }
-        if weight != was.weight {
-            changed.push(370);
-        }
-        if scale != was.scale {
-            changed.push(48);
-        }
-        if changed.is_empty() {
-            return Ok(old.to_vec());
-        }
-        let mut written = Vec::new();
-        if changed.contains(&8)
-            && let Some(name) = new_layer
-        {
-            written.push(text(8, name));
-        }
-        let look = Look {
-            color,
-            line,
-            weight,
-            scale,
+        let new_line_type = match &change.line_type {
+            Some(spec) => Some(self.restyle_line_type(spec)?),
+            None => None,
         };
-        written.extend(self.style_values(&look, &changed)?);
-
-        // 図形に共通の値の範囲。サブクラスの印（100 AcDbEntity）の次から、次の印か XDATA の前まで。
-        // 印のないレコードは、最初から XDATA の前まで
-        let marker = old.iter().position(|v| {
-            v.code == 100 && matches!(&v.data, Data::Text(name) if name == b"AcDbEntity")
-        });
-        let start = marker.map_or(0, |index| index + 1);
-        let end = old
-            .iter()
-            .enumerate()
-            .skip(start)
-            .find(|(_, v)| v.code == 1001 || (marker.is_some() && v.code == 100))
-            .map_or(old.len(), |(index, _)| index);
-        let common = start..end;
-        let mut values = Vec::with_capacity(old.len() + written.len());
-        let mut insert_at = None;
-        for (index, value) in old.iter().enumerate() {
-            let inside = common.contains(&index);
-            if inside && value.code == 8 && insert_at.is_none() {
-                if !changed.contains(&8) {
-                    values.push(value.clone());
-                }
-                insert_at = Some(values.len());
-            } else if !(inside && changed.contains(&value.code)) {
-                values.push(value.clone());
-            }
+        let color = change.color.map(color_from).transpose()?;
+        let line_weight = change.line_weight.map(weight_from).transpose()?;
+        if let Some(scale) = change.line_type_scale
+            && !(scale.is_finite() && scale > 0.0)
+        {
+            return Err(UNSUPPORTED);
         }
-        let insert_at = insert_at.unwrap_or(common.start);
-        values.splice(insert_at..insert_at, written);
-        Ok(values)
+        single::restyle_model(
+            &self.single_tables,
+            kind,
+            old,
+            current_layer,
+            new_layer,
+            new_line_type,
+            color,
+            change.line_type_scale,
+            line_weight,
+        )
+        .ok_or(UNSUPPORTED)
     }
 
-    /// 足す要素のレコードの種類と値（今の実装の `Born::record` と `Born::push`）。値は、ハンドル（5）から並ぶ
+    /// 足す要素のレコードの種類と値（`zumen_acad::single::born_model`）。値は、ハンドル（5）から並ぶ
     pub(crate) fn born(
         &self,
         add: &Add,
         handle: u64,
     ) -> Result<(&'static [u8], Vec<Value>), Decline> {
-        let layer = self.defined(table::LAYER, add.layer.as_deref().unwrap_or("0"))?;
-        let look = Look {
-            color: match add.color {
-                Some(spec) => color_from(spec)?,
-                None => Color::Layer,
-            },
-            line: match &add.line_type {
-                Some(spec) => self.line_from(spec)?,
-                None => Line::Layer,
-            },
-            weight: match add.line_weight {
-                Some(spec) => weight_from(spec)?,
-                None => Weight::Layer,
-            },
-            scale: 1.0,
+        let layer_name = add.layer.as_deref().unwrap_or("0");
+        self.check_defined(table::LAYER, layer_name)?;
+        let color = match add.color {
+            Some(spec) => color_from(spec)?,
+            None => Inherit::Layer,
         };
-        let mut values = vec![Value {
-            code: 5,
-            data: Data::Handle(handle),
-        }];
-        if let Some(owner) = self.model_owner {
-            values.push(Value {
-                code: 330,
-                data: Data::Handle(owner),
-            });
+        let (line_type, line_type_name) = match &add.line_type {
+            None | Some(LineTypeSpec::ByLayer) => (Inherit::Layer, None),
+            Some(LineTypeSpec::ByBlock) => (Inherit::Block, None),
+            Some(LineTypeSpec::Name(name))
+                if name.eq_ignore_ascii_case("ByLayer") || name.eq_ignore_ascii_case("ByBlock") =>
+            {
+                return Err(Decline::Outside(Outside::Names));
+            }
+            Some(LineTypeSpec::Name(name)) => {
+                self.check_defined(table::LTYPE, name)?;
+                (Inherit::Own(LineTypeId(0)), Some(name.as_str()))
+            }
+        };
+        let line_weight = match add.line_weight {
+            Some(spec) => Some(weight_from(spec)?),
+            None => Some(Inherit::Layer),
+        };
+        let shape = self.new_shape(&add.shape)?;
+        let element = Element {
+            layer: LayerId(0),
+            style: Style {
+                color,
+                line_type,
+                line_type_scale: 1.0,
+                line_weight,
+                transparency: Inherit::Layer,
+            },
+            shape,
+            source: Default::default(),
+        };
+        let mut records = single::born_model(
+            &self.single_tables,
+            &element,
+            layer_name,
+            line_type_name,
+            &[],
+            &[],
+            handle,
+        )
+        .ok_or(UNSUPPORTED)?;
+        if records.len() != 1 {
+            return Err(Decline::Outside(Outside::Definition));
         }
-        values.push(text(100, b"AcDbEntity"));
-        values.push(text(8, layer));
-        values.extend(self.style_values(&look, &[6, 62, 420, 430, 370, 48, 440])?);
-        let kind: &'static [u8] = match &add.shape {
-            NewShape::Line { start, end } => {
-                values.push(text(100, b"AcDbLine"));
-                point(&mut values, 10, *start)?;
-                point(&mut values, 11, *end)?;
-                b"LINE"
-            }
-            NewShape::Circle { center, radius } => {
-                values.push(text(100, b"AcDbCircle"));
-                point(&mut values, 10, *center)?;
-                values.push(real(40, positive(*radius)?)?);
-                b"CIRCLE"
-            }
+        records.pop().ok_or(UNSUPPORTED)
+    }
+
+    fn new_shape(&self, shape: &NewShape) -> Result<Shape<ModelPoint>, Decline> {
+        Ok(match shape {
+            NewShape::Line { start, end } => Shape::Line {
+                start: model_point(*start),
+                end: model_point(*end),
+            },
+            NewShape::Circle { center, radius } => Shape::Circle {
+                center: model_point(*center),
+                radius: model_length(*radius),
+            },
             NewShape::Arc {
                 center,
                 radius,
                 start,
                 end,
-            } => {
-                values.push(text(100, b"AcDbCircle"));
-                point(&mut values, 10, *center)?;
-                values.push(real(40, positive(*radius)?)?);
-                values.push(text(100, b"AcDbArc"));
-                values.push(real(50, *start)?);
-                values.push(real(51, *end)?);
-                b"ARC"
-            }
+            } => Shape::Curve(Edge::Arc {
+                center: model_point(*center),
+                radius: model_length(*radius),
+                start: *start,
+                end: *end,
+                counterclockwise: true,
+            }),
             NewShape::Polyline {
                 points,
                 bulges,
                 closed,
             } => {
-                if !self.version.is_empty() && !self.since(b"AC1014") {
-                    return Err(UNSUPPORTED);
-                }
                 if points.len() < 2
                     || bulges.as_ref().is_some_and(|bulges| {
                         bulges.len() != points.len() || bulges.iter().any(|b| !b.is_finite())
@@ -684,146 +466,120 @@ impl Document {
                 {
                     return Err(UNSUPPORTED);
                 }
-                values.push(text(100, b"AcDbPolyline"));
-                values.push(int(
-                    90,
-                    i64::try_from(points.len()).map_err(|_| UNSUPPORTED)?,
-                ));
-                values.push(int(70, i64::from(*closed)));
-                for (index, [x, y]) in points.iter().enumerate() {
-                    values.extend([real(10, *x)?, real(20, *y)?]);
-                    let bulge = bulges
-                        .as_ref()
-                        .and_then(|bulges| bulges.get(index))
-                        .copied()
-                        .unwrap_or(0.0);
-                    if bulge != 0.0 {
-                        values.push(real(42, bulge)?);
-                    }
-                }
-                b"LWPOLYLINE"
+                let vertices = points
+                    .iter()
+                    .enumerate()
+                    .map(|(index, point)| Vertex {
+                        point: model_point(*point),
+                        bulge: bulges
+                            .as_ref()
+                            .and_then(|bulges| bulges.get(index))
+                            .copied()
+                            .unwrap_or(0.0),
+                    })
+                    .collect();
+                Shape::Polyline(Polyline {
+                    vertices,
+                    closed: *closed,
+                    width: None,
+                    vertex_widths: Vec::new(),
+                    line_type_generation: false,
+                })
             }
-            NewShape::Text(new) => {
-                self.lettering(&mut values, new)?;
-                b"TEXT"
-            }
-            NewShape::Symbol(new) => {
-                self.placing(&mut values, new)?;
-                b"INSERT"
-            }
-        };
-        if !self.markers {
-            values.retain(|value| value.code != 100);
-        }
-        Ok((kind, values))
+            NewShape::Text(new) => Shape::Text(self.new_text(new)?),
+            NewShape::Symbol(new) => Shape::Symbol(self.new_symbol(new)?),
+        })
     }
 
-    /// TEXT の値（今の実装の `Born::lettering`）
-    fn lettering(&self, values: &mut Vec<Value>, new: &NewText) -> Result<(), Decline> {
+    fn new_text(&self, new: &NewText) -> Result<Text<ModelPoint>, Decline> {
         if new.content.contains(['\n', '\r']) {
             return Err(UNSUPPORTED);
         }
-        let height = positive(new.height)?;
-        let width = match new.width_factor {
-            Some(width) => positive(width)?,
-            None => 1.0,
-        };
-        let oblique = new.oblique.unwrap_or(0.0);
-        let (second, horizontal, vertical) = match new.end {
+        let style_name = new.style.as_deref().unwrap_or("Standard");
+        self.check_text_style(style_name)?;
+        self.check_encodable(&new.content)?;
+        let placement = match new.end {
             Some((end, fit)) => {
                 if new.horizontal.is_some() || new.vertical.is_some() || end == new.position {
                     return Err(UNSUPPORTED);
                 }
-                // 2 点の間に置く文字の回転は、2 点の向きと同じでなければならない
                 let angle =
                     libm::atan2(end[1] - new.position[1], end[0] - new.position[0]).to_degrees();
                 let turn = (new.rotation - angle).rem_euclid(360.0);
                 if turn.min(360.0 - turn) > 1e-6 {
                     return Err(UNSUPPORTED);
                 }
-                (Some(end), if fit { 5 } else { 3 }, 0)
+                Placement::Between {
+                    first: model_point(new.position),
+                    second: model_point(end),
+                    fit: if fit { Fit::Fit } else { Fit::Aligned },
+                }
             }
             None => {
-                let horizontal = new.horizontal.unwrap_or(0);
-                let vertical = new.vertical.unwrap_or(0);
-                if !matches!(horizontal, 0 | 1 | 2 | 4) || vertical > 3 {
-                    return Err(UNSUPPORTED);
+                let horizontal = match new.horizontal.unwrap_or(0) {
+                    0 => Horizontal::Left,
+                    1 => Horizontal::Center,
+                    2 => Horizontal::Right,
+                    4 => Horizontal::Middle,
+                    _ => return Err(UNSUPPORTED),
+                };
+                let vertical = match new.vertical.unwrap_or(0) {
+                    0 => Vertical::Baseline,
+                    1 => Vertical::Bottom,
+                    2 => Vertical::Middle,
+                    3 => Vertical::Top,
+                    _ => return Err(UNSUPPORTED),
+                };
+                Placement::Anchor {
+                    point: model_point(new.position),
+                    horizontal,
+                    vertical,
                 }
-                let aligned = (horizontal, vertical) != (0, 0);
-                (
-                    aligned.then_some(new.position),
-                    i64::from(horizontal),
-                    i64::from(vertical),
-                )
             }
         };
-        let style = self.text_style(new.style.as_deref().unwrap_or("Standard"))?;
-        let content = self.encoded(&new.content)?;
-        values.push(text(100, b"AcDbText"));
-        point(values, 10, new.position)?;
-        values.push(real(40, height)?);
-        values.push(text(1, content));
-        if new.rotation != 0.0 {
-            values.push(real(50, new.rotation)?);
-        }
-        if width != 1.0 {
-            values.push(real(41, width)?);
-        }
-        if oblique != 0.0 {
-            values.push(real(51, oblique)?);
-        }
-        values.push(text(7, &style));
-        let flags = i64::from(new.backward) * 2 + i64::from(new.upside_down) * 4;
-        if flags != 0 {
-            values.push(int(71, flags));
-        }
-        if horizontal != 0 {
-            values.push(int(72, horizontal));
-        }
-        if let Some(second) = second {
-            point(values, 11, second)?;
-        }
-        values.push(text(100, b"AcDbText"));
-        if vertical != 0 {
-            values.push(int(73, vertical));
-        }
-        Ok(())
+        Ok(Text {
+            content: new.content.clone(),
+            height: Height {
+                value: model_length(new.height),
+                meaning: HeightMeaning::Declared("dxf.TEXT.40".into()),
+            },
+            placement,
+            rotation: new.rotation,
+            width_factor: new.width_factor.unwrap_or(1.0),
+            oblique: new.oblique.unwrap_or(0.0),
+            backward: new.backward,
+            upside_down: new.upside_down,
+            style: style_name.to_owned(),
+        })
     }
 
-    /// INSERT の値（今の実装の `Born::placing`）。属性の定義を持つ定義は指せないので、ATTRIB と SEQEND は書かない
-    fn placing(&self, values: &mut Vec<Value>, new: &NewSymbol) -> Result<(), Decline> {
-        let name = self.block_name(&new.name)?;
-        let class: &[u8] = if new.grid.is_some() {
-            b"AcDbMInsertBlock"
-        } else {
-            b"AcDbBlockReference"
+    fn new_symbol(&self, new: &NewSymbol) -> Result<Symbol<ModelPoint>, Decline> {
+        self.check_block_name(&new.name)?;
+        let grid = match &new.grid {
+            None => None,
+            Some(grid) => {
+                if grid.columns == 0 || grid.rows == 0 || (grid.columns, grid.rows) == (1, 1) {
+                    return Err(UNSUPPORTED);
+                }
+                Some(Grid {
+                    columns: grid.columns,
+                    rows: grid.rows,
+                    column_spacing: model_length(grid.column_spacing),
+                    row_spacing: model_length(grid.row_spacing),
+                })
+            }
         };
-        values.push(text(100, class));
-        values.push(text(2, &name));
-        point(values, 10, new.position)?;
-        for (code, scale) in [(41, new.scale[0]), (42, new.scale[1])] {
-            if !(scale.is_finite() && scale != 0.0) {
-                return Err(UNSUPPORTED);
-            }
-            if scale != 1.0 {
-                values.push(real(code, scale)?);
-            }
-        }
-        if new.rotation != 0.0 {
-            values.push(real(50, new.rotation)?);
-        }
-        if let Some(grid) = &new.grid {
-            if grid.columns == 0 || grid.rows == 0 || (grid.columns, grid.rows) == (1, 1) {
-                return Err(UNSUPPORTED);
-            }
-            for (code, count) in [(70, grid.columns), (71, grid.rows)] {
-                let count = i16::try_from(count).map_err(|_| UNSUPPORTED)?;
-                values.push(int(code, i64::from(count)));
-            }
-            for (code, spacing) in [(44, grid.column_spacing), (45, grid.row_spacing)] {
-                values.push(real(code, spacing)?);
-            }
-        }
-        Ok(())
+        Ok(Symbol {
+            key: SymbolKey {
+                namespace: BLOCK.into(),
+                name: new.name.clone(),
+            },
+            position: model_point(new.position),
+            scale: new.scale,
+            rotation: new.rotation,
+            grid,
+            attributes: Vec::new(),
+            clip: None,
+        })
     }
 }

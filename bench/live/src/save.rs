@@ -1,15 +1,9 @@
 //! 保存。変えていないレコードは元のバイト列を写し、変えたレコードと足したレコードは、今の実装の書き出し
 //! （`crates/zumen-acad/src/dxf.rs` と `dxf/write_back.rs`）と同じ規則で、タグごとに書く。除いたレコードは書かない。
 
-use crate::store::{Document, OTag};
+use zumen_acad::dxf::newline_of;
 
-/// 元のファイルの改行。最初の改行が CR LF なら CR LF、そうでなければ LF
-fn newline(src: &[u8]) -> &'static [u8] {
-    match src.iter().position(|&byte| byte == b'\n') {
-        Some(at) if at > 0 && src.get(at - 1) == Some(&b'\r') => b"\r\n",
-        _ => b"\n",
-    }
-}
+use crate::store::{Document, OTag};
 
 /// タグを書く。足したタグは、グループ・コードを 3 桁の右寄せで書く。変えたタグは、値の前後の空白と改行を保つ
 fn write_tag(out: &mut Vec<u8>, src: &[u8], tag: &OTag, newline: &[u8]) {
@@ -34,7 +28,7 @@ impl Document {
     /// 文書の全体を DXF のバイト列にする。手間は、ファイルの大きさと、変えた・足した・除いたレコードの数による
     pub fn save(&self) -> Vec<u8> {
         let src = &self.src;
-        let newline = newline(src);
+        let newline = newline_of(src);
         let first_added = self.source_records();
         let mut out = Vec::with_capacity(src.len() + self.overlay.len() * 64);
         let mut written = 0;

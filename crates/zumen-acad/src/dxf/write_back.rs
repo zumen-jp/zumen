@@ -221,32 +221,17 @@ fn extents(db: &AcadDb, touched: &[&Object]) -> Vec<(&'static [u8], Vec<Value>)>
     let Some(found) = touched
         .iter()
         .filter_map(|o| bounds(o))
-        .reduce(|[a0, a1], [b0, b1]| [min3(a0, b0), max3(a1, b1)])
+        .fold(None, |acc, next| merge_extents(acc, Some(next)))
     else {
         return Vec::new();
     };
     let mut fixed = Vec::new();
-    for (name, corner, pick) in [
-        (EXTMIN, found[0], min3 as fn([f64; 3], [f64; 3]) -> [f64; 3]),
-        (EXTMAX, found[1], max3),
-    ] {
+    for (name, is_max) in [(EXTMIN, false), (EXTMAX, true)] {
         let Some(values) = db.variable(name) else {
             continue;
         };
-        let Some(old) = point(values, 10) else {
-            continue;
-        };
-        let new = pick(old, corner);
-        if new != old {
-            let mut values = values.to_vec();
-            for value in &mut values {
-                if let Some(axis) = [10, 20, 30].iter().position(|&code| code == value.code)
-                    && let Some(&v) = new.get(axis)
-                {
-                    value.data = Data::Real(v);
-                }
-            }
-            fixed.push((name, values));
+        if let Some(updated) = widen_extents(is_max, values, found) {
+            fixed.push((name, updated));
         }
     }
     fixed
@@ -254,33 +239,82 @@ fn extents(db: &AcadDb, touched: &[&Object]) -> Vec<(&'static [u8], Vec<Value>)>
 
 /// モデル空間の図形を囲む箱の、最小と最大の角（WCS）
 fn bounds(object: &Object) -> Option<[[f64; 3]; 2]> {
-    let paper = matches!(object.first(67), Some(Data::Int(1)));
-    if object.section != Section::Entities || paper {
+    entity_extents(
+        &object.kind,
+        object.section == Section::Entities,
+        &object.values,
+    )
+}
+
+/// モデル空間の図形（`in_entities` が真で `67` が `1` でない `LINE`・`POINT` と、押し出しの向きが既定の `CIRCLE`）を
+/// 囲む箱の、最小と最大の角（WCS）
+pub fn entity_extents(kind: &[u8], in_entities: bool, values: &[Value]) -> Option<[[f64; 3]; 2]> {
+    let paper = values
+        .iter()
+        .find(|v| v.code == 67)
+        .is_some_and(|v| v.data == Data::Int(1));
+    if !in_entities || paper {
         return None;
     }
     let corners = |a: [f64; 3], b: [f64; 3]| Some([min3(a, b), max3(a, b)]);
-    match object.kind.as_slice() {
-        b"LINE" => corners(point(&object.values, 10)?, point(&object.values, 11)?),
+    match kind {
+        b"LINE" => corners(point(values, 10)?, point(values, 11)?),
         b"POINT" => {
-            let at = point(&object.values, 10)?;
+            let at = point(values, 10)?;
             corners(at, at)
         }
         // 中心は OCS なので、押し出しの向きが既定（0,0,1）のときだけ WCS と同じになる
-        b"CIRCLE" if extrusion(object)? == [0.0, 0.0, 1.0] => {
-            let [x, y, z] = point(&object.values, 10)?;
-            let r = object.real(40)??.abs();
+        b"CIRCLE" if extrusion_of(values)? == [0.0, 0.0, 1.0] => {
+            let [x, y, z] = point(values, 10)?;
+            let r = match values.iter().find(|v| v.code == 40)?.data {
+                Data::Real(r) if r.is_finite() => r.abs(),
+                _ => return None,
+            };
             corners([x - r, y - r, z], [x + r, y + r, z])
         }
         _ => None,
     }
 }
 
+/// 2 つの 3 次元の箱を合わせる
+pub fn merge_extents(a: Option<[[f64; 3]; 2]>, b: Option<[[f64; 3]; 2]>) -> Option<[[f64; 3]; 2]> {
+    match (a, b) {
+        (Some([a0, a1]), Some([b0, b1])) => Some([min3(a0, b0), max3(a1, b1)]),
+        (Some(a), None) => Some(a),
+        (None, b) => b,
+    }
+}
+
+/// `$EXTMIN`（`is_max` が偽）か `$EXTMAX`（真）の値 `values` を、箱 `found` を含むように広げる。
+/// 変わらなければ `None`
+pub fn widen_extents(is_max: bool, values: &[Value], found: [[f64; 3]; 2]) -> Option<Vec<Value>> {
+    let [low, high] = found;
+    let old = point(values, 10)?;
+    let new = if is_max {
+        max3(old, high)
+    } else {
+        min3(old, low)
+    };
+    if new == old {
+        return None;
+    }
+    let mut updated = values.to_vec();
+    for value in &mut updated {
+        if let Some(axis) = [10, 20, 30].iter().position(|&code| code == value.code)
+            && let Some(&v) = new.get(axis)
+        {
+            value.data = Data::Real(v);
+        }
+    }
+    Some(updated)
+}
+
 /// 押し出しの向き（210・220・230）。なければ既定の（0,0,1）
-fn extrusion(object: &Object) -> Option<[f64; 3]> {
-    if object.first(210).is_none() {
+fn extrusion_of(values: &[Value]) -> Option<[f64; 3]> {
+    if !values.iter().any(|v| v.code == 210) {
         return Some([0.0, 0.0, 1.0]);
     }
-    point(&object.values, 210)
+    point(values, 210)
 }
 
 /// `code`・`code + 10`・`code + 20` の最初の実数を点として読む。Z がなければ 0 とする。
@@ -315,17 +349,22 @@ fn max3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
 /// Group Codes」の $HANDSEED）。表に `$HANDSEED` がなければ、足さない
 fn handle_seed(db: &AcadDb) -> Option<Vec<Value>> {
     let values = db.variable(HANDSEED)?;
+    let max = db.objects().iter().filter_map(Object::handle).max()?;
+    advance_handseed(values, max)
+}
+
+/// `$HANDSEED` の値 `values` が `max_handle` 以下なら、`max_handle + 1` に進めた値を返す。進める必要がなければ `None`
+pub fn advance_handseed(values: &[Value], max_handle: u64) -> Option<Vec<Value>> {
     let (at, seed) = values.iter().enumerate().find_map(|(i, v)| match v.data {
         Data::Handle(seed) if v.code == 5 => Some((i, seed)),
         _ => None,
     })?;
-    let max = db.objects().iter().filter_map(Object::handle).max()?;
-    if max < seed {
+    if max_handle < seed {
         return None;
     }
     let mut fixed = values.to_vec();
     let value = fixed.get_mut(at)?;
-    value.data = Data::Handle(max.checked_add(1)?);
+    value.data = Data::Handle(max_handle.checked_add(1)?);
     Some(fixed)
 }
 
@@ -335,14 +374,35 @@ fn unsupported(txn: &mut DxfTxn<'_>, object: &Object) -> Error {
     txn.reject(Diagnostic::new(codes::DXF_OBJECT_UNSUPPORTED).with("kind", kind))
 }
 
-/// `record` の `offset` 番目のタグから並ぶ値 `old` を、`new` に直す
-fn replace(
-    txn: &mut DxfTxn<'_>,
-    record: usize,
-    offset: usize,
-    old: &[Value],
-    new: &[Value],
-) -> Result<(), Error> {
+/// レコードのタグの列に対する 1 つの編集
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TagEdit {
+    /// `at` 番目のタグの値を差し替える
+    Set {
+        /// レコードの中のタグの番号
+        at: usize,
+        /// 新しい値のバイト列（改行を含まない）
+        value: Vec<u8>,
+    },
+    /// `at` 番目のタグを除く
+    Remove {
+        /// レコードの中のタグの番号
+        at: usize,
+    },
+    /// `at` 番目のタグの前にタグを足す
+    Insert {
+        /// レコードの中のタグの番号
+        at: usize,
+        /// グループ・コード
+        code: i16,
+        /// 値のバイト列（改行を含まない）
+        value: Vec<u8>,
+    },
+}
+
+/// `offset` 番目のタグから並ぶ値 `old` を `new` に直す編集の列。前後の同じ値は残し、グループ・コードの並びが同じなら
+/// 値だけを差し替え、違えば除いて足し直す。符号化できない実数があれば、そのグループ・コードを `Err` で返す
+pub fn diff_values(offset: usize, old: &[Value], new: &[Value]) -> Result<Vec<TagEdit>, i16> {
     let prefix = old.iter().zip(new).take_while(|(a, b)| a == b).count();
     let (old, new) = (
         old.get(prefix..).unwrap_or_default(),
@@ -358,21 +418,50 @@ fn replace(
     let new = new.get(..new.len() - suffix).unwrap_or_default();
     let at = offset + prefix;
     let same_codes = old.len() == new.len() && old.iter().zip(new).all(|(a, b)| a.code == b.code);
+    let mut edits = Vec::new();
     if same_codes {
         for (i, (a, b)) in old.iter().zip(new).enumerate() {
             if a != b {
-                let value = encode(txn, record, b)?;
-                txn.set_value(record, at + i, &value)?;
+                let value = super::value_bytes(&b.data)
+                    .map(|bytes| bytes.into_owned())
+                    .ok_or(b.code)?;
+                edits.push(TagEdit::Set { at: at + i, value });
             }
         }
-        return Ok(());
+        return Ok(edits);
     }
     for i in (0..old.len()).rev() {
-        txn.remove_tag(record, at + i)?;
+        edits.push(TagEdit::Remove { at: at + i });
     }
     for (i, value) in new.iter().enumerate() {
-        let bytes = encode(txn, record, value)?;
-        txn.insert_tag(record, at + i, value.code, &bytes)?;
+        let bytes = super::value_bytes(&value.data)
+            .map(|bytes| bytes.into_owned())
+            .ok_or(value.code)?;
+        edits.push(TagEdit::Insert {
+            at: at + i,
+            code: value.code,
+            value: bytes,
+        });
+    }
+    Ok(edits)
+}
+
+/// `record` の `offset` 番目のタグから並ぶ値 `old` を、`new` に直す
+fn replace(
+    txn: &mut DxfTxn<'_>,
+    record: usize,
+    offset: usize,
+    old: &[Value],
+    new: &[Value],
+) -> Result<(), Error> {
+    let edits = diff_values(offset, old, new)
+        .map_err(|code| txn.reject(super::on_tag(codes::DXF_REAL_UNSUPPORTED, record, code)))?;
+    for edit in edits {
+        match edit {
+            TagEdit::Set { at, value } => txn.set_value(record, at, &value)?,
+            TagEdit::Remove { at } => txn.remove_tag(record, at)?,
+            TagEdit::Insert { at, code, value } => txn.insert_tag(record, at, code, &value)?,
+        }
     }
     Ok(())
 }

@@ -253,7 +253,7 @@ pub(super) fn swung(values: &[Value], transform: &Affine) -> Option<Vec<Value>> 
 }
 
 /// 置き換えられる形の初めの点。形の空間（用紙）を決める
-pub(super) fn anchor<P: Copy>(shape: &Shape<P>) -> Option<P> {
+pub(crate) fn anchor<P: Copy>(shape: &Shape<P>) -> Option<P> {
     match shape {
         Shape::Line { start, .. } => Some(*start),
         Shape::Circle { center, .. } => Some(*center),

@@ -27,6 +27,7 @@ mod layout;
 mod lettering;
 mod lower;
 mod mtext;
+pub mod single;
 mod style;
 mod template;
 
@@ -589,6 +590,10 @@ fn arrange<T>(keys: Option<&SortKeys>, items: Vec<(T, Option<u64>)>, cx: &mut Cx
 /// ものを、そのもののとする（DXF Reference「INSERT」「POLYLINE」）。INSERT と POLYLINE の添字から ATTRIB と
 /// VERTEX の添字への対応と、どれかのものとした添字を返す
 fn attached(entities: &[&Object]) -> (BTreeMap<usize, Vec<usize>>, BTreeSet<usize>) {
+    let roles: Vec<Option<single::Followed>> = entities
+        .iter()
+        .map(|object| single::followed_object(object))
+        .collect();
     let by_handle: BTreeMap<u64, usize> = entities
         .iter()
         .enumerate()
@@ -597,39 +602,35 @@ fn attached(entities: &[&Object]) -> (BTreeMap<usize, Vec<usize>>, BTreeSet<usiz
     let mut attributes: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
     let mut owned = BTreeSet::new();
     let mut open = None;
-    for (index, object) in entities.iter().enumerate() {
-        match object.kind.as_slice() {
-            b"INSERT" => {
-                open = matches!(object.first(66), Some(Data::Int(1) | Data::Bool(true)))
-                    .then_some(index);
+    for (index, role) in roles.iter().enumerate() {
+        match role {
+            Some(single::Followed {
+                kind: single::Follow::Insert { opens } | single::Follow::Polyline { opens },
+                ..
+            }) => {
+                open = opens.then_some(index);
             }
-            b"POLYLINE" => {
-                // R12 などの POLYLINE は、66 を省いても直後に VERTEX と SEQEND が並ぶ
-                open = (!matches!(object.first(66), Some(Data::Int(0) | Data::Bool(false))))
-                    .then_some(index);
-            }
-            kind @ (b"ATTRIB" | b"VERTEX" | b"SEQEND") => {
-                let expected = |parent: &[u8]| match kind {
-                    b"ATTRIB" => parent == b"INSERT",
-                    b"VERTEX" => parent == b"POLYLINE",
-                    _ => parent == b"INSERT" || parent == b"POLYLINE",
-                };
-                let parent = object
-                    .owner()
+            Some(single::Followed { kind, owner, .. }) => {
+                let parent = owner
                     .and_then(|owner| by_handle.get(&owner).copied())
                     .or(open)
-                    .filter(|parent| entities.get(*parent).is_some_and(|o| expected(&o.kind)));
+                    .filter(|parent| {
+                        roles
+                            .get(*parent)
+                            .and_then(|role| *role)
+                            .is_some_and(|parent| single::followed_expected(*kind, parent.kind))
+                    });
                 if let Some(parent) = parent {
                     owned.insert(index);
-                    if kind != b"SEQEND" {
+                    if *kind != single::Follow::Seqend {
                         attributes.entry(parent).or_default().push(index);
                     }
                 }
-                if kind == b"SEQEND" {
+                if *kind == single::Follow::Seqend {
                     open = None;
                 }
             }
-            _ => open = None,
+            None => open = None,
         }
     }
     (attributes, owned)
@@ -1029,18 +1030,26 @@ impl Lifter<'_> {
             b"LINE" => self.line(object, point),
             b"SOLID" | b"TRACE" => Ok(Shape::Hatch(self.solid(object, point)?)),
             b"POINT" => Ok(Shape::Point(self.point(object, point)?)),
-            b"CIRCLE" => Ok(Shape::Circle {
-                center: self.planar_point(object, 10, point)?,
-                radius: length(self.radius(object)?),
-            }),
+            b"CIRCLE" => {
+                let [x, y, radius] =
+                    single::circle_geom(&object).map_err(|err| lift_err(kind, err))?;
+                Ok(Shape::Circle {
+                    center: point(x, y),
+                    radius: length(radius),
+                })
+            }
             // ARC（DXF Reference「ARC」）。角度は度で、反時計回り
-            b"ARC" => Ok(Shape::Curve(Edge::Arc {
-                center: self.planar_point(object, 10, point)?,
-                radius: length(self.radius(object)?),
-                start: self.real(object, 50, None)?,
-                end: self.real(object, 51, None)?,
-                counterclockwise: true,
-            })),
+            b"ARC" => {
+                let [x, y, radius, start, end] =
+                    single::arc_geom(&object).map_err(|err| lift_err(kind, err))?;
+                Ok(Shape::Curve(Edge::Arc {
+                    center: point(x, y),
+                    radius: length(radius),
+                    start,
+                    end,
+                    counterclockwise: true,
+                }))
+            }
             b"ELLIPSE" => Ok(Shape::Curve(self.ellipse(object, point)?)),
             b"LWPOLYLINE" => Ok(Shape::Polyline(self.lwpolyline(object, point, length)?)),
             b"SPLINE" => Ok(Shape::Curve(Edge::Spline(self.spline(object, point)?))),
@@ -1074,27 +1083,14 @@ impl Lifter<'_> {
         x: i16,
         point: &impl Fn(f64, f64) -> P,
     ) -> Lifted<P> {
-        if self.real(object, x + 20, Some(0.0))? != 0.0 {
-            return Err(non_planar(&object.kind));
-        }
-        Ok(point(
-            self.real(object, x, None)?,
-            self.real(object, x + 10, None)?,
-        ))
+        let [px, py] =
+            single::planar_point(&object, x).map_err(|err| lift_err(&object.kind, err))?;
+        Ok(point(px, py))
     }
 
     /// 押し出しの向き（210・220・230）が Z でなければ、平面に移さない
     fn planar(&self, object: &Object) -> Lifted<()> {
-        let extrusion = [
-            self.real(object, 210, Some(0.0))?,
-            self.real(object, 220, Some(0.0))?,
-            self.real(object, 230, Some(1.0))?,
-        ];
-        if extrusion == [0.0, 0.0, 1.0] {
-            Ok(())
-        } else {
-            Err(non_planar(&object.kind))
-        }
+        single::check_upright(&object).map_err(|err| lift_err(&object.kind, err))
     }
 
     /// 有限の実数の値。なければ `default`、それもなければ読めないとする
@@ -1129,6 +1125,11 @@ impl Lifter<'_> {
         let Data::Text(value) = data else {
             return Err(invalid(kind, code));
         };
+        self.decode_bytes(kind, code, value)
+    }
+
+    /// 文字のバイト列を復号する
+    fn decode_bytes(&self, kind: &[u8], code: i16, value: &[u8]) -> Lifted<String> {
         if self.charset == Charset::Other && !value.is_ascii() {
             return Err(Box::new(
                 Diagnostic::new(codes::DXF_CODE_PAGE_UNSUPPORTED).with("kind", text(kind)),
@@ -1137,6 +1138,13 @@ impl Lifter<'_> {
         self.charset
             .decode(value)
             .ok_or_else(|| invalid(kind, code))
+    }
+}
+
+fn lift_err(kind: &[u8], err: single::LiftFail) -> Box<Diagnostic> {
+    match err {
+        single::LiftFail::Invalid(code) => invalid(kind, code),
+        single::LiftFail::NonPlanar => non_planar(kind),
     }
 }
 

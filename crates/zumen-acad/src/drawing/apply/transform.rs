@@ -6,7 +6,7 @@ use zumen_drawing::transform as geom_transform;
 /// スタイルを変えた図形の値。変わったフィールド（レイヤ 8・線種 6・色 62 と 420 と 430・線幅 370・線種の倍率 48）
 /// だけを、図形に共通の値の中で除いてから、足すときと同じ書き方（[`Born::entity`]）でレイヤの後に書く。
 /// ほかの値は元のまま写す。DWG では、画層と線種をハンドルで、線の太さと真の色を共通のフィールドに書く（#723）
-pub(super) fn restyled(
+pub(crate) fn restyled(
     born: &Born,
     object: &Object,
     layer: LayerId,
@@ -118,13 +118,13 @@ pub(super) fn copy_value(value: &Value, cx: &mut Cx<'_>, at: &Ref) -> Result<Val
 }
 
 /// 動かした図形と、続く ATTRIB の値
-pub(super) struct Moved {
-    pub(super) object: Vec<Value>,
-    pub(super) followers: Followers,
+pub(crate) struct Moved {
+    pub(crate) object: Vec<Value>,
+    pub(crate) followers: Followers,
 }
 
 /// 書き直す続くレコード（ATTRIB）の位置と値
-pub(super) type Followers = Vec<(usize, Vec<Value>)>;
+pub(crate) type Followers = Vec<(usize, Vec<Value>)>;
 
 /// 変換前に、値の走査・複製と属性のレコードの探索に必要な作業を数える。
 pub(super) fn transform_work<P>(
@@ -208,6 +208,32 @@ pub(super) fn moved<P: Copy + PartialEq + geom_transform::Point>(
     frame: &impl Frame<P>,
     model: bool,
 ) -> Option<Moved> {
+    let mut attribs = Vec::new();
+    if let Shape::Symbol(symbol) = &was.shape {
+        attribs.reserve(symbol.attributes.len());
+        for original in &symbol.attributes {
+            if original.formatted.is_some() {
+                return None;
+            }
+            let position = *positions.get(&original.source)?;
+            let follower = db.objects().get(position)?;
+            attribs.push((position, follower));
+        }
+    }
+    moved_with_attribs(was, object, &attribs, transform, encoder, frame, model)
+}
+
+/// 図形と、既に引いた続く ATTRIB の列 `attribs` を `transform` で動かす
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn moved_with_attribs<P: Copy + PartialEq + geom_transform::Point>(
+    was: &Element<P>,
+    object: &Object,
+    attribs: &[(usize, &Object)],
+    transform: &Affine,
+    encoder: &Encoder,
+    frame: &impl Frame<P>,
+    model: bool,
+) -> Option<Moved> {
     let shape = geom_transform::transform(&was.shape, transform)?;
     let element = Element {
         shape,
@@ -254,13 +280,13 @@ pub(super) fn moved<P: Copy + PartialEq + geom_transform::Point>(
     }
     let mut followers = Vec::new();
     if let (Shape::Symbol(symbol), Shape::Symbol(was)) = (&element.shape, &was.shape) {
-        for (attribute, original) in symbol.attributes.iter().zip(&was.attributes) {
-            if original.formatted.is_some() {
-                return None;
-            }
-            let position = *positions.get(&original.source)?;
-            let follower = db.objects().get(position)?;
-            if follower.kind != b"ATTRIB" {
+        if attribs.len() != was.attributes.len() || attribs.len() != symbol.attributes.len() {
+            return None;
+        }
+        for (((position, follower), attribute), original) in
+            attribs.iter().zip(&symbol.attributes).zip(&was.attributes)
+        {
+            if original.formatted.is_some() || follower.kind != b"ATTRIB" {
                 return None;
             }
             let mut values = follower.values.clone();
@@ -287,7 +313,7 @@ pub(super) fn moved<P: Copy + PartialEq + geom_transform::Point>(
                 }
                 carried(&mut values, transform)?;
             }
-            followers.push((position, values));
+            followers.push((*position, values));
         }
     }
     Some(Moved {

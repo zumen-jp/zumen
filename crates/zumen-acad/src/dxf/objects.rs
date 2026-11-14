@@ -93,36 +93,20 @@ impl DxfFile {
 
     fn typed(&self, tag: &Tag, kind: &[u8], index: usize, report: bool, cx: &mut Cx) -> Value {
         let raw = self.value(tag);
-        let text = raw.trim_ascii();
-        let data = if kind == b"DIMSTYLE" && tag.code == 5 {
-            // R12 などの DIMSTYLE で 5 は DIMBLK（矢印のブロック名）で、ハンドルは 105 に置く（DXF Reference「DIMSTYLE」）
-            Some(Data::Text(raw.to_vec()))
-        } else {
-            match DataType::of(tag.code) {
-                DataType::Text => Some(Data::Text(raw.to_vec())),
-                DataType::Int => parse_int(text).map(Data::Int),
-                DataType::Real => parse_real(raw).map(Data::Real),
-                DataType::Bool => match parse_int(text) {
-                    Some(0) => Some(Data::Bool(false)),
-                    Some(1) => Some(Data::Bool(true)),
-                    _ => None,
-                },
-                DataType::Handle => parse_hex(text).map(Data::Handle),
-                DataType::Binary => parse_binary(text).map(Data::Binary),
-            }
-        };
-        let data = data.unwrap_or_else(|| {
-            if !report {
-                return Data::Text(raw.to_vec());
-            }
-            cx.report(
-                Diagnostic::new(codes::DXF_VALUE_INVALID)
-                    .with("kind", String::from_utf8_lossy(kind).into_owned())
-                    .with("code", i64::from(tag.code))
-                    .at(Ref::at_record(index as u64)),
-            );
-            Data::Text(raw.to_vec())
-        });
+        let data = parse_raw(kind, tag.code, raw)
+            .map(RawData::into_data)
+            .unwrap_or_else(|| {
+                if !report {
+                    return Data::Text(raw.to_vec());
+                }
+                cx.report(
+                    Diagnostic::new(codes::DXF_VALUE_INVALID)
+                        .with("kind", String::from_utf8_lossy(kind).into_owned())
+                        .with("code", i64::from(tag.code))
+                        .at(Ref::at_record(index as u64)),
+                );
+                Data::Text(raw.to_vec())
+            });
         Value {
             code: tag.code,
             data,
@@ -130,17 +114,86 @@ impl DxfFile {
     }
 }
 
+/// 元のバイト列を借りたまま型付けした DXF の値（[`Data`] と同じ規則）
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum RawData<'a> {
+    /// 文字列。型どおりに読めなかった値も、元のままここに置く
+    Text(&'a [u8]),
+    /// 整数
+    Int(i64),
+    /// 有限の実数
+    Real(f64),
+    /// 真偽
+    Bool(bool),
+    /// ハンドル
+    Handle(u64),
+    /// バイナリ。偶数個の 16 進の数字のまま
+    Binary(&'a [u8]),
+}
+
+impl RawData<'_> {
+    /// 所有する [`Data`] に変換する
+    pub fn into_data(self) -> Data {
+        match self {
+            Self::Text(raw) => Data::Text(raw.to_vec()),
+            Self::Int(value) => Data::Int(value),
+            Self::Real(value) => Data::Real(value),
+            Self::Bool(value) => Data::Bool(value),
+            Self::Handle(value) => Data::Handle(value),
+            Self::Binary(hex) => Data::Binary(parse_binary(hex).unwrap_or_default()),
+        }
+    }
+}
+
+/// レコードの種類 `kind` とグループ・コード `code` から、値の行 `raw` を型どおりに読む。型に合わなければ `None`
+pub fn parse_raw<'a>(kind: &[u8], code: i16, raw: &'a [u8]) -> Option<RawData<'a>> {
+    let text = raw.trim_ascii();
+    if kind == b"DIMSTYLE" && code == 5 {
+        // R12 などの DIMSTYLE で 5 は DIMBLK（矢印のブロック名）で、ハンドルは 105 に置く（DXF Reference「DIMSTYLE」）
+        return Some(RawData::Text(raw));
+    }
+    match DataType::of(code) {
+        DataType::Text => Some(RawData::Text(raw)),
+        DataType::Int => parse_int(text).map(RawData::Int),
+        DataType::Real => parse_real(raw).map(RawData::Real),
+        DataType::Bool => match parse_int(text) {
+            Some(0) => Some(RawData::Bool(false)),
+            Some(1) => Some(RawData::Bool(true)),
+            _ => None,
+        },
+        DataType::Handle => parse_hex(text).map(RawData::Handle),
+        DataType::Binary => is_binary_hex(text).then_some(RawData::Binary(text)),
+    }
+}
+
+/// 値の行 `raw` を型付けし、型に合わないものは元のバイト列のまま [`RawData::Text`] にする
+pub fn raw_data<'a>(kind: &[u8], code: i16, raw: &'a [u8]) -> RawData<'a> {
+    parse_raw(kind, code, raw).unwrap_or(RawData::Text(raw))
+}
+
+/// 値の行 `raw` を、表を作るのと同じ規則で [`Value`] にする
+pub fn parse_value(kind: &[u8], code: i16, raw: &[u8]) -> Value {
+    Value {
+        code,
+        data: raw_data(kind, code, raw).into_data(),
+    }
+}
+
 fn parse_int(text: &[u8]) -> Option<i64> {
     core::str::from_utf8(text).ok()?.parse().ok()
 }
 
-/// 16 進のハンドル。空のものは読めないとする
-fn parse_hex(text: &[u8]) -> Option<u64> {
+/// 16 進のハンドル。空のものと符号つきのものは読めないとする
+pub fn parse_hex(text: &[u8]) -> Option<u64> {
     let text = core::str::from_utf8(text).ok()?;
     if text.is_empty() || text.starts_with(['+', '-']) {
         return None;
     }
     u64::from_str_radix(text, 16).ok()
+}
+
+fn is_binary_hex(text: &[u8]) -> bool {
+    text.len().is_multiple_of(2) && text.iter().all(u8::is_ascii_hexdigit)
 }
 
 /// 16 進の 2 文字ずつで 1 バイトのバイナリ

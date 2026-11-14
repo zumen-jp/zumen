@@ -7,6 +7,7 @@
 //! よりも大きく、ヘッダーの HANDSEED より小さくない値から順に付ける。
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 use super::{Encoder, Frame, contents, nonnegative, positive, real, turned};
 use crate::db::{AcadDb, Data, Object, Origin, Section, Value};
@@ -19,28 +20,28 @@ use zumen_drawing::{
 };
 
 /// 足す図形
-pub(super) struct Record {
-    kind: &'static [u8],
+pub(crate) struct Record {
+    pub(crate) kind: &'static [u8],
     /// ハンドルと所有者の後の値
-    values: Vec<Value>,
+    pub(crate) values: Vec<Value>,
     /// 置き場所
-    home: Home,
+    pub(crate) home: Home,
     /// 図形の後に続き、図形が所有するレコード（ATTRIB と SEQEND）。種類と、ハンドルと所有者の後の値
-    followers: Vec<(&'static [u8], Vec<Value>)>,
+    pub(crate) followers: Vec<(&'static [u8], Vec<Value>)>,
     /// 足した図形をリアクター（102 `{ACAD_REACTORS` の 330）として書く、注記の MTEXT のハンドル（決定 0191）
-    annotation: Option<u64>,
+    pub(crate) annotation: Option<u64>,
 }
 
 impl Record {
     /// 主の図形と、続く ATTRIB・SEQEND のレコードの数。
-    pub(super) fn count(&self) -> u64 {
+    pub(crate) fn count(&self) -> u64 {
         (self.followers.len() as u64).saturating_add(1)
     }
 }
 
 /// 書き戻す先
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(super) enum Target {
+pub(crate) enum Target {
     /// DXF。HANDSEED は表の `$HANDSEED` にある
     Dxf,
     /// DWG と、ヘッダーの HANDSEED。DWG に足す図形は、まだ線の太さと RGB の色を持てない（決定 0079）
@@ -48,7 +49,7 @@ pub(super) enum Target {
 }
 
 /// 足す図形のレコードを組むための、表の決まり
-pub(super) struct Born {
+pub(crate) struct Born {
     /// モデル空間のブロックのレコードのハンドル。ブロックのレコードを持たない図面なら `None`
     owner: Option<u64>,
     /// 図形がサブクラスマーカー（100）を持つ表か
@@ -59,12 +60,12 @@ pub(super) struct Born {
     encoder: Encoder,
     target: Target,
     /// 表（LAYER・LTYPE・STYLE・BLOCK_RECORD・DIMSTYLE）ごとの、定義の名前。小文字にした名前から引く
-    names: BTreeMap<&'static [u8], BTreeMap<String, String>>,
+    names: Arc<BTreeMap<&'static [u8], BTreeMap<String, String>>>,
     /// レイヤと線種の名前
     layers: BTreeMap<LayerId, String>,
     line_types: BTreeMap<LineTypeId, String>,
     /// 図面モデルに定義のあるブロック。BLOCK_RECORD の表がない古い DXF も、BLOCKS の定義で確かめる
-    blocks: BTreeMap<String, String>,
+    blocks: Arc<BTreeMap<String, String>>,
     /// 最初に付けるハンドル。表がハンドルを持たなければ `None`
     next: Option<u64>,
     /// ENDBLK を持つブロックのレコードのハンドル。BLOCKS の所に足す図形は、その ENDBLK の前に置く
@@ -171,20 +172,52 @@ impl Born {
             version,
             encoder: Encoder::new(charset),
             target,
-            names,
+            names: Arc::new(names),
             layers,
             line_types: drawing
                 .line_types
                 .iter()
                 .map(|line_type| (line_type.id, line_type.name.clone()))
                 .collect(),
-            blocks: drawing
-                .symbols
-                .iter()
-                .filter(|symbol| symbol.key.namespace == BLOCK)
-                .map(|symbol| (symbol.key.name.to_lowercase(), symbol.key.name.clone()))
-                .collect(),
+            blocks: Arc::new(
+                drawing
+                    .symbols
+                    .iter()
+                    .filter(|symbol| symbol.key.namespace == BLOCK)
+                    .map(|symbol| (symbol.key.name.to_lowercase(), symbol.key.name.clone()))
+                    .collect(),
+            ),
             next,
+        }
+    }
+
+    /// 1 オブジェクトの追加・スタイル変更のために、必要な名前の表だけから作る
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn single(
+        owner: Option<u64>,
+        markers: bool,
+        version: Vec<u8>,
+        charset: Charset,
+        target: Target,
+        names: Arc<BTreeMap<&'static [u8], BTreeMap<String, String>>>,
+        layers: BTreeMap<LayerId, String>,
+        line_types: BTreeMap<LineTypeId, String>,
+        blocks: Arc<BTreeMap<String, String>>,
+        next: Option<u64>,
+    ) -> Self {
+        Born {
+            owner,
+            markers,
+            version,
+            encoder: Encoder::new(charset),
+            target,
+            names,
+            layers,
+            line_types,
+            blocks,
+            next,
+            ends: BTreeSet::new(),
+            annotations: BTreeMap::new(),
         }
     }
 
@@ -224,7 +257,7 @@ impl Born {
     }
 
     /// モデル空間の図形の置き場所
-    pub(super) fn model(&self) -> Home {
+    pub(crate) fn model(&self) -> Home {
         Home {
             owner: self.owner,
             blocks: false,
@@ -233,7 +266,7 @@ impl Born {
     }
 
     /// 要素を、座標の対応 `frame` で `home` に足す図形。表せない要素なら `None`
-    pub(super) fn record<P: Copy>(
+    pub(crate) fn record<P: Copy>(
         &self,
         element: &Element<P>,
         frame: &impl Frame<P>,
@@ -1084,6 +1117,11 @@ fn handle_seed(db: &AcadDb, target: Target) -> Option<u64> {
 /// 次に付けるハンドル。種と、表の最大のハンドルの次の大きいほう。表がハンドルを持たなければ `None`
 fn next_handle(db: &AcadDb, seed: Option<u64>) -> Option<u64> {
     let max = db.objects().iter().filter_map(Object::handle).max();
+    next_handle_from(max, seed)
+}
+
+/// 最大のハンドル `max` と種 `seed` から、次に付けるハンドルを求める。どちらもなければ `None`
+pub(crate) fn next_handle_from(max: Option<u64>, seed: Option<u64>) -> Option<u64> {
     match (seed, max) {
         (None, None) => None,
         (seed, max) => max

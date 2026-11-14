@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use super::extension::{entry, extension_work, xdictionary};
 use super::{
     BLOCK, Lifted, Lifter, Out, SortKeys, amount, arrange, attached, insertion_units, invalid,
-    source, text, unit_of, work,
+    lift_err, single, source, text, unit_of, work,
 };
 use crate::db::{AcadDb, Data, Object, Section};
 use zumen_base::{Cx, Diagnostic, codes};
@@ -422,29 +422,17 @@ impl Lifter<'_> {
         length: &impl Fn(f64) -> Length,
     ) -> Lifted<Symbol<P>> {
         let kind = object.kind.as_slice();
-        let name = self.string(object, 2)?.ok_or_else(|| invalid(kind, 2))?;
-        let mut scale = [1.0; 2];
-        for (code, slot) in [41, 42].into_iter().zip(&mut scale) {
-            *slot = self.real(object, code, Some(1.0))?;
-            if *slot == 0.0 {
-                return Err(invalid(kind, code));
-            }
-        }
-        let count = |code: i16| -> Lifted<u32> {
-            u32::try_from(self.int(object, code, 1)?)
-                .ok()
-                .filter(|count| *count > 0)
-                .ok_or_else(|| invalid(kind, code))
-        };
-        let (columns, rows) = (count(70)?, count(71)?);
+        let raw = single::insert_geom(&object).map_err(|err| lift_err(kind, err))?;
+        let name = self.decode_bytes(kind, 2, raw.name)?;
+        let [columns, rows] = raw.grid;
         let grid = if (columns, rows) == (1, 1) {
             None
         } else {
             Some(Grid {
                 columns,
                 rows,
-                column_spacing: length(self.real(object, 44, Some(0.0))?),
-                row_spacing: length(self.real(object, 45, Some(0.0))?),
+                column_spacing: length(raw.spacing[0]),
+                row_spacing: length(raw.spacing[1]),
             })
         };
         Ok(Symbol {
@@ -452,9 +440,9 @@ impl Lifter<'_> {
                 namespace: BLOCK.into(),
                 name,
             },
-            position: self.planar_point(object, 10, point)?,
-            scale,
-            rotation: self.real(object, 50, Some(0.0))?,
+            position: point(raw.position[0], raw.position[1]),
+            scale: raw.scale,
+            rotation: raw.rotation,
             grid,
             attributes: Vec::new(),
             clip: None,

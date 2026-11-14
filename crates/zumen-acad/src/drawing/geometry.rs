@@ -2,7 +2,7 @@
 //! 厚さと線種の生成は、`dxf.entity` の拡張に控える（決定 0142）。
 
 use super::finite;
-use super::{Lifted, Lifter, Values, check_spline, invalid, non_planar, text};
+use super::{Lifted, Lifter, Values, check_spline, invalid, lift_err, non_planar, single, text};
 use crate::db::{Data, Object, Value};
 use zumen_base::{Diagnostic, codes};
 use zumen_drawing::{
@@ -76,21 +76,11 @@ impl Lifter<'_> {
         object: &Object,
         point: &impl Fn(f64, f64) -> P,
     ) -> Lifted<Shape<P>> {
-        let end = |x: i16| -> Lifted<[f64; 3]> {
-            let z = self.real(object, x + 20, Some(0.0))?;
-            Ok([
-                self.real(object, x, None)?,
-                self.real(object, x + 10, None)?,
-                z,
-            ])
-        };
-        let (start, end) = (end(10)?, end(11)?);
-        if start[2] != 0.0 || end[2] != 0.0 {
-            return Err(non_planar(&object.kind));
-        }
+        let [x0, y0, x1, y1] =
+            single::line_ends(&object).map_err(|err| lift_err(&object.kind, err))?;
         Ok(Shape::Line {
-            start: point(start[0], start[1]),
-            end: point(end[0], end[1]),
+            start: point(x0, y0),
+            end: point(x1, y1),
         })
     }
 
@@ -116,16 +106,6 @@ impl Lifter<'_> {
             points.push(point(x, y));
         }
         Ok(points)
-    }
-
-    /// 半径（40）。正でなければ読めないとする
-    pub(super) fn radius(&self, object: &Object) -> Lifted<f64> {
-        let radius = self.real(object, 40, None)?;
-        if radius > 0.0 {
-            Ok(radius)
-        } else {
-            Err(invalid(&object.kind, 40))
-        }
     }
 
     /// ELLIPSE（DXF Reference「ELLIPSE」）。長軸の端（11・21）は中心からの向きで、比（40）は 0 より大きく 1 以下。
@@ -172,37 +152,34 @@ impl Lifter<'_> {
         point: &impl Fn(f64, f64) -> P,
         length: &impl Fn(f64) -> Length,
     ) -> Lifted<Polyline<P>> {
-        let kind = object.kind.as_slice();
-        if self.real(object, 38, Some(0.0))? != 0.0 {
-            return Err(non_planar(kind));
-        }
-        let mut corners: Vec<([f64; 2], [Option<f64>; 2], f64)> = Vec::new();
-        let mut values = Values {
-            kind,
-            values: &object.values,
-        };
-        while let Some(code) = values.next() {
-            match code {
-                10 => {
-                    let at = [values.real(10)?, values.real(20)?];
-                    corners.push((at, [None; 2], 0.0));
-                }
-                40..=42 => {
-                    let value = values.real(code)?;
-                    let (_, widths, bulge) =
-                        corners.last_mut().ok_or_else(|| invalid(kind, code))?;
-                    match code {
-                        40 => widths[0] = Some(value),
-                        41 => widths[1] = Some(value),
-                        _ => *bulge = value,
+        struct CornerSink(Vec<([f64; 2], [Option<f64>; 2], f64)>);
+        impl single::PolylineSink for CornerSink {
+            fn len(&self) -> usize {
+                self.0.len()
+            }
+            fn push_vertex(&mut self, x: f64, y: f64) {
+                self.0.push(([x, y], [None; 2], 0.0));
+            }
+            fn set_width(&mut self, is_end: bool, width: f64) {
+                if let Some((_, widths, _)) = self.0.last_mut() {
+                    if is_end {
+                        widths[1] = Some(width);
+                    } else {
+                        widths[0] = Some(width);
                     }
                 }
-                _ => values.values = values.values.get(1..).unwrap_or_default(),
+            }
+            fn set_bulge(&mut self, bulge: f64) {
+                if let Some((_, _, slot)) = self.0.last_mut() {
+                    *slot = bulge;
+                }
             }
         }
-        if usize::try_from(self.int(object, 90, -1)?).ok() != Some(corners.len()) {
-            return Err(invalid(kind, 90));
-        }
+        let kind = object.kind.as_slice();
+        let mut sink = CornerSink(Vec::new());
+        let meta = single::lwpolyline_scan(&object, object.values.as_slice(), &mut sink)
+            .map_err(|err| lift_err(kind, err))?;
+        let corners = sink.0;
         let any_width = corners
             .iter()
             .any(|(_, widths, _)| widths.iter().any(Option::is_some));
@@ -217,18 +194,12 @@ impl Lifter<'_> {
                 bulge,
             });
         }
-        let width = match self.real(object, 43, Some(0.0))? {
-            0.0 => None,
-            width if width > 0.0 => Some(length(width)),
-            _ => return Err(invalid(kind, 43)),
-        };
-        let flags = self.int(object, 70, 0)?;
         Ok(Polyline {
             vertices,
-            closed: flags & 1 != 0,
-            width,
+            closed: meta.closed,
+            width: meta.width.map(length),
             vertex_widths,
-            line_type_generation: flags & 128 != 0,
+            line_type_generation: meta.line_type_generation,
         })
     }
 

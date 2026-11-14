@@ -4,7 +4,7 @@ use super::*;
 
 /// 置き換えで書く値。元の値を写し、変わった形のフィールドだけを直す。レイヤ・スタイルが同じで、形の種類が
 /// 元のレコードで表せ、点と長さが元の要素と同じ空間にあるときだけ返す
-pub(super) fn replacement<P: PartialEq>(
+pub(crate) fn replacement<P: PartialEq>(
     original: &Element<P>,
     element: &Element<P>,
     object: &Object,

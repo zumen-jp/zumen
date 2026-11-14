@@ -5,9 +5,12 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Range;
+use std::sync::Arc;
 use std::thread;
 
-use zumen_acad::Value;
+pub use zumen_acad::Charset;
+use zumen_acad::single::{self, SingleTables};
+use zumen_acad::{DataType, Value};
 
 use crate::display::{Display, RowBuffers};
 use crate::grid::Grid;
@@ -16,7 +19,7 @@ use crate::lift::{
     Place, Pools, RawTag, TextRow, class,
 };
 use crate::scan::{self, Next, Span};
-use crate::value::{Val, typed, value};
+use crate::value::{Val, typed, typed_of, value};
 
 /// 開けない理由
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -32,17 +35,6 @@ pub enum OpenError {
 /// バイナリの DXF の先頭
 const BINARY_SENTINEL: &[u8] = b"AutoCAD Binary DXF\r\n\x1a\0";
 
-/// 文字の値の符号化
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Charset {
-    /// UTF-8（`$ACADVER` が AC1021 から）
-    Utf8,
-    /// Shift_JIS（`$DWGCODEPAGE` が ANSI_932）
-    ShiftJis,
-    /// ほか。ASCII だけを読む
-    Other,
-}
-
 /// セクション
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Section {
@@ -50,6 +42,7 @@ enum Section {
     Tables,
     Blocks,
     Entities,
+    Objects,
     Other,
 }
 
@@ -314,7 +307,11 @@ pub struct Part {
     /// 102 の組の中の 330・360 と、DICTIONARY の項目の 350・360 が指すハンドルと、指しているレコード。
     /// 要素を除くときに直すレコードの候補になる
     refs: Vec<(u64, u32)>,
-    /// レコードごとの印。1 は、サブクラスの印（100）を持つ
+    /// 各レコードの最初の 330（所有者ハンドル）の連長圧縮 `(handle, start_record, end_record)`
+    owner_runs: Vec<(u64, u32, u32)>,
+    /// 自身の最初のハンドル（5 / DIMSTYLE の 105）と最初の 330 を除く、すべてのハンドル型の値 `(handle, record)`
+    handle_refs: Vec<(u64, u32)>,
+    /// レコードごとの印。1 はサブクラスの印（100）、2 は 102 または 360 を持つ
     flags: Vec<u8>,
     end: End,
 }
@@ -330,6 +327,8 @@ impl Part {
             handles: Vec::new(),
             family: Vec::new(),
             refs: Vec::new(),
+            owner_runs: Vec::new(),
+            handle_refs: Vec::new(),
             flags: Vec::new(),
             end,
         }
@@ -372,7 +371,7 @@ fn handle_of(name: &[u8], tags: &[RawTag<'_>]) -> Option<u64> {
     let expected = if name == b"DIMSTYLE" { 105 } else { 5 };
     tags.iter()
         .filter(|tag| tag.code == expected)
-        .find_map(|tag| match typed(tag.code, tag.value) {
+        .find_map(|tag| match typed_of(name, tag.code, tag.value) {
             Val::Handle(handle) => Some(handle),
             _ => None,
         })
@@ -416,13 +415,14 @@ fn scan_part(src: &[u8], range: Range<usize>) -> Part {
             break;
         }
         tags.clear();
-        let (mut subclassed, mut grouped) = (false, false);
+        let (mut subclassed, mut grouped, mut has_360) = (false, false, false);
         loop {
             match scan::next_tag(src, pos) {
                 Next::Tag(tag) if tag.code == 0 => break,
                 Next::Tag(tag) => {
                     subclassed |= tag.code == 100;
                     grouped |= tag.code == 102;
+                    has_360 |= tag.code == 360;
                     tags.push(RawTag {
                         code: tag.code,
                         value: src
@@ -441,14 +441,46 @@ fn scan_part(src: &[u8], range: Range<usize>) -> Part {
         if part.end == End::Invalid {
             break;
         }
-        if subclassed && let Some(flag) = part.flags.last_mut() {
-            *flag = 1;
+        if (subclassed || grouped || has_360)
+            && let Some(flag) = part.flags.last_mut()
+        {
+            *flag = u8::from(subclassed) | (u8::from(grouped || has_360) << 1);
         }
         if grouped || name == b"DICTIONARY" {
             references(name, &tags, record, &mut part.refs);
         }
         if let Some(found) = lift::followed(name, &tags) {
             part.family.push((record, found));
+        }
+        let mut own_handle = None;
+        if name != b"SECTION" && name != b"ENDSEC" {
+            let own_code = if name == b"DIMSTYLE" { 105 } else { 5 };
+            let mut seen_owner = false;
+            for tag in &tags {
+                if (name == b"DIMSTYLE" && tag.code == 5)
+                    || DataType::of(tag.code) != DataType::Handle
+                {
+                    continue;
+                }
+                let Val::Handle(h) = typed_of(name, tag.code, tag.value) else {
+                    continue;
+                };
+                if tag.code == own_code && own_handle.is_none() {
+                    own_handle = Some(h);
+                    continue;
+                }
+                if tag.code == 330 && !seen_owner {
+                    seen_owner = true;
+                    match part.owner_runs.last_mut() {
+                        Some((last_h, _, end_rec)) if *last_h == h && *end_rec == record => {
+                            *end_rec = record + 1;
+                        }
+                        _ => part.owner_runs.push((h, record, record + 1)),
+                    }
+                    continue;
+                }
+                part.handle_refs.push((h, record));
+            }
         }
         let handle = match name {
             b"SECTION" => {
@@ -462,6 +494,7 @@ fn scan_part(src: &[u8], range: Range<usize>) -> Part {
                     b"TABLES" => Section::Tables,
                     b"BLOCKS" => Section::Blocks,
                     b"ENTITIES" => Section::Entities,
+                    b"OBJECTS" => Section::Objects,
                     _ => Section::Other,
                 };
                 part.marks.push((record, Mark::Section(section)));
@@ -490,11 +523,11 @@ fn scan_part(src: &[u8], range: Range<usize>) -> Part {
                     }
                     Lift::Paper => {
                         part.marks.push((record, Mark::Paper));
-                        handle_of(name, &tags)
+                        own_handle
                     }
                     Lift::Not => {
                         part.marks.push((record, Mark::Dropped));
-                        handle_of(name, &tags)
+                        own_handle
                     }
                 },
                 None => {
@@ -510,7 +543,7 @@ fn scan_part(src: &[u8], range: Range<usize>) -> Part {
                     if let Some(mark) = mark {
                         part.marks.push((record, mark));
                     }
-                    handle_of(name, &tags)
+                    own_handle
                 }
             },
         };
@@ -750,15 +783,27 @@ pub struct Document {
     /// 属性・頂点・終わりの印（ATTRIB・VERTEX・SEQEND）が、どれも直前に開いた INSERT か POLYLINE に付き、
     /// 所有者（330）があれば、その親を指すか。そうでない図面では、要素を足す・除く変更で、付き方が変わりうる
     pub plain: bool,
+    /// 追加・スタイル変更で `zumen_acad::single` に渡す共通の名前表と設定
+    pub(crate) single_tables: SingleTables,
+    /// 元のレコードごとの印（1: 100 あり、2: 102 または 360 あり）
+    pub(crate) flags: Vec<u8>,
+    /// すべてのセクションの中の範囲（レコードの番号）
+    pub(crate) sections: Vec<Range<u32>>,
     /// ENTITIES のセクションの範囲（レコードの番号）
     pub(crate) entities: Vec<Range<u32>>,
     /// ENTITIES のセクションがちょうど 1 つで ENDSEC で閉じているとき、その ENDSEC のレコード。
     /// 足すレコードは、この前に書く
     pub(crate) entities_end: Option<u32>,
+    /// OBJECTS セクションのオブジェクト。ハンドルから最初のレコードを引く
+    pub(crate) objects_by_handle: BTreeMap<u64, u32>,
+    /// `objects_by_handle` のハンドルを指す元のレコード `(target_handle, record)`。ハンドルの順
+    pub(crate) object_refs: Vec<(u64, u32)>,
+    /// `$HANDSEED` を除く HEADER 変数が持つハンドル
+    pub(crate) header_handles: BTreeSet<u64>,
     /// 102 の組と DICTIONARY の項目が指すハンドルと、指しているレコード。ハンドルの順
     pub(crate) refs: Vec<(u64, u32)>,
-    /// 変更で指せる行のほかの、オブジェクトのハンドルの最大
-    pub(crate) other_largest: Option<u64>,
+    /// 変更で除ける行と `objects_by_handle` を除く、固定オブジェクトのハンドルの最大
+    pub(crate) fixed_largest: Option<u64>,
     /// 生きている元の行の、ハンドルの最大
     pub(crate) row_largest: Option<u64>,
     /// 除いたレコード
@@ -1016,6 +1061,7 @@ impl Document {
         let mut entities: Vec<Range<u32>> = Vec::new();
         let mut tables: Vec<Range<u32>> = Vec::new();
         let mut blocks: Vec<Range<u32>> = Vec::new();
+        let mut objects: Vec<Range<u32>> = Vec::new();
         let mut sections: Vec<Range<u32>> = Vec::new();
         // ENTITIES を閉じた ENDSEC
         let mut ends: Vec<u32> = Vec::new();
@@ -1029,6 +1075,7 @@ impl Document {
                 Section::Entities => entities.push(start..end),
                 Section::Tables => tables.push(start..end),
                 Section::Blocks => blocks.push(start..end),
+                Section::Objects => objects.push(start..end),
                 Section::Header | Section::Other => {}
             }
             sections.push(start..end);
@@ -1083,10 +1130,16 @@ impl Document {
             members: Vec::new(),
             block_display: Display::default(),
             plain: true,
+            single_tables: SingleTables::default(),
+            flags: Vec::new(),
+            sections: Vec::new(),
             entities: Vec::new(),
             entities_end,
+            objects_by_handle: BTreeMap::new(),
+            object_refs: Vec::new(),
+            header_handles: BTreeSet::new(),
             refs: Vec::new(),
-            other_largest: None,
+            fixed_largest: None,
             row_largest: None,
             gone: BTreeSet::new(),
             added: BTreeMap::new(),
@@ -1117,7 +1170,7 @@ impl Document {
             || entities.iter().any(|range| {
                 flags
                     .get(range.start as usize..range.end as usize)
-                    .is_some_and(|flags| flags.contains(&1))
+                    .is_some_and(|flags| flags.iter().any(|&f| f & 1 != 0))
             });
         for &(record, mark) in &marks {
             if inside(&entities, record) {
@@ -1133,8 +1186,20 @@ impl Document {
         // BLOCKS のセクションのものは、定義の中身にする
         let total: usize = parts.iter().map(|part| part.rows.len()).sum();
         document.rows.reserve(total);
+        let mut owner_runs: Vec<(u64, u32, u32)> = Vec::new();
+        let mut handle_refs: Vec<(u64, u32)> = Vec::new();
         let mut record_base = 0u32;
         for part in parts {
+            owner_runs.extend(
+                part.owner_runs
+                    .iter()
+                    .map(|&(h, s, e)| (h, record_base + s, record_base + e)),
+            );
+            handle_refs.extend(
+                part.handle_refs
+                    .iter()
+                    .map(|&(h, rec)| (h, record_base + rec)),
+            );
             let shapes = &mut document.shapes;
             let bases = [
                 shapes.lines.len() as u32,
@@ -1228,14 +1293,48 @@ impl Document {
             .into_iter()
             .filter(|(record, _)| inside(&sections, *record))
             .collect();
+        let mut seen_handles = BTreeSet::new();
+        for &(record, handle) in &document.object_handles {
+            if seen_handles.insert(handle) && inside(&objects, record) {
+                document.objects_by_handle.insert(handle, record);
+            }
+        }
+        if !document.objects_by_handle.is_empty() {
+            let mut object_refs: Vec<(u64, u32)> = Vec::new();
+            for &(record, handle) in &document.object_handles {
+                if document.objects_by_handle.contains_key(&handle) {
+                    object_refs.push((handle, record));
+                }
+            }
+            for (handle, start, end) in owner_runs {
+                if document.objects_by_handle.contains_key(&handle) {
+                    for rec in start..end {
+                        if inside(&sections, rec) {
+                            object_refs.push((handle, rec));
+                        }
+                    }
+                }
+            }
+            for (handle, rec) in handle_refs {
+                if document.objects_by_handle.contains_key(&handle) && inside(&sections, rec) {
+                    object_refs.push((handle, rec));
+                }
+            }
+            object_refs.sort_unstable();
+            object_refs.dedup();
+            document.object_refs = object_refs;
+        }
         refs.retain(|(_, record)| inside(&sections, *record));
         refs.sort_unstable();
         refs.dedup();
         document.refs = refs;
+        document.flags = flags;
+        document.sections = sections;
         family.retain(|(record, _)| inside(&entities, *record));
         document.attach(&family, &entities);
         document.read_definitions(&marks, &blocks);
         document.entities = entities;
+        document.build_single_tables();
         Ok(document)
     }
 
@@ -1295,23 +1394,13 @@ impl Document {
                     open = opens.then_some(record);
                 }
                 Follow::Attrib | Follow::Vertex | Follow::Seqend => {
-                    let expected = |parent: Follow| {
-                        matches!(
-                            (found.kind, parent),
-                            (Follow::Attrib, Follow::Insert { .. })
-                                | (Follow::Vertex, Follow::Polyline { .. })
-                                | (
-                                    Follow::Seqend,
-                                    Follow::Insert { .. } | Follow::Polyline { .. }
-                                )
-                        )
-                    };
                     let by_owner = found
                         .owner
                         .and_then(|owner| owners.get(&owner).copied().flatten());
-                    let parent = by_owner
-                        .or(open)
-                        .filter(|parent| kind_of(*parent).is_some_and(expected));
+                    let parent = by_owner.or(open).filter(|parent| {
+                        kind_of(*parent)
+                            .is_some_and(|parent| single::followed_expected(found.kind, parent))
+                    });
                     plain &= parent.is_some()
                         && parent == open
                         && (found.owner.is_none() || by_owner == open);
@@ -1614,6 +1703,38 @@ impl Document {
             .unwrap_or(NO_DEFINITION)
     }
 
+    /// `zumen_acad::single` の共通関数に渡す名前の表と設定を組む
+    fn build_single_tables(&mut self) {
+        let mut names: BTreeMap<&'static [u8], BTreeMap<String, String>> = BTreeMap::new();
+        for (&kind, map) in TABLE_KINDS.iter().zip(&self.names) {
+            let Some(map) = map else { continue };
+            let mut converted = BTreeMap::new();
+            for (key, spelling) in map {
+                if let Some(decoded) = self.decode(&spelling.name) {
+                    converted.insert(key.clone(), decoded.to_owned());
+                }
+            }
+            names.insert(kind, converted);
+        }
+        let mut blocks = BTreeMap::new();
+        for (key, &at) in &self.usable_definitions {
+            if let Some(def) = self.definitions.get(at as usize)
+                && let Some(decoded) = self.decode(&def.name)
+            {
+                blocks.insert(key.clone(), decoded.to_owned());
+            }
+        }
+        self.single_tables = SingleTables {
+            model_owner: self.model_owner,
+            markers: self.markers,
+            version: self.version.clone(),
+            charset: self.charset,
+            dwg_seed: None,
+            names: Arc::new(names),
+            blocks: Arc::new(blocks),
+        };
+    }
+
     /// HEADER のレコードの変数（9 の名前と、続く値）から、文字の符号化と、変更で見る変数を読む
     fn read_header(&mut self, record: Option<u32>) {
         let Some(record) = record else {
@@ -1626,7 +1747,8 @@ impl Document {
         };
         let mut version: Option<Vec<u8>> = None;
         let mut code_page: Option<Vec<u8>> = None;
-        let mut seen: Vec<&[u8]> = Vec::new();
+        let mut header_handles: BTreeSet<u64> = BTreeSet::new();
+        let mut seen: BTreeSet<Vec<u8>> = BTreeSet::new();
         let mut start = 0;
         for chunk in tags.chunk_by(|_, next| next.code != 9) {
             let first = start;
@@ -1639,6 +1761,18 @@ impl Document {
             }
             let name = self.value_of(head).trim_ascii();
             // 同じ名前が 2 度あれば、最初のもの
+            if !seen.insert(name.to_vec()) {
+                continue;
+            }
+            if name != b"$HANDSEED" {
+                for tag in rest {
+                    if DataType::of(tag.code) == DataType::Handle
+                        && let Val::Handle(handle) = typed(tag.code, self.value_of(tag))
+                    {
+                        header_handles.insert(handle);
+                    }
+                }
+            }
             let wanted: [&[u8]; 5] = [
                 b"$ACADVER",
                 b"$DWGCODEPAGE",
@@ -1646,10 +1780,9 @@ impl Document {
                 b"$EXTMAX",
                 b"$HANDSEED",
             ];
-            if !wanted.contains(&name) || seen.contains(&name) {
+            if !wanted.contains(&name) {
                 continue;
             }
-            seen.push(name);
             let values: Vec<Value> = rest
                 .iter()
                 .map(|tag| value(tag.code, self.value_of(tag)))
@@ -1674,17 +1807,9 @@ impl Document {
                 }
             }
         }
+        self.charset = zumen_acad::charset(version.as_deref(), code_page.as_deref());
         self.version = version.unwrap_or_default();
-        // 今の実装の `charset`（`crates/zumen-acad/src/charset.rs`）と同じ決め方
-        self.charset = if self.version.as_slice() >= b"AC1021".as_slice() {
-            Charset::Utf8
-        } else if code_page.is_some_and(|page| {
-            page.eq_ignore_ascii_case(b"ANSI_932") || page.eq_ignore_ascii_case(b"DOS932")
-        }) {
-            Charset::ShiftJis
-        } else {
-            Charset::Other
-        };
+        self.header_handles = header_handles;
         self.header = Some(header);
     }
 
@@ -1779,17 +1904,18 @@ impl Document {
         };
         self.locked = duplicate.then_some(Locked::DuplicateHandle);
 
-        // ハンドルの最大。変更で指せる行（除ける行）のものと、ほかのオブジェクトのものを分けて持つ
+        // ハンドルの最大。変更で指せる行・一緒に除きうる OBJECTS のものと、常に残るオブジェクトのものを分けて持つ
         let mut rows = self.rows.iter().peekable();
-        let mut other = None;
+        let mut fixed = None;
         for &(record, handle) in &objects {
             while rows.next_if(|row| row.record < record).is_some() {}
             let addressed = handle != 0 && rows.peek().is_some_and(|row| row.record == record);
-            if !addressed {
-                other = other.max(Some(handle));
+            let removable_obj = handle != 0 && self.objects_by_handle.get(&handle) == Some(&record);
+            if !addressed && !removable_obj {
+                fixed = fixed.max(Some(handle));
             }
         }
-        self.other_largest = other;
+        self.fixed_largest = fixed;
         self.row_largest = self
             .rows
             .iter()
@@ -1836,7 +1962,17 @@ impl Document {
     /// オブジェクトのハンドルの最大。ハンドルを持つオブジェクトがなければ `None`
     pub(crate) fn largest_handle(&self) -> Option<u64> {
         let added = self.added.last_key_value().map(|(handle, _)| *handle);
-        self.other_largest.max(self.row_largest).max(added)
+        let live_obj = self
+            .objects_by_handle
+            .iter()
+            .rev()
+            .filter(|&(handle, _)| *handle != 0)
+            .find(|(_, record)| !self.gone.contains(record))
+            .map(|(handle, _)| *handle);
+        self.fixed_largest
+            .max(self.row_largest)
+            .max(live_obj)
+            .max(added)
     }
 
     /// 生きている元の行のハンドルの最大を、今の値から下へ探し直す。最大の行を除いたときに呼ぶ
@@ -1951,6 +2087,11 @@ impl Document {
         record >= self.counts.records || inside(&self.entities, record)
     }
 
+    /// レコードがいずれかのセクションの中にあるか。足したレコードは、ENTITIES にある
+    pub(crate) fn in_section(&self, record: u32) -> bool {
+        record >= self.counts.records || inside(&self.sections, record)
+    }
+
     /// 元のバイト列の長さ
     pub fn source_len(&self) -> usize {
         self.src.len()
@@ -1970,6 +2111,7 @@ impl Document {
     pub fn resident_bytes(&self) -> usize {
         let shapes = &self.shapes;
         self.starts.len() * 4
+            + self.flags.len()
             + self.rows.len() * core::mem::size_of::<Row>()
             + shapes.lines.len() * 32
             + shapes.circles.len() * 24
@@ -1981,6 +2123,8 @@ impl Document {
             + self.members.len() * core::mem::size_of::<Row>()
             + self.definitions.len() * core::mem::size_of::<Definition>()
             + self.refs.len() * 16
+            + self.object_refs.len() * 16
+            + self.objects_by_handle.len() * 16
             + self.block_display.bytes()
             + shapes.pools.vertices.len() * 24
             + shapes.pools.widths.len() * 16

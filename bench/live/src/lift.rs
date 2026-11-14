@@ -1,23 +1,16 @@
-//! 図形のレコードを、列に置く値へ持ち上げる。要素になる条件は、今の実装の読み方
-//! （`crates/zumen-acad/src/drawing.rs`・`drawing/geometry.rs`・`drawing/style.rs`）と同じにする。
+//! 図形のレコードを、列に置く値へ持ち上げる。要素になる条件は、`zumen_acad::single` の共通関数をそのまま呼んで
+//! 一括変換の読み方（`crates/zumen-acad/src/drawing`）と 1 つの実装に揃える。
 //! 開くときも、変更のあとで読み直すときも、ここを通る。
 
+use zumen_acad::single::{
+    self, DxfFields, FieldSource as _, PolylineSink, RawLineType, RawTextPlace,
+};
+pub use zumen_acad::single::{Follow, Followed, RawTag};
 use zumen_drawing::{
-    Attribute, Edge, Fit, Grid, Height, HeightMeaning, Horizontal, Inherit, LayerId, Length,
+    Attribute, Color, Edge, Fit, Grid, Height, HeightMeaning, Horizontal, Inherit, LayerId, Length,
     ModelLength, ModelPoint, Placement, Polyline, Shape, SpaceId, Style, Symbol, SymbolKey, Text,
     Vertex, Vertical,
 };
-
-use crate::value::{Val, typed};
-
-/// レコードの、グループ・コード 0 の次からのタグ
-#[derive(Clone, Copy, Debug)]
-pub struct RawTag<'a> {
-    /// グループ・コード
-    pub code: i16,
-    /// 値の行（改行を除く）
-    pub value: &'a [u8],
-}
 
 /// この試作が要素として持つ図形の種類
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -59,6 +52,18 @@ impl Kind {
             b"INSERT" => Kind::Insert,
             _ => return None,
         })
+    }
+
+    /// DXF のグループ・コード 0 の種類名
+    pub fn dxf_name(self) -> &'static [u8] {
+        match self {
+            Kind::Line => b"LINE",
+            Kind::Circle => b"CIRCLE",
+            Kind::Arc => b"ARC",
+            Kind::Polyline => b"LWPOLYLINE",
+            Kind::Text => b"TEXT",
+            Kind::Insert => b"INSERT",
+        }
     }
 }
 
@@ -167,86 +172,10 @@ pub struct AttribRow {
     pub class: u8,
 }
 
-/// 続くレコードを親に付けるときの、レコードの役
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Follow {
-    /// INSERT。`opens` は、66 が 1（続く ATTRIB を、SEQEND まで自分に付ける）
-    Insert {
-        /// 続くレコードを受ける
-        opens: bool,
-    },
-    /// POLYLINE。`opens` は、66 が 0 でない（続く VERTEX を、SEQEND まで自分に付ける）
-    Polyline {
-        /// 続くレコードを受ける
-        opens: bool,
-    },
-    /// ATTRIB
-    Attrib,
-    /// VERTEX
-    Vertex,
-    /// SEQEND
-    Seqend,
-}
-
-/// 続くレコードを親に付けるために見る値。今の実装の `attached`（`crates/zumen-acad/src/drawing.rs`）が
-/// 見るものと同じ
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Followed {
-    /// レコードの役
-    pub kind: Follow,
-    /// ハンドル（5 の、16 進として読める最初の値）
-    pub handle: Option<u64>,
-    /// 所有者（102 の組の外の最初の 330。ハンドルとして読めなければ、ない）
-    pub owner: Option<u64>,
-}
-
 /// レコードの種類とタグから、親に付けるために見る値を読む。INSERT・POLYLINE・ATTRIB・VERTEX・SEQEND で
 /// なければ `None`
 pub fn followed(name: &[u8], tags: &[RawTag<'_>]) -> Option<Followed> {
-    let first = |code: i16| {
-        tags.iter()
-            .find(|tag| tag.code == code)
-            .map(|tag| typed(code, tag.value))
-    };
-    let kind = match name {
-        b"INSERT" => Follow::Insert {
-            opens: first(66) == Some(Val::Int(1)),
-        },
-        b"POLYLINE" => Follow::Polyline {
-            opens: first(66) != Some(Val::Int(0)),
-        },
-        b"ATTRIB" => Follow::Attrib,
-        b"VERTEX" => Follow::Vertex,
-        b"SEQEND" => Follow::Seqend,
-        _ => return None,
-    };
-    let handle =
-        tags.iter()
-            .filter(|tag| tag.code == 5)
-            .find_map(|tag| match typed(5, tag.value) {
-                Val::Handle(handle) => Some(handle),
-                _ => None,
-            });
-    let mut owner = None;
-    let mut depth = 0usize;
-    for tag in tags {
-        match tag.code {
-            102 if tag.value.starts_with(b"{") => depth += 1,
-            102 if tag.value.starts_with(b"}") => depth = depth.saturating_sub(1),
-            330 if depth == 0 => {
-                if let Val::Handle(handle) = typed(330, tag.value) {
-                    owner = Some(handle);
-                }
-                break;
-            }
-            _ => {}
-        }
-    }
-    Some(Followed {
-        kind,
-        handle,
-        owner,
-    })
+    single::followed_tags(name, tags)
 }
 
 /// 持ち上げた形。折れ線の頂点と文字の中身は、渡した置き場に足す
@@ -415,124 +344,6 @@ pub enum Lift<'a> {
     Not,
 }
 
-/// グループ・コードの置き場の番号。持ち上げで読むコードだけが置き場を持つ
-const fn slot(code: i16) -> usize {
-    match code {
-        1 => 1,
-        6 => 2,
-        7 => 3,
-        8 => 4,
-        10 => 5,
-        11 => 6,
-        20 => 7,
-        21 => 8,
-        30 => 9,
-        31 => 10,
-        38 => 11,
-        40 => 12,
-        41 => 13,
-        43 => 14,
-        48 => 15,
-        50 => 16,
-        51 => 17,
-        62 => 18,
-        67 => 19,
-        70 => 20,
-        71 => 21,
-        72 => 22,
-        73 => 23,
-        90 => 24,
-        210 => 25,
-        220 => 26,
-        230 => 27,
-        370 => 28,
-        420 => 29,
-        440 => 30,
-        2 => 31,
-        42 => 32,
-        44 => 33,
-        45 => 34,
-        66 => 35,
-        74 => 36,
-        101 => 37,
-        _ => 0,
-    }
-}
-
-const SLOTS: usize = 38;
-
-/// 0〜511 のグループ・コードから置き場の番号を引く表
-const SLOT_TABLE: [u8; 512] = {
-    let mut table = [0u8; 512];
-    let mut code = 0;
-    while code < 512 {
-        table[code] = slot(code as i16) as u8;
-        code += 1;
-    }
-    table
-};
-
-/// グループ・コードごとの最初の値
-struct Fields<'a> {
-    first: [Option<&'a [u8]>; SLOTS],
-    /// 5 の、16 進として読める最初の値
-    handle: Option<u64>,
-}
-
-impl<'a> Fields<'a> {
-    fn new(tags: &[RawTag<'a>]) -> Self {
-        let mut first: [Option<&'a [u8]>; SLOTS] = [None; SLOTS];
-        let mut handle = None;
-        for tag in tags {
-            if tag.code == 5 && handle.is_none() {
-                if let Val::Handle(value) = typed(tag.code, tag.value) {
-                    handle = Some(value);
-                }
-                continue;
-            }
-            let at = usize::try_from(tag.code)
-                .ok()
-                .and_then(|code| SLOT_TABLE.get(code))
-                .map_or(0, |&at| at as usize);
-            if at != 0 {
-                let place = &mut first[at];
-                if place.is_none() {
-                    *place = Some(tag.value);
-                }
-            }
-        }
-        Fields { first, handle }
-    }
-
-    /// グループ・コードの最初の値を、型どおりに読んだもの
-    fn first(&self, code: i16) -> Option<Val<'a>> {
-        self.first[slot(code)].map(|raw| typed(code, raw))
-    }
-
-    /// 元のままの最初の値
-    fn raw(&self, code: i16) -> Option<&'a [u8]> {
-        self.first[slot(code)]
-    }
-
-    /// 有限の実数の値。なければ `default`、それもなければ読めないとする
-    fn real(&self, code: i16, default: Option<f64>) -> Option<f64> {
-        match self.first(code) {
-            Some(Val::Real(value)) => Some(value),
-            Some(_) => None,
-            None => default,
-        }
-    }
-
-    /// 整数の値。なければ `default`
-    fn int(&self, code: i16, default: i64) -> Option<i64> {
-        match self.first(code) {
-            Some(Val::Int(value)) => Some(value),
-            Some(_) => None,
-            None => Some(default),
-        }
-    }
-}
-
 /// 文字の値の種類
 fn class_of(value: &[u8]) -> u8 {
     if value.is_ascii() {
@@ -547,11 +358,11 @@ fn class_of(value: &[u8]) -> u8 {
 /// 図形のレコードを持ち上げる。`tags` は、グループ・コード 0 の次からのタグ。
 /// 折れ線の頂点は `pools` に足す（要素にならなければ、足さない）
 pub fn lift<'a>(kind: Kind, tags: &[RawTag<'a>], pools: &mut Pools) -> Lift<'a> {
-    let fields = Fields::new(tags);
+    let fields = DxfFields::new(tags);
     match fields.int(67, 0) {
-        Some(1) => return Lift::Paper,
-        Some(_) => {}
-        None => return Lift::Not,
+        Ok(1) => return Lift::Paper,
+        Ok(_) => {}
+        Err(_) => return Lift::Not,
     }
     let marks = pools.marks();
     match lifted(kind, tags, &fields, pools) {
@@ -566,45 +377,15 @@ pub fn lift<'a>(kind: Kind, tags: &[RawTag<'a>], pools: &mut Pools) -> Lift<'a> 
 fn lifted<'a>(
     kind: Kind,
     tags: &[RawTag<'a>],
-    fields: &Fields<'a>,
+    fields: &DxfFields<'a>,
     pools: &mut Pools,
 ) -> Option<Lifted<'a>> {
-    // 押し出しの向きが既定（0,0,1）の図形だけを読む
-    if !upright(fields)? {
-        return None;
-    }
+    single::check_upright(fields).ok()?;
     let mut class = class::ASCII;
     let geom = match kind {
-        Kind::Line => {
-            let mut ends = [0.0; 4];
-            for (index, x) in [10i16, 11].into_iter().enumerate() {
-                let z = fields.real(x + 20, Some(0.0))?;
-                ends[index * 2] = fields.real(x, None)?;
-                ends[index * 2 + 1] = fields.real(x + 10, None)?;
-                if z != 0.0 {
-                    return None;
-                }
-            }
-            Geom::Line(ends)
-        }
-        Kind::Circle => {
-            let [x, y] = planar_point(fields, 10)?;
-            let radius = fields.real(40, None)?;
-            if radius <= 0.0 {
-                return None;
-            }
-            Geom::Circle([x, y, radius])
-        }
-        Kind::Arc => {
-            let [x, y] = planar_point(fields, 10)?;
-            let radius = fields.real(40, None)?;
-            if radius <= 0.0 {
-                return None;
-            }
-            let start = fields.real(50, None)?;
-            let end = fields.real(51, None)?;
-            Geom::Arc([x, y, radius, start, end])
-        }
+        Kind::Line => Geom::Line(single::line_ends(fields).ok()?),
+        Kind::Circle => Geom::Circle(single::circle_geom(fields).ok()?),
+        Kind::Arc => Geom::Arc(single::arc_geom(fields).ok()?),
         Kind::Polyline => polyline(tags, fields, pools)?,
         Kind::Text => {
             let (row, text_class) = text(fields, pools, 73)?;
@@ -627,94 +408,50 @@ fn lifted<'a>(
     })
 }
 
-/// 押し出しの向き（210・220・230）が既定（0,0,1）か
-fn upright(fields: &Fields<'_>) -> Option<bool> {
-    let normal = [
-        fields.real(210, Some(0.0))?,
-        fields.real(220, Some(0.0))?,
-        fields.real(230, Some(1.0))?,
-    ];
-    Some(normal == [0.0, 0.0, 1.0])
-}
-
 /// 画層・色・線種・線種の倍率・線幅・透過性を確かめて、画層の名前・色の指定・文字の値の種類を返す
-fn styled<'a>(fields: &Fields<'a>) -> Option<(&'a [u8], u32, u8)> {
-    let mut class = class::ASCII;
-    // 色（62・420）
-    let rgb = match fields.first(420) {
-        None => None,
-        Some(Val::Int(value @ 0..=0xFF_FFFF)) => Some(value as u32),
-        Some(_) => return None,
+fn styled<'a>(fields: &DxfFields<'a>) -> Option<(&'a [u8], u32, u8)> {
+    let es = single::entity_style(fields).ok()?;
+    let color = match es.color {
+        Inherit::Own(Color {
+            rgb: Some([r, g, b]),
+            ..
+        }) => color::RGB | u32::from_be_bytes([0, r, g, b]),
+        Inherit::Own(Color {
+            code: Some(code),
+            rgb: None,
+        }) => color::INDEX | code.value,
+        Inherit::Own(Color {
+            code: None,
+            rgb: None,
+        }) => return None,
+        Inherit::Block => color::BY_BLOCK,
+        Inherit::Layer => color::BY_LAYER,
     };
-    let color = match (fields.int(62, 256)?, rgb) {
-        // 色番号と RGB の両方があれば、表示には RGB を使う
-        (_, Some(rgb)) => color::RGB | rgb,
-        (index @ 1..=255, None) => color::INDEX | index as u32,
-        (0, None) => color::BY_BLOCK,
-        (256, None) => color::BY_LAYER,
-        _ => return None,
+    let mut class = match es.line_type {
+        RawLineType::Named(bytes) => class_of(bytes),
+        RawLineType::Layer | RawLineType::Block => fields.raw(6).map_or(class::ASCII, class_of),
     };
-    // 線種（6）は名前を読めればよい。線種の倍率（48）・線幅（370）・透過性（440）は、値の範囲だけを見る
-    if let Some(name) = fields.raw(6) {
-        class = class.max(class_of(name));
-    }
-    if fields.real(48, Some(1.0))? <= 0.0 {
-        return None;
-    }
-    match fields.first(370) {
-        None | Some(Val::Int(-3..=211)) => {}
-        Some(_) => return None,
-    }
-    match fields.first(440) {
-        None => {}
-        Some(Val::Int(value)) => {
-            let value = u32::try_from(value).ok()?;
-            if value >> 24 > 2 {
-                return None;
-            }
-        }
-        Some(_) => return None,
-    }
-    // 画層（8）は必ず要る
-    let layer = fields.raw(8)?;
+    let layer = fields.raw_text(8).ok()??;
     class = class.max(class_of(layer));
     Some((layer, color, class))
 }
 
-/// 記号（INSERT）。定義がなくても要素になる。格子に並べないとき（列も行も 1）は、間隔を読まない
-fn insert(fields: &Fields<'_>, pools: &mut Pools) -> Option<(InsertRow, u8)> {
-    let name = fields.raw(2)?;
-    let scale = [fields.real(41, Some(1.0))?, fields.real(42, Some(1.0))?];
-    if scale.contains(&0.0) {
-        return None;
-    }
-    let count = |code: i16| {
-        u32::try_from(fields.int(code, 1)?)
-            .ok()
-            .filter(|count| *count >= 1)
-    };
-    let grid = [count(70)?, count(71)?];
-    let spacing = if grid == [1, 1] {
-        [0.0, 0.0]
-    } else {
-        [fields.real(44, Some(0.0))?, fields.real(45, Some(0.0))?]
-    };
-    let position = planar_point(fields, 10)?;
-    let rotation = fields.real(50, Some(0.0))?;
-    let followed = matches!(fields.first(66), Some(Val::Int(value)) if value != 0);
-    let class = class_of(name);
+/// 記号（INSERT）。定義がなくても要素になる
+fn insert(fields: &DxfFields<'_>, pools: &mut Pools) -> Option<(InsertRow, u8)> {
+    let raw = single::insert_geom(fields).ok()?;
+    let class = class_of(raw.name);
     Some((
         InsertRow {
-            name: pools.push_text(name)?,
+            name: pools.push_text(raw.name)?,
             definition: NO_DEFINITION,
-            position,
-            scale,
-            rotation,
-            grid,
-            spacing,
+            position: raw.position,
+            scale: raw.scale,
+            rotation: raw.rotation,
+            grid: raw.grid,
+            spacing: raw.spacing,
             attribs: (0, 0),
             attached: 0,
-            followed,
+            followed: raw.followed,
         },
         class,
     ))
@@ -723,7 +460,7 @@ fn insert(fields: &Fields<'_>, pools: &mut Pools) -> Option<(InsertRow, u8)> {
 /// ATTRIB を、記号の属性として持ち上げる。空間（67）は見ない。書式つきの中身（101）を持つ属性は読まない
 /// （今の実装は、その属性を持つ記号を動かす変更を受け付けない）。読めなければ、置き場に何も残さない
 pub fn attrib(tags: &[RawTag<'_>], record: u32, pools: &mut Pools) -> Option<AttribRow> {
-    let fields = Fields::new(tags);
+    let fields = DxfFields::new(tags);
     let marks = pools.marks();
     let row = attribute(&fields, record, pools);
     if row.is_none() {
@@ -732,13 +469,14 @@ pub fn attrib(tags: &[RawTag<'_>], record: u32, pools: &mut Pools) -> Option<Att
     row
 }
 
-fn attribute(fields: &Fields<'_>, record: u32, pools: &mut Pools) -> Option<AttribRow> {
-    if !upright(fields)? || fields.raw(101).is_some() {
+fn attribute(fields: &DxfFields<'_>, record: u32, pools: &mut Pools) -> Option<AttribRow> {
+    single::check_upright(fields).ok()?;
+    if fields.has_code(101) {
         return None;
     }
     let (text, text_class) = text(fields, pools, 74)?;
-    let tag = fields.raw(2)?;
-    let hidden = fields.int(70, 0)? & 1 != 0;
+    let tag = fields.raw_text(2).ok()??;
+    let hidden = fields.int(70, 0).ok()? & 1 != 0;
     let (layer, color, style_class) = styled(fields)?;
     Some(AttribRow {
         record,
@@ -752,80 +490,60 @@ fn attribute(fields: &Fields<'_>, record: u32, pools: &mut Pools) -> Option<Attr
     })
 }
 
-/// Z が 0 の点
-fn planar_point(fields: &Fields<'_>, x: i16) -> Option<[f64; 2]> {
-    if fields.real(x + 20, Some(0.0))? != 0.0 {
-        return None;
-    }
-    Some([fields.real(x, None)?, fields.real(x + 10, None)?])
+struct PoolPolySink<'p> {
+    pools: &'p mut Pools,
+    first: usize,
+    widths: Vec<[Option<f64>; 2]>,
+    any_width: bool,
 }
 
-fn polyline(tags: &[RawTag<'_>], fields: &Fields<'_>, pools: &mut Pools) -> Option<Geom> {
-    if fields.real(38, Some(0.0))? != 0.0 {
-        return None;
+impl PolylineSink for PoolPolySink<'_> {
+    fn len(&self) -> usize {
+        self.pools.vertices.len() - self.first
     }
-    let first = pools.vertices.len();
-    // 頂点ごとの幅。幅を持つ頂点が出るまでは置かない
-    let mut widths: Vec<[Option<f64>; 2]> = Vec::new();
-    let mut any_width = false;
-    let mut index = 0;
-    while let Some(tag) = tags.get(index) {
-        index += 1;
-        match tag.code {
-            10 => {
-                let Val::Real(x) = typed(10, tag.value) else {
-                    return None;
-                };
-                // 20 は、すぐ後ろの値であること
-                let y = match tags.get(index) {
-                    Some(next) if next.code == 20 => match typed(20, next.value) {
-                        Val::Real(y) => y,
-                        _ => return None,
-                    },
-                    _ => return None,
-                };
-                index += 1;
-                pools.vertices.push([x, y, 0.0]);
-                if any_width {
-                    widths.push([None; 2]);
-                }
-            }
-            40..=42 => {
-                let Val::Real(value) = typed(tag.code, tag.value) else {
-                    return None;
-                };
-                let count = pools.vertices.len() - first;
-                if count == 0 {
-                    return None;
-                }
-                if tag.code == 42 {
-                    pools.vertices.last_mut()?[2] = value;
-                } else {
-                    if !any_width {
-                        any_width = true;
-                        widths.resize(count, [None; 2]);
-                    }
-                    widths.last_mut()?[usize::from(tag.code == 41)] = Some(value);
-                }
-            }
-            _ => {}
+
+    fn push_vertex(&mut self, x: f64, y: f64) {
+        self.pools.vertices.push([x, y, 0.0]);
+        if self.any_width {
+            self.widths.push([None; 2]);
         }
     }
-    let count = pools.vertices.len() - first;
-    if usize::try_from(fields.int(90, -1)?).ok() != Some(count) {
-        return None;
+
+    fn set_width(&mut self, is_end: bool, width: f64) {
+        let count = self.len();
+        if !self.any_width {
+            self.any_width = true;
+            self.widths.resize(count, [None; 2]);
+        }
+        if let Some(slot) = self.widths.last_mut() {
+            slot[usize::from(is_end)] = Some(width);
+        }
     }
-    let width = match fields.real(43, Some(0.0))? {
-        0.0 => 0.0,
-        width if width > 0.0 => width,
-        _ => return None,
+
+    fn set_bulge(&mut self, bulge: f64) {
+        if let Some(vertex) = self.pools.vertices.last_mut() {
+            vertex[2] = bulge;
+        }
+    }
+}
+
+fn polyline(tags: &[RawTag<'_>], fields: &DxfFields<'_>, pools: &mut Pools) -> Option<Geom> {
+    let first = pools.vertices.len();
+    let mut sink = PoolPolySink {
+        pools,
+        first,
+        widths: Vec::new(),
+        any_width: false,
     };
-    let bits = fields.int(70, 0)?;
+    let meta = single::lwpolyline_scan(fields, tags, &mut sink).ok()?;
+    let count = sink.len();
+    let any_width = sink.any_width;
+    let widths = sink.widths;
     let mut flags = 0;
-    if bits & 1 != 0 {
+    if meta.closed {
         flags |= POLY_CLOSED;
     }
-    if bits & 128 != 0 {
+    if meta.line_type_generation {
         flags |= POLY_GENERATION;
     }
     if any_width {
@@ -844,76 +562,45 @@ fn polyline(tags: &[RawTag<'_>], fields: &Fields<'_>, pools: &mut Pools) -> Opti
         first: u32::try_from(first).ok()?,
         count: u32::try_from(count).ok()?,
         flags,
-        width,
+        width: meta.width.unwrap_or(0.0),
     })
 }
 
 /// 文字。縦の揃えのグループ・コードは、TEXT では 73、ATTRIB では 74
-fn text(fields: &Fields<'_>, pools: &mut Pools, vertical: i16) -> Option<(TextRow, u8)> {
-    let at = |x: i16| planar_point(fields, x);
-    let first = at(10)?;
-    let horizontal = fields.int(72, 0)?;
-    let vertical = fields.int(vertical, 0)?;
-    let place = match (horizontal, vertical) {
-        (0, 0) => Place::Anchor {
-            point: first,
-            horizontal: Horizontal::Left,
-            vertical: Vertical::Baseline,
+fn text(fields: &DxfFields<'_>, pools: &mut Pools, vertical: i16) -> Option<(TextRow, u8)> {
+    let raw = single::text_geom(fields, vertical).ok()?;
+    let place = match raw.place {
+        RawTextPlace::Anchor {
+            point,
+            horizontal,
+            vertical,
+        } => Place::Anchor {
+            point,
+            horizontal,
+            vertical,
         },
-        (3, _) | (5, _) => Place::Between {
-            first,
-            second: at(11)?,
-            fit: if horizontal == 3 {
-                Fit::Aligned
-            } else {
-                Fit::Fit
-            },
-        },
-        _ => Place::Anchor {
-            point: at(11)?,
-            horizontal: match horizontal {
-                0 => Horizontal::Left,
-                1 => Horizontal::Center,
-                2 => Horizontal::Right,
-                4 => Horizontal::Middle,
-                _ => return None,
-            },
-            vertical: match vertical {
-                0 => Vertical::Baseline,
-                1 => Vertical::Bottom,
-                2 => Vertical::Middle,
-                3 => Vertical::Top,
-                _ => return None,
-            },
-        },
+        RawTextPlace::Between { first, second, fit } => Place::Between { first, second, fit },
     };
-    let flags = fields.int(71, 0)?;
-    let content = fields.raw(1)?;
-    let height = fields.real(40, None)?;
-    let rotation = fields.real(50, Some(0.0))?;
-    let width_factor = fields.real(41, Some(1.0))?;
-    let oblique = fields.real(51, Some(0.0))?;
-    let style = fields.raw(7);
-    let class = class_of(content).max(style.map_or(class::ASCII, class_of));
+    let class = class_of(raw.content).max(raw.style.map_or(class::ASCII, class_of));
     let mut bits = 0;
-    if flags & 2 != 0 {
+    if raw.backward {
         bits |= TEXT_BACKWARD;
     }
-    if flags & 4 != 0 {
+    if raw.upside_down {
         bits |= TEXT_UPSIDE_DOWN;
     }
-    let content = pools.push_text(content)?;
-    let style = match style {
+    let content = pools.push_text(raw.content)?;
+    let style = match raw.style {
         Some(name) => Some(pools.push_text(name)?),
         None => None,
     };
     Some((
         TextRow {
             place,
-            height,
-            rotation,
-            width_factor,
-            oblique,
+            height: raw.height,
+            rotation: raw.rotation,
+            width_factor: raw.width_factor,
+            oblique: raw.oblique,
             flags: bits,
             content,
             style,

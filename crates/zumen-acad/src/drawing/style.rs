@@ -1,7 +1,7 @@
 //! 画層・線種・寸法スタイル・文字スタイルの表のレコードと、図形の画層・色・線種・線幅・透過性を移す
 //! （決定 0141・0143・0157・0158）。
 
-use super::{Lifted, Lifter, Out, aci, invalid, true_type_face};
+use super::{Lifted, Lifter, Out, aci, invalid, lift_err, single, true_type_face};
 use crate::db::{AcadDb, Data, Object, Value};
 use zumen_base::{Cx, Diagnostic, Ref, codes};
 use zumen_drawing::{
@@ -26,53 +26,22 @@ impl Lifter<'_> {
     /// Codes for Entities」）
     pub(super) fn style(&self, object: &Object, out: &mut Out) -> Lifted<Style> {
         let kind = object.kind.as_slice();
-        let rgb = self.rgb(object, 420)?;
-        let color = match (self.int(object, 62, 256)?, rgb) {
-            (index @ 1..=255, _) => Inherit::Own(Color {
-                code: Some(aci(index)),
-                rgb,
-            }),
-            (_, Some(rgb)) => Inherit::Own(Color {
-                code: None,
-                rgb: Some(rgb),
-            }),
-            (0, None) => Inherit::Block,
-            (256, None) => Inherit::Layer,
-            _ => return Err(invalid(kind, 62)),
-        };
-        let line_type = match self.string(object, 6)? {
-            None => Inherit::Layer,
-            Some(name) if name.eq_ignore_ascii_case("ByLayer") => Inherit::Layer,
-            Some(name) if name.eq_ignore_ascii_case("ByBlock") => Inherit::Block,
-            Some(name) => Inherit::Own(self.line_type(kind, name, out)?),
-        };
-        let line_type_scale = self.real(object, 48, Some(1.0))?;
-        if line_type_scale <= 0.0 {
-            return Err(invalid(kind, 48));
-        }
-        let line_weight = match object.first(370) {
-            None | Some(Data::Int(-1)) => Some(Inherit::Layer),
-            Some(Data::Int(-2)) => Some(Inherit::Block),
-            Some(_) => Some(Inherit::Own(self.line_weight(object)?)),
+        let raw = single::entity_style(&object).map_err(|err| lift_err(kind, err))?;
+        let line_type = match raw.line_type {
+            single::RawLineType::Layer => Inherit::Layer,
+            single::RawLineType::Block => Inherit::Block,
+            single::RawLineType::Named(bytes) => {
+                let name = self.decode_bytes(kind, 6, bytes)?;
+                Inherit::Own(self.line_type(kind, name, out)?)
+            }
         };
         Ok(Style {
-            color,
+            color: raw.color,
             line_type,
-            line_type_scale,
-            line_weight,
-            transparency: self.transparency(object)?,
+            line_type_scale: raw.line_type_scale,
+            line_weight: Some(raw.line_weight),
+            transparency: raw.transparency,
         })
-    }
-
-    /// 図形の透過性（440）。なければレイヤから継承する
-    fn transparency(&self, object: &Object) -> Lifted<Inherit<Transparency>> {
-        match object.first(440) {
-            None => Ok(Inherit::Layer),
-            Some(Data::Int(value)) => {
-                transparency(*value).ok_or_else(|| invalid(&object.kind, 440))
-            }
-            Some(_) => Err(invalid(&object.kind, 440)),
-        }
     }
 
     /// 真の色（420、背景は 421）。0x00RRGGBB

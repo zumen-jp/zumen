@@ -28,6 +28,10 @@ mod version;
 mod write_back;
 
 pub use family::{R2004Conversion, ReencodedDxf};
+pub use objects::{RawData, parse_hex, parse_raw, parse_value, raw_data};
+pub use write_back::{
+    TagEdit, advance_handseed, diff_values, entity_extents, merge_extents, widen_extents,
+};
 
 use zumen_sdk::{ByteRange, Codec, Error, FileModel, RecordInfo, Signature, Transact, Transaction};
 
@@ -172,10 +176,15 @@ impl DxfFile {
 
     /// 足したタグに使う改行。最初の行が CR LF なら CR LF、ほかは LF（推定。docs/formats/dxf.md）
     fn newline(&self) -> &'static [u8] {
-        match self.src.iter().position(|&b| b == b'\n') {
-            Some(n) if n > 0 && self.src.get(n - 1) == Some(&b'\r') => b"\r\n",
-            _ => b"\n",
-        }
+        newline_of(&self.src)
+    }
+}
+
+/// 元の DXF のバイト列から、足したタグに使う改行（最初の行が CR LF なら `\r\n`、ほかは `\n`）を決める
+pub fn newline_of(src: &[u8]) -> &'static [u8] {
+    match src.iter().position(|&b| b == b'\n') {
+        Some(n) if n > 0 && src.get(n - 1) == Some(&b'\r') => b"\r\n",
+        _ => b"\n",
     }
 }
 
@@ -614,7 +623,8 @@ fn encodable(file: &DxfFile, code: i16, value: &[u8]) -> bool {
         .is_none_or(|binary| binary.encodable(code, value))
 }
 
-fn has_newline(value: &[u8]) -> bool {
+/// 値の行に改行（`\r` か `\n`）が含まれるか
+pub fn has_newline(value: &[u8]) -> bool {
     value.iter().any(|&b| b == b'\r' || b == b'\n')
 }
 
@@ -636,7 +646,7 @@ fn on_tag(code: Code, record: usize, group_code: i16) -> Diagnostic {
 }
 
 /// 実数の値。前後の空白を除いて読み、有限でないものは受け付けない（推定。docs/formats/dxf.md）
-fn parse_real(value: &[u8]) -> Option<f64> {
+pub fn parse_real(value: &[u8]) -> Option<f64> {
     let real: f64 = core::str::from_utf8(value.trim_ascii())
         .ok()?
         .parse()
@@ -644,8 +654,8 @@ fn parse_real(value: &[u8]) -> Option<f64> {
     real.is_finite().then_some(real)
 }
 
-// DXF Reference「Group Code Value Types」。書き戻しと同系統の再符号化で同じ値の行を書く。
-fn value_bytes(data: &crate::Data) -> Option<std::borrow::Cow<'_, [u8]>> {
+/// 値を DXF の値の行に書くバイト列にする（DXF Reference「Group Code Value Types」）。有限でない実数は `None`
+pub fn value_bytes(data: &crate::Data) -> Option<std::borrow::Cow<'_, [u8]>> {
     use crate::Data;
     use std::borrow::Cow;
     Some(match data {
@@ -668,7 +678,7 @@ fn value_bytes(data: &crate::Data) -> Option<std::borrow::Cow<'_, [u8]>> {
 }
 
 /// 有限の実数を、読み直すと同じ値に戻る最短の 10 進の表記にする。整数の値にも小数点を付ける
-fn format_real(value: f64) -> Vec<u8> {
+pub fn format_real(value: f64) -> Vec<u8> {
     let mut text = value.to_string();
     if !text.contains('.') {
         text.push_str(".0");
@@ -698,7 +708,7 @@ fn invalid(cx: &mut Cx, line: &TextLine) -> Error {
 }
 
 /// グループ・コードの行。前後の空白を許す。仕様が決めない所の扱いは推定で、`docs/formats/dxf.md` に記録した
-fn parse_code(line: &[u8]) -> Option<i16> {
+pub fn parse_code(line: &[u8]) -> Option<i16> {
     core::str::from_utf8(line.trim_ascii()).ok()?.parse().ok()
 }
 

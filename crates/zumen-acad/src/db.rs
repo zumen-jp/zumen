@@ -166,14 +166,7 @@ pub struct Object {
 impl Object {
     /// ハンドル（5。DIMSTYLE は 105）。なければ `None`
     pub fn handle(&self) -> Option<u64> {
-        let expected = if self.kind == b"DIMSTYLE" { 105 } else { 5 };
-        self.values.iter().find_map(|value| match value {
-            Value {
-                code,
-                data: Data::Handle(handle),
-            } if *code == expected => Some(*handle),
-            _ => None,
-        })
+        handle_of_values(&self.kind, &self.values)
     }
 
     /// `handle` への参照のうち、除いたオブジェクトに残すと壊れるものを除く（DXF Reference「Common Group
@@ -185,61 +178,12 @@ impl Object {
     ///
     /// 組の外の所有者（330）などは残す
     pub fn forget(&mut self, handle: u64) {
-        let refers = |value: &Value| matches!(value.data, Data::Handle(h) if h == handle);
-        let dictionary = self.kind == b"DICTIONARY";
-        let mut out = Vec::with_capacity(self.values.len());
-        // 開いている組の、`out` の中の始まりと、参照を除いたか
-        let mut groups: Vec<(usize, bool)> = Vec::new();
-        let mut values = core::mem::take(&mut self.values).into_iter().peekable();
-        while let Some(value) = values.next() {
-            match (value.code, &value.data) {
-                (102, Data::Text(text)) if text.starts_with(b"{") => {
-                    groups.push((out.len(), false));
-                    out.push(value);
-                }
-                (102, Data::Text(text)) if text.starts_with(b"}") => match groups.pop() {
-                    Some((start, true)) if out.len() == start + 1 => out.truncate(start),
-                    _ => out.push(value),
-                },
-                (330 | 360, _) if refers(&value) && !groups.is_empty() => {
-                    if let Some(group) = groups.last_mut() {
-                        group.1 = true;
-                    }
-                }
-                (3, _)
-                    if dictionary
-                        && groups.is_empty()
-                        && values
-                            .peek()
-                            .is_some_and(|next| matches!(next.code, 350 | 360) && refers(next)) =>
-                {
-                    values.next();
-                }
-                _ => out.push(value),
-            }
-        }
-        self.values = out;
+        self.values = forget_values(&self.kind, core::mem::take(&mut self.values), handle);
     }
 
     /// 所有者のハンドル（330）。102 の組（`{ACAD_REACTORS` など）の中の 330 は除く。なければ `None`
     pub fn owner(&self) -> Option<u64> {
-        let mut depth = 0usize;
-        for value in &self.values {
-            match (value.code, &value.data) {
-                (102, Data::Text(text)) if text.starts_with(b"{") => depth += 1,
-                (102, Data::Text(text)) if text.starts_with(b"}") => {
-                    depth = depth.saturating_sub(1);
-                }
-                (330, data) if depth == 0 => {
-                    return match data {
-                        Data::Handle(handle) => Some(*handle),
-                        _ => None,
-                    };
-                }
-                _ => {}
-            }
-        }
-        None
+        owner_of_values(&self.values)
     }
 
     /// 最初の `code` の値
@@ -289,6 +233,77 @@ impl Object {
                 .ok_or(ViewError::NotReal(code)),
         }
     }
+}
+
+/// 値の並び `values` からハンドル（5。`DIMSTYLE` は 105）を読む。なければ `None`
+pub fn handle_of_values(kind: &[u8], values: &[Value]) -> Option<u64> {
+    let expected = if kind == b"DIMSTYLE" { 105 } else { 5 };
+    values.iter().find_map(|value| match value {
+        Value {
+            code,
+            data: Data::Handle(handle),
+        } if *code == expected => Some(*handle),
+        _ => None,
+    })
+}
+
+/// 値の並び `values` から所有者（102 の組の外の最初の 330）を読む。なければ `None`
+pub fn owner_of_values(values: &[Value]) -> Option<u64> {
+    let mut depth = 0usize;
+    for value in values {
+        match (value.code, &value.data) {
+            (102, Data::Text(text)) if text.starts_with(b"{") => depth += 1,
+            (102, Data::Text(text)) if text.starts_with(b"}") => {
+                depth = depth.saturating_sub(1);
+            }
+            (330, data) if depth == 0 => {
+                return match data {
+                    Data::Handle(handle) => Some(*handle),
+                    _ => None,
+                };
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// 値の並び `values` から、除いたオブジェクトの `handle` への参照（[`Object::forget`]）を除く
+pub fn forget_values(kind: &[u8], values: Vec<Value>, handle: u64) -> Vec<Value> {
+    let refers = |value: &Value| matches!(value.data, Data::Handle(h) if h == handle);
+    let dictionary = kind == b"DICTIONARY";
+    let mut out = Vec::with_capacity(values.len());
+    // 開いている組の、`out` の中の始まりと、参照を除いたか
+    let mut groups: Vec<(usize, bool)> = Vec::new();
+    let mut values = values.into_iter().peekable();
+    while let Some(value) = values.next() {
+        match (value.code, &value.data) {
+            (102, Data::Text(text)) if text.starts_with(b"{") => {
+                groups.push((out.len(), false));
+                out.push(value);
+            }
+            (102, Data::Text(text)) if text.starts_with(b"}") => match groups.pop() {
+                Some((start, true)) if out.len() == start + 1 => out.truncate(start),
+                _ => out.push(value),
+            },
+            (330 | 360, _) if refers(&value) && !groups.is_empty() => {
+                if let Some(group) = groups.last_mut() {
+                    group.1 = true;
+                }
+            }
+            (3, _)
+                if dictionary
+                    && groups.is_empty()
+                    && values
+                        .peek()
+                        .is_some_and(|next| matches!(next.code, 350 | 360) && refers(next)) =>
+            {
+                values.next();
+            }
+            _ => out.push(value),
+        }
+    }
+    out
 }
 
 /// LINE の型付きのビュー

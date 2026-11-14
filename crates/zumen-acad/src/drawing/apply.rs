@@ -13,7 +13,12 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::{BLOCK, Charset, Home, MODEL, PaperFrame, attached, framed, mtext, source, text, work};
-use add::{Born, Target, kind_of};
+use add::kind_of;
+pub(crate) use add::{Born, Target, next_handle_from};
+pub(crate) use callout::anchor;
+pub(crate) use owned::children_of_values;
+pub(crate) use replace::replacement;
+pub(crate) use transform::{moved_with_attribs, restyled};
 
 mod add;
 mod callout;
@@ -488,13 +493,13 @@ fn unique_handles(db: &AcadDb, target: Target, cx: &mut Cx) -> Result<(), Error>
 
 /// 書き戻す文字の符号化。2007 より前のバージョンのコード・ページで表せない文字は書かず、最初のものを覚えておく
 /// （決定 0192）
-pub(super) struct Encoder {
+pub(crate) struct Encoder {
     charset: Charset,
     unencodable: std::cell::Cell<Option<char>>,
 }
 
 impl Encoder {
-    pub(super) fn new(charset: Charset) -> Self {
+    pub(crate) fn new(charset: Charset) -> Self {
         Self {
             charset,
             unencodable: std::cell::Cell::new(None),
@@ -502,7 +507,7 @@ impl Encoder {
     }
 
     /// 文字の値を符号化する。表せない文字があれば `None`
-    pub(super) fn encode(&self, value: &str) -> Option<Vec<u8>> {
+    pub(crate) fn encode(&self, value: &str) -> Option<Vec<u8>> {
         match self.charset.encode(value) {
             Ok(bytes) => Some(bytes),
             Err(character) => {
@@ -1418,7 +1423,7 @@ fn object_positions(db: &AcadDb, cx: &mut Cx<'_>) -> Result<BTreeMap<Ref, usize>
 }
 
 /// 図面モデルの点と長さを、元の図形のレコードの値に戻す
-trait Frame<P> {
+pub(crate) trait Frame<P> {
     /// 点のレコードの X と Y。元の要素と同じ空間（用紙）の点でなければ `None`
     fn point(&self, point: &P) -> Option<[f64; 2]>;
     /// 長さのレコードの値。元の要素と同じ空間（用紙）の長さでなければ `None`
@@ -1430,7 +1435,7 @@ trait Frame<P> {
 }
 
 /// 実寸の空間。点と長さは、レコードの値のまま
-struct InSpace(SpaceId);
+pub(crate) struct InSpace(pub(crate) SpaceId);
 
 impl Frame<ModelPoint> for InSpace {
     fn point(&self, point: &ModelPoint) -> Option<[f64; 2]> {
@@ -1517,9 +1522,12 @@ fn place<P: PartialEq>(
 /// 1011（位置）・1012（変位）・1013（向き）・1041（距離）・1042（倍率）を同じく直す（DXF Reference
 /// 「Group Codes That Apply to Extended Data」）。置き換えから同じ変換を決められないので、書き戻さない（決定 0154）
 fn moving_xdata(object: &Object) -> Option<i16> {
-    let start = object.values.iter().position(|v| v.code == 1001)?;
-    object
-        .values
+    moving_xdata_code(&object.values)
+}
+
+pub(crate) fn moving_xdata_code(values: &[Value]) -> Option<i16> {
+    let start = values.iter().position(|v| v.code == 1001)?;
+    values
         .iter()
         .skip(start)
         .map(|v| v.code)
@@ -1582,9 +1590,16 @@ fn entity_removal(
 
 /// 続くレコード（POLYLINE の VERTEX、属性を持つ INSERT の ATTRIB、SEQEND）を持つ図形か
 fn followed(object: &Object) -> bool {
-    match object.kind.as_slice() {
+    followed_values(&object.kind, &object.values)
+}
+
+pub(crate) fn followed_values(kind: &[u8], values: &[Value]) -> bool {
+    match kind {
         b"POLYLINE" => true,
-        b"INSERT" => matches!(object.first(66), Some(Data::Int(n)) if *n != 0),
+        b"INSERT" => values
+            .iter()
+            .find(|v| v.code == 66)
+            .is_some_and(|v| matches!(v.data, Data::Int(n) if n != 0)),
         _ => false,
     }
 }

@@ -2,10 +2,10 @@
 //! 枠への位置合わせと書き進める向きは、表のセルと MULTILEADER の文字も使う。
 
 use super::finite;
-use super::{Lifted, Lifter, aci, columns, invalid, mtext, non_planar};
+use super::{Lifted, Lifter, aci, columns, invalid, lift_err, mtext, non_planar, single};
 use crate::db::{Data, Object};
 use zumen_drawing::{
-    Background, BackgroundFill, Color, Fit, Flow, FormattedText, Height, HeightMeaning, Horizontal,
+    Background, BackgroundFill, Color, Flow, FormattedText, Height, HeightMeaning, Horizontal,
     Length, LineSpacing, Placement, Rotation, Text, Vertical,
 };
 
@@ -20,71 +20,43 @@ impl Lifter<'_> {
         key: &'static str,
     ) -> Lifted<Text<P>> {
         let kind = object.kind.as_slice();
-        let vertical_code = vertical;
-        let at = |x: i16| -> Lifted<[f64; 2]> {
-            if self.real(object, x + 20, Some(0.0))? != 0.0 {
-                return Err(non_planar(kind));
-            }
-            Ok([
-                self.real(object, x, None)?,
-                self.real(object, x + 10, None)?,
-            ])
-        };
-        // DXF Reference「TEXT」の 72・73。第 1 点は入力を検査するが、採用するときだけ換算する。
-        // 中央・右寄せなどは、第 2 点から配置を決めるので、第 1 点の換算結果を使わない。
-        let first = at(10)?;
+        let raw = single::text_geom(&object, vertical).map_err(|err| lift_err(kind, err))?;
         let convert = |[x, y]: [f64; 2]| point(x, y);
-        let horizontal = self.int(object, 72, 0)?;
-        let vertical = self.int(object, vertical_code, 0)?;
-        let placement = match (horizontal, vertical) {
-            (0, 0) => Placement::Anchor {
-                point: convert(first),
-                horizontal: Horizontal::Left,
-                vertical: Vertical::Baseline,
+        // DXF Reference「TEXT」の 72・73。中央・右寄せなどは第 2 点だけを採用するので、第 1 点を換算しない。
+        let placement = match raw.place {
+            single::RawTextPlace::Anchor {
+                point: at,
+                horizontal,
+                vertical,
+            } => Placement::Anchor {
+                point: convert(at),
+                horizontal,
+                vertical,
             },
-            (3, _) | (5, _) => Placement::Between {
+            single::RawTextPlace::Between { first, second, fit } => Placement::Between {
                 first: convert(first),
-                second: convert(at(11)?),
-                fit: if horizontal == 3 {
-                    Fit::Aligned
-                } else {
-                    Fit::Fit
-                },
-            },
-            _ => Placement::Anchor {
-                point: convert(at(11)?),
-                horizontal: match horizontal {
-                    0 => Horizontal::Left,
-                    1 => Horizontal::Center,
-                    2 => Horizontal::Right,
-                    4 => Horizontal::Middle,
-                    _ => return Err(invalid(kind, 72)),
-                },
-                vertical: match vertical {
-                    0 => Vertical::Baseline,
-                    1 => Vertical::Bottom,
-                    2 => Vertical::Middle,
-                    3 => Vertical::Top,
-                    _ => return Err(invalid(kind, vertical_code)),
-                },
+                second: convert(second),
+                fit,
             },
         };
-        let flags = self.int(object, 71, 0)?;
+        let content = self.decode_bytes(kind, 1, raw.content)?;
+        let style = match raw.style {
+            Some(bytes) => self.decode_bytes(kind, 7, bytes)?,
+            None => "STANDARD".to_owned(),
+        };
         Ok(Text {
-            content: self.string(object, 1)?.ok_or_else(|| invalid(kind, 1))?,
+            content,
             height: Height {
-                value: length(self.real(object, 40, None)?),
+                value: length(raw.height),
                 meaning: HeightMeaning::Declared(key.into()),
             },
             placement,
-            rotation: self.real(object, 50, Some(0.0))?,
-            width_factor: self.real(object, 41, Some(1.0))?,
-            oblique: self.real(object, 51, Some(0.0))?,
-            backward: flags & 2 != 0,
-            upside_down: flags & 4 != 0,
-            style: self
-                .string(object, 7)?
-                .unwrap_or_else(|| "STANDARD".to_owned()),
+            rotation: raw.rotation,
+            width_factor: raw.width_factor,
+            oblique: raw.oblique,
+            backward: raw.backward,
+            upside_down: raw.upside_down,
+            style,
         })
     }
 
