@@ -49,6 +49,15 @@ async function serve(route) {
   if (path === WASM_PATH) {
     return route.fulfill({ contentType: TYPES[".wasm"], body: readFileSync(wasmPath) });
   }
+  if (path === "/worker.mjs") {
+    return route.fulfill({
+      contentType: TYPES[".mjs"],
+      body: `import { loadSync } from "/bindings/js/src/index.js";
+self.onmessage = ({ data: { module, bytes } }) => {
+  self.postMessage([loadSync(module).abiVersion(), loadSync(bytes).abiVersion()]);
+};`,
+    });
+  }
   const module = moduleNames.findIndex((module) => path === `/modules/${module}.wasm`);
   if (module !== -1 && modulePaths.length > 0) {
     return route.fulfill({ contentType: TYPES[".wasm"], body: readFileSync(modulePaths[module]) });
@@ -88,7 +97,7 @@ try {
   await page.goto(`${ORIGIN}/`);
   result = await page.evaluate(
     async ({ cases, samples, wasmPath, split }) => {
-      const { load, loadModules, loadSync } = await import("/bindings/js/src/index.js");
+      const { load, loadModules } = await import("/bindings/js/src/index.js");
       const { runConformance } = await import("/bindings/js/test/run.mjs");
       const fetchBytes = async (path) => {
         const response = await fetch(path);
@@ -128,9 +137,22 @@ try {
           pick: (testCase) => picked[testCase.module],
         });
       }
-      // 主スレッドでは大きなモジュールを同期でコンパイルできないので、非同期でコンパイルしたものを loadSync に渡す
-      const module = await WebAssembly.compile(await fetchBytes(wasmPath));
-      if (loadSync(module).abiVersion() !== zumen.abiVersion()) {
+      // 主スレッドでは大きなモジュールを同期でコンパイル・インスタンス化できないので、Worker の中で loadSync を確かめる
+      const raw = await fetchBytes(wasmPath);
+      const module = await WebAssembly.compile(raw);
+      const syncVersions = await new Promise((resolve, reject) => {
+        const worker = new Worker("/worker.mjs", { type: "module" });
+        worker.onmessage = ({ data }) => {
+          worker.terminate();
+          resolve(data);
+        };
+        worker.onerror = (event) => {
+          worker.terminate();
+          reject(new Error(event.message || "Worker のエラー"));
+        };
+        worker.postMessage({ module, bytes: raw }, [raw.buffer]);
+      });
+      if (syncVersions.some((version) => version !== zumen.abiVersion())) {
         run.failures.push("loadSync と load の ABI のメジャーバージョンが違う");
       }
       return { ...run, userAgent: navigator.userAgent };

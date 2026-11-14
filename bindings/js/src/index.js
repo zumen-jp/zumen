@@ -317,7 +317,10 @@ export async function load(source) {
   return new Zumen(await WebAssembly.instantiate(module, {}));
 }
 
-/** モジュールを、コンパイルしたものかバイト列から、同期で読み込む。ブラウザーの主スレッドでは、大きなモジュールを同期でコンパイルできない */
+/**
+ * モジュールを、コンパイルしたものかバイト列から、同期で読み込む。ブラウザーの主スレッドでは、大きなモジュールを同期で
+ * コンパイル・インスタンス化できない（Worker の中で使うか、主スレッドでは load を使う）
+ */
 export function loadSync(source) {
   const module = tagOf(source) === "WebAssembly.Module" ? source : new WebAssembly.Module(toBytes(source));
   return new Zumen(new WebAssembly.Instance(module, {}));
