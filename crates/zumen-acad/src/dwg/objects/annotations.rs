@@ -313,7 +313,7 @@ pub(super) fn insert(bits: &mut Bits, grid: bool) -> Option<Vec<Value>> {
 /// MTEXT のフィールド（ODS 5.4.1 の 20.4.46、R2000）。文字列は DXF と同じく、250 バイトずつの 3 と、残りの 1 に
 /// 分けて置く。X 軸の向き（11・21・31）と押し出しの向きは既定の値でなければ置く。文字の範囲の大きさは
 /// DXF にないので置かない
-pub(super) fn mtext(bits: &mut Bits) -> Option<Vec<Value>> {
+pub(in crate::dwg) fn mtext(bits: &mut Bits) -> Option<Vec<Value>> {
     let mut values = point3(bits, 10)?;
     let extrusion = point3(bits, 210)?;
     let x_axis = point3(bits, 11)?;

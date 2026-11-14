@@ -142,7 +142,10 @@ pub(super) fn encode_r2010(
     restyle: Restyle,
 ) -> Option<Vec<u8>> {
     let type_code = u16::try_from(Bits::with_release(data, release).bot()?).ok()?;
-    let own = own_codes(&new.kind, type_code);
+    let own = match new.kind.as_slice() {
+        b"MTEXT" => MTEXT_R2010,
+        _ => own_codes(&new.kind, type_code),
+    };
     if !R2010_KINDS.contains(&new.kind.as_slice()) {
         return None;
     }
@@ -286,7 +289,7 @@ pub(super) fn r2010_own_fields(
 ) -> Option<BitWriter> {
     if matches!(new.kind.as_slice(), b"ATTRIB" | b"ATTDEF") {
         let mut fields = BitWriter::with_strings();
-        r2010_attribute(&mut fields, new, data, [start, end], release)?;
+        r2010_attribute(&mut fields, Some(old), new, data, [start, end], release)?;
         Some(fields)
     } else if new.kind == b"VIEWPORT" {
         let mut fields = BitWriter::with_strings();
@@ -310,7 +313,7 @@ pub(super) fn r2010_own_fields(
         Some(fields)
     } else if new.kind == b"MTEXT" {
         let mut fields = BitWriter::with_strings();
-        r2010_mtext(&mut fields, new, data, start, end, release)?;
+        r2010_mtext(&mut fields, Some(old), new, data, start, end, release)?;
         Some(fields)
     } else if new.kind == b"VERTEX" && type_code == kinds::VERTEX_2D {
         // 2D の頂点は、膨らみの後に頂点の番号（BL）を持つ。元のビットを写し、接線の向きを後に書く
@@ -380,10 +383,11 @@ pub(super) fn r2010_own_fields(
     }
 }
 
-/// R2010 から後の MTEXT のフィールド（決定 0087）。幅（41）の後に枠の高さ（46）を書く。範囲の大きさと、文字列の後の
-/// フラグから主のデータの終わり `end` まで（背景のフィールドなど）は、元のビットを写す
+/// R2010 から後の MTEXT のフィールド（決定 0087）。幅（41）の後に枠の高さ（46）を書く。範囲の大きさと背景のフィールドは
+/// 元のビットを写し、R2018 からの段組みでない MTEXT は、背景の後に続く埋め込みの注釈フィールドも合わせる（#880）
 pub(super) fn r2010_mtext(
     fields: &mut BitWriter,
+    old: Option<&Object>,
     object: &Object,
     data: &[u8],
     start: usize,
@@ -445,12 +449,12 @@ pub(super) fn r2010_mtext(
     fields.bs(small(object, 73)??);
     fields.bd(real(object, 44)??);
     match copied {
-        Some((_, flag_at)) => fields.copy(data, flag_at..end),
+        Some((_, flag_at)) => r2010_mtext_tail(fields, old, object, data, [flag_at, end], release),
         None => {
             fields.bit(false);
             fields.bl(0);
             // R2018 からは、注釈的でないフラグ（B）と、バージョン（BS）・既定のフラグ（B）・揃え・X 軸・挿入点・枠の幅と高さ・
-            // 範囲の幅と高さ・段の種類（BS）が続く。サンプルの図面と同じく、注釈的でなく、バージョンは 4、既定のフラグは真、
+            // 範囲の幅と高さ・段の種類（BL）が続く。サンプルの図面と同じく、注釈的でなく、バージョンは 4、既定のフラグは真、
             // 段はないとし、ほかは型ごとのフィールドと同じ値を書く（決定 0098）
             if release >= Release::R2018 {
                 fields.bit(true);
@@ -466,11 +470,115 @@ pub(super) fn r2010_mtext(
                 }
                 fields.bd(0.0);
                 fields.bd(0.0);
-                fields.bs(0);
+                fields.bl(0);
             }
             Some(())
         }
     }
+}
+
+/// 既存の MTEXT の、行の間隔の後のフラグ `flag_at` から主のデータの終わり `end` までを書く。R2018 からの段組みでない
+/// MTEXT は、AutoCAD がここにある揃え・X 軸・挿入点・枠の幅と高さを読むので、変わったフィールドだけを書き直し、
+/// 変わらないフィールドと前後のビットは元のまま写す（#880）
+fn r2010_mtext_tail(
+    fields: &mut BitWriter,
+    old: Option<&Object>,
+    object: &Object,
+    data: &[u8],
+    [flag_at, end]: [usize; 2],
+    release: Release,
+) -> Option<()> {
+    if release < Release::R2018 {
+        return fields.copy(data, flag_at..end);
+    }
+    let old = old?;
+    let axis = |src: &Object| match [11, 21, 31].map(|code| real(src, code)) {
+        [Some(None), Some(None), Some(None)] => Some([1.0, 0.0, 0.0]),
+        [Some(Some(x)), Some(Some(y)), Some(Some(z))] => Some([x, y, z]),
+        _ => None,
+    };
+    let point = |src: &Object| Some([real(src, 10)??, real(src, 20)??, real(src, 30)??]);
+    let (old_attachment, attachment) = (small(old, 71)??, small(object, 71)??);
+    let (old_axis, new_axis) = (axis(old)?, axis(object)?);
+    let (old_point, new_point) = (point(old)?, point(object)?);
+    let (old_width, new_width) = (real(old, 41)??, real(object, 41)??);
+    let (old_height, new_height) = (real(old, 46)??, real(object, 46)??);
+    if old_attachment == attachment
+        && old_axis.map(f64::to_bits) == new_axis.map(f64::to_bits)
+        && old_point.map(f64::to_bits) == new_point.map(f64::to_bits)
+        && old_width.to_bits() == new_width.to_bits()
+        && old_height.to_bits() == new_height.to_bits()
+    {
+        return fields.copy(data, flag_at..end);
+    }
+    let mut bits = Bits::with_release(data, release);
+    bits.seek(flag_at);
+    bits.bit()?;
+    if bits.bl()? & 1 != 0 {
+        bits.bd()?;
+        bits.cmc()?;
+        bits.bl()?;
+    }
+    let not_annotative = bits.bit()?;
+    bits.bs()?;
+    let is_default = bits.bit()?;
+    if !not_annotative || !is_default {
+        return None;
+    }
+    let attachment_at = bits.pos();
+    bits.bl()?;
+    let axis_at = bits.pos();
+    for _ in 0..3 {
+        bits.bd()?;
+    }
+    let point_at = bits.pos();
+    for _ in 0..3 {
+        bits.bd()?;
+    }
+    let width_at = bits.pos();
+    bits.bd()?;
+    let height_at = bits.pos();
+    bits.bd()?;
+    let extents_at = bits.pos();
+    bits.bd()?;
+    bits.bd()?;
+    let kind = bits.bl()?;
+    if kind != 0 {
+        // 段組みの MTEXT（101 を持つ）は、埋め込みのオブジェクトの値を元のまま写す（決定 0098）
+        return fields.copy(data, flag_at..end);
+    }
+    (bits.pos() == end).then_some(())?;
+    fields.copy(data, flag_at..attachment_at)?;
+    if old_attachment == attachment {
+        fields.copy(data, attachment_at..axis_at)?;
+    } else {
+        fields.bl(i32::from(attachment));
+    }
+    if old_axis.map(f64::to_bits) == new_axis.map(f64::to_bits) {
+        fields.copy(data, axis_at..point_at)?;
+    } else {
+        for v in new_axis {
+            fields.bd(v);
+        }
+    }
+    if old_point.map(f64::to_bits) == new_point.map(f64::to_bits) {
+        fields.copy(data, point_at..width_at)?;
+    } else {
+        for v in new_point {
+            fields.bd(v);
+        }
+    }
+    if old_width.to_bits() == new_width.to_bits() {
+        fields.copy(data, width_at..height_at)?;
+    } else {
+        fields.bd(new_width);
+    }
+    if old_height.to_bits() == new_height.to_bits() {
+        fields.copy(data, height_at..extents_at)?;
+    } else {
+        fields.bd(new_height);
+    }
+    fields.copy(data, extents_at..end)
 }
 
 /// R2018 からの複数行の属性の、意味の分からない 37 ビット。サンプルの図面の属性はどれもこの値を持つ（決定 0102）
@@ -566,6 +674,7 @@ pub(super) fn embedded_span(data: &[u8], start: usize, release: Release) -> Opti
 /// 型ごとのフィールドは `start` から始まり、足したものは元のデータを持たない（`data` が空）
 pub(super) fn r2010_attribute(
     fields: &mut BitWriter,
+    old: Option<&Object>,
     object: &Object,
     data: &[u8],
     [start, end]: [usize; 2],
@@ -610,11 +719,29 @@ pub(super) fn r2010_attribute(
                 for &bit in EMBEDDED_BITS {
                     fields.bit(bit == b'1');
                 }
-                r2010_mtext(fields, &embedded, &[], 0, 0, release)?;
+                r2010_mtext(fields, None, &embedded, &[], 0, 0, release)?;
             } else {
+                let prev = old?;
+                let old_mtext = match prev.values.get(multiline_at(prev)?..) {
+                    Some([k, a, m, tail @ ..]) if (k.code, a.code, m.code) == (71, 72, 101) => {
+                        Object {
+                            values: tail.to_vec(),
+                            ..object.clone()
+                        }
+                    }
+                    _ => return None,
+                };
                 let [at, mtext_at, mtext_end] = embedded_span(data, start, release)?;
                 fields.copy(data, at..mtext_at)?;
-                r2010_mtext(fields, &embedded, data, mtext_at, mtext_end, release)?;
+                r2010_mtext(
+                    fields,
+                    Some(&old_mtext),
+                    &embedded,
+                    data,
+                    mtext_at,
+                    mtext_end,
+                    release,
+                )?;
             }
             fields.bs(i16::try_from(int(after)?).ok()?);
         }

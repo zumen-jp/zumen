@@ -90,6 +90,9 @@ pub(super) const ATTDEF: &[i16] = &[
 pub(super) const MTEXT: &[i16] = &[
     10, 20, 30, 210, 220, 230, 11, 21, 31, 41, 40, 71, 72, 3, 1, 73, 44,
 ];
+pub(super) const MTEXT_R2010: &[i16] = &[
+    10, 20, 30, 210, 220, 230, 11, 21, 31, 41, 46, 40, 71, 72, 3, 1, 73, 44,
+];
 
 pub(super) const LWPOLYLINE: &[i16] = &[90, 70, 43, 38, 39, 10, 20, 40, 41, 42, 210, 220, 230];
 pub(super) const SPLINE: &[i16] = &[

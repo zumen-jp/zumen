@@ -47,6 +47,8 @@ mod records;
 mod tables;
 
 pub(super) use self::annotations::leader;
+#[cfg(test)]
+pub(super) use self::annotations::mtext;
 use self::annotations::*;
 pub(super) use self::geometry::hatch_gradient;
 use self::geometry::*;

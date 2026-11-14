@@ -222,8 +222,8 @@ impl NewEntity<'_> {
         out.rc(lineweight_index(-1)?.try_into().ok()?);
         let mut fields = BitWriter::with_strings();
         match object.kind.as_slice() {
-            b"ATTRIB" => r2010_attribute(&mut fields, object, &[], [0, 0], release)?,
-            b"MTEXT" => r2010_mtext(&mut fields, object, &[], 0, 0, release)?,
+            b"ATTRIB" => r2010_attribute(&mut fields, None, object, &[], [0, 0], release)?,
+            b"MTEXT" => r2010_mtext(&mut fields, None, object, &[], 0, 0, release)?,
             b"SPLINE" => spline(&mut fields, object, &[], 0, release)?,
             // 注釈の枠の高さと幅を持たないバージョンがあるので、バージョンを渡す（#345）
             b"LEADER" => leader(&mut fields, object, &[], [0, 0], release)?,
