@@ -1305,14 +1305,16 @@ fn drawings_take_back_splines_through_the_boundary() {
     );
 }
 
-/// サンプルの寸法は、`entities` が形の値を返し、その形の値は `replace` で受ける値になる。寸法を描いた部品を
-/// 作り直せないので、書き戻しは `change.edit.unsupported` で断り、ファイルを変えない（決定 0139）
+/// サンプルの寸法は、`entities` が形の値を返し、匿名ブロック（`*D<n>`）を持つものは `replace` で部品ごと書き戻せ、
+/// 開き直した形の値も変えたものになる。追加は `change.edit.unsupported` で断る（#314）
 #[test]
-fn drawings_return_dimensions_but_do_not_write_them() {
+fn drawings_take_back_dimensions_replaced_through_the_boundary() {
     let mut returned = 0;
+    let mut replaced = 0;
     for path in drawings() {
+        let raw = std::fs::read(&path).unwrap();
         let mut session = Session::new(b"").unwrap();
-        session.push(b"in", &std::fs::read(&path).unwrap()).unwrap();
+        session.push(b"in", &raw).unwrap();
         if !open(&mut session, "in") {
             continue;
         }
@@ -1323,17 +1325,42 @@ fn drawings_return_dimensions_but_do_not_write_them() {
             .zip(&seen)
             .filter_map(|((id, geometry), (_, _, hash))| {
                 let geometry = geometry.as_ref()?;
-                (text(geometry, "/shape") == Some("dimension")).then_some((id, hash, geometry))
+                (text(geometry, "/shape") == Some("dimension")).then_some((
+                    id.clone(),
+                    hash.clone(),
+                    geometry.clone(),
+                ))
             })
             .collect();
         returned += dimensions.len();
-        for (id, hash, geometry) in dimensions.into_iter().take(5) {
+        if !dimensions.is_empty() {
+            let sent = r#"{"shape":"dimension","kind":"linear","first":[0,0],"second":[10,0],"line":[10,5],"rotation":0,"oblique":0,"label":"measurement","style":"Standard"}"#;
+            let (add_status, add_res) = call(
+                &mut session,
+                &format!(
+                    r#"{{"v":1,"op":"apply","doc":"in","edits":[{{"kind":"add","place":"space/0","geometry":{sent}}}],"budget":{{"work":"unlimited","elements":"unlimited","records":"unlimited"}}}}"#
+                ),
+            );
+            assert_eq!(add_status, Status::Failed, "{}", path.display());
+            let printed = format!("{add_res:?}");
+            assert!(
+                printed.contains("change.edit.unsupported")
+                    || printed.contains("dwg.edit.unsupported"),
+                "{} {add_res:?}",
+                path.display()
+            );
+            assert_eq!(shapes(&mut session, "in"), found, "{}", path.display());
+        }
+        for (index, (id, hash, geometry)) in dimensions.into_iter().take(5).enumerate() {
+            let mut trial = Session::new(b"").unwrap();
+            trial.push(b"in", &raw).unwrap();
+            assert!(open(&mut trial, "in"));
             // 文字の出し方だけを替える。種類と定義点はそのまま
             let mut out = zumen_json::Writer::new();
-            out.value(geometry);
+            out.value(&geometry);
             let sent = String::from_utf8(out.into_bytes()).unwrap();
-            let label = text(geometry, "/label").unwrap();
-            let content = match text(geometry, "/content") {
+            let label = text(&geometry, "/label").unwrap();
+            let content = match text(&geometry, "/content") {
                 Some(content) => {
                     let mut out = zumen_json::Writer::new();
                     out.value(&Value::String(content.to_string()));
@@ -1354,31 +1381,62 @@ fn drawings_return_dimensions_but_do_not_write_them() {
                 &format!(r#""label":"{other}""#),
             );
             let (status, response) = call(
-                &mut session,
+                &mut trial,
                 &format!(
                     r#"{{"v":1,"op":"apply","doc":"in","edits":[{{"kind":"replace","id":"{id}","hash":"{hash}","geometry":{sent}}}],"budget":{{"work":"unlimited","elements":"unlimited","records":"unlimited"}}}}"#
                 ),
             );
-            let code = response
-                .pointer("/diagnostics")
-                .and_then(|d| match d {
-                    Value::Array(items) => items
+            if status == Status::Ok {
+                let new_hash = text(&response, "/result/applied/0/hash")
+                    .unwrap()
+                    .to_string();
+                let written = trial.take(0).unwrap();
+                let doc = format!("out-{index}");
+                trial.push(doc.as_bytes(), &written).unwrap();
+                assert!(open(&mut trial, &doc), "{}", path.display());
+                assert!(
+                    entities(&mut trial, &doc)
                         .iter()
-                        .filter(|item| text(item, "/severity") == Some("error"))
-                        .find_map(|item| text(item, "/code").map(str::to_string)),
-                    _ => None,
-                })
-                .unwrap_or_default();
-            assert_eq!(status, Status::Failed, "{} {sent}", path.display());
-            assert_eq!(
-                code,
-                "change.edit.unsupported",
-                "{} {sent} {response:?}",
-                path.display()
-            );
+                        .any(|(found_id, _, found_hash)| *found_id == id && *found_hash == new_hash),
+                    "{}: {id}",
+                    path.display()
+                );
+                let after = shapes(&mut trial, &doc)
+                    .into_iter()
+                    .find(|(found_id, _)| *found_id == id)
+                    .and_then(|(_, g)| g)
+                    .unwrap();
+                assert_eq!(
+                    text(&after, "/label"),
+                    Some(other),
+                    "{}: {id}: {after:?}",
+                    path.display()
+                );
+                replaced += 1;
+            } else {
+                let code = response
+                    .pointer("/diagnostics")
+                    .and_then(|d| match d {
+                        Value::Array(items) => items
+                            .iter()
+                            .filter(|item| text(item, "/severity") == Some("error"))
+                            .find_map(|item| text(item, "/code").map(str::to_string)),
+                        _ => None,
+                    })
+                    .unwrap_or_default();
+                assert!(
+                    matches!(
+                        code.as_str(),
+                        "change.edit.unsupported" | "dwg.edit.unsupported"
+                    ),
+                    "{} {sent} {response:?}",
+                    path.display()
+                );
+                assert_eq!(shapes(&mut trial, "in"), found, "{}", path.display());
+            }
         }
-        assert_eq!(shapes(&mut session, "in"), found, "{}", path.display());
     }
+    assert!(replaced > 0);
     assert!(!received() || returned > 0);
 }
 
