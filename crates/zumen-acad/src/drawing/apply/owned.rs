@@ -1,6 +1,6 @@
-//! 除く表のレコードが持つ拡張辞書と、拡張辞書が持つオブジェクト（決定 0170）。
+//! 除く表のレコードや DXF の図形が持つ拡張辞書と、拡張辞書が持つオブジェクト（決定 0170・#881）。
 //!
-//! レコードを除くとき、その拡張辞書（`{ACAD_XDICTIONARY` の組の 360）と、拡張辞書から所有を辿れる
+//! レコードや図形を除くとき、その拡張辞書（`{ACAD_XDICTIONARY` の組の 360）と、拡張辞書から所有を辿れる
 //! オブジェクトも一緒に除く。辿るのは、辞書の項目（350・360）と、組の外の 360 と、辿ったオブジェクトの
 //! 拡張辞書。辿ったオブジェクトの所有者（330）が辿った元でなければ、共有されうるので除かない
 
@@ -20,7 +20,7 @@ pub(super) fn owned(
     cx: &mut Cx,
     place: &Ref,
 ) -> Result<Option<BTreeMap<usize, u64>>, Error> {
-    let Some(handle) = record.handle() else {
+    let Some(handle) = record.handle().filter(|&handle| handle != 0) else {
         return Ok(None);
     };
     let mut found = BTreeMap::new();

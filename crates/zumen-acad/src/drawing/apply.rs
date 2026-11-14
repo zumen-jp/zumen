@@ -1055,7 +1055,8 @@ fn change_element<'e>(
                     replaced.extend(values.followers);
                 })
         }
-        (Edit::Remove { .. }, _) => (!followed(object)).then(|| plan.removed.push(position)),
+        (Edit::Remove { .. }, _) => entity_removal(db, position, object, target, cx, at)?
+            .map(|skip| plan.removed.extend(skip)),
         (
             Edit::Add { .. }
             | Edit::ReplaceLayer { .. }
@@ -1462,6 +1463,41 @@ fn removal(
     let skip: BTreeSet<usize> = owned.into_keys().chain([position]).collect();
     let free = !referenced(db, &skip, object, cx, place)?
         && !owned::pointed(db, &skip, &handles, cx, place)?;
+    Ok(free.then_some(skip))
+}
+
+/// 除く図形（表の `position`）と、DXF で一緒に除く拡張辞書とそれが持つオブジェクトの位置（#881）。
+/// 続くレコードを持つ図形は除かない。DWG は図形の拡張辞書とリアクターを書き戻し側（`DwgFile::write_back`）で
+/// 検査する。DXF は、102 の組も組の外の 360 もなければ図形だけを除き、あれば表のレコードと同じ条件
+/// （[`owned::owned`]・[`owned::pointed`]）で拡張辞書の木ごと除く
+fn entity_removal(
+    db: &AcadDb,
+    position: usize,
+    object: &Object,
+    target: Target,
+    cx: &mut Cx,
+    place: &Ref,
+) -> Result<Option<BTreeSet<usize>>, Error> {
+    if followed(object) {
+        return Ok(None);
+    }
+    if matches!(target, Target::Dwg(_)) {
+        return Ok(Some(BTreeSet::from([position])));
+    }
+    count_transform_values(object, place, cx)?;
+    if !object
+        .values
+        .iter()
+        .any(|value| matches!(value.code, 102 | 360))
+    {
+        return Ok(Some(BTreeSet::from([position])));
+    }
+    let Some(owned) = owned::owned(db, object, cx, place)? else {
+        return Ok(None);
+    };
+    let handles = owned.values().copied().collect();
+    let skip: BTreeSet<usize> = owned.into_keys().chain([position]).collect();
+    let free = !owned::pointed(db, &skip, &handles, cx, place)?;
     Ok(free.then_some(skip))
 }
 

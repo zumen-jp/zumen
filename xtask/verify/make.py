@@ -938,11 +938,17 @@ CHAINS = [
     ("lifecycle", lambda name, fmt: chained(name), lifecycle_steps),
     ("vanish", lambda name, fmt: chained(name), vanish_steps),
     ("moves", lambda name, fmt: chained(name), moves_steps),
-    # 切り抜きを持つ記号（xclip）は外す。DWG は、除く変更を dwg.change.unsupported で断る。DXF は当たるが、記号の拡張
-    # 辞書とその先（ACAD_FILTER の辞書と SPATIAL_FILTER）が、持ち主のないまま OBJECTS に残り、ezdxf の監査が直す
-    # （INVALID_OWNER_HANDLE）。直したら、ここに戻す。格子を持つ記号（minsert）と、線・円・文字の DXF
-    # （text_alignments）を足す
-    ("cut", lambda name, fmt: "-layout-" in name or "-minsert-" in name or name == "text_alignments.dxf", cut_steps),
+    # DWG の切り抜きを持つ記号（xclip）は、除く変更を dwg.change.unsupported で断るので外す。DXF の切り抜きを持つ記号
+    # （zumen-xclip-r2013_ascii.dxf）は、記号の拡張辞書と ACAD_FILTER・SPATIAL_FILTER も一緒に除く（#881）。
+    # 格子を持つ記号（minsert）と、線・円・文字の DXF（text_alignments）も足す
+    (
+        "cut",
+        lambda name, fmt: "-layout-" in name
+        or "-minsert-" in name
+        or (fmt == "dxf" and "-xclip-r2013" in name)
+        or name == "text_alignments.dxf",
+        cut_steps,
+    ),
     ("retext", lambda name, fmt: chained(name), retext_steps),
     ("generations", lambda name, fmt: chained(name), generations_steps),
     ("reuse", lambda name, fmt: name == "made-seedless.dxf", reuse_steps),

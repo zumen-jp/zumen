@@ -5281,3 +5281,153 @@ fn callout_texts_are_rewritten_but_not_moved_or_added() {
         assert_eq!(written, src);
     }
 }
+
+/// 切り抜きの拡張辞書と SPATIAL_FILTER（反転した切り抜きの XRECORD も含む）を持つ INSERT 3 つ（#881）
+#[cfg(test)]
+fn clipped_inserts_dxf(extra_objects: &str) -> String {
+    format!(
+        "  0\nSECTION\n  2\nHEADER\n  9\n$ACADVER\n  1\nAC1027\n  9\n$HANDSEED\n  5\n400\n  0\nENDSEC\n\
+  0\nSECTION\n  2\nBLOCKS\n\
+  0\nBLOCK\n  5\n10\n330\n1\n100\nAcDbEntity\n  8\n0\n100\nAcDbBlockBegin\n  2\nCLIPPED\n 70\n0\n 10\n0.0\n 20\n0.0\n 30\n0.0\n\
+  0\nLINE\n  5\n11\n330\n1\n100\nAcDbEntity\n  8\n0\n100\nAcDbLine\n 10\n0.0\n 20\n0.0\n 30\n0.0\n 11\n10.0\n 21\n0.0\n 31\n0.0\n\
+  0\nENDBLK\n  5\n12\n330\n1\n100\nAcDbEntity\n  8\n0\n100\nAcDbBlockEnd\n\
+  0\nENDSEC\n\
+  0\nSECTION\n  2\nENTITIES\n\
+  0\nINSERT\n  5\n2E8\n102\n{{ACAD_XDICTIONARY\n360\n2E9\n102\n}}\n330\n1F\n100\nAcDbEntity\n  8\n0\n100\nAcDbBlockReference\n  2\nCLIPPED\n 10\n0.0\n 20\n0.0\n 30\n0.0\n\
+  0\nINSERT\n  5\n2EC\n102\n{{ACAD_XDICTIONARY\n360\n2ED\n102\n}}\n330\n1F\n100\nAcDbEntity\n  8\n0\n100\nAcDbBlockReference\n  2\nCLIPPED\n 10\n150.0\n 20\n0.0\n 30\n0.0\n\
+  0\nINSERT\n  5\n2F0\n102\n{{ACAD_XDICTIONARY\n360\n2F1\n102\n}}\n330\n1F\n100\nAcDbEntity\n  8\n0\n100\nAcDbBlockReference\n  2\nCLIPPED\n 10\n300.0\n 20\n0.0\n 30\n0.0\n\
+  0\nENDSEC\n\
+  0\nSECTION\n  2\nOBJECTS\n\
+  0\nDICTIONARY\n  5\nC\n330\n0\n100\nAcDbDictionary\n281\n1\n\
+  0\nDICTIONARY\n  5\n2E9\n330\n2E8\n100\nAcDbDictionary\n281\n1\n  3\nACAD_FILTER\n360\n2EA\n\
+  0\nDICTIONARY\n  5\n2EA\n102\n{{ACAD_REACTORS\n330\n2E9\n102\n}}\n330\n2E9\n100\nAcDbDictionary\n281\n1\n  3\nSPATIAL\n360\n2EB\n\
+  0\nSPATIAL_FILTER\n  5\n2EB\n102\n{{ACAD_REACTORS\n330\n2EA\n102\n}}\n330\n2EA\n100\nAcDbFilter\n100\nAcDbSpatialFilter\n 70\n2\n 10\n0.0\n 20\n0.0\n 10\n5.0\n 20\n5.0\n210\n0.0\n220\n0.0\n230\n1.0\n 11\n0.0\n 21\n0.0\n 31\n0.0\n 71\n1\n 72\n0\n 73\n0\n\
+  0\nDICTIONARY\n  5\n2ED\n330\n2EC\n100\nAcDbDictionary\n281\n1\n  3\nACAD_FILTER\n360\n2EE\n\
+  0\nDICTIONARY\n  5\n2EE\n102\n{{ACAD_REACTORS\n330\n2ED\n102\n}}\n330\n2ED\n100\nAcDbDictionary\n281\n1\n  3\nSPATIAL\n360\n2EF\n\
+  0\nSPATIAL_FILTER\n  5\n2EF\n102\n{{ACAD_REACTORS\n330\n2EE\n102\n}}\n330\n2EE\n100\nAcDbFilter\n100\nAcDbSpatialFilter\n 70\n2\n 10\n0.0\n 20\n0.0\n 10\n5.0\n 20\n5.0\n210\n0.0\n220\n0.0\n230\n1.0\n 11\n0.0\n 21\n0.0\n 31\n0.0\n 71\n1\n 72\n0\n 73\n0\n\
+  0\nDICTIONARY\n  5\n2F1\n330\n2F0\n100\nAcDbDictionary\n281\n1\n  3\nACAD_FILTER\n360\n2F2\n\
+  0\nDICTIONARY\n  5\n2F2\n102\n{{ACAD_REACTORS\n330\n2F1\n102\n}}\n330\n2F1\n100\nAcDbDictionary\n281\n1\n  3\nSPATIAL\n360\n2F3\n\
+  0\nSPATIAL_FILTER\n  5\n2F3\n102\n{{ACAD_XDICTIONARY\n360\n311\n102\n}}\n102\n{{ACAD_REACTORS\n330\n2F2\n102\n}}\n330\n2F2\n100\nAcDbFilter\n100\nAcDbSpatialFilter\n 70\n2\n 10\n0.0\n 20\n0.0\n 10\n5.0\n 20\n5.0\n210\n0.0\n220\n0.0\n230\n1.0\n 11\n0.0\n 21\n0.0\n 31\n0.0\n 71\n1\n 72\n0\n 73\n0\n290\n1\n\
+  0\nDICTIONARY\n  5\n311\n330\n2F3\n100\nAcDbDictionary\n281\n1\n  3\nACAD_XREC_ROUNDTRIP\n360\n312\n\
+  0\nXRECORD\n  5\n312\n102\n{{ACAD_REACTORS\n330\n311\n102\n}}\n330\n311\n100\nAcDbXrecord\n280\n1\n 90\n1\n\
+{extra_objects}  0\nENDSEC\n  0\nEOF\n"
+    )
+}
+
+/// 切り抜きの拡張辞書を持つ DXF の INSERT を除くとき、拡張辞書と SPATIAL_FILTER（その拡張辞書も）を一緒に除き、
+/// 残る INSERT の拡張辞書は保つ（#881）
+#[test]
+fn clipped_inserts_are_removed_with_their_extension_dictionaries() {
+    use std::collections::BTreeSet;
+    use zumen_acad::Section;
+    use zumen_drawing::Edit as Change;
+
+    let input = clipped_inserts_dxf("");
+    let file = testkit::read::<Dxf>(input.as_bytes()).0.unwrap();
+    let [(first, _), (middle, _), (last, _)] = <[_; 3]>::try_from(seen(&lift(&file))).unwrap();
+    assert_eq!(
+        [first.id.as_str(), middle.id.as_str(), last.id.as_str()],
+        ["space/0/h2E8", "space/0/h2EC", "space/0/h2F0"]
+    );
+    let (result, codes, written) = changed(
+        input.as_bytes(),
+        vec![
+            Change::Remove { target: first },
+            Change::Remove { target: last },
+        ],
+    );
+    assert_eq!(result, Ok(()), "{codes:?}");
+    assert!(codes.is_empty(), "{codes:?}");
+    let reread = testkit::read::<Dxf>(&written).0.unwrap();
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let db = reread
+        .objects(&mut Cx::new(&mut budget, &mut diag, &CancelToken::new()))
+        .unwrap();
+    let handles: BTreeSet<u64> = db.objects().iter().filter_map(|o| o.handle()).collect();
+    for gone in [
+        0x2E8, 0x2E9, 0x2EA, 0x2EB, 0x2F0, 0x2F1, 0x2F2, 0x2F3, 0x311, 0x312,
+    ] {
+        assert!(!handles.contains(&gone), "{gone:X}: {handles:?}");
+    }
+    for kept in [0x2EC, 0x2ED, 0x2EE, 0x2EF] {
+        assert!(handles.contains(&kept), "{kept:X}: {handles:?}");
+    }
+
+    // 公開サンプル zumen-xclip-r2013_ascii.dxf の再現手順でも、持ち主のない OBJECTS のレコードを残さない
+    let sample_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../samples/dwg/zumen-xclip-r2013_ascii.dxf");
+    let sample = std::fs::read(&sample_path).unwrap();
+    let sample_file = testkit::read::<Dxf>(&sample).0.unwrap();
+    let target = seen(&lift(&sample_file))
+        .into_iter()
+        .find_map(|(seen, _)| (seen.id == "space/0/h2E8").then_some(seen))
+        .unwrap();
+    let (result, codes, sample_written) = changed(&sample, vec![Change::Remove { target }]);
+    assert_eq!(result, Ok(()), "{codes:?}");
+    let sample_after = testkit::read::<Dxf>(&sample_written).0.unwrap();
+    let db = sample_after
+        .objects(&mut Cx::new(&mut budget, &mut diag, &CancelToken::new()))
+        .unwrap();
+    let handles: BTreeSet<u64> = db.objects().iter().filter_map(|o| o.handle()).collect();
+    for gone in [0x2E8, 0x2E9, 0x2EA, 0x2EB] {
+        assert!(!handles.contains(&gone), "{gone:X}");
+    }
+    for object in db
+        .objects()
+        .iter()
+        .filter(|o| o.section == Section::Objects)
+    {
+        if let Some(owner) = object.owner().filter(|&owner| owner != 0) {
+            assert!(
+                handles.contains(&owner),
+                "missing owner {owner:X} on {:?} {:?}",
+                String::from_utf8_lossy(&object.kind),
+                object.handle()
+            );
+        }
+    }
+}
+
+/// 拡張辞書の先をほかが指すか、所有をたどれない図形の削除は断り、元のバイト列を保つ（#881）
+#[test]
+fn entities_with_shared_or_broken_extension_dictionaries_keep_their_records() {
+    use zumen_drawing::Edit as Change;
+
+    let base = clipped_inserts_dxf("");
+    let inputs = [
+        // ほかのオブジェクトが SPATIAL_FILTER を指す
+        clipped_inserts_dxf("  0\nXRECORD\n  5\n350\n330\nC\n100\nAcDbXrecord\n340\n2EB\n"),
+        // ヘッダーの変数が拡張辞書を指す
+        base.replacen("$HANDSEED\n", "$TSTACKALIGN\n340\n2E9\n  9\n$HANDSEED\n", 1),
+        // 拡張辞書の所有者が図形でない
+        base.replacen("  5\n2E9\n330\n2E8\n", "  5\n2E9\n330\n2EC\n", 1),
+        // SPATIAL_FILTER の所有者が辞書でない
+        base.replacen(
+            "  5\n2EB\n102\n{ACAD_REACTORS\n330\n2EA\n102\n}\n330\n2EA\n",
+            "  5\n2EB\n102\n{ACAD_REACTORS\n330\n2EA\n102\n}\n330\n2E8\n",
+            1,
+        ),
+        // 図形がリアクターも持つ
+        base.replacen(
+            "  5\n2E8\n102\n{ACAD_XDICTIONARY\n",
+            "  5\n2E8\n102\n{ACAD_REACTORS\n330\nC\n102\n}\n102\n{ACAD_XDICTIONARY\n",
+            1,
+        ),
+        // ハンドルが 0 の図形は 330 = 0 のルート辞書を所有扱いしない
+        base.replacen("  5\n2E8\n", "  5\n0\n", 1).replacen(
+            "  5\n2E9\n330\n2E8\n",
+            "  5\n2E9\n330\n0\n",
+            1,
+        ),
+    ];
+    for input in inputs {
+        let file = testkit::read::<Dxf>(input.as_bytes()).0.unwrap();
+        let (first, _) = seen(&lift(&file)).into_iter().next().unwrap();
+        let (result, codes, written) =
+            changed(input.as_bytes(), vec![Change::Remove { target: first }]);
+        assert_eq!(result, Err(Error::Rejected), "{input}");
+        assert_eq!(codes, [codes::CHANGE_EDIT_UNSUPPORTED], "{input}");
+        assert_eq!(written, input.as_bytes());
+    }
+}
