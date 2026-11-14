@@ -55,12 +55,125 @@ const GARBAGE: [&str; 20] = [
     "PRE_DEFINED_POINT_MARKER_SYMBOL",
 ];
 
+struct InstanceIndex {
+    dense: Vec<u32>,
+    sparse: BTreeMap<u64, usize>,
+    max_id: u64,
+}
+
+impl InstanceIndex {
+    fn with_capacity(dense_cap: usize) -> Self {
+        Self {
+            dense: vec![u32::MAX; dense_cap],
+            sparse: BTreeMap::new(),
+            max_id: 0,
+        }
+    }
+
+    fn insert_first(&mut self, id: u64, record: usize) -> bool {
+        if id > self.max_id {
+            self.max_id = id;
+        }
+        if let Ok(idx) = usize::try_from(id)
+            && let Some(slot) = self.dense.get_mut(idx)
+        {
+            if *slot == u32::MAX {
+                if let Ok(record_u32) = u32::try_from(record) {
+                    *slot = record_u32;
+                    return true;
+                }
+            } else {
+                return false;
+            }
+        }
+        if self.sparse.contains_key(&id) {
+            return false;
+        }
+        self.sparse.insert(id, record);
+        true
+    }
+
+    fn get(&self, id: u64) -> Option<usize> {
+        if let Ok(idx) = usize::try_from(id)
+            && let Some(&raw) = self.dense.get(idx)
+        {
+            if raw != u32::MAX {
+                return Some(raw as usize);
+            }
+            if !self.sparse.contains_key(&id) {
+                return None;
+            }
+        }
+        self.sparse.get(&id).copied()
+    }
+}
+
+#[derive(Clone)]
+struct RefCounts {
+    dense: Vec<u32>,
+    sparse: BTreeMap<u64, usize>,
+}
+
+impl RefCounts {
+    fn with_capacity(dense_cap: usize) -> Self {
+        Self {
+            dense: vec![0; dense_cap],
+            sparse: BTreeMap::new(),
+        }
+    }
+
+    fn add(&mut self, id: u64) {
+        if let Ok(idx) = usize::try_from(id)
+            && let Some(slot) = self.dense.get_mut(idx)
+            && *slot < u32::MAX
+        {
+            *slot += 1;
+            return;
+        }
+        *self.sparse.entry(id).or_default() += 1;
+    }
+
+    fn sub(&mut self, id: u64) {
+        if let Ok(idx) = usize::try_from(id)
+            && let Some(slot) = self.dense.get_mut(idx)
+        {
+            if let Some(extra) = self.sparse.get_mut(&id)
+                && *extra > 0
+            {
+                *extra -= 1;
+                return;
+            }
+            *slot = slot.saturating_sub(1);
+            return;
+        }
+        if let Some(count) = self.sparse.get_mut(&id) {
+            *count = count.saturating_sub(1);
+        }
+    }
+
+    fn get(&self, id: u64) -> usize {
+        let base = usize::try_from(id)
+            .ok()
+            .and_then(|idx| self.dense.get(idx).copied())
+            .map_or(0, |v| v as usize);
+        base.saturating_add(self.sparse.get(&id).copied().unwrap_or(0))
+    }
+}
+
 pub(super) struct P21<'f> {
     file: &'f SxfFile,
     /// インスタンスの番号から、レコードの番号。同じ番号の 2 つ目は使わない（変換と同じ）
-    instances: BTreeMap<u64, usize>,
-    /// インスタンスの番号から、それを指すレコード
-    referrers: BTreeMap<u64, BTreeSet<usize>>,
+    instances: InstanceIndex,
+    /// 各インスタンスを指す元の参照の数
+    ref_counts: RefCounts,
+    /// インスタンスの番号から、それを指すレコード（除くときに初回だけ作る）
+    referrers: Option<BTreeMap<u64, Vec<usize>>>,
+    /// 最小のインスタンス番号の `DRAWING_SHEET_REVISION` の項目並びの場所
+    first_sheet: Option<(u64, Slot)>,
+    /// 昇順に並べた `LENGTH_MEASURE_WITH_UNIT` の番号・レコード・部分の番号
+    length_measures: Vec<(u64, usize, usize)>,
+    /// 最後のインスタンスのバイト終端
+    last_instance_end: Option<usize>,
     codes: Codes,
     /// 利用者定義線幅（mm）。コードは 11 から
     widths: Vec<Option<f64>>,
@@ -87,35 +200,55 @@ impl<'f> P21<'f> {
         widths: Vec<Option<f64>>,
         cx: &mut Cx,
     ) -> Result<Self, Error> {
-        let mut instances = BTreeMap::new();
-        let mut referrers: BTreeMap<u64, BTreeSet<usize>> = BTreeMap::new();
-        for (record, entry) in file.records().iter().enumerate() {
+        let records = file.records();
+        let dense_cap = records.len().saturating_mul(4).saturating_add(64);
+        let mut instances = InstanceIndex::with_capacity(dense_cap);
+        let mut ref_counts = RefCounts::with_capacity(dense_cap);
+        let mut first_sheet: Option<(u64, Slot)> = None;
+        let mut length_measures = Vec::new();
+        let mut last_instance_end: Option<usize> = None;
+        for (record, entry) in records.iter().enumerate() {
             work(cx, 1, &Ref::default())?;
             if let Some(id) = entry.id() {
-                instances.entry(id).or_insert(record);
+                let end = entry.span().end;
+                last_instance_end = Some(last_instance_end.map_or(end, |prev| prev.max(end)));
+                if instances.insert_first(id, record) {
+                    for (part_idx, part) in entry.parts().iter().enumerate() {
+                        let name = file.bytes(part.name());
+                        if name.eq_ignore_ascii_case(b"DRAWING_SHEET_REVISION") {
+                            if first_sheet.is_none_or(|(best_id, _)| id < best_id) {
+                                first_sheet = Some((id, (record, part_idx, 1)));
+                            }
+                        } else if name.eq_ignore_ascii_case(b"LENGTH_MEASURE_WITH_UNIT") {
+                            length_measures.push((id, record, part_idx));
+                        }
+                    }
+                }
             }
-            let mut refs = Vec::new();
+            let mut ref_count = 0_u64;
             for part in entry.parts() {
                 work(cx, 1, &Ref::default())?;
-                count_values(part.args(), cx)?;
-                collect(part.args(), &mut refs);
+                count_and_note_refs(part.args(), &mut ref_counts, &mut ref_count, cx)?;
             }
-            for id in refs {
-                work(cx, 1, &Ref::default())?;
-                referrers.entry(id).or_default().insert(record);
+            if ref_count > 0 {
+                work(cx, ref_count, &Ref::default())?;
             }
         }
-        let next = instances
-            .keys()
-            .next_back()
-            .copied()
-            .unwrap_or(0)
-            .saturating_add(1);
+        length_measures.sort_unstable_by_key(|(id, _, _)| *id);
+        let next = if last_instance_end.is_some() {
+            instances.max_id.saturating_add(1)
+        } else {
+            1
+        };
         work(cx, 1 + file.src.len() as u64 / 1024, &Ref::default())?;
         Ok(P21 {
             file,
             instances,
-            referrers,
+            ref_counts,
+            referrers: None,
+            first_sheet,
+            length_measures,
+            last_instance_end,
             codes,
             widths,
             args: BTreeMap::new(),
@@ -127,6 +260,22 @@ impl<'f> P21<'f> {
             predefined: BTreeMap::new(),
             newline: newline(&file.src),
         })
+    }
+
+    fn ensure_referrers(&mut self, cx: &mut Cx) -> Result<(), Error> {
+        if self.referrers.is_some() {
+            return Ok(());
+        }
+        let mut map: BTreeMap<u64, Vec<usize>> = BTreeMap::new();
+        for (record, entry) in self.file.records().iter().enumerate() {
+            work(cx, 1, &Ref::default())?;
+            for part in entry.parts() {
+                work(cx, 1, &Ref::default())?;
+                note_referrers(part.args(), record, &mut map, cx)?;
+            }
+        }
+        self.referrers = Some(map);
+        Ok(())
     }
 
     fn name(&self, record: usize, part: usize) -> &'f [u8] {
@@ -159,7 +308,7 @@ impl<'f> P21<'f> {
 
     /// 番号の実体の、名前の部分の引数の場所
     fn slot(&self, id: u64, name: &str, at: usize) -> Option<Slot> {
-        let record = *self.instances.get(&id)?;
+        let record = self.instances.get(id)?;
         Some((record, self.part(record, name)?, at))
     }
 
@@ -280,11 +429,8 @@ impl<'f> P21<'f> {
                     .get(usize::try_from(code.checked_sub(11)?).ok()?)?)?
             }
         };
-        for (id, record) in &self.instances {
-            let Some(part) = self.part(*record, "LENGTH_MEASURE_WITH_UNIT") else {
-                continue;
-            };
-            let value = self.value((*record, part, 0)).and_then(|v| self.number(v));
+        for &(id, record, part) in &self.length_measures {
+            let value = self.value((record, part, 0)).and_then(|v| self.number(v));
             if value == Some(mm) {
                 return Some(format!("#{id}"));
             }
@@ -296,7 +442,7 @@ impl<'f> P21<'f> {
     fn curve_style(&mut self, was: Option<u64>, codes: &[(usize, i64)]) -> Option<u64> {
         let original = match was {
             Some(was) => {
-                let record = *self.instances.get(&was)?;
+                let record = self.instances.get(was)?;
                 let part = self.part(record, "CURVE_STYLE")?;
                 Some(
                     self.file
@@ -509,65 +655,75 @@ impl<'f> P21<'f> {
 
     /// どこからも指されなくなった幾何と見え方の実体を除く
     fn collect_garbage(&mut self, cx: &mut Cx) -> Result<(), Error> {
-        let mut counts: BTreeMap<u64, usize> = BTreeMap::new();
-        let mut count = |refs: Vec<u64>| {
-            for id in refs {
-                *counts.entry(id).or_default() += 1;
-            }
-        };
-        for (record, entry) in self.file.records().iter().enumerate() {
+        work(cx, 2, &Ref::default())?;
+        if self.loose.is_empty() {
+            return Ok(());
+        }
+        let mut counts = core::mem::replace(&mut self.ref_counts, RefCounts::with_capacity(0));
+        let records = self.file.records();
+        for &record in &self.removed {
             work(cx, 1, &Ref::default())?;
-            if self.removed.contains(&record) {
-                continue;
-            }
-            let mut refs = Vec::new();
-            for (index, part) in entry.parts().iter().enumerate() {
-                work(cx, 1, &Ref::default())?;
-                for (at, value) in part.args().iter().enumerate() {
-                    let slot = (record, index, at);
-                    if let Some(text) = self.args.get(&slot) {
-                        work(cx, 1 + text.len() as u64, &Ref::default())?;
-                        refs.extend(scan(text.as_bytes()));
-                    } else if let Some(list) = self.lists.get(&slot) {
-                        work(cx, 1 + list.len() as u64, &Ref::default())?;
-                        refs.extend(list);
-                    } else {
-                        count_values(core::slice::from_ref(value), cx)?;
-                        collect(core::slice::from_ref(value), &mut refs);
-                    }
+            if let Some(entry) = records.get(record) {
+                for part in entry.parts() {
+                    work(cx, 1, &Ref::default())?;
+                    count_values(part.args(), cx)?;
+                    for_each_ref(part.args(), &mut |id| counts.sub(id));
                 }
             }
-            work(cx, refs.len() as u64, &Ref::default())?;
-            count(refs);
+        }
+        let modified_slots: BTreeSet<Slot> = self
+            .args
+            .keys()
+            .chain(self.lists.keys())
+            .copied()
+            .filter(|(record, _, _)| !self.removed.contains(record))
+            .collect();
+        for slot in modified_slots {
+            let Some(orig_value) = self.value(slot) else {
+                continue;
+            };
+            count_values(core::slice::from_ref(orig_value), cx)?;
+            for_each_ref(core::slice::from_ref(orig_value), &mut |id| counts.sub(id));
+            if let Some(text) = self.args.get(&slot) {
+                work(cx, 1 + text.len() as u64, &Ref::default())?;
+                let refs = scan(text.as_bytes());
+                work(cx, refs.len() as u64, &Ref::default())?;
+                for id in refs {
+                    counts.add(id);
+                }
+            } else if let Some(list) = self.lists.get(&slot) {
+                work(cx, 1 + list.len() as u64, &Ref::default())?;
+                work(cx, list.len() as u64, &Ref::default())?;
+                for &id in list {
+                    counts.add(id);
+                }
+            }
         }
         for (_, body) in &self.added {
             work(cx, 1 + body.len() as u64, &Ref::default())?;
             let refs = scan(body);
             work(cx, refs.len() as u64, &Ref::default())?;
-            count(refs);
+            for id in refs {
+                counts.add(id);
+            }
         }
         while let Some(id) = self.loose.pop() {
             work(cx, 1, &Ref::default())?;
-            let Some(&record) = self.instances.get(&id) else {
+            let Some(record) = self.instances.get(id) else {
                 continue;
             };
-            let garbage = self
-                .file
-                .records()
+            let garbage = records
                 .get(record)
                 .is_some_and(|entry| entry.parts().len() == 1)
                 && GARBAGE
                     .iter()
                     .any(|name| self.name(record, 0).eq_ignore_ascii_case(name.as_bytes()));
-            if !garbage
-                || self.removed.contains(&record)
-                || counts.get(&id).copied().unwrap_or(0) > 0
-            {
+            if !garbage || self.removed.contains(&record) || counts.get(id) > 0 {
                 continue;
             }
             self.removed.insert(record);
             let mut refs = Vec::new();
-            if let Some(entry) = self.file.records().get(record) {
+            if let Some(entry) = records.get(record) {
                 for part in entry.parts() {
                     work(cx, 1, &Ref::default())?;
                     count_values(part.args(), cx)?;
@@ -576,12 +732,11 @@ impl<'f> P21<'f> {
             }
             for child in refs {
                 work(cx, 1, &Ref::default())?;
-                if let Some(count) = counts.get_mut(&child) {
-                    *count = count.saturating_sub(1);
-                }
+                counts.sub(child);
                 self.loose.push(child);
             }
         }
+        self.ref_counts = counts;
         Ok(())
     }
 }
@@ -615,13 +770,14 @@ impl Writer for P21<'_> {
     }
 
     fn remove(&mut self, record: usize, cx: &mut Cx) -> Result<Option<()>, Error> {
+        self.ensure_referrers(cx)?;
         // 参照元と並びは、実際に触るものだけを、複製や走査の前に数える。
         if let Some(entry) = self.file.records().get(record) {
             for part in entry.parts() {
                 work(cx, 1, &Ref::default())?;
                 count_values(part.args(), cx)?;
             }
-            if let Some(referrers) = entry.id().and_then(|id| self.referrers.get(&id)) {
+            if let Some(referrers) = entry.id().and_then(|id| self.referrers.as_ref()?.get(&id)) {
                 work(cx, referrers.len() as u64, &Ref::default())?;
                 for referrer in referrers {
                     let Some(entry) = self.file.records().get(*referrer) else {
@@ -647,13 +803,10 @@ impl Writer for P21<'_> {
 
     fn add(&mut self, args: &Arguments, cx: &mut Cx) -> Result<Option<u64>, Error> {
         count_arguments(args, cx)?;
-        for (id, record) in &self.instances {
-            work(cx, 1, &Ref::default())?;
-            self.count_part_search(*record, cx)?;
-            if let Some(slot) = self.slot(*id, "DRAWING_SHEET_REVISION", 1) {
-                self.count_list(slot, cx)?;
-                break;
-            }
+        work(cx, 1, &Ref::default())?;
+        if let Some((_, slot)) = self.first_sheet {
+            self.count_part_search(slot.0, cx)?;
+            self.count_list(slot, cx)?;
         }
         let codes: Vec<_> = args
             .values
@@ -704,7 +857,7 @@ impl P21<'_> {
         if codes.iter().any(|(at, _)| *at == 0) {
             work(cx, self.codes.layers.len() as u64, &Ref::default())?;
             for layer in &self.codes.layers {
-                if let Some(&layer_record) = self.instances.get(layer) {
+                if let Some(layer_record) = self.instances.get(*layer) {
                     self.count_part_search(layer_record, cx)?;
                     if let Some(slot) = self.slot(*layer, "PRESENTATION_LAYER_ASSIGNMENT", 2) {
                         self.count_list(slot, cx)?;
@@ -717,7 +870,7 @@ impl P21<'_> {
                 self.count_list(styles, cx)?;
                 if let Some(assignments) = self.list(styles) {
                     for assignment in assignments {
-                        if let Some(&assignment_record) = self.instances.get(&assignment) {
+                        if let Some(assignment_record) = self.instances.get(assignment) {
                             self.count_part_search(assignment_record, cx)?;
                             if let Some(slot) =
                                 self.slot(assignment, "PRESENTATION_STYLE_ASSIGNMENT", 0)
@@ -725,7 +878,7 @@ impl P21<'_> {
                                 self.count_list(slot, cx)?;
                                 if let Some(styles) = self.list(slot) {
                                     for style in styles {
-                                        if let Some(&style_record) = self.instances.get(&style) {
+                                        if let Some(style_record) = self.instances.get(style) {
                                             self.count_part_search(style_record, cx)?;
                                             if let Some(entry) =
                                                 self.file.records().get(style_record)
@@ -765,6 +918,7 @@ impl P21<'_> {
                 }
             }
             if let Some((_, code)) = codes.iter().find(|(at, _)| *at == 3) {
+                work(cx, 2, &Ref::default())?;
                 let mm = code
                     .checked_sub(1)
                     .and_then(|at| usize::try_from(at).ok())
@@ -780,12 +934,10 @@ impl P21<'_> {
                 if mm.is_none() {
                     return Ok(());
                 }
-                for record in self.instances.values() {
+                for &(_, record, part) in &self.length_measures {
                     work(cx, 1, &Ref::default())?;
-                    self.count_part_search(*record, cx)?;
-                    if let Some(part) = self.part(*record, "LENGTH_MEASURE_WITH_UNIT")
-                        && let Some(value) = self.value((*record, part, 0))
-                    {
+                    self.count_part_search(record, cx)?;
+                    if let Some(value) = self.value((record, part, 0)) {
                         count_values(core::slice::from_ref(value), cx)?;
                         count_number(value, cx)?;
                         count_number(value, cx)?;
@@ -886,10 +1038,15 @@ impl P21<'_> {
 
     fn remove_inner(&mut self, record: usize) -> Option<()> {
         let id = self.file.records().get(record)?.id()?;
-        if self.instances.get(&id) != Some(&record) {
+        if self.instances.get(id) != Some(record) {
             return None;
         }
-        let referrers = self.referrers.get(&id).cloned().unwrap_or_default();
+        let referrers = self
+            .referrers
+            .as_ref()
+            .and_then(|map| map.get(&id))
+            .cloned()
+            .unwrap_or_default();
         let mut slots = Vec::new();
         for referrer in referrers {
             let slot = CONTAINERS.iter().find_map(|(name, at)| {
@@ -931,10 +1088,7 @@ impl P21<'_> {
 
     fn add_inner(&mut self, args: &Arguments) -> Option<u64> {
         let code = |at: usize| args.values.get(at)?.parse::<i64>().ok();
-        let sheet = self
-            .instances
-            .iter()
-            .find_map(|(id, _)| self.slot(*id, "DRAWING_SHEET_REVISION", 1))?;
+        let (_, sheet) = self.first_sheet?;
         if args.name == MARKER {
             let (layer, color) = (code(0)?, code(1)?);
             let symbol = self.marker(args)?;
@@ -1018,12 +1172,7 @@ impl P21<'_> {
         if !self.added.is_empty() {
             // 最後の実体の後に足す
             work(cx, records.len() as u64, &Ref::default())?;
-            let Some(end) = records
-                .iter()
-                .filter(|entry| entry.id().is_some())
-                .map(|entry| entry.span().end)
-                .max()
-            else {
+            let Some(end) = self.last_instance_end else {
                 return Err(Error::Rejected);
             };
             let mut text = Vec::new();
@@ -1051,6 +1200,62 @@ fn count_values(values: &[Value], cx: &mut Cx) -> Result<(), Error> {
         }
     }
     Ok(())
+}
+
+fn count_and_note_refs(
+    values: &[Value],
+    counts: &mut RefCounts,
+    ref_count: &mut u64,
+    cx: &mut Cx,
+) -> Result<(), Error> {
+    for value in values {
+        work(cx, 1, &Ref::default())?;
+        match value {
+            Value::Ref(id) => {
+                counts.add(*id);
+                *ref_count = ref_count.saturating_add(1);
+            }
+            Value::List(items) => count_and_note_refs(items, counts, ref_count, cx)?,
+            Value::Typed(part) => count_and_note_refs(part.args(), counts, ref_count, cx)?,
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+fn note_referrers(
+    values: &[Value],
+    record: usize,
+    map: &mut BTreeMap<u64, Vec<usize>>,
+    cx: &mut Cx,
+) -> Result<(), Error> {
+    for value in values {
+        work(cx, 1, &Ref::default())?;
+        match value {
+            Value::Ref(id) => {
+                work(cx, 1, &Ref::default())?;
+                let list = map.entry(*id).or_default();
+                if list.last().copied() != Some(record) {
+                    list.push(record);
+                }
+            }
+            Value::List(items) => note_referrers(items, record, map, cx)?,
+            Value::Typed(part) => note_referrers(part.args(), record, map, cx)?,
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+fn for_each_ref(values: &[Value], f: &mut impl FnMut(u64)) {
+    for value in values {
+        match value {
+            Value::Ref(id) => f(*id),
+            Value::List(items) => for_each_ref(items, f),
+            Value::Typed(part) => for_each_ref(part.args(), f),
+            _ => {}
+        }
+    }
 }
 
 fn count_arguments(args: &Arguments, cx: &mut Cx) -> Result<(), Error> {
@@ -1194,7 +1399,7 @@ mod tests {
             &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
         )
         .unwrap();
-        let record = *writer.instances.get(&2).unwrap();
+        let record = writer.instances.get(2).unwrap();
         let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(1)));
         let mut diagnostics = Diagnostics::new();
         assert!(matches!(

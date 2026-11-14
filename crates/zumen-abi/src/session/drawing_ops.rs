@@ -257,8 +257,7 @@ impl Session {
                 (applied, hash)
             }
             DrawingFile::Sxf(file, archive, _) => {
-                let mut updated = file.clone();
-                let applied = updated.apply(&changes, cx).map_err(|_| Failed)?;
+                let (updated, applied) = file.applied(&changes, cx).map_err(|_| Failed)?;
                 Sxf::write(&updated, &mut bytes, cx).map_err(|_| Failed)?;
                 if let Some(archive) = archive {
                     bytes = archive

@@ -4,7 +4,7 @@
 //! 組み直したフィーチャの出どころは、元の実体のレコードにする。まだ組み直さない要素は、実体の名前を種類にして、
 //! 変換に「まだ移さないもの」として渡す。
 
-use std::collections::{BTreeMap, btree_map::Entry};
+use std::collections::{BTreeMap, BTreeSet, btree_map::Entry};
 
 use zumen_base::{Diagnostic, Key, Ref, codes};
 use zumen_sdk::{Cx, Error};
@@ -86,16 +86,7 @@ const COLUMNS: [&[&str]; 3] = [&["left"], &["centre", "center"], &["right"]];
 /// SFC の変換は、複合曲線と複合図形の定義に、その前にある要素をまとめる。複合図形の定義を先に、複合曲線を
 /// その図形の並びの先に書き、ほかの要素がまとめられないようにする
 pub(crate) fn records(file: &SxfFile, cx: &mut Cx) -> Result<Vec<FeatureRecord>, Error> {
-    let mut builder = Builder::new(file, cx)?;
-    builder.check_references(cx)?;
-    builder.tables(cx)?;
-    let mut out = core::mem::take(&mut builder.out);
-    builder.sheet(cx)?;
-    out.append(&mut builder.definitions);
-    out.append(&mut builder.front);
-    out.append(&mut builder.out);
-    number_composites(&mut out);
-    Ok(out)
+    Ok(records_and_codes(file, cx)?.0)
 }
 
 /// 表のコードを持つ実体。書き戻しが、コードから実体を引くのに使う
@@ -108,30 +99,46 @@ pub(crate) struct Codes {
     pub(crate) line_types: BTreeMap<u64, i64>,
 }
 
-/// 変換と同じ順で、表のコードを数える
-pub(crate) fn codes(file: &SxfFile, cx: &mut Cx) -> Result<Codes, Error> {
+/// フィーチャのレコードへの組み直しと、表のコードの集計を 1 回の走査で行う
+pub(crate) fn records_and_codes(
+    file: &SxfFile,
+    cx: &mut Cx,
+) -> Result<(Vec<FeatureRecord>, Codes), Error> {
     let mut builder = Builder::new(file, cx)?;
+    builder.check_references(cx)?;
     builder.tables(cx)?;
-    Ok(Codes {
+    let mut out = core::mem::take(&mut builder.out);
+    builder.sheet(cx)?;
+    out.append(&mut builder.definitions);
+    out.append(&mut builder.front);
+    out.append(&mut builder.out);
+    number_composites(&mut out);
+    let codes = Codes {
         layers: builder.layers,
         colors: builder.colors,
         line_types: builder.line_types,
-    })
+    };
+    Ok((out, codes))
 }
 
 /// ハッチングの外形と中抜きに書いた複合曲線のレコードを、複合曲線の番号（書いた順に 1 から）にする
 fn number_composites(out: &mut [FeatureRecord]) {
-    let composites: Vec<usize> = out
+    let mut composites = BTreeMap::new();
+    for record in out
         .iter()
         .filter(|record| record.name == "composite_curve_org")
-        .map(|record| record.record)
-        .collect();
+    {
+        let next = composites.len() + 1;
+        composites.entry(record.record).or_insert(next);
+    }
+    if composites.is_empty() {
+        return;
+    }
     let number = |arg: &mut Arg| {
         if let Arg::Text(text) = arg
             && let Ok(record) = text.parse::<usize>()
         {
-            let at = composites.iter().position(|known| *known == record);
-            *text = at.map_or(0, |at| at + 1).to_string();
+            *text = composites.get(&record).copied().unwrap_or(0).to_string();
         }
     };
     for record in out
@@ -154,6 +161,49 @@ fn number_composites(out: &mut [FeatureRecord]) {
 struct Instance<'f> {
     record: usize,
     parts: &'f [Part],
+}
+
+/// 番号から実体への索引。レコード数に対して密な番号は配列で、大きな番号だけ木で引く
+struct Instances<'f> {
+    dense: Vec<Option<Instance<'f>>>,
+    sparse: BTreeMap<u64, Instance<'f>>,
+    sorted: Vec<(u64, Instance<'f>)>,
+}
+
+impl<'f> Instances<'f> {
+    fn get(&self, id: &u64) -> Option<Instance<'f>> {
+        match usize::try_from(*id)
+            .ok()
+            .and_then(|at| self.dense.get(at))
+            .copied()
+        {
+            Some(found) => found,
+            None => self.sparse.get(id).copied(),
+        }
+    }
+
+    fn contains_key(&self, id: &u64) -> bool {
+        self.get(id).is_some()
+    }
+}
+
+type Bucket<'f> = Vec<(u64, Instance<'f>, &'f [Value])>;
+
+/// 参照の検査の走査で集める、表と用紙の実体
+#[derive(Default)]
+struct Buckets<'f> {
+    colour_rgb: Bucket<'f>,
+    pre_defined_colour: Bucket<'f>,
+    pre_defined_curve_font: Bucket<'f>,
+    curve_style_font: Bucket<'f>,
+    text_font: Bucket<'f>,
+    invisibility: Bucket<'f>,
+    layer_assignment: Bucket<'f>,
+    sheet_revision: Bucket<'f>,
+    presentation_size: Bucket<'f>,
+    draughting_title: Bucket<'f>,
+    /// 幾何の番号から、それを最初に指す `ANNOTATION_CURVE_OCCURRENCE`
+    curve_occurrences: BTreeMap<u64, (u64, Instance<'f>)>,
 }
 
 /// 軸の置き方（AXIS2_PLACEMENT_2D）。角度は度
@@ -183,15 +233,18 @@ struct Trim {
 
 struct Builder<'f> {
     file: &'f SxfFile,
-    instances: BTreeMap<u64, Instance<'f>>,
+    instances: Instances<'f>,
+    buckets: Buckets<'f>,
     out: Vec<FeatureRecord>,
     colors: BTreeMap<u64, i64>,
     line_types: BTreeMap<u64, i64>,
     fonts: BTreeMap<u64, i64>,
     /// 利用者定義線幅（mm）。コードは 11 から
     widths: Vec<f64>,
-    /// 要素（表記の実体）からレイヤのコードへ
-    layer_of: BTreeMap<u64, i64>,
+    /// 要素（表記の実体）からレイヤのコードへ（密な番号）
+    layer_dense: Vec<i64>,
+    /// 要素（表記の実体）からレイヤのコードへ（疎な大きな番号）
+    layer_sparse: BTreeMap<u64, i64>,
     /// レイヤのコードの順の、PRESENTATION_LAYER_ASSIGNMENT の番号
     layers: Vec<u64>,
     /// 複合図形の定義のレコード。用紙の要素より前に書く
@@ -201,15 +254,20 @@ struct Builder<'f> {
     /// 組み直した複合図形の定義（DRAUGHTING_SUBFIGURE_REPRESENTATION）の名前
     subfigures: BTreeMap<u64, String>,
     /// 組み直した複合曲線（COMPOSITE_CURVE）
-    composites: Vec<u64>,
+    composites: BTreeSet<u64>,
     /// 非表示にする要素（INVISIBILITY）
-    invisible: Vec<u64>,
+    invisible: BTreeSet<u64>,
     depth: usize,
 }
 
 impl<'f> Builder<'f> {
     fn new(file: &'f SxfFile, cx: &mut Cx) -> Result<Self, Error> {
-        let mut instances = BTreeMap::new();
+        let dense_cap = file.records().len().saturating_mul(4).saturating_add(64);
+        let mut dense: Vec<Option<Instance<'f>>> = vec![None; dense_cap];
+        let mut sparse = BTreeMap::new();
+        let mut sorted = Vec::with_capacity(file.records().len());
+        let mut ordered = true;
+        let mut last_id = 0;
         for (record, entry) in file.records().iter().enumerate() {
             let mut source = Ref::at_record(record as u64);
             if let Some(id) = entry.id() {
@@ -217,58 +275,118 @@ impl<'f> Builder<'f> {
             }
             work(cx, 1, &source)?;
             if let Some(id) = entry.id() {
+                let instance = Instance {
+                    record,
+                    parts: entry.parts(),
+                };
                 // 同じ番号はファイルの順で最初だけを使う（docs/formats/sxf.md）。
-                match instances.entry(id) {
-                    Entry::Vacant(slot) => {
-                        slot.insert(Instance {
-                            record,
-                            parts: entry.parts(),
-                        });
+                let inserted = match usize::try_from(id).ok().and_then(|at| dense.get_mut(at)) {
+                    Some(slot @ None) => {
+                        *slot = Some(instance);
+                        true
                     }
-                    Entry::Occupied(_) => cx.report(
+                    Some(Some(_)) => false,
+                    None => match sparse.entry(id) {
+                        Entry::Vacant(slot) => {
+                            slot.insert(instance);
+                            true
+                        }
+                        Entry::Occupied(_) => false,
+                    },
+                };
+                if inserted {
+                    if !sorted.is_empty() && id < last_id {
+                        ordered = false;
+                    }
+                    last_id = id;
+                    sorted.push((id, instance));
+                } else {
+                    cx.report(
                         Diagnostic::new(codes::SXF_P21_INSTANCE_DROPPED)
                             .with("id", id)
                             .at(source),
-                    ),
+                    );
                 }
             }
         }
+        if !ordered {
+            sorted.sort_unstable_by_key(|(id, _)| *id);
+        }
         Ok(Self {
             file,
-            instances,
+            instances: Instances {
+                dense,
+                sparse,
+                sorted,
+            },
+            buckets: Buckets::default(),
             out: Vec::new(),
             colors: BTreeMap::new(),
             line_types: BTreeMap::new(),
             fonts: BTreeMap::new(),
             widths: Vec::new(),
-            layer_of: BTreeMap::new(),
+            layer_dense: vec![0; dense_cap],
+            layer_sparse: BTreeMap::new(),
             layers: Vec::new(),
             definitions: Vec::new(),
             front: Vec::new(),
             subfigures: BTreeMap::new(),
-            composites: Vec::new(),
-            invisible: Vec::new(),
+            composites: BTreeSet::new(),
+            invisible: BTreeSet::new(),
             depth: 0,
         })
     }
 
-    /// 参照の先がない実体を報告する
-    fn check_references(&self, cx: &mut Cx) -> Result<(), Error> {
-        for instance in self.instances.values() {
+    /// 参照の先がない実体を報告し、表と用紙の実体を番号の順に仕分ける
+    fn check_references(&mut self, cx: &mut Cx) -> Result<(), Error> {
+        let mut buckets = Buckets::default();
+        let mut missing = Vec::new();
+        for &(id, instance) in &self.instances.sorted {
             let source = Ref::at_record(instance.record as u64);
             work(cx, 1, &source)?;
-            let mut missing = Vec::new();
+            missing.clear();
             for part in instance.parts {
                 self.dangling(part.args(), &mut missing);
+                let name = self.file.bytes(part.name());
+                let args = part.args();
+                if name.eq_ignore_ascii_case(b"ANNOTATION_CURVE_OCCURRENCE") {
+                    if let (_, Some(geometry)) = self.styled(instance) {
+                        buckets
+                            .curve_occurrences
+                            .entry(geometry)
+                            .or_insert((id, instance));
+                    }
+                } else if name.eq_ignore_ascii_case(b"COLOUR_RGB") {
+                    buckets.colour_rgb.push((id, instance, args));
+                } else if name.eq_ignore_ascii_case(b"DRAUGHTING_PRE_DEFINED_COLOUR") {
+                    buckets.pre_defined_colour.push((id, instance, args));
+                } else if name.eq_ignore_ascii_case(b"DRAUGHTING_PRE_DEFINED_CURVE_FONT") {
+                    buckets.pre_defined_curve_font.push((id, instance, args));
+                } else if name.eq_ignore_ascii_case(b"CURVE_STYLE_FONT") {
+                    buckets.curve_style_font.push((id, instance, args));
+                } else if name.eq_ignore_ascii_case(b"EXTERNALLY_DEFINED_TEXT_FONT") {
+                    buckets.text_font.push((id, instance, args));
+                } else if name.eq_ignore_ascii_case(b"INVISIBILITY") {
+                    buckets.invisibility.push((id, instance, args));
+                } else if name.eq_ignore_ascii_case(b"PRESENTATION_LAYER_ASSIGNMENT") {
+                    buckets.layer_assignment.push((id, instance, args));
+                } else if name.eq_ignore_ascii_case(b"DRAWING_SHEET_REVISION") {
+                    buckets.sheet_revision.push((id, instance, args));
+                } else if name.eq_ignore_ascii_case(b"PRESENTATION_SIZE") {
+                    buckets.presentation_size.push((id, instance, args));
+                } else if name.eq_ignore_ascii_case(b"DRAUGHTING_TITLE") {
+                    buckets.draughting_title.push((id, instance, args));
+                }
             }
-            for id in missing {
+            for &missing_id in &missing {
                 cx.report(
                     Diagnostic::new(codes::SXF_P21_REFERENCE_MISSING)
-                        .with("id", id)
+                        .with("id", missing_id)
                         .at(source.clone()),
                 );
             }
         }
+        self.buckets = buckets;
         Ok(())
     }
 
@@ -287,14 +405,6 @@ impl<'f> Builder<'f> {
         }
     }
 
-    /// 番号の順に並べた、名前の部分を持つ実体の番号とその引数
-    fn all(&self, name: &str) -> Vec<(u64, Instance<'f>, &'f [Value])> {
-        self.instances
-            .iter()
-            .filter_map(|(id, instance)| Some((*id, *instance, self.part(*instance, name)?)))
-            .collect()
-    }
-
     fn part(&self, instance: Instance<'f>, name: &str) -> Option<&'f [Value]> {
         instance
             .parts
@@ -308,7 +418,7 @@ impl<'f> Builder<'f> {
     }
 
     fn args(&self, id: Option<u64>, name: &str) -> Option<&'f [Value]> {
-        self.part(*self.instances.get(&id?)?, name)
+        self.part(self.instances.get(&id?)?, name)
     }
 
     fn has(&self, id: Option<u64>, name: &str) -> bool {
@@ -392,7 +502,7 @@ impl<'f> Builder<'f> {
     /// 色・線種・文字フォント・レイヤを、番号の順にフィーチャにする。コードは SFC と同じに、書いた順で決まる
     fn tables(&mut self, cx: &mut Cx) -> Result<(), Error> {
         let mut users = 0;
-        for (id, instance, args) in self.all("COLOUR_RGB") {
+        for (id, instance, args) in core::mem::take(&mut self.buckets.colour_rgb) {
             work(cx, 1, &Ref::at_record(instance.record as u64))?;
             let name = self.text(args.first()).unwrap_or_default();
             // 既定義色の RGB を、名前に $$SXF_ を付けて書くことがある
@@ -410,12 +520,12 @@ impl<'f> Builder<'f> {
             users += 1;
             self.colors.insert(id, 16 + users);
         }
-        for (id, _, args) in self.all("DRAUGHTING_PRE_DEFINED_COLOUR") {
+        for (id, _, args) in core::mem::take(&mut self.buckets.pre_defined_colour) {
             let name = self.text(args.first()).unwrap_or_default();
             self.colors
                 .insert(id, color_code(&name).unwrap_or_default());
         }
-        for (id, _, args) in self.all("DRAUGHTING_PRE_DEFINED_CURVE_FONT") {
+        for (id, _, args) in core::mem::take(&mut self.buckets.pre_defined_curve_font) {
             let name = self.text(args.first()).unwrap_or_default();
             let code = LINE_TYPES
                 .iter()
@@ -424,7 +534,7 @@ impl<'f> Builder<'f> {
             self.line_types.insert(id, code);
         }
         let mut users = 0;
-        for (id, instance, args) in self.all("CURVE_STYLE_FONT") {
+        for (id, instance, args) in core::mem::take(&mut self.buckets.curve_style_font) {
             let mut pitch = Vec::new();
             for pattern in references(args.get(1)) {
                 let pattern = self
@@ -445,7 +555,7 @@ impl<'f> Builder<'f> {
             users += 1;
             self.line_types.insert(id, 16 + users);
         }
-        for (id, instance, args) in self.all("EXTERNALLY_DEFINED_TEXT_FONT") {
+        for (id, instance, args) in core::mem::take(&mut self.buckets.text_font) {
             let name = self.text(args.first()).map_or(Arg::Other, Arg::Text);
             let code = self.fonts.len() as i64 + 1;
             self.fonts.insert(id, code);
@@ -456,14 +566,12 @@ impl<'f> Builder<'f> {
                 vec![name],
             );
         }
-        let invisible: Vec<u64> = self
-            .all("INVISIBILITY")
+        self.invisible = core::mem::take(&mut self.buckets.invisibility)
             .into_iter()
             .flat_map(|(_, _, args)| references(args.first()))
             .collect();
-        self.invisible.clone_from(&invisible);
         let mut code = 0;
-        for (id, instance, args) in self.all("PRESENTATION_LAYER_ASSIGNMENT") {
+        for (id, instance, args) in core::mem::take(&mut self.buckets.layer_assignment) {
             let source = Ref::at_record(instance.record as u64).with_key(Key::Instance(id));
             work(cx, 1, &source)?;
             let name = self.text(args.first()).unwrap_or_default();
@@ -471,7 +579,11 @@ impl<'f> Builder<'f> {
             if name.starts_with("$$SXF_dummy") {
                 continue;
             }
-            let visible = if invisible.contains(&id) { "0" } else { "1" };
+            let visible = if self.invisible.contains(&id) {
+                "0"
+            } else {
+                "1"
+            };
             let layer = vec![Arg::Text(name), Arg::Text(visible.to_owned())];
             self.push(
                 instance.record,
@@ -489,7 +601,19 @@ impl<'f> Builder<'f> {
                     let Some(item) = reference(Some(item)) else {
                         continue;
                     };
-                    if *self.layer_of.entry(item).or_insert(code) != code {
+                    let assigned = match usize::try_from(item)
+                        .ok()
+                        .and_then(|at| self.layer_dense.get_mut(at))
+                    {
+                        Some(slot) => {
+                            if *slot == 0 {
+                                *slot = code;
+                            }
+                            *slot
+                        }
+                        None => *self.layer_sparse.entry(item).or_insert(code),
+                    };
+                    if assigned != code {
                         cx.report(
                             Diagnostic::new(codes::SXF_P21_LAYER_MEMBER_DROPPED)
                                 .with("id", item)
@@ -504,7 +628,7 @@ impl<'f> Builder<'f> {
 
     /// 用紙の要素を並びの順にフィーチャにし、用紙を最後に置く
     fn sheet(&mut self, cx: &mut Cx) -> Result<(), Error> {
-        let mut sheets = self.all("DRAWING_SHEET_REVISION").into_iter();
+        let mut sheets = core::mem::take(&mut self.buckets.sheet_revision).into_iter();
         let Some((id, instance, args)) = sheets.next() else {
             cx.report(Diagnostic::new(codes::SXF_P21_SHEET_MISSING));
             return Ok(());
@@ -520,7 +644,7 @@ impl<'f> Builder<'f> {
             );
         }
         for item in references(args.get(1)) {
-            let Some(occurrence) = self.instances.get(&item).copied() else {
+            let Some(occurrence) = self.instances.get(&item) else {
                 continue;
             };
             work(cx, 1, &Ref::at_record(occurrence.record as u64))?;
@@ -529,7 +653,7 @@ impl<'f> Builder<'f> {
         let size = self.text(args.first()).unwrap_or_default();
         let (kind, orientation) = sheet_kind(size.trim()).unwrap_or((9, 1));
         let mut extent = [Arg::Other, Arg::Other];
-        for (_, _, size) in self.all("PRESENTATION_SIZE") {
+        for (_, _, size) in core::mem::take(&mut self.buckets.presentation_size) {
             if reference(size.first()) == Some(id)
                 && let Some(planar) = self.args(reference(size.get(1)), "PLANAR_BOX")
             {
@@ -539,8 +663,7 @@ impl<'f> Builder<'f> {
                 ];
             }
         }
-        let name = self
-            .all("DRAUGHTING_TITLE")
+        let name = core::mem::take(&mut self.buckets.draughting_title)
             .into_iter()
             .find_map(|(_, _, title)| self.text(title.get(2)))
             .unwrap_or_default();
@@ -600,7 +723,7 @@ impl<'f> Builder<'f> {
             return;
         }
         if let Some(callout) = geometry
-            .and_then(|target| self.instances.get(&target).copied())
+            .and_then(|target| self.instances.get(&target))
             .filter(|target| self.part(*target, "DRAUGHTING_CALLOUT").is_some())
         {
             self.callout(callout);
@@ -680,7 +803,7 @@ impl<'f> Builder<'f> {
         if let Some(name) = self.subfigures.get(&id) {
             return Some(name.clone());
         }
-        let instance = *self.instances.get(&id)?;
+        let instance = self.instances.get(&id)?;
         let args = self.part(instance, "DRAUGHTING_SUBFIGURE_REPRESENTATION")?;
         if self.depth >= MAX_DEPTH {
             return None;
@@ -696,7 +819,7 @@ impl<'f> Builder<'f> {
         let front = core::mem::take(&mut self.front);
         self.depth += 1;
         for item in references(args.get(1)) {
-            if let Some(occurrence) = self.instances.get(&item).copied() {
+            if let Some(occurrence) = self.instances.get(&item) {
                 self.item(item, occurrence);
             }
         }
@@ -716,22 +839,13 @@ impl<'f> Builder<'f> {
     /// 複合曲線を、いまの並びの先に書く。曲線の見え方とレイヤは、複合曲線を指す曲線の要素から読み、
     /// なければ `layer` にする
     fn composite(&mut self, id: u64, layer: Arg) {
-        if self.composites.contains(&id) {
+        if !self.composites.insert(id) {
             return;
         }
-        self.composites.push(id);
-        let Some(instance) = self.instances.get(&id).copied() else {
+        let Some(instance) = self.instances.get(&id) else {
             return;
         };
-        let occurrence = self
-            .instances
-            .iter()
-            .filter(|(_, candidate)| {
-                self.part(**candidate, "ANNOTATION_CURVE_OCCURRENCE")
-                    .is_some()
-            })
-            .find(|(_, candidate)| self.styled(**candidate).1 == Some(id))
-            .map(|(occurrence, candidate)| (*occurrence, *candidate));
+        let occurrence = self.buckets.curve_occurrences.get(&id).copied();
         let (layer, style, visible) = match occurrence {
             Some((occurrence, candidate)) => (
                 self.layer(occurrence),
@@ -890,7 +1004,7 @@ impl<'f> Builder<'f> {
         let tile = references(tiles.get(2))
             .into_iter()
             .find_map(|tile| self.args(Some(tile), "FILL_AREA_STYLE_TILE_SYMBOL_WITH_STYLE"))?;
-        let occurrence = *self.instances.get(&reference(tile.get(1))?)?;
+        let occurrence = self.instances.get(&reference(tile.get(1))?)?;
         let (style, defined) = self.styled(occurrence);
         let target = self
             .args(defined, "DEFINED_SYMBOL")
@@ -946,7 +1060,7 @@ impl<'f> Builder<'f> {
                 .and_then(<[Value]>::first),
         )
         .into_iter()
-        .filter_map(|id| Some((id, *self.instances.get(&id)?)))
+        .filter_map(|id| Some((id, self.instances.get(&id)?)))
         .collect();
         let text = contents
             .iter()
@@ -1217,13 +1331,14 @@ impl<'f> Builder<'f> {
     }
 
     fn layer(&self, id: u64) -> Arg {
-        Arg::Text(
-            self.layer_of
-                .get(&id)
-                .copied()
-                .unwrap_or_default()
-                .to_string(),
-        )
+        let code = match usize::try_from(id)
+            .ok()
+            .and_then(|at| self.layer_dense.get(at))
+        {
+            Some(&code) => code,
+            None => self.layer_sparse.get(&id).copied().unwrap_or_default(),
+        };
+        Arg::Text(code.to_string())
     }
 
     fn color(&self, id: Option<u64>) -> i64 {

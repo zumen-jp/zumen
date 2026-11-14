@@ -208,9 +208,9 @@ fn comparing_unchanged_elements_counts_their_contents() {
     };
     let (result, used, _) = run(None);
     assert!(result.is_ok(), "{result:?}");
-    // 読み直し後の、変更しない折線の複製と比較も数える。
-    assert!(used > 8_000, "{used}");
-    let (result, _, written) = run(Some(4_000));
+    // 読み直し後の、変更しない折線の比較も数える。
+    assert!(used > 4_000, "{used}");
+    let (result, _, written) = run(Some(3_000));
     assert!(matches!(result, Err(Error::Stopped(_))));
     assert_eq!(written, input.as_bytes());
 }

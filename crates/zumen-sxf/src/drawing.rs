@@ -113,7 +113,16 @@ impl SxfFile {
             Mode::Sfc => sfc_records(self),
             Mode::P21 => p21::records(self, cx)?,
         };
-        let mut lifter = Lifter::new(&records, self);
+        self.lift_from_records(&records, attributes, cx)
+    }
+
+    pub(crate) fn lift_from_records(
+        &self,
+        records: &[FeatureRecord],
+        attributes: Option<&AttributeFile>,
+        cx: &mut Cx,
+    ) -> Result<Drawing2D, Error> {
+        let mut lifter = Lifter::new(records, self);
         lifter.attributes = attributes;
         lifter.run(cx)
     }

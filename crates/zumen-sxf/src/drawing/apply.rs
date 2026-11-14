@@ -21,7 +21,7 @@ use super::{
     Args, FeatureRecord, LINE_TYPES, PREDEFINED_COLORS, USER_LINE_TYPE, USER_WIDTH, WIDTHS,
     sfc_records, work,
 };
-use crate::p21::records as p21_records;
+use crate::p21::records_and_codes as p21_records_and_codes;
 use crate::{Marker, Mode, Quote, SfcRecord, Sxf, SxfFile, Value};
 
 /// レイヤ・色・線種・線幅のコードを引数の 0〜3 に持ち、スタイルを変えられるフィーチャ
@@ -70,6 +70,19 @@ impl Apply<Changes> for SxfFile {
     type Output = Vec<Applied>;
 
     fn apply(&mut self, changes: &Changes, cx: &mut Cx) -> Result<Vec<Applied>, Error> {
+        let (updated, applied) = self.applied(changes, cx)?;
+        *self = updated;
+        Ok(applied)
+    }
+}
+
+impl SxfFile {
+    /// 元のファイルを複製せずに変更を当て、書き戻した後のファイルと変更の結果を返す。
+    pub fn applied(
+        &self,
+        changes: &Changes,
+        cx: &mut Cx,
+    ) -> Result<(SxfFile, Vec<Applied>), Error> {
         // 診断に書く形式の名前
         let format = match self.mode() {
             Mode::Sfc => "SFC",
@@ -95,26 +108,42 @@ impl Apply<Changes> for SxfFile {
         }
         // 変換の診断は、書き戻しの診断に混ぜない
         let mut quiet = Diagnostics::new();
-        let records = match self.mode() {
-            Mode::Sfc => sfc_records(self),
-            Mode::P21 => p21_records(self, &mut Cx::new(cx.budget, &mut quiet, cx.cancel))?,
+        let (records, codes, drawing) = {
+            let mut lift_cx = Cx::new(cx.budget, &mut quiet, cx.cancel);
+            lift_cx.with_diagnostics_in_record_order(|cx| {
+                let (records, codes) = match self.mode() {
+                    Mode::Sfc => (sfc_records(self), None),
+                    Mode::P21 => {
+                        let (records, codes) = p21_records_and_codes(self, cx)?;
+                        (records, Some(codes))
+                    }
+                };
+                let drawing = self.lift_from_records(&records, None, cx)?;
+                Ok::<_, Error>((records, codes, drawing))
+            })?
         };
-        let drawing = self.lift(&mut Cx::new(cx.budget, &mut quiet, cx.cancel))?;
-        let before = Index::new(&drawing, cx)?;
+        let need_ids = changes.edits.iter().any(|change| {
+            matches!(
+                change,
+                Edit::Remove { .. }
+                    | Edit::Restyle { .. }
+                    | Edit::Replace { .. }
+                    | Edit::Transform { .. }
+            )
+        });
+        let before = Index::new(&drawing, need_ids, cx)?;
         let tables = Tables::new(&records, &drawing, cx)?;
         let grouped = grouped(&records, cx)?;
         // 改行の種類を調べるため、元のバイト列を走査する。
         work(cx, (self.src.len() as u64).div_ceil(1024), &Ref::default())?;
-        let writer: Box<dyn Writer> = match self.mode() {
-            Mode::Sfc => Box::new(Sfc::new(self, &records)),
-            Mode::P21 => Box::new(p21::P21::new(
-                self,
-                crate::p21::codes(self, &mut Cx::new(cx.budget, &mut quiet, cx.cancel))?,
-                tables.widths.clone(),
-                cx,
-            )?),
+        let writer: Box<dyn Writer> = match (self.mode(), codes) {
+            (Mode::Sfc, _) => Box::new(Sfc::new(self, &records)),
+            (Mode::P21, Some(codes)) => {
+                Box::new(p21::P21::new(self, codes, tables.widths.clone(), cx)?)
+            }
+            (Mode::P21, None) => return Err(Error::Rejected),
         };
-        let mut plan = Plan::new(&records, writer);
+        let mut plan = Plan::new(&records, self.records().len(), writer);
         let mut expected = Vec::new();
         let mut targets = BTreeSet::new();
         let mut rejected = false;
@@ -323,13 +352,13 @@ impl Apply<Changes> for SxfFile {
             }
         };
         let drawing = quietly(cx, |cx| updated.lift(cx))?;
-        let after = Index::new(&drawing, cx)?;
+        let after = Index::new(&drawing, false, cx)?;
         let mut applied = Vec::new();
         for (edit, expected) in &expected {
             work(cx, 1, &Ref::default())?;
             let found = match expected {
                 Expected::Removed(instance) => {
-                    if after.instances.contains_key(instance) {
+                    if after.has_instance(*instance) {
                         cx.report(unsupported(format, edit, "round_trip"));
                         return Err(Error::Rejected);
                     }
@@ -367,29 +396,34 @@ impl Apply<Changes> for SxfFile {
                 Expected::Removed(instance) | Expected::Element(instance, _) => *instance,
             })
             .collect();
-        for (instance, id) in &before.instances {
+        for &(instance, slot) in &before.instances {
             work(cx, 1, &Ref::default())?;
-            if changed.contains(instance) {
+            if changed.contains(&instance) {
                 continue;
             }
-            let kept = match (id, before.found(*instance), after.instances.get(instance)) {
-                (Some(_), Some(was), Some(Some(_))) => {
-                    was.element.count_copy(cx, 2)?;
-                    after.found(*instance).is_some_and(|now| {
-                        now.id == was.id && now.element.same(&was.element.placed())
-                    })
+            let kept = match (slot, after.instance_slot(instance)) {
+                (Some(was_idx), Some(Some(now_idx))) => {
+                    if let (Some((was_id, was)), Some((now_id, now))) =
+                        (before.entries.get(was_idx), after.entries.get(now_idx))
+                    {
+                        was.count_compare(cx)?;
+                        now_id == was_id && now.same_any(was)
+                    } else {
+                        false
+                    }
                 }
-                (None, _, Some(None)) => true,
+                (None, Some(None)) => true,
                 _ => false,
             };
             if !kept {
-                let at = before.found(*instance).map(|was| was.source());
+                let at = slot
+                    .and_then(|idx| before.entries.get(idx))
+                    .map(|(_, elem)| elem.source().clone());
                 cx.report(unsupported(format, "apply", "round_trip").at(at.unwrap_or_default()));
                 return Err(Error::Rejected);
             }
         }
-        *self = updated;
-        Ok(applied)
+        Ok((updated, applied))
     }
 }
 /// 当てた後に確かめること
@@ -451,7 +485,7 @@ fn target_of<'a>(
     (format, edit): (&str, &str),
     cx: &mut Cx,
 ) -> Result<Option<Found<'a>>, Error> {
-    let Some(&element) = index.elements.get(&seen.id) else {
+    let Some(element) = index.element(&seen.id) else {
         cx.report(Diagnostic::new(codes::CHANGE_ELEMENT_MISSING).with("id", seen.id.as_str()));
         return Ok(None);
     };
@@ -496,6 +530,13 @@ impl<'a> Any<'a> {
             Any::Paper(element) => count_element_copy(element, cx, copies),
         }
     }
+
+    fn count_compare(&self, cx: &mut Cx) -> Result<(), Error> {
+        match self {
+            Any::Model(element) => count_element_compare(element, cx),
+            Any::Paper(element) => count_element_compare(element, cx),
+        }
+    }
     fn source(&self) -> &'a Ref {
         match self {
             Any::Model(element) => &element.source,
@@ -529,6 +570,18 @@ impl<'a> Any<'a> {
         match (self, placed) {
             (Any::Model(a), Placed::Model(b)) => same(a, b),
             (Any::Paper(a), Placed::Paper(b)) => same(a, b),
+            _ => false,
+        }
+    }
+
+    /// 複製を作らずに、出所を除いて同じ値かを比べる
+    fn same_any(&self, other: &Any<'_>) -> bool {
+        fn same<P: PartialEq>(a: &Element<P>, b: &Element<P>) -> bool {
+            a.layer == b.layer && a.style == b.style && a.shape == b.shape
+        }
+        match (self, other) {
+            (Any::Model(a), Any::Model(b)) => same(a, b),
+            (Any::Paper(a), Any::Paper(b)) => same(a, b),
             _ => false,
         }
     }
@@ -674,18 +727,45 @@ impl Found<'_> {
 
 /// ID から要素への索引
 struct Index<'a> {
-    elements: BTreeMap<String, Any<'a>>,
-    /// インスタンスの番号から ID。複数の要素を作った番号は `None`
-    instances: BTreeMap<u64, Option<String>>,
+    entries: Vec<(String, Any<'a>)>,
+    by_id: BTreeMap<String, usize>,
+    /// インスタンスの番号から `entries` の位置。0 は未出現、`u32::MAX` は複数の要素を作った番号、それ以外は `idx + 1`
+    instance_dense: Vec<u32>,
+    instance_sparse: BTreeMap<u64, Option<usize>>,
+    /// 昇順に並べたインスタンスの番号と `entries` の位置（複数の要素を作った番号は `None`）
+    instances: Vec<(u64, Option<usize>)>,
     /// 用紙の ID
     sheets: BTreeMap<String, zumen_drawing::SheetId>,
 }
 
 impl<'a> Index<'a> {
-    fn new(drawing: &'a Drawing2D, cx: &mut Cx) -> Result<Self, Error> {
+    fn new(drawing: &'a Drawing2D, with_ids: bool, cx: &mut Cx) -> Result<Self, Error> {
+        let total_elements: usize = drawing
+            .spaces
+            .iter()
+            .map(|space| space.elements.len())
+            .sum::<usize>()
+            .saturating_add(
+                drawing
+                    .symbols
+                    .iter()
+                    .map(|symbol| symbol.space.elements.len())
+                    .sum::<usize>(),
+            )
+            .saturating_add(
+                drawing
+                    .sheets
+                    .iter()
+                    .map(|sheet| sheet.elements.len())
+                    .sum::<usize>(),
+            );
+        let dense_cap = total_elements.saturating_mul(8).saturating_add(64);
         let mut index = Index {
-            elements: BTreeMap::new(),
-            instances: BTreeMap::new(),
+            entries: Vec::with_capacity(total_elements),
+            by_id: BTreeMap::new(),
+            instance_dense: vec![0; dense_cap],
+            instance_sparse: BTreeMap::new(),
+            instances: Vec::with_capacity(total_elements),
             sheets: BTreeMap::new(),
         };
         for space in &drawing.spaces {
@@ -693,7 +773,7 @@ impl<'a> Index<'a> {
             let mut namer = id::Namer::new(&place);
             for (at, element) in space.elements.iter().enumerate() {
                 work(cx, 1, &element.source)?;
-                index.note(namer.next(at, element), Any::Model(element));
+                index.note(namer.next(at, element), Any::Model(element), with_ids);
             }
         }
         let mut definitions = id::DefinitionNamer::default();
@@ -703,7 +783,7 @@ impl<'a> Index<'a> {
             let mut namer = id::Namer::new(&place);
             for (at, element) in definition.space.elements.iter().enumerate() {
                 work(cx, 1, &element.source)?;
-                index.note(namer.next(at, element), Any::Model(element));
+                index.note(namer.next(at, element), Any::Model(element), with_ids);
             }
         }
         let mut sheets = id::SheetNamer::default();
@@ -713,30 +793,79 @@ impl<'a> Index<'a> {
             let mut namer = id::Namer::new(&place);
             for (at, element) in sheet.elements.iter().enumerate() {
                 work(cx, 1, &element.source)?;
-                index.note(namer.next(at, element), Any::Paper(element));
+                index.note(namer.next(at, element), Any::Paper(element), with_ids);
             }
             index.sheets.insert(place, sheet.id);
+        }
+        for (id, &raw) in index.instance_dense.iter().enumerate() {
+            if raw == 0 {
+                continue;
+            }
+            let slot = (raw != u32::MAX).then(|| (raw - 1) as usize);
+            index.instances.push((id as u64, slot));
+        }
+        for (&id, &slot) in &index.instance_sparse {
+            index.instances.push((id, slot));
         }
         Ok(index)
     }
 
-    fn note(&mut self, id: String, element: Any<'a>) {
+    fn note(&mut self, id: String, element: Any<'a>, with_ids: bool) {
+        let idx = self.entries.len();
         if let Some(Key::Instance(instance)) = element.source().key() {
-            self.instances
-                .entry(instance)
-                .and_modify(|id| *id = None)
-                .or_insert_with(|| Some(id.clone()));
+            if let Ok(dense_id) = usize::try_from(instance)
+                && let Some(slot) = self.instance_dense.get_mut(dense_id)
+            {
+                if *slot == 0 {
+                    *slot = u32::try_from(idx + 1).unwrap_or(u32::MAX);
+                } else {
+                    *slot = u32::MAX;
+                }
+            } else {
+                self.instance_sparse
+                    .entry(instance)
+                    .and_modify(|slot| *slot = None)
+                    .or_insert(Some(idx));
+            }
         }
-        self.elements.insert(id, element);
+        if with_ids {
+            self.by_id.insert(id.clone(), idx);
+        }
+        self.entries.push((id, element));
+    }
+
+    fn element(&self, id: &str) -> Option<Any<'a>> {
+        let &idx = self.by_id.get(id)?;
+        Some(self.entries.get(idx)?.1)
+    }
+
+    fn instance_slot(&self, instance: u64) -> Option<Option<usize>> {
+        if let Ok(dense_id) = usize::try_from(instance)
+            && let Some(&raw) = self.instance_dense.get(dense_id)
+        {
+            if raw == 0 {
+                None
+            } else if raw == u32::MAX {
+                Some(None)
+            } else {
+                Some(Some((raw - 1) as usize))
+            }
+        } else {
+            self.instance_sparse.get(&instance).copied()
+        }
+    }
+
+    fn has_instance(&self, instance: u64) -> bool {
+        self.instance_slot(instance).is_some()
     }
 
     /// インスタンスの番号が作った、ただ 1 つの要素
     fn found(&self, instance: u64) -> Option<Found<'a>> {
-        let id = self.instances.get(&instance)?.as_ref()?;
-        let element = *self.elements.get(id)?;
+        let idx = self.instance_slot(instance)??;
+        let (id, element) = self.entries.get(idx)?;
         Some(Found {
             id: id.clone(),
-            element,
+            element: *element,
             instance,
             record: 0,
         })
@@ -954,23 +1083,39 @@ trait Writer {
 /// 元のバイト列への書き直し
 struct Plan<'f> {
     /// レコードの番号から、そのフィーチャ
-    records: BTreeMap<usize, &'f FeatureRecord>,
+    records: Vec<Option<&'f FeatureRecord>>,
+    sparse_records: BTreeMap<usize, &'f FeatureRecord>,
     writer: Box<dyn Writer + 'f>,
 }
 
 impl<'f> Plan<'f> {
-    fn new(records: &'f [FeatureRecord], writer: Box<dyn Writer + 'f>) -> Self {
+    fn new(
+        records: &'f [FeatureRecord],
+        record_count: usize,
+        writer: Box<dyn Writer + 'f>,
+    ) -> Self {
+        let mut dense = vec![None; record_count];
+        let mut sparse = BTreeMap::new();
+        for record in records {
+            if let Some(slot) = dense.get_mut(record.record) {
+                *slot = Some(record);
+            } else {
+                sparse.insert(record.record, record);
+            }
+        }
         Plan {
-            records: records
-                .iter()
-                .map(|record| (record.record, record))
-                .collect(),
+            records: dense,
+            sparse_records: sparse,
             writer,
         }
     }
 
     fn record(&self, record: usize) -> Option<&'f FeatureRecord> {
-        self.records.get(&record).copied()
+        self.records
+            .get(record)
+            .copied()
+            .flatten()
+            .or_else(|| self.sparse_records.get(&record).copied())
     }
 
     fn remove(&mut self, record: usize, cx: &mut Cx) -> Result<Option<()>, Error> {
@@ -1360,6 +1505,37 @@ fn count_element_copy<P: Encode>(
             .saturating_add(source / 1024),
         &element.source,
     )
+}
+
+/// 複製を作らずに要素を比べるとき（`same_any`）の作業を数える。入れ子のない形は頂点や文字列の長さから直接数え、
+/// 入れ子を持つ形は `count_element_copy` で全体をたどる。
+fn count_element_compare<P: Encode>(element: &Element<P>, cx: &mut Cx) -> Result<(), Error> {
+    let simple = match &element.shape {
+        Shape::Line { .. }
+        | Shape::Circle { .. }
+        | Shape::Curve(
+            Edge::Line { .. } | Edge::Arc { .. } | Edge::Elliptic { .. } | Edge::Clothoid { .. },
+        ) => Some(1_u64),
+        Shape::Polyline(line) => Some(
+            1_u64
+                .saturating_add((line.vertices.len() as u64).saturating_mul(4))
+                .saturating_add((line.vertex_widths.len() as u64).saturating_mul(2)),
+        ),
+        Shape::Point(point) => {
+            let extra = match &point.look {
+                PointLook::Marker { key, .. } => {
+                    (key.namespace.len().saturating_add(key.code.len()) as u64) / 1024
+                }
+                _ => 0,
+            };
+            Some(1_u64.saturating_add(extra))
+        }
+        _ => None,
+    };
+    match simple {
+        Some(amount) => work(cx, amount, &element.source),
+        None => count_element_copy(element, cx, 1),
+    }
 }
 
 /// 折線を複製し、座標を文字列にする前に点の走査を数える。

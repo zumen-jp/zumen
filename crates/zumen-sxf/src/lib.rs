@@ -184,9 +184,14 @@ impl Codec for Sxf {
 
     fn write(file: &SxfFile, out: &mut Vec<u8>, cx: &mut Cx) -> Result<(), Error> {
         let mut end = 0;
+        let mut reserved = false;
         for record in &file.records {
             cx.check(Kind::Work, 1)
                 .map_err(|stop| stopped(cx, stop, Some(record.span())))?;
+            if !reserved {
+                out.reserve(file.src.len());
+                reserved = true;
+            }
             // レコードの間（空白・コメント・読めなかった文）は、そのまま写す
             out.extend_from_slice(file.bytes(end..record.span().start));
             out.extend_from_slice(file.bytes(record.span()));
