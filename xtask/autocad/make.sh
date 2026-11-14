@@ -1,6 +1,8 @@
 #!/bin/sh
 # samples/dwg の図面を、SSH でつなぐ Windows の AutoCAD で作り直す。使い方: make.sh [ホスト]（既定は home-win）
 # Windows に AutoCAD 2027 と OpenSSH のサーバーが要る。作業のフォルダーは C:\zumen-work
+# 保存した DWG・DXF には Windows の利用者名や端末名（$LASTSAVEDBY など）が入ることがあるため、
+# リポジトリに入れる前に中身を確かめ、samples/README.md の手順で台帳と codegen を通す。
 set -eu
 host=${1:-home-win}
 here=$(cd "$(dirname "$0")" && pwd)

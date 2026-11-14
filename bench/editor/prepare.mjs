@@ -263,7 +263,7 @@ for (const base of bases) {
       const search = name.endsWith("/open") || name.endsWith("/scene") || name.endsWith("/apply_transform_1");
       const kinds = !search || size.label === "base" ? "-" : big ? "work" : "work,records,elements,segments";
       const requests = Array.isArray(request) ? request : [request];
-      // エディターの流れの場合は、決定に使うので回数を増やす
+      // エディターの流れの場合は、ばらつきを抑えるため回数を増やす
       const flow = /\/(show|drawing_next|op_first|op_next|select|undo)$/.test(name);
       const repeat = flow ? (big ? 5 : 7) : big ? 3 : 5;
       plan.push(`case\t${name}\t${repeat}\t${kinds}`, ...setup, ...requests.map((r) => "time\t" + JSON.stringify(r)), "end");

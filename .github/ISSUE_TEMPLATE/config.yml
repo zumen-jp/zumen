@@ -5,4 +5,4 @@ contact_links:
     about: 脆弱性は、公開の issue ではなく、ここから非公開で報告してください。
   - name: 旧版（zumen-jp/zumen-legacy）の不具合
     url: https://github.com/zumen-jp/zumen-legacy/issues
-    about: いま公開している @zumenjs/* と PyPI の zumen 0.1 の不具合は、旧版のリポジトリへ報告してください。
+    about: 旧版の @zumenjs/* と PyPI の zumen 0.1.x の不具合は、旧版のリポジトリへ報告してください（0.2 以降はこのリポジトリで扱います）。

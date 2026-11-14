@@ -11,7 +11,7 @@
 
 サンプルは、同じ図面（[samples/dwg/zumen-layout-r2000_ascii.dxf](../samples/dwg/zumen-layout-r2000_ascii.dxf)）を開き、形式と図形の数（[examples/tier3/expected.txt](../examples/tier3/expected.txt)）を書きます。毎晩の CI（`nightly.yml` の `tier3`）が流し、書いたものが `expected.txt` と同じかを確かめます。言語に依らない適合テストは、[bindings/conformance/cli.mjs](../bindings/conformance/cli.mjs) が同じ形で流します。
 
-成果物はまだ配っていないので、どの形態も、このリポジトリで作ったものを使います（配ったあとの手順は、公開のときに直します）。
+CLI と C ABI の共有ライブラリは [GitHub Release](https://github.com/zumen-jp/zumen/releases) でも配っています。下のサンプルは、このリポジトリでビルドしたもの（`target/release`）を使う手順です。
 
 ## 共通の流れ
 

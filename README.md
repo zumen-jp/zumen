@@ -10,10 +10,10 @@
 
 | 領域 | 形式 | できること |
 | --- | --- | --- |
-| 図面 | SXF（SFC・P21・SFZ・P2Z）、JWW、DXF、DWG | 要素・レイヤ・線種・用紙を読む。変更を当てて、同じ形式に書き戻す。DXF に変換する。表示のための 2D のシーンを作る。CAD製図基準などのプロファイルの規則でチェックする |
+| 図面 | SXF（SFC・P21・SFZ・P2Z）、JWW、DXF、DWG、SIMA、TIFF・GeoTIFF | 要素・レイヤ・線種・用紙を読む。変更を当てて、同じ形式に書き戻す（SXF・JWW・DXF・DWG・SIMA）。DXF に変換する。表示のための 2D のシーンや SVG・PNG を作る。CAD製図基準などのプロファイルの規則でチェックする |
 | BIM | IFC（IFC-SPF・ifcZIP）、IDS、BCF | IFC を建物モデルとして読み、変更を当てて書き戻す。IDS で照合する。BCF を読み書きする |
-| 土木・地理 | J-LandXML、CityGML（PLATEAU）、基盤地図情報、拡張 DM | 線形の上の座標・高さ・勾配を求める。平面図・縦断図・横断図を作る。地物を返す |
-| 点群 | LAS・LAZ、PLY、XYZ、E57 | 読む。設計の面との標高の差を、規格値と比べて集計する |
+| 土木・地理 | J-LandXML、SIMA、GeoJSON、CityGML（PLATEAU）、基盤地図情報、拡張 DM、GeoTIFF | 線形の上の座標・高さ・勾配を求める。平面図・縦断図・横断図を作る。地物を返し、GeoJSON に書き出す |
+| 点群 | LAS・LAZ、PLY、XYZ、E57、GeoTIFF | 読む。設計の面との標高の差を、規格値と比べて集計する |
 | 納品 | 電子納品の成果品、工事写真（JPEG）、ボーリング交換用データ | 管理ファイルを読み、プロファイルの規則でチェックする。Exif と XMP、地層と標準貫入試験の値を返す |
 
 - PDF・JWC・JWS・表（xlsx・CSV）は、コアでは扱いません。LAZ は、公開済み v0.2.0 では展開を止めていましたが、`main` で展開を戻しました（[#510](https://github.com/zumen-jp/zumen/issues/510)）。
@@ -83,6 +83,7 @@ target/debug/zumen entities samples/dwg/zumen-layout-r2000.dwg --limit 2
 | [docs/tier3.md](docs/tier3.md) | 公式のラッパーのない言語から使う手順 |
 | [docs/view2d.md](docs/view2d.md) | 2D の表示部品の方針と、旧版からの置き換えの対応表 |
 | [docs/render.md](docs/render.md) | 図面から SVG・PNG を作る API と、Node.js の例 |
+| [docs/live.md](docs/live.md) | 対話の編集に向けた文書エンジンの設計と、試作の測定 |
 | [schema](schema/README.md) | API の関数とメッセージのスキーマ |
 | [catalog](catalog/README.md) | 診断の code と、日本語・英語の文 |
 | [コアの設計](docs/architecture.md) | モデルの層、書き出しの経路、決定性、予算 |
