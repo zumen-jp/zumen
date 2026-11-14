@@ -149,6 +149,20 @@ impl Born {
                 Some((crate::drawing::source(object), annotation))
             })
             .collect();
+        let mut layers: BTreeMap<LayerId, String> = drawing
+            .layers
+            .iter()
+            .map(|layer| (layer.id, layer.name.clone()))
+            .collect();
+        if !layers.values().any(|name| name.eq_ignore_ascii_case("0")) {
+            let zero = LayerId(
+                layers
+                    .keys()
+                    .next_back()
+                    .map_or(0, |id| id.0.saturating_add(1)),
+            );
+            layers.insert(zero, "0".to_owned());
+        }
         Born {
             ends,
             annotations,
@@ -158,11 +172,7 @@ impl Born {
             encoder: Encoder::new(charset),
             target,
             names,
-            layers: drawing
-                .layers
-                .iter()
-                .map(|layer| (layer.id, layer.name.clone()))
-                .collect(),
+            layers,
             line_types: drawing
                 .line_types
                 .iter()
@@ -845,17 +855,80 @@ impl Born {
         Some(values)
     }
 
+    /// 部品の図形を置く既定の画層（`0`）
+    pub(super) fn layer_zero(&self) -> Option<LayerId> {
+        let (&id, _) = self
+            .layers
+            .iter()
+            .find(|(_, name)| name.eq_ignore_ascii_case("0"))?;
+        self.layer_value(id).map(|_| id)
+    }
+
+    /// 名前のブロック定義が図面にあるか
+    pub(super) fn has_block(&self, name: &str) -> bool {
+        let lower = name.to_lowercase();
+        self.blocks.contains_key(&lower)
+            && self
+                .names
+                .get(b"BLOCK_RECORD".as_slice())
+                .is_none_or(|names| names.contains_key(&lower))
+    }
+
+    /// 名前の文字スタイルが図面にあるか（DXF で表がないときは `Standard` も可）
+    pub(super) fn has_text_style(&self, name: &str) -> bool {
+        self.named(7, b"STYLE", name).is_some()
+    }
+
+    /// 塗った四角形・三角形（SOLID、DXF Reference「SOLID」）。矢印の塗りつぶしに使う
+    pub(super) fn solid(
+        &self,
+        layer: LayerId,
+        style: &Style,
+        corners: [[f64; 2]; 4],
+        home: Home,
+        index: u64,
+    ) -> Option<Record> {
+        self.next?.checked_add(index)?.checked_add(1)?;
+        if home.blocks && !home.owner.is_some_and(|owner| self.ends.contains(&owner)) {
+            return None;
+        }
+        let paper = home.paper && !(home.blocks && self.dwg());
+        let mut values = self.entity(layer, style, paper)?;
+        values.push(text(100, "AcDbTrace"));
+        for (i, [x, y]) in corners.into_iter().enumerate() {
+            let code = 10 + i16::try_from(i).ok()?;
+            values.extend([real(code, x)?, real(code + 10, y)?, real(code + 20, 0.0)?]);
+        }
+        if !self.markers {
+            values.retain(|value| value.code != 100);
+        }
+        Some(Record {
+            kind: b"SOLID",
+            values,
+            home,
+            followers: Vec::new(),
+            annotation: None,
+        })
+    }
+
     /// DXF の BLOCKS への挿入は、終端の検索と挿入後の索引の作り直しが表の数に比例する。
     /// 表が増える分を含めた上限を先に数え、呼ぶ側が変更前に予算を確かめる。
-    pub(super) fn insertion_work(&self, added: &[Record], existing: usize) -> u64 {
+    pub(super) fn insertion_work(
+        &self,
+        added: &[Record],
+        rebuilt: &[Record],
+        existing: usize,
+    ) -> u64 {
         if self.target != Target::Dxf {
             return 0;
         }
         let total = added
             .iter()
+            .chain(rebuilt)
             .fold(0u64, |count, record| count.saturating_add(record.count()));
         let blocked = added
             .iter()
+            .chain(rebuilt)
             .filter(|record| record.home.blocks)
             .fold(0u64, |count, record| count.saturating_add(record.count()));
         blocked
@@ -863,26 +936,37 @@ impl Born {
             .saturating_mul((existing as u64).saturating_add(total))
     }
 
-    /// 足す図形を表に足す。ハンドルを順に付け、所有者を置き場所のブロックのレコードにする。DXF の BLOCKS の
-    /// 所の図形は、所有者のブロックの ENDBLK の前に置く。DWG は、足したオブジェクトを表の終わりにだけ置け、
-    /// 所有者のブロックの図形の列には書き戻しがつなぐ（決定 0079）
-    /// 足した図形ごとのハンドルを、足した順に返す。ハンドルを付けられない図面なら、どれも `None`
-    pub(super) fn push(&self, db: &mut AcadDb, added: Vec<Record>) -> Vec<Option<u64>> {
-        let mut handles = Vec::with_capacity(added.len());
+    /// 足す図形と、作り直した匿名ブロックの部品を表に足す。ハンドルを順に付け、所有者を置き場所のブロックの
+    /// レコードにする。DXF の BLOCKS の所の図形は、所有者のブロックの ENDBLK の前に置く。DWG は、足した
+    /// オブジェクトを表の終わりにだけ置け、所有者のブロックの図形の列には書き戻しがつなぐ（決定 0079）。
+    /// `added` の図形ごとのハンドルを、足した順に返す。ハンドルを付けられない図面なら、どれも `None`
+    pub(super) fn push(
+        &self,
+        db: &mut AcadDb,
+        added: Vec<Record>,
+        rebuilt: Vec<Record>,
+    ) -> Vec<Option<u64>> {
+        let added_len = added.len();
+        let mut handles = Vec::with_capacity(added_len);
         let Some(mut next) = self.next else {
-            return vec![None; added.len()];
+            return vec![None; added_len];
         };
-        for Record {
-            kind,
-            values,
-            home,
-            followers,
-            annotation,
-        } in added
+        for (
+            index,
+            Record {
+                kind,
+                values,
+                home,
+                followers,
+                annotation,
+            },
+        ) in added.into_iter().chain(rebuilt).enumerate()
         {
             // ATTRIB と SEQEND は、図形のすぐ後に置き、所有者を図形とする
             let parent = next;
-            handles.push(Some(parent));
+            if index < added_len {
+                handles.push(Some(parent));
+            }
             let objects = std::iter::once((kind, home.owner, values)).chain(
                 followers
                     .into_iter()
@@ -1026,6 +1110,20 @@ fn amount<P>(shape: &Shape<P>) -> u64 {
             .saturating_add(spline.fit.len()),
         Shape::Text(text) => text.content.len(),
         Shape::Formatted(text) => text.content.len(),
+        Shape::Dimension(dimension) => {
+            let content = match &dimension.label {
+                zumen_drawing::Label::Override { content, .. } => content.len(),
+                zumen_drawing::Label::Measurement | zumen_drawing::Label::Hidden => 0,
+            };
+            content
+                .saturating_add(dimension.style.len())
+                .saturating_add(dimension.block.as_ref().map_or(0, String::len))
+        }
+        Shape::Table(table) => table
+            .row_heights
+            .len()
+            .saturating_add(table.column_widths.len())
+            .saturating_add(table.cells.len()),
         Shape::Leader(leader) => leader.path.len().saturating_add(leader.style.len()),
         Shape::Symbol(symbol) => symbol
             .attributes
@@ -1048,6 +1146,18 @@ pub(super) fn work<P>(
             let bytes =
                 (attribute.tag.len() as u64).saturating_add(attribute.text.content.len() as u64);
             super::work(cx, bytes, at)?;
+        }
+    }
+    if let Shape::Table(table) = shape {
+        for cell in &table.cells {
+            let bytes = match &cell.content {
+                zumen_drawing::CellContent::Text { content, .. } => content.len() as u64,
+                zumen_drawing::CellContent::Symbol(key) => {
+                    (key.namespace.len() as u64).saturating_add(key.name.len() as u64)
+                }
+                zumen_drawing::CellContent::Empty => 0,
+            };
+            super::work(cx, 1u64.saturating_add(bytes), at)?;
         }
     }
     Ok(())

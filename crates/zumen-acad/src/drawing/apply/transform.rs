@@ -460,7 +460,7 @@ fn aligned_first<P>(
 /// 図形とともに動く XDATA を、AutoCAD と同じ規則で直す（DXF Reference「Group Codes That Apply to Extended
 /// Data」）。位置（1011・1021）は変換で写し、変位（1012・1022）は平行移動を除いて写し、向き（1013・1023）は
 /// 写してから元の長さにそろえる。距離（1041）と倍率（1042）は尺度を掛け、相似でない変換では直さない
-fn carried(values: &mut [Value], transform: &Affine) -> Option<()> {
+pub(super) fn carried(values: &mut [Value], transform: &Affine) -> Option<()> {
     let start = values.iter().position(|v| v.code == 1001)?;
     let tail = values.get_mut(start..)?;
     let scale = if tail.iter().any(|v| matches!(v.code, 1041 | 1042)) {

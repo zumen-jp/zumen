@@ -1665,7 +1665,7 @@ public struct Entity: Message {
         set { writeField("hash", newValue) }
     }
 
-    /// 形の値。線分・円・円弧・楕円・幅を持たない折れ線・1 点か 2 点の間に置く文字・書式つきの文字・ブロックの記号・制御点かフィット点で決まるスプライン・寸法・引出線（LEADER）だけが持つ。apply の replace と add に渡せる形（決定 0139）。マイナーバージョン 10 から
+    /// 形の値。線分・円・円弧・楕円・幅を持たない折れ線・1 点か 2 点の間に置く文字・書式つきの文字・ブロックの記号・制御点かフィット点で決まるスプライン・寸法・引出線（LEADER）・点・引出線つきの注記・表（ACAD_TABLE）だけが持つ。apply の replace と add に渡せる形（決定 0139）。マイナーバージョン 10 から
     public var geometry: Geometry? {
         get { readField("geometry") }
         set { writeField("geometry", newValue) }
@@ -1758,6 +1758,11 @@ public struct Geometry: Message {
     /// shape が callout の形なら、そのビュー。違えば nil
     public var asCalloutGeometry: CalloutGeometry? {
         taggedView("shape", "callout")
+    }
+
+    /// shape が table の形なら、そのビュー。違えば nil
+    public var asTableGeometry: TableGeometry? {
+        taggedView("shape", "table")
     }
 }
 
@@ -2247,7 +2252,7 @@ public struct SplineGeometry: Message {
     }
 }
 
-/// 寸法。種類（kind）ごとに、その種類の定義点のフィールドを持つ。測定値（measurement）は元の形式が保存した値で、定義点から測り直さない。寸法を描いた部品（ブロック）は形の値に含めない。entities が返すだけで、置き換えと追加は change.edit.unsupported になる（寸法を描いた部品を作り直す必要があるため）。マイナーバージョン 19 から
+/// 寸法。種類（kind）ごとに、その種類の定義点のフィールドを持つ。測定値（measurement）は元の形式が保存した値で、定義点から測り直さない。寸法を描いた部品（ブロック）は形の値に含めない。置き換え（DXF と DWG の DIMENSION、DXF の ARC_DIMENSION）では定義点と文字を書き直し、測定値を測り直して表示の部品を作り直す（マイナーバージョン 74 から。それまでは置き換えも change.edit.unsupported だった）。measurement は省くか元と同じ値を書く。足すことは、まだしない。マイナーバージョン 19 から
 public struct DimensionGeometry: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -2418,7 +2423,7 @@ public struct DimensionGeometry: Message {
         set { writeField("style", newValue) }
     }
 
-    /// 寸法スタイルの ID。tables が返したもの。名前で引いた寸法スタイルがなければ書かない。マイナーバージョン 23 から
+    /// 寸法スタイルの ID。tables が返したもの。名前で引いた寸法スタイルがなければ書かない。置き換えるときは、名前と同じ寸法スタイルを指す ID だけを受ける。マイナーバージョン 23 から
     public var styleId: String? {
         get { readField("style_id") }
         set { writeField("style_id", newValue) }
@@ -2629,6 +2634,119 @@ public enum CalloutPath {
 /// 列挙の値。知らない値も受け取る
 public enum CalloutContent {
     public static let none = "none"
+    public static let text = "text"
+    public static let symbol = "symbol"
+}
+
+/// 表（DXF・DWG の ACAD_TABLE、決定 0113）。挿入点・行の向き・行の高さ・列の幅と、行ごとのセルの並びを持つ。表のスタイル・セルの書式・型のある値・表示の部品（ブロック）は形の値に含めない。置き換え（DXF の ACAD_TABLE）では、行と列の数・セルの結合・文字でないセル（記号）を変えず、挿入点・行の向き・行の高さ・列の幅・文字と空のセルの内容と回転を書き直し、表示の部品を作り直す。足すことと DWG の書き戻しは、まだしない。マイナーバージョン 74 から
+public struct TableGeometry: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// タグのフィールドだけを持つオブジェクトから作る
+    public init() {
+        json = ["shape": .string("table")]
+    }
+
+    /// 形の種類
+    public var shape: String? {
+        get { readField("shape") }
+        set { writeField("shape", newValue) }
+    }
+
+    /// 挿入点 [X, Y]
+    public var position: [Double]? {
+        get { readField("position") }
+        set { writeField("position", newValue) }
+    }
+
+    /// 行の向き [X, Y]。0 でない
+    public var direction: [Double]? {
+        get { readField("direction") }
+        set { writeField("direction", newValue) }
+    }
+
+    /// 上の行からの行の高さ。どれも 0 より大きい。1 つ以上
+    public var rowHeights: [Double]? {
+        get { readField("row_heights") }
+        set { writeField("row_heights", newValue) }
+    }
+
+    /// 左の列からの列の幅。どれも 0 より大きい。1 つ以上
+    public var columnWidths: [Double]? {
+        get { readField("column_widths") }
+        set { writeField("column_widths", newValue) }
+    }
+
+    /// 上の行から、行ごとに左の列から並べたセル。数は行の数と列の数の積
+    public var cells: [TableCell]? {
+        get { readField("cells") }
+        set { writeField("cells", newValue) }
+    }
+}
+
+/// 表の 1 つのセル
+public struct TableCell: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 中身の種類
+    public var content: String? {
+        get { readField("content") }
+        set { writeField("content", newValue) }
+    }
+
+    /// 書式の符号を含む元の文字列。空でない。content が text のときだけ持つ
+    public var text: String? {
+        get { readField("text") }
+        set { writeField("text", newValue) }
+    }
+
+    /// 記号のブロックの名前。content が symbol のときだけ持つ
+    public var symbol: String? {
+        get { readField("symbol") }
+        set { writeField("symbol", newValue) }
+    }
+
+    /// 結合して広げる列と行の数 [列, 行]。結合しなければ [1, 1]（省けば [1, 1]）
+    public var span: [Int64]? {
+        get { readField("span") }
+        set { writeField("span", newValue) }
+    }
+
+    /// ほかのセルに結合されて覆われるか。偽のときは省ける
+    public var covered: Bool? {
+        get { readField("covered") }
+        set { writeField("covered", newValue) }
+    }
+
+    /// 文字か記号の回転。0 のときは省ける
+    public var rotation: Double? {
+        get { readField("rotation") }
+        set { writeField("rotation", newValue) }
+    }
+}
+
+/// 表のセルの中身の種類。empty は空、text は書式つきの文字、symbol は記号（ブロック）
+///
+/// 列挙の値。知らない値も受け取る
+public enum TableCellContent {
+    public static let empty = "empty"
     public static let text = "text"
     public static let symbol = "symbol"
 }

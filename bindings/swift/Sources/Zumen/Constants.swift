@@ -13,7 +13,7 @@ public enum Constants {
     public static let schemaMajor: Int64 = 1
 
     /// メッセージのスキーマのマイナーバージョン
-    public static let schemaMinor: Int64 = 73
+    public static let schemaMinor: Int64 = 74
 
     /// 状態コード
     public enum Status {

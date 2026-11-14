@@ -278,6 +278,17 @@ pub(super) fn anchor<P: Copy>(shape: &Shape<P>) -> Option<P> {
                 .or(branch.end.as_ref())
                 .copied()
         }),
+        Shape::Dimension(dimension) => match &dimension.kind {
+            zumen_drawing::DimensionKind::Linear { first, .. }
+            | zumen_drawing::DimensionKind::Aligned { first, .. }
+            | zumen_drawing::DimensionKind::Angular { first, .. }
+            | zumen_drawing::DimensionKind::ArcLength { first, .. } => Some(*first),
+            zumen_drawing::DimensionKind::AngularLines { first, .. } => Some(first[0]),
+            zumen_drawing::DimensionKind::Radius { center, .. } => Some(*center),
+            zumen_drawing::DimensionKind::Diameter { chord, .. } => Some(*chord),
+            zumen_drawing::DimensionKind::Ordinate { origin, .. } => Some(*origin),
+        },
+        Shape::Table(table) => Some(table.position),
         _ => None,
     }
 }

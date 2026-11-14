@@ -6,6 +6,7 @@
 //! - `add`: 実寸の空間と用紙への新しい図形の追加
 //! - `replace`: 図形の置き換えで変わる形のフィールド
 //! - `callout`: 引出線つきの注記（MULTILEADER）の置き換えと変換、および形の基準点
+//! - `parts`: 寸法（DIMENSION・ARC_DIMENSION）と表（ACAD_TABLE）の置き換え・変換と表示ブロックの作り直し
 //! - `transform`: スタイルの変更・座標変換・記号の属性の書き換え・動く拡張データ
 //! - `layer`・`line_type`・`text_style`・`dimension_style`・`owned`: 表のレコードの追加・置き換え・削除
 //! - `new_dxf`: 新しい DXF の画層の拡張データと表の件数
@@ -21,6 +22,7 @@ mod layer;
 mod line_type;
 mod new_dxf;
 mod owned;
+mod parts;
 mod replace;
 #[cfg(test)]
 mod tests;
@@ -428,6 +430,7 @@ fn edit(
         replaced,
         mut removed,
         added,
+        rebuilt,
         layers,
         text_styles,
         line_types,
@@ -436,7 +439,7 @@ fn edit(
         ..
     } = plan;
     count_removals(db, &replaced, &removed, cx)?;
-    let insertion_work = born.insertion_work(&added, db.objects().len());
+    let insertion_work = born.insertion_work(&added, &rebuilt, db.objects().len());
     if insertion_work > 0 {
         work(cx, insertion_work, &Ref::default())?;
     }
@@ -448,7 +451,7 @@ fn edit(
     for position in removed.into_iter().rev() {
         db.remove(position);
     }
-    let handles = born.push(db, added);
+    let handles = born.push(db, added, rebuilt);
     let layer_handles = layers.write_back(db, target, cx)?;
     let style_handles = text_styles.write_back(db, target, cx)?;
     let line_type_handles = line_types.write_back(db, target, cx)?;
@@ -539,6 +542,11 @@ struct Plan<'e> {
     replaced: Vec<(usize, Vec<Value>)>,
     removed: Vec<usize>,
     added: Vec<add::Record>,
+    rebuilt: Vec<add::Record>,
+    rebuilt_blocks: BTreeSet<u64>,
+    rebuilt_removed: BTreeSet<usize>,
+    touched: BTreeSet<usize>,
+    blocks: Option<parts::BlockIndex>,
     added_records: u64,
     rejected: bool,
     /// 変えた項目の ID。同じ項目は一度だけ変えられる
@@ -563,6 +571,11 @@ impl<'e> Plan<'e> {
             replaced: Vec::new(),
             removed: Vec::new(),
             added: Vec::new(),
+            rebuilt: Vec::new(),
+            rebuilt_blocks: BTreeSet::new(),
+            rebuilt_removed: BTreeSet::new(),
+            touched: BTreeSet::new(),
+            blocks: None,
             added_records: 0,
             rejected: false,
             targets: BTreeSet::new(),
@@ -982,43 +995,72 @@ fn change_element<'e>(
     } else {
         0
     };
-    if lifted_count.is_some_and(|lifted| count != lifted) || (moved_symbol && count > 0) {
+    if lifted_count.is_some_and(|lifted| count != lifted)
+        || (moved_symbol && count > 0)
+        || plan.rebuilt_removed.contains(&position)
+    {
         plan.reject(
             unsupported(edit, &text(&object.kind), target).at(at.clone()),
             cx,
         );
         return Ok(());
     }
-    let replaced = &mut plan.replaced;
     let planned = match (change, found) {
         (Edit::Replace { element, .. }, Found::Model(was)) => match element.as_ref() {
-            Placed::Model(element) => anchor(&was.shape)
-                .and_then(|anchor| {
-                    let frame = InSpace(anchor.space);
-                    let (written, followers) =
-                        revalued(db, positions, was, element, encoder, &frame)?;
-                    let values = replacement(was, &written, object, encoder, &frame)?;
-                    Some((values, followers))
-                })
-                .map(|(values, followers)| {
-                    replaced.push((position, values));
-                    replaced.extend(followers);
-                }),
+            Placed::Model(element) => match &was.shape {
+                Shape::Dimension(_) | Shape::Table(_) => match anchor(&was.shape) {
+                    Some(anchor) => {
+                        let frame = InSpace(anchor.space);
+                        parts::replace(current, plan, position, object, was, element, &frame, cx)?
+                    }
+                    None => None,
+                },
+                _ => anchor(&was.shape)
+                    .and_then(|anchor| {
+                        let frame = InSpace(anchor.space);
+                        let (written, followers) =
+                            revalued(db, positions, was, element, encoder, &frame)?;
+                        let values = replacement(was, &written, object, encoder, &frame)?;
+                        Some((values, followers))
+                    })
+                    .map(|(values, followers)| {
+                        plan.touched.insert(position);
+                        plan.touched.extend(followers.iter().map(|(pos, _)| *pos));
+                        plan.replaced.push((position, values));
+                        plan.replaced.extend(followers);
+                    }),
+            },
             Placed::Paper(_) => None,
         },
         (Edit::Replace { element, .. }, Found::Paper(was)) => match element.as_ref() {
-            Placed::Paper(element) => anchor(&was.shape)
-                .and_then(|anchor| {
-                    let frame = OnSheet(anchor.sheet, *frames.get(&anchor.sheet)?);
-                    let (written, followers) =
-                        revalued(db, positions, was, element, encoder, &frame)?;
-                    let values = replacement(was, &written, object, encoder, &frame)?;
-                    Some((values, followers))
-                })
-                .map(|(values, followers)| {
-                    replaced.push((position, values));
-                    replaced.extend(followers);
-                }),
+            Placed::Paper(element) => match &was.shape {
+                Shape::Dimension(_) | Shape::Table(_) => match anchor(&was.shape) {
+                    Some(anchor) => match frames.get(&anchor.sheet) {
+                        Some(&paper) => {
+                            let frame = OnSheet(anchor.sheet, paper);
+                            parts::replace(
+                                current, plan, position, object, was, element, &frame, cx,
+                            )?
+                        }
+                        None => None,
+                    },
+                    None => None,
+                },
+                _ => anchor(&was.shape)
+                    .and_then(|anchor| {
+                        let frame = OnSheet(anchor.sheet, *frames.get(&anchor.sheet)?);
+                        let (written, followers) =
+                            revalued(db, positions, was, element, encoder, &frame)?;
+                        let values = replacement(was, &written, object, encoder, &frame)?;
+                        Some((values, followers))
+                    })
+                    .map(|(values, followers)| {
+                        plan.touched.insert(position);
+                        plan.touched.extend(followers.iter().map(|(pos, _)| *pos));
+                        plan.replaced.push((position, values));
+                        plan.replaced.extend(followers);
+                    }),
+            },
             Placed::Model(_) => None,
         },
         (Edit::Restyle { style, .. }, found) => {
@@ -1026,37 +1068,78 @@ fn change_element<'e>(
                 Found::Model(element) => (element.layer, &element.style),
                 Found::Paper(element) => (element.layer, &element.style),
             };
-            restyled(born, object, layer, was, style, cx)?
-                .map(|values| replaced.push((position, values)))
+            restyled(born, object, layer, was, style, cx)?.map(|values| {
+                plan.touched.insert(position);
+                plan.replaced.push((position, values));
+            })
         }
         (Edit::Transform { transform, .. }, Found::Model(was)) => {
             transform_work(db, positions, was, object, cx)?;
-            anchor(&was.shape)
-                .and_then(|anchor| {
-                    let frame = InSpace(anchor.space);
-                    moved(db, positions, was, object, transform, encoder, &frame, true)
-                })
-                .map(|values| {
-                    replaced.push((position, values.object));
-                    replaced.extend(values.followers);
-                })
+            match &was.shape {
+                Shape::Dimension(_) | Shape::Table(_) => match anchor(&was.shape) {
+                    Some(anchor) => {
+                        let frame = InSpace(anchor.space);
+                        parts::transform(
+                            current, plan, position, object, was, transform, &frame, true, cx,
+                        )?
+                    }
+                    None => None,
+                },
+                _ => anchor(&was.shape)
+                    .and_then(|anchor| {
+                        let frame = InSpace(anchor.space);
+                        moved(db, positions, was, object, transform, encoder, &frame, true)
+                    })
+                    .map(|values| {
+                        plan.touched.insert(position);
+                        plan.touched
+                            .extend(values.followers.iter().map(|(pos, _)| *pos));
+                        plan.replaced.push((position, values.object));
+                        plan.replaced.extend(values.followers);
+                    }),
+            }
         }
         (Edit::Transform { transform, .. }, Found::Paper(was)) => {
             transform_work(db, positions, was, object, cx)?;
-            anchor(&was.shape)
-                .and_then(|anchor| {
-                    let frame = OnSheet(anchor.sheet, *frames.get(&anchor.sheet)?);
-                    moved(
-                        db, positions, was, object, transform, encoder, &frame, false,
-                    )
-                })
-                .map(|values| {
-                    replaced.push((position, values.object));
-                    replaced.extend(values.followers);
-                })
+            match &was.shape {
+                Shape::Dimension(_) | Shape::Table(_) => match anchor(&was.shape) {
+                    Some(anchor) => match frames.get(&anchor.sheet) {
+                        Some(&paper) => {
+                            let frame = OnSheet(anchor.sheet, paper);
+                            parts::transform(
+                                current, plan, position, object, was, transform, &frame, false, cx,
+                            )?
+                        }
+                        None => None,
+                    },
+                    None => None,
+                },
+                _ => anchor(&was.shape)
+                    .and_then(|anchor| {
+                        let frame = OnSheet(anchor.sheet, *frames.get(&anchor.sheet)?);
+                        moved(
+                            db, positions, was, object, transform, encoder, &frame, false,
+                        )
+                    })
+                    .map(|values| {
+                        plan.touched.insert(position);
+                        plan.touched
+                            .extend(values.followers.iter().map(|(pos, _)| *pos));
+                        plan.replaced.push((position, values.object));
+                        plan.replaced.extend(values.followers);
+                    }),
+            }
         }
-        (Edit::Remove { .. }, _) => entity_removal(db, position, object, target, cx, at)?
-            .map(|skip| plan.removed.extend(skip)),
+        (Edit::Remove { .. }, _) => {
+            entity_removal(db, position, object, cx, at)?.and_then(|skip| {
+                if skip.iter().any(|pos| plan.rebuilt_removed.contains(pos)) {
+                    return None;
+                }
+                plan.touched.extend(skip.iter().copied());
+                plan.removed.extend(skip);
+                Some(())
+            })
+        }
         (
             Edit::Add { .. }
             | Edit::ReplaceLayer { .. }
@@ -1466,23 +1549,19 @@ fn removal(
     Ok(free.then_some(skip))
 }
 
-/// 除く図形（表の `position`）と、DXF で一緒に除く拡張辞書とそれが持つオブジェクトの位置（#881）。
-/// 続くレコードを持つ図形は除かない。DWG は図形の拡張辞書とリアクターを書き戻し側（`DwgFile::write_back`）で
-/// 検査する。DXF は、102 の組も組の外の 360 もなければ図形だけを除き、あれば表のレコードと同じ条件
-/// （[`owned::owned`]・[`owned::pointed`]）で拡張辞書の木ごと除く
+/// 除く図形（表の `position`）と、一緒に除く拡張辞書とそれが持つオブジェクトの位置（#881）。
+/// 続くレコードを持つ図形は除かない。102 の組も組の外の 360 もなければ図形だけを除き、あれば表のレコードと同じ条件
+/// （[`owned::owned`]・[`owned::pointed`]）で拡張辞書の木ごと除く。DWG のリアクターは書き戻し側
+/// （`DwgFile::write_back`）でも検査する
 fn entity_removal(
     db: &AcadDb,
     position: usize,
     object: &Object,
-    target: Target,
     cx: &mut Cx,
     place: &Ref,
 ) -> Result<Option<BTreeSet<usize>>, Error> {
     if followed(object) {
         return Ok(None);
-    }
-    if matches!(target, Target::Dwg(_)) {
-        return Ok(Some(BTreeSet::from([position])));
     }
     count_transform_values(object, place, cx)?;
     if !object

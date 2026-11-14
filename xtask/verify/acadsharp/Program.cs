@@ -93,6 +93,7 @@ static class Dwg
             }
             // 画層の名前と色（ACI。真の色なら null）
             result["layers"] = layers;
+            result["blocks"] = new JsonArray(doc.BlockRecords.Select(r => (JsonNode?)r.Name).ToArray());
             var entities = new JsonObject();
             foreach (var record in doc.BlockRecords)
             {
@@ -194,6 +195,12 @@ static class Dwg
                 d["attributes"] = new JsonArray(insert.Attributes
                     .Select(a => (JsonNode?)new JsonObject { ["tag"] = a.Tag, ["value"] = a.Value })
                     .ToArray());
+                break;
+            case Dimension dim:
+                d["block"] = dim.Block?.Name;
+                d["measurement"] = dim.Measurement;
+                d["text_midpoint"] = Xy(dim.TextMiddlePoint);
+                d["text"] = dim.Text ?? "";
                 break;
         }
         entities[e.Handle.ToString("X", CultureInfo.InvariantCulture)] = d;

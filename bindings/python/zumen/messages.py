@@ -794,7 +794,7 @@ _EntityOptional = TypedDict(
         "bbox": "Extent",
         # 要素のレイヤ・スタイル・形のハッシュ。出所の位置は含めない。変更の前提条件に使う（v2: と 32 桁の 16 進、決定 0156）
         "hash": str,
-        # 形の値。線分・円・円弧・楕円・幅を持たない折れ線・1 点か 2 点の間に置く文字・書式つきの文字・ブロックの記号・制御点かフィット点で決まるスプライン・寸法・引出線（LEADER）だけが持つ。apply の replace と add に渡せる形（決定 0139）。マイナーバージョン 10 から
+        # 形の値。線分・円・円弧・楕円・幅を持たない折れ線・1 点か 2 点の間に置く文字・書式つきの文字・ブロックの記号・制御点かフィット点で決まるスプライン・寸法・引出線（LEADER）・点・引出線つきの注記・表（ACAD_TABLE）だけが持つ。apply の replace と add に渡せる形（決定 0139）。マイナーバージョン 10 から
         "geometry": "Geometry",
     },
     total=False,
@@ -833,6 +833,7 @@ Geometry = Union[
     "LeaderGeometry",
     "PointGeometry",
     "CalloutGeometry",
+    "TableGeometry",
 ]
 
 
@@ -1081,7 +1082,7 @@ class SplineGeometry(_SplineGeometryRequired, _SplineGeometryOptional):
     "スプライン（NURBS）。制御点で決まるもの（マイナーバージョン 15 から）と、フィット点で決まるもの（マイナーバージョン 18 から）がある。フィット点で決まるものは、ノットと制御点を空にし、フィット点（fit）と、あれば両端の接線を持つ。元の図形に制御点やノットもあるときは形の値を返さず、置き換えない。置き換えでは、制御点で決まるものとフィット点で決まるものを入れ替えない"
 
 
-# 寸法。種類（kind）ごとに、その種類の定義点のフィールドを持つ。測定値（measurement）は元の形式が保存した値で、定義点から測り直さない。寸法を描いた部品（ブロック）は形の値に含めない。entities が返すだけで、置き換えと追加は change.edit.unsupported になる（寸法を描いた部品を作り直す必要があるため）。マイナーバージョン 19 から
+# 寸法。種類（kind）ごとに、その種類の定義点のフィールドを持つ。測定値（measurement）は元の形式が保存した値で、定義点から測り直さない。寸法を描いた部品（ブロック）は形の値に含めない。置き換え（DXF と DWG の DIMENSION、DXF の ARC_DIMENSION）では定義点と文字を書き直し、測定値を測り直して表示の部品を作り直す（マイナーバージョン 74 から。それまでは置き換えも change.edit.unsupported だった）。measurement は省くか元と同じ値を書く。足すことは、まだしない。マイナーバージョン 19 から
 _DimensionGeometryRequired = TypedDict(
     "_DimensionGeometryRequired",
     {
@@ -1142,7 +1143,7 @@ _DimensionGeometryOptional = TypedDict(
         "text_position": List[float],
         # 寸法値の文字の回転（度）。寸法線に沿わせるなら書かない
         "text_rotation": float,
-        # 寸法スタイルの ID。tables が返したもの。名前で引いた寸法スタイルがなければ書かない。マイナーバージョン 23 から
+        # 寸法スタイルの ID。tables が返したもの。名前で引いた寸法スタイルがなければ書かない。置き換えるときは、名前と同じ寸法スタイルを指す ID だけを受ける。マイナーバージョン 23 から
         "style_id": str,
     },
     total=False,
@@ -1150,7 +1151,7 @@ _DimensionGeometryOptional = TypedDict(
 
 
 class DimensionGeometry(_DimensionGeometryRequired, _DimensionGeometryOptional):
-    "寸法。種類（kind）ごとに、その種類の定義点のフィールドを持つ。測定値（measurement）は元の形式が保存した値で、定義点から測り直さない。寸法を描いた部品（ブロック）は形の値に含めない。entities が返すだけで、置き換えと追加は change.edit.unsupported になる（寸法を描いた部品を作り直す必要があるため）。マイナーバージョン 19 から"
+    "寸法。種類（kind）ごとに、その種類の定義点のフィールドを持つ。測定値（measurement）は元の形式が保存した値で、定義点から測り直さない。寸法を描いた部品（ブロック）は形の値に含めない。置き換え（DXF と DWG の DIMENSION、DXF の ARC_DIMENSION）では定義点と文字を書き直し、測定値を測り直して表示の部品を作り直す（マイナーバージョン 74 から。それまでは置き換えも change.edit.unsupported だった）。measurement は省くか元と同じ値を書く。足すことは、まだしない。マイナーバージョン 19 から"
 
 
 # 引出線（DXF・DWG の LEADER、決定 0177）。注記（MTEXT など）は別の要素で、annotation がその ID を指す。置き換えるときは寸法スタイルと注記を変えず、経路・曲線か・矢印を書き直す。足すときの注記は、同じ空間か用紙の MTEXT だけを指せる（マイナーバージョン 36 から。それまでは注記を持てなかった）。DWG は置き換えと追加を書き戻すが、矢印のフラグを必ず持つので、arrow を書かない引出線は書けない（マイナーバージョン 36 から。それまでは R2004 までの置き換えだけ）。マイナーバージョン 31 から
@@ -1270,6 +1271,66 @@ CalloutPath = Union[
 CalloutContent = Union[
     Literal[
         "none",
+        "text",
+        "symbol",
+    ],
+    str,
+]
+
+
+# 表（DXF・DWG の ACAD_TABLE、決定 0113）。挿入点・行の向き・行の高さ・列の幅と、行ごとのセルの並びを持つ。表のスタイル・セルの書式・型のある値・表示の部品（ブロック）は形の値に含めない。置き換え（DXF の ACAD_TABLE）では、行と列の数・セルの結合・文字でないセル（記号）を変えず、挿入点・行の向き・行の高さ・列の幅・文字と空のセルの内容と回転を書き直し、表示の部品を作り直す。足すことと DWG の書き戻しは、まだしない。マイナーバージョン 74 から
+TableGeometry = TypedDict(
+    "TableGeometry",
+    {
+        # 形の種類
+        "shape": Literal["table"],
+        # 挿入点 [X, Y]
+        "position": List[float],
+        # 行の向き [X, Y]。0 でない
+        "direction": List[float],
+        # 上の行からの行の高さ。どれも 0 より大きい。1 つ以上
+        "row_heights": List[float],
+        # 左の列からの列の幅。どれも 0 より大きい。1 つ以上
+        "column_widths": List[float],
+        # 上の行から、行ごとに左の列から並べたセル。数は行の数と列の数の積
+        "cells": List["TableCell"],
+    },
+)
+
+
+# 表の 1 つのセル
+_TableCellRequired = TypedDict(
+    "_TableCellRequired",
+    {
+        # 中身の種類
+        "content": "TableCellContent",
+    },
+)
+_TableCellOptional = TypedDict(
+    "_TableCellOptional",
+    {
+        # 書式の符号を含む元の文字列。空でない。content が text のときだけ持つ
+        "text": str,
+        # 記号のブロックの名前。content が symbol のときだけ持つ
+        "symbol": str,
+        # 結合して広げる列と行の数 [列, 行]。結合しなければ [1, 1]（省けば [1, 1]）
+        "span": List[int],
+        # ほかのセルに結合されて覆われるか。偽のときは省ける
+        "covered": bool,
+        # 文字か記号の回転。0 のときは省ける
+        "rotation": float,
+    },
+    total=False,
+)
+
+
+class TableCell(_TableCellRequired, _TableCellOptional):
+    "表の 1 つのセル"
+
+# 表のセルの中身の種類。empty は空、text は書式つきの文字、symbol は記号（ブロック）
+TableCellContent = Union[
+    Literal[
+        "empty",
         "text",
         "symbol",
     ],

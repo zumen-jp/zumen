@@ -586,7 +586,7 @@
           "type": "string"
         },
         "geometry": {
-          "description": "形の値。線分・円・円弧・楕円・幅を持たない折れ線・1 点か 2 点の間に置く文字・書式つきの文字・ブロックの記号・制御点かフィット点で決まるスプライン・寸法・引出線（LEADER）だけが持つ。apply の replace と add に渡せる形（決定 0139）。マイナーバージョン 10 から",
+          "description": "形の値。線分・円・円弧・楕円・幅を持たない折れ線・1 点か 2 点の間に置く文字・書式つきの文字・ブロックの記号・制御点かフィット点で決まるスプライン・寸法・引出線（LEADER）・点・引出線つきの注記・表（ACAD_TABLE）だけが持つ。apply の replace と add に渡せる形（決定 0139）。マイナーバージョン 10 から",
           "$ref": "#/$defs/geometry"
         }
       },
@@ -613,7 +613,8 @@
         { "$ref": "#/$defs/dimension_geometry" },
         { "$ref": "#/$defs/leader_geometry" },
         { "$ref": "#/$defs/point_geometry" },
-        { "$ref": "#/$defs/callout_geometry" }
+        { "$ref": "#/$defs/callout_geometry" },
+        { "$ref": "#/$defs/table_geometry" }
       ]
     },
     "line_geometry": {
@@ -759,7 +760,7 @@
       "additionalProperties": false
     },
     "dimension_geometry": {
-      "description": "寸法。種類（kind）ごとに、その種類の定義点のフィールドを持つ。測定値（measurement）は元の形式が保存した値で、定義点から測り直さない。寸法を描いた部品（ブロック）は形の値に含めない。entities が返すだけで、置き換えと追加は change.edit.unsupported になる（寸法を描いた部品を作り直す必要があるため）。マイナーバージョン 19 から",
+      "description": "寸法。種類（kind）ごとに、その種類の定義点のフィールドを持つ。測定値（measurement）は元の形式が保存した値で、定義点から測り直さない。寸法を描いた部品（ブロック）は形の値に含めない。置き換え（DXF と DWG の DIMENSION、DXF の ARC_DIMENSION）では定義点と文字を書き直し、測定値を測り直して表示の部品を作り直す（マイナーバージョン 74 から。それまでは置き換えも change.edit.unsupported だった）。measurement は省くか元と同じ値を書く。足すことは、まだしない。マイナーバージョン 19 から",
       "type": "object",
       "properties": {
         "shape": { "description": "形の種類", "const": "dimension" },
@@ -788,7 +789,7 @@
         "text_position": { "description": "寸法値の文字の中央の点 [X, Y]。元の形式が持たなければ書かない", "type": "array", "items": { "type": "number" } },
         "text_rotation": { "description": "寸法値の文字の回転（度）。寸法線に沿わせるなら書かない", "type": "number" },
         "style": { "description": "寸法スタイルの元の名前", "type": "string" },
-        "style_id": { "description": "寸法スタイルの ID。tables が返したもの。名前で引いた寸法スタイルがなければ書かない。マイナーバージョン 23 から", "type": "string" }
+        "style_id": { "description": "寸法スタイルの ID。tables が返したもの。名前で引いた寸法スタイルがなければ書かない。置き換えるときは、名前と同じ寸法スタイルを指す ID だけを受ける。マイナーバージョン 23 から", "type": "string" }
       },
       "required": ["shape", "kind", "label", "style"],
       "additionalProperties": false
@@ -855,6 +856,39 @@
       "description": "引出線つきの注記の中身の種類。none は注記を持たず、text は書式つきの文字、symbol は記号（バルーンなどの囲み）",
       "type": "string",
       "enum": ["none", "text", "symbol"]
+    },
+    "table_geometry": {
+      "description": "表（DXF・DWG の ACAD_TABLE、決定 0113）。挿入点・行の向き・行の高さ・列の幅と、行ごとのセルの並びを持つ。表のスタイル・セルの書式・型のある値・表示の部品（ブロック）は形の値に含めない。置き換え（DXF の ACAD_TABLE）では、行と列の数・セルの結合・文字でないセル（記号）を変えず、挿入点・行の向き・行の高さ・列の幅・文字と空のセルの内容と回転を書き直し、表示の部品を作り直す。足すことと DWG の書き戻しは、まだしない。マイナーバージョン 74 から",
+      "type": "object",
+      "properties": {
+        "shape": { "description": "形の種類", "const": "table" },
+        "position": { "description": "挿入点 [X, Y]", "type": "array", "items": { "type": "number" } },
+        "direction": { "description": "行の向き [X, Y]。0 でない", "type": "array", "items": { "type": "number" } },
+        "row_heights": { "description": "上の行からの行の高さ。どれも 0 より大きい。1 つ以上", "type": "array", "items": { "type": "number" } },
+        "column_widths": { "description": "左の列からの列の幅。どれも 0 より大きい。1 つ以上", "type": "array", "items": { "type": "number" } },
+        "cells": { "description": "上の行から、行ごとに左の列から並べたセル。数は行の数と列の数の積", "type": "array", "items": { "$ref": "#/$defs/table_cell" } }
+      },
+      "required": ["shape", "position", "direction", "row_heights", "column_widths", "cells"],
+      "additionalProperties": false
+    },
+    "table_cell": {
+      "description": "表の 1 つのセル",
+      "type": "object",
+      "properties": {
+        "content": { "description": "中身の種類", "$ref": "#/$defs/table_cell_content" },
+        "text": { "description": "書式の符号を含む元の文字列。空でない。content が text のときだけ持つ", "type": "string" },
+        "symbol": { "description": "記号のブロックの名前。content が symbol のときだけ持つ", "type": "string" },
+        "span": { "description": "結合して広げる列と行の数 [列, 行]。結合しなければ [1, 1]（省けば [1, 1]）", "type": "array", "items": { "type": "integer", "minimum": 1, "maximum": 32767 } },
+        "covered": { "description": "ほかのセルに結合されて覆われるか。偽のときは省ける", "type": "boolean" },
+        "rotation": { "description": "文字か記号の回転。0 のときは省ける", "type": "number" }
+      },
+      "required": ["content"],
+      "additionalProperties": false
+    },
+    "table_cell_content": {
+      "description": "表のセルの中身の種類。empty は空、text は書式つきの文字、symbol は記号（ブロック）",
+      "type": "string",
+      "enum": ["empty", "text", "symbol"]
     },
     "point_geometry": {
       "description": "点（決定 0160・0183）。marker がなければ文書の点の表し方（DXF・DWG の $PDMODE・$PDSIZE）に従う点で、DXF・DWG の POINT と JWW の記号でない点が当たる。marker があれば既定義のマーカーの点で、SFC の点マーカーと JWW の記号の点が当たる。置き換えるときは、描き方（marker があるか）を元のまま保つ。DXF・DWG は marker と construction を持つ点を書かず、JWW の記号でない点は角度 0 だけを、SXF は SFC の点マーカーだけを書く。マイナーバージョン 35 から",

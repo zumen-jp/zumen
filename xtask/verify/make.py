@@ -955,6 +955,206 @@ CHAINS = [
 ]
 
 
+def ccw_sweep_deg(start_deg, end_deg):
+    return (end_deg - start_deg) % 360.0
+
+
+def part_measurement(g):
+    """寸法の形の定義点から、DXF・DWG の測定値（42。角度寸法はラジアン）を求める（#314）"""
+    sub = g["kind"]
+    if sub == "linear":
+        rad = math.radians(g.get("rotation", 0.0))
+        dx, dy = g["second"][0] - g["first"][0], g["second"][1] - g["first"][1]
+        return abs(dx * math.cos(rad) + dy * math.sin(rad))
+    if sub == "aligned":
+        return math.hypot(g["second"][0] - g["first"][0], g["second"][1] - g["first"][1])
+    if sub == "radius":
+        return math.hypot(g["chord"][0] - g["center"][0], g["chord"][1] - g["center"][1])
+    if sub == "diameter":
+        return math.hypot(g["chord"][0] - g["opposite"][0], g["chord"][1] - g["opposite"][1])
+    if sub == "ordinate":
+        axis = 0 if g.get("axis", "x") == "x" else 1
+        return abs(g["feature"][axis] - g["origin"][axis])
+    if sub == "arc_length":
+        cx, cy = g["center"]
+        a1 = math.degrees(math.atan2(g["first"][1] - cy, g["first"][0] - cx)) % 360.0
+        a2 = math.degrees(math.atan2(g["second"][1] - cy, g["second"][0] - cx)) % 360.0
+        am = math.degrees(math.atan2(g["arc"][1] - cy, g["arc"][0] - cx)) % 360.0
+        fwd = ccw_sweep_deg(a1, a2)
+        sweep = fwd if ccw_sweep_deg(a1, am) <= fwd else ccw_sweep_deg(a2, a1)
+        return math.hypot(g["first"][0] - cx, g["first"][1] - cy) * math.radians(sweep)
+    if sub == "angular":
+        vx, vy = g["vertex"]
+        a1 = math.degrees(math.atan2(g["first"][1] - vy, g["first"][0] - vx)) % 360.0
+        a2 = math.degrees(math.atan2(g["second"][1] - vy, g["second"][0] - vx)) % 360.0
+        am = math.degrees(math.atan2(g["arc"][1] - vy, g["arc"][0] - vx)) % 360.0
+        fwd = ccw_sweep_deg(a1, a2)
+        sweep = fwd if ccw_sweep_deg(a1, am) <= fwd else ccw_sweep_deg(a2, a1)
+        return math.radians(sweep)
+    if sub == "angular_lines":
+        (x1, y1), (x2, y2) = g["first_line"]
+        (x3, y3), (x4, y4) = g["second_line"]
+        d1x, d1y = x2 - x1, y2 - y1
+        d2x, d2y = x4 - x3, y4 - y3
+        det = d1x * d2y - d1y * d2x
+        t = ((x3 - x1) * d2y - (y3 - y1) * d2x) / det
+        vx, vy = x1 + t * d1x, y1 + t * d1y
+        b1 = math.degrees(math.atan2(d1y, d1x)) % 360.0
+        b2 = math.degrees(math.atan2(d2y, d2x)) % 360.0
+        rays = sorted([b1, (b1 + 180.0) % 360.0, b2, (b2 + 180.0) % 360.0])
+        am = math.degrees(math.atan2(g["arc"][1] - vy, g["arc"][0] - vx)) % 360.0
+        for idx in range(4):
+            s = rays[idx]
+            nxt = rays[(idx + 1) % 4]
+            sw = (nxt - s) % 360.0
+            if (am - s) % 360.0 <= sw:
+                return math.radians(sw)
+        return 0.0
+    raise ValueError(f"寸法の種類 {sub} の測定値を決めていない")
+
+
+def part_curves_min(sub):
+    """種類ごとに、匿名のブロック *D<n> に入る線・円弧の最小本数"""
+    return 1 if sub in ("radius", "diameter", "ordinate") else 3
+
+
+def editable_dimensions(reading, fmt):
+    """書き戻せる寸法を選ぶ。zumen-arcdim-* の 4・5 件目（部分の弧・引出線つき）は断る対象なので、弧長寸法は先頭 3 件まで"""
+    out = []
+    arc_seen = 0
+    for d in model(reading, "dimension"):
+        sub = d["geometry"]["kind"]
+        if sub == "arc_length":
+            if fmt != "dxf" or arc_seen >= 3:
+                continue
+            arc_seen += 1
+        out.append(d)
+    return out
+
+
+def parts_steps(fmt):
+    """#314: 寸法の定義点と文字、DXF の表の位置とセルの値を置き換え、表示の部品（*D<n>・*T<n>）を作り直す"""
+
+    def replaced(reading):
+        edits = []
+        for d in editable_dimensions(reading, fmt):
+            g = dict(d["geometry"])
+            g.pop("measurement", None)
+            g.pop("measurement_key", None)
+            sub = g["kind"]
+            contains = []
+            override = g["content"] if g.get("label") == "override" else (" " if g.get("label") == "hidden" else "")
+            if sub in ("linear", "aligned"):
+                g["second"] = [g["second"][0] + 15.0, g["second"][1]]
+                g["line"] = [g["line"][0], g["line"][1] + 5.0]
+                g["label"] = "override"
+                g["content"] = "L=<>mm"
+                override = "L=<>mm"
+                contains = ["L=", "mm"]
+            elif sub == "radius":
+                g["chord"] = [g["chord"][0] + 10.0, g["chord"][1]]
+                g["text_position"] = [g["center"][0] + 20.0, g["center"][1] + 8.0]
+            elif sub == "diameter":
+                g["chord"] = [g["chord"][0] + 10.0, g["chord"][1]]
+            elif sub in ("angular", "angular_lines"):
+                g["arc"] = [g["arc"][0] + 3.0, g["arc"][1] + 3.0]
+            elif sub == "ordinate":
+                g["feature"] = [g["feature"][0] + 12.0, g["feature"][1]]
+                g["leader_end"] = [g["leader_end"][0] + 12.0, g["leader_end"][1]]
+            elif sub == "arc_length":
+                g["arc"] = [g["arc"][0], g["arc"][1] + 6.0]
+            edit = replace(d, g)
+            edit.pop("_expect", None)
+            part = {
+                "kind": "dimension",
+                "prefix": "*D",
+                "measurement": part_measurement(g),
+                "override": override,
+                "curves": part_curves_min(sub),
+                "hidden": g.get("label") == "hidden",
+            }
+            if contains:
+                part["mtext_contains"] = contains
+            edit["_part"] = part
+            edits.append(edit)
+        if fmt == "dxf":
+            for t in [e for e in model(reading, "table") if "geometry" in e]:
+                g = dict(t["geometry"])
+                cells, texts = [], []
+                for idx, c in enumerate(g["cells"]):
+                    nc = dict(c)
+                    if not nc.get("covered", False) and nc.get("content") in ("empty", "text"):
+                        nc["content"] = "text"
+                        nc["text"] = f"Cell_{idx}_Edited"
+                        texts.append(nc["text"])
+                    cells.append(nc)
+                g["cells"] = cells
+                g["position"] = [g["position"][0] + 5.0, g["position"][1] - 5.0]
+                dx, dy = g["direction"]
+                norm = math.hypot(dx, dy)
+                rot_deg = math.degrees(math.atan2(dy, dx))
+                edit = replace(t, g)
+                edit.pop("_expect", None)
+                edit["_part"] = {
+                    "kind": "table",
+                    "prefix": "*T",
+                    "position": g["position"],
+                    "direction": [dx / norm, dy / norm],
+                    "lines": 4,
+                    "texts": texts,
+                    "rotation": rot_deg,
+                }
+                edits.append(edit)
+        return edits
+
+    return [replaced]
+
+
+def parts_turned_steps(fmt):
+    """#314: 寸法と DXF の表を回転と移動で変換し、表示の部品（*D<n>・*T<n>）を作り直す"""
+
+    def turned(reading):
+        edits = []
+        turn_move = similar(15, 1, 10, -5)
+        quarter_move = similar(90, 1, 10, -5)
+        for d in editable_dimensions(reading, fmt):
+            g = d["geometry"]
+            sub = g["kind"]
+            mat = quarter_move if sub == "ordinate" else turn_move
+            override = g["content"] if g.get("label") == "override" else (" " if g.get("label") == "hidden" else "")
+            edit = {"kind": "transform", "id": d["id"], "hash": d["hash"], "matrix": mat}
+            edit["_part"] = {
+                "kind": "dimension",
+                "prefix": "*D",
+                "measurement": part_measurement(g),
+                "override": override,
+                "curves": part_curves_min(sub),
+                "hidden": g.get("label") == "hidden",
+            }
+            edits.append(edit)
+        if fmt == "dxf":
+            for t in [e for e in model(reading, "table") if "geometry" in e]:
+                g = t["geometry"]
+                dx, dy = g["direction"]
+                new_rot = math.degrees(math.atan2(dy, dx)) + 15.0
+                rad = math.radians(new_rot)
+                texts = [c["text"] for c in g["cells"] if not c.get("covered", False) and c.get("content") == "text" and c.get("text")]
+                edit = {"kind": "transform", "id": t["id"], "hash": t["hash"], "matrix": turn_move}
+                edit["_part"] = {
+                    "kind": "table",
+                    "prefix": "*T",
+                    "position": mapped(turn_move, g["position"]),
+                    "direction": [math.cos(rad), math.sin(rad)],
+                    "lines": 4,
+                    "texts": texts,
+                    "rotation": new_rot,
+                }
+                edits.append(edit)
+        return edits
+
+    return [turned]
+
+
 # キットの組。名前・対象の issue・入力の選び方・変更の作り方
 RECIPES = [
     ("points", 342, lambda name, fmt: fmt in ("jww", "sfc", "p21") or "points-" in name, points_steps),
@@ -965,6 +1165,8 @@ RECIPES = [
     ("handseed", 701, lambda name, fmt: fmt == "dwg" and ("-layout-r2000" in name or "-layout-r2018" in name), handseed_steps),
     # 格子と属性を持つ記号のサンプル（R2000・R2004・R2018）と、切り抜きを持つ記号のサンプル（R2013）
     ("added", 683, lambda name, fmt: fmt in ("dxf", "dwg") and ("-minsert-" in name or "-xclip-r2013" in name), added_steps),
+    ("parts", 314, lambda name, fmt: (fmt in ("dxf", "dwg") and "-parts-" in name) or (fmt == "dxf" and "-arcdim-" in name), parts_steps),
+    ("parts-turned", 314, lambda name, fmt: (fmt in ("dxf", "dwg") and "-parts-" in name) or (fmt == "dxf" and "-arcdim-" in name), parts_turned_steps),
 ]
 # 記号の定義の中の要素も読む組（read の definitions）。定義の中に足した要素を、書いたファイルの読みに残す
 INSIDE = {"added"}
@@ -993,8 +1195,8 @@ def dropped_dxf():
 
 
 def shapeless_dxf():
-    """zumen の entities の応答が形を返さない要素になる図形を持つ DXF（R2010）。HATCH・SOLID・TRACE はハッチング、
-    IMAGE・PDFUNDERLAY は画像の範囲、ACAD_TABLE は表の要素になる。ACAD_TABLE は AC1018 から、PDFUNDERLAY と
+    """zumen の entities の応答が形を返さない要素になる図形と、表（ACAD_TABLE）を持つ DXF（R2010）。HATCH・SOLID・TRACE は
+    ハッチング、IMAGE・PDFUNDERLAY は画像の範囲、ACAD_TABLE は表の要素になる。ACAD_TABLE は AC1018 から、PDFUNDERLAY と
     PDFDEFINITION は AC1024 からの図形とオブジェクトなので、$ACADVER を AC1024 にする。要素の種類を出所の図形の種類と比べる照合（compare.py の KINDS）を、
     毎晩のキットで通す（#558）。画像と PDF の定義は OBJECTS 節の辞書に置く（DXF Reference「IMAGEDEF」
     「UNDERLAYDEFINITION」）"""
@@ -1086,6 +1288,107 @@ def japanese_dxf(version, encoding):
     return out.encode(encoding)
 
 
+def parts_dxf(version, encoding):
+    """7 種類の寸法（DIMENSION 6 種・ARC_DIMENSION）と表（ACAD_TABLE）を持つ DXF（#314）。R2004（ANSI_932）と
+    R2018（UTF-8・301 CELL_VALUE）の両方で、書き戻した定義と作り直した匿名のブロック（*D<n>・*T<n>）を照らす"""
+
+    def tags(*pairs):
+        return "".join(f"{code}\n{value}\n" for code, value in pairs)
+
+    modern = version >= "AC1021"
+    out = tags((0, "SECTION"), (2, "HEADER"), (9, "$ACADVER"), (1, version), (9, "$DWGCODEPAGE"), (3, "ANSI_932"))
+    out += tags((9, "$INSUNITS"), (70, 4), (9, "$HANDSEED"), (5, "500"), (0, "ENDSEC"))
+    out += tags((0, "SECTION"), (2, "CLASSES"))
+    for dxf_name, cpp_name, flags, is_ent in [
+        ("ACDBDICTIONARYWDFLT", "AcDbDictionaryWithDefault", 0, 0),
+        ("TABLESTYLE", "AcDbTableStyle", 4095, 0),
+        ("ARC_DIMENSION", "AcDbArcDimension", 1025, 1),
+        ("ACAD_TABLE", "AcDbTable", 1025, 1),
+    ]:
+        out += tags((0, "CLASS"), (1, dxf_name), (2, cpp_name), (3, "ObjectDBX Classes"), (90, flags), (91, 1), (280, 0), (281, is_ent))
+    out += tags((0, "ENDSEC"), (0, "SECTION"), (2, "TABLES"))
+    out += tags((0, "TABLE"), (2, "VPORT"), (5, "8"), (330, "0"), (100, "AcDbSymbolTable"), (70, 0), (0, "ENDTAB"))
+    out += tags((0, "TABLE"), (2, "LTYPE"), (5, "5"), (330, "0"), (100, "AcDbSymbolTable"), (70, 3))
+    for h, name in [("14", "ByBlock"), ("15", "ByLayer"), ("16", "Continuous")]:
+        out += tags((0, "LTYPE"), (5, h), (330, "5"), (100, "AcDbSymbolTableRecord"), (100, "AcDbLinetypeTableRecord"), (2, name), (70, 0), (3, ""), (72, 65), (73, 0), (40, 0.0))
+    out += tags((0, "ENDTAB"), (0, "TABLE"), (2, "LAYER"), (5, "2"), (330, "0"), (100, "AcDbSymbolTable"), (70, 1))
+    out += tags((0, "LAYER"), (5, "10"), (330, "2"), (100, "AcDbSymbolTableRecord"), (100, "AcDbLayerTableRecord"), (2, "0"), (70, 0), (62, 7), (6, "Continuous"), (370, -3), (390, "F"), (0, "ENDTAB"))
+    out += tags((0, "TABLE"), (2, "STYLE"), (5, "3"), (330, "0"), (100, "AcDbSymbolTable"), (70, 1))
+    out += tags((0, "STYLE"), (5, "11"), (330, "3"), (100, "AcDbSymbolTableRecord"), (100, "AcDbTextStyleTableRecord"), (2, "Standard"), (70, 0), (40, 0.0), (41, 1.0), (50, 0.0), (71, 0), (42, 2.5), (3, "arial.ttf"), (4, ""), (0, "ENDTAB"))
+    out += tags((0, "TABLE"), (2, "VIEW"), (5, "6"), (330, "0"), (100, "AcDbSymbolTable"), (70, 0), (0, "ENDTAB"))
+    out += tags((0, "TABLE"), (2, "UCS"), (5, "7"), (330, "0"), (100, "AcDbSymbolTable"), (70, 0), (0, "ENDTAB"))
+    out += tags((0, "TABLE"), (2, "APPID"), (5, "9"), (330, "0"), (100, "AcDbSymbolTable"), (70, 1))
+    out += tags((0, "APPID"), (5, "12"), (330, "9"), (100, "AcDbSymbolTableRecord"), (100, "AcDbRegAppTableRecord"), (2, "ACAD"), (70, 0), (0, "ENDTAB"))
+    out += tags((0, "TABLE"), (2, "DIMSTYLE"), (5, "A"), (330, "0"), (100, "AcDbSymbolTable"), (70, 1), (100, "AcDbDimStyleTable"))
+    out += tags((0, "DIMSTYLE"), (105, "2A"), (330, "A"), (100, "AcDbSymbolTableRecord"), (100, "AcDbDimStyleTableRecord"), (2, "ISO-25"), (70, 0), (40, 1.0), (41, 2.5), (42, 0.625), (44, 1.25), (140, 2.5), (271, 2), (275, 0), (340, "11"), (0, "ENDTAB"))
+    anon = [(f"4{i}", f"*D{i}") for i in range(1, 8)] + [("48", "*T1")]
+    out += tags((0, "TABLE"), (2, "BLOCK_RECORD"), (5, "1"), (330, "0"), (100, "AcDbSymbolTable"), (70, 2 + len(anon)))
+    for h, name in [("1F", "*Model_Space"), ("1B", "*Paper_Space"), *anon]:
+        out += tags((0, "BLOCK_RECORD"), (5, h), (330, "1"), (100, "AcDbSymbolTableRecord"), (100, "AcDbBlockTableRecord"), (2, name))
+    out += tags((0, "ENDTAB"), (0, "ENDSEC"), (0, "SECTION"), (2, "BLOCKS"))
+    out += tags((0, "BLOCK"), (5, "20"), (330, "1F"), (100, "AcDbEntity"), (8, "0"), (100, "AcDbBlockBegin"), (2, "*Model_Space"), (70, 0), (10, 0.0), (20, 0.0), (30, 0.0), (3, "*Model_Space"), (1, ""))
+    out += tags((0, "ENDBLK"), (5, "21"), (330, "1F"), (100, "AcDbEntity"), (8, "0"), (100, "AcDbBlockEnd"))
+    out += tags((0, "BLOCK"), (5, "1C"), (330, "1B"), (100, "AcDbEntity"), (67, 1), (8, "0"), (100, "AcDbBlockBegin"), (2, "*Paper_Space"), (70, 0), (10, 0.0), (20, 0.0), (30, 0.0), (3, "*Paper_Space"), (1, ""))
+    out += tags((0, "ENDBLK"), (5, "1D"), (330, "1B"), (100, "AcDbEntity"), (67, 1), (8, "0"), (100, "AcDbBlockEnd"))
+    for idx, (rec_h, name) in enumerate(anon):
+        bh, lh, eh = f"{0x100 + idx * 4:X}", f"{0x101 + idx * 4:X}", f"{0x102 + idx * 4:X}"
+        out += tags((0, "BLOCK"), (5, bh), (330, rec_h), (100, "AcDbEntity"), (8, "0"), (100, "AcDbBlockBegin"), (2, name), (70, 1), (10, 0.0), (20, 0.0), (30, 0.0), (3, name), (1, ""))
+        out += tags((0, "LINE"), (5, lh), (330, rec_h), (100, "AcDbEntity"), (8, "0"), (100, "AcDbLine"), (10, 0.0), (20, 0.0), (30, 0.0), (11, 10.0), (21, 0.0), (31, 0.0))
+        out += tags((0, "ENDBLK"), (5, eh), (330, rec_h), (100, "AcDbEntity"), (8, "0"), (100, "AcDbBlockEnd"))
+    out += tags((0, "ENDSEC"), (0, "SECTION"), (2, "ENTITIES"))
+
+    def dim_common(kind, h, blk, p10, p11, flags, meas):
+        return tags((0, kind), (5, h), (330, "1F"), (100, "AcDbEntity"), (8, "0"), (100, "AcDbDimension"), (2, blk), (10, p10[0]), (20, p10[1]), (30, 0.0), (11, p11[0]), (21, p11[1]), (31, 0.0), (70, flags), (71, 5), (42, meas), (3, "ISO-25"))
+
+    out += dim_common("DIMENSION", "200", "*D1", (100.0, 20.0), (50.0, 20.0), 32, 100.0)
+    out += tags((100, "AcDbAlignedDimension"), (13, 0.0), (23, 0.0), (33, 0.0), (14, 100.0), (24, 0.0), (34, 0.0), (100, "AcDbRotatedDimension"))
+    out += dim_common("DIMENSION", "201", "*D2", (28.0, 96.0), (8.0, 81.0), 33, 50.0)
+    out += tags((100, "AcDbAlignedDimension"), (13, 0.0), (23, 50.0), (33, 0.0), (14, 40.0), (24, 80.0), (34, 0.0))
+    out += dim_common("DIMENSION", "202", "*D3", (100.0, 50.0), (115.0, 50.0), 164, 30.0)
+    out += tags((100, "AcDbRadialDimension"), (15, 130.0), (25, 50.0), (35, 0.0), (40, 0.0))
+    out += dim_common("DIMENSION", "203", "*D4", (220.0, 30.0), (200.0, 50.0), 163, math.hypot(40.0, 40.0))
+    out += tags((100, "AcDbDiametricDimension"), (15, 180.0), (25, 70.0), (35, 0.0), (40, 0.0))
+    out += dim_common("DIMENSION", "204", "*D5", (0.0, 20.0), (14.0, 14.0), 34, math.pi / 2)
+    out += tags((100, "AcDb2LineAngularDimension"), (13, 0.0), (23, 0.0), (33, 0.0), (14, 20.0), (24, 0.0), (34, 0.0), (15, 0.0), (25, 0.0), (35, 0.0), (16, 14.0), (26, 14.0), (36, 0.0))
+    out += dim_common("DIMENSION", "205", "*D6", (0.0, 0.0), (40.0, -20.0), 102, 35.0)
+    out += tags((100, "AcDbOrdinateDimension"), (13, 35.0), (23, -10.0), (33, 0.0), (14, 40.0), (24, -20.0), (34, 0.0))
+    out += dim_common("ARC_DIMENSION", "206", "*D7", (0.0, 170.0), (0.0, 172.0), 37, 20.0 * math.pi)
+    out += tags((100, "AcDbArcDimension"), (13, 20.0), (23, 140.0), (33, 0.0), (14, -20.0), (24, 140.0), (34, 0.0), (15, 0.0), (25, 140.0), (35, 0.0), (70, 0), (40, 0.0), (41, math.pi), (71, 0), (16, 0.0), (26, 170.0), (36, 0.0), (17, 0.0), (27, 0.0), (37, 0.0))
+
+    out += tags((0, "ACAD_TABLE"), (5, "207"), (330, "1F"), (100, "AcDbEntity"), (8, "0"), (100, "AcDbBlockReference"), (2, "*T1"), (10, 0.0), (20, -60.0), (30, 0.0), (100, "AcDbTable"))
+    if modern:
+        out += tags((280, 0))
+    out += tags((342, "7F"), (343, "48"), (11, 1.0), (21, 0.0), (31, 0.0), (90, 22), (91, 3), (92, 2), (93, 0), (94, 0), (95, 0), (96, 0))
+    out += tags((141, 11.0), (141, 9.0), (141, 9.0), (142, 60.0), (142, 60.0))
+    cells = [(0, 2, 1, "一覧"), (1, 1, 1, ""), (0, 1, 1, "品名"), (0, 1, 1, "数量"), (0, 1, 1, "ボルト"), (0, 1, 1, "12")]
+    for merged, cspan, rspan, val in cells:
+        out += tags((171, 1), (172, 0), (173, merged), (174, 0), (175, cspan), (176, rspan), (91 if modern else 177, 0), (178, 0), (145, 0.0))
+        if modern:
+            if val:
+                out += tags((301, "CELL_VALUE"), (90, 4), (93, 0), (1, val), (94, 0), (300, ""), (302, val), (304, "ACVALUE_END"))
+            else:
+                out += tags((301, "CELL_VALUE"), (90, 0), (93, 1), (300, ""), (302, ""), (304, "ACVALUE_END"))
+        else:
+            out += tags((1, val))
+    out += tags((0, "ENDSEC"), (0, "SECTION"), (2, "OBJECTS"))
+    out += tags((0, "DICTIONARY"), (5, "C"), (330, "0"), (100, "AcDbDictionary"), (281, 1), (3, "ACAD_GROUP"), (350, "D"), (3, "ACAD_PLOTSTYLENAME"), (350, "E"), (3, "ACAD_TABLESTYLE"), (350, "7E"))
+    out += tags((0, "DICTIONARY"), (5, "D"), (330, "C"), (100, "AcDbDictionary"), (281, 1))
+    out += tags((0, "ACDBDICTIONARYWDFLT"), (5, "E"), (330, "C"), (100, "AcDbDictionary"), (281, 1), (3, "Normal"), (350, "F"), (100, "AcDbDictionaryWithDefault"), (340, "F"))
+    out += tags((0, "ACDBPLACEHOLDER"), (5, "F"), (330, "E"))
+    out += tags((0, "DICTIONARY"), (5, "7E"), (330, "C"), (100, "AcDbDictionary"), (281, 1), (3, "Standard"), (350, "7F"))
+    out += tags((0, "TABLESTYLE"), (5, "7F"), (330, "7E"), (100, "AcDbTableStyle"))
+    if modern:
+        out += tags((280, 0))
+    out += tags((3, "Standard"), (70, 0), (71, 0), (40, 1.5), (41, 1.5), (280, 0), (281, 0))
+    for h, align in [(4.5, 2), (6.0, 5), (4.5, 5)]:
+        out += tags((7, "Standard"), (140, h), (170, align), (62, 0), (63, 7), (283, 0))
+        if modern:
+            out += tags((90, 512), (91, 0), (1, ""))
+        for bcode, vis, color in [(274, 1, 0), (275, 1, 0), (276, 1, 0), (277, 1, 0), (278, 1, 0), (279, 1, 0)]:
+            out += tags((bcode, -2), (bcode + 10, vis), (bcode - 210, color))
+    return (out + tags((0, "ENDSEC"), (0, "EOF"))).encode(encoding)
+
+
 def seedless_dxf():
     """$HANDSEED のない R2000 の DXF。表・ブロック・辞書は、AutoCAD が読み込むのに要る最小限（check_autocad.py の対照の
     図面と同じ）。円（ハンドル 30）と、ファイルでいちばん大きいハンドルを持つ線（31）を置く。除いた図形のハンドルを、
@@ -1153,6 +1456,13 @@ def run_recipe(z, out, entry, data, recipe, baseline, places=None):
             for i, (e, a) in enumerate(zip(edits, applied))
             if "_expect" in e and a.get("id")
         ]
+        parts = [
+            {"id": a.get("id"), "edit": i, **e["_part"]}
+            for i, (e, a) in enumerate(zip(edits, applied))
+            if "_part" in e and a.get("id")
+        ]
+        if parts:
+            step["parts"] = parts
         current = z.take(response["blobs"][0]["id"])
     (out / doc).parent.mkdir(parents=True, exist_ok=True)
     (out / doc).write_bytes(current)
@@ -1284,8 +1594,8 @@ def tag_lines(data):
 
 
 def dimension_experiments(out, entry, data):
-    """#314: 寸法の部品（匿名のブロック）を書き直さずに寸法を変えた DXF。zumen の書き手を通さない実験で、AutoCAD が
-    部品を作り直すかを見る。apply は寸法の変更を断る（change.edit.unsupported）"""
+    """#314: 寸法の部品（匿名のブロック）を書き直さずに寸法の定義だけを変えた対照の DXF。zumen の書き手を通さない実験で、
+    AutoCAD が部品を作り直さないことと、zumen が部品を作り直す理由を示す"""
     tags = tag_lines(data)
     starts = [i for i, (code, value) in enumerate(tags) if code.strip() == b"0" and value.strip() == b"ARC_DIMENSION"]
     if not starts:
@@ -1330,19 +1640,6 @@ def dimension_experiments(out, entry, data):
             records.append(write("exp-text", changed, note))
             break
     return records
-
-
-def probe_dimension(z, entry, data):
-    """#314: 今の apply が寸法の変更を断ることを、応答の診断で残す"""
-    doc = f"314/{Path(entry['path']).name}.probe"
-    open_file(z, doc, data)
-    dims = model(read(z, doc), "dimension")
-    if not dims:
-        return []
-    g = dict(dims[0]["geometry"])
-    g["arc"] = [g["arc"][0] + 20, g["arc"][1] + 20]
-    status, response = z.call({"op": "apply", "doc": doc, "edits": [{"kind": "replace", "id": dims[0]["id"], "hash": dims[0]["hash"], "geometry": g}]})
-    return [{"path": doc, "role": "probe", "issue": 314, "from": entry["path"], "format": "dxf", "status_of_apply": status, "diagnostics": response["diagnostics"]}]
 
 
 def save_reading(out, path, reading):
@@ -1520,10 +1817,10 @@ SECTIONS = {
 """,
     ),
     314: (
-        "#314 寸法の部品を作り直すかを確かめる実験",
-        """今の apply は、寸法の変更を `change.edit.unsupported` で断ります（下の probe）。#314 で部品（匿名のブロック）を作り直す前に、部品を書き直さずに寸法を変えた DXF を、AutoCAD がどう描くかを確かめます。どれも zumen の書き手を通さず、`make.py` が入力の DXF のタグを書き換えたものです。
+        "#314 書き戻した寸法と表の表示の部品",
+        """寸法（DXF・DWG の DIMENSION と DXF の ARC_DIMENSION）と DXF の表（ACAD_TABLE）に、置き換え（parts）と変換（parts-turned）を当て、定義のフィールドとともに表示の部品（匿名のブロック `*D<n>`・`*T<n>`）を作り直したファイルです。`exp-*` は、zumen の書き手を通さずに定義のタグだけを変えた対照の実験です。
 
-- **AutoCAD。** 入力と 3 つの実験のファイルを開き、寸法の見え方を比べる。それぞれ、(1) 元の部品のまま描くか、(2) 部品を作り直して描くか、(3) 開けないか、と監査の誤りの数を記録する。`exp-unnamed` は、`AUDIT` を「はい」で流したときに部品を作り直すかも記録する。
+- **AutoCAD。** `check_autocad.py` が、開けること・監査の誤りの数と、寸法の測定値（42）・文字位置（11）・上書き文字（1）、表の位置（10）・向き（11）と、作り直した匿名のブロックの中の線・円弧・MTEXT の文字と位置・角度を照らす。画面では、寸法線・矢印・寸法値と、表の罫線・セルの文字がずれていないことを確かめる。
 """,
     ),
     302: (
@@ -1631,6 +1928,13 @@ def expectation(out, f):
             handle = handles.get(want["id"])
             owner = f"（記号の定義「{owners[want['id']]}」の中）" if want["id"] in owners else ""
             items.append(f"{'ハンドル ' + handle if handle else want['id']}{owner}: {describe(want['geometry'])}{styled(want, word)}")
+        for want in step.get("parts", []):
+            handle = handles.get(want["id"])
+            label = f"ハンドル {handle}" if handle else want["id"]
+            if want["kind"] == "dimension":
+                items.append(f"{label}: 寸法 測定値 {num(want['measurement'])}・部品 {want['prefix']}*")
+            else:
+                items.append(f"{label}: 表 位置 {pt(want['position'])}・角度 {num(want['rotation'])}°・部品 {want['prefix']}*")
         for edit in step["edits"]:
             if edit["kind"] == "point_style":
                 items.append("点の表し方: $PDMODE 67・$PDSIZE 4")
@@ -1732,6 +2036,8 @@ def inputs(extra):
     found.append(("input/made-shapeless.dxf", shapeless_dxf().encode("ascii"), "xtask/verify/make.py", *REPOSITORY))
     found.append(("input/made-japanese-r2004.dxf", japanese_dxf("AC1018", "cp932"), "xtask/verify/make.py", *REPOSITORY))
     found.append(("input/made-japanese-r2007.dxf", japanese_dxf("AC1021", "utf-8"), "xtask/verify/make.py", *REPOSITORY))
+    found.append(("input/made-parts-r2004.dxf", parts_dxf("AC1018", "cp932"), "xtask/verify/make.py", *REPOSITORY))
+    found.append(("input/made-parts-r2018.dxf", parts_dxf("AC1032", "utf-8"), "xtask/verify/make.py", *REPOSITORY))
     found.append(("input/made-seedless.dxf", seedless_dxf(), "xtask/verify/make.py", *REPOSITORY))
     found.append(("input/made-structure.sfc", STRUCTURE_SFC.encode("ascii"), "xtask/verify/make.py", *REPOSITORY))
     found.append(("input/made-structure.p21", STRUCTURE_P21.encode("ascii"), "xtask/verify/make.py", *REPOSITORY))
@@ -1790,8 +2096,9 @@ def main():
                 broken.append(f"{path}: 日本語の画層とその上の線を読めない。文字コードによる照合を確かめられない")
         if path == "input/made-shapeless.dxf":
             shapeless = Counter(e["kind"] for e in reading["entities"] if "geometry" not in e)
-            if shapeless != {"hatch": 3, "underlay": 2, "table": 1} or len(reading["entities"]) != 6:
-                broken.append(f"{path}: 形を返さないハッチング・画像の範囲・表の要素を読めない。要素の種類の照合を確かめられない")
+            shaped = [e["kind"] for e in reading["entities"] if "geometry" in e]
+            if shapeless != {"hatch": 3, "underlay": 2} or shaped != ["table"] or len(reading["entities"]) != 6:
+                broken.append(f"{path}: ハッチング・画像の範囲・表の要素を読めない。要素の種類の照合を確かめられない")
         if path in CHECKS:
             continue
         for recipe in RECIPES:
@@ -1815,7 +2122,6 @@ def main():
         # 文字を UTF-8 で書けるのは 2007 からの DXF
         if fmt == "dxf" and "-arcdim-r2018" in path:
             files += dimension_experiments(out, entry, data)
-            files += probe_dimension(z, entry, data)
     z.close()
     manifest = {"version": 1, "capabilities": capabilities["result"], "local": bool(args.inputs), "files": files}
     (out / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")

@@ -2092,7 +2092,7 @@ pub struct Entity {
     pub bbox: Option<Extent>,
     /// 要素のレイヤ・スタイル・形のハッシュ。出所の位置は含めない。変更の前提条件に使う（v2: と 32 桁の 16 進、決定 0156）
     pub hash: Option<String>,
-    /// 形の値。線分・円・円弧・楕円・幅を持たない折れ線・1 点か 2 点の間に置く文字・書式つきの文字・ブロックの記号・制御点かフィット点で決まるスプライン・寸法・引出線（LEADER）だけが持つ。apply の replace と add に渡せる形（決定 0139）。マイナーバージョン 10 から
+    /// 形の値。線分・円・円弧・楕円・幅を持たない折れ線・1 点か 2 点の間に置く文字・書式つきの文字・ブロックの記号・制御点かフィット点で決まるスプライン・寸法・引出線（LEADER）・点・引出線つきの注記・表（ACAD_TABLE）だけが持つ。apply の replace と add に渡せる形（決定 0139）。マイナーバージョン 10 から
     pub geometry: Option<Geometry>,
 }
 
@@ -2256,7 +2256,7 @@ pub enum Geometry {
     Symbol(SymbolGeometry),
     /// スプライン（NURBS）。制御点で決まるもの（マイナーバージョン 15 から）と、フィット点で決まるもの（マイナーバージョン 18 から）がある。フィット点で決まるものは、ノットと制御点を空にし、フィット点（fit）と、あれば両端の接線を持つ。元の図形に制御点やノットもあるときは形の値を返さず、置き換えない。置き換えでは、制御点で決まるものとフィット点で決まるものを入れ替えない
     Spline(SplineGeometry),
-    /// 寸法。種類（kind）ごとに、その種類の定義点のフィールドを持つ。測定値（measurement）は元の形式が保存した値で、定義点から測り直さない。寸法を描いた部品（ブロック）は形の値に含めない。entities が返すだけで、置き換えと追加は change.edit.unsupported になる（寸法を描いた部品を作り直す必要があるため）。マイナーバージョン 19 から
+    /// 寸法。種類（kind）ごとに、その種類の定義点のフィールドを持つ。測定値（measurement）は元の形式が保存した値で、定義点から測り直さない。寸法を描いた部品（ブロック）は形の値に含めない。置き換え（DXF と DWG の DIMENSION、DXF の ARC_DIMENSION）では定義点と文字を書き直し、測定値を測り直して表示の部品を作り直す（マイナーバージョン 74 から。それまでは置き換えも change.edit.unsupported だった）。measurement は省くか元と同じ値を書く。足すことは、まだしない。マイナーバージョン 19 から
     Dimension(DimensionGeometry),
     /// 引出線（DXF・DWG の LEADER、決定 0177）。注記（MTEXT など）は別の要素で、annotation がその ID を指す。置き換えるときは寸法スタイルと注記を変えず、経路・曲線か・矢印を書き直す。足すときの注記は、同じ空間か用紙の MTEXT だけを指せる（マイナーバージョン 36 から。それまでは注記を持てなかった）。DWG は置き換えと追加を書き戻すが、矢印のフラグを必ず持つので、arrow を書かない引出線は書けない（マイナーバージョン 36 から。それまでは R2004 までの置き換えだけ）。マイナーバージョン 31 から
     Leader(LeaderGeometry),
@@ -2264,6 +2264,8 @@ pub enum Geometry {
     Point(PointGeometry),
     /// 引出線つきの注記（DXF・DWG の MULTILEADER、決定 0185）。注記は形の中にあり、content と text・symbol で種類と中身を示す。置き換えるときは枝の線の頂点・集まる点・折れ曲がりだけを変えられ、ほかのフィールドは元の値のままにする。DXF だけが置き換えを書き戻し、枝と線の数と、集まる点と折れ曲がりの有無は元と同じでなければならない。足すことと DWG の書き戻しは、まだしない。マイナーバージョン 36 から
     Callout(CalloutGeometry),
+    /// 表（DXF・DWG の ACAD_TABLE、決定 0113）。挿入点・行の向き・行の高さ・列の幅と、行ごとのセルの並びを持つ。表のスタイル・セルの書式・型のある値・表示の部品（ブロック）は形の値に含めない。置き換え（DXF の ACAD_TABLE）では、行と列の数・セルの結合・文字でないセル（記号）を変えず、挿入点・行の向き・行の高さ・列の幅・文字と空のセルの内容と回転を書き直し、表示の部品を作り直す。足すことと DWG の書き戻しは、まだしない。マイナーバージョン 74 から
+    Table(TableGeometry),
 }
 
 impl Geometry {
@@ -2282,6 +2284,7 @@ impl Geometry {
         "leader",
         "point",
         "callout",
+        "table",
     ];
 
     /// タグのフィールド（`shape`）の値
@@ -2300,6 +2303,7 @@ impl Geometry {
             Self::Leader(_) => "leader",
             Self::Point(_) => "point",
             Self::Callout(_) => "callout",
+            Self::Table(_) => "table",
         }
     }
 }
@@ -2323,6 +2327,7 @@ impl FromJson for Geometry {
             "leader" => Self::Leader(LeaderGeometry::read_fields(&mut object)?),
             "point" => Self::Point(PointGeometry::read_fields(&mut object)?),
             "callout" => Self::Callout(CalloutGeometry::read_fields(&mut object)?),
+            "table" => Self::Table(TableGeometry::read_fields(&mut object)?),
             other => return Err(Invalid::new(Problem::Tag(other.to_string())).in_key("shape")),
         };
         object.finish()?;
@@ -2346,6 +2351,7 @@ impl ToJson for Geometry {
             Self::Leader(value) => value.to_json(out),
             Self::Point(value) => value.to_json(out),
             Self::Callout(value) => value.to_json(out),
+            Self::Table(value) => value.to_json(out),
         }
     }
 }
@@ -3103,7 +3109,7 @@ impl ToJson for SplineGeometry {
     }
 }
 
-/// 寸法。種類（kind）ごとに、その種類の定義点のフィールドを持つ。測定値（measurement）は元の形式が保存した値で、定義点から測り直さない。寸法を描いた部品（ブロック）は形の値に含めない。entities が返すだけで、置き換えと追加は change.edit.unsupported になる（寸法を描いた部品を作り直す必要があるため）。マイナーバージョン 19 から
+/// 寸法。種類（kind）ごとに、その種類の定義点のフィールドを持つ。測定値（measurement）は元の形式が保存した値で、定義点から測り直さない。寸法を描いた部品（ブロック）は形の値に含めない。置き換え（DXF と DWG の DIMENSION、DXF の ARC_DIMENSION）では定義点と文字を書き直し、測定値を測り直して表示の部品を作り直す（マイナーバージョン 74 から。それまでは置き換えも change.edit.unsupported だった）。measurement は省くか元と同じ値を書く。足すことは、まだしない。マイナーバージョン 19 から
 #[derive(Clone, Debug, PartialEq)]
 pub struct DimensionGeometry {
     /// 寸法の種類
@@ -3156,7 +3162,7 @@ pub struct DimensionGeometry {
     pub text_rotation: Option<f64>,
     /// 寸法スタイルの元の名前
     pub style: String,
-    /// 寸法スタイルの ID。tables が返したもの。名前で引いた寸法スタイルがなければ書かない。マイナーバージョン 23 から
+    /// 寸法スタイルの ID。tables が返したもの。名前で引いた寸法スタイルがなければ書かない。置き換えるときは、名前と同じ寸法スタイルを指す ID だけを受ける。マイナーバージョン 23 から
     pub style_id: Option<String>,
 }
 
@@ -3707,6 +3713,200 @@ impl FromJson for CalloutContent {
 }
 
 impl ToJson for CalloutContent {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
+    }
+}
+
+/// 表（DXF・DWG の ACAD_TABLE、決定 0113）。挿入点・行の向き・行の高さ・列の幅と、行ごとのセルの並びを持つ。表のスタイル・セルの書式・型のある値・表示の部品（ブロック）は形の値に含めない。置き換え（DXF の ACAD_TABLE）では、行と列の数・セルの結合・文字でないセル（記号）を変えず、挿入点・行の向き・行の高さ・列の幅・文字と空のセルの内容と回転を書き直し、表示の部品を作り直す。足すことと DWG の書き戻しは、まだしない。マイナーバージョン 74 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct TableGeometry {
+    /// 挿入点 [X, Y]
+    pub position: Vec<f64>,
+    /// 行の向き [X, Y]。0 でない
+    pub direction: Vec<f64>,
+    /// 上の行からの行の高さ。どれも 0 より大きい。1 つ以上
+    pub row_heights: Vec<f64>,
+    /// 左の列からの列の幅。どれも 0 より大きい。1 つ以上
+    pub column_widths: Vec<f64>,
+    /// 上の行から、行ごとに左の列から並べたセル。数は行の数と列の数の積
+    pub cells: Vec<TableCell>,
+}
+
+impl TableGeometry {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("shape", "table")?;
+        let position = object.required("position", |value| json::array(value, json::number))?;
+        let direction = object.required("direction", |value| json::array(value, json::number))?;
+        let row_heights =
+            object.required("row_heights", |value| json::array(value, json::number))?;
+        let column_widths =
+            object.required("column_widths", |value| json::array(value, json::number))?;
+        let cells = object.required("cells", |value| json::array(value, TableCell::from_json))?;
+        Ok(Self {
+            position,
+            direction,
+            row_heights,
+            column_widths,
+            cells,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("shape");
+        out.string("table");
+        out.key("position");
+        out.array(&self.position, |out, item| out.float(*item));
+        out.key("direction");
+        out.array(&self.direction, |out, item| out.float(*item));
+        out.key("row_heights");
+        out.array(&self.row_heights, |out, item| out.float(*item));
+        out.key("column_widths");
+        out.array(&self.column_widths, |out, item| out.float(*item));
+        out.key("cells");
+        out.array(&self.cells, |out, item| item.to_json(out));
+    }
+}
+
+impl FromJson for TableGeometry {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for TableGeometry {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 表の 1 つのセル
+#[derive(Clone, Debug, PartialEq)]
+pub struct TableCell {
+    /// 中身の種類
+    pub content: TableCellContent,
+    /// 書式の符号を含む元の文字列。空でない。content が text のときだけ持つ
+    pub text: Option<String>,
+    /// 記号のブロックの名前。content が symbol のときだけ持つ
+    pub symbol: Option<String>,
+    /// 結合して広げる列と行の数 [列, 行]。結合しなければ [1, 1]（省けば [1, 1]）
+    pub span: Option<Vec<u64>>,
+    /// ほかのセルに結合されて覆われるか。偽のときは省ける
+    pub covered: Option<bool>,
+    /// 文字か記号の回転。0 のときは省ける
+    pub rotation: Option<f64>,
+}
+
+impl TableCell {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let content = object.required("content", TableCellContent::from_json)?;
+        let text = object.optional("text", json::string)?;
+        let symbol = object.optional("symbol", json::string)?;
+        let span = object.optional("span", |value| {
+            json::array(value, |value| json::uint(value, 1, 32767))
+        })?;
+        let covered = object.optional("covered", json::boolean)?;
+        let rotation = object.optional("rotation", json::number)?;
+        Ok(Self {
+            content,
+            text,
+            symbol,
+            span,
+            covered,
+            rotation,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("content");
+        self.content.to_json(out);
+        if let Some(value) = &self.text {
+            out.key("text");
+            out.string(value);
+        }
+        if let Some(value) = &self.symbol {
+            out.key("symbol");
+            out.string(value);
+        }
+        if let Some(value) = &self.span {
+            out.key("span");
+            out.array(value, |out, item| out.uint(*item));
+        }
+        if let Some(value) = &self.covered {
+            out.key("covered");
+            out.bool(*value);
+        }
+        if let Some(value) = &self.rotation {
+            out.key("rotation");
+            out.float(*value);
+        }
+    }
+}
+
+impl FromJson for TableCell {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for TableCell {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 表のセルの中身の種類。empty は空、text は書式つきの文字、symbol は記号（ブロック）
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum TableCellContent {
+    /// `empty`
+    Empty,
+    /// `text`
+    Text,
+    /// `symbol`
+    Symbol,
+}
+
+impl TableCellContent {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[Self::Empty, Self::Text, Self::Symbol];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Empty => "empty",
+            Self::Text => "text",
+            Self::Symbol => "symbol",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "empty" => Some(Self::Empty),
+            "text" => Some(Self::Text),
+            "symbol" => Some(Self::Symbol),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for TableCellContent {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for TableCellContent {
     fn to_json(&self, out: &mut Writer) {
         out.string(self.name());
     }

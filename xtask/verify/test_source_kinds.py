@@ -73,7 +73,7 @@ if __name__ == "__main__":
     if folder is None:
         sys.exit(2)
     check_kind(folder, "input/zumen-arcdim-r2004_ascii.dxf", partial(check_ezdxf.check_file, folder), "dimension", "hatch")
-    # 形を返さないハッチング・画像の範囲・表（make.py の shapeless_dxf）
+    # ハッチング・画像の範囲・表（make.py の shapeless_dxf）
     for kind, wrong_kind in [("hatch", "underlay"), ("underlay", "table"), ("table", "hatch")]:
         check_kind(folder, "input/made-shapeless.dxf", partial(check_ezdxf.check_file, folder), kind, wrong_kind)
     check_kind(folder, "input/made-classes.jww", partial(check_ezjww.check_file, folder), "hatch", "text")

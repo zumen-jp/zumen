@@ -156,19 +156,37 @@ def geometry(d):
 def view(dump):
     """共有の照らし方（compare.check_handles）に渡す ACadSharp の読み"""
     entities = dump["entities"]
+    block_names = {b.lower() for b in dump.get("blocks", []) if b}
+    by_owner = {}
+    for d in entities.values():
+        by_owner.setdefault((d.get("owner") or "").lower(), []).append(d)
 
     def entity(handle):
         d = entities.get(handle)
         if d is None:
             return None
         # owner は、図形を持つブロックの名前（記号の定義の中の要素を、定義の名前と照らす）
-        return {"type": d["type"], "layer": d["layer"], "color": d["color"], "line_type": d["line_type"], "owner": d["owner"], "geometry": geometry(d)}
+        out = {"type": d["type"], "layer": d["layer"], "color": d["color"], "line_type": d["line_type"], "owner": d["owner"], "geometry": geometry(d)}
+        if "block" in d:
+            out["part"] = {
+                "block": d["block"] or "",
+                "measurement": d["measurement"],
+                "text_position": d["text_midpoint"],
+                "override": caret(d.get("text", "")),
+            }
+        return out
+
+    def block(name):
+        if name.lower() not in block_names:
+            return None
+        return [{"type": d["type"], "layer": d["layer"], "geometry": geometry(d)} for d in by_owner.get(name.lower(), [])]
 
     return {
         "tool": "ACadSharp",
         "layers": set(dump["layers"]),
         "layer_colors": {name.lower(): abs(color) for name, color in dump["layers"].items() if color is not None},
         "entity": entity,
+        "block": block,
         "header": (dump["header"]["PDMODE"], dump["header"]["PDSIZE"]),
     }
 

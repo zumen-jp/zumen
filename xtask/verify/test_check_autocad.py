@@ -290,6 +290,73 @@ class Dimensions(unittest.TestCase):
         self.assertIn("値が変わった", moved["changed"]["60"])
         self.assertEqual(self.changed("@BLOCK|70|*D1", *self.BEFORE[2:])["missing"], ["60"])
 
+    def test_rebuilt_dimension_and_table_parts_are_checked_in_applied(self):
+        d = dump(
+            "60|DIMENSION|0|1=L=<>mm|2=*D9|10=100.0,20.0|11=57.5,25.0|42=115.0",
+            "61|ACAD_TABLE|0|2=*T2|10=5.0,-65.0|11=1.0,0.0",
+            "@BLOCK|70|*D9",
+            "71|LINE|0|10=0.0,0.0|11=0.0,25.0",
+            "72|LINE|0|10=115.0,0.0|11=115.0,25.0",
+            "73|LINE|0|10=0.0,25.0|11=115.0,25.0",
+            "74|MTEXT|0|1=L=115mm|10=57.5,25.0|40=2.5|50=0.0|71=5",
+            "@BLOCK|80|*T2",
+            "81|LINE|0|10=5.0,-65.0|11=132.0,-65.0",
+            "82|LINE|0|10=5.0,-94.0|11=132.0,-94.0",
+            "83|MTEXT|0|1=\\U+54C1A|10=10.0,-70.0|40=3.5|50=0.0|71=5",
+        )
+        entry = {
+            "steps": [
+                {
+                    "step": "parts",
+                    "edits": [],
+                    "parts": [
+                        {
+                            "id": "space/0/h60",
+                            "edit": 0,
+                            "kind": "dimension",
+                            "prefix": "*D",
+                            "measurement": 115.0,
+                            "override": "L=<>mm",
+                            "curves": 3,
+                            "mtext": "L=115mm",
+                        },
+                        {
+                            "id": "space/0/h61",
+                            "edit": 1,
+                            "kind": "table",
+                            "prefix": "*T",
+                            "position": [5.0, -65.0],
+                            "direction": [1.0, 0.0],
+                            "lines": 2,
+                            "texts": ["品A"],
+                            "rotation": 0.0,
+                        },
+                    ],
+                }
+            ]
+        }
+        reading = {
+            "entities": [
+                {"id": "space/0/h60", "source": {"handle": "60"}, "geometry": {"shape": "dimension", "text_position": [57.5, 25.0]}},
+                {"id": "space/0/h61", "source": {"handle": "61"}, "geometry": {"shape": "table"}},
+            ]
+        }
+        counts = Counter()
+        self.assertEqual(applied(entry, reading, counts, c.view(d, "dxf")), [])
+        self.assertEqual(counts["expected"], 2)
+        # 測定値と部品の文字のずれを見つける
+        wrong_entry = {
+            "steps": [
+                {
+                    "step": "parts",
+                    "edits": [],
+                    "parts": [{**entry["steps"][0]["parts"][0], "measurement": 100.0, "mtext": "L=100mm"}],
+                }
+            ]
+        }
+        failures = applied(wrong_entry, reading, Counter(), c.view(d, "dxf"))
+        self.assertEqual(len(failures), 2)
+
 
 class Chains(unittest.TestCase):
     """変更を 1 つずつ続けて当てたファイルの、列を通して決まる終わりの値の照らし方（compare.py の applied）"""

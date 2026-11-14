@@ -80,6 +80,17 @@ pub(crate) fn changes(
                 .saturating_add(leader.style.len())
                 .saturating_add(leader.style_id.as_ref().map_or(0, String::len))
                 .saturating_add(leader.annotation.as_ref().map_or(0, String::len)),
+            Some(messages::Geometry::Dimension(dimension)) => dimension
+                .style
+                .len()
+                .saturating_add(dimension.style_id.as_ref().map_or(0, String::len))
+                .saturating_add(dimension.content.as_ref().map_or(0, String::len))
+                .saturating_add(dimension.measurement_key.as_ref().map_or(0, String::len)),
+            Some(messages::Geometry::Table(table)) => table
+                .row_heights
+                .len()
+                .saturating_add(table.column_widths.len())
+                .saturating_add(table.cells.len()),
             Some(messages::Geometry::Callout(callout)) => callout
                 .branches
                 .iter()
@@ -109,6 +120,15 @@ pub(crate) fn changes(
                 let size = 1_usize
                     .saturating_add(item.tag.len())
                     .saturating_add(item.value.len());
+                cx.check(Kind::Work, u64::try_from(size).unwrap_or(u64::MAX))
+                    .map_err(|stop| stopped(cx, stop))?;
+            }
+        }
+        if let Some(messages::Geometry::Table(table)) = value {
+            for cell in &table.cells {
+                let size = 1_usize
+                    .saturating_add(cell.text.as_ref().map_or(0, String::len))
+                    .saturating_add(cell.symbol.as_ref().map_or(0, String::len));
                 cx.check(Kind::Work, u64::try_from(size).unwrap_or(u64::MAX))
                     .map_err(|stop| stopped(cx, stop))?;
             }
@@ -733,21 +753,38 @@ impl PlaceLookup {
 
 /// MTEXT の解析は、入れ子や区間ごとにフォント名を複製する。内容の長さと、複製を起こし得る
 /// 符号の数から上限を求め、解析より先に作業量を数える。
-fn count_formatted_geometry(value: &messages::Geometry, cx: &mut Cx<'_>) -> Result<(), Failed> {
-    if let messages::Geometry::FormattedText(text) = value {
-        let bytes = u64::try_from(text.content.len()).unwrap_or(u64::MAX);
-        cx.check(Kind::Work, bytes)
+fn count_formatted_text(content: &str, cx: &mut Cx<'_>) -> Result<(), Failed> {
+    let bytes = u64::try_from(content.len()).unwrap_or(u64::MAX);
+    cx.check(Kind::Work, bytes)
+        .map_err(|stop| stopped(cx, stop))?;
+    if content.contains("\\f") || content.contains("\\F") {
+        let signs = content
+            .bytes()
+            .filter(|b| matches!(b, b'{' | b'}' | b'\\'))
+            .count();
+        let signs = u64::try_from(signs).unwrap_or(u64::MAX);
+        cx.check(Kind::Work, bytes.saturating_mul(signs))
             .map_err(|stop| stopped(cx, stop))?;
-        if text.content.contains("\\f") || text.content.contains("\\F") {
-            let signs = text
-                .content
-                .bytes()
-                .filter(|b| matches!(b, b'{' | b'}' | b'\\'))
-                .count();
-            let signs = u64::try_from(signs).unwrap_or(u64::MAX);
-            cx.check(Kind::Work, bytes.saturating_mul(signs))
-                .map_err(|stop| stopped(cx, stop))?;
+    }
+    Ok(())
+}
+
+fn count_formatted_geometry(value: &messages::Geometry, cx: &mut Cx<'_>) -> Result<(), Failed> {
+    match value {
+        messages::Geometry::FormattedText(text) => count_formatted_text(&text.content, cx)?,
+        messages::Geometry::Dimension(dimension) => {
+            if let Some(content) = &dimension.content {
+                count_formatted_text(content, cx)?;
+            }
         }
+        messages::Geometry::Table(table) => {
+            for cell in &table.cells {
+                if let Some(text) = &cell.text {
+                    count_formatted_text(text, cx)?;
+                }
+            }
+        }
+        _ => {}
     }
     Ok(())
 }
@@ -837,17 +874,18 @@ impl<'a> TableLookup<'a> {
     }
 }
 
-/// 文字スタイルを ID で指した形の値か
+/// 文字スタイルや寸法スタイルを ID で指した形の値か
 fn has_style_id(geometry: &messages::Geometry) -> bool {
     match geometry {
         messages::Geometry::Text(text) => text.style_id.is_some(),
         messages::Geometry::FormattedText(text) => text.style_id.is_some(),
         messages::Geometry::Leader(leader) => leader.style_id.is_some(),
+        messages::Geometry::Dimension(dimension) => dimension.style_id.is_some(),
         _ => false,
     }
 }
 
-/// 文字スタイルを ID で指した形の値を、名前で指す形の値にする。合わなければ、そのフィールドの名前を返す
+/// 文字スタイルや寸法スタイルを ID で指した形の値を、名前で指す形の値にする。合わなければ、そのフィールドの名前を返す
 fn named_style<'g>(
     geometry: &'g messages::Geometry,
     tables: Option<&TableLookup<'_>>,
@@ -855,7 +893,7 @@ fn named_style<'g>(
     let (style, wanted) = match geometry {
         messages::Geometry::Text(text) => (&text.style, &text.style_id),
         messages::Geometry::FormattedText(text) => (&text.style, &text.style_id),
-        // 引出線は寸法スタイルを指す。ID は、名前と同じ寸法スタイルを指すものだけを受ける
+        // 引出線と寸法は寸法スタイルを指す。ID は、名前と同じ寸法スタイルを指すものだけを受ける
         messages::Geometry::Leader(leader) => {
             let Some(wanted) = &leader.style_id else {
                 return Ok(Cow::Borrowed(geometry));
@@ -869,6 +907,22 @@ fn named_style<'g>(
             let mut geometry = geometry.clone();
             if let messages::Geometry::Leader(leader) = &mut geometry {
                 leader.style_id = None;
+            }
+            return Ok(Cow::Owned(geometry));
+        }
+        messages::Geometry::Dimension(dimension) => {
+            let Some(wanted) = &dimension.style_id else {
+                return Ok(Cow::Borrowed(geometry));
+            };
+            let found = tables
+                .and_then(|tables| tables.dimension_styles.get(wanted.as_str()))
+                .ok_or("geometry/style_id")?;
+            if found.name != dimension.style {
+                return Err("geometry/style_id");
+            }
+            let mut geometry = geometry.clone();
+            if let messages::Geometry::Dimension(dimension) = &mut geometry {
+                dimension.style_id = None;
             }
             return Ok(Cow::Owned(geometry));
         }
@@ -937,6 +991,41 @@ pub(crate) fn count_old_element<P>(element: &Element<P>, cx: &mut Cx<'_>) -> Res
     let size = match &element.shape {
         Shape::Text(text) => text.style.len(),
         Shape::Formatted(text) => text.style.len(),
+        Shape::Dimension(dimension) => dimension
+            .style
+            .len()
+            .saturating_add(dimension.block.as_ref().map_or(0, String::len))
+            .saturating_add(
+                dimension
+                    .measurement
+                    .as_ref()
+                    .map_or(0, |measured| measured.key.len()),
+            ),
+        Shape::Table(table) => {
+            for cell in &table.cells {
+                let size = 1_usize
+                    .saturating_add(match &cell.content {
+                        zumen_drawing::CellContent::Symbol(key) => {
+                            key.namespace.len().saturating_add(key.name.len())
+                        }
+                        _ => 0,
+                    })
+                    .saturating_add(cell.format.text_style.as_ref().map_or(0, String::len));
+                cx.check(Kind::Work, u64::try_from(size).unwrap_or(u64::MAX))
+                    .map_err(|stop| stopped(cx, stop))?;
+            }
+            table
+                .style
+                .as_ref()
+                .and_then(Ref::id)
+                .map_or(0_usize, str::len)
+                .saturating_add(
+                    table
+                        .drawn
+                        .as_ref()
+                        .map_or(0, |key| key.namespace.len().saturating_add(key.name.len())),
+                )
+        }
         Shape::Symbol(symbol) => {
             // 属性と切り抜きは元のまま複製する。内容と区間は、たどる前に予算を確かめる。
             for attribute in &symbol.attributes {

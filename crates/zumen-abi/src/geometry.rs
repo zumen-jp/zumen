@@ -9,11 +9,11 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use zumen_drawing::transform::{Point, transform};
 use zumen_drawing::{
-    Affine, Attribute, Axis, Branch, Callout, CalloutContent, Dimension, DimensionKind as Kind,
-    DimensionText, Dogleg, Edge, Fit, Flow, FormattedText, Grid, HeightMeaning, Horizontal, Label,
-    Leader, Length, LineSpacing, MarkerKey, ModelLength, ModelPoint, PaperLength, PaperPoint,
-    PathKind, Placement, PointLook, Polyline, Rotation, Shape, Spline, Symbol, SymbolKey, Text,
-    Vertex, Vertical,
+    Affine, Attribute, Axis, Branch, Callout, CalloutContent, Cell as DrawingCell, CellContent,
+    CellFormat, Dimension, DimensionKind as Kind, DimensionText, Dogleg, Edge, Fit, Flow,
+    FormattedText, Grid, HeightMeaning, Horizontal, Label, Leader, Length, LineSpacing, MarkerKey,
+    ModelLength, ModelPoint, PaperLength, PaperPoint, PathKind, Placement, PointLook, Polyline,
+    Rotation, Shape, Spline, Symbol, SymbolKey, Table, Text, Vertex, Vertical,
 };
 
 use crate::bounds::Planar;
@@ -22,7 +22,8 @@ use crate::messages::{
     CircleGeometry, DimensionAxis, DimensionGeometry, DimensionKind, DimensionLabel,
     EllipseGeometry, FormattedTextGeometry, Geometry, LeaderGeometry, LineGeometry, PointGeometry,
     PointMarker, PolylineGeometry, SplineGeometry, SymbolAttribute, SymbolGeometry, SymbolGrid,
-    TextFit, TextGeometry, TextHorizontal, TextVertical,
+    TableCell, TableCellContent, TableGeometry, TextFit, TextGeometry, TextHorizontal,
+    TextVertical,
 };
 
 /// API の apply が書き戻す DXF と DWG の、ブロックの記号の名前空間
@@ -270,6 +271,7 @@ pub(crate) fn geometry_of<P: Spot>(shape: &Shape<P>) -> Option<Geometry> {
             style_id: None,
         }),
         Shape::Callout(callout) => Geometry::Callout(callout_geometry(callout)?),
+        Shape::Table(table) => Geometry::Table(table_geometry(table)?),
         Shape::Point(dot) => Geometry::Point(PointGeometry {
             position: xy(dot.position),
             rotation: dot.rotation,
@@ -361,6 +363,236 @@ fn callout_geometry<P: Spot>(callout: &Callout<P>) -> Option<CalloutGeometry> {
         content,
         text,
         symbol,
+    })
+}
+
+/// 表の形の値。挿入点と違う座標の系の長さを持つもの、空の行・列、ブロック以外の記号を持つセルは `None`
+fn table_geometry<P: Spot>(table: &Table<P>) -> Option<TableGeometry> {
+    if table.row_heights.is_empty() || table.column_widths.is_empty() {
+        return None;
+    }
+    let [dx, dy] = table.direction;
+    if !(dx.is_finite() && dy.is_finite() && (dx != 0.0 || dy != 0.0)) {
+        return None;
+    }
+    let expected = table
+        .row_heights
+        .len()
+        .checked_mul(table.column_widths.len())?;
+    if table.cells.len() != expected {
+        return None;
+    }
+    let len = |value: Length| -> Option<f64> {
+        let v = table.position.length(value)?;
+        (v.is_finite() && v > 0.0).then_some(v)
+    };
+    let row_heights: Vec<f64> = table
+        .row_heights
+        .iter()
+        .map(|h| len(*h))
+        .collect::<Option<_>>()?;
+    let column_widths: Vec<f64> = table
+        .column_widths
+        .iter()
+        .map(|w| len(*w))
+        .collect::<Option<_>>()?;
+    let cells = table
+        .cells
+        .iter()
+        .map(|cell| {
+            if !cell.rotation.is_finite() || cell.span[0] == 0 || cell.span[1] == 0 {
+                return None;
+            }
+            let (content, text, symbol) = match &cell.content {
+                CellContent::Empty => (TableCellContent::Empty, None, None),
+                CellContent::Text { content, .. } if !content.is_empty() => {
+                    (TableCellContent::Text, Some(content.clone()), None)
+                }
+                CellContent::Text { .. } => (TableCellContent::Empty, None, None),
+                CellContent::Symbol(key) if key.namespace == BLOCK => {
+                    (TableCellContent::Symbol, None, Some(key.name.clone()))
+                }
+                CellContent::Symbol(_) => return None,
+            };
+            Some(TableCell {
+                content,
+                text,
+                symbol,
+                span: (cell.span != [1, 1])
+                    .then(|| vec![u64::from(cell.span[0]), u64::from(cell.span[1])]),
+                covered: cell.covered.then_some(true),
+                rotation: (cell.rotation != 0.0).then_some(cell.rotation),
+            })
+        })
+        .collect::<Option<_>>()?;
+    Some(TableGeometry {
+        position: Point::xy(table.position).to_vec(),
+        direction: table.direction.to_vec(),
+        row_heights,
+        column_widths,
+        cells,
+    })
+}
+
+/// 表の形の値で作った表。`was` は置き換える前の表で、足すときは `None`
+fn table_of<P: Spot>(
+    table: &TableGeometry,
+    was: Option<&Table<P>>,
+    origin: P,
+) -> Result<Table<P>, String> {
+    let at = |field: &str| format!("geometry/{field}");
+    let position = match *table.position.as_slice() {
+        [x, y] if x.is_finite() && y.is_finite() => origin.at([x, y]),
+        _ => return Err(at("position")),
+    };
+    let direction = match *table.direction.as_slice() {
+        [x, y] if x.is_finite() && y.is_finite() && (x != 0.0 || y != 0.0) => [x, y],
+        _ => return Err(at("direction")),
+    };
+    if table.row_heights.is_empty()
+        || was.is_some_and(|old| table.row_heights.len() != old.row_heights.len())
+    {
+        return Err(at("row_heights"));
+    }
+    let mut row_heights = Vec::with_capacity(table.row_heights.len());
+    for (index, &value) in table.row_heights.iter().enumerate() {
+        if !(value.is_finite() && value > 0.0) {
+            return Err(format!("geometry/row_heights/{index}"));
+        }
+        row_heights.push(origin.length_of(value));
+    }
+    if table.column_widths.is_empty()
+        || was.is_some_and(|old| table.column_widths.len() != old.column_widths.len())
+    {
+        return Err(at("column_widths"));
+    }
+    let mut column_widths = Vec::with_capacity(table.column_widths.len());
+    for (index, &value) in table.column_widths.iter().enumerate() {
+        if !(value.is_finite() && value > 0.0) {
+            return Err(format!("geometry/column_widths/{index}"));
+        }
+        column_widths.push(origin.length_of(value));
+    }
+    let expected = row_heights
+        .len()
+        .checked_mul(column_widths.len())
+        .ok_or_else(|| at("cells"))?;
+    if table.cells.len() != expected || was.is_some_and(|old| table.cells.len() != old.cells.len())
+    {
+        return Err(at("cells"));
+    }
+    let mut cells = Vec::with_capacity(table.cells.len());
+    for (index, item) in table.cells.iter().enumerate() {
+        let old_cell = was.and_then(|old| old.cells.get(index));
+        let span = match item.span.as_deref() {
+            None => [1, 1],
+            Some(&[cols, rows]) => match (u32::try_from(cols), u32::try_from(rows)) {
+                (Ok(cols), Ok(rows)) if cols >= 1 && rows >= 1 => [cols, rows],
+                _ => return Err(format!("geometry/cells/{index}/span")),
+            },
+            Some(_) => return Err(format!("geometry/cells/{index}/span")),
+        };
+        if let Some(old_cell) = old_cell
+            && span != old_cell.span
+        {
+            return Err(format!("geometry/cells/{index}/span"));
+        }
+        let covered = item.covered.unwrap_or(false);
+        if let Some(old_cell) = old_cell
+            && covered != old_cell.covered
+        {
+            return Err(format!("geometry/cells/{index}/covered"));
+        }
+        let rotation = match item.rotation {
+            None => 0.0,
+            Some(value) if value.is_finite() => value,
+            Some(_) => return Err(format!("geometry/cells/{index}/rotation")),
+        };
+        let content = match (item.content, &item.text, &item.symbol) {
+            (TableCellContent::Empty, None, None) => {
+                if let Some(old_cell) = old_cell
+                    && matches!(old_cell.content, CellContent::Symbol(_))
+                {
+                    return Err(format!("geometry/cells/{index}/content"));
+                }
+                CellContent::Empty
+            }
+            (TableCellContent::Text, Some(text), None) => {
+                if text.is_empty() || text.contains(['\n', '\r']) {
+                    return Err(format!("geometry/cells/{index}/text"));
+                }
+                if let Some(old_cell) = old_cell
+                    && matches!(old_cell.content, CellContent::Symbol(_))
+                {
+                    return Err(format!("geometry/cells/{index}/content"));
+                }
+                let absolute = Cell::new(false);
+                let spans = zumen_acad::mtext_spans(text, &|value| {
+                    absolute.set(true);
+                    origin.length_of(value)
+                });
+                if P::PAPER && absolute.get() {
+                    return Err(format!("geometry/cells/{index}/text"));
+                }
+                CellContent::Text {
+                    content: text.clone(),
+                    spans,
+                }
+            }
+            (TableCellContent::Symbol, None, Some(symbol)) => {
+                if symbol.is_empty() {
+                    return Err(format!("geometry/cells/{index}/symbol"));
+                }
+                if let Some(old_cell) = old_cell {
+                    match &old_cell.content {
+                        CellContent::Symbol(key) if key.namespace == BLOCK => {
+                            if key.name != *symbol {
+                                return Err(format!("geometry/cells/{index}/symbol"));
+                            }
+                        }
+                        _ => return Err(format!("geometry/cells/{index}/content")),
+                    }
+                }
+                CellContent::Symbol(SymbolKey {
+                    namespace: BLOCK.into(),
+                    name: symbol.clone(),
+                })
+            }
+            (TableCellContent::Empty, Some(_), _) | (TableCellContent::Symbol, Some(_), _) => {
+                return Err(format!("geometry/cells/{index}/text"));
+            }
+            (TableCellContent::Empty, None, Some(_)) | (TableCellContent::Text, _, Some(_)) => {
+                return Err(format!("geometry/cells/{index}/symbol"));
+            }
+            (TableCellContent::Text, None, None) => {
+                return Err(format!("geometry/cells/{index}/text"));
+            }
+            (TableCellContent::Symbol, None, None) => {
+                return Err(format!("geometry/cells/{index}/symbol"));
+            }
+        };
+        let value = match old_cell {
+            Some(old_cell) if content == old_cell.content => old_cell.value.clone(),
+            _ => None,
+        };
+        cells.push(DrawingCell {
+            content,
+            span,
+            covered,
+            value,
+            rotation,
+            format: old_cell.map_or_else(CellFormat::default, |old_cell| old_cell.format.clone()),
+        });
+    }
+    Ok(Table {
+        position,
+        direction,
+        row_heights,
+        column_widths,
+        cells,
+        style: was.and_then(|old| old.style.clone()),
+        formats: was.and_then(|old| old.formats.clone()),
+        drawn: was.and_then(|old| old.drawn.clone()),
     })
 }
 
@@ -679,8 +911,8 @@ fn dimension_of<P: Spot>(
         text: DimensionText {
             position,
             moved: match was {
-                Some(was) => was.text.moved,
-                None => position.is_some(),
+                Some(was) if position == was.text.position => was.text.moved,
+                _ => position.is_some(),
             },
             rotation,
             attachment: was.and_then(|was| was.text.attachment),
@@ -1250,6 +1482,10 @@ pub(crate) fn shape_of<P: Spot>(
         (Geometry::Dimension(dimension), Some(Shape::Dimension(was))) => {
             Shape::Dimension(dimension_of(dimension, Some(was), origin)?)
         }
+        (Geometry::Table(table), None) => Shape::Table(table_of(table, None, origin)?),
+        (Geometry::Table(table), Some(Shape::Table(was))) => {
+            Shape::Table(table_of(table, Some(was), origin)?)
+        }
         // 引出線は、経路・曲線か・矢印を替える。注記の参照は元のままにし、足すときは持たない。注記の ID が
         // 元の注記を指すかは、呼ぶ側が確かめる
         (Geometry::Leader(leader), was @ (None | Some(Shape::Leader(_)))) => {
@@ -1628,6 +1864,7 @@ pub(crate) fn origin_of<P: Copy>(shape: &Shape<P>) -> Option<P> {
                 .copied()
         }),
         Shape::Point(dot) => Some(dot.position),
+        Shape::Table(table) => Some(table.position),
         Shape::Dimension(dimension) => Some(match dimension.kind {
             Kind::Linear { first, .. }
             | Kind::Aligned { first, .. }

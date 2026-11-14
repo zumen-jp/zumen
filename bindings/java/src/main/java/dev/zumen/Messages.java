@@ -2640,7 +2640,7 @@ public final class Messages {
             return this;
         }
 
-        /** 形の値。線分・円・円弧・楕円・幅を持たない折れ線・1 点か 2 点の間に置く文字・書式つきの文字・ブロックの記号・制御点かフィット点で決まるスプライン・寸法・引出線（LEADER）だけが持つ。apply の replace と add に渡せる形（決定 0139）。マイナーバージョン 10 から */
+        /** 形の値。線分・円・円弧・楕円・幅を持たない折れ線・1 点か 2 点の間に置く文字・書式つきの文字・ブロックの記号・制御点かフィット点で決まるスプライン・寸法・引出線（LEADER）・点・引出線つきの注記・表（ACAD_TABLE）だけが持つ。apply の replace と add に渡せる形（決定 0139）。マイナーバージョン 10 から */
         public Geometry getGeometry() {
             return Json.read(json.get("geometry"), Geometry::of);
         }
@@ -2751,6 +2751,11 @@ public final class Messages {
         /** shape が callout の形なら、そのビュー。違えば null */
         public CalloutGeometry asCalloutGeometry() {
             return "callout".equals(json.get("shape")) ? new CalloutGeometry(json) : null;
+        }
+
+        /** shape が table の形なら、そのビュー。違えば null */
+        public TableGeometry asTableGeometry() {
+            return "table".equals(json.get("shape")) ? new TableGeometry(json) : null;
         }
     }
 
@@ -3566,7 +3571,7 @@ public final class Messages {
         }
     }
 
-    /** 寸法。種類（kind）ごとに、その種類の定義点のフィールドを持つ。測定値（measurement）は元の形式が保存した値で、定義点から測り直さない。寸法を描いた部品（ブロック）は形の値に含めない。entities が返すだけで、置き換えと追加は change.edit.unsupported になる（寸法を描いた部品を作り直す必要があるため）。マイナーバージョン 19 から */
+    /** 寸法。種類（kind）ごとに、その種類の定義点のフィールドを持つ。測定値（measurement）は元の形式が保存した値で、定義点から測り直さない。寸法を描いた部品（ブロック）は形の値に含めない。置き換え（DXF と DWG の DIMENSION、DXF の ARC_DIMENSION）では定義点と文字を書き直し、測定値を測り直して表示の部品を作り直す（マイナーバージョン 74 から。それまでは置き換えも change.edit.unsupported だった）。measurement は省くか元と同じ値を書く。足すことは、まだしない。マイナーバージョン 19 から */
     public static final class DimensionGeometry extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public DimensionGeometry(Map<String, Object> json) {
@@ -3871,7 +3876,7 @@ public final class Messages {
             return this;
         }
 
-        /** 寸法スタイルの ID。tables が返したもの。名前で引いた寸法スタイルがなければ書かない。マイナーバージョン 23 から */
+        /** 寸法スタイルの ID。tables が返したもの。名前で引いた寸法スタイルがなければ書かない。置き換えるときは、名前と同じ寸法スタイルを指す ID だけを受ける。マイナーバージョン 23 から */
         public String getStyleId() {
             return Json.read(json.get("style_id"), Json::string);
         }
@@ -4216,6 +4221,192 @@ public final class Messages {
         private CalloutContent() {}
 
         public static final String NONE = "none";
+
+        public static final String TEXT = "text";
+
+        public static final String SYMBOL = "symbol";
+    }
+
+    /** 表（DXF・DWG の ACAD_TABLE、決定 0113）。挿入点・行の向き・行の高さ・列の幅と、行ごとのセルの並びを持つ。表のスタイル・セルの書式・型のある値・表示の部品（ブロック）は形の値に含めない。置き換え（DXF の ACAD_TABLE）では、行と列の数・セルの結合・文字でないセル（記号）を変えず、挿入点・行の向き・行の高さ・列の幅・文字と空のセルの内容と回転を書き直し、表示の部品を作り直す。足すことと DWG の書き戻しは、まだしない。マイナーバージョン 74 から */
+    public static final class TableGeometry extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public TableGeometry(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static TableGeometry of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new TableGeometry(json);
+        }
+
+        /** タグのフィールドだけを持つオブジェクトから作る */
+        public TableGeometry() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("shape", "table");
+        }
+
+        /** 形の種類 */
+        public String getShape() {
+            return Json.read(json.get("shape"), Json::string);
+        }
+
+        /** {@link #getShape()} を書く。null ならフィールドを除く */
+        public TableGeometry withShape(String value) {
+            put("shape", value);
+            return this;
+        }
+
+        /** 挿入点 [X, Y] */
+        public List<Double> getPosition() {
+            return Json.read(json.get("position"), v0 -> Json.list(v0, Json::number));
+        }
+
+        /** {@link #getPosition()} を書く。null ならフィールドを除く */
+        public TableGeometry withPosition(List<Double> value) {
+            put("position", value);
+            return this;
+        }
+
+        /** 行の向き [X, Y]。0 でない */
+        public List<Double> getDirection() {
+            return Json.read(json.get("direction"), v0 -> Json.list(v0, Json::number));
+        }
+
+        /** {@link #getDirection()} を書く。null ならフィールドを除く */
+        public TableGeometry withDirection(List<Double> value) {
+            put("direction", value);
+            return this;
+        }
+
+        /** 上の行からの行の高さ。どれも 0 より大きい。1 つ以上 */
+        public List<Double> getRowHeights() {
+            return Json.read(json.get("row_heights"), v0 -> Json.list(v0, Json::number));
+        }
+
+        /** {@link #getRowHeights()} を書く。null ならフィールドを除く */
+        public TableGeometry withRowHeights(List<Double> value) {
+            put("row_heights", value);
+            return this;
+        }
+
+        /** 左の列からの列の幅。どれも 0 より大きい。1 つ以上 */
+        public List<Double> getColumnWidths() {
+            return Json.read(json.get("column_widths"), v0 -> Json.list(v0, Json::number));
+        }
+
+        /** {@link #getColumnWidths()} を書く。null ならフィールドを除く */
+        public TableGeometry withColumnWidths(List<Double> value) {
+            put("column_widths", value);
+            return this;
+        }
+
+        /** 上の行から、行ごとに左の列から並べたセル。数は行の数と列の数の積 */
+        public List<TableCell> getCells() {
+            return Json.read(json.get("cells"), v0 -> Json.list(v0, TableCell::of));
+        }
+
+        /** {@link #getCells()} を書く。null ならフィールドを除く */
+        public TableGeometry withCells(List<TableCell> value) {
+            put("cells", value);
+            return this;
+        }
+    }
+
+    /** 表の 1 つのセル */
+    public static final class TableCell extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public TableCell(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static TableCell of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new TableCell(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public TableCell() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 中身の種類 */
+        public String getContent() {
+            return Json.read(json.get("content"), Json::string);
+        }
+
+        /** {@link #getContent()} を書く。null ならフィールドを除く */
+        public TableCell withContent(String value) {
+            put("content", value);
+            return this;
+        }
+
+        /** 書式の符号を含む元の文字列。空でない。content が text のときだけ持つ */
+        public String getText() {
+            return Json.read(json.get("text"), Json::string);
+        }
+
+        /** {@link #getText()} を書く。null ならフィールドを除く */
+        public TableCell withText(String value) {
+            put("text", value);
+            return this;
+        }
+
+        /** 記号のブロックの名前。content が symbol のときだけ持つ */
+        public String getSymbol() {
+            return Json.read(json.get("symbol"), Json::string);
+        }
+
+        /** {@link #getSymbol()} を書く。null ならフィールドを除く */
+        public TableCell withSymbol(String value) {
+            put("symbol", value);
+            return this;
+        }
+
+        /** 結合して広げる列と行の数 [列, 行]。結合しなければ [1, 1]（省けば [1, 1]） */
+        public List<Long> getSpan() {
+            return Json.read(json.get("span"), v0 -> Json.list(v0, Json::integer));
+        }
+
+        /** {@link #getSpan()} を書く。null ならフィールドを除く */
+        public TableCell withSpan(List<Long> value) {
+            put("span", value);
+            return this;
+        }
+
+        /** ほかのセルに結合されて覆われるか。偽のときは省ける */
+        public Boolean getCovered() {
+            return Json.read(json.get("covered"), Json::bool);
+        }
+
+        /** {@link #getCovered()} を書く。null ならフィールドを除く */
+        public TableCell withCovered(Boolean value) {
+            put("covered", value);
+            return this;
+        }
+
+        /** 文字か記号の回転。0 のときは省ける */
+        public Double getRotation() {
+            return Json.read(json.get("rotation"), Json::number);
+        }
+
+        /** {@link #getRotation()} を書く。null ならフィールドを除く */
+        public TableCell withRotation(Double value) {
+            put("rotation", value);
+            return this;
+        }
+    }
+
+    /**
+     * 表のセルの中身の種類。empty は空、text は書式つきの文字、symbol は記号（ブロック）
+     *
+     * 列挙の値。知らない値も受け取る
+     */
+    public static final class TableCellContent {
+        private TableCellContent() {}
+
+        public static final String EMPTY = "empty";
 
         public static final String TEXT = "text";
 

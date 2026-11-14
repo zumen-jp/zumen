@@ -1275,7 +1275,7 @@ namespace Zumen.Messages
         public string? Hash { get; init; }
 
         /// <summary>
-        /// 形の値。線分・円・円弧・楕円・幅を持たない折れ線・1 点か 2 点の間に置く文字・書式つきの文字・ブロックの記号・制御点かフィット点で決まるスプライン・寸法・引出線（LEADER）だけが持つ。apply の replace と add に渡せる形（決定 0139）。マイナーバージョン 10 から
+        /// 形の値。線分・円・円弧・楕円・幅を持たない折れ線・1 点か 2 点の間に置く文字・書式つきの文字・ブロックの記号・制御点かフィット点で決まるスプライン・寸法・引出線（LEADER）・点・引出線つきの注記・表（ACAD_TABLE）だけが持つ。apply の replace と add に渡せる形（決定 0139）。マイナーバージョン 10 から
         /// </summary>
         [JsonPropertyName("geometry")]
         public JsonAny? Geometry { get; init; }
@@ -1326,6 +1326,7 @@ namespace Zumen.Messages
             ["leader"] = typeof(LeaderGeometry),
             ["point"] = typeof(PointGeometry),
             ["callout"] = typeof(CalloutGeometry),
+            ["table"] = typeof(TableGeometry),
         };
     }
 
@@ -1749,7 +1750,7 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 寸法。種類（kind）ごとに、その種類の定義点のフィールドを持つ。測定値（measurement）は元の形式が保存した値で、定義点から測り直さない。寸法を描いた部品（ブロック）は形の値に含めない。entities が返すだけで、置き換えと追加は change.edit.unsupported になる（寸法を描いた部品を作り直す必要があるため）。マイナーバージョン 19 から
+    /// 寸法。種類（kind）ごとに、その種類の定義点のフィールドを持つ。測定値（measurement）は元の形式が保存した値で、定義点から測り直さない。寸法を描いた部品（ブロック）は形の値に含めない。置き換え（DXF と DWG の DIMENSION、DXF の ARC_DIMENSION）では定義点と文字を書き直し、測定値を測り直して表示の部品を作り直す（マイナーバージョン 74 から。それまでは置き換えも change.edit.unsupported だった）。measurement は省くか元と同じ値を書く。足すことは、まだしない。マイナーバージョン 19 から
     /// </summary>
     public sealed record DimensionGeometry
     {
@@ -1910,7 +1911,7 @@ namespace Zumen.Messages
         public string Style { get; init; } = default!;
 
         /// <summary>
-        /// 寸法スタイルの ID。tables が返したもの。名前で引いた寸法スタイルがなければ書かない。マイナーバージョン 23 から
+        /// 寸法スタイルの ID。tables が返したもの。名前で引いた寸法スタイルがなければ書かない。置き換えるときは、名前と同じ寸法スタイルを指す ID だけを受ける。マイナーバージョン 23 から
         /// </summary>
         [JsonPropertyName("style_id")]
         public string? StyleId { get; init; }
@@ -2086,6 +2087,103 @@ namespace Zumen.Messages
     {
         /// <summary>none</summary>
         public const string None = "none";
+        /// <summary>text</summary>
+        public const string Text = "text";
+        /// <summary>symbol</summary>
+        public const string Symbol = "symbol";
+    }
+
+    /// <summary>
+    /// 表（DXF・DWG の ACAD_TABLE、決定 0113）。挿入点・行の向き・行の高さ・列の幅と、行ごとのセルの並びを持つ。表のスタイル・セルの書式・型のある値・表示の部品（ブロック）は形の値に含めない。置き換え（DXF の ACAD_TABLE）では、行と列の数・セルの結合・文字でないセル（記号）を変えず、挿入点・行の向き・行の高さ・列の幅・文字と空のセルの内容と回転を書き直し、表示の部品を作り直す。足すことと DWG の書き戻しは、まだしない。マイナーバージョン 74 から
+    /// </summary>
+    public sealed record TableGeometry
+    {
+        /// <summary>
+        /// 形の種類
+        /// </summary>
+        [JsonPropertyName("shape")]
+        public string Shape { get; init; } = "table";
+
+        /// <summary>
+        /// 挿入点 [X, Y]
+        /// </summary>
+        [JsonPropertyName("position")]
+        public IReadOnlyList<double> Position { get; init; } = default!;
+
+        /// <summary>
+        /// 行の向き [X, Y]。0 でない
+        /// </summary>
+        [JsonPropertyName("direction")]
+        public IReadOnlyList<double> Direction { get; init; } = default!;
+
+        /// <summary>
+        /// 上の行からの行の高さ。どれも 0 より大きい。1 つ以上
+        /// </summary>
+        [JsonPropertyName("row_heights")]
+        public IReadOnlyList<double> RowHeights { get; init; } = default!;
+
+        /// <summary>
+        /// 左の列からの列の幅。どれも 0 より大きい。1 つ以上
+        /// </summary>
+        [JsonPropertyName("column_widths")]
+        public IReadOnlyList<double> ColumnWidths { get; init; } = default!;
+
+        /// <summary>
+        /// 上の行から、行ごとに左の列から並べたセル。数は行の数と列の数の積
+        /// </summary>
+        [JsonPropertyName("cells")]
+        public IReadOnlyList<TableCell> Cells { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 表の 1 つのセル
+    /// </summary>
+    public sealed record TableCell
+    {
+        /// <summary>
+        /// 中身の種類
+        /// </summary>
+        [JsonPropertyName("content")]
+        public string Content { get; init; } = default!;
+
+        /// <summary>
+        /// 書式の符号を含む元の文字列。空でない。content が text のときだけ持つ
+        /// </summary>
+        [JsonPropertyName("text")]
+        public string? Text { get; init; }
+
+        /// <summary>
+        /// 記号のブロックの名前。content が symbol のときだけ持つ
+        /// </summary>
+        [JsonPropertyName("symbol")]
+        public string? Symbol { get; init; }
+
+        /// <summary>
+        /// 結合して広げる列と行の数 [列, 行]。結合しなければ [1, 1]（省けば [1, 1]）
+        /// </summary>
+        [JsonPropertyName("span")]
+        public IReadOnlyList<uint>? Span { get; init; }
+
+        /// <summary>
+        /// ほかのセルに結合されて覆われるか。偽のときは省ける
+        /// </summary>
+        [JsonPropertyName("covered")]
+        public bool? Covered { get; init; }
+
+        /// <summary>
+        /// 文字か記号の回転。0 のときは省ける
+        /// </summary>
+        [JsonPropertyName("rotation")]
+        public double? Rotation { get; init; }
+    }
+
+    /// <summary>
+    /// 表のセルの中身の種類。empty は空、text は書式つきの文字、symbol は記号（ブロック）
+    /// </summary>
+    public static class TableCellContent
+    {
+        /// <summary>empty</summary>
+        public const string Empty = "empty";
         /// <summary>text</summary>
         public const string Text = "text";
         /// <summary>symbol</summary>

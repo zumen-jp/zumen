@@ -177,20 +177,55 @@ def scan(path, encoding):
     return numbers, layers, tables
 
 
+def part_of(e):
+    """寸法・表の定義のフィールド（ブロックの名前・測定値・文字や表の位置・向き・上書き文字）"""
+    t = e.dxftype()
+    if t in ("DIMENSION", "ARC_DIMENSION"):
+        mid = e.dxf.get("text_midpoint")
+        return {
+            "block": e.dxf.get("geometry", ""),
+            "measurement": e.dxf.get("actual_measurement"),
+            "text_position": xy(mid) if mid is not None else None,
+            "override": e.dxf.get("text", ""),
+        }
+    if t == "ACAD_TABLE" and hasattr(e, "xtags"):
+        ref = e.xtags.get_subclass("AcDbBlockReference")
+        tbl = e.xtags.get_subclass("AcDbTable")
+        pos = ref.get_first_value(10, None)
+        direction = tbl.get_first_value(11, (1.0, 0.0, 0.0))
+        return {
+            "block": ref.get_first_value(2, ""),
+            "position": xy(pos) if pos is not None else None,
+            "direction": xy(direction),
+        }
+    return None
+
+
 def view(doc, raw):
     """共有の照らし方（compare.check_handles）に渡す ezdxf の読み"""
+    blocks = {b.name.lower(): b for b in doc.blocks}
 
     def entity(handle):
         e = doc.entitydb.get(handle)
         if e is None:
             return None
-        return {"type": e.dxftype(), "layer": e.dxf.get("layer"), "color": e.dxf.get("color", 256), "geometry": geometry(e)}
+        out = {"type": e.dxftype(), "layer": e.dxf.get("layer"), "color": e.dxf.get("color", 256), "geometry": geometry(e)}
+        if (part := part_of(e)) is not None:
+            out["part"] = part
+        return out
+
+    def block(name):
+        b = blocks.get(name.lower())
+        if b is None:
+            return None
+        return [{"type": m.dxftype(), "layer": m.dxf.get("layer"), "geometry": geometry(m)} for m in b]
 
     return {
         "tool": "ezdxf",
         "layers": {l.dxf.name for l in doc.layers if raw is None or l.dxf.name.lower() in raw},
         "layer_colors": {l.dxf.name.lower(): abs(l.dxf.color) for l in doc.layers},
         "entity": entity,
+        "block": block,
         "header": (doc.header.get("$PDMODE"), doc.header.get("$PDSIZE", 0.0)),
     }
 

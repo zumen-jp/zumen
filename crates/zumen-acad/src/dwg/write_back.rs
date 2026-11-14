@@ -1253,9 +1253,10 @@ impl DwgFile {
     }
 
     /// 除いた図形 `removed` の前後の図形と、所有者のブロックのレコードの、図形の並びをたどるハンドルを直した
-    /// データを、`changes` に足す（決定 0051）。図形を持つ図形（ATTRIB を持つ INSERT など）と、リアクターか
-    /// 拡張辞書を持つ図形と、[`REMOVABLE`] にない種類は除けない。図形でないオブジェクトは、所有者も
-    /// 除くとき（除く表のレコードの拡張辞書と、それが持つオブジェクト。決定 0170）だけ除ける
+    /// データを、`changes` に足す（決定 0051）。残る図形を持つ図形（ATTRIB を持つ INSERT など）と、リアクターを
+    /// 持つ図形と、[`REMOVABLE`] にない種類は除けない。拡張辞書を持つ図形は、拡張辞書も一緒に除くとき（ハンドルが
+    /// `all` にある）だけ除ける。図形でないオブジェクトは、所有者も除くとき（除くレコードや図形の拡張辞書と、
+    /// それが持つオブジェクト。決定 0170・#881）だけ除ける
     fn unlink(
         &self,
         base: &AcadDb,
@@ -1268,13 +1269,18 @@ impl DwgFile {
             .enumerate()
             .map(|(record, entry)| (entry.handle, record))
             .collect();
-        let owners: BTreeSet<u64> = base.objects().iter().filter_map(Object::owner).collect();
-        let mut gone = BTreeSet::new();
-        let mut blocks = BTreeMap::new();
         let all: BTreeSet<u64> = removed
             .iter()
             .filter_map(|&(record, _)| self.entries.get(record).map(|entry| entry.handle))
             .collect();
+        let kept_owners: BTreeSet<u64> = base
+            .objects()
+            .iter()
+            .filter(|o| o.handle().is_none_or(|h| !all.contains(&h)))
+            .filter_map(Object::owner)
+            .collect();
+        let mut gone = BTreeSet::new();
+        let mut blocks = BTreeMap::new();
         for &(record, old) in removed {
             if old.section == Section::Tables {
                 self.unlist(record, old, &all, &records, changes)
@@ -1282,27 +1288,47 @@ impl DwgFile {
                 continue;
             }
             if old.section == Section::Objects {
-                // 所有者と一緒に除く。所有者が持つ並びは、所有者ごとなくなる
-                old.owner()
+                // 所有者と一緒に除く。残る子を持つものは除かない
+                let handle = self
+                    .entries
+                    .get(record)
+                    .map(|entry| entry.handle)
+                    .filter(|handle| !kept_owners.contains(handle));
+                handle
+                    .and(old.owner())
                     .filter(|owner| all.contains(owner))
                     .ok_or_else(|| unsupported(&old.kind))?;
                 continue;
             }
+            let (xdictionary, rest) = without_xdictionary(old);
+            let xdic_gone = match xdictionary {
+                Some(Data::Handle(handle)) => handle != 0 && all.contains(&handle),
+                Some(_) => false,
+                None => true,
+            };
+            let no_other_groups = !rest
+                .values
+                .iter()
+                .any(|value| matches!(value.code, 102 | 360));
             let block = self
                 .entries
                 .get(record)
                 .filter(|entry| {
                     matches!(old.section, Section::Entities | Section::Blocks)
                         && REMOVABLE.contains(&old.kind.as_slice())
-                        && !owners.contains(&entry.handle)
+                        && !kept_owners.contains(&entry.handle)
+                        && xdic_gone
+                        && no_other_groups
                 })
                 .and_then(|entry| {
                     let data = self.data(entry);
                     let free = if self.release >= Release::R2004 {
-                        entity_refs(data, self.release)? == (0, false)
+                        let (reactors, has_xdic) = entity_refs(data, self.release)?;
+                        reactors == 0 && (!has_xdic || xdictionary.is_some())
                     } else {
                         let links = entity_links(data, entry.handle)?;
-                        links.reactors == 0 && links.xdic == 0
+                        links.reactors == 0
+                            && (links.xdic == 0 || xdictionary == Some(Data::Handle(links.xdic)))
                     };
                     let owner = old.owner()?;
                     let block = self.entries.get(*records.get(&owner)?)?;

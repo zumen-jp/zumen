@@ -1059,7 +1059,7 @@ class Entity extends Message {
   String? get hash => readField('hash', asString);
   set hash(String? value) => writeField('hash', value);
 
-  /// 形の値。線分・円・円弧・楕円・幅を持たない折れ線・1 点か 2 点の間に置く文字・書式つきの文字・ブロックの記号・制御点かフィット点で決まるスプライン・寸法・引出線（LEADER）だけが持つ。apply の replace と add に渡せる形（決定 0139）。マイナーバージョン 10 から
+  /// 形の値。線分・円・円弧・楕円・幅を持たない折れ線・1 点か 2 点の間に置く文字・書式つきの文字・ブロックの記号・制御点かフィット点で決まるスプライン・寸法・引出線（LEADER）・点・引出線つきの注記・表（ACAD_TABLE）だけが持つ。apply の replace と add に渡せる形（決定 0139）。マイナーバージョン 10 から
   Geometry? get geometry => readField('geometry', objectOf(Geometry.fromJson));
   set geometry(Geometry? value) => writeField('geometry', value);
 }
@@ -1123,6 +1123,9 @@ class Geometry extends Message {
 
   /// shape が callout の形なら、そのビュー。違えば null
   CalloutGeometry? get asCalloutGeometry => taggedView('shape', 'callout', CalloutGeometry.fromJson);
+
+  /// shape が table の形なら、そのビュー。違えば null
+  TableGeometry? get asTableGeometry => taggedView('shape', 'table', TableGeometry.fromJson);
 }
 
 /// 線分
@@ -1445,7 +1448,7 @@ class SplineGeometry extends Message {
   set periodic(bool? value) => writeField('periodic', value);
 }
 
-/// 寸法。種類（kind）ごとに、その種類の定義点のフィールドを持つ。測定値（measurement）は元の形式が保存した値で、定義点から測り直さない。寸法を描いた部品（ブロック）は形の値に含めない。entities が返すだけで、置き換えと追加は change.edit.unsupported になる（寸法を描いた部品を作り直す必要があるため）。マイナーバージョン 19 から
+/// 寸法。種類（kind）ごとに、その種類の定義点のフィールドを持つ。測定値（measurement）は元の形式が保存した値で、定義点から測り直さない。寸法を描いた部品（ブロック）は形の値に含めない。置き換え（DXF と DWG の DIMENSION、DXF の ARC_DIMENSION）では定義点と文字を書き直し、測定値を測り直して表示の部品を作り直す（マイナーバージョン 74 から。それまでは置き換えも change.edit.unsupported だった）。measurement は省くか元と同じ値を書く。足すことは、まだしない。マイナーバージョン 19 から
 class DimensionGeometry extends Message {
   /// 読んだ JSON のオブジェクトを包む
   DimensionGeometry.fromJson(super.json);
@@ -1557,7 +1560,7 @@ class DimensionGeometry extends Message {
   String? get style => readField('style', asString);
   set style(String? value) => writeField('style', value);
 
-  /// 寸法スタイルの ID。tables が返したもの。名前で引いた寸法スタイルがなければ書かない。マイナーバージョン 23 から
+  /// 寸法スタイルの ID。tables が返したもの。名前で引いた寸法スタイルがなければ書かない。置き換えるときは、名前と同じ寸法スタイルを指す ID だけを受ける。マイナーバージョン 23 から
   String? get styleId => readField('style_id', asString);
   set styleId(String? value) => writeField('style_id', value);
 }
@@ -1696,6 +1699,81 @@ abstract final class CalloutPath {
 /// 列挙の値。知らない値も受け取る
 abstract final class CalloutContent {
   static const none = 'none';
+  static const text = 'text';
+  static const symbol = 'symbol';
+}
+
+/// 表（DXF・DWG の ACAD_TABLE、決定 0113）。挿入点・行の向き・行の高さ・列の幅と、行ごとのセルの並びを持つ。表のスタイル・セルの書式・型のある値・表示の部品（ブロック）は形の値に含めない。置き換え（DXF の ACAD_TABLE）では、行と列の数・セルの結合・文字でないセル（記号）を変えず、挿入点・行の向き・行の高さ・列の幅・文字と空のセルの内容と回転を書き直し、表示の部品を作り直す。足すことと DWG の書き戻しは、まだしない。マイナーバージョン 74 から
+class TableGeometry extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  TableGeometry.fromJson(super.json);
+
+  /// タグのフィールドだけを持つオブジェクトから作る
+  TableGeometry() : super({'shape': 'table'});
+
+  /// 形の種類
+  String? get shape => readField('shape', asString);
+  set shape(String? value) => writeField('shape', value);
+
+  /// 挿入点 [X, Y]
+  List<double>? get position => readField('position', listOf(asDouble));
+  set position(List<double>? value) => writeField('position', value);
+
+  /// 行の向き [X, Y]。0 でない
+  List<double>? get direction => readField('direction', listOf(asDouble));
+  set direction(List<double>? value) => writeField('direction', value);
+
+  /// 上の行からの行の高さ。どれも 0 より大きい。1 つ以上
+  List<double>? get rowHeights => readField('row_heights', listOf(asDouble));
+  set rowHeights(List<double>? value) => writeField('row_heights', value);
+
+  /// 左の列からの列の幅。どれも 0 より大きい。1 つ以上
+  List<double>? get columnWidths => readField('column_widths', listOf(asDouble));
+  set columnWidths(List<double>? value) => writeField('column_widths', value);
+
+  /// 上の行から、行ごとに左の列から並べたセル。数は行の数と列の数の積
+  List<TableCell>? get cells => readField('cells', listOf(objectOf(TableCell.fromJson)));
+  set cells(List<TableCell>? value) => writeField('cells', value);
+}
+
+/// 表の 1 つのセル
+class TableCell extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  TableCell.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  TableCell() : super({});
+
+  /// 中身の種類
+  String? get content => readField('content', asString);
+  set content(String? value) => writeField('content', value);
+
+  /// 書式の符号を含む元の文字列。空でない。content が text のときだけ持つ
+  String? get text => readField('text', asString);
+  set text(String? value) => writeField('text', value);
+
+  /// 記号のブロックの名前。content が symbol のときだけ持つ
+  String? get symbol => readField('symbol', asString);
+  set symbol(String? value) => writeField('symbol', value);
+
+  /// 結合して広げる列と行の数 [列, 行]。結合しなければ [1, 1]（省けば [1, 1]）
+  List<int>? get span => readField('span', listOf(asInt));
+  set span(List<int>? value) => writeField('span', value);
+
+  /// ほかのセルに結合されて覆われるか。偽のときは省ける
+  bool? get covered => readField('covered', asBool);
+  set covered(bool? value) => writeField('covered', value);
+
+  /// 文字か記号の回転。0 のときは省ける
+  double? get rotation => readField('rotation', asDouble);
+  set rotation(double? value) => writeField('rotation', value);
+}
+
+/// 表のセルの中身の種類。empty は空、text は書式つきの文字、symbol は記号（ブロック）
+///
+/// 列挙の値。知らない値も受け取る
+abstract final class TableCellContent {
+  static const empty = 'empty';
   static const text = 'text';
   static const symbol = 'symbol';
 }

@@ -773,6 +773,243 @@
       "absent": [
         "/result"
       ]
+    },
+    {
+      "push": {
+        "name": "parts.dxf",
+        "text": "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1032\n9\n$INSUNITS\n70\n4\n9\n$HANDSEED\n5\n500\n0\nENDSEC\n0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nLTYPE\n5\n5\n330\n0\n100\nAcDbSymbolTable\n70\n1\n0\nLTYPE\n5\n14\n330\n5\n100\nAcDbSymbolTableRecord\n100\nAcDbLinetypeTableRecord\n2\nContinuous\n70\n0\n3\nSolid\n72\n65\n73\n0\n40\n0.0\n0\nENDTAB\n0\nTABLE\n2\nLAYER\n5\n2\n330\n0\n100\nAcDbSymbolTable\n70\n1\n0\nLAYER\n5\n10\n330\n2\n100\nAcDbSymbolTableRecord\n100\nAcDbLayerTableRecord\n2\n0\n70\n0\n62\n7\n6\nContinuous\n0\nENDTAB\n0\nTABLE\n2\nSTYLE\n5\n3\n330\n0\n100\nAcDbSymbolTable\n70\n1\n0\nSTYLE\n5\n11\n330\n3\n100\nAcDbSymbolTableRecord\n100\nAcDbTextStyleTableRecord\n2\nStandard\n70\n0\n40\n0.0\n41\n1.0\n50\n0.0\n71\n0\n42\n2.5\n3\ntxt\n4\n\n0\nENDTAB\n0\nTABLE\n2\nBLOCK_RECORD\n5\n1\n330\n0\n100\nAcDbSymbolTable\n70\n3\n0\nBLOCK_RECORD\n5\n1F\n330\n1\n100\nAcDbSymbolTableRecord\n100\nAcDbBlockTableRecord\n2\n*Model_Space\n0\nBLOCK_RECORD\n5\n41\n330\n1\n100\nAcDbSymbolTableRecord\n100\nAcDbBlockTableRecord\n2\n*D1\n0\nBLOCK_RECORD\n5\n50\n330\n1\n100\nAcDbSymbolTableRecord\n100\nAcDbBlockTableRecord\n2\n*T1\n0\nENDTAB\n0\nTABLE\n2\nDIMSTYLE\n5\nA\n330\n0\n100\nAcDbSymbolTable\n70\n1\n100\nAcDbDimStyleTable\n71\n0\n0\nDIMSTYLE\n105\n2A\n330\nA\n100\nAcDbSymbolTableRecord\n100\nAcDbDimStyleTableRecord\n2\nISO-25\n70\n0\n40\n1.0\n41\n2.5\n140\n2.5\n271\n2\n340\n11\n0\nENDTAB\n0\nENDSEC\n0\nSECTION\n2\nBLOCKS\n0\nBLOCK\n5\n20\n330\n1F\n100\nAcDbEntity\n8\n0\n100\nAcDbBlockBegin\n2\n*Model_Space\n70\n0\n10\n0.0\n20\n0.0\n30\n0.0\n3\n*Model_Space\n1\n\n0\nENDBLK\n5\n21\n330\n1F\n100\nAcDbEntity\n8\n0\n100\nAcDbBlockEnd\n0\nBLOCK\n5\n42\n330\n41\n100\nAcDbEntity\n8\n0\n100\nAcDbBlockBegin\n2\n*D1\n70\n1\n10\n0.0\n20\n0.0\n30\n0.0\n3\n*D1\n1\n\n0\nLINE\n5\n43\n330\n41\n100\nAcDbEntity\n8\n0\n100\nAcDbLine\n10\n0.0\n20\n0.0\n30\n0.0\n11\n100.0\n21\n0.0\n31\n0.0\n0\nENDBLK\n5\n44\n330\n41\n100\nAcDbEntity\n8\n0\n100\nAcDbBlockEnd\n0\nBLOCK\n5\n51\n330\n50\n100\nAcDbEntity\n8\n0\n100\nAcDbBlockBegin\n2\n*T1\n70\n1\n10\n0.0\n20\n0.0\n30\n0.0\n3\n*T1\n1\n\n0\nLINE\n5\n52\n330\n50\n100\nAcDbEntity\n8\n0\n100\nAcDbLine\n10\n0.0\n20\n0.0\n30\n0.0\n11\n50.0\n21\n0.0\n31\n0.0\n0\nENDBLK\n5\n53\n330\n50\n100\nAcDbEntity\n8\n0\n100\nAcDbBlockEnd\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nDIMENSION\n5\n80\n330\n1F\n100\nAcDbEntity\n8\n0\n100\nAcDbDimension\n2\n*D1\n10\n100.0\n20\n20.0\n30\n0.0\n11\n50.0\n21\n20.0\n31\n0.0\n70\n32\n71\n5\n42\n100.0\n3\nISO-25\n100\nAcDbAlignedDimension\n13\n0.0\n23\n0.0\n33\n0.0\n14\n100.0\n24\n0.0\n34\n0.0\n100\nAcDbRotatedDimension\n0\nACAD_TABLE\n5\n300\n330\n1F\n100\nAcDbEntity\n8\n0\n100\nAcDbBlockReference\n2\n*T1\n10\n10.0\n20\n50.0\n30\n0.0\n100\nAcDbTable\n280\n0\n342\n400\n343\n50\n11\n1.0\n21\n0.0\n31\n0.0\n90\n22\n91\n2\n92\n2\n93\n0\n94\n0\n95\n0\n96\n0\n141\n8.0\n141\n6.0\n142\n20.0\n142\n30.0\n171\n1\n172\n0\n173\n0\n174\n0\n175\n2\n176\n1\n91\n0\n178\n0\n145\n0.0\n140\n3.0\n170\n5\n1\nTitle\n171\n1\n172\n0\n173\n1\n174\n0\n175\n1\n176\n1\n91\n0\n178\n0\n145\n0.0\n1\n\n171\n1\n172\n0\n173\n0\n174\n0\n175\n1\n176\n1\n91\n0\n178\n0\n145\n0.0\n140\n2.5\n170\n5\n1\nA1\n171\n1\n172\n0\n173\n0\n174\n0\n175\n1\n176\n1\n91\n0\n178\n0\n145\n0.0\n140\n2.5\n170\n5\n1\n100\n0\nENDSEC\n0\nSECTION\n2\nOBJECTS\n0\nTABLESTYLE\n5\n400\n330\n0\n100\nAcDbTableStyle\n280\n0\n3\nStandard\n70\n0\n71\n0\n40\n1.5\n41\n1.5\n280\n0\n281\n0\n7\nStandard\n140\n2.5\n170\n5\n62\n7\n7\nStandard\n140\n3.5\n170\n5\n62\n7\n7\nStandard\n140\n3.0\n170\n5\n62\n7\n0\nENDSEC\n0\nEOF\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "parts.dxf"
+      },
+      "expect": {
+        "/result/format": "dxf"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "parts.dxf",
+        "fields": ["id", "hash", "geometry"]
+      },
+      "expect": {
+        "/result/total": 2,
+        "/result/items/0/id": "space/0/h80",
+        "/result/items/0/hash": "v2:94b3decd97c9d7837df780e915a2683c",
+        "/result/items/0/geometry": {
+          "shape": "dimension",
+          "kind": "linear",
+          "first": [0, 0],
+          "second": [100, 0],
+          "line": [100, 20],
+          "rotation": 0,
+          "oblique": 0,
+          "label": "measurement",
+          "measurement": 100,
+          "measurement_key": "dxf.DIMENSION.42",
+          "text_position": [50, 20],
+          "style": "ISO-25",
+          "style_id": "dimension-style/h2A"
+        },
+        "/result/items/1/id": "space/0/h300",
+        "/result/items/1/hash": "v2:feed920435a79a60eabfb49a7bdc6cf0",
+        "/result/items/1/geometry": {
+          "shape": "table",
+          "position": [10, 50],
+          "direction": [1, 0],
+          "row_heights": [8, 6],
+          "column_widths": [20, 30],
+          "cells": [
+            {"content": "text", "text": "Title", "span": [2, 1]},
+            {"content": "empty", "covered": true},
+            {"content": "text", "text": "A1"},
+            {"content": "text", "text": "100"}
+          ]
+        }
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "doc": "parts.dxf",
+        "edits": [
+          {
+            "kind": "replace",
+            "id": "space/0/h80",
+            "hash": "v2:94b3decd97c9d7837df780e915a2683c",
+            "geometry": {
+              "shape": "dimension",
+              "kind": "linear",
+              "first": [0, 0],
+              "second": [160, 0],
+              "line": [160, 25],
+              "rotation": 0,
+              "oblique": 0,
+              "label": "override",
+              "content": "L=<>",
+              "style": "ISO-25"
+            }
+          },
+          {
+            "kind": "replace",
+            "id": "space/0/h300",
+            "hash": "v2:feed920435a79a60eabfb49a7bdc6cf0",
+            "geometry": {
+              "shape": "table",
+              "position": [15, 60],
+              "direction": [1, 0],
+              "row_heights": [8, 6],
+              "column_widths": [25, 30],
+              "cells": [
+                {"content": "text", "text": "Title2", "span": [2, 1]},
+                {"content": "empty", "covered": true},
+                {"content": "empty"},
+                {"content": "text", "text": "250"}
+              ]
+            }
+          }
+        ]
+      },
+      "expect": {
+        "/result/applied/0/id": "space/0/h80",
+        "/result/applied/0/hash": "v2:99c44b87ed8a59509822d82cdebc0104",
+        "/result/applied/1/id": "space/0/h300",
+        "/result/applied/1/hash": "v2:dc611f2dd636e6b04ef060b50c03e174",
+        "/blobs/0/kind": "file",
+        "/diagnostics": []
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "doc": "parts.dxf",
+        "edits": [
+          {
+            "kind": "transform",
+            "id": "space/0/h80",
+            "hash": "v2:99c44b87ed8a59509822d82cdebc0104",
+            "matrix": [0, -1, 5, 1, 0, 10]
+          },
+          {
+            "kind": "transform",
+            "id": "space/0/h300",
+            "hash": "v2:dc611f2dd636e6b04ef060b50c03e174",
+            "matrix": [0, -1, 5, 1, 0, 10]
+          }
+        ]
+      },
+      "expect": {
+        "/result/applied/0/id": "space/0/h80",
+        "/result/applied/1/id": "space/0/h300",
+        "/blobs/0/kind": "file",
+        "/diagnostics": []
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "parts.dxf",
+        "fields": ["id", "geometry"]
+      },
+      "expect": {
+        "/result/total": 2,
+        "/result/items/0/geometry": {
+          "shape": "dimension",
+          "kind": "linear",
+          "first": [5, 10],
+          "second": [5, 170],
+          "line": [-20, 170],
+          "rotation": 90,
+          "oblique": 0,
+          "label": "override",
+          "content": "L=<>",
+          "measurement": 160,
+          "measurement_key": "dxf.DIMENSION.42",
+          "text_position": [-20, 90],
+          "style": "ISO-25",
+          "style_id": "dimension-style/h2A"
+        },
+        "/result/items/1/geometry": {
+          "shape": "table",
+          "position": [-55, 25],
+          "direction": [0, 1],
+          "row_heights": [8, 6],
+          "column_widths": [25, 30],
+          "cells": [
+            {"content": "text", "text": "Title2", "span": [2, 1]},
+            {"content": "empty", "covered": true},
+            {"content": "empty"},
+            {"content": "text", "text": "250"}
+          ]
+        }
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "scene",
+        "doc": "parts.dxf",
+        "from": "space/0"
+      },
+      "expect": {
+        "/result/counts/lines": 11,
+        "/result/counts/faces": 2,
+        "/result/counts/texts": 3,
+        "/blobs/0/kind": "scene",
+        "/diagnostics": []
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "doc": "parts.dxf",
+        "edits": [
+          {
+            "kind": "add",
+            "place": "space/0",
+            "geometry": {
+              "shape": "table",
+              "position": [15, 60],
+              "direction": [1, 0],
+              "row_heights": [8, 6],
+              "column_widths": [25, 30],
+              "cells": [
+                {"content": "text", "text": "Title2", "span": [2, 1]},
+                {"content": "empty", "covered": true},
+                {"content": "empty"},
+                {"content": "text", "text": "250"}
+              ]
+            }
+          }
+        ]
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "change.edit.unsupported",
+        "/diagnostics/0/params/kind": "ACAD_TABLE",
+        "/blobs": []
+      },
+      "absent": [
+        "/result"
+      ]
     }
   ]
 }

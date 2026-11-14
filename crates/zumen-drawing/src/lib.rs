@@ -37,6 +37,7 @@ mod hash;
 mod hatch;
 pub mod id;
 mod palette;
+pub mod parts;
 mod point;
 mod shape;
 mod space;

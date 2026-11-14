@@ -706,6 +706,21 @@ fn nonzero(value: f64) -> Option<f64> {
 /// 文字の途中と、制御文字の `^` の表記の途中で切らない。DXF の値は 1 行なので、改行は書けない（段落の区切りは `\P` で書く）。
 /// 2007 より前のバージョンは、コード・ページで符号化したバイトで数える（決定 0192）
 pub(super) fn contents(values: &mut Vec<Value>, content: &str, encoder: &Encoder) -> Option<()> {
+    let chunks = split_text(content, 3, 1, encoder)?;
+    let at = values.iter().position(|v| matches!(v.code, 1 | 3))?;
+    values.retain(|v| !matches!(v.code, 1 | 3));
+    values.splice(at..at, chunks);
+    Some(())
+}
+
+/// 文字列 `content` を、250 バイトずつの区切り（`head`）と最後の値（`tail`）に分ける。文字の途中と、制御文字の
+/// `^` の表記の途中で切らない。生の改行を含めば `None`
+pub(super) fn split_text(
+    content: &str,
+    head: i16,
+    tail: i16,
+    encoder: &Encoder,
+) -> Option<Vec<Value>> {
     if content.contains(['\n', '\r']) {
         return None;
     }
@@ -718,8 +733,6 @@ pub(super) fn contents(values: &mut Vec<Value>, content: &str, encoder: &Encoder
         bytes.extend(encoder.encode(c.encode_utf8(&mut buffer))?);
         boundaries.push(bytes.len());
     }
-    let at = values.iter().position(|v| matches!(v.code, 1 | 3))?;
-    values.retain(|v| !matches!(v.code, 1 | 3));
     let mut chunks = Vec::new();
     // 区切りの始まりの、文字の位置
     let mut first = 0;
@@ -742,18 +755,17 @@ pub(super) fn contents(values: &mut Vec<Value>, content: &str, encoder: &Encoder
             cut = cut.checked_sub(1).filter(|&cut| cut > first)?;
         }
         chunks.push(Value {
-            code: 3,
+            code: head,
             data: Data::Text(bytes.get(start..*boundaries.get(cut)?)?.to_vec()),
         });
         first = cut;
     }
     let start = *boundaries.get(first)?;
     chunks.push(Value {
-        code: 1,
+        code: tail,
         data: Data::Text(bytes.get(start..)?.to_vec()),
     });
-    values.splice(at..at, chunks);
-    Some(())
+    Some(chunks)
 }
 
 /// `code` の最初の有限の実数

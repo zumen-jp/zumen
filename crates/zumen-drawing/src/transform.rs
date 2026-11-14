@@ -12,12 +12,13 @@
 //! 並ぶ行の間隔の符号を変える。
 //!
 //! 引出線は経路の頂点を写す。折れ線の引出線はどのアフィン変換でも、曲線の引出線は相似でだけ写す（決定 0185）。
-//! 引出線つきの注記は、尺度を変えず鏡映を含まない相似（回転と平行移動）でだけ写す（決定 0191）。
+//! 引出線つきの注記・寸法・表は、尺度を変えず鏡映を含まない相似（回転と平行移動）でだけ写す（決定 0191・#314）。
 
 use crate::{
-    Affine, Attribute, Branch, Callout, CalloutContent, Dogleg, Edge, FormattedText, Height,
-    Length, ModelLength, ModelPoint, PaperLength, PaperPoint, Piece, Placement, Polyline, Rotation,
-    Scaled, Shape, Symbol, Text, Vertex,
+    Affine, Attribute, Axis, Branch, Callout, CalloutContent, Dimension, DimensionKind,
+    DimensionText, Dogleg, Edge, FormattedText, Height, Length, ModelLength, ModelPoint,
+    PaperLength, PaperPoint, Piece, Placement, Polyline, Rotation, Scaled, Shape, Symbol, Table,
+    Text, Vertex,
 };
 
 /// 変換で写せる点
@@ -259,7 +260,153 @@ pub fn transform<P: Point>(shape: &Shape<P>, transform: &Affine) -> Option<Shape
             })
         }
         Shape::Callout(callout) => Shape::Callout(calling(callout, transform, similar?)?),
+        Shape::Dimension(dimension) => {
+            Shape::Dimension(dimensioning(dimension, transform, similar?)?)
+        }
+        Shape::Table(table) => Shape::Table(tabulating(table, transform, similar?)?),
         _ => return None,
+    })
+}
+
+/// 寸法を、尺度を変えず鏡映を含まない相似（回転と平行移動）で写す。文字の大きさや矢印の大きさは寸法スタイルに
+/// 従うことがあり、書式つきの文字は鏡映を表せないため、回転と平行移動に限る。座標寸法は、90 度単位の回転でだけ
+/// 軸（X と Y）を保てる
+fn dimensioning<P: Point>(
+    dimension: &Dimension<P>,
+    transform: &Affine,
+    s: Similarity,
+) -> Option<Dimension<P>> {
+    if s.mirrored || (s.scale - 1.0).abs() > TOLERANCE {
+        return None;
+    }
+    let pt = |p: P| transform.point(p);
+    let kind = match dimension.kind {
+        DimensionKind::Linear {
+            first,
+            second,
+            line,
+            rotation,
+            oblique,
+        } => DimensionKind::Linear {
+            first: pt(first),
+            second: pt(second),
+            line: pt(line),
+            rotation: degrees(rotation + s.rotation),
+            oblique: if oblique == 0.0 {
+                0.0
+            } else {
+                degrees(oblique + s.rotation)
+            },
+        },
+        DimensionKind::Aligned {
+            first,
+            second,
+            line,
+            oblique,
+        } => DimensionKind::Aligned {
+            first: pt(first),
+            second: pt(second),
+            line: pt(line),
+            oblique: if oblique == 0.0 {
+                0.0
+            } else {
+                degrees(oblique + s.rotation)
+            },
+        },
+        DimensionKind::Angular {
+            vertex,
+            first,
+            second,
+            arc,
+        } => DimensionKind::Angular {
+            vertex: pt(vertex),
+            first: pt(first),
+            second: pt(second),
+            arc: pt(arc),
+        },
+        DimensionKind::AngularLines {
+            first: [a0, a1],
+            second: [b0, b1],
+            arc,
+        } => DimensionKind::AngularLines {
+            first: [pt(a0), pt(a1)],
+            second: [pt(b0), pt(b1)],
+            arc: pt(arc),
+        },
+        DimensionKind::ArcLength {
+            center,
+            first,
+            second,
+            arc,
+        } => DimensionKind::ArcLength {
+            center: pt(center),
+            first: pt(first),
+            second: pt(second),
+            arc: pt(arc),
+        },
+        DimensionKind::Radius {
+            center,
+            chord,
+            leader,
+        } => DimensionKind::Radius {
+            center: pt(center),
+            chord: pt(chord),
+            leader,
+        },
+        DimensionKind::Diameter {
+            chord,
+            opposite,
+            leader,
+        } => DimensionKind::Diameter {
+            chord: pt(chord),
+            opposite: pt(opposite),
+            leader,
+        },
+        DimensionKind::Ordinate {
+            origin,
+            feature,
+            leader_end,
+            axis,
+        } => {
+            let quarter = libm::round(degrees(s.rotation) / 90.0);
+            if (degrees(s.rotation) - quarter * 90.0).abs() > 1e-6
+                && (degrees(s.rotation) - 360.0).abs() > 1e-6
+            {
+                return None;
+            }
+            let swap = (quarter as i64).rem_euclid(2) != 0;
+            DimensionKind::Ordinate {
+                origin: pt(origin),
+                feature: pt(feature),
+                leader_end: pt(leader_end),
+                axis: match (axis, swap) {
+                    (Axis::X, false) | (Axis::Y, true) => Axis::X,
+                    (Axis::Y, false) | (Axis::X, true) => Axis::Y,
+                },
+            }
+        }
+    };
+    Some(Dimension {
+        kind,
+        text: DimensionText {
+            position: dimension.text.position.map(pt),
+            rotation: dimension.text.rotation.map(|r| degrees(r + s.rotation)),
+            ..dimension.text
+        },
+        ..dimension.clone()
+    })
+}
+
+/// 表を、尺度を変えず鏡映を含まない相似（回転と平行移動）で写す。セルの文字や枠は表のスタイルに従うことがあり、
+/// 書式つきの文字は鏡映を表せないため、挿入点と行の向きだけを写す
+fn tabulating<P: Point>(table: &Table<P>, transform: &Affine, s: Similarity) -> Option<Table<P>> {
+    if s.mirrored || (s.scale - 1.0).abs() > TOLERANCE {
+        return None;
+    }
+    Some(Table {
+        position: transform.point(table.position),
+        direction: transform.direction(table.direction),
+        ..table.clone()
     })
 }
 

@@ -424,8 +424,27 @@ def derived(geometry):
     return {"aligned": {"height"}, "fit": {"width_factor"}}.get(geometry.get("fit"), set())
 
 
+def part_of(row):
+    """寸法・表の定義のフィールド（ブロックの名前・測定値・文字や表の位置・向き・上書き文字）"""
+    if row.type in ("DIMENSION", "ARC_DIMENSION"):
+        return {
+            "block": row.text(2, ""),
+            "measurement": row.number(42),
+            "text_position": row.point(11),
+            "override": row.text(1, ""),
+        }
+    if row.type == "ACAD_TABLE":
+        return {
+            "block": row.text(2, ""),
+            "position": row.point(10),
+            "direction": row.point(11) or [1.0, 0.0],
+        }
+    return None
+
+
 def view(dump, fmt):
     """共有の照らし方（compare.check_handles）に渡す AutoCAD の読み。fmt は、開いたファイルの形式（dxf か dwg）"""
+    blocks = {name.lower(): info["rows"] for name, info in dump.blocks.items()}
 
     def entity(handle):
         row = dump.by_handle.get(handle)
@@ -433,7 +452,16 @@ def view(dump, fmt):
             return None
         # 62 がなければ画層に従う色（256）、6 がなければ画層に従う線種。owner は、図形を持つブロックの名前（モデル空間と
         # レイアウトの図形は None）
-        return {"type": row.type, "layer": row.layer, "color": row.integer(62, 256), "line_type": row.text(6), "owner": row.block, "geometry": geometry(row)}
+        out = {"type": row.type, "layer": row.layer, "color": row.integer(62, 256), "line_type": row.text(6), "owner": row.block, "geometry": geometry(row)}
+        if (part := part_of(row)) is not None:
+            out["part"] = part
+        return out
+
+    def block(name):
+        rows = blocks.get(name.lower())
+        if rows is None:
+            return None
+        return [{"type": r.type, "layer": r.layer, "geometry": geometry(r)} for r in rows]
 
     layers = dump.tables["LAYER"]
     return {
@@ -471,6 +499,7 @@ def view(dump, fmt):
             for name, row in dump.tables["STYLE"].items()
         },
         "entity": entity,
+        "block": block,
         "header": dump.header,
     }
 

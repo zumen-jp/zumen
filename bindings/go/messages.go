@@ -866,7 +866,7 @@ type Entity struct {
 	// 要素のレイヤ・スタイル・形のハッシュ。出所の位置は含めない。変更の前提条件に使う（v2: と 32 桁の 16 進、決定 0156）
 	Hash *string `json:"hash,omitempty"`
 
-	// 形の値。線分・円・円弧・楕円・幅を持たない折れ線・1 点か 2 点の間に置く文字・書式つきの文字・ブロックの記号・制御点かフィット点で決まるスプライン・寸法・引出線（LEADER）だけが持つ。apply の replace と add に渡せる形（決定 0139）。マイナーバージョン 10 から
+	// 形の値。線分・円・円弧・楕円・幅を持たない折れ線・1 点か 2 点の間に置く文字・書式つきの文字・ブロックの記号・制御点かフィット点で決まるスプライン・寸法・引出線（LEADER）・点・引出線つきの注記・表（ACAD_TABLE）だけが持つ。apply の replace と add に渡せる形（決定 0139）。マイナーバージョン 10 から
 	Geometry Geometry `json:"geometry,omitempty"`
 }
 
@@ -981,6 +981,11 @@ func (u Geometry) AsPointGeometry() *PointGeometry {
 // AsCalloutGeometry は、shape が callout の形なら、その型で読む。違えば nil。
 func (u Geometry) AsCalloutGeometry() *CalloutGeometry {
 	return asTagged[CalloutGeometry](u, "shape", "callout")
+}
+
+// AsTableGeometry は、shape が table の形なら、その型で読む。違えば nil。
+func (u Geometry) AsTableGeometry() *TableGeometry {
+	return asTagged[TableGeometry](u, "shape", "table")
 }
 
 // LineGeometry: 線分
@@ -1273,7 +1278,7 @@ func (m SplineGeometry) MarshalJSON() ([]byte, error) {
 	return json.Marshal(plain(m))
 }
 
-// DimensionGeometry: 寸法。種類（kind）ごとに、その種類の定義点のフィールドを持つ。測定値（measurement）は元の形式が保存した値で、定義点から測り直さない。寸法を描いた部品（ブロック）は形の値に含めない。entities が返すだけで、置き換えと追加は change.edit.unsupported になる（寸法を描いた部品を作り直す必要があるため）。マイナーバージョン 19 から
+// DimensionGeometry: 寸法。種類（kind）ごとに、その種類の定義点のフィールドを持つ。測定値（measurement）は元の形式が保存した値で、定義点から測り直さない。寸法を描いた部品（ブロック）は形の値に含めない。置き換え（DXF と DWG の DIMENSION、DXF の ARC_DIMENSION）では定義点と文字を書き直し、測定値を測り直して表示の部品を作り直す（マイナーバージョン 74 から。それまでは置き換えも change.edit.unsupported だった）。measurement は省くか元と同じ値を書く。足すことは、まだしない。マイナーバージョン 19 から
 type DimensionGeometry struct {
 	// 形の種類
 	Shape string `json:"shape,omitempty"`
@@ -1353,7 +1358,7 @@ type DimensionGeometry struct {
 	// 寸法スタイルの元の名前
 	Style *string `json:"style,omitempty"`
 
-	// 寸法スタイルの ID。tables が返したもの。名前で引いた寸法スタイルがなければ書かない。マイナーバージョン 23 から
+	// 寸法スタイルの ID。tables が返したもの。名前で引いた寸法スタイルがなければ書かない。置き換えるときは、名前と同じ寸法スタイルを指す ID だけを受ける。マイナーバージョン 23 から
 	StyleId *string `json:"style_id,omitempty"`
 }
 
@@ -1480,6 +1485,69 @@ const CalloutContentText CalloutContent = "text"
 
 // CalloutContentSymbol は symbol。
 const CalloutContentSymbol CalloutContent = "symbol"
+
+// TableGeometry: 表（DXF・DWG の ACAD_TABLE、決定 0113）。挿入点・行の向き・行の高さ・列の幅と、行ごとのセルの並びを持つ。表のスタイル・セルの書式・型のある値・表示の部品（ブロック）は形の値に含めない。置き換え（DXF の ACAD_TABLE）では、行と列の数・セルの結合・文字でないセル（記号）を変えず、挿入点・行の向き・行の高さ・列の幅・文字と空のセルの内容と回転を書き直し、表示の部品を作り直す。足すことと DWG の書き戻しは、まだしない。マイナーバージョン 74 から
+type TableGeometry struct {
+	// 形の種類
+	Shape string `json:"shape,omitempty"`
+
+	// 挿入点 [X, Y]
+	Position []float64 `json:"position,omitempty"`
+
+	// 行の向き [X, Y]。0 でない
+	Direction []float64 `json:"direction,omitempty"`
+
+	// 上の行からの行の高さ。どれも 0 より大きい。1 つ以上
+	RowHeights []float64 `json:"row_heights,omitempty"`
+
+	// 左の列からの列の幅。どれも 0 より大きい。1 つ以上
+	ColumnWidths []float64 `json:"column_widths,omitempty"`
+
+	// 上の行から、行ごとに左の列から並べたセル。数は行の数と列の数の積
+	Cells []TableCell `json:"cells,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m TableGeometry) MarshalJSON() ([]byte, error) {
+	type plain TableGeometry
+	m.Shape = "table"
+	return json.Marshal(plain(m))
+}
+
+// TableCell: 表の 1 つのセル
+type TableCell struct {
+	// 中身の種類
+	Content *TableCellContent `json:"content,omitempty"`
+
+	// 書式の符号を含む元の文字列。空でない。content が text のときだけ持つ
+	Text *string `json:"text,omitempty"`
+
+	// 記号のブロックの名前。content が symbol のときだけ持つ
+	Symbol *string `json:"symbol,omitempty"`
+
+	// 結合して広げる列と行の数 [列, 行]。結合しなければ [1, 1]（省けば [1, 1]）
+	Span []int64 `json:"span,omitempty"`
+
+	// ほかのセルに結合されて覆われるか。偽のときは省ける
+	Covered *bool `json:"covered,omitempty"`
+
+	// 文字か記号の回転。0 のときは省ける
+	Rotation *float64 `json:"rotation,omitempty"`
+}
+
+// TableCellContent: 表のセルの中身の種類。empty は空、text は書式つきの文字、symbol は記号（ブロック）
+//
+// 列挙の値。知らない値も受け取る。
+type TableCellContent string
+
+// TableCellContentEmpty は empty。
+const TableCellContentEmpty TableCellContent = "empty"
+
+// TableCellContentText は text。
+const TableCellContentText TableCellContent = "text"
+
+// TableCellContentSymbol は symbol。
+const TableCellContentSymbol TableCellContent = "symbol"
 
 // PointGeometry: 点（決定 0160・0183）。marker がなければ文書の点の表し方（DXF・DWG の $PDMODE・$PDSIZE）に従う点で、DXF・DWG の POINT と JWW の記号でない点が当たる。marker があれば既定義のマーカーの点で、SFC の点マーカーと JWW の記号の点が当たる。置き換えるときは、描き方（marker があるか）を元のまま保つ。DXF・DWG は marker と construction を持つ点を書かず、JWW の記号でない点は角度 0 だけを、SXF は SFC の点マーカーだけを書く。マイナーバージョン 35 から
 type PointGeometry struct {

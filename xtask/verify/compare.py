@@ -2,6 +2,7 @@
 
 import json
 import math
+import re
 import sys
 import tomllib
 from collections import Counter
@@ -90,14 +91,14 @@ TYPES = {
     "dimension": {"DIMENSION", "ARC_DIMENSION"},
     "leader": {"LEADER"},
     "callout": {"MULTILEADER", "MLEADER"},
+    "table": {"ACAD_TABLE"},
 }
 # DXF・DWG の要素の種類 → 出所の図形。entities が geometry を持たない要素も kind を返す。
 KINDS = {
-    **{k: TYPES[k] for k in ("line", "circle", "polyline", "point", "text", "formatted_text", "symbol", "dimension", "leader", "callout")},
+    **{k: TYPES[k] for k in ("line", "circle", "polyline", "point", "text", "formatted_text", "symbol", "dimension", "leader", "callout", "table")},
     "curve": TYPES["arc"] | TYPES["ellipse"] | TYPES["spline"],
     "hatch": {"HATCH", "SOLID", "TRACE"},
     "underlay": {"IMAGE", "PDFUNDERLAY", "DWFUNDERLAY", "DGNUNDERLAY"},
-    "table": {"ACAD_TABLE"},
 }
 # DXF・DWG: 形を比べる種類。モデル空間のこの種類の図形には、zumen の要素の形がある
 COMPARABLE = {"LINE", "CIRCLE", "ARC", "ELLIPSE", "LWPOLYLINE", "POINT", "TEXT", "MTEXT", "INSERT"}
@@ -124,6 +125,11 @@ def close(a, b, tolerance=1e-9):
 def close_angle(a, b):
     d = (a - b) % 360.0
     return min(d, 360.0 - d) <= 1e-9 * max(1.0, abs(a), abs(b))
+
+
+def unescape_unicode(text):
+    """DXF・DWG の \\U+XXXX エスケープを文字に戻す"""
+    return re.sub(r"\\U\+([0-9A-Fa-f]{4})", lambda m: chr(int(m[1], 16)), text)
 
 
 def is_default(key, value):
@@ -352,6 +358,67 @@ def added_item(edit, items, word, tool, names=()):
     return [f"足した{word} {edit['name']!r} の {d}" for d in out]
 
 
+def check_part(label, want, element, e, counts, view):
+    """書き戻した寸法・表の定義のフィールドと、作り直した匿名のブロック（*D<n>・*T<n>）の中の部品を照らす（#314）"""
+    tool = view["tool"]
+    wid = want["id"]
+    part = e.get("part")
+    if part is None or "block" not in view:
+        return [f"{label}の要素 {wid} の部品を {tool} で比べられない"]
+    counts["expected"] += 1
+    out = []
+    block_name = part.get("block") or ""
+    if not block_name.upper().startswith(want["prefix"]):
+        return [f"{label}（{wid}）のブロックの名前が {block_name!r}（期待は {want['prefix']} で始まる）"]
+    members = view["block"](block_name)
+    if not members:
+        return [f"{label}（{wid}）のブロック {block_name!r} の部品が {tool} にない"]
+    mtexts = [m["geometry"] for m in members if m["type"] == "MTEXT" and m["geometry"] is not None]
+    if want["kind"] == "dimension":
+        meas = part.get("measurement")
+        if not isinstance(meas, (int, float)) or not close(float(meas), float(want["measurement"]), 1e-6):
+            out.append(f"{label}（{wid}）の測定値が {meas!r}（期待は {want['measurement']!r}）")
+        if part.get("override", "") != want["override"]:
+            out.append(f"{label}（{wid}）の上書き文字が {part.get('override')!r}（期待は {want['override']!r}）")
+        want_pos = element.get("geometry", {}).get("text_position")
+        if want_pos is not None:
+            out += [f"{label}（{wid}）/text_position{d}" for d in differences(want_pos, part.get("text_position"))]
+        curves = sum(1 for m in members if m["type"] in ("LINE", "ARC", "CIRCLE"))
+        if curves < want["curves"]:
+            out.append(f"{label}（{wid}）のブロック {block_name!r} の線・円弧が {curves} 本（期待は {want['curves']} 本以上）")
+        if want.get("hidden"):
+            if mtexts:
+                out.append(f"{label}（{wid}）のブロック {block_name!r} に MTEXT がある（期待はなし）")
+        elif len(mtexts) != 1:
+            out.append(f"{label}（{wid}）のブロック {block_name!r} の MTEXT が {len(mtexts)} 件（期待は 1 件）")
+        else:
+            got_text = unescape_unicode(mtexts[0]["content"])
+            if "mtext" in want:
+                want_text = unescape_unicode(want["mtext"])
+                if got_text != want_text:
+                    out.append(f"{label}（{wid}）の部品の文字が {got_text!r}（期待は {want_text!r}）")
+            for sub in want.get("mtext_contains", ()):
+                if unescape_unicode(sub) not in got_text:
+                    out.append(f"{label}（{wid}）の部品の文字 {got_text!r} に {sub!r} がない")
+            if part.get("text_position") is not None:
+                out += [f"{label}（{wid}）/mtext_position{d}" for d in differences(part["text_position"], mtexts[0]["position"])]
+    elif want["kind"] == "table":
+        out += [f"{label}（{wid}）/position{d}" for d in differences(want["position"], part.get("position"))]
+        out += [f"{label}（{wid}）/direction{d}" for d in differences(want["direction"], part.get("direction"))]
+        lines = sum(1 for m in members if m["type"] == "LINE")
+        if lines < want["lines"]:
+            out.append(f"{label}（{wid}）のブロック {block_name!r} の罫線が {lines} 本（期待は {want['lines']} 本以上）")
+        if "texts" in want:
+            got_texts = [unescape_unicode(m["content"]) for m in mtexts]
+            want_texts = [unescape_unicode(t) for t in want["texts"]]
+            if got_texts != want_texts:
+                out.append(f"{label}（{wid}）の部品のセル文字が {got_texts!r}（期待は {want_texts!r}）")
+        for idx, m in enumerate(mtexts):
+            if not close_angle(float(m["rotation"]), float(want["rotation"])):
+                out.append(f"{label}（{wid}）の部品の MTEXT {idx} の角度が {m['rotation']!r}（期待は {want['rotation']!r}）")
+    return out
+
+
 def applied(entry, reading, counts, view):
     """DXF・DWG の書き戻した値: 変更で決めた形・画層・色・線種、足した画層の色・線種・状態、足した線種と文字スタイルの
     値、色と画層を変えた図形の色と画層、点の表し方"""
@@ -381,6 +448,18 @@ def applied(entry, reading, counts, view):
         if "layer" in want and (e["layer"] or "").lower() != want["layer"].lower():
             failures.append(f"{label}（{want['id']}）の画層が {e['layer']!r}（期待は {want['layer']!r}）")
         failures += [f"{label}（{want['id']}）{d}" for d in style_differences(want, e)]
+    for step in entry["steps"]:
+        for want in step.get("parts", []):
+            label = f"変更 {want['edit']}"
+            element = by_id.get(want["id"])
+            if element is None:
+                failures.append(f"{label}の要素 {want['id']} を、書き戻したファイルで zumen が読まない")
+                continue
+            e = view["entity"](handle_of(element) or "")
+            if e is None:
+                failures.append(f"{label}の要素 {want['id']} が {tool} にない")
+                continue
+            failures += check_part(label, want, element, e, counts, view)
     # 除いた要素は、zumen の読みにも、外部の実装の読みにもない。ハンドルをもう一度使った要素は、final の expect にある
     for gone in (final or {}).get("removed", []):
         counts["removed"] += 1
