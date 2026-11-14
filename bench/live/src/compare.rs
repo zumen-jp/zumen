@@ -10,12 +10,14 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 
+use zumen_base::Ref;
 use zumen_bench_live::born::{
     Add, ColorSpec, LineTypeSpec, NewGrid, NewShape, NewSymbol, NewText, Restyle, WeightSpec,
 };
 use zumen_bench_live::edit::{Decline, Edit};
+use zumen_bench_live::inspect;
 use zumen_bench_live::lift::Kind;
-use zumen_bench_live::store::{self, Charset, Document, table};
+use zumen_bench_live::store::{self, Document, table};
 use zumen_drawing::Affine;
 
 use crate::random::Random;
@@ -351,22 +353,21 @@ struct Names {
 
 impl Names {
     fn of(document: &Document) -> Names {
-        let text = |raw: &[u8]| String::from_utf8_lossy(raw).into_owned();
         let mut names = Names {
             line_types: document.table_names(table::LTYPE),
             text_styles: document.table_names(table::STYLE),
             ..Names::default()
         };
-        for layer in &document.layers.list {
-            if layer.record.is_some() {
-                names.layers.push(text(&layer.name));
+        for layer in &document.layers {
+            if layer.source != Ref::default() {
+                names.layers.push(layer.name.clone());
             } else {
-                names.loose_layers.push(text(&layer.name));
+                names.loose_layers.push(layer.name.clone());
             }
         }
-        for definition in &document.definitions {
-            if !definition.name.is_empty() {
-                names.blocks.push(text(&definition.name));
+        for definition in &document.symbols {
+            if !definition.key.name.is_empty() {
+                names.blocks.push(definition.key.name.clone());
             }
         }
         names
@@ -396,6 +397,12 @@ struct Tally {
     /// 開き直した文書と、表示のバッファーが、並びまで同じだった回数
     same_buffers: usize,
     select_checks: usize,
+    /// 今の実装と直接比べた回数（図面モデル・形・表示・表）
+    today_model_checks: usize,
+    /// 今の実装と範囲選択を直接比べた回数
+    today_select_checks: usize,
+    /// 今の実装と開く診断を直接比べた回数
+    today_diag_checks: usize,
     resyncs: usize,
     /// 今の実装が、覚えているハッシュを古いとして受け付けなかった回数
     stale: usize,
@@ -406,6 +413,8 @@ struct Tally {
 struct Run<'a> {
     options: &'a Options,
     today: Today,
+    /// 保存したバイト列を今の実装で読み直して、保持している状態と直接照合するためのセッション
+    verify_today: Today,
     document: Document,
     /// 今の文書のバイト列（今の実装が返したもの）
     current: Vec<u8>,
@@ -421,9 +430,6 @@ struct Run<'a> {
     names: Names,
     /// 直前の平行移動
     last_move: Option<(Vec<u64>, [f64; 2])>,
-    /// 終わりに近い変更か。UTF-8 でない図面に ASCII でない文字を足すのは、ここからにする
-    /// （今の実装が足した後は、開き直した文書の文字コードが変わり、後ろの変更の多くが範囲の外になる）
-    late: bool,
     random: Random,
     tally: Tally,
 }
@@ -773,8 +779,7 @@ impl Run<'_> {
         let position = self.point();
         let content = match self.random.below(12) {
             0 => "A".to_owned(),
-            1 if self.late || self.document.charset == Charset::Utf8 => "図面 1".to_owned(),
-            1 => "PLAN 1".to_owned(),
+            1 => "図面 1".to_owned(),
             2 => "%%c30 \\U+00B1".to_owned(),
             3 => "  spaced  ".to_owned(),
             4 => "quote\"back\\slash".to_owned(),
@@ -1294,10 +1299,300 @@ impl Run<'_> {
         Ok(())
     }
 
-    /// 文書エンジンの中の値を、保存したバイト列から開き直した文書と比べ、範囲で選ぶ結果を総当たりと比べる
+    /// 保持している図面モデル・ID・ハッシュ・内部の形・表示の値・表・範囲選択・診断を、今の実装（`Today`）と直接照合する
+    fn verify_with_today(
+        document: &Document,
+        today_ref: &mut Today,
+        extent: [f64; 4],
+        random: &mut Random,
+        check_diag: bool,
+        tally: &mut Tally,
+    ) -> Result<Vec<String>, String> {
+        let mut errs = Vec::new();
+        tally.today_model_checks += 1;
+
+        let _ = today_ref
+            .scene()
+            .map_err(|f| format!("今の実装の scene が失敗: {}", f.describe()))?;
+        let their_items = today_ref
+            .space_entities()
+            .map_err(|f| format!("今の実装の space_entities が失敗: {}", f.describe()))?;
+        let our_items = inspect::live_elements(document);
+        let pure_model = document.counts.unlifted_entities == 0;
+        let pure_file = pure_model && document.counts.paper == 0;
+
+        let check_one = |ours: &inspect::InspectedElement,
+                         theirs: &zumen::messages::Entity,
+                         errs: &mut Vec<String>| {
+            let their_kind = theirs.kind.map(zumen::messages::EntityKind::name);
+            if Some(ours.kind) != their_kind {
+                errs.push(format!(
+                    "要素 {} の kind が今の実装と違う（文書エンジン {:?}、今の実装 {:?}）",
+                    ours.id, ours.kind, their_kind
+                ));
+            }
+            if Some(ours.layer.as_str()) != theirs.layer.as_deref() {
+                errs.push(format!(
+                    "要素 {} の layer が今の実装と違う（文書エンジン {:?}、今の実装 {:?}）",
+                    ours.id, ours.layer, theirs.layer
+                ));
+            }
+            if Some(ours.hash.as_str()) != theirs.hash.as_deref() {
+                errs.push(format!(
+                    "要素 {} の hash が今の実装と違う（文書エンジン {:?}、今の実装 {:?}）",
+                    ours.id, ours.hash, theirs.hash
+                ));
+            }
+            let our_bbox = (ours.bounds[0] <= ours.bounds[2]
+                && ours.bounds[1] <= ours.bounds[3]
+                && ours.bounds.iter().all(|v| v.is_finite()))
+            .then_some(zumen::messages::Extent {
+                min_x: ours.bounds[0],
+                min_y: ours.bounds[1],
+                max_x: ours.bounds[2],
+                max_y: ours.bounds[3],
+            });
+            if our_bbox != theirs.bbox {
+                errs.push(format!(
+                    "要素 {} の bbox が今の実装と違う（文書エンジン {:?}、今の実装 {:?}）",
+                    ours.id, our_bbox, theirs.bbox
+                ));
+            }
+            if let Some(geom) = &theirs.geometry
+                && let Some(expected_row_buf) =
+                    inspect::display_from_today_geometry(document, ours.row, geom)
+            {
+                let actual_row_buf = document.display.row(ours.row);
+                if actual_row_buf != expected_row_buf {
+                    errs.push(format!(
+                        "要素 {} の表示バッファー（Display::row）が今の実装の Geometry と違う",
+                        ours.id
+                    ));
+                }
+            }
+        };
+
+        if pure_model {
+            if our_items.len() != their_items.len() {
+                errs.push(format!(
+                    "モデル空間の要素数が今の実装と違う（文書エンジン {}、今の実装 {}）",
+                    our_items.len(),
+                    their_items.len()
+                ));
+            }
+            for (ours, theirs) in our_items.iter().zip(&their_items) {
+                if ours.id != theirs.id {
+                    errs.push(format!(
+                        "モデル空間の要素 ID の並びが今の実装と違う（文書エンジン {}、今の実装 {}）",
+                        ours.id, theirs.id
+                    ));
+                    break;
+                }
+                check_one(ours, theirs, &mut errs);
+            }
+        } else {
+            let mut their_by_id: BTreeMap<&str, (usize, &zumen::messages::Entity)> =
+                BTreeMap::new();
+            for (pos, item) in their_items.iter().enumerate() {
+                their_by_id.insert(item.id.as_str(), (pos, item));
+            }
+            let mut prev_pos: Option<usize> = None;
+            for ours in &our_items {
+                if !ours.id.starts_with("space/0/h") {
+                    continue;
+                }
+                match their_by_id.get(ours.id.as_str()) {
+                    None => errs.push(format!(
+                        "保持している要素 {} が今の実装のモデル空間にない",
+                        ours.id
+                    )),
+                    Some(&(pos, theirs)) => {
+                        if let Some(prev) = prev_pos
+                            && pos < prev
+                        {
+                            errs.push(format!(
+                                "保持している要素 {} のファイル順が今の実装と逆転している",
+                                ours.id
+                            ));
+                        }
+                        prev_pos = Some(pos);
+                        check_one(ours, theirs, &mut errs);
+                    }
+                }
+            }
+        }
+
+        // 画層と線種の表の照合
+        let their_tables = today_ref
+            .tables()
+            .map_err(|f| format!("今の実装の tables が失敗: {}", f.describe()))?;
+        let (our_layers, our_lts) = inspect::live_tables(document);
+        let their_layers: Vec<inspect::InspectedTableItem> = their_tables
+            .layers
+            .iter()
+            .map(|l| inspect::InspectedTableItem {
+                id: l.id.clone(),
+                name: l.name.clone(),
+                hash: l.hash.clone(),
+            })
+            .collect();
+        let their_lts: Vec<inspect::InspectedTableItem> = their_tables
+            .line_types
+            .iter()
+            .map(|lt| inspect::InspectedTableItem {
+                id: lt.id.clone(),
+                name: lt.name.clone(),
+                hash: lt.hash.clone(),
+            })
+            .collect();
+        if pure_file {
+            if our_layers != their_layers {
+                errs.push(format!(
+                    "保持している画層の表が今の実装と違う（文書エンジン {} 件、今の実装 {} 件）",
+                    our_layers.len(),
+                    their_layers.len()
+                ));
+            }
+            if our_lts != their_lts {
+                errs.push(format!(
+                    "保持している線種の表が今の実装と違う（文書エンジン {} 件、今の実装 {} 件）",
+                    our_lts.len(),
+                    their_lts.len()
+                ));
+            }
+        } else {
+            let their_layer_map: BTreeMap<&str, &inspect::InspectedTableItem> =
+                their_layers.iter().map(|i| (i.id.as_str(), i)).collect();
+            for l in &our_layers {
+                if l.id.starts_with("layer/h")
+                    && let Some(&tl) = their_layer_map.get(l.id.as_str())
+                    && l != tl
+                {
+                    errs.push(format!(
+                        "画層 {} の名前またはハッシュが今の実装と違う（文書エンジン {:?}、今の実装 {:?}）",
+                        l.id, l, tl
+                    ));
+                }
+            }
+            let their_lt_map: BTreeMap<&str, &inspect::InspectedTableItem> =
+                their_lts.iter().map(|i| (i.id.as_str(), i)).collect();
+            for lt in &our_lts {
+                if lt.id.starts_with("line-type/h")
+                    && let Some(&tlt) = their_lt_map.get(lt.id.as_str())
+                    && lt != tlt
+                {
+                    errs.push(format!(
+                        "線種 {} の名前またはハッシュが今の実装と違う（文書エンジン {:?}、今の実装 {:?}）",
+                        lt.id, lt, tlt
+                    ));
+                }
+            }
+        }
+
+        // 範囲選択を今の実装と直接照合する
+        let [x0, y0, x1, y1] = extent;
+        let span = (x1 - x0).max(y1 - y0).max(1.0);
+        let our_id_set: BTreeSet<&str> = our_items
+            .iter()
+            .filter(|i| pure_model || i.id.starts_with("space/0/h"))
+            .map(|i| i.id.as_str())
+            .collect();
+        for _ in 0..8 {
+            let rx = random.between(x0 - span * 0.1, x1 + span * 0.1);
+            let ry = random.between(y0 - span * 0.1, y1 + span * 0.1);
+            let size = span * random.pick(&[0.005, 0.05, 0.25, 0.8]);
+            let rect = [
+                rx,
+                ry,
+                rx + size * random.unit().max(1e-4),
+                ry + size * random.unit().max(1e-4),
+            ];
+            let our_sel: Vec<String> = inspect::select_ids(document, rect, &our_items)
+                .into_iter()
+                .filter(|id| pure_model || id.starts_with("space/0/h"))
+                .collect();
+            let their_sel: Vec<String> = today_ref
+                .select_ids(rect)
+                .map_err(|f| format!("今の実装の select_ids が失敗: {}", f.describe()))?
+                .into_iter()
+                .filter(|id| pure_model || our_id_set.contains(id.as_str()))
+                .collect();
+            tally.today_select_checks += 1;
+            if our_sel != their_sel {
+                errs.push(format!(
+                    "範囲選択の結果が今の実装と違う（文書エンジン {} 件、今の実装 {} 件）",
+                    our_sel.len(),
+                    their_sel.len()
+                ));
+                break;
+            }
+        }
+
+        // 開く診断を今の実装と直接照合する
+        if check_diag {
+            tally.today_diag_checks += 1;
+            let our_diags = inspect::open_diagnostic_counts(document);
+            let mut their_diags: BTreeMap<&str, usize> = BTreeMap::new();
+            for d in today_ref.open_diagnostics() {
+                *their_diags.entry(d.code.as_str()).or_default() += d.count as usize;
+            }
+            // `dxf.units.missing` は図面全体の診断なので常に一致する
+            let our_units = our_diags.get("dxf.units.missing").copied().unwrap_or(0);
+            let their_units = their_diags.get("dxf.units.missing").copied().unwrap_or(0);
+            if our_units != their_units {
+                errs.push(format!(
+                    "dxf.units.missing の件数が今の実装と違う（文書エンジン {our_units}、今の実装 {their_units}）"
+                ));
+            }
+            for code in [
+                "dxf.lift.invalid",
+                "dxf.non-planar.dropped",
+                "dxf.code-page.unsupported",
+                "dxf.clip.dropped",
+                "dxf.block.missing",
+            ] {
+                let oc = our_diags.get(code).copied().unwrap_or(0);
+                let tc = their_diags.get(code).copied().unwrap_or(0);
+                // 文書エンジンが記録した 6 種類の図形の診断は、常に今の実装の件数以下であり、
+                // BLOCKS 定義内やペーパー空間・他図形からの同コード診断がない純粋な図面では一致する（BLOCKS 内の不正がなければ oc == tc、あっても oc <= tc）
+                if oc > tc {
+                    errs.push(format!(
+                        "診断 {code} が今の実装より多い（文書エンジン {oc}、今の実装 {tc}）"
+                    ));
+                }
+            }
+        }
+
+        Ok(errs)
+    }
+
+    /// 文書エンジンの中の値を、今の実装（保存バイト列を読み直した `Today`）および開き直した文書と比べ、範囲選択も確かめる
     fn check_deep(&mut self, step: usize, label: &str) -> Result<(), String> {
         self.tally.deep_checks += 1;
-        let reopened = Document::open(self.document.save(), self.options.threads)
+        let saved = self.document.save();
+
+        // 1. 試作自身を開き直した結果だけで代用せず、保存したバイト列を今の実装（`Today`）で読み直して保持状態と直接照合する
+        let staged = self
+            .verify_today
+            .stage(&saved)
+            .map_err(|f| format!("検証セッションへの入力渡しに失敗: {}", f.describe()))?;
+        self.verify_today
+            .reopen(&staged)
+            .map_err(|f| format!("検証セッションが保存ファイルを開けない: {}", f.describe()))?;
+        let today_errs = Self::verify_with_today(
+            &self.document,
+            &mut self.verify_today,
+            self.extent,
+            &mut self.random,
+            true,
+            &mut self.tally,
+        )?;
+        for err in today_errs {
+            self.bug(step, label, err);
+        }
+
+        // 2. 開き直した文書エンジンとも比べる
+        let reopened = Document::open(saved, self.options.threads)
             .map_err(|error| format!("保存したファイルを開けない: {error:?}"))?;
         if !self.document.same_content(&reopened) {
             self.bug(step, label, "開き直した文書と、要素の列が違う".to_owned());
@@ -1318,10 +1613,13 @@ impl Run<'_> {
         if bits(self.document.live_boxes()) != bits(reopened.live_boxes()) {
             self.bug(step, label, "開き直した文書と、要素の箱が違う".to_owned());
         }
-        let handles = |document: &Document, rows: &[u32]| -> Vec<u64> {
-            rows.iter()
+        let handles = |document: &Document, rows: &[u32]| -> Vec<Option<u64>> {
+            let mut ordered: Vec<u32> = rows.to_vec();
+            document.sort_rows_by_file_order(&mut ordered);
+            ordered
+                .iter()
                 .filter_map(|row| document.rows.get(*row as usize))
-                .map(|row| row.handle)
+                .map(|row| row.handle())
                 .collect()
         };
         let [x0, y0, x1, y1] = self.extent;
@@ -1340,17 +1638,24 @@ impl Run<'_> {
             ];
             found.clear();
             self.document.select(rect, &mut found);
-            let brute: Vec<u32> = (0u32..)
-                .zip(&self.document.boxes)
-                .filter(|(_, item)| {
-                    item[0] <= item[2]
+            let brute: Vec<u32> = (0..self.document.rows.len() as u32)
+                .filter(|&row_idx| {
+                    let alive = self
+                        .document
+                        .rows
+                        .get(row_idx as usize)
+                        .is_some_and(|r| r.alive);
+                    let Some(item) = self.document.boxes.get(row_idx as usize) else {
+                        return false;
+                    };
+                    alive
+                        && item[0] <= item[2]
                         && item[1] <= item[3]
                         && item[0] <= rect[2]
                         && item[2] >= rect[0]
                         && item[1] <= rect[3]
                         && item[3] >= rect[1]
                 })
-                .map(|(row, _)| row)
                 .collect();
             self.tally.select_checks += 1;
             if found != brute {
@@ -1626,19 +1931,16 @@ pub fn run(path: &str, options: &Options) -> Result<usize, String> {
     // ID を比べる
     let counts = document.counts;
     println!(
-        "  文書エンジン: レコード {}、ENTITIES {}、要素 {}（指せない {}）、ペーパー空間 {}、要素にならない {}、Shift_JIS {}、文字を読めない {}",
+        "  文書エンジン: レコード {}、ENTITIES {}、要素 {}（指せない {}）、ペーパー空間 {}、要素にならない {}、6 種類以外 {}、文字コード {:?}",
         counts.records,
         counts.entities,
         counts.elements,
         counts.unaddressable,
         counts.paper,
         counts.dropped,
-        counts.shift_jis,
-        counts.unreadable
+        counts.unlifted_entities,
+        document.charset,
     );
-    if let Some(locked) = document.locked {
-        println!("  文書エンジンは、この文書の変更を受け付けない: {locked:?}");
-    }
     let mut hashes = BTreeMap::new();
     let mut covered = Vec::new();
     let mut pairs: BTreeMap<(&'static str, &str), usize> = BTreeMap::new();
@@ -1672,8 +1974,14 @@ pub fn run(path: &str, options: &Options) -> Result<usize, String> {
     let extra: Vec<String> = document
         .rows
         .iter()
-        .filter(|row| row.handle != 0)
-        .map(|row| id_of(row.handle))
+        .filter(|row| {
+            row.alive
+                && !document
+                    .duplicate_handles
+                    .contains(&row.handle().unwrap_or(0))
+        })
+        .filter_map(|row| row.handle())
+        .map(id_of)
         .filter(|id| !known.contains(id.as_str()))
         .collect();
     println!(
@@ -1711,8 +2019,7 @@ pub fn run(path: &str, options: &Options) -> Result<usize, String> {
                 .map(|item| item.map(f64::to_bits))
                 .eq(split.live_boxes().iter().map(|item| item.map(f64::to_bits)))
             && document.grid == split.grid
-            && document.counts == split.counts
-            && document.locked == split.locked)
+            && document.counts == split.counts)
         {
             bugs += 1;
             println!("  違い: {parts} 個に分けて開いた文書が、ふつうに開いた文書と違う");
@@ -1725,8 +2032,8 @@ pub fn run(path: &str, options: &Options) -> Result<usize, String> {
         f64::NEG_INFINITY,
         f64::NEG_INFINITY,
     ];
-    for item in &document.boxes {
-        if item.iter().all(|value| value.is_finite()) {
+    for item in document.boxes.iter() {
+        if item[0] <= item[2] && item[1] <= item[3] && item.iter().all(|value| value.is_finite()) {
             extent = [
                 extent[0].min(item[0]),
                 extent[1].min(item[1]),
@@ -1741,7 +2048,7 @@ pub fn run(path: &str, options: &Options) -> Result<usize, String> {
     let largest = document
         .rows
         .iter()
-        .map(|row| row.handle)
+        .filter_map(|row| row.handle())
         .max()
         .unwrap_or(0);
     let mut unknown = largest + 0x4000_0000_0000;
@@ -1760,9 +2067,12 @@ pub fn run(path: &str, options: &Options) -> Result<usize, String> {
         names.text_styles.len(),
         names.blocks.len()
     );
+    let verify_today = Today::opened(&bytes, options.budget.as_deref())
+        .map_err(|failure| format!("検証用の今の実装が開けない: {}", failure.describe()))?;
     let mut run = Run {
         options,
         today,
+        verify_today,
         document,
         current: bytes.clone(),
         base: bytes,
@@ -1772,14 +2082,23 @@ pub fn run(path: &str, options: &Options) -> Result<usize, String> {
         extent,
         names,
         last_move: None,
-        late: false,
         random: Random(options.seed),
         tally: Tally::default(),
     };
+    let initial_errs = Run::verify_with_today(
+        &run.document,
+        &mut run.today,
+        run.extent,
+        &mut run.random,
+        true,
+        &mut run.tally,
+    )?;
+    for err in initial_errs {
+        run.bug(0, "開いた直後", err);
+    }
     let deep_every = (steps / 16).max(1);
     for step in 0..steps {
         let deep = (step + 1) % deep_every == 0;
-        run.late = step * 20 >= steps * 19;
         run.step(step, deep)?;
         if deep {
             run.check_deep(step, "途中")?;
@@ -1808,6 +2127,10 @@ pub fn run(path: &str, options: &Options) -> Result<usize, String> {
     for (key, count) in &tally.gaps {
         println!("    試作の範囲の外: {key}: {count}");
     }
+    println!(
+        "  今の実装との直接照合: 図面モデル・形・表示・表 {} 回、範囲選択 {} 回、開く診断 {} 回",
+        tally.today_model_checks, tally.today_select_checks, tally.today_diag_checks,
+    );
     println!(
         "  文書エンジンの中の確かめ: 取り消しとやり直し {} 回、足した要素の ID {} 回、開き直した文書との一致 {} 回（うち、表示のバッファーが並びまで同じ {} 回）、範囲で選ぶ {} 回、開き直し {} 回",
         tally.undo_checks,

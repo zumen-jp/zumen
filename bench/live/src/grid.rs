@@ -1,6 +1,10 @@
 //! 範囲で選ぶための索引。段ごとにセルの大きさが 2 倍になる格子で、要素は、囲む箱より大きいセルを持つ
 //! いちばん細かい段の、箱の中心があるセルに入る。セルの中の要素は両方向のリストでつなぐので、
 //! 足す・除く・動かすのに確保が要らず、手間は要素の数によらない。
+//! 要素ごとの表（`next`・`prev`・`cell`）は固定長のページに分けて持ち、100 万要素を開いた直後に足しても
+//! 既存の配列を写し直さない。
+
+use crate::paged::Paged;
 
 /// つながりの終わり
 const NONE: u32 = u32::MAX;
@@ -25,11 +29,11 @@ pub struct Grid {
     /// セルごとの最初の要素
     head: Vec<u32>,
     /// 要素ごとの、同じセルの次の要素
-    next: Vec<u32>,
+    next: Paged<u32>,
     /// 要素ごとの、同じセルの前の要素
-    prev: Vec<u32>,
+    prev: Paged<u32>,
     /// 要素が入っているセル（`head` の番号）
-    cell: Vec<u32>,
+    cell: Paged<u32>,
 }
 
 /// 箱が空（どの点も含まない）か。数でない値を持つ箱も空とする
@@ -39,7 +43,7 @@ fn empty([x0, y0, x1, y1]: [f64; 4]) -> bool {
 
 impl Grid {
     /// 要素の箱（最小の x・y、最大の x・y）から作る
-    pub fn build(boxes: &[[f64; 4]]) -> Grid {
+    pub fn build(boxes: &Paged<[f64; 4]>) -> Grid {
         let mut bounds = [
             f64::INFINITY,
             f64::INFINITY,
@@ -86,13 +90,14 @@ impl Grid {
             }
             size *= 2.0;
         }
+        let len = boxes.len();
         let mut grid = Grid {
             origin: [bounds[0], bounds[1]],
             levels,
             head: vec![NONE; offset as usize],
-            next: vec![NONE; boxes.len()],
-            prev: vec![NONE; boxes.len()],
-            cell: vec![NONE; boxes.len()],
+            next: Paged::filled(NONE, len),
+            prev: Paged::filled(NONE, len),
+            cell: Paged::filled(NONE, len),
         };
         for (row, item) in boxes.iter().enumerate() {
             grid.insert(row as u32, *item);
@@ -114,7 +119,7 @@ impl Grid {
             return None;
         }
         let extent = (item[2] - item[0]).max(item[3] - item[1]);
-        let last = self.levels.len() - 1;
+        let last = self.levels.len().checked_sub(1)?;
         let at = self
             .levels
             .iter()
@@ -130,31 +135,52 @@ impl Grid {
         let Some(cell) = self.place(item) else {
             return;
         };
-        let first = self.head[cell as usize];
-        self.next[row as usize] = first;
-        self.prev[row as usize] = NONE;
-        if first != NONE {
-            self.prev[first as usize] = row;
+        let Some(&first) = self.head.get(cell as usize) else {
+            return;
+        };
+        if let Some(slot) = self.next.get_mut(row as usize) {
+            *slot = first;
         }
-        self.head[cell as usize] = row;
-        self.cell[row as usize] = cell;
+        if let Some(slot) = self.prev.get_mut(row as usize) {
+            *slot = NONE;
+        }
+        if first != NONE
+            && let Some(slot) = self.prev.get_mut(first as usize)
+        {
+            *slot = row;
+        }
+        if let Some(slot) = self.head.get_mut(cell as usize) {
+            *slot = row;
+        }
+        if let Some(slot) = self.cell.get_mut(row as usize) {
+            *slot = cell;
+        }
     }
 
     fn remove(&mut self, row: u32) {
-        let cell = self.cell[row as usize];
+        let Some(&cell) = self.cell.get(row as usize) else {
+            return;
+        };
         if cell == NONE {
             return;
         }
-        let (before, after) = (self.prev[row as usize], self.next[row as usize]);
+        let before = self.prev.get(row as usize).copied().unwrap_or(NONE);
+        let after = self.next.get(row as usize).copied().unwrap_or(NONE);
         if before == NONE {
-            self.head[cell as usize] = after;
-        } else {
-            self.next[before as usize] = after;
+            if let Some(slot) = self.head.get_mut(cell as usize) {
+                *slot = after;
+            }
+        } else if let Some(slot) = self.next.get_mut(before as usize) {
+            *slot = after;
         }
-        if after != NONE {
-            self.prev[after as usize] = before;
+        if after != NONE
+            && let Some(slot) = self.prev.get_mut(after as usize)
+        {
+            *slot = before;
         }
-        self.cell[row as usize] = NONE;
+        if let Some(slot) = self.cell.get_mut(row as usize) {
+            *slot = NONE;
+        }
     }
 
     /// 終わりに要素を足す。段の作りは、開いたときのまま
@@ -179,10 +205,10 @@ impl Grid {
 
     /// 要素の箱が変わった。空の箱（除いた要素）は、索引から外す
     pub fn update(&mut self, row: u32, item: [f64; 4]) {
-        if row as usize >= self.cell.len() {
+        let Some(&current) = self.cell.get(row as usize) else {
             return;
-        }
-        if self.place(item) == Some(self.cell[row as usize]) {
+        };
+        if self.place(item) == Some(current) {
             return;
         }
         self.remove(row);
@@ -190,7 +216,7 @@ impl Grid {
     }
 
     /// 箱が `rect` と重なる要素を、行の順に `out` へ足す。`boxes` は、今の箱
-    pub fn query(&self, boxes: &[[f64; 4]], rect: [f64; 4], out: &mut Vec<u32>) {
+    pub fn query(&self, boxes: &Paged<[f64; 4]>, rect: [f64; 4], out: &mut Vec<u32>) {
         let start = out.len();
         if empty(rect) {
             return;
@@ -204,7 +230,8 @@ impl Grid {
                 self.index(level, 1, rect[1] - reach)..=self.index(level, 1, rect[3] + reach);
             for row in rows {
                 for column in columns.clone() {
-                    let mut at = self.head[(level.offset + row * level.columns + column) as usize];
+                    let cell = (level.offset + row * level.columns + column) as usize;
+                    let mut at = self.head.get(cell).copied().unwrap_or(NONE);
                     while at != NONE {
                         if let Some(item) = boxes.get(at as usize)
                             && item[0] <= rect[2]
@@ -214,7 +241,7 @@ impl Grid {
                         {
                             out.push(at);
                         }
-                        at = self.next[at as usize];
+                        at = self.next.get(at as usize).copied().unwrap_or(NONE);
                     }
                 }
             }
@@ -245,10 +272,12 @@ mod tests {
         }
     }
 
-    fn brute(boxes: &[[f64; 4]], rect: [f64; 4]) -> Vec<u32> {
+    fn brute(boxes: &Paged<[f64; 4]>, rect: [f64; 4]) -> Vec<u32> {
         (0..boxes.len() as u32)
             .filter(|&row| {
-                let item = boxes[row as usize];
+                let Some(&item) = boxes.get(row as usize) else {
+                    return false;
+                };
                 !empty(item)
                     && item[0] <= rect[2]
                     && item[2] >= rect[0]
@@ -261,7 +290,7 @@ mod tests {
     #[test]
     fn queries_match_a_full_scan_before_and_after_moves() {
         let mut random = Random(7);
-        let mut boxes: Vec<[f64; 4]> = (0..3000)
+        let mut boxes: Paged<[f64; 4]> = (0..3000)
             .map(|index| {
                 let (x, y) = (random.next() * 200.0, random.next() * 100.0);
                 // 小さいもの・大きいもの・点を混ぜる
@@ -274,7 +303,7 @@ mod tests {
             })
             .collect();
         let mut grid = Grid::build(&boxes);
-        let check = |grid: &Grid, boxes: &[[f64; 4]], random: &mut Random| {
+        let check = |grid: &Grid, boxes: &Paged<[f64; 4]>, random: &mut Random| {
             for _ in 0..200 {
                 let (x, y) = (random.next() * 260.0 - 30.0, random.next() * 160.0 - 30.0);
                 let rect = [x, y, x + random.next() * 20.0, y + random.next() * 20.0];
@@ -288,9 +317,10 @@ mod tests {
         for _ in 0..2000 {
             let row = (random.next() * boxes.len() as f64) as usize;
             let (dx, dy) = (random.next() * 400.0 - 200.0, random.next() * 400.0 - 200.0);
-            let item = boxes[row];
-            boxes[row] = [item[0] + dx, item[1] + dy, item[2] + dx, item[3] + dy];
-            grid.update(row as u32, boxes[row]);
+            let item = *boxes.get(row).expect("row");
+            let moved = [item[0] + dx, item[1] + dy, item[2] + dx, item[3] + dy];
+            *boxes.get_mut(row).expect("row") = moved;
+            grid.update(row as u32, moved);
         }
         check(&grid, &boxes, &mut random);
         let mut all = Vec::new();
@@ -300,11 +330,12 @@ mod tests {
 
     #[test]
     fn a_single_point_and_an_empty_set_work() {
-        let grid = Grid::build(&[]);
+        let empty_boxes = Paged::new();
+        let grid = Grid::build(&empty_boxes);
         let mut found = Vec::new();
-        grid.query(&[], [0.0, 0.0, 1.0, 1.0], &mut found);
+        grid.query(&empty_boxes, [0.0, 0.0, 1.0, 1.0], &mut found);
         assert!(found.is_empty());
-        let boxes = [[5.0, 5.0, 5.0, 5.0]];
+        let boxes: Paged<[f64; 4]> = [[5.0, 5.0, 5.0, 5.0]].into_iter().collect();
         let grid = Grid::build(&boxes);
         grid.query(&boxes, [4.0, 4.0, 6.0, 6.0], &mut found);
         assert_eq!(found, [0]);

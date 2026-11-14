@@ -161,6 +161,13 @@ impl Copy {
     }
 }
 
+fn kind_name_of(src: &[u8], range: Range<usize>) -> &[u8] {
+    match scan::next_tag(src, range.start) {
+        Next::Tag(tag) if tag.code == 0 => value_of(src, &tag).trim_ascii(),
+        _ => b"",
+    }
+}
+
 /// モデル空間の要素を `tiles` 枚（元を含む）に増やした DXF を返す
 pub fn grow(src: &[u8], tiles: usize, threads: usize) -> Result<Vec<u8>, GrowError> {
     let document = Document::open(src.to_vec(), threads).map_err(GrowError::Open)?;
@@ -176,7 +183,7 @@ pub fn grow(src: &[u8], tiles: usize, threads: usize) -> Result<Vec<u8>, GrowErr
         f64::NEG_INFINITY,
         f64::NEG_INFINITY,
     ];
-    for item in &document.boxes {
+    for item in document.boxes.iter() {
         if item.iter().all(|value| value.is_finite()) {
             extent = [
                 extent[0].min(item[0]),
@@ -206,10 +213,10 @@ pub fn grow(src: &[u8], tiles: usize, threads: usize) -> Result<Vec<u8>, GrowErr
             (tile % columns) as f64 * pitch[0],
             (tile / columns) as f64 * pitch[1],
         ];
-        for row in &document.rows {
+        for row in document.rows.iter() {
             let copy = Copy {
                 shift,
-                rename: row.handle != 0,
+                rename: row.handle().is_some(),
                 owner: None,
             };
             let handle = copy.write(
@@ -224,23 +231,25 @@ pub fn grow(src: &[u8], tiles: usize, threads: usize) -> Result<Vec<u8>, GrowErr
                 && document
                     .shapes
                     .inserts
-                    .get(row.geom as usize)
-                    .is_some_and(|insert| insert.followed);
+                    .get(row.shape as usize)
+                    .is_some_and(crate::lift::InsertRow::followed);
             if !(followed && document.plain) {
                 continue;
             }
             let copy = Copy {
                 shift,
                 rename: true,
-                owner: (row.handle != 0).then_some(row.handle).zip(handle),
+                owner: row.handle().zip(handle),
             };
             for record in row.record + 1..document.source_records() {
-                let name = document.kind_name(record);
+                let range = document.record_range(record);
+                let name = kind_name_of(src, range.clone());
                 let closes = name == b"SEQEND";
-                if !document.in_entities(record) || !(closes || name == b"ATTRIB") {
+                let in_entities = document.entities.iter().any(|r| r.contains(&record));
+                if !in_entities || !(closes || name == b"ATTRIB") {
                     break;
                 }
-                copy.write(src, document.record_range(record), &mut next, &mut added);
+                copy.write(src, range, &mut next, &mut added);
                 if closes {
                     break;
                 }
@@ -293,16 +302,23 @@ mod tests {
         let grown = grow(src, 4, 1).expect("増やす");
         let document = Document::open(grown.clone(), 1).expect("開く");
         assert_eq!(document.rows.len(), 8);
-        assert_eq!(document.locked, None);
+        assert!(document.duplicate_handles.is_empty());
         // 新しいハンドルは、元のいちばん大きい値（$HANDSEED の 30）の次から
-        let handles: Vec<u64> = document.rows.iter().map(|row| row.handle).collect();
+        let handles: Vec<u64> = document
+            .rows
+            .iter()
+            .filter_map(crate::store::Row::handle)
+            .collect();
         assert_eq!(handles, [0x2A, 0x2B, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36]);
         let text = String::from_utf8(grown).expect("ASCII");
         assert!(text.contains("$HANDSEED\n  5\n37\n"), "{text}");
         // 2 列に並ぶ。升目は、範囲（4 × 2）より少し大きい
         assert!(text.contains("$EXTMAX\n 10\n8.25\n 20\n4.125\n"), "{text}");
-        assert_eq!(document.boxes[2], [4.25, 0.0, 8.25, 2.0]);
-        assert_eq!(document.boxes[7], [4.75, 2.625, 5.75, 3.625]);
+        assert_eq!(document.boxes.get(2).copied(), Some([4.25, 0.0, 8.25, 2.0]));
+        assert_eq!(
+            document.boxes.get(7).copied(),
+            Some([4.75, 2.625, 5.75, 3.625])
+        );
     }
 
     #[test]
@@ -318,12 +334,16 @@ mod tests {
         // 記号と線が 3 組。属性と SEQEND は、要素にならない
         assert_eq!(document.rows.len(), 6);
         assert!(document.plain);
-        let handles: Vec<u64> = document.rows.iter().map(|row| row.handle).collect();
+        let handles: Vec<u64> = document
+            .rows
+            .iter()
+            .filter_map(crate::store::Row::handle)
+            .collect();
         assert_eq!(handles, [0x2A, 0x2D, 0x31, 0x34, 0x35, 0x38]);
-        for insert in &document.shapes.inserts {
-            assert!(insert.followed);
+        for insert in document.shapes.inserts.iter() {
+            assert!(insert.followed());
             assert_eq!(insert.attached, 1);
-            assert_eq!(insert.attribs.1, 1);
+            assert_eq!(insert.attrib_count, 1);
         }
         let text = String::from_utf8(grown).expect("ASCII");
         // 写しの属性と SEQEND は、写しの記号を所有者にする

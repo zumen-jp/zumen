@@ -3,7 +3,7 @@
 use std::fmt::Write as _;
 
 use zumen::json::Value;
-use zumen::messages::BlobKind;
+use zumen::messages::{BlobKind, Diagnostic, EntitiesResult, Entity, TablesResult};
 use zumen::{CancelToken, Response, Session};
 
 /// セッションの中の文書の名前
@@ -107,6 +107,10 @@ pub struct Today {
     budget: Option<String>,
     /// 入力に付けた名前の数
     pushed: usize,
+    /// 直近の `open` が返した診断
+    last_open_diagnostics: Vec<Diagnostic>,
+    /// 直近の `tables`（図面モデルへの変換）が返した診断
+    last_lift_diagnostics: Vec<Diagnostic>,
 }
 
 impl Today {
@@ -118,6 +122,8 @@ impl Today {
             cancel: CancelToken::new(),
             budget: budget.map(str::to_owned),
             pushed: 0,
+            last_open_diagnostics: Vec::new(),
+            last_lift_diagnostics: Vec::new(),
         };
         today
             .session
@@ -128,11 +134,20 @@ impl Today {
 
     /// 渡した入力を文書として開き、入力を閉じる
     pub fn open(&mut self) -> Result<(), Failure> {
-        self.call(&format!(
+        let response = self.call(&format!(
             r#"{{"v":1,"op":"open","input":"{DOC}","doc":"{DOC}"}}"#
         ))?;
+        self.last_open_diagnostics = response.diagnostics;
+        self.last_lift_diagnostics.clear();
         self.call(&format!(r#"{{"v":1,"op":"close","inputs":["{DOC}"]}}"#))?;
         Ok(())
+    }
+
+    /// 直近の `open` と `tables`（図面モデルへの変換）が返した診断
+    pub fn open_diagnostics(&self) -> impl Iterator<Item = &Diagnostic> {
+        self.last_open_diagnostics
+            .iter()
+            .chain(&self.last_lift_diagnostics)
     }
 
     /// セッションを開き、入力を文書として開く
@@ -213,6 +228,68 @@ impl Today {
         Ok(out)
     }
 
+    /// モデル空間のすべての要素を、種類・画層・ハッシュ・囲む箱・形とともに返す
+    pub fn space_entities(&mut self) -> Result<Vec<Entity>, Failure> {
+        let mut out = Vec::new();
+        let mut offset = 0u64;
+        loop {
+            let response = self.call(&format!(
+                r#"{{"v":1,"op":"entities","doc":"{DOC}","place":"space/0","fields":["kind","layer","hash","bbox","geometry"],"offset":{offset},"limit":10000}}"#
+            ))?;
+            let parsed = response
+                .result_as::<EntitiesResult>()
+                .and_then(Result::ok)
+                .ok_or_else(|| Failure {
+                    status: "entities の応答を読めない".to_owned(),
+                    codes: Vec::new(),
+                })?;
+            out.extend(parsed.items);
+            match parsed.next_offset {
+                Some(next) if next > offset => offset = next,
+                _ => break,
+            }
+        }
+        Ok(out)
+    }
+
+    /// 画層と線種の表を返す
+    pub fn tables(&mut self) -> Result<TablesResult, Failure> {
+        let response = self.call(&format!(r#"{{"v":1,"op":"tables","doc":"{DOC}"}}"#))?;
+        let parsed = response
+            .result_as::<TablesResult>()
+            .and_then(Result::ok)
+            .ok_or_else(|| Failure {
+                status: "tables の応答を読めない".to_owned(),
+                codes: Vec::new(),
+            })?;
+        self.last_lift_diagnostics = response.diagnostics;
+        Ok(parsed)
+    }
+
+    /// モデル空間の範囲の要素の ID をファイル順で返す
+    pub fn select_ids(&mut self, [x0, y0, x1, y1]: [f64; 4]) -> Result<Vec<String>, Failure> {
+        let mut out = Vec::new();
+        let mut offset = 0u64;
+        loop {
+            let response = self.call(&format!(
+                r#"{{"v":1,"op":"entities","doc":"{DOC}","place":"space/0","region":[{x0},{y0},{x1},{y1}],"offset":{offset},"limit":10000}}"#
+            ))?;
+            let parsed = response
+                .result_as::<EntitiesResult>()
+                .and_then(Result::ok)
+                .ok_or_else(|| Failure {
+                    status: "entities(region) の応答を読めない".to_owned(),
+                    codes: Vec::new(),
+                })?;
+            out.extend(parsed.items.into_iter().map(|item| item.id));
+            match parsed.next_offset {
+                Some(next) if next > offset => offset = next,
+                _ => break,
+            }
+        }
+        Ok(out)
+    }
+
     /// モデル空間の範囲の要素を、種類・レイヤ・ハッシュ・形とともに選ぶ。件数を返す
     pub fn select(&mut self, [x0, y0, x1, y1]: [f64; 4]) -> Result<usize, Failure> {
         let response = self.call(&format!(
@@ -267,9 +344,11 @@ impl Today {
     /// 文書を、渡してあるバイト列から開き直す（今の実装での取り消し）
     pub fn reopen(&mut self, name: &str) -> Result<(), Failure> {
         self.call(&format!(r#"{{"v":1,"op":"close","docs":["{DOC}"]}}"#))?;
-        self.call(&format!(
+        let response = self.call(&format!(
             r#"{{"v":1,"op":"open","input":"{name}","doc":"{DOC}"}}"#
         ))?;
+        self.last_open_diagnostics = response.diagnostics;
+        self.last_lift_diagnostics.clear();
         self.call(&format!(r#"{{"v":1,"op":"close","inputs":["{name}"]}}"#))?;
         Ok(())
     }

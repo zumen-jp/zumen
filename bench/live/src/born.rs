@@ -1,20 +1,26 @@
-//! 足すレコードの値と、属性を変えたレコードの値。
+//! 図形の追加（`Edit::Add`）とスタイル変更（`Edit::Restyle`）の入力とレコード生成。
 //!
-//! 値そのものは `zumen_acad::single`（`restyle_model`・`born_model`）の共通規則で作る。
-//! 試作がまだ範囲の外とする条件（名前の表のレコード 1 つだけでは決まらない名前、Shift_JIS、属性の定義を持つ記号）だけを
-//! 先に確かめ、当てはまれば `Decline::Outside` を返す。
+//! 公開操作の入力（`Add`・`Restyle`）を、`Today` の `zumen-abi`（`changes.rs`・`geometry.rs`）と
+//! 同じ検証・変換規則で `Element<ModelPoint>` に組み、`zumen-acad` の `single::born_model` で
+//! DXF のレコード列にする。
+
+use std::borrow::Cow;
 
 use zumen_acad::Value;
-use zumen_acad::single::{self, RestyleLineType};
+use zumen_acad::single::{self, BornRecords, RestyleLineType};
+use zumen_base::Ref;
 use zumen_drawing::{
-    Color, ColorCode, ColorSystem, Edge, Element, Fit, Grid, Height, HeightMeaning, Horizontal,
-    Inherit, LayerId, Length, LineTypeId, LineWeight, ModelLength, ModelPoint, PaperLength,
-    Placement, Polyline, Shape, SpaceId, Style, Symbol, SymbolKey, Text, Vertex, Vertical,
+    Affine, Attribute, Color, ColorCode, ColorSystem, Edge, Element, Fit, Grid, Height,
+    HeightMeaning, Horizontal, Inherit, LayerId, Length, LineTypeId, LineWeight, ModelLength,
+    ModelPoint, PaperLength, Placement, Polyline, Shape, SpaceId, Style, Symbol, SymbolKey, Text,
+    Vertex, Vertical, transform::transform as transform_shape,
 };
 
-use crate::edit::{Decline, Outside};
 use crate::lift::BLOCK;
-use crate::store::{Charset, Document, table};
+use crate::store::{Document, OTag};
+use crate::value::value_bytes;
+
+const MODEL: SpaceId = SpaceId(0);
 
 /// 色の指定
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -23,12 +29,39 @@ pub enum ColorSpec {
     ByLayer,
     /// ブロックに従う
     ByBlock,
-    /// 色番号（1〜255）
+    /// AutoCAD 色番号
     Aci(u8),
     /// RGB
     Rgb([u8; 3]),
-    /// 色番号と RGB
+    /// AutoCAD 色番号と RGB の組
     AciRgb(u8, [u8; 3]),
+}
+
+impl ColorSpec {
+    pub(crate) fn to_inherit(self) -> Inherit<Color> {
+        match self {
+            Self::ByLayer => Inherit::Layer,
+            Self::ByBlock => Inherit::Block,
+            Self::Aci(aci) => Inherit::Own(Color {
+                code: Some(ColorCode {
+                    system: ColorSystem::Aci,
+                    value: u32::from(aci),
+                }),
+                rgb: None,
+            }),
+            Self::Rgb(rgb) => Inherit::Own(Color {
+                code: None,
+                rgb: Some(rgb),
+            }),
+            Self::AciRgb(aci, rgb) => Inherit::Own(Color {
+                code: Some(ColorCode {
+                    system: ColorSystem::Aci,
+                    value: u32::from(aci),
+                }),
+                rgb: Some(rgb),
+            }),
+        }
+    }
 }
 
 /// 線種の指定
@@ -49,50 +82,106 @@ pub enum WeightSpec {
     ByLayer,
     /// ブロックに従う
     ByBlock,
-    /// 文書の既定
+    /// 既定の太さ
     Default,
-    /// ミリメートル
+    /// mm 単位の太さ
     Mm(f64),
 }
 
-/// 属性を変える変更。`None` の項目は変えない
+impl WeightSpec {
+    pub(crate) fn to_inherit(self) -> Option<Inherit<LineWeight>> {
+        match self {
+            Self::ByLayer => Some(Inherit::Layer),
+            Self::ByBlock => Some(Inherit::Block),
+            Self::Default => Some(Inherit::Own(LineWeight::Default)),
+            Self::Mm(mm) if mm.is_finite() && mm >= 0.0 => {
+                Some(Inherit::Own(LineWeight::Width(PaperLength(mm))))
+            }
+            Self::Mm(_) => None,
+        }
+    }
+}
+
+/// 属性を変える変更の入力
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Restyle {
-    /// 画層の名前
+    /// 新しい画層の名前
     pub layer: Option<String>,
-    /// 色
+    /// 新しい色
     pub color: Option<ColorSpec>,
-    /// 線種
+    /// 新しい線種
     pub line_type: Option<LineTypeSpec>,
-    /// 線種の尺度
+    /// 新しい線種の尺度
     pub line_type_scale: Option<f64>,
-    /// 線の太さ
+    /// 新しい線の太さ
     pub line_weight: Option<WeightSpec>,
 }
 
-/// 足す要素。モデル空間に足す
+/// 記号の格子配置の指定
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct NewGrid {
+    /// 列数
+    pub columns: u32,
+    /// 行数
+    pub rows: u32,
+    /// 列の間隔
+    pub column_spacing: f64,
+    /// 行の間隔
+    pub row_spacing: f64,
+}
+
+/// 1 行の文字を足す入力
 #[derive(Clone, Debug, PartialEq)]
-pub struct Add {
-    /// 画層の名前。`None` は画層 0
-    pub layer: Option<String>,
-    /// 色。`None` は画層に従う
-    pub color: Option<ColorSpec>,
-    /// 線種。`None` は画層に従う
-    pub line_type: Option<LineTypeSpec>,
-    /// 線の太さ。`None` は画層に従う
-    pub line_weight: Option<WeightSpec>,
-    /// 形
-    pub shape: NewShape,
+pub struct NewText {
+    /// 本文
+    pub content: String,
+    /// 1 点目の位置
+    pub position: [f64; 2],
+    /// 2 点目の位置と `fit`（`true` なら `Fit`、`false` なら `Aligned`）
+    pub end: Option<([f64; 2], bool)>,
+    /// 横の揃え（`0: Left, 1: Center, 2: Right, 4: Middle`）
+    pub horizontal: Option<u8>,
+    /// 縦の揃え（`0: Baseline, 1: Bottom, 2: Middle, 3: Top`）
+    pub vertical: Option<u8>,
+    /// 高さ
+    pub height: f64,
+    /// 回転角（度）
+    pub rotation: f64,
+    /// 幅の倍率
+    pub width_factor: Option<f64>,
+    /// 傾きの角（度）
+    pub oblique: Option<f64>,
+    /// 左右反転
+    pub backward: bool,
+    /// 上下反転
+    pub upside_down: bool,
+    /// 文字スタイルの名前
+    pub style: Option<String>,
 }
 
-/// 足す要素の形
+/// 記号の配置を足す入力
+#[derive(Clone, Debug, PartialEq)]
+pub struct NewSymbol {
+    /// ブロック定義の名前
+    pub name: String,
+    /// 挿入点
+    pub position: [f64; 2],
+    /// X・Y の尺度
+    pub scale: [f64; 2],
+    /// 回転角（度）
+    pub rotation: f64,
+    /// 格子配置
+    pub grid: Option<NewGrid>,
+}
+
+/// 足す図形の形
 #[derive(Clone, Debug, PartialEq)]
 pub enum NewShape {
-    /// 線
+    /// 線分
     Line {
-        /// 始まり
+        /// 始点
         start: [f64; 2],
-        /// 終わり
+        /// 終点
         end: [f64; 2],
     },
     /// 円
@@ -102,382 +191,190 @@ pub enum NewShape {
         /// 半径
         radius: f64,
     },
-    /// 反時計回りの円弧
+    /// 円弧
     Arc {
         /// 中心
         center: [f64; 2],
         /// 半径
         radius: f64,
-        /// 始まりの角（度）
+        /// 始角（度）
         start: f64,
-        /// 終わりの角（度）
+        /// 終角（度）
         end: f64,
     },
     /// 折れ線
     Polyline {
-        /// 頂点
+        /// 頂点列
         points: Vec<[f64; 2]>,
-        /// 頂点ごとの膨らみ
+        /// 膨らみ列
         bulges: Option<Vec<f64>>,
         /// 閉じているか
         closed: bool,
     },
-    /// 文字
+    /// 1 行の文字
     Text(NewText),
-    /// 記号（ブロックの挿入）
+    /// 記号の配置
     Symbol(NewSymbol),
 }
 
-/// 足す文字
+/// 図形を 1 つ足す入力
 #[derive(Clone, Debug, PartialEq)]
-pub struct NewText {
-    /// 中身
-    pub content: String,
-    /// 置く点
-    pub position: [f64; 2],
-    /// 2 点の間に置くときの終わりの点と、幅も合わせるか
-    pub end: Option<([f64; 2], bool)>,
-    /// 横の位置合わせ（72 の値。0・1・2・4）
-    pub horizontal: Option<u8>,
-    /// 縦の位置合わせ（73 の値。0〜3）
-    pub vertical: Option<u8>,
-    /// 高さ
-    pub height: f64,
-    /// 回転（度）
-    pub rotation: f64,
-    /// 幅の係数
-    pub width_factor: Option<f64>,
-    /// 傾き（度）
-    pub oblique: Option<f64>,
-    /// 左右を反転するか
-    pub backward: bool,
-    /// 上下を反転するか
-    pub upside_down: bool,
-    /// 文字スタイルの名前。`None` は Standard
-    pub style: Option<String>,
+pub struct Add {
+    /// 画層の名前（`None` なら `"0"`）
+    pub layer: Option<String>,
+    /// 色
+    pub color: Option<ColorSpec>,
+    /// 線種
+    pub line_type: Option<LineTypeSpec>,
+    /// 線の太さ
+    pub line_weight: Option<WeightSpec>,
+    /// 形
+    pub shape: NewShape,
 }
 
-/// 足す記号
-#[derive(Clone, Debug, PartialEq)]
-pub struct NewSymbol {
-    /// 定義の名前
-    pub name: String,
-    /// 置く点
-    pub position: [f64; 2],
-    /// 尺度
-    pub scale: [f64; 2],
-    /// 回転（度）
-    pub rotation: f64,
-    /// 格子
-    pub grid: Option<NewGrid>,
-}
-
-/// 記号の格子
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct NewGrid {
-    /// 列の数
-    pub columns: u32,
-    /// 行の数
-    pub rows: u32,
-    /// 列の間隔
-    pub column_spacing: f64,
-    /// 行の間隔
-    pub row_spacing: f64,
-}
-
-const UNSUPPORTED: Decline = Decline::Unsupported;
-const MODEL: SpaceId = SpaceId(0);
-
-fn model_point([x, y]: [f64; 2]) -> ModelPoint {
-    ModelPoint { space: MODEL, x, y }
-}
-
-fn model_length(value: f64) -> Length {
-    Length::Model(ModelLength {
-        space: MODEL,
-        value,
-    })
-}
-
-fn color_from(spec: ColorSpec) -> Result<Inherit<Color>, Decline> {
-    Ok(match spec {
-        ColorSpec::ByLayer => Inherit::Layer,
-        ColorSpec::ByBlock => Inherit::Block,
-        ColorSpec::Aci(0) | ColorSpec::AciRgb(0, _) => return Err(UNSUPPORTED),
-        ColorSpec::Aci(aci) => Inherit::Own(Color {
-            code: Some(ColorCode {
-                system: ColorSystem::Aci,
-                value: u32::from(aci),
-            }),
-            rgb: None,
-        }),
-        ColorSpec::Rgb(rgb) => Inherit::Own(Color {
-            code: None,
-            rgb: Some(rgb),
-        }),
-        ColorSpec::AciRgb(aci, rgb) => Inherit::Own(Color {
-            code: Some(ColorCode {
-                system: ColorSystem::Aci,
-                value: u32::from(aci),
-            }),
-            rgb: Some(rgb),
-        }),
-    })
-}
-
-fn weight_from(spec: WeightSpec) -> Result<Inherit<LineWeight>, Decline> {
-    Ok(match spec {
-        WeightSpec::ByLayer => Inherit::Layer,
-        WeightSpec::ByBlock => Inherit::Block,
-        WeightSpec::Default => Inherit::Own(LineWeight::Default),
-        WeightSpec::Mm(mm) if mm.is_finite() && mm >= 0.0 => {
-            Inherit::Own(LineWeight::Width(PaperLength(mm)))
+impl LineTypeSpec {
+    pub(crate) fn as_restyle<'a>(&'a self, doc: &'a Document) -> Option<RestyleLineType<'a>> {
+        match self {
+            Self::ByLayer => Some(RestyleLineType::Layer),
+            Self::ByBlock => Some(RestyleLineType::Block),
+            Self::Name(name) => {
+                let id = doc.lookup_live_line_type(name)?;
+                let exact = doc.line_types.get(id.0 as usize)?.name.as_str();
+                Some(RestyleLineType::Named(exact))
+            }
         }
-        WeightSpec::Mm(_) => return Err(UNSUPPORTED),
-    })
+    }
+}
+
+fn model_pt([x, y]: [f64; 2]) -> Option<ModelPoint> {
+    (x.is_finite() && y.is_finite()).then_some(ModelPoint { space: MODEL, x, y })
+}
+
+fn model_len(v: f64) -> Option<Length> {
+    v.is_finite().then_some(Length::Model(ModelLength {
+        space: MODEL,
+        value: v,
+    }))
+}
+
+fn positive_len(v: f64) -> Option<Length> {
+    (v.is_finite() && v > 0.0).then_some(Length::Model(ModelLength {
+        space: MODEL,
+        value: v,
+    }))
+}
+
+fn horizontal_of(code: u8) -> Horizontal {
+    match code {
+        0 => Horizontal::Left,
+        1 => Horizontal::Center,
+        2 => Horizontal::Right,
+        _ => Horizontal::Middle,
+    }
+}
+
+fn vertical_of(code: u8) -> Vertical {
+    match code {
+        0 => Vertical::Baseline,
+        1 => Vertical::Bottom,
+        2 => Vertical::Middle,
+        _ => Vertical::Top,
+    }
+}
+
+/// 符号化した追加レコード（種類名・タグ列・値列）
+pub(crate) type EncodedBornRecord = (Vec<u8>, Vec<OTag>, Vec<Value>);
+
+/// `BornRecords` を `OTag` のレコード列に符号化する
+pub(crate) fn encode_born_records(records: BornRecords) -> Option<Vec<EncodedBornRecord>> {
+    let mut out = Vec::with_capacity(records.len());
+    for (kind, values) in records {
+        let mut tags = Vec::with_capacity(1 + values.len());
+        tags.push(OTag::added(0, kind.to_vec()));
+        for val in &values {
+            tags.push(OTag::added(val.code, value_bytes(&val.data)?));
+        }
+        out.push((kind.to_vec(), tags, values));
+    }
+    Some(out)
 }
 
 impl Document {
-    /// 文字列を、この図面の符号化で書けるか確かめる。試作は、UTF-8 の図面のほかでは ASCII だけを書く
-    fn check_encodable(&self, value: &str) -> Result<(), Decline> {
-        if value.is_ascii() || self.charset == Charset::Utf8 {
-            Ok(())
-        } else {
-            Err(Decline::Outside(Outside::Charset))
-        }
-    }
+    /// `Add` を検証して `BornRecords` を作る。今の実装が断る入力は `None` を返す
+    pub(crate) fn build_born_records(&self, add: &Add, handle: u64) -> Option<BornRecords> {
+        self.entities_end?;
+        let target_layer_name = add.layer.as_deref().unwrap_or("0");
+        let layer_id = self.lookup_live_layer(target_layer_name)?;
+        let resolved_layer_name = self.layers.get(layer_id.0 as usize)?.name.as_str();
 
-    /// 画層か線種の名前が、開くときに読んだ表の 1 レコードだけで同じ綴りに決まるか確かめる
-    fn check_defined(&self, table: usize, name: &str) -> Result<(), Decline> {
-        let outside = Decline::Outside(Outside::Names);
-        if !self.names_exact {
-            return Err(outside);
-        }
-        let spelling = self
-            .names
-            .get(table)
-            .and_then(Option::as_ref)
-            .and_then(|names| names.get(&name.to_lowercase()))
-            .ok_or(outside)?;
-        if spelling.count == 1 && spelling.tables == 1 && *spelling.name == *name.as_bytes() {
-            Ok(())
-        } else {
-            Err(outside)
-        }
-    }
-
-    /// 文字スタイルの名前を確かめる。表があれば表にあること、なければ Standard で符号化できること
-    fn check_text_style(&self, name: &str) -> Result<(), Decline> {
-        if !self.names_exact {
-            return Err(Decline::Outside(Outside::Names));
-        }
-        match self.names.get(table::STYLE).and_then(Option::as_ref) {
-            Some(names) => {
-                if names.contains_key(&name.to_lowercase()) {
-                    Ok(())
-                } else {
-                    Err(UNSUPPORTED)
-                }
-            }
-            None if name.eq_ignore_ascii_case("Standard") => self.check_encodable(name),
-            None => Err(UNSUPPORTED),
-        }
-    }
-
-    /// 記号の定義の名前を確かめる。名前で 1 つに決まり、属性の定義を持たない定義だけを受け付ける
-    fn check_block_name(&self, name: &str) -> Result<(), Decline> {
-        let lower = name.to_lowercase();
-        if lower.starts_with("*model_space") || lower.starts_with("*paper_space") {
-            return Err(UNSUPPORTED);
-        }
-        if !self.names_exact {
-            return Err(Decline::Outside(Outside::Names));
-        }
-        let definition = self
-            .usable_definitions
-            .get(&lower)
-            .and_then(|at| self.definitions.get(*at as usize))
-            .ok_or(Decline::Outside(Outside::Definition))?;
-        if let Some(names) = self.names.get(table::BLOCK_RECORD).and_then(Option::as_ref) {
-            let key = self
-                .decode(&definition.name)
-                .ok_or(Decline::Outside(Outside::Names))?
-                .to_lowercase();
-            if !names.contains_key(&key) {
-                return Err(UNSUPPORTED);
-            }
-        }
-        Ok(())
-    }
-
-    /// 線種の指定を共通関数向けの形にする
-    fn restyle_line_type<'a>(
-        &self,
-        spec: &'a LineTypeSpec,
-    ) -> Result<RestyleLineType<'a>, Decline> {
-        Ok(match spec {
-            LineTypeSpec::ByLayer => RestyleLineType::Layer,
-            LineTypeSpec::ByBlock => RestyleLineType::Block,
-            LineTypeSpec::Name(name)
-                if name.eq_ignore_ascii_case("ByLayer") || name.eq_ignore_ascii_case("ByBlock") =>
-            {
-                return Err(Decline::Outside(Outside::Names));
-            }
-            LineTypeSpec::Name(name) => {
-                self.check_defined(table::LTYPE, name)?;
-                RestyleLineType::Named(name.as_str())
-            }
-        })
-    }
-
-    /// 属性を変えた後のレコードの値（`zumen_acad::single::restyle_model`）。`layer` は、今の画層の名前。
-    /// 何も変わらなければ、元の値のまま
-    pub(crate) fn restyled(
-        &self,
-        kind: &[u8],
-        layer: &[u8],
-        old: &[Value],
-        change: &Restyle,
-    ) -> Result<Vec<Value>, Decline> {
-        let current_layer = self
-            .decode(layer)
-            .ok_or(Decline::Outside(Outside::Charset))?;
-        let new_layer = match &change.layer {
-            Some(name) => {
-                self.check_defined(table::LAYER, name)?;
-                Some(name.as_str())
-            }
-            None => None,
-        };
-        let new_line_type = match &change.line_type {
-            Some(spec) => Some(self.restyle_line_type(spec)?),
-            None => None,
-        };
-        let color = change.color.map(color_from).transpose()?;
-        let line_weight = change.line_weight.map(weight_from).transpose()?;
-        if let Some(scale) = change.line_type_scale
-            && !(scale.is_finite() && scale > 0.0)
-        {
-            return Err(UNSUPPORTED);
-        }
-        single::restyle_model(
-            &self.single_tables,
-            kind,
-            old,
-            current_layer,
-            new_layer,
-            new_line_type,
-            color,
-            change.line_type_scale,
-            line_weight,
-        )
-        .ok_or(UNSUPPORTED)
-    }
-
-    /// 足す要素のレコードの種類と値（`zumen_acad::single::born_model`）。値は、ハンドル（5）から並ぶ
-    pub(crate) fn born(
-        &self,
-        add: &Add,
-        handle: u64,
-    ) -> Result<(&'static [u8], Vec<Value>), Decline> {
-        let layer_name = add.layer.as_deref().unwrap_or("0");
-        self.check_defined(table::LAYER, layer_name)?;
-        let color = match add.color {
-            Some(spec) => color_from(spec)?,
-            None => Inherit::Layer,
-        };
-        let (line_type, line_type_name) = match &add.line_type {
+        let (line_type, lt_name): (Inherit<LineTypeId>, Option<&str>) = match &add.line_type {
             None | Some(LineTypeSpec::ByLayer) => (Inherit::Layer, None),
             Some(LineTypeSpec::ByBlock) => (Inherit::Block, None),
-            Some(LineTypeSpec::Name(name))
-                if name.eq_ignore_ascii_case("ByLayer") || name.eq_ignore_ascii_case("ByBlock") =>
-            {
-                return Err(Decline::Outside(Outside::Names));
-            }
             Some(LineTypeSpec::Name(name)) => {
-                self.check_defined(table::LTYPE, name)?;
-                (Inherit::Own(LineTypeId(0)), Some(name.as_str()))
+                let id = self.lookup_live_line_type(name)?;
+                let exact = self.line_types.get(id.0 as usize)?.name.as_str();
+                (Inherit::Own(id), Some(exact))
             }
         };
+
         let line_weight = match add.line_weight {
-            Some(spec) => Some(weight_from(spec)?),
+            Some(spec) => Some(spec.to_inherit()?),
             None => Some(Inherit::Layer),
         };
-        let shape = self.new_shape(&add.shape)?;
-        let element = Element {
-            layer: LayerId(0),
-            style: Style {
-                color,
-                line_type,
-                line_type_scale: 1.0,
-                line_weight,
-                transparency: Inherit::Layer,
-            },
-            shape,
-            source: Default::default(),
-        };
-        let mut records = single::born_model(
-            &self.single_tables,
-            &element,
-            layer_name,
-            line_type_name,
-            &[],
-            &[],
-            handle,
-        )
-        .ok_or(UNSUPPORTED)?;
-        if records.len() != 1 {
-            return Err(Decline::Outside(Outside::Definition));
-        }
-        records.pop().ok_or(UNSUPPORTED)
-    }
+        let color = add.color.map_or(Inherit::Layer, ColorSpec::to_inherit);
 
-    fn new_shape(&self, shape: &NewShape) -> Result<Shape<ModelPoint>, Decline> {
-        Ok(match shape {
+        let mut attrib_layers: Vec<(LayerId, String)> = Vec::new();
+        let mut attrib_line_types: Vec<(LineTypeId, String)> = Vec::new();
+
+        let shape: Shape<ModelPoint> = match &add.shape {
             NewShape::Line { start, end } => Shape::Line {
-                start: model_point(*start),
-                end: model_point(*end),
+                start: model_pt(*start)?,
+                end: model_pt(*end)?,
             },
             NewShape::Circle { center, radius } => Shape::Circle {
-                center: model_point(*center),
-                radius: model_length(*radius),
+                center: model_pt(*center)?,
+                radius: positive_len(*radius)?,
             },
             NewShape::Arc {
                 center,
                 radius,
                 start,
                 end,
-            } => Shape::Curve(Edge::Arc {
-                center: model_point(*center),
-                radius: model_length(*radius),
-                start: *start,
-                end: *end,
-                counterclockwise: true,
-            }),
+            } => {
+                if !start.is_finite() || !end.is_finite() {
+                    return None;
+                }
+                Shape::Curve(Edge::Arc {
+                    center: model_pt(*center)?,
+                    radius: positive_len(*radius)?,
+                    start: *start,
+                    end: *end,
+                    counterclockwise: true,
+                })
+            }
             NewShape::Polyline {
                 points,
                 bulges,
                 closed,
             } => {
-                if points.len() < 2
-                    || bulges.as_ref().is_some_and(|bulges| {
-                        bulges.len() != points.len() || bulges.iter().any(|b| !b.is_finite())
-                    })
-                {
-                    return Err(UNSUPPORTED);
+                if points.len() < 2 {
+                    return None;
                 }
-                let vertices = points
-                    .iter()
-                    .enumerate()
-                    .map(|(index, point)| Vertex {
-                        point: model_point(*point),
-                        bulge: bulges
-                            .as_ref()
-                            .and_then(|bulges| bulges.get(index))
-                            .copied()
-                            .unwrap_or(0.0),
-                    })
-                    .collect();
+                let bulges_slice: Vec<f64> = match bulges {
+                    None => vec![0.0; points.len()],
+                    Some(b) if b.len() == points.len() => b.clone(),
+                    Some(_) => return None,
+                };
+                let mut vertices = Vec::with_capacity(points.len());
+                for (&pt, &bulge) in points.iter().zip(&bulges_slice) {
+                    if !bulge.is_finite() {
+                        return None;
+                    }
+                    vertices.push(Vertex {
+                        point: model_pt(pt)?,
+                        bulge,
+                    });
+                }
                 Shape::Polyline(Polyline {
                     vertices,
                     closed: *closed,
@@ -486,100 +383,226 @@ impl Document {
                     line_type_generation: false,
                 })
             }
-            NewShape::Text(new) => Shape::Text(self.new_text(new)?),
-            NewShape::Symbol(new) => Shape::Symbol(self.new_symbol(new)?),
-        })
-    }
-
-    fn new_text(&self, new: &NewText) -> Result<Text<ModelPoint>, Decline> {
-        if new.content.contains(['\n', '\r']) {
-            return Err(UNSUPPORTED);
-        }
-        let style_name = new.style.as_deref().unwrap_or("Standard");
-        self.check_text_style(style_name)?;
-        self.check_encodable(&new.content)?;
-        let placement = match new.end {
-            Some((end, fit)) => {
-                if new.horizontal.is_some() || new.vertical.is_some() || end == new.position {
-                    return Err(UNSUPPORTED);
+            NewShape::Text(t) => {
+                if t.content.contains(['\n', '\r']) || !t.rotation.is_finite() {
+                    return None;
                 }
-                let angle =
-                    libm::atan2(end[1] - new.position[1], end[0] - new.position[0]).to_degrees();
-                let turn = (new.rotation - angle).rem_euclid(360.0);
-                if turn.min(360.0 - turn) > 1e-6 {
-                    return Err(UNSUPPORTED);
-                }
-                Placement::Between {
-                    first: model_point(new.position),
-                    second: model_point(end),
-                    fit: if fit { Fit::Fit } else { Fit::Aligned },
-                }
-            }
-            None => {
-                let horizontal = match new.horizontal.unwrap_or(0) {
-                    0 => Horizontal::Left,
-                    1 => Horizontal::Center,
-                    2 => Horizontal::Right,
-                    4 => Horizontal::Middle,
-                    _ => return Err(UNSUPPORTED),
+                let width_factor = match t.width_factor {
+                    None => 1.0,
+                    Some(wf) if wf.is_finite() && wf > 0.0 => wf,
+                    Some(_) => return None,
                 };
-                let vertical = match new.vertical.unwrap_or(0) {
-                    0 => Vertical::Baseline,
-                    1 => Vertical::Bottom,
-                    2 => Vertical::Middle,
-                    3 => Vertical::Top,
-                    _ => return Err(UNSUPPORTED),
+                let oblique = match t.oblique {
+                    None => 0.0,
+                    Some(ob) if ob.is_finite() => ob,
+                    Some(_) => return None,
                 };
-                Placement::Anchor {
-                    point: model_point(new.position),
-                    horizontal,
-                    vertical,
-                }
+                let placement = match t.end {
+                    Some((end_xy, is_fit)) => {
+                        if t.horizontal.is_some() || t.vertical.is_some() {
+                            return None;
+                        }
+                        let first = model_pt(t.position)?;
+                        let second = model_pt(end_xy)?;
+                        if first.x == second.x && first.y == second.y {
+                            return None;
+                        }
+                        let turn = (t.rotation
+                            - libm::atan2(second.y - first.y, second.x - first.x).to_degrees())
+                        .rem_euclid(360.0);
+                        if turn.min(360.0 - turn) > 1e-6 {
+                            return None;
+                        }
+                        Placement::Between {
+                            first,
+                            second,
+                            fit: if is_fit { Fit::Fit } else { Fit::Aligned },
+                        }
+                    }
+                    None => Placement::Anchor {
+                        point: model_pt(t.position)?,
+                        horizontal: t.horizontal.map_or(Horizontal::Left, horizontal_of),
+                        vertical: t.vertical.map_or(Vertical::Baseline, vertical_of),
+                    },
+                };
+                Shape::Text(Text {
+                    content: t.content.clone(),
+                    placement,
+                    height: Height {
+                        value: positive_len(t.height)?,
+                        meaning: HeightMeaning::Declared("dxf.TEXT.40".into()),
+                    },
+                    rotation: t.rotation,
+                    width_factor,
+                    oblique,
+                    backward: t.backward,
+                    upside_down: t.upside_down,
+                    style: t.style.clone().unwrap_or_else(|| "Standard".to_owned()),
+                })
             }
-        };
-        Ok(Text {
-            content: new.content.clone(),
-            height: Height {
-                value: model_length(new.height),
-                meaning: HeightMeaning::Declared("dxf.TEXT.40".into()),
-            },
-            placement,
-            rotation: new.rotation,
-            width_factor: new.width_factor.unwrap_or(1.0),
-            oblique: new.oblique.unwrap_or(0.0),
-            backward: new.backward,
-            upside_down: new.upside_down,
-            style: style_name.to_owned(),
-        })
-    }
-
-    fn new_symbol(&self, new: &NewSymbol) -> Result<Symbol<ModelPoint>, Decline> {
-        self.check_block_name(&new.name)?;
-        let grid = match &new.grid {
-            None => None,
-            Some(grid) => {
-                if grid.columns == 0 || grid.rows == 0 || (grid.columns, grid.rows) == (1, 1) {
-                    return Err(UNSUPPORTED);
+            NewShape::Symbol(s) => {
+                if !s.scale[0].is_finite()
+                    || !s.scale[1].is_finite()
+                    || s.scale[0] == 0.0
+                    || s.scale[1] == 0.0
+                    || !s.rotation.is_finite()
+                {
+                    return None;
                 }
-                Some(Grid {
-                    columns: grid.columns,
-                    rows: grid.rows,
-                    column_spacing: model_length(grid.column_spacing),
-                    row_spacing: model_length(grid.row_spacing),
+                let grid = match s.grid {
+                    None => None,
+                    Some(g) => {
+                        if g.columns == 0 || g.rows == 0 || (g.columns, g.rows) == (1, 1) {
+                            return None;
+                        }
+                        Some(Grid {
+                            columns: g.columns,
+                            rows: g.rows,
+                            column_spacing: model_len(g.column_spacing)?,
+                            row_spacing: model_len(g.row_spacing)?,
+                        })
+                    }
+                };
+                let position = model_pt(s.position)?;
+                let def_opt = self.symbols.iter().find(|def| {
+                    def.key.namespace == BLOCK && def.key.name.eq_ignore_ascii_case(s.name.as_str())
+                });
+                let mut attributes: Vec<Attribute<ModelPoint>> = Vec::new();
+                if let Some(def) = def_opt {
+                    let non_const: Vec<&Attribute<ModelPoint>> = def
+                        .attributes
+                        .iter()
+                        .filter(|ad| !ad.constant)
+                        .map(|ad| &ad.attribute)
+                        .collect();
+                    if !non_const.is_empty() {
+                        if s.scale[0].abs() != s.scale[1].abs() {
+                            return None;
+                        }
+                        let [bx, by] = def.base.map_or([0.0, 0.0], |b| [b.x, b.y]);
+                        let radians = s.rotation.to_radians();
+                        let (sin, cos) = (libm::sin(radians), libm::cos(radians));
+                        let [sx, sy] = s.scale;
+                        let [a, b, d, e] = [cos * sx, -sin * sy, sin * sx, cos * sy];
+                        let affine = Affine {
+                            m: [
+                                a,
+                                b,
+                                position.x - (a * bx + b * by),
+                                d,
+                                e,
+                                position.y - (d * bx + e * by),
+                            ],
+                        };
+                        for attr_def in non_const {
+                            if attr_def.formatted.is_some() {
+                                return None;
+                            }
+                            let lifted_def_text = lift_def_text_to_model(&attr_def.text)?;
+                            let Shape::Text(placed_text) =
+                                transform_shape(&Shape::Text(lifted_def_text), &affine)?
+                            else {
+                                return None;
+                            };
+                            let a_layer_name =
+                                self.layers.get(attr_def.layer.0 as usize)?.name.clone();
+                            attrib_layers.push((attr_def.layer, a_layer_name));
+                            if let Inherit::Own(lt_id) = attr_def.style.line_type {
+                                let a_lt_name = self.line_types.get(lt_id.0 as usize)?.name.clone();
+                                attrib_line_types.push((lt_id, a_lt_name));
+                            }
+                            attributes.push(Attribute {
+                                tag: attr_def.tag.clone(),
+                                text: placed_text,
+                                formatted: None,
+                                hidden: attr_def.hidden,
+                                layer: attr_def.layer,
+                                style: attr_def.style,
+                                source: attr_def.source.clone(),
+                            });
+                        }
+                    }
+                }
+
+                Shape::Symbol(Symbol {
+                    key: SymbolKey {
+                        namespace: Cow::Borrowed(BLOCK),
+                        name: s.name.clone(),
+                    },
+                    position,
+                    scale: s.scale,
+                    rotation: s.rotation,
+                    grid,
+                    attributes,
+                    clip: None,
                 })
             }
         };
-        Ok(Symbol {
-            key: SymbolKey {
-                namespace: BLOCK.into(),
-                name: new.name.clone(),
+
+        let element = Element {
+            source: Ref::default(),
+            layer: layer_id,
+            style: Style {
+                color,
+                line_type,
+                line_type_scale: 1.0,
+                line_weight,
+                transparency: Inherit::Layer,
             },
-            position: model_point(new.position),
-            scale: new.scale,
-            rotation: new.rotation,
-            grid,
-            attributes: Vec::new(),
-            clip: None,
-        })
+            shape,
+        };
+
+        let mut tables = self.tables_cache.clone();
+        tables.markers = self.live_markers();
+        single::born_model(
+            &tables,
+            &element,
+            resolved_layer_name,
+            lt_name,
+            &attrib_layers,
+            &attrib_line_types,
+            handle,
+        )
     }
+}
+
+fn lift_def_text_to_model(text: &Text<ModelPoint>) -> Option<Text<ModelPoint>> {
+    let pt = |p: ModelPoint| ModelPoint {
+        space: MODEL,
+        x: p.x,
+        y: p.y,
+    };
+    let Length::Model(h) = text.height.value else {
+        return None;
+    };
+    let height_val = positive_len(h.value)?;
+    Some(Text {
+        content: text.content.clone(),
+        placement: match text.placement {
+            Placement::Anchor {
+                point,
+                horizontal,
+                vertical,
+            } => Placement::Anchor {
+                point: pt(point),
+                horizontal,
+                vertical,
+            },
+            Placement::Between { first, second, fit } => Placement::Between {
+                first: pt(first),
+                second: pt(second),
+                fit,
+            },
+        },
+        height: Height {
+            value: height_val,
+            meaning: text.height.meaning.clone(),
+        },
+        rotation: text.rotation,
+        width_factor: text.width_factor,
+        oblique: text.oblique,
+        backward: text.backward,
+        upside_down: text.upside_down,
+        style: text.style.clone(),
+    })
 }

@@ -87,13 +87,12 @@ fn mib(bytes: usize) -> f64 {
 fn opening(bytes: &[u8], threads: usize, runs: usize) -> Result<(), String> {
     let mut phases: [Vec<f64>; 6] = Default::default();
     for _ in 0..runs {
-        let src = bytes.to_vec();
         let start = now();
-        let parts = store::scan(&src, threads).map_err(|error| format!("開けない: {error:?}"))?;
+        let parts = store::scan(bytes, threads).map_err(|error| format!("開けない: {error:?}"))?;
         let scan = ms(start);
         let start = now();
         let mut document =
-            Document::assemble(src, parts).map_err(|error| format!("開けない: {error:?}"))?;
+            Document::assemble_scanned(parts).map_err(|error| format!("開けない: {error:?}"))?;
         let assemble = ms(start);
         let start = now();
         document.build_display();
@@ -494,10 +493,15 @@ fn editing(document: &mut Document, handles: &[u64], extent: [f64; 4], options: 
     report("1 件の文字を足す", &mut times, declined);
 
     let definition = document
-        .definitions
+        .symbols
         .iter()
-        .find(|definition| definition.usable)
-        .map(|definition| String::from_utf8_lossy(&definition.name).into_owned());
+        .find(|definition| {
+            definition.key.namespace == "dxf.block"
+                && !definition.key.name.is_empty()
+                && !definition.key.name.starts_with('*')
+                && definition.attributes.iter().all(|ad| ad.constant)
+        })
+        .map(|definition| definition.key.name.clone());
     match definition {
         None => println!("  1 件の記号を足す: 指せるブロックの定義がない"),
         Some(name) => {
@@ -640,6 +644,29 @@ fn editing(document: &mut Document, handles: &[u64], extent: [f64; 4], options: 
     }
 }
 
+/// 開いた直後の最初の 1 件の追加（ページ配列により全体の確保し直しが起きないこと）を測る
+fn first_adding(bytes: &[u8], threads: usize, runs: usize) -> Result<(), String> {
+    let mut times = Vec::with_capacity(runs);
+    let mut declined = 0;
+    let edit = [plain(NewShape::Line {
+        start: [0.0, 0.0],
+        end: [1.0, 1.0],
+    })];
+    for _ in 0..runs {
+        let mut document =
+            Document::open_slice(bytes, threads).map_err(|error| format!("開けない: {error:?}"))?;
+        let start = now();
+        let done = document.apply(&edit);
+        let elapsed = us(start);
+        match done {
+            Ok(_) => times.push(elapsed),
+            Err(_) => declined += 1,
+        }
+    }
+    report("開いた直後の最初の 1 件を足す変更", &mut times, declined);
+    Ok(())
+}
+
 /// 1 つの入力を測る
 pub fn run(path: &str, options: &Options) -> Result<(), String> {
     let bytes = std::fs::read(path).map_err(|error| format!("{path} を読めない: {error}"))?;
@@ -654,23 +681,30 @@ pub fn run(path: &str, options: &Options) -> Result<(), String> {
         opening(&bytes, threads, options.runs)?;
     }
     let threads = thread_counts.last().copied().unwrap_or(1);
+    first_adding(&bytes, threads, options.runs)?;
     let mut document =
-        Document::open(bytes.clone(), threads).map_err(|error| format!("開けない: {error:?}"))?;
+        Document::open_slice(&bytes, threads).map_err(|error| format!("開けない: {error:?}"))?;
     let counts = document.counts;
     println!(
-        "  要素 {}（指せない {}）、ペーパー空間 {}、Shift_JIS {}。メモリは、列・表示・索引 {:.1} MiB と、元のファイル {:.1} MiB",
+        "  要素 {}（指せない {}）、ペーパー空間 {}、文字コード {:?}。メモリは、列・表示・索引 {:.1} MiB と、元のファイル保持 {:.1} MiB（元 {:.1} MiB）",
         counts.elements,
         counts.unaddressable,
         counts.paper,
-        counts.shift_jis,
+        document.charset,
         mib(document.resident_bytes()),
+        mib(document.source_stored_bytes()),
         mib(document.source_len())
     );
     let handles: Vec<u64> = document
         .rows
         .iter()
-        .filter(|row| row.handle != 0)
-        .map(|row| row.handle)
+        .filter(|row| {
+            row.alive
+                && !document
+                    .duplicate_handles
+                    .contains(&row.handle().unwrap_or(0))
+        })
+        .filter_map(|row| row.handle())
         .collect();
     let mut extent = [
         f64::INFINITY,
@@ -678,8 +712,8 @@ pub fn run(path: &str, options: &Options) -> Result<(), String> {
         f64::NEG_INFINITY,
         f64::NEG_INFINITY,
     ];
-    for item in &document.boxes {
-        if item.iter().all(|value| value.is_finite()) {
+    for item in document.boxes.iter() {
+        if item[0] <= item[2] && item[1] <= item[3] && item.iter().all(|value| value.is_finite()) {
             extent = [
                 extent[0].min(item[0]),
                 extent[1].min(item[1]),
@@ -719,9 +753,7 @@ pub fn run(path: &str, options: &Options) -> Result<(), String> {
         "  範囲で選ぶ（開いた直後、今の実装の測定と同じ小さい範囲）: {time:.3} µs（{hits} 件）"
     );
 
-    if let Some(locked) = document.locked {
-        println!("  この文書の変更は受け付けない: {locked:?}");
-    } else if !handles.is_empty() {
+    if !handles.is_empty() {
         editing(&mut document, &handles, extent, options);
     }
 

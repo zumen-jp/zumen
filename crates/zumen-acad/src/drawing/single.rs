@@ -2,23 +2,25 @@
 //!
 //! 一括の変換（`lift`・`apply`）と、常駐する文書エンジンが、同じ規則を 1 か所から呼ぶために切り出した入口。
 
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use zumen_base::{Budget, CancelToken, Cx, Diagnostics};
+use zumen_base::{Budget, CancelToken, Cx, Diagnostics, Limits, Ref};
 use zumen_drawing::{
-    Affine, Color, ColorCode, ColorSystem, Element, Fit, Horizontal, Inherit, LayerId, LineTypeId,
-    LineWeight, ModelPoint, PaperLength, Style, Transparency, Vertical,
+    Affine, Attribute, Clip, Color, ColorCode, ColorSystem, Drawing2D, Element, Fit, Horizontal,
+    Inherit, Layer, LayerId, Length, LineType, LineTypeId, LineWeight, ModelLength, ModelPoint,
+    PaperLength, Style, Transparency, Unit, Vertical,
 };
 
-use super::MODEL;
 use super::apply::{
     Born, Encoder, InSpace, Target, anchor, children_of_values, followed_values,
     moved_with_attribs, moving_xdata_code, next_handle_from, replacement, restyled,
 };
 use super::style::transparency as decode_transparency;
+use super::{FIT_DATA, Lifter, MODEL, Out, SHEET, TABLE_CONTENT, source, unit_of};
 use crate::charset::Charset;
-use crate::db::{Data, Object, Origin, Section, Value};
+use crate::db::{AcadDb, Data, Object, Origin, Section, Value};
 use crate::dxf::{self, RawData};
 
 /// DXF のレコードの、グループ・コード 0 の次からの生のタグ
@@ -212,7 +214,7 @@ impl<'a> FieldSource<'a> for &'a Object {
     }
 }
 
-const SLOTS: usize = 38;
+const SLOTS: usize = 39;
 
 const fn slot(code: i16) -> usize {
     match code {
@@ -253,6 +255,7 @@ const fn slot(code: i16) -> usize {
         66 => 35,
         74 => 36,
         101 => 37,
+        3 => 38,
         _ => 0,
     }
 }
@@ -897,6 +900,7 @@ pub fn restyle_model(
     kind: &[u8],
     old: &[Value],
     current_layer: &str,
+    current_line_type: Option<&str>,
     new_layer: Option<&str>,
     new_line_type: Option<RestyleLineType<'_>>,
     color: Option<Inherit<Color>>,
@@ -913,7 +917,7 @@ pub fn restyle_model(
     let mut layers = BTreeMap::from([(LayerId(0), current_layer.to_owned())]);
     let layer_change = match new_layer {
         None => None,
-        Some(name) if name.eq_ignore_ascii_case(current_layer) => Some(LayerId(0)),
+        Some(name) if name == current_layer => Some(LayerId(0)),
         Some(name) => {
             layers.insert(LayerId(1), name.to_owned());
             Some(LayerId(1))
@@ -924,7 +928,10 @@ pub fn restyle_model(
         RawLineType::Layer => Inherit::Layer,
         RawLineType::Block => Inherit::Block,
         RawLineType::Named(bytes) => {
-            let decoded = tables.charset.decode(bytes)?;
+            let decoded = match current_line_type {
+                Some(name) => name.to_owned(),
+                None => tables.charset.decode(bytes)?,
+            };
             line_types.insert(LineTypeId(0), decoded);
             Inherit::Own(LineTypeId(0))
         }
@@ -936,7 +943,7 @@ pub fn restyle_model(
         Some(RestyleLineType::Named(name)) => {
             if line_types
                 .get(&LineTypeId(0))
-                .is_some_and(|old_name| name.eq_ignore_ascii_case(old_name))
+                .is_some_and(|old_name| name == old_name)
             {
                 Some(Inherit::Own(LineTypeId(0)))
             } else {
@@ -1042,4 +1049,617 @@ pub fn moving_xdata(values: &[Value]) -> Option<i16> {
 /// 最大のハンドル `max` と種 `seed` から、次に付けるハンドルを求める
 pub fn next_handle(max: Option<u64>, seed: Option<u64>) -> Option<u64> {
     next_handle_from(max, seed)
+}
+
+fn xdictionary_of(values: &[Value]) -> Option<u64> {
+    let mut inside = false;
+    for value in values {
+        match (value.code, &value.data) {
+            (102, Data::Text(text)) if text == b"{ACAD_XDICTIONARY" => inside = true,
+            (102, Data::Text(text)) if text.starts_with(b"}") => inside = false,
+            (360, Data::Handle(handle)) if inside => return Some(*handle),
+            _ => {}
+        }
+    }
+    None
+}
+
+fn dict_entry_of<'a>(
+    get_object: &impl Fn(u64) -> Option<(Cow<'a, [u8]>, Cow<'a, [Value]>)>,
+    handle: u64,
+    name: &[u8],
+) -> Option<u64> {
+    let (kind, values) = get_object(handle)?;
+    if kind.as_ref() != b"DICTIONARY" {
+        return None;
+    }
+    values.windows(2).find_map(|pair| match pair {
+        [
+            Value {
+                code: 3,
+                data: Data::Text(text),
+            },
+            Value {
+                code: 350 | 360,
+                data: Data::Handle(item),
+            },
+        ] if text == name => Some(*item),
+        _ => None,
+    })
+}
+
+fn inverted_clip_boundary<'a>(
+    get_object: &impl Fn(u64) -> Option<(Cow<'a, [u8]>, Cow<'a, [Value]>)>,
+    filter_values: &[Value],
+    boundary: &[[f64; 2]],
+) -> Option<Vec<[f64; 2]>> {
+    let record_handle = xdictionary_of(filter_values)
+        .and_then(|handle| dict_entry_of(get_object, handle, b"ACAD_XREC_ROUNDTRIP"))?;
+    let (kind, record_values) = get_object(record_handle)?;
+    if kind.as_ref() != b"XRECORD" {
+        return None;
+    }
+    let mut sections: BTreeMap<Vec<u8>, Vec<[f64; 3]>> = BTreeMap::new();
+    let mut current: Option<Vec<u8>> = None;
+    for value in record_values.iter() {
+        match (value.code, &value.data) {
+            (102, Data::Text(name)) => current = Some(name.clone()),
+            (10, Data::Real(x)) => {
+                sections
+                    .entry(current.clone()?)
+                    .or_default()
+                    .push([*x, 0.0, 0.0]);
+            }
+            (code @ (20 | 30), Data::Real(v)) => {
+                let [_, y, z] = sections.get_mut(current.as_ref()?)?.last_mut()?;
+                *if code == 20 { y } else { z } = *v;
+            }
+            _ => {}
+        }
+    }
+    let flat = |name: &[u8]| -> Option<Vec<[f64; 2]>> {
+        sections
+            .get(name)?
+            .iter()
+            .map(|&[x, y, z]| (z == 0.0 && x.is_finite() && y.is_finite()).then_some([x, y]))
+            .collect()
+    };
+    let original = flat(b"ACAD_INVERTEDCLIP_ROUNDTRIP")?;
+    (original.len() >= 2 && flat(b"ACAD_INVERTEDCLIP_ROUNDTRIP_COMPARE")? == boundary)
+        .then_some(original)
+}
+
+/// INSERT の値と、ハンドルからオブジェクトを引く口 `get_object` から、切り抜き（`SPATIAL_FILTER`）を読む。
+/// 切り抜きがなければ `Ok(None)`、壊れていれば落ちたグループ・コードを `Err(code)` で返す
+pub fn symbol_clip<'a>(
+    insert_values: &[Value],
+    get_object: impl Fn(u64) -> Option<(Cow<'a, [u8]>, Cow<'a, [Value]>)>,
+) -> Result<Option<Clip>, i16> {
+    let Some(filter_handle) = xdictionary_of(insert_values)
+        .and_then(|handle| dict_entry_of(&get_object, handle, b"ACAD_FILTER"))
+        .and_then(|handle| dict_entry_of(&get_object, handle, b"SPATIAL"))
+    else {
+        return Ok(None);
+    };
+    let Some((filter_kind, filter_values)) = get_object(filter_handle) else {
+        return Ok(None);
+    };
+    if filter_kind.as_ref() != b"SPATIAL_FILTER" {
+        return Ok(None);
+    }
+    let start = filter_values
+        .iter()
+        .position(|value| value.code == 70)
+        .ok_or(70i16)?;
+    let mut values = filter_values
+        .get(start..)
+        .unwrap_or_default()
+        .iter()
+        .peekable();
+    let mut take = |code: i16| -> Result<&Data, i16> {
+        values
+            .next_if(|value| value.code == code)
+            .map(|value| &value.data)
+            .ok_or(code)
+    };
+    let int = |data: &Data, code: i16| match data {
+        Data::Int(value) => Ok(*value),
+        _ => Err(code),
+    };
+    let real = |data: &Data, code: i16| match data {
+        Data::Real(value) if value.is_finite() => Ok(*value),
+        _ => Err(code),
+    };
+    let count = int(take(70)?, 70)?;
+    if count < 2 {
+        return Err(70);
+    }
+    let mut points = Vec::new();
+    for _ in 0..count {
+        points.push([real(take(10)?, 10)?, real(take(20)?, 20)?]);
+    }
+    let inverted = match inverted_clip_boundary(&get_object, &filter_values, &points) {
+        Some(boundary) => {
+            points = boundary;
+            true
+        }
+        None => false,
+    };
+    let normal = [
+        real(take(210)?, 210)?,
+        real(take(220)?, 220)?,
+        real(take(230)?, 230)?,
+    ];
+    if !matches!(normal, [x, y, z] if x.abs() < 1e-9 && y.abs() < 1e-9 && z > 0.0) {
+        return Err(210);
+    }
+    for code in [11, 21, 31] {
+        if real(take(code)?, code)? != 0.0 {
+            return Err(code);
+        }
+    }
+    int(take(71)?, 71)?;
+    for (flag, distance) in [(72, 40), (73, 41)] {
+        if int(take(flag)?, flag)? != 0 {
+            real(take(distance)?, distance)?;
+        }
+    }
+    let mut matrix = || -> Result<[[f64; 4]; 3], i16> {
+        let mut rows = [[0.0; 4]; 3];
+        for slot in rows.iter_mut().flatten() {
+            *slot = real(take(40)?, 40)?;
+        }
+        Ok(rows)
+    };
+    let inverse = matrix()?;
+    let bound = matrix()?;
+    let apply =
+        |m: &[[f64; 4]; 3], [x, y, z]: [f64; 3]| m.map(|[a, b, c, d]| a * x + b * y + c * z + d);
+    let rectangular = points.len() == 2;
+    if let [[x0, y0], [x1, y1]] = points.as_slice() {
+        points = vec![[*x0, *y0], [*x1, *y0], [*x1, *y1], [*x0, *y1]];
+    }
+    let mut vertices = points
+        .into_iter()
+        .map(|[x, y]| {
+            let [x, y, z] = apply(&inverse, apply(&bound, [x, y, 0.0]));
+            if ![x, y, z].iter().all(|value| value.is_finite()) || z != 0.0 {
+                return Err(40);
+            }
+            Ok([x, y])
+        })
+        .collect::<Result<Vec<_>, i16>>()?;
+    if rectangular {
+        let [a, b, c, d] = vertices.as_slice() else {
+            return Err(70);
+        };
+        if (a[1] == b[1] && b[0] == c[0] && c[1] == d[1] && d[0] == a[0])
+            || (a[0] == b[0] && b[1] == c[1] && c[0] == d[0] && d[1] == a[1])
+        {
+            vertices = vec![*a, *c];
+        }
+    }
+    Ok(Some(Clip { vertices, inverted }))
+}
+
+/// `SingleCatalog` が組み上げた図面の周辺情報（画層・線種・文字スタイル・寸法スタイル・ブロック定義・並べ替え順）
+pub struct CatalogShell {
+    /// 文書の長さの単位
+    pub unit: Unit,
+    /// 画層
+    pub layers: Vec<Layer>,
+    /// ASCII 小文字の画層名から引く表
+    pub by_layer_name: BTreeMap<String, LayerId>,
+    /// 線種
+    pub line_types: Vec<LineType>,
+    /// ASCII 小文字の線種名から引く表
+    pub by_line_type_name: BTreeMap<String, LineTypeId>,
+    /// 寸法スタイル
+    pub dimension_styles: Vec<zumen_drawing::DimensionStyle>,
+    /// 文字スタイル
+    pub text_styles: Vec<zumen_drawing::TextStyle>,
+    /// ブロックの定義
+    pub symbols: Vec<zumen_drawing::SymbolDefinition>,
+    /// モデル空間の `SORTENTSTABLE` の並べ替え表
+    pub model_sort: Option<(Ref, BTreeMap<u64, u64>)>,
+}
+
+/// 6 種類の図形（LINE・CIRCLE・ARC・LWPOLYLINE・TEXT・INSERT）以外で、一括変換が要素にしうる種類か
+pub fn is_other_lifted_entity(kind: &[u8]) -> bool {
+    matches!(
+        kind,
+        b"ELLIPSE"
+            | b"SPLINE"
+            | b"MTEXT"
+            | b"DIMENSION"
+            | b"ARC_DIMENSION"
+            | b"LEADER"
+            | b"MULTILEADER"
+            | b"HATCH"
+            | b"ACAD_TABLE"
+            | b"IMAGE"
+            | b"PDFUNDERLAY"
+            | b"DWFUNDERLAY"
+            | b"DGNUNDERLAY"
+            | b"POLYLINE"
+            | b"SOLID"
+            | b"TRACE"
+            | b"POINT"
+    )
+}
+
+/// `OBJECTS` セクションのうち、表・ブロック定義・図形の持ち上げが参照しうる種類か
+pub fn is_catalog_object(kind: &[u8]) -> bool {
+    matches!(
+        kind,
+        b"DICTIONARY"
+            | b"LAYOUT"
+            | b"SORTENTSTABLE"
+            | b"IMAGEDEF"
+            | b"PDFDEFINITION"
+            | b"DWFDEFINITION"
+            | b"DGNDEFINITION"
+            | b"MLEADERSTYLE"
+            | b"TABLESTYLE"
+            | b"SPATIAL_FILTER"
+    )
+}
+
+/// 常駐する文書エンジンが、画層・線種の表と属性定義を一括変換（`Lifter`）と同じ規則で組み立てるための器
+pub struct SingleCatalog {
+    charset: Charset,
+    version: Option<String>,
+    fit_data: bool,
+    table_content: bool,
+    unit: Unit,
+    mm: Option<f64>,
+    origin: [f64; 2],
+    out: Out,
+    layouts: BTreeMap<u64, usize>,
+    db: AcadDb,
+}
+
+impl SingleCatalog {
+    /// 文字の符号化・バージョン（`$ACADVER`）・挿入単位（`$INSUNITS`）・用紙原点（`$PLIMMIN`）から作る
+    pub fn new(
+        charset: Charset,
+        version: &[u8],
+        insunits: Option<i64>,
+        plimmin: Option<[f64; 2]>,
+    ) -> Self {
+        let unit = insunits.map_or(Unit::Unknown, unit_of);
+        Self {
+            charset,
+            version: (!version.is_empty()).then(|| String::from_utf8_lossy(version).into_owned()),
+            fit_data: version >= FIT_DATA,
+            table_content: version >= TABLE_CONTENT,
+            unit,
+            mm: unit.millimeters(),
+            origin: plimmin.unwrap_or([0.0, 0.0]),
+            out: Out::default(),
+            layouts: BTreeMap::new(),
+            db: AcadDb::default(),
+        }
+    }
+
+    /// 文書の長さの単位
+    pub fn unit(&self) -> Unit {
+        self.unit
+    }
+
+    /// ペーパー空間の図形を変換できる単位の係数（ミリメートルへの倍率）があるか
+    pub fn has_paper_mm(&self) -> bool {
+        self.mm.is_some()
+    }
+
+    /// 挿入単位の番号から `Unit` を求める（ブロックのレコードの 70 などに使う）
+    pub fn unit_from_code(code: i64) -> Unit {
+        unit_of(code)
+    }
+
+    /// `TABLES`（`0`）・`BLOCKS`（`1`）・`OBJECTS`（`2`）のレコードをまとめて登録し、レイアウトと表を読む
+    pub fn register_and_read_tables(
+        &mut self,
+        items: Vec<(u8, Vec<u8>, Vec<Value>, u32)>,
+        first_paper_owner: Option<u64>,
+    ) {
+        if !items.is_empty() {
+            let objects: Vec<Object> = items
+                .into_iter()
+                .map(|(sec, kind, values, record)| Object {
+                    kind,
+                    section: match sec {
+                        0 => Section::Tables,
+                        1 => Section::Blocks,
+                        _ => Section::Objects,
+                    },
+                    values,
+                    origin: Origin::Dxf {
+                        record: record as usize,
+                    },
+                })
+                .collect();
+            let len = self.db.objects().len();
+            self.db.insert_many(len, objects);
+        }
+        let mut budget = Budget::new(Limits::default());
+        let mut diag = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        if let Ok(layouts) = super::layout_index(&self.db, &mut cx) {
+            self.layouts = layouts;
+        }
+        if let Some(owner) = first_paper_owner {
+            let probe = Lifter {
+                layouts: &self.layouts,
+                sheet: SHEET,
+                charset: self.charset,
+                fit_data: self.fit_data,
+                table_content: self.table_content,
+                version: self.version.clone(),
+                unit: self.unit,
+                mm: self.mm,
+                origin: self.origin,
+            };
+            let current_mm = probe
+                .layout_of(&self.db, owner)
+                .and_then(|(_, layout)| super::layout::plot_mm(layout));
+            self.mm = current_mm.or(self.mm);
+        }
+        let lifter = Lifter {
+            layouts: &self.layouts,
+            sheet: SHEET,
+            charset: self.charset,
+            fit_data: self.fit_data,
+            table_content: self.table_content,
+            version: self.version.clone(),
+            unit: self.unit,
+            mm: self.mm,
+            origin: self.origin,
+        };
+        for kind in [
+            &b"LTYPE"[..],
+            &b"LAYER"[..],
+            &b"DIMSTYLE"[..],
+            &b"STYLE"[..],
+        ] {
+            for object in self.db.objects() {
+                if object.section != Section::Tables || object.kind != kind {
+                    continue;
+                }
+                let src = source(object);
+                let _ = match kind {
+                    b"LTYPE" => {
+                        lifter.line_type_record(&self.db, object, src, &mut self.out, &mut cx)
+                    }
+                    b"LAYER" => lifter.layer_record(object, src, &mut self.out),
+                    b"DIMSTYLE" => {
+                        lifter.dimension_style_record(&self.db, object, src, &mut self.out)
+                    }
+                    _ => lifter.text_style_record(object, src, &mut self.out),
+                };
+            }
+        }
+    }
+
+    /// 101（埋め込み MTEXT）を持つ `ATTRIB` レコードを読む。失敗したときは診断コードの文字列を返す
+    pub fn read_multiline_attrib(
+        &mut self,
+        values: Vec<Value>,
+        record: u32,
+    ) -> Result<Attribute<ModelPoint>, &'static str> {
+        let object = Object {
+            kind: b"ATTRIB".to_vec(),
+            section: Section::Entities,
+            values,
+            origin: Origin::Dxf {
+                record: record as usize,
+            },
+        };
+        let lifter = Lifter {
+            layouts: &self.layouts,
+            sheet: SHEET,
+            charset: self.charset,
+            fit_data: self.fit_data,
+            table_content: self.table_content,
+            version: self.version.clone(),
+            unit: self.unit,
+            mm: self.mm,
+            origin: self.origin,
+        };
+        lifter
+            .attribute(
+                &object,
+                &|x, y| ModelPoint { space: MODEL, x, y },
+                &|value| {
+                    Length::Model(ModelLength {
+                        space: MODEL,
+                        value,
+                    })
+                },
+                &mut self.out,
+            )
+            .map_err(|diag| diag.code().name())
+    }
+
+    /// `LayerId` から登録済みの画層名を引く
+    pub fn layer_name(&self, id: LayerId) -> &str {
+        self.out
+            .layers
+            .get(id.0 as usize)
+            .map_or("0", |l| l.name.as_str())
+    }
+
+    /// `LineTypeId` から登録済みの線種名を引く
+    pub fn line_type_name(&self, id: LineTypeId) -> Option<&str> {
+        self.out
+            .line_types
+            .get(id.0 as usize)
+            .map(|lt| lt.name.as_str())
+    }
+
+    /// ペーパー空間（67 = 1）の 6 種類の図形レコードか、6 種類以外の図形レコードが、表にない線種・画層を足しうる場合に読む
+    pub fn read_entity_for_catalog(
+        &mut self,
+        kind: &[u8],
+        values: Vec<Value>,
+        record: u32,
+        attached_records: Vec<(Vec<u8>, Vec<Value>, u32)>,
+    ) {
+        let object = Object {
+            kind: kind.to_vec(),
+            section: Section::Entities,
+            values,
+            origin: Origin::Dxf {
+                record: record as usize,
+            },
+        };
+        let attached_objs: Vec<Object> = attached_records
+            .into_iter()
+            .map(|(k, vals, rec)| Object {
+                kind: k,
+                section: Section::Entities,
+                values: vals,
+                origin: Origin::Dxf {
+                    record: rec as usize,
+                },
+            })
+            .collect();
+        let attached_refs: Vec<&Object> = attached_objs.iter().collect();
+        let src = source(&object);
+        let lifter = Lifter {
+            layouts: &self.layouts,
+            sheet: SHEET,
+            charset: self.charset,
+            fit_data: self.fit_data,
+            table_content: self.table_content,
+            version: self.version.clone(),
+            unit: self.unit,
+            mm: self.mm,
+            origin: self.origin,
+        };
+        let mut budget = Budget::new(Limits::default());
+        let mut diag = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        let _ = lifter.entity(
+            &self.db,
+            &object,
+            src,
+            &attached_refs,
+            &mut self.out,
+            &mut cx,
+        );
+        self.out.model.clear();
+        self.out.model_handles.clear();
+        self.out.paper.clear();
+        self.out.sheet.clear();
+        self.out.views.clear();
+        self.out.extensions.clear();
+    }
+
+    fn lookup_ascii_lower<V: Copy>(map: &BTreeMap<String, V>, name: &str) -> Option<V> {
+        if !name.bytes().any(|b| b.is_ascii_uppercase()) {
+            return map.get(name).copied();
+        }
+        let mut buf = [0u8; 128];
+        if let Some(dst) = buf.get_mut(..name.len()) {
+            dst.copy_from_slice(name.as_bytes());
+            dst.make_ascii_lowercase();
+            if let Ok(lower) = core::str::from_utf8(dst) {
+                return map.get(lower).copied();
+            }
+        }
+        map.get(&name.to_ascii_lowercase()).copied()
+    }
+
+    /// 画層名（UTF-8）がすでにあるか
+    pub fn has_layer(&self, name: &str) -> bool {
+        Self::lookup_ascii_lower(&self.out.by_name, name).is_some()
+    }
+
+    /// 線種名（UTF-8）がすでにあるか
+    pub fn has_line_type(&self, name: &str) -> bool {
+        Self::lookup_ascii_lower(&self.out.line_type_names, name).is_some()
+    }
+
+    /// 画層名（UTF-8）から `LayerId` を引き、なければ定義のない画層として足す
+    pub fn intern_layer(&mut self, name: &str) -> LayerId {
+        if let Some(id) = Self::lookup_ascii_lower(&self.out.by_name, name) {
+            return id;
+        }
+        let lower = name.to_ascii_lowercase();
+        let id = LayerId(self.out.layers.len() as u32);
+        self.out.by_name.insert(lower, id);
+        self.out.layers.push(Layer {
+            id,
+            follows_placement: name == "0",
+            name: name.to_owned(),
+            state: None,
+            style: None,
+            description: None,
+            source: Ref::default(),
+        });
+        id
+    }
+
+    /// 線種名（UTF-8）から `LineTypeId` を引き、なければ定義のない線種として足す
+    pub fn intern_line_type(&mut self, name: &str) -> LineTypeId {
+        if let Some(id) = Self::lookup_ascii_lower(&self.out.line_type_names, name) {
+            return id;
+        }
+        let lower = name.to_ascii_lowercase();
+        let id = LineTypeId(self.out.line_types.len() as u32);
+        self.out.line_type_names.insert(lower, id);
+        self.out.line_types.push(LineType {
+            id,
+            name: name.to_owned(),
+            definition: None,
+            source: Ref::default(),
+        });
+        id
+    }
+
+    /// `BLOCKS` のブロック定義と並べ替え表を読み、組み上がった表を取り出す
+    pub fn finish(mut self) -> CatalogShell {
+        let mut budget = Budget::new(Limits::default());
+        let mut diag = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        let lifter = Lifter {
+            layouts: &self.layouts,
+            sheet: SHEET,
+            charset: self.charset,
+            fit_data: self.fit_data,
+            table_content: self.table_content,
+            version: self.version.clone(),
+            unit: self.unit,
+            mm: self.mm,
+            origin: self.origin,
+        };
+        let ([model_sort, _], block_keys) = lifter.sort_keys(&self.db, &mut cx).unwrap_or_default();
+        let symbols = lifter
+            .definitions(&self.db, &block_keys, &mut self.out, &mut cx)
+            .unwrap_or_default();
+        let mut tmp = Drawing2D {
+            layers: self.out.layers,
+            line_types: self.out.line_types,
+            dimension_styles: self.out.dimension_styles,
+            text_styles: self.out.text_styles,
+            symbols,
+            ..Drawing2D::default()
+        };
+        let _ = tmp.add_named_text_styles(&mut cx);
+        CatalogShell {
+            unit: self.unit,
+            layers: tmp.layers,
+            by_layer_name: self.out.by_name,
+            line_types: tmp.line_types,
+            by_line_type_name: self.out.line_type_names,
+            dimension_styles: tmp.dimension_styles,
+            text_styles: tmp.text_styles,
+            symbols: tmp.symbols,
+            model_sort,
+        }
+    }
 }

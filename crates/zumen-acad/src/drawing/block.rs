@@ -1,9 +1,10 @@
 //! BLOCKS の BLOCK を記号の定義にし（決定 0112）、INSERT を記号の配置に、ATTRIB と ATTDEF を属性にする。
 //! INSERT の切り抜き（XCLIP）は、拡張辞書の SPATIAL_FILTER から読む（決定 0149）。
 
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 
-use super::extension::{entry, extension_work, xdictionary};
+use super::extension::extension_work;
 use super::{
     BLOCK, Lifted, Lifter, Out, SortKeys, amount, arrange, attached, insertion_units, invalid,
     lift_err, single, source, text, unit_of, work,
@@ -16,158 +17,19 @@ use zumen_drawing::{
 };
 use zumen_sdk::Error;
 
-/// 反転した切り抜き（AutoCAD 2015 から、決定 0208）の元の境界。AutoCAD は、SPATIAL_FILTER の境界に、外枠から元の
-/// 境界を切り欠いた多角形を書く。元の境界の点を、SPATIAL_FILTER の拡張辞書の `ACAD_XREC_ROUNDTRIP` の XRECORD の
-/// `ACAD_INVERTEDCLIP_ROUNDTRIP`（102）の後に、そのときの多角形の写しを `ACAD_INVERTEDCLIP_ROUNDTRIP_COMPARE` の後に
-/// 置く（点は 10・20・30）。写しが今の境界と合うときだけ、元の境界を返す。合わなければ、反転を知らないソフトが境界を
-/// 変えたものとして、境界をそのまま使う
-fn inverted_boundary(db: &AcadDb, filter: &Object, boundary: &[[f64; 2]]) -> Option<Vec<[f64; 2]>> {
-    let record = xdictionary(filter)
-        .and_then(|handle| entry(db, handle, b"ACAD_XREC_ROUNDTRIP"))
-        .and_then(|handle| db.get(handle))
-        .filter(|record| record.kind == b"XRECORD")?;
-    let mut sections: BTreeMap<&[u8], Vec<[f64; 3]>> = BTreeMap::new();
-    let mut current = None;
-    for value in &record.values {
-        match (value.code, &value.data) {
-            (102, Data::Text(name)) => current = Some(name.as_slice()),
-            (10, Data::Real(x)) => sections.entry(current?).or_default().push([*x, 0.0, 0.0]),
-            (code @ (20 | 30), Data::Real(v)) => {
-                let [_, y, z] = sections.get_mut(current?)?.last_mut()?;
-                *if code == 20 { y } else { z } = *v;
-            }
-            _ => {}
-        }
-    }
-    let flat = |name: &[u8]| -> Option<Vec<[f64; 2]>> {
-        sections
-            .get(name)?
-            .iter()
-            .map(|&[x, y, z]| (z == 0.0 && x.is_finite() && y.is_finite()).then_some([x, y]))
-            .collect()
-    };
-    let original = flat(b"ACAD_INVERTEDCLIP_ROUNDTRIP")?;
-    (original.len() >= 2 && flat(b"ACAD_INVERTEDCLIP_ROUNDTRIP_COMPARE")? == boundary)
-        .then_some(original)
-}
-
 impl Lifter<'_> {
-    /// INSERT の切り抜き（XCLIP、決定 0149）。拡張辞書の `ACAD_FILTER` の辞書の `SPATIAL` が指す SPATIAL_FILTER の、
-    /// 境界の点（10・20）を、境界の変換と挿入の逆の変換（40 の 12 ずつ。3 行 4 列を行の順）で、記号の定義の空間に
-    /// 写す（推定。サンプルの図面で、挿入の逆の変換が挿入点と尺度の逆になることを確かめた）。境界の向き（210〜230）が
-    /// Z でないもの、境界の原点（11〜31）が 0 でないもの、点が 2 つより少ないものは読めないとする。前と後ろで切るか
-    /// （72・73）は平面の形を変えず、境界を表示するか（71）は移さない。反転した切り抜きは、元の境界を内側を隠す
-    /// 切り抜きにする（`inverted_boundary`、決定 0208）
+    /// INSERT の切り抜き（XCLIP、決定 0149・決定 0208）
     pub(super) fn symbol_clip(&self, db: &AcadDb, object: &Object) -> Lifted<Option<Clip>> {
-        let Some(filter) = xdictionary(object)
-            .and_then(|handle| entry(db, handle, b"ACAD_FILTER"))
-            .and_then(|handle| entry(db, handle, b"SPATIAL"))
-            .and_then(|handle| db.get(handle))
-            .filter(|filter| filter.kind == b"SPATIAL_FILTER")
-        else {
-            return Ok(None);
-        };
-        let dropped = |code: i16| {
+        single::symbol_clip(&object.values, |handle| {
+            let obj = db.get(handle)?;
+            Some((
+                Cow::Borrowed(obj.kind.as_slice()),
+                Cow::Borrowed(obj.values.as_slice()),
+            ))
+        })
+        .map_err(|code| {
             Box::new(Diagnostic::new(codes::DXF_CLIP_DROPPED).with("code", i64::from(code)))
-        };
-        let start = filter
-            .values
-            .iter()
-            .position(|value| value.code == 70)
-            .ok_or_else(|| dropped(70))?;
-        let mut values = filter
-            .values
-            .get(start..)
-            .unwrap_or_default()
-            .iter()
-            .peekable();
-        let mut take = |code: i16| -> Lifted<&Data> {
-            values
-                .next_if(|value| value.code == code)
-                .map(|value| &value.data)
-                .ok_or_else(|| dropped(code))
-        };
-        let int = |data: &Data, code: i16| match data {
-            Data::Int(value) => Ok(*value),
-            _ => Err(dropped(code)),
-        };
-        let real = |data: &Data, code: i16| match data {
-            Data::Real(value) if value.is_finite() => Ok(*value),
-            _ => Err(dropped(code)),
-        };
-        let count = int(take(70)?, 70)?;
-        if count < 2 {
-            return Err(dropped(70));
-        }
-        let mut points = Vec::new();
-        for _ in 0..count {
-            points.push([real(take(10)?, 10)?, real(take(20)?, 20)?]);
-        }
-        let inverted = match inverted_boundary(db, filter, &points) {
-            Some(boundary) => {
-                points = boundary;
-                true
-            }
-            None => false,
-        };
-        let normal = [
-            real(take(210)?, 210)?,
-            real(take(220)?, 220)?,
-            real(take(230)?, 230)?,
-        ];
-        if !matches!(normal, [x, y, z] if x.abs() < 1e-9 && y.abs() < 1e-9 && z > 0.0) {
-            return Err(dropped(210));
-        }
-        for code in [11, 21, 31] {
-            if real(take(code)?, code)? != 0.0 {
-                return Err(dropped(code));
-            }
-        }
-        int(take(71)?, 71)?;
-        for (flag, distance) in [(72, 40), (73, 41)] {
-            if int(take(flag)?, flag)? != 0 {
-                real(take(distance)?, distance)?;
-            }
-        }
-        let mut matrix = || -> Lifted<[[f64; 4]; 3]> {
-            let mut rows = [[0.0; 4]; 3];
-            for slot in rows.iter_mut().flatten() {
-                *slot = real(take(40)?, 40)?;
-            }
-            Ok(rows)
-        };
-        let inverse = matrix()?;
-        let bound = matrix()?;
-        let apply = |m: &[[f64; 4]; 3], [x, y, z]: [f64; 3]| {
-            m.map(|[a, b, c, d]| a * x + b * y + c * z + d)
-        };
-        // 2 点の長方形も、回転やせん断の後は軸に平行とは限らないので、四隅を写す。
-        let rectangular = points.len() == 2;
-        if let [[x0, y0], [x1, y1]] = points.as_slice() {
-            points = vec![[*x0, *y0], [*x1, *y0], [*x1, *y1], [*x0, *y1]];
-        }
-        let mut vertices = points
-            .into_iter()
-            .map(|[x, y]| {
-                let [x, y, z] = apply(&inverse, apply(&bound, [x, y, 0.0]));
-                if ![x, y, z].iter().all(|value| value.is_finite()) || z != 0.0 {
-                    return Err(dropped(40));
-                }
-                Ok([x, y])
-            })
-            .collect::<Lifted<Vec<_>>>()?;
-        // 軸に平行な長方形なら、元と同じく向かい合う 2 点で持つ。
-        if rectangular {
-            let [a, b, c, d] = vertices.as_slice() else {
-                return Err(dropped(70));
-            };
-            if (a[1] == b[1] && b[0] == c[0] && c[1] == d[1] && d[0] == a[0])
-                || (a[0] == b[0] && b[1] == c[1] && c[0] == d[0] && d[1] == a[1])
-            {
-                vertices = vec![*a, *c];
-            }
-        }
-        Ok(Some(Clip { vertices, inverted }))
+        })
     }
 
     /// BLOCKS のセクションの BLOCK を、記号の定義にする（決定 0112）。中身は、所有者（330）をたどって着くブロックの
@@ -395,7 +257,7 @@ impl Lifter<'_> {
 
     /// ATTDEF（DXF Reference「ATTDEF」）。ATTRIB と同じフィールドに、値を尋ねる文（3）を持つ。フラグ（70）の 1 は表示しない、
     /// 2 は値が決まっている、4 は確かめる、8 は尋ねない
-    fn attribute_definition(
+    pub(super) fn attribute_definition(
         &self,
         object: &Object,
         point: &impl Fn(f64, f64) -> ModelPoint,

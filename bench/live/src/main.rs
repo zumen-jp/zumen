@@ -182,9 +182,9 @@ fn run(args: &[String]) -> Result<bool, String> {
             let threads = args.number("threads")?.unwrap_or(all).max(1);
             let budget = args.values.get("budget").map(String::as_str);
             for path in &args.positional {
-                let bytes =
-                    std::fs::read(path).map_err(|error| format!("{path} を読めない: {error}"))?;
                 if args.flag("current") {
+                    let bytes = std::fs::read(path)
+                        .map_err(|error| format!("{path} を読めない: {error}"))?;
                     let failed =
                         |failure: today::Failure| format!("今の実装が失敗: {}", failure.describe());
                     let mut today = today::Today::start(&bytes, budget).map_err(failed)?;
@@ -195,12 +195,12 @@ fn run(args: &[String]) -> Result<bool, String> {
                     println!("{path}: 今の実装で開いて、表示のデータ {scene} バイトを作った");
                     std::thread::sleep(hold);
                 } else {
-                    let document = Document::open(bytes, threads)
-                        .map_err(|error| format!("開けない: {error:?}"))?;
+                    let document = Document::open_path(std::path::Path::new(path), threads)?;
                     println!(
-                        "{path}: 文書エンジンで開いた。要素 {}、列・表示・索引 {} バイト、元のファイル {} バイト",
+                        "{path}: 文書エンジンで開いた。要素 {}、列・表示・索引 {} バイト、元のファイル保持 {} バイト（元 {} バイト）",
                         document.counts.elements,
                         document.resident_bytes(),
+                        document.source_stored_bytes(),
                         document.source_len()
                     );
                     std::thread::sleep(hold);

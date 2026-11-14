@@ -246,6 +246,7 @@ dependencies = [
  "libm",
  "zumen",
  "zumen-acad",
+ "zumen-base",
  "zumen-drawing",
 ]
 
