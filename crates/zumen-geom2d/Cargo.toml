@@ -1,6 +1,6 @@
 [package]
 name = "zumen-geom2d"
-description = "zumen の 2D の幾何（L3）。曲線を許容差つきで折れ線にし、線種を線と間に展開する（決定 0018・0172）"
+description = "zumen の 2D の幾何（L3）。曲線の折れ線化、線種の展開と、整数格子での交点・位相計算"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
