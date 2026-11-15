@@ -4,9 +4,12 @@ import argparse
 import hashlib
 from pathlib import Path
 import subprocess
+import sys
 
 
 def main():
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("executable", type=Path)
     parser.add_argument("--wasm", action="store_true")
