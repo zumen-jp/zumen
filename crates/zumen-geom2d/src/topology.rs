@@ -12,6 +12,7 @@
 use crate::Xy;
 
 mod arcs;
+mod construct;
 mod curves;
 mod edit;
 mod wide;
@@ -19,6 +20,10 @@ mod wide;
 pub use arcs::{
     Arc, ArcIntersection, Direction, Ray, arc_intersection, circle_arc_intersection,
     segment_arc_intersection,
+};
+pub use construct::{
+    ArcGeometry, Chamfer, CircleGeometry, ConstructionPoint, Corner, Fillet, LineGeometry, chamfer,
+    fillet, offset_arc, offset_circle, offset_segment,
 };
 pub use curves::{Circle, CurveIntersection, circle_intersection, segment_circle_intersection};
 pub use edit::{
@@ -50,6 +55,8 @@ pub enum Error {
     Ambiguous,
     /// 格子が粗く、切断位置の範囲や順序を保てない。
     Precision,
+    /// 指定した距離・半径では作図できない。
+    NoSolution,
 }
 
 /// 計算する前に利用側の予算へ数える量。`Work(0)` でも中断を確認する。
