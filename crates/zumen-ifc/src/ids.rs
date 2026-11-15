@@ -8,7 +8,7 @@ use zumen_ids::{AttributeValue, Lookup, Missing};
 use zumen_sdk::{Cx, Stop};
 
 use crate::building::{MEASURES, decode};
-use crate::express::{Base, Layouts, Slot};
+use crate::express::{Base, Layouts};
 use crate::{Express, IfcFile, Value};
 
 /// IFC から作った建物モデルを IDS で照合するときの、[`Lookup`]。
@@ -33,105 +33,154 @@ impl<'a> IdsLookup<'a> {
             layouts: schema.map(|schema| RefCell::new(Layouts::new(schema))),
         }
     }
+}
 
-    fn value(
-        &self,
-        building: &Building,
-        schema: &Express,
-        slot: &Slot,
-        value: &Value,
-        cx: &mut Cx,
-    ) -> Result<AttributeValue, Stop> {
-        self.typed(
+pub(crate) fn attributes_from_record_slice(
+    layouts: &RefCell<Layouts<'_>>,
+    building: &Building,
+    record: &crate::Record,
+    base: usize,
+    slice: &[u8],
+    cx: &mut Cx,
+) -> Result<Option<Vec<(String, AttributeValue)>>, Stop> {
+    // 複合のインスタンスは、属性の名前が部分ごとに分かれる。まだ引かない
+    let [part] = record.parts() else {
+        return Ok(None);
+    };
+    let kind = String::from_utf8_lossy(slice_at(base, slice, part.name())).to_ascii_uppercase();
+    // 並びは実体ごとに 1 度だけ作り、作る手順をチェックと同じく work で数える
+    let (schema, slots) = {
+        let Ok(mut layouts) = layouts.try_borrow_mut() else {
+            return Ok(None);
+        };
+        let schema = layouts.schema();
+        let Some(entity) = schema.entity_named(&kind) else {
+            return Ok(None);
+        };
+        let mut tick = |n: u64| cx.check(Kind::Work, n);
+        if layouts.count(entity, &mut tick)? != part.args().len() {
+            return Ok(None);
+        }
+        (schema, layouts.slots(entity, &mut tick)?)
+    };
+    // 照合は、要素と属性の facet ごとに呼ぶ。呼ぶたびに、値を読む手間をインスタンスのバイトの数で、名前を写す手間を
+    // 属性の名前の長さで数える（#672）
+    cx.check(Kind::Work, record.span().len() as u64)?;
+    let mut list = Vec::new();
+    for (slot, value) in slots
+        .iter()
+        .zip(part.args())
+        .filter(|(slot, _)| !slot.is_derived())
+    {
+        let name = slot.written();
+        cx.check(Kind::Work, name.len() as u64)?;
+        let value = typed_from_slice(
             building,
             schema.type_name(slot),
             schema.base(slot),
             value,
+            base,
+            slice,
             cx,
-        )
+        )?;
+        list.push((name.to_owned(), value));
     }
+    Ok(Some(list))
+}
 
-    /// 値を変換する。値を読む手間は、呼ぶ側がインスタンスのバイトの数で数えてある。量の値の単位を引く手間は、ここで
-    /// 数える
-    fn typed(
-        &self,
-        building: &Building,
-        type_name: Option<&str>,
-        base: Base,
-        value: &Value,
-        cx: &mut Cx,
-    ) -> Result<AttributeValue, Stop> {
-        let bytes = |range: &core::ops::Range<usize>| self.file.bytes(range.clone());
-        Ok(match value {
-            Value::Null | Value::Derived => AttributeValue::Null,
-            Value::Ref(_) => AttributeValue::Reference,
-            Value::Enum(range) => {
-                let name = String::from_utf8_lossy(bytes(range)).to_ascii_uppercase();
-                let boolean = base == Base::Boolean || type_name == Some("IFCBOOLEAN");
-                let logical = base == Base::Logical || type_name == Some("IFCLOGICAL");
-                AttributeValue::Literal(match name.as_str() {
-                    "T" if boolean => Literal::Boolean(true),
-                    "F" if boolean => Literal::Boolean(false),
-                    "T" if logical => Literal::Logical(Some(true)),
-                    "F" if logical => Literal::Logical(Some(false)),
-                    "U" if logical => Literal::Logical(None),
-                    _ => Literal::Enumeration(name),
-                })
+fn slice_at(base: usize, slice: &[u8], range: core::ops::Range<usize>) -> &[u8] {
+    let Some(start) = range.start.checked_sub(base) else {
+        return &[];
+    };
+    let Some(end) = range.end.checked_sub(base) else {
+        return &[];
+    };
+    slice.get(start..end).unwrap_or_default()
+}
+
+/// 値を変換する。値を読む手間は、呼ぶ側がインスタンスのバイトの数で数えてある。量の値の単位を引く手間は、ここで
+/// 数える
+fn typed_from_slice(
+    building: &Building,
+    type_name: Option<&str>,
+    base_kind: Base,
+    value: &Value,
+    base: usize,
+    slice: &[u8],
+    cx: &mut Cx,
+) -> Result<AttributeValue, Stop> {
+    let bytes = |range: &core::ops::Range<usize>| slice_at(base, slice, range.clone());
+    Ok(match value {
+        Value::Null | Value::Derived => AttributeValue::Null,
+        Value::Ref(_) => AttributeValue::Reference,
+        Value::Enum(range) => {
+            let name = String::from_utf8_lossy(bytes(range)).to_ascii_uppercase();
+            let boolean = base_kind == Base::Boolean || type_name == Some("IFCBOOLEAN");
+            let logical = base_kind == Base::Logical || type_name == Some("IFCLOGICAL");
+            AttributeValue::Literal(match name.as_str() {
+                "T" if boolean => Literal::Boolean(true),
+                "F" if boolean => Literal::Boolean(false),
+                "T" if logical => Literal::Logical(Some(true)),
+                "F" if logical => Literal::Logical(Some(false)),
+                "U" if logical => Literal::Logical(None),
+                _ => Literal::Enumeration(name),
+            })
+        }
+        Value::Text { raw, .. } => AttributeValue::Literal(Literal::Text(decode(bytes(raw)).0)),
+        Value::Number(range) => {
+            let Ok(text) = core::str::from_utf8(bytes(range)) else {
+                return Ok(AttributeValue::Reference);
+            };
+            let integer = match base_kind {
+                Base::Integer => true,
+                Base::Real => false,
+                _ => !text.contains(['.', 'E', 'e']),
+            };
+            if integer && let Ok(i) = text.parse::<i64>() {
+                return Ok(AttributeValue::Literal(Literal::Integer(i)));
             }
-            Value::Text { raw, .. } => AttributeValue::Literal(Literal::Text(decode(bytes(raw)).0)),
-            Value::Number(range) => {
-                let Ok(text) = core::str::from_utf8(bytes(range)) else {
-                    return Ok(AttributeValue::Reference);
-                };
-                let integer = match base {
-                    Base::Integer => true,
-                    Base::Real => false,
-                    _ => !text.contains(['.', 'E', 'e']),
-                };
-                if integer && let Ok(i) = text.parse::<i64>() {
-                    return Ok(AttributeValue::Literal(Literal::Integer(i)));
-                }
-                let Ok(x) = text.parse::<f64>() else {
-                    return Ok(AttributeValue::Reference);
-                };
-                let unit_kind = type_name.and_then(|name| {
-                    MEASURES
-                        .iter()
-                        .find(|(measure, _)| measure.eq_ignore_ascii_case(name))
-                        .and_then(|(_, unit)| *unit)
-                });
-                match unit_kind {
-                    Some(kind) => AttributeValue::Measured(Measured {
-                        value: x,
-                        unit: unit(building, kind, cx)?,
-                    }),
-                    None => AttributeValue::Literal(Literal::Real(x)),
-                }
+            let Ok(x) = text.parse::<f64>() else {
+                return Ok(AttributeValue::Reference);
+            };
+            let unit_kind = type_name.and_then(|name| {
+                MEASURES
+                    .iter()
+                    .find(|(measure, _)| measure.eq_ignore_ascii_case(name))
+                    .and_then(|(_, unit)| *unit)
+            });
+            match unit_kind {
+                Some(kind) => AttributeValue::Measured(Measured {
+                    value: x,
+                    unit: unit(building, kind, cx)?,
+                }),
+                None => AttributeValue::Literal(Literal::Real(x)),
             }
-            Value::Typed(part) => {
-                let name =
-                    String::from_utf8_lossy(self.file.bytes(part.name())).to_ascii_uppercase();
-                match part.args() {
-                    [inner] => self.typed(building, Some(&name), Base::Other, inner, cx)?,
-                    _ => AttributeValue::Reference,
+        }
+        Value::Typed(part) => {
+            let name =
+                String::from_utf8_lossy(slice_at(base, slice, part.name())).to_ascii_uppercase();
+            match part.args() {
+                [inner] => {
+                    typed_from_slice(building, Some(&name), Base::Other, inner, base, slice, cx)?
                 }
+                _ => AttributeValue::Reference,
             }
-            Value::List(items) => {
-                let mut literals = Vec::with_capacity(items.len());
-                for item in items {
-                    match self.typed(building, type_name, base, item, cx)? {
-                        AttributeValue::Literal(literal) => literals.push(literal),
-                        AttributeValue::Measured(measured) => {
-                            literals.push(Literal::Real(measured.value))
-                        }
-                        _ => return Ok(AttributeValue::Reference),
+        }
+        Value::List(items) => {
+            let mut literals = Vec::with_capacity(items.len());
+            for item in items {
+                match typed_from_slice(building, type_name, base_kind, item, base, slice, cx)? {
+                    AttributeValue::Literal(literal) => literals.push(literal),
+                    AttributeValue::Measured(measured) => {
+                        literals.push(Literal::Real(measured.value))
                     }
+                    _ => return Ok(AttributeValue::Reference),
                 }
-                AttributeValue::Literal(Literal::List(literals))
             }
-            _ => AttributeValue::Reference,
-        })
-    }
+            AttributeValue::Literal(Literal::List(literals))
+        }
+        _ => AttributeValue::Reference,
+    })
 }
 
 /// 文書の単位の割り当てから、種類 `kind` の単位。前から探した単位の数と、写す単位の文字の数を work で数える（#672）
@@ -168,41 +217,7 @@ impl Lookup for IdsLookup<'_> {
         else {
             return Ok(None);
         };
-        // 複合のインスタンスは、属性の名前が部分ごとに分かれる。まだ引かない
-        let [part] = record.parts() else {
-            return Ok(None);
-        };
-        let kind = String::from_utf8_lossy(self.file.bytes(part.name())).to_ascii_uppercase();
-        // 並びは実体ごとに 1 度だけ作り、作る手順をチェックと同じく work で数える
-        let (schema, slots) = {
-            let Ok(mut layouts) = layouts.try_borrow_mut() else {
-                return Ok(None);
-            };
-            let schema = layouts.schema();
-            let Some(entity) = schema.entity_named(&kind) else {
-                return Ok(None);
-            };
-            let mut tick = |n: u64| cx.check(Kind::Work, n);
-            if layouts.count(entity, &mut tick)? != part.args().len() {
-                return Ok(None);
-            }
-            (schema, layouts.slots(entity, &mut tick)?)
-        };
-        // 照合は、要素と属性の facet ごとに呼ぶ。呼ぶたびに、値を読む手間をインスタンスのバイトの数で、名前を写す手間を
-        // 属性の名前の長さで数える（#672）
-        cx.check(Kind::Work, record.span().len() as u64)?;
-        let mut list = Vec::new();
-        for (slot, value) in slots
-            .iter()
-            .zip(part.args())
-            .filter(|(slot, _)| !slot.is_derived())
-        {
-            let name = slot.written();
-            cx.check(Kind::Work, name.len() as u64)?;
-            let value = self.value(building, schema, slot, value, cx)?;
-            list.push((name.to_owned(), value));
-        }
-        Ok(Some(list))
+        attributes_from_record_slice(layouts, building, record, 0, self.file.source(), cx)
     }
 }
 

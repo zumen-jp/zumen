@@ -33,7 +33,7 @@ pub use style::{ItemStyleSource, ItemSurfaceStyles, SurfaceStyleBinding, Surface
 
 /// 建物モデルを作るバージョン
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Version {
+pub(crate) enum Version {
     Ifc2x3,
     Ifc4,
     Ifc4x3,
@@ -41,7 +41,7 @@ enum Version {
 
 impl Version {
     /// `FILE_SCHEMA` の名前から。IFC4X1・IFC4X2 は正式のバージョンでないので読まない
-    fn of(schema: &[u8]) -> Option<Self> {
+    pub(crate) fn of(schema: &[u8]) -> Option<Self> {
         if schema
             .get(..6)
             .is_some_and(|s| s.eq_ignore_ascii_case(b"IFC2X3"))
@@ -323,7 +323,7 @@ const PREFIXES: &[(&str, f64)] = &[
 ];
 
 /// 数量の実体と、数量の種類と、単位の種類。属性は 1 Name・3 Unit・4 値・5 Formula（IFC4 から）
-const QUANTITIES: &[(&str, QuantityKind, Option<&str>)] = &[
+pub(crate) const QUANTITIES: &[(&str, QuantityKind, Option<&str>)] = &[
     (
         "IFCQUANTITYLENGTH",
         QuantityKind::Length,
@@ -347,17 +347,24 @@ const SPACE_BOUNDARIES: &[(&str, &str)] = &[
     ("IFCRELSPACEBOUNDARY2NDLEVEL", "IfcRelSpaceBoundary2ndLevel"),
 ];
 
+pub(crate) type LiftedWithUnits = (Building, Version, BTreeMap<u64, Option<Unit>>);
+
+pub(crate) fn lift_with_units(file: &IfcFile, cx: &mut Cx) -> Result<LiftedWithUnits, Error> {
+    let Some(version) = Version::of(file.schema()) else {
+        cx.report(Diagnostic::new(codes::IFC_VERSION_UNSUPPORTED).with(
+            "schema",
+            String::from_utf8_lossy(file.schema()).into_owned(),
+        ));
+        return Err(Error::Unsupported);
+    };
+    let (building, units) = Lifter::new(file, version).run(cx)?;
+    Ok((building, version, units))
+}
+
 impl Lift<Building> for IfcFile {
     /// IFC2X3・IFC4・IFC4X3 から作る。ほかのバージョンは、診断して作らない（決定 0215）
     fn lift(&self, cx: &mut Cx) -> Result<Building, Error> {
-        let Some(version) = Version::of(self.schema()) else {
-            cx.report(Diagnostic::new(codes::IFC_VERSION_UNSUPPORTED).with(
-                "schema",
-                String::from_utf8_lossy(self.schema()).into_owned(),
-            ));
-            return Err(Error::Unsupported);
-        };
-        Lifter::new(self, version).run(cx)
+        lift_with_units(self, cx).map(|(building, _, _)| building)
     }
 }
 
@@ -598,7 +605,7 @@ impl<'f> Lifter<'f> {
         }
     }
 
-    fn run(mut self, cx: &mut Cx) -> Result<Building, Error> {
+    fn run(mut self, cx: &mut Cx) -> Result<(Building, BTreeMap<u64, Option<Unit>>), Error> {
         self.building.document.header = self.header(cx);
         let project = self.find(b"IFCPROJECT");
         if let Some(project) = project {
@@ -661,7 +668,7 @@ impl<'f> Lifter<'f> {
                     .at(at_bytes(record.span())),
             );
         }
-        Ok(self.building)
+        Ok((self.building, self.units))
     }
 
     /// 初めの、その種類のインスタンス

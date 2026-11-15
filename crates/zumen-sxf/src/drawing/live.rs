@@ -1,0 +1,2733 @@
+//! SXF（SFC・P21）の常駐文書エンジン [`SxfLive`]。
+//!
+//! 開いた SXF バイト列を [`SourceBytes`] として共有保持し、要素を [`VersionedTable`]・[`HandleIndex`]・
+//! [`SpatialGrid`]・[`Display`] に索引付けしたまま `O(変更数)` で差分適用・`undo`・`redo` を行う。
+//! 全体を書く [`SxfLive::save`] は、`SxfFile::apply` を 1 手ずつ当てて `Sxf::write` した結果と
+//! バイト列単位で一致する。
+
+mod display;
+mod p21;
+mod sfc;
+
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
+
+use zumen_base::{Cx, Diagnostic, Key, Kind, Ref, codes};
+use zumen_drawing::{
+    Affine, Applied, Axes, Changes, Draft, Drawing2D, Edit, Element, Hash, Inherit, ModelPoint,
+    ModelSpace, PaperLength, PaperPoint, Placed, Position, Restyle, Seen, Shape, Sheet, SheetId,
+    SheetItem, SpaceId, Style, SymbolDefinition, SymbolKey, TitleBlock, Unit, View, id, transform,
+};
+use zumen_live::display::Display;
+use zumen_live::{
+    EMPTY_BOUNDS, ExistingRowDiff, History, PatchPayload, Revision, RowId, SideIndexes,
+    SourceBytes, SpatialGrid, TableRow, TxnError, VersionedTable, run_transaction,
+};
+use zumen_sdk::{Codec, Error, quietly};
+
+use self::display::{
+    DisplayContext, apply_display_commit, compute_sheet_bounds, display_counts_and_style,
+    raw_shape_bounds, revert_display_commit, write_display_row,
+};
+use self::p21::{P21Patch, P21State, P21StepTx};
+use self::sfc::{SfcPatch, SfcSlot, SfcState, SfcStepTx};
+use super::apply::{
+    Arguments, MARKER, OnSheet, REMOVABLE, SHAPED, STYLED, Tables, arguments,
+    count_element_compare, count_element_copy, count_shape, grouped, kind_of, placed_near,
+    placed_same, unset_field, unsupported,
+};
+use super::{
+    LifterTables, LiveRasterGroup, SHEET, USER_LINE_TYPE, bind, ensure_element_tables,
+    lift_for_live, lift_single_model, lift_single_paper, sfc_records, work,
+};
+use crate::p21::records_and_codes as p21_records_and_codes;
+use crate::saf::AttributeFile;
+use crate::{Mode, Sxf, SxfFile};
+
+/// 要素が入っている器
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) enum SxfContainer {
+    Space(SpaceId),
+    Symbol(usize),
+    Sheet(SheetId),
+}
+
+/// [`VersionedTable`] の 1 行に持つ SXF 要素
+#[derive(Clone, Debug)]
+pub(super) struct SxfRow {
+    pub(super) instance: Option<u64>,
+    pub(super) unique_handle: Option<u64>,
+    pub(super) record_idx: usize,
+    pub(super) local_space_idx: u32,
+    sfc_slot: Option<SfcSlot>,
+    pub(super) p21_kind: Box<str>,
+    pub(super) p21_name: Box<str>,
+    pub(super) grouped: bool,
+    pub(super) container: SxfContainer,
+    pub(super) canonical_id: Box<str>,
+    pub(super) placed: Placed,
+    pub(super) drafts: Box<[Draft]>,
+}
+
+impl TableRow for SxfRow {
+    #[inline]
+    fn row_handle(&self) -> Option<u64> {
+        self.unique_handle
+    }
+
+    fn extra_heap_bytes(&self) -> usize {
+        self.p21_kind.len()
+            + self.p21_name.len()
+            + self.canonical_id.len()
+            + self.drafts.len() * core::mem::size_of::<Draft>()
+    }
+}
+
+#[derive(Clone)]
+enum SxfBacking {
+    Sfc(SfcState),
+    P21(Box<P21State>),
+}
+
+impl SxfBacking {
+    fn mode(&self) -> Mode {
+        match self {
+            Self::Sfc(_) => Mode::Sfc,
+            Self::P21(_) => Mode::P21,
+        }
+    }
+
+    fn format_name(&self) -> &'static str {
+        match self {
+            Self::Sfc(_) => "SFC",
+            Self::P21(_) => "P21",
+        }
+    }
+
+    fn resident_bytes(&self) -> usize {
+        match self {
+            Self::Sfc(s) => s.resident_bytes(),
+            Self::P21(p) => p.resident_bytes(),
+        }
+    }
+
+    fn save(&self, cx: &mut Cx) -> Result<Vec<u8>, Error> {
+        match self {
+            Self::Sfc(s) => s.save(cx),
+            Self::P21(p) => p.save(cx),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+enum BackingPatch {
+    Sfc(SfcPatch),
+    P21(P21Patch),
+}
+
+type RasterOutlineDiff = (usize, Option<usize>, Option<usize>);
+
+#[derive(Clone, Debug)]
+struct SxfUnifiedPatch {
+    backing: BackingPatch,
+    raster_outline_diffs: Vec<RasterOutlineDiff>,
+}
+
+#[derive(Clone, Debug)]
+struct SharedPatch(Arc<SxfUnifiedPatch>);
+
+impl PatchPayload for SharedPatch {
+    fn heap_bytes(&self) -> usize {
+        let base = match &self.0.backing {
+            BackingPatch::Sfc(s) => s.heap_bytes(),
+            BackingPatch::P21(p) => p.heap_bytes(),
+        };
+        base + self.0.raster_outline_diffs.capacity() * 32
+    }
+}
+
+#[derive(Clone)]
+struct SpaceSpatialIndex {
+    grid: SpatialGrid,
+    bounds: Vec<[f64; 4]>,
+    rows: Vec<RowId>,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum BaseSheetSlot {
+    View(usize),
+    Row(RowId),
+}
+
+#[derive(Clone)]
+struct SpaceTemplate {
+    id: SpaceId,
+    unit: Unit,
+    axes: Axes,
+}
+
+#[derive(Clone)]
+struct SymbolTemplate {
+    key: SymbolKey,
+    space_id: SpaceId,
+    unit: Unit,
+    axes: Axes,
+    base: Option<ModelPoint>,
+    source: Ref,
+}
+
+#[derive(Clone)]
+struct SheetTemplate {
+    id: SheetId,
+    name: Option<String>,
+    size: Option<[PaperLength; 2]>,
+    views: Vec<View>,
+    source: Ref,
+}
+
+/// SXF（SFC・P21）の常駐編集文書エンジン
+#[derive(Clone)]
+pub struct SxfLive {
+    backing: SxfBacking,
+    attributes: Option<AttributeFile>,
+    lifter_tables: LifterTables,
+    static_layer_ids: BTreeSet<u32>,
+    static_user_lt_ids: BTreeSet<u32>,
+    raster_groups: Vec<LiveRasterGroup>,
+    record_to_raster_group: BTreeMap<usize, usize>,
+    space_templates: Vec<SpaceTemplate>,
+    space_rows: Vec<Vec<RowId>>,
+    symbol_templates: Vec<SymbolTemplate>,
+    symbol_rows: Vec<Vec<RowId>>,
+    sheet_template: SheetTemplate,
+    base_sheet_slots: Vec<BaseSheetSlot>,
+    base_row_count: u32,
+    title_blocks: Vec<TitleBlock>,
+    doc_drafts: Vec<Draft>,
+    sheet_name_map: BTreeMap<String, SheetId>,
+    space_views: BTreeMap<SpaceId, Vec<Affine>>,
+    symbol_bounds: BTreeMap<SymbolKey, [f64; 4]>,
+    symbol_indices: BTreeMap<SymbolKey, u32>,
+    table: VersionedTable<SxfRow>,
+    by_canonical_id: BTreeMap<String, RowId>,
+    spatial: SpatialGrid,
+    space_spatial: BTreeMap<SpaceId, SpaceSpatialIndex>,
+    display: Display,
+    history: History<SxfRow, SharedPatch>,
+    history_max_bytes: usize,
+}
+
+const DEFAULT_HISTORY_LIMIT: usize = 64 * 1024 * 1024;
+
+impl SxfLive {
+    /// バイト列から常駐 SXF 文書エンジンを開く
+    pub fn open(bytes: &[u8], cx: &mut Cx<'_>) -> Result<Self, Error> {
+        Self::open_with_threads(bytes, 1, cx)
+    }
+
+    /// 属性ファイル（SAF）を伴ってバイト列から常駐 SXF 文書エンジンを開く
+    pub fn open_with_attributes(
+        bytes: &[u8],
+        attributes: Option<AttributeFile>,
+        cx: &mut Cx<'_>,
+    ) -> Result<Self, Error> {
+        let file = Sxf::read(bytes, cx)?;
+        let src = SourceBytes::compress_slice_with_cx(file.as_bytes(), 1, cx).map_err(|stop| {
+            cx.report(stop.to_diagnostic());
+            Error::Stopped(stop)
+        })?;
+        Self::build(src, &file, attributes, cx)
+    }
+
+    /// スレッド数を指定して開く（`threads` が異なっても結果と診断は決定的に一致する）
+    pub fn open_with_threads(bytes: &[u8], threads: usize, cx: &mut Cx<'_>) -> Result<Self, Error> {
+        let file = Sxf::read(bytes, cx)?;
+        let src = SourceBytes::compress_slice_with_cx(file.as_bytes(), threads.max(1), cx)
+            .map_err(|stop| {
+                cx.report(stop.to_diagnostic());
+                Error::Stopped(stop)
+            })?;
+        Self::build(src, &file, None, cx)
+    }
+
+    /// 既読の [`SxfFile`] から常駐エンジンを構築する
+    pub fn from_file(file: &SxfFile, cx: &mut Cx<'_>) -> Result<Self, Error> {
+        Self::from_file_with(file, None, cx)
+    }
+
+    /// 既読の [`SxfFile`] と任意の属性ファイル（SAF）から常駐エンジンを構築する
+    pub fn from_file_with(
+        file: &SxfFile,
+        attributes: Option<AttributeFile>,
+        cx: &mut Cx<'_>,
+    ) -> Result<Self, Error> {
+        let src = SourceBytes::compress_slice_with_cx(file.as_bytes(), 1, cx).map_err(|stop| {
+            cx.report(stop.to_diagnostic());
+            Error::Stopped(stop)
+        })?;
+        Self::build(src, file, attributes, cx)
+    }
+
+    fn build(
+        src: SourceBytes,
+        file: &SxfFile,
+        attributes: Option<AttributeFile>,
+        cx: &mut Cx<'_>,
+    ) -> Result<Self, Error> {
+        let (records, codes, lifted) = cx.with_diagnostics_in_record_order(|cx| {
+            let (records, codes) = match file.mode() {
+                Mode::Sfc => (sfc_records(file), None),
+                Mode::P21 => {
+                    let (records, codes) = p21_records_and_codes(file, cx)?;
+                    (records, Some(codes))
+                }
+            };
+            let lifted = lift_for_live(file, &records, attributes.as_ref(), cx)?;
+            Ok::<_, Error>((records, codes, lifted))
+        })?;
+
+        let grouped_set = grouped(&records, cx)?;
+        let record_meta: BTreeMap<usize, (&str, &str)> = records
+            .iter()
+            .map(|r| (r.record, (r.name.as_str(), r.kind.as_str())))
+            .collect();
+
+        let static_layer_ids: BTreeSet<u32> = lifted
+            .tables
+            .base_layers
+            .iter()
+            .filter(|l| l.state.is_some())
+            .map(|l| l.id.0)
+            .collect();
+        let static_user_lt_ids: BTreeSet<u32> = lifted
+            .tables
+            .base_line_types
+            .iter()
+            .filter(|lt| i64::from(lt.id.0) > USER_LINE_TYPE && lt.source != Ref::default())
+            .map(|lt| lt.id.0)
+            .collect();
+
+        let backing = match (file.mode(), codes) {
+            (Mode::Sfc, _) => SxfBacking::Sfc(SfcState::new(src, file, &records, &grouped_set)),
+            (Mode::P21, Some(codes)) => {
+                let p21_state = P21State::new(src, file, codes, lifted.tables.widths.clone(), cx)?;
+                SxfBacking::P21(Box::new(p21_state))
+            }
+            (Mode::P21, None) => return Err(Error::Rejected),
+        };
+
+        let mut model_drafts: BTreeMap<(SpaceId, usize), Vec<Draft>> = BTreeMap::new();
+        let mut paper_drafts: BTreeMap<(SheetId, usize), Vec<Draft>> = BTreeMap::new();
+        let mut doc_drafts: Vec<Draft> = Vec::new();
+        for draft in lifted.raw_drafts {
+            match draft.at {
+                Position::Model { space, index } => {
+                    model_drafts.entry((space, index)).or_default().push(draft);
+                }
+                Position::Paper { sheet, index } => {
+                    paper_drafts.entry((sheet, index)).or_default().push(draft);
+                }
+                _ => doc_drafts.push(draft),
+            }
+        }
+
+        let mut record_to_raster_group = BTreeMap::new();
+        for (g_idx, rg) in lifted.raster_groups.iter().enumerate() {
+            for &m_rec in &rg.members {
+                record_to_raster_group.insert(m_rec, g_idx);
+            }
+        }
+
+        let drawing = lifted.drawing;
+        let sheet = drawing.sheets.into_iter().next().unwrap_or(Sheet {
+            id: SHEET,
+            name: None,
+            size: None,
+            elements: Vec::new(),
+            views: Vec::new(),
+            order: Vec::new(),
+            source: Ref::default(),
+        });
+
+        let mut space_views: BTreeMap<SpaceId, Vec<Affine>> = BTreeMap::new();
+        for v in &sheet.views {
+            space_views.entry(v.space).or_default().push(v.transform);
+        }
+
+        let mut symbol_bounds: BTreeMap<SymbolKey, [f64; 4]> = BTreeMap::new();
+        let mut symbol_indices: BTreeMap<SymbolKey, u32> = BTreeMap::new();
+        for (idx, sym_def) in drawing.symbols.iter().enumerate() {
+            if let Ok(idx_u32) = u32::try_from(idx) {
+                symbol_indices.insert(sym_def.key.clone(), idx_u32);
+            }
+            let mut acc: Option<[f64; 4]> = None;
+            for elem in &sym_def.space.elements {
+                let b = raw_shape_bounds(&elem.shape);
+                let [bx0, by0, bx1, by1] = b;
+                if bx0 <= bx1 && by0 <= by1 {
+                    match &mut acc {
+                        Some([x0, y0, x1, y1]) => {
+                            *x0 = x0.min(bx0);
+                            *y0 = y0.min(by0);
+                            *x1 = x1.max(bx1);
+                            *y1 = y1.max(by1);
+                        }
+                        None => acc = Some(b),
+                    }
+                }
+            }
+            if let Some(b) = acc {
+                symbol_bounds.insert(sym_def.key.clone(), b);
+            }
+        }
+
+        let total_rows = drawing
+            .spaces
+            .iter()
+            .map(|s| s.elements.len())
+            .sum::<usize>()
+            .saturating_add(drawing.symbols.iter().map(|s| s.space.elements.len()).sum())
+            .saturating_add(sheet.elements.len());
+
+        let mut rows: Vec<SxfRow> = Vec::with_capacity(total_rows);
+        let mut space_templates = Vec::with_capacity(drawing.spaces.len());
+        let mut space_rows = Vec::with_capacity(drawing.spaces.len());
+        let mut space_spatial: BTreeMap<SpaceId, SpaceSpatialIndex> = BTreeMap::new();
+
+        let make_row_meta = |source: &Ref,
+                             backing: &SxfBacking,
+                             record_meta: &BTreeMap<usize, (&str, &str)>,
+                             grouped_set: &BTreeSet<usize>| {
+            let instance = match source.key() {
+                Some(Key::Instance(n)) => Some(n),
+                _ => None,
+            };
+            let record_idx = source
+                .record()
+                .and_then(|r| usize::try_from(r).ok())
+                .unwrap_or(usize::MAX);
+            let sfc_slot = match backing {
+                SxfBacking::Sfc(s) => s.slot_for_record(record_idx),
+                SxfBacking::P21(_) => None,
+            };
+            let (fname, fkind) = record_meta.get(&record_idx).copied().unwrap_or(("", ""));
+            let is_grouped = grouped_set.contains(&record_idx);
+            (
+                instance,
+                record_idx,
+                sfc_slot,
+                fkind.to_owned().into_boxed_str(),
+                fname.to_ascii_lowercase().into_boxed_str(),
+                is_grouped,
+            )
+        };
+
+        for sp in drawing.spaces {
+            let place = id::space(sp.id);
+            let sp_id = sp.id;
+            space_templates.push(SpaceTemplate {
+                id: sp_id,
+                unit: sp.unit,
+                axes: sp.axes,
+            });
+            let mut sp_bounds = Vec::with_capacity(sp.elements.len());
+            let mut r_ids = Vec::with_capacity(sp.elements.len());
+            let elem_refs: Vec<String> = {
+                let mut namer = id::Namer::new(&place);
+                sp.elements
+                    .iter()
+                    .enumerate()
+                    .map(|(at, e)| namer.next(at, e))
+                    .collect()
+            };
+            for ((at, elem), cid) in sp.elements.into_iter().enumerate().zip(elem_refs) {
+                let row_id = RowId(rows.len() as u32);
+                let local_space_idx = u32::try_from(sp_bounds.len()).unwrap_or(0);
+                sp_bounds.push(raw_shape_bounds(&elem.shape));
+                let (instance, record_idx, sfc_slot, p21_kind, p21_name, is_grouped) =
+                    make_row_meta(&elem.source, &backing, &record_meta, &grouped_set);
+                let drafts = model_drafts
+                    .remove(&(sp_id, at))
+                    .unwrap_or_default()
+                    .into_boxed_slice();
+                rows.push(SxfRow {
+                    instance,
+                    unique_handle: None,
+                    record_idx,
+                    local_space_idx,
+                    sfc_slot,
+                    p21_kind,
+                    p21_name,
+                    grouped: is_grouped,
+                    container: SxfContainer::Space(sp_id),
+                    canonical_id: cid.into_boxed_str(),
+                    placed: Placed::Model(elem),
+                    drafts,
+                });
+                r_ids.push(row_id);
+            }
+            let sp_grid = SpatialGrid::build_with_cx(sp_bounds.as_slice(), cx).map_err(|stop| {
+                cx.report(stop.to_diagnostic());
+                Error::Stopped(stop)
+            })?;
+            space_spatial.insert(
+                sp_id,
+                SpaceSpatialIndex {
+                    grid: sp_grid,
+                    bounds: sp_bounds,
+                    rows: r_ids.clone(),
+                },
+            );
+            space_rows.push(r_ids);
+        }
+
+        let mut symbol_templates = Vec::with_capacity(drawing.symbols.len());
+        let mut symbol_rows = Vec::with_capacity(drawing.symbols.len());
+        let mut def_namer = id::DefinitionNamer::default();
+        for (sym_idx, sym_def) in drawing.symbols.into_iter().enumerate() {
+            let place = def_namer.next(&sym_def);
+            let sp_id = sym_def.space.id;
+            symbol_templates.push(SymbolTemplate {
+                key: sym_def.key,
+                space_id: sp_id,
+                unit: sym_def.space.unit,
+                axes: sym_def.space.axes,
+                base: sym_def.base,
+                source: sym_def.source,
+            });
+            let elem_refs: Vec<String> = {
+                let mut namer = id::Namer::new(&place);
+                sym_def
+                    .space
+                    .elements
+                    .iter()
+                    .enumerate()
+                    .map(|(at, e)| namer.next(at, e))
+                    .collect()
+            };
+            let mut r_ids = Vec::with_capacity(sym_def.space.elements.len());
+            for ((at, elem), cid) in sym_def
+                .space
+                .elements
+                .into_iter()
+                .enumerate()
+                .zip(elem_refs)
+            {
+                let row_id = RowId(rows.len() as u32);
+                let (instance, record_idx, sfc_slot, p21_kind, p21_name, is_grouped) =
+                    make_row_meta(&elem.source, &backing, &record_meta, &grouped_set);
+                let drafts = model_drafts
+                    .remove(&(sp_id, at))
+                    .unwrap_or_default()
+                    .into_boxed_slice();
+                rows.push(SxfRow {
+                    instance,
+                    unique_handle: None,
+                    record_idx,
+                    local_space_idx: 0,
+                    sfc_slot,
+                    p21_kind,
+                    p21_name,
+                    grouped: is_grouped,
+                    container: SxfContainer::Symbol(sym_idx),
+                    canonical_id: cid.into_boxed_str(),
+                    placed: Placed::Model(elem),
+                    drafts,
+                });
+                r_ids.push(row_id);
+            }
+            symbol_rows.push(r_ids);
+        }
+
+        let mut sheet_namer = id::SheetNamer::default();
+        let sheet_place = sheet_namer.next(&sheet);
+        let mut sheet_name_map = BTreeMap::new();
+        sheet_name_map.insert(sheet_place.clone(), sheet.id);
+
+        let sheet_cids: Vec<String> = {
+            let mut namer = id::Namer::new(&sheet_place);
+            sheet
+                .elements
+                .iter()
+                .enumerate()
+                .map(|(at, e)| namer.next(at, e))
+                .collect()
+        };
+        let mut paper_idx_to_row: Vec<RowId> = Vec::with_capacity(sheet.elements.len());
+        for ((at, elem), cid) in sheet.elements.into_iter().enumerate().zip(sheet_cids) {
+            let row_id = RowId(rows.len() as u32);
+            let (instance, record_idx, sfc_slot, p21_kind, p21_name, is_grouped) =
+                make_row_meta(&elem.source, &backing, &record_meta, &grouped_set);
+            let drafts = paper_drafts
+                .remove(&(sheet.id, at))
+                .unwrap_or_default()
+                .into_boxed_slice();
+            rows.push(SxfRow {
+                instance,
+                unique_handle: None,
+                record_idx,
+                local_space_idx: 0,
+                sfc_slot,
+                p21_kind,
+                p21_name,
+                grouped: is_grouped,
+                container: SxfContainer::Sheet(sheet.id),
+                canonical_id: cid.into_boxed_str(),
+                placed: Placed::Paper(elem),
+                drafts,
+            });
+            paper_idx_to_row.push(row_id);
+        }
+
+        let mut base_sheet_slots = Vec::with_capacity(sheet.order.len());
+        for item in sheet.order {
+            match item {
+                SheetItem::View(v) => base_sheet_slots.push(BaseSheetSlot::View(v)),
+                SheetItem::Element(idx) => {
+                    if let Some(&r_id) = paper_idx_to_row.get(idx) {
+                        base_sheet_slots.push(BaseSheetSlot::Row(r_id));
+                    }
+                }
+            }
+        }
+
+        let sheet_template = SheetTemplate {
+            id: sheet.id,
+            name: sheet.name,
+            size: sheet.size,
+            views: sheet.views,
+            source: sheet.source,
+        };
+
+        let mut inst_counts: BTreeMap<u64, u32> = BTreeMap::new();
+        for row in &rows {
+            if let Some(inst) = row.instance {
+                *inst_counts.entry(inst).or_default() += 1;
+            }
+        }
+        let shared_instances: BTreeSet<u64> = inst_counts
+            .into_iter()
+            .filter_map(|(inst, cnt)| (cnt > 1).then_some(inst))
+            .collect();
+
+        let mut by_canonical_id = BTreeMap::new();
+        let mut display = Display::with_rows_with_cx(cx, rows.len()).map_err(|stop| {
+            cx.report(stop.to_diagnostic());
+            Error::Stopped(stop)
+        })?;
+        let disp_ctx = DisplayContext {
+            space_views: &space_views,
+            symbol_indices: &symbol_indices,
+        };
+
+        let mut initial_rows = Vec::with_capacity(rows.len());
+        for (i, mut row) in rows.into_iter().enumerate() {
+            let row_id = RowId(i as u32);
+            by_canonical_id.insert(row.canonical_id.to_string(), row_id);
+            row.unique_handle = match (row.instance, placed_source(&row.placed).record()) {
+                (Some(inst), Some(_)) if !shared_instances.contains(&inst) => Some(inst),
+                _ => None,
+            };
+            let bounds =
+                compute_sheet_bounds(row.container, &row.placed, &space_views, &symbol_bounds);
+            let (counts, style) = display_counts_and_style(&row, &disp_ctx);
+            display
+                .push_with_cx(cx, counts, style, |w| {
+                    write_display_row(&row, &disp_ctx, w);
+                })
+                .map_err(|stop| {
+                    cx.report(stop.to_diagnostic());
+                    Error::Stopped(stop)
+                })?;
+            initial_rows.push((row, bounds, true));
+        }
+        display.clear_dirty();
+
+        let base_row_count = initial_rows.len() as u32;
+        let table = VersionedTable::from_rows_with_cx(initial_rows, cx).map_err(|stop| {
+            cx.report(stop.to_diagnostic());
+            Error::Stopped(stop)
+        })?;
+        let spatial = SpatialGrid::build_with_cx(table.bounds_column(), cx).map_err(|stop| {
+            cx.report(stop.to_diagnostic());
+            Error::Stopped(stop)
+        })?;
+
+        Ok(Self {
+            backing,
+            attributes,
+            lifter_tables: lifted.tables,
+            static_layer_ids,
+            static_user_lt_ids,
+            raster_groups: lifted.raster_groups,
+            record_to_raster_group,
+            space_templates,
+            space_rows,
+            symbol_templates,
+            symbol_rows,
+            sheet_template,
+            base_sheet_slots,
+            base_row_count,
+            title_blocks: drawing.title_blocks,
+            doc_drafts,
+            sheet_name_map,
+            space_views,
+            symbol_bounds,
+            symbol_indices,
+            table,
+            by_canonical_id,
+            spatial,
+            space_spatial,
+            display,
+            history: History::new(),
+            history_max_bytes: DEFAULT_HISTORY_LIMIT,
+        })
+    }
+
+    /// `undo` / `redo` 履歴の上限バイト数を設定する
+    pub fn with_history_limit(mut self, max_bytes: usize) -> Self {
+        self.set_history_max_bytes(max_bytes);
+        self
+    }
+
+    /// `undo` / `redo` 履歴の上限バイト数を動的に更新する
+    pub fn set_history_max_bytes(&mut self, max_bytes: usize) {
+        self.history_max_bytes = max_bytes;
+        self.history.trim_to_bytes(max_bytes);
+    }
+
+    /// 履歴を空にする
+    pub fn clear_history(&mut self) {
+        self.history.clear();
+    }
+
+    /// 表示バッファーの GPU 変更追跡ビットを消去する
+    pub fn clear_display_dirty(&mut self) {
+        self.display.clear_dirty();
+    }
+
+    /// SFC か P21 か
+    #[inline]
+    pub fn mode(&self) -> Mode {
+        self.backing.mode()
+    }
+
+    /// 現在のリビジョン番号（開いた直後は `0`、編集や `undo` / `redo` のたびに単調増加）
+    #[inline]
+    pub const fn revision(&self) -> Revision {
+        self.table.revision()
+    }
+
+    /// 現在の論理状態識別子（`undo` で元の状態に戻ると同じ値に戻る）
+    #[inline]
+    pub const fn state_id(&self) -> u64 {
+        self.table.state_id()
+    }
+
+    /// 生存している要素の数
+    #[inline]
+    pub const fn live_count(&self) -> u32 {
+        self.table.live_count()
+    }
+
+    /// 削除済みスロットを含む総行数
+    #[inline]
+    pub fn row_count(&self) -> usize {
+        self.table.len()
+    }
+
+    /// 取り消せる編集があるか
+    #[inline]
+    pub fn can_undo(&self) -> bool {
+        self.history.undo_len() > 0
+    }
+
+    /// やり直せる編集があるか
+    #[inline]
+    pub fn can_redo(&self) -> bool {
+        self.history.redo_len() > 0
+    }
+
+    /// 取り消せる段数
+    #[inline]
+    pub fn undo_len(&self) -> usize {
+        self.history.undo_len()
+    }
+
+    /// やり直せる段数
+    #[inline]
+    pub fn redo_len(&self) -> usize {
+        self.history.redo_len()
+    }
+
+    /// 常駐データ構造の概算メモリ使用量（バイト）
+    pub fn resident_bytes(&self) -> usize {
+        self.backing.resident_bytes()
+            + self.table.len() * core::mem::size_of::<SxfRow>()
+            + self.spatial.bytes()
+            + self.display.bytes()
+            + self.history.bytes()
+    }
+
+    /// 履歴が保持している概算バイト数
+    #[inline]
+    pub fn history_bytes(&self) -> usize {
+        self.history.bytes()
+    }
+
+    /// シート座標系の空間索引
+    #[inline]
+    pub const fn spatial(&self) -> &SpatialGrid {
+        &self.spatial
+    }
+
+    /// 差分更新される表示バッファーへの参照
+    #[inline]
+    pub const fn display(&self) -> &Display {
+        &self.display
+    }
+
+    /// 差分更新される表示バッファーへの可変参照（描画側の `clear_dirty` 用）
+    #[inline]
+    pub fn display_mut(&mut self) -> &mut Display {
+        &mut self.display
+    }
+
+    /// シート座標の外接矩形と交差する生存要素の [`RowId`] を昇順で返す
+    pub fn select_sheet(&self, rect: [f64; 4]) -> Vec<RowId> {
+        let mut raw = Vec::new();
+        self.spatial
+            .query(self.table.bounds_column(), rect, &mut raw);
+        raw.into_iter()
+            .map(RowId)
+            .filter(|&r| self.table.is_alive(r))
+            .collect()
+    }
+
+    /// 部分図空間 `space` の局所座標の外接矩形と交差する生存要素の [`RowId`] を昇順で返す
+    pub fn select_in_space(&self, space: SpaceId, rect: [f64; 4]) -> Vec<RowId> {
+        let Some(sp_idx) = self.space_spatial.get(&space) else {
+            return Vec::new();
+        };
+        let mut raw = Vec::new();
+        sp_idx.grid.query(sp_idx.bounds.as_slice(), rect, &mut raw);
+        raw.into_iter()
+            .filter_map(|local| sp_idx.rows.get(local as usize).copied())
+            .filter(|&r| self.table.is_alive(r))
+            .collect()
+    }
+
+    /// 一意なインスタンス番号 `#n` から生存 [`RowId`] を `O(1)` で引く
+    pub fn row_id_for_instance(&self, instance: u64) -> Option<RowId> {
+        self.table.find_handle(instance)
+    }
+
+    /// 正規 ID（`sheet/0/i70` など）から生存 [`RowId`] を引く
+    pub fn row_id_for_canonical_id(&self, id: &str) -> Option<RowId> {
+        let &row = self.by_canonical_id.get(id)?;
+        self.table.is_alive(row).then_some(row)
+    }
+
+    /// [`RowId`] の正規 ID を返す
+    pub fn canonical_id(&self, row: RowId) -> Option<&str> {
+        Some(&self.table.row(row)?.canonical_id)
+    }
+
+    /// [`RowId`] の要素を返す
+    pub fn placed(&self, row: RowId) -> Option<&Placed> {
+        Some(&self.table.row(row)?.placed)
+    }
+
+    fn current_tables(&self) -> Tables {
+        let widths = match &self.backing {
+            SxfBacking::Sfc(_) => self.lifter_tables.widths.clone(),
+            SxfBacking::P21(p21) => p21.active_widths(),
+        };
+        Tables::from_live(
+            self.static_layer_ids.clone(),
+            self.static_user_lt_ids.clone(),
+            self.lifter_tables.colors.clone(),
+            widths,
+        )
+    }
+
+    fn lookup_target(
+        &self,
+        seen: &Seen,
+        targets: &mut BTreeSet<u64>,
+        (format, edit): (&str, &str),
+        cx: &mut Cx,
+    ) -> Result<Option<(RowId, u64)>, Error> {
+        let Some(&row_id) = self.by_canonical_id.get(seen.id.as_str()) else {
+            cx.report(Diagnostic::new(codes::CHANGE_ELEMENT_MISSING).with("id", seen.id.as_str()));
+            return Ok(None);
+        };
+        let Some(row) = self.table.row(row_id) else {
+            cx.report(Diagnostic::new(codes::CHANGE_ELEMENT_MISSING).with("id", seen.id.as_str()));
+            return Ok(None);
+        };
+        let elem_hash = hash_placed(&row.placed, cx)?;
+        if elem_hash != seen.hash {
+            cx.report(Diagnostic::new(codes::CHANGE_ELEMENT_STALE).with("id", seen.id.as_str()));
+            return Ok(None);
+        }
+        let source = placed_source(&row.placed);
+        let valid_inst = row
+            .unique_handle
+            .filter(|&inst| self.table.find_handle(inst) == Some(row_id));
+        let Some(inst) = valid_inst.filter(|&inst| targets.insert(inst)) else {
+            cx.report(unsupported(format, edit, "shared").at(source.clone()));
+            return Ok(None);
+        };
+        Ok(Some((row_id, inst)))
+    }
+
+    /// 変更群を `O(変更数)` で差分適用する
+    pub fn apply(&mut self, changes: &Changes, cx: &mut Cx<'_>) -> Result<Vec<Applied>, Error> {
+        let current = match changes.document {
+            None => true,
+            Some(expected_hash) => {
+                let saved = self.backing.save(cx)?;
+                let same = Hash::document_checked(&saved, cx).map_err(|stop| {
+                    cx.report(stop.to_diagnostic());
+                    Error::Stopped(stop)
+                })? == expected_hash;
+                if !same {
+                    cx.report(Diagnostic::new(codes::CHANGE_DOCUMENT_STALE));
+                }
+                same
+            }
+        };
+
+        let tables = self.current_tables();
+        let mut targets: BTreeSet<u64> = BTreeSet::new();
+        let mut rejected = false;
+
+        match &self.backing {
+            SxfBacking::Sfc(sfc) => {
+                let mut tx = sfc.begin_step();
+                let mut staged_ops = Vec::new();
+                for change in &changes.edits {
+                    work(cx, 1, &Ref::default())?;
+                    match self.stage_one_sfc(sfc, &mut tx, &tables, change, &mut targets, cx)? {
+                        Some(op) => staged_ops.push((change.name(), op)),
+                        None => rejected = true,
+                    }
+                }
+                if rejected || !current {
+                    return Err(Error::Rejected);
+                }
+                self.verify_and_commit_sfc(tx, staged_ops, cx)
+            }
+            SxfBacking::P21(p21) => {
+                let mut tx = p21.begin_step();
+                let mut staged_ops = Vec::new();
+                for change in &changes.edits {
+                    work(cx, 1, &Ref::default())?;
+                    match self.stage_one_p21(p21, &mut tx, &tables, change, &mut targets, cx)? {
+                        Some(op) => staged_ops.push((change.name(), op)),
+                        None => rejected = true,
+                    }
+                }
+                if rejected || !current {
+                    return Err(Error::Rejected);
+                }
+                p21.collect_garbage(&mut tx, cx)?;
+                self.verify_and_commit_p21(tx, &tables.widths, staged_ops, cx)
+            }
+        }
+    }
+
+    fn stage_one_sfc(
+        &self,
+        sfc: &SfcState,
+        tx: &mut SfcStepTx,
+        tables: &Tables,
+        change: &Edit,
+        targets: &mut BTreeSet<u64>,
+        cx: &mut Cx,
+    ) -> Result<Option<StagedSfcOp>, Error> {
+        let format = "SFC";
+        match change {
+            Edit::Remove { target } => {
+                let Some((row_id, inst)) =
+                    self.lookup_target(target, targets, (format, "remove"), cx)?
+                else {
+                    return Ok(None);
+                };
+                let Some(row) = self.table.row(row_id) else {
+                    return Ok(None);
+                };
+                let meta = row.sfc_slot.and_then(|slot| sfc.slot_meta(slot));
+                let kind_str = meta.map(|(_, k, _, _)| k).unwrap_or(row.p21_kind.as_ref());
+                let ok = row.sfc_slot.and_then(|slot| {
+                    let (name_lower, _, is_grouped, _) = meta?;
+                    if !REMOVABLE.contains(&name_lower) || is_grouped {
+                        return None;
+                    }
+                    sfc.stage_remove(tx, slot)?;
+                    Some(StagedSfcOp::Removed { row_id, inst })
+                });
+                if ok.is_none() {
+                    cx.report(
+                        unsupported(format, "remove", kind_str)
+                            .at(placed_source(&row.placed).clone()),
+                    );
+                }
+                Ok(ok)
+            }
+            Edit::Restyle { target, style } => {
+                let Some((row_id, _)) =
+                    self.lookup_target(target, targets, (format, "restyle"), cx)?
+                else {
+                    return Ok(None);
+                };
+                let Some(row) = self.table.row(row_id) else {
+                    return Ok(None);
+                };
+                let (new_layer, new_style) = over_placed(&row.placed, style);
+                work(
+                    cx,
+                    tables.style_work(&new_style, Some(placed_style(&row.placed))),
+                    &Ref::default(),
+                )?;
+                count_placed_copy(&row.placed, cx, 1)?;
+                let mut expected = with_layer_style(&row.placed, new_layer, new_style, None);
+                let meta = row.sfc_slot.and_then(|slot| sfc.slot_meta(slot));
+                let kind_str = meta.map(|(_, k, _, _)| k).unwrap_or(row.p21_kind.as_ref());
+                let ok = row.sfc_slot.and_then(|slot| {
+                    let (name_lower, _, is_grouped, _) = meta?;
+                    let codes = compute_style_codes(
+                        name_lower,
+                        is_grouped,
+                        &row.placed,
+                        &mut expected,
+                        tables,
+                    )?;
+                    if !codes.is_empty() {
+                        sfc.stage_codes(tx, slot, &codes)?;
+                    }
+                    Some(StagedSfcOp::Updated {
+                        row_id,
+                        slot,
+                        expected: Box::new(expected),
+                    })
+                });
+                if ok.is_none() {
+                    cx.report(
+                        unsupported(format, "restyle", kind_str)
+                            .at(placed_source(&row.placed).clone()),
+                    );
+                }
+                Ok(ok)
+            }
+            Edit::Replace { target, element } => {
+                let Some((row_id, inst)) =
+                    self.lookup_target(target, targets, (format, "replace"), cx)?
+                else {
+                    return Ok(None);
+                };
+                let _ = inst;
+                let Some(row) = self.table.row(row_id) else {
+                    return Ok(None);
+                };
+                count_placed_copy(element, cx, 1)?;
+                let replaced = replaced_placed(&row.placed, element);
+                if let Some(rep) = &replaced {
+                    work(
+                        cx,
+                        tables.style_work(placed_style(rep), Some(placed_style(&row.placed))),
+                        &Ref::default(),
+                    )?;
+                }
+                let meta = row.sfc_slot.and_then(|slot| sfc.slot_meta(slot));
+                let kind_str = meta.map(|(_, k, _, _)| k).unwrap_or(row.p21_kind.as_ref());
+                let mut shape_counted = false;
+                if let Some(rep) = &replaced {
+                    count_placed_shape(rep, cx)?;
+                    shape_counted = true;
+                }
+                let _ = shape_counted;
+                let ok = replaced.and_then(|mut expected| {
+                    let slot = row.sfc_slot?;
+                    let (name_lower, _, is_grouped, _) = meta?;
+                    let codes = compute_style_codes(
+                        name_lower,
+                        is_grouped,
+                        &row.placed,
+                        &mut expected,
+                        tables,
+                    )?;
+                    let shape_args = compute_shape_args(name_lower, is_grouped, &expected)?;
+                    if !codes.is_empty() {
+                        sfc.stage_codes(tx, slot, &codes)?;
+                    }
+                    sfc.stage_shape(tx, slot, &shape_args)?;
+                    Some(StagedSfcOp::Updated {
+                        row_id,
+                        slot,
+                        expected: Box::new(expected),
+                    })
+                });
+                if ok.is_none() {
+                    cx.report(
+                        unsupported(format, "replace", kind_str)
+                            .at(placed_source(&row.placed).clone()),
+                    );
+                }
+                Ok(ok)
+            }
+            Edit::Transform { target, transform } => {
+                let Some((row_id, _)) =
+                    self.lookup_target(target, targets, (format, "transform"), cx)?
+                else {
+                    return Ok(None);
+                };
+                let Some(row) = self.table.row(row_id) else {
+                    return Ok(None);
+                };
+                count_placed_copy(&row.placed, cx, 2)?;
+                let transformed = transformed_placed(&row.placed, transform);
+                if let Some(tr) = &transformed {
+                    count_placed_shape(tr, cx)?;
+                }
+                let meta = row.sfc_slot.and_then(|slot| sfc.slot_meta(slot));
+                let kind_str = meta.map(|(_, k, _, _)| k).unwrap_or(row.p21_kind.as_ref());
+                let ok = transformed.and_then(|expected| {
+                    let slot = row.sfc_slot?;
+                    let (name_lower, _, is_grouped, _) = meta?;
+                    let shape_args = compute_shape_args(name_lower, is_grouped, &expected)?;
+                    sfc.stage_shape(tx, slot, &shape_args)?;
+                    Some(StagedSfcOp::Updated {
+                        row_id,
+                        slot,
+                        expected: Box::new(expected),
+                    })
+                });
+                if ok.is_none() {
+                    cx.report(
+                        unsupported(format, "transform", kind_str)
+                            .at(placed_source(&row.placed).clone()),
+                    );
+                }
+                Ok(ok)
+            }
+            Edit::Add { place, element } => {
+                let mut unset = None;
+                let added = match element.as_ref() {
+                    Placed::Paper(paper_elem)
+                        if self.sheet_name_map.get(place) == Some(&paper_elem.shape_sheet()) =>
+                    {
+                        work(
+                            cx,
+                            tables.style_work(&paper_elem.style, None),
+                            &Ref::default(),
+                        )?;
+                        count_element_copy(paper_elem, cx, 1)?;
+                        count_shape(&paper_elem.shape, cx)?;
+                        prepare_add_args(paper_elem, tables, &mut unset).and_then(
+                            |(add_args, expected_elem)| {
+                                let (seq, inst) = sfc.stage_add(tx, &add_args)?;
+                                Some(StagedSfcOp::Added {
+                                    seq,
+                                    inst,
+                                    place_name: place.clone(),
+                                    sheet_id: self.sheet_template.id,
+                                    expected: Box::new(Placed::Paper(expected_elem)),
+                                })
+                            },
+                        )
+                    }
+                    _ => None,
+                };
+                if let Some(field) = unset {
+                    cx.report(
+                        Diagnostic::new(codes::CHANGE_STYLE_UNSUPPORTED)
+                            .with("field", field)
+                            .with("format", format),
+                    );
+                    return Ok(None);
+                }
+                if added.is_none() {
+                    cx.report(unsupported(format, "add", kind_of(element)));
+                }
+                Ok(added)
+            }
+            other => {
+                report_table_edit_unsupported(format, other, cx);
+                Ok(None)
+            }
+        }
+    }
+
+    fn stage_one_p21(
+        &self,
+        p21: &P21State,
+        tx: &mut P21StepTx,
+        tables: &Tables,
+        change: &Edit,
+        targets: &mut BTreeSet<u64>,
+        cx: &mut Cx,
+    ) -> Result<Option<StagedP21Op>, Error> {
+        let format = "P21";
+        match change {
+            Edit::Remove { target } => {
+                let Some((row_id, inst)) =
+                    self.lookup_target(target, targets, (format, "remove"), cx)?
+                else {
+                    return Ok(None);
+                };
+                let Some(row) = self.table.row(row_id) else {
+                    return Ok(None);
+                };
+                let stmt_opt = p21.stmt_for_instance(inst);
+                let ok = if REMOVABLE.contains(&row.p21_name.as_ref()) && !row.grouped {
+                    if let Some(stmt) = stmt_opt {
+                        p21.stage_remove(tx, stmt, cx)?
+                            .map(|()| StagedP21Op::Removed { row_id, inst })
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                if ok.is_none() {
+                    cx.report(
+                        unsupported(format, "remove", &row.p21_kind)
+                            .at(placed_source(&row.placed).clone()),
+                    );
+                }
+                Ok(ok)
+            }
+            Edit::Restyle { target, style } => {
+                let Some((row_id, inst)) =
+                    self.lookup_target(target, targets, (format, "restyle"), cx)?
+                else {
+                    return Ok(None);
+                };
+                let Some(row) = self.table.row(row_id) else {
+                    return Ok(None);
+                };
+                let (new_layer, new_style) = over_placed(&row.placed, style);
+                work(
+                    cx,
+                    tables.style_work(&new_style, Some(placed_style(&row.placed))),
+                    &Ref::default(),
+                )?;
+                count_placed_copy(&row.placed, cx, 1)?;
+                let mut expected = with_layer_style(&row.placed, new_layer, new_style, None);
+                let stmt_opt = p21.stmt_for_instance(inst);
+                let codes_opt = compute_style_codes(
+                    &row.p21_name,
+                    row.grouped,
+                    &row.placed,
+                    &mut expected,
+                    tables,
+                );
+                let ok = match (stmt_opt, codes_opt) {
+                    (Some(stmt), Some(codes)) => {
+                        let applied = if codes.is_empty() {
+                            Some(())
+                        } else {
+                            p21.stage_codes(tx, &tables.widths, stmt, &codes, cx)?
+                        };
+                        applied.map(|()| StagedP21Op::Updated {
+                            row_id,
+                            inst,
+                            expected: Box::new(expected),
+                        })
+                    }
+                    _ => None,
+                };
+                if ok.is_none() {
+                    cx.report(
+                        unsupported(format, "restyle", &row.p21_kind)
+                            .at(placed_source(&row.placed).clone()),
+                    );
+                }
+                Ok(ok)
+            }
+            Edit::Replace { target, element } => {
+                let Some((row_id, inst)) =
+                    self.lookup_target(target, targets, (format, "replace"), cx)?
+                else {
+                    return Ok(None);
+                };
+                let Some(row) = self.table.row(row_id) else {
+                    return Ok(None);
+                };
+                count_placed_copy(element, cx, 1)?;
+                let replaced = replaced_placed(&row.placed, element);
+                if let Some(rep) = &replaced {
+                    work(
+                        cx,
+                        tables.style_work(placed_style(rep), Some(placed_style(&row.placed))),
+                        &Ref::default(),
+                    )?;
+                }
+                let stmt_opt = p21.stmt_for_instance(inst);
+                let ok = if let (Some(stmt), Some(mut expected)) = (stmt_opt, replaced) {
+                    let style_ok = if let Some(codes) = compute_style_codes(
+                        &row.p21_name,
+                        row.grouped,
+                        &row.placed,
+                        &mut expected,
+                        tables,
+                    ) {
+                        if codes.is_empty() {
+                            Some(())
+                        } else {
+                            p21.stage_codes(tx, &tables.widths, stmt, &codes, cx)?
+                        }
+                    } else {
+                        None
+                    };
+                    if style_ok.is_some() {
+                        count_placed_shape(&expected, cx)?;
+                        if let Some(shape_args) =
+                            compute_shape_args(&row.p21_name, row.grouped, &expected)
+                        {
+                            p21.stage_shape(tx, stmt, &shape_args, cx)?.map(|()| {
+                                StagedP21Op::Updated {
+                                    row_id,
+                                    inst,
+                                    expected: Box::new(expected),
+                                }
+                            })
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                if ok.is_none() {
+                    cx.report(
+                        unsupported(format, "replace", &row.p21_kind)
+                            .at(placed_source(&row.placed).clone()),
+                    );
+                }
+                Ok(ok)
+            }
+            Edit::Transform { target, transform } => {
+                let Some((row_id, inst)) =
+                    self.lookup_target(target, targets, (format, "transform"), cx)?
+                else {
+                    return Ok(None);
+                };
+                let Some(row) = self.table.row(row_id) else {
+                    return Ok(None);
+                };
+                count_placed_copy(&row.placed, cx, 2)?;
+                let transformed = transformed_placed(&row.placed, transform);
+                let stmt_opt = p21.stmt_for_instance(inst);
+                let ok = if let (Some(stmt), Some(expected)) = (stmt_opt, transformed) {
+                    count_placed_shape(&expected, cx)?;
+                    if let Some(shape_args) =
+                        compute_shape_args(&row.p21_name, row.grouped, &expected)
+                    {
+                        p21.stage_shape(tx, stmt, &shape_args, cx)?
+                            .map(|()| StagedP21Op::Updated {
+                                row_id,
+                                inst,
+                                expected: Box::new(expected),
+                            })
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                if ok.is_none() {
+                    cx.report(
+                        unsupported(format, "transform", &row.p21_kind)
+                            .at(placed_source(&row.placed).clone()),
+                    );
+                }
+                Ok(ok)
+            }
+            Edit::Add { place, element } => {
+                let mut unset = None;
+                let mut add_err = None;
+                let added = match element.as_ref() {
+                    Placed::Paper(paper_elem)
+                        if self.sheet_name_map.get(place) == Some(&paper_elem.shape_sheet()) =>
+                    {
+                        work(
+                            cx,
+                            tables.style_work(&paper_elem.style, None),
+                            &Ref::default(),
+                        )?;
+                        count_element_copy(paper_elem, cx, 1)?;
+                        count_shape(&paper_elem.shape, cx)?;
+                        if let Some((add_args, expected_elem)) =
+                            prepare_add_args(paper_elem, tables, &mut unset)
+                        {
+                            match p21.stage_add(tx, &tables.widths, &add_args, cx) {
+                                Ok(Some(inst)) => Some(StagedP21Op::Added {
+                                    inst,
+                                    place_name: place.clone(),
+                                    sheet_id: self.sheet_template.id,
+                                    add_name: add_args.name,
+                                    expected: Box::new(Placed::Paper(expected_elem)),
+                                }),
+                                Ok(None) => None,
+                                Err(e) => {
+                                    add_err = Some(e);
+                                    None
+                                }
+                            }
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                };
+                if let Some(e) = add_err {
+                    return Err(e);
+                }
+                if let Some(field) = unset {
+                    cx.report(
+                        Diagnostic::new(codes::CHANGE_STYLE_UNSUPPORTED)
+                            .with("field", field)
+                            .with("format", format),
+                    );
+                    return Ok(None);
+                }
+                if added.is_none() {
+                    cx.report(unsupported(format, "add", kind_of(element)));
+                }
+                Ok(added)
+            }
+            other => {
+                report_table_edit_unsupported(format, other, cx);
+                Ok(None)
+            }
+        }
+    }
+
+    /// `$$RASTER$$` 作図グループの枠折線が入れ替わって他要素を巻き込まないか検査し、更新後の枠レコードを返す
+    fn check_raster_groups(
+        &self,
+        removed_rows: &BTreeSet<RowId>,
+        updated_shapes: &BTreeMap<RowId, &Placed>,
+        format: &str,
+        cx: &mut Cx,
+    ) -> Result<Vec<RasterOutlineDiff>, Error> {
+        if self.raster_groups.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut touched_groups = BTreeSet::new();
+        for &r in removed_rows
+            .iter()
+            .chain(updated_shapes.keys().copied().collect::<Vec<_>>().iter())
+        {
+            if let Some(row) = self.table.row(r)
+                && let Some(&g_idx) = self.record_to_raster_group.get(&row.record_idx)
+            {
+                touched_groups.insert(g_idx);
+            }
+        }
+        if touched_groups.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut diffs = Vec::new();
+        for g_idx in touched_groups {
+            let Some(group) = self.raster_groups.get(g_idx) else {
+                continue;
+            };
+            let mut new_outline: Option<usize> = None;
+            for &m_rec in &group.members {
+                // このレコードに対応する生存行を探す
+                let member_row = (0..self.base_row_count).map(RowId).find(|&rid| {
+                    !removed_rows.contains(&rid)
+                        && self.table.row(rid).is_some_and(|r| r.record_idx == m_rec)
+                });
+                let Some(rid) = member_row else {
+                    continue;
+                };
+                let Some(row) = self.table.row(rid) else {
+                    continue;
+                };
+                let effective_placed = updated_shapes.get(&rid).copied().unwrap_or(&row.placed);
+                if is_four_or_more_polyline_or_underlay(effective_placed) {
+                    new_outline = Some(m_rec);
+                    break;
+                }
+            }
+
+            if new_outline != group.outline_record {
+                // 編集対象ではない生存メンバーが枠になったり枠でなくなったりしていれば、他要素不変条件に反する
+                for rid_raw in 0..self.base_row_count {
+                    let rid = RowId(rid_raw);
+                    if removed_rows.contains(&rid) || updated_shapes.contains_key(&rid) {
+                        continue;
+                    }
+                    let Some(row) = self.table.row(rid) else {
+                        continue;
+                    };
+                    if self.record_to_raster_group.get(&row.record_idx) == Some(&g_idx) {
+                        let was_outline = group.outline_record == Some(row.record_idx);
+                        let now_outline = new_outline == Some(row.record_idx);
+                        if was_outline != now_outline {
+                            cx.report(
+                                unsupported(format, "apply", "round_trip")
+                                    .at(placed_source(&row.placed).clone()),
+                            );
+                            return Err(Error::Rejected);
+                        }
+                    }
+                }
+                diffs.push((g_idx, group.outline_record, new_outline));
+            }
+        }
+        Ok(diffs)
+    }
+
+    fn raster_info_for_record(
+        &self,
+        record_idx: usize,
+        raster_diffs: &[(usize, Option<usize>, Option<usize>)],
+    ) -> Option<(&str, &Ref)> {
+        let &g_idx = self.record_to_raster_group.get(&record_idx)?;
+        let group = self.raster_groups.get(g_idx)?;
+        let effective_outline = raster_diffs
+            .iter()
+            .find(|(idx, _, _)| *idx == g_idx)
+            .map_or(group.outline_record, |(_, _, after)| *after);
+        (effective_outline == Some(record_idx)).then_some((group.path.as_str(), &group.definition))
+    }
+
+    fn verify_and_commit_sfc(
+        &mut self,
+        tx: SfcStepTx,
+        staged_ops: Vec<(&'static str, StagedSfcOp)>,
+        cx: &mut Cx,
+    ) -> Result<Vec<Applied>, Error> {
+        let format = "SFC";
+        let mut removed_rows = BTreeSet::new();
+        let mut updated_shapes: BTreeMap<RowId, &Placed> = BTreeMap::new();
+        for (_, op) in &staged_ops {
+            match op {
+                StagedSfcOp::Removed { row_id, .. } => {
+                    removed_rows.insert(*row_id);
+                }
+                StagedSfcOp::Updated {
+                    row_id, expected, ..
+                } => {
+                    updated_shapes.insert(*row_id, expected.as_ref());
+                }
+                StagedSfcOp::Added { .. } => {}
+            }
+        }
+
+        let raster_diffs = self.check_raster_groups(&removed_rows, &updated_shapes, format, cx)?;
+
+        let SxfBacking::Sfc(sfc) = &self.backing else {
+            return Err(Error::Rejected);
+        };
+
+        let mut verified = Vec::with_capacity(staged_ops.len());
+        let mut applied_out = Vec::with_capacity(staged_ops.len());
+
+        for (edit_name, op) in staged_ops {
+            match op {
+                StagedSfcOp::Removed { row_id, inst } => {
+                    if sfc.has_surviving_feature_id(&tx, inst) {
+                        cx.report(unsupported(format, edit_name, "round_trip"));
+                        return Err(Error::Rejected);
+                    }
+                    applied_out.push(Applied {
+                        id: None,
+                        hash: None,
+                    });
+                    verified.push(VerifiedOp::Remove(row_id));
+                }
+                StagedSfcOp::Updated {
+                    row_id,
+                    slot,
+                    expected,
+                } => {
+                    let Some(row) = self.table.row(row_id) else {
+                        return Err(Error::Rejected);
+                    };
+                    let Some((inst, feat_rec)) = sfc.parse_staged_feature(&tx, slot, cx)? else {
+                        cx.report(unsupported(format, edit_name, "round_trip"));
+                        return Err(Error::Rejected);
+                    };
+                    let raster = self.raster_info_for_record(row.record_idx, &raster_diffs);
+                    let lifted = self.lift_single_for_container(
+                        row.container,
+                        Some(inst),
+                        &feat_rec,
+                        raster,
+                        cx,
+                    )?;
+                    let Some(lifted_placed) = lifted.filter(|lp| placed_same(lp, &expected)) else {
+                        cx.report(unsupported(format, edit_name, "round_trip"));
+                        return Err(Error::Rejected);
+                    };
+                    let elem_hash = hash_placed(&lifted_placed, cx)?;
+                    applied_out.push(Applied {
+                        id: Some(row.canonical_id.to_string()),
+                        hash: Some(elem_hash),
+                    });
+                    verified.push(VerifiedOp::Update {
+                        row_id,
+                        placed: lifted_placed,
+                    });
+                }
+                StagedSfcOp::Added {
+                    seq,
+                    inst: expected_inst,
+                    place_name,
+                    sheet_id,
+                    expected,
+                } => {
+                    let slot = SfcSlot::Born(seq);
+                    let Some((inst, feat_rec)) = sfc.parse_staged_feature(&tx, slot, cx)? else {
+                        cx.report(unsupported(format, edit_name, "round_trip"));
+                        return Err(Error::Rejected);
+                    };
+                    if inst != expected_inst {
+                        cx.report(unsupported(format, edit_name, "round_trip"));
+                        return Err(Error::Rejected);
+                    }
+                    let lifted = self.lift_single_for_container(
+                        SxfContainer::Sheet(sheet_id),
+                        Some(inst),
+                        &feat_rec,
+                        None,
+                        cx,
+                    )?;
+                    let Some(lifted_placed) = lifted.filter(|lp| placed_same(lp, &expected)) else {
+                        cx.report(unsupported(format, edit_name, "round_trip"));
+                        return Err(Error::Rejected);
+                    };
+                    let cid = format!("{place_name}/i{inst}");
+                    let elem_hash = hash_placed(&lifted_placed, cx)?;
+                    applied_out.push(Applied {
+                        id: Some(cid.clone()),
+                        hash: Some(elem_hash),
+                    });
+                    verified.push(VerifiedOp::AddSfc {
+                        seq,
+                        inst,
+                        sheet_id,
+                        canonical_id: cid,
+                        feat_name: feat_rec.name,
+                        feat_kind: feat_rec.kind,
+                        placed: lifted_placed,
+                    });
+                }
+            }
+        }
+
+        let SxfBacking::Sfc(sfc_mut) = &mut self.backing else {
+            return Err(Error::Rejected);
+        };
+        let sfc_patch = sfc_mut.commit_step(tx);
+        self.commit_table_and_indexes(
+            verified,
+            SxfUnifiedPatch {
+                backing: BackingPatch::Sfc(sfc_patch),
+                raster_outline_diffs: raster_diffs,
+            },
+            cx,
+        )?;
+        Ok(applied_out)
+    }
+
+    fn verify_and_commit_p21(
+        &mut self,
+        tx: P21StepTx,
+        active_widths: &[Option<f64>],
+        staged_ops: Vec<(&'static str, StagedP21Op)>,
+        cx: &mut Cx,
+    ) -> Result<Vec<Applied>, Error> {
+        let format = "P21";
+        let mut removed_rows = BTreeSet::new();
+        let mut updated_shapes: BTreeMap<RowId, &Placed> = BTreeMap::new();
+        for (_, op) in &staged_ops {
+            match op {
+                StagedP21Op::Removed { row_id, .. } => {
+                    removed_rows.insert(*row_id);
+                }
+                StagedP21Op::Updated {
+                    row_id, expected, ..
+                } => {
+                    updated_shapes.insert(*row_id, expected.as_ref());
+                }
+                StagedP21Op::Added { .. } => {}
+            }
+        }
+
+        let raster_diffs = self.check_raster_groups(&removed_rows, &updated_shapes, format, cx)?;
+
+        let SxfBacking::P21(p21) = &self.backing else {
+            return Err(Error::Rejected);
+        };
+
+        let mut verified = Vec::with_capacity(staged_ops.len());
+        let mut applied_out = Vec::with_capacity(staged_ops.len());
+
+        for (edit_name, op) in staged_ops {
+            match op {
+                StagedP21Op::Removed { row_id, inst } => {
+                    if p21.has_surviving_id(&tx, inst) {
+                        cx.report(unsupported(format, edit_name, "round_trip"));
+                        return Err(Error::Rejected);
+                    }
+                    applied_out.push(Applied {
+                        id: None,
+                        hash: None,
+                    });
+                    verified.push(VerifiedOp::Remove(row_id));
+                }
+                StagedP21Op::Updated {
+                    row_id,
+                    inst,
+                    expected,
+                } => {
+                    let Some(row) = self.table.row(row_id) else {
+                        return Err(Error::Rejected);
+                    };
+                    let Some(feat_rec) =
+                        p21.parse_staged_occurrence(&tx, inst, active_widths, row.record_idx, cx)?
+                    else {
+                        cx.report(unsupported(format, edit_name, "round_trip"));
+                        return Err(Error::Rejected);
+                    };
+                    let raster = self.raster_info_for_record(row.record_idx, &raster_diffs);
+                    let lifted = self.lift_single_for_container(
+                        row.container,
+                        Some(inst),
+                        &feat_rec,
+                        raster,
+                        cx,
+                    )?;
+                    let Some(lifted_placed) = lifted
+                        .filter(|lp| placed_same(lp, &expected) || placed_near(lp, &expected))
+                    else {
+                        cx.report(unsupported(format, edit_name, "round_trip"));
+                        return Err(Error::Rejected);
+                    };
+                    let elem_hash = hash_placed(&lifted_placed, cx)?;
+                    applied_out.push(Applied {
+                        id: Some(row.canonical_id.to_string()),
+                        hash: Some(elem_hash),
+                    });
+                    verified.push(VerifiedOp::Update {
+                        row_id,
+                        placed: lifted_placed,
+                    });
+                }
+                StagedP21Op::Added {
+                    inst,
+                    place_name,
+                    sheet_id,
+                    add_name,
+                    expected,
+                } => {
+                    let Some(feat_rec) =
+                        p21.parse_staged_occurrence(&tx, inst, active_widths, 0, cx)?
+                    else {
+                        cx.report(unsupported(format, edit_name, "round_trip"));
+                        return Err(Error::Rejected);
+                    };
+                    let _ = add_name;
+                    let lifted = self.lift_single_for_container(
+                        SxfContainer::Sheet(sheet_id),
+                        Some(inst),
+                        &feat_rec,
+                        None,
+                        cx,
+                    )?;
+                    let Some(lifted_placed) = lifted
+                        .filter(|lp| placed_same(lp, &expected) || placed_near(lp, &expected))
+                    else {
+                        cx.report(unsupported(format, edit_name, "round_trip"));
+                        return Err(Error::Rejected);
+                    };
+                    let cid = format!("{place_name}/i{inst}");
+                    let elem_hash = hash_placed(&lifted_placed, cx)?;
+                    applied_out.push(Applied {
+                        id: Some(cid.clone()),
+                        hash: Some(elem_hash),
+                    });
+                    verified.push(VerifiedOp::AddP21 {
+                        inst,
+                        sheet_id,
+                        canonical_id: cid,
+                        feat_name: feat_rec.name,
+                        feat_kind: feat_rec.kind,
+                        placed: lifted_placed,
+                    });
+                }
+            }
+        }
+
+        let SxfBacking::P21(p21_mut) = &mut self.backing else {
+            return Err(Error::Rejected);
+        };
+        let p21_patch = p21_mut.commit_step(tx, cx)?;
+        self.commit_table_and_indexes(
+            verified,
+            SxfUnifiedPatch {
+                backing: BackingPatch::P21(p21_patch),
+                raster_outline_diffs: raster_diffs,
+            },
+            cx,
+        )?;
+        Ok(applied_out)
+    }
+
+    fn lift_single_for_container(
+        &self,
+        container: SxfContainer,
+        instance: Option<u64>,
+        feat_rec: &super::FeatureRecord,
+        raster: Option<(&str, &Ref)>,
+        cx: &mut Cx,
+    ) -> Result<Option<Placed>, Error> {
+        let mut tables = self.lifter_tables.clone();
+        if let SxfBacking::P21(p21) = &self.backing {
+            tables.widths = p21.active_widths();
+        }
+        quietly(cx, |cx| match container {
+            SxfContainer::Sheet(_) => {
+                Ok(lift_single_paper(&tables, instance, feat_rec, raster, cx)?.map(Placed::Paper))
+            }
+            SxfContainer::Space(sp) => Ok(lift_single_model(
+                &tables, sp, instance, feat_rec, raster, cx,
+            )?
+            .map(Placed::Model)),
+            SxfContainer::Symbol(sym_idx) => {
+                let Some(sym_t) = self.symbol_templates.get(sym_idx) else {
+                    return Ok(None);
+                };
+                Ok(
+                    lift_single_model(&tables, sym_t.space_id, instance, feat_rec, raster, cx)?
+                        .map(Placed::Model),
+                )
+            }
+        })
+    }
+
+    fn commit_table_and_indexes(
+        &mut self,
+        verified: Vec<VerifiedOp>,
+        patch: SxfUnifiedPatch,
+        cx: &mut Cx,
+    ) -> Result<(), Error> {
+        let had_ops = !verified.is_empty();
+        let patch_arc = Arc::new(patch);
+        let patch_for_txn = Arc::clone(&patch_arc);
+        let space_views = &self.space_views;
+        let symbol_bounds = &self.symbol_bounds;
+        let side = SideIndexes {
+            grid: Some(&mut self.spatial),
+            dirty_rows: None,
+            dep: None,
+        };
+
+        let txn_res = run_transaction(
+            &mut self.table,
+            side,
+            &mut self.history,
+            cx,
+            |txn, _cx| -> Result<(), TxnError<()>> {
+                for op in verified {
+                    match op {
+                        VerifiedOp::Remove(row_id) => {
+                            txn.remove_row(row_id)?;
+                        }
+                        VerifiedOp::Update { row_id, placed } => {
+                            let Some(prev_row) = txn.row(row_id).cloned() else {
+                                return Err(TxnError::Rejected(()));
+                            };
+                            let new_bounds = compute_sheet_bounds(
+                                prev_row.container,
+                                &placed,
+                                space_views,
+                                symbol_bounds,
+                            );
+                            let mut next_row = prev_row;
+                            next_row.placed = placed;
+                            txn.update_row(row_id, next_row, new_bounds)?;
+                        }
+                        VerifiedOp::AddSfc {
+                            seq,
+                            inst,
+                            sheet_id,
+                            canonical_id,
+                            feat_name,
+                            feat_kind,
+                            placed,
+                        } => {
+                            let container = SxfContainer::Sheet(sheet_id);
+                            let new_bounds = compute_sheet_bounds(
+                                container,
+                                &placed,
+                                space_views,
+                                symbol_bounds,
+                            );
+                            let new_row = SxfRow {
+                                instance: Some(inst),
+                                unique_handle: Some(inst),
+                                record_idx: 0,
+                                local_space_idx: 0,
+                                sfc_slot: Some(SfcSlot::Born(seq)),
+                                p21_kind: feat_kind.into_boxed_str(),
+                                p21_name: feat_name.to_ascii_lowercase().into_boxed_str(),
+                                grouped: false,
+                                container,
+                                canonical_id: canonical_id.into_boxed_str(),
+                                placed,
+                                drafts: Box::new([]),
+                            };
+                            txn.insert_row(new_row, new_bounds)?;
+                        }
+                        VerifiedOp::AddP21 {
+                            inst,
+                            sheet_id,
+                            canonical_id,
+                            feat_name,
+                            feat_kind,
+                            placed,
+                        } => {
+                            let container = SxfContainer::Sheet(sheet_id);
+                            let new_bounds = compute_sheet_bounds(
+                                container,
+                                &placed,
+                                space_views,
+                                symbol_bounds,
+                            );
+                            let new_row = SxfRow {
+                                instance: Some(inst),
+                                unique_handle: Some(inst),
+                                record_idx: 0,
+                                local_space_idx: 0,
+                                sfc_slot: None,
+                                p21_kind: feat_kind.into_boxed_str(),
+                                p21_name: feat_name.to_ascii_lowercase().into_boxed_str(),
+                                grouped: false,
+                                container,
+                                canonical_id: canonical_id.into_boxed_str(),
+                                placed,
+                                drafts: Box::new([]),
+                            };
+                            txn.insert_row(new_row, new_bounds)?;
+                        }
+                    }
+                }
+                if had_ops {
+                    txn.push_patch(SharedPatch(patch_for_txn));
+                }
+                Ok(())
+            },
+        );
+
+        match txn_res {
+            Ok(_) => {}
+            Err(err) => {
+                match (&mut self.backing, &patch_arc.backing) {
+                    (SxfBacking::Sfc(sfc), BackingPatch::Sfc(p)) => sfc.revert_patch(p),
+                    (SxfBacking::P21(p21), BackingPatch::P21(p)) => p21.revert_patch(p),
+                    _ => {}
+                }
+                return match err {
+                    TxnError::Stop(stop) => {
+                        cx.report(stop.to_diagnostic());
+                        Err(Error::Stopped(stop))
+                    }
+                    TxnError::Stage(_) | TxnError::Rejected(()) => {
+                        cx.report(unsupported(
+                            self.backing.format_name(),
+                            "apply",
+                            "round_trip",
+                        ));
+                        Err(Error::Rejected)
+                    }
+                };
+            }
+        }
+
+        if had_ops && let Some(committed) = self.history.last_undo().cloned() {
+            for &(g_idx, _, after) in &patch_arc.raster_outline_diffs {
+                if let Some(group) = self.raster_groups.get_mut(g_idx) {
+                    group.outline_record = after;
+                }
+            }
+            let mut touched_symbols = BTreeSet::new();
+            for diff in committed.existing() {
+                match diff {
+                    ExistingRowDiff::Removed { before_row, .. } => {
+                        self.by_canonical_id
+                            .remove(before_row.canonical_id.as_ref());
+                        match before_row.container {
+                            SxfContainer::Space(sp) => {
+                                if let Some(sp_idx) = self.space_spatial.get_mut(&sp) {
+                                    let local = before_row.local_space_idx as usize;
+                                    if let Some(b) = sp_idx.bounds.get_mut(local) {
+                                        *b = EMPTY_BOUNDS;
+                                    }
+                                    sp_idx.grid.update(before_row.local_space_idx, EMPTY_BOUNDS);
+                                }
+                            }
+                            SxfContainer::Symbol(sym_idx) => {
+                                touched_symbols.insert(sym_idx);
+                            }
+                            SxfContainer::Sheet(_) => {}
+                        }
+                    }
+                    ExistingRowDiff::Updated { after_row, .. } => match after_row.container {
+                        SxfContainer::Space(sp) => {
+                            if let Placed::Model(m_elem) = &after_row.placed
+                                && let Some(sp_idx) = self.space_spatial.get_mut(&sp)
+                            {
+                                let new_b = raw_shape_bounds(&m_elem.shape);
+                                let local = after_row.local_space_idx as usize;
+                                if let Some(b) = sp_idx.bounds.get_mut(local) {
+                                    *b = new_b;
+                                }
+                                sp_idx.grid.update(after_row.local_space_idx, new_b);
+                            }
+                        }
+                        SxfContainer::Symbol(sym_idx) => {
+                            touched_symbols.insert(sym_idx);
+                        }
+                        SxfContainer::Sheet(_) => {}
+                    },
+                }
+            }
+            for born in committed.born() {
+                self.by_canonical_id
+                    .insert(born.after_row.canonical_id.to_string(), born.row);
+            }
+            for sym_idx in touched_symbols {
+                self.recompute_symbol_bound(sym_idx);
+            }
+            let disp_ctx = DisplayContext {
+                space_views: &self.space_views,
+                symbol_indices: &self.symbol_indices,
+            };
+            apply_display_commit(&mut self.display, &disp_ctx, &committed);
+            self.history.trim_to_bytes(self.history_max_bytes);
+        }
+
+        Ok(())
+    }
+
+    fn recompute_symbol_bound(&mut self, sym_idx: usize) {
+        let Some(sym_t) = self.symbol_templates.get(sym_idx) else {
+            return;
+        };
+        let Some(rows) = self.symbol_rows.get(sym_idx) else {
+            return;
+        };
+        let mut acc: Option<[f64; 4]> = None;
+        for &rid in rows {
+            if let Some(row) = self.table.row(rid)
+                && let Placed::Model(m_elem) = &row.placed
+            {
+                let b = raw_shape_bounds(&m_elem.shape);
+                let [bx0, by0, bx1, by1] = b;
+                if bx0 <= bx1 && by0 <= by1 {
+                    match &mut acc {
+                        Some([x0, y0, x1, y1]) => {
+                            *x0 = x0.min(bx0);
+                            *y0 = y0.min(by0);
+                            *x1 = x1.max(bx1);
+                            *y1 = y1.max(by1);
+                        }
+                        None => acc = Some(b),
+                    }
+                }
+            }
+        }
+        match acc {
+            Some(b) => {
+                self.symbol_bounds.insert(sym_t.key.clone(), b);
+            }
+            None => {
+                self.symbol_bounds.remove(&sym_t.key);
+            }
+        }
+    }
+
+    /// 直前の編集トランザクションを `O(変更数)` で取り消す
+    pub fn undo(&mut self, cx: &mut Cx<'_>) -> Result<bool, Error> {
+        let side = SideIndexes {
+            grid: Some(&mut self.spatial),
+            dirty_rows: None,
+            dep: None,
+        };
+        let committed = match self.history.undo(&mut self.table, side, cx) {
+            Ok(Some(c)) => c.clone(),
+            Ok(None) => return Ok(false),
+            Err(stop) => {
+                cx.report(stop.to_diagnostic());
+                return Err(Error::Stopped(stop));
+            }
+        };
+
+        let disp_ctx = DisplayContext {
+            space_views: &self.space_views,
+            symbol_indices: &self.symbol_indices,
+        };
+        revert_display_commit(&mut self.display, &disp_ctx, &committed);
+        for born in committed.born().iter().rev() {
+            self.by_canonical_id
+                .remove(born.after_row.canonical_id.as_ref());
+        }
+        let mut touched_symbols = BTreeSet::new();
+        for diff in committed.existing().iter().rev() {
+            match diff {
+                ExistingRowDiff::Removed {
+                    row, before_row, ..
+                } => {
+                    self.by_canonical_id
+                        .insert(before_row.canonical_id.to_string(), *row);
+                    match before_row.container {
+                        SxfContainer::Space(sp) => {
+                            if let Placed::Model(m_elem) = &before_row.placed
+                                && let Some(sp_idx) = self.space_spatial.get_mut(&sp)
+                            {
+                                let old_b = raw_shape_bounds(&m_elem.shape);
+                                let local = before_row.local_space_idx as usize;
+                                if let Some(b) = sp_idx.bounds.get_mut(local) {
+                                    *b = old_b;
+                                }
+                                sp_idx.grid.update(before_row.local_space_idx, old_b);
+                            }
+                        }
+                        SxfContainer::Symbol(sym_idx) => {
+                            touched_symbols.insert(sym_idx);
+                        }
+                        SxfContainer::Sheet(_) => {}
+                    }
+                }
+                ExistingRowDiff::Updated { before_row, .. } => match before_row.container {
+                    SxfContainer::Space(sp) => {
+                        if let Placed::Model(m_elem) = &before_row.placed
+                            && let Some(sp_idx) = self.space_spatial.get_mut(&sp)
+                        {
+                            let old_b = raw_shape_bounds(&m_elem.shape);
+                            let local = before_row.local_space_idx as usize;
+                            if let Some(b) = sp_idx.bounds.get_mut(local) {
+                                *b = old_b;
+                            }
+                            sp_idx.grid.update(before_row.local_space_idx, old_b);
+                        }
+                    }
+                    SxfContainer::Symbol(sym_idx) => {
+                        touched_symbols.insert(sym_idx);
+                    }
+                    SxfContainer::Sheet(_) => {}
+                },
+            }
+        }
+        for patch in committed.patches().iter().rev() {
+            for &(g_idx, before_outline, _) in patch.0.raster_outline_diffs.iter().rev() {
+                if let Some(group) = self.raster_groups.get_mut(g_idx) {
+                    group.outline_record = before_outline;
+                }
+            }
+            match (&mut self.backing, &patch.0.backing) {
+                (SxfBacking::Sfc(sfc), BackingPatch::Sfc(p)) => sfc.revert_patch(p),
+                (SxfBacking::P21(p21), BackingPatch::P21(p)) => p21.revert_patch(p),
+                _ => {}
+            }
+        }
+        for sym_idx in touched_symbols {
+            self.recompute_symbol_bound(sym_idx);
+        }
+        Ok(true)
+    }
+
+    /// 直前に取り消した編集トランザクションを `O(変更数)` でやり直す
+    pub fn redo(&mut self, cx: &mut Cx<'_>) -> Result<bool, Error> {
+        let side = SideIndexes {
+            grid: Some(&mut self.spatial),
+            dirty_rows: None,
+            dep: None,
+        };
+        let committed = match self.history.redo(&mut self.table, side, cx) {
+            Ok(Some(c)) => c.clone(),
+            Ok(None) => return Ok(false),
+            Err(stop) => {
+                cx.report(stop.to_diagnostic());
+                return Err(Error::Stopped(stop));
+            }
+        };
+
+        for patch in committed.patches() {
+            match (&mut self.backing, &patch.0.backing) {
+                (SxfBacking::Sfc(sfc), BackingPatch::Sfc(p)) => sfc.reapply_patch(p),
+                (SxfBacking::P21(p21), BackingPatch::P21(p)) => p21.reapply_patch(p),
+                _ => {}
+            }
+            for &(g_idx, _, after_outline) in &patch.0.raster_outline_diffs {
+                if let Some(group) = self.raster_groups.get_mut(g_idx) {
+                    group.outline_record = after_outline;
+                }
+            }
+        }
+        let mut touched_symbols = BTreeSet::new();
+        for diff in committed.existing() {
+            match diff {
+                ExistingRowDiff::Removed { before_row, .. } => {
+                    self.by_canonical_id
+                        .remove(before_row.canonical_id.as_ref());
+                    match before_row.container {
+                        SxfContainer::Space(sp) => {
+                            if let Some(sp_idx) = self.space_spatial.get_mut(&sp) {
+                                let local = before_row.local_space_idx as usize;
+                                if let Some(b) = sp_idx.bounds.get_mut(local) {
+                                    *b = EMPTY_BOUNDS;
+                                }
+                                sp_idx.grid.update(before_row.local_space_idx, EMPTY_BOUNDS);
+                            }
+                        }
+                        SxfContainer::Symbol(sym_idx) => {
+                            touched_symbols.insert(sym_idx);
+                        }
+                        SxfContainer::Sheet(_) => {}
+                    }
+                }
+                ExistingRowDiff::Updated { after_row, .. } => match after_row.container {
+                    SxfContainer::Space(sp) => {
+                        if let Placed::Model(m_elem) = &after_row.placed
+                            && let Some(sp_idx) = self.space_spatial.get_mut(&sp)
+                        {
+                            let new_b = raw_shape_bounds(&m_elem.shape);
+                            let local = after_row.local_space_idx as usize;
+                            if let Some(b) = sp_idx.bounds.get_mut(local) {
+                                *b = new_b;
+                            }
+                            sp_idx.grid.update(after_row.local_space_idx, new_b);
+                        }
+                    }
+                    SxfContainer::Symbol(sym_idx) => {
+                        touched_symbols.insert(sym_idx);
+                    }
+                    SxfContainer::Sheet(_) => {}
+                },
+            }
+        }
+        for born in committed.born() {
+            self.by_canonical_id
+                .insert(born.after_row.canonical_id.to_string(), born.row);
+        }
+        for sym_idx in touched_symbols {
+            self.recompute_symbol_bound(sym_idx);
+        }
+        let disp_ctx = DisplayContext {
+            space_views: &self.space_views,
+            symbol_indices: &self.symbol_indices,
+        };
+        apply_display_commit(&mut self.display, &disp_ctx, &committed);
+        Ok(true)
+    }
+
+    /// 常駐状態から [`Drawing2D`] を組み立てる
+    pub fn drawing(&self, cx: &mut Cx<'_>) -> Result<Drawing2D, Error> {
+        let mut layers = self.lifter_tables.base_layers.clone();
+        let mut line_types = self.lifter_tables.base_line_types.clone();
+        for extra in &self.lifter_tables.extra_line_types {
+            if !line_types.iter().any(|lt| lt.id == extra.id) {
+                line_types.push(extra.clone());
+            }
+        }
+        let mut drafts = self.doc_drafts.clone();
+
+        let mut spaces = Vec::with_capacity(self.space_templates.len());
+        for (sp_t, r_ids) in self.space_templates.iter().zip(&self.space_rows) {
+            let mut elems = Vec::new();
+            for &rid in r_ids {
+                if let Some(row) = self.table.row(rid)
+                    && let Placed::Model(m_elem) = &row.placed
+                {
+                    work(cx, 1, &Ref::default())?;
+                    let idx = elems.len();
+                    ensure_element_tables(
+                        self.lifter_tables.defined_layers,
+                        &mut layers,
+                        &mut line_types,
+                        m_elem.layer,
+                        &m_elem.style,
+                    );
+                    for d in &row.drafts {
+                        let mut dc = d.clone();
+                        dc.at = Position::Model {
+                            space: sp_t.id,
+                            index: idx,
+                        };
+                        drafts.push(dc);
+                    }
+                    elems.push(m_elem.clone());
+                }
+            }
+            let order = (0..elems.len()).collect();
+            spaces.push(ModelSpace {
+                id: sp_t.id,
+                unit: sp_t.unit,
+                axes: sp_t.axes,
+                elements: elems,
+                order,
+            });
+        }
+
+        let mut symbols = Vec::with_capacity(self.symbol_templates.len());
+        for (sym_t, r_ids) in self.symbol_templates.iter().zip(&self.symbol_rows) {
+            let mut elems = Vec::new();
+            for &rid in r_ids {
+                if let Some(row) = self.table.row(rid)
+                    && let Placed::Model(m_elem) = &row.placed
+                {
+                    work(cx, 1, &Ref::default())?;
+                    let idx = elems.len();
+                    ensure_element_tables(
+                        self.lifter_tables.defined_layers,
+                        &mut layers,
+                        &mut line_types,
+                        m_elem.layer,
+                        &m_elem.style,
+                    );
+                    for d in &row.drafts {
+                        let mut dc = d.clone();
+                        dc.at = Position::Model {
+                            space: sym_t.space_id,
+                            index: idx,
+                        };
+                        drafts.push(dc);
+                    }
+                    elems.push(m_elem.clone());
+                }
+            }
+            let order = (0..elems.len()).collect();
+            symbols.push(SymbolDefinition {
+                key: sym_t.key.clone(),
+                space: ModelSpace {
+                    id: sym_t.space_id,
+                    unit: sym_t.unit,
+                    axes: sym_t.axes,
+                    elements: elems,
+                    order,
+                },
+                base: sym_t.base,
+                attributes: Vec::new(),
+                anonymous: false,
+                external: None,
+                source: sym_t.source.clone(),
+            });
+        }
+
+        let mut sheet_elems = Vec::new();
+        let mut sheet_order = Vec::new();
+        for slot in &self.base_sheet_slots {
+            match *slot {
+                BaseSheetSlot::View(v) => sheet_order.push(SheetItem::View(v)),
+                BaseSheetSlot::Row(rid) => {
+                    if let Some(row) = self.table.row(rid)
+                        && let Placed::Paper(p_elem) = &row.placed
+                    {
+                        work(cx, 1, &Ref::default())?;
+                        let idx = sheet_elems.len();
+                        ensure_element_tables(
+                            self.lifter_tables.defined_layers,
+                            &mut layers,
+                            &mut line_types,
+                            p_elem.layer,
+                            &p_elem.style,
+                        );
+                        for d in &row.drafts {
+                            let mut dc = d.clone();
+                            dc.at = Position::Paper {
+                                sheet: self.sheet_template.id,
+                                index: idx,
+                            };
+                            drafts.push(dc);
+                        }
+                        sheet_elems.push(p_elem.clone());
+                        sheet_order.push(SheetItem::Element(idx));
+                    }
+                }
+            }
+        }
+
+        let total_len = self.table.len() as u32;
+        for raw_idx in self.base_row_count..total_len {
+            let rid = RowId(raw_idx);
+            if let Some(row) = self.table.row(rid)
+                && let Placed::Paper(p_elem) = &row.placed
+            {
+                work(cx, 1, &Ref::default())?;
+                let idx = sheet_elems.len();
+                ensure_element_tables(
+                    self.lifter_tables.defined_layers,
+                    &mut layers,
+                    &mut line_types,
+                    p_elem.layer,
+                    &p_elem.style,
+                );
+                sheet_elems.push(p_elem.clone());
+                sheet_order.push(SheetItem::Element(idx));
+            }
+        }
+
+        quietly(cx, |cx| {
+            if let Some(attr_file) = &self.attributes {
+                bind(attr_file, &mut drafts, cx);
+            }
+            let mut drawing = Drawing2D {
+                spaces,
+                sheets: vec![Sheet {
+                    id: self.sheet_template.id,
+                    name: self.sheet_template.name.clone(),
+                    size: self.sheet_template.size,
+                    elements: sheet_elems,
+                    views: self.sheet_template.views.clone(),
+                    order: sheet_order,
+                    source: self.sheet_template.source.clone(),
+                }],
+                layers,
+                line_types,
+                title_blocks: self.title_blocks.clone(),
+                symbols,
+                ..Drawing2D::default()
+            };
+            drawing.settle_extensions(drafts, cx).map_err(|stop| {
+                cx.report(stop.to_diagnostic());
+                Error::Stopped(stop)
+            })?;
+            Ok(drawing)
+        })
+    }
+
+    /// 現在の常駐状態を [`SxfFile`] に書き出す
+    pub fn snapshot_file(&self, cx: &mut Cx<'_>) -> Result<SxfFile, Error> {
+        let bytes = self.save(cx)?;
+        quietly(cx, |cx| Sxf::read(&bytes, cx))
+    }
+
+    /// 全体を書く保存（`SxfFile::apply` を 1 手ずつ当てて `Sxf::write` した結果とバイト列一致）
+    pub fn save(&self, cx: &mut Cx<'_>) -> Result<Vec<u8>, Error> {
+        self.backing.save(cx)
+    }
+}
+
+enum StagedSfcOp {
+    Removed {
+        row_id: RowId,
+        inst: u64,
+    },
+    Updated {
+        row_id: RowId,
+        slot: SfcSlot,
+        expected: Box<Placed>,
+    },
+    Added {
+        seq: u32,
+        inst: u64,
+        place_name: String,
+        sheet_id: SheetId,
+        expected: Box<Placed>,
+    },
+}
+
+enum StagedP21Op {
+    Removed {
+        row_id: RowId,
+        inst: u64,
+    },
+    Updated {
+        row_id: RowId,
+        inst: u64,
+        expected: Box<Placed>,
+    },
+    Added {
+        inst: u64,
+        place_name: String,
+        sheet_id: SheetId,
+        add_name: &'static str,
+        expected: Box<Placed>,
+    },
+}
+
+enum VerifiedOp {
+    Remove(RowId),
+    Update {
+        row_id: RowId,
+        placed: Placed,
+    },
+    AddSfc {
+        seq: u32,
+        inst: u64,
+        sheet_id: SheetId,
+        canonical_id: String,
+        feat_name: String,
+        feat_kind: String,
+        placed: Placed,
+    },
+    AddP21 {
+        inst: u64,
+        sheet_id: SheetId,
+        canonical_id: String,
+        feat_name: String,
+        feat_kind: String,
+        placed: Placed,
+    },
+}
+
+fn placed_source(placed: &Placed) -> &Ref {
+    match placed {
+        Placed::Model(e) => &e.source,
+        Placed::Paper(e) => &e.source,
+    }
+}
+
+fn placed_style(placed: &Placed) -> &Style {
+    match placed {
+        Placed::Model(e) => &e.style,
+        Placed::Paper(e) => &e.style,
+    }
+}
+
+fn hash_placed(placed: &Placed, cx: &mut Cx) -> Result<Hash, Error> {
+    let res = match placed {
+        Placed::Model(e) => Hash::element_checked(e, cx),
+        Placed::Paper(e) => Hash::element_checked(e, cx),
+    };
+    res.map_err(|stop| {
+        cx.report(stop.to_diagnostic().at(placed_source(placed).clone()));
+        Error::Stopped(stop)
+    })
+}
+
+fn count_placed_copy(placed: &Placed, cx: &mut Cx, copies: u64) -> Result<(), Error> {
+    match placed {
+        Placed::Model(e) => count_element_copy(e, cx, copies),
+        Placed::Paper(e) => count_element_copy(e, cx, copies),
+    }
+}
+
+#[allow(dead_code)]
+fn count_placed_compare(placed: &Placed, cx: &mut Cx) -> Result<(), Error> {
+    match placed {
+        Placed::Model(e) => count_element_compare(e, cx),
+        Placed::Paper(e) => count_element_compare(e, cx),
+    }
+}
+
+fn count_placed_shape(placed: &Placed, cx: &mut Cx) -> Result<(), Error> {
+    match placed {
+        Placed::Model(e) => count_shape(&e.shape, cx),
+        Placed::Paper(e) => count_shape(&e.shape, cx),
+    }
+}
+
+fn over_placed(placed: &Placed, restyle: &Restyle) -> (zumen_drawing::LayerId, Style) {
+    match placed {
+        Placed::Model(e) => restyle.over(e.layer, &e.style),
+        Placed::Paper(e) => restyle.over(e.layer, &e.style),
+    }
+}
+
+fn with_layer_style(
+    was: &Placed,
+    layer: zumen_drawing::LayerId,
+    style: Style,
+    shape: Option<Placed>,
+) -> Placed {
+    match (was, shape) {
+        (Placed::Model(e), Some(Placed::Model(n))) => Placed::Model(Element {
+            layer,
+            style,
+            shape: n.shape,
+            source: e.source.clone(),
+        }),
+        (Placed::Paper(e), Some(Placed::Paper(n))) => Placed::Paper(Element {
+            layer,
+            style,
+            shape: n.shape,
+            source: e.source.clone(),
+        }),
+        _ => {
+            let mut cloned = was.clone();
+            match &mut cloned {
+                Placed::Model(e) => {
+                    e.layer = layer;
+                    e.style = style;
+                }
+                Placed::Paper(e) => {
+                    e.layer = layer;
+                    e.style = style;
+                }
+            }
+            cloned
+        }
+    }
+}
+
+fn replaced_placed(was: &Placed, new: &Placed) -> Option<Placed> {
+    match (was, new) {
+        (Placed::Model(_), Placed::Model(e)) => {
+            Some(with_layer_style(was, e.layer, e.style, Some(new.clone())))
+        }
+        (Placed::Paper(_), Placed::Paper(e)) => {
+            Some(with_layer_style(was, e.layer, e.style, Some(new.clone())))
+        }
+        _ => None,
+    }
+}
+
+fn transformed_placed(was: &Placed, affine: &Affine) -> Option<Placed> {
+    Some(match was {
+        Placed::Model(e) => Placed::Model(Element {
+            shape: transform::transform(&e.shape, affine)?,
+            ..e.clone()
+        }),
+        Placed::Paper(e) => Placed::Paper(Element {
+            shape: transform::transform(&e.shape, affine)?,
+            ..e.clone()
+        }),
+    })
+}
+
+fn compute_style_codes(
+    name_lower: &str,
+    is_grouped: bool,
+    was_placed: &Placed,
+    expected: &mut Placed,
+    tables: &Tables,
+) -> Option<Vec<(usize, i64)>> {
+    let marker = name_lower == MARKER;
+    if !(marker || STYLED.contains(&name_lower)) || is_grouped {
+        return None;
+    }
+    let (layer, style) = match expected {
+        Placed::Model(e) => (e.layer, &mut e.style),
+        Placed::Paper(e) => (e.layer, &mut e.style),
+    };
+    let (was_layer, was_style) = match was_placed {
+        Placed::Model(e) => (e.layer, &e.style),
+        Placed::Paper(e) => (e.layer, &e.style),
+    };
+    if style.line_type_scale != 1.0 || style.transparency != Inherit::Layer {
+        return None;
+    }
+    let mut codes = Vec::new();
+    if layer != was_layer {
+        codes.push((0, tables.layer(layer)?));
+    }
+    if style.color != was_style.color {
+        let (code, normalized) = tables.color(style.color)?;
+        style.color = Inherit::Own(normalized);
+        codes.push((1, code));
+    }
+    if style.line_type != was_style.line_type {
+        if marker {
+            return None;
+        }
+        codes.push((2, tables.line_type(style.line_type)?));
+    }
+    if style.line_weight != was_style.line_weight {
+        if marker {
+            return None;
+        }
+        codes.push((3, tables.width(style.line_weight?)?));
+    }
+    Some(codes)
+}
+
+fn compute_shape_args(name_lower: &str, is_grouped: bool, expected: &Placed) -> Option<Arguments> {
+    let marker = name_lower == MARKER;
+    if !(marker || SHAPED.contains(&name_lower)) || is_grouped {
+        return None;
+    }
+    let args = match expected {
+        Placed::Model(e) => arguments(&e.shape)?,
+        Placed::Paper(e) => arguments(&e.shape)?,
+    };
+    (args.name == name_lower).then_some(args)
+}
+
+fn prepare_add_args(
+    paper_elem: &Element<PaperPoint>,
+    tables: &Tables,
+    unset: &mut Option<&'static str>,
+) -> Option<(Arguments, Element<PaperPoint>)> {
+    let mut element = paper_elem.clone();
+    let style = element.style;
+    let mut args = arguments(&element.shape)?;
+    if let Some(field) = unset_field(&style, args.name == MARKER) {
+        *unset = Some(field);
+        return None;
+    }
+    if style.line_type_scale != 1.0 || style.transparency != Inherit::Layer {
+        return None;
+    }
+    let (color_code, read_color) = tables.color(style.color)?;
+    element.style.color = Inherit::Own(read_color);
+    let codes = if args.name == MARKER {
+        if style.line_type != Inherit::Layer
+            || !matches!(style.line_weight, None | Some(Inherit::Layer))
+        {
+            return None;
+        }
+        element.style.line_weight = None;
+        vec![tables.layer(element.layer)?, color_code]
+    } else {
+        vec![
+            tables.layer(element.layer)?,
+            color_code,
+            tables.line_type(style.line_type)?,
+            tables.width(style.line_weight?)?,
+        ]
+    };
+    for (at, code) in codes.iter().enumerate() {
+        *args.values.get_mut(at)? = code.to_string();
+    }
+    let _ = Kind::Work;
+    Some((args, element))
+}
+
+fn is_four_or_more_polyline_or_underlay(placed: &Placed) -> bool {
+    match placed {
+        Placed::Model(e) => match &e.shape {
+            Shape::Underlay(_) => true,
+            Shape::Polyline(p) => p.vertices.len() >= 4,
+            _ => false,
+        },
+        Placed::Paper(e) => match &e.shape {
+            Shape::Underlay(_) => true,
+            Shape::Polyline(p) => p.vertices.len() >= 4,
+            _ => false,
+        },
+    }
+}
+
+fn report_table_edit_unsupported(format: &str, change: &Edit, cx: &mut Cx) {
+    let kind = match change {
+        Edit::ReplaceLayer { .. } | Edit::AddLayer { .. } | Edit::RemoveLayer { .. } => {
+            "layer_feature"
+        }
+        Edit::ReplaceTextStyle { .. }
+        | Edit::AddTextStyle { .. }
+        | Edit::RemoveTextStyle { .. } => "text_font_feature",
+        Edit::ReplaceLineType { .. } | Edit::AddLineType { .. } | Edit::RemoveLineType { .. } => {
+            "user_defined_font_feature"
+        }
+        Edit::ReplaceDimensionStyle { .. }
+        | Edit::AddDimensionStyle { .. }
+        | Edit::RemoveDimensionStyle { .. } => "dimension_style",
+        Edit::SetPointStyle { .. } => "point_style",
+        _ => "element",
+    };
+    cx.report(unsupported(format, change.name(), kind));
+}

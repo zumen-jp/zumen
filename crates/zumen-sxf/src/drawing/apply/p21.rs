@@ -24,7 +24,7 @@ use crate::{Form, SxfFile, Value};
 type Slot = (usize, usize, usize);
 
 /// 要素を並べる実体の名前と、並びの引数の番号。要素を除くときは、この並びから参照を除く
-const CONTAINERS: [(&str, usize); 4] = [
+pub(crate) const CONTAINERS: [(&str, usize); 4] = [
     ("DRAWING_SHEET_REVISION", 1),
     ("PRESENTATION_LAYER_ASSIGNMENT", 2),
     ("INVISIBILITY", 0),
@@ -32,7 +32,7 @@ const CONTAINERS: [(&str, usize); 4] = [
 ];
 
 /// どこからも指されなくなったら除く実体（幾何と見え方）
-const GARBAGE: [&str; 20] = [
+pub(crate) const GARBAGE: [&str; 20] = [
     "CARTESIAN_POINT",
     "DIRECTION",
     "VECTOR",
@@ -109,20 +109,20 @@ impl InstanceIndex {
 }
 
 #[derive(Clone)]
-struct RefCounts {
+pub(crate) struct RefCounts {
     dense: Vec<u32>,
     sparse: BTreeMap<u64, usize>,
 }
 
 impl RefCounts {
-    fn with_capacity(dense_cap: usize) -> Self {
+    pub(crate) fn with_capacity(dense_cap: usize) -> Self {
         Self {
             dense: vec![0; dense_cap],
             sparse: BTreeMap::new(),
         }
     }
 
-    fn add(&mut self, id: u64) {
+    pub(crate) fn add(&mut self, id: u64) {
         if let Ok(idx) = usize::try_from(id)
             && let Some(slot) = self.dense.get_mut(idx)
             && *slot < u32::MAX
@@ -133,7 +133,7 @@ impl RefCounts {
         *self.sparse.entry(id).or_default() += 1;
     }
 
-    fn sub(&mut self, id: u64) {
+    pub(crate) fn sub(&mut self, id: u64) {
         if let Ok(idx) = usize::try_from(id)
             && let Some(slot) = self.dense.get_mut(idx)
         {
@@ -151,7 +151,7 @@ impl RefCounts {
         }
     }
 
-    fn get(&self, id: u64) -> usize {
+    pub(crate) fn get(&self, id: u64) -> usize {
         let base = usize::try_from(id)
             .ok()
             .and_then(|idx| self.dense.get(idx).copied())
@@ -1190,7 +1190,7 @@ impl P21<'_> {
 }
 
 /// 値の入れ子をたどる作業を、参照を集める前に数える。
-fn count_values(values: &[Value], cx: &mut Cx) -> Result<(), Error> {
+pub(crate) fn count_values(values: &[Value], cx: &mut Cx) -> Result<(), Error> {
     for value in values {
         work(cx, 1, &Ref::default())?;
         match value {
@@ -1202,7 +1202,7 @@ fn count_values(values: &[Value], cx: &mut Cx) -> Result<(), Error> {
     Ok(())
 }
 
-fn count_and_note_refs(
+pub(crate) fn count_and_note_refs(
     values: &[Value],
     counts: &mut RefCounts,
     ref_count: &mut u64,
@@ -1247,7 +1247,7 @@ fn note_referrers(
     Ok(())
 }
 
-fn for_each_ref(values: &[Value], f: &mut impl FnMut(u64)) {
+pub(crate) fn for_each_ref(values: &[Value], f: &mut impl FnMut(u64)) {
     for value in values {
         match value {
             Value::Ref(id) => f(*id),
@@ -1258,7 +1258,7 @@ fn for_each_ref(values: &[Value], f: &mut impl FnMut(u64)) {
     }
 }
 
-fn count_arguments(args: &Arguments, cx: &mut Cx) -> Result<(), Error> {
+pub(crate) fn count_arguments(args: &Arguments, cx: &mut Cx) -> Result<(), Error> {
     for text in &args.values {
         work(cx, 1 + text.len() as u64, &Ref::default())?;
     }
@@ -1266,7 +1266,7 @@ fn count_arguments(args: &Arguments, cx: &mut Cx) -> Result<(), Error> {
 }
 
 /// 線幅の数値は文字列から解析するので、その長さも数える。
-fn count_number(mut value: &Value, cx: &mut Cx) -> Result<(), Error> {
+pub(crate) fn count_number(mut value: &Value, cx: &mut Cx) -> Result<(), Error> {
     loop {
         work(cx, 1, &Ref::default())?;
         match value {
@@ -1288,7 +1288,7 @@ fn count_number(mut value: &Value, cx: &mut Cx) -> Result<(), Error> {
 }
 
 /// 値の中の参照を足す
-fn collect(values: &[Value], out: &mut Vec<u64>) {
+pub(crate) fn collect(values: &[Value], out: &mut Vec<u64>) {
     for value in values {
         match value {
             Value::Ref(id) => out.push(*id),
@@ -1300,7 +1300,7 @@ fn collect(values: &[Value], out: &mut Vec<u64>) {
 }
 
 /// 書いたテキストの中の参照
-fn scan(bytes: &[u8]) -> Vec<u64> {
+pub(crate) fn scan(bytes: &[u8]) -> Vec<u64> {
     // 出力した P21 の文字列の外だけを調べる。文字列中の引用符（''）の間の区間は空になる。
     bytes
         .split(|b| *b == b'\'')
@@ -1350,7 +1350,7 @@ fn write_list(file: &SxfFile, items: &[Value], out: &mut Vec<u8>) {
 }
 
 /// 実数。読み直すと同じ値になる最短の 10 進に、小数点を付ける
-fn real(value: f64) -> Option<String> {
+pub(crate) fn real(value: f64) -> Option<String> {
     if !value.is_finite() {
         return None;
     }

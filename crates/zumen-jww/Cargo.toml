@@ -14,6 +14,8 @@ formats = ["jww"]
 zumen-base = { version = "0.2.0", path = "../zumen-base" }
 zumen-sdk = { version = "0.2.0", path = "../zumen-sdk" }
 zumen-drawing = { version = "0.2.0", path = "../zumen-drawing", optional = true }
+zumen-geom2d = { version = "0.2.0", path = "../zumen-geom2d", optional = true }
+zumen-live = { version = "0.2.0", path = "../zumen-live", optional = true }
 # Shift_JIS の名前と文字を戻す。WHATWG の Shift_JIS で、環境によらない（決定 0121・0134）
 encoding_rs = { version = "0.8.35", optional = true }
 # 円弧の端と楕円の軸の向き。std の三角関数は環境で値が違いうる（決定 0007）
@@ -22,7 +24,7 @@ libm = { version = "0.2.16", default-features = false, optional = true }
 [features]
 default = ["drawing"]
 # 図面モデル（L2）への変換。L1 だけを使うなら外せる
-drawing = ["dep:zumen-drawing", "dep:encoding_rs", "dep:libm"]
+drawing = ["dep:zumen-drawing", "dep:zumen-geom2d", "dep:zumen-live", "dep:encoding_rs", "dep:libm"]
 
 [dev-dependencies]
 zumen-drawing = { path = "../zumen-drawing" }

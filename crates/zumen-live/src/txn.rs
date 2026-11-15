@@ -546,9 +546,24 @@ impl<R, P> History<R, P> {
         self.undo_stack.clear();
         self.redo_stack.clear();
     }
+
+    /// 直前に積まれた取り消し記録への参照
+    #[inline]
+    pub fn last_undo(&self) -> Option<&CommittedTxn<R, P>> {
+        self.undo_stack.last()
+    }
 }
 
 impl<R: TableRow, P: PatchPayload> History<R, P> {
+    /// 取り消し履歴の合計バイト数が `max_bytes` 以下になるまで古い記録を捨てる（最低 1 段は残す）
+    pub fn trim_to_bytes(&mut self, max_bytes: usize) {
+        let mut total = self.bytes();
+        while total > max_bytes && self.undo_stack.len() > 1 {
+            let removed = self.undo_stack.remove(0);
+            total = total.saturating_sub(removed.bytes());
+        }
+    }
+
     /// 履歴全体が保持しているバイト数の見積もり
     pub fn bytes(&self) -> usize {
         self.undo_stack

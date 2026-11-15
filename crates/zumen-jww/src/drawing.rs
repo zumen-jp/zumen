@@ -24,20 +24,21 @@ use crate::parse::{Fail, Reader};
 use crate::{JwwFile, Record, RecordKind};
 
 mod apply;
+pub(crate) mod live;
 
 /// 形式固有の情報の値の型の契約のバージョン。どの `jww.*` の名前空間も同じバージョンにする（決定 0115・0156・0157）
-const SCHEMA: u32 = 2;
+pub(super) const SCHEMA: u32 = 2;
 
-const SHEET: SheetId = SheetId(0);
+pub(super) const SHEET: SheetId = SheetId(0);
 
 /// 寸法が SXF のフィールドを持つ最初のバージョン
-const SXF_SINCE: u32 = 420;
+pub(super) const SXF_SINCE: u32 = 420;
 
 /// 図形の共通のフィールドに線幅が入る最初のバージョン
-const PEN_WIDTH_SINCE: u32 = 351;
+pub(super) const PEN_WIDTH_SINCE: u32 = 351;
 
 /// 用紙の大きさのコードと、横長の幅と高さ（mm）。A0〜A4 と 2A〜5A
-const PAPERS: [(u32, [f64; 2]); 9] = [
+pub(super) const PAPERS: [(u32, [f64; 2]); 9] = [
     (0, [1189.0, 841.0]),
     (1, [841.0, 594.0]),
     (2, [594.0, 420.0]),
@@ -68,7 +69,7 @@ const RANDOM_LINES: core::ops::RangeInclusive<u8> = 11..=15;
 const SXF_LINE_TYPE: u8 = 30;
 
 /// 線種で記号を表す点
-const POINT_SYMBOL: u8 = 100;
+pub(super) const POINT_SYMBOL: u8 = 100;
 
 /// ソリッドの色を自分で持つ色の番号
 const SOLID_OWN_COLOR: u16 = 10;
@@ -80,10 +81,10 @@ const CIRCLE_SOLID: u8 = 101;
 const SETTING_AT: [f64; 2] = [0.0, -1000.0];
 
 /// ブロックの定義の空間の、最初の ID。レイヤグループの空間（0〜15）と重ならない
-const DEFINITION_SPACES: u32 = 16;
+pub(super) const DEFINITION_SPACES: u32 = 16;
 
 /// ブロックの定義を指すキー。番号で指す
-fn block_key(number: u32) -> SymbolKey {
+pub(super) fn block_key(number: u32) -> SymbolKey {
     SymbolKey {
         namespace: "jww.block".into(),
         name: number.to_string(),
@@ -91,7 +92,7 @@ fn block_key(number: u32) -> SymbolKey {
 }
 
 /// 1 周（ラジアン）
-const TURN: f64 = 2.0 * core::f64::consts::PI;
+pub(super) const TURN: f64 = 2.0 * core::f64::consts::PI;
 
 impl Lift<Drawing2D> for JwwFile {
     fn lift(&self, cx: &mut Cx) -> Result<Drawing2D, Error> {
@@ -103,65 +104,69 @@ impl Lift<Drawing2D> for JwwFile {
         if header.is_none() {
             cx.report(Diagnostic::new(codes::JWW_HEADER_INVALID).at(Ref::at_record(0)));
         }
+        let header = header.unwrap_or_default();
+        let images = images(self);
         Lifter {
-            file: self,
-            header: header.unwrap_or_default(),
+            header: &header,
             line_types: BTreeMap::new(),
             groups: BTreeMap::new(),
             definitions: BTreeMap::new(),
-            images: images(self),
+            images: &images,
             own: Vec::new(),
             drafts: Vec::new(),
             out: Drawing2D::default(),
         }
-        .run(cx)
+        .run(self, cx)
     }
 }
 
 /// レイヤグループ
 #[derive(Clone, Debug, Default)]
-struct Group {
-    state: u32,
+pub(super) struct Group {
+    pub(super) state: u32,
     /// 書き込むレイヤ
-    write_layer: u32,
-    scale: f64,
-    protect: u32,
-    layers: [u32; 16],
+    pub(super) write_layer: u32,
+    pub(super) scale: f64,
+    pub(super) protect: u32,
+    pub(super) layers: [u32; 16],
     /// レイヤの保護
-    protects: [u32; 16],
+    pub(super) protects: [u32; 16],
 }
 
 /// 変換に使うヘッダーのフィールド
 #[derive(Clone, Debug, Default)]
-struct Header {
-    version: u32,
-    paper: u32,
+pub(super) struct Header {
+    pub(super) version: u32,
+    pub(super) paper: u32,
     /// 書き込むレイヤグループ
-    write_group: u32,
-    groups: Vec<Group>,
-    group_names: Vec<String>,
+    pub(super) write_group: u32,
+    pub(super) groups: Vec<Group>,
+    pub(super) group_names: Vec<String>,
     /// 1 単位が 1/100 mm の線幅（負）か、プリンターのドット（ほか）
-    max_draw_width: i32,
-    layer_names: Vec<String>,
+    pub(super) max_draw_width: i32,
+    pub(super) layer_names: Vec<String>,
     /// 画面のペン 0〜9 の色
-    pens: Vec<u32>,
+    pub(super) pens: Vec<u32>,
     /// 印刷のペン 0〜9 の幅
-    printer_widths: Vec<u32>,
+    pub(super) printer_widths: Vec<u32>,
     /// 線種 2〜9 と 16〜19 の、ビットの並び・単位・ピッチ・印刷のピッチ
-    patterns: Vec<[u32; 4]>,
+    pub(super) patterns: Vec<[u32; 4]>,
     /// 印刷の解像度（dpi）
-    dpi: Option<f64>,
+    pub(super) dpi: Option<f64>,
     /// SXF の拡張色 100〜356 の色と、印刷の幅
-    sxf_pens: Vec<(u32, u32)>,
+    pub(super) sxf_pens: Vec<(u32, u32)>,
     /// SXF の線種 30〜62 の名前と、線と間
-    sxf_line_types: Vec<(String, Option<Vec<f64>>)>,
+    pub(super) sxf_line_types: Vec<(String, Option<Vec<f64>>)>,
 }
 
 impl Header {
     /// ヘッダーを読む。終わりは図形の一覧の件数の前
     fn read(file: &JwwFile, end: usize) -> Result<Header, Fail> {
-        let src = file.bytes(0..end);
-        let version = file.version();
+        Self::read_slice(file.bytes(0..end), file.version())
+    }
+
+    /// 先頭から `end` までのバイトスライスからヘッダーを読む
+    pub(super) fn read_slice(src: &[u8], version: u32) -> Result<Header, Fail> {
         let since = |v: u32, n: usize| if version >= v { n } else { 0 };
         let mut r = Reader::new(src, 12);
         r.string()?;
@@ -282,7 +287,7 @@ impl Header {
     }
 
     /// レイヤグループの縮尺。読めないか正でなければ 1
-    fn scale(&self, group: usize) -> f64 {
+    pub(super) fn scale(&self, group: usize) -> f64 {
         self.groups
             .get(group)
             .map(|group| group.scale)
@@ -291,7 +296,7 @@ impl Header {
     }
 
     /// 色。1〜9 と 100〜356 はヘッダーの色を、ほかは番号だけを持つ
-    fn color(&self, pen: u16) -> Color {
+    pub(super) fn color(&self, pen: u16) -> Color {
         let rgb = match pen {
             1..=9 => self.pens.get(usize::from(pen)).copied(),
             100..=356 => self
@@ -310,7 +315,7 @@ impl Header {
     }
 
     /// 線幅。図形の線幅、ペンの印刷の幅の順に使う。単位が分からなければ `None`
-    fn weight(&self, pen_color: u16, pen_width: u16) -> Option<Inherit<LineWeight>> {
+    pub(super) fn weight(&self, pen_color: u16, pen_width: u16) -> Option<Inherit<LineWeight>> {
         let pen = match pen_color {
             1..=9 => self.printer_widths.get(usize::from(pen_color)).copied(),
             100..=356 => self
@@ -325,7 +330,7 @@ impl Header {
     }
 
     /// ヘッダーの線幅の単位を mm にする。単位が分からなければ `None`
-    fn width(&self, value: u32) -> Option<f64> {
+    pub(super) fn width(&self, value: u32) -> Option<f64> {
         if value == 0 {
             return None;
         }
@@ -376,7 +381,7 @@ fn bit_pattern([pattern, unit, _, printer_pitch]: [u32; 4]) -> Option<Vec<f64>> 
 }
 
 /// 同梱画像の名前と、レコードの位置
-fn images(file: &JwwFile) -> BTreeMap<String, usize> {
+pub(super) fn images(file: &JwwFile) -> BTreeMap<String, usize> {
     file.records()
         .iter()
         .enumerate()
@@ -390,7 +395,7 @@ fn images(file: &JwwFile) -> BTreeMap<String, usize> {
 }
 
 /// 文字列を戻す。UTF-16LE でなければ Shift_JIS
-fn decode(unicode: bool, bytes: &[u8]) -> String {
+pub(super) fn decode(unicode: bool, bytes: &[u8]) -> String {
     if unicode {
         let units = bytes
             .as_chunks::<2>()
@@ -488,8 +493,7 @@ impl Base {
 }
 
 struct Lifter<'f> {
-    file: &'f JwwFile,
-    header: Header,
+    header: &'f Header,
     /// 使った線種の番号
     line_types: BTreeMap<u8, LineTypeId>,
     /// 要素を置いたレイヤグループと、その空間の要素
@@ -497,7 +501,7 @@ struct Lifter<'f> {
     /// ブロックの定義のレコードの位置から、記号の定義の位置へ
     definitions: BTreeMap<usize, usize>,
     /// 同梱画像の名前から、レコードの位置へ
-    images: BTreeMap<String, usize>,
+    images: &'f BTreeMap<String, usize>,
     /// 変換中の要素に付ける拡張の名前空間とフィールド
     own: Vec<(&'static str, Vec<Field>)>,
     /// 付く先を位置で指す拡張。要素がそろってから ID とハッシュにする（決定 0156）
@@ -506,19 +510,23 @@ struct Lifter<'f> {
 }
 
 impl Lifter<'_> {
-    fn run(mut self, cx: &mut Cx) -> Result<Drawing2D, Error> {
+    fn run(mut self, file: &JwwFile, cx: &mut Cx) -> Result<Drawing2D, Error> {
         self.layers();
         self.edit_state();
-        for (index, record) in self.file.records().iter().enumerate() {
+        for (index, record) in file.records().iter().enumerate() {
             let source = Ref::at_record(index as u64);
             cx.check(Kind::Work, 1).map_err(|stop| {
                 cx.report(stop.to_diagnostic().at(source.clone()));
                 Error::Stopped(stop)
             })?;
             match record.kind() {
-                RecordKind::Entity => self.entity(record, source, cx),
-                RecordKind::Block if self.definition(index, record, source.clone()).is_err() => {
-                    invalid(cx, self.file.kind_name(record), source);
+                RecordKind::Entity => self.entity(file, record, source, cx),
+                RecordKind::Block
+                    if self
+                        .definition(file, index, record, source.clone())
+                        .is_err() =>
+                {
+                    invalid(cx, file.kind_name(record), source);
                 }
                 _ => {}
             }
@@ -534,102 +542,25 @@ impl Lifter<'_> {
 
     /// 書き込むグループとレイヤ・保護・グループの名前を、図面の拡張にする。保護しないレイヤは拡張にしない
     fn edit_state(&mut self) {
-        let header = &self.header;
-        if header.groups.is_empty() {
-            return;
-        }
-        let integer = |key, value: u32| Field {
-            key,
-            code: None,
-            value: FieldValue::Integer(i64::from(value)),
-        };
-        let extension = |namespace, name, fields| Draft {
-            namespace,
-            name,
-            version: Some(header.version.to_string()),
-            schema: SCHEMA,
-            at: Position::Document,
-            fields,
-            source: Ref::at_record(0),
-        };
-        let mut out = vec![extension(
-            "jww.edit".into(),
-            String::new(),
-            vec![integer("write_group".into(), header.write_group)],
-        )];
-        for (at, group) in header.groups.iter().enumerate() {
-            let name = header.group_names.get(at).cloned().unwrap_or_default();
-            out.push(extension(
-                "jww.group".into(),
-                format!("{at:X}"),
-                vec![
-                    Field {
-                        key: "name".into(),
-                        code: None,
-                        value: FieldValue::Text(name),
-                    },
-                    integer("write_layer".into(), group.write_layer),
-                    integer("protect".into(), group.protect),
-                ],
-            ));
-            for (layer, &protect) in group.protects.iter().enumerate() {
-                if protect != 0 {
-                    out.push(extension(
-                        "jww.layer".into(),
-                        format!("{at:X}-{layer:X}"),
-                        vec![integer("protect".into(), protect)],
-                    ));
-                }
-            }
-        }
-        self.drafts.extend(out);
+        self.drafts.extend(build_edit_state_drafts(self.header));
     }
 
     /// 16 のレイヤグループの 16 のレイヤ。番号はグループ × 16 + レイヤ + 1
     fn layers(&mut self) {
-        let header = &self.header;
-        for group in 0..16 {
-            for layer in 0..16 {
-                let at = group * 16 + layer;
-                let name = header
-                    .layer_names
-                    .get(at)
-                    .filter(|name| !name.is_empty())
-                    .cloned()
-                    .unwrap_or_else(|| format!("{group:X}-{layer:X}"));
-                let state = header.groups.get(group).map(|g| {
-                    let own = g.layers.get(layer).copied().unwrap_or_default();
-                    let visible = g.state != 0 && own != 0;
-                    LayerState {
-                        visible,
-                        printable: visible,
-                        editable: g.state >= 2 && own >= 2,
-                        frozen: false,
-                    }
-                });
-                self.out.layers.push(Layer {
-                    id: LayerId(at as u32 + 1),
-                    name,
-                    state,
-                    style: None,
-                    follows_placement: false,
-                    source: Ref::at_record(0),
-                    description: None,
-                });
-            }
-        }
+        self.out.layers = build_layers(self.header);
     }
 
     /// ブロックの定義（決定 0135）。番号を名前空間 `jww.block` のキーにし、中身は定義ごとの空間に、用紙の mm のまま置く。
     /// 名前と、使われているかは、拡張に残す
-    fn definition(&mut self, index: usize, record: &Record, source: Ref) -> Result<(), Fail> {
-        let mut r = Reader::new(self.file.bytes(0..record.span().end), record.body().start);
-        Base::read(&mut r, self.header.version)?;
-        let number = r.u32()?;
-        let referenced = r.u32()?;
-        r.skip(4)?;
-        let (unicode, name) = r.string()?;
-        let name = decode(unicode, name);
+    fn definition(
+        &mut self,
+        file: &JwwFile,
+        index: usize,
+        record: &Record,
+        source: Ref,
+    ) -> Result<(), Fail> {
+        let (number, referenced, name) =
+            read_block_definition(file.bytes(record.body()), self.header.version)?;
         let space = SpaceId(DEFINITION_SPACES + self.out.symbols.len() as u32);
         self.definitions.insert(index, self.out.symbols.len());
         self.out.symbols.push(SymbolDefinition {
@@ -674,9 +605,9 @@ impl Lifter<'_> {
         Ok(())
     }
 
-    fn entity(&mut self, record: &Record, source: Ref, cx: &mut Cx) {
-        let name = self.file.kind_name(record);
-        let mut r = Reader::new(self.file.bytes(0..record.span().end), record.body().start);
+    fn entity(&mut self, file: &JwwFile, record: &Record, source: Ref, cx: &mut Cx) {
+        let name = file.kind_name(record);
+        let mut r = Reader::new(file.bytes(0..record.span().end), record.body().start);
         let version = self.header.version;
         let Ok(mut base) = Base::read(&mut r, version) else {
             invalid(cx, name, source);
@@ -969,54 +900,9 @@ impl Lifter<'_> {
         if let Some(id) = self.line_types.get(&code) {
             return *id;
         }
-        let id = LineTypeId(u32::from(code));
-        let header = &self.header;
-        let (name, pattern) = match code {
-            1 => (None, Some(Vec::new())),
-            2..=9 => {
-                let at = usize::from(code - 2);
-                let read = header.patterns.get(at).copied().and_then(bit_pattern);
-                (
-                    None,
-                    read.or_else(|| DEFAULT_DASHES.get(at).map(|d| dashes(d))),
-                )
-            }
-            16..=19 => (
-                None,
-                header
-                    .patterns
-                    .get(usize::from(code - 16) + 8)
-                    .copied()
-                    .and_then(bit_pattern),
-            ),
-            code if code >= SXF_LINE_TYPE => {
-                match header.sxf_line_types.get(usize::from(code - SXF_LINE_TYPE)) {
-                    Some((name, pattern)) => (
-                        Some(name.clone()).filter(|name| !name.is_empty()),
-                        pattern.clone(),
-                    ),
-                    None => (None, None),
-                }
-            }
-            // ランダム線の振れ幅は、線と間の列にできない
-            _ => (None, None),
-        };
-        let description = if RANDOM_LINES.contains(&code) {
-            "random"
-        } else {
-            ""
-        };
-        self.out.line_types.push(LineType {
-            id,
-            name: name.unwrap_or_else(|| code.to_string()),
-            definition: pattern.map(|pattern| LineTypeDefinition {
-                description: description.to_owned(),
-                pattern,
-                basis: PatternBasis::Paper,
-                marks: Vec::new(),
-            }),
-            source: Ref::at_record(0),
-        });
+        let item = make_line_type(self.header, code);
+        let id = item.id;
+        self.out.line_types.push(item);
         self.line_types.insert(code, id);
         id
     }
@@ -1506,7 +1392,7 @@ fn setting(content: &str) -> Option<(&str, &str)> {
     valid.then_some((key, value))
 }
 
-fn dropped(cx: &mut Cx, kind: &[u8], source: Ref) {
+pub(super) fn dropped(cx: &mut Cx, kind: &[u8], source: Ref) {
     cx.report(
         Diagnostic::new(codes::JWW_LIFT_DROPPED)
             .with("kind", String::from_utf8_lossy(kind).into_owned())
@@ -1514,10 +1400,280 @@ fn dropped(cx: &mut Cx, kind: &[u8], source: Ref) {
     );
 }
 
-fn invalid(cx: &mut Cx, kind: &[u8], source: Ref) {
+pub(super) fn invalid(cx: &mut Cx, kind: &[u8], source: Ref) {
     cx.report(
         Diagnostic::new(codes::JWW_LIFT_INVALID)
             .with("kind", String::from_utf8_lossy(kind).into_owned())
             .at(source),
     );
+}
+
+/// 書き込むグループとレイヤ・保護・グループの名前から、文書に付く拡張を組み立てる
+pub(super) fn build_edit_state_drafts(header: &Header) -> Vec<Draft> {
+    if header.groups.is_empty() {
+        return Vec::new();
+    }
+    let integer = |key, value: u32| Field {
+        key,
+        code: None,
+        value: FieldValue::Integer(i64::from(value)),
+    };
+    let extension = |namespace, name, fields| Draft {
+        namespace,
+        name,
+        version: Some(header.version.to_string()),
+        schema: SCHEMA,
+        at: Position::Document,
+        fields,
+        source: Ref::at_record(0),
+    };
+    let mut out = vec![extension(
+        "jww.edit".into(),
+        String::new(),
+        vec![integer("write_group".into(), header.write_group)],
+    )];
+    for (at, group) in header.groups.iter().enumerate() {
+        let name = header.group_names.get(at).cloned().unwrap_or_default();
+        out.push(extension(
+            "jww.group".into(),
+            format!("{at:X}"),
+            vec![
+                Field {
+                    key: "name".into(),
+                    code: None,
+                    value: FieldValue::Text(name),
+                },
+                integer("write_layer".into(), group.write_layer),
+                integer("protect".into(), group.protect),
+            ],
+        ));
+        for (layer, &protect) in group.protects.iter().enumerate() {
+            if protect != 0 {
+                out.push(extension(
+                    "jww.layer".into(),
+                    format!("{at:X}-{layer:X}"),
+                    vec![integer("protect".into(), protect)],
+                ));
+            }
+        }
+    }
+    out
+}
+
+/// 16 のレイヤグループの 16 のレイヤ（番号はグループ × 16 + レイヤ + 1）を組み立てる
+pub(super) fn build_layers(header: &Header) -> Vec<Layer> {
+    let mut out = Vec::with_capacity(256);
+    for group in 0..16 {
+        for layer in 0..16 {
+            let at = group * 16 + layer;
+            let name = header
+                .layer_names
+                .get(at)
+                .filter(|name| !name.is_empty())
+                .cloned()
+                .unwrap_or_else(|| format!("{group:X}-{layer:X}"));
+            let state = header.groups.get(group).map(|g| {
+                let own = g.layers.get(layer).copied().unwrap_or_default();
+                let visible = g.state != 0 && own != 0;
+                LayerState {
+                    visible,
+                    printable: visible,
+                    editable: g.state >= 2 && own >= 2,
+                    frozen: false,
+                }
+            });
+            out.push(Layer {
+                id: LayerId(at as u32 + 1),
+                name,
+                state,
+                style: None,
+                follows_placement: false,
+                source: Ref::at_record(0),
+                description: None,
+            });
+        }
+    }
+    out
+}
+
+/// ブロック定義レコードの本体から（番号・参照フラグ・名前）を読む
+pub(super) fn read_block_definition(body: &[u8], version: u32) -> Result<(u32, u32, String), Fail> {
+    let mut r = Reader::new(body, 0);
+    Base::read(&mut r, version)?;
+    let number = r.u32()?;
+    let referenced = r.u32()?;
+    r.skip(4)?;
+    let (unicode, name) = r.string()?;
+    Ok((number, referenced, decode(unicode, name)))
+}
+
+/// 線種の番号（1 以上に丸め済み）から [`LineType`] を組み立てる
+pub(super) fn make_line_type(header: &Header, code: u8) -> LineType {
+    let code = code.max(1);
+    let id = LineTypeId(u32::from(code));
+    let (name, pattern) = match code {
+        1 => (None, Some(Vec::new())),
+        2..=9 => {
+            let at = usize::from(code - 2);
+            let read = header.patterns.get(at).copied().and_then(bit_pattern);
+            (
+                None,
+                read.or_else(|| DEFAULT_DASHES.get(at).map(|d| dashes(d))),
+            )
+        }
+        16..=19 => (
+            None,
+            header
+                .patterns
+                .get(usize::from(code - 16) + 8)
+                .copied()
+                .and_then(bit_pattern),
+        ),
+        code if code >= SXF_LINE_TYPE => {
+            match header.sxf_line_types.get(usize::from(code - SXF_LINE_TYPE)) {
+                Some((name, pattern)) => (
+                    Some(name.clone()).filter(|name| !name.is_empty()),
+                    pattern.clone(),
+                ),
+                None => (None, None),
+            }
+        }
+        // ランダム線の振れ幅は、線と間の列にできない
+        _ => (None, None),
+    };
+    let description = if RANDOM_LINES.contains(&code) {
+        "random"
+    } else {
+        ""
+    };
+    LineType {
+        id,
+        name: name.unwrap_or_else(|| code.to_string()),
+        definition: pattern.map(|pattern| LineTypeDefinition {
+            description: description.to_owned(),
+            pattern,
+            basis: PatternBasis::Paper,
+            marks: Vec::new(),
+        }),
+        source: Ref::at_record(0),
+    }
+}
+
+/// 単一の図形レコードを変換した結果
+#[expect(clippy::large_enum_variant)]
+pub(super) enum SingleEntity {
+    /// 図面要素と要素拡張（`jww.entity`・`jww.dimension`・`jww.moji`・`jww.image`）、および同梱画像の基底レコード番号
+    Element {
+        element: Element<ModelPoint>,
+        own: Vec<(&'static str, Vec<Field>)>,
+        embedded_image: Option<usize>,
+    },
+    /// 要素は作らず文書に付く拡張（`jww.setting`・`jww.control`）だけを作る
+    DocumentDraft {
+        namespace: &'static str,
+        name: String,
+        fields: Vec<Field>,
+    },
+    /// 未対応のクラス（`JWW_LIFT_DROPPED`）
+    Dropped,
+    /// 不正な値（`JWW_LIFT_INVALID`）
+    Invalid,
+}
+
+/// 1 件の図形レコードの本体バイト列を変換する
+pub(super) fn lift_single_entity(
+    body: &[u8],
+    kind_name: &[u8],
+    header: &Header,
+    definition_space: Option<SpaceId>,
+    images: &BTreeMap<String, usize>,
+    source: &Ref,
+) -> SingleEntity {
+    let mut r = Reader::new(body, 0);
+    let Ok(mut base) = Base::read(&mut r, header.version) else {
+        return SingleEntity::Invalid;
+    };
+    base.at = match definition_space {
+        Some(space) => At { space, scale: 1.0 },
+        None => At {
+            space: SpaceId(base.group as u32),
+            scale: header.scale(base.group),
+        },
+    };
+    if !(1.0 / base.at.scale).is_finite() {
+        return SingleEntity::Invalid;
+    }
+    let mut lifter = Lifter {
+        header,
+        line_types: BTreeMap::new(),
+        groups: BTreeMap::new(),
+        definitions: BTreeMap::new(),
+        images,
+        own: Vec::new(),
+        drafts: Vec::new(),
+        out: Drawing2D::default(),
+    };
+    let lifted = match kind_name {
+        b"CDataSen" => lifter.line(&mut r, &base),
+        b"CDataEnko" => lifter.arc(&mut r, &base),
+        b"CDataTen" => lifter.point(&mut r, &base),
+        b"CDataMoji" => lifter.text(&mut r, &base, source),
+        b"CDataSolid" => lifter.solid(&mut r, &base),
+        b"CDataBlock" => lifter.insert(&mut r, &base),
+        b"CDataSunpou" => lifter.dimension(&mut r, &base),
+        _ => return SingleEntity::Dropped,
+    };
+    match lifted {
+        Err(_) => SingleEntity::Invalid,
+        Ok(None) => match lifter.drafts.pop() {
+            Some(draft) => SingleEntity::DocumentDraft {
+                namespace: if draft.namespace == "jww.setting" {
+                    "jww.setting"
+                } else {
+                    "jww.control"
+                },
+                name: draft.name,
+                fields: draft.fields,
+            },
+            None => SingleEntity::Invalid,
+        },
+        Ok(Some((shape, style))) => {
+            if base.curve != 0 || base.flag != 0 {
+                lifter.own.push((
+                    "jww.entity",
+                    vec![
+                        Field {
+                            key: "curve".into(),
+                            code: None,
+                            value: FieldValue::Integer(i64::from(base.curve)),
+                        },
+                        Field {
+                            key: "flag".into(),
+                            code: None,
+                            value: FieldValue::Integer(i64::from(base.flag)),
+                        },
+                    ],
+                ));
+            }
+            let embedded_image = match &shape {
+                Shape::Underlay(u) => u.resource.path.strip_prefix("%temp%").and_then(|name| {
+                    images
+                        .get(name)
+                        .or_else(|| images.get(&format!("{name}.gz")))
+                        .copied()
+                }),
+                _ => None,
+            };
+            SingleEntity::Element {
+                element: Element {
+                    source: source.clone(),
+                    layer: base.layer(),
+                    style,
+                    shape,
+                },
+                own: lifter.own,
+                embedded_image,
+            }
+        }
+    }
 }

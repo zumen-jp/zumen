@@ -7,6 +7,9 @@
 mod drawing;
 mod parse;
 
+#[cfg(feature = "drawing")]
+pub use drawing::live::JwwLive;
+
 use core::ops::Range;
 
 use zumen_base::{Kind, Ref};
@@ -133,6 +136,11 @@ impl JwwFile {
     /// 元のバイト列の範囲。外なら空
     pub fn bytes(&self, range: Range<usize>) -> &[u8] {
         self.src.get(range).unwrap_or_default()
+    }
+
+    #[cfg(feature = "drawing")]
+    pub(crate) fn as_bytes(&self) -> &[u8] {
+        &self.src
     }
 
     /// レコードの種類の名前。図形とブロックの定義はクラスの名前

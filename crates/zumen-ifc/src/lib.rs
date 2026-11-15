@@ -25,6 +25,8 @@ mod edit;
 mod express;
 #[cfg(feature = "ids")]
 mod ids;
+#[cfg(feature = "building")]
+mod live;
 mod zip;
 
 #[cfg(feature = "building")]
@@ -38,6 +40,10 @@ pub use edit::{Applied, Edit, NewLiteral, NewValue, RootAttribute, apply};
 pub use express::{Express, Findings, check, check_range};
 #[cfg(feature = "ids")]
 pub use ids::IdsLookup;
+#[cfg(feature = "ids")]
+pub use live::LiveIdsLookup;
+#[cfg(feature = "building")]
+pub use live::{IfcElementRow, IfcLive};
 pub use zip::{IfcZip, IfcZipFile};
 
 /// IFC-SPF のコーデック
@@ -70,7 +76,7 @@ impl Inverse {
 }
 
 /// IFC の L1 の読みの規則。SXF のフィーチャのコメントはない
-const DIALECT: Dialect = Dialect {
+pub(crate) const DIALECT: Dialect = Dialect {
     record_invalid: codes::IFC_RECORD_INVALID,
     file_invalid: codes::IFC_FILE_INVALID,
     features: &[],
@@ -85,6 +91,11 @@ impl IfcFile {
     #[cfg(feature = "building")]
     pub(crate) fn source(&self) -> &[u8] {
         &self.src
+    }
+
+    #[cfg(feature = "building")]
+    pub(crate) fn into_parts(self) -> (Vec<u8>, Vec<Record>, Range<usize>, BTreeMap<u64, usize>) {
+        (self.src, self.records, self.schema, self.index)
     }
 
     /// 元のバイト列の範囲。外なら空

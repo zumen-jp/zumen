@@ -13,6 +13,7 @@
 //! - [`dirty`]: 64 要素の塊ごとに変更範囲を追跡する [`DirtyColumn`]
 //! - [`display`]: 差分で更新する 2D の表示のバッファー [`Display`] と 13 列の変更追跡 [`DisplayDirty`]
 //! - [`dep`]: 寸法・ハッチング・属性・開口などの要素間の依存辺をたどる [`DepGraph`]
+//! - [`rank`]: レコード番号ベースの形式向けに `rank` と `select` を高速に引く [`RankBitset`]
 
 pub mod cow;
 pub mod dep;
@@ -20,6 +21,7 @@ pub mod dirty;
 pub mod display;
 pub mod handle;
 pub mod paged;
+pub mod rank;
 pub mod source;
 pub mod spatial;
 pub mod table;
@@ -31,6 +33,7 @@ pub use dirty::{DIRTY_BLOCK, DirtyColumn};
 pub use display::{Display, DisplayDirty, DisplayWriter, NO_OWNER, RowBuffers, Slot};
 pub use handle::{HandleBefore, HandleIndex, Revision, RowId};
 pub use paged::{BytePool, Iter, Paged, TextSpan};
+pub use rank::RankBitset;
 pub use source::{
     CompressedPart, PageReader, RecordSlice, SourceBytes, compress_pages_slice,
     compress_pages_slice_with_cx,

@@ -927,6 +927,7 @@ dependencies = [
  "zumen-ids",
  "zumen-json",
  "zumen-landxml",
+ "zumen-live",
  "zumen-sdk",
  "zumen-step",
  "zumen-sxf",
@@ -945,6 +946,8 @@ dependencies = [
  "libm",
  "zumen-base",
  "zumen-drawing",
+ "zumen-geom2d",
+ "zumen-live",
  "zumen-sdk",
 ]
 
@@ -1109,6 +1112,8 @@ dependencies = [
  "libm",
  "zumen-base",
  "zumen-drawing",
+ "zumen-geom2d",
+ "zumen-live",
  "zumen-sdk",
  "zumen-step",
  "zumen-xml",

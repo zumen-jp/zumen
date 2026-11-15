@@ -16,6 +16,7 @@ zumen-sdk = { version = "0.2.0", path = "../zumen-sdk" }
 zumen-step = { version = "0.2.0", path = "../zumen-step" }
 zumen-zip = { version = "0.2.0", path = "../zumen-zip" }
 zumen-building = { version = "0.2.0", path = "../zumen-building", optional = true }
+zumen-live = { version = "0.2.0", path = "../zumen-live", optional = true }
 zumen-ids = { version = "0.2.0", path = "../zumen-ids", optional = true }
 zumen-civil = { version = "0.2.0", path = "../zumen-civil", optional = true }
 zumen-crs = { version = "0.2.0", path = "../zumen-crs", optional = true }
@@ -24,8 +25,8 @@ libm = { version = "0.2.16", default-features = false, optional = true }
 
 [features]
 default = ["building", "ids", "civil"]
-# 建物モデル（L2）への変換。L1 だけを使うなら外せる
-building = ["dep:zumen-building", "dep:libm"]
+# 建物モデル（L2）への変換と常駐の文書エンジン。L1 だけを使うなら外せる
+building = ["dep:zumen-building", "dep:zumen-live", "dep:libm"]
 # IDS の照合に、L1 の属性を EXPRESS の名前で渡す（決定 0217）
 ids = ["building", "dep:zumen-ids"]
 # IFC4.3 の線形を、土木の領域モデル（L2、決定 0230）に移す

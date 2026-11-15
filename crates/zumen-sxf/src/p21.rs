@@ -90,6 +90,7 @@ pub(crate) fn records(file: &SxfFile, cx: &mut Cx) -> Result<Vec<FeatureRecord>,
 }
 
 /// 表のコードを持つ実体。書き戻しが、コードから実体を引くのに使う
+#[derive(Clone, Debug)]
 pub(crate) struct Codes {
     /// レイヤのコード（1 から）の順の、PRESENTATION_LAYER_ASSIGNMENT の番号
     pub(crate) layers: Vec<u64>,
@@ -97,6 +98,43 @@ pub(crate) struct Codes {
     pub(crate) colors: BTreeMap<u64, i64>,
     /// 線種の実体の番号から、線種のコード
     pub(crate) line_types: BTreeMap<u64, i64>,
+}
+
+/// 単一の表記実体（`occ_id`）とその参照先だけを持つ小さな [`SxfFile`] から、その要素の [`FeatureRecord`] を組む
+pub(crate) fn single_occurrence_feature(
+    mini_file: &SxfFile,
+    occ_id: u64,
+    layer_code: i64,
+    codes: &Codes,
+    user_widths: &[f64],
+    record_index: usize,
+    cx: &mut Cx,
+) -> Result<Option<FeatureRecord>, Error> {
+    let mut builder = Builder::new(mini_file, cx)?;
+    builder.colors = codes.colors.clone();
+    builder.line_types = codes.line_types.clone();
+    builder.widths = user_widths.to_vec();
+    match usize::try_from(occ_id)
+        .ok()
+        .and_then(|at| builder.layer_dense.get_mut(at))
+    {
+        Some(slot) => *slot = layer_code,
+        None => {
+            builder.layer_sparse.insert(occ_id, layer_code);
+        }
+    }
+    let Some(occurrence) = builder.instances.get(&occ_id) else {
+        return Ok(None);
+    };
+    builder.item(occ_id, occurrence);
+    let mut found = builder
+        .out
+        .into_iter()
+        .rfind(|r| r.name != "width" && !r.name.is_empty());
+    if let Some(rec) = &mut found {
+        rec.record = record_index;
+    }
+    Ok(found)
 }
 
 /// フィーチャのレコードへの組み直しと、表のコードの集計を 1 回の走査で行う

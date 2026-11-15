@@ -23,11 +23,12 @@ use crate::saf::AttributeFile;
 use crate::{Mode, Quote, SfcRecord, SxfFile, Value, p21};
 
 mod apply;
+pub mod live;
 
 /// 形式固有の情報の値の型の契約のバージョン。どの `sxf.*` の名前空間も同じバージョンにする（決定 0115・0156・0157）
 const SCHEMA: u32 = 2;
 
-const SHEET: SheetId = SheetId(0);
+pub(crate) const SHEET: SheetId = SheetId(0);
 
 /// 既定義線種のコード 1〜15 の名前（SXF の共通既定義要素の表）
 pub(crate) const LINE_TYPES: [&str; 15] = [
@@ -148,7 +149,7 @@ pub(crate) struct FeatureRecord {
     pub(crate) args: Vec<Arg>,
 }
 
-fn sfc_records(file: &SxfFile) -> Vec<FeatureRecord> {
+pub(crate) fn sfc_records(file: &SxfFile) -> Vec<FeatureRecord> {
     file.records()
         .iter()
         .enumerate()
@@ -425,6 +426,160 @@ struct Lifter<'f> {
     attributes: Option<&'f AttributeFile>,
 }
 
+/// 文書エンジンが保持する表の定義情報
+#[derive(Clone)]
+pub(crate) struct LifterTables {
+    pub(crate) defined_layers: usize,
+    pub(crate) base_layers: Vec<Layer>,
+    pub(crate) base_line_types: Vec<LineType>,
+    /// 空の複合曲線など、要素に現れないまま表に入った既定義線種
+    pub(crate) extra_line_types: Vec<LineType>,
+    pub(crate) colors: Vec<Option<[u8; 3]>>,
+    pub(crate) widths: Vec<Option<f64>>,
+    pub(crate) fonts: Vec<String>,
+}
+
+/// 画像の作図グループ（`$$RASTER$$` など）の枠と構成要素
+#[derive(Clone)]
+pub(crate) struct LiveRasterGroup {
+    pub(crate) path: String,
+    pub(crate) definition: Ref,
+    /// グループ内のフィーチャのレコード番号（並び順）
+    pub(crate) members: Vec<usize>,
+    /// 範囲の枠になった折線のレコード番号
+    pub(crate) outline_record: Option<usize>,
+}
+
+/// 文書エンジンの初期構築用に、変換途中の表と未確定の拡張も返す出力
+pub(crate) struct LiveLiftOutput {
+    pub(crate) drawing: Drawing2D,
+    pub(crate) tables: LifterTables,
+    pub(crate) raw_drafts: Vec<Draft>,
+    pub(crate) raster_groups: Vec<LiveRasterGroup>,
+}
+
+pub(crate) fn lift_for_live(
+    file: &SxfFile,
+    records: &[FeatureRecord],
+    attributes: Option<&AttributeFile>,
+    cx: &mut Cx,
+) -> Result<LiveLiftOutput, Error> {
+    let mut lifter = Lifter::new(records, file);
+    lifter.attributes = attributes;
+    lifter.run_with_meta(cx)
+}
+
+pub(crate) fn lift_single_paper(
+    tables: &LifterTables,
+    instance: Option<u64>,
+    record: &FeatureRecord,
+    raster: Option<(&str, &Ref)>,
+    cx: &mut Cx,
+) -> Result<Option<Element<PaperPoint>>, Error> {
+    let feature = Feature {
+        record: record.record,
+        instance,
+        name: &record.name,
+        kind: &record.kind,
+        args: &record.args,
+    };
+    let mut lifter = Lifter {
+        features: vec![feature],
+        layers: Vec::new(),
+        defined_layers: tables.defined_layers,
+        line_types: tables.base_line_types.clone(),
+        colors: tables.colors.clone(),
+        widths: tables.widths.clone(),
+        fonts: tables.fonts.clone(),
+        raster: raster.map(|(path, def)| Raster {
+            outline: 0,
+            path: path.to_owned(),
+            definition: def.clone(),
+        }),
+        definitions: BTreeMap::new(),
+        composites: Vec::new(),
+        attributes: None,
+    };
+    let mut out = Out::default();
+    lifter.members(&[0], &OnSheet, &mut out, &mut Vec::new(), cx)?;
+    Ok(out.paper.pop())
+}
+
+pub(crate) fn lift_single_model(
+    tables: &LifterTables,
+    space: SpaceId,
+    instance: Option<u64>,
+    record: &FeatureRecord,
+    raster: Option<(&str, &Ref)>,
+    cx: &mut Cx,
+) -> Result<Option<Element<ModelPoint>>, Error> {
+    let feature = Feature {
+        record: record.record,
+        instance,
+        name: &record.name,
+        kind: &record.kind,
+        args: &record.args,
+    };
+    let mut lifter = Lifter {
+        features: vec![feature],
+        layers: Vec::new(),
+        defined_layers: tables.defined_layers,
+        line_types: tables.base_line_types.clone(),
+        colors: tables.colors.clone(),
+        widths: tables.widths.clone(),
+        fonts: tables.fonts.clone(),
+        raster: raster.map(|(path, def)| Raster {
+            outline: 0,
+            path: path.to_owned(),
+            definition: def.clone(),
+        }),
+        definitions: BTreeMap::new(),
+        composites: Vec::new(),
+        attributes: None,
+    };
+    let mut out = Out::default();
+    lifter.members(&[0], &InSpace(space), &mut out, &mut Vec::new(), cx)?;
+    Ok(out.model.pop())
+}
+
+/// 要素が参照する未定義レイヤと既定義・未定義線種を、`Lifter::run` と同じ順で表に補う
+pub(crate) fn ensure_element_tables(
+    defined_layers: usize,
+    layers: &mut Vec<Layer>,
+    line_types: &mut Vec<LineType>,
+    layer_id: LayerId,
+    style: &Style,
+) {
+    let code = i64::from(layer_id.0);
+    let defined = code >= 1 && usize::try_from(code).is_ok_and(|c| c <= defined_layers);
+    if !defined && !layers.iter().any(|l| l.id == layer_id) {
+        layers.push(Layer {
+            id: layer_id,
+            name: code.to_string(),
+            state: None,
+            style: None,
+            follows_placement: false,
+            source: Ref::default(),
+            description: None,
+        });
+    }
+    if let Inherit::Own(lt_id) = style.line_type
+        && !line_types.iter().any(|lt| lt.id == lt_id)
+    {
+        let lt_code = i64::from(lt_id.0);
+        let name = usize::try_from(lt_code - 1)
+            .ok()
+            .and_then(|at| LINE_TYPES.get(at))
+            .map_or_else(|| lt_code.to_string(), |s| (*s).to_owned());
+        line_types.push(LineType {
+            id: lt_id,
+            name,
+            definition: None,
+            source: Ref::default(),
+        });
+    }
+}
+
 impl<'f> Lifter<'f> {
     fn new(records: &'f [FeatureRecord], file: &SxfFile) -> Self {
         let features = records
@@ -455,7 +610,11 @@ impl<'f> Lifter<'f> {
         }
     }
 
-    fn run(mut self, cx: &mut Cx) -> Result<Drawing2D, Error> {
+    fn run(self, cx: &mut Cx) -> Result<Drawing2D, Error> {
+        Ok(self.run_with_meta(cx)?.drawing)
+    }
+
+    fn run_with_meta(mut self, cx: &mut Cx) -> Result<LiveLiftOutput, Error> {
         let mut extensions = Vec::new();
         let mut title_blocks = Vec::new();
         let mut size = None;
@@ -525,6 +684,42 @@ impl<'f> Lifter<'f> {
             sheet_members.append(&mut pending);
         }
 
+        let base_layers = self.layers.clone();
+        let base_line_types = self.line_types.clone();
+        let mut raster_groups = Vec::new();
+        for (name, definition) in &self.definitions {
+            if definition.flag == 3
+                && let Some(path) = raster_path(name)
+            {
+                let outline_record = definition
+                    .members
+                    .iter()
+                    .copied()
+                    .find(|index| {
+                        self.features.get(*index).is_some_and(|feature| {
+                            let args = self.args(*feature);
+                            feature.is(b"polyline")
+                                && args
+                                    .nums(5)
+                                    .zip(args.nums(6))
+                                    .is_some_and(|(xs, ys)| xs.len() >= 4 && xs.len() == ys.len())
+                        })
+                    })
+                    .and_then(|idx| self.features.get(idx).map(|f| f.record));
+                let member_records = definition
+                    .members
+                    .iter()
+                    .filter_map(|idx| self.features.get(*idx).map(|f| f.record))
+                    .collect();
+                raster_groups.push(LiveRasterGroup {
+                    path,
+                    definition: definition.source.clone(),
+                    members: member_records,
+                    outline_record,
+                });
+            }
+        }
+
         let mut out = Out::default();
         let mut spaces = Vec::new();
         let mut symbols = Vec::new();
@@ -568,9 +763,47 @@ impl<'f> Lifter<'f> {
         }
         self.members(&sheet_members, &OnSheet, &mut out, &mut Vec::new(), cx)?;
         extensions.append(&mut out.extensions);
+        let raw_drafts = extensions.clone();
         if let Some(file) = self.attributes {
             bind(file, &mut extensions, cx);
         }
+        let mut referenced_lts = Vec::new();
+        for sp in &spaces {
+            for e in &sp.elements {
+                if let Inherit::Own(lt) = e.style.line_type {
+                    referenced_lts.push(lt);
+                }
+            }
+        }
+        for sym in &symbols {
+            for e in &sym.space.elements {
+                if let Inherit::Own(lt) = e.style.line_type {
+                    referenced_lts.push(lt);
+                }
+            }
+        }
+        for e in &out.paper {
+            if let Inherit::Own(lt) = e.style.line_type {
+                referenced_lts.push(lt);
+            }
+        }
+        let extra_line_types = self
+            .line_types
+            .iter()
+            .filter(|lt| {
+                !base_line_types.iter().any(|b| b.id == lt.id) && !referenced_lts.contains(&lt.id)
+            })
+            .cloned()
+            .collect();
+        let tables = LifterTables {
+            defined_layers: self.defined_layers,
+            base_layers,
+            base_line_types,
+            extra_line_types,
+            colors: self.colors,
+            widths: self.widths,
+            fonts: self.fonts,
+        };
         let mut drawing = Drawing2D {
             spaces,
             sheets: vec![Sheet {
@@ -593,7 +826,12 @@ impl<'f> Lifter<'f> {
             cx.report(stop.to_diagnostic());
             Error::Stopped(stop)
         })?;
-        Ok(drawing)
+        Ok(LiveLiftOutput {
+            drawing,
+            tables,
+            raw_drafts,
+            raster_groups,
+        })
     }
 
     fn features_source(&self, indices: &[usize]) -> Ref {
@@ -2291,7 +2529,7 @@ fn attributes<C: Place>(name: &str, from: usize, at: &C, out: &mut Out, source: 
 /// 属性ファイル用の属性付加機構（`$$ATRF$$図形識別番号$$属性ファイル名`、附属書の属性付加機構編の 2-4-1）の
 /// `sxf.attribute` の拡張が付いた要素に、属性ファイルの同じ図形識別番号の図形の属性を、属性ごとに `sxf.saf` の
 /// 拡張で付ける（決定 0249）。図形のない番号と、要素のない図形は診断する
-fn bind(file: &AttributeFile, extensions: &mut Vec<Draft>, cx: &mut Cx) {
+pub(crate) fn bind(file: &AttributeFile, extensions: &mut Vec<Draft>, cx: &mut Cx) {
     let mut bound = vec![false; file.figures.len()];
     let mut missing = Vec::new();
     let mut drafts = Vec::new();

@@ -114,7 +114,7 @@ pub fn apply(file: &IfcFile, edits: &[Edit], seed: &[u8], cx: &mut Cx) -> Result
 
 /// 書き直す値。参照と並びは中を見られるように持ち、ほかは書いたバイト列で持つ
 #[derive(Clone, Debug, PartialEq)]
-enum Item {
+pub(crate) enum Item {
     Ref(u64),
     List(Vec<Item>),
     Raw(Vec<u8>),
@@ -122,19 +122,109 @@ enum Item {
 
 /// 書き直すインスタンス。名前と引数
 #[derive(Clone, Debug, PartialEq)]
-struct Stmt {
-    name: Vec<u8>,
-    args: Vec<Item>,
+pub(crate) struct Stmt {
+    pub(crate) name: Vec<u8>,
+    pub(crate) args: Vec<Item>,
 }
 
 impl Stmt {
-    fn arg(&self, at: usize) -> Option<&Item> {
+    pub(crate) fn arg(&self, at: usize) -> Option<&Item> {
         self.args.get(at.checked_sub(1)?)
     }
 
-    fn set(&mut self, at: usize, item: Item) {
+    pub(crate) fn set(&mut self, at: usize, item: Item) {
         if let Some(slot) = at.checked_sub(1).and_then(|at| self.args.get_mut(at)) {
             *slot = item;
+        }
+    }
+}
+
+pub(crate) fn stmt_from_slice(record: &crate::Record, base: usize, slice: &[u8]) -> Option<Stmt> {
+    if record.form() != Form::Entity {
+        return None;
+    }
+    let part = record.parts().first()?;
+    Some(Stmt {
+        name: slice_at(base, slice, part.name()).to_ascii_uppercase(),
+        args: part
+            .args()
+            .iter()
+            .map(|v| item_from_slice(v, base, slice))
+            .collect(),
+    })
+}
+
+fn slice_at(base: usize, slice: &[u8], range: core::ops::Range<usize>) -> &[u8] {
+    let Some(start) = range.start.checked_sub(base) else {
+        return &[];
+    };
+    let Some(end) = range.end.checked_sub(base) else {
+        return &[];
+    };
+    slice.get(start..end).unwrap_or_default()
+}
+
+fn item_from_slice(value: &Value, base: usize, slice: &[u8]) -> Item {
+    match value {
+        Value::Ref(id) => Item::Ref(*id),
+        Value::List(values) => Item::List(
+            values
+                .iter()
+                .map(|v| item_from_slice(v, base, slice))
+                .collect(),
+        ),
+        _ => {
+            let mut out = Vec::new();
+            raw_from_slice(value, base, slice, &mut out);
+            Item::Raw(out)
+        }
+    }
+}
+
+fn raw_from_slice(value: &Value, base: usize, slice: &[u8], out: &mut Vec<u8>) {
+    match value {
+        Value::Null => out.push(b'$'),
+        Value::Derived => out.push(b'*'),
+        Value::Ref(id) => out.extend_from_slice(format!("#{id}").as_bytes()),
+        Value::Enum(range) => {
+            out.push(b'.');
+            out.extend_from_slice(slice_at(base, slice, range.clone()));
+            out.push(b'.');
+        }
+        // IFC の文字列は `'…'` だけ。フィーチャのコメントの囲みは、IFC の L1 では読まない
+        Value::Text { raw, .. } => {
+            out.push(b'\'');
+            out.extend_from_slice(slice_at(base, slice, raw.clone()));
+            out.push(b'\'');
+        }
+        Value::Number(range) | Value::Token(range) => {
+            out.extend_from_slice(slice_at(base, slice, range.clone()));
+        }
+        Value::Binary(range) => {
+            out.push(b'"');
+            out.extend_from_slice(slice_at(base, slice, range.clone()));
+            out.push(b'"');
+        }
+        Value::Typed(part) => {
+            out.extend_from_slice(slice_at(base, slice, part.name()));
+            out.push(b'(');
+            for (at, arg) in part.args().iter().enumerate() {
+                if at > 0 {
+                    out.push(b',');
+                }
+                raw_from_slice(arg, base, slice, out);
+            }
+            out.push(b')');
+        }
+        Value::List(values) => {
+            out.push(b'(');
+            for (at, value) in values.iter().enumerate() {
+                if at > 0 {
+                    out.push(b',');
+                }
+                raw_from_slice(value, base, slice, out);
+            }
+            out.push(b')');
         }
     }
 }
@@ -180,75 +270,7 @@ impl<'f> Draft<'f> {
             return Some(stmt.clone());
         }
         let record = self.file.instance(id)?;
-        if record.form() != Form::Entity {
-            return None;
-        }
-        let part = record.parts().first()?;
-        Some(Stmt {
-            name: self.file.bytes(part.name()).to_ascii_uppercase(),
-            args: part.args().iter().map(|v| self.item(v)).collect(),
-        })
-    }
-
-    fn item(&self, value: &Value) -> Item {
-        match value {
-            Value::Ref(id) => Item::Ref(*id),
-            Value::List(values) => Item::List(values.iter().map(|v| self.item(v)).collect()),
-            _ => {
-                let mut out = Vec::new();
-                self.raw(value, &mut out);
-                Item::Raw(out)
-            }
-        }
-    }
-
-    /// 元の値を、書いたとおりに書く
-    fn raw(&self, value: &Value, out: &mut Vec<u8>) {
-        match value {
-            Value::Null => out.push(b'$'),
-            Value::Derived => out.push(b'*'),
-            Value::Ref(id) => out.extend_from_slice(format!("#{id}").as_bytes()),
-            Value::Enum(range) => {
-                out.push(b'.');
-                out.extend_from_slice(self.file.bytes(range.clone()));
-                out.push(b'.');
-            }
-            // IFC の文字列は `'…'` だけ。フィーチャのコメントの囲みは、IFC の L1 では読まない
-            Value::Text { raw, .. } => {
-                out.push(b'\'');
-                out.extend_from_slice(self.file.bytes(raw.clone()));
-                out.push(b'\'');
-            }
-            Value::Number(range) | Value::Token(range) => {
-                out.extend_from_slice(self.file.bytes(range.clone()));
-            }
-            Value::Binary(range) => {
-                out.push(b'"');
-                out.extend_from_slice(self.file.bytes(range.clone()));
-                out.push(b'"');
-            }
-            Value::Typed(part) => {
-                out.extend_from_slice(self.file.bytes(part.name()));
-                out.push(b'(');
-                for (at, arg) in part.args().iter().enumerate() {
-                    if at > 0 {
-                        out.push(b',');
-                    }
-                    self.raw(arg, out);
-                }
-                out.push(b')');
-            }
-            Value::List(values) => {
-                out.push(b'(');
-                for (at, value) in values.iter().enumerate() {
-                    if at > 0 {
-                        out.push(b',');
-                    }
-                    self.raw(value, out);
-                }
-                out.push(b')');
-            }
-        }
+        stmt_from_slice(record, 0, self.file.source())
     }
 
     /// インスタンスの名前（`IFCWALL` など）
@@ -649,7 +671,7 @@ impl<'f> Draft<'f> {
     }
 }
 
-fn write_stmt(id: u64, stmt: &Stmt, out: &mut Vec<u8>) {
+pub(crate) fn write_stmt(id: u64, stmt: &Stmt, out: &mut Vec<u8>) {
     out.extend_from_slice(format!("#{id}=").as_bytes());
     out.extend_from_slice(&stmt.name);
     out.push(b'(');
@@ -679,7 +701,7 @@ fn write_item(item: &Item, out: &mut Vec<u8>) {
     }
 }
 
-fn refs_in(items: &[Item]) -> Vec<u64> {
+pub(crate) fn refs_in(items: &[Item]) -> Vec<u64> {
     let mut found = Vec::new();
     let mut stack: Vec<&Item> = items.iter().rev().collect();
     while let Some(item) = stack.pop() {
@@ -693,7 +715,7 @@ fn refs_in(items: &[Item]) -> Vec<u64> {
 }
 
 /// 参照の列か、1 つの参照
-fn refs_of(item: Option<&Item>) -> Vec<u64> {
+pub(crate) fn refs_of(item: Option<&Item>) -> Vec<u64> {
     match item {
         Some(Item::Ref(id)) => vec![*id],
         Some(Item::List(items)) => items
@@ -708,7 +730,7 @@ fn refs_of(item: Option<&Item>) -> Vec<u64> {
 }
 
 /// 参照 `from` を `to` に替えた値
-fn swap(item: Option<&Item>, from: u64, to: u64) -> Item {
+pub(crate) fn swap(item: Option<&Item>, from: u64, to: u64) -> Item {
     match item {
         Some(Item::Ref(id)) if *id == from => Item::Ref(to),
         Some(Item::List(items)) => Item::List(
@@ -725,7 +747,7 @@ fn swap(item: Option<&Item>, from: u64, to: u64) -> Item {
 }
 
 /// 文字列の値の中身。文字列でなければ `None`
-fn text_of(item: &Item) -> Option<String> {
+pub(crate) fn text_of(item: &Item) -> Option<String> {
     let Item::Raw(bytes) = item else {
         return None;
     };
@@ -735,7 +757,7 @@ fn text_of(item: &Item) -> Option<String> {
 
 /// 文字列を ISO 10303-21 の書き方にした値。`'` と `\` は重ね、印字できる ASCII の外は `\X2\…\X0\` か
 /// `\X4\…\X0\` にする
-fn text(value: &str) -> Item {
+pub(crate) fn text(value: &str) -> Item {
     let mut out = vec![b'\''];
     let mut wide: Vec<u32> = Vec::new();
     let flush = |wide: &mut Vec<u32>, out: &mut Vec<u8>| {
@@ -783,7 +805,7 @@ fn text(value: &str) -> Item {
 }
 
 /// 型を付けた値（`IFCLABEL('…')`）。型の名前か値が書けなければ `None`
-fn typed(value: &NewValue) -> Option<Vec<u8>> {
+pub(crate) fn typed(value: &NewValue) -> Option<Vec<u8>> {
     let name = value.type_name.as_bytes();
     let valid = name.first().is_some_and(u8::is_ascii_alphabetic)
         && name.iter().all(|b| b.is_ascii_alphanumeric() || *b == b'_');
@@ -818,7 +840,7 @@ fn typed(value: &NewValue) -> Option<Vec<u8>> {
 }
 
 /// 当てられない変更の診断
-fn unsupported(edit: &str, kind: &[u8]) -> Diagnostic {
+pub(crate) fn unsupported(edit: &str, kind: &[u8]) -> Diagnostic {
     Diagnostic::new(codes::CHANGE_EDIT_UNSUPPORTED)
         .with("edit", edit)
         .with("kind", String::from_utf8_lossy(kind).into_owned())

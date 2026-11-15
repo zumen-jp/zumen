@@ -26,6 +26,11 @@ impl IfcZipFile {
     pub fn ifc(&self) -> &IfcFile {
         &self.ifc
     }
+
+    #[cfg(feature = "building")]
+    pub(crate) fn into_parts(self) -> (Vec<u8>, String, IfcFile) {
+        (self.src, self.name, self.ifc)
+    }
 }
 
 /// レコードは中の IFC-SPF のもの。バイト範囲は、展開した IFC-SPF の中を指す

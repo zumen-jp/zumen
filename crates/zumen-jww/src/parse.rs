@@ -276,7 +276,7 @@ fn is_class_start(window: &[u8]) -> bool {
 }
 
 /// 知っているフィールドの大きさを足した、ヘッダーの終わり
-fn header_end(src: &[u8], version: u32) -> Result<usize, Fail> {
+pub(crate) fn header_end(src: &[u8], version: u32) -> Result<usize, Fail> {
     let mut r = Reader::new(src, 12);
     // メモ・用紙の大きさ・書き込むレイヤグループ・16 のレイヤグループ（148 バイトずつ）・全体の設定（156 バイト）
     r.cstring()?;

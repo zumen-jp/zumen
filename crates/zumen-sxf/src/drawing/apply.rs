@@ -15,7 +15,7 @@ use zumen_drawing::{
 };
 use zumen_sdk::{Apply, Codec, Cx, Error, Lift, quietly};
 
-mod p21;
+pub(super) mod p21;
 
 use super::{
     Args, FeatureRecord, LINE_TYPES, PREDEFINED_COLORS, USER_LINE_TYPE, USER_WIDTH, WIDTHS,
@@ -25,7 +25,7 @@ use crate::p21::records_and_codes as p21_records_and_codes;
 use crate::{Marker, Mode, Quote, SfcRecord, Sxf, SxfFile, Value};
 
 /// レイヤ・色・線種・線幅のコードを引数の 0〜3 に持ち、スタイルを変えられるフィーチャ
-const STYLED: [&str; 8] = [
+pub(super) const STYLED: [&str; 8] = [
     "line",
     "polyline",
     "circle",
@@ -37,13 +37,13 @@ const STYLED: [&str; 8] = [
 ];
 
 /// 形を書き直せ、足せるフィーチャ
-const SHAPED: [&str; 4] = ["line", "polyline", "circle", "arc"];
+pub(super) const SHAPED: [&str; 4] = ["line", "polyline", "circle", "arc"];
 
 /// 点マーカー。レイヤと色のコードだけを引数の 0〜1 に持つ。SFC（決定 0183）と P21（決定 0190）で書き直し、足す
-const MARKER: &str = "point_marker";
+pub(super) const MARKER: &str = "point_marker";
 
 /// 除けるフィーチャ。複合曲線と複合図形の定義・配置は、ほかのフィーチャが順の番号や名前で指すので除かない
-const REMOVABLE: [&str; 20] = [
+pub(super) const REMOVABLE: [&str; 20] = [
     "line",
     "polyline",
     "circle",
@@ -435,7 +435,7 @@ enum Expected {
 }
 /// 足す要素のうち、書いていない（レイヤかブロックに従う）ので書き戻せない色・線種・線幅のフィールドの名前。点マーカー
 /// （`marker`）は線種と線幅を持たないので、色だけを見る
-fn unset_field(style: &Style, marker: bool) -> Option<&'static str> {
+pub(super) fn unset_field(style: &Style, marker: bool) -> Option<&'static str> {
     if !matches!(style.color, Inherit::Own(_)) {
         return Some("color");
     }
@@ -449,7 +449,7 @@ fn unset_field(style: &Style, marker: bool) -> Option<&'static str> {
 }
 
 /// 当てられない変更の診断
-fn unsupported(format: &str, edit: &str, kind: &str) -> Diagnostic {
+pub(super) fn unsupported(format: &str, edit: &str, kind: &str) -> Diagnostic {
     Diagnostic::new(codes::CHANGE_EDIT_UNSUPPORTED)
         .with("edit", edit)
         .with("kind", kind)
@@ -457,7 +457,7 @@ fn unsupported(format: &str, edit: &str, kind: &str) -> Diagnostic {
 }
 
 /// 足す要素のフィーチャの種類
-fn kind_of(element: &Placed) -> &'static str {
+pub(super) fn kind_of(element: &Placed) -> &'static str {
     let shape = match element {
         Placed::Paper(element) => feature_name(&element.shape),
         Placed::Model(element) => feature_name(&element.shape),
@@ -872,7 +872,21 @@ impl<'a> Index<'a> {
     }
 }
 
-trait OnSheet {
+pub(super) fn placed_same(found: &Placed, expected: &Placed) -> bool {
+    match found {
+        Placed::Model(elem) => Any::Model(elem).same(expected),
+        Placed::Paper(elem) => Any::Paper(elem).same(expected),
+    }
+}
+
+pub(super) fn placed_near(found: &Placed, expected: &Placed) -> bool {
+    match found {
+        Placed::Model(elem) => Any::Model(elem).near(expected),
+        Placed::Paper(elem) => Any::Paper(elem).near(expected),
+    }
+}
+
+pub(super) trait OnSheet {
     fn shape_sheet(&self) -> zumen_drawing::SheetId;
 }
 
@@ -891,18 +905,33 @@ impl OnSheet for Element<PaperPoint> {
 }
 
 /// 表のコード。レイヤ・利用者定義線種は変換した図面モデルから、利用者定義色・線幅はフィーチャから数える
-struct Tables {
+#[derive(Clone)]
+pub(super) struct Tables {
     layers: BTreeSet<u32>,
     line_types: BTreeSet<u32>,
     /// 利用者定義色の RGB。コードは 17 から
     colors: Vec<Option<[u8; 3]>>,
     /// 利用者定義線幅（mm）。コードは 11 から
-    widths: Vec<Option<f64>>,
+    pub(super) widths: Vec<Option<f64>>,
 }
 
 impl Tables {
+    pub(super) fn from_live(
+        layers: BTreeSet<u32>,
+        line_types: BTreeSet<u32>,
+        colors: Vec<Option<[u8; 3]>>,
+        widths: Vec<Option<f64>>,
+    ) -> Self {
+        Self {
+            layers,
+            line_types,
+            colors,
+            widths,
+        }
+    }
+
     /// 利用者定義色と線幅を順に探す作業。変わらないフィールドは探さない。
-    fn style_work(&self, style: &Style, old: Option<&Style>) -> u64 {
+    pub(super) fn style_work(&self, style: &Style, old: Option<&Style>) -> u64 {
         let color = old.is_none_or(|old| old.color != style.color)
             && matches!(
                 style.color,
@@ -920,7 +949,11 @@ impl Tables {
         })
     }
 
-    fn new(records: &[FeatureRecord], drawing: &Drawing2D, cx: &mut Cx) -> Result<Self, Error> {
+    pub(super) fn new(
+        records: &[FeatureRecord],
+        drawing: &Drawing2D,
+        cx: &mut Cx,
+    ) -> Result<Self, Error> {
         let mut colors = Vec::new();
         let mut widths = Vec::new();
         for record in records {
@@ -955,12 +988,12 @@ impl Tables {
         })
     }
 
-    fn layer(&self, layer: LayerId) -> Option<i64> {
+    pub(super) fn layer(&self, layer: LayerId) -> Option<i64> {
         self.layers.contains(&layer.0).then_some(i64::from(layer.0))
     }
 
     /// 色のコードと、そのコードを読み直したときの色。利用者定義色は、RGB が合うときだけ
-    fn color(&self, color: Inherit<Color>) -> Option<(i64, Color)> {
+    pub(super) fn color(&self, color: Inherit<Color>) -> Option<(i64, Color)> {
         let Inherit::Own(color) = color else {
             return None;
         };
@@ -1000,7 +1033,7 @@ impl Tables {
         Some((code, read))
     }
 
-    fn line_type(&self, line_type: Inherit<LineTypeId>) -> Option<i64> {
+    pub(super) fn line_type(&self, line_type: Inherit<LineTypeId>) -> Option<i64> {
         let Inherit::Own(LineTypeId(code)) = line_type else {
             return None;
         };
@@ -1009,7 +1042,7 @@ impl Tables {
         (predefined || self.line_types.contains(&code)).then_some(i64::from(code))
     }
 
-    fn width(&self, weight: Inherit<LineWeight>) -> Option<i64> {
+    pub(super) fn width(&self, weight: Inherit<LineWeight>) -> Option<i64> {
         let Inherit::Own(LineWeight::Width(PaperLength(mm))) = weight else {
             return None;
         };
@@ -1022,7 +1055,7 @@ impl Tables {
 }
 
 /// 複合曲線がまとめるフィーチャのレコードの番号。変換（`Lifter::run`）と同じ順で、前の定義の後のフィーチャを数える
-fn grouped(records: &[FeatureRecord], cx: &mut Cx) -> Result<BTreeSet<usize>, Error> {
+pub(super) fn grouped(records: &[FeatureRecord], cx: &mut Cx) -> Result<BTreeSet<usize>, Error> {
     const TABLES: [&str; 8] = [
         "layer",
         "user_defined_colour",
@@ -1431,7 +1464,7 @@ impl Writer for Sfc<'_> {
 }
 
 /// ファイルの改行
-fn newline(src: &[u8]) -> &'static str {
+pub(super) fn newline(src: &[u8]) -> &'static str {
     if src.windows(2).any(|pair| pair == b"\r\n") {
         "\r\n"
     } else {
@@ -1440,7 +1473,7 @@ fn newline(src: &[u8]) -> &'static str {
 }
 
 /// 範囲の終わりの後に改行があれば、その後の位置
-fn line_end(src: &[u8], end: usize) -> usize {
+pub(super) fn line_end(src: &[u8], end: usize) -> usize {
     let rest = src.get(end..).unwrap_or_default();
     end + if rest.starts_with(b"\r\n") {
         2
@@ -1449,8 +1482,20 @@ fn line_end(src: &[u8], end: usize) -> usize {
     }
 }
 
+/// 圧縮ページ保持された [`zumen_live::SourceBytes`] 上で `end` 直後の改行位置を返す
+pub(super) fn line_end_in_source(src: &zumen_live::SourceBytes, end: usize) -> usize {
+    let check_end = end.saturating_add(2).min(src.len());
+    src.with_range(end..check_end, |rs| {
+        end + if rs.bytes.starts_with(b"\r\n") {
+            2
+        } else {
+            usize::from(rs.bytes.starts_with(b"\n"))
+        }
+    })
+}
+
 /// 範囲を書き直したバイト列。範囲は重ならない
-fn patched(
+pub(super) fn patched(
     mut patches: Vec<(Range<usize>, Vec<u8>)>,
     src: &[u8],
     cx: &mut Cx,
@@ -1472,21 +1517,48 @@ fn patched(
     Ok(out)
 }
 
+/// [`zumen_live::SourceBytes`] から未変更ページを直接展開しながら範囲書き換えを行う（[`patched`] とバイト列・作業量計上が完全一致）
+pub(super) fn patched_source(
+    mut patches: Vec<(Range<usize>, Vec<u8>)>,
+    src: &zumen_live::SourceBytes,
+    cx: &mut Cx,
+) -> Result<Vec<u8>, Error> {
+    work(cx, 1 + src.len() as u64 / 1024, &Ref::default())?;
+    for (_, bytes) in &patches {
+        work(cx, 1 + bytes.len() as u64 / 1024, &Ref::default())?;
+    }
+    patches.sort_by_key(|(range, _)| range.start);
+    let mut out = Vec::with_capacity(src.len());
+    let mut end = 0;
+    for (range, bytes) in &patches {
+        work(cx, 1, &Ref::default())?;
+        if end < range.start {
+            src.append_range(&mut out, end..range.start);
+        }
+        out.extend_from_slice(bytes);
+        end = range.end;
+    }
+    if end < src.len() {
+        src.append_range(&mut out, end..src.len());
+    }
+    Ok(out)
+}
+
 /// フィーチャの名前と引数。レイヤ・色・線種・線幅（0〜3。点マーカーはレイヤと色の 0〜1）は空にしておく
-struct Arguments {
-    name: &'static str,
-    values: Vec<String>,
+pub(super) struct Arguments {
+    pub(super) name: &'static str,
+    pub(super) values: Vec<String>,
 }
 
 impl Arguments {
     /// 形の初めの引数
-    fn first(&self) -> usize {
+    pub(super) fn first(&self) -> usize {
         if self.name == MARKER { 2 } else { 4 }
     }
 }
 
 /// 全種類の形を予算付きでたどり、その量に応じて複製・変換の作業も先に数える。
-fn count_element_copy<P: Encode>(
+pub(super) fn count_element_copy<P: Encode>(
     element: &Element<P>,
     cx: &mut Cx,
     copies: u64,
@@ -1509,7 +1581,10 @@ fn count_element_copy<P: Encode>(
 
 /// 複製を作らずに要素を比べるとき（`same_any`）の作業を数える。入れ子のない形は頂点や文字列の長さから直接数え、
 /// 入れ子を持つ形は `count_element_copy` で全体をたどる。
-fn count_element_compare<P: Encode>(element: &Element<P>, cx: &mut Cx) -> Result<(), Error> {
+pub(super) fn count_element_compare<P: Encode>(
+    element: &Element<P>,
+    cx: &mut Cx,
+) -> Result<(), Error> {
     let simple = match &element.shape {
         Shape::Line { .. }
         | Shape::Circle { .. }
@@ -1539,7 +1614,7 @@ fn count_element_compare<P: Encode>(element: &Element<P>, cx: &mut Cx) -> Result
 }
 
 /// 折線を複製し、座標を文字列にする前に点の走査を数える。
-fn count_shape<P>(shape: &Shape<P>, cx: &mut Cx) -> Result<(), Error> {
+pub(super) fn count_shape<P>(shape: &Shape<P>, cx: &mut Cx) -> Result<(), Error> {
     if let Shape::Polyline(line) = shape {
         work(
             cx,
@@ -1551,7 +1626,7 @@ fn count_shape<P>(shape: &Shape<P>, cx: &mut Cx) -> Result<(), Error> {
 }
 
 /// 形を書く引数。数は、読み直すと同じ値になる最短の 10 進で書く
-fn arguments<P: transform::Point>(shape: &Shape<P>) -> Option<Arguments> {
+pub(super) fn arguments<P: transform::Point>(shape: &Shape<P>) -> Option<Arguments> {
     let number = |value: f64| value.is_finite().then(|| format!("{value}"));
     let point = |point: &P| {
         let [x, y] = point.xy();

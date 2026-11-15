@@ -20,19 +20,19 @@ use crate::parse::Reader;
 use crate::{Jww, JwwFile, RecordKind};
 
 /// 診断に書く形式の名前
-const FORMAT: &str = "JWW";
+pub(super) const FORMAT: &str = "JWW";
 
 /// 線
-const LINE: &[u8] = b"CDataSen";
+pub(super) const LINE: &[u8] = b"CDataSen";
 
 /// 円・円弧・楕円・楕円弧
-const ARC: &[u8] = b"CDataEnko";
+pub(super) const ARC: &[u8] = b"CDataEnko";
 
 /// 点
-const POINT: &[u8] = b"CDataTen";
+pub(super) const POINT: &[u8] = b"CDataTen";
 
 /// 形の値の比べ方。実寸の値は、用紙の値に縮尺の分母を掛けて読むので、最後の桁が違いうる
-const NEAR: f64 = 1e-9;
+pub(super) const NEAR: f64 = 1e-9;
 
 impl Apply<Changes> for JwwFile {
     /// 変更ごとの結果と、ほかの要素の ID がずれたか。JWW の要素はキーを持たず、ID はレコードの番号で作る
@@ -350,7 +350,7 @@ enum Expected {
     Added(usize, LayerId, Style, Shape<ModelPoint>),
 }
 /// 当てられない変更の診断
-fn unsupported(edit: &str, kind: &str) -> Diagnostic {
+pub(super) fn unsupported(edit: &str, kind: &str) -> Diagnostic {
     Diagnostic::new(codes::CHANGE_EDIT_UNSUPPORTED)
         .with("edit", edit)
         .with("kind", kind)
@@ -359,7 +359,7 @@ fn unsupported(edit: &str, kind: &str) -> Diagnostic {
 
 /// 足す要素の書いていない（レイヤかブロックに従う）色・線種と、ブロックに従う線幅。JWW の図形は、色（ペンの番号）と
 /// 線種と線幅を自分で持ち、レイヤかブロックに従う値を持たない（#702・#715）。足せない形のものは、ここでは見ない
-fn unset(element: &Element<ModelPoint>) -> Option<&'static str> {
+pub(super) fn unset(element: &Element<ModelPoint>) -> Option<&'static str> {
     let class = class_of(&element.shape)?;
     let style = &element.style;
     // ブロックに従う値も、JWW の図形は持たない（決定 0292）
@@ -377,7 +377,7 @@ fn unset(element: &Element<ModelPoint>) -> Option<&'static str> {
 }
 
 /// 足す要素のクラスの名前
-fn kind_of(element: &Placed) -> &'static str {
+pub(super) fn kind_of(element: &Placed) -> &'static str {
     let shape = match element {
         Placed::Model(element) => class_of(&element.shape),
         Placed::Paper(_) => None,
@@ -390,7 +390,7 @@ fn kind_of(element: &Placed) -> &'static str {
 }
 
 /// 形を書くクラス
-fn class_of(shape: &Shape<ModelPoint>) -> Option<&'static [u8]> {
+pub(super) fn class_of(shape: &Shape<ModelPoint>) -> Option<&'static [u8]> {
     match shape {
         Shape::Line { .. } => Some(LINE),
         Shape::Circle { .. } | Shape::Curve(Edge::Arc { .. }) => Some(ARC),
@@ -401,7 +401,7 @@ fn class_of(shape: &Shape<ModelPoint>) -> Option<&'static [u8]> {
 
 /// JWW は、記号でない点の角度を持たない。文書の点の表し方に従う点は、変換で回しても角度を 0 のままにする。JWW の
 /// 点は小さな点として描くので、見え方は変わらない（決定 0183）
-fn unturned(shape: Shape<ModelPoint>) -> Shape<ModelPoint> {
+pub(super) fn unturned(shape: Shape<ModelPoint>) -> Shape<ModelPoint> {
     match shape {
         Shape::Point(dot) if dot.look == PointLook::Document => Shape::Point(Point {
             rotation: 0.0,
@@ -417,7 +417,7 @@ fn same(a: &Element<ModelPoint>, b: &Element<ModelPoint>) -> bool {
 }
 
 /// 形が、書いた値の桁の違いを除いて同じか。角度は 1 周の違いを除く
-fn near(a: &Shape<ModelPoint>, b: &Shape<ModelPoint>) -> bool {
+pub(super) fn near(a: &Shape<ModelPoint>, b: &Shape<ModelPoint>) -> bool {
     let value = |a: f64, b: f64| (a - b).abs() <= NEAR * a.abs().max(b.abs()).max(1.0);
     let point =
         |a: &ModelPoint, b: &ModelPoint| a.space == b.space && value(a.x, b.x) && value(a.y, b.y);
@@ -581,19 +581,19 @@ impl<'a> Index<'a> {
 }
 
 /// 図形の共通のフィールド
-#[derive(Clone, Copy)]
-struct Base {
-    curve: u32,
-    pen_style: u8,
-    pen_color: u16,
-    pen_width: u16,
-    layer: u16,
-    group: u16,
-    flag: u16,
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct Base {
+    pub(super) curve: u32,
+    pub(super) pen_style: u8,
+    pub(super) pen_color: u16,
+    pub(super) pen_width: u16,
+    pub(super) layer: u16,
+    pub(super) group: u16,
+    pub(super) flag: u16,
 }
 
 impl Base {
-    fn read(src: &[u8], at: usize, version: u32) -> Option<Base> {
+    pub(super) fn read(src: &[u8], at: usize, version: u32) -> Option<Base> {
         let mut r = Reader::new(src, at);
         Some(Base {
             curve: r.u32().ok()?,
@@ -610,7 +610,7 @@ impl Base {
         })
     }
 
-    fn bytes(&self, version: u32) -> Vec<u8> {
+    pub(super) fn bytes(&self, version: u32) -> Vec<u8> {
         let mut out = Vec::with_capacity(15);
         out.extend(self.curve.to_le_bytes());
         out.push(self.pen_style);
@@ -625,9 +625,193 @@ impl Base {
     }
 
     /// 変換と同じレイヤ
-    fn layer(&self) -> LayerId {
+    pub(super) fn layer(&self) -> LayerId {
         LayerId(u32::from(self.group & 0xF) * 16 + u32::from(self.layer & 0xF) + 1)
     }
+}
+
+/// 求めたレイヤとスタイルの共通のフィールド。変わらない値は、元のフィールドのまま
+pub(super) fn base_for_style(
+    header: &Header,
+    was: Base,
+    element: &Element<ModelPoint>,
+    layer: LayerId,
+    style: &Style,
+    in_definition: bool,
+) -> Option<Base> {
+    let mut base = was;
+    if style.line_type_scale != 1.0 || style.transparency != Inherit::Layer {
+        return None;
+    }
+    if layer != element.layer {
+        let n = layer.0.checked_sub(1)?;
+        let group = u16::try_from(n / 16).ok().filter(|group| *group < 16)?;
+        // レイヤグループは空間と縮尺を決めるので、ブロックの定義の外では変えない
+        if !in_definition && group != was.group & 0xF {
+            return None;
+        }
+        // 使わない上位ビットは意味が未確認なので残す。
+        base.group = (was.group & !0xF) | group;
+        base.layer = (was.layer & !0xF) | u16::try_from(n % 16).ok()?;
+    }
+    if style.color != element.style.color {
+        base.pen_color = pen_of_color(header, style.color)?;
+    }
+    if style.line_type != element.style.line_type {
+        base.pen_style = code_of_line_type(header, style.line_type)?;
+    }
+    if style.line_weight != element.style.line_weight {
+        base.pen_width = raw_width_of(header, style.line_weight?)?;
+    }
+    Some(base)
+}
+
+/// 共通のフィールドを読み直したときのスタイル（変換の `line_style` と同じ）。点は色だけを持つ（変換の `fill_style` と同じ）
+pub(super) fn style_of_base(header: &Header, base: &Base, class: &[u8]) -> Style {
+    if class == POINT {
+        return Style {
+            color: Inherit::Own(header.color(base.pen_color)),
+            line_type: Inherit::Layer,
+            line_type_scale: 1.0,
+            line_weight: None,
+            transparency: Inherit::Layer,
+        };
+    }
+    Style {
+        color: Inherit::Own(header.color(base.pen_color)),
+        line_type: Inherit::Own(LineTypeId(u32::from(base.pen_style.max(1)))),
+        line_type_scale: 1.0,
+        line_weight: header.weight(base.pen_color, base.pen_width),
+        transparency: Inherit::Layer,
+    }
+}
+
+/// 色の番号。JWW の番号か、RGB だけなら同じ RGB のペン（1〜9、SXF の拡張色）
+pub(super) fn pen_of_color(header: &Header, color: Inherit<Color>) -> Option<u16> {
+    let Inherit::Own(color) = color else {
+        return None;
+    };
+    let sxf = header.version >= SXF_SINCE;
+    let valid = |pen: u16| pen <= 9 || (sxf && (100..=356).contains(&pen));
+    let pen = match color.code {
+        Some(ColorCode {
+            system: ColorSystem::Jww,
+            value,
+        }) => u16::try_from(value).ok().filter(|pen| valid(*pen))?,
+        Some(_) => return None,
+        None => {
+            let rgb = color.rgb?;
+            (1..=9)
+                .chain(100..=356)
+                .filter(|pen| valid(*pen))
+                .find(|pen| header.color(*pen).rgb == Some(rgb))?
+        }
+    };
+    if color.rgb.is_some() && color.rgb != header.color(pen).rgb {
+        return None;
+    }
+    Some(pen)
+}
+
+/// 線種の番号。実線と破線（1〜9）、ランダム線と倍長線（11〜19）、バージョン 420 からの SXF の線種（30〜62）
+pub(super) fn code_of_line_type(header: &Header, line_type: Inherit<LineTypeId>) -> Option<u8> {
+    let Inherit::Own(LineTypeId(code)) = line_type else {
+        return None;
+    };
+    let code = u8::try_from(code).ok()?;
+    let sxf = header.version >= SXF_SINCE && (30..=62).contains(&code);
+    ((1..=9).contains(&code) || (11..=19).contains(&code) || sxf).then_some(code)
+}
+
+/// 図形の線幅の値。ヘッダーの単位（1/100 mm かドット）で書け、読み直すと同じ太さになるものだけ
+pub(super) fn raw_width_of(header: &Header, weight: Inherit<LineWeight>) -> Option<u16> {
+    let Inherit::Own(LineWeight::Width(PaperLength(mm))) = weight else {
+        return None;
+    };
+    if header.version < PEN_WIDTH_SINCE || !mm.is_finite() || mm <= 0.0 {
+        return None;
+    }
+    let units = if header.max_draw_width < 0 {
+        mm * 100.0
+    } else {
+        mm * header.dpi? / 25.4
+    };
+    let value = u16::try_from(units.round() as i64)
+        .ok()
+        .filter(|v| *v > 0)?;
+    let read = header.width(u32::from(value))?;
+    ((read - mm).abs() <= NEAR).then_some(value)
+}
+
+/// 座標に掛ける倍率。ブロックの定義の中は 1、ほかはレイヤグループの縮尺の分母
+pub(super) fn scale_of_group(header: &Header, group: u16, in_definition: bool) -> f64 {
+    if in_definition {
+        1.0
+    } else {
+        header.scale(usize::from(group & 0xF))
+    }
+}
+
+/// 追加する図形のクラス・本体のバイト列・期待されるレイヤとスタイルと形
+pub(super) type EncodedAdded = (&'static [u8], Vec<u8>, LayerId, Style, Shape<ModelPoint>);
+
+/// レイヤグループの空間に足す図形の本体のバイト列を組み立てる
+pub(super) fn encode_added_entity(
+    header: &Header,
+    space: SpaceId,
+    element: &Element<ModelPoint>,
+) -> Option<EncodedAdded> {
+    let group = u16::try_from(space.0).ok().filter(|group| *group < 16)?;
+    let class = class_of(&element.shape)?;
+    let n = element.layer.0.checked_sub(1)?;
+    if n / 16 != u32::from(group) {
+        return None;
+    }
+    let style = element.style;
+    if style.line_type_scale != 1.0 || style.transparency != Inherit::Layer {
+        return None;
+    }
+    let symbol = matches!(&element.shape, Shape::Point(dot) if dot.look != PointLook::Document);
+    let (pen_style, pen_width) = match &element.shape {
+        Shape::Point(_) => {
+            if style.line_type != Inherit::Layer
+                || !matches!(style.line_weight, None | Some(Inherit::Layer))
+            {
+                return None;
+            }
+            (if symbol { POINT_SYMBOL } else { 1 }, 0)
+        }
+        _ => (
+            code_of_line_type(header, style.line_type)?,
+            match style.line_weight {
+                None | Some(Inherit::Layer) => 0,
+                Some(weight) => raw_width_of(header, weight)?,
+            },
+        ),
+    };
+    let base = Base {
+        curve: 0,
+        pen_style,
+        pen_color: pen_of_color(header, style.color)?,
+        pen_width,
+        layer: u16::try_from(n % 16).ok()?,
+        group,
+        flag: 0,
+    };
+    let mut bytes = base.bytes(header.version);
+    bytes.extend(shape_bytes(
+        &element.shape,
+        space,
+        scale_of_group(header, group, false),
+        symbol,
+    )?);
+    Some((
+        class,
+        bytes,
+        base.layer(),
+        style_of_base(header, &base, class),
+        element.shape.clone(),
+    ))
 }
 
 /// 元のバイト列への書き直し
@@ -1148,38 +1332,55 @@ impl Lists<'_> {
 
     /// オブジェクトの前のタグ。初めてのクラスは名前を書き、ほかは番号で指す（MFC の CArchive）
     fn tag(&mut self, name: &[u8], schema: u16) {
-        let key = (name.to_vec(), schema);
-        match self.numbers.get(&key) {
-            Some(&number) if number < 0x7FFF => {
-                self.out.extend((0x8000 | number as u16).to_le_bytes());
-            }
-            Some(&number) => {
-                self.out.extend([0xFF, 0x7F]);
-                self.out.extend((0x8000_0000 | number).to_le_bytes());
-            }
-            None => {
-                self.out.extend([0xFF, 0xFF]);
-                self.out.extend(schema.to_le_bytes());
-                self.out.extend((name.len() as u16).to_le_bytes());
-                self.out.extend_from_slice(name);
-                self.numbers.insert(key, self.next);
-                self.next += 1;
-            }
-        }
-        // オブジェクトも番号を 1 つ使う
-        self.next += 1;
+        write_object_tag(
+            &mut self.out,
+            &mut self.numbers,
+            &mut self.next,
+            name,
+            schema,
+        );
     }
 }
 
+/// オブジェクトの前のタグを書く。初めてのクラスは名前を書き、ほかは番号で指す（MFC の CArchive）
+pub(super) fn write_object_tag(
+    out: &mut Vec<u8>,
+    numbers: &mut BTreeMap<(Vec<u8>, u16), u32>,
+    next: &mut u32,
+    name: &[u8],
+    schema: u16,
+) {
+    let key = (name.to_vec(), schema);
+    match numbers.get(&key) {
+        Some(&number) if number < 0x7FFF => {
+            out.extend((0x8000 | number as u16).to_le_bytes());
+        }
+        Some(&number) => {
+            out.extend([0xFF, 0x7F]);
+            out.extend((0x8000_0000 | number).to_le_bytes());
+        }
+        None => {
+            out.extend([0xFF, 0xFF]);
+            out.extend(schema.to_le_bytes());
+            out.extend((name.len() as u16).to_le_bytes());
+            out.extend_from_slice(name);
+            numbers.insert(key, *next);
+            *next += 1;
+        }
+    }
+    // オブジェクトも番号を 1 つ使う
+    *next += 1;
+}
+
 /// MFC の件数。`FFFF` なら 4 バイトが続く
-fn count(r: &mut Reader) -> Option<u32> {
+pub(super) fn count(r: &mut Reader) -> Option<u32> {
     match r.u16().ok()? {
         0xFFFF => r.u32().ok(),
         n => Some(u32::from(n)),
     }
 }
 
-fn write_count(out: &mut Vec<u8>, n: usize) {
+pub(super) fn write_count(out: &mut Vec<u8>, n: usize) {
     match u16::try_from(n) {
         Ok(n) if n < 0xFFFF => out.extend(n.to_le_bytes()),
         _ => {
@@ -1190,7 +1391,7 @@ fn write_count(out: &mut Vec<u8>, n: usize) {
 }
 
 /// 形の点の空間
-fn space_of(shape: &Shape<ModelPoint>) -> Option<SpaceId> {
+pub(super) fn space_of(shape: &Shape<ModelPoint>) -> Option<SpaceId> {
     match shape {
         Shape::Line { start, .. } => Some(start.space),
         Shape::Circle { center, .. } => Some(center.space),
@@ -1204,7 +1405,7 @@ fn space_of(shape: &Shape<ModelPoint>) -> Option<SpaceId> {
 
 /// 線・円・円弧・点の形の値。座標は `scale` で割って用紙の値にする。円弧は傾き 0・扁平率 1 で書く。点は、
 /// 記号の点（線種 100、`symbol`）か否かを元の図形のままにする
-fn shape_bytes(
+pub(super) fn shape_bytes(
     shape: &Shape<ModelPoint>,
     space: SpaceId,
     scale: f64,

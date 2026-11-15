@@ -9,6 +9,8 @@
 #[cfg(feature = "drawing")]
 mod drawing;
 #[cfg(feature = "drawing")]
+pub use drawing::live::SxfLive;
+#[cfg(feature = "drawing")]
 mod p21;
 #[cfg(feature = "drawing")]
 pub mod saf;
@@ -46,7 +48,7 @@ pub enum Marker {
 
 impl Marker {
     /// 長いものから順に並べた、マーカー・開き・閉じ。[`DIALECT`] の `features` と同じ順
-    const ALL: [(Marker, &'static [u8], &'static [u8]); 3] = [
+    pub(crate) const ALL: [(Marker, &'static [u8], &'static [u8]); 3] = [
         (Marker::Sxf31, b"/*SXF3.1", b"SXF3.1*/"),
         (Marker::Sxf3, b"/*SXF3", b"SXF3*/"),
         (Marker::Sxf, b"/*SXF", b"SXF*/"),
@@ -54,7 +56,7 @@ impl Marker {
 }
 
 /// SXF の交換構造の読み方。AP202 と書いた P21 では、`/*SXF` もただのコメントとする（推定。docs/formats/sxf.md）
-const DIALECT: Dialect = Dialect {
+pub(crate) const DIALECT: Dialect = Dialect {
     record_invalid: codes::SXF_RECORD_INVALID,
     file_invalid: codes::SXF_FILE_INVALID,
     features: &[
@@ -110,6 +112,16 @@ impl SxfFile {
             .first()
             .map(|part| self.bytes(part.name()))
             .unwrap_or_default()
+    }
+
+    #[cfg(feature = "drawing")]
+    pub(crate) fn as_bytes(&self) -> &[u8] {
+        &self.src
+    }
+
+    #[cfg(feature = "drawing")]
+    pub(crate) fn from_parts(src: Vec<u8>, mode: Mode, records: Vec<Record>) -> Self {
+        Self { src, mode, records }
     }
 }
 
