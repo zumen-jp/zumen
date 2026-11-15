@@ -5,9 +5,15 @@
 //! 丸めたことは [`Hit::rounded`] で返す。利用側は、形の変更を元の要素の出所とともに診断する。
 //!
 //! 線分の向き・接触・重なりは整数で判定し、交点だけを最後に格子へ丸める。
-//! 点の各座標を [`MAX_COORDINATE`] までに制限し、積と交点の分子を `i128` に収める。
+//! 点の各座標を [`MAX_COORDINATE`] までに制限し、線分の積と交点の分子を `i128` に収める。
+//! 円の判別式と根の比較は固定長の 256 bit の整数で行い、接点と格子への丸めを区別する。
 
 use crate::Xy;
+
+mod curves;
+mod wide;
+
+pub use curves::{Circle, CurveIntersection, circle_intersection, segment_circle_intersection};
 
 /// 格子の各座標の絶対値の上限。差の外積は 83 bit、交点の分子の計算は 125 bit 未満に収まる。
 pub const MAX_COORDINATE: i64 = (1 << 40) - 1;

@@ -3,8 +3,9 @@
 
 use std::io::{self, Write};
 use zumen_geom2d::topology::{
-    Charge, Error, Failure, Grid, MAX_COORDINATE, Point, Segment, SegmentIntersection,
-    segment_intersection, segment_intersections,
+    Charge, Circle, CurveIntersection, Error, Failure, Grid, MAX_COORDINATE, Point, Segment,
+    SegmentIntersection, circle_intersection, segment_circle_intersection, segment_intersection,
+    segment_intersections,
 };
 
 fn number(out: &mut Vec<u8>, value: u64) {
@@ -51,6 +52,35 @@ fn intersection(out: &mut Vec<u8>, value: SegmentIntersection) {
             point(out, overlap.start);
             point(out, overlap.end);
         }
+    }
+}
+
+fn curve(out: &mut Vec<u8>, value: CurveIntersection) {
+    let points: &[zumen_geom2d::topology::Hit] = match &value {
+        CurveIntersection::None => {
+            out.push(0);
+            &[]
+        }
+        CurveIntersection::Point(hit) => {
+            out.push(1);
+            std::slice::from_ref(hit)
+        }
+        CurveIntersection::Tangent(hit) => {
+            out.push(4);
+            std::slice::from_ref(hit)
+        }
+        CurveIntersection::Two(hits) => {
+            out.push(2);
+            hits
+        }
+        CurveIntersection::Coincident => {
+            out.push(3);
+            &[]
+        }
+    };
+    for hit in points {
+        point(out, hit.point);
+        out.push(u8::from(hit.rounded));
     }
 }
 
@@ -178,5 +208,72 @@ fn main() -> io::Result<()> {
     });
     assert_eq!(found, Err(Failure::Geometry(Error::Range)));
     error(&mut out, Error::Range);
+
+    out.extend_from_slice(b"circles 1\n");
+    let circles: Vec<_> = [
+        ([0, 0], 0),
+        ([0, 0], 1),
+        ([0, 0], 2),
+        ([3, 4], 3),
+        ([0, 0], 5),
+        ([1, 0], 5),
+        ([-1, 0], 5),
+        ([6, 0], 5),
+        ([10, 0], 5),
+        ([2, 0], 3),
+        ([5, 0], 0),
+        ([1, 1], 1),
+        ([0, 0], MAX_COORDINATE),
+        ([MAX_COORDINATE - 1, 0], 1),
+        ([-MAX_COORDINATE / 2, 0], MAX_COORDINATE / 2),
+        ([MAX_COORDINATE / 2, 0], MAX_COORDINATE / 2),
+    ]
+    .into_iter()
+    .map(|([x, y], radius)| Circle::new(Point::new(x, y).unwrap(), radius).unwrap())
+    .collect();
+    for &circle in &circles {
+        for &segment in &segments {
+            let found = segment_circle_intersection(segment, circle, |amount| {
+                charge(&mut out, amount);
+                Ok::<_, ()>(())
+            })
+            .unwrap();
+            curve(&mut out, found);
+        }
+        for &other in &circles {
+            let found = circle_intersection(circle, other, |amount| {
+                charge(&mut out, amount);
+                Ok::<_, ()>(())
+            })
+            .unwrap();
+            curve(&mut out, found);
+        }
+    }
+    let first = Circle::new(Point::new(0, 0).unwrap(), 5).unwrap();
+    let second = Circle::new(Point::new(1, 0).unwrap(), 5).unwrap();
+    for stop in 0..=4_u64 {
+        number(&mut out, stop);
+        let mut calls = 0;
+        let found = circle_intersection(first, second, |amount| {
+            charge(&mut out, amount);
+            let at = calls;
+            calls += 1;
+            if at == stop { Err(at) } else { Ok(()) }
+        });
+        match found {
+            Ok(found) => {
+                out.push(0);
+                curve(&mut out, found);
+            }
+            Err(Failure::Stopped(at)) => {
+                out.push(1);
+                number(&mut out, at);
+            }
+            Err(Failure::Geometry(found)) => {
+                out.push(2);
+                error(&mut out, found);
+            }
+        }
+    }
     io::stdout().lock().write_all(&out)
 }
