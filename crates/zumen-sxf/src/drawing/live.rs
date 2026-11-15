@@ -5,6 +5,7 @@
 //! 全体を書く [`SxfLive::save`] は、`SxfFile::apply` を 1 手ずつ当てて `Sxf::write` した結果と
 //! バイト列単位で一致する。
 
+mod bounds;
 mod diagnostics;
 mod display;
 mod p21;
@@ -150,6 +151,7 @@ type RasterOutlineDiff = (usize, Option<usize>, Option<usize>);
 struct SxfUnifiedPatch {
     backing: BackingPatch,
     raster_outline_diffs: Vec<RasterOutlineDiff>,
+    symbol_bounds: Vec<bounds::SymbolBoundsDiff>,
 }
 
 #[derive(Clone, Debug)]
@@ -166,7 +168,7 @@ impl PatchPayload for SharedPatch {
             BackingPatch::Sfc(s) => s.heap_bytes(),
             BackingPatch::P21(p) => p.heap_bytes(),
         };
-        base + self.0.raster_outline_diffs.capacity() * 32
+        base + self.0.raster_outline_diffs.capacity() * 32 + self.0.symbol_bounds.capacity() * 96
     }
 }
 
@@ -408,7 +410,7 @@ impl SxfLive {
             }
         }
         let mut symbol_bounds: BTreeMap<SymbolKey, [f64; 4]> = BTreeMap::new();
-        for sym_idx in ordered_symbol_indices(drawing.symbols.len(), &dep) {
+        for sym_idx in ordered_symbol_indices(drawing.symbols.len(), &dep, cx)? {
             let Some(sym_def) = drawing.symbols.get(sym_idx) else {
                 continue;
             };
@@ -1796,6 +1798,7 @@ impl SxfLive {
             SxfUnifiedPatch {
                 backing: BackingPatch::Sfc(sfc_patch),
                 raster_outline_diffs: raster_diffs,
+                symbol_bounds: Vec::new(),
             },
             cx,
         )?;
@@ -1942,6 +1945,7 @@ impl SxfLive {
             SxfUnifiedPatch {
                 backing: BackingPatch::P21(p21_patch),
                 raster_outline_diffs: raster_diffs,
+                symbol_bounds: Vec::new(),
             },
             cx,
         )?;
@@ -1987,113 +1991,26 @@ impl SxfLive {
     fn commit_table_and_indexes(
         &mut self,
         verified: Vec<VerifiedOp>,
-        patch: SxfUnifiedPatch,
+        mut patch: SxfUnifiedPatch,
         cx: &mut Cx,
     ) -> Result<(), Error> {
         let had_ops = !verified.is_empty();
-        let patch_arc = Arc::new(patch);
-
-        let mut staged_placed: BTreeMap<RowId, Option<&Placed>> = BTreeMap::new();
-        let mut direct_vnodes: Vec<RowId> = Vec::new();
-        for op in &verified {
-            match op {
-                VerifiedOp::Remove(rid) => {
-                    staged_placed.insert(*rid, None);
-                    if let Some(SxfContainer::Symbol(sym_idx)) =
-                        self.table.row(*rid).map(|r| r.container)
-                        && let Some(vnode) =
-                            u32::try_from(sym_idx).ok().and_then(RowId::virtual_node)
-                    {
-                        direct_vnodes.push(vnode);
-                    }
+        let prepared = match self.prepare_symbols(&verified, cx) {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                match (&mut self.backing, &patch.backing) {
+                    (SxfBacking::Sfc(sfc), BackingPatch::Sfc(p)) => sfc.revert_patch(p),
+                    (SxfBacking::P21(p21), BackingPatch::P21(p)) => p21.revert_patch(p),
+                    _ => {}
                 }
-                VerifiedOp::Update { row_id, placed, .. } => {
-                    staged_placed.insert(*row_id, Some(placed));
-                    if let Some(SxfContainer::Symbol(sym_idx)) =
-                        self.table.row(*row_id).map(|r| r.container)
-                        && let Some(vnode) =
-                            u32::try_from(sym_idx).ok().and_then(RowId::virtual_node)
-                    {
-                        direct_vnodes.push(vnode);
-                    }
-                }
-                VerifiedOp::AddSfc { .. } | VerifiedOp::AddP21 { .. } => {}
-            }
-        }
-        direct_vnodes.sort_unstable();
-        direct_vnodes.dedup();
-
-        let affected = if direct_vnodes.is_empty() {
-            Vec::new()
-        } else {
-            match self.dep.affected_rows_with_cx(&direct_vnodes, cx) {
-                Ok(list) => list,
-                Err(stop) => {
-                    match (&mut self.backing, &patch_arc.backing) {
-                        (SxfBacking::Sfc(sfc), BackingPatch::Sfc(p)) => sfc.revert_patch(p),
-                        (SxfBacking::P21(p21), BackingPatch::P21(p)) => p21.revert_patch(p),
-                        _ => {}
-                    }
-                    cx.report(stop.to_diagnostic());
-                    return Err(Error::Stopped(stop));
-                }
+                return Err(error);
             }
         };
-
-        let mut dirty_syms: Vec<u32> = direct_vnodes
-            .iter()
-            .chain(&affected)
-            .filter_map(|r| r.as_virtual())
-            .collect();
-        dirty_syms.sort_unstable();
-        dirty_syms.dedup();
-
-        let mut next_symbol_bounds = self.symbol_bounds.clone();
-        if !dirty_syms.is_empty() {
-            let dirty_set: BTreeSet<usize> = dirty_syms.iter().map(|&idx| idx as usize).collect();
-            for sym_idx in ordered_symbol_indices(self.symbol_templates.len(), &self.dep) {
-                if !dirty_set.contains(&sym_idx) {
-                    continue;
-                }
-                let Some(sym_t) = self.symbol_templates.get(sym_idx) else {
-                    continue;
-                };
-                let Some(r_ids) = self.symbol_rows.get(sym_idx) else {
-                    continue;
-                };
-                let mut acc: Option<[f64; 4]> = None;
-                for &rid in r_ids {
-                    let placed_opt = match staged_placed.get(&rid) {
-                        Some(p) => *p,
-                        None => self.table.row(rid).map(|r| &r.placed),
-                    };
-                    if let Some(Placed::Model(m_elem)) = placed_opt {
-                        let b = model_shape_bounds(&m_elem.shape, &next_symbol_bounds);
-                        let [bx0, by0, bx1, by1] = b;
-                        if bx0 <= bx1 && by0 <= by1 {
-                            match &mut acc {
-                                Some([x0, y0, x1, y1]) => {
-                                    *x0 = x0.min(bx0);
-                                    *y0 = y0.min(by0);
-                                    *x1 = x1.max(bx1);
-                                    *y1 = y1.max(by1);
-                                }
-                                None => acc = Some(b),
-                            }
-                        }
-                    }
-                }
-                match acc {
-                    Some(b) => {
-                        next_symbol_bounds.insert(sym_t.key.clone(), b);
-                    }
-                    None => {
-                        next_symbol_bounds.remove(&sym_t.key);
-                    }
-                }
-            }
-        }
-        drop(staged_placed);
+        let next_symbol_bounds = prepared.next;
+        let affected = prepared.affected;
+        patch.symbol_bounds = prepared.diffs;
+        let patch_arc = Arc::new(patch);
+        let symbol_bounds_ref = next_symbol_bounds.as_ref().unwrap_or(&self.symbol_bounds);
 
         let mut explicit_rows = BTreeSet::new();
         for op in &verified {
@@ -2117,7 +2034,7 @@ impl SxfLive {
                     dep_row.container,
                     &dep_row.placed,
                     &self.space_views,
-                    &next_symbol_bounds,
+                    symbol_bounds_ref,
                 );
                 dependent_updates.push((dep_rid, dep_row, new_bounds));
             }
@@ -2126,7 +2043,6 @@ impl SxfLive {
         let patch_for_txn = Arc::clone(&patch_arc);
         let space_views = &self.space_views;
         let symbol_indices = &self.symbol_indices;
-        let symbol_bounds_ref = &next_symbol_bounds;
         let side = SideIndexes {
             grid: Some(&mut self.spatial),
             dirty_rows: None,
@@ -2289,8 +2205,11 @@ impl SxfLive {
         }
 
         if had_ops && let Some(committed) = self.history.last_undo().cloned() {
-            self.symbol_bounds = next_symbol_bounds;
-            self.dirty_symbols.extend(dirty_syms);
+            if let Some(next) = next_symbol_bounds {
+                self.symbol_bounds = next;
+            }
+            self.dirty_symbols
+                .extend(patch_arc.symbol_bounds.iter().map(|diff| diff.index));
             for &(g_idx, _, after) in &patch_arc.raster_outline_diffs {
                 if let Some(group) = self.raster_groups.get_mut(g_idx) {
                     group.outline_record = after;
@@ -2341,70 +2260,11 @@ impl SxfLive {
         Ok(())
     }
 
-    fn recompute_touched_symbol_bounds(&mut self, touched_symbols: &BTreeSet<usize>) {
-        if touched_symbols.is_empty() {
-            return;
-        }
-        let seeds: Vec<RowId> = touched_symbols
-            .iter()
-            .filter_map(|&idx| u32::try_from(idx).ok().and_then(RowId::virtual_node))
-            .collect();
-        let affected = self.dep.affected_rows(&seeds);
-        let mut dirty_set: BTreeSet<usize> = touched_symbols.clone();
-        for &idx in touched_symbols {
-            if let Ok(idx_u32) = u32::try_from(idx) {
-                self.dirty_symbols.insert(idx_u32);
-            }
-        }
-        for rid in affected {
-            if let Some(sym_u32) = rid.as_virtual() {
-                self.dirty_symbols.insert(sym_u32);
-                dirty_set.insert(sym_u32 as usize);
-            }
-        }
-        for sym_idx in ordered_symbol_indices(self.symbol_templates.len(), &self.dep) {
-            if !dirty_set.contains(&sym_idx) {
-                continue;
-            }
-            let Some(sym_t) = self.symbol_templates.get(sym_idx) else {
-                continue;
-            };
-            let Some(rows) = self.symbol_rows.get(sym_idx) else {
-                continue;
-            };
-            let mut acc: Option<[f64; 4]> = None;
-            for &rid in rows {
-                if let Some(row) = self.table.row(rid)
-                    && let Placed::Model(m_elem) = &row.placed
-                {
-                    let b = model_shape_bounds(&m_elem.shape, &self.symbol_bounds);
-                    let [bx0, by0, bx1, by1] = b;
-                    if bx0 <= bx1 && by0 <= by1 {
-                        match &mut acc {
-                            Some([x0, y0, x1, y1]) => {
-                                *x0 = x0.min(bx0);
-                                *y0 = y0.min(by0);
-                                *x1 = x1.max(bx1);
-                                *y1 = y1.max(by1);
-                            }
-                            None => acc = Some(b),
-                        }
-                    }
-                }
-            }
-            match acc {
-                Some(b) => {
-                    self.symbol_bounds.insert(sym_t.key.clone(), b);
-                }
-                None => {
-                    self.symbol_bounds.remove(&sym_t.key);
-                }
-            }
-        }
-    }
-
     /// 直前の編集トランザクションを `O(変更数)` で取り消す
     pub fn undo(&mut self, cx: &mut Cx<'_>) -> Result<bool, Error> {
+        if let Some(committed) = self.history.last_undo() {
+            self.check_symbol_history(committed, true, cx)?;
+        }
         let side = SideIndexes {
             grid: Some(&mut self.spatial),
             dirty_rows: None,
@@ -2428,22 +2288,9 @@ impl SxfLive {
             self.by_canonical_id
                 .remove(born.after_row.canonical_id.as_ref());
         }
-        let mut touched_symbols = BTreeSet::new();
-        for diff in committed.existing() {
-            match diff {
-                ExistingRowDiff::Removed { before_row, .. } => {
-                    if let SxfContainer::Symbol(sym_idx) = before_row.container {
-                        touched_symbols.insert(sym_idx);
-                    }
-                }
-                ExistingRowDiff::Updated { before_row, .. } => {
-                    if let SxfContainer::Symbol(sym_idx) = before_row.container {
-                        touched_symbols.insert(sym_idx);
-                    }
-                }
-            }
+        for patch in committed.patches().iter().rev() {
+            self.restore_symbol_bounds(&patch.0.symbol_bounds, true);
         }
-        self.recompute_touched_symbol_bounds(&touched_symbols);
         for diff in committed.existing().iter().rev() {
             match diff {
                 ExistingRowDiff::Removed {
@@ -2495,6 +2342,9 @@ impl SxfLive {
 
     /// 直前に取り消した編集トランザクションを `O(変更数)` でやり直す
     pub fn redo(&mut self, cx: &mut Cx<'_>) -> Result<bool, Error> {
+        if let Some(committed) = self.history.last_redo() {
+            self.check_symbol_history(committed, false, cx)?;
+        }
         let side = SideIndexes {
             grid: Some(&mut self.spatial),
             dirty_rows: None,
@@ -2521,22 +2371,9 @@ impl SxfLive {
                 }
             }
         }
-        let mut touched_symbols = BTreeSet::new();
-        for diff in committed.existing() {
-            match diff {
-                ExistingRowDiff::Removed { before_row, .. } => {
-                    if let SxfContainer::Symbol(sym_idx) = before_row.container {
-                        touched_symbols.insert(sym_idx);
-                    }
-                }
-                ExistingRowDiff::Updated { after_row, .. } => {
-                    if let SxfContainer::Symbol(sym_idx) = after_row.container {
-                        touched_symbols.insert(sym_idx);
-                    }
-                }
-            }
+        for patch in committed.patches() {
+            self.restore_symbol_bounds(&patch.0.symbol_bounds, false);
         }
-        self.recompute_touched_symbol_bounds(&touched_symbols);
         for diff in committed.existing() {
             match diff {
                 ExistingRowDiff::Removed { before_row, .. } => {
@@ -3111,14 +2948,40 @@ fn placed_symbol_dep_source(
         .and_then(RowId::virtual_node)
 }
 
-fn ordered_symbol_indices(symbol_count: usize, dep: &DepGraph) -> Vec<usize> {
+fn ordered_symbol_indices(
+    symbol_count: usize,
+    dep: &DepGraph,
+    cx: &mut Cx<'_>,
+) -> Result<Vec<usize>, Error> {
+    let check = |cx: &mut Cx<'_>, kind, amount| {
+        cx.check(kind, amount).map_err(|stop| {
+            cx.report(stop.to_diagnostic());
+            Error::Stopped(stop)
+        })
+    };
+    check(cx, Kind::Work, (symbol_count as u64).max(1))?;
+    check(
+        cx,
+        Kind::DecodedBytes,
+        (symbol_count as u64).saturating_mul(128),
+    )?;
     let vnodes: BTreeSet<RowId> = (0..symbol_count)
         .filter_map(|i| u32::try_from(i).ok().and_then(RowId::virtual_node))
         .collect();
-    dep.topological_order(&vnodes)
+    let ordered = dep.topological_order_with_cx(&vnodes, cx).map_err(|stop| {
+        cx.report(stop.to_diagnostic());
+        Error::Stopped(stop)
+    })?;
+    check(cx, Kind::Work, ordered.len() as u64)?;
+    check(
+        cx,
+        Kind::DecodedBytes,
+        (ordered.len() as u64).saturating_mul(8),
+    )?;
+    Ok(ordered
         .into_iter()
         .filter_map(|r| r.as_virtual().map(|v| v as usize))
-        .collect()
+        .collect())
 }
 
 #[cfg(test)]
@@ -3224,6 +3087,303 @@ mod equivalence_tests {
             hash: run(|cx| hash_placed(live.placed(row).unwrap(), cx))
                 .0
                 .unwrap(),
+        }
+    }
+
+    #[test]
+    fn cyclic_part_bounds_match_reopening_and_restore_exactly() {
+        let bytes = sfc_features(&[
+            "layer_feature(\\'A\\','1')",
+            "line_feature('1','1','1','1','0','0','1','1')",
+            "sfig_locate_feature('1',\\'B\\','10','0','0','1','1')",
+            "sfig_org_feature(\\'A\\','4')",
+            "sfig_locate_feature('1',\\'A\\','10','0','0','1','1')",
+            "sfig_org_feature(\\'B\\','4')",
+            "sfig_locate_feature('1',\\'A\\','100','0','0','1','1')",
+            "sfig_locate_feature('1',\\'B\\','200','0','0','1','1')",
+            "drawing_sheet_feature(\\'S\\','3','1','0','0')",
+        ]);
+        for threads in [1, 4] {
+            let mut file = run(|cx| Sxf::read(&bytes, cx)).0.unwrap();
+            let mut live = run(|cx| SxfLive::open_with_threads(&bytes, threads, cx))
+                .0
+                .unwrap();
+            let before_bounds = live.symbol_bounds.clone();
+            let before_hits = live.select_sheet([105.0, 0.0, 106.0, 1.0]);
+            let change = Changes {
+                document: None,
+                edits: vec![Edit::Transform {
+                    target: seen(&live, 20),
+                    transform: Affine::translation(100.0, 0.0),
+                }],
+            };
+            let expected = run(|cx| file.apply(&change, cx));
+            let actual = run(|cx| live.apply(&change, cx));
+            assert_eq!(actual, expected);
+            actual.0.unwrap();
+            assert_source_parity(&live, &file);
+            let saved = run(|cx| live.save(cx)).0.unwrap();
+            let reopened = run(|cx| SxfLive::open_with_threads(&saved, threads, cx))
+                .0
+                .unwrap();
+            assert_eq!(live.symbol_bounds, reopened.symbol_bounds);
+            assert_eq!(
+                live.select_sheet([105.0, 0.0, 106.0, 1.0]),
+                reopened.select_sheet([105.0, 0.0, 106.0, 1.0])
+            );
+            let after_bounds = live.symbol_bounds.clone();
+            assert!(run(|cx| live.undo(cx)).0.unwrap());
+            assert_eq!(run(|cx| live.save(cx)).0.unwrap(), bytes);
+            assert_eq!(live.symbol_bounds, before_bounds);
+            assert_eq!(live.select_sheet([105.0, 0.0, 106.0, 1.0]), before_hits);
+            assert!(run(|cx| live.redo(cx)).0.unwrap());
+            assert_eq!(run(|cx| live.save(cx)).0.unwrap(), saved);
+            assert_eq!(live.symbol_bounds, after_bounds);
+        }
+    }
+
+    fn part_bounds_input(cyclic: bool) -> Vec<u8> {
+        let mut features = vec![
+            r"layer_feature(\'L\','1')",
+            "line_feature('1','1','1','1','0','0','1','1')",
+        ];
+        if cyclic {
+            features.push(r"sfig_locate_feature('1',\'B\','10','0','0','1','1')");
+        }
+        features.extend([
+            r"sfig_org_feature(\'A\','4')",
+            r"sfig_locate_feature('1',\'A\','10','0','0','1','1')",
+            r"sfig_org_feature(\'B\','4')",
+            r"sfig_locate_feature('1',\'B\','30','40','0','2','1')",
+            r"sfig_org_feature(\'view\','1')",
+            r"sfig_locate_feature('1',\'A\','100','0','0','1','1')",
+            r"sfig_locate_feature('1',\'B\','200','0','0','1','1')",
+            r"sfig_locate_feature('1',\'view\','0','0','0','1','1')",
+            r"drawing_sheet_feature(\'S\','3','1','0','0')",
+        ]);
+        sfc_features(&features)
+    }
+
+    fn part_bounds_snapshot(live: &SxfLive) -> String {
+        let mut result = format!(
+            "model={:?}\nsave={:?}\nbounds={:?}\nrows={:?}\ndep={:?}\nflags={:?}/{:?}\nhistory={:?}\n",
+            run(|cx| live.drawing(cx)),
+            run(|cx| live.save(cx)),
+            live.symbol_bounds,
+            live.table.bounds_column(),
+            live.dep,
+            live.dirty_symbols,
+            live.display.dirty,
+            (
+                live.state_id(),
+                live.revision(),
+                live.undo_len(),
+                live.redo_len(),
+                live.history_bytes()
+            ),
+        );
+        use std::fmt::Write;
+        for row in 0..live.table.len() {
+            writeln!(
+                result,
+                "display={row}:{:?}",
+                live.display.row(u32::try_from(row).unwrap())
+            )
+            .unwrap();
+        }
+        for query in [
+            [105.0, 0.0, 106.0, 1.0],
+            [115.0, 40.0, 116.0, 41.0],
+            [0.0, 0.0, 1000.0, 1000.0],
+        ] {
+            writeln!(result, "sheet={query:?}:{:?}", live.select_sheet(query)).unwrap();
+            for space in &live.space_templates {
+                writeln!(
+                    result,
+                    "space={:?}:{query:?}:{:?}",
+                    space.id,
+                    live.select_in_space(space.id, query)
+                )
+                .unwrap();
+            }
+        }
+        result
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    enum PartAction {
+        Move,
+        Remove,
+        Undo,
+        Redo,
+    }
+
+    fn act_on_part(
+        live: &mut SxfLive,
+        action: PartAction,
+        changes: &Changes,
+        cx: &mut Cx<'_>,
+    ) -> Result<(), Error> {
+        match action {
+            PartAction::Move | PartAction::Remove => live.apply(changes, cx).map(|_| ()),
+            PartAction::Undo => live.undo(cx).map(|changed| assert!(changed)),
+            PartAction::Redo => live.redo(cx).map(|changed| assert!(changed)),
+        }
+    }
+
+    #[test]
+    fn part_bounds_budget_stops_keep_all_state_and_history_atomic() {
+        use std::fmt::Write;
+        use zumen_base::{Limit, Limits};
+        let mut transcript = String::new();
+        for cyclic in [false, true] {
+            let bytes = part_bounds_input(cyclic);
+            for threads in [1, 4] {
+                let mut current = run(|cx| SxfLive::open_with_threads(&bytes, threads, cx))
+                    .0
+                    .unwrap();
+                let mut file = run(|cx| Sxf::read(&bytes, cx)).0.unwrap();
+                let initial_model = run(|cx| current.drawing(cx));
+                let initial_bounds = current.symbol_bounds.clone();
+                for action in [
+                    PartAction::Move,
+                    PartAction::Remove,
+                    PartAction::Undo,
+                    PartAction::Undo,
+                    PartAction::Redo,
+                    PartAction::Redo,
+                ] {
+                    current.clear_dirty_symbols();
+                    current.clear_display_dirty();
+                    let changes = Changes {
+                        document: None,
+                        edits: match action {
+                            PartAction::Move => vec![Edit::Transform {
+                                target: seen(&current, 20),
+                                transform: Affine::translation(100.0, 0.0),
+                            }],
+                            PartAction::Remove => vec![Edit::Remove {
+                                target: seen(&current, 20),
+                            }],
+                            PartAction::Undo | PartAction::Redo => Vec::new(),
+                        },
+                    };
+                    let mut measured = current.clone();
+                    let mut complete = Budget::default();
+                    let mut events = Diagnostics::new();
+                    let cancel = CancelToken::new();
+                    act_on_part(
+                        &mut measured,
+                        action,
+                        &changes,
+                        &mut Cx::new(&mut complete, &mut events, &cancel),
+                    )
+                    .unwrap();
+                    let expected_state = part_bounds_snapshot(&measured);
+                    writeln!(transcript, "cyclic={cyclic} threads={threads} action={action:?} used={:?} diag={:?}\n{expected_state}", Kind::ALL.map(|kind| complete.used(kind)), events.iter().collect::<Vec<_>>()).unwrap();
+                    for kind in [Kind::Work, Kind::DecodedBytes] {
+                        let used = complete.used(kind);
+                        assert!(used > 0);
+                        for (limit, spent) in [
+                            (0, 0),
+                            (used / 2, 0),
+                            (used - 1, 0),
+                            (used, 0),
+                            (used, 1),
+                            (used + 1, 1),
+                        ] {
+                            let mut candidate = current.clone();
+                            let before = part_bounds_snapshot(&candidate);
+                            let mut budget =
+                                Budget::new(Limits::default().with(kind, Limit::Finite(limit)));
+                            budget.spend(kind, spent).unwrap();
+                            let mut diagnostics = Diagnostics::new();
+                            let result = act_on_part(
+                                &mut candidate,
+                                action,
+                                &changes,
+                                &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+                            );
+                            writeln!(transcript, "{kind:?} limit={limit} spent={spent} result={result:?} used={:?} diag={:?}", Kind::ALL.map(|kind| budget.used(kind)), diagnostics.iter().collect::<Vec<_>>()).unwrap();
+                            if limit - spent == used {
+                                result.unwrap();
+                                assert_eq!(part_bounds_snapshot(&candidate), expected_state);
+                                assert_eq!(
+                                    diagnostics.iter().collect::<Vec<_>>(),
+                                    events.iter().collect::<Vec<_>>()
+                                );
+                            } else {
+                                assert!(
+                                    matches!(result, Err(Error::Stopped(_))),
+                                    "{action:?} {kind:?} limit={limit} spent={spent}"
+                                );
+                                assert_eq!(part_bounds_snapshot(&candidate), before);
+                                assert_eq!(
+                                    diagnostics
+                                        .iter()
+                                        .filter(|event| event.code() == kind.exceeded_code())
+                                        .count(),
+                                    1
+                                );
+                            }
+                            assert_eq!(budget.used(Kind::Depth), 0);
+                        }
+                    }
+                    let mut candidate = current.clone();
+                    let before = part_bounds_snapshot(&candidate);
+                    cancel.cancel();
+                    assert!(matches!(
+                        act_on_part(
+                            &mut candidate,
+                            action,
+                            &changes,
+                            &mut Cx::new(&mut Budget::default(), &mut Diagnostics::new(), &cancel)
+                        ),
+                        Err(Error::Stopped(_))
+                    ));
+                    assert_eq!(part_bounds_snapshot(&candidate), before);
+                    if matches!(action, PartAction::Move | PartAction::Remove) {
+                        run(|cx| file.apply(&changes, cx)).0.unwrap();
+                        assert_source_parity(&measured, &file);
+                    }
+                    let saved = run(|cx| measured.save(cx)).0.unwrap();
+                    let reopened = run(|cx| SxfLive::open_with_threads(&saved, threads, cx))
+                        .0
+                        .unwrap();
+                    assert_eq!(measured.symbol_bounds, reopened.symbol_bounds);
+                    assert_eq!(
+                        run(|cx| measured.drawing(cx)),
+                        run(|cx| reopened.drawing(cx))
+                    );
+                    for query in [[105.0, 0.0, 106.0, 1.0], [115.0, 40.0, 116.0, 41.0]] {
+                        // 再読後は行が詰まるため、選択した要素の ID で比べる。
+                        let selected = |live: &SxfLive| {
+                            live.select_sheet(query)
+                                .iter()
+                                .map(|row| live.canonical_id(*row).unwrap().to_owned())
+                                .collect::<Vec<_>>()
+                        };
+                        assert_eq!(selected(&measured), selected(&reopened));
+                    }
+                    if measured.undo_len() == 0 {
+                        assert_eq!(saved, bytes);
+                        assert_eq!(run(|cx| measured.drawing(cx)), initial_model);
+                        assert_eq!(measured.symbol_bounds, initial_bounds);
+                    }
+                    current = measured;
+                }
+            }
+        }
+        write_part_bounds_transcript(&transcript);
+    }
+
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "ネイティブと wasm の比較記録を、指定された試験用ファイルへ書く"
+    )]
+    fn write_part_bounds_transcript(transcript: &str) {
+        if let Some(path) = std::env::var_os("ZUMEN_SXF_LIVE_BOUNDS_OUT") {
+            std::fs::write(path, transcript).unwrap();
         }
     }
 

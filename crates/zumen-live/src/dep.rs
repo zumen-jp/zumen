@@ -324,6 +324,16 @@ impl DepGraph {
         self.order_affected(nodes)
     }
 
+    /// 予算と中断を確かめながら、指定した集合を上流から順に並べる
+    pub fn topological_order_with_cx(
+        &self,
+        nodes: &BTreeSet<RowId>,
+        cx: &mut Cx<'_>,
+    ) -> Result<Vec<RowId>, Stop> {
+        cx.check(Kind::Work, 1)?;
+        self.order_affected_checked(nodes, |kind, amount| cx.check(kind, amount))
+    }
+
     fn order_affected(&self, affected: &BTreeSet<RowId>) -> Vec<RowId> {
         let result: Result<_, core::convert::Infallible> =
             self.order_affected_checked(affected, |_, _| Ok(()));

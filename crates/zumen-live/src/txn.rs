@@ -567,6 +567,12 @@ impl<R, P> History<R, P> {
     pub fn last_undo(&self) -> Option<&CommittedTxn<R, P>> {
         self.undo_stack.last()
     }
+
+    /// 次にやり直す記録への参照
+    #[inline]
+    pub fn last_redo(&self) -> Option<&CommittedTxn<R, P>> {
+        self.redo_stack.last()
+    }
 }
 
 impl<R: TableRow, P: PatchPayload> History<R, P> {
