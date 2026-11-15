@@ -186,10 +186,16 @@ impl DepGraph {
         changed_roots: &[RowId],
         cx: &mut Cx<'_>,
     ) -> Result<Vec<RowId>, Stop> {
-        cx.check(Kind::Work, (changed_roots.len() as u64).max(1))?;
+        let roots = changed_roots.len() as u64;
+        cx.check(Kind::Work, roots.max(1))?;
+        cx.check(Kind::DecodedBytes, roots.saturating_mul(4))?;
         let mut visited = BTreeSet::new();
         let mut queue: VecDeque<RowId> = VecDeque::new();
         let mut roots_sorted: Vec<RowId> = changed_roots.to_vec();
+        cx.check(
+            Kind::Work,
+            roots.saturating_mul(u64::from(roots.max(1).ilog2()) + 1),
+        )?;
         roots_sorted.sort_unstable();
         roots_sorted.dedup();
         for root in roots_sorted {
@@ -197,7 +203,12 @@ impl DepGraph {
             if let Some(deps) = self.deps_by_source.get(&root) {
                 for &dep in deps {
                     cx.check(Kind::Work, 1)?;
-                    if visited.insert(dep) {
+                    if !visited.contains(&dep) {
+                        cx.check(
+                            Kind::DecodedBytes,
+                            if visited.is_empty() { 256 } else { 128 },
+                        )?;
+                        visited.insert(dep);
                         queue.push_back(dep);
                     }
                 }
@@ -208,14 +219,15 @@ impl DepGraph {
             if let Some(deps) = self.deps_by_source.get(&cur) {
                 for &dep in deps {
                     cx.check(Kind::Work, 1)?;
-                    if visited.insert(dep) {
+                    if !visited.contains(&dep) {
+                        cx.check(Kind::DecodedBytes, 128)?;
+                        visited.insert(dep);
                         queue.push_back(dep);
                     }
                 }
             }
         }
-        cx.check(Kind::Work, visited.len() as u64)?;
-        Ok(self.order_affected(&visited))
+        self.order_affected_checked(&visited, |kind, amount| cx.check(kind, amount))
     }
 
     /// 指定したノード集合 `nodes` の誘導部分グラフを、上流から順（同順位・循環部は `RowId` 昇順）に並べて返す
@@ -224,35 +236,68 @@ impl DepGraph {
     }
 
     fn order_affected(&self, affected: &BTreeSet<RowId>) -> Vec<RowId> {
+        let result: Result<_, core::convert::Infallible> =
+            self.order_affected_checked(affected, |_, _| Ok(()));
+        match result {
+            Ok(ordered) => ordered,
+            Err(never) => match never {},
+        }
+    }
+
+    fn order_affected_checked<E>(
+        &self,
+        affected: &BTreeSet<RowId>,
+        mut check: impl FnMut(Kind, u64) -> Result<(), E>,
+    ) -> Result<Vec<RowId>, E> {
         if affected.is_empty() {
-            return Vec::new();
+            return Ok(Vec::new());
         }
         // 部分グラフ内の入次数を、`affected` 内の頂点からの出力辺だけで数える（未変更の上流参照元が大量にあっても走査しない）。
         // Kahn 法（BTreeSet で最小の RowId から取り出す）でトポロジカル順に並べ、循環があれば残った頂点を行番号の昇順で後ろに足す。
-        let mut in_deg: BTreeMap<RowId, usize> =
-            affected.iter().map(|&node| (node, 0usize)).collect();
+        // 木の節点と待ち行列の余裕を含む、ポインター幅に依らない見積もり。
+        check(Kind::DecodedBytes, 128)?;
+        let mut in_deg: BTreeMap<RowId, usize> = BTreeMap::new();
+        for &node in affected {
+            check(Kind::Work, 1)?;
+            check(Kind::DecodedBytes, 128)?;
+            in_deg.insert(node, 0);
+        }
         for &u in affected {
+            check(Kind::Work, 1)?;
             if let Some(deps) = self.deps_by_source.get(&u) {
                 for &v in deps {
+                    check(Kind::Work, 1)?;
                     if let Some(deg) = in_deg.get_mut(&v) {
                         *deg = deg.saturating_add(1);
                     }
                 }
             }
         }
-        let mut ready: BTreeSet<RowId> = in_deg
-            .iter()
-            .filter_map(|(&node, &deg)| (deg == 0).then_some(node))
-            .collect();
+        check(Kind::DecodedBytes, 128)?;
+        let mut ready = BTreeSet::new();
+        for (&node, &degree) in &in_deg {
+            check(Kind::Work, 1)?;
+            if degree == 0 {
+                check(Kind::DecodedBytes, 128)?;
+                ready.insert(node);
+            }
+        }
+        check(
+            Kind::DecodedBytes,
+            (affected.len() as u64).saturating_mul(4),
+        )?;
         let mut ordered = Vec::with_capacity(affected.len());
         while let Some(node) = ready.pop_first() {
+            check(Kind::Work, 1)?;
             in_deg.remove(&node);
             ordered.push(node);
             if let Some(deps) = self.deps_by_source.get(&node) {
                 for &dep in deps {
+                    check(Kind::Work, 1)?;
                     if let Some(deg) = in_deg.get_mut(&dep) {
                         *deg = deg.saturating_sub(1);
                         if *deg == 0 {
+                            check(Kind::DecodedBytes, 128)?;
                             ready.insert(dep);
                         }
                     }
@@ -260,9 +305,10 @@ impl DepGraph {
             }
         }
         for &remaining in in_deg.keys() {
+            check(Kind::Work, 1)?;
             ordered.push(remaining);
         }
-        ordered
+        Ok(ordered)
     }
 
     /// 登録されている依存辺の総数
@@ -274,6 +320,91 @@ impl DepGraph {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use zumen_base::{Budget, CancelToken, Diagnostics, Limit, Limits};
+
+    #[test]
+    fn checked_propagation_counts_allocations_and_ordering_without_changing_the_graph() {
+        let mut graph = DepGraph::new();
+        for dependent in 1..12 {
+            graph.set_sources(RowId(dependent), (0..dependent).map(RowId));
+        }
+        graph.set_sources(RowId(20), [RowId(0), RowId(21)]);
+        graph.set_sources(RowId(21), [RowId(20)]);
+        let roots = [RowId(0), RowId(0), RowId(3)];
+        let expected = graph.affected_rows(&roots);
+        let before = graph.clone();
+        let cancel = CancelToken::new();
+        let mut measured = Budget::default();
+        let actual = graph.affected_rows_with_cx(
+            &roots,
+            &mut Cx::new(&mut measured, &mut Diagnostics::new(), &cancel),
+        );
+        assert_eq!(actual, Ok(expected.clone()));
+        for kind in [Kind::Work, Kind::DecodedBytes] {
+            let used = measured.used(kind);
+            assert!(used > 0, "{kind:?}");
+            let limits: Vec<u64> = if kind == Kind::Work {
+                (0..=used).collect()
+            } else {
+                vec![0, 1, used / 2, used - 1, used]
+            };
+            for limit in limits {
+                let mut budget = Budget::new(Limits::default().with(kind, Limit::Finite(limit)));
+                let result = graph.affected_rows_with_cx(
+                    &roots,
+                    &mut Cx::new(&mut budget, &mut Diagnostics::new(), &cancel),
+                );
+                if limit == used {
+                    assert_eq!(result, Ok(expected.clone()));
+                } else {
+                    assert!(matches!(result, Err(Stop::Exceeded(_))), "{kind:?}={limit}");
+                }
+                assert_eq!(graph, before);
+            }
+            let mut budget = Budget::new(Limits::default().with(kind, Limit::Finite(used)));
+            budget.spend(kind, 1).unwrap();
+            assert!(matches!(
+                graph.affected_rows_with_cx(
+                    &roots,
+                    &mut Cx::new(&mut budget, &mut Diagnostics::new(), &cancel)
+                ),
+                Err(Stop::Exceeded(_))
+            ));
+        }
+        cancel.cancel();
+        let mut budget = Budget::default();
+        assert_eq!(
+            graph.affected_rows_with_cx(
+                &roots,
+                &mut Cx::new(&mut budget, &mut Diagnostics::new(), &cancel)
+            ),
+            Err(Stop::Cancelled)
+        );
+        assert_eq!(graph, before);
+    }
+
+    #[test]
+    fn checked_ordering_does_not_scan_unaffected_upstream_rows() {
+        let mut costs = Vec::new();
+        for upstream in [2, 10_000] {
+            let mut graph = DepGraph::new();
+            graph.set_sources(
+                RowId(1),
+                [RowId(0)].into_iter().chain((10..10 + upstream).map(RowId)),
+            );
+            let mut budget = Budget::default();
+            let cancel = CancelToken::new();
+            let affected = graph
+                .affected_rows_with_cx(
+                    &[RowId(0)],
+                    &mut Cx::new(&mut budget, &mut Diagnostics::new(), &cancel),
+                )
+                .unwrap();
+            assert_eq!(affected, [RowId(1)]);
+            costs.push(Kind::ALL.map(|kind| budget.used(kind)));
+        }
+        assert_eq!(costs[0], costs[1]);
+    }
 
     #[test]
     fn propagates_topologically_handles_cycles_and_restores_snapshot() {

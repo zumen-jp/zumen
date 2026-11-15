@@ -389,10 +389,18 @@ impl IfcLive {
         changed: &[ElementRef],
         cx: &mut Cx,
     ) -> Result<Vec<ElementRef>, Error> {
+        cx.check(Kind::Work, (changed.len() as u64).max(1))
+            .map_err(|stop| stopped(cx, stop, None))?;
+        cx.check(Kind::DecodedBytes, (changed.len() as u64).saturating_mul(4))
+            .map_err(|stop| stopped(cx, stop, None))?;
         let roots: Vec<RowId> = changed.iter().map(|e| RowId(e.0)).collect();
         let rows = self
             .dep
             .affected_rows_with_cx(&roots, cx)
+            .map_err(|stop| stopped(cx, stop, None))?;
+        cx.check(Kind::Work, rows.len() as u64)
+            .map_err(|stop| stopped(cx, stop, None))?;
+        cx.check(Kind::DecodedBytes, (rows.len() as u64).saturating_mul(4))
             .map_err(|stop| stopped(cx, stop, None))?;
         Ok(rows.into_iter().map(|r| ElementRef(r.0)).collect())
     }
@@ -556,16 +564,27 @@ impl IfcLive {
 
         let shared_patch = SharedIfcPatch(Arc::new(staged.patch));
         let patch_for_txn = shared_patch.clone();
+        cx.check(
+            Kind::DecodedBytes,
+            (shared_patch.0.element_diffs.len() as u64).saturating_mul(32),
+        )
+        .map_err(|stop| stopped(cx, stop, None))?;
         let mut updated_rows: Vec<(ElementRef, Option<Vec<RowId>>)> =
             Vec::with_capacity(shared_patch.0.element_diffs.len());
         for diff in &shared_patch.0.element_diffs {
+            cx.check(Kind::Work, 1)
+                .map_err(|stop| stopped(cx, stop, None))?;
             let new_srcs = if diff.before.properties != diff.after.properties {
-                let mut combined = self
-                    .base_dep_sources
-                    .get(diff.element.0 as usize)
-                    .cloned()
-                    .unwrap_or_default();
-                collect_property_element_refs(diff.after.properties.as_ref(), &mut combined);
+                let mut combined =
+                    copy_dep_sources(self.base_dep_sources.get(diff.element.0 as usize), cx)?;
+                collect_property_element_refs(diff.after.properties.as_ref(), &mut combined, cx)?;
+                cx.check(Kind::Work, combined.len() as u64)
+                    .map_err(|stop| stopped(cx, stop, None))?;
+                cx.check(
+                    Kind::DecodedBytes,
+                    (combined.len() as u64).saturating_mul(4),
+                )
+                .map_err(|stop| stopped(cx, stop, None))?;
                 Some(combined.into_iter().collect())
             } else {
                 None
@@ -1942,31 +1961,76 @@ fn parse_single_stmt(id: u64, stmt: &Stmt, cx: &mut Cx) -> Result<ParsedStmt, Er
     })
 }
 
-fn collect_literal_element_refs(lit: &Literal, out: &mut BTreeSet<RowId>) {
+fn insert_dep_source(out: &mut BTreeSet<RowId>, row: RowId, cx: &mut Cx) -> Result<(), Error> {
+    cx.check(Kind::Work, 1)
+        .map_err(|stop| stopped(cx, stop, None))?;
+    if !out.contains(&row) {
+        cx.check(Kind::DecodedBytes, 128)
+            .map_err(|stop| stopped(cx, stop, None))?;
+        out.insert(row);
+    }
+    Ok(())
+}
+
+fn copy_dep_sources(
+    sources: Option<&BTreeSet<RowId>>,
+    cx: &mut Cx,
+) -> Result<BTreeSet<RowId>, Error> {
+    let mut out = BTreeSet::new();
+    if let Some(sources) = sources {
+        for &source in sources {
+            insert_dep_source(&mut out, source, cx)?;
+        }
+    }
+    Ok(out)
+}
+
+fn collect_literal_element_refs(
+    lit: &Literal,
+    out: &mut BTreeSet<RowId>,
+    cx: &mut Cx,
+) -> Result<(), Error> {
+    cx.check(Kind::Work, 1)
+        .map_err(|stop| stopped(cx, stop, None))?;
     match lit {
         Literal::Element(e) => {
-            out.insert(RowId(e.0));
+            insert_dep_source(out, RowId(e.0), cx)?;
         }
         Literal::List(items) => {
-            for item in items {
-                collect_literal_element_refs(item, out);
-            }
+            cx.enter().map_err(|stop| stopped(cx, stop, None))?;
+            let result = items
+                .iter()
+                .try_for_each(|item| collect_literal_element_refs(item, out, cx));
+            cx.leave();
+            result?;
         }
         _ => {}
     }
+    Ok(())
 }
 
-fn collect_property_element_refs(props: Option<&Properties>, out: &mut BTreeSet<RowId>) {
+fn collect_property_element_refs(
+    props: Option<&Properties>,
+    out: &mut BTreeSet<RowId>,
+    cx: &mut Cx,
+) -> Result<(), Error> {
+    cx.check(Kind::Work, 1)
+        .map_err(|stop| stopped(cx, stop, None))?;
     let Some(props) = props else {
-        return;
+        return Ok(());
     };
     for set in &props.sets {
+        cx.check(Kind::Work, 1)
+            .map_err(|stop| stopped(cx, stop, None))?;
         for prop in &set.properties {
+            cx.check(Kind::Work, 1)
+                .map_err(|stop| stopped(cx, stop, None))?;
             if let Some(tv) = &prop.value {
-                collect_literal_element_refs(&tv.value, out);
+                collect_literal_element_refs(&tv.value, out, cx)?;
             }
         }
     }
+    Ok(())
 }
 
 fn build_ifc_dep_graph(
@@ -1974,6 +2038,8 @@ fn build_ifc_dep_graph(
     cx: &mut Cx,
 ) -> Result<(Vec<BTreeSet<RowId>>, DepGraph), Error> {
     let elem_count = building.elements().len();
+    cx.check(Kind::DecodedBytes, (elem_count as u64).saturating_mul(32))
+        .map_err(|stop| stopped(cx, stop, None))?;
     let mut base_sources: Vec<BTreeSet<RowId>> = vec![BTreeSet::new(); elem_count];
     for idx in 0..elem_count {
         cx.check(Kind::Work, 1)
@@ -1987,11 +2053,11 @@ fn build_ifc_dep_graph(
             if let Some(m) = &parent.of
                 && let Some(set) = base_sources.get_mut(idx)
             {
-                set.insert(RowId(m.target.0));
+                insert_dep_source(set, RowId(m.target.0), cx)?;
             }
             if let Some(set) = base_sources.get_mut(idx) {
                 for &r in &parent.referenced_in {
-                    set.insert(RowId(r.0));
+                    insert_dep_source(set, RowId(r.0), cx)?;
                 }
             }
         }
@@ -1999,19 +2065,21 @@ fn build_ifc_dep_graph(
             && let Some(rel) = pl.relative_to
             && let Some(set) = base_sources.get_mut(idx)
         {
-            set.insert(RowId(rel.0));
+            insert_dep_source(set, RowId(rel.0), cx)?;
         }
         if let Some(tp) = building.components.r#type.get(elem_ref)
             && let Some(set) = base_sources.get_mut(idx)
         {
-            set.insert(RowId(tp.target.0));
+            insert_dep_source(set, RowId(tp.target.0), cx)?;
         }
         if let Some(mat) = building.components.material.get(elem_ref)
             && let Some(set) = base_sources.get_mut(idx)
         {
             for part in &mat.parts {
+                cx.check(Kind::Work, 1)
+                    .map_err(|stop| stopped(cx, stop, None))?;
                 if let Some(m) = part.material {
-                    set.insert(RowId(m.0));
+                    insert_dep_source(set, RowId(m.0), cx)?;
                 }
             }
         }
@@ -2019,12 +2087,12 @@ fn build_ifc_dep_graph(
             match *op {
                 Opening::Voids(host) => {
                     if let Some(host_set) = base_sources.get_mut(host.0 as usize) {
-                        host_set.insert(row);
+                        insert_dep_source(host_set, row, cx)?;
                     }
                 }
                 Opening::Fills(opening_elem) => {
                     if let Some(set) = base_sources.get_mut(idx) {
-                        set.insert(RowId(opening_elem.0));
+                        insert_dep_source(set, RowId(opening_elem.0), cx)?;
                     }
                 }
             }
@@ -2033,21 +2101,21 @@ fn build_ifc_dep_graph(
             && let Some(set) = base_sources.get_mut(idx)
         {
             for &g in &grp.groups {
-                set.insert(RowId(g.0));
+                insert_dep_source(set, RowId(g.0), cx)?;
             }
         }
         if let Some(Grid::Grid { axes }) = building.components.grid.get(elem_ref)
             && let Some(set) = base_sources.get_mut(idx)
         {
             for &(_, axis) in axes {
-                set.insert(RowId(axis.0));
+                insert_dep_source(set, RowId(axis.0), cx)?;
             }
         }
         if let Some(zone) = building.components.zone.get(elem_ref)
             && let Some(set) = base_sources.get_mut(idx)
         {
             for &m in &zone.members {
-                set.insert(RowId(m.0));
+                insert_dep_source(set, RowId(m.0), cx)?;
             }
         }
     }
@@ -2060,9 +2128,25 @@ fn build_ifc_dep_graph(
             continue;
         };
         let elem_ref = ElementRef(raw_idx);
-        let mut combined = base.clone();
-        collect_property_element_refs(building.components.properties.get(elem_ref), &mut combined);
+        let mut combined = copy_dep_sources(Some(base), cx)?;
+        collect_property_element_refs(
+            building.components.properties.get(elem_ref),
+            &mut combined,
+            cx,
+        )?;
         if !combined.is_empty() {
+            cx.check(
+                Kind::Work,
+                (combined.len() as u64).saturating_mul(3).saturating_add(1),
+            )
+            .map_err(|stop| stopped(cx, stop, None))?;
+            cx.check(
+                Kind::DecodedBytes,
+                (combined.len() as u64)
+                    .saturating_mul(384)
+                    .saturating_add(256),
+            )
+            .map_err(|stop| stopped(cx, stop, None))?;
             dep.set_sources(RowId(raw_idx), combined);
         }
     }
@@ -2234,6 +2318,159 @@ mod shared_budget_tests {
         )
         .as_bytes()
         .to_vec()
+    }
+
+    #[test]
+    fn property_dependency_lists_share_work_allocation_and_depth_limits() {
+        let literal = Literal::List(vec![
+            Literal::Element(ElementRef(1)),
+            Literal::List(vec![
+                Literal::Element(ElementRef(2)),
+                Literal::Element(ElementRef(1)),
+            ]),
+        ]);
+        let mut measured = Budget::default();
+        let cancel = CancelToken::new();
+        let mut complete = BTreeSet::new();
+        collect_literal_element_refs(
+            &literal,
+            &mut complete,
+            &mut Cx::new(&mut measured, &mut Diagnostics::new(), &cancel),
+        )
+        .unwrap();
+        assert_eq!(complete, BTreeSet::from([RowId(1), RowId(2)]));
+        for (kind, used) in [
+            (Kind::Work, measured.used(Kind::Work)),
+            (Kind::DecodedBytes, measured.used(Kind::DecodedBytes)),
+            (Kind::Depth, 2),
+        ] {
+            for (limit, spent) in [(0, 0), (used - 1, 0), (used, 0), (used, 1), (used + 1, 1)] {
+                let mut budget = Budget::new(Limits::default().with(kind, Limit::Finite(limit)));
+                budget.spend(kind, spent).unwrap();
+                let mut out = BTreeSet::new();
+                let mut diagnostics = Diagnostics::new();
+                let result = collect_literal_element_refs(
+                    &literal,
+                    &mut out,
+                    &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+                );
+                assert_eq!(
+                    result.is_ok(),
+                    limit >= used + spent,
+                    "{kind:?}={limit} spent={spent}"
+                );
+                if result.is_ok() {
+                    assert_eq!(out, complete);
+                } else {
+                    assert!(matches!(result, Err(Error::Stopped(_))));
+                }
+                assert_eq!(
+                    budget.used(Kind::Depth),
+                    if kind == Kind::Depth { spent } else { 0 }
+                );
+            }
+        }
+        cancel.cancel();
+        let mut out = BTreeSet::new();
+        let result = collect_literal_element_refs(
+            &literal,
+            &mut out,
+            &mut Cx::new(&mut Budget::default(), &mut Diagnostics::new(), &cancel),
+        );
+        assert_eq!(result, Err(Error::Stopped(zumen_base::Stop::Cancelled)));
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn property_dependency_changes_keep_model_bytes_history_and_stop_atomically() {
+        let bytes = String::from_utf8(fixture())
+            .unwrap()
+            .replace("IFCLABEL('before')", "#11")
+            .into_bytes();
+        let mut transcript = String::new();
+        for threads in [1, 4] {
+            let mut live = record_budget(&mut transcript, |cx| {
+                IfcLive::open_with_threads(&bytes, threads, cx)
+            })
+            .unwrap();
+            let dependent = live.element_by_instance(10).unwrap();
+            let source = live.element_by_instance(11).unwrap();
+            assert_eq!(
+                run(|cx| live.affected_elements(&[source], cx)).0.unwrap(),
+                [dependent]
+            );
+            transcript.push_str(&check_model(&live, &bytes));
+            let before = live.building().clone();
+            let graph = live.dep.clone();
+            let change = [Edit::Property {
+                element: 10,
+                set: "Pset_Test".into(),
+                name: "Value".into(),
+                value: NewValue {
+                    type_name: "IfcLabel".into(),
+                    literal: crate::NewLiteral::Text("no reference".into()),
+                },
+            }];
+            let mut measured = Budget::default();
+            let cancel = CancelToken::new();
+            live.clone()
+                .apply(
+                    &change,
+                    b"dependency",
+                    &mut Cx::new(&mut measured, &mut Diagnostics::new(), &cancel),
+                )
+                .unwrap();
+            for kind in [Kind::Work, Kind::DecodedBytes, Kind::Records] {
+                let used = measured.used(kind);
+                assert!(used > 0);
+                for limit in [0, used / 2, used - 1] {
+                    let mut budget =
+                        Budget::new(Limits::default().with(kind, Limit::Finite(limit)));
+                    let result = live.apply(
+                        &change,
+                        b"dependency",
+                        &mut Cx::new(&mut budget, &mut Diagnostics::new(), &cancel),
+                    );
+                    assert!(matches!(result, Err(Error::Stopped(_))), "{kind:?} {limit}");
+                    assert_eq!(live.building(), &before);
+                    assert_eq!(live.dep, graph);
+                    assert_eq!((live.undo_len(), live.redo_len()), (0, 0));
+                    assert_eq!(run(|cx| live.save_spf(cx)).0.unwrap(), bytes);
+                }
+            }
+            let file = run(|cx| Ifc::read(&bytes, cx)).0.unwrap();
+            let expected = run(|cx| crate::apply(&file, &change, b"dependency", cx));
+            let actual = run(|cx| live.apply(&change, b"dependency", cx));
+            assert_eq!(actual.1, expected.1);
+            let expected = expected.0.unwrap();
+            assert_eq!(actual.0.unwrap(), expected.changed);
+            transcript.push_str(&check_model(&live, &expected.bytes));
+            let affected =
+                record_budget(&mut transcript, |cx| live.affected_elements(&[source], cx)).unwrap();
+            assert!(affected.is_empty());
+            assert!(record_budget(&mut transcript, |cx| live.undo(cx)).unwrap());
+            assert_eq!(live.dep, graph);
+            transcript.push_str(&check_model(&live, &bytes));
+            let affected =
+                record_budget(&mut transcript, |cx| live.affected_elements(&[source], cx)).unwrap();
+            assert_eq!(affected, [dependent]);
+            assert!(record_budget(&mut transcript, |cx| live.redo(cx)).unwrap());
+            transcript.push_str(&check_model(&live, &expected.bytes));
+            assert!(
+                run(|cx| live.affected_elements(&[source], cx))
+                    .0
+                    .unwrap()
+                    .is_empty()
+            );
+        }
+        #[allow(
+            clippy::disallowed_methods,
+            reason = "テストの比較記録の出力先だけを読む"
+        )]
+        let destination = std::env::var("ZUMEN_IFC_LIVE_DEP_OUT");
+        if let Ok(path) = destination {
+            std::fs::write(path, transcript).unwrap();
+        }
     }
 
     fn check_model(live: &IfcLive, bytes: &[u8]) -> String {
