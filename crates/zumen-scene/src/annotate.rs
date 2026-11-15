@@ -86,8 +86,9 @@ impl Builder<'_, '_, '_> {
         else {
             return Ok(points);
         };
-        let (found, work) = geom::spline_with_work(3, &knots, &control, &[], local);
-        self.work(work, source)?;
+        let found = geom::try_spline_with_work(3, &knots, &control, &[], local, |work| {
+            self.work(work, source)
+        })?;
         Ok(match found {
             Some(found) => {
                 self.approximated = true;

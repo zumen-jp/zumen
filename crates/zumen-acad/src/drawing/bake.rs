@@ -66,8 +66,8 @@ fn vertices(polyline: &Polyline<ModelPoint>) -> Vec<(geom::Xy, f64)> {
 
 /// 要素を焼き込む前に予算に数える、手間（`work`）と作る点（`segments`）の数。クロソイドは、作る点とは別に
 /// 原点から区間の初めまで刻んで積む手間を、膨らみを持つ折れ線は、区間ごとに作る点を、作る前に数える。
-/// ほかの形は、1 つで作る点が [`geom::MAX_STEPS`]（スプラインは、それとノットの区間の数）で抑えられるので、
-/// 作ったあとに数える（#753・#756）
+/// スプラインの作業量は [`try_element_of`] の中で数える。ほかの形は、1 つで作る点が
+/// [`geom::MAX_STEPS`] で抑えられるので、作ったあとに数える。
 pub(crate) fn before(shape: &Shape<ModelPoint>, view: &View) -> (u64, u64) {
     let tolerance = tolerance(view);
     match shape {
@@ -94,36 +94,72 @@ pub(crate) fn before(shape: &Shape<ModelPoint>, view: &View) -> (u64, u64) {
 pub(crate) struct Baked {
     /// 用紙の要素。焼き込めなければ `None`
     pub(crate) element: Option<Element<PaperPoint>>,
-    /// スプラインの点を求めた手間（#756）
+    /// 測定用の、計算中に数えた作業量
+    #[cfg(test)]
     pub(crate) work: u64,
     /// 作った点のうち、[`before`] で数えなかったもの
     pub(crate) points: u64,
 }
 
 /// 要素を用紙の要素にする
+#[cfg(test)]
 pub(crate) fn element_of(element: &Element<ModelPoint>, view: &View) -> Baked {
+    match try_element_of(element, view, |_| Ok::<_, std::convert::Infallible>(())) {
+        Ok(baked) => baked,
+        Err(never) => match never {},
+    }
+}
+
+/// 要素を用紙の要素にし、計算中の作業を `check` で数える
+pub(crate) fn try_element_of<E>(
+    element: &Element<ModelPoint>,
+    view: &View,
+    mut check: impl FnMut(u64) -> Result<(), E>,
+) -> Result<Baked, E> {
+    #[cfg(test)]
     let mut work = 0;
-    let shape = shape(&element.shape, view, &mut work);
+    let mut error = None;
+    let shape = shape(&element.shape, view, &mut |amount| {
+        #[cfg(test)]
+        {
+            work += amount;
+        }
+        match check(amount) {
+            Ok(()) => Some(()),
+            Err(found) => {
+                error = Some(found);
+                None
+            }
+        }
+    });
+    if let Some(error) = error {
+        return Err(error);
+    }
     let points = match (&element.shape, &shape) {
         (Shape::Polyline(polyline), _) if bulged(polyline) => 0,
         (_, Some(Shape::Polyline(out))) => out.vertices.len() as u64,
         (_, Some(Shape::Line { .. })) => 2,
         _ => 0,
     };
-    Baked {
+    Ok(Baked {
         element: shape.map(|shape| Element {
             source: element.source.clone(),
             layer: element.layer,
             style: element.style,
             shape,
         }),
+        #[cfg(test)]
         work,
         points,
-    }
+    })
 }
 
-/// 形を用紙の形にする。スプラインの点を求めた手間を `work` に足す
-fn shape(shape: &Shape<ModelPoint>, view: &View, work: &mut u64) -> Option<Shape<PaperPoint>> {
+/// 形を用紙の形にし、計算前に `check` を呼ぶ
+fn shape(
+    shape: &Shape<ModelPoint>,
+    view: &View,
+    check: &mut impl FnMut(u64) -> Option<()>,
+) -> Option<Shape<PaperPoint>> {
     let tolerance = tolerance(view);
     let paper = |[x, y]: geom::Xy| {
         let (x, y) = view.transform.apply(x, y);
@@ -215,15 +251,16 @@ fn shape(shape: &Shape<ModelPoint>, view: &View, work: &mut u64) -> Option<Shape
         }
         Shape::Curve(Edge::Spline(spline)) => {
             let control: Vec<geom::Xy> = spline.control.iter().map(xy).collect();
-            let (points, spent) = geom::spline_with_work(
+            let points = geom::try_spline_with_work(
                 spline.degree,
                 &spline.knots,
                 &control,
                 &spline.weights,
                 tolerance,
-            );
-            *work = work.saturating_add(spent);
-            lines(points?, false)?
+                |work| check(work).ok_or(()),
+            )
+            .ok()??;
+            lines(points, false)?
         }
         Shape::Curve(Edge::Clothoid {
             origin,
@@ -393,7 +430,7 @@ mod tests {
             end: 180.0,
             counterclockwise: true,
         });
-        let Some(Shape::Polyline(polyline)) = shape(&arc, &view, &mut 0) else {
+        let Some(Shape::Polyline(polyline)) = shape(&arc, &view, &mut |_| Some(())) else {
             panic!("折れ線にならない");
         };
         assert!(polyline.vertices.len() > 10);
@@ -433,7 +470,7 @@ mod tests {
                 style: String::new(),
             })
         };
-        let Some(Shape::Text(out)) = shape(&text(0.0), &view, &mut 0) else {
+        let Some(Shape::Text(out)) = shape(&text(0.0), &view, &mut |_| Some(())) else {
             panic!("文字にならない");
         };
         assert_eq!(out.height.value, Length::Paper(PaperLength(2.5)));
@@ -444,7 +481,7 @@ mod tests {
             Placement::Anchor { point, .. } if point.x == 11.0 && point.y == 40.0
         ));
         // 縦に立てた文字は、横の尺度で高さが決まる
-        let Some(Shape::Text(out)) = shape(&text(90.0), &view, &mut 0) else {
+        let Some(Shape::Text(out)) = shape(&text(90.0), &view, &mut |_| Some(())) else {
             panic!("文字にならない");
         };
         let Length::Paper(PaperLength(height)) = out.height.value else {

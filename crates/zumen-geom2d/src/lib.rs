@@ -4,7 +4,7 @@
 //! 1 つの曲線で作る点の数は [`MAX_STEPS`]（スプラインは、それとノットの区間の数）で抑える。使う側は、作った点を
 //! 予算の `segments` で数える。膨らみを持つ折れ線は区間ごとに抑えるので、[`polyline_points`] で作る前に数える。
 //! 作る点の数に比例しない手間（クロソイドの原点からの刻みと、スプラインの点の計算）は、[`clothoid_work`] と
-//! [`spline_with_work`] で求めて、予算の `work` に数える（#753・#756）。
+//! [`try_spline_with_work`] で、計算する前に予算の `work` に数える。
 
 use std::f64::consts::PI;
 
@@ -248,7 +248,7 @@ fn deviation(p: Xy, a: Xy, b: Xy) -> f64 {
 }
 
 /// 制御点とノットで決まるスプラインを折れ線にする。定義が合わないか、次数が [`MAX_DEGREE`] を超えれば `None`。
-/// 点を求める手間を予算に数えるなら、[`spline_with_work`] を使う
+/// 点を求める手間を予算に数えるなら、[`try_spline_with_work`] を使う
 pub fn spline(
     degree: u32,
     knots: &[f64],
@@ -259,9 +259,9 @@ pub fn spline(
     spline_with_work(degree, knots, control, weights, tolerance).0
 }
 
-/// [`spline`] と同じく折れ線にし、点を求めた手間も返す。手間は、点を求めた回数に 1 回の手間（次数に 1 を
-/// 足した数の 2 乗と、区間を探す二分探索の段の数の和）を掛けたもの。作る点の数とは比例しないので、使う側が、
-/// 呼んだあとに予算の作業に数える。折れ線にできなくても、それまでの手間を返す（#756）
+/// [`spline`] と同じく折れ線にし、準備と座標の評価に使った作業量も返す。
+/// 作業量の測定に使う。予算で中断する場合は [`try_spline_with_work`] を使う。
+/// 折れ線にできなくても、それまでの作業量を返す。
 pub fn spline_with_work(
     degree: u32,
     knots: &[f64],
@@ -269,13 +269,44 @@ pub fn spline_with_work(
     weights: &[f64],
     tolerance: f64,
 ) -> (Option<Vec<Xy>>, u64) {
-    let evaluations = std::cell::Cell::new(0_u64);
-    let out = flatten_spline(degree, knots, control, weights, tolerance, &evaluations);
-    let depth = u64::from(usize::BITS - control.len().leading_zeros());
-    let each = (u64::from(degree) + 1)
-        .saturating_mul(u64::from(degree) + 1)
-        .saturating_add(depth);
-    (out, evaluations.get().saturating_mul(each))
+    let mut work = 0_u64;
+    let out = flatten_spline(degree, knots, control, weights, tolerance, &mut |amount| {
+        work = work.saturating_add(amount);
+        Some(())
+    });
+    (out, work)
+}
+
+/// [`spline`] と同じく折れ線にし、準備と座標の評価の前に `check` で作業量を数える。
+/// `check` が失敗したら直ちに中断し、部分的な折れ線を返さない。
+/// 定義が合わない場合の `Ok(None)` と、予算などによる `Err` を区別する。
+pub fn try_spline_with_work<E>(
+    degree: u32,
+    knots: &[f64],
+    control: &[Xy],
+    weights: &[f64],
+    tolerance: f64,
+    mut check: impl FnMut(u64) -> Result<(), E>,
+) -> Result<Option<Vec<Xy>>, E> {
+    let mut error = None;
+    let out = flatten_spline(
+        degree,
+        knots,
+        control,
+        weights,
+        tolerance,
+        &mut |amount| match check(amount) {
+            Ok(()) => Some(()),
+            Err(found) => {
+                error = Some(found);
+                None
+            }
+        },
+    );
+    match error {
+        Some(error) => Err(error),
+        None => Ok(out),
+    }
 }
 
 fn flatten_spline(
@@ -284,16 +315,21 @@ fn flatten_spline(
     control: &[Xy],
     weights: &[f64],
     tolerance: f64,
-    evaluations: &std::cell::Cell<u64>,
+    check: &mut impl FnMut(u64) -> Option<()>,
 ) -> Option<Vec<Xy>> {
     if degree > MAX_DEGREE {
         return None;
     }
     let degree = usize::try_from(degree).ok()?;
     let n = control.len();
+    check(
+        (knots.len() as u64)
+            .saturating_mul(2)
+            .saturating_add((n as u64).saturating_mul(2)),
+    )?;
     if degree == 0
         || n <= degree
-        || knots.len() != n + degree + 1
+        || Some(knots.len()) != n.checked_add(degree + 1)
         || !(weights.is_empty() || weights.len() == n)
         || knots
             .windows(2)
@@ -314,8 +350,10 @@ fn flatten_spline(
     if lo.partial_cmp(&hi) != Some(std::cmp::Ordering::Less) {
         return None;
     }
-    let eval = |t: f64| {
-        evaluations.set(evaluations.get().saturating_add(1));
+    let depth = u64::from(usize::BITS - n.leading_zeros());
+    let each = ((degree + 1) as u64).pow(2) * 16 + depth + 16;
+    let mut eval = |t: f64| {
+        check(each)?;
         de_boor(degree, knots, &homogeneous, t.min(hi))
     };
     let mut out = vec![eval(lo)?];
@@ -381,7 +419,7 @@ fn clothoid_steps(parameter: f64, start: f64, end: f64, tolerance: f64) -> Optio
     // 弦の誤差は h²κ/8。いちばん曲がる所の曲率 κ = |s|/A² で刻みを決める
     let curvature = start.abs().max(end.abs()) / a2;
     let step = if curvature > 0.0 && tolerance > 0.0 {
-        (8.0 * tolerance / curvature).sqrt()
+        libm::sqrt(8.0 * tolerance / curvature)
     } else {
         (end - start).abs()
     };
@@ -401,12 +439,11 @@ fn clothoid_steps(parameter: f64, start: f64, end: f64, tolerance: f64) -> Optio
     Some((lead, steps))
 }
 
-/// [`clothoid`] を 1 回呼ぶ手間（向きの式を求める回数）。作る点の数と別に、原点から区間の初めまでを
+/// [`clothoid`] を 1 回呼ぶ作業量。各評価の三角関数と積和を含めて数える。作る点の数と別に、原点から区間の初めまでを
 /// [`MAX_STEPS`] 回まで刻んで積むので、使う側が、呼ぶ前に予算の作業に数える（#753）
 pub fn clothoid_work(parameter: f64, start: f64, end: f64, tolerance: f64) -> u64 {
     match clothoid_steps(parameter, start, end, tolerance) {
-        // 刻みごとに、シンプソンの公式で 9 回
-        Some((lead, steps)) => (lead as u64 + steps as u64) * 9 + 1,
+        Some((lead, steps)) => (lead as u64 + steps as u64) * 9 * 64 + 1,
         None => 1,
     }
 }
@@ -1203,12 +1240,12 @@ mod tests {
         // A 50 の 35 m から 50 m まで。刻みは 2 m ほどなので、区間は 8 刻み、原点から区間の初めまでは 18 刻み
         let points = clothoid([0.0, 0.0], 50.0, 0.0, true, 35.0, 50.0, 0.01);
         assert_eq!(points.len(), 9);
-        assert_eq!(clothoid_work(50.0, 35.0, 50.0, 0.01), (18 + 8) * 9 + 1);
+        assert_eq!(clothoid_work(50.0, 35.0, 50.0, 0.01), (18 + 8) * 9 * 64 + 1);
         // 原点から始まる区間は、区間の刻みのほかに 1 刻み
         let points = clothoid([0.0, 0.0], 10.0, 0.0, true, 0.0, 10.0, 0.001);
         assert_eq!(
             clothoid_work(10.0, 0.0, 10.0, 0.001),
-            (1 + points.len() as u64 - 1) * 9 + 1
+            (1 + points.len() as u64 - 1) * 9 * 64 + 1
         );
         assert_eq!(clothoid_work(0.0, 0.0, 10.0, 0.001), 1);
     }
@@ -1268,10 +1305,33 @@ mod tests {
             0.001,
         );
         let points = points.unwrap().len() as u64;
-        // 1 回の手間は (2 + 1)² と、制御点 3 個を探す二分探索の 2 段の和。求める回数は、作った点の 6 倍を超えない
-        let each = 9 + 2;
-        assert_eq!(work % each, 0);
-        assert!(work / each >= points && work / each <= 6 * points, "{work}");
+        let preparation = 6 * 2 + 3 * 2;
+        let each = 9 * 16 + 2 + 16;
+        assert_eq!((work - preparation) % each, 0);
+        let evaluations = (work - preparation) / each;
+        assert!(evaluations >= points && evaluations <= 6 * points, "{work}");
+    }
+
+    #[test]
+    fn spline_checks_work_and_preserves_the_result() {
+        let knots = [0.0, 0.0, 0.0, 1.0, 1.0, 1.0];
+        let control = [[0.0, 0.0], [1.0, 2.0], [2.0, 0.0]];
+        let expected = spline_with_work(2, &knots, &control, &[], 0.001);
+        let mut measured = 0_u64;
+        let found = try_spline_with_work(2, &knots, &control, &[], 0.001, |amount| {
+            measured += amount;
+            Ok::<_, ()>(())
+        });
+        assert_eq!(found, Ok(expected.0));
+        assert_eq!(measured, expected.1);
+
+        let mut calls = 0;
+        let cancelled = try_spline_with_work(2, &knots, &control, &[], 0.001, |_| {
+            calls += 1;
+            if calls == 3 { Err("cancelled") } else { Ok(()) }
+        });
+        assert_eq!(cancelled, Err("cancelled"));
+        assert_eq!(calls, 3);
     }
 
     #[test]
