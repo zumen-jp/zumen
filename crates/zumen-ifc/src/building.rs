@@ -25,11 +25,13 @@ mod grid;
 mod semantic;
 mod shape;
 mod style;
+mod sweep;
 mod unit;
 pub use extrusion::{ExtrudedArea, ExtrusionSource, ProfiledExtrusion};
 pub use grid::{GridAxes, GridAxisCurve, GridSource};
 pub use shape::{ProductShape, ShapeLinks, ShapeNode, ShapeRef};
 pub use style::{ItemStyleSource, ItemSurfaceStyles, SurfaceStyleBinding, SurfaceStyleSource};
+pub use sweep::SweptDisk;
 
 /// 建物モデルを作るバージョン
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

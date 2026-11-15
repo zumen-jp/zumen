@@ -229,7 +229,7 @@ fn ifc_grid() -> Vec<u8> {
 }
 
 fn ifc_profiles() -> Vec<u8> {
-    // 要素の葉から矩形・円・任意断面まで、小さい入力で通す自作の IFC4。
+    // 要素の葉から矩形・円・任意断面と掃引円盤まで、小さい入力で通す自作の IFC4。
     b"ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('profiles'),'2;1');\nFILE_NAME('','',(''),(''),'','','');\nFILE_SCHEMA(('IFC4'));\nENDSEC;\nDATA;\n\
     #1=IFCPROJECT('0000000000000000000001',$,$,$,$,$,$,$,#2);\n\
     #2=IFCUNITASSIGNMENT((#3));\n#3=IFCSIUNIT(*,.LENGTHUNIT.,$,.METRE.);\n\
@@ -240,8 +240,9 @@ fn ifc_profiles() -> Vec<u8> {
     #18=IFCPOLYLINE((#10,#15,#16,#10));\n#19=IFCARBITRARYCLOSEDPROFILEDEF(.AREA.,'A',#18);\n\
     #20=IFCAXIS2PLACEMENT3D(#21,$,$);\n#21=IFCCARTESIANPOINT((0.,0.,0.));\n#24=IFCDIRECTION((0.,0.,1.));\n\
     #30=IFCEXTRUDEDAREASOLID(#13,$,#24,2.);\n#31=IFCEXTRUDEDAREASOLID(#14,$,#24,2.);\n#32=IFCEXTRUDEDAREASOLID(#19,$,#24,2.);\n\
+    #33=IFCSWEPTDISKSOLID(#51,0.2,0.1,$,$);\n#50=IFCCARTESIANPOINT((0.,0.,3.));\n#51=IFCPOLYLINE((#21,#50));\n\
     #100=IFCWALL('0000000000000000000002',$,$,$,$,$,#101,$,.NOTDEFINED.);\n\
-    #101=IFCPRODUCTDEFINITIONSHAPE($,$,(#102));\n#102=IFCSHAPEREPRESENTATION(#8,'Body','SweptSolid',(#30,#31,#32));\n\
+    #101=IFCPRODUCTDEFINITIONSHAPE($,$,(#102));\n#102=IFCSHAPEREPRESENTATION(#8,'Body','AdvancedSweptSolid',(#30,#31,#32,#33));\n\
     ENDSEC;\nEND-ISO-10303-21;\n".to_vec()
 }
 

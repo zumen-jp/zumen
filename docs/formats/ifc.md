@@ -213,6 +213,30 @@ node crates/zumen-ifc/tests/wasi-profiles.mjs --compare target/profile-compariso
 
 WASI の出力先は `target/profile-comparison-wasm` です。6 件の JSON と、全 Kind の予算・中断・版差・走査の各停止位置の診断を記録する `contract.txt` をバイト単位で比べます。既存の fuzz の `ifc` target も形の葉からこの取得を呼び、既存の読み取り専用の毎晩の job で export と IfcOpenShell 比較を流します。
 
+## 形の葉から掃引円盤を取得する
+
+`IfcFile::swept_disk(&ShapeNode, cx)` は `product_shape()` の葉から `IfcSweptDiskSolid` を取得します。`SweptDisk::definition` の `DiskSweep` に外半径・省略可能な内半径・区間の始点と終点を、`directrix` に既存の `CurveGraph` を持ちます。定義の曲線の参照は同じグラフの中だけで有効です。元の掃引のレコードは借用する `source`、曲線と補助レコードの出所はグラフに分けます。
+
+- 元の有限な値と省略を保ち、配置・共有写像・単位換算・曲線の近似を適用しません。半径はグラフの長さの単位、区間は曲線の媒介変数です。単位の取得と未対応の曲線の診断は既存の `curve()` と共有します。
+- 3D の経路、正の外半径、外半径より小さい正の内半径を要求します。IFC2X3 の区間の始点と終点は必須です。IFC4 以降では有界か閉じた曲線の場合だけ省略を保ち、無限の直線では両端を要求します。区間を並べ替えず、幾何的に有効な範囲かどうかは評価しません。
+- 掃引の属性の不正には `ifc.shape.invalid` と `sweep-` から始まる理由・出所を返します。複合の掃引、派生した別の種類、未対応の経路には診断と `Unsupported` を返します。停止・不正・未対応では部分結果を返しません。曲線と同じ `Cx` で手間・深さ・確保前の展開量を数え、終了時に呼び出し側の深さを戻します。
+- 接合部の形、自己交差、経路の曲率・長さと半径の関係は未評価です。Building の成分・既存の ID と Hash v1 は変えません。形の評価と全面統合は #419・#420 の残件です。
+
+根拠は buildingSMART の IfcSweptDiskSolid の属性と制約の説明（[IFC2X3 TC1](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC2x3/TC1/HTML/ifcgeometricmodelresource/lexical/ifcsweptdisksolid.htm)・[IFC4 ADD2 TC1](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4/ADD2_TC1/HTML/schema/ifcgeometricmodelresource/lexical/ifcsweptdisksolid.htm)・[IFC4.3 ADD2](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4_3/HTML/lexical/IfcSweptDiskSolid.htm)）です。
+
+`tests/sweeps.rs` は合成の 3 版で、共有写像を通した取得、値・出所・単位・版差・曲線の共有と循環・不正な値・全 Kind の予算・中断・深さの復元・既存 ID とハッシュを検査します。切った入力と変異した入力も共有予算で 2 回処理し、停止位置と診断の一致を確かめます。fuzz の `ifc` target も 16 個までこの取得を通します。同梱の公開 IFC 12 件には掃引円盤がないため、読みの検証は `synthetic` です。IfcOpenShell の元属性との照合と、ネイティブと WASI のバイト列の比較は次で実行できます。
+
+```powershell
+$env:ZUMEN_IFC_SWEEPS_OUT = Join-Path (Get-Location) 'target/sweep-comparison'
+cargo test -p zumen-ifc --locked --test sweeps
+python -X utf8 -I crates/zumen-ifc/tests/ifcopenshell/sweeps.py target/sweep-comparison
+$env:CARGO_TARGET_WASM32_WASIP1_RUNNER = 'node --no-warnings tests/wasi-sweeps.mjs'
+cargo test -p zumen-ifc --locked --test sweeps --target wasm32-wasip1 -- --test-threads 1
+node crates/zumen-ifc/tests/wasi-sweeps.mjs --compare target/sweep-comparison target/sweep-comparison-wasm
+```
+
+比較するのは合成 3 版の 9 個の掃引と経路の元属性、別に JSON・診断・全 Kind の予算と停止の記録です。配置や写像を適用した形・体積・接合部の評価は含めません。
+
 ## 形の項目から面の表示を取得する
 
 `IfcFile::surface_styles(&ShapeNode, cx)` は、既存の `ProductShape` の項目に直接結びつく `IfcStyledItem` から、面の色・透明度・反射の元の値を取得します。`building` の feature が必要です。ifcZIP では `file.ifc()` から同じ操作を呼びます。同じファイルの node だけを受け付け、別のファイルや clone したファイルの node は `ifc.style.invalid` にします。
