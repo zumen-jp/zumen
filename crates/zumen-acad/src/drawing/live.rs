@@ -6,6 +6,8 @@
 
 mod backing;
 mod edit;
+#[cfg(test)]
+mod equivalence;
 mod open;
 mod shape;
 
@@ -235,8 +237,7 @@ impl AcadLive {
 
     /// 生きている行 `row` から図面モデルの [`Element<ModelPoint>`] を 1 件だけ復元する
     pub fn element_of_row(&self, row: RowId) -> Option<Element<ModelPoint>> {
-        let r = self.state.table.row(row)?;
-        self.state.shapes.to_element(r, &self.state.catalog)
+        self.state.element_of_row(row)
     }
 
     /// 現在の常駐状態から [`Drawing2D`] を組み立てる
@@ -331,7 +332,7 @@ mod tests {
 
     const MODEL: SpaceId = SpaceId(0);
 
-    fn fresh_cx<R>(f: impl FnOnce(&mut Cx<'_>) -> R) -> (R, Vec<Diagnostic>) {
+    pub(super) fn fresh_cx<R>(f: impl FnOnce(&mut Cx<'_>) -> R) -> (R, Vec<Diagnostic>) {
         let mut budget = Budget::default();
         let mut diag = Diagnostics::new();
         let cancel = CancelToken::new();
@@ -484,7 +485,9 @@ mod tests {
             .collect()
     }
 
-    fn all_element_ids_and_hashes(drawing: &zumen_drawing::Drawing2D) -> Vec<(String, Hash)> {
+    pub(super) fn all_element_ids_and_hashes(
+        drawing: &zumen_drawing::Drawing2D,
+    ) -> Vec<(String, Hash)> {
         let mut out = Vec::new();
         for sp in &drawing.spaces {
             let place = id::space(sp.id);
@@ -516,7 +519,7 @@ mod tests {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../samples")
     }
 
-    fn synthetic_rich_dxf() -> Vec<u8> {
+    pub(super) fn synthetic_rich_dxf() -> Vec<u8> {
         // 平面 6 種類（属性つき INSERT を含む）と一般図形（ELLIPSE・POINT）を含む R2000 DXF
         let mut dxf = String::new();
         let mut tag = |code: i16, val: &str| {
@@ -1698,7 +1701,7 @@ mod tests {
         assert_eq!(live.state_id(), before_sid);
     }
 
-    fn synthetic_associative_dxf() -> Vec<u8> {
+    pub(super) fn synthetic_associative_dxf() -> Vec<u8> {
         let mut dxf = String::new();
         let mut tag = |code: i16, val: &str| {
             dxf.push_str(&format!("{code:>3}\n{val}\n"));

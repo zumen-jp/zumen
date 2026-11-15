@@ -13,8 +13,9 @@ use zumen_base::{
 };
 use zumen_drawing::{
     Arrowhead, Axes, CalloutContent, CellContent, Color, ColorCode, ColorSystem, DimensionStyle,
-    Draft, Drawing2D, Element, Layer, LayerId, LineType, LineTypeId, ModelSpace, PaperLength,
-    PointStyle, Position, Shape, Sheet, SheetId, SymbolDefinition, SymbolKey, TextStyle, Unit, id,
+    Draft, Drawing2D, Element, Layer, LayerId, LineType, LineTypeId, ModelPoint, ModelSpace,
+    PaperLength, PointStyle, Position, Shape, Sheet, SheetId, SymbolDefinition, SymbolKey,
+    TextStyle, Unit, id,
 };
 use zumen_live::display::Display;
 use zumen_live::{DepGraph, RowId, SourceBytes, SpatialGrid, VersionedTable};
@@ -29,7 +30,9 @@ use super::super::{
     charset, extension_work, header_limits, header_real, invalid, layout, layout_index,
     point_style, source, unit, work,
 };
-use super::backing::{DwgLiveBacking, DxfHeaderValues, DxfLiveBacking, LiveBacking};
+use super::backing::{
+    DwgLiveBacking, DxfHeaderValues, DxfLiveBacking, DxfRecordMapper, LiveBacking,
+};
 use super::shape::{
     GeneralRow, LiveKind, LiveRow, LiveShapes, NO_DEFINITION, PlainAttrib, PlainLifted,
     ROW_UNIQUE_HANDLE, SlotCatalog, general_from_element, try_lift_plain_attrib,
@@ -119,6 +122,85 @@ impl LiveState {
         }
     }
 
+    /// 1 行の出所と参照を、全体保存したときの番号に合わせて返す。
+    pub(super) fn element_of_row(&self, row_id: RowId) -> Option<Element<ModelPoint>> {
+        let row = self.table.row(row_id)?;
+        let mapper = match &self.backing {
+            LiveBacking::AsciiDxf(dxf) => dxf.record_mapper(),
+            _ => None,
+        };
+        self.element_from_row(row, mapper.as_ref())
+    }
+
+    fn element_from_row(
+        &self,
+        row: &LiveRow,
+        dxf_mapper: Option<&DxfRecordMapper>,
+    ) -> Option<Element<ModelPoint>> {
+        let mut el = self.shapes.to_element(row, &self.catalog)?;
+        if let Some(mapper) = dxf_mapper {
+            el.source = row.source_ref();
+            if let Some(record) = mapper.effective(row.record) {
+                el.source = el.source.with_record(u64::from(record));
+            }
+            match row.kind {
+                LiveKind::Insert => {
+                    if let Shape::Symbol(sym) = &mut el.shape
+                        && let Some(ins) = self.shapes.inserts.get(row.shape as usize)
+                    {
+                        for (i, attr) in sym.attributes.iter_mut().enumerate() {
+                            if let Some(ar) = (ins.attrib_start as usize)
+                                .checked_add(i)
+                                .and_then(|index| self.shapes.pools.attribs.get(index))
+                                && let Some(eff) = mapper.effective(ar.record)
+                            {
+                                attr.source = attr.source.clone().with_record(u64::from(eff));
+                            }
+                        }
+                    }
+                }
+                LiveKind::General => {
+                    if let Some(general) = self.shapes.generals.get(row.shape as usize) {
+                        match &mut el.shape {
+                            Shape::Symbol(sym) => {
+                                let attribute_count = sym.attributes.len();
+                                for (i, attr) in sym.attributes.iter_mut().enumerate() {
+                                    if attr.source.record().is_some() {
+                                        mapper.remap_ref(&mut attr.source);
+                                    } else if general.raw_attrib_count as usize == attribute_count
+                                        && let Some(&f_rec) = general.follower_records.get(i)
+                                        && let Some(eff) = mapper.effective(f_rec)
+                                    {
+                                        attr.source =
+                                            attr.source.clone().with_record(u64::from(eff));
+                                    }
+                                }
+                            }
+                            Shape::Leader(leader) => {
+                                if let Some(ann) = &mut leader.annotation {
+                                    if ann.record().is_some() {
+                                        mapper.remap_ref(ann);
+                                    } else if let Some(Key::Handle(h)) = ann.key()
+                                        && let Some(ann_rid) = self.table.find_handle(h)
+                                        && let Some(ann_row) = self.table.row(ann_rid)
+                                        && let Some(eff) = mapper.effective(ann_row.record)
+                                    {
+                                        *ann =
+                                            Ref::at_record(u64::from(eff)).with_key(Key::Handle(h));
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                _ => {}
+            }
+            mapper.remap_shape_links(&mut el.shape);
+        }
+        Some(el)
+    }
+
     /// 現在の常駐状態から [`Drawing2D`] を組み立てる
     pub fn to_drawing(&self, cx: &mut Cx<'_>) -> Result<Drawing2D, Error> {
         let layers = self.catalog.build_layers();
@@ -168,67 +250,9 @@ impl LiveState {
                 cx.report(stop.to_diagnostic().at(row_ref.clone()));
                 Error::Stopped(stop)
             })?;
-            let Some(mut el) = self.shapes.to_element(row, &self.catalog) else {
+            let Some(el) = self.element_from_row(row, dxf_mapper.as_ref()) else {
                 continue;
             };
-            if let Some(mapper) = &dxf_mapper {
-                el.source = row_ref;
-                match row.kind {
-                    LiveKind::Insert => {
-                        if let Shape::Symbol(sym) = &mut el.shape
-                            && let Some(ins) = self.shapes.inserts.get(row.shape as usize)
-                        {
-                            for (i, attr) in sym.attributes.iter_mut().enumerate() {
-                                if let Some(ar) = (ins.attrib_start as usize)
-                                    .checked_add(i)
-                                    .and_then(|index| self.shapes.pools.attribs.get(index))
-                                    && let Some(eff) = mapper.effective(ar.record)
-                                {
-                                    attr.source = attr.source.clone().with_record(u64::from(eff));
-                                }
-                            }
-                        }
-                    }
-                    LiveKind::General => {
-                        if let Some(general) = self.shapes.generals.get(row.shape as usize) {
-                            match &mut el.shape {
-                                Shape::Symbol(sym) => {
-                                    let attribute_count = sym.attributes.len();
-                                    for (i, attr) in sym.attributes.iter_mut().enumerate() {
-                                        if attr.source.record().is_some() {
-                                            mapper.remap_ref(&mut attr.source);
-                                        } else if general.raw_attrib_count as usize
-                                            == attribute_count
-                                            && let Some(&f_rec) = general.follower_records.get(i)
-                                            && let Some(eff) = mapper.effective(f_rec)
-                                        {
-                                            attr.source =
-                                                attr.source.clone().with_record(u64::from(eff));
-                                        }
-                                    }
-                                }
-                                Shape::Leader(leader) => {
-                                    if let Some(ann) = &mut leader.annotation {
-                                        if ann.record().is_some() {
-                                            mapper.remap_ref(ann);
-                                        } else if let Some(Key::Handle(h)) = ann.key()
-                                            && let Some(ann_rid) = self.table.find_handle(h)
-                                            && let Some(ann_row) = self.table.row(ann_rid)
-                                            && let Some(eff) = mapper.effective(ann_row.record)
-                                        {
-                                            *ann = Ref::at_record(u64::from(eff))
-                                                .with_key(Key::Handle(h));
-                                        }
-                                    }
-                                }
-                                _ => {}
-                            }
-                        }
-                    }
-                    _ => {}
-                }
-                mapper.remap_shape_links(&mut el.shape);
-            }
             let model_index = model_elements.len();
             if row.kind == LiveKind::General
                 && let Some(general) = self.shapes.generals.get(row.shape as usize)
