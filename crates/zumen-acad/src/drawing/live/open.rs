@@ -62,6 +62,8 @@ pub struct LiveState {
     pub display: Display,
     /// ブロック定義・ハッチング境界・引出線注釈・連想寸法の依存グラフ
     pub dep: DepGraph,
+    /// 別レコードの DIMASSOC・リアクターから得た依存元。単独の図形を読み直しても保つ。
+    pub external_dep_sources: Arc<BTreeMap<RowId, Vec<RowId>>>,
     /// 画層・線種スロット表
     pub catalog: SlotCatalog,
     /// 単一図形書き戻し用の表情報
@@ -2043,7 +2045,7 @@ fn finish_live_open(
     }
     display.clear_dirty();
 
-    let dep = build_dep_graph(
+    let (dep, external_dep_sources) = build_dep_graph(
         shell_db,
         &table,
         &shapes,
@@ -2051,7 +2053,8 @@ fn finish_live_open(
         &block_defs_by_lower,
         &row_reactors,
         &row_ext_dicts,
-    );
+        cx,
+    )?;
 
     // `SingleTables` を組む
     let mut table_names_map: BTreeMap<&'static [u8], BTreeMap<String, String>> = BTreeMap::new();
@@ -2105,6 +2108,7 @@ fn finish_live_open(
         spatial,
         display,
         dep,
+        external_dep_sources: Arc::new(external_dep_sources),
         catalog,
         single_tables,
         charset: cs,
@@ -2364,7 +2368,8 @@ fn build_dep_graph(
     block_defs_by_lower: &BTreeMap<String, u32>,
     row_reactors: &[(usize, u64)],
     row_ext_dicts: &[(usize, u64)],
-) -> DepGraph {
+    cx: &mut Cx<'_>,
+) -> Result<(DepGraph, BTreeMap<RowId, Vec<RowId>>), Error> {
     let mut dep = DepGraph::new();
     // 1. 入れ子ブロック定義どうしの辺（内側のブロック定義 -> 外側のブロック定義）
     for (outer_idx, sym) in symbols.iter().enumerate() {
@@ -2441,6 +2446,18 @@ fn build_dep_graph(
         }
     }
 
+    // 依存グラフとは別に保つ列の分を計上する。履歴の状態間では Arc を共有する。
+    let retained_bytes = extra_sources.values().fold(0u64, |total, sources| {
+        total
+            .saturating_add(64)
+            .saturating_add((sources.len() as u64).saturating_mul(size_of::<RowId>() as u64))
+    });
+    cx.check(Kind::DecodedBytes, retained_bytes)
+        .map_err(|stop| {
+            cx.report(stop.to_diagnostic());
+            Error::Stopped(stop)
+        })?;
+
     // 3. モデル空間の各行について、ブロック定義・ハッチング境界・引出線注釈・連想寸法の依存元を登録する
     for idx in 0..table.len() {
         let Some(rid) = RowId::from_index(idx) else {
@@ -2451,8 +2468,8 @@ fn build_dep_graph(
         };
         let mut srcs =
             collect_row_dep_sources(shapes, block_defs_by_lower, |h| table.find_handle(h), row);
-        if let Some(extra) = extra_sources.remove(&rid) {
-            srcs.extend(extra);
+        if let Some(extra) = extra_sources.get(&rid) {
+            srcs.extend_from_slice(extra);
             srcs.retain(|&s| s != rid);
             srcs.sort_unstable();
             srcs.dedup();
@@ -2461,7 +2478,7 @@ fn build_dep_graph(
             dep.set_sources(rid, srcs);
         }
     }
-    dep
+    Ok((dep, extra_sources))
 }
 
 fn has_extension_or_paper_values(values: &[Value]) -> bool {

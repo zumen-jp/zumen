@@ -2681,7 +2681,20 @@ fn try_apply_fast(
         .len()
         .saturating_add(affected_from_symbols.len())
         .saturating_add(symbol_edits.len());
-    let est_work = (affected_count.max(1) as u64).saturating_mul(4);
+    let external_source_count = row_actions.iter().fold(0u64, |total, action| {
+        let StagedRowAction::Update { row_id, .. } = action else {
+            return total;
+        };
+        total.saturating_add(
+            state
+                .external_dep_sources
+                .get(row_id)
+                .map_or(0, |sources| sources.len() as u64),
+        )
+    });
+    let est_work = (affected_count.max(1) as u64)
+        .saturating_add(external_source_count)
+        .saturating_mul(4);
     if let Err(stop) = cx.check(Kind::Work, est_work) {
         cx.report(stop.to_diagnostic());
         return FastAttempt::Err(Error::Stopped(stop));
@@ -2689,7 +2702,8 @@ fn try_apply_fast(
     let est_display_bytes = (row_actions
         .len()
         .saturating_add(affected_from_symbols.len()) as u64)
-        .saturating_mul(128);
+        .saturating_mul(128)
+        .saturating_add(external_source_count.saturating_mul(size_of::<RowId>() as u64));
     if let Err(stop) = cx.check(Kind::DecodedBytes, est_display_bytes) {
         cx.report(stop.to_diagnostic());
         return FastAttempt::Err(Error::Stopped(stop));
@@ -2735,7 +2749,7 @@ fn try_apply_fast(
             StagedRowAction::Update { row_id, lifted } => {
                 let row = commit_staged_lifted(state, lifted);
                 let bbox = state.shapes.row_bounds(&row, &state.symbols);
-                let dep_srcs = collect_row_dep_sources(
+                let mut dep_srcs = collect_row_dep_sources(
                     &state.shapes,
                     &state.block_defs_by_lower,
                     |h| {
@@ -2746,6 +2760,13 @@ fn try_apply_fast(
                     },
                     &row,
                 );
+                if let Some(external) = state.external_dep_sources.get(&row_id) {
+                    dep_srcs.extend(external.iter().copied().filter(|source| {
+                        state.table.is_alive(*source) && !removed_set.contains(source)
+                    }));
+                    dep_srcs.sort_unstable();
+                    dep_srcs.dedup();
+                }
                 prepared_ops.push(PreparedRowOp::Update(row_id, row, bbox, Some(dep_srcs)));
             }
             StagedRowAction::Remove { row_id } => {

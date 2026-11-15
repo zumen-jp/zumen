@@ -1,11 +1,11 @@
 //! 保持モデル・保存・取り消しを従来の逐次 apply と直接比較する。
 
-use zumen_base::Key;
+use zumen_base::{Budget, CancelToken, Cx, Diagnostics, Key, Kind, Limit, Limits};
 use zumen_drawing::{
     Affine, Changes, Drawing2D, Edge, Edit, Hash, Placed, Restyle, Seen, Shape, id, transform,
 };
 use zumen_live::RowId;
-use zumen_sdk::{Apply, Codec, Lift};
+use zumen_sdk::{Apply, Codec, Error, Lift};
 
 use super::AcadLive;
 use super::tests::{
@@ -490,5 +490,153 @@ fn dimension_style_table_changes_match_sequential_apply() {
                 hash: Hash::dimension_style(style),
             },
         });
+    }
+}
+
+#[test]
+fn dimension_restyle_preserves_external_dependencies_through_undo() {
+    fn assert_dependencies(live: &AcadLive) {
+        let line = live.table().find_handle(0x101).unwrap();
+        let dimension = live.table().find_handle(0x105).unwrap();
+        let affected = fresh_cx(|cx| live.affected_rows(&[line], cx)).0.unwrap();
+        assert!(
+            affected.contains(&dimension),
+            "DIMASSOC dependency disappeared"
+        );
+    }
+    for threads in [1, 4] {
+        let mut pair = DxfPair::open(&synthetic_associative_dxf(), threads);
+        assert_dependencies(&pair.live);
+        pair.apply(Edit::Restyle {
+            target: pair.seen(0x105),
+            style: Restyle {
+                line_type_scale: Some(2.0),
+                ..Restyle::default()
+            },
+        });
+        assert_dependencies(&pair.live);
+        assert!(fresh_cx(|cx| pair.live.undo(cx)).0.unwrap());
+        assert_dependencies(&pair.live);
+        assert!(fresh_cx(|cx| pair.live.redo(cx)).0.unwrap());
+        assert_dependencies(&pair.live);
+        pair.apply(Edit::Transform {
+            target: pair.seen(0x101),
+            transform: Affine::translation(2.0, 3.0),
+        });
+        assert_dependencies(&pair.live);
+    }
+}
+
+fn reactor_only_leader_dxf() -> Vec<u8> {
+    let original = String::from_utf8(synthetic_associative_dxf()).unwrap();
+    assert_eq!(original.matches("340\n103\n").count(), 1);
+    original.replace("340\n103\n", "").into_bytes()
+}
+
+#[test]
+fn reactor_dependency_survives_annotation_free_leader_edits() {
+    let input = reactor_only_leader_dxf();
+    for threads in [1, 4] {
+        let mut pair = DxfPair::open(&input, threads);
+        let source = pair.live.table().find_handle(0x103).unwrap();
+        let dependent = pair.live.table().find_handle(0x104).unwrap();
+        assert!(
+            pair.live
+                .dep_graph()
+                .sources_of(dependent)
+                .contains(&source)
+        );
+        pair.apply(Edit::Restyle {
+            target: pair.seen(0x104),
+            style: Restyle {
+                line_type_scale: Some(2.0),
+                ..Restyle::default()
+            },
+        });
+        assert!(fresh_cx(|cx| pair.live.undo(cx)).0.unwrap());
+        assert!(
+            pair.live
+                .dep_graph()
+                .sources_of(dependent)
+                .contains(&source)
+        );
+        assert!(fresh_cx(|cx| pair.live.redo(cx)).0.unwrap());
+        assert!(
+            pair.live
+                .dep_graph()
+                .sources_of(dependent)
+                .contains(&source)
+        );
+        pair.apply(Edit::Transform {
+            target: pair.seen(0x104),
+            transform: Affine::translation(2.0, 3.0),
+        });
+        assert!(
+            pair.live
+                .dep_graph()
+                .sources_of(dependent)
+                .contains(&source)
+        );
+        pair.reject(Edit::Remove {
+            target: pair.seen(0x103),
+        });
+        assert!(
+            pair.live
+                .dep_graph()
+                .sources_of(dependent)
+                .contains(&source)
+        );
+    }
+}
+
+#[test]
+fn stopped_external_dependency_edits_preserve_state_and_history() {
+    let pair = DxfPair::open(&reactor_only_leader_dxf(), 1);
+    let changes = Changes {
+        document: None,
+        edits: vec![Edit::Restyle {
+            target: pair.seen(0x104),
+            style: Restyle {
+                line_type_scale: Some(2.0),
+                ..Restyle::default()
+            },
+        }],
+    };
+    let before = fresh_cx(|cx| pair.live.drawing(cx)).0.unwrap();
+    let before_bytes = fresh_cx(|cx| pair.live.save(cx)).0.unwrap();
+    let dependent = pair.live.table().find_handle(0x104).unwrap();
+    let sources = pair.live.dep_graph().sources_of(dependent);
+    let mut measured = pair.live.clone();
+    let mut full_budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    measured
+        .apply(&changes, &mut Cx::new(&mut full_budget, &mut diag, &cancel))
+        .unwrap();
+    for kind in [Kind::Work, Kind::DecodedBytes] {
+        let total = full_budget.used(kind);
+        let mut succeeded = false;
+        for limit in (0..=total.min(2048)).chain([total / 2, total.saturating_sub(1), total]) {
+            let mut live = pair.live.clone();
+            let mut budget = Budget::new(Limits::default().with(kind, Limit::Finite(limit)));
+            let mut diag = Diagnostics::new();
+            let cancel = CancelToken::new();
+            match live.apply(&changes, &mut Cx::new(&mut budget, &mut diag, &cancel)) {
+                Ok(_) => {
+                    assert_eq!(live.dep_graph().sources_of(dependent), sources);
+                    succeeded = true;
+                    break;
+                }
+                Err(Error::Stopped(_)) => {
+                    assert_eq!(fresh_cx(|cx| live.drawing(cx)).0.unwrap(), before);
+                    assert_eq!(fresh_cx(|cx| live.save(cx)).0.unwrap(), before_bytes);
+                    assert_eq!(live.dep_graph().sources_of(dependent), sources);
+                    assert_eq!(live.state_id(), pair.live.state_id());
+                    assert_eq!(live.undo_len(), 0);
+                }
+                other => panic!("unexpected edit result: {other:?}"),
+            }
+        }
+        assert!(succeeded, "no successful edit for {kind:?}");
     }
 }
