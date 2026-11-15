@@ -179,6 +179,12 @@ impl LiveJournal {
 
     /// 直前の変更を取り消す。取り消したら `Ok(true)`、履歴が空なら `Ok(false)` を返す
     pub fn undo(&mut self, state: &mut LiveState, cx: &mut Cx<'_>) -> Result<bool, Error> {
+        if matches!(self.undo_stack.last(), Some(JournalEntry::Structural(_))) {
+            cx.check(Kind::Work, 1).map_err(|stop| {
+                cx.report(stop.to_diagnostic());
+                Error::Stopped(stop)
+            })?;
+        }
         let Some(mut entry) = self.undo_stack.pop() else {
             return Ok(false);
         };
@@ -230,10 +236,6 @@ impl LiveJournal {
                     .extend(fast.dirty_symbols.iter().copied());
             }
             JournalEntry::Structural(st) => {
-                cx.check(Kind::Work, 1).map_err(|stop| {
-                    cx.report(stop.to_diagnostic());
-                    Error::Stopped(stop)
-                })?;
                 let next_rev = state.table.revision().next();
                 let next_sid = state
                     .table
@@ -254,6 +256,12 @@ impl LiveJournal {
 
     /// 直前に取り消した変更をやり直す。やり直したら `Ok(true)`、履歴が空なら `Ok(false)` を返す
     pub fn redo(&mut self, state: &mut LiveState, cx: &mut Cx<'_>) -> Result<bool, Error> {
+        if matches!(self.redo_stack.last(), Some(JournalEntry::Structural(_))) {
+            cx.check(Kind::Work, 1).map_err(|stop| {
+                cx.report(stop.to_diagnostic());
+                Error::Stopped(stop)
+            })?;
+        }
         let Some(mut entry) = self.redo_stack.pop() else {
             return Ok(false);
         };
@@ -305,10 +313,6 @@ impl LiveJournal {
                     .extend(fast.dirty_symbols.iter().copied());
             }
             JournalEntry::Structural(st) => {
-                cx.check(Kind::Work, 1).map_err(|stop| {
-                    cx.report(stop.to_diagnostic());
-                    Error::Stopped(stop)
-                })?;
                 let next_rev = state.table.revision().next();
                 let next_sid = state
                     .table

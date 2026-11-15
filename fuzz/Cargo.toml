@@ -56,6 +56,41 @@ zumen-zip = { path = "../crates/zumen-zip" }
 [workspace]
 members = ["."]
 
+[[bin]]
+name = "live_dxf"
+path = "fuzz_targets/live_dxf.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "live_dwg"
+path = "fuzz_targets/live_dwg.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "live_jww"
+path = "fuzz_targets/live_jww.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "live_sxf"
+path = "fuzz_targets/live_sxf.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "live_ifc"
+path = "fuzz_targets/live_ifc.rs"
+test = false
+doc = false
+bench = false
+
 # API を通す target が使う部品（#517、決定 0262）。target ではないので、xtask/src/fuzz.rs の検査は見ない
 [lib]
 name = "zumen_fuzz"
