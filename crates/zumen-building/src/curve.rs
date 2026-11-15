@@ -169,7 +169,7 @@ pub struct CurveItem {
 /// 必要な曲線だけを写したグラフ。子の曲線の共有を保ち、再帰した所有権を持たない
 #[derive(Clone, Debug, PartialEq)]
 pub struct CurveGraph {
-    /// 求めた曲線
+    /// 求めた曲線。穴付き断面では外輪で、内輪は断面の定義から同じグラフを参照する
     pub root: CurveRef,
     /// 曲線。参照の先を初めて訪れた順
     pub items: Vec<CurveItem>,

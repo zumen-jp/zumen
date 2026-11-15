@@ -8,7 +8,7 @@
 
 use zumen_building::{
     AreaProfile, AreaProfileKind, AxisPlacement2, AxisPlacement3, ClosedProfile, Coordinates,
-    CurveGraph, CurveKind, Extrusion, IndexedSegment, Measured, ProfileExtrusion, Unit,
+    CurveGraph, CurveKind, CurveRef, Extrusion, IndexedSegment, Measured, ProfileExtrusion, Unit,
 };
 
 use super::{Version, arg, curve::parallel, decode, reference};
@@ -19,6 +19,7 @@ use crate::{
 mod half_space;
 mod mapping;
 mod revolution;
+mod void_profile;
 pub use half_space::{HalfSpaceGeometry, HalfSpaceSource};
 pub use mapping::{MappedShape3, MappingSource};
 pub use revolution::{RevolutionSource, RevolvedArea};
@@ -71,7 +72,7 @@ pub struct ExtrudedArea<'f> {
 pub struct ProfiledExtrusion<'f> {
     /// L1 に依存しない定義
     pub definition: ProfileExtrusion,
-    /// 任意断面だけが持つ外輪。パラメーター付き断面から曲線を生成しない
+    /// 任意断面の外輪と内輪。同じグラフの参照で持ち、パラメーター付き断面から曲線を生成しない
     pub boundary: Option<CurveGraph>,
     /// 深さ・断面寸法・配置の座標の元の単位
     pub length_unit: Option<Unit>,
@@ -91,7 +92,7 @@ pub struct ExtrusionSource<'f> {
 }
 
 impl IfcFile {
-    /// ProductShape の葉から、任意の閉じた外輪・矩形・円・I 形・中空矩形の断面と押し出しを取得する。
+    /// ProductShape の葉から、任意の外輪と内輪・矩形・円・I 形・中空矩形の断面と押し出しを取得する。
     ///
     /// 利用側で STEP 引数を読まず、元寸法・名前・2D/3D の配置・単位・出所に到達できる。
     /// 既存 extruded_area() の型・値・予算の契約は変更しない。
@@ -623,7 +624,12 @@ impl<'f> Reader<'f, '_, '_> {
         self.enter(entered)?;
         self.current = profile_id;
         self.enter(entered)?;
-        let area = self.parameterized_profile(profile, version, solid)?;
+        let (area, boundary) = if self.is(profile, b"IFCARBITRARYPROFILEDEFWITHVOIDS") {
+            let (area, graph) = self.void_profile(profile, version)?;
+            (area, Some(graph))
+        } else {
+            (self.parameterized_profile(profile, version, solid)?, None)
+        };
         let solid_id = solid.id().unwrap_or(0);
         self.current = solid_id;
         let sweep_position = if matches!(arg(solid, 2), Some(Value::Null)) {
@@ -650,7 +656,11 @@ impl<'f> Reader<'f, '_, '_> {
         let checked = self.strict_attributes(&records);
         self.records = records;
         checked?;
-        let length_unit = self.named_unit(version, solid, false)?;
+        let length_unit = if boundary.is_some() {
+            self.void_length_unit(solid, version)?
+        } else {
+            self.named_unit(version, solid, false)?
+        };
         self.current = solid_id;
         if length_unit.is_none() {
             self.cx.report(
@@ -667,7 +677,7 @@ impl<'f> Reader<'f, '_, '_> {
                 direction,
                 depth,
             },
-            boundary: None,
+            boundary,
             length_unit,
             source: ExtrusionSource {
                 solid,
@@ -993,9 +1003,11 @@ impl<'f> Reader<'f, '_, '_> {
         }
     }
     fn closed(&mut self, graph: &CurveGraph) -> Result<(), Error> {
-        let root = graph
-            .item(graph.root)
-            .ok_or_else(|| self.invalid("reference"))?;
+        self.closed_at(graph, graph.root)
+    }
+
+    fn closed_at(&mut self, graph: &CurveGraph, at: CurveRef) -> Result<(), Error> {
+        let root = graph.item(at).ok_or_else(|| self.invalid("reference"))?;
         match &root.kind {
             CurveKind::Polyline(points) => {
                 self.points2(points)?;

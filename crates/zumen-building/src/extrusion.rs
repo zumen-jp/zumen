@@ -66,6 +66,13 @@ pub enum AreaProfileKind {
         /// 同じ取得結果の外輪
         boundary: CurveRef,
     },
+    /// 外輪と 1 つ以上の内輪。同じ取得結果の CurveGraph 内で基の曲線を共有できる
+    ArbitraryWithVoids {
+        /// 外輪
+        boundary: CurveRef,
+        /// 内輪。元の並びを保持し、向きを反転しない
+        holes: Vec<CurveRef>,
+    },
     /// 中心を原点とする矩形の全幅と全高。正の有限な元寸法
     Rectangle {
         /// 局所 x 方向の全幅

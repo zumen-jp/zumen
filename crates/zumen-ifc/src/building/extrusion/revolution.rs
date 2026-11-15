@@ -10,7 +10,7 @@ use zumen_building::{ProfileRevolution, RevolutionAxis};
 pub struct RevolvedArea<'f> {
     /// L1 に依存しない回転体の定義
     pub definition: ProfileRevolution,
-    /// 任意断面だけが持つ外輪。パラメーター付き断面の輪郭は生成しない
+    /// 任意断面の外輪と内輪。同じグラフで持ち、パラメーター付き断面の輪郭は生成しない
     pub boundary: Option<CurveGraph>,
     /// 断面・軸・配置の元の長さの単位
     pub length_unit: Option<Unit>,
@@ -32,7 +32,7 @@ pub struct RevolutionSource<'f> {
 impl IfcFile {
     /// ProductShape の葉から、回転体の断面・軸・角度・単位を必要時に取得する。
     ///
-    /// 押し出しと同じ 5 種類の断面を扱う。元の配置と方向比を保持し、立体は評価しない。
+    /// 押し出しと同じ 6 種類の断面を扱う。元の配置と方向比を保持し、立体は評価しない。
     /// 軸は XY 平面内の原点と非ゼロの方向を要求する。角度は非負の有限値とし、単位が
     /// 解けたときだけ 1 回転以下を確認する。単位がなければ None と診断を返す。
     /// 軸と断面の内部の交差は未評価。停止・不正・未対応では部分結果を返さない。
@@ -144,6 +144,9 @@ impl<'f> Reader<'f, '_, '_> {
                 },
                 Some(graph),
             )
+        } else if self.is(profile, b"IFCARBITRARYPROFILEDEFWITHVOIDS") {
+            let (area, graph) = self.void_profile(profile, version)?;
+            (area, Some(graph))
         } else {
             (self.parameterized_profile(profile, version, solid)?, None)
         };
@@ -169,7 +172,11 @@ impl<'f> Reader<'f, '_, '_> {
         let checked = self.strict_attributes(&records);
         self.records = records;
         checked?;
-        let length_unit = self.named_unit(version, solid, false)?;
+        let length_unit = if matches!(area.kind, AreaProfileKind::ArbitraryWithVoids { .. }) {
+            self.void_length_unit(solid, version)?
+        } else {
+            self.named_unit(version, solid, false)?
+        };
         let unit = self.named_unit(version, solid, true)?;
         self.current = solid_id;
         if let Some(unit) = &unit {

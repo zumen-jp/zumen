@@ -167,7 +167,7 @@ WASI の出力先は `target/extrusion-comparison-wasm` です。4 件の JSON �
 
 ## 断面を共通の経路で取得する
 
-`IfcFile::extrusion(&ShapeNode, cx)` は既存の `product_shape()` の葉から、押し出しと `AreaProfileKind::ArbitraryClosed`・`Rectangle`・`Circle`・`IShape`・`RectangleHollow` の断面をまとめて取得します。種類ごとの独立した getter を増やさず、代表要素から同じ操作で値と出所へ進めます。
+`IfcFile::extrusion(&ShapeNode, cx)` は既存の `product_shape()` の葉から、押し出しと `AreaProfileKind::ArbitraryClosed`・`ArbitraryWithVoids`・`Rectangle`・`Circle`・`IShape`・`RectangleHollow` の断面をまとめて取得します。種類ごとの独立した getter を増やさず、代表要素から同じ操作で値と出所へ進めます。
 
 ```rust,ignore
 let shape = file.product_shape(element_instance, cx)?;
@@ -180,16 +180,19 @@ match &result.definition.profile.kind {
     AreaProfileKind::ArbitraryClosed { boundary } => {
         let curve = result.boundary.as_ref().and_then(|g| g.item(*boundary));
     }
+    AreaProfileKind::ArbitraryWithVoids { boundary, holes } => {
+        // 外輪と各内輪は、同じ result.boundary の CurveGraph を参照する
+    }
 }
 ```
 
 既存の `extruded_area()`・`ExtrudedArea`・`Extrusion`・`ClosedProfile` を保つ追加を選びました。これらは v0.2.0 の公開タグには含まれず、その後の main へ追加された API ですが、現 main の利用側も書き換えずに使えるようにします。モデルを置き換える案は既存のフィールド・戻り値・予算の互換性を壊すため採用しません。旧 getter の値・診断・予算・JSON を変えず、新 getter の予算を別に確かめます。スキーマ・ABI・ID・Hash v1・公開版数は変えません。今後の公開版への追加として扱い、リリース準備の #799 は書き換えません。
 
 - `ProfileExtrusion` は深さ・押し出す方向の比・3D の局所配置、`AreaProfile` は元の名前・2D の局所配置・断面の定義を持ちます。矩形は中心からの全幅 `XDim`・全高 `YDim`、円は中心からの半径です。元値は有限とし、寸法・半径・深さは正を要求します。頂点や近似輪郭は生成しません。
-- `ArbitraryClosed` は既存の閉じた外輪の読み取りを共有し、`boundary` に `CurveGraph` を持ちます。パラメーター付き断面の `boundary` は `None` です。曲線の共有は各グラフ内に限り、複数の取得結果を横断して統合しません。
+- `ArbitraryClosed` は既存の閉じた外輪の読み取りを共有し、`boundary` に `CurveGraph` を持ちます。`ArbitraryWithVoids` は外輪・内輪を同じグラフで保持します。パラメーター付き断面の `boundary` は `None` です。曲線の共有は各グラフ内に限り、複数の取得結果を横断して統合しません。
 - `length_unit` は文書の元の長さの単位です。最初の IfcProject の単位の割り当てから、単独の SI 単位と一段の正の換算を既存の単位の読み取りで取得し、寸法・深さ・配置へ適用しません。SI 単位は派生する Dimensions の記号 `*`、正規の `LENGTHUNIT` と `METRE` の組み合わせ、`$` または正規の 16 種類の Prefix を採用前に検査します。換算の基の SI 単位も同じ条件です。換算単位自身の必須の Dimensions 参照を読み、7 個の整数の指数が長さの（1、0、0、0、0、0、0）であることを確認し、元のレコードも出所へ残します。これらの不正は `ifc.extrusion.invalid` と場所を返します。長さの取得時には、それ以外の単位を評価せず、割り当てとそのレコードを出所に残します。長さの単位を扱えない場合は拒否し、割り当てがなければ単位なしと `ifc.unit.missing` を返します。
 - `source` は立体・断面・配置・点・方向・読んだ単位の元のレコードを借用し、曲線内の参照は `CurveSource` が持ちます。STEP 番号・元バイト列を意味の値や要素ハッシュへ入れません。全体に `PartialEq`/`Hash` は定義せず、意味の比較には定義・曲線の値・単位を使います。
-- 断面は `.AREA.` だけです。非対称 I 形・中空円・任意の穴付きなど、対象外の断面を親型として読まず、種類と場所を `ifc.extrusion.unsupported` で返します。複合インスタンスや、対象の断面・配置・単位に未解釈の追加属性がある場合も成功扱いにしません。元の L1 レコードは保持します。
+- 断面は `.AREA.` だけです。非対称 I 形・中空円など、対象外の断面を親型として読まず、種類と場所を `ifc.extrusion.unsupported` で返します。複合インスタンスや、対象の断面・配置・単位に未解釈の追加属性がある場合も成功扱いにしません。元の L1 レコードは保持します。穴付きの任意断面の不正と未対応は、[穴付き断面の取得](#外輪と内輪を同じ曲線グラフで取得する)の診断に従います。
 - IFC2X3 では断面と立体の Position が必須、IFC4 以降では省略可能です。省略は `None` とし、既定の原点や軸を補いません。2D の Location・RefDirection は 2 成分を要求し、方向比を正規化しません。IFC2X3 の `IfcDirection` 自体と継承元に非ゼロ比の WHERE はなく、新しい断面の 2D 配置では `[0, 0]` も元比として保持します。IFC4 以降の `MagnitudeGreaterZero` では零比を拒否します。この版差で旧曲線・旧押し出しの判定は変更しません。派生する軸の `IfcBuild2Axes`/`IfcNormalise` は評価しません。
 - 固定の参照経路と曲線の深さ、単位探索の全レコード・追加する次元の参照と 7 指数・属性の列・数・文字の Work、文字・出所・単位・結果の確保前の DecodedBytes を共有の `Cx` で数えます。走査の停止診断は走査中のレコードを指します。停止・不正・未対応では部分結果を返さず、呼び出し側の深さを戻します。
 
@@ -201,7 +204,7 @@ match &result.definition.profile.kind {
 
 ### 断面の共通の取得の確かめ方
 
-`tests/profiles.rs` は合成 3 版の要素・共有写像から各 3 断面を取得し、版差・元値・参照・未知/追加属性・不正・循環・確保前予算・中断・停止位置・呼び出し側の深さ・既存 ID/Hash を検査します。公開サンプルは `gni/model_9.ifc` の床の GlobalId `1soz90sYzCp8a2Do0djRBF`（`#1163` → `#1137` → 矩形 `#1134`）、`gni/model_18.ifc` の家具 `0pTNkIYt5EyfHBAi6yiASg`（`#21873` → `#21764` → 円 `#21761`）と既存の柱（`#131` → `#114` → 任意断面 `#112`）です。利用側の STEP 引数読みなしで元寸法・2D 配置・名前・単位と出所へ到達します。同梱の 12 サンプルには I 形・中空矩形・穴付き断面の実例を見つけていません。
+`tests/profiles.rs` は合成 3 版の要素・共有写像から各 3 断面を取得し、版差・元値・参照・未知/追加属性・不正・循環・確保前予算・中断・停止位置・呼び出し側の深さ・既存 ID/Hash を検査します。公開サンプルは `gni/model_9.ifc` の床の GlobalId `1soz90sYzCp8a2Do0djRBF`（`#1163` → `#1137` → 矩形 `#1134`）、`gni/model_18.ifc` の家具 `0pTNkIYt5EyfHBAi6yiASg`（`#21873` → `#21764` → 円 `#21761`）と既存の柱（`#131` → `#114` → 任意断面 `#112`）です。利用側の STEP 引数読みなしで元寸法・2D 配置・名前・単位と出所へ到達します。同梱の 12 サンプルには I 形・中空矩形の実例を見つけていません。穴付き断面は TallBuilding の窓などにあり、[穴付き断面の取得](#外輪と内輪を同じ曲線グラフで取得する)で照合します。
 
 IfcOpenShell 0.9.0.post1 との属性比較は合成 9 件と公開 3 件です。要素の表現からの到達、断面の種類・名前・元寸法・元配置、押し出しの方向・深さ・元配置、外輪の定義、SI 単位と一段の換算の係数・接頭辞を許容差なしで比べます。公開 3 件は `external`、合成 9 件は `synthetic` の範囲です。予算・診断と出所の列、単位換算・配置や写像を適用した形はこの外部照合に含めません。
 
@@ -236,6 +239,22 @@ $env:CARGO_TARGET_WASM32_WASIP1_RUNNER = 'node --no-warnings tests/wasi-sections
 cargo test -p zumen-ifc --locked --test sections --target wasm32-wasip1 -- --test-threads 1
 node crates/zumen-ifc/tests/wasi-sections.mjs --compare target/section-comparison target/section-comparison-wasm
 ```
+
+### 外輪と内輪を同じ曲線グラフで取得する
+
+`extrusion()` と `revolved_area()` は `IfcArbitraryProfileDefWithVoids` を `AreaProfileKind::ArbitraryWithVoids` として取得します。外輪と 1 つ以上の内輪を、同じ `CurveGraph` 内の `CurveRef` で参照します。元の内輪の並び・名前・向き・長さと角度の単位・出所を保持し、点の追加や反転、穴の削除、輪郭の近似はしません。
+
+- 曲線の探索を、外輪の後に内輪を読む形へ拡張しました。1 つの索引で共有する基の曲線を一度だけ持ち、外輪から各内輪へ初めて訪れた順に並べます。所有権と探索は再帰しません。旧 `curve()` の 1 つの根の探索と予算は変えません。
+- 断面は 4 属性と `.AREA.` を要求し、内輪の空列、同じ参照の重複、外輪と同じ参照を拒否します。曲線と補助レコードの単純な形式・2D を検査し、Polyline・IndexedPolyCurve の始終点、Circle の完全な円を既存の閉鎖の検査で確かめます。
+- CompositeCurve は全区間の Transition に不連続がないことを確認します。最後の区間の接続の申告を閉鎖と扱い、Line/Circle を切った曲線などを元のまま保持します。端点・接線が宣言どおりに接続するかは未評価です。ほかの種類では、閉鎖を検査できなければ診断で知らせます。
+- 外輪が内輪を囲むこと、輪同士が交差・接触しないこと、内輪が別の内輪を囲まないこと、自己交差と面積は未評価です。輪の向きと、内輪という役割を分けて保持します。形を評価した結果は #420 で検査します。
+- 内輪の列と重複検査の索引を確保前に予約し、個数・参照・曲線・数・文字・単位・深さ・中断を共有 `Cx` で数えます。不正と未対応は `ifc.shape.invalid`・`ifc.shape.unsupported`、曲線内は既存の曲線の診断と場所を返し、部分結果を返しません。旧 `extruded_area()` の戻り値と対象は変えません。
+
+根拠は buildingSMART の [IFC2X3 ArbitraryProfileDefWithVoids](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC2x3/TC1/HTML/ifcprofileresource/lexical/ifcarbitraryprofiledefwithvoids.htm)、[IFC4](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4/ADD2_TC1/HTML/schema/ifcprofileresource/lexical/ifcarbitraryprofiledefwithvoids.htm)、[IFC4.3](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4_3/HTML/lexical/IfcArbitraryProfileDefWithVoids.htm) の本文・属性・Informal Propositions と、[CompositeCurve.ClosedCurve](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4_3/HTML/lexical/IfcCompositeCurve.htm) の自然言語の説明です。EXPRESS 本体は読みません。
+
+検査は `cargo test -p zumen-ifc --test void_profiles`。`ZUMEN_IFC_VOID_PROFILES_OUT` を絶対パスに指定すると、合成 3 版と公開例の JSON 4 件、自作の IFC、元値・出所・診断・全 Kind の記録を出します。合成例は、円と折れ線の内輪、離れた 2 内輪が同じ基の直線を共有する合成曲線を、押し出しと回転体で取得します。公開例は TallBuilding の窓 GlobalId `0ZBert7zf3GhThbO52NKQt` (#13257) から、押し出し #13207・断面 #13202 の外輪と 1 内輪を取得します。従来の「公開サンプルに穴付き断面を見つけていない」という記述は、この例に基づいて訂正しました。
+
+2026-11-16 に追加 8 テストをネイティブと WASI で実行し、JSON と全 Kind の記録 230,947 バイトが一致しました。別に IfcOpenShell 0.9.0.post1 の実行ファイルだけで、13 立体・25 内輪・122 曲線レコードの元属性を照合し、差異は 0 でした。同じグラフを押し出しと回転体から取得した分も数えています。変換済みの形や体積の一致は、この照合には含めません。旧曲線経路を使う半空間・ブーリアンの元値・出所・診断・予算 234,501 バイトは変更前と一致しました。
 
 ## 形の葉から多角形の面集合を取得する
 
@@ -319,7 +338,7 @@ node crates/zumen-ifc/tests/wasi-indexed-faces.mjs --compare target/indexed-face
 
 ## 形の葉から回転体を取得する
 
-`IfcFile::revolved_area(&ShapeNode, cx)` は `IfcRevolvedAreaSolid` の葉から、`ProfileRevolution`・任意断面の外輪・長さの単位・借用した出所を返します。矩形・円・I 形・中空矩形・任意の閉じた外輪の 5 断面を既存の押し出しと共有して読みます。パラメーター付き断面の輪郭は生成しません。
+`IfcFile::revolved_area(&ShapeNode, cx)` は `IfcRevolvedAreaSolid` の葉から、`ProfileRevolution`・任意断面の外輪と内輪・長さの単位・借用した出所を返します。矩形・円・I 形・中空矩形・任意の閉じた外輪・穴付きの 6 断面を既存の押し出しと共有して読みます。パラメーター付き断面の輪郭は生成しません。
 
 - 定義は元の断面・立体の局所配置・回転軸・単位付きの角度を持ちます。軸の原点は長さの単位のまま、方向は正規化しない 3 成分の比です。断面と同じ XY 平面に原点と非ゼロの方向があることを確認します。軸の方向を省略すると既定の z 軸になり XY 平面内にないため、この取得では拒否します。
 - 回転角は非負の有限値を保持します。平面角の単位が解けたときだけ、1 回転以下であることを SI の接頭辞・一段の換算の係数を使って確認します。元の角度には換算を適用しません。0 と負の 0 を保ち、単位がなければ上限を推定せず、元値・`None` と `ifc.unit.missing` を返します。

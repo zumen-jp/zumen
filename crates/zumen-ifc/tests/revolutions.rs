@@ -141,6 +141,7 @@ fn gets_five_profiles_raw_axes_angles_units_and_sources_through_shared_maps() {
                     id == 33 && wall_thickness == 1.,
                 AreaProfileKind::ArbitraryClosed { boundary } =>
                     id == 34 && result.boundary.as_ref().unwrap().root == boundary,
+                AreaProfileKind::ArbitraryWithVoids { .. } => false,
             });
         }
     }
@@ -478,6 +479,7 @@ fn json_item(out: &mut Writer, value: &RevolvedArea<'_>) {
         AreaProfileKind::IShape { .. } => "i-shape",
         AreaProfileKind::RectangleHollow { .. } => "rectangle-hollow",
         AreaProfileKind::ArbitraryClosed { .. } => "arbitrary-closed",
+        AreaProfileKind::ArbitraryWithVoids { .. } => "arbitrary-with-voids",
     });
     out.key("profile_position");
     if let Some(position) = &def.profile.position {

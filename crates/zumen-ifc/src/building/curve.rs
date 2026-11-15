@@ -34,6 +34,18 @@ impl IfcFile {
     }
 }
 
+/// 任意の穴付き断面の境界を、外輪から順に 1 つのグラフへ写す。
+/// 既存 curve() と同じ探索を使い、複数の輪の中でも基の曲線を共有する。
+pub(super) fn profile_boundaries(
+    file: &IfcFile,
+    outer: u64,
+    inner: &[u64],
+    version: Version,
+    cx: &mut Cx,
+) -> Result<(CurveGraph, Vec<CurveRef>), Error> {
+    Reader::new(file, version, cx).run_boundaries(outer, inner)
+}
+
 enum Frame {
     Enter(u64),
     Leave(u64),
@@ -264,77 +276,101 @@ impl<'f, 'c, 'b> Reader<'f, 'c, 'b> {
         Ok(reference)
     }
 
-    fn run(mut self, id: u64) -> Result<CurveGraph, Error> {
+    fn run(self, id: u64) -> Result<CurveGraph, Error> {
+        self.run_boundaries(id, &[]).map(|(graph, _)| graph)
+    }
+
+    fn run_boundaries(
+        mut self,
+        id: u64,
+        inner: &[u64],
+    ) -> Result<(CurveGraph, Vec<CurveRef>), Error> {
         self.current = id;
         let root = self.reference(id)?;
+        let mut inner_refs = if inner.is_empty() {
+            Vec::new()
+        } else {
+            self.check(Kind::Work, inner.len() as u64)?;
+            self.alloc(inner.len(), 8)?;
+            Vec::with_capacity(inner.len())
+        };
+        let mut remaining = inner.iter();
         self.alloc(1, 24)?;
         let mut stack = vec![Frame::Enter(id)];
         let mut entered = 0u64;
         let result = (|| {
-            while let Some(frame) = stack.pop() {
-                self.check(Kind::Work, 1)?;
-                match frame {
-                    Frame::Leave(id) => {
-                        self.current = id;
-                        let reference = self
-                            .references
-                            .get(&id)
-                            .copied()
-                            .ok_or_else(|| self.invalid("reference"))?;
-                        let dimension = self.checked_dimension(reference)?;
-                        if let Some(slot) = self.dimensions.get_mut(reference.0 as usize) {
-                            *slot = dimension;
+            loop {
+                while let Some(frame) = stack.pop() {
+                    self.check(Kind::Work, 1)?;
+                    match frame {
+                        Frame::Leave(id) => {
+                            self.current = id;
+                            let reference = self
+                                .references
+                                .get(&id)
+                                .copied()
+                                .ok_or_else(|| self.invalid("reference"))?;
+                            let dimension = self.checked_dimension(reference)?;
+                            if let Some(slot) = self.dimensions.get_mut(reference.0 as usize) {
+                                *slot = dimension;
+                            }
+                            self.active.remove(&id);
+                            self.cx.leave();
+                            entered -= 1;
                         }
-                        self.active.remove(&id);
-                        self.cx.leave();
-                        entered -= 1;
-                    }
-                    Frame::Enter(id) => {
-                        self.current = id;
-                        if self.active.contains(&id) {
-                            return Err(self.invalid("cycle"));
+                        Frame::Enter(id) => {
+                            self.current = id;
+                            if self.active.contains(&id) {
+                                return Err(self.invalid("cycle"));
+                            }
+                            let reference = self
+                                .references
+                                .get(&id)
+                                .copied()
+                                .ok_or_else(|| self.invalid("reference"))?;
+                            if self
+                                .nodes
+                                .get(reference.0 as usize)
+                                .is_some_and(Option::is_some)
+                            {
+                                continue;
+                            }
+                            self.cx.enter().map_err(|stop| {
+                                stopped(self.cx, stop, self.file.instance(id).map(Record::span))
+                            })?;
+                            entered += 1;
+                            self.active.insert(id);
+                            self.sources = Vec::new();
+                            self.children = Vec::new();
+                            let kind = self.parse(id)?;
+                            let item = CurveItem {
+                                kind,
+                                source: CurveSource {
+                                    instance: Some(id),
+                                    records: core::mem::take(&mut self.sources),
+                                },
+                            };
+                            if let Some(slot) = self.nodes.get_mut(reference.0 as usize) {
+                                *slot = Some(item);
+                            }
+                            self.alloc(1 + self.children.len(), 24)?;
+                            stack.push(Frame::Leave(id));
+                            stack.extend(
+                                core::mem::take(&mut self.children)
+                                    .into_iter()
+                                    .rev()
+                                    .map(Frame::Enter),
+                            );
                         }
-                        let reference = self
-                            .references
-                            .get(&id)
-                            .copied()
-                            .ok_or_else(|| self.invalid("reference"))?;
-                        if self
-                            .nodes
-                            .get(reference.0 as usize)
-                            .is_some_and(Option::is_some)
-                        {
-                            continue;
-                        }
-                        self.cx.enter().map_err(|stop| {
-                            stopped(self.cx, stop, self.file.instance(id).map(Record::span))
-                        })?;
-                        entered += 1;
-                        self.active.insert(id);
-                        self.sources = Vec::new();
-                        self.children = Vec::new();
-                        let kind = self.parse(id)?;
-                        let item = CurveItem {
-                            kind,
-                            source: CurveSource {
-                                instance: Some(id),
-                                records: core::mem::take(&mut self.sources),
-                            },
-                        };
-                        if let Some(slot) = self.nodes.get_mut(reference.0 as usize) {
-                            *slot = Some(item);
-                        }
-                        self.alloc(1 + self.children.len(), 24)?;
-                        stack.push(Frame::Leave(id));
-                        stack.extend(
-                            core::mem::take(&mut self.children)
-                                .into_iter()
-                                .rev()
-                                .map(Frame::Enter),
-                        );
                     }
                 }
+                let Some(&next) = remaining.next() else { break };
+                self.current = next;
+                inner_refs.push(self.reference(next)?);
+                self.alloc(1, 24)?;
+                stack.push(Frame::Enter(next));
             }
+            self.current = id;
             let (length_unit, angle_unit) = self.units()?;
             if self.angle_used && angle_unit.is_none() {
                 self.cx.report(
@@ -350,12 +386,15 @@ impl<'f, 'c, 'b> Reader<'f, 'c, 'b> {
                 .into_iter()
                 .collect::<Option<Vec<_>>>()
                 .ok_or_else(|| self.invalid("reference"))?;
-            Ok(CurveGraph {
-                root,
-                items,
-                length_unit,
-                angle_unit,
-            })
+            Ok((
+                CurveGraph {
+                    root,
+                    items,
+                    length_unit,
+                    angle_unit,
+                },
+                inner_refs,
+            ))
         })();
         for _ in 0..entered {
             self.cx.leave();

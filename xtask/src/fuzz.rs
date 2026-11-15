@@ -261,8 +261,11 @@ fn ifc_profiles() -> Vec<u8> {
     #112=IFCCARTESIANTRANSFORMATIONOPERATOR3D($,$,#21,$,$);\n\
     #113=IFCCARTESIANTRANSFORMATIONOPERATOR3DNONUNIFORM($,$,#21,2.,$,3.,4.);\n\
     #114=IFCMAPPEDITEM(#110,#112);\n#115=IFCMAPPEDITEM(#110,#113);\n\
+    #120=IFCCARTESIANPOINT((0.25,0.25));\n#121=IFCAXIS2PLACEMENT2D(#120,$);\n#122=IFCCIRCLE(#121,0.1);\n\
+    #123=IFCARBITRARYPROFILEDEFWITHVOIDS(.AREA.,'V',#18,(#122));\n\
+    #124=IFCEXTRUDEDAREASOLID(#123,$,#24,2.);\n#125=IFCREVOLVEDAREASOLID(#123,$,#55,1.5707963267948966);\n\
     #100=IFCWALL('0000000000000000000002',$,$,$,$,$,#101,$,.NOTDEFINED.);\n\
-    #101=IFCPRODUCTDEFINITIONSHAPE($,$,(#102));\n#102=IFCSHAPEREPRESENTATION(#8,'Body','GeometricSet',(#30,#31,#32,#33,#34,#35,#36,#66,#81,#83,#97,#114,#115));\n\
+    #101=IFCPRODUCTDEFINITIONSHAPE($,$,(#102));\n#102=IFCSHAPEREPRESENTATION(#8,'Body','GeometricSet',(#30,#31,#32,#33,#34,#35,#36,#66,#81,#83,#97,#114,#115,#124,#125));\n\
     ENDSEC;\nEND-ISO-10303-21;\n".to_vec()
 }
 
@@ -802,7 +805,7 @@ mod tests {
             assert_eq!(result.1, []);
             counts[at] += 1;
         }
-        assert_eq!(counts, [5, 1, 1, 1, 2, 3, 3, 2]);
+        assert_eq!(counts, [6, 1, 2, 1, 2, 3, 3, 2]);
     }
 
     #[test]

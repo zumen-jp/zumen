@@ -252,7 +252,11 @@ fn unsupported_subtypes_and_complex_instances_report_the_kind_and_place() {
         let (r, d, _) = with(Limits::default(), |cx| file.extrusion(leaf(&shape, 30), cx));
         assert!(matches!(r, Err(Error::Unsupported) | Err(Error::Invalid)));
         assert!(format!("{d:?}").contains(&format!("i{place}")));
-        if !to.starts_with("#13=") {
+        if to == "IFCARBITRARYPROFILEDEFWITHVOIDS" {
+            // 対応した断面だが、ここでは矩形の 5 属性をそのまま渡している。
+            assert!(matches!(r, Err(Error::Invalid)));
+            assert!(d.iter().any(|d| d.code() == codes::IFC_SHAPE_INVALID));
+        } else if !to.starts_with("#13=") {
             assert!(format!("{d:?}").contains(to));
         }
     }
