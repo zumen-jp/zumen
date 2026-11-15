@@ -53,9 +53,14 @@ pub(super) struct SfcPatch {
 }
 
 impl PatchPayload for SfcPatch {
+    const INLINE_BYTES: usize = {
+        assert!(core::mem::size_of::<Self>() <= 128);
+        128
+    };
+
     fn heap_bytes(&self) -> usize {
-        self.removed_base.capacity() * core::mem::size_of::<usize>()
-            + self.removed_born.capacity() * core::mem::size_of::<(u32, BornFeature)>()
+        self.removed_base.capacity() * 8
+            + self.removed_born.capacity() * 80
             + self.base_args.capacity() * 48
             + self.born_args.capacity() * 48
             + self.added_born.capacity() * 64

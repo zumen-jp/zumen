@@ -53,6 +53,11 @@ pub enum FastBackendPatch {
 }
 
 impl PatchPayload for FastBackendPatch {
+    const INLINE_BYTES: usize = {
+        assert!(core::mem::size_of::<Self>() <= 1024);
+        1024
+    };
+
     fn heap_bytes(&self) -> usize {
         match self {
             Self::Dxf(p) => p.approx_bytes(),

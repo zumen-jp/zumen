@@ -274,6 +274,11 @@ pub(super) struct P21Patch {
 }
 
 impl PatchPayload for P21Patch {
+    const INLINE_BYTES: usize = {
+        assert!(core::mem::size_of::<Self>() <= 256);
+        256
+    };
+
     fn heap_bytes(&self) -> usize {
         let born_bytes: usize = self
             .added_stmts
@@ -281,7 +286,7 @@ impl PatchPayload for P21Patch {
             .map(|b| b.body.capacity() + 64)
             .sum();
         born_bytes
-            + self.removed_stmts.capacity() * core::mem::size_of::<usize>()
+            + self.removed_stmts.capacity() * 8
             + self.arg_diffs.capacity() * 64
             + self.small_list_diffs.capacity() * 64
             + self.container_ops.capacity() * 64

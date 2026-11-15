@@ -18,7 +18,10 @@ use crate::table::{EMPTY_BOUNDS, TableRow, VersionedTable};
 
 /// 形式別のレコード差分（DXF のタグ差分、DWG のレコードパッチ、ヘッダー変更前後の値など）が満たす契約
 pub trait PatchPayload: Clone {
-    /// `size_of::<Self>()` の外に保持するヒープバイト数
+    /// 予算で数える差分本体のバイト数。可変幅の型を持つ差分は環境共通の値で上書きする。
+    const INLINE_BYTES: usize = core::mem::size_of::<Self>();
+
+    /// 本体の外に保持するヒープの見積もり。予算にも使うため、環境で同じ値を返す。
     fn heap_bytes(&self) -> usize {
         0
     }
@@ -27,6 +30,8 @@ pub trait PatchPayload: Clone {
 impl PatchPayload for () {}
 
 impl PatchPayload for Vec<u8> {
+    const INLINE_BYTES: usize = 24;
+
     fn heap_bytes(&self) -> usize {
         self.capacity()
     }
@@ -174,41 +179,51 @@ impl<R: TableRow, P: PatchPayload> CommittedTxn<R, P> {
         &self.patches
     }
 
-    /// この記録が保持する合計バイト数の見積もり
+    /// 履歴と予算で使う論理バイト数。行と差分の本体は `INLINE_BYTES`、可変長部分はヒープの見積もりで数える。
     pub fn bytes(&self) -> usize {
-        core::mem::size_of::<Self>()
-            + self.existing.capacity() * core::mem::size_of::<ExistingRowDiff<R>>()
-            + self
-                .existing
-                .iter()
-                .map(ExistingRowDiff::heap_bytes)
-                .sum::<usize>()
-            + self.born.capacity() * core::mem::size_of::<BornRowDiff<R>>()
-            + self
-                .born
-                .iter()
-                .map(|b| b.after_row.extra_heap_bytes())
-                .sum::<usize>()
-            + self.handle_before.capacity() * core::mem::size_of::<(u64, HandleBefore)>()
-            + self.handle_after.capacity() * core::mem::size_of::<(u64, Option<RowId>)>()
-            + self.dep_before.capacity() * core::mem::size_of::<DepBefore>()
-            + self
-                .dep_before
-                .iter()
-                .map(DepBefore::heap_bytes)
-                .sum::<usize>()
-            + self.dep_after.capacity() * core::mem::size_of::<(RowId, Vec<RowId>)>()
-            + self
-                .dep_after
-                .iter()
-                .map(|(_, v)| v.capacity() * core::mem::size_of::<RowId>())
-                .sum::<usize>()
-            + self.patches.capacity() * core::mem::size_of::<P>()
-            + self
-                .patches
-                .iter()
-                .map(PatchPayload::heap_bytes)
-                .sum::<usize>()
+        let row = R::INLINE_BYTES;
+        256usize
+            .saturating_add(
+                self.existing
+                    .capacity()
+                    .saturating_mul(row.saturating_mul(2).saturating_add(80)),
+            )
+            .saturating_add(
+                self.existing
+                    .iter()
+                    .map(ExistingRowDiff::heap_bytes)
+                    .sum::<usize>(),
+            )
+            .saturating_add(self.born.capacity().saturating_mul(row.saturating_add(48)))
+            .saturating_add(
+                self.born
+                    .iter()
+                    .map(|b| b.after_row.extra_heap_bytes())
+                    .sum::<usize>(),
+            )
+            .saturating_add(self.handle_before.capacity().saturating_mul(32))
+            .saturating_add(self.handle_after.capacity().saturating_mul(16))
+            .saturating_add(self.dep_before.capacity().saturating_mul(64))
+            .saturating_add(
+                self.dep_before
+                    .iter()
+                    .map(DepBefore::heap_bytes)
+                    .sum::<usize>(),
+            )
+            .saturating_add(self.dep_after.capacity().saturating_mul(32))
+            .saturating_add(
+                self.dep_after
+                    .iter()
+                    .map(|(_, v)| v.capacity().saturating_mul(4))
+                    .sum::<usize>(),
+            )
+            .saturating_add(self.patches.capacity().saturating_mul(P::INLINE_BYTES))
+            .saturating_add(
+                self.patches
+                    .iter()
+                    .map(PatchPayload::heap_bytes)
+                    .sum::<usize>(),
+            )
     }
 }
 
@@ -862,9 +877,7 @@ where
     };
 
     let born_row_bytes = committed.born.len()
-        * (core::mem::size_of::<R>()
-            + core::mem::size_of::<bool>()
-            + core::mem::size_of::<[f64; 4]>());
+        * (R::INLINE_BYTES + core::mem::size_of::<bool>() + core::mem::size_of::<[f64; 4]>());
     cx.check(
         Kind::DecodedBytes,
         (committed.bytes().saturating_add(born_row_bytes)) as u64,

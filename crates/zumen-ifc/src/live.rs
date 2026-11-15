@@ -11,7 +11,7 @@ use core::ops::Range;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use zumen_base::{Budget, CancelToken, Diagnostic, Diagnostics, Kind, Limits, codes};
+use zumen_base::{Diagnostic, Diagnostics, Kind, codes};
 use zumen_building::{
     Building, ElementRef, GlobalId, Grid, Hash, Identity, Literal, Measured, Opening, Properties,
     Property, PropertySet, Quantities, Quantity, QuantitySet, RelationSource, TypedValue, Unit,
@@ -52,6 +52,11 @@ pub struct IfcElementRow {
 }
 
 impl TableRow for IfcElementRow {
+    const INLINE_BYTES: usize = {
+        assert!(core::mem::size_of::<Self>() <= 32);
+        32
+    };
+
     #[inline]
     fn row_handle(&self) -> Option<u64> {
         self.instance
@@ -63,13 +68,21 @@ struct StmtDiff {
     id: u64,
     before: Option<Stmt>,
     after: Stmt,
+    before_parsed: Option<Arc<ParsedStmt>>,
+    after_parsed: Arc<ParsedStmt>,
     old_refs: Vec<u64>,
     new_refs: Vec<u64>,
 }
 
 impl StmtDiff {
     fn heap_bytes(&self) -> usize {
+        // 予算にも使うため、可変幅の値は 64 bit の論理バイト数で見積もる。
         stmt_heap_bytes(&self.after)
+            + self
+                .before_parsed
+                .as_ref()
+                .map_or(0, |parsed| parsed.heap_bytes)
+            + self.after_parsed.heap_bytes
             + self.before.as_ref().map_or(0, stmt_heap_bytes)
             + (self.old_refs.capacity() + self.new_refs.capacity()) * core::mem::size_of::<u64>()
     }
@@ -84,8 +97,7 @@ fn item_heap_bytes(item: &Item) -> usize {
         Item::Ref(_) => 0,
         Item::Raw(b) => b.capacity(),
         Item::List(items) => {
-            items.capacity() * core::mem::size_of::<Item>()
-                + items.iter().map(item_heap_bytes).sum::<usize>()
+            items.capacity() * 32 + items.iter().map(item_heap_bytes).sum::<usize>()
         }
     }
 }
@@ -108,13 +120,15 @@ impl ElementSnap {
                 + id.tag.as_ref().map_or(0, String::capacity)
                 + id.long_name.as_ref().map_or(0, String::capacity)
         });
-        let prop_bytes = self.properties.as_ref().map_or(0, |p| {
-            p.sets.capacity() * core::mem::size_of::<PropertySet>()
-        });
-        let qty_bytes = self.quantities.as_ref().map_or(0, |q| {
-            q.sets.capacity() * core::mem::size_of::<QuantitySet>()
-        });
-        let rel_bytes = self.relations.capacity() * core::mem::size_of::<RelationSource>();
+        let prop_bytes = self
+            .properties
+            .as_ref()
+            .map_or(0, |p| p.sets.capacity() * 48);
+        let qty_bytes = self
+            .quantities
+            .as_ref()
+            .map_or(0, |q| q.sets.capacity() * 72);
+        let rel_bytes = self.relations.capacity() * 48;
         id_bytes
             + self.level_name.as_ref().map_or(0, String::capacity)
             + prop_bytes
@@ -144,6 +158,11 @@ struct IfcPatch {
 struct SharedIfcPatch(Arc<IfcPatch>);
 
 impl PatchPayload for SharedIfcPatch {
+    const INLINE_BYTES: usize = {
+        assert!(core::mem::size_of::<Self>() <= 8);
+        8
+    };
+
     fn heap_bytes(&self) -> usize {
         let p = &self.0;
         p.stmt_diffs.iter().map(StmtDiff::heap_bytes).sum::<usize>()
@@ -179,6 +198,8 @@ pub struct IfcLive {
 
     /// 書き直したインスタンスおよび追加したインスタンス
     changed: BTreeMap<u64, Stmt>,
+    /// 確定前に共有予算で読んだ変更文。属性取得では解析し直さない。
+    parsed_changed: BTreeMap<u64, Arc<ParsedStmt>>,
     /// 追加したインスタンス番号（追加順）
     added: Vec<u64>,
     /// 次に採番するインスタンス番号
@@ -339,6 +360,7 @@ impl IfcLive {
             zip_entry,
             clean_zip_bytes,
             changed: BTreeMap::new(),
+            parsed_changed: BTreeMap::new(),
             added: Vec::new(),
             next: max_id.saturating_add(1),
             referrers,
@@ -817,6 +839,8 @@ impl IfcLive {
                 self.referrers.entry(new_t).or_default().insert(diff.id);
             }
             self.changed.insert(diff.id, diff.after.clone());
+            self.parsed_changed
+                .insert(diff.id, Arc::clone(&diff.after_parsed));
         }
         self.added.extend_from_slice(&patch.added_ids);
         self.next = patch.after_next;
@@ -844,6 +868,14 @@ impl IfcLive {
             for &old_t in &diff.old_refs {
                 self.referrers.entry(old_t).or_default().insert(diff.id);
             }
+            match &diff.before_parsed {
+                Some(parsed) => {
+                    self.parsed_changed.insert(diff.id, Arc::clone(parsed));
+                }
+                None => {
+                    self.parsed_changed.remove(&diff.id);
+                }
+            }
             match &diff.before {
                 Some(prev) => {
                     self.changed.insert(diff.id, prev.clone());
@@ -870,6 +902,7 @@ struct StagedOutcome {
 struct OverlayDraft<'a> {
     live: &'a IfcLive,
     staged_changed: BTreeMap<u64, Stmt>,
+    staged_parsed: BTreeMap<u64, Arc<ParsedStmt>>,
     staged_added: Vec<u64>,
     next: u64,
     referrer_overrides: BTreeMap<u64, BTreeSet<u64>>,
@@ -885,6 +918,7 @@ impl<'a> OverlayDraft<'a> {
         Self {
             live,
             staged_changed: BTreeMap::new(),
+            staged_parsed: BTreeMap::new(),
             staged_added: Vec::new(),
             next: live.next,
             referrer_overrides: BTreeMap::new(),
@@ -1322,12 +1356,12 @@ impl<'a> OverlayDraft<'a> {
         id: u64,
         f: impl FnOnce(&Record, usize, &[u8]) -> R,
     ) -> Option<R> {
-        if let Some(stmt) = self
-            .staged_changed
+        if let Some(parsed) = self
+            .staged_parsed
             .get(&id)
-            .or_else(|| self.live.changed.get(&id))
+            .or_else(|| self.live.parsed_changed.get(&id))
         {
-            return parse_single_stmt(id, stmt, f);
+            return parsed.with_record(f);
         }
         let rec = self.live.base_instance(id)?;
         Some(
@@ -1651,7 +1685,12 @@ impl<'a> OverlayDraft<'a> {
         Ok((props, qtys, merged))
     }
 
-    fn finish(self, cx: &mut Cx) -> Result<StagedOutcome, Error> {
+    fn finish(mut self, cx: &mut Cx) -> Result<StagedOutcome, Error> {
+        // 建物モデルと IDS の属性取得は同じ解析結果を使い、取り消しも文と一緒に戻す。
+        for (&id, stmt) in &self.staged_changed {
+            let parsed = parse_single_stmt(id, stmt, cx)?;
+            self.staged_parsed.insert(id, Arc::new(parsed));
+        }
         let changed_count = self.staged_changed.len();
         let mut all_affected: BTreeSet<ElementRef> = self.affected_identity.clone();
         all_affected.extend(self.affected_defs.iter().copied());
@@ -1706,10 +1745,14 @@ impl<'a> OverlayDraft<'a> {
                 .map(|s| refs_in(&s.args))
                 .unwrap_or_default();
             let new_refs = refs_in(&after.args);
+            let before_parsed = self.live.parsed_changed.get(&id).cloned();
+            let after_parsed = self.staged_parsed.remove(&id).ok_or(Error::Invalid)?;
             stmt_diffs.push(StmtDiff {
                 id,
                 before,
                 after,
+                before_parsed,
+                after_parsed,
                 old_refs,
                 new_refs,
             });
@@ -1794,26 +1837,109 @@ fn slice_real(value: Option<&Value>, base: usize, slice: &[u8]) -> Option<f64> {
     }
 }
 
-fn parse_single_stmt<R>(
-    id: u64,
-    stmt: &Stmt,
-    f: impl FnOnce(&Record, usize, &[u8]) -> R,
-) -> Option<R> {
+/// 書き直した 1 文の読み取り結果。元の文との出所位置の比較には使わない。
+#[derive(Clone, Debug)]
+struct ParsedStmt {
+    bytes: Vec<u8>,
+    record: Option<Record>,
+    heap_bytes: usize,
+}
+
+impl ParsedStmt {
+    fn with_record<R>(&self, f: impl FnOnce(&Record, usize, &[u8]) -> R) -> Option<R> {
+        self.record.as_ref().map(|record| f(record, 0, &self.bytes))
+    }
+}
+
+fn stmt_items_size(items: &[Item], cx: &mut Cx) -> Result<usize, Error> {
+    cx.enter().map_err(|stop| stopped(cx, stop, None))?;
+    let result = (|| {
+        let mut size = 2usize.saturating_add(items.len().saturating_sub(1));
+        for item in items {
+            cx.check(Kind::Work, 1)
+                .map_err(|stop| stopped(cx, stop, None))?;
+            let bytes = match item {
+                Item::Ref(_) => 21,
+                Item::Raw(bytes) => {
+                    cx.check(Kind::Work, bytes.len().div_ceil(1024) as u64)
+                        .map_err(|stop| stopped(cx, stop, None))?;
+                    bytes.len()
+                }
+                Item::List(nested) => stmt_items_size(nested, cx)?,
+            };
+            size = size.saturating_add(bytes);
+        }
+        Ok(size)
+    })();
+    cx.leave();
+    result
+}
+
+fn parsed_values_size(values: &[Value], cx: &mut Cx) -> Result<usize, Error> {
+    cx.enter().map_err(|stop| stopped(cx, stop, None))?;
+    let result = (|| {
+        // ネイティブと wasm で同じ論理バイト数を数える。確保時の余裕も含む。
+        let mut size = if values.is_empty() {
+            0
+        } else {
+            values.len().saturating_add(3).saturating_mul(128)
+        };
+        for value in values {
+            cx.check(Kind::Work, 1)
+                .map_err(|stop| stopped(cx, stop, None))?;
+            let nested = match value {
+                Value::List(values) => parsed_values_size(values, cx)?,
+                Value::Typed(part) => parsed_values_size(part.args(), cx)?,
+                _ => 0,
+            };
+            size = size.saturating_add(nested);
+        }
+        Ok(size)
+    })();
+    cx.leave();
+    result
+}
+
+fn parse_single_stmt(id: u64, stmt: &Stmt, cx: &mut Cx) -> Result<ParsedStmt, Error> {
     const STEP_PREFIX: &[u8] = b"ISO-10303-21;HEADER;ENDSEC;DATA;";
     const STEP_SUFFIX: &[u8] = b"ENDSEC;END-ISO-10303-21;";
-
-    let mut buf = Vec::with_capacity(STEP_PREFIX.len() + 128 + STEP_SUFFIX.len());
-    buf.extend_from_slice(STEP_PREFIX);
-    write_stmt(id, stmt, &mut buf);
-    buf.extend_from_slice(STEP_SUFFIX);
-
-    let mut budget = Budget::new(Limits::default());
-    let mut diag = Diagnostics::new();
-    let cancel = CancelToken::new();
-    let mut qcx = Cx::new(&mut budget, &mut diag, &cancel);
-    let parsed = zumen_step::read(&buf, &DIALECT, &mut qcx).ok()?;
-    let rec = parsed.records.iter().find(|r| r.id() == Some(id))?;
-    Some(f(rec, 0, &buf))
+    cx.check(Kind::Work, 1 + stmt.name.len().div_ceil(1024) as u64)
+        .map_err(|stop| stopped(cx, stop, None))?;
+    let capacity = STEP_PREFIX
+        .len()
+        .saturating_add(STEP_SUFFIX.len())
+        .saturating_add(23)
+        .saturating_add(stmt.name.len())
+        .saturating_add(stmt_items_size(&stmt.args, cx)?);
+    cx.check(Kind::DecodedBytes, capacity as u64)
+        .map_err(|stop| stopped(cx, stop, None))?;
+    let mut bytes = Vec::with_capacity(capacity);
+    bytes.extend_from_slice(STEP_PREFIX);
+    write_stmt(id, stmt, &mut bytes);
+    bytes.extend_from_slice(STEP_SUFFIX);
+    let record = match zumen_sdk::quietly(cx, |cx| zumen_step::read(&bytes, &DIALECT, cx)) {
+        Ok(parsed) => parsed
+            .records
+            .into_iter()
+            .find(|record| record.id() == Some(id)),
+        Err(Error::Stopped(stop)) => return Err(Error::Stopped(stop)),
+        Err(_) => None,
+    };
+    let mut metadata = 256usize;
+    if let Some(record) = &record {
+        for part in record.parts() {
+            metadata = metadata
+                .saturating_add(128)
+                .saturating_add(parsed_values_size(part.args(), cx)?);
+        }
+    }
+    cx.check(Kind::DecodedBytes, metadata as u64)
+        .map_err(|stop| stopped(cx, stop, None))?;
+    Ok(ParsedStmt {
+        bytes,
+        record,
+        heap_bytes: capacity.saturating_add(metadata),
+    })
 }
 
 fn collect_literal_element_refs(lit: &Literal, out: &mut BTreeSet<RowId>) {
@@ -1980,11 +2106,12 @@ impl Lookup for LiveIdsLookup<'_> {
         let Some(instance) = building.element(element).and_then(|e| e.source().instance) else {
             return Ok(None);
         };
-        if let Some(stmt) = self.live.changed.get(&instance) {
-            return parse_single_stmt(instance, stmt, |record, base, slice| {
-                attributes_from_record_slice(layouts, building, record, base, slice, cx)
-            })
-            .unwrap_or(Ok(None));
+        if let Some(parsed) = self.live.parsed_changed.get(&instance) {
+            return parsed
+                .with_record(|record, base, slice| {
+                    attributes_from_record_slice(layouts, building, record, base, slice, cx)
+                })
+                .unwrap_or(Ok(None));
         }
         let Some(record) = self.live.base_instance(instance) else {
             return Ok(None);
@@ -1992,5 +2119,296 @@ impl Lookup for LiveIdsLookup<'_> {
         self.live.src.with_range(record.span(), |rs| {
             attributes_from_record_slice(layouts, building, record, rs.base, rs.bytes, cx)
         })
+    }
+}
+
+#[cfg(test)]
+mod shared_budget_tests {
+    use super::*;
+    use zumen_base::{Budget, CancelToken, Limit, Limits, Stop};
+    use zumen_sdk::Lift;
+
+    fn run<T>(f: impl FnOnce(&mut Cx) -> T) -> (T, Vec<Diagnostic>) {
+        let mut budget = Budget::default();
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let result = f(&mut Cx::new(&mut budget, &mut diagnostics, &cancel));
+        (result, diagnostics.into_vec())
+    }
+
+    fn record_budget<T: core::fmt::Debug>(
+        transcript: &mut String,
+        f: impl FnOnce(&mut Cx) -> T,
+    ) -> T {
+        let mut budget = Budget::default();
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let result = f(&mut Cx::new(&mut budget, &mut diagnostics, &cancel));
+        for kind in Kind::ALL {
+            transcript.push_str(&format!("{kind:?}: {}\n", budget.used(kind)));
+        }
+        transcript.push_str(&format!("{:?}\n", diagnostics.into_vec()));
+        result
+    }
+
+    #[test]
+    fn changed_statement_uses_the_shared_budget_and_cancel_token() {
+        let stmt = Stmt {
+            name: b"IFCPROPERTYSINGLEVALUE".to_vec(),
+            args: vec![
+                text("Value"),
+                Item::Raw(b"$".to_vec()),
+                Item::Raw(b"IFCLABEL('changed')".to_vec()),
+                Item::List(vec![Item::Ref(2)]),
+            ],
+        };
+        let mut measured = Budget::default();
+        let cancel = CancelToken::new();
+        let parsed = parse_single_stmt(
+            10,
+            &stmt,
+            &mut Cx::new(&mut measured, &mut Diagnostics::new(), &cancel),
+        )
+        .unwrap();
+        assert_eq!(parsed.record.as_ref().and_then(Record::id), Some(10));
+        for kind in [Kind::Work, Kind::DecodedBytes, Kind::Records] {
+            let amount = measured.used(kind);
+            assert!(amount > 0);
+            for (limit, spent) in [(0, 0), (amount - 1, 0), (amount, 1), (amount, 0)] {
+                let mut budget = Budget::new(Limits::default().with(kind, Limit::Finite(limit)));
+                budget.spend(kind, spent).unwrap();
+                let mut diagnostics = Diagnostics::new();
+                let result = parse_single_stmt(
+                    10,
+                    &stmt,
+                    &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+                );
+                if limit == amount && spent == 0 {
+                    assert_eq!(result.unwrap().record, parsed.record);
+                    assert!(diagnostics.is_empty());
+                } else {
+                    assert!(matches!(result, Err(Error::Stopped(Stop::Exceeded(_)))));
+                    assert_eq!(
+                        diagnostics
+                            .iter()
+                            .filter(|d| d.code() == kind.exceeded_code())
+                            .count(),
+                        1
+                    );
+                }
+                assert_eq!(budget.used(Kind::Depth), 0);
+            }
+        }
+        let mut budget = Budget::new(Limits::default().with(Kind::Depth, Limit::Finite(1)));
+        assert!(matches!(
+            parse_single_stmt(
+                10,
+                &stmt,
+                &mut Cx::new(&mut budget, &mut Diagnostics::new(), &cancel)
+            ),
+            Err(Error::Stopped(_))
+        ));
+        assert_eq!(budget.used(Kind::Depth), 0);
+        cancel.cancel();
+        assert!(matches!(
+            run(|cx| parse_single_stmt(10, &stmt, &mut Cx::new(cx.budget, cx.diag, &cancel))).0,
+            Err(Error::Stopped(Stop::Cancelled))
+        ));
+    }
+
+    fn fixture() -> Vec<u8> {
+        concat!(
+            "ISO-10303-21;HEADER;FILE_DESCRIPTION((''),'2;1');",
+            "FILE_SCHEMA(('IFC4'));ENDSEC;DATA;",
+            "#1=IFCPROJECT('0000000000000000000001',$,'Project',$,$,$,$,$,#3);",
+            "#3=IFCUNITASSIGNMENT((#4));#4=IFCSIUNIT(*,.LENGTHUNIT.,.MILLI.,.METRE.);",
+            "#10=IFCWALL('0000000000000000000010',$,'A',$,$,$,$,$,$);",
+            "#11=IFCWALL('0000000000000000000011',$,'B',$,$,$,$,$,$);",
+            "#40=IFCPROPERTYSET('0000000000000000000040',$,'Pset_Test',$,(#41));",
+            "#41=IFCPROPERTYSINGLEVALUE('Value',$,IFCLABEL('before'),$);",
+            "#42=IFCRELDEFINESBYPROPERTIES('0000000000000000000042',$,$,$,(#10,#11),#40);",
+            "#60=IFCELEMENTQUANTITY('0000000000000000000060',$,'Qto_Test',$,$,(#61));",
+            "#61=IFCQUANTITYLENGTH('Width',$,$,1.,$);",
+            "#62=IFCRELDEFINESBYPROPERTIES('0000000000000000000062',$,$,$,(#10),#60);",
+            "ENDSEC;END-ISO-10303-21;",
+        )
+        .as_bytes()
+        .to_vec()
+    }
+
+    fn check_model(live: &IfcLive, bytes: &[u8]) -> String {
+        let mut transcript = format!(
+            "{bytes:?}\n{:?}\n{} {:?} {} {}\n",
+            live.building(),
+            live.history.bytes(),
+            live.revision(),
+            live.undo_len(),
+            live.redo_len()
+        );
+        let file = run(|cx| Ifc::read(bytes, cx)).0.unwrap();
+        let expected: Building = run(|cx| file.lift(cx)).0.unwrap();
+        assert_eq!(live.building(), &expected);
+        assert_eq!(run(|cx| live.save_spf(cx)).0.unwrap(), bytes);
+        for (index, _) in expected.elements().iter().enumerate() {
+            let element = ElementRef(index as u32);
+            let current = run(|cx| Hash::element_checked(live.building(), element, cx));
+            let reference = run(|cx| Hash::element_checked(&expected, element, cx));
+            assert_eq!(current, reference);
+            transcript.push_str(&format!("{current:?}\n"));
+        }
+        #[cfg(feature = "ids")]
+        {
+            // このテスト専用の最小宣言。配布用の IFC スキーマではない。
+            let schema = run(|cx| Express::read(b"SCHEMA IFC4; TYPE IfcLabel = STRING; END_TYPE; ENTITY IfcWall; GlobalId : IfcLabel; OwnerHistory : OPTIONAL IfcWall; Name : OPTIONAL IfcLabel; Description : OPTIONAL IfcLabel; END_ENTITY; END_SCHEMA;", cx)).0.unwrap();
+            let current = live.ids_lookup(Some(&schema));
+            let reference = crate::IdsLookup::new(&file, Some(&schema));
+            for (index, _) in expected.elements().iter().enumerate() {
+                let element = ElementRef(index as u32);
+                let collect = |lookup: &dyn Lookup, model: &Building| {
+                    let mut budget = Budget::default();
+                    let mut diagnostics = Diagnostics::new();
+                    let cancel = CancelToken::new();
+                    let values = lookup.attributes(
+                        model,
+                        element,
+                        &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+                    );
+                    (
+                        values,
+                        diagnostics.into_vec(),
+                        budget.used(Kind::Work),
+                        budget.used(Kind::Records),
+                    )
+                };
+                let values = collect(&current, live.building());
+                assert_eq!(values, collect(&reference, &expected));
+                transcript.push_str(&format!("{values:?}\n"));
+            }
+        }
+        transcript
+    }
+
+    #[test]
+    fn changed_statement_cache_is_atomic_and_follows_multi_step_history() {
+        let edits = [
+            Edit::Property {
+                element: 10,
+                set: "Pset_Test".to_owned(),
+                name: "Value".to_owned(),
+                value: NewValue {
+                    type_name: "IfcLabel".to_owned(),
+                    literal: crate::NewLiteral::Text("after".to_owned()),
+                },
+            },
+            Edit::Property {
+                element: 10,
+                set: "Pset_Test".to_owned(),
+                name: "Value".to_owned(),
+                value: NewValue {
+                    type_name: "IfcLabel".to_owned(),
+                    literal: crate::NewLiteral::Text("updated again".to_owned()),
+                },
+            },
+            Edit::Attribute {
+                element: 60,
+                attribute: RootAttribute::Name,
+                value: Some("Qto_Renamed".to_owned()),
+            },
+            Edit::Attribute {
+                element: 10,
+                attribute: RootAttribute::Name,
+                value: Some("壁 'A'".to_owned()),
+            },
+            Edit::Attribute {
+                element: 10,
+                attribute: RootAttribute::Name,
+                value: Some("壁 'B'".to_owned()),
+            },
+        ];
+        let mut transcript = String::new();
+        for threads in [1, 4] {
+            let bytes = fixture();
+            let mut live = record_budget(&mut transcript, |cx| {
+                IfcLive::open_with_threads(&bytes, threads, cx)
+            })
+            .unwrap();
+            let mut history = vec![bytes];
+            transcript.push_str(&check_model(&live, &history[0]));
+            for edit in &edits {
+                let changes = std::slice::from_ref(edit);
+                let before = live.building().clone();
+                let revision = live.revision();
+                let state = live.state_id();
+                let cache = live.parsed_changed.clone();
+                let undo = live.undo_len();
+                let mut measured = Budget::default();
+                let cancel = CancelToken::new();
+                let mut probe = live.clone();
+                probe
+                    .apply(
+                        changes,
+                        b"budget",
+                        &mut Cx::new(&mut measured, &mut Diagnostics::new(), &cancel),
+                    )
+                    .unwrap();
+                for kind in Kind::ALL {
+                    transcript.push_str(&format!("{kind:?}: {}\n", measured.used(kind)));
+                }
+                for kind in [Kind::Work, Kind::DecodedBytes, Kind::Records] {
+                    let amount = measured.used(kind);
+                    assert!(amount > 0);
+                    for limit in [0, 1, amount / 2, amount - 1] {
+                        let mut budget =
+                            Budget::new(Limits::default().with(kind, Limit::Finite(limit)));
+                        let result = live.apply(
+                            changes,
+                            b"budget",
+                            &mut Cx::new(&mut budget, &mut Diagnostics::new(), &cancel),
+                        );
+                        assert!(matches!(result, Err(Error::Stopped(_))), "{kind:?} {limit}");
+                        assert_eq!(live.building(), &before);
+                        assert_eq!(live.revision(), revision);
+                        assert_eq!(live.state_id(), state);
+                        assert_eq!(live.undo_len(), undo);
+                        assert_eq!(live.redo_len(), 0);
+                        assert_eq!(live.parsed_changed.len(), cache.len());
+                        for (id, parsed) in &cache {
+                            assert!(Arc::ptr_eq(parsed, &live.parsed_changed[id]));
+                        }
+                        assert_eq!(
+                            run(|cx| live.save_spf(cx)).0.unwrap(),
+                            *history.last().unwrap()
+                        );
+                    }
+                }
+                let file = run(|cx| Ifc::read(history.last().unwrap(), cx)).0.unwrap();
+                let (expected, reference_diagnostics) =
+                    run(|cx| crate::apply(&file, changes, b"budget", cx));
+                let expected = expected.unwrap();
+                let (actual, actual_diagnostics) = run(|cx| live.apply(changes, b"budget", cx));
+                assert_eq!(actual.unwrap(), expected.changed);
+                assert_eq!(actual_diagnostics, reference_diagnostics);
+                transcript.push_str(&format!("{actual_diagnostics:?}\n"));
+                transcript.push_str(&check_model(&live, &expected.bytes));
+                history.push(expected.bytes);
+            }
+            for bytes in history.iter().rev().skip(1) {
+                assert!(record_budget(&mut transcript, |cx| live.undo(cx)).unwrap());
+                transcript.push_str(&check_model(&live, bytes));
+            }
+            assert!(live.parsed_changed.is_empty());
+            for bytes in history.iter().skip(1) {
+                assert!(record_budget(&mut transcript, |cx| live.redo(cx)).unwrap());
+                transcript.push_str(&check_model(&live, bytes));
+            }
+        }
+        #[allow(
+            clippy::disallowed_methods,
+            reason = "テストの比較記録の出力先だけを読む"
+        )]
+        let destination = std::env::var("ZUMEN_IFC_LIVE_BUDGET_OUT");
+        if let Ok(path) = destination {
+            std::fs::write(path, transcript).unwrap();
+        }
     }
 }

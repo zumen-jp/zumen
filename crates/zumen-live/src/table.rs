@@ -19,10 +19,13 @@ pub const EMPTY_BOUNDS: [f64; 4] = [
 
 /// 表の 1 行が満たす最小限の契約
 pub trait TableRow: Clone {
+    /// 予算で数える行本体のバイト数。可変幅の型を持つ行は環境共通の値で上書きする。
+    const INLINE_BYTES: usize = core::mem::size_of::<Self>();
+
     /// この行が持つハンドル（なければ `None`）
     fn row_handle(&self) -> Option<u64>;
 
-    /// `size_of::<Self>()` の外に保持しているヒープバイト数（固定長の行なら `0`）
+    /// 本体の外に保持するヒープの見積もり（固定長の行なら `0`）。予算にも使うため、環境で同じ値を返す。
     fn extra_heap_bytes(&self) -> usize {
         0
     }
@@ -315,9 +318,8 @@ impl<R: TableRow> VersionedTable<R> {
                 requested: count as u64,
             }));
         }
-        let per_row = core::mem::size_of::<R>()
-            + core::mem::size_of::<bool>()
-            + core::mem::size_of::<[f64; 4]>();
+        let per_row =
+            R::INLINE_BYTES + core::mem::size_of::<bool>() + core::mem::size_of::<[f64; 4]>();
         let extra_bytes = initial_rows.iter().fold(0u64, |acc, (r, _, _)| {
             acc.saturating_add(r.extra_heap_bytes() as u64)
         });

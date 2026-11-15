@@ -13,9 +13,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use zumen_base::{Cx, Diagnostic, Kind, Ref, codes};
 use zumen_drawing::{
     Affine, Applied, Axes, Boundary, Changes, Color, Draft, Drawing2D, Edge, Edit, Element, Field,
-    FieldValue, Hash, HatchLoop, Height, Inherit, LayerId, Length, LineTypeId, ModelPoint,
-    ModelSpace, PaperLength, Placed, Placement, Position, Seen, Shape, Sheet, SheetItem, SpaceId,
-    Style, SymbolDefinition, Unit, View, transform,
+    FieldValue, Hash, Height, Inherit, LayerId, Length, LineTypeId, ModelPoint, ModelSpace,
+    PaperLength, Placed, Placement, Position, Seen, Shape, Sheet, SheetItem, SpaceId, Style,
+    SymbolDefinition, Unit, View, transform,
 };
 use zumen_live::display::{Display, DisplayWriter, radians_from_deg};
 use zumen_live::{
@@ -62,22 +62,28 @@ struct JwwRow {
 }
 
 impl TableRow for JwwRow {
+    const INLINE_BYTES: usize = {
+        assert!(core::mem::size_of::<Self>() <= 1024);
+        1024
+    };
+
     #[inline]
     fn row_handle(&self) -> Option<u64> {
         None
     }
 
     fn extra_heap_bytes(&self) -> usize {
+        // 予算にも使うため、可変幅の値は 64 bit の論理バイト数で見積もる。
         let ext_bytes: usize = self
             .own_extensions
             .iter()
-            .map(|(_, fields)| fields.capacity() * core::mem::size_of::<Field>())
+            .map(|(_, fields)| fields.capacity() * 128)
             .sum();
         let shape_bytes = match &self.element.shape {
             Shape::Text(t) => t.content.capacity() + t.style.capacity(),
             Shape::Symbol(s) => s.key.name.capacity(),
             Shape::Underlay(u) => u.resource.path.capacity(),
-            Shape::Hatch(h) => h.loops.capacity() * core::mem::size_of::<HatchLoop<ModelPoint>>(),
+            Shape::Hatch(h) => h.loops.capacity() * 512,
             Shape::Dimension(_) => 128,
             _ => 0,
         };
@@ -206,15 +212,20 @@ struct JwwStepPatch {
 }
 
 impl PatchPayload for JwwStepPatch {
+    const INLINE_BYTES: usize = {
+        assert!(core::mem::size_of::<Self>() <= 128);
+        128
+    };
+
     fn heap_bytes(&self) -> usize {
         let b: usize = self.bodies.iter().map(BodyDiff::heap_bytes).sum();
-        let r = self.removed.capacity() * core::mem::size_of::<RemovedSlot>();
+        let r = self.removed.capacity() * 32;
         let a: usize = self
             .added
             .iter()
-            .map(|item| item.body.capacity() + core::mem::size_of::<BornRecord>())
+            .map(|item| item.body.capacity() + 128)
             .sum();
-        b + r + a + self.symbol_bounds.capacity() * core::mem::size_of::<SymbolBoundsDiff>()
+        b + r + a + self.symbol_bounds.capacity() * 96
     }
 }
 

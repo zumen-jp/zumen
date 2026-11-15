@@ -75,16 +75,22 @@ pub(super) struct SxfRow {
 }
 
 impl TableRow for SxfRow {
+    const INLINE_BYTES: usize = {
+        assert!(core::mem::size_of::<Self>() <= 1024);
+        1024
+    };
+
     #[inline]
     fn row_handle(&self) -> Option<u64> {
         self.unique_handle
     }
 
     fn extra_heap_bytes(&self) -> usize {
+        // 予算にも使うため、可変幅の値は 64 bit の論理バイト数で見積もる。
         self.p21_kind.len()
             + self.p21_name.len()
             + self.canonical_id.len()
-            + self.drafts.len() * core::mem::size_of::<Draft>()
+            + self.drafts.len() * 256
             + diagnostics::heap_bytes(&self.diagnostics)
     }
 }
@@ -150,6 +156,11 @@ struct SxfUnifiedPatch {
 struct SharedPatch(Arc<SxfUnifiedPatch>);
 
 impl PatchPayload for SharedPatch {
+    const INLINE_BYTES: usize = {
+        assert!(core::mem::size_of::<Self>() <= 8);
+        8
+    };
+
     fn heap_bytes(&self) -> usize {
         let base = match &self.0.backing {
             BackingPatch::Sfc(s) => s.heap_bytes(),

@@ -90,6 +90,11 @@ pub struct LiveRow {
 }
 
 impl TableRow for LiveRow {
+    const INLINE_BYTES: usize = {
+        assert!(core::mem::size_of::<Self>() <= 64);
+        64
+    };
+
     #[inline]
     fn row_handle(&self) -> Option<u64> {
         ((self.flags & (ROW_HAS_HANDLE | ROW_UNIQUE_HANDLE))
