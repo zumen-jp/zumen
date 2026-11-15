@@ -1151,15 +1151,17 @@ references = [
   { name = "e57（Rust）", license = "MIT", url = "https://github.com/cry-inc/e57" },
 ]
 known-crates = ["e57"]
-verify = ["CloudCompare"]
-samples = ["libE57Format-test-data（reference は libe57 の Test Data License、ほかは CC0 1.0）"]
+verify = ["pye57 0.4.19（libE57Format）", "CloudCompare"]
+samples = ["samples/e57/libe57-coloured-cube-double.e57", "samples/e57/libe57-coloured-cube-float.e57（libE57Format の合成立方体、CC0 1.0）"]
 docs = ["docs/formats/e57.md"]
 issues = ["zumen-jp/zumen#373"]
 
 [formats.e57.read]
-level = "synthetic"
-scope = "公開の実装の記述と、テストの中で作った E57（crates/zumen-e57/tests）で確かめた。ページ・XML・点の圧縮の読み取りは e57 の crate に任せる。公開サンプルと CloudCompare での照合はまだ（#504）"
-checked = "2026-11-03"
+level = "external"
+scope = "libE57Format が作った公開の合成立方体 2 件（E57 1.0、座標 float64/float32、各 7680 点）を pye57 0.4.19 と照合した。点数・順序・全座標・RGB の 16 ビット換算・範囲が一致し、CRS 欠落の診断と属性の不在を確認した。公開 API の全点の応答・診断は適合テストでネイティブと wasm のハッシュを比べる。実測点群・球座標・姿勢・複数スキャン・座標系・そのほかの属性・無効点・画像・CloudCompare の表示は未確認（#504）。依存する e57 crate の読みだけを外部照合には数えない"
+checked = "2026-11-16"
+public-samples = ["samples/e57/"]
+implementations = [{ name = "pye57", version = "0.4.19" }]
 
 [[formats.e57.evidence]]
 title = "libE57Format-test-data の README（ライセンス）"

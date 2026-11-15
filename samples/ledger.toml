@@ -2,6 +2,30 @@
 # `cargo xtask codegen --check` が、samples/ のファイルとこの台帳を照らす。
 
 [[samples]]
+path = "e57/libe57-coloured-cube-double.e57"
+sha256 = "58e7cfbb3e9cef777c4cd8f52aff2ff704fcf6dd3aea4b420430adaa1cdb978d"
+bytes = 210944
+title = "libE57Formatが作った7680点の色付き立方体（float64のE57）"
+publisher = "libE57Format"
+url = "https://raw.githubusercontent.com/asmaloney/libE57Format-test-data/24201531715945ba7d49af6dfcb8e07b6b9b6b7f/self/ColouredCubeDouble.e57"
+retrieved = "2026-11-16"
+license = "CC0-1.0"
+license-url = "https://github.com/asmaloney/libE57Format-test-data/blob/24201531715945ba7d49af6dfcb8e07b6b9b6b7f/README.md#licensing"
+attribution = "libE57Format-test-dataのself/にある合成サンプル。CC0 1.0。取得したままのバイト列"
+
+[[samples]]
+path = "e57/libe57-coloured-cube-float.e57"
+sha256 = "6dbf7972b358bd7dd0864c7893a4aa7b61a339fd6ee27c71b3031f763c977d33"
+bytes = 118784
+title = "libE57Formatが作った7680点の色付き立方体（float32のE57）"
+publisher = "libE57Format"
+url = "https://raw.githubusercontent.com/asmaloney/libE57Format-test-data/24201531715945ba7d49af6dfcb8e07b6b9b6b7f/self/ColouredCubeFloat.e57"
+retrieved = "2026-11-16"
+license = "CC0-1.0"
+license-url = "https://github.com/asmaloney/libE57Format-test-data/blob/24201531715945ba7d49af6dfcb8e07b6b9b6b7f/README.md#licensing"
+attribution = "libE57Format-test-dataのself/にある合成サンプル。CC0 1.0。取得したままのバイト列"
+
+[[samples]]
 path = "ply/pdal-mesh-fixed.ply"
 sha256 = "cae59908c8e0b105a75cac91363068159508c5731a46b48993b5f4a391afbeb0"
 bytes = 277

@@ -259,6 +259,35 @@ jobs:
       - name: SI 単位の種類・名前・接頭辞を IfcOpenShell の元属性と照らす
         run: python -I crates/zumen-ifc/tests/ifcopenshell/units.py "$RUNNER_TEMP/units"
 
+  pye57:
+    name: 公開E57の全点と色をpye57と照らす
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: rust-toolchain.tomlのバージョンのRustを入れる
+        run: rustup toolchain install
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.13'
+      - name: pye57と依存をテスト用のwheelで入れる
+        run: |
+          python -m pip install --only-binary :all: pye57==0.4.19 numpy==2.5.4 pyquaternion==0.9.9
+      - name: 公開の倍精度・単精度の全点・色・範囲と診断を照らす
+        env:
+          ZUMEN_PYE57_REQUIRED: '1'
+        run: cargo test --locked -p zumen-e57 --test external
+      - name: 公開APIの全点と比較器の改変検査を流し、キットを作る
+        run: |
+          cargo build --locked -p zumen-cli
+          python -I xtask/verify/e57/check_api.py --cli target/debug/zumen --out "$RUNNER_TEMP/e57-check"
+          python -I xtask/verify/e57/test_check.py "$RUNNER_TEMP/e57-check"
+      - name: 公開サンプルと期待値・観測値を成果物に残す
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: verify-e57
+          path: ${{ runner.temp }}/e57-check
+          retention-days: 30
+
   laspy:
     name: 非圧縮 LAS の読みを laspy と照らす
     runs-on: ubuntu-latest

@@ -22,7 +22,7 @@
 | [delivery](#format-delivery) | 電子納品の管理ファイル（INDEX\_C.XML・PHOTO.XML など） | delivery | delivery | `public` | `core` | `synthetic` |  |
 | [dwg](#format-dwg) | DWG | acad | drawing | `public` | `core` | `application` | `application` |
 | [dxf](#format-dxf) | DXF | acad | drawing | `public` | `core` | `application` | `application` |
-| [e57](#format-e57) | E57（ASTM E2807） | e57 | pointcloud | `public` | `core` | `synthetic` |  |
+| [e57](#format-e57) | E57（ASTM E2807） | e57 | pointcloud | `public` | `core` | `external` |  |
 | [express](#format-express) | EXPRESS のスキーマ（ISO 10303-11。IFC のスキーマなど） | express | building | `public` | `core` | `external` |  |
 | [extdm](#format-extdm) | 拡張 DM（公共測量標準図式数値地形図データファイル） | extdm | geo | `public` | `core` | `synthetic` |  |
 | [fgd](#format-fgd) | 基盤地図情報（GML） | fgd | geo | `public` | `core` | `synthetic` |  |
@@ -710,10 +710,12 @@
 - 権利の根拠にした文書: [libE57Format-test-data の README（ライセンス）](https://github.com/asmaloney/libE57Format-test-data)（確認日: 2026-11-01）
 - 参照した実装: [libE57Format](https://github.com/asmaloney/libE57Format)（BSL-1.0）
 - 参照した実装: [e57（Rust）](https://github.com/cry-inc/e57)（MIT）
-- 照合に使う候補: CloudCompare
-- サンプルの出どころ: libE57Format-test-data（reference は libe57 の Test Data License、ほかは CC0 1.0）
-- 読みの確かめた度合い: `synthetic`（確認日: 2026-11-03）
-- 読みの確かめた範囲: 公開の実装の記述と、テストの中で作った E57（crates/zumen-e57/tests）で確かめた。ページ・XML・点の圧縮の読み取りは e57 の crate に任せる。公開サンプルと CloudCompare での照合はまだ（#504）
+- 照合に使う候補: pye57 0.4.19（libE57Format）・CloudCompare
+- サンプルの出どころ: samples/e57/libe57-coloured-cube-double.e57・samples/e57/libe57-coloured-cube-float.e57（libE57Format の合成立方体、CC0 1.0）
+- 読みの確かめた度合い: `external`（確認日: 2026-11-16）
+- 読みの確かめた範囲: libE57Format が作った公開の合成立方体 2 件（E57 1.0、座標 float64/float32、各 7680 点）を pye57 0.4.19 と照合した。点数・順序・全座標・RGB の 16 ビット換算・範囲が一致し、CRS 欠落の診断と属性の不在を確認した。公開 API の全点の応答・診断は適合テストでネイティブと wasm のハッシュを比べる。実測点群・球座標・姿勢・複数スキャン・座標系・そのほかの属性・無効点・画像・CloudCompare の表示は未確認（#504）。依存する e57 crate の読みだけを外部照合には数えない
+- 読みで使った公開サンプル: [samples/e57/](../../samples/e57/)
+- 読みで照らした外部の実装: pye57 0.4.19
 - 既知の crate: e57
 - issue: [zumen-jp/zumen#373](https://github.com/zumen-jp/zumen/issues/373)
 - 形式の文書: [docs/formats/e57.md](../../docs/formats/e57.md)

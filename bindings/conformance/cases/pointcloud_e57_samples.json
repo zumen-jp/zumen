@@ -1,0 +1,38 @@
+{
+  "description": "libE57Format の公開 E57 合成立方体 2 件を開き、全点・色・範囲・CRS 欠落の応答を環境間で照らす。pye57 との全点照合は別の外部試験（#504）。",
+  "module": "pointcloud",
+  "steps": [
+    { "push": { "name": "cube-double.e57", "file": "samples/e57/libe57-coloured-cube-double.e57" } },
+    { "call": { "v": 1, "op": "open", "input": "cube-double.e57" }, "expect": { "/result/format": "e57", "/diagnostics/0/code": "e57.crs.missing", "/diagnostics/0/count": 1 }, "absent": ["/diagnostics/1"] },
+    {
+      "call": { "v": 1, "op": "pointcloud", "doc": "cube-double.e57", "limit": 7680 },
+      "expect": {
+        "/result/points": 7680,
+        "/result/attributes": ["position", "color"],
+        "/result/bounds/min": [-0.5, -0.5, -0.5],
+        "/result/bounds/max": [0.5, 0.5, 0.5],
+        "/result/selected/truncated": false,
+        "/result/selected/positions/7679": [0.45247697830200195, 0.49270695447921753, 0.5],
+        "/result/selected/color/7679": [65535, 0, 0],
+        "/diagnostics": []
+      },
+      "absent": ["/result/crs", "/result/vertical", "/result/selected/intensity", "/result/selected/positions/7680", "/result/selected/color/7680"]
+    },
+    { "push": { "name": "cube-float.e57", "file": "samples/e57/libe57-coloured-cube-float.e57" } },
+    { "call": { "v": 1, "op": "open", "input": "cube-float.e57" }, "expect": { "/result/format": "e57", "/diagnostics/0/code": "e57.crs.missing", "/diagnostics/0/count": 1 }, "absent": ["/diagnostics/1"] },
+    {
+      "call": { "v": 1, "op": "pointcloud", "doc": "cube-float.e57", "limit": 7680 },
+      "expect": {
+        "/result/points": 7680,
+        "/result/attributes": ["position", "color"],
+        "/result/bounds/min": [-0.5, -0.5, -0.5],
+        "/result/bounds/max": [0.5, 0.5, 0.5],
+        "/result/selected/truncated": false,
+        "/result/selected/positions/7679": [0.45247697830200195, 0.49270695447921753, 0.5],
+        "/result/selected/color/7679": [65535, 0, 0],
+        "/diagnostics": []
+      },
+      "absent": ["/result/crs", "/result/vertical", "/result/selected/intensity", "/result/selected/positions/7680", "/result/selected/color/7680"]
+    }
+  ]
+}
