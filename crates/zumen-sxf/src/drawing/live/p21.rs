@@ -4,7 +4,7 @@ use core::ops::Range;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use zumen_base::{Cx, Ref};
+use zumen_base::{Cx, Diagnostic, Ref, codes};
 use zumen_live::{PatchPayload, RecordSlice, SourceBytes};
 use zumen_sdk::{Error, quietly};
 
@@ -1860,6 +1860,92 @@ impl P21State {
             }
             _ => number_in_slice(rs, arg),
         }
+    }
+
+    pub(super) fn diagnostic_current(
+        &self,
+        event: &Diagnostic,
+        cx: &mut Cx<'_>,
+    ) -> Result<bool, Error> {
+        let Some(record) = event
+            .places()
+            .first()
+            .and_then(Ref::record)
+            .and_then(|record| usize::try_from(record).ok())
+        else {
+            return Ok(true);
+        };
+        let Some(zumen_base::Value::UInt(id)) = event.param("id") else {
+            return Ok(true);
+        };
+        if event.code() == codes::SXF_P21_REFERENCE_MISSING {
+            if self
+                .instances
+                .get(*id)
+                .is_some_and(|record| !self.removed.contains(&record))
+            {
+                return Ok(false);
+            }
+            let Some(statement) = self.record_of(record) else {
+                return Ok(false);
+            };
+            for (part_index, part) in statement.parts().iter().enumerate() {
+                work(cx, 1, &Ref::at_record(record as u64))?;
+                for (argument, value) in part.args().iter().enumerate() {
+                    let slot = (record, part_index, argument);
+                    work(cx, 1, &Ref::at_record(record as u64))?;
+                    let present = if let Some(text) = self.args.get(&slot) {
+                        work(cx, text.len() as u64, &Ref::default())?;
+                        cx.check(
+                            zumen_base::Kind::DecodedBytes,
+                            (text.len() as u64).saturating_mul(16),
+                        )
+                        .map_err(|stop| {
+                            cx.report(stop.to_diagnostic());
+                            Error::Stopped(stop)
+                        })?;
+                        scan(text.as_bytes()).contains(id)
+                    } else if let Some(list) = self.small_lists.get(&slot) {
+                        work(cx, list.len() as u64, &Ref::default())?;
+                        list.contains(id)
+                    } else {
+                        count_values(core::slice::from_ref(value), cx)?;
+                        let mut in_base = false;
+                        for_each_ref(core::slice::from_ref(value), &mut |reference| {
+                            in_base |= reference == *id
+                        });
+                        self.container_lists
+                            .get(&slot)
+                            .map_or(in_base, |list| list.contains(*id, in_base))
+                    };
+                    if present {
+                        return Ok(true);
+                    }
+                }
+            }
+            return Ok(false);
+        }
+        if event.code() == codes::SXF_P21_LAYER_MEMBER_DROPPED {
+            let Some(containers) = self.current_id_containers.get(id) else {
+                return Ok(false);
+            };
+            let mut assigned = false;
+            for layer in &self.codes.layers {
+                work(cx, 1, &Ref::at_record(record as u64))?;
+                let Some(statement) = self.instances.get(*layer) else {
+                    continue;
+                };
+                work(cx, containers.len() as u64, &Ref::default())?;
+                if containers.iter().any(|slot| slot.0 == statement) {
+                    if statement == record {
+                        return Ok(assigned);
+                    }
+                    assigned = true;
+                }
+            }
+            return Ok(false);
+        }
+        Ok(true)
     }
 
     pub(super) fn source_map(&self, cx: &mut Cx<'_>) -> Result<SourceMap, Error> {
