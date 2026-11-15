@@ -16,10 +16,12 @@ use crate::{
     Cx, Diagnostic, Error, IfcFile, Kind, Record, ShapeNode, Value, at_bytes, codes, stopped,
 };
 
+mod context;
 mod half_space;
 mod mapping;
 mod revolution;
 mod void_profile;
+pub use context::{ContextGeometry, ContextSource};
 pub use half_space::{HalfSpaceGeometry, HalfSpaceSource};
 pub use mapping::{MappedShape3, MappingSource};
 pub use revolution::{RevolutionSource, RevolvedArea};

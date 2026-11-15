@@ -93,6 +93,9 @@ fn gathers_supported_values_once_and_keeps_shared_graph_links() {
         assert!(d.is_empty(), "{version}:{d:?}");
         let g = r.unwrap();
         assert_eq!(g.values.len(), g.shape.nodes.len());
+        assert!(
+            matches!(g.value(reference(&g,102)), Some(GeometryValue::Context(v)) if v.definition.geometric.dimension == 3)
+        );
         assert_eq!(
             g.shape
                 .nodes

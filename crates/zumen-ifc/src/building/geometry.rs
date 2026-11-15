@@ -4,9 +4,9 @@ use zumen_building::{CurveGraph, Element};
 
 use super::{arg, decode};
 use crate::{
-    Cx, Diagnostic, Error, FacetedFaces, GridAxes, HalfSpaceGeometry, IfcFile, ItemPresentation,
-    Kind, MappedShape3, ProductShape, ProfiledExtrusion, Record, RevolvedArea, ShapeLinks,
-    ShapeRef, SweptDisk, TessellatedFaces, Value, at_bytes, codes, stopped,
+    ContextGeometry, Cx, Diagnostic, Error, FacetedFaces, GridAxes, HalfSpaceGeometry, IfcFile,
+    ItemPresentation, Kind, MappedShape3, ProductShape, ProfiledExtrusion, Record, RevolvedArea,
+    ShapeLinks, ShapeRef, SweptDisk, TessellatedFaces, Value, at_bytes, codes, stopped,
 };
 
 /// 指定値を取得できたか。未対応を省略や空の値と同一視しない
@@ -21,8 +21,10 @@ pub enum Retrieved<T> {
 /// 構造グラフの項目に対応する値。参照・配置・単位の適用は行わない
 #[derive(Clone, Debug)]
 pub enum GeometryValue<'f> {
-    /// 表現・写像元・幾何集合・ブーリアン。参照と演算は shape の links に持つ
+    /// 定義・写像元・幾何集合・ブーリアン。参照と演算は shape の links に持つ
     Links,
+    /// 表現が参照する文脈。座標系・精度・表示尺度は未適用
+    Context(ContextGeometry<'f>),
     /// 曲線。曲線内部の共有はこのグラフに閉じる
     Curve(CurveGraph),
     /// 断面の押し出し
@@ -139,6 +141,9 @@ impl IfcFile {
                 check(cx, Some(node.source), Kind::Work, 1)?;
                 let kind = self.kind(node.source);
                 let result = match &node.links {
+                    ShapeLinks::Representation { context, .. } => self
+                        .representation_context(context.id().unwrap_or(0), cx)
+                        .map(GeometryValue::Context),
                     ShapeLinks::Mapped { .. } => {
                         self.mapped_shape3(node, cx).map(GeometryValue::Mapping)
                     }

@@ -122,7 +122,7 @@ WASI の出力は `target/shape-comparison-wasm` に書きます。同じ 4 件�
 
 `IfcFile::element_geometry(&Element, cx)` は、この IFC から lift した Building の要素を受け取り、形・写像・表示・通り芯を `ProductGeometry` にまとめます。出所のインスタンスと、保持している元の GlobalId を照合します。L1 の番号から呼ぶ入口は `product_geometry(instance, cx)` です。取得のために Building を変更しません。
 
-- `shape` に元の参照関係、同じ位置の `values` に `GeometryValue` を持ちます。押し出し・回転体・掃引円盤・多角形の面集合・添字付き面集合・半空間・3D の写像・曲線を、以下の個別の getter で取得します。共有項目の値は一度だけ持ち、構造の `ShapeRef` で引けます。曲線内部の共有はそれぞれの `CurveGraph` に閉じます。
+- `shape` に元の参照関係、同じ位置の `values` に `GeometryValue` を持ちます。押し出し・回転体・掃引円盤・多角形の面集合・添字付き面集合・半空間・3D の写像・曲線を、以下の個別の getter で取得します。表現の項目では `GeometryValue::Context` に座標系・精度・表示尺度を取得します。共有項目の値は一度だけ持ち、構造の `ShapeRef` で引けます。曲線内部の共有はそれぞれの `CurveGraph` に閉じます。
 - `styles` は項目と、それを直接含む表現の組ごとに `item_presentation()` の結果を持ちます。同じ形を別の表現で使う場合も、レイヤの所属を混ぜません。表現に直接含まれず、ブーリアンや集合からだけ参照される項目の表示も取得します。写像の階層を越える上書きは、この参照関係を保持したまま未評価です。
 - Grid では、軸・曲線・配置の出所を `grid_axes()` から `grid` に取得します。通り芯ではない場合の `None` と、通り芯の軸が未対応な場合の `Some(Unsupported)` を区別します。
 - 未知の形や未対応の断面は、元の項目の種類と出所を持つ `GeometryValue::Unsupported` です。表示と通り芯の未対応は `Retrieved::Unsupported` とし、空の値・省略と同一視しません。未対応の子の種類や場所も個別の診断に残します。これは欠落を明示する取得の契約で、不正・予算・中断では全体を返しません。
@@ -143,6 +143,29 @@ node crates/zumen-ifc/tests/wasi-geometry.mjs --compare target/geometry-comparis
 ```
 
 5 件の JSON と、元値・出所・診断・全 Kind の記録をネイティブと WASI で比較します。fuzz は最初の 16 要素まで、統合した取得と従来の個別の getter に同じ予算を渡します。
+
+### 表現の座標系と表示尺度を取得する
+
+`IfcFile::representation_context(instance, cx)` は、幾何の文脈とその子から `ContextGeometry` を取得します。`definition.geometric` に親または直接の文脈の名前・次元・精度・座標系・真北、`definition.view` に子の名前・表示尺度・投影の種類・利用側が定めた名前を持ちます。原点と精度の長さの単位は `length_unit`、元の文脈・親・配置・点・方向・単位のレコードは `source` に分けます。
+
+座標系は 2D と 3D を区別し、座標値と方向比を保持します。正規化・既定の軸・真北の既定値・尺度の反転・地図への変換を適用しません。宣言した次元は整数の 1〜3、座標系の原点はその配置が指定する 2D・3D の成分を読みます。宣言と配置の次元の整合を含む幾何の評価は別の段階です。精度を指定している場合は有限な値を要求し、省略はそのまま保持します。子の尺度は指定時に正の有限な値を要求し、1:100 は 0.01 のままです。
+
+子の派生属性は `*` を確かめて親から取得します。親に別の子は認めず、自己参照・相互参照・子の鎖を `ifc.shape.invalid` にします。真北は 2 成分、`USERDEFINED` には投影名を要求します。軸の成分・属性数・方向の規則は既存の配置の取得と共有します。不正と停止では部分結果を返しません。深さは親までの最大 2 段で、終了・エラー時とも呼び出し前の深さへ戻します。共有 `Cx` で元の文字列・参照・単位の走査と確保を数えます。
+
+根拠は buildingSMART の各版の自然文の属性と制約の説明です。幾何の文脈は [IFC2X3 TC1](https://standards.buildingsmart.org/IFC/RELEASE/IFC2x3/TC1/HTML/ifcrepresentationresource/lexical/ifcgeometricrepresentationcontext.htm)、[IFC4 ADD2 TC1](https://standards.buildingsmart.org/IFC/RELEASE/IFC4/ADD2_TC1/HTML/schema/ifcrepresentationresource/lexical/ifcgeometricrepresentationcontext.htm)、[IFC4.3 ADD2](https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcGeometricRepresentationContext.htm)、子の文脈は同じ版の [2X3](https://standards.buildingsmart.org/IFC/RELEASE/IFC2x3/TC1/HTML/ifcrepresentationresource/lexical/ifcgeometricrepresentationsubcontext.htm)・[4](https://standards.buildingsmart.org/IFC/RELEASE/IFC4/ADD2_TC1/HTML/schema/ifcrepresentationresource/lexical/ifcgeometricrepresentationsubcontext.htm)・[4.3](https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcGeometricRepresentationSubContext.htm) を参照しています。
+
+`tests/contexts.rs` は合成の 3 版で平面・空間・親と子・全投影・省略・不正・全 Kind の境界・中断・STEP の付け替えを確かめます。公開の GNI の柱の文脈 `#24`、TallBuilding の壁の文脈 `#118` も含め、14 件の座標系・精度・真北・尺度・親子の名前・単位を IfcOpenShell の実行 API と照らします。形・座標変換・表示の評価とは分けます。
+
+```powershell
+$env:ZUMEN_IFC_CONTEXT_OUT = Join-Path (Get-Location) 'target/context-comparison'
+cargo test -p zumen-ifc --locked --test contexts
+python -X utf8 -I crates/zumen-ifc/tests/ifcopenshell/contexts.py target/context-comparison
+$env:CARGO_TARGET_WASM32_WASIP1_RUNNER = 'node --no-warnings tests/wasi-contexts.mjs'
+cargo test -p zumen-ifc --locked --test contexts --target wasm32-wasip1 -- --test-threads 1
+node crates/zumen-ifc/tests/wasi-contexts.mjs --compare target/context-comparison target/context-comparison-wasm
+```
+
+ネイティブと WASI は 5 件の JSON と、元値・出所・診断・全 Kind の境界の記録を比較します。統合取得のテストも両環境で流します。fuzz の断面の種では、共有写像の表現に子の文脈を割り当て、統合した取得から通します。
 
 ## 形の葉から押し出しと断面を取得する
 

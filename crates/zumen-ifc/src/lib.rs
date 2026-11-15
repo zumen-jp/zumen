@@ -31,12 +31,13 @@ mod zip;
 
 #[cfg(feature = "building")]
 pub use building::{
-    ExtrudedArea, ExtrusionSource, FaceGraphSource, FacetedFaces, GeometryStyle, GeometryValue,
-    GridAxes, GridAxisCurve, GridSource, HalfSpaceGeometry, HalfSpaceSource, IndexedFaceSource,
-    ItemPresentation, ItemStyleSource, ItemSurfaceStyles, LayerAssignmentLevel, LayerPresentation,
-    MappedShape3, MappingSource, ProductGeometry, ProductShape, ProfiledExtrusion, Retrieved,
-    RevolutionSource, RevolvedArea, ShapeLinks, ShapeNode, ShapeRef, SurfaceStyleBinding,
-    SurfaceStyleSelection, SurfaceStyleSource, SweptDisk, TessellatedFaces,
+    ContextGeometry, ContextSource, ExtrudedArea, ExtrusionSource, FaceGraphSource, FacetedFaces,
+    GeometryStyle, GeometryValue, GridAxes, GridAxisCurve, GridSource, HalfSpaceGeometry,
+    HalfSpaceSource, IndexedFaceSource, ItemPresentation, ItemStyleSource, ItemSurfaceStyles,
+    LayerAssignmentLevel, LayerPresentation, MappedShape3, MappingSource, ProductGeometry,
+    ProductShape, ProfiledExtrusion, Retrieved, RevolutionSource, RevolvedArea, ShapeLinks,
+    ShapeNode, ShapeRef, SurfaceStyleBinding, SurfaceStyleSelection, SurfaceStyleSource, SweptDisk,
+    TessellatedFaces,
 };
 #[cfg(feature = "building")]
 pub use edit::{Applied, Edit, NewLiteral, NewValue, RootAttribute, apply};
