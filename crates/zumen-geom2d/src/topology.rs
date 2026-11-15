@@ -13,6 +13,7 @@ use crate::Xy;
 
 mod arcs;
 mod curves;
+mod edit;
 mod wide;
 
 pub use arcs::{
@@ -20,6 +21,10 @@ pub use arcs::{
     segment_arc_intersection,
 };
 pub use curves::{Circle, CurveIntersection, circle_intersection, segment_circle_intersection};
+pub use edit::{
+    Boundary, Cut, End, Extended, SegmentPiece, Trimmed, extend_arc, extend_segment, trim_arc,
+    trim_segment,
+};
 
 /// 格子の各座標の絶対値の上限。差の外積は 83 bit、交点の分子の計算は 125 bit 未満に収まる。
 pub const MAX_COORDINATE: i64 = (1 << 40) - 1;
@@ -41,6 +46,10 @@ pub enum Error {
     Allocation,
     /// 方向が 0、または円弧の半径が 0 で、角度を定められない。
     Degenerate,
+    /// 重なる境界、または切断点そのものの指定から、削る区間を一つに決められない。
+    Ambiguous,
+    /// 格子が粗く、切断位置の範囲や順序を保てない。
+    Precision,
 }
 
 /// 計算する前に利用側の予算へ数える量。`Work(0)` でも中断を確認する。

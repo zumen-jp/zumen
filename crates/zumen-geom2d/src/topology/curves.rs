@@ -94,12 +94,21 @@ pub(super) enum Roots {
 }
 
 impl Root {
-    fn point(Point([x, y]): Point) -> Self {
+    pub(super) fn point(Point([x, y]): Point) -> Self {
         Self {
             a: [i128::from(x), i128::from(y)],
             b: [0, 0],
             d: Wide::ZERO,
             denominator: 1,
+        }
+    }
+
+    pub(super) fn rational(a: [i128; 2], denominator: i128) -> Self {
+        Self {
+            a,
+            b: [0, 0],
+            d: Wide::ZERO,
+            denominator,
         }
     }
 
@@ -160,6 +169,10 @@ fn dot([x, y]: [i128; 2], [u, v]: [i128; 2]) -> i128 {
 }
 
 pub(super) fn segment_roots(segment: Segment, circle: Circle) -> Roots {
+    line_roots(segment, circle, true)
+}
+
+pub(super) fn line_roots(segment: Segment, circle: Circle, bounded: bool) -> Roots {
     let r = difference(segment.end, segment.start);
     let p = difference(segment.start, circle.center);
     let a = dot(r, r);
@@ -188,6 +201,15 @@ pub(super) fn segment_roots(segment: Segment, circle: Circle) -> Roots {
         d,
         denominator: a,
     };
+    if !bounded {
+        return if d == Wide::ZERO && circle.radius > 0 {
+            Roots::Tangent(root(1))
+        } else if d == Wide::ZERO {
+            Roots::One(root(1))
+        } else {
+            Roots::Two([root(-1), root(1)])
+        };
+    }
     // 0 <= t <= 1 を、根を浮動小数にせずに比較する。
     let minus = b <= 0 && d <= Wide::square(b) && (a + b >= 0 || d >= Wide::square(a + b));
     let plus = (b <= 0 || d >= Wide::square(b)) && a + b >= 0 && d <= Wide::square(a + b);

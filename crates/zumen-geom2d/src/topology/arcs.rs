@@ -142,14 +142,14 @@ impl Arc {
         }
     }
 
-    fn ccw(self) -> (Ray, Ray) {
+    pub(super) fn ccw(self) -> (Ray, Ray) {
         match self.direction {
             Direction::CounterClockwise => (self.start, self.end),
             Direction::Clockwise => (self.end, self.start),
         }
     }
 
-    fn contains_ray(self, ray: Ray, after: bool) -> bool {
+    pub(super) fn contains_ray(self, ray: Ray, after: bool) -> bool {
         if self.full {
             return true;
         }
@@ -165,7 +165,7 @@ impl Arc {
         }
     }
 
-    fn contains_root(self, root: Root) -> Result<bool, Error> {
+    pub(super) fn contains_root(self, root: Root) -> Result<bool, Error> {
         if self.full {
             return Ok(true);
         }
@@ -269,7 +269,7 @@ pub fn arc_intersection<E>(
     discrete(finish(roots, &mut check)?)
 }
 
-fn filter<E>(
+pub(super) fn filter<E>(
     roots: Roots,
     a: Arc,
     b: Option<Arc>,

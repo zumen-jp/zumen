@@ -2,6 +2,8 @@
 #![allow(clippy::unwrap_used)] // 固定した試験入力。失敗したら比較用の実行も失敗させる。
 
 use std::io::{self, Write};
+#[path = "topology_contract/edit.rs"]
+mod edit;
 use zumen_geom2d::topology::{
     Arc, ArcIntersection, Charge, Circle, CurveIntersection, Direction, Error, Failure, Grid,
     MAX_COORDINATE, Point, Ray, Segment, SegmentIntersection, arc_intersection,
@@ -37,6 +39,8 @@ fn error(out: &mut Vec<u8>, value: Error) {
         Error::Range => 2,
         Error::Allocation => 3,
         Error::Degenerate => 4,
+        Error::Ambiguous => 5,
+        Error::Precision => 6,
         _ => 255,
     });
 }
@@ -446,5 +450,6 @@ fn main() -> io::Result<()> {
         }
     }
     arcs(&mut out, &segments);
+    edit::record(&mut out);
     io::stdout().lock().write_all(&out)
 }
