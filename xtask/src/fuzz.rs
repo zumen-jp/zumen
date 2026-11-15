@@ -229,7 +229,7 @@ fn ifc_grid() -> Vec<u8> {
 }
 
 fn ifc_profiles() -> Vec<u8> {
-    // 要素の葉から各断面・掃引円盤・回転体まで通す自作の IFC4。
+    // 要素の葉から各断面・掃引円盤・回転体・面集合まで通す自作の IFC4。
     b"ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('profiles'),'2;1');\nFILE_NAME('','',(''),(''),'','','');\nFILE_SCHEMA(('IFC4'));\nENDSEC;\nDATA;\n\
     #1=IFCPROJECT('0000000000000000000001',$,$,$,$,$,$,$,#2);\n\
     #2=IFCUNITASSIGNMENT((#3,#54));\n#3=IFCSIUNIT(*,.LENGTHUNIT.,$,.METRE.);\n\
@@ -247,8 +247,11 @@ fn ifc_profiles() -> Vec<u8> {
     #54=IFCSIUNIT(*,.PLANEANGLEUNIT.,$,.RADIAN.);\n\
     #36=IFCREVOLVEDAREASOLID(#13,$,#55,1.5707963267948966);\n\
     #55=IFCAXIS1PLACEMENT(#56,#57);\n#56=IFCCARTESIANPOINT((-4.,0.,0.));\n#57=IFCDIRECTION((0.,2.,0.));\n\
+    #60=IFCCARTESIANPOINT((2.,0.,0.));\n#61=IFCCARTESIANPOINT((0.,2.,0.));\n\
+    #62=IFCPOLYLOOP((#21,#60,#61));\n#63=IFCFACEOUTERBOUND(#62,.T.);\n#64=IFCFACE((#63));\n\
+    #65=IFCOPENSHELL((#64));\n#66=IFCSHELLBASEDSURFACEMODEL((#65));\n\
     #100=IFCWALL('0000000000000000000002',$,$,$,$,$,#101,$,.NOTDEFINED.);\n\
-    #101=IFCPRODUCTDEFINITIONSHAPE($,$,(#102));\n#102=IFCSHAPEREPRESENTATION(#8,'Body','AdvancedSweptSolid',(#30,#31,#32,#33,#34,#35,#36));\n\
+    #101=IFCPRODUCTDEFINITIONSHAPE($,$,(#102));\n#102=IFCSHAPEREPRESENTATION(#8,'Body','GeometricSet',(#30,#31,#32,#33,#34,#35,#36,#66));\n\
     ENDSEC;\nEND-ISO-10303-21;\n".to_vec()
 }
 
@@ -728,9 +731,9 @@ mod tests {
         assert_eq!(found, []);
     }
 
-    /// 合成の格子は、ジオイド高と補正量の格子の読み取りで、診断なしに読める
+    /// 合成の形から、追加した元属性の取得まで診断なしに到達する
     #[test]
-    fn the_ifc_profile_seed_reaches_extrusions_disk_sweeps_and_revolutions() {
+    fn the_ifc_profile_seed_reaches_extrusions_sweeps_revolutions_and_faces() {
         use zumen_sdk::Codec;
         let (file, found) = run(Limits::default(), |cx| {
             zumen_ifc::Ifc::read(&ifc_profiles(), cx)
@@ -738,7 +741,7 @@ mod tests {
         assert_eq!(found, []);
         let file = file.unwrap();
         let (shape, _) = run(Limits::default(), |cx| file.product_shape(100, cx));
-        let mut counts = [0; 3];
+        let mut counts = [0; 4];
         for node in &shape.unwrap().nodes {
             let (at, result) = match file.kind(node.source) {
                 b"IFCEXTRUDEDAREASOLID" => (
@@ -755,13 +758,19 @@ mod tests {
                         file.revolved_area(node, cx).map(drop)
                     }),
                 ),
+                b"IFCSHELLBASEDSURFACEMODEL" => (
+                    3,
+                    run(Limits::default(), |cx| {
+                        file.faceted_faces(node, cx).map(drop)
+                    }),
+                ),
                 _ => continue,
             };
             assert!(result.0.is_some());
             assert_eq!(result.1, []);
             counts[at] += 1;
         }
-        assert_eq!(counts, [5, 1, 1]);
+        assert_eq!(counts, [5, 1, 1, 1]);
     }
 
     #[test]

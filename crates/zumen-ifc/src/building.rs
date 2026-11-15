@@ -21,6 +21,7 @@ use crate::{IfcFile, IfcZipFile, Record, Value, at_bytes, stopped};
 
 mod curve;
 mod extrusion;
+mod faces;
 mod grid;
 mod semantic;
 mod shape;
@@ -30,6 +31,7 @@ mod unit;
 pub use extrusion::{
     ExtrudedArea, ExtrusionSource, ProfiledExtrusion, RevolutionSource, RevolvedArea,
 };
+pub use faces::{FaceGraphSource, FacetedFaces};
 pub use grid::{GridAxes, GridAxisCurve, GridSource};
 pub use shape::{ProductShape, ShapeLinks, ShapeNode, ShapeRef};
 pub use style::{ItemStyleSource, ItemSurfaceStyles, SurfaceStyleBinding, SurfaceStyleSource};

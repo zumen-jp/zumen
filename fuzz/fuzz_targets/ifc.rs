@@ -27,6 +27,7 @@ fn lift(file: &IfcFile, cx: &mut Cx) -> Result<(), Error> {
     let mut extrusions = 0;
     let mut sweeps = 0;
     let mut revolutions = 0;
+    let mut faces = 0;
     let mut styles = 0;
     for id in file.ids() {
         cx.check(zumen_base::Kind::Work, 1)?;
@@ -53,6 +54,10 @@ fn lift(file: &IfcFile, cx: &mut Cx) -> Result<(), Error> {
                         if file.kind(node.source).eq_ignore_ascii_case(b"IFCREVOLVEDAREASOLID") && revolutions < 16 {
                             if let Err(Error::Stopped(stop)) = file.revolved_area(node, cx) { return Err(Error::Stopped(stop)); }
                             revolutions += 1;
+                        }
+                        if faces < 16 && [b"IFCFACETEDBREP".as_slice(), b"IFCSHELLBASEDSURFACEMODEL", b"IFCFACEBASEDSURFACEMODEL"].iter().any(|kind| file.kind(node.source).eq_ignore_ascii_case(kind)) {
+                            if let Err(Error::Stopped(stop)) = file.faceted_faces(node, cx) { return Err(Error::Stopped(stop)); }
+                            faces += 1;
                         }
                     }
                 }

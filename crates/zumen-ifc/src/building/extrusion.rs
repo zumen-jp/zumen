@@ -19,6 +19,30 @@ use crate::{
 mod revolution;
 pub use revolution::{RevolutionSource, RevolvedArea};
 
+/// 面集合にも、断面・回転体と同じ単位の意味検査と予算を使う。
+pub(super) fn face_length_unit<'f>(
+    file: &'f IfcFile,
+    source: &'f Record,
+    version: Version,
+    cx: &mut Cx,
+) -> Result<(Option<Unit>, Vec<&'f Record>), Error> {
+    let mut reader = Reader {
+        file,
+        cx,
+        current: source.id().unwrap_or(0),
+        records: Vec::new(),
+        shape_diagnostics: true,
+    };
+    let unit = reader.named_unit(version, source, false)?;
+    for record in &reader.records {
+        if record.form() != crate::Form::Entity {
+            reader.current = record.id().unwrap_or(0);
+            return Err(reader.unsupported_kind("complex-unit"));
+        }
+    }
+    Ok((unit, reader.records))
+}
+
 /// 既存の形の葉から取得した押し出し・断面と曲線。出所を意味の値から分ける。
 ///
 /// boundary の length_unit は、深さ・立体の原点にも使う。配置・写像は未適用。
@@ -78,7 +102,7 @@ impl IfcFile {
                 cx,
                 current: node.source.id().unwrap_or(0),
                 records: Vec::new(),
-                revolution: false,
+                shape_diagnostics: false,
             };
             reader.check(Kind::Work, 1)?;
             let solid = self
@@ -128,7 +152,7 @@ impl IfcFile {
                 cx,
                 current: node.source.id().unwrap_or(0),
                 records: Vec::new(),
-                revolution: false,
+                shape_diagnostics: false,
             };
             reader.check(Kind::Work, 1)?;
             let source = self
@@ -166,7 +190,7 @@ struct Reader<'f, 'c, 'b> {
     cx: &'c mut Cx<'b>,
     current: u64,
     records: Vec<&'f Record>,
-    revolution: bool,
+    shape_diagnostics: bool,
 }
 
 impl<'f> Reader<'f, '_, '_> {
@@ -715,7 +739,9 @@ impl<'f> Reader<'f, '_, '_> {
             .file
             .instance(id)
             .ok_or_else(|| self.invalid("reference"))?;
-        if record.parts().len() != 1 || (self.revolution && record.form() != crate::Form::Entity) {
+        if record.parts().len() != 1
+            || (self.shape_diagnostics && record.form() != crate::Form::Entity)
+        {
             return Err(self.unsupported_kind("complex"));
         }
         self.alloc(1, 32)?;
@@ -752,7 +778,7 @@ impl<'f> Reader<'f, '_, '_> {
             .instance(self.current)
             .map(|r| self.file.kind(r))
             .unwrap_or(b"");
-        if self.revolution {
+        if self.shape_diagnostics {
             if let Err(error) = self
                 .check(Kind::Work, kind.len() as u64)
                 .and_then(|_| self.alloc(kind.len(), 3))
@@ -820,7 +846,7 @@ impl<'f> Reader<'f, '_, '_> {
             .map_or_else(zumen_base::Ref::default, |r| at_bytes(r.span()))
             .with_id(format!("i{}", self.current));
         self.cx.report(
-            Diagnostic::new(if self.revolution {
+            Diagnostic::new(if self.shape_diagnostics {
                 codes::IFC_SHAPE_INVALID
             } else {
                 codes::IFC_EXTRUSION_INVALID
@@ -831,7 +857,7 @@ impl<'f> Reader<'f, '_, '_> {
         Error::Invalid
     }
     fn unsupported(&mut self, reason: &'static str) -> Error {
-        if self.revolution {
+        if self.shape_diagnostics {
             return self.unsupported_kind(reason);
         }
         let place = self
@@ -855,7 +881,7 @@ impl<'f> Reader<'f, '_, '_> {
             .file
             .instance(id)
             .ok_or_else(|| self.invalid("reference"))?;
-        if self.revolution && record.form() != crate::Form::Entity {
+        if self.shape_diagnostics && record.form() != crate::Form::Entity {
             return Err(self.unsupported_kind("complex"));
         }
         if record.parts().len() != 1 {

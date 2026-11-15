@@ -47,7 +47,7 @@ impl IfcFile {
                 cx,
                 current: node.source.id().unwrap_or(0),
                 records: Vec::new(),
-                revolution: true,
+                shape_diagnostics: true,
             };
             reader.check(Kind::Work, 1)?;
             let solid = self

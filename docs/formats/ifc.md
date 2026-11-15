@@ -213,6 +213,8 @@ cargo test -p zumen-ifc --locked --test profiles --target wasm32-wasip1 -- --tes
 node crates/zumen-ifc/tests/wasi-profiles.mjs --compare target/profile-comparison target/profile-comparison-wasm
 ```
 
+WASI の出力先は `target/profile-comparison-wasm` です。6 件の JSON と、全 Kind の予算・中断・版差・走査の各停止位置の診断を記録する `contract.txt` をバイト単位で比べます。既存の fuzz の `ifc` target も形の葉からこの取得を呼び、既存の読み取り専用の毎晩の job で export と IfcOpenShell 比較を流します。
+
 ### I 形・中空矩形の元属性
 
 `IShape` は対称な I 形の全幅・全高・ウェブ厚・フランジ厚と、任意のフィレット半径を保持します。IFC4 以降はフランジ端の半径と傾きも持ちます。IFC2X3 の属性数は 8、IFC4 以降は 10 です。ウェブ厚は全幅未満、フランジ厚の 2 倍は全高未満を要求します。傾きは有限の元値と `Measured::unit` に保持し、ラジアンへ換算しません。傾きがあるときだけ文書の平面角の単位も読みます。SI では `PLANEANGLEUNIT`・`RADIAN`、一段の換算では 7 個の次元指数がすべて 0 であることも確かめます。単位がなければ値を保って `ifc.unit.missing`、壊れた換算や重複した割り当てには場所付きのエラーを返します。
@@ -234,7 +236,27 @@ cargo test -p zumen-ifc --locked --test sections --target wasm32-wasip1 -- --tes
 node crates/zumen-ifc/tests/wasi-sections.mjs --compare target/section-comparison target/section-comparison-wasm
 ```
 
-WASI の出力先は `target/profile-comparison-wasm` です。6 件の JSON と、全 Kind の予算・中断・版差・走査の各停止位置の診断を記録する `contract.txt` をバイト単位で比べます。既存の fuzz の `ifc` target も形の葉からこの取得を呼び、既存の読み取り専用の毎晩の job で export と IfcOpenShell 比較を流します。
+## 形の葉から多角形の面集合を取得する
+
+`IfcFile::faceted_faces(&ShapeNode, cx)` は `product_shape()` の葉から `IfcFacetedBrep`・`IfcShellBasedSurfaceModel`・`IfcFaceBasedSurfaceModel` を取得します。`FacetedFaces::definition` の `FaceGraph` は、面集合・面・境界・ループ・3D の点を別々の表に持ちます。同じインスタンスは各表に一度だけ写し、元の共有を保ちます。各表は最初に参照した順です。借用する `source` の同名の列から元のレコードへ戻れます。
+
+- 点座標・点の順・境界の `Orientation`・`FaceOuterBound` の指定を保持します。点の列を反転せず、閉じる点も足しません。外輪の明示がない面でも先頭を外輪と決めません。開殻・閉殻・指定なしはそれぞれ `Some(false)`・`Some(true)`・`None` で区別します。これらは元の申告で、幾何の検証結果ではありません。
+- 単純なインスタンスと既知の属性数、参照の種類、3 成分の有限な座標、3 点以上のループ、点の重複、空の集合、集合内の参照の重複、複数の外輪の指定を検査します。面の境界や殻の参照が循環する入力は、固定の型の経路に合わないものとして拒否します。未対応の曲面・辺のループ・穴付き B-rep・添字の面を親型として読みません。不正は `ifc.shape.invalid` に理由と場所を、未対応は `ifc.shape.unsupported` に種類と場所を残します。
+- 長さの単位は押し出しと同じ採用条件で取得し、点へ適用しません。単位がなければ `None` と `ifc.unit.missing` を返します。配置・共有写像・三角形化・平面性・自己交差・穴の内包・面の接続・閉殻の有効性・体積は未評価です。
+- 同じ `Cx` で新しい項目の Elements、参照・列・数・単位探索の Work、表・索引・出所の確保前の DecodedBytes、最大 6 段の型の経路の Depth、中断を検査します。停止・不正・未対応で部分結果を返さず、呼び出し側の深さを戻します。既存の Building・ID・Hash v1 は維持し、全面統合と形の意味値のハッシュは #419、形の評価は #420 に残します。
+
+根拠は buildingSMART の公開の自然言語の説明と属性です。[IFC2X3 FacetedBrep](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC2x3/TC1/HTML/ifcgeometricmodelresource/lexical/ifcfacetedbrep.htm)・[Face](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC2x3/TC1/HTML/ifctopologyresource/lexical/ifcface.htm)・[PolyLoop](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC2x3/TC1/HTML/ifctopologyresource/lexical/ifcpolyloop.htm)、[IFC4 ShellBasedSurfaceModel](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4/ADD2_TC1/HTML/schema/ifcgeometricmodelresource/lexical/ifcshellbasedsurfacemodel.htm)・[FaceBasedSurfaceModel](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4/ADD2_TC1/HTML/schema/ifcgeometricmodelresource/lexical/ifcfacebasedsurfacemodel.htm)、[IFC4.3 Face](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4_3/HTML/lexical/IfcFace.htm)・[FaceBound](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4_3/HTML/lexical/IfcFaceBound.htm)・[PolyLoop](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4_3/HTML/lexical/IfcPolyLoop.htm) に従います。仕様のスキーマや生成物は同梱しません。
+
+`tests/faces.rs` は合成 3 版の共有写像から 3 種類の面集合を取得します。公開例は TallBuilding の建具 `0ZBert7zf3GhThbO52NKFT` の `#10949` → `#10896` と、Text2BIM の建具 `13v5xDIG0HxwZGA6irHSbP` の `#263` → `#260` です。IfcOpenShell 0.9.0.post1 と計 11 個の形・67 面の元属性を照合します。変換後の形や体積の比較とは分けます。ネイティブと WASI では JSON 5 件と診断・全 Kind の使用量をバイト列で比べます。fuzz の `ifc` target は 16 件まで同じ取得へ渡し、合成の種でも到達を検査します。
+
+```powershell
+$env:ZUMEN_IFC_FACES_OUT = Join-Path (Get-Location) 'target/face-comparison'
+cargo test -p zumen-ifc --locked --test faces
+python -X utf8 -I crates/zumen-ifc/tests/ifcopenshell/faces.py target/face-comparison
+$env:CARGO_TARGET_WASM32_WASIP1_RUNNER = 'node --no-warnings tests/wasi-faces.mjs'
+cargo test -p zumen-ifc --locked --test faces --target wasm32-wasip1 -- --test-threads 1
+node crates/zumen-ifc/tests/wasi-faces.mjs --compare target/face-comparison target/face-comparison-wasm
+```
 
 ## 形の葉から回転体を取得する
 
