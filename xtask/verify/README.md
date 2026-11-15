@@ -19,6 +19,7 @@ IFC4・IFC2X3 の名前・説明・プロパティを書き戻し、BIM ソフ�
 | `pdfjs/` | `@zumen-jp/view2d` の PDF アンダーレイのブラウザーテストが使う固定版の pdf.js。手順は [README](pdfjs/README.md) |
 | `geoid/` | ジオイドの格子の補間を、国土地理院のジオイド高計算サービスか内挿計算プログラムの結果と照らす（#438）。利用者が入手したモデルで、`cargo xtask geoid` を使う。手順は [README](geoid/README.md) |
 | `ply/` | 公開 PDAL サンプルを ply-rs と照らし、MeshLab に渡す期待値表と実測用の様式を作る（#870）。実機の操作は利用者待ち。手順は [README](ply/README.md) |
+| `saf/` | 自作の SAF 付き P2Z・SFZ を ezsxf・ZIP・XML の別実装と照らし、属性の値と結び先を確認するキットを作る（#494）。SXF ブラウザの操作は利用者待ち。手順は [README](saf/README.md) |
 | `acc/` | 公開 IFC と BCF 2.1 のオフライン検証キットを作り、Autodesk Build の取り込み・書き出しを利用者が確認する（#686・#787）。手順と期待値は [README](acc/README.md) |
 | `check_autocad.py` | キットの DXF・DWG を、画面のない AutoCAD（`accoreconsole.exe`）で 1 つずつ開き、監査の誤りの数と `dump.lsp` の書き出しを、zumen の読みと変更で決めた値に照らす（#683）。AutoCAD のある端末の手元でだけ流す |
 | `test_check_autocad.py` | `check_autocad.py` の、流すスクリプトの組み立て、コンソールの出力と書き出しの読み、形の値への直し、寸法と表の部品の比べ方を、合成の入力で確かめる。AutoCAD がなくても流せる |

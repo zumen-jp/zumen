@@ -30,7 +30,7 @@ default = ["drawing"]
 drawing = ["dep:zumen-drawing", "dep:zumen-geom2d", "dep:zumen-live", "dep:encoding_rs", "dep:libm", "dep:zumen-xml"]
 
 [dev-dependencies]
-zumen-drawing = { path = "../zumen-drawing" }
+zumen-drawing = { path = "../zumen-drawing", features = ["binary"] }
 
 [lints]
 workspace = true
