@@ -850,3 +850,118 @@ fn refused_edits_and_cx_budget_or_cancel_leave_live_untouched() {
     assert_eq!(live.building(), &building_before);
     assert_eq!(with_cx(|cx| live.save_spf(cx)).0.unwrap(), bytes);
 }
+
+#[test]
+fn dep_graph_tracks_spatial_type_opening_material_and_property_element_refs() {
+    let lines = [
+        format!("#1=IFCPROJECT('{}',#2,'Proj',$,$,$,$,$,#10);", gid(1)),
+        "#2=IFCOWNERHISTORY($,$,$,.ADDED.,$,$,$,0);".to_owned(),
+        "#10=IFCUNITASSIGNMENT((#11));".to_owned(),
+        "#11=IFCSIUNIT(*,.LENGTHUNIT.,.MILLI.,.METRE.);".to_owned(),
+        format!(
+            "#20=IFCBUILDINGSTOREY('{}',#2,'1F',$,$,$,$,$,.ELEMENT.,0.);",
+            gid(20)
+        ),
+        format!(
+            "#30=IFCWALL('{}',#2,'HostWall',$,$,#90,$,$,.STANDARD.);",
+            gid(30)
+        ),
+        format!(
+            "#31=IFCOPENINGELEMENT('{}',#2,'Void1',$,$,#91,$,$,.OPENING.);",
+            gid(31)
+        ),
+        format!(
+            "#32=IFCDOOR('{}',#2,'Door1',$,$,#92,$,$,2000.,900.,$,$,$);",
+            gid(32)
+        ),
+        format!(
+            "#34=IFCDOORTYPE('{}',#2,'DoorTypeA',$,$,$,$,$,$,.DOOR.,.SINGLE_SWING_LEFT.,.F.,$);",
+            gid(34)
+        ),
+        format!(
+            "#35=IFCSPACE('{}',#2,'Room101',$,$,$,$,$,.ELEMENT.,.INTERNAL.,$);",
+            gid(35)
+        ),
+        "#80=IFCCARTESIANPOINT((0.,0.,0.));".to_owned(),
+        "#81=IFCAXIS2PLACEMENT3D(#80,$,$);".to_owned(),
+        "#90=IFCLOCALPLACEMENT($,#81);".to_owned(),
+        "#91=IFCLOCALPLACEMENT(#90,#81);".to_owned(),
+        "#92=IFCLOCALPLACEMENT(#91,#81);".to_owned(),
+        format!(
+            "#100=IFCRELCONTAINEDINSPATIALSTRUCTURE('{}',#2,$,$,(#30,#32,#35),#20);",
+            gid(100)
+        ),
+        format!("#101=IFCRELVOIDSELEMENT('{}',#2,$,$,#30,#31);", gid(101)),
+        format!("#102=IFCRELFILLSELEMENT('{}',#2,$,$,#31,#32);", gid(102)),
+        format!("#103=IFCRELDEFINESBYTYPE('{}',#2,$,$,(#32),#34);", gid(103)),
+        // #35 (Room101) のプロパティから #30 (HostWall) を要素参照し、後で #32 (Door1) に書き換えて undo/redo を検証する
+        "#110=IFCPROPERTYSINGLEVALUE('BoundingRef',$,#30,$);".to_owned(),
+        format!(
+            "#111=IFCPROPERTYSET('{}',#2,'Pset_CustomLink',$,(#110));",
+            gid(111)
+        ),
+        format!(
+            "#112=IFCRELDEFINESBYPROPERTIES('{}',#2,$,$,(#35),#111);",
+            gid(112)
+        ),
+    ];
+    let spf = format!(
+        "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('ViewDefinition [CoordinationView]'),'2;1');\nFILE_NAME('dep.ifc','2026-01-01T00:00:00',(''),(''),'','','');\nFILE_SCHEMA(('IFC4'));\nENDSEC;\nDATA;\n{}\nENDSEC;\nEND-ISO-10303-21;\n",
+        lines.join("\n")
+    );
+    let mut live = with_cx(|cx| IfcLive::open(spf.as_bytes(), cx)).0.unwrap();
+
+    let storey = live.element_by_instance(20).unwrap();
+    let wall = live.element_by_instance(30).unwrap();
+    let opening = live.element_by_instance(31).unwrap();
+    let door = live.element_by_instance(32).unwrap();
+    let door_type = live.element_by_instance(34).unwrap();
+    let space = live.element_by_instance(35).unwrap();
+
+    // 1. 階 (#20) の変更 -> 壁 (#30)・開口 (#31, 壁との相対配置経由)・扉 (#32)・室 (#35) に波及する
+    let from_storey = with_cx(|cx| live.affected_elements(&[storey], cx))
+        .0
+        .unwrap();
+    assert!(from_storey.contains(&wall));
+    assert!(from_storey.contains(&opening));
+    assert!(from_storey.contains(&door));
+    assert!(from_storey.contains(&space));
+
+    // 2. 型 (#34) の変更 -> 扉 (#32) に波及する
+    let from_type = with_cx(|cx| live.affected_elements(&[door_type], cx))
+        .0
+        .unwrap();
+    assert_eq!(from_type, vec![door]);
+
+    // 3. 開口 (#31) の変更 -> 穴をあける壁 (#30) と充填する扉 (#32)、および壁を参照する室 (#35) に波及する
+    let from_opening = with_cx(|cx| live.affected_elements(&[opening], cx))
+        .0
+        .unwrap();
+    assert!(from_opening.contains(&wall));
+    assert!(from_opening.contains(&door));
+    assert!(from_opening.contains(&space));
+
+    // 4. 室 (#35) の BoundingRef プロパティをスカラ文字列に書き換えると、壁 (#30) -> 室 (#35) のプロパティ依存辺が外れ、undo/redo で戻る
+    let edit_prop = [prop_edit(
+        35,
+        "Pset_CustomLink",
+        "BoundingRef",
+        "IfcLabel",
+        NewLiteral::Text("NONE".to_owned()),
+    )];
+    let _ = with_cx(|cx| live.apply(&edit_prop, b"dep", cx)).0.unwrap();
+    let from_door_type_after = with_cx(|cx| live.affected_elements(&[door_type], cx))
+        .0
+        .unwrap();
+    assert_eq!(from_door_type_after, vec![door]);
+    let space_srcs_after = live.dep_graph().sources_of(zumen_live::RowId(space.0));
+    assert!(!space_srcs_after.contains(&zumen_live::RowId(wall.0)));
+
+    assert!(with_cx(|cx| live.undo(cx)).0.unwrap());
+    let space_srcs_undo = live.dep_graph().sources_of(zumen_live::RowId(space.0));
+    assert!(space_srcs_undo.contains(&zumen_live::RowId(wall.0)));
+
+    assert!(with_cx(|cx| live.redo(cx)).0.unwrap());
+    let space_srcs_redo = live.dep_graph().sources_of(zumen_live::RowId(space.0));
+    assert!(!space_srcs_redo.contains(&zumen_live::RowId(wall.0)));
+}

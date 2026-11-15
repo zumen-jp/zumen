@@ -13,14 +13,14 @@ use std::sync::Arc;
 
 use zumen_base::{Budget, CancelToken, Diagnostic, Diagnostics, Kind, Limits, codes};
 use zumen_building::{
-    Building, ElementRef, GlobalId, Hash, Identity, Literal, Measured, Properties, Property,
-    PropertySet, Quantities, Quantity, QuantitySet, RelationSource, TypedValue, Unit,
+    Building, ElementRef, GlobalId, Grid, Hash, Identity, Literal, Measured, Opening, Properties,
+    Property, PropertySet, Quantities, Quantity, QuantitySet, RelationSource, TypedValue, Unit,
 };
 #[cfg(feature = "ids")]
 use zumen_ids::{AttributeValue, Lookup, Missing};
 use zumen_live::{
-    DirtyColumn, EMPTY_BOUNDS, History, PatchPayload, Revision, RowId, SideIndexes, SourceBytes,
-    TableRow, TxnError, VersionedTable, run_transaction,
+    DepGraph, DirtyColumn, EMPTY_BOUNDS, History, PatchPayload, Revision, RowId, SideIndexes,
+    SourceBytes, TableRow, TxnError, VersionedTable, run_transaction,
 };
 #[cfg(feature = "ids")]
 use zumen_sdk::Stop;
@@ -196,11 +196,15 @@ pub struct IfcLive {
     units: BTreeMap<u64, Option<Unit>>,
     /// 各要素の `IFCRELDEFINESBYPROPERTIES` 以外の不変な関係出所（文の位置順キー付き）
     base_non_prop_relations: Vec<Vec<(usize, RelationSource)>>,
+    /// 各要素の不変な構造依存元の集合（空間階層・相対配置・型・材料・開口・グループ・通り芯・区画）
+    base_dep_sources: Vec<BTreeSet<RowId>>,
 
     /// 要素ごとの版管理表とハンドル索引
     table: VersionedTable<IfcElementRow>,
     /// 64 行塊の変更追跡
     dirty_rows: DirtyColumn<12>,
+    /// 要素間の依存グラフ（プロパティの要素参照も含む）
+    dep: DepGraph,
     /// 取り消し・やり直し履歴
     history: History<IfcElementRow, SharedIfcPatch>,
 }
@@ -312,6 +316,7 @@ impl IfcLive {
 
         let table = VersionedTable::from_rows_with_cx(initial_rows, cx)
             .map_err(|stop| stopped(cx, stop, None))?;
+        let (base_dep_sources, dep) = build_ifc_dep_graph(&building, cx)?;
 
         let schema = file.schema().to_vec();
         let (src_vec, records, _schema_range, index) = file.into_parts();
@@ -342,10 +347,32 @@ impl IfcLive {
             first_project_id,
             units,
             base_non_prop_relations,
+            base_dep_sources,
             table,
             dirty_rows,
+            dep,
             history: History::new(),
         })
+    }
+
+    /// 要素間の依存グラフへの参照
+    #[inline]
+    pub const fn dep_graph(&self) -> &DepGraph {
+        &self.dep
+    }
+
+    /// `changed` に含まれる要素が変更されたとき、依存辺（空間階層・相対配置・型・材料・開口・グループ・通り芯・区画・プロパティ参照）をたどって影響を受ける要素列をトポロジカル順で返す
+    pub fn affected_elements(
+        &self,
+        changed: &[ElementRef],
+        cx: &mut Cx,
+    ) -> Result<Vec<ElementRef>, Error> {
+        let roots: Vec<RowId> = changed.iter().map(|e| RowId(e.0)).collect();
+        let rows = self
+            .dep
+            .affected_rows_with_cx(&roots, cx)
+            .map_err(|stop| stopped(cx, stop, None))?;
+        Ok(rows.into_iter().map(|r| ElementRef(r.0)).collect())
     }
 
     /// `FILE_SCHEMA` の最初のスキーマ名（`IFC4` など）
@@ -507,17 +534,27 @@ impl IfcLive {
 
         let shared_patch = SharedIfcPatch(Arc::new(staged.patch));
         let patch_for_txn = shared_patch.clone();
-        let elem_refs: Vec<ElementRef> = shared_patch
-            .0
-            .element_diffs
-            .iter()
-            .map(|d| d.element)
-            .collect();
+        let mut updated_rows: Vec<(ElementRef, Option<Vec<RowId>>)> =
+            Vec::with_capacity(shared_patch.0.element_diffs.len());
+        for diff in &shared_patch.0.element_diffs {
+            let new_srcs = if diff.before.properties != diff.after.properties {
+                let mut combined = self
+                    .base_dep_sources
+                    .get(diff.element.0 as usize)
+                    .cloned()
+                    .unwrap_or_default();
+                collect_property_element_refs(diff.after.properties.as_ref(), &mut combined);
+                Some(combined.into_iter().collect())
+            } else {
+                None
+            };
+            updated_rows.push((diff.element, new_srcs));
+        }
 
         let side = SideIndexes {
             grid: None,
             dirty_rows: Some(&mut self.dirty_rows),
-            dep: None,
+            dep: Some(&mut self.dep),
         };
         let txn_res = run_transaction(
             &mut self.table,
@@ -525,7 +562,7 @@ impl IfcLive {
             &mut self.history,
             cx,
             |txn, _inner_cx| -> Result<(), TxnError<Error>> {
-                for elem_ref in &elem_refs {
+                for (elem_ref, maybe_srcs) in updated_rows {
                     let row_id = RowId(elem_ref.0);
                     if let Some(cur) = txn.row(row_id).copied() {
                         let next_row = IfcElementRow {
@@ -533,6 +570,9 @@ impl IfcLive {
                             ..cur
                         };
                         txn.update_row(row_id, next_row, EMPTY_BOUNDS)?;
+                        if let Some(srcs) = maybe_srcs {
+                            txn.set_dep_sources(row_id, srcs)?;
+                        }
                     }
                 }
                 txn.push_patch(patch_for_txn);
@@ -556,7 +596,7 @@ impl IfcLive {
         let side = SideIndexes {
             grid: None,
             dirty_rows: Some(&mut self.dirty_rows),
-            dep: None,
+            dep: Some(&mut self.dep),
         };
         let committed_patch = match self.history.undo(&mut self.table, side, cx) {
             Ok(Some(committed)) => committed.patches().first().cloned(),
@@ -574,7 +614,7 @@ impl IfcLive {
         let side = SideIndexes {
             grid: None,
             dirty_rows: Some(&mut self.dirty_rows),
-            dep: None,
+            dep: Some(&mut self.dep),
         };
         let committed_patch = match self.history.redo(&mut self.table, side, cx) {
             Ok(Some(committed)) => committed.patches().first().cloned(),
@@ -1774,6 +1814,133 @@ fn parse_single_stmt<R>(
     let parsed = zumen_step::read(&buf, &DIALECT, &mut qcx).ok()?;
     let rec = parsed.records.iter().find(|r| r.id() == Some(id))?;
     Some(f(rec, 0, &buf))
+}
+
+fn collect_literal_element_refs(lit: &Literal, out: &mut BTreeSet<RowId>) {
+    match lit {
+        Literal::Element(e) => {
+            out.insert(RowId(e.0));
+        }
+        Literal::List(items) => {
+            for item in items {
+                collect_literal_element_refs(item, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn collect_property_element_refs(props: Option<&Properties>, out: &mut BTreeSet<RowId>) {
+    let Some(props) = props else {
+        return;
+    };
+    for set in &props.sets {
+        for prop in &set.properties {
+            if let Some(tv) = &prop.value {
+                collect_literal_element_refs(&tv.value, out);
+            }
+        }
+    }
+}
+
+fn build_ifc_dep_graph(
+    building: &Building,
+    cx: &mut Cx,
+) -> Result<(Vec<BTreeSet<RowId>>, DepGraph), Error> {
+    let elem_count = building.elements().len();
+    let mut base_sources: Vec<BTreeSet<RowId>> = vec![BTreeSet::new(); elem_count];
+    for idx in 0..elem_count {
+        cx.check(Kind::Work, 1)
+            .map_err(|stop| stopped(cx, stop, None))?;
+        let Ok(raw_idx) = u32::try_from(idx) else {
+            continue;
+        };
+        let elem_ref = ElementRef(raw_idx);
+        let row = RowId(raw_idx);
+        if let Some(parent) = building.components.parent.get(elem_ref) {
+            if let Some(m) = &parent.of
+                && let Some(set) = base_sources.get_mut(idx)
+            {
+                set.insert(RowId(m.target.0));
+            }
+            if let Some(set) = base_sources.get_mut(idx) {
+                for &r in &parent.referenced_in {
+                    set.insert(RowId(r.0));
+                }
+            }
+        }
+        if let Some(pl) = building.components.placement.get(elem_ref)
+            && let Some(rel) = pl.relative_to
+            && let Some(set) = base_sources.get_mut(idx)
+        {
+            set.insert(RowId(rel.0));
+        }
+        if let Some(tp) = building.components.r#type.get(elem_ref)
+            && let Some(set) = base_sources.get_mut(idx)
+        {
+            set.insert(RowId(tp.target.0));
+        }
+        if let Some(mat) = building.components.material.get(elem_ref)
+            && let Some(set) = base_sources.get_mut(idx)
+        {
+            for part in &mat.parts {
+                if let Some(m) = part.material {
+                    set.insert(RowId(m.0));
+                }
+            }
+        }
+        if let Some(op) = building.components.opening.get(elem_ref) {
+            match *op {
+                Opening::Voids(host) => {
+                    if let Some(host_set) = base_sources.get_mut(host.0 as usize) {
+                        host_set.insert(row);
+                    }
+                }
+                Opening::Fills(opening_elem) => {
+                    if let Some(set) = base_sources.get_mut(idx) {
+                        set.insert(RowId(opening_elem.0));
+                    }
+                }
+            }
+        }
+        if let Some(grp) = building.components.group.get(elem_ref)
+            && let Some(set) = base_sources.get_mut(idx)
+        {
+            for &g in &grp.groups {
+                set.insert(RowId(g.0));
+            }
+        }
+        if let Some(Grid::Grid { axes }) = building.components.grid.get(elem_ref)
+            && let Some(set) = base_sources.get_mut(idx)
+        {
+            for &(_, axis) in axes {
+                set.insert(RowId(axis.0));
+            }
+        }
+        if let Some(zone) = building.components.zone.get(elem_ref)
+            && let Some(set) = base_sources.get_mut(idx)
+        {
+            for &m in &zone.members {
+                set.insert(RowId(m.0));
+            }
+        }
+    }
+
+    let mut dep = DepGraph::new();
+    for (idx, base) in base_sources.iter().enumerate() {
+        cx.check(Kind::Work, 1)
+            .map_err(|stop| stopped(cx, stop, None))?;
+        let Ok(raw_idx) = u32::try_from(idx) else {
+            continue;
+        };
+        let elem_ref = ElementRef(raw_idx);
+        let mut combined = base.clone();
+        collect_property_element_refs(building.components.properties.get(elem_ref), &mut combined);
+        if !combined.is_empty() {
+            dep.set_sources(RowId(raw_idx), combined);
+        }
+    }
+    Ok((base_sources, dep))
 }
 
 /// [`IfcLive`] 上の建物モデルを全文書き出しや再解析なしで IDS 照合する [`Lookup`]

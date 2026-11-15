@@ -16,11 +16,40 @@ impl RowId {
     /// どの行も指さない番兵
     pub const NONE: Self = Self(u32::MAX);
 
-    /// `usize` の添字から作る（`u32::MAX` 以上は `None`）
+    /// 依存グラフなどで表の外の定義（ブロック定義・記号定義など）を表す仮想ノードの先頭ビット
+    pub const VIRTUAL_TAG: u32 = 1 << 31;
+
+    /// `usize` の添字から作る（[`Self::VIRTUAL_TAG`] 以上は `None`）
     #[inline]
     pub fn from_index(index: usize) -> Option<Self> {
         let raw = u32::try_from(index).ok()?;
-        (raw != u32::MAX).then_some(Self(raw))
+        (raw < Self::VIRTUAL_TAG).then_some(Self(raw))
+    }
+
+    /// 仮想ノード番号 `index`（`0 .. 0x7FFF_FFFF`）から仮想 [`RowId`] を作る
+    #[inline]
+    pub const fn virtual_node(index: u32) -> Option<Self> {
+        if index < 0x7FFF_FFFF {
+            Some(Self(Self::VIRTUAL_TAG | index))
+        } else {
+            None
+        }
+    }
+
+    /// 仮想ノードならその番号（`0 .. 0x7FFF_FFFF`）を返す
+    #[inline]
+    pub const fn as_virtual(self) -> Option<u32> {
+        if !self.is_none() && (self.0 & Self::VIRTUAL_TAG != 0) {
+            Some(self.0 & !Self::VIRTUAL_TAG)
+        } else {
+            None
+        }
+    }
+
+    /// 仮想ノードか（[`Self::NONE`] は除く）
+    #[inline]
+    pub const fn is_virtual(self) -> bool {
+        !self.is_none() && (self.0 & Self::VIRTUAL_TAG != 0)
     }
 
     /// `usize` の添字に変換する

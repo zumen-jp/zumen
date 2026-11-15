@@ -12,12 +12,14 @@ mod shape;
 use zumen_base::Cx;
 use zumen_drawing::{Applied, Changes, Drawing2D, Element, ModelPoint};
 use zumen_live::display::Display;
-use zumen_live::{Revision, RowId, SpatialGrid, VersionedTable};
+use zumen_live::{DepGraph, Revision, RowId, SpatialGrid, VersionedTable};
 use zumen_sdk::Error;
 
+use crate::{DwgFile, DxfFile};
+use backing::LiveBacking;
 pub use backing::LiveFormat;
 use edit::{DEFAULT_HISTORY_MAX_BYTES, LiveJournal, apply_changes};
-use open::{LiveState, open_auto, open_dwg, open_dxf};
+use open::{LiveState, open_auto, open_dwg, open_dxf, open_from_dwg_file, open_from_dxf_file};
 pub use shape::{LiveKind, LiveRow};
 
 /// DXF・DWG を常駐させ、差分の対話編集・履歴・差分表示同期・保存を行う文書エンジン
@@ -85,6 +87,26 @@ impl AcadLive {
         })
     }
 
+    /// 復号済みの [`DxfFile`] から文書エンジンを組み立てる
+    pub fn open_from_dxf_file(file: DxfFile, cx: &mut Cx<'_>) -> Result<Self, Error> {
+        let state = open_from_dxf_file(file, cx)?;
+        Ok(Self {
+            state,
+            journal: LiveJournal::new(DEFAULT_HISTORY_MAX_BYTES),
+            threads: 1,
+        })
+    }
+
+    /// 復号済みの [`DwgFile`] から文書エンジンを組み立てる
+    pub fn open_from_dwg_file(file: DwgFile, cx: &mut Cx<'_>) -> Result<Self, Error> {
+        let state = open_from_dwg_file(file, 1, cx)?;
+        Ok(Self {
+            state,
+            journal: LiveJournal::new(DEFAULT_HISTORY_MAX_BYTES),
+            threads: 1,
+        })
+    }
+
     /// 取り消し履歴が保持する最大バイト数を設定する
     pub fn with_history_limit(mut self, max_bytes: usize) -> Self {
         self.journal = LiveJournal::new(max_bytes);
@@ -95,6 +117,24 @@ impl AcadLive {
     #[inline]
     pub const fn format(&self) -> LiveFormat {
         self.state.backing.format()
+    }
+
+    /// DWG として開いている場合のバージョン文字列（`b"AC1015"` など）を返す
+    #[inline]
+    pub fn dwg_version(&self) -> Option<&[u8]> {
+        match &self.state.backing {
+            LiveBacking::Dwg(dwg) => Some(dwg.base_file.version()),
+            _ => None,
+        }
+    }
+
+    /// 未編集の DWG を保持している場合にその [`DwgFile`] を借りる
+    #[inline]
+    pub const fn unmodified_dwg_file(&self) -> Option<&DwgFile> {
+        match &self.state.backing {
+            LiveBacking::Dwg(dwg) if dwg.step_cursor == 0 => Some(&dwg.base_file),
+            _ => None,
+        }
     }
 
     /// 現在の版の番号（`apply`・`undo`・`redo` のたびに単調増加する）
@@ -143,6 +183,41 @@ impl AcadLive {
     #[inline]
     pub fn display_mut(&mut self) -> &mut Display {
         &mut self.state.display
+    }
+
+    /// ブロック定義・ハッチング境界・引出線注釈・連想寸法の依存グラフを借りる
+    #[inline]
+    pub const fn dep_graph(&self) -> &DepGraph {
+        &self.state.dep
+    }
+
+    /// ブロック定義の添字（`Drawing2D::symbols` 上の位置）に対応する仮想依存ノード ID を返す
+    #[inline]
+    pub const fn symbol_dep_node(def_index: u32) -> Option<RowId> {
+        RowId::virtual_node(def_index)
+    }
+
+    /// 変更された行または仮想ノード群 `changed` から推移的に影響を受けるノードを番号昇順で返す
+    pub fn affected_rows(&self, changed: &[RowId], cx: &mut Cx<'_>) -> Result<Vec<RowId>, Error> {
+        self.state
+            .dep
+            .affected_rows_with_cx(changed, cx)
+            .map_err(|stop| {
+                cx.report(stop.to_diagnostic());
+                Error::Stopped(stop)
+            })
+    }
+
+    /// 内容または入れ子先の変更により再送が必要なブロック定義の添字集合への参照を返す
+    #[inline]
+    pub fn dirty_symbols(&self) -> &std::collections::BTreeSet<u32> {
+        &self.state.dirty_symbols
+    }
+
+    /// ブロック定義の変更フラグを消去する
+    #[inline]
+    pub fn clear_dirty_symbols(&mut self) {
+        self.state.dirty_symbols.clear();
     }
 
     /// モデル空間の矩形 `query`（`[min_x, min_y, max_x, max_y]`）と交差し、かつ生きている行を昇順で `out` に集める
@@ -1543,5 +1618,948 @@ mod tests {
         assert!(matches!(res2, Err(Error::Stopped(_))));
         assert_eq!(live.revision(), before_rev);
         assert_eq!(live.state_id(), before_sid);
+    }
+
+    fn synthetic_associative_dxf() -> Vec<u8> {
+        let mut dxf = String::new();
+        let mut tag = |code: i16, val: &str| {
+            dxf.push_str(&format!("{code:>3}\n{val}\n"));
+        };
+        tag(0, "SECTION");
+        tag(2, "HEADER");
+        tag(9, "$ACADVER");
+        tag(1, "AC1015");
+        tag(9, "$DWGCODEPAGE");
+        tag(3, "ANSI_932");
+        tag(9, "$INSUNITS");
+        tag(70, "4");
+        tag(9, "$HANDSEED");
+        tag(5, "300");
+        tag(9, "$EXTMIN");
+        tag(10, "0.0");
+        tag(20, "-10.0");
+        tag(30, "0.0");
+        tag(9, "$EXTMAX");
+        tag(10, "60.0");
+        tag(20, "30.0");
+        tag(30, "0.0");
+        tag(0, "ENDSEC");
+
+        tag(0, "SECTION");
+        tag(2, "TABLES");
+        tag(0, "TABLE");
+        tag(2, "LTYPE");
+        tag(5, "10");
+        tag(100, "AcDbSymbolTable");
+        tag(70, "1");
+        tag(0, "LTYPE");
+        tag(5, "11");
+        tag(100, "AcDbSymbolTableRecord");
+        tag(100, "AcDbLinetypeTableRecord");
+        tag(2, "Continuous");
+        tag(70, "0");
+        tag(3, "Solid line");
+        tag(72, "65");
+        tag(73, "0");
+        tag(40, "0.0");
+        tag(0, "ENDTAB");
+
+        tag(0, "TABLE");
+        tag(2, "LAYER");
+        tag(5, "20");
+        tag(100, "AcDbSymbolTable");
+        tag(70, "1");
+        tag(0, "LAYER");
+        tag(5, "21");
+        tag(100, "AcDbSymbolTableRecord");
+        tag(100, "AcDbLayerTableRecord");
+        tag(2, "0");
+        tag(70, "0");
+        tag(62, "7");
+        tag(6, "Continuous");
+        tag(0, "ENDTAB");
+
+        tag(0, "TABLE");
+        tag(2, "STYLE");
+        tag(5, "30");
+        tag(100, "AcDbSymbolTable");
+        tag(70, "1");
+        tag(0, "STYLE");
+        tag(5, "31");
+        tag(100, "AcDbSymbolTableRecord");
+        tag(100, "AcDbTextStyleTableRecord");
+        tag(2, "Standard");
+        tag(70, "0");
+        tag(40, "0.0");
+        tag(41, "1.0");
+        tag(50, "0.0");
+        tag(71, "0");
+        tag(42, "2.5");
+        tag(3, "txt");
+        tag(4, "");
+        tag(0, "ENDTAB");
+
+        tag(0, "TABLE");
+        tag(2, "DIMSTYLE");
+        tag(5, "60");
+        tag(100, "AcDbSymbolTable");
+        tag(70, "1");
+        tag(0, "DIMSTYLE");
+        tag(105, "61");
+        tag(100, "AcDbSymbolTableRecord");
+        tag(100, "AcDbDimStyleTableRecord");
+        tag(2, "Standard");
+        tag(70, "0");
+        tag(340, "31");
+        tag(0, "ENDTAB");
+
+        tag(0, "TABLE");
+        tag(2, "BLOCK_RECORD");
+        tag(5, "40");
+        tag(100, "AcDbSymbolTable");
+        tag(70, "3");
+        tag(0, "BLOCK_RECORD");
+        tag(5, "41");
+        tag(100, "AcDbSymbolTableRecord");
+        tag(100, "AcDbBlockTableRecord");
+        tag(2, "*Model_Space");
+        tag(0, "BLOCK_RECORD");
+        tag(5, "42");
+        tag(100, "AcDbSymbolTableRecord");
+        tag(100, "AcDbBlockTableRecord");
+        tag(2, "*Paper_Space");
+        tag(0, "BLOCK_RECORD");
+        tag(5, "44");
+        tag(100, "AcDbSymbolTableRecord");
+        tag(100, "AcDbBlockTableRecord");
+        tag(2, "*D1");
+        tag(0, "ENDTAB");
+        tag(0, "ENDSEC");
+
+        tag(0, "SECTION");
+        tag(2, "BLOCKS");
+        tag(0, "BLOCK");
+        tag(5, "50");
+        tag(330, "41");
+        tag(100, "AcDbEntity");
+        tag(8, "0");
+        tag(100, "AcDbBlockBegin");
+        tag(2, "*Model_Space");
+        tag(70, "0");
+        tag(10, "0.0");
+        tag(20, "0.0");
+        tag(30, "0.0");
+        tag(3, "*Model_Space");
+        tag(1, "");
+        tag(0, "ENDBLK");
+        tag(5, "51");
+        tag(330, "41");
+        tag(100, "AcDbEntity");
+        tag(8, "0");
+        tag(100, "AcDbBlockEnd");
+
+        tag(0, "BLOCK");
+        tag(5, "52");
+        tag(330, "42");
+        tag(100, "AcDbEntity");
+        tag(67, "1");
+        tag(8, "0");
+        tag(100, "AcDbBlockBegin");
+        tag(2, "*Paper_Space");
+        tag(70, "0");
+        tag(10, "0.0");
+        tag(20, "0.0");
+        tag(30, "0.0");
+        tag(3, "*Paper_Space");
+        tag(1, "");
+        tag(0, "ENDBLK");
+        tag(5, "53");
+        tag(330, "42");
+        tag(100, "AcDbEntity");
+        tag(67, "1");
+        tag(8, "0");
+        tag(100, "AcDbBlockEnd");
+
+        tag(0, "BLOCK");
+        tag(5, "54");
+        tag(330, "44");
+        tag(100, "AcDbEntity");
+        tag(8, "0");
+        tag(100, "AcDbBlockBegin");
+        tag(2, "*D1");
+        tag(70, "1");
+        tag(10, "0.0");
+        tag(20, "0.0");
+        tag(30, "0.0");
+        tag(3, "*D1");
+        tag(1, "");
+        tag(0, "LINE");
+        tag(5, "55");
+        tag(330, "44");
+        tag(100, "AcDbEntity");
+        tag(8, "0");
+        tag(100, "AcDbLine");
+        tag(10, "0.0");
+        tag(20, "-10.0");
+        tag(30, "0.0");
+        tag(11, "40.0");
+        tag(21, "-10.0");
+        tag(31, "0.0");
+        tag(0, "ENDBLK");
+        tag(5, "56");
+        tag(330, "44");
+        tag(100, "AcDbEntity");
+        tag(8, "0");
+        tag(100, "AcDbBlockEnd");
+        tag(0, "ENDSEC");
+
+        tag(0, "SECTION");
+        tag(2, "ENTITIES");
+        // 1. LINE (h101) — HATCH 境界 (330=101) および DIMASSOC 測定対象 (331=101)
+        tag(0, "LINE");
+        tag(5, "101");
+        tag(330, "41");
+        tag(100, "AcDbEntity");
+        tag(8, "0");
+        tag(100, "AcDbLine");
+        tag(10, "0.0");
+        tag(20, "0.0");
+        tag(30, "0.0");
+        tag(11, "40.0");
+        tag(21, "0.0");
+        tag(31, "0.0");
+        // 2. 連想 HATCH (h102, 境界元 330=101)
+        tag(0, "HATCH");
+        tag(5, "102");
+        tag(330, "41");
+        tag(100, "AcDbEntity");
+        tag(8, "0");
+        tag(100, "AcDbHatch");
+        tag(10, "0.0");
+        tag(20, "0.0");
+        tag(30, "0.0");
+        tag(210, "0.0");
+        tag(220, "0.0");
+        tag(230, "1.0");
+        tag(2, "SOLID");
+        tag(70, "1");
+        tag(71, "1");
+        tag(91, "1");
+        tag(92, "3");
+        tag(72, "0");
+        tag(73, "1");
+        tag(93, "4");
+        tag(10, "0.0");
+        tag(20, "0.0");
+        tag(10, "40.0");
+        tag(20, "0.0");
+        tag(10, "40.0");
+        tag(20, "20.0");
+        tag(10, "0.0");
+        tag(20, "20.0");
+        tag(97, "1");
+        tag(330, "101");
+        tag(75, "0");
+        tag(76, "1");
+        tag(98, "0");
+        // 3. MTEXT (h103) — LEADER の注記先
+        tag(0, "MTEXT");
+        tag(5, "103");
+        tag(102, "{ACAD_REACTORS");
+        tag(330, "104");
+        tag(102, "}");
+        tag(330, "41");
+        tag(100, "AcDbEntity");
+        tag(8, "0");
+        tag(100, "AcDbMText");
+        tag(10, "50.0");
+        tag(20, "25.0");
+        tag(30, "0.0");
+        tag(40, "2.5");
+        tag(41, "20.0");
+        tag(71, "1");
+        tag(72, "5");
+        tag(1, "NOTE");
+        tag(7, "Standard");
+        // 4. 連想 LEADER (h104, 注記 340=103)
+        tag(0, "LEADER");
+        tag(5, "104");
+        tag(330, "41");
+        tag(100, "AcDbEntity");
+        tag(8, "0");
+        tag(100, "AcDbLeader");
+        tag(3, "Standard");
+        tag(71, "1");
+        tag(72, "0");
+        tag(73, "0");
+        tag(74, "1");
+        tag(75, "0");
+        tag(40, "2.5");
+        tag(41, "10.0");
+        tag(76, "2");
+        tag(10, "10.0");
+        tag(20, "10.0");
+        tag(30, "0.0");
+        tag(10, "48.0");
+        tag(20, "25.0");
+        tag(30, "0.0");
+        tag(340, "103");
+        // 5. 連想 DIMENSION (h105, 拡張辞書 360=201 -> DIMASSOC 202 -> 331=101)
+        tag(0, "DIMENSION");
+        tag(5, "105");
+        tag(102, "{ACAD_XDICTIONARY");
+        tag(360, "201");
+        tag(102, "}");
+        tag(330, "41");
+        tag(100, "AcDbEntity");
+        tag(8, "0");
+        tag(100, "AcDbDimension");
+        tag(2, "*D1");
+        tag(10, "40.0");
+        tag(20, "-10.0");
+        tag(30, "0.0");
+        tag(11, "20.0");
+        tag(21, "-10.0");
+        tag(31, "0.0");
+        tag(70, "32");
+        tag(3, "Standard");
+        tag(100, "AcDbAlignedDimension");
+        tag(13, "0.0");
+        tag(23, "0.0");
+        tag(33, "0.0");
+        tag(14, "40.0");
+        tag(24, "0.0");
+        tag(34, "0.0");
+        tag(100, "AcDbRotatedDimension");
+        tag(0, "ENDSEC");
+
+        tag(0, "SECTION");
+        tag(2, "OBJECTS");
+        tag(0, "DICTIONARY");
+        tag(5, "200");
+        tag(100, "AcDbDictionary");
+        tag(281, "1");
+        tag(0, "DICTIONARY");
+        tag(5, "201");
+        tag(330, "105");
+        tag(100, "AcDbDictionary");
+        tag(281, "1");
+        tag(3, "ACAD_DIMASSOC");
+        tag(360, "202");
+        tag(0, "DIMASSOC");
+        tag(5, "202");
+        tag(330, "201");
+        tag(100, "AcDbDimAssoc");
+        tag(330, "105");
+        tag(90, "1");
+        tag(70, "0");
+        tag(1, "AcDbOsnapPointRef");
+        tag(72, "1");
+        tag(331, "101");
+        tag(0, "ENDSEC");
+        tag(0, "EOF");
+        dxf.into_bytes()
+    }
+
+    #[test]
+    fn associative_hatch_leader_and_dimassoc_deps_and_parity() {
+        let src = synthetic_associative_dxf();
+        let (Ok(mut dxf_ref), _) = fresh_cx(|cx| Dxf::read(&src, cx)) else {
+            return;
+        };
+        let (Ok(mut live), _) = fresh_cx(|cx| AcadLive::open_dxf(&src, cx)) else {
+            return;
+        };
+        let Some(row_line) = live.table().find_handle(0x101) else {
+            return;
+        };
+        let Some(row_hatch) = live.table().find_handle(0x102) else {
+            return;
+        };
+        let Some(row_mtext) = live.table().find_handle(0x103) else {
+            return;
+        };
+        let Some(row_leader) = live.table().find_handle(0x104) else {
+            return;
+        };
+        let Some(row_dim) = live.table().find_handle(0x105) else {
+            return;
+        };
+
+        // 1. 依存グラフが LINE -> {HATCH, DIMENSION} と MTEXT -> LEADER を保持していることを確かめる
+        let (line_affected, _) = fresh_cx(|cx| live.affected_rows(&[row_line], cx));
+        let line_affected = line_affected.ok().unwrap_or_default();
+        assert!(line_affected.contains(&row_hatch));
+        assert!(line_affected.contains(&row_dim));
+        let (mtext_affected, _) = fresh_cx(|cx| live.affected_rows(&[row_mtext], cx));
+        assert_eq!(mtext_affected.ok().unwrap_or_default(), vec![row_leader]);
+
+        let get_seen = |live: &AcadLive, target_id: &str| -> Seen {
+            let (d, _) = fresh_cx(|cx| live.drawing(cx));
+            let d = d.ok().unwrap_or_default();
+            let pair = all_element_ids_and_hashes(&d)
+                .into_iter()
+                .find(|(id, _)| id == target_id);
+            Seen {
+                id: target_id.to_owned(),
+                hash: pair.map_or(Hash([0; 16]), |(_, h)| h),
+            }
+        };
+
+        // 2. 連想 HATCH (h102) の Restyle と連想 LEADER (h104) の Transform が DxfFile::apply とバイト列一致
+        let step1 = Changes {
+            document: None,
+            edits: vec![
+                Edit::Restyle {
+                    target: get_seen(&live, "space/0/h102"),
+                    style: Restyle {
+                        layer: None,
+                        color: Some(Inherit::Own(Color {
+                            code: Some(ColorCode {
+                                system: ColorSystem::Aci,
+                                value: 4,
+                            }),
+                            rgb: None,
+                        })),
+                        line_type: None,
+                        line_type_scale: None,
+                        line_weight: None,
+                    },
+                },
+                Edit::Transform {
+                    target: get_seen(&live, "space/0/h104"),
+                    transform: Affine::translation(2.0, 3.0),
+                },
+            ],
+        };
+        let (ap_live_1, diag_live_1) = fresh_cx(|cx| live.apply(&step1, cx));
+        let (ap_ref_1, diag_ref_1) = fresh_cx(|cx| dxf_ref.apply(&step1, cx));
+        assert!(ap_live_1.is_ok());
+        assert_eq!(ap_live_1, ap_ref_1);
+        assert_eq!(diag_live_1, diag_ref_1);
+        let mut ref_bytes_1 = Vec::new();
+        let _ = fresh_cx(|cx| Dxf::write(&dxf_ref, &mut ref_bytes_1, cx));
+        assert_eq!(
+            fresh_cx(|cx| live.save(cx)).0.ok().unwrap_or_default(),
+            ref_bytes_1
+        );
+
+        // 3. HATCH・DIMASSOC から参照されている LINE (h101) の削除は forget_values を伴いバイト列一致し、undo/redo で辺も復元される
+        let step2 = Changes {
+            document: None,
+            edits: vec![Edit::Remove {
+                target: get_seen(&live, "space/0/h101"),
+            }],
+        };
+        let (ap_live_2, diag_live_2) = fresh_cx(|cx| live.apply(&step2, cx));
+        let (ap_ref_2, diag_ref_2) = fresh_cx(|cx| dxf_ref.apply(&step2, cx));
+        assert!(ap_live_2.is_ok());
+        assert_eq!(ap_live_2, ap_ref_2);
+        assert_eq!(diag_live_2, diag_ref_2);
+        let mut ref_bytes_2 = Vec::new();
+        let _ = fresh_cx(|cx| Dxf::write(&dxf_ref, &mut ref_bytes_2, cx));
+        assert_eq!(
+            fresh_cx(|cx| live.save(cx)).0.ok().unwrap_or_default(),
+            ref_bytes_2
+        );
+
+        assert_eq!(fresh_cx(|cx| live.undo(cx)).0, Ok(true));
+        assert_eq!(
+            fresh_cx(|cx| live.save(cx)).0.ok().unwrap_or_default(),
+            ref_bytes_1
+        );
+        assert_eq!(fresh_cx(|cx| live.undo(cx)).0, Ok(true));
+        assert_eq!(fresh_cx(|cx| live.save(cx)).0.ok().unwrap_or_default(), src);
+        let (restored_affected, _) = fresh_cx(|cx| live.affected_rows(&[row_line], cx));
+        let restored_affected = restored_affected.ok().unwrap_or_default();
+        assert!(restored_affected.contains(&row_hatch));
+        assert!(restored_affected.contains(&row_dim));
+
+        assert_eq!(fresh_cx(|cx| live.redo(cx)).0, Ok(true));
+        assert_eq!(fresh_cx(|cx| live.redo(cx)).0, Ok(true));
+        assert_eq!(
+            fresh_cx(|cx| live.save(cx)).0.ok().unwrap_or_default(),
+            ref_bytes_2
+        );
+    }
+
+    fn build_nested_block_dwg_from_sample() -> Option<Vec<u8>> {
+        use crate::db::{Data, Object, Origin, Section, Value};
+
+        let dwg_dir = samples_dir().join("dwg");
+        let entries = std::fs::read_dir(&dwg_dir).ok()?;
+        let mut paths: Vec<PathBuf> = entries
+            .filter_map(|e| e.ok().map(|x| x.path()))
+            .filter(|p| {
+                p.extension()
+                    .and_then(|s| s.to_str())
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("dwg"))
+            })
+            .collect();
+        paths.sort();
+
+        for path in paths {
+            let Ok(src) = std::fs::read(&path) else {
+                continue;
+            };
+            let (Ok(mut dwg), _) = fresh_cx(|cx| Dwg::read(&src, cx)) else {
+                continue;
+            };
+            if dwg.version() != b"AC1015" {
+                continue;
+            }
+            let (Ok(mut db), _) = fresh_cx(|cx| dwg.objects(cx)) else {
+                continue;
+            };
+            let Some(mut h) = dwg.handle_seed() else {
+                continue;
+            };
+            let br_control = db
+                .objects()
+                .iter()
+                .find(|o| o.section == Section::Tables && o.kind == b"BLOCK_RECORD")
+                .and_then(Object::owner);
+            let model_br = db
+                .objects()
+                .iter()
+                .find(|o| {
+                    o.section == Section::Tables
+                        && o.kind == b"BLOCK_RECORD"
+                        && o.values.iter().any(|v| {
+                            v.code == 2
+                                && matches!(&v.data, Data::Text(t) if t.eq_ignore_ascii_case(b"*Model_Space"))
+                        })
+                })
+                .and_then(Object::handle);
+            let (Some(br_control), Some(model_br)) = (br_control, model_br) else {
+                continue;
+            };
+            let val = |code: i16, data: Data| Value { code, data };
+            let push_obj =
+                |db: &mut crate::AcadDb, section: Section, kind: &[u8], values: Vec<Value>| {
+                    db.push(Object {
+                        section,
+                        kind: kind.to_vec(),
+                        origin: Origin::New,
+                        values,
+                    });
+                };
+
+            // Step A: INNER ブロック定義を追加して書き戻す
+            let h_br_in = h;
+            let h_blk_in = h + 1;
+            let h_cir_in = h + 2;
+            let h_end_in = h + 3;
+            push_obj(
+                &mut db,
+                Section::Tables,
+                b"BLOCK_RECORD",
+                vec![
+                    val(5, Data::Handle(h_br_in)),
+                    val(330, Data::Handle(br_control)),
+                    val(2, Data::Text(b"ZZ_INNER".to_vec())),
+                ],
+            );
+            push_obj(
+                &mut db,
+                Section::Blocks,
+                b"BLOCK",
+                vec![
+                    val(5, Data::Handle(h_blk_in)),
+                    val(330, Data::Handle(h_br_in)),
+                    val(8, Data::Text(b"0".to_vec())),
+                    val(2, Data::Text(b"ZZ_INNER".to_vec())),
+                    val(10, Data::Real(0.0)),
+                    val(20, Data::Real(0.0)),
+                    val(30, Data::Real(0.0)),
+                ],
+            );
+            push_obj(
+                &mut db,
+                Section::Blocks,
+                b"CIRCLE",
+                vec![
+                    val(5, Data::Handle(h_cir_in)),
+                    val(330, Data::Handle(h_br_in)),
+                    val(8, Data::Text(b"0".to_vec())),
+                    val(10, Data::Real(0.0)),
+                    val(20, Data::Real(0.0)),
+                    val(30, Data::Real(0.0)),
+                    val(40, Data::Real(5.0)),
+                ],
+            );
+            push_obj(
+                &mut db,
+                Section::Blocks,
+                b"ENDBLK",
+                vec![
+                    val(5, Data::Handle(h_end_in)),
+                    val(330, Data::Handle(h_br_in)),
+                    val(8, Data::Text(b"0".to_vec())),
+                ],
+            );
+            if fresh_cx(|cx| dwg.write_back(&db, cx)).0.is_err() {
+                continue;
+            }
+
+            // Step B: OUTER ブロック定義（ZZ_INNER を挿入）とモデル空間の INSERT（ZZ_OUTER を (6000,6000) に配置）を追加
+            let (Ok(mut db2), _) = fresh_cx(|cx| dwg.objects(cx)) else {
+                continue;
+            };
+            h = dwg.handle_seed().unwrap_or(h + 10);
+            let h_br_out = h;
+            let h_blk_out = h + 1;
+            let h_ins_in = h + 2;
+            let h_end_out = h + 3;
+            let h_ins_model = h + 4;
+            push_obj(
+                &mut db2,
+                Section::Tables,
+                b"BLOCK_RECORD",
+                vec![
+                    val(5, Data::Handle(h_br_out)),
+                    val(330, Data::Handle(br_control)),
+                    val(2, Data::Text(b"ZZ_OUTER".to_vec())),
+                ],
+            );
+            push_obj(
+                &mut db2,
+                Section::Blocks,
+                b"BLOCK",
+                vec![
+                    val(5, Data::Handle(h_blk_out)),
+                    val(330, Data::Handle(h_br_out)),
+                    val(8, Data::Text(b"0".to_vec())),
+                    val(2, Data::Text(b"ZZ_OUTER".to_vec())),
+                    val(10, Data::Real(0.0)),
+                    val(20, Data::Real(0.0)),
+                    val(30, Data::Real(0.0)),
+                ],
+            );
+            push_obj(
+                &mut db2,
+                Section::Blocks,
+                b"INSERT",
+                vec![
+                    val(5, Data::Handle(h_ins_in)),
+                    val(330, Data::Handle(h_br_out)),
+                    val(8, Data::Text(b"0".to_vec())),
+                    val(2, Data::Text(b"ZZ_INNER".to_vec())),
+                    val(10, Data::Real(10.0)),
+                    val(20, Data::Real(0.0)),
+                    val(30, Data::Real(0.0)),
+                ],
+            );
+            push_obj(
+                &mut db2,
+                Section::Blocks,
+                b"ENDBLK",
+                vec![
+                    val(5, Data::Handle(h_end_out)),
+                    val(330, Data::Handle(h_br_out)),
+                    val(8, Data::Text(b"0".to_vec())),
+                ],
+            );
+            push_obj(
+                &mut db2,
+                Section::Entities,
+                b"INSERT",
+                vec![
+                    val(5, Data::Handle(h_ins_model)),
+                    val(330, Data::Handle(model_br)),
+                    val(8, Data::Text(b"0".to_vec())),
+                    val(2, Data::Text(b"ZZ_OUTER".to_vec())),
+                    val(10, Data::Real(6000.0)),
+                    val(20, Data::Real(6000.0)),
+                    val(30, Data::Real(0.0)),
+                ],
+            );
+            if fresh_cx(|cx| dwg.write_back(&db2, cx)).0.is_err() {
+                continue;
+            }
+            let mut out = Vec::new();
+            if fresh_cx(|cx| Dwg::write(&dwg, &mut out, cx)).0.is_ok() {
+                return Some(out);
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn block_definition_element_edits_propagate_across_nested_blocks_in_dxf_and_dwg() {
+        // 1. DXF での入れ子ブロック定義要素の高速編集と依存伝播
+        let dxf_bytes = {
+            let mut d = zumen_drawing::Drawing2D::default();
+            d.layers.push(Layer {
+                id: LayerId(0),
+                name: "0".to_owned(),
+                follows_placement: true,
+                state: None,
+                style: None,
+                description: None,
+                source: Ref::default(),
+            });
+            d.symbols.push(zumen_drawing::SymbolDefinition {
+                key: SymbolKey {
+                    namespace: "dxf.block".into(),
+                    name: "ZZ_INNER".to_owned(),
+                },
+                space: zumen_drawing::ModelSpace {
+                    id: zumen_drawing::SpaceId(1),
+                    unit: zumen_drawing::Unit::Millimeter,
+                    axes: zumen_drawing::Axes::EastNorth,
+                    elements: vec![Element {
+                        source: Ref::default(),
+                        layer: LayerId(0),
+                        style: default_style(),
+                        shape: Shape::Circle {
+                            center: pt(0.0, 0.0),
+                            radius: mlen(5.0),
+                        },
+                    }],
+                    order: vec![0],
+                },
+                base: Some(pt(0.0, 0.0)),
+                attributes: Vec::new(),
+                anonymous: false,
+                external: None,
+                source: Ref::default(),
+            });
+            d.symbols.push(zumen_drawing::SymbolDefinition {
+                key: SymbolKey {
+                    namespace: "dxf.block".into(),
+                    name: "ZZ_OUTER".to_owned(),
+                },
+                space: zumen_drawing::ModelSpace {
+                    id: zumen_drawing::SpaceId(2),
+                    unit: zumen_drawing::Unit::Millimeter,
+                    axes: zumen_drawing::Axes::EastNorth,
+                    elements: vec![Element {
+                        source: Ref::default(),
+                        layer: LayerId(0),
+                        style: default_style(),
+                        shape: Shape::Symbol(Symbol {
+                            key: SymbolKey {
+                                namespace: "dxf.block".into(),
+                                name: "ZZ_INNER".to_owned(),
+                            },
+                            position: pt(10.0, 0.0),
+                            scale: [1.0, 1.0],
+                            rotation: 0.0,
+                            grid: None,
+                            attributes: Vec::new(),
+                            clip: None,
+                        }),
+                    }],
+                    order: vec![0],
+                },
+                base: Some(pt(0.0, 0.0)),
+                attributes: Vec::new(),
+                anonymous: false,
+                external: None,
+                source: Ref::default(),
+            });
+            d.spaces.push(zumen_drawing::ModelSpace {
+                id: MODEL,
+                unit: zumen_drawing::Unit::Millimeter,
+                axes: zumen_drawing::Axes::EastNorth,
+                elements: vec![Element {
+                    source: Ref::default(),
+                    layer: LayerId(0),
+                    style: default_style(),
+                    shape: Shape::Symbol(Symbol {
+                        key: SymbolKey {
+                            namespace: "dxf.block".into(),
+                            name: "ZZ_OUTER".to_owned(),
+                        },
+                        position: pt(6000.0, 6000.0),
+                        scale: [1.0, 1.0],
+                        rotation: 0.0,
+                        grid: None,
+                        attributes: Vec::new(),
+                        clip: None,
+                    }),
+                }],
+                order: vec![0],
+            });
+            fresh_cx(|cx| crate::lower_to_dxf(&d, cx))
+                .0
+                .map(|l| l.bytes)
+                .unwrap_or_default()
+        };
+
+        let find_inner_circle_seen = |drawing: &zumen_drawing::Drawing2D| -> Option<Seen> {
+            let mut def_namer = id::DefinitionNamer::default();
+            for sym in &drawing.symbols {
+                let place = def_namer.next(sym);
+                if sym.key.name == "ZZ_INNER" {
+                    let mut namer = id::Namer::new(&place);
+                    let first = sym.space.elements.first()?;
+                    let cid = namer.next(0, first);
+                    return Some(Seen {
+                        id: cid,
+                        hash: Hash::element(first),
+                    });
+                }
+            }
+            None
+        };
+
+        {
+            let (Ok(mut dxf_ref), _) = fresh_cx(|cx| Dxf::read(&dxf_bytes, cx)) else {
+                return;
+            };
+            let (Ok(mut live), _) = fresh_cx(|cx| AcadLive::open_dxf(&dxf_bytes, cx)) else {
+                return;
+            };
+            let (Ok(d0), _) = fresh_cx(|cx| live.drawing(cx)) else {
+                return;
+            };
+            let Some(seen_circle) = find_inner_circle_seen(&d0) else {
+                return;
+            };
+
+            let mut old_hits = Vec::new();
+            live.select_rect([6008.0, 5998.0, 6012.0, 6002.0], &mut old_hits);
+            assert_eq!(old_hits.len(), 1);
+            let outer_row = old_hits.first().copied().unwrap_or(zumen_live::RowId::NONE);
+
+            let inner_vnode = AcadLive::symbol_dep_node(0).unwrap_or(zumen_live::RowId::NONE);
+            let (affected, _) = fresh_cx(|cx| live.affected_rows(&[inner_vnode], cx));
+            assert!(affected.ok().unwrap_or_default().contains(&outer_row));
+
+            live.clear_dirty_symbols();
+            let step = Changes {
+                document: None,
+                edits: vec![Edit::Transform {
+                    target: seen_circle,
+                    transform: Affine::translation(500.0, 400.0),
+                }],
+            };
+            let (ap_live, diag_live) = fresh_cx(|cx| live.apply(&step, cx));
+            let (ap_ref, diag_ref) = fresh_cx(|cx| dxf_ref.apply(&step, cx));
+            assert!(ap_live.is_ok());
+            assert_eq!(ap_live, ap_ref);
+            assert_eq!(diag_live, diag_ref);
+            // ZZ_INNER (0) の編集により入れ子先の ZZ_OUTER (1) まで再送対象になる
+            assert_eq!(
+                live.dirty_symbols(),
+                &std::collections::BTreeSet::from([0, 1])
+            );
+
+            // 空間索引がモデル空間の ZZ_OUTER 挿入位置 (6510, 6400) へ追従していることを検証
+            let mut hits_old_after = Vec::new();
+            live.select_rect([6008.0, 5998.0, 6012.0, 6002.0], &mut hits_old_after);
+            assert!(!hits_old_after.contains(&outer_row));
+            let mut hits_new_after = Vec::new();
+            live.select_rect([6508.0, 6398.0, 6512.0, 6402.0], &mut hits_new_after);
+            assert!(hits_new_after.contains(&outer_row));
+
+            let mut ref_saved = Vec::new();
+            let _ = fresh_cx(|cx| Dxf::write(&dxf_ref, &mut ref_saved, cx));
+            assert_eq!(
+                fresh_cx(|cx| live.save(cx)).0.ok().unwrap_or_default(),
+                ref_saved
+            );
+            assert_eq!(
+                fresh_cx(|cx| live.drawing(cx)).0,
+                fresh_cx(|cx| dxf_ref.lift(cx)).0
+            );
+
+            // Undo / Redo で空間索引・dirty_symbols・Drawing2D・バイト列が完全対称に戻る
+            live.clear_dirty_symbols();
+            assert_eq!(fresh_cx(|cx| live.undo(cx)).0, Ok(true));
+            assert_eq!(
+                live.dirty_symbols(),
+                &std::collections::BTreeSet::from([0, 1])
+            );
+            let mut hits_undo = Vec::new();
+            live.select_rect([6008.0, 5998.0, 6012.0, 6002.0], &mut hits_undo);
+            assert!(hits_undo.contains(&outer_row));
+            assert_eq!(
+                fresh_cx(|cx| live.save(cx)).0.ok().unwrap_or_default(),
+                dxf_bytes
+            );
+
+            live.clear_dirty_symbols();
+            assert_eq!(fresh_cx(|cx| live.redo(cx)).0, Ok(true));
+            assert_eq!(
+                live.dirty_symbols(),
+                &std::collections::BTreeSet::from([0, 1])
+            );
+            let mut hits_redo = Vec::new();
+            live.select_rect([6508.0, 6398.0, 6512.0, 6402.0], &mut hits_redo);
+            assert!(hits_redo.contains(&outer_row));
+            assert_eq!(
+                fresh_cx(|cx| live.save(cx)).0.ok().unwrap_or_default(),
+                ref_saved
+            );
+        }
+
+        // 2. DWG (AC1015) での入れ子ブロック定義要素の高速編集・全体保存バイト一致・追記保存一致
+        if let Some(dwg_bytes) = build_nested_block_dwg_from_sample() {
+            let (Ok(mut dwg_ref), _) = fresh_cx(|cx| Dwg::read(&dwg_bytes, cx)) else {
+                return;
+            };
+            let (Ok(mut live), _) = fresh_cx(|cx| AcadLive::open_dwg(&dwg_bytes, cx)) else {
+                return;
+            };
+            let (Ok(d0), _) = fresh_cx(|cx| live.drawing(cx)) else {
+                return;
+            };
+            let Some(seen_circle) = find_inner_circle_seen(&d0) else {
+                return;
+            };
+
+            let mut old_hits = Vec::new();
+            live.select_rect([6008.0, 5998.0, 6012.0, 6002.0], &mut old_hits);
+            assert!(!old_hits.is_empty());
+
+            live.clear_dirty_symbols();
+            let step = Changes {
+                document: None,
+                edits: vec![Edit::Transform {
+                    target: seen_circle,
+                    transform: Affine::translation(500.0, 400.0),
+                }],
+            };
+            let (ap_live, diag_live) = fresh_cx(|cx| live.apply(&step, cx));
+            let (ap_ref, diag_ref) = fresh_cx(|cx| dwg_ref.apply(&step, cx));
+            assert!(ap_live.is_ok());
+            assert_eq!(ap_live, ap_ref);
+            assert_eq!(diag_live, diag_ref);
+            assert!(live.dirty_symbols().len() >= 2);
+
+            let mut hits_new = Vec::new();
+            live.select_rect([6508.0, 6398.0, 6512.0, 6402.0], &mut hits_new);
+            assert!(!hits_new.is_empty());
+
+            let mut expected_dwg = Vec::new();
+            let _ = fresh_cx(|cx| Dwg::write(&dwg_ref, &mut expected_dwg, cx));
+            let saved_full = fresh_cx(|cx| live.save(cx)).0.ok().unwrap_or_default();
+            assert_eq!(saved_full, expected_dwg);
+
+            let saved_compact = fresh_cx(|cx| live.save_compact(cx))
+                .0
+                .ok()
+                .unwrap_or_default();
+            let (reloaded_full, _) = fresh_cx(|cx| Dwg::read(&saved_full, cx)?.lift(cx));
+            let (reloaded_compact, _) = fresh_cx(|cx| Dwg::read(&saved_compact, cx)?.lift(cx));
+            assert_eq!(
+                reloaded_compact.as_ref().map(drawing_without_byte_ranges),
+                reloaded_full.as_ref().map(drawing_without_byte_ranges)
+            );
+
+            assert_eq!(fresh_cx(|cx| live.undo(cx)).0, Ok(true));
+            assert_eq!(
+                fresh_cx(|cx| live.save(cx)).0.ok().unwrap_or_default(),
+                dwg_bytes
+            );
+            assert_eq!(fresh_cx(|cx| live.redo(cx)).0, Ok(true));
+            assert_eq!(
+                fresh_cx(|cx| live.save(cx)).0.ok().unwrap_or_default(),
+                expected_dwg
+            );
+        }
     }
 }

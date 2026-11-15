@@ -20,14 +20,14 @@ use zumen_drawing::{
 };
 use zumen_live::display::Display;
 use zumen_live::{
-    EMPTY_BOUNDS, ExistingRowDiff, History, PatchPayload, Revision, RowId, SideIndexes,
+    DepGraph, EMPTY_BOUNDS, ExistingRowDiff, History, PatchPayload, Revision, RowId, SideIndexes,
     SourceBytes, SpatialGrid, TableRow, TxnError, VersionedTable, run_transaction,
 };
 use zumen_sdk::{Codec, Error, quietly};
 
 use self::display::{
     DisplayContext, apply_display_commit, compute_sheet_bounds, display_counts_and_style,
-    raw_shape_bounds, revert_display_commit, write_display_row,
+    model_shape_bounds, revert_display_commit, write_display_row,
 };
 use self::p21::{P21Patch, P21State, P21StepTx};
 use self::sfc::{SfcPatch, SfcSlot, SfcState, SfcStepTx};
@@ -208,10 +208,12 @@ pub struct SxfLive {
     space_views: BTreeMap<SpaceId, Vec<Affine>>,
     symbol_bounds: BTreeMap<SymbolKey, [f64; 4]>,
     symbol_indices: BTreeMap<SymbolKey, u32>,
+    dirty_symbols: BTreeSet<u32>,
     table: VersionedTable<SxfRow>,
     by_canonical_id: BTreeMap<String, RowId>,
     spatial: SpatialGrid,
     space_spatial: BTreeMap<SpaceId, SpaceSpatialIndex>,
+    dep: DepGraph,
     display: Display,
     history: History<SxfRow, SharedPatch>,
     history_max_bytes: usize,
@@ -354,15 +356,38 @@ impl SxfLive {
             space_views.entry(v.space).or_default().push(v.transform);
         }
 
-        let mut symbol_bounds: BTreeMap<SymbolKey, [f64; 4]> = BTreeMap::new();
         let mut symbol_indices: BTreeMap<SymbolKey, u32> = BTreeMap::new();
         for (idx, sym_def) in drawing.symbols.iter().enumerate() {
             if let Ok(idx_u32) = u32::try_from(idx) {
                 symbol_indices.insert(sym_def.key.clone(), idx_u32);
             }
+        }
+        let mut dep = DepGraph::new();
+        for (idx, sym_def) in drawing.symbols.iter().enumerate() {
+            let Some(vnode) = u32::try_from(idx).ok().and_then(RowId::virtual_node) else {
+                continue;
+            };
+            let mut srcs = BTreeSet::new();
+            for elem in &sym_def.space.elements {
+                if let Shape::Symbol(sym) = &elem.shape
+                    && let Some(&inner_idx) = symbol_indices.get(&sym.key)
+                    && let Some(inner_vnode) = RowId::virtual_node(inner_idx)
+                {
+                    srcs.insert(inner_vnode);
+                }
+            }
+            if !srcs.is_empty() {
+                dep.set_sources(vnode, srcs);
+            }
+        }
+        let mut symbol_bounds: BTreeMap<SymbolKey, [f64; 4]> = BTreeMap::new();
+        for sym_idx in ordered_symbol_indices(drawing.symbols.len(), &dep) {
+            let Some(sym_def) = drawing.symbols.get(sym_idx) else {
+                continue;
+            };
             let mut acc: Option<[f64; 4]> = None;
             for elem in &sym_def.space.elements {
-                let b = raw_shape_bounds(&elem.shape);
+                let b = model_shape_bounds(&elem.shape, &symbol_bounds);
                 let [bx0, by0, bx1, by1] = b;
                 if bx0 <= bx1 && by0 <= by1 {
                     match &mut acc {
@@ -443,7 +468,7 @@ impl SxfLive {
             for ((at, elem), cid) in sp.elements.into_iter().enumerate().zip(elem_refs) {
                 let row_id = RowId(rows.len() as u32);
                 let local_space_idx = u32::try_from(sp_bounds.len()).unwrap_or(0);
-                sp_bounds.push(raw_shape_bounds(&elem.shape));
+                sp_bounds.push(model_shape_bounds(&elem.shape, &symbol_bounds));
                 let (instance, record_idx, sfc_slot, p21_kind, p21_name, is_grouped) =
                     make_row_meta(&elem.source, &backing, &record_meta, &grouped_set);
                 let drafts = model_drafts
@@ -624,6 +649,13 @@ impl SxfLive {
         for (i, mut row) in rows.into_iter().enumerate() {
             let row_id = RowId(i as u32);
             by_canonical_id.insert(row.canonical_id.to_string(), row_id);
+            if matches!(
+                row.container,
+                SxfContainer::Space(_) | SxfContainer::Sheet(_)
+            ) && let Some(vnode) = placed_symbol_dep_source(&row.placed, &symbol_indices)
+            {
+                dep.set_sources(row_id, [vnode]);
+            }
             row.unique_handle = match (row.instance, placed_source(&row.placed).record()) {
                 (Some(inst), Some(_)) if !shared_instances.contains(&inst) => Some(inst),
                 _ => None,
@@ -674,14 +706,48 @@ impl SxfLive {
             space_views,
             symbol_bounds,
             symbol_indices,
+            dirty_symbols: BTreeSet::new(),
             table,
             by_canonical_id,
             spatial,
             space_spatial,
+            dep,
             display,
             history: History::new(),
             history_max_bytes: DEFAULT_HISTORY_LIMIT,
         })
+    }
+
+    /// 部分図と配置要素の依存グラフへの参照
+    #[inline]
+    pub const fn dep_graph(&self) -> &DepGraph {
+        &self.dep
+    }
+
+    /// 部分図定義の添字（`Drawing2D::symbols` 上の位置）に対応する仮想依存ノード ID を返す
+    #[inline]
+    pub const fn symbol_dep_node(sym_index: u32) -> Option<RowId> {
+        RowId::virtual_node(sym_index)
+    }
+
+    /// 変更された行または仮想ノード群 `changed` から推移的に影響を受けるノードを返す
+    pub fn affected_rows(&self, changed: &[RowId], cx: &mut Cx<'_>) -> Result<Vec<RowId>, Error> {
+        self.dep.affected_rows_with_cx(changed, cx).map_err(|stop| {
+            cx.report(stop.to_diagnostic());
+            Error::Stopped(stop)
+        })
+    }
+
+    /// 内容または入れ子先の変更により再送が必要な作図部品（`symbols`）の添字集合への参照
+    #[inline]
+    pub const fn dirty_symbols(&self) -> &BTreeSet<u32> {
+        &self.dirty_symbols
+    }
+
+    /// 作図部品の変更フラグを消去する
+    #[inline]
+    pub fn clear_dirty_symbols(&mut self) {
+        self.dirty_symbols.clear();
     }
 
     /// `undo` / `redo` 履歴の上限バイト数を設定する
@@ -1825,13 +1891,145 @@ impl SxfLive {
     ) -> Result<(), Error> {
         let had_ops = !verified.is_empty();
         let patch_arc = Arc::new(patch);
+
+        let mut staged_placed: BTreeMap<RowId, Option<&Placed>> = BTreeMap::new();
+        let mut direct_vnodes: Vec<RowId> = Vec::new();
+        for op in &verified {
+            match op {
+                VerifiedOp::Remove(rid) => {
+                    staged_placed.insert(*rid, None);
+                    if let Some(SxfContainer::Symbol(sym_idx)) =
+                        self.table.row(*rid).map(|r| r.container)
+                        && let Some(vnode) =
+                            u32::try_from(sym_idx).ok().and_then(RowId::virtual_node)
+                    {
+                        direct_vnodes.push(vnode);
+                    }
+                }
+                VerifiedOp::Update { row_id, placed } => {
+                    staged_placed.insert(*row_id, Some(placed));
+                    if let Some(SxfContainer::Symbol(sym_idx)) =
+                        self.table.row(*row_id).map(|r| r.container)
+                        && let Some(vnode) =
+                            u32::try_from(sym_idx).ok().and_then(RowId::virtual_node)
+                    {
+                        direct_vnodes.push(vnode);
+                    }
+                }
+                VerifiedOp::AddSfc { .. } | VerifiedOp::AddP21 { .. } => {}
+            }
+        }
+        direct_vnodes.sort_unstable();
+        direct_vnodes.dedup();
+
+        let affected = if direct_vnodes.is_empty() {
+            Vec::new()
+        } else {
+            match self.dep.affected_rows_with_cx(&direct_vnodes, cx) {
+                Ok(list) => list,
+                Err(stop) => {
+                    match (&mut self.backing, &patch_arc.backing) {
+                        (SxfBacking::Sfc(sfc), BackingPatch::Sfc(p)) => sfc.revert_patch(p),
+                        (SxfBacking::P21(p21), BackingPatch::P21(p)) => p21.revert_patch(p),
+                        _ => {}
+                    }
+                    cx.report(stop.to_diagnostic());
+                    return Err(Error::Stopped(stop));
+                }
+            }
+        };
+
+        let mut dirty_syms: Vec<u32> = direct_vnodes
+            .iter()
+            .chain(&affected)
+            .filter_map(|r| r.as_virtual())
+            .collect();
+        dirty_syms.sort_unstable();
+        dirty_syms.dedup();
+
+        let mut next_symbol_bounds = self.symbol_bounds.clone();
+        if !dirty_syms.is_empty() {
+            let dirty_set: BTreeSet<usize> = dirty_syms.iter().map(|&idx| idx as usize).collect();
+            for sym_idx in ordered_symbol_indices(self.symbol_templates.len(), &self.dep) {
+                if !dirty_set.contains(&sym_idx) {
+                    continue;
+                }
+                let Some(sym_t) = self.symbol_templates.get(sym_idx) else {
+                    continue;
+                };
+                let Some(r_ids) = self.symbol_rows.get(sym_idx) else {
+                    continue;
+                };
+                let mut acc: Option<[f64; 4]> = None;
+                for &rid in r_ids {
+                    let placed_opt = match staged_placed.get(&rid) {
+                        Some(p) => *p,
+                        None => self.table.row(rid).map(|r| &r.placed),
+                    };
+                    if let Some(Placed::Model(m_elem)) = placed_opt {
+                        let b = model_shape_bounds(&m_elem.shape, &next_symbol_bounds);
+                        let [bx0, by0, bx1, by1] = b;
+                        if bx0 <= bx1 && by0 <= by1 {
+                            match &mut acc {
+                                Some([x0, y0, x1, y1]) => {
+                                    *x0 = x0.min(bx0);
+                                    *y0 = y0.min(by0);
+                                    *x1 = x1.max(bx1);
+                                    *y1 = y1.max(by1);
+                                }
+                                None => acc = Some(b),
+                            }
+                        }
+                    }
+                }
+                match acc {
+                    Some(b) => {
+                        next_symbol_bounds.insert(sym_t.key.clone(), b);
+                    }
+                    None => {
+                        next_symbol_bounds.remove(&sym_t.key);
+                    }
+                }
+            }
+        }
+        drop(staged_placed);
+
+        let mut explicit_rows = BTreeSet::new();
+        for op in &verified {
+            match op {
+                VerifiedOp::Remove(rid) => {
+                    explicit_rows.insert(*rid);
+                }
+                VerifiedOp::Update { row_id, .. } => {
+                    explicit_rows.insert(*row_id);
+                }
+                VerifiedOp::AddSfc { .. } | VerifiedOp::AddP21 { .. } => {}
+            }
+        }
+        let mut dependent_updates = Vec::new();
+        for dep_rid in affected {
+            if dep_rid.is_virtual() || explicit_rows.contains(&dep_rid) {
+                continue;
+            }
+            if let Some(dep_row) = self.table.row(dep_rid).cloned() {
+                let new_bounds = compute_sheet_bounds(
+                    dep_row.container,
+                    &dep_row.placed,
+                    &self.space_views,
+                    &next_symbol_bounds,
+                );
+                dependent_updates.push((dep_rid, dep_row, new_bounds));
+            }
+        }
+
         let patch_for_txn = Arc::clone(&patch_arc);
         let space_views = &self.space_views;
-        let symbol_bounds = &self.symbol_bounds;
+        let symbol_indices = &self.symbol_indices;
+        let symbol_bounds_ref = &next_symbol_bounds;
         let side = SideIndexes {
             grid: Some(&mut self.spatial),
             dirty_rows: None,
-            dep: None,
+            dep: Some(&mut self.dep),
         };
 
         let txn_res = run_transaction(
@@ -1853,11 +2051,24 @@ impl SxfLive {
                                 prev_row.container,
                                 &placed,
                                 space_views,
-                                symbol_bounds,
+                                symbol_bounds_ref,
                             );
+                            let dep_src = matches!(
+                                prev_row.container,
+                                SxfContainer::Space(_) | SxfContainer::Sheet(_)
+                            )
+                            .then(|| placed_symbol_dep_source(&placed, symbol_indices))
+                            .flatten();
                             let mut next_row = prev_row;
+                            let track_dep = matches!(
+                                next_row.container,
+                                SxfContainer::Space(_) | SxfContainer::Sheet(_)
+                            );
                             next_row.placed = placed;
                             txn.update_row(row_id, next_row, new_bounds)?;
+                            if track_dep {
+                                txn.set_dep_sources(row_id, dep_src)?;
+                            }
                         }
                         VerifiedOp::AddSfc {
                             seq,
@@ -1873,8 +2084,9 @@ impl SxfLive {
                                 container,
                                 &placed,
                                 space_views,
-                                symbol_bounds,
+                                symbol_bounds_ref,
                             );
+                            let dep_src = placed_symbol_dep_source(&placed, symbol_indices);
                             let new_row = SxfRow {
                                 instance: Some(inst),
                                 unique_handle: Some(inst),
@@ -1889,7 +2101,10 @@ impl SxfLive {
                                 placed,
                                 drafts: Box::new([]),
                             };
-                            txn.insert_row(new_row, new_bounds)?;
+                            let rid = txn.insert_row(new_row, new_bounds)?;
+                            if let Some(vnode) = dep_src {
+                                txn.set_dep_sources(rid, [vnode])?;
+                            }
                         }
                         VerifiedOp::AddP21 {
                             inst,
@@ -1904,8 +2119,9 @@ impl SxfLive {
                                 container,
                                 &placed,
                                 space_views,
-                                symbol_bounds,
+                                symbol_bounds_ref,
                             );
+                            let dep_src = placed_symbol_dep_source(&placed, symbol_indices);
                             let new_row = SxfRow {
                                 instance: Some(inst),
                                 unique_handle: Some(inst),
@@ -1920,9 +2136,15 @@ impl SxfLive {
                                 placed,
                                 drafts: Box::new([]),
                             };
-                            txn.insert_row(new_row, new_bounds)?;
+                            let rid = txn.insert_row(new_row, new_bounds)?;
+                            if let Some(vnode) = dep_src {
+                                txn.set_dep_sources(rid, [vnode])?;
+                            }
                         }
                     }
+                }
+                for (dep_rid, dep_row, new_bounds) in dependent_updates {
+                    txn.update_row(dep_rid, dep_row, new_bounds)?;
                 }
                 if had_ops {
                     txn.push_patch(SharedPatch(patch_for_txn));
@@ -1957,59 +2179,46 @@ impl SxfLive {
         }
 
         if had_ops && let Some(committed) = self.history.last_undo().cloned() {
+            self.symbol_bounds = next_symbol_bounds;
+            self.dirty_symbols.extend(dirty_syms);
             for &(g_idx, _, after) in &patch_arc.raster_outline_diffs {
                 if let Some(group) = self.raster_groups.get_mut(g_idx) {
                     group.outline_record = after;
                 }
             }
-            let mut touched_symbols = BTreeSet::new();
             for diff in committed.existing() {
                 match diff {
                     ExistingRowDiff::Removed { before_row, .. } => {
                         self.by_canonical_id
                             .remove(before_row.canonical_id.as_ref());
-                        match before_row.container {
-                            SxfContainer::Space(sp) => {
-                                if let Some(sp_idx) = self.space_spatial.get_mut(&sp) {
-                                    let local = before_row.local_space_idx as usize;
-                                    if let Some(b) = sp_idx.bounds.get_mut(local) {
-                                        *b = EMPTY_BOUNDS;
-                                    }
-                                    sp_idx.grid.update(before_row.local_space_idx, EMPTY_BOUNDS);
-                                }
+                        if let SxfContainer::Space(sp) = before_row.container
+                            && let Some(sp_idx) = self.space_spatial.get_mut(&sp)
+                        {
+                            let local = before_row.local_space_idx as usize;
+                            if let Some(b) = sp_idx.bounds.get_mut(local) {
+                                *b = EMPTY_BOUNDS;
                             }
-                            SxfContainer::Symbol(sym_idx) => {
-                                touched_symbols.insert(sym_idx);
-                            }
-                            SxfContainer::Sheet(_) => {}
+                            sp_idx.grid.update(before_row.local_space_idx, EMPTY_BOUNDS);
                         }
                     }
-                    ExistingRowDiff::Updated { after_row, .. } => match after_row.container {
-                        SxfContainer::Space(sp) => {
-                            if let Placed::Model(m_elem) = &after_row.placed
-                                && let Some(sp_idx) = self.space_spatial.get_mut(&sp)
-                            {
-                                let new_b = raw_shape_bounds(&m_elem.shape);
-                                let local = after_row.local_space_idx as usize;
-                                if let Some(b) = sp_idx.bounds.get_mut(local) {
-                                    *b = new_b;
-                                }
-                                sp_idx.grid.update(after_row.local_space_idx, new_b);
+                    ExistingRowDiff::Updated { after_row, .. } => {
+                        if let SxfContainer::Space(sp) = after_row.container
+                            && let Placed::Model(m_elem) = &after_row.placed
+                            && let Some(sp_idx) = self.space_spatial.get_mut(&sp)
+                        {
+                            let new_b = model_shape_bounds(&m_elem.shape, &self.symbol_bounds);
+                            let local = after_row.local_space_idx as usize;
+                            if let Some(b) = sp_idx.bounds.get_mut(local) {
+                                *b = new_b;
                             }
+                            sp_idx.grid.update(after_row.local_space_idx, new_b);
                         }
-                        SxfContainer::Symbol(sym_idx) => {
-                            touched_symbols.insert(sym_idx);
-                        }
-                        SxfContainer::Sheet(_) => {}
-                    },
+                    }
                 }
             }
             for born in committed.born() {
                 self.by_canonical_id
                     .insert(born.after_row.canonical_id.to_string(), born.row);
-            }
-            for sym_idx in touched_symbols {
-                self.recompute_symbol_bound(sym_idx);
             }
             let disp_ctx = DisplayContext {
                 space_views: &self.space_views,
@@ -2022,39 +2231,64 @@ impl SxfLive {
         Ok(())
     }
 
-    fn recompute_symbol_bound(&mut self, sym_idx: usize) {
-        let Some(sym_t) = self.symbol_templates.get(sym_idx) else {
+    fn recompute_touched_symbol_bounds(&mut self, touched_symbols: &BTreeSet<usize>) {
+        if touched_symbols.is_empty() {
             return;
-        };
-        let Some(rows) = self.symbol_rows.get(sym_idx) else {
-            return;
-        };
-        let mut acc: Option<[f64; 4]> = None;
-        for &rid in rows {
-            if let Some(row) = self.table.row(rid)
-                && let Placed::Model(m_elem) = &row.placed
-            {
-                let b = raw_shape_bounds(&m_elem.shape);
-                let [bx0, by0, bx1, by1] = b;
-                if bx0 <= bx1 && by0 <= by1 {
-                    match &mut acc {
-                        Some([x0, y0, x1, y1]) => {
-                            *x0 = x0.min(bx0);
-                            *y0 = y0.min(by0);
-                            *x1 = x1.max(bx1);
-                            *y1 = y1.max(by1);
+        }
+        let seeds: Vec<RowId> = touched_symbols
+            .iter()
+            .filter_map(|&idx| u32::try_from(idx).ok().and_then(RowId::virtual_node))
+            .collect();
+        let affected = self.dep.affected_rows(&seeds);
+        let mut dirty_set: BTreeSet<usize> = touched_symbols.clone();
+        for &idx in touched_symbols {
+            if let Ok(idx_u32) = u32::try_from(idx) {
+                self.dirty_symbols.insert(idx_u32);
+            }
+        }
+        for rid in affected {
+            if let Some(sym_u32) = rid.as_virtual() {
+                self.dirty_symbols.insert(sym_u32);
+                dirty_set.insert(sym_u32 as usize);
+            }
+        }
+        for sym_idx in ordered_symbol_indices(self.symbol_templates.len(), &self.dep) {
+            if !dirty_set.contains(&sym_idx) {
+                continue;
+            }
+            let Some(sym_t) = self.symbol_templates.get(sym_idx) else {
+                continue;
+            };
+            let Some(rows) = self.symbol_rows.get(sym_idx) else {
+                continue;
+            };
+            let mut acc: Option<[f64; 4]> = None;
+            for &rid in rows {
+                if let Some(row) = self.table.row(rid)
+                    && let Placed::Model(m_elem) = &row.placed
+                {
+                    let b = model_shape_bounds(&m_elem.shape, &self.symbol_bounds);
+                    let [bx0, by0, bx1, by1] = b;
+                    if bx0 <= bx1 && by0 <= by1 {
+                        match &mut acc {
+                            Some([x0, y0, x1, y1]) => {
+                                *x0 = x0.min(bx0);
+                                *y0 = y0.min(by0);
+                                *x1 = x1.max(bx1);
+                                *y1 = y1.max(by1);
+                            }
+                            None => acc = Some(b),
                         }
-                        None => acc = Some(b),
                     }
                 }
             }
-        }
-        match acc {
-            Some(b) => {
-                self.symbol_bounds.insert(sym_t.key.clone(), b);
-            }
-            None => {
-                self.symbol_bounds.remove(&sym_t.key);
+            match acc {
+                Some(b) => {
+                    self.symbol_bounds.insert(sym_t.key.clone(), b);
+                }
+                None => {
+                    self.symbol_bounds.remove(&sym_t.key);
+                }
             }
         }
     }
@@ -2064,7 +2298,7 @@ impl SxfLive {
         let side = SideIndexes {
             grid: Some(&mut self.spatial),
             dirty_rows: None,
-            dep: None,
+            dep: Some(&mut self.dep),
         };
         let committed = match self.history.undo(&mut self.table, side, cx) {
             Ok(Some(c)) => c.clone(),
@@ -2085,6 +2319,21 @@ impl SxfLive {
                 .remove(born.after_row.canonical_id.as_ref());
         }
         let mut touched_symbols = BTreeSet::new();
+        for diff in committed.existing() {
+            match diff {
+                ExistingRowDiff::Removed { before_row, .. } => {
+                    if let SxfContainer::Symbol(sym_idx) = before_row.container {
+                        touched_symbols.insert(sym_idx);
+                    }
+                }
+                ExistingRowDiff::Updated { before_row, .. } => {
+                    if let SxfContainer::Symbol(sym_idx) = before_row.container {
+                        touched_symbols.insert(sym_idx);
+                    }
+                }
+            }
+        }
+        self.recompute_touched_symbol_bounds(&touched_symbols);
         for diff in committed.existing().iter().rev() {
             match diff {
                 ExistingRowDiff::Removed {
@@ -2092,43 +2341,31 @@ impl SxfLive {
                 } => {
                     self.by_canonical_id
                         .insert(before_row.canonical_id.to_string(), *row);
-                    match before_row.container {
-                        SxfContainer::Space(sp) => {
-                            if let Placed::Model(m_elem) = &before_row.placed
-                                && let Some(sp_idx) = self.space_spatial.get_mut(&sp)
-                            {
-                                let old_b = raw_shape_bounds(&m_elem.shape);
-                                let local = before_row.local_space_idx as usize;
-                                if let Some(b) = sp_idx.bounds.get_mut(local) {
-                                    *b = old_b;
-                                }
-                                sp_idx.grid.update(before_row.local_space_idx, old_b);
-                            }
+                    if let SxfContainer::Space(sp) = before_row.container
+                        && let Placed::Model(m_elem) = &before_row.placed
+                        && let Some(sp_idx) = self.space_spatial.get_mut(&sp)
+                    {
+                        let old_b = model_shape_bounds(&m_elem.shape, &self.symbol_bounds);
+                        let local = before_row.local_space_idx as usize;
+                        if let Some(b) = sp_idx.bounds.get_mut(local) {
+                            *b = old_b;
                         }
-                        SxfContainer::Symbol(sym_idx) => {
-                            touched_symbols.insert(sym_idx);
-                        }
-                        SxfContainer::Sheet(_) => {}
+                        sp_idx.grid.update(before_row.local_space_idx, old_b);
                     }
                 }
-                ExistingRowDiff::Updated { before_row, .. } => match before_row.container {
-                    SxfContainer::Space(sp) => {
-                        if let Placed::Model(m_elem) = &before_row.placed
-                            && let Some(sp_idx) = self.space_spatial.get_mut(&sp)
-                        {
-                            let old_b = raw_shape_bounds(&m_elem.shape);
-                            let local = before_row.local_space_idx as usize;
-                            if let Some(b) = sp_idx.bounds.get_mut(local) {
-                                *b = old_b;
-                            }
-                            sp_idx.grid.update(before_row.local_space_idx, old_b);
+                ExistingRowDiff::Updated { before_row, .. } => {
+                    if let SxfContainer::Space(sp) = before_row.container
+                        && let Placed::Model(m_elem) = &before_row.placed
+                        && let Some(sp_idx) = self.space_spatial.get_mut(&sp)
+                    {
+                        let old_b = model_shape_bounds(&m_elem.shape, &self.symbol_bounds);
+                        let local = before_row.local_space_idx as usize;
+                        if let Some(b) = sp_idx.bounds.get_mut(local) {
+                            *b = old_b;
                         }
+                        sp_idx.grid.update(before_row.local_space_idx, old_b);
                     }
-                    SxfContainer::Symbol(sym_idx) => {
-                        touched_symbols.insert(sym_idx);
-                    }
-                    SxfContainer::Sheet(_) => {}
-                },
+                }
             }
         }
         for patch in committed.patches().iter().rev() {
@@ -2143,9 +2380,6 @@ impl SxfLive {
                 _ => {}
             }
         }
-        for sym_idx in touched_symbols {
-            self.recompute_symbol_bound(sym_idx);
-        }
         Ok(true)
     }
 
@@ -2154,7 +2388,7 @@ impl SxfLive {
         let side = SideIndexes {
             grid: Some(&mut self.spatial),
             dirty_rows: None,
-            dep: None,
+            dep: Some(&mut self.dep),
         };
         let committed = match self.history.redo(&mut self.table, side, cx) {
             Ok(Some(c)) => c.clone(),
@@ -2181,50 +2415,51 @@ impl SxfLive {
         for diff in committed.existing() {
             match diff {
                 ExistingRowDiff::Removed { before_row, .. } => {
-                    self.by_canonical_id
-                        .remove(before_row.canonical_id.as_ref());
-                    match before_row.container {
-                        SxfContainer::Space(sp) => {
-                            if let Some(sp_idx) = self.space_spatial.get_mut(&sp) {
-                                let local = before_row.local_space_idx as usize;
-                                if let Some(b) = sp_idx.bounds.get_mut(local) {
-                                    *b = EMPTY_BOUNDS;
-                                }
-                                sp_idx.grid.update(before_row.local_space_idx, EMPTY_BOUNDS);
-                            }
-                        }
-                        SxfContainer::Symbol(sym_idx) => {
-                            touched_symbols.insert(sym_idx);
-                        }
-                        SxfContainer::Sheet(_) => {}
-                    }
-                }
-                ExistingRowDiff::Updated { after_row, .. } => match after_row.container {
-                    SxfContainer::Space(sp) => {
-                        if let Placed::Model(m_elem) = &after_row.placed
-                            && let Some(sp_idx) = self.space_spatial.get_mut(&sp)
-                        {
-                            let new_b = raw_shape_bounds(&m_elem.shape);
-                            let local = after_row.local_space_idx as usize;
-                            if let Some(b) = sp_idx.bounds.get_mut(local) {
-                                *b = new_b;
-                            }
-                            sp_idx.grid.update(after_row.local_space_idx, new_b);
-                        }
-                    }
-                    SxfContainer::Symbol(sym_idx) => {
+                    if let SxfContainer::Symbol(sym_idx) = before_row.container {
                         touched_symbols.insert(sym_idx);
                     }
-                    SxfContainer::Sheet(_) => {}
-                },
+                }
+                ExistingRowDiff::Updated { after_row, .. } => {
+                    if let SxfContainer::Symbol(sym_idx) = after_row.container {
+                        touched_symbols.insert(sym_idx);
+                    }
+                }
+            }
+        }
+        self.recompute_touched_symbol_bounds(&touched_symbols);
+        for diff in committed.existing() {
+            match diff {
+                ExistingRowDiff::Removed { before_row, .. } => {
+                    self.by_canonical_id
+                        .remove(before_row.canonical_id.as_ref());
+                    if let SxfContainer::Space(sp) = before_row.container
+                        && let Some(sp_idx) = self.space_spatial.get_mut(&sp)
+                    {
+                        let local = before_row.local_space_idx as usize;
+                        if let Some(b) = sp_idx.bounds.get_mut(local) {
+                            *b = EMPTY_BOUNDS;
+                        }
+                        sp_idx.grid.update(before_row.local_space_idx, EMPTY_BOUNDS);
+                    }
+                }
+                ExistingRowDiff::Updated { after_row, .. } => {
+                    if let SxfContainer::Space(sp) = after_row.container
+                        && let Placed::Model(m_elem) = &after_row.placed
+                        && let Some(sp_idx) = self.space_spatial.get_mut(&sp)
+                    {
+                        let new_b = model_shape_bounds(&m_elem.shape, &self.symbol_bounds);
+                        let local = after_row.local_space_idx as usize;
+                        if let Some(b) = sp_idx.bounds.get_mut(local) {
+                            *b = new_b;
+                        }
+                        sp_idx.grid.update(after_row.local_space_idx, new_b);
+                    }
+                }
             }
         }
         for born in committed.born() {
             self.by_canonical_id
                 .insert(born.after_row.canonical_id.to_string(), born.row);
-        }
-        for sym_idx in touched_symbols {
-            self.recompute_symbol_bound(sym_idx);
         }
         let disp_ctx = DisplayContext {
             space_views: &self.space_views,
@@ -2730,4 +2965,34 @@ fn report_table_edit_unsupported(format: &str, change: &Edit, cx: &mut Cx) {
         _ => "element",
     };
     cx.report(unsupported(format, change.name(), kind));
+}
+
+fn placed_symbol_dep_source(
+    placed: &Placed,
+    symbol_indices: &BTreeMap<SymbolKey, u32>,
+) -> Option<RowId> {
+    let key = match placed {
+        Placed::Model(e) => match &e.shape {
+            Shape::Symbol(sym) => &sym.key,
+            _ => return None,
+        },
+        Placed::Paper(e) => match &e.shape {
+            Shape::Symbol(sym) => &sym.key,
+            _ => return None,
+        },
+    };
+    symbol_indices
+        .get(key)
+        .copied()
+        .and_then(RowId::virtual_node)
+}
+
+fn ordered_symbol_indices(symbol_count: usize, dep: &DepGraph) -> Vec<usize> {
+    let vnodes: BTreeSet<RowId> = (0..symbol_count)
+        .filter_map(|i| u32::try_from(i).ok().and_then(RowId::virtual_node))
+        .collect();
+    dep.topological_order(&vnodes)
+        .into_iter()
+        .filter_map(|r| r.as_virtual().map(|v| v as usize))
+        .collect()
 }

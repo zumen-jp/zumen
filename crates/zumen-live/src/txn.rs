@@ -469,18 +469,18 @@ impl<'a, R: TableRow, P: PatchPayload> Transaction<'a, R, P> {
         Ok(current_row)
     }
 
-    /// 生きている `dependent` が参照する生きている元の行の集合を更新するよう予約する
+    /// 生きている `dependent`（または仮想ノード）が参照する生きている元の行（または仮想ノード）の集合を更新するよう予約する
     pub fn set_dep_sources(
         &mut self,
         dependent: RowId,
         sources: impl IntoIterator<Item = RowId>,
     ) -> Result<(), StageError> {
-        if !self.is_alive(dependent) {
+        if dependent.is_none() || (!dependent.is_virtual() && !self.is_alive(dependent)) {
             return Err(StageError::NotAlive(dependent));
         }
         let mut srcs: Vec<RowId> = Vec::new();
         for src in sources {
-            if !self.is_alive(src) {
+            if src.is_none() || (!src.is_virtual() && !self.is_alive(src)) {
                 return Err(StageError::NotAlive(src));
             }
             if src != dependent {
@@ -1371,5 +1371,104 @@ mod tests {
         assert_eq!(table.find_handle(0x50), Some(RowId(0)));
         assert_eq!(dep.sources_of(RowId(2)), vec![RowId(0), RowId(1)]);
         assert_eq!(dep.dependents_of(RowId(1)), vec![RowId(2)]);
+    }
+
+    #[test]
+    fn virtual_nodes_propagate_and_restore_across_undo_and_redo() {
+        let mut budget = Budget::default();
+        let mut diag = Diagnostics::new();
+        let cancel = CancelToken::new();
+
+        let init = vec![(
+            TestRow {
+                handle: Some(0x10),
+                x: 0.0,
+                y: 0.0,
+                color: 7,
+            },
+            [0.0, 0.0, 10.0, 10.0],
+            true,
+        )];
+        let mut table = {
+            let mut cx = make_cx(&mut budget, &mut diag, &cancel);
+            VersionedTable::from_rows_with_cx(init, &mut cx).unwrap()
+        };
+        let mut dep = DepGraph::new();
+        let mut history: History<TestRow, ()> = History::new();
+        let v_inner = RowId::virtual_node(0).unwrap();
+        let v_outer = RowId::virtual_node(1).unwrap();
+        assert_eq!(v_inner.as_virtual(), Some(0));
+        assert!(v_inner.is_virtual());
+        assert!(RowId::virtual_node(0x7FFF_FFFF).is_none());
+
+        dep.set_sources(v_outer, [v_inner]);
+        dep.set_sources(RowId(0), [v_outer]);
+        assert_eq!(dep.affected_rows(&[v_inner]), vec![v_outer, RowId(0)]);
+
+        {
+            let mut cx = make_cx(&mut budget, &mut diag, &cancel);
+            run_transaction(
+                &mut table,
+                SideIndexes {
+                    dep: Some(&mut dep),
+                    ..SideIndexes::default()
+                },
+                &mut history,
+                &mut cx,
+                |txn, _| {
+                    let born = txn.insert_row(
+                        TestRow {
+                            handle: Some(0x20),
+                            x: 1.0,
+                            y: 1.0,
+                            color: 1,
+                        },
+                        [1.0, 1.0, 2.0, 2.0],
+                    )?;
+                    txn.set_dep_sources(born, [v_inner])?;
+                    txn.set_dep_sources(RowId(0), [v_inner])?;
+                    Ok::<_, TxnError<()>>(())
+                },
+            )
+            .unwrap();
+        }
+        assert_eq!(
+            dep.affected_rows(&[v_inner]),
+            vec![RowId(0), RowId(1), v_outer]
+        );
+
+        {
+            let mut cx = make_cx(&mut budget, &mut diag, &cancel);
+            history
+                .undo(
+                    &mut table,
+                    SideIndexes {
+                        dep: Some(&mut dep),
+                        ..SideIndexes::default()
+                    },
+                    &mut cx,
+                )
+                .unwrap();
+        }
+        assert_eq!(dep.affected_rows(&[v_inner]), vec![v_outer, RowId(0)]);
+        assert_eq!(dep.sources_of(RowId(0)), vec![v_outer]);
+
+        {
+            let mut cx = make_cx(&mut budget, &mut diag, &cancel);
+            history
+                .redo(
+                    &mut table,
+                    SideIndexes {
+                        dep: Some(&mut dep),
+                        ..SideIndexes::default()
+                    },
+                    &mut cx,
+                )
+                .unwrap();
+        }
+        assert_eq!(
+            dep.affected_rows(&[v_inner]),
+            vec![RowId(0), RowId(1), v_outer]
+        );
     }
 }

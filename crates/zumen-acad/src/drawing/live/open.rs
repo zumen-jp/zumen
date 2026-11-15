@@ -17,7 +17,7 @@ use zumen_drawing::{
     PointStyle, Position, Shape, Sheet, SheetId, SymbolDefinition, SymbolKey, TextStyle, Unit, id,
 };
 use zumen_live::display::Display;
-use zumen_live::{RowId, SourceBytes, SpatialGrid, VersionedTable};
+use zumen_live::{DepGraph, RowId, SourceBytes, SpatialGrid, VersionedTable};
 use zumen_sdk::{Codec, Error};
 
 use super::super::single::{
@@ -57,6 +57,8 @@ pub struct LiveState {
     pub spatial: SpatialGrid,
     /// GPU 転送用の 64 要素単位ダーティ表示バッファー
     pub display: Display,
+    /// ブロック定義・ハッチング境界・引出線注釈・連想寸法の依存グラフ
+    pub dep: DepGraph,
     /// 画層・線種スロット表
     pub catalog: SlotCatalog,
     /// 単一図形書き戻し用の表情報
@@ -79,6 +81,8 @@ pub struct LiveState {
     pub defined_text_styles: Vec<TextStyle>,
     /// ブロック定義一覧
     pub symbols: Vec<SymbolDefinition>,
+    /// 内容または入れ子先の変更により再送が必要なブロック定義の添字集合
+    pub dirty_symbols: BTreeSet<u32>,
     /// 小文字のブロック名から `symbols` の添字への対応
     pub block_defs_by_lower: BTreeMap<String, u32>,
     /// ペーパー空間の用紙一覧
@@ -95,6 +99,8 @@ pub struct LiveState {
     pub shared_sources: BTreeSet<Ref>,
     /// モデル以外の要素（記号定義・用紙要素）の ID 集合
     pub non_model_element_ids: BTreeSet<String>,
+    /// 名前付きブロック定義の要素 ID から `(定義添字, 要素添字)` への対応
+    pub block_element_targets: BTreeMap<String, (u32, u32)>,
     /// ハンドル一意索引に乗らないモデル要素の `ID -> RowId`
     pub non_unique_model_ids: BTreeMap<String, RowId>,
     /// `DICTIONARY` や `102` 組から参照されているハンドル集合
@@ -526,6 +532,7 @@ pub fn open_dxf(src: &[u8], threads: usize, cx: &mut Cx<'_>) -> Result<LiveState
     let mut any_entity_code_100 = false;
     let mut seen_handles: BTreeSet<u64> = BTreeSet::new();
     let mut duplicate_handles_global = false;
+    let mut ref_entity_handles: BTreeSet<u64> = BTreeSet::new();
 
     for (idx, rec) in records.iter().enumerate() {
         let rec_u32 = idx as u32;
@@ -571,10 +578,17 @@ pub fn open_dxf(src: &[u8], threads: usize, cx: &mut Cx<'_>) -> Result<LiveState
                 }
                 if *sec == Section::Entities {
                     any_entity_code_100 |= rec.has_code_100;
+                    if matches!(rec.kind.as_ref(), b"HATCH" | b"LEADER")
+                        && let Some((kind, values)) =
+                            decode_dxf_slice(src, rec.start as usize..rec.end as usize)
+                    {
+                        collect_entity_ref_handles(&kind, &values, &mut ref_entity_handles);
+                    }
                     entity_indices.push(rec_u32);
                 } else if let Some((kind, values)) =
                     decode_dxf_slice(src, rec.start as usize..rec.end as usize)
                 {
+                    collect_entity_ref_handles(&kind, &values, &mut ref_entity_handles);
                     shell_db.push(Object {
                         kind,
                         section: sec.clone(),
@@ -582,6 +596,27 @@ pub fn open_dxf(src: &[u8], threads: usize, cx: &mut Cx<'_>) -> Result<LiveState
                         origin: Origin::Dxf { record: idx },
                     });
                 }
+            }
+        }
+    }
+
+    if !ref_entity_handles.is_empty() {
+        for &rec_u32 in &entity_indices {
+            if let Some(h) = records.get(rec_u32 as usize).and_then(|r| r.handle)
+                && ref_entity_handles.contains(&h)
+                && shell_db.get(h).is_none()
+            {
+                shell_db.push(Object {
+                    kind: Vec::new(),
+                    section: Section::Entities,
+                    values: vec![Value {
+                        code: 5,
+                        data: Data::Handle(h),
+                    }],
+                    origin: Origin::Dxf {
+                        record: rec_u32 as usize,
+                    },
+                });
             }
         }
     }
@@ -981,6 +1016,7 @@ pub fn open_from_dwg_file(
     let mut any_entity_code_100 = false;
     let mut seen_handles: BTreeSet<u64> = BTreeSet::new();
     let mut duplicate_handles_global = false;
+    let mut ref_entity_handles: BTreeSet<u64> = BTreeSet::new();
 
     for (idx, item) in decoded_all.into_iter().enumerate() {
         let entry_ref = file
@@ -1034,6 +1070,7 @@ pub fn open_from_dwg_file(
                 for d in diags {
                     cx.report(d);
                 }
+                collect_entity_ref_handles(&obj.kind, &obj.values, &mut ref_entity_handles);
                 let src_ref = source(&obj);
                 let h = obj.handle();
                 if let Some(hv) = h
@@ -1059,6 +1096,7 @@ pub fn open_from_dwg_file(
                 for d in diags {
                     cx.report(d);
                 }
+                collect_entity_ref_handles(&obj.kind, &obj.values, &mut ref_entity_handles);
                 if let Some(hv) = obj.handle()
                     && hv != 0
                     && !seen_handles.insert(hv)
@@ -1071,6 +1109,31 @@ pub fn open_from_dwg_file(
                 for d in diags {
                     cx.report(d);
                 }
+            }
+        }
+    }
+
+    if !ref_entity_handles.is_empty() {
+        for s in &ent_slots {
+            if let Some(h) = s.handle
+                && ref_entity_handles.contains(&h)
+                && shell_db.get(h).is_none()
+            {
+                let origin =
+                    file.entry_summary(s.record as usize)
+                        .map_or(Origin::New, |(_, _, _, span)| Origin::Dwg {
+                            offset: span.start,
+                            end: span.end,
+                        });
+                shell_db.push(Object {
+                    kind: Vec::new(),
+                    section: Section::Entities,
+                    values: vec![Value {
+                        code: 5,
+                        data: Data::Handle(h),
+                    }],
+                    origin,
+                });
             }
         }
     }
@@ -1234,6 +1297,7 @@ fn open_from_db_and_backing(
     let mut seen_handles = BTreeSet::new();
     let mut duplicate_handles_global = false;
     let mut any_entity_code_100 = false;
+    let mut ref_entity_handles: BTreeSet<u64> = BTreeSet::new();
 
     for (idx, obj) in db.objects().iter().enumerate() {
         if let Some(h) = obj.handle()
@@ -1242,6 +1306,7 @@ fn open_from_db_and_backing(
         {
             duplicate_handles_global = true;
         }
+        collect_entity_ref_handles(&obj.kind, &obj.values, &mut ref_entity_handles);
         if obj.section == Section::Entities {
             any_entity_code_100 |= obj.values.iter().any(|v| v.code == 100);
             let rec_u32 = match obj.origin {
@@ -1251,6 +1316,24 @@ fn open_from_db_and_backing(
             entities.push((rec_u32, obj.clone()));
         } else {
             shell_db.push(obj.clone());
+        }
+    }
+    if !ref_entity_handles.is_empty() {
+        for (_, obj) in &entities {
+            if let Some(h) = obj.handle()
+                && ref_entity_handles.contains(&h)
+                && shell_db.get(h).is_none()
+            {
+                shell_db.push(Object {
+                    kind: Vec::new(),
+                    section: Section::Entities,
+                    values: vec![Value {
+                        code: 5,
+                        data: Data::Handle(h),
+                    }],
+                    origin: obj.origin,
+                });
+            }
         }
     }
     let ent_refs: Vec<&Object> = entities.iter().map(|(_, o)| o).collect();
@@ -1406,11 +1489,16 @@ fn finish_live_open(
 
     let mut shapes = LiveShapes::default();
     let mut rows: Vec<LiveRow> = Vec::new();
+    let mut row_reactors: Vec<(usize, u64)> = Vec::new();
+    let mut row_ext_dicts: Vec<(usize, u64)> = Vec::new();
     let empty_block_defs: BTreeMap<String, u32> = BTreeMap::new();
     let mut forget_referenced_handles: BTreeSet<u64> = BTreeSet::new();
     let mut non_table_max_handle: Option<u64> = None;
 
     for obj in shell_db.objects() {
+        if obj.section == Section::Entities {
+            continue;
+        }
         if let Some(h) = obj.handle() {
             non_table_max_handle = Some(non_table_max_handle.map_or(h, |m| m.max(h)));
         }
@@ -1550,6 +1638,14 @@ fn finish_live_open(
                     0
                 };
                 let has_102_or_360 = obj.values.iter().any(|v| matches!(v.code, 102 | 360));
+                if has_102_or_360 {
+                    collect_reactor_and_ext_dict(
+                        rows.len(),
+                        &obj.values,
+                        &mut row_reactors,
+                        &mut row_ext_dicts,
+                    );
+                }
                 let general: GeneralRow = general_from_element(
                     el,
                     &out.layers,
@@ -1725,6 +1821,7 @@ fn finish_live_open(
     let mut source_seen: BTreeSet<Ref> = BTreeSet::new();
     let mut shared_sources: BTreeSet<Ref> = BTreeSet::new();
     let mut non_model_element_ids: BTreeSet<String> = BTreeSet::new();
+    let mut block_element_targets: BTreeMap<String, (u32, u32)> = BTreeMap::new();
     for row in &rows {
         let sref = row.source_ref();
         if sref != Ref::default() && !source_seen.insert(sref.clone()) {
@@ -1735,7 +1832,7 @@ fn finish_live_open(
         }
     }
     let mut def_namer = id::DefinitionNamer::default();
-    for sym in &symbols {
+    for (def_idx, sym) in symbols.iter().enumerate() {
         let place = def_namer.next(sym);
         let mut namer = id::Namer::new(&place);
         for (idx, el) in sym.space.elements.iter().enumerate() {
@@ -1745,7 +1842,17 @@ fn finish_live_open(
             if let Some(Key::Handle(h)) = el.source.key() {
                 *handle_counts.entry(h).or_insert(0) += 1;
             }
-            non_model_element_ids.insert(namer.next(idx, el));
+            let elem_id = namer.next(idx, el);
+            if !sym.anonymous
+                && sym.external.is_none()
+                && let Ok(d_u32) = u32::try_from(def_idx)
+                && let Ok(e_u32) = u32::try_from(idx)
+            {
+                block_element_targets
+                    .entry(elem_id.clone())
+                    .or_insert((d_u32, e_u32));
+            }
+            non_model_element_ids.insert(elem_id);
         }
     }
     let mut sheet_namer = id::SheetNamer::default();
@@ -1838,10 +1945,23 @@ fn finish_live_open(
     }
     display.clear_dirty();
 
+    let dep = build_dep_graph(
+        shell_db,
+        &table,
+        &shapes,
+        &symbols,
+        &block_defs_by_lower,
+        &row_reactors,
+        &row_ext_dicts,
+    );
+
     // `SingleTables` を組む
     let mut table_names_map: BTreeMap<&'static [u8], BTreeMap<String, String>> = BTreeMap::new();
     let mut model_owner: Option<u64> = None;
     for obj in shell_db.objects() {
+        if obj.section == Section::Entities {
+            continue;
+        }
         let Some(&tkey) = [
             b"LAYER".as_slice(),
             b"LTYPE",
@@ -1886,6 +2006,7 @@ fn finish_live_open(
         shapes,
         spatial,
         display,
+        dep,
         catalog,
         single_tables,
         charset: cs,
@@ -1897,6 +2018,7 @@ fn finish_live_open(
         dimension_styles: out.dimension_styles,
         defined_text_styles: out.text_styles,
         symbols,
+        dirty_symbols: BTreeSet::new(),
         block_defs_by_lower,
         sheets,
         point_style: pt_style,
@@ -1905,6 +2027,7 @@ fn finish_live_open(
         duplicate_handles_global: inputs.duplicate_handles_global,
         shared_sources,
         non_model_element_ids,
+        block_element_targets,
         non_unique_model_ids,
         forget_referenced_handles,
         non_table_max_handle,
@@ -1978,6 +2101,269 @@ fn collect_forget_handles(kind: &[u8], values: &[Value], out: &mut BTreeSet<u64>
         }
     }
     let _ = forget_values;
+}
+
+fn collect_entity_ref_handles(kind: &[u8], values: &[Value], out: &mut BTreeSet<u64>) {
+    match kind {
+        b"HATCH" => {
+            for v in values {
+                if v.code == 330
+                    && let Data::Handle(h) = v.data
+                    && h != 0
+                {
+                    out.insert(h);
+                }
+            }
+        }
+        b"LEADER" => {
+            for v in values {
+                if v.code == 340
+                    && let Data::Handle(h) = v.data
+                    && h != 0
+                {
+                    out.insert(h);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn collect_reactor_and_ext_dict(
+    row_idx: usize,
+    values: &[Value],
+    row_reactors: &mut Vec<(usize, u64)>,
+    row_ext_dicts: &mut Vec<(usize, u64)>,
+) {
+    let mut in_group = 0usize;
+    let mut in_reactors = false;
+    for v in values {
+        match (v.code, &v.data) {
+            (102, Data::Text(t)) if t.starts_with(b"{") => {
+                if in_group == 0 && t.eq_ignore_ascii_case(b"{ACAD_REACTORS") {
+                    in_reactors = true;
+                }
+                in_group += 1;
+            }
+            (102, Data::Text(t)) if t.starts_with(b"}") => {
+                in_group = in_group.saturating_sub(1);
+                if in_group == 0 {
+                    in_reactors = false;
+                }
+            }
+            (330, Data::Handle(h)) if in_reactors && *h != 0 => {
+                row_reactors.push((row_idx, *h));
+            }
+            (360, Data::Handle(h)) if in_group == 0 && *h != 0 => {
+                row_ext_dicts.push((row_idx, *h));
+            }
+            _ => {}
+        }
+    }
+}
+
+fn collect_shape_symbol_nodes<P>(
+    shape: &Shape<P>,
+    block_defs_by_lower: &BTreeMap<String, u32>,
+    out: &mut Vec<RowId>,
+) {
+    let mut push_key = |key: &SymbolKey| {
+        if key.namespace == BLOCK
+            && let Some(&def_idx) = block_defs_by_lower.get(&key.name.to_lowercase())
+            && let Some(vnode) = RowId::virtual_node(def_idx)
+        {
+            out.push(vnode);
+        }
+    };
+    match shape {
+        Shape::Symbol(sym) => push_key(&sym.key),
+        Shape::Dimension(dim) => {
+            if let Some(name) = &dim.block
+                && let Some(&def_idx) = block_defs_by_lower.get(&name.to_lowercase())
+                && let Some(vnode) = RowId::virtual_node(def_idx)
+            {
+                out.push(vnode);
+            }
+        }
+        Shape::Callout(callout) => {
+            if let Arrowhead::Symbol(key) = &callout.arrowhead {
+                push_key(key);
+            }
+            if let CalloutContent::Symbol { symbol, .. } = &callout.content {
+                push_key(&symbol.key);
+            }
+        }
+        Shape::Table(table) => {
+            if let Some(drawn) = &table.drawn {
+                push_key(drawn);
+            }
+            for cell in &table.cells {
+                if let CellContent::Symbol(key) = &cell.content {
+                    push_key(key);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+pub(super) fn collect_row_dep_sources(
+    shapes: &LiveShapes,
+    block_defs_by_lower: &BTreeMap<String, u32>,
+    mut find_handle: impl FnMut(u64) -> Option<RowId>,
+    row: &LiveRow,
+) -> Vec<RowId> {
+    let mut srcs = Vec::new();
+    match row.kind {
+        LiveKind::Insert => {
+            if let Some(ins) = shapes.inserts.get(row.shape as usize)
+                && ins.definition != NO_DEFINITION
+                && let Some(vnode) = RowId::virtual_node(ins.definition)
+            {
+                srcs.push(vnode);
+            }
+        }
+        LiveKind::General => {
+            if let Some(general) = shapes.generals.get(row.shape as usize) {
+                collect_shape_symbol_nodes(&general.element.shape, block_defs_by_lower, &mut srcs);
+                match &general.element.shape {
+                    Shape::Hatch(hatch) => {
+                        for lp in &hatch.loops {
+                            for s in &lp.sources {
+                                if let Some(Key::Handle(h)) = s.key()
+                                    && let Some(rid) = find_handle(h)
+                                {
+                                    srcs.push(rid);
+                                }
+                            }
+                        }
+                    }
+                    Shape::Leader(leader) => {
+                        if let Some(ann) = &leader.annotation
+                            && let Some(Key::Handle(h)) = ann.key()
+                            && let Some(rid) = find_handle(h)
+                        {
+                            srcs.push(rid);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        _ => {}
+    }
+    srcs.sort_unstable();
+    srcs.dedup();
+    srcs
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_dep_graph(
+    shell_db: &AcadDb,
+    table: &VersionedTable<LiveRow>,
+    shapes: &LiveShapes,
+    symbols: &[SymbolDefinition],
+    block_defs_by_lower: &BTreeMap<String, u32>,
+    row_reactors: &[(usize, u64)],
+    row_ext_dicts: &[(usize, u64)],
+) -> DepGraph {
+    let mut dep = DepGraph::new();
+    // 1. 入れ子ブロック定義どうしの辺（内側のブロック定義 -> 外側のブロック定義）
+    for (outer_idx, sym) in symbols.iter().enumerate() {
+        let Some(outer_node) = u32::try_from(outer_idx).ok().and_then(RowId::virtual_node) else {
+            continue;
+        };
+        let mut srcs = Vec::new();
+        for el in &sym.space.elements {
+            collect_shape_symbol_nodes(&el.shape, block_defs_by_lower, &mut srcs);
+        }
+        srcs.retain(|&s| s != outer_node);
+        srcs.sort_unstable();
+        srcs.dedup();
+        if !srcs.is_empty() {
+            dep.set_sources(outer_node, srcs);
+        }
+    }
+
+    // 2. `DIMASSOC` および拡張辞書のリアクター参照による連想寸法・注釈の依存辺を集める
+    let mut extra_sources: BTreeMap<RowId, Vec<RowId>> = BTreeMap::new();
+    for obj in shell_db.objects() {
+        if obj.section == Section::Objects && obj.kind == b"DIMASSOC" {
+            let dim_rid = obj.values.iter().find_map(|v| match (v.code, &v.data) {
+                (330, Data::Handle(h)) if *h != 0 => table.find_handle(*h),
+                _ => None,
+            });
+            if let Some(dim_rid) = dim_rid {
+                for v in &obj.values {
+                    if matches!(v.code, 331 | 332)
+                        && let Data::Handle(src_h) = v.data
+                        && src_h != 0
+                        && let Some(src_rid) = table.find_handle(src_h)
+                        && src_rid != dim_rid
+                    {
+                        extra_sources.entry(dim_rid).or_default().push(src_rid);
+                    }
+                }
+            }
+        }
+    }
+    if !row_reactors.is_empty() {
+        let mut item_to_owner_row: BTreeMap<u64, RowId> = BTreeMap::new();
+        for &(r_idx, dict_h) in row_ext_dicts {
+            if let Some(owner_rid) = RowId::from_index(r_idx)
+                && let Some(dict_obj) = shell_db.get(dict_h)
+                && dict_obj.kind == b"DICTIONARY"
+            {
+                for v in &dict_obj.values {
+                    if matches!(v.code, 350 | 360)
+                        && let Data::Handle(item_h) = v.data
+                        && item_h != 0
+                    {
+                        item_to_owner_row.entry(item_h).or_insert(owner_rid);
+                    }
+                }
+            }
+        }
+        for &(src_idx, reactor_h) in row_reactors {
+            let Some(src_rid) = RowId::from_index(src_idx) else {
+                continue;
+            };
+            let target_rid = item_to_owner_row
+                .get(&reactor_h)
+                .copied()
+                .or_else(|| table.find_handle(reactor_h));
+            if let Some(dep_rid) = target_rid
+                && dep_rid != src_rid
+                && table
+                    .row(dep_rid)
+                    .is_some_and(|r| r.kind == LiveKind::General)
+            {
+                extra_sources.entry(dep_rid).or_default().push(src_rid);
+            }
+        }
+    }
+
+    // 3. モデル空間の各行について、ブロック定義・ハッチング境界・引出線注釈・連想寸法の依存元を登録する
+    for idx in 0..table.len() {
+        let Some(rid) = RowId::from_index(idx) else {
+            break;
+        };
+        let Some(row) = table.row(rid) else {
+            continue;
+        };
+        let mut srcs =
+            collect_row_dep_sources(shapes, block_defs_by_lower, |h| table.find_handle(h), row);
+        if let Some(extra) = extra_sources.remove(&rid) {
+            srcs.extend(extra);
+            srcs.retain(|&s| s != rid);
+            srcs.sort_unstable();
+            srcs.dedup();
+        }
+        if !srcs.is_empty() {
+            dep.set_sources(rid, srcs);
+        }
+    }
+    dep
 }
 
 fn has_extension_or_paper_values(values: &[Value]) -> bool {

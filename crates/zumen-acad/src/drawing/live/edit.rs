@@ -11,10 +11,10 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use zumen_base::{Budget, CancelToken, Cx, Diagnostic, Diagnostics, Kind, Ref, codes};
+use zumen_base::{Budget, CancelToken, Cx, Diagnostic, Diagnostics, Key, Kind, Ref, codes};
 use zumen_drawing::{
-    Applied, Changes, Edit, Element, Hash, Inherit, LayerId, LineTypeId, ModelPoint, Placed,
-    PointMark, PointSize, PointStyle, Seen, Shape,
+    Applied, Changes, Edit, Element, Hash, Inherit, LayerId, Length, LineTypeId, ModelLength,
+    ModelPoint, Placed, PointMark, PointSize, PointStyle, Seen, Shape, SpaceId,
 };
 use zumen_live::{
     CommittedTxn, ExistingRowDiff, History, PatchPayload, Revision, RowId, SideIndexes, TxnError,
@@ -23,11 +23,13 @@ use zumen_live::{
 use zumen_sdk::{Apply, Codec, Error};
 
 use super::super::single::{self, RestyleLineType};
-use super::super::{FIT_DATA, Lifter, Out, SHEET, TABLE_CONTENT, work};
+use super::super::{BLOCK, FIT_DATA, Lifter, Out, SHEET, TABLE_CONTENT, work};
 use super::backing::{
     DwgBornRecord, DwgRecordPatch, DwgStepPatch, DxfStepPatch, LiveBacking, LiveFormat,
 };
-use super::open::{LiveState, open_dxf, open_from_dwg_file, open_from_dxf_file};
+use super::open::{
+    LiveState, collect_row_dep_sources, open_dxf, open_from_dwg_file, open_from_dxf_file,
+};
 use super::shape::{
     GeneralRow, LiveKind, LiveRow, PlainLifted, ROW_BORN, ROW_DWG_ORIGIN, ROW_HAS_102_OR_360,
     ROW_HAS_HANDLE, ROW_UNIQUE_HANDLE, general_from_element, try_lift_plain_attrib,
@@ -63,6 +65,8 @@ impl PatchPayload for FastBackendPatch {
 #[derive(Clone)]
 pub struct FastEntry {
     step: History<LiveRow, FastBackendPatch>,
+    symbol_edits: Vec<(u32, u32, Element<ModelPoint>, Element<ModelPoint>)>,
+    dirty_symbols: Vec<u32>,
     before_point_style: Option<PointStyle>,
     after_point_style: Option<PointStyle>,
     approx_bytes: usize,
@@ -175,15 +179,29 @@ impl LiveJournal {
         };
         match &mut entry {
             JournalEntry::Fast(fast) => {
+                for (def_idx, elem_idx, before_el, _) in fast.symbol_edits.iter().rev() {
+                    if let Some(sym) = state.symbols.get_mut(*def_idx as usize)
+                        && let Some(slot) = sym.space.elements.get_mut(*elem_idx as usize)
+                    {
+                        *slot = before_el.clone();
+                    }
+                }
                 let side = SideIndexes {
                     grid: Some(&mut state.spatial),
                     dirty_rows: None,
-                    dep: None,
+                    dep: Some(&mut state.dep),
                 };
                 let committed = match fast.step.undo(&mut state.table, side, cx) {
                     Ok(Some(c)) => c,
                     Ok(None) => return Ok(false),
                     Err(stop) => {
+                        for (def_idx, elem_idx, _, after_el) in &fast.symbol_edits {
+                            if let Some(sym) = state.symbols.get_mut(*def_idx as usize)
+                                && let Some(slot) = sym.space.elements.get_mut(*elem_idx as usize)
+                            {
+                                *slot = after_el.clone();
+                            }
+                        }
                         self.undo_stack.push(entry);
                         cx.report(stop.to_diagnostic());
                         return Err(Error::Stopped(stop));
@@ -202,6 +220,9 @@ impl LiveJournal {
                     }
                 }
                 state.point_style = fast.before_point_style;
+                state
+                    .dirty_symbols
+                    .extend(fast.dirty_symbols.iter().copied());
             }
             JournalEntry::Structural(st) => {
                 cx.check(Kind::Work, 1).map_err(|stop| {
@@ -217,6 +238,8 @@ impl LiveJournal {
                 let mut restored = (*st.before_state).clone();
                 restored.table.set_version(next_rev, target_sid, next_sid);
                 restored.display.mark_all_dirty();
+                let sym_len = restored.symbols.len() as u32;
+                restored.dirty_symbols.extend(0..sym_len);
                 *state = restored;
             }
         }
@@ -231,15 +254,29 @@ impl LiveJournal {
         };
         match &mut entry {
             JournalEntry::Fast(fast) => {
+                for (def_idx, elem_idx, _, after_el) in &fast.symbol_edits {
+                    if let Some(sym) = state.symbols.get_mut(*def_idx as usize)
+                        && let Some(slot) = sym.space.elements.get_mut(*elem_idx as usize)
+                    {
+                        *slot = after_el.clone();
+                    }
+                }
                 let side = SideIndexes {
                     grid: Some(&mut state.spatial),
                     dirty_rows: None,
-                    dep: None,
+                    dep: Some(&mut state.dep),
                 };
                 let committed = match fast.step.redo(&mut state.table, side, cx) {
                     Ok(Some(c)) => c,
                     Ok(None) => return Ok(false),
                     Err(stop) => {
+                        for (def_idx, elem_idx, before_el, _) in fast.symbol_edits.iter().rev() {
+                            if let Some(sym) = state.symbols.get_mut(*def_idx as usize)
+                                && let Some(slot) = sym.space.elements.get_mut(*elem_idx as usize)
+                            {
+                                *slot = before_el.clone();
+                            }
+                        }
                         self.redo_stack.push(entry);
                         cx.report(stop.to_diagnostic());
                         return Err(Error::Stopped(stop));
@@ -258,6 +295,9 @@ impl LiveJournal {
                     }
                 }
                 state.point_style = fast.after_point_style;
+                state
+                    .dirty_symbols
+                    .extend(fast.dirty_symbols.iter().copied());
             }
             JournalEntry::Structural(st) => {
                 cx.check(Kind::Work, 1).map_err(|stop| {
@@ -273,6 +313,8 @@ impl LiveJournal {
                 let mut restored = (*st.after_state).clone();
                 restored.table.set_version(next_rev, target_sid, next_sid);
                 restored.display.mark_all_dirty();
+                let sym_len = restored.symbols.len() as u32;
+                restored.dirty_symbols.extend(0..sym_len);
                 *state = restored;
             }
         }
@@ -596,15 +638,34 @@ fn stage_lift_model_entity(
                 | b"DWFUNDERLAY"
                 | b"DGNUNDERLAY"
         )
-        || (kind == b"LEADER"
-            && values
-                .iter()
-                .any(|v| v.code == 340 && matches!(v.data, Data::Handle(h) if h != 0)))
     {
         return None;
     }
 
-    let empty_db = AcadDb::default();
+    let mut lookup_db = AcadDb::default();
+    if matches!(kind, b"HATCH" | b"LEADER") {
+        let ref_code = if kind == b"HATCH" { 330 } else { 340 };
+        let mut added_stubs = BTreeSet::new();
+        for v in &values {
+            if v.code == ref_code
+                && let Data::Handle(h) = v.data
+                && h != 0
+                && added_stubs.insert(h)
+                && let Some(ref_rid) = state.table.find_handle(h)
+                && let Some(ref_row) = state.table.row(ref_rid)
+            {
+                lookup_db.push(Object {
+                    kind: Vec::new(),
+                    section: Section::Entities,
+                    values: vec![Value {
+                        code: 5,
+                        data: Data::Handle(h),
+                    }],
+                    origin: row_origin(ref_row),
+                });
+            }
+        }
+    }
     let empty_layouts = BTreeMap::new();
     let ver = state.single_tables.version.as_slice();
     let lifter = Lifter {
@@ -649,7 +710,7 @@ fn stage_lift_model_entity(
             Origin::Dxf { record: r } => Ref::at_record(r as u64),
         };
         match handle {
-            Some(h) => base.with_key(zumen_base::Key::Handle(h)),
+            Some(h) => base.with_key(Key::Handle(h)),
             None => base,
         }
     };
@@ -676,7 +737,7 @@ fn stage_lift_model_entity(
     let mut local_cx = Cx::new(&mut budget, &mut diag, &cancel);
     if lifter
         .entity(
-            &empty_db,
+            &lookup_db,
             &main_obj,
             src_ref,
             &child_refs,
@@ -718,6 +779,110 @@ fn stage_lift_model_entity(
         },
         el,
     ))
+}
+
+/// ブロック定義（`Section::Blocks`）内の 1 要素を空間 `space` の `Element<ModelPoint>` に持ち上げる
+fn stage_lift_block_element(
+    state: &LiveState,
+    space: SpaceId,
+    source_ref: Ref,
+    origin: Origin,
+    was_shape: &Shape<ModelPoint>,
+    kind: &[u8],
+    values: Vec<Value>,
+) -> Option<Element<ModelPoint>> {
+    if state.catalog.has_implicit
+        || values
+            .iter()
+            .any(|v| v.code >= 1000 || matches!(v.code, 102 | 360 | 101))
+        || matches!(
+            kind,
+            b"DIMENSION"
+                | b"ARC_DIMENSION"
+                | b"MULTILEADER"
+                | b"ACAD_TABLE"
+                | b"IMAGE"
+                | b"PDFUNDERLAY"
+                | b"DWFUNDERLAY"
+                | b"DGNUNDERLAY"
+                | b"POLYLINE"
+                | b"VIEWPORT"
+        )
+    {
+        return None;
+    }
+    let empty_db = AcadDb::default();
+    let empty_layouts = BTreeMap::new();
+    let ver = state.single_tables.version.as_slice();
+    let lifter = Lifter {
+        layouts: &empty_layouts,
+        sheet: SHEET,
+        charset: state.charset,
+        fit_data: ver >= FIT_DATA,
+        table_content: ver >= TABLE_CONTENT,
+        version: (!ver.is_empty()).then(|| String::from_utf8_lossy(ver).into_owned()),
+        mm: state.unit.millimeters(),
+        unit: state.unit,
+        origin: [0.0, 0.0],
+    };
+    let mut out = Out {
+        layers: state.catalog.build_layers(),
+        line_types: state.catalog.build_line_types(),
+        ..Out::default()
+    };
+    for l in &out.layers {
+        out.by_name
+            .entry(l.name.to_ascii_lowercase())
+            .or_insert(l.id);
+    }
+    for lt in &out.line_types {
+        out.line_type_names
+            .entry(lt.name.to_ascii_lowercase())
+            .or_insert(lt.id);
+    }
+    let init_layer_len = out.layers.len();
+    let init_lt_len = out.line_types.len();
+
+    let obj = Object {
+        kind: kind.to_vec(),
+        section: Section::Blocks,
+        values,
+        origin,
+    };
+    let point = |x: f64, y: f64| ModelPoint { space, x, y };
+    let length = |value: f64| Length::Model(ModelLength { space, value });
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let mut local_cx = Cx::new(&mut budget, &mut diag, &cancel);
+    let el = lifter
+        .element(
+            &empty_db,
+            &obj,
+            source_ref,
+            &[],
+            point,
+            length,
+            &mut out,
+            &mut local_cx,
+        )
+        .ok()?;
+    if !diag.is_empty() || out.layers.len() != init_layer_len || out.line_types.len() != init_lt_len
+    {
+        return None;
+    }
+    // 入れ子ブロック参照の名前変更は循環検査を通すため構造経路へ回す
+    if let Shape::Symbol(now_sym) = &el.shape {
+        match was_shape {
+            Shape::Symbol(prev_sym) if prev_sym.key == now_sym.key => {}
+            _ => {
+                if now_sym.key.namespace == BLOCK {
+                    return None;
+                }
+            }
+        }
+    }
+    Some(el)
 }
 
 fn commit_staged_lifted(state: &mut LiveState, staged: StagedLifted) -> LiveRow {
@@ -883,6 +1048,289 @@ fn check_target_seen(
     Ok(Ok((row_id, row, was)))
 }
 
+type SeenBlockElement = (u32, u32, SpaceId, u64, Element<ModelPoint>);
+type StagedSymbolEdit = (u32, u32, Element<ModelPoint>, Element<ModelPoint>);
+
+fn check_block_element_seen(
+    state: &LiveState,
+    target: &Seen,
+    single_edit: bool,
+    cx: &mut Cx<'_>,
+) -> Result<Result<SeenBlockElement, FastAttempt>, Error> {
+    if state.catalog.has_implicit {
+        return Ok(Err(FastAttempt::Fallback));
+    }
+    let Some(&(def_idx, elem_idx)) = state.block_element_targets.get(&target.id) else {
+        return Ok(Err(FastAttempt::Fallback));
+    };
+    let Some(sym) = state.symbols.get(def_idx as usize) else {
+        return Ok(Err(FastAttempt::Fallback));
+    };
+    let Some(was) = sym.space.elements.get(elem_idx as usize).cloned() else {
+        return Ok(Err(FastAttempt::Fallback));
+    };
+    let cur_hash = Hash::element_checked(&was, cx).map_err(|stop| {
+        cx.report(stop.to_diagnostic().at(was.source.clone()));
+        Error::Stopped(stop)
+    })?;
+    if cur_hash != target.hash {
+        if single_edit {
+            cx.report(Diagnostic::new(codes::CHANGE_ELEMENT_STALE).with("id", target.id.as_str()));
+            return Err(Error::Rejected);
+        }
+        return Ok(Err(FastAttempt::Fallback));
+    }
+    if state.shared_sources.contains(&was.source)
+        || matches!(was.shape, Shape::Dimension(_) | Shape::Table(_))
+    {
+        return Ok(Err(FastAttempt::Fallback));
+    }
+    if let Shape::Symbol(s) = &was.shape
+        && !s.attributes.is_empty()
+    {
+        return Ok(Err(FastAttempt::Fallback));
+    }
+    let Some(Key::Handle(handle)) = was.source.key() else {
+        return Ok(Err(FastAttempt::Fallback));
+    };
+    if handle == 0 {
+        return Ok(Err(FastAttempt::Fallback));
+    }
+    Ok(Ok((def_idx, elem_idx, sym.space.id, handle, was)))
+}
+
+fn compute_block_element_values(
+    state: &LiveState,
+    edit: &Edit,
+    was: &Element<ModelPoint>,
+    kind_vec: &[u8],
+    old_vals: &[Value],
+) -> Option<Vec<Value>> {
+    if single::is_followed(kind_vec, old_vals)
+        || old_vals
+            .iter()
+            .any(|v| v.code >= 1000 || matches!(v.code, 102 | 360 | 101))
+    {
+        return None;
+    }
+    match edit {
+        Edit::Transform { transform, .. } => {
+            let (new_vals, moved_atts) =
+                single::move_model(was, kind_vec, old_vals, &[], transform, state.charset)?;
+            moved_atts.is_empty().then_some(new_vals)
+        }
+        Edit::Restyle { style, .. } => {
+            let cur_layer = resolve_layer_name_for_edit(&state.catalog, was.layer)?;
+            let cur_lt = match was.style.line_type {
+                Inherit::Own(lt_id) => state
+                    .catalog
+                    .slot_of_line_type_id(lt_id)
+                    .and_then(|s| state.catalog.line_type_name(s)),
+                _ => None,
+            };
+            let new_layer = match style.layer {
+                None => None,
+                Some(lid) => Some(resolve_layer_name_for_edit(&state.catalog, lid)?),
+            };
+            let new_lt = match style.line_type {
+                None => None,
+                Some(Inherit::Layer) => Some(RestyleLineType::Layer),
+                Some(Inherit::Block) => Some(RestyleLineType::Block),
+                Some(Inherit::Own(lt_id)) => {
+                    let slot = state.catalog.slot_of_line_type_id(lt_id)?;
+                    let name = state.catalog.line_type_name(slot)?;
+                    Some(RestyleLineType::Named(name))
+                }
+            };
+            single::restyle_model(
+                &state.single_tables,
+                kind_vec,
+                old_vals,
+                cur_layer,
+                cur_lt,
+                new_layer,
+                new_lt,
+                style.color,
+                style.line_type_scale,
+                style.line_weight,
+            )
+        }
+        Edit::Replace { element, .. } => {
+            let Placed::Model(now_el) = element.as_ref() else {
+                return None;
+            };
+            if now_el.shape != was.shape && single::moving_xdata(old_vals).is_some() {
+                return None;
+            }
+            let (new_vals, changed_atts) = single::replace_model_with_attribs(
+                was,
+                now_el,
+                kind_vec,
+                old_vals,
+                &[],
+                0,
+                state.charset,
+            )?;
+            changed_atts.is_empty().then_some(new_vals)
+        }
+        _ => None,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn stage_block_element_dxf(
+    state: &LiveState,
+    dxf: &super::backing::DxfLiveBacking,
+    edit: &Edit,
+    target: &Seen,
+    single_edit: bool,
+    record_ops: &mut Vec<super::backing::DxfRecordOp>,
+    symbol_edits: &mut Vec<StagedSymbolEdit>,
+    cx: &mut Cx<'_>,
+) -> Result<Result<Applied, FastAttempt>, Error> {
+    let (def_idx, elem_idx, space, _, was) =
+        match check_block_element_seen(state, target, single_edit, cx)? {
+            Ok(found) => found,
+            Err(fb) => return Ok(Err(fb)),
+        };
+    let Some(rec_u64) = was.source.record() else {
+        return Ok(Err(FastAttempt::Fallback));
+    };
+    let Ok(rec_u32) = u32::try_from(rec_u64) else {
+        return Ok(Err(FastAttempt::Fallback));
+    };
+    let Some((kind_vec, old_vals)) = dxf.decode_current(rec_u32, b"LINE") else {
+        return Ok(Err(FastAttempt::Fallback));
+    };
+    let Some(new_vals) = compute_block_element_values(state, edit, &was, &kind_vec, &old_vals)
+    else {
+        return Ok(Err(FastAttempt::Fallback));
+    };
+    let Some(op) = stage_dxf_record_op(dxf, rec_u32, &old_vals, new_vals.clone()) else {
+        return Ok(Err(FastAttempt::Fallback));
+    };
+    let origin = Origin::Dxf {
+        record: rec_u32 as usize,
+    };
+    let Some(after_el) = stage_lift_block_element(
+        state,
+        space,
+        was.source.clone(),
+        origin,
+        &was.shape,
+        &kind_vec,
+        new_vals,
+    ) else {
+        return Ok(Err(FastAttempt::Fallback));
+    };
+    let hash = Hash::element_checked(&after_el, cx).map_err(|stop| {
+        cx.report(stop.to_diagnostic().at(after_el.source.clone()));
+        Error::Stopped(stop)
+    })?;
+    record_ops.push(op);
+    symbol_edits.push((def_idx, elem_idx, was, after_el));
+    Ok(Ok(Applied {
+        id: Some(target.id.clone()),
+        hash: Some(hash),
+    }))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn stage_block_element_dwg(
+    state: &LiveState,
+    dwg: &super::backing::DwgLiveBacking,
+    edit: &Edit,
+    target: &Seen,
+    single_edit: bool,
+    step_updated: &mut Vec<crate::dwg::single::UpdatedDwgRecord>,
+    patched_diffs: &mut Vec<(u32, Option<DwgRecordPatch>, DwgRecordPatch)>,
+    born_diffs: &mut Vec<(u32, Option<DwgBornRecord>, DwgBornRecord)>,
+    symbol_edits: &mut Vec<StagedSymbolEdit>,
+    cx: &mut Cx<'_>,
+) -> Result<Result<Applied, FastAttempt>, Error> {
+    let (def_idx, elem_idx, space, handle, was) =
+        match check_block_element_seen(state, target, single_edit, cx)? {
+            Ok(found) => found,
+            Err(fb) => return Ok(Err(fb)),
+        };
+    let Some(rec_usize) = dwg.single.record_of_handle(handle) else {
+        return Ok(Err(FastAttempt::Fallback));
+    };
+    let Ok(rec_u32) = u32::try_from(rec_usize) else {
+        return Ok(Err(FastAttempt::Fallback));
+    };
+    let mut quiet = Diagnostics::new();
+    let Some((kind_vec, sec, cur_enc, old_vals)) =
+        dwg.current_record_data(rec_u32, &mut Cx::new(cx.budget, &mut quiet, cx.cancel))
+    else {
+        return Ok(Err(FastAttempt::Fallback));
+    };
+    if sec != Section::Blocks {
+        return Ok(Err(FastAttempt::Fallback));
+    }
+    let Some(new_vals_raw) = compute_block_element_values(state, edit, &was, &kind_vec, &old_vals)
+    else {
+        return Ok(Err(FastAttempt::Fallback));
+    };
+    let Some(new_enc) = dwg.single.encode_record_edit(
+        &cur_enc,
+        Section::Blocks,
+        &kind_vec,
+        &old_vals,
+        &new_vals_raw,
+    ) else {
+        return Ok(Err(FastAttempt::Fallback));
+    };
+    let Some((_, _, settled_vals)) = dwg.single.decode_encoded(handle, &new_enc) else {
+        return Ok(Err(FastAttempt::Fallback));
+    };
+    let origin = match was.source.bytes() {
+        Some(r) => Origin::Dwg {
+            offset: r.start as usize,
+            end: r.end as usize,
+        },
+        None => Origin::New,
+    };
+    let Some(after_el) = stage_lift_block_element(
+        state,
+        space,
+        was.source.clone(),
+        origin,
+        &was.shape,
+        &kind_vec,
+        settled_vals.clone(),
+    ) else {
+        return Ok(Err(FastAttempt::Fallback));
+    };
+    let hash = Hash::element_checked(&after_el, cx).map_err(|stop| {
+        cx.report(stop.to_diagnostic().at(after_el.source.clone()));
+        Error::Stopped(stop)
+    })?;
+    step_updated.push((
+        handle,
+        Section::Blocks,
+        kind_vec.clone(),
+        old_vals,
+        new_vals_raw,
+    ));
+    record_dwg_diff(
+        dwg,
+        rec_u32,
+        handle,
+        &kind_vec,
+        Section::Blocks,
+        settled_vals,
+        new_enc,
+        patched_diffs,
+        born_diffs,
+    );
+    symbol_edits.push((def_idx, elem_idx, was, after_el));
+    Ok(Ok(Applied {
+        id: Some(target.id.clone()),
+        hash: Some(hash),
+    }))
+}
+
 fn try_apply_fast(
     state: &mut LiveState,
     journal: &mut LiveJournal,
@@ -899,8 +1347,11 @@ fn try_apply_fast(
         let eligible = match edit {
             Edit::Transform { target, .. }
             | Edit::Restyle { target, .. }
-            | Edit::Replace { target, .. }
-            | Edit::Remove { target } => target.id.starts_with("space/0/"),
+            | Edit::Replace { target, .. } => {
+                target.id.starts_with("space/0/")
+                    || state.block_element_targets.contains_key(&target.id)
+            }
+            Edit::Remove { target } => target.id.starts_with("space/0/"),
             Edit::Add { place, element } => {
                 place == "space/0" && matches!(element.as_ref(), Placed::Model(_))
             }
@@ -915,6 +1366,7 @@ fn try_apply_fast(
     let single_edit = changes.edits.len() == 1;
     let mut seen_targets: BTreeSet<&str> = BTreeSet::new();
     let mut row_actions: Vec<StagedRowAction> = Vec::with_capacity(changes.edits.len());
+    let mut symbol_edits: Vec<StagedSymbolEdit> = Vec::new();
     let mut applied_out: Vec<Applied> = Vec::with_capacity(changes.edits.len());
     let mut new_point_style = state.point_style;
 
@@ -939,6 +1391,32 @@ fn try_apply_fast(
             let mut next_born_rec = dxf.next_born_record;
 
             for edit in &changes.edits {
+                if let Edit::Transform { target, .. }
+                | Edit::Restyle { target, .. }
+                | Edit::Replace { target, .. } = edit
+                    && state.block_element_targets.contains_key(&target.id)
+                {
+                    if !seen_targets.insert(target.id.as_str()) {
+                        return FastAttempt::Fallback;
+                    }
+                    match stage_block_element_dxf(
+                        state,
+                        dxf,
+                        edit,
+                        target,
+                        single_edit,
+                        &mut record_ops,
+                        &mut symbol_edits,
+                        cx,
+                    ) {
+                        Ok(Ok(ap)) => {
+                            applied_out.push(ap);
+                            continue;
+                        }
+                        Ok(Err(fb)) => return fb,
+                        Err(e) => return FastAttempt::Err(e),
+                    }
+                }
                 match edit {
                     Edit::SetPointStyle { style } => {
                         if !seen_targets.insert("point_style") {
@@ -979,6 +1457,7 @@ fn try_apply_fast(
                             || (row.flags & (ROW_HAS_HANDLE | ROW_UNIQUE_HANDLE)
                                 != (ROW_HAS_HANDLE | ROW_UNIQUE_HANDLE))
                             || state.forget_referenced_handles.contains(&row.handle)
+                            || !state.dep.dependents_of(row_id).is_empty()
                         {
                             return FastAttempt::Fallback;
                         }
@@ -1471,6 +1950,34 @@ fn try_apply_fast(
             });
 
             for edit in &changes.edits {
+                if let Edit::Transform { target, .. }
+                | Edit::Restyle { target, .. }
+                | Edit::Replace { target, .. } = edit
+                    && state.block_element_targets.contains_key(&target.id)
+                {
+                    if !seen_targets.insert(target.id.as_str()) {
+                        return FastAttempt::Fallback;
+                    }
+                    match stage_block_element_dwg(
+                        state,
+                        dwg,
+                        edit,
+                        target,
+                        single_edit,
+                        &mut step_updated,
+                        &mut patched_diffs,
+                        &mut born_diffs,
+                        &mut symbol_edits,
+                        cx,
+                    ) {
+                        Ok(Ok(ap)) => {
+                            applied_out.push(ap);
+                            continue;
+                        }
+                        Ok(Err(fb)) => return fb,
+                        Err(e) => return FastAttempt::Err(e),
+                    }
+                }
                 match edit {
                     Edit::SetPointStyle { style } => {
                         if !seen_targets.insert("point_style") {
@@ -1516,6 +2023,7 @@ fn try_apply_fast(
                             || (row.flags & (ROW_HAS_HANDLE | ROW_UNIQUE_HANDLE)
                                 != (ROW_HAS_HANDLE | ROW_UNIQUE_HANDLE))
                             || state.forget_referenced_handles.contains(&row.handle)
+                            || !state.dep.dependents_of(row_id).is_empty()
                         {
                             return FastAttempt::Fallback;
                         }
@@ -2149,31 +2657,96 @@ fn try_apply_fast(
         }
     };
 
+    // ブロック定義要素の編集から影響を受けるモデル空間の行を先に辿る（ここで止まれば `state` は不変）
+    let mut changed_vnodes: Vec<RowId> = symbol_edits
+        .iter()
+        .filter_map(|&(def_idx, ..)| RowId::virtual_node(def_idx))
+        .collect();
+    changed_vnodes.sort_unstable();
+    changed_vnodes.dedup();
+    let affected_from_symbols = if changed_vnodes.is_empty() {
+        Vec::new()
+    } else {
+        match state.dep.affected_rows_with_cx(&changed_vnodes, cx) {
+            Ok(list) => list,
+            Err(stop) => {
+                cx.report(stop.to_diagnostic());
+                return FastAttempt::Err(Error::Stopped(stop));
+            }
+        }
+    };
+
     // 反映前の予算検査（ここで止まれば `state` も `journal` も 1 ビットも変わらない）
-    let est_work = (row_actions.len().max(1) as u64).saturating_mul(4);
+    let affected_count = row_actions
+        .len()
+        .saturating_add(affected_from_symbols.len())
+        .saturating_add(symbol_edits.len());
+    let est_work = (affected_count.max(1) as u64).saturating_mul(4);
     if let Err(stop) = cx.check(Kind::Work, est_work) {
         cx.report(stop.to_diagnostic());
         return FastAttempt::Err(Error::Stopped(stop));
     }
-    let est_display_bytes = (row_actions.len() as u64).saturating_mul(128);
+    let est_display_bytes = (row_actions
+        .len()
+        .saturating_add(affected_from_symbols.len()) as u64)
+        .saturating_mul(128);
     if let Err(stop) = cx.check(Kind::DecodedBytes, est_display_bytes) {
         cx.report(stop.to_diagnostic());
         return FastAttempt::Err(Error::Stopped(stop));
     }
 
+    // ブロック定義要素の更新を先に反映して、以降の囲む箱の計算が更新後の定義を見るようにする
+    for (def_idx, elem_idx, _, after_el) in &symbol_edits {
+        if let Some(sym) = state.symbols.get_mut(*def_idx as usize)
+            && let Some(slot) = sym.space.elements.get_mut(*elem_idx as usize)
+        {
+            *slot = after_el.clone();
+        }
+    }
+
+    let mut removed_set = BTreeSet::new();
+    let mut explicit_rows = BTreeSet::new();
+    for action in &row_actions {
+        match action {
+            StagedRowAction::Update { row_id, .. } => {
+                explicit_rows.insert(*row_id);
+            }
+            StagedRowAction::Remove { row_id } => {
+                removed_set.insert(*row_id);
+                explicit_rows.insert(*row_id);
+            }
+            StagedRowAction::Born { .. } => {}
+        }
+    }
+
     // `LiveShapes` に新しい図形データを確定登録し、`Transaction` 用の操作列へ変換する
     enum PreparedRowOp {
-        Update(RowId, LiveRow, [f64; 4]),
+        Update(RowId, LiveRow, [f64; 4], Option<Vec<RowId>>),
         Remove(RowId),
-        Born(LiveRow, [f64; 4]),
+        Born(LiveRow, [f64; 4], Vec<RowId>),
     }
-    let mut prepared_ops = Vec::with_capacity(row_actions.len());
+    let mut prepared_ops = Vec::with_capacity(
+        row_actions
+            .len()
+            .saturating_add(affected_from_symbols.len()),
+    );
     for action in row_actions {
         match action {
             StagedRowAction::Update { row_id, lifted } => {
                 let row = commit_staged_lifted(state, lifted);
                 let bbox = state.shapes.row_bounds(&row, &state.symbols);
-                prepared_ops.push(PreparedRowOp::Update(row_id, row, bbox));
+                let dep_srcs = collect_row_dep_sources(
+                    &state.shapes,
+                    &state.block_defs_by_lower,
+                    |h| {
+                        state
+                            .table
+                            .find_handle(h)
+                            .filter(|r| !removed_set.contains(r))
+                    },
+                    &row,
+                );
+                prepared_ops.push(PreparedRowOp::Update(row_id, row, bbox, Some(dep_srcs)));
             }
             StagedRowAction::Remove { row_id } => {
                 prepared_ops.push(PreparedRowOp::Remove(row_id));
@@ -2181,8 +2754,28 @@ fn try_apply_fast(
             StagedRowAction::Born { lifted } => {
                 let row = commit_staged_lifted(state, lifted);
                 let bbox = state.shapes.row_bounds(&row, &state.symbols);
-                prepared_ops.push(PreparedRowOp::Born(row, bbox));
+                let dep_srcs = collect_row_dep_sources(
+                    &state.shapes,
+                    &state.block_defs_by_lower,
+                    |h| {
+                        state
+                            .table
+                            .find_handle(h)
+                            .filter(|r| !removed_set.contains(r))
+                    },
+                    &row,
+                );
+                prepared_ops.push(PreparedRowOp::Born(row, bbox, dep_srcs));
             }
+        }
+    }
+    for &dep_rid in &affected_from_symbols {
+        if dep_rid.is_virtual() || explicit_rows.contains(&dep_rid) {
+            continue;
+        }
+        if let Some(&dep_row) = state.table.row(dep_rid) {
+            let new_bbox = state.shapes.row_bounds(&dep_row, &state.symbols);
+            prepared_ops.push(PreparedRowOp::Update(dep_rid, dep_row, new_bbox, None));
         }
     }
 
@@ -2191,7 +2784,7 @@ fn try_apply_fast(
     let side = SideIndexes {
         grid: Some(&mut state.spatial),
         dirty_rows: None,
-        dep: None,
+        dep: Some(&mut state.dep),
     };
     let txn_res = run_transaction::<LiveRow, FastBackendPatch, (), ()>(
         &mut state.table,
@@ -2201,14 +2794,20 @@ fn try_apply_fast(
         |txn, _cx| {
             for op in prepared_ops {
                 match op {
-                    PreparedRowOp::Update(rid, row, bbox) => {
+                    PreparedRowOp::Update(rid, row, bbox, dep_srcs) => {
                         txn.update_row(rid, row, bbox)?;
+                        if let Some(srcs) = dep_srcs {
+                            txn.set_dep_sources(rid, srcs)?;
+                        }
                     }
                     PreparedRowOp::Remove(rid) => {
                         let _ = txn.remove_row(rid)?;
                     }
-                    PreparedRowOp::Born(row, bbox) => {
-                        let _ = txn.insert_row(row, bbox)?;
+                    PreparedRowOp::Born(row, bbox, dep_srcs) => {
+                        let rid = txn.insert_row(row, bbox)?;
+                        if !dep_srcs.is_empty() {
+                            txn.set_dep_sources(rid, dep_srcs)?;
+                        }
                     }
                 }
             }
@@ -2219,16 +2818,29 @@ fn try_apply_fast(
     match txn_res {
         Ok(_) => {}
         Err(TxnError::Stop(stop)) => {
+            for (def_idx, elem_idx, before_el, _) in symbol_edits.iter().rev() {
+                if let Some(sym) = state.symbols.get_mut(*def_idx as usize)
+                    && let Some(slot) = sym.space.elements.get_mut(*elem_idx as usize)
+                {
+                    *slot = before_el.clone();
+                }
+            }
             cx.report(stop.to_diagnostic());
             return FastAttempt::Err(Error::Stopped(stop));
         }
         Err(TxnError::Stage(_) | TxnError::Rejected(())) => {
+            for (def_idx, elem_idx, before_el, _) in symbol_edits.iter().rev() {
+                if let Some(sym) = state.symbols.get_mut(*def_idx as usize)
+                    && let Some(slot) = sym.space.elements.get_mut(*elem_idx as usize)
+                {
+                    *slot = before_el.clone();
+                }
+            }
             return FastAttempt::Fallback;
         }
     }
 
     // 表示バッファー・形式別バックエンド・点スタイルを同期し、履歴へ積む
-    // `step_history` の先頭（唯一の `undo_stack` 要素）を取り出して見るため、一時的に `reapply` と同じ更新を当てる
     match &mut state.backing {
         LiveBacking::AsciiDxf(dxf) => {
             if let FastBackendPatch::Dxf(p) = &backend_patch {
@@ -2244,14 +2856,23 @@ fn try_apply_fast(
     }
     state.point_style = new_point_style;
 
-    // `step_history` に積まれた `CommittedTxn` の内容に従って `Display` を差分更新する
-    // `undo` -> `redo` を使わずに直接 `table` 上の行から反映するため、`step_history` を借りる口として
-    // 一度無制限予算で `undo` -> `redo` せずに、変更した行をそのまま `Display` へ書く
-    sync_display_from_step_history(state, &mut step_history);
+    let mut dirty_symbols: Vec<u32> = changed_vnodes
+        .iter()
+        .chain(&affected_from_symbols)
+        .filter_map(|r| r.as_virtual())
+        .collect();
+    dirty_symbols.sort_unstable();
+    dirty_symbols.dedup();
+    state.dirty_symbols.extend(dirty_symbols.iter().copied());
 
-    let approx_bytes = step_history.bytes() + 64;
+    sync_display_from_step_history(state, &step_history);
+
+    let approx_bytes =
+        step_history.bytes() + symbol_edits.len() * 256 + dirty_symbols.len() * 4 + 64;
     journal.push_entry(JournalEntry::Fast(FastEntry {
         step: step_history,
+        symbol_edits,
+        dirty_symbols,
         before_point_style,
         after_point_style: new_point_style,
         approx_bytes,
@@ -2262,27 +2883,11 @@ fn try_apply_fast(
 
 fn sync_display_from_step_history(
     state: &mut LiveState,
-    step_history: &mut History<LiveRow, FastBackendPatch>,
+    step_history: &History<LiveRow, FastBackendPatch>,
 ) {
-    // `step_history` には 1 段だけ積まれている。無制限の内部 `Cx` で一度 `undo` -> `redo` すると
-    // `redo` が `&CommittedTxn` を返すため、`reapply_display_for_txn` を 100% 共通化できる。
-    // ただし `revision` を余計に進めないよう元の `revision`・`state_id`・`next_state_id` を保存して戻す。
-    let saved_rev = state.table.revision();
-    let saved_sid = state.table.state_id();
-    let saved_next_sid = state.table.next_state_id();
-    let mut unlim = Budget::default();
-    let mut diag = Diagnostics::new();
-    let cancel = CancelToken::new();
-    let mut icx = Cx::new(&mut unlim, &mut diag, &cancel);
-    let _ = step_history.undo(&mut state.table, SideIndexes::default(), &mut icx);
-    if let Ok(Some(committed)) =
-        step_history.redo(&mut state.table, SideIndexes::default(), &mut icx)
-    {
+    if let Some(committed) = step_history.last_undo() {
         reapply_display_for_txn(state, committed);
     }
-    state
-        .table
-        .set_version(saved_rev, saved_sid, saved_next_sid);
 }
 
 fn build_dxf_born_overlay(kind: &[u8], values: &[Value]) -> Result<OverlayRecord, i16> {
@@ -2489,6 +3094,8 @@ fn apply_structural(
         .table
         .set_version(next_rev, new_state_id, next_state_id);
     after_state.display.mark_all_dirty();
+    let sym_len = after_state.symbols.len() as u32;
+    after_state.dirty_symbols.extend(0..sym_len);
 
     let before_box = Box::new(state.clone());
     let after_box = Box::new(after_state.clone());

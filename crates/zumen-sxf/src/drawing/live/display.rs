@@ -329,6 +329,33 @@ fn include_edge_bounds<P: transform::Point>(acc: &mut Option<[f64; 4]>, edge: &E
     }
 }
 
+/// 部分図空間・部分図定義の要素について、子部分図の外接矩形も展開した局所外接矩形を求める
+pub(super) fn model_shape_bounds(
+    shape: &Shape<ModelPoint>,
+    symbol_bounds: &BTreeMap<SymbolKey, [f64; 4]>,
+) -> [f64; 4] {
+    if let Shape::Symbol(sym) = shape
+        && let Some(&sb) = symbol_bounds.get(&sym.key)
+        && sb != EMPTY_BOUNDS
+    {
+        let rad = sym.rotation.to_radians();
+        let (cos, sin) = (libm::cos(rad), libm::sin(rad));
+        let [sx, sy] = sym.scale;
+        let affine = Affine {
+            m: [
+                sx * cos,
+                -sy * sin,
+                sym.position.x,
+                sx * sin,
+                sy * cos,
+                sym.position.y,
+            ],
+        };
+        return transform_bounds(sb, &affine);
+    }
+    raw_shape_bounds(shape)
+}
+
 /// シート上の要素（またはビュー経由で配置される部分図要素）のシート座標での外接矩形
 pub(super) fn compute_sheet_bounds(
     container: SxfContainer,
@@ -360,7 +387,7 @@ pub(super) fn compute_sheet_bounds(
             raw_shape_bounds(&elem.shape)
         }
         (SxfContainer::Space(space), Placed::Model(elem)) => {
-            let local = raw_shape_bounds(&elem.shape);
+            let local = model_shape_bounds(&elem.shape, symbol_bounds);
             if local == EMPTY_BOUNDS {
                 return EMPTY_BOUNDS;
             }

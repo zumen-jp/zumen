@@ -1657,7 +1657,6 @@ impl LiveShapes {
 
     fn insert_bounds(&self, g: &InsertGeom, symbols: &[SymbolDefinition]) -> [f64; 4] {
         let mut bx = empty_box();
-        expand_pt(&mut bx, g.position);
         for i in 0..g.attrib_count {
             if let Some(attr) = self.pools.attribs.get((g.attrib_start + i) as usize)
                 && attr.attrib_flags & 1 == 0
@@ -1701,6 +1700,9 @@ impl LiveShapes {
                     }
                 }
             }
+        }
+        if bx[0] > bx[2] {
+            expand_pt(&mut bx, g.position);
         }
         bx
     }
@@ -2158,7 +2160,6 @@ pub fn shape_bounds(
             }
         }
         Shape::Symbol(sym) => {
-            expand_pt(&mut bx, [sym.position.x, sym.position.y]);
             for attr in &sym.attributes {
                 if !attr.hidden {
                     model_text_bounds(&attr.text, &mut bx);
@@ -2192,6 +2193,9 @@ pub fn shape_bounds(
                         );
                     }
                 }
+            }
+            if bx[0] > bx[2] {
+                expand_pt(&mut bx, [sym.position.x, sym.position.y]);
             }
         }
         Shape::Table(table) => {

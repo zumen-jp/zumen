@@ -1433,3 +1433,125 @@ fn p21_shift_jis_raw_values_and_remove_last_trailing_newline_parity() {
     assert!(live_redo(&mut live));
     assert_eq!(live_save(&live), write_file_bytes(&file));
 }
+
+#[test]
+fn subfigure_part_edits_propagate_bounds_across_nested_parts_and_undo_redo() {
+    // flag '4'（作図部品 = SymbolDefinition）の入れ子:
+    // PART_IN (#50 line (0,0)-(20,10) -> #60 sfig_org flag '4')
+    // PART_OUT (#70 sfig_locate PART_IN at (10,0) -> #80 sfig_org flag '4')
+    // SUB_VIEW (#90 sfig_locate PART_OUT at (30,40) -> #100 sfig_org flag '1' = Space)
+    // Sheet (#110 sfig_locate PART_OUT at (100,200), #120 sfig_locate SUB_VIEW at (0,0), #130 drawing_sheet)
+    let features: [&[u8]; 10] = [
+        b"layer_feature(\\'A\\','1')",
+        // #20 -> #30 PART_IN (flag '4')
+        b"line_feature('1','1','1','1','0.0','0.0','20.0','10.0')",
+        b"sfig_org_feature(\\'PART_IN\\','4')",
+        // #40 -> #50 PART_OUT (flag '4')
+        b"sfig_locate_feature('1',\\'PART_IN\\','10.0','0.0','0.0','1.0','1.0')",
+        b"sfig_org_feature(\\'PART_OUT\\','4')",
+        // #60 -> #70 SUB_VIEW (flag '1')
+        b"sfig_locate_feature('1',\\'PART_OUT\\','30.0','40.0','0.0','1.0','1.0')",
+        b"sfig_org_feature(\\'SUB_VIEW\\','1')",
+        // #80 sheet placement of PART_OUT at (100,200) -> initial bounds [110, 200, 130, 210]
+        b"sfig_locate_feature('1',\\'PART_OUT\\','100.0','200.0','0.0','1.0','1.0')",
+        // #90 sheet view of SUB_VIEW at (0,0) -> initial bounds [40, 40, 60, 50]
+        b"sfig_locate_feature('1',\\'SUB_VIEW\\','0.0','0.0','0.0','1.0','1.0')",
+        b"drawing_sheet_feature(\\'S\\','3','1','0','0')",
+    ];
+    let mut src = b"ISO-10303-21;\r\nHEADER;\r\nFILE_DESCRIPTION(('SCADEC level2 feature_mode'),'2;1');\r\nFILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));\r\nENDSEC;\r\nDATA;\r\n".to_vec();
+    for (at, feature) in features.iter().enumerate() {
+        src.extend_from_slice(format!("/*SXF\r\n#{} = ", (at + 1) * 10).as_bytes());
+        src.extend_from_slice(feature);
+        src.extend_from_slice(b"\r\nSXF*/\r\n");
+    }
+    src.extend_from_slice(b"ENDSEC;\r\nEND-ISO-10303-21;\r\n");
+
+    let mut file = read_file(&src);
+    let (mut live, _) = open_live(&src);
+    let (d0, _) = live_drawing(&live);
+    assert_eq!(d0.symbols.len(), 2);
+    let sub_space_id = d0.spaces[0].id;
+
+    // 初期外接矩形の確認: シート直置き [110,200]..[130,210]、部分図空間内 [40,40]..[60,50]
+    let init_sheet_hits = live.select_sheet([115.0, 202.0, 125.0, 208.0]);
+    assert_eq!(init_sheet_hits.len(), 1);
+    let init_space_hits = live.select_in_space(sub_space_id, [42.0, 42.0, 58.0, 48.0]);
+    assert_eq!(init_space_hits.len(), 1);
+
+    // 依存グラフ: PART_IN (0) -> PART_OUT (1) -> 両配置行
+    let vnode_in = SxfLive::symbol_dep_node(0).unwrap();
+    let mut b_dep = Budget::default();
+    let mut d_dep = Diagnostics::new();
+    let c_dep = CancelToken::new();
+    let affected = live
+        .affected_rows(&[vnode_in], &mut Cx::new(&mut b_dep, &mut d_dep, &c_dep))
+        .unwrap();
+    assert_eq!(affected.len(), 3);
+
+    // PART_IN 内の線分 (#20) を (+300, +400) 平行移動
+    let mut def_namer = id::DefinitionNamer::default();
+    let mut target_seen = None;
+    for sym in &d0.symbols {
+        let place = def_namer.next(sym);
+        if sym.key.name == "PART_IN" {
+            let mut namer = id::Namer::new(&place);
+            let elem = &sym.space.elements[0];
+            target_seen = Some(Seen {
+                id: namer.next(0, elem),
+                hash: Hash::element(elem),
+            });
+        }
+    }
+    let target_seen = target_seen.unwrap();
+    live.clear_dirty_symbols();
+
+    let ((r_file, c_file), (r_live, c_live)) = apply_both(
+        &mut file,
+        &mut live,
+        vec![Edit::Transform {
+            target: target_seen,
+            transform: Affine::translation(300.0, 400.0),
+        }],
+        None,
+    );
+    assert_eq!(c_live, c_file);
+    assert_eq!(r_live.unwrap(), r_file.unwrap());
+    assert_state_parity(&file, &live);
+    assert_eq!(live.dirty_symbols(), &BTreeSet::from([0, 1]));
+
+    // 旧位置ではヒットせず、新位置 ([410,600]..[430,610] と [340,440]..[360,450]) でヒットする
+    assert!(live.select_sheet([115.0, 202.0, 125.0, 208.0]).is_empty());
+    assert_eq!(live.select_sheet([415.0, 602.0, 425.0, 608.0]).len(), 1);
+    assert!(
+        live.select_in_space(sub_space_id, [42.0, 42.0, 58.0, 48.0])
+            .is_empty()
+    );
+    assert_eq!(
+        live.select_in_space(sub_space_id, [342.0, 442.0, 358.0, 448.0])
+            .len(),
+        1
+    );
+
+    // Undo で旧位置・旧バイト列へ戻り、Redo で再び新位置・新バイト列へ進む
+    live.clear_dirty_symbols();
+    assert!(live_undo(&mut live));
+    assert_eq!(live.dirty_symbols(), &BTreeSet::from([0, 1]));
+    assert_eq!(live.select_sheet([115.0, 202.0, 125.0, 208.0]).len(), 1);
+    assert_eq!(
+        live.select_in_space(sub_space_id, [42.0, 42.0, 58.0, 48.0])
+            .len(),
+        1
+    );
+    assert_eq!(live_save(&live), src);
+
+    live.clear_dirty_symbols();
+    assert!(live_redo(&mut live));
+    assert_eq!(live.dirty_symbols(), &BTreeSet::from([0, 1]));
+    assert_eq!(live.select_sheet([415.0, 602.0, 425.0, 608.0]).len(), 1);
+    assert_eq!(
+        live.select_in_space(sub_space_id, [342.0, 442.0, 358.0, 448.0])
+            .len(),
+        1
+    );
+    assert_eq!(live_save(&live), write_file_bytes(&file));
+}

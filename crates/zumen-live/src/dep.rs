@@ -218,6 +218,11 @@ impl DepGraph {
         Ok(self.order_affected(&visited))
     }
 
+    /// 指定したノード集合 `nodes` の誘導部分グラフを、上流から順（同順位・循環部は `RowId` 昇順）に並べて返す
+    pub fn topological_order(&self, nodes: &BTreeSet<RowId>) -> Vec<RowId> {
+        self.order_affected(nodes)
+    }
+
     fn order_affected(&self, affected: &BTreeSet<RowId>) -> Vec<RowId> {
         if affected.is_empty() {
             return Vec::new();
