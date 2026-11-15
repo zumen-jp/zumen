@@ -10,7 +10,7 @@ import { testLargeStrokes } from "./large-strokes.mjs";
 import { testButtEnds } from "./butt-ends.mjs";
 import { testLargeFills } from "./large-fills.mjs";
 import { testWideStrokes } from "./wide-strokes.mjs";
-import { testCircles, testCircleDrawing, testCircleClips } from "./circles.mjs";
+import { testCircles, testCircleDrawing, testCircleClips, testCircleProjection } from "./circles.mjs";
 import { testSnap } from "./snap.mjs";
 import { testTools } from "./tools.mjs";
 import { testUnderlays } from "./underlays.mjs";
@@ -34,6 +34,7 @@ export async function testView2D(wasmPath, inputs, calibrationInput) {
   const circles = testCircles(assert);
   testCircleDrawing(assert);
   testCircleClips(assert);
+  testCircleProjection(assert);
   testSnap({ assert, near });
   testTools({ assert, near, throws });
   testCalibration({ assert, throws });

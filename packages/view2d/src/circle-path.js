@@ -16,10 +16,23 @@ function roots(center, squared) {
 }
 
 /** 巨大な円のうち矩形内の弧だけを返す。弦の誤差は呼出側の画素数で指定する。 */
-export function circleArcs(center, radius, box, tolerance, charge) {
+export function circleArcs(center, radius, box, tolerance, charge, exactRadius) {
+  // 画面内で変化が大きい接線側の軸をパラメーターにする。円の上下端に
+  // 近い弧を Y で分けると、微小な Y の差が丸められて左右の弧が途切れる。
+  if (Math.abs(center.y - (box.min_y / 2 + box.max_y / 2)) > Math.abs(center.x - (box.min_x / 2 + box.max_x / 2))) {
+    const swapped = { x: center.y, y: center.x, exact: center.exact ? { x: center.exact.y, y: center.exact.x } : undefined };
+    const bounds = { min_x: box.min_y, min_y: box.min_x, max_x: box.max_y, max_y: box.max_x };
+    return arcsAlongY(swapped, radius, bounds, tolerance, charge, exactRadius).map((points) => {
+      charge(points.length); return points.map((p) => ({ x: p.y, y: p.x }));
+    });
+  }
+  return arcsAlongY(center, radius, box, tolerance, charge, exactRadius);
+}
+
+function arcsAlongY(center, radius, box, tolerance, charge, exactRadius) {
   let work = 0;
   const spend = () => { valid(++work <= 4096, "circle.work"); charge(1); };
-  const cx = dyadic(center.x), cy = dyadic(center.y), r = dyadic(radius), rr = square(r);
+  const cx = center.exact?.x ?? dyadic(center.x), cy = center.exact?.y ?? dyadic(center.y), r = exactRadius ?? dyadic(radius), rr = square(r);
   const horizontal = (y) => roots(cx, sub(rr, square(sub(dyadic(y), cy))));
   const vertical = (x) => roots(cy, sub(rr, square(sub(dyadic(x), cx))));
   const nearestX = Math.max(box.min_x, Math.min(center.x, box.max_x));

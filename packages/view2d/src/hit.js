@@ -44,7 +44,7 @@ const crossExact = (ax, ay, bx, by) => addExact(multiplyExact(ax, by), multiplyE
 
 function exactPoint(p) {
   if (![p.x, p.y, ...(p.anchor ? [p.anchor.x, p.anchor.y, p.offsetX, p.offsetY] : [])].every(Number.isFinite)) return null;
-  return p.anchor ? { x: addExact(dyadic(p.anchor.x), dyadic(p.offsetX)), y: addExact(dyadic(p.anchor.y), dyadic(p.offsetY)) } : { x: dyadic(p.x), y: dyadic(p.y) };
+  return p.exact ?? (p.anchor ? { x: addExact(p.anchor.exact?.x ?? dyadic(p.anchor.x), dyadic(p.offsetX)), y: addExact(p.anchor.exact?.y ?? dyadic(p.anchor.y), dyadic(p.offsetY)) } : { x: dyadic(p.x), y: dyadic(p.y) });
 }
 
 function exactIntersection(first, second) {
@@ -72,11 +72,11 @@ function leading(value) {
 
 function exactSegmentPosition(a, b, p) {
   if (![a.x, a.y, b.x, b.y, p.x, p.y].every(Number.isFinite)) return { start: NaN, finish: NaN, normal: NaN };
-  const ax = dyadic(a.x), ay = dyadic(a.y);
-  const dx = addExact(dyadic(b.x), ax, true), dy = addExact(dyadic(b.y), ay, true);
+  const first = exactPoint(a), last = exactPoint(b), point = exactPoint(p), ax = first.x, ay = first.y;
+  const dx = addExact(last.x, ax, true), dy = addExact(last.y, ay, true);
   if (dx.integer === 0n && dy.integer === 0n) return { start: NaN, finish: NaN, normal: NaN };
-  const px = addExact(dyadic(p.x), ax, true), py = addExact(dyadic(p.y), ay, true);
-  const qx = addExact(dyadic(p.x), dyadic(b.x), true), qy = addExact(dyadic(p.y), dyadic(b.y), true);
+  const px = addExact(point.x, ax, true), py = addExact(point.y, ay, true);
+  const qx = addExact(point.x, last.x, true), qy = addExact(point.y, last.y, true);
   const squared = leading(addExact(multiplyExact(dx, dx), multiplyExact(dy, dy)));
   const dot = leading(addExact(multiplyExact(px, dx), multiplyExact(py, dy)));
   const endDot = leading(addExact(multiplyExact(qx, dx), multiplyExact(qy, dy)));
@@ -131,7 +131,7 @@ function segmentContains(a, b, p, radius, direction) {
   const endpointScale = Math.min(1, scale * length);
   let comparisons = [filteredCompare(start, 0, errorAlong, evaluationStart, endpointScale), filteredCompare(finish, 0, errorAlong, evaluationFinish, endpointScale),
     filteredCompare(normal, -radius, errorNormal, evaluationNormal), filteredCompare(normal, radius, errorNormal, evaluationNormal)];
-  if (comparisons.some((value) => value === undefined)) {
+  if (a.exact || b.exact || p.exact || comparisons.some((value) => value === undefined)) {
     ({ start, finish, normal } = exactSegmentPosition(a, b, p));
     comparisons = [filteredCompare(start, 0, errorAlong, 0, endpointScale), filteredCompare(finish, 0, errorAlong, 0, endpointScale),
       filteredCompare(normal, -radius, errorNormal, 0), filteredCompare(normal, radius, errorNormal, 0)];

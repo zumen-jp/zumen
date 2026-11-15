@@ -9,8 +9,8 @@ export function clipSegment(a, b, box) {
   if (inside(a, box) && inside(b, box)) return [a, b];
   if (a.x < box.min_x && b.x < box.min_x || a.x > box.max_x && b.x > box.max_x ||
     a.y < box.min_y && b.y < box.min_y || a.y > box.max_y && b.y > box.max_y) return null;
-  const start = { x: dyadic(a.x), y: dyadic(a.y) }, delta = {
-    x: addExact(dyadic(b.x), start.x, true), y: addExact(dyadic(b.y), start.y, true),
+  const start = pointExact(a), finish = pointExact(b), delta = {
+    x: addExact(finish.x, start.x, true), y: addExact(finish.y, start.y, true),
   };
   let enter = { n: zero, d: one }, leave = { n: one, d: one };
   // Liang–Barsky の区間を有理数で更新する。平面は 4 つだけで、入力の長さによる反復はない。
@@ -91,7 +91,8 @@ const squareExact = (a) => multiplyExact(a, a);
 const dotExact = (ax, ay, bx, by) => addExact(multiplyExact(ax, bx), multiplyExact(ay, by));
 const planeAt = (p, dx, dy, reverse = false) => {
   const x = reverse ? negate(dx) : dx, y = reverse ? negate(dy) : dy;
-  return { x, y, c: negate(dotExact(x, y, dyadic(p.x), dyadic(p.y))) };
+  const exact = pointExact(p);
+  return { x, y, c: negate(dotExact(x, y, exact.x, exact.y)) };
 };
 const planeValue = (plane, p) => addExact(dotExact(plane.x, plane.y, p.x, p.y), multiplyExact(plane.c, p.w));
 
@@ -138,8 +139,8 @@ const roundedPoints = (vertices, box) => {
 };
 const finiteRegion = (box, radius, points) => Number.isFinite(radius) && radius > 0 &&
   Object.values(box).every(Number.isFinite) && points.every((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
-const relativePoint = (p, anchor) => ({ x: addExact(p.x, multiplyExact(dyadic(anchor.x), p.w), true),
-  y: addExact(p.y, multiplyExact(dyadic(anchor.y), p.w), true) });
+const relativePoint = (p, anchor) => ({ x: addExact(p.x, multiplyExact(pointExact(anchor).x, p.w), true),
+  y: addExact(p.y, multiplyExact(pointExact(anchor).y, p.w), true) });
 
 /** 明示的な閉輪の round stroke は、折れ線への距離<=radius の領域。全包する元頂点があれば枠全体を返す。 */
 export function wideClosedStroke(points, radius, box) {
@@ -155,7 +156,7 @@ export function diskCoversBox(center, radius, box) {
   if (!finiteRegion(box, radius, [center])) return false;
   const squared = squareExact(dyadic(radius));
   return boxCorners(box).every((p) => {
-    const x = addExact(dyadic(p.x), dyadic(center.x), true), y = addExact(dyadic(p.y), dyadic(center.y), true);
+    const x = addExact(dyadic(p.x), pointExact(center).x, true), y = addExact(dyadic(p.y), pointExact(center).y, true);
     return addExact(dotExact(x, y, x, y), squared, true).integer <= 0n;
   });
 }
@@ -163,7 +164,7 @@ export function diskCoversBox(center, radius, box) {
 /** 幅の側面が凸領域を全包すると証明できる場合だけ、butt の領域を近傍の塗りにする。 */
 export function wideSegment(a, b, radius, box) {
   if (!finiteRegion(box, radius, [a, b])) return null;
-  const dx = addExact(dyadic(b.x), dyadic(a.x), true), dy = addExact(dyadic(b.y), dyadic(a.y), true);
+  const dx = addExact(pointExact(b).x, pointExact(a).x, true), dy = addExact(pointExact(b).y, pointExact(a).y, true);
   if (dx.integer === 0n && dy.integer === 0n) return [];
   const vertices = clipPlanes(box, [planeAt(a, dx, dy), planeAt(b, dx, dy, true)]);
   const limit = multiplyExact(squareExact(dyadic(radius)), dotExact(dx, dy, dx, dy));
@@ -178,8 +179,8 @@ export function wideSegment(a, b, radius, box) {
 /** 円盤が扇形の近傍を全包すると証明できる round join。円弧が来る場合は従来経路に戻す。 */
 export function wideJoin(previous, center, next, radius, box) {
   if (!finiteRegion(box, radius, [previous, center, next])) return null;
-  const ix = addExact(dyadic(center.x), dyadic(previous.x), true), iy = addExact(dyadic(center.y), dyadic(previous.y), true);
-  const ox = addExact(dyadic(next.x), dyadic(center.x), true), oy = addExact(dyadic(next.y), dyadic(center.y), true);
+  const ix = addExact(pointExact(center).x, pointExact(previous).x, true), iy = addExact(pointExact(center).y, pointExact(previous).y, true);
+  const ox = addExact(pointExact(next).x, pointExact(center).x, true), oy = addExact(pointExact(next).y, pointExact(center).y, true);
   if (ix.integer === 0n && iy.integer === 0n || ox.integer === 0n && oy.integer === 0n) return [];
   const cross = addExact(multiplyExact(ix, oy), multiplyExact(iy, ox), true);
   if (cross.integer === 0n && dotExact(ix, iy, ox, oy).integer > 0n) return [];

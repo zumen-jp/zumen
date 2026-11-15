@@ -2,7 +2,7 @@ import { SCENE_NONE, SCENE_VALUES as V } from "@zumen-jp/zumen";
 import { end, rows, valid } from "./validate.js";
 import { unitVisible } from "./interaction.js";
 import { clipRing, clipSegment, diskCoversBox, inside, wideClosedStroke, wideJoin, wideSegment } from "./raster.js";
-import { addExact, divideExact, dyadic, multiplyExact } from "./exact.js";
+import { addExact, divideExact, dyadic, multiplyExact, sqrtExact } from "./exact.js";
 import { circleArcs } from "./circle-path.js";
 
 const decoder = new TextDecoder();
@@ -112,10 +112,10 @@ class Path {
     if (this.collect && !equal(this.points[this.points.length - 1], p)) this.points.push(p);
   }
   close() { this.path.closePath(); this.flush(true); }
-  circle(p, radius) {
+  circle(p, radius, exactRadius) {
     this.flush(); this.path.moveTo(p.x + radius, p.y); this.path.arc(p.x, p.y, radius, 0, 2 * Math.PI);
     this.addPoint(p, radius);
-    if (this.collect) this.circles.push({ ...p, radius });
+    if (this.collect) this.circles.push({ ...p, radius, exactRadius });
   }
   rectangle(minX, minY, maxX, maxY, at = (x, y) => ({ x, y })) {
     this.move(at(minX, minY)); this.line(at(maxX, minY)); this.line(at(maxX, maxY)); this.line(at(minX, maxY)); this.close();
@@ -189,16 +189,16 @@ class StrokePath extends Path {
     }
     this.previous = null; this.tip = null;
   }
-  circle(p, radius) {
+  circle(p, radius, exactRadius) {
     // 同じ part のマーク・円・四角を一度の stroke にし、重なりの alpha を保つ。
     this.widePath = null; this.strokePoints = null; this.localStroke = false;
     if (needsCircleArcs(p, radius, this.radius * 2, this.pixelRatio)) {
-      for (const points of circleArcs(p, radius, this.box, 1 / (64 * this.pixelRatio), this.charge)) {
+      for (const points of circleArcs(p, radius, this.box, 1 / (64 * this.pixelRatio), this.charge, exactRadius)) {
         for (let i = 0; i < points.length; i++) this.path[i ? "lineTo" : "moveTo"](points[i].x, points[i].y);
         if (points.length > 2 && equal(points[0], points[points.length - 1])) this.path.closePath();
       }
       this.addPoint(p, radius);
-    } else super.circle(p, radius);
+    } else super.circle(p, radius, exactRadius);
   }
   flushStroke() {
     const points = this.strokePoints; this.strokePoints = null;
@@ -263,6 +263,25 @@ class FillPath extends Path {
 
 const equal = (a, b) => a.x === b.x && a.y === b.y;
 
+function pointShape(c, i, chunk, view, size) {
+  const marker = pointReason(c, i) === "marker-unresolved";
+  const [mark, frame, sizeKind, value] = marker || !c.point_style.length ? [V.point_mark.dot, 0, V.point_size.length, 0] : c.point_style;
+  const x = c.point_xy[i * 2], y = c.point_xy[i * 2 + 1];
+  const p = projectFill(view, size, x, y, c.chunk_origins[chunk * 2], c.chunk_origins[chunk * 2 + 1], { x: dyadic(x), y: dyadic(y) });
+  const one = dyadic(1), half = dyadic(0.5);
+  const requested = sizeKind === V.point_size.screen ? dyadic(value * size.height / 200) : multiplyExact(multiplyExact(dyadic(value), dyadic(view.scale)), half);
+  const minimum = addExact(requested, one, true).integer < 0n, exactRadius = minimum ? one : requested;
+  // binary64 の回転行列も、二軸の長さは同じ。中心と円へ同じ行列を適用し、
+  // cos²+sin² の丸めが巨大な半径との相殺で画面内の移動にならないようにする。
+  let circleExactRadius = exactRadius;
+  if ((frame & V.point_frame.circle) && !minimum && sizeKind === V.point_size.length && view.rotation !== 0) {
+    const cos = dyadic(Math.cos(view.rotation)), sin = dyadic(Math.sin(view.rotation));
+    const squared = addExact(multiplyExact(cos, cos), multiplyExact(sin, sin));
+    if (addExact(squared, one, true).integer !== 0n) circleExactRadius = multiplyExact(exactRadius, sqrtExact(squared));
+  }
+  return { p, mark, frame, radius: divideExact(exactRadius, one), exactRadius, circleRadius: divideExact(circleExactRadius, one), circleExactRadius };
+}
+
 /** 可変の円弧の分割を描画前に確かめる。ここでの計算と実描画の両方を数える。 */
 export function validateCircleWork(prepared, settings, view, size, display, limits) {
   if (!prepared) return;
@@ -273,13 +292,12 @@ export function validateCircleWork(prepared, settings, view, size, display, limi
   for (let chunk = 0; chunk < order.length; chunk++) for (const ordinal of order[chunk].indices) {
     const [kind, i] = order[chunk].locate(ordinal);
     if (kind !== "point" || omitted.has(`point:${i}`) || !unitVisible(c, c.point_units[i], display) || pointReason(c, i) === "marker-unresolved") continue;
-    const p = project(view, size.width, size.height, c.point_xy[i * 2], c.point_xy[i * 2 + 1], c.chunk_origins[chunk * 2], c.chunk_origins[chunk * 2 + 1]);
-    const diameter = c.point_style[2] === V.point_size.screen ? c.point_style[3] * size.height / 100 : c.point_style[3] * view.scale;
-    const radius = Math.max(1, diameter / 2), width = lineWidth(c, c.point_units[i], settings, size);
+    const { p, circleRadius: radius, circleExactRadius } = pointShape(c, i, chunk, view, size);
+    const width = lineWidth(c, c.point_units[i], settings, size);
     if (!needsCircleArcs(p, radius, width, size.pixelRatio)) continue;
     const margin = width / 2 + 2 / size.pixelRatio;
     const box = { min_x: -margin, min_y: -margin, max_x: size.width + margin, max_y: size.height + margin };
-    circleArcs(p, radius, box, 1 / (64 * size.pixelRatio), charge);
+    circleArcs(p, radius, box, 1 / (64 * size.pixelRatio), charge, circleExactRadius);
   }
 }
 
@@ -385,13 +403,15 @@ export function* primitiveParts(ctx, c, kind, i, chunk, settings, view, size, co
       yield path.finish("nonzero");
     }
   } else if (kind === "point") {
-    const p = at(c.point_xy[i * 2], c.point_xy[i * 2 + 1]);
-    const marker = pointReason(c, i) === "marker-unresolved";
-    const [mark, frame, sizeKind, value] = marker || !c.point_style.length ? [V.point_mark.dot, 0, V.point_size.length, 0] : c.point_style;
-    const diameter = sizeKind === V.point_size.screen ? value * size.height / 100 : value * view.scale;
-    const radius = Math.max(1, diameter / 2), angle = -view.rotation - c.point_rotations[i] * Math.PI / 180;
+    const { p, mark, frame, radius, exactRadius, circleRadius, circleExactRadius } = pointShape(c, i, chunk, view, size);
+    const angle = -view.rotation - c.point_rotations[i] * Math.PI / 180;
     const cos = Math.cos(angle), sin = Math.sin(angle);
-    const pointAt = (x, y) => ({ x: p.x + cos * x - sin * y, y: p.y + sin * x + cos * y });
+    const pointAt = (x, y) => {
+      const dx = multiplyExact(dyadic(Math.sign(x)), exactRadius), dy = multiplyExact(dyadic(Math.sign(y)), exactRadius);
+      const exact = { x: addExact(p.exact.x, addExact(multiplyExact(dyadic(cos), dx), multiplyExact(dyadic(sin), dy), true)),
+        y: addExact(p.exact.y, addExact(multiplyExact(dyadic(sin), dx), multiplyExact(dyadic(cos), dy))) };
+      return { x: divideExact(exact.x, dyadic(1)), y: divideExact(exact.y, dyadic(1)), exact };
+    };
     if (mark === V.point_mark.dot) {
       const dot = new Path(collect, charge); dot.circle(p, 1 / size.pixelRatio); yield dot.finish("nonzero");
     }
@@ -400,7 +420,7 @@ export function* primitiveParts(ctx, c, kind, i, chunk, settings, view, size, co
     if (mark === V.point_mark.plus) { segment(-radius, 0, radius, 0); segment(0, -radius, 0, radius); }
     if (mark === V.point_mark.cross) { segment(-radius, -radius, radius, radius); segment(-radius, radius, radius, -radius); }
     if (mark === V.point_mark.tick) segment(0, 0, 0, -radius);
-    if (frame & V.point_frame.circle) path.circle(p, radius);
+    if (frame & V.point_frame.circle) path.circle(p, circleRadius, circleExactRadius);
     if (frame & V.point_frame.square) path.rectangle(-radius, -radius, radius, radius, pointAt);
     yield path.finish(null, width);
   }

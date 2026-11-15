@@ -24,17 +24,27 @@ function integer(value) {
   if (exponent) n = (n | 1n << 52n) << BigInt(exponent - 1);
   return hi >>> 31 ? -n : n;
 }
-const squared = (x, y, cx, cy) => (integer(x) - integer(cx)) ** 2n + (integer(y) - integer(cy)) ** 2n;
+function referenceCircle(c, scale, rotation) {
+  const [ox, oy] = c.chunk_origins, cosine = Math.cos(rotation), sine = Math.sin(rotation);
+  const k = integer(scale), a = integer(cosine), b = integer(sine), x = integer(ox), y = integer(oy), middle = integer(100) << 2148n;
+  const radius = integer(c.point_style[3]) * k / 2n;
+  return { x: 100 + scale * (cosine * ox - sine * oy), y: 100 - scale * (sine * ox + cosine * oy),
+    centerX: middle + k * (a * x - b * y), centerY: middle - k * (b * x + a * y), radiusSquared: radius * radius * (a * a + b * b) };
+}
+
+const integerAt = (value) => integer(value) << 2148n;
+const squared = (x, y, c) => (x - c.centerX) ** 2n + (y - c.centerY) ** 2n;
+// sqrt(d)<=sqrt(r)+sqrt(h) を平方だけで比較する。製品の平方根や交点計算は使わない。
+const reaches = (d, r, h) => { const delta = d - r - h; return delta <= 0n || delta * delta <= 4n * r * h; };
 function expectedPoint(p, tolerance, c, radius, half) {
-  const far = integer(radius) + integer(half) + integer(tolerance), near = integer(radius) - integer(half) - integer(tolerance);
-  const d = squared(p.x, p.y, c.x, c.y);
-  return d <= far * far && (near <= 0n || d >= near * near);
+  const h = (integerAt(half) + integerAt(tolerance)) ** 2n, d = squared(integerAt(p.x), integerAt(p.y), c);
+  return reaches(d, c.radiusSquared, h) && reaches(c.radiusSquared, d, h);
 }
 function expectedRect(rect, c, radius, half) {
-  const far = integer(radius) + integer(half), near = integer(radius) - integer(half);
-  const x = Math.max(rect.min_x, Math.min(c.x, rect.max_x)), y = Math.max(rect.min_y, Math.min(c.y, rect.max_y));
-  if (squared(x, y, c.x, c.y) > far * far) return false;
-  return near <= 0n || [rect.min_x, rect.max_x].some((a) => [rect.min_y, rect.max_y].some((b) => squared(a, b, c.x, c.y) >= near * near));
+  const h = integerAt(half) ** 2n, minX = integerAt(rect.min_x), maxX = integerAt(rect.max_x), minY = integerAt(rect.min_y), maxY = integerAt(rect.max_y);
+  const x = c.centerX < minX ? minX : c.centerX > maxX ? maxX : c.centerX, y = c.centerY < minY ? minY : c.centerY > maxY ? maxY : c.centerY;
+  if (!reaches(squared(x, y, c), c.radiusSquared, h)) return false;
+  return [minX, maxX].some((a) => [minY, maxY].some((b) => reaches(c.radiusSquared, squared(a, b, c), h)));
 }
 
 export function testCircles(assert) {
@@ -45,8 +55,8 @@ export function testCircles(assert) {
       view: { center: { x: 0, y: 0 }, rotation, scale } });
     try {
       const input = bundle(source(radius, direction)), report = viewer.setScene(input), element = viewer.getElements()[0];
-      const [ox, oy] = input.scene.columns.chunk_origins, r = input.scene.columns.point_style[3] * scale / 2, half = 0.5 / pixelRatio;
-      const c = { x: 100 + scale * (Math.cos(rotation) * ox - Math.sin(rotation) * oy), y: 100 - scale * (Math.sin(rotation) * ox + Math.cos(rotation) * oy) };
+      const r = input.scene.columns.point_style[3] * scale / 2, half = 0.5 / pixelRatio;
+      const c = referenceCircle(input.scene.columns, scale, rotation);
       const label = `R=${r}/direction=${direction}/ratio=${pixelRatio}/rotation=${rotation}/scale=${scale}`;
       assert(report.drawn.points === 1 && report.issues.length === 0 && element.id === ID, `${label}: 元の件数・ID・診断`);
       const distance = Math.hypot(c.x - 100, c.y - 100), nx = (c.x - 100) / distance, ny = (c.y - 100) / distance;
@@ -226,8 +236,7 @@ export function testCircleClips(assert) {
       const input = bundle(source(radius, direction, 0, 128, { unit_clips: [0], clip_polygons: [0], polygon_vertices: [0], polygon_flags: [0],
         clip_xy: [-1000, -1000, 1000, -1000, 1000, 1000, -1000, 1000] }));
       viewer.setScene(input);
-      const element = viewer.getElements()[0], [ox, oy] = input.scene.columns.chunk_origins;
-      const c = { x: 100 + scale * (Math.cos(rotation) * ox - Math.sin(rotation) * oy), y: 100 - scale * (Math.sin(rotation) * ox + Math.cos(rotation) * oy) };
+      const element = viewer.getElements()[0], c = referenceCircle(input.scene.columns, scale, rotation);
       const r = input.scene.columns.point_style[3] * scale / 2, half = 0.5 / pixelRatio, distance = Math.hypot(c.x - 100, c.y - 100);
       const nx = (c.x - 100) / distance, ny = (c.y - 100) / distance;
       for (const along of [-20, -1, 0, 1, 20]) for (const across of [-half - 0.25, -half, -half + 0.25, 0, half - 0.25, half, half + 0.25]) {
@@ -281,4 +290,45 @@ export function testCircleClips(assert) {
       "二円の共通弦の基点と判別式を途中で丸めない"); contracts++;
   }
   return { points, rectangles, contracts };
+}
+
+/** 元の円と回転行列から、画面中央を通る接線を独立に作る。 */
+export function testCircleProjection(assert) {
+  const totals = { scenes: 0, pixels: 0, points: 0, rectangles: 0 };
+  for (const radius of [H, Math.fround(1e38)]) for (const scale of [1, 1e12]) for (const rotation of [0, Math.PI / 6, Math.PI / 2])
+    for (let direction = 0; direction < 4; direction++) for (const pixelRatio of [1, 2]) for (const combination of ["circle", "plus", "square"]) {
+    const canvas = document.createElement("canvas"), near = document.createElement("canvas");
+    const viewer = new View2D(canvas, { width: SIZE, height: SIZE, pixelRatio, pixelsPerMillimeter: 1, view: { center: { x: 0, y: 0 }, rotation, scale } });
+    try {
+      const input = bundle(source(radius, direction, 2, 128, { point_style: [combination === "plus" ? V.point_mark.plus : V.point_mark.none,
+        combination === "square" ? V.point_frame.square : V.point_frame.circle, V.point_size.length, radius * 2] }));
+      const report = viewer.setScene(input), element = viewer.getElements()[0];
+      assert(report.drawn.points === 1 && report.issues.length === 0 && element.id === ID, "投影しても件数・診断・ID を保つ");
+      const [ox, oy] = input.scene.columns.chunk_origins, c = Math.cos(rotation), s = Math.sin(rotation);
+      const x = c * (ox / radius) - s * (oy / radius), y = -s * (ox / radius) - c * (oy / radius), length = Math.hypot(x, y), nx = x / length, ny = y / length;
+      near.width = canvas.width; near.height = canvas.height;
+      const ctx = near.getContext("2d"), path = new Path2D();
+      ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0); ctx.fillStyle = "white"; ctx.fillRect(0, 0, SIZE, SIZE);
+      path.moveTo(100 - ny * 400, 100 + nx * 400); path.lineTo(100 + ny * 400, 100 - nx * 400);
+      if (combination === "plus") { path.moveTo(100, 100); path.lineTo(100 + nx * 400, 100 + ny * 400); }
+      ctx.strokeStyle = "rgba(0,0,0,0.5019607843137255)"; ctx.lineWidth = 2; ctx.lineCap = "butt"; ctx.lineJoin = "round"; ctx.stroke(path);
+      const a = canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height).data, b = ctx.getImageData(0, 0, near.width, near.height).data;
+      let mismatch = 0, ink = 0, maximum = 0;
+      // 最外周の 1 画素は Canvas の描画端の AA と分ける。
+      for (let py = 1; py < canvas.height - 1; py++) for (let px = 1; px < canvas.width - 1; px++) {
+        const i = (py * canvas.width + px) * 4;
+        if (b[i] < 250) ink++; maximum = Math.max(maximum, Math.abs(a[i] - b[i]));
+        if (Math.abs(a[i] - b[i]) > 4 || a[i + 3] !== 255) mismatch++; totals.pixels++;
+      }
+      assert(ink > 50 && mismatch === 0, `円・マークの投影で輪郭を動かさない: R=${radius}/scale=${scale}/rotation=${rotation}/d=${direction}/ratio=${pixelRatio}/${combination}/mismatch=${mismatch}/maximum=${maximum}`);
+      for (const along of [-40, 40]) for (const across of [-1.1, -0.8, 0, 0.8, 1.1]) {
+        const p = { x: 100 + nx * across - ny * along, y: 100 + ny * across + nx * along }, expected = Math.abs(across) < 1;
+        const point = viewer.hitTest(p, 0), rect = viewer.hitTestRect({ min_x: p.x, min_y: p.y, max_x: p.x, max_y: p.y });
+        assert(expected ? point.length === 1 && point[0] === element : point.length === 0, "投影した輪郭への点選択"); totals.points++;
+        assert(expected ? rect.length === 1 && rect[0] === element : rect.length === 0, "投影した輪郭への矩形選択"); totals.rectangles++;
+      }
+      totals.scenes++;
+    } finally { viewer.destroy(); }
+  }
+  return totals;
 }
