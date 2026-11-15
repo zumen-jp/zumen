@@ -23,6 +23,8 @@ use zumen_base::{Code, Cx, Diagnostic, Kind, Ref, SpecRef, codes};
 use crate::db::ViewError;
 mod binary;
 mod family;
+#[cfg(feature = "drawing")]
+pub mod live_io;
 mod objects;
 mod version;
 mod write_back;
@@ -709,7 +711,12 @@ fn invalid(cx: &mut Cx, line: &TextLine) -> Error {
 
 /// グループ・コードの行。前後の空白を許す。仕様が決めない所の扱いは推定で、`docs/formats/dxf.md` に記録した
 pub fn parse_code(line: &[u8]) -> Option<i16> {
-    core::str::from_utf8(line.trim_ascii()).ok()?.parse().ok()
+    let text = line.trim_ascii();
+    // 1〜4 桁の数字だけなら、そのまま数える（`str::parse` と同じ値になる）
+    if (1..=4).contains(&text.len()) && text.iter().all(u8::is_ascii_digit) {
+        return Some(text.iter().fold(0i16, |n, &b| n * 10 + i16::from(b - b'0')));
+    }
+    core::str::from_utf8(text).ok()?.parse().ok()
 }
 
 /// 1 行。`content` は改行を除いた範囲、`next` は次の行の先頭

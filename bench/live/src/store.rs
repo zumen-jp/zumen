@@ -11,6 +11,8 @@ use std::sync::Arc;
 use std::thread;
 
 pub use zumen_acad::Charset;
+pub use zumen_acad::dxf::live_io::{OTag, OverlayRecord};
+use zumen_acad::dxf::live_io::{decode_record, read_record_spans, read_record_spans_slice};
 use zumen_acad::single::{
     self, CatalogShell, Follow, Followed, RawTag, SingleCatalog, SingleTables,
 };
@@ -21,7 +23,7 @@ use zumen_drawing::{
     TextStyle, Unit,
 };
 
-use crate::display::{Display, RowBuffers};
+use crate::display::{Display, DisplayGeomExt, RowBuffers};
 use crate::edit::History;
 use crate::grid::Grid;
 use crate::lift::{
@@ -65,71 +67,6 @@ pub enum OpenError {
     },
 }
 
-/// 変更・追加されたレコードの 1 つのタグ
-#[derive(Clone, Debug)]
-pub struct OTag {
-    /// グループ・コード
-    pub code: i16,
-    /// 元のバイト範囲（足したタグでは使わない）
-    pub span: Span,
-    /// 書き換えた値（改行を除く）
-    pub edited: Option<Vec<u8>>,
-    /// 新しく足したタグか
-    pub fresh: bool,
-}
-
-impl OTag {
-    /// 新しく足すタグを作る
-    pub fn added(code: i16, value: Vec<u8>) -> Self {
-        Self {
-            code,
-            span: Span {
-                code,
-                start: 0,
-                value: 0,
-                value_end: 0,
-                end: 0,
-            },
-            edited: Some(value),
-            fresh: true,
-        }
-    }
-
-    /// 値の行のバイト列（改行を除く）
-    pub fn raw<'a>(&'a self, src: &'a [u8]) -> &'a [u8] {
-        match &self.edited {
-            Some(bytes) => bytes.as_slice(),
-            None => src
-                .get(self.span.value as usize..self.span.value_end as usize)
-                .unwrap_or_default(),
-        }
-    }
-
-    /// 展開済みのレコード区間から値の行のバイト列（改行を除く）を借りる
-    #[inline]
-    pub fn raw_in<'a>(&'a self, slice: &RecordSlice<'a>) -> &'a [u8] {
-        match &self.edited {
-            Some(bytes) => bytes.as_slice(),
-            None => slice.slice(self.span.value, self.span.value_end),
-        }
-    }
-
-    /// `zumen_acad::Value` に変換する
-    pub fn to_value_in(&self, slice: &RecordSlice<'_>) -> Value {
-        value::value(self.code, self.raw_in(slice))
-    }
-
-    /// レコードの種類 `kind` に合わせて `zumen_acad::Value` に変換する（`DIMSTYLE` の 5 を文字列として扱う）
-    pub fn to_value_for_in(&self, kind: &[u8], slice: &RecordSlice<'_>) -> Value {
-        value::value_of(kind, self.code, self.raw_in(slice))
-    }
-
-    /// 保持している追加ヒープバイト数
-    pub fn heap_bytes(&self) -> usize {
-        self.edited.as_ref().map_or(0, Vec::capacity)
-    }
-}
-
 /// 折れ線のページ列の 1 行（24B）
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PolylineRow {
@@ -141,53 +78,6 @@ pub struct PolylineRow {
     pub count: u32,
     /// 旗（`POLY_CLOSED`・`POLY_GENERATION`・`POLY_WIDTHS`）
     pub flags: u8,
-}
-
-/// 変更または追加された 1 レコードの差分保持
-#[derive(Clone, Debug)]
-pub struct OverlayRecord {
-    /// `raw` の先頭バイトのファイル内オフセット
-    pub base: u32,
-    /// 元のレコードの未圧縮バイト列（`HEADER` や追加レコードでは空）
-    pub raw: Box<[u8]>,
-    /// 今のタグ列
-    pub tags: Vec<OTag>,
-}
-
-impl OverlayRecord {
-    /// 追加されたレコード（すべてのタグが `edited: Some(...)`）を作る
-    pub fn born(tags: Vec<OTag>) -> Self {
-        Self {
-            base: 0,
-            raw: Box::new([]),
-            tags,
-        }
-    }
-
-    /// 元のレコードのスライスから `raw` と `tags` を組む
-    pub fn from_slice(rs: RecordSlice<'_>) -> Self {
-        let tags = read_record_spans_slice(&rs)
-            .into_iter()
-            .map(|span| OTag {
-                code: span.code,
-                span,
-                edited: None,
-                fresh: false,
-            })
-            .collect();
-        Self {
-            base: rs.base as u32,
-            raw: rs.bytes.into(),
-            tags,
-        }
-    }
-
-    /// 保持しているヒープバイト数
-    pub fn heap_bytes(&self) -> usize {
-        self.raw.len()
-            + self.tags.capacity() * size_of::<OTag>()
-            + self.tags.iter().map(OTag::heap_bytes).sum::<usize>()
-    }
 }
 
 /// モデル空間の 6 種類の図形の 1 行（32B）
@@ -2071,45 +1961,6 @@ pub fn attach_family(family: &[(u32, Followed)]) -> (BTreeMap<u32, Vec<u32>>, BT
     (attached, owned, plain)
 }
 
-fn read_record_spans_slice(rs: &RecordSlice<'_>) -> Vec<Span> {
-    let mut out = Vec::new();
-    let mut local_pos = 0usize;
-    let base32 = rs.base as u32;
-    while local_pos < rs.bytes.len() {
-        let Next::Tag(span) = scan::next_tag(rs.bytes, local_pos) else {
-            break;
-        };
-        local_pos = span.end as usize;
-        out.push(shift_span(span, base32));
-    }
-    out
-}
-
-fn read_record_spans(src: &SourceBytes, range: Range<usize>) -> Vec<Span> {
-    src.with_range(range, |rs| read_record_spans_slice(&rs))
-}
-
-fn decode_record(src: &SourceBytes, range: Range<usize>) -> Option<(Vec<u8>, Vec<Value>)> {
-    src.with_range(range, |rs| {
-        let spans = read_record_spans_slice(&rs);
-        let first = spans.first()?;
-        if first.code != 0 {
-            return None;
-        }
-        let kind = rs.slice(first.value, first.value_end).trim_ascii().to_vec();
-        let values = spans
-            .get(1..)
-            .unwrap_or_default()
-            .iter()
-            .map(|s| {
-                let raw = rs.slice(s.value, s.value_end);
-                value::value_of(&kind, s.code, raw)
-            })
-            .collect();
-        Some((kind, values))
-    })
-}
-
 fn rebuild_ent_family(
     src: &SourceBytes,
     record_starts: &[u32],
@@ -2753,12 +2604,7 @@ impl Document {
         }
         read_record_spans(&self.src, self.record_range(record))
             .into_iter()
-            .map(|span| OTag {
-                code: span.code,
-                span,
-                edited: None,
-                fresh: false,
-            })
+            .map(OTag::from_span)
             .collect()
     }
 

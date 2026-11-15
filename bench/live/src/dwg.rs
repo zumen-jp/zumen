@@ -21,7 +21,7 @@ use zumen_drawing::{
 };
 use zumen_sdk::{Codec, FileModel};
 
-use crate::display::Display;
+use crate::display::{Display, DisplayGeomExt};
 use crate::edit::History;
 use crate::grid::Grid;
 use crate::grow::GrowError;

@@ -5,6 +5,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use zumen_acad::dxf::live_io::{AppliedTagOp, apply_tag_edits, replay_tag_ops, revert_tag_ops};
 use zumen_acad::dxf::{
     TagEdit, advance_handseed, diff_values, entity_extents, merge_extents, widen_extents,
 };
@@ -12,6 +13,7 @@ use zumen_acad::{Data, Value, single};
 use zumen_drawing::Affine;
 
 use crate::born::{Add, ColorSpec, Restyle, encode_born_records};
+use crate::display::DisplayGeomExt;
 use crate::dwg::{DwgBornRecord, DwgRecordPatch};
 use crate::lift::{self, Geom, Kind, Lift};
 use crate::paged::RecordSlice;
@@ -71,36 +73,6 @@ pub enum Edit {
         /// 対象のハンドル
         handle: u64,
     },
-}
-
-#[derive(Clone, Debug)]
-enum AppliedTagOp {
-    Set {
-        at: usize,
-        before: Option<Vec<u8>>,
-        after: Vec<u8>,
-    },
-    Remove {
-        at: usize,
-        removed: OTag,
-    },
-    Insert {
-        at: usize,
-        inserted: OTag,
-    },
-}
-
-impl AppliedTagOp {
-    fn bytes(&self) -> usize {
-        size_of::<Self>()
-            + match self {
-                Self::Set { before, after, .. } => {
-                    before.as_ref().map_or(0, Vec::capacity) + after.capacity()
-                }
-                Self::Remove { removed, .. } => removed.heap_bytes(),
-                Self::Insert { inserted, .. } => inserted.heap_bytes(),
-            }
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -209,42 +181,6 @@ impl History {
         self.undo_stack.iter().map(Entry::bytes).sum::<usize>()
             + self.redo_stack.iter().map(Entry::bytes).sum::<usize>()
     }
-}
-
-fn apply_tag_edits_in_place(
-    tags: &mut Vec<OTag>,
-    edits: Vec<TagEdit>,
-) -> Option<Vec<AppliedTagOp>> {
-    let mut ops = Vec::with_capacity(edits.len());
-    for edit in edits {
-        match edit {
-            TagEdit::Set { at, value } => {
-                let slot = tags.get_mut(at)?;
-                let before = slot.edited.replace(value.clone());
-                ops.push(AppliedTagOp::Set {
-                    at,
-                    before,
-                    after: value,
-                });
-            }
-            TagEdit::Remove { at } => {
-                if at >= tags.len() {
-                    return None;
-                }
-                let removed = tags.remove(at);
-                ops.push(AppliedTagOp::Remove { at, removed });
-            }
-            TagEdit::Insert { at, code, value } => {
-                if at > tags.len() {
-                    return None;
-                }
-                let inserted = OTag::added(code, value);
-                tags.insert(at, inserted.clone());
-                ops.push(AppliedTagOp::Insert { at, inserted });
-            }
-        }
-    }
-    Some(ops)
 }
 
 type EncodedRecords = Vec<(Vec<u8>, Vec<OTag>, Vec<Value>)>;
@@ -373,7 +309,7 @@ impl StagedState {
             return Some(());
         }
         let (ov, modified) = self.ensure_record(doc, record);
-        let ops = apply_tag_edits_in_place(&mut ov.tags, edits)?;
+        let ops = apply_tag_edits(&mut ov.tags, edits)?;
         *modified = true;
         self.overlay_ops.entry(record).or_default().extend(ops);
         Some(())
@@ -1133,21 +1069,12 @@ impl Document {
         {
             let created = !self.overlay.contains_key(&h_rec);
             let spans = &self.header.spans;
-            let ov = self.overlay.entry(h_rec).or_insert_with(|| OverlayRecord {
-                base: 0,
-                raw: Box::new([]),
-                tags: spans
-                    .iter()
-                    .map(|&span| OTag {
-                        code: span.code,
-                        span,
-                        edited: None,
-                        fresh: false,
-                    })
-                    .collect(),
-            });
-            let ops = apply_tag_edits_in_place(&mut ov.tags, staged.header_edits)
-                .ok_or(Decline::Unsupported)?;
+            let ov = self
+                .overlay
+                .entry(h_rec)
+                .or_insert_with(|| OverlayRecord::from_spans(spans));
+            let ops =
+                apply_tag_edits(&mut ov.tags, staged.header_edits).ok_or(Decline::Unsupported)?;
             overlays.push(RecordUndo::Patched {
                 record: h_rec,
                 created,
@@ -1490,25 +1417,7 @@ impl Document {
                 }
                 RecordUndo::Patched { record, ops, .. } => {
                     if let Some(ov) = self.overlay.get_mut(record) {
-                        for op in ops.iter().rev() {
-                            match op {
-                                AppliedTagOp::Set { at, before, .. } => {
-                                    if let Some(slot) = ov.tags.get_mut(*at) {
-                                        slot.edited.clone_from(before);
-                                    }
-                                }
-                                AppliedTagOp::Remove { at, removed } => {
-                                    if *at <= ov.tags.len() {
-                                        ov.tags.insert(*at, removed.clone());
-                                    }
-                                }
-                                AppliedTagOp::Insert { at, .. } => {
-                                    if *at < ov.tags.len() {
-                                        ov.tags.remove(*at);
-                                    }
-                                }
-                            }
-                        }
+                        revert_tag_ops(&mut ov.tags, ops);
                     }
                 }
             }
@@ -1567,21 +1476,7 @@ impl Document {
                 } => {
                     if *created {
                         let fresh = if self.header.record == Some(*record) {
-                            OverlayRecord {
-                                base: 0,
-                                raw: Box::new([]),
-                                tags: self
-                                    .header
-                                    .spans
-                                    .iter()
-                                    .map(|&span| OTag {
-                                        code: span.code,
-                                        span,
-                                        edited: None,
-                                        fresh: false,
-                                    })
-                                    .collect(),
-                            }
+                            OverlayRecord::from_spans(&self.header.spans)
                         } else {
                             self.src
                                 .with_range(self.record_range(*record), OverlayRecord::from_slice)
@@ -1589,25 +1484,7 @@ impl Document {
                         self.overlay.insert(*record, fresh);
                     }
                     if let Some(ov) = self.overlay.get_mut(record) {
-                        for op in ops {
-                            match op {
-                                AppliedTagOp::Set { at, after, .. } => {
-                                    if let Some(slot) = ov.tags.get_mut(*at) {
-                                        slot.edited = Some(after.clone());
-                                    }
-                                }
-                                AppliedTagOp::Remove { at, .. } => {
-                                    if *at < ov.tags.len() {
-                                        ov.tags.remove(*at);
-                                    }
-                                }
-                                AppliedTagOp::Insert { at, inserted } => {
-                                    if *at <= ov.tags.len() {
-                                        ov.tags.insert(*at, inserted.clone());
-                                    }
-                                }
-                            }
-                        }
+                        replay_tag_ops(&mut ov.tags, ops);
                     }
                 }
             }

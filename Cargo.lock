@@ -674,6 +674,7 @@ dependencies = [
  "zumen-crs",
  "zumen-drawing",
  "zumen-geom2d",
+ "zumen-live",
  "zumen-sdk",
 ]
 

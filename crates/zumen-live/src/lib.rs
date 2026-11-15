@@ -11,11 +11,13 @@
 //! - [`txn`]: 変更前の値を残す原子トランザクション [`Transaction`] と、取り消し・やり直し履歴 [`History`]
 //! - [`spatial`]: 要素数によらない時間で更新・範囲検索する階層格子 [`SpatialGrid`]
 //! - [`dirty`]: 64 要素の塊ごとに変更範囲を追跡する [`DirtyColumn`]
+//! - [`display`]: 差分で更新する 2D の表示のバッファー [`Display`] と 13 列の変更追跡 [`DisplayDirty`]
 //! - [`dep`]: 寸法・ハッチング・属性・開口などの要素間の依存辺をたどる [`DepGraph`]
 
 pub mod cow;
 pub mod dep;
 pub mod dirty;
+pub mod display;
 pub mod handle;
 pub mod paged;
 pub mod source;
@@ -26,6 +28,7 @@ pub mod txn;
 pub use cow::{CowColumn, CowIter};
 pub use dep::{DepBefore, DepGraph};
 pub use dirty::{DIRTY_BLOCK, DirtyColumn};
+pub use display::{Display, DisplayDirty, DisplayWriter, NO_OWNER, RowBuffers, Slot};
 pub use handle::{HandleBefore, HandleIndex, Revision, RowId};
 pub use paged::{BytePool, Iter, Paged, TextSpan};
 pub use source::{

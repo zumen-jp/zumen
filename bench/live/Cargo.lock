@@ -208,6 +208,7 @@ dependencies = [
  "zumen-base",
  "zumen-drawing",
  "zumen-geom2d",
+ "zumen-live",
  "zumen-sdk",
 ]
 
