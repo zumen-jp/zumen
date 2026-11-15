@@ -1,0 +1,25 @@
+input	elements	bytes	sha256	source
+dwg-base.dwg	2	33974	e19c7136cc61f5c89dd6122ed0f82cdf7d532b9dfc018a108ca9a839b402edb3	bench/editor/prepare.mjs
+dwg-1k.dwg	1002	48579	bdeb8b41aa50b58fdd582e0f29ee56ad9645d1fa3151190dbdf0511d5417be8f	bench/editor/prepare.mjs
+dwg-10k.dwg	10002	212882	e8d9672b220bfd210b951d14414667a0a4551974e24c1bf1f37fe86228ce7be1	bench/editor/prepare.mjs
+dwg-60k.dwg	60002	2021146	0761dcc7ac6ae040da789b89645d9456aa06d059088d312fc4733aa543804575	bench/editor/prepare.mjs
+dxf-base.dxf	2	134414	1d80589a6c6f4cc779d6449ed983607474fc3fd9758723dcba644ac86cd8470b	bench/editor/prepare.mjs
+dxf-1k.dxf	1002	283905	543352088c21e73787ea0a8bd73a54a318719f6081aeb376926161d4ece07f26	bench/editor/prepare.mjs
+dxf-10k.dxf	10002	1643658	d2994632bbc5e5c822f193b263d4e8553f594df4844eaf2bfe39bdadcf6369bb	bench/editor/prepare.mjs
+dxf-100k.dxf	100002	15456103	aa79f0037018ae054fe83980f3984f23249eb32882f358e70634ad619ba96143	bench/editor/prepare.mjs
+jww-base.jww	1	14164	129fd7c53e45dd2715ea5d74849db20761db98aff659eda3129407d89b2bfc10	bench/editor/prepare.mjs
+jww-1k.jww	1001	51176	16dfa524dbbbdb735a4f29f0845008c7b2a4f1edbb81ba0f9b021233a6d09cd8	bench/editor/prepare.mjs
+jww-10k.jww	10001	384176	0f678f316109351255f694f8a15df242a703ccf1d68d7962e528f38cf88ded91	bench/editor/prepare.mjs
+jww-100k.jww	100001	3714180	98cecd160a72900b81066d9d08aa43ff374a0f00806999e5a38e8b145ddbaf7e	bench/editor/prepare.mjs
+sfc-base.sfc	1	346	1ae6a9d458653336dcb3e8f90733871c5fe2ed4fd8e91525b065538a3b2df9d6	bench/editor/prepare.mjs
+sfc-1k.sfc	1001	82048	7debe3b2c0dba37337831d7d7a2c379ce840bc804bf9f1590d2871e7bd421184	bench/editor/prepare.mjs
+sfc-10k.sfc	10001	831489	423e38ecd64c08cae8bb6a45b549af65686ec17592379cf6f9fe0ea1c30f9d16	bench/editor/prepare.mjs
+sfc-100k.sfc	100001	8568370	3cbdde1fed3377f5910202af7ce20dd71907b0e5362892bb8357d4af2c2e31dc	bench/editor/prepare.mjs
+p21-base.p21	1	537	5028528b17a6a605395d8b3469c27d63ccfa810aa1ce4bc34b613d7b8653168a	bench/editor/prepare.mjs
+p21-1k.p21	1001	382982	8d7bc35ac6e3b9e36abb7607d367d606aabb09d2a10bc6aa4090fbf25af3e946	bench/editor/prepare.mjs
+p21-10k.p21	10001	4051319	88a91d3af00a8b8b9f56b7ba19e2f36bc144e842479a12cdf3d5055b4e3873de	bench/editor/prepare.mjs
+p21-30k.p21	30001	12416354	491b78772f955e793f9ad476d3adbf4daef2e02b38f1ffc9aef507311bc08546	bench/editor/prepare.mjs
+lines-10000.dxf	10000	834212	aa2f3b298d02c61a9408ff6c4f5a47479fcecfdc16ae6f7e9835a1edf291f055	bench/live/synthetic.mjs
+lines-1000000.dxf	1000000	88491133	c16aa364cf13c41a6aa1d9a1e4009e042ed9bb5fc16d20d1f3b4fc3afbf7dab5	bench/live/synthetic.mjs
+ezjww-geometry.jww		17565	d4d9d889c1ea088fe588fe9d6772deb75ae331999d97a024fb6911d8dbaf836a	samples/jww/ezjww-geometry.jww
+ezsxf-writer-all-features.sfc		7397	b3d90bc02cd5cfafb03d0f3f94976809cef65fe6d7a1e5642ae6a5874afd9b70	samples/sxf/ezsxf-writer-all-features.sfc

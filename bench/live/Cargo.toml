@@ -1,4 +1,4 @@
-# 文書エンジンの試作（docs/live.md）。DXF と DWG の縦 1 本を、今の実装の apply と照らして確かめ、速さを測る。
+# 文書エンジンのコアと試作（docs/live.md）を、今の実装の apply と照らし、速さを測る。
 # コアのワークスペースには入れない。
 [package]
 name = "zumen-bench-live"
@@ -18,11 +18,18 @@ crate-type = ["rlib", "cdylib"]
 name = "live"
 path = "src/main.rs"
 
+[[bin]]
+name = "core-live"
+path = "src/core_live.rs"
+
 [dependencies]
 libm = { version = "0.2.16", default-features = false }
 zumen = { path = "../../crates/zumen" }
 zumen-acad = { path = "../../crates/zumen-acad" }
 zumen-base = { path = "../../crates/zumen-base" }
 zumen-drawing = { path = "../../crates/zumen-drawing" }
+zumen-jww = { path = "../../crates/zumen-jww" }
 zumen-live = { path = "../../crates/zumen-live" }
+zumen-scene = { path = "../../crates/zumen-scene" }
 zumen-sdk = { path = "../../crates/zumen-sdk" }
+zumen-sxf = { path = "../../crates/zumen-sxf" }

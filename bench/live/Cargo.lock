@@ -249,8 +249,11 @@ dependencies = [
  "zumen-acad",
  "zumen-base",
  "zumen-drawing",
+ "zumen-jww",
  "zumen-live",
+ "zumen-scene",
  "zumen-sdk",
+ "zumen-sxf",
 ]
 
 [[package]]
@@ -433,6 +436,7 @@ dependencies = [
  "zumen-civil",
  "zumen-crs",
  "zumen-ids",
+ "zumen-live",
  "zumen-sdk",
  "zumen-step",
  "zumen-zip",
@@ -450,6 +454,8 @@ dependencies = [
  "libm",
  "zumen-base",
  "zumen-drawing",
+ "zumen-geom2d",
+ "zumen-live",
  "zumen-sdk",
 ]
 
@@ -592,6 +598,8 @@ dependencies = [
  "libm",
  "zumen-base",
  "zumen-drawing",
+ "zumen-geom2d",
+ "zumen-live",
  "zumen-sdk",
  "zumen-step",
  "zumen-xml",

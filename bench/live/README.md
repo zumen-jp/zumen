@@ -1,10 +1,54 @@
-# 文書エンジンの試作
+# 文書エンジンの検証と測定
 
-[文書エンジン](../../docs/live.md)を、DXF と DWG（R2000・R2018 を含む）で縦に 1 本通した試作です。図面を開いたままメモリに置き、要素を動かす・足す・除く・属性を変える変更と、取り消し・やり直し・全体の保存・範囲で選ぶことを、変えた要素の分だけの手間で行います。今の実装（要求のたびに図面の全体を作り直す、今のコアの動かし方）に同じ変更を 1 つずつ当てて、保存したバイト列と保持状態を比べ、同じ操作の時間・メモリ・GPU 表示・動かす場所ごとの速さを測ります。作業は [#878](https://github.com/zumen-jp/zumen/issues/878) で追います。
+[文書エンジン](../../docs/live.md)のコアを検証する `core-live` と、DXF・DWG の試作を検証する `live` を置きます。図面を開いたまま持つ実装を、従来実装の逐次 `apply`・保持モデル・保存バイト列と照合し、時間とメモリを測ります。作業は [#878](https://github.com/zumen-jp/zumen/issues/878) で追います。
 
-コアのワークスペースには入れていません（形式に依らない表・版・トランザクション・取り消し・ページ配列・空間索引・変更フラグは `crates/zumen-live` に切り出し、1 オブジェクトごとの読み書き規則は `crates/zumen-acad` で共有しています）。依存は、このリポジトリの `zumen`・`zumen-acad`・`zumen-base`・`zumen-drawing`・`zumen-live`・`zumen-sdk` と、`libm` です。`Cargo.lock` は、ワークスペースの `Cargo.lock` から同じバージョンを引き継いでいます。CI はこのフォルダーのコードを組み立てないので、下の結果は、書いた日付に手元で流したものです。
+コアのワークスペースには入れていません（形式に依らない表・版・トランザクション・取り消し・ページ配列・空間索引・変更フラグは `crates/zumen-live` に切り出し、1 オブジェクトごとの読み書き規則は `crates/zumen-acad` で共有しています）。依存は、このリポジトリの `zumen`・`zumen-acad`・`zumen-base`・`zumen-drawing`・`zumen-jww`・`zumen-live`・`zumen-scene`・`zumen-sdk`・`zumen-sxf` と、`libm` です。`Cargo.lock` は、ワークスペースの `Cargo.lock` から同じバージョンを引き継いでいます。CI はこのフォルダーのコードを組み立てないので、下の結果は、書いた日付に手元で流したものです。
+
+## コアの検証と測定
+
+`core-live` は `AcadLive`・`JwwLive`・`SxfLive` の公開入口を呼びます。対象の拡張子は DXF・DWG・JWW・SFC・P21 です。既存の `live` コマンドは、下に記した試作を動かします。
+
+```sh
+cargo build --release --locked --manifest-path bench/live/Cargo.toml --bin core-live --target-dir target/bench-live-core
+target/bench-live-core/release/core-live compare target/bench-editor/sfc-10k.sfc --threads 1
+target/bench-live-core/release/core-live compare target/bench-editor/sfc-10k.sfc --threads 4
+target/bench-live-core/release/core-live measure target/bench-editor/sfc-10k.sfc --threads 4 --runs 7
+target/bench-live-core/release/core-live open target/bench-editor/sfc-10k.sfc --threads 4
+```
+
+生成先はコアのワークスペースと分けます。異なるワークスペースで機能の組が変わると、同じ名前の ABI のライブラリを上書きし、別の組み立ての doctest と競合するためです。Windows では実行ファイルに `.exe` が付きます。入力には、[bench/editor](../editor/README.md) で作った図面や公開サンプルを使います。
+
+- `compare` は、最初の空間か用紙にある最後の線・点・円・折れ線を 2 回動かします。変更結果と診断を逐次 `apply` と比較し、保存バイト列、保存前の保持モデル全体・ID・ハッシュ・診断を比較します。保存後の従来実装の再読とも照合し、2 回の取り消しとやり直しの状態・保存を確かめます。モデルの出所の範囲も比較に含め、不一致は `FAIL` と終了コード 1 で返します。
+- `measure` は、開いて表示のバッファーを持つまで、1 件の確定、選択、取り消しの中央値・最小・最大をマイクロ秒で出します。初回の編集も集計に含みます。選択は上記の要素を囲む範囲か、円の中心・点・折れ線の最初の頂点を含む範囲です。
+- 初期表示の比較先は、従来実装の読み取り・モデル変換・`zumen-scene` の構築を同じ予算で通した時間です。コアの表示のバッファーは曲線や文字を要素の値で持ち、従来のシーンは近似と字形を作るため、両者が行う仕事の違いを結果に添えます。
+- `open` は読み込み後に入力のバイト列を手放し、PID と生存行数を出して、標準入力の改行まで文書を保持します。OS のメモリ測定には新しいプロセスでこの操作を使い、`compare` の検証用モデルや保存の写しを混ぜません。
+
+各操作の予算は `Cx` で共有します。展開・確保量の既定値は測定用に 16 GiB とし、`--decoded-mib` で変更できます。ほかの単位はコアの既定値です。これは累計の確保予算であり、常駐メモリ 500 MiB の目標とは別です。停止したときは理由・診断・各単位の使用量を出します。入力に起因する異常終了や資源の超過の記録は [fuzz の公開範囲](../../fuzz/README.md#初回リリース後の記録先)に従います。
+
+`compare` の `--evidence-dir` は、入力名のフォルダーに、初期状態・各移動後・取り消し後・やり直し後の記録を置きます。`.bin` は保存バイト列、`.ids` は全要素の ID とハッシュ、`.diagnostics` は保持モデル取得時の診断全項目、`.budget` は同じ取得で使った各予算単位です。既存の同名の記録は上書きするため、環境ごとに記録先を分けます。
+
+```sh
+node bench/live/synthetic.mjs target/bench-live-inputs 10000 1000000
+target/bench-live-core/release/core-live compare target/bench-live-inputs/lines-1000000.dxf --threads 1 --evidence-dir target/bench-live-native-1
+target/bench-live-core/release/core-live compare target/bench-live-inputs/lines-1000000.dxf --threads 4 --evidence-dir target/bench-live-native-4
+cargo build --release --locked --manifest-path bench/live/Cargo.toml --bin core-live --target wasm32-wasip1 --target-dir target/bench-live-core
+node bench/live/core-wasi.mjs target/bench-live-core/wasm32-wasip1/release/core-live.wasm target/bench-live-inputs target/bench-live-wasm lines-1000000.dxf --threads 1
+node bench/live/compare-evidence.mjs target/bench-live-native-1 target/bench-live-native-4 target/bench-live-wasm
+```
+
+`compare-evidence.mjs` は全ファイルを区切って読み、バイト列を直接比べます。WASI の比較はコアの文書エンジンが対象で、`Session` の `wasm32-unknown-unknown` 適合テストを代替しません。`synthetic.mjs` の格子状の LINE は `$INSUNITS` を持たず、単位未指定の診断も比較します。
+
+Windows のメモリは、PowerShell 7 で次のように測ります。入力の写しを解放して文書だけを持つ時点のワーキングセット、専用メモリと、構築中も含むワーキングセットの最大値を分けて出します。時間には、プロセス起動・ファイル読み取り・40 ms 間隔の確認が含まれます。性能の時間比較には `measure` の値を使います。
+
+```powershell
+pwsh -File bench/live/memory.ps1 -Executable target/bench-live-core/release/core-live.exe -InputPath target/bench-live-inputs/lines-1000000.dxf -Threads 4
+```
+
+この入口の比較は 2 回の移動の経路です。全種類の操作の検証は続けます。公開サンプル・5 形式×4 規模・100 万要素の結果と未達は、[2026-11-16 の記録](results/core-2026-11-16.md)にあります。
 
 ## 範囲
+
+以下は既存の試作 `live` の範囲・手順・過去の測定です。コアの `core-live` の範囲は上に記したとおりです。
 
 扱うものは、次のとおりです。
 
