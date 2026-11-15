@@ -1,0 +1,714 @@
+{
+  "description": "R2004・R2018 の DWG の弧長寸法を置き換え、90 度の回転と移動を当てる。4 つの定義点、上書き文字、既存 ID と未変更要素のハッシュを確かめる。部分弧または引出線付きの寸法を含む変更全体は、診断を返して何も反映しない。",
+  "steps": [
+    {
+      "push": {
+        "name": "arc-r2004.dwg",
+        "file": "samples/dwg/zumen-arcdim-r2004.dwg"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "arc-r2004.dwg"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "layer",
+          "hash",
+          "geometry"
+        ],
+        "doc": "arc-r2004.dwg"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "edits": [
+          {
+            "kind": "replace",
+            "id": "space/0/h2DA",
+            "hash": "v2:401cc064b8d21410f56866eb692c6c65",
+            "geometry": {
+              "shape": "dimension",
+              "kind": "arc_length",
+              "first": [
+                43.301270189221945,
+                24.99999999999997
+              ],
+              "second": [
+                -24.999999999999968,
+                43.30127018922195
+              ],
+              "arc": [
+                32.50000000000003,
+                71.29165124598849
+              ],
+              "center": [
+                0,
+                0
+              ],
+              "label": "override",
+              "text_position": [
+                17.37384631973586,
+                64.84007718814756
+              ],
+              "style": "ISO-25",
+              "style_id": "dimension-style/h27",
+              "content": "Arc=<>mm"
+            }
+          },
+          {
+            "kind": "transform",
+            "id": "space/0/h331",
+            "hash": "v2:2be318d5f013e38763130e4aaf946645",
+            "matrix": [
+              1,
+              0,
+              5,
+              0,
+              1,
+              0
+            ]
+          }
+        ],
+        "doc": "arc-r2004.dwg"
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/3/code": "change.edit.unsupported",
+        "/diagnostics/3/params": {
+          "edit": "transform",
+          "format": "DWG",
+          "kind": "ARC_DIMENSION"
+        }
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "layer",
+          "hash",
+          "geometry"
+        ],
+        "doc": "arc-r2004.dwg"
+      },
+      "expect": {
+        "/result/items/0/hash": "v2:30db63521cf577435539d8fa98d8f17e",
+        "/result/items/1/hash": "v2:401cc064b8d21410f56866eb692c6c65",
+        "/result/items/2/hash": "v2:a24ed296304ebbe367381c6481241827",
+        "/result/items/3/hash": "v2:f07ede96ab90fe4068356d21b0b1a8ed",
+        "/result/items/4/hash": "v2:ee4c51b84765bcbf6100a66c845118fc",
+        "/result/items/5/hash": "v2:9dfd97a30f3e694edeb4d98425df7bcc",
+        "/result/items/6/hash": "v2:0133986b96aca9b34621deca4ca78f58",
+        "/result/items/7/hash": "v2:2be318d5f013e38763130e4aaf946645",
+        "/result/items/8/hash": "v2:8b5d33c2930d29f77ecb6814569ced46",
+        "/result/items/9/hash": "v2:5981bd4bb7e6704667a1cbf5e0d5e773",
+        "/result/items/10/hash": "v2:001e00ae0f828d4b18de3b3a5b000413",
+        "/result/items/11/hash": "v2:1a66931d55aba74120a7e0a3830c83d9",
+        "/result/total": 12
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "edits": [
+          {
+            "kind": "replace",
+            "id": "space/0/h2DA",
+            "hash": "v2:401cc064b8d21410f56866eb692c6c65",
+            "geometry": {
+              "shape": "dimension",
+              "kind": "arc_length",
+              "first": [
+                43.301270189221945,
+                24.99999999999997
+              ],
+              "second": [
+                -24.999999999999968,
+                43.30127018922195
+              ],
+              "arc": [
+                32.50000000000003,
+                71.29165124598849
+              ],
+              "center": [
+                0,
+                0
+              ],
+              "label": "override",
+              "text_position": [
+                17.37384631973586,
+                64.84007718814756
+              ],
+              "style": "ISO-25",
+              "style_id": "dimension-style/h27",
+              "content": "Arc=<>mm"
+            }
+          },
+          {
+            "kind": "transform",
+            "id": "space/0/h34E",
+            "hash": "v2:5981bd4bb7e6704667a1cbf5e0d5e773",
+            "matrix": [
+              1,
+              0,
+              5,
+              0,
+              1,
+              0
+            ]
+          }
+        ],
+        "doc": "arc-r2004.dwg"
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/3/code": "change.edit.unsupported",
+        "/diagnostics/3/params": {
+          "edit": "transform",
+          "format": "DWG",
+          "kind": "ARC_DIMENSION"
+        }
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "layer",
+          "hash",
+          "geometry"
+        ],
+        "doc": "arc-r2004.dwg"
+      },
+      "expect": {
+        "/result/items/0/hash": "v2:30db63521cf577435539d8fa98d8f17e",
+        "/result/items/1/hash": "v2:401cc064b8d21410f56866eb692c6c65",
+        "/result/items/2/hash": "v2:a24ed296304ebbe367381c6481241827",
+        "/result/items/3/hash": "v2:f07ede96ab90fe4068356d21b0b1a8ed",
+        "/result/items/4/hash": "v2:ee4c51b84765bcbf6100a66c845118fc",
+        "/result/items/5/hash": "v2:9dfd97a30f3e694edeb4d98425df7bcc",
+        "/result/items/6/hash": "v2:0133986b96aca9b34621deca4ca78f58",
+        "/result/items/7/hash": "v2:2be318d5f013e38763130e4aaf946645",
+        "/result/items/8/hash": "v2:8b5d33c2930d29f77ecb6814569ced46",
+        "/result/items/9/hash": "v2:5981bd4bb7e6704667a1cbf5e0d5e773",
+        "/result/items/10/hash": "v2:001e00ae0f828d4b18de3b3a5b000413",
+        "/result/items/11/hash": "v2:1a66931d55aba74120a7e0a3830c83d9",
+        "/result/total": 12
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "edits": [
+          {
+            "kind": "replace",
+            "id": "space/0/h2DA",
+            "hash": "v2:401cc064b8d21410f56866eb692c6c65",
+            "geometry": {
+              "shape": "dimension",
+              "kind": "arc_length",
+              "first": [
+                43.301270189221945,
+                24.99999999999997
+              ],
+              "second": [
+                -24.999999999999968,
+                43.30127018922195
+              ],
+              "arc": [
+                32.50000000000003,
+                71.29165124598849
+              ],
+              "center": [
+                0,
+                0
+              ],
+              "label": "override",
+              "text_position": [
+                17.37384631973586,
+                64.84007718814756
+              ],
+              "style": "ISO-25",
+              "style_id": "dimension-style/h27",
+              "content": "Arc=<>mm"
+            }
+          },
+          {
+            "kind": "transform",
+            "id": "space/0/h2F9",
+            "hash": "v2:f07ede96ab90fe4068356d21b0b1a8ed",
+            "matrix": [
+              0,
+              -1,
+              25,
+              1,
+              0,
+              -10
+            ]
+          }
+        ],
+        "doc": "arc-r2004.dwg"
+      },
+      "expect": {
+        "/diagnostics/0/code": "dxf.extension-dictionary.unsupported",
+        "/diagnostics/1/code": "dxf.arc-dimension-leader.dropped",
+        "/diagnostics/2/code": "dxf.extension-dictionary.unsupported"
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "layer",
+          "hash",
+          "geometry"
+        ],
+        "doc": "arc-r2004.dwg"
+      },
+      "expect": {
+        "/result/total": 12,
+        "/result/items/0/id": "space/0/h2D9",
+        "/result/items/0/hash": "v2:30db63521cf577435539d8fa98d8f17e",
+        "/result/items/1/id": "space/0/h2DA",
+        "/result/items/1/geometry/center": [
+          0,
+          0
+        ],
+        "/result/items/1/geometry/first": [
+          43.301270189221945,
+          24.99999999999997
+        ],
+        "/result/items/1/geometry/second": [
+          -24.999999999999968,
+          43.30127018922195
+        ],
+        "/result/items/1/geometry/arc": [
+          32.50000000000003,
+          71.29165124598849
+        ],
+        "/result/items/1/geometry/label": "override",
+        "/result/items/1/geometry/content": "Arc=<>mm",
+        "/result/items/2/id": "space/0/h2F8",
+        "/result/items/2/hash": "v2:a24ed296304ebbe367381c6481241827",
+        "/result/items/3/id": "space/0/h2F9",
+        "/result/items/3/geometry/center": [
+          25,
+          140
+        ],
+        "/result/items/3/geometry/first": [
+          1.7763568394002505e-14,
+          183.30127018922195
+        ],
+        "/result/items/3/geometry/second": [
+          -18.301270189221974,
+          115.00000000000003
+        ],
+        "/result/items/3/geometry/arc": [
+          -31.29165124598847,
+          172.50000000000003
+        ],
+        "/result/items/4/id": "space/0/h315",
+        "/result/items/4/hash": "v2:ee4c51b84765bcbf6100a66c845118fc",
+        "/result/items/5/id": "space/0/h316",
+        "/result/items/5/hash": "v2:9dfd97a30f3e694edeb4d98425df7bcc",
+        "/result/items/6/id": "space/0/h330",
+        "/result/items/6/hash": "v2:0133986b96aca9b34621deca4ca78f58",
+        "/result/items/7/id": "space/0/h331",
+        "/result/items/7/hash": "v2:2be318d5f013e38763130e4aaf946645",
+        "/result/items/8/id": "space/0/h34D",
+        "/result/items/8/hash": "v2:8b5d33c2930d29f77ecb6814569ced46",
+        "/result/items/9/id": "space/0/h34E",
+        "/result/items/9/hash": "v2:5981bd4bb7e6704667a1cbf5e0d5e773",
+        "/result/items/10/id": "space/0/h36E",
+        "/result/items/10/hash": "v2:001e00ae0f828d4b18de3b3a5b000413",
+        "/result/items/11/id": "space/0/h36F",
+        "/result/items/11/hash": "v2:1a66931d55aba74120a7e0a3830c83d9"
+      }
+    },
+    {
+      "push": {
+        "name": "arc-r2018.dwg",
+        "file": "samples/dwg/zumen-arcdim-r2018.dwg"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "arc-r2018.dwg"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "layer",
+          "hash",
+          "geometry"
+        ],
+        "doc": "arc-r2018.dwg"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "edits": [
+          {
+            "kind": "replace",
+            "id": "space/0/h2DA",
+            "hash": "v2:401cc064b8d21410f56866eb692c6c65",
+            "geometry": {
+              "shape": "dimension",
+              "kind": "arc_length",
+              "first": [
+                43.301270189221945,
+                24.99999999999997
+              ],
+              "second": [
+                -24.999999999999968,
+                43.30127018922195
+              ],
+              "arc": [
+                32.50000000000003,
+                71.29165124598849
+              ],
+              "center": [
+                0,
+                0
+              ],
+              "label": "override",
+              "text_position": [
+                17.37384631973586,
+                64.84007718814756
+              ],
+              "style": "ISO-25",
+              "style_id": "dimension-style/h27",
+              "content": "Arc=<>mm"
+            }
+          },
+          {
+            "kind": "transform",
+            "id": "space/0/h331",
+            "hash": "v2:2be318d5f013e38763130e4aaf946645",
+            "matrix": [
+              1,
+              0,
+              5,
+              0,
+              1,
+              0
+            ]
+          }
+        ],
+        "doc": "arc-r2018.dwg"
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/2/code": "change.edit.unsupported",
+        "/diagnostics/2/params": {
+          "edit": "transform",
+          "format": "DWG",
+          "kind": "ARC_DIMENSION"
+        }
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "layer",
+          "hash",
+          "geometry"
+        ],
+        "doc": "arc-r2018.dwg"
+      },
+      "expect": {
+        "/result/items/0/hash": "v2:30db63521cf577435539d8fa98d8f17e",
+        "/result/items/1/hash": "v2:401cc064b8d21410f56866eb692c6c65",
+        "/result/items/2/hash": "v2:a24ed296304ebbe367381c6481241827",
+        "/result/items/3/hash": "v2:f07ede96ab90fe4068356d21b0b1a8ed",
+        "/result/items/4/hash": "v2:ee4c51b84765bcbf6100a66c845118fc",
+        "/result/items/5/hash": "v2:9dfd97a30f3e694edeb4d98425df7bcc",
+        "/result/items/6/hash": "v2:0133986b96aca9b34621deca4ca78f58",
+        "/result/items/7/hash": "v2:2be318d5f013e38763130e4aaf946645",
+        "/result/items/8/hash": "v2:8b5d33c2930d29f77ecb6814569ced46",
+        "/result/items/9/hash": "v2:5981bd4bb7e6704667a1cbf5e0d5e773",
+        "/result/items/10/hash": "v2:001e00ae0f828d4b18de3b3a5b000413",
+        "/result/items/11/hash": "v2:1a66931d55aba74120a7e0a3830c83d9",
+        "/result/total": 12
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "edits": [
+          {
+            "kind": "replace",
+            "id": "space/0/h2DA",
+            "hash": "v2:401cc064b8d21410f56866eb692c6c65",
+            "geometry": {
+              "shape": "dimension",
+              "kind": "arc_length",
+              "first": [
+                43.301270189221945,
+                24.99999999999997
+              ],
+              "second": [
+                -24.999999999999968,
+                43.30127018922195
+              ],
+              "arc": [
+                32.50000000000003,
+                71.29165124598849
+              ],
+              "center": [
+                0,
+                0
+              ],
+              "label": "override",
+              "text_position": [
+                17.37384631973586,
+                64.84007718814756
+              ],
+              "style": "ISO-25",
+              "style_id": "dimension-style/h27",
+              "content": "Arc=<>mm"
+            }
+          },
+          {
+            "kind": "transform",
+            "id": "space/0/h34E",
+            "hash": "v2:5981bd4bb7e6704667a1cbf5e0d5e773",
+            "matrix": [
+              1,
+              0,
+              5,
+              0,
+              1,
+              0
+            ]
+          }
+        ],
+        "doc": "arc-r2018.dwg"
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/2/code": "change.edit.unsupported",
+        "/diagnostics/2/params": {
+          "edit": "transform",
+          "format": "DWG",
+          "kind": "ARC_DIMENSION"
+        }
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "layer",
+          "hash",
+          "geometry"
+        ],
+        "doc": "arc-r2018.dwg"
+      },
+      "expect": {
+        "/result/items/0/hash": "v2:30db63521cf577435539d8fa98d8f17e",
+        "/result/items/1/hash": "v2:401cc064b8d21410f56866eb692c6c65",
+        "/result/items/2/hash": "v2:a24ed296304ebbe367381c6481241827",
+        "/result/items/3/hash": "v2:f07ede96ab90fe4068356d21b0b1a8ed",
+        "/result/items/4/hash": "v2:ee4c51b84765bcbf6100a66c845118fc",
+        "/result/items/5/hash": "v2:9dfd97a30f3e694edeb4d98425df7bcc",
+        "/result/items/6/hash": "v2:0133986b96aca9b34621deca4ca78f58",
+        "/result/items/7/hash": "v2:2be318d5f013e38763130e4aaf946645",
+        "/result/items/8/hash": "v2:8b5d33c2930d29f77ecb6814569ced46",
+        "/result/items/9/hash": "v2:5981bd4bb7e6704667a1cbf5e0d5e773",
+        "/result/items/10/hash": "v2:001e00ae0f828d4b18de3b3a5b000413",
+        "/result/items/11/hash": "v2:1a66931d55aba74120a7e0a3830c83d9",
+        "/result/total": 12
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "edits": [
+          {
+            "kind": "replace",
+            "id": "space/0/h2DA",
+            "hash": "v2:401cc064b8d21410f56866eb692c6c65",
+            "geometry": {
+              "shape": "dimension",
+              "kind": "arc_length",
+              "first": [
+                43.301270189221945,
+                24.99999999999997
+              ],
+              "second": [
+                -24.999999999999968,
+                43.30127018922195
+              ],
+              "arc": [
+                32.50000000000003,
+                71.29165124598849
+              ],
+              "center": [
+                0,
+                0
+              ],
+              "label": "override",
+              "text_position": [
+                17.37384631973586,
+                64.84007718814756
+              ],
+              "style": "ISO-25",
+              "style_id": "dimension-style/h27",
+              "content": "Arc=<>mm"
+            }
+          },
+          {
+            "kind": "transform",
+            "id": "space/0/h2F9",
+            "hash": "v2:f07ede96ab90fe4068356d21b0b1a8ed",
+            "matrix": [
+              0,
+              -1,
+              25,
+              1,
+              0,
+              -10
+            ]
+          }
+        ],
+        "doc": "arc-r2018.dwg"
+      },
+      "expect": {
+        "/diagnostics/0/code": "dxf.extension-dictionary.unsupported",
+        "/diagnostics/1/code": "dxf.arc-dimension-leader.dropped"
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "layer",
+          "hash",
+          "geometry"
+        ],
+        "doc": "arc-r2018.dwg"
+      },
+      "expect": {
+        "/result/total": 12,
+        "/result/items/0/id": "space/0/h2D9",
+        "/result/items/0/hash": "v2:30db63521cf577435539d8fa98d8f17e",
+        "/result/items/1/id": "space/0/h2DA",
+        "/result/items/1/geometry/center": [
+          0,
+          0
+        ],
+        "/result/items/1/geometry/first": [
+          43.301270189221945,
+          24.99999999999997
+        ],
+        "/result/items/1/geometry/second": [
+          -24.999999999999968,
+          43.30127018922195
+        ],
+        "/result/items/1/geometry/arc": [
+          32.50000000000003,
+          71.29165124598849
+        ],
+        "/result/items/1/geometry/label": "override",
+        "/result/items/1/geometry/content": "Arc=<>mm",
+        "/result/items/2/id": "space/0/h2F8",
+        "/result/items/2/hash": "v2:a24ed296304ebbe367381c6481241827",
+        "/result/items/3/id": "space/0/h2F9",
+        "/result/items/3/geometry/center": [
+          25,
+          140
+        ],
+        "/result/items/3/geometry/first": [
+          1.7763568394002505e-14,
+          183.30127018922195
+        ],
+        "/result/items/3/geometry/second": [
+          -18.301270189221974,
+          115.00000000000003
+        ],
+        "/result/items/3/geometry/arc": [
+          -31.29165124598847,
+          172.50000000000003
+        ],
+        "/result/items/4/id": "space/0/h315",
+        "/result/items/4/hash": "v2:ee4c51b84765bcbf6100a66c845118fc",
+        "/result/items/5/id": "space/0/h316",
+        "/result/items/5/hash": "v2:9dfd97a30f3e694edeb4d98425df7bcc",
+        "/result/items/6/id": "space/0/h330",
+        "/result/items/6/hash": "v2:0133986b96aca9b34621deca4ca78f58",
+        "/result/items/7/id": "space/0/h331",
+        "/result/items/7/hash": "v2:2be318d5f013e38763130e4aaf946645",
+        "/result/items/8/id": "space/0/h34D",
+        "/result/items/8/hash": "v2:8b5d33c2930d29f77ecb6814569ced46",
+        "/result/items/9/id": "space/0/h34E",
+        "/result/items/9/hash": "v2:5981bd4bb7e6704667a1cbf5e0d5e773",
+        "/result/items/10/id": "space/0/h36E",
+        "/result/items/10/hash": "v2:001e00ae0f828d4b18de3b3a5b000413",
+        "/result/items/11/id": "space/0/h36F",
+        "/result/items/11/hash": "v2:1a66931d55aba74120a7e0a3830c83d9"
+      }
+    }
+  ]
+}

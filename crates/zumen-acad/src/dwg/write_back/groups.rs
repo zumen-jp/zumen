@@ -31,6 +31,7 @@ pub(super) const R2010_KINDS: &[&[u8]] = &[
     b"VERTEX",
     b"HATCH",
     b"DIMENSION",
+    b"ARC_DIMENSION",
     b"TOLERANCE",
     b"VIEWPORT",
     b"SHAPE",
@@ -54,6 +55,7 @@ pub(super) const R2004_KINDS: &[&[u8]] = &[
     b"LWPOLYLINE",
     b"SPLINE",
     b"DIMENSION",
+    b"ARC_DIMENSION",
     b"TOLERANCE",
     b"LEADER",
     b"MLINE",
@@ -130,6 +132,12 @@ pub(super) const DIMENSION_ALL: &[i16] = &[
 ];
 /// DIMENSION の型ごとの、DXF の寸法の種類（70 の下の 3 ビット）
 pub(super) const DIMENSION_KIND: [i16; 7] = [6, 0, 1, 5, 2, 4, 3];
+
+/// ARC_DIMENSION。70・71・41 は共通と固有の両方にあるので、書く側では 13 で分ける。
+pub(super) const ARC_DIMENSION: &[i16] = &[
+    11, 21, 31, 70, 71, 42, 12, 22, 32, 72, 41, 1, 53, 51, 210, 220, 230, 10, 20, 30, 13, 23, 33,
+    14, 24, 34, 15, 25, 35, 40, 16, 26, 36, 17, 27, 37,
+];
 
 pub(super) const INSERT: &[i16] = &[10, 20, 30, 41, 42, 43, 50, 210, 220, 230];
 pub(super) const MINSERT: &[i16] = &[10, 20, 30, 41, 42, 43, 50, 210, 220, 230, 70, 71, 44, 45];

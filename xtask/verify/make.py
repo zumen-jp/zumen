@@ -1038,14 +1038,14 @@ def part_curves_min(sub):
     return 1 if sub in ("radius", "diameter", "ordinate") else 3
 
 
-def editable_dimensions(reading, fmt):
+def editable_dimensions(reading):
     """書き戻せる寸法を選ぶ。zumen-arcdim-* の 4・5 件目（部分の弧・引出線つき）は断る対象なので、弧長寸法は先頭 3 件まで"""
     out = []
     arc_seen = 0
     for d in model(reading, "dimension"):
         sub = d["geometry"]["kind"]
         if sub == "arc_length":
-            if fmt != "dxf" or arc_seen >= 3:
+            if arc_seen >= 3:
                 continue
             arc_seen += 1
         out.append(d)
@@ -1057,7 +1057,7 @@ def parts_steps(fmt):
 
     def replaced(reading):
         edits = []
-        for d in editable_dimensions(reading, fmt):
+        for d in editable_dimensions(reading):
             g = dict(d["geometry"])
             g.pop("measurement", None)
             g.pop("measurement_key", None)
@@ -1137,7 +1137,7 @@ def parts_turned_steps(fmt):
         edits = []
         turn_move = similar(15, 1, 10, -5)
         quarter_move = similar(90, 1, 10, -5)
-        for d in editable_dimensions(reading, fmt):
+        for d in editable_dimensions(reading):
             g = d["geometry"]
             sub = g["kind"]
             mat = quarter_move if sub == "ordinate" else turn_move
@@ -1185,8 +1185,8 @@ RECIPES = [
     ("handseed", 701, lambda name, fmt: fmt == "dwg" and ("-layout-r2000" in name or "-layout-r2018" in name), handseed_steps),
     # 格子と属性を持つ記号のサンプル（R2000・R2004・R2018）と、切り抜きを持つ記号のサンプル（R2013）
     ("added", 683, lambda name, fmt: fmt in ("dxf", "dwg") and ("-minsert-" in name or "-xclip-r2013" in name), added_steps),
-    ("parts", 314, lambda name, fmt: (fmt in ("dxf", "dwg") and "-parts-" in name) or (fmt == "dxf" and "-arcdim-" in name), parts_steps),
-    ("parts-turned", 314, lambda name, fmt: (fmt in ("dxf", "dwg") and "-parts-" in name) or (fmt == "dxf" and "-arcdim-" in name), parts_turned_steps),
+    ("parts", 314, lambda name, fmt: fmt in ("dxf", "dwg") and ("-parts-" in name or "-arcdim-" in name), parts_steps),
+    ("parts-turned", 314, lambda name, fmt: fmt in ("dxf", "dwg") and ("-parts-" in name or "-arcdim-" in name), parts_turned_steps),
 ]
 # 記号の定義の中の要素も読む組（read の definitions）。定義の中に足した要素を、書いたファイルの読みに残す
 INSIDE = {"added"}
@@ -1838,7 +1838,7 @@ SECTIONS = {
     ),
     314: (
         "#314 書き戻した寸法と表の表示の部品",
-        """寸法（DXF・DWG の DIMENSION と DXF の ARC_DIMENSION）と DXF の表（ACAD_TABLE）に、置き換え（parts）と変換（parts-turned）を当て、定義のフィールドとともに表示の部品（匿名のブロック `*D<n>`・`*T<n>`）を作り直したファイルです。`exp-*` は、zumen の書き手を通さずに定義のタグだけを変えた対照の実験です。
+        """寸法（DXF・DWG の DIMENSION と ARC_DIMENSION）と DXF の表（ACAD_TABLE）に、置き換え（parts）と変換（parts-turned）を当て、定義のフィールドとともに表示の部品（匿名のブロック `*D<n>`・`*T<n>`）を作り直したファイルです。弧長寸法は、部分弧と引出線付きの残件を除いた先頭の 3 件を変更します。ACadSharp では弧の中心・両端・寸法線の点も照らします。`exp-*` は、zumen の書き手を通さずに定義のタグだけを変えた対照の実験です。
 
 - **AutoCAD。** `check_autocad.py` が、開けること・監査の誤りの数と、寸法の測定値（42）・文字位置（11）・上書き文字（1）、表の位置（10）・向き（11）と、作り直した匿名のブロックの中の線・円弧・MTEXT の文字と位置・角度を照らす。画面では、寸法線・矢印・寸法値と、表の罫線・セルの文字がずれていないことを確かめる。
 """,

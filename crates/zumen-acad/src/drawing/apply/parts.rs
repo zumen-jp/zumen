@@ -725,7 +725,7 @@ fn plan_dimension<P: Copy + PartialEq>(
             current.encoder,
             current.born,
         ),
-        b"ARC_DIMENSION" if current.target == Target::Dxf => update_arc_dimension_values(
+        b"ARC_DIMENSION" => update_arc_dimension_values(
             object,
             was,
             dimension,
@@ -1205,7 +1205,7 @@ fn update_dimension_values<P: PartialEq>(
     Some(main)
 }
 
-/// DXF の `ARC_DIMENSION` のフィールドを書き直す
+/// `ARC_DIMENSION` の共通のフィールドと、弧長固有のフィールドを分けて書き直す。
 fn update_arc_dimension_values<P: PartialEq>(
     object: &Object,
     was: &Dimension<P>,
@@ -1233,9 +1233,12 @@ fn update_arc_dimension_values<P: PartialEq>(
         return None;
     };
 
-    let arc_marker = object.values.iter().position(|v| {
+    let marker = object.values.iter().position(|v| {
         v.code == 100 && matches!(&v.data, Data::Text(t) if t.as_slice() == b"AcDbArcDimension")
-    })?;
+    });
+    // DWG の共有表はサブクラスを持たず、弧長固有の値を 13 から後ろに置く（objects::annotations）。
+    let arc_marker = marker.or_else(|| object.values.iter().position(|v| v.code == 13))?;
+    let arc_begin = arc_marker + usize::from(marker.is_some());
     let xdata_at = object
         .values
         .iter()
@@ -1245,7 +1248,7 @@ fn update_arc_dimension_values<P: PartialEq>(
         return None;
     }
     let common_slice = object.values.get(..arc_marker)?;
-    let arc_slice = object.values.get(arc_marker + 1..xdata_at)?;
+    let arc_slice = object.values.get(arc_begin..xdata_at)?;
     let xdata_slice = object.values.get(xdata_at..)?;
 
     for code in [12, 22, 31, 51] {
@@ -1333,7 +1336,9 @@ fn update_arc_dimension_values<P: PartialEq>(
 
     let mut out = Vec::with_capacity(common.len() + 1 + arc_part.len() + xdata_slice.len());
     out.extend(common);
-    out.push(text(100, "AcDbArcDimension"));
+    if marker.is_some() {
+        out.push(text(100, "AcDbArcDimension"));
+    }
     out.extend(arc_part);
     out.extend_from_slice(xdata_slice);
     Some(out)

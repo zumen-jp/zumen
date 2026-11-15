@@ -52,6 +52,7 @@ use super::objects::{
 use super::{DwgFile, Release, header, kinds};
 use crate::db::{AcadDb, Data, DataType, Object, Origin, Section, Value, uncaret};
 
+mod arc_dimension;
 mod curves;
 mod encoding;
 mod entities;

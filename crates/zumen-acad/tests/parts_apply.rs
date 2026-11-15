@@ -10,7 +10,7 @@ use zumen_drawing::{
     Affine, Axis, CellContent, Changes, DimensionKind, Drawing2D, Edge, Edit, Element, Hash, Label,
     Length, ModelLength, ModelPoint, PaperLength, PaperPoint, Placed, Seen, Shape, SpaceId, id,
 };
-use zumen_sdk::{Apply, Codec, Error, Lift};
+use zumen_sdk::{Apply, Codec, Error, Lift, testkit};
 
 #[cfg(test)]
 fn cx_run<T>(f: impl FnOnce(&mut Cx<'_>) -> T) -> (T, Diagnostics) {
@@ -1102,14 +1102,23 @@ fn replaces_and_transforms_all_dimension_subtypes_and_rebuilds_blocks() {
 
 #[test]
 fn replaces_and_transforms_arc_dimensions_on_autocad_samples() {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../samples/dwg");
-    for name in [
+    check_arc_dimensions::<Dxf>(&[
         "zumen-arcdim-r2004_ascii.dxf",
         "zumen-arcdim-r2018_ascii.dxf",
-    ] {
+    ]);
+    check_arc_dimensions::<Dwg>(&["zumen-arcdim-r2004.dwg", "zumen-arcdim-r2018.dwg"]);
+}
+
+#[cfg(test)]
+fn check_arc_dimensions<C: Codec>(names: &[&str])
+where
+    C::File: Lift<Drawing2D> + Apply<Changes, Output = Vec<zumen_drawing::Applied>>,
+{
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../samples/dwg");
+    for &name in names {
         let raw = std::fs::read(dir.join(name)).unwrap();
-        let mut file = read_dxf(&raw);
-        let before = lift_dxf(&file);
+        let mut file = testkit::read::<C>(&raw).0.unwrap();
+        let before = cx_run(|cx| file.lift(cx).unwrap()).0;
 
         let arc_indices: Vec<usize> = before.spaces[0]
             .elements
@@ -1141,8 +1150,28 @@ fn replaces_and_transforms_arc_dimensions_on_autocad_samples() {
             arc: mpt(arc.x, arc.y + 15.0),
         };
         d0.text.moved = false;
+        let expected_kind = d0.kind;
 
-        let (target1, _) = seen_model(&before, arc_indices[1]);
+        let (target1, el1) = seen_model(&before, arc_indices[1]);
+        let Shape::Dimension(d1) = &el1.shape else {
+            panic!();
+        };
+        let DimensionKind::ArcLength {
+            center,
+            first,
+            second,
+            arc,
+        } = d1.kind
+        else {
+            panic!();
+        };
+        let moved = |p: ModelPoint| mpt(p.x + 25.0, p.y - 10.0);
+        let expected_moved = DimensionKind::ArcLength {
+            center: moved(center),
+            first: moved(first),
+            second: moved(second),
+            arc: moved(arc),
+        };
         let changes = Changes {
             document: None,
             edits: vec![
@@ -1158,18 +1187,46 @@ fn replaces_and_transforms_arc_dimensions_on_autocad_samples() {
                 },
             ],
         };
-        let (applied, diag) = cx_run(|cx| file.apply(&changes, cx).unwrap());
+        let (result, diag) = cx_run(|cx| file.apply(&changes, cx));
+        let applied = result.unwrap_or_else(|error| panic!("{name}: {error:?}: {diag:?}"));
         assert!(diag.is_empty(), "{name}: {diag:?}");
         assert_eq!(applied.len(), 2);
 
-        let out_bytes = write_dxf(&file);
-        let reopened = read_dxf(&out_bytes);
-        let after = lift_dxf(&reopened);
+        let out_bytes = testkit::write::<C>(&file).unwrap();
+        let reopened = testkit::read::<C>(&out_bytes).0.unwrap();
+        let after = cx_run(|cx| reopened.lift(cx).unwrap()).0;
+        let Shape::Dimension(actual) = &after.spaces[0].elements[arc_indices[0]].shape else {
+            panic!("{name}: 弧長寸法がない");
+        };
+        assert_eq!(actual.kind, expected_kind, "{name}");
 
         // DIMARCSYM=1（2 つ目の弧長寸法）は XDATA 上書きを保ち、MTEXT が `\U+2312\P` で始まる
         let Shape::Dimension(after_d1) = &after.spaces[0].elements[arc_indices[1]].shape else {
             panic!();
         };
+        assert_eq!(after_d1.kind, expected_moved, "{name}");
+        assert_eq!(
+            before.spaces[0].elements.len(),
+            after.spaces[0].elements.len()
+        );
+        let place = id::space(before.spaces[0].id);
+        let mut old_names = id::Namer::new(&place);
+        let mut new_names = id::Namer::new(&place);
+        for (i, (old, new)) in before.spaces[0]
+            .elements
+            .iter()
+            .zip(&after.spaces[0].elements)
+            .enumerate()
+        {
+            assert_eq!(
+                old_names.next(i, old),
+                new_names.next(i, new),
+                "{name}: {i}"
+            );
+            if !arc_indices[..2].contains(&i) {
+                assert_eq!(Hash::element(old), Hash::element(new), "{name}: {i}");
+            }
+        }
         let blk1 = after_d1.block.as_deref().unwrap();
         let parts1 = symbol_elements(&after, blk1);
         assert!(
@@ -1181,7 +1238,7 @@ fn replaces_and_transforms_arc_dimensions_on_autocad_samples() {
 
         // 部分（4 つ目）と引出線つき（5 つ目）は安全に拒む
         for &unsupported_idx in &arc_indices[3..5] {
-            let mut copy = read_dxf(&raw);
+            let mut copy = testkit::read::<C>(&raw).0.unwrap();
             let (t_bad, _) = seen_model(&before, unsupported_idx);
             let bad_changes = Changes {
                 document: None,
@@ -1198,6 +1255,7 @@ fn replaces_and_transforms_arc_dimensions_on_autocad_samples() {
                 err_diag.iter().next().unwrap().code(),
                 codes::CHANGE_EDIT_UNSUPPORTED
             );
+            assert_eq!(testkit::write::<C>(&copy).unwrap(), raw);
         }
     }
 }
@@ -1528,7 +1586,7 @@ fn rejects_conflicting_or_shared_blocks_and_obeys_work_budget() {
         Err(Error::Rejected)
     ));
 
-    // 4. DWG の ARC_DIMENSION は拒む
+    // 4. DWG の ARC_DIMENSION も非等方スケールは拒む
     let arcdim_dwg = std::fs::read(
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../samples/dwg/zumen-arcdim-r2018.dwg"),
     )
@@ -1546,7 +1604,7 @@ fn rejects_conflicting_or_shared_blocks_and_obeys_work_budget() {
         edits: vec![Edit::Transform {
             target: dwg_target,
             transform: Affine {
-                m: [1.0, 0.0, 5.0, 0.0, 1.0, 0.0],
+                m: [2.0, 0.0, 5.0, 0.0, 1.0, 0.0],
             },
         }],
     };
@@ -1554,6 +1612,7 @@ fn rejects_conflicting_or_shared_blocks_and_obeys_work_budget() {
         cx_run(|cx| dwg.apply(&dwg_changes, cx)).0,
         Err(Error::Rejected)
     ));
+    assert_eq!(testkit::write::<Dwg>(&dwg).unwrap(), arcdim_dwg);
 
     // 5. Work 予算で途中で止まっても元の DXF を変えない
     let ok_changes = Changes {

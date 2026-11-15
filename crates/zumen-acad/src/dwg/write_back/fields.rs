@@ -202,6 +202,9 @@ pub(super) fn own_fields(
         b"LWPOLYLINE" => lwpolyline(&mut fields, new, data, start)?,
         b"SPLINE" => spline(&mut fields, new, data, start, Release::R2000)?,
         b"HATCH" => hatch(&mut fields, old, new)?,
+        b"ARC_DIMENSION" => {
+            arc_dimension::write(&mut fields, old, new, data, start, Release::R2000)?
+        }
         b"VERTEX" => vertex(&mut fields, new, type_code)?,
         b"POLYLINE" => polyline(&mut fields, new, type_code, data, start)?,
         b"DIMENSION" => dimension(

@@ -204,6 +204,14 @@ static class Dwg
                 d["measurement"] = dim.Measurement;
                 d["text_midpoint"] = Xy(dim.TextMiddlePoint);
                 d["text"] = dim.Text ?? "";
+                if (dim is DimensionArc arcDimension)
+                    d["arc_dimension"] = new JsonObject {
+                        ["center"] = Xy(arcDimension.Center), ["first"] = Xy(arcDimension.FirstPoint),
+                        ["second"] = Xy(arcDimension.SecondPoint), ["arc"] = Xy(arcDimension.DefinitionPoint),
+                        ["partial"] = arcDimension.IsPartial, ["has_leader"] = arcDimension.HasLeader,
+                        ["start_angle"] = arcDimension.StartAngle, ["end_angle"] = arcDimension.EndAngle,
+                        ["leader_first"] = Xy(arcDimension.LeaderPoint1), ["leader_second"] = Xy(arcDimension.LeaderPoint2)
+                    };
                 break;
         }
         entities[e.Handle.ToString("X", CultureInfo.InvariantCulture)] = d;

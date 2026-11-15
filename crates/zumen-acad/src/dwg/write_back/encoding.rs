@@ -119,6 +119,7 @@ pub(super) fn own_codes(kind: &[u8], type_code: u16) -> &'static [i16] {
             _ => &[],
         },
         b"DIMENSION" => DIMENSION_ALL,
+        b"ARC_DIMENSION" => ARC_DIMENSION,
         b"INSERT" if type_code == kinds::MINSERT => MINSERT,
         b"INSERT" => INSERT,
         b"TOLERANCE" => TOLERANCE,
@@ -306,6 +307,10 @@ pub(super) fn r2010_own_fields(
     } else if new.kind == b"LEADER" {
         let mut fields = BitWriter::with_strings();
         leader(&mut fields, new, data, [start, end], release)?;
+        Some(fields)
+    } else if new.kind == b"ARC_DIMENSION" {
+        let mut fields = BitWriter::with_strings();
+        arc_dimension::write(&mut fields, old, new, data, start, release)?;
         Some(fields)
     } else if new.kind == b"DIMENSION" {
         let mut fields = BitWriter::with_strings();

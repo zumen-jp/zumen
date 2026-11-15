@@ -27,7 +27,7 @@ from collections import Counter
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from compare import ATTACHMENTS, KINDLESS, check_handles, lifted_away, run, usage  # noqa: E402
+from compare import ATTACHMENTS, KINDLESS, check_handles, differences, handle_of, lifted_away, run, usage  # noqa: E402
 
 # 既知の食い違い: (ファイルの道筋の初め, 食い違いの文の初め, issue, 当たるファイルの数)。直ったら消す
 KNOWN = []
@@ -220,6 +220,18 @@ def check_file(dumps, entry, reading, baseline, counts):
 
     found, seen = check_handles(entry, reading, counts, view(dump))
     failures += found
+
+    # 弧長寸法は測定値と描画ブロックに加え、元の弧と寸法線を決める 4 点も照らす。
+    for element in reading["entities"]:
+        geometry = element.get("geometry", {})
+        if geometry.get("kind") != "arc_length" or not element["id"].startswith("space/0/"):
+            continue
+        actual = dump["entities"].get(handle_of(element), {}).get("arc_dimension")
+        if actual is None:
+            failures.append(f"{element['id']}: ACadSharp の弧長寸法の値がない")
+            continue
+        expected = {key: geometry[key] for key in ("center", "first", "second", "arc")}
+        failures += differences(expected, actual, f"{element['id']}/arc_dimension")
 
     # HANDSEED の大きさ（バイト）が増える数の図形を足したファイル（#701）では、ファイルの HANDSEED（ACadSharp でヘッダー
     # だけを読んだ値）が、足した最後の図形の次になる。HANDSEED より後ろに書く変数（AFTER_SEED）は入力のまま
