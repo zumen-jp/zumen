@@ -7,7 +7,9 @@ use crate::{
 };
 use zumen_base::{Cx, Stop};
 
+mod material;
 mod presentation;
+pub use material::*;
 pub use presentation::SurfaceAppearance;
 
 /// 形の参照を検査する途中のエラー。幾何の妥当性の検査ではない
@@ -35,14 +37,34 @@ impl From<Stop> for GeometryError {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Geometry {
     data: GeometryData,
+    materials: Option<Acquired<GeometryMaterials>>,
     fingerprint: crate::Hash,
 }
 
 impl Geometry {
     /// 参照・循環・到達性を検査し、出所を含めない意味値のハッシュを作る
     pub fn new(data: GeometryData, cx: &mut Cx) -> Result<Self, GeometryError> {
-        let fingerprint = crate::hash::geometry_digest(&data, cx)?;
-        Ok(Self { data, fingerprint })
+        Self::new_with_materials(data, None, cx)
+    }
+
+    /// 形と材料の表示を所有し、文脈の結び付けも意味値のハッシュに含める。
+    /// 材料が None なら従来の new と同じハッシュを返す。
+    pub fn new_with_materials(
+        data: GeometryData,
+        materials: Option<Acquired<GeometryMaterials>>,
+        cx: &mut Cx,
+    ) -> Result<Self, GeometryError> {
+        let fingerprint = crate::hash::geometry_digest(&data, materials.as_ref(), cx)?;
+        Ok(Self {
+            data,
+            materials,
+            fingerprint,
+        })
+    }
+
+    /// 所有する材料の表示と割り当て。元の値は変更しない
+    pub fn materials(&self) -> Option<&Acquired<GeometryMaterials>> {
+        self.materials.as_ref()
     }
 
     /// 所有する元の値。位置・単位・向きは未適用

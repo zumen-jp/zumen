@@ -30,6 +30,7 @@ fields! {
     GeometrySurfaceStyle { definition };
     GeometryLayer { definition, styles, level };
     GeometryPresentation { name, direct, layers, layer_source, surface_source };
+    GeometryMaterialItem { name, surfaces };
     GridAxisDefinition { set, tag, same_sense };
     IndexedPolygon { boundary, holes };
 }
@@ -43,7 +44,29 @@ tags! {
     SurfaceSide { Positive = 0, Negative = 1, Both = 2 };
     ReflectanceMethod { Blinn = 0, Flat = 1, Glass = 2, Matt = 3, Metal = 4, Mirror = 5, Phong = 6, Physical = 7, Plastic = 8, Strauss = 9, NotDefined = 10 };
     LayerAssignmentLevel { None = 0, Representation = 1, Item = 2 };
+    MaterialAssignmentLevel { Occurrence = 0, Type = 1 };
+    MaterialContextMatch { Exact = 0, Parent = 1 };
     GridLayout { Rectangular = 0, Radial = 1, Triangular = 2, Irregular = 3, UserDefined = 4, NotDefined = 5 };
+}
+
+impl Encode for GeometryMaterialContext {
+    fn encode(&self, out: &mut Canon<'_>) {
+        match self {
+            Self::General { identifier, kind } => {
+                0u8.encode(out);
+                identifier.encode(out);
+                kind.encode(out);
+            }
+            Self::Geometric {
+                definition,
+                length_unit,
+            } => {
+                1u8.encode(out);
+                definition.as_ref().encode(out);
+                length_unit.encode(out);
+            }
+        }
+    }
 }
 
 impl Encode for [u32; 3] {

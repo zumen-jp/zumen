@@ -1,6 +1,7 @@
 //! 取得した値を移動し、借用する出所だけを番号へ写す。形・表示を再読込しない。
 
 use super::super::{Category, Lifter, category, lift_with_units_mode};
+mod material;
 use zumen_building::{
     Acquired, Building, ElementRef, Geometry, GeometryData, GeometryDefinition as Definition,
     GeometryError, GeometryGrid, GeometryGridAxis, GeometryLayer, GeometryLinks, GeometryNode,
@@ -32,13 +33,15 @@ impl IfcFile {
         cx.with_diagnostics_in_record_order(|cx| {
             let geometry = self.product_geometry(instance, cx)?;
             let record = geometry.shape.product;
-            let data = Own {
+            let mut own = Own {
                 file: self,
                 cx,
                 current: geometry.shape.product,
-            }
-            .geometry(geometry)?;
-            Geometry::new(data, cx).map_err(|e| geometry_error(e, record, cx))
+            };
+            let data = own.geometry(geometry)?;
+            let materials = own.materials(record, &data)?;
+            Geometry::new_with_materials(data, materials, cx)
+                .map_err(|e| geometry_error(e, record, cx))
         })
     }
 }
@@ -72,6 +75,7 @@ impl Lifter<'_> {
             }
             let geometry = self.file.owned_geometry(instance, cx)?;
             self.geometry_used(geometry.data(), cx)?;
+            self.materials_used(geometry.materials(), cx)?;
             self.building
                 .insert_geometry(ElementRef(at as u32), geometry, cx)
                 .map_err(|e| geometry_error(e, record, cx))?;

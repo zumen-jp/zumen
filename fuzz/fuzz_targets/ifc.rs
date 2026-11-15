@@ -25,7 +25,7 @@ fn appearance(geometry: &Geometry, cx: &mut Cx) -> Result<(), Error> {
             _ => None,
         });
     }
-    if let Err(GeometryError::Stopped(stop)) = geometry.surface_appearance(&path[..count], cx) {
+    if let Err(GeometryError::Stopped(stop)) = geometry.resolved_surface(&path[..count], cx) {
         return Err(Error::Stopped(stop));
     }
     Ok(())

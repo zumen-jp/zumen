@@ -106,7 +106,7 @@ const _: () = assert!(size_of::<MaterialStyleItem<'static>>() <= ITEM_BYTES);
 const _: () = assert!(size_of::<ContextGeometry<'static>>() <= 512);
 
 impl<'f> Reader<'f, '_, '_> {
-    fn material_capacity(&mut self, count: usize, bytes: usize) -> Result<(), Error> {
+    pub(super) fn material_capacity(&mut self, count: usize, bytes: usize) -> Result<(), Error> {
         if count > i32::MAX as usize / bytes {
             return Err(self.invalid("capacity"));
         }

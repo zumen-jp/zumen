@@ -272,6 +272,11 @@ fn ifc_profiles() -> Vec<u8> {
     #140=IFCMATERIAL('Material',$,$);\n#141=IFCMATERIALDEFINITIONREPRESENTATION($,$,(#142,#145),#140);\n\
     #142=IFCSTYLEDREPRESENTATION(#136,'Body',$,(#143));\n#143=IFCSTYLEDITEM($,(#132),$);\n\
     #144=IFCREPRESENTATIONCONTEXT('General','Text');\n#145=IFCSTYLEDREPRESENTATION(#144,$,$,(#143));\n\
+    #146=IFCWALLTYPE('0000000000000000000003',$,$,$,$,$,$,$,$,.NOTDEFINED.);\n\
+    #147=IFCRELDEFINESBYTYPE('0000000000000000000004',$,$,$,(#100,#150),#146);\n\
+    #148=IFCRELASSOCIATESMATERIAL('0000000000000000000005',$,$,$,(#146),#140);\n\
+    #150=IFCWALL('0000000000000000000006',$,$,$,$,#126,#151,$,.NOTDEFINED.);\n\
+    #151=IFCPRODUCTDEFINITIONSHAPE($,$,(#152));\n#152=IFCSHAPEREPRESENTATION(#136,'Body','SweptSolid',(#31));\n\
     #126=IFCLOCALPLACEMENT($,#20);\n\
     #100=IFCWALL('0000000000000000000002',$,$,$,$,#126,#101,$,.NOTDEFINED.);\n\
     #101=IFCPRODUCTDEFINITIONSHAPE($,$,(#102));\n#102=IFCSHAPEREPRESENTATION(#8,'Body','GeometricSet',(#30,#31,#32,#33,#34,#35,#36,#66,#81,#83,#97,#114,#115,#124,#125));\n\
@@ -773,6 +778,15 @@ mod tests {
         let (owned, found) = run(Limits::default(), |cx| file.owned_geometry(100, cx));
         assert_eq!(found, []);
         let owned = owned.unwrap();
+        assert!(owned.materials().is_some());
+        let (assigned, found) = run(Limits::default(), |cx| file.material_assignments(100, cx));
+        assert_eq!(found, []);
+        let assigned = assigned.unwrap();
+        assert_eq!(assigned.owner.id(), Some(146));
+        assert_eq!(assigned.type_relation.unwrap().id(), Some(147));
+        let (inherited, found) = run(Limits::default(), |cx| file.owned_geometry(150, cx));
+        assert_eq!(found, []);
+        assert!(inherited.unwrap().materials().is_some());
         assert_eq!(owned.data().nodes.len(), geometry.values.len());
         let (rich, _) = run(Limits::default(), |cx| file.lift_geometry(cx));
         let rich = rich.unwrap();

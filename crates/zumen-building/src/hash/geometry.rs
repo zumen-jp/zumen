@@ -345,9 +345,14 @@ fn value_order(value: &GeometryDefinition, cx: &mut Cx) -> Result<ValueOrder> {
     })
 }
 
-pub(crate) fn geometry_digest(data: &GeometryData, cx: &mut Cx) -> Result<Hash> {
+pub(crate) fn geometry_digest(
+    data: &GeometryData,
+    materials: Option<&Acquired<GeometryMaterials>>,
+    cx: &mut Cx,
+) -> Result<Hash> {
     cx.check(Kind::Work, 1)?;
     let shape = shape_order(data, cx)?;
+    validate_materials(data, materials, &shape, cx)?;
     reserve(cx, data.nodes.len(), 128)?;
     let mut values = Vec::with_capacity(data.nodes.len());
     for node in &data.nodes {
@@ -418,10 +423,115 @@ pub(crate) fn geometry_digest(data: &GeometryData, cx: &mut Cx) -> Result<Hash> 
             }
         }
     }
+    if let Some(materials) = materials {
+        "materials".encode(&mut out);
+        encode_materials(materials, &shape, &mut out)?;
+    }
     if let Some(stop) = out.stop {
         return Err(stop.into());
     }
     Ok(out.finish())
+}
+
+fn validate_materials(
+    data: &GeometryData,
+    materials: Option<&Acquired<GeometryMaterials>>,
+    shape: &Order,
+    cx: &mut Cx,
+) -> Result<()> {
+    let Some(Acquired::Value(materials)) = materials else {
+        return Ok(());
+    };
+    for assignment in &materials.assignments {
+        cx.check(Kind::Work, 1)?;
+        for member in &assignment.members {
+            cx.check(Kind::Work, 1)?;
+            let Some(Acquired::Value(value)) = &member.presentation else {
+                continue;
+            };
+            for representation in &value.representations {
+                cx.check(Kind::Work, 1)?;
+                for (at, binding) in representation.bindings.iter().enumerate() {
+                    cx.check(Kind::Work, (at as u64) + 1)?;
+                    shape.get(binding.representation.0)?;
+                    if !matches!(
+                        entry(&data.nodes, binding.representation.0 as usize)?.links,
+                        GeometryLinks::Representation { .. }
+                    ) || representation
+                        .bindings
+                        .iter()
+                        .take(at)
+                        .any(|b| b.representation == binding.representation)
+                    {
+                        return Err(GeometryError::Reference);
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn encode_materials(
+    value: &Acquired<GeometryMaterials>,
+    shape: &Order,
+    out: &mut Canon<'_>,
+) -> Result<()> {
+    let Acquired::Value(materials) = value else {
+        1u8.encode(out);
+        return Ok(());
+    };
+    0u8.encode(out);
+    materials.level.encode(out);
+    materials.assignments.len().encode(out);
+    for assignment in &materials.assignments {
+        if out.stop.is_some() {
+            break;
+        }
+        assignment.kind.encode(out);
+        assignment.members.len().encode(out);
+        for member in &assignment.members {
+            if out.stop.is_some() {
+                break;
+            }
+            member.kind.encode(out);
+            let material = match &member.presentation {
+                None => {
+                    0u8.encode(out);
+                    continue;
+                }
+                Some(Acquired::Unsupported) => {
+                    1u8.encode(out);
+                    continue;
+                }
+                Some(Acquired::Value(v)) => {
+                    2u8.encode(out);
+                    v
+                }
+            };
+            material.name.encode(out);
+            material.description.encode(out);
+            material.representations.len().encode(out);
+            for representation in &material.representations {
+                if out.stop.is_some() {
+                    break;
+                }
+                representation.context.encode(out);
+                representation.identifier.encode(out);
+                representation.kind.encode(out);
+                representation.items.encode(out);
+                representation.bindings.len().encode(out);
+                for binding in &representation.bindings {
+                    if out.stop.is_some() {
+                        break;
+                    }
+                    shape.reference(binding.representation.0, out)?;
+                    binding.context.encode(out);
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 const _: () = assert!(size_of::<ValueOrder>() <= 128);

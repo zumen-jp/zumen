@@ -146,7 +146,7 @@ node crates/zumen-ifc/tests/wasi-geometry.mjs --compare target/geometry-comparis
 
 ### 所有する形とハッシュを建物に保持する
 
-`IfcFile::lift_geometry(cx)` は、属性・配置・関係に加えて、要素の形・表示・通り芯を所有する Building を作ります。`building.geometry(element)` から `Geometry`、その `data()` から形の根・共有する項目・表示・通り芯を引けます。個別の要素だけなら `IfcFile::owned_geometry(instance, cx)` を使います。どちらも L1 の借用を持たず、元の IfcFile を破棄した後も値を使えます。
+`IfcFile::lift_geometry(cx)` は、属性・配置・関係に加えて、要素の形・表示・通り芯を所有する Building を作ります。`building.geometry(element)` から `Geometry`、その `data()` から形の根・共有する項目・表示・通り芯、`materials()` から材料の表示と継承元を引けます。個別の要素だけなら `IfcFile::owned_geometry(instance, cx)` を使います。どちらも L1 の借用を持たず、元の IfcFile を破棄した後も値を使えます。
 
 既存の `Lift<Building>` は属性だけの経路として保ちます。形を含む経路でも ID・既存の成分・その符号化は変えず、新しい `geometry` の成分を足します。Hash v1 はこの成分を持つ要素にだけ形のハッシュを加えます。編集の前提条件に使う側は、読んだときと検査するときに同じ経路を使ってください。`Components::representation`・`style` の従来の型を、別の意味の値へ読み替えることはしません。
 
@@ -156,7 +156,7 @@ node crates/zumen-ifc/tests/wasi-geometry.mjs --compare target/geometry-comparis
 
 値は `Geometry` の中では変更できず、取得の前後や順序でハッシュは変わりません。値を変更するときは再検査して作り直し、`Building::insert_geometry` で成分を置きます。深さ・確保前の容量・探索・符号化は同じ `Cx` を使い、共有する子を展開しないため項目と参照の数に応じた作業量に収まります。不正と停止では部分結果を返しません。
 
-未対応の項目は種類と出所を持ち、表示と通り芯の未対応は `Acquired::Unsupported` です。形を含む lift は、実際に保持した出所を使用済みとしてから欠落を報告します。未対応の定義と未使用のレコードの診断は残します。未知の定義の属性は L1 にだけ残り、形のハッシュにも含めません。元のファイル全体の同一性には文書ハッシュを使います。写像間・材質からの表示の継承と形の評価は、この格納では行いません。
+未対応の項目は種類と出所を持ち、表示と通り芯の未対応は `Acquired::Unsupported` です。形を含む lift は、実際に保持した出所を使用済みとしてから欠落を報告します。未対応の定義と未使用のレコードの診断は残します。未知の定義の属性は L1 にだけ残り、形のハッシュにも含めません。元のファイル全体の同一性には文書ハッシュを使います。写像と材料からの表示の選択は後述の問い合わせで行い、形の評価は行いません。
 
 `tests/geometry.rs` では借用した各定義との値・単位・出所の一致、既存成分と ID の一致、Hash v1 の固定値、取得前後・STEP の付け替え・内部表の並べ替え、意味値を変えたときのハッシュの変化を検査します。公開の GNI の柱と TallBuilding の壁も所有する形へ移します。外部実装との元属性の比較は、前節と個別 getter の検証範囲を使い、所有する型への移動では元値との一致を確かめます。配置・体積の評価結果とは分けます。
 
@@ -195,7 +195,7 @@ node crates/zumen-ifc/tests/wasi-inheritance.mjs --compare target/inheritance-co
 
 `IfcFile::material_presentation(instance, cx)` は、1 つの `IfcMaterial` から表示の定義への逆参照をたどります。`MaterialPresentation` に定義の名前・説明、表現ごとの識別名・種類・文脈、複数の StyledItem と面の表示を元の並びで保持します。表示のない材料は空の成功で、定義の出所は `None` です。材料や表示の定義・表現・項目・旧版の割り当て・面の表示・色の出所を、意味の値と分けます。
 
-StyledRepresentation の文脈は幾何に限りません。一般の `IfcRepresentationContext` は識別名と種類を保持し、幾何の文脈とその子は既存の取得に従って座標系・精度・真北・表示尺度・単位を保ちます。材料の StyledItem は Item の省略を要求し、形への直接の指定を読み替えません。複数の表現を 1 つの色へまとめず、材料の構成・要素や型への割り当て・面への適用も行いません。Building への保持と、要素の表示を補う継承は後続の接続で扱います。
+StyledRepresentation の文脈は幾何に限りません。一般の `IfcRepresentationContext` は識別名と種類を保持し、幾何の文脈とその子は既存の取得に従って座標系・精度・真北・表示尺度・単位を保ちます。材料の StyledItem は Item の省略を要求し、形への直接の指定を読み替えません。この取得では複数の表現を 1 つの色へまとめず、材料の構成・要素や型への割り当て・面への適用も行いません。Building への保持と、要素の表示を補う選択は次節の経路で扱います。
 
 根拠は buildingSMART の各版の自然文の属性と使用規則、[MaterialDefinitionRepresentation](https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcMaterialDefinitionRepresentation.htm)・[StyledRepresentation](https://standards.buildingsmart.org/IFC/RELEASE/IFC4/ADD2_TC1/HTML/schema/ifcrepresentationresource/lexical/ifcstyledrepresentation.htm)・[StyledItem](https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcStyledItem.htm) です。公式ページが取得できない場合は、同じ持ち主の公式 HTML スナップショットで確認しています。スキーマを取得・同梱しません。
 
@@ -213,6 +213,33 @@ node crates/zumen-ifc/tests/wasi-material-styles.mjs --compare target/material-c
 ```
 
 ネイティブと WASI で元値・出所・診断・全 Kind の境界を照合します。fuzz では最初の 16 材料まで同じ予算で取得します。
+
+### 要素と型の材料から表示を継承する
+
+`IfcFile::material_assignments(instance, cx)` は、要素への材料の割り当てを取得します。要素に指定がなければ型を参照し、型と結ぶ関係・割り当ての所有者・材料の選択の出所を保持します。要素の材料に表示がない場合や未対応の場合も、型の既知の色に読み替えません。複数の材料の割り当ては元の並びを保ちます。複数の型、不正な参照や集合、対象に関係する複合の実体はエラーです。根拠は [IfcRelAssociatesMaterial](https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcRelAssociatesMaterial.htm) の要素と型の上書きの使用規則と、各版の関係の自然文の属性です。
+
+`owned_geometry()` と `lift_geometry()` は、この割り当てから単一材料・MaterialList・MaterialLayerSet・MaterialLayerSetUsage の材料の表示を所有します。リスト・層は順序と重複を保ち、材料の省略は `None`、表示の未対応は `Some(Unsupported)` として区別します。型・構成・層から材料までの参照の経路も保持します。厚さ・向きなどの構成の属性は既存の Building の材料成分と L1 が持ち、その拡充は #539 です。プロファイル・構成材の集合など、ここで未対応の選択は種類・出所と診断を保持します。未知の属性や参照しか読んでいない型・構成を、属性まで移したと数えません。
+
+`Geometry::resolved_surface(path, cx)` は、根から表現・写像を通る使用位置を受けます。項目・写像・レイヤの表示を先に選び、指定がないときに材料を使います。項目の未対応・競合は材料の色に置き換えません。材料の表示は最上位の形の表現の文脈に対して選び、同じ文脈を先に使い、なければその親の文脈を使います。同じ値を持つ別の文脈や兄弟の文脈へは適用しません。同順位の表現、複数の割り当てや材料は `Ambiguous` で、元の構成から面へ割り振る処理を待ちます。複数の表示の項目・正負の面・反射式を 1 つの色へ合成しません。
+
+文脈ごとの表示は [MaterialDefinitionRepresentation](https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcMaterialDefinitionRepresentation.htm) の自然文に従います。最上位の表現を基準に、同じ文脈・親の順に選ぶのは zumen の明示した選択の規則です。仕様の引用や、外部実装との完全な一致とは扱いません。未対応の表示が材料の別の文脈にあっても、現段階の材料の取得は全体を未対応にします。
+
+`Geometry::new_with_materials()` は材料の表示と、形の表現への結び付けを検査し、ハッシュに含めます。結び付けは `GeometryRef` で、STEP 番号だけで意味を決めません。同じ文脈の値でも結び付く表現が変わればハッシュが変わり、出所を付け替えても変わりません。材料が `None` の場合は従来の `Geometry::new()` と同じハッシュです。既存の属性だけの lift と Hash v1 の符号化は変えません。逆参照の走査、構成の各成分の取得、確保と符号化は同じ `Cx` を使い、不正と停止では部分結果を返しません。表示の問い合わせではメモリを確保しません。
+
+`tests/material_inheritance.rs` は合成の 3 版で、上書き・文脈・写像・省略・未対応・競合・循環する不正参照・予算・中断・ハッシュを検査します。公開 TallBuilding の壁 `#615` では、割り当て `#16398` から層の使用位置 `#656`、層の集合 `#653`、層 `#651`、材料 `#638` と面の表示 `#604` までを保持します。
+
+IfcOpenShell 0.9.0.post1 とは割り当て 33 件と、要素・型・直接の項目・写像・親の文脈・単一の層を通る面の色 21 件が一致しました。別枠の 6 件では、別の文脈の色も適用する、複数の文脈では既定の灰色になるという差がありました。zumen は別の文脈の色を適用せず、同じ文脈の指定を選びます。これは形・体積の一致の検査ではありません。外部への入力からは、未対応を調べる未使用の自作の実体を除きます。
+
+```powershell
+$env:ZUMEN_IFC_MATERIAL_INHERITANCE_OUT = Join-Path (Get-Location) 'target/material-inheritance-comparison'
+cargo test -p zumen-ifc --locked --test material_inheritance
+uv run --no-project --python 3.13 --no-python-downloads --with ifcopenshell==0.9.0.post1 python -X utf8 -I crates/zumen-ifc/tests/ifcopenshell/material_inheritance.py target/material-inheritance-comparison
+$env:CARGO_TARGET_WASM32_WASIP1_RUNNER = 'node --no-warnings tests/wasi-material-inheritance.mjs'
+cargo test -p zumen-ifc --locked --test material_inheritance --target wasm32-wasip1 -- --test-threads 1
+node crates/zumen-ifc/tests/wasi-material-inheritance.mjs --compare target/material-inheritance-comparison target/material-inheritance-comparison-wasm
+```
+
+42 ファイルで、元値・選択・出所・ハッシュ・診断・全 Kind の境界と使用量をネイティブと WASI で比較します。fuzz も同じ予算で所有する取得から材料の表示の選択まで進みます。
 
 ### 表現の座標系と表示尺度を取得する
 

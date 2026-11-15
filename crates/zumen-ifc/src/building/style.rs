@@ -3,8 +3,10 @@
 
 use std::collections::BTreeSet;
 
+mod assigned;
 mod layer;
 mod material;
+pub use assigned::{MaterialAssignments, MaterialAssociation};
 pub use layer::{ItemPresentation, LayerAssignmentLevel, LayerPresentation, SurfaceStyleSelection};
 pub use material::{
     MaterialPresentation, MaterialRepresentation, MaterialStyleContext, MaterialStyleItem,
