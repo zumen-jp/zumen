@@ -2,7 +2,7 @@
 //!
 //! 意味を持つ実体ごとに、バージョンごとの属性の位置を手で書いた表で読む。位置は、各バージョンの仕様の実体の定義（IFC2X3 TC1・
 //! IFC4 ADD2 TC1・IFC 4.3 ADD2 の 5 章から 8 章の、実体ごとの「属性」の節）による。階・区域・分類の規則は docs/formats/ifc.md にある。
-//! 形状表現と表示の様式は、まだ作らない（#419）。
+//! 標準の Lift は属性の成分を作る。lift_geometry は所有する形と表示も同じ予算で足す。
 
 use core::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet};
@@ -365,6 +365,14 @@ const SPACE_BOUNDARIES: &[(&str, &str)] = &[
 pub(crate) type LiftedWithUnits = (Building, Version, BTreeMap<u64, Option<Unit>>);
 
 pub(crate) fn lift_with_units(file: &IfcFile, cx: &mut Cx) -> Result<LiftedWithUnits, Error> {
+    lift_with_units_mode(file, cx, false)
+}
+
+fn lift_with_units_mode(
+    file: &IfcFile,
+    cx: &mut Cx,
+    geometry: bool,
+) -> Result<LiftedWithUnits, Error> {
     let Some(version) = Version::of(file.schema()) else {
         cx.report(Diagnostic::new(codes::IFC_VERSION_UNSUPPORTED).with(
             "schema",
@@ -372,7 +380,7 @@ pub(crate) fn lift_with_units(file: &IfcFile, cx: &mut Cx) -> Result<LiftedWithU
         ));
         return Err(Error::Unsupported);
     };
-    let (building, units) = Lifter::new(file, version).run(cx)?;
+    let (building, units) = Lifter::new(file, version).run(cx, geometry)?;
     Ok((building, version, units))
 }
 
@@ -620,7 +628,11 @@ impl<'f> Lifter<'f> {
         }
     }
 
-    fn run(mut self, cx: &mut Cx) -> Result<(Building, BTreeMap<u64, Option<Unit>>), Error> {
+    fn run(
+        mut self,
+        cx: &mut Cx,
+        geometry: bool,
+    ) -> Result<(Building, BTreeMap<u64, Option<Unit>>), Error> {
         self.building.document.header = self.header(cx);
         let project = self.find(b"IFCPROJECT");
         if let Some(project) = project {
@@ -667,6 +679,9 @@ impl<'f> Lifter<'f> {
         }
         self.halted(cx, None)?;
         self.report_unmapped_relations(cx)?;
+        if geometry {
+            self.own_shapes(cx)?;
+        }
         for &id in &ids {
             if self.used.contains(&id) {
                 continue;

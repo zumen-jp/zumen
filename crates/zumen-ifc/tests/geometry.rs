@@ -3,7 +3,10 @@
 #![cfg(test)]
 
 use zumen_base::{Budget, CancelToken, Cx, Diagnostics, Kind, Limit, Limits, codes};
-use zumen_building::{Building, Hash};
+use zumen_building::{
+    Building, ElementRef, Geometry, GeometryData, GeometryDefinition as OwnedValue, GeometryError,
+    GeometryLinks, GeometryRef, Hash,
+};
 use zumen_ifc::{GeometryValue, Ifc, IfcFile, ProductGeometry, Retrieved, ShapeLinks, ShapeRef};
 use zumen_json::Writer;
 use zumen_sdk::{Codec, Error, Lift};
@@ -264,6 +267,23 @@ fn gets_grid_axes_when_the_product_has_no_shape() {
         panic!()
     };
     assert_eq!(grid.axes.len(), 2);
+    let v = with(Limits::default(), |cx| file.owned_geometry(100, cx))
+        .0
+        .unwrap();
+    let Some(zumen_building::Acquired::Value(owned)) = &v.data().grid else {
+        panic!()
+    };
+    assert_eq!(owned.layout, grid.layout);
+    for (a, b) in owned.axes.iter().zip(&grid.axes) {
+        assert_eq!(a.definition, b.definition);
+        assert_eq!(a.curve, b.curve);
+        assert_eq!(a.source.instance, b.source.id());
+    }
+    let mut changed = v.data().clone();
+    if let Some(zumen_building::Acquired::Value(grid)) = &mut changed.grid {
+        grid.axes[0].definition.same_sense = false;
+    }
+    assert_ne!(v.fingerprint(), rebuild(changed).fingerprint());
 }
 
 #[test]
@@ -326,7 +346,7 @@ fn repeated_and_mutated_reads_keep_diagnostics_usage_and_source() {
         let mut bytes = src.as_bytes().to_vec();
         bytes[at] = b'$';
         zumen_sdk::testkit::survives_with(&bytes, |bytes, cx| {
-            Ifc::read(bytes, cx)?.product_geometry(100, cx).map(drop)
+            Ifc::read(bytes, cx)?.owned_geometry(100, cx).map(drop)
         })
         .unwrap();
     }
@@ -358,6 +378,10 @@ fn public_column_and_wall_keep_shared_sources_without_unexpanded_shape_diagnosti
             Some(GeometryValue::Unsupported { .. })
         ));
         assert_eq!(g.values.len(), g.shape.nodes.len());
+        let owned = with(Limits::default(), |cx| file.owned_geometry(id, cx))
+            .0
+            .unwrap();
+        assert_eq!(owned.data().nodes.len(), g.shape.nodes.len());
     }
 }
 
@@ -479,4 +503,637 @@ fn exports_integrated_values_diagnostics_and_budgets() {
         615,
     );
     std::fs::write(folder.join("contract.txt"), contract).unwrap();
+}
+
+fn owned(file: &IfcFile) -> Geometry {
+    let (r, d, _) = with(Limits::default(), |cx| file.owned_geometry(100, cx));
+    assert!(d.is_empty(), "{d:?}");
+    r.unwrap()
+}
+fn rebuild(data: GeometryData) -> Geometry {
+    with(Limits::default(), |cx| Geometry::new(data, cx))
+        .0
+        .unwrap()
+}
+
+#[test]
+fn owning_preserves_all_definitions_units_shared_links_and_sources() {
+    for version in VERSIONS {
+        let file = read(&source(version));
+        let borrowed = get(&file);
+        let owned = owned(&file);
+        let data = owned.data();
+        assert_eq!(data.nodes.len(), borrowed.values.len());
+        for ((node, value), result) in borrowed
+            .shape
+            .nodes
+            .iter()
+            .zip(&borrowed.values)
+            .zip(&data.nodes)
+        {
+            assert_eq!(node.source.id(), result.source.instance);
+            match (value, &result.definition) {
+                (GeometryValue::Links, OwnedValue::Links) => {}
+                (GeometryValue::Curve(a), OwnedValue::Curve(b)) => assert_eq!(a, b),
+                (
+                    GeometryValue::Context(a),
+                    OwnedValue::Context {
+                        definition,
+                        length_unit,
+                    },
+                ) => {
+                    assert_eq!(&a.definition, definition);
+                    assert_eq!(&a.length_unit, length_unit);
+                }
+                (
+                    GeometryValue::Extrusion(a),
+                    OwnedValue::Extrusion {
+                        definition,
+                        boundary,
+                        length_unit,
+                    },
+                ) => {
+                    assert_eq!(&a.definition, definition);
+                    assert_eq!(&a.boundary, boundary);
+                    assert_eq!(&a.length_unit, length_unit);
+                }
+                (
+                    GeometryValue::Revolution(a),
+                    OwnedValue::Revolution {
+                        definition,
+                        boundary,
+                        length_unit,
+                    },
+                ) => {
+                    assert_eq!(&a.definition, definition);
+                    assert_eq!(&a.boundary, boundary);
+                    assert_eq!(&a.length_unit, length_unit);
+                }
+                (
+                    GeometryValue::SweptDisk(a),
+                    OwnedValue::SweptDisk {
+                        definition,
+                        directrix,
+                    },
+                ) => {
+                    assert_eq!(&a.definition, definition);
+                    assert_eq!(&a.directrix, directrix);
+                }
+                (
+                    GeometryValue::Faces(a),
+                    OwnedValue::Faces {
+                        definition,
+                        length_unit,
+                    },
+                ) => {
+                    assert_eq!(&a.definition, definition);
+                    assert_eq!(&a.length_unit, length_unit);
+                    assert_eq!(
+                        result
+                            .source
+                            .groups
+                            .iter()
+                            .find(|g| g.role == "points")
+                            .unwrap()
+                            .instances,
+                        a.source
+                            .points
+                            .iter()
+                            .map(|r| r.id().unwrap())
+                            .collect::<Vec<_>>()
+                    );
+                }
+                (
+                    GeometryValue::Tessellation(a),
+                    OwnedValue::Tessellation {
+                        definition,
+                        length_unit,
+                    },
+                ) => {
+                    assert_eq!(&a.definition, definition);
+                    assert_eq!(&a.length_unit, length_unit);
+                }
+                (
+                    GeometryValue::HalfSpace(a),
+                    OwnedValue::HalfSpace {
+                        definition,
+                        boundary,
+                        length_unit,
+                    },
+                ) => {
+                    assert_eq!(&a.definition, definition);
+                    assert_eq!(&a.boundary, boundary);
+                    assert_eq!(&a.length_unit, length_unit);
+                }
+                (
+                    GeometryValue::Mapping(a),
+                    OwnedValue::Mapping {
+                        definition,
+                        length_unit,
+                    },
+                ) => {
+                    assert_eq!(&a.definition, definition);
+                    assert_eq!(&a.length_unit, length_unit);
+                }
+                (GeometryValue::Unsupported { kind }, OwnedValue::Unsupported(other)) => {
+                    assert_eq!(kind, other)
+                }
+                _ => panic!("{value:?}: {:?}", result.definition),
+            }
+        }
+        for (a, b) in borrowed.styles.iter().zip(&data.styles) {
+            assert_eq!(a.item.0, b.item.0);
+            assert_eq!(a.representation.map(|r| r.0), b.representation.map(|r| r.0));
+            let (Retrieved::Value(a), zumen_building::Acquired::Value(b)) =
+                (&a.presentation, &b.presentation)
+            else {
+                panic!()
+            };
+            assert_eq!(a.direct.name, b.name);
+            assert_eq!(a.layer_source, b.layer_source);
+            assert_eq!(a.surface_source, b.surface_source);
+            assert_eq!(a.layers.len(), b.layers.len());
+            for (a, b) in a.direct.styles.iter().zip(&b.direct) {
+                assert_eq!(a.definition, b.definition);
+                assert_eq!(a.source.style.id(), b.source.instance);
+            }
+            for (a, b) in a.layers.iter().zip(&b.layers) {
+                assert_eq!(a.definition, b.definition);
+                assert_eq!(a.source.id(), b.source.instance);
+            }
+        }
+    }
+}
+
+#[test]
+fn rich_lift_keeps_metadata_ids_and_hash_v1_and_survives_dropping_l1() {
+    for version in VERSIONS {
+        let file = read(&source(version));
+        let old = with(Limits::default(), |cx| Lift::<Building>::lift(&file, cx))
+            .0
+            .unwrap();
+        let rich = with(Limits::default(), |cx| file.lift_geometry(cx))
+            .0
+            .unwrap();
+        assert_eq!(old.document, rich.document);
+        assert_eq!(old.components, rich.components);
+        assert_eq!(old.elements(), rich.elements());
+        assert_eq!(Hash::VERSION, 1);
+        for at in 0..old.elements().len() {
+            let at = ElementRef(at as u32);
+            assert!(old.geometry(at).is_none());
+            if rich.geometry(at).is_none() {
+                assert_eq!(Hash::element(&old, at), Hash::element(&rich, at));
+            } else {
+                assert_ne!(Hash::element(&old, at), Hash::element(&rich, at));
+            }
+        }
+        let at = ElementRef(1);
+        let before = Hash::element(&rich, at).unwrap();
+        let geometry = rich.geometry(at).unwrap();
+        let shape_hash = geometry.fingerprint();
+        assert_eq!(
+            shape_hash.to_string(),
+            if version == "IFC2X3" {
+                "v1:b76a756759be66968d21a7e875c906fd"
+            } else {
+                "v1:87c9a18933475469b30f6ae83314ce3c"
+            }
+        );
+        assert_eq!(
+            before.to_string(),
+            if version == "IFC2X3" {
+                "v1:3e57d654a87f081a1100aafa81a6935c"
+            } else {
+                "v1:32099b0e506e7fa3fe687953ddb39046"
+            }
+        );
+        file.product_shape(
+            100,
+            &mut Cx::new(
+                &mut Budget::new(Limits::default()),
+                &mut Diagnostics::new(),
+                &CancelToken::new(),
+            ),
+        )
+        .unwrap();
+        assert_eq!(rich.geometry(at).unwrap().fingerprint(), shape_hash);
+        assert_eq!(Hash::element(&rich, at), Some(before));
+        let changed = read(&source(version).replace(
+            "#30=IFCEXTRUDEDAREASOLID(#27,#20,#24,4.)",
+            "#30=IFCEXTRUDEDAREASOLID(#27,#20,#24,5.)",
+        ));
+        let changed = with(Limits::default(), |cx| changed.lift_geometry(cx))
+            .0
+            .unwrap();
+        assert_ne!(Hash::element(&changed, at), Some(before));
+        assert_eq!(
+            with(Limits::default(), |cx| Hash::element_checked(&rich, at, cx))
+                .0
+                .unwrap(),
+            Some(before)
+        );
+        drop(file);
+        assert!(!rich.geometry(at).unwrap().data().nodes.is_empty());
+        assert_eq!(Hash::element(&rich, at), Some(before));
+    }
+}
+
+fn reverse_nodes(data: &mut GeometryData) {
+    let n = data.nodes.len() as u32;
+    let remap = |r: &mut GeometryRef| {
+        r.0 = n - 1 - r.0;
+    };
+    if let Some(r) = &mut data.root {
+        remap(r);
+    }
+    data.nodes.reverse();
+    for node in &mut data.nodes {
+        match &mut node.links {
+            GeometryLinks::Definition(items)
+            | GeometryLinks::Representation { items, .. }
+            | GeometryLinks::Set { items, .. } => {
+                for r in items {
+                    remap(r);
+                }
+            }
+            GeometryLinks::Mapped(r) | GeometryLinks::Map(r) => remap(r),
+            GeometryLinks::Boolean { first, second, .. } => {
+                remap(first);
+                remap(second);
+            }
+            GeometryLinks::Leaf => {}
+        }
+        node.source.instance = Some(u64::MAX);
+        node.source.groups.clear();
+    }
+    for s in &mut data.styles {
+        remap(&mut s.item);
+        if let Some(r) = &mut s.representation {
+            remap(r);
+        }
+    }
+    data.source.instance = None;
+    data.source.groups.clear();
+}
+
+#[test]
+fn hashes_ignore_step_numbers_graph_storage_order_and_all_source_groups() {
+    let src = source("IFC4");
+    let file = read(&src);
+    let a = owned(&file);
+    let shifted = read(
+        &src.replace("#30", "#1300")
+            .replace("#21", "#1210")
+            .replace("#59", "#1590"),
+    );
+    let b = owned(&shifted);
+    assert_eq!(a.fingerprint(), b.fingerprint());
+    let mut data = a.data().clone();
+    reverse_nodes(&mut data);
+    assert_eq!(a.fingerprint(), rebuild(data).fingerprint());
+    for (before, after) in [
+        (
+            "#30=IFCEXTRUDEDAREASOLID(#27,#20,#24,4.)",
+            "#30=IFCEXTRUDEDAREASOLID(#27,#20,#24,5.)",
+        ),
+        (
+            "#21=IFCCARTESIANPOINT((0.,0.,0.))",
+            "#21=IFCCARTESIANPOINT((0.1,0.,0.))",
+        ),
+        (
+            "#8=IFCGEOMETRICREPRESENTATIONCONTEXT($,'Model',3,1.E-5",
+            "#8=IFCGEOMETRICREPRESENTATIONCONTEXT($,'Model',3,1.E-4",
+        ),
+        (
+            "#301=IFCSURFACESTYLESHADING(#300,0.25)",
+            "#301=IFCSURFACESTYLESHADING(#300,0.5)",
+        ),
+        (".LENGTHUNIT.,$,.METRE.", ".LENGTHUNIT.,.MILLI.,.METRE."),
+    ] {
+        assert!(src.contains(before));
+        assert_ne!(
+            a.fingerprint(),
+            owned(&read(&src.replace(before, after))).fingerprint()
+        );
+    }
+}
+
+#[test]
+fn nested_curve_and_face_storage_order_does_not_change_hash() {
+    use zumen_building::{
+        CurveItem, CurveKind, CurveRef, CurveSegment, CurveSource, CurveTransition,
+    };
+    let mut data = owned(&read(&source("IFC4"))).data().clone();
+    for node in &mut data.nodes {
+        if let OwnedValue::Curve(graph) = &mut node.definition {
+            graph.items.push(CurveItem {
+                kind: CurveKind::Composite {
+                    segments: vec![CurveSegment {
+                        curve: graph.root,
+                        same_sense: true,
+                        transition: CurveTransition::Continuous,
+                    }],
+                    self_intersect: None,
+                },
+                source: CurveSource::default(),
+            });
+            graph.root = CurveRef((graph.items.len() - 1) as u32);
+        }
+    }
+    let expected = rebuild(data.clone()).fingerprint();
+    for node in &mut data.nodes {
+        if let OwnedValue::Curve(graph) = &mut node.definition {
+            let n = graph.items.len() as u32;
+            graph.root.0 = n - 1 - graph.root.0;
+            graph.items.reverse();
+            for item in &mut graph.items {
+                item.source = CurveSource::default();
+                if let CurveKind::Composite { segments, .. } = &mut item.kind {
+                    for s in segments {
+                        s.curve.0 = n - 1 - s.curve.0;
+                    }
+                }
+            }
+        }
+        if let OwnedValue::Faces { definition, .. } = &mut node.definition {
+            let n = definition.points.len() as u32;
+            definition.points.reverse();
+            for p in &mut definition.loops {
+                for r in &mut p.points {
+                    r.0 = n - 1 - r.0;
+                }
+            }
+        }
+    }
+    assert_eq!(expected, rebuild(data).fingerprint());
+}
+
+#[test]
+fn owned_graph_rejects_cycles_bad_references_and_unreachable_values() {
+    let base = owned(&read(&source("IFC4")));
+    let mut cycle = base.data().clone();
+    let root = cycle.root.unwrap();
+    cycle.nodes[root.0 as usize].links = GeometryLinks::Definition(vec![root]);
+    let mut dangling = base.data().clone();
+    dangling.nodes[root.0 as usize].links = GeometryLinks::Definition(vec![GeometryRef(u32::MAX)]);
+    let mut unreachable = base.data().clone();
+    unreachable.nodes[root.0 as usize].links = GeometryLinks::Definition(vec![]);
+    let mut style = base.data().clone();
+    style.styles[0].item = GeometryRef(u32::MAX);
+    for (data, expected) in [
+        (cycle, GeometryError::Cycle),
+        (dangling, GeometryError::Reference),
+        (unreachable, GeometryError::Unreachable),
+        (style, GeometryError::Reference),
+    ] {
+        let (r, _, b) = with(Limits::default(), |cx| Geometry::new(data, cx));
+        assert_eq!(r.unwrap_err(), expected);
+        assert_eq!(b.used(Kind::Depth), 0);
+    }
+    for which in 0..3 {
+        let mut data = base.data().clone();
+        let mut changed = false;
+        for node in &mut data.nodes {
+            match (&mut node.definition, which) {
+                (OwnedValue::Curve(g), 0) => {
+                    g.root.0 = u32::MAX;
+                    changed = true;
+                }
+                (OwnedValue::Faces { definition, .. }, 1) => {
+                    definition.loops[0].points[0].0 = u32::MAX;
+                    changed = true;
+                }
+                (OwnedValue::Tessellation { definition, .. }, 2) => {
+                    if let zumen_building::IndexedFaces::Polygons { indices, .. } =
+                        &mut definition.faces
+                    {
+                        indices[0].0 = u32::MAX;
+                        changed = true;
+                    }
+                }
+                _ => {}
+            }
+        }
+        assert!(changed);
+        let (r, _, b) = with(Limits::default(), |cx| Geometry::new(data, cx));
+        assert_eq!(r.unwrap_err(), GeometryError::Reference);
+        assert_eq!(b.used(Kind::Depth), 0);
+    }
+}
+
+#[test]
+fn rich_lift_reports_only_unread_records_and_preserves_unknown_kind_counts() {
+    let src = source("IFC4");
+    let file = read(&src);
+    let (r, d, _) = with(Limits::default(), |cx| file.lift_geometry(cx));
+    r.unwrap();
+    for d in d.iter().filter(|d| d.code() == codes::IFC_ENTITY_DROPPED) {
+        assert!(
+            matches!(d.param("kind"), Some(zumen_base::Value::Text(k)) if k == "IFCPRESENTATIONSTYLEASSIGNMENT"),
+            "{d:?}"
+        );
+    }
+    let src = src
+        .replace("#32=IFCSWEPTDISKSOLID", "#32=IFCUNKNOWNGEOMETRY")
+        .replace(
+            "ENDSEC;\nEND-ISO",
+            "#900=IFCEXTRUDEDAREASOLID(#27,#20,#24,4.);\nENDSEC;\nEND-ISO",
+        );
+    let file = read(&src);
+    let (r, d, _) = with(Limits::default(), |cx| file.lift_geometry(cx));
+    let building = r.unwrap();
+    assert!(
+        building
+            .geometry(ElementRef(1))
+            .unwrap()
+            .data()
+            .nodes
+            .iter()
+            .any(
+                |n| matches!(&n.definition, OwnedValue::Unsupported(k) if k == "IFCUNKNOWNGEOMETRY")
+            )
+    );
+    for kind in ["IFCUNKNOWNGEOMETRY", "IFCEXTRUDEDAREASOLID"] {
+        assert_eq!(
+            d.iter()
+                .filter(|d| d.code() == codes::IFC_ENTITY_DROPPED
+                    && matches!(d.param("kind"), Some(zumen_base::Value::Text(k)) if k == kind))
+                .map(|d| d.count())
+                .sum::<u64>(),
+            1
+        );
+    }
+    assert_eq!(
+        d.iter()
+            .filter(|d| d.code() == codes::IFC_SHAPE_UNSUPPORTED)
+            .map(|d| d.count())
+            .sum::<u64>(),
+        1
+    );
+}
+
+#[test]
+fn owned_geometry_and_rich_lift_charge_shared_budgets_and_restore_depth() {
+    let file = read(&source("IFC4"));
+    for rich in [false, true] {
+        let call = |cx: &mut Cx| {
+            if rich {
+                file.lift_geometry(cx).map(drop)
+            } else {
+                file.owned_geometry(100, cx).map(drop)
+            }
+        };
+        let (r, _, b) = with(Limits::default(), call);
+        r.unwrap();
+        for kind in Kind::ALL {
+            let used = if kind == Kind::Depth {
+                (0..64)
+                    .find(|&n| {
+                        with(Limits::default().with(kind, Limit::Finite(n)), call)
+                            .0
+                            .is_ok()
+                    })
+                    .unwrap()
+            } else {
+                b.used(kind)
+            };
+            assert!(
+                with(Limits::default().with(kind, Limit::Finite(used)), call)
+                    .0
+                    .is_ok()
+            );
+            if used > 0 {
+                let (r, _, b) = with(Limits::default().with(kind, Limit::Finite(used - 1)), call);
+                assert!(matches!(r, Err(Error::Stopped(_))), "{kind:?}: {r:?}");
+                assert_eq!(b.used(Kind::Depth), 0);
+            }
+        }
+        for expired in [false, true] {
+            let (r, _, b) = with(Limits::default(), |cx| {
+                if expired {
+                    cx.cancel.expire()
+                } else {
+                    cx.cancel.cancel()
+                };
+                call(cx)
+            });
+            assert!(matches!(r, Err(Error::Stopped(_))));
+            assert_eq!(b.used(Kind::DecodedBytes), 0);
+        }
+    }
+}
+
+#[test]
+fn shared_boolean_graph_hashes_in_linear_work_and_without_recursive_ownership() {
+    use zumen_building::{BooleanOperation, GeometryNode, GeometrySource};
+    let mut data = GeometryData {
+        root: Some(GeometryRef(0)),
+        nodes: Vec::new(),
+        styles: Vec::new(),
+        grid: None,
+        source: GeometrySource::default(),
+    };
+    for i in 0..100 {
+        data.nodes.push(GeometryNode {
+            links: if i == 99 {
+                GeometryLinks::Leaf
+            } else {
+                GeometryLinks::Boolean {
+                    operation: BooleanOperation::Union,
+                    first: GeometryRef(i + 1),
+                    second: GeometryRef(i + 1),
+                }
+            },
+            definition: if i == 99 {
+                OwnedValue::Unsupported("Example".into())
+            } else {
+                OwnedValue::Links
+            },
+            source: GeometrySource::default(),
+        });
+    }
+    let (r, _, b) = with(
+        Limits::default().with(Kind::Depth, Limit::Finite(100)),
+        |cx| Geometry::new(data.clone(), cx),
+    );
+    assert!(r.is_ok());
+    assert!(b.used(Kind::Work) < 1000);
+    assert_eq!(b.used(Kind::Depth), 0);
+    let (r, _, b) = with(
+        Limits::default().with(Kind::Depth, Limit::Finite(99)),
+        |cx| Geometry::new(data, cx),
+    );
+    assert!(matches!(r, Err(GeometryError::Stopped(_))));
+    assert_eq!(b.used(Kind::Depth), 0);
+}
+
+#[test]
+#[allow(clippy::disallowed_methods)] // 自作入力と公開例の値・ハッシュ・予算だけを指定先へ出す。
+fn exports_owned_values_hashes_and_shared_budget_contract() {
+    let Ok(folder) = std::env::var("ZUMEN_IFC_OWNED_OUT") else {
+        return;
+    };
+    let folder = std::path::PathBuf::from(folder);
+    std::fs::create_dir_all(&folder).unwrap();
+    let export = |name: &str, src: &str, id: u64, rich: bool| {
+        let file = read(src);
+        let call = |cx: &mut Cx| file.owned_geometry(id, cx);
+        let (v, d, b) = with(Limits::default(), call);
+        let v = v.unwrap();
+        let mut out = format!(
+            "{name}:{}:{v:?}:{d:?}:{:?}\n",
+            v.fingerprint(),
+            Kind::ALL.map(|k| b.used(k))
+        );
+        for kind in Kind::ALL {
+            let used = if kind == Kind::Depth {
+                (0..64)
+                    .find(|&cap| {
+                        with(Limits::default().with(kind, Limit::Finite(cap)), call)
+                            .0
+                            .is_ok()
+                    })
+                    .unwrap()
+            } else {
+                b.used(kind)
+            };
+            for cap in [0, used.saturating_sub(1), used] {
+                let (r, d, b) = with(Limits::default().with(kind, Limit::Finite(cap)), call);
+                out += &format!(
+                    "{kind:?}:{cap}:{:?}:{d:?}:{:?}\n",
+                    r.err(),
+                    Kind::ALL.map(|k| b.used(k))
+                );
+            }
+        }
+        if rich {
+            let (r, d, b) = with(Limits::default(), |cx| file.lift_geometry(cx));
+            let building = r.unwrap();
+            out += &format!("lift:{d:?}:{:?}\n", Kind::ALL.map(|k| b.used(k)));
+            for (at, element) in building.elements().iter().enumerate() {
+                out += &format!(
+                    "{}:{}\n",
+                    element.id(),
+                    Hash::element(&building, ElementRef(at as u32)).unwrap()
+                );
+            }
+        }
+        std::fs::write(folder.join(format!("{name}.txt")), out).unwrap();
+    };
+    for version in VERSIONS {
+        export(version, &source(version), 100, true);
+    }
+    export(
+        "public_column",
+        include_str!("../../../samples/ifc/gni/model_9.ifc"),
+        131,
+        false,
+    );
+    export(
+        "public_wall",
+        include_str!("../../../samples/ifc/bim-whale/TallBuilding.ifc"),
+        615,
+        false,
+    );
 }

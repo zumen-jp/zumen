@@ -6,6 +6,9 @@
 
 use core::fmt;
 
+mod geometry;
+pub(crate) use geometry::geometry_digest;
+
 use zumen_base::{Cx, Kind, Stop};
 
 use crate::{
@@ -113,6 +116,7 @@ fn encode_element(building: &Building, element: ElementRef, out: &mut Canon<'_>)
     put("level", c.level.get(element), out);
     put("zone", c.zone.get(element), out);
     put("extension", c.extension.get(element), out);
+    put("geometry", building.geometry(element), out);
     // コンポーネントの終わり。種類の名前は空でないので、空の名前と重ならない
     "".encode(out);
 }
@@ -199,6 +203,12 @@ impl<'a> Canon<'a> {
 pub trait Encode {
     /// 値のバイト列を書き足す
     fn encode(&self, out: &mut Canon<'_>);
+}
+
+impl Encode for crate::Geometry {
+    fn encode(&self, out: &mut Canon<'_>) {
+        self.fingerprint().0.encode(out);
+    }
 }
 
 impl Encode for bool {

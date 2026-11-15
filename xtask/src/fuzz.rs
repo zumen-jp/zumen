@@ -764,6 +764,18 @@ mod tests {
         let (geometry, found) = run(Limits::default(), |cx| file.product_geometry(100, cx));
         assert_eq!(found, []);
         let geometry = geometry.unwrap();
+        let (owned, found) = run(Limits::default(), |cx| file.owned_geometry(100, cx));
+        assert_eq!(found, []);
+        let owned = owned.unwrap();
+        assert_eq!(owned.data().nodes.len(), geometry.values.len());
+        let (rich, _) = run(Limits::default(), |cx| file.lift_geometry(cx));
+        let rich = rich.unwrap();
+        assert!(
+            rich.elements()
+                .iter()
+                .filter_map(|e| rich.find(e.id()))
+                .any(|at| rich.geometry(at).is_some())
+        );
         assert!(
             geometry
                 .values

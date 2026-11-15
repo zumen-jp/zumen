@@ -12,6 +12,7 @@ mod component;
 mod curve;
 mod extrusion;
 mod faces;
+mod geometry;
 mod geometry_context;
 mod grid;
 mod half_space;
@@ -31,6 +32,7 @@ pub use component::*;
 pub use curve::*;
 pub use extrusion::*;
 pub use faces::*;
+pub use geometry::*;
 pub use geometry_context::*;
 pub use grid::*;
 pub use half_space::*;
@@ -209,9 +211,51 @@ pub struct Building {
     pub components: Components,
     elements: Vec<Element>,
     ids: BTreeMap<Id, ElementRef>,
+    geometry: Column<Geometry>,
 }
 
 impl Building {
+    /// 要素が持つ所有する形・表示・通り芯。取得で値やハッシュを変更しない
+    pub fn geometry(&self, element: ElementRef) -> Option<&Geometry> {
+        self.geometry.get(element)
+    }
+
+    /// 参照を検査済みの形を要素へ置く。元の値があれば返す
+    pub fn insert_geometry(
+        &mut self,
+        element: ElementRef,
+        geometry: Geometry,
+        cx: &mut Cx<'_>,
+    ) -> Result<Option<Geometry>, GeometryError> {
+        const BYTES: usize = 512;
+        const _: () = assert!(size_of::<(ElementRef, Geometry)>() <= BYTES);
+        cx.check(zumen_base::Kind::Work, 64)?;
+        if self.element(element).is_none() {
+            return Err(GeometryError::Reference);
+        }
+        let entries = &mut self.geometry.entries;
+        if let Err(at) = entries.binary_search_by_key(&element, |(e, _)| *e) {
+            cx.check(zumen_base::Kind::Work, (entries.len() - at) as u64)?;
+            if entries.len() == entries.capacity() {
+                cx.check(zumen_base::Kind::Work, entries.len() as u64)?;
+                let cap = entries
+                    .capacity()
+                    .saturating_mul(2)
+                    .max(1)
+                    .min(i32::MAX as usize / BYTES);
+                if cap <= entries.len() {
+                    return Err(GeometryError::Reference);
+                }
+                cx.check(
+                    zumen_base::Kind::DecodedBytes,
+                    ((cap - entries.capacity()) * BYTES) as u64,
+                )?;
+                entries.reserve_exact(cap - entries.len());
+            }
+        }
+        Ok(self.geometry.insert(element, geometry))
+    }
+
     /// 文書の値から、要素のない建物モデルを作る
     pub fn new(document: Document) -> Self {
         Self {

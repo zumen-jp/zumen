@@ -27,6 +27,8 @@ VBA7 向けには、`boundary.toml` と `scene.toml` から `bindings/vba/ZumenN
 
 編集の前提条件には ID と読んだときのハッシュを使います。文書のハッシュは元のバイト列の BLAKE3 の先頭 128 ビットです。要素のハッシュは出所の位置を含めず、決まった順で符号化した意味の値を使います。すべての変更を適用前に検査し、要素がなければ `change.element.missing`、値が変わっていれば `change.element.stale` を返します。ID の規則を変える場合は、実装に先立って契約と移行方法を文書にし、その差分を別の担当者が確認します。1.0 より前の API の例外も ID には適用しません。
 
+建物の形を含む成分と Hash v1 の追加の符号化は、[IFC の所有する形とハッシュ](../docs/formats/ifc.md#所有する形とハッシュを建物に保持する)にあります。属性だけの取得と形を含む取得は明示的に選び、前提条件の検査でも同じ経路を使います。
+
 ## 3D のシーンの契約
 
 建物のシーンは [#421](https://github.com/zumen-jp/zumen/issues/421)、点群のセクションは [#475](https://github.com/zumen-jp/zumen/issues/475) の実装対象です。次の配置を共用し、実装時に `schema/scene3d.toml` から各言語の定数と型を生成します。

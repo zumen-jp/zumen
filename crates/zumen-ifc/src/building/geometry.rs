@@ -2,6 +2,8 @@
 
 use zumen_building::{CurveGraph, Element};
 
+mod owned;
+
 use super::{arg, decode};
 use crate::{
     ContextGeometry, Cx, Diagnostic, Error, FacetedFaces, GridAxes, HalfSpaceGeometry, IfcFile,

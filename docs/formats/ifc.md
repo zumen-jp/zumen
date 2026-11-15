@@ -129,7 +129,7 @@ WASI の出力は `target/shape-comparison-wasm` に書きます。同じ 4 件�
 - 統合した経路では、型に取得できた葉に `ifc.shape.unsupported` を出しません。従来の `product_shape()` は構造だけの取得として、値・診断・予算を変えません。統合結果の `shape` の未展開という印と、対応する `values` の取得結果を区別してください。
 - 共有 `Cx` で構造の循環・深さと個別の取得を検査します。形の項目数を Elements、値と参照済みの印を確保前に 1 項目 2056 DecodedBytes、表示を使う位置の容量を 1 件 1024 DecodedBytes として予約します。個別の曲線・文字列・レイヤなどの確保と走査も同じ予算を使います。配列は平らに持ち、Rust の再帰を増やしません。
 
-取得は形の評価ではなく、要素の配置・写像・単位換算を適用しません。L1 の借用出所と意味の値を含む全体の等価性や Hash は定義しません。Building の成分への格納、取得前後で変わらず形の意味値を含む要素ハッシュ、写像間と材質からの表示の継承は [#419](https://github.com/zumen-jp/zumen/issues/419) の残件です。
+取得は形の評価ではなく、要素の配置・写像・単位換算を適用しません。L1 の借用出所と意味の値を含む全体の等価性や Hash は定義しません。所有する成分とハッシュは[形を含む lift](#所有する形とハッシュを建物に保持する)で扱います。写像間と材質からの表示の継承は [#419](https://github.com/zumen-jp/zumen/issues/419) の残件です。
 
 `tests/geometry.rs` で合成の 3 版、共有する押し出し・写像・ブーリアン、表示の参照元、通り芯、未知・不正・循環・全 Kind の予算・中断を確かめます。公開の GNI の柱 `#131` と TallBuilding の壁 `#615` も、同じ入口から取得します。外部の実装との照合は、共有グラフの項目の種類・参照、表示とレイヤの参照、深さ・回転角・半径・写像先・半空間の真偽の代表属性です。個別 getter の全属性の照合は、以下の各節で示す範囲です。表示・配置・体積の評価とは分けます。
 
@@ -143,6 +143,32 @@ node crates/zumen-ifc/tests/wasi-geometry.mjs --compare target/geometry-comparis
 ```
 
 5 件の JSON と、元値・出所・診断・全 Kind の記録をネイティブと WASI で比較します。fuzz は最初の 16 要素まで、統合した取得と従来の個別の getter に同じ予算を渡します。
+
+### 所有する形とハッシュを建物に保持する
+
+`IfcFile::lift_geometry(cx)` は、属性・配置・関係に加えて、要素の形・表示・通り芯を所有する Building を作ります。`building.geometry(element)` から `Geometry`、その `data()` から形の根・共有する項目・表示・通り芯を引けます。個別の要素だけなら `IfcFile::owned_geometry(instance, cx)` を使います。どちらも L1 の借用を持たず、元の IfcFile を破棄した後も値を使えます。
+
+既存の `Lift<Building>` は属性だけの経路として保ちます。形を含む経路でも ID・既存の成分・その符号化は変えず、新しい `geometry` の成分を足します。Hash v1 はこの成分を持つ要素にだけ形のハッシュを加えます。編集の前提条件に使う側は、読んだときと検査するときに同じ経路を使ってください。`Components::representation`・`style` の従来の型を、別の意味の値へ読み替えることはしません。
+
+形の構造は `GeometryLinks`、元値は `GeometryDefinition`、参照は同じ取得結果の `GeometryRef` です。共有写像・集合演算・曲線・面の共有を平らな表に保ちます。表現の文脈、断面、配置、写像、単位、表示と通り芯の値を移動して保持し、取得した値をもう一度複製しません。出所は `GeometrySource` の番号と、値の列に対応する `points`・`faces`・`units` などの列に分けます。曲線内部の出所は既存の `CurveSource` に保ちます。要素をまたぐ表の共有は行わず、各要素の取得結果に参照が閉じます。
+
+`Geometry::new(data, cx)` は参照・循環・根からの到達性を検査し、出所を含めないハッシュを確定します。形と曲線の内部番号は最初に参照する順で付け直し、面集合の各表も同じ規則で符号化します。STEP 番号と内部配列の置き場所を変えても同じです。演算の左右、曲線の区間、輪の点、面の並びと共有関係は保持し、同じ形を描く別の定義を等価にする幾何の評価は行いません。
+
+値は `Geometry` の中では変更できず、取得の前後や順序でハッシュは変わりません。値を変更するときは再検査して作り直し、`Building::insert_geometry` で成分を置きます。深さ・確保前の容量・探索・符号化は同じ `Cx` を使い、共有する子を展開しないため項目と参照の数に応じた作業量に収まります。不正と停止では部分結果を返しません。
+
+未対応の項目は種類と出所を持ち、表示と通り芯の未対応は `Acquired::Unsupported` です。形を含む lift は、実際に保持した出所を使用済みとしてから欠落を報告します。未対応の定義と未使用のレコードの診断は残します。未知の定義の属性は L1 にだけ残り、形のハッシュにも含めません。元のファイル全体の同一性には文書ハッシュを使います。写像間・材質からの表示の継承と形の評価は、この格納では行いません。
+
+`tests/geometry.rs` では借用した各定義との値・単位・出所の一致、既存成分と ID の一致、Hash v1 の固定値、取得前後・STEP の付け替え・内部表の並べ替え、意味値を変えたときのハッシュの変化を検査します。公開の GNI の柱と TallBuilding の壁も所有する形へ移します。外部実装との元属性の比較は、前節と個別 getter の検証範囲を使い、所有する型への移動では元値との一致を確かめます。配置・体積の評価結果とは分けます。
+
+```powershell
+$env:ZUMEN_IFC_OWNED_OUT = Join-Path (Get-Location) 'target/owned-comparison'
+cargo test -p zumen-ifc --locked --test geometry
+$env:CARGO_TARGET_WASM32_WASIP1_RUNNER = 'node --no-warnings tests/wasi-owned.mjs'
+cargo test -p zumen-ifc --locked --test geometry --target wasm32-wasip1 -- --test-threads 1
+node crates/zumen-ifc/tests/wasi-owned.mjs --compare target/owned-comparison target/owned-comparison-wasm
+```
+
+合成の 3 版と公開 2 例について、所有する元値・出所・ハッシュ・診断・全 Kind の境界をネイティブと WASI で比較します。fuzz は最初の 16 要素の所有する取得と、形を含む lift を通します。
 
 ### 表現の座標系と表示尺度を取得する
 

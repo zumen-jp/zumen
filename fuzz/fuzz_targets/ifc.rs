@@ -4,7 +4,6 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use zumen_building::Building;
 use zumen_civil::CivilModel;
 use zumen_ifc::{Ifc, IfcFile, IfcZip};
 use zumen_sdk::{Codec, Cx, Error, Lift};
@@ -38,7 +37,7 @@ fn lift(file: &IfcFile, cx: &mut Cx) -> Result<(), Error> {
         if file.instance(id).is_some_and(|r| {
             [b"IFCWALL".as_slice(), b"IFCCOLUMN", b"IFCBEAM", b"IFCSLAB", b"IFCGRID", b"IFCSPACE", b"IFCBUILDINGELEMENTPROXY"].iter().any(|kind| file.kind(r).eq_ignore_ascii_case(kind))
         }) {
-            if let Err(Error::Stopped(stop)) = file.product_geometry(id, cx) { return Err(Error::Stopped(stop)); }
+            if let Err(Error::Stopped(stop)) = file.owned_geometry(id, cx) { return Err(Error::Stopped(stop)); }
             match file.product_shape(id, cx) {
                 Ok(shape) => {
                     for node in &shape.nodes {
@@ -114,7 +113,7 @@ fn lift(file: &IfcFile, cx: &mut Cx) -> Result<(), Error> {
             }
         }
     }
-    let building = Lift::<Building>::lift(file, cx).map(drop);
+    let building = file.lift_geometry(cx).map(drop);
     let civil = Lift::<CivilModel>::lift(file, cx).map(drop);
     match (building, civil) {
         (Err(Error::Stopped(stop)), _) | (_, Err(Error::Stopped(stop))) => {

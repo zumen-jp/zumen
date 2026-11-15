@@ -2,34 +2,11 @@
 //! IfcRepresentationItem・IfcPresentationLayerAssignment・IfcPresentationLayerWithStyle の
 //! 属性と使用規則。項目の割り当ては表現の割り当てに、StyledItem は同種のレイヤ表示に優先する。
 
+pub use zumen_building::{LayerAssignmentLevel, SurfaceStyleSelection};
 use zumen_building::{LayerState, PresentationLayer};
 
 use super::{ItemStyleSource, ItemSurfaceStyles, Reader, SurfaceStyleBinding, Version, arg};
 use crate::{Cx, Error, Form, IfcFile, Kind, Record, ShapeNode, Value, stopped};
-
-/// レイヤが直接付く位置。複数のレイヤの間の優先順位ではない
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum LayerAssignmentLevel {
-    /// 割り当てなし
-    None,
-    /// 形状表現
-    Representation,
-    /// 形の項目
-    Item,
-}
-
-/// 面の表示を選ぶ規則の結果。色・反射の計算や既定値の適用はしない
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SurfaceStyleSelection {
-    /// 指定なし
-    None,
-    /// direct の表示
-    Direct,
-    /// layers 内の位置。STEP 番号や永続 ID ではない
-    Layer(u32),
-    /// 同じ優先度で複数のレイヤに表示がある。並びで勝者を決めない
-    MultipleLayers,
-}
 
 /// レイヤの値・表示と、借用する出所
 #[derive(Clone, Debug)]
