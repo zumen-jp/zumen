@@ -1,6 +1,6 @@
 //! 評価前の押し出しと断面の値。元のレコードの番号・配置や写像を適用した値は含めない。
 
-use crate::CurveRef;
+use crate::{CurveRef, Measured};
 
 /// 3 次元の局所の配置。軸の比を正規化せず、省略もそのまま保持する
 #[derive(Clone, Debug, PartialEq)]
@@ -77,6 +77,36 @@ pub enum AreaProfileKind {
     Circle {
         /// 元の半径
         radius: f64,
+    },
+    /// 中心を原点とする対称な I 形。丸みや傾斜を含む輪郭は未評価
+    IShape {
+        /// フランジの全幅
+        overall_width: f64,
+        /// 断面の全高
+        overall_depth: f64,
+        /// ウェブの厚さ
+        web_thickness: f64,
+        /// フランジの厚さ
+        flange_thickness: f64,
+        /// ウェブとフランジの間の丸み。省略と明示した 0 を区別する
+        fillet_radius: Option<f64>,
+        /// フランジの端の丸み。元の版に属性がない場合も None
+        flange_edge_radius: Option<f64>,
+        /// フランジの傾き。元の平面角の単位を持ち、ラジアンへ換算しない
+        flange_slope: Option<Measured>,
+    },
+    /// 中心を原点とする中空矩形。内外の丸みを含む輪郭は未評価
+    RectangleHollow {
+        /// 外形の局所 x 方向の全幅
+        x_dim: f64,
+        /// 外形の局所 y 方向の全高
+        y_dim: f64,
+        /// 壁の厚さ
+        wall_thickness: f64,
+        /// 内側の丸み。省略と明示した 0 を区別する
+        inner_fillet_radius: Option<f64>,
+        /// 外側の丸み。省略と明示した 0 を区別する
+        outer_fillet_radius: Option<f64>,
     },
 }
 

@@ -230,8 +230,12 @@ fn rejects_bad_dimensions_references_placements_and_unknown_attributes_without_p
 fn unsupported_subtypes_and_complex_instances_report_the_kind_and_place() {
     let base = source("IFC4");
     for (from, to, place) in [
-        ("IFCRECTANGLEPROFILEDEF", "IFCRECTANGLEHOLLOWPROFILEDEF", 13),
-        ("IFCRECTANGLEPROFILEDEF", "IFCISHAPEPROFILEDEF", 13),
+        ("IFCRECTANGLEPROFILEDEF", "IFCCIRCLEHOLLOWPROFILEDEF", 13),
+        (
+            "IFCRECTANGLEPROFILEDEF",
+            "IFCASYMMETRICISHAPEPROFILEDEF",
+            13,
+        ),
         (
             "IFCRECTANGLEPROFILEDEF",
             "IFCARBITRARYPROFILEDEFWITHVOIDS",
@@ -439,6 +443,7 @@ fn public_products_reach_typed_profiles_without_caller_argument_reads() {
                 );
             }
             AreaProfileKind::ArbitraryClosed { .. } => assert_eq!(result.definition.depth, 8.8),
+            _ => panic!("この公開例では扱わない断面"),
         }
     }
 }
@@ -936,6 +941,7 @@ fn write_item(out: &mut Writer, file: &IfcFile, shape: &ProductShape<'_>, id: u6
         AreaProfileKind::Rectangle { .. } => "rectangle",
         AreaProfileKind::Circle { .. } => "circle",
         AreaProfileKind::ArbitraryClosed { .. } => "arbitrary-closed",
+        _ => panic!("この照合では扱わない断面"),
     });
     out.key("dimensions");
     match def.profile.kind {

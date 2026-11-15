@@ -1,13 +1,14 @@
 //! IFC2X3 TC1・IFC4 ADD2 TC1・IFC4.3 ADD2 の IfcExtrudedAreaSolid の属性と ValidExtrusionDirection、
 //! IfcSweptAreaSolid の SweptAreaType、IfcArbitraryClosedProfileDef の CurveDim・閉鎖に従う。
 //! パラメーター付き断面は IfcParameterizedProfileDef・IfcRectangleProfileDef・IfcCircleProfileDef、
+//! IfcIShapeProfileDef と IfcRectangleHollowProfileDef の属性の説明に従う。
 //! IfcAxis2Placement2D の LocationIs2D/RefDirIs2D と版ごとの IfcDirection の WHERE に従う。
 //! 仕様の版ごとの参照と未評価の境界は docs/formats/ifc.md の「断面を共通の経路で取得する」にある。
 //! 原点・軸・向き・深さは元の値。要素の配置・写像・単位換算・形の評価は行わない。
 
 use zumen_building::{
     AreaProfile, AreaProfileKind, AxisPlacement2, AxisPlacement3, ClosedProfile, Coordinates,
-    CurveGraph, CurveKind, Extrusion, IndexedSegment, ProfileExtrusion, Unit,
+    CurveGraph, CurveKind, Extrusion, IndexedSegment, Measured, ProfileExtrusion, Unit,
 };
 
 use super::{Version, arg, curve::parallel, decode, reference};
@@ -57,11 +58,11 @@ pub struct ExtrusionSource<'f> {
 }
 
 impl IfcFile {
-    /// ProductShape の葉から、任意の閉じた外輪・矩形・円の断面と押し出しを取得する。
+    /// ProductShape の葉から、任意の閉じた外輪・矩形・円・I 形・中空矩形の断面と押し出しを取得する。
     ///
     /// 利用側で STEP 引数を読まず、元寸法・名前・2D/3D の配置・単位・出所に到達できる。
     /// 既存 extruded_area() の型・値・予算の契約は変更しない。
-    /// 穴・I 形・中空の断面などは、種類と場所を診断し Unsupported を返す。
+    /// ほかの断面は、種類と場所を診断し Unsupported を返す。丸み・傾斜の輪郭は評価しない。
     /// 複合インスタンスは属性配置を解釈せず拒否する。評価や Building への統合ではない。
     pub fn extrusion<'f>(
         &'f self,
@@ -219,15 +220,21 @@ impl<'f> Reader<'f, '_, '_> {
     // 単位の意味の読み取りは既存 Lifter と共有し、走査・参照・文字の確保を先に数える。
     // 再帰する換算は対象にせず、既存の SI または一段の正の換算だけを保持する。
     // IfcSIUnit の派生 Dimensions・IfcSIPrefix、および IfcNamedUnit.WR1 と
-    // IfcDimensionsForSIUnit/IfcCorrectDimensions に従い、長さの候補を採用前に検査する。
-    fn si_length(&mut self, record: &Record) -> Result<(), Error> {
+    // IfcDimensionsForSIUnit/IfcCorrectDimensions に従い、長さ・平面角の候補を採用前に検査する。
+    fn si_unit(&mut self, record: &Record, angle: bool) -> Result<(), Error> {
         self.check(Kind::Work, record.span().len() as u64)?;
+        let kind: &[u8] = if angle {
+            b"PLANEANGLEUNIT"
+        } else {
+            b"LENGTHUNIT"
+        };
+        let name: &[u8] = if angle { b"RADIAN" } else { b"METRE" };
         if record.parts().first().map_or(0, |p| p.args().len()) != 4 {
             return Err(self.invalid("attributes"));
         }
         if !matches!(arg(record, 1), Some(Value::Derived))
-            || !matches!(arg(record,2),Some(Value::Enum(raw)) if self.file.bytes(raw.clone())==b"LENGTHUNIT")
-            || !matches!(arg(record,4),Some(Value::Enum(raw)) if self.file.bytes(raw.clone())==b"METRE")
+            || !matches!(arg(record,2),Some(Value::Enum(raw)) if self.file.bytes(raw.clone())==kind)
+            || !matches!(arg(record,4),Some(Value::Enum(raw)) if self.file.bytes(raw.clone())==name)
         {
             return Err(self.invalid("unit-dimensions"));
         }
@@ -260,7 +267,7 @@ impl<'f> Reader<'f, '_, '_> {
         }
     }
 
-    fn length_dimensions(&mut self, unit: &Record) -> Result<(), Error> {
+    fn unit_dimensions(&mut self, unit: &Record, angle: bool) -> Result<(), Error> {
         let id = reference(arg(unit, 1)).ok_or_else(|| self.invalid("unit-dimensions"))?;
         // 参照先がないときは参照元の単位に診断を置く。参照を引く手間も先に数える。
         self.check(Kind::Work, 1)?;
@@ -276,7 +283,7 @@ impl<'f> Reader<'f, '_, '_> {
             return Err(self.invalid("unit-dimensions"));
         }
         let args = record.parts().first().map(|p| p.args()).unwrap_or_default();
-        for (value, expected) in args.iter().zip([1i64, 0, 0, 0, 0, 0, 0]) {
+        for (value, expected) in args.iter().zip([i64::from(!angle), 0, 0, 0, 0, 0, 0]) {
             let Value::Number(raw) = value else {
                 return Err(self.invalid("unit-dimensions"));
             };
@@ -291,7 +298,12 @@ impl<'f> Reader<'f, '_, '_> {
         Ok(())
     }
 
-    fn length_unit(&mut self, version: Version, solid: &'f Record) -> Result<Option<Unit>, Error> {
+    fn named_unit(
+        &mut self,
+        version: Version,
+        solid: &'f Record,
+        angle: bool,
+    ) -> Result<Option<Unit>, Error> {
         let mut project = None;
         for record in self.file.records() {
             // ヘッダー・番号なし・重複した番号も、走査から隠れて無予算にならないように数える。
@@ -351,30 +363,35 @@ impl<'f> Reader<'f, '_, '_> {
         self.check(Kind::Work, values.len() as u64)?;
         self.check(Kind::DecodedBytes, super::ENTITIES.len() as u64 * 256)?;
         let mut lifter = super::Lifter::new(self.file, version);
-        let mut length = None;
+        let mut selected = None;
         for value in values {
             self.current = assignment_id;
             let id = reference(Some(value)).ok_or_else(|| self.invalid("reference"))?;
             self.current = id;
             let record = self.take_typed(id)?;
             self.check(Kind::Work, record.span().len() as u64)?;
-            // この取得操作が求める長さ以外の単位は評価しない。元の割り当てとレコードは残す。
-            if !matches!(arg(record, 2),Some(Value::Enum(raw)) if self.file.bytes(raw.clone()).eq_ignore_ascii_case(b"LENGTHUNIT"))
+            // この取得操作が求める種類以外の単位は評価しない。元の割り当てとレコードは残す。
+            let expected: &[u8] = if angle {
+                b"PLANEANGLEUNIT"
+            } else {
+                b"LENGTHUNIT"
+            };
+            if !matches!(arg(record, 2),Some(Value::Enum(raw)) if self.file.bytes(raw.clone()).eq_ignore_ascii_case(expected))
             {
                 continue;
             }
             self.check(Kind::DecodedBytes, 256 + record.span().len() as u64 * 12)?;
             if self.is(record, b"IFCSIUNIT") {
-                self.si_length(record)?;
+                self.si_unit(record, angle)?;
             } else if self.is(record, b"IFCCONVERSIONBASEDUNIT") {
                 if record.parts().first().map_or(0, |p| p.args().len()) != 4 {
                     return Err(self.invalid("attributes"));
                 }
-                if !matches!(arg(record,2),Some(Value::Enum(raw)) if self.file.bytes(raw.clone())==b"LENGTHUNIT")
+                if !matches!(arg(record,2),Some(Value::Enum(raw)) if self.file.bytes(raw.clone())==expected)
                 {
                     return Err(self.invalid("unit-dimensions"));
                 }
-                self.length_dimensions(record)?;
+                self.unit_dimensions(record, angle)?;
                 self.current = id;
                 let factor_id = self.target(record, 4)?;
                 self.current = factor_id;
@@ -397,7 +414,7 @@ impl<'f> Reader<'f, '_, '_> {
                 if !self.is(base, b"IFCSIUNIT") {
                     return Err(self.unsupported_kind("unit-base"));
                 }
-                self.si_length(base)?;
+                self.si_unit(base, angle)?;
                 let bytes = (factor.span().len() as u64).saturating_add(base.span().len() as u64);
                 self.check(Kind::Work, bytes)?;
                 self.check(Kind::DecodedBytes, 512 + bytes.saturating_mul(12))?;
@@ -409,18 +426,115 @@ impl<'f> Reader<'f, '_, '_> {
                 if unit.scale.is_some_and(|n| !n.is_finite() || n <= 0.) {
                     return Err(self.invalid("unit"));
                 }
-                if unit.kind == "LENGTHUNIT" {
-                    if length.is_some() {
+                if unit.kind.as_bytes() == expected {
+                    if selected.is_some() {
                         return Err(self.invalid("unit"));
                     }
-                    length = Some(unit);
+                    selected = Some(unit);
                 }
             } else {
                 return Err(self.unsupported_kind("unit"));
             }
         }
         self.current = solid.id().unwrap_or(0);
-        Ok(length)
+        Ok(selected)
+    }
+
+    fn positive_dimension(&mut self, profile: &Record, at: usize) -> Result<f64, Error> {
+        let value = self.number(arg(profile, at))?;
+        if value <= 0. {
+            return Err(self.invalid("profile-dimension"));
+        }
+        Ok(value)
+    }
+
+    // IFC2X3 は正の長さ、IFC4 以降は 0 を含む長さ。省略を 0 で埋めない。
+    fn fillet(
+        &mut self,
+        profile: &Record,
+        at: usize,
+        version: Version,
+    ) -> Result<Option<f64>, Error> {
+        if matches!(arg(profile, at), Some(Value::Null)) {
+            return Ok(None);
+        }
+        let value = self.number(arg(profile, at))?;
+        if value < 0. || (version == Version::Ifc2x3 && value == 0.) {
+            return Err(self.invalid("profile-fillet"));
+        }
+        Ok(Some(value))
+    }
+
+    // IfcIShapeProfileDef の OverallWidth/OverallDepth/WebThickness/FlangeThickness、
+    // ValidWebThickness/ValidFlangeThickness の説明。丸みと傾斜の収まりは形状評価側で扱う。
+    fn i_shape(
+        &mut self,
+        profile: &'f Record,
+        version: Version,
+        solid: &'f Record,
+        overall_width: f64,
+    ) -> Result<AreaProfileKind, Error> {
+        self.alloc(1, 512)?;
+        let overall_depth = self.positive_dimension(profile, 5)?;
+        let web_thickness = self.positive_dimension(profile, 6)?;
+        let flange_thickness = self.positive_dimension(profile, 7)?;
+        if web_thickness >= overall_width || flange_thickness * 2. >= overall_depth {
+            return Err(self.invalid("profile-thickness"));
+        }
+        let fillet_radius = self.fillet(profile, 8, version)?;
+        let (flange_edge_radius, flange_slope) = if version == Version::Ifc2x3 {
+            (None, None)
+        } else {
+            let edge = self.fillet(profile, 9, version)?;
+            let slope = if matches!(arg(profile, 10), Some(Value::Null)) {
+                None
+            } else {
+                let value = self.number(arg(profile, 10))?;
+                let unit = self.named_unit(version, solid, true)?;
+                self.current = profile.id().unwrap_or(0);
+                if unit.is_none() {
+                    self.cx.report(
+                        Diagnostic::new(codes::IFC_UNIT_MISSING)
+                            .with("type", "IfcPlaneAngleMeasure")
+                            .at(at_bytes(profile.span())),
+                    );
+                }
+                Some(Measured { value, unit })
+            };
+            (edge, slope)
+        };
+        Ok(AreaProfileKind::IShape {
+            overall_width,
+            overall_depth,
+            web_thickness,
+            flange_thickness,
+            fillet_radius,
+            flange_edge_radius,
+            flange_slope,
+        })
+    }
+
+    // IfcRectangleHollowProfileDef の WallThickness/InnerFilletRadius/OuterFilletRadius。
+    // 壁厚が半幅・半高に達しないことを調べる。内外の丸みの収まりはまだ評価しない。
+    fn hollow_rectangle(
+        &mut self,
+        profile: &Record,
+        version: Version,
+        x_dim: f64,
+    ) -> Result<AreaProfileKind, Error> {
+        self.alloc(1, 512)?;
+        let y_dim = self.positive_dimension(profile, 5)?;
+        let wall_thickness = self.positive_dimension(profile, 6)?;
+        if wall_thickness * 2. >= x_dim || wall_thickness * 2. >= y_dim {
+            return Err(self.invalid("profile-thickness"));
+        }
+        Ok(AreaProfileKind::RectangleHollow {
+            x_dim,
+            y_dim,
+            wall_thickness,
+            inner_fillet_radius: self.fillet(profile, 7, version)?,
+            outer_fillet_radius: self.fillet(profile, 8, version)?,
+        })
     }
 
     fn profiled(
@@ -445,7 +559,7 @@ impl<'f> Reader<'f, '_, '_> {
             self.current = solid.id().unwrap_or(0);
             let old = self.run(solid, version, entered)?;
             self.strict_attributes(&old.source.records)?;
-            let length_unit = self.length_unit(version, solid)?;
+            let length_unit = self.named_unit(version, solid, false)?;
             self.current = solid.id().unwrap_or(0);
             self.alloc(1, 320)?;
             let mut source = old.source;
@@ -477,6 +591,10 @@ impl<'f> Reader<'f, '_, '_> {
             5
         } else if self.is(profile, b"IFCCIRCLEPROFILEDEF") {
             4
+        } else if self.is(profile, b"IFCISHAPEPROFILEDEF") {
+            if version == Version::Ifc2x3 { 8 } else { 10 }
+        } else if self.is(profile, b"IFCRECTANGLEHOLLOWPROFILEDEF") {
+            8
         } else {
             return Err(self.unsupported_kind("profile"));
         };
@@ -511,8 +629,12 @@ impl<'f> Reader<'f, '_, '_> {
                 x_dim: first,
                 y_dim: second,
             }
-        } else {
+        } else if count == 4 {
             AreaProfileKind::Circle { radius: first }
+        } else if self.is(profile, b"IFCISHAPEPROFILEDEF") {
+            self.i_shape(profile, version, solid, first)?
+        } else {
+            self.hollow_rectangle(profile, version, first)?
         };
         let solid_id = solid.id().unwrap_or(0);
         self.current = solid_id;
@@ -540,7 +662,7 @@ impl<'f> Reader<'f, '_, '_> {
         let checked = self.strict_attributes(&records);
         self.records = records;
         checked?;
-        let length_unit = self.length_unit(version, solid)?;
+        let length_unit = self.named_unit(version, solid, false)?;
         self.current = solid_id;
         if length_unit.is_none() {
             self.cx.report(
