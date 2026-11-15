@@ -324,6 +324,27 @@ fn apply_parts<P: Copy + PartialEq>(
     transformed: Option<(&Affine, bool)>,
     cx: &mut Cx,
 ) -> Result<Option<()>, Error> {
+    // DWG の表の移動は、書式を読めないセルも表示用ブロックもそのまま保つ。
+    if matches!(current.target, Target::Dwg(_))
+        && let (Shape::Table(old), Shape::Table(new)) = (&was.shape, new_shape)
+    {
+        if !current.born.since(b"AC1024") {
+            return Ok(None);
+        }
+        count_transform_values(object, &was.source, cx)?;
+        let Some(mut values) = moved_table_values(object, old, new, frame) else {
+            return Ok(None);
+        };
+        if let Some((affine, model)) = transformed
+            && moving_xdata(object).is_some()
+            && (!model || carried(&mut values, &frame.affine(affine)).is_none())
+        {
+            return Ok(None);
+        }
+        plan.touched.insert(position);
+        plan.replaced.push((position, values));
+        return Ok(Some(()));
+    }
     if plan.blocks.is_none() {
         plan.blocks = Some(BlockIndex::new(current.db, current.charset, cx)?);
     }
@@ -431,6 +452,44 @@ fn apply_parts<P: Copy + PartialEq>(
 
 /// 書き直した図形の値・新しく足す匿名ブロックの部品・増えるレコード数
 type Rebuilt = (Vec<Value>, Vec<Record>, u64);
+
+/// DWG の ACAD_TABLE の挿入点だけを変える。セルの内容・書式・大きさ・向きは変えない。
+fn moved_table_values<P: Copy + PartialEq>(
+    object: &Object,
+    was: &Table<P>,
+    table: &Table<P>,
+    frame: &impl Frame<P>,
+) -> Option<Vec<Value>> {
+    if object.kind != b"ACAD_TABLE"
+        || table.direction != was.direction
+        || table.row_heights != was.row_heights
+        || table.column_widths != was.column_widths
+        || table.cells != was.cells
+        || table.style != was.style
+        || table.formats != was.formats
+        || table.drawn != was.drawn
+    {
+        return None;
+    }
+    let mut values = object.values.clone();
+    let marker = values
+        .iter()
+        .position(|v| matches!(v.code, 342 | 11 | 90))?;
+    let [old_x, old_y] = frame.point(&was.position)?;
+    let [x, y] = frame.point(&table.position)?;
+    for (code, value, old_value) in [(10, x, old_x), (20, y, old_y)] {
+        // 用紙の mm を戻したときの丸めで、動かしていない座標を変えない。
+        if value == old_value {
+            continue;
+        }
+        let field = values
+            .get_mut(..marker)?
+            .iter_mut()
+            .find(|v| v.code == code)?;
+        field.data = real(code, value)?.data;
+    }
+    Some(values)
+}
 
 /// 寸法の部品を作るためのスタイル値
 struct DimParams {
@@ -1881,4 +1940,73 @@ fn build_table_records<P>(
     }
 
     Ok(Some((records, added)))
+}
+
+#[cfg(test)]
+mod table_move_tests {
+    use super::*;
+    use crate::db::Origin;
+    use crate::drawing::PaperFrame;
+    use crate::drawing::apply::OnSheet;
+    use zumen_drawing::{Cell, PaperLength, PaperPoint, SheetId};
+
+    #[test]
+    fn paper_move_preserves_the_unmoved_raw_coordinate() {
+        let sheet = SheetId(0);
+        let frame = OnSheet(
+            sheet,
+            PaperFrame {
+                origin: [10.1, 2.7],
+                mm: 25.4,
+                home: Home {
+                    owner: None,
+                    blocks: false,
+                    paper: true,
+                },
+            },
+        );
+        let was = Table {
+            position: PaperPoint {
+                sheet,
+                x: (12.0 - 10.1) * 25.4,
+                y: (0.1 - 2.7) * 25.4,
+            },
+            direction: [1.0, 0.0],
+            row_heights: vec![Length::Paper(PaperLength(25.4))],
+            column_widths: vec![Length::Paper(PaperLength(25.4))],
+            cells: vec![Cell {
+                content: CellContent::Empty,
+                span: [1, 1],
+                covered: false,
+                value: None,
+                rotation: 0.0,
+                format: Default::default(),
+            }],
+            style: None,
+            formats: None,
+            drawn: None,
+        };
+        // インチと用紙の mm の往復で、元の Y と最後の桁が異なる入力。
+        assert_ne!(frame.point(&was.position).unwrap()[1], 0.1);
+        let object = Object {
+            kind: b"ACAD_TABLE".to_vec(),
+            section: Section::Entities,
+            values: vec![
+                real(10, 12.0).unwrap(),
+                real(20, 0.1).unwrap(),
+                real(30, 0.0).unwrap(),
+                real(11, 1.0).unwrap(),
+            ],
+            origin: Origin::New,
+        };
+        let mut moved = was.clone();
+        moved.position.x += 25.4;
+        let values = moved_table_values(&object, &was, &moved, &frame).unwrap();
+        assert_eq!(values[0], real(10, 13.0).unwrap());
+        assert_eq!(values[1..], object.values[1..]);
+        assert_eq!(
+            moved_table_values(&object, &was, &was, &frame).unwrap(),
+            object.values
+        );
+    }
 }

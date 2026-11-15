@@ -1261,6 +1261,150 @@ where
 }
 
 #[test]
+fn moves_dwg_tables_without_rebuilding_cells_or_cache() {
+    for name in ["table-r2010.dwg", "table-r2013.dwg", "table-r2018.dwg"] {
+        let raw = std::fs::read(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures")
+                .join(name),
+        )
+        .unwrap();
+        let case = std::fs::read_to_string(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../bindings/conformance/cases/apply_dwg_table.json"),
+        )
+        .unwrap();
+        let hex: String = raw.iter().map(|byte| format!("{byte:02x}")).collect();
+        assert!(case.contains(&hex), "{name}: 適合テストの入力バイトが違う");
+        let original = testkit::read::<Dwg>(&raw).0.unwrap();
+        let before = cx_run(|cx| original.lift(cx).unwrap()).0;
+        let (target, old_element) = seen_model(&before, 0);
+        let Shape::Table(old_table) = &old_element.shape else {
+            panic!("{name}")
+        };
+        assert_eq!(old_table.cells.len(), 4);
+        assert_eq!(old_table.position, mpt(10.0, 20.0));
+        assert!(old_table.drawn.is_some());
+
+        // セルにも現れる共通コードの変更を、図形全体の色と取り違えて捨てない。
+        let mut changed_db = cx_run(|cx| original.objects(cx).unwrap()).0;
+        let table_index = changed_db
+            .objects()
+            .iter()
+            .position(|o| o.kind == b"ACAD_TABLE")
+            .unwrap();
+        changed_db
+            .object_mut(table_index)
+            .unwrap()
+            .values
+            .push(zumen_acad::Value {
+                code: 62,
+                data: Data::Int(3),
+            });
+        let mut rejected = original.clone();
+        assert!(
+            cx_run(|cx| rejected.write_back(&changed_db, cx)).0.is_err(),
+            "{name}"
+        );
+        assert_eq!(testkit::write::<Dwg>(&rejected).unwrap(), raw, "{name}");
+
+        let mut file = original.clone();
+        let changes = Changes {
+            document: None,
+            edits: vec![Edit::Transform {
+                target: target.clone(),
+                transform: Affine {
+                    m: [1.0, 0.0, 25.0, 0.0, 1.0, -10.0],
+                },
+            }],
+        };
+        cx_run(|cx| file.apply(&changes, cx).unwrap());
+        let mut expected = old_table.clone();
+        expected.position = mpt(35.0, 10.0);
+        for position in [mpt(35.0, 10.0), mpt(0.0, 0.0)] {
+            let out = testkit::write::<Dwg>(&file).unwrap();
+            let mut reopened = testkit::read::<Dwg>(&out).0.unwrap();
+            let after = cx_run(|cx| reopened.lift(cx).unwrap()).0;
+            let (seen, mut element) = seen_model(&after, 0);
+            assert_eq!(seen.id, target.id, "{name}");
+            expected.position = position;
+            assert_eq!(element.shape, Shape::Table(expected.clone()), "{name}");
+            assert_eq!(seen_model(&after, 1).0, seen_model(&before, 1).0, "{name}");
+
+            // 元の表を除くすべてのオブジェクトは、表示用ブロックの部品と書式もバイト列を保つ。
+            assert_eq!(original.entry_count(), reopened.entry_count(), "{name}");
+            let mut changed = 0;
+            for index in 0..original.entry_count() {
+                let handle = original.entry_summary(index).unwrap().0;
+                let found = (0..reopened.entry_count())
+                    .find(|&i| reopened.entry_summary(i).unwrap().0 == handle)
+                    .unwrap();
+                if original.object_data(index) != reopened.object_data(found) {
+                    changed += 1;
+                }
+            }
+            assert_eq!(changed, 1, "{name}");
+            let Shape::Table(ref mut table) = element.shape else {
+                panic!()
+            };
+            table.position = mpt(0.0, 0.0);
+            cx_run(|cx| {
+                reopened
+                    .apply(
+                        &Changes {
+                            document: None,
+                            edits: vec![Edit::Replace {
+                                target: seen,
+                                element: Box::new(Placed::Model(element)),
+                            }],
+                        },
+                        cx,
+                    )
+                    .unwrap()
+            });
+            file = reopened;
+        }
+
+        for change in 0..3 {
+            let mut copy = original.clone();
+            let mut element = old_element.clone();
+            let Shape::Table(ref mut table) = element.shape else {
+                panic!()
+            };
+            match change {
+                0 => table.cells[0].content = CellContent::Empty,
+                1 => table.column_widths[0] = mlen(99.0),
+                _ => table.direction = [0.0, 1.0],
+            }
+            let invalid = Changes {
+                document: None,
+                edits: vec![
+                    Edit::Transform {
+                        target: seen_model(&before, 1).0,
+                        transform: Affine {
+                            m: [1.0, 0.0, 1.0, 0.0, 1.0, 1.0],
+                        },
+                    },
+                    Edit::Replace {
+                        target: target.clone(),
+                        element: Box::new(Placed::Model(element)),
+                    },
+                ],
+            };
+            let (result, diagnostics) = cx_run(|cx| copy.apply(&invalid, cx));
+            assert!(matches!(result, Err(Error::Rejected)), "{name}: {result:?}");
+            assert!(
+                diagnostics
+                    .iter()
+                    .any(|d| d.code() == codes::CHANGE_EDIT_UNSUPPORTED),
+                "{name}: {diagnostics:?}"
+            );
+            assert_eq!(testkit::write::<Dwg>(&copy).unwrap(), raw, "{name}");
+        }
+    }
+}
+
+#[test]
 fn replaces_and_transforms_dwg_dimensions_across_samples() {
     for path in support::sample_files() {
         if path.extension().is_none_or(|e| e != "dwg") {

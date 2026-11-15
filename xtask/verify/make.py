@@ -58,6 +58,9 @@ CASES = [
     ("open_sxf.json", "a.sfc"),
     ("open_sxf.json", "c.p21"),
     ("apply_p21_raw.json", "raw-layer.p21"),
+    ("apply_dwg_table.json", "table-r2010.dwg"),
+    ("apply_dwg_table.json", "table-r2013.dwg"),
+    ("apply_dwg_table.json", "table-r2018.dwg"),
 ]
 # ezsxf がフィーチャを型で読む SFC（マーカーが `/*SXF` で、FILE_NAME がある）。適合テストの SFC はマーカーが `/*SXF3` で、
 # ezsxf はそのフィーチャの値を読まないので、外部の実装と照らすために作る
@@ -1175,6 +1178,22 @@ def parts_turned_steps(fmt):
     return [turned]
 
 
+def table_position_steps(moved):
+    """#684: 表の挿入点だけを変え、セル・書式と表示用ブロックを保つ。"""
+    def placed(reading):
+        edits = []
+        for table in model(reading, "table"):
+            g = dict(table["geometry"])
+            if moved:
+                g["position"] = [g["position"][0] + 25, g["position"][1] - 10]
+                edits.append({"kind": "transform", "id": table["id"], "hash": table["hash"], "matrix": [1, 0, 25, 0, 1, -10], "_expect": g})
+            else:
+                g["position"] = [0, 0]
+                edits.append(replace(table, g))
+        return edits
+    return [placed]
+
+
 # キットの組。名前・対象の issue・入力の選び方・変更の作り方
 RECIPES = [
     ("points", 342, lambda name, fmt: fmt in ("jww", "sfc", "p21") or "points-" in name, points_steps),
@@ -1187,6 +1206,8 @@ RECIPES = [
     ("added", 683, lambda name, fmt: fmt in ("dxf", "dwg") and ("-minsert-" in name or "-xclip-r2013" in name), added_steps),
     ("parts", 314, lambda name, fmt: fmt in ("dxf", "dwg") and ("-parts-" in name or "-arcdim-" in name), parts_steps),
     ("parts-turned", 314, lambda name, fmt: fmt in ("dxf", "dwg") and ("-parts-" in name or "-arcdim-" in name), parts_turned_steps),
+    ("table-moved", 684, lambda name, fmt: fmt == "dwg" and "apply_dwg_table-" in name, lambda _: table_position_steps(True)),
+    ("table-placed", 684, lambda name, fmt: fmt == "dwg" and "apply_dwg_table-" in name, lambda _: table_position_steps(False)),
 ]
 # 記号の定義の中の要素も読む組（read の definitions）。定義の中に足した要素を、書いたファイルの読みに残す
 INSIDE = {"added"}
@@ -1834,6 +1855,11 @@ SECTIONS = {
 **点の印刷（決定 0159）。** `input/zumen-points-a-r2018.dwg` を、モデルのタブから PDF に印刷する。期待は、画層 0 の点（ハンドル 2DB）と記号 BYBLOCKPOINT（2E5）の中の点が印刷され、印刷しない画層（NOPLOT の 2DC、Defpoints の 2DD）の点が印刷されないこと。zumen は、表示し、実効の画層が印刷するものを印刷するとしている（推定）。
 
 **まだサンプルのない値。** MTEXT の `\\c` と `\\p` の左インデント・揃え、MULTILEADER の線ごとの上書き、文字スタイルの太字・斜体（1071 のビット 24・25）は、`316/controls/README.md` の手順で確かめる。合成の `neutral.dxf` を画面のある AutoCAD で開き、項目ごとに設定して保存した DXF を、`observe.py` で変更前の DXF と照らして、結果を #316 に記録する。保存した図面はリポジトリの外のキットのフォルダーに残し、`samples/dwg` に足すかは記録を受けて決める（足すときは決定 0171 に従う）。
+""",
+    ),
+    684: (
+        "#684 表の位置だけの書き戻し",
+        """自作の 2 行 2 列の表を ACadSharp 3.8.0 で符号化した R2010・R2013・R2018 の DWG に、平行移動（table-moved）または位置の置き換え（table-placed）を当てました。セルの値・大きさ・向きと表示用ブロックを保ちます。ACadSharp で、位置・方向・行の高さ・列の幅・セルの文字を照らします。セルの変更・回転・拡大は、この組では扱いません。AutoCAD では共通の手順で開けることと監査を確認し、表全体が指定した位置へ動き、セルの書式と罫線が保たれることを確かめます。
 """,
     ),
     314: (

@@ -59,6 +59,8 @@ def geometry(d):
     """ACadSharp の図形の値を、図面モデルの形の値（entities の geometry）の形にする。比べない種類は None。
     ACadSharp の角度はラジアン。値の意味は DXF Reference の同じ名前の図形と同じ"""
     t = d["type"]
+    if t == "ACAD_TABLE":
+        return d.get("table_geometry")
     if t == "HATCH":
         result = copy.deepcopy(d.get("hatch"))
         if result and "pattern" in result:

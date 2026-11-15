@@ -14,6 +14,11 @@ using ACadSharp;
 using ACadSharp.Entities;
 using ACadSharp.IO;
 
+if (args.Length == 2 && args[0] == "--make-table-fixtures")
+{
+    TableFixtures.Write(args[1]);
+    return 0;
+}
 if (args.Length != 1)
 {
     Console.Error.WriteLine("使い方: dotnet run --project xtask/verify/acadsharp -c Release -- <キットのフォルダー>");
@@ -185,6 +190,9 @@ static class Dwg
                 d["valign"] = (int)text.VerticalAlignment;
                 d["style"] = text.Style?.Name;
                 break;
+            case TableEntity table:
+                d["table_geometry"] = TableGeometry(table);
+                break;
             case Insert insert:
                 d["name"] = insert.Block?.Name;
                 d["insert"] = Xy(insert.InsertPoint);
@@ -215,6 +223,26 @@ static class Dwg
                 break;
         }
         entities[e.Handle.ToString("X", CultureInfo.InvariantCulture)] = d;
+    }
+
+    // 平面の表の位置・大きさと、結合していない文字列のセルを照らす。
+    static JsonNode? TableGeometry(TableEntity table)
+    {
+        if (table.InsertPoint.Z != 0 || table.HorizontalDirection.Z != 0 || table.MergedCellRanges.Count != 0) return null;
+        var cells = new JsonArray();
+        foreach (var row in table.Rows)
+            foreach (var cell in row.Cells)
+            {
+                if (cell.Contents.Count != 1 || cell.Content.ContentType != TableEntity.TableCellContentType.Value
+                    || cell.Content.CadValue.ValueType != CadValueType.String) return null;
+                var value = cell.Content.CadValue;
+                string text = string.IsNullOrEmpty(value.FormattedValue) ? value.Value?.ToString() ?? "" : value.FormattedValue;
+                cells.Add(text.Length == 0 ? new JsonObject { ["content"] = "empty" }
+                    : new JsonObject { ["content"] = "text", ["text"] = text });
+            }
+        return new JsonObject { ["shape"] = "table", ["position"] = Xy(table.InsertPoint), ["direction"] = Xy(table.HorizontalDirection),
+            ["row_heights"] = new JsonArray(table.Rows.Select(row => (JsonNode?)row.Height).ToArray()),
+            ["column_widths"] = new JsonArray(table.Columns.Select(column => (JsonNode?)column.Width).ToArray()), ["cells"] = cells };
     }
 
     // ハッチングのうち API で表せる境界と模様。角度はここでも ACadSharp のラジアンのまま。

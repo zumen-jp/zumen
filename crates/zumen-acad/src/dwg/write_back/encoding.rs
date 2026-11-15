@@ -120,6 +120,7 @@ pub(super) fn own_codes(kind: &[u8], type_code: u16) -> &'static [i16] {
         },
         b"DIMENSION" => DIMENSION_ALL,
         b"ARC_DIMENSION" => ARC_DIMENSION,
+        b"ACAD_TABLE" => &[10, 20, 30],
         b"INSERT" if type_code == kinds::MINSERT => MINSERT,
         b"INSERT" => INSERT,
         b"TOLERANCE" => TOLERANCE,
@@ -157,6 +158,16 @@ pub(super) fn encode_r2010(
         return None;
     }
     let (old, new) = (&old.0, &new.0);
+    if new.kind == b"ACAD_TABLE" {
+        // セルの色などにも共通のグループ・コードがある。表の本体はコードで分けず、並びごと保つ。
+        let marker = |object: &Object| {
+            object
+                .values
+                .iter()
+                .position(|v| matches!(v.code, 342 | 11 | 90))
+        };
+        (old.values.get(marker(old)?..)? == new.values.get(marker(new)?..)?).then_some(())?;
+    }
     let only = |codes: &[i16], object: &Object, keep: bool| -> Vec<_> {
         object
             .values
@@ -183,6 +194,21 @@ pub(super) fn encode_r2010(
         out.copy(data, start..end)?;
         // 文字列のストリームを写し、ハンドルのストリームは画層と線種を書き直して写す
         out.copy(data, end..handles_at)?;
+        let handles = out.len();
+        let rewritten = restyle.handles(data, handles_at, &slots)?;
+        let len = rewritten.len();
+        out.copy(&rewritten.into_bytes(), 0..len)?;
+        handles
+    } else if new.kind == b"ACAD_TABLE" {
+        // ODS 5.4.1 の 20.4.96.2: 表は INSERT の挿入点（3BD）から始まる。
+        // セル・書式・表示用ブロックの値と、文字列のストリームをビットのまま保つ。
+        let mut bits = Bits::with_release(data, release);
+        bits.seek(start);
+        for code in [10, 20, 30] {
+            (bits.bd()?.to_bits() == real(old, code)??.to_bits()).then_some(())?;
+        }
+        point3(&mut out, new, 10)?;
+        out.copy(data, bits.pos()..handles_at)?;
         let handles = out.len();
         let rewritten = restyle.handles(data, handles_at, &slots)?;
         let len = rewritten.len();

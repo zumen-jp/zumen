@@ -10,6 +10,7 @@ pub(super) const STYLED: &[i16] = &[8, 6, 370, 420];
 /// R2004 で、型ごとのフィールドを R2000 と同じに符号化する図形の種類（決定 0072・0073）
 /// R2010 から後に書き戻す図形の種類（決定 0085〜0088）
 pub(super) const R2010_KINDS: &[&[u8]] = &[
+    b"ACAD_TABLE",
     b"LINE",
     b"CIRCLE",
     b"ARC",

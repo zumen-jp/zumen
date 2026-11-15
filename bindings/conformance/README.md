@@ -60,6 +60,8 @@ cargo run -p zumen-conformance -- --write
 
 `apply_hatch.json` は、合成 DXF と公開 DWG（R2000・R2004・R2013・R2018）に、塗りつぶしと線を定義する模様の HATCH を足します。膨らみを持つ外周・円の穴・模様・種点、既存の ID とハッシュ、無効な境界を含む変更と予算停止の原子性を確かめます。形式の正しさは、この一致検査と分けて [ezdxf・ACadSharp で照合](../../xtask/verify/README.md)します。
 
+`apply_dwg_table.json` は、[自作の表](../../crates/zumen-acad/tests/fixtures/README.md)を持つ R2010・R2013・R2018 の DWG で、位置だけの `replace` と `transform` を確かめます。ID・セル・表示用ブロックの参照と未変更要素のハッシュを保ち、セルの変更・回転・予算停止で変更が残らないことを比べます。形式の照合は、検証キットで ACadSharp と別に行います。
+
 ### 合成フォント
 
 `cases/scene_fonts_cff.json` は、CFF・CFF2 と、両方を含むフォントのコレクション（TTC）の合成の入力です（#564）。実在のフォントは使わず、次のコマンドで組み立てます。`--check` は、作り直した組が記録した JSON と同じかを確かめます。
