@@ -1764,6 +1764,236 @@ public struct Geometry: Message {
     public var asTableGeometry: TableGeometry? {
         taggedView("shape", "table")
     }
+
+    /// shape が hatch の形なら、そのビュー。違えば nil
+    public var asHatchGeometry: HatchGeometry? {
+        taggedView("shape", "hatch")
+    }
+}
+
+/// 非連動のハッチング。閉じた折れ線（膨らみ付き）と円を境界にできる。塗りは単色か、線の定義を明示した模様。参照・勾配・自動検出した境界は扱わない。DXF と DWG に追加できる。置き換え・変換はまだ扱わない。entities は用紙上の模様を返さない。用紙への模様の追加は、原点が 0 で 1 単位が 1 mm のときに限る。マイナーバージョン 75 から
+public struct HatchGeometry: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// タグのフィールドだけを持つオブジェクトから作る
+    public init() {
+        json = ["shape": .string("hatch")]
+    }
+
+    /// 形の種類
+    public var shape: String? {
+        get { readField("shape") }
+        set { writeField("shape", newValue) }
+    }
+
+    /// 境界の輪。入力の順。1 つ以上
+    public var loops: [HatchLoop]? {
+        get { readField("loops") }
+        set { writeField("loops", newValue) }
+    }
+
+    /// 輪の中の輪の埋め方
+    public var islands: String? {
+        get { readField("islands") }
+        set { writeField("islands", newValue) }
+    }
+
+    /// 中を埋めるもの
+    public var fill: String? {
+        get { readField("fill") }
+        set { writeField("fill", newValue) }
+    }
+
+    /// fill が pattern のときだけ持つ模様の定義
+    public var pattern: HatchPattern? {
+        get { readField("pattern") }
+        set { writeField("pattern", newValue) }
+    }
+
+    /// 境界を探した点 [[X, Y], ...]。書かなければ空
+    public var seeds: [[Double]]? {
+        get { readField("seeds") }
+        set { writeField("seeds", newValue) }
+    }
+}
+
+/// ハッチングの境界の輪。参照を持たない
+public struct HatchLoop: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 閉じた折れ線か円
+    public var boundary: HatchBoundary? {
+        get { readField("boundary") }
+        set { writeField("boundary", newValue) }
+    }
+
+    /// 外側の輪
+    public var external: Bool? {
+        get { readField("external") }
+        set { writeField("external", newValue) }
+    }
+
+    /// いちばん外の輪
+    public var outermost: Bool? {
+        get { readField("outermost") }
+        set { writeField("outermost", newValue) }
+    }
+}
+
+/// 輪の形。折れ線は closed が真で頂点が 2 つ以上。最後の点から最初の点へ結ぶ
+public struct HatchBoundary: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// shape が polyline の形なら、そのビュー。違えば nil
+    public var asPolylineGeometry: PolylineGeometry? {
+        taggedView("shape", "polyline")
+    }
+
+    /// shape が circle の形なら、そのビュー。違えば nil
+    public var asCircleGeometry: CircleGeometry? {
+        taggedView("shape", "circle")
+    }
+}
+
+/// nested は外から奇数番目の内側、outer はいちばん外と次の輪の間、ignore は内側の輪を無視して埋める
+///
+/// 列挙の値。知らない値も受け取る
+public enum HatchIslands {
+    public static let nested = "nested"
+    public static let outer = "outer"
+    public static let ignore = "ignore"
+}
+
+/// solid は要素の色で塗り、pattern は線の組で埋める
+///
+/// 列挙の値。知らない値も受け取る
+public enum HatchFill {
+    public static let solid = "solid"
+    public static let pattern = "pattern"
+}
+
+/// 模様の名前と線の定義。外部の定義ファイルを読まず、lines の値を使う
+public struct HatchPattern: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 元の名前。空と制御文字を含むものは受けない
+    public var name: String? {
+        get { readField("name") }
+        set { writeField("name", newValue) }
+    }
+
+    /// 定義の出どころ
+    public var origin: String? {
+        get { readField("origin") }
+        set { writeField("origin", newValue) }
+    }
+
+    /// 定義に加えた回転（度）
+    public var angle: Double? {
+        get { readField("angle") }
+        set { writeField("angle", newValue) }
+    }
+
+    /// 定義に掛けた尺度か、利用者が決めた線の間隔。0 より大きい
+    public var scale: Double? {
+        get { readField("scale") }
+        set { writeField("scale", newValue) }
+    }
+
+    /// 線の組を 90 度回して重ねる
+    public var double: Bool? {
+        get { readField("double") }
+        set { writeField("double", newValue) }
+    }
+
+    /// angle と scale を当てた後の線の組。1 つ以上
+    public var lines: [HatchPatternLine]? {
+        get { readField("lines") }
+        set { writeField("lines", newValue) }
+    }
+}
+
+/// user_defined は利用者が決めた平行線、predefined は形式が名前で決めた定義、custom は利用者の定義
+///
+/// 列挙の値。知らない値も受け取る
+public enum HatchPatternOrigin {
+    public static let userDefined = "user_defined"
+    public static let predefined = "predefined"
+    public static let custom = "custom"
+}
+
+/// 1 組の平行線。基点・ずれ・線の長さは要素の座標と単位に従う
+public struct HatchPatternLine: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 線の向き（度）
+    public var angle: Double? {
+        get { readField("angle") }
+        set { writeField("angle", newValue) }
+    }
+
+    /// 1 本の線が通る点 [X, Y]
+    public var base: [Double]? {
+        get { readField("base") }
+        set { writeField("base", newValue) }
+    }
+
+    /// 隣の線までのずれ [X, Y]。両方 0 にはしない
+    public var offset: [Double]? {
+        get { readField("offset") }
+        set { writeField("offset", newValue) }
+    }
+
+    /// 正は線、負は間、0 は点。空なら実線
+    public var dashes: [Double]? {
+        get { readField("dashes") }
+        set { writeField("dashes", newValue) }
+    }
 }
 
 /// 線分

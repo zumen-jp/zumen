@@ -125,6 +125,9 @@ static class Dwg
         };
         switch (e)
         {
+            case Hatch hatch:
+                d["hatch"] = HatchGeometry(hatch);
+                break;
             case Line line:
                 d["start"] = Xy(line.StartPoint);
                 d["end"] = Xy(line.EndPoint);
@@ -204,6 +207,41 @@ static class Dwg
                 break;
         }
         entities[e.Handle.ToString("X", CultureInfo.InvariantCulture)] = d;
+    }
+
+    // ハッチングのうち API で表せる境界と模様。角度はここでも ACadSharp のラジアンのまま。
+    static JsonNode? HatchGeometry(Hatch hatch)
+    {
+        if (hatch.IsAssociative || hatch.Paths.Count == 0 || hatch.GradientColor.Colors.Count != 0) return null;
+        var loops = new JsonArray();
+        foreach (var path in hatch.Paths)
+        {
+            int flags = (int)path.Flags;
+            if ((flags & 12) != 0 || path.Entities.Count != 0 || path.Edges.Count != 1) return null;
+            JsonObject boundary;
+            if (path.Edges[0] is Hatch.BoundaryPath.Polyline polyline)
+            {
+                if (!polyline.IsClosed || polyline.Vertices.Count < 2) return null;
+                boundary = new JsonObject { ["shape"] = "polyline", ["closed"] = true,
+                    ["points"] = new JsonArray(polyline.Vertices.Select(p => (JsonNode?)Xy(p)).ToArray()) };
+                if (polyline.Vertices.Any(p => p.Z != 0)) boundary["bulges"] = new JsonArray(polyline.Vertices.Select(p => (JsonNode?)p.Z).ToArray());
+            }
+            else if (path.Edges[0] is Hatch.BoundaryPath.Arc arc && arc.StartAngle == 0 && arc.EndAngle == Math.Tau && arc.CounterClockWise)
+                boundary = new JsonObject { ["shape"] = "circle", ["center"] = Xy(arc.Center), ["radius"] = arc.Radius };
+            else return null;
+            loops.Add(new JsonObject { ["boundary"] = boundary, ["external"] = (flags & 1) != 0, ["outermost"] = (flags & 16) != 0 });
+        }
+        var result = new JsonObject { ["shape"] = "hatch", ["loops"] = loops,
+            ["islands"] = new[] { "nested", "outer", "ignore" }[(int)hatch.Style], ["fill"] = hatch.IsSolid ? "solid" : "pattern" };
+        if (!hatch.IsSolid)
+            result["pattern"] = new JsonObject { ["name"] = hatch.Pattern.Name,
+                ["origin"] = new[] { "user_defined", "predefined", "custom" }[(int)hatch.PatternType],
+                ["angle"] = hatch.PatternAngle, ["scale"] = hatch.PatternScale, ["double"] = hatch.IsDouble,
+                ["lines"] = new JsonArray(hatch.Pattern.Lines.Select(line => (JsonNode?)new JsonObject {
+                    ["angle"] = line.Angle, ["base"] = Xy(line.BasePoint), ["offset"] = Xy(line.Offset),
+                    ["dashes"] = new JsonArray(line.DashLengths.Select(value => (JsonNode?)value).ToArray()) }).ToArray()) };
+        if (hatch.SeedPoints.Count != 0) result["seeds"] = new JsonArray(hatch.SeedPoints.Select(point => (JsonNode?)Xy(point)).ToArray());
+        return result;
     }
 
     // ACI の番号（BYLAYER は 256、BYBLOCK は 0）。真の色は番号を持たない

@@ -645,6 +645,24 @@ def handseed_steps(_fmt):
     return [lines]
 
 
+def hatch_geometry(pattern=False):
+    """#684: 膨らみを持つ外周と円の穴。模様はここで作った線の定義を渡す。"""
+    geometry = {
+        "shape": "hatch", "islands": "nested", "fill": "pattern" if pattern else "solid",
+        "loops": [
+            {"boundary": {"shape": "polyline", "points": [[10, 20], [50, 20], [50, 60], [10, 60]], "bulges": [0, 0.5, 0, 0], "closed": True}, "external": True, "outermost": True},
+            {"boundary": {"shape": "circle", "center": [30, 40], "radius": 3}, "external": False, "outermost": False},
+        ],
+        "seeds": [[12, 22]],
+    }
+    if pattern:
+        geometry["pattern"] = {
+            "name": "ZUMEN_EXPLICIT", "origin": "custom", "angle": 90, "scale": 2, "double": True,
+            "lines": [{"angle": 45, "base": [1, 2], "offset": [-2, 2], "dashes": [2, -1, 0]}],
+        }
+    return geometry
+
+
 def added_steps(_fmt):
     """#683: 線種・画層・文字スタイルを足し、それを使う図形を、モデル空間と、名前のある記号の定義の中に足す。同じ apply で
     足した表の項目は、その apply の画層と要素から指せないので、線種、画層と文字スタイル、図形の順に段を分ける"""
@@ -677,6 +695,8 @@ def added_steps(_fmt):
     def shapes(reading):
         by_layer = {"inherit": "layer"}
         edits = [
+            add("space/0", hatch_geometry(), layer="ZUMEN_683", color={"aci": 2}),
+            add("space/0", hatch_geometry(True), layer="ZUMEN_683", color={"aci": 3}),
             # 画層に従う色と線種（足した画層の水色と一点鎖線）
             add("space/0", {"shape": "line", "start": [0, -100], "end": [120, -80]}, layer="ZUMEN_683", color=by_layer, line_type=by_layer),
             # 要素が持つ色（赤）と線種
@@ -1834,7 +1854,9 @@ SECTIONS = {
         "#683 図形と画層・線種・文字スタイルを足して書き戻した DWG・DXF",
         """AutoCAD で作った R2000・R2004・R2013・R2018 の DWG と DXF に、線種（一点鎖線）、画層 4 つ（線種を持つもの・日本語の名前でロックして印刷しないもの・表示しないもの・凍結したもの）、文字スタイル 2 つ（TrueType のファイルを指すもの・シェイプのフォントと大きいフォントを指すもの）を足し、それを使う線分・円・円弧・ポリライン・文字・書式つきの文字・記号（格子と属性を持つものも）を、モデル空間と、名前のある記号の定義の中に足して書き戻しました。表の項目は、足した apply の次の apply から指せるので、線種、画層と文字スタイル、モデル空間の図形、定義の中の図形の順に 4 回に分けて当てています。
 
-- **AutoCAD。** `check_autocad.py` が、開けること・監査の誤りの数と、下の表の形・画層・色・線種、足した画層の色・線種・状態、足した線種の列、足した文字スタイルの値を照らす。画面では、足した図形が Y が -80 より下に並び、一点鎖線・色・文字の寄せ方と傾き・属性の値が、下の表のとおりに見えることを確かめる。属性の文字の位置は、スクリプトでは照らさない。
+非連動の HATCH も、塗りつぶしと明示した線の模様を 1 つずつ足します（#684）。外周は (10, 20)〜(50, 60) の閉じた折れ線で、1 辺の膨らみは 0.5、穴は中心 (30, 40)・半径 3 の円です。模様の角度は 90 度、尺度は 2、線の定義の角度は 45 度で、基点・ずれ・線の列も期待値と照らします。模様の線の値は、角度と尺度を反映した値です。製品に付属する模様のファイルは使いません。
+
+- **AutoCAD。** `check_autocad.py` が、開けること・監査の誤りの数と、下の表の形・画層・色・線種、足した画層の色・線種・状態、足した線種の列、足した文字スタイルの値を照らす。画面では、HATCH 以外の追加図形が Y が -80 より下に並び、一点鎖線・色・文字の寄せ方と傾き・属性の値が、下の表のとおりに見えることを確かめる。HATCH は上記の範囲の塗りと穴・模様を確認する。属性の文字の位置は、スクリプトでは照らさない。
 """,
     ),
     701: (
@@ -2097,7 +2119,7 @@ def main():
         if path == "input/made-shapeless.dxf":
             shapeless = Counter(e["kind"] for e in reading["entities"] if "geometry" not in e)
             shaped = [e["kind"] for e in reading["entities"] if "geometry" in e]
-            if shapeless != {"hatch": 3, "underlay": 2} or shaped != ["table"] or len(reading["entities"]) != 6:
+            if shapeless != {"underlay": 2} or shaped != ["hatch", "hatch", "hatch", "table"] or len(reading["entities"]) != 6:
                 broken.append(f"{path}: ハッチング・画像の範囲・表の要素を読めない。要素の種類の照合を確かめられない")
         if path in CHECKS:
             continue

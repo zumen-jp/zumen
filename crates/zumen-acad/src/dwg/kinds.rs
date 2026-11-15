@@ -70,3 +70,4 @@ pub(super) const VP_ENT_HDR: u16 = 0x47;
 pub(super) const GROUP: u16 = 0x48;
 pub(super) const MLINESTYLE: u16 = 0x49;
 pub(super) const LWPOLYLINE: u16 = 0x4D;
+pub(super) const HATCH: u16 = 0x4E;

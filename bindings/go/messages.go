@@ -988,6 +988,158 @@ func (u Geometry) AsTableGeometry() *TableGeometry {
 	return asTagged[TableGeometry](u, "shape", "table")
 }
 
+// AsHatchGeometry は、shape が hatch の形なら、その型で読む。違えば nil。
+func (u Geometry) AsHatchGeometry() *HatchGeometry {
+	return asTagged[HatchGeometry](u, "shape", "hatch")
+}
+
+// HatchGeometry: 非連動のハッチング。閉じた折れ線（膨らみ付き）と円を境界にできる。塗りは単色か、線の定義を明示した模様。参照・勾配・自動検出した境界は扱わない。DXF と DWG に追加できる。置き換え・変換はまだ扱わない。entities は用紙上の模様を返さない。用紙への模様の追加は、原点が 0 で 1 単位が 1 mm のときに限る。マイナーバージョン 75 から
+type HatchGeometry struct {
+	// 形の種類
+	Shape string `json:"shape,omitempty"`
+
+	// 境界の輪。入力の順。1 つ以上
+	Loops []HatchLoop `json:"loops,omitempty"`
+
+	// 輪の中の輪の埋め方
+	Islands *HatchIslands `json:"islands,omitempty"`
+
+	// 中を埋めるもの
+	Fill *HatchFill `json:"fill,omitempty"`
+
+	// fill が pattern のときだけ持つ模様の定義
+	Pattern *HatchPattern `json:"pattern,omitempty"`
+
+	// 境界を探した点 [[X, Y], ...]。書かなければ空
+	Seeds [][]float64 `json:"seeds,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m HatchGeometry) MarshalJSON() ([]byte, error) {
+	type plain HatchGeometry
+	m.Shape = "hatch"
+	return json.Marshal(plain(m))
+}
+
+// HatchLoop: ハッチングの境界の輪。参照を持たない
+type HatchLoop struct {
+	// 閉じた折れ線か円
+	Boundary HatchBoundary `json:"boundary,omitempty"`
+
+	// 外側の輪
+	External *bool `json:"external,omitempty"`
+
+	// いちばん外の輪
+	Outermost *bool `json:"outermost,omitempty"`
+}
+
+// HatchBoundary: 輪の形。折れ線は closed が真で頂点が 2 つ以上。最後の点から最初の点へ結ぶ
+//
+// 読んだ JSON をそのまま持つ。形は As で始まるメソッドで読み、HatchBoundaryOf で作る。
+type HatchBoundary json.RawMessage
+
+// HatchBoundaryOf は、形の値を JSON にして HatchBoundary にする。
+func HatchBoundaryOf(value any) (HatchBoundary, error) {
+	data, err := json.Marshal(value)
+	return HatchBoundary(data), err
+}
+
+// MarshalJSON は、持っている JSON をそのまま書く。
+func (u HatchBoundary) MarshalJSON() ([]byte, error) {
+	return rawJSON(u), nil
+}
+
+// UnmarshalJSON は、読んだ JSON をそのまま持つ。
+func (u *HatchBoundary) UnmarshalJSON(data []byte) error {
+	*u = append((*u)[:0], data...)
+	return nil
+}
+
+// AsPolylineGeometry は、shape が polyline の形なら、その型で読む。違えば nil。
+func (u HatchBoundary) AsPolylineGeometry() *PolylineGeometry {
+	return asTagged[PolylineGeometry](u, "shape", "polyline")
+}
+
+// AsCircleGeometry は、shape が circle の形なら、その型で読む。違えば nil。
+func (u HatchBoundary) AsCircleGeometry() *CircleGeometry {
+	return asTagged[CircleGeometry](u, "shape", "circle")
+}
+
+// HatchIslands: nested は外から奇数番目の内側、outer はいちばん外と次の輪の間、ignore は内側の輪を無視して埋める
+//
+// 列挙の値。知らない値も受け取る。
+type HatchIslands string
+
+// HatchIslandsNested は nested。
+const HatchIslandsNested HatchIslands = "nested"
+
+// HatchIslandsOuter は outer。
+const HatchIslandsOuter HatchIslands = "outer"
+
+// HatchIslandsIgnore は ignore。
+const HatchIslandsIgnore HatchIslands = "ignore"
+
+// HatchFill: solid は要素の色で塗り、pattern は線の組で埋める
+//
+// 列挙の値。知らない値も受け取る。
+type HatchFill string
+
+// HatchFillSolid は solid。
+const HatchFillSolid HatchFill = "solid"
+
+// HatchFillPattern は pattern。
+const HatchFillPattern HatchFill = "pattern"
+
+// HatchPattern: 模様の名前と線の定義。外部の定義ファイルを読まず、lines の値を使う
+type HatchPattern struct {
+	// 元の名前。空と制御文字を含むものは受けない
+	Name *string `json:"name,omitempty"`
+
+	// 定義の出どころ
+	Origin *HatchPatternOrigin `json:"origin,omitempty"`
+
+	// 定義に加えた回転（度）
+	Angle *float64 `json:"angle,omitempty"`
+
+	// 定義に掛けた尺度か、利用者が決めた線の間隔。0 より大きい
+	Scale *float64 `json:"scale,omitempty"`
+
+	// 線の組を 90 度回して重ねる
+	Double *bool `json:"double,omitempty"`
+
+	// angle と scale を当てた後の線の組。1 つ以上
+	Lines []HatchPatternLine `json:"lines,omitempty"`
+}
+
+// HatchPatternOrigin: user_defined は利用者が決めた平行線、predefined は形式が名前で決めた定義、custom は利用者の定義
+//
+// 列挙の値。知らない値も受け取る。
+type HatchPatternOrigin string
+
+// HatchPatternOriginUserDefined は user_defined。
+const HatchPatternOriginUserDefined HatchPatternOrigin = "user_defined"
+
+// HatchPatternOriginPredefined は predefined。
+const HatchPatternOriginPredefined HatchPatternOrigin = "predefined"
+
+// HatchPatternOriginCustom は custom。
+const HatchPatternOriginCustom HatchPatternOrigin = "custom"
+
+// HatchPatternLine: 1 組の平行線。基点・ずれ・線の長さは要素の座標と単位に従う
+type HatchPatternLine struct {
+	// 線の向き（度）
+	Angle *float64 `json:"angle,omitempty"`
+
+	// 1 本の線が通る点 [X, Y]
+	Base []float64 `json:"base,omitempty"`
+
+	// 隣の線までのずれ [X, Y]。両方 0 にはしない
+	Offset []float64 `json:"offset,omitempty"`
+
+	// 正は線、負は間、0 は点。空なら実線
+	Dashes []float64 `json:"dashes,omitempty"`
+}
+
 // LineGeometry: 線分
 type LineGeometry struct {
 	// 形の種類

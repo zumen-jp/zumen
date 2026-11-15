@@ -42,6 +42,7 @@ pub(super) const ADDABLE: &[(&[u8], u16, &[i16])] = &[
     (b"MTEXT", kinds::MTEXT, MTEXT),
     (b"LWPOLYLINE", kinds::LWPOLYLINE, LWPOLYLINE),
     (b"SPLINE", kinds::SPLINE, SPLINE),
+    (b"HATCH", kinds::HATCH, HATCH),
     (b"ATTRIB", kinds::ATTRIB, ATTRIB),
     (b"SEQEND", kinds::SEQEND, &[]),
     (b"LEADER", kinds::LEADER, NEW_LEADER),
@@ -122,7 +123,11 @@ impl NewEntity<'_> {
         common.bb(0);
         common.bs(small(object, 60)?.unwrap_or(0));
         common.rc(lineweight_index(-1)?.try_into().ok()?);
-        let mut fields = if r2004 && self.type_code == kinds::MINSERT {
+        let mut fields = if object.kind == b"HATCH" {
+            let mut fields = BitWriter::default();
+            new_hatch(&mut fields, object, r2004)?;
+            fields
+        } else if r2004 && self.type_code == kinds::MINSERT {
             self.minsert()?
         } else {
             own_fields(BitWriter::default(), object, object, self.type_code, &[], 0)?
@@ -222,6 +227,9 @@ impl NewEntity<'_> {
         out.rc(lineweight_index(-1)?.try_into().ok()?);
         let mut fields = BitWriter::with_strings();
         match object.kind.as_slice() {
+            b"HATCH" => {
+                new_hatch(&mut fields, object, true)?;
+            }
             b"ATTRIB" => r2010_attribute(&mut fields, None, object, &[], [0, 0], release)?,
             b"MTEXT" => r2010_mtext(&mut fields, None, object, &[], 0, 0, release)?,
             b"SPLINE" => spline(&mut fields, object, &[], 0, release)?,
@@ -275,6 +283,30 @@ impl NewEntity<'_> {
         }
         r2010_assemble(out, fields, handles)
     }
+}
+
+/// ODS 5.4.1 の HATCH。R2004 からの勾配の前置きは、非勾配・色なし・名前なしで書く。
+/// 新しい境界への参照のハンドルは作らないので、連動と参照を持つものは拒む。
+fn new_hatch(fields: &mut BitWriter, object: &Object, gradient_header: bool) -> Option<()> {
+    if small(object, 71)? != Some(0)
+        || object
+            .values
+            .iter()
+            .any(|value| value.code == 97 && value.data != Data::Int(0))
+    {
+        return None;
+    }
+    if gradient_header {
+        fields.bl(0);
+        fields.bl(0);
+        fields.bd(0.0);
+        fields.bd(0.0);
+        fields.bl(0);
+        fields.bd(0.0);
+        fields.bl(0);
+        fields.text(&[0])?;
+    }
+    hatch(fields, object, object)
 }
 
 /// BLOCK の基点（10・20・30）。どれもなければ原点。一部だけなら `None`
@@ -428,7 +460,8 @@ pub(super) fn r2004_addable(object: &Object) -> bool {
     if object.section == Section::Tables {
         return RECORDS.contains(&object.kind.as_slice());
     }
-    const KINDS: [&[u8]; 21] = [
+    const KINDS: [&[u8]; 22] = [
+        b"HATCH",
         b"LEADER",
         b"BLOCK",
         b"ENDBLK",
@@ -524,7 +557,8 @@ pub(super) fn r2010_addable(object: &Object) -> bool {
     if matches!(kind, b"BLOCK" | b"ENDBLK") {
         return object.section == Section::Blocks;
     }
-    const KINDS: [&[u8]; 18] = [
+    const KINDS: [&[u8]; 19] = [
+        b"HATCH",
         b"LEADER",
         b"LINE",
         b"CIRCLE",

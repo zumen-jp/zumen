@@ -19,6 +19,8 @@ use zumen_drawing::{
     Rotation, Shape, Style, Symbol, Text, Vertical,
 };
 
+mod hatch;
+
 /// 足す図形
 pub(crate) struct Record {
     pub(crate) kind: &'static [u8],
@@ -388,6 +390,10 @@ impl Born {
                 values.push(text(100, "AcDbPolyline"));
                 lwpolyline(&mut values, frame, line)?;
                 b"LWPOLYLINE"
+            }
+            Shape::Hatch(hatch) => {
+                self.hatching(&mut values, frame, hatch)?;
+                b"HATCH"
             }
             Shape::Text(lettering) => {
                 let vertical = self.lettering(&mut values, frame, lettering, "dxf.TEXT.40")?;
@@ -1167,6 +1173,7 @@ fn amount<P>(shape: &Shape<P>) -> u64 {
             .attributes
             .len()
             .saturating_add(usize::from(!symbol.attributes.is_empty())),
+        Shape::Hatch(hatch) => hatch.loops.len().saturating_add(hatch.seeds.len()),
         _ => 0,
     };
     1u64.saturating_add(items as u64)
@@ -1179,6 +1186,9 @@ pub(super) fn work<P>(
     at: &zumen_base::Ref,
 ) -> Result<(), zumen_sdk::Error> {
     super::work(cx, amount(shape), at)?;
+    if let Shape::Hatch(hatch) = shape {
+        hatch::work(hatch, cx, at)?;
+    }
     if let Shape::Symbol(symbol) = shape {
         for attribute in &symbol.attributes {
             let bytes =

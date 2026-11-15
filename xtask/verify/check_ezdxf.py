@@ -45,6 +45,35 @@ def geometry(e):
     d = e.dxf
     if t == "LINE":
         return {"shape": "line", "start": xy(d.start), "end": xy(d.end)}
+    if t == "HATCH":
+        if d.associative or e.gradient or not e.paths.paths:
+            return None
+        loops = []
+        for path in e.paths:
+            flags = path.path_type_flags
+            if flags & 12 or path.source_boundary_objects:
+                return None
+            if flags & 2:
+                if not path.is_closed or len(path.vertices) < 2:
+                    return None
+                boundary = {"shape": "polyline", "points": [xy(p) for p in path.vertices], "closed": True}
+                if any(p[2] for p in path.vertices):
+                    boundary["bulges"] = [p[2] for p in path.vertices]
+            else:
+                if len(path.edges) != 1:
+                    return None
+                arc = path.edges[0]
+                if arc.EDGE_TYPE != "ArcEdge" or arc.start_angle != 0 or arc.end_angle != 360 or not arc.ccw:
+                    return None
+                boundary = {"shape": "circle", "center": xy(arc.center), "radius": arc.radius}
+            loops.append({"boundary": boundary, "external": bool(flags & 1), "outermost": bool(flags & 16)})
+        result = {"shape": "hatch", "loops": loops, "islands": ["nested", "outer", "ignore"][d.hatch_style], "fill": "solid" if d.solid_fill else "pattern"}
+        if not d.solid_fill:
+            result["pattern"] = {"name": d.pattern_name, "origin": ["user_defined", "predefined", "custom"][d.pattern_type], "angle": d.pattern_angle, "scale": d.pattern_scale, "double": bool(d.pattern_double),
+                                 "lines": [{"angle": line.angle, "base": xy(line.base_point), "offset": xy(line.offset), "dashes": list(line.dash_length_items)} for line in e.pattern.lines]}
+        if e.seeds:
+            result["seeds"] = [xy(point) for point in e.seeds]
+        return result
     if t == "CIRCLE":
         return {"shape": "circle", "center": xy(d.center), "radius": d.radius}
     if t == "ARC":

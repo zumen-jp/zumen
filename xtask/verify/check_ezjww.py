@@ -40,6 +40,7 @@ TYPES = {
     "text": {"TEXT"},
     "symbol": {"BLOCK"},
     "dimension": {"DIMENSION"},
+    "hatch": {"SOLID", "CIRCLE_SOLID"},
 }
 # CDataSolid は塗り、画像を指す CDataMoji は画像の範囲になる（docs/formats/jww.md）。
 KINDS = {

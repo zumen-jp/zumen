@@ -56,6 +56,10 @@ pub(crate) fn changes(
             _ => None,
         };
         let size = match value {
+            Some(messages::Geometry::Hatch(hatch)) => hatch
+                .loops
+                .len()
+                .saturating_add(hatch.seeds.as_ref().map_or(0, Vec::len)),
             Some(messages::Geometry::Polyline(line)) => line.points.len(),
             Some(messages::Geometry::Spline(spline)) => spline
                 .control
@@ -108,6 +112,45 @@ pub(crate) fn changes(
         };
         cx.check(Kind::Work, u64::try_from(size).unwrap_or(u64::MAX))
             .map_err(|stop| stopped(cx, stop))?;
+        if let Some(messages::Geometry::Hatch(hatch)) = value {
+            for path in &hatch.loops {
+                let size = match &path.boundary {
+                    messages::HatchBoundary::Polyline(line) => line
+                        .points
+                        .len()
+                        .saturating_add(line.bulges.as_ref().map_or(0, Vec::len)),
+                    messages::HatchBoundary::Circle(circle) => circle.center.len(),
+                };
+                cx.check(Kind::Work, size as u64)
+                    .map_err(|stop| stopped(cx, stop))?;
+                if let messages::HatchBoundary::Polyline(line) = &path.boundary {
+                    for point in &line.points {
+                        cx.check(Kind::Work, point.len() as u64)
+                            .map_err(|stop| stopped(cx, stop))?;
+                    }
+                }
+            }
+            if let Some(pattern) = &hatch.pattern {
+                cx.check(
+                    Kind::Work,
+                    (pattern.name.len() as u64).saturating_add(pattern.lines.len() as u64),
+                )
+                .map_err(|stop| stopped(cx, stop))?;
+                for line in &pattern.lines {
+                    let size = line
+                        .base
+                        .len()
+                        .saturating_add(line.offset.len())
+                        .saturating_add(line.dashes.len());
+                    cx.check(Kind::Work, size as u64)
+                        .map_err(|stop| stopped(cx, stop))?;
+                }
+            }
+            for point in hatch.seeds.iter().flatten() {
+                cx.check(Kind::Work, point.len() as u64)
+                    .map_err(|stop| stopped(cx, stop))?;
+            }
+        }
         if let Some(messages::Geometry::Spline(spline)) = value {
             for point in spline.control.iter().chain(spline.fit.iter().flatten()) {
                 cx.check(Kind::Work, u64::try_from(point.len()).unwrap_or(u64::MAX))

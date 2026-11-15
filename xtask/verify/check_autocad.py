@@ -301,10 +301,80 @@ def load_dump(path):
         return None
 
 
+def hatch_geometry(row):
+    """HATCH の境界以降を DXF Reference の順に読む。dump.lsp の点は X,Y、角度は度。"""
+    if row.integer(71) or row.integer(450):
+        return None
+    codes = {91, 92, 93, 72, 73, 10, 40, 42, 50, 51, 97, 75, 76, 52, 41, 77, 78, 53, 43, 44, 45, 46, 79, 49, 98}
+    start = next((i for i, (code, _) in enumerate(row.fields) if code == 91), None)
+    if start is None:
+        return None
+    fields = [(code, value) for code, value in row.fields[start:] if code in codes]
+    position = 0
+
+    def take(code, convert=float):
+        nonlocal position
+        actual, value = fields[position]
+        if actual != code:
+            raise ValueError("HATCH の値の並びが違う")
+        position += 1
+        return convert(value)
+
+    def point(value):
+        return [float(v) for v in value.split(",")[:2]]
+
+    try:
+        loops = []
+        for _ in range(take(91, int)):
+            flags = take(92, int)
+            if flags & 12:
+                return None
+            if flags & 2:
+                has_bulges, closed, count = take(72, int), take(73, int), take(93, int)
+                if not closed or count < 2:
+                    return None
+                points, bulges = [], []
+                for _ in range(count):
+                    points.append(take(10, point))
+                    bulges.append(take(42) if has_bulges and fields[position][0] == 42 else 0.0)
+                boundary = {"shape": "polyline", "points": points, "closed": True}
+                if any(bulges):
+                    boundary["bulges"] = bulges
+            else:
+                if take(93, int) != 1 or take(72, int) != 2:
+                    return None
+                center, radius = take(10, point), take(40)
+                if take(50) != 0 or take(51) != 360 or not take(73, int):
+                    return None
+                boundary = {"shape": "circle", "center": center, "radius": radius}
+            if take(97, int) != 0:
+                return None
+            loops.append({"boundary": boundary, "external": bool(flags & 1), "outermost": bool(flags & 16)})
+        islands, origin = take(75, int), take(76, int)
+        solid = row.integer(70)
+        result = {"shape": "hatch", "loops": loops, "islands": ["nested", "outer", "ignore"][islands], "fill": "solid" if solid else "pattern"}
+        if not solid:
+            angle, scale, double, count = take(52), take(41), bool(take(77, int)), take(78, int)
+            lines = []
+            for _ in range(count):
+                line_angle = take(53)
+                base, offset = [take(43), take(44)], [take(45), take(46)]
+                lines.append({"angle": line_angle, "base": base, "offset": offset, "dashes": [take(49) for _ in range(take(79, int))]})
+            result["pattern"] = {"name": row.text(2), "origin": ["user_defined", "predefined", "custom"][origin], "angle": angle, "scale": scale, "double": double, "lines": lines}
+        seeds = [take(10, point) for _ in range(take(98, int))] if position < len(fields) else []
+        if seeds:
+            result["seeds"] = seeds
+        return result if position == len(fields) else None
+    except (IndexError, ValueError):
+        return None
+
+
 def geometry(row):
     """AutoCAD の図形の行を、図面モデルの形の値（entities の geometry）の形にする。比べない種類は None。値の意味は
-    DXF Reference の同じ名前の図形と同じ。角度の 50・51 は、dump.lsp が度に直している"""
+    DXF Reference の同じ名前の図形と同じ。角度の 50〜53 は、dump.lsp が度に直している"""
     t = row.type
+    if t == "HATCH":
+        return hatch_geometry(row)
     if t == "LINE":
         return {"shape": "line", "start": row.point(10), "end": row.point(11)}
     if t == "CIRCLE":

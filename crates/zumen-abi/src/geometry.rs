@@ -17,6 +17,7 @@ use zumen_drawing::{
 };
 
 use crate::bounds::Planar;
+mod hatch;
 use crate::messages::{
     ArcGeometry, Attachment, CalloutBranch, CalloutDogleg, CalloutGeometry, CalloutPath,
     CircleGeometry, DimensionAxis, DimensionGeometry, DimensionKind, DimensionLabel,
@@ -25,6 +26,7 @@ use crate::messages::{
     TableCell, TableCellContent, TableGeometry, TextFit, TextGeometry, TextHorizontal,
     TextVertical,
 };
+pub(crate) use hatch::work as hatch_work;
 
 /// API の apply が書き戻す DXF と DWG の、ブロックの記号の名前空間
 const BLOCK: &str = "dxf.block";
@@ -64,6 +66,7 @@ impl Spot for PaperPoint {
 pub(crate) fn geometry_of<P: Spot>(shape: &Shape<P>) -> Option<Geometry> {
     let xy = |point: P| Point::xy(point).to_vec();
     Some(match shape {
+        Shape::Hatch(fill) => Geometry::Hatch(hatch::geometry_of(fill)?),
         Shape::Line { start, end } => Geometry::Line(LineGeometry {
             start: xy(*start),
             end: xy(*end),
@@ -976,6 +979,7 @@ pub(crate) fn shape_of<P: Spot>(
         Ok(Some((first, second, fit)))
     };
     Ok(match (geometry, was) {
+        (Geometry::Hatch(fill), None) => Shape::Hatch(hatch::shape_of(fill, origin)?),
         (Geometry::Line(line), None | Some(Shape::Line { .. })) => Shape::Line {
             start: point(&line.start, "start")?,
             end: point(&line.end, "end")?,
@@ -1841,6 +1845,20 @@ fn placement_of(attachment: Attachment) -> (Horizontal, Vertical) {
 /// 形の空間か用紙を決める点
 pub(crate) fn origin_of<P: Copy>(shape: &Shape<P>) -> Option<P> {
     match shape {
+        Shape::Hatch(fill) => fill
+            .loops
+            .iter()
+            .find_map(|boundary| match &boundary.boundary {
+                zumen_drawing::Boundary::Polyline { vertices, .. } => {
+                    vertices.first().map(|v| v.point)
+                }
+                zumen_drawing::Boundary::Edges(edges) => {
+                    edges.first().and_then(|edge| match edge {
+                        Edge::Arc { center, .. } => Some(*center),
+                        _ => None,
+                    })
+                }
+            }),
         Shape::Line { start, .. } => Some(*start),
         Shape::Circle { center, .. }
         | Shape::Curve(Edge::Arc { center, .. } | Edge::Elliptic { center, .. }) => Some(*center),

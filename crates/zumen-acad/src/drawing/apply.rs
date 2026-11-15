@@ -414,9 +414,9 @@ fn edit(
         encoder: born.encoder(),
         target,
     };
-    for change in &changes.edits {
+    for (edit_index, change) in changes.edits.iter().enumerate() {
         let rejected = std::mem::take(&mut plan.rejected);
-        plan.check(&current, change, cx)?;
+        plan.check(&current, change, edit_index, cx)?;
         // コード・ページで表せない文字のために拒んだなら、その文字を返す（決定 0192）
         if let Some(character) = born.encoder().take()
             && plan.rejected
@@ -595,7 +595,13 @@ impl<'e> Plan<'e> {
     }
 
     /// 変更を 1 つ確かめて控える。当てられない変更は、診断を足して拒む
-    fn check(&mut self, current: &Current<'_>, change: &'e Edit, cx: &mut Cx) -> Result<(), Error> {
+    fn check(
+        &mut self,
+        current: &Current<'_>,
+        change: &'e Edit,
+        edit_index: usize,
+        cx: &mut Cx,
+    ) -> Result<(), Error> {
         match change {
             Edit::ReplaceLayer {
                 target: target_of,
@@ -627,7 +633,9 @@ impl<'e> Plan<'e> {
                 text_style::remove(current, self, target_of, cx)
             }
             Edit::AddTextStyle { style: new } => text_style::add(current, self, new, cx),
-            Edit::Add { place, element } => add_element(current, self, place, element, cx),
+            Edit::Add { place, element } => {
+                add_element(current, self, place, element, edit_index, cx)
+            }
             Edit::Replace {
                 target: target_of, ..
             } => change_element(current, self, change, "replace", target_of, cx),
@@ -754,6 +762,7 @@ fn add_element(
     plan: &mut Plan<'_>,
     place: &str,
     element: &Placed,
+    edit_index: usize,
     cx: &mut Cx,
 ) -> Result<(), Error> {
     let Current {
@@ -819,6 +828,32 @@ fn add_element(
         Some(record) => {
             plan.added_records += record.count();
             plan.added.push(record);
+        }
+        None if kind == "HATCH" => {
+            let (field, value) = match element {
+                Placed::Model(element) => born.hatch_reason(&element.shape),
+                Placed::Paper(element) => {
+                    if let Place::Sheet(sheet) = place
+                        && let Shape::Hatch(hatch) = &element.shape
+                        && matches!(hatch.fill, zumen_drawing::Fill::Pattern(_))
+                        && frames
+                            .get(&sheet)
+                            .is_some_and(|&frame| !OnSheet(sheet, frame).hatch_pattern_supported())
+                    {
+                        ("geometry/pattern".into(), "paper_coordinate_frame".into())
+                    } else {
+                        born.hatch_reason(&element.shape)
+                    }
+                }
+            };
+            plan.reject(
+                Diagnostic::new(codes::CHANGE_HATCH_UNSUPPORTED)
+                    .with("edit", edit_index as u64)
+                    .with("field", field)
+                    .with("value", value)
+                    .with("format", if target == Target::Dxf { "DXF" } else { "DWG" }),
+                cx,
+            );
         }
         None => plan.reject(unsupported("add", kind, target), cx),
     }
@@ -1424,6 +1459,10 @@ fn object_positions(db: &AcadDb, cx: &mut Cx<'_>) -> Result<BTreeMap<Ref, usize>
 
 /// 図面モデルの点と長さを、元の図形のレコードの値に戻す
 pub(crate) trait Frame<P> {
+    /// ハッチングの模様を、要素と同じ座標・単位のまま書けるか。
+    fn hatch_pattern_supported(&self) -> bool {
+        true
+    }
     /// 点のレコードの X と Y。元の要素と同じ空間（用紙）の点でなければ `None`
     fn point(&self, point: &P) -> Option<[f64; 2]>;
     /// 長さのレコードの値。元の要素と同じ空間（用紙）の長さでなければ `None`
@@ -1465,6 +1504,10 @@ impl Frame<ModelPoint> for InSpace {
 struct OnSheet(SheetId, PaperFrame);
 
 impl Frame<PaperPoint> for OnSheet {
+    // 模様の基点・ずれ・線の長さは読む側がまだ用紙の単位に直さないため、異なる座標の系では追加しない。
+    fn hatch_pattern_supported(&self) -> bool {
+        self.1.mm == 1.0 && self.1.origin == [0.0, 0.0]
+    }
     fn point(&self, point: &PaperPoint) -> Option<[f64; 2]> {
         let PaperFrame {
             origin: [x, y], mm, ..

@@ -92,6 +92,7 @@ TYPES = {
     "leader": {"LEADER"},
     "callout": {"MULTILEADER", "MLEADER"},
     "table": {"ACAD_TABLE"},
+    "hatch": {"HATCH", "SOLID", "TRACE"},
 }
 # DXF・DWG の要素の種類 → 出所の図形。entities が geometry を持たない要素も kind を返す。
 KINDS = {

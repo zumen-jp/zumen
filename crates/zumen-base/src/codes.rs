@@ -556,6 +556,22 @@ pub const CHANGE_FORMAT_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
+/// 指定されたハッチングの追加を書き戻せないので変更を拒んだ
+///
+/// `change.hatch.unsupported`（0.3.0 から）
+pub const CHANGE_HATCH_UNSUPPORTED: Code = Code::new(
+    "change.hatch.unsupported",
+    Severity::Error,
+    None,
+    &[
+        Param::new("edit", ParamType::UInt),
+        Param::new("field", ParamType::Text),
+        Param::new("format", ParamType::Text),
+        Param::new("value", ParamType::Text),
+    ],
+    &["edit", "field", "value", "format"],
+);
+
 /// 足す要素の色・線種・線幅を書いていない（レイヤかブロックに従う）が、元の形式の図形はそれを自分で持ち、レイヤかブロックに従う値を持たないので、書き戻せない。JWW の add は、色（点と線・円・円弧）と線種（線・円・円弧）を書き、ブロックに従う線幅も断る。SXF（SFC・P21）の add は、色（点マーカーと線分・折線・円・円弧）と、線種と線幅（線分・折線・円・円弧）を書く（決定 0290・0292）
 ///
 /// `change.style.unsupported`（0.2.0 から）
@@ -5339,6 +5355,7 @@ pub const ALL: &[Code] = &[
     CHANGE_ELEMENT_MISSING,
     CHANGE_ELEMENT_STALE,
     CHANGE_FORMAT_UNSUPPORTED,
+    CHANGE_HATCH_UNSUPPORTED,
     CHANGE_STYLE_UNSUPPORTED,
     CHANGE_SYMBOL_CYCLE_INVALID,
     CHANGE_XDATA_UNSUPPORTED,

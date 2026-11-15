@@ -58,6 +58,8 @@ cargo run -p zumen-conformance -- --write
 
 `render_png.json` と `render_fonts_png.json` は同じ図面・フォントを PNG で描き、画像の全バイト列と診断を照らします。大きすぎる寸法、描画と符号化の予算停止、停止後の再利用も含みます（[シーンの描画](../../docs/render.md)）。
 
+`apply_hatch.json` は、合成 DXF と公開 DWG（R2000・R2004・R2013・R2018）に、塗りつぶしと線を定義する模様の HATCH を足します。膨らみを持つ外周・円の穴・模様・種点、既存の ID とハッシュ、無効な境界を含む変更と予算停止の原子性を確かめます。形式の正しさは、この一致検査と分けて [ezdxf・ACadSharp で照合](../../xtask/verify/README.md)します。
+
 ### 合成フォント
 
 `cases/scene_fonts_cff.json` は、CFF・CFF2 と、両方を含むフォントのコレクション（TTC）の合成の入力です（#564）。実在のフォントは使わず、次のコマンドで組み立てます。`--check` は、作り直した組が記録した JSON と同じかを確かめます。

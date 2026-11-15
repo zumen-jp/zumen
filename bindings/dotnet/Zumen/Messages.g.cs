@@ -1327,7 +1327,199 @@ namespace Zumen.Messages
             ["point"] = typeof(PointGeometry),
             ["callout"] = typeof(CalloutGeometry),
             ["table"] = typeof(TableGeometry),
+            ["hatch"] = typeof(HatchGeometry),
         };
+    }
+
+    /// <summary>
+    /// 非連動のハッチング。閉じた折れ線（膨らみ付き）と円を境界にできる。塗りは単色か、線の定義を明示した模様。参照・勾配・自動検出した境界は扱わない。DXF と DWG に追加できる。置き換え・変換はまだ扱わない。entities は用紙上の模様を返さない。用紙への模様の追加は、原点が 0 で 1 単位が 1 mm のときに限る。マイナーバージョン 75 から
+    /// </summary>
+    public sealed record HatchGeometry
+    {
+        /// <summary>
+        /// 形の種類
+        /// </summary>
+        [JsonPropertyName("shape")]
+        public string Shape { get; init; } = "hatch";
+
+        /// <summary>
+        /// 境界の輪。入力の順。1 つ以上
+        /// </summary>
+        [JsonPropertyName("loops")]
+        public IReadOnlyList<HatchLoop> Loops { get; init; } = default!;
+
+        /// <summary>
+        /// 輪の中の輪の埋め方
+        /// </summary>
+        [JsonPropertyName("islands")]
+        public string Islands { get; init; } = default!;
+
+        /// <summary>
+        /// 中を埋めるもの
+        /// </summary>
+        [JsonPropertyName("fill")]
+        public string Fill { get; init; } = default!;
+
+        /// <summary>
+        /// fill が pattern のときだけ持つ模様の定義
+        /// </summary>
+        [JsonPropertyName("pattern")]
+        public HatchPattern? Pattern { get; init; }
+
+        /// <summary>
+        /// 境界を探した点 [[X, Y], ...]。書かなければ空
+        /// </summary>
+        [JsonPropertyName("seeds")]
+        public IReadOnlyList<IReadOnlyList<double>>? Seeds { get; init; }
+    }
+
+    /// <summary>
+    /// ハッチングの境界の輪。参照を持たない
+    /// </summary>
+    public sealed record HatchLoop
+    {
+        /// <summary>
+        /// 閉じた折れ線か円
+        /// </summary>
+        [JsonPropertyName("boundary")]
+        public JsonAny Boundary { get; init; } = default!;
+
+        /// <summary>
+        /// 外側の輪
+        /// </summary>
+        [JsonPropertyName("external")]
+        public bool External { get; init; }
+
+        /// <summary>
+        /// いちばん外の輪
+        /// </summary>
+        [JsonPropertyName("outermost")]
+        public bool Outermost { get; init; }
+    }
+
+    /// <summary>
+    /// 輪の形。折れ線は closed が真で頂点が 2 つ以上。最後の点から最初の点へ結ぶ
+    /// </summary>
+    public static class HatchBoundary
+    {
+        /// <summary>タグのフィールドの名前</summary>
+        public const string Tag = "shape";
+
+        /// <summary>タグの値と、その形の型</summary>
+        public static readonly IReadOnlyDictionary<string, global::System.Type> Variants = new Dictionary<string, global::System.Type>
+        {
+            ["polyline"] = typeof(PolylineGeometry),
+            ["circle"] = typeof(CircleGeometry),
+        };
+    }
+
+    /// <summary>
+    /// nested は外から奇数番目の内側、outer はいちばん外と次の輪の間、ignore は内側の輪を無視して埋める
+    /// </summary>
+    public static class HatchIslands
+    {
+        /// <summary>nested</summary>
+        public const string Nested = "nested";
+        /// <summary>outer</summary>
+        public const string Outer = "outer";
+        /// <summary>ignore</summary>
+        public const string Ignore = "ignore";
+    }
+
+    /// <summary>
+    /// solid は要素の色で塗り、pattern は線の組で埋める
+    /// </summary>
+    public static class HatchFill
+    {
+        /// <summary>solid</summary>
+        public const string Solid = "solid";
+        /// <summary>pattern</summary>
+        public const string Pattern = "pattern";
+    }
+
+    /// <summary>
+    /// 模様の名前と線の定義。外部の定義ファイルを読まず、lines の値を使う
+    /// </summary>
+    public sealed record HatchPattern
+    {
+        /// <summary>
+        /// 元の名前。空と制御文字を含むものは受けない
+        /// </summary>
+        [JsonPropertyName("name")]
+        public string Name { get; init; } = default!;
+
+        /// <summary>
+        /// 定義の出どころ
+        /// </summary>
+        [JsonPropertyName("origin")]
+        public string Origin { get; init; } = default!;
+
+        /// <summary>
+        /// 定義に加えた回転（度）
+        /// </summary>
+        [JsonPropertyName("angle")]
+        public double Angle { get; init; }
+
+        /// <summary>
+        /// 定義に掛けた尺度か、利用者が決めた線の間隔。0 より大きい
+        /// </summary>
+        [JsonPropertyName("scale")]
+        public double Scale { get; init; }
+
+        /// <summary>
+        /// 線の組を 90 度回して重ねる
+        /// </summary>
+        [JsonPropertyName("double")]
+        public bool Double { get; init; }
+
+        /// <summary>
+        /// angle と scale を当てた後の線の組。1 つ以上
+        /// </summary>
+        [JsonPropertyName("lines")]
+        public IReadOnlyList<HatchPatternLine> Lines { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// user_defined は利用者が決めた平行線、predefined は形式が名前で決めた定義、custom は利用者の定義
+    /// </summary>
+    public static class HatchPatternOrigin
+    {
+        /// <summary>user_defined</summary>
+        public const string UserDefined = "user_defined";
+        /// <summary>predefined</summary>
+        public const string Predefined = "predefined";
+        /// <summary>custom</summary>
+        public const string Custom = "custom";
+    }
+
+    /// <summary>
+    /// 1 組の平行線。基点・ずれ・線の長さは要素の座標と単位に従う
+    /// </summary>
+    public sealed record HatchPatternLine
+    {
+        /// <summary>
+        /// 線の向き（度）
+        /// </summary>
+        [JsonPropertyName("angle")]
+        public double Angle { get; init; }
+
+        /// <summary>
+        /// 1 本の線が通る点 [X, Y]
+        /// </summary>
+        [JsonPropertyName("base")]
+        public IReadOnlyList<double> Base { get; init; } = default!;
+
+        /// <summary>
+        /// 隣の線までのずれ [X, Y]。両方 0 にはしない
+        /// </summary>
+        [JsonPropertyName("offset")]
+        public IReadOnlyList<double> Offset { get; init; } = default!;
+
+        /// <summary>
+        /// 正は線、負は間、0 は点。空なら実線
+        /// </summary>
+        [JsonPropertyName("dashes")]
+        public IReadOnlyList<double> Dashes { get; init; } = default!;
     }
 
     /// <summary>

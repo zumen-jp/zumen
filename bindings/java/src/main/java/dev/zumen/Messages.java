@@ -2757,6 +2757,364 @@ public final class Messages {
         public TableGeometry asTableGeometry() {
             return "table".equals(json.get("shape")) ? new TableGeometry(json) : null;
         }
+
+        /** shape が hatch の形なら、そのビュー。違えば null */
+        public HatchGeometry asHatchGeometry() {
+            return "hatch".equals(json.get("shape")) ? new HatchGeometry(json) : null;
+        }
+    }
+
+    /** 非連動のハッチング。閉じた折れ線（膨らみ付き）と円を境界にできる。塗りは単色か、線の定義を明示した模様。参照・勾配・自動検出した境界は扱わない。DXF と DWG に追加できる。置き換え・変換はまだ扱わない。entities は用紙上の模様を返さない。用紙への模様の追加は、原点が 0 で 1 単位が 1 mm のときに限る。マイナーバージョン 75 から */
+    public static final class HatchGeometry extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public HatchGeometry(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static HatchGeometry of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new HatchGeometry(json);
+        }
+
+        /** タグのフィールドだけを持つオブジェクトから作る */
+        public HatchGeometry() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("shape", "hatch");
+        }
+
+        /** 形の種類 */
+        public String getShape() {
+            return Json.read(json.get("shape"), Json::string);
+        }
+
+        /** {@link #getShape()} を書く。null ならフィールドを除く */
+        public HatchGeometry withShape(String value) {
+            put("shape", value);
+            return this;
+        }
+
+        /** 境界の輪。入力の順。1 つ以上 */
+        public List<HatchLoop> getLoops() {
+            return Json.read(json.get("loops"), v0 -> Json.list(v0, HatchLoop::of));
+        }
+
+        /** {@link #getLoops()} を書く。null ならフィールドを除く */
+        public HatchGeometry withLoops(List<HatchLoop> value) {
+            put("loops", value);
+            return this;
+        }
+
+        /** 輪の中の輪の埋め方 */
+        public String getIslands() {
+            return Json.read(json.get("islands"), Json::string);
+        }
+
+        /** {@link #getIslands()} を書く。null ならフィールドを除く */
+        public HatchGeometry withIslands(String value) {
+            put("islands", value);
+            return this;
+        }
+
+        /** 中を埋めるもの */
+        public String getFill() {
+            return Json.read(json.get("fill"), Json::string);
+        }
+
+        /** {@link #getFill()} を書く。null ならフィールドを除く */
+        public HatchGeometry withFill(String value) {
+            put("fill", value);
+            return this;
+        }
+
+        /** fill が pattern のときだけ持つ模様の定義 */
+        public HatchPattern getPattern() {
+            return Json.read(json.get("pattern"), HatchPattern::of);
+        }
+
+        /** {@link #getPattern()} を書く。null ならフィールドを除く */
+        public HatchGeometry withPattern(HatchPattern value) {
+            put("pattern", value);
+            return this;
+        }
+
+        /** 境界を探した点 [[X, Y], ...]。書かなければ空 */
+        public List<List<Double>> getSeeds() {
+            return Json.read(json.get("seeds"), v0 -> Json.list(v0, v1 -> Json.list(v1, Json::number)));
+        }
+
+        /** {@link #getSeeds()} を書く。null ならフィールドを除く */
+        public HatchGeometry withSeeds(List<List<Double>> value) {
+            put("seeds", value);
+            return this;
+        }
+    }
+
+    /** ハッチングの境界の輪。参照を持たない */
+    public static final class HatchLoop extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public HatchLoop(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static HatchLoop of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new HatchLoop(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public HatchLoop() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 閉じた折れ線か円 */
+        public HatchBoundary getBoundary() {
+            return Json.read(json.get("boundary"), HatchBoundary::of);
+        }
+
+        /** {@link #getBoundary()} を書く。null ならフィールドを除く */
+        public HatchLoop withBoundary(HatchBoundary value) {
+            put("boundary", value);
+            return this;
+        }
+
+        /** 外側の輪 */
+        public Boolean getExternal() {
+            return Json.read(json.get("external"), Json::bool);
+        }
+
+        /** {@link #getExternal()} を書く。null ならフィールドを除く */
+        public HatchLoop withExternal(Boolean value) {
+            put("external", value);
+            return this;
+        }
+
+        /** いちばん外の輪 */
+        public Boolean getOutermost() {
+            return Json.read(json.get("outermost"), Json::bool);
+        }
+
+        /** {@link #getOutermost()} を書く。null ならフィールドを除く */
+        public HatchLoop withOutermost(Boolean value) {
+            put("outermost", value);
+            return this;
+        }
+    }
+
+    /** 輪の形。折れ線は closed が真で頂点が 2 つ以上。最後の点から最初の点へ結ぶ */
+    public static final class HatchBoundary extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public HatchBoundary(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static HatchBoundary of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new HatchBoundary(json);
+        }
+
+        /** shape が polyline の形なら、そのビュー。違えば null */
+        public PolylineGeometry asPolylineGeometry() {
+            return "polyline".equals(json.get("shape")) ? new PolylineGeometry(json) : null;
+        }
+
+        /** shape が circle の形なら、そのビュー。違えば null */
+        public CircleGeometry asCircleGeometry() {
+            return "circle".equals(json.get("shape")) ? new CircleGeometry(json) : null;
+        }
+    }
+
+    /**
+     * nested は外から奇数番目の内側、outer はいちばん外と次の輪の間、ignore は内側の輪を無視して埋める
+     *
+     * 列挙の値。知らない値も受け取る
+     */
+    public static final class HatchIslands {
+        private HatchIslands() {}
+
+        public static final String NESTED = "nested";
+
+        public static final String OUTER = "outer";
+
+        public static final String IGNORE = "ignore";
+    }
+
+    /**
+     * solid は要素の色で塗り、pattern は線の組で埋める
+     *
+     * 列挙の値。知らない値も受け取る
+     */
+    public static final class HatchFill {
+        private HatchFill() {}
+
+        public static final String SOLID = "solid";
+
+        public static final String PATTERN = "pattern";
+    }
+
+    /** 模様の名前と線の定義。外部の定義ファイルを読まず、lines の値を使う */
+    public static final class HatchPattern extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public HatchPattern(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static HatchPattern of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new HatchPattern(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public HatchPattern() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 元の名前。空と制御文字を含むものは受けない */
+        public String getName() {
+            return Json.read(json.get("name"), Json::string);
+        }
+
+        /** {@link #getName()} を書く。null ならフィールドを除く */
+        public HatchPattern withName(String value) {
+            put("name", value);
+            return this;
+        }
+
+        /** 定義の出どころ */
+        public String getOrigin() {
+            return Json.read(json.get("origin"), Json::string);
+        }
+
+        /** {@link #getOrigin()} を書く。null ならフィールドを除く */
+        public HatchPattern withOrigin(String value) {
+            put("origin", value);
+            return this;
+        }
+
+        /** 定義に加えた回転（度） */
+        public Double getAngle() {
+            return Json.read(json.get("angle"), Json::number);
+        }
+
+        /** {@link #getAngle()} を書く。null ならフィールドを除く */
+        public HatchPattern withAngle(Double value) {
+            put("angle", value);
+            return this;
+        }
+
+        /** 定義に掛けた尺度か、利用者が決めた線の間隔。0 より大きい */
+        public Double getScale() {
+            return Json.read(json.get("scale"), Json::number);
+        }
+
+        /** {@link #getScale()} を書く。null ならフィールドを除く */
+        public HatchPattern withScale(Double value) {
+            put("scale", value);
+            return this;
+        }
+
+        /** 線の組を 90 度回して重ねる */
+        public Boolean getDouble() {
+            return Json.read(json.get("double"), Json::bool);
+        }
+
+        /** {@link #getDouble()} を書く。null ならフィールドを除く */
+        public HatchPattern withDouble(Boolean value) {
+            put("double", value);
+            return this;
+        }
+
+        /** angle と scale を当てた後の線の組。1 つ以上 */
+        public List<HatchPatternLine> getLines() {
+            return Json.read(json.get("lines"), v0 -> Json.list(v0, HatchPatternLine::of));
+        }
+
+        /** {@link #getLines()} を書く。null ならフィールドを除く */
+        public HatchPattern withLines(List<HatchPatternLine> value) {
+            put("lines", value);
+            return this;
+        }
+    }
+
+    /**
+     * user_defined は利用者が決めた平行線、predefined は形式が名前で決めた定義、custom は利用者の定義
+     *
+     * 列挙の値。知らない値も受け取る
+     */
+    public static final class HatchPatternOrigin {
+        private HatchPatternOrigin() {}
+
+        public static final String USER_DEFINED = "user_defined";
+
+        public static final String PREDEFINED = "predefined";
+
+        public static final String CUSTOM = "custom";
+    }
+
+    /** 1 組の平行線。基点・ずれ・線の長さは要素の座標と単位に従う */
+    public static final class HatchPatternLine extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public HatchPatternLine(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static HatchPatternLine of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new HatchPatternLine(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public HatchPatternLine() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 線の向き（度） */
+        public Double getAngle() {
+            return Json.read(json.get("angle"), Json::number);
+        }
+
+        /** {@link #getAngle()} を書く。null ならフィールドを除く */
+        public HatchPatternLine withAngle(Double value) {
+            put("angle", value);
+            return this;
+        }
+
+        /** 1 本の線が通る点 [X, Y] */
+        public List<Double> getBase() {
+            return Json.read(json.get("base"), v0 -> Json.list(v0, Json::number));
+        }
+
+        /** {@link #getBase()} を書く。null ならフィールドを除く */
+        public HatchPatternLine withBase(List<Double> value) {
+            put("base", value);
+            return this;
+        }
+
+        /** 隣の線までのずれ [X, Y]。両方 0 にはしない */
+        public List<Double> getOffset() {
+            return Json.read(json.get("offset"), v0 -> Json.list(v0, Json::number));
+        }
+
+        /** {@link #getOffset()} を書く。null ならフィールドを除く */
+        public HatchPatternLine withOffset(List<Double> value) {
+            put("offset", value);
+            return this;
+        }
+
+        /** 正は線、負は間、0 は点。空なら実線 */
+        public List<Double> getDashes() {
+            return Json.read(json.get("dashes"), v0 -> Json.list(v0, Json::number));
+        }
+
+        /** {@link #getDashes()} を書く。null ならフィールドを除く */
+        public HatchPatternLine withDashes(List<Double> value) {
+            put("dashes", value);
+            return this;
+        }
     }
 
     /** 線分 */

@@ -176,6 +176,22 @@ class Reading(unittest.TestCase):
 
 
 class Geometry(unittest.TestCase):
+    def test_hatch_loops_pattern_and_seeds(self):
+        row = "300|HATCH|0|2=EXPLICIT|70=0|71=0|91=2|92=19|72=1|73=1|93=2|10=0,0|42=1|10=10,0|42=1|97=0|92=0|93=1|72=2|10=5,0|40=1|50=0|51=360|73=1|97=0|75=0|76=2|52=90|41=2|77=1|78=1|53=45|43=1|44=2|45=-2|46=2|79=3|49=2|49=-1|49=0|98=1|10=2,0"
+        expected = {
+            "shape": "hatch", "fill": "pattern", "islands": "nested",
+            "loops": [
+                {"boundary": {"shape": "polyline", "points": [[0, 0], [10, 0]], "bulges": [1, 1], "closed": True}, "external": True, "outermost": True},
+                {"boundary": {"shape": "circle", "center": [5, 0], "radius": 1}, "external": False, "outermost": False},
+            ],
+            "pattern": {"name": "EXPLICIT", "origin": "custom", "angle": 90, "scale": 2, "double": True,
+                        "lines": [{"angle": 45, "base": [1, 2], "offset": [-2, 2], "dashes": [2, -1, 0]}]},
+            "seeds": [[2, 0]],
+        }
+        self.assertEqual(geometry(row), expected)
+        for invalid in (row.replace("71=0", "71=1"), row.replace("93=2", "93=3"), row.replace("97=0", "97=1")):
+            self.assertIsNone(geometry(invalid))
+
     def test_text_omits_the_default_settings(self):
         plain = geometry("31|TEXT|0|1=abc|7=Standard|10=1.0,2.0|11=0.0,0.0|40=2.5|41=1.0|50=30.0|51=0.0|71=0|72=0|73=0")
         self.assertEqual(plain, {"shape": "text", "content": "abc", "height": 2.5, "rotation": 30.0, "style": "Standard", "position": [1.0, 2.0]})

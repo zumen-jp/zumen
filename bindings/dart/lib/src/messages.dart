@@ -1126,6 +1126,162 @@ class Geometry extends Message {
 
   /// shape が table の形なら、そのビュー。違えば null
   TableGeometry? get asTableGeometry => taggedView('shape', 'table', TableGeometry.fromJson);
+
+  /// shape が hatch の形なら、そのビュー。違えば null
+  HatchGeometry? get asHatchGeometry => taggedView('shape', 'hatch', HatchGeometry.fromJson);
+}
+
+/// 非連動のハッチング。閉じた折れ線（膨らみ付き）と円を境界にできる。塗りは単色か、線の定義を明示した模様。参照・勾配・自動検出した境界は扱わない。DXF と DWG に追加できる。置き換え・変換はまだ扱わない。entities は用紙上の模様を返さない。用紙への模様の追加は、原点が 0 で 1 単位が 1 mm のときに限る。マイナーバージョン 75 から
+class HatchGeometry extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  HatchGeometry.fromJson(super.json);
+
+  /// タグのフィールドだけを持つオブジェクトから作る
+  HatchGeometry() : super({'shape': 'hatch'});
+
+  /// 形の種類
+  String? get shape => readField('shape', asString);
+  set shape(String? value) => writeField('shape', value);
+
+  /// 境界の輪。入力の順。1 つ以上
+  List<HatchLoop>? get loops => readField('loops', listOf(objectOf(HatchLoop.fromJson)));
+  set loops(List<HatchLoop>? value) => writeField('loops', value);
+
+  /// 輪の中の輪の埋め方
+  String? get islands => readField('islands', asString);
+  set islands(String? value) => writeField('islands', value);
+
+  /// 中を埋めるもの
+  String? get fill => readField('fill', asString);
+  set fill(String? value) => writeField('fill', value);
+
+  /// fill が pattern のときだけ持つ模様の定義
+  HatchPattern? get pattern => readField('pattern', objectOf(HatchPattern.fromJson));
+  set pattern(HatchPattern? value) => writeField('pattern', value);
+
+  /// 境界を探した点 [[X, Y], ...]。書かなければ空
+  List<List<double>>? get seeds => readField('seeds', listOf(listOf(asDouble)));
+  set seeds(List<List<double>>? value) => writeField('seeds', value);
+}
+
+/// ハッチングの境界の輪。参照を持たない
+class HatchLoop extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  HatchLoop.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  HatchLoop() : super({});
+
+  /// 閉じた折れ線か円
+  HatchBoundary? get boundary => readField('boundary', objectOf(HatchBoundary.fromJson));
+  set boundary(HatchBoundary? value) => writeField('boundary', value);
+
+  /// 外側の輪
+  bool? get externalField => readField('external', asBool);
+  set externalField(bool? value) => writeField('external', value);
+
+  /// いちばん外の輪
+  bool? get outermost => readField('outermost', asBool);
+  set outermost(bool? value) => writeField('outermost', value);
+}
+
+/// 輪の形。折れ線は closed が真で頂点が 2 つ以上。最後の点から最初の点へ結ぶ
+class HatchBoundary extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  HatchBoundary.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  HatchBoundary() : super({});
+
+  /// shape が polyline の形なら、そのビュー。違えば null
+  PolylineGeometry? get asPolylineGeometry => taggedView('shape', 'polyline', PolylineGeometry.fromJson);
+
+  /// shape が circle の形なら、そのビュー。違えば null
+  CircleGeometry? get asCircleGeometry => taggedView('shape', 'circle', CircleGeometry.fromJson);
+}
+
+/// nested は外から奇数番目の内側、outer はいちばん外と次の輪の間、ignore は内側の輪を無視して埋める
+///
+/// 列挙の値。知らない値も受け取る
+abstract final class HatchIslands {
+  static const nested = 'nested';
+  static const outer = 'outer';
+  static const ignore = 'ignore';
+}
+
+/// solid は要素の色で塗り、pattern は線の組で埋める
+///
+/// 列挙の値。知らない値も受け取る
+abstract final class HatchFill {
+  static const solid = 'solid';
+  static const pattern = 'pattern';
+}
+
+/// 模様の名前と線の定義。外部の定義ファイルを読まず、lines の値を使う
+class HatchPattern extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  HatchPattern.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  HatchPattern() : super({});
+
+  /// 元の名前。空と制御文字を含むものは受けない
+  String? get name => readField('name', asString);
+  set name(String? value) => writeField('name', value);
+
+  /// 定義の出どころ
+  String? get origin => readField('origin', asString);
+  set origin(String? value) => writeField('origin', value);
+
+  /// 定義に加えた回転（度）
+  double? get angle => readField('angle', asDouble);
+  set angle(double? value) => writeField('angle', value);
+
+  /// 定義に掛けた尺度か、利用者が決めた線の間隔。0 より大きい
+  double? get scale => readField('scale', asDouble);
+  set scale(double? value) => writeField('scale', value);
+
+  /// 線の組を 90 度回して重ねる
+  bool? get double => readField('double', asBool);
+  set double(bool? value) => writeField('double', value);
+
+  /// angle と scale を当てた後の線の組。1 つ以上
+  List<HatchPatternLine>? get lines => readField('lines', listOf(objectOf(HatchPatternLine.fromJson)));
+  set lines(List<HatchPatternLine>? value) => writeField('lines', value);
+}
+
+/// user_defined は利用者が決めた平行線、predefined は形式が名前で決めた定義、custom は利用者の定義
+///
+/// 列挙の値。知らない値も受け取る
+abstract final class HatchPatternOrigin {
+  static const userDefined = 'user_defined';
+  static const predefined = 'predefined';
+  static const custom = 'custom';
+}
+
+/// 1 組の平行線。基点・ずれ・線の長さは要素の座標と単位に従う
+class HatchPatternLine extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  HatchPatternLine.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  HatchPatternLine() : super({});
+
+  /// 線の向き（度）
+  double? get angle => readField('angle', asDouble);
+  set angle(double? value) => writeField('angle', value);
+
+  /// 1 本の線が通る点 [X, Y]
+  List<double>? get baseField => readField('base', listOf(asDouble));
+  set baseField(List<double>? value) => writeField('base', value);
+
+  /// 隣の線までのずれ [X, Y]。両方 0 にはしない
+  List<double>? get offset => readField('offset', listOf(asDouble));
+  set offset(List<double>? value) => writeField('offset', value);
+
+  /// 正は線、負は間、0 は点。空なら実線
+  List<double>? get dashes => readField('dashes', listOf(asDouble));
+  set dashes(List<double>? value) => writeField('dashes', value);
 }
 
 /// 線分

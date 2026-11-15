@@ -3563,6 +3563,14 @@ group-by = ["value"]
 since = "0.3.0"
 status = "active"
 
+[codes."change.hatch.unsupported"]
+description = "指定されたハッチングの追加を書き戻せないので変更を拒んだ"
+severity = "error"
+params = { edit = "uint", field = "text", value = "text", format = "text" }
+group-by = ["edit", "field", "value", "format"]
+since = "0.3.0"
+status = "active"
+
 [codes."tiff.grid.unsupported"]
 description = "単バンドの数値標高格子または平面直角座標の格子条件を満たさないので、点群モデルに持ち上げなかった"
 severity = "warning"

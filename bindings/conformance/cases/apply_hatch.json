@@ -1,0 +1,5514 @@
+{
+  "description": "非連動のハッチング（膨らみ付きの外周と円の穴、単色と明示した模様）を DXF と R2000・R2004・R2013・R2018 の DWG に追加する。未変更要素の ID・ハッシュ、無効な境界と予算停止時の原子的な拒否、境界・模様の値を確かめる。",
+  "steps": [
+    {
+      "push": {
+        "name": "synthetic.dxf",
+        "text": "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1015\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nLINE\n5\n2F\n8\n0\n10\n0.0\n20\n0.0\n11\n10.0\n21\n0.0\n0\nCIRCLE\n5\n30\n8\n0\n10\n5.0\n20\n5.0\n40\n2.0\n0\nLINE\n5\n31\n8\n0\n10\n0.0\n20\n1.0\n11\n10.0\n21\n1.0\n0\nENDSEC\n0\nEOF\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "synthetic.dxf"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "layer",
+          "hash",
+          "geometry"
+        ],
+        "doc": "synthetic.dxf"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "edits": [
+          {
+            "kind": "add",
+            "place": "space/0",
+            "geometry": {
+              "shape": "hatch",
+              "islands": "nested",
+              "fill": "solid",
+              "loops": [
+                {
+                  "boundary": {
+                    "shape": "polyline",
+                    "points": [
+                      [
+                        10,
+                        20
+                      ],
+                      [
+                        50,
+                        20
+                      ],
+                      [
+                        50,
+                        60
+                      ],
+                      [
+                        10,
+                        60
+                      ]
+                    ],
+                    "bulges": [
+                      0,
+                      0.5,
+                      0,
+                      0
+                    ],
+                    "closed": true
+                  },
+                  "external": true,
+                  "outermost": true
+                },
+                {
+                  "boundary": {
+                    "shape": "circle",
+                    "center": [
+                      30,
+                      40
+                    ],
+                    "radius": 3
+                  },
+                  "external": false,
+                  "outermost": false
+                }
+              ],
+              "seeds": [
+                [
+                  12,
+                  22
+                ]
+              ]
+            }
+          },
+          {
+            "kind": "add",
+            "place": "space/0",
+            "geometry": {
+              "shape": "hatch",
+              "islands": "nested",
+              "fill": "pattern",
+              "loops": [
+                {
+                  "boundary": {
+                    "shape": "polyline",
+                    "points": [
+                      [
+                        10,
+                        20
+                      ],
+                      [
+                        50,
+                        20
+                      ],
+                      [
+                        50,
+                        60
+                      ],
+                      [
+                        10,
+                        60
+                      ]
+                    ],
+                    "bulges": [
+                      0,
+                      0.5,
+                      0,
+                      0
+                    ],
+                    "closed": true
+                  },
+                  "external": true,
+                  "outermost": true
+                },
+                {
+                  "boundary": {
+                    "shape": "circle",
+                    "center": [
+                      30,
+                      40
+                    ],
+                    "radius": 3
+                  },
+                  "external": false,
+                  "outermost": false
+                }
+              ],
+              "seeds": [
+                [
+                  12,
+                  22
+                ]
+              ],
+              "pattern": {
+                "name": "ZUMEN_EXPLICIT",
+                "origin": "custom",
+                "angle": 90,
+                "scale": 2,
+                "double": true,
+                "lines": [
+                  {
+                    "angle": 45,
+                    "base": [
+                      1,
+                      2
+                    ],
+                    "offset": [
+                      -2,
+                      2
+                    ],
+                    "dashes": [
+                      2,
+                      -1,
+                      0
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "doc": "synthetic.dxf"
+      },
+      "expect": {
+        "/diagnostics": []
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "layer",
+          "hash",
+          "geometry"
+        ],
+        "doc": "synthetic.dxf"
+      },
+      "expect": {
+        "/result/total": 5,
+        "/result/items/0/hash": "v2:0bc8b23a1490c7dc85f543ba5e449f73",
+        "/result/items/1/hash": "v2:3ab0c8d50d5cb9269916410ea6640fe0",
+        "/result/items/2/hash": "v2:f101f2217877509d8d81491f92d5b744",
+        "/result/items/3/geometry": {
+          "shape": "hatch",
+          "islands": "nested",
+          "fill": "solid",
+          "loops": [
+            {
+              "boundary": {
+                "shape": "polyline",
+                "points": [
+                  [
+                    10,
+                    20
+                  ],
+                  [
+                    50,
+                    20
+                  ],
+                  [
+                    50,
+                    60
+                  ],
+                  [
+                    10,
+                    60
+                  ]
+                ],
+                "bulges": [
+                  0,
+                  0.5,
+                  0,
+                  0
+                ],
+                "closed": true
+              },
+              "external": true,
+              "outermost": true
+            },
+            {
+              "boundary": {
+                "shape": "circle",
+                "center": [
+                  30,
+                  40
+                ],
+                "radius": 3
+              },
+              "external": false,
+              "outermost": false
+            }
+          ],
+          "seeds": [
+            [
+              12,
+              22
+            ]
+          ]
+        },
+        "/result/items/4/geometry": {
+          "shape": "hatch",
+          "islands": "nested",
+          "fill": "pattern",
+          "loops": [
+            {
+              "boundary": {
+                "shape": "polyline",
+                "points": [
+                  [
+                    10,
+                    20
+                  ],
+                  [
+                    50,
+                    20
+                  ],
+                  [
+                    50,
+                    60
+                  ],
+                  [
+                    10,
+                    60
+                  ]
+                ],
+                "bulges": [
+                  0,
+                  0.5,
+                  0,
+                  0
+                ],
+                "closed": true
+              },
+              "external": true,
+              "outermost": true
+            },
+            {
+              "boundary": {
+                "shape": "circle",
+                "center": [
+                  30,
+                  40
+                ],
+                "radius": 3
+              },
+              "external": false,
+              "outermost": false
+            }
+          ],
+          "seeds": [
+            [
+              12,
+              22
+            ]
+          ],
+          "pattern": {
+            "name": "ZUMEN_EXPLICIT",
+            "origin": "custom",
+            "angle": 90,
+            "scale": 2,
+            "double": true,
+            "lines": [
+              {
+                "angle": 45,
+                "base": [
+                  1,
+                  2
+                ],
+                "offset": [
+                  -2,
+                  2
+                ],
+                "dashes": [
+                  2,
+                  -1,
+                  0
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "edits": [
+          {
+            "kind": "add",
+            "place": "space/0",
+            "geometry": {
+              "shape": "hatch",
+              "islands": "nested",
+              "fill": "solid",
+              "loops": [
+                {
+                  "boundary": {
+                    "shape": "polyline",
+                    "points": [
+                      [
+                        10,
+                        20
+                      ],
+                      [
+                        50,
+                        20
+                      ],
+                      [
+                        50,
+                        60
+                      ],
+                      [
+                        10,
+                        60
+                      ]
+                    ],
+                    "bulges": [
+                      0,
+                      0.5,
+                      0,
+                      0
+                    ],
+                    "closed": true
+                  },
+                  "external": true,
+                  "outermost": true
+                },
+                {
+                  "boundary": {
+                    "shape": "circle",
+                    "center": [
+                      30,
+                      40
+                    ],
+                    "radius": 3
+                  },
+                  "external": false,
+                  "outermost": false
+                }
+              ],
+              "seeds": [
+                [
+                  12,
+                  22
+                ]
+              ]
+            }
+          },
+          {
+            "kind": "add",
+            "place": "space/0",
+            "geometry": {
+              "shape": "hatch",
+              "islands": "nested",
+              "fill": "pattern",
+              "loops": [
+                {
+                  "boundary": {
+                    "shape": "polyline",
+                    "points": [
+                      [
+                        10,
+                        20
+                      ],
+                      [
+                        50,
+                        20
+                      ],
+                      [
+                        50,
+                        60
+                      ],
+                      [
+                        10,
+                        60
+                      ]
+                    ],
+                    "bulges": [
+                      0,
+                      0.5,
+                      0,
+                      0
+                    ],
+                    "closed": false
+                  },
+                  "external": true,
+                  "outermost": true
+                },
+                {
+                  "boundary": {
+                    "shape": "circle",
+                    "center": [
+                      30,
+                      40
+                    ],
+                    "radius": 3
+                  },
+                  "external": false,
+                  "outermost": false
+                }
+              ],
+              "seeds": [
+                [
+                  12,
+                  22
+                ]
+              ],
+              "pattern": {
+                "name": "ZUMEN_EXPLICIT",
+                "origin": "custom",
+                "angle": 90,
+                "scale": 2,
+                "double": true,
+                "lines": [
+                  {
+                    "angle": 45,
+                    "base": [
+                      1,
+                      2
+                    ],
+                    "offset": [
+                      -2,
+                      2
+                    ],
+                    "dashes": [
+                      2,
+                      -1,
+                      0
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "doc": "synthetic.dxf"
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "call.value.invalid",
+        "/diagnostics/0/params/pointer": "/edits/1/geometry/loops/0/boundary/closed"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "layer",
+          "hash",
+          "geometry"
+        ],
+        "doc": "synthetic.dxf"
+      },
+      "expect": {
+        "/result/items": [
+          {
+            "id": "space/0/h2F",
+            "kind": "line",
+            "layer": "0",
+            "hash": "v2:0bc8b23a1490c7dc85f543ba5e449f73",
+            "geometry": {
+              "shape": "line",
+              "start": [
+                0,
+                0
+              ],
+              "end": [
+                10,
+                0
+              ]
+            }
+          },
+          {
+            "id": "space/0/h30",
+            "kind": "circle",
+            "layer": "0",
+            "hash": "v2:3ab0c8d50d5cb9269916410ea6640fe0",
+            "geometry": {
+              "shape": "circle",
+              "center": [
+                5,
+                5
+              ],
+              "radius": 2
+            }
+          },
+          {
+            "id": "space/0/h31",
+            "kind": "line",
+            "layer": "0",
+            "hash": "v2:f101f2217877509d8d81491f92d5b744",
+            "geometry": {
+              "shape": "line",
+              "start": [
+                0,
+                1
+              ],
+              "end": [
+                10,
+                1
+              ]
+            }
+          },
+          {
+            "id": "space/0/h32",
+            "kind": "hatch",
+            "layer": "0",
+            "hash": "v2:7db61e99e2393912a7c2ac2f31a74d0b",
+            "geometry": {
+              "shape": "hatch",
+              "loops": [
+                {
+                  "boundary": {
+                    "shape": "polyline",
+                    "points": [
+                      [
+                        10,
+                        20
+                      ],
+                      [
+                        50,
+                        20
+                      ],
+                      [
+                        50,
+                        60
+                      ],
+                      [
+                        10,
+                        60
+                      ]
+                    ],
+                    "bulges": [
+                      0,
+                      0.5,
+                      0,
+                      0
+                    ],
+                    "closed": true
+                  },
+                  "external": true,
+                  "outermost": true
+                },
+                {
+                  "boundary": {
+                    "shape": "circle",
+                    "center": [
+                      30,
+                      40
+                    ],
+                    "radius": 3
+                  },
+                  "external": false,
+                  "outermost": false
+                }
+              ],
+              "islands": "nested",
+              "fill": "solid",
+              "seeds": [
+                [
+                  12,
+                  22
+                ]
+              ]
+            }
+          },
+          {
+            "id": "space/0/h33",
+            "kind": "hatch",
+            "layer": "0",
+            "hash": "v2:1752915047b884f2f4ed6fae1c5413cc",
+            "geometry": {
+              "shape": "hatch",
+              "loops": [
+                {
+                  "boundary": {
+                    "shape": "polyline",
+                    "points": [
+                      [
+                        10,
+                        20
+                      ],
+                      [
+                        50,
+                        20
+                      ],
+                      [
+                        50,
+                        60
+                      ],
+                      [
+                        10,
+                        60
+                      ]
+                    ],
+                    "bulges": [
+                      0,
+                      0.5,
+                      0,
+                      0
+                    ],
+                    "closed": true
+                  },
+                  "external": true,
+                  "outermost": true
+                },
+                {
+                  "boundary": {
+                    "shape": "circle",
+                    "center": [
+                      30,
+                      40
+                    ],
+                    "radius": 3
+                  },
+                  "external": false,
+                  "outermost": false
+                }
+              ],
+              "islands": "nested",
+              "fill": "pattern",
+              "pattern": {
+                "name": "ZUMEN_EXPLICIT",
+                "origin": "custom",
+                "angle": 90,
+                "scale": 2,
+                "double": true,
+                "lines": [
+                  {
+                    "angle": 45,
+                    "base": [
+                      1,
+                      2
+                    ],
+                    "offset": [
+                      -2,
+                      2
+                    ],
+                    "dashes": [
+                      2,
+                      -1,
+                      0
+                    ]
+                  }
+                ]
+              },
+              "seeds": [
+                [
+                  12,
+                  22
+                ]
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "edits": [
+          {
+            "kind": "add",
+            "place": "space/0",
+            "geometry": {
+              "shape": "hatch",
+              "islands": "nested",
+              "fill": "solid",
+              "loops": [
+                {
+                  "boundary": {
+                    "shape": "polyline",
+                    "points": [
+                      [
+                        10,
+                        20
+                      ],
+                      [
+                        50,
+                        20
+                      ],
+                      [
+                        50,
+                        60
+                      ],
+                      [
+                        10,
+                        60
+                      ]
+                    ],
+                    "bulges": [
+                      0,
+                      0.5,
+                      0,
+                      0
+                    ],
+                    "closed": true
+                  },
+                  "external": true,
+                  "outermost": true
+                },
+                {
+                  "boundary": {
+                    "shape": "circle",
+                    "center": [
+                      30,
+                      40
+                    ],
+                    "radius": 3
+                  },
+                  "external": false,
+                  "outermost": false
+                }
+              ],
+              "seeds": [
+                [
+                  12,
+                  22
+                ]
+              ]
+            }
+          },
+          {
+            "kind": "add",
+            "place": "space/0",
+            "geometry": {
+              "shape": "hatch",
+              "islands": "nested",
+              "fill": "pattern",
+              "loops": [
+                {
+                  "boundary": {
+                    "shape": "polyline",
+                    "points": [
+                      [
+                        10,
+                        20
+                      ],
+                      [
+                        50,
+                        20
+                      ],
+                      [
+                        50,
+                        60
+                      ],
+                      [
+                        10,
+                        60
+                      ]
+                    ],
+                    "bulges": [
+                      0,
+                      0.5,
+                      0,
+                      0
+                    ],
+                    "closed": true
+                  },
+                  "external": true,
+                  "outermost": true
+                },
+                {
+                  "boundary": {
+                    "shape": "circle",
+                    "center": [
+                      30,
+                      40
+                    ],
+                    "radius": 3
+                  },
+                  "external": false,
+                  "outermost": false
+                }
+              ],
+              "seeds": [
+                [
+                  12,
+                  22
+                ]
+              ],
+              "pattern": {
+                "name": "ZUMEN_EXPLICIT",
+                "origin": "custom",
+                "angle": 90,
+                "scale": 2,
+                "double": true,
+                "lines": [
+                  {
+                    "angle": 45,
+                    "base": [
+                      1,
+                      2
+                    ],
+                    "offset": [
+                      -2,
+                      2
+                    ],
+                    "dashes": [
+                      2,
+                      -1,
+                      0
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "budget": {
+          "work": 3
+        },
+        "doc": "synthetic.dxf"
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "budget.work.exceeded"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "layer",
+          "hash",
+          "geometry"
+        ],
+        "doc": "synthetic.dxf"
+      },
+      "expect": {
+        "/result/items": [
+          {
+            "id": "space/0/h2F",
+            "kind": "line",
+            "layer": "0",
+            "hash": "v2:0bc8b23a1490c7dc85f543ba5e449f73",
+            "geometry": {
+              "shape": "line",
+              "start": [
+                0,
+                0
+              ],
+              "end": [
+                10,
+                0
+              ]
+            }
+          },
+          {
+            "id": "space/0/h30",
+            "kind": "circle",
+            "layer": "0",
+            "hash": "v2:3ab0c8d50d5cb9269916410ea6640fe0",
+            "geometry": {
+              "shape": "circle",
+              "center": [
+                5,
+                5
+              ],
+              "radius": 2
+            }
+          },
+          {
+            "id": "space/0/h31",
+            "kind": "line",
+            "layer": "0",
+            "hash": "v2:f101f2217877509d8d81491f92d5b744",
+            "geometry": {
+              "shape": "line",
+              "start": [
+                0,
+                1
+              ],
+              "end": [
+                10,
+                1
+              ]
+            }
+          },
+          {
+            "id": "space/0/h32",
+            "kind": "hatch",
+            "layer": "0",
+            "hash": "v2:7db61e99e2393912a7c2ac2f31a74d0b",
+            "geometry": {
+              "shape": "hatch",
+              "loops": [
+                {
+                  "boundary": {
+                    "shape": "polyline",
+                    "points": [
+                      [
+                        10,
+                        20
+                      ],
+                      [
+                        50,
+                        20
+                      ],
+                      [
+                        50,
+                        60
+                      ],
+                      [
+                        10,
+                        60
+                      ]
+                    ],
+                    "bulges": [
+                      0,
+                      0.5,
+                      0,
+                      0
+                    ],
+                    "closed": true
+                  },
+                  "external": true,
+                  "outermost": true
+                },
+                {
+                  "boundary": {
+                    "shape": "circle",
+                    "center": [
+                      30,
+                      40
+                    ],
+                    "radius": 3
+                  },
+                  "external": false,
+                  "outermost": false
+                }
+              ],
+              "islands": "nested",
+              "fill": "solid",
+              "seeds": [
+                [
+                  12,
+                  22
+                ]
+              ]
+            }
+          },
+          {
+            "id": "space/0/h33",
+            "kind": "hatch",
+            "layer": "0",
+            "hash": "v2:1752915047b884f2f4ed6fae1c5413cc",
+            "geometry": {
+              "shape": "hatch",
+              "loops": [
+                {
+                  "boundary": {
+                    "shape": "polyline",
+                    "points": [
+                      [
+                        10,
+                        20
+                      ],
+                      [
+                        50,
+                        20
+                      ],
+                      [
+                        50,
+                        60
+                      ],
+                      [
+                        10,
+                        60
+                      ]
+                    ],
+                    "bulges": [
+                      0,
+                      0.5,
+                      0,
+                      0
+                    ],
+                    "closed": true
+                  },
+                  "external": true,
+                  "outermost": true
+                },
+                {
+                  "boundary": {
+                    "shape": "circle",
+                    "center": [
+                      30,
+                      40
+                    ],
+                    "radius": 3
+                  },
+                  "external": false,
+                  "outermost": false
+                }
+              ],
+              "islands": "nested",
+              "fill": "pattern",
+              "pattern": {
+                "name": "ZUMEN_EXPLICIT",
+                "origin": "custom",
+                "angle": 90,
+                "scale": 2,
+                "double": true,
+                "lines": [
+                  {
+                    "angle": 45,
+                    "base": [
+                      1,
+                      2
+                    ],
+                    "offset": [
+                      -2,
+                      2
+                    ],
+                    "dashes": [
+                      2,
+                      -1,
+                      0
+                    ]
+                  }
+                ]
+              },
+              "seeds": [
+                [
+                  12,
+                  22
+                ]
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "push": {
+        "file": "samples/dwg/zumen-layout-r2000.dwg",
+        "name": "hatch-r2000.dwg"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "hatch-r2000.dwg"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "layer",
+          "hash",
+          "geometry"
+        ],
+        "doc": "hatch-r2000.dwg"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "edits": [
+          {
+            "kind": "add",
+            "place": "space/0",
+            "geometry": {
+              "shape": "hatch",
+              "islands": "nested",
+              "fill": "solid",
+              "loops": [
+                {
+                  "boundary": {
+                    "shape": "polyline",
+                    "points": [
+                      [
+                        10,
+                        20
+                      ],
+                      [
+                        50,
+                        20
+                      ],
+                      [
+                        50,
+                        60
+                      ],
+                      [
+                        10,
+                        60
+                      ]
+                    ],
+                    "bulges": [
+                      0,
+                      0.5,
+                      0,
+                      0
+                    ],
+                    "closed": true
+                  },
+                  "external": true,
+                  "outermost": true
+                },
+                {
+                  "boundary": {
+                    "shape": "circle",
+                    "center": [
+                      30,
+                      40
+                    ],
+                    "radius": 3
+                  },
+                  "external": false,
+                  "outermost": false
+                }
+              ],
+              "seeds": [
+                [
+                  12,
+                  22
+                ]
+              ]
+            }
+          },
+          {
+            "kind": "add",
+            "place": "space/0",
+            "geometry": {
+              "shape": "hatch",
+              "islands": "nested",
+              "fill": "pattern",
+              "loops": [
+                {
+                  "boundary": {
+                    "shape": "polyline",
+                    "points": [
+                      [
+                        10,
+                        20
+                      ],
+                      [
+                        50,
+                        20
+                      ],
+                      [
+                        50,
+                        60
+                      ],
+                      [
+                        10,
+                        60
+                      ]
+                    ],
+                    "bulges": [
+                      0,
+                      0.5,
+                      0,
+                      0
+                    ],
+                    "closed": true
+                  },
+                  "external": true,
+                  "outermost": true
+                },
+                {
+                  "boundary": {
+                    "shape": "circle",
+                    "center": [
+                      30,
+                      40
+                    ],
+                    "radius": 3
+                  },
+                  "external": false,
+                  "outermost": false
+                }
+              ],
+              "seeds": [
+                [
+                  12,
+                  22
+                ]
+              ],
+              "pattern": {
+                "name": "ZUMEN_EXPLICIT",
+                "origin": "custom",
+                "angle": 90,
+                "scale": 2,
+                "double": true,
+                "lines": [
+                  {
+                    "angle": 45,
+                    "base": [
+                      1,
+                      2
+                    ],
+                    "offset": [
+                      -2,
+                      2
+                    ],
+                    "dashes": [
+                      2,
+                      -1,
+                      0
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "doc": "hatch-r2000.dwg"
+      },
+      "expect": {
+        "/diagnostics": []
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "layer",
+          "hash",
+          "geometry"
+        ],
+        "doc": "hatch-r2000.dwg"
+      },
+      "expect": {
+        "/result/total": 4,
+        "/result/items/0/hash": "v2:48b123090e6b9fa9345ce72ca28cdd40",
+        "/result/items/1/hash": "v2:f9d9edaa755965ec5888102b4ad503ec",
+        "/result/items/2/geometry": {
+          "shape": "hatch",
+          "islands": "nested",
+          "fill": "solid",
+          "loops": [
+            {
+              "boundary": {
+                "shape": "polyline",
+                "points": [
+                  [
+                    10,
+                    20
+                  ],
+                  [
+                    50,
+                    20
+                  ],
+                  [
+                    50,
+                    60
+                  ],
+                  [
+                    10,
+                    60
+                  ]
+                ],
+                "bulges": [
+                  0,
+                  0.5,
+                  0,
+                  0
+                ],
+                "closed": true
+              },
+              "external": true,
+              "outermost": true
+            },
+            {
+              "boundary": {
+                "shape": "circle",
+                "center": [
+                  30,
+                  40
+                ],
+                "radius": 3
+              },
+              "external": false,
+              "outermost": false
+            }
+          ],
+          "seeds": [
+            [
+              12,
+              22
+            ]
+          ]
+        },
+        "/result/items/3/geometry": {
+          "shape": "hatch",
+          "islands": "nested",
+          "fill": "pattern",
+          "loops": [
+            {
+              "boundary": {
+                "shape": "polyline",
+                "points": [
+                  [
+                    10,
+                    20
+                  ],
+                  [
+                    50,
+                    20
+                  ],
+                  [
+                    50,
+                    60
+                  ],
+                  [
+                    10,
+                    60
+                  ]
+                ],
+                "bulges": [
+                  0,
+                  0.5,
+                  0,
+                  0
+                ],
+                "closed": true
+              },
+              "external": true,
+              "outermost": true
+            },
+            {
+              "boundary": {
+                "shape": "circle",
+                "center": [
+                  30,
+                  40
+                ],
+                "radius": 3
+              },
+              "external": false,
+              "outermost": false
+            }
+          ],
+          "seeds": [
+            [
+              12,
+              22
+            ]
+          ],
+          "pattern": {
+            "name": "ZUMEN_EXPLICIT",
+            "origin": "custom",
+            "angle": 90,
+            "scale": 2,
+            "double": true,
+            "lines": [
+              {
+                "angle": 45,
+                "base": [
+                  1,
+                  2
+                ],
+                "offset": [
+                  -2,
+                  2
+                ],
+                "dashes": [
+                  2,
+                  -1,
+                  0
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "edits": [
+          {
+            "kind": "add",
+            "place": "space/0",
+            "geometry": {
+              "shape": "hatch",
+              "islands": "nested",
+              "fill": "solid",
+              "loops": [
+                {
+                  "boundary": {
+                    "shape": "polyline",
+                    "points": [
+                      [
+                        10,
+                        20
+                      ],
+                      [
+                        50,
+                        20
+                      ],
+                      [
+                        50,
+                        60
+                      ],
+                      [
+                        10,
+                        60
+                      ]
+                    ],
+                    "bulges": [
+                      0,
+                      0.5,
+                      0,
+                      0
+                    ],
+                    "closed": true
+                  },
+                  "external": true,
+                  "outermost": true
+                },
+                {
+                  "boundary": {
+                    "shape": "circle",
+                    "center": [
+                      30,
+                      40
+                    ],
+                    "radius": 3
+                  },
+                  "external": false,
+                  "outermost": false
+                }
+              ],
+              "seeds": [
+                [
+                  12,
+                  22
+                ]
+              ]
+            }
+          },
+          {
+            "kind": "add",
+            "place": "space/0",
+            "geometry": {
+              "shape": "hatch",
+              "islands": "nested",
+              "fill": "pattern",
+              "loops": [
+                {
+                  "boundary": {
+                    "shape": "polyline",
+                    "points": [
+                      [
+                        10,
+                        20
+                      ],
+                      [
+                        50,
+                        20
+                      ],
+                      [
+                        50,
+                        60
+                      ],
+                      [
+                        10,
+                        60
+                      ]
+                    ],
+                    "bulges": [
+                      0,
+                      0.5,
+                      0,
+                      0
+                    ],
+                    "closed": false
+                  },
+                  "external": true,
+                  "outermost": true
+                },
+                {
+                  "boundary": {
+                    "shape": "circle",
+                    "center": [
+                      30,
+                      40
+                    ],
+                    "radius": 3
+                  },
+                  "external": false,
+                  "outermost": false
+                }
+              ],
+              "seeds": [
+                [
+                  12,
+                  22
+                ]
+              ],
+              "pattern": {
+                "name": "ZUMEN_EXPLICIT",
+                "origin": "custom",
+                "angle": 90,
+                "scale": 2,
+                "double": true,
+                "lines": [
+                  {
+                    "angle": 45,
+                    "base": [
+                      1,
+                      2
+                    ],
+                    "offset": [
+                      -2,
+                      2
+                    ],
+                    "dashes": [
+                      2,
+                      -1,
+                      0
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "doc": "hatch-r2000.dwg"
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "call.value.invalid",
+        "/diagnostics/0/params/pointer": "/edits/1/geometry/loops/0/boundary/closed"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "layer",
+          "hash",
+          "geometry"
+        ],
+        "doc": "hatch-r2000.dwg"
+      },
+      "expect": {
+        "/result/items": [
+          {
+            "id": "space/0/h2D9",
+            "kind": "polyline",
+            "layer": "0",
+            "hash": "v2:48b123090e6b9fa9345ce72ca28cdd40",
+            "geometry": {
+              "shape": "polyline",
+              "points": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  200,
+                  0
+                ],
+                [
+                  200,
+                  100
+                ],
+                [
+                  0,
+                  100
+                ]
+              ],
+              "closed": true
+            }
+          },
+          {
+            "id": "space/0/h2DA",
+            "kind": "circle",
+            "layer": "0",
+            "hash": "v2:f9d9edaa755965ec5888102b4ad503ec",
+            "geometry": {
+              "shape": "circle",
+              "center": [
+                100,
+                50
+              ],
+              "radius": 30
+            }
+          },
+          {
+            "id": "space/0/h397",
+            "kind": "hatch",
+            "layer": "0",
+            "hash": "v2:7db61e99e2393912a7c2ac2f31a74d0b",
+            "geometry": {
+              "shape": "hatch",
+              "loops": [
+                {
+                  "boundary": {
+                    "shape": "polyline",
+                    "points": [
+                      [
+                        10,
+                        20
+                      ],
+                      [
+                        50,
+                        20
+                      ],
+                      [
+                        50,
+                        60
+                      ],
+                      [
+                        10,
+                        60
+                      ]
+                    ],
+                    "bulges": [
+                      0,
+                      0.5,
+                      0,
+                      0
+                    ],
+                    "closed": true
+                  },
+                  "external": true,
+                  "outermost": true
+                },
+                {
+                  "boundary": {
+                    "shape": "circle",
+                    "center": [
+                      30,
+                      40
+                    ],
+                    "radius": 3
+                  },
+                  "external": false,
+                  "outermost": false
+                }
+              ],
+              "islands": "nested",
+              "fill": "solid",
+              "seeds": [
+                [
+                  12,
+                  22
+                ]
+              ]
+            }
+          },
+          {
+            "id": "space/0/h398",
+            "kind": "hatch",
+            "layer": "0",
+            "hash": "v2:1752915047b884f2f4ed6fae1c5413cc",
+            "geometry": {
+              "shape": "hatch",
+              "loops": [
+                {
+                  "boundary": {
+                    "shape": "polyline",
+                    "points": [
+                      [
+                        10,
+                        20
+                      ],
+                      [
+                        50,
+                        20
+                      ],
+                      [
+                        50,
+                        60
+                      ],
+                      [
+                        10,
+                        60
+                      ]
+                    ],
+                    "bulges": [
+                      0,
+                      0.5,
+                      0,
+                      0
+                    ],
+                    "closed": true
+                  },
+                  "external": true,
+                  "outermost": true
+                },
+                {
+                  "boundary": {
+                    "shape": "circle",
+                    "center": [
+                      30,
+                      40
+                    ],
+                    "radius": 3
+                  },
+                  "external": false,
+                  "outermost": false
+                }
+              ],
+              "islands": "nested",
+              "fill": "pattern",
+              "pattern": {
+                "name": "ZUMEN_EXPLICIT",
+                "origin": "custom",
+                "angle": 90,
+                "scale": 2,
+                "double": true,
+                "lines": [
+                  {
+                    "angle": 45,
+                    "base": [
+                      1,
+                      2
+                    ],
+                    "offset": [
+                      -2,
+                      2
+                    ],
+                    "dashes": [
+                      2,
+                      -1,
+                      0
+                    ]
+                  }
+                ]
+              },
+              "seeds": [
+                [
+                  12,
+                  22
+                ]
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "edits": [
+          {
+            "kind": "add",
+            "place": "space/0",
+            "geometry": {
+              "shape": "hatch",
+              "islands": "nested",
+              "fill": "solid",
+              "loops": [
+                {
+                  "boundary": {
+                    "shape": "polyline",
+                    "points": [
+                      [
+                        10,
+                        20
+                      ],
+                      [
+                        50,
+                        20
+                      ],
+                      [
+                        50,
+                        60
+                      ],
+                      [
+                        10,
+                        60
+                      ]
+                    ],
+                    "bulges": [
+                      0,
+                      0.5,
+                      0,
+                      0
+                    ],
+                    "closed": true
+                  },
+                  "external": true,
+                  "outermost": true
+                },
+                {
+                  "boundary": {
+                    "shape": "circle",
+                    "center": [
+                      30,
+                      40
+                    ],
+                    "radius": 3
+                  },
+                  "external": false,
+                  "outermost": false
+                }
+              ],
+              "seeds": [
+                [
+                  12,
+                  22
+                ]
+              ]
+            }
+          },
+          {
+            "kind": "add",
+            "place": "space/0",
+            "geometry": {
+              "shape": "hatch",
+              "islands": "nested",
+              "fill": "pattern",
+              "loops": [
+                {
+                  "boundary": {
+                    "shape": "polyline",
+                    "points": [
+                      [
+                        10,
+                        20
+                      ],
+                      [
+                        50,
+                        20
+                      ],
+                      [
+                        50,
+                        60
+                      ],
+                      [
+                        10,
+                        60
+                      ]
+                    ],
+                    "bulges": [
+                      0,
+                      0.5,
+                      0,
+                      0
+                    ],
+                    "closed": true
+                  },
+                  "external": true,
+                  "outermost": true
+                },
+                {
+                  "boundary": {
+                    "shape": "circle",
+                    "center": [
+                      30,
+                      40
+                    ],
+                    "radius": 3
+                  },
+                  "external": false,
+                  "outermost": false
+                }
+              ],
+              "seeds": [
+                [
+                  12,
+                  22
+                ]
+              ],
+              "pattern": {
+                "name": "ZUMEN_EXPLICIT",
+                "origin": "custom",
+                "angle": 90,
+                "scale": 2,
+                "double": true,
+                "lines": [
+                  {
+                    "angle": 45,
+                    "base": [
+                      1,
+                      2
+                    ],
+                    "offset": [
+                      -2,
+                      2
+                    ],
+                    "dashes": [
+                      2,
+                      -1,
+                      0
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "budget": {
+          "work": 3
+        },
+        "doc": "hatch-r2000.dwg"
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "budget.work.exceeded"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "layer",
+          "hash",
+          "geometry"
+        ],
+        "doc": "hatch-r2000.dwg"
+      },
+      "expect": {
+        "/result/items": [
+          {
+            "id": "space/0/h2D9",
+            "kind": "polyline",
+            "layer": "0",
+            "hash": "v2:48b123090e6b9fa9345ce72ca28cdd40",
+            "geometry": {
+              "shape": "polyline",
+              "points": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  200,
+                  0
+                ],
+                [
+                  200,
+                  100
+                ],
+                [
+                  0,
+                  100
+                ]
+              ],
+              "closed": true
+            }
+          },
+          {
+            "id": "space/0/h2DA",
+            "kind": "circle",
+            "layer": "0",
+            "hash": "v2:f9d9edaa755965ec5888102b4ad503ec",
+            "geometry": {
+              "shape": "circle",
+              "center": [
+                100,
+                50
+              ],
+              "radius": 30
+            }
+          },
+          {
+            "id": "space/0/h397",
+            "kind": "hatch",
+            "layer": "0",
+            "hash": "v2:7db61e99e2393912a7c2ac2f31a74d0b",
+            "geometry": {
+              "shape": "hatch",
+              "loops": [
+                {
+                  "boundary": {
+                    "shape": "polyline",
+                    "points": [
+                      [
+                        10,
+                        20
+                      ],
+                      [
+                        50,
+                        20
+                      ],
+                      [
+                        50,
+                        60
+                      ],
+                      [
+                        10,
+                        60
+                      ]
+                    ],
+                    "bulges": [
+                      0,
+                      0.5,
+                      0,
+                      0
+                    ],
+                    "closed": true
+                  },
+                  "external": true,
+                  "outermost": true
+                },
+                {
+                  "boundary": {
+                    "shape": "circle",
+                    "center": [
+                      30,
+                      40
+                    ],
+                    "radius": 3
+                  },
+                  "external": false,
+                  "outermost": false
+                }
+              ],
+              "islands": "nested",
+              "fill": "solid",
+              "seeds": [
+                [
+                  12,
+                  22
+                ]
+              ]
+            }
+          },
+          {
+            "id": "space/0/h398",
+            "kind": "hatch",
+            "layer": "0",
+            "hash": "v2:1752915047b884f2f4ed6fae1c5413cc",
+            "geometry": {
+              "shape": "hatch",
+              "loops": [
+                {
+                  "boundary": {
+                    "shape": "polyline",
+                    "points": [
+                      [
+                        10,
+                        20
+                      ],
+                      [
+                        50,
+                        20
+                      ],
+                      [
+                        50,
+                        60
+                      ],
+                      [
+                        10,
+                        60
+                      ]
+                    ],
+                    "bulges": [
+                      0,
+                      0.5,
+                      0,
+                      0
+                    ],
+                    "closed": true
+                  },
+                  "external": true,
+                  "outermost": true
+                },
+                {
+                  "boundary": {
+                    "shape": "circle",
+                    "center": [
+                      30,
+                      40
+                    ],
+                    "radius": 3
+                  },
+                  "external": false,
+                  "outermost": false
+                }
+              ],
+              "islands": "nested",
+              "fill": "pattern",
+              "pattern": {
+                "name": "ZUMEN_EXPLICIT",
+                "origin": "custom",
+                "angle": 90,
+                "scale": 2,
+                "double": true,
+                "lines": [
+                  {
+                    "angle": 45,
+                    "base": [
+                      1,
+                      2
+                    ],
+                    "offset": [
+                      -2,
+                      2
+                    ],
+                    "dashes": [
+                      2,
+                      -1,
+                      0
+                    ]
+                  }
+                ]
+              },
+              "seeds": [
+                [
+                  12,
+                  22
+                ]
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "push": {
+        "file": "samples/dwg/zumen-layout-r2004.dwg",
+        "name": "hatch-r2004.dwg"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "hatch-r2004.dwg"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "layer",
+          "hash",
+          "geometry"
+        ],
+        "doc": "hatch-r2004.dwg"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "edits": [
+          {
+            "kind": "add",
+            "place": "space/0",
+            "geometry": {
+              "shape": "hatch",
+              "islands": "nested",
+              "fill": "solid",
+              "loops": [
+                {
+                  "boundary": {
+                    "shape": "polyline",
+                    "points": [
+                      [
+                        10,
+                        20
+                      ],
+                      [
+                        50,
+                        20
+                      ],
+                      [
+                        50,
+                        60
+                      ],
+                      [
+                        10,
+                        60
+                      ]
+                    ],
+                    "bulges": [
+                      0,
+                      0.5,
+                      0,
+                      0
+                    ],
+                    "closed": true
+                  },
+                  "external": true,
+                  "outermost": true
+                },
+                {
+                  "boundary": {
+                    "shape": "circle",
+                    "center": [
+                      30,
+                      40
+                    ],
+                    "radius": 3
+                  },
+                  "external": false,
+                  "outermost": false
+                }
+              ],
+              "seeds": [
+                [
+                  12,
+                  22
+                ]
+              ]
+            }
+          },
+          {
+            "kind": "add",
+            "place": "space/0",
+            "geometry": {
+              "shape": "hatch",
+              "islands": "nested",
+              "fill": "pattern",
+              "loops": [
+                {
+                  "boundary": {
+                    "shape": "polyline",
+                    "points": [
+                      [
+                        10,
+                        20
+                      ],
+                      [
+                        50,
+                        20
+                      ],
+                      [
+                        50,
+                        60
+                      ],
+                      [
+                        10,
+                        60
+                      ]
+                    ],
+                    "bulges": [
+                      0,
+                      0.5,
+                      0,
+                      0
+                    ],
+                    "closed": true
+                  },
+                  "external": true,
+                  "outermost": true
+                },
+                {
+                  "boundary": {
+                    "shape": "circle",
+                    "center": [
+                      30,
+                      40
+                    ],
+                    "radius": 3
+                  },
+                  "external": false,
+                  "outermost": false
+                }
+              ],
+              "seeds": [
+                [
+                  12,
+                  22
+                ]
+              ],
+              "pattern": {
+                "name": "ZUMEN_EXPLICIT",
+                "origin": "custom",
+                "angle": 90,
+                "scale": 2,
+                "double": true,
+                "lines": [
+                  {
+                    "angle": 45,
+                    "base": [
+                      1,
+                      2
+                    ],
+                    "offset": [
+                      -2,
+                      2
+                    ],
+                    "dashes": [
+                      2,
+                      -1,
+                      0
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "doc": "hatch-r2004.dwg"
+      },
+      "expect": {
+        "/diagnostics": []
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "layer",
+          "hash",
+          "geometry"
+        ],
+        "doc": "hatch-r2004.dwg"
+      },
+      "expect": {
+        "/result/total": 4,
+        "/result/items/0/hash": "v2:48b123090e6b9fa9345ce72ca28cdd40",
+        "/result/items/1/hash": "v2:f9d9edaa755965ec5888102b4ad503ec",
+        "/result/items/2/geometry": {
+          "shape": "hatch",
+          "islands": "nested",
+          "fill": "solid",
+          "loops": [
+            {
+              "boundary": {
+                "shape": "polyline",
+                "points": [
+                  [
+                    10,
+                    20
+                  ],
+                  [
+                    50,
+                    20
+                  ],
+                  [
+                    50,
+                    60
+                  ],
+                  [
+                    10,
+                    60
+                  ]
+                ],
+                "bulges": [
+                  0,
+                  0.5,
+                  0,
+                  0
+                ],
+                "closed": true
+              },
+              "external": true,
+              "outermost": true
+            },
+            {
+              "boundary": {
+                "shape": "circle",
+                "center": [
+                  30,
+                  40
+                ],
+                "radius": 3
+              },
+              "external": false,
+              "outermost": false
+            }
+          ],
+          "seeds": [
+            [
+              12,
+              22
+            ]
+          ]
+        },
+        "/result/items/3/geometry": {
+          "shape": "hatch",
+          "islands": "nested",
+          "fill": "pattern",
+          "loops": [
+            {
+              "boundary": {
+                "shape": "polyline",
+                "points": [
+                  [
+                    10,
+                    20
+                  ],
+                  [
+                    50,
+                    20
+                  ],
+                  [
+                    50,
+                    60
+                  ],
+                  [
+                    10,
+                    60
+                  ]
+                ],
+                "bulges": [
+                  0,
+                  0.5,
+                  0,
+                  0
+                ],
+                "closed": true
+              },
+              "external": true,
+              "outermost": true
+            },
+            {
+              "boundary": {
+                "shape": "circle",
+                "center": [
+                  30,
+                  40
+                ],
+                "radius": 3
+              },
+              "external": false,
+              "outermost": false
+            }
+          ],
+          "seeds": [
+            [
+              12,
+              22
+            ]
+          ],
+          "pattern": {
+            "name": "ZUMEN_EXPLICIT",
+            "origin": "custom",
+            "angle": 90,
+            "scale": 2,
+            "double": true,
+            "lines": [
+              {
+                "angle": 45,
+                "base": [
+                  1,
+                  2
+                ],
+                "offset": [
+                  -2,
+                  2
+                ],
+                "dashes": [
+                  2,
+                  -1,
+                  0
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "edits": [
+          {
+            "kind": "add",
+            "place": "space/0",
+            "geometry": {
+              "shape": "hatch",
+              "islands": "nested",
+              "fill": "solid",
+              "loops": [
+                {
+                  "boundary": {
+                    "shape": "polyline",
+                    "points": [
+                      [
+                        10,
+                        20
+                      ],
+                      [
+                        50,
+                        20
+                      ],
+                      [
+                        50,
+                        60
+                      ],
+                      [
+                        10,
+                        60
+                      ]
+                    ],
+                    "bulges": [
+                      0,
+                      0.5,
+                      0,
+                      0
+                    ],
+                    "closed": true
+                  },
+                  "external": true,
+                  "outermost": true
+                },
+                {
+                  "boundary": {
+                    "shape": "circle",
+                    "center": [
+                      30,
+                      40
+                    ],
+                    "radius": 3
+                  },
+                  "external": false,
+                  "outermost": false
+                }
+              ],
+              "seeds": [
+                [
+                  12,
+                  22
+                ]
+              ]
+            }
+          },
+          {
+            "kind": "add",
+            "place": "space/0",
+            "geometry": {
+              "shape": "hatch",
+              "islands": "nested",
+              "fill": "pattern",
+              "loops": [
+                {
+                  "boundary": {
+                    "shape": "polyline",
+                    "points": [
+                      [
+                        10,
+                        20
+                      ],
+                      [
+                        50,
+                        20
+                      ],
+                      [
+                        50,
+                        60
+                      ],
+                      [
+                        10,
+                        60
+                      ]
+                    ],
+                    "bulges": [
+                      0,
+                      0.5,
+                      0,
+                      0
+                    ],
+                    "closed": false
+                  },
+                  "external": true,
+                  "outermost": true
+                },
+                {
+                  "boundary": {
+                    "shape": "circle",
+                    "center": [
+                      30,
+                      40
+                    ],
+                    "radius": 3
+                  },
+                  "external": false,
+                  "outermost": false
+                }
+              ],
+              "seeds": [
+                [
+                  12,
+                  22
+                ]
+              ],
+              "pattern": {
+                "name": "ZUMEN_EXPLICIT",
+                "origin": "custom",
+                "angle": 90,
+                "scale": 2,
+                "double": true,
+                "lines": [
+                  {
+                    "angle": 45,
+                    "base": [
+                      1,
+                      2
+                    ],
+                    "offset": [
+                      -2,
+                      2
+                    ],
+                    "dashes": [
+                      2,
+                      -1,
+                      0
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "doc": "hatch-r2004.dwg"
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "call.value.invalid",
+        "/diagnostics/0/params/pointer": "/edits/1/geometry/loops/0/boundary/closed"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "layer",
+          "hash",
+          "geometry"
+        ],
+        "doc": "hatch-r2004.dwg"
+      },
+      "expect": {
+        "/result/items": [
+          {
+            "id": "space/0/h2D9",
+            "kind": "polyline",
+            "layer": "0",
+            "hash": "v2:48b123090e6b9fa9345ce72ca28cdd40",
+            "geometry": {
+              "shape": "polyline",
+              "points": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  200,
+                  0
+                ],
+                [
+                  200,
+                  100
+                ],
+                [
+                  0,
+                  100
+                ]
+              ],
+              "closed": true
+            }
+          },
+          {
+            "id": "space/0/h2DA",
+            "kind": "circle",
+            "layer": "0",
+            "hash": "v2:f9d9edaa755965ec5888102b4ad503ec",
+            "geometry": {
+              "shape": "circle",
+              "center": [
+                100,
+                50
+              ],
+              "radius": 30
+            }
+          },
+          {
+            "id": "space/0/h44E",
+            "kind": "hatch",
+            "layer": "0",
+            "hash": "v2:7db61e99e2393912a7c2ac2f31a74d0b",
+            "geometry": {
+              "shape": "hatch",
+              "loops": [
+                {
+                  "boundary": {
+                    "shape": "polyline",
+                    "points": [
+                      [
+                        10,
+                        20
+                      ],
+                      [
+                        50,
+                        20
+                      ],
+                      [
+                        50,
+                        60
+                      ],
+                      [
+                        10,
+                        60
+                      ]
+                    ],
+                    "bulges": [
+                      0,
+                      0.5,
+                      0,
+                      0
+                    ],
+                    "closed": true
+                  },
+                  "external": true,
+                  "outermost": true
+                },
+                {
+                  "boundary": {
+                    "shape": "circle",
+                    "center": [
+                      30,
+                      40
+                    ],
+                    "radius": 3
+                  },
+                  "external": false,
+                  "outermost": false
+                }
+              ],
+              "islands": "nested",
+              "fill": "solid",
+              "seeds": [
+                [
+                  12,
+                  22
+                ]
+              ]
+            }
+          },
+          {
+            "id": "space/0/h44F",
+            "kind": "hatch",
+            "layer": "0",
+            "hash": "v2:1752915047b884f2f4ed6fae1c5413cc",
+            "geometry": {
+              "shape": "hatch",
+              "loops": [
+                {
+                  "boundary": {
+                    "shape": "polyline",
+                    "points": [
+                      [
+                        10,
+                        20
+                      ],
+                      [
+                        50,
+                        20
+                      ],
+                      [
+                        50,
+                        60
+                      ],
+                      [
+                        10,
+                        60
+                      ]
+                    ],
+                    "bulges": [
+                      0,
+                      0.5,
+                      0,
+                      0
+                    ],
+                    "closed": true
+                  },
+                  "external": true,
+                  "outermost": true
+                },
+                {
+                  "boundary": {
+                    "shape": "circle",
+                    "center": [
+                      30,
+                      40
+                    ],
+                    "radius": 3
+                  },
+                  "external": false,
+                  "outermost": false
+                }
+              ],
+              "islands": "nested",
+              "fill": "pattern",
+              "pattern": {
+                "name": "ZUMEN_EXPLICIT",
+                "origin": "custom",
+                "angle": 90,
+                "scale": 2,
+                "double": true,
+                "lines": [
+                  {
+                    "angle": 45,
+                    "base": [
+                      1,
+                      2
+                    ],
+                    "offset": [
+                      -2,
+                      2
+                    ],
+                    "dashes": [
+                      2,
+                      -1,
+                      0
+                    ]
+                  }
+                ]
+              },
+              "seeds": [
+                [
+                  12,
+                  22
+                ]
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "edits": [
+          {
+            "kind": "add",
+            "place": "space/0",
+            "geometry": {
+              "shape": "hatch",
+              "islands": "nested",
+              "fill": "solid",
+              "loops": [
+                {
+                  "boundary": {
+                    "shape": "polyline",
+                    "points": [
+                      [
+                        10,
+                        20
+                      ],
+                      [
+                        50,
+                        20
+                      ],
+                      [
+                        50,
+                        60
+                      ],
+                      [
+                        10,
+                        60
+                      ]
+                    ],
+                    "bulges": [
+                      0,
+                      0.5,
+                      0,
+                      0
+                    ],
+                    "closed": true
+                  },
+                  "external": true,
+                  "outermost": true
+                },
+                {
+                  "boundary": {
+                    "shape": "circle",
+                    "center": [
+                      30,
+                      40
+                    ],
+                    "radius": 3
+                  },
+                  "external": false,
+                  "outermost": false
+                }
+              ],
+              "seeds": [
+                [
+                  12,
+                  22
+                ]
+              ]
+            }
+          },
+          {
+            "kind": "add",
+            "place": "space/0",
+            "geometry": {
+              "shape": "hatch",
+              "islands": "nested",
+              "fill": "pattern",
+              "loops": [
+                {
+                  "boundary": {
+                    "shape": "polyline",
+                    "points": [
+                      [
+                        10,
+                        20
+                      ],
+                      [
+                        50,
+                        20
+                      ],
+                      [
+                        50,
+                        60
+                      ],
+                      [
+                        10,
+                        60
+                      ]
+                    ],
+                    "bulges": [
+                      0,
+                      0.5,
+                      0,
+                      0
+                    ],
+                    "closed": true
+                  },
+                  "external": true,
+                  "outermost": true
+                },
+                {
+                  "boundary": {
+                    "shape": "circle",
+                    "center": [
+                      30,
+                      40
+                    ],
+                    "radius": 3
+                  },
+                  "external": false,
+                  "outermost": false
+                }
+              ],
+              "seeds": [
+                [
+                  12,
+                  22
+                ]
+              ],
+              "pattern": {
+                "name": "ZUMEN_EXPLICIT",
+                "origin": "custom",
+                "angle": 90,
+                "scale": 2,
+                "double": true,
+                "lines": [
+                  {
+                    "angle": 45,
+                    "base": [
+                      1,
+                      2
+                    ],
+                    "offset": [
+                      -2,
+                      2
+                    ],
+                    "dashes": [
+                      2,
+                      -1,
+                      0
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "budget": {
+          "work": 3
+        },
+        "doc": "hatch-r2004.dwg"
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "budget.work.exceeded"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "layer",
+          "hash",
+          "geometry"
+        ],
+        "doc": "hatch-r2004.dwg"
+      },
+      "expect": {
+        "/result/items": [
+          {
+            "id": "space/0/h2D9",
+            "kind": "polyline",
+            "layer": "0",
+            "hash": "v2:48b123090e6b9fa9345ce72ca28cdd40",
+            "geometry": {
+              "shape": "polyline",
+              "points": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  200,
+                  0
+                ],
+                [
+                  200,
+                  100
+                ],
+                [
+                  0,
+                  100
+                ]
+              ],
+              "closed": true
+            }
+          },
+          {
+            "id": "space/0/h2DA",
+            "kind": "circle",
+            "layer": "0",
+            "hash": "v2:f9d9edaa755965ec5888102b4ad503ec",
+            "geometry": {
+              "shape": "circle",
+              "center": [
+                100,
+                50
+              ],
+              "radius": 30
+            }
+          },
+          {
+            "id": "space/0/h44E",
+            "kind": "hatch",
+            "layer": "0",
+            "hash": "v2:7db61e99e2393912a7c2ac2f31a74d0b",
+            "geometry": {
+              "shape": "hatch",
+              "loops": [
+                {
+                  "boundary": {
+                    "shape": "polyline",
+                    "points": [
+                      [
+                        10,
+                        20
+                      ],
+                      [
+                        50,
+                        20
+                      ],
+                      [
+                        50,
+                        60
+                      ],
+                      [
+                        10,
+                        60
+                      ]
+                    ],
+                    "bulges": [
+                      0,
+                      0.5,
+                      0,
+                      0
+                    ],
+                    "closed": true
+                  },
+                  "external": true,
+                  "outermost": true
+                },
+                {
+                  "boundary": {
+                    "shape": "circle",
+                    "center": [
+                      30,
+                      40
+                    ],
+                    "radius": 3
+                  },
+                  "external": false,
+                  "outermost": false
+                }
+              ],
+              "islands": "nested",
+              "fill": "solid",
+              "seeds": [
+                [
+                  12,
+                  22
+                ]
+              ]
+            }
+          },
+          {
+            "id": "space/0/h44F",
+            "kind": "hatch",
+            "layer": "0",
+            "hash": "v2:1752915047b884f2f4ed6fae1c5413cc",
+            "geometry": {
+              "shape": "hatch",
+              "loops": [
+                {
+                  "boundary": {
+                    "shape": "polyline",
+                    "points": [
+                      [
+                        10,
+                        20
+                      ],
+                      [
+                        50,
+                        20
+                      ],
+                      [
+                        50,
+                        60
+                      ],
+                      [
+                        10,
+                        60
+                      ]
+                    ],
+                    "bulges": [
+                      0,
+                      0.5,
+                      0,
+                      0
+                    ],
+                    "closed": true
+                  },
+                  "external": true,
+                  "outermost": true
+                },
+                {
+                  "boundary": {
+                    "shape": "circle",
+                    "center": [
+                      30,
+                      40
+                    ],
+                    "radius": 3
+                  },
+                  "external": false,
+                  "outermost": false
+                }
+              ],
+              "islands": "nested",
+              "fill": "pattern",
+              "pattern": {
+                "name": "ZUMEN_EXPLICIT",
+                "origin": "custom",
+                "angle": 90,
+                "scale": 2,
+                "double": true,
+                "lines": [
+                  {
+                    "angle": 45,
+                    "base": [
+                      1,
+                      2
+                    ],
+                    "offset": [
+                      -2,
+                      2
+                    ],
+                    "dashes": [
+                      2,
+                      -1,
+                      0
+                    ]
+                  }
+                ]
+              },
+              "seeds": [
+                [
+                  12,
+                  22
+                ]
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "push": {
+        "file": "samples/dwg/zumen-xclip-r2013.dwg",
+        "name": "hatch-r2013.dwg"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "hatch-r2013.dwg"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "layer",
+          "hash",
+          "geometry"
+        ],
+        "doc": "hatch-r2013.dwg"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "edits": [
+          {
+            "kind": "add",
+            "place": "space/0",
+            "geometry": {
+              "shape": "hatch",
+              "islands": "nested",
+              "fill": "solid",
+              "loops": [
+                {
+                  "boundary": {
+                    "shape": "polyline",
+                    "points": [
+                      [
+                        10,
+                        20
+                      ],
+                      [
+                        50,
+                        20
+                      ],
+                      [
+                        50,
+                        60
+                      ],
+                      [
+                        10,
+                        60
+                      ]
+                    ],
+                    "bulges": [
+                      0,
+                      0.5,
+                      0,
+                      0
+                    ],
+                    "closed": true
+                  },
+                  "external": true,
+                  "outermost": true
+                },
+                {
+                  "boundary": {
+                    "shape": "circle",
+                    "center": [
+                      30,
+                      40
+                    ],
+                    "radius": 3
+                  },
+                  "external": false,
+                  "outermost": false
+                }
+              ],
+              "seeds": [
+                [
+                  12,
+                  22
+                ]
+              ]
+            }
+          },
+          {
+            "kind": "add",
+            "place": "space/0",
+            "geometry": {
+              "shape": "hatch",
+              "islands": "nested",
+              "fill": "pattern",
+              "loops": [
+                {
+                  "boundary": {
+                    "shape": "polyline",
+                    "points": [
+                      [
+                        10,
+                        20
+                      ],
+                      [
+                        50,
+                        20
+                      ],
+                      [
+                        50,
+                        60
+                      ],
+                      [
+                        10,
+                        60
+                      ]
+                    ],
+                    "bulges": [
+                      0,
+                      0.5,
+                      0,
+                      0
+                    ],
+                    "closed": true
+                  },
+                  "external": true,
+                  "outermost": true
+                },
+                {
+                  "boundary": {
+                    "shape": "circle",
+                    "center": [
+                      30,
+                      40
+                    ],
+                    "radius": 3
+                  },
+                  "external": false,
+                  "outermost": false
+                }
+              ],
+              "seeds": [
+                [
+                  12,
+                  22
+                ]
+              ],
+              "pattern": {
+                "name": "ZUMEN_EXPLICIT",
+                "origin": "custom",
+                "angle": 90,
+                "scale": 2,
+                "double": true,
+                "lines": [
+                  {
+                    "angle": 45,
+                    "base": [
+                      1,
+                      2
+                    ],
+                    "offset": [
+                      -2,
+                      2
+                    ],
+                    "dashes": [
+                      2,
+                      -1,
+                      0
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "doc": "hatch-r2013.dwg"
+      },
+      "expect": {
+        "/diagnostics": []
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "layer",
+          "hash",
+          "geometry"
+        ],
+        "doc": "hatch-r2013.dwg"
+      },
+      "expect": {
+        "/result/total": 5,
+        "/result/items/0/hash": "v2:cf15a327210442ea891372978d9384dc",
+        "/result/items/1/hash": "v2:971d7c96cb77fb043e35d2f6ec9505f8",
+        "/result/items/2/hash": "v2:d8826f16b5fac19e88307a9c837e3422",
+        "/result/items/3/geometry": {
+          "shape": "hatch",
+          "islands": "nested",
+          "fill": "solid",
+          "loops": [
+            {
+              "boundary": {
+                "shape": "polyline",
+                "points": [
+                  [
+                    10,
+                    20
+                  ],
+                  [
+                    50,
+                    20
+                  ],
+                  [
+                    50,
+                    60
+                  ],
+                  [
+                    10,
+                    60
+                  ]
+                ],
+                "bulges": [
+                  0,
+                  0.5,
+                  0,
+                  0
+                ],
+                "closed": true
+              },
+              "external": true,
+              "outermost": true
+            },
+            {
+              "boundary": {
+                "shape": "circle",
+                "center": [
+                  30,
+                  40
+                ],
+                "radius": 3
+              },
+              "external": false,
+              "outermost": false
+            }
+          ],
+          "seeds": [
+            [
+              12,
+              22
+            ]
+          ]
+        },
+        "/result/items/4/geometry": {
+          "shape": "hatch",
+          "islands": "nested",
+          "fill": "pattern",
+          "loops": [
+            {
+              "boundary": {
+                "shape": "polyline",
+                "points": [
+                  [
+                    10,
+                    20
+                  ],
+                  [
+                    50,
+                    20
+                  ],
+                  [
+                    50,
+                    60
+                  ],
+                  [
+                    10,
+                    60
+                  ]
+                ],
+                "bulges": [
+                  0,
+                  0.5,
+                  0,
+                  0
+                ],
+                "closed": true
+              },
+              "external": true,
+              "outermost": true
+            },
+            {
+              "boundary": {
+                "shape": "circle",
+                "center": [
+                  30,
+                  40
+                ],
+                "radius": 3
+              },
+              "external": false,
+              "outermost": false
+            }
+          ],
+          "seeds": [
+            [
+              12,
+              22
+            ]
+          ],
+          "pattern": {
+            "name": "ZUMEN_EXPLICIT",
+            "origin": "custom",
+            "angle": 90,
+            "scale": 2,
+            "double": true,
+            "lines": [
+              {
+                "angle": 45,
+                "base": [
+                  1,
+                  2
+                ],
+                "offset": [
+                  -2,
+                  2
+                ],
+                "dashes": [
+                  2,
+                  -1,
+                  0
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "edits": [
+          {
+            "kind": "add",
+            "place": "space/0",
+            "geometry": {
+              "shape": "hatch",
+              "islands": "nested",
+              "fill": "solid",
+              "loops": [
+                {
+                  "boundary": {
+                    "shape": "polyline",
+                    "points": [
+                      [
+                        10,
+                        20
+                      ],
+                      [
+                        50,
+                        20
+                      ],
+                      [
+                        50,
+                        60
+                      ],
+                      [
+                        10,
+                        60
+                      ]
+                    ],
+                    "bulges": [
+                      0,
+                      0.5,
+                      0,
+                      0
+                    ],
+                    "closed": true
+                  },
+                  "external": true,
+                  "outermost": true
+                },
+                {
+                  "boundary": {
+                    "shape": "circle",
+                    "center": [
+                      30,
+                      40
+                    ],
+                    "radius": 3
+                  },
+                  "external": false,
+                  "outermost": false
+                }
+              ],
+              "seeds": [
+                [
+                  12,
+                  22
+                ]
+              ]
+            }
+          },
+          {
+            "kind": "add",
+            "place": "space/0",
+            "geometry": {
+              "shape": "hatch",
+              "islands": "nested",
+              "fill": "pattern",
+              "loops": [
+                {
+                  "boundary": {
+                    "shape": "polyline",
+                    "points": [
+                      [
+                        10,
+                        20
+                      ],
+                      [
+                        50,
+                        20
+                      ],
+                      [
+                        50,
+                        60
+                      ],
+                      [
+                        10,
+                        60
+                      ]
+                    ],
+                    "bulges": [
+                      0,
+                      0.5,
+                      0,
+                      0
+                    ],
+                    "closed": false
+                  },
+                  "external": true,
+                  "outermost": true
+                },
+                {
+                  "boundary": {
+                    "shape": "circle",
+                    "center": [
+                      30,
+                      40
+                    ],
+                    "radius": 3
+                  },
+                  "external": false,
+                  "outermost": false
+                }
+              ],
+              "seeds": [
+                [
+                  12,
+                  22
+                ]
+              ],
+              "pattern": {
+                "name": "ZUMEN_EXPLICIT",
+                "origin": "custom",
+                "angle": 90,
+                "scale": 2,
+                "double": true,
+                "lines": [
+                  {
+                    "angle": 45,
+                    "base": [
+                      1,
+                      2
+                    ],
+                    "offset": [
+                      -2,
+                      2
+                    ],
+                    "dashes": [
+                      2,
+                      -1,
+                      0
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "doc": "hatch-r2013.dwg"
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "call.value.invalid",
+        "/diagnostics/0/params/pointer": "/edits/1/geometry/loops/0/boundary/closed"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "layer",
+          "hash",
+          "geometry"
+        ],
+        "doc": "hatch-r2013.dwg"
+      },
+      "expect": {
+        "/result/items": [
+          {
+            "id": "space/0/h2E8",
+            "kind": "symbol",
+            "layer": "0",
+            "hash": "v2:cf15a327210442ea891372978d9384dc",
+            "geometry": {
+              "shape": "symbol",
+              "name": "CLIPPED",
+              "position": [
+                0,
+                0
+              ],
+              "scale": [
+                2,
+                2
+              ],
+              "rotation": 29.999999999999996
+            }
+          },
+          {
+            "id": "space/0/h2EC",
+            "kind": "symbol",
+            "layer": "0",
+            "hash": "v2:971d7c96cb77fb043e35d2f6ec9505f8",
+            "geometry": {
+              "shape": "symbol",
+              "name": "CLIPPED",
+              "position": [
+                150,
+                0
+              ],
+              "scale": [
+                2,
+                2
+              ],
+              "rotation": 0
+            }
+          },
+          {
+            "id": "space/0/h2F0",
+            "kind": "symbol",
+            "layer": "0",
+            "hash": "v2:d8826f16b5fac19e88307a9c837e3422",
+            "geometry": {
+              "shape": "symbol",
+              "name": "CLIPPED",
+              "position": [
+                300,
+                0
+              ],
+              "scale": [
+                2,
+                2
+              ],
+              "rotation": 0
+            }
+          },
+          {
+            "id": "space/0/h309",
+            "kind": "hatch",
+            "layer": "0",
+            "hash": "v2:7db61e99e2393912a7c2ac2f31a74d0b",
+            "geometry": {
+              "shape": "hatch",
+              "loops": [
+                {
+                  "boundary": {
+                    "shape": "polyline",
+                    "points": [
+                      [
+                        10,
+                        20
+                      ],
+                      [
+                        50,
+                        20
+                      ],
+                      [
+                        50,
+                        60
+                      ],
+                      [
+                        10,
+                        60
+                      ]
+                    ],
+                    "bulges": [
+                      0,
+                      0.5,
+                      0,
+                      0
+                    ],
+                    "closed": true
+                  },
+                  "external": true,
+                  "outermost": true
+                },
+                {
+                  "boundary": {
+                    "shape": "circle",
+                    "center": [
+                      30,
+                      40
+                    ],
+                    "radius": 3
+                  },
+                  "external": false,
+                  "outermost": false
+                }
+              ],
+              "islands": "nested",
+              "fill": "solid",
+              "seeds": [
+                [
+                  12,
+                  22
+                ]
+              ]
+            }
+          },
+          {
+            "id": "space/0/h30A",
+            "kind": "hatch",
+            "layer": "0",
+            "hash": "v2:1752915047b884f2f4ed6fae1c5413cc",
+            "geometry": {
+              "shape": "hatch",
+              "loops": [
+                {
+                  "boundary": {
+                    "shape": "polyline",
+                    "points": [
+                      [
+                        10,
+                        20
+                      ],
+                      [
+                        50,
+                        20
+                      ],
+                      [
+                        50,
+                        60
+                      ],
+                      [
+                        10,
+                        60
+                      ]
+                    ],
+                    "bulges": [
+                      0,
+                      0.5,
+                      0,
+                      0
+                    ],
+                    "closed": true
+                  },
+                  "external": true,
+                  "outermost": true
+                },
+                {
+                  "boundary": {
+                    "shape": "circle",
+                    "center": [
+                      30,
+                      40
+                    ],
+                    "radius": 3
+                  },
+                  "external": false,
+                  "outermost": false
+                }
+              ],
+              "islands": "nested",
+              "fill": "pattern",
+              "pattern": {
+                "name": "ZUMEN_EXPLICIT",
+                "origin": "custom",
+                "angle": 90,
+                "scale": 2,
+                "double": true,
+                "lines": [
+                  {
+                    "angle": 45,
+                    "base": [
+                      1,
+                      2
+                    ],
+                    "offset": [
+                      -2,
+                      2
+                    ],
+                    "dashes": [
+                      2,
+                      -1,
+                      0
+                    ]
+                  }
+                ]
+              },
+              "seeds": [
+                [
+                  12,
+                  22
+                ]
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "edits": [
+          {
+            "kind": "add",
+            "place": "space/0",
+            "geometry": {
+              "shape": "hatch",
+              "islands": "nested",
+              "fill": "solid",
+              "loops": [
+                {
+                  "boundary": {
+                    "shape": "polyline",
+                    "points": [
+                      [
+                        10,
+                        20
+                      ],
+                      [
+                        50,
+                        20
+                      ],
+                      [
+                        50,
+                        60
+                      ],
+                      [
+                        10,
+                        60
+                      ]
+                    ],
+                    "bulges": [
+                      0,
+                      0.5,
+                      0,
+                      0
+                    ],
+                    "closed": true
+                  },
+                  "external": true,
+                  "outermost": true
+                },
+                {
+                  "boundary": {
+                    "shape": "circle",
+                    "center": [
+                      30,
+                      40
+                    ],
+                    "radius": 3
+                  },
+                  "external": false,
+                  "outermost": false
+                }
+              ],
+              "seeds": [
+                [
+                  12,
+                  22
+                ]
+              ]
+            }
+          },
+          {
+            "kind": "add",
+            "place": "space/0",
+            "geometry": {
+              "shape": "hatch",
+              "islands": "nested",
+              "fill": "pattern",
+              "loops": [
+                {
+                  "boundary": {
+                    "shape": "polyline",
+                    "points": [
+                      [
+                        10,
+                        20
+                      ],
+                      [
+                        50,
+                        20
+                      ],
+                      [
+                        50,
+                        60
+                      ],
+                      [
+                        10,
+                        60
+                      ]
+                    ],
+                    "bulges": [
+                      0,
+                      0.5,
+                      0,
+                      0
+                    ],
+                    "closed": true
+                  },
+                  "external": true,
+                  "outermost": true
+                },
+                {
+                  "boundary": {
+                    "shape": "circle",
+                    "center": [
+                      30,
+                      40
+                    ],
+                    "radius": 3
+                  },
+                  "external": false,
+                  "outermost": false
+                }
+              ],
+              "seeds": [
+                [
+                  12,
+                  22
+                ]
+              ],
+              "pattern": {
+                "name": "ZUMEN_EXPLICIT",
+                "origin": "custom",
+                "angle": 90,
+                "scale": 2,
+                "double": true,
+                "lines": [
+                  {
+                    "angle": 45,
+                    "base": [
+                      1,
+                      2
+                    ],
+                    "offset": [
+                      -2,
+                      2
+                    ],
+                    "dashes": [
+                      2,
+                      -1,
+                      0
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "budget": {
+          "work": 3
+        },
+        "doc": "hatch-r2013.dwg"
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "budget.work.exceeded"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "layer",
+          "hash",
+          "geometry"
+        ],
+        "doc": "hatch-r2013.dwg"
+      },
+      "expect": {
+        "/result/items": [
+          {
+            "id": "space/0/h2E8",
+            "kind": "symbol",
+            "layer": "0",
+            "hash": "v2:cf15a327210442ea891372978d9384dc",
+            "geometry": {
+              "shape": "symbol",
+              "name": "CLIPPED",
+              "position": [
+                0,
+                0
+              ],
+              "scale": [
+                2,
+                2
+              ],
+              "rotation": 29.999999999999996
+            }
+          },
+          {
+            "id": "space/0/h2EC",
+            "kind": "symbol",
+            "layer": "0",
+            "hash": "v2:971d7c96cb77fb043e35d2f6ec9505f8",
+            "geometry": {
+              "shape": "symbol",
+              "name": "CLIPPED",
+              "position": [
+                150,
+                0
+              ],
+              "scale": [
+                2,
+                2
+              ],
+              "rotation": 0
+            }
+          },
+          {
+            "id": "space/0/h2F0",
+            "kind": "symbol",
+            "layer": "0",
+            "hash": "v2:d8826f16b5fac19e88307a9c837e3422",
+            "geometry": {
+              "shape": "symbol",
+              "name": "CLIPPED",
+              "position": [
+                300,
+                0
+              ],
+              "scale": [
+                2,
+                2
+              ],
+              "rotation": 0
+            }
+          },
+          {
+            "id": "space/0/h309",
+            "kind": "hatch",
+            "layer": "0",
+            "hash": "v2:7db61e99e2393912a7c2ac2f31a74d0b",
+            "geometry": {
+              "shape": "hatch",
+              "loops": [
+                {
+                  "boundary": {
+                    "shape": "polyline",
+                    "points": [
+                      [
+                        10,
+                        20
+                      ],
+                      [
+                        50,
+                        20
+                      ],
+                      [
+                        50,
+                        60
+                      ],
+                      [
+                        10,
+                        60
+                      ]
+                    ],
+                    "bulges": [
+                      0,
+                      0.5,
+                      0,
+                      0
+                    ],
+                    "closed": true
+                  },
+                  "external": true,
+                  "outermost": true
+                },
+                {
+                  "boundary": {
+                    "shape": "circle",
+                    "center": [
+                      30,
+                      40
+                    ],
+                    "radius": 3
+                  },
+                  "external": false,
+                  "outermost": false
+                }
+              ],
+              "islands": "nested",
+              "fill": "solid",
+              "seeds": [
+                [
+                  12,
+                  22
+                ]
+              ]
+            }
+          },
+          {
+            "id": "space/0/h30A",
+            "kind": "hatch",
+            "layer": "0",
+            "hash": "v2:1752915047b884f2f4ed6fae1c5413cc",
+            "geometry": {
+              "shape": "hatch",
+              "loops": [
+                {
+                  "boundary": {
+                    "shape": "polyline",
+                    "points": [
+                      [
+                        10,
+                        20
+                      ],
+                      [
+                        50,
+                        20
+                      ],
+                      [
+                        50,
+                        60
+                      ],
+                      [
+                        10,
+                        60
+                      ]
+                    ],
+                    "bulges": [
+                      0,
+                      0.5,
+                      0,
+                      0
+                    ],
+                    "closed": true
+                  },
+                  "external": true,
+                  "outermost": true
+                },
+                {
+                  "boundary": {
+                    "shape": "circle",
+                    "center": [
+                      30,
+                      40
+                    ],
+                    "radius": 3
+                  },
+                  "external": false,
+                  "outermost": false
+                }
+              ],
+              "islands": "nested",
+              "fill": "pattern",
+              "pattern": {
+                "name": "ZUMEN_EXPLICIT",
+                "origin": "custom",
+                "angle": 90,
+                "scale": 2,
+                "double": true,
+                "lines": [
+                  {
+                    "angle": 45,
+                    "base": [
+                      1,
+                      2
+                    ],
+                    "offset": [
+                      -2,
+                      2
+                    ],
+                    "dashes": [
+                      2,
+                      -1,
+                      0
+                    ]
+                  }
+                ]
+              },
+              "seeds": [
+                [
+                  12,
+                  22
+                ]
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "push": {
+        "file": "samples/dwg/zumen-layout-r2018.dwg",
+        "name": "hatch-r2018.dwg"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "hatch-r2018.dwg"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "layer",
+          "hash",
+          "geometry"
+        ],
+        "doc": "hatch-r2018.dwg"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "edits": [
+          {
+            "kind": "add",
+            "place": "space/0",
+            "geometry": {
+              "shape": "hatch",
+              "islands": "nested",
+              "fill": "solid",
+              "loops": [
+                {
+                  "boundary": {
+                    "shape": "polyline",
+                    "points": [
+                      [
+                        10,
+                        20
+                      ],
+                      [
+                        50,
+                        20
+                      ],
+                      [
+                        50,
+                        60
+                      ],
+                      [
+                        10,
+                        60
+                      ]
+                    ],
+                    "bulges": [
+                      0,
+                      0.5,
+                      0,
+                      0
+                    ],
+                    "closed": true
+                  },
+                  "external": true,
+                  "outermost": true
+                },
+                {
+                  "boundary": {
+                    "shape": "circle",
+                    "center": [
+                      30,
+                      40
+                    ],
+                    "radius": 3
+                  },
+                  "external": false,
+                  "outermost": false
+                }
+              ],
+              "seeds": [
+                [
+                  12,
+                  22
+                ]
+              ]
+            }
+          },
+          {
+            "kind": "add",
+            "place": "space/0",
+            "geometry": {
+              "shape": "hatch",
+              "islands": "nested",
+              "fill": "pattern",
+              "loops": [
+                {
+                  "boundary": {
+                    "shape": "polyline",
+                    "points": [
+                      [
+                        10,
+                        20
+                      ],
+                      [
+                        50,
+                        20
+                      ],
+                      [
+                        50,
+                        60
+                      ],
+                      [
+                        10,
+                        60
+                      ]
+                    ],
+                    "bulges": [
+                      0,
+                      0.5,
+                      0,
+                      0
+                    ],
+                    "closed": true
+                  },
+                  "external": true,
+                  "outermost": true
+                },
+                {
+                  "boundary": {
+                    "shape": "circle",
+                    "center": [
+                      30,
+                      40
+                    ],
+                    "radius": 3
+                  },
+                  "external": false,
+                  "outermost": false
+                }
+              ],
+              "seeds": [
+                [
+                  12,
+                  22
+                ]
+              ],
+              "pattern": {
+                "name": "ZUMEN_EXPLICIT",
+                "origin": "custom",
+                "angle": 90,
+                "scale": 2,
+                "double": true,
+                "lines": [
+                  {
+                    "angle": 45,
+                    "base": [
+                      1,
+                      2
+                    ],
+                    "offset": [
+                      -2,
+                      2
+                    ],
+                    "dashes": [
+                      2,
+                      -1,
+                      0
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "doc": "hatch-r2018.dwg"
+      },
+      "expect": {
+        "/diagnostics": []
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "layer",
+          "hash",
+          "geometry"
+        ],
+        "doc": "hatch-r2018.dwg"
+      },
+      "expect": {
+        "/result/total": 4,
+        "/result/items/0/hash": "v2:48b123090e6b9fa9345ce72ca28cdd40",
+        "/result/items/1/hash": "v2:f9d9edaa755965ec5888102b4ad503ec",
+        "/result/items/2/geometry": {
+          "shape": "hatch",
+          "islands": "nested",
+          "fill": "solid",
+          "loops": [
+            {
+              "boundary": {
+                "shape": "polyline",
+                "points": [
+                  [
+                    10,
+                    20
+                  ],
+                  [
+                    50,
+                    20
+                  ],
+                  [
+                    50,
+                    60
+                  ],
+                  [
+                    10,
+                    60
+                  ]
+                ],
+                "bulges": [
+                  0,
+                  0.5,
+                  0,
+                  0
+                ],
+                "closed": true
+              },
+              "external": true,
+              "outermost": true
+            },
+            {
+              "boundary": {
+                "shape": "circle",
+                "center": [
+                  30,
+                  40
+                ],
+                "radius": 3
+              },
+              "external": false,
+              "outermost": false
+            }
+          ],
+          "seeds": [
+            [
+              12,
+              22
+            ]
+          ]
+        },
+        "/result/items/3/geometry": {
+          "shape": "hatch",
+          "islands": "nested",
+          "fill": "pattern",
+          "loops": [
+            {
+              "boundary": {
+                "shape": "polyline",
+                "points": [
+                  [
+                    10,
+                    20
+                  ],
+                  [
+                    50,
+                    20
+                  ],
+                  [
+                    50,
+                    60
+                  ],
+                  [
+                    10,
+                    60
+                  ]
+                ],
+                "bulges": [
+                  0,
+                  0.5,
+                  0,
+                  0
+                ],
+                "closed": true
+              },
+              "external": true,
+              "outermost": true
+            },
+            {
+              "boundary": {
+                "shape": "circle",
+                "center": [
+                  30,
+                  40
+                ],
+                "radius": 3
+              },
+              "external": false,
+              "outermost": false
+            }
+          ],
+          "seeds": [
+            [
+              12,
+              22
+            ]
+          ],
+          "pattern": {
+            "name": "ZUMEN_EXPLICIT",
+            "origin": "custom",
+            "angle": 90,
+            "scale": 2,
+            "double": true,
+            "lines": [
+              {
+                "angle": 45,
+                "base": [
+                  1,
+                  2
+                ],
+                "offset": [
+                  -2,
+                  2
+                ],
+                "dashes": [
+                  2,
+                  -1,
+                  0
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "edits": [
+          {
+            "kind": "add",
+            "place": "space/0",
+            "geometry": {
+              "shape": "hatch",
+              "islands": "nested",
+              "fill": "solid",
+              "loops": [
+                {
+                  "boundary": {
+                    "shape": "polyline",
+                    "points": [
+                      [
+                        10,
+                        20
+                      ],
+                      [
+                        50,
+                        20
+                      ],
+                      [
+                        50,
+                        60
+                      ],
+                      [
+                        10,
+                        60
+                      ]
+                    ],
+                    "bulges": [
+                      0,
+                      0.5,
+                      0,
+                      0
+                    ],
+                    "closed": true
+                  },
+                  "external": true,
+                  "outermost": true
+                },
+                {
+                  "boundary": {
+                    "shape": "circle",
+                    "center": [
+                      30,
+                      40
+                    ],
+                    "radius": 3
+                  },
+                  "external": false,
+                  "outermost": false
+                }
+              ],
+              "seeds": [
+                [
+                  12,
+                  22
+                ]
+              ]
+            }
+          },
+          {
+            "kind": "add",
+            "place": "space/0",
+            "geometry": {
+              "shape": "hatch",
+              "islands": "nested",
+              "fill": "pattern",
+              "loops": [
+                {
+                  "boundary": {
+                    "shape": "polyline",
+                    "points": [
+                      [
+                        10,
+                        20
+                      ],
+                      [
+                        50,
+                        20
+                      ],
+                      [
+                        50,
+                        60
+                      ],
+                      [
+                        10,
+                        60
+                      ]
+                    ],
+                    "bulges": [
+                      0,
+                      0.5,
+                      0,
+                      0
+                    ],
+                    "closed": false
+                  },
+                  "external": true,
+                  "outermost": true
+                },
+                {
+                  "boundary": {
+                    "shape": "circle",
+                    "center": [
+                      30,
+                      40
+                    ],
+                    "radius": 3
+                  },
+                  "external": false,
+                  "outermost": false
+                }
+              ],
+              "seeds": [
+                [
+                  12,
+                  22
+                ]
+              ],
+              "pattern": {
+                "name": "ZUMEN_EXPLICIT",
+                "origin": "custom",
+                "angle": 90,
+                "scale": 2,
+                "double": true,
+                "lines": [
+                  {
+                    "angle": 45,
+                    "base": [
+                      1,
+                      2
+                    ],
+                    "offset": [
+                      -2,
+                      2
+                    ],
+                    "dashes": [
+                      2,
+                      -1,
+                      0
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "doc": "hatch-r2018.dwg"
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "call.value.invalid",
+        "/diagnostics/0/params/pointer": "/edits/1/geometry/loops/0/boundary/closed"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "layer",
+          "hash",
+          "geometry"
+        ],
+        "doc": "hatch-r2018.dwg"
+      },
+      "expect": {
+        "/result/items": [
+          {
+            "id": "space/0/h2D9",
+            "kind": "polyline",
+            "layer": "0",
+            "hash": "v2:48b123090e6b9fa9345ce72ca28cdd40",
+            "geometry": {
+              "shape": "polyline",
+              "points": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  200,
+                  0
+                ],
+                [
+                  200,
+                  100
+                ],
+                [
+                  0,
+                  100
+                ]
+              ],
+              "closed": true
+            }
+          },
+          {
+            "id": "space/0/h2DA",
+            "kind": "circle",
+            "layer": "0",
+            "hash": "v2:f9d9edaa755965ec5888102b4ad503ec",
+            "geometry": {
+              "shape": "circle",
+              "center": [
+                100,
+                50
+              ],
+              "radius": 30
+            }
+          },
+          {
+            "id": "space/0/h49F",
+            "kind": "hatch",
+            "layer": "0",
+            "hash": "v2:7db61e99e2393912a7c2ac2f31a74d0b",
+            "geometry": {
+              "shape": "hatch",
+              "loops": [
+                {
+                  "boundary": {
+                    "shape": "polyline",
+                    "points": [
+                      [
+                        10,
+                        20
+                      ],
+                      [
+                        50,
+                        20
+                      ],
+                      [
+                        50,
+                        60
+                      ],
+                      [
+                        10,
+                        60
+                      ]
+                    ],
+                    "bulges": [
+                      0,
+                      0.5,
+                      0,
+                      0
+                    ],
+                    "closed": true
+                  },
+                  "external": true,
+                  "outermost": true
+                },
+                {
+                  "boundary": {
+                    "shape": "circle",
+                    "center": [
+                      30,
+                      40
+                    ],
+                    "radius": 3
+                  },
+                  "external": false,
+                  "outermost": false
+                }
+              ],
+              "islands": "nested",
+              "fill": "solid",
+              "seeds": [
+                [
+                  12,
+                  22
+                ]
+              ]
+            }
+          },
+          {
+            "id": "space/0/h4A0",
+            "kind": "hatch",
+            "layer": "0",
+            "hash": "v2:1752915047b884f2f4ed6fae1c5413cc",
+            "geometry": {
+              "shape": "hatch",
+              "loops": [
+                {
+                  "boundary": {
+                    "shape": "polyline",
+                    "points": [
+                      [
+                        10,
+                        20
+                      ],
+                      [
+                        50,
+                        20
+                      ],
+                      [
+                        50,
+                        60
+                      ],
+                      [
+                        10,
+                        60
+                      ]
+                    ],
+                    "bulges": [
+                      0,
+                      0.5,
+                      0,
+                      0
+                    ],
+                    "closed": true
+                  },
+                  "external": true,
+                  "outermost": true
+                },
+                {
+                  "boundary": {
+                    "shape": "circle",
+                    "center": [
+                      30,
+                      40
+                    ],
+                    "radius": 3
+                  },
+                  "external": false,
+                  "outermost": false
+                }
+              ],
+              "islands": "nested",
+              "fill": "pattern",
+              "pattern": {
+                "name": "ZUMEN_EXPLICIT",
+                "origin": "custom",
+                "angle": 90,
+                "scale": 2,
+                "double": true,
+                "lines": [
+                  {
+                    "angle": 45,
+                    "base": [
+                      1,
+                      2
+                    ],
+                    "offset": [
+                      -2,
+                      2
+                    ],
+                    "dashes": [
+                      2,
+                      -1,
+                      0
+                    ]
+                  }
+                ]
+              },
+              "seeds": [
+                [
+                  12,
+                  22
+                ]
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "edits": [
+          {
+            "kind": "add",
+            "place": "space/0",
+            "geometry": {
+              "shape": "hatch",
+              "islands": "nested",
+              "fill": "solid",
+              "loops": [
+                {
+                  "boundary": {
+                    "shape": "polyline",
+                    "points": [
+                      [
+                        10,
+                        20
+                      ],
+                      [
+                        50,
+                        20
+                      ],
+                      [
+                        50,
+                        60
+                      ],
+                      [
+                        10,
+                        60
+                      ]
+                    ],
+                    "bulges": [
+                      0,
+                      0.5,
+                      0,
+                      0
+                    ],
+                    "closed": true
+                  },
+                  "external": true,
+                  "outermost": true
+                },
+                {
+                  "boundary": {
+                    "shape": "circle",
+                    "center": [
+                      30,
+                      40
+                    ],
+                    "radius": 3
+                  },
+                  "external": false,
+                  "outermost": false
+                }
+              ],
+              "seeds": [
+                [
+                  12,
+                  22
+                ]
+              ]
+            }
+          },
+          {
+            "kind": "add",
+            "place": "space/0",
+            "geometry": {
+              "shape": "hatch",
+              "islands": "nested",
+              "fill": "pattern",
+              "loops": [
+                {
+                  "boundary": {
+                    "shape": "polyline",
+                    "points": [
+                      [
+                        10,
+                        20
+                      ],
+                      [
+                        50,
+                        20
+                      ],
+                      [
+                        50,
+                        60
+                      ],
+                      [
+                        10,
+                        60
+                      ]
+                    ],
+                    "bulges": [
+                      0,
+                      0.5,
+                      0,
+                      0
+                    ],
+                    "closed": true
+                  },
+                  "external": true,
+                  "outermost": true
+                },
+                {
+                  "boundary": {
+                    "shape": "circle",
+                    "center": [
+                      30,
+                      40
+                    ],
+                    "radius": 3
+                  },
+                  "external": false,
+                  "outermost": false
+                }
+              ],
+              "seeds": [
+                [
+                  12,
+                  22
+                ]
+              ],
+              "pattern": {
+                "name": "ZUMEN_EXPLICIT",
+                "origin": "custom",
+                "angle": 90,
+                "scale": 2,
+                "double": true,
+                "lines": [
+                  {
+                    "angle": 45,
+                    "base": [
+                      1,
+                      2
+                    ],
+                    "offset": [
+                      -2,
+                      2
+                    ],
+                    "dashes": [
+                      2,
+                      -1,
+                      0
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "budget": {
+          "work": 3
+        },
+        "doc": "hatch-r2018.dwg"
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "budget.work.exceeded"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "layer",
+          "hash",
+          "geometry"
+        ],
+        "doc": "hatch-r2018.dwg"
+      },
+      "expect": {
+        "/result/items": [
+          {
+            "id": "space/0/h2D9",
+            "kind": "polyline",
+            "layer": "0",
+            "hash": "v2:48b123090e6b9fa9345ce72ca28cdd40",
+            "geometry": {
+              "shape": "polyline",
+              "points": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  200,
+                  0
+                ],
+                [
+                  200,
+                  100
+                ],
+                [
+                  0,
+                  100
+                ]
+              ],
+              "closed": true
+            }
+          },
+          {
+            "id": "space/0/h2DA",
+            "kind": "circle",
+            "layer": "0",
+            "hash": "v2:f9d9edaa755965ec5888102b4ad503ec",
+            "geometry": {
+              "shape": "circle",
+              "center": [
+                100,
+                50
+              ],
+              "radius": 30
+            }
+          },
+          {
+            "id": "space/0/h49F",
+            "kind": "hatch",
+            "layer": "0",
+            "hash": "v2:7db61e99e2393912a7c2ac2f31a74d0b",
+            "geometry": {
+              "shape": "hatch",
+              "loops": [
+                {
+                  "boundary": {
+                    "shape": "polyline",
+                    "points": [
+                      [
+                        10,
+                        20
+                      ],
+                      [
+                        50,
+                        20
+                      ],
+                      [
+                        50,
+                        60
+                      ],
+                      [
+                        10,
+                        60
+                      ]
+                    ],
+                    "bulges": [
+                      0,
+                      0.5,
+                      0,
+                      0
+                    ],
+                    "closed": true
+                  },
+                  "external": true,
+                  "outermost": true
+                },
+                {
+                  "boundary": {
+                    "shape": "circle",
+                    "center": [
+                      30,
+                      40
+                    ],
+                    "radius": 3
+                  },
+                  "external": false,
+                  "outermost": false
+                }
+              ],
+              "islands": "nested",
+              "fill": "solid",
+              "seeds": [
+                [
+                  12,
+                  22
+                ]
+              ]
+            }
+          },
+          {
+            "id": "space/0/h4A0",
+            "kind": "hatch",
+            "layer": "0",
+            "hash": "v2:1752915047b884f2f4ed6fae1c5413cc",
+            "geometry": {
+              "shape": "hatch",
+              "loops": [
+                {
+                  "boundary": {
+                    "shape": "polyline",
+                    "points": [
+                      [
+                        10,
+                        20
+                      ],
+                      [
+                        50,
+                        20
+                      ],
+                      [
+                        50,
+                        60
+                      ],
+                      [
+                        10,
+                        60
+                      ]
+                    ],
+                    "bulges": [
+                      0,
+                      0.5,
+                      0,
+                      0
+                    ],
+                    "closed": true
+                  },
+                  "external": true,
+                  "outermost": true
+                },
+                {
+                  "boundary": {
+                    "shape": "circle",
+                    "center": [
+                      30,
+                      40
+                    ],
+                    "radius": 3
+                  },
+                  "external": false,
+                  "outermost": false
+                }
+              ],
+              "islands": "nested",
+              "fill": "pattern",
+              "pattern": {
+                "name": "ZUMEN_EXPLICIT",
+                "origin": "custom",
+                "angle": 90,
+                "scale": 2,
+                "double": true,
+                "lines": [
+                  {
+                    "angle": 45,
+                    "base": [
+                      1,
+                      2
+                    ],
+                    "offset": [
+                      -2,
+                      2
+                    ],
+                    "dashes": [
+                      2,
+                      -1,
+                      0
+                    ]
+                  }
+                ]
+              },
+              "seeds": [
+                [
+                  12,
+                  22
+                ]
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

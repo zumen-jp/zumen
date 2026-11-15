@@ -479,6 +479,9 @@ impl Page {
             };
             // 形の値に複製する頂点と文字列の大きさを数える
             let geometry = if has(EntityField::Geometry) {
+                if let Shape::Hatch(hatch) = &element.shape {
+                    geometry::hatch_work(hatch, cx).map_err(|stop| stop_at(cx, stop))?;
+                }
                 let size = match &element.shape {
                     Shape::Polyline(line) => line.vertices.len(),
                     Shape::Curve(zumen_drawing::Edge::Spline(spline)) => spline

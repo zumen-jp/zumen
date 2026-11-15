@@ -2266,6 +2266,8 @@ pub enum Geometry {
     Callout(CalloutGeometry),
     /// 表（DXF・DWG の ACAD_TABLE、決定 0113）。挿入点・行の向き・行の高さ・列の幅と、行ごとのセルの並びを持つ。表のスタイル・セルの書式・型のある値・表示の部品（ブロック）は形の値に含めない。置き換え（DXF の ACAD_TABLE）では、行と列の数・セルの結合・文字でないセル（記号）を変えず、挿入点・行の向き・行の高さ・列の幅・文字と空のセルの内容と回転を書き直し、表示の部品を作り直す。足すことと DWG の書き戻しは、まだしない。マイナーバージョン 74 から
     Table(TableGeometry),
+    /// 非連動のハッチング。閉じた折れ線（膨らみ付き）と円を境界にできる。塗りは単色か、線の定義を明示した模様。参照・勾配・自動検出した境界は扱わない。DXF と DWG に追加できる。置き換え・変換はまだ扱わない。entities は用紙上の模様を返さない。用紙への模様の追加は、原点が 0 で 1 単位が 1 mm のときに限る。マイナーバージョン 75 から
+    Hatch(HatchGeometry),
 }
 
 impl Geometry {
@@ -2285,6 +2287,7 @@ impl Geometry {
         "point",
         "callout",
         "table",
+        "hatch",
     ];
 
     /// タグのフィールド（`shape`）の値
@@ -2304,6 +2307,7 @@ impl Geometry {
             Self::Point(_) => "point",
             Self::Callout(_) => "callout",
             Self::Table(_) => "table",
+            Self::Hatch(_) => "hatch",
         }
     }
 }
@@ -2328,6 +2332,7 @@ impl FromJson for Geometry {
             "point" => Self::Point(PointGeometry::read_fields(&mut object)?),
             "callout" => Self::Callout(CalloutGeometry::read_fields(&mut object)?),
             "table" => Self::Table(TableGeometry::read_fields(&mut object)?),
+            "hatch" => Self::Hatch(HatchGeometry::read_fields(&mut object)?),
             other => return Err(Invalid::new(Problem::Tag(other.to_string())).in_key("shape")),
         };
         object.finish()?;
@@ -2352,7 +2357,439 @@ impl ToJson for Geometry {
             Self::Point(value) => value.to_json(out),
             Self::Callout(value) => value.to_json(out),
             Self::Table(value) => value.to_json(out),
+            Self::Hatch(value) => value.to_json(out),
         }
+    }
+}
+
+/// 非連動のハッチング。閉じた折れ線（膨らみ付き）と円を境界にできる。塗りは単色か、線の定義を明示した模様。参照・勾配・自動検出した境界は扱わない。DXF と DWG に追加できる。置き換え・変換はまだ扱わない。entities は用紙上の模様を返さない。用紙への模様の追加は、原点が 0 で 1 単位が 1 mm のときに限る。マイナーバージョン 75 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct HatchGeometry {
+    /// 境界の輪。入力の順。1 つ以上
+    pub loops: Vec<HatchLoop>,
+    /// 輪の中の輪の埋め方
+    pub islands: HatchIslands,
+    /// 中を埋めるもの
+    pub fill: HatchFill,
+    /// fill が pattern のときだけ持つ模様の定義
+    pub pattern: Option<HatchPattern>,
+    /// 境界を探した点 [[X, Y], ...]。書かなければ空
+    pub seeds: Option<Vec<Vec<f64>>>,
+}
+
+impl HatchGeometry {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("shape", "hatch")?;
+        let loops = object.required("loops", |value| json::array(value, HatchLoop::from_json))?;
+        let islands = object.required("islands", HatchIslands::from_json)?;
+        let fill = object.required("fill", HatchFill::from_json)?;
+        let pattern = object.optional("pattern", HatchPattern::from_json)?;
+        let seeds = object.optional("seeds", |value| {
+            json::array(value, |value| json::array(value, json::number))
+        })?;
+        Ok(Self {
+            loops,
+            islands,
+            fill,
+            pattern,
+            seeds,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("shape");
+        out.string("hatch");
+        out.key("loops");
+        out.array(&self.loops, |out, item| item.to_json(out));
+        out.key("islands");
+        self.islands.to_json(out);
+        out.key("fill");
+        self.fill.to_json(out);
+        if let Some(value) = &self.pattern {
+            out.key("pattern");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.seeds {
+            out.key("seeds");
+            out.array(value, |out, item| {
+                out.array(item, |out, item| out.float(*item))
+            });
+        }
+    }
+}
+
+impl FromJson for HatchGeometry {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for HatchGeometry {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// ハッチングの境界の輪。参照を持たない
+#[derive(Clone, Debug, PartialEq)]
+pub struct HatchLoop {
+    /// 閉じた折れ線か円
+    pub boundary: HatchBoundary,
+    /// 外側の輪
+    pub external: bool,
+    /// いちばん外の輪
+    pub outermost: bool,
+}
+
+impl HatchLoop {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let boundary = object.required("boundary", HatchBoundary::from_json)?;
+        let external = object.required("external", json::boolean)?;
+        let outermost = object.required("outermost", json::boolean)?;
+        Ok(Self {
+            boundary,
+            external,
+            outermost,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("boundary");
+        self.boundary.to_json(out);
+        out.key("external");
+        out.bool(self.external);
+        out.key("outermost");
+        out.bool(self.outermost);
+    }
+}
+
+impl FromJson for HatchLoop {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for HatchLoop {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 輪の形。折れ線は closed が真で頂点が 2 つ以上。最後の点から最初の点へ結ぶ
+#[derive(Clone, Debug, PartialEq)]
+#[allow(clippy::large_enum_variant)]
+pub enum HatchBoundary {
+    /// 頂点を結んだ折れ線。幅は持たない
+    Polyline(PolylineGeometry),
+    /// 円
+    Circle(CircleGeometry),
+}
+
+impl HatchBoundary {
+    /// タグのフィールド（`shape`）の値（スキーマの順）
+    pub const TAGS: &[&str] = &["polyline", "circle"];
+
+    /// タグのフィールド（`shape`）の値
+    pub const fn tag(&self) -> &'static str {
+        match self {
+            Self::Polyline(_) => "polyline",
+            Self::Circle(_) => "circle",
+        }
+    }
+}
+
+impl FromJson for HatchBoundary {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = match object.tag("shape")? {
+            "polyline" => Self::Polyline(PolylineGeometry::read_fields(&mut object)?),
+            "circle" => Self::Circle(CircleGeometry::read_fields(&mut object)?),
+            other => return Err(Invalid::new(Problem::Tag(other.to_string())).in_key("shape")),
+        };
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for HatchBoundary {
+    fn to_json(&self, out: &mut Writer) {
+        match self {
+            Self::Polyline(value) => value.to_json(out),
+            Self::Circle(value) => value.to_json(out),
+        }
+    }
+}
+
+/// nested は外から奇数番目の内側、outer はいちばん外と次の輪の間、ignore は内側の輪を無視して埋める
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum HatchIslands {
+    /// `nested`
+    Nested,
+    /// `outer`
+    Outer,
+    /// `ignore`
+    Ignore,
+}
+
+impl HatchIslands {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[Self::Nested, Self::Outer, Self::Ignore];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Nested => "nested",
+            Self::Outer => "outer",
+            Self::Ignore => "ignore",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "nested" => Some(Self::Nested),
+            "outer" => Some(Self::Outer),
+            "ignore" => Some(Self::Ignore),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for HatchIslands {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for HatchIslands {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
+    }
+}
+
+/// solid は要素の色で塗り、pattern は線の組で埋める
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum HatchFill {
+    /// `solid`
+    Solid,
+    /// `pattern`
+    Pattern,
+}
+
+impl HatchFill {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[Self::Solid, Self::Pattern];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Solid => "solid",
+            Self::Pattern => "pattern",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "solid" => Some(Self::Solid),
+            "pattern" => Some(Self::Pattern),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for HatchFill {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for HatchFill {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
+    }
+}
+
+/// 模様の名前と線の定義。外部の定義ファイルを読まず、lines の値を使う
+#[derive(Clone, Debug, PartialEq)]
+pub struct HatchPattern {
+    /// 元の名前。空と制御文字を含むものは受けない
+    pub name: String,
+    /// 定義の出どころ
+    pub origin: HatchPatternOrigin,
+    /// 定義に加えた回転（度）
+    pub angle: f64,
+    /// 定義に掛けた尺度か、利用者が決めた線の間隔。0 より大きい
+    pub scale: f64,
+    /// 線の組を 90 度回して重ねる
+    pub double: bool,
+    /// angle と scale を当てた後の線の組。1 つ以上
+    pub lines: Vec<HatchPatternLine>,
+}
+
+impl HatchPattern {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let name = object.required("name", json::string)?;
+        let origin = object.required("origin", HatchPatternOrigin::from_json)?;
+        let angle = object.required("angle", json::number)?;
+        let scale = object.required("scale", json::number)?;
+        let double = object.required("double", json::boolean)?;
+        let lines = object.required("lines", |value| {
+            json::array(value, HatchPatternLine::from_json)
+        })?;
+        Ok(Self {
+            name,
+            origin,
+            angle,
+            scale,
+            double,
+            lines,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("name");
+        out.string(&self.name);
+        out.key("origin");
+        self.origin.to_json(out);
+        out.key("angle");
+        out.float(self.angle);
+        out.key("scale");
+        out.float(self.scale);
+        out.key("double");
+        out.bool(self.double);
+        out.key("lines");
+        out.array(&self.lines, |out, item| item.to_json(out));
+    }
+}
+
+impl FromJson for HatchPattern {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for HatchPattern {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// user_defined は利用者が決めた平行線、predefined は形式が名前で決めた定義、custom は利用者の定義
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum HatchPatternOrigin {
+    /// `user_defined`
+    UserDefined,
+    /// `predefined`
+    Predefined,
+    /// `custom`
+    Custom,
+}
+
+impl HatchPatternOrigin {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[Self::UserDefined, Self::Predefined, Self::Custom];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::UserDefined => "user_defined",
+            Self::Predefined => "predefined",
+            Self::Custom => "custom",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "user_defined" => Some(Self::UserDefined),
+            "predefined" => Some(Self::Predefined),
+            "custom" => Some(Self::Custom),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for HatchPatternOrigin {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for HatchPatternOrigin {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
+    }
+}
+
+/// 1 組の平行線。基点・ずれ・線の長さは要素の座標と単位に従う
+#[derive(Clone, Debug, PartialEq)]
+pub struct HatchPatternLine {
+    /// 線の向き（度）
+    pub angle: f64,
+    /// 1 本の線が通る点 [X, Y]
+    pub base: Vec<f64>,
+    /// 隣の線までのずれ [X, Y]。両方 0 にはしない
+    pub offset: Vec<f64>,
+    /// 正は線、負は間、0 は点。空なら実線
+    pub dashes: Vec<f64>,
+}
+
+impl HatchPatternLine {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let angle = object.required("angle", json::number)?;
+        let base = object.required("base", |value| json::array(value, json::number))?;
+        let offset = object.required("offset", |value| json::array(value, json::number))?;
+        let dashes = object.required("dashes", |value| json::array(value, json::number))?;
+        Ok(Self {
+            angle,
+            base,
+            offset,
+            dashes,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("angle");
+        out.float(self.angle);
+        out.key("base");
+        out.array(&self.base, |out, item| out.float(*item));
+        out.key("offset");
+        out.array(&self.offset, |out, item| out.float(*item));
+        out.key("dashes");
+        out.array(&self.dashes, |out, item| out.float(*item));
+    }
+}
+
+impl FromJson for HatchPatternLine {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for HatchPatternLine {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
     }
 }
 

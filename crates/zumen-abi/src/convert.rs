@@ -119,10 +119,17 @@ impl Relocate for Geometric {
     }
 
     fn model(&self, shape: &Shape<ModelPoint>, origin: ModelPoint) -> Option<Shape<ModelPoint>> {
+        // #684 は既存図面への追加。新しい DXF への変換の対応範囲（#643）は別に広げる。
+        if matches!(shape, Shape::Hatch(_)) {
+            return None;
+        }
         geometry::shape_of(&geometry::geometry_of(shape)?, None, origin).ok()
     }
 
     fn paper(&self, shape: &Shape<PaperPoint>, origin: PaperPoint) -> Option<Shape<PaperPoint>> {
+        if matches!(shape, Shape::Hatch(_)) {
+            return None;
+        }
         geometry::shape_of(&geometry::geometry_of(shape)?, None, origin).ok()
     }
 }

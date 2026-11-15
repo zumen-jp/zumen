@@ -834,7 +834,123 @@ Geometry = Union[
     "PointGeometry",
     "CalloutGeometry",
     "TableGeometry",
+    "HatchGeometry",
 ]
+
+
+# 非連動のハッチング。閉じた折れ線（膨らみ付き）と円を境界にできる。塗りは単色か、線の定義を明示した模様。参照・勾配・自動検出した境界は扱わない。DXF と DWG に追加できる。置き換え・変換はまだ扱わない。entities は用紙上の模様を返さない。用紙への模様の追加は、原点が 0 で 1 単位が 1 mm のときに限る。マイナーバージョン 75 から
+_HatchGeometryRequired = TypedDict(
+    "_HatchGeometryRequired",
+    {
+        # 形の種類
+        "shape": Literal["hatch"],
+        # 境界の輪。入力の順。1 つ以上
+        "loops": List["HatchLoop"],
+        # 輪の中の輪の埋め方
+        "islands": "HatchIslands",
+        # 中を埋めるもの
+        "fill": "HatchFill",
+    },
+)
+_HatchGeometryOptional = TypedDict(
+    "_HatchGeometryOptional",
+    {
+        # fill が pattern のときだけ持つ模様の定義
+        "pattern": "HatchPattern",
+        # 境界を探した点 [[X, Y], ...]。書かなければ空
+        "seeds": List[List[float]],
+    },
+    total=False,
+)
+
+
+class HatchGeometry(_HatchGeometryRequired, _HatchGeometryOptional):
+    "非連動のハッチング。閉じた折れ線（膨らみ付き）と円を境界にできる。塗りは単色か、線の定義を明示した模様。参照・勾配・自動検出した境界は扱わない。DXF と DWG に追加できる。置き換え・変換はまだ扱わない。entities は用紙上の模様を返さない。用紙への模様の追加は、原点が 0 で 1 単位が 1 mm のときに限る。マイナーバージョン 75 から"
+
+
+# ハッチングの境界の輪。参照を持たない
+HatchLoop = TypedDict(
+    "HatchLoop",
+    {
+        # 閉じた折れ線か円
+        "boundary": "HatchBoundary",
+        # 外側の輪
+        "external": bool,
+        # いちばん外の輪
+        "outermost": bool,
+    },
+)
+
+# 輪の形。折れ線は closed が真で頂点が 2 つ以上。最後の点から最初の点へ結ぶ
+HatchBoundary = Union[
+    "PolylineGeometry",
+    "CircleGeometry",
+]
+
+# nested は外から奇数番目の内側、outer はいちばん外と次の輪の間、ignore は内側の輪を無視して埋める
+HatchIslands = Union[
+    Literal[
+        "nested",
+        "outer",
+        "ignore",
+    ],
+    str,
+]
+
+# solid は要素の色で塗り、pattern は線の組で埋める
+HatchFill = Union[
+    Literal[
+        "solid",
+        "pattern",
+    ],
+    str,
+]
+
+
+# 模様の名前と線の定義。外部の定義ファイルを読まず、lines の値を使う
+HatchPattern = TypedDict(
+    "HatchPattern",
+    {
+        # 元の名前。空と制御文字を含むものは受けない
+        "name": str,
+        # 定義の出どころ
+        "origin": "HatchPatternOrigin",
+        # 定義に加えた回転（度）
+        "angle": float,
+        # 定義に掛けた尺度か、利用者が決めた線の間隔。0 より大きい
+        "scale": float,
+        # 線の組を 90 度回して重ねる
+        "double": bool,
+        # angle と scale を当てた後の線の組。1 つ以上
+        "lines": List["HatchPatternLine"],
+    },
+)
+
+# user_defined は利用者が決めた平行線、predefined は形式が名前で決めた定義、custom は利用者の定義
+HatchPatternOrigin = Union[
+    Literal[
+        "user_defined",
+        "predefined",
+        "custom",
+    ],
+    str,
+]
+
+
+# 1 組の平行線。基点・ずれ・線の長さは要素の座標と単位に従う
+HatchPatternLine = TypedDict(
+    "HatchPatternLine",
+    {
+        # 線の向き（度）
+        "angle": float,
+        # 1 本の線が通る点 [X, Y]
+        "base": List[float],
+        # 隣の線までのずれ [X, Y]。両方 0 にはしない
+        "offset": List[float],
+        # 正は線、負は間、0 は点。空なら実線
+        "dashes": List[float],
+    },
+)
 
 
 # 線分

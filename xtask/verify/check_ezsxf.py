@@ -82,6 +82,7 @@ SHAPES = {
     "formatted_text": {"text_string_feature"},
     "dimension": FEATURES["dimension"],
     "callout": FEATURES["callout"],
+    "hatch": FEATURES["hatch"],
 }
 # 要素にならない、表と表題欄のフィーチャ（crates/zumen-sxf/src/drawing.rs の Lifter::run）
 TABLES = {

@@ -455,7 +455,87 @@ export type Geometry =
   | LeaderGeometry
   | PointGeometry
   | CalloutGeometry
-  | TableGeometry;
+  | TableGeometry
+  | HatchGeometry;
+
+/** 非連動のハッチング。閉じた折れ線（膨らみ付き）と円を境界にできる。塗りは単色か、線の定義を明示した模様。参照・勾配・自動検出した境界は扱わない。DXF と DWG に追加できる。置き換え・変換はまだ扱わない。entities は用紙上の模様を返さない。用紙への模様の追加は、原点が 0 で 1 単位が 1 mm のときに限る。マイナーバージョン 75 から */
+export interface HatchGeometry {
+  /** 形の種類 */
+  shape: "hatch";
+  /** 境界の輪。入力の順。1 つ以上 */
+  loops: HatchLoop[];
+  /** 輪の中の輪の埋め方 */
+  islands: HatchIslands;
+  /** 中を埋めるもの */
+  fill: HatchFill;
+  /** fill が pattern のときだけ持つ模様の定義 */
+  pattern?: HatchPattern;
+  /** 境界を探した点 [[X, Y], ...]。書かなければ空 */
+  seeds?: number[][];
+}
+
+/** ハッチングの境界の輪。参照を持たない */
+export interface HatchLoop {
+  /** 閉じた折れ線か円 */
+  boundary: HatchBoundary;
+  /** 外側の輪 */
+  external: boolean;
+  /** いちばん外の輪 */
+  outermost: boolean;
+}
+
+/** 輪の形。折れ線は closed が真で頂点が 2 つ以上。最後の点から最初の点へ結ぶ */
+export type HatchBoundary =
+  | PolylineGeometry
+  | CircleGeometry;
+
+/** nested は外から奇数番目の内側、outer はいちばん外と次の輪の間、ignore は内側の輪を無視して埋める */
+export type HatchIslands =
+  | "nested"
+  | "outer"
+  | "ignore"
+  | (string & {});
+
+/** solid は要素の色で塗り、pattern は線の組で埋める */
+export type HatchFill =
+  | "solid"
+  | "pattern"
+  | (string & {});
+
+/** 模様の名前と線の定義。外部の定義ファイルを読まず、lines の値を使う */
+export interface HatchPattern {
+  /** 元の名前。空と制御文字を含むものは受けない */
+  name: string;
+  /** 定義の出どころ */
+  origin: HatchPatternOrigin;
+  /** 定義に加えた回転（度） */
+  angle: number;
+  /** 定義に掛けた尺度か、利用者が決めた線の間隔。0 より大きい */
+  scale: number;
+  /** 線の組を 90 度回して重ねる */
+  double: boolean;
+  /** angle と scale を当てた後の線の組。1 つ以上 */
+  lines: HatchPatternLine[];
+}
+
+/** user_defined は利用者が決めた平行線、predefined は形式が名前で決めた定義、custom は利用者の定義 */
+export type HatchPatternOrigin =
+  | "user_defined"
+  | "predefined"
+  | "custom"
+  | (string & {});
+
+/** 1 組の平行線。基点・ずれ・線の長さは要素の座標と単位に従う */
+export interface HatchPatternLine {
+  /** 線の向き（度） */
+  angle: number;
+  /** 1 本の線が通る点 [X, Y] */
+  base: number[];
+  /** 隣の線までのずれ [X, Y]。両方 0 にはしない */
+  offset: number[];
+  /** 正は線、負は間、0 は点。空なら実線 */
+  dashes: number[];
+}
 
 /** 線分 */
 export interface LineGeometry {
