@@ -301,7 +301,7 @@ impl SxfLive {
         attributes: Option<AttributeFile>,
         cx: &mut Cx<'_>,
     ) -> Result<Self, Error> {
-        let ((records, codes, lifted), events) = cx.with_diagnostic_events(u64::MAX, |cx| {
+        let ((records, codes, mut lifted), events) = cx.with_diagnostic_events(u64::MAX, |cx| {
             cx.with_diagnostics_in_record_order(|cx| {
                 let (records, codes) = match file.mode() {
                     Mode::Sfc => (sfc_records(file), None),
@@ -660,8 +660,12 @@ impl SxfLive {
             file,
             &mut rows,
             &lifted.tables,
+            (&base_sheet_slots, &sheet_template),
             cx,
         )?;
+        // 空の複合曲線の線種も使用順から求めるので、初期変換の補助表は持ち続けない。
+        lifted.tables.extra_line_types.clear();
+        lifted.tables.extra_line_types.shrink_to_fit();
 
         let mut inst_counts: BTreeMap<u64, u32> = BTreeMap::new();
         for row in &rows {
@@ -2582,12 +2586,12 @@ impl SxfLive {
 
     fn drawing_inner(&self, cx: &mut Cx<'_>) -> Result<Drawing2D, Error> {
         let mut layers = self.lifter_tables.base_layers.clone();
-        let mut line_types = self.lifter_tables.base_line_types.clone();
-        for extra in &self.lifter_tables.extra_line_types {
-            if !line_types.iter().any(|lt| lt.id == extra.id) {
-                line_types.push(extra.clone());
-            }
-        }
+        let (mut line_types, mut line_types_seen) = self.diagnostics.line_types(
+            &self.table,
+            self.base_row_count,
+            &self.lifter_tables,
+            cx,
+        )?;
         let mut drafts = self.doc_drafts.clone();
 
         let mut spaces = Vec::with_capacity(self.space_templates.len());
@@ -2674,8 +2678,20 @@ impl SxfLive {
 
         let mut sheet_elems = Vec::new();
         let mut sheet_order = Vec::new();
-        for slot in &self.base_sheet_slots {
-            match *slot {
+        let insertion = self
+            .diagnostics
+            .sheet_insertion()
+            .min(self.base_sheet_slots.len());
+        let (before, after) = self.base_sheet_slots.split_at(insertion);
+        let born = (self.base_row_count..self.table.len() as u32)
+            .map(|index| BaseSheetSlot::Row(RowId(index)));
+        for slot in before
+            .iter()
+            .copied()
+            .chain(born)
+            .chain(after.iter().copied())
+        {
+            match slot {
                 BaseSheetSlot::View(v) => sheet_order.push(SheetItem::View(v)),
                 BaseSheetSlot::Row(rid) => {
                     if let Some(row) = self.table.row(rid)
@@ -2705,29 +2721,10 @@ impl SxfLive {
             }
         }
 
-        let total_len = self.table.len() as u32;
-        for raw_idx in self.base_row_count..total_len {
-            let rid = RowId(raw_idx);
-            if let Some(row) = self.table.row(rid)
-                && let Placed::Paper(p_elem) = &row.placed
-            {
-                work(cx, 1, &Ref::default())?;
-                let idx = sheet_elems.len();
-                ensure_element_tables(
-                    self.lifter_tables.defined_layers,
-                    &mut layers,
-                    &mut line_types,
-                    p_elem.layer,
-                    &p_elem.style,
-                );
-                sheet_elems.push(p_elem.clone());
-                sheet_order.push(SheetItem::Element(idx));
-            }
-        }
-
         {
             let sources = self.backing.source_map(cx)?;
-            let mut line_types_seen = self.diagnostics.report(&self.backing, &sources, cx)?;
+            self.diagnostics
+                .report(&self.backing, &sources, &mut line_types_seen, cx)?;
             for index in 0..self.table.len() {
                 work(cx, 1, &Ref::default())?;
                 if let Some(row) = self.table.row(RowId(index as u32)) {
@@ -3317,6 +3314,268 @@ mod equivalence_tests {
         )
         .as_bytes()
         .to_vec()
+    }
+
+    #[test]
+    fn first_line_type_use_moves_between_subfigures_and_composites() {
+        for (first, second) in [(90, 90), (-5, -6)] {
+            for (member, visible) in [
+                ("line_feature('1','1','1','1','0','1','10','1')", 1),
+                ("point_marker_feature('1','1','1','2','2','0','1')", 1),
+                ("line_feature('1','1','1','1','0','1','10','1')", 0),
+            ] {
+                for flag in [1, 2, 3, 4] {
+                    let definition = format!(r"sfig_org_feature(\'A\','{flag}')");
+                    let line = format!("line_feature('1','99','{first}','99','0','0','10','0')");
+                    let composite =
+                        format!("composite_curve_org_feature('98','{second}','98','{visible}')");
+                    let bytes = sfc_features(&[
+                        r"layer_feature(\'L\','1')",
+                        &line,
+                        &definition,
+                        member,
+                        &composite,
+                        r"sfig_locate_feature('1',\'A\','0','0','0','1','1')",
+                        r"drawing_sheet_feature(\'S\','3','1','0','0')",
+                    ]);
+                    for threads in [1, 4] {
+                        let mut file = run(|cx| Sxf::read(&bytes, cx)).0.unwrap();
+                        let mut live = run(|cx| SxfLive::open_with_threads(&bytes, threads, cx))
+                            .0
+                            .unwrap();
+                        assert_type_parity(&live, &file);
+                        let before = run(|cx| live.drawing(cx));
+                        let changes = Changes {
+                            document: None,
+                            edits: vec![Edit::Remove {
+                                target: seen(&live, 20),
+                            }],
+                        };
+                        let actual = run(|cx| live.apply(&changes, cx));
+                        assert_eq!(actual, run(|cx| file.apply(&changes, cx)));
+                        actual.0.unwrap();
+                        assert_type_parity(&live, &file);
+                        let after = run(|cx| live.drawing(cx));
+                        let saved = run(|cx| live.save(cx)).0.unwrap();
+                        assert!(run(|cx| live.undo(cx)).0.unwrap());
+                        assert_eq!(run(|cx| live.drawing(cx)), before);
+                        assert_eq!(run(|cx| live.save(cx)).0.unwrap(), bytes);
+                        assert!(run(|cx| live.redo(cx)).0.unwrap());
+                        assert_eq!(run(|cx| live.drawing(cx)), after);
+                        assert_eq!(run(|cx| live.save(cx)).0.unwrap(), saved);
+                    }
+                }
+            }
+        }
+    }
+
+    fn assert_type_parity(live: &SxfLive, file: &SxfFile) {
+        for places in [0, 1, 2, 32] {
+            let actual = run_places(places, |cx| live.drawing(cx));
+            let expected = run_places(places, |cx| file.lift(cx));
+            assert_eq!(actual.1, expected.1);
+            assert_eq!(
+                actual.0.as_ref().unwrap().line_types,
+                expected.0.as_ref().unwrap().line_types
+            );
+            assert_eq!(actual, expected);
+        }
+        assert_source_parity(live, file);
+    }
+
+    #[test]
+    fn line_type_order_follows_interleaved_definitions_groups_and_insertions() {
+        let bytes = sfc_features(&[
+            r"layer_feature(\'L\','1')",
+            "line_feature('1','1','90','1','0','0','10','0')",
+            r"sfig_org_feature(\'part\','4')",
+            "line_feature('1','1','91','1','0','1','10','1')",
+            r"sfig_org_feature(\'group\','3')",
+            r"sfig_locate_feature('1',\'group\','0','0','0','1','1')",
+            "line_feature('1','1','92','1','0','2','10','2')",
+            r"sfig_org_feature(\'model\','1')",
+            r"sfig_locate_feature('1',\'part\','0','0','0','1','1')",
+            "line_feature('1','1','1','1','0','3','10','3')",
+            "composite_curve_org_feature('1','90','1','1')",
+            "line_feature('1','1','90','1','0','4','10','4')",
+            r"drawing_sheet_feature(\'S\','3','1','0','0')",
+            "line_feature('1','1','91','1','0','5','10','5')",
+        ]);
+        for threads in [1, 4] {
+            let mut file = run(|cx| Sxf::read(&bytes, cx)).0.unwrap();
+            let mut live = run(|cx| SxfLive::open_with_threads(&bytes, threads, cx))
+                .0
+                .unwrap();
+            assert_type_parity(&live, &file);
+            let mut history = vec![(run(|cx| live.drawing(cx)), bytes.clone())];
+            for target in [None, Some(20), Some(40), Some(70), Some(120)] {
+                let edit = if let Some(instance) = target {
+                    Edit::Remove {
+                        target: seen(&live, instance),
+                    }
+                } else {
+                    let model = run(|cx| live.drawing(cx)).0.unwrap();
+                    let row = live.row_id_for_instance(120).unwrap();
+                    let mut element = live.placed(row).unwrap().clone();
+                    assert!(matches!(element, Placed::Paper(_)));
+                    if let Placed::Paper(line) = &mut element {
+                        line.style.line_type = Inherit::Own(zumen_drawing::LineTypeId(1));
+                    }
+                    Edit::Add {
+                        place: id::sheet(&model.sheets[0]),
+                        element: Box::new(element),
+                    }
+                };
+                let changes = Changes {
+                    document: None,
+                    edits: vec![edit],
+                };
+                let actual = run(|cx| live.apply(&changes, cx));
+                assert_eq!(actual, run(|cx| file.apply(&changes, cx)));
+                assert!(actual.0.is_ok(), "{target:?}: {actual:?}");
+                assert_type_parity(&live, &file);
+                history.push((
+                    run(|cx| live.drawing(cx)),
+                    run(|cx| live.save(cx)).0.unwrap(),
+                ));
+            }
+            for expected in history.iter().rev().skip(1) {
+                assert!(run(|cx| live.undo(cx)).0.unwrap());
+                assert_eq!(run(|cx| live.drawing(cx)), expected.0);
+                assert_eq!(run(|cx| live.save(cx)).0.unwrap(), expected.1);
+            }
+            for expected in history.iter().skip(1) {
+                assert!(run(|cx| live.redo(cx)).0.unwrap());
+                assert_eq!(run(|cx| live.drawing(cx)), expected.0);
+                assert_eq!(run(|cx| live.save(cx)).0.unwrap(), expected.1);
+            }
+        }
+    }
+
+    #[test]
+    fn inserted_rows_precede_trailing_groups_and_keep_nested_view_order() {
+        let bytes = sfc_features(&[
+            r"layer_feature(\'L\','1')",
+            "line_feature('1','1','90','1','0','0','10','0')",
+            r"sfig_org_feature(\'inner\','1')",
+            r"sfig_locate_feature('1',\'inner\','0','0','0','1','1')",
+            r"sfig_org_feature(\'outer\','2')",
+            "line_feature('1','1','91','1','0','1','10','1')",
+            r"sfig_org_feature(\'group\','3')",
+            r"sfig_locate_feature('1',\'group\','0','0','0','1','1')",
+            r"sfig_locate_feature('1',\'outer\','0','0','0','1','1')",
+            "line_feature('1','1','1','1','0','2','10','2')",
+            r"drawing_sheet_feature(\'S\','3','1','0','0')",
+            r"sfig_locate_feature('1',\'group\','0','0','0','1','1')",
+        ]);
+        for threads in [1, 4] {
+            let mut file = run(|cx| Sxf::read(&bytes, cx)).0.unwrap();
+            let mut live = run(|cx| SxfLive::open_with_threads(&bytes, threads, cx))
+                .0
+                .unwrap();
+            assert_type_parity(&live, &file);
+            let initial = run(|cx| live.drawing(cx));
+            let row = live.row_id_for_instance(100).unwrap();
+            let element = live.placed(row).unwrap().clone();
+            let changes = Changes {
+                document: None,
+                edits: vec![Edit::Add {
+                    place: id::sheet(&initial.0.as_ref().unwrap().sheets[0]),
+                    element: Box::new(element),
+                }],
+            };
+            let actual = run(|cx| live.apply(&changes, cx));
+            assert_eq!(actual, run(|cx| file.apply(&changes, cx)));
+            actual.0.unwrap();
+            assert_type_parity(&live, &file);
+            assert!(run(|cx| live.undo(cx)).0.unwrap());
+            assert_eq!(run(|cx| live.drawing(cx)), initial);
+            assert_eq!(run(|cx| live.save(cx)).0.unwrap(), bytes);
+            assert!(run(|cx| live.redo(cx)).0.unwrap());
+            assert_type_parity(&live, &file);
+        }
+    }
+
+    #[test]
+    fn grouped_order_checks_shared_budget_and_cancellation() {
+        use zumen_base::{Limit, Limits};
+        let bytes = sfc_features(&[
+            r"layer_feature(\'L\','1')",
+            "line_feature('1','99','90','99','0','0','10','0')",
+            r"sfig_locate_feature('1',\'cycle\','0','0','0','1','1')",
+            r"sfig_org_feature(\'cycle\','3')",
+            r"sfig_locate_feature('1',\'cycle\','0','0','0','1','1')",
+            r"drawing_sheet_feature(\'first\','3','1','0','0')",
+            "line_feature('1','1','1','1','0','1','10','1')",
+            "composite_curve_org_feature('1','90','1','1')",
+            r"drawing_sheet_feature(\'S\','3','1','0','0')",
+        ]);
+        for threads in [1, 4] {
+            let file = run(|cx| Sxf::read(&bytes, cx)).0.unwrap();
+            let live = run(|cx| SxfLive::open_with_threads(&bytes, threads, cx))
+                .0
+                .unwrap();
+            assert_type_parity(&live, &file);
+            let before = run(|cx| live.drawing(cx));
+            for opening in [true, false] {
+                let operation = |cx: &mut Cx<'_>| {
+                    if opening {
+                        SxfLive::open_with_threads(&bytes, threads, cx).map(|_| ())
+                    } else {
+                        live.drawing(cx).map(|_| ())
+                    }
+                };
+                let mut complete = Budget::default();
+                let cancel = CancelToken::new();
+                let mut diagnostics = Diagnostics::new();
+                operation(&mut Cx::new(&mut complete, &mut diagnostics, &cancel)).unwrap();
+                print_budget(threads, opening, &complete);
+                for kind in [Kind::Work, Kind::DecodedBytes] {
+                    let used = complete.used(kind);
+                    assert!(used > 0);
+                    for (limit, spent) in
+                        [(0, 0), (used - 1, 0), (used, 0), (used, 1), (used + 1, 1)]
+                    {
+                        let mut budget =
+                            Budget::new(Limits::default().with(kind, Limit::Finite(limit)));
+                        budget.spend(kind, spent).unwrap();
+                        let mut diag = Diagnostics::new();
+                        let actual = operation(&mut Cx::new(&mut budget, &mut diag, &cancel));
+                        assert_eq!(
+                            actual.is_ok(),
+                            limit >= used + spent,
+                            "opening={opening} {kind:?} {limit} {spent}"
+                        );
+                        if actual.is_err() {
+                            assert!(matches!(actual, Err(Error::Stopped(_))));
+                        }
+                        assert_eq!(budget.used(Kind::Depth), 0);
+                    }
+                }
+                cancel.cancel();
+                let mut budget = Budget::default();
+                let mut diag = Diagnostics::new();
+                assert_eq!(
+                    operation(&mut Cx::new(&mut budget, &mut diag, &cancel)),
+                    Err(Error::Stopped(zumen_base::Stop::Cancelled))
+                );
+                assert_eq!(budget.used(Kind::Depth), 0);
+            }
+            assert_eq!(run(|cx| live.drawing(cx)), before);
+            assert_eq!(run(|cx| live.save(cx)).0.unwrap(), bytes);
+            assert_eq!((live.undo_len(), live.redo_len()), (0, 0));
+        }
+    }
+
+    #[allow(
+        clippy::print_stdout,
+        reason = "ネイティブと wasm の予算計上を検査の出力で照合する"
+    )]
+    fn print_budget(threads: usize, opening: bool, budget: &Budget) {
+        println!(
+            "live_sxf_budget threads={threads} opening={opening} used={:?}",
+            Kind::ALL.map(|kind| budget.used(kind))
+        );
     }
 
     #[test]

@@ -5,10 +5,16 @@ use std::collections::{BTreeMap, BTreeSet};
 use zumen_base::{Cx, Diagnostic, Kind, Ref, Value, codes};
 use zumen_sdk::Error;
 
-use super::{SourceMap, SxfBacking, SxfRow, placed_source, placed_style};
+use super::{
+    BaseSheetSlot, SheetTemplate, SourceMap, SxfBacking, SxfRow, placed_source, placed_style,
+};
 use crate::SxfFile;
 use crate::drawing::{Args, FeatureRecord, LINE_TYPES, LifterTables, work};
 use zumen_drawing::Inherit;
+use zumen_live::VersionedTable;
+
+mod order;
+use order::{TypeOrder, TypeSelection};
 
 // 予算と履歴の概算は、32 bit と 64 bit で同じ上限を使う。
 const DIAGNOSTIC_BYTES: usize = 256;
@@ -19,6 +25,7 @@ const PARAMETER_BYTES: usize = 64;
 pub(super) struct LiveDiagnostics {
     fixed: Vec<Diagnostic>,
     tail: Vec<Ref>,
+    type_order: TypeOrder,
 }
 
 impl LiveDiagnostics {
@@ -28,6 +35,7 @@ impl LiveDiagnostics {
         file: &SxfFile,
         rows: &mut [SxfRow],
         tables: &LifterTables,
+        sheet: (&[BaseSheetSlot], &SheetTemplate),
         cx: &mut Cx<'_>,
     ) -> Result<Self, Error> {
         let mut out = Self::default();
@@ -37,8 +45,8 @@ impl LiveDiagnostics {
             allocated(cx, 64)?;
             owners
                 .entry(row.record_idx as u64)
-                .and_modify(|owner| *owner = None)
-                .or_insert(Some(index));
+                .and_modify(|owner: &mut (usize, bool)| owner.1 = false)
+                .or_insert((index, true));
         }
         for event in events {
             work(cx, 1, &Ref::default())?;
@@ -61,7 +69,12 @@ impl LiveDiagnostics {
                 .places()
                 .first()
                 .and_then(Ref::record)
-                .and_then(|record| owners.get(&record).copied().flatten());
+                .and_then(|record| {
+                    owners
+                        .get(&record)
+                        .filter(|(_, unique)| *unique)
+                        .map(|(index, _)| *index)
+                });
             let target = if !event.code().name().starts_with("sxf.p21.")
                 && let Some(row) = owner.and_then(|index| rows.get_mut(index))
             {
@@ -76,9 +89,7 @@ impl LiveDiagnostics {
             work(cx, 1, &Ref::default())?;
             let Some(row) = owners
                 .get(&(record.record as u64))
-                .copied()
-                .flatten()
-                .and_then(|index| rows.get_mut(index))
+                .and_then(|(index, _)| rows.get_mut(*index))
             else {
                 continue;
             };
@@ -130,23 +141,81 @@ impl LiveDiagnostics {
                 .unwrap_or(row.diagnostics.len());
             row.diagnostics.insert(position, event);
         }
+        allocated(cx, (sheet.0.len() as u64).saturating_mul(16))?;
+        let mut sheet_records = Vec::with_capacity(sheet.0.len());
+        for slot in sheet.0 {
+            work(cx, 1, &Ref::default())?;
+            let record = match *slot {
+                BaseSheetSlot::Row(row) => rows.get(row.0 as usize).map(|row| row.record_idx),
+                BaseSheetSlot::View(index) => sheet
+                    .1
+                    .views
+                    .get(index)
+                    .and_then(|view| view.source.record())
+                    .and_then(|record| usize::try_from(record).ok()),
+            };
+            sheet_records.push(record.unwrap_or(usize::MAX));
+        }
+        out.type_order = TypeOrder::build(records, file, &owners, &sheet_records, cx)?;
+        for (code, source) in out.type_order.candidates() {
+            work(
+                cx,
+                (out.fixed.len() as u64).saturating_mul(3).saturating_add(1),
+                source,
+            )?;
+            allocated(
+                cx,
+                (DIAGNOSTIC_BYTES + PLACE_BYTES + PARAMETER_BYTES * 2 + 16) as u64 * 2,
+            )?;
+            let event = Diagnostic::new(codes::SXF_CODE_MISSING)
+                .with("kind", "line type")
+                .with("code", code)
+                .at(source.clone());
+            if out.fixed.iter().any(|existing| existing == &event) {
+                continue;
+            }
+            let position = out
+                .fixed
+                .iter()
+                .position(|other| {
+                    other.places().first() == event.places().first()
+                        && matches!(other.param("kind"), Some(Value::Text(kind)) if kind == "width")
+                })
+                .unwrap_or(out.fixed.len());
+            out.fixed.insert(position, event);
+        }
         Ok(out)
+    }
+
+    pub(super) fn line_types(
+        &self,
+        table: &VersionedTable<SxfRow>,
+        base_rows: u32,
+        tables: &LifterTables,
+        cx: &mut Cx<'_>,
+    ) -> Result<(Vec<zumen_drawing::LineType>, TypeSelection), Error> {
+        self.type_order
+            .current(table, base_rows, &tables.base_line_types, cx)
+    }
+
+    pub(super) fn sheet_insertion(&self) -> usize {
+        self.type_order.sheet_insertion
     }
 
     pub(super) fn report(
         &self,
         backing: &SxfBacking,
         sources: &SourceMap,
+        line_types: &mut TypeSelection,
         cx: &mut Cx<'_>,
-    ) -> Result<BTreeSet<u32>, Error> {
-        let mut line_types = BTreeSet::new();
+    ) -> Result<(), Error> {
         for event in &self.fixed {
             if let SxfBacking::P21(state) = backing
                 && !state.diagnostic_current(event, cx)?
             {
                 continue;
             }
-            report(event, sources, &mut line_types, cx)?;
+            report(event, sources, line_types, cx)?;
         }
         for source in &self.tail {
             work(cx, 1, source)?;
@@ -157,11 +226,11 @@ impl LiveDiagnostics {
                 break;
             }
         }
-        Ok(line_types)
+        Ok(())
     }
 
     pub(super) fn bytes(&self) -> usize {
-        heap_bytes(&self.fixed) + self.tail.capacity() * PLACE_BYTES
+        heap_bytes(&self.fixed) + self.tail.capacity() * PLACE_BYTES + self.type_order.bytes()
     }
 }
 
@@ -211,7 +280,7 @@ fn tail_sources(
 pub(super) fn report(
     event: &Diagnostic,
     sources: &SourceMap,
-    line_types: &mut BTreeSet<u32>,
+    line_types: &mut TypeSelection,
     cx: &mut Cx<'_>,
 ) -> Result<(), Error> {
     work(
@@ -230,7 +299,7 @@ pub(super) fn report(
     }
     if let Some(code) = line_type_code(event) {
         allocated(cx, 32)?;
-        if !line_types.insert(u32::try_from(code).unwrap_or_default()) {
+        if !line_types.accepts(code, event) {
             return Ok(());
         }
     }
