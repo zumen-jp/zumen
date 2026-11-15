@@ -11,7 +11,8 @@
 use core::ops::Range;
 use std::collections::{BTreeMap, BTreeSet};
 
-use zumen_base::{Cx, Diagnostic, Kind, codes};
+use zumen_base::{Cx, Diagnostic, Kind, Ref, codes};
+use zumen_drawing::{CalloutContent, Drawing2D, Element, Shape};
 use zumen_live::SourceBytes;
 use zumen_sdk::{Codec, Error};
 
@@ -131,7 +132,158 @@ pub struct DxfLiveBacking {
     pub current_max_handle: Option<u64>,
 }
 
+/// 差分保存の順序に合わせて、内部のレコード番号を保存後の番号へ移す。
+pub struct DxfRecordMapper {
+    source_records: u32,
+    removed: Vec<u32>,
+    insertions: Vec<(u32, u32)>,
+    born: BTreeMap<u32, u32>,
+}
+
+impl DxfRecordMapper {
+    pub fn effective(&self, record: u32) -> Option<u32> {
+        if record >= self.source_records {
+            return self.born.get(&record).copied();
+        }
+        let removed_before = self.removed.partition_point(|&r| r < record);
+        if self.removed.get(removed_before) == Some(&record) {
+            return None;
+        }
+        let inserted_before = self.insertions.partition_point(|&(r, _)| r <= record);
+        let added = inserted_before
+            .checked_sub(1)
+            .and_then(|i| self.insertions.get(i))
+            .map_or(0, |&(_, count)| count);
+        record
+            .checked_sub(removed_before as u32)?
+            .checked_add(added)
+    }
+
+    pub fn remap_ref(&self, source: &mut Ref) {
+        if let Some(record) = source.record()
+            && let Ok(record) = u32::try_from(record)
+            && let Some(effective) = self.effective(record)
+        {
+            *source = source.clone().with_record(u64::from(effective));
+        }
+    }
+
+    pub fn remap_shape_links<P>(&self, shape: &mut Shape<P>) {
+        match shape {
+            Shape::Hatch(hatch) => {
+                for boundary in &mut hatch.loops {
+                    for source in &mut boundary.sources {
+                        self.remap_ref(source);
+                    }
+                }
+            }
+            Shape::Callout(callout) => {
+                if let Some(style) = &mut callout.style {
+                    self.remap_ref(style);
+                }
+                if let CalloutContent::Symbol { values, .. } = &mut callout.content {
+                    for value in values {
+                        self.remap_ref(&mut value.definition);
+                    }
+                }
+            }
+            Shape::Table(table) => {
+                if let Some(style) = &mut table.style {
+                    self.remap_ref(style);
+                }
+            }
+            Shape::Underlay(underlay) => self.remap_ref(&mut underlay.resource.definition),
+            _ => {}
+        }
+    }
+
+    fn remap_element<P>(&self, element: &mut Element<P>) {
+        self.remap_ref(&mut element.source);
+        match &mut element.shape {
+            Shape::Symbol(symbol) => {
+                for attribute in &mut symbol.attributes {
+                    self.remap_ref(&mut attribute.source);
+                }
+            }
+            Shape::Leader(leader) => {
+                if let Some(annotation) = &mut leader.annotation {
+                    self.remap_ref(annotation);
+                }
+            }
+            _ => self.remap_shape_links(&mut element.shape),
+        }
+    }
+
+    pub fn remap_non_model_sources(&self, drawing: &mut Drawing2D) {
+        for layer in &mut drawing.layers {
+            self.remap_ref(&mut layer.source);
+        }
+        for line_type in &mut drawing.line_types {
+            self.remap_ref(&mut line_type.source);
+        }
+        for style in &mut drawing.dimension_styles {
+            self.remap_ref(&mut style.source);
+        }
+        for style in &mut drawing.text_styles {
+            self.remap_ref(&mut style.source);
+        }
+        for symbol in &mut drawing.symbols {
+            self.remap_ref(&mut symbol.source);
+            for element in &mut symbol.space.elements {
+                self.remap_element(element);
+            }
+            for attribute in &mut symbol.attributes {
+                self.remap_ref(&mut attribute.attribute.source);
+            }
+        }
+        for sheet in &mut drawing.sheets {
+            self.remap_ref(&mut sheet.source);
+            for element in &mut sheet.elements {
+                self.remap_element(element);
+            }
+            for view in &mut sheet.views {
+                self.remap_ref(&mut view.source);
+            }
+        }
+    }
+}
+
 impl DxfLiveBacking {
+    /// 追加と削除がある場合だけ、保存時と同じ挿入位置・作成順の対応表を作る。
+    pub fn record_mapper(&self) -> Option<DxfRecordMapper> {
+        let source_records = self.source_records();
+        if self.gone.is_empty() && self.overlay.range(source_records..).next().is_none() {
+            return None;
+        }
+        let removed: Vec<_> = self.gone.range(..source_records).copied().collect();
+        let mut inserted: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
+        for (&record, overlay) in self.overlay.range(source_records..) {
+            if !self.gone.contains(&record)
+                && let Some(target) = overlay.insert_before.or(self.entities_end_record)
+            {
+                inserted.entry(target).or_default().push(record);
+            }
+        }
+        let mut insertions = Vec::with_capacity(inserted.len());
+        let mut born = BTreeMap::new();
+        let mut count = 0_u32;
+        for (target, records) in inserted {
+            let removed_before = removed.partition_point(|&r| r < target) as u32;
+            for record in records {
+                let effective = target.checked_sub(removed_before)?.checked_add(count)?;
+                born.insert(record, effective);
+                count = count.checked_add(1)?;
+            }
+            insertions.push((target, count));
+        }
+        Some(DxfRecordMapper {
+            source_records,
+            removed,
+            insertions,
+            born,
+        })
+    }
+
     /// 元のレコード件数
     #[inline]
     pub fn source_records(&self) -> u32 {

@@ -939,6 +939,84 @@ mod tests {
     }
 
     #[test]
+    fn dxf_record_sources_match_reload_after_fast_edits() {
+        check_dxf_record_sources(synthetic_rich_dxf());
+    }
+
+    #[test]
+    fn dxf_record_sources_match_when_definitions_follow_entities() {
+        let text = String::from_utf8(synthetic_rich_dxf()).unwrap();
+        let mut sections: Vec<_> = text.split_inclusive("  0\nENDSEC\n").collect();
+        let index = sections
+            .iter()
+            .position(|section| section.starts_with("  0\nSECTION\n  2\nENTITIES\n"))
+            .unwrap();
+        let entities = sections.remove(index);
+        sections.insert(1, entities);
+        check_dxf_record_sources(sections.concat().into_bytes());
+    }
+
+    fn check_dxf_record_sources(src: Vec<u8>) {
+        let mut live = fresh_cx(|cx| AcadLive::open_dxf(&src, cx)).0.unwrap();
+        let mut reference = fresh_cx(|cx| Dxf::read(&src, cx)).0.unwrap();
+        for step in 0..6 {
+            let before = fresh_cx(|cx| live.drawing(cx)).0.unwrap();
+            let before_bytes = fresh_cx(|cx| live.save(cx)).0.unwrap();
+            let element = if step == 4 {
+                before.spaces[0]
+                    .elements
+                    .iter()
+                    .find(|element| matches!(element.shape, Shape::Symbol(_)))
+                    .unwrap()
+                    .clone()
+            } else {
+                before.spaces[0].elements[0].clone()
+            };
+            let edit = if step % 2 == 0 {
+                Edit::Add {
+                    place: "space/0".to_owned(),
+                    element: Box::new(Placed::Model(element)),
+                }
+            } else {
+                Edit::Remove {
+                    target: Seen {
+                        id: all_element_ids_and_hashes(&before)[0].0.clone(),
+                        hash: Hash::element(&element),
+                    },
+                }
+            };
+            let changes = Changes {
+                document: None,
+                edits: vec![edit],
+            };
+            assert_eq!(
+                fresh_cx(|cx| live.apply(&changes, cx)),
+                fresh_cx(|cx| reference.apply(&changes, cx)),
+                "step {step}"
+            );
+            let saved = fresh_cx(|cx| live.save(cx)).0.unwrap();
+            let expected = fresh_cx(|cx| {
+                let mut bytes = Vec::new();
+                Dxf::write(&reference, &mut bytes, cx).map(|()| bytes)
+            })
+            .0
+            .unwrap();
+            assert_eq!(saved, expected, "step {step}");
+            let reloaded = fresh_cx(|cx| Dxf::read(&saved, cx).and_then(|f| f.lift(cx)))
+                .0
+                .unwrap();
+            let retained = fresh_cx(|cx| live.drawing(cx)).0.unwrap();
+            assert_eq!(retained, reloaded, "step {step}");
+            assert!(fresh_cx(|cx| live.undo(cx)).0.unwrap());
+            assert_eq!(fresh_cx(|cx| live.drawing(cx)).0.unwrap(), before);
+            assert_eq!(fresh_cx(|cx| live.save(cx)).0.unwrap(), before_bytes);
+            assert!(fresh_cx(|cx| live.redo(cx)).0.unwrap());
+            assert_eq!(fresh_cx(|cx| live.drawing(cx)).0.unwrap(), retained);
+            assert_eq!(fresh_cx(|cx| live.save(cx)).0.unwrap(), saved);
+        }
+    }
+
+    #[test]
     fn dxf_fast_and_structural_edits_match_apply_bytes_and_undo_redo() {
         let src = synthetic_rich_dxf();
         let (dxf_ref, _) = fresh_cx(|cx| Dxf::read(&src, cx));
