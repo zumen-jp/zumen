@@ -26,6 +26,9 @@ use crate::db::{Data, Object, Origin, Section, Value};
 /// 符号化した追加レコードの列と次の `HANDSEED`
 pub type EncodedBorn = (Vec<(u64, Vec<u8>)>, u64);
 
+/// 差分書き戻しで更新する 1 レコードの `(handle, section, kind, old_values, new_values)`
+pub type UpdatedDwgRecord = (u64, Section, Vec<u8>, Vec<Value>, Vec<Value>);
+
 /// 図形レコードの所属空間の分類
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EntitySpace {
@@ -550,6 +553,93 @@ impl DwgSingle {
         self.header.map(|h| [h.limits[0], h.limits[1]])
     }
 
+    /// ヘッダーの `PDMODE`
+    pub fn point_mode(&self) -> Option<i16> {
+        self.header.map(|h| h.point_mode)
+    }
+
+    /// ヘッダーの `PDSIZE`
+    pub fn point_size(&self) -> Option<f64> {
+        self.header.map(|h| h.point_size)
+    }
+
+    /// `DwgFile::objects` と同じ規則でヘッダー変数を `db` に設定する
+    pub fn populate_header_variables(&self, db: &mut crate::db::AcadDb) {
+        db.set_variable(
+            b"$ACADVER",
+            vec![Value {
+                code: 1,
+                data: Data::Text(self.version.clone()),
+            }],
+        );
+        if let Some(name) = self.code_page {
+            db.set_variable(
+                b"$DWGCODEPAGE",
+                vec![Value {
+                    code: 3,
+                    data: Data::Text(name.to_vec()),
+                }],
+            );
+        }
+        if let Some(header) = self.header {
+            let [x0, y0, x1, y1] = header.limits;
+            db.set_variable(
+                b"$INSUNITS",
+                vec![Value {
+                    code: 70,
+                    data: Data::Int(i64::from(header.units)),
+                }],
+            );
+            db.set_variable(
+                b"$PLIMMIN",
+                vec![
+                    Value {
+                        code: 10,
+                        data: Data::Real(x0),
+                    },
+                    Value {
+                        code: 20,
+                        data: Data::Real(y0),
+                    },
+                ],
+            );
+            db.set_variable(
+                b"$PLIMMAX",
+                vec![
+                    Value {
+                        code: 10,
+                        data: Data::Real(x1),
+                    },
+                    Value {
+                        code: 20,
+                        data: Data::Real(y1),
+                    },
+                ],
+            );
+            db.set_variable(
+                b"$LTSCALE",
+                vec![Value {
+                    code: 40,
+                    data: Data::Real(header.line_type_scale),
+                }],
+            );
+            db.set_variable(
+                b"$PDMODE",
+                vec![Value {
+                    code: 70,
+                    data: Data::Int(i64::from(header.point_mode)),
+                }],
+            );
+            db.set_variable(
+                b"$PDSIZE",
+                vec![Value {
+                    code: 40,
+                    data: Data::Real(header.point_size),
+                }],
+            );
+        }
+    }
+
     /// ハンドル重複が元のオブジェクト・マップにあったか
     pub fn has_duplicate_handle(&self) -> bool {
         self.has_duplicate_handle
@@ -1018,7 +1108,39 @@ impl DwgSingle {
         new_seed: Option<u64>,
         cx: &mut Cx<'_>,
     ) -> Result<Vec<u8>, Error> {
-        if staged.is_empty() && removed_records.is_empty() && added.is_empty() && new_seed.is_none()
+        self.save_file_with_headers(
+            file,
+            staged,
+            removed_records,
+            removed_model_handles,
+            added,
+            new_seed,
+            None,
+            None,
+            cx,
+        )
+    }
+
+    /// ヘッダー変数（`PDMODE`・`PDSIZE`）の変更も含め、差分を 1 つの `DwgTxn` で反映して書き出す
+    #[allow(clippy::too_many_arguments)]
+    pub fn save_file_with_headers(
+        &self,
+        file: &DwgFile,
+        staged: &BTreeMap<usize, Vec<u8>>,
+        removed_records: &BTreeSet<usize>,
+        removed_model_handles: &BTreeSet<u64>,
+        added: &[(u64, Vec<u8>, bool)],
+        new_seed: Option<u64>,
+        point_mode: Option<i16>,
+        point_size: Option<f64>,
+        cx: &mut Cx<'_>,
+    ) -> Result<Vec<u8>, Error> {
+        if staged.is_empty()
+            && removed_records.is_empty()
+            && added.is_empty()
+            && new_seed.is_none()
+            && point_mode.is_none()
+            && point_size.is_none()
         {
             let mut out = Vec::new();
             Dwg::write(file, &mut out, cx)?;
@@ -1089,6 +1211,12 @@ impl DwgSingle {
                 if let Some(seed) = new_seed {
                     txn.set_handle_seed(seed)?;
                 }
+                if let Some(mode) = point_mode {
+                    txn.set_point_mode(mode)?;
+                }
+                if let Some(size) = point_size {
+                    txn.set_point_size(size)?;
+                }
                 txn.commit(cx)?;
             }
             let mut out = Vec::new();
@@ -1123,10 +1251,170 @@ impl DwgSingle {
         if let Some(seed) = new_seed {
             txn.set_handle_seed(seed)?;
         }
+        if let Some(mode) = point_mode {
+            txn.set_point_mode(mode)?;
+        }
+        if let Some(size) = point_size {
+            txn.set_point_size(size)?;
+        }
         txn.commit(cx)?;
         let mut out = Vec::new();
         Dwg::write(&updated, &mut out, cx)?;
         Ok(out)
+    }
+
+    /// 1 回の `apply` に相当する差分を `file` に確定させる（全体を書く保存で変更列を順に再現するのに使う）
+    #[allow(clippy::too_many_arguments)]
+    pub fn apply_fast_step(
+        &self,
+        file: &mut DwgFile,
+        updated_records: &[UpdatedDwgRecord],
+        removed_handles: &BTreeSet<u64>,
+        removed_model_handles: &BTreeSet<u64>,
+        added: &[(u64, Vec<u8>, bool)],
+        new_seed: Option<u64>,
+        point_mode: Option<i16>,
+        point_size: Option<f64>,
+        cx: &mut Cx<'_>,
+    ) -> Result<(), Error> {
+        if updated_records.is_empty()
+            && removed_handles.is_empty()
+            && added.is_empty()
+            && new_seed.is_none()
+            && point_mode.is_none()
+            && point_size.is_none()
+        {
+            return Ok(());
+        }
+        let mut handle_map: BTreeMap<u64, usize> = BTreeMap::new();
+        for (idx, entry) in file.entries.iter().enumerate() {
+            handle_map.entry(entry.handle).or_insert(idx);
+        }
+        let mut changes: BTreeMap<usize, Vec<u8>> = BTreeMap::new();
+        for (handle, section, kind, old_values, new_values) in updated_records {
+            if old_values == new_values {
+                continue;
+            }
+            let rec = *handle_map.get(handle).ok_or(Error::Rejected)?;
+            let current_encoded = self.base_encoded(file, rec).ok_or(Error::Rejected)?;
+            let bytes = self
+                .encode_record_edit(
+                    &current_encoded,
+                    section.clone(),
+                    kind,
+                    old_values,
+                    new_values,
+                )
+                .ok_or(Error::Rejected)?;
+            changes.insert(rec, bytes);
+        }
+        let mut removed_records: BTreeSet<usize> = BTreeSet::new();
+        for handle in removed_handles {
+            let rec = *handle_map.get(handle).ok_or(Error::Rejected)?;
+            removed_records.insert(rec);
+        }
+        let mut added_copy: Vec<(u64, Vec<u8>, bool)> = added.to_vec();
+        if added_copy
+            .iter()
+            .any(|(h, _, _)| removed_handles.contains(h))
+        {
+            if !removed_model_handles.is_empty() {
+                let (_, block_handle) = self.model_block.ok_or(Error::Rejected)?;
+                let block_record = *handle_map.get(&block_handle).ok_or(Error::Rejected)?;
+                let mut no_added = Vec::new();
+                file.patch_model_block_and_added(
+                    block_record,
+                    block_handle,
+                    |h| handle_map.get(&h).copied(),
+                    &mut changes,
+                    removed_model_handles,
+                    &mut no_added,
+                )
+                .ok_or(Error::Rejected)?;
+            }
+            {
+                let mut txn = file.transaction();
+                for (&rec, data) in &changes {
+                    if !removed_records.contains(&rec) {
+                        txn.set_data(rec, data)?;
+                    }
+                }
+                for &rec in &removed_records {
+                    txn.remove(rec)?;
+                }
+                txn.commit(cx)?;
+            }
+            let mut post_map: BTreeMap<u64, usize> = BTreeMap::new();
+            for (idx, entry) in file.entries.iter().enumerate() {
+                post_map.entry(entry.handle).or_insert(idx);
+            }
+            let mut add_changes = BTreeMap::new();
+            if !added_copy.is_empty() {
+                let (_, block_handle) = self.model_block.ok_or(Error::Rejected)?;
+                let block_record = *post_map.get(&block_handle).ok_or(Error::Rejected)?;
+                file.patch_model_block_and_added(
+                    block_record,
+                    block_handle,
+                    |h| post_map.get(&h).copied(),
+                    &mut add_changes,
+                    &BTreeSet::new(),
+                    &mut added_copy,
+                )
+                .ok_or(Error::Rejected)?;
+            }
+            let mut txn = file.transaction();
+            for (&rec, data) in &add_changes {
+                txn.set_data(rec, data)?;
+            }
+            for (handle, data, _) in &added_copy {
+                txn.add(*handle, data)?;
+            }
+            if let Some(seed) = new_seed {
+                txn.set_handle_seed(seed)?;
+            }
+            if let Some(mode) = point_mode {
+                txn.set_point_mode(mode)?;
+            }
+            if let Some(size) = point_size {
+                txn.set_point_size(size)?;
+            }
+            return txn.commit(cx);
+        }
+        if !removed_model_handles.is_empty() || !added_copy.is_empty() {
+            let (_, block_handle) = self.model_block.ok_or(Error::Rejected)?;
+            let block_record = *handle_map.get(&block_handle).ok_or(Error::Rejected)?;
+            file.patch_model_block_and_added(
+                block_record,
+                block_handle,
+                |h| handle_map.get(&h).copied(),
+                &mut changes,
+                removed_model_handles,
+                &mut added_copy,
+            )
+            .ok_or(Error::Rejected)?;
+        }
+        let mut txn = file.transaction();
+        for (&rec, data) in &changes {
+            if !removed_records.contains(&rec) {
+                txn.set_data(rec, data)?;
+            }
+        }
+        for &rec in &removed_records {
+            txn.remove(rec)?;
+        }
+        for (handle, data, _) in &added_copy {
+            txn.add(*handle, data)?;
+        }
+        if let Some(seed) = new_seed {
+            txn.set_handle_seed(seed)?;
+        }
+        if let Some(mode) = point_mode {
+            txn.set_point_mode(mode)?;
+        }
+        if let Some(size) = point_size {
+            txn.set_point_size(size)?;
+        }
+        txn.commit(cx)
     }
 }
 

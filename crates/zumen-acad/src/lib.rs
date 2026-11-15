@@ -18,8 +18,9 @@ pub use conversion_report::{
 pub use db::{AcadDb, Data, DataType, Line, Object, Origin, Section, Value, ViewError};
 #[cfg(feature = "drawing")]
 pub use drawing::{
-    Lowered, NewDxfTemplate, Relocate, Reseat, dimension_spans, lift as lift_drawing, lower_to_dxf,
-    lower_to_dxf_with, lower_to_dxf_with_report, mtext_spans, single,
+    AcadLive, LiveFormat, LiveKind, LiveRow, Lowered, NewDxfTemplate, Relocate, Reseat,
+    dimension_spans, lift as lift_drawing, live, lower_to_dxf, lower_to_dxf_with,
+    lower_to_dxf_with_report, mtext_spans, single,
 };
 pub use dwg::{Dwg, DwgFile, DwgTxn, Locator};
 pub use dxf::{Dxf, DxfFile, DxfTxn, Record, Tag};

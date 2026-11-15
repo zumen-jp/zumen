@@ -18,7 +18,7 @@ pub(crate) use add::{Born, Target, next_handle_from};
 pub(crate) use callout::anchor;
 pub(crate) use owned::children_of_values;
 pub(crate) use replace::replacement;
-pub(crate) use transform::{moved_with_attribs, restyled};
+pub(crate) use transform::{moved_with_attribs, restyled, revalued_with_attribs};
 
 mod add;
 mod callout;
@@ -1344,7 +1344,7 @@ fn record_at<'a>(db: &'a AcadDb, records: &[usize], source: &Ref) -> Option<(usi
     })
 }
 
-fn symbol_moved<P: PartialEq>(before: &Shape<P>, after: &Shape<P>) -> bool {
+pub(crate) fn symbol_moved<P: PartialEq>(before: &Shape<P>, after: &Shape<P>) -> bool {
     matches!((before, after), (Shape::Symbol(a), Shape::Symbol(b))
         if a.position != b.position || a.scale != b.scale || a.rotation != b.rotation)
 }

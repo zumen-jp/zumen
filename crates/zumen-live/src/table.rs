@@ -84,6 +84,12 @@ impl<R> TableSnapshot<R> {
         self.live_count
     }
 
+    /// 索引の中で生きている最大のハンドルを返す
+    #[inline]
+    pub fn max_handle(&self) -> Option<u64> {
+        self.handles.max_handle()
+    }
+
     /// `id` の行が生きているか
     #[inline]
     pub fn is_alive(&self, id: RowId) -> bool {
@@ -189,6 +195,20 @@ impl<R> VersionedTable<R> {
         self.state_id
     }
 
+    /// 次に割り当てる内容の状態番号
+    #[inline]
+    pub const fn next_state_id(&self) -> u64 {
+        self.next_state_id
+    }
+
+    /// 構造再構築の前後で版・状態番号を引き継ぐ
+    #[inline]
+    pub fn set_version(&mut self, revision: Revision, state_id: u64, next_state_id: u64) {
+        self.revision = revision;
+        self.state_id = state_id;
+        self.next_state_id = next_state_id;
+    }
+
     /// 除かれた行を含む全行数
     #[inline]
     pub const fn len(&self) -> usize {
@@ -205,6 +225,12 @@ impl<R> VersionedTable<R> {
     #[inline]
     pub const fn live_count(&self) -> u32 {
         self.live_count
+    }
+
+    /// 索引の中で生きている最大のハンドルを返す
+    #[inline]
+    pub fn max_handle(&self) -> Option<u64> {
+        self.handles.max_handle()
     }
 
     /// 行データの 4,096 行塊の数

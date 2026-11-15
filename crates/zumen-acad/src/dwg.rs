@@ -245,6 +245,11 @@ impl DwgFile {
         self.entries.len()
     }
 
+    /// クラス定義の件数
+    pub fn class_count(&self) -> usize {
+        self.classes.len()
+    }
+
     /// `record` 番目のオブジェクトの見出し `(handle, type_code, handles_at, span)`
     pub fn entry_summary(&self, record: usize) -> Option<(u64, u16, Option<usize>, Range<usize>)> {
         let entry = self.entries.get(record)?;

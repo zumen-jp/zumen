@@ -129,6 +129,28 @@ impl HandleIndex {
         self.get(handle).is_some()
     }
 
+    /// 生きている最大のハンドルを返す（なければ `None`）
+    pub fn max_handle(&self) -> Option<u64> {
+        let max_base = self
+            .base
+            .iter()
+            .rev()
+            .find_map(|&(h, _)| match self.overrides.get(&h) {
+                Some(None) => None,
+                Some(Some(_)) | None => Some(h),
+            });
+        let max_ov = self
+            .overrides
+            .iter()
+            .rev()
+            .find_map(|(&h, &slot)| slot.map(|_| h));
+        match (max_base, max_ov) {
+            (Some(a), Some(b)) => Some(a.max(b)),
+            (Some(a), None) => Some(a),
+            (None, b) => b,
+        }
+    }
+
     /// 取り消しのために、指定ハンドルの現在の上書き状態を記録する
     #[inline]
     pub fn snapshot_entry(&self, handle: u64) -> HandleBefore {

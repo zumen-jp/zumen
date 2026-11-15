@@ -16,6 +16,7 @@ use zumen_drawing::{
 use super::apply::{
     Born, Encoder, InSpace, Target, anchor, children_of_values, followed_values,
     moved_with_attribs, moving_xdata_code, next_handle_from, replacement, restyled,
+    revalued_with_attribs, symbol_moved,
 };
 use super::style::transparency as decode_transparency;
 use super::{FIT_DATA, Lifter, MODEL, Out, SHEET, TABLE_CONTENT, source, unit_of};
@@ -843,6 +844,47 @@ pub fn replace_model(
     };
     let encoder = Encoder::new(charset);
     replacement(was, now, &object, &encoder, &InSpace(space))
+}
+
+/// 主の図形の更新後の値と、更新された `ATTRIB` の `(添字, 値)` の組
+pub type ReplacedWithAttribs = (Vec<Value>, Vec<(usize, Vec<Value>)>);
+
+/// モデル空間の 1 図形（と、続く ATTRIB の列）を置き換えた後の値。
+/// 主の図形の新しい値と、書き換わった ATTRIB の `(添字, 新しい値)` の列を返す。書き戻せなければ `None`
+pub fn replace_model_with_attribs(
+    was: &Element<ModelPoint>,
+    now: &Element<ModelPoint>,
+    kind: &[u8],
+    old: &[Value],
+    attribs: &[&[Value]],
+    raw_attrib_count: usize,
+    charset: Charset,
+) -> Option<ReplacedWithAttribs> {
+    if symbol_moved(&was.shape, &now.shape) && raw_attrib_count > 0 {
+        return None;
+    }
+    let space = anchor(&was.shape)?.space;
+    let object = Object {
+        kind: kind.to_vec(),
+        section: Section::Entities,
+        values: old.to_vec(),
+        origin: Origin::New,
+    };
+    let follower_objs: Vec<Object> = attribs
+        .iter()
+        .map(|vals| Object {
+            kind: b"ATTRIB".to_vec(),
+            section: Section::Entities,
+            values: (*vals).to_vec(),
+            origin: Origin::New,
+        })
+        .collect();
+    let indexed: Vec<(usize, &Object)> = follower_objs.iter().enumerate().collect();
+    let frame = InSpace(space);
+    let encoder = Encoder::new(charset);
+    let (written, followers) = revalued_with_attribs(was, now, &indexed, &encoder, &frame)?;
+    let values = replacement(was, &written, &object, &encoder, &frame)?;
+    Some((values, followers))
 }
 
 /// モデル空間の 1 図形（と、続く ATTRIB の列）を変換 `transform` で動かした後の値。

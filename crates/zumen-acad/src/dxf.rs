@@ -38,7 +38,7 @@ pub use write_back::{
 use zumen_sdk::{ByteRange, Codec, Error, FileModel, RecordInfo, Signature, Transact, Transaction};
 
 /// バイナリの DXF の先頭（DXF Reference「Binary DXF Files」）
-const BINARY_SENTINEL: &[u8] = b"AutoCAD Binary DXF\r\n\x1a\0";
+pub(crate) const BINARY_SENTINEL: &[u8] = b"AutoCAD Binary DXF\r\n\x1a\0";
 
 const ASCII_FILES: SpecRef = SpecRef {
     spec: "dxf_2026",
@@ -640,7 +640,7 @@ fn fresh_tag(code: i16, value: &[u8]) -> Tag {
     }
 }
 
-fn on_tag(code: Code, record: usize, group_code: i16) -> Diagnostic {
+pub(crate) fn on_tag(code: Code, record: usize, group_code: i16) -> Diagnostic {
     Diagnostic::new(code)
         .with("record", record as u64)
         .with("code", i64::from(group_code))

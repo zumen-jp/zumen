@@ -393,6 +393,60 @@ fn directed(values: &mut Vec<Value>, transform: &Affine) -> Option<()> {
     Some(())
 }
 
+/// 図形と、既に引いた続く ATTRIB の列 `attribs` に対し、記号の属性の値の変更を反映する
+pub(crate) fn revalued_with_attribs<P: Clone + PartialEq>(
+    was: &Element<P>,
+    element: &Element<P>,
+    attribs: &[(usize, &Object)],
+    encoder: &Encoder,
+    frame: &impl Frame<P>,
+) -> Option<(Element<P>, Followers)> {
+    let (Shape::Symbol(symbol), Shape::Symbol(original)) = (&element.shape, &was.shape) else {
+        return Some((element.clone(), Vec::new()));
+    };
+    if symbol.attributes == original.attributes {
+        return Some((element.clone(), Vec::new()));
+    }
+    if symbol.attributes.len() != original.attributes.len()
+        || attribs.len() != original.attributes.len()
+    {
+        return None;
+    }
+    let mut followers = Vec::new();
+    for (((position, follower), attribute), before) in attribs
+        .iter()
+        .zip(&symbol.attributes)
+        .zip(&original.attributes)
+    {
+        if attribute == before {
+            continue;
+        }
+        let mut same = attribute.clone();
+        same.text.content.clone_from(&before.text.content);
+        if same != *before || before.formatted.is_some() || follower.kind != b"ATTRIB" {
+            return None;
+        }
+        let mut values = follower.values.clone();
+        lettering(
+            &mut values,
+            &attribute.text,
+            &before.text,
+            frame,
+            encoder,
+            74,
+        )?;
+        followers.push((*position, values));
+    }
+    let written = Element {
+        shape: Shape::Symbol(Symbol {
+            attributes: original.attributes.clone(),
+            ..symbol.clone()
+        }),
+        ..element.clone()
+    };
+    Some((written, followers))
+}
+
 /// 記号の属性の値の変更を、続く ATTRIB の値（1）に書く（表題欄の項目の書き換えなど）。値のほかのフィールド・数・順は
 /// 変えられない。書式つきの値（複数行の属性）を持つ属性の値も変えられない。INSERT は元の属性のまま書くので、
 /// 元の属性に戻した要素と、書き直す ATTRIB を返す。属性の値が変わらなければ、要素をそのまま返す

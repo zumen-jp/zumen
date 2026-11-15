@@ -720,6 +720,34 @@ impl Display {
         self.track_dirty = true;
     }
 
+    /// すべての GPU 列を未転送（ダーティ）にして、全体同期を要求する
+    pub fn mark_all_dirty(&mut self) {
+        self.dirty.segments.mark_range(0, self.segments.len());
+        self.dirty
+            .segment_owner
+            .mark_range(0, self.segment_owner.len());
+        self.dirty
+            .segment_style
+            .mark_range(0, self.segment_style.len());
+        self.dirty.arcs.mark_range(0, self.arcs.len());
+        self.dirty.arc_owner.mark_range(0, self.arc_owner.len());
+        self.dirty.arc_style.mark_range(0, self.arc_style.len());
+        self.dirty.texts.mark_range(0, self.texts.len());
+        self.dirty.text_owner.mark_range(0, self.text_owner.len());
+        self.dirty.text_style.mark_range(0, self.text_style.len());
+        self.dirty.instances.mark_range(0, self.instances.len());
+        self.dirty
+            .instance_ref
+            .mark_range(0, self.instance_ref.len());
+        self.dirty
+            .instance_owner
+            .mark_range(0, self.instance_owner.len());
+        self.dirty
+            .instance_style
+            .mark_range(0, self.instance_style.len());
+        self.track_dirty = true;
+    }
+
     /// 前回の [`Self::clear_dirty`] から GPU 列に変化があったか
     pub fn has_dirty(&self) -> bool {
         self.dirty.segments.is_dirty(self.segments.len())
