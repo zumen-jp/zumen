@@ -122,6 +122,16 @@ impl IfcFile {
         instance: u64,
         cx: &mut Cx,
     ) -> Result<ProductShape<'f>, Error> {
+        self.product_shape_inner(instance, cx, true)
+    }
+
+    // 統合した取得では、未展開の葉の診断を値の取得側で行う。
+    pub(super) fn product_shape_inner<'f>(
+        &'f self,
+        instance: u64,
+        cx: &mut Cx,
+        report_unexpanded: bool,
+    ) -> Result<ProductShape<'f>, Error> {
         cx.with_diagnostics_in_record_order(|cx| {
             if Version::of(self.schema()).is_none() {
                 for (kind, count) in [
@@ -149,6 +159,7 @@ impl IfcFile {
                 index: BTreeMap::new(),
                 active: BTreeSet::new(),
                 children: Vec::new(),
+                report_unexpanded,
             }
             .run(instance)
         })
@@ -163,6 +174,7 @@ struct Reader<'f, 'c, 'b> {
     index: BTreeMap<u64, ShapeRef>,
     active: BTreeSet<u64>,
     children: Vec<u64>,
+    report_unexpanded: bool,
 }
 
 impl<'f> Reader<'f, '_, '_> {
@@ -200,6 +212,9 @@ impl<'f> Reader<'f, '_, '_> {
         );
     }
     fn unsupported(&mut self, record: &Record) -> Result<(), Error> {
+        if !self.report_unexpanded {
+            return Ok(());
+        }
         let kind = self.file.kind(record);
         self.check(Kind::Work, kind.len() as u64)?;
         self.alloc(kind.len(), 3)?;

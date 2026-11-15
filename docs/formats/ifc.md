@@ -118,7 +118,31 @@ cargo test -p zumen-ifc --locked --test product_shapes --target wasm32-wasip1 --
 
 WASI の出力は `target/shape-comparison-wasm` に書きます。同じ 4 件の JSON で、参照と保持した属性、曲線の点、各 Kind の予算使用量と診断がネイティブと一致することを比べます。1 MiB のスタックで 3,000 項目を超える写像の read・clone・drop を行う検査だけはネイティブで流します。毎晩の CI でも上の手順で export して外部の実装と照らします。fuzz の `ifc` target は 16 要素までこの取得へ渡して共有の予算で探索します。
 
-Building の representation・style・grid への統合、立体・断面の型、形の意味値を含む要素ハッシュは [#419](https://github.com/zumen-jp/zumen/issues/419) に残ります。
+### 形・写像・表示・通り芯を一度に取得する
+
+`IfcFile::element_geometry(&Element, cx)` は、この IFC から lift した Building の要素を受け取り、形・写像・表示・通り芯を `ProductGeometry` にまとめます。出所のインスタンスと、保持している元の GlobalId を照合します。L1 の番号から呼ぶ入口は `product_geometry(instance, cx)` です。取得のために Building を変更しません。
+
+- `shape` に元の参照関係、同じ位置の `values` に `GeometryValue` を持ちます。押し出し・回転体・掃引円盤・多角形の面集合・添字付き面集合・半空間・3D の写像・曲線を、以下の個別の getter で取得します。共有項目の値は一度だけ持ち、構造の `ShapeRef` で引けます。曲線内部の共有はそれぞれの `CurveGraph` に閉じます。
+- `styles` は項目と、それを直接含む表現の組ごとに `item_presentation()` の結果を持ちます。同じ形を別の表現で使う場合も、レイヤの所属を混ぜません。表現に直接含まれず、ブーリアンや集合からだけ参照される項目の表示も取得します。写像の階層を越える上書きは、この参照関係を保持したまま未評価です。
+- Grid では、軸・曲線・配置の出所を `grid_axes()` から `grid` に取得します。通り芯ではない場合の `None` と、通り芯の軸が未対応な場合の `Some(Unsupported)` を区別します。
+- 未知の形や未対応の断面は、元の項目の種類と出所を持つ `GeometryValue::Unsupported` です。表示と通り芯の未対応は `Retrieved::Unsupported` とし、空の値・省略と同一視しません。未対応の子の種類や場所も個別の診断に残します。これは欠落を明示する取得の契約で、不正・予算・中断では全体を返しません。
+- 統合した経路では、型に取得できた葉に `ifc.shape.unsupported` を出しません。従来の `product_shape()` は構造だけの取得として、値・診断・予算を変えません。統合結果の `shape` の未展開という印と、対応する `values` の取得結果を区別してください。
+- 共有 `Cx` で構造の循環・深さと個別の取得を検査します。形の項目数を Elements、値と参照済みの印を確保前に 1 項目 2056 DecodedBytes、表示を使う位置の容量を 1 件 1024 DecodedBytes として予約します。個別の曲線・文字列・レイヤなどの確保と走査も同じ予算を使います。配列は平らに持ち、Rust の再帰を増やしません。
+
+取得は形の評価ではなく、要素の配置・写像・単位換算を適用しません。L1 の借用出所と意味の値を含む全体の等価性や Hash は定義しません。Building の成分への格納、取得前後で変わらず形の意味値を含む要素ハッシュ、写像間と材質からの表示の継承は [#419](https://github.com/zumen-jp/zumen/issues/419) の残件です。
+
+`tests/geometry.rs` で合成の 3 版、共有する押し出し・写像・ブーリアン、表示の参照元、通り芯、未知・不正・循環・全 Kind の予算・中断を確かめます。公開の GNI の柱 `#131` と TallBuilding の壁 `#615` も、同じ入口から取得します。外部の実装との照合は、共有グラフの項目の種類・参照、表示とレイヤの参照、深さ・回転角・半径・写像先・半空間の真偽の代表属性です。個別 getter の全属性の照合は、以下の各節で示す範囲です。表示・配置・体積の評価とは分けます。
+
+```powershell
+$env:ZUMEN_IFC_GEOMETRY_OUT = Join-Path (Get-Location) 'target/geometry-comparison'
+cargo test -p zumen-ifc --locked --test geometry
+python -X utf8 -I crates/zumen-ifc/tests/ifcopenshell/geometry.py target/geometry-comparison
+$env:CARGO_TARGET_WASM32_WASIP1_RUNNER = 'node --no-warnings tests/wasi-geometry.mjs'
+cargo test -p zumen-ifc --locked --test geometry --target wasm32-wasip1 -- --test-threads 1
+node crates/zumen-ifc/tests/wasi-geometry.mjs --compare target/geometry-comparison target/geometry-comparison-wasm
+```
+
+5 件の JSON と、元値・出所・診断・全 Kind の記録をネイティブと WASI で比較します。fuzz は最初の 16 要素まで、統合した取得と従来の個別の getter に同じ予算を渡します。
 
 ## 形の葉から押し出しと断面を取得する
 

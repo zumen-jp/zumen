@@ -38,6 +38,7 @@ fn lift(file: &IfcFile, cx: &mut Cx) -> Result<(), Error> {
         if file.instance(id).is_some_and(|r| {
             [b"IFCWALL".as_slice(), b"IFCCOLUMN", b"IFCBEAM", b"IFCSLAB", b"IFCGRID", b"IFCSPACE", b"IFCBUILDINGELEMENTPROXY"].iter().any(|kind| file.kind(r).eq_ignore_ascii_case(kind))
         }) {
+            if let Err(Error::Stopped(stop)) = file.product_geometry(id, cx) { return Err(Error::Stopped(stop)); }
             match file.product_shape(id, cx) {
                 Ok(shape) => {
                     for node in &shape.nodes {
