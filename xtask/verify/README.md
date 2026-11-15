@@ -20,6 +20,7 @@ IFC4・IFC2X3 の名前・説明・プロパティを書き戻し、BIM ソフ�
 | `geoid/` | ジオイドの格子の補間を、国土地理院のジオイド高計算サービスか内挿計算プログラムの結果と照らす（#438）。利用者が入手したモデルで、`cargo xtask geoid` を使う。手順は [README](geoid/README.md) |
 | `ply/` | 公開 PDAL サンプルを ply-rs と照らし、MeshLab に渡す期待値表と実測用の様式を作る（#870）。実機の操作は利用者待ち。手順は [README](ply/README.md) |
 | `saf/` | 自作の SAF 付き P2Z・SFZ を ezsxf・ZIP・XML の別実装と照らし、属性の値と結び先を確認するキットを作る（#494）。SXF ブラウザの操作は利用者待ち。手順は [README](saf/README.md) |
+| `points/` | JWW・SFC・P21への点追加を外部実装と照らし、部分照合と実機待ちを分けた期待値表・実測用の様式を作る（#342）。手順は [README](points/README.md) |
 | `mtext/` | 自作の MTEXT の読み・追加・置き換え・変換を ezdxf の度数と照らし、自前の往復では見えない角度の不一致を検出する（#882）。手順は [README](mtext/README.md) |
 | `express/` | buildingSMART の公開 IFC EXPRESS 3版を実行時だけ取得し、実体・明示属性・型を同じ入力から読んだ IfcOpenShell と照らす（#663）。手順は [README](express/README.md) |
 | `acc/` | 公開 IFC と BCF 2.1 のオフライン検証キットを作り、Autodesk Build の取り込み・書き出しを利用者が確認する（#686・#787）。手順と期待値は [README](acc/README.md) |

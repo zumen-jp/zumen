@@ -350,6 +350,10 @@ jobs:
         run: |
           python -I xtask/verify/check_ezsxf.py "$RUNNER_TEMP/verify"
           python -I xtask/verify/test_ezsxf.py "$RUNNER_TEMP/verify"
+      - name: JWW・SFC・P21の点追加を照らし、実機用の期待値と部分照合の記録を作る
+        run: |
+          python -I xtask/verify/points/make.py target/release/zumen "$RUNNER_TEMP/verify/342/points-kit"
+          python -I xtask/verify/points/test_make.py "$RUNNER_TEMP/verify/342/points-kit"
       - name: 検証キットの DWG を ACadSharp で読み、値を書き出す
         id: acadsharp
         if: ${{ !cancelled() && steps.make.outcome != 'skipped' }}
