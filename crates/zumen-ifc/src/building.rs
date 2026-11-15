@@ -20,6 +20,7 @@ use zumen_sdk::{Cx, Error, Lift, Stop};
 use crate::{IfcFile, IfcZipFile, Record, Value, at_bytes, stopped};
 
 mod curve;
+mod entities;
 mod extrusion;
 mod faces;
 mod geometry;
@@ -114,7 +115,7 @@ const NONE: u8 = 0;
 struct Entity {
     /// 元のスキーマでの名前
     name: &'static str,
-    /// IFC4.3 でのクラスの名前。`StandardCase` などの派生は、元のクラスにまとめる
+    /// IFC4.3 でのクラスの名前。旧版だけの実体は元の名前を保ち、`StandardCase` などの派生は元のクラスにまとめる
     class: &'static str,
     category: Category,
     predefined: [u8; 3],
@@ -552,6 +553,7 @@ pub(crate) fn category(kind: &[u8], schema: &[u8]) -> Option<Category> {
     let version = Version::of(schema)?;
     ENTITIES
         .iter()
+        .chain(entities::ADDITIONAL)
         .find(|e| {
             e.name.as_bytes().eq_ignore_ascii_case(kind)
                 && e.predefined
@@ -565,6 +567,7 @@ impl<'f> Lifter<'f> {
     fn new(file: &'f IfcFile, version: Version) -> Self {
         let entities = ENTITIES
             .iter()
+            .chain(entities::ADDITIONAL)
             .filter(|e| {
                 e.predefined
                     .get(version.column())
@@ -1147,6 +1150,10 @@ impl<'f> Lifter<'f> {
             .filter(|&at| at != NONE && at != ABSENT)
             .and_then(|at| self.enumeration(arg(record, usize::from(at))));
         let user_defined = match entity.category {
+            Category::Element if entity.name == "IfcElectricDistributionPoint" => {
+                // IFC2X3 IfcElectricDistributionPoint の UserDefinedFunction。
+                self.text(arg(record, 10), record, cx)
+            }
             Category::Type => self.text(arg(record, 9), record, cx),
             Category::Style => None,
             _ => self.text(arg(record, 5), record, cx),

@@ -444,7 +444,7 @@ fn resource_source(schema: &str, count: u32, on_type: bool, omitted: bool) -> St
     let mut related = vec!["#11".to_owned()];
     if omitted {
         extra.push_str(&format!(
-            "#100=IFCDISTRIBUTIONFLOWELEMENT('{}',$,'Element',$,$,$,$,$);\n",
+            "#100=IFCUNKNOWNPRODUCT('{}',$,'Element',$,$,$,$,$);\n",
             gid(100)
         ));
         related.push("#100".to_owned());
@@ -490,9 +490,7 @@ fn unmapped_relation_targets_are_reported_once_with_original_positions() {
             assert_eq!(dropped.len(), 1);
             assert_eq!(
                 dropped[0].param("kind"),
-                Some(&zumen_base::Value::Text(
-                    "IFCDISTRIBUTIONFLOWELEMENT".to_owned()
-                ))
+                Some(&zumen_base::Value::Text("IFCUNKNOWNPRODUCT".to_owned()))
             );
             assert_eq!(dropped[0].count(), 1);
             let owner = element(&b, if on_type { 110 } else { 11 });
@@ -501,6 +499,26 @@ fn unmapped_relation_targets_are_reported_once_with_original_positions() {
                 "Set"
             );
         }
+    }
+}
+
+#[test]
+fn equipment_relation_targets_keep_their_classification() {
+    for schema in VERSIONS {
+        let src = resource_source(schema, 1, false, true)
+            .replace("IFCUNKNOWNPRODUCT", "IFCDISTRIBUTIONFLOWELEMENT");
+        let (b, diag, _) = lift(&src, Limits::default());
+        let b = b.unwrap();
+        let equipment = element(&b, 100);
+        assert!(b.components.classification.get(equipment).is_some());
+        assert!(!has(&diag, codes::IFC_ENTITY_DROPPED));
+        // 未対応なのは要素でないプロパティのセットへの関係だけ。
+        assert_eq!(
+            diag.iter()
+                .filter(|d| d.code() == codes::IFC_RELATION_TARGET_UNSUPPORTED)
+                .count(),
+            1
+        );
     }
 }
 

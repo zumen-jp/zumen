@@ -42,6 +42,32 @@ IFC-SPF と ifcZIP を、スキーマを知らないインスタンスのグラ�
 - 建具は書かれた 2D の表現を優先し、次に開き方とプロファイルの記号、どちらもなければ切断線と診断を返す。室の輪郭は書かれたまま残す。面積を求めるときは利用者が指定した内法・壁芯を優先し、推定に使った基準を出所に残す。室の面積の作業は [#424](https://github.com/zumen-jp/zumen/issues/424) で追う。
 - スキーマを同梱せず、構文の検査は利用者の [EXPRESS](express.md)、要件の照合は [IDS](ids.md) を受け取る。
 
+## 設備の要素と型
+
+`Building::lift` は設備の要素と型、建築の部品、搬送の要素を、版ごとの実体の表から読みます。追加した 161 種類は [実体の表](../../crates/zumen-ifc/src/building/entities.rs) にあります。IFC2X3 の空調・制御・電気・給排水と共通の設備の領域にある型、および IFC4・IFC4.3 の対応する要素と型が対象です。実体名の接頭辞から未知の派生型を推測して写しません。その版にない実体も `ifc.entity.dropped` で知らせます。
+
+- 要素の ID・名前・種類・配置、型の ID・名前・種類・`HasPropertySets`、`IfcRelDefinesByType` による関係と出所を既存の成分に写します。型のプロパティは型に保持します。形と材料を取得する経路も同じ実体の表を使います。設備のポートの接続は対象外です。
+- IFC2X3 の設備の具体的な種類は、`IfcFlowSegment` などの一般の要素と `IfcPipeSegmentType` などの型で表すものがあります。IFC4 以降の具体的な要素を旧版の一般の要素と同一視せず、書かれたクラスと型への参照を保ちます。
+- 旧版の `IfcTransportElement.OperationType` と `IfcElectricDistributionPoint.DistributionPointFunction` は種類の値として保ちます。後者の利用者が定めた種類は `UserDefinedFunction` から読みます。旧版の `IfcDiscreteAccessoryType` は `PredefinedType` を持ちません。旧版だけの `IfcElectricHeaterType`・`IfcGasTerminalType` のクラス名は変更しません。
+
+根拠は buildingSMART が公開する各実体の自然文の属性の節です。共通する位置は [IFC2X3 PipeSegmentType](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC2x3/TC1/HTML/ifchvacdomain/lexical/ifcpipesegmenttype.htm)、[IFC4 PipeSegmentType](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4/ADD2_TC1/HTML/schema/ifchvacdomain/lexical/ifcpipesegmenttype.htm)、[IFC4.3 PipeSegmentType](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4_3/HTML/lexical/IfcPipeSegmentType.htm)、旧版の違いは [ElectricDistributionPoint](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC2x3/TC1/HTML/ifcelectricaldomain/lexical/ifcelectricdistributionpoint.htm)、[TransportElement](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC2x3/TC1/HTML/ifcproductextension/lexical/ifctransportelement.htm)、[IFC4 TransportElement の変更の説明](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4/ADD2_TC1/HTML/schema/ifcproductextension/lexical/ifctransportelement.htm) を参照します。
+
+IFC2X3 の `IfcAirTerminalType`・`IfcElectricFlowStorageDeviceType`・`IfcGasTerminalType` の自然文には、固有の属性の説明がありません。この 3 種類の種類の位置は共通の型の配置から推定し、合成入力を IfcOpenShell の実行 API に渡して確認しています。スキーマの定義や外部の実装ソースから取得した位置ではありません。自然文で位置の明記がない旧版の `UserDefinedFunction` も、同じ方法で確認しています。
+
+### 設備の検査
+
+[合成の検査](../../crates/zumen-ifc/tests/services.rs)では 3 版の対応する実体、ID・種類・型のプロパティ・関係・配置・材料の継承と、版違い・未知の派生型・予算の境界・中断・レコードの並び替えを確かめます。IfcOpenShell 0.9.0.post1 と要素 483 件、型との関係 69 件、型に直接付くプロパティ 233 件が一致しました。これは `synthetic` の範囲の元属性と参照の照合です。幾何の評価やファイル全体の適合性は検証していません。
+
+```sh
+ZUMEN_IFC_SERVICES_OUT=target/services-comparison cargo test -p zumen-ifc --locked --test services
+python -I crates/zumen-ifc/tests/ifcopenshell/services.py target/services-comparison
+export CARGO_TARGET_WASM32_WASIP1_RUNNER='node tests/wasi-services.mjs'
+cargo test -p zumen-ifc --locked --test services --target wasm32-wasip1 -- --test-threads 1
+node crates/zumen-ifc/tests/wasi-services.mjs --compare target/services-comparison target/services-comparison-wasm
+```
+
+ネイティブと WASI は入力・値・ID・ハッシュ・診断・予算の 9 ファイル、519,020 バイトが一致しました。公開 12 件も IfcOpenShell と取得した値を照らして食い違いがありません。未取得の値は比較器が別に報告します。公開サンプルの要約は GNI の `model_125.ifc` で設備の要素 18 件と型 2 件、Text2BIM で部品 6 件が増えました。これに伴い配置、型との関係、型と要素のプロパティ、部品の材料を保持し、対応する欠落の件数と要素のハッシュが変わりました。ほかの 10 件の要約と文書の値のハッシュは同じです。受領した国内の設備の書き出しでの再検証は、対象の `ZUMEN_SAMPLES` を受け取るまで未確認です（[#537](https://github.com/zumen-jp/zumen/issues/537)）。
+
 ## 共有する SI 単位の採用条件
 
 建物モデルへの `Lift<Building>` と、既存の `curve()`・`extruded_area()` は同じ SI の読み取りを使います。文書の単位の割り当て、プロパティ・数量に明示した単位、一段の換算の基の SI を対象に、長さ以外も検査します。値は元の単位のまま保持し、単位換算は適用しません。`extrusion()` の長さ専用の採用前検査は引き続き別に行います。
