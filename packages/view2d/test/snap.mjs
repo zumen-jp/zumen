@@ -59,6 +59,8 @@ export function testSnap({ assert, near }) {
   };
   const snap = (x, y, tolerance = 8, limits = DEFAULT_LIMITS, options) => snapPoint(ctx, prepared, settings, view, size, display, index, limits, { x, y }, tolerance, options);
   const selected = (kinds, x = 100, y = 100, tolerance = 8) => snap(x, y, tolerance, DEFAULT_LIMITS, { kinds });
+  const withOptions = (options, x = 100, y = 100, tolerance = 8, limits = DEFAULT_LIMITS) => snap(x, y, tolerance, limits, options);
+  const at = (x, y, ox = 0, oy = 0) => ({ origin: { x: ox, y: oy }, offset: { x, y } });
   const measure = (start, end, limits = DEFAULT_LIMITS) => measurementOf(prepared, start, end, index, limits);
   const rejects = (fn, message) => {
     let caught;
@@ -77,8 +79,33 @@ export function testSnap({ assert, near }) {
   set(lines([-20, 0, 20, 0]));
   assert(snap(100, 100, 1) === null, "線の途中に頂点や交点を作らない");
   assert(snap(60, 100, 0)?.position.offset.x === -20 && snap(140, 100, 0)?.position.offset.x === 20, "butt の両端も表示の境界として吸着する");
+  assert(selected(["midpoint"])?.position.offset.x === 0, "線分の中点へ吸着する");
+  const nearest = selected(["nearest"], 105, 103);
+  assert(nearest?.position.offset.x === 2.5 && nearest.position.offset.y === 0, "問い合わせから線上の最近点を求める");
+  assert(selected(["nearest"], 143, 100)?.position.offset.x === 20, "最近点を端点に制限する");
+  const perpendicular = withOptions({ kinds: ["perpendicular"], reference: at(3, 20) }, 107, 101);
+  assert(perpendicular?.position.offset.x === 3 && perpendicular.position.offset.y === 0, "問い合わせではなく起点から垂線の足を求める");
+  assert(withOptions({ kinds: ["perpendicular"], reference: at(21, 20) }, 140, 100) === null, "線分の延長上の垂線を作らない");
+  rejects(() => selected(["perpendicular"]), "垂線には起点を要求する");
+  rejects(() => withOptions({ kinds: ["nearest"], reference: at(NaN, 0) }), "起点の非有限値を拒む");
+  set(lines([-20, -20, 20, 20], [-20, 20, 20, -20]));
+  const crossing = selected(["intersection"]);
+  assert(crossing?.position.offset.x === 0 && crossing.position.offset.y === 0 && crossing.position.element === index.elements[1], "交点は後に描いた側の参照を返す");
+  set(lines([0, 0, 1, 1], [0, 1, 1, -1]));
+  const rationalCrossing = selected(["intersection"]);
+  assert(rationalCrossing?.position.offset.x === 1 / 3 && rationalCrossing.position.offset.y === 1 / 3, "有理数の交点を最後に丸める");
+  set(lines([-20, 0, -1, 0], [0, -20, 0, 20]));
+  assert(selected(["intersection"]) === null, "線分の延長の交点を作らない");
+  set(lines([-20, 0, 20, 0], [-10, 0, 10, 0]));
+  assert(selected(["intersection"]) === null, "重なる線から一意の交点を作らない");
+  set(lines([-20, 0, 0, 0], [0, 0, 0, 20]));
+  assert(selected(["intersection"])?.position.offset.x === 0, "接する端点の交点を返す");
+  set(lines([-2e38, 0, 2e38, 0], [0, -2e38, 0, 2e38]));
+  assert(selected(["nearest"], 103, 103)?.position.offset.y === -1.5, "巨大な線の最近点を端点からの相殺で失わない");
+  assert(selected(["intersection"])?.position.offset.x === 0, "巨大な線どうしの交点を正確に求める");
   set(lines([0, 0, 0, 0]));
   assert(snap(100, 100) === null, "長さのない線の頂点は吸着しない");
+  assert(selected(["midpoint", "nearest", "intersection"]) === null, "長さのない線に派生候補を作らない");
 
   set(face(square(-30, -30, 30, 30), square(-5, -5, 5, 5)));
   assert(snap(40, 160, 0)?.kind === "vertex" && snap(90, 110, 0)?.kind === "vertex", "面の外輪と穴の境界の頂点に吸着する");
@@ -119,13 +146,36 @@ export function testSnap({ assert, near }) {
   assert(snap(100, 100) === null, "省略した点の表し方に吸着しない");
   set(fixture());
   assert(snap(40, 50, 0) === null && snap(100, 100, 0) === null, "字形の頂点や未解決の画像を候補にしない");
+  assert(selected(["insertion"], 100, 30)?.position.element === index.elements[2], "文字の字形と違う元の基点へ吸着する");
+
+  set(lines([-20, 0, 20, 0]));
+  const circle = { shape: "circle", element: index.elements[0], center: at(0, 5), radius: 10 };
+  const semantic = (kinds, x, y, shape = circle) => withOptions({ kinds, geometry: [shape] }, x, y, 0);
+  assert(semantic(["center"], 100, 90)?.position.offset.y === 5, "元の円の中心は線の画素がない場所にも吸着する");
+  for (const [x, y] of [[120, 90], [100, 70], [80, 90], [100, 110]]) {
+    assert(semantic(["quadrant"], x, y)?.kind === "quadrant", "元の円の四半円点へ吸着する");
+  }
+  const arc = { ...circle, shape: "arc", startAngle: 350, endAngle: 100 };
+  assert(semantic(["quadrant"], 120, 90, arc) !== null && semantic(["quadrant"], 100, 70, arc) !== null &&
+    semantic(["quadrant"], 80, 90, arc) === null && semantic(["quadrant"], 100, 110, arc) === null, "0 度をまたぐ円弧の範囲だけを返す");
+  assert(semantic(["quadrant"], 80, 90, { ...arc, startAngle: 0, endAngle: 450 }) !== null, "1 周以上の弧を全円として扱う");
+  assert(semantic(["insertion"], 104, 94, { shape: "insertion", element: index.elements[0], position: at(2, 3) })?.kind === "insertion", "記号の基点を明示して吸着する");
+  rejects(() => semantic(["center"], 100, 90, { ...circle, radius: -1 }), "不正な半径を拒む");
+  rejects(() => semantic(["center"], 100, 90, { ...circle, element: { id: "missing", path: [] } }), "別のシーンの形の参照を拒む");
+  assert(selected(["center", "quadrant"]) === null, "元の形がないときは表示線から中心を推測しない");
 
   const layered = lines([-20, 0, 20, 0]), label = new TextEncoder().encode("layer/0");
   layered.layer_ids = [layered.strings.length, label.length]; layered.strings.push(...label); layered.unit_layers[0] = 0;
   set(layered); display.hidden.add(0);
   assert(snap(60, 100) === null, "非表示レイヤの頂点に吸着しない");
+  assert(withOptions({ kinds: ["midpoint", "nearest", "intersection", "perpendicular", "center", "quadrant", "insertion"], reference: at(0, 1),
+    geometry: [{ ...circle, element: index.elements[0] }] }, 100, 100, 50) === null, "非表示レイヤには新しい種類も吸着しない");
   display.hidden.clear();
   assert(snap(60, 100) !== null, "レイヤを戻すと吸着できる");
+  const hiddenCrossing = lines([-20, 0, 20, 0], [0, -20, 0, 20]);
+  hiddenCrossing.layer_ids = [hiddenCrossing.strings.length, label.length]; hiddenCrossing.strings.push(...label); hiddenCrossing.unit_layers[1] = 0;
+  set(hiddenCrossing); display.hidden.add(0);
+  assert(selected(["intersection"]) === null, "片方が非表示なら交点を作らない");
   const transparent = lines([-20, 0, 20, 0]); transparent.color_rgba[3] = 0;
   set(transparent);
   assert(snap(60, 100) === null, "透明な線の頂点に吸着しない");
@@ -136,6 +186,8 @@ export function testSnap({ assert, near }) {
 
   set(clipped(lines([-20, 0, 20, 0]), { xy: square(-10, -5, 10, 5) }));
   assert(snap(100, 100, 100) === null, "線の途中が見えても、切り抜かれた元の端点を拾わない");
+  assert(selected(["midpoint"]) !== null && selected(["nearest"], 128, 100) === null, "派生候補にも切り抜きを反映する");
+  assert(withOptions({ kinds: ["center"], geometry: [{ ...circle, element: index.elements[0], center: at(15, 0) }] }, 130, 100) === null, "中心にも切り抜きを反映する");
   set(clipped(lines([-20, 0, 0, 0, 20, 0]), { xy: square(-5, -5, 5, 5), outside: true }));
   assert(snap(100, 100, 1) === null && snap(60, 100, 0) !== null, "反転した切り抜きを候補点へ反映する");
   set(clipped(lines([0, 0, 5, 0]), { xy: square(-10, -10, 0, 10) }, { xy: square(0, -10, 10, 10) }));
@@ -183,6 +235,18 @@ export function testSnap({ assert, near }) {
   set(large, { unit: "meter", tolerance: 0.001 });
   const first = snap(125, 100, 0), second = snap(175, 100, 0);
   assert(first.position.origin.x === origin && first.position.offset.x === 0.25 && second.position.offset.x === 0.75, "大きな原点に相対座標を足さず保つ");
+  assert(selected(["midpoint"], 150, 100, 0)?.position.offset.x === 0.5, "大きな原点で中点の下位桁を保つ");
+  assert(selected(["nearest"], 137.5, 103)?.position.offset.x === 0.375, "大きな原点で最近点の下位桁を保つ");
+  assert(withOptions({ kinds: ["perpendicular"], reference: at(-1.625, 1, origin + 2, origin) }, 137.5, 100)?.position.offset.x === 0.375, "垂線の起点の異なる原点を正確に引く");
+  const largeCircle = { ...circle, element: index.elements[0], center: at(-1.5, 0, origin + 2, origin), radius: 0.125 };
+  assert(semantic(["center"], 150, 100, largeCircle)?.position.offset.x === 0.5 &&
+    semantic(["quadrant"], 162.5, 100, largeCircle)?.position.offset.x === 0.625, "異なる原点の円の中心と四半円点の下位桁を保つ");
+  assert(semantic(["insertion"], 150, 100, { shape: "insertion", element: index.elements[0], position: largeCircle.center })?.position.offset.x === 0.5, "大きな原点で基点を保つ");
+  const largeText = fixture(); largeText.chunk_origins = [origin, origin]; largeText.unit_clips.fill(SCENE_NONE);
+  largeText.text_xy = [0.25, 0, 0.75, 0];
+  set(largeText);
+  assert(selected(["insertion"], 125, 100, 0)?.position.offset.x === 0.25, "大きな原点で文字の基点を保つ");
+  set(large, { unit: "meter", tolerance: 0.001 });
   const largeFree = positionAt(view, size, { x: 125, y: 100 });
   assert(largeFree.origin.x === origin && largeFree.offset.x === 0.25, "自由な位置の逆変換も小さい相対座標を保つ");
   const distance = measure(first.position, second.position);
@@ -192,6 +256,12 @@ export function testSnap({ assert, near }) {
   assert(Object.isFrozen(distance) && Object.isFrozen(distance.delta) && Object.isFrozen(distance.real) && Object.isFrozen(distance.start), "計測結果も入れ子を凍結する");
   const shifted = { origin: { x: origin + 2, y: origin }, offset: { x: -1.25, y: 0 }, element: index.elements[0] };
   assert(measure(first.position, shifted).distance === 0.5, "別の原点を持つ位置どうしでも差を先に取る");
+  const crossChunks = lines([0.25, 0, 0.75, 0], [-1.5, -1, -1.5, 1]);
+  crossChunks.chunk_origins = [origin, origin, origin + 2, origin]; crossChunks.chunk_bounds.push(-50, -50, 50, 50); crossChunks.chunk_lines.push(1);
+  for (const kind of ["faces", "texts", "points", "images"]) crossChunks[`chunk_${kind}`].push(0);
+  set(crossChunks);
+  const splitCrossing = selected(["intersection"], 150, 100);
+  assert(splitCrossing?.position.origin.x === origin + 2 && splitCrossing.position.offset.x === -1.5, "別の塊の交点を後に描く側の分割座標で返す");
   const split = (x, dx) => ({ origin: { x, y: 0 }, offset: { x: dx, y: 0 } });
   assert(measure(split(0, 1), split(1e16, -1e16 + 2)).delta.x === 1, "異なる原点と相対座標の正確な和から差を一度だけ丸める");
   assert(measure(split(Number.MAX_VALUE, -Number.MAX_VALUE), split(-Number.MAX_VALUE, Number.MAX_VALUE)).distance === 0, "有限成分の相殺を途中の桁あふれで失わない");
@@ -250,6 +320,10 @@ export function testSnap({ assert, near }) {
   set(lines(many, [0, 0, 1, 0]));
   const before = ctx.getTransform();
   rejects(() => snap(100, 100, 0, { ...DEFAULT_LIMITS, work: 500 }), "候補を見つけた後の上限超過も途中の結果を返さない");
+  rejects(() => withOptions({ kinds: ["intersection"] }, 100, 100, 8, { ...DEFAULT_LIMITS, work: 1000 }), "交点の組合せの作業量を制限する");
+  rejects(() => withOptions({ kinds: ["intersection"] }, 100, 100, 8, { ...DEFAULT_LIMITS, stateItems: 2 }), "交点用に保持する線分の件数を制限する");
+  rejects(() => withOptions({ kinds: ["center"], geometry: [{ ...circle, element: index.elements[0] }, { ...circle, element: index.elements[0] }] },
+    100, 100, 8, { ...DEFAULT_LIMITS, stateItems: 1 }), "元の形の件数も制限する");
   const after = ctx.getTransform();
   assert(before.a === after.a && before.e === after.e && before.f === after.f, "失敗した吸着でも Canvas の状態を戻す");
   prepared = null;

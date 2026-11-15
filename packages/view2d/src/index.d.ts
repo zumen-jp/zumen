@@ -133,8 +133,21 @@ export interface Highlight {
 }
 /** 起点の座標を原点と相対座標に分け、大きな原点を足す丸めを避ける。 */
 export interface ScenePosition { readonly origin: Point; readonly offset: Point; readonly element?: ElementRef }
-export type SnapKind = "vertex" | "point";
-export interface SnapOptions { readonly kinds?: readonly SnapKind[] }
+export type SnapKind = "vertex" | "point" | "midpoint" | "center" | "quadrant"
+  | "intersection" | "perpendicular" | "nearest" | "insertion";
+/** シーンと同じ座標・尺度へ配置した元の形。element は現在のシーンの可視要素の参照。 */
+export type SnapGeometry = { readonly shape: "circle"; readonly element: ElementRef; readonly center: ScenePosition; readonly radius: number }
+  | { readonly shape: "arc"; readonly element: ElementRef; readonly center: ScenePosition; readonly radius: number;
+    readonly startAngle: number; readonly endAngle: number }
+  | { readonly shape: "insertion"; readonly element: ElementRef; readonly position: ScenePosition };
+export interface SnapOptions {
+  /** 省略時は vertex と point。 */
+  readonly kinds?: readonly SnapKind[];
+  /** 垂線の足を求める起点。perpendicular を選ぶ場合に必須。 */
+  readonly reference?: ScenePosition;
+  /** 円・円弧の中心と四半円点、記号の基点。角度は度で反時計回り。 */
+  readonly geometry?: readonly SnapGeometry[];
+}
 export interface Snap {
   readonly position: ScenePosition;
   readonly screen: Point;
@@ -272,7 +285,7 @@ export declare class View2D {
   hitTestRect(rect: Extent): readonly ElementRef[];
   /** シーン上の位置を原点と相対座標に分けて返す。要素への吸着はしない。 */
   positionAt(point: Point): ScenePosition;
-  /** 可視の線・面の頂点と点の中心。既定の許容半径は 8 CSS px。 */
+  /** 指定した種類の吸着。既定は頂点と点の中心、許容半径は 8 CSS px。 */
   snapAt(point: Point, tolerance?: number, options?: SnapOptions): Snap | null;
   setMeasurement(value: { readonly start: ScenePosition; readonly end: ScenePosition } | null): RenderReport;
   /** 明示的な ID と同期の解決関数。null で解除。シーンの差し替え・消去・破棄でも解除する。 */

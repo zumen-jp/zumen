@@ -3,9 +3,10 @@ import { project, unproject } from "./geometry.js";
 import { visiblePointTest } from "./hit.js";
 import { elementKey, references } from "./interaction.js";
 import { addExact, divideExact, dyadic } from "./exact.js";
+import { intersection, midpoint, projectedPoint, quadrants, relativePosition, shiftedPosition } from "./snap-geometry.js";
 
 const UNITS = new Set(["millimeter", "centimeter", "meter", "inch", "foot"]);
-const SNAP_KINDS = new Set(["vertex", "point"]);
+const SNAP_KINDS = new Set(["vertex", "point", "midpoint", "center", "quadrant", "intersection", "perpendicular", "nearest", "insertion"]);
 
 function point(value, name) {
   valid(value && typeof value === "object", name);
@@ -39,7 +40,36 @@ function* vertices(c, kind, i, charge) {
   }
 }
 
-/** シーンの線・面の頂点と点の中心を、CSS px の距離と逆の描画順で選ぶ。 */
+function position(value, name) {
+  valid(value && typeof value === "object", name);
+  return { origin: point(value.origin, `${name}.origin`), offset: point(value.offset, `${name}.offset`) };
+}
+
+function geometryOptions(values, index, limits, charge) {
+  valid(Array.isArray(values) && values.length <= limits.stateItems, "snap.geometry");
+  const out = new Map();
+  for (const value of values) {
+    charge(1);
+    valid(value && ["circle", "arc", "insertion"].includes(value.shape), "snap.geometry.shape");
+    const element = references([value.element], index, limits, charge)[0];
+    const geometry = { shape: value.shape, element };
+    if (value.shape === "insertion") geometry.position = position(value.position, "snap.geometry.position");
+    else {
+      geometry.center = position(value.center, "snap.geometry.center");
+      geometry.radius = finite(value.radius, "snap.geometry.radius");
+      valid(geometry.radius > 0, "snap.geometry.radius");
+      if (value.shape === "arc") {
+        geometry.startAngle = finite(value.startAngle, "snap.geometry.startAngle");
+        geometry.endAngle = finite(value.endAngle, "snap.geometry.endAngle");
+      }
+    }
+    if (!out.has(element)) out.set(element, []);
+    out.get(element).push(geometry);
+  }
+  return out;
+}
+
+/** 分割座標の候補を、CSS px の距離と逆の描画順で選ぶ。 */
 export function snapPoint(ctx, prepared, settings, view, size, display, index, limits, screen, tolerance, options = {}) {
   const target = point(screen, "screen");
   finite(tolerance, "tolerance"); valid(tolerance >= 0, "tolerance");
@@ -49,10 +79,28 @@ export function snapPoint(ctx, prepared, settings, view, size, display, index, l
   valid(Array.isArray(kinds) && optionWork <= limits.stateItems && optionWork <= limits.work, "snap.kinds");
   for (const kind of kinds) valid(SNAP_KINDS.has(kind), "snap.kinds");
   const selected = new Set(kinds);
-  if (!prepared) return null;
   let work = optionWork, nearest = null;
   const charge = (count) => { work += count; valid(Number.isSafeInteger(work) && work <= limits.work, "limits.work"); };
+  const reference = options.reference === undefined ? null : position(options.reference, "snap.reference");
+  valid(!selected.has("perpendicular") || reference, "snap.reference");
+  const geometry = geometryOptions(options.geometry === undefined ? [] : options.geometry, index, limits, charge);
+  if (!prepared || selected.size === 0) return null;
   const { columns: c, order } = prepared;
+  const cursor = selected.has("nearest") ? positionAt(view, size, target) : null, segments = [];
+  let rank = 0, nearestRank = Infinity;
+  const consider = (owner, offset, snapKind, anchor = false, other) => {
+    charge(1);
+    const screen = project(view, size.width, size.height, offset.x, offset.y, owner.origin.x, owner.origin.y);
+    const distance = Math.hypot(screen.x - target.x, screen.y - target.y);
+    if (!Number.isFinite(distance) || distance > tolerance || (nearest && (distance > nearest.distance ||
+      (distance === nearest.distance && owner.rank >= nearestRank)))) return;
+    if (!(anchor ? owner.anchor : owner.visible)(screen) || (other && !other.visible(screen))) return;
+    nearestRank = owner.rank;
+    nearest = Object.freeze({
+      position: Object.freeze({ origin: Object.freeze(owner.origin), offset: Object.freeze(offset), element: owner.element }),
+      screen: Object.freeze(screen), kind: snapKind, distance, tolerance,
+    });
+  };
   ctx.save();
   try {
     for (let chunk = order.length - 1; chunk >= 0; chunk--) {
@@ -60,19 +108,53 @@ export function snapPoint(ctx, prepared, settings, view, size, display, index, l
       for (let ordinal = group.indices.length - 1; ordinal >= 0; ordinal--) {
         charge(1);
         const [kind, i] = group.locate(group.indices[ordinal]);
-        if (kind !== "line" && kind !== "face" && kind !== "point") continue;
-        if (!selected.has(kind === "point" ? "point" : "vertex")) continue;
+        const ordinalRank = rank++;
         const visible = visiblePointTest(ctx, prepared, settings, view, size, display, kind, i, chunk, charge);
         if (!visible) continue;
-        for (const offset of vertices(c, kind, i, charge)) {
-          const screen = project(view, size.width, size.height, offset.x, offset.y, ox, oy);
-          const distance = Math.hypot(screen.x - target.x, screen.y - target.y);
-          if (distance > tolerance || (nearest && distance >= nearest.distance) || !visible(screen)) continue;
-          const unit = c[`${kind}_units`][i], element = index.elements[c.unit_entities[unit]];
-          nearest = Object.freeze({
-            position: Object.freeze({ origin: Object.freeze({ x: ox, y: oy }), offset: Object.freeze(offset), element }),
-            screen: Object.freeze(screen), kind: kind === "point" ? "point" : "vertex", distance, tolerance,
-          });
+        const unit = c[`${kind}_units`][i], element = index.elements[c.unit_entities[unit]];
+        const owner = { origin: { x: ox, y: oy }, element, rank: ordinalRank, visible,
+          anchor: visiblePointTest(ctx, prepared, settings, view, size, display, kind, i, chunk, charge, true) };
+        const vertexKind = kind === "point" ? "point" : "vertex";
+        if (selected.has(vertexKind)) for (const offset of vertices(c, kind, i, charge)) consider(owner, offset, vertexKind);
+        if (kind === "text" && selected.has("insertion")) {
+          consider(owner, { x: c.text_xy[i * 2], y: c.text_xy[i * 2 + 1] }, "insertion", true);
+        }
+        if (kind === "line" && ["midpoint", "nearest", "perpendicular", "intersection"].some((value) => selected.has(value))) {
+          const from = c.line_vertices[i], to = end(c.line_vertices, i, rows(c, "line_xy"));
+          const query = cursor && relativePosition(cursor, owner.origin), base = reference && relativePosition(reference, owner.origin);
+          for (let v = from + 1; v < to; v++) {
+            charge(1);
+            const a = { x: c.line_xy[(v - 1) * 2], y: c.line_xy[(v - 1) * 2 + 1] };
+            const b = { x: c.line_xy[v * 2], y: c.line_xy[v * 2 + 1] };
+            if (a.x === b.x && a.y === b.y) continue;
+            if (selected.has("midpoint")) consider(owner, midpoint(a, b), "midpoint");
+            if (selected.has("nearest")) consider(owner, projectedPoint(a, b, query, true), "nearest");
+            if (selected.has("perpendicular")) {
+              const foot = projectedPoint(a, b, base, false);
+              if (foot) consider(owner, foot, "perpendicular");
+            }
+            if (selected.has("intersection")) {
+              const current = { ...owner, a, b };
+              for (const previous of segments) {
+                charge(1);
+                const at = intersection(previous, current);
+                if (at) consider(previous, at, "intersection", false, current);
+              }
+              valid(segments.length < limits.stateItems, "limits.stateItems");
+              segments.push(current);
+            }
+          }
+        }
+        for (const value of geometry.get(element) ?? []) {
+          charge(1);
+          if (value.shape === "insertion") {
+            if (selected.has("insertion")) consider(owner, shiftedPosition(value.position, owner.origin), "insertion", true);
+          } else {
+            if (selected.has("center")) consider(owner, shiftedPosition(value.center, owner.origin), "center", true);
+            if (selected.has("quadrant")) for (const delta of quadrants(value)) {
+              consider(owner, shiftedPosition(value.center, owner.origin, delta.x, delta.y), "quadrant", true);
+            }
+          }
         }
       }
     }

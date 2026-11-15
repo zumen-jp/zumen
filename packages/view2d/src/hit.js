@@ -444,7 +444,7 @@ function hit(ctx, prepared, settings, view, size, display, index, limits, query)
 }
 
 /** 吸着の候補点が、描画と同じ形とすべての切り抜きに残るかを調べる。 */
-export function visiblePointTest(ctx, prepared, settings, view, size, display, kind, i, chunk, charge) {
+export function visiblePointTest(ctx, prepared, settings, view, size, display, kind, i, chunk, charge, anchor = false) {
   const { columns: c, omitted } = prepared, unit = c[`${kind}_units`][i];
   if (omitted.has(`${kind}:${i}`) || !unitVisible(c, unit, display) || transparentStyle(unitStyle(c, unit, settings, display))) return null;
   let groups;
@@ -452,7 +452,8 @@ export function visiblePointTest(ctx, prepared, settings, view, size, display, k
     // 半径内の候補が現れるまで、輪郭と切り抜きの派生データを作らない。
     if (!groups) {
       const clips = [compile(viewportPart(size, charge), charge), ...Array.from(clipParts(c, unit, view, size, true, charge), (part) => compile(part, charge))];
-      groups = Array.from(primitiveParts(ctx, c, kind, i, chunk, settings, view, size, true, charge), (part) => {
+      // 中心と文字の基点には画素がないことがある。候補自体の切り抜きは同じ規則で調べる。
+      groups = anchor ? [clips] : Array.from(primitiveParts(ctx, c, kind, i, chunk, settings, view, size, true, charge), (part) => {
         charge(1 + clips.length);
         return [compile(part, charge), ...clips];
       });

@@ -56,6 +56,9 @@ viewer.handleInput({ type: "cancel" });
 const start = viewer.snapAt({ x: 0, y: 0 })?.position ?? viewer.positionAt({ x: 0, y: 0 });
 viewer.snapAt({ x: 0, y: 0 }, 8, { kinds: ["point", "vertex"] as const });
 viewer.snapAt({ x: 0, y: 0 }, 0, { kinds: [] });
+viewer.snapAt({ x: 0, y: 0 }, 8, { kinds: ["midpoint", "center", "quadrant", "intersection", "nearest", "insertion"] });
+viewer.snapAt({ x: 0, y: 0 }, 8, { kinds: ["perpendicular"], reference: start,
+  geometry: [{ shape: "arc", element: { id: "space/0/h1", path: [] }, center: start, radius: 2, startAngle: 0, endAngle: 90 }] });
 // @ts-expect-error 未対応の吸着の種類
 viewer.snapAt({ x: 0, y: 0 }, 8, { kinds: ["unknown"] });
 viewer.toScreen(start);

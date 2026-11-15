@@ -186,18 +186,48 @@ DOM の座標は border・padding と、軸に沿う正の拡縮を除いて Can
 
 ## 吸着と計測
 
-`snapAt(point, tolerance = 8, options = {})` は、許容円の中でもっとも近い可視の頂点を返します。距離が等しければ描画の逆順を優先します。対象はシーンの折れ線と面の頂点（`vertex`）、点の中心（`point`）です。`options.kinds` で対象を選べます。省略時は両方、空の配列なら候補なしです。非表示レイヤ・切り抜き・未描画・透明色は当たり判定と同じ扱いです。点の囲みだけを描いて中心が空白なら、中心へは吸着しません。元の円弧の中心、交点、文字や画像の点をシーンの列から作り直しません。
+`snapAt(point, tolerance = 8, options = {})` は、許容円の中でもっとも近い候補を返します。距離が等しければ描画の逆順を優先します。`options.kinds` で対象を選べます。省略時は従来の `vertex` と `point`、空の配列なら候補なしです。非表示レイヤ・切り抜き・未描画・透明色は当たり判定と同じ扱いです。
 
-結果は `{ position, screen, kind, distance, tolerance }` です。`distance` と `tolerance` は CSS px、`kind` は `vertex` か `point` です。候補がなければ `null` です。`position` は `{ origin, offset, element? }` として大きな原点を相対座標から分け、吸着した位置には ID と配置の道筋を残します。`positionAt(point)` は吸着せず、この形の位置を返します。`toScreen(position)` で画面へ戻せるため、利用側で先に原点を足す必要はありません。
+| 種類 | 候補 |
+| --- | --- |
+| `vertex` | 表示した線と面の頂点 |
+| `point` | 点の中心。囲みだけで中心が空白なら対象外 |
+| `midpoint` | 表示した線分ごとの中点 |
+| `intersection` | 表示した線分どうしの交点。両方で可視の場所だけ。延長線や重なる線の任意の点は作らない |
+| `perpendicular` | `options.reference` の分割座標から線分に下ろした垂線の足。線分の外は対象外 |
+| `nearest` | 問い合わせ位置から表示した線分までの最近点。端点も含む |
+| `insertion` | 文字の `text_xy`、または `options.geometry` で渡した記号の基点 |
+| `center`・`quadrant` | `options.geometry` で渡した円・円弧の中心・四半円点 |
+
+結果は `{ position, screen, kind, distance, tolerance }` です。`distance` と `tolerance` は CSS px、`kind` は選んだ種類です。候補がなければ `null` です。`position` は `{ origin, offset, element? }` として大きな原点を相対座標から分け、吸着した位置には ID と配置の道筋を残します。交点は後に描いた側の参照を返します。`positionAt(point)` は吸着せず、この形の位置を返します。`toScreen(position)` で画面へ戻せるため、利用側で先に原点を足す必要はありません。
+
+中心・四半円点・基点は画素のない場所にも吸着しますが、候補自体が画面と切り抜きの中にある必要があります。円弧を近似した折れ線から元の中心を推定しません。`geometry` には、現在のシーンと同じ座標・尺度へ配置した元の形を渡します。円と円弧は `{ shape: "circle" | "arc", element, center, radius }`、円弧にはさらに反時計回りの角度（度）の `startAngle`・`endAngle` を渡します。同じ角度または 1 周以上の差は全円として扱います。記号の基点は `{ shape: "insertion", element, position }` です。`center` と `position` は分割座標で、`element` は現在のシーンの可視要素の参照です。記号の配置ではその配置内の可視要素へ結び付けます。元の形とシーンの版・配置の一致は利用側で保ち、楕円になる非一様な拡縮を円として渡さないでください。
+
+線への吸着は、線種で分かれた線や曲線の近似にも表示した線分を使います。中点・交点・垂線・最近点は分割座標の加減と有理数の演算で求め、最後に座標を丸めます。元の曲線との交点や精密な幾何演算には L2 の API を使ってください。交点の組合せと元の形の入力にも、問い合わせごとの作業量と件数の上限を使います。超過したら途中の候補を返しません。
 
 ```js
 const pointCenter = viewer.snapAt({ x: 100, y: 80 }, 8, { kinds: ["point"] });
+const nearest = viewer.snapAt({ x: 200, y: 120 }, 8, { kinds: ["midpoint", "intersection", "nearest"] });
 const start = viewer.snapAt({ x: 100, y: 80 })?.position
   ?? viewer.positionAt({ x: 100, y: 80 });
 const end = viewer.snapAt({ x: 200, y: 120 })?.position
   ?? viewer.positionAt({ x: 200, y: 120 });
 viewer.setMeasurement({ start, end });
 console.log(viewer.getState().measurement);
+const foot = viewer.snapAt({ x: 200, y: 120 }, 8, { kinds: ["perpendicular"], reference: start });
+```
+
+元の円の形を持つ利用側では、現在の配置の参照と分割座標を渡せます。次は原点が大きく、中心から四半円点までが小さい場合の形です。
+
+```js
+const element = viewer.getElements().find((value) => value.id === "space/0/hA1" && value.path.length === 0);
+if (element) {
+  const center = { origin: { x: 1e16, y: 1e16 }, offset: { x: 0, y: 0 } };
+  const snapped = viewer.snapAt({ x: 100, y: 100 }, 8, {
+    kinds: ["center", "quadrant"],
+    geometry: [{ shape: "circle", element, center, radius: 0.25 }],
+  });
+}
 ```
 
 `setMeasurement` は両端の位置と、あれば現在のシーンの要素参照を検査します。結果には始点・終点・差 `delta`・シーン上の `distance` と、応答の `from`・`view`・`unit`・`tolerance` を保ちます。原点と相対座標の 4 項から差を正確に集計し、最後に一度だけ丸めるため、大きな原点でも小さな差を保ちます。`tolerance` はコアが曲線を展開したときの許容差で、計測の誤差保証ではありません。

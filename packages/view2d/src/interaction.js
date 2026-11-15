@@ -35,7 +35,7 @@ export function indexElements(prepared) {
 export const emptyInteraction = () => Object.freeze({ hiddenLayers: EMPTY, selection: EMPTY, hovered: null, highlights: EMPTY });
 
 /** 利用側の参照を、現在のシーンが持つ凍結した参照へ戻す。 */
-export function references(values, index, limits) {
+export function references(values, index, limits, charge = () => {}) {
   valid(Array.isArray(values) && values.length <= limits.stateItems, "selection");
   const out = new Map();
   let work = 0;
@@ -44,12 +44,14 @@ export function references(values, index, limits) {
     valid(ref && typeof ref.id === "string" && Array.isArray(ref.path), "element");
     work += ref.id.length + ref.path.length + 1;
     valid(work <= limits.work, "limits.work");
+    charge(ref.id.length + ref.path.length + 1);
     const path = [];
     for (let j = 0; j < ref.path.length; j++) {
       const step = ref.path[j];
       valid(step && typeof step.id === "string" && [step.column, step.row].every((n) => Number.isInteger(n) && n >= 0 && n <= 0xffffffff), "element.path");
       work += step.id.length;
       valid(work <= limits.work, "limits.work");
+      charge(step.id.length);
       path.push({ id: step.id, column: step.column, row: step.row });
     }
     const key = elementKey({ id: ref.id, path });
