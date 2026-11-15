@@ -2,6 +2,7 @@ import { SCENE_NONE, SCENE_VALUES as V } from "@zumen-jp/zumen";
 import { View2D } from "../src/index.js";
 import { bundle } from "./fixtures.mjs";
 import { circleIntersects } from "../src/circle.js";
+import { circleArcs } from "../src/circle-path.js";
 
 const ID = "space/0/h828circle", H = Math.fround(2e15), SIZE = 200;
 function source(radius, direction = 0, weight = 0, alpha = 255, extra = {}) {
@@ -119,5 +120,97 @@ export function testCircles(assert) {
     let stopped = false; try { budget.hitTest({ x: 0, y: 100 }, 0); } catch (error) { stopped = error instanceof RangeError; }
     assert(stopped, "viewport 接触の fallback は共有の問い合わせ予算を守る"); totals.contracts++;
   } finally { budget.destroy(); }
+  return totals;
+}
+
+/** r≈2e15 の画面内の弧は、画素未満の弦の差を除けば近傍の直線と一致する。 */
+export function testCircleDrawing(assert) {
+  const totals = { scenes: 0, pixels: 0, contracts: 0, ratios: [1, 1.5, 2, 8], widths: [0, 2, 8], directions: 4 };
+  for (let direction = 0; direction < 4; direction++) for (const pixelRatio of totals.ratios) for (const weight of totals.widths)
+    for (const combination of ["circle", "plus", "square"]) {
+    const canvas = document.createElement("canvas"), near = document.createElement("canvas");
+    const viewer = new View2D(canvas, { width: SIZE, height: SIZE, pixelRatio, pixelsPerMillimeter: 1,
+      view: { center: { x: 0, y: 0 }, rotation: 0, scale: 1 } });
+    try {
+      const mark = combination === "plus" ? V.point_mark.plus : V.point_mark.none;
+      const frame = V.point_frame.circle | (combination === "square" ? V.point_frame.square : 0);
+      const input = bundle(source(H, direction, weight, 128, { point_style: [mark, frame, V.point_size.length, H * 2] }));
+      const report = viewer.setScene(input), width = Math.max(1 / pixelRatio, input.scene.columns.unit_weights[0]);
+      assert(report.drawn.points === 1 && report.issues.length === 0 && viewer.getElements()[0].id === ID, "円の描画の件数と ID を保つ");
+      near.width = canvas.width; near.height = canvas.height;
+      const ctx = near.getContext("2d"), path = new Path2D();
+      ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0); ctx.fillStyle = "white"; ctx.fillRect(0, 0, SIZE, SIZE);
+      const horizontal = direction >= 2;
+      path.moveTo(horizontal ? -200 : 100, horizontal ? 100 : -200);
+      path.lineTo(horizontal ? 400 : 100, horizontal ? 100 : 400);
+      if (combination === "plus") {
+        path.moveTo(100, 100);
+        path.lineTo(direction === 0 ? 400 : direction === 1 ? -200 : 100, direction === 2 ? -200 : direction === 3 ? 400 : 100);
+      }
+      if (combination === "square") {
+        path.moveTo(horizontal ? -200 : 100, horizontal ? 100 : -200);
+        path.lineTo(horizontal ? 400 : 100, horizontal ? 100 : 400);
+      }
+      ctx.strokeStyle = "rgba(0,0,0,0.5019607843137255)"; ctx.lineWidth = width; ctx.lineCap = "butt"; ctx.lineJoin = "round"; ctx.stroke(path);
+      const expected = ctx.getImageData(0, 0, near.width, near.height).data;
+      const actual = canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height).data;
+      let mismatch = 0, ink = 0;
+      for (let y = 1; y < canvas.height - 1; y++) for (let x = 1; x < canvas.width - 1; x++) {
+        const i = (y * canvas.width + x) * 4;
+        if (expected[i] < 250) ink++;
+        if (Math.abs(actual[i] - expected[i]) > 4 || actual[i + 3] !== 255) mismatch++;
+        totals.pixels++;
+      }
+      assert(ink > 50 && mismatch === 0, `巨大な円の近傍の輪郭と alpha: direction=${direction}/ratio=${pixelRatio}/width=${weight}/${combination}/mismatch=${mismatch}`);
+      totals.scenes++;
+    } finally { viewer.destroy(); }
+  }
+  // 弧の曲率が数画素見える縦長の画面。独立参照は相殺しない有理化した式を使う。
+  for (const weight of totals.widths) {
+    const canvas = document.createElement("canvas"), near = document.createElement("canvas"), radius = 1_000_001, height = 4096;
+    const viewer = new View2D(canvas, { width: SIZE, height, pixelsPerMillimeter: 1 });
+    try {
+      viewer.setScene(bundle(source(radius, 0, weight, 128)));
+      near.width = SIZE; near.height = height;
+      const ctx = near.getContext("2d"), path = new Path2D();
+      ctx.fillStyle = "white"; ctx.fillRect(0, 0, SIZE, height);
+      for (let y = -16; y <= height + 16; y += 4) {
+        const dy = y - height / 2, x = 100 + dy * dy / (radius + Math.sqrt(radius * radius - dy * dy));
+        path[y === -16 ? "moveTo" : "lineTo"](x, y);
+      }
+      ctx.strokeStyle = "rgba(0,0,0,0.5019607843137255)"; ctx.lineWidth = Math.max(1, weight); ctx.lineCap = "butt"; ctx.lineJoin = "round"; ctx.stroke(path);
+      const a = canvas.getContext("2d").getImageData(0, 0, SIZE, height).data, b = ctx.getImageData(0, 0, SIZE, height).data;
+      let mismatch = 0, maximum = 0;
+      // 別の分割位置の round join には AA の差がある。形は下の独立式で検査する。
+      for (let i = 0; i < a.length; i += 4) { maximum = Math.max(maximum, Math.abs(a[i] - b[i])); if (Math.abs(a[i] - b[i]) > 16 || a[i + 3] !== 255) mismatch++; totals.pixels++; }
+      assert(mismatch === 0, `円弧を画面に合わせて分割して曲率を保つ: width=${weight}/mismatch=${mismatch}/maximum=${maximum}`);
+      const box = { min_x: -16, min_y: -16, max_x: SIZE + 16, max_y: height + 16 };
+      for (const points of circleArcs({ x: radius + 100, y: height / 2 }, radius, box, 1 / 64, () => {})) {
+        for (let i = 1; i < points.length; i++) {
+          const mid = { x: (points[i - 1].x + points[i].x) / 2, y: (points[i - 1].y + points[i].y) / 2 };
+          for (const p of [points[i - 1], mid, points[i]]) {
+            const dy = p.y - height / 2, x = 100 + dy * dy / (radius + Math.sqrt(radius * radius - dy * dy));
+            assert(Math.abs(p.x - x) <= (p === mid ? 1 / 64 : 1e-9), "独立式と円弧の端点・弦の誤差上限が一致する");
+          }
+        }
+      }
+      totals.scenes++;
+    } finally { viewer.destroy(); }
+  }
+  const canvas = document.createElement("canvas");
+  const viewer = new View2D(canvas, { width: 200, height: 200, pixelsPerMillimeter: 1, limits: { work: 150 } });
+  try {
+    viewer.setScene(bundle(source(1_000_001)));
+    const before = viewer.getState(), pixels = canvas.toDataURL();
+    let stopped = false;
+    try { viewer.resize(200, 8192); } catch (error) { stopped = error instanceof RangeError && error.message.includes("limits.work"); }
+    assert(stopped && viewer.getState() === before && canvas.toDataURL() === pixels, "円弧の分割が予算を超えた resize は状態と画面を保つ"); totals.contracts++;
+    viewer.setScene(bundle(source(20)));
+    viewer.resize(200, 8192);
+    const oldScene = viewer.getScene(), oldPixels = canvas.toDataURL();
+    stopped = false;
+    try { viewer.setScene(bundle(source(1_000_001))); } catch (error) { stopped = error instanceof RangeError && error.message.includes("limits.work"); }
+    assert(stopped && viewer.getScene() === oldScene && canvas.toDataURL() === oldPixels, "円弧の分割が予算を超えた setScene は状態と画面を保つ"); totals.contracts++;
+  } finally { viewer.destroy(); }
   return totals;
 }

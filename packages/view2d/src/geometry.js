@@ -1,10 +1,14 @@
 import { SCENE_NONE, SCENE_VALUES as V } from "@zumen-jp/zumen";
-import { end, rows } from "./validate.js";
+import { end, rows, valid } from "./validate.js";
+import { unitVisible } from "./interaction.js";
 import { clipRing, clipSegment, diskCoversBox, inside, wideClosedStroke, wideJoin, wideSegment } from "./raster.js";
 import { addExact, divideExact, dyadic, multiplyExact } from "./exact.js";
+import { circleArcs } from "./circle-path.js";
 
 const decoder = new TextDecoder();
 const noCharge = () => {};
+const needsCircleArcs = (p, radius, width, ratio) => [p.x, p.y, radius].every(Number.isFinite) &&
+  Math.max(Math.abs(p.x), Math.abs(p.y), radius) * ratio > 1e6 && width * ratio <= 65536;
 export const stringAt = (c, name, row, offset = 0) => {
   const i = row * (name === "point_markers" ? 4 : 2) + offset;
   return decoder.decode(c.strings.subarray(c[name][i], c[name][i] + c[name][i + 1]));
@@ -129,6 +133,7 @@ class Path {
 class StrokePath extends Path {
   constructor(charge, size, width) {
     super(false, charge);
+    this.pixelRatio = size.pixelRatio;
     // round join の半径と 2 画素を外へ残す。作った butt の端と join は可視領域へ入らない。
     const margin = width / 2 + 2 / size.pixelRatio;
     this.box = { min_x: -margin, min_y: -margin, max_x: size.width + margin, max_y: size.height + margin };
@@ -185,8 +190,15 @@ class StrokePath extends Path {
     this.previous = null; this.tip = null;
   }
   circle(p, radius) {
-    // 同じ part の一部だけ別に塗ると alpha が重なる。円を含む part はすべて従来経路にする。
-    this.widePath = null; this.strokePoints = null; this.localStroke = false; super.circle(p, radius);
+    // 同じ part のマーク・円・四角を一度の stroke にし、重なりの alpha を保つ。
+    this.widePath = null; this.strokePoints = null; this.localStroke = false;
+    if (needsCircleArcs(p, radius, this.radius * 2, this.pixelRatio)) {
+      for (const points of circleArcs(p, radius, this.box, 1 / (64 * this.pixelRatio), this.charge)) {
+        for (let i = 0; i < points.length; i++) this.path[i ? "lineTo" : "moveTo"](points[i].x, points[i].y);
+        if (points.length > 2 && equal(points[0], points[points.length - 1])) this.path.closePath();
+      }
+      this.addPoint(p, radius);
+    } else super.circle(p, radius);
   }
   flushStroke() {
     const points = this.strokePoints; this.strokePoints = null;
@@ -250,6 +262,26 @@ class FillPath extends Path {
 }
 
 const equal = (a, b) => a.x === b.x && a.y === b.y;
+
+/** 可変の円弧の分割を描画前に確かめる。ここでの計算と実描画の両方を数える。 */
+export function validateCircleWork(prepared, settings, view, size, display, limits) {
+  if (!prepared) return;
+  const { columns: c, order, omitted } = prepared;
+  let work = prepared.work ?? 0;
+  const charge = (count) => { work += count * 2; valid(Number.isSafeInteger(work) && work <= limits.work, "limits.work"); };
+  if (!(c.point_style[1] & V.point_frame.circle)) return;
+  for (let chunk = 0; chunk < order.length; chunk++) for (const ordinal of order[chunk].indices) {
+    const [kind, i] = order[chunk].locate(ordinal);
+    if (kind !== "point" || omitted.has(`point:${i}`) || !unitVisible(c, c.point_units[i], display) || pointReason(c, i) === "marker-unresolved") continue;
+    const p = project(view, size.width, size.height, c.point_xy[i * 2], c.point_xy[i * 2 + 1], c.chunk_origins[chunk * 2], c.chunk_origins[chunk * 2 + 1]);
+    const diameter = c.point_style[2] === V.point_size.screen ? c.point_style[3] * size.height / 100 : c.point_style[3] * view.scale;
+    const radius = Math.max(1, diameter / 2), width = lineWidth(c, c.point_units[i], settings, size);
+    if (!needsCircleArcs(p, radius, width, size.pixelRatio)) continue;
+    const margin = width / 2 + 2 / size.pixelRatio;
+    const box = { min_x: -margin, min_y: -margin, max_x: size.width + margin, max_y: size.height + margin };
+    circleArcs(p, radius, box, 1 / (64 * size.pixelRatio), charge);
+  }
+}
 
 function vertices(path, xy, start, finish, at, close) {
   for (let v = start; v < finish; v++) {

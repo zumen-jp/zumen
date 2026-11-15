@@ -206,5 +206,5 @@ export function prepare(input, limits) {
     indices.sort((a, b) => units[a] - units[b] || a - b);
     order.push({ indices, locate });
   }
-  return { metadata, order, columns: c };
+  return { metadata, order, columns: c, work };
 }

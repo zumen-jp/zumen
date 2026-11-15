@@ -4,6 +4,7 @@ import { paint, project, reportOf, unproject } from "./render.js";
 import { appearance, emptyInteraction, hiddenLayers, indexElements, references } from "./interaction.js";
 import { hitPoint, hitRect } from "./hit.js";
 import { measurementOf, positionAt, snapPoint } from "./snap.js";
+import { validateCircleWork } from "./geometry.js";
 import { inputOptions, normalizeInput, Tools } from "./tools.js";
 import { bindInput } from "./controls.js";
 import { Underlays } from "./underlays.js";
@@ -156,6 +157,7 @@ export class View2D {
       index = indexElements(next);
       // 全レイヤを表示し、画像をすべて未解決として報告の最大件数を差し替え前に検査する。
       Object.assign(next, reportOf(next, this.#limits, display, index.elements));
+      validateCircleWork(next, this.#settings, this.#view, this.#size, display, this.#limits);
     }
     const cleanup = this.#tools.reset("scene");
     this.#measurement = null;
@@ -187,6 +189,7 @@ export class View2D {
     if (equalList(previous.hiddenLayers, next.hiddenLayers) && equalList(previous.selection, next.selection) &&
       previous.hovered === next.hovered && equalList(previous.highlights, next.highlights)) return this.getReport();
     const display = appearance(next, this.#index, this.#settings, this.#limits);
+    validateCircleWork(this.#prepared, this.#settings, this.#view, this.#size, display, this.#limits);
     if (this.#prepared && !equalList(previous.hiddenLayers, next.hiddenLayers)) this.#prepared.reportUnderlays = null;
     this.#interaction = Object.freeze(next);
     this.#display = display;
@@ -399,6 +402,7 @@ export class View2D {
   jumpTo(view) {
     this.#mutable(); const next = camera(view), previous = this.#view;
     if (next.center.x === previous.center.x && next.center.y === previous.center.y && next.scale === previous.scale && next.rotation === previous.rotation) return this.getReport();
+    validateCircleWork(this.#prepared, this.#settings, next, this.#size, this.#display, this.#limits);
     this.#view = next;
     return this.#refresh("view");
   }
@@ -471,9 +475,11 @@ export class View2D {
     const pixelsX = Math.ceil(width * pixelRatio), pixelsY = Math.ceil(height * pixelRatio);
     valid(pixelsX <= 16384 && pixelsY <= 16384 && pixelsX * pixelsY <= this.#limits.canvasPixels, "limits.canvasPixels");
     if (this.#size?.width === width && this.#size?.height === height && this.#size?.pixelRatio === pixelRatio) return this.getReport();
+    const next = Object.freeze({ width, height, pixelRatio });
+    validateCircleWork(this.#prepared, this.#settings, this.#view, next, this.#display, this.#limits);
     this.#canvas.width = pixelsX;
     this.#canvas.height = pixelsY;
-    this.#size = Object.freeze({ width, height, pixelRatio });
+    this.#size = next;
     return this.#refresh("size");
   }
 
