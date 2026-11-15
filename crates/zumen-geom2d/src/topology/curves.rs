@@ -2,7 +2,7 @@
 
 use std::cmp::Ordering;
 
-use super::wide::Wide;
+use super::wide::{SignedWide, Wide};
 use super::{Charge, Error, Failure, Hit, MAX_COORDINATE, Point, Segment, cross, difference};
 
 /// 同じ格子上の中心と、格子の間隔を単位とする半径を持つ円。
@@ -74,10 +74,10 @@ pub fn circle_intersection<E>(
 }
 
 // 各座標について、符号・範囲・二分探索・丸めの有無を比べる回数の上限。
-const ROUND_WORK: u64 = 2 * (MAX_COORDINATE.ilog2() as u64 + 4);
+pub(super) const ROUND_WORK: u64 = 2 * (MAX_COORDINATE.ilog2() as u64 + 4);
 
 #[derive(Clone, Copy)]
-struct Root {
+pub(super) struct Root {
     // 点は (a + b sqrt(d)) / denominator。分母は正。
     a: [i128; 2],
     b: [i128; 2],
@@ -85,7 +85,7 @@ struct Root {
     denominator: i128,
 }
 
-enum Roots {
+pub(super) enum Roots {
     None,
     One(Root),
     Tangent(Root),
@@ -103,7 +103,7 @@ impl Root {
         }
     }
 
-    fn hit(self) -> Result<Hit, Error> {
+    pub(super) fn hit(self) -> Result<Hit, Error> {
         let [ax, ay] = self.a;
         let [bx, by] = self.b;
         let (x, rounded_x) = round(ax, bx, self.d, self.denominator)?;
@@ -113,13 +113,53 @@ impl Root {
             rounded: rounded_x || rounded_y,
         })
     }
+
+    pub(super) fn on_ray(circle: Circle, [x, y]: [i128; 2]) -> Self {
+        let denominator = x * x + y * y;
+        let radius = i128::from(circle.radius);
+        let Point([cx, cy]) = circle.center;
+        Self {
+            a: [denominator * i128::from(cx), denominator * i128::from(cy)],
+            b: [x, y],
+            d: Wide::product((radius * radius) as u128, denominator as u128),
+            denominator,
+        }
+    }
+
+    // ray × (root - center) の符号。定数項は 166 bit、二乗の比較は 512 bit に収まる。
+    pub(super) fn side(self, center: Point, [x, y]: [i128; 2]) -> Result<Ordering, Error> {
+        let Point([cx, cy]) = center;
+        let [ax, ay] = self.a;
+        let [bx, by] = self.b;
+        let ax = ax - self.denominator * i128::from(cx);
+        let ay = ay - self.denominator * i128::from(cy);
+        let a = SignedWide::difference_of_products(x, ay, y, ax).ok_or(Error::Range)?;
+        let b = x * by - y * bx;
+        let a_sign = a.sign();
+        if b == 0 || self.d == Wide::ZERO {
+            return Ok(a_sign);
+        }
+        let b_sign = b.cmp(&0);
+        if a_sign == Ordering::Equal || a_sign == b_sign {
+            return Ok(b_sign);
+        }
+        let comparison = a
+            .magnitude
+            .full_product(a.magnitude)
+            .cmp(&Wide::square(b).full_product(self.d));
+        Ok(if a.negative {
+            comparison.reverse()
+        } else {
+            comparison
+        })
+    }
 }
 
 fn dot([x, y]: [i128; 2], [u, v]: [i128; 2]) -> i128 {
     x * u + y * v
 }
 
-fn segment_roots(segment: Segment, circle: Circle) -> Roots {
+pub(super) fn segment_roots(segment: Segment, circle: Circle) -> Roots {
     let r = difference(segment.end, segment.start);
     let p = difference(segment.start, circle.center);
     let a = dot(r, r);
@@ -160,7 +200,7 @@ fn segment_roots(segment: Segment, circle: Circle) -> Roots {
     }
 }
 
-fn circle_roots(a: Circle, b: Circle) -> Result<Roots, Error> {
+pub(super) fn circle_roots(a: Circle, b: Circle) -> Result<Roots, Error> {
     let q = difference(b.center, a.center);
     let d2 = dot(q, q);
     let (r1, r2) = (i128::from(a.radius), i128::from(b.radius));
@@ -255,7 +295,7 @@ fn round(mut a: i128, mut b: i128, d: Wide, denominator: i128) -> Result<(i64, b
     Ok((if negative { -low } else { low }, rounded))
 }
 
-fn finish<E>(
+pub(super) fn finish<E>(
     roots: Roots,
     check: &mut impl FnMut(Charge) -> Result<(), E>,
 ) -> Result<CurveIntersection, Failure<E>> {

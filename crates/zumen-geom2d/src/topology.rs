@@ -7,12 +7,18 @@
 //! 線分の向き・接触・重なりは整数で判定し、交点だけを最後に格子へ丸める。
 //! 点の各座標を [`MAX_COORDINATE`] までに制限し、線分の積と交点の分子を `i128` に収める。
 //! 円の判別式と根の比較は固定長の 256 bit の整数で行い、接点と格子への丸めを区別する。
+//! 円弧の角度の内外も丸める前に求め、その符号の比較には固定長の 512 bit の整数を使う。
 
 use crate::Xy;
 
+mod arcs;
 mod curves;
 mod wide;
 
+pub use arcs::{
+    Arc, ArcIntersection, Direction, Ray, arc_intersection, circle_arc_intersection,
+    segment_arc_intersection,
+};
 pub use curves::{Circle, CurveIntersection, circle_intersection, segment_circle_intersection};
 
 /// 格子の各座標の絶対値の上限。差の外積は 83 bit、交点の分子の計算は 125 bit 未満に収まる。
@@ -33,6 +39,8 @@ pub enum Error {
     Range,
     /// 予算内でも、実際のメモリを確保できなかった。
     Allocation,
+    /// 方向が 0、または円弧の半径が 0 で、角度を定められない。
+    Degenerate,
 }
 
 /// 計算する前に利用側の予算へ数える量。`Work(0)` でも中断を確認する。

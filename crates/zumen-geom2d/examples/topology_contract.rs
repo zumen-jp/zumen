@@ -3,9 +3,10 @@
 
 use std::io::{self, Write};
 use zumen_geom2d::topology::{
-    Charge, Circle, CurveIntersection, Error, Failure, Grid, MAX_COORDINATE, Point, Segment,
-    SegmentIntersection, circle_intersection, segment_circle_intersection, segment_intersection,
-    segment_intersections,
+    Arc, ArcIntersection, Charge, Circle, CurveIntersection, Direction, Error, Failure, Grid,
+    MAX_COORDINATE, Point, Ray, Segment, SegmentIntersection, arc_intersection,
+    circle_arc_intersection, circle_intersection, segment_arc_intersection,
+    segment_circle_intersection, segment_intersection, segment_intersections,
 };
 
 fn number(out: &mut Vec<u8>, value: u64) {
@@ -35,6 +36,7 @@ fn error(out: &mut Vec<u8>, value: Error) {
         Error::NonFinite => 1,
         Error::Range => 2,
         Error::Allocation => 3,
+        Error::Degenerate => 4,
         _ => 255,
     });
 }
@@ -81,6 +83,174 @@ fn curve(out: &mut Vec<u8>, value: CurveIntersection) {
     for hit in points {
         point(out, hit.point);
         out.push(u8::from(hit.rounded));
+    }
+}
+
+fn arc(out: &mut Vec<u8>, value: Arc) {
+    point(out, value.circle().center());
+    number(out, value.circle().radius() as u64);
+    for ray in [value.start(), value.end()] {
+        for component in ray.components() {
+            out.extend_from_slice(&component.to_le_bytes());
+        }
+    }
+    out.push(u8::from(value.direction() == Direction::Clockwise));
+    out.push(u8::from(value.is_full()));
+}
+
+fn arc_result(out: &mut Vec<u8>, value: ArcIntersection) {
+    let mut hit = |hit: zumen_geom2d::topology::Hit| {
+        point(out, hit.point);
+        out.push(u8::from(hit.rounded));
+    };
+    match value {
+        ArcIntersection::None => out.push(0),
+        ArcIntersection::Point(found) => {
+            hit(found);
+            out.push(1);
+        }
+        ArcIntersection::Tangent(found) => {
+            hit(found);
+            out.push(2);
+        }
+        ArcIntersection::Two(found) => {
+            for found in found {
+                hit(found);
+            }
+            out.push(3);
+        }
+        ArcIntersection::Overlap(found) => {
+            arc(out, found);
+            out.push(4);
+        }
+        ArcIntersection::OverlapAndPoint(found, point) => {
+            hit(point);
+            arc(out, found);
+            out.push(5);
+        }
+        ArcIntersection::TwoOverlaps(found) => {
+            for found in found {
+                arc(out, found);
+            }
+            out.push(6);
+        }
+    }
+}
+
+fn arcs(out: &mut Vec<u8>, segments: &[Segment]) {
+    out.extend_from_slice(b"arcs 1\n");
+    let rays = [
+        [1, 0],
+        [3, 4],
+        [0, 1],
+        [-1, 1],
+        [-1, 0],
+        [-1, -1],
+        [0, -1],
+        [1, -1],
+    ]
+    .map(|[x, y]| Ray::new(x, y).unwrap());
+    let main = Circle::new(Point::new(0, 0).unwrap(), 5).unwrap();
+    let mut inputs = Vec::new();
+    for start in rays {
+        for end in rays {
+            inputs.push(Arc::new(main, start, end, Direction::CounterClockwise).unwrap());
+        }
+    }
+    for circle in [
+        main,
+        Circle::new(Point::new(6, 0).unwrap(), 5).unwrap(),
+        Circle::new(Point::new(1, 0).unwrap(), 1).unwrap(),
+        Circle::new(Point::new(0, 0).unwrap(), MAX_COORDINATE).unwrap(),
+    ] {
+        inputs.push(Arc::full(circle, Ray::X, Direction::Clockwise).unwrap());
+        inputs.push(
+            Arc::new(
+                circle,
+                Ray::new(MAX_COORDINATE, MAX_COORDINATE - 1).unwrap(),
+                Ray::new(-MAX_COORDINATE, MAX_COORDINATE - 1).unwrap(),
+                Direction::CounterClockwise,
+            )
+            .unwrap(),
+        );
+    }
+    for &a in &inputs {
+        arc(out, a);
+        for endpoint in a
+            .endpoints(|value| {
+                charge(out, value);
+                Ok::<_, ()>(())
+            })
+            .unwrap()
+        {
+            point(out, endpoint.point);
+            out.push(u8::from(endpoint.rounded));
+        }
+        for &segment in segments {
+            let found = segment_arc_intersection(segment, a, |value| {
+                charge(out, value);
+                Ok::<_, ()>(())
+            })
+            .unwrap();
+            curve(out, found);
+        }
+        let found = circle_arc_intersection(main, a, |value| {
+            charge(out, value);
+            Ok::<_, ()>(())
+        })
+        .unwrap();
+        arc_result(out, found);
+        for &b in &inputs {
+            let found = arc_intersection(a, b, |value| {
+                charge(out, value);
+                Ok::<_, ()>(())
+            })
+            .unwrap();
+            assert_eq!(
+                found,
+                arc_intersection(b.reversed(), a.reversed(), |_| Ok::<_, ()>(())).unwrap()
+            );
+            arc_result(out, found);
+        }
+    }
+    for b in inputs.iter().copied().step_by(7) {
+        let mut calls = 0;
+        let a = Arc::new(
+            main,
+            Ray::X,
+            Ray::new(0, -1).unwrap(),
+            Direction::CounterClockwise,
+        )
+        .unwrap();
+        arc_intersection(a, b, |_| {
+            calls += 1;
+            Ok::<_, ()>(())
+        })
+        .unwrap();
+        for stop in 0..=calls {
+            number(out, stop);
+            let mut count = 0;
+            let found = arc_intersection(a, b, |value| {
+                charge(out, value);
+                let at = count;
+                count += 1;
+                if at == stop { Err(at) } else { Ok(()) }
+            });
+            match found {
+                Ok(found) => {
+                    out.push(0);
+                    arc_result(out, found);
+                }
+                Err(Failure::Stopped(at)) => {
+                    out.push(1);
+                    number(out, at);
+                }
+                Err(Failure::Geometry(found)) => {
+                    out.push(2);
+                    error(out, found);
+                }
+            }
+        }
     }
 }
 
@@ -275,5 +445,6 @@ fn main() -> io::Result<()> {
             }
         }
     }
+    arcs(&mut out, &segments);
     io::stdout().lock().write_all(&out)
 }
