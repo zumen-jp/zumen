@@ -6,6 +6,8 @@ use std::io::{self, Write};
 mod construct;
 #[path = "topology_contract/edit.rs"]
 mod edit;
+#[path = "topology_contract/regions.rs"]
+mod regions;
 use zumen_geom2d::topology::{
     Arc, ArcIntersection, Charge, Circle, CurveIntersection, Direction, Error, Failure, Grid,
     MAX_COORDINATE, Point, Ray, Segment, SegmentIntersection, arc_intersection,
@@ -455,5 +457,6 @@ fn main() -> io::Result<()> {
     arcs(&mut out, &segments);
     edit::record(&mut out);
     construct::record(&mut out);
+    regions::record(&mut out);
     io::stdout().lock().write_all(&out)
 }

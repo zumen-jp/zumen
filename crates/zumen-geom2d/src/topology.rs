@@ -15,6 +15,7 @@ mod arcs;
 mod construct;
 mod curves;
 mod edit;
+mod regions;
 mod wide;
 
 pub use arcs::{
@@ -29,6 +30,10 @@ pub use curves::{Circle, CurveIntersection, circle_intersection, segment_circle_
 pub use edit::{
     Boundary, Cut, End, Extended, SegmentPiece, Trimmed, extend_arc, extend_segment, trim_arc,
     trim_segment,
+};
+pub use regions::{
+    MAX_REGION_EDGES, MAX_REGION_PASSES, Region, RegionAdjustment, RegionDiscard, RegionFill,
+    RegionLocation, RegionOperand, RegionOperation, RegionResult, boolean_regions, detect_regions,
 };
 
 /// 格子の各座標の絶対値の上限。差の外積は 83 bit、交点の分子の計算は 125 bit 未満に収まる。
