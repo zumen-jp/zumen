@@ -186,11 +186,12 @@ DOM の座標は border・padding と、軸に沿う正の拡縮を除いて Can
 
 ## 吸着と計測
 
-`snapAt(point, tolerance = 8)` は、許容円の中でもっとも近い可視の頂点を返します。距離が等しければ描画の逆順を優先します。対象はシーンの折れ線と面の頂点、点の中心です。非表示レイヤ・切り抜き・未描画・透明色は当たり判定と同じ扱いです。点の囲みだけを描いて中心が空白なら、中心へは吸着しません。元の円弧の中心、交点、文字や画像の点をシーンの列から作り直しません。
+`snapAt(point, tolerance = 8, options = {})` は、許容円の中でもっとも近い可視の頂点を返します。距離が等しければ描画の逆順を優先します。対象はシーンの折れ線と面の頂点（`vertex`）、点の中心（`point`）です。`options.kinds` で対象を選べます。省略時は両方、空の配列なら候補なしです。非表示レイヤ・切り抜き・未描画・透明色は当たり判定と同じ扱いです。点の囲みだけを描いて中心が空白なら、中心へは吸着しません。元の円弧の中心、交点、文字や画像の点をシーンの列から作り直しません。
 
 結果は `{ position, screen, kind, distance, tolerance }` です。`distance` と `tolerance` は CSS px、`kind` は `vertex` か `point` です。候補がなければ `null` です。`position` は `{ origin, offset, element? }` として大きな原点を相対座標から分け、吸着した位置には ID と配置の道筋を残します。`positionAt(point)` は吸着せず、この形の位置を返します。`toScreen(position)` で画面へ戻せるため、利用側で先に原点を足す必要はありません。
 
 ```js
+const pointCenter = viewer.snapAt({ x: 100, y: 80 }, 8, { kinds: ["point"] });
 const start = viewer.snapAt({ x: 100, y: 80 })?.position
   ?? viewer.positionAt({ x: 100, y: 80 });
 const end = viewer.snapAt({ x: 200, y: 120 })?.position

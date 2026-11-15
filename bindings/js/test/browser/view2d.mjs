@@ -8,7 +8,7 @@ const browsers = { chromium, firefox, webkit };
 const [name, wasmPath] = process.argv.slice(2);
 if (!browsers[name] || !wasmPath) throw new Error("使い方: node bindings/js/test/browser/view2d.mjs <chromium|firefox|webkit> <zumen_abi1.wasm>");
 const root = join(dirname(fileURLToPath(import.meta.url)), "../../../..");
-const origin = "http://localhost:24191";
+const origin = `http://localhost:${process.env.ZUMEN_TEST_PORT ?? 24191}`;
 const pdfjs = existsSync(join(root, "xtask/verify/pdfjs/node_modules/pdfjs-dist/build/pdf.mjs"));
 if (!pdfjs && process.env.ZUMEN_PDFJS_REQUIRED) throw new Error("PDF の検査には xtask/verify/pdfjs の npm ci が必要です");
 const inputs = ["scene", "open_jww", "open_sxf"].map((test) =>

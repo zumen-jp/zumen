@@ -143,7 +143,7 @@ const references = Buffer.from([
     0, "PDFDEFINITION", 5, "D2", 1, external + "sheet.pdf", 2, "1"]),
   0, "EOF", "",
 ].join("\n"));
-const port = 24182 + Object.keys(browsers).indexOf(product);
+const port = Number(process.env.ZUMEN_TEST_PORT ?? 24182 + Object.keys(browsers).indexOf(product));
 const origin = "http://127.0.0.1:" + port;
 const mime = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".wasm": "application/wasm" };
 let browser, server;

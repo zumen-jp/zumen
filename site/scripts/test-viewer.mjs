@@ -45,8 +45,9 @@ try {
       }
       response.writeHead(200, { "Content-Type": mime[extname(path)] ?? "application/octet-stream", ...(url.pathname.startsWith("/viewer/") ? headers : { "Cache-Control": headers["Cache-Control"] }) }).end(readFileSync(path));
     });
-    await new Promise((ok, fail) => server.once("error", fail).listen(24189, "127.0.0.1", ok));
-    origin = "http://127.0.0.1:24189";
+    const port = Number(process.env.ZUMEN_TEST_PORT ?? 24189);
+    await new Promise((ok, fail) => server.once("error", fail).listen(port, "127.0.0.1", ok));
+    origin = `http://127.0.0.1:${port}`;
   }
   browser = await launchers[product].launch(["chrome", "msedge"].includes(product) ? { channel: product } : {});
   const context = await browser.newContext({ viewport: { width: 1360, height: 980 }, serviceWorkers: "block" });

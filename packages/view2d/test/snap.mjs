@@ -57,7 +57,8 @@ export function testSnap({ assert, near }) {
     index = indexElements(prepared);
     Object.assign(prepared, reportOf(prepared, DEFAULT_LIMITS, display, index.elements));
   };
-  const snap = (x, y, tolerance = 8, limits = DEFAULT_LIMITS) => snapPoint(ctx, prepared, settings, view, size, display, index, limits, { x, y }, tolerance);
+  const snap = (x, y, tolerance = 8, limits = DEFAULT_LIMITS, options) => snapPoint(ctx, prepared, settings, view, size, display, index, limits, { x, y }, tolerance, options);
+  const selected = (kinds, x = 100, y = 100, tolerance = 8) => snap(x, y, tolerance, DEFAULT_LIMITS, { kinds });
   const measure = (start, end, limits = DEFAULT_LIMITS) => measurementOf(prepared, start, end, index, limits);
   const rejects = (fn, message) => {
     let caught;
@@ -87,6 +88,26 @@ export function testSnap({ assert, near }) {
 
   set(point());
   assert(snap(100, 100, 0)?.kind === "point", "点の中心に吸着する");
+  assert(selected(["point"])?.kind === "point" && selected(["vertex"]) === null, "点だけのシーンで種類を絞る");
+  const mixed = { ...lines([1, 0, 20, 0]), point_units: [0], point_xy: [0, 0], point_rotations: [0],
+    point_markers: [0, 0, 0, 0], point_scales: [1], point_style: point().point_style };
+  set(mixed);
+  assert(snap(100, 100)?.kind === "point", "省略時は近い点の中心を選ぶ");
+  assert(selected(["vertex"])?.position.offset.x === 1 && selected(["point"])?.position.offset.x === 0, "近接する線と点を種類で選ぶ");
+  assert(selected(["vertex"], 100, 100, 1) === null && selected(["point"], 102, 100, 1) === null, "指定した種類が範囲外なら候補なし");
+  assert(selected([]) === null && selected(["point", "point"])?.kind === "point", "空の種類と重複を扱う");
+  const kindLayer = new TextEncoder().encode("layer/0");
+  mixed.layer_ids = [mixed.strings.length, kindLayer.length]; mixed.strings.push(...kindLayer); mixed.unit_layers[0] = 0;
+  set(mixed); display.hidden.add(0);
+  assert(selected(["vertex"]) === null && selected(["point"]) === null, "種類を絞っても非表示レイヤを拾わない");
+  const largeMixed = { ...mixed, chunk_origins: [1e20, -1e20] };
+  set(largeMixed); view = { ...view, center: { x: 1e20, y: -1e20 } };
+  assert(selected(["vertex"])?.position.offset.x === 1 && selected(["point"])?.position.origin.x === 1e20, "種類を絞っても大きな原点を足さない");
+  view = { ...view, center: { x: 0, y: 0 } };
+  rejects(() => selected(["unknown"]), "未知の種類を拒む");
+  rejects(() => selected("point"), "配列以外の種類を拒む");
+  rejects(() => selected(null), "null の種類を拒む");
+  rejects(() => snap(100, 100, 8, { ...DEFAULT_LIMITS, stateItems: 1 }, { kinds: ["point", "point"] }), "種類の入力数を制限する");
   for (const frame of [V.point_frame.circle, V.point_frame.square]) {
     set(point(V.point_mark.none, frame));
     assert(snap(100, 100, 20) === null, "囲みの空白にある点の中心を吸着しない");
@@ -233,5 +254,6 @@ export function testSnap({ assert, near }) {
   assert(before.a === after.a && before.e === after.e && before.f === after.f, "失敗した吸着でも Canvas の状態を戻す");
   prepared = null;
   assert(snap(100, 100) === null, "シーンがなければ吸着しない");
+  rejects(() => selected(["unknown"]), "シーンがなくても未知の種類を拒む");
   rejects(() => measure(start, end), "シーンのない計測を拒む");
 }

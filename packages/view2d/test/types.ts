@@ -54,6 +54,10 @@ viewer.setTool("measure");
 viewer.handleInput({ type: "pointerdown", point: { x: 5, y: 6 }, pointerId: 1, pointerType: "touch" });
 viewer.handleInput({ type: "cancel" });
 const start = viewer.snapAt({ x: 0, y: 0 })?.position ?? viewer.positionAt({ x: 0, y: 0 });
+viewer.snapAt({ x: 0, y: 0 }, 8, { kinds: ["point", "vertex"] as const });
+viewer.snapAt({ x: 0, y: 0 }, 0, { kinds: [] });
+// @ts-expect-error 未対応の吸着の種類
+viewer.snapAt({ x: 0, y: 0 }, 8, { kinds: ["unknown"] });
 viewer.toScreen(start);
 viewer.setMeasurement({ start, end: viewer.positionAt({ x: 3, y: 4 }) });
 declare const session: Session;

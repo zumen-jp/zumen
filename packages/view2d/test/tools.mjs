@@ -20,7 +20,10 @@ export function testTools({ assert, near, throws }) {
     assert(viewer.getState().tool === "select" && Object.isFrozen(defaultOptions), "既定の選択ツールと凍結した入力設定");
     const emptyState = viewer.getState(); viewer.cancelInput();
     assert(viewer.getState() === emptyState, "中断する操作がなければ同じ状態を保つ");
+    throws(() => viewer.snapAt({ x: 0, y: 0 }, 8, { kinds: ["unknown"] }), "シーンなしでも公開 API で種類を検査する");
     viewer.setScene(input);
+    assert(viewer.snapAt({ x: 40, y: 70 }, 8, { kinds: ["vertex"] })?.kind === "vertex", "公開 API から頂点を選ぶ");
+    assert(viewer.snapAt({ x: 40, y: 70 }, 8, { kinds: ["point"] }) === null, "公開 API から点だけに絞る");
     pointer("pointermove", 100, 70);
     assert(viewer.getState().hovered?.id === "space/0/h1" && viewer.getState().gesture === null, "ドラッグ前の移動は hover だけを更新する");
     const notifications = [];

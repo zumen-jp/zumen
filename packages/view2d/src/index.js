@@ -247,9 +247,9 @@ export class View2D {
 
   positionAt(value) { this.#live(); return positionAt(this.#view, this.#size, point(value, "point")); }
 
-  snapAt(value, tolerance = 8) {
+  snapAt(value, tolerance = 8, options = {}) {
     this.#live(); const p = point(value, "point"); finite(tolerance, "tolerance"); valid(tolerance >= 0, "tolerance");
-    return this.#prepared ? snapPoint(this.#ctx, this.#prepared, this.#settings, this.#view, this.#size, this.#display, this.#index, this.#limits, p, tolerance) : null;
+    return snapPoint(this.#ctx, this.#prepared, this.#settings, this.#view, this.#size, this.#display, this.#index, this.#limits, p, tolerance, options);
   }
 
   setMeasurement(value) {

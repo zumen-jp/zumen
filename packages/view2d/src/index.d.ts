@@ -133,10 +133,12 @@ export interface Highlight {
 }
 /** 起点の座標を原点と相対座標に分け、大きな原点を足す丸めを避ける。 */
 export interface ScenePosition { readonly origin: Point; readonly offset: Point; readonly element?: ElementRef }
+export type SnapKind = "vertex" | "point";
+export interface SnapOptions { readonly kinds?: readonly SnapKind[] }
 export interface Snap {
   readonly position: ScenePosition;
   readonly screen: Point;
-  readonly kind: "vertex" | "point";
+  readonly kind: SnapKind;
   /** CSS px。 */
   readonly distance: number;
   readonly tolerance: number;
@@ -271,7 +273,7 @@ export declare class View2D {
   /** シーン上の位置を原点と相対座標に分けて返す。要素への吸着はしない。 */
   positionAt(point: Point): ScenePosition;
   /** 可視の線・面の頂点と点の中心。既定の許容半径は 8 CSS px。 */
-  snapAt(point: Point, tolerance?: number): Snap | null;
+  snapAt(point: Point, tolerance?: number, options?: SnapOptions): Snap | null;
   setMeasurement(value: { readonly start: ScenePosition; readonly end: ScenePosition } | null): RenderReport;
   /** 明示的な ID と同期の解決関数。null で解除。シーンの差し替え・消去・破棄でも解除する。 */
   setMeasurementCalibration(value: MeasurementCalibration | null): RenderReport;

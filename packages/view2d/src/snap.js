@@ -5,6 +5,7 @@ import { elementKey, references } from "./interaction.js";
 import { addExact, divideExact, dyadic } from "./exact.js";
 
 const UNITS = new Set(["millimeter", "centimeter", "meter", "inch", "foot"]);
+const SNAP_KINDS = new Set(["vertex", "point"]);
 
 function point(value, name) {
   valid(value && typeof value === "object", name);
@@ -39,11 +40,17 @@ function* vertices(c, kind, i, charge) {
 }
 
 /** シーンの線・面の頂点と点の中心を、CSS px の距離と逆の描画順で選ぶ。 */
-export function snapPoint(ctx, prepared, settings, view, size, display, index, limits, screen, tolerance) {
+export function snapPoint(ctx, prepared, settings, view, size, display, index, limits, screen, tolerance, options = {}) {
   const target = point(screen, "screen");
   finite(tolerance, "tolerance"); valid(tolerance >= 0, "tolerance");
+  valid(options && typeof options === "object" && !Array.isArray(options), "snap.options");
+  const kinds = options.kinds === undefined ? ["vertex", "point"] : options.kinds;
+  const optionWork = options.kinds === undefined ? 0 : kinds?.length;
+  valid(Array.isArray(kinds) && optionWork <= limits.stateItems && optionWork <= limits.work, "snap.kinds");
+  for (const kind of kinds) valid(SNAP_KINDS.has(kind), "snap.kinds");
+  const selected = new Set(kinds);
   if (!prepared) return null;
-  let work = 0, nearest = null;
+  let work = optionWork, nearest = null;
   const charge = (count) => { work += count; valid(Number.isSafeInteger(work) && work <= limits.work, "limits.work"); };
   const { columns: c, order } = prepared;
   ctx.save();
@@ -54,6 +61,7 @@ export function snapPoint(ctx, prepared, settings, view, size, display, index, l
         charge(1);
         const [kind, i] = group.locate(group.indices[ordinal]);
         if (kind !== "line" && kind !== "face" && kind !== "point") continue;
+        if (!selected.has(kind === "point" ? "point" : "vertex")) continue;
         const visible = visiblePointTest(ctx, prepared, settings, view, size, display, kind, i, chunk, charge);
         if (!visible) continue;
         for (const offset of vertices(c, kind, i, charge)) {
