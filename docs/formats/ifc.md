@@ -258,6 +258,29 @@ cargo test -p zumen-ifc --locked --test faces --target wasm32-wasip1 -- --test-t
 node crates/zumen-ifc/tests/wasi-faces.mjs --compare target/face-comparison target/face-comparison-wasm
 ```
 
+## 形の葉から添字付きの面集合を取得する
+
+`IfcFile::tessellated_faces(&ShapeNode, cx)` は IFC4 以降の `IfcTriangulatedFaceSet` と `IfcPolygonalFaceSet` を取得します。`IndexedFaceSet` に元の点・任意のタグ・点の対応表・閉殻の申告を、`IndexedFaces` に三角形の添字と法線、または共有する多角形の外輪と内輪を持ちます。三角形化や単位換算は行いません。
+
+- 添字は元と同じ 1 から始まります。`point_index` は `PnIndex` の元値で、面の添字から座標の添字への対応です。省略時は座標を直接指します。法線は対応表を通さず、面の添字で直接引きます。双方を別に範囲検査し、対応表の展開や法線の正規化はしません。参照されていない点や法線も保持します。
+- 多角形の面の共有を保ち、`IndexedFaces::Polygons::indices` は 0 から始まる `faces` の参照として元の並びを持ちます。`faces` は最初に参照した順です。`source.faces` はその順の元のレコード、`source.coordinates` は点とタグの元のレコードを借用します。外輪・内輪の添字の並びは変えません。
+- IFC4 の点の列は 1 属性、IFC4.3 は任意の `TagList` を含む 2 属性として検査します。タグを指定した場合は点と同じ個数を要求します。タグは既存の文字列の読み取りを使い、置換があれば `ifc.text.invalid` を返して元のレコードも残します。`Closed` の省略は `None` とし、未知を閉殻と決めません。
+- 3 成分の有限値、正の整数の添字とその範囲、三角形の 3 添字、多角形と内輪の 3 点以上、属性数、版と参照の種類を検査します。縮退・平面性・内輪の交差や内包・法線の向き・閉殻の有効性・体積は未評価です。対応外の派生型や複合インスタンスを親型として読まず、種類と場所を診断します。
+- 長さの単位の採用条件はほかの面集合と同じです。共有 `Cx` で参照・数・タグ・列・単位探索の Work、確保前の DecodedBytes、レコードごとの Elements、最大 2 段の取得の Depth と中断を検査します。不正・未対応・停止で部分結果を返さず、呼び出し側の深さを戻します。Building・ID・Hash v1 と形の評価の範囲は変更しません。
+
+根拠は buildingSMART の [IFC4 TriangulatedFaceSet](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4/ADD2_TC1/HTML/schema/ifcgeometricmodelresource/lexical/ifctriangulatedfaceset.htm)・[PolygonalFaceSet](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4/ADD2_TC1/HTML/schema/ifcgeometricmodelresource/lexical/ifcpolygonalfaceset.htm)、[IFC4.3 TriangulatedFaceSet](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4_3/HTML/lexical/IfcTriangulatedFaceSet.htm)・[CartesianPointList3D](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4_3/HTML/lexical/IfcCartesianPointList3D.htm)・[IndexedPolygonalFace](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4_3/HTML/lexical/IfcIndexedPolygonalFace.htm)・[IndexedPolygonalFaceWithVoids](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4_3/HTML/lexical/IfcIndexedPolygonalFaceWithVoids.htm) の自然言語と属性の説明です。仕様のスキーマや生成物は同梱しません。
+
+`tests/indexed_faces.rs` は合成 2 版と公開の GNI `model_9.ifc` の壁 `2q2CBrfQTCKPY0zxCdZwK$` の `#628` → `#623` を検査します。公開例は 28 点・14 面で、最初の面 `#608` に 2 個の内輪があります。IfcOpenShell 0.9.0.post1 と計 7 個の形・共有を除く 24 面の元属性を照合します。同梱の公開 IFC に三角形の面集合はなく、三角形・法線・タグの読みは `synthetic` の範囲です。ネイティブと WASI では JSON 3 件と診断・全 Kind の使用量をバイト列で比べます。既存の多角形の面集合も追加前の出力と比べます。fuzz は 16 件まで取得し、合成の種で三角形と穴付き多角形へ到達することを検査します。
+
+```powershell
+$env:ZUMEN_IFC_INDEXED_FACES_OUT = Join-Path (Get-Location) 'target/indexed-face-comparison'
+cargo test -p zumen-ifc --locked --test indexed_faces
+python -X utf8 -I crates/zumen-ifc/tests/ifcopenshell/indexed_faces.py target/indexed-face-comparison
+$env:CARGO_TARGET_WASM32_WASIP1_RUNNER = 'node --no-warnings tests/wasi-indexed-faces.mjs'
+cargo test -p zumen-ifc --locked --test indexed_faces --target wasm32-wasip1 -- --test-threads 1
+node crates/zumen-ifc/tests/wasi-indexed-faces.mjs --compare target/indexed-face-comparison target/indexed-face-comparison-wasm
+```
+
 ## 形の葉から回転体を取得する
 
 `IfcFile::revolved_area(&ShapeNode, cx)` は `IfcRevolvedAreaSolid` の葉から、`ProfileRevolution`・任意断面の外輪・長さの単位・借用した出所を返します。矩形・円・I 形・中空矩形・任意の閉じた外輪の 5 断面を既存の押し出しと共有して読みます。パラメーター付き断面の輪郭は生成しません。

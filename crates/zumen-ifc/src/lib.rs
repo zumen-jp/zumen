@@ -32,9 +32,9 @@ mod zip;
 #[cfg(feature = "building")]
 pub use building::{
     ExtrudedArea, ExtrusionSource, FaceGraphSource, FacetedFaces, GridAxes, GridAxisCurve,
-    GridSource, ItemStyleSource, ItemSurfaceStyles, ProductShape, ProfiledExtrusion,
-    RevolutionSource, RevolvedArea, ShapeLinks, ShapeNode, ShapeRef, SurfaceStyleBinding,
-    SurfaceStyleSource, SweptDisk,
+    GridSource, IndexedFaceSource, ItemStyleSource, ItemSurfaceStyles, ProductShape,
+    ProfiledExtrusion, RevolutionSource, RevolvedArea, ShapeLinks, ShapeNode, ShapeRef,
+    SurfaceStyleBinding, SurfaceStyleSource, SweptDisk, TessellatedFaces,
 };
 #[cfg(feature = "building")]
 pub use edit::{Applied, Edit, NewLiteral, NewValue, RootAttribute, apply};

@@ -34,11 +34,13 @@ pub(super) fn face_length_unit<'f>(
         shape_diagnostics: true,
     };
     let unit = reader.named_unit(version, source, false)?;
-    for record in &reader.records {
-        if record.form() != crate::Form::Entity {
-            reader.current = record.id().unwrap_or(0);
-            return Err(reader.unsupported_kind("complex-unit"));
-        }
+    // named_unit が最初に保持する Project だけは take_typed を通らない。
+    // 後続の単位・割り当ての単純な形式は、各取得時に検査されている。
+    if let Some(record) = reader.records.first()
+        && record.form() != crate::Form::Entity
+    {
+        reader.current = record.id().unwrap_or(0);
+        return Err(reader.unsupported_kind("complex-unit"));
     }
     Ok((unit, reader.records))
 }

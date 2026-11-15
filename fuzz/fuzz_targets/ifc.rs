@@ -28,6 +28,7 @@ fn lift(file: &IfcFile, cx: &mut Cx) -> Result<(), Error> {
     let mut sweeps = 0;
     let mut revolutions = 0;
     let mut faces = 0;
+    let mut tessellations = 0;
     let mut styles = 0;
     for id in file.ids() {
         cx.check(zumen_base::Kind::Work, 1)?;
@@ -58,6 +59,10 @@ fn lift(file: &IfcFile, cx: &mut Cx) -> Result<(), Error> {
                         if faces < 16 && [b"IFCFACETEDBREP".as_slice(), b"IFCSHELLBASEDSURFACEMODEL", b"IFCFACEBASEDSURFACEMODEL"].iter().any(|kind| file.kind(node.source).eq_ignore_ascii_case(kind)) {
                             if let Err(Error::Stopped(stop)) = file.faceted_faces(node, cx) { return Err(Error::Stopped(stop)); }
                             faces += 1;
+                        }
+                        if tessellations < 16 && [b"IFCTRIANGULATEDFACESET".as_slice(), b"IFCPOLYGONALFACESET"].iter().any(|kind| file.kind(node.source).eq_ignore_ascii_case(kind)) {
+                            if let Err(Error::Stopped(stop)) = file.tessellated_faces(node, cx) { return Err(Error::Stopped(stop)); }
+                            tessellations += 1;
                         }
                     }
                 }

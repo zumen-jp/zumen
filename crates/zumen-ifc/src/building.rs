@@ -23,6 +23,7 @@ mod curve;
 mod extrusion;
 mod faces;
 mod grid;
+mod indexed_faces;
 mod semantic;
 mod shape;
 mod style;
@@ -33,6 +34,7 @@ pub use extrusion::{
 };
 pub use faces::{FaceGraphSource, FacetedFaces};
 pub use grid::{GridAxes, GridAxisCurve, GridSource};
+pub use indexed_faces::{IndexedFaceSource, TessellatedFaces};
 pub use shape::{ProductShape, ShapeLinks, ShapeNode, ShapeRef};
 pub use style::{ItemStyleSource, ItemSurfaceStyles, SurfaceStyleBinding, SurfaceStyleSource};
 pub use sweep::SweptDisk;

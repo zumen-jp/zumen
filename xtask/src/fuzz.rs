@@ -250,8 +250,11 @@ fn ifc_profiles() -> Vec<u8> {
     #60=IFCCARTESIANPOINT((2.,0.,0.));\n#61=IFCCARTESIANPOINT((0.,2.,0.));\n\
     #62=IFCPOLYLOOP((#21,#60,#61));\n#63=IFCFACEOUTERBOUND(#62,.T.);\n#64=IFCFACE((#63));\n\
     #65=IFCOPENSHELL((#64));\n#66=IFCSHELLBASEDSURFACEMODEL((#65));\n\
+    #80=IFCCARTESIANPOINTLIST3D(((0.,0.,0.),(2.,0.,0.),(0.,2.,0.),(0.2,0.2,0.),(0.4,0.2,0.),(0.2,0.4,0.)));\n\
+    #81=IFCTRIANGULATEDFACESET(#80,$,.F.,((1,2,3)),$);\n\
+    #82=IFCINDEXEDPOLYGONALFACEWITHVOIDS((1,2,3),((4,5,6)));\n#83=IFCPOLYGONALFACESET(#80,.F.,(#82),$);\n\
     #100=IFCWALL('0000000000000000000002',$,$,$,$,$,#101,$,.NOTDEFINED.);\n\
-    #101=IFCPRODUCTDEFINITIONSHAPE($,$,(#102));\n#102=IFCSHAPEREPRESENTATION(#8,'Body','GeometricSet',(#30,#31,#32,#33,#34,#35,#36,#66));\n\
+    #101=IFCPRODUCTDEFINITIONSHAPE($,$,(#102));\n#102=IFCSHAPEREPRESENTATION(#8,'Body','GeometricSet',(#30,#31,#32,#33,#34,#35,#36,#66,#81,#83));\n\
     ENDSEC;\nEND-ISO-10303-21;\n".to_vec()
 }
 
@@ -741,7 +744,7 @@ mod tests {
         assert_eq!(found, []);
         let file = file.unwrap();
         let (shape, _) = run(Limits::default(), |cx| file.product_shape(100, cx));
-        let mut counts = [0; 4];
+        let mut counts = [0; 5];
         for node in &shape.unwrap().nodes {
             let (at, result) = match file.kind(node.source) {
                 b"IFCEXTRUDEDAREASOLID" => (
@@ -764,13 +767,19 @@ mod tests {
                         file.faceted_faces(node, cx).map(drop)
                     }),
                 ),
+                b"IFCTRIANGULATEDFACESET" | b"IFCPOLYGONALFACESET" => (
+                    4,
+                    run(Limits::default(), |cx| {
+                        file.tessellated_faces(node, cx).map(drop)
+                    }),
+                ),
                 _ => continue,
             };
             assert!(result.0.is_some());
             assert_eq!(result.1, []);
             counts[at] += 1;
         }
-        assert_eq!(counts, [5, 1, 1, 1]);
+        assert_eq!(counts, [5, 1, 1, 1, 2]);
     }
 
     #[test]
