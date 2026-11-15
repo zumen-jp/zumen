@@ -759,9 +759,15 @@ issues = ["zumen-jp/zumen#410", "zumen-jp/zumen#529", "zumen-jp/zumen#663", "zum
 notes = "IFC をスキーマに照らしてチェックする validate と IDS の属性解決のためだけに読み、汎用 STEP・EXPRESS 処理系へは拡張しない。読み取りを足した PR（zumen-jp/zumen#450）は、参照した実装を記録していないので、実装の根拠は推定にする。寛容なライセンスの実装を参照したら、basis に reference を、references にその実装を足す"
 
 [formats.express.read]
-level = "synthetic"
-scope = "テストの中で書いた小さな EXPRESS（crates/zumen-ifc/tests/express.rs と、src/express.rs の単体テスト）だけで確かめた。型・実体・属性・集まりを読むこと、評価しない規則の数、読めない書き方・宣言のない名前・同じ名前の宣言・循環の失敗と指す名前、予算（バイトごとの work、集まりの入れ子の depth、長い鎖と循環を調べる手順の work）、既定の深さまでの入れ子を 1 MiB のスタックで読んでチェックできること、その 4 倍まで上限を引き上げても同じスタックで型を読んで写し・比較・表示・破棄できること、1 つの宣言に並べた属性の名前が型を共有すること、切ったり変えたりした EXPRESS で落ちないことを確かめる。buildingSMART が公開する IFC の EXPRESS のスキーマを読むことと、読んだ値とチェックの結果を外部の実装と照らすことはまだ（#663）"
-checked = "2026-11-09"
+level = "external"
+scope = "buildingSMART の固定コミットの IFC2X3 TC1・IFC4 ADD2 TC1・IFC4X3 ADD2 を実行時だけ取得し、同じスキーマを読んだ IfcOpenShell と 2305 実体・4455 明示属性の名前・抽象指定・上位型・順序・省略可否・直接指す型名・集まりの種別と上下限を照合した。Windows と毎晩用 CI の Linux で一致した。公開 IFC 12 件の validate では明示属性の欠落 53 件の場所・型・属性・理由が一致し、外部だけの逆属性 33 件・ヘッダー 5 件・規則 639 件を対象範囲の差として別計上した。IFC4X3 の外部入力はヘッダーの版名だけを IFC4X3_ADD2 に変えた写し。スキーマ・全宣言・一時の IFC は同梱しない（xtask/verify/express、#663）。型の別名定義・列挙と選択の全項目・導出と逆属性の宣言・継承属性の再宣言は宣言の外部照合の対象外。型不正・集まりの違反・循環・予算・中断・破損入力は小さな自作スキーマの合成検査にとどまる。WHERE・UNIQUE・RULE は評価しない。汎用の STEP の検証や wasm の同一入力照合へは広げない"
+public-samples = [
+  "https://raw.githubusercontent.com/buildingSMART/Standards-builds/dcf43f7f167b2cdf8007c1ea1ceec32de772f44f/IFC/RELEASE/IFC2x3/TC1/EXPRESS/IFC2X3_TC1.exp",
+  "https://raw.githubusercontent.com/buildingSMART/Standards-builds/dcf43f7f167b2cdf8007c1ea1ceec32de772f44f/IFC/RELEASE/IFC4/ADD2_TC1/EXPRESS/IFC4.exp",
+  "https://raw.githubusercontent.com/buildingSMART/Standards-builds/dcf43f7f167b2cdf8007c1ea1ceec32de772f44f/IFC/RELEASE/IFC4_3/HTML/IFC4X3_ADD2.exp",
+]
+implementations = [{ name = "IfcOpenShell", version = "0.9.0.post1" }]
+checked = "2026-11-16"
 
 [[formats.express.evidence]]
 title = "ISO の Licence Agreement（2026-05-29 の改定）"

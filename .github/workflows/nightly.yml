@@ -188,15 +188,21 @@ jobs:
       - name: EXPRESS の実行時観測に使うテストをビルドする
         run: cargo test --locked -p zumen-ifc --lib --no-run
       - name: EXPRESS 比較器の反例と子プロセスの正常終了を確かめる
-        run: python -I -m unittest discover -s xtask/verify/express -p test_check.py
+        run: python -I -m unittest discover -s xtask/verify/express -p 'test_*.py'
       - name: 公開 EXPRESS 3版の宣言を同じ入力から読んで照らす
         run: python -I xtask/verify/express/check.py --out "$RUNNER_TEMP/express-observations"
+      - name: 公開 validate を呼ぶ CLI をビルドする
+        run: cargo build --locked -p zumen-cli --bin zumen
+      - name: 公開 IFC の指摘と逆属性・ヘッダー・規則の対象範囲の差を照らす
+        run: python -I xtask/verify/express/validate.py --cli target/debug/zumen --out "$RUNNER_TEMP/express-validation"
       - name: EXPRESS の集計だけを成果物に残す
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: verify-express
-          path: ${{ runner.temp }}/express-observations/results.json
+          path: |
+            ${{ runner.temp }}/express-observations/results.json
+            ${{ runner.temp }}/express-validation/results.json
       - name: 変える前と後の IFC4・IFC2X3 を書く
         run: ZUMEN_IFC_EDITED="$RUNNER_TEMP/edited" cargo test --locked -p zumen-ifc --all-features --test edit writes_the_edited_files_for_other_readers
       - name: IfcOpenShell で開き、変更が見え、検査の誤りが増えないことを確かめる

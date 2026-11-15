@@ -23,7 +23,7 @@
 | [dwg](#format-dwg) | DWG | acad | drawing | `public` | `core` | `application` | `application` |
 | [dxf](#format-dxf) | DXF | acad | drawing | `public` | `core` | `application` | `application` |
 | [e57](#format-e57) | E57（ASTM E2807） | e57 | pointcloud | `public` | `core` | `synthetic` |  |
-| [express](#format-express) | EXPRESS のスキーマ（ISO 10303-11。IFC のスキーマなど） | express | building | `public` | `core` | `synthetic` |  |
+| [express](#format-express) | EXPRESS のスキーマ（ISO 10303-11。IFC のスキーマなど） | express | building | `public` | `core` | `external` |  |
 | [extdm](#format-extdm) | 拡張 DM（公共測量標準図式数値地形図データファイル） | extdm | geo | `public` | `core` | `synthetic` |  |
 | [fgd](#format-fgd) | 基盤地図情報（GML） | fgd | geo | `public` | `core` | `synthetic` |  |
 | [geojson](#format-geojson) | GeoJSON | geojson | geo | `public` | `core` | `synthetic` | `external` |
@@ -728,8 +728,10 @@
 - 文書の補足: 出版物の使用は End Customer Licence Agreement に従い、出版物（一部を含む）へのアクセス・ダウンロード・使用でも同意したとする。4 節は、許す使い方に、読み・参照することと、中身を社内の業務・製品・サービスで理解・評価・適用することを含めるとし、別の許諾がなければ、複製・配布・翻案・組み込み・デジタルの統合・派生物を作る権利は含まない。6(b) は、出版物をソフトウェア・データモデル・AI のツールなどに統合・埋め込み・符号化・構造化・変換・運用化することに、別の許諾を求める。7(b) は、別の許諾がなければ、出版物を AI・機械学習のために読み・使い・処理することを禁じ、法定のテキスト・データマイニングの例外にも頼れないとする
 - 照合に使う候補: IfcOpenShell（依存にせず、別に入れて使う）
 - サンプルの出どころ: buildingSMART International が公開する IFC の EXPRESS のスキーマ。Git・パッケージ・テストに入れない（旧版の決定 0028）。テストの中で小さなスキーマを書く
-- 読みの確かめた度合い: `synthetic`（確認日: 2026-11-09）
-- 読みの確かめた範囲: テストの中で書いた小さな EXPRESS（crates/zumen-ifc/tests/express.rs と、src/express.rs の単体テスト）だけで確かめた。型・実体・属性・集まりを読むこと、評価しない規則の数、読めない書き方・宣言のない名前・同じ名前の宣言・循環の失敗と指す名前、予算（バイトごとの work、集まりの入れ子の depth、長い鎖と循環を調べる手順の work）、既定の深さまでの入れ子を 1 MiB のスタックで読んでチェックできること、その 4 倍まで上限を引き上げても同じスタックで型を読んで写し・比較・表示・破棄できること、1 つの宣言に並べた属性の名前が型を共有すること、切ったり変えたりした EXPRESS で落ちないことを確かめる。buildingSMART が公開する IFC の EXPRESS のスキーマを読むことと、読んだ値とチェックの結果を外部の実装と照らすことはまだ（#663）
+- 読みの確かめた度合い: `external`（確認日: 2026-11-16）
+- 読みの確かめた範囲: buildingSMART の固定コミットの IFC2X3 TC1・IFC4 ADD2 TC1・IFC4X3 ADD2 を実行時だけ取得し、同じスキーマを読んだ IfcOpenShell と 2305 実体・4455 明示属性の名前・抽象指定・上位型・順序・省略可否・直接指す型名・集まりの種別と上下限を照合した。Windows と毎晩用 CI の Linux で一致した。公開 IFC 12 件の validate では明示属性の欠落 53 件の場所・型・属性・理由が一致し、外部だけの逆属性 33 件・ヘッダー 5 件・規則 639 件を対象範囲の差として別計上した。IFC4X3 の外部入力はヘッダーの版名だけを IFC4X3\_ADD2 に変えた写し。スキーマ・全宣言・一時の IFC は同梱しない（xtask/verify/express、#663）。型の別名定義・列挙と選択の全項目・導出と逆属性の宣言・継承属性の再宣言は宣言の外部照合の対象外。型不正・集まりの違反・循環・予算・中断・破損入力は小さな自作スキーマの合成検査にとどまる。WHERE・UNIQUE・RULE は評価しない。汎用の STEP の検証や wasm の同一入力照合へは広げない
+- 読みで使った公開サンプル: [https://raw.githubusercontent.com/buildingSMART/Standards-builds/dcf43f7f167b2cdf8007c1ea1ceec32de772f44f/IFC/RELEASE/IFC2x3/TC1/EXPRESS/IFC2X3\_TC1.exp](https://raw.githubusercontent.com/buildingSMART/Standards-builds/dcf43f7f167b2cdf8007c1ea1ceec32de772f44f/IFC/RELEASE/IFC2x3/TC1/EXPRESS/IFC2X3_TC1.exp)・[https://raw.githubusercontent.com/buildingSMART/Standards-builds/dcf43f7f167b2cdf8007c1ea1ceec32de772f44f/IFC/RELEASE/IFC4/ADD2\_TC1/EXPRESS/IFC4.exp](https://raw.githubusercontent.com/buildingSMART/Standards-builds/dcf43f7f167b2cdf8007c1ea1ceec32de772f44f/IFC/RELEASE/IFC4/ADD2_TC1/EXPRESS/IFC4.exp)・[https://raw.githubusercontent.com/buildingSMART/Standards-builds/dcf43f7f167b2cdf8007c1ea1ceec32de772f44f/IFC/RELEASE/IFC4\_3/HTML/IFC4X3\_ADD2.exp](https://raw.githubusercontent.com/buildingSMART/Standards-builds/dcf43f7f167b2cdf8007c1ea1ceec32de772f44f/IFC/RELEASE/IFC4_3/HTML/IFC4X3_ADD2.exp)
+- 読みで照らした外部の実装: IfcOpenShell 0.9.0.post1
 - 旧版の記録: 旧版の決定 0028（[旧版の決定の一覧](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/README.md)）
 - issue: [zumen-jp/zumen#410](https://github.com/zumen-jp/zumen/issues/410)
 - issue: [zumen-jp/zumen#529](https://github.com/zumen-jp/zumen/issues/529)
