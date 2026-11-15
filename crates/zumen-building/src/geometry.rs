@@ -7,6 +7,9 @@ use crate::{
 };
 use zumen_base::{Cx, Stop};
 
+mod presentation;
+pub use presentation::SurfaceAppearance;
+
 /// 形の参照を検査する途中のエラー。幾何の妥当性の検査ではない
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GeometryError {

@@ -129,7 +129,7 @@ WASI の出力は `target/shape-comparison-wasm` に書きます。同じ 4 件�
 - 統合した経路では、型に取得できた葉に `ifc.shape.unsupported` を出しません。従来の `product_shape()` は構造だけの取得として、値・診断・予算を変えません。統合結果の `shape` の未展開という印と、対応する `values` の取得結果を区別してください。
 - 共有 `Cx` で構造の循環・深さと個別の取得を検査します。形の項目数を Elements、値と参照済みの印を確保前に 1 項目 2056 DecodedBytes、表示を使う位置の容量を 1 件 1024 DecodedBytes として予約します。個別の曲線・文字列・レイヤなどの確保と走査も同じ予算を使います。配列は平らに持ち、Rust の再帰を増やしません。
 
-取得は形の評価ではなく、要素の配置・写像・単位換算を適用しません。L1 の借用出所と意味の値を含む全体の等価性や Hash は定義しません。所有する成分とハッシュは[形を含む lift](#所有する形とハッシュを建物に保持する)で扱います。写像間と材質からの表示の継承は [#419](https://github.com/zumen-jp/zumen/issues/419) の残件です。
+取得は形の評価ではなく、要素の配置・写像・単位換算を適用しません。L1 の借用出所と意味の値を含む全体の等価性や Hash は定義しません。所有する成分とハッシュは[形を含む lift](#所有する形とハッシュを建物に保持する)、写像間の表示は[使用位置からの選択](#共有写像の使用位置から面の表示を選ぶ)で扱います。材質からの表示の継承は [#419](https://github.com/zumen-jp/zumen/issues/419) の残件です。
 
 `tests/geometry.rs` で合成の 3 版、共有する押し出し・写像・ブーリアン、表示の参照元、通り芯、未知・不正・循環・全 Kind の予算・中断を確かめます。公開の GNI の柱 `#131` と TallBuilding の壁 `#615` も、同じ入口から取得します。外部の実装との照合は、共有グラフの項目の種類・参照、表示とレイヤの参照、深さ・回転角・半径・写像先・半空間の真偽の代表属性です。個別 getter の全属性の照合は、以下の各節で示す範囲です。表示・配置・体積の評価とは分けます。
 
@@ -169,6 +169,27 @@ node crates/zumen-ifc/tests/wasi-owned.mjs --compare target/owned-comparison tar
 ```
 
 合成の 3 版と公開 2 例について、所有する元値・出所・ハッシュ・診断・全 Kind の境界をネイティブと WASI で比較します。fuzz は最初の 16 要素の所有する取得と、形を含む lift を通します。
+
+### 共有写像の使用位置から面の表示を選ぶ
+
+所有する `Geometry::surface_appearance(path, cx)` は、同じ形を使う経路を明示して面の表示を引きます。`path` は根の Definition から Representation・Mapped・Map を通り、表示する項目で終わる `GeometryRef` の列です。同じ共有形でも写像の使用位置を区別し、集合演算や曲線の内部へは降りません。
+
+対象の項目にもっとも近い指定を選び、指定がないときだけ外側の写像へたどります。同じ項目では直接の表示とレイヤの取得結果に従います。`SurfaceAppearance` は指定なし・値と出所・未対応・レイヤの競合を区別し、未対応と競合を外側の指定へ読み替えません。上書きされた元値を削除せず、取得順やハッシュも変えません。表現と項目の所属・経路・深さ・探索を共有 Cx で検査し、追加の確保は行いません。
+
+直接の表示とレイヤの優先関係は [IfcRepresentationItem の説明](https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcRepresentationItem.htm)に従います。写像の階層間で近い指定を選ぶ部分は、この自然文だけでは優先関係を確定できないため、IfcOpenShell 0.9.0.post1 の実行結果から推定した選択規則です。色の係数・反射式・面への適用と材質からの継承は、ここでは評価しません。
+
+`tests/inheritance.rs` は二重の写像の内側・外側・葉への指定とその組み合わせ、同じ共有形の別の使用位置、未対応と競合、直接とレイヤ、誤った経路、予算と中断を検査します。合成の IFC2X3・IFC4・IFC4.3 の計 18 例を IfcOpenShell の幾何エンジンで評価し、採用した面の色と照合します。この照合は表示の選択だけで、形や体積の検証、公開の実物での一致率ではありません。
+
+```powershell
+$env:ZUMEN_IFC_INHERITANCE_OUT = Join-Path (Get-Location) 'target/inheritance-comparison'
+cargo test -p zumen-ifc --locked --test inheritance
+uv run --no-project --python 3.13 --no-python-downloads --with ifcopenshell==0.9.0.post1 python -I crates/zumen-ifc/tests/ifcopenshell/inheritance.py target/inheritance-comparison
+$env:CARGO_TARGET_WASM32_WASIP1_RUNNER = 'node --no-warnings tests/wasi-inheritance.mjs'
+cargo test -p zumen-ifc --locked --test inheritance --target wasm32-wasip1 -- --test-threads 1
+node crates/zumen-ifc/tests/wasi-inheritance.mjs --compare target/inheritance-comparison target/inheritance-comparison-wasm
+```
+
+ネイティブと WASI は選択・元値・出所・診断・全 Kind の境界を比較します。fuzz も固定長の経路から同じ選択を通します。
 
 ### 表現の座標系と表示尺度を取得する
 
@@ -491,7 +512,7 @@ for node in &shape.nodes {
 - 取得対象の複合レコード、不正な名前・論理値・集合・参照・属性数と、指定した表現の Items にない項目を拒みます。複合レイヤの走査では基の Assignment も調べ、所属なしと誤認しません。所属を読めない配置・リストは `owner-layout`・`owner-list` の診断にします。未知の表示は上書きされる場合も `Unsupported` とし、元の値を失う部分成功にしません。
 - 直接表示の検査と全レコード・割り当てリストの走査は同じ `Cx` を使います。該当するレイヤを Elements、結果の容量を確保前に 1 件 1024 DecodedBytes として数え、集合・文字列・面の表示は従来の予約量を使います。レイヤの容量上限は 2,097,151 件です。深さと停止位置も元のレコードに対応させます。
 
-この取得が決めるのは、同じ項目とその直接の表現の優先関係です。写像の階層を越える表示の上書き・材質からの継承、Building の既存の `Style` 成分への統合、形の意味値の Hash は未実装です。既存の Hash v1・ID・公開 0.2 の API・境界 op・スキーマは変えません。
+この取得が決めるのは、同じ項目とその直接の表現の優先関係です。Building への保持と形の Hash は[所有する形の成分](#所有する形とハッシュを建物に保持する)、写像の階層間の選択は[使用位置からの選択](#共有写像の使用位置から面の表示を選ぶ)で扱います。材質からの継承は未実装です。既存の `Style` 成分と Hash v1 の符号化・ID・公開 0.2 の境界 op・スキーマは変えません。
 
 レイヤの規則は buildingSMART の [RepresentationItem](https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcRepresentationItem.htm)、[PresentationLayerAssignment](https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcPresentationLayerAssignment.htm)、[PresentationLayerWithStyle](https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcPresentationLayerWithStyle.htm) の説明と、IFC2X3 TC1・IFC4 ADD2 TC1 の同じ項目の説明で確認しました。
 

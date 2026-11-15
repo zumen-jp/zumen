@@ -4,9 +4,32 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
+use zumen_building::{Geometry, GeometryError, GeometryLinks, GeometryRef};
 use zumen_civil::CivilModel;
 use zumen_ifc::{Ifc, IfcFile, IfcZip};
 use zumen_sdk::{Codec, Cx, Error, Lift};
+
+// 共有写像を通る最初の使用位置を調べる。探索は固定長にし、表示の選択には同じ予算を渡す。
+fn appearance(geometry: &Geometry, cx: &mut Cx) -> Result<(), Error> {
+    let mut path = [GeometryRef(0); 64];
+    let mut count = 0;
+    let mut next = geometry.data().root;
+    for slot in &mut path {
+        cx.check(zumen_base::Kind::Work, 1)?;
+        let Some(at) = next else { break; };
+        *slot = at;
+        count += 1;
+        next = geometry.data().nodes.get(at.0 as usize).and_then(|node| match &node.links {
+            GeometryLinks::Definition(items) | GeometryLinks::Representation { items, .. } => items.first().copied(),
+            GeometryLinks::Mapped(at) | GeometryLinks::Map(at) => Some(*at),
+            _ => None,
+        });
+    }
+    if let Err(GeometryError::Stopped(stop)) = geometry.surface_appearance(&path[..count], cx) {
+        return Err(Error::Stopped(stop));
+    }
+    Ok(())
+}
 
 /// 建物モデルと土木の領域モデルに移す。土木の領域モデルは IFC4X3 からだけ作るので、ほかのバージョンの `Unsupported` は
 /// 失敗にしない。止めたときだけ失敗を返す
@@ -37,7 +60,11 @@ fn lift(file: &IfcFile, cx: &mut Cx) -> Result<(), Error> {
         if file.instance(id).is_some_and(|r| {
             [b"IFCWALL".as_slice(), b"IFCCOLUMN", b"IFCBEAM", b"IFCSLAB", b"IFCGRID", b"IFCSPACE", b"IFCBUILDINGELEMENTPROXY"].iter().any(|kind| file.kind(r).eq_ignore_ascii_case(kind))
         }) {
-            if let Err(Error::Stopped(stop)) = file.owned_geometry(id, cx) { return Err(Error::Stopped(stop)); }
+            match file.owned_geometry(id, cx) {
+                Ok(geometry) => appearance(&geometry, cx)?,
+                Err(Error::Stopped(stop)) => return Err(Error::Stopped(stop)),
+                _ => {},
+            }
             match file.product_shape(id, cx) {
                 Ok(shape) => {
                     for node in &shape.nodes {
