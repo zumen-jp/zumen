@@ -162,6 +162,8 @@ try {
   const fills = `${name}: 巨大な閉輪と近傍の独立 Canvas の照合: ${JSON.stringify(result.largeFills)}`;
   const wide = `${name}: 巨大な線幅の cap・join と近傍の独立 Canvas の照合: ${JSON.stringify(result.wideStrokes)}`;
   const circles = `${name}: 円だけの part と独立した整数二乗距離の照合: ${JSON.stringify(result.circles)}`;
+  const boundaries = `${name}: 巨大な線幅の側面と独立した整数二乗式: ${JSON.stringify(result.wideBoundaries)}`;
+  const circleDetails = `${name}: 円の描画・切り抜き・投影の追加検査: ${JSON.stringify({ drawing: result.circleDrawing, clips: result.circleClips, projection: result.circleProjection })}`;
   console.log(summary);
   console.log(raster);
   console.log(sat);
@@ -170,5 +172,7 @@ try {
   console.log(fills);
   console.log(wide);
   console.log(circles);
-  if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n${summary}\n\n${raster}\n\n${sat}\n\n${tolerance}\n\n${butt}\n\n${fills}\n\n${wide}\n\n${circles}\n`);
+  console.log(boundaries);
+  console.log(circleDetails);
+  if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n${summary}\n\n${raster}\n\n${sat}\n\n${tolerance}\n\n${butt}\n\n${fills}\n\n${wide}\n\n${circles}\n\n${boundaries}\n\n${circleDetails}\n`);
 } finally { await browser.close(); }

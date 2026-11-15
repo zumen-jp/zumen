@@ -371,7 +371,8 @@ export function* primitiveParts(ctx, c, kind, i, chunk, settings, view, size, co
   const width = lineWidth(c, c[`${kind}_units`][i], settings, size);
   if (kind === "line") {
     const path = collect ? new Path(true, charge) : new StrokePath(charge, size, width);
-    vertices(path, c.line_xy, c.line_vertices[i], end(c.line_vertices, i, rows(c, "line_xy")), at, false);
+    const lineAt = (x, y) => projectFill(view, size, x, y, ox, oy);
+    vertices(path, c.line_xy, c.line_vertices[i], end(c.line_vertices, i, rows(c, "line_xy")), lineAt, false);
     yield path.finish(null, width);
   } else if (kind === "face") {
     const path = new FillPath(charge, size, collect);

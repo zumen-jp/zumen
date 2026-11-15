@@ -2,7 +2,7 @@ import { SCENE_NONE } from "@zumen-jp/zumen";
 import { bounds, finite, valid } from "./validate.js";
 import { unitVisible } from "./interaction.js";
 import { clipParts, primitiveParts, transparentStyle, unitStyle, viewportPart } from "./geometry.js";
-import { addExact, divideExact, dyadic, multiplyExact, scaleBinary } from "./exact.js";
+import { addExact, divideExact, divideWide, dyadic, multiplyExact, scaleBinary, sqrtExact } from "./exact.js";
 import { circleBounds, circleCardinal, circleIntersects, circleSide, intersectCircleLine, intersectCirclePair, offsetCircle } from "./circle.js";
 
 const EMPTY = Object.freeze([]);
@@ -71,22 +71,20 @@ function leading(value) {
 }
 
 function exactSegmentPosition(a, b, p) {
-  if (![a.x, a.y, b.x, b.y, p.x, p.y].every(Number.isFinite)) return { start: NaN, finish: NaN, normal: NaN };
+  if (![a.x, a.y, b.x, b.y, p.x, p.y].every(Number.isFinite)) return { start: NaN, finish: NaN };
   const first = exactPoint(a), last = exactPoint(b), point = exactPoint(p), ax = first.x, ay = first.y;
   const dx = addExact(last.x, ax, true), dy = addExact(last.y, ay, true);
-  if (dx.integer === 0n && dy.integer === 0n) return { start: NaN, finish: NaN, normal: NaN };
+  if (dx.integer === 0n && dy.integer === 0n) return { start: NaN, finish: NaN };
   const px = addExact(point.x, ax, true), py = addExact(point.y, ay, true);
   const qx = addExact(point.x, last.x, true), qy = addExact(point.y, last.y, true);
   const squared = leading(addExact(multiplyExact(dx, dx), multiplyExact(dy, dy)));
   const dot = leading(addExact(multiplyExact(px, dx), multiplyExact(py, dy)));
   const endDot = leading(addExact(multiplyExact(qx, dx), multiplyExact(qy, dy)));
-  const cross = leading(addExact(multiplyExact(px, dy), multiplyExact(py, dx), true));
   const odd = squared.exponent & 1, length = Math.sqrt(squared.fraction * (odd ? 2 : 1));
   // 相殺は整数のまま終える。上位 53 bit・平方根・比の丸めだけを既存の guard が担う。
   // 各端から別々に測る。t-1 や始点からの距離-全長では、終点近傍の差が消える。
   return { start: scaleBinary(dot.fraction / length, dot.exponent - (squared.exponent - odd) / 2),
-    finish: scaleBinary(endDot.fraction / length, endDot.exponent - (squared.exponent - odd) / 2),
-    normal: scaleBinary(cross.fraction / length, cross.exponent - (squared.exponent - odd) / 2) };
+    finish: scaleBinary(endDot.fraction / length, endDot.exponent - (squared.exponent - odd) / 2) };
 }
 
 /** 差の計算で失った下位桁。演算の誤差は形の幅に足さず、再計算の要否に使う。 */
@@ -104,19 +102,32 @@ function filteredCompare(value, boundary, rounding, evaluationError, minimumScal
   return undefined;
 }
 
+/** 側面は |cross|² と r²|d|² で比較し、巨大な距離を割ってから半幅を引かない。 */
+function stripComparisons(a, b, p, radius, rounding) {
+  const first = exactPoint(a), last = exactPoint(b), point = exactPoint(p);
+  if (!first || !last || !point) return [undefined, undefined];
+  const dx = addExact(last.x, first.x, true), dy = addExact(last.y, first.y, true);
+  const px = addExact(point.x, first.x, true), py = addExact(point.y, first.y, true);
+  const cross = crossExact(px, py, dx, dy), length = addExact(multiplyExact(dx, dx), multiplyExact(dy, dy));
+  const squared = multiplyExact(cross, cross), r = dyadic(radius), margin = dyadic(rounding < radius ? rounding : 0);
+  const inner = addExact(r, margin, true), outer = addExact(r, margin);
+  const compare = (bound) => { const delta = addExact(squared, multiplyExact(multiplyExact(bound, bound), length), true).integer; return delta < 0n ? -1 : delta > 0n ? 1 : 0; };
+  const magnitude = compare(outer) > 0 ? 1 : compare(inner) < 0 ? -1 : 0;
+  return cross.integer < 0n ? [-magnitude, -1] : [1, magnitude];
+}
+
 function segmentContains(a, b, p, radius, direction) {
   const dx = b.x - a.x, dy = b.y - a.y, scale = Math.max(Math.abs(dx), Math.abs(dy));
   if (scale === 0) return false; // butt の端だけを持つ線は描かれない。
   const nx = dx / scale, ny = dy / scale, px = p.x - a.x, py = p.y - a.y, qx = p.x - b.x, qy = p.y - b.y;
   const length = Math.hypot(nx, ny);
   let start = (px * nx + py * ny) / length, finish = (qx * nx + qy * ny) / length;
-  let normal = (px * ny - py * nx) / length;
-  // stroke の角を CSS 座標へ足す 1 回の丸めは ε/2、法線 offset の
-  // 正規化と積には既存の 16ε の余裕を使い、各軸から距離へ伝播する。
+  // stroke の交点を CSS 座標へ丸めた幅を、各軸から距離へ伝播する。
+  // 法線の正規化は固定小数点で行い、線幅に比例する帯を形へ足さない。
   // offset がゼロの軸には加算がない。端は全長の比でなく CSS px で比べる。
   const offsetX = Math.abs(ny) / length * radius, offsetY = Math.abs(nx) / length * radius;
-  const errorX = offsetX === 0 ? 0 : Number.EPSILON / 2 * Math.abs(p.x) + EPSILON * offsetX;
-  const errorY = offsetY === 0 ? 0 : Number.EPSILON / 2 * Math.abs(p.y) + EPSILON * offsetY;
+  const errorX = offsetX === 0 ? 0 : Number.EPSILON / 2 * Math.abs(p.x);
+  const errorY = offsetY === 0 ? 0 : Number.EPSILON / 2 * Math.abs(p.y);
   let errorAlong = (Math.abs(nx) * errorX + Math.abs(ny) * errorY) / length;
   let errorNormal = (Math.abs(ny) * errorX + Math.abs(nx) * errorY) / length;
   // 両端・両側を同時に境界とする誤差帯は使わず、丸めた点自体の位置を調べる。
@@ -126,16 +137,14 @@ function segmentContains(a, b, p, radius, direction) {
   const qxError = Math.abs(subtractionError(p.x, b.x, qx)), qyError = Math.abs(subtractionError(p.y, b.y, qy));
   const evaluationStart = (Math.abs(nx) * pxError + Math.abs(ny) * pyError + EPSILON * (Math.abs(px * nx) + Math.abs(py * ny))) / length;
   const evaluationFinish = (Math.abs(nx) * qxError + Math.abs(ny) * qyError + EPSILON * (Math.abs(qx * nx) + Math.abs(qy * ny))) / length;
-  const evaluationNormal = (Math.abs(ny) * pxError + Math.abs(nx) * pyError + EPSILON * (Math.abs(px * ny) + Math.abs(py * nx))) / length;
   // 1 CSS px 未満では線分長まで縮め、極短線の両端を同じ境界帯にしない。
   const endpointScale = Math.min(1, scale * length);
-  let comparisons = [filteredCompare(start, 0, errorAlong, evaluationStart, endpointScale), filteredCompare(finish, 0, errorAlong, evaluationFinish, endpointScale),
-    filteredCompare(normal, -radius, errorNormal, evaluationNormal), filteredCompare(normal, radius, errorNormal, evaluationNormal)];
+  let comparisons = [filteredCompare(start, 0, errorAlong, evaluationStart, endpointScale), filteredCompare(finish, 0, errorAlong, evaluationFinish, endpointScale)];
   if (a.exact || b.exact || p.exact || comparisons.some((value) => value === undefined)) {
-    ({ start, finish, normal } = exactSegmentPosition(a, b, p));
-    comparisons = [filteredCompare(start, 0, errorAlong, 0, endpointScale), filteredCompare(finish, 0, errorAlong, 0, endpointScale),
-      filteredCompare(normal, -radius, errorNormal, 0), filteredCompare(normal, radius, errorNormal, 0)];
+    ({ start, finish } = exactSegmentPosition(a, b, p));
+    comparisons = [filteredCompare(start, 0, errorAlong, 0, endpointScale), filteredCompare(finish, 0, errorAlong, 0, endpointScale)];
   }
+  comparisons.push(...stripComparisons(a, b, p, radius, errorNormal + EPSILON * Math.max(1, Math.abs(p.x), Math.abs(p.y))));
   if (comparisons.some((value) => value === undefined)) return false;
   if (!direction) return comparisons[0] >= 0 && comparisons[1] <= 0 && comparisons[2] >= 0 && comparisons[3] <= 0;
   const along = direction.x * nx + direction.y * ny, across = (direction.x * ny - direction.y * nx) / length;
@@ -187,6 +196,13 @@ function compile(part, charge) {
   const radius = part.width / 2, work = 1 + segments.length + joins.length + part.circles.length;
   const circles = part.circles.map((circle) => ({ outer: offsetCircle(circle, radius), inner: !part.fill && circle.radius > radius ? offsetCircle(circle, -radius) : null }));
   const box = { min_x: part.bounds.min_x - radius, min_y: part.bounds.min_y - radius, max_x: part.bounds.max_x + radius, max_y: part.bounds.max_y + radius };
+  for (const { points } of part.contours) for (const p of points) {
+    charge(1);
+    if (!p.exact) continue;
+    const bounds = circleBounds({ ...p, radius });
+    box.min_x = Math.min(box.min_x, bounds.min_x); box.min_y = Math.min(box.min_y, bounds.min_y);
+    box.max_x = Math.max(box.max_x, bounds.max_x); box.max_y = Math.max(box.max_y, bounds.max_y);
+  }
   for (const { outer } of circles) {
     const bounds = circleBounds(outer);
     box.min_x = Math.min(box.min_x, bounds.min_x); box.min_y = Math.min(box.min_y, bounds.min_y);
@@ -233,11 +249,16 @@ function compile(part, charge) {
     }
     for (const { a, b } of segments) {
       charge(4);
-      const dx = b.x - a.x, dy = b.y - a.y, length = Math.hypot(dx, dy);
-      if (length === 0) continue;
-      const nx = -dy / length * radius, ny = dx / length * radius;
-      const corner = (anchor, offsetX, offsetY) => ({ x: anchor.x + offsetX, y: anchor.y + offsetY, anchor, offsetX, offsetY });
-      const corners = [corner(a, nx, ny), corner(b, nx, ny), corner(b, -nx, -ny), corner(a, -nx, -ny)];
+      const first = exactPoint(a), last = exactPoint(b);
+      if (!first || !last) continue;
+      const dx = addExact(last.x, first.x, true), dy = addExact(last.y, first.y, true), length = sqrtExact(addExact(multiplyExact(dx, dx), multiplyExact(dy, dy)));
+      if (length.integer === 0n) continue;
+      const nx = divideWide(multiplyExact({ integer: -dy.integer, exponent: dy.exponent }, dyadic(radius)), length), ny = divideWide(multiplyExact(dx, dyadic(radius)), length);
+      const corner = (anchor, reverse) => {
+        const exact = { x: addExact(anchor.x, nx, reverse), y: addExact(anchor.y, ny, reverse) };
+        return { x: divideExact(exact.x, dyadic(1)), y: divideExact(exact.y, dyadic(1)), exact };
+      };
+      const corners = [corner(first, false), corner(last, false), corner(last, true), corner(first, true)];
       for (let i = 0; i < 4; i++) yield { a: corners[i], b: corners[(i + 1) % 4] };
     }
     // 円弧の候補は全円から出し、contains で扇形に絞る。半径方向の二辺は

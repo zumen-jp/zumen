@@ -33,6 +33,15 @@ export function sqrtExact(value) {
   throw new RangeError("不正な値: geometry.sqrt");
 }
 
+/** 交点を作る法線の比を、binary64 へ落とす前に固定小数点で保つ。 */
+export function divideWide(a, b) {
+  if (b.integer === 0n) throw new RangeError("不正な値: geometry.divide");
+  const shift = a.exponent - b.exponent + 2304;
+  const numerator = shift >= 0 ? a.integer << BigInt(shift) : a.integer;
+  const denominator = shift < 0 ? b.integer << BigInt(-shift) : b.integer;
+  return { integer: numerator / denominator, exponent: -2304 };
+}
+
 /** 有理数を最後に一度だけ binary64 へ丸める（最も近い値、同距離なら偶数）。 */
 export function divideExact(a, b) {
   if (b.integer === 0n) return NaN;
