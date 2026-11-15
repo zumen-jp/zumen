@@ -429,12 +429,13 @@ fn resolves_units_and_reports_missing_ones() {
             "IFCPLANEANGLEMEASURE(90.),$)",
             "IFCPLANEANGLEMEASURE(90.),#16)",
         )
-        // 割り当てにない体積の単位と、表にない量の型
-        .replace("(#63,#64,#65)", "(#63,#64,#65,#100,#101)")
+        // 割り当てにない体積・熱の単位と、表にない量の型
+        .replace("(#63,#64,#65)", "(#63,#64,#65,#100,#101,#102)")
         .replace(
             "#66=",
             "#100=IFCPROPERTYSINGLEVALUE('Volume',$,IFCVOLUMEMEASURE(1.),$);\n\
-             #101=IFCPROPERTYSINGLEVALUE('U',$,IFCTHERMALTRANSMITTANCEMEASURE(0.3),$);\n#66=",
+             #101=IFCPROPERTYSINGLEVALUE('U',$,IFCTHERMALTRANSMITTANCEMEASURE(0.3),$);\n\
+             #102=IFCPROPERTYSINGLEVALUE('Future',$,IFCFUTUREMEASURE(0.3),$);\n#66=",
         );
     let (building, diag) = lift(src.as_bytes());
     let b = building.unwrap();
@@ -445,6 +446,7 @@ fn resolves_units_and_reports_missing_ones() {
     let properties = &b.components.properties.get(wall_type).unwrap().sets[0].properties;
     assert_eq!(properties[3].unit, None);
     assert_eq!(properties[4].unit, None);
+    assert_eq!(properties[5].unit, None);
     let missing: Vec<_> = diag
         .iter()
         .filter(|d| d.code() == codes::IFC_UNIT_MISSING)
@@ -454,8 +456,9 @@ fn resolves_units_and_reports_missing_ones() {
         missing,
         [
             Some(Value::Text("IfcVolumeMeasure".to_owned())),
+            Some(Value::Text("IfcThermalTransmittanceMeasure".to_owned())),
             // 表にない型の名前は、書いたまま
-            Some(Value::Text("IFCTHERMALTRANSMITTANCEMEASURE".to_owned()))
+            Some(Value::Text("IFCFUTUREMEASURE".to_owned()))
         ]
     );
 }

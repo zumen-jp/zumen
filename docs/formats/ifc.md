@@ -68,6 +68,44 @@ node crates/zumen-ifc/tests/wasi-services.mjs --compare target/services-comparis
 
 ネイティブと WASI は入力・値・ID・ハッシュ・診断・予算の 9 ファイル、519,020 バイトが一致しました。公開 12 件も IfcOpenShell と取得した値を照らして食い違いがありません。未取得の値は比較器が別に報告します。公開サンプルの要約は GNI の `model_125.ifc` で設備の要素 18 件と型 2 件、Text2BIM で部品 6 件が増えました。これに伴い配置、型との関係、型と要素のプロパティ、部品の材料を保持し、対応する欠落の件数と要素のハッシュが変わりました。ほかの 10 件の要約と文書の値のハッシュは同じです。受領した国内の設備の書き出しでの再検証は、対象の `ZUMEN_SAMPLES` を受け取るまで未確認です（[#537](https://github.com/zumen-jp/zumen/issues/537)）。
 
+## 材料・プロパティ・関係・建具の値
+
+`Lift<Building>` は次の値を移します（[#539](https://github.com/zumen-jp/zumen/issues/539)）。値は入力の単位のままです。既存の `properties`・`material`・`connection` の名前と意味を保ち、複合の構造には `property-details` を加えます。公開操作は Rust の `Lift<Building>` と、材料の表示を取得する `owned_geometry()` です。元の IFC を保持する L1 の読み書きと、L2 から IFC を再構築する操作は区別します。この追加は L2 の再書き出しを提供しません。
+
+- **材料。** 層とその使用法に加え、IFC4 以降の構成と断面のセットを読みます。材料への参照、構成する項目の元の並びと名前、層の厚さ・方向・オフセットを保ちます。断面の項目で省略された材料を、空の材料に置き換えません。材料のプロパティは材料の要素に直接付けます。IFC2X3 は `IfcExtendedMaterialProperties`、IFC4 以降は `IfcMaterialProperties` を読みます。構成比、断面の幾何と優先度、断面の使用法はこの成分の取得範囲に含めません。
+- **値の列。** `IfcPropertyListValue` と `IfcPropertyEnumeratedValue` は、型と順序を持つ `Literal::List` にします。省略、空の不正な列、異なる型を混ぜた列を区別します。列挙の明示単位は選択肢の定義から取り、不正な明示参照を文書の既定単位で代用しません。
+- **複合・上下限・選択肢。** `property-details` はセットごとに親の位置を持つ平らな列です。親は先行する複合の項目を指し、共有する子は各親の下へ写します。名前・説明・用途・値の型、上下限と IFC4 以降の設定値、選択肢の定義と単位を保ちます。深い所有権の入れ子を作りません。元レコード番号は出所として持ち、意味のハッシュには入れません。成分がない従来の要素のハッシュは、この成分の追加では変わりません。
+- **関係。** `IfcRelConnectsElements` と `IfcRelCoversBldgElements` は両側に、`IfcRelAssignsToActor` は対象から担当者へ `connection` の参照を持ちます。関係の種類と出所、集合内の元の位置を保ちます。`IfcActor` と `IfcOccupant` は名前・種類を持つ要素です。担当先の人・組織の詳細、`ActingRole`、接続の幾何はこの成分に含めません。
+- **建具。** Door/Window の Lining/PanelProperties を、要素か型に直接付くプロパティセットにします。長さ、正規化比率、列挙、負のオフセット、0、省略を区別します。形の参照を長さの値として扱いません。旧版にない追加属性を読みません。
+
+共有する予算で作業量・確保・深さを数えます。複合の循環は元の親の属性で診断し、予算停止では深さを戻して結果を返しません。未知の項目は元の種類と出所を持つ項目にし、未取得の実体を `ifc.entity.dropped` で知らせます。取得範囲の不正値・必須参照には `ifc.attribute.invalid`、ほかの成分で使った資源への移せない関係には `ifc.relation.target.unsupported` を使います。これらは IFC 全体の形式検証ではありません。
+
+根拠は buildingSMART の自然文の属性の節です。[MaterialConstituentSet](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4_3/HTML/lexical/IfcMaterialConstituentSet.htm)、[MaterialProfileSet](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4_3/HTML/lexical/IfcMaterialProfileSet.htm)、[ComplexProperty](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4_3/HTML/lexical/IfcComplexProperty.htm)、[PropertyBoundedValue](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4_3/HTML/lexical/IfcPropertyBoundedValue.htm)、[RelAssignsToActor](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4_3/HTML/lexical/IfcRelAssignsToActor.htm)、[DoorLiningProperties](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4/ADD2_TC1/HTML/schema/ifcsharedbldgelements/lexical/ifcdoorliningproperties.htm) を参照します。位置の番号がない IFC2X3 の属性は共通する継承の配置から推定し、合成入力と外部の実行 API で名前を照らしています。
+
+### 換算と派生の単位
+
+`IfcConversionBasedUnit` の `IfcMeasureWithUnit` から複数段の換算を解き、`IfcDerivedUnit` の各名前付き単位に整数の指数を適用します。元のプロパティ値は換算せず、`Unit.scale` に SI 基本単位系での大きさを持ちます。質量の基準は kg です。派生単位の名前は IFC4.3 の明示名、利用者定義ならその種類名、それ以外は元の順の単位と指数の式です。元の構成の完全な再出力には L1 を使います。
+
+参照グラフは再帰せずに読み、共有する単位を再利用します。循環、不正な参照・整数指数、有限でない倍率、0 以下の倍率、乗算のオーバーフローとアンダーフローは採用しません。SI の不正は元の単位で一度だけ診断し、その利用側に同じ不正の診断を重ねません。取得できない単位でも値は残し、必要な単位の欠落を知らせます。平行移動を要する換算、文脈依存の単位、Dimensions と量の型の完全な整合検証、単位集合の一意性はこの処理に含めません。
+
+根拠は [ConversionBasedUnit](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4_3/HTML/lexical/IfcConversionBasedUnit.htm)、[MeasureWithUnit](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4_3/HTML/lexical/IfcMeasureWithUnit.htm)、[DerivedUnit](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4_3/HTML/lexical/IfcDerivedUnit.htm)、[DerivedUnitElement](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4_3/HTML/lexical/IfcDerivedUnitElement.htm) の自然文です。文書の既定単位へ対応させる量は実装の `DERIVED_MEASURES` の表に限定します。`IfcThermalConductivityMeasure` は W/(m K) の定義と公開サンプルの構成から `THERMALCONDUCTANCEUNIT` へ対応させる読み取り判断です。存在しない `THERMALCONDUCTIVITYUNIT` を作りません。
+
+### 5 種類の検査
+
+[合成入力](../../crates/zumen-ifc/tests/metadata.rs)で IFC2X3・IFC4・IFC4X3 の 5 範囲、共有・循環・不正値・予算停止・中断を検査します。複合のプロパティと換算単位は 1,000 段も検査します。IfcOpenShell 0.9.0.post1 の実行 API と元属性・参照 205 件が一致しました。倍率の比較は相対許容差 1e-14 です。スキーマや実装ソースは参照・同梱しません。
+
+```sh
+ZUMEN_IFC_METADATA_OUT=target/metadata-comparison cargo test -p zumen-ifc --locked --test metadata
+python -I crates/zumen-ifc/tests/ifcopenshell/metadata.py target/metadata-comparison
+export CARGO_TARGET_WASM32_WASIP1_RUNNER='node tests/wasi-metadata.mjs'
+cargo test -p zumen-ifc --locked --test metadata --target wasm32-wasip1 -- --test-threads 1
+node crates/zumen-ifc/tests/wasi-metadata.mjs --compare target/metadata-comparison target/metadata-comparison-wasm
+```
+
+ネイティブと WASI は、値・ID・ハッシュ・診断・全 Kind の予算、停止と中断を含む 9 ファイル、135,354 バイトが一致しました。公開 12 件の比較対象の値にも食い違いはありません。公開用の比較器が出力しない `property-details` の上下限や選択肢は、上の合成照合で別に確認しています。
+
+公開サンプルの要約では、6 件の文書で派生単位が合計 57 個増えました。GNI 2 件と林野庁で材料の成分が合計 246 要素増え、GNI の列挙値 291 要素と中野区 5 件の上下限値に `property-details` が付きました。Text2BIM は担当者 3 要素が増えました。建具の値と材料のプロパティも保持するため、12 件の要素のハッシュと、単位が増えた 6 件の文書の値のハッシュが変わっています。GNI の `model_125.ifc` の熱貫流率 195 値は、対応する単位が文書にないため欠落の診断を残します。
+
 ## 共有する SI 単位の採用条件
 
 建物モデルへの `Lift<Building>` と、既存の `curve()`・`extruded_area()` は同じ SI の読み取りを使います。文書の単位の割り当て、プロパティ・数量に明示した単位、一段の換算の基の SI を対象に、長さ以外も検査します。値は元の単位のまま保持し、単位換算は適用しません。`extrusion()` の長さ専用の採用前検査は引き続き別に行います。
@@ -83,7 +121,7 @@ node crates/zumen-ifc/tests/wasi-services.mjs --compare target/services-comparis
 
 根拠は [2X3 NamedUnit.WR1](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC2x3/TC1/HTML/ifcmeasureresource/lexical/ifcnamedunit.htm)・[CorrectDimensions](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC2x3/TC1/HTML/ifcmeasureresource/lexical/ifccorrectdimensions.htm)・[DimensionsForSIUnit](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC2x3/TC1/HTML/ifcmeasureresource/lexical/ifcdimensionsforsiunit.htm)・[SIUnitName](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC2x3/TC1/HTML/ifcmeasureresource/lexical/ifcsiunitname.htm)、[IFC4 CorrectDimensions](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4/ADD2_TC1/HTML/schema/ifcmeasureresource/lexical/ifccorrectdimensions.htm)・[DimensionsForSIUnit](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4/ADD2_TC1/HTML/schema/ifcmeasureresource/lexical/ifcdimensionsforsiunit.htm)、[IFC4.3 CorrectDimensions](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4_3/HTML/lexical/IfcCorrectDimensions.htm)・[DimensionsForSIUnit](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4_3/HTML/lexical/IfcDimensionsForSIUnit.htm) です。Prefix と属性の定義は[断面の仕様参照](#断面を共通の経路で取得する)にあります。スキーマ・生成コード・第三者の実装ソースは同梱しません。
 
-換算単位自身の Dimensions、ValueComponent の意味・種類との整合、複数段の換算、文書の単位集合の一意性、派生単位や文脈依存の単位全般は今回の検査に含めず、#419・#539 に残します。ID と Hash の規則、公開 API、Building 全面統合や形の評価は変えません。
+換算と派生の単位は[追加の取得範囲](#換算と派生の単位)に従います。SI の共有検査だけで、換算単位自身の Dimensions、ValueComponent の意味・種類との整合、文書の単位集合の一意性まで検証したとは扱いません。
 
 ### 共有 SI の確かめ方
 

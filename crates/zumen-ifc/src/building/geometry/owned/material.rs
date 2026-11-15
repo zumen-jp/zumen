@@ -111,7 +111,11 @@ impl<'f> Own<'f, '_, '_> {
     }
 
     fn material_list(&mut self, record: &'f Record) -> Result<&'f [Value], Error> {
-        let Some(Value::List(values)) = arg(record, 1) else {
+        self.material_list_at(record, 1)
+    }
+
+    fn material_list_at(&mut self, record: &'f Record, at: usize) -> Result<&'f [Value], Error> {
+        let Some(Value::List(values)) = arg(record, at) else {
             return Err(super::super::invalid(
                 self.cx,
                 Some(record),
@@ -152,6 +156,68 @@ impl<'f> Own<'f, '_, '_> {
                 })?;
                 let material = self.material_record(id)?;
                 members.push(self.material_member(material, &[selection], data)?);
+            }
+            return Ok(members);
+        }
+        let kind = self.file.kind(selection);
+        let constituents = kind.eq_ignore_ascii_case(b"IFCMATERIALCONSTITUENTSET");
+        let profiles = kind.eq_ignore_ascii_case(b"IFCMATERIALPROFILESET");
+        if (constituents || profiles) && Version::of(self.file.schema()) != Some(Version::Ifc2x3) {
+            self.material_arity(selection, 0, if constituents { 3 } else { 4 })?;
+            // Constituents は省略できる SET。Profiles は省略できない LIST。
+            if constituents && matches!(arg(selection, 3), Some(Value::Null)) {
+                return Ok(Vec::new());
+            }
+            let values = self.material_list_at(selection, 3)?;
+            let mut members = Vec::with_capacity(values.len());
+            let expected = if constituents {
+                b"IFCMATERIALCONSTITUENT".as_slice()
+            } else {
+                b"IFCMATERIALPROFILE".as_slice()
+            };
+            for (index, value) in values.iter().enumerate() {
+                self.current = selection;
+                let id = target(Some(value)).ok_or_else(|| {
+                    super::super::invalid(self.cx, Some(selection), "material-reference")
+                })?;
+                if constituents {
+                    self.cx
+                        .check(Kind::Work, index as u64)
+                        .map_err(|stop| crate::stopped(self.cx, stop, Some(selection.span())))?;
+                    if values
+                        .iter()
+                        .take(index)
+                        .any(|v| target(Some(v)) == Some(id))
+                    {
+                        return Err(super::super::invalid(
+                            self.cx,
+                            Some(selection),
+                            "material-duplicate",
+                        ));
+                    }
+                }
+                let part = self.material_record(id)?;
+                let route = [selection, part];
+                if !self.file.kind(part).eq_ignore_ascii_case(expected) {
+                    if self.file.kind(part).eq_ignore_ascii_case(b"IFCMATERIAL") {
+                        return Err(super::super::invalid(self.cx, Some(part), "material-part"));
+                    }
+                    members.push(self.material_member(part, &route, data)?);
+                    continue;
+                }
+                self.material_arity(part, 0, if constituents { 5 } else { 6 })?;
+                if profiles && matches!(arg(part, 3), Some(Value::Null)) {
+                    let mut source = source_of(part);
+                    self.group(&mut source, "route", &route)?;
+                    members.push(GeometryMaterialMember {
+                        kind: self.material_kind(part)?,
+                        presentation: None,
+                        source,
+                    });
+                } else {
+                    let material = self.material_target(part, 3)?;
+                    members.push(self.material_member(material, &route, data)?);
+                }
             }
             return Ok(members);
         }
@@ -244,7 +310,16 @@ impl<'f> Own<'f, '_, '_> {
                 | "IFCMATERIALLAYER"
                 | "IFCMATERIALLAYERSET"
                 | "IFCMATERIALLAYERSETUSAGE"
-        ) {
+        ) || (matches!(
+            Version::of(self.file.schema()),
+            Some(Version::Ifc4 | Version::Ifc4x3)
+        ) && matches!(
+            kind.as_str(),
+            "IFCMATERIALCONSTITUENT"
+                | "IFCMATERIALCONSTITUENTSET"
+                | "IFCMATERIALPROFILE"
+                | "IFCMATERIALPROFILESET"
+        )) {
             return Err(super::super::invalid(
                 self.cx,
                 Some(material),

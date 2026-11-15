@@ -7,6 +7,7 @@
 use core::fmt;
 
 mod geometry;
+mod property_details;
 pub(crate) use geometry::geometry_digest;
 
 use zumen_base::{Cx, Kind, Stop};
@@ -117,6 +118,7 @@ fn encode_element(building: &Building, element: ElementRef, out: &mut Canon<'_>)
     put("zone", c.zone.get(element), out);
     put("extension", c.extension.get(element), out);
     put("geometry", building.geometry(element), out);
+    put("property-details", c.property_details.get(element), out);
     // コンポーネントの終わり。種類の名前は空でないので、空の名前と重ならない
     "".encode(out);
 }

@@ -69,9 +69,35 @@ def memberships(entity):
 
 
 def sets(entity, **kind):
-    """セットの名前から、プロパティの名前と値"""
-    found = ifcopenshell.util.element.get_psets(entity, should_inherit=False, **kind)
-    return {name: {k: v for k, v in values.items() if k != "id"} for name, values in found.items()}
+    """定義を列挙して値を読む。旧版の建具と空の定義も比較に含める。"""
+    # get_psets(psets_only=True) は IFC2X3 の定型の建具のセットを返さない。
+    # 属性を作る側の変換は使わず、外部の実行 API から定義ごとの値を得る。
+    if entity.is_a("IfcTypeObject"):
+        definitions = entity.HasPropertySets or ()
+    elif entity.is_a("IfcObject"):
+        definitions = []
+        for relation in entity.IsDefinedBy or ():
+            if relation.is_a("IfcRelDefinesByProperties"):
+                value = relation.RelatingPropertyDefinition
+                if isinstance(value, ifcopenshell.entity_instance):
+                    if value.is_a("IfcPropertySetDefinitionSet"):
+                        definitions.extend(value.wrappedValue)
+                    else:
+                        definitions.append(value)
+                else:
+                    definitions.extend(value)
+    else:
+        # 材料など、IfcObjectDefinition でない資源の逆参照は実行 API に任せる。
+        found = ifcopenshell.util.element.get_psets(entity, should_inherit=False, **kind)
+        return {name: {k: v for k, v in values.items() if k != "id"} for name, values in found.items()}
+    found = {}
+    for definition in definitions:
+        quantity = definition.is_a("IfcElementQuantity")
+        if quantity != kind.get("qtos_only", False):
+            continue
+        values = ifcopenshell.util.element.get_property_definition(definition)
+        found.setdefault(definition.Name or "", {}).update({k: v for k, v in values.items() if k != "id"})
+    return found
 
 
 def open_model(path):

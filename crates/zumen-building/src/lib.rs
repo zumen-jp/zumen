@@ -22,6 +22,7 @@ mod indexed_faces;
 mod mapping;
 mod placement;
 mod presentation_layer;
+mod property_details;
 mod relations;
 mod revolution;
 mod surface_style;
@@ -42,6 +43,7 @@ pub use indexed_faces::*;
 pub use mapping::*;
 pub use placement::Transform;
 pub use presentation_layer::*;
+pub use property_details::*;
 pub use relations::Relations;
 pub use revolution::*;
 pub use surface_style::*;
@@ -182,6 +184,8 @@ pub struct Components {
     pub r#type: Column<TypeOf>,
     /// `properties`: プロパティのセット
     pub properties: Column<Properties>,
+    /// `property-details`: 上下限・選択肢・複合の構造を保ったプロパティ
+    pub property_details: Column<PropertyDetails>,
     /// `quantities`: 数量のセット
     pub quantities: Column<Quantities>,
     /// `material`: 材料の構成

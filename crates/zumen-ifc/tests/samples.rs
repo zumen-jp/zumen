@@ -197,7 +197,7 @@ fn summary(name: &str, src: &[u8]) -> String {
     line(format!(
         "components identity {} class {} classification {} spatial {} parent {} placement {} representation {} \
          style {} type {} properties {} quantities {} material {} opening {} group {} connection {} grid {} \
-         level {} zone {} extension {}",
+         level {} zone {} extension {} property-details {}",
         count(c.identity.len()),
         count(c.class.len()),
         count(c.classification.len()),
@@ -217,6 +217,7 @@ fn summary(name: &str, src: &[u8]) -> String {
         count(c.level.len()),
         count(c.zone.len()),
         count(c.extension.len()),
+        count(c.property_details.len()),
     ));
     let (placed, placement_diag) = with(|cx| {
         c.placement

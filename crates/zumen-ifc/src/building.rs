@@ -26,11 +26,15 @@ mod faces;
 mod geometry;
 mod grid;
 mod indexed_faces;
+mod metadata;
+mod property_details;
+mod relations;
 mod semantic;
 mod shape;
 mod style;
 mod sweep;
 mod unit;
+mod unit_graph;
 pub use extrusion::{
     ContextGeometry, ContextSource, ExtrudedArea, ExtrusionSource, HalfSpaceGeometry,
     HalfSpaceSource, MappedShape3, MappingSource, ProfiledExtrusion, RevolutionSource,
@@ -100,7 +104,7 @@ pub(crate) enum Category {
     Type,
     /// `IfcDoorStyle`・`IfcWindowStyle`（`IfcTypeProduct`）。6 HasPropertySets・8 Tag
     Style,
-    /// `IfcGroup`。5 ObjectType
+    /// 配置を持たない `IfcGroup`・`IfcActor`。5 ObjectType
     Group,
     /// `IfcGrid`。6 ObjectPlacement・8 UAxes・9 VAxes・10 WAxes
     Grid,
@@ -260,6 +264,8 @@ const ENTITIES: &[Entity] = &[
     entity("IfcDoorStyle", "IfcDoorStyle", Y, [NONE, NONE, ABSENT]),
     entity("IfcWindowStyle", "IfcWindowStyle", Y, [NONE, NONE, ABSENT]),
     entity("IfcGroup", "IfcGroup", R, [NONE, NONE, NONE]),
+    entity("IfcActor", "IfcActor", R, [NONE, NONE, NONE]),
+    entity("IfcOccupant", "IfcOccupant", R, [7, 7, 7]),
     entity("IfcSystem", "IfcSystem", R, [NONE, NONE, NONE]),
     entity("IfcZone", "IfcZone", R, [NONE, NONE, NONE]),
     entity(
@@ -404,7 +410,7 @@ impl Lift<Building> for IfcZipFile {
 /// 読んで作った定義。同じ定義を複数の要素が使うので、一度だけ読む
 #[derive(Clone)]
 enum Definition {
-    Properties(PropertySet),
+    Properties(PropertySet, Option<zumen_building::DetailedPropertySet>),
     Quantities(QuantitySet),
 }
 
@@ -472,11 +478,12 @@ fn quantity_size(quantity: &Quantity, unit: bool) -> u64 {
 
 fn definition_size(definition: &Definition) -> u64 {
     match definition {
-        Definition::Properties(set) => set
+        Definition::Properties(set, details) => set
             .properties
             .iter()
             .map(|property| property_size(property, true))
-            .fold(text_size(&set.name), u64::saturating_add),
+            .fold(text_size(&set.name), u64::saturating_add)
+            .saturating_add(details.as_ref().map_or(0, property_details::details_size)),
         Definition::Quantities(set) => set
             .quantities
             .iter()
@@ -993,29 +1000,25 @@ impl<'f> Lifter<'f> {
             unit::SiUnitRead::Rejected => return None,
             unit::SiUnitRead::Absent => {}
         }
-        if !self.is(id, b"IFCCONVERSIONBASEDUNIT") {
-            return None;
+        // 既存の一段の換算は SI の採用前検査を先に行い、その停止位置を保つ。
+        if self.is(id, b"IFCCONVERSIONBASEDUNIT")
+            && let Some(factor) =
+                reference(arg(record, 4)).filter(|&id| self.is(id, b"IFCMEASUREWITHUNIT"))
+            && let Some(base) = self
+                .file
+                .instance(factor)
+                .and_then(|f| reference(arg(f, 2)))
+                .and_then(|id| self.file.instance(id))
+        {
+            match self.si_unit(base, cx) {
+                unit::SiUnitRead::Value(unit) => {
+                    return self.direct_conversion(record, factor, base, &unit, cx);
+                }
+                unit::SiUnitRead::Rejected => return None,
+                unit::SiUnitRead::Absent => {}
+            }
         }
-        let kind = self.enumeration(arg(record, 2))?;
-        let name = self.text(arg(record, 3), record, cx)?;
-        let factor = reference(arg(record, 4)).filter(|&f| self.is(f, b"IFCMEASUREWITHUNIT"))?;
-        let factor_record = self.file.instance(factor)?;
-        let value = self.real(arg(factor_record, 1))?;
-        let unit::SiUnitRead::Value(base) =
-            self.si_unit(self.file.instance(reference(arg(factor_record, 2))?)?, cx)
-        else {
-            return None;
-        };
-        self.used.insert(factor);
-        if let Some(base) = reference(arg(factor_record, 2)) {
-            self.used.insert(base);
-        }
-        Some(Unit {
-            kind,
-            prefix: None,
-            name,
-            scale: Some(value * prefix_scale(&base)),
-        })
+        self.unit_graph(id, cx)
     }
 
     /// 文書の単位の割り当てから、種類 `kind` の単位。なければ診断する
@@ -1252,6 +1255,9 @@ impl<'f> Lifter<'f> {
     fn relation(&mut self, id: u64, record: &'f Record, cx: &mut Cx) {
         let kind = self.file.kind(record).to_ascii_uppercase();
         let handled = match kind.as_slice() {
+            b"IFCMATERIALPROPERTIES" | b"IFCEXTENDEDMATERIALPROPERTIES" => {
+                self.material_properties(id, record, cx)
+            }
             // 5 RelatingObject・6 RelatedObjects
             b"IFCRELAGGREGATES" => self.parents(id, record, 5, 6, ParentKind::Aggregates, cx),
             // IFC4 から 6 RelatedObjects は順のある列
@@ -1263,6 +1269,9 @@ impl<'f> Lifter<'f> {
             b"IFCRELREFERENCEDINSPATIALSTRUCTURE" => self.referenced(id, record, cx),
             // 5 RelatedObjects・6 RelatingClassification
             b"IFCRELASSOCIATESCLASSIFICATION" => self.classification(id, record, cx),
+            b"IFCRELCONNECTSELEMENTS" | b"IFCRELCOVERSBLDGELEMENTS" | b"IFCRELASSIGNSTOACTOR" => {
+                self.metadata_relation(id, record, cx)
+            }
             // 5 RelatedObjects・6 RelatingType
             b"IFCRELDEFINESBYTYPE" => self.each(id, record, 6, 5, cx, |lifter, element, target| {
                 lifter
@@ -1277,7 +1286,9 @@ impl<'f> Lifter<'f> {
                 let sets: Vec<u64> = refs(arg(record, 6))
                     .into_iter()
                     .filter(|&set| {
-                        self.is(set, b"IFCPROPERTYSET") || self.is(set, b"IFCELEMENTQUANTITY")
+                        self.is(set, b"IFCPROPERTYSET")
+                            || self.is(set, b"IFCELEMENTQUANTITY")
+                            || self.predefined_property_set(set)
                     })
                     .collect();
                 let related = self.related(record, 5);
@@ -1571,7 +1582,7 @@ impl<'f> Lifter<'f> {
                 return;
             }
             match self.definition(set, cx) {
-                Some(Definition::Properties(set)) => {
+                Some(Definition::Properties(set, details)) => {
                     let mut properties: Properties = self
                         .building
                         .components
@@ -1583,6 +1594,19 @@ impl<'f> Lifter<'f> {
                         .components
                         .properties
                         .insert(element, properties);
+                    if let Some(details) = details {
+                        let mut value = self
+                            .building
+                            .components
+                            .property_details
+                            .remove(element)
+                            .unwrap_or_default();
+                        value.sets.push(details);
+                        self.building
+                            .components
+                            .property_details
+                            .insert(element, value);
+                    }
                 }
                 Some(Definition::Quantities(set)) => {
                     let mut quantities: Quantities = self
@@ -1621,10 +1645,28 @@ impl<'f> Lifter<'f> {
             self.definitions.insert(id, None);
             return None;
         };
-        let name = self.text(arg(record, 3), record, cx).unwrap_or_default();
-        let definition = if self.is(id, b"IFCPROPERTYSET") {
+        let name_at = if self.is(id, b"IFCMATERIALPROPERTIES") && self.version != Version::Ifc2x3 {
+            1
+        } else if self.is(id, b"IFCEXTENDEDMATERIALPROPERTIES") && self.version == Version::Ifc2x3 {
+            4
+        } else {
+            3
+        };
+        let name = self
+            .text(arg(record, name_at), record, cx)
+            .unwrap_or_default();
+        let properties_at = if self.is(id, b"IFCPROPERTYSET") {
+            Some(5)
+        } else if self.is(id, b"IFCMATERIALPROPERTIES") && self.version != Version::Ifc2x3 {
+            Some(3)
+        } else if self.is(id, b"IFCEXTENDEDMATERIALPROPERTIES") && self.version == Version::Ifc2x3 {
+            Some(2)
+        } else {
+            None
+        };
+        let definition = if let Some(properties_at) = properties_at {
             let mut properties = Vec::new();
-            for property in refs(arg(record, 5)) {
+            for property in refs(arg(record, properties_at)) {
                 if let Some(property) = self.property(property, cx) {
                     // 同じプロパティを繰り返し参照しても、足すたびに数える。単位は、写すときに数えている（#733）
                     if !self.copied(cx, property_size(&property, false)) {
@@ -1633,7 +1675,11 @@ impl<'f> Lifter<'f> {
                     properties.push(property);
                 }
             }
-            Some(Definition::Properties(PropertySet { name, properties }))
+            let details = self.detailed_properties(record, properties_at, &name, &properties, cx);
+            Some(Definition::Properties(
+                PropertySet { name, properties },
+                details,
+            ))
         } else if self.is(id, b"IFCELEMENTQUANTITY") {
             let method = self.text(arg(record, 5), record, cx);
             let mut quantities = Vec::new();
@@ -1651,6 +1697,14 @@ impl<'f> Lifter<'f> {
                 method,
                 quantities,
             }))
+        } else if self.predefined_property_set(id) {
+            Some(Definition::Properties(
+                PropertySet {
+                    name,
+                    properties: self.predefined_properties(record, cx),
+                },
+                None,
+            ))
         } else {
             None
         };
@@ -1666,9 +1720,11 @@ impl<'f> Lifter<'f> {
         definition
     }
 
-    /// `IfcPropertySingleValue`（1 Name・3 NominalValue・4 Unit）。ほかのプロパティは、まだ写さない
+    /// 単一の値と、同じ型の値の列。列挙の単位は参照する列挙の定義から読む。
     fn property(&mut self, id: u64, cx: &mut Cx) -> Option<Property> {
-        if !self.is(id, b"IFCPROPERTYSINGLEVALUE") {
+        let enumerated = self.is(id, b"IFCPROPERTYENUMERATEDVALUE");
+        let list = enumerated || self.is(id, b"IFCPROPERTYLISTVALUE");
+        if !list && !self.is(id, b"IFCPROPERTYSINGLEVALUE") {
             return None;
         }
         let record = self.take(id)?;
@@ -1676,15 +1732,32 @@ impl<'f> Lifter<'f> {
         let value = match arg(record, 3) {
             None | Some(Value::Null) => None,
             Some(value) => {
-                let typed = self.typed_value(value, record, cx);
-                if typed.is_none() {
+                let typed = if list {
+                    self.property_values(value, record, cx)
+                } else {
+                    self.typed_value(value, record, cx)
+                };
+                if typed.is_none() && !self.is_halted() {
                     self.invalid(record, 3, cx);
                 }
                 typed
             }
         };
-        let unit = match reference(arg(record, 4)) {
-            Some(unit) => {
+        let unit_id = if enumerated {
+            self.enumeration_unit(record, cx)
+        } else {
+            match arg(record, 4) {
+                None | Some(Value::Null) => Ok(None),
+                Some(Value::Ref(id)) => Ok(Some(*id)),
+                _ => {
+                    self.invalid(record, 4, cx);
+                    Err(())
+                }
+            }
+        };
+        let unit = match unit_id {
+            Err(()) => None,
+            Ok(Some(unit)) => {
                 let resolved = self.unit(unit, cx);
                 // 写す値を数えて止まったときは、単位がないとは言わない
                 if resolved.is_none() && !self.is_halted() {
@@ -1700,7 +1773,7 @@ impl<'f> Lifter<'f> {
                 }
                 resolved
             }
-            None => match value.as_ref().and_then(|v| v.type_name.as_deref()) {
+            Ok(None) => match value.as_ref().and_then(|v| v.type_name.as_deref()) {
                 Some(type_name) => self.measure_unit(type_name, record, cx),
                 None => None,
             },
@@ -1710,7 +1783,11 @@ impl<'f> Lifter<'f> {
 
     /// 値の型から、文書の単位の割り当ての単位。単位を持たない型は `None`、知らない量の型は診断する
     fn measure_unit(&self, type_name: &str, place: &Record, cx: &mut Cx) -> Option<Unit> {
-        match MEASURES.iter().find(|(name, _)| *name == type_name) {
+        match MEASURES
+            .iter()
+            .chain(unit_graph::DERIVED_MEASURES)
+            .find(|(name, _)| *name == type_name)
+        {
             Some((_, Some(kind))) => self.document_unit(kind, type_name, place, cx),
             Some((_, None)) => None,
             None if type_name.to_ascii_uppercase().ends_with("MEASURE") => {
@@ -1729,9 +1806,13 @@ impl<'f> Lifter<'f> {
     fn typed_value(&mut self, value: &Value, place: &Record, cx: &mut Cx) -> Option<TypedValue> {
         match value {
             Value::Typed(part) => {
+                if !self.copied(cx, (part.name().len() as u64).saturating_mul(2)) {
+                    return None;
+                }
                 let written = String::from_utf8_lossy(self.file.bytes(part.name())).into_owned();
                 let type_name = MEASURES
                     .iter()
+                    .chain(unit_graph::DERIVED_MEASURES)
                     .find(|(name, _)| name.eq_ignore_ascii_case(&written))
                     .map_or(written, |(name, _)| (*name).to_owned());
                 let [inner] = part.args() else {
@@ -1901,6 +1982,21 @@ impl<'f> Lifter<'f> {
                     parts: self.layers(set_record, cx),
                     direction: self.enumeration(arg(record, 2)),
                     offset: self.length(arg(record, 4), record, cx),
+                })
+            }
+            b"IFCMATERIALCONSTITUENTSET" | b"IFCMATERIALPROFILESET"
+                if self.version != Version::Ifc2x3 =>
+            {
+                let profiles = kind.as_slice() == b"IFCMATERIALPROFILESET";
+                Some(Material {
+                    kind: if profiles {
+                        MaterialKind::Profiles
+                    } else {
+                        MaterialKind::Constituents
+                    },
+                    parts: self.material_members(record, profiles, cx),
+                    direction: None,
+                    offset: None,
                 })
             }
             _ => None,
