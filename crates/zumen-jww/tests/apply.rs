@@ -11,8 +11,8 @@ use common::{Archive, Spec};
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostic, Diagnostics, codes};
 use zumen_drawing::{
     Affine, Applied, Changes, Color, ColorCode, ColorSystem, Drawing2D, Edge, Edit, Element, Hash,
-    Inherit, LayerId, Length, LineTypeId, LineWeight, ModelLength, ModelPoint, PaperLength,
-    PaperPoint, Placed, Restyle, Seen, Shape, SpaceId, Style, id,
+    Inherit, LayerId, LayerState, Length, LineTypeId, LineWeight, ModelLength, ModelPoint,
+    PaperLength, PaperPoint, Placed, Placement, Restyle, Seen, Shape, SpaceId, Style, id,
 };
 use zumen_jww::{Jww, JwwFile};
 use zumen_sdk::{Apply, Codec, Error, Lift, testkit};
@@ -124,6 +124,182 @@ fn seen(drawing: &Drawing2D, at: usize) -> Seen {
     }
 }
 
+#[test]
+fn layer_rename_and_variable_text_keep_other_records_and_layers() {
+    let source = src();
+    let mut file = read(&source);
+    let before = lift(&file);
+    let mut layer = before.layers[0].clone();
+    layer.name = "改訂図面の注記😀".repeat(40);
+    let mut text = element(&before, 4).1.clone();
+    let Shape::Text(value) = &mut text.shape else {
+        panic!()
+    };
+    value.content = "変更した文字".into();
+    let (result, diagnostics) = apply(
+        &mut file,
+        vec![
+            Edit::ReplaceLayer {
+                target: Seen {
+                    id: id::layer(&before.layers[0]),
+                    hash: Hash::layer(&before.layers[0]),
+                },
+                layer: Box::new(layer.clone()),
+            },
+            Edit::Replace {
+                target: seen(&before, 4),
+                element: Box::new(Placed::Model(text)),
+            },
+        ],
+        None,
+    );
+    let (applied, shifted) = result.unwrap_or_else(|e| panic!("{e:?} {diagnostics:?}"));
+    assert!(!shifted);
+    assert_eq!(applied[0].id.as_deref(), Some(id::layer(&layer).as_str()));
+    assert_eq!(applied[0].hash, Some(Hash::layer(&layer)));
+    let output = write(&file);
+    let after = lift(&read(&output));
+    assert_eq!(after.layers[0], layer);
+    assert_eq!(after.layers[1..], before.layers[1..]);
+    for at in 0..4 {
+        assert_eq!(seen(&before, at), seen(&after, at));
+    }
+    assert_eq!(before.symbols, after.symbols);
+    let original = read(&source);
+    for at in [1, 2, 3, 4, 6, 7] {
+        assert_eq!(
+            &source[original.records()[at].span()],
+            &output[file.records()[at].span()]
+        );
+    }
+}
+
+#[test]
+fn new_layer_uses_only_an_unnamed_inactive_unused_slot() {
+    let mut spec = Spec::new(700);
+    spec.groups[0] = (3, 1.0, [0; 16]);
+    spec.layer_names.push((1, "既存"));
+    spec.protects.push((2, 1));
+    let mut archive = Archive::new(700);
+    archive.count(1);
+    archive.layer = 3;
+    archive.group = 0;
+    archive.line();
+    archive.count(0);
+    archive.out.extend(0u32.to_le_bytes());
+    let mut source = spec.build();
+    source.extend(archive.out);
+    let mut file = read(&source);
+    let before = lift(&file);
+    let mut layer = before.layers[0].clone();
+    layer.name = "追加".into();
+    layer.state = Some(LayerState {
+        visible: true,
+        printable: true,
+        editable: true,
+        frozen: false,
+    });
+    let (result, diagnostics) = apply(
+        &mut file,
+        vec![Edit::AddLayer {
+            layer: Box::new(layer),
+        }],
+        None,
+    );
+    let (applied, shifted) = result.unwrap_or_else(|e| panic!("{e:?} {diagnostics:?}"));
+    assert!(!shifted);
+    let after = lift(&read(&write(&file)));
+    assert_eq!(after.layers.len(), 256);
+    assert_eq!(after.layers[4].name, "追加");
+    assert_eq!(after.layers[4].id, LayerId(5));
+    assert_eq!(applied[0].id, Some(id::layer(&after.layers[4])));
+    assert_eq!(applied[0].hash, Some(Hash::layer(&after.layers[4])));
+    assert_eq!(seen(&before, 0), seen(&after, 0));
+    for at in (0..256).filter(|at| *at != 4) {
+        assert_eq!(before.layers[at], after.layers[at]);
+    }
+    let (result, diagnostics) = apply(
+        &mut file,
+        vec![Edit::Restyle {
+            target: seen(&after, 0),
+            style: Restyle {
+                layer: Some(LayerId(5)),
+                ..Restyle::default()
+            },
+        }],
+        None,
+    );
+    assert!(result.is_ok(), "{result:?} {diagnostics:?}");
+    assert_eq!(element(&lift(&file), 0).1.layer, LayerId(5));
+}
+
+#[test]
+fn layer_staleness_and_unsupported_states_reject_the_whole_transaction() {
+    let source = src();
+    let before = lift(&read(&source));
+    let original = &before.layers[0];
+    let mut changed = original.clone();
+    changed.name = "変更".into();
+    let current = Seen {
+        id: id::layer(original),
+        hash: Hash::layer(original),
+    };
+    for (target, layer, code) in [
+        (
+            Seen {
+                hash: Hash::layer(&changed),
+                ..current.clone()
+            },
+            changed.clone(),
+            codes::CHANGE_ELEMENT_STALE,
+        ),
+        (
+            Seen {
+                id: "layer/missing".into(),
+                ..current.clone()
+            },
+            changed.clone(),
+            codes::CHANGE_ELEMENT_MISSING,
+        ),
+        (
+            current.clone(),
+            {
+                let mut layer = changed.clone();
+                layer.state.as_mut().unwrap().printable = false;
+                layer
+            },
+            codes::CHANGE_EDIT_UNSUPPORTED,
+        ),
+        (
+            current.clone(),
+            {
+                let mut layer = changed;
+                layer.name.clear();
+                layer
+            },
+            codes::CHANGE_EDIT_UNSUPPORTED,
+        ),
+    ] {
+        let mut file = read(&source);
+        let (result, diagnostics) = apply(
+            &mut file,
+            vec![
+                Edit::Remove {
+                    target: seen(&before, 0),
+                },
+                Edit::ReplaceLayer {
+                    target,
+                    layer: Box::new(layer),
+                },
+            ],
+            None,
+        );
+        assert!(matches!(result, Err(Error::Rejected)));
+        assert_eq!(diagnostics, [code]);
+        assert_eq!(write(&file), source);
+    }
+}
+
 #[cfg(test)]
 fn model(x: f64, y: f64) -> ModelPoint {
     ModelPoint {
@@ -144,6 +320,180 @@ fn length(value: f64) -> Length {
 #[cfg(test)]
 fn close(a: f64, b: f64) -> bool {
     (a - b).abs() < 1e-9 * a.abs().max(1.0)
+}
+
+#[test]
+fn text_is_replaced_and_moved_without_changing_other_elements() {
+    let mut source = src();
+    let text_at = read(&source).records()[5].body().start;
+    source[text_at + 7..text_at + 9].copy_from_slice(&0x208u16.to_le_bytes());
+    source[text_at + 15 + 52..text_at + 15 + 60].copy_from_slice(&0.75f64.to_le_bytes());
+    let mut file = read(&source);
+    let before = lift(&file);
+    let unchanged: Vec<_> = (0..4).map(|at| seen(&before, at)).collect();
+    let definition = before.symbols[0].space.elements[0].clone();
+    let (_, old) = element(&before, 4);
+    let mut updated = old.clone();
+    let Shape::Text(text) = &mut updated.shape else {
+        panic!()
+    };
+    text.content = "改訂図面".repeat(80);
+    text.height.value = Length::Paper(PaperLength(4.5));
+    text.width_factor = 0.8;
+    updated.layer = LayerId(2);
+    let (result, diagnostics) = apply(
+        &mut file,
+        vec![Edit::Replace {
+            target: seen(&before, 4),
+            element: Box::new(Placed::Model(updated.clone())),
+        }],
+        None,
+    );
+    let (applied, shifted) = result.unwrap();
+    assert!(!shifted);
+    assert!(diagnostics.is_empty());
+    let after = lift(&read(&write(&file)));
+    assert_eq!(applied[0].id.as_ref(), Some(&seen(&after, 4).id));
+    assert_eq!(applied[0].hash, Some(seen(&after, 4).hash));
+    assert_eq!(element(&after, 4).1.shape, updated.shape);
+    assert_eq!(element(&after, 4).1.layer, LayerId(2));
+    for (at, expected) in unchanged.iter().enumerate() {
+        assert_eq!(&seen(&after, at), expected);
+    }
+    assert_eq!(after.symbols[0].space.elements[0], definition);
+    let bytes = write(&file);
+    let body = file.records()[5].body().start;
+    assert_eq!(
+        &bytes[body + 7..body + 9],
+        &source[text_at + 7..text_at + 9]
+    );
+    for range in [16..36, 52..60] {
+        assert_eq!(
+            &bytes[body + 15 + range.start..body + 15 + range.end],
+            &source[text_at + 15 + range.start..text_at + 15 + range.end]
+        );
+    }
+    let movement = Affine {
+        m: [0.0, -1.0, 200.0, 1.0, 0.0, 300.0],
+    };
+    let (result, diagnostics) = apply(
+        &mut file,
+        vec![Edit::Transform {
+            target: seen(&after, 4),
+            transform: movement,
+        }],
+        None,
+    );
+    assert!(!result.unwrap().1);
+    assert!(diagnostics.is_empty());
+    let moved = lift(&read(&write(&file)));
+    let Shape::Text(text) = &element(&moved, 4).1.shape else {
+        panic!()
+    };
+    let Placement::Anchor { point, .. } = text.placement else {
+        panic!()
+    };
+    assert_eq!(point, model(200.0, 300.0));
+    assert!(close(text.rotation, 105.0));
+    for (at, expected) in unchanged.iter().enumerate() {
+        assert_eq!(&seen(&moved, at), expected);
+    }
+    assert_eq!(moved.symbols[0].space.elements[0], definition);
+    let bytes = write(&file);
+    let at = file.records()[5].body().start + 15 + 16;
+    let x = f64::from_le_bytes(bytes[at..at + 8].try_into().unwrap());
+    let y = f64::from_le_bytes(bytes[at + 8..at + 16].try_into().unwrap());
+    assert_eq!([x, y], [2.0, 8.0]);
+}
+
+#[test]
+fn text_is_added_with_its_encoding_and_model_height() {
+    for content in ["ASCII", "図面の注記", "寸法 🏠", "\\¥\u{ff5e}"] {
+        let source = src();
+        let mut file = read(&source);
+        let before = lift(&file);
+        let mut added = element(&before, 4).1.clone();
+        let Shape::Text(text) = &mut added.shape else {
+            panic!()
+        };
+        text.content = content.into();
+        text.height.value = length(250.0);
+        text.placement = Placement::Anchor {
+            point: model(400.0, 500.0),
+            horizontal: zumen_drawing::Horizontal::Left,
+            vertical: zumen_drawing::Vertical::Bottom,
+        };
+        let (result, diagnostics) = apply(
+            &mut file,
+            vec![Edit::Add {
+                place: "space/0".into(),
+                element: Box::new(Placed::Model(added)),
+            }],
+            None,
+        );
+        let (applied, shifted) = result.unwrap();
+        assert!(shifted, "後ろの定義のレコード番号がずれる既存の契約");
+        assert!(diagnostics.is_empty());
+        let after = lift(&read(&write(&file)));
+        for at in 0..5 {
+            assert_eq!(seen(&after, at), seen(&before, at));
+        }
+        let (id, element) = element(&after, 5);
+        assert_eq!(applied[0].id.as_ref(), Some(&id));
+        assert_eq!(applied[0].hash, Some(Hash::element(element)));
+        let Shape::Text(text) = &element.shape else {
+            panic!()
+        };
+        assert_eq!(text.content, content);
+        assert_eq!(text.height.value, Length::Paper(PaperLength(2.5)));
+        assert_eq!(text.style, "ＭＳ ゴシック");
+        assert_eq!(
+            Hash::element(&after.symbols[0].space.elements[0]),
+            Hash::element(&before.symbols[0].space.elements[0])
+        );
+    }
+}
+
+#[test]
+fn unrepresentable_text_changes_are_atomic() {
+    let source = src();
+    let before = lift(&read(&source));
+    for change in 0..5 {
+        let mut file = read(&source);
+        let mut element = element(&before, 4).1.clone();
+        let Shape::Text(text) = &mut element.shape else {
+            panic!()
+        };
+        match change {
+            0 => text.oblique = 12.0,
+            1 => text.backward = true,
+            2 => text.content = "^@BMimage.bmp,10,20".into(),
+            3 => text.height.value = Length::Paper(PaperLength(0.0)),
+            _ => {
+                text.placement = Placement::Between {
+                    first: model(0.0, 0.0),
+                    second: model(10.0, 0.0),
+                    fit: zumen_drawing::Fit::Aligned,
+                }
+            }
+        }
+        let (result, diagnostics) = apply(
+            &mut file,
+            vec![
+                Edit::Remove {
+                    target: seen(&before, 0),
+                },
+                Edit::Replace {
+                    target: seen(&before, 4),
+                    element: Box::new(Placed::Model(element)),
+                },
+            ],
+            None,
+        );
+        assert!(result.is_err());
+        assert_eq!(diagnostics, [codes::CHANGE_EDIT_UNSUPPORTED]);
+        assert_eq!(write(&file), source);
+    }
 }
 
 #[test]

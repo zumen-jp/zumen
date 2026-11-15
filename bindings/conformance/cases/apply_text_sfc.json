@@ -1,0 +1,350 @@
+{
+  "description": "SFC の文字の追加・置き換え・移動とレイヤの追加・改名。未変更要素の ID・ハッシュと失敗時の原子的な扱い",
+  "steps": [
+    {
+      "push": {
+        "name": "text.sfc",
+        "hex": "49534f2d31303330332d32313b0a4845414445523b0a46494c455f4445534352495054494f4e282827534341444543206c6576656c3220666561747572655f6d6f646527292c27323b3127293b0a46494c455f4e414d4528276d6164652e736663272c27323030302d30312d30315430303a30303a3030272c282727292c282727292c277a756d656e2424332e31272c277a756d656e272c2727293b0a46494c455f534348454d412828274153534f434941544956455f44524155474854494e472729293b0a454e445345433b0a444154413b0a2f2a5358460a23313d6c617965725f66656174757265285c27415c272c273127290a5358462a2f0a2f2a5358460a23323d6c617965725f66656174757265285c27425c272c273127290a5358462a2f0a2f2a5358460a23333d746578745f666f6e745f66656174757265285c274d535c27290a5358462a2f0a2f2a5358460a2331303d746578745f737472696e675f66656174757265282731272c2731272c2731272c5c276f6c645c272c2731272c2731272c2734272c2738272c27302e3235272c2730272c2730272c2731272c273127290a5358462a2f0a2f2a5358460a2331313d746578745f737472696e675f66656174757265282731272c2731272c2731272c5c276f6c645c272c2731272c2731272c2734272c2738272c27302e3235272c2730272c2730272c2731272c273127290a5358462a2f0a2f2a5358460a233130303d64726177696e675f73686565745f66656174757265285c27535c272c2733272c2731272c27343230272c2732393727290a5358462a2f0a454e445345433b0a454e442d49534f2d31303330332d32313b0a"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "text.sfc"
+      },
+      "expect": {
+        "/result/format": "sxf",
+        "/diagnostics": []
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "layer",
+          "hash",
+          "geometry"
+        ],
+        "doc": "text.sfc"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "tables",
+        "doc": "text.sfc"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "edits": [
+          {
+            "kind": "layer",
+            "id": "layer/1",
+            "hash": "v2:6b95d86c9fe21902222a8fba17619496",
+            "name": "Renamed"
+          },
+          {
+            "kind": "add_layer",
+            "name": "Added"
+          }
+        ],
+        "doc": "text.sfc"
+      },
+      "expect": {
+        "/diagnostics": []
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "tables",
+        "doc": "text.sfc"
+      },
+      "expect": {
+        "/result/layers/0/name": "Renamed"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "layer",
+          "hash",
+          "geometry"
+        ],
+        "doc": "text.sfc"
+      },
+      "expect": {
+        "/result/items/0/id": "sheet/0/i10",
+        "/result/items/0/hash": "v2:19982382d33d8c1986d2e371ab04add4",
+        "/result/items/1/id": "sheet/0/i11",
+        "/result/items/1/hash": "v2:19982382d33d8c1986d2e371ab04add4"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "edits": [
+          {
+            "kind": "add",
+            "place": "sheet/0",
+            "layer": "Added",
+            "color": {
+              "sxf": 2
+            },
+            "geometry": {
+              "shape": "text",
+              "content": "Initial",
+              "position": [
+                100,
+                200
+              ],
+              "height": 3,
+              "rotation": 0,
+              "horizontal": "left",
+              "vertical": "bottom",
+              "style": "NewFont"
+            }
+          }
+        ],
+        "doc": "text.sfc"
+      },
+      "expect": {
+        "/result/applied/0/id": "sheet/0/i103",
+        "/diagnostics/0/code": "sxf.text-width.approximated"
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "layer",
+          "hash",
+          "geometry"
+        ],
+        "doc": "text.sfc"
+      },
+      "expect": {
+        "/result/items/0/id": "sheet/0/i10",
+        "/result/items/0/hash": "v2:19982382d33d8c1986d2e371ab04add4",
+        "/result/items/1/id": "sheet/0/i11",
+        "/result/items/1/hash": "v2:19982382d33d8c1986d2e371ab04add4"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "edits": [
+          {
+            "kind": "replace",
+            "id": "sheet/0/i103",
+            "hash": "v2:b2b0fc22b9db0aa0503db11c578dca06",
+            "geometry": {
+              "shape": "formatted_text",
+              "content": "Revised",
+              "position": [
+                120,
+                240
+              ],
+              "height": 4,
+              "rotation": 90,
+              "attachment": "bottom_left",
+              "style": ""
+            }
+          }
+        ],
+        "doc": "text.sfc"
+      },
+      "expect": {
+        "/diagnostics": []
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "layer",
+          "hash",
+          "geometry"
+        ],
+        "doc": "text.sfc"
+      },
+      "expect": {
+        "/result/items/0/id": "sheet/0/i10",
+        "/result/items/0/hash": "v2:19982382d33d8c1986d2e371ab04add4",
+        "/result/items/1/id": "sheet/0/i11",
+        "/result/items/1/hash": "v2:19982382d33d8c1986d2e371ab04add4"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "edits": [
+          {
+            "kind": "restyle",
+            "id": "sheet/0/i103",
+            "hash": "v2:a2a0662ff34d36936513c7483d3e9536",
+            "layer": "Renamed"
+          }
+        ],
+        "doc": "text.sfc"
+      },
+      "expect": {
+        "/diagnostics": []
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "layer",
+          "hash",
+          "geometry"
+        ],
+        "doc": "text.sfc"
+      },
+      "expect": {
+        "/result/items/0/id": "sheet/0/i10",
+        "/result/items/0/hash": "v2:19982382d33d8c1986d2e371ab04add4",
+        "/result/items/1/id": "sheet/0/i11",
+        "/result/items/1/hash": "v2:19982382d33d8c1986d2e371ab04add4"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "edits": [
+          {
+            "kind": "transform",
+            "id": "sheet/0/i103",
+            "hash": "v2:df28de548cf5cd1160ace53a15bb47a1",
+            "matrix": [
+              1,
+              0,
+              10,
+              0,
+              1,
+              20
+            ]
+          }
+        ],
+        "doc": "text.sfc"
+      },
+      "expect": {
+        "/diagnostics": []
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "layer",
+          "hash",
+          "geometry"
+        ],
+        "doc": "text.sfc"
+      },
+      "expect": {
+        "/result/items/0/id": "sheet/0/i10",
+        "/result/items/0/hash": "v2:19982382d33d8c1986d2e371ab04add4",
+        "/result/items/1/id": "sheet/0/i11",
+        "/result/items/1/hash": "v2:19982382d33d8c1986d2e371ab04add4",
+        "/result/items/2/id": "sheet/0/i103",
+        "/result/items/2/layer": "Renamed",
+        "/result/items/2/geometry/content": "Revised",
+        "/result/items/2/geometry/position": [
+          130,
+          260
+        ],
+        "/result/items/2/geometry/height": 4,
+        "/result/items/2/geometry/rotation": 90
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "edits": [
+          {
+            "kind": "transform",
+            "id": "sheet/0/i103",
+            "hash": "v2:b2b0fc22b9db0aa0503db11c578dca06",
+            "matrix": [
+              1,
+              0,
+              1,
+              0,
+              1,
+              1
+            ]
+          }
+        ],
+        "doc": "text.sfc"
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "change.element.stale"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "layer",
+          "hash",
+          "geometry"
+        ],
+        "doc": "text.sfc"
+      },
+      "expect": {
+        "/result/items/0/hash": "v2:19982382d33d8c1986d2e371ab04add4",
+        "/result/items/1/hash": "v2:19982382d33d8c1986d2e371ab04add4",
+        "/result/items/2/hash": "v2:0c9cdea8747307fb3259e187b2841fe7"
+      }
+    }
+  ]
+}

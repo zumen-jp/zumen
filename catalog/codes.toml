@@ -1589,6 +1589,14 @@ status = "active"
 
 # SXF の交換構造（決定 0120）
 
+[codes."sxf.text-width.approximated"]
+description = "SXF に新しい文字を足すとき、字形の寸法がないため文字の高さと字数から範囲幅を見積もった"
+severity = "warning"
+fidelity = "approximated"
+params = {}
+since = "0.3.0"
+status = "active"
+
 [codes."sxf.file.invalid"]
 description = "ISO 10303-21 の始まり・DATA のセクション・終わりのどれかがない"
 severity = "error"

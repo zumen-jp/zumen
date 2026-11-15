@@ -10,14 +10,17 @@ use std::collections::{BTreeMap, BTreeSet};
 use zumen_base::{Diagnostic, Kind, Ref, codes};
 use zumen_drawing::{
     Applied, Changes, Color, ColorCode, ColorSystem, Drawing2D, Edge, Edit, Element, Hash, Inherit,
-    LayerId, Length, LineTypeId, LineWeight, ModelLength, ModelPoint, PaperLength, Placed, Point,
-    PointLook, Seen, Shape, SpaceId, Style, id, transform,
+    Layer, LayerId, Length, LineTypeId, LineWeight, ModelLength, ModelPoint, PaperLength, Placed,
+    Point, PointLook, Seen, Shape, SpaceId, Style, id, transform,
 };
 use zumen_sdk::{Apply, Codec, Cx, Error, Lift, quietly};
 
 use super::{Header, PEN_WIDTH_SINCE, POINT_SYMBOL, SXF_SINCE, TURN};
 use crate::parse::Reader;
 use crate::{Jww, JwwFile, RecordKind};
+
+mod layers;
+mod text;
 
 /// 診断に書く形式の名前
 pub(super) const FORMAT: &str = "JWW";
@@ -30,6 +33,8 @@ pub(super) const ARC: &[u8] = b"CDataEnko";
 
 /// 点
 pub(super) const POINT: &[u8] = b"CDataTen";
+
+const TEXT: &[u8] = b"CDataMoji";
 
 /// 形の値の比べ方。実寸の値は、用紙の値に縮尺の分母を掛けて読むので、最後の桁が違いうる
 pub(super) const NEAR: f64 = 1e-9;
@@ -65,12 +70,15 @@ impl Apply<Changes> for JwwFile {
         };
         let drawing = quietly(cx, |cx| self.lift(cx))?;
         let before = Index::new(&drawing, cx)?;
+        let before_layers = &drawing.layers;
         let mut plan = Plan {
             file: self,
             header: &header,
             patches: Vec::new(),
+            rewritten: BTreeMap::new(),
             removed: BTreeSet::new(),
             added: Vec::new(),
+            layers: layers::Changes::default(),
         };
         let mut expected = Vec::new();
         let mut targets = BTreeSet::new();
@@ -122,17 +130,15 @@ impl Apply<Changes> for JwwFile {
                         rejected = true;
                         continue;
                     };
+                    if let Placed::Model(element) = element.as_ref() {
+                        text::count(&element.shape, cx)?;
+                    }
                     let replaced = match element.as_ref() {
                         Placed::Model(element) => plan
                             .styled(&found, element.layer, &element.style)
                             .and_then(|(layer, style)| {
-                                plan.shaped(&found, &element.shape)?;
-                                Some(Expected::Changed(
-                                    found.record,
-                                    layer,
-                                    style,
-                                    element.shape.clone(),
-                                ))
+                                let shape = plan.shaped(&found, &element.shape, None)?;
+                                Some(Expected::Changed(found.record, layer, style, shape))
                             }),
                         Placed::Paper(_) => None,
                     };
@@ -149,10 +155,11 @@ impl Apply<Changes> for JwwFile {
                         rejected = true;
                         continue;
                     };
+                    text::count(&found.element.shape, cx)?;
                     transform::transform(&found.element.shape, transform)
                         .map(unturned)
                         .and_then(|shape| {
-                            plan.shaped(&found, &shape)?;
+                            let shape = plan.shaped(&found, &shape, Some(transform))?;
                             Some(Expected::Changed(
                                 found.record,
                                 found.element.layer,
@@ -169,6 +176,9 @@ impl Apply<Changes> for JwwFile {
                         })
                 }
                 Edit::Add { place, element } => {
+                    if let Placed::Model(element) = element.as_ref() {
+                        text::count(&element.shape, cx)?;
+                    }
                     let unset = match element.as_ref() {
                         Placed::Model(element) => unset(element),
                         Placed::Paper(_) => None,
@@ -198,7 +208,15 @@ impl Apply<Changes> for JwwFile {
                             })
                     }
                 }
-                Edit::ReplaceLayer { .. } | Edit::AddLayer { .. } | Edit::RemoveLayer { .. } => {
+                Edit::ReplaceLayer { target, layer } => plan
+                    .layers
+                    .replace(&header, before_layers, target, layer, cx)?
+                    .map(Expected::Layer),
+                Edit::AddLayer { layer } => plan
+                    .layers
+                    .add(self, &header, before_layers, layer, cx)?
+                    .map(Expected::Layer),
+                Edit::RemoveLayer { .. } => {
                     cx.report(unsupported(change.name(), "layer"));
                     None
                 }
@@ -252,9 +270,23 @@ impl Apply<Changes> for JwwFile {
         let after = Index::new(&drawing, cx)?;
         let mut applied = Vec::new();
         let mut changed = BTreeSet::new();
+        let mut changed_layers = BTreeSet::new();
         for (edit, expected) in &expected {
             work(cx, 1)?;
             let (record, layer, style, shape) = match expected {
+                Expected::Layer(layer) => {
+                    let found = drawing.layers.iter().find(|found| found.id == layer.id);
+                    if found != Some(layer) {
+                        cx.report(unsupported(edit, "round_trip"));
+                        return Err(Error::Rejected);
+                    }
+                    changed_layers.insert(layer.id);
+                    applied.push(Applied {
+                        id: Some(id::layer(layer)),
+                        hash: Some(layers::hash(layer, cx)?),
+                    });
+                    continue;
+                }
                 Expected::Removed => {
                     applied.push(Applied {
                         id: None,
@@ -321,6 +353,14 @@ impl Apply<Changes> for JwwFile {
             cx.report(unsupported("apply", "round_trip"));
             return Err(Error::Rejected);
         }
+        for (was, now) in before_layers.iter().zip(&drawing.layers) {
+            work(cx, 1)?;
+            if !changed_layers.contains(&was.id) && layers::hash(was, cx)? != layers::hash(now, cx)?
+            {
+                cx.report(unsupported("apply", "round_trip").at(was.source.clone()));
+                return Err(Error::Rejected);
+            }
+        }
         *self = updated;
         Ok((applied, shifted))
     }
@@ -342,6 +382,8 @@ fn hash(element: &Element<ModelPoint>, cx: &mut Cx) -> Result<Hash, Error> {
 
 /// 当てた後に確かめること
 enum Expected {
+    /// 固定のレイヤ枠の名前と状態
+    Layer(Layer),
     /// 要素がなくなる
     Removed,
     /// このレコードの要素が、このレイヤ・スタイル・形になる
@@ -360,13 +402,13 @@ pub(super) fn unsupported(edit: &str, kind: &str) -> Diagnostic {
 /// 足す要素の書いていない（レイヤかブロックに従う）色・線種と、ブロックに従う線幅。JWW の図形は、色（ペンの番号）と
 /// 線種と線幅を自分で持ち、レイヤかブロックに従う値を持たない（#702・#715）。足せない形のものは、ここでは見ない
 pub(super) fn unset(element: &Element<ModelPoint>) -> Option<&'static str> {
-    let class = class_of(&element.shape)?;
+    let class = writable_class(&element.shape)?;
     let style = &element.style;
     // ブロックに従う値も、JWW の図形は持たない（決定 0292）
     if !matches!(style.color, Inherit::Own(_)) {
         return Some("color");
     }
-    if class == POINT {
+    if class == POINT || class == TEXT {
         return None;
     }
     if !matches!(style.line_type, Inherit::Own(_)) {
@@ -379,12 +421,13 @@ pub(super) fn unset(element: &Element<ModelPoint>) -> Option<&'static str> {
 /// 足す要素のクラスの名前
 pub(super) fn kind_of(element: &Placed) -> &'static str {
     let shape = match element {
-        Placed::Model(element) => class_of(&element.shape),
+        Placed::Model(element) => writable_class(&element.shape),
         Placed::Paper(_) => None,
     };
     shape.map_or("element", |class| match class {
         LINE => "CDataSen",
         POINT => "CDataTen",
+        TEXT => "CDataMoji",
         _ => "CDataEnko",
     })
 }
@@ -396,6 +439,14 @@ pub(super) fn class_of(shape: &Shape<ModelPoint>) -> Option<&'static [u8]> {
         Shape::Circle { .. } | Shape::Curve(Edge::Arc { .. }) => Some(ARC),
         Shape::Point(_) => Some(POINT),
         _ => None,
+    }
+}
+
+fn writable_class(shape: &Shape<ModelPoint>) -> Option<&'static [u8]> {
+    if matches!(shape, Shape::Text(_)) {
+        Some(TEXT)
+    } else {
+        class_of(shape)
     }
 }
 
@@ -469,6 +520,7 @@ pub(super) fn near(a: &Shape<ModelPoint>, b: &Shape<ModelPoint>) -> bool {
                 && a.look == b.look
                 && a.construction == b.construction
         }
+        (Shape::Text(a), Shape::Text(b)) => text::near(a, b),
         _ => a == b,
     }
 }
@@ -820,10 +872,13 @@ struct Plan<'f> {
     header: &'f Header,
     /// 同じ大きさで書き直す位置と、新しいバイト列
     patches: Vec<(usize, Vec<u8>)>,
+    /// 大きさが変わる形の値。共通のフィールドは `patches` の変更を使う
+    rewritten: BTreeMap<usize, Vec<u8>>,
     /// 除くレコード
     removed: BTreeSet<usize>,
     /// 図形の一覧の終わりに足す図形のクラスと、タグの後ろのバイト列
     added: Vec<(&'static [u8], Vec<u8>)>,
+    layers: layers::Changes,
 }
 
 /// 書き直したバイト列と、レコードの番号の対応
@@ -866,14 +921,16 @@ impl Plan<'_> {
     /// レイヤとスタイルのうち、変わったものを共通のフィールドに書く。読み直したときのレイヤとスタイルを返す
     fn styled(&mut self, found: &Found, layer: LayerId, style: &Style) -> Option<(LayerId, Style)> {
         let (name, at) = self.entity(found.record)?;
-        let class = [LINE, ARC, POINT]
+        let class = [LINE, ARC, POINT, TEXT]
             .into_iter()
             .find(|class| *class == name)?;
         let was = Base::read(&self.file.src, at, self.version())?;
         let in_definition = self.file.records().get(found.record)?.block().is_some();
         let base = self.base(was, found.element, layer, style, in_definition)?;
         // 点の線種（線種 100 は記号の点）と線幅は、点の見え方ではないので変えない
-        if class == POINT && (base.pen_style, base.pen_width) != (was.pen_style, was.pen_width) {
+        if (class == POINT || class == TEXT)
+            && (base.pen_style, base.pen_width) != (was.pen_style, was.pen_width)
+        {
             return None;
         }
         self.patches.push((at, base.bytes(self.version())));
@@ -918,7 +975,7 @@ impl Plan<'_> {
 
     /// 共通のフィールドを読み直したときのスタイル（変換の `line_style` と同じ）。点は色だけを持つ（変換の `fill_style` と同じ）
     fn style(&self, base: &Base, class: &[u8]) -> Style {
-        if class == POINT {
+        if class == POINT || class == TEXT {
             return Style {
                 color: Inherit::Own(self.header.color(base.pen_color)),
                 line_type: Inherit::Layer,
@@ -1003,23 +1060,40 @@ impl Plan<'_> {
     }
 
     /// 形の値を書く。クラスは変えない
-    fn shaped(&mut self, found: &Found, shape: &Shape<ModelPoint>) -> Option<()> {
+    fn shaped(
+        &mut self,
+        found: &Found,
+        shape: &Shape<ModelPoint>,
+        movement: Option<&zumen_drawing::Affine>,
+    ) -> Option<Shape<ModelPoint>> {
         let (name, at) = self.entity(found.record)?;
-        if class_of(shape) != Some(name) {
+        if writable_class(shape) != Some(name) {
             return None;
         }
         let base = Base::read(&self.file.src, at, self.version())?;
         let in_definition = self.file.records().get(found.record)?.block().is_some();
         let space = space_of(&found.element.shape)?;
+        let size = base.bytes(self.version()).len();
+        if let Shape::Text(text) = shape {
+            let end = self.file.records().get(found.record)?.body().end;
+            let (bytes, text) = text::bytes(
+                text,
+                space,
+                self.scale(base.group, in_definition),
+                Some(self.file.src.get(at + size..end)?),
+                movement,
+            )?;
+            self.rewritten.insert(found.record, bytes);
+            return Some(Shape::Text(text));
+        }
         let bytes = shape_bytes(
             shape,
             space,
             self.scale(base.group, in_definition),
             base.pen_style == POINT_SYMBOL,
         )?;
-        let size = base.bytes(self.version()).len();
         self.patches.push((at + size, bytes));
-        Some(())
+        Some(shape.clone())
     }
 
     /// レイヤグループの空間の図形の一覧の終わりに、線・円・円弧・点を足す。読み直したときのレイヤ・スタイル・形を返す。
@@ -1030,7 +1104,7 @@ impl Plan<'_> {
         element: &Element<ModelPoint>,
     ) -> Option<(LayerId, Style, Shape<ModelPoint>)> {
         let group = u16::try_from(space.0).ok().filter(|group| *group < 16)?;
-        let class = class_of(&element.shape)?;
+        let class = writable_class(&element.shape)?;
         let n = element.layer.0.checked_sub(1)?;
         if n / 16 != u32::from(group) {
             return None;
@@ -1041,7 +1115,7 @@ impl Plan<'_> {
         }
         let symbol = matches!(&element.shape, Shape::Point(dot) if dot.look != PointLook::Document);
         let (pen_style, pen_width) = match &element.shape {
-            Shape::Point(_) => {
+            Shape::Point(_) | Shape::Text(_) => {
                 if style.line_type != Inherit::Layer
                     || !matches!(style.line_weight, None | Some(Inherit::Layer))
                 {
@@ -1069,24 +1143,29 @@ impl Plan<'_> {
             flag: 0,
         };
         let mut bytes = base.bytes(self.version());
-        bytes.extend(shape_bytes(
-            &element.shape,
-            space,
-            self.scale(group, false),
-            symbol,
-        )?);
+        let shape = match &element.shape {
+            Shape::Text(text) => {
+                let (geometry, normalized) =
+                    text::bytes(text, space, self.scale(group, false), None, None)?;
+                bytes.extend(geometry);
+                Shape::Text(normalized)
+            }
+            shape => {
+                bytes.extend(shape_bytes(shape, space, self.scale(group, false), symbol)?);
+                shape.clone()
+            }
+        };
         // 新しいクラスのタグは、ファイルのクラスのスキーマで書く
         self.file.classes().first()?;
         self.added.push((class, bytes));
-        Some((
-            base.layer(),
-            self.style(&base, class),
-            element.shape.clone(),
-        ))
+        Some((base.layer(), self.style(&base, class), shape))
     }
 
     /// 書き直したバイト列。一覧を読めなければ `None`
     fn bytes(self, cx: &mut Cx) -> Result<Option<Written>, Error> {
+        let Some(header) = self.layers.bytes(self.file, cx)? else {
+            return Ok(None);
+        };
         work(cx, (self.file.src.len() as u64).div_ceil(1024))?;
         let mut src = self.file.src.clone();
         for (at, bytes) in &self.patches {
@@ -1096,7 +1175,14 @@ impl Plan<'_> {
             };
             target.copy_from_slice(bytes);
         }
-        if self.removed.is_empty() && self.added.is_empty() {
+        if self.removed.is_empty() && self.added.is_empty() && self.rewritten.is_empty() {
+            if let Some(header) = header {
+                let Some(end) = self.file.records().first().map(|r| r.span().end) else {
+                    return Ok(None);
+                };
+                work(cx, (src.len() as u64).div_ceil(1024))?;
+                src.splice(..end, header);
+            }
             let moved = (0..self.file.records().len()).map(|at| (at, at)).collect();
             return Ok(Some(Written {
                 src,
@@ -1106,13 +1192,17 @@ impl Plan<'_> {
             }));
         }
         // 一覧の再構築でも元のバイトを写す。足した図形の中身も数える。
-        let added = self.added.iter().fold(0u64, |total, (_, body)| {
-            total.saturating_add(body.len() as u64)
-        });
+        let added = self
+            .added
+            .iter()
+            .map(|(_, body)| body)
+            .chain(self.rewritten.values())
+            .fold(0u64, |total, body| total.saturating_add(body.len() as u64));
         work(cx, (src.len() as u64).saturating_add(added).div_ceil(1024))?;
         Ok(Lists {
             plan: &self,
             src: &src,
+            header: header.as_deref(),
             out: Vec::with_capacity(src.len()),
             numbers: BTreeMap::new(),
             next: 1,
@@ -1133,6 +1223,7 @@ impl Plan<'_> {
 struct Lists<'p> {
     plan: &'p Plan<'p>,
     src: &'p [u8],
+    header: Option<&'p [u8]>,
     out: Vec<u8>,
     /// 書いたクラスの名前とスキーマから、その番号
     numbers: BTreeMap<(Vec<u8>, u16), u32>,
@@ -1154,8 +1245,10 @@ impl Lists<'_> {
             return Ok(None);
         };
         let header_end = header.span().end;
-        self.out
-            .extend_from_slice(self.src.get(..header_end).unwrap_or_default());
+        self.out.extend_from_slice(
+            self.header
+                .unwrap_or_else(|| self.src.get(..header_end).unwrap_or_default()),
+        );
         self.moved.insert(0, 0);
         self.records = 1;
         let mut r = Reader::new(self.src, header_end);
@@ -1321,7 +1414,15 @@ impl Lists<'_> {
                 let Some(body) = self.src.get(found.body().start..end) else {
                     return false;
                 };
-                self.out.extend_from_slice(body);
+                if let Some(rewritten) = self.plan.rewritten.get(&record) {
+                    let Some(base) = Base::read(body, 0, self.plan.version()) else {
+                        return false;
+                    };
+                    self.out.extend(base.bytes(self.plan.version()));
+                    self.out.extend_from_slice(rewritten);
+                } else {
+                    self.out.extend_from_slice(body);
+                }
             }
             _ => return false,
         }
@@ -1399,6 +1500,10 @@ pub(super) fn space_of(shape: &Shape<ModelPoint>) -> Option<SpaceId> {
             Some(center.space)
         }
         Shape::Point(dot) => Some(dot.position.space),
+        Shape::Text(text) => match text.placement {
+            zumen_drawing::Placement::Anchor { point, .. } => Some(point.space),
+            zumen_drawing::Placement::Between { first, .. } => Some(first.space),
+        },
         _ => None,
     }
 }

@@ -436,6 +436,7 @@
     "sxf.schema.unsupported": "スキーマ「{schema}」のファイルは、SXF の図面（ASSOCIATIVE_DRAUGHTING）でないので、読めません。",
     "sxf.sfig-cycle.invalid": "作図グループ「{name}」は、自分を直接か間接に配置するので、展開しませんでした（{count} 件）。",
     "sxf.sfig.missing": "複合図形「{name}」の定義がないので、配置を図面モデルに移しませんでした（{count} 件）。",
+    "sxf.text-width.approximated": "追加する文字の字形の寸法がないため、文字の高さと字数から SXF の範囲幅を見積もりました。",
     "tiff.compression.unsupported": "TIFF の圧縮方式（{compression}）は扱わないので、画素を読みませんでした。",
     "tiff.crs.missing": "GeoTIFF の座標系の記述がないので、座標系を不明にしました。",
     "tiff.crs.unsupported": "GeoTIFF の座標系 EPSG:{epsg} を扱えないので、座標系を不明にしました。",

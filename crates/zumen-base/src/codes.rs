@@ -4962,6 +4962,17 @@ pub const SXF_SFIG_MISSING: Code = Code::new(
     &["name"],
 );
 
+/// SXF に新しい文字を足すとき、字形の寸法がないため文字の高さと字数から範囲幅を見積もった
+///
+/// `sxf.text-width.approximated`（0.3.0 から）
+pub const SXF_TEXT_WIDTH_APPROXIMATED: Code = Code::new(
+    "sxf.text-width.approximated",
+    Severity::Warning,
+    Some(Fidelity::Approximated),
+    &[],
+    &[],
+);
+
 /// 対応していない圧縮方式の IFD なので、そのページの画素を読めなかった
 ///
 /// `tiff.compression.unsupported`（0.3.0 から）
@@ -5712,6 +5723,7 @@ pub const ALL: &[Code] = &[
     SXF_SCHEMA_UNSUPPORTED,
     SXF_SFIG_CYCLE_INVALID,
     SXF_SFIG_MISSING,
+    SXF_TEXT_WIDTH_APPROXIMATED,
     TIFF_COMPRESSION_UNSUPPORTED,
     TIFF_CRS_MISSING,
     TIFF_CRS_UNSUPPORTED,

@@ -14,6 +14,7 @@ IFC4・IFC2X3 の名前・説明・プロパティを書き戻し、BIM ソフ�
 | `check_acadsharp.py` | `acadsharp-dump.json` の値を、zumen の読みと照らす |
 | `check_ezjww.py` | キットの JWW を ezjww で読み、zumen の読みと照らす |
 | `check_ezsxf.py` | キットの SFC・P21 を ezsxf で読み、zumen の読みと照らす |
+| `check_text_apply.py` | 文字とレイヤを編集する 5 形式の適合テストを流し、保存後の再読と ezjww・ezsxf の値を照らす |
 | `test_ezsxf.py` | 合成 P21 の追加点のレイヤ所属と、同じ番号を持つ合成 SFC の各要素の形・種類・レイヤ・出所・欠落を個別に変え、`check_ezsxf.py` が食い違いを検出することを確かめる。合成 P21 の画像枠と折れ線の取り違え、枠のない画像の作図グループの診断の欠落、引数の中にコメントを持つ文の実体のレイヤの違いも検出することを確かめる |
 | `test_source_kinds.py` | キットの読みの要素の種類を変え、`check_ezdxf.py`・`check_acadsharp.py`・`check_ezjww.py` が、形を返さない要素の種類の違いを検出することを確かめる。JWW では、文字と画像の範囲の取り違え、描かない文字を要素にした読み、診断の欠落も検出することを確かめる。DWG は `acadsharp-dump.json` があるときだけ確かめる |
 | `pdfjs/` | `@zumen-jp/view2d` の PDF アンダーレイのブラウザーテストが使う固定版の pdf.js。手順は [README](pdfjs/README.md) |
@@ -53,6 +54,17 @@ ACadSharp のツールは、.NET 10 の SDK で動かします。ACadSharp の�
 毎晩の CI（`.github/workflows/nightly.yml` の `external`）が同じことを流し、キットを成果物の `verify-bundle` に置きます。検証キットの手順と期待する結果は、キットの `README.md` にあります。
 
 受け取った図面で確かめるときは、`make.py` に `--inputs <フォルダー>` を足します。キットをリポジトリの中に作ろうとすると止まります。そのキットは、Git にも CI の成果物にも入れず、issue には件数と種類だけを書き、ファイルの名前と中身を書きません（[開発の進め方](../../docs/work.md)）。
+
+## 文字とレイヤの変更を照らす
+
+合成の適合テスト `apply_text_jww`・`apply_text_sfc`・`apply_text_p21`・`apply_text_sfz`・`apply_text_p2z` を使います。レイヤの追加・改名、文字の追加・置き換え・レイヤ変更・移動を順に当てます。段ごとに開き直した要素の ID・ハッシュ・形を比べ、文字の値・書体・色・所属レイヤを ezjww 0.7.6・ezsxf 0.3.7 で照らします。P21 は ezsxf が解析した実体の参照をたどります。圧縮形式は図面を取り出して照合し、添付を保つことも確認します。表示ソフトによる照合とは分けます。
+
+```bash
+cargo build -p zumen-abi
+python -I xtask/verify/check_text_apply.py target/debug/libzumen_abi1.so ../zumen-text-verify
+```
+
+Windows はライブラリを `target/debug/zumen_abi1.dll`、macOS は `target/debug/libzumen_abi1.dylib` に替えます。外部実装の導入は上の「使い方」と同じです。
 
 ## AutoCAD で開いて照らす
 

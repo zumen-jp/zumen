@@ -1,0 +1,350 @@
+{
+  "description": "P21 の文字の追加・置き換え・移動とレイヤの追加・改名。未変更要素の ID・ハッシュと失敗時の原子的な扱い",
+  "steps": [
+    {
+      "push": {
+        "name": "text.p21",
+        "hex": "49534f2d31303330332d32313b0a4845414445523b0a46494c455f4445534352495054494f4e282827534341444543206c6576656c322041503230325f6d6f646527292c27323b3127293b0a46494c455f4e414d4528276d6164652e736663272c27323030302d30312d30315430303a30303a3030272c282727292c282727292c277a756d656e2424332e31272c277a756d656e272c2727293b0a46494c455f534348454d412828274153534f434941544956455f44524155474854494e472729293b0a454e445345433b0a444154413b0a23313d44524155474854494e475f5052455f444546494e45445f434f4c4f55522827626c61636b27293b0a23323d45585445524e414c4c595f444546494e45445f544558545f464f4e5428274d53272c24293b0a23333d544558545f5354594c455f464f525f444546494e45445f464f4e54282331293b0a23343d28544558545f5354594c4528277374796c65206e616d65272c233329544558545f5354594c455f574954485f424f585f4348415241435445524953544943532828424f585f48454947485428342e292c424f585f574944544828382e292c424f585f534c414e545f414e474c4528302e292c424f585f524f544154455f414e474c4528302e292929544558545f5354594c455f574954485f53504143494e47284c454e4754485f4d45415355524528302e32352929293b0a23353d50524553454e544154494f4e5f5354594c455f41535349474e4d454e542828233429293b0a23363d43415254455349414e5f504f494e542827272c28312e2c332e29293b0a23373d41584953325f504c4143454d454e545f32442827272c23362c24293b0a23383d504c414e41525f455854454e542827272c382e2c342e293b0a23393d544558545f4c49544552414c5f574954485f455854454e54282724245358465f626173656c696e65206c656674272c276f6c64272c23372c27626173656c696e65206c656674272c2e52494748542e2c23322c2338293b0a2331303d414e4e4f544154494f4e5f544558545f4f4343555252454e43452827272c282335292c2339293b0a2331313d414e4e4f544154494f4e5f544558545f4f4343555252454e43452827272c282335292c2339293b0a2332303d50524553454e544154494f4e5f4c415945525f41535349474e4d454e54282741272c27272c282331302c23313129293b0a2332313d50524553454e544154494f4e5f4c415945525f41535349474e4d454e54282742272c27272c28233629293b0a233130303d44524157494e475f53484545545f5245564953494f4e282741345f686f72697a6f6e74616c272c282331302c233131292c242c2727293b0a454e445345433b0a454e442d49534f2d31303330332d32313b0a"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "text.p21"
+      },
+      "expect": {
+        "/result/format": "sxf",
+        "/diagnostics": []
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "layer",
+          "hash",
+          "geometry"
+        ],
+        "doc": "text.p21"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "tables",
+        "doc": "text.p21"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "edits": [
+          {
+            "kind": "layer",
+            "id": "layer/1",
+            "hash": "v2:95e9ac6262357f9e51c746405b767eaf",
+            "name": "Renamed"
+          },
+          {
+            "kind": "add_layer",
+            "name": "Added"
+          }
+        ],
+        "doc": "text.p21"
+      },
+      "expect": {
+        "/diagnostics": []
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "tables",
+        "doc": "text.p21"
+      },
+      "expect": {
+        "/result/layers/0/name": "Renamed"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "layer",
+          "hash",
+          "geometry"
+        ],
+        "doc": "text.p21"
+      },
+      "expect": {
+        "/result/items/0/id": "sheet/0/i10",
+        "/result/items/0/hash": "v2:19982382d33d8c1986d2e371ab04add4",
+        "/result/items/1/id": "sheet/0/i11",
+        "/result/items/1/hash": "v2:19982382d33d8c1986d2e371ab04add4"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "edits": [
+          {
+            "kind": "add",
+            "place": "sheet/0",
+            "layer": "Added",
+            "color": {
+              "sxf": 2
+            },
+            "geometry": {
+              "shape": "text",
+              "content": "Initial",
+              "position": [
+                100,
+                200
+              ],
+              "height": 3,
+              "rotation": 0,
+              "horizontal": "left",
+              "vertical": "bottom",
+              "style": "NewFont"
+            }
+          }
+        ],
+        "doc": "text.p21"
+      },
+      "expect": {
+        "/result/applied/0/id": "sheet/0/i115",
+        "/diagnostics/0/code": "sxf.text-width.approximated"
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "layer",
+          "hash",
+          "geometry"
+        ],
+        "doc": "text.p21"
+      },
+      "expect": {
+        "/result/items/0/id": "sheet/0/i10",
+        "/result/items/0/hash": "v2:19982382d33d8c1986d2e371ab04add4",
+        "/result/items/1/id": "sheet/0/i11",
+        "/result/items/1/hash": "v2:19982382d33d8c1986d2e371ab04add4"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "edits": [
+          {
+            "kind": "replace",
+            "id": "sheet/0/i115",
+            "hash": "v2:b2b0fc22b9db0aa0503db11c578dca06",
+            "geometry": {
+              "shape": "formatted_text",
+              "content": "Revised",
+              "position": [
+                120,
+                240
+              ],
+              "height": 4,
+              "rotation": 90,
+              "attachment": "bottom_left",
+              "style": ""
+            }
+          }
+        ],
+        "doc": "text.p21"
+      },
+      "expect": {
+        "/diagnostics": []
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "layer",
+          "hash",
+          "geometry"
+        ],
+        "doc": "text.p21"
+      },
+      "expect": {
+        "/result/items/0/id": "sheet/0/i10",
+        "/result/items/0/hash": "v2:19982382d33d8c1986d2e371ab04add4",
+        "/result/items/1/id": "sheet/0/i11",
+        "/result/items/1/hash": "v2:19982382d33d8c1986d2e371ab04add4"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "edits": [
+          {
+            "kind": "restyle",
+            "id": "sheet/0/i115",
+            "hash": "v2:a2a0662ff34d36936513c7483d3e9536",
+            "layer": "Renamed"
+          }
+        ],
+        "doc": "text.p21"
+      },
+      "expect": {
+        "/diagnostics": []
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "layer",
+          "hash",
+          "geometry"
+        ],
+        "doc": "text.p21"
+      },
+      "expect": {
+        "/result/items/0/id": "sheet/0/i10",
+        "/result/items/0/hash": "v2:19982382d33d8c1986d2e371ab04add4",
+        "/result/items/1/id": "sheet/0/i11",
+        "/result/items/1/hash": "v2:19982382d33d8c1986d2e371ab04add4"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "edits": [
+          {
+            "kind": "transform",
+            "id": "sheet/0/i115",
+            "hash": "v2:df28de548cf5cd1160ace53a15bb47a1",
+            "matrix": [
+              1,
+              0,
+              10,
+              0,
+              1,
+              20
+            ]
+          }
+        ],
+        "doc": "text.p21"
+      },
+      "expect": {
+        "/diagnostics": []
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "layer",
+          "hash",
+          "geometry"
+        ],
+        "doc": "text.p21"
+      },
+      "expect": {
+        "/result/items/0/id": "sheet/0/i10",
+        "/result/items/0/hash": "v2:19982382d33d8c1986d2e371ab04add4",
+        "/result/items/1/id": "sheet/0/i11",
+        "/result/items/1/hash": "v2:19982382d33d8c1986d2e371ab04add4",
+        "/result/items/2/id": "sheet/0/i115",
+        "/result/items/2/layer": "Renamed",
+        "/result/items/2/geometry/content": "Revised",
+        "/result/items/2/geometry/position": [
+          130,
+          260
+        ],
+        "/result/items/2/geometry/height": 4,
+        "/result/items/2/geometry/rotation": 90
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "edits": [
+          {
+            "kind": "transform",
+            "id": "sheet/0/i115",
+            "hash": "v2:b2b0fc22b9db0aa0503db11c578dca06",
+            "matrix": [
+              1,
+              0,
+              1,
+              0,
+              1,
+              1
+            ]
+          }
+        ],
+        "doc": "text.p21"
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "change.element.stale"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "layer",
+          "hash",
+          "geometry"
+        ],
+        "doc": "text.p21"
+      },
+      "expect": {
+        "/result/items/0/hash": "v2:19982382d33d8c1986d2e371ab04add4",
+        "/result/items/1/hash": "v2:19982382d33d8c1986d2e371ab04add4",
+        "/result/items/2/hash": "v2:0c9cdea8747307fb3259e187b2841fe7"
+      }
+    }
+  ]
+}

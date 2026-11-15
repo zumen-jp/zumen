@@ -10,12 +10,14 @@ use std::collections::{BTreeMap, BTreeSet};
 use zumen_base::{Diagnostic, Diagnostics, Key, Kind, Ref, codes};
 use zumen_drawing::{
     Applied, Changes, Color, ColorCode, ColorSystem, Drawing2D, Edge, Edit, Element, Encode, Hash,
-    Inherit, LayerId, Length, LineTypeId, LineWeight, ModelPoint, PaperLength, PaperPoint, Placed,
-    Point, PointLook, Polyline, Seen, Shape, Style, id, transform,
+    Inherit, Layer, LayerId, Length, LineTypeId, LineWeight, ModelPoint, PaperLength, PaperPoint,
+    Placed, Point, PointLook, Polyline, Seen, Shape, Style, id, transform,
 };
 use zumen_sdk::{Apply, Codec, Cx, Error, Lift, quietly};
 
+mod layers;
 pub(super) mod p21;
+mod text;
 
 use super::{
     Args, FeatureRecord, LINE_TYPES, PREDEFINED_COLORS, USER_LINE_TYPE, USER_WIDTH, WIDTHS,
@@ -132,6 +134,8 @@ impl SxfFile {
             )
         });
         let before = Index::new(&drawing, need_ids, cx)?;
+        let before_layers = &drawing.layers;
+        let mut layer_edits = layers::Changes::default();
         let tables = Tables::new(&records, &drawing, cx)?;
         let grouped = grouped(&records, cx)?;
         // 改行の種類を調べるため、元のバイト列を走査する。
@@ -193,7 +197,7 @@ impl SxfFile {
                     )?;
                     found.element.count_copy(cx, 1)?;
                     let mut element = found.element.with(layer, new, None);
-                    plan.styled(&found, &mut element, &tables, &grouped, cx)?
+                    plan.styled(&found, &mut element, &tables, &grouped, false, cx)?
                         .map(|()| Expected::Element(found.instance, Box::new(element)))
                         .or_else(|| {
                             cx.report(
@@ -228,9 +232,9 @@ impl SxfFile {
                     }
                     let element = if let Some(mut element) = element {
                         if plan
-                            .styled(&found, &mut element, &tables, &grouped, cx)?
+                            .styled(&found, &mut element, &tables, &grouped, true, cx)?
                             .is_some()
-                            && plan.shaped(&found, &element, &grouped, cx)?.is_some()
+                            && plan.shaped(&found, &mut element, &grouped, cx)?.is_some()
                         {
                             Some(Expected::Element(found.instance, Box::new(element)))
                         } else {
@@ -255,8 +259,8 @@ impl SxfFile {
                     };
                     found.element.count_copy(cx, 2)?;
                     let element = found.element.transformed(transform);
-                    let element = if let Some(element) = element {
-                        plan.shaped(&found, &element, &grouped, cx)?
+                    let element = if let Some(mut element) = element {
+                        plan.shaped(&found, &mut element, &grouped, cx)?
                             .map(|()| Expected::Element(found.instance, Box::new(element)))
                     } else {
                         None
@@ -299,7 +303,20 @@ impl SxfFile {
                             None
                         })
                 }
-                Edit::ReplaceLayer { .. } | Edit::AddLayer { .. } | Edit::RemoveLayer { .. } => {
+                Edit::ReplaceLayer { target, layer } => layer_edits
+                    .replace(
+                        before_layers,
+                        target,
+                        layer,
+                        plan.writer.as_mut(),
+                        format,
+                        cx,
+                    )?
+                    .map(Expected::Layer),
+                Edit::AddLayer { layer } => layer_edits
+                    .add(before_layers, layer, plan.writer.as_mut(), format, cx)?
+                    .map(Expected::Layer),
+                Edit::RemoveLayer { .. } => {
                     cx.report(unsupported(format, change.name(), "layer_feature"));
                     None
                 }
@@ -339,6 +356,7 @@ impl SxfFile {
         if rejected || !current {
             return Err(Error::Rejected);
         }
+        let estimated_texts = core::mem::take(&mut plan.estimated_texts);
         let src = plan.bytes(&self.src, cx)?;
         // 読み直しは、書いたバイト列をもう一度写して保持する。
         work(cx, (src.len() as u64).div_ceil(1024), &Ref::default())?;
@@ -357,6 +375,23 @@ impl SxfFile {
         for (edit, expected) in &expected {
             work(cx, 1, &Ref::default())?;
             let found = match expected {
+                Expected::Layer(expected) => {
+                    let found = drawing.layers.iter().find(|layer| layer.id == expected.id);
+                    let same = if let Some(found) = found {
+                        layers::hash(found, cx)? == layers::hash(expected, cx)?
+                    } else {
+                        false
+                    };
+                    if !same {
+                        cx.report(unsupported(format, edit, "round_trip"));
+                        return Err(Error::Rejected);
+                    }
+                    applied.push(Applied {
+                        id: Some(id::layer(expected)),
+                        hash: Some(layers::hash(expected, cx)?),
+                    });
+                    continue;
+                }
                 Expected::Removed(instance) => {
                     if after.has_instance(*instance) {
                         cx.report(unsupported(format, edit, "round_trip"));
@@ -392,8 +427,9 @@ impl SxfFile {
         // ほかの要素は、ID も値も変わらない
         let changed: BTreeSet<u64> = expected
             .iter()
-            .map(|(_, expected)| match expected {
-                Expected::Removed(instance) | Expected::Element(instance, _) => *instance,
+            .filter_map(|(_, expected)| match expected {
+                Expected::Removed(instance) | Expected::Element(instance, _) => Some(*instance),
+                Expected::Layer(_) => None,
             })
             .collect();
         for &(instance, slot) in &before.instances {
@@ -423,11 +459,22 @@ impl SxfFile {
                 return Err(Error::Rejected);
             }
         }
+        if !layer_edits.verify(before_layers, &drawing.layers, cx)? {
+            cx.report(unsupported(format, "apply", "round_trip"));
+            return Err(Error::Rejected);
+        }
+        for instance in estimated_texts {
+            if let Some(found) = after.found(instance) {
+                cx.report(Diagnostic::new(codes::SXF_TEXT_WIDTH_APPROXIMATED).at(found.source()));
+            }
+        }
         Ok((updated, applied))
     }
 }
 /// 当てた後に確かめること
 enum Expected {
+    /// この定義のレイヤが、この値になる
+    Layer(Layer),
     /// このインスタンスの要素がなくなる
     Removed(u64),
     /// このインスタンスの要素が、この値になる
@@ -473,6 +520,7 @@ fn feature_name<P>(shape: &Shape<P>) -> Option<&'static str> {
         Shape::Circle { .. } => "circle_feature",
         Shape::Curve(Edge::Arc { .. }) => "arc_feature",
         Shape::Point(_) => "point_marker_feature",
+        Shape::Text(_) | Shape::Formatted(_) => "text_string_feature",
         _ => return None,
     })
 }
@@ -588,7 +636,7 @@ impl<'a> Any<'a> {
 
     /// 出所を除いて、円弧の角度のほかは同じ値で、角度が近いか
     fn near(&self, placed: &Placed) -> bool {
-        fn near<P: PartialEq>(a: &Element<P>, b: &Element<P>) -> bool {
+        fn near<P: transform::Point + PartialEq>(a: &Element<P>, b: &Element<P>) -> bool {
             let angle = |a: f64, b: f64| {
                 let turn = (a - b).rem_euclid(360.0);
                 turn.min(360.0 - turn) <= 1e-9 * a.abs().max(b.abs()).max(1.0)
@@ -623,6 +671,7 @@ impl<'a> Any<'a> {
                         && a.construction == b.construction
                         && angle(a.rotation, b.rotation)
                 }
+                (Shape::Formatted(a), Shape::Formatted(b)) => text::near(a, b),
                 (a, b) => a == b,
             };
             a.layer == b.layer && a.style == b.style && shape
@@ -898,6 +947,11 @@ impl OnSheet for Element<PaperPoint> {
             Shape::Circle { center, .. } | Shape::Curve(Edge::Arc { center, .. }) => Some(center),
             Shape::Polyline(line) => line.vertices.first().map(|vertex| &vertex.point),
             Shape::Point(dot) => Some(&dot.position),
+            Shape::Text(text) => match &text.placement {
+                zumen_drawing::Placement::Anchor { point, .. } => Some(point),
+                zumen_drawing::Placement::Between { first, .. } => Some(first),
+            },
+            Shape::Formatted(text) => Some(&text.point),
             _ => None,
         };
         point.map_or(super::SHEET, |point| point.sheet)
@@ -1092,6 +1146,13 @@ pub(super) fn grouped(records: &[FeatureRecord], cx: &mut Cx) -> Result<BTreeSet
 
 /// 書き方。SFC はフィーチャのコメントを、P21 は実体を書き直す
 trait Writer {
+    /// レイヤの追加か変更。書いた定義のインスタンス番号を返す。
+    fn layer_change(
+        &mut self,
+        record: Option<usize>,
+        layer: &Layer,
+        cx: &mut Cx,
+    ) -> Result<Option<u64>, Error>;
     /// レイヤ・色・線種・線幅のうち、変わったもののコード（引数の 0〜3）を書く
     fn codes(
         &mut self,
@@ -1115,10 +1176,13 @@ trait Writer {
 
 /// 元のバイト列への書き直し
 struct Plan<'f> {
+    features: &'f [FeatureRecord],
     /// レコードの番号から、そのフィーチャ
     records: Vec<Option<&'f FeatureRecord>>,
     sparse_records: BTreeMap<usize, &'f FeatureRecord>,
     writer: Box<dyn Writer + 'f>,
+    fonts: Option<Vec<String>>,
+    estimated_texts: Vec<u64>,
 }
 
 impl<'f> Plan<'f> {
@@ -1137,9 +1201,12 @@ impl<'f> Plan<'f> {
             }
         }
         Plan {
+            features: records,
             records: dense,
             sparse_records: sparse,
             writer,
+            fonts: None,
+            estimated_texts: Vec::new(),
         }
     }
 
@@ -1162,13 +1229,17 @@ impl<'f> Plan<'f> {
         element: &mut Placed,
         tables: &Tables,
         grouped: &BTreeSet<usize>,
+        rewrite: bool,
         cx: &mut Cx,
     ) -> Result<Option<()>, Error> {
         let mut result = None;
         let computed = (|| -> Option<()> {
             let name = self.record(found.record)?.name.to_ascii_lowercase();
             let marker = name == MARKER && self.writer.markers();
-            if !(marker || STYLED.contains(&name.as_str())) || grouped.contains(&found.record) {
+            let annotation = name == text::NAME;
+            if !(marker || annotation || STYLED.contains(&name.as_str()))
+                || grouped.contains(&found.record)
+            {
                 return None;
             }
             let (layer, style) = match element {
@@ -1193,18 +1264,18 @@ impl<'f> Plan<'f> {
             }
             // 点マーカーは線種と線幅を持たない
             if style.line_type != was.line_type {
-                if marker {
+                if marker || annotation {
                     return None;
                 }
                 codes.push((2, tables.line_type(style.line_type)?));
             }
             if style.line_weight != was.line_weight {
-                if marker {
+                if marker || annotation {
                     return None;
                 }
                 codes.push((3, tables.width(style.line_weight?)?));
             }
-            if codes.is_empty() {
+            if codes.is_empty() || (annotation && rewrite) {
                 return Some(());
             }
             match self.writer.codes(found.record, &codes, cx) {
@@ -1225,11 +1296,11 @@ impl<'f> Plan<'f> {
     fn shaped(
         &mut self,
         found: &Found,
-        element: &Placed,
+        element: &mut Placed,
         grouped: &BTreeSet<usize>,
         cx: &mut Cx,
     ) -> Result<Option<()>, Error> {
-        match element {
+        match &*element {
             Placed::Model(element) => count_shape(&element.shape, cx)?,
             Placed::Paper(element) => count_shape(&element.shape, cx)?,
         }
@@ -1237,12 +1308,17 @@ impl<'f> Plan<'f> {
         let computed = (|| -> Option<()> {
             let name = self.record(found.record)?.name.to_ascii_lowercase();
             let marker = name == MARKER && self.writer.markers();
-            if !(marker || SHAPED.contains(&name.as_str())) || grouped.contains(&found.record) {
+            if !(marker || name == text::NAME || SHAPED.contains(&name.as_str()))
+                || grouped.contains(&found.record)
+            {
                 return None;
             }
-            let args = match element {
-                Placed::Model(element) => arguments(&element.shape)?,
-                Placed::Paper(element) => arguments(&element.shape)?,
+            let args = match self.shape_arguments(element, Some(found.record), cx) {
+                Ok(args) => args?,
+                Err(stop) => {
+                    error = Some(stop);
+                    return None;
+                }
             };
             if args.name != name {
                 return None;
@@ -1272,13 +1348,24 @@ impl<'f> Plan<'f> {
     ) -> Result<Option<(u64, Element<PaperPoint>)>, Error> {
         count_element_copy(element, cx, 1)?;
         count_shape(&element.shape, cx)?;
+        text::count(&element.shape, cx)?;
         let mut error = None;
         let computed = (|| -> Option<(u64, Element<PaperPoint>)> {
-            let mut element = element.clone();
+            let mut placed = Placed::Paper(element.clone());
+            let mut args = match self.shape_arguments(&mut placed, None, cx) {
+                Ok(args) => args?,
+                Err(stop) => {
+                    error = Some(stop);
+                    return None;
+                }
+            };
+            let Placed::Paper(mut element) = placed else {
+                return None;
+            };
             let style = element.style;
-            let mut args = arguments(&element.shape)?;
             // 書かない値を、ほかの理由より先に示す（JWW と同じ順、決定 0292）
-            if let Some(field) = unset_field(&style, args.name == MARKER) {
+            if let Some(field) = unset_field(&style, args.name == MARKER || args.name == text::NAME)
+            {
                 *unset = Some(field);
                 return None;
             }
@@ -1287,7 +1374,7 @@ impl<'f> Plan<'f> {
             }
             let (color, read) = tables.color(style.color)?;
             element.style.color = Inherit::Own(read);
-            let codes = if args.name == MARKER {
+            let codes = if args.name == MARKER || args.name == text::NAME {
                 // 点マーカーは線種と線幅を持たず、読み直すとレイヤに従う線種と線幅なしになる
                 if !self.writer.markers()
                     || style.line_type != Inherit::Layer
@@ -1315,12 +1402,134 @@ impl<'f> Plan<'f> {
                     return None;
                 }
             };
+            if args.name == text::NAME {
+                self.estimated_texts.push(instance);
+            }
             Some((instance, element))
         })();
         match error {
             Some(error) => Err(error),
             None => Ok(computed),
         }
+    }
+
+    fn shape_arguments(
+        &mut self,
+        element: &mut Placed,
+        original: Option<usize>,
+        cx: &mut Cx,
+    ) -> Result<Option<Arguments>, Error> {
+        let original = original.and_then(|record| self.record(record));
+        macro_rules! prepare {
+            ($element:expr) => {{
+                let element = $element;
+                if matches!(element.shape, Shape::Text(_) | Shape::Formatted(_)) {
+                    text::count(&element.shape, cx)?;
+                    let Some(mut prepared) = text::prepare(&element.shape, original) else {
+                        return Ok(None);
+                    };
+                    let Some(code) = self.font(prepared.font.as_deref(), original, cx)? else {
+                        return Ok(None);
+                    };
+                    let Some(value) = prepared.args.values.get_mut(2) else {
+                        return Ok(None);
+                    };
+                    *value = code.to_string();
+                    if prepared.font.is_none()
+                        && let Some(name) = usize::try_from(code)
+                            .ok()
+                            .and_then(|n| n.checked_sub(1))
+                            .and_then(|n| self.fonts.as_ref()?.get(n))
+                        && let Shape::Formatted(text) = &mut prepared.shape
+                        && let Some(span) = text.spans.first_mut()
+                    {
+                        span.format.font = Some(text::font(name));
+                    }
+                    if original.is_some() {
+                        let Some(layer) = prepared.args.values.get_mut(0) else {
+                            return Ok(None);
+                        };
+                        *layer = element.layer.0.to_string();
+                        let Inherit::Own(Color {
+                            code:
+                                Some(ColorCode {
+                                    system: ColorSystem::Sxf,
+                                    value,
+                                }),
+                            ..
+                        }) = element.style.color
+                        else {
+                            return Ok(None);
+                        };
+                        let Some(color) = prepared.args.values.get_mut(1) else {
+                            return Ok(None);
+                        };
+                        *color = value.to_string();
+                    }
+                    element.shape = prepared.shape;
+                    Some(prepared.args)
+                } else {
+                    arguments(&element.shape)
+                }
+            }};
+        }
+        Ok(match element {
+            Placed::Model(element) => prepare!(element),
+            Placed::Paper(element) => prepare!(element),
+        })
+    }
+
+    fn font(
+        &mut self,
+        name: Option<&str>,
+        original: Option<&FeatureRecord>,
+        cx: &mut Cx,
+    ) -> Result<Option<i64>, Error> {
+        if name.is_some_and(|name| name.is_empty() || !text::valid_string(name)) {
+            return Ok(None);
+        }
+        if self.fonts.is_none() {
+            let mut fonts = Vec::new();
+            for record in self.features {
+                work(cx, 1, &Ref::default())?;
+                if record.name.eq_ignore_ascii_case("text_font") {
+                    let Some(crate::drawing::Arg::Text(name)) = record.args.first() else {
+                        return Ok(None);
+                    };
+                    work(cx, (name.len() as u64).div_ceil(1024), &Ref::default())?;
+                    fonts.push(name.clone());
+                }
+            }
+            self.fonts = Some(fonts);
+        }
+        let Some(fonts) = &mut self.fonts else {
+            return Ok(None);
+        };
+        let Some(name) = name else {
+            return Ok(original.and_then(|r| Args { values: &r.args }.int(2)));
+        };
+        for (at, known) in fonts.iter().enumerate() {
+            work(
+                cx,
+                1 + (known.len().min(name.len()) as u64) / 1024,
+                &Ref::default(),
+            )?;
+            if known == name {
+                return Ok(i64::try_from(at + 1).ok());
+            }
+        }
+        let code = i64::try_from(fonts.len())
+            .ok()
+            .and_then(|n| n.checked_add(1));
+        let args = Arguments {
+            name: "text_font",
+            values: vec![name.into()],
+        };
+        if self.writer.add(&args, cx)?.is_none() {
+            return Ok(None);
+        }
+        fonts.push(name.into());
+        Ok(code)
     }
 
     fn bytes(self, src: &[u8], cx: &mut Cx) -> Result<Vec<u8>, Error> {
@@ -1381,9 +1590,62 @@ impl<'f> Sfc<'f> {
         self.patches.push((range, text.as_bytes().to_vec()));
         Some(())
     }
+
+    fn string_argument(&mut self, record: usize, at: usize, value: &str) -> Option<()> {
+        let part = self.file.records().get(record)?.parts().first()?;
+        let range = match part.args().get(at)? {
+            Value::Text { raw, quote } => {
+                let width = if *quote == Quote::Backslash { 2 } else { 1 };
+                raw.start.checked_sub(width)?..raw.end.checked_add(width)?
+            }
+            Value::Token(raw) => raw.clone(),
+            _ => return None,
+        };
+        self.patches.push((range, text::sfc_string(value)?));
+        Some(())
+    }
 }
 
 impl Writer for Sfc<'_> {
+    fn layer_change(
+        &mut self,
+        record: Option<usize>,
+        layer: &Layer,
+        cx: &mut Cx,
+    ) -> Result<Option<u64>, Error> {
+        let Some(state) = layer.state else {
+            return Ok(None);
+        };
+        let visible = if state.visible { "1" } else { "0" };
+        let Some(record) = record else {
+            return self.add(
+                &Arguments {
+                    name: "layer",
+                    values: vec![layer.name.clone(), visible.into()],
+                },
+                cx,
+            );
+        };
+        Ok((|| {
+            let entry = self.file.records().get(record)?;
+            let part = entry.parts().first()?;
+            let id = entry.id()?;
+            self.string_argument(record, 0, &layer.name)?;
+            if part.args().len() > 1 {
+                self.argument(record, 1, visible)?;
+            } else if !state.visible {
+                let at = match part.args().first()? {
+                    Value::Text { raw, quote } => raw
+                        .end
+                        .checked_add(if *quote == Quote::Backslash { 2 } else { 1 })?,
+                    Value::Token(raw) => raw.end,
+                    _ => return None,
+                };
+                self.patches.push((at..at, b",'0'".to_vec()));
+            }
+            Some(id)
+        })())
+    }
     fn codes(
         &mut self,
         record: usize,
@@ -1405,8 +1667,31 @@ impl Writer for Sfc<'_> {
         _cx: &mut Cx,
     ) -> Result<Option<()>, Error> {
         Ok((|| {
-            for (at, text) in args.values.iter().enumerate().skip(args.first()) {
-                self.argument(record, at, text)?;
+            let first = if args.name == text::NAME {
+                0
+            } else {
+                args.first()
+            };
+            for (at, text) in args.values.iter().enumerate().skip(first) {
+                if text::is_string(args, at) {
+                    self.string_argument(record, at, text)?;
+                } else if args.name == text::NAME
+                    && at == 12
+                    && text == "1"
+                    && self
+                        .file
+                        .records()
+                        .get(record)?
+                        .parts()
+                        .first()?
+                        .args()
+                        .len()
+                        == 12
+                {
+                    // 旧版の横書きは省略できる。
+                } else {
+                    self.argument(record, at, text)?;
+                }
             }
             Some(())
         })())
@@ -1432,24 +1717,29 @@ impl Writer for Sfc<'_> {
             let instance = self.next;
             self.next = self.next.checked_add(1)?;
             let nl = self.newline;
-            let values: Vec<String> = args
-                .values
-                .iter()
-                .map(|value| format!("'{value}'"))
-                .collect();
-            let feature = format!(
-                "{open}{nl}#{instance} = {}_feature({}){nl}{close}",
-                args.name,
-                values.join(","),
-                open = String::from_utf8_lossy(open),
-                close = String::from_utf8_lossy(close),
-            );
-            let text = if before {
-                format!("{feature}{nl}")
-            } else {
-                format!("{nl}{feature}")
-            };
-            self.patches.push((at..at, text.into_bytes()));
+            let mut out = Vec::new();
+            if !before {
+                out.extend_from_slice(nl.as_bytes());
+            }
+            out.extend_from_slice(open);
+            out.extend_from_slice(format!("{nl}#{instance} = {}_feature(", args.name).as_bytes());
+            for (at, value) in args.values.iter().enumerate() {
+                if at > 0 {
+                    out.push(b',');
+                }
+                if text::is_string(args, at) {
+                    out.extend(text::sfc_string(value)?);
+                } else {
+                    out.extend_from_slice(format!("'{value}'").as_bytes());
+                }
+            }
+            out.push(b')');
+            out.extend_from_slice(nl.as_bytes());
+            out.extend_from_slice(close);
+            if before {
+                out.extend_from_slice(nl.as_bytes());
+            }
+            self.patches.push((at..at, out));
             Some(instance)
         })())
     }
@@ -1553,7 +1843,11 @@ pub(super) struct Arguments {
 impl Arguments {
     /// 形の初めの引数
     pub(super) fn first(&self) -> usize {
-        if self.name == MARKER { 2 } else { 4 }
+        if self.name == MARKER || self.name == text::NAME {
+            2
+        } else {
+            4
+        }
     }
 }
 

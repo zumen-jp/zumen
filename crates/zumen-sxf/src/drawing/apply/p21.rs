@@ -15,10 +15,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use zumen_base::Ref;
 use zumen_sdk::{Cx, Error};
 
-use super::{Arguments, MARKER, Writer, line_end, newline, patched, work};
+use super::{Arguments, MARKER, Writer, line_end, newline, patched, text, work};
 use crate::drawing::{LINE_TYPES, WIDTHS};
 use crate::p21::{COLORS, Codes, MARKERS};
 use crate::{Form, SxfFile, Value};
+
+mod annotation;
 
 /// 引数の場所。レコード・部分・引数の番号
 type Slot = (usize, usize, usize);
@@ -32,7 +34,7 @@ pub(crate) const CONTAINERS: [(&str, usize); 4] = [
 ];
 
 /// どこからも指されなくなったら除く実体（幾何と見え方）
-pub(crate) const GARBAGE: [&str; 20] = [
+pub(crate) const GARBAGE: [&str; 23] = [
     "CARTESIAN_POINT",
     "DIRECTION",
     "VECTOR",
@@ -48,6 +50,9 @@ pub(crate) const GARBAGE: [&str; 20] = [
     "TEXT_LITERAL_WITH_EXTENT",
     "PLANAR_EXTENT",
     "TEXT_STYLE_FOR_DEFINED_FONT",
+    "TEXT_STYLE",
+    "TEXT_STYLE_WITH_BOX_CHARACTERISTICS",
+    "TEXT_STYLE_WITH_SPACING",
     "SYMBOL_STYLE",
     "SYMBOL_COLOUR",
     "SYMBOL_TARGET",
@@ -177,6 +182,7 @@ pub(super) struct P21<'f> {
     codes: Codes,
     /// 利用者定義線幅（mm）。コードは 11 から
     widths: Vec<Option<f64>>,
+    fonts: Vec<u64>,
     /// 書き直す引数と、その値
     args: BTreeMap<Slot, String>,
     /// 書き直す参照の並び
@@ -206,6 +212,7 @@ impl<'f> P21<'f> {
         let mut ref_counts = RefCounts::with_capacity(dense_cap);
         let mut first_sheet: Option<(u64, Slot)> = None;
         let mut length_measures = Vec::new();
+        let mut fonts = Vec::new();
         let mut last_instance_end: Option<usize> = None;
         for (record, entry) in records.iter().enumerate() {
             work(cx, 1, &Ref::default())?;
@@ -221,6 +228,8 @@ impl<'f> P21<'f> {
                             }
                         } else if name.eq_ignore_ascii_case(b"LENGTH_MEASURE_WITH_UNIT") {
                             length_measures.push((id, record, part_idx));
+                        } else if name.eq_ignore_ascii_case(b"EXTERNALLY_DEFINED_TEXT_FONT") {
+                            fonts.push(id);
                         }
                     }
                 }
@@ -235,6 +244,7 @@ impl<'f> P21<'f> {
             }
         }
         length_measures.sort_unstable_by_key(|(id, _, _)| *id);
+        fonts.sort_unstable();
         let next = if last_instance_end.is_some() {
             instances.max_id.saturating_add(1)
         } else {
@@ -251,6 +261,7 @@ impl<'f> P21<'f> {
             last_instance_end,
             codes,
             widths,
+            fonts,
             args: BTreeMap::new(),
             lists: BTreeMap::new(),
             removed: BTreeSet::new(),
@@ -350,7 +361,8 @@ impl<'f> P21<'f> {
     /// 表記の実体の、見え方の並びと対象の引数の場所。曲線と記号（点マーカー）の表記の実体だけ
     fn occurrence(&self, record: usize) -> Option<(Slot, Slot)> {
         self.part(record, "ANNOTATION_CURVE_OCCURRENCE")
-            .or_else(|| self.part(record, "ANNOTATION_SYMBOL_OCCURRENCE"))?;
+            .or_else(|| self.part(record, "ANNOTATION_SYMBOL_OCCURRENCE"))
+            .or_else(|| self.part(record, "ANNOTATION_TEXT_OCCURRENCE"))?;
         let part = self.part(record, "STYLED_ITEM").or_else(|| {
             let entry = self.file.records().get(record)?;
             (entry.parts().len() == 1).then_some(0)
@@ -605,9 +617,9 @@ impl<'f> P21<'f> {
             } else if !had {
                 continue;
             }
-            // レイヤの要素の並びは、空にできない
+            // assigned_items は空にできない。用紙に属さない点を残し、空のレイヤの定義を保つ。
             if list.is_empty() {
-                return None;
+                list.push(self.point(0.0, 0.0)?);
             }
             self.lists.insert(slot, list);
         }
@@ -742,6 +754,83 @@ impl<'f> P21<'f> {
 }
 
 impl Writer for P21<'_> {
+    fn layer_change(
+        &mut self,
+        record: Option<usize>,
+        layer: &zumen_drawing::Layer,
+        cx: &mut Cx,
+    ) -> Result<Option<u64>, Error> {
+        let Some(state) = layer.state else {
+            return Ok(None);
+        };
+        let Some(name) = text::p21_string(&layer.name) else {
+            return Ok(None);
+        };
+        let id = if let Some(record) = record {
+            self.count_part_search(record, cx)?;
+            let Some(part) = self.part(record, "PRESENTATION_LAYER_ASSIGNMENT") else {
+                return Ok(None);
+            };
+            let Some(id) = self.file.records().get(record).and_then(|r| r.id()) else {
+                return Ok(None);
+            };
+            self.args.insert((record, part, 0), name);
+            id
+        } else {
+            // 用紙に表示しない補助の点で、空でない assigned_items を持つ空レイヤを表す。
+            let Some(point) = self.point(0.0, 0.0) else {
+                return Ok(None);
+            };
+            let Some(id) = self.instance(format!(
+                "PRESENTATION_LAYER_ASSIGNMENT({name},'',(#{point}))"
+            )) else {
+                return Ok(None);
+            };
+            if let Some((sheet, _)) = self.first_sheet
+                && self
+                    .instance(format!("PRESENTATION_LAYER_USAGE(#{id},#{sheet})"))
+                    .is_none()
+            {
+                return Ok(None);
+            }
+            id
+        };
+        let mut hidden = false;
+        for (record, entry) in self.file.records().iter().enumerate() {
+            work(cx, 1, &Ref::default())?;
+            for (part, value) in entry.parts().iter().enumerate() {
+                work(cx, 1, &Ref::default())?;
+                if !self
+                    .file
+                    .bytes(value.name())
+                    .eq_ignore_ascii_case(b"INVISIBILITY")
+                {
+                    continue;
+                }
+                let slot = (record, part, 0);
+                self.count_list(slot, cx)?;
+                let Some(mut list) = self.list(slot) else {
+                    return Ok(None);
+                };
+                if !list.contains(&id) {
+                    continue;
+                }
+                hidden = true;
+                if state.visible {
+                    list.retain(|item| *item != id);
+                    if list.is_empty() {
+                        self.removed.insert(record);
+                    }
+                    self.lists.insert(slot, list);
+                }
+            }
+        }
+        if !state.visible && !hidden && self.instance(format!("INVISIBILITY((#{id}))")).is_none() {
+            return Ok(None);
+        }
+        Ok(Some(id))
+    }
+
     fn codes(
         &mut self,
         record: usize,
@@ -755,6 +844,17 @@ impl Writer for P21<'_> {
     fn shape(&mut self, record: usize, args: &Arguments, cx: &mut Cx) -> Result<Option<()>, Error> {
         self.count_part_search(record, cx)?;
         count_arguments(args, cx)?;
+        if args.name == text::NAME {
+            self.count_codes(
+                record,
+                &[(
+                    1,
+                    args.values.get(1).and_then(|s| s.parse().ok()).unwrap_or(0),
+                )],
+                cx,
+            )?;
+            return Ok(self.text_shape(record, args));
+        }
         Ok((|| {
             let (_, item) = self.occurrence(record)?;
             let was = self.reference(item)?;
@@ -803,6 +903,17 @@ impl Writer for P21<'_> {
 
     fn add(&mut self, args: &Arguments, cx: &mut Cx) -> Result<Option<u64>, Error> {
         count_arguments(args, cx)?;
+        if args.name == "text_font" {
+            return Ok((|| {
+                let name = text::p21_string(args.values.first()?)?;
+                let source = self.instance("EXTERNAL_SOURCE(IDENTIFIER('SCADEC'))")?;
+                let id = self.instance(format!(
+                    "EXTERNALLY_DEFINED_TEXT_FONT(IDENTIFIER({name}),#{source})"
+                ))?;
+                self.fonts.push(id);
+                Some(id)
+            })());
+        }
         work(cx, 1, &Ref::default())?;
         if let Some((_, slot)) = self.first_sheet {
             self.count_part_search(slot.0, cx)?;
@@ -966,6 +1077,12 @@ impl P21<'_> {
         if self.part(record, "ANNOTATION_SYMBOL_OCCURRENCE").is_some() {
             return self.symbol_codes(styles, &style);
         }
+        if self.part(record, "ANNOTATION_TEXT_OCCURRENCE").is_some() {
+            let [(1, code)] = style.as_slice() else {
+                return None;
+            };
+            return self.text_color(styles, *code);
+        }
         let mut list = self.list(styles)?;
         let (index, was, curve) = list.iter().enumerate().find_map(|(index, assignment)| {
             let slot = self.slot(*assignment, "PRESENTATION_STYLE_ASSIGNMENT", 0)?;
@@ -1089,6 +1206,17 @@ impl P21<'_> {
     fn add_inner(&mut self, args: &Arguments) -> Option<u64> {
         let code = |at: usize| args.values.get(at)?.parse::<i64>().ok();
         let (_, sheet) = self.first_sheet?;
+        if args.name == text::NAME {
+            let literal = self.text_literal(args)?;
+            let style = self.text_style(args, code(1)?, None)?;
+            let assignment = self.instance(format!("PRESENTATION_STYLE_ASSIGNMENT((#{style}))"))?;
+            let id = self.instance(format!("(ANNOTATION_OCCURRENCE()ANNOTATION_TEXT_OCCURRENCE()DRAUGHTING_ANNOTATION_OCCURRENCE()GEOMETRIC_REPRESENTATION_ITEM()REPRESENTATION_ITEM('')STYLED_ITEM((#{assignment}),#{literal}))"))?;
+            let mut items = self.list(sheet)?;
+            items.push(id);
+            self.lists.insert(sheet, items);
+            self.layer(id, code(0)?)?;
+            return Some(id);
+        }
         if args.name == MARKER {
             let (layer, color) = (code(0)?, code(1)?);
             let symbol = self.marker(args)?;
