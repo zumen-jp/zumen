@@ -19,6 +19,8 @@ use crate::drawing::{FeatureRecord, LINE_TYPES, WIDTHS, work};
 use crate::p21::{COLORS, Codes, MARKERS, single_occurrence_feature};
 use crate::{DIALECT, Form, Mode, Record, SxfFile, Value};
 
+use super::source::SourceMap;
+
 /// 引数の場所（文の通し番号・部分の番号・引数の番号）
 type Slot = (usize, usize, usize);
 
@@ -1858,6 +1860,27 @@ impl P21State {
             }
             _ => number_in_slice(rs, arg),
         }
+    }
+
+    pub(super) fn source_map(&self, cx: &mut Cx<'_>) -> Result<SourceMap, Error> {
+        work(
+            cx,
+            self.removed.len().saturating_add(self.born_stmts.len()) as u64,
+            &Ref::default(),
+        )?;
+        let base_len = self.base_records.len();
+        SourceMap::build(
+            self.removed.range(..base_len).map(|record| *record as u64),
+            self.last_base_instance
+                .as_ref()
+                .map(|(record, _, _)| (*record as u64).saturating_add(1)),
+            self.born_stmts
+                .iter()
+                .enumerate()
+                .filter(|(index, _)| !self.removed.contains(&base_len.saturating_add(*index)))
+                .map(|(_, statement)| statement.id),
+            cx,
+        )
     }
 
     pub(super) fn save(&self, cx: &mut Cx) -> Result<Vec<u8>, Error> {

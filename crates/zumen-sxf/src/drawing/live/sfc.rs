@@ -11,6 +11,8 @@ use crate::drawing::apply::{Arguments, line_end, newline, patched, patched_sourc
 use crate::drawing::{FeatureRecord, sfc_records, work};
 use crate::{DIALECT, Marker, Mode, Quote, SfcRecord, SxfFile, Value};
 
+use super::source::SourceMap;
+
 /// SFC フィーチャの場所（開いた時点の基底フィーチャか、追加したフィーチャ）
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum SfcSlot {
@@ -562,6 +564,34 @@ impl SfcState {
             *self.alive_id_counts.entry(born.instance).or_default() += 1;
             self.born_features.insert(*seq, born.clone());
         }
+    }
+
+    pub(super) fn source_map(&self, cx: &mut Cx<'_>) -> Result<SourceMap, Error> {
+        work(cx, self.base_features.len() as u64, &Ref::default())?;
+        let insertion = self
+            .first_sheet_base
+            .and_then(|index| self.base_features.get(index))
+            .map(|feature| feature.record_idx)
+            .or_else(|| {
+                self.base_features
+                    .iter()
+                    .enumerate()
+                    .rev()
+                    .find(|(index, _)| !self.removed_base.contains(index))
+                    .map(|(_, feature)| feature.record_idx.saturating_add(1))
+            })
+            .or_else(|| self.base_features.first().map(|feature| feature.record_idx))
+            .map(|record| record as u64);
+        SourceMap::build(
+            self.removed_base.iter().filter_map(|index| {
+                self.base_features
+                    .get(*index)
+                    .map(|feature| feature.record_idx as u64)
+            }),
+            insertion,
+            self.born_features.values().map(|feature| feature.instance),
+            cx,
+        )
     }
 
     pub(super) fn save(&self, cx: &mut Cx) -> Result<Vec<u8>, Error> {

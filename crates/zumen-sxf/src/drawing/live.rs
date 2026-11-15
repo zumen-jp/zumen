@@ -8,6 +8,7 @@
 mod display;
 mod p21;
 mod sfc;
+mod source;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -31,6 +32,7 @@ use self::display::{
 };
 use self::p21::{P21Patch, P21State, P21StepTx};
 use self::sfc::{SfcPatch, SfcSlot, SfcState, SfcStepTx};
+use self::source::SourceMap;
 use super::apply::{
     Arguments, MARKER, OnSheet, REMOVABLE, SHAPED, STYLED, Tables, arguments,
     count_element_compare, count_element_copy, count_shape, grouped, kind_of, placed_near,
@@ -115,6 +117,13 @@ impl SxfBacking {
         match self {
             Self::Sfc(s) => s.save(cx),
             Self::P21(p) => p.save(cx),
+        }
+    }
+
+    fn source_map(&self, cx: &mut Cx<'_>) -> Result<SourceMap, Error> {
+        match self {
+            Self::Sfc(state) => state.source_map(cx),
+            Self::P21(state) => state.source_map(cx),
         }
     }
 }
@@ -2616,6 +2625,10 @@ impl SxfLive {
         }
 
         quietly(cx, |cx| {
+            let sources = self.backing.source_map(cx)?;
+            for draft in &mut drafts {
+                sources.remap(&mut draft.source, cx)?;
+            }
             if let Some(attr_file) = &self.attributes {
                 bind(attr_file, &mut drafts, cx);
             }
@@ -2636,6 +2649,7 @@ impl SxfLive {
                 symbols,
                 ..Drawing2D::default()
             };
+            sources.drawing(&mut drawing, cx)?;
             drawing.settle_extensions(drafts, cx).map_err(|stop| {
                 cx.report(stop.to_diagnostic());
                 Error::Stopped(stop)
@@ -2995,4 +3009,200 @@ fn ordered_symbol_indices(symbol_count: usize, dep: &DepGraph) -> Vec<usize> {
         .into_iter()
         .filter_map(|r| r.as_virtual().map(|v| v as usize))
         .collect()
+}
+
+#[cfg(test)]
+mod equivalence_tests {
+    use super::*;
+    use zumen_base::{Budget, CancelToken, Diagnostics};
+    use zumen_sdk::{Apply, Lift};
+
+    fn run<T>(f: impl FnOnce(&mut Cx<'_>) -> T) -> (T, Vec<Diagnostic>) {
+        let mut budget = Budget::default();
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let result = f(&mut Cx::new(&mut budget, &mut diagnostics, &cancel));
+        (result, diagnostics.iter().cloned().collect())
+    }
+
+    #[test]
+    fn public_sample_edits_preserve_source_records_before_save() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../samples/sxf/ezsxf-writer-all-features.sfc");
+        let bytes = std::fs::read(path).unwrap();
+        for threads in [1, 4] {
+            let mut file = run(|cx| Sxf::read(&bytes, cx)).0.unwrap();
+            let mut live = run(|cx| SxfLive::open_with_threads(&bytes, threads, cx))
+                .0
+                .unwrap();
+            let before = run(|cx| live.drawing(cx)).0.unwrap();
+            let sheet = &before.sheets[0];
+            let place = id::sheet(sheet);
+            let mut namer = id::Namer::new(&place);
+            let target = sheet
+                .elements
+                .iter()
+                .enumerate()
+                .find_map(|(index, element)| {
+                    let id = namer.next(index, element);
+                    matches!(element.shape, Shape::Line { .. }).then(|| Seen {
+                        id,
+                        hash: Hash::element(element),
+                    })
+                })
+                .unwrap();
+            let changes = Changes {
+                document: None,
+                edits: vec![Edit::Remove { target }],
+            };
+            let actual = run(|cx| live.apply(&changes, cx));
+            assert_eq!(actual, run(|cx| file.apply(&changes, cx)));
+            actual.0.unwrap();
+            let expected: Drawing2D = run(|cx| file.lift(cx)).0.unwrap();
+            let model = run(|cx| live.drawing(cx)).0.unwrap();
+            assert_eq!(model, expected);
+            let saved = run(|cx| live.save(cx)).0.unwrap();
+            let reference = run(|cx| {
+                let mut out = Vec::new();
+                Sxf::write(&file, &mut out, cx).map(|()| out)
+            })
+            .0
+            .unwrap();
+            assert_eq!(saved, reference);
+            assert!(run(|cx| live.undo(cx)).0.unwrap());
+            assert_eq!(run(|cx| live.drawing(cx)).0.unwrap(), before);
+            assert_eq!(run(|cx| live.save(cx)).0.unwrap(), bytes);
+        }
+    }
+
+    fn p21_lines() -> Vec<u8> {
+        concat!(
+            "ISO-10303-21;\nHEADER;\n",
+            "FILE_DESCRIPTION(('SCADEC level2 AP202_mode'),'2;1');\n",
+            "FILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));\nENDSEC;\nDATA;\n",
+            "#10=(LENGTH_UNIT()NAMED_UNIT(*)SI_UNIT(.MILLI.,.METRE.));\n",
+            "#20=DRAUGHTING_PRE_DEFINED_COLOUR('red');\n",
+            "#30=DRAUGHTING_PRE_DEFINED_CURVE_FONT('continuous');\n",
+            "#40=LENGTH_MEASURE_WITH_UNIT(POSITIVE_LENGTH_MEASURE(0.25),#10);\n",
+            "#60=CURVE_STYLE(' ',#30,#40,#20);\n",
+            "#70=PRESENTATION_STYLE_ASSIGNMENT((#60));\n",
+            "#100=CARTESIAN_POINT(' ',(0.,0.));\n",
+            "#110=CARTESIAN_POINT(' ',(10.,0.));\n",
+            "#120=DIRECTION(' ',(1.,0.));\n",
+            "#130=VECTOR(' ',#120,10.);\n",
+            "#140=LINE(' ',#100,#130);\n",
+            "#150=TRIMMED_CURVE(' ',#140,(#100),(#110),.T.,.CARTESIAN.);\n",
+            "#160=ANNOTATION_CURVE_OCCURRENCE(' ',(#70),#150);\n",
+            "#170=ANNOTATION_CURVE_OCCURRENCE(' ',(#70),#150);\n",
+            "#900=PRESENTATION_LAYER_ASSIGNMENT('A',' ',(#160,#170));\n",
+            "#950=DRAWING_SHEET_REVISION('A3_horizontal',(#160,#170),' ',' ');\n",
+            "ENDSEC;\nEND-ISO-10303-21;\n",
+        )
+        .as_bytes()
+        .to_vec()
+    }
+
+    fn assert_source_parity(live: &SxfLive, file: &SxfFile) {
+        let expected: Drawing2D = run(|cx| file.lift(cx)).0.unwrap();
+        let held = run(|cx| live.drawing(cx)).0.unwrap();
+        assert_eq!(held, expected);
+        let saved = run(|cx| live.save(cx)).0.unwrap();
+        let reference = run(|cx| {
+            let mut bytes = Vec::new();
+            Sxf::write(file, &mut bytes, cx).map(|()| bytes)
+        })
+        .0
+        .unwrap();
+        assert_eq!(saved, reference);
+        let reread: Drawing2D = run(|cx| Sxf::read(&saved, cx).and_then(|file| file.lift(cx)))
+            .0
+            .unwrap();
+        assert_eq!(held, reread);
+    }
+
+    #[test]
+    fn sfc_and_p21_add_remove_sequences_preserve_full_sources_and_undo() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../samples/sxf/ezsxf-writer-all-features.sfc");
+        let no_sheet = concat!(
+            "ISO-10303-21;\nHEADER;\n",
+            "FILE_DESCRIPTION(('SCADEC level2 feature_mode'),'2;1');\n",
+            "FILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));\nENDSEC;\nDATA;\n",
+            "/*SXF\n#10 = layer_feature(\\'A\\','1')\nSXF*/\n",
+            "/*SXF\n#20 = line_feature('1','1','1','1','0','0','20','10')\nSXF*/\n",
+            "/*SXF\n#30 = line_feature('1','1','1','1','30','0','40','10')\nSXF*/\n",
+            "ENDSEC;\nEND-ISO-10303-21;\n",
+        )
+        .as_bytes()
+        .to_vec();
+        for bytes in [std::fs::read(path).unwrap(), p21_lines(), no_sheet] {
+            for threads in [1, 4] {
+                let mut file = run(|cx| Sxf::read(&bytes, cx)).0.unwrap();
+                let mut live = run(|cx| SxfLive::open_with_threads(&bytes, threads, cx))
+                    .0
+                    .unwrap();
+                let initial = run(|cx| live.drawing(cx)).0.unwrap();
+                let sheet = &initial.sheets[0];
+                let place = id::sheet(sheet);
+                let line = sheet
+                    .elements
+                    .iter()
+                    .find(|element| matches!(element.shape, Shape::Line { .. }))
+                    .unwrap()
+                    .clone();
+                let mut history = vec![(initial, bytes.clone())];
+                for step in 0..5 {
+                    let edit = if step < 2 || step == 4 {
+                        Edit::Add {
+                            place: place.clone(),
+                            element: Box::new(Placed::Paper(line.clone())),
+                        }
+                    } else {
+                        let model = run(|cx| live.drawing(cx)).0.unwrap();
+                        let sheet = &model.sheets[0];
+                        let mut namer = id::Namer::new(&place);
+                        let mut lines = Vec::new();
+                        for (index, element) in sheet.elements.iter().enumerate() {
+                            let id = namer.next(index, element);
+                            if matches!(element.shape, Shape::Line { .. }) {
+                                lines.push(Seen {
+                                    id,
+                                    hash: Hash::element(element),
+                                });
+                            }
+                        }
+                        Edit::Remove {
+                            target: if step == 2 {
+                                lines.remove(0)
+                            } else {
+                                lines.pop().unwrap()
+                            },
+                        }
+                    };
+                    let changes = Changes {
+                        document: None,
+                        edits: vec![edit],
+                    };
+                    let actual = run(|cx| live.apply(&changes, cx));
+                    assert_eq!(actual, run(|cx| file.apply(&changes, cx)));
+                    actual.0.unwrap();
+                    assert_source_parity(&live, &file);
+                    history.push((
+                        run(|cx| live.drawing(cx)).0.unwrap(),
+                        run(|cx| live.save(cx)).0.unwrap(),
+                    ));
+                }
+                for expected in history.iter().rev().skip(1) {
+                    assert!(run(|cx| live.undo(cx)).0.unwrap());
+                    assert_eq!(&run(|cx| live.drawing(cx)).0.unwrap(), &expected.0);
+                    assert_eq!(&run(|cx| live.save(cx)).0.unwrap(), &expected.1);
+                }
+                for expected in history.iter().skip(1) {
+                    assert!(run(|cx| live.redo(cx)).0.unwrap());
+                    assert_eq!(&run(|cx| live.drawing(cx)).0.unwrap(), &expected.0);
+                    assert_eq!(&run(|cx| live.save(cx)).0.unwrap(), &expected.1);
+                }
+            }
+        }
+    }
 }
