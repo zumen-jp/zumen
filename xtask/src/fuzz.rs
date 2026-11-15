@@ -229,7 +229,7 @@ fn ifc_grid() -> Vec<u8> {
 }
 
 fn ifc_profiles() -> Vec<u8> {
-    // 要素の葉から各断面・掃引円盤・回転体・面集合まで通す自作の IFC4。
+    // 要素の葉から各断面・掃引円盤・回転体・面集合・ブーリアン・半空間まで通す自作の IFC4。
     b"ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('profiles'),'2;1');\nFILE_NAME('','',(''),(''),'','','');\nFILE_SCHEMA(('IFC4'));\nENDSEC;\nDATA;\n\
     #1=IFCPROJECT('0000000000000000000001',$,$,$,$,$,$,$,#2);\n\
     #2=IFCUNITASSIGNMENT((#3,#54));\n#3=IFCSIUNIT(*,.LENGTHUNIT.,$,.METRE.);\n\
@@ -253,8 +253,12 @@ fn ifc_profiles() -> Vec<u8> {
     #80=IFCCARTESIANPOINTLIST3D(((0.,0.,0.),(2.,0.,0.),(0.,2.,0.),(0.2,0.2,0.),(0.4,0.2,0.),(0.2,0.4,0.)));\n\
     #81=IFCTRIANGULATEDFACESET(#80,$,.F.,((1,2,3)),$);\n\
     #82=IFCINDEXEDPOLYGONALFACEWITHVOIDS((1,2,3),((4,5,6)));\n#83=IFCPOLYGONALFACESET(#80,.F.,(#82),$);\n\
+    #90=IFCPLANE(#20);\n#91=IFCHALFSPACESOLID(#90,.T.);\n#92=IFCBOUNDINGBOX(#21,1.,1.,1.);\n\
+    #93=IFCBOXEDHALFSPACE(#90,.F.,#92);\n#94=IFCPOLYGONALBOUNDEDHALFSPACE(#90,.T.,#20,#18);\n\
+    #95=IFCBOOLEANCLIPPINGRESULT(.DIFFERENCE.,#30,#91);\n#96=IFCBOOLEANCLIPPINGRESULT(.DIFFERENCE.,#95,#94);\n\
+    #97=IFCBOOLEANRESULT(.UNION.,#96,#93);\n\
     #100=IFCWALL('0000000000000000000002',$,$,$,$,$,#101,$,.NOTDEFINED.);\n\
-    #101=IFCPRODUCTDEFINITIONSHAPE($,$,(#102));\n#102=IFCSHAPEREPRESENTATION(#8,'Body','GeometricSet',(#30,#31,#32,#33,#34,#35,#36,#66,#81,#83));\n\
+    #101=IFCPRODUCTDEFINITIONSHAPE($,$,(#102));\n#102=IFCSHAPEREPRESENTATION(#8,'Body','GeometricSet',(#30,#31,#32,#33,#34,#35,#36,#66,#81,#83,#97));\n\
     ENDSEC;\nEND-ISO-10303-21;\n".to_vec()
 }
 
@@ -744,7 +748,7 @@ mod tests {
         assert_eq!(found, []);
         let file = file.unwrap();
         let (shape, _) = run(Limits::default(), |cx| file.product_shape(100, cx));
-        let mut counts = [0; 5];
+        let mut counts = [0; 7];
         for node in &shape.unwrap().nodes {
             let (at, result) = match file.kind(node.source) {
                 b"IFCEXTRUDEDAREASOLID" => (
@@ -773,13 +777,22 @@ mod tests {
                         file.tessellated_faces(node, cx).map(drop)
                     }),
                 ),
+                b"IFCHALFSPACESOLID" | b"IFCBOXEDHALFSPACE" | b"IFCPOLYGONALBOUNDEDHALFSPACE" => (
+                    5,
+                    run(Limits::default(), |cx| file.half_space(node, cx).map(drop)),
+                ),
+                b"IFCBOOLEANRESULT" | b"IFCBOOLEANCLIPPINGRESULT" => {
+                    assert!(matches!(node.links, zumen_ifc::ShapeLinks::Boolean { .. }));
+                    counts[6] += 1;
+                    continue;
+                }
                 _ => continue,
             };
             assert!(result.0.is_some());
             assert_eq!(result.1, []);
             counts[at] += 1;
         }
-        assert_eq!(counts, [5, 1, 1, 1, 2]);
+        assert_eq!(counts, [5, 1, 1, 1, 2, 3, 3]);
     }
 
     #[test]

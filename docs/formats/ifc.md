@@ -94,9 +94,10 @@ for node in &shape.nodes {
 
 - `product`・`placement`・各 node の `source` は、同じ `IfcFile` の元の `Record` を借用します。元のバイト範囲・属性・STEP の参照を保ちます。`ShapeRef` はこのビュー内の `nodes` だけの参照です。STEP 番号とグラフの並びは source 内の参照であり、L2 の要素の ID や幾何の意味値には使いません。ビュー全体には意味値の等価性やハッシュを定義しません。
 - `IfcProductDefinitionShape` の表現の列、`IfcShapeRepresentation` の文脈・識別子・種類・項目、`IfcMappedItem` の写像元と写像先、`IfcRepresentationMap` の原点と元の表現、`IfcGeometricSet`・`IfcGeometricCurveSet` の要素を保持します。元の列の並びを保ち、同じインスタンスの表現・写像・項目は一度だけ持ちます。
+- `IfcBooleanResult`・`IfcBooleanClippingResult` は `ShapeLinks::Boolean` に、和・積・差と第 1・第 2 の対象への参照を保持します。ClippingResult は差だけを許し、参照の順序・共有・循環を既存の探索で扱います。対象の型の組み合わせと立体の妥当性は未検証です。未知の葉はその出所と診断を保持します。
 - 配置、表現の文脈、写像の原点と写像先はレコードへの参照です。元の軸の比・原点・一様または非一様な尺度・省略した属性もそのまま読めます。変換・正規化・単位換算は行いません。配置の親や補助レコードの子はこの取得で展開せず、数値や次元の妥当性、幾何の一致も検査しません。曲線の値と単位は `curve()` を呼んだときに取得します。
 - 型を持つ曲線の項目は `ShapeLinks::Curve` と元のレコードを返し、曲線の値は読みません。ほかの形、点・面、立体・断面、トポロジやスタイルの表現は `Unsupported` と `ifc.shape.unsupported` を返し、元の値と参照を source に残します。スタイルやレイヤの逆参照はこのビューに集めません。
-- 配置・形状表現・表現の識別子と種類が `$` なら、`None` と `ifc.shape.missing` を返します。必要な参照・種類・列・文字列の構造の誤りと循環は `ifc.shape.invalid` と `Error::Invalid` にします。`reason` は `product`・`reference`・`type`・`count`・`list`・`text`・`cycle` です。EXPRESS の全規則や SET の重複・内容の幾何的な制約を検査した結果ではありません。
+- 配置・形状表現・表現の識別子と種類が `$` なら、`None` と `ifc.shape.missing` を返します。必要な参照・種類・列・文字列の構造の誤りと循環は `ifc.shape.invalid` と `Error::Invalid` にします。`reason` は `product`・`reference`・`type`・`count`・`list`・`text`・`cycle`、ブーリアンでは `attributes`・`boolean-operator` も返します。EXPRESS の全規則や SET の重複・内容の幾何的な制約を検査した結果ではありません。
 - 探索と所有権は再帰しません。表現と共有写像をたどる深さを `depth`、参照・列・文字列の読み取りを `work`、項目・索引・参照・探索・文字列の確保前の予約量を `decoded-bytes` で数えます。予約量は 64 bit と wasm32 で共通です。循環・不正・予算・中断では部分結果を返さず、入った深さを戻します。
 
 ### 形状表現の確かめ方
@@ -280,6 +281,24 @@ $env:CARGO_TARGET_WASM32_WASIP1_RUNNER = 'node --no-warnings tests/wasi-indexed-
 cargo test -p zumen-ifc --locked --test indexed_faces --target wasm32-wasip1 -- --test-threads 1
 node crates/zumen-ifc/tests/wasi-indexed-faces.mjs --compare target/indexed-face-comparison target/indexed-face-comparison-wasm
 ```
+
+## ブーリアンをたどり半空間を取得する
+
+`IfcFile::half_space(&ShapeNode, cx)` は `IfcHalfSpaceSolid`・`IfcBoxedHalfSpace`・`IfcPolygonalBoundedHalfSpace` から、平面の半空間 `PlaneHalfSpace`・境界の曲線・長さの単位・借用出所を返します。`product_shape()` のブーリアンの参照から、切り取る半空間の葉にも到達できます。IFC2X3 TC1・IFC4 ADD2 TC1・IFC4.3 ADD2 が対象です。
+
+- 基準面の元の配置と `AgreementFlag` を保持します。true は法線と逆側、false は法線が向く側を内部とします。元の軸の比、負の 0、軸の省略を保持し、法線を正規化・反転しません。平面以外の基準面は、種類と場所を示して未対応とします。
+- 箱は隅と正の有限な 3 方向の寸法、`EnclosureCoordinates` を持ちます。IFC2X3 では基準面の座標系、IFC4 以降では要素の座標系にあります。この版差を意味の値に残します。箱は無限の半空間を計算で扱うための囲みであり、この取得では半空間との積や有限な代用立体を生成しません。
+- 多角形による制限は、基準面とは別の 3D 配置と 2D の境界の `CurveGraph` を持ちます。Polyline・CompositeCurve を扱い、IFC4.3 では IndexedPolyCurve も扱います。合成の区間は Polyline または Line/Circle を切った曲線です。曲線の元値・向き・区間の共有を保持し、閉じる点を補いません。
+- Polyline と IndexedPolyCurve は始終点の一致を確認します。合成の区間同士の接続・閉鎖、自己交差、基準面と境界を押し出す向きの関係は未評価です。これらの幾何の条件をすべて検証した結果ではありません。
+- 半空間・基準面・囲み箱・3D 配置の属性数、有限な 3D の点、非ゼロかつ平行でない配置の軸、Boolean の側の指定を検査します。複合インスタンスは未対応です。共通の長さの単位の取得を使い、単位がなければ元値と `None`・`ifc.unit.missing` を返します。配置・写像・単位換算は未適用です。
+- 不正は `ifc.shape.invalid`、未対応は `ifc.shape.unsupported` と元の場所を返します。境界内の不正には既存の曲線の診断を使います。半空間・基準面・囲み箱を Elements、曲線とともに深さ、参照・属性・数・単位・確保前の量を共有 `Cx` で数えます。停止時に部分結果を返さず、深さを戻します。
+- `HalfSpaceSource` は半空間・基準面と、読んだ配置・点・方向・囲み箱・単位を借用します。STEP 番号・元バイト列は意味の値に含めません。Building の成分、要素の ID と Hash v1 は変更しません。立体の評価・全面統合・意味値ハッシュは #419・#420 の残件です。
+
+根拠は buildingSMART の公開の自然言語の説明です。[IFC2X3 HalfSpaceSolid](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC2x3/TC1/HTML/ifcgeometricmodelresource/lexical/ifchalfspacesolid.htm)・[BoxedHalfSpace](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC2x3/TC1/HTML/ifcgeometricmodelresource/lexical/ifcboxedhalfspace.htm)・[PolygonalBoundedHalfSpace](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC2x3/TC1/HTML/ifcgeometricmodelresource/lexical/ifcpolygonalboundedhalfspace.htm)、[IFC4 BoxedHalfSpace の版差](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4/ADD2_TC1/HTML/schema/ifcgeometricmodelresource/lexical/ifcboxedhalfspace.htm)、[IFC4.3 HalfSpaceSolid](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4_3/HTML/lexical/IfcHalfSpaceSolid.htm)・[PolygonalBoundedHalfSpace](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4_3/HTML/lexical/IfcPolygonalBoundedHalfSpace.htm)・[BooleanResult](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4_3/HTML/lexical/IfcBooleanResult.htm)・[BooleanClippingResult](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4_3/HTML/lexical/IfcBooleanClippingResult.htm) の本文・属性の説明を使い、EXPRESS 本体は読みません。
+
+検査は `cargo test -p zumen-ifc --test half_spaces`。`ZUMEN_IFC_HALF_SPACES_OUT` を絶対パスに指定すると、合成 3 版と公開の TallBuilding の壁の JSON 4 件、診断・予算・元値・参照の記録、自作の IFC を出します。公開例は GlobalId `0ZBert7zf3GhThdO12NKAr` の壁 #615 から、差の参照を通って #600 と #596 の半空間を取得します。
+
+2026-11-16 に追加 9 テストをネイティブと WASI で実行し、JSON と全 Kind の記録 234,501 バイトが一致しました。別に IfcOpenShell 0.9.0.post1 の実行ファイルだけを使い、半空間 18 個・境界の曲線 17 レコードの座標と参照・ブーリアン 11 個の演算と参照を比較し、差異は 0 でした。囲み箱の版差は公開仕様と合成入力で検査し、外部実装による座標変換・体積の比較とは分けています。既存の添字付き面集合の元値・出所・診断・予算 78,711 バイトも追加前と一致しました。
 
 ## 形の葉から回転体を取得する
 

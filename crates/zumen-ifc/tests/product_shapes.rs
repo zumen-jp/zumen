@@ -594,6 +594,20 @@ fn write_shape(file: &IfcFile, id: u64, curve_ids: &[u64], name: &str) -> Vec<u8
                 out.key("elements");
                 refs_json(&mut out, &shape, elements);
             }
+            ShapeLinks::Boolean {
+                operation,
+                first,
+                second,
+            } => {
+                out.key("operation");
+                out.string(match operation {
+                    zumen_building::BooleanOperation::Union => "UNION",
+                    zumen_building::BooleanOperation::Intersection => "INTERSECTION",
+                    zumen_building::BooleanOperation::Difference => "DIFFERENCE",
+                });
+                out.key("operands");
+                refs_json(&mut out, &shape, &[*first, *second]);
+            }
             ShapeLinks::Curve | ShapeLinks::Unsupported => {}
         }
         out.end_object();

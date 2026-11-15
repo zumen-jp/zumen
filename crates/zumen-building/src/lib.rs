@@ -7,11 +7,13 @@ use std::collections::BTreeMap;
 
 use zumen_base::{Cx, Diagnostic, Ref, codes};
 
+mod boolean;
 mod component;
 mod curve;
 mod extrusion;
 mod faces;
 mod grid;
+mod half_space;
 mod hash;
 mod id;
 mod indexed_faces;
@@ -21,11 +23,13 @@ mod revolution;
 mod surface_style;
 mod sweep;
 
+pub use boolean::*;
 pub use component::*;
 pub use curve::*;
 pub use extrusion::*;
 pub use faces::*;
 pub use grid::*;
+pub use half_space::*;
 pub use hash::{Canon, Encode, Hash};
 pub use id::{GlobalId, Id};
 pub use indexed_faces::*;

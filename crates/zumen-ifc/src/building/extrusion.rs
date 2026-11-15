@@ -16,7 +16,9 @@ use crate::{
     Cx, Diagnostic, Error, IfcFile, Kind, Record, ShapeNode, Value, at_bytes, codes, stopped,
 };
 
+mod half_space;
 mod revolution;
+pub use half_space::{HalfSpaceGeometry, HalfSpaceSource};
 pub use revolution::{RevolutionSource, RevolvedArea};
 
 /// 面集合にも、断面・回転体と同じ単位の意味検査と予算を使う。

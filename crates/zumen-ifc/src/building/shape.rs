@@ -2,6 +2,7 @@
 //! IfcMappedItem（IfcGeometryResource）の属性をたどる L1 のビュー。幾何の値への変換は行わない。
 
 use std::collections::{BTreeMap, BTreeSet};
+use zumen_building::BooleanOperation;
 
 use super::{Category, Version, arg, category, decode, reference};
 use crate::{Cx, Diagnostic, Error, IfcFile, Kind, Record, Value, at_bytes, codes, stopped};
@@ -80,6 +81,16 @@ pub enum ShapeLinks<'f> {
     Set {
         /// Elements の参照。元の並びを保持する
         elements: Vec<ShapeRef>,
+    },
+    /// IfcBooleanResult / IfcBooleanClippingResult。順序・共有を保持する。
+    /// 演算対象の型の組み合わせと幾何の妥当性は未検証
+    Boolean {
+        /// 集合演算。ClippingResult は差だけ
+        operation: BooleanOperation,
+        /// 第 1 の対象
+        first: ShapeRef,
+        /// 第 2 の対象
+        second: ShapeRef,
     },
     /// source.id() を IfcFile::curve に渡せる。曲線の値・単位・診断はその取得時に読む
     Curve,
@@ -358,6 +369,41 @@ impl<'f> Reader<'f, '_, '_> {
             ShapeLinks::Map {
                 origin,
                 representation: self.link(id, Role::Representation)?,
+            }
+        } else if self.is(r, b"IFCBOOLEANRESULT") || self.is(r, b"IFCBOOLEANCLIPPINGRESULT") {
+            // IfcGeometricModelResource の Operator / FirstOperand / SecondOperand の説明。
+            // ClippingResult の演算は DIFFERENCE。対象の種類の制約と形の評価は別の段階で行う。
+            if r.form() != crate::Form::Entity || r.parts().len() != 1 {
+                self.unsupported(r)?;
+                return Ok(ShapeLinks::Unsupported);
+            }
+            if r.parts().first().map_or(0, |p| p.args().len()) != 3 {
+                return Err(self.invalid("attributes"));
+            }
+            let Some(Value::Enum(raw)) = arg(r, 1) else {
+                return Err(self.invalid("boolean-operator"));
+            };
+            self.check(Kind::Work, raw.len() as u64)?;
+            let operator = self.file.bytes(raw.clone());
+            let operation = if operator.eq_ignore_ascii_case(b"UNION") {
+                BooleanOperation::Union
+            } else if operator.eq_ignore_ascii_case(b"INTERSECTION") {
+                BooleanOperation::Intersection
+            } else if operator.eq_ignore_ascii_case(b"DIFFERENCE") {
+                BooleanOperation::Difference
+            } else {
+                return Err(self.invalid("boolean-operator"));
+            };
+            if self.is(r, b"IFCBOOLEANCLIPPINGRESULT") && operation != BooleanOperation::Difference
+            {
+                return Err(self.invalid("boolean-operator"));
+            }
+            let first = self.required(r, 2)?;
+            let second = self.required(r, 3)?;
+            ShapeLinks::Boolean {
+                operation,
+                first: self.link(first, Role::Item)?,
+                second: self.link(second, Role::Item)?,
             }
         } else if self.is(r, b"IFCGEOMETRICCURVESET") || self.is(r, b"IFCGEOMETRICSET") {
             ShapeLinks::Set {

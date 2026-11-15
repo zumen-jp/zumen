@@ -30,7 +30,8 @@ mod style;
 mod sweep;
 mod unit;
 pub use extrusion::{
-    ExtrudedArea, ExtrusionSource, ProfiledExtrusion, RevolutionSource, RevolvedArea,
+    ExtrudedArea, ExtrusionSource, HalfSpaceGeometry, HalfSpaceSource, ProfiledExtrusion,
+    RevolutionSource, RevolvedArea,
 };
 pub use faces::{FaceGraphSource, FacetedFaces};
 pub use grid::{GridAxes, GridAxisCurve, GridSource};
