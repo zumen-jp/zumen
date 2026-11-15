@@ -2,11 +2,11 @@
 //! 一括変換の読み方（`crates/zumen-acad/src/drawing`）と 1 つの実装に揃える。
 //! 開くときも、変更のあとで読み直すときも、ここを通る。
 
-use zumen_acad::Charset;
 use zumen_acad::single::{
-    self, DxfFields, FieldSource as _, LiftFail, PolylineSink, RawLineType, RawTextPlace,
+    self, DxfFields, FieldSource, LiftFail, PolylineSink, PolylineStream, RawLineType, RawTextPlace,
 };
 pub use zumen_acad::single::{Follow, Followed, RawTag};
+use zumen_acad::{Charset, Value};
 use zumen_base::{Key, Ref};
 use zumen_drawing::{
     Attribute, Clip, Color, ColorCode, ColorSystem, Edge, Element, Fit, FormattedText, Grid,
@@ -855,7 +855,7 @@ pub fn lift(charset: Charset, kind: Kind, tags: &[RawTag<'_>], pools: &mut Pools
         Err(err) => return Lift::Not(err.into()),
     }
     let marks = pools.marks();
-    match lifted(charset, kind, tags, &fields, pools) {
+    match lifted(charset, kind, fields.handle, tags, &fields, pools) {
         Ok(lifted) => Lift::Element(lifted),
         Err(reason) => {
             pools.truncate(marks);
@@ -864,11 +864,35 @@ pub fn lift(charset: Charset, kind: Kind, tags: &[RawTag<'_>], pools: &mut Pools
     }
 }
 
-fn lifted(
+/// DWG などから復号した `Value` の列を要素へ持ち上げる
+pub fn lift_values(
     charset: Charset,
     kind: Kind,
-    tags: &[RawTag<'_>],
-    fields: &DxfFields<'_>,
+    handle: Option<u64>,
+    values: &[Value],
+    pools: &mut Pools,
+) -> Lift {
+    match (&values).int(67, 0) {
+        Ok(1) => return Lift::Paper,
+        Ok(_) => {}
+        Err(err) => return Lift::Not(err.into()),
+    }
+    let marks = pools.marks();
+    match lifted(charset, kind, handle, values, &values, pools) {
+        Ok(lifted) => Lift::Element(lifted),
+        Err(reason) => {
+            pools.truncate(marks);
+            Lift::Not(reason)
+        }
+    }
+}
+
+fn lifted<'a>(
+    charset: Charset,
+    kind: Kind,
+    handle: Option<u64>,
+    stream: impl PolylineStream,
+    fields: &impl FieldSource<'a>,
     pools: &mut Pools,
 ) -> Result<Lifted, DropReason> {
     single::check_upright(fields)?;
@@ -876,13 +900,13 @@ fn lifted(
         Kind::Line => Geom::Line(single::line_ends(fields)?),
         Kind::Circle => Geom::Circle(single::circle_geom(fields)?),
         Kind::Arc => Geom::Arc(single::arc_geom(fields)?),
-        Kind::Polyline => polyline(tags, fields, pools)?,
+        Kind::Polyline => polyline(stream, fields, pools)?,
         Kind::Text => Geom::Text(text(charset, fields, pools, 73)?),
         Kind::Insert => Geom::Insert(insert(charset, fields, pools)?),
     };
     let (layer, color, extra_style) = styled(charset, fields, pools)?;
     Ok(Lifted {
-        handle: fields.handle,
+        handle,
         geom,
         layer,
         color,
@@ -891,9 +915,9 @@ fn lifted(
 }
 
 /// 画層・色・線種・線種の倍率・線幅・透過性を確かめて、画層の名前・色の指定・追加スタイル番号を返す
-fn styled(
+fn styled<'a>(
     charset: Charset,
-    fields: &DxfFields<'_>,
+    fields: &impl FieldSource<'a>,
     pools: &mut Pools,
 ) -> Result<(TextSpan, u32, u32), DropReason> {
     let es = single::entity_style(fields)?;
@@ -942,9 +966,9 @@ fn styled(
 }
 
 /// 記号（INSERT）。定義がなくても要素になる
-fn insert(
+fn insert<'a>(
     charset: Charset,
-    fields: &DxfFields<'_>,
+    fields: &impl FieldSource<'a>,
     pools: &mut Pools,
 ) -> Result<InsertRow, DropReason> {
     let raw = single::insert_geom(fields)?;
@@ -982,7 +1006,7 @@ pub fn attrib(charset: Charset, tags: &[RawTag<'_>], record: u32, pools: &mut Po
         return AttribLift::Multiline;
     }
     let marks = pools.marks();
-    match attribute(charset, &fields, record, pools) {
+    match attribute(charset, fields.handle, &fields, record, pools) {
         Ok((row, layer_name)) => AttribLift::Row(row, layer_name),
         Err(reason) => {
             pools.truncate(marks);
@@ -991,9 +1015,31 @@ pub fn attrib(charset: Charset, tags: &[RawTag<'_>], record: u32, pools: &mut Po
     }
 }
 
-fn attribute(
+/// DWG などから復号した `Value` の列の ATTRIB を持ち上げる
+pub fn attrib_values(
     charset: Charset,
-    fields: &DxfFields<'_>,
+    handle: Option<u64>,
+    values: &[Value],
+    record: u32,
+    pools: &mut Pools,
+) -> AttribLift {
+    if (&values).has_code(101) {
+        return AttribLift::Multiline;
+    }
+    let marks = pools.marks();
+    match attribute(charset, handle, &values, record, pools) {
+        Ok((row, layer_name)) => AttribLift::Row(row, layer_name),
+        Err(reason) => {
+            pools.truncate(marks);
+            AttribLift::Not(reason)
+        }
+    }
+}
+
+fn attribute<'a>(
+    charset: Charset,
+    handle: Option<u64>,
+    fields: &impl FieldSource<'a>,
     record: u32,
     pools: &mut Pools,
 ) -> Result<(AttribRow, TextSpan), DropReason> {
@@ -1004,13 +1050,13 @@ fn attribute(
     if fields.int(70, 0)? & 1 != 0 {
         text.flags |= ATTRIB_HIDDEN;
     }
-    if fields.handle.is_some() {
+    if handle.is_some() {
         text.flags |= ATTRIB_HAS_HANDLE;
     }
     let (layer_name, color, extra_style) = styled(charset, fields, pools)?;
     Ok((
         AttribRow {
-            handle: fields.handle.unwrap_or(0),
+            handle: handle.unwrap_or(0),
             text,
             tag,
             record,
@@ -1187,9 +1233,9 @@ impl PolylineSink for PoolPolySink<'_> {
     }
 }
 
-fn polyline(
-    tags: &[RawTag<'_>],
-    fields: &DxfFields<'_>,
+fn polyline<'a>(
+    stream: impl PolylineStream,
+    fields: &impl FieldSource<'a>,
     pools: &mut Pools,
 ) -> Result<Geom, DropReason> {
     let first = pools.vertices.len();
@@ -1199,7 +1245,7 @@ fn polyline(
         widths: Vec::new(),
         any_width: false,
     };
-    let meta = single::lwpolyline_scan(fields, tags, &mut sink)?;
+    let meta = single::lwpolyline_scan(fields, stream, &mut sink)?;
     let count = sink.len();
     let any_width = sink.any_width;
     let widths = sink.widths;
@@ -1231,9 +1277,9 @@ fn polyline(
 }
 
 /// 文字。縦の揃えのグループ・コードは、TEXT では 73、ATTRIB では 74
-fn text(
+fn text<'a>(
     charset: Charset,
-    fields: &DxfFields<'_>,
+    fields: &impl FieldSource<'a>,
     pools: &mut Pools,
     vertical: i16,
 ) -> Result<TextRow, DropReason> {

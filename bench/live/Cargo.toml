@@ -1,4 +1,4 @@
-# 文書エンジンの試作（docs/live.md）。DXF の縦 1 本を、今の実装の apply と照らして確かめ、速さを測る。
+# 文書エンジンの試作（docs/live.md）。DXF と DWG の縦 1 本を、今の実装の apply と照らして確かめ、速さを測る。
 # コアのワークスペースには入れない。
 [package]
 name = "zumen-bench-live"
@@ -8,6 +8,11 @@ license = "MIT OR Apache-2.0"
 publish = false
 
 [workspace]
+
+[lib]
+name = "zumen_bench_live"
+path = "src/lib.rs"
+crate-type = ["rlib", "cdylib"]
 
 [[bin]]
 name = "live"
@@ -19,3 +24,4 @@ zumen = { path = "../../crates/zumen" }
 zumen-acad = { path = "../../crates/zumen-acad" }
 zumen-base = { path = "../../crates/zumen-base" }
 zumen-drawing = { path = "../../crates/zumen-drawing" }
+zumen-sdk = { path = "../../crates/zumen-sdk" }

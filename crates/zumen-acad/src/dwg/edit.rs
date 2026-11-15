@@ -71,6 +71,8 @@ pub struct DwgTxn<'a> {
     staged: BTreeMap<usize, Vec<u8>>,
     removed: BTreeSet<usize>,
     added: Vec<(u64, Vec<u8>)>,
+    existing_handles: Option<BTreeSet<u64>>,
+    added_handles: BTreeSet<u64>,
     seed: Option<u64>,
     values: Values,
     rejected: Option<Diagnostic>,
@@ -121,8 +123,10 @@ impl DwgTxn<'_> {
     /// 読めないデータは受け付けない
     pub fn add(&mut self, handle: u64, data: &[u8]) -> Result<(), Error> {
         self.check_editable()?;
-        let taken = self.file.entries.iter().any(|entry| entry.handle == handle)
-            || self.added.iter().any(|(h, _)| *h == handle);
+        let existing = self
+            .existing_handles
+            .get_or_insert_with(|| self.file.entries.iter().map(|entry| entry.handle).collect());
+        let taken = existing.contains(&handle) || self.added_handles.contains(&handle);
         if taken {
             return Err(
                 self.reject(Diagnostic::new(codes::DWG_CHANGE_UNSUPPORTED).with("kind", "handle"))
@@ -134,6 +138,7 @@ impl DwgTxn<'_> {
                 self.reject(Diagnostic::new(codes::DWG_DATA_INVALID).with("record", record as u64))
             );
         }
+        self.added_handles.insert(handle);
         self.added.push((handle, data.to_vec()));
         Ok(())
     }
@@ -403,6 +408,8 @@ impl Transact for DwgFile {
             staged: BTreeMap::new(),
             removed: BTreeSet::new(),
             added: Vec::new(),
+            existing_handles: None,
+            added_handles: BTreeSet::new(),
             seed: None,
             values: Values::default(),
             rejected: None,

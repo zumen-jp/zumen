@@ -12,6 +12,7 @@ use zumen_acad::{Data, Value, single};
 use zumen_drawing::Affine;
 
 use crate::born::{Add, ColorSpec, Restyle, encode_born_records};
+use crate::dwg::{DwgBornRecord, DwgRecordPatch};
 use crate::lift::{self, Geom, Kind, Lift};
 use crate::paged::RecordSlice;
 use crate::store::{Document, OTag, OverlayRecord, Row, bounds};
@@ -145,6 +146,9 @@ struct RemovedEntry {
 #[derive(Clone, Debug)]
 struct Entry {
     overlays: Vec<RecordUndo>,
+    dwg_patches: Vec<(u32, Option<DwgRecordPatch>, DwgRecordPatch)>,
+    dwg_born: Vec<(u32, DwgBornRecord)>,
+    dwg_handseed: Option<(Option<u64>, Option<u64>)>,
     touched_rows: Vec<u32>,
     added: Vec<AddedEntry>,
     removed: Vec<RemovedEntry>,
@@ -154,6 +158,20 @@ impl Entry {
     fn bytes(&self) -> usize {
         size_of::<Self>()
             + self.overlays.iter().map(RecordUndo::bytes).sum::<usize>()
+            + self
+                .dwg_patches
+                .iter()
+                .map(|(_, b, a)| {
+                    size_of::<(u32, Option<DwgRecordPatch>, DwgRecordPatch)>()
+                        + b.as_ref().map_or(0, DwgRecordPatch::heap_bytes)
+                        + a.heap_bytes()
+                })
+                .sum::<usize>()
+            + self
+                .dwg_born
+                .iter()
+                .map(|(_, b)| size_of::<(u32, DwgBornRecord)>() + b.heap_bytes())
+                .sum::<usize>()
             + self.touched_rows.capacity() * size_of::<u32>()
             + self
                 .added
@@ -235,6 +253,9 @@ struct StagedState {
     seen_handles: BTreeSet<u64>,
     overlay_ops: BTreeMap<u32, Vec<AppliedTagOp>>,
     overlay_now: BTreeMap<u32, (OverlayRecord, bool)>,
+    dwg_patches: BTreeMap<u32, DwgRecordPatch>,
+    dwg_born_plans: Vec<(u64, Vec<DwgBornRecord>)>,
+    dwg_next_seed: Option<u64>,
     header_edits: Vec<TagEdit>,
     touched_rows: Vec<u32>,
     added_plans: Vec<(u64, EncodedRecords)>,
@@ -264,6 +285,13 @@ impl StagedState {
         doc: &Document,
         record: u32,
     ) -> Option<(Vec<u8>, Vec<Value>)> {
+        if doc.dwg.is_some() {
+            if let Some(patch) = self.dwg_patches.get(&record) {
+                return Some((patch.kind.clone(), patch.values.clone()));
+            }
+            let (k, _, v) = doc.dwg_record_kind_section_values(record)?;
+            return Some((k, v));
+        }
         let (ov, _) = self.ensure_record(doc, record);
         let first = ov.tags.first()?;
         if first.code != 0 {
@@ -305,6 +333,41 @@ impl StagedState {
         old_values: &[Value],
         new_values: &[Value],
     ) -> Option<()> {
+        if let Some(dwg) = &doc.dwg {
+            if old_values == new_values {
+                return Some(());
+            }
+            let current_encoded = match self.dwg_patches.get(&record) {
+                Some(p) => p.encoded.clone(),
+                None => doc.dwg_record_encoded(record)?,
+            };
+            let (kind, section) = match self.dwg_patches.get(&record) {
+                Some(p) => (p.kind.clone(), p.section.clone()),
+                None => {
+                    let (k, s, _) = doc.dwg_record_kind_section_values(record)?;
+                    (k, s)
+                }
+            };
+            let handle = doc.dwg_record_handle(record)?;
+            let encoded = dwg.single.encode_record_edit(
+                &current_encoded,
+                section.clone(),
+                &kind,
+                old_values,
+                new_values,
+            )?;
+            let (rt_kind, _, rt_values) = dwg.single.decode_encoded(handle, &encoded)?;
+            self.dwg_patches.insert(
+                record,
+                DwgRecordPatch {
+                    encoded,
+                    kind: rt_kind,
+                    section,
+                    values: rt_values,
+                },
+            );
+            return Some(());
+        }
         let edits = diff_values(1, old_values, new_values).ok()?;
         if edits.is_empty() {
             return Some(());
@@ -378,7 +441,10 @@ impl Document {
             })
     }
 
-    fn current_handseed(&self) -> Option<u64> {
+    pub(crate) fn current_handseed(&self) -> Option<u64> {
+        if let Some(dwg) = &self.dwg {
+            return dwg.handseed;
+        }
         let range = self.header.handseed?;
         for v in self.header_var_values(range) {
             if v.code == 5 {
@@ -519,6 +585,9 @@ impl Document {
 
         let mut tables = self.tables_cache.clone();
         tables.markers = self.live_markers();
+        if self.dwg.is_some() {
+            tables.dwg_seed = Some(self.current_handseed());
+        }
         let new_vals = single::restyle_model(
             &tables,
             &kind,
@@ -558,6 +627,34 @@ impl Document {
             return Err(Decline::Unsupported);
         }
         if !vals.iter().any(|v| matches!(v.code, 102 | 360)) {
+            if let Some(dwg) = &self.dwg {
+                if row.record < self.counts.records {
+                    let cur_enc = staged
+                        .dwg_patches
+                        .get(&row.record)
+                        .map(|p| p.encoded.clone())
+                        .or_else(|| self.dwg_record_encoded(row.record))
+                        .ok_or(Decline::Unsupported)?;
+                    let h = row.handle().ok_or(Decline::Unsupported)?;
+                    let group = [(
+                        row.record as usize,
+                        h,
+                        zumen_acad::db::owner_of_values(&vals),
+                    )];
+                    if !dwg.single.can_unlink_model_entity(
+                        &dwg.file,
+                        row.record as usize,
+                        &cur_enc,
+                        &kind,
+                        &vals,
+                        &group,
+                    ) {
+                        return Err(Decline::Unsupported);
+                    }
+                } else if !dwg.born.get(&row.record).is_some_and(|b| b.is_top_model) {
+                    return Err(Decline::Unsupported);
+                }
+            }
             staged.removed.push(RemovedEntry {
                 row: row_idx,
                 records: vec![row.record],
@@ -573,6 +670,7 @@ impl Document {
         let mut parents: Vec<u64> = vec![root_handle; next.len()];
         let mut seen: BTreeSet<u64> = BTreeSet::from([root_handle]);
         let mut owned_map: BTreeMap<u32, u64> = BTreeMap::new();
+        let mut owned_parents: BTreeMap<u32, (u64, u64)> = BTreeMap::new();
 
         while let (Some((child, dictionary)), Some(parent)) = (next.pop(), parents.pop()) {
             if !seen.insert(child) {
@@ -599,12 +697,47 @@ impl Document {
             parents.extend(core::iter::repeat_n(child, more.len()));
             next.extend(more);
             owned_map.insert(obj_rec, child);
+            owned_parents.insert(obj_rec, (child, parent));
         }
 
         let owned_handles: BTreeSet<u64> = owned_map.values().copied().collect();
         let skip: BTreeSet<u32> = owned_map.keys().copied().chain([row.record]).collect();
         if !owned_handles.is_empty() && self.is_any_handle_pointed(&skip, &owned_handles) {
             return Err(Decline::Unsupported);
+        }
+
+        if let Some(dwg) = &self.dwg {
+            if row.record >= self.counts.records {
+                return Err(Decline::Unsupported);
+            }
+            let cur_enc = staged
+                .dwg_patches
+                .get(&row.record)
+                .map(|p| p.encoded.clone())
+                .or_else(|| self.dwg_record_encoded(row.record))
+                .ok_or(Decline::Unsupported)?;
+            let mut group = Vec::with_capacity(1 + owned_parents.len());
+            group.push((
+                row.record as usize,
+                root_handle,
+                zumen_acad::db::owner_of_values(&vals),
+            ));
+            for (&orec, &(ch, par)) in &owned_parents {
+                if orec >= self.counts.records {
+                    return Err(Decline::Unsupported);
+                }
+                group.push((orec as usize, ch, Some(par)));
+            }
+            if !dwg.single.can_unlink_model_entity(
+                &dwg.file,
+                row.record as usize,
+                &cur_enc,
+                &kind,
+                &vals,
+                &group,
+            ) {
+                return Err(Decline::Unsupported);
+            }
         }
 
         staged.removed.push(RemovedEntry {
@@ -615,6 +748,9 @@ impl Document {
     }
 
     fn is_any_handle_pointed(&self, skip: &BTreeSet<u32>, handles: &BTreeSet<u64>) -> bool {
+        if self.dwg.is_some() {
+            return self.dwg_is_any_handle_pointed(skip, handles);
+        }
         let is_handle_code =
             |code: i16| matches!(code, 5 | 105 | 320..=369 | 390..=399 | 480..=481 | 1005);
         for &(sk, ref range) in &self.sections {
@@ -739,6 +875,9 @@ impl Document {
     }
 
     fn has_surviving_zero_handle(&self, removing_records: &BTreeSet<u32>) -> bool {
+        if self.dwg.is_some() {
+            return self.dwg_has_surviving_zero_handle(removing_records);
+        }
         for &(sk, ref range) in &self.sections {
             if !sk.has_db_objects() {
                 continue;
@@ -779,6 +918,54 @@ impl Document {
                 .live_max_after
                 .map_or(last_minted, |m| m.max(last_minted)),
         );
+
+        if let Some(dwg) = &self.dwg {
+            let seed_check = staged
+                .dwg_next_seed
+                .or(dwg.handseed)
+                .ok_or(Decline::Unsupported)?;
+            let pairs_ref: Vec<(&[u8], Vec<Value>)> =
+                born_records.iter().map(|(k, v)| (*k, v.clone())).collect();
+            let (encoded_pairs, next_seed) = dwg
+                .single
+                .encode_born_model(&pairs_ref, seed_check, |base_rec| {
+                    staged.is_gone(self, base_rec as u32)
+                })
+                .ok_or(Decline::Unsupported)?;
+            if encoded_pairs.iter().any(|&(h, _)| {
+                dwg.born
+                    .iter()
+                    .any(|(&r, b)| b.handle == h && !staged.is_gone(self, r))
+                    || staged
+                        .dwg_born_plans
+                        .iter()
+                        .flat_map(|(_, list)| list.iter())
+                        .any(|b| b.handle == h)
+            }) {
+                return Err(Decline::Unsupported);
+            }
+            let mut dwg_born_list = Vec::with_capacity(encoded_pairs.len());
+            for (idx, (h, bytes)) in encoded_pairs.into_iter().enumerate() {
+                let (rt_kind, _, rt_vals) = dwg
+                    .single
+                    .decode_encoded(h, &bytes)
+                    .ok_or(Decline::Unsupported)?;
+                staged.touched_extents = merge_extents(
+                    staged.touched_extents,
+                    entity_extents(&rt_kind, true, &rt_vals),
+                );
+                dwg_born_list.push(DwgBornRecord {
+                    handle: h,
+                    is_top_model: idx == 0,
+                    encoded: bytes,
+                    kind: rt_kind,
+                    values: rt_vals,
+                });
+            }
+            staged.dwg_born_plans.push((handle, dwg_born_list));
+            staged.dwg_next_seed = Some(next_seed);
+            return Ok(handle);
+        }
 
         let encoded = encode_born_records(born_records).ok_or(Decline::Unsupported)?;
         for (kind, _, vals) in &encoded {
@@ -885,6 +1072,9 @@ impl Document {
         if edits.is_empty() {
             return Ok(Vec::new());
         }
+        if self.dwg.is_some() && self.version == b"AC1021" {
+            return Err(Decline::Unsupported);
+        }
         if self.has_duplicate_object_handle {
             return Err(Decline::Unsupported);
         }
@@ -892,6 +1082,9 @@ impl Document {
             seen_handles: BTreeSet::new(),
             overlay_ops: BTreeMap::new(),
             overlay_now: BTreeMap::new(),
+            dwg_patches: BTreeMap::new(),
+            dwg_born_plans: Vec::new(),
+            dwg_next_seed: None,
             header_edits: Vec::new(),
             touched_rows: Vec::new(),
             added_plans: Vec::new(),
@@ -976,6 +1169,21 @@ impl Document {
             });
         }
 
+        let mut dwg_patch_undos = Vec::with_capacity(staged.dwg_patches.len());
+        let mut dwg_handseed_undo = None;
+        if let Some(dwg) = &mut self.dwg {
+            for (rec, after_patch) in staged.dwg_patches {
+                let before_patch = dwg.patched.insert(rec, after_patch.clone());
+                dwg_patch_undos.push((rec, before_patch, after_patch));
+            }
+            if let Some(next_seed) = staged.dwg_next_seed
+                && dwg.handseed != Some(next_seed)
+            {
+                let before_seed = dwg.handseed.replace(next_seed);
+                dwg_handseed_undo = Some((before_seed, Some(next_seed)));
+            }
+        }
+
         for rem in &staged.removed {
             self.kill_row(rem.row, &rem.records);
         }
@@ -986,7 +1194,8 @@ impl Document {
             }
         }
 
-        let mut added_entries = Vec::with_capacity(staged.added_plans.len());
+        let mut added_entries =
+            Vec::with_capacity(staged.added_plans.len() + staged.dwg_born_plans.len());
         for (_, encoded) in staged.added_plans {
             let mut rec_ids = Vec::with_capacity(encoded.len());
             for (_, tags, _) in encoded {
@@ -1000,6 +1209,22 @@ impl Document {
             added_entries.push(AddedEntry { records: rec_ids });
         }
 
+        let mut dwg_born_undos = Vec::new();
+        for (_, dwg_list) in staged.dwg_born_plans {
+            let mut rec_ids = Vec::with_capacity(dwg_list.len());
+            for born in dwg_list {
+                let rec = self.next_added_record;
+                self.next_added_record += 1;
+                if let Some(dwg) = &mut self.dwg {
+                    dwg.born.insert(rec, born.clone());
+                }
+                dwg_born_undos.push((rec, born));
+                rec_ids.push(rec);
+            }
+            let _ = self.push_born_row(&rec_ids)?;
+            added_entries.push(AddedEntry { records: rec_ids });
+        }
+
         if !self.plain && (!staged.removed.is_empty() || !added_entries.is_empty()) {
             self.reattach_live();
         }
@@ -1007,6 +1232,9 @@ impl Document {
         self.history.redo_stack.clear();
         self.history.undo_stack.push(Entry {
             overlays,
+            dwg_patches: dwg_patch_undos,
+            dwg_born: dwg_born_undos,
+            dwg_handseed: dwg_handseed_undo,
             touched_rows: staged.touched_rows,
             added: added_entries,
             removed: staged.removed,
@@ -1021,26 +1249,45 @@ impl Document {
                 self.added_follower_handles.insert(fh);
             }
         }
-        let empty_rs = RecordSlice {
-            base: 0,
-            bytes: &[],
-        };
-        let tags = self.record_tags(main_rec);
-        let first = tags.first().ok_or(Decline::Unsupported)?;
-        let slice_kind =
-            Kind::of(first.raw_in(&empty_rs).trim_ascii()).ok_or(Decline::Unsupported)?;
-        let body = tags.get(1..).unwrap_or_default();
-        let raw_tags: Vec<single::RawTag<'_>> = body
-            .iter()
-            .map(|t| single::RawTag {
-                code: t.code,
-                value: t.raw_in(&empty_rs),
-            })
-            .collect();
-        let Lift::Element(mut lifted) =
-            lift::lift(self.charset, slice_kind, &raw_tags, &mut self.shapes.pools)
-        else {
-            return Err(Decline::Unsupported);
+        let mut lifted = if self.dwg.is_some() {
+            let (kind_bytes, _, vals) = self
+                .dwg_record_kind_section_values(main_rec)
+                .ok_or(Decline::Unsupported)?;
+            let slice_kind = Kind::of(&kind_bytes).ok_or(Decline::Unsupported)?;
+            let h = self.dwg_record_handle(main_rec);
+            let Lift::Element(lifted) = lift::lift_values(
+                self.charset,
+                slice_kind,
+                h,
+                vals.as_slice(),
+                &mut self.shapes.pools,
+            ) else {
+                return Err(Decline::Unsupported);
+            };
+            lifted
+        } else {
+            let empty_rs = RecordSlice {
+                base: 0,
+                bytes: &[],
+            };
+            let tags = self.record_tags(main_rec);
+            let first = tags.first().ok_or(Decline::Unsupported)?;
+            let slice_kind =
+                Kind::of(first.raw_in(&empty_rs).trim_ascii()).ok_or(Decline::Unsupported)?;
+            let body = tags.get(1..).unwrap_or_default();
+            let raw_tags: Vec<single::RawTag<'_>> = body
+                .iter()
+                .map(|t| single::RawTag {
+                    code: t.code,
+                    value: t.raw_in(&empty_rs),
+                })
+                .collect();
+            let Lift::Element(lifted) =
+                lift::lift(self.charset, slice_kind, &raw_tags, &mut self.shapes.pools)
+            else {
+                return Err(Decline::Unsupported);
+            };
+            lifted
         };
         let layer_id = self.bind_lifted_ids(&mut lifted);
 
@@ -1218,6 +1465,24 @@ impl Document {
         for added in entry.added.iter().rev() {
             self.pop_born_row(added);
         }
+        if let Some(dwg) = &mut self.dwg {
+            for (rec, _) in entry.dwg_born.iter().rev() {
+                dwg.born.remove(rec);
+            }
+            for (rec, before, _) in entry.dwg_patches.iter().rev() {
+                match before {
+                    Some(prev) => {
+                        dwg.patched.insert(*rec, prev.clone());
+                    }
+                    None => {
+                        dwg.patched.remove(rec);
+                    }
+                }
+            }
+            if let Some((before_seed, _)) = entry.dwg_handseed {
+                dwg.handseed = before_seed;
+            }
+        }
         for ov_undo in entry.overlays.iter().rev() {
             match ov_undo {
                 RecordUndo::Born { record, .. } => {
@@ -1278,6 +1543,17 @@ impl Document {
         let Some(entry) = self.history.redo_stack.pop() else {
             return false;
         };
+        if let Some(dwg) = &mut self.dwg {
+            for (rec, _, after) in &entry.dwg_patches {
+                dwg.patched.insert(*rec, after.clone());
+            }
+            if let Some((_, after_seed)) = entry.dwg_handseed {
+                dwg.handseed = after_seed;
+            }
+            for (rec, born) in &entry.dwg_born {
+                dwg.born.insert(*rec, born.clone());
+            }
+        }
         for ov_undo in &entry.overlays {
             match ov_undo {
                 RecordUndo::Born { record, tags } => {

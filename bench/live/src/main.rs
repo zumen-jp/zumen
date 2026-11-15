@@ -1,14 +1,19 @@
 //! 文書エンジンの試作の入口。
 //!
-//! - `live compare <DXF>…` 今の実装と同じ変更を流して、保存したバイト列を比べる
-//! - `live measure <DXF>…` 速さを測る
+//! - `live compare <DXF/DWG>…` 今の実装と同じ変更を流して、保存したバイト列を比べる
+//! - `live measure <DXF/DWG>…` 速さを測る
+//! - `live gpu <DXF/DWG>…` 差分で更新する表示バッファーと実 GPU（WebGPU）の転送・描画時間を測る
+//! - `live place <DXF/DWG>…` 動かす場所（同一プロセス・別プロセス IPC・wasm）ごとの速さを測る
 //! - `live grow <入力> <出力> <枚数>` 測るための大きい入力を作る
+//! - `live grid <入力> <出力> <件数>` 5 種類の図形を格子に並べて足した入力を作る
 //! - `live cases <入力> <出力> [件数]` 書き方の違う図形を足した入力を作る
-//! - `live open <DXF>…` 開いたまま待つ。プロセスのメモリを外から測るために使う
+//! - `live open <DXF/DWG>…` 開いたまま待つ。プロセスのメモリを外から測るために使う
 
 mod cases;
 mod compare;
+mod gpu;
 mod measure;
+mod place;
 mod random;
 mod today;
 
@@ -19,15 +24,18 @@ use std::time::Duration;
 use zumen_bench_live::store::Document;
 
 const USAGE: &str = "使い方:
-  live compare <DXF>… [--steps 回数] [--seed 種] [--threads 本数] [--budget JSON] [--show] [--hashes]
-  live measure <DXF>… [--runs 回数] [--seed 種] [--threads 本数] [--region x0,y0,x1,y1] [--current] [--budget JSON]
-  live grow <入力の DXF> <出力の DXF> <枚数> [--threads 本数]
+  live compare <DXF/DWG>… [--steps 回数] [--seed 種] [--threads 本数] [--budget JSON] [--show] [--hashes]
+  live measure <DXF/DWG>… [--runs 回数] [--seed 種] [--threads 本数] [--region x0,y0,x1,y1] [--current] [--budget JSON]
+  live gpu <DXF/DWG>… [--frames 回数] [--port 番号] [--seed 種]
+  live place <DXF/DWG>… [--runs 回数] [--threads 本数]
+  live grow <入力> <出力> <枚数> [--threads 本数]
+  live grid <入力> <出力> <件数> [--threads 本数]
   live cases <入力の DXF> <出力の DXF> [件数] [--seed 種] [--variant plain|loose|no-seed|low-seed|two-sections|no-tables|empty]
-  live open <DXF>… [--hold ミリ秒] [--threads 本数] [--current] [--budget JSON]";
+  live open <DXF/DWG>… [--hold ミリ秒] [--threads 本数] [--current] [--budget JSON]";
 
 /// 値を取るオプション
-const VALUED: [&str; 8] = [
-    "steps", "seed", "threads", "runs", "budget", "region", "hold", "variant",
+const VALUED: [&str; 10] = [
+    "steps", "seed", "threads", "runs", "budget", "region", "hold", "variant", "frames", "port",
 ];
 /// 値を取らないオプション
 const FLAGS: [&str; 3] = ["current", "show", "hashes"];
@@ -126,6 +134,28 @@ fn run(args: &[String]) -> Result<bool, String> {
             }
             Ok(true)
         }
+        "gpu" if !args.positional.is_empty() => {
+            let options = gpu::Options {
+                frames: args.number("frames")?.unwrap_or(40).max(2),
+                port: args.number("port")?,
+                seed,
+            };
+            gpu::run(&args.positional, &options)?;
+            Ok(true)
+        }
+        "place" if !args.positional.is_empty() => {
+            let options = place::Options {
+                runs: args.number("runs")?.unwrap_or(5).max(1),
+                threads: args.number("threads")?.unwrap_or(all).max(1),
+            };
+            place::run(&args.positional, &options)?;
+            Ok(true)
+        }
+        "worker" => {
+            let threads = args.number("threads")?.unwrap_or(all).max(1);
+            place::worker(threads)?;
+            Ok(true)
+        }
         "grow" => {
             let [input, output, tiles] = args.positional.as_slice() else {
                 return Err(USAGE.to_owned());
@@ -138,6 +168,22 @@ fn run(args: &[String]) -> Result<bool, String> {
                 std::fs::read(input).map_err(|error| format!("{input} を読めない: {error}"))?;
             let out = zumen_bench_live::grow::grow(&src, tiles, threads)
                 .map_err(|error| format!("増やせない: {error:?}"))?;
+            std::fs::write(output, &out)
+                .map_err(|error| format!("{output} に書けない: {error}"))?;
+            println!("{output}: {} バイト", out.len());
+            Ok(true)
+        }
+        "grid" => {
+            let [input, output, count] = args.positional.as_slice() else {
+                return Err(USAGE.to_owned());
+            };
+            let count: usize = count
+                .parse()
+                .map_err(|_| format!("件数を読めない: {count}"))?;
+            let threads = args.number("threads")?.unwrap_or(all).max(1);
+            let src =
+                std::fs::read(input).map_err(|error| format!("{input} を読めない: {error}"))?;
+            let out = zumen_bench_live::grow::grid_add(&src, count, threads)?;
             std::fs::write(output, &out)
                 .map_err(|error| format!("{output} に書けない: {error}"))?;
             println!("{output}: {} バイト", out.len());

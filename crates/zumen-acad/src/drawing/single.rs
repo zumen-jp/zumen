@@ -214,6 +214,55 @@ impl<'a> FieldSource<'a> for &'a Object {
     }
 }
 
+fn first_of_values(values: &[Value], code: i16) -> Option<&Data> {
+    values
+        .iter()
+        .find(|value| value.code == code)
+        .map(|value| &value.data)
+}
+
+impl<'a> FieldSource<'a> for &'a [Value] {
+    fn real(&self, code: i16, default: Option<f64>) -> Result<f64, LiftFail> {
+        match first_of_values(self, code) {
+            Some(Data::Real(value)) if value.is_finite() => Ok(*value),
+            Some(_) => Err(LiftFail::Invalid(code)),
+            None => default.ok_or(LiftFail::Invalid(code)),
+        }
+    }
+
+    fn int(&self, code: i16, default: i64) -> Result<i64, LiftFail> {
+        match first_of_values(self, code) {
+            Some(Data::Int(value)) => Ok(*value),
+            Some(_) => Err(LiftFail::Invalid(code)),
+            None => Ok(default),
+        }
+    }
+
+    fn raw_int(&self, code: i16) -> Result<Option<i64>, LiftFail> {
+        match first_of_values(self, code) {
+            None => Ok(None),
+            Some(Data::Int(value)) => Ok(Some(*value)),
+            Some(_) => Err(LiftFail::Invalid(code)),
+        }
+    }
+
+    fn raw_text(&self, code: i16) -> Result<Option<&'a [u8]>, LiftFail> {
+        match first_of_values(self, code) {
+            None => Ok(None),
+            Some(Data::Text(bytes)) => Ok(Some(bytes.as_slice())),
+            Some(_) => Err(LiftFail::Invalid(code)),
+        }
+    }
+
+    fn has_code(&self, code: i16) -> bool {
+        first_of_values(self, code).is_some()
+    }
+
+    fn insert_followed(&self) -> bool {
+        matches!(first_of_values(self, 66), Some(Data::Int(value)) if *value != 0)
+    }
+}
+
 const SLOTS: usize = 39;
 
 const fn slot(code: i16) -> usize {
@@ -1363,10 +1412,32 @@ impl SingleCatalog {
         items: Vec<(u8, Vec<u8>, Vec<Value>, u32)>,
         first_paper_owner: Option<u64>,
     ) {
+        let with_origin = items
+            .into_iter()
+            .map(|(sec, kind, values, record)| {
+                (
+                    sec,
+                    kind,
+                    values,
+                    Origin::Dxf {
+                        record: record as usize,
+                    },
+                )
+            })
+            .collect();
+        self.register_and_read_tables_with_origin(with_origin, first_paper_owner);
+    }
+
+    /// `Origin` を保ったまま `TABLES`（`0`）・`BLOCKS`（`1`）・`OBJECTS`（`2`）のレコードをまとめて登録し、レイアウトと表を読む
+    pub fn register_and_read_tables_with_origin(
+        &mut self,
+        items: Vec<(u8, Vec<u8>, Vec<Value>, Origin)>,
+        first_paper_owner: Option<u64>,
+    ) {
         if !items.is_empty() {
             let objects: Vec<Object> = items
                 .into_iter()
-                .map(|(sec, kind, values, record)| Object {
+                .map(|(sec, kind, values, origin)| Object {
                     kind,
                     section: match sec {
                         0 => Section::Tables,
@@ -1374,9 +1445,7 @@ impl SingleCatalog {
                         _ => Section::Objects,
                     },
                     values,
-                    origin: Origin::Dxf {
-                        record: record as usize,
-                    },
+                    origin,
                 })
                 .collect();
             let len = self.db.objects().len();
@@ -1448,13 +1517,25 @@ impl SingleCatalog {
         values: Vec<Value>,
         record: u32,
     ) -> Result<Attribute<ModelPoint>, &'static str> {
+        self.read_multiline_attrib_with_origin(
+            values,
+            Origin::Dxf {
+                record: record as usize,
+            },
+        )
+    }
+
+    /// `Origin` を指定して 101（埋め込み MTEXT）を持つ `ATTRIB` レコードを読む
+    pub fn read_multiline_attrib_with_origin(
+        &mut self,
+        values: Vec<Value>,
+        origin: Origin,
+    ) -> Result<Attribute<ModelPoint>, &'static str> {
         let object = Object {
             kind: b"ATTRIB".to_vec(),
             section: Section::Entities,
             values,
-            origin: Origin::Dxf {
-                record: record as usize,
-            },
+            origin,
         };
         let lifter = Lifter {
             layouts: &self.layouts,
@@ -1482,6 +1563,16 @@ impl SingleCatalog {
             .map_err(|diag| diag.code().name())
     }
 
+    /// 登録済みの画層の数
+    pub fn layers_len(&self) -> usize {
+        self.out.layers.len()
+    }
+
+    /// 登録済みの線種の数
+    pub fn line_types_len(&self) -> usize {
+        self.out.line_types.len()
+    }
+
     /// `LayerId` から登録済みの画層名を引く
     pub fn layer_name(&self, id: LayerId) -> &str {
         self.out
@@ -1506,23 +1597,49 @@ impl SingleCatalog {
         record: u32,
         attached_records: Vec<(Vec<u8>, Vec<Value>, u32)>,
     ) {
+        let attached = attached_records
+            .into_iter()
+            .map(|(k, vals, rec)| {
+                (
+                    k,
+                    vals,
+                    Origin::Dxf {
+                        record: rec as usize,
+                    },
+                )
+            })
+            .collect();
+        self.read_entity_for_catalog_with_origin(
+            kind,
+            values,
+            Origin::Dxf {
+                record: record as usize,
+            },
+            attached,
+        );
+    }
+
+    /// `Origin` を保ったまま図形レコードから表にない線種・画層を読む
+    pub fn read_entity_for_catalog_with_origin(
+        &mut self,
+        kind: &[u8],
+        values: Vec<Value>,
+        origin: Origin,
+        attached_records: Vec<(Vec<u8>, Vec<Value>, Origin)>,
+    ) {
         let object = Object {
             kind: kind.to_vec(),
             section: Section::Entities,
             values,
-            origin: Origin::Dxf {
-                record: record as usize,
-            },
+            origin,
         };
         let attached_objs: Vec<Object> = attached_records
             .into_iter()
-            .map(|(k, vals, rec)| Object {
+            .map(|(k, vals, orig)| Object {
                 kind: k,
                 section: Section::Entities,
                 values: vals,
-                origin: Origin::Dxf {
-                    record: rec as usize,
-                },
+                origin: orig,
             })
             .collect();
         let attached_refs: Vec<&Object> = attached_objs.iter().collect();

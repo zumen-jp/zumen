@@ -59,7 +59,7 @@ pub(super) use self::records::{DIM_FIELDS, Dim, dim_fields, view, vport};
 pub(super) use self::tables::multileader;
 use self::tables::*;
 
-const COMMON_ENTITY: SpecRef = SpecRef {
+pub(super) const COMMON_ENTITY: SpecRef = SpecRef {
     spec: "ods_dwg_5_4_1",
     section: "20.4.1 Common entity data",
 };
@@ -74,7 +74,7 @@ const COMMON_ENTITY_HANDLES: SpecRef = SpecRef {
 };
 
 /// 型から、DXF の名前と属する所。クラスで決まる型（500 以上）と、知らない型は `None`
-fn kind(type_code: u16) -> Option<(&'static [u8], Section)> {
+pub(super) fn kind(type_code: u16) -> Option<(&'static [u8], Section)> {
     let entity = |name: &'static [u8]| Some((name, Section::Entities));
     let table = |name: &'static [u8]| Some((name, Section::Tables));
     let object = |name: &'static [u8]| Some((name, Section::Objects));
@@ -143,7 +143,7 @@ fn kind(type_code: u16) -> Option<(&'static [u8], Section)> {
 }
 
 impl super::Class {
-    fn kind(&self) -> (&[u8], Section) {
+    pub(super) fn kind(&self) -> (&[u8], Section) {
         (
             self.name.as_slice(),
             if self.entity {
@@ -323,7 +323,7 @@ impl DwgFile {
 /// 名前に番号を持たない。DXF と同じく、モデル空間と今の用紙空間を除いたブロックのレコードの、
 /// オブジェクトのマップの順（ハンドルの順）の位置を番号として名前の後ろに付ける（推定。サンプルの DWG と DXF の
 /// 比較で確かめた。docs/formats/dwg.md）。`records` は、その順のレコードのフィールド
-fn number_anonymous<'a>(records: impl Iterator<Item = Option<&'a mut Fields>>) {
+pub(super) fn number_anonymous<'a>(records: impl Iterator<Item = Option<&'a mut Fields>>) {
     for (number, fields) in records.enumerate() {
         let Some(name) = fields.and_then(|fields| fields.values.iter_mut().find(|v| v.code == 2))
         else {
@@ -404,15 +404,15 @@ fn in_blocks(objects: &mut [Object], header: Header) {
 }
 
 /// オブジェクトから読んだフィールド
-struct Fields {
+pub(super) struct Fields {
     /// 所有者（330）
-    owner: Option<u64>,
+    pub(super) owner: Option<u64>,
     /// 図形の拡張辞書（`{ACAD_XDICTIONARY` の組の 360）
     xdic: Option<u64>,
     /// 図形の画層のハンドル
     layer: Option<u64>,
     /// 所有者と画層より後の値
-    values: Vec<Value>,
+    pub(super) values: Vec<Value>,
     /// 値の後に、名前に直して置く表のレコード
     records: Vec<RecordRef>,
     /// 登録アプリケーションのハンドルごとの拡張データ。読めなければ `None`
@@ -435,10 +435,10 @@ struct RecordRef {
 }
 
 /// BLOCK_RECORD から読み、DXF と同じく BLOCK に置くフィールド
-const BLOCK_FIELDS: &[i16] = &[70, 10, 20, 30, 1, 4];
+pub(super) const BLOCK_FIELDS: &[i16] = &[70, 10, 20, 30, 1, 4];
 
 /// 名前（2）を持つ表のレコードの型か
-fn is_table_record(type_code: u16) -> bool {
+pub(super) fn is_table_record(type_code: u16) -> bool {
     matches!(
         type_code,
         BLOCK_RECORD | LAYER | STYLE | LTYPE | VIEW | UCS | VPORT | APPID | DIMSTYLE | VP_ENT_HDR
@@ -448,7 +448,7 @@ fn is_table_record(type_code: u16) -> bool {
 impl Fields {
     /// ハンドル（5）より後の値と、拡張データ（1001 から）を並べる。画層などは名前に直し、見つからなければ
     /// 診断を返す
-    fn place(
+    pub(super) fn place(
         self,
         names: &BTreeMap<u64, (u16, Vec<u8>)>,
         books: &BTreeMap<u64, Vec<Value>>,
@@ -597,7 +597,7 @@ struct Common {
 }
 
 /// オブジェクトのデータを読む。読めなければ `None`
-fn read(
+pub(super) fn read(
     data: &[u8],
     release: Release,
     entry: &Entry,
@@ -1253,7 +1253,7 @@ fn text_value(code: i16, text: &[u8]) -> Value {
 /// ヘッダーのコード・ページの番号（ODS 5.4.1 の 3）を、DXF の `$DWGCODEPAGE` の名前にする。番号の順は ODA の
 /// コード・ページの列挙による（推定。30 が ANSI_1252 であることをサンプルの DWG と DXF で確かめた。docs/formats/dwg.md）。
 /// 0（未定義）と表にない番号は `None`
-fn code_page_name(number: u16) -> Option<&'static [u8]> {
+pub(super) fn code_page_name(number: u16) -> Option<&'static [u8]> {
     const NAMES: [&[u8]; 44] = [
         b"ASCII",
         b"ISO8859-1",

@@ -14,6 +14,7 @@ use zumen_base::Ref;
 use zumen_bench_live::born::{
     Add, ColorSpec, LineTypeSpec, NewGrid, NewShape, NewSymbol, NewText, Restyle, WeightSpec,
 };
+use zumen_bench_live::dwg;
 use zumen_bench_live::edit::{Decline, Edit};
 use zumen_bench_live::inspect;
 use zumen_bench_live::lift::Kind;
@@ -418,6 +419,8 @@ struct Run<'a> {
     document: Document,
     /// 今の文書のバイト列（今の実装が返したもの）
     current: Vec<u8>,
+    /// 文書エンジンが直前の変更の後に保存したバイト列（取り消しの一致検査用）
+    saved_current: Vec<u8>,
     /// 文書エンジンの取り消しの列の、始まりのバイト列
     base: Vec<u8>,
     /// 要素のハッシュ（今の実装のもの）
@@ -447,6 +450,7 @@ impl Run<'_> {
         self.document = Document::open(bytes.to_vec(), self.options.threads)
             .map_err(|error| format!("今の実装が書いたファイルを開けない: {error:?}"))?;
         self.base = bytes.to_vec();
+        self.saved_current = bytes.to_vec();
         let document = &self.document;
         self.covered
             .retain(|handle| document.row_of(*handle).is_some());
@@ -1257,12 +1261,13 @@ impl Run<'_> {
         }
     }
 
-    /// 取り消しとやり直しのバイト列を確かめる。`expected` は、変更の後のバイト列。
-    /// `deep` なら、取り消した所で、開き直した文書とも比べる
+    /// 取り消しとやり直しのバイト列を確かめる。`saved_after` は文書エンジンが保存した変更後のバイト列、
+    /// `expected` は今の実装の変更後のバイト列。`deep` なら、取り消した所で、開き直した文書とも比べる
     fn check_undo(
         &mut self,
         step: usize,
         label: &str,
+        saved_after: &[u8],
         expected: &[u8],
         deep: bool,
     ) -> Result<(), String> {
@@ -1272,12 +1277,20 @@ impl Run<'_> {
             return Ok(());
         }
         let back = self.document.save();
-        if back != self.current {
-            let text = difference(&back, &self.current, self.options.show);
+        if back != self.saved_current {
+            let text = difference(&back, &self.saved_current, self.options.show);
             self.bug(
                 step,
                 label,
                 format!("取り消した後のバイト列が、変更の前と違う。{text}"),
+            );
+        } else if dwg::is_dwg_bytes(&self.current)
+            && let Err(text) = dwg::same_dwg_state(&back, &self.current)
+        {
+            self.bug(
+                step,
+                label,
+                format!("取り消した後の DWG が、今の実装の変更前と違う。{text}"),
             );
         }
         if deep {
@@ -1288,12 +1301,20 @@ impl Run<'_> {
             return Ok(());
         }
         let again = self.document.save();
-        if again != expected {
-            let text = difference(&again, expected, self.options.show);
+        if again != saved_after {
+            let text = difference(&again, saved_after, self.options.show);
             self.bug(
                 step,
                 label,
                 format!("やり直した後のバイト列が、変更の後と違う。{text}"),
+            );
+        } else if dwg::is_dwg_bytes(expected)
+            && let Err(text) = dwg::same_dwg_state(&again, expected)
+        {
+            self.bug(
+                step,
+                label,
+                format!("やり直した後の DWG が、今の実装の変更後と違う。{text}"),
             );
         }
         Ok(())
@@ -1595,7 +1616,24 @@ impl Run<'_> {
         let reopened = Document::open(saved, self.options.threads)
             .map_err(|error| format!("保存したファイルを開けない: {error:?}"))?;
         if !self.document.same_content(&reopened) {
-            self.bug(step, label, "開き直した文書と、要素の列が違う".to_owned());
+            let a = inspect::live_elements(&self.document);
+            let b = inspect::live_elements(&reopened);
+            let detail = if a.len() != b.len() {
+                format!("件数 {} と {}", a.len(), b.len())
+            } else {
+                a.iter()
+                    .zip(&b)
+                    .find(|(x, y)| {
+                        x.id != y.id || x.kind != y.kind || x.layer != y.layer || x.hash != y.hash
+                    })
+                    .map(|(x, y)| format!("保持 {x:?} ／ 開き直し {y:?}"))
+                    .unwrap_or_default()
+            };
+            self.bug(
+                step,
+                label,
+                format!("開き直した文書と、要素の列が違う（{detail}）"),
+            );
         }
         if self.document.live_display() != reopened.live_display() {
             self.bug(
@@ -1764,26 +1802,36 @@ impl Run<'_> {
             (Ok(applied), Ok(handles)) => {
                 let expected = applied.file.unwrap_or_else(|| self.current.clone());
                 let saved = self.document.save();
-                if saved == expected {
-                    self.tally.equal += 1;
-                    self.check_ids(step, label, &changes, &applied.hashes, &handles);
-                    self.check_undo(step, label, &expected, deep)?;
-                    for ((change, kind), handle) in changes.iter().zip(&before).zip(&handles) {
-                        let kind = match change.what {
-                            What::Add => handle.and_then(|handle| self.kind_of(handle)),
-                            _ => *kind,
-                        };
-                        if let Some(kind) = kind {
-                            *self.tally.kinds.entry((change.what, kind)).or_default() += 1;
+                let matches_today = if dwg::is_dwg_bytes(&expected) {
+                    dwg::same_dwg_state(&saved, &expected)
+                } else {
+                    (saved == expected)
+                        .then_some(())
+                        .ok_or_else(|| difference(&saved, &expected, self.options.show))
+                };
+                match matches_today {
+                    Ok(()) => {
+                        self.tally.equal += 1;
+                        self.check_ids(step, label, &changes, &applied.hashes, &handles);
+                        self.check_undo(step, label, &saved, &expected, deep)?;
+                        self.saved_current = saved;
+                        for ((change, kind), handle) in changes.iter().zip(&before).zip(&handles) {
+                            let kind = match change.what {
+                                What::Add => handle.and_then(|handle| self.kind_of(handle)),
+                                _ => *kind,
+                            };
+                            if let Some(kind) = kind {
+                                *self.tally.kinds.entry((change.what, kind)).or_default() += 1;
+                            }
                         }
                     }
-                } else {
-                    let text = difference(&saved, &expected, self.options.show);
-                    self.bug(step, label, format!("保存したバイト列が違う。{text}"));
-                    if self.options.show {
-                        println!("    要求: {}", requests.join(","));
+                    Err(text) => {
+                        self.bug(step, label, format!("保存したバイト列が違う。{text}"));
+                        if self.options.show {
+                            println!("    要求: {}", requests.join(","));
+                        }
+                        self.resync(&expected)?;
                     }
-                    self.resync(&expected)?;
                 }
                 self.learn(&changes, applied.hashes);
                 self.current = expected;
@@ -1837,7 +1885,7 @@ impl Run<'_> {
                 // 同じ変更を比べたことにならないので、ハッシュを取り直して、次へ進む
                 self.tally.stale += 1;
                 self.document.undo();
-                if self.document.save() != self.current {
+                if self.document.save() != self.saved_current {
                     let current = self.current.clone();
                     self.resync(&current)?;
                 }
@@ -1862,7 +1910,7 @@ impl Run<'_> {
                     println!("    要求: {}", requests.join(","));
                 }
                 self.document.undo();
-                if self.document.save() != self.current {
+                if self.document.save() != self.saved_current {
                     let current = self.current.clone();
                     self.resync(&current)?;
                 }
@@ -1904,12 +1952,20 @@ impl Run<'_> {
         self.check_deep(steps, "すべて取り消した後")?;
         while self.document.redo() {}
         let again = self.document.save();
-        if again != self.current {
-            let text = difference(&again, &self.current, self.options.show);
+        if again != self.saved_current {
+            let text = difference(&again, &self.saved_current, self.options.show);
             self.bug(
                 steps,
                 label,
                 format!("すべてやり直したバイト列が、今と違う。{text}"),
+            );
+        } else if dwg::is_dwg_bytes(&self.current)
+            && let Err(text) = dwg::same_dwg_state(&again, &self.current)
+        {
+            self.bug(
+                steps,
+                label,
+                format!("すべてやり直した DWG が、今の実装と違う。{text}"),
             );
         }
         self.check_deep(steps, "すべてやり直した後")
@@ -2075,6 +2131,7 @@ pub fn run(path: &str, options: &Options) -> Result<usize, String> {
         verify_today,
         document,
         current: bytes.clone(),
+        saved_current: bytes.clone(),
         base: bytes,
         hashes,
         covered,

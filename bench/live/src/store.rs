@@ -36,7 +36,8 @@ use crate::value::{self, Val};
 const BINARY_SENTINEL: &[u8] = b"AutoCAD Binary DXF\r\n\x1a\0";
 
 /// 名前で指す定義の表（`Born` と同じ 5 種類）
-const TABLE_KINDS: [&[u8]; 5] = [b"LAYER", b"LTYPE", b"STYLE", b"BLOCK_RECORD", b"DIMSTYLE"];
+pub(crate) const TABLE_KINDS: [&[u8]; 5] =
+    [b"LAYER", b"LTYPE", b"STYLE", b"BLOCK_RECORD", b"DIMSTYLE"];
 
 /// 公開する表の種類名
 pub mod table {
@@ -53,6 +54,8 @@ pub mod table {
 pub enum OpenError {
     /// バイナリの DXF
     BinaryDxf,
+    /// 不正または未対応の DWG
+    InvalidDwg,
     /// 4 GiB 以上の入力
     TooLarge,
     /// タグとして切れない位置がある
@@ -599,7 +602,7 @@ impl HandleIndex {
     const NONE_SLOT: u32 = u32::MAX;
     const DUP_SLOT: u32 = u32::MAX - 1;
 
-    fn with_range(min_h: Option<u64>, max_h: Option<u64>, est_rows: usize) -> Self {
+    pub(crate) fn with_range(min_h: Option<u64>, max_h: Option<u64>, est_rows: usize) -> Self {
         let base = match (min_h, max_h) {
             (Some(min), Some(max)) if max >= min => {
                 let span = max - min;
@@ -627,7 +630,7 @@ impl HandleIndex {
     /// 構築中に元の行 `(handle, row_idx)` を入れる。
     /// `Dense` のときは重複検出の結果（`0`: 新規、`2`: 2 件目の衝突、`1`: 3 件目以降の衝突）を返す
     #[inline]
-    fn push_base_raw(&mut self, handle: u64, row_idx: u32) -> Option<u32> {
+    pub(crate) fn push_base_raw(&mut self, handle: u64, row_idx: u32) -> Option<u32> {
         match &mut self.base {
             BaseHandles::Empty => Some(0),
             BaseHandles::Dense { min, slots } => {
@@ -652,7 +655,11 @@ impl HandleIndex {
         }
     }
 
-    fn finish_base<F>(&mut self, duplicate_handles: &mut BTreeSet<u64>, mut on_dup: F) -> u32
+    pub(crate) fn finish_base<F>(
+        &mut self,
+        duplicate_handles: &mut BTreeSet<u64>,
+        mut on_dup: F,
+    ) -> u32
     where
         F: FnMut(u64),
     {
@@ -908,9 +915,10 @@ impl HandleIndex {
     }
 }
 
-/// 常駐する DXF 文書
+/// 常駐する DXF・DWG 文書
 pub struct Document {
     pub(crate) src: SourceBytes,
+    pub(crate) dwg: Option<Box<crate::dwg::DwgBacking>>,
     pub(crate) record_starts: Vec<u32>,
     /// 件数の内訳
     pub counts: Counts,
@@ -1029,7 +1037,7 @@ enum PartItem {
 
 /// 1 区間の `INSERT`・`ATTRIB`・`SEQEND` の並びが単純（`plain`）かの要約（32 バイト）
 #[derive(Clone, Copy, Debug)]
-struct PlainSummary {
+pub(crate) struct PlainSummary {
     is_empty: bool,
     ok: bool,
     needs_incoming: bool,
@@ -1052,7 +1060,7 @@ impl Default for PlainSummary {
 }
 
 impl PlainSummary {
-    fn feed(&mut self, role: Followed) {
+    pub(crate) fn feed(&mut self, role: Followed) {
         if !self.ok {
             return;
         }
@@ -1133,14 +1141,14 @@ impl PlainSummary {
         }
     }
 
-    fn feed_non_family(&mut self) {
+    pub(crate) fn feed_non_family(&mut self) {
         if (self.needs_incoming && !self.closes_incoming) || self.outgoing_open.is_some() {
             self.ok = false;
         }
     }
 }
 
-fn combine_plain_summaries(summaries: impl IntoIterator<Item = PlainSummary>) -> bool {
+pub(crate) fn combine_plain_summaries(summaries: impl IntoIterator<Item = PlainSummary>) -> bool {
     let mut cur: Option<Option<u64>> = None;
     for s in summaries {
         if !s.ok {
@@ -1185,11 +1193,28 @@ pub struct Part {
     forget_refs: Vec<(u64, u32)>,
 }
 
+pub(crate) enum ScannedInner {
+    Dxf {
+        source: SourceBytes,
+        parts: Vec<Part>,
+        guessed_charset: Charset,
+    },
+    Dwg(Box<crate::dwg::ScannedDwg>),
+}
+
 /// 段階計測のためにスキャン結果とページ圧縮済みソースをまとめた中間状態
 pub struct Scanned {
-    source: SourceBytes,
-    parts: Vec<Part>,
-    guessed_charset: Charset,
+    pub(crate) inner: ScannedInner,
+}
+
+impl Scanned {
+    #[cfg(test)]
+    fn parts_len(&self) -> usize {
+        match &self.inner {
+            ScannedInner::Dxf { parts, .. } => parts.len(),
+            ScannedInner::Dwg(dwg) => dwg.parts_len(),
+        }
+    }
 }
 
 fn is_section_delimiter(kind: &[u8]) -> bool {
@@ -1201,7 +1226,7 @@ fn is_non_object_kind(kind: &[u8]) -> bool {
 }
 
 /// 先頭 256 KiB 以内に `HEADER` があれば `$ACADVER` と `$DWGCODEPAGE` から文字コードを先に決める
-fn pre_scan_header(src: &[u8]) -> Charset {
+pub(crate) fn pre_scan_header(src: &[u8]) -> Charset {
     let limit = src.len().min(256 * 1024);
     let head = src.get(..limit).unwrap_or_default();
     let mut pos = 0usize;
@@ -1579,7 +1604,7 @@ fn shift_span(mut span: Span, base: u32) -> Span {
     span
 }
 
-fn scan_source_part(
+pub(crate) fn scan_source_part(
     source: &SourceBytes,
     range: Range<usize>,
     charset: Charset,
@@ -1663,7 +1688,7 @@ fn scan_source_part(
     Ok(builder.finish())
 }
 
-fn split_points_source(source: &SourceBytes, parts: usize) -> Vec<usize> {
+pub(crate) fn split_points_source(source: &SourceBytes, parts: usize) -> Vec<usize> {
     let n = source.len();
     let parts = parts.max(1);
     let pages = source.page_count();
@@ -1857,6 +1882,12 @@ fn scan_with_cuts(src: &[u8], cuts: &[usize], charset: Charset) -> Result<Vec<Pa
             ranges.push(pair[0]..pair[1]);
         }
     }
+    if cfg!(target_arch = "wasm32") {
+        return ranges
+            .into_iter()
+            .map(|r| scan_part(src, r, charset))
+            .collect();
+    }
     thread::scope(|scope| {
         let handles: Vec<_> = ranges
             .into_iter()
@@ -1883,6 +1914,12 @@ fn scan_source_with_cuts(
             ranges.push(pair[0]..pair[1]);
         }
     }
+    if cfg!(target_arch = "wasm32") {
+        return ranges
+            .into_iter()
+            .map(|r| scan_source_part(source, r, charset))
+            .collect();
+    }
     thread::scope(|scope| {
         let handles: Vec<_> = ranges
             .into_iter()
@@ -1908,14 +1945,22 @@ pub fn scan_source(source: SourceBytes, threads: usize) -> Result<Scanned, OpenE
     let cuts = split_points_source(&source, threads.max(1));
     let parts = scan_source_with_cuts(&source, &cuts, guessed_charset)?;
     Ok(Scanned {
-        source,
-        parts,
-        guessed_charset,
+        inner: ScannedInner::Dxf {
+            source,
+            parts,
+            guessed_charset,
+        },
     })
 }
 
 /// 入力を `threads` 本のスレッドでページ圧縮しながら読んで列にする（段階計測用の入口）
 pub fn scan(src: &[u8], threads: usize) -> Result<Scanned, OpenError> {
+    if crate::dwg::is_dwg_bytes(src) {
+        let dwg = crate::dwg::scan_dwg(src, threads)?;
+        return Ok(Scanned {
+            inner: ScannedInner::Dwg(Box::new(dwg)),
+        });
+    }
     if src.starts_with(BINARY_SENTINEL) {
         return Err(OpenError::BinaryDxf);
     }
@@ -1928,14 +1973,22 @@ pub fn scan(src: &[u8], threads: usize) -> Result<Scanned, OpenError> {
     let source = SourceBytes::compress_slice(src, threads);
     let parts = scan_with_cuts(src, &cuts, guessed_charset)?;
     Ok(Scanned {
-        source,
-        parts,
-        guessed_charset,
+        inner: ScannedInner::Dxf {
+            source,
+            parts,
+            guessed_charset,
+        },
     })
 }
 
 /// 小さい入力でも `parts` 個の区間に分けて読む（分割境界の検証用）
 pub fn scan_split(src: &[u8], parts: usize) -> Result<Scanned, OpenError> {
+    if crate::dwg::is_dwg_bytes(src) {
+        let dwg = crate::dwg::scan_dwg(src, parts)?;
+        return Ok(Scanned {
+            inner: ScannedInner::Dwg(Box::new(dwg)),
+        });
+    }
     if src.starts_with(BINARY_SENTINEL) {
         return Err(OpenError::BinaryDxf);
     }
@@ -1947,9 +2000,11 @@ pub fn scan_split(src: &[u8], parts: usize) -> Result<Scanned, OpenError> {
     let scanned_parts = scan_with_cuts(src, &cuts, guessed_charset)?;
     let source = SourceBytes::compress_slice(src, parts.clamp(1, 4));
     Ok(Scanned {
-        source,
-        parts: scanned_parts,
-        guessed_charset,
+        inner: ScannedInner::Dxf {
+            source,
+            parts: scanned_parts,
+            guessed_charset,
+        },
     })
 }
 
@@ -2236,7 +2291,7 @@ fn parse_header(
     })
 }
 
-fn shift_geom_pools(
+pub(crate) fn shift_geom_pools(
     geom: &mut Geom,
     vertex_base: u32,
     text_base: u32,
@@ -2260,7 +2315,7 @@ fn shift_geom_pools(
     }
 }
 
-fn merge_pools(dst: &mut Pools, src: Pools) -> (u32, u32, u32, u32, u32) {
+pub(crate) fn merge_pools(dst: &mut Pools, src: Pools) -> (u32, u32, u32, u32, u32) {
     let vertex_base = dst.vertices.len() as u32;
     let width_base = dst.widths.len() as u32;
     let text_extra_base = dst.text_extras.len() as u32;
@@ -2440,7 +2495,23 @@ impl Document {
     }
 
     /// ファイルを丸ごと `Vec<u8>` に確保せず、ストリーミング圧縮しながら `threads` 本のスレッドで開く
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn open_path(path: &std::path::Path, threads: usize) -> Result<Self, String> {
+        {
+            use std::io::Read as _;
+            let mut f = std::fs::File::open(path)
+                .map_err(|error| format!("{} を読めない: {error}", path.display()))?;
+            let mut head = [0u8; 6];
+            let n = f
+                .read(&mut head)
+                .map_err(|error| format!("{} を読めない: {error}", path.display()))?;
+            if crate::dwg::is_dwg_bytes(head.get(..n).unwrap_or_default()) {
+                drop(f);
+                let bytes = std::fs::read(path)
+                    .map_err(|error| format!("{} を読めない: {error}", path.display()))?;
+                return Self::open(bytes, threads).map_err(|error| format!("開けない: {error:?}"));
+            }
+        }
         let source = SourceBytes::compress_file(path, threads)
             .map_err(|error| format!("{} を読めない: {error}", path.display()))?;
         let scanned =
@@ -2459,34 +2530,43 @@ impl Document {
     }
 
     /// スキャン済みの中間結果から文書を組み上げる（表示バッファーと格子索引の前まで）
-    pub fn assemble_scanned(mut scanned: Scanned) -> Result<Self, OpenError> {
-        let (record_starts, sections, entities, entities_end) =
-            build_layout(scanned.source.len(), &mut scanned.parts);
-        let header_sec = sections
-            .iter()
-            .find(|(sk, _)| *sk == SectionKind::Header)
-            .map(|(_, r)| r.clone());
-        let (version, charset, header) = parse_header(&scanned.source, header_sec, &record_starts);
+    pub fn assemble_scanned(scanned: Scanned) -> Result<Self, OpenError> {
+        match scanned.inner {
+            ScannedInner::Dwg(dwg) => crate::dwg::assemble_dwg(*dwg),
+            ScannedInner::Dxf {
+                source,
+                mut parts,
+                guessed_charset,
+            } => {
+                let (record_starts, sections, entities, entities_end) =
+                    build_layout(source.len(), &mut parts);
+                let header_sec = sections
+                    .iter()
+                    .find(|(sk, _)| *sk == SectionKind::Header)
+                    .map(|(_, r)| r.clone());
+                let (version, charset, header) = parse_header(&source, header_sec, &record_starts);
 
-        if charset != scanned.guessed_charset {
-            let cuts = split_points_source(&scanned.source, scanned.parts.len().max(1));
-            scanned.parts = scan_source_with_cuts(&scanned.source, &cuts, charset)?;
-            for part in &mut scanned.parts {
-                part.starts = Vec::new();
+                if charset != guessed_charset {
+                    let cuts = split_points_source(&source, parts.len().max(1));
+                    parts = scan_source_with_cuts(&source, &cuts, charset)?;
+                    for part in &mut parts {
+                        part.starts = Vec::new();
+                    }
+                }
+
+                Ok(assemble_inner(
+                    source,
+                    parts,
+                    record_starts,
+                    sections,
+                    entities,
+                    entities_end,
+                    version,
+                    charset,
+                    header,
+                ))
             }
         }
-
-        Ok(assemble_inner(
-            scanned.source,
-            scanned.parts,
-            record_starts,
-            sections,
-            entities,
-            entities_end,
-            version,
-            charset,
-            header,
-        ))
     }
 
     /// 表示バッファーを組む
@@ -2501,6 +2581,7 @@ impl Document {
                 }
             }
         }
+        display.clear_dirty();
         self.display = display;
     }
 
@@ -2511,12 +2592,18 @@ impl Document {
 
     /// 元のファイルのバイト数
     pub fn source_len(&self) -> usize {
-        self.src.len()
+        match &self.dwg {
+            Some(dwg) => dwg.raw_len,
+            None => self.src.len(),
+        }
     }
 
-    /// ページ圧縮した元のバイト列が保持に使っているバイト数
+    /// ページ圧縮した元のバイト列（DWG では展開した `DwgFile` と索引）が保持に使っているバイト数
     pub fn source_stored_bytes(&self) -> usize {
-        self.src.stored_bytes()
+        match &self.dwg {
+            Some(dwg) => dwg.single.backing_bytes(&dwg.file),
+            None => self.src.stored_bytes(),
+        }
     }
 
     /// 元のファイルのレコード数
@@ -2587,6 +2674,10 @@ impl Document {
     pub fn edited_records(&self) -> usize {
         let mut touched: BTreeSet<u32> = self.overlay.keys().copied().collect();
         touched.extend(self.gone.iter().copied());
+        if let Some(dwg) = &self.dwg {
+            touched.extend(dwg.patched.keys().copied());
+            touched.extend(dwg.born.keys().copied());
+        }
         touched.len()
     }
 
@@ -2609,8 +2700,9 @@ impl Document {
             .values()
             .map(|v| size_of::<(u32, OverlayRecord)>() + v.heap_bytes())
             .sum();
+        let dwg_bytes = self.dwg.as_ref().map_or(0, |d| d.edit_bytes());
         let gone_bytes = self.gone.len() * size_of::<u32>();
-        overlay_bytes + gone_bytes + self.history.bytes()
+        overlay_bytes + dwg_bytes + gone_bytes + self.history.bytes()
     }
 
     /// ファイル順に並べた生きている各行の表示プリミティブ列を返す
@@ -2672,6 +2764,10 @@ impl Document {
 
     /// レコードの種類（0）と値列（0 の次から）を返す
     pub fn record_kind_and_values(&self, record: u32) -> Option<(Vec<u8>, Vec<Value>)> {
+        if self.dwg.is_some() {
+            let (k, _, v) = self.dwg_record_kind_section_values(record)?;
+            return Some((k, v));
+        }
         if let Some(ov) = self.overlay.get(&record) {
             let first = ov.tags.first()?;
             if first.code != 0 {
@@ -2694,6 +2790,9 @@ impl Document {
 
     /// レコードの最初の有効なハンドル（5。`DIMSTYLE` は 105）を返す
     pub fn record_handle(&self, record: u32) -> Option<u64> {
+        if self.dwg.is_some() {
+            return self.dwg_record_handle(record);
+        }
         if let Some(ov) = self.overlay.get(&record) {
             let first = ov.tags.first()?;
             if first.code != 0 {
@@ -2749,7 +2848,7 @@ impl Document {
         }
         let geom = self.shapes.geom(row.kind, row.shape);
         let record = (row.record < self.counts.records).then_some(row.record);
-        lift::element_of(
+        let mut el = lift::element_of(
             row.handle(),
             record,
             row.layer,
@@ -2757,7 +2856,14 @@ impl Document {
             row.extra_style,
             &geom,
             &self.shapes.pools,
-        )
+        )?;
+        if self.dwg.is_some()
+            && let Some(rec) = record
+            && let Some(src_ref) = self.dwg_base_source(rec, row.handle())
+        {
+            el.source = src_ref;
+        }
+        Some(el)
     }
 
     /// ファイル上の並び順の比較キー
@@ -2899,6 +3005,9 @@ impl Document {
 
     /// 今の `ENTITIES` に合わせてサブクラスマーカー（100）を書くか
     pub fn live_markers(&self) -> bool {
+        if self.dwg.is_some() {
+            return false;
+        }
         if self.version.as_slice() >= b"AC1012" {
             return true;
         }
@@ -2967,6 +3076,9 @@ impl Document {
     }
 
     pub(crate) fn lift_single_attrib_record(&mut self, rec: u32) -> Option<AttribRow> {
+        if self.dwg.is_some() {
+            return self.dwg_lift_single_attrib(rec);
+        }
         let range = if rec >= self.counts.records {
             0..0
         } else {
@@ -3097,6 +3209,9 @@ impl Document {
         row_index: u32,
         attrib_records: Option<&[u32]>,
     ) -> bool {
+        if self.dwg.is_some() {
+            return self.dwg_refresh_row(row_index, attrib_records);
+        }
         let Some(old_row) = self.rows.get(row_index as usize).copied() else {
             return false;
         };
@@ -3229,6 +3344,10 @@ impl Document {
 
     /// `!self.plain` の図面で `ENTITIES` の追加・削除があったとき、生きている親子関係を再計算して変わった `INSERT` 行を更新する
     pub fn reattach_live(&mut self) {
+        if self.dwg.is_some() {
+            self.dwg_reattach_live();
+            return;
+        }
         let end_at = self.entities_end.unwrap_or(u32::MAX);
         let mut live_family: Vec<(u32, Followed)> = Vec::with_capacity(self.ent_family.len() + 8);
         let mut inserted_added = false;
@@ -4438,6 +4557,7 @@ fn assemble_inner(
 
     Document {
         src,
+        dwg: None,
         record_starts,
         counts,
         unit,
@@ -4693,7 +4813,7 @@ EOF
         assert_eq!(whole.rows.len(), 3000);
         for parts in [2, 3, 7, 16] {
             let scanned = scan_split(&src, parts).expect("読む");
-            assert!(scanned.parts.len() > 1, "{parts} 個に分かれない");
+            assert!(scanned.parts_len() > 1, "{parts} 個に分かれない");
             let mut split = Document::assemble(src.clone(), scanned).expect("まとめる");
             split.build_display();
             split.build_index();

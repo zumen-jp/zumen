@@ -1,12 +1,13 @@
 //! 文書エンジンの試作（`docs/live.md`）。
 //!
-//! 文書を開いたままメモリに置き、変更を、変えた要素の分だけの手間で行う。この試作は ASCII の DXF の
+//! 文書を開いたままメモリに置き、変更を、変えた要素の分だけの手間で行う。この試作は ASCII の DXF と DWG の
 //! モデル空間の線・円・円弧・折れ線・文字・ブロックの挿入を扱い、動かす・除く・属性を変える・足す変更と、
 //! 取り消し・やり直し・全体の保存・範囲で選ぶことを持つ。
-//! 保存したバイト列は、同じ変更を今の実装の `apply` で 1 つずつ行ったバイト列と同じになるように作る。
+//! 保存した結果は、同じ変更を今の実装の `apply` で行った結果と同じになるように作る。
 
 pub mod born;
 pub mod display;
+pub mod dwg;
 pub mod edit;
 pub mod grid;
 pub mod grow;
@@ -17,3 +18,5 @@ pub mod save;
 pub mod scan;
 pub mod store;
 pub mod value;
+#[cfg(target_arch = "wasm32")]
+pub mod wasm;

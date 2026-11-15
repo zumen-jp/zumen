@@ -451,3 +451,17 @@ pub(in crate::dwg) fn common_for_dxf(data: &[u8], entity: bool) -> Option<DxfCom
         plotstyle,
     })
 }
+
+/// 図形の共通フィールドの先頭にある絵のバイト列を読み飛ばし、`entmode`（BB）だけを返す
+pub(in crate::dwg) fn entity_data_entmode(bits: &mut Bits<'_>, release: Release) -> Option<u8> {
+    if bits.bit()? {
+        let size = if release >= Release::R2010 {
+            bits.bll()?
+        } else {
+            u64::try_from(bits.rl()?).ok()?
+        };
+        let size = usize::try_from(size).ok()?;
+        bits.skip_bytes(size)?;
+    }
+    bits.bb()
+}

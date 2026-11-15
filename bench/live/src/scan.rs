@@ -87,19 +87,31 @@ pub fn split_points(src: &[u8], parts: usize) -> Vec<usize> {
         .map(|k| if k == parts { n } else { n / parts * k })
         .collect();
     // 区間ごとの改行の数
-    let counts: Vec<usize> = thread::scope(|scope| {
-        let handles: Vec<_> = raw
-            .windows(2)
+    let counts: Vec<usize> = if cfg!(target_arch = "wasm32") {
+        raw.windows(2)
             .map(|pair| {
-                let part = src.get(pair[0]..pair[1]).unwrap_or_default();
-                scope.spawn(move || part.iter().filter(|&&b| b == b'\n').count())
+                src.get(pair[0]..pair[1])
+                    .unwrap_or_default()
+                    .iter()
+                    .filter(|&&b| b == b'\n')
+                    .count()
             })
-            .collect();
-        handles
-            .into_iter()
-            .map(|handle| handle.join().unwrap_or(0))
             .collect()
-    });
+    } else {
+        thread::scope(|scope| {
+            let handles: Vec<_> = raw
+                .windows(2)
+                .map(|pair| {
+                    let part = src.get(pair[0]..pair[1]).unwrap_or_default();
+                    scope.spawn(move || part.iter().filter(|&&b| b == b'\n').count())
+                })
+                .collect();
+            handles
+                .into_iter()
+                .map(|handle| handle.join().unwrap_or(0))
+                .collect()
+        })
+    };
     let mut out = vec![0usize];
     let mut before = 0usize;
     for k in 1..parts {

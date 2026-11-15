@@ -25,8 +25,11 @@ fn write_tag(out: &mut Vec<u8>, slice: &RecordSlice<'_>, tag: &OTag, newline: &[
 }
 
 impl Document {
-    /// 文書の全体を DXF のバイト列にする。手間は、ファイルの大きさと、変えた・足した・除いたレコードの数による
+    /// 文書の全体を DXF または DWG のバイト列にする。手間は、ファイルの大きさと、変えた・足した・除いたレコードの数による
     pub fn save(&self) -> Vec<u8> {
+        if self.dwg.is_some() {
+            return self.save_dwg();
+        }
         let src = &self.src;
         let mut reader = src.page_reader();
         let newline = src.newline();

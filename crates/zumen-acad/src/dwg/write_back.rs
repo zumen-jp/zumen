@@ -1147,12 +1147,21 @@ impl DwgFile {
         Some((handle, out.into_bytes()))
     }
 
+    /// `record` 番目のオブジェクトの、今の変更 `changes` を入れたデータの参照
+    fn current_slice<'a>(
+        &'a self,
+        changes: &'a BTreeMap<usize, Vec<u8>>,
+        record: usize,
+    ) -> Option<&'a [u8]> {
+        match changes.get(&record) {
+            Some(data) => Some(data.as_slice()),
+            None => Some(self.data(self.entries.get(record)?)),
+        }
+    }
+
     /// `record` 番目のオブジェクトの、今の変更 `changes` を入れたデータ
     fn current(&self, changes: &BTreeMap<usize, Vec<u8>>, record: usize) -> Option<Vec<u8>> {
-        match changes.get(&record) {
-            Some(data) => Some(data.clone()),
-            None => Some(self.data(self.entries.get(record)?).to_vec()),
-        }
+        self.current_slice(changes, record).map(<[u8]>::to_vec)
     }
 
     /// R2010 から後の `record` 番目のオブジェクトの、今のデータ（ハンドルのストリームの大きさ（MC）の後）と、
@@ -1179,14 +1188,14 @@ impl DwgFile {
 
     /// `block_record` 番目のオブジェクトのブロックのレコード `block` の、最初と最後の図形のハンドルと、
     /// 最初の図形から後ろの図形のハンドルをたどった図形のハンドルと番号の並び。たどれなければ `None`
-    fn chain(
+    fn chain_with(
         &self,
         block_record: usize,
         block: u64,
-        records: &BTreeMap<u64, usize>,
+        record_of: impl Fn(u64) -> Option<usize>,
         changes: &BTreeMap<usize, Vec<u8>>,
     ) -> Option<(u64, u64, Chain)> {
-        let (_, first, last) = block_links(&self.current(changes, block_record)?, block)?;
+        let (_, first, last) = block_links(self.current_slice(changes, block_record)?, block)?;
         // 輪は数えて止める
         let mut chain = Vec::new();
         let mut at = first;
@@ -1194,14 +1203,24 @@ impl DwgFile {
             if chain.len() >= self.entries.len() {
                 return None;
             }
-            let record = *records.get(&at)?;
+            let record = record_of(at)?;
             chain.push((at, record));
             if at == last {
                 break;
             }
-            at = entity_links(&self.current(changes, record)?, at)?.next;
+            at = entity_links(self.current_slice(changes, record)?, at)?.next;
         }
         (chain.last().map_or(0, |&(handle, _)| handle) == last).then_some((first, last, chain))
+    }
+
+    fn chain(
+        &self,
+        block_record: usize,
+        block: u64,
+        records: &BTreeMap<u64, usize>,
+        changes: &BTreeMap<usize, Vec<u8>>,
+    ) -> Option<(u64, u64, Chain)> {
+        self.chain_with(block_record, block, |at| records.get(&at).copied(), changes)
     }
 
     /// ブロックのレコード `block` の図形の並び `chain` の終わりに、ハンドル `handles` の図形を繋ぐ。前の
@@ -1419,6 +1438,56 @@ impl DwgFile {
 
     /// ブロックのレコード `block` の図形の並びから、`gone` の `count` 個の図形を除き、隣が変わった図形と
     /// レコードの、並びをたどるハンドルを直す。並びをたどれなければ `None`
+    fn relink_block_with(
+        &self,
+        block_record: usize,
+        block: u64,
+        count: usize,
+        gone: &BTreeSet<u64>,
+        record_of: impl Fn(u64) -> Option<usize>,
+        changes: &mut BTreeMap<usize, Vec<u8>>,
+    ) -> Option<()> {
+        let (first, last, chain) = self.chain_with(block_record, block, record_of, changes)?;
+        if chain.iter().filter(|(h, _)| gone.contains(h)).count() != count {
+            return None;
+        }
+        let neighbours = |list: &[(u64, usize)], i: usize| {
+            let handle = |j: Option<usize>| j.and_then(|j| list.get(j)).map_or(0, |&(h, _)| h);
+            (handle(i.checked_sub(1)), handle(i.checked_add(1)))
+        };
+        let kept: Vec<(usize, (u64, usize))> = chain
+            .iter()
+            .copied()
+            .enumerate()
+            .filter(|(_, (h, _))| !gone.contains(h))
+            .collect();
+        let kept_neighbours = |list: &[(usize, (u64, usize))], i: usize| {
+            let handle = |j: Option<usize>| j.and_then(|j| list.get(j)).map_or(0, |&(_, (h, _))| h);
+            (handle(i.checked_sub(1)), handle(i.checked_add(1)))
+        };
+        for (i, &(was, (handle, record))) in kept.iter().enumerate() {
+            let (prev, next) = kept_neighbours(&kept, i);
+            if (prev, next) != neighbours(&chain, was) {
+                let new = relink(self.current_slice(changes, record)?, handle, prev, next)?;
+                changes.insert(record, new);
+            }
+        }
+        let ends = (
+            kept.first().map_or(0, |&(_, (h, _))| h),
+            kept.last().map_or(0, |&(_, (h, _))| h),
+        );
+        if ends != (first, last) {
+            let new = reblock(
+                self.current_slice(changes, block_record)?,
+                block,
+                ends.0,
+                ends.1,
+            )?;
+            changes.insert(block_record, new);
+        }
+        Some(())
+    }
+
     fn relink_block(
         &self,
         block: u64,
@@ -1427,38 +1496,446 @@ impl DwgFile {
         records: &BTreeMap<u64, usize>,
         changes: &mut BTreeMap<usize, Vec<u8>>,
     ) -> Option<()> {
-        let data = |changes: &BTreeMap<usize, Vec<u8>>, record| self.current(changes, record);
         let block_record = *records.get(&block)?;
-        let (first, last, chain) = self.chain(block_record, block, records, changes)?;
-        if chain.iter().filter(|(h, _)| gone.contains(h)).count() != count {
-            return None;
+        self.relink_block_with(
+            block_record,
+            block,
+            count,
+            gone,
+            |at| records.get(&at).copied(),
+            changes,
+        )
+    }
+
+    /// モデル空間のブロック・レコード `block_record`（ハンドル `block`）が持つ図形ハンドルの並びを読む
+    pub(super) fn model_block_owned_handles(
+        &self,
+        block_record: usize,
+        block: u64,
+        record_of: impl Fn(u64) -> Option<usize>,
+    ) -> Option<Vec<u64>> {
+        let entry = self.entries.get(block_record)?;
+        if self.release >= Release::R2010 {
+            let owned = owned(self.data(entry), block, self.release, entry.handles)?;
+            Some(owned.handles.into_iter().map(|(_, h)| h).collect())
+        } else if self.release == Release::R2004 {
+            let owned = owned(self.data(entry), block, Release::R2004, None)?;
+            Some(owned.handles.into_iter().map(|(_, h)| h).collect())
+        } else {
+            let empty = BTreeMap::new();
+            let (_, _, chain) = self.chain_with(block_record, block, record_of, &empty)?;
+            Some(chain.into_iter().map(|(h, _)| h).collect())
         }
-        let neighbours = |list: &[(u64, usize)], i: usize| {
-            let handle = |j: Option<usize>| j.and_then(|j| list.get(j)).map_or(0, |&(h, _)| h);
-            (handle(i.checked_sub(1)), handle(i.checked_add(1)))
-        };
-        let kept: Vec<_> = chain
-            .iter()
-            .copied()
-            .filter(|(h, _)| !gone.contains(h))
-            .collect();
-        for (i, &(handle, record)) in kept.iter().enumerate() {
-            let was = chain.iter().position(|&(h, _)| h == handle)?;
-            let (prev, next) = neighbours(&kept, i);
-            if (prev, next) != neighbours(&chain, was) {
-                let new = relink(&data(changes, record)?, handle, prev, next)?;
-                changes.insert(record, new);
+    }
+
+    /// モデル空間のブロック・レコードから `removed` を除き、`added` の最上位の図形を末尾に繋ぐ
+    pub(super) fn patch_model_block_and_added(
+        &self,
+        block_record: usize,
+        block: u64,
+        record_of: impl Fn(u64) -> Option<usize>,
+        changes: &mut BTreeMap<usize, Vec<u8>>,
+        removed: &BTreeSet<u64>,
+        added: &mut [(u64, Vec<u8>, bool)],
+    ) -> Option<()> {
+        if !removed.is_empty() {
+            let count = removed.len();
+            if self.release >= Release::R2010 {
+                let (data, handles_at) = self.current_r2010(changes, block_record)?;
+                let new = disown_r2010(&data, handles_at, block, count, removed, self.release)?;
+                changes.insert(block_record, new);
+            } else if self.release == Release::R2004 {
+                let new = disown(
+                    self.current_slice(changes, block_record)?,
+                    block,
+                    count,
+                    removed,
+                )?;
+                changes.insert(block_record, new);
+            } else {
+                self.relink_block_with(block_record, block, count, removed, &record_of, changes)?;
             }
         }
-        let ends = (
-            kept.first().map_or(0, |&(h, _)| h),
-            kept.last().map_or(0, |&(h, _)| h),
-        );
-        if ends != (first, last) {
-            let new = reblock(&data(changes, block_record)?, block, ends.0, ends.1)?;
-            changes.insert(block_record, new);
+        let top_handles: Vec<u64> = added
+            .iter()
+            .filter(|(_, _, top)| *top)
+            .map(|(h, _, _)| *h)
+            .collect();
+        if !top_handles.is_empty() {
+            if self.release >= Release::R2010 {
+                let (data, handles_at) = self.current_r2010(changes, block_record)?;
+                let new = adopt_r2010(&data, handles_at, block, &top_handles, self.release)?;
+                changes.insert(block_record, new);
+            } else if self.release == Release::R2004 {
+                let new = adopt(
+                    self.current_slice(changes, block_record)?,
+                    block,
+                    &top_handles,
+                )?;
+                changes.insert(block_record, new);
+            } else {
+                let (first, _, chain) =
+                    self.chain_with(block_record, block, &record_of, changes)?;
+                let joined =
+                    self.join(block_record, block, first, &chain, &top_handles, changes)?;
+                let mut links = joined.into_iter();
+                for (handle, bytes, top) in added.iter_mut() {
+                    if *top {
+                        let (prev, next) = links.next()?;
+                        *bytes = relink(bytes, *handle, prev, next)?;
+                    }
+                }
+            }
         }
         Some(())
+    }
+}
+
+/// 1 つのレコードの変更（`old_values` から `new_values`）を、`current_encoded`（`DwgTxn::set_data` と同じ形）の上で符号化し直す
+pub(super) fn encode_single_entity(
+    release: Release,
+    current_encoded: &[u8],
+    section: Section,
+    kind: &[u8],
+    old_values: &[Value],
+    new_values: &[Value],
+    lookup_table: &impl Fn(&[u8], &[u8]) -> Option<u64>,
+) -> Option<Vec<u8>> {
+    if release == Release::R2007 {
+        return (old_values == new_values).then(|| current_encoded.to_vec());
+    }
+    if old_values == new_values {
+        return Some(current_encoded.to_vec());
+    }
+    let old_full = Object {
+        kind: kind.to_vec(),
+        section: section.clone(),
+        values: old_values.to_vec(),
+        origin: Origin::New,
+    };
+    let new_full = Object {
+        kind: kind.to_vec(),
+        section: section.clone(),
+        values: new_values.to_vec(),
+        origin: Origin::New,
+    };
+    let (reactors, new_no_react) = without_reactors(&old_full, &new_full);
+    let (old, object) = match (
+        without_xdictionary(&old_full),
+        without_xdictionary(&new_no_react),
+    ) {
+        ((before, old), (after, object)) if before == after => (old, object),
+        _ => return None,
+    };
+    let r2010 = release >= Release::R2010;
+    let (raw_data, handles_at) = if r2010 {
+        let mut skip = 0;
+        let bits = usize::try_from(modular_char(current_encoded, &mut skip, false)?).ok()?;
+        let data = current_encoded.get(skip..)?;
+        let at = data.len().checked_mul(8)?.checked_sub(bits)?;
+        (data, Some(at))
+    } else {
+        (current_encoded, None)
+    };
+    if section == Section::Objects {
+        if !reactors.is_empty() {
+            return None;
+        }
+        return if r2010 {
+            encode_object_r2010(raw_data, handles_at?, &old, &object, release)
+        } else {
+            encode_object(raw_data, &old, &object, release)
+        };
+    }
+    if !matches!(section, Section::Entities | Section::Blocks) {
+        return None;
+    }
+    let codes = |obj: &Object, code: i16| -> Vec<Data> {
+        obj.values
+            .iter()
+            .filter(|v| v.code == code)
+            .map(|v| v.data.clone())
+            .collect()
+    };
+    let layer = if codes(&old, 8) == codes(&object, 8) {
+        None
+    } else {
+        Some(lookup_table(b"LAYER", text_of(&object, 8)?)?)
+    };
+    let ltype = if codes(&old, 6) == codes(&object, 6) {
+        None
+    } else {
+        let lt = match object.values.iter().any(|v| v.code == 6) {
+            false => (0, 0),
+            true => match text_of(&object, 6)? {
+                name if name.eq_ignore_ascii_case(b"ByLayer") => (0, 0),
+                name if name.eq_ignore_ascii_case(b"ByBlock") => (1, 0),
+                name if name.eq_ignore_ascii_case(b"Continuous") => (2, 0),
+                name => (3, lookup_table(b"LTYPE", name)?),
+            },
+        };
+        Some(lt)
+    };
+    let restyle = Restyle { layer, ltype };
+    let encoded = if old.values == object.values {
+        current_encoded.to_vec()
+    } else if !r2010 && object.kind == b"MULTILEADER" {
+        restyle.is_empty().then_some(())?;
+        callout(raw_data, &old, &object, release)?
+    } else if r2010 {
+        encode_r2010(raw_data, handles_at?, &old, &object, release, restyle)?
+    } else {
+        encode(raw_data, &old, &object, release, restyle)?
+    };
+    if reactors.is_empty() {
+        return Some(encoded);
+    }
+    if r2010 {
+        let mut skip = 0;
+        let bits = usize::try_from(modular_char(&encoded, &mut skip, false)?).ok()?;
+        let data = encoded.get(skip..)?;
+        let at = data.len().checked_mul(8)?.checked_sub(bits)?;
+        react(data, Some(at), release, &reactors)
+    } else {
+        react(&encoded, None, release, &reactors)
+    }
+}
+
+/// 新しく符号化した図形の `(handle, encoded_bytes)` 列と次の `HANDSEED`
+pub(super) type EncodedBornBatch = (Vec<(u64, Vec<u8>)>, u64);
+
+/// モデル空間に足す 1 つの図形（と続く ATTRIB・SEQEND）を符号化する
+pub(super) fn encode_born_entities(
+    release: Release,
+    objects: &[Object],
+    mut seed: u64,
+    model_owner: u64,
+    lookup_table: &impl Fn(&[u8], &[u8]) -> Option<u64>,
+    material_bylayer: Option<u64>,
+    has_mtext: &impl Fn(u64) -> bool,
+) -> Option<EncodedBornBatch> {
+    if release == Release::R2007 || objects.is_empty() {
+        return None;
+    }
+    let r2004 = release == Release::R2004;
+    let r2010 = release >= Release::R2010;
+    if r2004 && objects.iter().any(|o| !r2004_addable(o)) {
+        return None;
+    }
+    if r2010 && objects.iter().any(|o| !r2010_addable(o)) {
+        return None;
+    }
+    let mut pending: Vec<NewEntity<'_>> = Vec::with_capacity(objects.len());
+    let mut open: Option<(usize, Vec<usize>)> = None;
+    let mut inner: BTreeMap<usize, (u64, u64)> = BTreeMap::new();
+    for object in objects {
+        if object.section != Section::Entities {
+            return None;
+        }
+        let parent = open
+            .as_ref()
+            .and_then(|(i, _)| pending.get(*i))
+            .map(|ins| ins.handle);
+        let &(_, type_code, own) = ADDABLE.iter().find(|(kind, ..)| *kind == object.kind)?;
+        let grid = object.kind == b"INSERT"
+            && object
+                .values
+                .iter()
+                .any(|v| matches!(v.code, 70 | 71 | 44 | 45));
+        let (type_code, own) = if grid {
+            (kinds::MINSERT, MINSERT)
+        } else {
+            (type_code, own)
+        };
+        let handle = object.handle().filter(|&h| h >= seed)?;
+        let pointing: &[i16] = match object.kind.as_slice() {
+            b"TEXT" | b"ATTDEF" | b"MTEXT" => &[7],
+            b"LEADER" => &[3],
+            b"ATTRIB" => &[7],
+            b"INSERT" if small(object, 66)?.is_none_or(|v| v == 1) => &[2, 66],
+            b"INSERT" => return None,
+            _ => &[],
+        };
+        let r2010_codes: &[i16] = match object.kind.as_slice() {
+            b"MTEXT" if r2010 => &[46],
+            b"ATTRIB" if r2010 => &[280],
+            _ => &[],
+        };
+        let codes = [&[5, 330, 8, 6, 67], COMMON, own, pointing, r2010_codes].concat();
+        let (values, embedded) = match multiline_at(object) {
+            Some(at) if object.kind == b"ATTRIB" && release >= Release::R2018 => {
+                object.values.split_at(at)
+            }
+            _ => (object.values.as_slice(), &[][..]),
+        };
+        let embedded_codes = [&[71, 72, 101, 46], MTEXT].concat();
+        if values.iter().any(|v| !codes.contains(&v.code))
+            || embedded.iter().any(|v| !embedded_codes.contains(&v.code))
+        {
+            return None;
+        }
+        if matches!(object.kind.as_slice(), b"BLOCK" | b"ENDBLK") {
+            return None;
+        }
+        let owner = object.owner()?;
+        let mode = if matches!(object.kind.as_slice(), b"ATTRIB" | b"SEQEND") {
+            (owner == parent?).then_some(0u8)?
+        } else {
+            (owner == model_owner).then_some(2u8)?
+        };
+        if small(object, 67)?.is_some() {
+            return None;
+        }
+        let layer = lookup_table(b"LAYER", text_of(object, 8)?)?;
+        let ltype = match object.values.iter().any(|v| v.code == 6) {
+            false => (0, 0),
+            true => match text_of(object, 6)? {
+                name if name.eq_ignore_ascii_case(b"ByLayer") => (0, 0),
+                name if name.eq_ignore_ascii_case(b"ByBlock") => (1, 0),
+                name if name.eq_ignore_ascii_case(b"Continuous") => (2, 0),
+                name => (3, lookup_table(b"LTYPE", name)?),
+            },
+        };
+        let pointed = match object.kind.as_slice() {
+            b"TEXT" | b"ATTRIB" | b"ATTDEF" | b"MTEXT" => {
+                match object.values.iter().any(|v| v.code == 7) {
+                    false => Some(lookup_table(b"STYLE", b"Standard")?),
+                    true => Some(lookup_table(b"STYLE", text_of(object, 7)?)?),
+                }
+            }
+            b"LEADER" => {
+                if let Some(Data::Handle(annotation)) = object.first(340)
+                    && !has_mtext(*annotation)
+                {
+                    return None;
+                }
+                Some(lookup_table(b"DIMSTYLE", text_of(object, 3)?)?)
+            }
+            b"INSERT" => {
+                let name = text_of(object, 2)?;
+                let space = [b"*Model_Space".as_slice(), b"*Paper_Space"]
+                    .iter()
+                    .any(|s| {
+                        name.get(..s.len())
+                            .is_some_and(|h| h.eq_ignore_ascii_case(s))
+                    });
+                let blk = lookup_table(b"BLOCK_RECORD", name)?;
+                (!space && blk != owner).then_some(blk)
+            }
+            _ => None,
+        };
+        if !pointing.is_empty() && pointed.is_none() {
+            return None;
+        }
+        let embedded = match embedded.is_empty() {
+            true => None,
+            false => Some((lookup_table(b"LTYPE", b"ByLayer")?, material_bylayer?)),
+        };
+        let new = NewEntity {
+            object,
+            handle,
+            type_code,
+            mode,
+            owner,
+            layer,
+            ltype,
+            pointed,
+            embedded,
+            children: None,
+        };
+        seed = handle.checked_add(1)?;
+        let index = pending.len();
+        match (object.kind.as_slice(), open.take()) {
+            (b"ATTRIB", Some((ins, mut attribs))) => {
+                attribs.push(index);
+                open = Some((ins, attribs));
+            }
+            (b"SEQEND", Some((ins, attribs))) => {
+                let handles: Vec<u64> = attribs
+                    .iter()
+                    .filter_map(|&i| Some(pending.get(i)?.handle))
+                    .collect();
+                if handles.is_empty() {
+                    return None;
+                }
+                for (n, &i) in attribs.iter().enumerate() {
+                    let prev = n.checked_sub(1).and_then(|m| handles.get(m));
+                    let next = handles.get(n + 1);
+                    inner.insert(i, (prev.copied().unwrap_or(0), next.copied().unwrap_or(0)));
+                }
+                if let Some(insert) = pending.get_mut(ins) {
+                    insert.children = Some((handles, new.handle));
+                }
+            }
+            (b"ATTRIB" | b"SEQEND", None) | (_, Some(_)) => return None,
+            (_, None) => {
+                if small(object, 66)?.is_some() {
+                    open = Some((index, Vec::new()));
+                }
+            }
+        }
+        pending.push(new);
+    }
+    if open.is_some() {
+        return None;
+    }
+    let mut encoded = Vec::with_capacity(pending.len());
+    for (i, new) in pending.iter().enumerate() {
+        let (prev, next) = inner.get(&i).copied().unwrap_or((0, 0));
+        encoded.push((new.handle, new.encode(prev, next, release)?));
+    }
+    Some((encoded, seed))
+}
+
+/// 1 つの図形のデータ（`current_encoded`）がリアクターや未削除の拡張辞書を持たず、削除できる種類か
+pub(super) fn can_unlink_single(
+    release: Release,
+    current_encoded: &[u8],
+    handle: u64,
+    kind: &[u8],
+    values: &[Value],
+    is_removed_handle: impl Fn(u64) -> bool,
+) -> bool {
+    if release == Release::R2007 || !REMOVABLE.contains(&kind) {
+        return false;
+    }
+    let old = Object {
+        kind: kind.to_vec(),
+        section: Section::Entities,
+        values: values.to_vec(),
+        origin: Origin::New,
+    };
+    let (xdictionary, rest) = without_xdictionary(&old);
+    let xdic_gone = match xdictionary {
+        Some(Data::Handle(h)) => h != 0 && is_removed_handle(h),
+        Some(_) => false,
+        None => true,
+    };
+    if !xdic_gone || rest.values.iter().any(|v| matches!(v.code, 102 | 360)) {
+        return false;
+    }
+    let raw_data = if release >= Release::R2010 {
+        let mut skip = 0;
+        let Some(_) = modular_char(current_encoded, &mut skip, false) else {
+            return false;
+        };
+        let Some(d) = current_encoded.get(skip..) else {
+            return false;
+        };
+        d
+    } else {
+        current_encoded
+    };
+    if release >= Release::R2004 {
+        let Some((reactors, has_xdic)) = entity_refs(raw_data, release) else {
+            return false;
+        };
+        reactors == 0 && (!has_xdic || xdictionary.is_some())
+    } else {
+        let Some(links) = entity_links(raw_data, handle) else {
+            return false;
+        };
+        links.reactors == 0 && (links.xdic == 0 || xdictionary == Some(Data::Handle(links.xdic)))
     }
 }
 

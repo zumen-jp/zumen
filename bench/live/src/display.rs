@@ -4,11 +4,164 @@
 //! 変更のときは、変わった要素の分だけを書き直す。動かす変更と属性を変える変更では、開き直して作った
 //! バッファーと同じ値になる。除いた行は場所を残して持ち主を外すので、配列の並びは開き直したものと変わる。
 
+use core::ops::Range;
+
 use crate::lift::{Geom, POLY_CLOSED, Pools, TextRow};
 use crate::paged::Paged;
 
 /// 使っていない場所の持ち主
 pub const NO_OWNER: u32 = u32::MAX;
+
+/// GPU 転送の差分追跡の単位（64 要素 ＝ 1,024 要素ページの 16 分の 1）
+pub const DIRTY_BLOCK: usize = 64;
+const DIRTY_SHIFT: usize = 6;
+const PAGE_SHIFT: usize = 10;
+
+/// 1 本の配列の変更範囲を 64 要素単位のビット集合で追跡する
+#[derive(Clone, Debug, Default)]
+pub struct DirtyColumn {
+    words: Vec<u64>,
+    synced_len: usize,
+}
+
+impl DirtyColumn {
+    /// 前回同期したときの要素数
+    #[inline]
+    pub const fn synced_len(&self) -> usize {
+        self.synced_len
+    }
+
+    #[inline]
+    fn mark_one(&mut self, index: usize) {
+        let block = index >> DIRTY_SHIFT;
+        let word = block >> 6;
+        if self.words.len() <= word {
+            self.words.resize(word + 1, 0);
+        }
+        if let Some(slot) = self.words.get_mut(word) {
+            *slot |= 1u64 << (block & 63);
+        }
+    }
+
+    #[inline]
+    fn mark_range(&mut self, start: usize, end: usize) {
+        if start >= end {
+            return;
+        }
+        let first = start >> DIRTY_SHIFT;
+        let last = (end - 1) >> DIRTY_SHIFT;
+        let last_word = last >> 6;
+        if self.words.len() <= last_word {
+            self.words.resize(last_word + 1, 0);
+        }
+        let first_word = first >> 6;
+        if first_word == last_word {
+            let lo = first & 63;
+            let hi = last & 63;
+            let mask = ((u64::MAX) << lo) & ((u64::MAX) >> (63 - hi));
+            if let Some(slot) = self.words.get_mut(first_word) {
+                *slot |= mask;
+            }
+            return;
+        }
+        if let Some(slot) = self.words.get_mut(first_word) {
+            *slot |= u64::MAX << (first & 63);
+        }
+        if let Some(mid) = self.words.get_mut(first_word + 1..last_word) {
+            mid.fill(u64::MAX);
+        }
+        if let Some(slot) = self.words.get_mut(last_word) {
+            *slot |= u64::MAX >> (63 - (last & 63));
+        }
+    }
+
+    fn truncate(&mut self, new_len: usize) {
+        let keep_blocks = new_len.saturating_add(DIRTY_BLOCK - 1) >> DIRTY_SHIFT;
+        let keep_words = keep_blocks.div_ceil(64);
+        if self.words.len() > keep_words {
+            self.words.truncate(keep_words);
+        }
+        let rem = keep_blocks & 63;
+        if rem != 0
+            && let Some(last) = self.words.last_mut()
+        {
+            *last &= (1u64 << rem) - 1;
+        }
+    }
+
+    fn clear(&mut self, current_len: usize) {
+        self.words.fill(0);
+        self.synced_len = current_len;
+    }
+
+    /// 変更があるか（要素数の増減を含む）
+    pub fn is_dirty(&self, current_len: usize) -> bool {
+        current_len != self.synced_len || self.words.iter().any(|&w| w != 0)
+    }
+
+    /// 同じ 1,024 要素ページ内で連続する変更範囲をまとめて返す（各範囲は `Paged::page_slice` でコピーなしに借りられる）
+    pub fn spans(&self, current_len: usize) -> Vec<Range<usize>> {
+        let mut out: Vec<Range<usize>> = Vec::new();
+        for (wi, &word_val) in self.words.iter().enumerate() {
+            let mut w = word_val;
+            while w != 0 {
+                let bit = w.trailing_zeros() as usize;
+                w &= w - 1;
+                let block = (wi << 6) | bit;
+                let start = block << DIRTY_SHIFT;
+                if start >= current_len {
+                    return out;
+                }
+                let end = (start + DIRTY_BLOCK).min(current_len);
+                if let Some(prev) = out.last_mut()
+                    && prev.end == start
+                    && (prev.start >> PAGE_SHIFT) == (start >> PAGE_SHIFT)
+                {
+                    prev.end = end;
+                } else {
+                    out.push(start..end);
+                }
+            }
+        }
+        out
+    }
+
+    /// 変更された要素の合計数
+    pub fn dirty_elements(&self, current_len: usize) -> usize {
+        self.spans(current_len).into_iter().map(|r| r.len()).sum()
+    }
+}
+
+/// 表示のバッファーの GPU 13 列ごとの変更追跡
+#[derive(Clone, Debug, Default)]
+pub struct DisplayDirty {
+    /// 線分の座標
+    pub segments: DirtyColumn,
+    /// 線分の持ち主
+    pub segment_owner: DirtyColumn,
+    /// 線分のスタイル
+    pub segment_style: DirtyColumn,
+    /// 円弧の座標と角
+    pub arcs: DirtyColumn,
+    /// 円弧の持ち主
+    pub arc_owner: DirtyColumn,
+    /// 円弧のスタイル
+    pub arc_style: DirtyColumn,
+    /// 文字の位置と姿勢
+    pub texts: DirtyColumn,
+    /// 文字の持ち主
+    pub text_owner: DirtyColumn,
+    /// 文字のスタイル
+    pub text_style: DirtyColumn,
+    /// 挿入の位置と尺度
+    pub instances: DirtyColumn,
+    /// 挿入の定義参照と格子数
+    pub instance_ref: DirtyColumn,
+    /// 挿入の持ち主
+    pub instance_owner: DirtyColumn,
+    /// 挿入のスタイル
+    pub instance_style: DirtyColumn,
+}
 
 const SLOT_TEXT_INST: u32 = 0x8000_0000;
 
@@ -108,7 +261,7 @@ pub struct RowBuffers {
 }
 
 /// 表示のバッファー
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct Display {
     /// 線分。始点の x（上位・下位）・y（上位・下位）、終点の x・y
     pub segments: Paged<[f32; 8]>,
@@ -140,6 +293,95 @@ pub struct Display {
     pub slots: Paged<Slot>,
     /// 置き直して使わなくなった場所の数
     pub dead: u32,
+    /// GPU 転送用の 64 要素ブロック単位の変更追跡
+    pub dirty: DisplayDirty,
+    /// 変更追跡を行うか（初回の全体構築中は止め、`clear_dirty` で有効にする）
+    track_dirty: bool,
+}
+
+impl Default for Display {
+    fn default() -> Self {
+        Self {
+            segments: Paged::new(),
+            segment_owner: Paged::new(),
+            segment_style: Paged::new(),
+            arcs: Paged::new(),
+            arc_owner: Paged::new(),
+            arc_style: Paged::new(),
+            texts: Paged::new(),
+            text_owner: Paged::new(),
+            text_style: Paged::new(),
+            instances: Paged::new(),
+            instance_ref: Paged::new(),
+            instance_owner: Paged::new(),
+            instance_style: Paged::new(),
+            slots: Paged::new(),
+            dead: 0,
+            dirty: DisplayDirty::default(),
+            track_dirty: true,
+        }
+    }
+}
+
+impl PartialEq for Display {
+    fn eq(&self, other: &Self) -> bool {
+        self.dead == other.dead
+            && self.slots == other.slots
+            && self.segments == other.segments
+            && self.segment_owner == other.segment_owner
+            && self.segment_style == other.segment_style
+            && self.arcs == other.arcs
+            && self.arc_owner == other.arc_owner
+            && self.arc_style == other.arc_style
+            && self.texts == other.texts
+            && self.text_owner == other.text_owner
+            && self.text_style == other.text_style
+            && self.instances == other.instances
+            && self.instance_ref == other.instance_ref
+            && self.instance_owner == other.instance_owner
+            && self.instance_style == other.instance_style
+    }
+}
+
+#[inline]
+fn same_f32<const N: usize>(a: &[f32; N], b: &[f32; N]) -> bool {
+    a.map(f32::to_bits) == b.map(f32::to_bits)
+}
+
+fn fill_style_checked(
+    col: &mut Paged<[u32; 2]>,
+    dirty: &mut DirtyColumn,
+    track: bool,
+    start: usize,
+    end: usize,
+    style: [u32; 2],
+) {
+    if start >= end {
+        return;
+    }
+    if end - start == 1 {
+        if let Some(place) = col.get_mut(start)
+            && *place != style
+        {
+            *place = style;
+            if track {
+                dirty.mark_one(start);
+            }
+        }
+        return;
+    }
+    let mut changed = false;
+    for at in start..end {
+        if let Some(place) = col.get_mut(at)
+            && *place != style
+        {
+            *place = style;
+            changed = true;
+        }
+    }
+    if changed && track {
+        dirty.mark_range(start, end);
+    }
 }
 
 /// f64 を、上位と下位の f32 に分ける
@@ -221,12 +463,176 @@ pub fn edges(
 }
 
 impl Display {
-    /// 行の数だけ、場所の表を用意する
+    /// 行の数だけ、場所の表を用意する（初回構築中は変更追跡を止め、終わったら `clear_dirty` を呼ぶ）
     pub fn with_rows(rows: usize) -> Self {
         Display {
             slots: Paged::with_capacity(rows),
+            track_dirty: false,
             ..Display::default()
         }
+    }
+
+    /// GPU 側のバッファーと同期し終えた状態にし、以降の差分追跡を有効にする
+    pub fn clear_dirty(&mut self) {
+        self.dirty.segments.clear(self.segments.len());
+        self.dirty.segment_owner.clear(self.segment_owner.len());
+        self.dirty.segment_style.clear(self.segment_style.len());
+        self.dirty.arcs.clear(self.arcs.len());
+        self.dirty.arc_owner.clear(self.arc_owner.len());
+        self.dirty.arc_style.clear(self.arc_style.len());
+        self.dirty.texts.clear(self.texts.len());
+        self.dirty.text_owner.clear(self.text_owner.len());
+        self.dirty.text_style.clear(self.text_style.len());
+        self.dirty.instances.clear(self.instances.len());
+        self.dirty.instance_ref.clear(self.instance_ref.len());
+        self.dirty.instance_owner.clear(self.instance_owner.len());
+        self.dirty.instance_style.clear(self.instance_style.len());
+        self.track_dirty = true;
+    }
+
+    /// 前回の `clear_dirty` から GPU 列に変化があったか
+    pub fn has_dirty(&self) -> bool {
+        self.dirty.segments.is_dirty(self.segments.len())
+            || self.dirty.segment_owner.is_dirty(self.segment_owner.len())
+            || self.dirty.segment_style.is_dirty(self.segment_style.len())
+            || self.dirty.arcs.is_dirty(self.arcs.len())
+            || self.dirty.arc_owner.is_dirty(self.arc_owner.len())
+            || self.dirty.arc_style.is_dirty(self.arc_style.len())
+            || self.dirty.texts.is_dirty(self.texts.len())
+            || self.dirty.text_owner.is_dirty(self.text_owner.len())
+            || self.dirty.text_style.is_dirty(self.text_style.len())
+            || self.dirty.instances.is_dirty(self.instances.len())
+            || self.dirty.instance_ref.is_dirty(self.instance_ref.len())
+            || self
+                .dirty
+                .instance_owner
+                .is_dirty(self.instance_owner.len())
+            || self
+                .dirty
+                .instance_style
+                .is_dirty(self.instance_style.len())
+    }
+
+    /// 差分で GPU に転送する合計バイト数（64 要素ブロック単位）
+    pub fn dirty_bytes(&self) -> usize {
+        self.dirty.segments.dirty_elements(self.segments.len()) * 32
+            + self
+                .dirty
+                .segment_owner
+                .dirty_elements(self.segment_owner.len())
+                * 4
+            + self
+                .dirty
+                .segment_style
+                .dirty_elements(self.segment_style.len())
+                * 8
+            + self.dirty.arcs.dirty_elements(self.arcs.len()) * 28
+            + self.dirty.arc_owner.dirty_elements(self.arc_owner.len()) * 4
+            + self.dirty.arc_style.dirty_elements(self.arc_style.len()) * 8
+            + self.dirty.texts.dirty_elements(self.texts.len()) * 32
+            + self.dirty.text_owner.dirty_elements(self.text_owner.len()) * 4
+            + self.dirty.text_style.dirty_elements(self.text_style.len()) * 8
+            + self.dirty.instances.dirty_elements(self.instances.len()) * 36
+            + self
+                .dirty
+                .instance_ref
+                .dirty_elements(self.instance_ref.len())
+                * 12
+            + self
+                .dirty
+                .instance_owner
+                .dirty_elements(self.instance_owner.len())
+                * 4
+            + self
+                .dirty
+                .instance_style
+                .dirty_elements(self.instance_style.len())
+                * 8
+    }
+
+    /// 記録されている差分スライスだけを別の `Display` の GPU 13 列に反映する（GPU 側ミラーの検証用）
+    pub fn sync_gpu_mirror(&mut self, mirror: &mut Self) {
+        fn sync_col<T: Copy>(src: &Paged<T>, dirty: &DirtyColumn, dst: &mut Paged<T>, zero: T) {
+            if dst.len() != src.len() {
+                dst.resize(src.len(), zero);
+            }
+            for span in dirty.spans(src.len()) {
+                if let Some(slice) = src.page_slice(span.start, span.end) {
+                    dst.copy_range_from_slice(span.start, slice);
+                }
+            }
+        }
+        sync_col(
+            &self.segments,
+            &self.dirty.segments,
+            &mut mirror.segments,
+            [0.0; 8],
+        );
+        sync_col(
+            &self.segment_owner,
+            &self.dirty.segment_owner,
+            &mut mirror.segment_owner,
+            0,
+        );
+        sync_col(
+            &self.segment_style,
+            &self.dirty.segment_style,
+            &mut mirror.segment_style,
+            [0; 2],
+        );
+        sync_col(&self.arcs, &self.dirty.arcs, &mut mirror.arcs, [0.0; 7]);
+        sync_col(
+            &self.arc_owner,
+            &self.dirty.arc_owner,
+            &mut mirror.arc_owner,
+            0,
+        );
+        sync_col(
+            &self.arc_style,
+            &self.dirty.arc_style,
+            &mut mirror.arc_style,
+            [0; 2],
+        );
+        sync_col(&self.texts, &self.dirty.texts, &mut mirror.texts, [0.0; 8]);
+        sync_col(
+            &self.text_owner,
+            &self.dirty.text_owner,
+            &mut mirror.text_owner,
+            0,
+        );
+        sync_col(
+            &self.text_style,
+            &self.dirty.text_style,
+            &mut mirror.text_style,
+            [0; 2],
+        );
+        sync_col(
+            &self.instances,
+            &self.dirty.instances,
+            &mut mirror.instances,
+            [0.0; 9],
+        );
+        sync_col(
+            &self.instance_ref,
+            &self.dirty.instance_ref,
+            &mut mirror.instance_ref,
+            [0; 3],
+        );
+        sync_col(
+            &self.instance_owner,
+            &self.dirty.instance_owner,
+            &mut mirror.instance_owner,
+            0,
+        );
+        sync_col(
+            &self.instance_style,
+            &self.dirty.instance_style,
+            &mut mirror.instance_style,
+            [0; 2],
+        );
+        mirror.slots = self.slots.clone();
+        mirror.dead = self.dead;
+        self.clear_dirty();
     }
 
     /// 要素が要る線分・円弧・文字・挿入の数
@@ -260,37 +666,72 @@ impl Display {
 
     /// 要素の値とスタイルを、場所 `slot` に書く。場所は、要る数だけあること
     fn write(&mut self, slot: Slot, geom: &Geom, pools: &Pools, style: [u32; 2]) {
+        let track = self.track_dirty;
         if slot.is_text_inst() {
             let (t0, tn) = (slot.a_first as usize, slot.a_count as usize);
-            if tn > 0 {
-                self.text_style.fill_range(t0, t0 + tn, style);
-            }
+            fill_style_checked(
+                &mut self.text_style,
+                &mut self.dirty.text_style,
+                track,
+                t0,
+                t0 + tn,
+                style,
+            );
             let (i0, in_) = (
                 slot.b_first as usize,
                 (slot.b_count_tag & !SLOT_TEXT_INST) as usize,
             );
-            if in_ > 0 {
-                self.instance_style.fill_range(i0, i0 + in_, style);
-            }
+            fill_style_checked(
+                &mut self.instance_style,
+                &mut self.dirty.instance_style,
+                track,
+                i0,
+                i0 + in_,
+                style,
+            );
         } else {
             let (s0, sn) = (slot.a_first as usize, slot.a_count as usize);
-            if sn > 0 {
-                self.segment_style.fill_range(s0, s0 + sn, style);
-            }
+            fill_style_checked(
+                &mut self.segment_style,
+                &mut self.dirty.segment_style,
+                track,
+                s0,
+                s0 + sn,
+                style,
+            );
             let (a0, an) = (slot.b_first as usize, slot.b_count_tag as usize);
-            if an > 0 {
-                self.arc_style.fill_range(a0, a0 + an, style);
-            }
+            fill_style_checked(
+                &mut self.arc_style,
+                &mut self.dirty.arc_style,
+                track,
+                a0,
+                a0 + an,
+                style,
+            );
         }
         match geom {
             Geom::Line([x0, y0, x1, y1]) => {
-                if let Some(place) = self.segments.get_mut(slot.segment() as usize) {
-                    *place = segment([*x0, *y0], [*x1, *y1]);
+                let at = slot.segment() as usize;
+                let val = segment([*x0, *y0], [*x1, *y1]);
+                if let Some(place) = self.segments.get_mut(at)
+                    && !same_f32(place, &val)
+                {
+                    *place = val;
+                    if track {
+                        self.dirty.segments.mark_one(at);
+                    }
                 }
             }
             Geom::Circle([x, y, radius]) => {
-                if let Some(place) = self.arcs.get_mut(slot.arc() as usize) {
-                    *place = arc([*x, *y], *radius, 0.0, TURN);
+                let at = slot.arc() as usize;
+                let val = arc([*x, *y], *radius, 0.0, TURN);
+                if let Some(place) = self.arcs.get_mut(at)
+                    && !same_f32(place, &val)
+                {
+                    *place = val;
+                    if track {
+                        self.dirty.arcs.mark_one(at);
+                    }
                 }
             }
             Geom::Arc([x, y, radius, start, end]) => {
@@ -299,8 +740,15 @@ impl Display {
                     0.0 => 360.0,
                     sweep => sweep,
                 };
-                if let Some(place) = self.arcs.get_mut(slot.arc() as usize) {
-                    *place = arc([*x, *y], *radius, radians(*start), radians(sweep));
+                let at = slot.arc() as usize;
+                let val = arc([*x, *y], *radius, radians(*start), radians(sweep));
+                if let Some(place) = self.arcs.get_mut(at)
+                    && !same_f32(place, &val)
+                {
+                    *place = val;
+                    if track {
+                        self.dirty.arcs.mark_one(at);
+                    }
                 }
             }
             Geom::Polyline {
@@ -312,21 +760,40 @@ impl Display {
                 let (mut straight, mut round) = (slot.segment() as usize, slot.arc() as usize);
                 for (from, to, bulge) in pools.edges_of(*first, *count, flags & POLY_CLOSED != 0) {
                     if bulge == 0.0 {
-                        if let Some(place) = self.segments.get_mut(straight) {
-                            *place = segment(from, to);
+                        let val = segment(from, to);
+                        if let Some(place) = self.segments.get_mut(straight)
+                            && !same_f32(place, &val)
+                        {
+                            *place = val;
+                            if track {
+                                self.dirty.segments.mark_one(straight);
+                            }
                         }
                         straight += 1;
                     } else {
-                        if let Some(place) = self.arcs.get_mut(round) {
-                            *place = bulged(from, to, bulge);
+                        let val = bulged(from, to, bulge);
+                        if let Some(place) = self.arcs.get_mut(round)
+                            && !same_f32(place, &val)
+                        {
+                            *place = val;
+                            if track {
+                                self.dirty.arcs.mark_one(round);
+                            }
                         }
                         round += 1;
                     }
                 }
             }
             Geom::Text(row) => {
-                if let Some(place) = self.texts.get_mut(slot.text() as usize) {
-                    *place = lettering(row, pools);
+                let at = slot.text() as usize;
+                let val = lettering(row, pools);
+                if let Some(place) = self.texts.get_mut(at)
+                    && !same_f32(place, &val)
+                {
+                    *place = val;
+                    if track {
+                        self.dirty.texts.mark_one(at);
+                    }
                 }
             }
             Geom::Insert(insert) => {
@@ -335,31 +802,55 @@ impl Display {
                     (split_f64(insert.position[0]), split_f64(insert.position[1]));
                 let grid = insert.grid(pools);
                 let spacing = insert.spacing(pools);
-                if let Some(place) = self.instances.get_mut(at) {
-                    *place = [
-                        a,
-                        b,
-                        c,
-                        d,
-                        insert.scale[0] as f32,
-                        insert.scale[1] as f32,
-                        radians(insert.rotation) as f32,
-                        spacing[0] as f32,
-                        spacing[1] as f32,
-                    ];
+                let val = [
+                    a,
+                    b,
+                    c,
+                    d,
+                    insert.scale[0] as f32,
+                    insert.scale[1] as f32,
+                    radians(insert.rotation) as f32,
+                    spacing[0] as f32,
+                    spacing[1] as f32,
+                ];
+                if let Some(place) = self.instances.get_mut(at)
+                    && !same_f32(place, &val)
+                {
+                    *place = val;
+                    if track {
+                        self.dirty.instances.mark_one(at);
+                    }
                 }
-                if let Some(place) = self.instance_ref.get_mut(at) {
-                    *place = [insert.definition, grid[0], grid[1]];
+                let iref = [insert.definition, grid[0], grid[1]];
+                if let Some(place) = self.instance_ref.get_mut(at)
+                    && *place != iref
+                {
+                    *place = iref;
+                    if track {
+                        self.dirty.instance_ref.mark_one(at);
+                    }
                 }
                 let shown = pools
                     .attribs_of(insert)
                     .filter(|attribute| !attribute.hidden());
                 for (at, attribute) in (slot.text() as usize..).zip(shown) {
-                    if let Some(place) = self.texts.get_mut(at) {
-                        *place = lettering(&attribute.text, pools);
+                    let tval = lettering(&attribute.text, pools);
+                    if let Some(place) = self.texts.get_mut(at)
+                        && !same_f32(place, &tval)
+                    {
+                        *place = tval;
+                        if track {
+                            self.dirty.texts.mark_one(at);
+                        }
                     }
-                    if let Some(place) = self.text_style.get_mut(at) {
-                        *place = [attribute.layer, attribute.color];
+                    let tstyle = [attribute.layer, attribute.color];
+                    if let Some(place) = self.text_style.get_mut(at)
+                        && *place != tstyle
+                    {
+                        *place = tstyle;
+                        if track {
+                            self.dirty.text_style.mark_one(at);
+                        }
                     }
                 }
             }
@@ -368,6 +859,7 @@ impl Display {
 
     /// 後ろに場所を取る
     fn reserve(&mut self, row: u32, counts: [u32; 4]) -> Slot {
+        let track = self.track_dirty;
         let slot = if counts[2] > 0 || counts[3] > 0 {
             debug_assert!(counts[0] == 0 && counts[1] == 0 && counts[3] < SLOT_TEXT_INST);
             Slot {
@@ -387,39 +879,68 @@ impl Display {
         };
         let grow = |len: usize, count: u32| len + count as usize;
         if counts[0] > 0 {
-            let n = grow(self.segments.len(), counts[0]);
+            let s0 = self.segments.len();
+            let n = grow(s0, counts[0]);
             self.segments.resize(n, [0.0; 8]);
             self.segment_owner.resize(n, row);
             self.segment_style.resize(n, [0; 2]);
+            if track {
+                self.dirty.segments.mark_range(s0, n);
+                self.dirty.segment_owner.mark_range(s0, n);
+                self.dirty.segment_style.mark_range(s0, n);
+            }
         }
         if counts[1] > 0 {
-            let n = grow(self.arcs.len(), counts[1]);
+            let a0 = self.arcs.len();
+            let n = grow(a0, counts[1]);
             self.arcs.resize(n, [0.0; 7]);
             self.arc_owner.resize(n, row);
             self.arc_style.resize(n, [0; 2]);
+            if track {
+                self.dirty.arcs.mark_range(a0, n);
+                self.dirty.arc_owner.mark_range(a0, n);
+                self.dirty.arc_style.mark_range(a0, n);
+            }
         }
         if counts[2] > 0 {
-            let n = grow(self.texts.len(), counts[2]);
+            let t0 = self.texts.len();
+            let n = grow(t0, counts[2]);
             self.texts.resize(n, [0.0; 8]);
             self.text_owner.resize(n, row);
             self.text_style.resize(n, [0; 2]);
+            if track {
+                self.dirty.texts.mark_range(t0, n);
+                self.dirty.text_owner.mark_range(t0, n);
+                self.dirty.text_style.mark_range(t0, n);
+            }
         }
         if counts[3] > 0 {
-            let n = grow(self.instances.len(), counts[3]);
+            let i0 = self.instances.len();
+            let n = grow(i0, counts[3]);
             self.instances.resize(n, [0.0; 9]);
             self.instance_ref.resize(n, [0; 3]);
             self.instance_owner.resize(n, row);
             self.instance_style.resize(n, [0; 2]);
+            if track {
+                self.dirty.instances.mark_range(i0, n);
+                self.dirty.instance_ref.mark_range(i0, n);
+                self.dirty.instance_owner.mark_range(i0, n);
+                self.dirty.instance_style.mark_range(i0, n);
+            }
         }
         slot
     }
 
     /// 場所の持ち主を書く
     fn own(&mut self, slot: Slot, owner: u32) {
+        let track = self.track_dirty;
         if slot.is_text_inst() {
             let (t0, tn) = (slot.a_first as usize, slot.a_count as usize);
             if tn > 0 {
                 self.text_owner.fill_range(t0, t0 + tn, owner);
+                if track {
+                    self.dirty.text_owner.mark_range(t0, t0 + tn);
+                }
             }
             let (i0, in_) = (
                 slot.b_first as usize,
@@ -427,15 +948,24 @@ impl Display {
             );
             if in_ > 0 {
                 self.instance_owner.fill_range(i0, i0 + in_, owner);
+                if track {
+                    self.dirty.instance_owner.mark_range(i0, i0 + in_);
+                }
             }
         } else {
             let (s0, sn) = (slot.a_first as usize, slot.a_count as usize);
             if sn > 0 {
                 self.segment_owner.fill_range(s0, s0 + sn, owner);
+                if track {
+                    self.dirty.segment_owner.mark_range(s0, s0 + sn);
+                }
             }
             let (a0, an) = (slot.b_first as usize, slot.b_count_tag as usize);
             if an > 0 {
                 self.arc_owner.fill_range(a0, a0 + an, owner);
+                if track {
+                    self.dirty.arc_owner.mark_range(a0, a0 + an);
+                }
             }
         }
     }
@@ -466,18 +996,33 @@ impl Display {
                 self.segments.truncate(n);
                 self.segment_owner.truncate(n);
                 self.segment_style.truncate(n);
+                if self.track_dirty {
+                    self.dirty.segments.truncate(n);
+                    self.dirty.segment_owner.truncate(n);
+                    self.dirty.segment_style.truncate(n);
+                }
             }
             if slot.arcs() > 0 {
                 let n = slot.arc() as usize;
                 self.arcs.truncate(n);
                 self.arc_owner.truncate(n);
                 self.arc_style.truncate(n);
+                if self.track_dirty {
+                    self.dirty.arcs.truncate(n);
+                    self.dirty.arc_owner.truncate(n);
+                    self.dirty.arc_style.truncate(n);
+                }
             }
             if slot.texts() > 0 {
                 let n = slot.text() as usize;
                 self.texts.truncate(n);
                 self.text_owner.truncate(n);
                 self.text_style.truncate(n);
+                if self.track_dirty {
+                    self.dirty.texts.truncate(n);
+                    self.dirty.text_owner.truncate(n);
+                    self.dirty.text_style.truncate(n);
+                }
             }
             if slot.instances() > 0 {
                 let n = slot.instance() as usize;
@@ -485,6 +1030,12 @@ impl Display {
                 self.instance_ref.truncate(n);
                 self.instance_owner.truncate(n);
                 self.instance_style.truncate(n);
+                if self.track_dirty {
+                    self.dirty.instances.truncate(n);
+                    self.dirty.instance_ref.truncate(n);
+                    self.dirty.instance_owner.truncate(n);
+                    self.dirty.instance_style.truncate(n);
+                }
             }
         } else {
             self.own(slot, NO_OWNER);
@@ -710,5 +1261,50 @@ mod tests {
         display.push(&Geom::Line([2.0, 2.0, 3.0, 3.0]), &pools, [0, 0]);
         display.pop();
         assert_eq!(display, opened);
+    }
+
+    #[test]
+    fn dirty_blocks_sync_gpu_mirror_with_minimal_bytes() {
+        let pools = Pools::default();
+        let mut display = Display::with_rows(5000);
+        for i in 0..5000 {
+            let x = f64::from(i);
+            display.push(&Geom::Line([x, 0.0, x + 1.0, 1.0]), &pools, [0, 1]);
+        }
+        let mut mirror = display.clone();
+        display.clear_dirty();
+        assert!(!display.has_dirty());
+        assert_eq!(display.dirty_bytes(), 0);
+
+        // 1 本だけ動かす: `segments` の 64 要素ブロック 1 個（64 × 32 ＝ 2,048 バイト）だけが汚れる
+        display.update(2500, &Geom::Line([99.0, 5.0, 100.0, 6.0]), &pools, [0, 1]);
+        assert!(display.has_dirty());
+        assert_eq!(display.dirty_bytes(), DIRTY_BLOCK * 32);
+        display.sync_gpu_mirror(&mut mirror);
+        assert_eq!(display, mirror);
+        assert!(!display.has_dirty());
+
+        // 1 本の色だけ変える: `segment_style` の 64 要素ブロック 1 個（64 × 8 ＝ 512 バイト）だけが汚れる
+        display.update(2500, &Geom::Line([99.0, 5.0, 100.0, 6.0]), &pools, [0, 5]);
+        assert_eq!(display.dirty_bytes(), DIRTY_BLOCK * 8);
+        display.sync_gpu_mirror(&mut mirror);
+        assert_eq!(display, mirror);
+
+        // 1 本を隠す: `segment_owner` の 64 要素ブロック 1 個（64 × 4 ＝ 256 バイト）だけが汚れる
+        display.hide(1200);
+        assert_eq!(display.dirty_bytes(), DIRTY_BLOCK * 4);
+        display.sync_gpu_mirror(&mut mirror);
+        assert_eq!(display, mirror);
+
+        // 追加して取り消す（pop）もミラーと完全一致する
+        display.push(&Geom::Circle([10.0, 20.0, 3.0]), &pools, [2, 4]);
+        assert!(display.has_dirty());
+        display.sync_gpu_mirror(&mut mirror);
+        assert_eq!(display, mirror);
+
+        display.pop();
+        assert!(display.has_dirty());
+        display.sync_gpu_mirror(&mut mirror);
+        assert_eq!(display, mirror);
     }
 }

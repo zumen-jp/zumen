@@ -302,7 +302,9 @@ pub(crate) fn encode_born_records(records: BornRecords) -> Option<Vec<EncodedBor
 impl Document {
     /// `Add` を検証して `BornRecords` を作る。今の実装が断る入力は `None` を返す
     pub(crate) fn build_born_records(&self, add: &Add, handle: u64) -> Option<BornRecords> {
-        self.entities_end?;
+        if self.dwg.is_none() {
+            self.entities_end?;
+        }
         let target_layer_name = add.layer.as_deref().unwrap_or("0");
         let layer_id = self.lookup_live_layer(target_layer_name)?;
         let resolved_layer_name = self.layers.get(layer_id.0 as usize)?.name.as_str();
@@ -554,6 +556,9 @@ impl Document {
 
         let mut tables = self.tables_cache.clone();
         tables.markers = self.live_markers();
+        if self.dwg.is_some() {
+            tables.dwg_seed = Some(self.current_handseed());
+        }
         single::born_model(
             &tables,
             &element,

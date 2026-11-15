@@ -164,6 +164,22 @@ impl<T, const BITS: usize> Paged<T, BITS> {
         &self.pages
     }
 
+    /// 同じページの中にある範囲 `start..end` のスライスをコピーなしで借りる
+    #[inline]
+    pub fn page_slice(&self, start: usize, end: usize) -> Option<&[T]> {
+        let end = end.min(self.len);
+        if start >= end {
+            return Some(&[]);
+        }
+        let page = start >> BITS;
+        if ((end - 1) >> BITS) != page {
+            return None;
+        }
+        let offset = start & Self::MASK;
+        let len = end - start;
+        self.pages.get(page)?.get(offset..offset + len)
+    }
+
     /// 要素を順にたどる
     #[inline]
     pub fn iter(&self) -> Iter<'_, T> {
@@ -872,13 +888,13 @@ fn lz4_append_full(comp: &[u8], orig_len: usize, out: &mut Vec<u8>) {
     }
 }
 
-struct CompressedPart {
-    data: Vec<u8>,
-    lens: Vec<u16>,
-    newlines: Vec<u16>,
+pub(crate) struct CompressedPart {
+    pub(crate) data: Vec<u8>,
+    pub(crate) lens: Vec<u16>,
+    pub(crate) newlines: Vec<u16>,
 }
 
-fn compress_pages_slice(bytes: &[u8]) -> CompressedPart {
+pub(crate) fn compress_pages_slice(bytes: &[u8]) -> CompressedPart {
     let pages = bytes.len().div_ceil(SourceBytes::PAGE_SIZE);
     let mut data = Vec::with_capacity(bytes.len() / 4 + 64);
     let mut lens = Vec::with_capacity(pages);
@@ -938,7 +954,7 @@ impl SourceBytes {
     pub const PAGE_SIZE: usize = 1 << Self::PAGE_BITS;
     const PAGE_MASK: usize = Self::PAGE_SIZE - 1;
 
-    fn assemble_parts(len: usize, parts: Vec<CompressedPart>) -> Self {
+    pub(crate) fn assemble_parts(len: usize, parts: Vec<CompressedPart>) -> Self {
         let total_data: usize = parts.iter().map(|p| p.data.len()).sum();
         let total_pages: usize = parts.iter().map(|p| p.lens.len()).sum();
         let mut data = Vec::with_capacity(total_data);
@@ -1005,7 +1021,7 @@ impl SourceBytes {
         }
         let total_pages = src.len().div_ceil(Self::PAGE_SIZE);
         let workers = threads.max(1).min(total_pages.div_ceil(4).max(1));
-        if workers <= 1 {
+        if cfg!(target_arch = "wasm32") || workers <= 1 {
             return Self::assemble_parts(src.len(), vec![compress_pages_slice(src)]);
         }
         let pages_per = total_pages.div_ceil(workers);
@@ -1026,6 +1042,7 @@ impl SourceBytes {
     }
 
     /// ファイルを丸ごと `Vec<u8>` に確保せず、`threads` 本のスレッドで 64 KiB ずつ読みながらページ圧縮する
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn compress_file(path: &std::path::Path, threads: usize) -> std::io::Result<Self> {
         use std::io::{Read, Seek, SeekFrom};
 

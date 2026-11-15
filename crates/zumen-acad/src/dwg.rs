@@ -23,6 +23,7 @@ mod objects;
 mod r2004;
 mod r2007;
 pub(crate) mod reencode;
+pub mod single;
 mod write_back;
 
 use bits::{Bits, crc16, modular_char, modular_short};
@@ -239,6 +240,28 @@ impl DwgFile {
         &self.locators
     }
 
+    /// オブジェクトマップのレコード数
+    pub fn entry_count(&self) -> usize {
+        self.entries.len()
+    }
+
+    /// `record` 番目のオブジェクトの見出し `(handle, type_code, handles_at, span)`
+    pub fn entry_summary(&self, record: usize) -> Option<(u64, u16, Option<usize>, Range<usize>)> {
+        let entry = self.entries.get(record)?;
+        Some((
+            entry.handle,
+            entry.type_code,
+            entry.handles,
+            entry.span.clone(),
+        ))
+    }
+
+    /// `record` 番目のオブジェクトの型ごとのビット列（CRC の前まで）
+    pub fn entry_raw_data(&self, record: usize) -> Option<&[u8]> {
+        let entry = self.entries.get(record)?;
+        Some(self.data(entry))
+    }
+
     /// `record` 番目のオブジェクトのデータ（大きさ（MS）の後から CRC の前まで）。[`DwgTxn::set_data`] に
     /// 渡す形と同じ。R2010 からは、ハンドルのストリームの大きさ（MC）から始まる（決定 0083）
     pub fn object_data(&self, record: usize) -> Option<&[u8]> {
@@ -246,6 +269,19 @@ impl DwgFile {
         let mut start = entry.span.start;
         modular_short(self.body(), &mut start)?;
         self.body().get(start..entry.data.end)
+    }
+
+    pub(super) fn heap_bytes(&self) -> usize {
+        let container_body = if self.container.is_some() || self.r2007.is_some() {
+            self.body().len()
+        } else {
+            0
+        };
+        self.src.capacity()
+            + container_body
+            + self.entries.capacity() * core::mem::size_of::<Entry>()
+            + self.locators.capacity() * core::mem::size_of::<Locator>()
+            + self.classes.capacity() * core::mem::size_of::<Class>()
     }
 
     fn data(&self, entry: &Entry) -> &[u8] {

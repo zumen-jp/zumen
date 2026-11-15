@@ -168,8 +168,11 @@ fn kind_name_of(src: &[u8], range: Range<usize>) -> &[u8] {
     }
 }
 
-/// モデル空間の要素を `tiles` 枚（元を含む）に増やした DXF を返す
+/// モデル空間の要素を `tiles` 枚（元を含む）に増やした DXF または DWG を返す
 pub fn grow(src: &[u8], tiles: usize, threads: usize) -> Result<Vec<u8>, GrowError> {
+    if crate::dwg::is_dwg_bytes(src) {
+        return crate::dwg::grow_dwg(src, tiles, threads);
+    }
     let document = Document::open(src.to_vec(), threads).map_err(GrowError::Open)?;
     let found = outline(src);
     let insert_at = found.insert_at.ok_or(GrowError::NoEntities)?;
@@ -288,6 +291,125 @@ pub fn grow(src: &[u8], tiles: usize, threads: usize) -> Result<Vec<u8>, GrowErr
     out.extend_from_slice(&added);
     out.extend_from_slice(src.get(insert_at..).unwrap_or_default());
     Ok(out)
+}
+
+/// `bench/editor/prepare.mjs` と同じ規則で、線・折れ線・円・円弧・文字の 5 種類を格子に並べて `count` 件足す
+pub fn grid_add(src: &[u8], count: usize, threads: usize) -> Result<Vec<u8>, String> {
+    if count == 0 {
+        return Ok(src.to_vec());
+    }
+    let (bbox, layer) = base_extent_and_layer(src)?;
+    let mut document =
+        Document::open_slice(src, threads).map_err(|error| format!("開けない: {error:?}"))?;
+    let columns = 400usize;
+    let width = (bbox[2] - bbox[0]).max(1.0);
+    let step = width / columns as f64;
+    let size = step * 0.4;
+    let chunk_size = 5_000usize;
+    for start in (0..count).step_by(chunk_size) {
+        let end = (start + chunk_size).min(count);
+        let mut edits = Vec::with_capacity(end - start);
+        for i in start..end {
+            let x = bbox[0] + (i % columns) as f64 * step;
+            let y = bbox[1] + (i / columns) as f64 * step;
+            let shape = match i % 5 {
+                0 => crate::born::NewShape::Line {
+                    start: [x, y],
+                    end: [x + size, y + size],
+                },
+                1 => crate::born::NewShape::Polyline {
+                    points: vec![[x, y], [x + size, y], [x + size, y + size]],
+                    bulges: None,
+                    closed: false,
+                },
+                2 => crate::born::NewShape::Circle {
+                    center: [x, y],
+                    radius: size / 2.0,
+                },
+                3 => crate::born::NewShape::Arc {
+                    center: [x, y],
+                    radius: size / 2.0,
+                    start: 0.0,
+                    end: 90.0,
+                },
+                _ => crate::born::NewShape::Text(crate::born::NewText {
+                    content: format!("T{i}"),
+                    position: [x, y],
+                    end: None,
+                    horizontal: None,
+                    vertical: None,
+                    height: size / 2.0,
+                    rotation: 0.0,
+                    width_factor: None,
+                    oblique: None,
+                    backward: false,
+                    upside_down: false,
+                    style: None,
+                }),
+            };
+            edits.push(crate::edit::Edit::Add(Box::new(crate::born::Add {
+                layer: layer.clone(),
+                color: Some(crate::born::ColorSpec::Aci(1)),
+                line_type: None,
+                line_weight: None,
+                shape,
+            })));
+        }
+        document
+            .apply(&edits)
+            .map_err(|error| format!("{start} 件目からの追加が失敗: {error:?}"))?;
+    }
+    Ok(document.save())
+}
+
+fn base_extent_and_layer(src: &[u8]) -> Result<([f64; 4], Option<String>), String> {
+    let mut session = zumen::Session::open().map_err(|e| format!("Session::open: {e:?}"))?;
+    let cancel = zumen::CancelToken::new();
+    session
+        .push("base", src)
+        .map_err(|e| format!("Session::push: {e:?}"))?;
+    let _ = session
+        .call_bytes(br#"{"v":1,"op":"open","input":"base","doc":"d"}"#, &cancel)
+        .map_err(|e| format!("open: {e:?}"))?;
+    let mut bbox: Option<[f64; 4]> = None;
+    let mut layer: Option<String> = None;
+    let mut offset = 0usize;
+    loop {
+        let req = format!(
+            r#"{{"v":1,"op":"entities","doc":"d","fields":["layer","bbox"],"offset":{offset},"limit":10000}}"#
+        );
+        let reply = session
+            .call_bytes(req.as_bytes(), &cancel)
+            .map_err(|e| format!("entities: {e:?}"))?;
+        let resp =
+            zumen::Response::parse(&reply).map_err(|_| "entities 応答を読めない".to_owned())?;
+        let parsed: zumen::messages::EntitiesResult = resp
+            .result_as::<zumen::messages::EntitiesResult>()
+            .and_then(Result::ok)
+            .ok_or_else(|| "entities result を読めない".to_owned())?;
+        for item in &parsed.items {
+            if layer.is_none() && item.id.starts_with("space/0/") && item.layer.is_some() {
+                layer.clone_from(&item.layer);
+            }
+            if let Some(b) = &item.bbox {
+                let cur = [b.min_x, b.min_y, b.max_x, b.max_y];
+                bbox = Some(match bbox {
+                    Some(prev) => [
+                        prev[0].min(cur[0]),
+                        prev[1].min(cur[1]),
+                        prev[2].max(cur[2]),
+                        prev[3].max(cur[3]),
+                    ],
+                    None => cur,
+                });
+            }
+        }
+        match parsed.next_offset {
+            Some(next) => offset = next as usize,
+            None => break,
+        }
+    }
+    Ok((bbox.unwrap_or([0.0, 0.0, 1000.0, 1000.0]), layer))
 }
 
 #[cfg(test)]

@@ -248,6 +248,7 @@ dependencies = [
  "zumen-acad",
  "zumen-base",
  "zumen-drawing",
+ "zumen-sdk",
 ]
 
 [[package]]

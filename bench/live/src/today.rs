@@ -24,13 +24,16 @@ impl Failure {
         format!("{} [{}]", self.status, self.codes.join(", "))
     }
 
-    /// 受け付けなかった理由。図面を読んだときの診断（`dxf.`）を除いたもの
+    /// 受け付けなかった理由。図面を読んだときの診断（`dxf.` と `dwg.edit.` 以外の `dwg.`）を除いたもの
     pub fn reason(&self) -> String {
         let mut codes: Vec<&str> = self
             .codes
             .iter()
             .map(String::as_str)
-            .filter(|code| !code.starts_with("dxf."))
+            .filter(|code| {
+                !code.starts_with("dxf.")
+                    && !(code.starts_with("dwg.") && !code.starts_with("dwg.edit."))
+            })
             .collect();
         codes.dedup();
         format!("{} [{}]", self.status, codes.join(", "))
