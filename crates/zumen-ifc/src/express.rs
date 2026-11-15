@@ -1793,6 +1793,10 @@ impl<'a> Checker<'a> {
 }
 
 #[cfg(test)]
+#[path = "../tests/support/express_external.rs"]
+mod external_test;
+
+#[cfg(test)]
 mod tests {
     use core::cell::Cell;
 
