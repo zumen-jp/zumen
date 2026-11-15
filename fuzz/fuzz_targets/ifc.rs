@@ -26,6 +26,7 @@ fn lift(file: &IfcFile, cx: &mut Cx) -> Result<(), Error> {
     let mut shapes = 0;
     let mut extrusions = 0;
     let mut sweeps = 0;
+    let mut revolutions = 0;
     let mut styles = 0;
     for id in file.ids() {
         cx.check(zumen_base::Kind::Work, 1)?;
@@ -48,6 +49,10 @@ fn lift(file: &IfcFile, cx: &mut Cx) -> Result<(), Error> {
                         if file.kind(node.source).eq_ignore_ascii_case(b"IFCSWEPTDISKSOLID") && sweeps < 16 {
                             if let Err(Error::Stopped(stop)) = file.swept_disk(node, cx) { return Err(Error::Stopped(stop)); }
                             sweeps += 1;
+                        }
+                        if file.kind(node.source).eq_ignore_ascii_case(b"IFCREVOLVEDAREASOLID") && revolutions < 16 {
+                            if let Err(Error::Stopped(stop)) = file.revolved_area(node, cx) { return Err(Error::Stopped(stop)); }
+                            revolutions += 1;
                         }
                     }
                 }

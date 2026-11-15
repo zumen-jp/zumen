@@ -15,6 +15,7 @@ mod hash;
 mod id;
 mod placement;
 mod relations;
+mod revolution;
 mod surface_style;
 mod sweep;
 
@@ -26,6 +27,7 @@ pub use hash::{Canon, Encode, Hash};
 pub use id::{GlobalId, Id};
 pub use placement::Transform;
 pub use relations::Relations;
+pub use revolution::*;
 pub use surface_style::*;
 pub use sweep::*;
 

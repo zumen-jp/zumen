@@ -16,6 +16,9 @@ use crate::{
     Cx, Diagnostic, Error, IfcFile, Kind, Record, ShapeNode, Value, at_bytes, codes, stopped,
 };
 
+mod revolution;
+pub use revolution::{RevolutionSource, RevolvedArea};
+
 /// 既存の形の葉から取得した押し出し・断面と曲線。出所を意味の値から分ける。
 ///
 /// boundary の length_unit は、深さ・立体の原点にも使う。配置・写像は未適用。
@@ -75,6 +78,7 @@ impl IfcFile {
                 cx,
                 current: node.source.id().unwrap_or(0),
                 records: Vec::new(),
+                revolution: false,
             };
             reader.check(Kind::Work, 1)?;
             let solid = self
@@ -124,6 +128,7 @@ impl IfcFile {
                 cx,
                 current: node.source.id().unwrap_or(0),
                 records: Vec::new(),
+                revolution: false,
             };
             reader.check(Kind::Work, 1)?;
             let source = self
@@ -161,6 +166,7 @@ struct Reader<'f, 'c, 'b> {
     cx: &'c mut Cx<'b>,
     current: u64,
     records: Vec<&'f Record>,
+    revolution: bool,
 }
 
 impl<'f> Reader<'f, '_, '_> {
@@ -587,6 +593,67 @@ impl<'f> Reader<'f, '_, '_> {
         self.enter(entered)?;
         self.current = profile_id;
         self.enter(entered)?;
+        let area = self.parameterized_profile(profile, version, solid)?;
+        let solid_id = solid.id().unwrap_or(0);
+        self.current = solid_id;
+        let sweep_position = if matches!(arg(solid, 2), Some(Value::Null)) {
+            if version == Version::Ifc2x3 {
+                return Err(self.invalid("placement"));
+            }
+            None
+        } else {
+            let id = self.target(solid, 2)?;
+            Some(self.placement(id)?)
+        };
+        self.current = solid_id;
+        let direction_id = self.target(solid, 3)?;
+        let direction = self.vector(direction_id, false)?;
+        if direction[2] == 0. {
+            return Err(self.invalid("direction"));
+        }
+        self.current = solid_id;
+        let depth = self.number(arg(solid, 4))?;
+        if depth <= 0. {
+            return Err(self.invalid("depth"));
+        }
+        let records = core::mem::take(&mut self.records);
+        let checked = self.strict_attributes(&records);
+        self.records = records;
+        checked?;
+        let length_unit = self.named_unit(version, solid, false)?;
+        self.current = solid_id;
+        if length_unit.is_none() {
+            self.cx.report(
+                Diagnostic::new(codes::IFC_UNIT_MISSING)
+                    .with("type", "IfcLengthMeasure")
+                    .at(at_bytes(solid.span())),
+            );
+        }
+        self.alloc(1, 320)?;
+        Ok(ProfiledExtrusion {
+            definition: ProfileExtrusion {
+                profile: area,
+                position: sweep_position,
+                direction,
+                depth,
+            },
+            boundary: None,
+            length_unit,
+            source: ExtrusionSource {
+                solid,
+                profile,
+                records: core::mem::take(&mut self.records),
+            },
+        })
+    }
+
+    fn parameterized_profile(
+        &mut self,
+        profile: &'f Record,
+        version: Version,
+        solid: &'f Record,
+    ) -> Result<AreaProfile, Error> {
+        let profile_id = profile.id().unwrap_or(0);
         let count = if self.is(profile, b"IFCRECTANGLEPROFILEDEF") {
             5
         } else if self.is(profile, b"IFCCIRCLEPROFILEDEF") {
@@ -636,70 +703,19 @@ impl<'f> Reader<'f, '_, '_> {
         } else {
             self.hollow_rectangle(profile, version, first)?
         };
-        let solid_id = solid.id().unwrap_or(0);
-        self.current = solid_id;
-        let sweep_position = if matches!(arg(solid, 2), Some(Value::Null)) {
-            if version == Version::Ifc2x3 {
-                return Err(self.invalid("placement"));
-            }
-            None
-        } else {
-            let id = self.target(solid, 2)?;
-            Some(self.placement(id)?)
-        };
-        self.current = solid_id;
-        let direction_id = self.target(solid, 3)?;
-        let direction = self.vector(direction_id, false)?;
-        if direction[2] == 0. {
-            return Err(self.invalid("direction"));
-        }
-        self.current = solid_id;
-        let depth = self.number(arg(solid, 4))?;
-        if depth <= 0. {
-            return Err(self.invalid("depth"));
-        }
-        let records = core::mem::take(&mut self.records);
-        let checked = self.strict_attributes(&records);
-        self.records = records;
-        checked?;
-        let length_unit = self.named_unit(version, solid, false)?;
-        self.current = solid_id;
-        if length_unit.is_none() {
-            self.cx.report(
-                Diagnostic::new(codes::IFC_UNIT_MISSING)
-                    .with("type", "IfcLengthMeasure")
-                    .at(at_bytes(solid.span())),
-            );
-        }
-        self.alloc(1, 320)?;
-        Ok(ProfiledExtrusion {
-            definition: ProfileExtrusion {
-                profile: AreaProfile {
-                    name,
-                    position,
-                    kind,
-                },
-                position: sweep_position,
-                direction,
-                depth,
-            },
-            boundary: None,
-            length_unit,
-            source: ExtrusionSource {
-                solid,
-                profile,
-                records: core::mem::take(&mut self.records),
-            },
+        Ok(AreaProfile {
+            name,
+            position,
+            kind,
         })
     }
-
     fn take_typed(&mut self, id: u64) -> Result<&'f Record, Error> {
         self.check(Kind::Work, 1)?;
         let record = self
             .file
             .instance(id)
             .ok_or_else(|| self.invalid("reference"))?;
-        if record.parts().len() != 1 {
+        if record.parts().len() != 1 || (self.revolution && record.form() != crate::Form::Entity) {
             return Err(self.unsupported_kind("complex"));
         }
         self.alloc(1, 32)?;
@@ -736,6 +752,25 @@ impl<'f> Reader<'f, '_, '_> {
             .instance(self.current)
             .map(|r| self.file.kind(r))
             .unwrap_or(b"");
+        if self.revolution {
+            if let Err(error) = self
+                .check(Kind::Work, kind.len() as u64)
+                .and_then(|_| self.alloc(kind.len(), 3))
+            {
+                return error;
+            }
+            let place = self
+                .file
+                .instance(self.current)
+                .map_or_else(zumen_base::Ref::default, |r| at_bytes(r.span()))
+                .with_id(format!("i{}", self.current));
+            self.cx.report(
+                Diagnostic::new(codes::IFC_SHAPE_UNSUPPORTED)
+                    .with("kind", String::from_utf8_lossy(kind).into_owned())
+                    .at(place),
+            );
+            return Error::Unsupported;
+        }
         if let Err(error) = self
             .check(Kind::Work, kind.len() as u64)
             .and_then(|_| self.alloc(kind.len() + reason.len() + 1, 4))
@@ -785,13 +820,20 @@ impl<'f> Reader<'f, '_, '_> {
             .map_or_else(zumen_base::Ref::default, |r| at_bytes(r.span()))
             .with_id(format!("i{}", self.current));
         self.cx.report(
-            Diagnostic::new(codes::IFC_EXTRUSION_INVALID)
-                .with("reason", reason)
-                .at(place),
+            Diagnostic::new(if self.revolution {
+                codes::IFC_SHAPE_INVALID
+            } else {
+                codes::IFC_EXTRUSION_INVALID
+            })
+            .with("reason", reason)
+            .at(place),
         );
         Error::Invalid
     }
     fn unsupported(&mut self, reason: &'static str) -> Error {
+        if self.revolution {
+            return self.unsupported_kind(reason);
+        }
         let place = self
             .file
             .instance(self.current)
@@ -813,6 +855,9 @@ impl<'f> Reader<'f, '_, '_> {
             .file
             .instance(id)
             .ok_or_else(|| self.invalid("reference"))?;
+        if self.revolution && record.form() != crate::Form::Entity {
+            return Err(self.unsupported_kind("complex"));
+        }
         if record.parts().len() != 1 {
             return Err(self.invalid("type"));
         }

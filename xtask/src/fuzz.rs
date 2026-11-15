@@ -229,7 +229,7 @@ fn ifc_grid() -> Vec<u8> {
 }
 
 fn ifc_profiles() -> Vec<u8> {
-    // 要素の葉から矩形・円・任意断面・I 形・中空矩形と掃引円盤まで通す自作の IFC4。
+    // 要素の葉から各断面・掃引円盤・回転体まで通す自作の IFC4。
     b"ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('profiles'),'2;1');\nFILE_NAME('','',(''),(''),'','','');\nFILE_SCHEMA(('IFC4'));\nENDSEC;\nDATA;\n\
     #1=IFCPROJECT('0000000000000000000001',$,$,$,$,$,$,$,#2);\n\
     #2=IFCUNITASSIGNMENT((#3,#54));\n#3=IFCSIUNIT(*,.LENGTHUNIT.,$,.METRE.);\n\
@@ -245,8 +245,10 @@ fn ifc_profiles() -> Vec<u8> {
     #52=IFCISHAPEPROFILEDEF(.AREA.,'I',#12,3.,4.,0.2,0.3,0.1,0.05,0.02);\n\
     #53=IFCRECTANGLEHOLLOWPROFILEDEF(.AREA.,'H',#12,3.,2.,0.2,0.1,0.2);\n\
     #54=IFCSIUNIT(*,.PLANEANGLEUNIT.,$,.RADIAN.);\n\
+    #36=IFCREVOLVEDAREASOLID(#13,$,#55,1.5707963267948966);\n\
+    #55=IFCAXIS1PLACEMENT(#56,#57);\n#56=IFCCARTESIANPOINT((-4.,0.,0.));\n#57=IFCDIRECTION((0.,2.,0.));\n\
     #100=IFCWALL('0000000000000000000002',$,$,$,$,$,#101,$,.NOTDEFINED.);\n\
-    #101=IFCPRODUCTDEFINITIONSHAPE($,$,(#102));\n#102=IFCSHAPEREPRESENTATION(#8,'Body','AdvancedSweptSolid',(#30,#31,#32,#33,#34,#35));\n\
+    #101=IFCPRODUCTDEFINITIONSHAPE($,$,(#102));\n#102=IFCSHAPEREPRESENTATION(#8,'Body','AdvancedSweptSolid',(#30,#31,#32,#33,#34,#35,#36));\n\
     ENDSEC;\nEND-ISO-10303-21;\n".to_vec()
 }
 
@@ -727,6 +729,41 @@ mod tests {
     }
 
     /// 合成の格子は、ジオイド高と補正量の格子の読み取りで、診断なしに読める
+    #[test]
+    fn the_ifc_profile_seed_reaches_extrusions_disk_sweeps_and_revolutions() {
+        use zumen_sdk::Codec;
+        let (file, found) = run(Limits::default(), |cx| {
+            zumen_ifc::Ifc::read(&ifc_profiles(), cx)
+        });
+        assert_eq!(found, []);
+        let file = file.unwrap();
+        let (shape, _) = run(Limits::default(), |cx| file.product_shape(100, cx));
+        let mut counts = [0; 3];
+        for node in &shape.unwrap().nodes {
+            let (at, result) = match file.kind(node.source) {
+                b"IFCEXTRUDEDAREASOLID" => (
+                    0,
+                    run(Limits::default(), |cx| file.extrusion(node, cx).map(drop)),
+                ),
+                b"IFCSWEPTDISKSOLID" => (
+                    1,
+                    run(Limits::default(), |cx| file.swept_disk(node, cx).map(drop)),
+                ),
+                b"IFCREVOLVEDAREASOLID" => (
+                    2,
+                    run(Limits::default(), |cx| {
+                        file.revolved_area(node, cx).map(drop)
+                    }),
+                ),
+                _ => continue,
+            };
+            assert!(result.0.is_some());
+            assert_eq!(result.1, []);
+            counts[at] += 1;
+        }
+        assert_eq!(counts, [5, 1, 1]);
+    }
+
     #[test]
     fn the_grids_are_read_without_diagnostics() {
         let grids = grids();

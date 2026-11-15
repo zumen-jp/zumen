@@ -29,7 +29,8 @@ zumen-crs = { path = "../crates/zumen-crs" }
 
 [dev-dependencies]
 # fuzz の EXPRESS の種が、fuzz の予算の深さで止まり、長い鎖を読めることを確かめる（#668）
-zumen-ifc = { path = "../crates/zumen-ifc", default-features = false }
+# 断面と掃引の種が、要素から型付きの値へ到達することも確かめる（#419）
+zumen-ifc = { path = "../crates/zumen-ifc", default-features = false, features = ["building"] }
 zumen-sdk = { path = "../crates/zumen-sdk" }
 zumen-render = { path = "../crates/zumen-render" }
 

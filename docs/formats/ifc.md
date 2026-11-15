@@ -236,6 +236,29 @@ node crates/zumen-ifc/tests/wasi-sections.mjs --compare target/section-compariso
 
 WASI の出力先は `target/profile-comparison-wasm` です。6 件の JSON と、全 Kind の予算・中断・版差・走査の各停止位置の診断を記録する `contract.txt` をバイト単位で比べます。既存の fuzz の `ifc` target も形の葉からこの取得を呼び、既存の読み取り専用の毎晩の job で export と IfcOpenShell 比較を流します。
 
+## 形の葉から回転体を取得する
+
+`IfcFile::revolved_area(&ShapeNode, cx)` は `IfcRevolvedAreaSolid` の葉から、`ProfileRevolution`・任意断面の外輪・長さの単位・借用した出所を返します。矩形・円・I 形・中空矩形・任意の閉じた外輪の 5 断面を既存の押し出しと共有して読みます。パラメーター付き断面の輪郭は生成しません。
+
+- 定義は元の断面・立体の局所配置・回転軸・単位付きの角度を持ちます。軸の原点は長さの単位のまま、方向は正規化しない 3 成分の比です。断面と同じ XY 平面に原点と非ゼロの方向があることを確認します。軸の方向を省略すると既定の z 軸になり XY 平面内にないため、この取得では拒否します。
+- 回転角は非負の有限値を保持します。平面角の単位が解けたときだけ、1 回転以下であることを SI の接頭辞・一段の換算の係数を使って確認します。元の角度には換算を適用しません。0 と負の 0 を保ち、単位がなければ上限を推定せず、元値・`None` と `ifc.unit.missing` を返します。
+- IFC2X3 の立体の Position は必須、IFC4 以降は省略可能です。配置・写像・既定の原点や軸を適用しません。軸が断面の内部と交差しないこと、丸みや傾斜を含む輪郭、面積・体積・メッシュは未評価です。
+- `RevolutionSource` は回転体・断面と、読んだ配置・軸・点・方向・単位の元のレコードを借用します。任意断面の曲線内の出所は `CurveGraph` が持ちます。STEP 番号・出所の列を意味の値に混ぜず、既存の Building・要素 ID・Hash v1 は変更しません。Building への統合と意味値ハッシュは #419 の残件です。
+- 回転体と共有する断面の不正には `ifc.shape.invalid`、未対応の種類には `ifc.shape.unsupported` と元の場所を返します。曲線内の不正は既存の曲線の診断を返します。テーパー付き回転体や未知の派生型を親型として読まず、属性数が異なる場合も部分結果を返しません。共有 `Cx` で参照・数・単位・文字・確保前の量・深さ・中断を検査し、終了時に呼び出し側の深さを戻します。
+
+根拠は [IFC2X3 RevolvedAreaSolid](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC2x3/TC1/HTML/ifcgeometricmodelresource/lexical/ifcrevolvedareasolid.htm)・[Axis1Placement](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC2x3/TC1/HTML/ifcgeometryresource/lexical/ifcaxis1placement.htm)、[IFC4 RevolvedAreaSolid](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4/ADD2_TC1/HTML/schema/ifcgeometricmodelresource/lexical/ifcrevolvedareasolid.htm)・[Axis1Placement](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4/ADD2_TC1/HTML/schema/ifcgeometryresource/lexical/ifcaxis1placement.htm)、[IFC4.3 RevolvedAreaSolid](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4_3/HTML/lexical/IfcRevolvedAreaSolid.htm)・[Axis1Placement](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4_3/HTML/lexical/IfcAxis1Placement.htm) の公開の自然言語の説明です。角度の範囲は Informal Propositions、軸の平面は本文と AxisStartInXY/AxisDirectionInXY の説明を使います。EXPRESS 本体を読み取って実装に使いません。
+
+`tests/revolutions.rs` は合成 3 版の共有写像から各 5 断面の回転体を取得し、元の軸・角度・単位・配置・出所、版差、不正、予算境界、中断、変異入力、既存 ID/Hash を検査します。IfcOpenShell 0.9.0.post1 と回転体の元属性・断面への参照・任意断面の曲線を合計 15 件照合します。ネイティブと WASI では値・診断・全 Kind の使用量をバイト列で比べます。既存 5 断面の押し出しは、追加前と元値・出所・診断・予算を比べます。同梱の公開 IFC 12 件に回転体の実例はなく、この追加の読みは `synthetic` の範囲です。変換後の形や体積の一致を示すものではありません。
+
+```powershell
+$env:ZUMEN_IFC_REVOLUTIONS_OUT = Join-Path (Get-Location) 'target/revolution-comparison'
+cargo test -p zumen-ifc --locked --test revolutions
+python -X utf8 -I crates/zumen-ifc/tests/ifcopenshell/revolutions.py target/revolution-comparison
+$env:CARGO_TARGET_WASM32_WASIP1_RUNNER = 'node --no-warnings tests/wasi-revolutions.mjs'
+cargo test -p zumen-ifc --locked --test revolutions --target wasm32-wasip1 -- --test-threads 1
+node crates/zumen-ifc/tests/wasi-revolutions.mjs --compare target/revolution-comparison target/revolution-comparison-wasm
+```
+
 ## 形の葉から掃引円盤を取得する
 
 `IfcFile::swept_disk(&ShapeNode, cx)` は `product_shape()` の葉から `IfcSweptDiskSolid` を取得します。`SweptDisk::definition` の `DiskSweep` に外半径・省略可能な内半径・区間の始点と終点を、`directrix` に既存の `CurveGraph` を持ちます。定義の曲線の参照は同じグラフの中だけで有効です。元の掃引のレコードは借用する `source`、曲線と補助レコードの出所はグラフに分けます。

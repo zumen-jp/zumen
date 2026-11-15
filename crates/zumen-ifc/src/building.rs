@@ -27,7 +27,9 @@ mod shape;
 mod style;
 mod sweep;
 mod unit;
-pub use extrusion::{ExtrudedArea, ExtrusionSource, ProfiledExtrusion};
+pub use extrusion::{
+    ExtrudedArea, ExtrusionSource, ProfiledExtrusion, RevolutionSource, RevolvedArea,
+};
 pub use grid::{GridAxes, GridAxisCurve, GridSource};
 pub use shape::{ProductShape, ShapeLinks, ShapeNode, ShapeRef};
 pub use style::{ItemStyleSource, ItemSurfaceStyles, SurfaceStyleBinding, SurfaceStyleSource};
