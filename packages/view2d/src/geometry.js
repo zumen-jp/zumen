@@ -1,6 +1,7 @@
 import { SCENE_NONE, SCENE_VALUES as V } from "@zumen-jp/zumen";
 import { end, rows } from "./validate.js";
 import { clipRing, clipSegment, diskCoversBox, inside, wideClosedStroke, wideJoin, wideSegment } from "./raster.js";
+import { addExact, divideExact, dyadic, multiplyExact } from "./exact.js";
 
 const decoder = new TextDecoder();
 const noCharge = () => {};
@@ -37,6 +38,21 @@ export function unproject(view, width, height, x, y) {
   const dx = (x - width / 2) / view.scale, dy = -(y - height / 2) / view.scale;
   const cos = Math.cos(view.rotation), sin = Math.sin(view.rotation);
   return { x: view.center.x + cos * dx + sin * dy, y: view.center.y - sin * dx + cos * dy };
+}
+
+/** 近傍へ切る閉輪では、投影の積和を丸める前の値も残す。 */
+function projectFill(view, size, x, y, ox = 0, oy = 0, local) {
+  const p = project(view, size.width, size.height, x, y, ox, oy);
+  if (!local && Math.max(Math.abs(ox - view.center.x), Math.abs(oy - view.center.y), Math.abs(x), Math.abs(y)) * view.scale < 1e6) return p;
+  const dx = addExact(addExact(dyadic(ox), dyadic(view.center.x), true), local?.x ?? dyadic(x));
+  const dy = addExact(addExact(dyadic(oy), dyadic(view.center.y), true), local?.y ?? dyadic(y));
+  const cos = dyadic(Math.cos(view.rotation)), sin = dyadic(Math.sin(view.rotation)), scale = dyadic(view.scale);
+  const exact = {
+    x: addExact(dyadic(size.width / 2), multiplyExact(scale, addExact(multiplyExact(cos, dx), multiplyExact(sin, dy), true))),
+    y: addExact(dyadic(size.height / 2), multiplyExact(scale, addExact(multiplyExact(sin, dx), multiplyExact(cos, dy))), true),
+  };
+  const one = dyadic(1);
+  return { x: divideExact(exact.x, one), y: divideExact(exact.y, one), exact };
 }
 
 export const lineWidth = (c, unit, settings, size) => Math.max(1 / size.pixelRatio, c.unit_weights[unit] * settings.pixelsPerMillimeter);
@@ -204,13 +220,13 @@ class StrokePath extends Path {
   }
 }
 
-/** HTML の fill()/clip() の塗り規則と閉じた輪を保ち、描画だけを画面近傍へ切る。
+/** HTML の fill()/clip() の塗り規則と閉じた輪を保ち、画面近傍へ切る。
  * https://html.spec.whatwg.org/multipage/canvas.html#drawing-paths-to-the-canvas
- * 原本の輪郭を使う選択には使わない。
+ * 選択も画面との共通部分を調べるので、同じ輪を使って投影で失う幅を避ける。
  */
 class FillPath extends Path {
-  constructor(charge, size) {
-    super(false, charge);
+  constructor(charge, size, collect = false) {
+    super(collect, charge);
     const margin = 2 / size.pixelRatio;
     this.box = { min_x: -margin, min_y: -margin, max_x: size.width + margin, max_y: size.height + margin };
   }
@@ -224,6 +240,11 @@ class FillPath extends Path {
     const points = clipRing(this.points, this.box);
     for (let i = 0; i < points.length; i++) this.path[i ? "lineTo" : "moveTo"](points[i].x, points[i].y);
     if (points.length) this.path.closePath();
+    if (this.collect && points.length) {
+      const unique = points.filter((p, i) => i === 0 || !equal(p, points[i - 1]));
+      if (unique.length > 1 && equal(unique[0], unique[unique.length - 1])) unique.pop();
+      this.contours.push({ points: unique, closed: true });
+    }
     this.points = null;
   }
 }
@@ -247,10 +268,10 @@ export function viewportPart(size, charge = noCharge) {
 export function* clipParts(c, unit, view, size, collect = false, charge = noCharge) {
   const clip = c.unit_clips[unit];
   if (clip === SCENE_NONE) return;
-  const at = (x, y) => project(view, size.width, size.height, x, y);
+  const at = (x, y) => projectFill(view, size, x, y);
   for (let p = c.clip_polygons[clip]; p < end(c.clip_polygons, clip, c.polygon_vertices.length); p++) {
     charge(1);
-    const path = collect ? new Path(true, charge) : new FillPath(charge, size);
+    const path = new FillPath(charge, size, collect);
     if (c.polygon_flags[p] === 1) path.rectangle(0, 0, size.width, size.height);
     vertices(path, c.clip_xy, c.polygon_vertices[p], end(c.polygon_vertices, p, rows(c, "clip_xy")), at, true);
     yield path.finish("evenodd");
@@ -303,9 +324,10 @@ export function* primitiveParts(ctx, c, kind, i, chunk, settings, view, size, co
     vertices(path, c.line_xy, c.line_vertices[i], end(c.line_vertices, i, rows(c, "line_xy")), at, false);
     yield path.finish(null, width);
   } else if (kind === "face") {
-    const path = collect ? new Path(true, charge) : new FillPath(charge, size);
+    const path = new FillPath(charge, size, collect);
+    const fillAt = (x, y) => projectFill(view, size, x, y, ox, oy);
     for (let r = c.face_rings[i]; r < end(c.face_rings, i, c.ring_vertices.length); r++) {
-      charge(1); vertices(path, c.face_xy, c.ring_vertices[r], end(c.ring_vertices, r, rows(c, "face_xy")), at, true);
+      charge(1); vertices(path, c.face_xy, c.ring_vertices[r], end(c.ring_vertices, r, rows(c, "face_xy")), fillAt, true);
     }
     yield path.finish("evenodd");
   } else if (kind === "text") {
@@ -313,9 +335,18 @@ export function* primitiveParts(ctx, c, kind, i, chunk, settings, view, size, co
     if (last === first) { yield fallbackText(ctx, c, i, settings, view, at, collect, charge); return; }
     for (let g = first; g < last; g++) {
       charge(1);
-      const shape = c.glyph_shapes[g], path = collect ? new Path(true, charge) : new FillPath(charge, size);
-      const glyphAt = (x, y) => at(c.glyph_axes[g * 4] * x + c.glyph_axes[g * 4 + 2] * y + c.glyph_xy[g * 2],
-        c.glyph_axes[g * 4 + 1] * x + c.glyph_axes[g * 4 + 3] * y + c.glyph_xy[g * 2 + 1]);
+      const shape = c.glyph_shapes[g], path = new FillPath(charge, size, collect);
+      const glyphAt = (x, y) => {
+        const gx = c.glyph_axes[g * 4] * x + c.glyph_axes[g * 4 + 2] * y + c.glyph_xy[g * 2];
+        const gy = c.glyph_axes[g * 4 + 1] * x + c.glyph_axes[g * 4 + 3] * y + c.glyph_xy[g * 2 + 1];
+        const magnitude = Math.max(Math.abs(c.glyph_axes[g * 4] * x), Math.abs(c.glyph_axes[g * 4 + 2] * y), Math.abs(c.glyph_xy[g * 2]),
+          Math.abs(c.glyph_axes[g * 4 + 1] * x), Math.abs(c.glyph_axes[g * 4 + 3] * y), Math.abs(c.glyph_xy[g * 2 + 1]));
+        const local = magnitude * view.scale < 1e6 ? null : {
+          x: addExact(addExact(multiplyExact(dyadic(c.glyph_axes[g * 4]), dyadic(x)), multiplyExact(dyadic(c.glyph_axes[g * 4 + 2]), dyadic(y))), dyadic(c.glyph_xy[g * 2])),
+          y: addExact(addExact(multiplyExact(dyadic(c.glyph_axes[g * 4 + 1]), dyadic(x)), multiplyExact(dyadic(c.glyph_axes[g * 4 + 3]), dyadic(y))), dyadic(c.glyph_xy[g * 2 + 1])),
+        };
+        return projectFill(view, size, gx, gy, ox, oy, local);
+      };
       for (let r = c.shape_rings[shape]; r < end(c.shape_rings, shape, c.outline_vertices.length); r++) {
         charge(1); vertices(path, c.outline_xy, c.outline_vertices[r], end(c.outline_vertices, r, rows(c, "outline_xy")), glyphAt, true);
       }

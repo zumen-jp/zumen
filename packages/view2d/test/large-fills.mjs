@@ -72,14 +72,21 @@ function cases() {
     { name: "逆向きの別字形を独立に塗る", source: glyph([outer], true), groups: () => [[nearOuter], [reverse(nearOuter)]], probes: covered, rule: "nonzero", layers: 2 },
   ];
   // 接続部は画面外。画面内の二つの帯を、clipping の橋でつないで塗らない。
-  // r=2e38/scale=1e12 の細い帯は回転の投影で幅を失う（#828 の残件）。
-  // ここでは h=2e15/scale=1 とし、binary64 の投影にも帯の幅を残す。
-  const h = Math.fround(2e15);
-  const u = [-h, -40, h, -40, h, 40, -h, 40, -h, 20, 300, 20, 300, -20, -h, -20];
-  items.push({ name: "画面外でつながる凹輪", source: face([u]), groups: (c, s) => {
+  const h = r;
+  const u = [-h, -40 / scale, h, -40 / scale, h, 40 / scale, -h, 40 / scale,
+    -h, 20 / scale, 300 / scale, 20 / scale, 300 / scale, -20 / scale, -h, -20 / scale];
+  items.push({ name: "巨大な凹輪の細い帯", source: face([u]), groups: (c, s) => {
     const y = (i) => c.face_xy[i * 2 + 1] * s;
     return [[square(-400, y(0), 400, y(7)), square(-400, y(4), 400, y(3))]];
-  }, probes: [[0, -30, true], [0, 30, true], [0, 0, false]], scale: 1 });
+  }, probes: [[0, -30, true], [0, 30, true], [0, 0, false]] });
+  items.push({ name: "巨大な字形の細い帯", source: glyph([u]), groups: (c, s) => {
+    const y = (i) => c.outline_xy[i * 2 + 1] * s;
+    return [[square(-400, y(0), 400, y(7)), square(-400, y(4), 400, y(3))]];
+  }, probes: [[0, -30, true], [0, 30, true], [0, 0, false]], rule: "nonzero" });
+  const oldRadius = Math.fround(2e15);
+  const oldU = [-oldRadius, -40, oldRadius, -40, oldRadius, 40, -oldRadius, 40, -oldRadius, 20, 300, 20, 300, -20, -oldRadius, -20];
+  items.push({ name: "画面外でつながる凹輪", source: face([oldU]), groups: () => [[square(-400, -40, 400, -20), square(-400, 20, 400, 40)]],
+    probes: [[0, -30, true], [0, 30, true], [0, 0, false]], scale: 1 });
   for (const outside of [false, true]) {
     items.push({ name: `巨大な ${outside ? "外" : "内"} clip`, source: clipped(line(), [{ xy: outer, outside }]),
       groups: () => [], referenceClips: () => [{ xy: nearOuter, outside }], stroke: true,
@@ -91,11 +98,11 @@ function cases() {
   const left = square(-r, -r, 0, r), right = square(0, -r, r, r);
   items.push({ name: "巨大な clip の辺だけの共通部分", source: clipped(face([outer]), [{ xy: left }, { xy: right }]),
     groups: () => [[nearOuter]], referenceClips: () => [{ xy: square(-400, -400, 0, 400) }, { xy: square(0, -400, 400, 400) }],
-    probes: [[0, 0, false], [-40, 0, false], [40, 0, false]], empty: true, rotations: [0] });
+    probes: [[0, 0, false], [-40, 0, false], [40, 0, false]], empty: true });
   const a = square(-30 / scale, -r, r, r), b = square(-r, -r, 30 / scale, r);
   items.push({ name: "複数の巨大 clip の細い共通部分", source: clipped(face([outer]), [{ xy: a }, { xy: b }]),
     groups: () => [[nearOuter]], referenceClips: (c, s) => [{ xy: square(c.clip_xy[0] * s, -400, 400, 400) },
-      { xy: square(-400, -400, c.clip_xy[10] * s, 400) }], probes: [[0, 0, true], [-50, 0, false], [50, 0, false]], rotations: [0] });
+      { xy: square(-400, -400, c.clip_xy[10] * s, 400) }], probes: [[0, 0, true], [-50, 0, false], [50, 0, false]] });
   return items.map((item) => ({ scale, ...item }));
 }
 
@@ -136,11 +143,9 @@ function reference(canvas, item, columns, ratio, rotation) {
 /** 巨大な閉輪の意味を、画面近傍の独立 Canvas と点・矩形の参照で比較する。 */
 export function testLargeFills(assert) {
   const items = cases(), totals = { cases: items.length, scenes: 0, pixels: 0, ink: 0, points: 0, rectangles: 0,
-    pixelRatios: [1, 1.5, 2, 8], scales: [1, 1e12], rotations: [0, Math.PI / 6], axisOnlyCases: 2,
+    pixelRatios: [1, 1.5, 2, 8], scales: [1, 1e12], rotations: [0, Math.PI / 6], axisOnlyCases: 0,
     radii: [Math.fround(2e15), Math.fround(2e38)] };
   for (const pixelRatio of totals.pixelRatios) for (const rotation of totals.rotations) for (const item of items) {
-    // 極端に細い巨大 clip の非零回転では投影の段階で幅が消える（#828 の残件）。
-    // この二例は回転 0 に固定し、閉輪を切る処理そのものを検査する。
     if (item.rotations && !item.rotations.includes(rotation)) continue;
     const canvas = document.createElement("canvas"), near = document.createElement("canvas");
     const viewer = new View2D(canvas, { width: SIZE, height: SIZE, pixelRatio, pixelsPerMillimeter: 1,

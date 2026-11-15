@@ -38,7 +38,7 @@ export function clipSegment(a, b, box) {
 }
 
 const negate = (a) => ({ integer: -a.integer, exponent: a.exponent });
-const pointExact = (p) => ({ x: dyadic(p.x), y: dyadic(p.y), w: one });
+const pointExact = (p) => ({ x: p.exact?.x ?? dyadic(p.x), y: p.exact?.y ?? dyadic(p.y), w: one });
 
 /** 閉じた輪を矩形の境界で4回切る。元辺と境界辺を区別し、途中の交点を丸めない。 */
 export function clipRing(points, box) {
@@ -75,8 +75,8 @@ function ringIntersection(edge, boundary) {
     // 作った境界辺との交点は矩形の角。平行な境界辺に内外の遷移はない。
     return { [axis]: bound, [other]: dyadic(edge.value), w: one };
   }
-  const start = pointExact(edge.a), delta = {
-    x: addExact(dyadic(edge.b.x), start.x, true), y: addExact(dyadic(edge.b.y), start.y, true),
+  const start = pointExact(edge.a), finish = pointExact(edge.b), delta = {
+    x: addExact(finish.x, start.x, true), y: addExact(finish.y, start.y, true),
   };
   const offset = addExact(bound, start[axis], true), denominator = delta[axis];
   let x = multiplyExact(bound, denominator);
