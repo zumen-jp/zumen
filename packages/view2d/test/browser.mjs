@@ -11,6 +11,8 @@ import { testButtEnds } from "./butt-ends.mjs";
 import { testLargeFills } from "./large-fills.mjs";
 import { testWideStrokes } from "./wide-strokes.mjs";
 import { testWideBoundaries } from "./wide-boundaries.mjs";
+import { testWideDrawing } from "./wide-drawing.mjs";
+import { testRegionUnion } from "./region-union.mjs";
 import { testCircles, testCircleDrawing, testCircleClips, testCircleProjection } from "./circles.mjs";
 import { testSnap } from "./snap.mjs";
 import { testTools } from "./tools.mjs";
@@ -33,6 +35,8 @@ export async function testView2D(wasmPath, inputs, calibrationInput) {
   const largeFills = testLargeFills(assert);
   const wideStrokes = testWideStrokes(assert);
   const wideBoundaries = testWideBoundaries(assert);
+  const wideDrawing = testWideDrawing(assert);
+  const regionUnion = testRegionUnion(assert);
   const circles = testCircles(assert);
   const circleDrawing = testCircleDrawing(assert);
   const circleClips = testCircleClips(assert);
@@ -212,5 +216,5 @@ export async function testView2D(wasmPath, inputs, calibrationInput) {
   viewer.destroy(); viewer.destroy();
   assert(ctx.getImageData(0, 0, 1, 1).data[3] === 0, "破棄で画面を消す");
   throws(() => viewer.render(), "破棄後の描画"); throws(() => viewer.setScene(input), "破棄後の差し替え");
-  return { assertions, formats, largeStrokeRaster, strokeSat, strokeTolerance, buttEnds, largeFills, wideStrokes, wideBoundaries, circles, circleDrawing, circleClips, circleProjection };
+  return { assertions, formats, largeStrokeRaster, strokeSat, strokeTolerance, buttEnds, largeFills, wideStrokes, wideBoundaries, wideDrawing, regionUnion, circles, circleDrawing, circleClips, circleProjection };
 }

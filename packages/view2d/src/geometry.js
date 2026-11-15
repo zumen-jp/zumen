@@ -4,6 +4,9 @@ import { unitVisible } from "./interaction.js";
 import { clipRing, clipSegment, diskCoversBox, inside, wideClosedStroke, wideJoin, wideSegment } from "./raster.js";
 import { addExact, divideExact, dyadic, multiplyExact, sqrtExact } from "./exact.js";
 import { circleArcs } from "./circle-path.js";
+import { offsetCircle } from "./circle.js";
+import { diskRegion, joinRegion, segmentRegion } from "./stroke-regions.js";
+import { unionRegions } from "./region-union.js";
 
 const decoder = new TextDecoder();
 const noCharge = () => {};
@@ -232,6 +235,47 @@ class StrokePath extends Path {
   }
 }
 
+/** 巨大な幅は近傍の凸片にし、内部辺を除いて同一 part を一度だけ塗る。 */
+class RegionStrokePath extends Path {
+  constructor(charge, size, width, extraCharge) {
+    super(true, charge);
+    const padding = 2 / size.pixelRatio;
+    this.box = { min_x: -padding, min_y: -padding, max_x: size.width + padding, max_y: size.height + padding };
+    this.radius = width / 2; this.tolerance = 1 / (64 * size.pixelRatio); this.extraCharge = extraCharge;
+  }
+  finish(fill, width = 0) {
+    const part = super.finish(fill, width), regions = [], charge = this.extraCharge;
+    const append = (points, weight = 1) => { if (points.length >= 3) regions.push({ points, weight }); };
+    for (const { points, closed } of part.contours) {
+      const n = points.length;
+      if (n < 2) continue;
+      if (closed) {
+        charge(n);
+        const covered = wideClosedStroke(points, this.radius, this.box);
+        if (covered) { append(covered); continue; }
+      }
+      for (let i = 0; i < (closed ? n : n - 1); i++) append(segmentRegion(points[i], points[(i + 1) % n], this.radius, this.box, charge));
+      for (let i = closed ? 0 : 1; i < (closed ? n : n - 1); i++) {
+        append(joinRegion(points[(i + n - 1) % n], points[i], points[(i + 1) % n], this.radius, this.box, this.tolerance, charge));
+      }
+    }
+    for (const circle of part.circles) {
+      append(diskRegion(offsetCircle(circle, this.radius), this.box, this.tolerance, charge));
+      const inner = offsetCircle(circle, -this.radius);
+      if (inner.exactRadius.integer > 0n) append(diskRegion(inner, this.box, this.tolerance, charge), -1);
+    }
+    const path = new Path2D();
+    for (const points of unionRegions(regions, charge)) {
+      for (let i = 0; i < points.length; i++) path[i ? "lineTo" : "moveTo"](points[i].x, points[i].y);
+      path.closePath();
+    }
+    return { ...part, path, fill: "nonzero", width: 0 };
+  }
+}
+
+const strokePath = (collect, charge, size, width, extraCharge) => collect ? new Path(true, charge) :
+  width * size.pixelRatio > 65536 ? new RegionStrokePath(charge, size, width, extraCharge) : new StrokePath(charge, size, width);
+
 /** HTML の fill()/clip() の塗り規則と閉じた輪を保ち、画面近傍へ切る。
  * https://html.spec.whatwg.org/multipage/canvas.html#drawing-paths-to-the-canvas
  * 選択も画面との共通部分を調べるので、同じ輪を使って投影で失う幅を避ける。
@@ -261,7 +305,8 @@ class FillPath extends Path {
   }
 }
 
-const equal = (a, b) => a.x === b.x && a.y === b.y;
+const equal = (a, b) => a.x === b.x && a.y === b.y && (!(a.exact || b.exact) ||
+  ["x", "y"].every((axis) => addExact(a.exact?.[axis] ?? dyadic(a[axis]), b.exact?.[axis] ?? dyadic(b[axis]), true).integer === 0n));
 
 function pointShape(c, i, chunk, view, size) {
   const marker = pointReason(c, i) === "marker-unresolved";
@@ -282,18 +327,23 @@ function pointShape(c, i, chunk, view, size) {
   return { p, mark, frame, radius: divideExact(exactRadius, one), exactRadius, circleRadius: divideExact(circleExactRadius, one), circleExactRadius };
 }
 
-/** 可変の円弧の分割を描画前に確かめる。ここでの計算と実描画の両方を数える。 */
+/** 可変の円弧と領域の分割を描画前に確かめる。ここでの計算と実描画の両方を数える。 */
 export function validateCircleWork(prepared, settings, view, size, display, limits) {
   if (!prepared) return;
   const { columns: c, order, omitted } = prepared;
   let work = prepared.work ?? 0;
   const charge = (count) => { work += count * 2; valid(Number.isSafeInteger(work) && work <= limits.work, "limits.work"); };
-  if (!(c.point_style[1] & V.point_frame.circle)) return;
   for (let chunk = 0; chunk < order.length; chunk++) for (const ordinal of order[chunk].indices) {
+    charge(1);
     const [kind, i] = order[chunk].locate(ordinal);
-    if (kind !== "point" || omitted.has(`point:${i}`) || !unitVisible(c, c.point_units[i], display) || pointReason(c, i) === "marker-unresolved") continue;
+    if ((kind !== "point" && kind !== "line") || omitted.has(`${kind}:${i}`) || !unitVisible(c, c[`${kind}_units`][i], display)) continue;
+    const width = lineWidth(c, c[`${kind}_units`][i], settings, size);
+    if (width * size.pixelRatio > 65536) {
+      for (const _part of primitiveParts(null, c, kind, i, chunk, settings, view, size, false, noCharge, charge)) { /* 計算だけを行う。 */ }
+      continue;
+    }
+    if (kind !== "point" || !(c.point_style[1] & V.point_frame.circle) || pointReason(c, i) === "marker-unresolved") continue;
     const { p, circleRadius: radius, circleExactRadius } = pointShape(c, i, chunk, view, size);
-    const width = lineWidth(c, c.point_units[i], settings, size);
     if (!needsCircleArcs(p, radius, width, size.pixelRatio)) continue;
     const margin = width / 2 + 2 / size.pixelRatio;
     const box = { min_x: -margin, min_y: -margin, max_x: size.width + margin, max_y: size.height + margin };
@@ -365,12 +415,12 @@ function fallbackText(ctx, c, i, settings, view, at, collect, charge) {
   return path.finish("nonzero");
 }
 
-export function* primitiveParts(ctx, c, kind, i, chunk, settings, view, size, collect = false, charge = noCharge) {
+export function* primitiveParts(ctx, c, kind, i, chunk, settings, view, size, collect = false, charge = noCharge, extraCharge = noCharge) {
   const ox = c.chunk_origins[chunk * 2], oy = c.chunk_origins[chunk * 2 + 1];
   const at = (x, y) => project(view, size.width, size.height, x, y, ox, oy);
   const width = lineWidth(c, c[`${kind}_units`][i], settings, size);
   if (kind === "line") {
-    const path = collect ? new Path(true, charge) : new StrokePath(charge, size, width);
+    const path = strokePath(collect, charge, size, width, extraCharge);
     const lineAt = (x, y) => projectFill(view, size, x, y, ox, oy);
     vertices(path, c.line_xy, c.line_vertices[i], end(c.line_vertices, i, rows(c, "line_xy")), lineAt, false);
     yield path.finish(null, width);
@@ -416,7 +466,7 @@ export function* primitiveParts(ctx, c, kind, i, chunk, settings, view, size, co
     if (mark === V.point_mark.dot) {
       const dot = new Path(collect, charge); dot.circle(p, 1 / size.pixelRatio); yield dot.finish("nonzero");
     }
-    const path = collect ? new Path(true, charge) : new StrokePath(charge, size, width);
+    const path = strokePath(collect, charge, size, width, extraCharge);
     const segment = (x1, y1, x2, y2) => { path.move(pointAt(x1, y1)); path.line(pointAt(x2, y2)); };
     if (mark === V.point_mark.plus) { segment(-radius, 0, radius, 0); segment(0, -radius, 0, radius); }
     if (mark === V.point_mark.cross) { segment(-radius, -radius, radius, radius); segment(-radius, radius, radius, -radius); }

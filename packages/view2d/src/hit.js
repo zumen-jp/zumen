@@ -47,6 +47,14 @@ function exactPoint(p) {
   return p.exact ?? (p.anchor ? { x: addExact(p.anchor.exact?.x ?? dyadic(p.anchor.x), dyadic(p.offsetX)), y: addExact(p.anchor.exact?.y ?? dyadic(p.anchor.y), dyadic(p.offsetY)) } : { x: dyadic(p.x), y: dyadic(p.y) });
 }
 
+/** 大きい投影済み座標を引く前の差も保ち、短い線分をゼロ長にしない。 */
+function segmentDelta(a, b) {
+  if (!(a.exact || b.exact)) return { x: b.x - a.x, y: b.y - a.y };
+  const first = exactPoint(a), last = exactPoint(b);
+  const exact = { x: addExact(last.x, first.x, true), y: addExact(last.y, first.y, true) };
+  return { x: divideExact(exact.x, dyadic(1)), y: divideExact(exact.y, dyadic(1)), exact };
+}
+
 function exactIntersection(first, second) {
   const a = exactPoint(first.a), b = exactPoint(first.b), c = exactPoint(second.a), d = exactPoint(second.b);
   if (!a || !b || !c || !d) return null;
@@ -117,7 +125,7 @@ function stripComparisons(a, b, p, radius, rounding) {
 }
 
 function segmentContains(a, b, p, radius, direction) {
-  const dx = b.x - a.x, dy = b.y - a.y, scale = Math.max(Math.abs(dx), Math.abs(dy));
+  const { x: dx, y: dy } = segmentDelta(a, b), scale = Math.max(Math.abs(dx), Math.abs(dy));
   if (scale === 0) return false; // butt の端だけを持つ線は描かれない。
   const nx = dx / scale, ny = dy / scale, px = p.x - a.x, py = p.y - a.y, qx = p.x - b.x, qy = p.y - b.y;
   const length = Math.hypot(nx, ny);
@@ -155,18 +163,32 @@ function segmentContains(a, b, p, radius, direction) {
 }
 
 function roundJoin(previous, center, next) {
-  const ix = center.x - previous.x, iy = center.y - previous.y, ox = next.x - center.x, oy = next.y - center.y;
+  const first = segmentDelta(previous, center), last = segmentDelta(center, next);
+  const ix = first.x, iy = first.y, ox = last.x, oy = last.y;
   const incomingLength = Math.hypot(ix, iy), outgoingLength = Math.hypot(ox, oy);
   if (incomingLength === 0 || outgoingLength === 0) return null;
   const incoming = { x: ix / incomingLength, y: iy / incomingLength }, outgoing = { x: ox / outgoingLength, y: oy / outgoingLength };
   // 同じ向きの共線の線分には、足す扇形がない。折返しでは前方の半円を残す。
-  if (incoming.x * outgoing.y === incoming.y * outgoing.x && incoming.x * outgoing.x + incoming.y * outgoing.y > 0) return null;
-  return { center, incoming, outgoing };
+  if (first.exact || last.exact) {
+    const a = first.exact ?? { x: dyadic(ix), y: dyadic(iy) }, b = last.exact ?? { x: dyadic(ox), y: dyadic(oy) };
+    if (crossExact(a.x, a.y, b.x, b.y).integer === 0n && addExact(multiplyExact(a.x, b.x), multiplyExact(a.y, b.y)).integer > 0n) return null;
+  } else if (incoming.x * outgoing.y === incoming.y * outgoing.x && incoming.x * outgoing.x + incoming.y * outgoing.y > 0) return null;
+  return { center, incoming, outgoing, first: first.exact, last: last.exact };
 }
 
-function joinContains({ center, incoming, outgoing }, p, radius, direction) {
+function joinDistance(center, p, normal) {
+  const a = exactPoint(center), b = exactPoint(p);
+  const dx = addExact(b.x, a.x, true), dy = addExact(b.y, a.y, true);
+  const dot = leading(addExact(multiplyExact(dx, normal.x), multiplyExact(dy, normal.y)));
+  const squared = leading(addExact(multiplyExact(normal.x, normal.x), multiplyExact(normal.y, normal.y)));
+  const odd = squared.exponent & 1, length = Math.sqrt(squared.fraction * (odd ? 2 : 1));
+  return scaleBinary(dot.fraction / length, dot.exponent - (squared.exponent - odd) / 2);
+}
+
+function joinContains({ center, incoming, outgoing, first, last }, p, radius, direction) {
   const dx = p.x - center.x, dy = p.y - center.y;
-  const before = dx * incoming.x + dy * incoming.y, after = dx * outgoing.x + dy * outgoing.y;
+  const before = first ? joinDistance(center, p, first) : dx * incoming.x + dy * incoming.y;
+  const after = last ? joinDistance(center, p, last) : dx * outgoing.x + dy * outgoing.y;
   // 円全体では、短い線分の butt の端からはみ出す。前の線の先かつ次の線の
   // 手前だけが round join の外側の扇形で、残りは線分の矩形が担う。
   if (!direction) return lessEqual(0, before) && lessEqual(after, 0) && circleSide(p, { ...center, radius }) <= 0;
