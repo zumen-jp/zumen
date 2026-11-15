@@ -24,4 +24,5 @@ zumen = { path = "../../crates/zumen" }
 zumen-acad = { path = "../../crates/zumen-acad" }
 zumen-base = { path = "../../crates/zumen-base" }
 zumen-drawing = { path = "../../crates/zumen-drawing" }
+zumen-live = { path = "../../crates/zumen-live" }
 zumen-sdk = { path = "../../crates/zumen-sdk" }

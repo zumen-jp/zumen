@@ -248,6 +248,7 @@ dependencies = [
  "zumen-acad",
  "zumen-base",
  "zumen-drawing",
+ "zumen-live",
  "zumen-sdk",
 ]
 
@@ -471,6 +472,14 @@ dependencies = [
  "zumen-crs",
  "zumen-pointcloud",
  "zumen-sdk",
+]
+
+[[package]]
+name = "zumen-live"
+version = "0.2.0"
+dependencies = [
+ "libm",
+ "zumen-base",
 ]
 
 [[package]]

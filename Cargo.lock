@@ -971,6 +971,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "zumen-live"
+version = "0.2.0"
+dependencies = [
+ "libm",
+ "zumen-base",
+]
+
+[[package]]
 name = "zumen-photo"
 version = "0.2.0"
 dependencies = [

@@ -4,133 +4,13 @@
 //! 変更のときは、変わった要素の分だけを書き直す。動かす変更と属性を変える変更では、開き直して作った
 //! バッファーと同じ値になる。除いた行は場所を残して持ち主を外すので、配列の並びは開き直したものと変わる。
 
-use core::ops::Range;
-
 use crate::lift::{Geom, POLY_CLOSED, Pools, TextRow};
 use crate::paged::Paged;
 
 /// 使っていない場所の持ち主
 pub const NO_OWNER: u32 = u32::MAX;
 
-/// GPU 転送の差分追跡の単位（64 要素 ＝ 1,024 要素ページの 16 分の 1）
-pub const DIRTY_BLOCK: usize = 64;
-const DIRTY_SHIFT: usize = 6;
-const PAGE_SHIFT: usize = 10;
-
-/// 1 本の配列の変更範囲を 64 要素単位のビット集合で追跡する
-#[derive(Clone, Debug, Default)]
-pub struct DirtyColumn {
-    words: Vec<u64>,
-    synced_len: usize,
-}
-
-impl DirtyColumn {
-    /// 前回同期したときの要素数
-    #[inline]
-    pub const fn synced_len(&self) -> usize {
-        self.synced_len
-    }
-
-    #[inline]
-    fn mark_one(&mut self, index: usize) {
-        let block = index >> DIRTY_SHIFT;
-        let word = block >> 6;
-        if self.words.len() <= word {
-            self.words.resize(word + 1, 0);
-        }
-        if let Some(slot) = self.words.get_mut(word) {
-            *slot |= 1u64 << (block & 63);
-        }
-    }
-
-    #[inline]
-    fn mark_range(&mut self, start: usize, end: usize) {
-        if start >= end {
-            return;
-        }
-        let first = start >> DIRTY_SHIFT;
-        let last = (end - 1) >> DIRTY_SHIFT;
-        let last_word = last >> 6;
-        if self.words.len() <= last_word {
-            self.words.resize(last_word + 1, 0);
-        }
-        let first_word = first >> 6;
-        if first_word == last_word {
-            let lo = first & 63;
-            let hi = last & 63;
-            let mask = ((u64::MAX) << lo) & ((u64::MAX) >> (63 - hi));
-            if let Some(slot) = self.words.get_mut(first_word) {
-                *slot |= mask;
-            }
-            return;
-        }
-        if let Some(slot) = self.words.get_mut(first_word) {
-            *slot |= u64::MAX << (first & 63);
-        }
-        if let Some(mid) = self.words.get_mut(first_word + 1..last_word) {
-            mid.fill(u64::MAX);
-        }
-        if let Some(slot) = self.words.get_mut(last_word) {
-            *slot |= u64::MAX >> (63 - (last & 63));
-        }
-    }
-
-    fn truncate(&mut self, new_len: usize) {
-        let keep_blocks = new_len.saturating_add(DIRTY_BLOCK - 1) >> DIRTY_SHIFT;
-        let keep_words = keep_blocks.div_ceil(64);
-        if self.words.len() > keep_words {
-            self.words.truncate(keep_words);
-        }
-        let rem = keep_blocks & 63;
-        if rem != 0
-            && let Some(last) = self.words.last_mut()
-        {
-            *last &= (1u64 << rem) - 1;
-        }
-    }
-
-    fn clear(&mut self, current_len: usize) {
-        self.words.fill(0);
-        self.synced_len = current_len;
-    }
-
-    /// 変更があるか（要素数の増減を含む）
-    pub fn is_dirty(&self, current_len: usize) -> bool {
-        current_len != self.synced_len || self.words.iter().any(|&w| w != 0)
-    }
-
-    /// 同じ 1,024 要素ページ内で連続する変更範囲をまとめて返す（各範囲は `Paged::page_slice` でコピーなしに借りられる）
-    pub fn spans(&self, current_len: usize) -> Vec<Range<usize>> {
-        let mut out: Vec<Range<usize>> = Vec::new();
-        for (wi, &word_val) in self.words.iter().enumerate() {
-            let mut w = word_val;
-            while w != 0 {
-                let bit = w.trailing_zeros() as usize;
-                w &= w - 1;
-                let block = (wi << 6) | bit;
-                let start = block << DIRTY_SHIFT;
-                if start >= current_len {
-                    return out;
-                }
-                let end = (start + DIRTY_BLOCK).min(current_len);
-                if let Some(prev) = out.last_mut()
-                    && prev.end == start
-                    && (prev.start >> PAGE_SHIFT) == (start >> PAGE_SHIFT)
-                {
-                    prev.end = end;
-                } else {
-                    out.push(start..end);
-                }
-            }
-        }
-        out
-    }
-
-    /// 変更された要素の合計数
-    pub fn dirty_elements(&self, current_len: usize) -> usize {
-        self.spans(current_len).into_iter().map(|r| r.len()).sum()
-    }
-}
+pub use zumen_live::dirty::{DIRTY_BLOCK, DirtyColumn};
 
 /// 表示のバッファーの GPU 13 列ごとの変更追跡
 #[derive(Clone, Debug, Default)]
