@@ -550,9 +550,9 @@ pub fn lower_to_dxf_with_report(
                             .map_err(|stop| stopped(cx, stop))?;
                         cx.check(Kind::Segments, points)
                             .map_err(|stop| stopped(cx, stop))?;
-                        let baked = bake::element_of(element, view);
-                        cx.check(Kind::Work, baked.work)
-                            .map_err(|stop| stopped(cx, stop))?;
+                        let baked =
+                            bake::try_element_of(element, view, |work| cx.check(Kind::Work, work))
+                                .map_err(|stop| stopped(cx, stop))?;
                         cx.check(Kind::Segments, baked.points)
                             .map_err(|stop| stopped(cx, stop))?;
                         match baked.element {

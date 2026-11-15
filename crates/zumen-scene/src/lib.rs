@@ -944,14 +944,14 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
             }
             Edge::Spline(spline) => {
                 let control: Vec<Xy> = spline.control.iter().map(|p| p.xy()).collect();
-                let (found, work) = geom::spline_with_work(
+                let found = geom::try_spline_with_work(
                     spline.degree,
                     &spline.knots,
                     &control,
                     &spline.weights,
                     local,
-                );
-                self.work(work, source)?;
+                    |work| self.work(work, source),
+                )?;
                 match found {
                     Some(found) => {
                         points = found;
@@ -983,12 +983,14 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
                             spacing,
                             spline.closed || spline.periodic,
                         ) {
-                            Some((knots, control)) => {
-                                let (found, work) =
-                                    geom::spline_with_work(3, &knots, &control, &[], local);
-                                self.work(work, source)?;
-                                found
-                            }
+                            Some((knots, control)) => geom::try_spline_with_work(
+                                3,
+                                &knots,
+                                &control,
+                                &[],
+                                local,
+                                |work| self.work(work, source),
+                            )?,
                             None => None,
                         };
                         match fitted {

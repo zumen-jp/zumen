@@ -1566,7 +1566,12 @@ pub fn lower_drawing_to_sima(drawing: &Drawing2D, cx: &mut Cx) -> Result<Lowered
                             e_len.value,
                             tol_local,
                         );
-                        let max_pts = (work / 9).saturating_add(2);
+                        let max_pts = zumen_geom2d::clothoid_point_count(
+                            p_len.value,
+                            s_len.value,
+                            e_len.value,
+                            tol_local,
+                        );
                         cx.check(Kind::Work, work)
                             .map_err(|s| stopped(cx, s, Some(elem.source.clone())))?;
                         cx.check(Kind::Segments, max_pts)
