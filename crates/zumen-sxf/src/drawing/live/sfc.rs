@@ -567,21 +567,28 @@ impl SfcState {
     }
 
     pub(super) fn source_map(&self, cx: &mut Cx<'_>) -> Result<SourceMap, Error> {
-        work(cx, self.base_features.len() as u64, &Ref::default())?;
-        let insertion = self
+        let insertion = if self.born_features.is_empty() {
+            None
+        } else if let Some(sheet) = self
             .first_sheet_base
             .and_then(|index| self.base_features.get(index))
-            .map(|feature| feature.record_idx)
-            .or_else(|| {
+        {
+            Some(sheet.record_idx as u64)
+        } else {
+            let mut insertion = None;
+            for (index, feature) in self.base_features.iter().enumerate().rev() {
+                work(cx, 1, &Ref::default())?;
+                if !self.removed_base.contains(&index) {
+                    insertion = Some(feature.record_idx.saturating_add(1) as u64);
+                    break;
+                }
+            }
+            insertion.or_else(|| {
                 self.base_features
-                    .iter()
-                    .enumerate()
-                    .rev()
-                    .find(|(index, _)| !self.removed_base.contains(index))
-                    .map(|(_, feature)| feature.record_idx.saturating_add(1))
+                    .first()
+                    .map(|feature| feature.record_idx as u64)
             })
-            .or_else(|| self.base_features.first().map(|feature| feature.record_idx))
-            .map(|record| record as u64);
+        };
         SourceMap::build(
             self.removed_base.iter().filter_map(|index| {
                 self.base_features

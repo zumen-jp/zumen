@@ -929,9 +929,35 @@ impl SxfLive {
         Some(&self.table.row(row)?.canonical_id)
     }
 
-    /// [`RowId`] の要素を返す
+    /// [`RowId`] の保持値を借りる。出所の番号は保存順に補正していない。
+    /// 保存した図面と照らすときは [`Self::placed_with_source`] を使う。
     pub fn placed(&self, row: RowId) -> Option<&Placed> {
         Some(&self.table.row(row)?.placed)
+    }
+
+    /// 保存順の出所と参照を伴う要素を返す。コピーと補正は呼び出し元の予算で数える。
+    pub fn placed_with_source(&self, row: RowId, cx: &mut Cx<'_>) -> Result<Option<Placed>, Error> {
+        work(cx, 1, &Ref::default())?;
+        let Some(placed) = self.placed(row) else {
+            return Ok(None);
+        };
+        let before = cx.budget.used(Kind::Work);
+        count_placed_copy(placed, cx, 1)?;
+        // ハッシュの 1 回の書き込みは高々 1024 バイト。コピーする列と文字列の容量を予約する。
+        let bytes = cx
+            .budget
+            .used(Kind::Work)
+            .saturating_sub(before)
+            .saturating_mul(1024)
+            .saturating_add(placed_source(placed).id().map_or(0, str::len) as u64);
+        cx.check(Kind::DecodedBytes, bytes).map_err(|stop| {
+            cx.report(stop.to_diagnostic());
+            Error::Stopped(stop)
+        })?;
+        let sources = self.backing.source_map(cx)?;
+        let mut placed = placed.clone();
+        sources.placed(&mut placed, cx)?;
+        Ok(Some(placed))
     }
 
     fn current_tables(&self) -> Tables {
@@ -3451,10 +3477,113 @@ mod equivalence_tests {
         assert_eq!(run(|cx| candidate.drawing(cx)), run(|cx| live.drawing(cx)));
     }
 
+    fn assert_single_sources(live: &SxfLive, drawing: &Drawing2D) {
+        let check = |id: String, expected: Placed| {
+            let row = live.row_id_for_canonical_id(&id).unwrap();
+            let (actual, diagnostics) = run(|cx| live.placed_with_source(row, cx));
+            assert!(diagnostics.is_empty());
+            assert_eq!(actual.unwrap(), Some(expected));
+        };
+        for space in &drawing.spaces {
+            let place = id::space(space.id);
+            let mut namer = id::Namer::new(&place);
+            for (index, element) in space.elements.iter().enumerate() {
+                check(namer.next(index, element), Placed::Model(element.clone()));
+            }
+        }
+        let mut definitions = id::DefinitionNamer::default();
+        for symbol in &drawing.symbols {
+            let place = definitions.next(symbol);
+            let mut namer = id::Namer::new(&place);
+            for (index, element) in symbol.space.elements.iter().enumerate() {
+                check(namer.next(index, element), Placed::Model(element.clone()));
+            }
+        }
+        let mut sheets = id::SheetNamer::default();
+        for sheet in &drawing.sheets {
+            let place = sheets.next(sheet);
+            let mut namer = id::Namer::new(&place);
+            for (index, element) in sheet.elements.iter().enumerate() {
+                check(namer.next(index, element), Placed::Paper(element.clone()));
+            }
+        }
+    }
+
+    #[test]
+    fn single_lookup_checks_shared_budget_and_avoids_scanning_unchanged_rows() {
+        use zumen_base::{Limit, Limits};
+        let mut costs = Vec::new();
+        for count in [2, 10_000] {
+            let mut features = vec!["layer_feature(\\'A\\','1')".to_owned()];
+            features.extend((0..count).map(|index| {
+                format!("line_feature('1','1','1','1','0','{index}','10','{index}')")
+            }));
+            // 用紙のない SFC でも、追加がなければ挿入位置の走査は要らない。
+            let bytes = sfc_features(&features.iter().map(String::as_str).collect::<Vec<_>>());
+            let mut live = run(|cx| SxfLive::open(&bytes, cx)).0.unwrap();
+            let row = live.row_id_for_instance(20).unwrap();
+            let mut budget = Budget::default();
+            let mut diagnostics = Diagnostics::new();
+            let cancel = CancelToken::new();
+            let value = live
+                .placed_with_source(row, &mut Cx::new(&mut budget, &mut diagnostics, &cancel))
+                .unwrap()
+                .unwrap();
+            assert!(diagnostics.is_empty());
+            costs.push((budget.used(Kind::Work), budget.used(Kind::DecodedBytes)));
+            for kind in [Kind::Work, Kind::DecodedBytes] {
+                let used = budget.used(kind);
+                for limit in [0, used - 1, used] {
+                    let mut budget =
+                        Budget::new(Limits::default().with(kind, Limit::Finite(limit)));
+                    let result = live.placed_with_source(
+                        row,
+                        &mut Cx::new(&mut budget, &mut Diagnostics::new(), &cancel),
+                    );
+                    if limit == used {
+                        assert_eq!(result.unwrap(), Some(value.clone()));
+                    } else {
+                        assert!(matches!(result, Err(Error::Stopped(_))));
+                    }
+                }
+            }
+            let cancelled = CancelToken::new();
+            cancelled.cancel();
+            assert!(matches!(
+                live.placed_with_source(
+                    row,
+                    &mut Cx::new(&mut Budget::default(), &mut Diagnostics::new(), &cancelled),
+                ),
+                Err(Error::Stopped(_))
+            ));
+            let missing = RowId(u32::MAX);
+            assert_eq!(
+                run(|cx| live.placed_with_source(missing, cx)).0.unwrap(),
+                None
+            );
+            let changes = Changes {
+                document: None,
+                edits: vec![Edit::Remove {
+                    target: seen(&live, 20),
+                }],
+            };
+            run(|cx| live.apply(&changes, cx)).0.unwrap();
+            assert_eq!(run(|cx| live.placed_with_source(row, cx)).0.unwrap(), None);
+            assert!(run(|cx| live.undo(cx)).0.unwrap());
+            assert_eq!(
+                run(|cx| live.placed_with_source(row, cx)).0.unwrap(),
+                Some(value)
+            );
+            assert_eq!(run(|cx| live.save(cx)).0.unwrap(), bytes);
+        }
+        assert_eq!(costs[0], costs[1]);
+    }
+
     fn assert_source_parity(live: &SxfLive, file: &SxfFile) {
         let expected = run(|cx| file.lift(cx));
         let held = run(|cx| live.drawing(cx));
         assert_eq!(held, expected);
+        assert_single_sources(live, held.0.as_ref().unwrap());
         let saved = run(|cx| live.save(cx)).0.unwrap();
         let reference = run(|cx| {
             let mut bytes = Vec::new();
@@ -3542,11 +3671,13 @@ mod equivalence_tests {
                 for expected in history.iter().rev().skip(1) {
                     assert!(run(|cx| live.undo(cx)).0.unwrap());
                     assert_eq!(&run(|cx| live.drawing(cx)).0.unwrap(), &expected.0);
+                    assert_single_sources(&live, &expected.0);
                     assert_eq!(&run(|cx| live.save(cx)).0.unwrap(), &expected.1);
                 }
                 for expected in history.iter().skip(1) {
                     assert!(run(|cx| live.redo(cx)).0.unwrap());
                     assert_eq!(&run(|cx| live.drawing(cx)).0.unwrap(), &expected.0);
+                    assert_single_sources(&live, &expected.0);
                     assert_eq!(&run(|cx| live.save(cx)).0.unwrap(), &expected.1);
                 }
             }

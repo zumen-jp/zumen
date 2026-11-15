@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 
 use zumen_base::{Cx, Key, Kind, Ref};
-use zumen_drawing::{CalloutContent, Drawing2D, Element, Shape};
+use zumen_drawing::{CalloutContent, Drawing2D, Element, Placed, Shape};
 use zumen_sdk::Error;
 
 use crate::drawing::work;
@@ -68,6 +68,13 @@ impl SourceMap {
             *source = core::mem::take(source).with_record(record);
         }
         Ok(())
+    }
+
+    pub(super) fn placed(&self, placed: &mut Placed, cx: &mut Cx<'_>) -> Result<(), Error> {
+        match placed {
+            Placed::Model(element) => self.element(element, cx),
+            Placed::Paper(element) => self.element(element, cx),
+        }
     }
 
     fn element<P>(&self, element: &mut Element<P>, cx: &mut Cx<'_>) -> Result<(), Error> {
