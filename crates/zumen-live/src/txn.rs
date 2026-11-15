@@ -611,6 +611,12 @@ impl<R: TableRow, P: PatchPayload> History<R, P> {
         .max(1) as u64;
         // 反映を始める前に中断と予算を検査し、止まるときは何も書き換えない
         cx.check(Kind::Work, work)?;
+        if let Some(dep) = side.dep.as_deref() {
+            for &(row, _) in &top.dep_after {
+                dep.check_clear_dependent(row, cx)?;
+            }
+            dep.check_restore_rows(&top.dep_before, cx)?;
+        }
 
         let Some(entry) = self.undo_stack.pop() else {
             return Ok(None);
@@ -698,6 +704,17 @@ impl<R: TableRow, P: PatchPayload> History<R, P> {
             + top.patches.len())
         .max(1) as u64;
         cx.check(Kind::Work, work)?;
+        if let Some(dep) = side.dep.as_deref() {
+            for diff in &top.existing {
+                cx.check(Kind::Work, 1)?;
+                if let ExistingRowDiff::Removed { row, .. } = diff {
+                    dep.check_remove_row(*row, cx)?;
+                }
+            }
+            for (row, sources) in &top.dep_after {
+                dep.check_set_sources(*row, sources.len(), cx)?;
+            }
+        }
 
         let Some(entry) = self.redo_stack.pop() else {
             return Ok(None);
@@ -831,19 +848,40 @@ where
     let mut dep_snapshot_targets = BTreeSet::new();
     if side.dep.is_some() {
         for diff in &existing_vec {
+            cx.check(Kind::Work, 1)?;
             if let ExistingRowDiff::Removed { row, .. } = diff {
+                cx.check(Kind::DecodedBytes, 128)?;
                 dep_snapshot_targets.insert(*row);
             }
         }
         for &(row, _) in &dep_after {
-            dep_snapshot_targets.insert(row);
+            cx.check(Kind::Work, 1)?;
+            if !dep_snapshot_targets.contains(&row) {
+                cx.check(Kind::DecodedBytes, 128)?;
+                dep_snapshot_targets.insert(row);
+            }
         }
     }
+    let mut dep_prepaid = 0usize;
     let dep_before: Vec<DepBefore> = if let Some(dep) = side.dep.as_deref() {
-        dep_snapshot_targets
-            .into_iter()
-            .map(|r| dep.snapshot_row(r))
-            .collect()
+        dep_prepaid = dep_snapshot_targets.len().saturating_mul(64);
+        cx.check(Kind::DecodedBytes, dep_prepaid as u64)?;
+        let mut before = Vec::with_capacity(dep_snapshot_targets.len());
+        for row in dep_snapshot_targets {
+            let snapshot = dep.snapshot_row_with_cx(row, cx)?;
+            dep_prepaid = dep_prepaid.saturating_add(snapshot.heap_bytes());
+            before.push(snapshot);
+        }
+        for diff in &existing_vec {
+            cx.check(Kind::Work, 1)?;
+            if let ExistingRowDiff::Removed { row, .. } = diff {
+                dep.check_remove_row(*row, cx)?;
+            }
+        }
+        for (row, sources) in &dep_after {
+            dep.check_set_sources(*row, sources.len(), cx)?;
+        }
+        before
     } else {
         Vec::new()
     };
@@ -880,7 +918,10 @@ where
         * (R::INLINE_BYTES + core::mem::size_of::<bool>() + core::mem::size_of::<[f64; 4]>());
     cx.check(
         Kind::DecodedBytes,
-        (committed.bytes().saturating_add(born_row_bytes)) as u64,
+        (committed
+            .bytes()
+            .saturating_sub(dep_prepaid)
+            .saturating_add(born_row_bytes)) as u64,
     )?;
 
     // すべての検査に通ったので、ここから一括で反映する
@@ -986,6 +1027,340 @@ mod tests {
         cancel: &'a CancelToken,
     ) -> Cx<'a> {
         Cx::new(budget, diag, cancel)
+    }
+
+    #[test]
+    fn dependency_history_counts_edges_before_commit_undo_and_redo() {
+        let cancel = CancelToken::new();
+        let mut budget = Budget::default();
+        let mut diagnostics = Diagnostics::new();
+        let mut table = VersionedTable::from_rows_with_cx(
+            vec![(
+                TestRow {
+                    handle: Some(1),
+                    x: 0.0,
+                    y: 0.0,
+                    color: 7,
+                },
+                EMPTY_BOUNDS,
+                true,
+            )],
+            &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+        )
+        .unwrap();
+        let mut graph = DepGraph::new();
+        graph.set_sources(RowId(0), (0..1000).map(|i| RowId::virtual_node(i).unwrap()));
+        let before = graph.clone();
+        let before_table = table.snapshot();
+        let mut history: History<TestRow> = History::new();
+        let apply = |table: &mut VersionedTable<TestRow>,
+                     graph: &mut DepGraph,
+                     history: &mut History<TestRow>,
+                     cx: &mut Cx<'_>| {
+            run_transaction(
+                table,
+                SideIndexes {
+                    dep: Some(graph),
+                    ..SideIndexes::default()
+                },
+                history,
+                cx,
+                |txn, _| {
+                    txn.set_dep_sources(RowId(0), [RowId::virtual_node(2000).unwrap()])?;
+                    Ok::<_, TxnError<()>>(())
+                },
+            )
+        };
+        let mut tight = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(10)));
+        let result = apply(
+            &mut table,
+            &mut graph,
+            &mut history,
+            &mut Cx::new(&mut tight, &mut diagnostics, &cancel),
+        );
+        assert!(matches!(result, Err(TxnError::Stop(Stop::Exceeded(_)))));
+        assert_eq!(graph, before);
+        assert_eq!(table.snapshot(), before_table);
+        assert_eq!((history.undo_len(), history.redo_len()), (0, 0));
+        apply(
+            &mut table,
+            &mut graph,
+            &mut history,
+            &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+        )
+        .unwrap();
+        let after = graph.clone();
+        let after_table = table.snapshot();
+        for kind in [Kind::Work, Kind::DecodedBytes] {
+            let mut tight = Budget::new(Limits::default().with(kind, Limit::Finite(10)));
+            let result = history.undo(
+                &mut table,
+                SideIndexes {
+                    dep: Some(&mut graph),
+                    ..SideIndexes::default()
+                },
+                &mut Cx::new(&mut tight, &mut diagnostics, &cancel),
+            );
+            assert!(matches!(result, Err(Stop::Exceeded(_))), "{kind:?}");
+            assert_eq!(graph, after);
+            assert_eq!(table.snapshot(), after_table);
+            assert_eq!((history.undo_len(), history.redo_len()), (1, 0));
+        }
+        history
+            .undo(
+                &mut table,
+                SideIndexes {
+                    dep: Some(&mut graph),
+                    ..SideIndexes::default()
+                },
+                &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+            )
+            .unwrap();
+        assert_eq!(graph, before);
+        let undone_table = table.snapshot();
+        for kind in [Kind::Work, Kind::DecodedBytes] {
+            let mut tight = Budget::new(Limits::default().with(kind, Limit::Finite(10)));
+            let result = history.redo(
+                &mut table,
+                SideIndexes {
+                    dep: Some(&mut graph),
+                    ..SideIndexes::default()
+                },
+                &mut Cx::new(&mut tight, &mut diagnostics, &cancel),
+            );
+            assert!(matches!(result, Err(Stop::Exceeded(_))), "{kind:?}");
+            assert_eq!(graph, before);
+            assert_eq!(table.snapshot(), undone_table);
+            assert_eq!((history.undo_len(), history.redo_len()), (0, 1));
+        }
+        history
+            .redo(
+                &mut table,
+                SideIndexes {
+                    dep: Some(&mut graph),
+                    ..SideIndexes::default()
+                },
+                &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+            )
+            .unwrap();
+        assert_eq!(graph, after);
+    }
+
+    #[test]
+    fn dependency_history_budget_boundaries_keep_overlapping_edges_atomic() {
+        #[derive(Clone, Copy, Debug, PartialEq)]
+        enum Phase {
+            Commit,
+            Undo,
+            Redo,
+        }
+
+        fn act(
+            phase: Phase,
+            table: &mut VersionedTable<TestRow>,
+            graph: &mut DepGraph,
+            history: &mut History<TestRow>,
+            cx: &mut Cx<'_>,
+        ) -> Result<(), Stop> {
+            let side = SideIndexes {
+                dep: Some(graph),
+                ..SideIndexes::default()
+            };
+            match phase {
+                Phase::Commit => run_transaction(table, side, history, cx, |txn, _| {
+                    txn.remove_row(RowId(1))?;
+                    txn.update_row(
+                        RowId(0),
+                        TestRow {
+                            handle: Some(4),
+                            x: 1.0,
+                            y: 2.0,
+                            color: 3,
+                        },
+                        [1.0, 2.0, 3.0, 4.0],
+                    )?;
+                    txn.set_dep_sources(RowId(0), [RowId(2), RowId::virtual_node(2000).unwrap()])?;
+                    txn.set_dep_sources(RowId(2), [RowId::virtual_node(2001).unwrap()])?;
+                    Ok::<_, TxnError<()>>(())
+                })
+                .map(|_| ())
+                .map_err(|err| match err {
+                    TxnError::Stop(stop) => stop,
+                    other => panic!("{other:?}"),
+                }),
+                Phase::Undo => history
+                    .undo(table, side, cx)
+                    .map(|result| assert!(result.is_some())),
+                Phase::Redo => history
+                    .redo(table, side, cx)
+                    .map(|result| assert!(result.is_some())),
+            }
+        }
+
+        let cancel = CancelToken::new();
+        let stopped = CancelToken::new();
+        stopped.cancel();
+        let mut costs = Vec::new();
+        for unrelated in [0, 10_000] {
+            let rows = (0..3)
+                .map(|i| {
+                    (
+                        TestRow {
+                            handle: Some(i + 1),
+                            x: i as f64,
+                            y: 0.0,
+                            color: 7,
+                        },
+                        [i as f64, 0.0, i as f64 + 1.0, 1.0],
+                        true,
+                    )
+                })
+                .collect();
+            let mut table = VersionedTable::from_rows_with_cx(
+                rows,
+                &mut Cx::new(&mut Budget::default(), &mut Diagnostics::new(), &cancel),
+            )
+            .unwrap();
+            let mut graph = DepGraph::new();
+            graph.set_sources(
+                RowId(0),
+                (0..12)
+                    .map(|i| RowId::virtual_node(i).unwrap())
+                    .chain([RowId(1)]),
+            );
+            graph.set_sources(RowId(1), [RowId(0), RowId(2)]);
+            graph.set_sources(RowId(2), [RowId(1)]);
+            for i in 0..unrelated {
+                graph.set_sources(
+                    RowId::virtual_node(10_000 + i).unwrap(),
+                    [RowId::virtual_node(30_000).unwrap()],
+                );
+            }
+            let initial_graph = graph.clone();
+            let mut history = History::new();
+            let mut phases = Vec::new();
+            for phase in [Phase::Commit, Phase::Undo, Phase::Redo] {
+                let before_table = table.snapshot();
+                let mut next_table = table.clone();
+                let mut next_graph = graph.clone();
+                let mut next_history = history.clone();
+                let mut measured = Budget::default();
+                act(
+                    phase,
+                    &mut next_table,
+                    &mut next_graph,
+                    &mut next_history,
+                    &mut Cx::new(&mut measured, &mut Diagnostics::new(), &cancel),
+                )
+                .unwrap();
+                for kind in [Kind::Work, Kind::DecodedBytes] {
+                    let used = measured.used(kind);
+                    assert!(used > 0);
+                    for (limit, spent) in [
+                        (0, 0),
+                        (used / 2, 0),
+                        (used - 1, 0),
+                        (used, 0),
+                        (used, 1),
+                        (used + 1, 1),
+                    ] {
+                        let mut trial_table = table.clone();
+                        let mut trial_graph = graph.clone();
+                        let mut trial_history = history.clone();
+                        let before_history = (
+                            trial_history.undo_len(),
+                            trial_history.redo_len(),
+                            trial_history.bytes(),
+                        );
+                        let mut budget =
+                            Budget::new(Limits::default().with(kind, Limit::Finite(limit)));
+                        budget.spend(kind, spent).unwrap();
+                        let result = act(
+                            phase,
+                            &mut trial_table,
+                            &mut trial_graph,
+                            &mut trial_history,
+                            &mut Cx::new(&mut budget, &mut Diagnostics::new(), &cancel),
+                        );
+                        if limit >= used + spent {
+                            result.unwrap();
+                            assert_eq!(trial_table.snapshot(), next_table.snapshot());
+                            assert_eq!(trial_graph, next_graph);
+                            assert_eq!(
+                                (
+                                    trial_history.undo_len(),
+                                    trial_history.redo_len(),
+                                    trial_history.bytes()
+                                ),
+                                (
+                                    next_history.undo_len(),
+                                    next_history.redo_len(),
+                                    next_history.bytes()
+                                )
+                            );
+                        } else {
+                            assert!(
+                                matches!(result, Err(Stop::Exceeded(_))),
+                                "phase={phase:?} {kind:?}={limit}"
+                            );
+                            assert_eq!(trial_table.snapshot(), before_table);
+                            assert_eq!(trial_graph, graph);
+                            assert_eq!(
+                                (
+                                    trial_history.undo_len(),
+                                    trial_history.redo_len(),
+                                    trial_history.bytes()
+                                ),
+                                before_history
+                            );
+                        }
+                    }
+                }
+                let cancelled_graph = graph.clone();
+                let cancelled_history_bytes = history.bytes();
+                assert_eq!(
+                    act(
+                        phase,
+                        &mut table,
+                        &mut graph,
+                        &mut history,
+                        &mut Cx::new(&mut Budget::default(), &mut Diagnostics::new(), &stopped)
+                    ),
+                    Err(Stop::Cancelled)
+                );
+                assert_eq!(table.snapshot(), before_table);
+                assert_eq!(graph, cancelled_graph);
+                assert_eq!(history.bytes(), cancelled_history_bytes);
+                assert_eq!(
+                    (history.undo_len(), history.redo_len()),
+                    match phase {
+                        Phase::Commit => (0, 0),
+                        Phase::Undo => (1, 0),
+                        Phase::Redo => (0, 1),
+                    }
+                );
+                phases.push((
+                    Kind::ALL.map(|kind| measured.used(kind)),
+                    next_history.bytes(),
+                ));
+                table = next_table;
+                graph = next_graph;
+                history = next_history;
+                if phase == Phase::Undo {
+                    assert_eq!(graph, initial_graph);
+                }
+            }
+            costs.push(phases);
+        }
+        assert_eq!(costs[0], costs[1]);
+        #[allow(
+            clippy::disallowed_methods,
+            reason = "テストの比較記録の出力先だけを読む"
+        )]
+        let destination = std::env::var("ZUMEN_LIVE_DEP_HISTORY_OUT");
+        if let Ok(path) = destination {
+            std::fs::write(path, format!("{costs:?}\n")).unwrap();
+        }
     }
 
     #[test]

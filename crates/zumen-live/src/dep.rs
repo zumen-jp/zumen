@@ -22,6 +22,10 @@ impl DepBefore {
     pub fn heap_bytes(&self) -> usize {
         (self.sources.capacity() + self.dependents.capacity()) * core::mem::size_of::<RowId>()
     }
+
+    fn edge_count(&self) -> u64 {
+        (self.sources.len() as u64).saturating_add(self.dependents.len() as u64)
+    }
 }
 
 /// 行どうしの依存グラフ
@@ -56,6 +60,91 @@ impl DepGraph {
             sources,
             dependents,
         }
+    }
+
+    pub(crate) fn snapshot_row_with_cx(
+        &self,
+        row: RowId,
+        cx: &mut Cx<'_>,
+    ) -> Result<DepBefore, Stop> {
+        let edges = self.row_edge_count(row);
+        cx.check(Kind::Work, edges.saturating_add(1))?;
+        cx.check(Kind::DecodedBytes, edges.saturating_mul(4))?;
+        Ok(self.snapshot_row(row))
+    }
+
+    fn source_count(&self, row: RowId) -> u64 {
+        self.sources_by_dep
+            .get(&row)
+            .map_or(0, |sources| sources.len() as u64)
+    }
+
+    fn row_edge_count(&self, row: RowId) -> u64 {
+        self.source_count(row).saturating_add(
+            self.deps_by_source
+                .get(&row)
+                .map_or(0, |deps| deps.len() as u64),
+        )
+    }
+
+    pub(crate) fn check_clear_dependent(&self, row: RowId, cx: &mut Cx<'_>) -> Result<(), Stop> {
+        cx.check(
+            Kind::Work,
+            self.source_count(row).saturating_mul(2).saturating_add(1),
+        )
+    }
+
+    pub(crate) fn check_remove_row(&self, row: RowId, cx: &mut Cx<'_>) -> Result<(), Stop> {
+        cx.check(
+            Kind::Work,
+            self.row_edge_count(row).saturating_mul(2).saturating_add(1),
+        )
+    }
+
+    pub(crate) fn check_set_sources(
+        &self,
+        row: RowId,
+        sources: usize,
+        cx: &mut Cx<'_>,
+    ) -> Result<(), Stop> {
+        self.check_clear_dependent(row, cx)?;
+        let edges = sources as u64;
+        cx.check(Kind::Work, edges.saturating_mul(3))?;
+        Self::check_new_edges(edges, u64::from(edges != 0), cx)
+    }
+
+    fn check_new_edges(edges: u64, rows: u64, cx: &mut Cx<'_>) -> Result<(), Stop> {
+        // 両向きの木と集合の節点を、ポインター幅に依らない余裕を含む量で数える。
+        cx.check(
+            Kind::DecodedBytes,
+            edges
+                .saturating_mul(768)
+                .saturating_add(rows.saturating_mul(512)),
+        )
+    }
+
+    pub(crate) fn check_restore_rows(
+        &self,
+        before: &[DepBefore],
+        cx: &mut Cx<'_>,
+    ) -> Result<(), Stop> {
+        let mut current = 0u64;
+        let mut restored = 0u64;
+        let mut rows = 0u64;
+        for row in before {
+            cx.check(Kind::Work, 1)?;
+            current = current.saturating_add(self.row_edge_count(row.row));
+            restored = restored.saturating_add(row.edge_count());
+            rows = rows.saturating_add(u64::from(row.edge_count() != 0));
+        }
+        // 先の復元で足した辺を、次の行の復元で一度除いて戻す場合も数える。
+        cx.check(
+            Kind::Work,
+            current
+                .saturating_mul(2)
+                .saturating_add(restored.saturating_mul(6)),
+        )?;
+        Self::check_new_edges(restored, rows, cx)
     }
 
     /// `dependent` が参照する元の行の集合を `sources` に置き換える（自分自身への辺は除く）
@@ -321,6 +410,30 @@ impl DepGraph {
 mod tests {
     use super::*;
     use zumen_base::{Budget, CancelToken, Diagnostics, Limit, Limits};
+
+    #[test]
+    fn checked_snapshot_charges_all_retained_edge_capacity() {
+        let cancel = CancelToken::new();
+        for count in [0, 1, 2, 3, 4, 11, 12, 1000] {
+            let mut graph = DepGraph::new();
+            graph.set_sources(RowId(0), (1..=count).map(RowId));
+            for row in 1..=count {
+                graph.set_sources(RowId(row), [RowId(0)]);
+            }
+            let mut budget = Budget::default();
+            let snapshot = graph
+                .snapshot_row_with_cx(
+                    RowId(0),
+                    &mut Cx::new(&mut budget, &mut Diagnostics::new(), &cancel),
+                )
+                .unwrap();
+            assert_eq!(
+                budget.used(Kind::DecodedBytes),
+                snapshot.heap_bytes() as u64
+            );
+            assert_eq!(snapshot, graph.snapshot_row(RowId(0)));
+        }
+    }
 
     #[test]
     fn checked_propagation_counts_allocations_and_ordering_without_changing_the_graph() {
