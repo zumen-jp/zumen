@@ -15,6 +15,12 @@ pub(super) struct SourceMap {
 }
 
 impl SourceMap {
+    pub(super) fn removed(&self, source: &Ref) -> bool {
+        source
+            .record()
+            .is_some_and(|record| self.removed.binary_search(&record).is_ok())
+    }
+
     pub(super) fn build(
         removed: impl Iterator<Item = u64>,
         insertion: Option<u64>,

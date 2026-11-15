@@ -5,6 +5,7 @@
 //! 全体を書く [`SxfLive::save`] は、`SxfFile::apply` を 1 手ずつ当てて `Sxf::write` した結果と
 //! バイト列単位で一致する。
 
+mod diagnostics;
 mod display;
 mod p21;
 mod sfc;
@@ -26,6 +27,7 @@ use zumen_live::{
 };
 use zumen_sdk::{Codec, Error, quietly};
 
+use self::diagnostics::LiveDiagnostics;
 use self::display::{
     DisplayContext, apply_display_commit, compute_sheet_bounds, display_counts_and_style,
     model_shape_bounds, revert_display_commit, write_display_row,
@@ -69,6 +71,7 @@ pub(super) struct SxfRow {
     pub(super) canonical_id: Box<str>,
     pub(super) placed: Placed,
     pub(super) drafts: Box<[Draft]>,
+    diagnostics: Vec<Diagnostic>,
 }
 
 impl TableRow for SxfRow {
@@ -82,6 +85,7 @@ impl TableRow for SxfRow {
             + self.p21_name.len()
             + self.canonical_id.len()
             + self.drafts.len() * core::mem::size_of::<Draft>()
+            + diagnostics::heap_bytes(&self.diagnostics)
     }
 }
 
@@ -199,6 +203,7 @@ struct SheetTemplate {
 pub struct SxfLive {
     backing: SxfBacking,
     attributes: Option<AttributeFile>,
+    diagnostics: LiveDiagnostics,
     lifter_tables: LifterTables,
     static_layer_ids: BTreeSet<u32>,
     static_user_lt_ids: BTreeSet<u32>,
@@ -285,16 +290,18 @@ impl SxfLive {
         attributes: Option<AttributeFile>,
         cx: &mut Cx<'_>,
     ) -> Result<Self, Error> {
-        let (records, codes, lifted) = cx.with_diagnostics_in_record_order(|cx| {
-            let (records, codes) = match file.mode() {
-                Mode::Sfc => (sfc_records(file), None),
-                Mode::P21 => {
-                    let (records, codes) = p21_records_and_codes(file, cx)?;
-                    (records, Some(codes))
-                }
-            };
-            let lifted = lift_for_live(file, &records, attributes.as_ref(), cx)?;
-            Ok::<_, Error>((records, codes, lifted))
+        let ((records, codes, lifted), events) = cx.with_diagnostic_events(u64::MAX, |cx| {
+            cx.with_diagnostics_in_record_order(|cx| {
+                let (records, codes) = match file.mode() {
+                    Mode::Sfc => (sfc_records(file), None),
+                    Mode::P21 => {
+                        let (records, codes) = p21_records_and_codes(file, cx)?;
+                        (records, Some(codes))
+                    }
+                };
+                let lifted = lift_for_live(file, &records, attributes.as_ref(), cx)?;
+                Ok::<_, Error>((records, codes, lifted))
+            })
         })?;
 
         let grouped_set = grouped(&records, cx)?;
@@ -497,6 +504,7 @@ impl SxfLive {
                     canonical_id: cid.into_boxed_str(),
                     placed: Placed::Model(elem),
                     drafts,
+                    diagnostics: Vec::new(),
                 });
                 r_ids.push(row_id);
             }
@@ -567,6 +575,7 @@ impl SxfLive {
                     canonical_id: cid.into_boxed_str(),
                     placed: Placed::Model(elem),
                     drafts,
+                    diagnostics: Vec::new(),
                 });
                 r_ids.push(row_id);
             }
@@ -609,6 +618,7 @@ impl SxfLive {
                 canonical_id: cid.into_boxed_str(),
                 placed: Placed::Paper(elem),
                 drafts,
+                diagnostics: Vec::new(),
             });
             paper_idx_to_row.push(row_id);
         }
@@ -632,6 +642,15 @@ impl SxfLive {
             views: sheet.views,
             source: sheet.source,
         };
+
+        let diagnostics = LiveDiagnostics::build(
+            events.details,
+            &records,
+            file,
+            &mut rows,
+            &lifted.tables,
+            cx,
+        )?;
 
         let mut inst_counts: BTreeMap<u64, u32> = BTreeMap::new();
         for row in &rows {
@@ -697,6 +716,7 @@ impl SxfLive {
         Ok(Self {
             backing,
             attributes,
+            diagnostics,
             lifter_tables: lifted.tables,
             static_layer_ids,
             static_user_lt_ids,
@@ -838,6 +858,7 @@ impl SxfLive {
     /// 常駐データ構造の概算メモリ使用量（バイト）
     pub fn resident_bytes(&self) -> usize {
         self.backing.resident_bytes()
+            + self.diagnostics.bytes()
             + self.table.len() * core::mem::size_of::<SxfRow>()
             + self.spatial.bytes()
             + self.display.bytes()
@@ -951,10 +972,23 @@ impl SxfLive {
             .unique_handle
             .filter(|&inst| self.table.find_handle(inst) == Some(row_id));
         let Some(inst) = valid_inst.filter(|&inst| targets.insert(inst)) else {
-            cx.report(unsupported(format, edit, "shared").at(source.clone()));
+            self.report_at(unsupported(format, edit, "shared"), source, cx)?;
             return Ok(None);
         };
         Ok(Some((row_id, inst)))
+    }
+
+    fn report_at(
+        &self,
+        diagnostic: Diagnostic,
+        source: &Ref,
+        cx: &mut Cx<'_>,
+    ) -> Result<(), Error> {
+        let sources = self.backing.source_map(cx)?;
+        let mut source = source.clone();
+        sources.remap(&mut source, cx)?;
+        cx.report(diagnostic.at(source));
+        Ok(())
     }
 
     /// 変更群を `O(変更数)` で差分適用する
@@ -1044,10 +1078,11 @@ impl SxfLive {
                     Some(StagedSfcOp::Removed { row_id, inst })
                 });
                 if ok.is_none() {
-                    cx.report(
-                        unsupported(format, "remove", kind_str)
-                            .at(placed_source(&row.placed).clone()),
-                    );
+                    self.report_at(
+                        unsupported(format, "remove", kind_str),
+                        placed_source(&row.placed),
+                        cx,
+                    )?;
                 }
                 Ok(ok)
             }
@@ -1089,10 +1124,11 @@ impl SxfLive {
                     })
                 });
                 if ok.is_none() {
-                    cx.report(
-                        unsupported(format, "restyle", kind_str)
-                            .at(placed_source(&row.placed).clone()),
-                    );
+                    self.report_at(
+                        unsupported(format, "restyle", kind_str),
+                        placed_source(&row.placed),
+                        cx,
+                    )?;
                 }
                 Ok(ok)
             }
@@ -1145,10 +1181,11 @@ impl SxfLive {
                     })
                 });
                 if ok.is_none() {
-                    cx.report(
-                        unsupported(format, "replace", kind_str)
-                            .at(placed_source(&row.placed).clone()),
-                    );
+                    self.report_at(
+                        unsupported(format, "replace", kind_str),
+                        placed_source(&row.placed),
+                        cx,
+                    )?;
                 }
                 Ok(ok)
             }
@@ -1180,10 +1217,11 @@ impl SxfLive {
                     })
                 });
                 if ok.is_none() {
-                    cx.report(
-                        unsupported(format, "transform", kind_str)
-                            .at(placed_source(&row.placed).clone()),
-                    );
+                    self.report_at(
+                        unsupported(format, "transform", kind_str),
+                        placed_source(&row.placed),
+                        cx,
+                    )?;
                 }
                 Ok(ok)
             }
@@ -1267,10 +1305,11 @@ impl SxfLive {
                     None
                 };
                 if ok.is_none() {
-                    cx.report(
-                        unsupported(format, "remove", &row.p21_kind)
-                            .at(placed_source(&row.placed).clone()),
-                    );
+                    self.report_at(
+                        unsupported(format, "remove", &row.p21_kind),
+                        placed_source(&row.placed),
+                        cx,
+                    )?;
                 }
                 Ok(ok)
             }
@@ -1315,10 +1354,11 @@ impl SxfLive {
                     _ => None,
                 };
                 if ok.is_none() {
-                    cx.report(
-                        unsupported(format, "restyle", &row.p21_kind)
-                            .at(placed_source(&row.placed).clone()),
-                    );
+                    self.report_at(
+                        unsupported(format, "restyle", &row.p21_kind),
+                        placed_source(&row.placed),
+                        cx,
+                    )?;
                 }
                 Ok(ok)
             }
@@ -1379,10 +1419,11 @@ impl SxfLive {
                     None
                 };
                 if ok.is_none() {
-                    cx.report(
-                        unsupported(format, "replace", &row.p21_kind)
-                            .at(placed_source(&row.placed).clone()),
-                    );
+                    self.report_at(
+                        unsupported(format, "replace", &row.p21_kind),
+                        placed_source(&row.placed),
+                        cx,
+                    )?;
                 }
                 Ok(ok)
             }
@@ -1416,10 +1457,11 @@ impl SxfLive {
                     None
                 };
                 if ok.is_none() {
-                    cx.report(
-                        unsupported(format, "transform", &row.p21_kind)
-                            .at(placed_source(&row.placed).clone()),
-                    );
+                    self.report_at(
+                        unsupported(format, "transform", &row.p21_kind),
+                        placed_source(&row.placed),
+                        cx,
+                    )?;
                 }
                 Ok(ok)
             }
@@ -1548,10 +1590,11 @@ impl SxfLive {
                         let was_outline = group.outline_record == Some(row.record_idx);
                         let now_outline = new_outline == Some(row.record_idx);
                         if was_outline != now_outline {
-                            cx.report(
-                                unsupported(format, "apply", "round_trip")
-                                    .at(placed_source(&row.placed).clone()),
-                            );
+                            self.report_at(
+                                unsupported(format, "apply", "round_trip"),
+                                placed_source(&row.placed),
+                                cx,
+                            )?;
                             return Err(Error::Rejected);
                         }
                     }
@@ -1634,7 +1677,7 @@ impl SxfLive {
                         return Err(Error::Rejected);
                     };
                     let raster = self.raster_info_for_record(row.record_idx, &raster_diffs);
-                    let lifted = self.lift_single_for_container(
+                    let (lifted, diagnostics) = self.lift_single_for_container(
                         row.container,
                         Some(inst),
                         &feat_rec,
@@ -1653,6 +1696,7 @@ impl SxfLive {
                     verified.push(VerifiedOp::Update {
                         row_id,
                         placed: lifted_placed,
+                        diagnostics,
                     });
                 }
                 StagedSfcOp::Added {
@@ -1671,7 +1715,7 @@ impl SxfLive {
                         cx.report(unsupported(format, edit_name, "round_trip"));
                         return Err(Error::Rejected);
                     }
-                    let lifted = self.lift_single_for_container(
+                    let (lifted, diagnostics) = self.lift_single_for_container(
                         SxfContainer::Sheet(sheet_id),
                         Some(inst),
                         &feat_rec,
@@ -1696,6 +1740,7 @@ impl SxfLive {
                         feat_name: feat_rec.name,
                         feat_kind: feat_rec.kind,
                         placed: lifted_placed,
+                        diagnostics,
                     });
                 }
             }
@@ -1777,7 +1822,7 @@ impl SxfLive {
                         return Err(Error::Rejected);
                     };
                     let raster = self.raster_info_for_record(row.record_idx, &raster_diffs);
-                    let lifted = self.lift_single_for_container(
+                    let (lifted, diagnostics) = self.lift_single_for_container(
                         row.container,
                         Some(inst),
                         &feat_rec,
@@ -1798,6 +1843,7 @@ impl SxfLive {
                     verified.push(VerifiedOp::Update {
                         row_id,
                         placed: lifted_placed,
+                        diagnostics,
                     });
                 }
                 StagedP21Op::Added {
@@ -1814,7 +1860,7 @@ impl SxfLive {
                         return Err(Error::Rejected);
                     };
                     let _ = add_name;
-                    let lifted = self.lift_single_for_container(
+                    let (lifted, diagnostics) = self.lift_single_for_container(
                         SxfContainer::Sheet(sheet_id),
                         Some(inst),
                         &feat_rec,
@@ -1840,6 +1886,7 @@ impl SxfLive {
                         feat_name: feat_rec.name,
                         feat_kind: feat_rec.kind,
                         placed: lifted_placed,
+                        diagnostics,
                     });
                 }
             }
@@ -1867,29 +1914,33 @@ impl SxfLive {
         feat_rec: &super::FeatureRecord,
         raster: Option<(&str, &Ref)>,
         cx: &mut Cx,
-    ) -> Result<Option<Placed>, Error> {
+    ) -> Result<(Option<Placed>, Vec<Diagnostic>), Error> {
         let mut tables = self.lifter_tables.clone();
         if let SxfBacking::P21(p21) = &self.backing {
             tables.widths = p21.active_widths();
         }
-        quietly(cx, |cx| match container {
-            SxfContainer::Sheet(_) => {
-                Ok(lift_single_paper(&tables, instance, feat_rec, raster, cx)?.map(Placed::Paper))
-            }
-            SxfContainer::Space(sp) => Ok(lift_single_model(
-                &tables, sp, instance, feat_rec, raster, cx,
-            )?
-            .map(Placed::Model)),
-            SxfContainer::Symbol(sym_idx) => {
-                let Some(sym_t) = self.symbol_templates.get(sym_idx) else {
-                    return Ok(None);
-                };
-                Ok(
-                    lift_single_model(&tables, sym_t.space_id, instance, feat_rec, raster, cx)?
-                        .map(Placed::Model),
-                )
-            }
-        })
+        let (placed, events) = quietly(cx, |cx| {
+            cx.with_diagnostic_events(u64::MAX, |cx| match container {
+                SxfContainer::Sheet(_) => {
+                    Ok(lift_single_paper(&tables, instance, feat_rec, raster, cx)?
+                        .map(Placed::Paper))
+                }
+                SxfContainer::Space(sp) => Ok(lift_single_model(
+                    &tables, sp, instance, feat_rec, raster, cx,
+                )?
+                .map(Placed::Model)),
+                SxfContainer::Symbol(sym_idx) => {
+                    let Some(sym_t) = self.symbol_templates.get(sym_idx) else {
+                        return Ok(None);
+                    };
+                    Ok(
+                        lift_single_model(&tables, sym_t.space_id, instance, feat_rec, raster, cx)?
+                            .map(Placed::Model),
+                    )
+                }
+            })
+        })?;
+        Ok((placed, events.details))
     }
 
     fn commit_table_and_indexes(
@@ -1915,7 +1966,7 @@ impl SxfLive {
                         direct_vnodes.push(vnode);
                     }
                 }
-                VerifiedOp::Update { row_id, placed } => {
+                VerifiedOp::Update { row_id, placed, .. } => {
                     staged_placed.insert(*row_id, Some(placed));
                     if let Some(SxfContainer::Symbol(sym_idx)) =
                         self.table.row(*row_id).map(|r| r.container)
@@ -2052,7 +2103,11 @@ impl SxfLive {
                         VerifiedOp::Remove(row_id) => {
                             txn.remove_row(row_id)?;
                         }
-                        VerifiedOp::Update { row_id, placed } => {
+                        VerifiedOp::Update {
+                            row_id,
+                            placed,
+                            diagnostics,
+                        } => {
                             let Some(prev_row) = txn.row(row_id).cloned() else {
                                 return Err(TxnError::Rejected(()));
                             };
@@ -2074,6 +2129,7 @@ impl SxfLive {
                                 SxfContainer::Space(_) | SxfContainer::Sheet(_)
                             );
                             next_row.placed = placed;
+                            next_row.diagnostics = diagnostics;
                             txn.update_row(row_id, next_row, new_bounds)?;
                             if track_dep {
                                 txn.set_dep_sources(row_id, dep_src)?;
@@ -2087,6 +2143,7 @@ impl SxfLive {
                             feat_name,
                             feat_kind,
                             placed,
+                            diagnostics,
                         } => {
                             let container = SxfContainer::Sheet(sheet_id);
                             let new_bounds = compute_sheet_bounds(
@@ -2109,6 +2166,7 @@ impl SxfLive {
                                 canonical_id: canonical_id.into_boxed_str(),
                                 placed,
                                 drafts: Box::new([]),
+                                diagnostics,
                             };
                             let rid = txn.insert_row(new_row, new_bounds)?;
                             if let Some(vnode) = dep_src {
@@ -2122,6 +2180,7 @@ impl SxfLive {
                             feat_name,
                             feat_kind,
                             placed,
+                            diagnostics,
                         } => {
                             let container = SxfContainer::Sheet(sheet_id);
                             let new_bounds = compute_sheet_bounds(
@@ -2144,6 +2203,7 @@ impl SxfLive {
                                 canonical_id: canonical_id.into_boxed_str(),
                                 placed,
                                 drafts: Box::new([]),
+                                diagnostics,
                             };
                             let rid = txn.insert_row(new_row, new_bounds)?;
                             if let Some(vnode) = dep_src {
@@ -2480,6 +2540,10 @@ impl SxfLive {
 
     /// 常駐状態から [`Drawing2D`] を組み立てる
     pub fn drawing(&self, cx: &mut Cx<'_>) -> Result<Drawing2D, Error> {
+        cx.with_diagnostics_in_record_order(|cx| self.drawing_inner(cx))
+    }
+
+    fn drawing_inner(&self, cx: &mut Cx<'_>) -> Result<Drawing2D, Error> {
         let mut layers = self.lifter_tables.base_layers.clone();
         let mut line_types = self.lifter_tables.base_line_types.clone();
         for extra in &self.lifter_tables.extra_line_types {
@@ -2624,8 +2688,17 @@ impl SxfLive {
             }
         }
 
-        quietly(cx, |cx| {
+        {
             let sources = self.backing.source_map(cx)?;
+            let mut line_types_seen = self.diagnostics.report(&self.backing, &sources, cx)?;
+            for index in 0..self.table.len() {
+                work(cx, 1, &Ref::default())?;
+                if let Some(row) = self.table.row(RowId(index as u32)) {
+                    for diagnostic in &row.diagnostics {
+                        diagnostics::report(diagnostic, &sources, &mut line_types_seen, cx)?;
+                    }
+                }
+            }
             for draft in &mut drafts {
                 sources.remap(&mut draft.source, cx)?;
             }
@@ -2655,7 +2728,7 @@ impl SxfLive {
                 Error::Stopped(stop)
             })?;
             Ok(drawing)
-        })
+        }
     }
 
     /// 現在の常駐状態を [`SxfFile`] に書き出す
@@ -2713,6 +2786,7 @@ enum VerifiedOp {
     Update {
         row_id: RowId,
         placed: Placed,
+        diagnostics: Vec<Diagnostic>,
     },
     AddSfc {
         seq: u32,
@@ -2722,6 +2796,7 @@ enum VerifiedOp {
         feat_name: String,
         feat_kind: String,
         placed: Placed,
+        diagnostics: Vec<Diagnostic>,
     },
     AddP21 {
         inst: u64,
@@ -2730,6 +2805,7 @@ enum VerifiedOp {
         feat_name: String,
         feat_kind: String,
         placed: Placed,
+        diagnostics: Vec<Diagnostic>,
     },
 }
 
@@ -3026,6 +3102,21 @@ mod equivalence_tests {
     }
 
     #[test]
+    fn public_sample_preserves_full_model_and_diagnostics() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../samples/sxf/ezsxf-writer-all-features.sfc");
+        let bytes = std::fs::read(path).unwrap();
+        let file = run(|cx| Sxf::read(&bytes, cx)).0.unwrap();
+        let expected = run(|cx| file.lift(cx));
+        for threads in [1, 4] {
+            let live = run(|cx| SxfLive::open_with_threads(&bytes, threads, cx))
+                .0
+                .unwrap();
+            assert_eq!(run(|cx| live.drawing(cx)), expected);
+        }
+    }
+
+    #[test]
     fn public_sample_edits_preserve_source_records_before_save() {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../samples/sxf/ezsxf-writer-all-features.sfc");
@@ -3075,6 +3166,95 @@ mod equivalence_tests {
         }
     }
 
+    fn sfc_features(features: &[&str]) -> Vec<u8> {
+        let mut bytes = concat!(
+            "ISO-10303-21;\nHEADER;\n",
+            "FILE_DESCRIPTION(('SCADEC level2 feature_mode'),'2;1');\n",
+            "FILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));\nENDSEC;\nDATA;\n",
+        )
+        .as_bytes()
+        .to_vec();
+        for (index, feature) in features.iter().enumerate() {
+            bytes.extend_from_slice(
+                format!("/*SXF3\n#{} = {feature}\nSXF3*/\n", 10 * (index + 1)).as_bytes(),
+            );
+        }
+        bytes.extend_from_slice(b"ENDSEC;\nEND-ISO-10303-21;\n");
+        bytes
+    }
+
+    fn seen(live: &SxfLive, instance: u64) -> Seen {
+        let row = live.row_id_for_instance(instance).unwrap();
+        Seen {
+            id: live.canonical_id(row).unwrap().to_owned(),
+            hash: run(|cx| hash_placed(live.placed(row).unwrap(), cx))
+                .0
+                .unwrap(),
+        }
+    }
+
+    #[test]
+    fn diagnostics_follow_changed_styles_deleted_first_use_tail_and_history() {
+        let bytes = sfc_features(&[
+            "layer_feature(\\'A\\','1')",
+            "line_feature('1','99','90','1','0','0','10','0')",
+            "line_feature('1','98','90','1','0','1','10','1')",
+            "drawing_sheet_feature(\\'A3\\','3','1','0','0')",
+            "line_feature('1','97','91','1','0','2','10','2')",
+            "line_feature('1','96','91','1','0','3','10','3')",
+        ]);
+        for threads in [1, 4] {
+            let mut file = run(|cx| Sxf::read(&bytes, cx)).0.unwrap();
+            let mut live = run(|cx| SxfLive::open_with_threads(&bytes, threads, cx))
+                .0
+                .unwrap();
+            assert_source_parity(&live, &file);
+            let mut history = vec![(run(|cx| live.drawing(cx)), bytes.clone())];
+            for (instance, restyle) in [
+                (20, true),
+                (20, false),
+                (50, false),
+                (60, false),
+                (30, false),
+            ] {
+                let changes = Changes {
+                    document: None,
+                    edits: vec![if restyle {
+                        Edit::Restyle {
+                            target: seen(&live, instance),
+                            style: Restyle {
+                                line_type: Some(Inherit::Own(zumen_drawing::LineTypeId(1))),
+                                ..Restyle::default()
+                            },
+                        }
+                    } else {
+                        Edit::Remove {
+                            target: seen(&live, instance),
+                        }
+                    }],
+                };
+                let actual = run(|cx| live.apply(&changes, cx));
+                assert_eq!(actual, run(|cx| file.apply(&changes, cx)));
+                actual.0.unwrap();
+                assert_source_parity(&live, &file);
+                history.push((
+                    run(|cx| live.drawing(cx)),
+                    run(|cx| live.save(cx)).0.unwrap(),
+                ));
+            }
+            for expected in history.iter().rev().skip(1) {
+                assert!(run(|cx| live.undo(cx)).0.unwrap());
+                assert_eq!(run(|cx| live.drawing(cx)), expected.0);
+                assert_eq!(run(|cx| live.save(cx)).0.unwrap(), expected.1);
+            }
+            for expected in history.iter().skip(1) {
+                assert!(run(|cx| live.redo(cx)).0.unwrap());
+                assert_eq!(run(|cx| live.drawing(cx)), expected.0);
+                assert_eq!(run(|cx| live.save(cx)).0.unwrap(), expected.1);
+            }
+        }
+    }
+
     fn p21_lines() -> Vec<u8> {
         concat!(
             "ISO-10303-21;\nHEADER;\n",
@@ -3102,9 +3282,178 @@ mod equivalence_tests {
         .to_vec()
     }
 
+    #[test]
+    fn p21_diagnostics_follow_reference_and_layer_membership_removal() {
+        let source = String::from_utf8(p21_lines()).unwrap()
+            .replace("(#60));", "(#60,#999));")
+            .replace("#950=DRAWING_SHEET_REVISION", "#910=PRESENTATION_LAYER_ASSIGNMENT('B',' ',(#160,#170));\n#950=DRAWING_SHEET_REVISION");
+        for threads in [1, 4] {
+            let bytes = source.as_bytes();
+            let mut file = run(|cx| Sxf::read(bytes, cx)).0.unwrap();
+            let mut live = run(|cx| SxfLive::open_with_threads(bytes, threads, cx))
+                .0
+                .unwrap();
+            assert_source_parity(&live, &file);
+            let initial = run(|cx| live.drawing(cx));
+            assert!(
+                initial
+                    .1
+                    .iter()
+                    .any(|event| event.code() == codes::SXF_P21_REFERENCE_MISSING)
+            );
+            assert!(
+                initial
+                    .1
+                    .iter()
+                    .any(|event| event.code() == codes::SXF_P21_LAYER_MEMBER_DROPPED)
+            );
+            for instance in [160, 170] {
+                let changes = Changes {
+                    document: None,
+                    edits: vec![Edit::Remove {
+                        target: seen(&live, instance),
+                    }],
+                };
+                let actual = run(|cx| live.apply(&changes, cx));
+                assert_eq!(actual, run(|cx| file.apply(&changes, cx)));
+                if actual.0.is_err() {
+                    assert_eq!(actual.0, Err(Error::Rejected));
+                }
+                assert_source_parity(&live, &file);
+            }
+            assert_eq!(live.undo_len(), 1);
+            assert!(run(|cx| live.undo(cx)).0.unwrap());
+            assert_eq!(run(|cx| live.drawing(cx)), initial);
+            assert_eq!(run(|cx| live.save(cx)).0.unwrap(), bytes);
+        }
+    }
+
+    #[test]
+    fn saf_diagnostics_use_current_bindings_and_keep_their_own_source_positions() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<SxfAttributeXML version="3.1" date="2026-11-15" sxfFile="test.SFC" application="test">
+<Figure id="10" name="bound"/><Figure id="20" name="unbound"/>
+</SxfAttributeXML>"#;
+        let attributes = run(|cx| crate::saf::read(xml.as_bytes(), cx)).0.unwrap();
+        let bytes = sfc_features(&[
+            "layer_feature(\\'A\\','1')",
+            "circle_feature('1','1','1','1','10','10','5')",
+            "drawing_sheet_feature(\\'A3\\','3','1','0','0')",
+            "line_feature('1','1','1','1','0','0','1','0')",
+            "sfig_org_feature(\\'$$ATRF$$10$$test.SAF\\','3')",
+            "sfig_locate_feature('1',\\'$$ATRF$$10$$test.SAF\\','0','0','0','1','1')",
+            "drawing_sheet_feature(\\'A3\\','3','1','0','0')",
+        ]);
+        let mut file = run(|cx| Sxf::read(&bytes, cx)).0.unwrap();
+        let mut live = run_places(0, |cx| {
+            SxfLive::open_with_attributes(&bytes, Some(attributes.clone()), cx)
+        })
+        .0
+        .unwrap();
+        let initial = run(|cx| file.lift_with(Some(&attributes), cx));
+        assert!(
+            initial
+                .1
+                .iter()
+                .any(|event| event.code() == codes::SXF_SAF_FIGURE_DROPPED)
+        );
+        assert_eq!(run(|cx| live.drawing(cx)), initial);
+        let changes = Changes {
+            document: None,
+            edits: vec![Edit::Remove {
+                target: seen(&live, 20),
+            }],
+        };
+        let actual = run(|cx| live.apply(&changes, cx));
+        assert_eq!(actual, run(|cx| file.apply(&changes, cx)));
+        actual.0.unwrap();
+        assert_eq!(
+            run(|cx| live.drawing(cx)),
+            run(|cx| file.lift_with(Some(&attributes), cx))
+        );
+        assert!(run(|cx| live.undo(cx)).0.unwrap());
+        assert_eq!(run(|cx| live.drawing(cx)), initial);
+        assert_eq!(run(|cx| live.save(cx)).0.unwrap(), bytes);
+    }
+
+    fn run_places<T>(places: usize, f: impl FnOnce(&mut Cx<'_>) -> T) -> (T, Vec<Diagnostic>) {
+        let mut budget = Budget::default();
+        let mut diagnostics = Diagnostics::with_max_places(places);
+        let cancel = CancelToken::new();
+        let result = f(&mut Cx::new(&mut budget, &mut diagnostics, &cancel));
+        (result, diagnostics.iter().cloned().collect())
+    }
+
+    #[test]
+    fn diagnostic_places_are_selected_at_query_time_and_stops_preserve_history() {
+        use zumen_base::{Limit, Limits};
+        let mut features = vec!["layer_feature(\\'A\\','1')".to_owned()];
+        for index in 0..10 {
+            features.push(format!(
+                "line_feature('1','99','1','1','0','{index}','10','{index}')"
+            ));
+        }
+        features.push("drawing_sheet_feature(\\'A3\\','3','1','0','0')".to_owned());
+        let bytes = sfc_features(&features.iter().map(String::as_str).collect::<Vec<_>>());
+        let file = run(|cx| Sxf::read(&bytes, cx)).0.unwrap();
+        let live = run_places(0, |cx| SxfLive::open(&bytes, cx)).0.unwrap();
+        for places in [0, 1, 2, 32] {
+            assert_eq!(
+                run_places(places, |cx| live.drawing(cx)),
+                run_places(places, |cx| file.lift(cx))
+            );
+        }
+        let changes = Changes {
+            document: None,
+            edits: vec![Edit::Transform {
+                target: seen(&live, 20),
+                transform: Affine::translation(2.0, 3.0),
+            }],
+        };
+        let mut probe = live.clone();
+        let mut budget = Budget::default();
+        let mut diag = Diagnostics::new();
+        let cancel = CancelToken::new();
+        probe
+            .apply(&changes, &mut Cx::new(&mut budget, &mut diag, &cancel))
+            .unwrap();
+        for kind in [Kind::Work, Kind::DecodedBytes] {
+            let used = budget.used(kind);
+            assert!(used > 0);
+            for amount in [0, 1, used / 2, used - 1] {
+                let mut candidate = live.clone();
+                let mut limited = Budget::new(Limits::default().with(kind, Limit::Finite(amount)));
+                let mut diagnostics = Diagnostics::new();
+                let result = candidate.apply(
+                    &changes,
+                    &mut Cx::new(&mut limited, &mut diagnostics, &cancel),
+                );
+                assert!(
+                    matches!(result, Err(Error::Stopped(_))),
+                    "{kind:?}: {amount}"
+                );
+                assert_eq!(run(|cx| candidate.drawing(cx)), run(|cx| live.drawing(cx)));
+                assert_eq!(run(|cx| candidate.save(cx)).0.unwrap(), bytes);
+                assert_eq!(candidate.state_id(), live.state_id());
+                assert_eq!(candidate.revision(), live.revision());
+                assert_eq!((candidate.undo_len(), candidate.redo_len()), (0, 0));
+            }
+        }
+        cancel.cancel();
+        let mut candidate = live.clone();
+        assert!(matches!(
+            candidate.apply(
+                &changes,
+                &mut Cx::new(&mut Budget::default(), &mut Diagnostics::new(), &cancel)
+            ),
+            Err(Error::Stopped(_))
+        ));
+        assert_eq!(run(|cx| candidate.drawing(cx)), run(|cx| live.drawing(cx)));
+    }
+
     fn assert_source_parity(live: &SxfLive, file: &SxfFile) {
-        let expected: Drawing2D = run(|cx| file.lift(cx)).0.unwrap();
-        let held = run(|cx| live.drawing(cx)).0.unwrap();
+        let expected = run(|cx| file.lift(cx));
+        let held = run(|cx| live.drawing(cx));
         assert_eq!(held, expected);
         let saved = run(|cx| live.save(cx)).0.unwrap();
         let reference = run(|cx| {
@@ -3114,9 +3463,7 @@ mod equivalence_tests {
         .0
         .unwrap();
         assert_eq!(saved, reference);
-        let reread: Drawing2D = run(|cx| Sxf::read(&saved, cx).and_then(|file| file.lift(cx)))
-            .0
-            .unwrap();
+        let reread = run(|cx| Sxf::read(&saved, cx).and_then(|file| file.lift(cx)));
         assert_eq!(held, reread);
     }
 
