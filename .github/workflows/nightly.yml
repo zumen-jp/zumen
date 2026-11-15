@@ -184,7 +184,8 @@ jobs:
         with:
           python-version: '3.12'
       - name: IfcOpenShell と、EXPRESS の規則の検査が使う pytest を、バージョンを決めて入れる
-        run: python -m pip install ifcopenshell==0.9.0.post1 pytest==9.2.0
+        run: |
+          python -m pip install --only-binary :all: ifcopenshell==0.9.0.post1 pytest==9.2.0
       - name: EXPRESS の実行時観測に使うテストをビルドする
         run: cargo test --locked -p zumen-ifc --lib --no-run
       - name: EXPRESS 比較器の反例と子プロセスの正常終了を確かめる
@@ -195,6 +196,24 @@ jobs:
         run: cargo build --locked -p zumen-cli --bin zumen
       - name: 公開 IFC の指摘と逆属性・ヘッダー・規則の対象範囲の差を照らす
         run: python -I xtask/verify/express/validate.py --cli target/debug/zumen --out "$RUNNER_TEMP/express-validation"
+      - name: 公開 IFC を編集し、実機用の期待値と CLI の比較器を確かめる
+        env:
+          ZUMEN_CLI: target/debug/zumen
+        run: |
+          python -I -m unittest discover -s xtask/verify/ifc -p 'test_*.py'
+          python -I xtask/verify/ifc/make.py make target/debug/zumen "$RUNNER_TEMP/ifc-edit-check"
+      - name: 書き戻した公開 IFC の値・型・非対象の属性と参照を IfcOpenShell と照らす
+        id: ifc_kit_check
+        run: |
+          python -I xtask/verify/ifc/external/check.py "$RUNNER_TEMP/ifc-edit-check" --cli target/debug/zumen
+          python -I xtask/verify/ifc/external/test_check.py "$RUNNER_TEMP/ifc-edit-check"
+      - name: 外部照合を終えた IFC の実機用キットを保存する
+        if: ${{ !cancelled() && steps.ifc_kit_check.outcome == 'success' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: verify-ifc-edit
+          path: ${{ runner.temp }}/ifc-edit-check
+          retention-days: 30
       - name: EXPRESS の集計だけを成果物に残す
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

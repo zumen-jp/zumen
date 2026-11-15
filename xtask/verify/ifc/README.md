@@ -25,12 +25,36 @@ Windows 以外では `.exe` を外し、テストには `ZUMEN_CLI=target/debug/
 | 各フォルダーの `before.json`・`after.json` | 編集前と再読み込み後の要素・名前・説明・配置・プロパティ |
 | `api.json` | 呼んだ API・応答・診断 |
 | `manifest.json` | 入力の出所・ライセンス・帰属表記・改変内容・ハッシュ、CLI の版、比較結果 |
+| `external/results.json` | 別に実行した IfcOpenShell の照合結果。入力・出力・比較器・CLI のハッシュ、比較数、元からある指摘と編集後の指摘 |
 | `licenses/` | Text2BIM の MIT License と、このリポジトリの MIT License・Apache License 2.0 |
 | `report.md` | 利用者が製品で確認して記入する様式 |
 
 入力は `samples/ledger.toml` のバイト数と SHA-256 を確かめてからコピーします。GNI の出所・帰属表記と CC BY 4.0 のリンク、Text2BIM の出所・元サンプルのヘッダーの変更記録も `manifest.json` に引き継ぎます。GNI の編集済みファイルを再配布する場合は、その帰属表記・ライセンスのリンクと、名前・説明・プロパティを zumen で編集したことを一緒に示してください。
 
 書き出しは、同じ形式の編集（L2 の変更セット → `apply` → L1 の触れたインスタンスだけを書き換える）です。新しい IFC の作成や、別の形式への変換の確認には使いません。
+
+## IfcOpenShell と照らす
+
+キットを作った後、固定した外部実装でその出力を直接読みます。IfcOpenShell はテストのツールで、製品の依存にはしません。ソースや IFC スキーマを読んだり同梱したりせず、固定バージョンの配布済みパッケージと公開 API を使います。
+
+```sh
+python -m pip install --only-binary :all: ifcopenshell==0.9.0.post1 pytest==9.2.0
+python -X utf8 -I xtask/verify/ifc/external/check.py <キット> --cli <キットを作ったzumen>
+python -X utf8 -I xtask/verify/ifc/external/test_check.py <キット>
+```
+
+Windows では Python 3.13、毎晩の CI では Python 3.12 を使います。uv を使うときも `--no-python-downloads --no-build --python 3.13 --with ifcopenshell==0.9.0.post1 --with pytest==9.2.0` でバージョンを固定できます。外部照合はバージョンごとの子プロセスを直列に動かし、1 件 180 秒で止めます。入力は台帳にある上記 2 件とハッシュが同じものに限り、編集後と期待値も manifest・固定したレシピと照らします。既存の `external/` は上書きしません。
+
+比較するものは次のとおりです。
+
+- 対象の名前・説明と、4 プロパティの値・IFC 型・付随属性。未変更のプロパティと数量、共有値を持つ対照を含む非対象のプロパティも照らす。名前の重複を隠さず、bool・整数・実数、未指定のセット名と文字列を区別する。
+- 元の全 STEP インスタンスの属性と参照。変更を許すのは、IFC4 の `#628` の Name/Description と `#638` の HasProperties、IFC2X3 の `#1732` の Name/Description と `#1956` の NominalValue だけ。配置・形・単位を含むほかの値は同じでなければ失敗する。
+- 元のオブジェクトと GlobalId の保持、追加した GlobalId の重複がないこと。追加したセット・単一値プロパティ・関係が対象に結び付き、対象からたどれない追加や、対照への誤った関連付けがないこと。
+- IfcOpenShell のスキーマ・EXPRESS 規則の検査。指摘の種類・インスタンス・属性・文の先頭行のハッシュ・件数を編集前後で比べ、新しい指摘や件数の増加を失敗にする。元からある指摘を 0 件と扱わず、規則本文を含むメッセージは成果物に保存しない。
+
+これは属性と参照の比較です。形を計算した体積・描画・見え方や、ネイティブと wasm のバイト一致には広げません。比較器の検査は、実際の公開モデルをメモリ内で改変し、値・型・共有値・座標・参照・ID・欠落・重複・関連付けの食い違いを検出します。
+
+毎晩の CI でもキットを作って外部実装と照らし、CLI 比較器 15 本と外部比較器 9 本を検査します。外部照合が成功したときだけ、帰属表記・許諾本文・実測用の様式を含むキットを `verify-ifc-edit` に保存します。BIM ソフトでの確認は、引き続き利用者待ちです。
 
 ## 対象と期待する値
 
@@ -81,6 +105,6 @@ python -I xtask/verify/ifc/make.py observe target/debug/zumen.exe ../ifc-edit-ch
 
 ## 確かめた範囲
 
-このキットの生成と CLI による再読み込みは `synthetic` です。ネイティブと wasm の一致、IfcOpenShell との外部照合、BIM ソフトでの `application` の確認を、この検査で済んだとは扱いません。
+このキットの生成と CLI による再読み込みは `synthetic` です。外部照合は `external/check.py` を別に実行し、成功した固定出力のハッシュと比較範囲を `external/results.json` に記録します。ネイティブと wasm の一致や、BIM ソフトでの `application` の確認を、この検査で済んだとは扱いません。
 
-既存の外部照合は `crates/zumen-ifc/tests/edit.rs` と `tests/ifcopenshell/check.py` にあり、テストで作った IFC4・IFC2X3 の名前・説明・単一値プロパティの編集を調べています。このキットは、その操作を既存 CLI から公開モデルに当て、実機で確認するためのものです。キットだけでは台帳の段を上げず、製品での結果を #526 に記録してから、形式の文書と台帳を更新します。
+既存の合成入力の外部照合は `crates/zumen-ifc/tests/edit.rs` と `tests/ifcopenshell/check.py` にあります。このキットは、その操作を既存 CLI から公開モデルに当て、外部実装と実機で確認するためのものです。キットの追加だけでは台帳の段を上げず、製品での結果を #526 に記録してから、形式の文書と台帳を更新します。
