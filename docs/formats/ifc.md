@@ -282,6 +282,23 @@ cargo test -p zumen-ifc --locked --test indexed_faces --target wasm32-wasip1 -- 
 node crates/zumen-ifc/tests/wasi-indexed-faces.mjs --compare target/indexed-face-comparison target/indexed-face-comparison-wasm
 ```
 
+## 共有写像の 3D の変換を取得する
+
+`IfcFile::mapped_shape3(&ShapeNode, cx)` は `IfcMappedItem` から、写像元の基準位置と写像先の変換 `ShapeMapping3`・長さの単位・借用出所を取得します。IFC2X3 TC1・IFC4 ADD2 TC1・IFC4.3 ADD2 の `IfcCartesianTransformationOperator3D` と `IfcCartesianTransformationOperator3DnonUniform` を扱います。2D の写像は元の種類と場所を示して未対応とします。
+
+- 写像元の `AxisPlacement3` と、写像先の `LocalOrigin`・`Axis1`・`Axis2`・`Axis3`・尺度を別々に持ちます。元の軸の比・負の 0・省略を保ち、基底軸の構築・正規化・鏡映の判定・行列への変換をしません。
+- 一様な尺度と 3 軸の非一様な尺度を分けます。どの尺度も指定時は正の有限値を要求し、省略は `None` のまま返します。x の尺度の省略時は 1、非一様な y と z の尺度の省略時は x の尺度が規定されますが、この取得では補いません。
+- 写像先の点と方向比は 3 成分を要求します。IFC2X3 の `IfcDirection` の零比は元値として保持し、IFC4 以降は `MagnitudeGreaterZero` に従って拒否します。零比の基底軸への変換や、元の軸同士の整合性は未評価です。写像元の配置は既存の 3D 配置の検査を使います。
+- 写像元の表現は元のレコードを借用し、形を複製しません。同じ写像元を使う複数の項目から、同じ表現の出所へ到達できます。入れ子の写像もそれぞれの配置・変換の元値を返します。写像の循環・探索の深さは `product_shape()` で検査し、この取得では写像元の表現の中身をたどりません。
+- 単位は共通の長さの読み取りを使い、欠ければ `None` と `ifc.unit.missing` を返します。複合インスタンスは未対応、読み取る属性の数・参照・数・尺度の不正は `ifc.shape.invalid` と場所を返します。項目・写像元・変換を Elements、参照・数・単位・確保前の量と深さを共有 `Cx` で数え、中断・停止で部分結果を返しません。
+- `MappingSource` は項目・写像元・元の表現・変換と、読んだ配置・点・方向・単位を借用します。出所・STEP 番号は意味の値に含めません。既存の Building・要素 ID・Hash v1 は変更しません。形との統合、変換の適用、意味値ハッシュは #419・#420 の残件です。
+
+根拠は buildingSMART の [IFC2X3 TransformationOperator3D](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC2x3/TC1/HTML/ifcgeometryresource/lexical/ifccartesiantransformationoperator3d.htm)・[非一様な尺度](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC2x3/TC1/HTML/ifcgeometryresource/lexical/ifccartesiantransformationoperator3dnonuniform.htm)、[IFC4 TransformationOperator3D](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4/ADD2_TC1/HTML/schema/ifcgeometryresource/lexical/ifccartesiantransformationoperator3d.htm)、[IFC4.3 TransformationOperator3D](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4_3/HTML/lexical/IfcCartesianTransformationOperator3D.htm)・[非一様な尺度](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4_3/HTML/lexical/IfcCartesianTransformationOperator3DnonUniform.htm)・[MappedItem](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4_3/HTML/lexical/IfcMappedItem.htm)・[RepresentationMap](https://raw.githubusercontent.com/buildingSMART/Standards-builds/main/IFC/RELEASE/IFC4_3/HTML/lexical/IfcRepresentationMap.htm) の自然言語の本文と属性の説明です。EXPRESS 本体は読みません。
+
+検査は `cargo test -p zumen-ifc --test mappings`。`ZUMEN_IFC_MAPPINGS_OUT` を絶対パスに指定すると、合成 3 版と公開の GNI の柱の JSON 4 件、自作の IFC、元値・出所・診断・全 Kind の記録を出します。公開例は GlobalId `2q2CBrfQTCKPY0zxCdZygb` の柱 #131 の項目 #125 から、写像元 #121・表現 #119・変換 #124 を取得します。幾何の評価や体積の一致は、この元属性の照合と分けます。
+
+2026-11-16 に追加 9 テストをネイティブと WASI で実行し、JSON と全 Kind の記録 200,305 バイトが一致しました。別に IfcOpenShell 0.9.0.post1 の実行ファイルだけで、合成と公開例の写像 16 個の元属性を比較し、差異は 0 でした。既存の半空間・ブーリアンの元値・出所・診断・予算 234,501 バイトは追加前と一致しました。
+
 ## ブーリアンをたどり半空間を取得する
 
 `IfcFile::half_space(&ShapeNode, cx)` は `IfcHalfSpaceSolid`・`IfcBoxedHalfSpace`・`IfcPolygonalBoundedHalfSpace` から、平面の半空間 `PlaneHalfSpace`・境界の曲線・長さの単位・借用出所を返します。`product_shape()` のブーリアンの参照から、切り取る半空間の葉にも到達できます。IFC2X3 TC1・IFC4 ADD2 TC1・IFC4.3 ADD2 が対象です。

@@ -257,8 +257,12 @@ fn ifc_profiles() -> Vec<u8> {
     #93=IFCBOXEDHALFSPACE(#90,.F.,#92);\n#94=IFCPOLYGONALBOUNDEDHALFSPACE(#90,.T.,#20,#18);\n\
     #95=IFCBOOLEANCLIPPINGRESULT(.DIFFERENCE.,#30,#91);\n#96=IFCBOOLEANCLIPPINGRESULT(.DIFFERENCE.,#95,#94);\n\
     #97=IFCBOOLEANRESULT(.UNION.,#96,#93);\n\
+    #110=IFCREPRESENTATIONMAP(#20,#111);\n#111=IFCSHAPEREPRESENTATION(#8,'Body','CSG',(#97));\n\
+    #112=IFCCARTESIANTRANSFORMATIONOPERATOR3D($,$,#21,$,$);\n\
+    #113=IFCCARTESIANTRANSFORMATIONOPERATOR3DNONUNIFORM($,$,#21,2.,$,3.,4.);\n\
+    #114=IFCMAPPEDITEM(#110,#112);\n#115=IFCMAPPEDITEM(#110,#113);\n\
     #100=IFCWALL('0000000000000000000002',$,$,$,$,$,#101,$,.NOTDEFINED.);\n\
-    #101=IFCPRODUCTDEFINITIONSHAPE($,$,(#102));\n#102=IFCSHAPEREPRESENTATION(#8,'Body','GeometricSet',(#30,#31,#32,#33,#34,#35,#36,#66,#81,#83,#97));\n\
+    #101=IFCPRODUCTDEFINITIONSHAPE($,$,(#102));\n#102=IFCSHAPEREPRESENTATION(#8,'Body','GeometricSet',(#30,#31,#32,#33,#34,#35,#36,#66,#81,#83,#97,#114,#115));\n\
     ENDSEC;\nEND-ISO-10303-21;\n".to_vec()
 }
 
@@ -748,7 +752,7 @@ mod tests {
         assert_eq!(found, []);
         let file = file.unwrap();
         let (shape, _) = run(Limits::default(), |cx| file.product_shape(100, cx));
-        let mut counts = [0; 7];
+        let mut counts = [0; 8];
         for node in &shape.unwrap().nodes {
             let (at, result) = match file.kind(node.source) {
                 b"IFCEXTRUDEDAREASOLID" => (
@@ -786,13 +790,19 @@ mod tests {
                     counts[6] += 1;
                     continue;
                 }
+                b"IFCMAPPEDITEM" => (
+                    7,
+                    run(Limits::default(), |cx| {
+                        file.mapped_shape3(node, cx).map(drop)
+                    }),
+                ),
                 _ => continue,
             };
             assert!(result.0.is_some());
             assert_eq!(result.1, []);
             counts[at] += 1;
         }
-        assert_eq!(counts, [5, 1, 1, 1, 2, 3, 3]);
+        assert_eq!(counts, [5, 1, 1, 1, 2, 3, 3, 2]);
     }
 
     #[test]

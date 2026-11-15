@@ -30,6 +30,7 @@ fn lift(file: &IfcFile, cx: &mut Cx) -> Result<(), Error> {
     let mut faces = 0;
     let mut tessellations = 0;
     let mut half_spaces = 0;
+    let mut mappings = 0;
     let mut styles = 0;
     for id in file.ids() {
         cx.check(zumen_base::Kind::Work, 1)?;
@@ -68,6 +69,10 @@ fn lift(file: &IfcFile, cx: &mut Cx) -> Result<(), Error> {
                         if half_spaces < 16 && [b"IFCHALFSPACESOLID".as_slice(), b"IFCBOXEDHALFSPACE", b"IFCPOLYGONALBOUNDEDHALFSPACE"].iter().any(|kind| file.kind(node.source).eq_ignore_ascii_case(kind)) {
                             if let Err(Error::Stopped(stop)) = file.half_space(node, cx) { return Err(Error::Stopped(stop)); }
                             half_spaces += 1;
+                        }
+                        if mappings < 16 && file.kind(node.source).eq_ignore_ascii_case(b"IFCMAPPEDITEM") {
+                            if let Err(Error::Stopped(stop)) = file.mapped_shape3(node, cx) { return Err(Error::Stopped(stop)); }
+                            mappings += 1;
                         }
                     }
                 }

@@ -17,8 +17,10 @@ use crate::{
 };
 
 mod half_space;
+mod mapping;
 mod revolution;
 pub use half_space::{HalfSpaceGeometry, HalfSpaceSource};
+pub use mapping::{MappedShape3, MappingSource};
 pub use revolution::{RevolutionSource, RevolvedArea};
 
 /// 面集合にも、断面・回転体と同じ単位の意味検査と予算を使う。
