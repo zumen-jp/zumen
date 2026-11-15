@@ -4,7 +4,11 @@
 use std::collections::BTreeSet;
 
 mod layer;
+mod material;
 pub use layer::{ItemPresentation, LayerAssignmentLevel, LayerPresentation, SurfaceStyleSelection};
+pub use material::{
+    MaterialPresentation, MaterialRepresentation, MaterialStyleContext, MaterialStyleItem,
+};
 
 use zumen_building::{
     ColourOrFactor, ReflectanceMethod, SpecularHighlight, SurfaceColour, SurfaceRendering,
@@ -555,22 +559,31 @@ impl<'f> Reader<'f, '_, '_> {
         };
         let styled_id = styled.id().ok_or_else(|| self.invalid("source"))?;
         self.within(styled_id, |reader, record| {
-            reader.arity(record, 3)?;
-            result.name = reader.text(arg(record, 3), record)?;
-            let values = reader.list(
-                arg(record, 2),
-                if version == Version::Ifc2x3 {
-                    1
-                } else {
-                    usize::MAX
-                },
-            )?;
-            for value in values {
-                let id = reader.target(Some(value))?;
-                reader.presentation(id, version, &mut result)?;
-            }
-            Ok(())
+            reader.styled_values(record, version, &mut result)
         })?;
         Ok(result)
+    }
+
+    fn styled_values(
+        &mut self,
+        record: &'f Record,
+        version: Version,
+        result: &mut ItemSurfaceStyles<'f>,
+    ) -> Result<(), Error> {
+        self.arity(record, 3)?;
+        result.name = self.text(arg(record, 3), record)?;
+        let values = self.list(
+            arg(record, 2),
+            if version == Version::Ifc2x3 {
+                1
+            } else {
+                usize::MAX
+            },
+        )?;
+        for value in values {
+            let id = self.target(Some(value))?;
+            self.presentation(id, version, result)?;
+        }
+        Ok(())
     }
 }

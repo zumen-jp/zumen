@@ -36,13 +36,18 @@ fn appearance(geometry: &Geometry, cx: &mut Cx) -> Result<(), Error> {
 fn lift(file: &IfcFile, cx: &mut Cx) -> Result<(), Error> {
     // 通り芯から軸・曲線へ進む。形の最初の 16 要素に grid がない場合も、この経路を通す。
     let mut grids = 0;
+    let mut materials = 0;
     for id in file.ids() {
         cx.check(zumen_base::Kind::Work, 1)?;
-        if file.instance(id).is_some_and(|r| file.kind(r).eq_ignore_ascii_case(b"IFCGRID")) {
+        if materials < 16 && file.instance(id).is_some_and(|r| file.kind(r).eq_ignore_ascii_case(b"IFCMATERIAL")) {
+            if let Err(Error::Stopped(stop)) = file.material_presentation(id, cx) { return Err(Error::Stopped(stop)); }
+            materials += 1;
+        }
+        if grids < 16 && file.instance(id).is_some_and(|r| file.kind(r).eq_ignore_ascii_case(b"IFCGRID")) {
             if let Err(Error::Stopped(stop)) = file.grid_axes(id, cx) { return Err(Error::Stopped(stop)); }
             grids += 1;
-            if grids == 16 { break; }
         }
+        if grids == 16 && materials == 16 { break; }
     }
     // 要素から共有写像をたどる入口。値を写す範囲は 16 要素まで、曲線の取得とも予算を共有する
     let mut shapes = 0;

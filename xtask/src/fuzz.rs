@@ -269,6 +269,9 @@ fn ifc_profiles() -> Vec<u8> {
     #132=IFCSURFACESTYLE('Surface',.BOTH.,(#131));\n#133=IFCSTYLEDITEM(#30,(#132),$);\n\
     #134=IFCPRESENTATIONLAYERASSIGNMENT('Representation',$,(#102),$);\n\
     #135=IFCPRESENTATIONLAYERWITHSTYLE('Item',$,(#30),$,.T.,.F.,.U.,(#132));\n\
+    #140=IFCMATERIAL('Material',$,$);\n#141=IFCMATERIALDEFINITIONREPRESENTATION($,$,(#142,#145),#140);\n\
+    #142=IFCSTYLEDREPRESENTATION(#136,'Body',$,(#143));\n#143=IFCSTYLEDITEM($,(#132),$);\n\
+    #144=IFCREPRESENTATIONCONTEXT('General','Text');\n#145=IFCSTYLEDREPRESENTATION(#144,$,$,(#143));\n\
     #126=IFCLOCALPLACEMENT($,#20);\n\
     #100=IFCWALL('0000000000000000000002',$,$,$,$,#126,#101,$,.NOTDEFINED.);\n\
     #101=IFCPRODUCTDEFINITIONSHAPE($,$,(#102));\n#102=IFCSHAPEREPRESENTATION(#8,'Body','GeometricSet',(#30,#31,#32,#33,#34,#35,#36,#66,#81,#83,#97,#114,#115,#124,#125));\n\
@@ -764,6 +767,9 @@ mod tests {
         let (geometry, found) = run(Limits::default(), |cx| file.product_geometry(100, cx));
         assert_eq!(found, []);
         let geometry = geometry.unwrap();
+        let (material, found) = run(Limits::default(), |cx| file.material_presentation(140, cx));
+        assert_eq!(found, []);
+        assert_eq!(material.unwrap().representations.len(), 2);
         let (owned, found) = run(Limits::default(), |cx| file.owned_geometry(100, cx));
         assert_eq!(found, []);
         let owned = owned.unwrap();

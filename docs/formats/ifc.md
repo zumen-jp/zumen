@@ -191,6 +191,29 @@ node crates/zumen-ifc/tests/wasi-inheritance.mjs --compare target/inheritance-co
 
 ネイティブと WASI は選択・元値・出所・診断・全 Kind の境界を比較します。fuzz も固定長の経路から同じ選択を通します。
 
+### 材料の表示を文脈ごとに取得する
+
+`IfcFile::material_presentation(instance, cx)` は、1 つの `IfcMaterial` から表示の定義への逆参照をたどります。`MaterialPresentation` に定義の名前・説明、表現ごとの識別名・種類・文脈、複数の StyledItem と面の表示を元の並びで保持します。表示のない材料は空の成功で、定義の出所は `None` です。材料や表示の定義・表現・項目・旧版の割り当て・面の表示・色の出所を、意味の値と分けます。
+
+StyledRepresentation の文脈は幾何に限りません。一般の `IfcRepresentationContext` は識別名と種類を保持し、幾何の文脈とその子は既存の取得に従って座標系・精度・真北・表示尺度・単位を保ちます。材料の StyledItem は Item の省略を要求し、形への直接の指定を読み替えません。複数の表現を 1 つの色へまとめず、材料の構成・要素や型への割り当て・面への適用も行いません。Building への保持と、要素の表示を補う継承は後続の接続で扱います。
+
+根拠は buildingSMART の各版の自然文の属性と使用規則、[MaterialDefinitionRepresentation](https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcMaterialDefinitionRepresentation.htm)・[StyledRepresentation](https://standards.buildingsmart.org/IFC/RELEASE/IFC4/ADD2_TC1/HTML/schema/ifcrepresentationresource/lexical/ifcstyledrepresentation.htm)・[StyledItem](https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcStyledItem.htm) です。公式ページが取得できない場合は、同じ持ち主の公式 HTML スナップショットで確認しています。スキーマを取得・同梱しません。
+
+複数の逆参照・参照先・表示のない項目・重複した項目・属性の数と版を検査します。逆参照の所属を判定できないレイアウトは読み飛ばさず、不正とします。未知の表示が含まれる場合は未対応の種類と場所を診断し、部分結果を返しません。深さ・走査・確保は同じ Cx を使い、表現の容量を 1 件 2048、項目を 1024、幾何の文脈の Box を 512 DecodedBytes として確保前に予約します。文字列と面の表示、文脈の内部も個別に数えます。
+
+`tests/material_styles.rs` は合成の 3 版と公開 TallBuilding の材料の元参照を検査します。IfcOpenShell 0.9.0.post1 との比較は合成 9 文脈と公開 1 文脈の定義・表現・文脈・表示の参照、名前・説明・面の向き・色と透過です。一般の文脈の値と幾何の文脈の値も Rust で検査し、幾何の文脈の全属性の外部比較は[文脈の個別の検査](#表現の座標系と表示尺度を取得する)の範囲を使います。材料から要素への適用や描画の照合ではありません。
+
+```powershell
+$env:ZUMEN_IFC_MATERIAL_OUT = Join-Path (Get-Location) 'target/material-comparison'
+cargo test -p zumen-ifc --locked --test material_styles
+uv run --no-project --python 3.13 --no-python-downloads --with ifcopenshell==0.9.0.post1 python -I crates/zumen-ifc/tests/ifcopenshell/material_styles.py target/material-comparison
+$env:CARGO_TARGET_WASM32_WASIP1_RUNNER = 'node --no-warnings tests/wasi-material-styles.mjs'
+cargo test -p zumen-ifc --locked --test material_styles --target wasm32-wasip1 -- --test-threads 1
+node crates/zumen-ifc/tests/wasi-material-styles.mjs --compare target/material-comparison target/material-comparison-wasm
+```
+
+ネイティブと WASI で元値・出所・診断・全 Kind の境界を照合します。fuzz では最初の 16 材料まで同じ予算で取得します。
+
 ### 表現の座標系と表示尺度を取得する
 
 `IfcFile::representation_context(instance, cx)` は、幾何の文脈とその子から `ContextGeometry` を取得します。`definition.geometric` に親または直接の文脈の名前・次元・精度・座標系・真北、`definition.view` に子の名前・表示尺度・投影の種類・利用側が定めた名前を持ちます。原点と精度の長さの単位は `length_unit`、元の文脈・親・配置・点・方向・単位のレコードは `source` に分けます。

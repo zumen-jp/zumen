@@ -42,6 +42,7 @@ pub use indexed_faces::{IndexedFaceSource, TessellatedFaces};
 pub use shape::{ProductShape, ShapeLinks, ShapeNode, ShapeRef};
 pub use style::{
     ItemPresentation, ItemStyleSource, ItemSurfaceStyles, LayerAssignmentLevel, LayerPresentation,
+    MaterialPresentation, MaterialRepresentation, MaterialStyleContext, MaterialStyleItem,
     SurfaceStyleBinding, SurfaceStyleSelection, SurfaceStyleSource,
 };
 pub use sweep::SweptDisk;
