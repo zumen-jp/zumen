@@ -90,7 +90,7 @@ pub(crate) fn before(shape: &Shape<ModelPoint>, view: &View) -> (u64, u64) {
     }
 }
 
-/// 焼き込んだ要素と、焼き込んだあとに予算に数える手間と点
+/// 焼き込んだ要素と、事前に予算に数えなかった点
 pub(crate) struct Baked {
     /// 用紙の要素。焼き込めなければ `None`
     pub(crate) element: Option<Element<PaperPoint>>,
@@ -601,7 +601,7 @@ mod tests {
         assert_eq!(points, polyline(baked.element.as_ref().unwrap()) + 1);
         assert!(points > 100, "{points}");
         assert_eq!(baked.points, 0);
-        // スプラインは、点を求めた手間と作った点を、作ったあとに数える（#756）
+        // スプラインの作業量は計算前に数え、作った点は焼き込んだ後に数える。
         let spline = Shape::Curve(Edge::Spline(Spline {
             degree: 3,
             knots: vec![0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0],

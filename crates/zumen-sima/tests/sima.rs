@@ -1094,7 +1094,7 @@ fn guards_extreme_floats_clothoid_precision_and_discontinuous_routes() {
         }],
         ..Drawing2D::default()
     };
-    let mut budget = Budget::default();
+    let mut budget = Budget::new(Limits::default().with(Kind::Segments, Limit::Finite(1000)));
     let mut c_diags = Diagnostics::new();
     let mut cx = Cx::new(&mut budget, &mut c_diags, &cancel);
     let lowered_clothoid = lower_drawing_to_sima(&clothoid_dwg, &mut cx).unwrap();

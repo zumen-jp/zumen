@@ -448,6 +448,12 @@ pub fn clothoid_work(parameter: f64, start: f64, end: f64, tolerance: f64) -> u6
     }
 }
 
+/// [`clothoid`] が作る点の数。作業量とは別に、点数と確保するバイト数の予算に使う。
+/// 定義が合わない場合は 0。
+pub fn clothoid_point_count(parameter: f64, start: f64, end: f64, tolerance: f64) -> u64 {
+    clothoid_steps(parameter, start, end, tolerance).map_or(0, |(_, steps)| steps as u64 + 1)
+}
+
 /// クロソイドを折れ線にする。`angle` は原点での接線の向き（度）、`parameter` は A、`start` と `end` は
 /// 原点からの長さ
 pub fn clothoid(
@@ -1240,14 +1246,23 @@ mod tests {
         // A 50 の 35 m から 50 m まで。刻みは 2 m ほどなので、区間は 8 刻み、原点から区間の初めまでは 18 刻み
         let points = clothoid([0.0, 0.0], 50.0, 0.0, true, 35.0, 50.0, 0.01);
         assert_eq!(points.len(), 9);
+        assert_eq!(
+            clothoid_point_count(50.0, 35.0, 50.0, 0.01),
+            points.len() as u64
+        );
         assert_eq!(clothoid_work(50.0, 35.0, 50.0, 0.01), (18 + 8) * 9 * 64 + 1);
         // 原点から始まる区間は、区間の刻みのほかに 1 刻み
         let points = clothoid([0.0, 0.0], 10.0, 0.0, true, 0.0, 10.0, 0.001);
+        assert_eq!(
+            clothoid_point_count(10.0, 0.0, 10.0, 0.001),
+            points.len() as u64
+        );
         assert_eq!(
             clothoid_work(10.0, 0.0, 10.0, 0.001),
             (1 + points.len() as u64 - 1) * 9 * 64 + 1
         );
         assert_eq!(clothoid_work(0.0, 0.0, 10.0, 0.001), 1);
+        assert_eq!(clothoid_point_count(0.0, 0.0, 10.0, 0.001), 0);
     }
 
     /// 作る前に求める点の数は、作った点の数と同じ。膨らみのある区間ごとに増える（#756）
