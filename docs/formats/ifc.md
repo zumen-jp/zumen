@@ -409,7 +409,18 @@ for node in &shape.nodes {
 - 直接の StyledItem がなければ空の成功です。写像元・材質・レイヤからの継承や優先順位は調べません。写像元の葉に付く指定は、その葉を別に渡して取得します。表示色・材質・面への適用・法線・形を評価した結果には数えません。
 - ファイルの全レコードの走査、参照・数・文字列・集合の検査を共有の `Cx` の Work で数えます。確保前の DecodedBytes は、文字列を元の長さの 12 倍と 32、集合を 256 と項目ごと 64、結果の容量を項目ごと 1024 とし、ネイティブと wasm32 で共通にします。結果の容量には 2,097,151 項目の共通上限も置きます。入った深さは成功・不正・未対応・停止のすべてで戻します。
 
-Building の既存の `Style` 成分への統合、形の意味値の Hash は未実装です。既存の Hash v1・ID・公開 0.2 の API・境界 op・スキーマは変えません。
+`IfcFile::item_presentation(node, representation, cx)` は、直接の面の表示に加えてレイヤを取得します。`representation` は項目を直接 `Items` に含む ShapeRepresentation、または省略です。共有写像を使う場合も、写像の項目と写像元の葉をそれぞれの表現と組にして呼びます。
+
+- レイヤの名前・説明・識別子、表示・固定・編集禁止の真偽と不明を `PresentationLayer`・`LayerState` に保持します。通常のレイヤと、状態がすべて不明の表示付きレイヤを区別します。表示のない空の `LayerStyles` も保持します。
+- `layers` は項目と表現の双方への割り当てを元レコード順に保持します。`layer_source` は項目への割り当てがあれば項目、なければ表現です。表示が空でも項目の割り当てが優先し、表現の表示で補いません。上書きされたレイヤも元の値と借用する出所を残します。
+- `surface_source` は直接の面の表示を優先し、なければ選ばれた位置のレイヤの面の表示を指します。IFC2X3 で同じ位置の複数レイヤに面の表示がある場合は `MultipleLayers` とし、ファイル順で勝者を選びません。面の側・透明度・反射式の合成は行いません。
+- IFC2X3 の複数の項目レイヤを保持し、IFC4 以降では 1 項目への複数レイヤを拒みます。IFC4 以降の WithStyle は、指定した表現への割り当てを拒みます。項目と表現に同時に割り当てていても同じです。レイヤ内の別の割り当て先の幾何の種類までは検証しません。
+- 取得対象の複合レコード、不正な名前・論理値・集合・参照・属性数と、指定した表現の Items にない項目を拒みます。複合レイヤの走査では基の Assignment も調べ、所属なしと誤認しません。所属を読めない配置・リストは `owner-layout`・`owner-list` の診断にします。未知の表示は上書きされる場合も `Unsupported` とし、元の値を失う部分成功にしません。
+- 直接表示の検査と全レコード・割り当てリストの走査は同じ `Cx` を使います。該当するレイヤを Elements、結果の容量を確保前に 1 件 1024 DecodedBytes として数え、集合・文字列・面の表示は従来の予約量を使います。レイヤの容量上限は 2,097,151 件です。深さと停止位置も元のレコードに対応させます。
+
+この取得が決めるのは、同じ項目とその直接の表現の優先関係です。写像の階層を越える表示の上書き・材質からの継承、Building の既存の `Style` 成分への統合、形の意味値の Hash は未実装です。既存の Hash v1・ID・公開 0.2 の API・境界 op・スキーマは変えません。
+
+レイヤの規則は buildingSMART の [RepresentationItem](https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcRepresentationItem.htm)、[PresentationLayerAssignment](https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcPresentationLayerAssignment.htm)、[PresentationLayerWithStyle](https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcPresentationLayerWithStyle.htm) の説明と、IFC2X3 TC1・IFC4 ADD2 TC1 の同じ項目の説明で確認しました。
 
 根拠は buildingSMART の [StyledItem](https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcStyledItem.htm)、[SurfaceStyle](https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcSurfaceStyle.htm)、[Shading](https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcSurfaceStyleShading.htm)、[Rendering](https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcSurfaceStyleRendering.htm)、[IFC4 の PresentationStyleAssignment](https://standards.buildingsmart.org/IFC/RELEASE/IFC4/ADD2/HTML/schema/ifcpresentationappearanceresource/lexical/ifcpresentationstyleassignment.htm)、[IFC2X3 の StyledItem](https://standards.buildingsmart.org/IFC/RELEASE/IFC2x3/TC1/HTML/ifcpresentationappearanceresource/lexical/ifcstyleditem.htm) です。スキーマや第三者の実装は同梱しません。
 
@@ -429,6 +440,19 @@ node crates/zumen-ifc/tests/wasi-styles.mjs --compare target/style-comparison ta
 ```
 
 同じテストを WASI でも流し、4 件の JSON と診断・全 Kind の予算使用量を記録する `contract.txt` を、ネイティブとバイト列で比較します。WASI の出力先は `target/style-comparison-wasm` です。fuzz の `ifc` target は既存の形の項目から 16 件までこの取得へ渡し、全レコードの走査を含めて予算を共有します。毎晩の CI でも export と外部照合を流します。
+
+レイヤの取得は `tests/layers.rs` で 3 版の元値・優先規則・不明・空・複数レイヤ・不正・未対応・出所・予算・中断を検査します。公開の柱 `#131` の押し出し `#114` と表現 `#119` は、表現のレイヤ `#5883`（`S-COLS-____-OTLN`）と直接の面の表示 `#117` を持ちます。IfcOpenShell の実行ファイルとは合成 3 版と公開例の 7 レイヤ・3 レイヤ表示の元属性と参照を照合します。優先順位・診断・予算・表示結果は、この外部照合には含めません。
+
+```powershell
+$env:ZUMEN_IFC_LAYERS_OUT = Join-Path (Get-Location) 'target/layer-comparison'
+cargo test -p zumen-ifc --locked --test layers
+python -X utf8 -I crates/zumen-ifc/tests/ifcopenshell/layers.py target/layer-comparison
+$env:CARGO_TARGET_WASM32_WASIP1_RUNNER = 'node --no-warnings tests/wasi-layers.mjs'
+cargo test -p zumen-ifc --locked --test layers --target wasm32-wasip1 -- --test-threads 1
+node crates/zumen-ifc/tests/wasi-layers.mjs --compare target/layer-comparison target/layer-comparison-wasm
+```
+
+同じテストを WASI で実行し、4 JSON と診断・全 Kind の記録をネイティブとバイト列で比較します。fuzz は表現から直接の項目へ 16 件まで進み、レイヤの走査と旧 getter とで予算を共有します。
 
 ## 通り芯から軸と曲線を取得する
 

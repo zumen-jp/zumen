@@ -3,6 +3,9 @@
 
 use std::collections::BTreeSet;
 
+mod layer;
+pub use layer::{ItemPresentation, LayerAssignmentLevel, LayerPresentation, SurfaceStyleSelection};
+
 use zumen_building::{
     ColourOrFactor, ReflectanceMethod, SpecularHighlight, SurfaceColour, SurfaceRendering,
     SurfaceShading, SurfaceSide, SurfaceStyle,

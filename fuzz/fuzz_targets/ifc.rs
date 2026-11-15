@@ -32,6 +32,7 @@ fn lift(file: &IfcFile, cx: &mut Cx) -> Result<(), Error> {
     let mut half_spaces = 0;
     let mut mappings = 0;
     let mut styles = 0;
+    let mut presentations = 0;
     for id in file.ids() {
         cx.check(zumen_base::Kind::Work, 1)?;
         if file.instance(id).is_some_and(|r| {
@@ -41,6 +42,15 @@ fn lift(file: &IfcFile, cx: &mut Cx) -> Result<(), Error> {
                 Ok(shape) => {
                     for node in &shape.nodes {
                         cx.check(zumen_base::Kind::Work, 1)?;
+                        if let zumen_ifc::ShapeLinks::Representation { items, .. } = &node.links {
+                            for at in items.iter().take(16 - presentations) {
+                                cx.check(zumen_base::Kind::Work, 1)?;
+                                if let Some(item) = shape.node(*at) {
+                                    if let Err(Error::Stopped(stop)) = file.item_presentation(item, Some(node), cx) { return Err(Error::Stopped(stop)); }
+                                    presentations += 1;
+                                }
+                            }
+                        }
                         if styles < 16 {
                             if let Err(Error::Stopped(stop)) = file.surface_styles(node, cx) { return Err(Error::Stopped(stop)); }
                             styles += 1;

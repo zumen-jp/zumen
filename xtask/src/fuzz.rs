@@ -264,6 +264,10 @@ fn ifc_profiles() -> Vec<u8> {
     #120=IFCCARTESIANPOINT((0.25,0.25));\n#121=IFCAXIS2PLACEMENT2D(#120,$);\n#122=IFCCIRCLE(#121,0.1);\n\
     #123=IFCARBITRARYPROFILEDEFWITHVOIDS(.AREA.,'V',#18,(#122));\n\
     #124=IFCEXTRUDEDAREASOLID(#123,$,#24,2.);\n#125=IFCREVOLVEDAREASOLID(#123,$,#55,1.5707963267948966);\n\
+    #130=IFCCOLOURRGB('Blue',0.,0.,1.);\n#131=IFCSURFACESTYLESHADING(#130,0.25);\n\
+    #132=IFCSURFACESTYLE('Surface',.BOTH.,(#131));\n#133=IFCSTYLEDITEM(#30,(#132),$);\n\
+    #134=IFCPRESENTATIONLAYERASSIGNMENT('Representation',$,(#102),$);\n\
+    #135=IFCPRESENTATIONLAYERWITHSTYLE('Item',$,(#30),$,.T.,.F.,.U.,(#132));\n\
     #100=IFCWALL('0000000000000000000002',$,$,$,$,$,#101,$,.NOTDEFINED.);\n\
     #101=IFCPRODUCTDEFINITIONSHAPE($,$,(#102));\n#102=IFCSHAPEREPRESENTATION(#8,'Body','GeometricSet',(#30,#31,#32,#33,#34,#35,#36,#66,#81,#83,#97,#114,#115,#124,#125));\n\
     ENDSEC;\nEND-ISO-10303-21;\n".to_vec()
@@ -755,8 +759,29 @@ mod tests {
         assert_eq!(found, []);
         let file = file.unwrap();
         let (shape, _) = run(Limits::default(), |cx| file.product_shape(100, cx));
+        let shape = shape.unwrap();
+        let representation = shape
+            .nodes
+            .iter()
+            .find(|n| n.source.id() == Some(102))
+            .unwrap();
+        let item = shape
+            .nodes
+            .iter()
+            .find(|n| n.source.id() == Some(30))
+            .unwrap();
+        let (presentation, found) = run(Limits::default(), |cx| {
+            file.item_presentation(item, Some(representation), cx)
+        });
+        assert_eq!(found, []);
+        let presentation = presentation.unwrap();
+        assert_eq!(presentation.layers.len(), 2);
+        assert_eq!(
+            presentation.surface_source,
+            zumen_ifc::SurfaceStyleSelection::Direct
+        );
         let mut counts = [0; 8];
-        for node in &shape.unwrap().nodes {
+        for node in &shape.nodes {
             let (at, result) = match file.kind(node.source) {
                 b"IFCEXTRUDEDAREASOLID" => (
                     0,

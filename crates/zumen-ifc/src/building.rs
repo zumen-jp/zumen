@@ -37,7 +37,10 @@ pub use faces::{FaceGraphSource, FacetedFaces};
 pub use grid::{GridAxes, GridAxisCurve, GridSource};
 pub use indexed_faces::{IndexedFaceSource, TessellatedFaces};
 pub use shape::{ProductShape, ShapeLinks, ShapeNode, ShapeRef};
-pub use style::{ItemStyleSource, ItemSurfaceStyles, SurfaceStyleBinding, SurfaceStyleSource};
+pub use style::{
+    ItemPresentation, ItemStyleSource, ItemSurfaceStyles, LayerAssignmentLevel, LayerPresentation,
+    SurfaceStyleBinding, SurfaceStyleSelection, SurfaceStyleSource,
+};
 pub use sweep::SweptDisk;
 
 /// 建物モデルを作るバージョン
