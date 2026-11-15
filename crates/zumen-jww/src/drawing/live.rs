@@ -183,12 +183,26 @@ struct RemovedSlot {
     top_group: Option<usize>,
 }
 
+#[derive(Clone, Debug)]
+struct SymbolBoundsDiff {
+    index: usize,
+    before: Option<[f64; 4]>,
+    after: Option<[f64; 4]>,
+}
+
+#[derive(Default)]
+struct DependentBounds {
+    rows: Vec<(RowId, [f64; 4])>,
+    symbols: Vec<SymbolBoundsDiff>,
+}
+
 /// 1 トランザクション分の JWW 固有の差分記録
 #[derive(Clone, Debug, Default)]
 struct JwwStepPatch {
     bodies: Vec<BodyDiff>,
     removed: Vec<RemovedSlot>,
     added: Vec<BornRecord>,
+    symbol_bounds: Vec<SymbolBoundsDiff>,
 }
 
 impl PatchPayload for JwwStepPatch {
@@ -200,7 +214,7 @@ impl PatchPayload for JwwStepPatch {
             .iter()
             .map(|item| item.body.capacity() + core::mem::size_of::<BornRecord>())
             .sum();
-        b + r + a
+        b + r + a + self.symbol_bounds.capacity() * core::mem::size_of::<SymbolBoundsDiff>()
     }
 }
 
@@ -226,6 +240,7 @@ pub struct JwwLive {
     images: BTreeMap<String, usize>,
     symbol_index_by_key: BTreeMap<String, u32>,
     symbol_bounds: Vec<Option<[f64; 4]>>,
+    symbol_users: Vec<Vec<RowId>>,
     definition_rows: Vec<Vec<RowId>>,
     underlay_rows: Vec<RowId>,
     group_counts: [u32; 16],
@@ -479,8 +494,10 @@ impl JwwLive {
                         {
                             *cnt = cnt.saturating_add(1);
                         }
+                        let mut bounds = worker.bounds;
                         if let Some(def_idx) = space.0.checked_sub(DEFINITION_SPACES) {
                             let model_box = model_element_bounds(&element.shape);
+                            bounds = model_box;
                             if is_finite_box(model_box)
                                 && let Some(slot_box) = symbol_bounds.get_mut(def_idx as usize)
                             {
@@ -497,7 +514,7 @@ impl JwwLive {
                             own_extensions: own,
                             underlay_image_record: embedded_image,
                         };
-                        initial_rows.push((row, worker.bounds, true));
+                        initial_rows.push((row, bounds, true));
                         element_base_alive.set(index, true);
                         if let Some(def_idx) = space.0.checked_sub(DEFINITION_SPACES)
                             && let Some(rows_in_def) = definition_rows.get_mut(def_idx as usize)
@@ -528,8 +545,25 @@ impl JwwLive {
         }
 
         // ブロック定義の囲む箱が決まった後に、最上位の記号参照の囲む箱を反映する
+        decoded_live(
+            cx,
+            symbol_count.saturating_mul(24).saturating_add(
+                top_symbol_rows
+                    .len()
+                    .saturating_mul(4 * core::mem::size_of::<RowId>()),
+            ) as u64,
+        )?;
+        let mut symbol_users = vec![Vec::new(); symbol_count];
         for row_idx in top_symbol_rows {
+            work_live(cx, 1)?;
             if let Some((row, bbox, _)) = initial_rows.get_mut(row_idx) {
+                if let Shape::Symbol(symbol) = &row.element.shape
+                    && let Some(&index) = symbol_index_by_key.get(&symbol.key.name)
+                    && let Some(users) = symbol_users.get_mut(index as usize)
+                    && let Some(row_id) = RowId::from_index(row_idx)
+                {
+                    users.push(row_id);
+                }
                 *bbox = compute_sheet_bounds(
                     &row.element,
                     row.space,
@@ -595,6 +629,7 @@ impl JwwLive {
             images: images_map,
             symbol_index_by_key,
             symbol_bounds,
+            symbol_users,
             definition_rows,
             underlay_rows,
             group_counts,
@@ -1115,6 +1150,8 @@ impl JwwLive {
             false
         };
 
+        let dependent_bounds = self.stage_dependent_bounds(&staged, cx)?;
+
         // バケット番号を先に確定する
         for item in &mut staged {
             let _ = item.kind_label;
@@ -1179,7 +1216,10 @@ impl JwwLive {
             &mut self.history,
             cx,
             |txn, _cx| -> Result<(), TxnError<()>> {
-                let mut step_patch = JwwStepPatch::default();
+                let mut step_patch = JwwStepPatch {
+                    symbol_bounds: dependent_bounds.symbols,
+                    ..JwwStepPatch::default()
+                };
                 for item in staged {
                     match item.action {
                         StagedAction::Removed {
@@ -1229,9 +1269,15 @@ impl JwwLive {
                         }
                     }
                 }
+                for (row_id, bounds) in dependent_bounds.rows {
+                    if let Some(row) = txn.row(row_id).cloned() {
+                        txn.update_row(row_id, row, bounds)?;
+                    }
+                }
                 if !step_patch.bodies.is_empty()
                     || !step_patch.removed.is_empty()
                     || !step_patch.added.is_empty()
+                    || !step_patch.symbol_bounds.is_empty()
                 {
                     txn.push_patch(step_patch);
                 }
@@ -1262,7 +1308,6 @@ impl JwwLive {
             for patch in committed.patches() {
                 self.apply_backend_patch(patch);
             }
-            self.refresh_modified_symbol_bounds(&committed);
             self.history.trim_to_bytes(self.history_max_bytes);
         }
 
@@ -1305,12 +1350,8 @@ impl JwwLive {
             &self.symbol_index_by_key,
             &committed,
         );
-        let touched_defs = collect_touched_defs_on_undo(&committed);
         for patch in committed.patches().iter().rev() {
             self.undo_backend_patch(patch);
-        }
-        for def_idx in touched_defs {
-            self.recompute_symbol_bound(def_idx);
         }
         Ok(true)
     }
@@ -1337,12 +1378,8 @@ impl JwwLive {
             &self.symbol_index_by_key,
             &committed,
         );
-        let touched_defs = collect_touched_defs_on_redo(&committed);
         for patch in committed.patches() {
             self.apply_backend_patch(patch);
-        }
-        for def_idx in touched_defs {
-            self.recompute_symbol_bound(def_idx);
         }
         Ok(true)
     }
@@ -1418,7 +1455,7 @@ impl JwwLive {
         for &rid in rows {
             work_live(cx, 1)?;
             if let Some(row) = self.table.row(rid) {
-                let b = model_element_bounds(&row.element.shape);
+                let b = self.table.bounds(rid).unwrap_or(EMPTY_BOUNDS);
                 if is_finite_box(b) && boxes_intersect(b, rect) {
                     out.push(self.canonical_id(row.space, row.slot));
                 }
@@ -2410,6 +2447,11 @@ impl JwwLive {
     }
 
     fn apply_backend_patch(&mut self, patch: &JwwStepPatch) {
+        for diff in &patch.symbol_bounds {
+            if let Some(bounds) = self.symbol_bounds.get_mut(diff.index) {
+                *bounds = diff.after;
+            }
+        }
         for diff in &patch.bodies {
             match diff {
                 BodyDiff::Base { record, after, .. } => {
@@ -2461,6 +2503,11 @@ impl JwwLive {
     }
 
     fn undo_backend_patch(&mut self, patch: &JwwStepPatch) {
+        for diff in patch.symbol_bounds.iter().rev() {
+            if let Some(bounds) = self.symbol_bounds.get_mut(diff.index) {
+                *bounds = diff.before;
+            }
+        }
         if !patch.removed.is_empty() || !patch.added.is_empty() {
             self.lists_rebuilt_steps = self.lists_rebuilt_steps.saturating_sub(1);
         }
@@ -2516,30 +2563,47 @@ impl JwwLive {
         }
     }
 
-    fn refresh_modified_symbol_bounds(&mut self, committed: &CommittedTxn<JwwRow, JwwStepPatch>) {
+    fn stage_dependent_bounds(
+        &self,
+        staged: &[StagedEdit],
+        cx: &mut Cx<'_>,
+    ) -> Result<DependentBounds, Error> {
         let mut touched = BTreeSet::new();
-        for diff in committed.existing() {
-            let space = match diff {
-                ExistingRowDiff::Updated { after_row, .. } => after_row.space,
-                ExistingRowDiff::Removed { before_row, .. } => before_row.space,
+        let mut pending = BTreeMap::new();
+        for item in staged {
+            work_live(cx, 1)?;
+            let row_id = match &item.action {
+                StagedAction::Updated { row_id, .. } | StagedAction::Removed { row_id, .. } => {
+                    *row_id
+                }
+                StagedAction::Added { .. } => continue,
             };
-            if let Some(def_idx) = space.0.checked_sub(DEFINITION_SPACES) {
+            decoded_live(cx, 256)?;
+            pending.insert(row_id, &item.action);
+            if let Some(row) = self.table.row(row_id)
+                && let Some(def_idx) = row.space.0.checked_sub(DEFINITION_SPACES)
+            {
                 touched.insert(def_idx as usize);
             }
         }
+        let mut out = DependentBounds::default();
         for def_idx in touched {
-            self.recompute_symbol_bound(def_idx);
-        }
-    }
-
-    fn recompute_symbol_bound(&mut self, def_idx: usize) {
-        let Some(rows) = self.definition_rows.get(def_idx) else {
-            return;
-        };
-        let mut acc: Option<[f64; 4]> = None;
-        for &rid in rows {
-            if let Some(row) = self.table.row(rid) {
-                let b = model_element_bounds(&row.element.shape);
+            let (Some(rows), Some(&before), Some(users)) = (
+                self.definition_rows.get(def_idx),
+                self.symbol_bounds.get(def_idx),
+                self.symbol_users.get(def_idx),
+            ) else {
+                continue;
+            };
+            let mut acc: Option<[f64; 4]> = None;
+            for &rid in rows {
+                work_live(cx, 1)?;
+                let b = match pending.get(&rid) {
+                    Some(StagedAction::Updated { after_bounds, .. }) => *after_bounds,
+                    Some(StagedAction::Removed { .. }) => continue,
+                    _ if self.table.is_alive(rid) => self.table.bounds(rid).unwrap_or(EMPTY_BOUNDS),
+                    _ => continue,
+                };
                 if is_finite_box(b) {
                     acc = Some(match acc {
                         Some(prev) => union_box(prev, b),
@@ -2547,39 +2611,36 @@ impl JwwLive {
                     });
                 }
             }
+            if before == acc {
+                continue;
+            }
+            decoded_live(cx, 4 * 96)?;
+            out.symbols.push(SymbolBoundsDiff {
+                index: def_idx,
+                before,
+                after: acc,
+            });
+            for &rid in users {
+                work_live(cx, 1)?;
+                let row = match pending.get(&rid) {
+                    Some(StagedAction::Updated { after_row, .. }) => after_row,
+                    Some(StagedAction::Removed { .. }) => continue,
+                    _ => match self.table.row(rid) {
+                        Some(row) => row,
+                        None => continue,
+                    },
+                };
+                let Shape::Symbol(symbol) = &row.element.shape else {
+                    continue;
+                };
+                let bounds =
+                    symbol_sheet_bounds(symbol, row.space, &self.header, self.paper_origin, acc);
+                decoded_live(cx, 4 * core::mem::size_of::<(RowId, [f64; 4])>() as u64)?;
+                out.rows.push((rid, bounds));
+            }
         }
-        if let Some(slot) = self.symbol_bounds.get_mut(def_idx) {
-            *slot = acc;
-        }
+        Ok(out)
     }
-}
-
-fn collect_touched_defs_on_undo(committed: &CommittedTxn<JwwRow, JwwStepPatch>) -> BTreeSet<usize> {
-    let mut touched = BTreeSet::new();
-    for diff in committed.existing() {
-        let space = match diff {
-            ExistingRowDiff::Updated { before_row, .. }
-            | ExistingRowDiff::Removed { before_row, .. } => before_row.space,
-        };
-        if let Some(def_idx) = space.0.checked_sub(DEFINITION_SPACES) {
-            touched.insert(def_idx as usize);
-        }
-    }
-    touched
-}
-
-fn collect_touched_defs_on_redo(committed: &CommittedTxn<JwwRow, JwwStepPatch>) -> BTreeSet<usize> {
-    let mut touched = BTreeSet::new();
-    for diff in committed.existing() {
-        let space = match diff {
-            ExistingRowDiff::Updated { after_row, .. } => after_row.space,
-            ExistingRowDiff::Removed { before_row, .. } => before_row.space,
-        };
-        if let Some(def_idx) = space.0.checked_sub(DEFINITION_SPACES) {
-            touched.insert(def_idx as usize);
-        }
-    }
-    touched
 }
 
 fn file_order_key(slot: SlotRef, top_end: usize) -> (u8, usize) {
@@ -2742,6 +2803,13 @@ fn append_exact_range(source: &SourceBytes, range: Range<usize>, out: &mut Vec<u
 
 fn work_live(cx: &mut Cx<'_>, amount: u64) -> Result<(), Error> {
     cx.check(Kind::Work, amount).map_err(|stop| {
+        cx.report(stop.to_diagnostic());
+        Error::Stopped(stop)
+    })
+}
+
+fn decoded_live(cx: &mut Cx<'_>, amount: u64) -> Result<(), Error> {
+    cx.check(Kind::DecodedBytes, amount).map_err(|stop| {
         cx.report(stop.to_diagnostic());
         Error::Stopped(stop)
     })
@@ -3648,33 +3716,17 @@ fn compute_sheet_bounds(
     symbol_bounds: &[Option<[f64; 4]>],
 ) -> [f64; 4] {
     if space.0 >= DEFINITION_SPACES {
-        return EMPTY_BOUNDS;
+        return model_element_bounds(&element.shape);
     }
     let k = 1.0 / header.scale(space.0 as usize);
 
     if let Shape::Symbol(sym) = &element.shape {
-        let [sx_raw, sy_raw] = sym.scale;
-        if let Some(&def_idx) = symbol_index_by_key.get(&sym.key.name)
-            && let Some(&Some([dx0, dy0, dx1, dy1])) = symbol_bounds.get(def_idx as usize)
-        {
-            let sx = sx_raw * k;
-            let sy = sy_raw * k;
-            let rad = sym.rotation.to_radians();
-            let (s, c) = (libm::sin(rad), libm::cos(rad));
-            let px = sym.position.x * k + ox;
-            let py = sym.position.y * k + oy;
-            let raw_corners = [[dx0, dy0], [dx1, dy0], [dx0, dy1], [dx1, dy1]];
-            let mut xformed = [[0.0; 2]; 4];
-            for (dst, &[dx, dy]) in xformed.iter_mut().zip(&raw_corners) {
-                let rx = dx * sx;
-                let ry = dy * sy;
-                *dst = [px + rx * c - ry * s, py + rx * s + ry * c];
-            }
-            return points_bounds(&xformed);
-        }
-        let px = sym.position.x * k + ox;
-        let py = sym.position.y * k + oy;
-        return [px, py, px, py];
+        let bounds = symbol_index_by_key
+            .get(&sym.key.name)
+            .and_then(|&index| symbol_bounds.get(index as usize))
+            .copied()
+            .flatten();
+        return symbol_sheet_bounds(sym, space, header, [ox, oy], bounds);
     }
 
     if let Shape::Text(text) = &element.shape {
@@ -3692,4 +3744,362 @@ fn compute_sheet_bounds(
     }
     let [mx0, my0, mx1, my1] = model_box;
     [mx0 * k + ox, my0 * k + oy, mx1 * k + ox, my1 * k + oy]
+}
+
+fn symbol_sheet_bounds(
+    symbol: &zumen_drawing::Symbol<ModelPoint>,
+    space: SpaceId,
+    header: &Header,
+    [ox, oy]: [f64; 2],
+    bounds: Option<[f64; 4]>,
+) -> [f64; 4] {
+    let k = 1.0 / header.scale(space.0 as usize);
+    let px = symbol.position.x * k + ox;
+    let py = symbol.position.y * k + oy;
+    let Some([dx0, dy0, dx1, dy1]) = bounds else {
+        return [px, py, px, py];
+    };
+    let [sx_raw, sy_raw] = symbol.scale;
+    let sx = sx_raw * k;
+    let sy = sy_raw * k;
+    let rad = symbol.rotation.to_radians();
+    let (s, c) = (libm::sin(rad), libm::cos(rad));
+    let raw_corners = [[dx0, dy0], [dx1, dy0], [dx0, dy1], [dx1, dy1]];
+    let mut xformed = [[0.0; 2]; 4];
+    for (dst, &[dx, dy]) in xformed.iter_mut().zip(&raw_corners) {
+        let rx = dx * sx;
+        let ry = dy * sy;
+        *dst = [px + rx * c - ry * s, py + rx * s + ry * c];
+    }
+    points_bounds(&xformed)
+}
+
+#[cfg(test)]
+#[path = "../../tests/common/mod.rs"]
+mod equivalence_common;
+
+#[cfg(test)]
+mod equivalence_tests {
+    use super::*;
+    use zumen_base::{Budget, CancelToken, Diagnostic, Diagnostics, Limit, Limits};
+    use zumen_drawing::{Color, ColorCode, ColorSystem, Restyle, id};
+    use zumen_sdk::{Apply, Codec, Lift};
+
+    fn run<T>(f: impl FnOnce(&mut Cx<'_>) -> T) -> (T, Vec<Diagnostic>) {
+        let mut budget = Budget::default();
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let result = f(&mut Cx::new(&mut budget, &mut diagnostics, &cancel));
+        (result, diagnostics.iter().cloned().collect())
+    }
+
+    fn write(file: &JwwFile) -> Vec<u8> {
+        run(|cx| {
+            let mut out = Vec::new();
+            Jww::write(file, &mut out, cx).map(|()| out)
+        })
+        .0
+        .unwrap()
+    }
+
+    fn check_edit(bytes: &[u8], threads: usize, edit: Edit) -> bool {
+        let mut file = run(|cx| Jww::read(bytes, cx)).0.unwrap();
+        let mut live = run(|cx| JwwLive::open_with_threads(bytes, threads, cx))
+            .0
+            .unwrap();
+        let before: Drawing2D = run(|cx| file.lift(cx)).0.unwrap();
+        let before_bytes = write(&file);
+        assert_eq!(run(|cx| live.drawing(cx)), run(|cx| file.lift(cx)));
+        let changes = Changes {
+            document: None,
+            edits: vec![edit],
+        };
+        let expected = run(|cx| file.apply(&changes, cx));
+        let actual = run(|cx| live.apply(&changes, cx));
+        assert_eq!(actual, expected, "{changes:?}");
+        let model = run(|cx| live.drawing(cx));
+        assert_eq!(model, run(|cx| file.lift(cx)));
+        let saved = run(|cx| live.save(cx)).0.unwrap();
+        assert_eq!(saved, write(&file));
+        assert_eq!(
+            model,
+            run(|cx| Jww::read(&saved, cx).and_then(|file| file.lift(cx)))
+        );
+        if actual.0.is_err() {
+            assert_eq!(model.0.unwrap(), before);
+            assert_eq!(saved, before_bytes);
+            assert!(!run(|cx| live.undo(cx)).0.unwrap());
+            return false;
+        }
+        assert!(run(|cx| live.undo(cx)).0.unwrap());
+        assert_eq!(run(|cx| live.drawing(cx)).0.unwrap(), before);
+        assert_eq!(run(|cx| live.save(cx)).0.unwrap(), before_bytes);
+        assert!(run(|cx| live.redo(cx)).0.unwrap());
+        assert_eq!(run(|cx| live.drawing(cx)), model);
+        assert_eq!(run(|cx| live.save(cx)).0.unwrap(), saved);
+        true
+    }
+
+    #[test]
+    fn public_geometry_edits_preserve_models_bytes_diagnostics_and_undo() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../samples/jww/ezjww-geometry.jww");
+        let bytes = std::fs::read(path).unwrap();
+        let model: Drawing2D = run(|cx| Jww::read(&bytes, cx).and_then(|file| file.lift(cx)))
+            .0
+            .unwrap();
+        let mut targets = Vec::new();
+        let mut kinds = [0usize; 6];
+        for space in &model.spaces {
+            let place = id::space(space.id);
+            let mut namer = id::Namer::new(&place);
+            for (index, element) in space.elements.iter().enumerate() {
+                let id = namer.next(index, element);
+                let kind = match element.shape {
+                    Shape::Line { .. } => 0,
+                    Shape::Circle { .. } => 1,
+                    Shape::Curve(_) => 2,
+                    Shape::Point(_) => 3,
+                    Shape::Hatch(_) => 4,
+                    Shape::Dimension(_) => 5,
+                    _ => continue,
+                };
+                kinds[kind] += 1;
+                targets.push((
+                    Seen {
+                        id,
+                        hash: Hash::element(element),
+                    },
+                    element.clone(),
+                ));
+            }
+        }
+        assert!(kinds.iter().all(|count| *count > 0), "{kinds:?}");
+        for threads in [1, 4] {
+            let mut accepted = 0;
+            for (target, element) in &targets {
+                accepted += usize::from(check_edit(
+                    &bytes,
+                    threads,
+                    Edit::Transform {
+                        target: target.clone(),
+                        transform: Affine::translation(2.0, 3.0),
+                    },
+                ));
+                accepted += usize::from(check_edit(
+                    &bytes,
+                    threads,
+                    Edit::Restyle {
+                        target: target.clone(),
+                        style: Restyle {
+                            color: Some(Inherit::Own(Color {
+                                code: Some(ColorCode {
+                                    system: ColorSystem::Jww,
+                                    value: 2,
+                                }),
+                                rgb: None,
+                            })),
+                            ..Restyle::default()
+                        },
+                    },
+                ));
+                assert!(check_edit(
+                    &bytes,
+                    threads,
+                    Edit::Remove {
+                        target: target.clone(),
+                    },
+                ));
+                if let Some(shape) =
+                    transform::transform(&element.shape, &Affine::translation(2.0, 3.0))
+                {
+                    let mut replacement = element.clone();
+                    replacement.shape = shape;
+                    accepted += usize::from(check_edit(
+                        &bytes,
+                        threads,
+                        Edit::Replace {
+                            target: target.clone(),
+                            element: Box::new(Placed::Model(replacement)),
+                        },
+                    ));
+                }
+            }
+            assert!(accepted > 0);
+        }
+    }
+
+    fn block_bytes() -> Vec<u8> {
+        use super::equivalence_common::{Archive, Spec};
+        let mut spec = Spec::new(700);
+        spec.groups[0] = (3, 1.0, [3; 16]);
+        let mut archive = Archive::new(700);
+        archive.group = 0;
+        archive.layer = 0;
+        archive.count(3);
+        for (values, definition) in [
+            ([5.0, 5.0, 1.0, 1.0, 0.0], 1u32),
+            ([-30.0, 20.0, 2.0, 0.5, core::f64::consts::FRAC_PI_2], 1),
+            ([20.0, 30.0, 1.0, 1.0, 0.0], 2),
+        ] {
+            archive.tag("CDataBlock");
+            archive.base(1, 1);
+            archive.reals(&values);
+            archive.out.extend(definition.to_le_bytes());
+        }
+        archive.count(2);
+        archive.block("部品");
+        archive.tag("CDataList");
+        archive.base(1, 1);
+        archive.out.extend(2u32.to_le_bytes());
+        archive.out.extend([0; 8]);
+        archive.cstring("別の部品");
+        archive.count(1);
+        archive.line();
+        archive.out.extend(0u32.to_le_bytes());
+        let mut bytes = spec.build();
+        bytes.extend(archive.out);
+        bytes
+    }
+
+    fn check_selection(live: &JwwLive) {
+        let bytes = run(|cx| live.save(cx)).0.unwrap();
+        let fresh = run(|cx| JwwLive::open(&bytes, cx)).0.unwrap();
+        let bounds = |document: &JwwLive| -> BTreeMap<_, _> {
+            document
+                .table
+                .iter_live()
+                .map(|(rid, row)| {
+                    (
+                        document.canonical_id(row.space, row.slot),
+                        document.table.bounds(rid),
+                    )
+                })
+                .collect()
+        };
+        assert_eq!(bounds(live), bounds(&fresh));
+        for x in [5.0, 10.0, 15.0, 105.0, 110.0, 115.0] {
+            let rect = [x - 0.1, 4.9, x + 0.1, 5.1];
+            assert_eq!(
+                run(|cx| live.select_in_space(SpaceId(0), rect, cx)),
+                run(|cx| fresh.select_in_space(SpaceId(0), rect, cx))
+            );
+        }
+        for (rid, row) in fresh.table.iter_live() {
+            if row.space.0 >= DEFINITION_SPACES {
+                continue;
+            }
+            let [x0, y0, x1, y1] = fresh.table.bounds(rid).unwrap();
+            let x = (x0 + x1) / 2.0;
+            let y = (y0 + y1) / 2.0;
+            let rect = [x - 0.1, y - 0.1, x + 0.1, y + 0.1];
+            let expected = run(|cx| fresh.select_sheet(rect, cx));
+            assert!(
+                expected
+                    .0
+                    .as_ref()
+                    .unwrap()
+                    .contains(&fresh.canonical_id(row.space, row.slot))
+            );
+            assert_eq!(run(|cx| live.select_sheet(rect, cx)), expected);
+        }
+    }
+
+    fn block_change(live: &JwwLive, remove: bool) -> Changes {
+        let model = run(|cx| live.drawing(cx)).0.unwrap();
+        let definition = &model.symbols[0];
+        let element = &definition.space.elements[0];
+        let place = id::DefinitionNamer::default().next(definition);
+        let target = Seen {
+            id: id::Namer::new(&place).next(0, element),
+            hash: Hash::element(element),
+        };
+        Changes {
+            document: None,
+            edits: vec![if remove {
+                Edit::Remove { target }
+            } else {
+                Edit::Transform {
+                    target,
+                    transform: Affine::translation(100.0, 0.0),
+                }
+            }],
+        }
+    }
+
+    #[test]
+    fn block_definition_edits_refresh_insertion_selection_and_undo() {
+        for threads in [1, 4] {
+            for remove in [false, true] {
+                let bytes = block_bytes();
+                let mut file = run(|cx| Jww::read(&bytes, cx)).0.unwrap();
+                let mut live = run(|cx| JwwLive::open_with_threads(&bytes, threads, cx))
+                    .0
+                    .unwrap();
+                let before = run(|cx| live.drawing(cx));
+                let changes = block_change(&live, remove);
+                check_selection(&live);
+                let actual = run(|cx| live.apply(&changes, cx));
+                assert_eq!(actual, run(|cx| file.apply(&changes, cx)));
+                actual.0.unwrap();
+                assert_eq!(run(|cx| live.drawing(cx)), run(|cx| file.lift(cx)));
+                assert_eq!(run(|cx| live.save(cx)).0.unwrap(), write(&file));
+                check_selection(&live);
+                assert!(run(|cx| live.undo(cx)).0.unwrap());
+                assert_eq!(run(|cx| live.drawing(cx)), before);
+                assert_eq!(run(|cx| live.save(cx)).0.unwrap(), bytes);
+                check_selection(&live);
+                assert!(run(|cx| live.redo(cx)).0.unwrap());
+                check_selection(&live);
+            }
+        }
+    }
+
+    #[test]
+    fn block_dependency_budget_stop_preserves_state_and_history() {
+        let bytes = block_bytes();
+        let initial = run(|cx| JwwLive::open(&bytes, cx)).0.unwrap();
+        let changes = block_change(&initial, false);
+        let before = run(|cx| initial.drawing(cx));
+        let mut measured = initial.clone();
+        let mut budget = Budget::default();
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        measured
+            .apply(
+                &changes,
+                &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+            )
+            .unwrap();
+        for kind in [Kind::Work, Kind::DecodedBytes] {
+            let total = budget.used(kind);
+            assert!(total > 0);
+            let mut limits: BTreeSet<_> = (0..total.min(128)).collect();
+            limits.extend([total / 2, total - 1, total]);
+            for limit in limits {
+                let mut live = initial.clone();
+                let mut limited = Budget::new(Limits::default().with(kind, Limit::Finite(limit)));
+                let mut diagnostics = Diagnostics::new();
+                let result = live.apply(
+                    &changes,
+                    &mut Cx::new(&mut limited, &mut diagnostics, &cancel),
+                );
+                if limit < total {
+                    assert!(matches!(result, Err(Error::Stopped(_))), "{kind:?} {limit}");
+                    assert_eq!(live.state_id(), initial.state_id());
+                    assert_eq!(live.revision(), initial.revision());
+                    assert_eq!(live.symbol_bounds, initial.symbol_bounds);
+                    assert_eq!(run(|cx| live.drawing(cx)), before);
+                    assert_eq!(run(|cx| live.save(cx)).0.unwrap(), bytes);
+                    check_selection(&live);
+                    assert!(!run(|cx| live.undo(cx)).0.unwrap());
+                    assert!(!run(|cx| live.redo(cx)).0.unwrap());
+                } else {
+                    result.unwrap();
+                    check_selection(&live);
+                    assert_eq!(run(|cx| live.drawing(cx)), run(|cx| measured.drawing(cx)));
+                }
+            }
+        }
+    }
 }
