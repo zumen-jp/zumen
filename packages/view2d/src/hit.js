@@ -3,7 +3,7 @@ import { bounds, finite, valid } from "./validate.js";
 import { unitVisible } from "./interaction.js";
 import { clipParts, primitiveParts, transparentStyle, unitStyle, viewportPart } from "./geometry.js";
 import { addExact, divideExact, dyadic, multiplyExact, scaleBinary } from "./exact.js";
-import { circleIntersects } from "./circle.js";
+import { circleBounds, circleCardinal, circleIntersects, circleSide, intersectCircleLine, intersectCirclePair, offsetCircle } from "./circle.js";
 
 const EMPTY = Object.freeze([]);
 const EPSILON = 16 * Number.EPSILON;
@@ -12,7 +12,6 @@ const between = (n, a, b) => lessEqual(a, n) && lessEqual(n, b);
 const pointInBox = (p, b) => between(p.x, b.min_x, b.max_x) && between(p.y, b.min_y, b.max_y);
 const overlap = (a, b) => a.min_x <= b.max_x && b.min_x <= a.max_x && a.min_y <= b.max_y && b.min_y <= a.max_y;
 const segmentBounds = (a, b) => ({ min_x: Math.min(a.x, b.x), min_y: Math.min(a.y, b.y), max_x: Math.max(a.x, b.x), max_y: Math.max(a.y, b.y) });
-const circleBounds = ({ x, y, radius }) => ({ min_x: x - radius, min_y: y - radius, max_x: x + radius, max_y: y + radius });
 const sign = (value, scale = 1) => Math.abs(value) <= EPSILON * scale ? 0 : Math.sign(value);
 const coordinateSign = (first, second, secondScale) => sign(first) || sign(second, secondScale);
 
@@ -20,9 +19,10 @@ function compareToward(value, boundary, first, second, secondScale) {
   return lessEqual(value, boundary) && lessEqual(boundary, value) ? coordinateSign(first, second, secondScale) : Math.sign(value - boundary);
 }
 
-function circleToward(p, center, radius, direction) {
+function circleToward(p, center, radius, direction, circle = { ...center, radius }) {
   const dx = p.x - center.x, dy = p.y - center.y, distance = Math.hypot(dx, dy);
-  if (!(lessEqual(distance, radius) && lessEqual(radius, distance))) return Math.sign(distance - radius);
+  const side = circleSide(p, circle);
+  if (side !== 0) return side;
   if (distance === 0) return 1;
   const first = dx / distance * direction.x + dy / distance * direction.y;
   if (sign(first)) return sign(first);
@@ -60,21 +60,6 @@ function exactIntersection(first, second) {
   // 固定個数の有限 binary64 の差と 3 積までなので、整数は約 6,400 bit 以下。
   return { x: divideExact(addExact(multiplyExact(a.x, denominator), multiplyExact(rx, t)), denominator),
     y: divideExact(addExact(multiplyExact(a.y, denominator), multiplyExact(ry, t)), denominator) };
-}
-
-function exactNearestPoint(circle, edge) {
-  const a = exactPoint(edge.a), b = exactPoint(edge.b);
-  if (!a || !b || !Number.isFinite(circle.x) || !Number.isFinite(circle.y)) return null;
-  const dx = addExact(b.x, a.x, true), dy = addExact(b.y, a.y, true);
-  const px = addExact(dyadic(circle.x), a.x, true), py = addExact(dyadic(circle.y), a.y, true);
-  const squared = addExact(multiplyExact(dx, dx), multiplyExact(dy, dy));
-  if (squared.integer === 0n) return null;
-  const dot = addExact(multiplyExact(px, dx), multiplyExact(py, dy));
-  if (dot.integer < 0n || addExact(dot, squared, true).integer > 0n) return null;
-  // 円周との二交点だけでなく、辺上の最近点も有効な候補。
-  // 長い辺の端点から t*差を足して相殺せず、有理数のまま最終座標を求める。
-  return { x: divideExact(addExact(multiplyExact(a.x, squared), multiplyExact(dx, dot)), squared),
-    y: divideExact(addExact(multiplyExact(a.y, squared), multiplyExact(dy, dot)), squared) };
 }
 
 function leading(value) {
@@ -175,7 +160,7 @@ function joinContains({ center, incoming, outgoing }, p, radius, direction) {
   const before = dx * incoming.x + dy * incoming.y, after = dx * outgoing.x + dy * outgoing.y;
   // 円全体では、短い線分の butt の端からはみ出す。前の線の先かつ次の線の
   // 手前だけが round join の外側の扇形で、残りは線分の矩形が担う。
-  if (!direction) return lessEqual(0, before) && lessEqual(after, 0) && lessEqual(Math.hypot(dx, dy), radius);
+  if (!direction) return lessEqual(0, before) && lessEqual(after, 0) && circleSide(p, { ...center, radius }) <= 0;
   const secondScale = Math.max(Math.abs(direction.ax), Math.abs(direction.ay));
   return compareToward(before, 0, direction.x * incoming.x + direction.y * incoming.y,
     direction.ax * incoming.x + direction.ay * incoming.y, secondScale) > 0 &&
@@ -200,17 +185,23 @@ function compile(part, charge) {
     }
   }
   const radius = part.width / 2, work = 1 + segments.length + joins.length + part.circles.length;
+  const circles = part.circles.map((circle) => ({ outer: offsetCircle(circle, radius), inner: !part.fill && circle.radius > radius ? offsetCircle(circle, -radius) : null }));
   const box = { min_x: part.bounds.min_x - radius, min_y: part.bounds.min_y - radius, max_x: part.bounds.max_x + radius, max_y: part.bounds.max_y + radius };
+  for (const { outer } of circles) {
+    const bounds = circleBounds(outer);
+    box.min_x = Math.min(box.min_x, bounds.min_x); box.min_y = Math.min(box.min_y, bounds.min_y);
+    box.max_x = Math.max(box.max_x, bounds.max_x); box.max_y = Math.max(box.max_y, bounds.max_y);
+  }
   const contains = (p, direction) => {
     charge(work);
     if (!pointInBox(p, box)) return false;
     if (!part.fill) {
       for (const { a, b } of segments) if (segmentContains(a, b, p, radius, direction)) return true;
       for (const join of joins) if (joinContains(join, p, radius, direction)) return true;
-      for (const circle of part.circles) {
-        if (direction ? circleToward(p, circle, circle.radius + radius, direction) < 0 &&
-          (circle.radius <= radius || circleToward(p, circle, circle.radius - radius, direction) > 0) :
-          lessEqual(Math.abs(Math.hypot(p.x - circle.x, p.y - circle.y) - circle.radius), radius)) return true;
+      for (const { outer, inner } of circles) {
+        if (direction ? circleToward(p, outer, outer.radius, direction, outer) < 0 &&
+          (!inner || circleToward(p, inner, inner.radius, direction, inner) > 0) :
+          circleSide(p, outer) <= 0 && (!inner || circleSide(p, inner) >= 0)) return true;
       }
       return false;
     }
@@ -231,7 +222,7 @@ function compile(part, charge) {
       if (ay <= 0 && by > 0 && cross > 0) winding++;
       else if (by <= 0 && ay > 0 && cross < 0) winding--;
     }
-    for (const circle of part.circles) if (direction ? circleToward(p, circle, circle.radius, direction) < 0 : lessEqual(Math.hypot(p.x - circle.x, p.y - circle.y), circle.radius)) winding++;
+    for (const circle of part.circles) if (direction ? circleToward(p, circle, circle.radius, direction, circle) < 0 : circleSide(p, circle) <= 0) winding++;
     return part.fill === "evenodd" ? winding % 2 !== 0 : winding !== 0;
   };
   function* edges() {
@@ -252,9 +243,9 @@ function compile(part, charge) {
     // 円弧の候補は全円から出し、contains で扇形に絞る。半径方向の二辺は
     // 隣接する線分の端辺に含まれ、query/clip との交点もその列から調べる。
     for (const { center } of joins) { charge(1); yield { ...center, radius }; }
-    for (const circle of part.circles) {
-      charge(2); yield { ...circle, radius: circle.radius + radius };
-      if (circle.radius > radius) yield { ...circle, radius: circle.radius - radius };
+    for (const { outer, inner } of circles) {
+      charge(2); yield outer;
+      if (inner) yield inner;
     }
   }
   return { bounds: box, contains, edges, circleQuery: part.circles.length === 1 && !segments.length && !joins.length ?
@@ -269,7 +260,7 @@ function rectangle(rect) {
 
 function circleQuery(point, radius) {
   const circle = { ...point, radius };
-  return { bounds: circleBounds(circle), center: point, circle, contains: (p) => lessEqual(Math.hypot(p.x - point.x, p.y - point.y), radius), *edges() { yield circle; } };
+  return { bounds: circleBounds(circle), center: point, circle, contains: (p) => circleSide(p, circle) <= 0, *edges() { yield circle; } };
 }
 
 function intersectSegments(first, second, accept) {
@@ -288,33 +279,6 @@ function intersectSegments(first, second, accept) {
   return point !== null && accept(point);
 }
 
-function intersectCircleSegment(circle, edge, accept) {
-  const ax = edge.a.x - circle.x, ay = edge.a.y - circle.y, dx = edge.b.x - edge.a.x, dy = edge.b.y - edge.a.y;
-  const scale = Math.max(Math.abs(ax), Math.abs(ay), Math.abs(dx), Math.abs(dy), circle.radius);
-  if (scale === 0) return accept(edge.a);
-  const x = ax / scale, y = ay / scale, vx = dx / scale, vy = dy / scale, r = circle.radius / scale;
-  const length = vx * vx + vy * vy;
-  if (length === 0) return false;
-  const center = -(x * vx + y * vy) / length;
-  const cross = x * vy - y * vx, gap = r * r - cross * cross / length;
-  if (gap < -EPSILON * r * r) return false;
-  const offset = Math.sqrt(Math.max(0, gap) / length);
-  for (const t of [center - offset, center + offset]) {
-    if (between(t, 0, 1) && accept({ x: edge.a.x + t * dx, y: edge.a.y + t * dy })) return true;
-  }
-  const nearest = exactNearestPoint(circle, edge);
-  return nearest !== null && accept(nearest);
-}
-
-function intersectCircles(first, second, accept) {
-  const dx = second.x - first.x, dy = second.y - first.y, distance = Math.hypot(dx, dy);
-  if (distance === 0 || !lessEqual(distance, first.radius + second.radius) || !lessEqual(Math.abs(first.radius - second.radius), distance)) return false;
-  const scale = Math.max(first.radius, second.radius, distance), r = first.radius / scale, s = second.radius / scale, d = distance / scale;
-  const along = (r * r - s * s + d * d) / (2 * d), height = Math.sqrt(Math.max(0, r * r - along * along)) * scale;
-  const x = first.x + dx / distance * along * scale, y = first.y + dy / distance * along * scale;
-  return accept({ x: x - dy / distance * height, y: y + dx / distance * height }) || accept({ x: x + dy / distance * height, y: y - dx / distance * height });
-}
-
 /** 問い合わせとの接触は残し、形と全 clip に共通する可視領域のない境界だけを除く。 */
 function visibleNear(point, constraints, charge) {
   const angles = [], circles = [];
@@ -324,8 +288,7 @@ function visibleNear(point, constraints, charge) {
       if (crossAt(edge.a, edge.b, point) !== 0 || !pointInBox(point, segmentBounds(edge.a, edge.b))) continue;
       for (const vertex of [edge.a, edge.b]) if (vertex.x !== point.x || vertex.y !== point.y) angles.push(Math.atan2(vertex.y - point.y, vertex.x - point.x));
     } else {
-      const distance = Math.hypot(point.x - edge.x, point.y - edge.y);
-      if (!(lessEqual(distance, edge.radius) && lessEqual(edge.radius, distance)) || edge.radius === 0) continue;
+      if (circleSide(point, edge) !== 0 || edge.radius === 0) continue;
       const tangent = Math.atan2(point.x - edge.x, -(point.y - edge.y));
       angles.push(tangent, tangent > 0 ? tangent - Math.PI : tangent + Math.PI); circles.push(edge);
     }
@@ -388,7 +351,7 @@ function intersects(shape, clips, query, charge) {
       if (accept(edge.a) || accept(edge.b)) return true;
     } else {
       for (const [dx, dy] of [[1, 0], [0, 1], [-1, 0], [0, -1]]) {
-        if (accept({ x: edge.x + dx * edge.radius, y: edge.y + dy * edge.radius })) return true;
+        if (accept(circleCardinal(edge, dx, dy))) return true;
       }
     }
     edges.push({ edge, bounds: edgeBox });
@@ -398,7 +361,7 @@ function intersects(shape, clips, query, charge) {
     const first = edges[i], second = edges[j];
     if (!overlap(first.bounds, second.bounds)) continue;
     const a = first.edge, b = second.edge;
-    if (a.a && b.a ? intersectSegments(a, b, accept) : a.a ? intersectCircleSegment(b, a, accept) : b.a ? intersectCircleSegment(a, b, accept) : intersectCircles(a, b, accept)) return true;
+    if (a.a && b.a ? intersectSegments(a, b, accept) : a.a ? intersectCircleLine(b, a, accept) : b.a ? intersectCircleLine(a, b, accept) : intersectCirclePair(a, b, accept)) return true;
   }
   return false;
 }

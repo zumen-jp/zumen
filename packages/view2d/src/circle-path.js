@@ -1,4 +1,4 @@
-import { addExact, divideExact, dyadic, multiplyExact } from "./exact.js";
+import { addExact, divideExact, dyadic, multiplyExact, sqrtExact } from "./exact.js";
 import { valid } from "./validate.js";
 
 const ONE = dyadic(1), TWO = dyadic(2), FOUR = dyadic(4);
@@ -7,26 +7,10 @@ const square = (a) => multiplyExact(a, a);
 const number = (a) => divideExact(a, ONE);
 const same = (a, b) => a.x === b.x && a.y === b.y;
 
-/** 平方根を下側から 2^-2304 未満の絶対誤差で求める。固定幅の整数で反復を制限する。 */
-function root(value) {
-  if (value.integer <= 0n) return dyadic(0);
-  const shift = value.exponent + 4608;
-  const n = shift >= 0 ? value.integer << BigInt(shift) : value.integer >> BigInt(-shift);
-  if (n === 0n) return dyadic(0);
-  let x = 1n << BigInt(Math.ceil(n.toString(2).length / 2));
-  // 有限な入力の積と差だけなので、ここでの整数は 9,000 bit 未満、Newton 法は 16 回以内。
-  for (let i = 0; i < 16; i++) {
-    const next = (x + n / x) >> 1n;
-    if (next >= x) return { integer: x, exponent: -2304 };
-    x = next;
-  }
-  return { integer: x, exponent: -2304 };
-}
-
 /** c±sqrt(q) の小さい側は (c²-q)/(c∓sqrt(q)) にして、相殺で境界を動かさない。 */
 function roots(center, squared) {
   if (squared.integer < 0n) return null;
-  const s = root(squared), sum = addExact(center, s), difference = sub(center, s), product = sub(square(center), squared);
+  const s = sqrtExact(squared), sum = addExact(center, s), difference = sub(center, s), product = sub(square(center), squared);
   if (center.integer >= 0n) return [sum.integer === 0n ? 0 : divideExact(product, sum), number(sum)];
   return [number(difference), divideExact(product, difference)];
 }

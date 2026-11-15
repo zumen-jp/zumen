@@ -1,7 +1,7 @@
 import { SCENE_NONE, SCENE_VALUES as V } from "@zumen-jp/zumen";
 import { View2D } from "../src/index.js";
 import { bundle } from "./fixtures.mjs";
-import { circleIntersects } from "../src/circle.js";
+import { circleIntersects, intersectCircleLine, intersectCirclePair } from "../src/circle.js";
 import { circleArcs } from "../src/circle-path.js";
 
 const ID = "space/0/h828circle", H = Math.fround(2e15), SIZE = 200;
@@ -213,4 +213,72 @@ export function testCircleDrawing(assert) {
     assert(stopped && viewer.getScene() === oldScene && canvas.toDataURL() === oldPixels, "円弧の分割が予算を超えた setScene は状態と画面を保つ"); totals.contracts++;
   } finally { viewer.destroy(); }
   return totals;
+}
+
+/** 全画面を残す clip の有無で、円環の数学的な集合や元 ID を変えない。 */
+export function testCircleClips(assert) {
+  let points = 0, rectangles = 0, contracts = 0;
+  for (const radius of [20, H]) for (let direction = 0; direction < 4; direction++) for (const pixelRatio of [1, 1.5, 8])
+    for (const rotation of [0, Math.PI / 6, Math.PI / 2]) for (const scale of [0.5, 1, 2]) {
+    const viewer = new View2D(document.createElement("canvas"), { width: SIZE, height: SIZE, pixelRatio, pixelsPerMillimeter: 1,
+      view: { center: { x: 0, y: 0 }, rotation, scale } });
+    try {
+      const input = bundle(source(radius, direction, 0, 128, { unit_clips: [0], clip_polygons: [0], polygon_vertices: [0], polygon_flags: [0],
+        clip_xy: [-1000, -1000, 1000, -1000, 1000, 1000, -1000, 1000] }));
+      viewer.setScene(input);
+      const element = viewer.getElements()[0], [ox, oy] = input.scene.columns.chunk_origins;
+      const c = { x: 100 + scale * (Math.cos(rotation) * ox - Math.sin(rotation) * oy), y: 100 - scale * (Math.sin(rotation) * ox + Math.cos(rotation) * oy) };
+      const r = input.scene.columns.point_style[3] * scale / 2, half = 0.5 / pixelRatio, distance = Math.hypot(c.x - 100, c.y - 100);
+      const nx = (c.x - 100) / distance, ny = (c.y - 100) / distance;
+      for (const along of [-20, -1, 0, 1, 20]) for (const across of [-half - 0.25, -half, -half + 0.25, 0, half - 0.25, half, half + 0.25]) {
+        const p = { x: 100 + nx * across - ny * along, y: 100 + ny * across + nx * along };
+        for (const tolerance of [0, 0.25, 2]) {
+          const expected = expectedPoint(p, tolerance, c, r, half), hit = viewer.hitTest(p, tolerance);
+          assert(expected ? hit.length === 1 && hit[0] === element : hit.length === 0, `clip を通る円の点: R=${r}/d=${direction}/ratio=${pixelRatio}/p=${JSON.stringify(p)}/t=${tolerance}/expected=${expected}/actual=${hit.length}`);
+          points++;
+        }
+        const rect = { min_x: p.x, min_y: p.y, max_x: p.x + 0.25, max_y: p.y + 0.5 }, expected = expectedRect(rect, c, r, half), hit = viewer.hitTestRect(rect);
+        assert(expected ? hit.length === 1 && hit[0] === element : hit.length === 0, "clip を通る円の矩形を独立した整数距離で照合する"); rectangles++;
+      }
+    } finally { viewer.destroy(); }
+  }
+  const viewer = new View2D(document.createElement("canvas"), { width: SIZE, height: SIZE, pixelsPerMillimeter: 1 });
+  const hit = (x, y, tolerance, expected, label) => {
+    assert(viewer.hitTest({ x, y }, tolerance).length === Number(expected), label); contracts++;
+  };
+  const clip = (xy, outside = 0) => ({ unit_clips: [0], clip_polygons: [0], polygon_vertices: [0], polygon_flags: [outside], clip_xy: xy });
+  try {
+    for (const outside of [0, 1]) {
+      viewer.setScene(bundle(source(H, 0, 2, 128, clip([-10, -100, 10, -100, 10, 0, -10, 0], outside))));
+      hit(100, 120, 0, !outside, "部分 clip の内外を保つ"); hit(100, 80, 0, !!outside, "部分 clip の反対側");
+      hit(100, outside ? 120 : 80, 20, true, "切り抜き外からの許容円が境界へ届く");
+      hit(100, outside ? 120 : 80, 19.9, false, "切り抜き外からの許容円が届かない");
+    }
+    viewer.setScene(bundle(source(H, 0, 2, 128, clip([-10, -100, 10, -100, 10, 0, -10, 0]))));
+    hit(98, 99, 1.42, true, "円環と clip の角へ届く許容円"); hit(98, 99, 1.4, false, "円環と clip の角の直前");
+    viewer.setScene(bundle(source(H, 0, 2, 128, clip([-1000, -1000, -1, -1000, -1, 1000, -1000, 1000]))));
+    hit(99, 100, 0, false, "外側の円に接するだけの clip は可視面積がない");
+    viewer.setScene(bundle(source(H, 0, 2, 128, clip([1, -1000, 1000, -1000, 1000, 1000, 1, 1000]))));
+    hit(101, 100, 0, true, "円の穴に接する clip の二次の可視領域を残す");
+    for (const shift of [0, 0.25]) {
+      viewer.setScene(bundle(source(H, 0, 2, 128, { chunk_origins: [-H - 101 + shift, 0] })));
+      hit(0, 100, 0, shift > 0, "viewport 外からの接触と微小な可視領域を区別する");
+      assert(viewer.hitTestRect({ min_x: 0, min_y: 99, max_x: 1, max_y: 101 }).length === Number(shift > 0), "viewport 境界の矩形選択"); contracts++;
+    }
+    for (const frame of [V.point_frame.circle, V.point_frame.circle | V.point_frame.square]) {
+      viewer.setScene(bundle(source(H, 0, 0, 128, { point_style: [V.point_mark.plus, frame, V.point_size.length, H * 2] })));
+      hit(99, 80, 0, false, "同じ part の円・マーク・四角の外側"); hit(100, 80, 0, true, "同じ part の円の輪郭");
+      hit(110, 100, 0, true, "同じ part の十字"); hit(90, 100, 0, false, "同じ part の空白");
+      hit(99.5, 80, 0, !!(frame & V.point_frame.square), "円環の外側でも四角の辺だけには触れる点");
+    }
+  } finally { viewer.destroy(); }
+  for (const radius of [H, 1e162, 2 ** 1023]) {
+    const circle = { x: radius, y: 0, radius }, line = [], pair = [], expectedX = 0.5 / radius;
+    intersectCircleLine(circle, { a: { x: -1, y: 1 }, b: { x: 1, y: 1 } }, (p) => { line.push(p); return false; });
+    intersectCirclePair(circle, { x: 0, y: 0, radius: 1 }, (p) => { pair.push(p); return false; });
+    assert(line.length === 1 && line[0].x === expectedX && line[0].y === 1, "円と線分の相殺・二乗の桁あふれを避ける"); contracts++;
+    assert(pair.length === 2 && pair.every((p) => p.x === expectedX && Math.abs(p.y) === 1) && pair[0].y !== pair[1].y,
+      "二円の共通弦の基点と判別式を途中で丸めない"); contracts++;
+  }
+  return { points, rectangles, contracts };
 }

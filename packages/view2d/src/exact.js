@@ -17,6 +17,22 @@ export function addExact(a, b, subtract = false) {
 
 export const multiplyExact = (a, b) => ({ integer: a.integer * b.integer, exponent: a.exponent + b.exponent });
 
+/** 有限 binary64 の 4 積までの非負値の平方根。絶対誤差は下側へ 2^-2304 未満。 */
+export function sqrtExact(value) {
+  if (value.integer <= 0n) return dyadic(0);
+  const shift = value.exponent + 4608;
+  const n = shift >= 0 ? value.integer << BigInt(shift) : value.integer >> BigInt(-shift);
+  if (n === 0n) return dyadic(0);
+  let x = 1n << BigInt(Math.ceil(n.toString(2).length / 2));
+  // ここでの整数は 9,000 bit 未満。Newton 法の反復も固定回数で制限する。
+  for (let i = 0; i < 16; i++) {
+    const next = (x + n / x) >> 1n;
+    if (next >= x) return { integer: x, exponent: -2304 };
+    x = next;
+  }
+  throw new RangeError("不正な値: geometry.sqrt");
+}
+
 /** 有理数を最後に一度だけ binary64 へ丸める（最も近い値、同距離なら偶数）。 */
 export function divideExact(a, b) {
   if (b.integer === 0n) return NaN;
