@@ -163,8 +163,10 @@ def attempt(fn: Callable[[], Any]) -> Tuple[str, Any]:
 def check_scene3d(at: str, blob: bytes, result: dict, failures: List[str]) -> None:
     try:
         scene = read_scene3d(blob)
+        # deviation などはシーンの応答を scene3d の下に入れる
+        counts = result.get("scene3d", result)["counts"]
         for name, column in [('chunks', 'chunk_origins'), ('meshes', 'mesh_vertices'), ('instances', 'instance_meshes'), ('elements', 'element_ids'), ('colors', 'color_rgba'), ('vertices', 'vertex_xyz'), ('triangles', 'triangle_vertices'), ('edges', 'edge_vertices')]:
-            assert scene.rows(column) == result["counts"][name], name
+            assert scene.rows(column) == counts[name], name
         for row in range(scene.rows("instance_meshes")):
             assert scene.element_id(scene.instance_element(row))
             scene.instance_mesh(row)

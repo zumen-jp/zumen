@@ -256,9 +256,11 @@ namespace Zumen.Conformance
             try
             {
                 var scene = Scene3D.Read(blob);
+                // deviation などはシーンの応答を scene3d の下に入れる
+                var counts = result.TryGet("scene3d", out var inner) && inner is JsonObject nested ? nested["counts"] : result["counts"];
                 var pairs = new (string Name, string Column)[] { ("chunks", "chunk_origins"), ("meshes", "mesh_vertices"), ("instances", "instance_meshes"), ("elements", "element_ids"), ("colors", "color_rgba"), ("vertices", "vertex_xyz"), ("triangles", "triangle_vertices"), ("edges", "edge_vertices") };
                 foreach (var (name, column) in pairs)
-                    if (scene.Rows(column) != Count(result["counts"], name)) throw new FormatException(name + " count mismatch");
+                    if (scene.Rows(column) != Count(counts, name)) throw new FormatException(name + " count mismatch");
                 for (var row = 0; row < scene.Rows("instance_meshes"); row++)
                 {
                     if (scene.ElementId(checked((int)scene.InstanceElement(row))).Length == 0) throw new FormatException("Empty element ID");

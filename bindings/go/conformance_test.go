@@ -229,6 +229,10 @@ func (c *conformance) checkScene3D(at string, blob []byte, result map[string]any
 		c.fail("%s: 3D のシーンを読めない: %v", at, err)
 		return
 	}
+	// deviation などはシーンの応答を scene3d の下に入れる
+	if inner, ok := result["scene3d"].(map[string]any); ok {
+		result = inner
+	}
 	counts, _ := result["counts"].(map[string]any)
 	pairs := [][2]string{{"chunks", "chunk_origins"}, {"meshes", "mesh_vertices"}, {"instances", "instance_meshes"}, {"elements", "element_ids"}, {"colors", "color_rgba"}, {"vertices", "vertex_xyz"}, {"triangles", "triangle_vertices"}, {"edges", "edge_vertices"}}
 	for _, pair := range pairs {

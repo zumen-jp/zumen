@@ -22,8 +22,10 @@ async function attempt(fn) {
 function checkScene3D(at, blob, result, failures) {
   try {
     const scene = readScene3D(blob);
+    // deviation などはシーンの応答を scene3d の下に入れる
+    const counts = (result.scene3d ?? result).counts;
     for (const [name, column] of [["chunks", "chunk_origins"], ["meshes", "mesh_vertices"], ["instances", "instance_meshes"], ["elements", "element_ids"], ["colors", "color_rgba"], ["vertices", "vertex_xyz"], ["triangles", "triangle_vertices"], ["edges", "edge_vertices"]]) {
-      if (scene.rows(column) !== result.counts[name]) throw new Error(name + " count mismatch");
+      if (scene.rows(column) !== counts[name]) throw new Error(name + " count mismatch");
     }
     for (let row = 0; row < scene.rows("instance_meshes"); row += 1) {
       const instance = scene.instance(row);
