@@ -1,5 +1,6 @@
 import type { Scene3dResult } from "@zumen-jp/zumen";
 import { attachGround2D, type View2DLike } from "../src/ground2d.js";
+import { attachPointCloud, type PointCloudOutcome } from "../src/pointcloud.js";
 import { THREE_REVISION, View3D, View3DError, type Hit3D, type ReviewApplyResult, type ReviewExport, type Scene3DReport, type Snapshot3D, type View3DState, type View3DView } from "../src/index.js";
 
 declare const blob: Uint8Array;
@@ -45,6 +46,17 @@ const groundHit = ground.hitTest("main", { x: 1, y: 2 });
 const groundElements: number = groundHit.status === "hit" ? groundHit.elements.length : 0;
 const groundScale: number | null = ground.getReport().scale;
 ground.remove();
+const element = viewer.getElement(document3d, "wall");
+const storey: string | null = element === null ? null : element.storey;
+const mapName: string | undefined = viewer.getState().scene?.map?.crs_name;
+const cloud = attachPointCloud(viewer, { id: "cloud", input: { blob, result, document: document3d }, color: "intensity",
+  load: async ({ signal }) => (signal.aborted ? null : { blob, result, document: document3d }) });
+const outcome: Promise<PointCloudOutcome> = cloud.request({ box: [0, 0, 0, 1, 1, 1] });
+const pointHit = cloud.hitTest("main", { x: 1, y: 2 }).hits[0];
+const pointRow: number | undefined = pointHit?.row;
+const cloudDrawn: number = cloud.getReport().drawn.points;
+cloud.cancel();
+cloud.remove();
 const hits: readonly Hit3D[] = viewer.hitTest("main", { x: 1, y: 2 }, { limit: 10 }).hits;
 const ray = viewer.getRay("main", { x: 1, y: 2 });
 const state: View3DState = viewer.getState();
@@ -56,4 +68,4 @@ off(); offRender();
 viewer.destroy();
 const revision: "187" = THREE_REVISION;
 try { viewer.render(); } catch (error) { if (error instanceof View3DError) error.reason satisfies string; }
-void [report, none, hits, ray, state, drawn, revision, applied, shot, clipCount, parts, handled, state.objects.length, groundElements, groundScale];
+void [report, none, hits, ray, state, drawn, revision, applied, shot, clipCount, parts, handled, state.objects.length, groundElements, groundScale, storey, mapName, outcome, pointRow, cloudDrawn];

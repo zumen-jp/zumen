@@ -1,4 +1,4 @@
-import type { Bytes, Scene3dCounts, Scene3dResult } from "@zumen-jp/zumen";
+import type { Bytes, Scene3dCounts, Scene3dMap, Scene3dResult } from "@zumen-jp/zumen";
 
 /** 検査を通した three.js の r 版。 */
 export declare const THREE_REVISION: "187";
@@ -23,6 +23,8 @@ export type Camera3D =
 /** Canvas 左上からの CSS px の枠。枠どうしは重ねない。 */
 export interface Rect { readonly x: number; readonly y: number; readonly width: number; readonly height: number }
 /** 面の点と法線。法線の向きの半空間を取り除く（n · (q - point) > 0）。描画と当たり判定で同じ条件。 */
+/** 要素の属性。storey は所属階の要素 ID。 */
+export interface Element3D { readonly id: string; readonly class: string; readonly name: string; readonly storey: string | null; readonly row: number }
 export interface ClipPlane { readonly point: Vector3; readonly normal: Vector3 }
 /** 画面で切る箱。外側を取り除く 6 面と同じで、要素を絞る箱ではない。 */
 export interface ClipBox { readonly min: Vector3; readonly max: Vector3 }
@@ -111,7 +113,13 @@ export interface Scene3DReport {
 }
 export interface View3DState {
   readonly document: DocumentIdentity | null;
-  readonly scene: { readonly unit: Scene3dResult["unit"]; readonly tolerance: number; readonly counts: Readonly<Required<Scene3dCounts>> } | null;
+  readonly scene: {
+    readonly unit: Scene3dResult["unit"]; readonly tolerance: number; readonly counts: Readonly<Required<Scene3dCounts>>;
+    /** 文書の座標から地図の座標への変換。持たない文書は null。 */
+    readonly map: Readonly<Scene3dMap> | null;
+    /** 高さの基準の EPSG。分からなければ null。 */
+    readonly heightCrs: number | null;
+  } | null;
   readonly views: readonly View3DViewState[];
   /** 登録した追加描画。three.js のオブジェクトは含めない。 */
   readonly objects: readonly ExtraState[];
@@ -293,6 +301,8 @@ export declare class View3D {
   /** WebGL2 を使えないときは reason が webgl2-unavailable の例外。 */
   constructor(canvas: HTMLCanvasElement | OffscreenCanvas, options?: View3DOptions);
   getState(): View3DState;
+  /** 表示中の文書の要素。クラスは地物では型。未知の ID は null。シーンがなければ no-scene、別文書は other-document。 */
+  getElement(document: DocumentIdentity, id: string): Element3D | null;
   subscribe(listener: (state: View3DState) => void): () => void;
   on<T extends View3DEvent["type"]>(type: T, listener: (event: Extract<View3DEvent, { type: T }>) => void): () => void;
   setSize(width: number, height: number, pixelRatio?: number): void;

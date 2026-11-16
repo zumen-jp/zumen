@@ -307,7 +307,10 @@ export class View3D {
     const scene = this.#scene;
     this.#state = Object.freeze({
       document: scene?.document ?? null,
-      scene: scene === null ? null : Object.freeze({ unit: scene.result.unit, tolerance: scene.result.tolerance, counts: scene.counts }),
+      scene: scene === null ? null : Object.freeze({
+        unit: scene.result.unit, tolerance: scene.result.tolerance, counts: scene.counts,
+        map: scene.result.map ?? null, heightCrs: scene.result.height_crs ?? null,
+      }),
       views: this.#views,
       objects: this.#extras.state(),
       size: this.#size,
@@ -804,6 +807,20 @@ export class View3D {
     const target = this.#targets(options);
     const views = this.#views.map((view) => (target === null || view.id === target ? { ...view, ...change } : view));
     this.#commitViews(this.#resolveViews(readViews(views, this.#limits)));
+  }
+
+  /** 表示中の文書の要素の ID・クラス（地物では型）・名前・所属階の ID。未知の ID は null。 */
+  getElement(document, id) {
+    this.#alive();
+    const scene = this.#scene;
+    if (scene === null) fail("no-scene", "シーンがない");
+    if (!sameDocument(readDocument(document), scene.document)) fail("other-document", "表示中と別の文書の参照");
+    if (typeof id !== "string") invalid("要素 ID は文字列");
+    const row = scene.data.elementById(id);
+    if (row === undefined) return null;
+    const element = scene.data.element(row);
+    const storey = element.storey === null ? null : scene.data.element(element.storey).id;
+    return Object.freeze({ id: element.id, class: element.class, name: element.name, storey, row });
   }
 
   /** 表示中の文書の要素 ID で選ぶ。別文書・未知の ID は読み替えずに断り、状態を変えない。 */

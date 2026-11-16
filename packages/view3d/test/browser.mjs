@@ -4,10 +4,11 @@ import { View3D, View3DError } from "../src/index.js";
 import { document, encode, ORIGIN, result, synthetic, topView } from "./fixture.mjs";
 import { testExtras } from "./extras.mjs";
 import { testGround2D } from "./ground2d.mjs";
+import { testPointCloud } from "./pointcloud.mjs";
 
 const RED = [255, 0, 0], SELECTED = [255, 136, 0], GREEN = [0, 255, 0], WHITE = [255, 255, 255], HALF = [128, 128, 255], BLUE = [0, 0, 255];
 
-export async function testView3D(wasmPath, ifc) {
+export async function testView3D(wasmPath, ifc, layers) {
   let assertions = 0;
   const assert = (ok, message) => { assertions++; if (!ok) throw new Error(message); };
   const near = (a, b, message, tolerance = 1e-9) => assert(Math.abs(a - b) <= tolerance, `${message}: ${a} / ${b}`);
@@ -404,6 +405,8 @@ export async function testView3D(wasmPath, ifc) {
   assertions += added.assertions;
   const ground = await testGround2D();
   assertions += ground.assertions;
+  const cloud = await testPointCloud(wasmPath, layers);
+  assertions += cloud.assertions;
   const memory = globalThis.performance?.memory?.usedJSHeapSize ?? null;
-  return { assertions, contextLoss, timings, bytes: { blob: blob.length, gpu: report.gpuBytes }, memory, core, extras: added.extras };
+  return { assertions, contextLoss, timings, bytes: { blob: blob.length, gpu: report.gpuBytes }, memory, core, extras: added.extras, pointcloud: cloud.timings };
 }

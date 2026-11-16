@@ -1,12 +1,13 @@
-// 検査用の最小の ZMS3 1.0 を列から組む。値は既知の期待値と照らすために自作する。
+// 検査用の最小の ZMS3 1.0・1.1 を列から組む。値は既知の期待値と照らすために自作する。
 import { SCENE3D_SECTIONS } from "@zumen-jp/zumen";
 
 const sizes = { u8: 1, u16: 2, u32: 4, f32: 4, f64: 8 };
 const setters = { u8: "setUint8", u16: "setUint16", u32: "setUint32", f32: "setFloat32", f64: "setFloat64" };
 
-/** 列の値の配列から blob と各列の開始位置を作る。 */
+/** 列の値の配列から blob と各列の開始位置を作る。点の列（chunk_points）を持てば 1.1 の 26 セクションにする。 */
 export function encode(columns) {
-  const definitions = SCENE3D_SECTIONS.slice(0, 20);
+  const points = columns.chunk_points !== undefined;
+  const definitions = points ? SCENE3D_SECTIONS : SCENE3D_SECTIONS.slice(0, 20);
   let end = 16 + definitions.length * 8;
   const starts = {};
   for (const s of definitions) {
@@ -16,13 +17,14 @@ export function encode(columns) {
   }
   const bytes = new Uint8Array(end), view = new DataView(bytes.buffer);
   bytes.set([0x5a, 0x4d, 0x53, 0x33]);
-  view.setUint16(4, 1, true); view.setUint16(6, 0, true);
+  view.setUint16(4, 1, true); view.setUint16(6, points ? 1 : 0, true);
   view.setUint32(8, columns.chunk_origins.length / 3, true); view.setUint32(12, definitions.length, true);
   for (const [i, s] of definitions.entries()) {
     const values = columns[s.name];
     view.setUint32(16 + i * 8, starts[s.name], true);
     view.setUint32(20 + i * 8, values.length * sizes[s.type], true);
-    values.forEach((value, at) => view[setters[s.type]](starts[s.name] + at * sizes[s.type], value, true));
+    if (ArrayBuffer.isView(values)) bytes.set(new Uint8Array(values.buffer, values.byteOffset, values.byteLength), starts[s.name]);
+    else values.forEach((value, at) => view[setters[s.type]](starts[s.name] + at * sizes[s.type], value, true));
   }
   return { bytes, view, starts };
 }

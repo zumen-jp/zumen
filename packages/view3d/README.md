@@ -89,7 +89,25 @@ const ground = attachGround2D(viewer, {
 - `link` に `{ document, to3d, to2d, view? }` を渡すと、2D と 3D の選択を連動します。同じ建物から切り出した図面の要素の対応は利用側が渡し、同じ名前の ID を自動では結びません。2D にない参照は数えて捨てます。
 - 解除・3D のシーンの差し替え（`scope: "scene"`）・単位の違うシーン・破棄で外し、購読を外して texture・geometry・material を解放します。View2D と Canvas は利用側が持ち続けます。
 
-地物と点群（#817）は後続の issue で足します。
+## 地物と点群
+
+地物は #472 の共通の ZMS3 をそのまま `setScene` に渡します。`getElement(document, id)` は要素の ID・クラス（地物では型）・名前・所属階の ID を返し、選択・色・非表示は建物と同じく元の地物 ID で行います。`getState().scene` の `map` と `heightCrs` は応答の地図の変換と高さの基準です。応答の恒等変換を再投影の要求とは扱いません。
+
+`@zumen-jp/view3d/pointcloud` の `attachPointCloud(viewer, options)` は、#475 の点の区画を持つ ZMS3 1.1 を、表示中の建物・地物と同じビューに重ねます。表示部品の入口はこのアダプターを読み込みません。
+
+```js
+import { attachPointCloud } from "@zumen-jp/view3d/pointcloud";
+
+const cloud = attachPointCloud(viewer, { id: "scan", input: { blob, result, document }, scope: "viewer" });
+const hit = cloud.hitTest("main", { x, y });
+```
+
+- 点群の地図の座標（メートル）を、表示中のシーンの地図の変換の逆（尺度・X 軸の回転・東・北・高さ）で文書の座標に写します。塊の行列を f64 で組み、大きな座標でも塊の原点からの差で描きます。
+- 単位が m でない（`unit-unknown`・`unit-not-metre`）、座標系の名前がない・違う（`crs-unknown`・`crs-mismatch`、EPSG の 3 つの書き方はそろえて比べます）、表示中のシーンが地図の変換を持たない（`map-unknown`）、点群の地図の変換が恒等でない（`map-unsupported`）、高さの基準が両方にあって違う（`height-mismatch`）ときは重ねず、`getReport()` と当たり判定で理由を返します。高さの基準が片方にしかなければ重ね、`height: "unverified"` と返します。推測で別の基準に合わせません。
+- 八分木の節（塊）ごとに 1 つの `THREE.Points` を作り、位置と色の列は blob から借用します。強度（点群の最大で正規化）と分類の表示色だけ 8 ビットの色を作り、その大きさを `displayBytes` に返します。描く塊は表示範囲の中から粗い段、近い順、塊の順に `maxPoints`（既定 2,000,000）まで選び、ビューと大きさの変化で選び直します。
+- `hitTest(viewId, point)` は描いている点のうち、光線から許容差（CSS px）の内の点を距離・塊・行の順に返します。切断面と切断の箱の外の点と、手前の要素（`occluder`）より奥の点は返しません。当たりは塊と塊の中の行・節・元の属性で、点ごとの永続 ID ではありません。調べる点の数は `maxWork`（既定 10,000,000）で切り、`truncated` を返します。
+- `load` を渡すと `request(query)` で読み直します。新しい要求・`cancel()`・解除で前の要求の `signal` を abort し、始まる前なら `load` を呼びません。結果は `applied`・`stale`（中断後に届いた）・`cancelled`・`failed` で、失敗しても前の表示を保ちます。
+- 解除・シーンの差し替え（`scope: "scene"`）・単位の違うシーン・破棄で外し、geometry と material を解放します。blob は利用側が持ち続けます。
 
 ## 検査
 
@@ -97,7 +115,7 @@ const ground = attachGround2D(viewer, {
 node bindings/js/test/browser/view3d.mjs chromium target/wasm32-unknown-unknown/release/zumen_abi1.wasm
 ```
 
-合成の ZMS3 で画素・ID・位置・当たり・ビューごとの状態・切断面・pixel ratio・レビューの場所の往復・追加描画の位置と当たりの順と後始末・入力の操作と中断・地面の 2D の座標と ID と画素と寿命・不正な入力・上限・context loss・破棄を確かめ、コアが作った IFC のシーンで列の数・要素 ID・描画と当たりの一致を確かめ、m の IFC で BCF 2.1・3.0 の透視・平行投影の視点が `bcf_write`・`bcf_read` を通って同じ場所に戻ることを確かめます。外部の BCF の実装で view3d の出力を読むことは確かめていません。CPU の時間、`readPixels` までの時間、確定したバイト数、取れる環境での JS ヒープを別々に記録します。GPU に依存する画素はコアのビット一致の保証に含めません。
+合成の ZMS3 で画素・ID・位置・当たり・ビューごとの状態・切断面・pixel ratio・レビューの場所の往復・追加描画の位置と当たりの順と後始末・入力の操作と中断・地面の 2D の座標と ID と画素と寿命・地物の属性と点群の位置と色と当たりと予算と読み直しと寿命・不正な入力・上限・context loss・破棄を確かめ、コアが作った IFC のシーンで列の数・要素 ID・描画と当たりの一致を確かめ、m の IFC で BCF 2.1・3.0 の透視・平行投影の視点が `bcf_write`・`bcf_read` を通って同じ場所に戻ることを確かめます。外部の BCF の実装で view3d の出力を読むことは確かめていません。CPU の時間、`readPixels` までの時間、確定したバイト数、取れる環境での JS ヒープを別々に記録します。点群は、コアが自作の LAS から作ったシーンと、テストで組んだ 100 万点・64 塊の合成の点群で、読み込み・描画・当たり判定の CPU の時間を記録します。大きな実データの点群と GPU のメモリの上限は確かめていません。GPU に依存する画素はコアのビット一致の保証に含めません。
 
 2026-11-17 に Playwright 1.64.1 の Chromium 156・Firefox 157・WebKit 27.2 で検査を通しました。CI は Chromium で流します。[対応するブラウザー](../../docs/support.md)の下限の製品そのものでは確かめていません。表示部品の本体は `Object.hasOwn`・`Array.at` に依存しないことだけを、これらを外して確かめます。
 
