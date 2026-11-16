@@ -332,7 +332,7 @@ fn ambiguous_or_replaced_superelevations_are_not_invented() {
         )))
         .unwrap();
         assert_eq!(model.alignments[0].cant.len(), 1);
-        assert!(has_element_diagnostic(
+        assert!(!has_element_diagnostic(
             &diag,
             codes::LANDXML_ELEMENT_UNSUPPORTED,
             "Feature"

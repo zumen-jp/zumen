@@ -16,7 +16,9 @@ struct Case {
     expected: Vec<(&'static str, f64, f64, f64)>,
     unsupported: bool,
     invalid: bool,
+    intervals: Option<Vec<ExpectedInterval>>,
 }
+type ExpectedInterval = (f64, f64, [f64; 2], [f64; 2], bool);
 
 fn case(
     name: &'static str,
@@ -35,11 +37,12 @@ fn case(
         expected,
         unsupported,
         invalid,
+        intervals: None,
     }
 }
 
 fn cases() -> Vec<Case> {
-    vec![
+    let mut cases = vec![
         case(
             "priority-fallback-text",
             &format!("{PRIORITY}{FALLBACK}{TEXT}"),
@@ -111,7 +114,48 @@ fn cases() -> Vec<Case> {
             false,
             true,
         ),
-    ]
+    ];
+    let mut varying = |name, body, intervals| {
+        let mut c = case(name, body, vec![], false, false);
+        c.intervals = Some(intervals);
+        cases.push(c);
+    };
+    varying(
+        "slope-list",
+        r#"<Feature name="SlopeList"><Property label="slopeValue" value="1050 -2 2"/><Property label="slopeValue" value="1070 3 4"/></Feature>"#,
+        vec![(50.0, 20.0, [-2.0, 2.0], [3.0, 4.0], true)],
+    );
+    varying(
+        "normal-crown",
+        r#"<Feature name="SuperelevationConfig"><Property label="normalCrown" value="2"/></Feature>"#,
+        vec![(0.0, 300.0, [-2.0, 2.0], [-2.0, 2.0], false)],
+    );
+    varying(
+        "basic-transition",
+        r#"<Feature name="SuperelevationConfig"><Property label="normalCrown" value="2"/></Feature><Superelevation><BeginRunoutSta>1010</BeginRunoutSta><BeginRunoffSta>1020</BeginRunoffSta><FullSuperSta>1050</FullSuperSta><FullSuperelev>6</FullSuperelev><RunoffSta>1100</RunoffSta><StartofRunoutSta>1130</StartofRunoutSta><EndofRunoutSta>1140</EndofRunoutSta></Superelevation>"#,
+        vec![
+            (10.0, 10.0, [-2.0, 2.0], [0.0, 2.0], true),
+            (20.0, 10.0, [0.0, 2.0], [2.0; 2], true),
+            (30.0, 20.0, [2.0; 2], [6.0; 2], true),
+            (50.0, 50.0, [6.0; 2], [6.0; 2], false),
+            (100.0, 20.0, [6.0; 2], [2.0; 2], true),
+            (120.0, 10.0, [2.0; 2], [0.0, 2.0], true),
+            (130.0, 10.0, [0.0, 2.0], [-2.0, 2.0], true),
+        ],
+    );
+    varying(
+        "connected-curves",
+        r#"<Feature name="SuperelevationConfig"><Property label="normalCrown" value="2"/></Feature><Superelevation staStart="1010" staEnd="1020"><FullSuperelev>6</FullSuperelev><Feature name="ReverseCrown"><Property label="sta" value="1030"/></Feature><Feature name="FlatSta"><Property label="sta" value="1040"/></Feature></Superelevation><Superelevation staStart="1060" staEnd="1080"><FullSuperelev>-4</FullSuperelev><Feature name="ReverseCrown"><Property label="sta" value="1050"/></Feature></Superelevation>"#,
+        vec![
+            (10.0, 10.0, [6.0; 2], [6.0; 2], false),
+            (20.0, 10.0, [6.0; 2], [2.0; 2], true),
+            (30.0, 10.0, [2.0; 2], [0.0; 2], true),
+            (40.0, 10.0, [0.0; 2], [-2.0; 2], true),
+            (50.0, 10.0, [-2.0; 2], [-4.0; 2], true),
+            (60.0, 20.0, [-4.0; 2], [-4.0; 2], false),
+        ],
+    );
+    cases
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -235,30 +279,55 @@ fn verify_values(case: &Case, outcome: &Outcome) -> Result<(), String> {
     let [alignment] = model.alignments.as_slice() else {
         return Err(format!("{}: 線形の数が違う", case.name));
     };
-    assert_eq!(alignment.cant.len(), case.expected.len(), "{}", case.name);
-    for (cant, (fragment, start, length, slope)) in alignment.cant.iter().zip(&case.expected) {
-        assert_eq!(cant.start_distance.to_bits(), start.to_bits());
-        assert_eq!(cant.length.to_bits(), length.to_bits());
-        assert_eq!(
-            cant.kind,
-            CantKind::Superelevation {
-                start: [*slope; 2],
-                end: [*slope; 2]
-            }
-        );
-        assert_eq!(cant.transition, None);
-        let offset = case
-            .src
-            .find(fragment)
-            .ok_or_else(|| "出所の期待値がない".to_string())?;
-        let bytes = cant
-            .source
-            .bytes()
-            .ok_or_else(|| "出所のバイト範囲がない".to_string())?;
-        assert_eq!(
-            (bytes.start, bytes.end),
-            (offset as u64, (offset + fragment.len()) as u64)
-        );
+    if let Some(intervals) = &case.intervals {
+        assert_eq!(alignment.cant.len(), intervals.len(), "{}", case.name);
+        for (cant, (distance, length, start, end, linear)) in alignment.cant.iter().zip(intervals) {
+            assert_eq!(cant.start_distance.to_bits(), distance.to_bits());
+            assert_eq!(cant.length.to_bits(), length.to_bits());
+            assert_eq!(
+                cant.kind,
+                CantKind::Superelevation {
+                    start: *start,
+                    end: *end
+                }
+            );
+            assert_eq!(cant.transition.as_deref(), linear.then_some("linear"));
+            let span = cant
+                .source
+                .bytes()
+                .ok_or_else(|| "区間の出所がない".to_string())?;
+            assert!(
+                case.src
+                    .get(span.start as usize..span.end as usize)
+                    .is_some_and(|text| text.starts_with('<') && text.ends_with('>'))
+            );
+        }
+    } else {
+        assert_eq!(alignment.cant.len(), case.expected.len(), "{}", case.name);
+        for (cant, (fragment, start, length, slope)) in alignment.cant.iter().zip(&case.expected) {
+            assert_eq!(cant.start_distance.to_bits(), start.to_bits());
+            assert_eq!(cant.length.to_bits(), length.to_bits());
+            assert_eq!(
+                cant.kind,
+                CantKind::Superelevation {
+                    start: [*slope; 2],
+                    end: [*slope; 2]
+                }
+            );
+            assert_eq!(cant.transition, None);
+            let offset = case
+                .src
+                .find(fragment)
+                .ok_or_else(|| "出所の期待値がない".to_string())?;
+            let bytes = cant
+                .source
+                .bytes()
+                .ok_or_else(|| "出所のバイト範囲がない".to_string())?;
+            assert_eq!(
+                (bytes.start, bytes.end),
+                (offset as u64, (offset + fragment.len()) as u64)
+            );
+        }
     }
     assert_eq!(
         outcome
@@ -367,6 +436,22 @@ pub fn verify_contracts() -> Result<String, String> {
 #[test]
 fn superelevation_values_sources_diagnostics_and_budget_are_repeatable() {
     assert_eq!(verify_contracts().unwrap(), verify_contracts().unwrap());
+}
+
+#[cfg(test)]
+#[test]
+fn synthetic_cant_mutations_stop_and_repeat_with_the_fuzz_budget() {
+    for case in cases() {
+        zumen_sdk::testkit::survives_lift::<LandXml, CivilModel>(case.src.as_bytes()).unwrap();
+        for index in 0..64 {
+            let mut bytes = case.src.as_bytes().to_vec();
+            let at = index * bytes.len() / 64;
+            if let Some(byte) = bytes.get_mut(at) {
+                *byte ^= 0x7f;
+            }
+            zumen_sdk::testkit::survives_lift::<LandXml, CivilModel>(&bytes).unwrap();
+        }
+    }
 }
 
 #[cfg(test)]

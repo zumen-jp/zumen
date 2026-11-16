@@ -16,6 +16,8 @@ use zumen_crs::{Crs, HeightDatum, MapPoint, Realization, Zone};
 use zumen_sdk::{Cx, Error};
 use zumen_xml::{Document, Element, Node};
 
+mod cant;
+
 pub(crate) fn lift(doc: &Document, cx: &mut Cx) -> Result<CivilModel, Error> {
     let mut reader = Reader { doc, cx };
     reader.model()
@@ -139,7 +141,7 @@ impl<'d> Reader<'d, '_, '_> {
         };
         let mut profiled = false;
         let mut breaks = Vec::new();
-        let slope_list = self.uses_slope_list(element)?;
+        alignment.cant = self.cants(element, start)?;
         for child in self.children(element) {
             match self.local(child) {
                 b"CoordGeom" => self.coord_geom(child, &mut alignment)?,
@@ -167,18 +169,12 @@ impl<'d> Reader<'d, '_, '_> {
                         self.attribute(child, b"name").as_deref(),
                         Some("SlopeList" | "SuperelevationConfig")
                     ) {
-                        self.unsupported(child);
+                        // 片勾配の設定と任意の勾配は、子の順によらず先に読んだ。
                     } else {
                         self.alignment_feature(child, &mut alignment);
                     }
                 }
-                b"Superelevation" => {
-                    if slope_list {
-                        self.unsupported(child);
-                    } else if let Some(cant) = self.superelevation(child, start)? {
-                        alignment.cant.push(cant);
-                    }
-                }
+                b"Superelevation" => {}
                 _ => self.unsupported(child),
             }
         }
@@ -235,7 +231,12 @@ impl<'d> Reader<'d, '_, '_> {
 
     /// J-LandXML Ver.1.8 4-3-24・27〜29。最大片勾配が一定の区間だけを移す。
     /// FullSuperSta / RunoffSta は staStart / staEnd より優先する。
-    fn superelevation(&mut self, element: &Element, origin: f64) -> Result<Option<Cant>, Error> {
+    fn superelevation(
+        &mut self,
+        element: &Element,
+        origin: f64,
+        read_phases: bool,
+    ) -> Result<Option<Cant>, Error> {
         // 一時の文字列と区間の確保を先に予算化する。文字コードの変換・連結の余裕を
         // 含む入力幅の 8 倍と、区間の 512 バイトを、32/64 bit で同じ量として数える。
         let span = element.span();
@@ -262,6 +263,12 @@ impl<'d> Reader<'d, '_, '_> {
                 b"FullSuperSta" => &mut begin,
                 b"RunoffSta" => &mut end,
                 b"FullSuperelev" => &mut slope,
+                b"BeginRunoutSta" | b"BeginRunoffSta" | b"StartofRunoutSta" | b"EndofRunoutSta"
+                | b"AdverseSE" | b"Feature"
+                    if read_phases =>
+                {
+                    continue;
+                }
                 // すりつけ・待ち勾配などは一定区間に含めず、元の要素を知らせる。
                 _ => {
                     self.unsupported(child);

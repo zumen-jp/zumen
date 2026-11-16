@@ -1,6 +1,6 @@
 # J-LandXML の片勾配の実行環境間の比較
 
-`Superelevation` の一定区間について、Rust のネイティブと `wasm32-wasip1` で同じ合成入力を読み、土木の領域モデルへ移します（#468）。
+`Superelevation` の一定区間・すりつけと `SlopeList` について、Rust のネイティブと `wasm32-wasip1` で同じ合成入力を読み、土木の領域モデルへ移します（#468）。
 
 ## 実行
 
@@ -17,9 +17,10 @@ node xtask/verify/landxml/compare_superelevation.mjs
 
 ## 入力と比較するもの
 
-[superelevation_contract.rs](../../../crates/zumen-landxml/tests/superelevation_contract.rs) が、9 種類の小さな入力をテスト内で作ります。[superelevation_probe.rs](../../../crates/zumen-landxml/examples/superelevation_probe.rs) も同じ内容を検査します。公開サンプルや受け取った図面は使いません。
+[superelevation_contract.rs](../../../crates/zumen-landxml/tests/superelevation_contract.rs) が、13 種類の小さな入力をテスト内で作ります。[superelevation_probe.rs](../../../crates/zumen-landxml/examples/superelevation_probe.rs) も同じ内容を検査します。公開サンプルや受け取った図面は使いません。
 
 - 子の測点を属性より優先する一定区間、属性だけの区間、CDATA と文字参照を持つ勾配について、追加距離・長さ・左右の勾配（%）と元の要素のバイト範囲を期待値で確かめます。
+- 直線部の勾配、基本型のすりつけ、S 型の反転位置と待ち勾配、任意横断勾配について、変化点と左右の値を既知値に照らします。
 - 未対応の子、複数の同種値、後ろにある `SlopeList`、`useSlopeList=true`、測点の欠落、長さ 0、不正な勾配、負の長さについて、移す区間の数と診断の code を確かめます。
 - `read` と `lift` の一連の処理と、`lift` 単体を分けます。全 `Kind` の使用量を記録し、成功する上限ちょうどでも結果が変わらないことを確かめます。使用量が正なら上限を 1 減らし、該当する `Exceeded` で停止してモデルを返さないことを確かめます。使用しない単位は上限 0 で成功することを確かめます。
 - `Depth` の使用量は最終的な深さなので、成功する最小の上限を別に探し、その 1 未満で停止することを確かめます。
@@ -29,4 +30,4 @@ node xtask/verify/landxml/compare_superelevation.mjs
 
 ## 確認の範囲
 
-この検査は、コアを直接呼ぶネイティブと 32 bit の wasm の比較です。配布する `wasm32-unknown-unknown` の API・バインディングの適合テストや、外部の実装との値の照合とは分けます。基準になるアプリ、すりつけ曲線の補間、`SlopeList` の解釈、書き出しは検査しません。
+この検査は、コアを直接呼ぶネイティブと 32 bit の wasm の比較です。配布する `wasm32-unknown-unknown` の API・バインディングの適合テストや、外部の実装との値の照合とは分けます。基準になるアプリとの一致と、書き出しは検査しません。合成入力の補間と `SlopeList` の値の解釈は、仕様から定めた期待値との検査です。
